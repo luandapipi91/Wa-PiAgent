@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentName } from "@wa-pi/shared";
 import i18n from "i18next";
 import { useTranslation } from "./i18n/useTranslation";
@@ -97,8 +97,11 @@ export function App() {
 	const providers = useProvidersStore((s) => s.providers);
 	const providersLoaded = useProvidersStore((s) => s.loaded);
 
-	// 浏览器预览：打开时主内容区互斥切换为 BrowserPanel，关闭后按 view state 恢复原分支（会话视图会重新挂载）
+	// 浏览器预览：split 模式与聊天并排（可拖分隔条），full 模式占满主内容区；聊天侧保持挂载不再因预览重挂
 	const browserOpen = useBrowserStore((s) => s.open);
+	const browserMode = useBrowserStore((s) => s.mode);
+	const splitRatio = useBrowserStore((s) => s.splitRatio);
+	const mainRowRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => onConnectionChange(setConnState), []);
 
@@ -574,54 +577,89 @@ export function App() {
 						<AnsiText text={extTitle} />
 					</div>
 				)}
-				{browserOpen ? (
-					<BrowserPanel />
-				) : (
-					<>
-						{sidebarTab === "automation" ? (
-							<AutomationMain />
-						) : view === "empty" ? (
-							<EmptyState
-								onNewProject={() => {
-									void useProjectsStore.getState().createProjectFromDir();
+				<div ref={mainRowRef} className="flex-1 flex overflow-hidden">
+					{/* 全屏预览时聊天侧整体隐藏；split/float 时聊天保持挂载（不再因预览卸载重挂） */}
+					{(!browserOpen || browserMode !== "full") && (
+						<div
+							className="flex-1 flex flex-col overflow-hidden"
+							style={
+								browserOpen && browserMode === "split"
+									? { width: `${(1 - splitRatio) * 100}%`, flex: "none" }
+									: undefined
+							}
+						>
+							{sidebarTab === "automation" ? (
+								<AutomationMain />
+							) : view === "empty" ? (
+								<EmptyState
+									onNewProject={() => {
+										void useProjectsStore.getState().createProjectFromDir();
+									}}
+								/>
+							) : null}
+							{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
+							{view === "new-session" && sidebarTab !== "automation" && (
+								<NewSessionPane
+									pendingAgent={pendingAgent}
+									onConsumePendingAgent={() => setPendingAgent(null)}
+								/>
+							)}
+							{view === "session" &&
+								sidebarTab !== "automation" &&
+								currentSessionId &&
+								(() => {
+									// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
+									// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
+									const imConv = conversations.find(
+										(c) => c.sessionId === currentSessionId,
+									);
+									const label = imConv
+										? imConv.chatType === "group"
+											? t("app.imSourceGroup", {
+													channel: imConv.channelName,
+													chatId: imConv.chatId.slice(0, 8),
+													from: imConv.fromUserId,
+												})
+											: t("app.imSourceSingle", { channel: imConv.channelName })
+										: undefined;
+									return (
+										<SessionView
+											sessionId={currentSessionId}
+											sourceLabel={label}
+											imConv={imConv}
+										/>
+									);
+								})()}
+						</div>
+					)}
+					{browserOpen && browserMode === "split" && (
+						<>
+							<SidebarResizer
+								side="right"
+								minWidth={320}
+								maxRatio={0.8}
+								onResize={(w) => {
+									// 分隔条给的是 px 宽（视口右缘起算），换算成主内容行内占比持久化
+									const total =
+										mainRowRef.current?.clientWidth ?? window.innerWidth;
+									useBrowserStore.getState().setSplitRatio(w / total);
 								}}
+								testId="browser-split-resizer"
 							/>
-						) : null}
-						{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
-						{view === "new-session" && sidebarTab !== "automation" && (
-							<NewSessionPane
-								pendingAgent={pendingAgent}
-								onConsumePendingAgent={() => setPendingAgent(null)}
-							/>
-						)}
-						{view === "session" &&
-							sidebarTab !== "automation" &&
-							currentSessionId &&
-							(() => {
-								// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
-								// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
-								const imConv = conversations.find(
-									(c) => c.sessionId === currentSessionId,
-								);
-								const label = imConv
-									? imConv.chatType === "group"
-										? t("app.imSourceGroup", {
-												channel: imConv.channelName,
-												chatId: imConv.chatId.slice(0, 8),
-												from: imConv.fromUserId,
-											})
-										: t("app.imSourceSingle", { channel: imConv.channelName })
-									: undefined;
-								return (
-									<SessionView
-										sessionId={currentSessionId}
-										sourceLabel={label}
-										imConv={imConv}
-									/>
-								);
-							})()}
-					</>
-				)}
+							<div
+								className="flex flex-col overflow-hidden"
+								style={{ width: `${splitRatio * 100}%`, flex: "none" }}
+							>
+								<BrowserPanel />
+							</div>
+						</>
+					)}
+					{browserOpen && browserMode === "full" && (
+						<div className="flex-1 flex flex-col overflow-hidden">
+							<BrowserPanel />
+						</div>
+					)}
+				</div>
 			</main>
 			{galleryOpen && (
 				<AgentGalleryModal

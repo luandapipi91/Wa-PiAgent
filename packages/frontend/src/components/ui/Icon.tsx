@@ -243,6 +243,12 @@ const ICONS = {
 			<path d="M9 21h6M12 17v4" />
 		</>
 	),
+	columns: (
+		<>
+			<rect x="3" y="4.5" width="18" height="15" rx="2" />
+			<path d="M12 4.5v15" />
+		</>
+	),
 	inbox: (
 		<>
 			<path d="M5.5 5.2L2.5 12v6a2 2 0 0 0 2 2h15a2 2 0 0 0 2-2v-6l-3-6.8a2 2 0 0 0-1.8-1.2H7.3a2 2 0 0 0-1.8 1.2z" />

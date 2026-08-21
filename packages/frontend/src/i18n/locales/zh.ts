@@ -191,6 +191,8 @@ const zh = {
 		refresh: "刷新",
 		code: "查看源码",
 		share: "分享",
+		modeSplit: "与聊天分屏",
+		modeFull: "全屏预览",
 	},
 	blocks: {
 		turnSummary: {

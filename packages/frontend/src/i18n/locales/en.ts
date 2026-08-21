@@ -201,6 +201,8 @@ const en = {
 		refresh: "Refresh",
 		code: "View source",
 		share: "Share",
+		modeSplit: "Split with chat",
+		modeFull: "Full preview",
 	},
 	blocks: {
 		turnSummary: {

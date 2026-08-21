@@ -15,7 +15,7 @@ type Current =
 	| { kind: "external"; url: string };
 
 export function BrowserPanel() {
-	const { path, sessionId, closeBrowser } = useBrowserStore();
+	const { path, sessionId, closeBrowser, mode, setMode } = useBrowserStore();
 	const [current, setCurrent] = useState<Current | null>(
 		path ? { kind: "local", path } : null,
 	);
@@ -141,6 +141,36 @@ export function BrowserPanel() {
 				>
 					<Icon
 						name="refresh"
+						size="1em"
+						className="text-[calc(16px*var(--font-scale))]"
+					/>
+				</button>
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon"
+					title={t("browser.modeSplit")}
+					data-testid="browser-mode-split"
+					aria-pressed={mode === "split"}
+					onClick={() => setMode("split")}
+					style={mode === "split" ? { color: "var(--brand)" } : undefined}
+				>
+					<Icon
+						name="columns"
+						size="1em"
+						className="text-[calc(16px*var(--font-scale))]"
+					/>
+				</button>
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon"
+					title={t("browser.modeFull")}
+					data-testid="browser-mode-full"
+					aria-pressed={mode === "full"}
+					onClick={() => setMode("full")}
+					style={mode === "full" ? { color: "var(--brand)" } : undefined}
+				>
+					<Icon
+						name="monitor"
 						size="1em"
 						className="text-[calc(16px*var(--font-scale))]"
 					/>
