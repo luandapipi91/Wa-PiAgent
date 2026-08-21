@@ -2,6 +2,13 @@
 
 ### 修复
 
+- browser_* 工具第 1 轮修复：
+  - 修复：WebViewLike.click 签名改为兼容 `click(selector, opts?)` 与 `click(x, y, opts?)` 两种形式（原先 1-2 参签名导致坐标 click 调用 tsc 报 TS2554，typecheck 无法通过）。
+  - 修复：browser_evaluate eval 结果 8000 字符截断失效（截断作用于局部变量但返回时重新序列化），改为先序列化最终 payload 再截断。
+  - 修复：isEngineUnavailable 正则过宽误报，收紧为 spawn/executable 相关的具体签名。
+  - 测试：补坐标 click 与超长 eval 截断 2 个用例（browser-tools 11 用例 + browser-manager 6 用例全 PASS）。
+  - 影响范围：packages/kernel/src/browser-manager.ts、packages/kernel/src/browser-tools.ts、packages/kernel/tests/browser-tools.test.ts。
+
 - dev 启动：vite 强制用 bun runtime（`bun --bun`）。vite bin 脚本 shebang 为 `#!/usr/bin/env node`，默认解析到系统 node（本机 v14 过旧，不支持 vite 8 的 `??=` 等语法导致启动报 SyntaxError）；`--bun` 把 node 符号链接指向 bun，vite 在 bun runtime 下正常启动，与 Node ≥20 要求解耦（scripts/dev.ts spawnFrontend）。
 
 ### 新增

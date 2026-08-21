@@ -27,7 +27,7 @@ function errMessage(err: unknown): string {
 
 /** 判断是否 WebView 引擎不可用（非 macOS 未装 Chrome/Edge 等） */
 function isEngineUnavailable(msg: string): boolean {
-  return /chrome|chromium|edge|browser|executable|spawn/i.test(msg);
+  return /spawn.*(ENOENT|not found)|executable.*not found|WebView is not available/i.test(msg);
 }
 
 /** 带超时的 Promise 包装：超时 reject，避免永久挂起 */
@@ -163,16 +163,17 @@ async function evaluateTool(
         const script = str(p.script);
         if (!script) return errResult("action=eval 需要 script 参数", "missing_script");
         const raw = await runViewOp(() => view.evaluate(script), OPERATION_TIMEOUT_MS, "evaluate");
-        let text: string;
+        // 先序列化最终 payload 再截断（此前截断作用于局部 text，返回时重新序列化导致截断失效）
+        let payload: string;
         try {
-          text = JSON.stringify(raw);
+          payload = JSON.stringify({ ok: true, result: raw });
         } catch {
-          text = String(raw);
+          payload = JSON.stringify({ ok: true, result: String(raw) });
         }
-        if (text.length > EVAL_RESULT_MAX_CHARS) {
-          text = text.slice(0, EVAL_RESULT_MAX_CHARS) + `…（截断，原长 ${text.length}）`;
+        if (payload.length > EVAL_RESULT_MAX_CHARS) {
+          payload = payload.slice(0, EVAL_RESULT_MAX_CHARS) + `…（截断，原长 ${payload.length}）`;
         }
-        return textResult(JSON.stringify({ ok: true, result: raw }), { ok: true });
+        return textResult(payload, { ok: true });
       }
       case "click": {
         const selector = str(p.selector);
@@ -183,8 +184,11 @@ async function evaluateTool(
             "click",
           );
         } else if (typeof p.x === "number" && typeof p.y === "number") {
+          // 先收窄到 const，否则 typeof 收窄不会传播进闭包（p 是可变 Record）
+          const x = p.x;
+          const y = p.y;
           await runViewOp(
-            () => view.click(p.x, p.y, cleanOpts({ button: str(p.button), modifiers: arr(p.modifiers), clickCount: num(p.clickCount) })),
+            () => view.click(x, y, cleanOpts({ button: str(p.button), modifiers: arr(p.modifiers), clickCount: num(p.clickCount) })),
             OPERATION_TIMEOUT_MS,
             "click",
           );

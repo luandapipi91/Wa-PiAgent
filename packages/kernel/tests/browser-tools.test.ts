@@ -71,10 +71,33 @@ describe("handleBrowserTool", () => {
     m.dispose();
   });
 
+  test("browser_evaluate eval：超长结果截断", async () => {
+    const longStr = "x".repeat(20_000);
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () => makeFakeView({ async evaluate() { return longStr; } }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "eval", script: "1" });
+    expect(r.content[0].text).toContain("截断");
+    expect(r.content[0].text.length).toBeLessThan(8_200);
+    m.dispose();
+  });
+
   test("browser_evaluate click：选择器模式转发", async () => {
     const m = makeManager();
     await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
     const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn" });
+    expect(r.content[0].text).toContain('"ok":true');
+    m.dispose();
+  });
+
+  test("browser_evaluate click：坐标模式转发 (x/y)", async () => {
+    const m = makeManager();
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", x: 100, y: 200 });
     expect(r.content[0].text).toContain('"ok":true');
     m.dispose();
   });

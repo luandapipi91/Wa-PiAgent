@@ -15,7 +15,8 @@ export interface WebViewLike {
   loading: boolean;
   navigate(url: string): Promise<void>;
   evaluate(script: string): Promise<unknown>;
-  click(selectorOrX: string | number, yOrOpts?: unknown): Promise<void>;
+  // 兼容两种调用形式：click(selector, opts?) 与 click(x, y, opts?)（真实 Bun.WebView 均支持）
+  click(selectorOrX: string | number, yOrOpts?: unknown, opts?: unknown): Promise<void>;
   type(text: string): Promise<void>;
   press(key: string, opts?: unknown): Promise<void>;
   scroll(dx: number, dy: number): Promise<void>;
