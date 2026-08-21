@@ -587,7 +587,8 @@ export function App() {
 							className="flex-1 flex flex-col overflow-hidden"
 							style={
 								browserOpen && browserMode === "split"
-									? { width: `${(1 - splitRatio) * 100}%`, flex: "none" }
+									? // 减去分隔条 2px：聊天侧 + 预览侧 + 分隔条合计才等于 100%，否则预览右缘被裁
+										{ width: `calc(${(1 - splitRatio) * 100}% - 2px)`, flex: "none" }
 									: undefined
 							}
 						>

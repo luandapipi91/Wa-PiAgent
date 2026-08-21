@@ -3,9 +3,12 @@ import {
 	useBrowserStore,
 	clampRatio,
 	clampRect,
+	setPersistDebounceMs,
 } from "./browser";
 
 beforeEach(() => {
+	// 同步持久化：本文件断言 localStorage 立即写入，关闭防抖保持确定性
+	setPersistDebounceMs(0);
 	localStorage.clear();
 	useBrowserStore.setState({
 		open: false,
@@ -69,4 +72,18 @@ test("openBrowser/closeBrowser 原语义不变", () => {
 	useBrowserStore.getState().closeBrowser();
 	expect(useBrowserStore.getState().open).toBe(false);
 	expect(useBrowserStore.getState().path).toBeNull();
+});
+
+test("持久化 trailing debounce：连续写合并为最后一次", async () => {
+	setPersistDebounceMs(20);
+	useBrowserStore.getState().setSplitRatio(0.4);
+	useBrowserStore.getState().setSplitRatio(0.5);
+	useBrowserStore.getState().setSplitRatio(0.6);
+	// 防抖窗口内不落盘
+	expect(localStorage.getItem("hiagent.browser.splitRatio")).toBeNull();
+	// store 状态即时生效（不等防抖）
+	expect(useBrowserStore.getState().splitRatio).toBe(0.6);
+	await new Promise((r) => setTimeout(r, 60));
+	expect(localStorage.getItem("hiagent.browser.splitRatio")).toBe("0.6");
+	setPersistDebounceMs(0);
 });

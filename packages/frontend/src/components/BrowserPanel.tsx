@@ -16,7 +16,12 @@ type Current =
 	| { kind: "external"; url: string };
 
 export function BrowserPanel() {
-	const { path, sessionId, closeBrowser, mode, setMode } = useBrowserStore();
+	// 逐字段 selector 订阅：整订阅会让 splitRatio/floatRect 拖拽期的每帧变化也触发本组件重渲染
+	const path = useBrowserStore((s) => s.path);
+	const sessionId = useBrowserStore((s) => s.sessionId);
+	const closeBrowser = useBrowserStore((s) => s.closeBrowser);
+	const mode = useBrowserStore((s) => s.mode);
+	const setMode = useBrowserStore((s) => s.setMode);
 	const [current, setCurrent] = useState<Current | null>(
 		path ? { kind: "local", path } : null,
 	);

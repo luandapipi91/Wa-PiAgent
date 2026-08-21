@@ -42,6 +42,12 @@ const HTML = [
 ].join("\n");
 await writeFile(join(TMP_ROOT, "index.html"), HTML);
 await writeFile(join(TMP_ROOT, "app.js"), "console.log(1)");
+// 大文件护栏用例：>10MB 的 html（注入与定位都应跳过解析）
+const BIG_HTML =
+	"<!DOCTYPE html><html><head></head><body>" +
+	"x".repeat(11 * 1024 * 1024) +
+	"</body></html>";
+await writeFile(join(TMP_ROOT, "big.html"), BIG_HTML);
 
 function getFreePort(): Promise<number> {
 	return new Promise((resolve, reject) => {
@@ -126,6 +132,28 @@ test("GET /api/preview-locate 元素定位不到返回 nulls", async () => {
 	const selector = encodeURIComponent("html > body:nth-of-type(1) > ul:nth-of-type(1)");
 	const r = await fetch(
 		`${BASE}/api/preview-locate?path=${encodeURIComponent(join(TMP_ROOT, "index.html"))}&selector=${selector}`,
+	);
+	expect(r.status).toBe(200);
+	expect(await r.json()).toEqual({ startLine: null, endLine: null });
+});
+
+test("GET /api/preview-locate 非 html 扩展名 400", async () => {
+	const r = await fetch(
+		`${BASE}/api/preview-locate?path=${encodeURIComponent(join(TMP_ROOT, "app.js"))}&selector=html`,
+	);
+	expect(r.status).toBe(400);
+	expect(await r.json()).toEqual({ error: "bad_request" });
+});
+
+test("GET /preview 大文件（>10MB）跳过注入原样直出", async () => {
+	const r = await fetch(`${BASE}/preview/${ENC}/big.html`);
+	expect(r.status).toBe(200);
+	expect(await r.text()).not.toContain("preview-inspect.js");
+});
+
+test("GET /api/preview-locate 大文件（>10MB）降级 nulls", async () => {
+	const r = await fetch(
+		`${BASE}/api/preview-locate?path=${encodeURIComponent(join(TMP_ROOT, "big.html"))}&selector=html`,
 	);
 	expect(r.status).toBe(200);
 	expect(await r.json()).toEqual({ startLine: null, endLine: null });

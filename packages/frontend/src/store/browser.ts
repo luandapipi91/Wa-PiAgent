@@ -76,12 +76,42 @@ function loadRect(): FloatRect {
 	return defaultRect();
 }
 
-function save(key: string, value: string): void {
+function writeNow(key: string, value: string): void {
 	try {
 		localStorage.setItem(key, value);
 	} catch {
 		/* 写不进就只在内存生效 */
 	}
+}
+
+/**
+ * 持久化防抖（毫秒）：拖拽期 setSplitRatio/setFloatRect 每帧调用，
+ * trailing debounce 把 60Hz 的 localStorage 写入合并为停手后一次。
+ * <=0 时同步写入（测试用，保持断言确定性）。
+ */
+let persistDebounceMs = 300;
+export function setPersistDebounceMs(ms: number): void {
+	persistDebounceMs = ms;
+}
+
+/** 每个 key 独立 timer：ratio 与 rect 互不争用 */
+const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function save(key: string, value: string): void {
+	const old = saveTimers.get(key);
+	if (old !== undefined) clearTimeout(old);
+	if (persistDebounceMs <= 0) {
+		saveTimers.delete(key);
+		writeNow(key, value);
+		return;
+	}
+	saveTimers.set(
+		key,
+		setTimeout(() => {
+			saveTimers.delete(key);
+			writeNow(key, value);
+		}, persistDebounceMs),
+	);
 }
 
 interface BrowserState {
