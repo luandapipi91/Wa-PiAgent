@@ -84,11 +84,13 @@ const en = {
 		sendTo: "Send to: ",
 		searchPlaceholder: "Search contacts",
 		noMatch: "No matching contacts",
-		empty: "No IM contacts yet. Configure a channel on the IM settings page and start a conversation first.",
+		empty:
+			"No IM contacts yet. Configure a channel on the IM settings page and start a conversation first.",
 	},
 	app: {
 		reconnecting: "Disconnected, reconnecting…",
 		retrying: "Model request failed, auto retrying ({{attempt}}/{{max}})…",
+		retryWaiting: "The server is busy, please wait…",
 		netDegraded:
 			"Model connection error. Check your network or provider config and retry.",
 		noOpenSession: "No open session",

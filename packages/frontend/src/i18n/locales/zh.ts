@@ -86,6 +86,7 @@ const zh = {
 	app: {
 		reconnecting: "连接已断开，正在重连…",
 		retrying: "模型请求失败，正在自动重试 ({{attempt}}/{{max}})…",
+		retryWaiting: "当前请求服务器繁忙，请等待～",
 		netDegraded: "模型连接异常，请检查网络或 Provider 配置后重试",
 		noOpenSession: "没有打开的会话",
 		reloadWhileThinking: "请在 AI 回复完成后再重载",

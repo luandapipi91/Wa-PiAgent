@@ -123,14 +123,20 @@ beforeEach(() => {
 		currentSessionId: null,
 	});
 	useAgentsStore.setState({ list: [], configs: {} });
+	// 重置会话级状态条字段（net/retry），避免上一用例残留污染（黄条/红条互斥渲染）
+	useSessionStore.setState({
+		netStatusBySession: {},
+		netMessageBySession: {},
+		retryBySession: {},
+	});
 });
 
 test("挂载时请求 agent:list；收到 agent:list 事件写入 agents store", async () => {
 	render(<App />);
 	await act(async () => {});
-	expect(
-		calls.some((c) => c.method === "get" && c.path === "/api/agents"),
-	).toBe(true);
+	expect(calls.some((c) => c.method === "get" && c.path === "/api/agents")).toBe(
+		true,
+	);
 	act(() => {
 		emitEvent({ type: "agent:list", agents: [agent("技术实现")] });
 	});
@@ -149,9 +155,7 @@ test("侧栏点智能体 → 新建会话视图且下拉预选该智能体", asy
 	fireEvent.click(screen.getByTestId("agent-collapsed"));
 	fireEvent.click(screen.getByTestId("gallery-card-代码审查"));
 	await waitFor(() => {
-		expect(screen.getByTestId("agent-select").textContent).toContain(
-			"代码审查",
-		);
+		expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
 	});
 });
 
@@ -235,9 +239,7 @@ test("pendingAgent 首次消费后清除：离开再进新建页不再预选旧�
 	fireEvent.click(screen.getByTestId("agent-collapsed"));
 	fireEvent.click(screen.getByTestId("gallery-card-代码审查"));
 	await waitFor(() => {
-		expect(screen.getByTestId("agent-select").textContent).toContain(
-			"代码审查",
-		);
+		expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
 	});
 	// 给项目再清空（projects.length 变化驱动派生视图）：empty 视图，pane 卸载
 	act(() => {
@@ -331,20 +333,21 @@ test("extension:changed 事件（安装/卸载/升级）→ 当前会话 / 菜�
 	});
 });
 
-test("重试期间顶部显示黄色重试条（优先于红色异常条），重试结束回到红条", async () => {
+test("第三次重试起（attempt≥3）顶部显示黄色重试条（优先于红色异常条），重试结束回到红条", async () => {
 	useProjectsStore.setState({ currentSessionId: "s1" });
 	// 自动重试中的会话是运行态：/messages 响应需 isActive=true，
 	// 否则 setActiveStatus 对齐会清掉 retryBySession（黄条消失）
 	mockIsActive = true;
 	useSessionStore.setState({
 		netStatusBySession: { s1: "degraded" },
-		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
+		// attempt=3：第三次起才显示重试进度文案（前两次不显示进度，见下一用例）
+		retryBySession: { s1: { attempt: 3, maxAttempts: 4 } },
 	});
 	render(<App />);
 	await act(async () => {});
-	// 重试中：黄条显示 (1/3)，红色异常条被压制
+	// 重试中：黄条显示 (3/4)，红色异常条被压制
 	const bar = screen.getByTestId("retry-status-bar");
-	expect(bar.textContent).toContain("正在自动重试 (1/3)");
+	expect(bar.textContent).toContain("正在自动重试 (3/4)");
 	expect(screen.queryByTestId("net-status-bar")).toBeNull();
 	// 重试结束（耗尽/中止）：黄条消失，红色异常条恢复
 	act(() => {
@@ -352,6 +355,33 @@ test("重试期间顶部显示黄色重试条（优先于红色异常条），�
 	});
 	expect(screen.queryByTestId("retry-status-bar")).toBeNull();
 	expect(screen.getByTestId("net-status-bar")).toBeTruthy();
+});
+
+test("第一次重试（attempt=1）不显示重试进度，显示「服务器繁忙，请等待」", async () => {
+	useProjectsStore.setState({ currentSessionId: "s1" });
+	mockIsActive = true;
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded" },
+		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
+	});
+	render(<App />);
+	await act(async () => {});
+	const bar = screen.getByTestId("retry-status-bar");
+	expect(bar.textContent).toContain("当前请求服务器繁忙，请等待");
+	expect(bar.textContent).not.toContain("正在自动重试");
+});
+
+test("第二次重试（attempt=2）同样不显示重试进度，显示「服务器繁忙，请等待」", async () => {
+	useProjectsStore.setState({ currentSessionId: "s1" });
+	mockIsActive = true;
+	useSessionStore.setState({
+		retryBySession: { s1: { attempt: 2, maxAttempts: 3 } },
+	});
+	render(<App />);
+	await act(async () => {});
+	const bar = screen.getByTestId("retry-status-bar");
+	expect(bar.textContent).toContain("当前请求服务器繁忙，请等待");
+	expect(bar.textContent).not.toContain("正在自动重试");
 });
 
 test("net:status 携带具体原因时红色状态条显示该原因（而非通用文案）", async () => {
@@ -422,9 +452,7 @@ test("session:activated（预热完成）触发重拉 stats，补齐占比胶囊
 	// refreshSessionStats 只拉 /stats（不动消息列表）
 	await waitFor(() => {
 		expect(
-			calls.some(
-				(c) => c.method === "get" && c.path === "/api/sessions/s1/stats",
-			),
+			calls.some((c) => c.method === "get" && c.path === "/api/sessions/s1/stats"),
 		).toBe(true);
 	});
 	expect(
