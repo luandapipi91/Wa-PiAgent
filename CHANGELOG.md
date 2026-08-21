@@ -13,6 +13,18 @@
 
 ### 新增
 
+- bridge-extension 兼容 bun --compile 单二进制（POC 支撑，mac 验证用）
+  - 背景：Windows 真机 POC 验证「kernel 用 bun --compile 编译成单 exe + --asset 嵌入桥接文件」可行——jiti 扩展加载器在编译产物中正常解析（agent 能创建到「未选择模型」一步，与解释运行同线）。此提交是 POC 需要的两处代码支撑。
+  - 实现：`packages/kernel/src/bridge-extension.ts` ① 三个 resolve 函数加 `__dirname/assets/` 子目录回退（bun --compile --asset 把 wa-pi-bridge.extension.ts/tool-schemas.ts/file-snapshot.ts 嵌入到 import.meta.dir/assets/）；② `ensureBridgeExtension` 的 copyFile 改 readFileSync+writeFile（编译产物虚拟 FS 不支持 copyFile，existsSync 可读但 copyFile ENOENT）。
+  - 影响范围：`packages/kernel/src/bridge-extension.ts`；测试：bridge-extension 10 例全绿、kernel typecheck 无新增错误（既有 mcp-connector 1 例除外）。mac 待验证：darwin 交叉编译、原生依赖（@napi-rs/keyring）架构变体加载、codesign/Gatekeeper。
+- dev 启动自动下载 bun 1.4.0（版本不足不再直接报错退出）
+  - 背景：上一提交加了版本守卫，dev 机 bun <1.4.0 时打印中文错误并 exit(1)，用户需手动升级 npm 包装的 bun（`npm install -g bun@latest`），体验差且与打包版（sidecar 固定 1.4.0）行为不一致。
+  - 实现：`scripts/bun-dev-runtime.ts`（新增）——下载 bun 1.4.0 到用户缓存目录（`%LOCALAPPDATA%\wa-pi\bun` / `~/.cache/wa-pi/bun`，`WA_PI_BUN_CACHE_DIR` 可覆盖），GitHub 固定 tag + npmmirror 双镜像回退，PowerShell/unzip 解压，`--version` 校验 ≥1.4；`packages/shared/src/bun-download.ts`（新增）——资产名/URL 纯函数（与发版 sidecar 共用策略防漂移）；`scripts/dev.ts` main() 版本不足时改为：查缓存 → 下载 → 用下载 bun 重启 dev 自身（PATH 前置 + `WA_PI_PI_RUNTIME` env 注入让 pi rpc 子进程跟随）→ 下载失败才走原有报错退出兜底；spawnKernel/spawnFrontend 改用 `process.execPath` + `shell:false`（重启后即下载 bun，插件安装 NpmPackageService 经 process.execPath 自动跟随）。
+  - 影响范围：`packages/shared/src/bun-download.ts`（新）、`tests/bun-download.test.ts`（新 7 例）、`packages/shared/src/index.ts`、`scripts/bun-dev-runtime.ts`（新）、`scripts/__tests__/bun-dev-runtime.test.ts`（新 9 例）、`scripts/dev.ts`、`.gitignore`（.bun-cache/ 兑底）；验证：shared 123 pass、scripts 14 pass、bun build 通过。范围边界：dev:kernel / dev:frontend / dev:desktop 直跑仍会被 startKernel 守卫拦截（单独任务跟进）。
+- 启动强制校验 Bun ≥ 1.4.0（dev 与打包统一入口守卫）
+  - 背景：代码已升级 bun 1.4.0 并依赖其行为（scheduler.ts 的 Bun.cron 按本地时区解析、crash-logger 移除 bun#25633 白名单需 1.3.15+），但 dev 机器若仍用 1.3.x 会静默运行在错误行为上（定时任务错 8 小时、crash 竞态）而不自知。
+  - 实现：`packages/shared/src/runtime-check.ts`（新增）提供 `parseBunVersion`/`isBunAtLeast`/`checkBunVersion`/`assertBunVersionOrExit` 纯函数与中文错误文案；`scripts/dev.ts` main() 在 ensureDeps 后快速失败（先自修复依赖再查版本，保留动态 import 链路）；`packages/kernel/src/index.ts` startKernel() 第一行最终兜底（三条启动链 dev:kernel / dev:desktop / 打包 sidecar 都汇聚于此）；根 package.json 加 `engines.bun: >=1.4.0`（bun install 警告级，非强制）。
+  - 影响范围：`packages/shared/src/runtime-check.ts`（新）、`tests/runtime-check.test.ts`（新 15 例）、`packages/shared/src/index.ts`、`scripts/dev.ts`、`packages/kernel/src/index.ts`、`package.json`；验证：shared 全量 116 pass、runtime-check 15 pass、dev.ts 在 1.3.14 下打印中文错误并退出。
 - 首启依赖安装 100% 成功（根治「依赖装失败 → 后续模型代理请求 404」）
   - 根因：读 Windows 系统代理的 registry-js（os-proxy-config→windows-system-proxy 链）是原生 addon，安装时要 prebuild 下载/ node-gyp 编译；prebuild 下载 ECONNRESET + 机器无 VS C++ 工具链时编译失败 → bun install 退出码 1，且旧逻辑只看退出码就写 `.installed-version` 标记，后续启动永久跳过安装，kernel 加载 registry-js 报 `Cannot find module .../registry.node`，读系统代理失败，模型请求经中继走向死端口/直连报 404。
   - 调整：读系统代理改为自研跨平台实现（settings-store.ts），零第三方依赖、零原生模块——Windows 用系统自带 reg.exe 读注册表（ProxyEnable/ProxyServer），macOS 用 scutil --proxy，Linux 用环境变量；删除 os-proxy-config 依赖链。
@@ -157,7 +169,6 @@
 - 背景：contenteditable 输入框（聊天 ComposerTextarea / 自动化 TaskPromptComposer）中插入技能 $[名]、@智能体 @[名]、IM 联系人 @im-push-to(...)、命令 /[名] chip 后，复制粘贴到别的输入框（跨会话）时渲染和作用失效——浏览器默认复制 chip 的显示文本（如「⚡ 日报生成」），token 标记只存在于 text/html 的 data-token 里，聊天粘贴端丢弃 HTML → 语义丢失。
 - 修复：复制端拦截（ComposerTextarea onCopy）——新增 `selectionToTokenText(range)` 纯函数（tokens.ts），把选中区域里的 chip 还原为 token 原文写入剪贴板 text/plain + text/html；粘贴端无需改（token 文本进来后 textToHtml/toPromptHtml 自动重渲染成 chip）。兼容 user-select:all 原子选区（点击 chip 全选复制也输出完整 token）。
 - 影响范围：`packages/frontend/src/quick-invoke/tokens.ts`（新增 selectionToTokenText）、`components/ui/ComposerTextarea.tsx`（onCopy 拦截）；测试新增「selectionToTokenText 单/多 chip 原子选区」「复制写入 token 剪贴板」用例。
-
 
 ## 2026-08-19 — fix(会话): abort 无响应兜底——超时强杀 pi 进程（「停不下聊天」修复）
 
