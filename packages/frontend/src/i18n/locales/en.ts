@@ -205,6 +205,7 @@ const en = {
 		modeFull: "Full preview",
 		modeFloat: "Float window",
 		dock: "Dock to split",
+		noSession: "Enter a session before sending elements",
 	},
 	blocks: {
 		turnSummary: {

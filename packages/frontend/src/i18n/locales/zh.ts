@@ -195,6 +195,7 @@ const zh = {
 		modeFull: "全屏预览",
 		modeFloat: "浮动窗口",
 		dock: "停靠到分屏",
+		noSession: "请先进入一个会话再发送元素",
 	},
 	blocks: {
 		turnSummary: {
