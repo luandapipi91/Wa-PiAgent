@@ -43,9 +43,12 @@ const BUN_TARGET = {
 	},
 	linux: { archive: "bun-linux-x64.zip", dir: "bun-linux-x64", bin: "bun" },
 	darwin: {
+		// bun 资产命名自 1.x 起即用 aarch64（非 arm64）：
+		// GitHub releases 与 npmmirror 镜像均为 bun-darwin-aarch64.zip，
+		// 写 arm64 会让 darwin 打包下载 404、静默回退复制 host bun（版本不可控）。
 		archive:
-			process.arch === "arm64" ? "bun-darwin-arm64.zip" : "bun-darwin-x64.zip",
-		dir: process.arch === "arm64" ? "bun-darwin-arm64" : "bun-darwin-x64",
+			process.arch === "arm64" ? "bun-darwin-aarch64.zip" : "bun-darwin-x64.zip",
+		dir: process.arch === "arm64" ? "bun-darwin-aarch64" : "bun-darwin-x64",
 		bin: "bun",
 	},
 } as const;
@@ -54,7 +57,7 @@ const BUN_TARGET = {
 function bunDownloadUrls(archive: string): string[] {
 	return [
 		`https://github.com/oven-sh/bun/releases/latest/download/${archive}`,
-		`https://registry.npmmirror.com/-/binary/bun/bun-v1.3.14/${archive}`,
+		`https://registry.npmmirror.com/-/binary/bun/bun-v1.4.0/${archive}`,
 	];
 }
 

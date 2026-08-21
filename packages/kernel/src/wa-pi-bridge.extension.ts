@@ -15,7 +15,6 @@ import {
 	ASK_DESCRIPTION,
 	ASK_PROMPT_GUIDELINES,
 	AskParamsSchema,
-	MEM_TARGET_DESC,
 	MEM_SCOPE_DESC,
 	MEM_ADD_DESC,
 	MEM_ADD_SNIPPET,
@@ -38,7 +37,10 @@ import {
 	recordBefore,
 	serializeSnapshots,
 } from "./file-snapshot.ts";
-import type { FileSnapshotRecord, SnapshotReadResult } from "./file-snapshot.ts";
+import type {
+	FileSnapshotRecord,
+	SnapshotReadResult,
+} from "./file-snapshot.ts";
 
 // =========================================================================
 // kernel spawn pi 时注入的三个环境变量
@@ -106,8 +108,7 @@ async function callBridge(
 		if (timeoutMs <= 0) return;
 		if (timer !== undefined) clearTimeout(timer);
 		timer = setTimeout(
-			() =>
-				ctrl.abort(new Error("bridge 空闲超时 (" + timeoutMs + "ms 无任何帧)")),
+			() => ctrl.abort(new Error(`bridge 空闲超时 (${timeoutMs}ms 无任何帧)`)),
 			timeoutMs,
 		);
 	};
@@ -120,8 +121,10 @@ async function callBridge(
 	}
 	try {
 		// timeout:false —— Bun 原生 fetch 有 300s 硬超时（TimeoutError "The operation timed out."，
-		// code 23），与 signal 无关、无法被 AbortSignal 延长（Bun 1.3.14 实证 ~300,003ms 触发）。
-		// 必须关掉它，否则下面 600s 的空闲超时永远轮不到生效。Bun 专属选项，Node/undici 会忽略。
+		// code 23），与 signal 无关、无法被 AbortSignal 延长（bun 1.3.14 实证 ~300,003ms 触发；
+		// bun 1.4 已尊重 timeout 参数（oven-sh/bun#16682），但默认硬超时仍存在，timeout:false
+		// 依然是关闭它的必要方式）。必须关掉它，否则下面 600s 的空闲超时永远轮不到生效。
+		// Bun 专属选项，Node/undici 会忽略。
 		const init: RequestInit & { timeout?: boolean } = {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -135,7 +138,7 @@ async function callBridge(
 			signal: ctrl.signal,
 			timeout: false,
 		};
-		const res = await fetch(BRIDGE_URL + "/bridge/tool", init);
+		const res = await fetch(`${BRIDGE_URL}/bridge/tool`, init);
 		// 流式协议：delegate/fleet 返回 NDJSON，逐帧解析 started/progress/ping/final。
 		// started/progress/ping 帧仅证明存活（刷新空闲超时），进度已由 kernel SSE 直推前端，
 		// 这里只关心 final 帧来组装结果。
@@ -180,7 +183,7 @@ async function callBridge(
 					};
 				}
 				const err = finalFrame.error ?? "unknown";
-				return failResult("bridge 调用失败: " + err, err);
+				return failResult(`bridge 调用失败: ${err}`, err);
 			}
 			// 流结束但无 final 帧：连接中断（kernel 侧异常关闭流，可能是偶发断开）
 			if (retryCount < MAX_BRIDGE_RETRIES && !signal?.aborted) {
@@ -203,8 +206,8 @@ async function callBridge(
 		const data = (await res.json().catch(() => null)) as any;
 		if (!res.ok) {
 			const errMsg =
-				data && typeof data.error === "string" ? data.error : "http_" + res.status;
-			return failResult("bridge 调用失败: " + errMsg, errMsg);
+				data && typeof data.error === "string" ? data.error : `http_${res.status}`;
+			return failResult(`bridge 调用失败: ${errMsg}`, errMsg);
 		}
 		if (!data || !Array.isArray(data.content)) {
 			return failResult("bridge 调用失败: 响应格式非法", "invalid_response");
@@ -229,7 +232,7 @@ async function callBridge(
 				retryCount + 1,
 			);
 		}
-		return failResult("bridge 调用失败: " + msg, msg);
+		return failResult(`bridge 调用失败: ${msg}`, msg);
 	} finally {
 		if (timer !== undefined) clearTimeout(timer);
 		if (signal) signal.removeEventListener("abort", onToolAbort);
@@ -448,7 +451,13 @@ export default function (pi: ExtensionAPI) {
 		if (event.toolName !== "edit" && event.toolName !== "write") return;
 		const path = event.input?.path;
 		if (typeof path !== "string") return;
-		recordBefore(snapshots, toolCallIdToPath, event.toolCallId, resolve(path), readSnapshot);
+		recordBefore(
+			snapshots,
+			toolCallIdToPath,
+			event.toolCallId,
+			resolve(path),
+			readSnapshot,
+		);
 	});
 
 	pi.on("tool_execution_end", (event: any) => {
@@ -466,10 +475,14 @@ export default function (pi: ExtensionAPI) {
 		try {
 			// 必须带超时：pi 在把 agent_end 写 RPC stdout 前会 await 本钩子，
 			// fetch 挂起（如代理链路异常）会让整轮对话一直"思考中"直到系统级超时。
-			await fetch(BRIDGE_URL + "/bridge/file-changes", {
+			await fetch(`${BRIDGE_URL}/bridge/file-changes`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ token: BRIDGE_TOKEN, sessionId: BRIDGE_SESSION_ID, files }),
+				body: JSON.stringify({
+					token: BRIDGE_TOKEN,
+					sessionId: BRIDGE_SESSION_ID,
+					files,
+				}),
 				signal: AbortSignal.timeout(AGENT_END_REPORT_TIMEOUT_MS),
 			});
 		} catch {
@@ -487,7 +500,7 @@ export default function (pi: ExtensionAPI) {
 		// 前端 extension_error 处理识别此标记后跳过 toast（notify 已提示，不重复）。
 		ui.custom = function custom() {
 			ui.notify(msg, "warning");
-			throw new Error("[custom-unsupported] " + msg);
+			throw new Error(`[custom-unsupported] ${msg}`);
 		};
 	});
 }

@@ -45,7 +45,7 @@ bun install
 bun run dev
 ```
 
-唯一的前置要求是 [Bun](https://bun.sh) ≥ 1.3。启动后浏览器自动打开 `http://localhost:5180`，在「系统设置 → 模型管理」添加一个模型供应商（OpenAI 兼容或 Anthropic 协议），回到首页选一个智能体，开始对话。
+唯一的前置要求是 [Bun](https://bun.sh) ≥ 1.4。启动后浏览器自动打开 `http://localhost:5180`，在「系统设置 → 模型管理」添加一个模型供应商（OpenAI 兼容或 Anthropic 协议），回到首页选一个智能体，开始对话。
 
 macOS 用户也可以直接双击根目录的 `start.command`，Windows 用户双击 `start.bat`。
 

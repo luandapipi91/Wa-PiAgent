@@ -45,7 +45,7 @@ bun install
 bun run dev
 ```
 
-The only prerequisite is [Bun](https://bun.sh) ≥ 1.3. Once started, your browser opens `http://localhost:5180` automatically. Add a model provider (OpenAI-compatible or Anthropic protocol) under "Settings → Model Management", pick an agent on the home page, and start chatting.
+The only prerequisite is [Bun](https://bun.sh) ≥ 1.4. Once started, your browser opens `http://localhost:5180` automatically. Add a model provider (OpenAI-compatible or Anthropic protocol) under "Settings → Model Management", pick an agent on the home page, and start chatting.
 
 macOS users can also double-click `start.command` in the repo root; Windows users double-click `start.bat`.
 

@@ -7,72 +7,14 @@ import type {
 import { loadScheduledTasks } from "./scheduler-store";
 
 /**
- * 将「本地时刻」换算为 UTC 的时/分，并返回本地日相对 UTC 日的偏移天数。
+ * 将 schedule 配置转换为标准 5 字段 cron 表达式（分 时 日 月 周，按本地时间）。
  *
- * Bun.cron 的 cron 表达式固定按 UTC 解析（bun-types 文档明确：
- * "Schedules are interpreted in UTC — `0 9 * * *` fires at 9:00 UTC, regardless of TZ"），
- * 而 UI 中用户配置的 time 是本地时间（如 09:00 表示早上 9 点）。
- * 因此生成 cron 前必须先把本地时刻换算成 UTC 时刻，否则任务会在错误的时点触发
- * （曾出现：配置 09:00 实际在北京时间 17:00 执行）。
- *
- * @param hour 本地小时 0-23
- * @param minute 本地分钟 0-59
- * @param now 参照日（默认今天；测试可注入固定日期）
+ * Bun.cron 自 v1.4 起按系统本地时区解析 cron 表达式（与 crontab/launchd/
+ * Windows 任务计划程序一致；旧版 1.3.x 固定按 UTC 解析——当时的 workaround 是
+ * 生成 cron 前先做本地→UTC 换算，1.4 行为变更后必须反转，否则任务会在
+ * 错误时点触发）。UI 中用户配置的 time 即本地时间（如 09:00 表示早上 9 点），
+ * 因此直接以本地时刻生成 cron 即可。
  */
-function localToUtc(
-	hour: number,
-	minute: number,
-	now: Date = new Date(),
-): { utcHour: number; utcMinute: number; dayOffset: number } {
-	// 以「今天」为参照日，把 h:m 作为本地时刻构造 Date（自动处理跨天与夏令时）
-	const local = new Date(
-		now.getFullYear(),
-		now.getMonth(),
-		now.getDate(),
-		hour,
-		minute,
-		0,
-		0,
-	);
-	const ms = local.getTime();
-	// 本地日序 - UTC 日序（UTC+8 下本地 00:00-07:59 跨到 UTC 前一天 → dayOffset=1）
-	const localDay = Math.floor(
-		(ms - local.getTimezoneOffset() * 60000) / 86400000,
-	);
-	const utcDay = Math.floor(ms / 86400000);
-	return {
-		utcHour: local.getUTCHours(),
-		utcMinute: local.getUTCMinutes(),
-		dayOffset: localDay - utcDay,
-	};
-}
-
-/**
- * 把「本地工作日（周一~周五）」集合换算成 UTC 侧的工作日 DOW 列表（0-6，0=周日）。
- * 跨天时（如本地凌晨触发）UTC 的工作日集合会整体前移/后移一天。
- */
-function weekdaysToUtcDowExpr(dayOffset: number): string {
-	const dowList = [1, 2, 3, 4, 5]
-		.map((d) => (d - dayOffset + 7) % 7)
-		.sort((a, b) => a - b);
-	// 连续区间合并为 a-b，其余用逗号（cron DOW 两种写法均支持）
-	const parts: string[] = [];
-	let start = dowList[0];
-	let prev = dowList[0];
-	for (let i = 1; i <= dowList.length; i++) {
-		const cur = dowList[i];
-		if (cur === prev + 1) {
-			prev = cur;
-			continue;
-		}
-		parts.push(start === prev ? `${start}` : `${start}-${prev}`);
-		start = cur;
-		prev = cur;
-	}
-	return parts.join(",");
-}
-
-/** 将 schedule 配置转换为标准 5 字段 cron 表达式（分 时 日 月 周，按 UTC） */
 export function toCronExpression(schedule: TaskSchedule): string {
 	// .map(Number) 归一化：去除 "09"/"00" 的前导零，使输出为标准 cron 字段（如 9、0）
 	const [h, m] = schedule.time.split(":").map(Number);
@@ -84,38 +26,26 @@ export function toCronExpression(schedule: TaskSchedule): string {
 		case "hourly": {
 			const n = schedule.intervalHours ?? 1;
 			if (schedule.startTime) {
-				// 指定开始时间：从本地 startTime 起每 n 小时
+				// 指定开始时间：从本地 startTime 起每 n 小时（Bun.cron 按本地时间解析）
 				const [sh, sm] = schedule.startTime.split(":").map(Number);
-				const { utcHour, utcMinute } = localToUtc(sh, sm);
-				// 已知限制：cron 的 a-b/n 步进不能跨天折返，startTime 换算到 UTC 跨天时当天触发点会减少
-				return `${utcMinute} ${utcHour}-23/${n} * * *`;
+				// 已知限制：cron 的 a-b/n 步进不能跨天折返，startTime 跨天时当天触发点会减少
+				return `${sm} ${sh}-23/${n} * * *`;
 			}
-			// 不指定：整点对齐（午夜起每 n 小时），与具体时刻无关，无需换算
+			// 不指定：整点对齐（午夜起每 n 小时），与具体时刻无关
 			return `0 ${n === 1 ? "*" : `*/${n}`} * * *`;
 		}
-		case "daily": {
-			const { utcHour, utcMinute } = localToUtc(h, m);
-			return `${utcMinute} ${utcHour} * * *`;
-		}
-		case "weekdays": {
-			const { utcHour, utcMinute, dayOffset } = localToUtc(h, m);
-			return `${utcMinute} ${utcHour} * * ${weekdaysToUtcDowExpr(dayOffset)}`;
-		}
-		case "weekly": {
-			const { utcHour, utcMinute, dayOffset } = localToUtc(h, m);
-			// 本地 dayOfWeek(0-6, 0=周日) 换算为 UTC 侧星期几
-			const dow = ((schedule.dayOfWeek ?? 1) - dayOffset + 7) % 7;
-			return `${utcMinute} ${utcHour} * * ${dow}`;
-		}
-		case "monthly": {
-			const { utcHour, utcMinute, dayOffset } = localToUtc(h, m);
-			// 跨天时 day-of-month 同步前移；若落到上月（<1）无法用单条 cron 表达，
-			// 回退到 1（会延迟到本地次月 2 号凌晨触发，属已知限制）
-			const dom = Math.max(1, (schedule.dayOfMonth ?? 1) - dayOffset);
-			return `${utcMinute} ${utcHour} ${dom} * *`;
-		}
+		case "daily":
+			return `${m} ${h} * * *`;
+		case "weekdays":
+			// 本地周一~周五（1-5）
+			return `${m} ${h} * * 1-5`;
+		case "weekly":
+			// 本地 dayOfWeek(0-6, 0=周日)
+			return `${m} ${h} * * ${schedule.dayOfWeek ?? 1}`;
+		case "monthly":
+			return `${m} ${h} ${schedule.dayOfMonth ?? 1} * *`;
 		case "custom":
-			// custom 直通：用户手写 cron 时请按 UTC 时刻书写（Bun.cron 固定 UTC 解析）
+			// custom 直通：用户手写 cron 时请按本地时刻书写（Bun.cron 按本地时间解析）
 			return schedule.cronExpression ?? "* * * * *";
 	}
 }
