@@ -66,3 +66,45 @@ test("DELEGATE_DESCRIPTION 与 existing delegate-tool.ts 输出一致", async ()
   const { FLEET_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
   expect(FLEET_DESCRIPTION).toBe(fleetReal.description);
 });
+
+test("browser_* 工具描述可从 @wa-pi/shared 导入且非空", async () => {
+  const {
+    BROWSER_NAVIGATE_DESCRIPTION,
+    BROWSER_EVALUATE_DESCRIPTION,
+    BROWSER_SCREENSHOT_DESCRIPTION,
+    BROWSER_CLOSE_DESCRIPTION,
+  } = await import("@wa-pi/shared/tool-schemas");
+  expect(typeof BROWSER_NAVIGATE_DESCRIPTION).toBe("string");
+  expect(BROWSER_NAVIGATE_DESCRIPTION.length).toBeGreaterThan(10);
+  expect(typeof BROWSER_EVALUATE_DESCRIPTION).toBe("string");
+  expect(BROWSER_EVALUATE_DESCRIPTION.length).toBeGreaterThan(10);
+  expect(typeof BROWSER_SCREENSHOT_DESCRIPTION).toBe("string");
+  expect(BROWSER_SCREENSHOT_DESCRIPTION.length).toBeGreaterThan(10);
+  expect(typeof BROWSER_CLOSE_DESCRIPTION).toBe("string");
+  expect(BROWSER_CLOSE_DESCRIPTION.length).toBeGreaterThan(10);
+});
+
+test("browser_* 工具 schema 定义关键字段", async () => {
+  const {
+    BrowserNavigateParamsSchema,
+    BrowserEvaluateParamsSchema,
+    BrowserScreenshotParamsSchema,
+  } = await import("@wa-pi/shared/tool-schemas");
+  expect(Object.keys(BrowserNavigateParamsSchema.properties)).toContain("url");
+  const evalProps = BrowserEvaluateParamsSchema.properties as Record<string, unknown>;
+  expect(evalProps.action).toBeDefined();
+  expect(evalProps.script).toBeDefined();
+  expect(Object.keys(BrowserScreenshotParamsSchema.properties)).toContain("format");
+});
+
+test("BRIDGE_TOOL_NAMES 包含 4 个 browser 工具", async () => {
+  const { BRIDGE_TOOL_NAMES } = await import("@wa-pi/shared/tool-schemas");
+  for (const name of [
+    "browser_navigate",
+    "browser_evaluate",
+    "browser_screenshot",
+    "browser_close",
+  ]) {
+    expect(BRIDGE_TOOL_NAMES).toContain(name);
+  }
+});

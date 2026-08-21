@@ -158,6 +158,109 @@ export const FleetParamsSchema = Type.Object({
 });
 
 // =========================================================================
+// browser_* 工具（Bun.WebView 浏览器自动化）
+// =========================================================================
+
+export const BROWSER_NAVIGATE_DESCRIPTION =
+  "在浏览器视图中加载一个 URL（首次调用自动创建视图）。页面主 frame load 事件后返回。用于抓取 JS 渲染页面/进入自动化流程起点。";
+
+export const BrowserNavigateParamsSchema = Type.Object({
+  url: Type.String({ description: "http/https 或 about:blank URL" }),
+  width: Type.Optional(
+    Type.Integer({ minimum: 1, maximum: 16384, description: "视口宽（仅新建视图时生效，默认 800）" }),
+  ),
+  height: Type.Optional(
+    Type.Integer({ minimum: 1, maximum: 16384, description: "视口高（仅新建视图时生效，默认 600）" }),
+  ),
+  timeout: Type.Optional(
+    Type.Integer({ minimum: 1000, description: "页面加载超时毫秒数（默认 120000）" }),
+  ),
+});
+
+export const BROWSER_EVALUATE_DESCRIPTION = [
+  "在浏览器视图中执行 JS 表达式或 DOM 操作（点击/输入/按键/滚动）。所有操作派发原生浏览器事件（event.isTrusted === true）。",
+  "action:",
+  "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）",
+  "- click: 按 CSS selector 等元素可操作后点击其中心，或按视口坐标 (x,y) 点击",
+  "- type: 向当前焦点元素插入文本（等价粘贴，无 keydown）",
+  "- press: 按命名键（Enter/Tab/ArrowDown/Escape...）或单字符+修饰键",
+  "- scroll: 按像素增量滚动（正 dy 向下）",
+  "- scrollTo: 滚动使元素进入视口",
+].join("\n");
+
+export const BrowserEvaluateParamsSchema = Type.Object({
+  action: Type.Union([
+    Type.Literal("eval"),
+    Type.Literal("click"),
+    Type.Literal("type"),
+    Type.Literal("press"),
+    Type.Literal("scroll"),
+    Type.Literal("scrollTo"),
+  ]),
+  script: Type.Optional(
+    Type.String({ description: "action=eval 时的 JS 表达式" }),
+  ),
+  selector: Type.Optional(
+    Type.String({ description: "action=click/scrollTo 时的 CSS selector" }),
+  ),
+  x: Type.Optional(Type.Integer({ description: "action=click 时的视口 x 坐标" })),
+  y: Type.Optional(Type.Integer({ description: "action=click 时的视口 y 坐标" })),
+  button: Type.Optional(
+    Type.Union([
+      Type.Literal("left"),
+      Type.Literal("right"),
+      Type.Literal("middle"),
+    ]),
+  ),
+  modifiers: Type.Optional(
+    Type.Array(
+      Type.Union([
+        Type.Literal("Shift"),
+        Type.Literal("Control"),
+        Type.Literal("Alt"),
+        Type.Literal("Meta"),
+      ]),
+    ),
+  ),
+  clickCount: Type.Optional(Type.Integer({ minimum: 1, maximum: 3 })),
+  text: Type.Optional(Type.String({ description: "action=type 时的文本" })),
+  key: Type.Optional(Type.String({ description: "action=press 时的键名或单字符" })),
+  dx: Type.Optional(Type.Integer({ description: "action=scroll 的水平增量" })),
+  dy: Type.Optional(Type.Integer({ description: "action=scroll 的垂直增量" })),
+  block: Type.Optional(
+    Type.Union([
+      Type.Literal("start"),
+      Type.Literal("center"),
+      Type.Literal("end"),
+      Type.Literal("nearest"),
+    ]),
+  ),
+  timeout: Type.Optional(
+    Type.Integer({ minimum: 100, description: "等待元素可操作/存在的毫秒数（默认 30000）" }),
+  ),
+});
+
+export const BROWSER_SCREENSHOT_DESCRIPTION =
+  "截取当前浏览器视图的视口图像。默认保存到 wa-pi 临时目录并返回文件路径（避免 base64 撑爆 token）；return=base64 时内联返回 data URL。";
+
+export const BrowserScreenshotParamsSchema = Type.Object({
+  format: Type.Optional(
+    Type.Union([
+      Type.Literal("png"),
+      Type.Literal("jpeg"),
+      Type.Literal("webp"),
+    ]),
+  ),
+  quality: Type.Optional(Type.Integer({ minimum: 0, maximum: 100 })),
+  return: Type.Optional(Type.Union([Type.Literal("path"), Type.Literal("base64")])),
+});
+
+export const BROWSER_CLOSE_DESCRIPTION =
+  "关闭当前会话的浏览器视图，释放浏览器进程资源。视图不存在时静默返回。";
+
+export const BrowserCloseParamsSchema = Type.Object({});
+
+// =========================================================================
 // 所有宿主工具名列表
 // =========================================================================
 
@@ -169,6 +272,10 @@ export const BRIDGE_TOOL_NAMES = [
   "memory_read",
   "delegate",
   "fleet",
+  "browser_navigate",
+  "browser_evaluate",
+  "browser_screenshot",
+  "browser_close",
 ] as const;
 
 export type BridgeToolName = (typeof BRIDGE_TOOL_NAMES)[number];

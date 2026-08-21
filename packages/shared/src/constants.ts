@@ -172,6 +172,11 @@ export const DEFAULT_AGENT_TOOLS = [
 	"ask_user_question",
 	// delegate：宿主关系网调起工具（customTools 注入）
 	"delegate",
+	// browser_*：Bun.WebView 浏览器自动化工具族
+	"browser_navigate",
+	"browser_evaluate",
+	"browser_screenshot",
+	"browser_close",
 	// mcp：pi-mcp-adapter 内置代理工具（未开启 directTools 的服务器统一入口）
 	"mcp",
 ];
