@@ -49,6 +49,7 @@ import { buildAdditionalExtensionPaths } from "./extensions";
 import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { reconcileDanglingAsks } from "./ask-tool";
+import { formatElementRef } from "./prompt-attachments";
 import {
 	makeDelegateTool,
 	makeFleetTool,
@@ -1884,6 +1885,9 @@ async function buildPromptContent(
 	for (const a of attachments) {
 		if (a.kind === "snippet") {
 			textParts.push(`[片段: ${a.name}]\n${a.content}`);
+		} else if (a.kind === "element") {
+			// element：预览选中的页面元素，序列化为「路径 [line: 起-止] [el: 标签]」定位文本
+			textParts.push(formatElementRef(a, cwd));
 		} else if (a.kind === "image") {
 			const rel = cwd ? relative(cwd, a.path).replace(/\\/g, "/") : a.path;
 			fileRefs.push(`@${rel}`);
