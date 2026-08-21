@@ -63,6 +63,8 @@ packages/desktop/src/embedded/
 packages/kernel/tests/fixtures/pi-agent-dir-test/
 nul
 bun.lock
+# dev 自动下载 bun 的项目内缓存兜底（主缓存目录在用户目录，无需 ignore）
+.bun-cache/
 
 # 本地 worktree 目录（subagent-driven-development 隔离工作区）
 .worktrees/

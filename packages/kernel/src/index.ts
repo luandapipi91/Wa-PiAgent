@@ -44,6 +44,7 @@ import {
 	SUBAGENT_OVERRIDES_FILE,
 	SCHEDULED_TASKS_FILE,
 	EXECUTION_RECORDS_FILE,
+	assertBunVersionOrExit,
 } from "@wa-pi/shared";
 import type { ExecutionRecord, ScheduledTask, PushResult } from "@wa-pi/shared";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -79,6 +80,11 @@ export async function startKernel(opts?: {
 	staticDir?: string;
 	port?: number;
 }): Promise<{ port: number; stop: () => Promise<void> }> {
+	// 强制校验 Bun ≥ 1.4.0：版本不满足立即退出，避免定时任务按 UTC 静默错 8 小时。
+	// 三条启动链（dev:kernel / dev:desktop / 打包 sidecar）都汇聚到 startKernel，
+	// 这里作为最终守卫；dev.ts 另有快速失败提示。打包 sidecar 固定 1.4.0 理论不触发。
+	assertBunVersionOrExit();
+
 	// 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到
 	// ~/.pi/agent 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由
 	// AgentManager 在 spawn 时逐个注入（PI_CODING_AGENT_DIR=WA_PI_DIR），
