@@ -1,3 +1,9 @@
+## 2026-08-21 — feat: 浏览器预览窗口模式与元素选中（分屏/全屏/浮动 + 元素行号定位发聊天）
+
+- 新增：预览支持与聊天分屏对半（可拖比例）、全屏、浮动窗（可拖位置/尺寸、状态持久化）；本地 html 预览内 hover 高亮元素，可将选中元素（含源码行号定位）以 chip 形式发送到聊天输入框；附件 chip 图标全部 SVG 化。
+- 修复：`/api/preview-locate` 被 `/api/` 统一分发遮蔽（HttpRouter 未命中即 404，该分支不可达），元素行号定位从未生效；整块移至 `/api/` 分发之前。`preview-route` 集成断言适配注入分支的 `text/html; charset=utf-8`。
+- 影响范围：`packages/kernel`（/preview 注入、/preview-inspect.js、/api/preview-locate、ws-server 路由顺序）、`packages/frontend`（App 布局、BrowserPanel、FloatWindow、element-pick、AttachmentChip/Icon）、`packages/shared`（element 附件类型）；测试：kernel 集成 9 用例（preview-inspect 8 + preview-route 补注入断言）、Playwright E2E 5 用例。
+
 ## [Unreleased]
 
 ### 修复
