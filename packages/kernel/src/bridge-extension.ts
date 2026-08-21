@@ -10,7 +10,7 @@
 // 改为部署静态文件 + 相对 import。工具文案与 Schema 统一来源于
 // @wa-pi/shared/tool-schemas.ts，kernel 侧和 bridge 侧引用同一份定义。
 
-import { copyFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,9 +33,12 @@ const FILE_SNAPSHOT_TARGET = join(GENERATED_DIR, "file-snapshot.ts");
  * - dev：回退到 monorepo 源码路径。
  */
 function resolveBridgeExtensionSource(): string {
-  const flat = join(__dirname, "wa-pi-bridge.extension.ts");
-  if (existsSync(flat)) return flat;
-  return join(__dirname, "wa-pi-bridge.extension.ts"); // 兜底同路径（bundled kernel 场景）
+ const flat = join(__dirname, "wa-pi-bridge.extension.ts");
+ if (existsSync(flat)) return flat;
+ // POC: bun --compile --asset 把文件嵌入到 import.meta.dir/assets/ 子目录
+ const inAssets = join(__dirname, "assets", "wa-pi-bridge.extension.ts");
+ if (existsSync(inAssets)) return inAssets;
+ return join(__dirname, "wa-pi-bridge.extension.ts"); // 兜底同路径（bundled kernel 场景）
 }
 
 /**
@@ -44,9 +47,12 @@ function resolveBridgeExtensionSource(): string {
  * - dev：回退到 monorepo packages/shared/src/tool-schemas.ts。
  */
 function resolveToolSchemasSource(): string {
-  const flat = join(__dirname, "tool-schemas.ts");
-  if (existsSync(flat)) return flat;
-  return join(__dirname, "..", "..", "shared", "src", "tool-schemas.ts");
+ const flat = join(__dirname, "tool-schemas.ts");
+ if (existsSync(flat)) return flat;
+ // POC: bun --compile --asset 嵌入到 assets/ 子目录
+ const inAssets = join(__dirname, "assets", "tool-schemas.ts");
+ if (existsSync(inAssets)) return inAssets;
+ return join(__dirname, "..", "..", "shared", "src", "tool-schemas.ts");
 }
 
 /**
@@ -55,7 +61,11 @@ function resolveToolSchemasSource(): string {
  * - dev：同路径即可。
  */
 function resolveFileSnapshotSource(): string {
-  return join(__dirname, "file-snapshot.ts");
+ const flat = join(__dirname, "file-snapshot.ts");
+ if (existsSync(flat)) return flat;
+ const inAssets = join(__dirname, "assets", "file-snapshot.ts");
+ if (existsSync(inAssets)) return inAssets;
+ return join(__dirname, "file-snapshot.ts");
 }
 
 const BRIDGE_EXTENSION_SOURCE = resolveBridgeExtensionSource();
@@ -67,11 +77,14 @@ const FILE_SNAPSHOT_SOURCE = resolveFileSnapshotSource();
  * 每次覆盖写，幂等。返回 bridge 扩展入口路径。
  */
 export async function ensureBridgeExtension(): Promise<string> {
-  await mkdir(GENERATED_DIR, { recursive: true });
-  await copyFile(TOOL_SCHEMAS_SOURCE, TOOL_SCHEMAS_TARGET);
-  await copyFile(FILE_SNAPSHOT_SOURCE, FILE_SNAPSHOT_TARGET);
-  await copyFile(BRIDGE_EXTENSION_SOURCE, BRIDGE_EXTENSION_PATH);
-  return BRIDGE_EXTENSION_PATH;
+ await mkdir(GENERATED_DIR, { recursive: true });
+ // POC：bun --compile 虚拟 FS 里 copyFile 不可用，改 readFileSync + writeFile。
+ // 生产（解释运行/磁盘）语义一致：源文件内容完整复制。
+ const { writeFile } = await import("node:fs/promises");
+ await writeFile(TOOL_SCHEMAS_TARGET, readFileSync(TOOL_SCHEMAS_SOURCE));
+ await writeFile(FILE_SNAPSHOT_TARGET, readFileSync(FILE_SNAPSHOT_SOURCE));
+ await writeFile(BRIDGE_EXTENSION_PATH, readFileSync(BRIDGE_EXTENSION_SOURCE));
+ return BRIDGE_EXTENSION_PATH;
 }
 
 /**
@@ -79,5 +92,5 @@ export async function ensureBridgeExtension(): Promise<string> {
  * 不再动态生成——改为读取静态源文件内容。
  */
 export function generateBridgeExtension(): string {
-  return readFileSync(BRIDGE_EXTENSION_SOURCE, "utf8");
+ return readFileSync(BRIDGE_EXTENSION_SOURCE, "utf8");
 }
