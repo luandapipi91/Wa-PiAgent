@@ -718,6 +718,28 @@ export class WSServer {
 						},
 					});
 				}
+				// /api/preview-locate 必须在下方 /api/ 统一分发之前注册：
+				// HttpRouter 未命中会立即回 404，放在分发之后该分支永远不可达
+				if (url.pathname === "/api/preview-locate") {
+					if (req.method !== "GET")
+						return new Response("Method Not Allowed", { status: 405 });
+					const path = url.searchParams.get("path");
+					const selector = url.searchParams.get("selector");
+					if (!path || !selector) {
+						return Response.json({ error: "bad_request" }, { status: 400 });
+					}
+					const { projects } = await this.opts.projectStore.load();
+					const r = isPathInProjects(path, projects);
+					if (r.kind === "forbidden")
+						return Response.json({ error: "forbidden" }, { status: 403 });
+					if (r.kind === "missing")
+						return Response.json({ error: "not_found" }, { status: 404 });
+					const loc = locateElement(await Bun.file(r.path).text(), selector);
+					return Response.json({
+						startLine: loc?.startLine ?? null,
+						endLine: loc?.endLine ?? null,
+					});
+				}
 				// REST API（去 WS 化：复用 handle() 业务逻辑的适配器路由）
 				if (url.pathname.startsWith("/api/")) {
 					const res = await this.router.handle(req);
@@ -864,26 +886,6 @@ export class WSServer {
 						});
 					}
 					return new Response("Not found", { status: 404 });
-				}
-				if (url.pathname === "/api/preview-locate") {
-					if (req.method !== "GET")
-						return new Response("Method Not Allowed", { status: 405 });
-					const path = url.searchParams.get("path");
-					const selector = url.searchParams.get("selector");
-					if (!path || !selector) {
-						return Response.json({ error: "bad_request" }, { status: 400 });
-					}
-					const { projects } = await this.opts.projectStore.load();
-					const r = isPathInProjects(path, projects);
-					if (r.kind === "forbidden")
-						return Response.json({ error: "forbidden" }, { status: 403 });
-					if (r.kind === "missing")
-						return Response.json({ error: "not_found" }, { status: 404 });
-					const loc = locateElement(await Bun.file(r.path).text(), selector);
-					return Response.json({
-						startLine: loc?.startLine ?? null,
-						endLine: loc?.endLine ?? null,
-					});
 				}
 				if (url.pathname === "/preview-inspect.js") {
 					if (req.method !== "GET")
