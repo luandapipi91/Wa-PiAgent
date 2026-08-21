@@ -193,6 +193,8 @@ const zh = {
 		share: "分享",
 		modeSplit: "与聊天分屏",
 		modeFull: "全屏预览",
+		modeFloat: "浮动窗口",
+		dock: "停靠到分屏",
 	},
 	blocks: {
 		turnSummary: {

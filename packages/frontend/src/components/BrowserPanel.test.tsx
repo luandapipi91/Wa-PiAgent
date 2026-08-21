@@ -246,4 +246,8 @@ test("模式切换按钮：渲染 split/full，点击切换 store.mode", () => {
   expect(useBrowserStore.getState().mode).toBe("full");
   fireEvent.click(splitBtn);
   expect(useBrowserStore.getState().mode).toBe("split");
+  const floatBtn = document.querySelector('[data-testid="browser-mode-float"]')!;
+  expect(floatBtn).toBeTruthy();
+  fireEvent.click(floatBtn);
+  expect(useBrowserStore.getState().mode).toBe("float");
 });

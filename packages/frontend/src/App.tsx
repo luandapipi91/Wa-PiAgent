@@ -51,6 +51,7 @@ import { useSchedulerStore } from "./store/scheduler";
 import { AutomationMain } from "./components/automation/AutomationMain";
 import { useBrowserStore } from "./store/browser";
 import { BrowserPanel } from "./components/BrowserPanel";
+import { FloatWindow } from "./components/FloatWindow";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -101,6 +102,8 @@ export function App() {
 	const browserOpen = useBrowserStore((s) => s.open);
 	const browserMode = useBrowserStore((s) => s.mode);
 	const splitRatio = useBrowserStore((s) => s.splitRatio);
+	const floatRect = useBrowserStore((s) => s.floatRect);
+	const browserPath = useBrowserStore((s) => s.path);
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => onConnectionChange(setConnState), []);
@@ -703,6 +706,17 @@ export function App() {
 			)}
 			{paletteOpen && (
 				<CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+			)}
+			{browserOpen && browserMode === "float" && (
+				<FloatWindow
+					rect={floatRect}
+					title={browserPath ?? ""}
+					onRectChange={(r) => useBrowserStore.getState().setFloatRect(r)}
+					onDock={() => useBrowserStore.getState().setMode("split")}
+					onClose={() => useBrowserStore.getState().closeBrowser()}
+				>
+					<BrowserPanel />
+				</FloatWindow>
 			)}
 			<FilePreviewModal />
 			<ExtensionDialog />
