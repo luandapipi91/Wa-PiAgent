@@ -233,12 +233,20 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 		<div className="relative">
 			{/* 定位锚点：仅包输入框（弹窗紧贴输入框/光标正下方，不含提示行） */}
 			<div ref={containerRef}>
-				<ComposerTextarea
-					text={value}
-					onTextChange={onChange}
-					onKeyDown={handleKeyDown}
-					onPaste={() => {}}
-					toHtml={(t) => toPromptHtml(t, contactMeta)}
+					<ComposerTextarea
+						text={value}
+						onTextChange={onChange}
+						onKeyDown={handleKeyDown}
+						onPaste={(e) => {
+							// 跨输入框复制（剪贴板含 HTML）：把纯文本 token 合入 value，
+							// 受控层 textToHtml/toPromptHtml 重渲染成 chip（与聊天 ComposerInput 一致）
+							if (e.clipboardData.getData("text/html")) {
+								e.preventDefault();
+								const plain = e.clipboardData.getData("text/plain") || "";
+								onChange(value + plain);
+							}
+						}}
+						toHtml={(t) => toPromptHtml(t, contactMeta)}
 					testId="task-prompt-input"
 					placeholder="让智能体帮你做什么...（$ 插入技能，@ 选择联系人）"
 					// 边框与表单其他输入框一致（浅色模式下裸 contenteditable 与背景融合，看不出可输入）
