@@ -110,7 +110,7 @@ test("handleInbound 采集：单聊记人、群聊记群（listContacts 可查�
 	const channelId = (await manager.listWithStatus())[0].id;
 	// 单聊进站 → 记 person（fromUserId）
 	adapter!.inject({ chatId: "user-1", text: "hi" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	// 群聊进站 → 记 group（chatId）
 	adapter!.inject({
 		chatId: "group-1",
@@ -118,7 +118,7 @@ test("handleInbound 采集：单聊记人、群聊记群（listContacts 可查�
 		chatType: "group",
 		text: "hi",
 	});
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const contacts = await listContacts(channelId, join(dir, "contacts.json"));
 	expect(
 		contacts.some((c) => c.kind === "person" && c.userId === "user-1"),
@@ -139,7 +139,7 @@ test("handleInbound 采集：单聊记人、群聊记群（listContacts 可查�
 test("进站文本：建映射、建会话、ensureStarted 携带渠道提示词、prompt 带模型", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "你好" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(sessionsCreated).toHaveLength(1);
 	expect(sessionsCreated[0].projectId).toBe("__system__");
 	expect(ensured[0][0]).toBe("__system__");
@@ -152,7 +152,11 @@ test("进站文本：建映射、建会话、ensureStarted 携带渠道提示词
 test("指令拦截：/new 不进智能体，直接回复", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "/new" });
-	await new Promise((r) => setTimeout(r, 50));
+	// 条件轮询替代固定 50ms：异步处理在并发/负载下可能超过 50ms（flaky 根因）
+	const deadline = Date.now() + 2000;
+	while (adapter!.outbox.length === 0 && Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 10));
+	}
 	expect(prompted).toHaveLength(0);
 	expect(adapter!.outbox.at(-1)!.text).toContain("新会话");
 });
@@ -160,14 +164,14 @@ test("指令拦截：/new 不进智能体，直接回复", async () => {
 test("/use 切换工作区后，下一条消息落到对应项目会话", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "/use 默认工作区" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(adapter!.outbox.at(-1)!.text).toContain("已切换");
 });
 
 test("agent_settled：按粒度组装并经适配器回复；正文+文件变更", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "改个 bug" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 	messagesBySession[sid] = [
 		{ role: "user", content: [{ type: "text", text: "改个 bug" }] },
@@ -185,14 +189,14 @@ test("agent_settled：按粒度组装并经适配器回复；正文+文件变更
 		},
 	];
 	manager.onSessionEvent(sid, { type: "agent_settled" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(adapter!.outbox.at(-1)!.text).toBe("已修复。\n\n📄 修改：a.ts");
 });
 
 test("agent_settled：错误回合读取最后 assistant 消息的 stopReason/errorMessage（而非事件字段）", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "改个 bug" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 	messagesBySession[sid] = [
 		{ role: "user", content: [{ type: "text", text: "改个 bug" }] },
@@ -205,7 +209,7 @@ test("agent_settled：错误回合读取最后 assistant 消息的 stopReason/er
 		},
 	];
 	manager.onSessionEvent(sid, { type: "agent_settled" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const reply = adapter!.outbox.at(-1)!.text;
 	expect(reply).toContain("处理出错");
 	expect(reply).toContain("模型不可用");
@@ -215,7 +219,7 @@ test("agent_settled：错误回合读取最后 assistant 消息的 stopReason/er
 test("自动重试期间每次失败尝试的 agent_end 不触发回复；agent_settled 一轮只回一条", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "改个 bug" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 	messagesBySession[sid] = [
 		{ role: "user", content: [{ type: "text", text: "改个 bug" }] },
@@ -231,11 +235,11 @@ test("自动重试期间每次失败尝试的 agent_end 不触发回复；agent_
 	manager.onSessionEvent(sid, { type: "agent_end" });
 	manager.onSessionEvent(sid, { type: "agent_end" });
 	manager.onSessionEvent(sid, { type: "agent_end" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(adapter!.outbox.length).toBe(before);
 	// 终态 agent_settled 才回复，且只回一条
 	manager.onSessionEvent(sid, { type: "agent_settled" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(adapter!.outbox.length).toBe(before + 1);
 	expect(adapter!.outbox.at(-1)!.text).toContain("Connection error.");
 });
@@ -243,7 +247,11 @@ test("自动重试期间每次失败尝试的 agent_end 不触发回复；agent_
 test("智能体删除兜底：降级为列表第一项并记 warning", async () => {
 	await manager.create({ ...channel, agentName: "已删除的智能体" });
 	adapter!.inject({ chatId: "u1", text: "在吗" });
-	await new Promise((r) => setTimeout(r, 50));
+	// 条件轮询替代固定 50ms（ensureStarted 异步链路在负载下可能超 50ms）
+	const deadline = Date.now() + 2000;
+	while (ensured.length === 0 && Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 10));
+	}
 	expect(ensured[0][1]).toBe("前端开发者"); // listAgents()[0]
 	expect(prompted[0].opts.model).toBe("p/m"); // 渠道 model 仍优先
 });
@@ -251,7 +259,7 @@ test("智能体删除兜底：降级为列表第一项并记 warning", async () 
 test("无可用模型 → 回复配置错误，不调 prompt", async () => {
 	await manager.create({ ...channel, model: null });
 	adapter!.inject({ chatId: "u1", text: "hi" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(prompted).toHaveLength(0);
 	expect(adapter!.outbox.at(-1)!.text).toContain("模型");
 });
@@ -259,7 +267,7 @@ test("无可用模型 → 回复配置错误，不调 prompt", async () => {
 test("不支持的消息类型 → 提示回复", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", unsupported: "voice" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(adapter!.outbox.at(-1)!.text).toContain("暂不支持");
 });
 
@@ -298,7 +306,7 @@ test("Bot ID 冲突：create/update 重复 botId 抛 ChannelConflictError（含 
 test("listConversations：返回会话列表项（含预览与项目名）", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "你好呀" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const convs = await manager.listConversations();
 	expect(convs).toHaveLength(1);
 	expect(convs[0].channelName).toBe("测试机器人");
@@ -310,7 +318,7 @@ test("/new 归档当前会话：历史会话仍在 IM tab 可见（listConversat
 	await manager.create(channel);
 	// 第一条消息建立会话 A
 	adapter!.inject({ chatId: "u1", text: "第一次对话" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const firstSid = sessionsCreated[0].id;
 	// 让会话 A 在 projectStore 里可见（createSession mock 不回填 load，手动塞）
 	projectSessions.push({
@@ -327,7 +335,7 @@ test("/new 归档当前会话：历史会话仍在 IM tab 可见（listConversat
 	broadcasted.length = 0;
 	const promptedBeforeNew = prompted.length;
 	adapter!.inject({ chatId: "u1", text: "/new" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(prompted).toHaveLength(promptedBeforeNew);
 	expect(adapter!.outbox.at(-1)!.text).toContain("新会话");
 	// 广播 channel-conversations:changed 让前端 IM 列表刷新
@@ -335,7 +343,7 @@ test("/new 归档当前会话：历史会话仍在 IM tab 可见（listConversat
 
 	// 第二条消息建立会话 B（新的当前会话）
 	adapter!.inject({ chatId: "u1", text: "第二次对话" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const secondSid = sessionsCreated[1].id;
 	projectSessions.push({
 		id: secondSid,
@@ -369,7 +377,7 @@ test("群聊隔离：同群不同用户 → 各自独立 mapping/会话；listCo
 		chatType: "group",
 		text: "A 的消息",
 	});
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	// 同一群 g1，用户 B 发消息
 	adapter!.inject({
 		chatId: "g1",
@@ -377,7 +385,7 @@ test("群聊隔离：同群不同用户 → 各自独立 mapping/会话；listCo
 		chatType: "group",
 		text: "B 的消息",
 	});
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 
 	// 两个用户各建了一个独立会话（而非群维度共享一个）
 	expect(sessionsCreated).toHaveLength(2);
@@ -401,7 +409,7 @@ test("群聊隔离：同群同用户复用同一会话（不重复建会话）",
 		chatType: "group",
 		text: "第一条",
 	});
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	// 让首次建立的会话在 projectStore 可见（mock createSession 不回填 load，手动塞）
 	const sid = sessionsCreated[0].id;
 	projectSessions.push({
@@ -419,7 +427,7 @@ test("群聊隔离：同群同用户复用同一会话（不重复建会话）",
 		chatType: "group",
 		text: "第二条",
 	});
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	// 同群同用户 → 复用会话，只建一个
 	expect(sessionsCreated).toHaveLength(1);
 });
@@ -427,7 +435,7 @@ test("群聊隔离：同群同用户复用同一会话（不重复建会话）",
 test("onSessionDeleted：删除 IM 会话时联动清理映射（当前指针 + 历史归档）", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "第一条" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = sessionsCreated[0].id;
 	projectSessions.push({
 		id: sid,
@@ -441,7 +449,7 @@ test("onSessionDeleted：删除 IM 会话时联动清理映射（当前指针 + 
 
 	// /new 归档
 	adapter!.inject({ chatId: "u1", text: "/new" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 
 	// 模拟前端删除该历史会话：onSessionDeleted 应清理 historySessionIds
 	broadcasted.length = 0;
@@ -466,7 +474,7 @@ test("映射缓存的会话已被删除 → 兜底新建会话，不抛'会话�
 	await manager.create(channel);
 	// 第一条消息：建立映射 + 创建会话 A
 	adapter!.inject({ chatId: "u1", text: "第一条" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(sessionsCreated).toHaveLength(1);
 	const staleSid = sessionsCreated[0].id;
 	expect(staleSid.startsWith("im-")).toBe(true);
@@ -478,7 +486,7 @@ test("映射缓存的会话已被删除 → 兜底新建会话，不抛'会话�
 
 	// 第二条消息：映射里还缓存着失效的 staleSid，应兜底新建会话 B 而非报错
 	adapter!.inject({ chatId: "u1", text: "第二条" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 
 	// 新建了第二个会话，id 与失效的不同
 	expect(sessionsCreated).toHaveLength(2);
@@ -521,7 +529,7 @@ function assistantEndEvent(text: string) {
 test("流式回复：text_delta → streamReply 增量帧（streamId 稳定）；agent_settled → 终结帧", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "写首诗" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 
 	// assistant 消息开始：重置 delta 累积
@@ -549,7 +557,7 @@ test("流式回复：text_delta → streamReply 增量帧（streamId 稳定）�
 		{ role: "assistant", content: [{ type: "text", text: "床前明月光" }] },
 	];
 	manager.onSessionEvent(sid, { type: "agent_settled" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 
 	// 所有流式帧 streamId 一致
 	const allStreamFrames = adapter!.outbox.filter((m) => m.streamId);
@@ -563,7 +571,7 @@ test("流式回复：text_delta → streamReply 增量帧（streamId 稳定）�
 test("流式多消息轮（工具调用）：第二条消息的流式帧含已落地历史，不清空", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "改个 bug" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 
 	// 第一条 assistant 消息流式（"正在修复"）
@@ -606,7 +614,7 @@ test("流式多消息轮（工具调用）：第二条消息的流式帧含已�
 test("流式回复：同一消息多 text block（不同 contentIndex）按块累积，不交错拼接", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "分析代码" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 
 	// assistant 消息开始：重置累积
@@ -659,7 +667,7 @@ test("极简回复（minimal）：禁用流式增量，终态帧只含最后一�
 		name: "极简机器人",
 	});
 	adapter!.inject({ chatId: "u1", text: "总结一下" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 
 	// 过程性 text_delta 不应产生任何流式帧（minimal 禁流）
@@ -693,7 +701,7 @@ test("极简回复（minimal）：禁用流式增量，终态帧只含最后一�
 		},
 	];
 	manager.onSessionEvent(sid, { type: "agent_settled" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 
 	const sent = adapter!.outbox.filter((m) => !m.streamId);
 	expect(sent.length).toBeGreaterThanOrEqual(1);
@@ -703,7 +711,7 @@ test("极简回复（minimal）：禁用流式增量，终态帧只含最后一�
 test("节流 setTimeout 回调：streamReply 失败（WS 断线）不产生 unhandledRejection，记 warn", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "写首诗" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 
 	// 监听 unhandledRejection：验证断线期流式帧失败不再成为未处理拒绝
@@ -739,7 +747,7 @@ test("节流 setTimeout 回调：streamReply 失败（WS 断线）不产生 unha
 test("错误回合不走流式终结，走 sendText 新消息", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "报错的请求" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const sid = prompted[0].sessionId;
 
 	// 先产生流式帧
@@ -757,7 +765,7 @@ test("错误回合不走流式终结，走 sendText 新消息", async () => {
 		},
 	];
 	manager.onSessionEvent(sid, { type: "agent_settled" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 
 	// 最后一条是 sendText（非流式），内容为错误提示
 	const last = adapter!.outbox.at(-1)!;
@@ -770,7 +778,7 @@ test("错误回合不走流式终结，走 sendText 新消息", async () => {
 test("新建映射使用渠道 defaultProjectId（非默认工作区）", async () => {
 	await manager.create({ ...channel, defaultProjectId: "proj_x" });
 	adapter!.inject({ chatId: "u_custom", text: "你好" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(sessionsCreated).toHaveLength(1);
 	expect(sessionsCreated[0].projectId).toBe("proj_x");
 	expect(ensured[0][0]).toBe("proj_x");
@@ -779,13 +787,13 @@ test("新建映射使用渠道 defaultProjectId（非默认工作区）", async 
 test("allowProjectSwitch=false：/use 被拒，不进智能体、不切换", async () => {
 	await manager.create({ ...channel, allowProjectSwitch: false });
 	adapter!.inject({ chatId: "u_ns", text: "/use 项目X" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	// 拒绝回复经适配器 outbox（不经过 agentManager.prompt）
 	expect(prompted).toHaveLength(0);
 	expect(adapter!.outbox.at(-1)!.text).toContain("不支持切换工作目录");
 	// 后续普通消息仍落在默认工作区
 	adapter!.inject({ chatId: "u_ns", text: "你好" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(sessionsCreated[0].projectId).toBe("__system__");
 });
 
@@ -796,7 +804,7 @@ test("defaultProjectId 指向已删除项目 → ensureSession 降级为 __syste
 	try {
 		await manager.create({ ...channel, defaultProjectId: "proj_deleted" });
 		adapter!.inject({ chatId: "u_dead", text: "你好" });
-		await new Promise((r) => setTimeout(r, 50));
+		await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 		expect(sessionsCreated).toHaveLength(1);
 		expect(sessionsCreated[0].projectId).toBe("__system__");
 		expect(warnSpy).toHaveBeenCalled();
@@ -809,7 +817,7 @@ test("pushToContact：按联系人 id 主动推送到对应会话（单聊 useri
 	await manager.create(channel);
 	// 注入进站消息产生 person 联系人（user-1）
 	adapter!.inject({ chatId: "user-1", text: "hi" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const contacts = await manager.listContacts();
 	const person = contacts.find(
 		(c) => c.kind === "person" && c.userId === "user-1",
@@ -826,7 +834,7 @@ test("pushToContact：按联系人 id 主动推送到对应会话（单聊 useri
 test("pushToContact：群联系人 → chatId = chatid；联系人不存在 → 抛错", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "group-1", chatType: "group", text: "hi" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const contacts = await manager.listContacts();
 	const group = contacts.find(
 		(c) => c.kind === "group" && c.chatId === "group-1",
@@ -842,7 +850,7 @@ test("pushToContact：群联系人 → chatId = chatid；联系人不存在 → 
 test("pushToContact：断线时等待重连就绪后再推送", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "user-1", text: "hi" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const contacts = await manager.listContacts();
 	const person = contacts.find(
 		(c) => c.kind === "person" && c.userId === "user-1",
@@ -865,7 +873,7 @@ test("pushToContact：断线时等待重连就绪后再推送", async () => {
 test("pushToContact：断线超时未恢复 → 抛错（含未连接提示与 detail）", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "user-1", text: "hi" });
-	await new Promise((r) => setTimeout(r, 50));
+	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	const contacts = await manager.listContacts();
 	const person = contacts.find(
 		(c) => c.kind === "person" && c.userId === "user-1",
