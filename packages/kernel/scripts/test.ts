@@ -14,6 +14,7 @@ const INTEGRATION_TESTS = [
 	"tests/static-serve.integration.test.ts",
 	"tests/file-route.integration.test.ts",
 	"tests/preview-route.integration.test.ts",
+	"tests/preview-inspect.integration.test.ts",
 ];
 
 function run(args: string[]): boolean {
