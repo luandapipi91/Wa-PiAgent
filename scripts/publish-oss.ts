@@ -9,8 +9,14 @@
 import { readdirSync, readFileSync, statSync, existsSync, createReadStream } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { Upload } from "@aws-sdk/lib-storage";
+import {
+	S3Client,
+	PutObjectCommand,
+	CreateMultipartUploadCommand,
+	UploadPartCommand,
+	CompleteMultipartUploadCommand,
+	AbortMultipartUploadCommand,
+} from "@aws-sdk/client-s3";
 
 const ENDPOINT = "https://8aa0e20f654f0fe3f8ac5f2d6be9da2c.r2.cloudflarestorage.com";
 const REGION = "auto"; // R2 固定
@@ -67,7 +73,13 @@ export function injectReleaseNotes(ymlContent: string, historyFile: string): str
 		console.warn(`⚠ 未找到 ${historyFile}，latest.yml 不注入 releaseNotes`);
 		return yml;
 	}
-	const history = JSON.parse(readFileSync(historyFile, "utf8"));
+	let history: unknown;
+	try {
+		history = JSON.parse(readFileSync(historyFile, "utf8"));
+	} catch {
+		console.warn(`⚠ ${historyFile} 解析失败，latest.yml 不注入 releaseNotes`);
+		return yml;
+	}
 	if (!Array.isArray(history) || history.length === 0) return yml;
 	const notes = formatReleaseNotes(history[0]);
 	if (!notes) return yml;
@@ -82,6 +94,78 @@ export function injectReleaseNotes(ymlContent: string, historyFile: string): str
 		yml = yml.trimEnd() + "\n" + block;
 	}
 	return yml;
+}
+
+/**
+ * 手动 multipart 上传大文件：每 part 独立请求 + 失败重试。
+ * ⚠️ 不用 @aws-sdk/lib-storage Upload（Bun 下 multipart 流程不稳），
+ * 也不用 single PUT（大文件偶发 IncompleteBody）——手动分片最稳。
+ */
+async function uploadLarge(
+	client: S3Client,
+	a: Artifact,
+	partSize = 5 * 1024 * 1024,
+): Promise<void> {
+	const size = statSync(a.path).size;
+	console.log(`↑ 分片上传 ${a.key}（${(size / 1024 / 1024).toFixed(1)} MB）…`);
+	const created = await client.send(
+		new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: a.key }),
+	);
+	const uploadId = created.UploadId;
+	if (!uploadId) throw new Error("CreateMultipartUpload 未返回 UploadId");
+	const buf = readFileSync(a.path);
+	const partCount = Math.ceil(size / partSize);
+	const parts: { PartNumber: number; ETag: string }[] = [];
+	try {
+		for (let i = 0; i < partCount; i++) {
+			const start = i * partSize;
+			const end = Math.min(start + partSize, size);
+			const partBody = buf.subarray(start, end);
+			let etag: string | undefined;
+			for (let attempt = 0; attempt < 3; attempt++) {
+				try {
+					const res = await client.send(
+						new UploadPartCommand({
+							Bucket: BUCKET,
+							Key: a.key,
+							UploadId: uploadId,
+							PartNumber: i + 1,
+							Body: partBody,
+						}),
+					);
+					etag = res.ETag;
+					break;
+				} catch {
+					if (attempt === 2) throw new Error(`part ${i + 1} 上传失败（已重试 3 次）`);
+					await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+				}
+			}
+			if (!etag) throw new Error(`part ${i + 1} 未返回 ETag`);
+			parts.push({ PartNumber: i + 1, ETag: etag });
+			process.stdout.write(`\r  ${Math.round((end / size) * 100)}%`);
+		}
+		process.stdout.write("\n");
+		await client.send(
+			new CompleteMultipartUploadCommand({
+				Bucket: BUCKET,
+				Key: a.key,
+				UploadId: uploadId,
+				MultipartUpload: { Parts: parts },
+			}),
+		);
+		console.log(`✓ 已上传 ${a.key}`);
+	} catch (e) {
+		await client
+			.send(
+				new AbortMultipartUploadCommand({
+					Bucket: BUCKET,
+					Key: a.key,
+					UploadId: uploadId,
+				}),
+			)
+			.catch(() => {});
+		throw e;
+	}
 }
 
 if (import.meta.main) {
@@ -161,23 +245,10 @@ if (import.meta.main) {
 				a.key.endsWith(".dmg") ||
 				a.key.endsWith(".zip")
 			) {
-				// 安装包较大，用分片上传支持进度（partSize 5MB）
-				const size = statSync(a.path).size;
-				console.log(`↑ 分片上传 ${a.key}（${(size / 1024 / 1024).toFixed(1)} MB）…`);
-				const upload = new Upload({
-					client,
-					params: { Bucket: BUCKET, Key: a.key, Body: createReadStream(a.path) },
-					partSize: 5 * 1024 * 1024,
-				});
-				upload.on("httpUploadProgress", (p) => {
-					if (p.total && p.loaded !== undefined) {
-						process.stdout.write(
-							`\r  ${Math.round((p.loaded / p.total) * 100)}%`,
-						);
-					}
-				});
-				await upload.done();
-				process.stdout.write("\n");
+				// 安装包较大：手动 multipart 分片（每 part 独立请求 + 失败重试）。
+				// ⚠️ 不用 @aws-sdk/lib-storage Upload（Bun 下 multipart 流程不稳）
+				// 也不用 single PUT（大文件偶发 IncompleteBody）——手动分片最稳。
+				await uploadLarge(client, a);
 			} else if (a.key.endsWith(".yml")) {
 				// latest.yml / latest-mac.yml：注入 releaseNotes 后上传
 				const body = injectReleaseNotes(readFileSync(a.path, "utf8"), historyFile);
@@ -186,9 +257,13 @@ if (import.meta.main) {
 				);
 				console.log(`✓ 已上传 ${a.key}（已注入 releaseNotes）`);
 			} else {
-				// blockmap 等小文件：简单上传
+				// blockmap 等小文件：Buffer 上传（Bun 下 createReadStream 流上传会 IncompleteBody）
 				await client.send(
-					new PutObjectCommand({ Bucket: BUCKET, Key: a.key, Body: createReadStream(a.path) }),
+					new PutObjectCommand({
+						Bucket: BUCKET,
+						Key: a.key,
+						Body: readFileSync(a.path),
+					}),
 				);
 				console.log(`✓ 已上传 ${a.key}`);
 			}
