@@ -1,7 +1,11 @@
-## [Unreleased]
+## 2026-08-21 — v0.2.15
 
 ### 修复
 
+- 本地代理中继连接泄漏（bun 1.4 暴露）：隧道/转发一端关闭时另一端残留半关闭连接，`relay.close()` 永远挂起、真实场景连接泄漏。修复 `establishTunnel` 与 `forwardPlain` 双向 pipe 对端清理（client↔outbound 互毁）。
+  - 影响范围：`packages/kernel/src/proxy-relay.ts`；验证：net-log 中继日志接入测试 12 用例通过（此前 bun 1.4 下稳定超时）。
+- 测试环境耦合修复：`readSystemProxy` 集成测试原断言「返回值不可能是回环地址」，但用户机器开着本地代理（如 Clash 127.0.0.1:7890）时系统代理读到回环地址是合法行为；移除过强断言，回环过滤语义保留在 systemProxyFromEnv 单测。
+  - 影响范围：`packages/kernel/src/__tests__/settings-proxy.test.ts`；验证：settings-proxy 24 用例通过。
 - kernel 全量测试不再卡死正在运行的正式桌面应用（聊天无响应）
   - 根因：① kernel 全量测试（bun ./scripts/test.ts）与正式应用共享 `~/.pi/agent`（@wa-pi/shared 的 WA_PI_DIR 默认值），15+ 个测试并发读写同一目录（tmp/sysprompts、settings.json、sessions 等）→ 文件竞争；② bun test 默认 --parallel=CPU 核数 + 每文件内 20 并发 + 各测试 spawn 子进程 → CPU 瞬间满载 → 正式 kernel 事件循环被饿死 → 无响应（真实发生，被迫重启应用）。
   - 调整（tests/setup.ts）：preload 强制把 WA_PI_DIR / PI_CODING_AGENT_DIR 指向 mkdtemp 临时目录（可用 WA_PI_TEST_DIR 固定），测试读写的都是隔离数据，spawn 的子进程继承隔离 env；预创建 sessions/tmp/sysprompts 等标准目录。
