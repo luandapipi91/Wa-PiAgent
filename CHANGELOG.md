@@ -1,3 +1,12 @@
+## 2026-08-21 — fix: 浏览器预览终审修复波（拖拽渲染性能 / 大文件护栏 / 小项收敛）
+
+- 修复（性能）：浏览器预览拖拽期 60Hz 全树重渲染与同步写盘——`browser` store 持久化改 trailing debounce（每 key 独立 timer，默认 300ms，`setPersistDebounceMs` 可注入，测试置 0 同步写保持确定性）；`SessionView` 用 `React.memo` 包裹（props 不变跳过含 MessageList 的 reconcile）；`BrowserPanel` 整订阅改逐字段 selector（不再随 splitRatio/floatRect 每帧重渲染）。
+- 修复（布局）：split 模式聊天侧宽度改 `calc(x% - 2px)`，消除聊天侧+预览侧+分隔条合计 100%+2px 导致预览右缘被裁约 2px。
+- 修复（护栏）：html >10MB 时 /preview 跳过 inspect 注入原样直出、/api/preview-locate 直接返回 nulls（共享常量 `PREVIEW_PARSE_MAX_BYTES`，避免整文件读入内存+全量正则扫描）；/api/preview-locate 限 `.html`/`.htm` 扩展名（不符 400 bad_request）。
+- 修复（小项）：`element-pick` 行号接口结果加形状守护（startLine/endLine 均 number|null 才采用，否则按无行号降级）；`iconSvg()` attr 映射补 `strokeDasharray→stroke-dasharray`；`preview-inspect` 注入点正则补已知边界注释（页面 JS 字符串/注释含字面量 `</head>` 时可能注错位置）；prompt-attachments 误导性用例名改「无 cwd 原样输出」。
+- 影响范围：`packages/kernel`（ws-server、preview-inspect；集成测试补扩展名 400 + 大文件护栏 3 用例）、`packages/frontend`（store/browser、App、SessionView、BrowserPanel、element-pick、Icon；单测补 debounce 合并与形状守护 3 用例）。
+- 验证：kernel 单测 23 pass + typecheck；kernel 集成 preview-inspect 11 pass / preview-route 1 pass（分开跑）；前端单测 44 pass + typecheck；E2E browser-preview.spec.ts 5/5。
+
 ## 2026-08-21 — feat: 浏览器预览窗口模式与元素选中（分屏/全屏/浮动 + 元素行号定位发聊天）
 
 - 新增：预览支持与聊天分屏对半（可拖比例）、全屏、浮动窗（可拖位置/尺寸、状态持久化）；本地 html 预览内 hover 高亮元素，可将选中元素（含源码行号定位）以 chip 形式发送到聊天输入框；附件 chip 图标全部 SVG 化。

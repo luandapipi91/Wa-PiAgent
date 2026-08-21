@@ -58,9 +58,17 @@ export async function handleElementPicked(
 	if (!sessionId) return "no-session";
 	let loc = { startLine: null as number | null, endLine: null as number | null };
 	try {
-		loc = (await api.get(
+		const res = (await api.get(
 			`/api/preview-locate?path=${encodeURIComponent(path)}&selector=${encodeURIComponent(picked.selector)}`,
-		)) as typeof loc;
+		)) as { startLine?: unknown; endLine?: unknown } | null;
+		// 形状守护：startLine/endLine 均为 number|null 才采用，异常形状按无行号降级
+		if (
+			res &&
+			(typeof res.startLine === "number" || res.startLine === null) &&
+			(typeof res.endLine === "number" || res.endLine === null)
+		) {
+			loc = { startLine: res.startLine, endLine: res.endLine };
+		}
 	} catch {
 		/* 行号是增强信息：接口失败降级为无行号 chip，不阻塞 */
 	}

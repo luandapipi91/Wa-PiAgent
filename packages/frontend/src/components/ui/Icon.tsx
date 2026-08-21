@@ -399,7 +399,12 @@ export function iconSvg(name: IconName, size = 12, strokeWidth = 1.8): string {
 		const attrs = Object.entries(p)
 			.filter(([k]) => k !== "children")
 			.map(([k, v]) => {
-				const attr = k === "strokeWidth" ? "stroke-width" : k;
+				const attr =
+					k === "strokeWidth"
+						? "stroke-width"
+						: k === "strokeDasharray"
+							? "stroke-dasharray"
+							: k;
 				return `${attr}="${v}"`;
 			})
 			.join(" ");

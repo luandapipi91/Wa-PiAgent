@@ -25,7 +25,7 @@ test("element 附件序列化：endLine 缺失时用 startLine", () => {
 	expect(s).toBe("index.html [line: 7-7] [el: img]");
 });
 
-test("element 附件序列化：无 cwd 用原路径，反斜杠转正", () => {
+test("element 附件序列化：无 cwd 原样输出", () => {
 	const s = formatElementRef(
 		{ path: "C:\\proj\\index.html", elLabel: "div", startLine: 1, endLine: 2 },
 	);

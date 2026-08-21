@@ -65,7 +65,7 @@ import {
 } from "./recording-store";
 import { SseBus } from "./sse-bus";
 import { locateElement } from "./preview-locate";
-import { injectInspectScript } from "./preview-inspect";
+import { injectInspectScript, PREVIEW_PARSE_MAX_BYTES } from "./preview-inspect";
 import { HttpRouter } from "./http-router";
 import { registerProjectSessionRoutes } from "./routes/projects-sessions";
 import { registerChatRoutes } from "./routes/chat";
@@ -728,13 +728,22 @@ export class WSServer {
 					if (!path || !selector) {
 						return Response.json({ error: "bad_request" }, { status: 400 });
 					}
+					// 仅支持 html 文件定位（locateElement 按 html 行结构解析）
+					if (!/\.html?$/i.test(path)) {
+						return Response.json({ error: "bad_request" }, { status: 400 });
+					}
 					const { projects } = await this.opts.projectStore.load();
 					const r = isPathInProjects(path, projects);
 					if (r.kind === "forbidden")
 						return Response.json({ error: "forbidden" }, { status: 403 });
 					if (r.kind === "missing")
 						return Response.json({ error: "not_found" }, { status: 404 });
-					const loc = locateElement(await Bun.file(r.path).text(), selector);
+					const file = Bun.file(r.path);
+					// 大文件护栏：>10MB 不整读入内存做正则定位，直接降级 nulls（前端按无行号 chip 处理）
+					if (file.size > PREVIEW_PARSE_MAX_BYTES) {
+						return Response.json({ startLine: null, endLine: null });
+					}
+					const loc = locateElement(await file.text(), selector);
 					return Response.json({
 						startLine: loc?.startLine ?? null,
 						endLine: loc?.endLine ?? null,
@@ -915,8 +924,9 @@ export class WSServer {
 					const file = Bun.file(r.path);
 					if (file.size > 0) {
 						const mime = getMimeType(r.path);
-						// 本地 html 预览注入 inspect 脚本（元素选中）；其余资源原样直出
-						if (mime.startsWith("text/html")) {
+						// 本地 html 预览注入 inspect 脚本（元素选中）；其余资源原样直出。
+						// 大文件护栏：>10MB 跳过注入原样直出（避免整文件读入内存 + 全量正则扫描）
+						if (mime.startsWith("text/html") && file.size <= PREVIEW_PARSE_MAX_BYTES) {
 							return new Response(injectInspectScript(await file.text()), {
 								headers: {
 									"content-type": "text/html; charset=utf-8",

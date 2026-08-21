@@ -99,3 +99,49 @@ test("handleElementPicked：chip 追加到已有附件之后", async () => {
 	expect(atts.length).toBe(2);
 	expect(atts[1].kind).toBe("element");
 });
+
+/** 临时 stub fetch，让 api.get 返回指定 body；用后恢复 */
+async function withLocateBody(body: unknown, fn: () => Promise<void>) {
+	const origFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+	try {
+		await fn();
+	} finally {
+		globalThis.fetch = origFetch;
+	}
+}
+
+test("handleElementPicked：行号接口返回合法行号时 chip 带行号", async () => {
+	await withLocateBody({ startLine: 3, endLine: 5 }, async () => {
+		const r = await handleElementPicked(
+			"/proj/index.html",
+			{ selector: "html", tagName: "html", elLabel: "html" },
+			"s1",
+		);
+		expect(r).toBe("ok");
+		const atts = useComposerPrefsStore.getState().bySession["s1"]!.attachments;
+		const a = atts[0];
+		if (a.kind !== "element") throw new Error("期望 element 附件");
+		expect(a.name).toBe("index.html:3 <html>");
+		expect(a.startLine).toBe(3);
+		expect(a.endLine).toBe(5);
+	});
+});
+
+test("handleElementPicked：行号接口返回异常形状按无行号降级", async () => {
+	await withLocateBody({ startLine: "abc", endLine: {} }, async () => {
+		const r = await handleElementPicked(
+			"/proj/index.html",
+			{ selector: "html", tagName: "html", elLabel: "html" },
+			"s1",
+		);
+		expect(r).toBe("ok");
+		const atts = useComposerPrefsStore.getState().bySession["s1"]!.attachments;
+		const a = atts[0];
+		if (a.kind !== "element") throw new Error("期望 element 附件");
+		expect(a.name).toBe("index.html <html>");
+		expect(a.startLine).toBeNull();
+		expect(a.endLine).toBeNull();
+	});
+});
