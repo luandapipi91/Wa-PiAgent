@@ -48,7 +48,7 @@ import {
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import { extname, basename, join, resolve, sep, isAbsolute } from "node:path";
+import { extname, basename, dirname, join, resolve, sep, isAbsolute } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { extUiRegistry } from "./ext-ui-registry";
@@ -222,20 +222,36 @@ export function resolvePreviewPath(
 	return { ok: true, path: realCandidate };
 }
 
+export type PathInProjectsResult =
+	| { kind: "exists"; path: string }
+	| { kind: "missing" }
+	| { kind: "forbidden" };
+
 /**
  * 绝对路径项目内校验（/api/preview-locate 用，与 resolvePreviewPath 同一 allowlist 口径）：
- * realpath 后落在某项目 cwd（同样 realpath 后）内 → 返回 realpath；否则 null。
+ * - realpath 后落在某项目 cwd（同样 realpath 后）内 → exists（附 realpath）；
+ * - 文件本身不存在（realpath 失败）时改判父目录：父目录 realpath 后落在项目内 → missing
+ *   （区分"项目内但文件不存在"，让路由能回 404 而非一刀切 403）；
+ * - 其余（非绝对路径、父目录也不存在、落在项目外）→ forbidden。
+ * symlink 逃逸防护口径不变：所有比较都基于 realpath 结果。
  */
 export function isPathInProjects(
 	absPath: string,
 	projects: { cwd: string }[],
-): string | null {
-	if (!isAbsolute(absPath)) return null;
+): PathInProjectsResult {
+	if (!isAbsolute(absPath)) return { kind: "forbidden" };
 	let real: string;
+	let missing = false;
 	try {
 		real = realpathSync(absPath);
 	} catch {
-		return null;
+		// 文件不存在：realpath 其父目录判定项目归属
+		try {
+			real = realpathSync(dirname(absPath));
+		} catch {
+			return { kind: "forbidden" };
+		}
+		missing = true;
 	}
 	for (const p of projects) {
 		if (!p.cwd) continue;
@@ -245,9 +261,11 @@ export function isPathInProjects(
 		} catch {
 			continue;
 		}
-		if (real === projectReal || real.startsWith(projectReal + sep)) return real;
+		if (real === projectReal || real.startsWith(projectReal + sep)) {
+			return missing ? { kind: "missing" } : { kind: "exists", path: real };
+		}
 	}
-	return null;
+	return { kind: "forbidden" };
 }
 
 export function getMimeType(filePath: string): string {
@@ -847,19 +865,20 @@ export class WSServer {
 					return new Response("Not found", { status: 404 });
 				}
 				if (url.pathname === "/api/preview-locate") {
+					if (req.method !== "GET")
+						return new Response("Method Not Allowed", { status: 405 });
 					const path = url.searchParams.get("path");
 					const selector = url.searchParams.get("selector");
 					if (!path || !selector) {
 						return Response.json({ error: "bad_request" }, { status: 400 });
 					}
 					const { projects } = await this.opts.projectStore.load();
-					const real = isPathInProjects(path, projects);
-					if (!real) return Response.json({ error: "forbidden" }, { status: 403 });
-					const file = Bun.file(real);
-					if (!(await file.exists())) {
+					const r = isPathInProjects(path, projects);
+					if (r.kind === "forbidden")
+						return Response.json({ error: "forbidden" }, { status: 403 });
+					if (r.kind === "missing")
 						return Response.json({ error: "not_found" }, { status: 404 });
-					}
-					const loc = locateElement(await file.text(), selector);
+					const loc = locateElement(await Bun.file(r.path).text(), selector);
 					return Response.json({
 						startLine: loc?.startLine ?? null,
 						endLine: loc?.endLine ?? null,

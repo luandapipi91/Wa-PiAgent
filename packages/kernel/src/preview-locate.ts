@@ -4,6 +4,11 @@
  * 段生成规则与前端 inspect 脚本 buildSelector 严格一致：
  * - 有 id → `tag#id`；否则 → `tag:nth-of-type(n)`（n 为同标签兄弟序号，从 1 起）
  * - 根元素（无父级，即 <html>）→ 裸 tag（body 有父元素，不特判，用 nth 形式）
+ *
+ * 已知限制（V1 接受，不补规则）：浏览器会隐式闭合的 HTML（如 `<p>one<p>two`、
+ * `<li>` 省略闭合）本解析器按字面嵌套处理，nth 计数与真实 DOM 不一致，定位返回
+ * null——前端 chip 降级为无行号展示，不影响主流程。另：无闭合 `</script>` 的
+ * 残缺文件内容不抹除，同为已知边界。
  */
 
 const VOID_TAGS = new Set([
