@@ -64,6 +64,7 @@ import {
 	discardRecording,
 } from "./recording-store";
 import { SseBus } from "./sse-bus";
+import { locateElement } from "./preview-locate";
 import { HttpRouter } from "./http-router";
 import { registerProjectSessionRoutes } from "./routes/projects-sessions";
 import { registerChatRoutes } from "./routes/chat";
@@ -219,6 +220,34 @@ export function resolvePreviewPath(
 		return { ok: false, reason: "forbidden" };
 	}
 	return { ok: true, path: realCandidate };
+}
+
+/**
+ * 绝对路径项目内校验（/api/preview-locate 用，与 resolvePreviewPath 同一 allowlist 口径）：
+ * realpath 后落在某项目 cwd（同样 realpath 后）内 → 返回 realpath；否则 null。
+ */
+export function isPathInProjects(
+	absPath: string,
+	projects: { cwd: string }[],
+): string | null {
+	if (!isAbsolute(absPath)) return null;
+	let real: string;
+	try {
+		real = realpathSync(absPath);
+	} catch {
+		return null;
+	}
+	for (const p of projects) {
+		if (!p.cwd) continue;
+		let projectReal: string;
+		try {
+			projectReal = realpathSync(p.cwd);
+		} catch {
+			continue;
+		}
+		if (real === projectReal || real.startsWith(projectReal + sep)) return real;
+	}
+	return null;
 }
 
 export function getMimeType(filePath: string): string {
@@ -816,6 +845,25 @@ export class WSServer {
 						});
 					}
 					return new Response("Not found", { status: 404 });
+				}
+				if (url.pathname === "/api/preview-locate") {
+					const path = url.searchParams.get("path");
+					const selector = url.searchParams.get("selector");
+					if (!path || !selector) {
+						return Response.json({ error: "bad_request" }, { status: 400 });
+					}
+					const { projects } = await this.opts.projectStore.load();
+					const real = isPathInProjects(path, projects);
+					if (!real) return Response.json({ error: "forbidden" }, { status: 403 });
+					const file = Bun.file(real);
+					if (!(await file.exists())) {
+						return Response.json({ error: "not_found" }, { status: 404 });
+					}
+					const loc = locateElement(await file.text(), selector);
+					return Response.json({
+						startLine: loc?.startLine ?? null,
+						endLine: loc?.endLine ?? null,
+					});
 				}
 				if (url.pathname.startsWith("/preview/")) {
 					const { projects } = await this.opts.projectStore.load();
