@@ -1,3 +1,11 @@
+## 2026-08-22 — test: 补 browser_* 工具可见性控制验证测试（零新机制）
+
+- 新增：命名智能体 browser_* 默认开（DEFAULT_AGENT_TOOLS 已含 → listGlobalTools 自动列出 → ToolsTab 自动出现 4 个开关，`tools: []` = 全量默认 = 默认开，取消勾选转显式白名单即关闭）；只读内置子智能体（Explore/Plan）默认关（agent-manager.ts 硬编码白名单 read/bash/grep/find/ls 天然不含 browser_*）。
+- 落点为 3 个验证型测试：kernel `listGlobalTools` 断言含 4 个 browser_*（source='内置'）；只读内置子智能体 spawn 配置 tools 白名单逐字等于 [read,bash,grep,find,ls] 不含 browser_*；前端 ToolsTab 渲染 4 个 browser_* 开关且默认勾选、点掉后 draft.tools 转显式白名单不含该项。
+- 影响范围：`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/agent-manager-subagent-overrides.test.ts`、`packages/frontend/tests/AgentConfig.test.tsx`（零生产代码改动）。
+- 验证：kernel 112 pass；前端 AgentConfig.test.tsx 32 pass 全绿。
+
+
 ## 2026-08-22 — test(kernel): Layer 4 E2E（真实 bridge 链路 + 白名单验证）
 
 - 新增：`packages/kernel/tests/browser-e2e.test.ts`。真实链路 E2E：起真实 WSServer + 真实 AgentManager（不注入 NOOP_BROWSER_MANAGER，走生产默认 `new BrowserManager()`），`ensureStarted` 会话后加载真实扩展源码配 env，4 个 browser_* 工具 execute 经真实 HTTP POST /bridge/tool 到 kernel，完整走 browser_navigate（data: URL）→ browser_evaluate（读 h1）→ browser_screenshot（path 模式，断言落在 `${WA_PI_DIR}/tmp/browser-screenshots` 且文件非空）→ browser_close；引擎不可用时探测 skip 不算失败。白名单验证：agent tools 显式白名单不含 browser_* 时 `--tools` 不含 4 个 browser_*（read/bash 保留），反向含 browser_navigate 时 `--tools` 含之（NOOP_BROWSER_MANAGER，不测真实浏览器）。测试截图/临时文件含失败路径全部清理。
