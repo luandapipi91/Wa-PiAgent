@@ -1,6 +1,12 @@
 // packages/kernel/src/npm-package-service.ts
 import { join } from "node:path";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 
 export interface NpmPackageServiceOpts {
   /** 包管理器命令，默认 ["bun"]，从 settings.json.npmCommand 读取 */
@@ -25,10 +31,18 @@ export class NpmPackageService {
     this.opTimeoutMs = opts.opTimeoutMs ?? NPM_OP_TIMEOUT_MS;
     // 确保 runtimeDir 及其 package.json 始终存在，否则 bun add/remove 的 cwd
     // 和 package.json 缺失会导致 "No package.json, so nothing to remove"。
-    if (!existsSync(this.runtimeDir)) mkdirSync(this.runtimeDir, { recursive: true });
+    if (!existsSync(this.runtimeDir))
+      mkdirSync(this.runtimeDir, { recursive: true });
     const pkgJson = join(this.runtimeDir, "package.json");
     if (!existsSync(pkgJson)) {
-      writeFileSync(pkgJson, JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }, null, 2) + "\n");
+      writeFileSync(
+        pkgJson,
+        JSON.stringify(
+          { name: "wa-pi-runtime", private: true, type: "module" },
+          null,
+          2,
+        ) + "\n",
+      );
     }
   }
 
@@ -45,7 +59,10 @@ export class NpmPackageService {
   /** 执行包管理器子进程，返回 exitCode + stderr；onProgress 按行转发 stdout/stderr。
    *  超时（默认 opTimeoutMs）kill 进程并返回 exitCode=-1 + 超时说明，
    *  由调用方统一走「exitCode !== 0 → throw」的既有错误路径。 */
-  private async spawn(args: string[], onProgress?: (line: string) => void): Promise<{ exitCode: number; stderr: string }> {
+  private async spawn(
+    args: string[],
+    onProgress?: (line: string) => void,
+  ): Promise<{ exitCode: number; stderr: string }> {
     const [cmd, ...rest] = [...this.npmCommand, ...args];
     const resolvedCmd = this.resolveCommand(cmd);
     const proc = Bun.spawn([resolvedCmd, ...rest], {
@@ -60,7 +77,11 @@ export class NpmPackageService {
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      try { proc.kill(); } catch { /* 进程可能已退出 */ }
+      try {
+        proc.kill();
+      } catch {
+        /* 进程可能已退出 */
+      }
     }, this.opTimeoutMs);
     try {
       // 并发排空 stdout/stderr 防止管道阻塞；按行回推进度
@@ -82,7 +103,11 @@ export class NpmPackageService {
   }
 
   /** 安装 npm 包 */
-  async install(name: string, version?: string, onProgress?: (line: string) => void): Promise<{ version: string }> {
+  async install(
+    name: string,
+    version?: string,
+    onProgress?: (line: string) => void,
+  ): Promise<{ version: string }> {
     const pkg = version ? `${name}@${version}` : name;
     const { exitCode, stderr } = await this.spawn(["add", pkg], onProgress);
     if (exitCode !== 0) {
@@ -107,7 +132,10 @@ export class NpmPackageService {
    *  package.json（save-exact），而 `update` 只在现有 semver 范围内重新解析——
    *  精确版本范围内只有自身一个版本，导致 exit 0 但版本不变（升级静默失败）。
    *  `add` 会强制解析到最新版并写入，与 install 行为一致。 */
-  async upgrade(name: string, onProgress?: (line: string) => void): Promise<{ version: string }> {
+  async upgrade(
+    name: string,
+    onProgress?: (line: string) => void,
+  ): Promise<{ version: string }> {
     const { exitCode, stderr } = await this.spawn(["add", name], onProgress);
     if (exitCode !== 0) {
       throw new Error(`升级失败: ${stderr || `exit code ${exitCode}`}`);
@@ -147,8 +175,12 @@ export class NpmPackageService {
     }
 
     // 校验：package.json 每个直接依赖都能在 node_modules 读到版本
-    const deps = JSON.parse(readFileSync(join(this.runtimeDir, "package.json"), "utf8")).dependencies ?? {};
-    const missing = Object.keys(deps).filter((name) => !this.getInstalledVersion(name));
+    const deps =
+      JSON.parse(readFileSync(join(this.runtimeDir, "package.json"), "utf8"))
+        .dependencies ?? {};
+    const missing = Object.keys(deps).filter(
+      (name) => !this.getInstalledVersion(name),
+    );
     if (missing.length > 0) {
       throw new Error(`修复后仍缺少依赖: ${missing.join(", ")}`);
     }
@@ -191,7 +223,12 @@ export class NpmPackageService {
   /** 读取 node_modules 中已安装包的版本 */
   getInstalledVersion(name: string): string | undefined {
     try {
-      const pkgJson = join(this.runtimeDir, "node_modules", name, "package.json");
+      const pkgJson = join(
+        this.runtimeDir,
+        "node_modules",
+        name,
+        "package.json",
+      );
       if (!existsSync(pkgJson)) return undefined;
       const pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
       return pkg.version;
@@ -203,7 +240,12 @@ export class NpmPackageService {
   /** 读取 node_modules 中已安装包的 description */
   getDescription(name: string): string | undefined {
     try {
-      const pkgJson = join(this.runtimeDir, "node_modules", name, "package.json");
+      const pkgJson = join(
+        this.runtimeDir,
+        "node_modules",
+        name,
+        "package.json",
+      );
       if (!existsSync(pkgJson)) return undefined;
       const pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
       return pkg.description;

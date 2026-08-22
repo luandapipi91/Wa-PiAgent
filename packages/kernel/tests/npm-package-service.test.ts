@@ -1,13 +1,22 @@
 // packages/kernel/tests/npm-package-service.test.ts
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drainLines, NpmPackageService } from "../src/npm-package-service";
 
 let dir: string;
 beforeEach(() => {
-  dir = join(import.meta.dir, ".tmp-npm-svc-" + Math.random().toString(36).slice(2));
+  dir = join(
+    import.meta.dir,
+    ".tmp-npm-svc-" + Math.random().toString(36).slice(2),
+  );
   mkdirSync(dir, { recursive: true });
   mkdirSync(join(dir, "node_modules"), { recursive: true });
 });
@@ -16,7 +25,10 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 test("getInstalledVersion 读取 node_modules 中 package.json 的版本", () => {
   const pkgDir = join(dir, "node_modules", "test-pkg");
   mkdirSync(pkgDir, { recursive: true });
-  writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "test-pkg", version: "1.2.3" }));
+  writeFileSync(
+    join(pkgDir, "package.json"),
+    JSON.stringify({ name: "test-pkg", version: "1.2.3" }),
+  );
 
   const svc = new NpmPackageService(dir);
   expect(svc.getInstalledVersion("test-pkg")).toBe("1.2.3");
@@ -30,7 +42,14 @@ test("getInstalledVersion 包不存在返回 undefined", () => {
 test("getDescription 返回 description 字段", () => {
   const pkgDir = join(dir, "node_modules", "desc-pkg");
   mkdirSync(pkgDir, { recursive: true });
-  writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "desc-pkg", version: "1.0.0", description: "A test package" }));
+  writeFileSync(
+    join(pkgDir, "package.json"),
+    JSON.stringify({
+      name: "desc-pkg",
+      version: "1.0.0",
+      description: "A test package",
+    }),
+  );
 
   const svc = new NpmPackageService(dir);
   expect(svc.getDescription("desc-pkg")).toBe("A test package");
@@ -68,7 +87,10 @@ function streamOf(chunks: string[]): ReadableStream<Uint8Array> {
 
 test("drainLines 按行回调并返回完整文本", async () => {
   const lines: string[] = [];
-  const text = await drainLines(streamOf(["解析依赖\n", "下载中\n", "完成\n"]), (l) => lines.push(l));
+  const text = await drainLines(
+    streamOf(["解析依赖\n", "下载中\n", "完成\n"]),
+    (l) => lines.push(l),
+  );
   expect(lines).toEqual(["解析依赖", "下载中", "完成"]);
   expect(text).toBe("解析依赖\n下载中\n完成\n");
 });
@@ -76,7 +98,9 @@ test("drainLines 按行回调并返回完整文本", async () => {
 test("drainLines 正确处理跨 chunk 边界的行", async () => {
   // 同一行被拆进多个 chunk，换行符也可能落在 chunk 边界
   const lines: string[] = [];
-  await drainLines(streamOf(["解析", "依赖\n下载", "-pkg@1.0.0\n"]), (l) => lines.push(l));
+  await drainLines(streamOf(["解析", "依赖\n下载", "-pkg@1.0.0\n"]), (l) =>
+    lines.push(l),
+  );
   expect(lines).toEqual(["解析依赖", "下载-pkg@1.0.0"]);
 });
 
@@ -100,8 +124,11 @@ test("drainLines null 流返回空串", async () => {
 test("NpmPackageService.install 把子进程输出按行流式回推", async () => {
   const realDir = mkdtempSync(join(tmpdir(), "npm-svc-"));
   try {
-    const script = "console.error('解析依赖'); console.error('下载 demo@1.0.0');";
-    const svc = new NpmPackageService(realDir, { npmCommand: ["bun", "-e", script] });
+    const script =
+      "console.error('解析依赖'); console.error('下载 demo@1.0.0');";
+    const svc = new NpmPackageService(realDir, {
+      npmCommand: ["bun", "-e", script],
+    });
     const lines: string[] = [];
     // 真实环境下 getInstalledVersion 找不到包会抛错；只验证流式行在抛错前已回推
     await expect(
@@ -117,12 +144,13 @@ test("NpmPackageService.install 把子进程输出按行流式回推", async () 
 test("NpmPackageService.upgrade 把子进程输出按行流式回推", async () => {
   const realDir = mkdtempSync(join(tmpdir(), "npm-svc-"));
   try {
-    const script = "console.error('解析依赖'); console.error('升级 demo@2.0.0');";
-    const svc = new NpmPackageService(realDir, { npmCommand: ["bun", "-e", script] });
+    const script =
+      "console.error('解析依赖'); console.error('升级 demo@2.0.0');";
+    const svc = new NpmPackageService(realDir, {
+      npmCommand: ["bun", "-e", script],
+    });
     const lines: string[] = [];
-    await expect(
-      svc.upgrade("demo", (l) => lines.push(l)),
-    ).rejects.toThrow();
+    await expect(svc.upgrade("demo", (l) => lines.push(l))).rejects.toThrow();
     expect(lines).toEqual(["解析依赖", "升级 demo@2.0.0"]);
   } finally {
     rmSync(realDir, { recursive: true, force: true });
@@ -139,7 +167,9 @@ test("NpmPackageService.upgrade 用 add 而非 update 强制解析最新版", as
     // 打印 npmCommand 之后的第一个位置参数（即 add/update 子命令）
     // bun -e <script> add demo → process.argv = [bun, "add", "demo"]
     const script = "console.error(process.argv[1]);";
-    const svc = new NpmPackageService(realDir, { npmCommand: ["bun", "-e", script] });
+    const svc = new NpmPackageService(realDir, {
+      npmCommand: ["bun", "-e", script],
+    });
     const lines: string[] = [];
     await expect(svc.upgrade("demo", (l) => lines.push(l))).rejects.toThrow();
     // spawn 把 npmCommand + args 拼接，脚本里 process.argv[2] = 第一个 args（add/update）
@@ -153,14 +183,14 @@ test("NpmPackageService.upgrade 用 add 而非 update 强制解析最新版", as
 // install 超时：子进程挂起时按 opTimeoutMs 终止并报超时错误
 // 离线/镜像源不可达时 bun add 会挂起，无超时则前端安装占位永远转圈
 test("install 超时：子进程挂起时按 opTimeoutMs 终止并报超时错误", async () => {
-	const svc = new NpmPackageService(dir, {
-		// bun -e 起一个 30s 空转的假包管理器（多余参数进 argv，不影响脚本执行）
-		npmCommand: [process.execPath, "-e", "setTimeout(() => {}, 30000)"],
-		opTimeoutMs: 300,
-	});
-	const startedAt = Date.now();
-	await expect(svc.install("some-pkg")).rejects.toThrow("超时");
-	expect(Date.now() - startedAt).toBeLessThan(5_000);
+  const svc = new NpmPackageService(dir, {
+    // bun -e 起一个 30s 空转的假包管理器（多余参数进 argv，不影响脚本执行）
+    npmCommand: [process.execPath, "-e", "setTimeout(() => {}, 30000)"],
+    opTimeoutMs: 300,
+  });
+  const startedAt = Date.now();
+  await expect(svc.install("some-pkg")).rejects.toThrow("超时");
+  expect(Date.now() - startedAt).toBeLessThan(5_000);
 }, 10_000);
 
 // ===== repair: 全量重建依赖目录 =====
@@ -168,10 +198,15 @@ test("install 超时：子进程挂起时按 opTimeoutMs 终止并报超时错�
 test("repair 先删 node_modules/bun.lock 再安装：spawn 前删除已生效", async () => {
   writeFileSync(join(dir, "bun.lock"), "");
   writeFileSync(join(dir, "node_modules", ".marker"), "x");
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }));
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }),
+  );
   // 不存在的命令：Bun.spawn 同步抛 not-found（同上方既有测试的模式），
   // 捕获到它即证明删除阶段已完成、流程到达 spawn
-  const svc = new NpmPackageService(dir, { npmCommand: ["this-cmd-does-not-exist-xyz"] });
+  const svc = new NpmPackageService(dir, {
+    npmCommand: ["this-cmd-does-not-exist-xyz"],
+  });
   try {
     await svc.repair();
     expect.unreachable("expected spawn to throw");
@@ -185,8 +220,13 @@ test("repair 先删 node_modules/bun.lock 再安装：spawn 前删除已生效",
 test("repair 幂等：目录/lockfile 不存在时跳过删除直接到达 spawn", async () => {
   // beforeEach 已建 node_modules，先删掉模拟不存在的场景
   rmSync(join(dir, "node_modules"), { recursive: true, force: true });
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }));
-  const svc = new NpmPackageService(dir, { npmCommand: ["this-cmd-does-not-exist-xyz"] });
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }),
+  );
+  const svc = new NpmPackageService(dir, {
+    npmCommand: ["this-cmd-does-not-exist-xyz"],
+  });
   try {
     await svc.repair();
     expect.unreachable("expected spawn to throw");
@@ -197,8 +237,13 @@ test("repair 幂等：目录/lockfile 不存在时跳过删除直接到达 spawn
 });
 
 test("repair 安装退出非 0 时抛「修复失败」", async () => {
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }));
-  const svc = new NpmPackageService(dir, { npmCommand: [process.execPath, "-e", "process.exit(1)"] });
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }),
+  );
+  const svc = new NpmPackageService(dir, {
+    npmCommand: [process.execPath, "-e", "process.exit(1)"],
+  });
   try {
     await svc.repair();
     expect.unreachable("expected repair to fail");
@@ -213,24 +258,38 @@ test("repair 成功路径：spawn 重建依赖后校验通过", async () => {
   const depDir = join(dir, "node_modules", "fake-dep");
   writeFileSync(
     join(dir, "package.json"),
-    JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module", dependencies: { "fake-dep": "^1.0.0" } }),
+    JSON.stringify({
+      name: "wa-pi-runtime",
+      private: true,
+      type: "module",
+      dependencies: { "fake-dep": "^1.0.0" },
+    }),
   );
   const script =
     `require('node:fs').mkdirSync(${JSON.stringify(depDir)},{recursive:true});` +
     `require('node:fs').writeFileSync(${JSON.stringify(join(depDir, "package.json"))},JSON.stringify({name:'fake-dep',version:'1.0.0'}))`;
   // spawn 实际执行 `bun -e <script> install`：install 成为脚本 argv，不影响脚本执行，退出 0
-  const svc = new NpmPackageService(dir, { npmCommand: [process.execPath, "-e", script] });
+  const svc = new NpmPackageService(dir, {
+    npmCommand: [process.execPath, "-e", script],
+  });
   await svc.repair(); // 不抛即通过
 });
 
 test("repair 校验失败：install 成功但依赖缺失时列出缺失包", async () => {
   writeFileSync(
     join(dir, "package.json"),
-    JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module", dependencies: { "missing-a": "^1.0.0", "missing-b": "^2.0.0" } }),
+    JSON.stringify({
+      name: "wa-pi-runtime",
+      private: true,
+      type: "module",
+      dependencies: { "missing-a": "^1.0.0", "missing-b": "^2.0.0" },
+    }),
   );
   // 注：-e 脚本必须非空（用 no-op "0"）：当前 Bun 对空 -e 脚本会把位置参数 install
   // 当作 package.json script 名去 run，exit 1「Script not found」到不了校验分支
-  const svc = new NpmPackageService(dir, { npmCommand: [process.execPath, "-e", "0"] });
+  const svc = new NpmPackageService(dir, {
+    npmCommand: [process.execPath, "-e", "0"],
+  });
   try {
     await svc.repair();
     expect.unreachable("expected repair to fail on missing deps");
