@@ -243,6 +243,12 @@ const ICONS = {
 			<path d="M9 21h6M12 17v4" />
 		</>
 	),
+	columns: (
+		<>
+			<rect x="3" y="4.5" width="18" height="15" rx="2" />
+			<path d="M12 4.5v15" />
+		</>
+	),
 	inbox: (
 		<>
 			<path d="M5.5 5.2L2.5 12v6a2 2 0 0 0 2 2h15a2 2 0 0 0 2-2v-6l-3-6.8a2 2 0 0 0-1.8-1.2H7.3a2 2 0 0 0-1.8 1.2z" />
@@ -323,8 +329,21 @@ const ICONS = {
 			<circle cx="16" cy="12.5" r="0.6" {...F} />
 		</>
 	),
+	float: (
+		<>
+			<rect x="3.5" y="4.5" width="12" height="9" rx="2" />
+			<rect x="8.5" y="10" width="12" height="9" rx="2" />
+		</>
+	),
 	command: (
 		<path d="M9 9h6v6H9zM9 9H7.5A2.5 2.5 0 1 1 10 6.5V9zM15 9V6.5A2.5 2.5 0 1 1 16.5 9H15zM9 15H7.5A2.5 2.5 0 1 0 10 17.5V15zM15 15v2.5a2.5 2.5 0 1 0 2.5-2.5H15z" />
+	),
+	// 预览元素附件（inspect 语义）：虚线方框 + 点击光标
+	element: (
+		<>
+			<rect x="3.5" y="3.5" width="13" height="13" rx="2" strokeDasharray="3 2.5" />
+			<path d="M13.5 13.5l7 2.8-2.9.9-.9 2.9-2.2-6.6z" {...F} />
+		</>
 	),
 } as const satisfies Record<string, ReactNode>;
 
@@ -380,7 +399,12 @@ export function iconSvg(name: IconName, size = 12, strokeWidth = 1.8): string {
 		const attrs = Object.entries(p)
 			.filter(([k]) => k !== "children")
 			.map(([k, v]) => {
-				const attr = k === "strokeWidth" ? "stroke-width" : k;
+				const attr =
+					k === "strokeWidth"
+						? "stroke-width"
+						: k === "strokeDasharray"
+							? "stroke-dasharray"
+							: k;
 				return `${attr}="${v}"`;
 			})
 			.join(" ");

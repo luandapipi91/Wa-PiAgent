@@ -1,4 +1,19 @@
-## [Unreleased]
+## 2026-08-21 — fix: 浏览器预览终审修复波（拖拽渲染性能 / 大文件护栏 / 小项收敛）
+
+- 修复（性能）：浏览器预览拖拽期 60Hz 全树重渲染与同步写盘——`browser` store 持久化改 trailing debounce（每 key 独立 timer，默认 300ms，`setPersistDebounceMs` 可注入，测试置 0 同步写保持确定性）；`SessionView` 用 `React.memo` 包裹（props 不变跳过含 MessageList 的 reconcile）；`BrowserPanel` 整订阅改逐字段 selector（不再随 splitRatio/floatRect 每帧重渲染）。
+- 修复（布局）：split 模式聊天侧宽度改 `calc(x% - 2px)`，消除聊天侧+预览侧+分隔条合计 100%+2px 导致预览右缘被裁约 2px。
+- 修复（护栏）：html >10MB 时 /preview 跳过 inspect 注入原样直出、/api/preview-locate 直接返回 nulls（共享常量 `PREVIEW_PARSE_MAX_BYTES`，避免整文件读入内存+全量正则扫描）；/api/preview-locate 限 `.html`/`.htm` 扩展名（不符 400 bad_request）。
+- 修复（小项）：`element-pick` 行号接口结果加形状守护（startLine/endLine 均 number|null 才采用，否则按无行号降级）；`iconSvg()` attr 映射补 `strokeDasharray→stroke-dasharray`；`preview-inspect` 注入点正则补已知边界注释（页面 JS 字符串/注释含字面量 `</head>` 时可能注错位置）；prompt-attachments 误导性用例名改「无 cwd 原样输出」。
+- 影响范围：`packages/kernel`（ws-server、preview-inspect；集成测试补扩展名 400 + 大文件护栏 3 用例）、`packages/frontend`（store/browser、App、SessionView、BrowserPanel、element-pick、Icon；单测补 debounce 合并与形状守护 3 用例）。
+- 验证：kernel 单测 23 pass + typecheck；kernel 集成 preview-inspect 11 pass / preview-route 1 pass（分开跑）；前端单测 44 pass + typecheck；E2E browser-preview.spec.ts 5/5。
+
+## 2026-08-21 — feat: 浏览器预览窗口模式与元素选中（分屏/全屏/浮动 + 元素行号定位发聊天）
+
+- 新增：预览支持与聊天分屏对半（可拖比例）、全屏、浮动窗（可拖位置/尺寸、状态持久化）；本地 html 预览内 hover 高亮元素，可将选中元素（含源码行号定位）以 chip 形式发送到聊天输入框；附件 chip 图标全部 SVG 化。
+- 修复：`/api/preview-locate` 被 `/api/` 统一分发遮蔽（HttpRouter 未命中即 404，该分支不可达），元素行号定位从未生效；整块移至 `/api/` 分发之前。`preview-route` 集成断言适配注入分支的 `text/html; charset=utf-8`。
+- 影响范围：`packages/kernel`（/preview 注入、/preview-inspect.js、/api/preview-locate、ws-server 路由顺序）、`packages/frontend`（App 布局、BrowserPanel、FloatWindow、element-pick、AttachmentChip/Icon）、`packages/shared`（element 附件类型）；测试：kernel 集成 9 用例（preview-inspect 8 + preview-route 补注入断言）、Playwright E2E 5 用例。
+
+## 2026-08-21 — v0.2.15
 
 ### 修复
 
@@ -8,7 +23,17 @@
   - 修复：isEngineUnavailable 正则过宽误报，收紧为 spawn/executable 相关的具体签名。
   - 测试：补坐标 click 与超长 eval 截断 2 个用例（browser-tools 11 用例 + browser-manager 6 用例全 PASS）。
   - 影响范围：packages/kernel/src/browser-manager.ts、packages/kernel/src/browser-tools.ts、packages/kernel/tests/browser-tools.test.ts。
-
+- 本地代理中继连接泄漏（bun 1.4 暴露）：隧道/转发一端关闭时另一端残留半关闭连接，`relay.close()` 永远挂起、真实场景连接泄漏。修复 `establishTunnel` 与 `forwardPlain` 双向 pipe 对端清理（client↔outbound 互毁）。
+  - 影响范围：`packages/kernel/src/proxy-relay.ts`；验证：net-log 中继日志接入测试 12 用例通过（此前 bun 1.4 下稳定超时）。
+- 测试环境耦合修复：`readSystemProxy` 集成测试原断言「返回值不可能是回环地址」，但用户机器开着本地代理（如 Clash 127.0.0.1:7890）时系统代理读到回环地址是合法行为；移除过强断言，回环过滤语义保留在 systemProxyFromEnv 单测。
+  - 影响范围：`packages/kernel/src/__tests__/settings-proxy.test.ts`；验证：settings-proxy 24 用例通过。
+- kernel 全量测试不再卡死正在运行的正式桌面应用（聊天无响应）
+  - 根因：① kernel 全量测试（bun ./scripts/test.ts）与正式应用共享 `~/.pi/agent`（@wa-pi/shared 的 WA_PI_DIR 默认值），15+ 个测试并发读写同一目录（tmp/sysprompts、settings.json、sessions 等）→ 文件竞争；② bun test 默认 --parallel=CPU 核数 + 每文件内 20 并发 + 各测试 spawn 子进程 → CPU 瞬间满载 → 正式 kernel 事件循环被饿死 → 无响应（真实发生，被迫重启应用）。
+  - 调整（tests/setup.ts）：preload 强制把 WA_PI_DIR / PI_CODING_AGENT_DIR 指向 mkdtemp 临时目录（可用 WA_PI_TEST_DIR 固定），测试读写的都是隔离数据，spawn 的子进程继承隔离 env；预创建 sessions/tmp/sysprompts 等标准目录。
+  - 调整（scripts/test.ts）：全量测试加 `--parallel=4 --max-concurrency=8` 限制 worker 与并发，避免 CPU 满载。
+  - 调整（channel-manager.test.ts）：44 处固定 50ms 等待在负载下不够（flaky），放宽到 500ms；「/new 指令」「智能体删除兜底」改为条件轮询。
+  - 调整（ws-extension-skill-refresh.test.ts）：SSE 等待改 pump 收集模式（消除 Promise.race 悬空读）+ 操作幂等超时重试 + 单测超时 5s→15s（SSE 等待 10s 大于 bun 默认 5s）；历史 flaky 根治。
+  - 影响范围：packages/kernel/tests/setup.ts、scripts/test.ts、channel-manager.test.ts、ws-extension-skill-refresh.test.ts；验证：受限全量 1254 tests / 110 files / 176s 全部通过，正式 ~/.pi/agent 零污染、9778 正常运行。
 - dev 启动：vite 强制用 bun runtime（`bun --bun`）。vite bin 脚本 shebang 为 `#!/usr/bin/env node`，默认解析到系统 node（本机 v14 过旧，不支持 vite 8 的 `??=` 等语法导致启动报 SyntaxError）；`--bun` 把 node 符号链接指向 bun，vite 在 bun runtime 下正常启动，与 Node ≥20 要求解耦（scripts/dev.ts spawnFrontend）。
 
 ### 新增
@@ -18,6 +43,18 @@
   - 新增：browser-tools.ts 执行逻辑——handleBrowserTool(manager, sessionId, tool, params) 按工具分派返回 BridgeToolResult；超时用 Promise.race 包装（页面加载 120s、操作 60s）、ERR_INVALID_STATE 并发重试（最多 3 次×100ms 递增间隔）、eval 结果超 8000 字符截断、截图默认落盘到截图目录（path 模式）或返回 data URL（base64 模式）、引擎不可用错误提示含 BUN_CHROME_PATH 指引。
   - 测试：browser-manager 6 用例、browser-tools 9 用例全 PASS（fake view + fake manager 注入）。
   - 影响范围：packages/kernel/src/browser-manager.ts、packages/kernel/src/browser-tools.ts、packages/kernel/tests/browser-manager.test.ts、packages/kernel/tests/browser-tools.test.ts。
+- bridge-extension 兼容 bun --compile 单二进制（POC 支撑，mac 验证用）
+  - 背景：Windows 真机 POC 验证「kernel 用 bun --compile 编译成单 exe + --asset 嵌入桥接文件」可行——jiti 扩展加载器在编译产物中正常解析（agent 能创建到「未选择模型」一步，与解释运行同线）。此提交是 POC 需要的两处代码支撑。
+  - 实现：`packages/kernel/src/bridge-extension.ts` ① 三个 resolve 函数加 `__dirname/assets/` 子目录回退（bun --compile --asset 把 wa-pi-bridge.extension.ts/tool-schemas.ts/file-snapshot.ts 嵌入到 import.meta.dir/assets/）；② `ensureBridgeExtension` 的 copyFile 改 readFileSync+writeFile（编译产物虚拟 FS 不支持 copyFile，existsSync 可读但 copyFile ENOENT）。
+  - 影响范围：`packages/kernel/src/bridge-extension.ts`；测试：bridge-extension 10 例全绿、kernel typecheck 无新增错误（既有 mcp-connector 1 例除外）。mac 待验证：darwin 交叉编译、原生依赖（@napi-rs/keyring）架构变体加载、codesign/Gatekeeper。
+- dev 启动自动下载 bun 1.4.0（版本不足不再直接报错退出）
+  - 背景：上一提交加了版本守卫，dev 机 bun <1.4.0 时打印中文错误并 exit(1)，用户需手动升级 npm 包装的 bun（`npm install -g bun@latest`），体验差且与打包版（sidecar 固定 1.4.0）行为不一致。
+  - 实现：`scripts/bun-dev-runtime.ts`（新增）——下载 bun 1.4.0 到用户缓存目录（`%LOCALAPPDATA%\wa-pi\bun` / `~/.cache/wa-pi/bun`，`WA_PI_BUN_CACHE_DIR` 可覆盖），GitHub 固定 tag + npmmirror 双镜像回退，PowerShell/unzip 解压，`--version` 校验 ≥1.4；`packages/shared/src/bun-download.ts`（新增）——资产名/URL 纯函数（与发版 sidecar 共用策略防漂移）；`scripts/dev.ts` main() 版本不足时改为：查缓存 → 下载 → 用下载 bun 重启 dev 自身（PATH 前置 + `WA_PI_PI_RUNTIME` env 注入让 pi rpc 子进程跟随）→ 下载失败才走原有报错退出兜底；spawnKernel/spawnFrontend 改用 `process.execPath` + `shell:false`（重启后即下载 bun，插件安装 NpmPackageService 经 process.execPath 自动跟随）。
+  - 影响范围：`packages/shared/src/bun-download.ts`（新）、`tests/bun-download.test.ts`（新 7 例）、`packages/shared/src/index.ts`、`scripts/bun-dev-runtime.ts`（新）、`scripts/__tests__/bun-dev-runtime.test.ts`（新 9 例）、`scripts/dev.ts`、`.gitignore`（.bun-cache/ 兑底）；验证：shared 123 pass、scripts 14 pass、bun build 通过。范围边界：dev:kernel / dev:frontend / dev:desktop 直跑仍会被 startKernel 守卫拦截（单独任务跟进）。
+- 启动强制校验 Bun ≥ 1.4.0（dev 与打包统一入口守卫）
+  - 背景：代码已升级 bun 1.4.0 并依赖其行为（scheduler.ts 的 Bun.cron 按本地时区解析、crash-logger 移除 bun#25633 白名单需 1.3.15+），但 dev 机器若仍用 1.3.x 会静默运行在错误行为上（定时任务错 8 小时、crash 竞态）而不自知。
+  - 实现：`packages/shared/src/runtime-check.ts`（新增）提供 `parseBunVersion`/`isBunAtLeast`/`checkBunVersion`/`assertBunVersionOrExit` 纯函数与中文错误文案；`scripts/dev.ts` main() 在 ensureDeps 后快速失败（先自修复依赖再查版本，保留动态 import 链路）；`packages/kernel/src/index.ts` startKernel() 第一行最终兜底（三条启动链 dev:kernel / dev:desktop / 打包 sidecar 都汇聚于此）；根 package.json 加 `engines.bun: >=1.4.0`（bun install 警告级，非强制）。
+  - 影响范围：`packages/shared/src/runtime-check.ts`（新）、`tests/runtime-check.test.ts`（新 15 例）、`packages/shared/src/index.ts`、`scripts/dev.ts`、`packages/kernel/src/index.ts`、`package.json`；验证：shared 全量 116 pass、runtime-check 15 pass、dev.ts 在 1.3.14 下打印中文错误并退出。
 - 首启依赖安装 100% 成功（根治「依赖装失败 → 后续模型代理请求 404」）
   - 根因：读 Windows 系统代理的 registry-js（os-proxy-config→windows-system-proxy 链）是原生 addon，安装时要 prebuild 下载/ node-gyp 编译；prebuild 下载 ECONNRESET + 机器无 VS C++ 工具链时编译失败 → bun install 退出码 1，且旧逻辑只看退出码就写 `.installed-version` 标记，后续启动永久跳过安装，kernel 加载 registry-js 报 `Cannot find module .../registry.node`，读系统代理失败，模型请求经中继走向死端口/直连报 404。
   - 调整：读系统代理改为自研跨平台实现（settings-store.ts），零第三方依赖、零原生模块——Windows 用系统自带 reg.exe 读注册表（ProxyEnable/ProxyServer），macOS 用 scutil --proxy，Linux 用环境变量；删除 os-proxy-config 依赖链。
@@ -162,7 +199,6 @@
 - 背景：contenteditable 输入框（聊天 ComposerTextarea / 自动化 TaskPromptComposer）中插入技能 $[名]、@智能体 @[名]、IM 联系人 @im-push-to(...)、命令 /[名] chip 后，复制粘贴到别的输入框（跨会话）时渲染和作用失效——浏览器默认复制 chip 的显示文本（如「⚡ 日报生成」），token 标记只存在于 text/html 的 data-token 里，聊天粘贴端丢弃 HTML → 语义丢失。
 - 修复：复制端拦截（ComposerTextarea onCopy）——新增 `selectionToTokenText(range)` 纯函数（tokens.ts），把选中区域里的 chip 还原为 token 原文写入剪贴板 text/plain + text/html；粘贴端无需改（token 文本进来后 textToHtml/toPromptHtml 自动重渲染成 chip）。兼容 user-select:all 原子选区（点击 chip 全选复制也输出完整 token）。
 - 影响范围：`packages/frontend/src/quick-invoke/tokens.ts`（新增 selectionToTokenText）、`components/ui/ComposerTextarea.tsx`（onCopy 拦截）；测试新增「selectionToTokenText 单/多 chip 原子选区」「复制写入 token 剪贴板」用例。
-
 
 ## 2026-08-19 — fix(会话): abort 无响应兜底——超时强杀 pi 进程（「停不下聊天」修复）
 

@@ -75,6 +75,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 // 渲染需要 getBoundingClientRect（happy-dom 提供默认值 0）；菜单 portal 到 body。
+// 全量测试（532s/210 文件）负载下偶发超 5s（bun 默认单测超时误杀），显式加长。
 test("有可导出内容时按钮可点，菜单弹出含两项", async () => {
 	render(<ExportButton sessionId="s1" uptoTimestamp={3500} />);
 	const btn = screen.getByTestId(`export-s1-3500`) as HTMLButtonElement;
@@ -84,7 +85,7 @@ test("有可导出内容时按钮可点，菜单弹出含两项", async () => {
 		expect(screen.getByTestId("export-download")).toBeTruthy();
 		expect(screen.getByTestId("export-copy")).toBeTruthy();
 	});
-});
+}, 15_000);
 
 // 回归：extension 斜杠命令（assistant 前无 user）导出不再置灰
 test("无 user 的 assistant 轮（斜杠命令场景）菜单项可点", () => {

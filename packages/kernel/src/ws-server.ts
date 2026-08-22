@@ -48,7 +48,7 @@ import {
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import { extname, basename, join, resolve, sep, isAbsolute } from "node:path";
+import { extname, basename, dirname, join, resolve, sep, isAbsolute } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { extUiRegistry } from "./ext-ui-registry";
@@ -64,6 +64,8 @@ import {
 	discardRecording,
 } from "./recording-store";
 import { SseBus } from "./sse-bus";
+import { locateElement } from "./preview-locate";
+import { injectInspectScript, PREVIEW_PARSE_MAX_BYTES } from "./preview-inspect";
 import { HttpRouter } from "./http-router";
 import { registerProjectSessionRoutes } from "./routes/projects-sessions";
 import { registerChatRoutes } from "./routes/chat";
@@ -219,6 +221,52 @@ export function resolvePreviewPath(
 		return { ok: false, reason: "forbidden" };
 	}
 	return { ok: true, path: realCandidate };
+}
+
+export type PathInProjectsResult =
+	| { kind: "exists"; path: string }
+	| { kind: "missing" }
+	| { kind: "forbidden" };
+
+/**
+ * 绝对路径项目内校验（/api/preview-locate 用，与 resolvePreviewPath 同一 allowlist 口径）：
+ * - realpath 后落在某项目 cwd（同样 realpath 后）内 → exists（附 realpath）；
+ * - 文件本身不存在（realpath 失败）时改判父目录：父目录 realpath 后落在项目内 → missing
+ *   （区分"项目内但文件不存在"，让路由能回 404 而非一刀切 403）；
+ * - 其余（非绝对路径、父目录也不存在、落在项目外）→ forbidden。
+ * symlink 逃逸防护口径不变：所有比较都基于 realpath 结果。
+ */
+export function isPathInProjects(
+	absPath: string,
+	projects: { cwd: string }[],
+): PathInProjectsResult {
+	if (!isAbsolute(absPath)) return { kind: "forbidden" };
+	let real: string;
+	let missing = false;
+	try {
+		real = realpathSync(absPath);
+	} catch {
+		// 文件不存在：realpath 其父目录判定项目归属
+		try {
+			real = realpathSync(dirname(absPath));
+		} catch {
+			return { kind: "forbidden" };
+		}
+		missing = true;
+	}
+	for (const p of projects) {
+		if (!p.cwd) continue;
+		let projectReal: string;
+		try {
+			projectReal = realpathSync(p.cwd);
+		} catch {
+			continue;
+		}
+		if (real === projectReal || real.startsWith(projectReal + sep)) {
+			return missing ? { kind: "missing" } : { kind: "exists", path: real };
+		}
+	}
+	return { kind: "forbidden" };
 }
 
 export function getMimeType(filePath: string): string {
@@ -670,6 +718,37 @@ export class WSServer {
 						},
 					});
 				}
+				// /api/preview-locate 必须在下方 /api/ 统一分发之前注册：
+				// HttpRouter 未命中会立即回 404，放在分发之后该分支永远不可达
+				if (url.pathname === "/api/preview-locate") {
+					if (req.method !== "GET")
+						return new Response("Method Not Allowed", { status: 405 });
+					const path = url.searchParams.get("path");
+					const selector = url.searchParams.get("selector");
+					if (!path || !selector) {
+						return Response.json({ error: "bad_request" }, { status: 400 });
+					}
+					// 仅支持 html 文件定位（locateElement 按 html 行结构解析）
+					if (!/\.html?$/i.test(path)) {
+						return Response.json({ error: "bad_request" }, { status: 400 });
+					}
+					const { projects } = await this.opts.projectStore.load();
+					const r = isPathInProjects(path, projects);
+					if (r.kind === "forbidden")
+						return Response.json({ error: "forbidden" }, { status: 403 });
+					if (r.kind === "missing")
+						return Response.json({ error: "not_found" }, { status: 404 });
+					const file = Bun.file(r.path);
+					// 大文件护栏：>10MB 不整读入内存做正则定位，直接降级 nulls（前端按无行号 chip 处理）
+					if (file.size > PREVIEW_PARSE_MAX_BYTES) {
+						return Response.json({ startLine: null, endLine: null });
+					}
+					const loc = locateElement(await file.text(), selector);
+					return Response.json({
+						startLine: loc?.startLine ?? null,
+						endLine: loc?.endLine ?? null,
+					});
+				}
 				// REST API（去 WS 化：复用 handle() 业务逻辑的适配器路由）
 				if (url.pathname.startsWith("/api/")) {
 					const res = await this.router.handle(req);
@@ -817,6 +896,20 @@ export class WSServer {
 					}
 					return new Response("Not found", { status: 404 });
 				}
+				if (url.pathname === "/preview-inspect.js") {
+					if (req.method !== "GET")
+						return new Response("Method Not Allowed", { status: 405 });
+					// inspect 脚本静态资源：注入本地 html 预览，提供元素选中能力
+					return new Response(
+						Bun.file(new URL("./assets/preview-inspect.js", import.meta.url)),
+						{
+							headers: {
+								"content-type": "text/javascript; charset=utf-8",
+								"cache-control": "no-store",
+							},
+						},
+					);
+				}
 				if (url.pathname.startsWith("/preview/")) {
 					const { projects } = await this.opts.projectStore.load();
 					const r = resolvePreviewPath(url.pathname, projects);
@@ -830,9 +923,20 @@ export class WSServer {
 					}
 					const file = Bun.file(r.path);
 					if (file.size > 0) {
+						const mime = getMimeType(r.path);
+						// 本地 html 预览注入 inspect 脚本（元素选中）；其余资源原样直出。
+						// 大文件护栏：>10MB 跳过注入原样直出（避免整文件读入内存 + 全量正则扫描）
+						if (mime.startsWith("text/html") && file.size <= PREVIEW_PARSE_MAX_BYTES) {
+							return new Response(injectInspectScript(await file.text()), {
+								headers: {
+									"content-type": "text/html; charset=utf-8",
+									"cache-control": "no-store",
+								},
+							});
+						}
 						return new Response(file, {
 							headers: {
-								"content-type": getMimeType(r.path),
+								"content-type": mime,
 								"cache-control": "no-store",
 							},
 						});

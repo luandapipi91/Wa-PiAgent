@@ -187,7 +187,8 @@ describe("Proxy settings", () => {
 		const result = await readSystemProxy();
 		// 绝不能返回残留的本地中继地址（否则新中继上游指向死端口）
 		expect(result).not.toContain("61385");
-		expect(result).not.toMatch(/^http:\/\/127\.0\.0\.1:/);
+		// 注：回环过滤语义已由 systemProxyFromEnv 单测覆盖；此处只验证残留不回流。
+		// 系统代理本身可能返回合法本地代理（如 Clash 127.0.0.1:7890），不能一概断言非回环。
 	});
 
 	describe("parseWindowsProxyServer：解析注册表 ProxyServer 值", () => {

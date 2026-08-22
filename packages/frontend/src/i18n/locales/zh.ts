@@ -191,6 +191,11 @@ const zh = {
 		refresh: "刷新",
 		code: "查看源码",
 		share: "分享",
+		modeSplit: "与聊天分屏",
+		modeFull: "全屏预览",
+		modeFloat: "浮动窗口",
+		dock: "停靠到分屏",
+		noSession: "请先进入一个会话再发送元素",
 	},
 	blocks: {
 		turnSummary: {

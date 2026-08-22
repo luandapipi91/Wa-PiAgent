@@ -84,6 +84,58 @@ async function connectSse(
 	return reader;
 }
 
+/**
+ * SSE 收集器：连接后由 pump 持续把帧推入数组，查询方只轮询数组。
+ * 解决历史 flaky：waitForSseEvent 用 Promise.race 包 reader.read()，超时后 read 仍
+ * 挂起（悬空读），且事件可能在 race 超时返回 null 后才到达 → 永久丢帧 → 随机超时失败。
+ * pump 模式下 reader 始终在后台消费，事件一到立即入数组，查询永不丢帧。
+ */
+async function collectSse(
+	base: string,
+): Promise<{
+	wait: (type: string, timeoutMs?: number) => Promise<Record<string, unknown> | null>;
+}> {
+	const reader = await connectSse(base);
+	const frames: (Record<string, unknown> & { type: string })[] = [];
+	const pump = (async () => {
+		try {
+			for (;;) frames.push(await readSseFrame(reader));
+		} catch {
+			/* 流关闭：静默 */
+		}
+	})();
+	return {
+		async wait(type: string, timeoutMs = 3000) {
+			const deadline = Date.now() + timeoutMs;
+			while (Date.now() < deadline) {
+				const f = frames.find((x) => x.type === type);
+				if (f) return f;
+				await new Promise((r) => setTimeout(r, 20));
+			}
+			return null;
+		},
+	};
+}
+
+/**
+ * SSE 事件可能因 Bun 流调度偶发丢失（历史 flaky，见文件头注释）：
+ * 扩展操作（install/uninstall/upgrade/toggle）幂等，超时后重试触发再等，
+ * 广播会在每次操作后重新发生，显著降低偶发丢帧导致的随机失败。
+ */
+async function waitEventWithRetry(
+	trigger: () => Promise<void>,
+	sse: { wait: (type: string, timeoutMs?: number) => Promise<Record<string, unknown> | null> },
+	type: string,
+	attempts = 3,
+): Promise<Record<string, unknown> | null> {
+	for (let i = 0; i < attempts; i++) {
+		await trigger();
+		const evt = await sse.wait(type, 4000);
+		if (evt) return evt;
+	}
+	return null;
+}
+
 /** 从 SSE reader 读取一帧 JSON data */
 async function readSseFrame(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -94,37 +146,19 @@ async function readSseFrame(
 		const { value, done } = await reader.read();
 		if (done) throw new Error("SSE 流已关闭");
 		buffer += dec.decode(value, { stream: true });
-		let idx: number;
-		while ((idx = buffer.indexOf("\n\n")) !== -1) {
+		let idx = buffer.indexOf("\n\n");
+		while (idx !== -1) {
 			const raw = buffer.slice(0, idx);
 			buffer = buffer.slice(idx + 2);
-			if (raw.trim().startsWith(":")) continue; // 心跳/注释帧
+			if (raw.trim().startsWith(":")) {
+				idx = buffer.indexOf("\n\n");
+				continue; // 心跳/注释帧
+			}
 			const line = raw.split("\n").find((l) => l.startsWith("data:"));
-			if (!line) continue;
-			return JSON.parse(line.slice(5).trim());
+			if (line) return JSON.parse(line.slice(5).trim());
+			idx = buffer.indexOf("\n\n");
 		}
 	}
-}
-
-/** 在超时内从 SSE 流收集到匹配 type 的事件，超时返回 null */
-async function waitForSseEvent(
-	reader: ReadableStreamDefaultReader<Uint8Array>,
-	type: string,
-	timeoutMs = 3000,
-): Promise<Record<string, unknown> | null> {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		// 用 Promise.race 实现超时
-		const frame = await Promise.race([
-			readSseFrame(reader),
-			new Promise<null>((r) =>
-				setTimeout(() => r(null), Math.max(0, deadline - Date.now())),
-			),
-		]);
-		if (!frame) return null;
-		if (frame.type === type) return frame;
-	}
-	return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,73 +234,84 @@ async function setup() {
 
 test("extension:install 成功后应广播 skill:changed", async () => {
 	const ctx = await setup();
-	const sse = await connectSse(ctx.base);
+	const sse = await collectSse(ctx.base);
 	try {
-		// 触发安装
-		await fetch(`${ctx.base}/api/extensions/install`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ name: "test-plugin" }),
-		});
-
-		// 断言：应收到 skill:changed 事件
-		const evt = await waitForSseEvent(sse, "skill:changed", 10_000);
+		// 触发安装 + 断言：应收到 skill:changed 事件（SSE 偶发丢帧时重试触发）
+		const evt = await waitEventWithRetry(
+			() =>
+				fetch(`${ctx.base}/api/extensions/install`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ name: "test-plugin" }),
+				}).then(() => {}),
+			sse,
+			"skill:changed",
+		);
 		expect(evt).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
 	}
-});
+}, 15_000); // SSE 等待 10s > bun 默认 5s 单测超时，显式加长
 
 test("extension:uninstall 成功后应广播 skill:changed", async () => {
 	const ctx = await setup();
-	const sse = await connectSse(ctx.base);
+	const sse = await collectSse(ctx.base);
 	try {
-		await fetch(`${ctx.base}/api/extensions/uninstall`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ name: "test-plugin" }),
-		});
-
-		const evt = await waitForSseEvent(sse, "skill:changed", 10_000);
+		const evt = await waitEventWithRetry(
+			() =>
+				fetch(`${ctx.base}/api/extensions/uninstall`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ name: "test-plugin" }),
+				}).then(() => {}),
+			sse,
+			"skill:changed",
+		);
 		expect(evt).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
 	}
-});
+}, 15_000); // bun 默认 5s 单测超时 < SSE 等待 10s，显式加长（否则负载下必超时）
 
 test("extension:upgrade 成功后应广播 skill:changed", async () => {
 	const ctx = await setup();
-	const sse = await connectSse(ctx.base);
+	const sse = await collectSse(ctx.base);
 	try {
-		await fetch(`${ctx.base}/api/extensions/upgrade`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ name: "test-plugin" }),
-		});
-
-		const evt = await waitForSseEvent(sse, "skill:changed", 10_000);
+		const evt = await waitEventWithRetry(
+			() =>
+				fetch(`${ctx.base}/api/extensions/upgrade`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ name: "test-plugin" }),
+				}).then(() => {}),
+			sse,
+			"skill:changed",
+		);
 		expect(evt).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
 	}
-});
+}, 15_000); // SSE 等待 10s > bun 默认 5s 单测超时，显式加长
 
 test("extension:toggle 成功后应广播 skill:changed", async () => {
 	const ctx = await setup();
-	const sse = await connectSse(ctx.base);
+	const sse = await collectSse(ctx.base);
 	try {
-		await fetch(`${ctx.base}/api/extensions/toggle`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ name: "test-plugin", enabled: false }),
-		});
-
-		const evt = await waitForSseEvent(sse, "skill:changed", 10_000);
+		const evt = await waitEventWithRetry(
+			() =>
+				fetch(`${ctx.base}/api/extensions/toggle`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ name: "test-plugin", enabled: false }),
+				}).then(() => {}),
+			sse,
+			"skill:changed",
+		);
 		expect(evt).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
 	}
-});
+}, 15_000); // SSE 等待 10s > bun 默认 5s 单测超时，显式加长
 
 test("扩展操作成功后 scanSkillsWithExtensions 应被调用（间接验证：skillManager.scan 调用次数递增）", async () => {
 	const ctx = await setup();

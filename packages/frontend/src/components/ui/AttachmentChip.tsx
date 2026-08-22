@@ -1,5 +1,16 @@
 import type { AttachmentDraft } from "@wa-pi/shared";
+import { Icon, type IconName } from "./Icon";
 import { useTranslation } from "../../i18n/useTranslation";
+
+/** 附件 kind → 图标（统一 SVG 图标库，替代原 emoji） */
+const ICON_BY_KIND: Record<AttachmentDraft["kind"], IconName> = {
+	image: "image",
+	audio: "mic",
+	folder: "folder",
+	snippet: "note",
+	file: "file",
+	element: "element",
+};
 
 interface Props {
 	attachment: AttachmentDraft;
@@ -14,16 +25,6 @@ export function AttachmentChip({ attachment, onRemove, onClick }: Props) {
 			? attachment.content.slice(0, 20) +
 				(attachment.content.length > 20 ? "…" : "")
 			: attachment.name;
-	const icon =
-		attachment.kind === "image"
-			? "📷"
-			: attachment.kind === "audio"
-				? "🎤"
-				: attachment.kind === "folder"
-					? "📁"
-					: attachment.kind === "snippet"
-						? "📝"
-						: "📄";
 
 	return (
 		<span
@@ -32,7 +33,7 @@ export function AttachmentChip({ attachment, onRemove, onClick }: Props) {
 			onClick={onClick}
 		>
 			<span className="inline-flex items-center gap-1">
-				<span>{icon}</span>
+				<Icon name={ICON_BY_KIND[attachment.kind]} size={12} />
 				<span className="truncate max-w-[150px]">{label}</span>
 				<button
 					type="button"
