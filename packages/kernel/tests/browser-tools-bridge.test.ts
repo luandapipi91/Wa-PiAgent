@@ -11,7 +11,7 @@ import { getBridgeSession } from "../src/bridge-registry";
 import type { BrowserManager, BrowserViewState, WebViewLike } from "../src/browser-manager";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { WA_PI_DIR } from "@wa-pi/shared";
+import { WA_PI_DIR, type MemoryConfig } from "@wa-pi/shared";
 
 /** fake WebView：记录 navigate 调用（仿 browser-manager.test.ts 的 makeFakeView） */
 function makeFakeView(navigatedUrls: string[]): WebViewLike {
@@ -89,7 +89,13 @@ function newProjectStore() {
 }
 
 /** 构造已 ensureStarted 的 AgentManager（注入 fake browserManager），返回 am 与会话 */
-async function newStartedManager(fake: FakeBrowserManager) {
+async function newStartedManager(
+  fake: FakeBrowserManager,
+  extra: {
+    // 注入 memoryStore.getConfig 可构造 memoryEnabled=false 场景（对照 browser_ 不受影响）
+    memoryStore?: { getConfig(): Promise<MemoryConfig> };
+  } = {},
+) {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -105,6 +111,7 @@ async function newStartedManager(fake: FakeBrowserManager) {
     projectStore, configStore, onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: fake.manager,
+    ...extra,
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -156,4 +163,60 @@ test("disposeAll 末尾调用 browserManager.dispose()", async () => {
   expect(fake.closedSessions).toEqual([session.id]);
   // 全部会话销毁后停掉浏览器视图池
   expect(fake.disposeCount).toBe(1);
+});
+
+test("memoryEnabled=false 时 browser_* 仍分派（不受 memory_ 开关影响）", async () => {
+  const fake = makeFakeBrowserManager();
+  const { session } = await newStartedManager(fake, {
+    memoryStore: { getConfig: async () => ({ reviewEnabled: false, memoryPolicyStyle: "none" }) },
+  });
+
+  const ctx = getBridgeSession(session.id);
+  expect(ctx).toBeDefined();
+  const result = await ctx!.handleTool(
+    "browser_navigate", "tc-1", { url: "about:blank" }, new AbortController().signal,
+  );
+
+  // browser_ 分支在 memory_ 分支之后，memoryEnabled=false 不影响分派
+  expect(result.content[0].text).toContain('"ok":true');
+  expect(fake.getOrCreateSessions).toEqual([session.id]);
+  expect(fake.navigatedUrls).toEqual(["about:blank"]);
+
+  // 对照：memory_ 工具确实被禁用（证明注入生效，测试非恒真）
+  const memResult = await ctx!.handleTool(
+    "memory_add", "tc-2", {}, new AbortController().signal,
+  );
+  expect(JSON.stringify(memResult)).toContain("memory_disabled");
+});
+
+test("未知 browser_xxx 经 handleTool 返回 unknown_tool 且不触碰 manager", async () => {
+  const fake = makeFakeBrowserManager();
+  const { session } = await newStartedManager(fake);
+
+  const ctx = getBridgeSession(session.id);
+  expect(ctx).toBeDefined();
+  const result = await ctx!.handleTool(
+    "browser_xxx", "tc-1", {}, new AbortController().signal,
+  );
+
+  expect(JSON.stringify(result)).toContain("unknown_tool");
+  expect(result.content[0].text).toContain("未知 browser 工具");
+  // handleBrowserTool 的 default 分支在 manager 调用前返回
+  expect(fake.getOrCreateSessions).toEqual([]);
+  expect(fake.closedSessions).toEqual([]);
+});
+
+test("browser_close 经 handleTool 分派到 closeSession", async () => {
+  const fake = makeFakeBrowserManager();
+  const { session } = await newStartedManager(fake);
+
+  const ctx = getBridgeSession(session.id);
+  expect(ctx).toBeDefined();
+  const result = await ctx!.handleTool(
+    "browser_close", "tc-1", {}, new AbortController().signal,
+  );
+
+  // closeTool 无条件调 closeSession（幂等，即使视图不存在）
+  expect(fake.closedSessions).toEqual([session.id]);
+  expect(result.content[0].text).toContain('"closed":false');
 });

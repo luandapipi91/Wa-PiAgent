@@ -220,3 +220,308 @@ describe("runWithRetry / withTimeout（经 handleBrowserTool 行为路径）", (
     }
   });
 });
+
+describe("browser_* 错误分支与参数透传", () => {
+  // ---------- 错误分支（fake view 注入失败，断言错误码/文本） ----------
+
+  test("handleBrowserTool 未知工具：返回 unknown_tool", async () => {
+    const m = makeManager();
+    const r = await handleBrowserTool(m, "s1", "browser_xxx", {});
+    expect(JSON.stringify(r)).toContain("unknown_tool");
+    expect(r.content[0].text).toContain("未知 browser 工具");
+    m.dispose();
+  });
+
+  test("browser_navigate 引擎不可用：返回 engine_unavailable", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async navigate() {
+            throw new Error("spawn chrome ENOENT");
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      expect(JSON.stringify(r)).toContain("engine_unavailable");
+      expect(r.content[0].text).toContain("浏览器引擎不可用");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_navigate 导航失败（非引擎）：返回 导航失败 与错误消息", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async navigate() {
+            throw new Error("net::ERR_NAME_NOT_RESOLVED");
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      expect(JSON.stringify(r)).toContain("导航失败");
+      expect(JSON.stringify(r)).toContain("net::ERR_NAME_NOT_RESOLVED");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_evaluate 缺 action：返回 missing_action", async () => {
+    const m = makeManager();
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: undefined });
+    expect(JSON.stringify(r)).toContain("missing_action");
+    m.dispose();
+  });
+
+  test("browser_evaluate eval 缺 script：返回 missing_script", async () => {
+    const m = makeManager();
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "eval" });
+    expect(JSON.stringify(r)).toContain("missing_script");
+    m.dispose();
+  });
+
+  test("browser_evaluate eval 序列化失败：fallback 到 String(raw) 不抛异常", async () => {
+    const circular = (() => {
+      const o: Record<string, unknown> = {};
+      o.self = o;
+      return o;
+    })();
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () => makeFakeView({ async evaluate() { return circular; } }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "eval", script: "1" });
+      expect(r.content[0].text).toContain('"ok":true');
+      expect(r.content[0].text).toContain("[object Object]");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_evaluate click 缺目标：返回 missing_click_target", async () => {
+    const m = makeManager();
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click" });
+    expect(JSON.stringify(r)).toContain("missing_click_target");
+    m.dispose();
+  });
+
+  test("browser_evaluate type 缺 text：返回 missing_text", async () => {
+    const m = makeManager();
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "type" });
+    expect(JSON.stringify(r)).toContain("missing_text");
+    m.dispose();
+  });
+
+  test("browser_evaluate press 缺 key：返回 missing_key", async () => {
+    const m = makeManager();
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "press" });
+    expect(JSON.stringify(r)).toContain("missing_key");
+    m.dispose();
+  });
+
+  test("browser_evaluate scrollTo 缺 selector：返回 missing_selector", async () => {
+    const m = makeManager();
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "scrollTo" });
+    expect(JSON.stringify(r)).toContain("missing_selector");
+    m.dispose();
+  });
+
+  test("browser_screenshot 视图未创建：返回 no_view", async () => {
+    const m = makeManager();
+    const r = await handleBrowserTool(m, "s1", "browser_screenshot", {});
+    expect(JSON.stringify(r)).toContain("no_view");
+    m.dispose();
+  });
+
+  test("browser_screenshot 失败：返回 截图失败 与错误消息", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async screenshot() {
+            throw new Error("screenshot failed");
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_screenshot", {});
+      expect(JSON.stringify(r)).toContain("截图失败");
+      expect(JSON.stringify(r)).toContain("screenshot failed");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_evaluate 操作抛错：错误含动作名与页面上下文", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate() {
+            throw new Error("boom");
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "eval", script: "1" });
+      const text = r.content[0].text;
+      expect(text).toContain("browser_evaluate");
+      expect(text).toContain("失败");
+      expect(text).toContain("about:blank"); // fake view 的 url（navigate 未更新 url 字段）
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_close 视图不存在：closed=false 且 ok（幂等）", async () => {
+    const m = makeManager();
+    const r = await handleBrowserTool(m, "s1", "browser_close", {});
+    expect(r.content[0].text).toContain('"ok":true');
+    expect(r.content[0].text).toContain('"closed":false');
+    m.dispose();
+  });
+
+  // ---------- 参数透传（fake view 记录调用并断言） ----------
+
+  test("browser_evaluate type：text 透传到 view.type", async () => {
+    const typed: string[] = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async type(text: string) {
+            typed.push(text);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "type", text: "hello" });
+      expect(typed).toEqual(["hello"]);
+      expect(r.content[0].text).toContain('"ok":true');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_evaluate press：key 与 modifiers 透传到 view.press", async () => {
+    const pressed: Array<[string, unknown]> = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async press(key: string, opts?: unknown) {
+            pressed.push([key, opts]);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "press", key: "Enter", modifiers: ["Shift"] });
+      expect(pressed).toEqual([["Enter", { modifiers: ["Shift"] }]]);
+      expect(r.content[0].text).toContain('"ok":true');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_evaluate scroll：dx/dy 透传，缺省为 0,0", async () => {
+    const scrolled: Array<[number, number]> = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async scroll(dx: number, dy: number) {
+            scrolled.push([dx, dy]);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r1 = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "scroll", dx: 10, dy: 20 });
+      expect(scrolled).toEqual([[10, 20]]);
+      const r2 = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "scroll" });
+      expect(scrolled).toEqual([[10, 20], [0, 0]]);
+      expect(r1.content[0].text).toContain('"ok":true');
+      expect(r2.content[0].text).toContain('"ok":true');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_evaluate scrollTo：selector 与 block 透传", async () => {
+    const scrollTos: Array<[string, unknown]> = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async scrollTo(selector: string, opts?: unknown) {
+            scrollTos.push([selector, opts]);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "scrollTo", selector: "#footer", block: "start" });
+      expect(scrollTos).toEqual([["#footer", { block: "start" }]]);
+      expect(r.content[0].text).toContain('"ok":true');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_evaluate click 选择器模式：selector 与 button 透传（cleanOpts 过滤 undefined）", async () => {
+    const clicked: Array<[string, unknown]> = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-")),
+      viewFactory: () =>
+        makeFakeView({
+          async click(selectorOrX: string | number, yOrOpts?: unknown) {
+            clicked.push([selectorOrX as string, yOrOpts]);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn", button: "right" });
+      expect(clicked).toEqual([["#btn", { button: "right" }]]);
+      expect(r.content[0].text).toContain('"ok":true');
+    } finally {
+      m.dispose();
+    }
+  });
+});
