@@ -25,7 +25,11 @@ test("portableBashDir: env 覆盖优先", () => {
 });
 
 test("portableBashExe: 解压后 bash 在 bin/bash.exe", () => {
-	expect(portableBashExe("C:\\cache")).toBe("C:\\cache\\bin\\bash.exe");
+	// Windows 下 join 用反斜杠（C:\cache\bin\bash.exe），POSIX 用正斜杠——
+	// 期望值用 join 计算，保证跨平台断言成立（该逻辑只服务 Windows 运行时）。
+	expect(portableBashExe("C:\\cache")).toBe(
+		join("C:\\cache", "bin", "bash.exe"),
+	);
 });
 
 test("portableBashDownloadUrls: npmmirror 主源 + GitHub 回退，含固定版本号", () => {

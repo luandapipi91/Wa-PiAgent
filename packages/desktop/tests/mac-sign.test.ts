@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 describe("resolveIdentity", () => {
 	const noCert = {
@@ -23,7 +24,9 @@ describe("resolveIdentity", () => {
 			throw new Error("cert not found");
 		},
 	};
-	const hasCertEnv = { exec: () => undefined };
+	const hasCertEnv = {
+		exec: () => "-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+	};
 
 	test("无 CODESIGN_IDENTITY 且钥匙串无证书 → 回退 ad-hoc（-）", () => {
 		expect(resolveIdentity({}, noCert)).toBe("-");
@@ -59,14 +62,25 @@ describe("resolveIdentity", () => {
 });
 
 describe("hasCert", () => {
-	test("security 查询成功 → true", () => {
-		expect(hasCert("X", () => undefined)).toBe(true);
-	});
-	test("security 查询失败（无证书）→ false", () => {
+	test("security 返回 PEM 证书内容 → true", () => {
 		expect(
-			hasCert("X", () => {
+			hasCert(
+				"X",
+				(() =>
+					"-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----") as unknown as typeof execFileSync,
+			),
+		).toBe(true);
+	});
+	test("security 无匹配但 exit 0（无 PEM 输出）→ false", () => {
+		expect(hasCert("X", (() => "") as unknown as typeof execFileSync)).toBe(
+			false,
+		);
+	});
+	test("security 查询失败（异常）→ false", () => {
+		expect(
+			hasCert("X", (() => {
 				throw new Error("no");
-			}),
+			}) as unknown as typeof execFileSync),
 		).toBe(false);
 	});
 });
