@@ -1,3 +1,10 @@
+## 2026-08-22 — Windows 无 Git Bash 场景修复（shell 工具）
+
+### 修复
+
+- bash 工具报错友好化：pi 引擎在 Windows 找不到 Git Bash 时抛 "No bash shell found"（面向 VS Code 的误导文案）——kernel 消息流检测并替换为中文引导（装 Git for Windows 或配置 shellPath）。影响范围：`packages/kernel/src/sdk-errors.ts`（friendlyShellUnavailable/applyFriendlyShellMessage）、`packages/kernel/src/agent-manager.ts`（message_end 消息接入）；测试 sdk-errors +3 例。
+- Windows 自动提供 bash（B-1）：agent shell 工具依赖 Git Bash，没装 Git 的电脑上必现报错——新增 `packages/kernel/src/bash-runtime.ts` 检测系统 bash，无则从 npmmirror 镜像下载 PortableGit（~64MB，GitHub 回退）解压到 %LOCALAPPDATA%\wa-piash 并接线 settings.json.shellPath（pi 引擎读取生效）；同时把 usr/bin 注入进程 PATH（MSYS2 DLL 依赖）。启动异步不阻塞，下载完成前由友好提示兜底。影响范围：bash-runtime.ts（新）、settings-store.ts（loadShellPath/saveShellPath）、index.ts（startKernel 接线）；测试 bash-runtime 6 例 + settings-store 2 例；端到端验证下载→解压→bash --version 5.2.37 通过。
+
 ## 2026-08-22 — v0.2.16 发版
 
 ### 发版
