@@ -8,7 +8,6 @@
 
 - 影响范围：`packages/kernel/src/agent-manager.ts`（agent_start 清 netDegraded + prompt 直发补 queue_update）；测试：steer-queue-poc.test.ts 补修复A/B 两例（23 pass）；kernel 相关回归 agent-manager/idle-reap 112 pass、ws-agent-prompt-echo/steer-title-fill 8 pass、channel-manager/reply-composer/composer-attachments/pi-disconnect 54 pass + typecheck 干净。
 
-
 ### 修复
 
 - 修复「系统设置→模型管理」编辑当前聊天窗正在使用的模型、修改 model id 并保存后回到聊天窗的两类异常：
@@ -38,6 +37,7 @@
 - 版本 0.2.17 → 0.2.18（会话级浏览器自动化工具 browser_* 全量上线 + 插件安装修复 + 页面媒体静音 + bash 报错恢复上游原始提示）。
 - RELEASE_NOTES.md / version-history.json 已更新；线上 win 更新源 latest.yml 指向 0.2.18（mac 保持 0.2.15）。
 - 影响范围：packages/desktop/package.json、packages/frontend/package.json、packages/desktop/RELEASE_NOTES.md、packages/frontend/src/data/version-history.json；验证：全量回归全绿（kernel 1361 + frontend 1862 + desktop 166 + shared 128）+ pack:win + publish-oss 上传 R2。
+
 ## 2026-08-22 — 插件安装修复（编译产物当 bun CLI）
 
 ### 修复
@@ -109,15 +109,14 @@
 
 ## 2026-08-22 — test: 补 browser_* 工具可见性控制验证测试（零新机制）
 
-- 新增：命名智能体 browser_* 默认开（DEFAULT_AGENT_TOOLS 已含 → listGlobalTools 自动列出 → ToolsTab 自动出现 4 个开关，`tools: []` = 全量默认 = 默认开，取消勾选转显式白名单即关闭）；只读内置子智能体（Explore/Plan）默认关（agent-manager.ts 硬编码白名单 read/bash/grep/find/ls 天然不含 browser_*）。
+- 新增：命名智能体 browser_*默认开（DEFAULT_AGENT_TOOLS 已含 → listGlobalTools 自动列出 → ToolsTab 自动出现 4 个开关，`tools: []` = 全量默认 = 默认开，取消勾选转显式白名单即关闭）；只读内置子智能体（Explore/Plan）默认关（agent-manager.ts 硬编码白名单 read/bash/grep/find/ls 天然不含 browser_*）。
 - 落点为 3 个验证型测试：kernel `listGlobalTools` 断言含 4 个 browser_*（source='内置'）；只读内置子智能体 spawn 配置 tools 白名单逐字等于 [read,bash,grep,find,ls] 不含 browser_*；前端 ToolsTab 渲染 4 个 browser_* 开关且默认勾选、点掉后 draft.tools 转显式白名单不含该项。
 - 影响范围：`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/agent-manager-subagent-overrides.test.ts`、`packages/frontend/tests/AgentConfig.test.tsx`（零生产代码改动）。
 - 验证：kernel 112 pass；前端 AgentConfig.test.tsx 32 pass 全绿。
 
-
 ## 2026-08-22 — test(kernel): Layer 4 E2E（真实 bridge 链路 + 白名单验证）
 
-- 新增：`packages/kernel/tests/browser-e2e.test.ts`。真实链路 E2E：起真实 WSServer + 真实 AgentManager（不注入 NOOP_BROWSER_MANAGER，走生产默认 `new BrowserManager()`），`ensureStarted` 会话后加载真实扩展源码配 env，4 个 browser_* 工具 execute 经真实 HTTP POST /bridge/tool 到 kernel，完整走 browser_navigate（data: URL）→ browser_evaluate（读 h1）→ browser_screenshot（path 模式，断言落在 `${WA_PI_DIR}/tmp/browser-screenshots` 且文件非空）→ browser_close；引擎不可用时探测 skip 不算失败。白名单验证：agent tools 显式白名单不含 browser_* 时 `--tools` 不含 4 个 browser_*（read/bash 保留），反向含 browser_navigate 时 `--tools` 含之（NOOP_BROWSER_MANAGER，不测真实浏览器）。测试截图/临时文件含失败路径全部清理。
+- 新增：`packages/kernel/tests/browser-e2e.test.ts`。真实链路 E2E：起真实 WSServer + 真实 AgentManager（不注入 NOOP_BROWSER_MANAGER，走生产默认 `new BrowserManager()`），`ensureStarted` 会话后加载真实扩展源码配 env，4 个 browser_*工具 execute 经真实 HTTP POST /bridge/tool 到 kernel，完整走 browser_navigate（data: URL）→ browser_evaluate（读 h1）→ browser_screenshot（path 模式，断言落在 `${WA_PI_DIR}/tmp/browser-screenshots` 且文件非空）→ browser_close；引擎不可用时探测 skip 不算失败。白名单验证：agent tools 显式白名单不含 browser_* 时 `--tools` 不含 4 个 browser_*（read/bash 保留），反向含 browser_navigate 时 `--tools` 含之（NOOP_BROWSER_MANAGER，不测真实浏览器）。测试截图/临时文件含失败路径全部清理。
 - 影响范围：`packages/kernel/tests/browser-e2e.test.ts`（新建，3 用例）。
 - 验证：真实链路 1 pass（本机引擎可用）+ 白名单 2 pass = 3 pass / 0 fail / 40 expect；bridge/agent-manager/browser 相关回归 154 pass 全绿；kernel typecheck 通过。
 
@@ -146,6 +145,7 @@
 - 顺带修复既有缺陷：绝对路径分支 `[^\s]+` 贪婪吞掉 `:行:列` 后缀且可选组不回溯，导致 `/abs/path.ts:12`、`C:/src/a.ts:12` 的行号从不上屏（与注释承诺不符）；路径主体改 `[^\s:]+` 让后缀正确分离，同时返回时反斜杠归一化为正斜杠。
 - 影响范围：`packages/frontend/src/components/blocks/file-path.ts`；测试：file-path.test.ts 补盘符/反斜杠/`:行` 4 断言，FilePill.test.tsx 补 Windows 绝对路径渲染胶囊+点击预览用例（8 pass）。
 - 验证：file-path/FilePill/FilePreviewModal/markdown-links/linkify 相关单测 39 pass + typecheck 干净。
+
 ## 2026-08-21 — fix: 浏览器预览终审修复波（拖拽渲染性能 / 大文件护栏 / 小项收敛）
 
 - 修复（性能）：浏览器预览拖拽期 60Hz 全树重渲染与同步写盘——`browser` store 持久化改 trailing debounce（每 key 独立 timer，默认 300ms，`setPersistDebounceMs` 可注入，测试置 0 同步写保持确定性）；`SessionView` 用 `React.memo` 包裹（props 不变跳过含 MessageList 的 reconcile）；`BrowserPanel` 整订阅改逐字段 selector（不再随 splitRatio/floatRect 每帧重渲染）。
