@@ -18,7 +18,7 @@ import { BrowserManager } from "../src/browser-manager";
 import { handleBrowserTool } from "../src/browser-tools";
 
 // 本地静态页：data: URL（避免端口冲突）。点击 #btn 会改 document.title。
-const TEST_HTML = `<h1>hello</h1><button id="btn" onclick="document.title='clicked'">go</button>`;
+const TEST_HTML = `<h1>hello</h1><button id="btn" onclick="document.title='clicked'">go</button><input id="inp">`;
 const TEST_URL = "data:text/html," + encodeURIComponent(TEST_HTML);
 
 /** 探测真实引擎可用性：构造 + 导航 + evaluate + 关闭，任何一步失败即不可用 */
@@ -119,6 +119,72 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
       expect(closeParsed.ok).toBe(true);
       expect(closeParsed.closed).toBe(true);
       expect(manager.get(sessionId("link"))).toBeUndefined();
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
+  testReal("真实引擎：type/press/scroll/scrollTo 四 action 冒烟", async () => {
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(manager, sessionId("acts"), "browser_navigate", { url: TEST_URL });
+
+      // type 前先经 evaluate eval 聚焦 #inp，确保键盘输入落到 input 上
+      const focusRes = await handleBrowserTool(manager, sessionId("acts"), "browser_evaluate", {
+        action: "eval",
+        script: `document.getElementById("inp").focus()`,
+      });
+      const focusParsed = JSON.parse(focusRes.content[0].text) as { ok: boolean };
+      expect(focusParsed.ok).toBe(true);
+
+      // 1) type：真实引擎直接调用 view.type(text)，随后回读 value 验证字符落进 DOM
+      const typeRes = await handleBrowserTool(manager, sessionId("acts"), "browser_evaluate", {
+        action: "type",
+        text: "hello",
+      });
+      const typeParsed = JSON.parse(typeRes.content[0].text) as { ok: boolean; action: string };
+      expect(typeParsed.ok).toBe(true);
+      expect(typeParsed.action).toBe("type");
+      const valueRes = await handleBrowserTool(manager, sessionId("acts"), "browser_evaluate", {
+        action: "eval",
+        script: `document.getElementById("inp").value`,
+      });
+      const valueParsed = JSON.parse(valueRes.content[0].text) as { ok: boolean; result: unknown };
+      expect(valueParsed.ok).toBe(true);
+      expect(String(valueParsed.result)).toContain("hello");
+
+      // 2) press：真实引擎直接调用 view.press(key, opts)
+      const pressRes = await handleBrowserTool(manager, sessionId("acts"), "browser_evaluate", {
+        action: "press",
+        key: "Enter",
+      });
+      const pressParsed = JSON.parse(pressRes.content[0].text) as { ok: boolean; action: string };
+      expect(pressParsed.ok).toBe(true);
+      expect(pressParsed.action).toBe("press");
+
+      // 3) scroll：真实引擎直接调用 view.scroll(dx, dy)
+      const scrollRes = await handleBrowserTool(manager, sessionId("acts"), "browser_evaluate", {
+        action: "scroll",
+        dy: 100,
+      });
+      const scrollParsed = JSON.parse(scrollRes.content[0].text) as { ok: boolean; action: string };
+      expect(scrollParsed.ok).toBe(true);
+      expect(scrollParsed.action).toBe("scroll");
+
+      // 4) scrollTo：真实引擎直接调用 view.scrollTo(selector, opts)
+      const scrollToRes = await handleBrowserTool(manager, sessionId("acts"), "browser_evaluate", {
+        action: "scrollTo",
+        selector: "#btn",
+      });
+      const scrollToParsed = JSON.parse(scrollToRes.content[0].text) as { ok: boolean; action: string };
+      expect(scrollToParsed.ok).toBe(true);
+      expect(scrollToParsed.action).toBe("scrollTo");
     } finally {
       manager.dispose();
       rmSync(screenshotDir, { recursive: true, force: true });
