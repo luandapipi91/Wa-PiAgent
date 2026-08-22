@@ -1,3 +1,9 @@
+## 2026-08-22 — test(kernel): Layer 4 E2E（真实 bridge 链路 + 白名单验证）
+
+- 新增：`packages/kernel/tests/browser-e2e.test.ts`。真实链路 E2E：起真实 WSServer + 真实 AgentManager（不注入 NOOP_BROWSER_MANAGER，走生产默认 `new BrowserManager()`），`ensureStarted` 会话后加载真实扩展源码配 env，4 个 browser_* 工具 execute 经真实 HTTP POST /bridge/tool 到 kernel，完整走 browser_navigate（data: URL）→ browser_evaluate（读 h1）→ browser_screenshot（path 模式，断言落在 `${WA_PI_DIR}/tmp/browser-screenshots` 且文件非空）→ browser_close；引擎不可用时探测 skip 不算失败。白名单验证：agent tools 显式白名单不含 browser_* 时 `--tools` 不含 4 个 browser_*（read/bash 保留），反向含 browser_navigate 时 `--tools` 含之（NOOP_BROWSER_MANAGER，不测真实浏览器）。测试截图/临时文件含失败路径全部清理。
+- 影响范围：`packages/kernel/tests/browser-e2e.test.ts`（新建，3 用例）。
+- 验证：真实链路 1 pass（本机引擎可用）+ 白名单 2 pass = 3 pass / 0 fail / 40 expect；bridge/agent-manager/browser 相关回归 154 pass 全绿；kernel typecheck 通过。
+
 ## 2026-08-22 — fix(kernel): BrowserManager 默认 WebView 工厂补传 backend:"chrome" + Layer 3 真实引擎集成测试
 
 - 修复：默认 viewFactory `new Bun.WebView(o)` → `new Bun.WebView({ ...o, backend: "chrome" })`。真实 API 差异（bun-types@1.4.0）：构造 backend 默认 "webkit" 仅 macOS 可用，非 macOS 平台不传会直接构造抛错；显式传 "chrome" 后自动探测本机 Chrome/Chromium/Edge，跨平台可用。
