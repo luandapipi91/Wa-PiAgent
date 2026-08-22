@@ -11,13 +11,18 @@ const { execFileSync } = require("node:child_process");
  *  同一证书签的新版本互相满足，Squirrel.Mac 更新验证可过。 */
 const DEFAULT_SELF_SIGNED_CERT = "WA PI Agent Self-Signed";
 
-/** 钥匙串里是否存在给定证书（只读查询，不弹窗）。 */
+/** 钥匙串里是否存在给定证书（只读查询，不弹窗）。
+ * 注意：macOS 上 `security find-certificate` 无匹配时 exit code 仍为 0，
+ * 只靠退出码会误判证书存在（→ 用不存在的证书名签名必失败）。
+ * 这里改用 -p 输出的 PEM 内容判断：有证书会输出 BEGIN CERTIFICATE 块。 */
 function hasCert(name, exec = execFileSync) {
 	try {
-		exec("security", ["find-certificate", "-c", name, "-a"], {
-			stdio: "ignore",
-		});
-		return true;
+		const out = exec(
+			"security",
+			["find-certificate", "-c", name, "-a", "-p"],
+			{ encoding: "utf8" },
+		);
+		return String(out ?? "").includes("BEGIN CERTIFICATE");
 	} catch {
 		return false;
 	}
