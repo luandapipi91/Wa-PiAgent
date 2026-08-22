@@ -138,3 +138,85 @@ describe("handleBrowserTool", () => {
     m.dispose();
   });
 });
+
+describe("runWithRetry / withTimeout（经 handleBrowserTool 行为路径）", () => {
+  // runWithRetry：Bun.WebView 并发槽冲突抛 ERR_INVALID_STATE，应递增间隔重试后成功
+  test("ERR_INVALID_STATE 首次失败后重试成功", async () => {
+    let calls = 0;
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-retry-")),
+      viewFactory: () =>
+        makeFakeView({
+          async navigate() {
+            calls++;
+            if (calls === 1) throw new Error("ERR_INVALID_STATE: 并发操作");
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      expect(r.content[0].text).toContain('"ok":true');
+      expect(calls).toBe(2); // 首次失败 + 重试成功
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("ERR_INVALID_STATE 持续失败达重试上限后返回错误（不无限重试）", async () => {
+    let calls = 0;
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-retry2-")),
+      viewFactory: () =>
+        makeFakeView({
+          async navigate() {
+            calls++;
+            throw new Error("ERR_INVALID_STATE: 并发操作");
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      // 1 次初始 + 3 次重试 = 4 次调用后放弃
+      expect(calls).toBe(4);
+      expect(JSON.stringify(r)).toContain("导航失败");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // withTimeout：Promise.race 超时，避免 WebView 操作永久挂起
+  test("navigate 永久挂起时按 timeout 超时返回错误（不无限等待）", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-tools-timeout-")),
+      viewFactory: () =>
+        makeFakeView({
+          navigate() {
+            return new Promise<void>(() => {}); // 永不 resolve
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      // navigateTool 接受 timeout 参数注入；设 200ms 让测试快速结束
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", timeout: 200 });
+      expect(JSON.stringify(r)).toContain("超时");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("正常操作不受超时影响（timeout 内完成）", async () => {
+    const m = makeManager();
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", timeout: 500 });
+      expect(r.content[0].text).toContain('"ok":true');
+    } finally {
+      m.dispose();
+    }
+  });
+});
