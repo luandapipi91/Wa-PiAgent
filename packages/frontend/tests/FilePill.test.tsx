@@ -73,6 +73,35 @@ test("渲染胶囊（basename + 行号），点击写入全局 store 并弹预�
 	});
 });
 
+test("Windows 盘符绝对路径渲染胶囊，点击后预览解析为盘符路径", async () => {
+	fake.setResponse("fs:stat", { exists: true });
+	fake.setResponse("fs:readFile", {
+		content: btoa("win-content"),
+		mimeType: "text/plain",
+	});
+	render(
+		<>
+			<FilePill rawText="C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.md" sessionId="s1" />
+			<FilePreviewModal />
+		</>,
+	);
+
+	await waitFor(() =>
+		expect(screen.getByTestId("file-pill").textContent).toContain(
+			"beautiful.md",
+		),
+	);
+	fireEvent.click(screen.getByTestId("file-pill"));
+	// 盘符绝对路径原样作为预览路径，不被 cwd 拼接
+	expect(useSessionStore.getState().filePreview?.path).toBe(
+		"C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.md",
+	);
+	expect(fake.sent[1]).toMatchObject({
+		type: "fs:readFile",
+		path: "C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.md",
+	});
+});
+
 test("resolveAbsolutePath Windows cwd 拼接相对路径时统一为正斜杠", () => {
 	useProjectsStore.setState({
 		projects: [{ id: "p2", name: "winproj", cwd: "C:\\work\\wa-pi" } as any],
