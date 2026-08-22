@@ -518,6 +518,7 @@ export const SessionView = memo(function SessionView({ sessionId, sourceLabel, i
 				<>
 					<SidebarResizer
 						side="right"
+						getWidth={() => useExplorerStore.getState().width}
 						onResize={(w) => useExplorerStore.getState().setWidth(w)}
 						testId="explorer-resizer"
 					/>

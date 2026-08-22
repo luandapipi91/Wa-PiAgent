@@ -35,9 +35,29 @@
 		return segs.join(" > ");
 	}
 
+	function elLabel(el) {
+		var tag = el.tagName.toLowerCase();
+		var cls = [];
+		if (el.classList) {
+			for (var i = 0; i < el.classList.length && cls.length < 3; i++)
+				cls.push(el.classList[i]);
+		}
+		return cls.length ? tag + "." + cls.join(".") : tag;
+	}
+
+	/** 工具条上的元素名：有 id 用 tag#id，否则 tag.类名（最多 3 个） */
+	function displayLabel(el) {
+		var tag = el.tagName.toLowerCase();
+		return el.id ? tag + "#" + el.id : elLabel(el);
+	}
+
 	// node/bun 单测环境：仅导出纯函数，不触碰 DOM
 	if (typeof module !== "undefined" && module.exports) {
-		module.exports = { buildSelector: buildSelector };
+		module.exports = {
+			buildSelector: buildSelector,
+			displayLabel: displayLabel,
+			elLabel: elLabel,
+		};
 		return;
 	}
 	if (typeof window === "undefined" || window.__hiagentInspect) return;
@@ -66,22 +86,19 @@
 		var btnSend = document.createElement("button");
 		btnSend.textContent = "发送到聊天";
 		btnSend.style.cssText = btnStyle;
+		// 当前选中元素名显示（按钮左侧，让用户知道选中的是什么；不吃指针事件防挡住按钮）
+		var label = document.createElement("span");
+		label.style.cssText =
+			"color:rgba(255,255,255,.85);font-size:11px;padding:1px 4px;" +
+			"max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" +
+			"pointer-events:none;user-select:none;";
+		bar.appendChild(label);
 		bar.appendChild(btnParent);
 		bar.appendChild(btnSend);
 		document.documentElement.appendChild(hl);
 		document.documentElement.appendChild(bar);
 
 		var current = null;
-
-		function elLabel(el) {
-			var tag = el.tagName.toLowerCase();
-			var cls = [];
-			if (el.classList) {
-				for (var i = 0; i < el.classList.length && cls.length < 3; i++)
-					cls.push(el.classList[i]);
-			}
-			return cls.length ? tag + "." + cls.join(".") : tag;
-		}
 
 		function render() {
 			if (!current || !current.getBoundingClientRect) {
@@ -100,6 +117,7 @@
 			bar.style.display = "flex";
 			bar.style.left = x + "px";
 			bar.style.top = Math.max(0, y - 28) + "px";
+			label.textContent = displayLabel(current);
 		}
 
 		document.addEventListener(
@@ -108,6 +126,20 @@
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
 				if (!t.tagName) return;
+				// 粘性区：元素上缘到工具条之间的通道（含工具条），鼠标经过时保持当前选中。
+				// 否则从元素移向工具条会穿过间隙命中其他元素，选中被切走，永远点不到按钮。
+				if (current && bar.style.display !== "none") {
+					var r = current.getBoundingClientRect();
+					var br = bar.getBoundingClientRect();
+					if (
+						e.clientX >= Math.min(r.left, br.left) - 4 &&
+						e.clientX <= Math.max(r.right, br.right) + 4 &&
+						e.clientY >= br.top - 4 &&
+						e.clientY <= r.top
+					) {
+						return;
+					}
+				}
 				current = t;
 				render();
 			},

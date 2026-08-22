@@ -17,6 +17,8 @@ beforeEach(() => {
 		mode: "split",
 		splitRatio: 0.5,
 		floatRect: { x: 100, y: 60, w: 720, h: 480 },
+		minimized: false,
+		bubblePos: { x: 500, y: 400 },
 	});
 });
 
@@ -87,3 +89,25 @@ test("持久化 trailing debounce：连续写合并为最后一次", async () =>
 	expect(localStorage.getItem("hiagent.browser.splitRatio")).toBe("0.6");
 	setPersistDebounceMs(0);
 });
+
+test("setMinimized 切换；openBrowser/closeBrowser 重置为 false", () => {
+	expect(useBrowserStore.getState().minimized).toBe(false);
+	useBrowserStore.getState().setMinimized(true);
+	expect(useBrowserStore.getState().minimized).toBe(true);
+	useBrowserStore.getState().openBrowser("/a/index.html", "s1");
+	expect(useBrowserStore.getState().minimized).toBe(false);
+	useBrowserStore.getState().setMinimized(true);
+	useBrowserStore.getState().closeBrowser();
+	expect(useBrowserStore.getState().minimized).toBe(false);
+});
+
+test("setBubblePos clamp 在视口内并持久化", () => {
+	useBrowserStore.getState().setBubblePos({ x: -20, y: 99999 });
+	const p = useBrowserStore.getState().bubblePos;
+	expect(p.x).toBeGreaterThanOrEqual(0);
+	expect(p.y).toBeLessThanOrEqual(window.innerHeight - 44);
+	const saved = JSON.parse(localStorage.getItem("hiagent.browser.bubblePos")!);
+	expect(saved.x).toBe(p.x);
+	expect(saved.y).toBe(p.y);
+});
+

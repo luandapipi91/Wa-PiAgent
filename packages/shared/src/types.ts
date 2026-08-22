@@ -353,18 +353,7 @@ export type AttachmentRef =
 			durationMs?: number;
 	  }
 	| { kind: "folder"; name: string; path: string }
-	| { kind: "snippet"; name: string; content: string }
-	| {
-			kind: "element";
-			name: string;
-			path: string;
-			/** 唯一 CSS selector（tag#id 或 tag:nth-of-type(n) 的 " > " 路径） */
-			selector: string;
-			/** 展示用标签，如 div.card.title */
-			elLabel: string;
-			startLine: number | null;
-			endLine: number | null;
-	  };
+	| { kind: "snippet"; name: string; content: string };
 
 // 附件草稿：composer 本地状态/IndexedDB 中使用的附件元数据，结构与 AttachmentRef 相同
 export type AttachmentDraft =
@@ -378,18 +367,7 @@ export type AttachmentDraft =
 			durationMs?: number;
 	  }
 	| { kind: "folder"; name: string; path: string }
-	| { kind: "snippet"; name: string; content: string }
-	| {
-			kind: "element";
-			name: string;
-			path: string;
-			/** 唯一 CSS selector（tag#id 或 tag:nth-of-type(n) 的 " > " 路径） */
-			selector: string;
-			/** 展示用标签，如 div.card.title */
-			elLabel: string;
-			startLine: number | null;
-			endLine: number | null;
-	  };
+	| { kind: "snippet"; name: string; content: string };
 
 export interface AbortEvent {
 	type: "agent:abort";

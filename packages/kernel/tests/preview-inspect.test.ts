@@ -54,3 +54,10 @@ test("buildSelector：有 id 的段用 tag#id", () => {
 	el("html", { children: [body] });
 	expect(buildSelector(span)).toBe("html > body:nth-of-type(1) > div#card > span:nth-of-type(1)");
 });
+
+test("displayLabel：有 id 用 tag#id，否则 tag.类名（最多 3 个）", () => {
+	const { displayLabel } = require("../src/assets/preview-inspect.js");
+	expect(displayLabel({ tagName: "DIV", id: "card", classList: ["a"] })).toBe("div#card");
+	expect(displayLabel({ tagName: "P", id: "", classList: ["x", "y", "z", "w"] })).toBe("p.x.y.z");
+	expect(displayLabel({ tagName: "SPAN", id: "", classList: [] })).toBe("span");
+});

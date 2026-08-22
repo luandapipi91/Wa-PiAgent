@@ -194,8 +194,8 @@ const zh = {
 		modeSplit: "与聊天分屏",
 		modeFull: "全屏预览",
 		modeFloat: "浮动窗口",
-		dock: "停靠到分屏",
-		noSession: "请先进入一个会话再发送元素",
+		minimize: "最小化为气泡",
+		restore: "恢复预览",
 	},
 	blocks: {
 		turnSummary: {

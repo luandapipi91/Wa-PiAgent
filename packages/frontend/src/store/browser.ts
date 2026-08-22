@@ -14,10 +14,45 @@ const LS = {
 	mode: "hiagent.browser.mode",
 	ratio: "hiagent.browser.splitRatio",
 	rect: "hiagent.browser.floatRect",
+	bubble: "hiagent.browser.bubblePos",
 } as const;
 
 const MIN_W = 320;
 const MIN_H = 240;
+/** 气泡边长（px），与 FloatBubble 渲染尺寸一致 */
+export const BUBBLE_SIZE = 44;
+
+export interface BubblePos {
+	x: number;
+	y: number;
+}
+
+/** 气泡位置 clamp：整体留在视口内 */
+export function clampBubblePos(p: BubblePos): BubblePos {
+	return {
+		x: Math.max(0, Math.min(window.innerWidth - BUBBLE_SIZE, p.x)),
+		y: Math.max(0, Math.min(window.innerHeight - BUBBLE_SIZE, p.y)),
+	};
+}
+
+function defaultBubblePos(): BubblePos {
+	return clampBubblePos({
+		x: window.innerWidth - BUBBLE_SIZE - 24,
+		y: window.innerHeight - BUBBLE_SIZE - 24,
+	});
+}
+
+function loadBubblePos(): BubblePos {
+	try {
+		const v = JSON.parse(localStorage.getItem(LS.bubble) ?? "");
+		if (v && [v.x, v.y].every((n) => typeof n === "number" && Number.isFinite(n))) {
+			return clampBubblePos(v);
+		}
+	} catch {
+		/* 解析失败用默认 */
+	}
+	return defaultBubblePos();
+}
 
 export function clampRatio(r: number): number {
 	return Math.max(0.2, Math.min(0.8, r));
@@ -123,11 +158,19 @@ interface BrowserState {
 	mode: BrowserMode;
 	splitRatio: number;
 	floatRect: FloatRect;
+	/** 浮动窗最小化为气泡（不持久化：重开预览时应直接显示窗口） */
+	minimized: boolean;
+	/** 气泡位置（localStorage 持久化） */
+	bubblePos: BubblePos;
 	openBrowser: (path?: string, sessionId?: string) => void;
 	closeBrowser: () => void;
 	setMode: (mode: BrowserMode) => void;
 	setSplitRatio: (ratio: number) => void;
 	setFloatRect: (rect: FloatRect) => void;
+	setMinimized: (minimized: boolean) => void;
+	setBubblePos: (pos: BubblePos) => void;
+	/** 同步当前预览路径（地址栏加载本地 html 时调用）：模式切换重挂面板后可从 store 恢复内容 */
+	setPath: (path: string | null) => void;
 }
 
 export const useBrowserStore = create<BrowserState>((set) => ({
@@ -137,9 +180,16 @@ export const useBrowserStore = create<BrowserState>((set) => ({
 	mode: loadMode(),
 	splitRatio: loadRatio(),
 	floatRect: loadRect(),
+	minimized: false,
+	bubblePos: loadBubblePos(),
 	openBrowser: (path, sessionId) =>
-		set({ open: true, path: path ?? null, sessionId: sessionId ?? null }),
-	closeBrowser: () => set({ open: false, path: null, sessionId: null }),
+		set({
+			open: true,
+			path: path ?? null,
+			sessionId: sessionId ?? null,
+			minimized: false,
+		}),
+	closeBrowser: () => set({ open: false, path: null, sessionId: null, minimized: false }),
 	setMode: (mode) => {
 		save(LS.mode, mode);
 		set({ mode });
@@ -153,5 +203,12 @@ export const useBrowserStore = create<BrowserState>((set) => ({
 		const clamped = clampRect(rect);
 		save(LS.rect, JSON.stringify(clamped));
 		set({ floatRect: clamped });
+	},
+	setMinimized: (minimized) => set({ minimized }),
+	setPath: (path) => set({ path }),
+	setBubblePos: (pos) => {
+		const clamped = clampBubblePos(pos);
+		save(LS.bubble, JSON.stringify(clamped));
+		set({ bubblePos: clamped });
 	},
 }));
