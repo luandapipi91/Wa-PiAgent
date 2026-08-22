@@ -1,3 +1,10 @@
+## 2026-08-22 — v0.2.18 发版
+
+### 发版
+
+- 版本 0.2.17 → 0.2.18（会话级浏览器自动化工具 browser_* 全量上线 + 插件安装修复 + 页面媒体静音 + bash 报错恢复上游原始提示）。
+- RELEASE_NOTES.md / version-history.json 已更新；线上 win 更新源 latest.yml 指向 0.2.18（mac 保持 0.2.15）。
+- 影响范围：packages/desktop/package.json、packages/frontend/package.json、packages/desktop/RELEASE_NOTES.md、packages/frontend/src/data/version-history.json；验证：全量回归全绿（kernel 1361 + frontend 1862 + desktop 166 + shared 128）+ pack:win + publish-oss 上传 R2。
 ## 2026-08-22 — 插件安装修复（编译产物当 bun CLI）
 
 ### 修复
