@@ -62,8 +62,11 @@ export class BrowserManager {
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.sweepIntervalMs = opts.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
     this.screenshotDir = opts.screenshotDir ?? join(WA_PI_DIR, "tmp", "browser-screenshots");
-    // SAFETY: Bun.WebView 与 WebViewLike 的方法签名同构；真实类型验证留给 browser_* 接入任务
-    this.viewFactory = opts.viewFactory ?? ((o) => new Bun.WebView(o) as unknown as WebViewLike);
+    // SAFETY: Bun.WebView 与 WebViewLike 的方法签名同构（Layer 3 真实引擎集成测试验证）。
+    // 必须显式传 backend: "chrome"：Bun.WebView 默认 backend 是 "webkit"（仅 macOS 可用），
+    // 非 macOS 平台不传会直接构造抛错。"chrome" 自动探测本机 Chrome/Chromium/Edge。
+    this.viewFactory =
+      opts.viewFactory ?? ((o) => new Bun.WebView({ ...o, backend: "chrome" }) as unknown as WebViewLike);
     mkdirSync(this.screenshotDir, { recursive: true });
     this.sweepTimer = setInterval(() => this.sweepIdle(), this.sweepIntervalMs);
     // 定时器不阻止进程退出
