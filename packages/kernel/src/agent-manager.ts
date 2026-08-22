@@ -67,7 +67,6 @@ import {
 	extensionCoversProvider,
 } from "./provider-extension";
 import { SubagentTelemetry } from "./subagent-telemetry";
-import { applyFriendlyShellMessage } from "./sdk-errors";
 import { lookupCatalogModel } from "./pi-catalog";
 import {
 	AUTO_COMPACT_RESERVE_TOKENS,
@@ -1035,8 +1034,6 @@ export class AgentManager {
 				break;
 			case "message_end":
 				if (event.message) {
-					// Windows 无 Git Bash 时 bash 工具报错 → 友好中文提示（替换误导性 VS Code 文案）
-					applyFriendlyShellMessage(event.message);
 					handle.messages.push(event.message);
 				}
 				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
