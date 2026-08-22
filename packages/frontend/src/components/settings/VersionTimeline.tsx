@@ -4,7 +4,9 @@ import versionHistory from "../../data/version-history.json";
 interface VersionEntry {
 	version: string;
 	date: string;
-	sections: Record<string, string[]>;
+	// 各版本 sections 键分布不一（新增/优化/修复/改进组合不同），JSON 推断缺键为
+	// undefined，断言 Record<string, string[]> 时 TS 2325 不重叠——放宽允许 undefined。
+	sections: Record<string, string[] | undefined>;
 }
 
 const DEFAULT_MAX_ENTRIES = 100;
@@ -79,30 +81,32 @@ export function VersionTimeline({
 							</button>
 							{isOpen && (
 								<div className="mt-1.5 space-y-2">
-									{Object.entries(entry.sections).map(([category, items]) => (
-										<div key={category}>
-											<div
-												className="text-[11px] font-medium mb-0.5"
-												style={{
-													color:
-														SECTION_COLORS[category] ?? "var(--text-secondary)",
-												}}
-											>
-												{category}
-											</div>
-											<ul className="space-y-0.5">
-												{items.map((item, j) => (
-													<li
-														key={j}
-														className="text-xs text-secondary flex gap-1.5 leading-relaxed"
-													>
+									{Object.entries(entry.sections).map(([category, items]) =>
+										items ? (
+											<div key={category}>
+												<div
+													className="text-[11px] font-medium mb-0.5"
+													style={{
+														color:
+															SECTION_COLORS[category] ?? "var(--text-secondary)",
+													}}
+												>
+													{category}
+												</div>
+												<ul className="space-y-0.5">
+													{items.map((item, j) => (
+														<li
+															key={j}
+															className="text-xs text-secondary flex gap-1.5 leading-relaxed"
+															>
 														<span className="text-tertiary shrink-0">•</span>
 														<span>{item}</span>
 													</li>
 												))}
-											</ul>
-										</div>
-									))}
+												</ul>
+											</div>
+										) : null
+									)}
 								</div>
 							)}
 						</div>

@@ -291,6 +291,11 @@ export class ProxyRelay {
 		if (head?.length) outbound.write(head);
 		outbound.pipe(client).pipe(outbound);
 		outbound.on("error", () => client.destroy());
+		// 隧道一端关闭时清理对端，避免连接泄漏：
+		// bun 1.4 下 server.close() 严格等待全部连接关闭，残留的 outbound 会让
+		// relay.close() 永远挂起（bun 1.3 宽松处理不暴露）；真实场景也会泄漏连接。
+		client.once("close", () => outbound.destroy());
+		outbound.once("close", () => client.destroy());
 		let closed = false;
 		const done = () => {
 			if (closed) return;
@@ -299,6 +304,16 @@ export class ProxyRelay {
 		};
 		client.once("close", done);
 		outbound.once("close", done);
+	}
+
+	/**
+	 * 普通 HTTP 转发（forwardPlain）的 pipe 清理：一端关闭时销毁对端。
+	 * 与 establishTunnel 同理：bun 1.4 下 server.close() 严格等待全部连接关闭，
+	 * 半关闭残留会让 relay.close() 挂起；真实场景也避免连接泄漏。
+	 */
+	private attachForwardCleanup(client: Socket, outbound: Socket): void {
+		client.once("close", () => outbound.destroy());
+		outbound.once("close", () => client.destroy());
 	}
 
 	/** 直连目标并建立隧道；失败立即 onFail，成功待隧道关闭 onClose */
@@ -510,6 +525,7 @@ export class ProxyRelay {
 							finish("fail", "-", "响应状态行异常");
 							client.write(rbuf);
 							outbound.pipe(client).pipe(outbound);
+							this.attachForwardCleanup(client, outbound);
 						}
 						return;
 					}
@@ -521,6 +537,7 @@ export class ProxyRelay {
 					finish("ok", m?.[1] ?? "-");
 					client.write(rbuf);
 					outbound.pipe(client).pipe(outbound);
+					this.attachForwardCleanup(client, outbound);
 				};
 				outbound.on("data", onRes);
 			});

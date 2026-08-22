@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./ui/Icon";
 import { useBrowserStore } from "../store/browser";
 import { useSessionStore } from "../store/session";
@@ -9,13 +9,19 @@ import { copyToClipboard } from "../util/clipboard";
 import { useToastStore } from "../store/toast";
 import { useProjectsStore } from "../store/projects";
 import { useTranslation } from "../i18n/useTranslation";
+import { parseInspectMessage, handleElementPicked } from "../element-pick";
 
 type Current =
 	| { kind: "local"; path: string }
 	| { kind: "external"; url: string };
 
 export function BrowserPanel() {
-	const { path, sessionId, closeBrowser } = useBrowserStore();
+	// 逐字段 selector 订阅：整订阅会让 splitRatio/floatRect 拖拽期的每帧变化也触发本组件重渲染
+	const path = useBrowserStore((s) => s.path);
+	const sessionId = useBrowserStore((s) => s.sessionId);
+	const closeBrowser = useBrowserStore((s) => s.closeBrowser);
+	const mode = useBrowserStore((s) => s.mode);
+	const setMode = useBrowserStore((s) => s.setMode);
 	const [current, setCurrent] = useState<Current | null>(
 		path ? { kind: "local", path } : null,
 	);
@@ -99,6 +105,28 @@ export function BrowserPanel() {
 		).then(() => addToast(t("browser.copied"), "success"));
 	};
 
+	const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+	// inspect 消息监听：仅本地预览；source 必须来自预览 iframe（独特源 origin 为 "null"，
+	// 不能按 origin 校验），消息体经 parseInspectMessage 白名单校验
+	useEffect(() => {
+		if (!loadedPath) return;
+		const path = loadedPath;
+		const onMessage = (e: MessageEvent) => {
+			if (e.source !== iframeRef.current?.contentWindow) return;
+			const picked = parseInspectMessage(e.data);
+			if (!picked) return;
+			const sessionId =
+				useBrowserStore.getState().sessionId ??
+				useProjectsStore.getState().currentSessionId;
+			void handleElementPicked(path, picked, sessionId).then((r) => {
+				if (r === "no-session") addToast(t("browser.noSession"), "error");
+			});
+		};
+		window.addEventListener("message", onMessage);
+		return () => window.removeEventListener("message", onMessage);
+	}, [loadedPath, addToast, t]);
+
 	const canCodeShare = loadedPath !== null;
 
 	return (
@@ -141,6 +169,51 @@ export function BrowserPanel() {
 				>
 					<Icon
 						name="refresh"
+						size="1em"
+						className="text-[calc(16px*var(--font-scale))]"
+					/>
+				</button>
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon"
+					title={t("browser.modeSplit")}
+					data-testid="browser-mode-split"
+					aria-pressed={mode === "split"}
+					onClick={() => setMode("split")}
+					style={mode === "split" ? { color: "var(--brand)" } : undefined}
+				>
+					<Icon
+						name="columns"
+						size="1em"
+						className="text-[calc(16px*var(--font-scale))]"
+					/>
+				</button>
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon"
+					title={t("browser.modeFull")}
+					data-testid="browser-mode-full"
+					aria-pressed={mode === "full"}
+					onClick={() => setMode("full")}
+					style={mode === "full" ? { color: "var(--brand)" } : undefined}
+				>
+					<Icon
+						name="monitor"
+						size="1em"
+						className="text-[calc(16px*var(--font-scale))]"
+					/>
+				</button>
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon"
+					title={t("browser.modeFloat")}
+					data-testid="browser-mode-float"
+					aria-pressed={mode === "float"}
+					onClick={() => setMode("float")}
+					style={mode === "float" ? { color: "var(--brand)" } : undefined}
+				>
+					<Icon
+						name="float"
 						size="1em"
 						className="text-[calc(16px*var(--font-scale))]"
 					/>
@@ -196,9 +269,9 @@ export function BrowserPanel() {
 			<div className="flex-1 overflow-hidden">
 				{current ? (
 					current.kind === "local" ? (
-						<HtmlPreview path={current.path} refreshKey={refreshKey} />
+						<HtmlPreview ref={iframeRef} path={current.path} refreshKey={refreshKey} />
 					) : (
-						<HtmlPreview externalUrl={current.url} refreshKey={refreshKey} />
+						<HtmlPreview ref={iframeRef} externalUrl={current.url} refreshKey={refreshKey} />
 					)
 				) : (
 					<div

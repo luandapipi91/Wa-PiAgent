@@ -10,7 +10,7 @@ test("渲染时间线：最新版本默认展开，显示分类标签", () => {
 	// 数据驱动：断言跟随 version-history.json 首条，发新版后不会腐坏
 	const latest = versionHistory[0] as {
 		version: string;
-		sections: Record<string, string[]>;
+		sections: Record<string, string[] | undefined>;
 	};
 	const { container } = render(<VersionTimeline />);
 	const timeline = within(container).getByTestId("version-timeline");

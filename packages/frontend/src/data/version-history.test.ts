@@ -4,7 +4,8 @@ import history from "./version-history.json";
 interface VersionEntry {
 	version: string;
 	date: string;
-	sections: Record<string, string[]>;
+	// 各版本 sections 键分布不一，JSON 推断缺键为 undefined，断言需允许 undefined
+	sections: Record<string, string[] | undefined>;
 }
 
 const entries = history as VersionEntry[];
@@ -24,7 +25,7 @@ test("version-history.json 格式合法：每条含 version/date/sections", () =
 		for (const [category, items] of Object.entries(entry.sections)) {
 			expect(typeof category).toBe("string");
 			expect(Array.isArray(items)).toBe(true);
-			expect(items.length).toBeGreaterThan(0);
+			if (items) expect(items.length).toBeGreaterThan(0);
 		}
 	}
 });

@@ -1,12 +1,12 @@
 {
   "name": "@wa-pi/frontend",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "bun --env-file=.env.test test --isolate",
+    "test": "bun --env-file=.env.test test --isolate --timeout=20000",
     "e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },

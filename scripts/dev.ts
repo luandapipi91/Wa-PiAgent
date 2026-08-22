@@ -18,10 +18,14 @@ async function ensureDeps(): Promise<void> {
     // 缺失,走修复
   }
   if (process.env.WA_PI_DEPS_REPAIRED === "1") {
-    console.error("[dev] 上次 bun install 后 @wa-pi/shared 仍无法解析,请手动运行 `bun install` 排查");
+    console.error(
+      "[dev] 上次 bun install 后 @wa-pi/shared 仍无法解析,请手动运行 `bun install` 排查",
+    );
     process.exit(1);
   }
-  console.log("[dev] 依赖缺失(@wa-pi/shared 无法解析),自动执行 bun install 修复...");
+  console.log(
+    "[dev] 依赖缺失(@wa-pi/shared 无法解析),自动执行 bun install 修复...",
+  );
   const code = await runCmdInherit("bun", ["install"]);
   if (code !== 0) {
     console.error("[dev] bun install 失败(退出码 %d),请手动运行排查", code);
@@ -37,8 +41,14 @@ function relaunchSelf(): Promise<never> {
   const [exe, script, ...extra] = process.argv;
   const child = spawn(exe, [script, ...extra], { stdio: "inherit" });
   return new Promise<never>((resolve) => {
-    child.on("close", (code) => { process.exit(code ?? 0); resolve(); });
-    child.on("error", (e) => { console.error("[dev] 重启失败:", e); process.exit(1); });
+    child.on("close", (code) => {
+      process.exit(code ?? 0);
+      resolve();
+    });
+    child.on("error", (e) => {
+      console.error("[dev] 重启失败:", e);
+      process.exit(1);
+    });
   });
 }
 
@@ -53,11 +63,46 @@ function runCmdInherit(bin: string, args: string[]): Promise<number> {
 
 async function main() {
   await ensureDeps();
+  // 强制校验 Bun ≥ 1.4.0（必须在 ensureDeps 之后：依赖缺失时先自修复，再检查版本）。
+  // 当前代码依赖 bun 1.4 行为（Bun.cron 本地时区解析），1.3.x 下定时任务会静默错 8 小时。
+  // 版本不足时不直接退出：尝试自动下载 1.4 bun 到用户缓存并用它重启 dev 自身。
+  const shared = await import("@wa-pi/shared");
+  const check = shared.checkBunVersion();
+  if (!check.ok) {
+    console.log(
+      "[dev] 当前 Bun 版本不足(需要 ≥1.4.0),尝试自动下载 bun 到本地缓存...",
+    );
+    const {
+      cachedBunPath,
+      isUsableBunFile,
+      bunVersionOf,
+      downloadDevBun,
+      prependBunDirToPath,
+      relaunchSelfWith,
+    } = await import("./bun-dev-runtime");
+    let bunExe = isUsableBunFile(cachedBunPath()) ? cachedBunPath() : null;
+    if (bunExe) {
+      const v = await bunVersionOf(bunExe);
+      if (!v || !shared.isBunAtLeast(v)) bunExe = null; // 缓存损坏/过旧 → 重下
+    }
+    if (!bunExe) bunExe = await downloadDevBun();
+    if (bunExe) {
+      prependBunDirToPath(bunExe);
+      process.env.WA_PI_PI_RUNTIME = bunExe; // pi rpc 子进程跟随下载 bun（resolvePiRuntime env 优先）
+      console.log(`[dev] 用下载的 bun 重启: ${bunExe}`);
+      const [, script, ...extra] = process.argv;
+      await relaunchSelfWith(bunExe, [script, ...extra]);
+    }
+    shared.assertBunVersionOrExit(); // 下载失败 → 保留原有中文报错退出（兜底）
+  }
   const { WS_PORT, FRONTEND_PORT } = await import("@wa-pi/shared");
   await runDev(WS_PORT, FRONTEND_PORT);
 }
 
 async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
+  // pi rpc 子进程跟随当前 bun（重启后=下载 bun；正常时=自身）。resolvePiRuntime
+  // 的优先级是 env > PATH > execPath，env 注入能覆盖 PATH 上的旧 bun。
+  process.env.WA_PI_PI_RUNTIME = process.execPath;
   // 1. 端口清理(兜底,防止上次没干净) + 动态选择 kernel 端口
   console.log("[dev] 清理端口 %d / %d ...", WS_PORT, FRONTEND_PORT);
   await Promise.all([killPort(WS_PORT), killPort(FRONTEND_PORT)]);
@@ -70,7 +115,7 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
   let frontend: ChildProcess = spawnFrontend();
 
   let lastOpenedFrontendPort: number | null = null;
-  let actualFrontendPort = FRONTEND_PORT;  // Vite 可能因端口占用自动换端口
+  let actualFrontendPort = FRONTEND_PORT; // Vite 可能因端口占用自动换端口
 
   function bindFrontendEvents(proc: ChildProcess) {
     proc.stdout!.on("data", (d: Buffer) => {
@@ -82,9 +127,17 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
       // 端口变化时重新打开浏览器（首次启动或按 R 重启后 Vite 换端口）
       if (lastOpenedFrontendPort !== actualFrontendPort) {
         if (lastOpenedFrontendPort != null) {
-          console.log("[dev] ⚠ Vite 换端口 %d → %d", lastOpenedFrontendPort, actualFrontendPort);
+          console.log(
+            "[dev] ⚠ Vite 换端口 %d → %d",
+            lastOpenedFrontendPort,
+            actualFrontendPort,
+          );
         } else if (actualFrontendPort !== FRONTEND_PORT) {
-          console.log("[dev] ⚠ Vite 换端口 %d → %d", FRONTEND_PORT, actualFrontendPort);
+          console.log(
+            "[dev] ⚠ Vite 换端口 %d → %d",
+            FRONTEND_PORT,
+            actualFrontendPort,
+          );
         }
         const url = `http://localhost:${actualFrontendPort}`;
         console.log("[dev] ▶ 打开浏览器 %s", url);
@@ -92,12 +145,18 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
         lastOpenedFrontendPort = actualFrontendPort;
       }
     });
-    proc.stderr!.on("data", (d: Buffer) => process.stderr.write(`[web] ${d.toString()}`));
+    proc.stderr!.on("data", (d: Buffer) =>
+      process.stderr.write(`[web] ${d.toString()}`),
+    );
   }
 
   function bindKernelEvents(proc: ChildProcess) {
-    proc.stdout!.on("data", (d: Buffer) => process.stdout.write(`[kernel] ${d.toString()}`));
-    proc.stderr!.on("data", (d: Buffer) => process.stderr.write(`[kernel] ${d.toString()}`));
+    proc.stdout!.on("data", (d: Buffer) =>
+      process.stdout.write(`[kernel] ${d.toString()}`),
+    );
+    proc.stderr!.on("data", (d: Buffer) =>
+      process.stderr.write(`[kernel] ${d.toString()}`),
+    );
   }
 
   bindKernelEvents(kernel);
@@ -136,14 +195,18 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
     process.stdin.on("data", async (key: string) => {
       if (key === "r" || key === "R") {
         await reloadAll();
-      } else if (key === "" || key === "") { // Ctrl+C / Ctrl+D
+      } else if (key === "" || key === "") {
+        // Ctrl+C / Ctrl+D
         await cleanup();
       }
     });
   }
 }
 
-interface ProcSpec { label: string; cmd: [string, string[]]; }
+interface ProcSpec {
+  label: string;
+  cmd: [string, string[]];
+}
 
 const isWindows = process.platform === "win32";
 
@@ -162,7 +225,8 @@ async function stopProc(p: ChildProcess): Promise<void> {
       // POSIX: spawn 用了 shell:true，p.kill('SIGTERM') 只杀 shell，
       // 其子进程(bun/vite)成为孤儿继续占用端口，导致下次 reload EADDRINUSE。
       // 用递归函数杀整棵进程树，与 Windows taskkill /T /F 行为对称。
-      await runCmd("/bin/sh", ["-c",
+      await runCmd("/bin/sh", [
+        "-c",
         `k() { for c in $(pgrep -P $1 2>/dev/null); do k $c; done; kill -9 $1 2>/dev/null; }; k ${p.pid}`,
       ]);
     }
@@ -182,15 +246,15 @@ function runCmd(bin: string, args: string[]): Promise<void> {
 
 function spawnProcs(spec: ProcSpec) {
   const [bin, args] = spec.cmd;
-  // Windows 下 spawn 默认不解析 PATHEXT,找不到 bun.cmd;加 shell:true 走 cmd 解析。
-  // POSIX 不需要 shell,但加上无害(命令本身无 shell 元字符)。
-  return spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], shell: true });
+  // 用绝对路径 exe（process.execPath，重启后即下载的 bun）直接 spawn，无需 shell
+  // 解析 PATHEXT；shell:false 避免路径含空格被 cmd 误拆（数组参数自动正确转义）。
+  return spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], shell: false });
 }
 
 function spawnKernel() {
   return spawnProcs({
     label: "kernel",
-    cmd: ["bun", ["run", "--filter", "@wa-pi/kernel", "dev"]],
+    cmd: [process.execPath, ["run", "--filter", "@wa-pi/kernel", "dev"]],
   });
 }
 
@@ -201,8 +265,14 @@ function spawnFrontend() {
     // #!/usr/bin/env node，默认会解析到系统 node（本机 v14 过旧，不支持
     // vite 8 的 ??= 等语法）；--bun 会把 node 符号链接指向 bun，vite 在
     // bun runtime 下正常启动（与 Node ≥20 要求解耦）。
-    cmd: ["bun", ["--bun", "run", "--filter", "@wa-pi/frontend", "dev"]],
+    cmd: [
+      process.execPath,
+      ["--bun", "run", "--filter", "@wa-pi/frontend", "dev"],
+    ],
   });
 }
 
-main().catch((e) => { console.error("[dev] 启动失败:", e); process.exit(1); });
+main().catch((e) => {
+  console.error("[dev] 启动失败:", e);
+  process.exit(1);
+});
