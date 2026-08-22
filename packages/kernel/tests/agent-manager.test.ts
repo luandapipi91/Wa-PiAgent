@@ -19,6 +19,7 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
+import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { extUiRegistry } from "../src/ext-ui-registry";
@@ -138,6 +139,7 @@ async function setup(opts: SetupOpts = {}) {
 		onEvent: (sid, pid, name, e) =>
 			opts.events?.push({ sessionId: sid, projectId: pid, agentName: name, e }),
 		createClientFn: opts.createClientFn ?? fakeClientFactory(fakes),
+		browserManager: NOOP_BROWSER_MANAGER,
 		...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
 		...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
 		...(opts.extensionManager ? { extensionManager: opts.extensionManager } : {}),
@@ -285,6 +287,7 @@ test("ensureStarted 创建失败时清理 starting 锁并允许重试", async ()
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(recoveryFakes),
+		browserManager: NOOP_BROWSER_MANAGER,
 	});
 	managers.push(recovery);
 	await recovery.ensureStarted(project.id, "dev", session.id);
@@ -1423,6 +1426,24 @@ test("listGlobalTools 内置工具 source='内置'，非内置工具不应显示
 	}
 });
 
+test("listGlobalTools 含 4 个 browser_* 工具（source='内置'，供 ToolsTab 显示开关）", async () => {
+	const { am } = await setup();
+	const tools = await am.listGlobalTools();
+	const names = tools.map((t) => t.name);
+
+	const browserTools = [
+		"browser_navigate",
+		"browser_evaluate",
+		"browser_screenshot",
+		"browser_close",
+	];
+	expect(names).toEqual(expect.arrayContaining(browserTools));
+	// 4 个 browser_* 均来自 DEFAULT_AGENT_TOOLS → source 应为 "内置"
+	for (const n of browserTools) {
+		expect(tools.find((t) => t.name === n)?.source).toBe("内置");
+	}
+});
+
 // ─── 系统提示词（读 sysprompts/<id>.md 断言组合结果） ───────────────────────
 
 test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 约束段", async () => {
@@ -1868,6 +1889,7 @@ test("孤儿会话（piSessionFile 不存在）进程退出 → 删除 session �
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
+		browserManager: NOOP_BROWSER_MANAGER,
 		onSessionRollback: (sid) => rollbacks.push(sid),
 	});
 	managers.push(am);
@@ -1906,6 +1928,7 @@ test("正常会话（piSessionFile 存在）进程崩溃退出 → 不删除 ses
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
+		browserManager: NOOP_BROWSER_MANAGER,
 		onSessionRollback: (sid) => rollbacks.push(sid),
 	});
 	managers.push(am);
