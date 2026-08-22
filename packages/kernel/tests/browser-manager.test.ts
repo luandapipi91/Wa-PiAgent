@@ -95,4 +95,17 @@ describe("BrowserManager", () => {
     expect(existsSync(dir)).toBe(true);
     manager.dispose();
   });
+
+  test("closeSession 幂等：重复 close 不抛错，get 返回 undefined", async () => {
+    const manager = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-mgr-")),
+      viewFactory: () => makeFakeView(),
+    });
+    const { view } = await manager.getOrCreate("s1");
+    manager.closeSession("s1");
+    expect(() => manager.closeSession("s1")).not.toThrow(); // 第二次 close 不抛
+    expect((view as unknown as { closed: boolean }).closed).toBe(true);
+    expect(manager.get("s1")).toBeUndefined();
+    manager.dispose();
+  });
 });
