@@ -1,3 +1,9 @@
+## 2026-08-22 — fix(前端): 会话短暂消失触发 React #300 崩溃白屏
+
+- 修复：发送/接收消息时界面崩溃白屏，报 Minified React error #300（Rendered fewer hooks than expected）。根因：`SessionView` 的 `if (!session) return null` 之后仍有 `useExplorerStore` 两条 Hook——kernel 广播 `projects:list` 快照滞后（新会话乐观添加后 placeholder 尚未转正）时，`setAll` 替换 sessions 数组但防御逻辑保留 `currentSessionId`，App 仍渲染 SessionView 而 `session` 暂时为 undefined，两次渲染 Hook 数量 16→14 触发 #300 崩溃。
+- 修复：把两条 `useExplorerStore` 移到 early return 之前，与文件内既有注释承诺的「hooks 必须在 early return 之前调用」模式对齐；session 在/不在时 Hook 数量恒定。
+- 影响范围：`packages/frontend/src/components/SessionView.tsx`；测试：`tests/SessionView.test.tsx` 补 2 条回归用例（会话消失不抛 #300 + 会话恢复正常渲染），37 pass；全量前端 1858 pass（3 条既有 AttachmentChip emoji 断言失败，与本次无关）；typecheck 干净。
+
 ## 2026-08-22 — kernel 单二进制编译 + 入口统一
 
 ### 重构
