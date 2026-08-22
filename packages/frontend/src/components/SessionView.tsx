@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import {
 	SYSTEM_PROJECT_ID,
 	resolveSessionCwd,
@@ -40,7 +40,9 @@ const AGENT_STATE_KEY: Record<AgentStatus, string> = {
 	blocked: "session.stateBlocked",
 };
 
-export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
+// memo 包裹：浏览器预览拖拽期 App 顶层随 splitRatio/floatRect 每帧重渲染，
+// props 不变时跳过本组件（含 MessageList markdown）的 reconcile
+export const SessionView = memo(function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 	const { t } = useTranslation();
 	const session = useProjectsStore((s) =>
 		s.sessions.find((x) => x.id === sessionId),
@@ -553,7 +555,7 @@ export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 			)}
 		</div>
 	);
-}
+});
 
 /**
  * 独立的思考计时器：把「每秒 setElapsed」的重渲染隔离在本组件内，

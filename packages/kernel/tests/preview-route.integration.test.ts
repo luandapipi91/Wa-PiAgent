@@ -115,8 +115,12 @@ maybeTest(
 		// 1) 正常文件：200 + text/html
 		const ok = await fetch(`${base}/preview/${enc}/dist/index.html`);
 		expect(ok.status).toBe(200);
-		expect(ok.headers.get("content-type")).toBe("text/html");
-		expect(await ok.text()).toBe("<h1>hi</h1>");
+		expect(ok.headers.get("content-type")).toContain("text/html");
+		const okBody = await ok.text();
+		expect(okBody).toContain("<h1>hi</h1>");
+
+		// 1b) html 响应注入 inspect 脚本（本地 html 预览的元素选中能力）
+		expect(okBody).toContain('<script src="/preview-inspect.js"></script>');
 
 		// 2) symlink 逃逸出 root：403
 		const esc = await fetch(`${base}/preview/${enc}/escape`);

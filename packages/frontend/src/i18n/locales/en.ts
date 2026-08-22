@@ -201,6 +201,11 @@ const en = {
 		refresh: "Refresh",
 		code: "View source",
 		share: "Share",
+		modeSplit: "Split with chat",
+		modeFull: "Full preview",
+		modeFloat: "Float window",
+		dock: "Dock to split",
+		noSession: "Enter a session before sending elements",
 	},
 	blocks: {
 		turnSummary: {
