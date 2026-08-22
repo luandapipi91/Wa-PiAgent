@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import type { BridgeToolResult } from "./bridge-registry";
-import type { BrowserManager, WebViewLike } from "./browser-manager";
+import type { BrowserManager } from "./browser-manager";
 
 const NAVIGATE_TIMEOUT_MS = 120_000;
 const OPERATION_TIMEOUT_MS = 60_000;
@@ -48,7 +48,7 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
  * ERR_INVALID_STATE（不排队）。此处短等待后重试最多 3 次（100ms 间隔），
  * 规避 LLM 并行调用同一视图时的偶发冲突。
  */
-async function runWithRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+async function runWithRetry<T>(fn: () => Promise<T>): Promise<T> {
   const MAX_RETRIES = 3;
   let lastErr: unknown;
   for (let i = 0; i <= MAX_RETRIES; i++) {
@@ -66,7 +66,7 @@ async function runWithRetry<T>(fn: () => Promise<T>, label: string): Promise<T> 
 
 /** 统一包装 WebView 操作的超时 + 并发重试 */
 async function runViewOp<T>(fn: () => Promise<T>, ms: number, label: string): Promise<T> {
-  return withTimeout(runWithRetry(fn, label), ms, label);
+  return withTimeout(runWithRetry(fn), ms, label);
 }
 
 /** 过滤 undefined 字段，避免把 { button: undefined } 传给 WebView（Bun 侧按缺省处理，但显式 undefined 字段在不同版本可能抛错） */
