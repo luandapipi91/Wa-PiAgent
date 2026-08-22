@@ -1,3 +1,10 @@
+## 2026-08-22 — fix(kernel): BrowserManager 默认 WebView 工厂补传 backend:"chrome" + Layer 3 真实引擎集成测试
+
+- 修复：默认 viewFactory `new Bun.WebView(o)` → `new Bun.WebView({ ...o, backend: "chrome" })`。真实 API 差异（bun-types@1.4.0）：构造 backend 默认 "webkit" 仅 macOS 可用，非 macOS 平台不传会直接构造抛错；显式传 "chrome" 后自动探测本机 Chrome/Chromium/Edge，跨平台可用。
+- 新增：`packages/kernel/tests/browser-real-engine.test.ts`（Layer 3）用真实 Bun.WebView 走 handleBrowserTool 完整工具路径（navigate → evaluate eval/click → screenshot path → close），直接验证 WebViewLike 假设签名与真实引擎匹配；引擎不可用时 test.skip 跳过并标注（不算失败）。实测确认 WebViewLike 与真实 API 仅构造 backend 一处差异，其余签名全部一致。
+- 影响范围：`packages/kernel/src/browser-manager.ts`（默认工厂一行）、`packages/kernel/tests/browser-real-engine.test.ts`（新建，2 用例）。
+- 验证：真实引擎全链路 2 pass（本机 Windows 引擎可用）；browser 相关回归 20 pass；kernel typecheck 通过；全量套件除既有 Windows 平台失败 commonRoot 外全绿。
+
 ## 2026-08-22 — feat(kernel): AgentManager 接线 browser_* 工具（browserManager 注入 + handleTool 分派 + 生命周期）
 
 - 新增：`AgentManagerOpts` 新增可选 `browserManager` 注入（测试注入 fake；生产不传默认 `new BrowserManager()`）；`bridgeCtx.handleTool` 在 memory_ 分支后新增 `tool.startsWith("browser_")` 分支调 `handleBrowserTool`（用 `am.browserManager`，执行逻辑复用既有 browser-tools.ts）；`_teardownSession` 开头随会话销毁 `browserManager.closeSession(sessionId)`（防浏览器进程泄漏），`disposeAll` 末尾 `browserManager.dispose()`（关 sweep 定时器与全部 WebView）。
