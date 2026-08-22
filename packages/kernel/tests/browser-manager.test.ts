@@ -3,10 +3,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BrowserManager, makeDefaultViewFactory, type WebViewLike } from "../src/browser-manager";
+import {
+  BrowserManager,
+  makeDefaultViewFactory,
+  type WebViewLike,
+} from "../src/browser-manager";
 
 /** fake WebView：记录调用、可配置 navigate 结果 */
-function makeFakeView(): WebViewLike & { closed: boolean; navigated: string[] } {
+function makeFakeView(): WebViewLike & {
+  closed: boolean;
+  navigated: string[];
+} {
   return {
     url: "about:blank",
     title: "",
@@ -17,14 +24,20 @@ function makeFakeView(): WebViewLike & { closed: boolean; navigated: string[] } 
       this.navigated.push(url);
       this.url = url;
     },
-    async evaluate() { return undefined; },
+    async evaluate() {
+      return undefined;
+    },
     async click() {},
     async type() {},
     async press() {},
     async scroll() {},
     async scrollTo() {},
-    async screenshot() { return new Blob(["png"]); },
-    close() { this.closed = true; },
+    async screenshot() {
+      return new Blob(["png"]);
+    },
+    close() {
+      this.closed = true;
+    },
   };
 }
 
@@ -91,7 +104,10 @@ describe("BrowserManager", () => {
 
   test("截图目录被自动创建", () => {
     const dir = join(mkdtempSync(join(tmpdir(), "browser-mgr-")), "shots");
-    const manager = new BrowserManager({ screenshotDir: dir, viewFactory: () => makeFakeView() });
+    const manager = new BrowserManager({
+      screenshotDir: dir,
+      viewFactory: () => makeFakeView(),
+    });
     expect(existsSync(dir)).toBe(true);
     manager.dispose();
   });

@@ -13,7 +13,10 @@ const NAVIGATE_TIMEOUT_MS = 120_000;
 const OPERATION_TIMEOUT_MS = 60_000;
 const EVAL_RESULT_MAX_CHARS = 8_000;
 
-function textResult(text: string, details: Record<string, unknown> = {}): BridgeToolResult {
+function textResult(
+  text: string,
+  details: Record<string, unknown> = {},
+): BridgeToolResult {
   return { content: [{ type: "text", text }], details };
 }
 
@@ -27,11 +30,17 @@ function errMessage(err: unknown): string {
 
 /** 判断是否 WebView 引擎不可用（非 macOS 未装 Chrome/Edge 等） */
 function isEngineUnavailable(msg: string): boolean {
-  return /spawn.*(ENOENT|not found)|executable.*not found|WebView is not available/i.test(msg);
+  return /spawn.*(ENOENT|not found)|executable.*not found|WebView is not available/i.test(
+    msg,
+  );
 }
 
 /** 带超时的 Promise 包装：超时 reject，避免永久挂起 */
-async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+async function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} 超时 (${ms}ms)`)), ms);
@@ -65,7 +74,11 @@ async function runWithRetry<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** 统一包装 WebView 操作的超时 + 并发重试 */
-async function runViewOp<T>(fn: () => Promise<T>, ms: number, label: string): Promise<T> {
+async function runViewOp<T>(
+  fn: () => Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   return withTimeout(runWithRetry(fn), ms, label);
 }
 
@@ -84,7 +97,9 @@ function str(v: unknown): string | undefined {
 }
 
 function arr(v: unknown): string[] | undefined {
-  return Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : undefined;
+  return Array.isArray(v) && v.every((x) => typeof x === "string")
+    ? (v as string[])
+    : undefined;
 }
 
 /** 入口：按工具名分派（未知工具返回错误） */
@@ -113,19 +128,31 @@ async function navigateTool(
   sessionId: string,
   params: unknown,
 ): Promise<BridgeToolResult> {
-  const p = params as { url?: unknown; width?: unknown; height?: unknown; timeout?: unknown };
+  const p = params as {
+    url?: unknown;
+    width?: unknown;
+    height?: unknown;
+    timeout?: unknown;
+  };
   const url = str(p.url);
   if (!url) {
     return errResult("browser_navigate 需要 url 参数（string）", "missing_url");
   }
-  const timeoutMs = typeof p.timeout === "number" ? p.timeout : NAVIGATE_TIMEOUT_MS;
+  const timeoutMs =
+    typeof p.timeout === "number" ? p.timeout : NAVIGATE_TIMEOUT_MS;
   try {
     const state = await manager.getOrCreate(sessionId, {
       width: num(p.width),
       height: num(p.height),
     });
     await runViewOp(() => state.view.navigate(url), timeoutMs, "页面加载");
-    const result = { ok: true, sessionId, url: state.view.url, title: state.view.title, loading: state.view.loading };
+    const result = {
+      ok: true,
+      sessionId,
+      url: state.view.url,
+      title: state.view.title,
+      loading: state.view.loading,
+    };
     return textResult(JSON.stringify(result), result);
   } catch (err) {
     const msg = errMessage(err);
@@ -161,8 +188,13 @@ async function evaluateTool(
     switch (action) {
       case "eval": {
         const script = str(p.script);
-        if (!script) return errResult("action=eval 需要 script 参数", "missing_script");
-        const raw = await runViewOp(() => view.evaluate(script), OPERATION_TIMEOUT_MS, "evaluate");
+        if (!script)
+          return errResult("action=eval 需要 script 参数", "missing_script");
+        const raw = await runViewOp(
+          () => view.evaluate(script),
+          OPERATION_TIMEOUT_MS,
+          "evaluate",
+        );
         // 先序列化最终 payload 再截断（此前截断作用于局部 text，返回时重新序列化导致截断失效）
         let payload: string;
         try {
@@ -171,7 +203,9 @@ async function evaluateTool(
           payload = JSON.stringify({ ok: true, result: String(raw) });
         }
         if (payload.length > EVAL_RESULT_MAX_CHARS) {
-          payload = payload.slice(0, EVAL_RESULT_MAX_CHARS) + `…（截断，原长 ${payload.length}）`;
+          payload =
+            payload.slice(0, EVAL_RESULT_MAX_CHARS) +
+            `…（截断，原长 ${payload.length}）`;
         }
         return textResult(payload, { ok: true });
       }
@@ -179,7 +213,16 @@ async function evaluateTool(
         const selector = str(p.selector);
         if (selector) {
           await runViewOp(
-            () => view.click(selector, cleanOpts({ button: str(p.button), modifiers: arr(p.modifiers), clickCount: num(p.clickCount), timeout: num(p.timeout) })),
+            () =>
+              view.click(
+                selector,
+                cleanOpts({
+                  button: str(p.button),
+                  modifiers: arr(p.modifiers),
+                  clickCount: num(p.clickCount),
+                  timeout: num(p.timeout),
+                }),
+              ),
             OPERATION_TIMEOUT_MS,
             "click",
           );
@@ -188,45 +231,87 @@ async function evaluateTool(
           const x = p.x;
           const y = p.y;
           await runViewOp(
-            () => view.click(x, y, cleanOpts({ button: str(p.button), modifiers: arr(p.modifiers), clickCount: num(p.clickCount) })),
+            () =>
+              view.click(
+                x,
+                y,
+                cleanOpts({
+                  button: str(p.button),
+                  modifiers: arr(p.modifiers),
+                  clickCount: num(p.clickCount),
+                }),
+              ),
             OPERATION_TIMEOUT_MS,
             "click",
           );
         } else {
-          return errResult("action=click 需要 selector 或 x/y 坐标", "missing_click_target");
+          return errResult(
+            "action=click 需要 selector 或 x/y 坐标",
+            "missing_click_target",
+          );
         }
-        return textResult(JSON.stringify({ ok: true, action: "click" }), { ok: true });
+        return textResult(JSON.stringify({ ok: true, action: "click" }), {
+          ok: true,
+        });
       }
       case "type": {
         const text = str(p.text);
-        if (!text) return errResult("action=type 需要 text 参数", "missing_text");
+        if (!text)
+          return errResult("action=type 需要 text 参数", "missing_text");
         await runViewOp(() => view.type(text), OPERATION_TIMEOUT_MS, "type");
-        return textResult(JSON.stringify({ ok: true, action: "type" }), { ok: true });
+        return textResult(JSON.stringify({ ok: true, action: "type" }), {
+          ok: true,
+        });
       }
       case "press": {
         const key = str(p.key);
         if (!key) return errResult("action=press 需要 key 参数", "missing_key");
-        await runViewOp(() => view.press(key, cleanOpts({ modifiers: arr(p.modifiers) })), OPERATION_TIMEOUT_MS, "press");
-        return textResult(JSON.stringify({ ok: true, action: "press" }), { ok: true });
+        await runViewOp(
+          () => view.press(key, cleanOpts({ modifiers: arr(p.modifiers) })),
+          OPERATION_TIMEOUT_MS,
+          "press",
+        );
+        return textResult(JSON.stringify({ ok: true, action: "press" }), {
+          ok: true,
+        });
       }
       case "scroll": {
         const dx = num(p.dx) ?? 0;
         const dy = num(p.dy) ?? 0;
-        await runViewOp(() => view.scroll(dx, dy), OPERATION_TIMEOUT_MS, "scroll");
-        return textResult(JSON.stringify({ ok: true, action: "scroll" }), { ok: true });
+        await runViewOp(
+          () => view.scroll(dx, dy),
+          OPERATION_TIMEOUT_MS,
+          "scroll",
+        );
+        return textResult(JSON.stringify({ ok: true, action: "scroll" }), {
+          ok: true,
+        });
       }
       case "scrollTo": {
         const selector = str(p.selector);
-        if (!selector) return errResult("action=scrollTo 需要 selector 参数", "missing_selector");
+        if (!selector)
+          return errResult(
+            "action=scrollTo 需要 selector 参数",
+            "missing_selector",
+          );
         await runViewOp(
-          () => view.scrollTo(selector, cleanOpts({ block: str(p.block), timeout: num(p.timeout) })),
+          () =>
+            view.scrollTo(
+              selector,
+              cleanOpts({ block: str(p.block), timeout: num(p.timeout) }),
+            ),
           OPERATION_TIMEOUT_MS,
           "scrollTo",
         );
-        return textResult(JSON.stringify({ ok: true, action: "scrollTo" }), { ok: true });
+        return textResult(JSON.stringify({ ok: true, action: "scrollTo" }), {
+          ok: true,
+        });
       }
       default:
-        return errResult(`未知 action: ${action}（可选 eval/click/type/press/scroll/scrollTo）`, "unknown_action");
+        return errResult(
+          `未知 action: ${action}（可选 eval/click/type/press/scroll/scrollTo）`,
+          "unknown_action",
+        );
     }
   } catch (err) {
     return errResult(
@@ -243,7 +328,10 @@ async function screenshotTool(
 ): Promise<BridgeToolResult> {
   const state = manager.get(sessionId);
   if (!state) {
-    return errResult("浏览器视图未创建：请先调用 browser_navigate 打开页面", "no_view");
+    return errResult(
+      "浏览器视图未创建：请先调用 browser_navigate 打开页面",
+      "no_view",
+    );
   }
   const p = params as { format?: unknown; quality?: unknown; return?: unknown };
   const format = str(p.format) ?? "png";
@@ -257,7 +345,12 @@ async function screenshotTool(
         "screenshot",
       )) as string;
       const dataUrl = `data:image/${format === "jpeg" ? "jpeg" : format === "webp" ? "webp" : "png"};base64,${b64}`;
-      const result = { ok: true, base64: dataUrl, url: state.view.url, title: state.view.title };
+      const result = {
+        ok: true,
+        base64: dataUrl,
+        url: state.view.url,
+        title: state.view.title,
+      };
       return textResult(JSON.stringify(result), result);
     }
     // path 模式：落盘到截图目录
@@ -269,14 +362,24 @@ async function screenshotTool(
     const filename = `${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${Date.now()}-${randomUUID().slice(0, 8)}.${format === "jpeg" ? "jpg" : format}`;
     const path = join(manager.getScreenshotDir(), filename);
     writeFileSync(path, buf);
-    const result = { ok: true, path, url: state.view.url, title: state.view.title, format, sizeBytes: buf.length };
+    const result = {
+      ok: true,
+      path,
+      url: state.view.url,
+      title: state.view.title,
+      format,
+      sizeBytes: buf.length,
+    };
     return textResult(JSON.stringify(result), result);
   } catch (err) {
     return errResult(`截图失败: ${errMessage(err)}`, errMessage(err));
   }
 }
 
-async function closeTool(manager: BrowserManager, sessionId: string): Promise<BridgeToolResult> {
+async function closeTool(
+  manager: BrowserManager,
+  sessionId: string,
+): Promise<BridgeToolResult> {
   const existed = manager.get(sessionId) !== undefined;
   manager.closeSession(sessionId);
   const result = { ok: true, closed: existed };
