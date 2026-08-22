@@ -231,3 +231,23 @@ test("相对 html 路径（index.html）→ toast 拒绝不加载", () => {
   expect(screen.getByTestId("browser-empty")).toBeTruthy();
   expect(useToastStore.getState().toasts[0]?.type).toBe("error");
 });
+
+test("模式切换按钮：渲染 split/full，点击切换 store.mode", () => {
+  useBrowserStore.setState({ mode: "split" });
+  render(<BrowserPanel />);
+  const splitBtn = document.querySelector('[data-testid="browser-mode-split"]')!;
+  const fullBtn = document.querySelector('[data-testid="browser-mode-full"]')!;
+  expect(splitBtn).toBeTruthy();
+  expect(fullBtn).toBeTruthy();
+  // 当前模式 aria-pressed=true
+  expect(splitBtn.getAttribute("aria-pressed")).toBe("true");
+  expect(fullBtn.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(fullBtn);
+  expect(useBrowserStore.getState().mode).toBe("full");
+  fireEvent.click(splitBtn);
+  expect(useBrowserStore.getState().mode).toBe("split");
+  const floatBtn = document.querySelector('[data-testid="browser-mode-float"]')!;
+  expect(floatBtn).toBeTruthy();
+  fireEvent.click(floatBtn);
+  expect(useBrowserStore.getState().mode).toBe("float");
+});
