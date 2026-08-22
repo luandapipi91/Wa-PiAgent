@@ -51,6 +51,10 @@ export class NpmPackageService {
     const proc = Bun.spawn([resolvedCmd, ...rest], {
       cwd: this.runtimeDir,
       stdio: ["pipe", "pipe", "pipe"],
+      // 显式 BUN_BE_BUN=1：process.execPath 在打包环境是编译产物（WaPiKernel.exe），
+      // 无此 env 时它不会执行 bun add 而是启动内嵌 kernel（loadCatalog 失败 + 9778
+      // EADDRINUSE——xiaolu 机器插件安装报错根因）。显式传递不依赖继承链。
+      env: { ...process.env, BUN_BE_BUN: "1" },
     });
     // 超时 kill：离线/镜像源不可达时 bun add 会挂起，无超时则前端安装占位永远转圈
     let timedOut = false;
@@ -165,7 +169,12 @@ export class NpmPackageService {
       // 加超时：离线/慢网络时 5s 后 kill，避免 list() 阻塞 Settings 面板
       const VERSION_TIMEOUT_MS = 5000;
       const timer = setTimeout(() => {
-        try { view.kill(); } catch {}
+        // kill 失败仅表示进程已自行退出（超时竞态），无需处理——静默是意图
+        try {
+          view.kill();
+        } catch {
+          /* 进程已退出，kill 竞争失败可忽略 */
+        }
       }, VERSION_TIMEOUT_MS);
       try {
         const viewExit = await view.exited;

@@ -1,3 +1,9 @@
+## 2026-08-22 — 插件安装修复（编译产物当 bun CLI）
+
+### 修复
+
+- 插件安装失败根因：打包环境 NpmPackageService 用 process.execPath（编译产物 WaPiKernel.exe）执行 bun add，spawn env 未显式带 BUN_BE_BUN=1 → 编译产物不执行 add 而是启动内嵌 kernel（cwd=npm 目录 → loadCatalog 解析 pi-ai 失败 + 主 kernel 占 9778 → EADDRINUSE）→ 安装失败。修复：spawn 显式传 `env: { ...process.env, BUN_BE_BUN: "1" }`（不依赖继承链）。影响范围：`packages/kernel/src/npm-package-service.ts`（spawn env + 空 catch 注释）、`packages/kernel/tests/npm-package-service.test.ts`（+1 用例断言 spawn env 含 BUN_BE_BUN）；验证：npm-package-service 19 pass、kernel 全量无新增失败。
+
 ## 2026-08-22 — v0.2.17 发版
 
 ### 发版

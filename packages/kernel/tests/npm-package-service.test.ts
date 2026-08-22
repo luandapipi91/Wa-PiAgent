@@ -241,3 +241,25 @@ test("repair 校验失败：install 成功但依赖缺失时列出缺失包", as
     expect(msg).toContain("missing-b");
   }
 });
+
+// —— 打包环境编译产物当 bun CLI：spawn env 必须显式带 BUN_BE_BUN=1 ——
+// 根因回归：process.execPath 在打包环境是编译产物（WaPiKernel.exe），无 BUN_BE_BUN=1
+// 时它不执行 bun add 而是启动内嵌 kernel（loadCatalog 失败 + 9778 EADDRINUSE，
+// xiaolu 机器插件安装报错）。spawn 必须显式传 env，不依赖继承链。
+test("spawn 传入 env 含 BUN_BE_BUN=1（编译产物当 bun CLI 的前置）", async () => {
+  const envDump = join(dir, "spawn-env.json");
+  const fakeBun = join(dir, "fake-bun.cjs");
+  writeFileSync(
+    fakeBun,
+    `require("node:fs").writeFileSync(${JSON.stringify(envDump)}, JSON.stringify({ BUN_BE_BUN: process.env.BUN_BE_BUN }));` +
+      `require("node:fs").mkdirSync(${JSON.stringify(join(dir, "node_modules", "some-pkg"))}, { recursive: true });` +
+      `require("node:fs").writeFileSync(${JSON.stringify(join(dir, "node_modules", "some-pkg", "package.json"))}, JSON.stringify({ name: "some-pkg", version: "1.0.0" }));`,
+  );
+  const svc = new NpmPackageService(dir, {
+    npmCommand: ["node", fakeBun],
+    opTimeoutMs: 30_000,
+  });
+  await svc.install("some-pkg", "1.0.0");
+  const recorded = JSON.parse(await Bun.file(envDump).text());
+  expect(recorded.BUN_BE_BUN).toBe("1");
+});
