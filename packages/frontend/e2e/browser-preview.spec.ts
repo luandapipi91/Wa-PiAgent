@@ -198,6 +198,26 @@ test.describe.serial("浏览器预览与元素选中", () => {
 		// 选择父级：高亮目标上移（#card 的父级是 body）；工具条元素名更新为 div#card
 		await frame.getByText("选择父级").click();
 		await expect(frame.getByText("div#card", { exact: true })).toBeVisible();
+		// 锁定回归：鼠标移回 #card 内的 <p> 上，选中保持 div#card 不被子元素抢回
+		await frame.locator("#card p").hover();
+		await expect(frame.getByText("div#card", { exact: true })).toBeVisible();
+		// 移出 #card → 解锁，hover 恢复（div#card 标签消失）
+		await frame.locator("html").hover({ position: { x: 400, y: 300 } });
+		await expect(frame.getByText("div#card", { exact: true })).toHaveCount(0);
+		// 重新选中 #card：hover <p> 再选择父级
+		await frame.locator("#card p").hover();
+		await frame.getByText("选择父级").click();
+		await expect(frame.getByText("div#card", { exact: true })).toBeVisible();
+		// 再上移到 body：body 也锁定（覆盖"body 不锁导致选中立刻被子元素抢回"的回归）
+		await frame.getByText("选择父级").click();
+		await expect(frame.getByText("body", { exact: true })).toBeVisible();
+		await frame.locator("#card p").hover();
+		await expect(frame.getByText("body", { exact: true })).toBeVisible();
+		// 移到页边空白（命中 html）→ 解锁；重新选中 div#card 再发送
+		await frame.locator("html").hover({ position: { x: 400, y: 300 } });
+		await frame.locator("#card p").hover();
+		await frame.getByText("选择父级").click();
+		await expect(frame.getByText("div#card", { exact: true })).toBeVisible();
 		// 发送到聊天：元素以 内联 chip 出现在输入框文本流里（非附件栏）
 		await sendBtn.click();
 		const chip = page.locator('[data-testid="composer-input"] .chip-element');
