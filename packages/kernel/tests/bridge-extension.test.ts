@@ -9,7 +9,7 @@
 // 复制 generateBridgeExtension 源码而不是直接 import 源文件的原因：源文件在
 // packages/kernel/src 下，同目录没有 tool-schemas.ts（该文件运行期才复制到 GENERATED_DIR）。
 
-import { test, expect, afterAll } from "bun:test";
+import { test, expect, afterAll, describe } from "bun:test";
 import { writeFileSync, copyFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -572,3 +572,83 @@ test("ask execute：signal 已 abort 时不重试（ask 已失效）", async () 
 		globalThis.fetch = orig;
 	}
 }, 10_000);
+
+// ── browser_* 工具注册（源码级断言，沿用 generateBridgeExtension 模式）──
+// 静态扩展文件不参与 tsc 类型检查（ensureBridgeExtension 运行期复制），
+// 这里以源码字符串断言 4 个 browser_* registerTool 的 name / ParamsSchema /
+// 超时常量引用，并借助 loadTools 动态 import 验证其实际注册与 execute 形态。
+describe("generateBridgeExtension 源码包含 4 个 browser_* registerTool", () => {
+	const src = generateBridgeExtension();
+	const cases = [
+		{
+			name: "browser_navigate",
+			schema: "BrowserNavigateParamsSchema",
+			timeout: "BROWSER_NAVIGATE_TIMEOUT_MS",
+		},
+		{
+			name: "browser_evaluate",
+			schema: "BrowserEvaluateParamsSchema",
+			timeout: "BROWSER_OPERATION_TIMEOUT_MS",
+		},
+		{
+			name: "browser_screenshot",
+			schema: "BrowserScreenshotParamsSchema",
+			timeout: "BROWSER_OPERATION_TIMEOUT_MS",
+		},
+		{
+			name: "browser_close",
+			schema: "BrowserCloseParamsSchema",
+			timeout: "BROWSER_OPERATION_TIMEOUT_MS",
+		},
+	];
+	for (const { name, schema, timeout } of cases) {
+		test(`含 ${name} registerTool（${schema} + ${timeout}）`, () => {
+			expect(src).toContain(`name: "${name}"`);
+			expect(src).toContain(`parameters: ${schema}`);
+			// callBridge 调用为多行写法（沿用 ask/delegate 风格），压平空白后断言；
+			// 末尾带尾随逗号，故只断言到超时常量为止
+			const compact = src.replace(/\s+/g, "");
+			expect(compact).toContain(
+				`callBridge("${name}",toolCallId,params,signal,${timeout}`,
+			);
+		});
+	}
+
+	test("顶部常量区含两个 browser 超时常量（精确数值）", () => {
+		expect(src).toContain("const BROWSER_NAVIGATE_TIMEOUT_MS = 150_000;");
+		expect(src).toContain("const BROWSER_OPERATION_TIMEOUT_MS = 90_000;");
+	});
+
+	test("从 ./tool-schemas.ts import 4 个 DESCRIPTION 与 4 个 ParamsSchema", () => {
+		for (const symbol of [
+			"BROWSER_NAVIGATE_DESCRIPTION",
+			"BrowserNavigateParamsSchema",
+			"BROWSER_EVALUATE_DESCRIPTION",
+			"BrowserEvaluateParamsSchema",
+			"BROWSER_SCREENSHOT_DESCRIPTION",
+			"BrowserScreenshotParamsSchema",
+			"BROWSER_CLOSE_DESCRIPTION",
+			"BrowserCloseParamsSchema",
+		]) {
+			expect(src).toContain(symbol);
+		}
+	});
+
+	test("browser_* 工具经 loadTools 实际注册（label/execute 形态）", async () => {
+		const tools = await loadTools();
+		const labels: Record<string, string> = {
+			browser_navigate: "Browser Navigate",
+			browser_evaluate: "Browser Evaluate",
+			browser_screenshot: "Browser Screenshot",
+			browser_close: "Browser Close",
+		};
+		for (const [name, label] of Object.entries(labels)) {
+			const tool = tools.find((t) => t.name === name);
+			expect(tool, `应注册 ${name}`).toBeDefined();
+			expect(tool.label).toBe(label);
+			expect(typeof tool.description).toBe("string");
+			expect(tool.parameters).toBeDefined();
+			expect(typeof tool.execute).toBe("function");
+		}
+	});
+});

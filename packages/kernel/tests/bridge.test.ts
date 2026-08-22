@@ -48,7 +48,7 @@ import { ExtensionManager } from "../src/extension-manager";
 import { RpcClient, buildPiArgs, resolvePiCliPath } from "../src/rpc-client";
 import type { AskParams, SubagentProgressEvent } from "@wa-pi/shared";
 
-const SEVEN_TOOLS = [
+const ALL_BRIDGE_TOOLS = [
 	"ask_user_question",
 	"memory_add",
 	"memory_replace",
@@ -56,6 +56,11 @@ const SEVEN_TOOLS = [
 	"memory_read",
 	"delegate",
 	"fleet",
+	"browser_navigate",
+	"browser_evaluate",
+	"browser_screenshot",
+	"browser_close",
+	"im_push_to",
 ];
 
 const validAskParams: AskParams = {
@@ -145,12 +150,12 @@ function makeMemoryStores() {
 
 // ---- ensureBridgeExtension ----
 
-test("ensureBridgeExtension 生成文件存在且包含 7 个工具名，幂等覆盖", async () => {
+test("ensureBridgeExtension 生成文件存在且包含全部 12 个工具名，幂等覆盖", async () => {
 	const p1 = await ensureBridgeExtension();
 	expect(p1).toBe(BRIDGE_EXTENSION_PATH);
 	expect(existsSync(p1)).toBe(true);
 	const code = readFileSync(p1, "utf8");
-	for (const name of SEVEN_TOOLS) {
+	for (const name of ALL_BRIDGE_TOOLS) {
 		expect(code).toContain(`name: "${name}"`);
 	}
 	// 幂等：再次调用覆盖写，不报错、内容一致
@@ -164,7 +169,7 @@ test("ensureBridgeExtension 生成文件存在且包含 7 个工具名，幂等�
 test("契约：扩展工具的 name/description/schema 与现有实现一致", async () => {
 	const bridgeTools = await loadBridgeTools();
 	expect(bridgeTools.map((t) => t.name).sort()).toEqual(
-		[...SEVEN_TOOLS, "im_push_to"].sort(),
+		[...ALL_BRIDGE_TOOLS].sort(),
 	);
 
 	// ask：name/label/description/promptGuidelines/parameters 全等
@@ -783,13 +788,13 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 
 // ── C1：im_push_to 始终注册（Task 2 变更：不再依赖 WA_PI_IM_PUSH_TARGETS env）──
 
-test("im_push_to：未设 env 也注册（8 工具，普通会话工具面板可用）", async () => {
+test("im_push_to：未设 env 也注册（12 工具，普通会话工具面板可用）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	delete process.env.WA_PI_IM_PUSH_TARGETS;
 	try {
 		const tools = await loadBridgeTools();
 		expect(tools.map((t: any) => t.name).sort()).toEqual(
-			[...SEVEN_TOOLS, "im_push_to"].sort(),
+			[...ALL_BRIDGE_TOOLS].sort(),
 		);
 		expect(tools.some((t: any) => t.name === "im_push_to")).toBe(true);
 	} finally {
@@ -797,12 +802,12 @@ test("im_push_to：未设 env 也注册（8 工具，普通会话工具面板可
 	}
 });
 
-test("im_push_to：始终注册为第 8 个工具，description 为通用引导（不含联系人列表）", async () => {
+test("im_push_to：始终注册（共 12 个工具），description 为通用引导（不含联系人列表）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools).toHaveLength(8);
+		expect(tools).toHaveLength(12);
 		const imPush = tools.find((t: any) => t.name === "im_push_to");
 		expect(imPush).toBeTruthy();
 		// env 仅作诊断用途，不再写入 description（联系人由消息标记自描述）
