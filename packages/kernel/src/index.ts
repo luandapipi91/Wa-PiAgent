@@ -103,7 +103,9 @@ export async function startKernel(opts?: {
 			}
 		})
 		.catch((e) =>
-			console.warn(`[bash] bash 保障失败: ${e instanceof Error ? e.message : String(e)}`),
+			console.warn(
+				`[bash] bash 保障失败: ${e instanceof Error ? e.message : String(e)}`,
+			),
 		);
 
 	// 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到

@@ -91,7 +91,10 @@ export function bashSpawnEnv(extraPath: string = ""): Record<string, string> {
 	const dir = portableBashDir();
 	paths.push(join(dir, "usr", "bin"), join(dir, "bin"));
 	if (process.env.PATH) paths.push(process.env.PATH);
-	return { ...process.env, PATH: paths.join(process.platform === "win32" ? ";" : ":") };
+	return {
+		...process.env,
+		PATH: paths.join(process.platform === "win32" ? ";" : ":"),
+	};
 }
 
 /** 检测系统已装 bash（Git for Windows 标准路径 + PATH 上的 bash）；无返回 null */
@@ -99,8 +102,7 @@ export function findSystemBash(): string | null {
 	if (process.platform === "win32") {
 		const candidates: string[] = [];
 		const programFiles = process.env.ProgramFiles;
-		if (programFiles)
-			candidates.push(`${programFiles}\\Git\\bin\\bash.exe`);
+		if (programFiles) candidates.push(`${programFiles}\\Git\\bin\\bash.exe`);
 		const programFilesX86 = process.env["ProgramFiles(x86)"];
 		if (programFilesX86)
 			candidates.push(`${programFilesX86}\\Git\\bin\\bash.exe`);
@@ -160,7 +162,9 @@ async function extractPortableGit(sfx: string, dir: string): Promise<boolean> {
 	});
 	rmSync(sfx, { force: true });
 	if (r.status !== 0) {
-		console.warn(`[bash] SFX 解压失败 (exit=${r.status}): ${r.stderr?.slice(-200)}`);
+		console.warn(
+			`[bash] SFX 解压失败 (exit=${r.status}): ${r.stderr?.slice(-200)}`,
+		);
 		return false;
 	}
 	const exe = join(dir, "bin", "bash.exe");
@@ -174,12 +178,12 @@ async function extractPortableGit(sfx: string, dir: string): Promise<boolean> {
  * 返回可用 bash.exe 路径；失败返回 null（调用方回落系统检测/中文提示）。
  */
 export async function ensurePortableBash(): Promise<string | null> {
-const dir = portableBashDir();
-const cached = portableBashExe(dir);
-// bash.exe 是 launcher（~47KB），大小粗判会误伤；用真实执行校验
-if (existsSync(cached) && bashVersionOf(cached)) {
-return cached;
-}
+	const dir = portableBashDir();
+	const cached = portableBashExe(dir);
+	// bash.exe 是 launcher（~47KB），大小粗判会误伤；用真实执行校验
+	if (existsSync(cached) && bashVersionOf(cached)) {
+		return cached;
+	}
 	try {
 		await mkdir(dir, { recursive: true });
 		const sfx = await downloadPortableGit(dir);
