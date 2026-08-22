@@ -41,9 +41,18 @@ function resolveDeclaredEntry(declared: string): string | undefined {
  * 优先级：package.json 的 pi.extensions 声明 → 约定 extensions/index 或 index → 包 main。
  */
 export function resolveExtensionEntryFile(pkgName: string, req = require): string {
-  const pkgJsonPath = req.resolve(`${pkgName}/package.json`);
+  // bun --compile 产物内 import.meta.url 指向虚拟 FS，createRequire 解析不到磁盘
+  // node_modules；与 resolvePiCliPath 同款回退：运行时 kernel 进程 cwd = runtimeDir
+  // （磁盘依赖已首启安装），回退从 cwd 解析。
+  let effectiveReq = req;
+  try {
+    effectiveReq.resolve(`${pkgName}/package.json`);
+  } catch {
+    effectiveReq = createRequire(join(process.cwd(), "package.json"));
+  }
+  const pkgJsonPath = effectiveReq.resolve(`${pkgName}/package.json`);
   const pkgRoot = dirname(pkgJsonPath);
-  const pkg = req(`${pkgName}/package.json`) as { pi?: { extensions?: string[] } };
+  const pkg = effectiveReq(`${pkgName}/package.json`) as { pi?: { extensions?: string[] } };
 
   // 1. Pi 扩展标准声明：package.json 的 pi.extensions（可指向文件或目录）
   const piExts = pkg?.pi?.extensions;

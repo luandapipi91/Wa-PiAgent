@@ -819,3 +819,17 @@ test("im_push_to：始终注册为第 8 个工具，description 为通用引导�
 		else process.env.WA_PI_IM_PUSH_TARGETS = prev;
 	}
 });
+
+test("resolvePiCliPath: 主解析失败（编译产物虚拟 FS 不可达磁盘）→ 回退从 cwd 解析", () => {
+	// bun --compile 产物内 import.meta.url 指向虚拟 FS，require.resolve 找不到磁盘
+	// node_modules；运行时 kernel 进程 cwd = runtimeDir（磁盘依赖已装），从 cwd 解析可行。
+	const fakeReq = {
+		resolve: () => {
+			throw new Error("Cannot find module '@earendil-works/pi-coding-agent/package.json'");
+		},
+	} as any;
+	const cli = resolvePiCliPath(fakeReq);
+	expect(cli.replace(/\\/g, "/")).toContain(
+		"node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+	);
+});

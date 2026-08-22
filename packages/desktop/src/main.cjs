@@ -161,9 +161,9 @@ function createSplash() {
 	});
 }
 
-// packaged 下运行时只有 wa-pi-kernel(=bun)，PATH 上缺少 node/npm/bun/npx。
-// 动态插件可能需要 bun 来装 npm 包，装好的 bin 脚本 shebang 又需要 node。
-// 因此在 WA_PI_DIR/bin 下创建 bun / node 符号链接指向 wa-pi-kernel，
+// packaged 下运行时只有 WaPiKernel（bun --compile 编译产物，BUN_BE_BUN=1 时充当 bun CLI），
+// PATH 上缺少 node/npm/bun/npx。动态插件可能需要 bun 来装 npm 包，装好的 bin 脚本 shebang
+// 又需要 node。因此在 WA_PI_DIR/bin 下创建 bun / node 符号链接指向 WaPiKernel，
 // findSystemNode + ensureRuntimeBinLinks 已提取到 ./util/runtime-bin.cjs（可独立测试）
 
 // 更新启动页进度条与文案（p<0 表示错误态：文案红色）
@@ -561,11 +561,24 @@ app.whenReady().then(async () => {
 		process.env,
 	);
 	const runtimeDir = resolveRuntimeDir(WA_PI_DIR); // WA_PI_DIR/runtime 可写（默认 ~/.pi/agent/runtime）
-	// packaged 下 sidecar 二进制已重命名为 wa-pi-kernel（分发进程名不暴露 bun）；dev 仍用 host bun。
-	const kernelExe = path.join(
-		seedDir,
-		process.platform === "win32" ? "wa-pi-kernel.exe" : "wa-pi-kernel",
-	);
+	// packaged 下 sidecar 是 bun --compile 编译产物 WaPiKernel（分发进程名不暴露 bun）；dev 仍用 host bun。
+	const KERNEL_BIN =
+		process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
+	const kernelExe = path.join(seedDir, KERNEL_BIN);
+	// dev:desktop 与生产同形态：repo 内存在编译产物（packages/kernel/dist/WaPiKernel，
+	// 由 bun run --filter @wa-pi/kernel build 产出）则直接 spawn；缺失时回退解释运行。
+	let devKernelExe;
+	if (!app.isPackaged) {
+		const candidate = path.join(seedDir, "dist", KERNEL_BIN);
+		if (fs.existsSync(candidate)) {
+			devKernelExe = candidate;
+		} else {
+			log.info(
+				`[kernel] 未找到编译产物 packages/kernel/dist/${KERNEL_BIN}，dev 回退解释运行；` +
+					`如需与生产一致请先运行 bun run --filter @wa-pi/kernel build`,
+			);
+		}
+	}
 
 	// 2a) 启动清扫：清掉上轮异常退出残留的 kernel 登记（TTL 兜底 + 三重校验），
 	// 避免残留进程继续占着 9778（Windows 升级后幽灵占用治理第一步；D 任务再完善自愈循环）。
@@ -711,7 +724,7 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 	}
 
 	// 2c+) 为 packaged 运行环境补充 bun/node 命令，供动态插件安装/运行 npm 包工具。
-	// 打包版只有 wa-pi-kernel(=bun)，部分 npm 包脚本的 shebang 需要 node。
+	// 打包版只有 WaPiKernel（编译产物），部分 npm 包脚本的 shebang 需要 node。
 	if (app.isPackaged) {
 		try {
 			const { ensureRuntimeBinLinks } = require("./util/runtime-bin.cjs");
@@ -748,6 +761,7 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			kernelDir: runDir,
 			webDir,
 			kernelExe,
+			devKernelExe,
 			log,
 			port: actualPort,
 		});

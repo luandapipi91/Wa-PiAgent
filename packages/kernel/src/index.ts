@@ -45,6 +45,7 @@ import {
 	SCHEDULED_TASKS_FILE,
 	EXECUTION_RECORDS_FILE,
 	assertBunVersionOrExit,
+	ensureBunBeBunEnv,
 } from "@wa-pi/shared";
 import type { ExecutionRecord, ScheduledTask, PushResult } from "@wa-pi/shared";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -84,6 +85,10 @@ export async function startKernel(opts?: {
 	// 三条启动链（dev:kernel / dev:desktop / 打包 sidecar）都汇聚到 startKernel，
 	// 这里作为最终守卫；dev.ts 另有快速失败提示。打包 sidecar 固定 1.4.0 理论不触发。
 	assertBunVersionOrExit();
+
+	// 编译产物形态下子进程（pi RPC / bun add / MCP 服务器）的运行时仍是编译产物，
+	// 需 BUN_BE_BUN=1 才充当 bun CLI；此处写入 process.env 供所有子进程继承。
+	ensureBunBeBunEnv();
 
 	// 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到
 	// ~/.pi/agent 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由
@@ -574,11 +579,4 @@ export async function startKernel(opts?: {
 	process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 	return { port: server.actualPort, stop: () => server.stop() };
-}
-
-if (import.meta.main) {
-	startKernel().catch((e) => {
-		console.error(e);
-		process.exit(1);
-	});
 }

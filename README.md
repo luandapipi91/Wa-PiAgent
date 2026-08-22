@@ -181,6 +181,7 @@ bun test               # All tests (kernel + shared + desktop + frontend)
 bun run typecheck      # Type checking
 ```
 
+- `dev:desktop` 默认使用 `packages/kernel/dist/WaPiKernel(.exe)` 编译产物（与生产同形态）；产物缺失时回退解释运行并打警告日志。构建产物：`bun run --filter @wa-pi/kernel build`。
 - Runtime environment variables: `WA_PI_WS_PORT` (kernel port, default 9776), `WA_PI_WEB_PORT` (frontend port, default 5180), `WA_PI_PREVIEW_PORT` (preview port, default 9777), `WA_PI_DIR` (data directory, default `~/.pi/agent`)
 - Frontend E2E tests live in `packages/frontend`: `bun run e2e` (Playwright)
 - Customizations to upstream deps (pi, pi-mcp-adapter) are managed as [bun patches](https://bun.sh/docs/install/patch) in `patches/`, applied automatically by `bun install`
