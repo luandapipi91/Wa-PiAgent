@@ -10,6 +10,7 @@ import {
   BRIDGE_ASSET_FILES,
   kernelBinaryName,
 } from "../scripts/compile-binary";
+import { basename, join } from "node:path";
 
 test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/--asset/--outfile", () => {
   const args = buildCompileArgs("/tmp/out/WaPiKernel.exe", "/tmp/assets");
@@ -36,9 +37,12 @@ test("BRIDGE_ASSET_FILES: bridge 三文件都真实存在", () => {
   for (const f of BRIDGE_ASSET_FILES) expect(existsSync(f)).toBe(true);
 });
 
-test("stageAssetDir: 三文件平铺到临时目录（文件名无目录层级）", () => {
+test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名挂载）且三文件平铺", () => {
   const dir = stageAssetDir();
   try {
+    // bun --compile --asset 把目录名挂到虚拟根：--asset ./assets → 产物 B:\~BUN\root\assets\。
+    // bridge-extension.ts 固定读 __dirname/assets/，故嵌入目录必须字面叫 assets。
+    expect(basename(dir)).toBe("assets");
     const names = readdirSync(dir).sort();
     expect(names).toEqual([
       "file-snapshot.ts",
@@ -46,7 +50,8 @@ test("stageAssetDir: 三文件平铺到临时目录（文件名无目录层级�
       "wa-pi-bridge.extension.ts",
     ]);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    // 清理唯一父目录（assets 子目录 + 父目录一并移除，避免 tmp 泄漏）
+    rmSync(join(dir, ".."), { recursive: true, force: true });
   }
 });
 

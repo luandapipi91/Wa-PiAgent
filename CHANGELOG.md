@@ -6,6 +6,12 @@
   - 实现：`packages/shared/src/runtime-check.ts` 新增 `ensureBunBeBunEnv()`（幂等：仅未设置时写入 BUN_BE_BUN=1）；`packages/kernel/src/index.ts` startKernel() 在 assertBunVersionOrExit 后调用（子进程继承）；`packages/desktop/src/util/runtime-bin.cjs` Windows 分支所有 .cmd 加 `set BUN_BE_BUN=1`，POSIX 分支 bun 符号链接改 wrapper 脚本（符号链接无法携带 env）、无 node 时 node/npx/npm 改 wrapper 并加 env 前缀，文件头注释 wa-pi-kernel → WaPiKernel。
   - 影响范围：packages/shared/src/runtime-check.ts、packages/shared/tests/runtime-check.test.ts、packages/kernel/src/index.ts、packages/desktop/src/util/runtime-bin.cjs、packages/desktop/tests/runtime-bin.test.ts；验证：shared runtime-check 17 pass、desktop runtime-bin 7 pass、desktop 全量 181 pass（1 既有 ditto 平台失败）、kernel 全量 1258 pass（1 既有 commonRoot 失败）。
 
+- kernel 编译产物全链路集成测试（固化 POC + 运行时依赖审计）
+  - `scripts/kernel-compile-it.ts`：bun --compile 编译 → BUN_BE_BUN=1 装磁盘依赖 → 净化 PATH spawn 编译产物（强制 resolvePiRuntime 回退 process.execPath，复现打包环境）→ REST+SSE agent:prompt 到「未选择模型」终点。审计方法：probe 报 Cannot find module <pkg> → 补清单重跑，直到收敛。
+  - 运行时依赖清单定稿（build-kernel-sidecar.ts / 集成脚本两处同步）：{@earendil-works/pi-coding-agent ^0.84.2（pi RPC 子进程入口）、@napi-rs/keyring ^1.3.0（原生 .node external）、pi-web-access ^0.19.0、pi-mcp-adapter 2.17.0（内置扩展 PKG_EXTENSIONS，pi 子进程经 -e 从磁盘加载 index.ts）}；EXTERNAL_PACKAGES 维持仅 @napi-rs/keyring。
+  - 修复编译产物虚拟 FS 解析断点（createRequire(import.meta.url) 指向 B:\~BUN\root，解析不到磁盘 node_modules）：resolvePiCliPath（rpc-client.ts）、resolveExtensionEntryFile（extensions.ts）、loadCatalog（pi-catalog.ts）三处统一加 cwd 回退；stageAssetDir（compile-binary.ts）改返回字面 `assets` 子目录——bun 1.4.0 --asset 按目录名挂载到虚拟根，mkdtemp 随机名导致 bridge 三文件嵌入后运行时找不到（集成测试首次运行 ENOENT 暴露）。
+  - 影响范围：scripts/kernel-compile-it.ts（新增）、packages/kernel/src/rpc-client.ts、packages/kernel/src/extensions.ts、packages/kernel/src/pi-catalog.ts、packages/kernel/scripts/compile-binary.ts、packages/kernel/tests/bridge.test.ts、packages/kernel/tests/compile-binary.test.ts、packages/desktop/scripts/build-kernel-sidecar.ts、packages/desktop/tests/build-kernel-sidecar.test.ts；验证：集成测试 ✅（compile → install 327 包 → spawn → agent:prompt → 未选择模型，无 Cannot find module / ENOENT）、kernel 全量 1259 pass（1 既有 commonRoot 失败）、desktop 全量 187 pass（1 既有 regenerateBlockmap 失败）。
+
 ## 2026-08-21 — v0.2.15
 
 ### 修复
