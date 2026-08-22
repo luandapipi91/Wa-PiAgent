@@ -2118,9 +2118,11 @@ export class WSServer {
 					this.opts.generatedDir,
 				);
 				// provider-extension.ts 已重写，但运行中的 pi session 进程仍加载旧版本，
-				// 新增/删除的模型在旧 session 里会 "Model not found"。标脏让激活会话下次
-				// 使用时重建进程、重新加载最新 extension（与 extension:toggle 等变更一致）。
-				this.opts.agentManager.markAllDirty();
+				// 新增/删除/改 id 的模型在旧 session 里会 "Model not found"。
+				// provider-extension 经 -e 固化，热重载（markAllDirty/reloadExtensions）不重读 -e，
+				// 必须走整进程重建（markProvidersDirty → skillDirty → _rebuildSession），
+				// 让激活会话下次使用时重新 spawn 并加载最新 extension。
+				this.opts.agentManager.markProvidersDirty();
 				const providers = await this.opts.providerStore.load();
 				this.broadcast({ type: "provider:changed", providers });
 				break;
@@ -2131,7 +2133,7 @@ export class WSServer {
 					this.opts.providerStore,
 					this.opts.generatedDir,
 				);
-				this.opts.agentManager.markAllDirty();
+				this.opts.agentManager.markProvidersDirty();
 				const providers = await this.opts.providerStore.load();
 				this.broadcast({ type: "provider:changed", providers });
 				break;

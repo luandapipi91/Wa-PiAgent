@@ -512,4 +512,72 @@ describe("composer-prefs store", () => {
 		).toBeUndefined();
 		expect(await getSessionPrefs("s-del")).toBeUndefined();
 	});
+
+	// === clearStaleModels：provider 保存/改 model id 后清除悬空引用 ===
+	// 场景：聊天窗选了 "deepseek/deepseek-chat"，用户到模型管理把 model id 改成
+	// "deepseek-v4"（删旧增新）。保存后 providers 里只剩 "deepseek/deepseek-v4"，
+	// 而 composer-prefs 还存着旧 id → isModelAvailable false → 发送按钮静默置灰。
+	// clearStaleModels 应把失效的会话级 + 默认模型引用清 null，让用户重选。
+	const deepseekProvider = () => ({
+		id: "p1",
+		name: "DeepSeek",
+		baseUrl: "https://api.deepseek.com/v1",
+		apiKey: "k",
+		api: "openai-completions" as const,
+		models: [{ id: "deepseek-v4", contextWindow: 128000, maxTokens: 4096 }],
+	});
+
+	it("clearStaleModels 清除指向已改 id 模型的悬空会话引用", async () => {
+		useComposerPrefsStore.setState({
+			defaults: { model: null, thinking: "disabled" },
+			bySession: {
+				"s1": {
+					model: "deepseek/deepseek-chat", // 旧 id，已失效
+					thinking: "high",
+					attachments: [],
+				},
+			},
+		});
+
+		useComposerPrefsStore
+			.getState()
+			.clearStaleModels([deepseekProvider()]);
+
+		expect(useComposerPrefsStore.getState().bySession["s1"].model).toBeNull();
+		// 其它字段不受影响
+		expect(useComposerPrefsStore.getState().bySession["s1"].thinking).toBe(
+			"high",
+		);
+	});
+
+	it("clearStaleModels 清除失效的默认模型引用", async () => {
+		useComposerPrefsStore.setState({
+			defaults: { model: "deepseek/deepseek-chat", thinking: "disabled" },
+			bySession: {},
+		});
+
+		useComposerPrefsStore
+			.getState()
+			.clearStaleModels([deepseekProvider()]);
+
+		expect(useComposerPrefsStore.getState().defaults.model).toBeNull();
+	});
+
+	it("clearStaleModels 保留仍然有效的模型引用", async () => {
+		useComposerPrefsStore.setState({
+			defaults: { model: null, thinking: "disabled" },
+			bySession: {
+				"s1": { model: "deepseek/deepseek-v4", thinking: undefined, attachments: [] },
+			},
+		});
+
+		useComposerPrefsStore
+			.getState()
+			.clearStaleModels([deepseekProvider()]);
+
+		// 新 id 有效，不应被清除
+		expect(useComposerPrefsStore.getState().bySession["s1"].model).toBe(
+			"deepseek/deepseek-v4",
+		);
+	});
 });

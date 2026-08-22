@@ -1,3 +1,13 @@
+## 2026-08-22 — fix(模型管理): 编辑模型 id 后发送按钮置灰 / 报「找不到模型」
+
+### 修复
+
+- 修复「系统设置→模型管理」编辑当前聊天窗正在使用的模型、修改 model id 并保存后回到聊天窗的两类异常：
+  1. 发送按钮静默置灰（前端悬空引用）：聊天窗当前模型存于 composer-prefs 的 `bySession[sessionId].model`（"slug/旧id" 字符串快照），改 id 后 providers 变成 "slug/新id"，`isModelAvailable` 变 false → 发送按钮禁用，且 ModelSelector 的「按 id 兜底重钉」无法命中（id 本身已变）。修复：新增 `clearStaleModels(providers)`，在 `provider:changed` 时把失效的会话级 + 默认模型引用清 null，让用户看到「未选择模型」占位并重选，而非静默卡死。
+  2. 能发送但后端报「Model not found」（热重载不重读 -e）：`provider:save`/`provider:delete` 原调 `markAllDirty()`（dirty 集合 → `reloadExtensions` 热重载），但 provider-extension.ts 经 -e 参数在 pi 进程 spawn 时固化，`session.reload()` 不重读 -e → 运行中的 pi 进程仍持旧模型注册表，`setModel(新id)` 报 Model not found。修复：新增 `markProvidersDirty()` 走 skillDirty 集合（整进程重建 `_rebuildSession`），与 skill 变更同理（-e/--skill 固化只能重启刷新）；provider:save/delete 改调之。
+
+- 影响范围：`packages/frontend/src/store/composer-prefs.ts`（clearStaleModels）、`packages/frontend/src/App.tsx`（provider:changed 联动清除）、`packages/kernel/src/agent-manager.ts`（markProvidersDirty）、`packages/kernel/src/ws-server.ts`（provider:save/delete 改走重建）；测试：composer-prefs 补 clearStaleModels 3 例（25 pass）、agent-manager 补 markProvidersDirty 整进程重建 1 例 + ws-provider-dirty 断言改 markProvidersDirty（3 pass）；kernel 全量 1362 pass（2 例 channel-manager 全量并发 flaky，单独跑全绿）；前端/后端 typecheck 干净。
+
 ## 2026-08-22 — v0.2.19 发版
 
 ### 发版
