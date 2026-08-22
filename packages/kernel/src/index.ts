@@ -18,7 +18,9 @@ import {
 	loadTrashSettings,
 	ensureHttpIdleTimeout,
 	applySystemProxy,
+	saveShellPath,
 } from "./settings-store";
+import { ensureBashAvailable } from "./bash-runtime";
 import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle, SubagentProgressThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
@@ -89,6 +91,20 @@ export async function startKernel(opts?: {
 	// 编译产物形态下子进程（pi RPC / bun add / MCP 服务器）的运行时仍是编译产物，
 	// 需 BUN_BE_BUN=1 才充当 bun CLI；此处写入 process.env 供所有子进程继承。
 	ensureBunBeBunEnv();
+
+	// Windows 无 Git Bash 时保障 bash 可用（agent shell 工具依赖，异步不阻塞启动）：
+	// 系统已有 bash → 无需接线；否则下载 PortableGit 并写 settings.json.shellPath
+	// （pi 子进程启动时读取；下载完成前 agent 调 shell 由 sdk-errors 中文提示兜底）。
+	void ensureBashAvailable()
+		.then(async (bashPath) => {
+			if (bashPath) {
+				await saveShellPath(bashPath);
+				console.log(`[bash] shellPath 已接线: ${bashPath}（新 pi 会话生效）`);
+			}
+		})
+		.catch((e) =>
+			console.warn(`[bash] bash 保障失败: ${e instanceof Error ? e.message : String(e)}`),
+		);
 
 	// 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到
 	// ~/.pi/agent 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由

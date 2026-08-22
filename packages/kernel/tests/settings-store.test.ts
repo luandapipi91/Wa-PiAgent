@@ -196,3 +196,23 @@ test("saveHttpIdleTimeoutMs：拒绝 0 / 负数 / 小数 / Infinity（0 会被 p
 	// 合法值正常保存
 	await expect(saveHttpIdleTimeoutMs(60_000, file)).resolves.toBe(60_000);
 });
+
+// —— shellPath（PortableGit bash 接线）——
+import { loadShellPath, saveShellPath } from "../src/settings-store";
+
+test("saveShellPath/loadShellPath: 写入并读回（保留其他字段）", async () => {
+	const p = join(dir, "settings-shellpath.json");
+	await writeFile(p, JSON.stringify({ retry: { maxRetries: 2 } }), "utf8");
+	await saveShellPath("C:\\portable\\bash.exe", p);
+	const raw = JSON.parse(await readFile(p, "utf8"));
+	expect(raw.shellPath).toBe("C:\\portable\\bash.exe");
+	// 保留其他字段（read-modify-write）
+	expect(raw.retry.maxRetries).toBe(2);
+	expect(await loadShellPath(p)).toBe("C:\\portable\\bash.exe");
+});
+
+test("loadShellPath: 未配置返回 undefined", async () => {
+	const p = join(dir, "settings-no-shellpath.json");
+	await writeFile(p, JSON.stringify({}), "utf8");
+	expect(await loadShellPath(p)).toBeUndefined();
+});

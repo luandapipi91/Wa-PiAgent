@@ -586,3 +586,25 @@ export async function saveShareSettings(
 	await writeSettingsJson(file, settings);
 	return next;
 }
+
+/**
+ * 读取 settings.json.shellPath（pi 引擎 bash 工具的 shell 路径）。
+ * 未配置返回 undefined——pi 引擎回退到系统 bash 探测（Git Bash / PATH）。
+ */
+export async function loadShellPath(
+	file: string = SETTINGS_FILE,
+): Promise<string | undefined> {
+	const raw = await readSettingsJson(file);
+	return typeof raw.shellPath === "string" ? raw.shellPath : undefined;
+}
+
+/** 写入 settings.json.shellPath（read-modify-write 保留其他字段）。 */
+export async function saveShellPath(
+	path: string,
+	file: string = SETTINGS_FILE,
+): Promise<void> {
+	const settings = await readSettingsJson(file);
+	settings.shellPath = path;
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+}
