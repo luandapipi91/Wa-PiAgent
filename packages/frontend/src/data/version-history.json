@@ -1,5 +1,20 @@
 [
  {
+  "version": "0.2.18",
+  "date": "2026-08-22",
+  "sections": {
+   "新增": [
+    "会话级真实浏览器自动化工具（browser_navigate / browser_evaluate / browser_screenshot / browser_close）：agent 可打开网页、读取内容、点击输入、滚动、截图取证（页面媒体自动静音）",
+    "命名智能体设置中可控制 browser_* 工具开关（默认开）；只读子智能体不含浏览器工具"
+   ],
+   "修复": [
+    "插件安装失败：编译产物执行 bun add 未带 BUN_BE_BUN=1 导致启动内嵌 kernel——显式注入后安装正常",
+    "browser_navigate 打开含音频/视频的页面不再自动出声（--mute-audio）",
+    "bash 工具报错恢复为上游引擎原始提示（保留自动下载 PortableGit 方案）"
+   ]
+  }
+ },
+ {
   "version": "0.2.17",
   "date": "2026-08-22",
   "sections": {
