@@ -27,6 +27,20 @@ test("识别 :行 与 :行:列 后缀", () => {
 	});
 });
 
+test("识别 Windows 盘符绝对路径（C:/ 与 C:\\）", () => {
+	expect(
+		parseFilePath("C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.html"),
+	).toEqual({
+		path: "C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.html",
+		line: undefined,
+		col: undefined,
+	});
+	// 反斜杠形式归一化为正斜杠，且支持 :行 后缀
+	expect(parseFilePath("D:\\data\\report.md")?.path).toBe("D:/data/report.md");
+	expect(parseFilePath("C:/src/a.ts:12")?.line).toBe(12);
+	expect(parseFilePath("H:\\code\\main.ts:5:2")?.col).toBe(2);
+});
+
 test("拒绝非路径", () => {
 	expect(parseFilePath("README.md")).toBeNull(); // 无 /，保守不识别
 	expect(parseFilePath("hello world")).toBeNull();
