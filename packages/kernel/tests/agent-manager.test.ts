@@ -2046,6 +2046,29 @@ test("steerMessage 空闲时降级为 prompt", async () => {
 	expect(fakes[0].prompted[0]).toBe("引导消息");
 });
 
+test("steerMessage 空闲直发时移除已排队的同文本消息并广播 queue_update（回归：第一条引导后队列不变）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 阻止 _sendPromptNow 后自动 agent_settled drain B（否则 B 也被自动消费，无法隔离验证「A 被移除」）
+	fakes[0].autoSettle = false;
+
+	// 构造 followUpList 有两条排队消息（模拟 agent 运行中连发 A、B 后 idle）
+	const handle = (am as any).sessions.get(session.id);
+	handle.followUpList = [
+		{ text: "排队消息A", images: [] },
+		{ text: "排队消息B", images: [] },
+	];
+	handle.busy = false; // 空闲
+
+	// 用户点第一条 A 的「引导/立即」→ steerMessage(A)
+	await am.steerMessage(session.id, "排队消息A");
+
+	// A 已被发送（空闲直发），应从 followUpList 移除，只剩 B
+	expect(fakes[0].prompted).toContain("排队消息A");
+	expect(handle.followUpList).toEqual([{ text: "排队消息B", images: [] }]);
+});
+
 test("steerMessage 运行中时调用 pi steer", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
