@@ -74,9 +74,15 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
     : ["run", path.join(kernelDir, "src", "desktop-server.ts")];
   // shell 模式下需手动引用含空格的参数（路径里若有空格）
   const finalArg = (!useCompiled && isWin) ? arg.map((a) => /\s/.test(a) ? `"${a}"` : a) : arg;
+  // 编译产物主进程必须以内嵌应用模式启动：env 里剔除 BUN_BE_BUN（若宿主/系统环境
+  // 恰好带此变量，编译产物会充当 bun CLI 而非运行内嵌 kernel——打印 usage 后 code=0 退出）。
+  // 子进程需要当 CLI 的场景（runtime-deps install、runtime-bin wrapper）各自显式设置
+  // BUN_BE_BUN=1；kernel 内部 startKernel 的 ensureBunBeBunEnv() 会为 pi RPC / bun add / MCP
+  // 子进程写入。
+  const { BUN_BE_BUN: _bunBeBun, ...kernelEnv } = process.env;
   const spawnOpts = {
     cwd: kernelDir,
-    env: { ...process.env, WA_PI_WEB_DIR: webDir, WA_PI_WS_PORT: String(wsPort) },
+    env: { ...kernelEnv, WA_PI_WEB_DIR: webDir, WA_PI_WS_PORT: String(wsPort) },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     shell: !useCompiled && isWin,
