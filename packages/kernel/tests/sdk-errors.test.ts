@@ -123,9 +123,7 @@ test("classifySdkError: Request timed out. → transient", () => {
 });
 
 test("classifySdkError: fetch failed → transient", () => {
-	expect(classifySdkError(errEvent("fetch failed"))?.category).toBe(
-		"transient",
-	);
+	expect(classifySdkError(errEvent("fetch failed"))?.category).toBe("transient");
 });
 
 test("classifySdkError: socket hang up → transient", () => {
@@ -153,9 +151,7 @@ test("classifySdkError: insufficient_quota → fatal（配额耗尽，需用户�
 });
 
 test("classifySdkError: 401 Unauthorized → fatal（鉴权失败）", () => {
-	expect(classifySdkError(errEvent("401 Unauthorized"))?.category).toBe(
-		"fatal",
-	);
+	expect(classifySdkError(errEvent("401 Unauthorized"))?.category).toBe("fatal");
 });
 
 test("classifySdkError: 403 Forbidden → fatal（鉴权失败）", () => {
@@ -288,9 +284,9 @@ test("isTransientErrorMessage: Operation aborted → true", () => {
 });
 
 test("isTransientErrorMessage: 含 abort 的上下文文案 → true（仍属中止语义）", () => {
-	expect(
-		isTransientErrorMessage("AbortError: The operation was aborted."),
-	).toBe(true);
+	expect(isTransientErrorMessage("AbortError: The operation was aborted.")).toBe(
+		true,
+	);
 });
 
 // 回归：abort 判断不得误伤真正 fatal / transient 文案
@@ -409,4 +405,45 @@ test("isTransientErrorMessage: insufficient_quota → false", () => {
 
 test("isTransientErrorMessage: 空字符串 → false", () => {
 	expect(isTransientErrorMessage("")).toBe(false);
+});
+
+// —— Windows 无 Git Bash 场景：bash 工具报错友好化 ——
+import {
+	friendlyShellUnavailable,
+	applyFriendlyShellMessage,
+} from "../src/sdk-errors";
+
+test("friendlyShellUnavailable: 含 No bash shell found → 替换为中文友好提示（无 VS Code 误导文案）", () => {
+	const raw =
+		"No bash shell found. Options:\n  1. Install Git for Windows: https://git-scm.com/download/win\n  2. Add your bash to PATH (Cygwin, MSYS2, etc.)\n  3. Configure an explicit shellPath\n\nSearched Git Bash in:\n  C:Program FilesGit\bin\bash.exe";
+	const out = friendlyShellUnavailable(raw);
+	expect(out).toContain("shell 工具不可用");
+	expect(out).toContain("Git for Windows");
+	expect(out).not.toContain("No bash shell found");
+	expect(out).not.toContain("settings.json");
+});
+
+test("friendlyShellUnavailable: 非该错误原样返回", () => {
+	const msg = "Model not found";
+	expect(friendlyShellUnavailable(msg)).toBe(msg);
+});
+
+test("applyFriendlyShellMessage: 替换 content 文本块与 errorMessage，tool_use 块不受影响", () => {
+	const message = {
+		role: "assistant",
+		content: [
+			{
+				type: "text",
+				text: "No bash shell found. Options: 1. Install Git for Windows",
+			},
+			{ type: "tool_use", id: "t1", name: "bash", input: { command: "ls" } },
+			{ type: "text", text: "普通文本保持原样" },
+		],
+		errorMessage: "No bash shell found. Options: 1. Install Git for Windows",
+	} as any;
+	applyFriendlyShellMessage(message);
+	expect((message.content[0] as any).text).toContain("shell 工具不可用");
+	expect((message.content[1] as any).type).toBe("tool_use");
+	expect((message.content[2] as any).text).toBe("普通文本保持原样");
+	expect(message.errorMessage).toContain("shell 工具不可用");
 });
