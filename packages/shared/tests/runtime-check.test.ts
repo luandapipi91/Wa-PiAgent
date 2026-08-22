@@ -1,4 +1,4 @@
-import { test, expect, spyOn } from "bun:test";
+import { test, expect, spyOn, describe } from "bun:test";
 import {
   parseBunVersion,
   isBunAtLeast,
@@ -6,6 +6,7 @@ import {
   checkBunVersion,
   bunVersionCheckMessage,
   assertBunVersionOrExit,
+  ensureBunBeBunEnv,
   MIN_BUN_VERSION,
 } from "../src/runtime-check";
 
@@ -110,4 +111,22 @@ test("assertBunVersionOrExit: 满足最低版本时不退出", () => {
   } finally {
     exitSpy.mockRestore();
   }
+});
+
+describe("ensureBunBeBunEnv", () => {
+  test("未设置时写入 BUN_BE_BUN=1（编译产物的子进程充当 bun CLI）", () => {
+    delete process.env.BUN_BE_BUN;
+    ensureBunBeBunEnv();
+    expect(process.env.BUN_BE_BUN).toBe("1");
+  });
+
+  test("已显式设置时不覆盖（幂等，尊重用户 env）", () => {
+    process.env.BUN_BE_BUN = "0";
+    try {
+      ensureBunBeBunEnv();
+      expect(process.env.BUN_BE_BUN).toBe("0");
+    } finally {
+      delete process.env.BUN_BE_BUN;
+    }
+  });
 });
