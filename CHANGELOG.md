@@ -1,3 +1,9 @@
+## 2026-08-22 — 并行插件安装串行化（EBUSY/ENOENT）
+
+### 修复
+
+- 并行安装多个插件报 EBUSY/ENOENT（failed copying files from cache）：NpmPackageService 无串行机制，多个 extension:install 并发触发多个 bun add 同时写同一 node_modules + 读同一 bun 缓存 → Windows 文件锁冲突（EBUSY）+ 缓存竞态（ENOENT）。修复：spawn 排队串行（opQueue/enqueue，任一时刻最多一个 bun 子进程）。影响范围：`packages/kernel/src/npm-package-service.ts`（spawn 串行队列）、`packages/kernel/tests/npm-package-service.test.ts`（+1 用例：fake-bun 记录并发峰值断言 =1）；验证：npm-package-service 20 pass、kernel 全量无新增失败。
+
 ## 2026-08-22 — v0.2.18 发版
 
 ### 发版

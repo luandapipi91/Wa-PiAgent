@@ -322,3 +322,38 @@ test("spawn 传入 env 含 BUN_BE_BUN=1（编译产物当 bun CLI 的前置）",
   const recorded = JSON.parse(await Bun.file(envDump).text());
   expect(recorded.BUN_BE_BUN).toBe("1");
 });
+
+// —— 并行插件安装串行化 ——
+// 根因回归：并行安装多个插件会并发 bun add 写同一 node_modules + bun 缓存 →
+// Windows EBUSY/ENOENT（failed copying files from cache）。spawn 必须排队串行，
+// 任一时刻最多一个 bun 子进程。fake-bun 用 active 计数文件记录并发峰值。
+test("并行安装串行化：同一时刻最多一个子进程（峰值=1）", async () => {
+  const counter = join(dir, "active.txt");
+  const peak = join(dir, "peak.txt");
+  const fakeBun = join(dir, "fake-bun-serial.cjs");
+  writeFileSync(
+    fakeBun,
+    `const fs = require("node:fs");
+const counter = ${JSON.stringify(counter)};
+const peak = ${JSON.stringify(peak)};
+const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;
+fs.writeFileSync(counter, String(n + 1));
+const p = fs.existsSync(peak) ? Number(fs.readFileSync(peak, "utf8")) : 0;
+fs.writeFileSync(peak, String(Math.max(p, n + 1)));
+const name = process.argv[2] === "add" ? process.argv[3].split("@")[0] : "pkg";
+const d = ${JSON.stringify(dir)};
+fs.mkdirSync(d + "/node_modules/" + name, { recursive: true });
+fs.writeFileSync(d + "/node_modules/" + name + "/package.json", JSON.stringify({ name, version: "1.0.0" }));
+setTimeout(() => { fs.writeFileSync(counter, String(n)); process.exit(0); }, 300);`,
+  );
+  const svc = new NpmPackageService(dir, {
+    npmCommand: ["node", fakeBun],
+    opTimeoutMs: 30_000,
+  });
+  await Promise.all([
+    svc.install("alpha", "1.0.0"),
+    svc.install("beta", "1.0.0"),
+  ]);
+  const peakVal = Number(await Bun.file(peak).text());
+  expect(peakVal).toBe(1);
+});

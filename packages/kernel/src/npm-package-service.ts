@@ -58,8 +58,31 @@ export class NpmPackageService {
 
   /** 执行包管理器子进程，返回 exitCode + stderr；onProgress 按行转发 stdout/stderr。
    *  超时（默认 opTimeoutMs）kill 进程并返回 exitCode=-1 + 超时说明，
-   *  由调用方统一走「exitCode !== 0 → throw」的既有错误路径。 */
+   *  由调用方统一走「exitCode !== 0 → throw」的既有错误路径。
+   *  串行化：所有子进程操作排队，一次只跑一个。
+   *  背景：并行安装多个插件会并发 bun add 写同一 runtimeDir/node_modules + 读同一
+   *  bun 缓存 → Windows EBUSY（failed copying files from cache，文件锁）+ ENOENT
+   *  （缓存竞态）。队列保证任一时刻只有一个 bun 子进程在操作共享目录。 */
   private async spawn(
+    args: string[],
+    onProgress?: (line: string) => void,
+  ): Promise<{ exitCode: number; stderr: string }> {
+    return this.enqueue(() => this.spawnInner(args, onProgress));
+  }
+
+  private opQueue: Promise<void> = Promise.resolve();
+
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.opQueue.then(op);
+    // 队列吞错：单个操作失败不影响后续排队操作（错误由调用方自行处理）
+    this.opQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async spawnInner(
     args: string[],
     onProgress?: (line: string) => void,
   ): Promise<{ exitCode: number; stderr: string }> {
