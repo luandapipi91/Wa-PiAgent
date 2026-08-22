@@ -117,6 +117,7 @@ import {
 	type FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
+import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import type { RpcClient } from "../src/rpc-client";
 
@@ -163,6 +164,7 @@ describe("im_push_to 会话注入", () => {
 			createClientFn: fakeClientFactory(fakes) as (
 				o: Parameters<typeof Object>[0] extends never ? never : any,
 			) => RpcClient,
+			browserManager: NOOP_BROWSER_MANAGER,
 		});
 		managers.push(am);
 		return { project: project as { id: string }, session, am, fakes };
@@ -331,6 +333,7 @@ describe("主聊天 im_push_to 全局执行器", () => {
 			configStore: (opts?.configStore ?? null) as any,
 			onEvent: () => {},
 			createClientFn: fakeClientFactory(fakes) as any,
+			browserManager: NOOP_BROWSER_MANAGER,
 		});
 		managers.push(am);
 		return { project: project as { id: string }, session, am, fakes };
