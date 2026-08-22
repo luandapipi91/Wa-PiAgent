@@ -1,3 +1,11 @@
+## 2026-08-22 — kernel 单二进制编译（BUN_BE_BUN 运行时链路）
+
+### 新增
+
+- BUN_BE_BUN=1 运行时链路：bun --compile 编译产物默认运行内嵌 kernel，只有 BUN_BE_BUN=1（bun 1.2.16+）才充当 bun CLI。打包环境下 pi RPC 子进程、NpmPackageService 的 bun add、MCP 服务器（npx/bun wrapper）的运行时都是编译产物（process.execPath 或 runtime-bin 链接），缺了会再次启动内嵌 kernel 而非执行目标命令。
+  - 实现：`packages/shared/src/runtime-check.ts` 新增 `ensureBunBeBunEnv()`（幂等：仅未设置时写入 BUN_BE_BUN=1）；`packages/kernel/src/index.ts` startKernel() 在 assertBunVersionOrExit 后调用（子进程继承）；`packages/desktop/src/util/runtime-bin.cjs` Windows 分支所有 .cmd 加 `set BUN_BE_BUN=1`，POSIX 分支 bun 符号链接改 wrapper 脚本（符号链接无法携带 env）、无 node 时 node/npx/npm 改 wrapper 并加 env 前缀，文件头注释 wa-pi-kernel → WaPiKernel。
+  - 影响范围：packages/shared/src/runtime-check.ts、packages/shared/tests/runtime-check.test.ts、packages/kernel/src/index.ts、packages/desktop/src/util/runtime-bin.cjs、packages/desktop/tests/runtime-bin.test.ts；验证：shared runtime-check 17 pass、desktop runtime-bin 7 pass、desktop 全量 181 pass（1 既有 ditto 平台失败）、kernel 全量 1258 pass（1 既有 commonRoot 失败）。
+
 ## 2026-08-21 — v0.2.15
 
 ### 修复

@@ -82,7 +82,7 @@ function findSystemNode() {
  * 无 node 时 bun fallback，binDir 生成 node/npx/npm 包装脚本。
  *
  * @param {Object} opts
- * @param {string} opts.kernelExe - wa-pi-kernel 二进制路径
+ * @param {string} opts.kernelExe - WaPiKernel 二进制路径
  * @param {string} opts.waPiDir - WA_PI_DIR
  * @param {Object} opts.log - 日志对象
  * @param {string|null} [opts.nodeExe] - 真实 node 路径（系统 node 或首启下载的 node）
@@ -104,7 +104,7 @@ async function ensureRuntimeBinLinks({
 		const t = target;
 		await fsp.writeFile(
 			path.join(binDir, "bun.cmd"),
-			`@echo off\r\n"${t}" %*\r\n`,
+			`@echo off\r\nset BUN_BE_BUN=1\r\n"${t}" %*\r\n`,
 		);
 		const nodePath = nodeExe || findSystemNode();
 		if (nodePath) {
@@ -114,15 +114,15 @@ async function ensureRuntimeBinLinks({
 		} else {
 			await fsp.writeFile(
 				path.join(binDir, "npx.cmd"),
-				`@echo off\r\n"${t}" x %*\r\n`,
+				`@echo off\r\nset BUN_BE_BUN=1\r\n"${t}" x %*\r\n`,
 			);
 			await fsp.writeFile(
 				path.join(binDir, "node.cmd"),
-				`@echo off\r\n"${t}" %*\r\n`,
+				`@echo off\r\nset BUN_BE_BUN=1\r\n"${t}" %*\r\n`,
 			);
 			await fsp.writeFile(
 				path.join(binDir, "npm.cmd"),
-				`@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`,
+				`@echo off\r\nset BUN_BE_BUN=1\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`,
 			);
 			log.info(
 				`[runtime-bin] Windows: npx/bun/node/npm.cmd -> ${t}（bun fallback）`,
@@ -138,18 +138,24 @@ async function ensureRuntimeBinLinks({
 	await fsp.rm(nodeLink, { force: true });
 	await fsp.rm(npxPath, { force: true });
 	await fsp.rm(npmPath, { force: true });
-	await fsp.symlink(target, bunLink);
+	// bun 用 wrapper 脚本而非符号链接：编译产物需 BUN_BE_BUN=1 才充当 bun CLI，
+	// 符号链接无法携带 env（kernel 子进程靠 env 继承，wrapper 兜底非继承场景如用户终端直接调用）
+	const bunScript = `#!/bin/sh\nBUN_BE_BUN=1 exec "${target}" "$@"\n`;
+	await fsp.writeFile(bunLink, bunScript);
+	await fsp.chmod(bunLink, 0o755);
 	const nodePath = nodeExe || findSystemNode();
 	if (nodePath) {
 		await fsp.symlink(nodePath, nodeLink);
 		log.info(`[runtime-bin] node -> ${nodePath}（node 自带 npm/npx）`);
 	} else {
-		await fsp.symlink(target, nodeLink);
+		const nodeScript = `#!/bin/sh\nBUN_BE_BUN=1 exec "${target}" "$@"\n`;
+		await fsp.writeFile(nodeLink, nodeScript);
+		await fsp.chmod(nodeLink, 0o755);
 		log.info(`[runtime-bin] node -> ${target}（bun fallback）`);
-		const npxScript = `#!/bin/sh\nexec "${target}" x "$@"\n`;
+		const npxScript = `#!/bin/sh\nBUN_BE_BUN=1 exec "${target}" x "$@"\n`;
 		await fsp.writeFile(npxPath, npxScript);
 		await fsp.chmod(npxPath, 0o755);
-		const npmScript = `#!/bin/sh\nif [ "$1" = "exec" ]; then shift; exec "${target}" x "$@"; fi\nexec "${target}" "$@"\n`;
+		const npmScript = `#!/bin/sh\nif [ "$1" = "exec" ]; then shift; BUN_BE_BUN=1 exec "${target}" x "$@"; fi\nBUN_BE_BUN=1 exec "${target}" "$@"\n`;
 		await fsp.writeFile(npmPath, npmScript);
 		await fsp.chmod(npmPath, 0o755);
 	}
