@@ -31,17 +31,23 @@ function run(bin: string, args: string[], cwd = ROOT) {
 }
 
 /**
- * 运行时磁盘依赖清单（精简 external 清单）。只有两类包必须在磁盘：
+ * 运行时磁盘依赖清单（精简 external 清单）。必须落盘的有三类包：
  *   ① 原生 .node 依赖（@napi-rs/keyring——无法内联进虚拟 FS，编译时 --external）；
  *   ② 需作为独立子进程入口的包（@earendil-works/pi-coding-agent——pi RPC 子进程
- *      执行其 dist/cli.js，子进程读不到父进程的虚拟 FS）。
+ *      执行其 dist/cli.js，子进程读不到父进程的虚拟 FS）；
+ *   ③ 内置 Pi 扩展（PKG_EXTENSIONS：pi-web-access / pi-mcp-adapter——kernel 经 -e
+ *      把其入口 index.ts 传给 pi 子进程，子进程必须能从磁盘读到该包）。
  * 其余全部内联进编译产物（jiti 在虚拟 FS 内解析，规避 2026-07-12 external 失败根因）。
- * 无 patchedDependencies：patch 编译期已生效（--compile 内联的是已 patch 源码）。
+ * 无 patchedDependencies：patch 编译期已生效（--compile 内联的是已 patch 源码；
+ * 磁盘副本供 -e 扩展加载，patch 仅涉及类型 + exports 子路径，不影响扩展执行）。
  * 该清单经 Task 6 集成测试（agent:prompt 全链路无 Cannot find module）审计确认。
  */
 const RUNTIME_DEPENDENCIES = {
 	"@earendil-works/pi-coding-agent": "^0.84.2",
 	"@napi-rs/keyring": "^1.3.0",
+	// 内置扩展（PKG_EXTENSIONS）：pi 子进程经 -e 从磁盘加载其 index.ts，必须落盘
+	"pi-web-access": "^0.19.0",
+	"pi-mcp-adapter": "2.17.0",
 };
 
 /** 运行时 package.json（纯函数，便于测试断言） */

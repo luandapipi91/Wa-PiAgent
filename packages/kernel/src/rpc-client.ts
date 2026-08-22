@@ -550,10 +550,21 @@ export class RpcClient {
 export function resolvePiCliPath(
 	req: NodeRequire = createRequire(import.meta.url),
 ): string {
-	const pkgJsonPath = req.resolve(
-		"@earendil-works/pi-coding-agent/package.json",
-	);
-	return join(dirname(pkgJsonPath), "dist", "cli.js");
+	try {
+		const pkgJsonPath = req.resolve(
+			"@earendil-works/pi-coding-agent/package.json",
+		);
+		return join(dirname(pkgJsonPath), "dist", "cli.js");
+	} catch {
+		// bun --compile 产物内 import.meta.url 指向虚拟 FS，解析不到磁盘 node_modules；
+		// 运行时 kernel 进程 cwd = runtimeDir（sidecar 以 cwd: kernelDir spawn，磁盘依赖
+		// 已首启安装），回退从 cwd 解析。
+		const cwdReq = createRequire(join(process.cwd(), "package.json"));
+		const pkgJsonPath = cwdReq.resolve(
+			"@earendil-works/pi-coding-agent/package.json",
+		);
+		return join(dirname(pkgJsonPath), "dist", "cli.js");
+	}
 }
 
 /** 解析运行 pi CLI 的运行时：env 覆盖 > PATH 上的 bun > process.execPath */

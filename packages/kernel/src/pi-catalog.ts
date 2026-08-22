@@ -38,7 +38,16 @@ let catalogPromise: Promise<CatalogModule> | null = null;
 /** 加载目录模块（进程内缓存一次；解析失败直接抛错，由调用方决定降级策略） */
 function loadCatalog(): Promise<CatalogModule> {
   if (!catalogPromise) {
-    const req = createRequire(import.meta.url);
+    // bun --compile 产物内 import.meta.url 指向虚拟 FS，createRequire 解析不到磁盘
+    // node_modules；与 resolvePiCliPath 同款回退：运行时 kernel 进程 cwd = runtimeDir
+    // （pi-ai 随 pi-coding-agent 传递安装落盘），回退从 cwd 解析。
+    let req: NodeRequire;
+    try {
+      req = createRequire(import.meta.url);
+      req.resolve("@earendil-works/pi-ai/package.json");
+    } catch {
+      req = createRequire(join(process.cwd(), "package.json"));
+    }
     const pkgJsonPath = req.resolve("@earendil-works/pi-ai/package.json");
     const allJs = join(dirname(pkgJsonPath), "dist", "providers", "all.js");
     catalogPromise = import(pathToFileURL(allJs).href) as Promise<CatalogModule>;

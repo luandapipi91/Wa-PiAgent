@@ -3,7 +3,7 @@
 // 嵌入到产物 import.meta.dir/assets/（bridge-extension.ts 运行时读取）。
 // 只有原生 .node 依赖（@napi-rs/keyring）external——无法内联进虚拟 FS。
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -41,7 +41,12 @@ export function buildCompileArgs(outfile: string, assetDir: string): string[] {
 
 /** 把 bridge 三文件平铺到临时目录作为 --asset 嵌入源；调用方负责 rm */
 export function stageAssetDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "wa-pi-kernel-assets-"));
+  // bun 1.4.0 --asset 把「目录名」挂到虚拟根：--asset ./assets → 产物 B:\~BUN\root\assets\。
+  // bridge-extension.ts 固定读 __dirname/assets/，故嵌入目录必须字面叫 assets——
+  // 先 mkdtemp 拿唯一父目录，再在其下建 assets/ 子目录（避免 tmp 下多实例撞名）。
+  const parent = mkdtempSync(join(tmpdir(), "wa-pi-kernel-assets-"));
+  const dir = join(parent, "assets");
+  mkdirSync(dir);
   for (const f of BRIDGE_ASSET_FILES) cpSync(f, join(dir, basename(f)));
   return dir;
 }
