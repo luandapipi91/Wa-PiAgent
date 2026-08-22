@@ -143,9 +143,9 @@ async function setup(opts: SetupOpts = {}) {
 		...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
 		...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
 		...(opts.extensionManager ? { extensionManager: opts.extensionManager } : {}),
-		...(opts.abortTimeoutMs !== undefined
-			? { abortTimeoutMs: opts.abortTimeoutMs }
-			: {}),
+		...(opts.abortTimeoutMs === undefined
+			? {}
+			: { abortTimeoutMs: opts.abortTimeoutMs }),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
