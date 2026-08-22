@@ -11,7 +11,6 @@ import {
 	readFileSync,
 	statSync,
 	existsSync,
-	createReadStream,
 } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -58,6 +57,18 @@ export function listArtifacts(releaseDir: string, version: string): Artifact[] {
 		}
 	}
 	return out;
+}
+
+/**
+ * 上传顺序：安装包/blockmap（大文件，耗时）在前，latest*.yml 清单最后覆盖。
+ * 背景：0.2.16/0.2.17 发版都踩过「清单先传 → exe 上传失败/中断 → 线上清单悬空指向
+ * 不存在的安装包，用户更新失败」。清单是版本入口，必须最后更新保证原子性。
+ */
+export function orderArtifactsForUpload(artifacts: Artifact[]): Artifact[] {
+	const isManifest = (a: Artifact) => a.key.endsWith(".yml");
+	const installers = artifacts.filter((a) => !isManifest(a));
+	const manifests = artifacts.filter(isManifest);
+	return [...installers, ...manifests];
 }
 
 /** 从 version-history.json 第一条提取内容，格式化为 releaseNotes 文本 */
@@ -255,7 +266,8 @@ if (import.meta.main) {
 			credentials: { accessKeyId: ak!, secretAccessKey: sk! },
 		});
 
-		for (const a of artifacts) {
+		// 先传安装包/blockmap，清单最后覆盖（防线上悬空）
+		for (const a of orderArtifactsForUpload(artifacts)) {
 			if (
 				a.key.endsWith(".exe") ||
 				a.key.endsWith(".dmg") ||
