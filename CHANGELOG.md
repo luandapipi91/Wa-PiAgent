@@ -1,3 +1,15 @@
+## 2026-08-22 — kernel 单二进制编译 + 入口统一
+
+### 重构
+
+- kernel 打包形态：「下载 bun + 解释运行 kernel.js」→「bun --compile 单二进制 WaPiKernel(.exe)」
+  - 打包：`build-kernel-sidecar.ts` 删除 bun 下载全套逻辑（GitHub/npmmirror 硬依赖消除），改调 `packages/kernel/scripts/compile-binary.ts`（`bun build --compile --external @napi-rs/keyring --asset <bridge 三文件>`）；运行时依赖清单精简为磁盘必需项（@earendil-works/pi-coding-agent + @napi-rs/keyring，Task 6 审计定稿），删除 patchedDependencies 与 patches/bridge 文件复制（patch 编译期已生效）。
+  - 运行时：`runtime-deps.cjs` SEED 精简为 WaPiKernel + package.json + bun.lock，install 子进程加 `BUN_BE_BUN=1`（编译产物充当 bun CLI，首启装依赖零下载），清理 kernel.js 时代遗留文件；`kernel-sidecar.cjs` packaged 分支直接 spawn 编译产物（不再 `run kernel.js`）。
+  - 子进程链路：`startKernel` 写入 `process.env.BUN_BE_BUN=1`（pi RPC / bun add / MCP 服务器的运行时都是编译产物，缺了它会再跑内嵌 kernel）；`runtime-bin.cjs` 的 bun/node/npm/npx wrapper 显式带 BUN_BE_BUN=1（POSIX 符号链接改 wrapper 脚本）；`resolvePiCliPath` 加 cwd 回退（编译产物虚拟 FS 解析不到磁盘 node_modules）。
+  - 入口统一：三条启动链都走 `desktop-server.ts → startKernel`；`index.ts` 删除 `import.meta.main` 分支；kernel `dev` 脚本改跑 desktop-server.ts；`dev:desktop` 优先 spawn `packages/kernel/dist/WaPiKernel`（缺失回退解释运行并提示先 `bun run --filter @wa-pi/kernel build`）。
+  - 进程识别：`process-registry.cjs` exe 特征匹配兼容 WaPiKernel 新名与 wa-pi-kernel 旧名（升级期幽灵进程兜底）。
+  - 影响范围：`packages/kernel/scripts/compile-binary.ts`（新）、`packages/kernel/src/{index,desktop-server,rpc-client}.ts`、`packages/kernel/package.json`、`packages/shared/src/runtime-check.ts`、`packages/desktop/scripts/build-kernel-sidecar.ts`、`packages/desktop/src/{kernel-sidecar,main}.cjs`、`packages/desktop/src/util/{runtime-deps,runtime-bin,process-registry,port,node-runtime,paths}.cjs`、`scripts/kernel-compile-it.ts`（新）；测试：compile-binary 5 例、build-kernel-sidecar 1 例、runtime-deps 3+1 例、kernel-sidecar +3 例、runtime-bin +2 例、runtime-check +2 例、rpc-client +1 例全绿；集成测试 `bun run scripts/kernel-compile-it.ts` 通过（compile → BUN_BE_BUN install → 净化 PATH spawn → agent:prompt 到「未选择模型」）。
+
 ## 2026-08-22 — kernel 单二进制编译（BUN_BE_BUN 运行时链路）
 
 ### 新增

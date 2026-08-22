@@ -39,7 +39,7 @@ async function findAvailablePort(startPort, maxTries = 100) {
  * 此时枚举存活进程，按「确认 wa-pi 相关进程的子孙链」圈定清理范围，避免误杀
  * 其他工作区 / CLI 模式的正常进程：
  * - 种子：命令行含 wa-pi 数据目录路径（WA_PI_DIR，默认 ~/.pi/agent）——pi 会话/子代理
- *   进程带 --session <dir>/sessions/... 参数，packaged kernel 带 <dir>/runtime/kernel.js。
+ *   进程带 --session <dir>/sessions/... 参数，packaged kernel 是 <dir>/runtime 下 cwd 运行的 WaPiKernel 编译产物。
  *   仅含 pi-coding-agent / wa-pi-kernel 字样但与我方数据目录无关的进程不匹配。
  * - 子孙链：种子的后代进程（cmd/bun shim、子代理起的后台命令）即使命令行无特征，
  *   也因进程树关联被纳入——继承的幽灵句柄往往就捏在这类进程手里。
