@@ -256,6 +256,47 @@ describe("AgentConfig 4 tab", () => {
 		expect(screen.getByText("MCP")).toBeTruthy();
 	});
 
+	test("工具 tab：4 个 browser_* 开关渲染且默认勾选，点掉 browser_navigate 后保存为显式白名单", async () => {
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-tools"));
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "read", source: "内置" },
+				{ name: "bash", source: "内置" },
+				{ name: "browser_navigate", source: "内置" },
+				{ name: "browser_evaluate", source: "内置" },
+				{ name: "browser_screenshot", source: "内置" },
+				{ name: "browser_close", source: "内置" },
+			],
+		});
+
+		// 4 个 browser_* 开关渲染且默认 on（tools:[] 全量默认 → 全部勾选）
+		const navSwitch = await screen.findByTestId(
+			"tool-switch-browser_navigate",
+		);
+		expect(navSwitch.getAttribute("data-on")).toBe("true");
+		expect(
+			screen.getByTestId("tool-switch-browser_evaluate").getAttribute("data-on"),
+		).toBe("true");
+		expect(
+			screen.getByTestId("tool-switch-browser_screenshot").getAttribute("data-on"),
+		).toBe("true");
+		expect(
+			screen.getByTestId("tool-switch-browser_close").getAttribute("data-on"),
+		).toBe("true");
+
+		// 点掉 browser_navigate → 转显式白名单：不含 browser_navigate，其余 browser_* 仍在
+		fireEvent.click(navSwitch);
+		fireEvent.click(screen.getByText("保存"));
+		const savedTools = lastSaved("dev").config.tools;
+		expect(savedTools).not.toContain("browser_navigate");
+		expect(savedTools).toContain("browser_evaluate");
+		expect(savedTools).toContain("browser_screenshot");
+		expect(savedTools).toContain("browser_close");
+		expect(savedTools).toContain("read");
+	});
+
 	test("技能 tab：勾选写入 skills", () => {
 		useSkillsStore.setState({
 			allSkills: [
