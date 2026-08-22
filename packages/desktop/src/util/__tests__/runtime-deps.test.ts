@@ -10,6 +10,7 @@ import {
 	verifyInstall,
 	installWithRetry,
 	buildInstallArgs,
+	buildInstallEnv,
 } from "../runtime-deps.cjs";
 
 const TMP = join(tmpdir(), `test-runtime-deps-${Date.now()}`);
@@ -203,5 +204,13 @@ describe("installWithRetry", () => {
 		await expect(
 			installWithRetry({ registries, install, verify, cleanup, log: silentLog }),
 		).rejects.toThrow(/文件被占用/);
+	});
+});
+
+describe("buildInstallEnv", () => {
+	test("含 BUN_BE_BUN=1（编译产物充当 bun CLI 执行 install）与 registry", () => {
+		const env = buildInstallEnv("https://registry.npmmirror.com");
+		expect(env.BUN_BE_BUN).toBe("1");
+		expect(env.BUN_CONFIG_REGISTRY).toBe("https://registry.npmmirror.com");
 	});
 });
