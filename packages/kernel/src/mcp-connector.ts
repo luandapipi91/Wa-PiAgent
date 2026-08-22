@@ -3,7 +3,7 @@
 // 连接逻辑镜像 pi-mcp-adapter 的 McpServerManager.createConnection：用同一个
 // @modelcontextprotocol/sdk（纯 JS，可随内核 bundle）创建 Client + 传输层，
 // 握手后列举工具。不深导入 adapter 内部模块——adapter 由 Pi SDK 在运行时通过
-// additionalExtensionPaths 动态加载，不进 kernel.js bundle；若深导入其
+// additionalExtensionPaths 动态加载，不进内核编译产物 bundle；若深导入其
 // server-manager 会把 recheck/open 等重依赖拖进内核编译产物。
 //
 // 三类结果：

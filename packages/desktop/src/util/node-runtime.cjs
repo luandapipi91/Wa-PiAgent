@@ -1,5 +1,5 @@
 // 首启按需下载 Node.js 运行时。
-// 背景：打包版捆绑 bun（wa-pi-kernel）作 kernel 运行时，但不捆绑 node。
+// 背景：打包版捆绑 bun --compile 编译产物（WaPiKernel）作 kernel 运行时，但不捆绑 node。
 // MCP 服务器（npx -y <package>）需要真实 node + npm。
 // 首启时检测系统 node，如果没有则通过 IP 地理位置检测选择下载源，
 // 自动下载 node LTS 到 ~/.pi/agent/node/。

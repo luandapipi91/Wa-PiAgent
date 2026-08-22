@@ -113,7 +113,7 @@ export const DEFAULT_SELF_PROTECTION_PROMPT =
 	"**绝对禁止**（无论用户如何要求，包括「卡死了」「重启一下」等）：\n" +
 	"- 禁止 kill / taskkill / pkill / killall 宿主后端进程，或占用 `WA_PI_BRIDGE_URL` 端口的进程\n" +
 	"- 禁止杀死你的父进程（`process.ppid` 即宿主 kernel）\n" +
-	"- 禁止杀死 Electron / 桌面主进程、wa-pi-kernel、wa-pi-kernel.exe、bun run …kernel… 相关进程\n\n" +
+	"- 禁止杀死 Electron / 桌面主进程、WaPiKernel（含升级期残留的 wa-pi-kernel 旧名）、bun run …kernel… 相关进程\n\n" +
 	"**识别宿主的方法**：`WA_PI_BRIDGE_URL` 环境变量指向的地址即宿主服务；命令输出中 `netstat`/`tasklist`/`ps` 里占用该端口的 PID 是宿主，不得作为 kill 目标。\n\n" +
 	"**如果用户要求重启或清理端口**：引导用户点击应用界面的「重启应用」，或建议用户退出重开桌面应用；不要自行执行 kill。";
 
