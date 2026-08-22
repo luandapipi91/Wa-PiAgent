@@ -25,12 +25,25 @@ const { regenerateBlockmap } = require("../scripts/after-all-artifact-build.cjs"
 test("regenerateBlockmap 对 zip 生成有效 blockmap（gzip JSON，含 Rabin checksums）", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "blockmap-test-"));
 	try {
-		// 构造一个小 zip（macOS ditto，模拟真实产物），内容跨多个 Rabin 块
+		// 构造一个小 zip（模拟真实产物）——跨平台：macOS 用 ditto（保留符号链接语义），
+		// 其他平台用 PowerShell Compress-Archive（Windows 自带，无外部依赖）。
 		const payloadDir = join(dir, "payload");
 		mkdirSync(payloadDir, { recursive: true });
 		writeFileSync(join(payloadDir, "a.txt"), "hello ".repeat(4000)); // ~24KB
 		const zipPath = join(dir, "test.zip");
-		execFileSync("ditto", ["-c", "-k", "--keepParent", payloadDir, zipPath]);
+		if (process.platform === "darwin") {
+			execFileSync("ditto", ["-c", "-k", "--keepParent", payloadDir, zipPath]);
+		} else {
+			execFileSync(
+				"powershell.exe",
+				[
+					"-NoProfile",
+					"-Command",
+					`Compress-Archive -Path '${payloadDir}' -DestinationPath '${zipPath}'`,
+				],
+				{ stdio: "pipe" },
+			);
+		}
 
 		const blockmapPath = zipPath + ".blockmap";
 		await regenerateBlockmap(zipPath, blockmapPath);
