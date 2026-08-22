@@ -1,3 +1,10 @@
+## 2026-08-22 — v0.2.19 win 交叉编译重打覆盖
+
+### 发版
+
+- win 更新源用最新 master 代码（含引导队列修复）重新打包覆盖：mac 上经 bun --compile --target=bun-windows-x64 交叉编译 WaPiKernel.exe（bun ≥1.4 支持，首次自动下载 Windows runtime），electron-builder 出 NSIS 安装包后 publish-oss 上传 R2。
+- 影响范围：packages/kernel/scripts/compile-binary.ts（buildCompileArgs/kernelBinaryName 支持 target）、packages/desktop/scripts/build-kernel-sidecar.ts（移除本机编译限制，target 透传）、packages/kernel/tests/compile-binary.test.ts（交叉编译参数断言）；验证：compile-binary 6 pass、build-kernel-sidecar 2 pass、pack:win 产物 PE32 验证 + 线上 latest.yml sha512 已更新。
+
 ## 2026-08-22 — v0.2.19 mac 补发 + mac 签名修复
 
 ### 发版

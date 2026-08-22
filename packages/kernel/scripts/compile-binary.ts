@@ -21,22 +21,47 @@ export const BRIDGE_ASSET_FILES = [
 export const EXTERNAL_PACKAGES = ["@napi-rs/keyring"];
 
 /** 编译产物文件名（分发进程名不暴露 bun；替代旧 wa-pi-kernel 命名） */
-export function kernelBinaryName(): string {
-  return process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
+export function kernelBinaryName(
+	target?: "win" | "linux" | "darwin",
+): string {
+	const plat =
+		target ??
+		(process.platform === "win32"
+			? "win"
+			: process.platform === "linux"
+				? "linux"
+				: "darwin");
+	return plat === "win" ? "WaPiKernel.exe" : "WaPiKernel";
+}
+
+/** 目标平台 → bun --target 交叉编译参数（本机平台无需指定） */
+export function bunTargetFor(
+	target: "win" | "linux" | "darwin",
+): string | undefined {
+	if (target === "win") return "bun-windows-x64";
+	if (target === "linux") return "bun-linux-x64";
+	return undefined; // darwin：本机编译，bun 默认 host 平台
 }
 
 /** bun build --compile 参数（纯函数，便于测试断言） */
-export function buildCompileArgs(outfile: string, assetDir: string): string[] {
-  return [
-    "build",
-    join(KERNEL_SRC, "desktop-server.ts"),
-    "--compile",
-    ...EXTERNAL_PACKAGES.flatMap((p) => ["--external", p]),
-    "--asset",
-    assetDir,
-    "--outfile",
-    outfile,
-  ];
+export function buildCompileArgs(
+	outfile: string,
+	assetDir: string,
+	target?: "win" | "linux" | "darwin",
+): string[] {
+	const args = [
+		"build",
+		join(KERNEL_SRC, "desktop-server.ts"),
+		"--compile",
+		...EXTERNAL_PACKAGES.flatMap((p) => ["--external", p]),
+		"--asset",
+		assetDir,
+		"--outfile",
+		outfile,
+	];
+	const bunTarget = bunTargetFor(target!);
+	if (bunTarget) args.push("--target", bunTarget);
+	return args;
 }
 
 /** 把 bridge 三文件平铺到临时目录作为 --asset 嵌入源；调用方负责 rm */
@@ -51,11 +76,15 @@ export function stageAssetDir(): string {
   return dir;
 }
 
-/** 编译 kernel 单二进制到 outfile。用 process.execPath（真实 bun，≥1.4.0）避免 .cmd shim 问题。 */
-export function compileKernelBinary(outfile: string): void {
+/** 编译 kernel 单二进制到 outfile。用 process.execPath（真实 bun，≥1.4.0）避免 .cmd shim 问题。
+ * target 传 win/linux 时用 --target 交叉编译（bun ≥1.4 支持，首次会下载目标平台 runtime）。 */
+export function compileKernelBinary(
+	outfile: string,
+	target?: "win" | "linux" | "darwin",
+): void {
   const assetDir = stageAssetDir();
   try {
-    const args = buildCompileArgs(outfile, assetDir);
+    const args = buildCompileArgs(outfile, assetDir, target);
     console.log(`[compile] $ bun ${args.join(" ")}`);
     const r = spawnSync(process.execPath, args, { stdio: "inherit" });
     if (r.status !== 0) throw new Error(`bun build --compile 失败 (exit=${r.status})`);

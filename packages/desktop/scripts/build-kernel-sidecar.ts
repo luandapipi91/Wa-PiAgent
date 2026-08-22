@@ -67,21 +67,16 @@ export async function buildSidecar(
 			`[sidecar] 不支持的 target: ${target}（仅 win / linux / darwin）`,
 		);
 	}
-	// bun --compile 按 host 平台编译（交叉编译需另下载目标 runtime，不在本设计范围——POC 双端各自本机编译）
-	const targetPlatform =
-		target === "win" ? "win32" : target === "darwin" ? "darwin" : "linux";
-	if (process.platform !== targetPlatform) {
-		throw new Error(
-			`[sidecar] bun --compile 仅支持本机编译：target=${target} 需在 ${targetPlatform} 机器上打包（当前 ${process.platform}）`,
-		);
-	}
+	// bun ≥1.4 支持 --target 交叉编译（首次编译会下载目标平台 runtime，~40MB），
+	// 故 mac 上可打 win/linux 包；target 为 darwin 时本机编译不传 --target。
 	const kernelDir = join(RES, "kernel");
 	const webDir = join(RES, "web");
 	await rm(RES, { recursive: true, force: true });
 	await mkdir(kernelDir, { recursive: true });
 
 	// 1. WaPiKernel 单二进制（bun --compile；bridge 三文件经 --asset 嵌入产物 assets/）
-	compileKernelBinary(join(kernelDir, kernelBinaryName()));
+	const kernelBinary = join(kernelDir, kernelBinaryName(target));
+	compileKernelBinary(kernelBinary, target);
 
 	// 2. 依赖清单（package.json + bun.lock）：仅磁盘必需的 external 包。
 	//    【只产出清单 + 锁文件，不打包 node_modules】——首启 BUN_BE_BUN=1 动态安装到
