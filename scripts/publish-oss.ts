@@ -264,7 +264,9 @@ if (import.meta.main) {
 				// 安装包较大：手动 multipart 分片（每 part 独立请求 + 失败重试）。
 				// ⚠️ 不用 @aws-sdk/lib-storage Upload（Bun 下 multipart 流程不稳）
 				// 也不用 single PUT（大文件偶发 IncompleteBody）——手动分片最稳。
-				await uploadLarge(client, a);
+				// partSize 100MB：R2 直连带宽慢（国内 ~0.1-0.4MB/s），小分片（5MB×30）
+				// RTT 开销占比过高（每片 ~15s），大分片显著减少请求次数与总耗时。
+				await uploadLarge(client, a, 100 * 1024 * 1024);
 			} else if (a.key.endsWith(".yml")) {
 				// latest.yml / latest-mac.yml：注入 releaseNotes 后上传
 				const body = injectReleaseNotes(readFileSync(a.path, "utf8"), historyFile);

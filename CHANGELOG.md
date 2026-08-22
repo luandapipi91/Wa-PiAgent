@@ -1,3 +1,11 @@
+## 2026-08-22 — v0.2.16 发版
+
+### 发版
+
+- 版本 0.2.15 → 0.2.16（kernel 单二进制编译 + 入口统一 + BUN_BE_BUN 修复 + 浏览器预览交互优化 + 盘符路径胶囊）。
+- RELEASE_NOTES.md / version-history.json 已更新；线上 win 更新源 latest.yml 指向 0.2.16（mac 保持 0.2.15，本机无法产出 mac 包）。
+- 影响范围：packages/desktop/package.json、packages/frontend/package.json、packages/desktop/RELEASE_NOTES.md、packages/frontend/src/data/version-history.json；验证：全量回归 + pack:win + publish-oss 上传 R2。
+
 ## 2026-08-22 — kernel 编译产物启动修复（真实打包验证）
 
 ### 修复
