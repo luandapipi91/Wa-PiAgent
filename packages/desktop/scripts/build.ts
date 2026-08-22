@@ -9,7 +9,8 @@ import { buildSidecar } from "./build-kernel-sidecar";
 // 用 npmmirror 镜像避免联网超时；这些 env 必须在 spawn electron-builder 之前设置，
 // run() 调用 spawnSync 时会继承当前 process.env。
 process.env.ELECTRON_MIRROR ??= "https://npmmirror.com/mirrors/electron/";
-process.env.ELECTRON_BUILDER_BINARIES_MIRROR ??= "https://npmmirror.com/mirrors/electron-builder-binaries/";
+process.env.ELECTRON_BUILDER_BINARIES_MIRROR ??=
+  "https://npmmirror.com/mirrors/electron-builder-binaries/";
 
 const PKG = join(import.meta.dir, "..");
 const ROOT = join(PKG, "..", "..");
@@ -23,19 +24,32 @@ function run(bin: string, args: string[], cwd = PKG) {
   // "The system cannot find the path specified"），直接传完整路径规避（与
   // build-kernel-sidecar.ts 的 run 同款处理）。
   const resolvedBin = bin === "bun" ? process.execPath : bin;
-  const r = spawnSync(resolvedBin, args, { cwd, stdio: "inherit", shell: false, env: { ...process.env } });
-  if (r.status !== 0) { console.error(`[build] 失败: ${bin}`); process.exit(1); }
+  const r = spawnSync(resolvedBin, args, {
+    cwd,
+    stdio: "inherit",
+    shell: false,
+    env: { ...process.env },
+  });
+  if (r.status !== 0) {
+    console.error(`[build] 失败: ${bin}`);
+    process.exit(1);
+  }
 }
 
 async function step0TestGate(noTest: boolean) {
-  if (noTest) { console.log("[build] 跳过测试钩子(--no-test)"); return; }
+  if (noTest) {
+    console.log("[build] 跳过测试钩子(--no-test)");
+    return;
+  }
   console.log("[build] 步骤0: 测试钩子");
   run("bun", ["run", "typecheck"], ROOT);
   run("bun", ["run", "test"], ROOT);
 }
 
 (async () => {
-  const { values } = parseArgs({ options: { target: { type: "string" }, "no-test": { type: "boolean" } } });
+  const { values } = parseArgs({
+    options: { target: { type: "string" }, "no-test": { type: "boolean" } },
+  });
   const target = values.target ?? "win";
   await step0TestGate(!!values["no-test"]);
   console.log("[build] 步骤1: 组装 kernel sidecar + web");
@@ -43,7 +57,8 @@ async function step0TestGate(noTest: boolean) {
   const sidecarTarget = target === "mac" ? "darwin" : target;
   await buildSidecar(sidecarTarget);
   // macOS：用 iconutil 预生成标准 .icns（避免 electron-builder 内置转换产生 JPEG-2000 花屏图标）
-  if (target === "mac") run("bash", [join(import.meta.dir, "generate-icons.sh")]);
+  if (target === "mac")
+    run("bash", [join(import.meta.dir, "generate-icons.sh")]);
   console.log(`[build] 步骤2: electron-builder 出 ${target}`);
   // --bun：electron-builder 依赖 stream/promises（Node 15+），系统 node v14 没有；
   // 强制 bun runtime 执行（与前端 vite --bun 同理）。env 镜像变量已在上方 process.env 设置，
