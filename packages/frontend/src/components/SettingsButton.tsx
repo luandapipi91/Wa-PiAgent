@@ -1,0 +1,38 @@
+import { Icon } from "./ui/Icon";
+import { useTranslation } from "../i18n/useTranslation";
+
+interface Props {
+	onClick: () => void;
+	/** 窄侧栏模式：隐藏文字只保留图标 */
+	compact?: boolean;
+}
+
+export function SettingsButton({ onClick, compact }: Props) {
+	const { t } = useTranslation();
+	return (
+		<button
+			onClick={onClick}
+			aria-label={t("settings.title")}
+			title={t("settings.title")}
+			className={`flex-1 min-w-0 flex items-center gap-1 px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand overflow-hidden ${
+				compact ? "justify-center" : ""
+			}`}
+			data-testid="settings-btn"
+		>
+			<Icon
+				name="settings"
+				size="1em"
+				className={
+					compact
+						? "text-[calc(27px*var(--font-scale))] flex-shrink-0"
+						: "text-[calc(20px*var(--font-scale))] flex-shrink-0"
+				}
+			/>
+			{!compact && (
+				<span className="whitespace-nowrap truncate shrink">
+					{t("settings.title")}
+				</span>
+			)}
+		</button>
+	);
+}

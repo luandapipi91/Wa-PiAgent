@@ -1,0 +1,140 @@
+// MemoryCard.tsx — 记忆卡片（含行内编辑态）
+import { useState } from "react";
+import type { MemoryEntry, ArchivedMemory } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
+
+interface Props {
+  entry: MemoryEntry;
+  mode?: "active" | "archived";
+  onEdit?: (text: string) => void;
+  onArchive?: () => void;
+  onRestore?: () => void;
+  onPurge?: () => void;
+}
+
+// 分类标签配色（label 文案走 i18n：memory.categoryMemory / categoryUser / categoryFailure）
+const CATEGORY_STYLE: Record<string, { bg: string; color: string; labelKey: string }> = {
+  memory: { bg: "var(--success-soft)", color: "var(--success)", labelKey: "memory.categoryMemory" },
+  user: { bg: "var(--accent-soft)", color: "var(--accent)", labelKey: "memory.categoryUser" },
+  failure: { bg: "var(--danger-soft)", color: "var(--danger)", labelKey: "memory.categoryFailure" },
+};
+
+export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestore, onPurge }: Props) {
+  const { t } = useTranslation();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(entry.text);
+
+  const cat = CATEGORY_STYLE[entry.category] ?? CATEGORY_STYLE.memory;
+  const isArchived = mode === "archived";
+
+  const handleSave = () => {
+    onEdit?.(draft);
+    setEditing(false);
+  };
+
+  const handleCancel = () => {
+    setDraft(entry.text);
+    setEditing(false);
+  };
+
+  return (
+    <div
+      className="mb-2.5 p-3.5"
+      style={{
+        background: "var(--surface)",
+        border: editing ? "1px solid var(--accent)" : "1px solid var(--hairline)",
+        borderRadius: 14,
+        opacity: isArchived ? 0.75 : 1,
+        boxShadow: editing ? "0 0 0 3px var(--accent-soft)" : "none",
+        transition: "box-shadow 0.2s, border-color 0.2s",
+      }}
+      data-testid={`memory-card-${entry.id}`}
+    >
+      {/* 头部：分类标签 + 作用域 */}
+      <div className="flex items-center gap-2 mb-2">
+        <span
+          className="text-[calc(10px*var(--font-scale))] font-semibold px-2 py-0.5 rounded-full"
+          style={{ background: cat.bg, color: cat.color }}
+        >{t(cat.labelKey)}</span>
+        <span className="text-[calc(10px*var(--font-scale))] text-tertiary">
+          {entry.scope === "global" ? t("memoryCard.scopeGlobal") : t("memoryCard.scopeProject")}
+        </span>
+      </div>
+
+      {/* 内容 / 编辑态 */}
+      {editing ? (
+        <>
+          <textarea
+            className="w-full text-[calc(12.5px*var(--font-scale))] leading-relaxed p-2.5 mb-2 outline-none"
+            style={{
+              background: "var(--canvas)",
+              border: "1px solid var(--hairline-strong)",
+              borderRadius: 10,
+              color: "var(--text-primary)",
+              minHeight: 60,
+            }}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            data-testid="memory-edit-textarea"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={handleCancel}
+              className="text-[calc(11px*var(--font-scale))] text-secondary px-2.5 py-1 rounded-md"
+              style={{ border: "1px solid var(--hairline)", background: "transparent" }}
+              data-testid="memory-edit-cancel"
+            >{t("memoryCard.cancelButton")}</button>
+            <button
+              onClick={handleSave}
+              className="text-[calc(11px*var(--font-scale))] font-semibold text-white px-3.5 py-1 rounded-md"
+              style={{ background: "var(--accent)", border: "none" }}
+              data-testid="memory-edit-save"
+            >{t("memoryCard.saveButton")}</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-[calc(12.5px*var(--font-scale))] leading-relaxed text-primary m-0 mb-2">{entry.text}</p>
+          <div className="flex items-center justify-between">
+            <span className="text-[calc(10.5px*var(--font-scale))] text-tertiary">
+              {isArchived ? t("memoryCard.archivedAt", { date: (entry as ArchivedMemory).archivedAt?.slice(0, 10) ?? "" }) : entry.updatedAt?.slice(0, 10) ?? ""}
+            </span>
+            <div className="flex gap-1.5">
+              {isArchived ? (
+                <>
+                  <CardButton onClick={onRestore} testId="memory-restore" text={t("memoryCard.restoreButton")}
+                    color="var(--accent)" borderColor="var(--accent)" />
+                  <CardButton onClick={onPurge} testId="memory-purge" text={t("memoryCard.purgeButton")}
+                    color="var(--danger)" borderColor="var(--danger)" />
+                </>
+              ) : (
+                <>
+                  <CardButton onClick={() => setEditing(true)} testId="memory-edit" text={t("memoryCard.editButton")} />
+                  <CardButton onClick={onArchive} testId="memory-archive" text={t("memoryCard.archiveButton")} />
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CardButton({ onClick, testId, text, color, borderColor }: {
+  onClick?: () => void; testId: string; text: string;
+  color?: string; borderColor?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      data-testid={testId}
+      className="text-[calc(11px*var(--font-scale))] px-2.5 py-1 rounded-md"
+      style={{
+        color: color ?? "var(--text-secondary)",
+        border: `1px solid ${borderColor ?? "var(--hairline)"}`,
+        background: "transparent",
+      }}
+    >{text}</button>
+  );
+}

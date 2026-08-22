@@ -1,0 +1,35 @@
+{
+  "name": "wa-pi",
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1114.0",
+    "@aws-sdk/lib-storage": "^3.1114.0",
+    "@happy-dom/global-registrator": "^20.11.2",
+    "@types/bun": "^1.4.0",
+    "@wa-pi/shared": "workspace:*",
+    "happy-dom": "^20.11.2",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT",
+  "patchedDependencies": {
+    "pi-mcp-adapter@2.17.0": "patches/pi-mcp-adapter@2.17.0.patch"
+  },
+  "private": true,
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "scripts": {
+    "dev": "bun run scripts/dev.ts",
+    "dev:kernel": "bun run --filter @wa-pi/kernel dev",
+    "dev:frontend": "bun run --filter @wa-pi/frontend dev",
+    "dev:desktop": "bun run --filter @wa-pi/desktop dev",
+    "test": "cd packages/kernel && bun run test && cd ../shared && bun run test && cd ../desktop && bun run test && cd ../frontend && bun run test",
+    "typecheck": "bun run --filter '*' --if-present typecheck",
+    "pack:win": "bun run --filter @wa-pi/desktop build:win",
+    "pack:linux": "bun run --filter @wa-pi/desktop build:linux",
+    "pack:mac": "bun run --filter @wa-pi/desktop build:mac",
+    "pack:all": "bun run pack:win && bun run pack:linux && bun run pack:mac"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}
