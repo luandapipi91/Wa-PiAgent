@@ -6,7 +6,12 @@
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { appendFile, mkdir } = require("node:fs/promises");
-const { waitForPort, isPortInUse, killPortOccupants, resolveWaPiDir } = require("./util/port.cjs");
+const {
+  waitForPort,
+  isPortInUse,
+  killPortOccupants,
+  resolveWaPiDir,
+} = require("./util/port.cjs");
 const { shouldRespawn, RESPAWN_DELAY_MS } = require("./util/auto-respawn.cjs");
 const {
   checkPort,
@@ -15,11 +20,17 @@ const {
   HEALTH_FAIL_THRESHOLD,
 } = require("./util/health-check.cjs");
 
-const WS_PORT = Number(process.env.WA_PI_WS_PORT) > 0 ? Number(process.env.WA_PI_WS_PORT) : 9778;
+const WS_PORT =
+  Number(process.env.WA_PI_WS_PORT) > 0
+    ? Number(process.env.WA_PI_WS_PORT)
+    : 9778;
 
 function killTree(pid) {
   try {
-    if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    if (process.platform === "win32")
+      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
     else process.kill(pid, "SIGTERM");
   } catch {}
 }
@@ -28,12 +39,24 @@ function killTree(pid) {
 // 不能用 killTree（POSIX 下 SIGTERM 会被 kernel 优雅退出 code=0，shouldRespawn 不重启）。
 function forceKill(pid) {
   try {
-    if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    if (process.platform === "win32")
+      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
     else process.kill(pid, "SIGKILL");
   } catch {}
 }
 
-async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKernelExe = undefined, log, port, deps = {} }) {
+async function startSidecar({
+  isPackaged,
+  kernelDir,
+  webDir,
+  kernelExe,
+  devKernelExe = undefined,
+  log,
+  port,
+  deps = {},
+}) {
   // 依赖注入（测试用，可选）：默认全走真实实现，生产行为不变。
   //   spawnFn        替换 spawn（测试返回 fake child）
   //   waitForPortFn  替换 waitForPort（测试立即就绪，不真等端口）
@@ -51,7 +74,8 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
     respawnDelayMs = RESPAWN_DELAY_MS,
     now = Date.now,
     isPortInUseFn = isPortInUse,
-    killPortOccupantsFn = (p) => killPortOccupants(p, undefined, (m) => log.info(m)),
+    killPortOccupantsFn = (p) =>
+      killPortOccupants(p, undefined, (m) => log.info(m)),
     // 崩溃现场落盘：默认追加到 <WA_PI_DIR>/logs/kernel-crash.log；测试注入收集
     crashLogFn = (text) => {
       const p = path.join(resolveWaPiDir(), "logs", "kernel-crash.log");
@@ -73,7 +97,8 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
     ? []
     : ["run", path.join(kernelDir, "src", "desktop-server.ts")];
   // shell 模式下需手动引用含空格的参数（路径里若有空格）
-  const finalArg = (!useCompiled && isWin) ? arg.map((a) => /\s/.test(a) ? `"${a}"` : a) : arg;
+  const finalArg =
+    !useCompiled && isWin ? arg.map((a) => (/\s/.test(a) ? `"${a}"` : a)) : arg;
   // 编译产物主进程必须以内嵌应用模式启动：env 里剔除 BUN_BE_BUN（若宿主/系统环境
   // 恰好带此变量，编译产物会充当 bun CLI 而非运行内嵌 kernel——打印 usage 后 code=0 退出）。
   // 子进程需要当 CLI 的场景（runtime-deps install、runtime-bin wrapper）各自显式设置
@@ -89,7 +114,12 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
   };
 
   // 守护状态：stopped（用户主动退出）+ attempts（重启计数，仅日志）+ failures（探活连续失败计数）
-  const respawnState = { stopped: false, attempts: 0, failures: 0, failThreshold: HEALTH_FAIL_THRESHOLD };
+  const respawnState = {
+    stopped: false,
+    attempts: 0,
+    failures: 0,
+    failThreshold: HEALTH_FAIL_THRESHOLD,
+  };
   let current = null; // 当前 child 引用（重启时替换）
   let lastPid = null; // 最近一次成功 spawn 的 pid（stop 兜底：current 无有效 pid 时用它）
   let currentSpawnedAt = null; // 最近一次成功 spawn 的创建时刻（登记簿 createdAt 用它，非端口就绪时刻）
@@ -103,7 +133,9 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
   function scheduleRespawn(reason) {
     if (respawnState.stopped) return; // 用户已主动退出，不再重启
     respawnState.attempts++;
-    log.info(`[kernel] ${reason} → 第 ${respawnState.attempts} 次自动重启，${respawnDelayMs}ms 后 respawn...`);
+    log.info(
+      `[kernel] ${reason} → 第 ${respawnState.attempts} 次自动重启，${respawnDelayMs}ms 后 respawn...`,
+    );
     setTimeout(() => {
       if (respawnState.stopped) return; // 退避期间用户退出了
       void (async () => {
@@ -151,7 +183,9 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
       if (shouldRespawn(null, respawnState)) scheduleRespawn("spawn 失败");
     });
     child.stdout.on("data", (d) => log.info(`[kernel] ${d.toString().trim()}`));
-    child.stderr.on("data", (d) => log.error(`[kernel] ${d.toString().trim()}`));
+    child.stderr.on("data", (d) =>
+      log.error(`[kernel] ${d.toString().trim()}`),
+    );
     // stderr 环形缓冲：Bun 级崩溃（panic/段错误）不进 JS 的 crash-logger，现场只打在
     // stderr。留存末尾 50 条，崩溃退出时随 code/signal 写入 kernel-crash.log 供定位首因
     // （8/14、8/18 事故静默 exit code=1、desktop.log 无错误输出，首因无从查起）。
@@ -170,7 +204,7 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
       if (shouldRespawn(code, respawnState)) {
         void crashLogFn(
           `\n===== ${new Date().toISOString()} kernel 崩溃退出 pid=${child.pid} code=${code} signal=${signal ?? "none"} =====\n` +
-          `最近 stderr（末 ${stderrTail.length} 条）：\n${stderrTail.join("\n") || "(无)"}\n`,
+            `最近 stderr（末 ${stderrTail.length} 条）：\n${stderrTail.join("\n") || "(无)"}\n`,
         );
         scheduleRespawn("崩溃");
       }
@@ -182,14 +216,20 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
   function startHealthCheck() {
     let inFlight = false;
     healthTimer = setInterval(async () => {
-      if (respawnState.stopped || childExited || inFlight || !current?.pid) return;
+      if (respawnState.stopped || childExited || inFlight || !current?.pid)
+        return;
       inFlight = true;
       try {
         const healthy = await checkPortFn(wsPort);
-        const { shouldRestart, failures } = updateHealthState(respawnState, healthy);
+        const { shouldRestart, failures } = updateHealthState(
+          respawnState,
+          healthy,
+        );
         respawnState.failures = failures;
         if (shouldRestart) {
-          log.error(`[kernel] 端口 ${wsPort} 连续 ${respawnState.failThreshold} 次探测失败，判定挂死，强杀重启`);
+          log.error(
+            `[kernel] 端口 ${wsPort} 连续 ${respawnState.failThreshold} 次探测失败，判定挂死，强杀重启`,
+          );
           forceKill(current.pid); // exit 事件会触发统一崩溃重启
         }
       } finally {
@@ -200,9 +240,16 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
   }
 
   current = spawnOnce();
-  log.info(`kernel sidecar pid=${current.pid} cmd=${cmd} ${arg.join(" ")} port=${wsPort}`);
+  log.info(
+    `kernel sidecar pid=${current.pid} cmd=${cmd} ${arg.join(" ")} port=${wsPort}`,
+  );
   const ready = await waitForPortFn(wsPort, 30000);
-  if (!ready) { respawnState.stopped = true; log.error("kernel sidecar 30s 未就绪"); killFn(current.pid); throw new Error("kernel not ready"); }
+  if (!ready) {
+    respawnState.stopped = true;
+    log.error("kernel sidecar 30s 未就绪");
+    killFn(current.pid);
+    throw new Error("kernel not ready");
+  }
   log.info(`kernel 就绪 @${wsPort}`);
   startHealthCheck();
   return {
@@ -219,8 +266,9 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKerne
       respawnState.stopped = true;
       if (healthTimer) clearInterval(healthTimer);
       const pid = current?.pid ?? lastPid;
-      if (pid != null) killFn(pid);
-      else log.error("[kernel] stop 时无可用 pid（从未成功 spawn），跳过杀进程");
+      if (pid == null)
+        log.error("[kernel] stop 时无可用 pid（从未成功 spawn），跳过杀进程");
+      else killFn(pid);
     },
   };
 }

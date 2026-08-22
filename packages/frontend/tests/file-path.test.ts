@@ -7,9 +7,7 @@ test("识别相对/绝对/家目录路径", () => {
 		line: undefined,
 		col: undefined,
 	});
-	expect(parseFilePath("/Users/example/x.md")?.path).toBe(
-		"/Users/example/x.md",
-	);
+	expect(parseFilePath("/Users/example/x.md")?.path).toBe("/Users/example/x.md");
 	expect(parseFilePath("~/docs/a.md")?.path).toBe("~/docs/a.md");
 	expect(parseFilePath("./src/b.ts")?.path).toBe("./src/b.ts");
 });
@@ -29,7 +27,9 @@ test("识别 :行 与 :行:列 后缀", () => {
 
 test("识别 Windows 盘符绝对路径（C:/ 与 C:\\）", () => {
 	expect(
-		parseFilePath("C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.html"),
+		parseFilePath(
+			"C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.html",
+		),
 	).toEqual({
 		path: "C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.html",
 		line: undefined,

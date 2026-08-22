@@ -81,15 +81,16 @@ test("Windows 盘符绝对路径渲染胶囊，点击后预览解析为盘符路
 	});
 	render(
 		<>
-			<FilePill rawText="C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.md" sessionId="s1" />
+			<FilePill
+				rawText="C:/Users/co/.pi/agent-dev/workdir/1787358024927/beautiful.md"
+				sessionId="s1"
+			/>
 			<FilePreviewModal />
 		</>,
 	);
 
 	await waitFor(() =>
-		expect(screen.getByTestId("file-pill").textContent).toContain(
-			"beautiful.md",
-		),
+		expect(screen.getByTestId("file-pill").textContent).toContain("beautiful.md"),
 	);
 	fireEvent.click(screen.getByTestId("file-pill"));
 	// 盘符绝对路径原样作为预览路径，不被 cwd 拼接

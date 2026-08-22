@@ -308,9 +308,13 @@ test("kernel 正常退出 code=0 → 不写崩溃日志", async () => {
 // dev 无产物：回退解释运行 bun run src/desktop-server.ts。
 
 /** 捕获 spawn 的 cmd/args 的夹具 */
-async function captureSpawnHarness(opts: { isPackaged: boolean; devKernelExe?: string }) {
+async function captureSpawnHarness(opts: {
+  isPackaged: boolean;
+  devKernelExe?: string;
+}) {
   const child = fakeChild(4321);
-  const calls: { cmd: string; args: string[]; env?: Record<string, string> }[] = [];
+  const calls: { cmd: string; args: string[]; env?: Record<string, string> }[] =
+    [];
   const sidecar = await startSidecar({
     isPackaged: opts.isPackaged,
     kernelDir: "/fake/kernel",
@@ -320,7 +324,11 @@ async function captureSpawnHarness(opts: { isPackaged: boolean; devKernelExe?: s
     port: 9778,
     log: { info() {}, error() {} },
     deps: {
-      spawnFn: ((cmd: string, args: string[], spawnOpts?: { env?: Record<string, string> }) => {
+      spawnFn: ((
+        cmd: string,
+        args: string[],
+        spawnOpts?: { env?: Record<string, string> },
+      ) => {
         calls.push({ cmd, args, env: spawnOpts?.env });
         return child;
       }) as any,
@@ -357,7 +365,9 @@ test("dev 无 devKernelExe: 回退解释运行 bun run src/desktop-server.ts", a
   const { sidecar, calls } = await captureSpawnHarness({ isPackaged: false });
   expect(calls[0].cmd).toBe("bun");
   expect(calls[0].args[0]).toBe("run");
-  expect(calls[0].args[1].replace(/\\/g, "/").endsWith("src/desktop-server.ts")).toBe(true);
+  expect(
+    calls[0].args[1].replace(/\\/g, "/").endsWith("src/desktop-server.ts"),
+  ).toBe(true);
   sidecar.stop();
 });
 
