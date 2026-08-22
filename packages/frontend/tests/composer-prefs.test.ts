@@ -114,9 +114,7 @@ describe("composer-prefs store", () => {
 
 		await useComposerPrefsStore.getState().loadSession("s-load");
 
-		expect(useComposerPrefsStore.getState().loadedBySession["s-load"]).toBe(
-			true,
-		);
+		expect(useComposerPrefsStore.getState().loadedBySession["s-load"]).toBe(true);
 	});
 
 	it("setDefaults updates state and persists to IndexedDB", async () => {
@@ -226,9 +224,7 @@ describe("composer-prefs store", () => {
 		// 关键断言2：内存态 thinking 恢复为 high（而非停留在初始 disabled）
 		expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
 		// 竞态期间用户改的 model 仍在内存中（未被 loadDefaults 覆盖为 null）
-		expect(useComposerPrefsStore.getState().defaults.model).toBe(
-			"openai/gpt-4o",
-		);
+		expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
 	});
 
 	it("复现：重启后 ModelSelector 自动选中第一个模型，不应覆盖 localStorage 中用户上次选的 model", async () => {
@@ -250,9 +246,7 @@ describe("composer-prefs store", () => {
 		// 而非被 ModelSelector 自动选中的第一个模型（anthropic/claude-sonnet）覆盖。
 		// 修复前：loadDefaults 里 `s.defaults.model != null ? s.defaults.model : defs.model`
 		// 因 auto-select 已把 s.defaults.model 设成非 null，会丢弃 defs.model（openai/gpt-4o）。
-		expect(useComposerPrefsStore.getState().defaults.model).toBe(
-			"openai/gpt-4o",
-		);
+		expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
 		// thinking 仍正确恢复
 		expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
 	});
@@ -351,9 +345,7 @@ describe("composer-prefs store", () => {
 
 		// 竞态：reload 后 Composer 挂载，loadSession 已发起但未完成（异步 gap）；
 		// ModelSelector 因 value=null 抢先 auto-select → setSessionPrefs({ model })
-		const loadPromise = useComposerPrefsStore
-			.getState()
-			.loadSession("s-gap-att");
+		const loadPromise = useComposerPrefsStore.getState().loadSession("s-gap-att");
 		useComposerPrefsStore
 			.getState()
 			.setSessionPrefs("s-gap-att", { model: "auto/first-model" });
@@ -468,9 +460,9 @@ describe("composer-prefs store", () => {
 		useComposerPrefsStore.setState({ bySession: {}, loadedBySession: {} });
 		await useComposerPrefsStore.getState().loadSession("s-sent");
 
-		expect(
-			useComposerPrefsStore.getState().bySession["s-sent"].text ?? "",
-		).toBe("");
+		expect(useComposerPrefsStore.getState().bySession["s-sent"].text ?? "").toBe(
+			"",
+		);
 	});
 
 	it("老记录（无 text 字段）加载后 text 为 undefined", async () => {
@@ -531,7 +523,7 @@ describe("composer-prefs store", () => {
 		useComposerPrefsStore.setState({
 			defaults: { model: null, thinking: "disabled" },
 			bySession: {
-				"s1": {
+				s1: {
 					model: "deepseek/deepseek-chat", // 旧 id，已失效
 					thinking: "high",
 					attachments: [],
@@ -539,9 +531,7 @@ describe("composer-prefs store", () => {
 			},
 		});
 
-		useComposerPrefsStore
-			.getState()
-			.clearStaleModels([deepseekProvider()]);
+		useComposerPrefsStore.getState().clearStaleModels([deepseekProvider()]);
 
 		expect(useComposerPrefsStore.getState().bySession["s1"].model).toBeNull();
 		// 其它字段不受影响
@@ -556,9 +546,7 @@ describe("composer-prefs store", () => {
 			bySession: {},
 		});
 
-		useComposerPrefsStore
-			.getState()
-			.clearStaleModels([deepseekProvider()]);
+		useComposerPrefsStore.getState().clearStaleModels([deepseekProvider()]);
 
 		expect(useComposerPrefsStore.getState().defaults.model).toBeNull();
 	});
@@ -567,13 +555,11 @@ describe("composer-prefs store", () => {
 		useComposerPrefsStore.setState({
 			defaults: { model: null, thinking: "disabled" },
 			bySession: {
-				"s1": { model: "deepseek/deepseek-v4", thinking: undefined, attachments: [] },
+				s1: { model: "deepseek/deepseek-v4", thinking: undefined, attachments: [] },
 			},
 		});
 
-		useComposerPrefsStore
-			.getState()
-			.clearStaleModels([deepseekProvider()]);
+		useComposerPrefsStore.getState().clearStaleModels([deepseekProvider()]);
 
 		// 新 id 有效，不应被清除
 		expect(useComposerPrefsStore.getState().bySession["s1"].model).toBe(

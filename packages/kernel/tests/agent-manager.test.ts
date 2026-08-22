@@ -675,7 +675,9 @@ test("prompt — 单张图片超过 3.5MB 上限回退为附件，不内联", as
 
 	await am.prompt(session.id, "描述这张图", {
 		model: MODEL,
-		attachments: [{ kind: "image", path: imgPath, name: "大图.png", size: 4 * 1024 * 1024 }],
+		attachments: [
+			{ kind: "image", path: imgPath, name: "大图.png", size: 4 * 1024 * 1024 },
+		],
 	});
 
 	expect(fakes[0].prompted).toHaveLength(1);

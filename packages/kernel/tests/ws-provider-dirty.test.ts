@@ -27,7 +27,8 @@ function sampleProvider(): ModelProvider {
 }
 
 async function setup() {
-  const tmp = (s: string) => join(import.meta.dir, ".tmp-pd-" + s + Math.random().toString(36).slice(2));
+  const tmp = (s: string) =>
+    join(import.meta.dir, ".tmp-pd-" + s + Math.random().toString(36).slice(2));
   const cfgDir = tmp("cfg");
   const projFile = tmp("proj.json");
   const providersFile = join(projFile, "..", "providers.json");
@@ -44,7 +45,9 @@ async function setup() {
   let dirtyCalls = 0;
   const agentManager = {
     markAllDirty: () => {},
-    markProvidersDirty: () => { dirtyCalls++; },
+    markProvidersDirty: () => {
+      dirtyCalls++;
+    },
     markSkillsDirty: () => {},
     ensureStarted: async () => ({}),
     prompt: async () => {},
@@ -57,16 +60,25 @@ async function setup() {
   } as any;
 
   const server = new WSServer({
-    configStore, projectStore, providerStore, skillManager,
+    configStore,
+    projectStore,
+    providerStore,
+    skillManager,
     extensionManager: new ExtensionManager(join(projFile, "..")),
-    memoryStore: null as any, mcpStore: null as any,
-    agentManager, channelManager: null, port: 0, generatedDir,
+    memoryStore: null as any,
+    mcpStore: null as any,
+    agentManager,
+    channelManager: null,
+    port: 0,
+    generatedDir,
   });
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;
 
   return {
-    base, providerStore, dirtyCalls: () => dirtyCalls,
+    base,
+    providerStore,
+    dirtyCalls: () => dirtyCalls,
     cleanup: async () => {
       await server.stop();
       rmSync(cfgDir, { recursive: true, force: true });
@@ -97,7 +109,9 @@ test("provider:delete 后标记激活会话为待重建（markProvidersDirty 被
   try {
     // 先存一个 provider，再删除
     await ctx.providerStore.save(sampleProvider());
-    const res = await fetch(`${ctx.base}/api/providers/p1`, { method: "DELETE" });
+    const res = await fetch(`${ctx.base}/api/providers/p1`, {
+      method: "DELETE",
+    });
     expect(res.status).toBe(200);
     expect(ctx.dirtyCalls()).toBe(1);
   } finally {

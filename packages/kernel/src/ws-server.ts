@@ -48,7 +48,15 @@ import {
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import { extname, basename, dirname, join, resolve, sep, isAbsolute } from "node:path";
+import {
+	extname,
+	basename,
+	dirname,
+	join,
+	resolve,
+	sep,
+	isAbsolute,
+} from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { extUiRegistry } from "./ext-ui-registry";
@@ -65,7 +73,10 @@ import {
 } from "./recording-store";
 import { SseBus } from "./sse-bus";
 import { locateElement } from "./preview-locate";
-import { injectInspectScript, PREVIEW_PARSE_MAX_BYTES } from "./preview-inspect";
+import {
+	injectInspectScript,
+	PREVIEW_PARSE_MAX_BYTES,
+} from "./preview-inspect";
 import { HttpRouter } from "./http-router";
 import { registerProjectSessionRoutes } from "./routes/projects-sessions";
 import { registerChatRoutes } from "./routes/chat";
@@ -926,7 +937,10 @@ export class WSServer {
 						const mime = getMimeType(r.path);
 						// 本地 html 预览注入 inspect 脚本（元素选中）；其余资源原样直出。
 						// 大文件护栏：>10MB 跳过注入原样直出（避免整文件读入内存 + 全量正则扫描）
-						if (mime.startsWith("text/html") && file.size <= PREVIEW_PARSE_MAX_BYTES) {
+						if (
+							mime.startsWith("text/html") &&
+							file.size <= PREVIEW_PARSE_MAX_BYTES
+						) {
 							return new Response(injectInspectScript(await file.text()), {
 								headers: {
 									"content-type": "text/html; charset=utf-8",
