@@ -90,22 +90,22 @@ test("remove button has accessible label and type button", () => {
 });
 
 test("audio chip 渲染文件名 + 麦克风图标 + 移除按钮，不渲染 <audio>", () => {
-const a: AttachmentDraft = {
-kind: "audio",
-name: "录音 0:02.webm",
-path: "/p/.wa-pi/uploads/rec.webm",
-size: 10,
-durationMs: 2000,
-};
-const onRemove = () => {};
-render(<AttachmentChip attachment={a} onRemove={onRemove} />);
-expect(screen.getByText("录音 0:02.webm")).toBeTruthy();
-const chip = screen.getByTestId("attachment-chip");
-// 图标已 SVG 化（Icon 组件），不再渲染 emoji
-expect(chip.querySelector("svg")).toBeTruthy();
-expect(chip.textContent).not.toContain("🎤");
-expect(document.querySelector("audio")).toBeNull();
-expect(screen.getByLabelText("移除附件")).toBeTruthy();
+	const a: AttachmentDraft = {
+		kind: "audio",
+		name: "录音 0:02.webm",
+		path: "/p/.wa-pi/uploads/rec.webm",
+		size: 10,
+		durationMs: 2000,
+	};
+	const onRemove = () => {};
+	render(<AttachmentChip attachment={a} onRemove={onRemove} />);
+	expect(screen.getByText("录音 0:02.webm")).toBeTruthy();
+	const chip = screen.getByTestId("attachment-chip");
+	// 图标已 SVG 化（Icon 组件），不再渲染 emoji
+	expect(chip.querySelector("svg")).toBeTruthy();
+	expect(chip.textContent).not.toContain("🎤");
+	expect(document.querySelector("audio")).toBeNull();
+	expect(screen.getByLabelText("移除附件")).toBeTruthy();
 });
 
 test("非 audio（file）chip 不渲染 <audio>", () => {

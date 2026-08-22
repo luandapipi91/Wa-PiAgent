@@ -112,9 +112,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 			if (existing) {
 				const merged: SessionPrefs = {
 					model:
-						gap?.model !== undefined
-							? gap.model
-							: (stored?.model ?? existing.model),
+						gap?.model === undefined ? (stored?.model ?? existing.model) : gap.model,
 					thinking: gap?.thinking ?? stored?.thinking ?? existing.thinking,
 					attachments:
 						gap?.attachments ?? stored?.attachments ?? existing.attachments,
@@ -142,11 +140,9 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 				model: stored?.model ?? s.defaults.model ?? defaults.model,
 				// thinking 仅在用户显式设置过时才有值，否则保持 undefined
 				// 组件读取时回退到 defaults.thinking（而非硬编码 disabled）
-				...(stored?.thinking !== undefined
-					? { thinking: stored.thinking }
-					: {}),
+				...(stored?.thinking === undefined ? {} : { thinking: stored.thinking }),
 				attachments: stored?.attachments ?? [],
-				...(stored?.text !== undefined ? { text: stored.text } : {}),
+				...(stored?.text === undefined ? {} : { text: stored.text }),
 			};
 			const next: Partial<ComposerPrefsState> = {
 				...loaded,
@@ -170,17 +166,17 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 				attachments: [],
 			};
 			const next = { ...current, ...prefs };
-			if (!loadedSessions.has(sessionId)) {
-				// 会话尚未完成首次 loadSession：只更新内存并记录显式修改的字段，不写 IDB——
-				// 防止用初始值（attachments:[] 等）覆写已存记录，由 loadSession 合并后统一持久化
-				gapWrites.set(sessionId, { ...gapWrites.get(sessionId), ...prefs });
-			} else {
+			if (loadedSessions.has(sessionId)) {
 				void dbSetSessionPrefs({
 					sessionId,
 					...next,
 					thinking: next.thinking ?? s.defaults.thinking,
 					updatedAt: Date.now(),
 				});
+			} else {
+				// 会话尚未完成首次 loadSession：只更新内存并记录显式修改的字段，不写 IDB——
+				// 防止用初始值（attachments:[] 等）覆写已存记录，由 loadSession 合并后统一持久化
+				gapWrites.set(sessionId, { ...gapWrites.get(sessionId), ...prefs });
 			}
 			// 仅把用户本次显式修改的字段（prefs 参数）同步到全局 defaults，
 			// 而非用整个 session prefs 覆盖——否则切到老会话改 model 时，
@@ -253,10 +249,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 			const nextBySession: Record<string, SessionPrefs> = {};
 			let bySessionChanged = false;
 			for (const [sid, prefs] of Object.entries(s.bySession)) {
-				if (
-					prefs.model != null &&
-					!isModelAvailable(prefs.model, providers)
-				) {
+				if (prefs.model != null && !isModelAvailable(prefs.model, providers)) {
 					bySessionChanged = true;
 					nextBySession[sid] = { ...prefs, model: null };
 					if (loadedSessions.has(sid)) {
@@ -274,8 +267,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 				}
 			}
 			const defaultsChanged =
-				s.defaults.model != null &&
-				!isModelAvailable(s.defaults.model, providers);
+				s.defaults.model != null && !isModelAvailable(s.defaults.model, providers);
 			const nextDefaults = defaultsChanged
 				? { ...s.defaults, model: null }
 				: s.defaults;

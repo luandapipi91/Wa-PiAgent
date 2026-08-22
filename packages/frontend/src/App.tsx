@@ -652,8 +652,7 @@ export function App() {
 								}
 								onResize={(w) => {
 									// 分隔条给的是 px 宽，换算成主内容行内占比持久化
-									const total =
-										mainRowRef.current?.clientWidth ?? window.innerWidth;
+									const total = mainRowRef.current?.clientWidth ?? window.innerWidth;
 									useBrowserStore.getState().setSplitRatio(w / total);
 								}}
 								testId="browser-split-resizer"

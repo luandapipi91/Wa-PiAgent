@@ -20,7 +20,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 
-const { regenerateBlockmap } = require("../scripts/after-all-artifact-build.cjs");
+const {
+	regenerateBlockmap,
+} = require("../scripts/after-all-artifact-build.cjs");
 
 test("regenerateBlockmap 对 zip 生成有效 blockmap（gzip JSON，含 Rabin checksums）", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "blockmap-test-"));
