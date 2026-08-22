@@ -1426,6 +1426,24 @@ test("listGlobalTools 内置工具 source='内置'，非内置工具不应显示
 	}
 });
 
+test("listGlobalTools 含 4 个 browser_* 工具（source='内置'，供 ToolsTab 显示开关）", async () => {
+	const { am } = await setup();
+	const tools = await am.listGlobalTools();
+	const names = tools.map((t) => t.name);
+
+	const browserTools = [
+		"browser_navigate",
+		"browser_evaluate",
+		"browser_screenshot",
+		"browser_close",
+	];
+	expect(names).toEqual(expect.arrayContaining(browserTools));
+	// 4 个 browser_* 均来自 DEFAULT_AGENT_TOOLS → source 应为 "内置"
+	for (const n of browserTools) {
+		expect(tools.find((t) => t.name === n)?.source).toBe("内置");
+	}
+});
+
 // ─── 系统提示词（读 sysprompts/<id>.md 断言组合结果） ───────────────────────
 
 test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 约束段", async () => {
