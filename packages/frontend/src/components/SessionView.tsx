@@ -125,6 +125,12 @@ export const SessionView = memo(function SessionView({ sessionId, sourceLabel, i
 		if (!isRunning) setStopping(false);
 	}, [isRunning]);
 
+	// 右侧文件树面板：开关状态 + 宽度来自 explorer store
+	// 必须在 early return 之前调用，否则 session 在/不在两次渲染调用
+	// 的 hooks 数量不一致，触发 "Rendered fewer hooks than expected"（#300）。
+	const explorerOpen = useExplorerStore((s) => s.open);
+	const explorerWidth = useExplorerStore((s) => s.width);
+
 	if (!session) return null;
 	// header 状态（圆点颜色与文案共用）：等待回复 blocked > 运行中 thinking > 空闲 idle
 	const headerStatus: AgentStatus = isBlocked ? "blocked" : status;
@@ -202,9 +208,6 @@ export const SessionView = memo(function SessionView({ sessionId, sourceLabel, i
 		);
 	};
 
-	// 右侧文件树面板：开关状态 + 宽度来自 explorer store
-	const explorerOpen = useExplorerStore((s) => s.open);
-	const explorerWidth = useExplorerStore((s) => s.width);
 	// 文件树根目录：普通项目用 project.cwd，默认工作区会话用其专属临时目录 workdir/<createdAt>/
 	const workspaceDir = resolveSessionCwd(session, { cwd: project?.cwd ?? "" });
 

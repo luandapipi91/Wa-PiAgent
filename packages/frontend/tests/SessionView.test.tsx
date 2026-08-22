@@ -572,6 +572,61 @@ test("IM 接入会话：sourceLabel 拼到状态行末尾，不再显示「仅�
 	expect(screen.queryByText(/仅显示最近/)).toBeNull();
 });
 
+// === 回归：React #300（Rendered fewer hooks than expected）===
+// 触发链：发送/接收消息时 kernel 广播 projects:list 快照可能滞后（新会话乐观添加后
+// placeholder 尚未转正），setAll 替换 sessions 数组但防御逻辑保留 currentSessionId。
+// 于是 App 仍渲染 SessionView，而 session = sessions.find(...) 暂时找不到 → undefined。
+// SessionView 的 useExplorerStore 曾位于 if (!session) return null 之后：
+// session 在/不在两次渲染 hooks 数量 16→14，React 报 #300 崩溃白屏。
+test("会话短暂消失（projects:list 快照滞后）不抛 React #300 崩溃", async () => {
+	await renderSessionView("s1");
+	expect(screen.getByText("测试")).toBeTruthy();
+
+	// 模拟 kernel projects:list 快照滞后：sessions 数组被整体替换（不含 s1），
+	// 但 currentSessionId 仍保留（setAll 防御逻辑只清 currentSessionId 不删列表引用）。
+	let thrown: unknown = null;
+	try {
+		await act(async () => {
+			useProjectsStore.setState({
+				sessions: [],
+				currentProjectId: "p1",
+				currentSessionId: "s1",
+			});
+		});
+	} catch (e) {
+		thrown = e;
+	}
+	// 修复前：React 抛 "Rendered fewer hooks than expected"（生产构建 #300）
+	expect(thrown).toBeNull();
+});
+
+test("会话恢复后 SessionView 正常渲染（不残留崩溃状态）", async () => {
+	// 先让 session 消失一帧（快照滞后），再恢复
+	await act(async () => {
+		useProjectsStore.setState({ sessions: [], currentSessionId: "s1" });
+	});
+	await act(async () => {
+		useProjectsStore.setState({
+			projects: [{ id: "p1", name: "P", cwd: "/work/p1", createdAt: 0 }],
+			sessions: [
+				{
+					id: "s1",
+					projectId: "p1",
+					primaryAgent: "dev",
+					title: "测试",
+					createdAt: 0,
+					lastActivity: 0,
+					piSessionFile: "",
+				},
+			],
+			currentProjectId: "p1",
+			currentSessionId: "s1",
+		});
+	});
+	await renderSessionView("s1");
+	expect(screen.getByText("测试")).toBeTruthy();
+});
+
 // === 文件树面板（ExplorerPanel）===
 // explorer store 状态在测试间共享，需手动重置
 const { useExplorerStore } = await import("../src/store/explorer");
