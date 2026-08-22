@@ -26,8 +26,9 @@ const RUNTIME_DEPENDENCIES: Record<string, string> = {
 };
 
 function fail(msg: string): never {
-	console.error(`[it] ❌ ${msg}`);
-	process.exit(1);
+	// 抛 Error 而非 process.exit：让 main() 的 try/finally 先 taskkill kernel + rmSync(base)，
+	// 再由 main().catch 兜底打印并 exit(1)。避免失败路径泄漏子进程/临时目录。
+	throw new Error(`[it] ❌ ${msg}`);
 }
 
 function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
@@ -190,4 +191,9 @@ async function main() {
 	}
 }
 
-main().catch((e) => fail(e?.message ?? String(e)));
+main().catch((e) => {
+	// catch 内不再调 fail（fail 已改 throw，catch 内 throw 会变 unhandled rejection）：
+	// 直接打印（fail 抛出的消息自带 [it] ❌ 前缀）并保持 exit(1)。
+	console.error(e?.message ?? String(e));
+	process.exit(1);
+});

@@ -62,6 +62,9 @@ export function compileKernelBinary(outfile: string): void {
     console.log(`[compile] ✅ ${outfile}`);
   } finally {
     rmSync(assetDir, { recursive: true, force: true });
+    // assetDir 是 mkdtemp 随机目录下的 assets/ 子目录：连带清理父目录（wa-pi-kernel-assets-*），
+    // 否则父目录泄漏到 tmp。
+    rmSync(join(assetDir, ".."), { recursive: true, force: true });
   }
 }
 

@@ -171,7 +171,7 @@ function isOurs(entry, identity, opts) {
   const exe = String(identity.exe ?? "");
   const lower = exe.toLowerCase();
   const dir = String(opts.waPiDir ?? "").toLowerCase();
-  return lower.includes("wapikernel") || lower.includes("wa-pi-kernel") || (dir !== "" && exe.includes(dir));
+  return lower.includes("wapikernel") || lower.includes("wa-pi-kernel") || (dir !== "" && lower.includes(dir));
 }
 
 /** 命令行摘要（日志用，压缩空白并截断到 80 字符） */

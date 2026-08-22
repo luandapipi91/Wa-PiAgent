@@ -1,6 +1,7 @@
 // 首启动态安装 kernel 运行时依赖（bun --compile 单二进制形态）。
-// 背景：编译产物内联了全部 JS 依赖，只有两类包必须在磁盘 node_modules：
-//   ① 原生 .node（@napi-rs/keyring，--external）；② pi RPC 子进程入口（pi-coding-agent/dist/cli.js）。
+// 背景：编译产物内联了全部 JS 依赖，只有 4 个包必须在磁盘 node_modules：
+//   ① 原生 .node（@napi-rs/keyring，--external）；② pi RPC 子进程入口（pi-coding-agent/dist/cli.js）；
+//   ③ 内置扩展（pi-web-access、pi-mcp-adapter）。
 // .app 内 Resources/kernel 只读，不能就地 install，故：
 //   seed  （.app 只读）：WaPiKernel(.exe) + package.json + bun.lock
 //   runtime（WA_PI_DIR/runtime 可写，默认 ~/.pi/agent/runtime）：复制 seed → 编译产物以
@@ -59,8 +60,8 @@ async function syncSeed(seedDir, runtimeDir, log) {
 
 // 安装后产物校验：顶层依赖的 package.json 必须存在（校验失败说明安装未真正完成，
 // 可能是网络中断导致的半装）。仅看 bun install 退出码会漏掉这类情况。
-// 注意：不校验 registry-js 的 .node 产物——Windows 读系统代理已改为 PowerShell 兜底
-// （settings-store.ts），首启安装带 --ignore-scripts 不编译原生模块。
+// 注意：不校验 keyring 的 .node 产物——@napi-rs/keyring 经 optionalDependencies
+// 分发平台预编译 .node 变体，首启安装带 --ignore-scripts 不编译原生模块。
 async function verifyInstall(runtimeDir, log) {
 	let manifest;
 	try {
@@ -134,7 +135,7 @@ function buildInstallArgs(runtimeDir) {
 	return [
 		"install",
 		"--production",
-		"--ignore-scripts", // 跳过所有 lifecycle scripts（registry-js 的 node-gyp 编译等），消除编译失败
+		"--ignore-scripts", // 跳过所有 lifecycle scripts（keyring 的 node-gyp 编译等），消除编译失败
 		"--cwd",
 		runtimeDir,
 	];
@@ -207,7 +208,7 @@ async function ensureRuntimeDeps({
 		? await fsp.readFile(marker, "utf8").catch(() => "")
 		: "";
 
-	// 始终同步 seed 文件（kernel.js 可能同版本号重新构建，内容已变）
+	// 始终同步 seed 文件（编译产物可能同版本号重新构建，内容已变）
 	await syncSeed(seedDir, runtimeDir, log);
 
 	if (nmExists && markerVer === version) {
