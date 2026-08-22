@@ -1,3 +1,11 @@
+## 2026-08-22 — kernel 编译产物启动修复（真实打包验证）
+
+### 修复
+
+- 编译产物 spawn 时剔除 BUN_BE_BUN：宿主/系统环境若带 BUN_BE_BUN=1（如 wa-pi 宿主 Bun 环境），编译产物会充当 bun CLI（打印 usage 后 code=0 退出）而非运行内嵌 kernel——sidecar spawn env 显式剔除，子进程需要当 CLI 的场景（install、wrapper）各自显式设置。
+- build.ts run() 用 process.execPath 替代 PATH 解析 bun：Windows 下 shell 环境 PATH 可能不含 bun 目录，spawnSync("bun", shell:true) 报 "The system cannot find the path specified"，与 build-kernel-sidecar.ts 的 run 同款处理。
+- 影响范围：packages/desktop/src/kernel-sidecar.cjs、packages/desktop/scripts/build.ts、packages/desktop/tests/kernel-sidecar.test.ts（+1 用例）；验证：kernel-sidecar 15 pass、desktop 全量 188 pass、真实打包+安装+首启+聊天到「未选择模型」+老用户升级遗留清理全通过。
+
 ## 2026-08-22 — fix(前端): 会话短暂消失触发 React #300 崩溃白屏
 
 - 修复：发送/接收消息时界面崩溃白屏，报 Minified React error #300（Rendered fewer hooks than expected）。根因：`SessionView` 的 `if (!session) return null` 之后仍有 `useExplorerStore` 两条 Hook——kernel 广播 `projects:list` 快照滞后（新会话乐观添加后 placeholder 尚未转正）时，`setAll` 替换 sessions 数组但防御逻辑保留 `currentSessionId`，App 仍渲染 SessionView 而 `session` 暂时为 undefined，两次渲染 Hook 数量 16→14 触发 #300 崩溃。

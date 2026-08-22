@@ -18,7 +18,12 @@ function run(bin: string, args: string[], cwd = PKG) {
   // 必须显式传 env：Bun(Windows) 的 spawnSync 不继承进程启动后新设置的 process.env
   // （实测 cmd /c echo %VAR% 打印字面量），上面 ??= 设置的镜像变量会到不了 electron-builder，
   // 导致其回退 GitHub 下载 Electron 二进制并 ETIMEDOUT。
-  const r = spawnSync(bin, args, { cwd, stdio: "inherit", shell: true, env: { ...process.env } });
+  // bun 用 process.execPath（真实 bun 可执行文件）：Windows 下 PATH 解析受 shell 环境
+  // 影响（MSYS/宿主环境 PATH 可能不含 bun 目录，spawnSync("bun", shell:true) 报
+  // "The system cannot find the path specified"），直接传完整路径规避（与
+  // build-kernel-sidecar.ts 的 run 同款处理）。
+  const resolvedBin = bin === "bun" ? process.execPath : bin;
+  const r = spawnSync(resolvedBin, args, { cwd, stdio: "inherit", shell: false, env: { ...process.env } });
   if (r.status !== 0) { console.error(`[build] 失败: ${bin}`); process.exit(1); }
 }
 

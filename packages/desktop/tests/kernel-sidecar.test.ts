@@ -310,7 +310,7 @@ test("kernel 正常退出 code=0 → 不写崩溃日志", async () => {
 /** 捕获 spawn 的 cmd/args 的夹具 */
 async function captureSpawnHarness(opts: { isPackaged: boolean; devKernelExe?: string }) {
   const child = fakeChild(4321);
-  const calls: { cmd: string; args: string[] }[] = [];
+  const calls: { cmd: string; args: string[]; env?: Record<string, string> }[] = [];
   const sidecar = await startSidecar({
     isPackaged: opts.isPackaged,
     kernelDir: "/fake/kernel",
@@ -320,8 +320,8 @@ async function captureSpawnHarness(opts: { isPackaged: boolean; devKernelExe?: s
     port: 9778,
     log: { info() {}, error() {} },
     deps: {
-      spawnFn: ((cmd: string, args: string[]) => {
-        calls.push({ cmd, args });
+      spawnFn: ((cmd: string, args: string[], spawnOpts?: { env?: Record<string, string> }) => {
+        calls.push({ cmd, args, env: spawnOpts?.env });
         return child;
       }) as any,
       waitForPortFn: (async () => true) as any,
@@ -359,4 +359,18 @@ test("dev 无 devKernelExe: 回退解释运行 bun run src/desktop-server.ts", a
   expect(calls[0].args[0]).toBe("run");
   expect(calls[0].args[1].replace(/\\/g, "/").endsWith("src/desktop-server.ts")).toBe(true);
   sidecar.stop();
+});
+
+test("spawn env 剔除 BUN_BE_BUN（编译产物主进程必须以内嵌应用模式启动，即使宿主 env 带此变量）", async () => {
+  // 模拟宿主环境恰好带 BUN_BE_BUN=1（编译产物会充当 bun CLI 而非运行内嵌 kernel）
+  process.env.BUN_BE_BUN = "1";
+  try {
+    const { sidecar, calls } = await captureSpawnHarness({ isPackaged: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].env).toBeDefined();
+    expect(calls[0].env!.BUN_BE_BUN).toBeUndefined();
+    sidecar.stop();
+  } finally {
+    delete process.env.BUN_BE_BUN;
+  }
 });
