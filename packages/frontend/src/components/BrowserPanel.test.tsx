@@ -251,3 +251,16 @@ test("模式切换按钮：渲染 split/full，点击切换 store.mode", () => {
   fireEvent.click(floatBtn);
   expect(useBrowserStore.getState().mode).toBe("float");
 });
+
+test("浮动模式显示最小化按钮，点击置 minimized；分屏不显示", () => {
+  useBrowserStore.setState({ mode: "split", minimized: false });
+  const { unmount } = render(<BrowserPanel />);
+  expect(document.querySelector('[data-testid="browser-minimize"]')).toBeNull();
+  unmount();
+  useBrowserStore.setState({ mode: "float" });
+  render(<BrowserPanel />);
+  const btn = document.querySelector('[data-testid="browser-minimize"]')!;
+  expect(btn).toBeTruthy();
+  fireEvent.click(btn);
+  expect(useBrowserStore.getState().minimized).toBe(true);
+});

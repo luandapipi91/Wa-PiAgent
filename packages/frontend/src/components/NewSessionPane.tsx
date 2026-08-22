@@ -387,6 +387,7 @@ export function NewSessionPane({
 				<>
 					<SidebarResizer
 						side="right"
+						getWidth={() => useNewSessionExplorerStore.getState().width}
 						onResize={(w) => useNewSessionExplorerStore.getState().setWidth(w)}
 						testId="new-session-explorer-resizer"
 					/>

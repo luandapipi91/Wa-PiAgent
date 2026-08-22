@@ -1,7 +1,19 @@
-## 2026-08-21 — fix: 浏览器预览终审修复波（拖拽渲染性能 / 大文件护栏 / 小项收敛）
+## 2026-08-21 — fix: Windows 盘符绝对路径（C:/、C:\\）渲染为文件胶囊
+
+- 修复：AI 回复中反引号包裹的 Windows 盘符绝对路径（`C:/Users/.../beautiful.html`）未被识别为文件路径，渲染成普通等宽代码而非可点击文件胶囊（FilePill）。根因：`parseFilePath` 的 `PATH_RE` 只有 Unix 绝对路径（`/`、`~`、`./`）与相对路径分支，无盘符分支；而 `FilePill.resolveAbsolutePath` 早已支持盘符，断点仅在入口判定。
+- 顺带修复既有缺陷：绝对路径分支 `[^\s]+` 贪婪吞掉 `:行:列` 后缀且可选组不回溯，导致 `/abs/path.ts:12`、`C:/src/a.ts:12` 的行号从不上屏（与注释承诺不符）；路径主体改 `[^\s:]+` 让后缀正确分离，同时返回时反斜杠归一化为正斜杠。
+- 影响范围：`packages/frontend/src/components/blocks/file-path.ts`；测试：file-path.test.ts 补盘符/反斜杠/`:行` 4 断言，FilePill.test.tsx 补 Windows 绝对路径渲染胶囊+点击预览用例（8 pass）。
+- 验证：file-path/FilePill/FilePreviewModal/markdown-links/linkify 相关单测 39 pass + typecheck 干净。
 
 - 修复（性能）：浏览器预览拖拽期 60Hz 全树重渲染与同步写盘——`browser` store 持久化改 trailing debounce（每 key 独立 timer，默认 300ms，`setPersistDebounceMs` 可注入，测试置 0 同步写保持确定性）；`SessionView` 用 `React.memo` 包裹（props 不变跳过含 MessageList 的 reconcile）；`BrowserPanel` 整订阅改逐字段 selector（不再随 splitRatio/floatRect 每帧重渲染）。
 - 修复（布局）：split 模式聊天侧宽度改 `calc(x% - 2px)`，消除聊天侧+预览侧+分隔条合计 100%+2px 导致预览右缘被裁约 2px。
+- 修复（浮动窗）：去掉 FloatWindow 独立标题栏（与 BrowserPanel 工具栏重复两层），改为无标题栏——非交互区域（工具栏空隙等）按住即拖动位置，右下角手柄拖尺寸，缩放手柄 stopPropagation 防止冒泡误触发移动拖拽；关闭/模式切换统一由 BrowserPanel 原工具栏承担。
+- 修复（元素选中）：inspect 工具条"选择父级/发送到聊天"点不到——鼠标从元素移向工具条穿过间隙时 mousemove 命中其他元素把选中切走。加粘性区：元素上缘到工具条之间的通道内移动保持当前选中；E2E 补分步移动鼠标路径的回归用例。
+- 新增（元素选中）：inspect 工具条按钮左侧显示当前选中元素名（有 id 显示 `tag#id`，否则 `tag.类名`），选择父级时实时更新。
+- 修复（分屏拖拽）：浏览器分屏后右侧文件树面板分隔条拖动跳变——`SidebarResizer` 从绝对坐标（`innerWidth - clientX`，假设面板右缘必在视口右缘）改为增量计算（mousedown 快照起始宽 + 位移增量，新增 `getWidth` prop），与面板在视口中的位置无关；4 个调用点（左侧栏、浏览器分屏、SessionView/NewSessionPane 文件树）同步更新。
+- 修复（浮动窗拖拽）：拖动卡顿不跟手、拖着拖着拖不动——① 拖拽中鼠标划入 iframe 后事件被吞（父文档收不到 mousemove/mouseup），导致拖拽卡死与监听器泄漏，改为拖拽期间内容区 `pointer-events: none`；② 拖拽帧路径从「每帧 setState→全树 reconcile」改为拖拽中直接改 DOM style、mouseup 一次性提交 store，消除渲染延迟实现跟手；③ `SidebarResizer` 拖拽期间屏蔽所有 iframe 指针事件（分屏分隔条划过预览 iframe 同样卡死）。
+- 新增（浮动窗）：最小化为气泡——工具栏减号按钮（仅浮动模式显示）把浮窗带收缩动画（窗口飞向气泡位置）收成小气泡，气泡带出现/呼吸动画、可拖动停放位置（localStorage 持久化，点击/拖动按 5px 位移阈值区分），点击气泡窗口展开恢复；预览全程保持挂载状态不丢。另修复：地址栏加载本地 html 后切换窗口模式会丢预览内容（地址栏路径同步 store，重挂可恢复；外部网址仍不保留为已知限制）。
+- 重构（元素发送）：「发送到聊天」从附件栏 chip 改为输入框**内联 chip**（复用 quick-invoke token 体系，新增元素 token `![路径|起-止行|标签]`）——chip 落在光标处文本流中，发送时 `expandTokens` 内联展开为 `path [line: 起-止] [el: 标签]` 定位文本；消息列表回显时定位文本重新 chip 化（`textToSegments` 识别展开形态）；全屏模式下先自动切回分屏再投递插入。element 附件类型及 kernel 序列化随之移除（shared AttachmentRef/Draft 回退、prompt-attachments 删除、AttachmentChip 图标映射回退）。
 - 修复（护栏）：html >10MB 时 /preview 跳过 inspect 注入原样直出、/api/preview-locate 直接返回 nulls（共享常量 `PREVIEW_PARSE_MAX_BYTES`，避免整文件读入内存+全量正则扫描）；/api/preview-locate 限 `.html`/`.htm` 扩展名（不符 400 bad_request）。
 - 修复（小项）：`element-pick` 行号接口结果加形状守护（startLine/endLine 均 number|null 才采用，否则按无行号降级）；`iconSvg()` attr 映射补 `strokeDasharray→stroke-dasharray`；`preview-inspect` 注入点正则补已知边界注释（页面 JS 字符串/注释含字面量 `</head>` 时可能注错位置）；prompt-attachments 误导性用例名改「无 cwd 原样输出」。
 - 影响范围：`packages/kernel`（ws-server、preview-inspect；集成测试补扩展名 400 + 大文件护栏 3 用例）、`packages/frontend`（store/browser、App、SessionView、BrowserPanel、element-pick、Icon；单测补 debounce 合并与形状守护 3 用例）。

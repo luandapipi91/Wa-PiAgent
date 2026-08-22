@@ -9,15 +9,6 @@ const KINDS: AttachmentDraft[] = [
 	{ kind: "audio", name: "c.mp3", path: "/c.mp3", size: 1 },
 	{ kind: "folder", name: "dir", path: "/dir" },
 	{ kind: "snippet", name: "s", content: "一段超过二十个字符的片段内容用于截断测试xxxx" },
-	{
-		kind: "element",
-		name: "index.html:5 <div>",
-		path: "/proj/index.html",
-		selector: "html > body > div#card",
-		elLabel: "div",
-		startLine: 5,
-		endLine: 8,
-	},
 ];
 
 test("所有 kind 渲染 SVG 图标，无 emoji", () => {
@@ -31,12 +22,6 @@ test("所有 kind 渲染 SVG 图标，无 emoji", () => {
 		}
 		unmount();
 	}
-});
-
-test("element chip 展示 name（文件名:行 <标签>）", () => {
-	render(<AttachmentChip attachment={KINDS[5]} onRemove={() => {}} />);
-	const chip = document.querySelector('[data-testid="attachment-chip"]')!;
-	expect(chip.textContent).toContain("index.html:5 <div>");
 });
 
 test("删除按钮触发 onRemove 且不冒泡 onClick", () => {

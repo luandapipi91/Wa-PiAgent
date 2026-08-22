@@ -51,7 +51,7 @@ import { useSchedulerStore } from "./store/scheduler";
 import { AutomationMain } from "./components/automation/AutomationMain";
 import { useBrowserStore } from "./store/browser";
 import { BrowserPanel } from "./components/BrowserPanel";
-import { FloatWindow } from "./components/FloatWindow";
+import { FloatPreview } from "./components/FloatPreview";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -102,8 +102,6 @@ export function App() {
 	const browserOpen = useBrowserStore((s) => s.open);
 	const browserMode = useBrowserStore((s) => s.mode);
 	const splitRatio = useBrowserStore((s) => s.splitRatio);
-	const floatRect = useBrowserStore((s) => s.floatRect);
-	const browserPath = useBrowserStore((s) => s.path);
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => onConnectionChange(setConnState), []);
@@ -526,6 +524,7 @@ export function App() {
 			/>
 			<SidebarResizer
 				side="left"
+				getWidth={() => useSidebarStore.getState().width}
 				onResize={(w) => useSidebarStore.getState().setWidth(w)}
 				testId="sidebar-resizer"
 			/>
@@ -642,8 +641,12 @@ export function App() {
 								side="right"
 								minWidth={320}
 								maxRatio={0.8}
+								getWidth={() =>
+									useBrowserStore.getState().splitRatio *
+									(mainRowRef.current?.clientWidth ?? window.innerWidth)
+								}
 								onResize={(w) => {
-									// 分隔条给的是 px 宽（视口右缘起算），换算成主内容行内占比持久化
+									// 分隔条给的是 px 宽，换算成主内容行内占比持久化
 									const total =
 										mainRowRef.current?.clientWidth ?? window.innerWidth;
 									useBrowserStore.getState().setSplitRatio(w / total);
@@ -708,17 +711,7 @@ export function App() {
 			{paletteOpen && (
 				<CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 			)}
-			{browserOpen && browserMode === "float" && (
-				<FloatWindow
-					rect={floatRect}
-					title={browserPath ?? ""}
-					onRectChange={(r) => useBrowserStore.getState().setFloatRect(r)}
-					onDock={() => useBrowserStore.getState().setMode("split")}
-					onClose={() => useBrowserStore.getState().closeBrowser()}
-				>
-					<BrowserPanel />
-				</FloatWindow>
-			)}
+			{browserOpen && browserMode === "float" && <FloatPreview />}
 			<FilePreviewModal />
 			<ExtensionDialog />
 			<ToastContainer />

@@ -15,6 +15,12 @@ export const FILE_TOKEN_RE = /#\[([^\]]+)\]/g;
 export const SKILL_TOKEN_RE = /[$¥]\[([^\]]+)\]/g;
 /** 命令 token 正则：匹配 /[命令名] */
 export const COMMAND_TOKEN_RE = /\/\[([^\]]+)\]/g;
+/** 元素 token 正则：匹配 ![路径|起-止行|标签]（预览 inspect 选中的页面元素；行号可缺省为 ![路径||标签]） */
+export const ELEMENT_TOKEN_RE = /!\[([^\]]+)\]/g;
+/** 元素定位文本正则：expandTokens 展开后的形态（path [line: 起-止] [el: 标签] / path [el: 标签]），
+ *  历史消息回显时重新 chip 化用。path 按非空格串匹配（含空格的路径不 chip 化，纯文本兜底）。 */
+const ELEMENT_LOCATOR_RE =
+	/^(\S+)(?: \[line: (\d+-\d+)\])? \[el: ([^\]]+)\]$/;
 
 /** IM 推送 token 正则：匹配完整 @im-push-to(ch_xxx,ct_xxx) 标记。
  *  与 automation/prompt-tokens.ts 的 IM_PUSH_TOKEN_RE 保持一致——
@@ -60,7 +66,35 @@ export type Segment =
   | { type: "file"; value: string }
   | { type: "skill"; value: string }
   | { type: "command"; value: string }
+  | { type: "element"; value: string }
   | { type: "im"; value: string };
+
+// ── 元素 token（预览 inspect 选中元素）──
+// payload 格式：路径|起-止行|标签（行号缺省时空串：路径||标签）。
+// 已知限制：路径含 | 或 ] 会破坏解析（罕见，与既有 token 的 ] 限制一致）。
+
+export interface ElementRef {
+  path: string;
+  startLine: number | null;
+  endLine: number | null;
+  elLabel: string;
+}
+
+/** 组装元素 token 文本（![路径|起-止行|标签]），行号缺失时 lines 段为空 */
+export function formatElementToken(ref: ElementRef): string {
+  const lines =
+    ref.startLine != null ? `${ref.startLine}-${ref.endLine ?? ref.startLine}` : "";
+  return `![${ref.path}|${lines}|${ref.elLabel}]`;
+}
+
+/** 解析元素 token payload；格式不符返回 null */
+export function parseElementPayload(
+  value: string,
+): { path: string; lines: string; elLabel: string } | null {
+  const parts = value.split("|");
+  if (parts.length !== 3 || !parts[0] || !parts[2]) return null;
+  return { path: parts[0], lines: parts[1], elLabel: parts[2] };
+}
 
 /**
  * 发送时把 chip token 展开为纯文本引用标记。
@@ -76,7 +110,13 @@ export function expandTokens(text: string): string {
   return normalizeTriggerChars(text)
     .replace(FILE_TOKEN_RE, "#$1")
     .replace(SKILL_TOKEN_RE, "/skill:$1 ") // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
-    .replace(COMMAND_TOKEN_RE, "/$1 "); // 命令 chip 展开为 /命令名 ，pi 识别为斜杠命令
+    .replace(COMMAND_TOKEN_RE, "/$1 ") // 命令 chip 展开为 /命令名 ，pi 识别为斜杠命令
+    .replace(ELEMENT_TOKEN_RE, (_m, p1) => {
+      // 元素 chip 展开为定位文本：path [line: 起-止] [el: 标签]（无行号省略 line 段）
+      const p = parseElementPayload(p1);
+      if (!p) return _m;
+      return `${p.path}${p.lines ? ` [line: ${p.lines}]` : ""} [el: ${p.elLabel}]`;
+    });
 }
 
 // 智能体名称 -> 头像/颜色/显示名 全局注册表，供 textToHtml 渲染 chip 时使用。
@@ -172,6 +212,11 @@ export function ensureChipStyles() {
       color: var(--warning);
       border: 1px solid var(--warning-soft);
     }
+    .chip-element {
+      background-color: var(--info-soft, var(--accent-soft));
+      color: var(--info, var(--accent));
+      border: 1px solid var(--info-soft, var(--accent-soft));
+    }
     .chip-im {
       background-color: var(--success-soft);
       color: var(--success);
@@ -209,12 +254,26 @@ export function escapeHtml(str: string): string {
  */
 export function textToSegments(text: string): Segment[] {
   const combined =
-    /(@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)|@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\]|\/\[[^\]]+\])/g;
+    /(@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)|@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\]|\/\[[^\]]+\]|!\[[^\]]+\]|\S+ (?:\[line: \d+-\d+\] )?\[el: [^\]]+\])/g;
   const parts = text.split(combined).filter((p) => p !== "");
   const segs: Segment[] = [];
   for (const part of parts) {
     if (IM_PUSH_TOKEN_RE.test(part)) {
       segs.push({ type: "im", value: part });
+      continue;
+    }
+    const elementMatch = part.match(/^!\[([^\]]+)\]$/);
+    if (elementMatch) {
+      segs.push({ type: "element", value: elementMatch[1] });
+      continue;
+    }
+    // 展开后的定位文本（历史消息）：还原为 element payload（路径|起-止行|标签）
+    const locatorMatch = part.match(ELEMENT_LOCATOR_RE);
+    if (locatorMatch) {
+      segs.push({
+        type: "element",
+        value: `${locatorMatch[1]}|${locatorMatch[2] ?? ""}|${locatorMatch[3]}`,
+      });
       continue;
     }
     const agentMatch = part.match(/^@\[([^\]]+)\]$/);
@@ -251,6 +310,7 @@ export function segmentsToText(segs: Segment[]): string {
       if (s.type === "file") return `#[${s.value}]`;
       if (s.type === "skill") return `$[${s.value}]`;
       if (s.type === "command") return `/[${s.value}]`;
+      if (s.type === "element") return `![${s.value}]`;
       return s.value;
     })
     .join("");
@@ -318,6 +378,15 @@ export function textToHtml(
       if (s.type === "command") {
         const token = `/[${s.value}]`;
         return `<span class="chip chip-command" contenteditable="false" data-token="${escapeHtml(token)}">/${escapeHtml(s.value)}</span>`;
+      }
+      if (s.type === "element") {
+        const token = `![${s.value}]`;
+        const p = parseElementPayload(s.value);
+        // 展示标签：文件名[:起始行] <标签>；payload 损坏时原样显示
+        const label = p
+          ? `${p.path.split(/[\\/]/).pop() ?? p.path}${p.lines ? `:${p.lines.split("-")[0]}` : ""} <${p.elLabel}>`
+          : s.value;
+        return `<span class="chip chip-element" contenteditable="false" data-token="${escapeHtml(token)}">${iconSvg("element")} ${escapeHtml(label)}</span>`;
       }
       // 先 escapeHtml 防注入，再把换行转为 <br>（在转义之后做，
       // 这样 <br> 的尖括号是我们生成的、不会被二次转义）。

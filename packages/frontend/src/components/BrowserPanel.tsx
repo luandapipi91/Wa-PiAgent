@@ -9,7 +9,7 @@ import { copyToClipboard } from "../util/clipboard";
 import { useToastStore } from "../store/toast";
 import { useProjectsStore } from "../store/projects";
 import { useTranslation } from "../i18n/useTranslation";
-import { parseInspectMessage, handleElementPicked } from "../element-pick";
+import { parseInspectMessage, sendElementToChat } from "../element-pick";
 
 type Current =
 	| { kind: "local"; path: string }
@@ -96,6 +96,8 @@ export function BrowserPanel() {
 		}
 		setCurrent({ kind: "local", path: p });
 		setInput(p);
+		// 同步到 store：模式切换（split/full/float）重挂面板后可恢复预览内容
+		useBrowserStore.getState().setPath(p);
 	};
 
 	const copyCurrent = () => {
@@ -116,16 +118,18 @@ export function BrowserPanel() {
 			if (e.source !== iframeRef.current?.contentWindow) return;
 			const picked = parseInspectMessage(e.data);
 			if (!picked) return;
-			const sessionId =
-				useBrowserStore.getState().sessionId ??
-				useProjectsStore.getState().currentSessionId;
-			void handleElementPicked(path, picked, sessionId).then((r) => {
-				if (r === "no-session") addToast(t("browser.noSession"), "error");
-			});
+			const browser = useBrowserStore.getState();
+			if (browser.mode === "full") {
+				// 全屏时聊天（及输入框）未挂载：先切回分屏让 composer 挂载，再延迟投递插入事件
+				browser.setMode("split");
+				setTimeout(() => void sendElementToChat(path, picked), 150);
+			} else {
+				void sendElementToChat(path, picked);
+			}
 		};
 		window.addEventListener("message", onMessage);
 		return () => window.removeEventListener("message", onMessage);
-	}, [loadedPath, addToast, t]);
+	}, [loadedPath]);
 
 	const canCodeShare = loadedPath !== null;
 
@@ -218,6 +222,22 @@ export function BrowserPanel() {
 						className="text-[calc(16px*var(--font-scale))]"
 					/>
 				</button>
+				{/* 最小化为气泡（仅浮动模式显示；气泡点击可恢复） */}
+				{mode === "float" && (
+					<button
+						type="button"
+						className="fv-btn fv-btn--icon"
+						title={t("browser.minimize")}
+						data-testid="browser-minimize"
+						onClick={() => useBrowserStore.getState().setMinimized(true)}
+					>
+						<Icon
+							name="minus"
+							size="1em"
+							className="text-[calc(16px*var(--font-scale))]"
+						/>
+					</button>
+				)}
 				<button
 					type="button"
 					className="fv-btn fv-btn--icon"

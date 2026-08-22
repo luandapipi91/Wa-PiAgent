@@ -204,8 +204,8 @@ const en = {
 		modeSplit: "Split with chat",
 		modeFull: "Full preview",
 		modeFloat: "Float window",
-		dock: "Dock to split",
-		noSession: "Enter a session before sending elements",
+		minimize: "Minimize to bubble",
+		restore: "Restore preview",
 	},
 	blocks: {
 		turnSummary: {

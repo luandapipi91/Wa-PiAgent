@@ -9,7 +9,6 @@ const ICON_BY_KIND: Record<AttachmentDraft["kind"], IconName> = {
 	folder: "folder",
 	snippet: "note",
 	file: "file",
-	element: "element",
 };
 
 interface Props {

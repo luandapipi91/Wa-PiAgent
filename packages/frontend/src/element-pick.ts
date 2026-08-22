@@ -1,6 +1,5 @@
-import type { AttachmentDraft } from "@wa-pi/shared";
 import { api } from "./api-client";
-import { useComposerPrefsStore } from "./store/composer-prefs";
+import { formatElementToken } from "./quick-invoke/tokens";
 
 /** inspect 脚本 postMessage 回传的元素信息 */
 export interface ElementPicked {
@@ -24,57 +23,40 @@ export function parseInspectMessage(data: unknown): ElementPicked | null {
 	return { selector: d.selector, tagName: d.tagName, elLabel: d.elLabel };
 }
 
-/** 组装 element 附件草稿；name 为 chip 展示文案：文件名[:起始行] <标签> */
-export function buildElementDraft(
-	path: string,
-	picked: ElementPicked,
-	loc: { startLine: number | null; endLine: number | null },
-): AttachmentDraft {
-	const base = path.split(/[\\/]/).pop() ?? path;
-	const name =
-		loc.startLine != null
-			? `${base}:${loc.startLine} <${picked.elLabel}>`
-			: `${base} <${picked.elLabel}>`;
-	return {
-		kind: "element",
-		name,
-		path,
-		selector: picked.selector,
-		elLabel: picked.elLabel,
-		startLine: loc.startLine,
-		endLine: loc.endLine,
-	};
-}
-
 /**
- * 元素选中落 chip：调 /api/preview-locate 取行号（失败降级无行号），
- * 追加到该会话 composer 附件列表。无会话返回 "no-session" 由调用方提示。
+ * 元素选中发送到聊天：调 /api/preview-locate 取行号（失败降级无行号），
+ * 组装元素 token 经 wa-pi:insert-mention 事件插入输入框（光标处内联 chip）。
  */
-export async function handleElementPicked(
+export async function sendElementToChat(
 	path: string,
 	picked: ElementPicked,
-	sessionId: string | null,
-): Promise<"ok" | "no-session"> {
-	if (!sessionId) return "no-session";
-	let loc = { startLine: null as number | null, endLine: null as number | null };
+): Promise<void> {
+	let startLine: number | null = null;
+	let endLine: number | null = null;
 	try {
-		const res = (await api.get(
+		const r = (await api.get(
 			`/api/preview-locate?path=${encodeURIComponent(path)}&selector=${encodeURIComponent(picked.selector)}`,
 		)) as { startLine?: unknown; endLine?: unknown } | null;
-		// 形状守护：startLine/endLine 均为 number|null 才采用，异常形状按无行号降级
+		// 形状守护：两字段均 number|null 才采用，异常形状按无行号降级
 		if (
-			res &&
-			(typeof res.startLine === "number" || res.startLine === null) &&
-			(typeof res.endLine === "number" || res.endLine === null)
+			r &&
+			(typeof r.startLine === "number" || r.startLine === null) &&
+			(typeof r.endLine === "number" || r.endLine === null)
 		) {
-			loc = { startLine: res.startLine, endLine: res.endLine };
+			startLine = r.startLine;
+			endLine = r.endLine;
 		}
 	} catch {
 		/* 行号是增强信息：接口失败降级为无行号 chip，不阻塞 */
 	}
-	const draft = buildElementDraft(path, picked, loc);
-	const prefs = useComposerPrefsStore.getState();
-	const cur = prefs.bySession[sessionId]?.attachments ?? [];
-	prefs.setSessionPrefs(sessionId, { attachments: [...cur, draft] });
-	return "ok";
+	const token = formatElementToken({
+		path,
+		startLine,
+		endLine,
+		elLabel: picked.elLabel,
+	});
+	// 前后补空格：防止与前/后文本粘连（粘连会污染定位路径、破坏 chip 化）
+	window.dispatchEvent(
+		new CustomEvent("wa-pi:insert-mention", { detail: { text: ` ${token} ` } }),
+	);
 }
