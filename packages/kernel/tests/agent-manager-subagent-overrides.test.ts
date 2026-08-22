@@ -16,6 +16,7 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
+import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -84,6 +85,7 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
   const am = new AgentManager({
     projectStore, configStore, onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
+    browserManager: NOOP_BROWSER_MANAGER,
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -131,6 +133,7 @@ test("内置 subagent override model 无效时降级为 null（不传 --model）
   const am = new AgentManager({
     projectStore, configStore, onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
+    browserManager: NOOP_BROWSER_MANAGER,
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -173,6 +176,7 @@ test("子智能体跟随主模型：无 override 时用主会话 currentModel", 
   const am = new AgentManager({
     projectStore, configStore, onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
+    browserManager: NOOP_BROWSER_MANAGER,
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);

@@ -19,6 +19,7 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
+import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { extUiRegistry } from "../src/ext-ui-registry";
@@ -138,6 +139,7 @@ async function setup(opts: SetupOpts = {}) {
 		onEvent: (sid, pid, name, e) =>
 			opts.events?.push({ sessionId: sid, projectId: pid, agentName: name, e }),
 		createClientFn: opts.createClientFn ?? fakeClientFactory(fakes),
+		browserManager: NOOP_BROWSER_MANAGER,
 		...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
 		...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
 		...(opts.extensionManager ? { extensionManager: opts.extensionManager } : {}),
@@ -285,6 +287,7 @@ test("ensureStarted 创建失败时清理 starting 锁并允许重试", async ()
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(recoveryFakes),
+		browserManager: NOOP_BROWSER_MANAGER,
 	});
 	managers.push(recovery);
 	await recovery.ensureStarted(project.id, "dev", session.id);
@@ -1868,6 +1871,7 @@ test("孤儿会话（piSessionFile 不存在）进程退出 → 删除 session �
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
+		browserManager: NOOP_BROWSER_MANAGER,
 		onSessionRollback: (sid) => rollbacks.push(sid),
 	});
 	managers.push(am);
@@ -1906,6 +1910,7 @@ test("正常会话（piSessionFile 存在）进程崩溃退出 → 不删除 ses
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
+		browserManager: NOOP_BROWSER_MANAGER,
 		onSessionRollback: (sid) => rollbacks.push(sid),
 	});
 	managers.push(am);

@@ -11,6 +11,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { fakeClientFactory, FakeSessionClient } from "./fixtures/fake-session-client";
+import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import type { RpcClientOpts, RpcClient } from "../src/rpc-client";
 import { rmSync } from "node:fs";
 
@@ -41,6 +42,7 @@ async function setup() {
     configStore: null,
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
+    browserManager: NOOP_BROWSER_MANAGER,
   });
   managers.push(am);
   // ensureStarted 让 AgentManager 自行建好合法 SessionHandle（含真实 FakeSessionClient）
