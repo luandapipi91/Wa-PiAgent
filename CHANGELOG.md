@@ -1,3 +1,9 @@
+## 2026-08-22 — feat(kernel): bridge 扩展注册 4 个 browser_* 工具
+
+- 新增：`wa-pi-bridge.extension.ts` 仿 delegate/fleet 注册 browser_navigate / browser_evaluate / browser_screenshot / browser_close 四个工具，DESCRIPTION 与 ParamsSchema 统一来自 shared/tool-schemas.ts（ensureBridgeExtension 运行期连同复制，bridge 侧与 kernel 侧引用同一份定义）；execute 走 callBridge，文件顶部新增 `BROWSER_NAVIGATE_TIMEOUT_MS = 150_000`（navigate 120s + 余量）与 `BROWSER_OPERATION_TIMEOUT_MS = 90_000`（其余操作 60s + 余量）两个超时常量。
+- 影响范围：`packages/kernel/src/wa-pi-bridge.extension.ts`、`packages/kernel/tests/bridge-extension.test.ts`（新增源码级 + loadTools 实际注册断言 7 例）、`packages/kernel/tests/bridge.test.ts`（工具数断言 7→12 同步，im_push_to 排序契约随 ALL_BRIDGE_TOOLS 更新）。
+- 验证：bridge 三个测试文件 43 pass；kernel 全量套件除既有 Windows 路径断言 commonRoot（环境性失败，与本改动无关）外全绿。
+
 ## 2026-08-21 — fix: 浏览器预览终审修复波（拖拽渲染性能 / 大文件护栏 / 小项收敛）
 
 - 修复（性能）：浏览器预览拖拽期 60Hz 全树重渲染与同步写盘——`browser` store 持久化改 trailing debounce（每 key 独立 timer，默认 300ms，`setPersistDebounceMs` 可注入，测试置 0 同步写保持确定性）；`SessionView` 用 `React.memo` 包裹（props 不变跳过含 MessageList 的 reconcile）；`BrowserPanel` 整订阅改逐字段 selector（不再随 splitRatio/floatRect 每帧重渲染）。
