@@ -495,7 +495,8 @@ describe("browser_* 错误分支与参数透传", () => {
     try {
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
       const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "scrollTo", selector: "#footer", block: "start" });
-      expect(scrollTos).toEqual([["#footer", { block: "start" }]]);
+      // toStrictEqual 区分 undefined 属性：锁定 cleanOpts 把未传的 timeout 从 opts 剔除
+      expect(scrollTos).toStrictEqual([["#footer", { block: "start" }]]);
       expect(r.content[0].text).toContain('"ok":true');
     } finally {
       m.dispose();
@@ -518,7 +519,8 @@ describe("browser_* 错误分支与参数透传", () => {
     try {
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
       const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn", button: "right" });
-      expect(clicked).toEqual([["#btn", { button: "right" }]]);
+      // toStrictEqual 区分 undefined 属性：锁定 cleanOpts 把未传的 modifiers/clickCount/timeout 剔除
+      expect(clicked).toStrictEqual([["#btn", { button: "right" }]]);
       expect(r.content[0].text).toContain('"ok":true');
     } finally {
       m.dispose();
