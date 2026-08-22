@@ -1421,7 +1421,15 @@ export class AgentManager {
 		if (!handle) return;
 
 		if (!handle.busy) {
+			// 空闲直发（用户点「引导/立即」时 agent 已 settled）。
+			// 先发送：成功了才从 followUpList 移除该条并广播 queue_update，
+			// 避免发送失败时消息已出队（丢失）。必须与下方 busy 分支一致地从
+			// followUpList 移除，否则后续 queue_update（如 drain/prompt/settled）
+			// 会把它打回队列，前端乐观移除的第一条又恢复——「顶部的待引导消息没变化」。
 			await this._sendPromptNow(sessionId, handle, text);
+			const fi = handle.followUpList.findIndex((e) => e.text === text);
+			if (fi >= 0) handle.followUpList.splice(fi, 1);
+			this._emitLocalQueueUpdate(sessionId, handle);
 			return;
 		}
 

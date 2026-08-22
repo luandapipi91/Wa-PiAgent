@@ -1,3 +1,9 @@
+## 2026-08-22 — fix(引导队列): 多条引导时第一条发送后待引导消息不更新
+
+- 修复：会话有多条引导/排队消息（followUp）时，点第一条消息的「引导」或「立即」发送后，顶部「待引导消息」队列保持不变（已发送的第一条又出现在队列里，队列未减）。根因：`steerMessage` 的 `!handle.busy`（空闲直发）分支直接 `_sendPromptNow` 发送后 return，未从 `followUpList` 移除该条、也不广播 `queue_update`；而前端 `handlePromote`/`handleImmediate` 已乐观把该条从队列移除。前端与 kernel 队列状态分歧后，后续任一 `queue_update` 广播（drain/prompt/settled）用含该条的旧队列覆盖前端，导致「引导后队列不变」。
+- 修复：`steerMessage` 空闲直发分支与 busy 分支对齐——`_sendPromptNow` 成功后从 `followUpList` 移除同文本条目并 `_emitLocalQueueUpdate` 广播同步前端（先发送成功再移除，避免发送失败时消息已出队丢失）。
+- 影响范围：`packages/kernel/src/agent-manager.ts`（steerMessage 空闲直发分支）；测试：`tests/agent-manager.test.ts` 补「空闲直发移除已排队同文本 + 广播」回归 1 例（110 pass）；typecheck 干净；kernel 全量 1365 pass（2 例 browser 集成测试并发超时，与本次无关，stash 对比确认）。
+
 ## 2026-08-22 — fix: 排队/引导消息未发送且队列悬挂（netDegraded 死锁 + busy 竞态）
 
 ### 修复
