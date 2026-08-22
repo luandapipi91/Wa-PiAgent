@@ -5,7 +5,7 @@
 // cfg.token 为静态注入（生产置空，handler 内每次读最新分享设置，保存后无需重启）；
 // cfg.cosFactory / pollIntervalMs 供测试注入。
 
-import { basename, dirname, sep } from "node:path";
+import { basename, dirname } from "node:path";
 import { statSync } from "node:fs";
 import { unzipSync } from "fflate";
 import type { HttpRouter } from "../http-router";
@@ -400,7 +400,15 @@ export function createShareRoutes(
 export function commonRoot(paths: string[]): string {
 	let root = dirname(paths[0]);
 	for (const p of paths.slice(1)) {
-		while (root.length > 1 && !p.startsWith(root + sep)) {
+		// 前缀判断同时接受 POSIX("/") 与 Windows("\\") 两种分隔符：
+		// commonRoot 的输入可能来自用户选择的路径（平台原生风格），也可能来自
+		// 测试/上游传入的跨平台 POSIX 风格路径；只用平台 sep 会在 Windows 上把
+		// "/a/b/c.txt" 与 "/a/b/d.txt" 误判为无公共前缀而回溯到 "/"。
+		while (
+			root.length > 1 &&
+			!p.startsWith(root + "/") &&
+			!p.startsWith(root + "\\")
+		) {
 			const parent = dirname(root);
 			// 兜底：Windows 跨盘时 dirname("D:\\") 恒等于自身（盘符根），
 			// 不退出会死循环；此场景无公共根，保留当前 root 继续处理后续路径。
