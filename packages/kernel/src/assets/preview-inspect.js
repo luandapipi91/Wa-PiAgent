@@ -99,6 +99,9 @@
 		document.documentElement.appendChild(bar);
 
 		var current = null;
+		// 选择父级后的锁定：鼠标在锁定元素内部移动（含其子元素）不切换选中，移出才解锁。
+		// 否则选完父级后随便动一下鼠标，hover 又把选中抢回子元素。
+		var locked = false;
 
 		function render() {
 			if (!current || !current.getBoundingClientRect) {
@@ -140,6 +143,11 @@
 						return;
 					}
 				}
+				// 锁定中：子元素不抢选；移出锁定元素才解锁恢复 hover
+				if (locked && current) {
+					if (t === current || current.contains(t)) return;
+					locked = false;
+				}
 				current = t;
 				render();
 			},
@@ -159,6 +167,9 @@
 			onBtn(e);
 			if (current && current.parentElement && current.parentElement.tagName) {
 				current = current.parentElement;
+				// html 包含一切元素，锁定会让 hover 永久失效，不锁；
+				// body 可锁：移到页边空白（命中 html）即解锁
+				locked = current.tagName !== "HTML";
 				render();
 			}
 		});
