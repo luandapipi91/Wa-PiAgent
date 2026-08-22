@@ -4,7 +4,7 @@
 // 杀进程前三重校验（任一不匹配只删登记不动进程）：
 //   ① 进程存活（process.kill(pid, 0) 探测，ESRCH=已死 / EPERM=活着但无权限）；
 //   ② 进程创建时间与登记的 createdAt 一致（防 PID 复用——校验②是核心）；
-//   ③ exe 路径匹配我方特征（wa-pi-kernel 或路径含 waPiDir）——纵深防御。
+//   ③ exe 路径匹配我方特征（WaPiKernel 新编译产物名 / wa-pi-kernel 旧名 / 路径含 waPiDir）——纵深防御。
 // opts 全程依赖注入：{ fs, spawnSync, now, waPiDir, log }；
 //   另支持可选注入 kill（默认 process.kill）与 platform（默认 process.platform），
 //   保证测试绝不真杀进程、且能在任意平台覆盖两个平台分支。
@@ -166,10 +166,12 @@ function isOurs(entry, identity, opts) {
   if (!identity) return false;
   // ② 创建时间一致（防 PID 复用）
   if (Math.abs(identity.createdAt - entry.createdAt) >= START_TIME_TOLERANCE_MS) return false;
-  // ③ exe 含 wa-pi-kernel 或路径含 waPiDir（纵深防御）
-  const exe = String(identity.exe ?? "").toLowerCase();
+  // ③ exe 含 WaPiKernel（新编译产物名）或 wa-pi-kernel（≤0.2.15 旧名，升级期幽灵进程兜底）
+  //    或路径含 waPiDir（纵深防御）
+  const exe = String(identity.exe ?? "");
+  const lower = exe.toLowerCase();
   const dir = String(opts.waPiDir ?? "").toLowerCase();
-  return exe.includes("wa-pi-kernel") || (dir !== "" && exe.includes(dir));
+  return lower.includes("wapikernel") || lower.includes("wa-pi-kernel") || (dir !== "" && exe.includes(dir));
 }
 
 /** 命令行摘要（日志用，压缩空白并截断到 80 字符） */

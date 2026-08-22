@@ -1,5 +1,7 @@
-// spawn 解释运行的 kernel sidecar：dev 下 bun run <repo>/packages/kernel/src/desktop-server.ts；
-// packaged 下 <kernelDir>/wa-pi-kernel(.exe) run <kernelDir>/kernel.js。等 9778 ready；退出时 kill 子进程树。
+// spawn kernel sidecar：packaged 直接 spawn 编译产物 WaPiKernel(.exe)（bun --compile 单二进制，
+// 产物本身即入口）；dev 优先 spawn packages/kernel/dist 下的编译产物（与生产同形态），
+// 缺失时回退 bun run <repo>/packages/kernel/src/desktop-server.ts（解释运行，快速迭代）。
+// 等 9778 ready；退出时 kill 子进程树。
 // 守护策略：无限自动重启（固定间隔 2s）+ 端口健康探活（5s 间隔，连续 3 次失败强杀重启）。
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
@@ -31,7 +33,7 @@ function forceKill(pid) {
   } catch {}
 }
 
-async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, port, deps = {} }) {
+async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, devKernelExe = undefined, log, port, deps = {} }) {
   // 依赖注入（测试用，可选）：默认全走真实实现，生产行为不变。
   //   spawnFn        替换 spawn（测试返回 fake child）
   //   waitForPortFn  替换 waitForPort（测试立即就绪，不真等端口）
@@ -58,23 +60,26 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
         .catch(() => {});
     },
   } = deps;
-  // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 wa-pi-kernel(.exe) run kernel.js
-  // Windows dev 路径上 "bun" 是 .cmd shim——Node 20+ 出于 CVE-2024-27980 默认拒绝 spawn
-  // .cmd/.bat（spawn EINVAL），必须 shell:true 让 cmd.exe 解析 PATHEXT。
+  // packaged: 直接 spawn kernelExe（编译产物本身即入口）。
+  // dev + devKernelExe: spawn dist 编译产物（与生产同形态）。
+  // dev 无产物: bun run src/desktop-server.ts（解释运行）。
+  // Windows dev 解释运行路径上 "bun" 是 .cmd shim——Node 20+ 出于 CVE-2024-27980 默认
+  // 拒绝 spawn .cmd/.bat（spawn EINVAL），必须 shell:true 让 cmd.exe 解析 PATHEXT。
   const wsPort = port ?? WS_PORT;
   const isWin = process.platform === "win32";
-  const cmd = isPackaged ? kernelExe : "bun";
-  const arg = isPackaged
-    ? ["run", path.join(kernelDir, "kernel.js")]
+  const useCompiled = isPackaged || !!devKernelExe;
+  const cmd = isPackaged ? kernelExe : (devKernelExe ?? "bun");
+  const arg = useCompiled
+    ? []
     : ["run", path.join(kernelDir, "src", "desktop-server.ts")];
   // shell 模式下需手动引用含空格的参数（路径里若有空格）
-  const finalArg = (!isPackaged && isWin) ? arg.map((a) => /\s/.test(a) ? `"${a}"` : a) : arg;
+  const finalArg = (!useCompiled && isWin) ? arg.map((a) => /\s/.test(a) ? `"${a}"` : a) : arg;
   const spawnOpts = {
     cwd: kernelDir,
     env: { ...process.env, WA_PI_WEB_DIR: webDir, WA_PI_WS_PORT: String(wsPort) },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
-    shell: !isPackaged && isWin,
+    shell: !useCompiled && isWin,
   };
 
   // 守护状态：stopped（用户主动退出）+ attempts（重启计数，仅日志）+ failures（探活连续失败计数）
