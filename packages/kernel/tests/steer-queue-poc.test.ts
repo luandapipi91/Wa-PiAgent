@@ -11,7 +11,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
-import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
+import { type FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
@@ -31,7 +31,8 @@ beforeEach(() => {
 afterEach(async () => {
   for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
   for (const f of tmpFiles.splice(0)) {
-    try { rmSync(f, { force: true }); } catch {}
+    // force 已忽略文件不存在；catch 兜底其他清理异常（如进程未及时释放句柄），测试收尾不阻断
+    try { rmSync(f, { force: true }); } catch (e) { void e; }
   }
 });
 
@@ -178,7 +179,7 @@ test("bridge 上下文在 ensureStarted 后已注册（宿主工具回调入口�
 // === 边缘场景 ===
 
 test("E2 — 空 followUpList 时 agent_settled 不发 prompt", async () => {
-  const { session, am, fake } = await setup();
+  const { fake } = await setup();
   fake.autoSettle = false;
 
   // 不追加任何排队消息，直接 settled
@@ -287,10 +288,6 @@ test("BUG: 引导后 steering 队列出现重复消息", async () => {
   //   pi 随后也可能发 queue_update，kernel 拦截注入后又是同一个 steerList，
   //   前端收到两次含 "引导X" 的 steering → 显示两条重复
   // 【期望】：所有 queue_update 中 steering 最多一条（steerList 只 push 了一次）
-  const steeringEvents = queueEvents.filter(e =>
-    (e.e as any).steering?.includes("引导X")
-  );
-  // 简化断言：最后一次 queue_update 的 steering 不应重复
   const lastQueue = queueEvents[queueEvents.length - 1];
   const steerCount = (lastQueue?.e as any)?.steering?.filter((s: string) => s === "引导X").length ?? 0;
   expect(steerCount).toBeLessThanOrEqual(1);
@@ -441,4 +438,55 @@ test("用户重发（prompt 直接发送）后清除 netDegraded，恢复正常 
   fake.emit({ type: "agent_settled" });
   await flushDrain();
   expect(fake.prompted).toEqual(["进行中", "进行中", "排队A"]);
+});
+
+// === TDD 修复A: agent_start 时清除 netDegraded，恢复后续 drain ===
+//
+// 背景：netDegraded=true 目前只会被「用户重发（_sendPromptNow 成功）」清除。
+// 若 transient 网络错误后用户不再发新消息（排队消息仍在 followUpList 等自动发出），
+// netDegraded 永久为 true → 后续所有 agent_settled 都跳过 drain → 排队消息永不发出。
+// 修复：新一轮开始（agent_start）时清除 netDegraded——新一轮说明网络可能已恢复，
+// 且新一轮结束的 agent_settled 会正常 drain 排队消息。
+
+test("修复A: agent_start（新一轮开始）清除 netDegraded，恢复后续 settled drain", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.prompt(session.id, "排队A", { model: MODEL });  // → followUpList
+
+  am.markNetDegraded(session.id, true);
+  fake.emit({ type: "agent_settled" });
+  // degraded 时 settled 跳过 drain
+  expect(fake.prompted).toEqual(["进行中"]);
+
+  // 新一轮开始（网络恢复）：agent_start 应清除 netDegraded
+  fake.emit({ type: "agent_start" });
+  // 新一轮结束：现在应恢复 drain 排队A
+  fake.emit({ type: "agent_settled" });
+  await flushDrain();
+  expect(fake.prompted).toEqual(["进行中", "排队A"]);
+});
+
+// === TDD 修复B: prompt 空闲直发时也发 queue_update（同步前端，清乐观残留） ===
+//
+// 背景：前端在 isRunning=true 时乐观把消息加入 queueBySession 队列面板。
+// 但 kernel 的 am.prompt() 在多个 await 之后才检查 handle.busy；若这期间本轮已
+// agent_settled（busy=false），消息被 _sendPromptNow 直发而非 followUpList.push。
+// 直发路径不发 queue_update → 前端乐观入队的残留永远没人清。
+// 修复：prompt 决定直发（!busy）后补发 _emitLocalQueueUpdate，让前端同步真实队列。
+
+test("修复B: prompt 空闲直发时也发 queue_update（同步前端真实队列）", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "直发A", { model: MODEL }); // busy=false → 直发
+
+  // 直发后应发 queue_update，反映队列不含直发A（它被直发处理了）
+  const queueEvents = events.filter(e => e.e.type === "queue_update");
+  if (queueEvents.length === 0) throw new Error("未收到 queue_update 事件");
+  const lastQueue = queueEvents[queueEvents.length - 1];
+  expect((lastQueue.e as any).followUp).toEqual([]);
+  expect((lastQueue.e as any).steering).toEqual([]);
 });

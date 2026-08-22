@@ -1038,6 +1038,9 @@ export class AgentManager {
 			case "agent_start":
 				handle.busy = true;
 				handle.thinkingSince = Date.now();
+				// 新一轮开始说明网络可能已恢复：清除 transient degraded 标记，
+				// 避免上一轮 transient 错误后 netDegraded 永久卡死 drain（原来只能靠用户重发清除）。
+				if (handle.netDegraded) handle.netDegraded = false;
 				break;
 			case "message_end":
 				if (event.message) {
@@ -1404,7 +1407,12 @@ export class AgentManager {
 			this._emitLocalQueueUpdate(sessionId, handle);
 			return;
 		}
+		// 空闲直发：消息越过了排队路径（未进入 followUpList）。但前端在 isRunning=true
+		// 时可能已乐观把这条消息加入队列面板（busy 竞态——本函数多个 await 期间本轮已
+		// agent_settled，busy 翻 false 导致走这里的直发）。这里补发 queue_update，让前端
+		// 同步真实队列（该消息不在队列里），清掉乐观残留。
 		await this._sendPromptNow(sessionId, handle, finalText, images);
+		this._emitLocalQueueUpdate(sessionId, handle);
 	}
 
 	/** 发送引导消息。运行中优先调 pi steer()（mid-loop 投递），同时存本地兜底 */

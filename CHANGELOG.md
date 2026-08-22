@@ -1,4 +1,13 @@
-## 2026-08-22 — fix(模型管理): 编辑模型 id 后发送按钮置灰 / 报「找不到模型」
+## 2026-08-22 — fix: 排队/引导消息未发送且队列悬挂（netDegraded 死锁 + busy 竞态）
+
+### 修复
+
+- 修复两个导致「对话中发送的排队/引导消息在本轮结束后未发出，且一直挂在聊天窗顶部队列面板」的缺陷：
+  1. **netDegraded 永久卡死**：transient 网络错误（超时/限流/5xx）后 `markNetDegraded(true)`，`agent_settled` 跳过 followUp/steer drain（避免网络不可用时自动发送再次失败），但该标记**只靠用户重发（_sendPromptNow 成功）清除**——用户若不再发新消息（排队消息仍等自动发出），netDegraded 永久为 true，后续所有 settled 都跳过 drain，消息永不发出且队列残留。修复：`agent_start`（新一轮开始）时清除 netDegraded（新一轮说明网络可能已恢复），恢复后续 settled drain。
+  2. **busy 竞态致直发不入队**：`am.prompt()` 在多个 await（_resolveModel/setModel/setThinkingLevel/buildPromptContent）之后才检查 `handle.busy`，若这期间本轮已 `agent_settled`（busy 翻 false），消息被 `_sendPromptNow` 直发而非 `followUpList.push`，且直发路径不发 `queue_update` → 前端 isRunning 时乐观入队的显示无人清，队列残留。修复：prompt 决定直发（!busy）后补发 `_emitLocalQueueUpdate`，让前端同步真实队列，清乐观残留。
+
+- 影响范围：`packages/kernel/src/agent-manager.ts`（agent_start 清 netDegraded + prompt 直发补 queue_update）；测试：steer-queue-poc.test.ts 补修复A/B 两例（23 pass）；kernel 相关回归 agent-manager/idle-reap 112 pass、ws-agent-prompt-echo/steer-title-fill 8 pass、channel-manager/reply-composer/composer-attachments/pi-disconnect 54 pass + typecheck 干净。
+
 
 ### 修复
 
