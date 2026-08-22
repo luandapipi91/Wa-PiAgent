@@ -43,7 +43,14 @@ import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
 import { relative, join, extname } from "node:path";
-import { mkdir, writeFile, rm, appendFile, readFile, stat } from "node:fs/promises";
+import {
+	mkdir,
+	writeFile,
+	rm,
+	appendFile,
+	readFile,
+	stat,
+} from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
@@ -60,6 +67,7 @@ import {
 	extensionCoversProvider,
 } from "./provider-extension";
 import { SubagentTelemetry } from "./subagent-telemetry";
+import { applyFriendlyShellMessage } from "./sdk-errors";
 import { lookupCatalogModel } from "./pi-catalog";
 import {
 	AUTO_COMPACT_RESERVE_TOKENS,
@@ -104,7 +112,10 @@ import {
 	WA_PI_DEFAULT_BASE_PROMPT,
 	type PromptSegment,
 } from "./system-prompt";
-import { buildImPushSystemPrompt, GENERIC_IM_PUSH_PROMPT } from "./tools/robot-push";
+import {
+	buildImPushSystemPrompt,
+	GENERIC_IM_PUSH_PROMPT,
+} from "./tools/robot-push";
 
 /** 可注入的 client 工厂（测试用假 client 替换；生产 new RpcClient） */
 export type CreateClientFn = (opts: RpcClientOpts) => RpcClient;
@@ -886,6 +897,8 @@ export class AgentManager {
 		const createClient: CreateClientFn =
 			this.opts.createClientFn ?? ((o) => new RpcClient(o));
 		const handle: SessionHandle = {
+			// SAFETY: client 为占位，随后的 _initClient/handle 流程立即赋值真实 RpcClient；
+			// 会话生命周期内使用时必已初始化（busy 门控保证）。
 			client: null as unknown as RpcClient,
 			cwd,
 			meta: { projectId, agentName },
@@ -1002,7 +1015,11 @@ export class AgentManager {
 				handle.thinkingSince = Date.now();
 				break;
 			case "message_end":
-				if (event.message) handle.messages.push(event.message);
+				if (event.message) {
+					// Windows 无 Git Bash 时 bash 工具报错 → 友好中文提示（替换误导性 VS Code 文案）
+					applyFriendlyShellMessage(event.message);
+					handle.messages.push(event.message);
+				}
 				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
 				// 不能用 message.timestamp——Pi 单块轮 assistant 消息对象在 prompt 时预创建，
 				// message.timestamp ≈ user 时刻，算出的时长≈0；真实耗时看落盘时刻。
@@ -1050,7 +1067,12 @@ export class AgentManager {
 					// 无引导消息时才 drain 排队消息
 					const entry = handle.followUpList.shift()!;
 					this._emitLocalQueueUpdate(sessionId, handle);
-					void this._sendPromptNow(sessionId, handle, entry.text, entry.images).catch((err) => {
+					void this._sendPromptNow(
+						sessionId,
+						handle,
+						entry.text,
+						entry.images,
+					).catch((err) => {
 						console.error(`[kernel] session ${sessionId} followUp drain 失败:`, err);
 					});
 				} else if (this.skillDirty.has(sessionId) || this.dirty.has(sessionId)) {
@@ -1469,9 +1491,13 @@ export class AgentManager {
 	}
 
 	/** 查询会话元信息（projectId/agentName）；未注册返回 undefined */
-	getSessionMeta(sessionId: string): { projectId: string; agentName: AgentName } | undefined {
+	getSessionMeta(
+		sessionId: string,
+	): { projectId: string; agentName: AgentName } | undefined {
 		const h = this.sessions.get(sessionId);
-		return h ? { projectId: h.meta.projectId, agentName: h.meta.agentName } : undefined;
+		return h
+			? { projectId: h.meta.projectId, agentName: h.meta.agentName }
+			: undefined;
 	}
 
 	/** 检查 session 是否正在运行（供外部判断 abort 时 agent 是否已启动） */
