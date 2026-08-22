@@ -1,3 +1,29 @@
+## 2026-08-22 — kernel 单二进制编译 + 入口统一
+
+### 重构
+
+- kernel 打包形态：「下载 bun + 解释运行 kernel.js」→「bun --compile 单二进制 WaPiKernel(.exe)」
+  - 打包：`build-kernel-sidecar.ts` 删除 bun 下载全套逻辑（GitHub/npmmirror 硬依赖消除），改调 `packages/kernel/scripts/compile-binary.ts`（`bun build --compile --external @napi-rs/keyring --asset <bridge 三文件>`）；运行时依赖清单精简为磁盘必需项（@earendil-works/pi-coding-agent + @napi-rs/keyring，Task 6 审计定稿），删除 patchedDependencies 与 patches/bridge 文件复制（patch 编译期已生效）。
+  - 运行时：`runtime-deps.cjs` SEED 精简为 WaPiKernel + package.json + bun.lock，install 子进程加 `BUN_BE_BUN=1`（编译产物充当 bun CLI，首启装依赖零下载），清理 kernel.js 时代遗留文件；`kernel-sidecar.cjs` packaged 分支直接 spawn 编译产物（不再 `run kernel.js`）。
+  - 子进程链路：`startKernel` 写入 `process.env.BUN_BE_BUN=1`（pi RPC / bun add / MCP 服务器的运行时都是编译产物，缺了它会再跑内嵌 kernel）；`runtime-bin.cjs` 的 bun/node/npm/npx wrapper 显式带 BUN_BE_BUN=1（POSIX 符号链接改 wrapper 脚本）；`resolvePiCliPath` 加 cwd 回退（编译产物虚拟 FS 解析不到磁盘 node_modules）。
+  - 入口统一：三条启动链都走 `desktop-server.ts → startKernel`；`index.ts` 删除 `import.meta.main` 分支；kernel `dev` 脚本改跑 desktop-server.ts；`dev:desktop` 优先 spawn `packages/kernel/dist/WaPiKernel`（缺失回退解释运行并提示先 `bun run --filter @wa-pi/kernel build`）。
+  - 进程识别：`process-registry.cjs` exe 特征匹配兼容 WaPiKernel 新名与 wa-pi-kernel 旧名（升级期幽灵进程兜底）。
+  - 影响范围：`packages/kernel/scripts/compile-binary.ts`（新）、`packages/kernel/src/{index,desktop-server,rpc-client}.ts`、`packages/kernel/package.json`、`packages/shared/src/runtime-check.ts`、`packages/desktop/scripts/build-kernel-sidecar.ts`、`packages/desktop/src/{kernel-sidecar,main}.cjs`、`packages/desktop/src/util/{runtime-deps,runtime-bin,process-registry,port,node-runtime,paths}.cjs`、`scripts/kernel-compile-it.ts`（新）；测试：compile-binary 5 例、build-kernel-sidecar 1 例、runtime-deps 3+1 例、kernel-sidecar +3 例、runtime-bin +2 例、runtime-check +2 例、rpc-client +1 例全绿；集成测试 `bun run scripts/kernel-compile-it.ts` 通过（compile → BUN_BE_BUN install → 净化 PATH spawn → agent:prompt 到「未选择模型」）。
+
+## 2026-08-22 — kernel 单二进制编译（BUN_BE_BUN 运行时链路）
+
+### 新增
+
+- BUN_BE_BUN=1 运行时链路：bun --compile 编译产物默认运行内嵌 kernel，只有 BUN_BE_BUN=1（bun 1.2.16+）才充当 bun CLI。打包环境下 pi RPC 子进程、NpmPackageService 的 bun add、MCP 服务器（npx/bun wrapper）的运行时都是编译产物（process.execPath 或 runtime-bin 链接），缺了会再次启动内嵌 kernel 而非执行目标命令。
+  - 实现：`packages/shared/src/runtime-check.ts` 新增 `ensureBunBeBunEnv()`（幂等：仅未设置时写入 BUN_BE_BUN=1）；`packages/kernel/src/index.ts` startKernel() 在 assertBunVersionOrExit 后调用（子进程继承）；`packages/desktop/src/util/runtime-bin.cjs` Windows 分支所有 .cmd 加 `set BUN_BE_BUN=1`，POSIX 分支 bun 符号链接改 wrapper 脚本（符号链接无法携带 env）、无 node 时 node/npx/npm 改 wrapper 并加 env 前缀，文件头注释 wa-pi-kernel → WaPiKernel。
+  - 影响范围：packages/shared/src/runtime-check.ts、packages/shared/tests/runtime-check.test.ts、packages/kernel/src/index.ts、packages/desktop/src/util/runtime-bin.cjs、packages/desktop/tests/runtime-bin.test.ts；验证：shared runtime-check 17 pass、desktop runtime-bin 7 pass、desktop 全量 181 pass（1 既有 ditto 平台失败）、kernel 全量 1258 pass（1 既有 commonRoot 失败）。
+
+- kernel 编译产物全链路集成测试（固化 POC + 运行时依赖审计）
+  - `scripts/kernel-compile-it.ts`：bun --compile 编译 → BUN_BE_BUN=1 装磁盘依赖 → 净化 PATH spawn 编译产物（强制 resolvePiRuntime 回退 process.execPath，复现打包环境）→ REST+SSE agent:prompt 到「未选择模型」终点。审计方法：probe 报 Cannot find module <pkg> → 补清单重跑，直到收敛。
+  - 运行时依赖清单定稿（build-kernel-sidecar.ts / 集成脚本两处同步）：{@earendil-works/pi-coding-agent ^0.84.2（pi RPC 子进程入口）、@napi-rs/keyring ^1.3.0（原生 .node external）、pi-web-access ^0.19.0、pi-mcp-adapter 2.17.0（内置扩展 PKG_EXTENSIONS，pi 子进程经 -e 从磁盘加载 index.ts）}；EXTERNAL_PACKAGES 维持仅 @napi-rs/keyring。
+  - 修复编译产物虚拟 FS 解析断点（createRequire(import.meta.url) 指向 B:\~BUN\root，解析不到磁盘 node_modules）：resolvePiCliPath（rpc-client.ts）、resolveExtensionEntryFile（extensions.ts）、loadCatalog（pi-catalog.ts）三处统一加 cwd 回退；stageAssetDir（compile-binary.ts）改返回字面 `assets` 子目录——bun 1.4.0 --asset 按目录名挂载到虚拟根，mkdtemp 随机名导致 bridge 三文件嵌入后运行时找不到（集成测试首次运行 ENOENT 暴露）。
+  - 影响范围：scripts/kernel-compile-it.ts（新增）、packages/kernel/src/rpc-client.ts、packages/kernel/src/extensions.ts、packages/kernel/src/pi-catalog.ts、packages/kernel/scripts/compile-binary.ts、packages/kernel/tests/bridge.test.ts、packages/kernel/tests/compile-binary.test.ts、packages/desktop/scripts/build-kernel-sidecar.ts、packages/desktop/tests/build-kernel-sidecar.test.ts；验证：集成测试 ✅（compile → install 327 包 → spawn → agent:prompt → 未选择模型，无 Cannot find module / ENOENT）、kernel 全量 1259 pass（1 既有 commonRoot 失败）、desktop 全量 187 pass（1 既有 regenerateBlockmap 失败）。
+
 ## 2026-08-21 — fix: Windows 盘符绝对路径（C:/、C:\\）渲染为文件胶囊
 
 - 修复：AI 回复中反引号包裹的 Windows 盘符绝对路径（`C:/Users/.../beautiful.html`）未被识别为文件路径，渲染成普通等宽代码而非可点击文件胶囊（FilePill）。根因：`parseFilePath` 的 `PATH_RE` 只有 Unix 绝对路径（`/`、`~`、`./`）与相对路径分支，无盘符分支；而 `FilePill.resolveAbsolutePath` 早已支持盘符，断点仅在入口判定。

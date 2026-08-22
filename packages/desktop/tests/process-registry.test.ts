@@ -662,3 +662,21 @@ test("killRegisteredProcesses: 子孙杀失败（kill 抛错）→ 记 skipped�
 	expect(r.killed).toEqual([1001]);
 	expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(false);
 });
+
+test("isOurs: exe 为 WaPiKernel 新命名（bun --compile 编译产物）→ 匹配", () => {
+	// 复制既有「wa-pi-kernel 匹配」用例（isOurs: ②③ 组合判断）的调用形式：
+	// 完整参数 entry{pid,exe,createdAt,registeredAt} + identity{exe,createdAt} + opts{waPiDir}，
+	// 仅把 exe 换成新编译产物名 WaPiKernel(.exe)。
+	const opts = { waPiDir: WAPI_DIR } as any;
+	const entry = {
+		pid: 1001,
+		exe: entry1001.exe,
+		createdAt: NOW,
+		registeredAt: NOW,
+	};
+	const exe =
+		process.platform === "win32"
+			? "C:\\wa-pi\\runtime\\WaPiKernel.exe"
+			: "/data/wa-pi/runtime/WaPiKernel";
+	expect(isOurs(entry, { exe, createdAt: NOW }, opts)).toBe(true);
+});

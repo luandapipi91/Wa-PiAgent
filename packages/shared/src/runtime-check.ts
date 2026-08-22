@@ -76,3 +76,15 @@ export function assertBunVersionOrExit(version?: string): void {
   console.error(bunVersionCheckMessage(got));
   process.exit(1);
 }
+
+/**
+ * 确保子进程继承 BUN_BE_BUN=1：bun --compile 编译产物默认运行内嵌应用，
+ * BUN_BE_BUN=1（bun 1.2.16+）让它充当 bun CLI。打包环境下 pi RPC 子进程、
+ * NpmPackageService 的 bun add、MCP 服务器（bun/npx wrapper）的运行时都是
+ * 编译产物（process.execPath 或 runtime-bin 链接），缺了它会再次启动内嵌
+ * kernel 而非执行目标命令。对真正的 bun 是 no-op（dev 解释运行安全）。
+ * 进程启动时读取，已运行的 kernel 写入 process.env 只影响子进程继承。
+ */
+export function ensureBunBeBunEnv(): void {
+  if (!process.env.BUN_BE_BUN) process.env.BUN_BE_BUN = "1";
+}

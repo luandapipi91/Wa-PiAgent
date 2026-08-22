@@ -29,7 +29,7 @@ const FILE_SNAPSHOT_TARGET = join(GENERATED_DIR, "file-snapshot.ts");
 
 /**
  * 静态 bridge 扩展源文件。
- * - packaged：build-kernel-sidecar 将 wa-pi-bridge.extension.ts 复制到 kernel.js 同级 → 优先取。
+ * - packaged：bun --compile --asset 嵌入编译产物 assets/ → 优先取。
  * - dev：回退到 monorepo 源码路径。
  */
 function resolveBridgeExtensionSource(): string {
@@ -43,7 +43,7 @@ function resolveBridgeExtensionSource(): string {
 
 /**
  * tool-schemas 源文件。
- * - packaged：build-kernel-sidecar 将 tool-schemas.ts 复制到 kernel.js 同级 → 优先取。
+ * - packaged：bun --compile --asset 嵌入编译产物 assets/ → 优先取。
  * - dev：回退到 monorepo packages/shared/src/tool-schemas.ts。
  */
 function resolveToolSchemasSource(): string {
@@ -57,7 +57,7 @@ function resolveToolSchemasSource(): string {
 
 /**
  * file-snapshot 源文件（与 wa-pi-bridge.extension.ts 同目录，位于 kernel/src）。
- * - packaged：build-kernel-sidecar 将 file-snapshot.ts 复制到 kernel.js 同级 → 优先取。
+ * - packaged：bun --compile --asset 嵌入编译产物 assets/ → 优先取。
  * - dev：同路径即可。
  */
 function resolveFileSnapshotSource(): string {

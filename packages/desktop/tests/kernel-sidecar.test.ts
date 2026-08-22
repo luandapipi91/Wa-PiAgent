@@ -302,3 +302,61 @@ test("kernel 正常退出 code=0 → 不写崩溃日志", async () => {
   children[0].emit("exit", 0, null); // 优雅退出
   expect(crashLogs).toHaveLength(0);
 });
+
+// —— spawn cmd/arg 形态断言（bun --compile 单二进制改造）——
+// packaged 与 dev+编译产物：直接 spawn 产物、args=[]（产物本身即入口，不再 run kernel.js）；
+// dev 无产物：回退解释运行 bun run src/desktop-server.ts。
+
+/** 捕获 spawn 的 cmd/args 的夹具 */
+async function captureSpawnHarness(opts: { isPackaged: boolean; devKernelExe?: string }) {
+  const child = fakeChild(4321);
+  const calls: { cmd: string; args: string[] }[] = [];
+  const sidecar = await startSidecar({
+    isPackaged: opts.isPackaged,
+    kernelDir: "/fake/kernel",
+    webDir: "/fake/web",
+    kernelExe: "/fake/kernel/WaPiKernel",
+    ...(opts.devKernelExe ? { devKernelExe: opts.devKernelExe } : {}),
+    port: 9778,
+    log: { info() {}, error() {} },
+    deps: {
+      spawnFn: ((cmd: string, args: string[]) => {
+        calls.push({ cmd, args });
+        return child;
+      }) as any,
+      waitForPortFn: (async () => true) as any,
+      checkPortFn: (async () => true) as any,
+      killFn: (() => {}) as any,
+      respawnDelayMs: 5,
+      isPortInUseFn: (async () => false) as any,
+      killPortOccupantsFn: (async () => []) as any,
+    },
+  } as any);
+  return { sidecar, calls };
+}
+
+test("packaged: spawn 编译产物本身，args=[]（不再 wa-pi-kernel run kernel.js）", async () => {
+  const { sidecar, calls } = await captureSpawnHarness({ isPackaged: true });
+  expect(calls).toHaveLength(1);
+  expect(calls[0].cmd).toBe("/fake/kernel/WaPiKernel");
+  expect(calls[0].args).toEqual([]); // 编译产物本身即入口
+  sidecar.stop();
+});
+
+test("dev + devKernelExe: spawn 编译产物（与生产同形态），args=[]", async () => {
+  const { sidecar, calls } = await captureSpawnHarness({
+    isPackaged: false,
+    devKernelExe: "/fake/kernel/dist/WaPiKernel",
+  });
+  expect(calls[0].cmd).toBe("/fake/kernel/dist/WaPiKernel");
+  expect(calls[0].args).toEqual([]);
+  sidecar.stop();
+});
+
+test("dev 无 devKernelExe: 回退解释运行 bun run src/desktop-server.ts", async () => {
+  const { sidecar, calls } = await captureSpawnHarness({ isPackaged: false });
+  expect(calls[0].cmd).toBe("bun");
+  expect(calls[0].args[0]).toBe("run");
+  expect(calls[0].args[1].replace(/\\/g, "/").endsWith("src/desktop-server.ts")).toBe(true);
+  sidecar.stop();
+});
