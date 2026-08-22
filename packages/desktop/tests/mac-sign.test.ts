@@ -42,9 +42,7 @@ describe("resolveIdentity", () => {
 		expect(
 			resolveIdentity({ WA_PI_SELF_SIGNED_CERT: "My Cert" }, hasCertEnv),
 		).toBe("My Cert");
-		expect(resolveIdentity({ WA_PI_SELF_SIGNED_CERT: "" }, hasCertEnv)).toBe(
-			"-",
-		);
+		expect(resolveIdentity({ WA_PI_SELF_SIGNED_CERT: "" }, hasCertEnv)).toBe("-");
 	});
 
 	test("设置了 CODESIGN_IDENTITY → 使用证书身份（去空白），传 - 强制 ad-hoc", () => {

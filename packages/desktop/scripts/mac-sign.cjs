@@ -17,11 +17,9 @@ const DEFAULT_SELF_SIGNED_CERT = "WA PI Agent Self-Signed";
  * 这里改用 -p 输出的 PEM 内容判断：有证书会输出 BEGIN CERTIFICATE 块。 */
 function hasCert(name, exec = execFileSync) {
 	try {
-		const out = exec(
-			"security",
-			["find-certificate", "-c", name, "-a", "-p"],
-			{ encoding: "utf8" },
-		);
+		const out = exec("security", ["find-certificate", "-c", name, "-a", "-p"], {
+			encoding: "utf8",
+		});
 		return String(out ?? "").includes("BEGIN CERTIFICATE");
 	} catch {
 		return false;
@@ -39,9 +37,9 @@ function resolveIdentity(env = process.env, options = {}) {
 	const id = (env.CODESIGN_IDENTITY || "").trim();
 	if (id) return id;
 	const raw =
-		env.WA_PI_SELF_SIGNED_CERT !== undefined
-			? env.WA_PI_SELF_SIGNED_CERT
-			: DEFAULT_SELF_SIGNED_CERT;
+		env.WA_PI_SELF_SIGNED_CERT === undefined
+			? DEFAULT_SELF_SIGNED_CERT
+			: env.WA_PI_SELF_SIGNED_CERT;
 	const selfSigned = raw.trim();
 	if (selfSigned && hasCert(selfSigned, exec)) return selfSigned;
 	return "-";
