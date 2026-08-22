@@ -354,6 +354,18 @@ export class AgentManager {
 		for (const id of this.sessions.keys()) this.skillDirty.add(id);
 	}
 
+	/**
+	 * 标记当前所有活跃会话为待整进程重建（provider 增删/改 model id 后调用）。
+	 * provider-extension.ts 经 -e 参数在 pi 进程 spawn 时固化加载，session.reload()
+	 * 热重载不会重读 -e——若走 markAllDirty（dirty 集合 → reloadExtensions 热重载），
+	 * 运行中的 pi 进程仍持旧模型注册表，setModel(新 id) 会报 Model not found。
+	 * 故与 markSkillsDirty 同走 skillDirty 集合，下次 ensureStarted 时整进程重建、
+	 * 重新加载最新 provider-extension（与 --skill 列表构造时固化同理，只能重启刷新）。
+	 */
+	markProvidersDirty(): void {
+		for (const id of this.sessions.keys()) this.skillDirty.add(id);
+	}
+
 	/** agent 重命名联动：更新活跃会话 meta，标 skillDirty 使下次 ensureStarted 重建 */
 	renameAgentSessions(oldName: string, newName: string): void {
 		for (const [id, handle] of this.sessions) {

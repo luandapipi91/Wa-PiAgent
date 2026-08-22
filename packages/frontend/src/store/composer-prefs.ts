@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
+import { isModelAvailable, type ModelProvider } from "@wa-pi/shared";
 import {
 	getDefaults,
 	getNewSessionIds,
@@ -62,6 +63,8 @@ interface ComposerPrefsState {
 	) => void;
 	setNewSessionId: (key: string, id: string) => void;
 	clearNewSessionId: (key: string) => void;
+	/** 清除指向已不存在模型的悬空引用（provider 保存/删除后调用） */
+	clearStaleModels: (providers: ModelProvider[]) => void;
 }
 
 export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
@@ -238,6 +241,49 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 			// 与 setNewSessionId 一致的 hydration guard：未 hydrate 前不落盘，避免覆盖持久化映射
 			if (defaultsHydrated) void setNewSessionIds(next);
 			return { newSessionIds: next };
+		});
+	},
+
+	// 清除悬空模型引用：provider 保存/删除（尤其改 model id）后，composer-prefs 里存的是
+	// "slug/旧id" 字符串快照，而 providers 已变成 "slug/新id"——isModelAvailable 变 false，
+	// 发送按钮静默置灰（或 ModelSelector 无法重钉）。此处把失效的会话级 + 默认模型引用清为 null，
+	// 让用户看到「未选择模型」占位并主动重选，而非一头雾水地卡在置灰。
+	clearStaleModels: (providers) => {
+		set((s) => {
+			const nextBySession: Record<string, SessionPrefs> = {};
+			let bySessionChanged = false;
+			for (const [sid, prefs] of Object.entries(s.bySession)) {
+				if (
+					prefs.model != null &&
+					!isModelAvailable(prefs.model, providers)
+				) {
+					bySessionChanged = true;
+					nextBySession[sid] = { ...prefs, model: null };
+					if (loadedSessions.has(sid)) {
+						void dbSetSessionPrefs({
+							sessionId: sid,
+							model: null,
+							thinking: prefs.thinking ?? s.defaults.thinking,
+							attachments: prefs.attachments,
+							text: prefs.text,
+							updatedAt: Date.now(),
+						});
+					}
+				} else {
+					nextBySession[sid] = prefs;
+				}
+			}
+			const defaultsChanged =
+				s.defaults.model != null &&
+				!isModelAvailable(s.defaults.model, providers);
+			const nextDefaults = defaultsChanged
+				? { ...s.defaults, model: null }
+				: s.defaults;
+			if (defaultsChanged && defaultsHydrated) void setDefaults(nextDefaults);
+			return {
+				bySession: bySessionChanged ? nextBySession : s.bySession,
+				defaults: nextDefaults,
+			};
 		});
 	},
 }));

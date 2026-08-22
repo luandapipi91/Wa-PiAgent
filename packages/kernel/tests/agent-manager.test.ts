@@ -1167,6 +1167,23 @@ test("markSkillsDirty 后 idle 命中缓存 → 整进程重建（skillDirty 改
 	expect(fakes).toHaveLength(2);
 });
 
+test("markProvidersDirty 后 idle 命中缓存 → 整进程重建（provider-extension 经 -e 固化，热重载不重读）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	am.markProvidersDirty();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// provider 变更走 skillDirty 通道：整进程重建，不走热重载（否则旧模型注册表残留 → Model not found）
+	expect(fakes).toHaveLength(2);
+	expect(fakes[0].alive).toBe(false);
+	expect(fakes[0].reloaded).toBe(0);
+
+	// 清脏后不再重建
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect(fakes).toHaveLength(2);
+});
+
 test("busy 时标脏不热重载，agent_settled（对话结束）后自动补热重载", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
@@ -1528,7 +1545,7 @@ test("config 有 systemPromptBody 时替代默认 base 提示词", async () => {
 });
 
 test("askTo 非空时 delegate-roster 段含命名智能体与委托引导", async () => {
-	const configs: Record<string, any> = {
+	const configs: Record<string, unknown> = {
 		dev: { displayName: "dev", partners: { askTo: ["代码审查"] } },
 		代码审查: {
 			displayName: "代码审查",

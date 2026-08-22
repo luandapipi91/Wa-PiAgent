@@ -236,9 +236,14 @@ export function App() {
 				case "provider:list":
 					useProvidersStore.getState().setProviders(e.providers);
 					break;
-				case "provider:changed":
+				case "provider:changed": {
 					useProvidersStore.getState().setProviders(e.providers);
+					// provider 保存/删除（尤其改 model id）后，composer-prefs 里存的是旧 id 快照，
+					// isModelAvailable 变 false 会静默置灰发送按钮。清除悬空引用让用户重选，
+					// 而非一头雾水地卡在置灰。
+					useComposerPrefsStore.getState().clearStaleModels(e.providers);
 					break;
+				}
 				// kernel 在 agent:create/delete/config:save 后都会重新 broadcast agent:list，统一在此收口
 				case "agent:list":
 					useAgentsStore.getState().setList(e.agents);

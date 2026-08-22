@@ -1,6 +1,8 @@
-// 测试：provider:save / provider:delete 后激活会话被标脏（markAllDirty），
-// 确保运行中的 pi session 在下次使用时重建进程、重新加载最新 provider-extension。
+// 测试：provider:save / provider:delete 后激活会话被标为待整进程重建（markProvidersDirty），
+// 确保运行中的 pi session 在下次使用时整进程重建、重新加载最新 provider-extension。
 // 回归保护：provider:list / provider:test 不应误触发重建。
+// 根因背景：provider-extension 经 -e 固化，热重载（markAllDirty/reloadExtensions）不重读 -e，
+// 改 model id 后运行中的 pi 进程仍持旧模型注册表 → setModel 报 Model not found。
 import { test, expect } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -38,10 +40,11 @@ async function setup() {
   const providerStore = new ProviderStore(providersFile);
   const skillManager = new SkillManager(join(projFile, "..", "skills"));
 
-  // markAllDirty 的 spy：记录调用次数
+  // markProvidersDirty 的 spy：记录调用次数
   let dirtyCalls = 0;
   const agentManager = {
-    markAllDirty: () => { dirtyCalls++; },
+    markAllDirty: () => {},
+    markProvidersDirty: () => { dirtyCalls++; },
     markSkillsDirty: () => {},
     ensureStarted: async () => ({}),
     prompt: async () => {},
@@ -74,7 +77,7 @@ async function setup() {
   };
 }
 
-test("provider:save 后标记激活会话为脏（markAllDirty 被调用）", async () => {
+test("provider:save 后标记激活会话为待重建（markProvidersDirty 被调用）", async () => {
   const ctx = await setup();
   try {
     const res = await fetch(`${ctx.base}/api/providers`, {
@@ -89,7 +92,7 @@ test("provider:save 后标记激活会话为脏（markAllDirty 被调用）", as
   }
 });
 
-test("provider:delete 后标记激活会话为脏（markAllDirty 被调用）", async () => {
+test("provider:delete 后标记激活会话为待重建（markProvidersDirty 被调用）", async () => {
   const ctx = await setup();
   try {
     // 先存一个 provider，再删除
@@ -102,7 +105,7 @@ test("provider:delete 后标记激活会话为脏（markAllDirty 被调用）", 
   }
 });
 
-test("provider:list 不触发重建（markAllDirty 不应被调用）", async () => {
+test("provider:list 不触发重建（markProvidersDirty 不应被调用）", async () => {
   const ctx = await setup();
   try {
     const res = await fetch(`${ctx.base}/api/providers`);
