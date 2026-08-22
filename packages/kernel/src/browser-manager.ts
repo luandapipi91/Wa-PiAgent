@@ -16,7 +16,11 @@ export interface WebViewLike {
   navigate(url: string): Promise<void>;
   evaluate(script: string): Promise<unknown>;
   // 兼容两种调用形式：click(selector, opts?) 与 click(x, y, opts?)（真实 Bun.WebView 均支持）
-  click(selectorOrX: string | number, yOrOpts?: unknown, opts?: unknown): Promise<void>;
+  click(
+    selectorOrX: string | number,
+    yOrOpts?: unknown,
+    opts?: unknown,
+  ): Promise<void>;
   type(text: string): Promise<void>;
   press(key: string, opts?: unknown): Promise<void>;
   scroll(dx: number, dy: number): Promise<void>;
@@ -58,7 +62,9 @@ const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
  * backend 必须用 chrome 对象形式（非字符串）：argv 只能经对象形式传入。
  */
 export function makeDefaultViewFactory(
-  WebViewCtor: new (opts: Record<string, unknown>) => unknown = Bun.WebView as never,
+  WebViewCtor: new (
+    opts: Record<string, unknown>,
+  ) => unknown = Bun.WebView as never,
 ): (opts: { width: number; height: number }) => WebViewLike {
   // SAFETY: 真实 Bun.WebView 与 WebViewLike 的方法签名同构（Layer 3 真实引擎
   // 集成测试验证 navigate/evaluate/click/type/press/scroll/scrollTo/screenshot/close
@@ -75,13 +81,17 @@ export class BrowserManager {
   private readonly idleTimeoutMs: number;
   private readonly sweepIntervalMs: number;
   private readonly screenshotDir: string;
-  private readonly viewFactory: (opts: { width: number; height: number }) => WebViewLike;
+  private readonly viewFactory: (opts: {
+    width: number;
+    height: number;
+  }) => WebViewLike;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: BrowserManagerOptions = {}) {
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.sweepIntervalMs = opts.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
-    this.screenshotDir = opts.screenshotDir ?? join(WA_PI_DIR, "tmp", "browser-screenshots");
+    this.screenshotDir =
+      opts.screenshotDir ?? join(WA_PI_DIR, "tmp", "browser-screenshots");
     // SAFETY: Bun.WebView 与 WebViewLike 的方法签名同构（Layer 3 真实引擎集成测试验证）。
     // 必须用 Chrome 后端：Bun.WebView 默认 backend 是 "webkit"（仅 macOS 可用），
     // 非 macOS 平台不传会直接构造抛错。makeDefaultViewFactory 注入 --mute-audio
