@@ -1,3 +1,9 @@
+## 2026-08-22 — feat(kernel): AgentManager 接线 browser_* 工具（browserManager 注入 + handleTool 分派 + 生命周期）
+
+- 新增：`AgentManagerOpts` 新增可选 `browserManager` 注入（测试注入 fake；生产不传默认 `new BrowserManager()`）；`bridgeCtx.handleTool` 在 memory_ 分支后新增 `tool.startsWith("browser_")` 分支调 `handleBrowserTool`（用 `am.browserManager`，执行逻辑复用既有 browser-tools.ts）；`_teardownSession` 开头随会话销毁 `browserManager.closeSession(sessionId)`（防浏览器进程泄漏），`disposeAll` 末尾 `browserManager.dispose()`（关 sweep 定时器与全部 WebView）。
+- 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/browser-tools-bridge.test.ts`（新增 3 例：handleTool 分派 sessionId 正确 / closeSession 随会话销毁 / disposeAll 调 dispose，注入 fake manager）。
+- 验证：新测试 3 pass；回归抽样（agent-manager、agent-manager-subagent-overrides、browser-tools、browser-manager）127 pass 全绿。
+
 ## 2026-08-22 — feat(kernel): bridge 扩展注册 4 个 browser_* 工具
 
 - 新增：`wa-pi-bridge.extension.ts` 仿 delegate/fleet 注册 browser_navigate / browser_evaluate / browser_screenshot / browser_close 四个工具，DESCRIPTION 与 ParamsSchema 统一来自 shared/tool-schemas.ts（ensureBridgeExtension 运行期连同复制，bridge 侧与 kernel 侧引用同一份定义）；execute 走 callBridge，文件顶部新增 `BROWSER_NAVIGATE_TIMEOUT_MS = 150_000`（navigate 120s + 余量）与 `BROWSER_OPERATION_TIMEOUT_MS = 90_000`（其余操作 60s + 余量）两个超时常量。
