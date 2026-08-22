@@ -1,3 +1,11 @@
+## 2026-08-22 — v0.2.19 发版
+
+### 发版
+
+- 版本 0.2.18 → 0.2.19（并行插件安装串行化修复——EBUSY/ENOENT）。
+- RELEASE_NOTES.md / version-history.json 已更新；线上 win 更新源 latest.yml 指向 0.2.19（mac 保持 0.2.15）。
+- 影响范围：packages/desktop/package.json、packages/frontend/package.json、packages/desktop/RELEASE_NOTES.md、packages/frontend/src/data/version-history.json；验证：全量回归 + pack:win + publish-oss 上传 R2。
+
 ## 2026-08-22 — 并行插件安装串行化（EBUSY/ENOENT）
 
 ### 修复
