@@ -828,12 +828,7 @@ export class AgentManager {
 				// browser_*：宿主浏览器自动化工具（Bun.WebView）。分派到 browserManager，
 				// 执行逻辑在 browser-tools.ts（导航/操作/截图/关闭）。
 				if (tool.startsWith("browser_")) {
-					return await handleBrowserTool(
-						am.browserManager,
-						sessionId,
-						tool,
-						params,
-					);
+					return await handleBrowserTool(am.browserManager, sessionId, tool, params);
 				}
 				return defaultCtx.handleTool(tool, toolCallId, params, signal);
 			},

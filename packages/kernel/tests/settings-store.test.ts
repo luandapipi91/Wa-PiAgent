@@ -178,7 +178,9 @@ test("ensureHttpIdleTimeout：字段缺失时写入默认值，保留文件其�
 test("ensureHttpIdleTimeout：已有用户值不覆盖；非数字（如字符串）归一为默认", async () => {
 	await writeFile(file, JSON.stringify({ httpIdleTimeoutMs: 90_000 }), "utf8");
 	await ensureHttpIdleTimeout(file);
-	expect(JSON.parse(await readFile(file, "utf8")).httpIdleTimeoutMs).toBe(90_000);
+	expect(JSON.parse(await readFile(file, "utf8")).httpIdleTimeoutMs).toBe(
+		90_000,
+	);
 
 	await writeFile(file, JSON.stringify({ httpIdleTimeoutMs: "120000" }), "utf8");
 	await ensureHttpIdleTimeout(file);

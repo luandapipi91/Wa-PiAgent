@@ -54,7 +54,7 @@ describe("injectReleaseNotes", () => {
 			JSON.stringify([
 				{
 					version: "1.2.3",
-					sections: { "新增": ["功能 A"], "修复": ["Bug B"] },
+					sections: { 新增: ["功能 A"], 修复: ["Bug B"] },
 				},
 			]),
 		);
@@ -69,9 +69,7 @@ describe("injectReleaseNotes", () => {
 		const history = join(tmpdir(), "h2.json");
 		writeFileSync(
 			history,
-			JSON.stringify([
-				{ version: "1.3.0", sections: { "修复": ["问题"] } },
-			]),
+			JSON.stringify([{ version: "1.3.0", sections: { 修复: ["问题"] } }]),
 		);
 		const out = injectReleaseNotes(
 			"version: 1.2.0\nreleaseNotes: |-\n  旧内容\nfiles: []\n",
@@ -90,7 +88,10 @@ describe("orderArtifactsForUpload", () => {
 		const artifacts = [
 			{ path: "/r/latest.yml", key: "releases/latest.yml" },
 			{ path: "/r/a.exe", key: "releases/WaPi-Setup-0.2.17.exe" },
-			{ path: "/r/a.exe.blockmap", key: "releases/WaPi-Setup-0.2.17.exe.blockmap" },
+			{
+				path: "/r/a.exe.blockmap",
+				key: "releases/WaPi-Setup-0.2.17.exe.blockmap",
+			},
 			{ path: "/r/latest-mac.yml", key: "releases/latest-mac.yml" },
 		];
 		const ordered = orderArtifactsForUpload(artifacts);

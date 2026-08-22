@@ -6,12 +6,7 @@
 //   releases/WaPi-Setup-<version>.exe.blockmap
 // releaseNotes：electron-builder 26 不支持 releaseNotesFile，故这里上传前把
 // packages/frontend/src/data/version-history.json 第一条内容注入 latest.yml 的 releaseNotes 字段。
-import {
-	readdirSync,
-	readFileSync,
-	statSync,
-	existsSync,
-} from "node:fs";
+import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -299,9 +294,7 @@ if (import.meta.main) {
 			}
 		}
 
-		console.log(
-			`\n✅ 发布完成: https://oss.wapiagent.top/${PREFIX}/latest.yml`,
-		);
+		console.log(`\n✅ 发布完成: https://oss.wapiagent.top/${PREFIX}/latest.yml`);
 	}
 
 	void main();
