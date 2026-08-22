@@ -575,10 +575,3 @@ export async function startKernel(opts?: {
 
 	return { port: server.actualPort, stop: () => server.stop() };
 }
-
-if (import.meta.main) {
-	startKernel().catch((e) => {
-		console.error(e);
-		process.exit(1);
-	});
-}
