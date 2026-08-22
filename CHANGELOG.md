@@ -46,12 +46,46 @@
   - 修复编译产物虚拟 FS 解析断点（createRequire(import.meta.url) 指向 B:\~BUN\root，解析不到磁盘 node_modules）：resolvePiCliPath（rpc-client.ts）、resolveExtensionEntryFile（extensions.ts）、loadCatalog（pi-catalog.ts）三处统一加 cwd 回退；stageAssetDir（compile-binary.ts）改返回字面 `assets` 子目录——bun 1.4.0 --asset 按目录名挂载到虚拟根，mkdtemp 随机名导致 bridge 三文件嵌入后运行时找不到（集成测试首次运行 ENOENT 暴露）。
   - 影响范围：scripts/kernel-compile-it.ts（新增）、packages/kernel/src/rpc-client.ts、packages/kernel/src/extensions.ts、packages/kernel/src/pi-catalog.ts、packages/kernel/scripts/compile-binary.ts、packages/kernel/tests/bridge.test.ts、packages/kernel/tests/compile-binary.test.ts、packages/desktop/scripts/build-kernel-sidecar.ts、packages/desktop/tests/build-kernel-sidecar.test.ts；验证：集成测试 ✅（compile → install 327 包 → spawn → agent:prompt → 未选择模型，无 Cannot find module / ENOENT）、kernel 全量 1259 pass（1 既有 commonRoot 失败）、desktop 全量 187 pass（1 既有 regenerateBlockmap 失败）。
 
+## 2026-08-22 — test: 补 browser_* 工具可见性控制验证测试（零新机制）
+
+- 新增：命名智能体 browser_* 默认开（DEFAULT_AGENT_TOOLS 已含 → listGlobalTools 自动列出 → ToolsTab 自动出现 4 个开关，`tools: []` = 全量默认 = 默认开，取消勾选转显式白名单即关闭）；只读内置子智能体（Explore/Plan）默认关（agent-manager.ts 硬编码白名单 read/bash/grep/find/ls 天然不含 browser_*）。
+- 落点为 3 个验证型测试：kernel `listGlobalTools` 断言含 4 个 browser_*（source='内置'）；只读内置子智能体 spawn 配置 tools 白名单逐字等于 [read,bash,grep,find,ls] 不含 browser_*；前端 ToolsTab 渲染 4 个 browser_* 开关且默认勾选、点掉后 draft.tools 转显式白名单不含该项。
+- 影响范围：`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/agent-manager-subagent-overrides.test.ts`、`packages/frontend/tests/AgentConfig.test.tsx`（零生产代码改动）。
+- 验证：kernel 112 pass；前端 AgentConfig.test.tsx 32 pass 全绿。
+
+
+## 2026-08-22 — test(kernel): Layer 4 E2E（真实 bridge 链路 + 白名单验证）
+
+- 新增：`packages/kernel/tests/browser-e2e.test.ts`。真实链路 E2E：起真实 WSServer + 真实 AgentManager（不注入 NOOP_BROWSER_MANAGER，走生产默认 `new BrowserManager()`），`ensureStarted` 会话后加载真实扩展源码配 env，4 个 browser_* 工具 execute 经真实 HTTP POST /bridge/tool 到 kernel，完整走 browser_navigate（data: URL）→ browser_evaluate（读 h1）→ browser_screenshot（path 模式，断言落在 `${WA_PI_DIR}/tmp/browser-screenshots` 且文件非空）→ browser_close；引擎不可用时探测 skip 不算失败。白名单验证：agent tools 显式白名单不含 browser_* 时 `--tools` 不含 4 个 browser_*（read/bash 保留），反向含 browser_navigate 时 `--tools` 含之（NOOP_BROWSER_MANAGER，不测真实浏览器）。测试截图/临时文件含失败路径全部清理。
+- 影响范围：`packages/kernel/tests/browser-e2e.test.ts`（新建，3 用例）。
+- 验证：真实链路 1 pass（本机引擎可用）+ 白名单 2 pass = 3 pass / 0 fail / 40 expect；bridge/agent-manager/browser 相关回归 154 pass 全绿；kernel typecheck 通过。
+
+## 2026-08-22 — fix(kernel): BrowserManager 默认 WebView 工厂补传 backend:"chrome" + Layer 3 真实引擎集成测试
+
+- 修复：默认 viewFactory `new Bun.WebView(o)` → `new Bun.WebView({ ...o, backend: "chrome" })`。真实 API 差异（bun-types@1.4.0）：构造 backend 默认 "webkit" 仅 macOS 可用，非 macOS 平台不传会直接构造抛错；显式传 "chrome" 后自动探测本机 Chrome/Chromium/Edge，跨平台可用。
+- 新增：`packages/kernel/tests/browser-real-engine.test.ts`（Layer 3）用真实 Bun.WebView 走 handleBrowserTool 完整工具路径（navigate → evaluate eval/click → screenshot path → close），直接验证 WebViewLike 假设签名与真实引擎匹配；引擎不可用时 test.skip 跳过并标注（不算失败）。实测确认 WebViewLike 与真实 API 仅构造 backend 一处差异，其余签名全部一致。
+- 影响范围：`packages/kernel/src/browser-manager.ts`（默认工厂一行）、`packages/kernel/tests/browser-real-engine.test.ts`（新建，2 用例）。
+- 验证：真实引擎全链路 2 pass（本机 Windows 引擎可用）；browser 相关回归 20 pass；kernel typecheck 通过；全量套件除既有 Windows 平台失败 commonRoot 外全绿。
+
+## 2026-08-22 — feat(kernel): AgentManager 接线 browser_* 工具（browserManager 注入 + handleTool 分派 + 生命周期）
+
+- 新增：`AgentManagerOpts` 新增可选 `browserManager` 注入（测试注入 fake；生产不传默认 `new BrowserManager()`）；`bridgeCtx.handleTool` 在 memory_ 分支后新增 `tool.startsWith("browser_")` 分支调 `handleBrowserTool`（用 `am.browserManager`，执行逻辑复用既有 browser-tools.ts）；`_teardownSession` 开头随会话销毁 `browserManager.closeSession(sessionId)`（防浏览器进程泄漏），`disposeAll` 末尾 `browserManager.dispose()`（关 sweep 定时器与全部 WebView）。
+- 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/browser-tools-bridge.test.ts`（新增 3 例：handleTool 分派 sessionId 正确 / closeSession 随会话销毁 / disposeAll 调 dispose，注入 fake manager）。
+- 验证：新测试 3 pass；回归抽样（agent-manager、agent-manager-subagent-overrides、browser-tools、browser-manager）127 pass 全绿。
+
+## 2026-08-22 — feat(kernel): bridge 扩展注册 4 个 browser_* 工具
+
+- 新增：`wa-pi-bridge.extension.ts` 仿 delegate/fleet 注册 browser_navigate / browser_evaluate / browser_screenshot / browser_close 四个工具，DESCRIPTION 与 ParamsSchema 统一来自 shared/tool-schemas.ts（ensureBridgeExtension 运行期连同复制，bridge 侧与 kernel 侧引用同一份定义）；execute 走 callBridge，文件顶部新增 `BROWSER_NAVIGATE_TIMEOUT_MS = 150_000`（navigate 120s + 余量）与 `BROWSER_OPERATION_TIMEOUT_MS = 90_000`（其余操作 60s + 余量）两个超时常量。
+- 影响范围：`packages/kernel/src/wa-pi-bridge.extension.ts`、`packages/kernel/tests/bridge-extension.test.ts`（新增源码级 + loadTools 实际注册断言 7 例）、`packages/kernel/tests/bridge.test.ts`（工具数断言 7→12 同步，im_push_to 排序契约随 ALL_BRIDGE_TOOLS 更新）。
+- 验证：bridge 三个测试文件 43 pass；kernel 全量套件除既有 Windows 路径断言 commonRoot（环境性失败，与本改动无关）外全绿。
+
 ## 2026-08-21 — fix: Windows 盘符绝对路径（C:/、C:\\）渲染为文件胶囊
 
 - 修复：AI 回复中反引号包裹的 Windows 盘符绝对路径（`C:/Users/.../beautiful.html`）未被识别为文件路径，渲染成普通等宽代码而非可点击文件胶囊（FilePill）。根因：`parseFilePath` 的 `PATH_RE` 只有 Unix 绝对路径（`/`、`~`、`./`）与相对路径分支，无盘符分支；而 `FilePill.resolveAbsolutePath` 早已支持盘符，断点仅在入口判定。
 - 顺带修复既有缺陷：绝对路径分支 `[^\s]+` 贪婪吞掉 `:行:列` 后缀且可选组不回溯，导致 `/abs/path.ts:12`、`C:/src/a.ts:12` 的行号从不上屏（与注释承诺不符）；路径主体改 `[^\s:]+` 让后缀正确分离，同时返回时反斜杠归一化为正斜杠。
 - 影响范围：`packages/frontend/src/components/blocks/file-path.ts`；测试：file-path.test.ts 补盘符/反斜杠/`:行` 4 断言，FilePill.test.tsx 补 Windows 绝对路径渲染胶囊+点击预览用例（8 pass）。
 - 验证：file-path/FilePill/FilePreviewModal/markdown-links/linkify 相关单测 39 pass + typecheck 干净。
+## 2026-08-21 — fix: 浏览器预览终审修复波（拖拽渲染性能 / 大文件护栏 / 小项收敛）
 
 - 修复（性能）：浏览器预览拖拽期 60Hz 全树重渲染与同步写盘——`browser` store 持久化改 trailing debounce（每 key 独立 timer，默认 300ms，`setPersistDebounceMs` 可注入，测试置 0 同步写保持确定性）；`SessionView` 用 `React.memo` 包裹（props 不变跳过含 MessageList 的 reconcile）；`BrowserPanel` 整订阅改逐字段 selector（不再随 splitRatio/floatRect 每帧重渲染）。
 - 修复（布局）：split 模式聊天侧宽度改 `calc(x% - 2px)`，消除聊天侧+预览侧+分隔条合计 100%+2px 导致预览右缘被裁约 2px。
@@ -78,6 +112,12 @@
 
 ### 修复
 
+- browser_* 工具第 1 轮修复：
+  - 修复：WebViewLike.click 签名改为兼容 `click(selector, opts?)` 与 `click(x, y, opts?)` 两种形式（原先 1-2 参签名导致坐标 click 调用 tsc 报 TS2554，typecheck 无法通过）。
+  - 修复：browser_evaluate eval 结果 8000 字符截断失效（截断作用于局部变量但返回时重新序列化），改为先序列化最终 payload 再截断。
+  - 修复：isEngineUnavailable 正则过宽误报，收紧为 spawn/executable 相关的具体签名。
+  - 测试：补坐标 click 与超长 eval 截断 2 个用例（browser-tools 11 用例 + browser-manager 6 用例全 PASS）。
+  - 影响范围：packages/kernel/src/browser-manager.ts、packages/kernel/src/browser-tools.ts、packages/kernel/tests/browser-tools.test.ts。
 - 本地代理中继连接泄漏（bun 1.4 暴露）：隧道/转发一端关闭时另一端残留半关闭连接，`relay.close()` 永远挂起、真实场景连接泄漏。修复 `establishTunnel` 与 `forwardPlain` 双向 pipe 对端清理（client↔outbound 互毁）。
   - 影响范围：`packages/kernel/src/proxy-relay.ts`；验证：net-log 中继日志接入测试 12 用例通过（此前 bun 1.4 下稳定超时）。
 - 测试环境耦合修复：`readSystemProxy` 集成测试原断言「返回值不可能是回环地址」，但用户机器开着本地代理（如 Clash 127.0.0.1:7890）时系统代理读到回环地址是合法行为；移除过强断言，回环过滤语义保留在 systemProxyFromEnv 单测。
@@ -93,6 +133,11 @@
 
 ### 新增
 
+- browser_* 宿主浏览器工具（browser_navigate/evaluate/screenshot/close）
+  - 新增：BrowserManager 会话级 Bun.WebView 实例池（packages/kernel/src/browser-manager.ts）——每个 wa-pi 会话一个 WebView，首次 navigate 隐式创建、之后复用；销毁三层：闲置超时 sweep、会话结束 closeSession、显式 browser_close；视图工厂可注入（测试用 fake）。
+  - 新增：browser-tools.ts 执行逻辑——handleBrowserTool(manager, sessionId, tool, params) 按工具分派返回 BridgeToolResult；超时用 Promise.race 包装（页面加载 120s、操作 60s）、ERR_INVALID_STATE 并发重试（最多 3 次×100ms 递增间隔）、eval 结果超 8000 字符截断、截图默认落盘到截图目录（path 模式）或返回 data URL（base64 模式）、引擎不可用错误提示含 BUN_CHROME_PATH 指引。
+  - 测试：browser-manager 6 用例、browser-tools 9 用例全 PASS（fake view + fake manager 注入）。
+  - 影响范围：packages/kernel/src/browser-manager.ts、packages/kernel/src/browser-tools.ts、packages/kernel/tests/browser-manager.test.ts、packages/kernel/tests/browser-tools.test.ts。
 - bridge-extension 兼容 bun --compile 单二进制（POC 支撑，mac 验证用）
   - 背景：Windows 真机 POC 验证「kernel 用 bun --compile 编译成单 exe + --asset 嵌入桥接文件」可行——jiti 扩展加载器在编译产物中正常解析（agent 能创建到「未选择模型」一步，与解释运行同线）。此提交是 POC 需要的两处代码支撑。
   - 实现：`packages/kernel/src/bridge-extension.ts` ① 三个 resolve 函数加 `__dirname/assets/` 子目录回退（bun --compile --asset 把 wa-pi-bridge.extension.ts/tool-schemas.ts/file-snapshot.ts 嵌入到 import.meta.dir/assets/）；② `ensureBridgeExtension` 的 copyFile 改 readFileSync+writeFile（编译产物虚拟 FS 不支持 copyFile，existsSync 可读但 copyFile ENOENT）。

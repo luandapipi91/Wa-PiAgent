@@ -30,6 +30,14 @@ import {
 	DelegateParamsSchema,
 	FLEET_DESCRIPTION,
 	FleetParamsSchema,
+	BROWSER_NAVIGATE_DESCRIPTION,
+	BrowserNavigateParamsSchema,
+	BROWSER_EVALUATE_DESCRIPTION,
+	BrowserEvaluateParamsSchema,
+	BROWSER_SCREENSHOT_DESCRIPTION,
+	BrowserScreenshotParamsSchema,
+	BROWSER_CLOSE_DESCRIPTION,
+	BrowserCloseParamsSchema,
 } from "./tool-schemas.ts";
 import {
 	applySizeLimit,
@@ -54,6 +62,8 @@ const DEFAULT_TIMEOUT_MS = 60_000; // 普通工具 60s
 const AGENT_END_REPORT_TIMEOUT_MS = 10_000; // agent_end 文件修改上报：本地请求，10s 足够
 const ASK_TIMEOUT_MS = 600_000; // ask 等用户回答，放宽到 10 分钟
 const DELEGATE_TIMEOUT_MS = 600_000; // delegate/fleet：10 分钟无任何帧才判死（流式后"无帧"才是真卡死）
+const BROWSER_NAVIGATE_TIMEOUT_MS = 150_000; // navigate 120s + 余量
+const BROWSER_OPERATION_TIMEOUT_MS = 90_000; // 其余操作 60s + 余量
 
 // bridge 偶发断开重试：pi 侧 fetch 的 socket 可能被 Bun 非确定性清理（GC/keep-alive），
 // 断开后重试能恢复长连接（ask 等用户回答期间尤其需要）。重试前校验 signal 未 abort
@@ -374,6 +384,70 @@ export default function (pi: ExtensionAPI) {
 		parameters: FleetParamsSchema,
 		async execute(toolCallId, params, signal) {
 			return callBridge("fleet", toolCallId, params, signal, DELEGATE_TIMEOUT_MS);
+		},
+	});
+
+	pi.registerTool({
+		name: "browser_navigate",
+		label: "Browser Navigate",
+		description: BROWSER_NAVIGATE_DESCRIPTION,
+		parameters: BrowserNavigateParamsSchema,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"browser_navigate",
+				toolCallId,
+				params,
+				signal,
+				BROWSER_NAVIGATE_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "browser_evaluate",
+		label: "Browser Evaluate",
+		description: BROWSER_EVALUATE_DESCRIPTION,
+		parameters: BrowserEvaluateParamsSchema,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"browser_evaluate",
+				toolCallId,
+				params,
+				signal,
+				BROWSER_OPERATION_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "browser_screenshot",
+		label: "Browser Screenshot",
+		description: BROWSER_SCREENSHOT_DESCRIPTION,
+		parameters: BrowserScreenshotParamsSchema,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"browser_screenshot",
+				toolCallId,
+				params,
+				signal,
+				BROWSER_OPERATION_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "browser_close",
+		label: "Browser Close",
+		description: BROWSER_CLOSE_DESCRIPTION,
+		parameters: BrowserCloseParamsSchema,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"browser_close",
+				toolCallId,
+				params,
+				signal,
+				BROWSER_OPERATION_TIMEOUT_MS,
+			);
 		},
 	});
 

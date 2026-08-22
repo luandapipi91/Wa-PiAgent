@@ -77,6 +77,8 @@ import type { WaPiSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { readBuiltinAgentPrompt } from "./subagent-info";
 import { askRegistry } from "./ask-registry";
+import { BrowserManager } from "./browser-manager";
+import { handleBrowserTool } from "./browser-tools";
 import type { SkillManager } from "./skill-manager";
 import type { ExtensionManager } from "./extension-manager";
 import type { McpStore } from "./mcp-store";
@@ -166,6 +168,8 @@ export interface AgentManagerOpts {
 	 *  channelManager 构造晚于 AgentManager（循环依赖），由 index.ts 经 setImPushExecutor 后绑定；
 	 *  定时任务会话仍用 ensureStarted 的 imPush 注入（优先于本执行器）。 */
 	imPushExecutor?: (contact: string, message: string) => Promise<string>;
+	// 测试注入 fake；生产不传 → 默认 new BrowserManager()。browser_* 工具的分派目标
+	browserManager?: BrowserManager;
 	// 测试注入 mock；生产留空 → 真实 RpcClient
 	createClientFn?: CreateClientFn;
 	// abort RPC 无响应的兜底超时（ms）：超时强杀 pi 进程，保证「停止」一定生效。
@@ -250,8 +254,13 @@ export class AgentManager {
 	private skillDirty = new Set<string>();
 	// 系统提示词段落配置缓存（首次加载后缓存；用户编辑 prompts.json 后需重启 kernel 刷新）
 	private promptSegments: PromptSegment[] | null = null;
+	// 会话级浏览器视图池：browser_* 工具的执行后端（可注入 fake，生产默认实例化）
+	readonly browserManager: BrowserManager;
 
-	constructor(private opts: AgentManagerOpts) {}
+	constructor(private opts: AgentManagerOpts) {
+		// 测试可注入 fake manager；生产默认创建真实 BrowserManager（延迟到首次工具调用才真正启动 WebView）
+		this.browserManager = opts.browserManager ?? new BrowserManager();
+	}
 
 	/**
 	 * 加载系统提示词段落配置（启动后首次调用时读 PROMPTS_FILE，之后用缓存）。
@@ -816,6 +825,16 @@ export class AgentManager {
 						],
 						details: { error: "memory_disabled" },
 					};
+				}
+				// browser_*：宿主浏览器自动化工具（Bun.WebView）。分派到 browserManager，
+				// 执行逻辑在 browser-tools.ts（导航/操作/截图/关闭）。
+				if (tool.startsWith("browser_")) {
+					return await handleBrowserTool(
+						am.browserManager,
+						sessionId,
+						tool,
+						params,
+					);
 				}
 				return defaultCtx.handleTool(tool, toolCallId, params, signal);
 			},
@@ -1560,6 +1579,8 @@ export class AgentManager {
 
 	/** 拆除单个会话的内部资源（注销 bridge ctx + kill 进程 + 清临时文件与各 Map），不动 disposed 标记 */
 	private _teardownSession(sessionId: string): void {
+		// browser_* 视图随会话销毁（防浏览器进程泄漏）
+		this.browserManager.closeSession(sessionId);
 		askRegistry.cancelAll(sessionId); // 拆除资源时作废 pending ask
 		// 挂起的扩展对话必须以 cancelled 解决：否则 rpc-client 的 handleUiRequest
 		// 永远不返回（进程已死无实际阻塞，但 registry 条目会泄漏）
@@ -1774,6 +1795,8 @@ export class AgentManager {
 		for (const id of [...this.sessions.keys()]) {
 			await this.disposeSession(id);
 		}
+		// 全部会话销毁后停掉浏览器视图池（关掉 sweep 定时器与全部 WebView）
+		this.browserManager.dispose();
 	}
 
 	/**
