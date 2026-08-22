@@ -1,3 +1,11 @@
+## 2026-08-22 — v0.2.17 发版
+
+### 发版
+
+- 版本 0.2.16 → 0.2.17（Windows 无 Git Bash 场景修复：自动下载 PortableGit 接线 shellPath + bash 报错友好化）。
+- RELEASE_NOTES.md / version-history.json 已更新；线上 win 更新源 latest.yml 指向 0.2.17（mac 保持 0.2.15）。
+- 影响范围：packages/desktop/package.json、packages/frontend/package.json、packages/desktop/RELEASE_NOTES.md、packages/frontend/src/data/version-history.json；验证：全量回归 + pack:win + publish-oss 上传 R2 + 阿里云 OSS。
+
 ## 2026-08-22 — Windows 无 Git Bash 场景修复（shell 工具）
 
 ### 修复

@@ -1,15 +1,6 @@
-WA PI Agent 0.2.16 更新内容：
-
-【新增】
-
-- 产物预览选中编辑，h5预览窗客服可浮动调整
-
-【优化】
-
-- 更快的性能和应用打开速度
-- Windows 盘符绝对路径（C:/、C:\）识别为可点击文件胶囊，支持 :行:列 定位
-- 会话视图稳定性与预览拖拽性能优化
+WA PI Agent 0.2.17 更新内容：
 
 【修复】
 
-- 编译产物启动兼容宿主环境 BUN_BE_BUN 变量；打包脚本改用真实 bun 可执行文件，修复打包机 PATH 不含 bun 的报错
+- Windows 无 Git Bash 时自动下载 PortableGit 提供 bash：agent 的 shell 工具在未安装 Git 的电脑上不再报错，自动可用（首次使用自动下载，约 64MB）
+- bash 工具报错改为中文引导：安装 Git for Windows 或配置 shellPath

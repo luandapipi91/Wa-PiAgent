@@ -81,3 +81,24 @@ describe("injectReleaseNotes", () => {
 		expect(out).not.toContain("旧内容");
 	});
 });
+
+// —— 上传顺序：安装包/blockmap 在前，latest*.yml 清单最后覆盖（防线上悬空）——
+import { orderArtifactsForUpload } from "./publish-oss";
+
+describe("orderArtifactsForUpload", () => {
+	it("安装包/blockmap 排在清单之前", () => {
+		const artifacts = [
+			{ path: "/r/latest.yml", key: "releases/latest.yml" },
+			{ path: "/r/a.exe", key: "releases/WaPi-Setup-0.2.17.exe" },
+			{ path: "/r/a.exe.blockmap", key: "releases/WaPi-Setup-0.2.17.exe.blockmap" },
+			{ path: "/r/latest-mac.yml", key: "releases/latest-mac.yml" },
+		];
+		const ordered = orderArtifactsForUpload(artifacts);
+		expect(ordered.map((a) => a.key)).toEqual([
+			"releases/WaPi-Setup-0.2.17.exe",
+			"releases/WaPi-Setup-0.2.17.exe.blockmap",
+			"releases/latest.yml",
+			"releases/latest-mac.yml",
+		]);
+	});
+});
