@@ -25,10 +25,15 @@ const TEST_URL = "data:text/html," + encodeURIComponent(TEST_HTML);
 async function probeEngineAvailable(): Promise<boolean> {
   try {
     const view = new Bun.WebView({ width: 160, height: 120, backend: "chrome" });
-    await view.navigate(TEST_URL);
-    const h1 = await view.evaluate(`document.querySelector("h1")?.textContent`);
-    view.close();
-    return h1 === "hello";
+    try {
+      await view.navigate(TEST_URL);
+      const h1 = await view.evaluate(`document.querySelector("h1")?.textContent`);
+      return h1 === "hello";
+    } finally {
+      // 构造成功后才进入此 try：navigate/evaluate 抛错（如 Chrome 启动成功但页面加载异常）
+      // 也关闭 WebView，避免底层浏览器进程残留；构造本身抛错时 view 未赋值，无泄漏
+      view.close();
+    }
   } catch (err) {
     console.log(
       `[Layer 3] 真实引擎不可用，跳过：${err instanceof Error ? err.message : String(err)}（非 macOS 平台需要已安装 Chrome/Chromium/Edge/Brave，或设置 BUN_CHROME_PATH）`,
