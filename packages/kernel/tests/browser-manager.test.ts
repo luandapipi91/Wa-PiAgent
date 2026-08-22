@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BrowserManager, type WebViewLike } from "../src/browser-manager";
+import { BrowserManager, makeDefaultViewFactory, type WebViewLike } from "../src/browser-manager";
 
 /** fake WebView：记录调用、可配置 navigate 结果 */
 function makeFakeView(): WebViewLike & { closed: boolean; navigated: string[] } {
@@ -107,5 +107,41 @@ describe("BrowserManager", () => {
     expect((view as unknown as { closed: boolean }).closed).toBe(true);
     expect(manager.get("s1")).toBeUndefined();
     manager.dispose();
+  });
+  test("默认视图工厂：Chrome 后端带 --mute-audio（页面媒体不自动出声）", () => {
+    // 注入假 WebView 构造器捕获参数（避免拉起真实 Chrome）
+    const captured: Array<Record<string, unknown>> = [];
+    const FakeCtor = class {
+      constructor(opts: Record<string, unknown>) {
+        captured.push(opts);
+      }
+      close() {}
+    };
+    const factory = makeDefaultViewFactory(FakeCtor as never);
+    const view = factory({ width: 800, height: 600 });
+    expect(captured).toHaveLength(1);
+    // backend 必须是 chrome 对象形式且带 --mute-audio 静音参数
+    expect(captured[0]).toMatchObject({
+      width: 800,
+      height: 600,
+      backend: { type: "chrome", argv: ["--mute-audio"] },
+    });
+    (view as unknown as { close(): void }).close();
+  });
+
+  test("默认视图工厂：缺少 --mute-audio 会失败（防回归静音参数）", () => {
+    // 变异验证辅助：直接断言参数里的 argv 精确包含 --mute-audio
+    const captured: Array<Record<string, unknown>> = [];
+    const FakeCtor = class {
+      constructor(opts: Record<string, unknown>) {
+        captured.push(opts);
+      }
+      close() {}
+    };
+    const factory = makeDefaultViewFactory(FakeCtor as never);
+    factory({ width: 800, height: 600 });
+    const backend = captured[0].backend as { type: string; argv?: string[] };
+    expect(backend.type).toBe("chrome");
+    expect(backend.argv).toContain("--mute-audio");
   });
 });
