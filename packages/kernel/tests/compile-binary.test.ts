@@ -28,6 +28,16 @@ test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/-
   }
 });
 
+test("buildCompileArgs: target=win 追加 --target bun-windows-x64（交叉编译）", () => {
+  const args = buildCompileArgs("/tmp/out/WaPiKernel.exe", "/tmp/assets", "win");
+  expect(args).toContain("--target");
+  expect(args[args.indexOf("--target") + 1]).toBe("bun-windows-x64");
+  expect(buildCompileArgs("/tmp/out/k", "/tmp/assets", "linux")).toContain("bun-linux-x64");
+  // darwin：本机编译不追加 --target
+  const darwin = buildCompileArgs("/tmp/out/k", "/tmp/assets", "darwin");
+  expect(darwin).not.toContain("--target");
+});
+
 test("EXTERNAL_PACKAGES: 只含原生 .node 依赖 @napi-rs/keyring", () => {
   expect(EXTERNAL_PACKAGES).toEqual(["@napi-rs/keyring"]);
 });
@@ -59,4 +69,8 @@ test("kernelBinaryName: 按平台返回 WaPiKernel(.exe)", () => {
   const name = kernelBinaryName();
   expect(name === "WaPiKernel.exe" || name === "WaPiKernel").toBe(true);
   if (process.platform === "win32") expect(name).toBe("WaPiKernel.exe");
+  // 显式 target 时按目标平台命名（交叉编译场景）
+  expect(kernelBinaryName("win")).toBe("WaPiKernel.exe");
+  expect(kernelBinaryName("darwin")).toBe("WaPiKernel");
+  expect(kernelBinaryName("linux")).toBe("WaPiKernel");
 });
