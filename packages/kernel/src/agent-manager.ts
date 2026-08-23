@@ -1272,7 +1272,7 @@ export class AgentManager {
 		handle.busy = true;
 		try {
 			await handle.client.compact(customInstructions);
-		} catch (err) {
+		} catch {
 			handle.busy = false;
 			handle.thinkingSince = null;
 			// 压缩失败（如会话太小 / 已压缩过）：pi 已 emit compaction_end{errorMessage}，
@@ -1910,25 +1910,113 @@ const MAX_IMAGE_INLINE_BYTES = 3.5 * 1024 * 1024;
 /** 单次请求图片累计字节上限：超出部分回退为附件（@路径 引用），避免 RPC payload 过大（≈10MB base64 13.3MB）。 */
 const MAX_TOTAL_IMAGE_INLINE_BYTES = 10 * 1024 * 1024;
 
+/** 压缩目标的图片字节上限：超过单张上限的图尝试用 bun:image 压缩到 ≤ 此值再内联（对应「大图压到 3M 一张」需求）。 */
+const MAX_IMAGE_COMPRESS_BYTES = 3 * 1024 * 1024;
+
+/** 压缩尝试的原始图片大小上限：超过此值不压缩（超大图压缩无谓消耗 CPU）、直接降级为附件。 */
+const MAX_IMAGE_COMPRESS_SOURCE_BYTES = 30 * 1024 * 1024;
+
+/**
+ * 用 bun:image 把图片压缩到 ≤ targetBytes（原始字节）。
+ * 策略：缩尺寸优先——视觉模型通常把输入图缩到 ~1024px 处理，发送超过 4K 的分辨率
+ * 既慢也无增益。因此先把宽缩小到 ≤ MAX_COMPRESS_TARGET_WIDTH，再 webp 编码（质量 85）。
+ * 若仍超目标，逐级降质量 + 进一步缩小（每次 ×0.7），最多 MAX_COMPRESS_ITERATIONS 轮。
+ * 失败（非位图/解码失败/始终超标）返回 null。只对 byte 级位图有效；
+ * svg/ico 等矢量/图标不适合 webp 压缩，由调用方前置排除。
+ */
+async function compressImageToSize(
+	buf: Uint8Array,
+	targetBytes: number,
+): Promise<{ content: ImageContent; bytes: number } | null> {
+	const MAX_COMPRESS_ITERATIONS = 6; // 最多 6 轮（质量 + 缩尺寸），保证收敛不卡死
+	const MAX_COMPRESS_TARGET_WIDTH = 4096; // 压缩后最大宽度：压倒 4K 内（视觉识别绰绰有余）；超过编码既慢又无增益
+	const qualities = [85, 70, 60];
+	let image: Bun.Image;
+	try {
+		image = new Bun.Image(buf);
+	} catch {
+		return null;
+	}
+	// 每轮都先缩到 ≤ MAX_COMPRESS_TARGET_WIDTH，再 webp 编码——对原始大图直接 webp
+	// 编码既慢且体积常超标（视觉模型通常把图缩到 ~1024px 处理，发 4K 已足够）。
+	// 注意 Bun.Image 是链式 pipeline：resize()/webp() 返回同一对象，bytes()/metadata() 才是 await terminal。
+	let w: number;
+	try {
+		const meta = await image.metadata();
+		w = meta.width;
+	} catch {
+		return null;
+	}
+	let scale = 1;
+	for (let i = 0; i < MAX_COMPRESS_ITERATIONS; i++) {
+		const quality = qualities[Math.min(i, qualities.length - 1)];
+		// 第 0 轮缩到 min(原宽, 4096)，后续轮按 scale 等比缩小（每次 ×0.7），fit inside 不拉伸
+		const targetW = Math.max(
+			1,
+			Math.round(Math.min(w, MAX_COMPRESS_TARGET_WIDTH) * scale),
+		);
+		try {
+			const out = await image
+				.resize(targetW, 66, { fit: "inside", withoutEnlargement: true })
+				.webp({ quality })
+				.bytes();
+			if (out.length <= targetBytes) {
+				return {
+					content: {
+						type: "image",
+						mimeType: "image/webp",
+						data: Buffer.from(out).toString("base64"),
+					},
+					bytes: out.length,
+				};
+			}
+		} catch {
+			return null;
+		}
+		scale *= 0.7;
+	}
+	return null;
+}
+
 /** 读取图片文件并转为 pi ImageContent（base64）。非图片扩展名/读取失败/超大时返回 null，不阻塞发送。
- *  maxBytes 为单张允许的最大原始字节数（调用方取「单张上限」与「累计剩余预算」的较小值）。 */
+ *  maxBytes 为单张允许的最大原始字节数（调用方取「单张上限」与「累计剩余预算」的较小值）。
+ *  超过单张上限但 ≤ 30MB 的图先尝试压缩到 ≤ maxBytes（webp）再内联；压缩失败/超 30MB/预算过小则降级为附件。 */
 async function readImageContent(
 	path: string,
 	maxBytes: number,
 ): Promise<{ content: ImageContent; bytes: number } | null> {
 	try {
 		const st = await stat(path);
-		if (!st.isFile() || st.size <= 0 || st.size > maxBytes) {
+		if (!st.isFile() || st.size <= 0) {
 			return null;
 		}
 		const ext = extname(path).slice(1).toLowerCase();
 		const mimeType = IMAGE_MIME_BY_EXT[ext];
 		if (!mimeType) return null;
 		const buf = await readFile(path);
-		return {
-			content: { type: "image", mimeType, data: buf.toString("base64") },
-			bytes: st.size,
-		};
+		// 源大小在允许范围内 → 直接内联（现状不变）
+		if (st.size <= maxBytes) {
+			return {
+				content: { type: "image", mimeType, data: buf.toString("base64") },
+				bytes: st.size,
+			};
+		}
+		// 超单张上限：仅对位图（png/jpg/jpeg/gif/webp/bmp）尝试压缩；svg/ico 为矢量/图标不压缩。
+		// 源大小 ≤ 30MB 且 maxBytes ≥ 1MB（预算过小强行压缩会毁图）才值得压缩。
+		if (
+			st.size <= MAX_IMAGE_COMPRESS_SOURCE_BYTES &&
+			maxBytes >= 1 * 1024 * 1024 &&
+			mimeType !== "image/svg+xml" &&
+			mimeType !== "image/x-icon"
+		) {
+			const compressed = await compressImageToSize(
+				buf,
+				Math.min(maxBytes, MAX_IMAGE_COMPRESS_BYTES),
+			);
+			if (compressed) return compressed;
+		}
+		// 压缩失败或不应压缩 → 降级为附件（返回 null，文本保留 @路径 引用）
+		return null;
 	} catch {
 		return null;
 	}

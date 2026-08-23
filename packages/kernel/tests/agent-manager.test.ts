@@ -686,6 +686,67 @@ test("prompt — 单张图片超过 3.5MB 上限回退为附件，不内联", as
 	expect(fakes[0].promptImages[0]).toEqual([]);
 });
 
+test("prompt — 超过 3.5MB 但 ≤30MB 的真实图片用 bun:image 压缩为 webp 内联", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 生成一张真实可解码的 >3.5MB JPEG：源图放大编码让字节数超过单张上限，但仍是合法图片，压缩可成功。
+	// 源图用项目内确定存在的上传图片（Windows 绝对路径，Bun 识别 H:/ 而非 MSYS 的 /h/）。
+	const srcImg = "H:/workspace/hiagent/.wa-pi/uploads/image (1).png";
+	const imgPath = `/tmp/wa-pi-img-compress-${Date.now()}.jpg`;
+	tmpPaths.push(imgPath);
+	const raw = await Bun.file(srcImg).bytes();
+	const big = await new Bun.Image(raw)
+		.resize(14000, 8946, { fit: "inside" })
+		.jpeg({ quality: 95 })
+		.bytes();
+	writeFileSync(imgPath, big);
+
+	await am.prompt(session.id, "压缩这张大图", {
+		model: MODEL,
+		attachments: [
+			{ kind: "image", path: imgPath, name: "大图.jpg", size: big.length },
+		],
+	});
+
+	expect(fakes[0].prompted).toHaveLength(1);
+	// 文本仍保留 @路径 引用
+	expect(fakes[0].prompted[0]).toContain("@wa-pi-img-compress");
+	// 图片被压缩为 webp 内联（mimeType 变为 image/webp，data 为 base64）
+	expect(fakes[0].promptImages[0]).toHaveLength(1);
+	const img = fakes[0].promptImages[0][0];
+	expect(img.type).toBe("image");
+	expect(img.mimeType).toBe("image/webp");
+	expect(typeof img.data).toBe("string");
+	// 压缩后 base64 解码的字节应远小于原始 5.56MB（≤3MB 目标）
+	const decoded = Buffer.from(img.data, "base64");
+	expect(decoded.length).toBeLessThanOrEqual(3 * 1024 * 1024);
+});
+
+test("prompt — 超过 30MB 的图片直接降级为附件，不做无谓压缩", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 一张 31MB 的零填充 PNG：超过 30MB 压缩源上限，直接降级
+	const imgPath = `/tmp/wa-pi-img-huge-${Date.now()}.png`;
+	tmpPaths.push(imgPath);
+	const fd = openSync(imgPath, "w");
+	ftruncateSync(fd, 31 * 1024 * 1024);
+	closeSync(fd);
+
+	await am.prompt(session.id, "描述这张超大的图", {
+		model: MODEL,
+		attachments: [
+			{ kind: "image", path: imgPath, name: "超大图.png", size: 31 * 1024 * 1024 },
+		],
+	});
+
+	expect(fakes[0].prompted).toHaveLength(1);
+	expect(fakes[0].prompted[0]).toContain("@wa-pi-img-huge");
+	// 直接降级：images 为空
+	expect(fakes[0].promptImages[0]).toEqual([]);
+});
+
 test("prompt — 图片累计大小超过上限时，超出部分回退为附件（@路径 引用）", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);

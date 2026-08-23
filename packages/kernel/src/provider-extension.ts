@@ -141,17 +141,14 @@ export function resolveProviderBaseUrl(
 	allModels: CatalogModel[],
 	api?: string,
 ): string {
-	let matches = slug
-		? allModels.filter((m) => m.provider === slug)
-		: allModels;
+	let matches = slug ? allModels.filter((m) => m.provider === slug) : allModels;
 	if (api) matches = matches.filter((m) => m.api === api);
 	for (const id of modelIds) {
 		const exact = matches.find((m) => m.id === id);
 		if (exact?.baseUrl)
 			return resolveEffectiveBaseUrl(fallbackBaseUrl, exact.baseUrl);
 		const ci = matches.find((m) => m.id.toLowerCase() === id.toLowerCase());
-		if (ci?.baseUrl)
-			return resolveEffectiveBaseUrl(fallbackBaseUrl, ci.baseUrl);
+		if (ci?.baseUrl) return resolveEffectiveBaseUrl(fallbackBaseUrl, ci.baseUrl);
 	}
 	return fallbackBaseUrl.replace(/\/+$/, "");
 }
@@ -195,10 +192,7 @@ export function generateProviderExtension(
 			const firstSdk = provider.models
 				.map((m) => sdkModelMap.get(`${slug}/${m.id}`) ?? sdkModelMap.get(m.id))
 				.find((s) => s?.baseUrl && s.api === provider.api);
-			const baseUrl = resolveEffectiveBaseUrl(
-				provider.baseUrl,
-				firstSdk?.baseUrl,
-			);
+			const baseUrl = resolveEffectiveBaseUrl(provider.baseUrl, firstSdk?.baseUrl);
 			// 自建网关（生效 baseUrl 与目录值不同）无法被 pi 的 detectCompat 识别，会被当作
 			// 标准 OpenAI 端点：reasoning 模型的 system prompt 以 developer role 发送，
 			// tokenhub 等网关直接 400（developer is not one of [system, ...]）。
@@ -207,20 +201,28 @@ export function generateProviderExtension(
 			const customEndpoint = !!catalogBaseUrl && baseUrl !== catalogBaseUrl;
 			const modelsCode = provider.models
 				.map((m) => {
-					const sdk =
-						sdkModelMap.get(`${slug}/${m.id}`) ?? sdkModelMap.get(m.id);
+					const sdk = sdkModelMap.get(`${slug}/${m.id}`) ?? sdkModelMap.get(m.id);
 					const name = sdk?.name || m.id;
 					const reasoning = sdk?.reasoning ?? DEFAULT_SDK_MODEL.reasoning;
-					const input = sdk?.input ?? DEFAULT_SDK_MODEL.input;
+					// input 默认跟随 SDK 内置目录；但用户显式设置了 supportsVision 时以用户意图为准
+					// （增/删 image）。否则「模型 ID 不在目录里 + 用户勾了图片」会落 ["text"]，
+					// pi 引擎据此把图片降级为 (image omitted)——页面的「图片」开关需要真正生效。
+					const baseInput = sdk?.input ?? DEFAULT_SDK_MODEL.input;
+					const input =
+						m.supportsVision === true
+							? baseInput.includes("image")
+								? baseInput
+								: [...baseInput, "image"]
+							: m.supportsVision === false
+								? baseInput.filter((x) => x !== "image")
+								: baseInput;
 					const cost = sdk?.cost ?? DEFAULT_SDK_MODEL.cost;
 					// contextWindow / maxTokens：内置目录优先，其次用户配置，最后默认值。
 					// 目录缺失（含派生 slug 错位）时若静默落 128000，pi 会按错误窗口
 					// 提前触发自动压缩（回归：用户配置 1M 却在 ~122K 被压缩）。
 					const contextWindow =
 						sdk?.contextWindow ??
-						(m.contextWindow > 0
-							? m.contextWindow
-							: DEFAULT_SDK_MODEL.contextWindow);
+						(m.contextWindow > 0 ? m.contextWindow : DEFAULT_SDK_MODEL.contextWindow);
 					const maxTokens =
 						sdk?.maxTokens ??
 						(m.maxTokens > 0 ? m.maxTokens : DEFAULT_SDK_MODEL.maxTokens);
@@ -232,8 +234,12 @@ export function generateProviderExtension(
         input: ${JSON.stringify(input)},
         cost: ${JSON.stringify(cost)},
         contextWindow: ${contextWindow},
-        maxTokens: ${maxTokens},${customEndpoint && reasoning ? `
-        compat: { supportsDeveloperRole: false },` : ""}
+        maxTokens: ${maxTokens},${
+									customEndpoint && reasoning
+										? `
+        compat: { supportsDeveloperRole: false },`
+										: ""
+								}
       }`;
 				})
 				.join(",\n");

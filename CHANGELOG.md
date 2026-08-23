@@ -1,4 +1,22 @@
-## 2026-08-22 — fix(引导队列): 多条引导时第一条发送后待引导消息不更新
+## 2026-08-23 — fix(desktop/启动): dev 模式误杀生产进程（端口自愈 + 登记簿清扫都改为 dev 不碰占用者）
+
+- 背景：`bun run dev:desktop`（`electron .`）启动时会把正在运行的**生产 wa-pi 实例杀掉**。根因两处：
+  - ① whenReady 自愈块：`isPortInUse(FIXED_PORT=9778)` 为真时调 `killPortOccupants(9778)`，按端口盲杀——生产 kernel 正监听 9778，被当占用者 `taskkill /T /F`。
+  - ② 启动清扫 `sweepRegistry`：无条件执行，其 `isOurs` 三重校验（进程存活 + 创建时间一致 + exe/路径含 wa-pi-kernel 或 `~/.pi/agent`）无法区分 dev 与生产——两者同在 `~/.pi/agent` 数据目录、同 exe 特征、生产进程仍存活且创建时间一致，必然被当"上轮残留"杀掉。
+- 改动（`packages/desktop/src/main.cjs`）：dev 模式（`!app.isPackaged`）下端口自愈不再杀进程，直接复用已有「换端口启动」路径（`selfHealFailed` → `autoSwitchPortAndRelaunch`，自动找下一个可用端口 relaunch，不动占用者）；启动清扫 `sweepRegistry` 在 dev 下整体跳过，打包版（`app.isPackaged`）行为不变。崩溃重启清理（`kernel-sidecar.cjs`）是「清理自己启动的 kernel 残留」，属于合理路径，未门控。
+- 影响范围：`packages/desktop/src/main.cjs`；相关 util 测试（process-registry / port-switch / port.cjs / startup-heal）63 pass 未受影响。
+
+## 2026-08-23 — fix(多模态): 模型设置的「图片」开关真正生效（此前仅展示，不改变生成 input）
+
+- 背景：选择支持视觉的模型后输入图片，LLM 仍收不到图片（被降级为 `(image omitted)`）。图片转 base64、拼进 user content 的链路正常（2026-08-19 已修），断点在模型侧：pi 引擎用 `model.input.includes("image")` 裁决图片是否进请求，而 `provider-extension.ts` 生成模型代码时 `input` 只取 pi SDK 目录值（`sdk?.input ?? ["text"]`），完全忽略用户在页面勾选的「图片」（`supportsVision`）开关。当模型 ID 不在目录里（自定义 vision 变体，如 `deepseek-v4-flash-vision-exp`）时落死 `["text"]`，图片被降级。
+- 修复：`provider-extension.ts` 生成 `input` 时，若用户显式设置了 `supportsVision` 则以用户意图为准——`true` 时确保含 `"image"`（目录已有则不重复添加），`false` 时剔除 `"image"`；未设置（`undefined`）时仍跟随目录默认（行为不变，防回归）。
+- 影响范围：`packages/kernel/src/provider-extension.ts`；测试：`tests/provider-extension.test.ts` 补 4 例（目录无模型+vision=true→含image / 目录已含image不重复 / vision=false剔除image / 未设置跟随目录默认），35 pass；相关 ws-provider-dirty、provider-store、extensions 测试 12 pass；typecheck 干净。
+
+## 2026-08-23 — feat(多模态): 超过单张上限（3.5MB）且 ≤30MB 的图片用 bun:image 压缩为 webp 内联
+
+- 背景：图片超过单张 3.5MB 上限 / 累计 10MB 上限时直接降级为附件（`@路径` 引用），模型收不到像素。发送较清晰的截图、照片（3.5MB~30MB）不应直接放弃多模态，可先压缩再内联。
+- 修复：`agent-manager.ts` 新增 `compressImageToSize`（bun:image）：把宽缩到 ≤4096 后 webp 编码，逐级降质量（85→60）+ 按 0.7 等比缩小，最多 6 轮，目标压到 ≤ min(3MB, 单张预算)。`readImageContent` 对「超单张上限但 ≤30MB 的位图」（png/jpg/jpeg/gif/webp/bmp）先尝试压缩再内联（mimeType 变 image/webp）；svg/ico 不压缩；超过 30MB 或压缩失败或预算 <1MB 时仍降级为附件。
+- 影响范围：`packages/kernel/src/agent-manager.ts`（新增 compressImageToSize + 改造 readImageContent）；测试：`tests/agent-manager.test.ts` 补「超3.5MB≤30MB压缩为webp内联 + 解码字节≤3MB」「超30MB直接降级」2 例，112 pass；typecheck 干净。
 
 - 修复：会话有多条引导/排队消息（followUp）时，点第一条消息的「引导」或「立即」发送后，顶部「待引导消息」队列保持不变（已发送的第一条又出现在队列里，队列未减）。根因：`steerMessage` 的 `!handle.busy`（空闲直发）分支直接 `_sendPromptNow` 发送后 return，未从 `followUpList` 移除该条、也不广播 `queue_update`；而前端 `handlePromote`/`handleImmediate` 已乐观把该条从队列移除。前端与 kernel 队列状态分歧后，后续任一 `queue_update` 广播（drain/prompt/settled）用含该条的旧队列覆盖前端，导致「引导后队列不变」。
 - 修复：`steerMessage` 空闲直发分支与 busy 分支对齐——`_sendPromptNow` 成功后从 `followUpList` 移除同文本条目并 `_emitLocalQueueUpdate` 广播同步前端（先发送成功再移除，避免发送失败时消息已出队丢失）。

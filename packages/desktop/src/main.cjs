@@ -582,22 +582,30 @@ app.whenReady().then(async () => {
 
 	// 2a) 启动清扫：清掉上轮异常退出残留的 kernel 登记（TTL 兜底 + 三重校验），
 	// 避免残留进程继续占着 9778（Windows 升级后幽灵占用治理第一步；D 任务再完善自愈循环）。
-	try {
-		const r = sweepRegistry(registryOpts);
-		if (
-			r.killed.length ||
-			r.deleted.length ||
-			r.skipped.length ||
-			r.errors.length
-		) {
-			log.info(
-				`[registry] 启动清扫: killed=[${r.killed.join(",") || "无"}] ` +
-					`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}] ` +
-					`errors=[${r.errors.map((e) => `${e.pid}:${e.reason}`).join(";") || "无"}]`,
-			);
+	// dev 模式（electron .，app.isPackaged === false）跳过：sweepRegistry 的 isOurs 三重校验
+	// 无法区分「dev 自己」与「正在运行的生产 kernel」——两者同在 ~/.pi/agent、同 exe 特征、
+	// 创建时间一致（生产进程仍存活），会把生产 kernel 当残留杀掉。dev 的崩溃残留由上方
+	// 端口自愈的「换端口」路径绕开（遇占用不杀进程），故 dev 无需杀伐式清扫。
+	if (app.isPackaged) {
+		try {
+			const r = sweepRegistry(registryOpts);
+			if (
+				r.killed.length ||
+				r.deleted.length ||
+				r.skipped.length ||
+				r.errors.length
+			) {
+				log.info(
+					`[registry] 启动清扫: killed=[${r.killed.join(",") || "无"}] ` +
+						`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}] ` +
+						`errors=[${r.errors.map((e) => `${e.pid}:${e.reason}`).join(";") || "无"}]`,
+				);
+			}
+		} catch (e) {
+			log.error("[registry] 启动清扫失败", e);
 		}
-	} catch (e) {
-		log.error("[registry] 启动清扫失败", e);
+	} else {
+		log.info("[registry] dev 模式跳过启动清扫（避免误杀运行中的生产 kernel）");
 	}
 
 	// 2b) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
@@ -624,6 +632,16 @@ app.whenReady().then(async () => {
 	};
 	try {
 		if (await isPortInUse(FIXED_PORT)) {
+			// dev 模式（electron .，app.isPackaged === false）：9778 被占用很可能是
+			// 已运行的生产/其他 wa-pi 实例（同在 ~/.pi/agent 数据目录、同为内核进程），
+			// killPortOccupants 与 sweepRegistry 无法区分 dev/生产，会误杀生产。
+			// 因此 dev 遇占用不杀进程，直接复用自愈兜底的「换端口启动」路径（自动找可用端口 relaunch）。
+			if (!app.isPackaged) {
+				log.info(`[dev] 端口 ${FIXED_PORT} 被占用，不清理占用进程，自动换端口启动`);
+				setProgress(10, "检测到端口占用，自动换端口启动…");
+				await selfHealFailed();
+				return;
+			}
 			log.error(`端口 ${FIXED_PORT} 被占用，尝试自动清理`);
 			setProgress(10, "检测到端口占用，正在自动清理…");
 			const healed = await attemptSelfHeal({

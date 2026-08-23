@@ -310,7 +310,11 @@ test("ensureProviderExtensionRegistered：重名 slug provider 从目录裸 id �
         name: "OpenCode Zen Go",
         slug: "opencode-go",
         models: [
-          { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+          {
+            id: "deepseek-v4-flash",
+            contextWindow: 1000000,
+            maxTokens: 384000,
+          },
         ],
       }),
     );
@@ -320,7 +324,11 @@ test("ensureProviderExtensionRegistered：重名 slug provider 从目录裸 id �
         name: "OpenCode Go 1",
         slug: "opencode-go",
         models: [
-          { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+          {
+            id: "deepseek-v4-flash",
+            contextWindow: 1000000,
+            maxTokens: 384000,
+          },
         ],
       }),
     );
@@ -697,4 +705,137 @@ test("generateProviderExtension：官方目录端点不追加 compat（保持 pi
   ]);
   const code = generateProviderExtension(providers, sdkModelMap);
   expect(code).not.toContain("supportsDeveloperRole");
+});
+
+// ---- 回归：页面 supportsVision 开关必须真正影响生成的 input 字段 ----
+// 断点背景：pi 引擎用 model.input.includes("image") 裁决图片是否进请求，而
+// provider-extension 生成模型时 input 只取 SDK 目录值（sdk?.input ?? ["text"]），
+// 完全忽略用户显式配置的 supportsVision。导致模型 ID 不在目录里（如自定义 vision
+// 变体）时即便用户勾了「图片」开关，图片仍被 pi 降级为 (image omitted)。
+
+test("generateProviderExtension：supportsVision=true 且目录无此模型 → input 含 image", () => {
+  // 复现用户场景：模型 ID 不在 pi 目录（sdk 查不到，input 会落默认 ["text"]），
+  // 但用户在页面勾了「图片」（supportsVision: true）——应生成 input: ["text","image"]。
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "OpenCode Zen Go",
+      slug: "opencode-go",
+      models: [
+        {
+          id: "deepseek-v4-flash-vision-exp",
+          contextWindow: 1000000,
+          maxTokens: 384000,
+          supportsVision: true,
+        },
+      ],
+    }),
+  ];
+  const code = generateProviderExtension(providers, new Map());
+  expect(code).toContain('input: ["text","image"]');
+});
+
+test("generateProviderExtension：supportsVision=true 且目录已含 image → 不重复添加", () => {
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "NVIDIA",
+      slug: "nvidia",
+      models: [
+        {
+          id: "google/gemma-3-12b-it",
+          contextWindow: 131072,
+          maxTokens: 16384,
+          supportsVision: true,
+        },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "nvidia/google/gemma-3-12b-it",
+      {
+        contextWindow: 131072,
+        maxTokens: 16384,
+        reasoning: false,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "Google Gemma 3 12B IT",
+        baseUrl: "https://integrate.api.nvidia.com/v1",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  // 只出现一次 image，不出现 ["text","image","image"]
+  expect(code).toContain('input: ["text","image"]');
+  expect(code).not.toContain('"image","image"');
+});
+
+test("generateProviderExtension：supportsVision=false → input 剔除 image（纯文本）", () => {
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "NVIDIA",
+      slug: "nvidia",
+      models: [
+        {
+          id: "google/gemma-3-12b-it",
+          contextWindow: 131072,
+          maxTokens: 16384,
+          supportsVision: false,
+        },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "nvidia/google/gemma-3-12b-it",
+      {
+        contextWindow: 131072,
+        maxTokens: 16384,
+        reasoning: false,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "Google Gemma 3 12B IT",
+        baseUrl: "https://integrate.api.nvidia.com/v1",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  expect(code).toContain('input: ["text"]');
+  expect(code).not.toContain('"image"');
+});
+
+test("generateProviderExtension：supportsVision 未设置 → 跟随目录默认（行为不变）", () => {
+  // 用户在页面没勾过「图片」（supportsVision undefined），目录里是纯文本 → 保持 ["text"]
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "DeepSeek",
+      slug: "deepseek",
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "deepseek/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "deepseek-v4-flash",
+        baseUrl: "https://api.deepseek.com",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  expect(code).toContain('input: ["text"]');
+  expect(code).not.toContain('"image"');
 });
