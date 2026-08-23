@@ -25,6 +25,30 @@
 - 修复：`agent-manager.ts` 新增 `compressImageToSize`（bun:image）：把宽缩到 ≤4096 后 webp 编码，逐级降质量（85→60）+ 按 0.7 等比缩小，最多 6 轮，目标压到 ≤ min(3MB, 单张预算)。`readImageContent` 对「超单张上限但 ≤30MB 的位图」（png/jpg/jpeg/gif/webp/bmp）先尝试压缩再内联（mimeType 变 image/webp）；svg/ico 不压缩；超过 30MB 或压缩失败或预算 <1MB 时仍降级为附件。
 - 影响范围：`packages/kernel/src/agent-manager.ts`（新增 compressImageToSize + 改造 readImageContent）；测试：`tests/agent-manager.test.ts` 补「超3.5MB≤30MB压缩为webp内联 + 解码字节≤3MB」「超30MB直接降级」2 例，112 pass；typecheck 干净。
 
+## 2026-08-22 — v0.2.19 win 交叉编译重打覆盖
+
+### 发版
+
+- win 更新源用最新 master 代码（含引导队列修复）重新打包覆盖：mac 上经 bun --compile --target=bun-windows-x64 交叉编译 WaPiKernel.exe（bun ≥1.4 支持，首次自动下载 Windows runtime），electron-builder 出 NSIS 安装包后 publish-oss 上传 R2。
+- 影响范围：packages/kernel/scripts/compile-binary.ts（buildCompileArgs/kernelBinaryName 支持 target）、packages/desktop/scripts/build-kernel-sidecar.ts（移除本机编译限制，target 透传）、packages/kernel/tests/compile-binary.test.ts（交叉编译参数断言）；验证：compile-binary 6 pass、build-kernel-sidecar 2 pass、pack:win 产物 PE32 验证 + 线上 latest.yml sha512 已更新。
+
+## 2026-08-22 — v0.2.19 mac 补发 + mac 签名修复
+
+### 发版
+
+- mac 更新源 0.2.15 → 0.2.19：打包 mac dmg/zip 并上传 R2（latest-mac.yml 指向 0.2.19）；win 已在上次 0.2.19 发版上线，本次不变。
+- 影响范围：packages/desktop/release/、publish-oss 上传；验证：全量回归 + pack:mac + dmg 内 app codesign 验证通过。
+
+### 修复
+
+- **mac 签名一直静默失败**（线上 0.2.15 mac 包也是未签名）：`mac-sign.cjs` 的 `hasCert()` 用 `security find-certificate` 的 exit code 判断证书存在，但 macOS 上无匹配时 exit code 仍为 0 → 误判证书存在 → 用不存在的证书名签名必失败。修复：改用 `-p` 输出 PEM 内容判断（含 BEGIN CERTIFICATE 才算存在），测试同步改为 mock PEM 输出（hasCert 3 例 + resolveIdentity 覆盖）。
+- **mac 自签名证书缺失**：登录钥匙串无「WA PI Agent Self-Signed」证书 → 新建构建钥匙串 `wa-pi-build.keychain-db` 并导入自签名证书（p12 备份于 `~/.config/wa-pi/certs/`），codesign 授权后 afterPack 签名成功；同时清理登录钥匙串里的重复证书项（曾致 codesign 身份解析冲突 errSecInternalComponent）。
+- **portableBashExe 测试平台断言修正**：Windows 路径断言在 POSIX 上因 join 分隔符差异失败，期望值改用 join 计算，跨平台成立。
+
+- 影响范围：packages/desktop/scripts/mac-sign.cjs、packages/desktop/tests/mac-sign.test.ts、packages/kernel/tests/bash-runtime.test.ts；验证：kernel/bash-runtime 6 pass、desktop/mac-sign 12 pass、全量回归 kernel+shared 128+desktop 191+frontend 1865 全绿。
+
+## 2026-08-22 — fix(引导队列): 多条引导时第一条发送后待引导消息不更新
+
 - 修复：会话有多条引导/排队消息（followUp）时，点第一条消息的「引导」或「立即」发送后，顶部「待引导消息」队列保持不变（已发送的第一条又出现在队列里，队列未减）。根因：`steerMessage` 的 `!handle.busy`（空闲直发）分支直接 `_sendPromptNow` 发送后 return，未从 `followUpList` 移除该条、也不广播 `queue_update`；而前端 `handlePromote`/`handleImmediate` 已乐观把该条从队列移除。前端与 kernel 队列状态分歧后，后续任一 `queue_update` 广播（drain/prompt/settled）用含该条的旧队列覆盖前端，导致「引导后队列不变」。
 - 修复：`steerMessage` 空闲直发分支与 busy 分支对齐——`_sendPromptNow` 成功后从 `followUpList` 移除同文本条目并 `_emitLocalQueueUpdate` 广播同步前端（先发送成功再移除，避免发送失败时消息已出队丢失）。
 - 影响范围：`packages/kernel/src/agent-manager.ts`（steerMessage 空闲直发分支）；测试：`tests/agent-manager.test.ts` 补「空闲直发移除已排队同文本 + 广播」回归 1 例（110 pass）；typecheck 干净；kernel 全量 1365 pass（2 例 browser 集成测试并发超时，与本次无关，stash 对比确认）。

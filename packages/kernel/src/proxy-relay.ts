@@ -120,10 +120,7 @@ export class ProxyRelay {
 
 	/** 更新上游代理；空串 = 直连。上游地址带 user:pass 时生成 Proxy-Authorization */
 	setUpstream(upstream: string): void {
-		if (!upstream) {
-			this.upstream = null;
-			this.upstreamAuth = null;
-		} else {
+		if (upstream) {
 			try {
 				const url = new URL(
 					upstream.includes("://") ? upstream : `http://${upstream}`,
@@ -140,6 +137,9 @@ export class ProxyRelay {
 				this.upstream = null;
 				this.upstreamAuth = null;
 			}
+		} else {
+			this.upstream = null;
+			this.upstreamAuth = null;
 		}
 		// 换上游后清掉旧冷却，让新上游立刻被尝试
 		this.upstreamDownUntil = 0;
@@ -586,14 +586,14 @@ let relay: ProxyRelay | null = null;
  * 无论开不开代理都应调用：开 = 指向上游；不开 = 传空串，中继直连转发。
  */
 export async function ensureProxyRelay(upstream: string): Promise<string> {
-	if (!relay) {
+	if (relay) {
+		relay.setUpstream(upstream);
+	} else {
 		relay = new ProxyRelay({
 			upstream,
 			logger: (line) => getNetLogger().log(line),
 		});
 		await relay.start();
-	} else {
-		relay.setUpstream(upstream);
 	}
 	return `http://127.0.0.1:${relay.port}`;
 }
