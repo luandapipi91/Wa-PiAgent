@@ -1,3 +1,10 @@
+## 2026-08-23 — fix(frontend/会话): 新建会话首次发送后 session 短暂消失导致对话区空白/重置
+
+- 背景：快速「新建会话→发送消息」时，新会话页面会闪一下被重置（对话区空白/回到新建页）。根因是前端**整表替换 `sessions`** 的两条路径都可能在 kernel `projects:list` **快照滞后**（新会话 optimistic `addSession` 后 placeholder 未转正、快照里还没它）时，把乐观新建的当前会话挤掉，导致 `SessionView` 的 `sessions.find(x.id === sessionId)` 找不到该会话 → `if (!session) return null` → 对话区空白。此前 `0c1ee7a66` 只保护了 `currentSessionId`（避免闪回新建页），`defb8256d` 只修了 #300 崩溃（move hooks），均未修「会话从列表消失」这一根因。
+- 修复：抽取共享 `mergeSessions`，`setAll`（SSE `projects:list` 事件）与 `load()`（启动/重连拉快照）两条整表替换路径统一复用——仅把「`currentSessionId` 指向但快照缺失」的会话合并回 `sessions` 列表，其余严格以 kernel 快照为准（真删除由删除 handler 显式 `setCurrentSessionId(null)`，不会被复活）。
+- 测试钩子：`events.ts` 在 dev 环境（`import.meta.env.DEV`）把 `emitEventForTesting` 挂到 `window.__PI_E2E_EVENT__`，供 E2E 用 `page.evaluate` 在乐观会话已建立后精确注入滞后 `projects:list` 帧；生产构建不挂载、不污染全局。
+- 影响范围：`packages/frontend/src/store/projects.ts`（新增 `mergeSessions` + 改造 `setAll`/`load`）、`packages/frontend/src/events.ts`（dev 测试钩子）；测试：`tests/store-projects.test.ts` 补 3 例（setAll 快照滞后保留当前 / setAll 不复活已删 / load 快照滞后保留当前），13 pass；新增 `e2e/session-lag-snapshot.spec.ts` 回归（注入滞后帧后会话仍在、不空白），已验证：修复前该 spec 红（session-view 消失、复现空白）、恢复修复后绿；全量前端 1868 pass；typecheck 干净。
+
 ## 2026-08-23 — fix(desktop/启动): dev 模式误杀生产进程（端口自愈 + 登记簿清扫都改为 dev 不碰占用者）
 
 - 背景：`bun run dev:desktop`（`electron .`）启动时会把正在运行的**生产 wa-pi 实例杀掉**。根因两处：

@@ -176,3 +176,15 @@ export function onConnectionChange(listener: (s: ConnectionState) => void): () =
 export function getConnectionState(): ConnectionState {
   return currentState;
 }
+
+// 测试钩子：仅开发/测试环境把 emitEventForTesting 挂到 window，供 E2E 用
+// page.evaluate 精确注入一帧服务端事件（命中 SSE → onMessage → setAll 主路径）。
+// 生产构建 import.meta.env.DEV 为 false，不会挂载、不污染全局命名空间。
+declare global {
+  interface Window {
+    __PI_E2E_EVENT__?: (event: WSServerEvent) => void;
+  }
+}
+if (import.meta.env.DEV) {
+  window.__PI_E2E_EVENT__ = emitEventForTesting;
+}
