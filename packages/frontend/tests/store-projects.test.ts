@@ -2,9 +2,10 @@ import { test, expect, beforeEach, mock } from "bun:test";
 import { useProjectsStore } from "../src/store/projects";
 
 const postMock = mock();
+const getMock = mock();
 mock.module("../src/api-client", () => ({
   api: {
-    get: () => Promise.resolve({}),
+    get: getMock,
     post: postMock,
     put: () => Promise.resolve({}),
     del: () => Promise.resolve({}),
@@ -21,6 +22,8 @@ beforeEach(() => {
   });
   postMock.mockReset();
   postMock.mockImplementation(async () => ({}));
+  getMock.mockReset();
+  getMock.mockImplementation(() => Promise.resolve({}));
   delete (window as any).waPiApp;
 });
 
@@ -193,4 +196,116 @@ test("系统目录对话框取消时（null）不创建项目也不开内置树"
   await useProjectsStore.getState().createProjectFromDir();
   expect(useProjectsStore.getState().dirPickerOpen).toBe(false);
   expect(postMock).not.toHaveBeenCalled();
+});
+
+test("setAll 快照滞后时不挤掉乐观新建的当前会话（新会话首次发送不空白/不重置）", () => {
+  // 模拟新会话首次发送：乐观 addSession + selectSession
+  useProjectsStore.getState().addSession({
+    id: "s-new",
+    projectId: "p1",
+    primaryAgent: "dev",
+    title: "t",
+    createdAt: 0,
+    lastActivity: Date.now(),
+    piSessionFile: "",
+  });
+  useProjectsStore.getState().selectSession("s-new");
+  expect(useProjectsStore.getState().currentSessionId).toBe("s-new");
+
+  // kernel 广播 projects:list，快照滞后：不含乐观新建的 s-new（placeholder 未转正）
+  useProjectsStore.getState().setAll(
+    [{ id: "p1", name: "P", cwd: "/p", createdAt: 0 }],
+    [
+      {
+        id: "s-old",
+        projectId: "p1",
+        primaryAgent: "dev",
+        title: "old",
+        createdAt: 0,
+        lastActivity: 0,
+        piSessionFile: "",
+      },
+    ],
+  );
+
+  // 期望：正在查看的当前会话仍留在 sessions 数组，SessionView 不因 find 不到而 return null
+  const sessions = useProjectsStore.getState().sessions;
+  expect(sessions.some((x) => x.id === "s-new")).toBe(true);
+  // currentSessionId 也不应被清
+  expect(useProjectsStore.getState().currentSessionId).toBe("s-new");
+});
+
+test("setAll 不复活已被删除的会话（删除后 currentSessionId 已置 null 的会话不保留）", () => {
+  // 模拟被删除的会话：它曾存在，但删除时 setCurrentSessionId(null)，且不在 kernel 快照里
+  useProjectsStore.getState().addSession({
+    id: "s-deleted",
+    projectId: "p1",
+    primaryAgent: "dev",
+    title: "deleted",
+    createdAt: 0,
+    lastActivity: 0,
+    piSessionFile: "",
+  });
+  // 删除 handler 会清 currentSessionId（模拟删除当前会话）
+  useProjectsStore.getState().setCurrentSessionId(null);
+
+  // kernel 快照：s-deleted 已不在（被删除），只剩一个正常会话
+  useProjectsStore.getState().setAll(
+    [{ id: "p1", name: "P", cwd: "/p", createdAt: 0 }],
+    [
+      {
+        id: "s-old",
+        projectId: "p1",
+        primaryAgent: "dev",
+        title: "old",
+        createdAt: 0,
+        lastActivity: 0,
+        piSessionFile: "",
+      },
+    ],
+  );
+
+  // 期望：被删除的会话不复活，sessions 只含 kernel 快照里的 s-old
+  const sessions = useProjectsStore.getState().sessions;
+  expect(sessions.some((x) => x.id === "s-deleted")).toBe(false);
+});
+
+test("load() 快照滞后时不挤掉乐观新建的当前会话（SSE 重连/启动时同源保护）", async () => {
+  // 模拟新会话首次发送：乐观 addSession + selectSession
+  useProjectsStore.getState().addSession({
+    id: "s-new",
+    projectId: "p1",
+    primaryAgent: "dev",
+    title: "t",
+    createdAt: 0,
+    lastActivity: Date.now(),
+    piSessionFile: "",
+  });
+  useProjectsStore.getState().selectSession("s-new");
+  expect(useProjectsStore.getState().currentSessionId).toBe("s-new");
+
+  // load() 拉取 /api/projects，快照滞后：不含乐观新建的 s-new（placeholder 未转正）
+  getMock.mockImplementation(() =>
+    Promise.resolve({
+      projects: [{ id: "p1", name: "P", cwd: "/p", createdAt: 0 }],
+      sessions: [
+        {
+          id: "s-old",
+          projectId: "p1",
+          primaryAgent: "dev",
+          title: "old",
+          createdAt: 0,
+          lastActivity: 0,
+          piSessionFile: "",
+        },
+      ],
+    }),
+  );
+
+  await useProjectsStore.getState().load();
+
+  // 期望：正在查看的当前会话仍留在 sessions 数组，不因 load() 整表赋值而丢失
+  const sessions = useProjectsStore.getState().sessions;
+  expect(sessions.some((x) => x.id === "s-new")).toBe(true);
+  expect(useProjectsStore.getState().currentSessionId).toBe("s-new");
 });
