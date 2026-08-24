@@ -498,8 +498,9 @@ export function App() {
 				onNewSession={() => setView("new-session")}
 				onMore={() => setGalleryOpen(true)}
 				onSelectSession={(id) => {
-					// 点会话 = 回到会话视图：关闭浏览器预览（若有）
-					useBrowserStore.getState().closeBrowser();
+					// 点会话 = 回到会话视图：切换到该会话的浏览器预览
+					// （按会话各自记住预览：记录当前会话的预览，恢复目标会话的预览）
+					useBrowserStore.getState().activateSession(id);
 					const st = useProjectsStore.getState();
 					if (st.sessions.some((x) => x.id === id)) {
 						st.selectSession(id);

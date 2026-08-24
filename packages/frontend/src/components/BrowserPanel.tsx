@@ -31,6 +31,14 @@ export function BrowserPanel() {
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
 
+	// store.path 变化（切换会话恢复预览 / 外部 setPath）时同步内部 current 与地址栏输入；
+	// 否则面板挂载期间不会随 path 变化而更新，会话切换恢复时仍显示旧内容。
+	// 注意：外部 URL 导航只写 current 不写 store.path，故 path 不变时此 effect 不触发、不会覆盖外部视图。
+	useEffect(() => {
+		setCurrent(path ? { kind: "local", path } : null);
+		setInput(path ?? "");
+	}, [path]);
+
 	const loadedPath = current?.kind === "local" ? current.path : null;
 	const externalUrl = current?.kind === "external" ? current.url : null;
 
@@ -289,9 +297,17 @@ export function BrowserPanel() {
 			<div className="flex-1 overflow-hidden">
 				{current ? (
 					current.kind === "local" ? (
-						<HtmlPreview ref={iframeRef} path={current.path} refreshKey={refreshKey} />
+						<HtmlPreview
+							ref={iframeRef}
+							path={current.path}
+							refreshKey={refreshKey}
+						/>
 					) : (
-						<HtmlPreview ref={iframeRef} externalUrl={current.url} refreshKey={refreshKey} />
+						<HtmlPreview
+							ref={iframeRef}
+							externalUrl={current.url}
+							refreshKey={refreshKey}
+						/>
 					)
 				) : (
 					<div

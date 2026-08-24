@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { useBrowserStore } from "../store/browser";
 import { useToastStore } from "../store/toast";
 import { useSessionStore } from "../store/session";
@@ -235,7 +235,9 @@ test("相对 html 路径（index.html）→ toast 拒绝不加载", () => {
 test("模式切换按钮：渲染 split/full，点击切换 store.mode", () => {
   useBrowserStore.setState({ mode: "split" });
   render(<BrowserPanel />);
-  const splitBtn = document.querySelector('[data-testid="browser-mode-split"]')!;
+  const splitBtn = document.querySelector(
+    '[data-testid="browser-mode-split"]',
+  )!;
   const fullBtn = document.querySelector('[data-testid="browser-mode-full"]')!;
   expect(splitBtn).toBeTruthy();
   expect(fullBtn).toBeTruthy();
@@ -246,7 +248,9 @@ test("模式切换按钮：渲染 split/full，点击切换 store.mode", () => {
   expect(useBrowserStore.getState().mode).toBe("full");
   fireEvent.click(splitBtn);
   expect(useBrowserStore.getState().mode).toBe("split");
-  const floatBtn = document.querySelector('[data-testid="browser-mode-float"]')!;
+  const floatBtn = document.querySelector(
+    '[data-testid="browser-mode-float"]',
+  )!;
   expect(floatBtn).toBeTruthy();
   fireEvent.click(floatBtn);
   expect(useBrowserStore.getState().mode).toBe("float");
@@ -263,4 +267,71 @@ test("浮动模式显示最小化按钮，点击置 minimized；分屏不显示"
   expect(btn).toBeTruthy();
   fireEvent.click(btn);
   expect(useBrowserStore.getState().minimized).toBe(true);
+});
+
+test("store.path 变化（会话切换恢复）时同步渲染内容", () => {
+  useBrowserStore.setState({ open: true, path: null, sessionId: null });
+  render(<BrowserPanel />);
+  expect(screen.getByTestId("browser-empty")).toBeTruthy();
+  // 模拟切换到带预览的会话：store.path 变更 → 面板恢复渲染该路径
+  act(() => {
+    useBrowserStore.setState({ path: "/a/index.html", sessionId: "s1" });
+  });
+  expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
+  // 再切到空预览会话：恢复为空窗口
+  act(() => {
+    useBrowserStore.setState({ path: null, sessionId: "s2" });
+  });
+  expect(screen.getByTestId("browser-empty")).toBeTruthy();
+});
+
+test("预览已打开时再双击另一个 html 文件，内容切换到新文件", () => {
+  useBrowserStore.setState({
+    open: true,
+    path: "/a/index.html",
+    sessionId: "s1",
+  });
+  render(<BrowserPanel />);
+  const first = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
+  expect(first.getAttribute("src")).toBe("/preview/%2Fa/index.html");
+  // 双击另一个 html：openBrowser 更新 store.path → 面板切到新文件
+  act(() => {
+    useBrowserStore.getState().openBrowser("/a/v2.html", "s1");
+  });
+  const second = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
+  expect(second.getAttribute("src")).toBe("/preview/%2Fa/v2.html");
+});
+
+test("空预览时双击 html 文件也能切换到该文件", () => {
+  useBrowserStore.setState({ open: true, path: null, sessionId: null });
+  render(<BrowserPanel />);
+  expect(screen.getByTestId("browser-empty")).toBeTruthy();
+  act(() => {
+    useBrowserStore.getState().openBrowser("/a/index.html", "s1");
+  });
+  const iframe = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
+  expect(iframe.getAttribute("src")).toBe("/preview/%2Fa/index.html");
+});
+
+test("外部 URL 显示中双击本地 html 切换到该文件", () => {
+  useBrowserStore.setState({ open: true, path: null, sessionId: null });
+  render(<BrowserPanel />);
+  // 先导航到外部 URL（不写 store.path）
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "baidu.com" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(
+    (
+      screen.getByTestId("html-preview-iframe") as HTMLIFrameElement
+    ).getAttribute("src"),
+  ).toBe("https://baidu.com");
+  // 双击本地 html
+  act(() => {
+    useBrowserStore.getState().openBrowser("/a/index.html", "s1");
+  });
+  expect(
+    (
+      screen.getByTestId("html-preview-iframe") as HTMLIFrameElement
+    ).getAttribute("src"),
+  ).toBe("/preview/%2Fa/index.html");
 });

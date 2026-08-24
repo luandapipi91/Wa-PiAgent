@@ -45,7 +45,10 @@ function defaultBubblePos(): BubblePos {
 function loadBubblePos(): BubblePos {
 	try {
 		const v = JSON.parse(localStorage.getItem(LS.bubble) ?? "");
-		if (v && [v.x, v.y].every((n) => typeof n === "number" && Number.isFinite(n))) {
+		if (
+			v &&
+			[v.x, v.y].every((n) => typeof n === "number" && Number.isFinite(n))
+		) {
 			return clampBubblePos(v);
 		}
 	} catch {
@@ -101,7 +104,9 @@ function loadRect(): FloatRect {
 		const v = JSON.parse(localStorage.getItem(LS.rect) ?? "");
 		if (
 			v &&
-			[v.x, v.y, v.w, v.h].every((n) => typeof n === "number" && Number.isFinite(n))
+			[v.x, v.y, v.w, v.h].every(
+				(n) => typeof n === "number" && Number.isFinite(n),
+			)
 		) {
 			return clampRect(v);
 		}
@@ -149,6 +154,20 @@ function save(key: string, value: string): void {
 	);
 }
 
+/** 单个会话的预览记忆：是否打开 + 内容路径 + 是否最小化为气泡 */
+export interface SessionPreview {
+	open: boolean;
+	path: string | null;
+	minimized: boolean;
+}
+
+/** 未记录过预览的会话默认状态（空预览） */
+const EMPTY_PREVIEW: SessionPreview = {
+	open: false,
+	path: null,
+	minimized: false,
+};
+
 interface BrowserState {
 	open: boolean;
 	/** 当前预览的 html 绝对路径；null = 空窗口 */
@@ -162,8 +181,12 @@ interface BrowserState {
 	minimized: boolean;
 	/** 气泡位置（localStorage 持久化） */
 	bubblePos: BubblePos;
+	/** 会话级预览记忆：sessionId → 该会话的预览状态（切换会话时按会话各自记住/恢复） */
+	bySession: Record<string, SessionPreview>;
 	openBrowser: (path?: string, sessionId?: string) => void;
 	closeBrowser: () => void;
+	/** 切换会话：先把当前会话预览记入 bySession，再恢复目标会话的预览（默认空预览） */
+	activateSession: (sessionId: string | null) => void;
 	setMode: (mode: BrowserMode) => void;
 	setSplitRatio: (ratio: number) => void;
 	setFloatRect: (rect: FloatRect) => void;
@@ -182,14 +205,69 @@ export const useBrowserStore = create<BrowserState>((set) => ({
 	floatRect: loadRect(),
 	minimized: false,
 	bubblePos: loadBubblePos(),
-	openBrowser: (path, sessionId) =>
-		set({
+	bySession: {},
+	openBrowser: (path, sessionId) => {
+		const sid = sessionId ?? null;
+		return set((state) => ({
 			open: true,
 			path: path ?? null,
-			sessionId: sessionId ?? null,
+			sessionId: sid,
 			minimized: false,
+			// 有归属会话时同步写入该会话的记忆
+			bySession:
+				sid != null
+					? {
+							...state.bySession,
+							[sid]: { open: true, path: path ?? null, minimized: false },
+						}
+					: state.bySession,
+		}));
+	},
+	closeBrowser: () =>
+		set((state) => {
+			const sid = state.sessionId;
+			return {
+				open: false,
+				path: null,
+				sessionId: null,
+				minimized: false,
+				// 关闭即清空该会话的记忆，切回时不弹出
+				bySession:
+					sid != null
+						? {
+								...state.bySession,
+								[sid]: { open: false, path: null, minimized: false },
+							}
+						: state.bySession,
+			};
 		}),
-	closeBrowser: () => set({ open: false, path: null, sessionId: null, minimized: false }),
+	activateSession: (sessionId) =>
+		set((state) => {
+			// 先记住当前显示预览所属的会话（若有），再切换并恢复目标会话的预览
+			const oldSid = state.sessionId;
+			let bySession = state.bySession;
+			if (oldSid != null) {
+				bySession = {
+					...bySession,
+					[oldSid]: {
+						open: state.open,
+						path: state.path,
+						minimized: state.minimized,
+					},
+				};
+			}
+			const target =
+				sessionId != null && bySession[sessionId]
+					? bySession[sessionId]
+					: EMPTY_PREVIEW;
+			return {
+				bySession,
+				sessionId,
+				open: target.open,
+				path: target.path,
+				minimized: target.minimized,
+			};
+		}),
 	setMode: (mode) => {
 		save(LS.mode, mode);
 		set({ mode });
@@ -204,8 +282,23 @@ export const useBrowserStore = create<BrowserState>((set) => ({
 		save(LS.rect, JSON.stringify(clamped));
 		set({ floatRect: clamped });
 	},
-	setMinimized: (minimized) => set({ minimized }),
-	setPath: (path) => set({ path }),
+	setMinimized: (minimized) =>
+		set((state) => {
+			const sid = state.sessionId;
+			if (sid == null) return { minimized };
+			const cur = state.bySession[sid] ?? EMPTY_PREVIEW;
+			return {
+				minimized,
+				bySession: { ...state.bySession, [sid]: { ...cur, minimized } },
+			};
+		}),
+	setPath: (path) =>
+		set((state) => {
+			const sid = state.sessionId;
+			if (sid == null) return { path };
+			const cur = state.bySession[sid] ?? EMPTY_PREVIEW;
+			return { path, bySession: { ...state.bySession, [sid]: { ...cur, path } } };
+		}),
 	setBubblePos: (pos) => {
 		const clamped = clampBubblePos(pos);
 		save(LS.bubble, JSON.stringify(clamped));
