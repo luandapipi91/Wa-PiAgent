@@ -13,14 +13,14 @@ import { readFileSync, statSync, mkdtempSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+// S3/R2 上传核心自 s3-upload.cjs 复用（S3Client 创建 + 分片/小文件上传），DRY
 import {
-	S3Client,
-	PutObjectCommand,
-	CreateMultipartUploadCommand,
-	UploadPartCommand,
-	CompleteMultipartUploadCommand,
-	AbortMultipartUploadCommand,
-} from "@aws-sdk/client-s3";
+	createS3Client,
+	uploadLarge,
+	uploadSmall,
+	BUCKET,
+	ENDPOINT,
+} from "./s3-upload.cjs";
 // 复用 kernel 编译侧的二进制命名逻辑（wa-pi-kernel → WaPiKernel(.exe)，DRY）
 import { kernelBinaryName } from "../packages/kernel/scripts/compile-binary";
 
@@ -30,11 +30,7 @@ const KERNEL_DIR = join(REPO_ROOT, "packages", "desktop", "resources", "kernel")
 /** 内核内嵌的 bun runtime 版本（kernel 单二进制由 bun --compile 产物充当 bun CLI） */
 const KERNEL_VERSION = "1.4.0";
 
-// S3/R2 常量（与 publish-oss.ts 保持一致；kernel 产物单独放 releases/kernel/ 子前缀）
-const ENDPOINT =
-	"https://8aa0e20f654f0fe3f8ac5f2d6be9da2c.r2.cloudflarestorage.com";
-const REGION = "auto"; // R2 固定
-const BUCKET = "wapioss";
+// kernel 产物单独放 releases/kernel/ 子前缀（bucket/endpoint 常量在 s3-upload.cjs）
 const PREFIX = "releases/kernel";
 
 /** 平台 → 清单 platform 字符串（win→win32-x64, linux→linux-x64, darwin→darwin-x64） */
@@ -118,78 +114,6 @@ function buildZip(
 	return tmpZip;
 }
 
-/**
- * 手动 multipart 上传大文件（与 publish-oss.ts 同策略，Bun 下 lib-storage 不稳）。
- * 每 part 独立请求 + 失败重试，失败 abort。
- */
-async function uploadLarge(
-	client: S3Client,
-	key: string,
-	body: Buffer,
-	partSize = 5 * 1024 * 1024,
-): Promise<void> {
-	const size = body.length;
-	console.log(`↑ 分片上传 ${key}（${(size / 1024 / 1024).toFixed(1)} MB）…`);
-	const created = await client.send(
-		new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: key }),
-	);
-	const uploadId = created.UploadId;
-	if (!uploadId) throw new Error("CreateMultipartUpload 未返回 UploadId");
-	const partCount = Math.ceil(size / partSize);
-	const parts: { PartNumber: number; ETag: string }[] = [];
-	try {
-		for (let i = 0; i < partCount; i++) {
-			const start = i * partSize;
-			const end = Math.min(start + partSize, size);
-			const partBody = body.subarray(start, end);
-			let etag: string | undefined;
-			for (let attempt = 0; attempt < 3; attempt++) {
-				try {
-					const res = await client.send(
-						new UploadPartCommand({
-							Bucket: BUCKET,
-							Key: key,
-							UploadId: uploadId,
-							PartNumber: i + 1,
-							Body: partBody,
-						}),
-					);
-					etag = res.ETag;
-					break;
-				} catch {
-					if (attempt === 2)
-						throw new Error(`part ${i + 1} 上传失败（已重试 3 次）`);
-					await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-				}
-			}
-			if (!etag) throw new Error(`part ${i + 1} 未返回 ETag`);
-			parts.push({ PartNumber: i + 1, ETag: etag });
-			process.stdout.write(`\r  ${Math.round((end / size) * 100)}%`);
-		}
-		process.stdout.write("\n");
-		await client.send(
-			new CompleteMultipartUploadCommand({
-				Bucket: BUCKET,
-				Key: key,
-				UploadId: uploadId,
-				MultipartUpload: { Parts: parts },
-			}),
-		);
-		console.log(`✓ 已上传 ${key}`);
-	} catch (e) {
-		await client
-			.send(
-				new AbortMultipartUploadCommand({
-					Bucket: BUCKET,
-					Key: key,
-					UploadId: uploadId,
-				}),
-			)
-			.catch(() => {});
-		throw e;
-	}
-}
-
 async function main() {
 	// 解析参数：<version> <build> [--target=darwin] [--changelog=...]
 	const positionals = process.argv.filter((a) => !a.startsWith("--"));
@@ -250,29 +174,13 @@ async function main() {
 		process.exit(0);
 	}
 
-	const client = new S3Client({
-		region: REGION,
-		endpoint: ENDPOINT,
-		credentials: { accessKeyId: ak, secretAccessKey: sk },
-	});
+	const client = createS3Client({ accessKeyId: ak, secretAccessKey: sk });
 
 	// 3. 上传：先 zip（大文件分片）→ zip.sha256 → 清单最后覆盖
 	await uploadLarge(client, `${PREFIX}/${fileName}`, buf);
-	await client.send(
-		new PutObjectCommand({
-			Bucket: BUCKET,
-			Key: `${PREFIX}/${sha256File}`,
-			Body: sha256,
-		}),
-	);
+	await uploadSmall(client, `${PREFIX}/${sha256File}`, sha256);
 	console.log(`✓ 已上传 ${PREFIX}/${sha256File}`);
-	await client.send(
-		new PutObjectCommand({
-			Bucket: BUCKET,
-			Key: `${PREFIX}/${manifestFile}`,
-			Body: manifest,
-		}),
-	);
+	await uploadSmall(client, `${PREFIX}/${manifestFile}`, manifest);
 	console.log(`✓ 已上传 ${PREFIX}/${manifestFile}`);
 
 	console.log(`\n✅ 发布完成: https://oss.wapiagent.top/${PREFIX}/${manifestFile}`);

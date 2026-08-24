@@ -1,3 +1,9 @@
+## 2026-08-24 — refactor(scripts): 抽取共用 S3 上传模块 s3-upload.cjs（消除 publish-oss/publish-kernel 重复的 ~150 行 S3 逻辑）
+
+- 新增 `scripts/s3-upload.cjs`：把 S3Client 创建（`createS3Client`）、手动 multipart 分片上传（`uploadLarge`）、小文件单次 PUT（`uploadSmall`）抽为共用模块（含 R2 endpoint/region/bucket 常量与手动指引所用的 BUCKET/ENDPOINT）。`publish-oss.ts` 与 `publish-kernel.ts` 此前各自内联了几乎相同的分片/上传逻辑（约 150 行），抽取后两处复用，达成 DRY。
+- 改造 `scripts/publish-oss.ts` 与 `scripts/publish-kernel.ts`：改为从 `s3-upload.cjs` 引入 `createS3Client/uploadLarge/uploadSmall`，删除各自内联的 AWS 命令 import、S3Client 创建与 `uploadLarge`（签名统一为 `(client, key, body, partSize?)` 与 `(client, key, body)`）。发布行为不变：上传顺序（安装包/blockmap 在前、清单最后覆盖）、分片重试、失败 abort、releaseNotes 注入、手动上传指引均保留。
+- 影响范围：`scripts/s3-upload.cjs`（新增）、`scripts/publish-oss.ts`、`scripts/publish-kernel.ts`、`scripts/s3-upload.test.ts`（新增）；测试：scripts 全部 12 pass（publish-oss 5 / publish-kernel 4 / s3-upload 3），desktop 包 192 pass / 2 skip 无回归。
+
 ## 2026-08-24 — feat(scripts): kernel 动态更新发布脚本 publish-kernel.ts（打包 zip + 生成清单）
 
 - 新增 `scripts/publish-kernel.ts`：把 `packages/desktop/resources/kernel/` 下的 WaPiKernel(+.exe) + package.json + bun.lock 三件套打成 `kernel-<build>.zip`，计算 sha256 并生成 `kernel-latest.json` 清单上传 R2（`releases/kernel/`）。上传顺序复用 publish-oss 的「清单最后覆盖」原则（先传 zip + zip.sha256，最后覆盖清单，防清单悬空指向未上传包）。核心逻辑拆为可单测纯函数（`platformFor`/`makeBuild`/`kernelZipEntries`/`buildKernelManifest`），二进制命名复用 kernel 编译侧 `kernelBinaryName`。
