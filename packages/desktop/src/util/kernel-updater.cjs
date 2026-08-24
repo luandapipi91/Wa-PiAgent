@@ -51,13 +51,34 @@ async function readLocalBuild(runtimeDir) {
 	}
 }
 
+// build 解析：<YYYYMMDD>-<seq> → { date, seq }；无法解析（非字符串、日期非 8 位数字、seq 非数字）返回 null。
+function parseBuild(build) {
+	if (typeof build !== "string" || !build) return null;
+	const m = /^(\d{8})-(\d+)$/.exec(build);
+	if (!m) return null;
+	return { date: Number(m[1]), seq: Number(m[2]) };
+}
+
+// 数值语义比较：按 date + seq 数值判定（seq 未零填充也稳健）；任一解析失败回退字符串比较。
+function compareBuild(a, b) {
+	const pa = parseBuild(a);
+	const pb = parseBuild(b);
+	if (pa && pb) {
+		if (pa.date !== pb.date) return pa.date < pb.date ? -1 : 1;
+		if (pa.seq !== pb.seq) return pa.seq < pb.seq ? -1 : 1;
+		return 0;
+	}
+	if (a === b) return 0;
+	return a < b ? -1 : 1;
+}
+
 // build 比较：manifest 无 build → 不更新；本地无有效 build（首次/空）→ 更新；
 // 否则仅当远端 build 更大才更新（同值不更新，降级不覆盖），防止 OSS 清单滞后把本地回退。
-// build 格式 <YYYYMMDD>-<seq>，字符串字典序与大小序一致，可直接用 > 比较。
+// build 格式 <YYYYMMDD>-<seq>，seq 未零填充（如 -9/-10）时字符串字典序会失准，故按数值比较。
 function needsUpdate(localBuild, manifest) {
 	if (!manifest?.build) return false;
 	if (!localBuild) return true;
-	return manifest.build > localBuild;
+	return compareBuild(manifest.build, localBuild) > 0;
 }
 
 // sha256 校验：读文件算 hash，与清单值（大小写不敏感）比对
