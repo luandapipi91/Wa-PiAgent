@@ -1,3 +1,11 @@
+## 2026-08-24 — fix(kernel/compile): 编译内核未嵌入 preview-inspect.js，打包版本地 html 预览丢失元素选择/高亮
+
+- 背景：本地 html 预览的元素悬停高亮与「发送到聊天」依赖 kernel 注入的 `/preview-inspect.js`。该脚本由 `ws-server.ts` 的 `/preview-inspect.js` 路由经 `Bun.file(new URL("./assets/preview-inspect.js", import.meta.url))` 读取，但 `compile-binary.ts` 的 `--asset` 嵌入清单（原 `BRIDGE_ASSET_FILES`）只含 bridge 扩展三文件，**没有 preview-inspect.js**。
+- 根因：bun `--compile` **不会自动打包** `new URL(..., import.meta.url)` 引用的文件（实测打包后 `Bun.file(...)` 对未嵌入文件 `exists()=false`、`text()` 抛 ENOENT），必须显式列入 `--asset` 才会嵌入产物。因此源码 dev（磁盘资产存在）元素选中正常，而 **win/mac 打包版** `/preview-inspect.js` 返回空 → 注入的 `<script>` 加载失败 → 预览页正常渲染但「无元素选择、无高亮」。表现为「仅打包版失效、页面能看但悬停无任何反应」。
+- 修复：`packages/kernel/scripts/compile-binary.ts` 把嵌入清单改名 `KERNEL_ASSET_FILES` 并新增 `join(KERNEL_SRC, "assets", "preview-inspect.js")`；同步更新 `packages/kernel/tests/compile-binary.test.ts`（清单长度 4 / 文件存在 / stageAssetDir 平铺名单 / 新增“必须含 preview-inspect.js”回归护栏）。
+- 验证：isolated bun --compile probe 证实「不嵌入→ENOENT、嵌入→new URL 可读、被导入模块同样可读」；用修复后脚本重建临时 kernel 二进制，`curl /preview-inspect.js` 返回 HTTP 200 且含 `选择父级/发送到聊天/hiagent:element-picked/buildSelector` 全部关键串；compile-binary.test.ts 6 pass。
+- 影响范围：`packages/kernel/scripts/compile-binary.ts`、`packages/kernel/tests/compile-binary.test.ts`。注意：该修复需**重新打包** kernel（pack:mac / kernel 动态更新）才能让已安装应用生效。
+
 ## 2026-08-24 — feat(kernel/version): 内核版本引入独立管控源（packages/kernel/package.json version）并在关于页显示
 
 - 背景：内核（WaPiKernel，bun --compile 单二进制）此前没有独立版本号（kernel package.json version 为占位 0.0.0；`WaPiKernel --version` 输出的是内嵌 bun 版本而非内核版本；`.kernel-version` 只是动态更新的 build 号）。关于页「内核版本」先前读 `.kernel-version`（未动态更新时为 null）导致新装显示 "—"。
