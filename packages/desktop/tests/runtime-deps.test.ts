@@ -5,7 +5,7 @@ import { test, expect } from "bun:test";
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { syncSeed } from "../src/util/runtime-deps.cjs";
+import { ensureRuntimeDeps, syncSeed } from "../src/util/runtime-deps.cjs";
 
 const noopLog = { info: () => {}, error: () => {} };
 const KERNEL_BIN = process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
@@ -45,6 +45,62 @@ test("syncSeed: seed 里的 patches 不再复制（patch 编译期已生效，�
     await syncSeed(seedDir, runtimeDir, noopLog);
 
     expect(await readdir(runtimeDir)).not.toContain("patches");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("syncSeed: runtime 已有 .kernel-version → 不覆盖 kernel 二进制（保留动态更新结果）", async () => {
+  const { base, seedDir, runtimeDir } = await makeTempDirs();
+  try {
+    // seed 是旧 kernel
+    await writeFile(join(seedDir, KERNEL_BIN), "seed-old");
+    await writeFile(join(seedDir, "package.json"), "{}");
+    await writeFile(join(seedDir, "bun.lock"), "{}");
+    // runtime 已有动态更新的 kernel + 标记
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(join(runtimeDir, KERNEL_BIN), "runtime-new");
+    await writeFile(join(runtimeDir, ".kernel-version"), "20260823-1");
+    await writeFile(join(runtimeDir, "package.json"), "{}");
+
+    await syncSeed(seedDir, runtimeDir, noopLog);
+
+    // kernel 不被覆盖（保留动态更新结果）
+    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe("runtime-new");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("ensureRuntimeDeps: 依赖重装判定改按 kernel build 号（buildToUse = kernelBuild || version）", async () => {
+  const { base, seedDir, runtimeDir } = await makeTempDirs();
+  try {
+    // seed 三件套
+    await writeFile(join(seedDir, KERNEL_BIN), "binary");
+    await writeFile(join(seedDir, "package.json"), "{}");
+    await writeFile(join(seedDir, "bun.lock"), "{}");
+    // runtime 已有 node_modules + 装好的标记（用 kernel build 号）
+    await mkdir(join(runtimeDir, "node_modules"), { recursive: true });
+    await writeFile(join(runtimeDir, "package.json"), "{}");
+    await writeFile(join(runtimeDir, ".installed-version"), "20260823-1");
+    const logs: string[] = [];
+    const log = { info: (...a: string[]) => logs.push(a.join(" ")), error: () => {} };
+
+    const runDir = await ensureRuntimeDeps({
+      isPackaged: true,
+      seedDir,
+      runtimeDir,
+      kernelExe: join(runtimeDir, KERNEL_BIN),
+      version: "1.0.0", // app 版本（旧判定用它，build 号不同 → 旧版会误判需重装）
+      kernelBuild: "20260823-1", // 动态 kernel build
+      log,
+      onStatus: () => {},
+    });
+
+    expect(runDir).toBe(runtimeDir);
+    expect(logs.some((l) => l.includes("node_modules 已安装 v20260823-1，跳过 install"))).toBe(
+      true,
+    );
   } finally {
     await rm(base, { recursive: true, force: true });
   }

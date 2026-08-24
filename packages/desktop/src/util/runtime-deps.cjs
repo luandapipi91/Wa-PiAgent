@@ -18,6 +18,7 @@
 const { spawn } = require("node:child_process");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const { readLocalBuild } = require("./kernel-updater.cjs");
 
 const DEFAULT_REGISTRY = "https://registry.npmmirror.com";
 const FALLBACK_REGISTRY = "https://registry.npmjs.org";
@@ -44,11 +45,22 @@ async function exists(p) {
 
 // 复制 seed 文件到 runtime 目录（升级时覆盖旧二进制 / package.json / bun.lock），
 // 并清理 kernel.js 时代的遗留文件。
-async function syncSeed(seedDir, runtimeDir, log) {
+// 动态 kernel 存在（runtimeDir 有 .kernel-version）时，KERNEL_BIN 不回退覆盖——
+// 保留 kernel-updater 动态更新后的新二进制；package.json / bun.lock 仍随 seed 照常同步。
+async function syncSeed(seedDir, runtimeDir, log, opts = {}) {
 	await fsp.mkdir(runtimeDir, { recursive: true });
+	// 判定「动态 kernel」：runtimeDir 已有 .kernel-version（被动态更新过）。
+	// opts.kernelBuild 可预先传入（避免重复读文件），否则从 runtimeDir 读 .kernel-version 得到，
+	// 读不到则为 null（首次/无动态标记 → 用 seed 覆盖 kernel）。
+	let kernelBuild = opts.kernelBuild;
+	if (kernelBuild == null) kernelBuild = await readLocalBuild(runtimeDir);
+	const isDynamicKernel = kernelBuild != null;
 	for (const f of SEED_FILES) {
 		const src = path.join(seedDir, f);
-		if (await exists(src)) await fsp.copyFile(src, path.join(runtimeDir, f));
+		if (!(await exists(src))) continue;
+		// 动态 kernel 已有新二进制，不回退覆盖（保留动态更新结果）
+		if (isDynamicKernel && f === KERNEL_BIN) continue;
+		await fsp.copyFile(src, path.join(runtimeDir, f));
 	}
 	for (const f of LEGACY_FILES) {
 		await fsp
@@ -197,11 +209,17 @@ async function ensureRuntimeDeps({
 	runtimeDir,
 	kernelExe,
 	version,
+	kernelBuild,
 	log,
 	onStatus,
 }) {
 	if (!isPackaged) return seedDir;
 
+	// 依赖重装判定改按 kernel build 号：kernelBuild 优先（来自 .kernel-version），
+	// 未传入时从 runtimeDir 读 .kernel-version 得到；读不到用 app version 兜底
+	// （兼容旧版首次 / 未被动态更新过）。
+	if (kernelBuild == null) kernelBuild = await readLocalBuild(runtimeDir);
+	const buildToUse = kernelBuild || version;
 	const marker = path.join(runtimeDir, ".installed-version");
 	const nmExists = await exists(path.join(runtimeDir, "node_modules"));
 	const markerVer = nmExists
@@ -209,15 +227,15 @@ async function ensureRuntimeDeps({
 		: "";
 
 	// 始终同步 seed 文件（编译产物可能同版本号重新构建，内容已变）
-	await syncSeed(seedDir, runtimeDir, log);
+	await syncSeed(seedDir, runtimeDir, log, { kernelBuild });
 
-	if (nmExists && markerVer === version) {
-		log.info(`[deps] node_modules 已安装 v${version}，跳过 install`);
+	if (nmExists && markerVer === buildToUse) {
+		log.info(`[deps] node_modules 已安装 v${buildToUse}，跳过 install`);
 		return runtimeDir;
 	}
 
 	log.info(
-		`[deps] 需要安装依赖 (version=${version}, installed=${markerVer || "无"})`,
+		`[deps] 需要安装依赖 (version=${buildToUse}, installed=${markerVer || "无"})`,
 	);
 
 	const registries = [
@@ -235,7 +253,7 @@ async function ensureRuntimeDeps({
 		cleanup: () => rmNodeModules(runtimeDir, log),
 		log,
 	});
-	await fsp.writeFile(marker, version, "utf8").catch(() => {});
+	await fsp.writeFile(marker, buildToUse, "utf8").catch(() => {});
 	log.info("[deps] ✅ 安装完成");
 	return runtimeDir;
 }
