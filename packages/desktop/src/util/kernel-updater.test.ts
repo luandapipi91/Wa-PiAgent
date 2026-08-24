@@ -16,6 +16,7 @@ import {
 	syncKernel,
 	applyKernelUpdate,
 	isSafeZipEntry,
+	currentPlatform,
 	KERNEL_BIN,
 } from "./kernel-updater.cjs";
 
@@ -38,6 +39,9 @@ test("needsUpdate: build 相同 → false", () => {
 });
 test("needsUpdate: build 不同(新版) → true", () => {
 	expect(needsUpdate("20260822-1", { build: "20260823-1" })).toBe(true);
+});
+test("needsUpdate: 远端 build 低于本地(降级) → false（不降级覆盖）", () => {
+	expect(needsUpdate("20260823-1", { build: "20260822-1" })).toBe(false);
 });
 test("needsUpdate: manifest 无 build → false（不更新）", () => {
 	expect(needsUpdate("20260823-1", {})).toBe(false);
@@ -100,6 +104,60 @@ test("syncKernel: 无更新 → up-to-date", async () => {
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
+});
+
+test("syncKernel: 清单平台与当前平台不匹配 → up-to-date（跳过更新）", async () => {
+	const runtimeDir = join(TMP, "runtime");
+	await mkdir(runtimeDir, { recursive: true });
+	// 本地 build 较旧（本应更新），但清单声明异平台 → 必须跳过，防止半更新
+	await writeFile(join(runtimeDir, ".kernel-version"), "20260101-1");
+	const otherPlatform = currentPlatform().includes("x64")
+		? currentPlatform().replace("x64", "arm64")
+		: currentPlatform().replace("arm64", "x64");
+	const res = await syncKernel({
+		runtimeDir,
+		seedDir: TMP,
+		feedUrl: FEED_URL,
+		fetchImpl: () =>
+			Promise.resolve({
+				ok: true,
+				json: async () => ({
+					build: "20260824-2",
+					platform: otherPlatform,
+				}),
+			}),
+		log: noopLog,
+	});
+	expect(res.status).toBe("up-to-date");
+});
+
+test("syncKernel: runtimeDir 不存在时先创建（首启 ENOENT 防护）", async () => {
+	const runtimeDir = join(TMP, "first-run", "runtime");
+	// 不预先创建 runtimeDir，模拟全新安装首次启动
+	const fetchImpl = async (url: string) => {
+		if (url.includes("kernel-latest.json")) {
+			return {
+				ok: true,
+				json: async () => ({
+					build: "20260824-2",
+					url: "kernel-x.zip",
+					sha256: "deadbeef", // sha 不匹配 → 下载后被校验拦截
+				}),
+			};
+		}
+		return { ok: true, arrayBuffer: async () => new Uint8Array([1, 2, 3]) };
+	};
+	const res = await syncKernel({
+		runtimeDir,
+		seedDir: TMP,
+		feedUrl: FEED_URL,
+		fetchImpl,
+		log: noopLog,
+	});
+	// runtimeDir 被 mkdir 创建（而非 writeFile 写 zip 抛 ENOENT）
+	await expect(access(runtimeDir)).resolves.toBeDefined();
+	expect(res.status).toBe("failed");
+	expect(res.error).toMatch(/sha256/);
 });
 
 test("syncKernel: 清单不可用（网络失败）→ up-to-date 降级", async () => {
