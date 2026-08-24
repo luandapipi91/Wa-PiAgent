@@ -133,28 +133,30 @@ test("syncSeed: 清理 kernel.js 时代遗留文件（老用户 runtime 目录�
   }
 });
 
-test("syncSeed: 动态 kernel 下 seed package.json 与 runtime 不同 → 删 .installed-version（触发依赖重装）", async () => {
+test("syncSeed: 动态 kernel（有 .kernel-version）→ 不覆盖 seed 的 package.json/bun.lock（保留动态更新后的 runtime 清单）", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
+    // seed 是 app 捆绑的旧内核清单
     const seedPkg = JSON.stringify({ deps: { a: "1" } });
     await writeFile(join(seedDir, KERNEL_BIN), "binary");
     await writeFile(join(seedDir, "package.json"), seedPkg);
     await writeFile(join(seedDir, "bun.lock"), "{}");
-    // runtime 已有动态更新的 kernel + 标记 + 旧清单（与 seed 不同）
+    // runtime 已有动态更新的 kernel + 标记 + 更新后清单（0.1.1，与 seed 不同）
+    const runtimePkg = JSON.stringify({ version: "0.1.1", deps: { a: "2" } });
     await mkdir(runtimeDir, { recursive: true });
     await writeFile(join(runtimeDir, KERNEL_BIN), "runtime-new");
     await writeFile(join(runtimeDir, ".kernel-version"), "20260823-1");
-    await writeFile(join(runtimeDir, "package.json"), JSON.stringify({ deps: { a: "2" } }));
+    await writeFile(join(runtimeDir, "package.json"), runtimePkg);
+    await writeFile(join(runtimeDir, "bun.lock"), "runtime-lock");
     await writeFile(join(runtimeDir, ".installed-version"), "20260823-1");
 
     await syncSeed(seedDir, runtimeDir, noopLog);
 
-    // package.json 已被 seed 覆盖
-    expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(seedPkg);
-    // 内容变化 → 删除标记以触发 ensureRuntimeDeps 重装判定
-    expect(
-      await readFile(join(runtimeDir, ".installed-version"), "utf8").catch(() => null),
-    ).toBe(null);
+    // 动态 kernel：runtime 的 kernel 二进制 / package.json / bun.lock 不被 seed 覆盖（保留更新后版本）
+    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe("runtime-new");
+    expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(runtimePkg);
+    expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe("runtime-lock");
+    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe("20260823-1");
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -183,45 +185,34 @@ test("syncSeed: 动态 kernel 下 seed package.json 与 runtime 相同 → 不�
   }
 });
 
-// ensureRuntimeDeps 全流程：动态 kernel（.kernel-version）+ node_modules 已装 + 标记 == buildToUse
-// + seed 的 package.json 与 runtime 不同。syncSeed 会删 .installed-version；关键点是 ensureRuntimeDeps
-// 必须在 syncSeed 之后重读 markerVer（而非用删除前的旧值），否则会误判跳过 install。
-// 用不存在的 kernelExe 作观测：修复后走到 install（spawn ENOENT）→ 抛错；修复前沿用旧 markerVer 跳过
-// install → 直接返回 runtimeDir、不抛错（此断言即回归守卫）。
-test("ensureRuntimeDeps: 动态 kernel + seed 包清单变化 → syncSeed 删标记后真正触发重装（非跳过）", async () => {
+test("ensureRuntimeDeps: 动态 kernel 且 build 号变化 → 触发依赖重装（非跳过）", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
-    const seedPkg = JSON.stringify({ deps: { a: "1" } });
     await writeFile(join(seedDir, KERNEL_BIN), "binary");
-    await writeFile(join(seedDir, "package.json"), seedPkg);
+    await writeFile(join(seedDir, "package.json"), "{}");
     await writeFile(join(seedDir, "bun.lock"), "{}");
-    // runtime 已有动态更新的 kernel + 已装 node_modules + 标记 == buildToUse，但包清单与 seed 不同
+    // runtime：动态 kernel（.kernel-version 新 build）+ node_modules 已装 + 旧 .installed-version
     await mkdir(join(runtimeDir, "node_modules"), { recursive: true });
     await writeFile(join(runtimeDir, KERNEL_BIN), "runtime-new");
-    await writeFile(join(runtimeDir, ".kernel-version"), "20260823-1");
-    await writeFile(join(runtimeDir, "package.json"), JSON.stringify({ deps: { a: "2" } }));
+    await writeFile(join(runtimeDir, ".kernel-version"), "20260824-2");
+    await writeFile(join(runtimeDir, "package.json"), JSON.stringify({ version: "0.1.1" }));
     await writeFile(join(runtimeDir, ".installed-version"), "20260823-1");
     const logs: string[] = [];
     const log = { info: (...a: string[]) => logs.push(a.join(" ")), error: () => {} };
 
-    // 修复后：syncSeed 删标记 → 走到 install（spawn ENOENT 失败）→ 抛错被 catch → null；
-    // 修复前：误用删除前的旧 markerVer 判定 → 跳过 install → 正常返回 runtimeDir（此断言即回归守卫）。
+    // buildToUse=20260824-2（来自 kernelBuild）!= markerVer=20260823-1 → 触发 install
+    //（spawn ENOENT 失败）→ 抛错被 catch → null；若误跳过 install 则返回 runtimeDir（此断言即回归守卫）。
     const runDir = await ensureRuntimeDeps({
       isPackaged: true,
       seedDir,
       runtimeDir,
       kernelExe: join(base, "kernel-not-exist"), // 不存在的可执行：走到 install 才抛错
       version: "1.0.0",
-      kernelBuild: "20260823-1", // 动态 kernel build
+      kernelBuild: "20260824-2", // 动态 kernel 新 build
       log,
       onStatus: () => {},
     }).catch(() => null);
     expect(runDir).not.toBe(runtimeDir); // 未 return runtimeDir（未跳过 install）
-
-    // syncSeed 删了标记；install 失败（spawn ENOENT）未回写 → 标记仍为删除态
-    expect(
-      await readFile(join(runtimeDir, ".installed-version"), "utf8").catch(() => null),
-    ).toBe(null);
     // 确实走到 install 分支（非跳过）：日志出现「需要安装依赖」、未出现「跳过 install」
     expect(logs.some((l) => l.includes("需要安装依赖"))).toBe(true);
     expect(logs.some((l) => l.includes("跳过 install"))).toBe(false);
