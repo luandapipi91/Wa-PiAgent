@@ -1,3 +1,10 @@
+## 2026-08-24 — fix(preview): 关闭高亮选择后页面滚动/缩放不会再让高亮复活
+
+- 背景：关闭高亮选择（Ctrl/⌘ 切换 disabled）后，点击页面元素引起滚动/布局变化时，`scroll`/`resize` 直接触发 `render`，而 `render` 未检查 disabled → `current` 仍在 → 高亮重新出现。
+- 修复：`preview-inspect.js` 的 `render` 开头若 disabled 则隐藏 hl/bar/tip 并 return，任何触发（含 scroll/resize）都不再绘制高亮。
+- 验证：浏览器实测「hover 高亮 → Ctrl 关闭 → 触发 scroll/resize/hover 别处」高亮均保持隐藏；`preview-inspect.test.ts` 6 pass。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`。
+
 ## 2026-08-24 — feat(preview): 预览高亮选择支持 Ctrl/Cmd 开关 + 平台按键提示 + 状态本地保存
 
 - 背景：高亮选择（hover 高亮/元素锁定）默认一直开启、无关闭入口；希望按 Ctrl/Cmd 关闭，且关闭后本地记住（下次预览仍关闭）、再按才打开。

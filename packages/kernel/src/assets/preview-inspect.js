@@ -151,6 +151,13 @@
 		}
 
 		function render() {
+			// 已关闭高亮选择：任何触发（含 scroll/resize）都不再绘制，保持隐藏
+			if (disabled) {
+				hl.style.display = "none";
+				bar.style.display = "none";
+				tip.style.display = "none";
+				return;
+			}
 			if (!current || !current.getBoundingClientRect) {
 				hl.style.display = "none";
 				bar.style.display = "none";
