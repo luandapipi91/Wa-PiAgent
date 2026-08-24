@@ -1,3 +1,9 @@
+## 2026-08-24 — v0.2.21 发版（kernel 二进制动态更新 + 内核版本独立管控 0.1 关于页显示 + 预览锁定 + Pi 依赖升级）
+
+- 版本：0.2.20 → 0.2.21。
+- 主要内容：kernel 二进制动态更新（发布端 publish-kernel.ts 打包内核包+清单+上传、客户端 kernel-updater.cjs 拉清单/下载/校验/覆盖/回滚、runtime-deps 按 build 号判依赖重装并跳过动态更新 kernel、main.cjs 启动接入 syncKernel，失败降级不阻断）；设置「关于」新增「内核版本」并引入内核独立版本管控（packages/kernel/package.json version = 0.1，与 app 版本解耦）；抽取共用 s3-upload.cjs；编译内核嵌入 preview-inspect.js（修复打包版本地 html 预览丢失元素选择/高亮）；依赖升级（pi-mcp-adapter 2.17→2.27 移除 MCP OAuth、@napi-rs/keyring、pi-web-access；打包/安装版本单一来源化）。
+- 验证：bun run test 全量回归；pack:mac + pack:win（wapi-sign + CSC_IDENTITY_AUTO_DISCOVERY=false 免弹签名）；publish-oss.ts 推送 R2；git tag v0.2.21 + push Gitee；Gitee Release。
+
 ## 2026-08-24 — feat(preview): 预览元素选中支持点击锁定高亮 + 锁图标 + 明确解除
 
 - 背景：预览元素悬停高亮会一直跟鼠标走，「选择父级」后高亮固定但缺乏明确的「锁定/解除」状态反馈，用户期望「点击即锁定、浮窗出现锁图标、能明确解除」。
