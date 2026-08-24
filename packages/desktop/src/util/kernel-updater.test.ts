@@ -217,58 +217,59 @@ test("isSafeZipEntry: 拒绝 ../、绝对路径、盘符；放行正常相对路
 	expect(isSafeZipEntry("")).toBe(false);
 });
 
-test.skipIf(
-	!HAS_ZIP,
-	"syncKernel: 下载→sha 校验→真实解压→写 .kernel-version → updated（集成）",
-	async () => {
-		const runtimeDir = join(TMP, "runtime");
-		await mkdir(runtimeDir, { recursive: true });
-		// 造一个 staging 目录，打包成有效 zip（条目位于根，含新 kernel/pkq/lock）
-		const stage = join(TMP, "stage");
-		await mkdir(stage, { recursive: true });
-		const newBin = "NEW_BIN_CONTENT";
-		await writeFile(join(stage, KERNEL_BIN), newBin);
-		await writeFile(join(stage, "package.json"), '{"name":"new"}');
-		await writeFile(join(stage, "bun.lock"), "lock");
-		const zipPath = join(TMP, "kernel-20260824-2.zip");
-		const zipRes = spawnSync("zip", ["-q", zipPath, KERNEL_BIN, "package.json", "bun.lock"], {
-			cwd: stage,
-		});
-		expect(zipRes.status).toBe(0);
-		const buf = await readFile(zipPath);
-		const sha = createHash("sha256").update(buf).digest("hex");
+if (HAS_ZIP) {
+	test(
+		"syncKernel: 下载→sha 校验→真实解压→写 .kernel-version → updated（集成）",
+		async () => {
+			const runtimeDir = join(TMP, "runtime");
+			await mkdir(runtimeDir, { recursive: true });
+			// 造一个 staging 目录，打包成有效 zip（条目位于根，含新 kernel/pkq/lock）
+			const stage = join(TMP, "stage");
+			await mkdir(stage, { recursive: true });
+			const newBin = "NEW_BIN_CONTENT";
+			await writeFile(join(stage, KERNEL_BIN), newBin);
+			await writeFile(join(stage, "package.json"), '{"name":"new"}');
+			await writeFile(join(stage, "bun.lock"), "lock");
+			const zipPath = join(TMP, "kernel-20260824-2.zip");
+			const zipRes = spawnSync("zip", ["-q", zipPath, KERNEL_BIN, "package.json", "bun.lock"], {
+				cwd: stage,
+			});
+			expect(zipRes.status).toBe(0);
+			const buf = await readFile(zipPath);
+			const sha = createHash("sha256").update(buf).digest("hex");
 
-		const fetchImpl = async (url: string) => {
-			if (url.includes("kernel-latest.json")) {
-				return {
-					ok: true,
-					json: async () => ({
-						build: "20260824-2",
-						url: "kernel-20260824-2.zip",
-						sha256: sha,
-					}),
-				};
-			}
-			return { ok: true, arrayBuffer: async () => buf };
-		};
-		const res = await syncKernel({
-			runtimeDir,
-			seedDir: TMP,
-			feedUrl: FEED_URL,
-			fetchImpl,
-			log: noopLog,
-		});
-		expect(res.status).toBe("updated");
-		expect(res.build).toBe("20260824-2");
-		expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(newBin);
-		expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(
-			'{"name":"new"}',
-		);
-		expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe("lock");
-		expect(await readFile(join(runtimeDir, ".kernel-version"), "utf8")).toBe(
-			"20260824-2",
-		);
-		// 更新成功后临时 zip 已清理
-		await expect(access(join(runtimeDir, ".kernel-update-20260824-2.zip"))).rejects.toThrow();
-	},
-);;
+			const fetchImpl = async (url: string) => {
+				if (url.includes("kernel-latest.json")) {
+					return {
+						ok: true,
+						json: async () => ({
+							build: "20260824-2",
+							url: "kernel-20260824-2.zip",
+							sha256: sha,
+						}),
+					};
+				}
+				return { ok: true, arrayBuffer: async () => buf };
+			};
+			const res = await syncKernel({
+				runtimeDir,
+				seedDir: TMP,
+				feedUrl: FEED_URL,
+				fetchImpl,
+				log: noopLog,
+			});
+			expect(res.status).toBe("updated");
+			expect(res.build).toBe("20260824-2");
+			expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(newBin);
+			expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(
+				'{"name":"new"}',
+			);
+			expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe("lock");
+			expect(await readFile(join(runtimeDir, ".kernel-version"), "utf8")).toBe(
+				"20260824-2",
+			);
+			// 更新成功后临时 zip 已清理
+			await expect(access(join(runtimeDir, ".kernel-update-20260824-2.zip"))).rejects.toThrow();
+		},
+	);
+}
