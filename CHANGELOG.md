@@ -1,3 +1,11 @@
+## 2026-08-24 — feat(preview): 预览元素选中支持点击锁定高亮 + 锁图标 + 明确解除
+
+- 背景：预览元素悬停高亮会一直跟鼠标走，「选择父级」后高亮固定但缺乏明确的「锁定/解除」状态反馈，用户期望「点击即锁定、浮窗出现锁图标、能明确解除」。
+- 方案：注入脚本 `preview-inspect.js` 增加 `pinned` 锁定态。点击元素 → 高亮固定（不再跟 `mousemove` 切换），浮窗出现锁图标（内联 SVG——脚本运行在被预览页内、无法引用前端组件库）；锁定中「选择父级」仍可切到父元素（保持锁定）；解除方式：再点一次当前元素 / 点锁图标 / 点「发送到聊天」（发送后自动解除，恢复 hover 跟随）。
+- 实现位置：`preview-inspect.js`（iframe 内原生 JS，锁图标用内联 SVG——脚本运行在被预览页内、无法引用前端组件库）；锁图标图形与前端 `Icon.tsx` 新增的 `lock` 图标一致（24 viewBox / fill none / stroke currentColor / 1.6 线宽 / 圆角端点）。
+- 验证：`preview-inspect.test.ts` 6 pass；`preview-inspect.integration.test.ts` 11 pass（改动前后一致）；浏览器实测「hover 选中→点击锁定（锁图标出现）→锁定中 hover 不切换→再点解除→点发送解除」全通过。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`、`packages/frontend/src/components/ui/Icon.tsx`（新增 `lock` 图标）。注：需重新打包/更新 kernel 后本地 html 预览生效。
+
 ## 2026-08-24 — feat(frontend): 浏览器预览按会话独立记忆，切换会话不再重置预览
 
 - 背景：之前点击侧栏切换会话时，`App.tsx` 的 `onSelectSession` 会无条件调用 `useBrowserStore.getState().closeBrowser()`，把全局预览 store 的 `open/path/sessionId` 全部清空，导致「切换会话后浏览器预览窗口重置」。

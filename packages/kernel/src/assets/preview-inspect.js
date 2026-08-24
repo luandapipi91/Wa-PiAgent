@@ -92,6 +92,14 @@
 			"color:rgba(255,255,255,.85);font-size:11px;padding:1px 4px;" +
 			"max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" +
 			"pointer-events:none;user-select:none;";
+		// 锁图标：点击元素锁定后出现，表示「高亮已锁定/固定」；再点一次解除锁定。
+		// 预览脚本运行在被预览页(iframe)内，无法引用前端组件库，故内联 SVG（padlock）。
+		var btnLock = document.createElement("button");
+		btnLock.title = "解除高亮锁定";
+		btnLock.style.cssText = btnStyle + ";display:none;";
+		btnLock.innerHTML =
+			'<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto;vertical-align:-0.125em" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9.5" rx="2"></rect><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path></svg>';
+		bar.appendChild(btnLock);
 		bar.appendChild(label);
 		bar.appendChild(btnParent);
 		bar.appendChild(btnSend);
@@ -102,6 +110,9 @@
 		// 选择父级后的锁定：鼠标在锁定元素内部移动（含其子元素）不切换选中，移出才解锁。
 		// 否则选完父级后随便动一下鼠标，hover 又把选中抢回子元素。
 		var locked = false;
+		// 点击锁定（pinned）：点击元素后高亮固定在该元素、不再跟鼠标走，浮窗显示锁图标。
+		// 解除：再次点击当前元素 / 点锁图标 / 点「发送到聊天」。
+		var pinned = false;
 
 		function render() {
 			if (!current || !current.getBoundingClientRect) {
@@ -121,6 +132,8 @@
 			bar.style.left = x + "px";
 			bar.style.top = Math.max(0, y - 28) + "px";
 			label.textContent = displayLabel(current);
+			// 锁图标：锁定态显示，否则隐藏
+			btnLock.style.display = pinned ? "inline-block" : "none";
 		}
 
 		document.addEventListener(
@@ -129,6 +142,8 @@
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
 				if (!t.tagName) return;
+				// 点击锁定中：hover 不再切换选中，高亮固定在锁定元素
+				if (pinned) return;
 				// 粘性区：元素上缘到工具条之间的通道（含工具条），鼠标经过时保持当前选中。
 				// 否则从元素移向工具条会穿过间隙命中其他元素，选中被切走，永远点不到按钮。
 				if (current && bar.style.display !== "none") {
@@ -153,6 +168,29 @@
 			},
 			true,
 		);
+		// 点击锁定 / 再点解除（capture：先于页面自身逻辑；浮窗内的点击交由按钮 handler 处理）
+		document.addEventListener(
+			"click",
+			function (e) {
+				var t = e.target;
+				if (!t || t === hl || t === bar || bar.contains(t)) return;
+				if (!pinned) {
+					// 首次点击：锁定该元素（高亮固定 + 浮窗显示锁图标）
+					if (!t.tagName) return;
+					pinned = true;
+					current = t;
+					render();
+					e.preventDefault();
+				} else {
+					// 锁定中再点一次：解除锁定；点到的元素成为 hover 目标
+					pinned = false;
+					if (t.tagName) current = t;
+					render();
+					e.preventDefault();
+				}
+			},
+			true,
+		);
 		window.addEventListener("scroll", render, true);
 		window.addEventListener("resize", render);
 
@@ -160,6 +198,7 @@
 			e.preventDefault();
 			e.stopPropagation();
 		}
+		btnLock.addEventListener("mousedown", onBtn);
 		btnParent.addEventListener("mousedown", onBtn);
 		btnSend.addEventListener("mousedown", onBtn);
 
@@ -185,6 +224,15 @@
 				},
 				"*",
 			);
+			// 发送到聊天后解除高亮锁定（高亮恢复 hover 跟随）
+			pinned = false;
+			render();
+		});
+		btnLock.addEventListener("click", function (e) {
+			onBtn(e);
+			// 点锁图标：解除高亮锁定
+			pinned = false;
+			render();
 		});
 	}
 })();
