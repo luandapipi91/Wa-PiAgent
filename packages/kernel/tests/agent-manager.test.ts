@@ -690,22 +690,29 @@ test("prompt — 超过 3.5MB 但 ≤30MB 的真实图片用 bun:image 压缩为
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 
-	// 生成一张真实可解码的 >3.5MB JPEG：源图放大编码让字节数超过单张上限，但仍是合法图片，压缩可成功。
-	// 源图用项目内确定存在的上传图片（Windows 绝对路径，Bun 识别 H:/ 而非 MSYS 的 /h/）。
-	const srcImg = "H:/workspace/hiagent/.wa-pi/uploads/image (1).png";
+	// 生成一张真实可解码的 >3.5MB JPEG：仓库内图标（跨平台可找到）放大成小 JPEG 后
+	// 尾部补零到 4MB——JPEG 解码器忽略 EOI 后的填充字节，Bun.Image 仍可解码并压缩。
+	// 修复：原实现硬编码 Windows 绝对路径（H:/workspace/...）导致 mac/Linux 上 ENOENT。
+	const srcImg = join(
+		import.meta.dir,
+		"../../desktop/src/assets/icon-mac.png",
+	);
 	const imgPath = `/tmp/wa-pi-img-compress-${Date.now()}.jpg`;
 	tmpPaths.push(imgPath);
 	const raw = await Bun.file(srcImg).bytes();
-	const big = await new Bun.Image(raw)
-		.resize(14000, 8946, { fit: "inside" })
-		.jpeg({ quality: 95 })
+	const small = await new Bun.Image(raw)
+		.resize(2000, 2000, { fit: "inside" })
+		.jpeg({ quality: 90 })
 		.bytes();
-	writeFileSync(imgPath, big);
+	writeFileSync(imgPath, small);
+	const fd = openSync(imgPath, "a");
+	ftruncateSync(fd, 4 * 1024 * 1024); // 补零到 4MB > 3.5MB 单张上限（仍可解码）
+	closeSync(fd);
 
 	await am.prompt(session.id, "压缩这张大图", {
 		model: MODEL,
 		attachments: [
-			{ kind: "image", path: imgPath, name: "大图.jpg", size: big.length },
+			{ kind: "image", path: imgPath, name: "大图.jpg", size: 4 * 1024 * 1024 },
 		],
 	});
 
@@ -718,7 +725,7 @@ test("prompt — 超过 3.5MB 但 ≤30MB 的真实图片用 bun:image 压缩为
 	expect(img.type).toBe("image");
 	expect(img.mimeType).toBe("image/webp");
 	expect(typeof img.data).toBe("string");
-	// 压缩后 base64 解码的字节应远小于原始 5.56MB（≤3MB 目标）
+	// 压缩后 base64 解码的字节应远小于原始 4MB（≤3MB 目标）
 	const decoded = Buffer.from(img.data, "base64");
 	expect(decoded.length).toBeLessThanOrEqual(3 * 1024 * 1024);
 });
