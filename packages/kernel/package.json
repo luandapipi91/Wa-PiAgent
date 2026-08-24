@@ -1,6 +1,6 @@
 {
   "name": "@wa-pi/kernel",
-  "version": "0.2.20",
+  "version": "0.1",
   "license": "MIT",
   "type": "module",
   "exports": {
