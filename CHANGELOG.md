@@ -10,6 +10,7 @@
 - `needsUpdate` 由裸字符串 `>` 改为 `parseBuild`/`compareBuild` 数值语义比较（`<YYYYMMDD>-<seq>`），闭合 build 的 seq 未零填充（同日发布 ≥10 次跨个位/十位）时字典序比较造成的升级漏判与降级防护击穿；无法解析回退字符串比较。
 - `syncKernel` 起点 `mkdir(runtimeDir, {recursive:true})`，防全新安装首次启动下载写 zip 时 runtimeDir 未创建抛 ENOENT。
 - 影响范围：`packages/desktop/src/util/kernel-updater.cjs`、`packages/desktop/src/util/kernel-updater.test.ts`；测试：kernel-updater 19 pass（含平台不匹配/同日跨个位升级/降级防护/首启 mkdir 用例），runtime-deps + 集成 9 pass 无回归，typecheck 干净。
+
 ## 2026-08-24 — feat(kernel-updater): syncKernel 支持 WA_PI_KERNEL_FEED_URL env 覆盖 feed
 
 - main.cjs 的 `syncKernel` 调用新增 `feedUrl: process.env.WA_PI_KERNEL_FEED_URL || undefined`：该 env 仅供 E2E/测试指向本地 mock，生产不设置时默认走 `DEFAULT_FEED`（OSS 公开读 kernel-latest.json），失败照旧 log.error 降级且不阻断启动；沿用既有 `WA_PI_UPDATER_FEED_URL` 的 env 覆盖默认 feed 模式。
@@ -51,6 +52,7 @@
 
 - 新增 `scripts/publish-kernel.ts`：把 `packages/desktop/resources/kernel/` 下的 WaPiKernel(+.exe) + package.json + bun.lock 三件套打成 `kernel-<build>.zip`，计算 sha256 并生成 `kernel-latest.json` 清单上传 R2（`releases/kernel/`）。上传顺序复用 publish-oss 的「清单最后覆盖」原则（先传 zip + zip.sha256，最后覆盖清单，防清单悬空指向未上传包）。核心逻辑拆为可单测纯函数（`platformFor`/`makeBuild`/`kernelZipEntries`/`buildKernelManifest`），二进制命名复用 kernel 编译侧 `kernelBinaryName`。
 - 影响范围：`scripts/publish-kernel.ts`（新增）、`scripts/publish-kernel.test.ts`（新增）；测试：4 pass（platformFor 映射 / makeBuild / kernelZipEntries 三件套 / buildKernelManifest 全字段）。
+
 ## 2026-08-24 — fix(desktop/node): 首启下载的 node 的 npm/npx/corepack 符号链接指向临时解压目录，清理后变 broken 导致 MCP 报 Executable not found: npx
 
 - 背景：打包版首启下载 node 到 ~/.pi/agent/node/（node-runtime.cjs 用 fsp.cp 递归复制解压目录）。fsp.cp 把 node 安装里的 npm/npx/corepack 相对符号链接重写成指向源临时解压目录（os.tmpdir()/wa-pi-node-extract-*）的绝对路径；该临时目录在 finally 被删除后，~/.pi/agent/node/bin/{npx,npm,corepack} 全变 broken 符号链接 → MCP 服务器（command: npx）启动时报 "Executable not found in $PATH: npx"。node 本体是真实二进制故可用，npm/npx 失效。
