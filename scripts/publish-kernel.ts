@@ -23,12 +23,14 @@ import {
 } from "./s3-upload.cjs";
 // 复用 kernel 编译侧的二进制命名逻辑（wa-pi-kernel → WaPiKernel(.exe)，DRY）
 import { kernelBinaryName } from "../packages/kernel/scripts/compile-binary";
+// 内核版本独立管控源：从 packages/kernel/package.json 读（与 app 版本、bun runtime 版本解耦）
+import kernelPkg from "../packages/kernel/package.json" with { type: "json" };
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const KERNEL_DIR = join(REPO_ROOT, "packages", "desktop", "resources", "kernel");
 
-/** 内核内嵌的 bun runtime 版本（kernel 单二进制由 bun --compile 产物充当 bun CLI） */
-const KERNEL_VERSION = "1.4.0";
+/** 内核版本（packages/kernel/package.json version；非 bun runtime 版本） */
+const KERNEL_VERSION = kernelPkg.version;
 
 // kernel 产物单独放 releases/kernel/ 子前缀（bucket/endpoint 常量在 s3-upload.cjs）
 const PREFIX = "releases/kernel";
