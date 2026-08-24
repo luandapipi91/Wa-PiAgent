@@ -10,11 +10,18 @@ import { basename, join } from "node:path";
 const KERNEL_SRC = join(import.meta.dir, "..", "src");
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
-/** bridge 扩展三文件：--asset 嵌入源（bridge-extension.ts 从 assets/ 读取后部署到 GENERATED_DIR） */
-export const BRIDGE_ASSET_FILES = [
+/** kernel 运行时需嵌入编译产物的资产：--asset 嵌入源（编译产物 import.meta.dir/assets/ 运行时读取）。
+ * - bridge 扩展三文件：bridge-extension.ts 从 assets/ 读取后部署到 GENERATED_DIR；
+ * - preview-inspect.js：ws-server.ts 的 /preview-inspect.js 路由经
+ *   new URL("./assets/preview-inspect.js", import.meta.url) 读取，注入本地 html 预览提供元素选中。
+ * 关键：bun --compile 不会自动打包 new URL(...) 引用的文件（Bun.file(new URL(...)) 会 ENOENT），
+ * 必须显式列入本清单才会被 --asset 嵌入产物。preview-inspect.js 曾漏加 → 打包版 /preview-inspect.js
+ * 读取失败 → 注入的 inspect 脚本加载失败 → 本地预览「无元素选择、无高亮」且页面正常渲染。 */
+export const KERNEL_ASSET_FILES = [
 	join(KERNEL_SRC, "wa-pi-bridge.extension.ts"),
 	join(KERNEL_SRC, "file-snapshot.ts"),
 	join(REPO_ROOT, "packages", "shared", "src", "tool-schemas.ts"),
+	join(KERNEL_SRC, "assets", "preview-inspect.js"),
 ];
 
 /** 必须 external 的包：原生 .node 依赖无法内联进虚拟 FS，运行时从磁盘 node_modules 加载 */
@@ -70,7 +77,7 @@ export function stageAssetDir(): string {
 	const parent = mkdtempSync(join(tmpdir(), "wa-pi-kernel-assets-"));
 	const dir = join(parent, "assets");
 	mkdirSync(dir);
-	for (const f of BRIDGE_ASSET_FILES) cpSync(f, join(dir, basename(f)));
+	for (const f of KERNEL_ASSET_FILES) cpSync(f, join(dir, basename(f)));
 	return dir;
 }
 

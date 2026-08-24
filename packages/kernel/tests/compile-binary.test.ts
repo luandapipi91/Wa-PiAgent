@@ -7,7 +7,7 @@ import {
   buildCompileArgs,
   stageAssetDir,
   EXTERNAL_PACKAGES,
-  BRIDGE_ASSET_FILES,
+  KERNEL_ASSET_FILES,
   kernelBinaryName,
 } from "../scripts/compile-binary";
 import { basename, join } from "node:path";
@@ -52,23 +52,28 @@ test("EXTERNAL_PACKAGES: 只含原生 .node 依赖 @napi-rs/keyring", () => {
   expect(EXTERNAL_PACKAGES).toEqual(["@napi-rs/keyring"]);
 });
 
-test("BRIDGE_ASSET_FILES: bridge 三文件都真实存在", () => {
-  expect(BRIDGE_ASSET_FILES).toHaveLength(3);
-  for (const f of BRIDGE_ASSET_FILES) expect(existsSync(f)).toBe(true);
+test("KERNEL_ASSET_FILES: 全部资产真实存在且包含 preview-inspect.js", () => {
+  // preview-inspect.js 必须嵌入（ws-server /preview-inspect.js 路由用 new URL(..., import.meta.url)
+  // 读取，bun --compile 不会自动打包该引用，漏加则打包版元素选中/高亮失效——回归护栏）。
+  const names = KERNEL_ASSET_FILES.map((f) => basename(f));
+  expect(names).toContain("preview-inspect.js");
+  expect(KERNEL_ASSET_FILES).toHaveLength(4);
+  for (const f of KERNEL_ASSET_FILES) expect(existsSync(f)).toBe(true);
 });
 
-test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名挂载）且三文件平铺", () => {
+test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名挂载）且资产平铺", () => {
   const dir = stageAssetDir();
   try {
     // bun --compile --asset 把目录名挂到虚拟根：--asset ./assets → 产物 B:\~BUN\root\assets\。
     // bridge-extension.ts 固定读 __dirname/assets/，故嵌入目录必须字面叫 assets。
     expect(basename(dir)).toBe("assets");
-    const names = readdirSync(dir).sort();
-    expect(names).toEqual([
+    const expected = [
       "file-snapshot.ts",
+      "preview-inspect.js",
       "tool-schemas.ts",
       "wa-pi-bridge.extension.ts",
-    ]);
+    ].sort();
+    expect(readdirSync(dir).sort()).toEqual(expected);
   } finally {
     // 清理唯一父目录（assets 子目录 + 父目录一并移除，避免 tmp 泄漏）
     rmSync(join(dir, ".."), { recursive: true, force: true });
