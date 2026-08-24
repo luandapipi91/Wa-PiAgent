@@ -61,6 +61,10 @@ export function buildRuntimeManifest() {
 	return {
 		name: "wa-pi-kernel-sidecar",
 		private: true,
+		// 内核版本管控源：随 packages/kernel/package.json 的 version 走（与 app 同版本发布）。
+		// 打包写进 resources/kernel/package.json；动态更新打包的 kernel zip 亦含此字段，
+		// 关于页经 main.cjs 读 runtime/seed 的 package.json.version 作为「内核版本」。
+		version: kernelPkg.version,
 		dependencies: kernelRuntimeDependencies(kernelPkg),
 	};
 }

@@ -412,12 +412,24 @@ app.whenReady().then(async () => {
 		config: {
 			feedUrl: process.env.WA_PI_UPDATER_FEED_URL || undefined,
 		},
-		// 内核 build 号：runtime 的 .kernel-version（kernel-updater.cjs 写入 <YYYYMMDD>-<seq>）。
-		// setupUpdater 调用早于下方 runtimeDir 定义，只能传 lazy getter 延迟到 handler 触发时再读文件。
-		getKernelVersion: () => {
-			const { readLocalBuild } = require("./util/kernel-updater.cjs");
-			const { resolveRuntimeDir } = require("./util/paths.cjs");
-			return readLocalBuild(resolveRuntimeDir(WA_PI_DIR));
+		// 内核版本：读 kernel sidecar 清单 package.json 的 version（管控源=packages/kernel/package.json）。
+		// 优先读 runtime 的（动态更新后是新内核版本），fallback 捆绑的 seed（新装未更新）；
+		// WaPiKernel --version 输出的是内嵌 bun 版本、非内核版本，不能用于此。
+		// setupUpdater 调用早于下方 seedDir/runtimeDir 定义，只能传 lazy getter 延迟到 handler 触发时再读。
+		getKernelVersion: async () => {
+			const fsp = require("node:fs/promises");
+			const { join } = require("node:path");
+			for (const dir of [runtimeDir, seedDir]) {
+				try {
+					const pkg = JSON.parse(
+						await fsp.readFile(join(dir, "package.json"), "utf8"),
+					);
+					if (pkg.version) return pkg.version;
+				} catch {
+					/* 该目录无 package.json / 解析失败 → 尝试下一个 */
+				}
+			}
+			return null;
 		},
 		// 升级安装前优雅停 kernel：停 sidecar（同步阻塞杀进程树）→ 等端口真正释放 →
 		// 登记簿兜底清扫（清运行期 kernel 重启换 pid 等残留）→ 自删登记。

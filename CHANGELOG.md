@@ -1,4 +1,11 @@
-## 2026-08-24 — feat(settings/about): 关于页展示内核版本（.kernel-version build 号）
+## 2026-08-24 — feat(kernel/version): 内核版本引入独立管控源（packages/kernel/package.json version）并在关于页显示
+
+- 背景：内核（WaPiKernel，bun --compile 单二进制）此前没有独立版本号（kernel package.json version 为占位 0.0.0；`WaPiKernel --version` 输出的是内嵌 bun 版本而非内核版本；`.kernel-version` 只是动态更新的 build 号）。关于页「内核版本」先前读 `.kernel-version`（未动态更新时为 null）导致新装显示 "—"。
+- 管控：`packages/kernel/package.json` 的 `version` 从 `0.0.0` 改为 `0.2.20`（与 app 同版本发布），作为内核版本的**唯一管控源**。
+- 分发：`buildSidecar` 的 `buildRuntimeManifest()` 把 `version` 写进 `resources/kernel/package.json`（打包随包分发；动态更新打包的 kernel zip 同含此字段，runtime 的 package.json 随之反映新内核版本）。
+- 展示：`main.cjs` 的 `getKernelVersion` 改为读 `runtime` / `seed` 目录下 `package.json` 的 `version`（runtime 优先，fallback seed），经 `updater:get-info` → 前端 `AboutSection` 显示「内核版本」。
+- 影响范围：`packages/kernel/package.json`、`packages/desktop/scripts/build-kernel-sidecar.ts`、`packages/desktop/src/main.cjs`；验证：build-kernel-sidecar.test.ts 1 pass（buildRuntimeManifest 含 version）、updater.test.ts 15 pass、desktop 相关 typecheck；前端 AboutSection 显示。
+- 注意：今后 app 升版需**同步**更新 `packages/kernel/package.json` 的 `version`（与 app 版本一致），此件已纳入发版一致性管控。
 
 - 链路与 app 版本同构：`main.cjs` 向 `setupUpdater` 传入基于 `WA_PI_DIR` 的 lazy `getKernelVersion`（延迟到 handler 触发再读 `~/.pi/agent/runtime/.kernel-version`，因 setupUpdater 调用早于 runtimeDir 定义），`updater.cjs` 的 `updater:get-info` handler 改 async 并透传 `kernelVersion`（新增纯函数 `buildGetInfoPayload`，可单测），`preload.cjs` 的 `getInfo` 自然透传，前端 `store/updater.ts` 存 `kernelVersion` 并在 `AboutSection` 的 app 版本行下新增「内核版本」行，i18n 增 zh/en 文案。
 - `kernelVersion` 为 null/空（runtime 无 .kernel-version，或 dev 环境）时 UI 显示“—”。
