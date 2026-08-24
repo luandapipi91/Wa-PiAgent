@@ -23,6 +23,14 @@ const KERNEL_FILES = [KERNEL_BIN, "package.json", "bun.lock", ".kernel-version"]
 const BACKUP_DIR = ".kernel-update-backup";
 const ZIP_PREFIX = ".kernel-update-";
 
+// 当前进程的平台标识，与 publish-kernel.ts 的 platformFor 一致：
+// win→win32-<arch>, linux→linux-<arch>, darwin→darwin-<arch>；arch 为 arm64 否则 x64。
+// 用于校验远程清单的 platform 强相关字段，防止异平台「半更新」。
+function currentPlatform() {
+	const arch = process.arch === "arm64" ? "arm64" : "x64";
+	return `${process.platform}-${arch}`;
+}
+
 async function exists(p) {
 	try {
 		await fsp.access(p);
@@ -43,10 +51,13 @@ async function readLocalBuild(runtimeDir) {
 	}
 }
 
-// build 比较：manifest 无 build 或本地同 build → 不需更新（首次 localBuild=null → 更新）
+// build 比较：manifest 无 build → 不更新；本地无有效 build（首次/空）→ 更新；
+// 否则仅当远端 build 更大才更新（同值不更新，降级不覆盖），防止 OSS 清单滞后把本地回退。
+// build 格式 <YYYYMMDD>-<seq>，字符串字典序与大小序一致，可直接用 > 比较。
 function needsUpdate(localBuild, manifest) {
 	if (!manifest?.build) return false;
-	return manifest.build !== localBuild;
+	if (!localBuild) return true;
+	return manifest.build > localBuild;
 }
 
 // sha256 校验：读文件算 hash，与清单值（大小写不敏感）比对
@@ -215,9 +226,23 @@ async function syncKernel({
 	// typeof fetch 而让测试桩函数报缺 preconnect 的类型告警；行为完全等价。
 	const doFetch = fetchImpl || globalThis.fetch;
 	const url = feedUrl || DEFAULT_FEED;
+	// M9：全新安装首次启动时 runtimeDir（WA_PI_DIR/runtime）可能尚未创建，先确保存在，
+	// 否则后续写 zip 会抛 ENOENT → 首次启动误判更新失败并跳过 kernel 同步。
+	await fsp.mkdir(runtimeDir, { recursive: true });
 	const manifest = await fetchManifest(doFetch, url);
 	if (!manifest) {
 		log?.info("[kernel-updater] 清单不可用，跳过更新");
+		return { status: "up-to-date" };
+	}
+
+	// C1：kernel 二进制平台强相关。清单声明的 platform 若与当前进程平台不一致，
+	// 直接跳过更新（返回 up-to-date），避免出现「解压成功但二进制名不等于本平台
+	// KERNEL_BIN，而 package.json/bun.lock/.kernel-version 却被更新」的半更新状态。
+	const platform = currentPlatform();
+	if (manifest.platform && manifest.platform !== platform) {
+		log?.info(
+			`[kernel-updater] 清单平台 ${manifest.platform} 与当前平台 ${platform} 不匹配，跳过更新`,
+		);
 		return { status: "up-to-date" };
 	}
 
@@ -274,6 +299,7 @@ module.exports = {
 	extractZip,
 	applyKernelUpdate,
 	isSafeZipEntry,
+	currentPlatform,
 	KERNEL_BIN,
 	DEFAULT_FEED,
 };
