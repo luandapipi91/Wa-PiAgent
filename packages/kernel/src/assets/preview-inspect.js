@@ -168,10 +168,10 @@
 			bar.style.display = "flex";
 			bar.style.left = x + "px";
 			bar.style.top = Math.max(0, y - 28) + "px";
-			// 提示小字：显示在浮窗下方
+			// 提示小字：显示在高亮框左下方、边框外
 			tip.style.display = "flex";
 			tip.style.left = x + "px";
-			tip.style.top = Math.max(0, y - 28) + 26 + "px";
+			tip.style.top = y + r.height + 6 + "px";
 			label.textContent = displayLabel(current);
 			// 锁图标：锁定态显示，否则隐藏
 			btnLock.style.display = pinned ? "inline-block" : "none";
