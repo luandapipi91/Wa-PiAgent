@@ -15,14 +15,17 @@ import {
 	compileKernelBinary,
 	kernelBinaryName,
 } from "../packages/kernel/scripts/compile-binary";
+import kernelPkg from "../packages/kernel/package.json" with { type: "json" };
 
 const PORT = 9871; // 避开开发机 9778
-// 与 build-kernel-sidecar.ts 的 RUNTIME_DEPENDENCIES 保持一致（审计调整时两边同步）
+// 与 build-kernel-sidecar.ts 的运行时依赖保持一致（审计调整时两边同步）
+// 版本统一从 packages/kernel/package.json 读取（单一来源）：升级依赖时无需手动同步硬编码版本串
 const RUNTIME_DEPENDENCIES: Record<string, string> = {
-	"@earendil-works/pi-coding-agent": "^0.84.2",
-	"@napi-rs/keyring": "^1.3.0",
-	"pi-web-access": "^0.19.0",
-	"pi-mcp-adapter": "2.17.0",
+	"@earendil-works/pi-coding-agent":
+		kernelPkg.dependencies["@earendil-works/pi-coding-agent"],
+	"@napi-rs/keyring": kernelPkg.dependencies["@napi-rs/keyring"],
+	"pi-web-access": kernelPkg.dependencies["pi-web-access"],
+	"pi-mcp-adapter": kernelPkg.dependencies["pi-mcp-adapter"],
 };
 
 function fail(msg: string): never {
@@ -99,7 +102,11 @@ async function main() {
 		writeFileSync(
 			join(runtimeDir, "package.json"),
 			JSON.stringify(
-				{ name: "wa-pi-kernel-sidecar", private: true, dependencies: RUNTIME_DEPENDENCIES },
+				{
+					name: "wa-pi-kernel-sidecar",
+					private: true,
+					dependencies: RUNTIME_DEPENDENCIES,
+				},
 				null,
 				2,
 			),
@@ -128,7 +135,9 @@ async function main() {
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		const stderrTail: string[] = [];
-		kernel.stdout!.on("data", (d) => console.log(`[kernel] ${d.toString().trim()}`));
+		kernel.stdout!.on("data", (d) =>
+			console.log(`[kernel] ${d.toString().trim()}`),
+		);
 		kernel.stderr!.on("data", (d) => {
 			const t = d.toString().trim();
 			console.error(`[kernel:err] ${t}`);
@@ -146,7 +155,9 @@ async function main() {
 		const projectsBody = await projectsRes.json().catch(() => null);
 		const pid = (projectsBody as any)?.projects?.[0]?.id;
 		if (!pid)
-			fail(`projects:list 无项目可发 prompt: ${JSON.stringify(projectsBody).slice(0, 200)}`);
+			fail(
+				`projects:list 无项目可发 prompt: ${JSON.stringify(projectsBody).slice(0, 200)}`,
+			);
 
 		const result = await new Promise<string>((resolve) => {
 			const timer = setTimeout(() => resolve("TIMEOUT"), 90_000);
@@ -180,11 +191,15 @@ async function main() {
 			fail(`stderr 出现模块解析错误：\n${stderrBlob.slice(-800)}`);
 		}
 		if (result !== "OK") fail(`probe 未到「未选择模型」终点: ${result}`);
-		console.log("[it] ✅ 编译产物全链路通过（compile → install → spawn → agent:prompt → 未选择模型）");
+		console.log(
+			"[it] ✅ 编译产物全链路通过（compile → install → spawn → agent:prompt → 未选择模型）",
+		);
 	} finally {
 		if (kernel) {
 			if (process.platform === "win32")
-				spawnSync("taskkill", ["/PID", String(kernel.pid), "/T", "/F"], { stdio: "ignore" });
+				spawnSync("taskkill", ["/PID", String(kernel.pid), "/T", "/F"], {
+					stdio: "ignore",
+				});
 			else kernel.kill("SIGTERM");
 		}
 		rmSync(base, { recursive: true, force: true });

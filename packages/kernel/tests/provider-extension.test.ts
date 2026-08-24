@@ -1,6 +1,6 @@
 import { test, expect, afterAll } from "bun:test";
 import { rmSync, readFileSync, existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import {
   slugifyProviders,
@@ -8,6 +8,7 @@ import {
   ensureProviderExtensionRegistered,
   extensionCoversProvider,
   resolveProviderBaseUrl,
+  isProviderExtensionStale,
 } from "../src/provider-extension";
 import { GENERATED_DIR } from "@wa-pi/shared";
 import type { ModelProvider } from "@wa-pi/shared";
@@ -838,4 +839,98 @@ test("generateProviderExtension：supportsVision 未设置 → 跟随目录默�
   const code = generateProviderExtension(providers, sdkModelMap);
   expect(code).toContain('input: ["text"]');
   expect(code).not.toContain('"image"');
+});
+
+// ---- isProviderExtensionStale：派发前 mtime 兜底，手改 providers.json 触发重生成 ----
+
+async function writeFileWithMtime(
+  file: string,
+  content: string,
+  mtimeMs: number,
+): Promise<void> {
+  await writeFile(file, content, "utf8");
+  await utimes(file, new Date(mtimeMs), new Date(mtimeMs));
+}
+
+test("isProviderExtensionStale: providers.json 比 extension 更新 → true（手改场景）", async () => {
+  const dir = join(
+    import.meta.dir,
+    ".tmp-stale-" + Math.random().toString(36).slice(2),
+  );
+  try {
+    const providersFile = join(dir, "providers.json");
+    const extFile = join(dir, "provider-extension.ts");
+    await mkdir(dir, { recursive: true });
+    await writeFileWithMtime(extFile, "old-extension", 1000);
+    await writeFileWithMtime(providersFile, "new-providers", 2000);
+    expect(await isProviderExtensionStale(providersFile, extFile)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isProviderExtensionStale: extension 比 providers.json 更新 → false（已同步）", async () => {
+  const dir = join(
+    import.meta.dir,
+    ".tmp-stale2-" + Math.random().toString(36).slice(2),
+  );
+  try {
+    const providersFile = join(dir, "providers.json");
+    const extFile = join(dir, "provider-extension.ts");
+    await mkdir(dir, { recursive: true });
+    await writeFileWithMtime(providersFile, "providers", 2000);
+    await writeFileWithMtime(extFile, "extension", 3000);
+    expect(await isProviderExtensionStale(providersFile, extFile)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isProviderExtensionStale: providers.json 不存在 → false（无配置）", async () => {
+  const dir = join(
+    import.meta.dir,
+    ".tmp-stale3-" + Math.random().toString(36).slice(2),
+  );
+  try {
+    const providersFile = join(dir, "providers.json"); // 不存在
+    const extFile = join(dir, "provider-extension.ts");
+    await mkdir(dir, { recursive: true });
+    await writeFileWithMtime(extFile, "extension", 1000);
+    expect(await isProviderExtensionStale(providersFile, extFile)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isProviderExtensionStale: extension 不存在而 providers 存在 → true（需生成）", async () => {
+  const dir = join(
+    import.meta.dir,
+    ".tmp-stale4-" + Math.random().toString(36).slice(2),
+  );
+  try {
+    const providersFile = join(dir, "providers.json");
+    const extFile = join(dir, "provider-extension.ts"); // 不存在
+    await mkdir(dir, { recursive: true });
+    await writeFileWithMtime(providersFile, "providers", 1000);
+    expect(await isProviderExtensionStale(providersFile, extFile)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isProviderExtensionStale: 两者 mtime 相同 → true（>= 边界，幂等重生成）", async () => {
+  const dir = join(
+    import.meta.dir,
+    ".tmp-stale5-" + Math.random().toString(36).slice(2),
+  );
+  try {
+    const providersFile = join(dir, "providers.json");
+    const extFile = join(dir, "provider-extension.ts");
+    await mkdir(dir, { recursive: true });
+    await writeFileWithMtime(providersFile, "providers", 5000);
+    await writeFileWithMtime(extFile, "extension", 5000);
+    expect(await isProviderExtensionStale(providersFile, extFile)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

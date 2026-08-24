@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, stat } from "node:fs/promises";
 import { existsSync as nodeExistsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveProviderSlug, GENERATED_DIR } from "@wa-pi/shared";
@@ -314,4 +314,28 @@ export async function ensureProviderExtensionRegistered(
 	// 写 extension 文件（每次覆盖，保证与 providers.json 同步）
 	await mkdir(generatedDir, { recursive: true });
 	await writeFile(join(generatedDir, "provider-extension.ts"), code, "utf8");
+}
+
+/**
+ * 判断 provider-extension.ts 是否过期（需要重新生成）。
+ * - providers.json 比 extension 文件更新（mtime 不早于）→ 过期。
+ * - providers.json 不存在 → 无配置，不视为过期（避免为空的 providers.json 反复生成）。
+ * - extension 文件不存在而 providers.json 存在 → 必须重新生成。
+ * - mtime 用 >=：provider:save 先写 providers.json 后生成 extension，同刻写入时边界
+ *   mtime 相同；此时触发重生成是幂等（generate 一次结果相同，无副作用），不漏也不浪费。
+ * 用于兜底「手改 providers.json（绕过 provider:save）导致 extension 不自动刷新」的场景。
+ */
+export async function isProviderExtensionStale(
+	providersFilePath: string,
+	extensionPath: string,
+): Promise<boolean> {
+	const [providersStat, extStat] = await Promise.all([
+		stat(providersFilePath).catch(() => null),
+		stat(extensionPath).catch(() => null),
+	]);
+	// providers.json 不存在：无配置，不视为过期
+	if (!providersStat) return false;
+	// extension 文件不存在而 providers 存在：需要生成
+	if (!extStat) return true;
+	return providersStat.mtimeMs >= extStat.mtimeMs;
 }

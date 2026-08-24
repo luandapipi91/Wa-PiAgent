@@ -204,10 +204,7 @@ async function ensureNodeRuntime({
 	const { urls, archive } = nodeDownloadSpecs(isCN);
 	// 临时文件名必须带正确扩展名（.zip/.tar.gz），否则 PowerShell Expand-Archive 拒绝
 	const tmpArchive = path.join(os.tmpdir(), archive);
-	const tmpExtract = path.join(
-		os.tmpdir(),
-		`wa-pi-node-extract-${process.pid}`,
-	);
+	const tmpExtract = path.join(os.tmpdir(), `wa-pi-node-extract-${process.pid}`);
 	await fsp.rm(tmpExtract, { recursive: true, force: true });
 
 	let downloaded = false;
@@ -237,6 +234,32 @@ async function ensureNodeRuntime({
 		await fsp.rm(nodeDir, { recursive: true, force: true });
 		await fsp.mkdir(nodeDir, { recursive: true });
 		await fsp.cp(nodeRoot, nodeDir, { recursive: true });
+		// 修复 bin/ 下指向临时解压目录的符号链接：fsp.cp 会把 node 的 npm/npx/corepack
+		// 相对链接重写成指向源临时目录（os.tmpdir()/wa-pi-node-extract-*）的绝对路径，
+		// 临时目录在 finally 被删除后这些链接变 broken，MCP 启动 npx/npm 时
+		// 报 "Executable not found: npx"。重写为 nodeDir 内相对路径，保证重启/清理后仍可用。
+		if (process.platform !== "win32") {
+			const binDir = path.join(nodeDir, "bin");
+			const links = {
+				npm: path.join("..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+				npx: path.join("..", "lib", "node_modules", "npm", "bin", "npx-cli.js"),
+				corepack: path.join(
+					"..",
+					"lib",
+					"node_modules",
+					"corepack",
+					"dist",
+					"corepack.js",
+				),
+			};
+			for (const [name, rel] of Object.entries(links)) {
+				const link = path.join(binDir, name);
+				if (await fileExists(path.join(binDir, rel))) {
+					await fsp.rm(link, { force: true });
+					await fsp.symlink(rel, link);
+				}
+			}
+		}
 		await fsp.writeFile(marker, NODE_LTS, "utf8");
 
 		log.info(`[node-runtime] ✅ Node.js ${NODE_LTS} 已安装到 ${nodeDir}`);

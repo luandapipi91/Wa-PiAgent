@@ -9,6 +9,7 @@ import {
 	compileKernelBinary,
 	kernelBinaryName,
 } from "../../kernel/scripts/compile-binary";
+import kernelPkg from "../../kernel/package.json" with { type: "json" };
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const PKG = join(import.meta.dir, "..");
@@ -41,21 +42,26 @@ function run(bin: string, args: string[], cwd = ROOT) {
  * 无 patchedDependencies：patch 编译期已生效（--compile 内联的是已 patch 源码；
  * 磁盘副本供 -e 扩展加载，patch 仅涉及类型 + exports 子路径，不影响扩展执行）。
  * 该清单经 Task 6 集成测试（agent:prompt 全链路无 Cannot find module）审计确认。
+ * 版本统一从 packages/kernel/package.json 读取（单一来源）：升级依赖时打包自动跟随，
+ * 无需手动同步本文件与 kernel-compile-it.ts 的硬编码版本串。
  */
-const RUNTIME_DEPENDENCIES = {
-	"@earendil-works/pi-coding-agent": "^0.84.2",
-	"@napi-rs/keyring": "^1.3.0",
+export const kernelRuntimeDependencies = (kernelPkg: {
+	dependencies: Record<string, string>;
+}): Record<string, string> => ({
+	"@earendil-works/pi-coding-agent":
+		kernelPkg.dependencies["@earendil-works/pi-coding-agent"],
+	"@napi-rs/keyring": kernelPkg.dependencies["@napi-rs/keyring"],
 	// 内置扩展（PKG_EXTENSIONS）：pi 子进程经 -e 从磁盘加载其 index.ts，必须落盘
-	"pi-web-access": "^0.19.0",
-	"pi-mcp-adapter": "2.17.0",
-};
+	"pi-web-access": kernelPkg.dependencies["pi-web-access"],
+	"pi-mcp-adapter": kernelPkg.dependencies["pi-mcp-adapter"],
+});
 
 /** 运行时 package.json（纯函数，便于测试断言） */
 export function buildRuntimeManifest() {
 	return {
 		name: "wa-pi-kernel-sidecar",
 		private: true,
-		dependencies: RUNTIME_DEPENDENCIES,
+		dependencies: kernelRuntimeDependencies(kernelPkg),
 	};
 }
 

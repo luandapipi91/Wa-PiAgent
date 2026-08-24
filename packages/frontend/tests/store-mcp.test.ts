@@ -46,7 +46,9 @@ test("setServers 更新 servers 并清除 loading", () => {
     type: "mcp:list",
     servers: [{ name: "test", command: "echo" }],
   });
-  expect(useMcpStore.getState().servers).toEqual([{ name: "test", command: "echo" }]);
+  expect(useMcpStore.getState().servers).toEqual([
+    { name: "test", command: "echo" },
+  ]);
   expect(useMcpStore.getState().loading).toBe(false);
 });
 
@@ -80,16 +82,6 @@ test("setTestResult 失败更新状态为 error", () => {
 });
 
 test("setTestResult 携带 status 时优先用 status，并记录 toolCount", () => {
-  // needs_auth：success=false 但 status 显式为 needs_auth（不应记为 error）
-  useMcpStore.getState().setTestResult({
-    type: "mcp:testResult",
-    serverName: "oauth-svr",
-    success: false,
-    status: "needs_auth",
-  });
-  expect(useMcpStore.getState().serverStatuses["oauth-svr"]).toBe("needs_auth");
-  expect(useMcpStore.getState().errors["oauth-svr"]).toBeUndefined();
-
   // connected + toolCount
   useMcpStore.getState().setTestResult({
     type: "mcp:testResult",
@@ -162,7 +154,7 @@ test("deleteServer 发起 mcp:delete WS 请求且不修改本地 state", () => {
 });
 
 test("testConnection 标记 testingServers 并清除旧错误", () => {
-  useMcpStore.setState({ errors: { "dbx": "上次失败" } });
+  useMcpStore.setState({ errors: { dbx: "上次失败" } });
   useMcpStore.getState().testConnection("dbx");
   expect(useMcpStore.getState().testingServers["dbx"]).toBe(true);
   expect(useMcpStore.getState().errors["dbx"]).toBeUndefined();
@@ -193,11 +185,6 @@ test("setTestResult 失败时清除 testingServers 标记并记录错误信息",
   expect(useMcpStore.getState().errors["dbx"]).toBe("pi-mcp-adapter 未安装");
 });
 
-test("clearAuth 标记 testingServers", () => {
-  useMcpStore.getState().clearAuth("dbx", "p1");
-  expect(useMcpStore.getState().testingServers["dbx"]).toBe(true);
-});
-
 // ===== 自动连接测试：切换项目作用域后自动对每个服务器发起连接测试 =====
 // 以可观测的 store 状态断言（每个服务器进入 testingServers + autoTestedProject 记账），
 // 而非 WS send spy——后者在全量套件共享进程时受模块/全局解析影响不稳定。
@@ -215,13 +202,20 @@ test("切换到新项目作用域后 setServers 自动对每个服务器发起�
   });
 
   // 每个服务器都进入测试中状态（这正是 McpCard 渲染「测试中...」所读的状态）
-  expect(useMcpStore.getState().testingServers).toEqual({ alpha: true, beta: true });
+  expect(useMcpStore.getState().testingServers).toEqual({
+    alpha: true,
+    beta: true,
+  });
   // 记录已对该作用域自动测过
   expect(useMcpStore.getState().autoTestedProject).toBe("p2");
 });
 
 test("同一项目作用域重复刷新（如 mcp:changed）不重复自动测试", () => {
-  useMcpStore.setState({ selectedProjectId: "p1", autoTestedProject: "p1", testingServers: {} });
+  useMcpStore.setState({
+    selectedProjectId: "p1",
+    autoTestedProject: "p1",
+    testingServers: {},
+  });
   useMcpStore.getState().setServers({
     type: "mcp:changed",
     servers: [{ name: "alpha", command: "echo" }],
@@ -232,7 +226,11 @@ test("同一项目作用域重复刷新（如 mcp:changed）不重复自动测�
 });
 
 test("作用域无服务器时不发起自动测试", () => {
-  useMcpStore.setState({ selectedProjectId: "p1", autoTestedProject: undefined, testingServers: {} });
+  useMcpStore.setState({
+    selectedProjectId: "p1",
+    autoTestedProject: undefined,
+    testingServers: {},
+  });
   useMcpStore.getState().setServers({ type: "mcp:list", servers: [] });
   expect(useMcpStore.getState().testingServers).toEqual({});
   expect(useMcpStore.getState().autoTestedProject).toBeUndefined();

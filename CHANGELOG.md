@@ -1,3 +1,23 @@
+## 2026-08-24 — fix(desktop/node): 首启下载的 node 的 npm/npx/corepack 符号链接指向临时解压目录，清理后变 broken 导致 MCP 报 Executable not found: npx
+
+- 背景：打包版首启下载 node 到 ~/.pi/agent/node/（node-runtime.cjs 用 fsp.cp 递归复制解压目录）。fsp.cp 把 node 安装里的 npm/npx/corepack 相对符号链接重写成指向源临时解压目录（os.tmpdir()/wa-pi-node-extract-*）的绝对路径；该临时目录在 finally 被删除后，~/.pi/agent/node/bin/{npx,npm,corepack} 全变 broken 符号链接 → MCP 服务器（command: npx）启动时报 "Executable not found in $PATH: npx"。node 本体是真实二进制故可用，npm/npx 失效。
+- 修复：node-runtime.cjs 复制 node 后，对 bin/ 下 npm/npx/corepack 符号链接重写为 nodeDir 内相对路径（../lib/node_modules/...），不再依赖临时目录；保证重启/清理后 npm/npx 仍可用。
+- 影响范围：packages/desktop/src/util/node-runtime.cjs；验证：node-runtime/runtime-bin 测试 22 pass；typecheck 干净。
+
+## 2026-08-24 — chore(deps): 升级 Pi 扩展依赖 + 打包/安装版本单一来源化（自动跟随依赖升级）
+
+- 背景：wa-pi 运行时依赖清单（build-kernel-sidecar.ts / kernel-compile-it.ts 的 RUNTIME_DEPENDENCIES）在**两处硬编码版本串**（pi-coding-agent ^0.84.2 / keyring ^1.3.0 / pi-web-access ^0.19.0 / pi-mcp-adapter 2.17.0），升级依赖时常漏改导致打包产物与声明不一致。
+- 升级：kernel package.json —— @amaster.ai/pi-memory ^0.1.8→^0.1.9、pi-web-access ^0.19.0→^0.24.2（入口仍为 ./index.ts，extensions 断言不破）；新增 @napi-rs/keyring ^1.3.0 作为直接依赖（此前仅存在于 RUNTIME_DEPENDENCIES，无任何 package.json 声明）。
+- 单一来源化：buildRuntimeManifest / kernel-compile-it 的 RUNTIME_DEPENDENCIES 改为从 packages/kernel/package.json 读取版本（新增 kernelRuntimeDependencies 函数），删除两处硬编码——以后升级依赖只改 package.json，打包/安装自动跟随，无需手动同步版本串。
+- 移除 MCP OAuth 授权/清除授权 → pi-mcp-adapter 2.17→2.27 免 patch：2.27 的 exports 不再暴露 ./mcp-auth.ts（公开入口 . / ./oauth 也未导出 auth API），若保留 wa-pi 对 mcp-auth.ts 的深导入会解析失败、必须重做 patch。故移除 wa-pi 的 MCP OAuth「授权/清除授权」功能（McpOAuthConfig / McpClearAuthEvent / clearAuth / needs_auth / 前端授权与清除授权按钮 / 相关测试），MCP 保留连接测试 testConnection、工具列举 listTools、静态 token（headers.Authorization，McpForm 的 auth 输入框）。pi-mcp-adapter 升到 ^2.27.0（此时 import 已移除，无需 patch），删除 patches/pi-mcp-adapter@2.17.0.patch、清空根 patchedDependencies。
+- 影响范围：packages/kernel/package.json、packages/shared/src/{mcp.ts,types.ts}、packages/kernel/src/{mcp-connector,ws-server,routes/mcp}.ts、packages/frontend/src/{store/mcp.ts,components/mcp/{McpCard,McpPage}.tsx,i18n/locales/{en,zh}.ts}、对应测试（mcp-connector/store-mcp/McpCard/mcp-store/routes-mcp）；packages/desktop/scripts/build-kernel-sidecar.ts、scripts/kernel-compile-it.ts、packages/desktop/tests/build-kernel-sidecar.test.ts（版本单一来源化）；验证：kernel/shared/frontend typecheck 干净，kernel mcp 27 pass + frontend mcp 24 pass。
+
+## 2026-08-24 — fix(kernel/子代理): 手改 providers.json 后子代理仍读旧 contextWindow（派发前 mtime 兜底重生成 provider-extension）
+
+- 背景：子代理（跟随主模型的 pi 子进程）加载的模型元数据（contextWindow/maxTokens）来自启动时生成的 `provider-extension.ts`。该文件只在「启动时（index.ts ensureProviderExtensionRegistered）」与「UI provider:save」时重生成；若用户**直接手改 `providers.json`**（绕过 UI 保存），`provider-extension.ts` 不会自动刷新，子代理仍按旧的 contextWindow 处理上下文。当模型 ID 不在 pi SDK 内置目录（如自定义 `deepseek-v4-flash-vision-exp`）时，`--model` 只能靠 extension 注册的元数据，手改配置不生效、需重启。
+- 修复：新增 `isProviderExtensionStale(providersFile, extensionPath)`（mtime 比对：providers.json 不早于 extension 即视为过期），在 subagent 派发前 `ensureExtension`（agent-manager.ts）接入——`stale` 与「extension 不含所需 slug」并列为重生成条件。手改 `providers.json` 后下一次 delegate 前自动重生成 `provider-extension.ts`，子进程即读到最新 contextWindow，无需重启。
+- 影响范围：`packages/kernel/src/provider-extension.ts`（新增 `isProviderExtensionStale`）、`packages/kernel/src/agent-manager.ts`（ensureExtension 加 mtime 判定 + import PROVIDERS_FILE）；测试：`tests/provider-extension.test.ts` 补 5 例（providers 更新→stale / extension 更新→非 stale / providers 缺失→false / extension 缺失→true / mtime 相同→true），35 pass；typecheck 干净。
+
 ## 2026-08-23 — fix(frontend/会话): 新建会话首次发送后 session 短暂消失导致对话区空白/重置
 
 - 背景：快速「新建会话→发送消息」时，新会话页面会闪一下被重置（对话区空白/回到新建页）。根因是前端**整表替换 `sessions`** 的两条路径都可能在 kernel `projects:list` **快照滞后**（新会话 optimistic `addSession` 后 placeholder 未转正、快照里还没它）时，把乐观新建的当前会话挤掉，导致 `SessionView` 的 `sessions.find(x.id === sessionId)` 找不到该会话 → `if (!session) return null` → 对话区空白。此前 `0c1ee7a66` 只保护了 `currentSessionId`（避免闪回新建页），`defb8256d` 只修了 #300 崩溃（move hooks），均未修「会话从列表消失」这一根因。

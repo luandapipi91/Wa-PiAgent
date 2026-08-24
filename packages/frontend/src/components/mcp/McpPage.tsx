@@ -12,16 +12,31 @@ import type { McpServerConfig } from "@wa-pi/shared";
 export function McpPage() {
   const { t } = useTranslation();
   const {
-    servers, serverStatuses, toolCounts, toolsCache, loadingTools, testingServers, errors,
-    selectedProjectId, searchQuery, loading,
-    load, save, deleteServer, testConnection, listTools, clearAuth,
-    setSelectedProjectId, setSearchQuery,
+    servers,
+    serverStatuses,
+    toolCounts,
+    toolsCache,
+    loadingTools,
+    testingServers,
+    errors,
+    selectedProjectId,
+    searchQuery,
+    loading,
+    load,
+    save,
+    deleteServer,
+    testConnection,
+    listTools,
+    setSelectedProjectId,
+    setSearchQuery,
   } = useMcpStore();
 
-  const projects = useProjectsStore(s => s.projects);
+  const projects = useProjectsStore((s) => s.projects);
 
   const [formOpen, setFormOpen] = useState(false);
-  const [editingServer, setEditingServer] = useState<McpServerConfig | null>(null);
+  const [editingServer, setEditingServer] = useState<McpServerConfig | null>(
+    null,
+  );
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showToolsFor, setShowToolsFor] = useState<string | null>(null);
 
@@ -31,8 +46,9 @@ export function McpPage() {
   }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 搜索过滤
-  const filtered = servers.filter(s =>
-    !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filtered = servers.filter(
+    (s) =>
+      !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const openAddForm = () => {
@@ -63,27 +79,37 @@ export function McpPage() {
     setShowToolsFor(serverName);
   };
 
-  const handleClearAuth = (serverName: string) => {
-    clearAuth(serverName, selectedProjectId ?? undefined);
-  };
-
   const handleDelete = (serverName: string) => {
     deleteServer(serverName, selectedProjectId ?? undefined);
     setConfirmDelete(null);
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden" data-testid="mcp-page">
+    <div
+      className="flex-1 flex flex-col overflow-hidden"
+      data-testid="mcp-page"
+    >
       {/* 标题栏 */}
       <div
         className="flex items-center px-5 py-3.5"
-        style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}
+        style={{
+          background: "var(--surface)",
+          borderBottom: "1px solid var(--hairline)",
+        }}
       >
-        <h2 className="text-base font-extrabold text-primary m-0">{t("mcp.pageTitle")}</h2>
+        <h2 className="text-base font-extrabold text-primary m-0">
+          {t("mcp.pageTitle")}
+        </h2>
       </div>
 
       {/* 工具栏 */}
-      <div className="flex items-center gap-2.5 px-5 py-2.5" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
+      <div
+        className="flex items-center gap-2.5 px-5 py-2.5"
+        style={{
+          background: "var(--surface)",
+          borderBottom: "1px solid var(--hairline)",
+        }}
+      >
         {/* 作用域下拉 */}
         <ScopeDropdown
           selectedProjectId={selectedProjectId}
@@ -94,10 +120,14 @@ export function McpPage() {
         {/* 搜索 */}
         <input
           className="flex-1 text-[calc(12px*var(--font-scale))] px-3 py-1.5 rounded-lg min-w-0"
-          style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+          style={{
+            background: "var(--canvas)",
+            border: "1px solid var(--hairline)",
+            color: "var(--text-primary)",
+          }}
           placeholder={t("mcp.searchPlaceholder")}
           value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
+          onChange={(e) => setSearchQuery(e.target.value)}
           data-testid="mcp-search"
         />
 
@@ -107,17 +137,21 @@ export function McpPage() {
           className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
           style={{ background: "var(--accent)", border: "none" }}
           data-testid="mcp-add-button"
-        >{t("mcp.addButton")}</button>
+        >
+          {t("mcp.addButton")}
+        </button>
       </div>
 
       {/* 列表内容 */}
       <div className="flex-1 overflow-y-auto px-5 py-3.5">
         {loading ? (
-          <div className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8">{t("mcp.loading")}</div>
+          <div className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8">
+            {t("mcp.loading")}
+          </div>
         ) : filtered.length === 0 ? (
           <McpEmpty />
         ) : (
-          filtered.map(s => (
+          filtered.map((s) => (
             <McpCard
               key={s.name}
               config={s}
@@ -127,8 +161,6 @@ export function McpPage() {
               error={errors[s.name]}
               onTest={() => handleTest(s.name)}
               onViewTools={() => handleViewTools(s.name)}
-              onAuth={() => handleTest(s.name)}
-              onClearAuth={() => handleClearAuth(s.name)}
               onEdit={() => openEditForm(s)}
               onDelete={() => setConfirmDelete(s.name)}
             />
@@ -172,7 +204,11 @@ export function McpPage() {
 
 // —— 作用域下拉（复用 MemoryPage 的 MemoryScopeDropdown 模式）——
 
-function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
+function ScopeDropdown({
+  selectedProjectId,
+  projects,
+  onSelect,
+}: {
   selectedProjectId: string | null;
   projects: { id: string; name: string }[];
   onSelect: (projectId: string | null) => void;
@@ -182,7 +218,8 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
   const isGlobal = selectedProjectId === null;
   const label = isGlobal
     ? t("mcp.globalScope")
-    : (projects.find(p => p.id === selectedProjectId)?.name ?? t("common.scopeProject"));
+    : (projects.find((p) => p.id === selectedProjectId)?.name ??
+      t("common.scopeProject"));
 
   const itemStyle = (active: boolean): CSSProperties => ({
     color: active ? "var(--accent)" : "var(--text-primary)",
@@ -193,9 +230,13 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
     <div className="relative shrink-0">
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1 text-[calc(11.5px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
-        style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--hairline)",
+          color: "var(--text-primary)",
+        }}
         data-testid="mcp-scope-select"
       >
         {label}
@@ -210,29 +251,45 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
           />
           <div
             className="absolute left-0 z-20 mt-1 py-1 rounded-md min-w-[148px] shadow-lg"
-            style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--hairline)",
+            }}
             data-testid="mcp-scope-menu"
           >
             <button
               type="button"
-              onClick={() => { onSelect(null); setOpen(false); }}
+              onClick={() => {
+                onSelect(null);
+                setOpen(false);
+              }}
               className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5"
               style={itemStyle(isGlobal)}
               data-testid="mcp-scope-option-global"
-            >{t("mcp.globalScope")}</button>
+            >
+              {t("mcp.globalScope")}
+            </button>
             {projects.length > 0 && (
-              <div className="my-1" style={{ borderTop: "1px solid var(--hairline)" }} />
+              <div
+                className="my-1"
+                style={{ borderTop: "1px solid var(--hairline)" }}
+              />
             )}
-            {projects.map(p => (
+            {projects.map((p) => (
               <button
                 key={p.id}
                 type="button"
-                onClick={() => { onSelect(p.id); setOpen(false); }}
+                onClick={() => {
+                  onSelect(p.id);
+                  setOpen(false);
+                }}
                 className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5 truncate"
                 style={itemStyle(selectedProjectId === p.id)}
                 data-testid={`mcp-scope-option-project-${p.id}`}
                 title={p.name}
-              >{t("mcp.projectOption", { name: p.name })}</button>
+              >
+                {t("mcp.projectOption", { name: p.name })}
+              </button>
             ))}
           </div>
         </>

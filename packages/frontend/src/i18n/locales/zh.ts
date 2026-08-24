@@ -393,7 +393,6 @@ const zh = {
 	},
 	mcpCard: {
 		connected: "已连接",
-		needsAuth: "OAuth 需授权",
 		error: "连接错误",
 		disconnected: "未连接",
 		summaryEmpty: "未配置",
@@ -401,8 +400,6 @@ const zh = {
 		connectedWithTools: "已连接 · {{count}} 工具",
 		testButton: "连接测试",
 		viewToolsButton: "查看工具",
-		authButton: "授权",
-		clearAuthButton: "清除授权",
 		editButton: "编辑",
 		deleteButton: "删除",
 	},
