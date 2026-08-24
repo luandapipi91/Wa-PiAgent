@@ -782,6 +782,7 @@ const zh = {
 		},
 		about: {
 			version: "版本 {{version}}",
+			kernelVersion: "内核版本 {{version}}",
 			onboardingDesc: "重新打开新手引导，配置模型与默认智能体",
 			onboardingButton: "重新打开引导",
 			checkUpdate: "检查更新",

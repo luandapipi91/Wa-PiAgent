@@ -34,6 +34,7 @@ beforeEach(() => {
 		status: "idle",
 		appVersion: "0.1.0",
 		latestVersion: null,
+		kernelVersion: null,
 		releaseNotes: null,
 		progress: 0,
 		transferred: 0,
@@ -51,6 +52,17 @@ test("渲染应用名与版本号", () => {
 	render(<AboutSection />);
 	expect(screen.getByText("WA PI Agent")).toBeTruthy();
 	expect(screen.getByText("版本 0.1.0")).toBeTruthy();
+});
+
+test("渲染内核版本（kernelVersion；为 null 时兜底“—”）", () => {
+	useUpdaterStore.setState({ kernelVersion: "20260824-2" });
+	render(<AboutSection />);
+	expect(screen.getByText("内核版本 20260824-2")).toBeTruthy();
+
+	useUpdaterStore.setState({ kernelVersion: null });
+	cleanup();
+	render(<AboutSection />);
+	expect(screen.getByText("内核版本 —")).toBeTruthy();
 });
 
 test("idle 显示检查更新按钮，点击触发 check", () => {
