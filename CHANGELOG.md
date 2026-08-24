@@ -1,3 +1,8 @@
+## 2026-08-24 — feat(kernel-updater): syncKernel 支持 WA_PI_KERNEL_FEED_URL env 覆盖 feed
+
+- main.cjs 的 `syncKernel` 调用新增 `feedUrl: process.env.WA_PI_KERNEL_FEED_URL || undefined`：该 env 仅供 E2E/测试指向本地 mock，生产不设置时默认走 `DEFAULT_FEED`（OSS 公开读 kernel-latest.json），失败照旧 log.error 降级且不阻断启动；沿用既有 `WA_PI_UPDATER_FEED_URL` 的 env 覆盖默认 feed 模式。
+- 影响范围：`packages/desktop/src/main.cjs`；验证：`node --check` 语法通过（2 行增量，无分支逻辑改动），无回归。
+
 ## 2026-08-24 — test(desktop): kernel-updater 本地 mock HTTP 集成测试（下载/校验/覆盖链路）
 
 - 新增 `packages/desktop/src/util/kernel-updater.integration.test.ts`：用 `node:http` 起 127.0.0.1 随机端口 mock 服务（分发 `kernel-latest.json` + 真实 zip 包），假 kernel 三件套用系统 `zip -j` 打包进根目录并计算 sha256，然后**不注入 fetchImpl**、用 Node 18+ 全局 `fetch` 走完整链路：下载 → sha256 校验 → 真实 unzip/tar 解压 → 覆盖 runtimeDir 的 WaPiKernel + package.json + bun.lock → 写 `.kernel-version` → 清理临时 zip 与备份目录。断言 `{status:"updated",build}`、KERNEL_BIN 内容等于 zip 内假 kernel、`.kernel-version` == manifest.build、无 `.kernel-update-*` 残留、备份目录已清理。
