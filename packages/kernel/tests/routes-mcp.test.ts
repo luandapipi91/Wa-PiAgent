@@ -1,7 +1,7 @@
 /**
  * MCP 域路由测试（阶段二·去 WS 化）
  *
- * 聚焦 bug：mcp:test / mcp:clearAuth 的 mcp:testResult 必须通过 SSE 总线
+ * 聚焦 bug：mcp:test 的 mcp:testResult 必须通过 SSE 总线
  * 广播到前端，否则前端 testingServers 永远不会被清理，所有服务卡在"测试中"。
  *
  * 验证链路：POST /api/mcp/test → handler 显式 broadcast → SSE /api/events 收到 mcp:testResult。
@@ -20,14 +20,22 @@ const STDIO_SERVER: McpServerConfig = {
   args: [FIXTURE],
 };
 
-/** 最小 mcpStore 桩：只实现 mcp:test / mcp:clearAuth 用到的方法 */
+/** 最小 mcpStore 桩：只实现 mcp:test 用到的方法 */
 function makeMcpStore() {
   const servers: Record<string, McpServerConfig> = { echo: STDIO_SERVER };
   return {
-    async list() { return Object.values(servers); },
-    async getServer(name: string) { return servers[name]; },
-    async save(cfg: McpServerConfig) { servers[cfg.name] = cfg; },
-    async delete(name: string) { delete servers[name]; },
+    async list() {
+      return Object.values(servers);
+    },
+    async getServer(name: string) {
+      return servers[name];
+    },
+    async save(cfg: McpServerConfig) {
+      servers[cfg.name] = cfg;
+    },
+    async delete(name: string) {
+      delete servers[name];
+    },
   };
 }
 
@@ -80,7 +88,9 @@ async function readSseEvent(timeoutMs = 3000): Promise<any> {
   while (Date.now() < deadline) {
     const chunk = await Promise.race([
       sseReader.read(),
-      new Promise<{ done: true }>((r) => setTimeout(() => r({ done: true }), deadline - Date.now())),
+      new Promise<{ done: true }>((r) =>
+        setTimeout(() => r({ done: true }), deadline - Date.now()),
+      ),
     ]);
     if ((chunk as any).done) continue;
     sseBuf += new TextDecoder().decode((chunk as any).value);
@@ -90,7 +100,11 @@ async function readSseEvent(timeoutMs = 3000): Promise<any> {
     sseBuf = sseBuf.slice(idx + 2);
     const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
     if (!dataLine) continue;
-    try { return JSON.parse(dataLine.slice(5).trim()); } catch { continue; }
+    try {
+      return JSON.parse(dataLine.slice(5).trim());
+    } catch {
+      continue;
+    }
   }
   throw new Error("readSseEvent 超时未收到事件");
 }

@@ -407,7 +407,6 @@ const en = {
 	},
 	mcpCard: {
 		connected: "Connected",
-		needsAuth: "OAuth needs auth",
 		error: "Connection error",
 		disconnected: "Disconnected",
 		summaryEmpty: "Not configured",
@@ -415,8 +414,6 @@ const en = {
 		connectedWithTools: "Connected · {{count}} tools",
 		testButton: "Test connection",
 		viewToolsButton: "View tools",
-		authButton: "Authorize",
-		clearAuthButton: "Clear auth",
 		editButton: "Edit",
 		deleteButton: "Delete",
 	},

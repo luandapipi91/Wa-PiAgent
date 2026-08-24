@@ -33,6 +33,7 @@ import {
 	resolveAgentTools,
 	resolveSessionCwd,
 	PROMPTS_FILE,
+	PROVIDERS_FILE,
 	SUBAGENT_TYPES,
 	isSubagentType,
 	SYSTEM_PROJECT_ID,
@@ -65,6 +66,7 @@ import {
 import {
 	ensureProviderExtensionRegistered,
 	extensionCoversProvider,
+	isProviderExtensionStale,
 } from "./provider-extension";
 import { SubagentTelemetry } from "./subagent-telemetry";
 import { lookupCatalogModel } from "./pi-catalog";
@@ -700,8 +702,17 @@ export class AgentManager {
 			// 导致子进程报 "No API key found"。按需重生，保证子进程加载到含所需 provider 的 extension。
 			ensureExtension: this.opts.providerStore
 				? async (requiredSlug?: string) => {
-						// 无具体 slug（跟随主模型）或 extension 不含该 slug 时，重新生成
+						// mtime 兜底：providers.json 被手改（绕过 provider:save）时 extension 不会
+						// 自动刷新，派发前比对 mtime，过期则重生成，保证子进程加载到含最新
+						// contextWindow 的 extension。与 extensionCoversProvider 并列为重生成条件。
+						const stale = await isProviderExtensionStale(
+							PROVIDERS_FILE,
+							providerExtPath,
+						);
+						// 无具体 slug（跟随主模型）、extension 不含该 slug、或 providers.json
+						// 比 extension 更新——任一命中即重新生成
 						if (
+							stale ||
 							!requiredSlug ||
 							!extensionCoversProvider(providerExtPath, requiredSlug)
 						) {

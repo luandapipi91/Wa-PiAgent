@@ -35,7 +35,7 @@ import {
 	ensureProviderExtensionRegistered,
 	resolveProviderBaseUrl,
 } from "./provider-extension";
-import { testConnection, listTools, clearAuth } from "./mcp-connector";
+import { testConnection, listTools } from "./mcp-connector";
 import { getAllCatalogModels, getProviderDisplayName } from "./pi-catalog";
 import {
 	readdir,
@@ -2629,39 +2629,6 @@ export class WSServer {
 					emitToolsResult(tools);
 				} catch (err) {
 					emitToolsResult({ error: (err as Error).message });
-				}
-				break;
-			}
-			case "mcp:clearAuth": {
-				// 与 mcp:test 同理：只走 SSE 广播，不 reply。
-				const emitClearAuthResult = (payload: {
-					success: boolean;
-					status: McpServerStatus;
-					error?: string;
-				}) => {
-					this.broadcast({
-						type: "mcp:testResult",
-						serverName: event.serverName,
-						success: payload.success,
-						status: payload.status,
-						error: payload.error,
-					});
-				};
-				try {
-					await clearAuth(event.serverName);
-					// 清除授权后：OAuth 服务器回到 needs_auth（可重新授权）；其它回到 disconnected
-					const config = await this.opts.mcpStore
-						.getServer(event.serverName, event.projectId)
-						.catch(() => null);
-					const status: McpServerStatus =
-						config?.auth === "oauth" ? "needs_auth" : "disconnected";
-					emitClearAuthResult({ success: true, status });
-				} catch (err) {
-					emitClearAuthResult({
-						success: false,
-						status: "error",
-						error: (err as Error).message,
-					});
 				}
 				break;
 			}

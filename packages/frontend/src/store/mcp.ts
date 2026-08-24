@@ -1,7 +1,16 @@
 import { create } from "zustand";
 import i18n from "../i18n";
-import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@wa-pi/shared";
-import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@wa-pi/shared";
+import type {
+  McpServerConfig,
+  McpServerStatus,
+  McpToolSummary,
+} from "@wa-pi/shared";
+import type {
+  McpListResult,
+  McpChangedEvent,
+  McpTestResult,
+  McpToolsResult,
+} from "@wa-pi/shared";
 import { api } from "../api-client";
 
 interface McpState {
@@ -29,13 +38,16 @@ interface McpState {
   setServers(data: McpListResult | McpChangedEvent): void;
   setTestResult(data: McpTestResult): void;
   setToolsResult(data: McpToolsResult): void;
-  save(config: McpServerConfig, projectId?: string, originalName?: string): void;
+  save(
+    config: McpServerConfig,
+    projectId?: string,
+    originalName?: string,
+  ): void;
   deleteServer(serverName: string, projectId?: string): void;
   testConnection(serverName: string, projectId?: string): void;
   /** 对当前 servers 列表逐个发起连接测试（用于切换项目作用域后的批量自动测试） */
   testAllServers(projectId?: string): void;
   listTools(serverName: string, projectId?: string): void;
-  clearAuth(serverName: string, projectId?: string): void;
   setSelectedProjectId(id: string | null): void;
   setSearchQuery(q: string): void;
 }
@@ -54,36 +66,56 @@ export const useMcpStore = create<McpState>((set, get) => ({
   autoTestedProject: undefined,
 
   load: (projectId) => {
-    set((s) => ({ loading: true, selectedProjectId: projectId ?? s.selectedProjectId }));
-    const url = projectId ? `/api/mcp?projectId=${encodeURIComponent(projectId)}` : "/api/mcp";
-    api.get(url).then((data: any) => { if (data) get().setServers(data); }).catch(() => set({ loading: false }));
+    set((s) => ({
+      loading: true,
+      selectedProjectId: projectId ?? s.selectedProjectId,
+    }));
+    const url = projectId
+      ? `/api/mcp?projectId=${encodeURIComponent(projectId)}`
+      : "/api/mcp";
+    api
+      .get(url)
+      .then((data: any) => {
+        if (data) get().setServers(data);
+      })
+      .catch(() => set({ loading: false }));
   },
   setServers: (data) => {
     const s = get();
     // 切换到新作用域（或首次加载）后，服务器列表到达即自动测一次连接。
     // 同一作用域的后续刷新（mcp:changed）selectedProjectId === autoTestedProject，不重复测。
-    const shouldAutoTest = data.servers.length > 0 && s.selectedProjectId !== s.autoTestedProject;
+    const shouldAutoTest =
+      data.servers.length > 0 && s.selectedProjectId !== s.autoTestedProject;
     set({
       servers: data.servers,
       loading: false,
-      autoTestedProject: shouldAutoTest ? s.selectedProjectId : s.autoTestedProject,
+      autoTestedProject: shouldAutoTest
+        ? s.selectedProjectId
+        : s.autoTestedProject,
     });
     if (shouldAutoTest) get().testAllServers(s.selectedProjectId ?? undefined);
   },
   setTestResult: (data) =>
     set((s) => {
-      const status: McpServerStatus = data.status ?? (data.success ? "connected" : "error");
+      const status: McpServerStatus =
+        data.status ?? (data.success ? "connected" : "error");
       const nextTesting = { ...s.testingServers };
       delete nextTesting[data.serverName];
       return {
         testingServers: nextTesting,
         serverStatuses: { ...s.serverStatuses, [data.serverName]: status },
-        errors: status === "error"
-          ? { ...s.errors, [data.serverName]: data.error ?? i18n.t("store.mcpConnectFailed") }
-          : s.errors,
-        toolCounts: status === "connected" && data.toolCount != null
-          ? { ...s.toolCounts, [data.serverName]: data.toolCount }
-          : s.toolCounts,
+        errors:
+          status === "error"
+            ? {
+                ...s.errors,
+                [data.serverName]:
+                  data.error ?? i18n.t("store.mcpConnectFailed"),
+              }
+            : s.errors,
+        toolCounts:
+          status === "connected" && data.toolCount != null
+            ? { ...s.toolCounts, [data.serverName]: data.toolCount }
+            : s.toolCounts,
       };
     }),
   setToolsResult: (data) =>
@@ -98,13 +130,16 @@ export const useMcpStore = create<McpState>((set, get) => ({
     void api.del(
       projectId
         ? `/api/mcp/${encodeURIComponent(serverName)}?projectId=${encodeURIComponent(projectId)}`
-        : `/api/mcp/${encodeURIComponent(serverName)}`
+        : `/api/mcp/${encodeURIComponent(serverName)}`,
     ),
   testConnection: (serverName, projectId) => {
     set((s) => {
       const nextErrors = { ...s.errors };
       delete nextErrors[serverName];
-      return { testingServers: { ...s.testingServers, [serverName]: true }, errors: nextErrors };
+      return {
+        testingServers: { ...s.testingServers, [serverName]: true },
+        errors: nextErrors,
+      };
     });
     void api.post("/api/mcp/test", { serverName, projectId });
   },
@@ -125,12 +160,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
     void api.get(
       projectId
         ? `/api/mcp/${encodeURIComponent(serverName)}/tools?projectId=${encodeURIComponent(projectId)}`
-        : `/api/mcp/${encodeURIComponent(serverName)}/tools`
+        : `/api/mcp/${encodeURIComponent(serverName)}/tools`,
     );
-  },
-  clearAuth: (serverName, projectId) => {
-    set((s) => ({ testingServers: { ...s.testingServers, [serverName]: true } }));
-    void api.post("/api/mcp/clear-auth", { serverName, projectId });
   },
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),

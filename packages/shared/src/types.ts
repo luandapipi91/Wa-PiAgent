@@ -65,7 +65,6 @@ import type {
 	McpDeleteEvent,
 	McpTestEvent,
 	McpListToolsEvent,
-	McpClearAuthEvent,
 	McpListResult,
 	McpChangedEvent,
 	McpTestResult,
@@ -781,7 +780,6 @@ export type WSClientEvent =
 	| McpDeleteEvent
 	| McpTestEvent
 	| McpListToolsEvent
-	| McpClearAuthEvent
 	| FSHomeRequest
 	| FSRootsRequest
 	| FSListDirRequest
