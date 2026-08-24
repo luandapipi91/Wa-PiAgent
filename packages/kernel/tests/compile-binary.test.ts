@@ -15,7 +15,11 @@ import { basename, join } from "node:path";
 test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/--asset/--outfile", () => {
   const args = buildCompileArgs("/tmp/out/WaPiKernel.exe", "/tmp/assets");
   expect(args[0]).toBe("build");
-  expect(args[1].replace(/\\/g, "/").endsWith("packages/kernel/src/desktop-server.ts")).toBe(true);
+  expect(
+    args[1]
+      .replace(/\\/g, "/")
+      .endsWith("packages/kernel/src/desktop-server.ts"),
+  ).toBe(true);
   expect(args).toContain("--compile");
   expect(args).toContain("--asset");
   expect(args).toContain("/tmp/assets");
@@ -29,10 +33,16 @@ test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/-
 });
 
 test("buildCompileArgs: target=win 追加 --target bun-windows-x64（交叉编译）", () => {
-  const args = buildCompileArgs("/tmp/out/WaPiKernel.exe", "/tmp/assets", "win");
+  const args = buildCompileArgs(
+    "/tmp/out/WaPiKernel.exe",
+    "/tmp/assets",
+    "win",
+  );
   expect(args).toContain("--target");
   expect(args[args.indexOf("--target") + 1]).toBe("bun-windows-x64");
-  expect(buildCompileArgs("/tmp/out/k", "/tmp/assets", "linux")).toContain("bun-linux-x64");
+  expect(buildCompileArgs("/tmp/out/k", "/tmp/assets", "linux")).toContain(
+    "bun-linux-x64",
+  );
   // darwin：本机编译不追加 --target
   const darwin = buildCompileArgs("/tmp/out/k", "/tmp/assets", "darwin");
   expect(darwin).not.toContain("--target");
