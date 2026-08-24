@@ -1,3 +1,9 @@
+## 2026-08-24 — v0.2.22 补丁发版（关于页内核版本显示修复 + Windows bash 检测修复 + 内核独立发布）
+
+- 版本：0.2.21 → 0.2.22。
+- 主要：修复关于页「内核版本」显示错误（syncSeed 在动态 kernel 下覆盖 runtime 的 package.json 为 seed 旧版 → 现不再覆盖，正确显示更新后内核 0.1.1）；修复 Windows WSL bash stub 误判（No bash shell found）；publish-kernel 的 kernelVersion 改读内核 package.json（0.1.1）；内核独立发布链路打通（publish-kernel.ts 发布内核包，客户端启动自动更新）。
+- 验证：bun run test 全量回归；pack:mac + pack:win（wapi-sign + CSC_IDENTITY_AUTO_DISCOVERY=false 免弹签名）；publish-oss.ts 推 R2；git tag v0.2.22 + Gitee Release。
+
 ## 2026-08-24 — fix(kernel): Windows 被 WSL 占位 stub 欺骗导致 PortableGit 永远不接线，bash 工具报 "No bash shell found"
 
 - 背景：打包版 / 无 Git Bash 的 Windows 上，使用 bash 工具必现 "No bash shell found"。`ensureBashAvailable()` 调用 `findSystemBash()` 检测系统 bash；而 Windows 10/11 自带 WSL 占位 stub `C:\Windows\system32\bash.exe`——`existsSync` 为真、出现在 PATH 上，但 WSL 未装时 `--version` 跑不通。`findSystemBash()` 只查文件存在不校验可用性，把这个 stub 误判为"已装 Git Bash" → 提前 return null → PortableGit 下载分支永远不走 → `settings.json.shellPath` 恒为空 → pi 子进程读到空 → 报错。诊断桩在真机证实：`findSystemBash()` 命中该 stub 但 `bash --version=null`，而 PortableGit 手动下载解压正常（5.2.37）。
