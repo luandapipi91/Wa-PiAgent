@@ -691,6 +691,32 @@ app.whenReady().then(async () => {
 		}
 	}
 
+	// 2c-) kernel 动态更新检查（packaged 才做；失败降级继续）
+	// 启动同步拉取构建清单，发现新 build 则下载/校验/覆盖 WaPiKernel 并写入 .kernel-version。
+	// 失败/超时/清单不可用一律降级为 null，绝不阻断启动；kernelBuild 供 ensureRuntimeDeps 判定依赖重装。
+	let kernelBuild = null;
+	if (app.isPackaged) {
+		try {
+			const { syncKernel } = require("./util/kernel-updater.cjs");
+			setProgress(12, "正在检查内核更新…");
+			// WA_PI_KERNEL_FEED_URL 仅供 E2E/测试指向本地 mock，生产默认走 OSS 公开读（kernel-latest.json）
+			const kRes = await syncKernel({
+				seedDir,
+				runtimeDir,
+				kernelExe,
+				feedUrl: process.env.WA_PI_KERNEL_FEED_URL || undefined,
+				version: app.getVersion(),
+				log,
+				onStatus: (t) => setProgress(12, t),
+			});
+			// kRes.status: updated | up-to-date | failed；仅真正更新时取 build 供重装判定
+			kernelBuild = kRes.status === "updated" ? kRes.build : null;
+		} catch (e) {
+			log.error("[kernel-updater] 检查失败，降级继续", e);
+			kernelBuild = null;
+		}
+	}
+
 	// 2c) 首启依赖检测/动态安装（packaged：WA_PI_DIR/runtime 下用阿里源装原生 addon 等）
 	let runDir = seedDir;
 	if (app.isPackaged) {
@@ -708,6 +734,7 @@ app.whenReady().then(async () => {
 				runtimeDir,
 				kernelExe,
 				version: app.getVersion(),
+				kernelBuild,
 				log,
 				onStatus: (t) => setProgress(ip, t),
 			});

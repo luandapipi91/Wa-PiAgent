@@ -1,3 +1,50 @@
+## 2026-08-24 — fix(kernel-updater): 合并前加固——平台校验 + build 数值比较 + 首启 mkdir
+
+- `syncKernel` 应用远程清单前校验 `manifest.platform`（`currentPlatform()` 与 `publish-kernel.ts` 的 `platformFor` 一致：win32/linux/darwin-x64|arm64），平台不匹配则跳过更新（返回 up-to-date + info 日志），避免跨平台发布导致「旧二进制+新依赖清单」的半更新并永久卡住。
+- `needsUpdate` 由裸字符串 `>` 改为 `parseBuild`/`compareBuild` 数值语义比较（`<YYYYMMDD>-<seq>`），闭合 build 的 seq 未零填充（同日发布 ≥10 次跨个位/十位）时字典序比较造成的升级漏判与降级防护击穿；无法解析回退字符串比较。
+- `syncKernel` 起点 `mkdir(runtimeDir, {recursive:true})`，防全新安装首次启动下载写 zip 时 runtimeDir 未创建抛 ENOENT。
+- 影响范围：`packages/desktop/src/util/kernel-updater.cjs`、`packages/desktop/src/util/kernel-updater.test.ts`；测试：kernel-updater 19 pass（含平台不匹配/同日跨个位升级/降级防护/首启 mkdir 用例），runtime-deps + 集成 9 pass 无回归，typecheck 干净。
+## 2026-08-24 — feat(kernel-updater): syncKernel 支持 WA_PI_KERNEL_FEED_URL env 覆盖 feed
+
+- main.cjs 的 `syncKernel` 调用新增 `feedUrl: process.env.WA_PI_KERNEL_FEED_URL || undefined`：该 env 仅供 E2E/测试指向本地 mock，生产不设置时默认走 `DEFAULT_FEED`（OSS 公开读 kernel-latest.json），失败照旧 log.error 降级且不阻断启动；沿用既有 `WA_PI_UPDATER_FEED_URL` 的 env 覆盖默认 feed 模式。
+- 影响范围：`packages/desktop/src/main.cjs`；验证：`node --check` 语法通过（2 行增量，无分支逻辑改动），无回归。
+
+## 2026-08-24 — test(desktop): kernel-updater 本地 mock HTTP 集成测试（下载/校验/覆盖链路）
+
+- 新增 `packages/desktop/src/util/kernel-updater.integration.test.ts`：用 `node:http` 起 127.0.0.1 随机端口 mock 服务（分发 `kernel-latest.json` + 真实 zip 包），假 kernel 三件套用系统 `zip -j` 打包进根目录并计算 sha256，然后**不注入 fetchImpl**、用 Node 18+ 全局 `fetch` 走完整链路：下载 → sha256 校验 → 真实 unzip/tar 解压 → 覆盖 runtimeDir 的 WaPiKernel + package.json + bun.lock → 写 `.kernel-version` → 清理临时 zip 与备份目录。断言 `{status:"updated",build}`、KERNEL_BIN 内容等于 zip 内假 kernel、`.kernel-version` == manifest.build、无 `.kernel-update-*` 残留、备份目录已清理。
+- 采用条件定义测试（`if (HAS_ZIP)`）而非 `test.skipIf`，规避 bun 1.4 `skipIf` 语义反转；本机有 zip CLI 时真实运行非跳过。
+- 影响范围：`packages/desktop/src/util/kernel-updater.integration.test.ts`（新增）；测试：integration 1 pass（真实网络/解压链路），kernel-updater.test.ts 14 pass 无回归。
+
+## 2026-08-24 — feat(desktop/启动): main.cjs 启动流程接入 kernel 动态更新检查（失败降级）
+
+- 在 2c 依赖安装块**之前**新增 `if (app.isPackaged)` 块调用 `syncKernel`：拉取构建清单，发现新 build 则下载/校验/覆盖 WaPiKernel 并写入 `.kernel-version`，进度 UI 新增 `setProgress(12, "正在检查内核更新…")` 阶段。仅当 `kRes.status === "updated"` 时取 `kernelBuild = kRes.build`，否则为 `null`；整个调用包在 try/catch，失败（超时/清单不可用/下载失败）一律 `log.error` 并置 `kernelBuild = null`，**绝不阻断启动**。
+- `ensureRuntimeDeps({ ... })` 新增传入 `kernelBuild`（运行时-依赖侧判定依赖重装，复用 Task 4 的 build 号判定）。
+- 影响范围：`packages/desktop/src/main.cjs`；验证：`node --check` 语法通过、`bun run typecheck` 干净、runtime-deps 8 pass / kernel-sidecar 15 pass / kernel-updater 14 pass 全绿，无回归。
+
+## 2026-08-24 — feat(desktop/启动): runtime-deps.cjs 适配动态 kernel（syncSeed 跳过动态更新 + 依赖重装按 kernel build 号判定）
+
+- `syncSeed(seedDir, runtimeDir, log, opts)` 扩展：runtimeDir 已有 `.kernel-version`（kernel 被动态更新过）时**不再用 seed 覆盖 KERNEL_BIN**（保留动态更新后的新二进制）；无 `.kernel-version` 则照常用 seed 覆盖（首次/兼容旧行为，行为不变）。`package.json`/`bun.lock` 仍随 seed 照常同步。`opts.kernelBuild` 可预先传入，否则读 `.kernel-version` 得到（import 复用 kernel-updater 的 `readLocalBuild`，避免重复读文件）。
+- `ensureRuntimeDeps` 判定改按 kernel build 号：`buildToUse = kernelBuild || version`（kernelBuild 优先，未传入时从 `.kernel-version` 读到，读不到用 app version 兜底），`nmExists && markerVer === buildToUse` 才跳过 install，`.installed-version` 写入 `buildToUse`。package.json 随动态 kernel 变化时会以 build 号变化触发依赖重装（正是 kernel 动态更新的依赖侧）。
+- 未实现「app 升级用 seed 兜底覆盖 kernel」细分场景（控制者裁定：动态 build 恒 ≥ seed build，实际几乎不发生，保持在简单分支）。
+- 影响范围：`packages/desktop/src/util/runtime-deps.cjs`、`packages/desktop/tests/runtime-deps.test.ts`；测试：runtime-deps 5 pass（新增 2 例：syncSeed 不覆盖动态 kernel / ensureRuntimeDeps 按 build 号跳过 install），kernel-updater 14 pass 无回归；typecheck 干净。
+
+## 2026-08-24 — feat(desktop/启动): kernel 二进制动态更新客户端同步器 kernel-updater.cjs（拉清单/下载/校验/覆盖/回滚）
+
+- 新增 `packages/desktop/src/util/kernel-updater.cjs`：启动时同步 runtime 目录的 kernel 二进制动态更新。纯函数接口 `readLocalBuild`（读 `.kernel-version`）/`fetchManifest`（拉 `kernel-latest.json`）/`needsUpdate`（build 比较，首次或异地视为需更新）/`verifySha256`（文件 hash 比对清单）/`extractZip`（unzip/tar 解压）/`applyKernelUpdate`（备份三件套→解压覆盖→写版本标记，失败拷回备份）/`syncKernel`（主入口，可注入 fetch/logger/onStatus）。依赖注入便于单测，未注入时回退全局 fetch。
+- 安全防御：`isSafeZipEntry`/`assertSafeZip` 解压前校验 zip 条目，reject 绝对路径、Windows 盘符、含 `..` 段的条目（防 zip-slip/路径穿越），只允许解压到 runtimeDir 内。
+- 错误降级：全程不向上抛（绝不阻塞启动），网络/清单/下载/sha256 失败统一降级 `up-to-date` 或 `failed`；下载与临时 zip 失败均清残留。只写 `.kernel-version`，package.json 变化由 runtime-deps.cjs（Task 4）判定是否重装依赖。
+- 影响范围：`packages/desktop/src/util/kernel-updater.cjs`（新增）、`packages/desktop/src/util/kernel-updater.test.ts`（新增）；测试：13 pass（needsUpdate 4 / sha256 1 / fetchManifest 2 / syncKernel 4 / applyKernelUpdate 回滚 1 / isSafeZipEntry 1），含真实解压集成用例（skipIf 无 zip CLI）；`tests/runtime-deps.test.ts` 3 pass 无回归。
+
+## 2026-08-24 — refactor(scripts): 抽取共用 S3 上传模块 s3-upload.cjs（消除 publish-oss/publish-kernel 重复的 ~150 行 S3 逻辑）
+
+- 新增 `scripts/s3-upload.cjs`：把 S3Client 创建（`createS3Client`）、手动 multipart 分片上传（`uploadLarge`）、小文件单次 PUT（`uploadSmall`）抽为共用模块（含 R2 endpoint/region/bucket 常量与手动指引所用的 BUCKET/ENDPOINT）。`publish-oss.ts` 与 `publish-kernel.ts` 此前各自内联了几乎相同的分片/上传逻辑（约 150 行），抽取后两处复用，达成 DRY。
+- 改造 `scripts/publish-oss.ts` 与 `scripts/publish-kernel.ts`：改为从 `s3-upload.cjs` 引入 `createS3Client/uploadLarge/uploadSmall`，删除各自内联的 AWS 命令 import、S3Client 创建与 `uploadLarge`（签名统一为 `(client, key, body, partSize?)` 与 `(client, key, body)`）。发布行为不变：上传顺序（安装包/blockmap 在前、清单最后覆盖）、分片重试、失败 abort、releaseNotes 注入、手动上传指引均保留。
+- 影响范围：`scripts/s3-upload.cjs`（新增）、`scripts/publish-oss.ts`、`scripts/publish-kernel.ts`、`scripts/s3-upload.test.ts`（新增）；测试：scripts 全部 12 pass（publish-oss 5 / publish-kernel 4 / s3-upload 3），desktop 包 192 pass / 2 skip 无回归。
+
+## 2026-08-24 — feat(scripts): kernel 动态更新发布脚本 publish-kernel.ts（打包 zip + 生成清单）
+
+- 新增 `scripts/publish-kernel.ts`：把 `packages/desktop/resources/kernel/` 下的 WaPiKernel(+.exe) + package.json + bun.lock 三件套打成 `kernel-<build>.zip`，计算 sha256 并生成 `kernel-latest.json` 清单上传 R2（`releases/kernel/`）。上传顺序复用 publish-oss 的「清单最后覆盖」原则（先传 zip + zip.sha256，最后覆盖清单，防清单悬空指向未上传包）。核心逻辑拆为可单测纯函数（`platformFor`/`makeBuild`/`kernelZipEntries`/`buildKernelManifest`），二进制命名复用 kernel 编译侧 `kernelBinaryName`。
+- 影响范围：`scripts/publish-kernel.ts`（新增）、`scripts/publish-kernel.test.ts`（新增）；测试：4 pass（platformFor 映射 / makeBuild / kernelZipEntries 三件套 / buildKernelManifest 全字段）。
 ## 2026-08-24 — fix(desktop/node): 首启下载的 node 的 npm/npx/corepack 符号链接指向临时解压目录，清理后变 broken 导致 MCP 报 Executable not found: npx
 
 - 背景：打包版首启下载 node 到 ~/.pi/agent/node/（node-runtime.cjs 用 fsp.cp 递归复制解压目录）。fsp.cp 把 node 安装里的 npm/npx/corepack 相对符号链接重写成指向源临时解压目录（os.tmpdir()/wa-pi-node-extract-*）的绝对路径；该临时目录在 finally 被删除后，~/.pi/agent/node/bin/{npx,npm,corepack} 全变 broken 符号链接 → MCP 服务器（command: npx）启动时报 "Executable not found in $PATH: npx"。node 本体是真实二进制故可用，npm/npx 失效。
