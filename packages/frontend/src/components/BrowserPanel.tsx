@@ -15,6 +15,9 @@ type Current =
 	| { kind: "local"; path: string }
 	| { kind: "external"; url: string };
 
+/** 预览元素高亮选择的开关状态（主应用本地保存；本地预览 iframe 为不透明源无法自存，故放主应用） */
+const INSPECT_KEY = "hiagent.preview.inspect";
+
 export function BrowserPanel() {
 	// 逐字段 selector 订阅：整订阅会让 splitRatio/floatRect 拖拽期的每帧变化也触发本组件重渲染
 	const path = useBrowserStore((s) => s.path);
@@ -124,6 +127,20 @@ export function BrowserPanel() {
 		const path = loadedPath;
 		const onMessage = (e: MessageEvent) => {
 			if (e.source !== iframeRef.current?.contentWindow) return;
+			const data = e.data as any;
+			// 预览 iframe 上报：查询/回写「高亮选择功能」开关状态（主应用持久化）
+			if (data?.type === "hiagent:inspect:query") {
+				const enabled = localStorage.getItem(INSPECT_KEY) !== "off";
+				iframeRef.current?.contentWindow?.postMessage(
+					{ type: "hiagent:inspect:set", enabled },
+					"*",
+				);
+				return;
+			}
+			if (data?.type === "hiagent:inspect:changed") {
+				localStorage.setItem(INSPECT_KEY, data.enabled ? "on" : "off");
+				return;
+			}
 			const picked = parseInspectMessage(e.data);
 			if (!picked) return;
 			const browser = useBrowserStore.getState();
