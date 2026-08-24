@@ -152,10 +152,7 @@ export function AboutSection() {
 
 					{status === "downloaded" && (
 						<>
-							<div
-								className="text-sm font-medium"
-								style={{ color: "var(--success)" }}
-							>
+							<div className="text-sm font-medium" style={{ color: "var(--success)" }}>
 								{t("settings.about.downloaded")}
 							</div>
 							<div className="text-xs text-secondary">

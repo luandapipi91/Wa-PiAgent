@@ -87,13 +87,17 @@ describe("buildGetInfoPayload", () => {
 				isDesktop: true,
 				kernelVersion: "20260824-2",
 			}),
-		).toEqual({ appVersion: "0.3.0", isDesktop: true, kernelVersion: "20260824-2" });
+		).toEqual({
+			appVersion: "0.3.0",
+			isDesktop: true,
+			kernelVersion: "20260824-2",
+		});
 	});
 
 	test("kernelVersion 缺省为 null（runtime 无 .kernel-version / dev 环境）", () => {
-		expect(buildGetInfoPayload({ appVersion: "0.3.0", isDesktop: false })).toEqual(
-			{ appVersion: "0.3.0", isDesktop: false, kernelVersion: null },
-		);
+		expect(
+			buildGetInfoPayload({ appVersion: "0.3.0", isDesktop: false }),
+		).toEqual({ appVersion: "0.3.0", isDesktop: false, kernelVersion: null });
 	});
 });
 

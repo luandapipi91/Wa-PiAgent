@@ -73,7 +73,11 @@ test("idle 显示检查更新按钮，点击触发 check", () => {
 });
 
 test("available 显示新版本与 release notes", () => {
-	(window as any).waPiUpdater._emit({ phase: "available", version: "0.2.0", releaseNotes: "修复：文件预览持久化" });
+	(window as any).waPiUpdater._emit({
+		phase: "available",
+		version: "0.2.0",
+		releaseNotes: "修复：文件预览持久化",
+	});
 	render(<AboutSection />);
 	expect(screen.getByText(/0\.2\.0/)).toBeTruthy();
 	expect(screen.getByText(/文件预览持久化/)).toBeTruthy();
@@ -82,7 +86,12 @@ test("available 显示新版本与 release notes", () => {
 });
 
 test("downloading 显示进度", () => {
-	(window as any).waPiUpdater._emit({ phase: "downloading", progress: 45, transferred: 57, total: 128 });
+	(window as any).waPiUpdater._emit({
+		phase: "downloading",
+		progress: 45,
+		transferred: 57,
+		total: 128,
+	});
 	render(<AboutSection />);
 	expect(screen.getByText(/45%/)).toBeTruthy();
 });
