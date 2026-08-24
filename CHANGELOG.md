@@ -1,3 +1,9 @@
+## 2026-08-24 — test(desktop): kernel-updater 本地 mock HTTP 集成测试（下载/校验/覆盖链路）
+
+- 新增 `packages/desktop/src/util/kernel-updater.integration.test.ts`：用 `node:http` 起 127.0.0.1 随机端口 mock 服务（分发 `kernel-latest.json` + 真实 zip 包），假 kernel 三件套用系统 `zip -j` 打包进根目录并计算 sha256，然后**不注入 fetchImpl**、用 Node 18+ 全局 `fetch` 走完整链路：下载 → sha256 校验 → 真实 unzip/tar 解压 → 覆盖 runtimeDir 的 WaPiKernel + package.json + bun.lock → 写 `.kernel-version` → 清理临时 zip 与备份目录。断言 `{status:"updated",build}`、KERNEL_BIN 内容等于 zip 内假 kernel、`.kernel-version` == manifest.build、无 `.kernel-update-*` 残留、备份目录已清理。
+- 采用条件定义测试（`if (HAS_ZIP)`）而非 `test.skipIf`，规避 bun 1.4 `skipIf` 语义反转；本机有 zip CLI 时真实运行非跳过。
+- 影响范围：`packages/desktop/src/util/kernel-updater.integration.test.ts`（新增）；测试：integration 1 pass（真实网络/解压链路），kernel-updater.test.ts 14 pass 无回归。
+
 ## 2026-08-24 — feat(desktop/启动): main.cjs 启动流程接入 kernel 动态更新检查（失败降级）
 
 - 在 2c 依赖安装块**之前**新增 `if (app.isPackaged)` 块调用 `syncKernel`：拉取构建清单，发现新 build 则下载/校验/覆盖 WaPiKernel 并写入 `.kernel-version`，进度 UI 新增 `setProgress(12, "正在检查内核更新…")` 阶段。仅当 `kRes.status === "updated"` 时取 `kernelBuild = kRes.build`，否则为 `null`；整个调用包在 try/catch，失败（超时/清单不可用/下载失败）一律 `log.error` 并置 `kernelBuild = null`，**绝不阻断启动**。
