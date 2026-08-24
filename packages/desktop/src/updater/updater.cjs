@@ -138,7 +138,7 @@ function setupUpdater({
 		buildGetInfoPayload({
 			appVersion: currentVersion,
 			isDesktop: isPackaged,
-			kernelVersion: (await getKernelVersion?.()) ?? null,
+			kernelVersion: (await getKernelVersion?.()) || null,
 		}),
 	);
 
