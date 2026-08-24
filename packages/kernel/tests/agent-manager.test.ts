@@ -690,13 +690,11 @@ test("prompt — 超过 3.5MB 但 ≤30MB 的真实图片用 bun:image 压缩为
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 
-	// 生成一张真实可解码的 >3.5MB JPEG：仓库内图标（跨平台可找到）放大成小 JPEG 后
-	// 尾部补零到 4MB——JPEG 解码器忽略 EOI 后的填充字节，Bun.Image 仍可解码并压缩。
-	// 修复：原实现硬编码 Windows 绝对路径（H:/workspace/...）导致 mac/Linux 上 ENOENT。
-	const srcImg = join(
-		import.meta.dir,
-		"../../desktop/src/assets/icon-mac.png",
-	);
+	// 生成一张真实可解码的 >3.5MB JPEG：本测试 fixtures 里的超高清壁纸（3840x2160）作源图，
+	// 放大编码成 JPEG 后尾部补零到 4MB——JPEG 解码器忽略 EOI 后的填充字节，Bun.Image 仍可解码并压缩。
+	// 路径用相对路径（测试自身 fixtures），不跨包依赖 desktop 资源，也不依赖平台绝对路径——
+	// 原实现硬编码 Windows 绝对路径（H:/workspace/...）导致 mac/Linux 上 ENOENT。
+	const srcImg = join(import.meta.dir, "fixtures/test-wallpaper.jpg");
 	const imgPath = `/tmp/wa-pi-img-compress-${Date.now()}.jpg`;
 	tmpPaths.push(imgPath);
 	const raw = await Bun.file(srcImg).bytes();
