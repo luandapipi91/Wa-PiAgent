@@ -1,3 +1,8 @@
+## 2026-08-24 — feat(scripts): kernel 动态更新发布脚本 publish-kernel.ts（打包 zip + 生成清单）
+
+- 新增 `scripts/publish-kernel.ts`：把 `packages/desktop/resources/kernel/` 下的 WaPiKernel(+.exe) + package.json + bun.lock 三件套打成 `kernel-<build>.zip`，计算 sha256 并生成 `kernel-latest.json` 清单上传 R2（`releases/kernel/`）。上传顺序复用 publish-oss 的「清单最后覆盖」原则（先传 zip + zip.sha256，最后覆盖清单，防清单悬空指向未上传包）。核心逻辑拆为可单测纯函数（`platformFor`/`makeBuild`/`kernelZipEntries`/`buildKernelManifest`），二进制命名复用 kernel 编译侧 `kernelBinaryName`。
+- 影响范围：`scripts/publish-kernel.ts`（新增）、`scripts/publish-kernel.test.ts`（新增）；测试：4 pass（platformFor 映射 / makeBuild / kernelZipEntries 三件套 / buildKernelManifest 全字段）。
+
 ## 2026-08-23 — fix(frontend/会话): 新建会话首次发送后 session 短暂消失导致对话区空白/重置
 
 - 背景：快速「新建会话→发送消息」时，新会话页面会闪一下被重置（对话区空白/回到新建页）。根因是前端**整表替换 `sessions`** 的两条路径都可能在 kernel `projects:list` **快照滞后**（新会话 optimistic `addSession` 后 placeholder 未转正、快照里还没它）时，把乐观新建的当前会话挤掉，导致 `SessionView` 的 `sessions.find(x.id === sessionId)` 找不到该会话 → `if (!session) return null` → 对话区空白。此前 `0c1ee7a66` 只保护了 `currentSessionId`（避免闪回新建页），`defb8256d` 只修了 #300 崩溃（move hooks），均未修「会话从列表消失」这一根因。
