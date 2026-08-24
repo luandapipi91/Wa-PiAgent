@@ -2,13 +2,21 @@
 // seed = WaPiKernel(.exe) + package.json + bun.lock；不再有 kernel.js / bridge 文件 / patches。
 // 覆盖：seed 复制、patches 不再复制（patch 编译期已生效）、kernel.js 时代遗留文件清理。
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  rm,
+  readdir,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureRuntimeDeps, syncSeed } from "../src/util/runtime-deps.cjs";
 
 const noopLog = { info: () => {}, error: () => {} };
-const KERNEL_BIN = process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
+const KERNEL_BIN =
+  process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
 
 async function makeTempDirs() {
   const base = await mkdtemp(join(tmpdir(), "runtime-deps-test-"));
@@ -40,7 +48,10 @@ test("syncSeed: seed 里的 patches 不再复制（patch 编译期已生效，�
   try {
     await writeFile(join(seedDir, KERNEL_BIN), "binary");
     await mkdir(join(seedDir, "patches"), { recursive: true });
-    await writeFile(join(seedDir, "patches", "pi-mcp-adapter@2.17.0.patch"), "diff --git");
+    await writeFile(
+      join(seedDir, "patches", "pi-mcp-adapter@2.17.0.patch"),
+      "diff --git",
+    );
 
     await syncSeed(seedDir, runtimeDir, noopLog);
 
@@ -66,7 +77,9 @@ test("syncSeed: runtime 已有 .kernel-version → 不覆盖 kernel 二进制（
     await syncSeed(seedDir, runtimeDir, noopLog);
 
     // kernel 不被覆盖（保留动态更新结果）
-    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe("runtime-new");
+    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(
+      "runtime-new",
+    );
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -84,7 +97,10 @@ test("ensureRuntimeDeps: 依赖重装判定改按 kernel build 号（buildToUse 
     await writeFile(join(runtimeDir, "package.json"), "{}");
     await writeFile(join(runtimeDir, ".installed-version"), "20260823-1");
     const logs: string[] = [];
-    const log = { info: (...a: string[]) => logs.push(a.join(" ")), error: () => {} };
+    const log = {
+      info: (...a: string[]) => logs.push(a.join(" ")),
+      error: () => {},
+    };
 
     const runDir = await ensureRuntimeDeps({
       isPackaged: true,
@@ -98,9 +114,11 @@ test("ensureRuntimeDeps: 依赖重装判定改按 kernel build 号（buildToUse 
     });
 
     expect(runDir).toBe(runtimeDir);
-    expect(logs.some((l) => l.includes("node_modules 已安装 v20260823-1，跳过 install"))).toBe(
-      true,
-    );
+    expect(
+      logs.some((l) =>
+        l.includes("node_modules 已安装 v20260823-1，跳过 install"),
+      ),
+    ).toBe(true);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -117,7 +135,10 @@ test("syncSeed: 清理 kernel.js 时代遗留文件（老用户 runtime 目录�
     await writeFile(join(runtimeDir, "wa-pi-bridge.extension.ts"), "// old");
     await writeFile(join(runtimeDir, "file-snapshot.ts"), "// old");
     await mkdir(join(runtimeDir, "patches"), { recursive: true });
-    await writeFile(join(runtimeDir, "patches", "pi-mcp-adapter@2.17.0.patch"), "old");
+    await writeFile(
+      join(runtimeDir, "patches", "pi-mcp-adapter@2.17.0.patch"),
+      "old",
+    );
 
     await syncSeed(seedDir, runtimeDir, noopLog);
 
@@ -153,10 +174,18 @@ test("syncSeed: 动态 kernel（有 .kernel-version）→ 不覆盖 seed 的 pac
     await syncSeed(seedDir, runtimeDir, noopLog);
 
     // 动态 kernel：runtime 的 kernel 二进制 / package.json / bun.lock 不被 seed 覆盖（保留更新后版本）
-    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe("runtime-new");
-    expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(runtimePkg);
-    expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe("runtime-lock");
-    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe("20260823-1");
+    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(
+      "runtime-new",
+    );
+    expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(
+      runtimePkg,
+    );
+    expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe(
+      "runtime-lock",
+    );
+    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe(
+      "20260823-1",
+    );
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -179,7 +208,9 @@ test("syncSeed: 动态 kernel 下 seed package.json 与 runtime 相同 → 不�
     await syncSeed(seedDir, runtimeDir, noopLog);
 
     // 内容相同 → 保留标记，不触发重装
-    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe("20260823-1");
+    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe(
+      "20260823-1",
+    );
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -195,10 +226,16 @@ test("ensureRuntimeDeps: 动态 kernel 且 build 号变化 → 触发依赖重�
     await mkdir(join(runtimeDir, "node_modules"), { recursive: true });
     await writeFile(join(runtimeDir, KERNEL_BIN), "runtime-new");
     await writeFile(join(runtimeDir, ".kernel-version"), "20260824-2");
-    await writeFile(join(runtimeDir, "package.json"), JSON.stringify({ version: "0.1.1" }));
+    await writeFile(
+      join(runtimeDir, "package.json"),
+      JSON.stringify({ version: "0.1.1" }),
+    );
     await writeFile(join(runtimeDir, ".installed-version"), "20260823-1");
     const logs: string[] = [];
-    const log = { info: (...a: string[]) => logs.push(a.join(" ")), error: () => {} };
+    const log = {
+      info: (...a: string[]) => logs.push(a.join(" ")),
+      error: () => {},
+    };
 
     // buildToUse=20260824-2（来自 kernelBuild）!= markerVer=20260823-1 → 触发 install
     //（spawn ENOENT 失败）→ 抛错被 catch → null；若误跳过 install 则返回 runtimeDir（此断言即回归守卫）。

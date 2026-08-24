@@ -22,7 +22,8 @@ const { readLocalBuild } = require("./kernel-updater.cjs");
 
 const DEFAULT_REGISTRY = "https://registry.npmmirror.com";
 const FALLBACK_REGISTRY = "https://registry.npmjs.org";
-const KERNEL_BIN = process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
+const KERNEL_BIN =
+	process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
 const SEED_FILES = [KERNEL_BIN, "package.json", "bun.lock"];
 
 // kernel.js 时代（≤0.2.15）的 seed 遗留：老用户 runtime 目录升级时清理，避免与新形态混淆
