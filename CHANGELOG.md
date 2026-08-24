@@ -1,3 +1,9 @@
+## 2026-08-24 — feat(settings/about): 关于页展示内核版本（.kernel-version build 号）
+
+- 链路与 app 版本同构：`main.cjs` 向 `setupUpdater` 传入基于 `WA_PI_DIR` 的 lazy `getKernelVersion`（延迟到 handler 触发再读 `~/.pi/agent/runtime/.kernel-version`，因 setupUpdater 调用早于 runtimeDir 定义），`updater.cjs` 的 `updater:get-info` handler 改 async 并透传 `kernelVersion`（新增纯函数 `buildGetInfoPayload`，可单测），`preload.cjs` 的 `getInfo` 自然透传，前端 `store/updater.ts` 存 `kernelVersion` 并在 `AboutSection` 的 app 版本行下新增「内核版本」行，i18n 增 zh/en 文案。
+- `kernelVersion` 为 null/空（runtime 无 .kernel-version，或 dev 环境）时 UI 显示“—”。
+- 影响范围：`packages/desktop/src/updater/updater.cjs`、`packages/desktop/src/main.cjs`、`packages/frontend/src/store/updater.ts`、`packages/frontend/src/components/settings/AboutSection.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`；测试：updater.test.ts 新增 2 例（buildGetInfoPayload 原样返回/缺省 null），AboutSection.test.tsx 新增内核版本渲染（含 null 兜底）、typecheck 干净。
+
 ## 2026-08-24 — fix(kernel-updater): 合并前加固——平台校验 + build 数值比较 + 首启 mkdir
 
 - `syncKernel` 应用远程清单前校验 `manifest.platform`（`currentPlatform()` 与 `publish-kernel.ts` 的 `platformFor` 一致：win32/linux/darwin-x64|arm64），平台不匹配则跳过更新（返回 up-to-date + info 日志），避免跨平台发布导致「旧二进制+新依赖清单」的半更新并永久卡住。

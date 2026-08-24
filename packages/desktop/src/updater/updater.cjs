@@ -79,6 +79,17 @@ function makeQuitAndInstallHandler({
 
 const { NsisUpdater, MacUpdater, LinuxUpdater } = require("electron-updater");
 
+// updater:get-info 载荷工厂（纯函数，可单测；setupUpdater 依赖 Electron 无法直接测）。
+/**
+ * @param {object} deps
+ * @param {string} deps.appVersion app.getVersion()
+ * @param {boolean} deps.isDesktop 是否打包版
+ * @param {string | null} [deps.kernelVersion] 当前内核 build 号（runtime 无 .kernel-version 时为 null）
+ */
+function buildGetInfoPayload({ appVersion, isDesktop, kernelVersion = null }) {
+	return { appVersion, isDesktop, kernelVersion };
+}
+
 // 前端 phase → electron-updater 事件名 的显式映射表。
 // 用普通对象 + 遍历，避免晦涩的链式 .map() 写法，语义一眼可懂。
 const PHASE_TO_EVENT = {
@@ -100,6 +111,7 @@ const PHASE_TO_EVENT = {
  * @param {() => Promise<void>} [deps.onBeforeQuitAndInstall] 升级安装前回调（停 kernel 等优雅清理）；
  *   调用方应自行捕获异常，失败不应阻断安装
  * @param {() => void} [deps.destroyTray] 销毁托盘（macOS 防 Tray 保活阻止退出）
+ * @param {() => Promise<string | null>} [deps.getKernelVersion] 读当前内核 build 号（lazy getter，无 .kernel-version 时 resolve null）
  */
 function setupUpdater({
 	getMainWindow,
@@ -109,6 +121,7 @@ function setupUpdater({
 	config = {},
 	onBeforeQuitAndInstall,
 	destroyTray,
+	getKernelVersion,
 }) {
 	const { ipcMain } = require("electron");
 
@@ -120,11 +133,14 @@ function setupUpdater({
 		}
 	};
 
-	// 查询当前版本 + 是否打包（前端用来决定是否显示更新 UI）
-	ipcMain.handle("updater:get-info", () => ({
-		appVersion: currentVersion,
-		isDesktop: isPackaged,
-	}));
+	// 查询当前版本 + 是否打包（前端用来决定是否显示更新 UI）+ 内核 build 号
+	ipcMain.handle("updater:get-info", async () =>
+		buildGetInfoPayload({
+			appVersion: currentVersion,
+			isDesktop: isPackaged,
+			kernelVersion: (await getKernelVersion?.()) ?? null,
+		}),
+	);
 
 	if (!isPackaged) {
 		// dev 模式：注册占位 handler，返回不可用，避免误触发真实更新
@@ -211,6 +227,7 @@ function setupUpdater({
 module.exports = {
 	updaterPhases,
 	translateUpdaterEvent,
+	buildGetInfoPayload,
 	setupUpdater,
 	makeQuitAndInstallHandler,
 };

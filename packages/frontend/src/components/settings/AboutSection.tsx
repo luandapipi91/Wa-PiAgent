@@ -24,6 +24,7 @@ export function AboutSection() {
 	const {
 		status,
 		appVersion,
+		kernelVersion,
 		latestVersion,
 		releaseNotes,
 		progress,
@@ -54,6 +55,11 @@ export function AboutSection() {
 			<div className="mt-4 text-lg font-semibold text-primary">WA PI Agent</div>
 			<div className="mt-1 text-[13px] text-secondary">
 				{t("settings.about.version", { version: appVersion || "—" })}
+			</div>
+			<div className="mt-1 text-[13px] text-secondary">
+				{t("settings.about.kernelVersion", {
+					version: kernelVersion || "—",
+				})}
 			</div>
 			<div
 				className="w-[280px] h-px my-5"

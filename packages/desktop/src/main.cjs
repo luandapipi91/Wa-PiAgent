@@ -412,6 +412,13 @@ app.whenReady().then(async () => {
 		config: {
 			feedUrl: process.env.WA_PI_UPDATER_FEED_URL || undefined,
 		},
+		// 内核 build 号：runtime 的 .kernel-version（kernel-updater.cjs 写入 <YYYYMMDD>-<seq>）。
+		// setupUpdater 调用早于下方 runtimeDir 定义，只能传 lazy getter 延迟到 handler 触发时再读文件。
+		getKernelVersion: () => {
+			const { readLocalBuild } = require("./util/kernel-updater.cjs");
+			const { resolveRuntimeDir } = require("./util/paths.cjs");
+			return readLocalBuild(resolveRuntimeDir(WA_PI_DIR));
+		},
 		// 升级安装前优雅停 kernel：停 sidecar（同步阻塞杀进程树）→ 等端口真正释放 →
 		// 登记簿兜底清扫（清运行期 kernel 重启换 pid 等残留）→ 自删登记。
 		// sidecar 在下方 startSidecar 之后才赋值，这里必须用 getter 闭包读当前值，
