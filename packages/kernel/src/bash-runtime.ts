@@ -110,11 +110,16 @@ export function findSystemBash(): string | null {
 			if (existsSync(c) && isUsableFile(c)) return c;
 		}
 	}
-	// PATH 上的 bash（Bun.which 优先，Windows 下也能解析 bash.exe）
+	// PATH 上的 bash（Bun.which 优先，Windows 下也能解析 bash.exe）。
+	// 只查 existsSync 不够：Windows 10/11 自带 WSL 占位 stub
+	// C:\\Windows\\system32\\bash.exe（existsSync=true 但 WSL 未装时 --version 跑不通），
+	// 若被误判为"系统已装 Git Bash"，ensureBashAvailable 会提前 return null、
+	// 跳过 PortableGit 下载接线 → settings.json.shellPath 恒为空 → pi bash 工具
+	// 报 "No bash shell found"。故命中候选后必须 bashVersionOf(candidate) 非 null 才算真可用。
 	const which = (globalThis as any).Bun?.which;
 	if (typeof which === "function") {
 		const p = which("bash");
-		if (p && existsSync(p)) return p;
+		if (p && existsSync(p) && bashVersionOf(p)) return p;
 	}
 	return null;
 }
