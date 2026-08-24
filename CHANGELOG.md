@@ -1,3 +1,10 @@
+## 2026-08-24 — feat(desktop/启动): kernel 二进制动态更新客户端同步器 kernel-updater.cjs（拉清单/下载/校验/覆盖/回滚）
+
+- 新增 `packages/desktop/src/util/kernel-updater.cjs`：启动时同步 runtime 目录的 kernel 二进制动态更新。纯函数接口 `readLocalBuild`（读 `.kernel-version`）/`fetchManifest`（拉 `kernel-latest.json`）/`needsUpdate`（build 比较，首次或异地视为需更新）/`verifySha256`（文件 hash 比对清单）/`extractZip`（unzip/tar 解压）/`applyKernelUpdate`（备份三件套→解压覆盖→写版本标记，失败拷回备份）/`syncKernel`（主入口，可注入 fetch/logger/onStatus）。依赖注入便于单测，未注入时回退全局 fetch。
+- 安全防御：`isSafeZipEntry`/`assertSafeZip` 解压前校验 zip 条目，reject 绝对路径、Windows 盘符、含 `..` 段的条目（防 zip-slip/路径穿越），只允许解压到 runtimeDir 内。
+- 错误降级：全程不向上抛（绝不阻塞启动），网络/清单/下载/sha256 失败统一降级 `up-to-date` 或 `failed`；下载与临时 zip 失败均清残留。只写 `.kernel-version`，package.json 变化由 runtime-deps.cjs（Task 4）判定是否重装依赖。
+- 影响范围：`packages/desktop/src/util/kernel-updater.cjs`（新增）、`packages/desktop/src/util/kernel-updater.test.ts`（新增）；测试：13 pass（needsUpdate 4 / sha256 1 / fetchManifest 2 / syncKernel 4 / applyKernelUpdate 回滚 1 / isSafeZipEntry 1），含真实解压集成用例（skipIf 无 zip CLI）；`tests/runtime-deps.test.ts` 3 pass 无回归。
+
 ## 2026-08-24 — refactor(scripts): 抽取共用 S3 上传模块 s3-upload.cjs（消除 publish-oss/publish-kernel 重复的 ~150 行 S3 逻辑）
 
 - 新增 `scripts/s3-upload.cjs`：把 S3Client 创建（`createS3Client`）、手动 multipart 分片上传（`uploadLarge`）、小文件单次 PUT（`uploadSmall`）抽为共用模块（含 R2 endpoint/region/bucket 常量与手动指引所用的 BUCKET/ENDPOINT）。`publish-oss.ts` 与 `publish-kernel.ts` 此前各自内联了几乎相同的分片/上传逻辑（约 150 行），抽取后两处复用，达成 DRY。
