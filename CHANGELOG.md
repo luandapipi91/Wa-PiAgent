@@ -1,3 +1,10 @@
+## 2026-08-24 — fix(kernel): Windows 被 WSL 占位 stub 欺骗导致 PortableGit 永远不接线，bash 工具报 "No bash shell found"
+
+- 背景：打包版 / 无 Git Bash 的 Windows 上，使用 bash 工具必现 "No bash shell found"。`ensureBashAvailable()` 调用 `findSystemBash()` 检测系统 bash；而 Windows 10/11 自带 WSL 占位 stub `C:\Windows\system32\bash.exe`——`existsSync` 为真、出现在 PATH 上，但 WSL 未装时 `--version` 跑不通。`findSystemBash()` 只查文件存在不校验可用性，把这个 stub 误判为"已装 Git Bash" → 提前 return null → PortableGit 下载分支永远不走 → `settings.json.shellPath` 恒为空 → pi 子进程读到空 → 报错。诊断桩在真机证实：`findSystemBash()` 命中该 stub 但 `bash --version=null`，而 PortableGit 手动下载解压正常（5.2.37）。
+- 修复：`findSystemBash()` 命中候选（含 PATH 分支）后必须 `bashVersionOf(candidate)` 非 null 才算"真可用"，否则返回 null，让流程走 PortableGit 下载接线。
+- 验证：新增测试复现该 bug（mock `Bun.which` 返回"存在但 --version 跑不通"的假 bash，断言 `findSystemBash()` 返回 null；返回真可用 bash 时断言返回其路径），修复前失败、修复后通过；kernel 全量测试通过，全量回归 1874 pass 0 fail。
+- 影响范围：`packages/kernel/src/bash-runtime.ts`、`packages/kernel/tests/bash-runtime.test.ts`。
+
 ## 2026-08-24 — fix(preview): 锁定元素后点击其他元素不再切换/解除高亮
 
 - 背景：元素锁定态下，点击非锁定元素会解除锁定并把高亮跳到新元素；用户期望高亮应一直锁在锁定元素上，只有「点锁定元素解锁/选择父级改锁定目标」两种途径改变。
@@ -21,10 +28,10 @@
 - 验证：`preview-inspect.test.ts` 6 pass + `preview-inspect.integration.test.ts` 11 pass；浏览器实测「hover 高亮+平台提示 → Ctrl 关闭（不响应）→ 再按打开恢复」及「主应用下发 set 关闭」；`BrowserPanel.test.tsx` 25 pass 无回归。
 - 影响范围：`preview-inspect.js`、`BrowserPanel.tsx`。注：需重新打包/更新 kernel 后本地预览生效。
 
-## 2026-08-24 — v0.2.21 发版（kernel 二进制动态更新 + 内核版本独立管控 0.1.0 关于页显示 + 预览锁定 + Pi 依赖升级）
+## 2026-08-24 — v0.2.21 发版（kernel 二进制动态更新 + 内核版本独立管控 0.1.1 关于页显示 + 预览锁定 + Pi 依赖升级）
 
 - 版本：0.2.20 → 0.2.21。
-- 主要内容：kernel 二进制动态更新（发布端 publish-kernel.ts 打包内核包+清单+上传、客户端 kernel-updater.cjs 拉清单/下载/校验/覆盖/回滚、runtime-deps 按 build 号判依赖重装并跳过动态更新 kernel、main.cjs 启动接入 syncKernel，失败降级不阻断）；设置「关于」新增「内核版本」并引入内核独立版本管控（packages/kernel/package.json version = 0.1.0，与 app 版本解耦）；抽取共用 s3-upload.cjs；编译内核嵌入 preview-inspect.js（修复打包版本地 html 预览丢失元素选择/高亮）；依赖升级（pi-mcp-adapter 2.17→2.27 移除 MCP OAuth、@napi-rs/keyring、pi-web-access；打包/安装版本单一来源化）。
+- 主要内容：kernel 二进制动态更新（发布端 publish-kernel.ts 打包内核包+清单+上传、客户端 kernel-updater.cjs 拉清单/下载/校验/覆盖/回滚、runtime-deps 按 build 号判依赖重装并跳过动态更新 kernel、main.cjs 启动接入 syncKernel，失败降级不阻断）；设置「关于」新增「内核版本」并引入内核独立版本管控（packages/kernel/package.json version = 0.1.1，与 app 版本解耦）；抽取共用 s3-upload.cjs；编译内核嵌入 preview-inspect.js（修复打包版本地 html 预览丢失元素选择/高亮）；依赖升级（pi-mcp-adapter 2.17→2.27 移除 MCP OAuth、@napi-rs/keyring、pi-web-access；打包/安装版本单一来源化）。
 - 验证：bun run test 全量回归；pack:mac + pack:win（wapi-sign + CSC_IDENTITY_AUTO_DISCOVERY=false 免弹签名）；publish-oss.ts 推送 R2；git tag v0.2.21 + push Gitee；Gitee Release。
 
 ## 2026-08-24 — feat(preview): 预览元素选中支持点击锁定高亮 + 锁图标 + 明确解除
@@ -55,7 +62,7 @@
 ## 2026-08-24 — feat(kernel/version): 内核版本引入独立管控源（packages/kernel/package.json version）并在关于页显示
 
 - 背景：内核（WaPiKernel，bun --compile 单二进制）此前没有独立版本号（kernel package.json version 为占位 0.0.0；`WaPiKernel --version` 输出的是内嵌 bun 版本而非内核版本；`.kernel-version` 只是动态更新的 build 号）。关于页「内核版本」先前读 `.kernel-version`（未动态更新时为 null）导致新装显示 "—"。
-- 管控：`packages/kernel/package.json` 的 `version` 从 `0.0.0` 改为 `0.1.0`（独立于 app 版本的内核版本线），作为内核版本的**唯一管控源**，与产品版本解耦。
+- 管控：`packages/kernel/package.json` 的 `version` 从 `0.0.0` 改为 `0.1.1`（独立于 app 版本的内核版本线），作为内核版本的**唯一管控源**，与产品版本解耦。
 - 分发：`buildSidecar` 的 `buildRuntimeManifest()` 把 `version` 写进 `resources/kernel/package.json`（打包随包分发；动态更新打包的 kernel zip 同含此字段，runtime 的 package.json 随之反映新内核版本）。
 - 展示：`main.cjs` 的 `getKernelVersion` 改为读 `runtime` / `seed` 目录下 `package.json` 的 `version`（runtime 优先，fallback seed），经 `updater:get-info` → 前端 `AboutSection` 显示「内核版本」。
 - 影响范围：`packages/kernel/package.json`、`packages/desktop/scripts/build-kernel-sidecar.ts`、`packages/desktop/src/main.cjs`；验证：build-kernel-sidecar.test.ts 1 pass（buildRuntimeManifest 含 version）、updater.test.ts 15 pass、desktop 相关 typecheck；前端 AboutSection 显示。
