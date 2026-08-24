@@ -1,3 +1,10 @@
+## 2026-08-24 — feat(desktop/启动): runtime-deps.cjs 适配动态 kernel（syncSeed 跳过动态更新 + 依赖重装按 kernel build 号判定）
+
+- `syncSeed(seedDir, runtimeDir, log, opts)` 扩展：runtimeDir 已有 `.kernel-version`（kernel 被动态更新过）时**不再用 seed 覆盖 KERNEL_BIN**（保留动态更新后的新二进制）；无 `.kernel-version` 则照常用 seed 覆盖（首次/兼容旧行为，行为不变）。`package.json`/`bun.lock` 仍随 seed 照常同步。`opts.kernelBuild` 可预先传入，否则读 `.kernel-version` 得到（import 复用 kernel-updater 的 `readLocalBuild`，避免重复读文件）。
+- `ensureRuntimeDeps` 判定改按 kernel build 号：`buildToUse = kernelBuild || version`（kernelBuild 优先，未传入时从 `.kernel-version` 读到，读不到用 app version 兜底），`nmExists && markerVer === buildToUse` 才跳过 install，`.installed-version` 写入 `buildToUse`。package.json 随动态 kernel 变化时会以 build 号变化触发依赖重装（正是 kernel 动态更新的依赖侧）。
+- 未实现「app 升级用 seed 兜底覆盖 kernel」细分场景（控制者裁定：动态 build 恒 ≥ seed build，实际几乎不发生，保持在简单分支）。
+- 影响范围：`packages/desktop/src/util/runtime-deps.cjs`、`packages/desktop/tests/runtime-deps.test.ts`；测试：runtime-deps 5 pass（新增 2 例：syncSeed 不覆盖动态 kernel / ensureRuntimeDeps 按 build 号跳过 install），kernel-updater 14 pass 无回归；typecheck 干净。
+
 ## 2026-08-24 — feat(desktop/启动): kernel 二进制动态更新客户端同步器 kernel-updater.cjs（拉清单/下载/校验/覆盖/回滚）
 
 - 新增 `packages/desktop/src/util/kernel-updater.cjs`：启动时同步 runtime 目录的 kernel 二进制动态更新。纯函数接口 `readLocalBuild`（读 `.kernel-version`）/`fetchManifest`（拉 `kernel-latest.json`）/`needsUpdate`（build 比较，首次或异地视为需更新）/`verifySha256`（文件 hash 比对清单）/`extractZip`（unzip/tar 解压）/`applyKernelUpdate`（备份三件套→解压覆盖→写版本标记，失败拷回备份）/`syncKernel`（主入口，可注入 fetch/logger/onStatus）。依赖注入便于单测，未注入时回退全局 fetch。
