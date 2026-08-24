@@ -6,9 +6,7 @@
  * selector 段规则与 kernel preview-locate.ts 严格一致：
  *   有 id → tag#id；否则 tag:nth-of-type(n)；根 <html> → 裸 tag。
  */
-(function () {
-	"use strict";
-
+(() => {
 	function buildSelector(el) {
 		var segs = [];
 		var cur = el;
@@ -138,7 +136,7 @@
 
 		document.addEventListener(
 			"mousemove",
-			function (e) {
+			(e) => {
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
 				if (!t.tagName) return;
@@ -171,20 +169,20 @@
 		// 点击锁定 / 再点解除（capture：先于页面自身逻辑；浮窗内的点击交由按钮 handler 处理）
 		document.addEventListener(
 			"click",
-			function (e) {
+			(e) => {
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
-				if (!pinned) {
+				if (pinned) {
+					// 锁定中再点一次：解除锁定；点到的元素成为 hover 目标
+					pinned = false;
+					if (t.tagName) current = t;
+					render();
+					e.preventDefault();
+				} else {
 					// 首次点击：锁定该元素（高亮固定 + 浮窗显示锁图标）
 					if (!t.tagName) return;
 					pinned = true;
 					current = t;
-					render();
-					e.preventDefault();
-				} else {
-					// 锁定中再点一次：解除锁定；点到的元素成为 hover 目标
-					pinned = false;
-					if (t.tagName) current = t;
 					render();
 					e.preventDefault();
 				}
@@ -202,7 +200,7 @@
 		btnParent.addEventListener("mousedown", onBtn);
 		btnSend.addEventListener("mousedown", onBtn);
 
-		btnParent.addEventListener("click", function (e) {
+		btnParent.addEventListener("click", (e) => {
 			onBtn(e);
 			if (current && current.parentElement && current.parentElement.tagName) {
 				current = current.parentElement;
@@ -212,7 +210,7 @@
 				render();
 			}
 		});
-		btnSend.addEventListener("click", function (e) {
+		btnSend.addEventListener("click", (e) => {
 			onBtn(e);
 			if (!current) return;
 			window.parent.postMessage(
@@ -228,7 +226,7 @@
 			pinned = false;
 			render();
 		});
-		btnLock.addEventListener("click", function (e) {
+		btnLock.addEventListener("click", (e) => {
 			onBtn(e);
 			// 点锁图标：解除高亮锁定
 			pinned = false;

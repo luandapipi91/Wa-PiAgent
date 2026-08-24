@@ -347,7 +347,14 @@ const ICONS = {
 	// 预览元素附件（inspect 语义）：虚线方框 + 点击光标
 	element: (
 		<>
-			<rect x="3.5" y="3.5" width="13" height="13" rx="2" strokeDasharray="3 2.5" />
+			<rect
+				x="3.5"
+				y="3.5"
+				width="13"
+				height="13"
+				rx="2"
+				strokeDasharray="3 2.5"
+			/>
 			<path d="M13.5 13.5l7 2.8-2.9.9-.9 2.9-2.2-6.6z" {...F} />
 		</>
 	),
