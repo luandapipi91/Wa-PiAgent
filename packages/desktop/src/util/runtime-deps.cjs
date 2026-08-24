@@ -234,12 +234,15 @@ async function ensureRuntimeDeps({
 	const buildToUse = kernelBuild || version;
 	const marker = path.join(runtimeDir, ".installed-version");
 	const nmExists = await exists(path.join(runtimeDir, "node_modules"));
-	const markerVer = nmExists
-		? await fsp.readFile(marker, "utf8").catch(() => "")
-		: "";
 
 	// 始终同步 seed 文件（编译产物可能同版本号重新构建，内容已变）
 	await syncSeed(seedDir, runtimeDir, log, { kernelBuild });
+
+	// syncSeed 在动态 kernel + seed 包清单变化时可能删除 .installed-version（触发重装）。
+	// 必须在 syncSeed 之后读 markerVer：否则本会话仍用删除前的旧值判定，跳过真正需要的重装。
+	const markerVer = nmExists
+		? await fsp.readFile(marker, "utf8").catch(() => "")
+		: "";
 
 	if (nmExists && markerVer === buildToUse) {
 		log.info(`[deps] node_modules 已安装 v${buildToUse}，跳过 install`);
