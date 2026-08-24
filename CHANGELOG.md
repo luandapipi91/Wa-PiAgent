@@ -1,3 +1,10 @@
+## 2026-08-24 — fix(preview): 锁定元素后点击其他元素不再切换/解除高亮
+
+- 背景：元素锁定态下，点击非锁定元素会解除锁定并把高亮跳到新元素；用户期望高亮应一直锁在锁定元素上，只有「点锁定元素解锁/选择父级改锁定目标」两种途径改变。
+- 修复：`preview-inspect.js` click handler 的锁定分支改为——点击锁定元素（或其子元素）本身才解锁；点击任何其他元素保持锁定（return），不再跳到新元素。
+- 验证：浏览器实测「锁定 A → 点击/hover B → 高亮仍在 A、锁图标仍在 → 点击 A → 解锁」；`preview-inspect.test.ts` 6 pass。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`。
+
 ## 2026-08-24 — fix(preview): 关闭高亮选择后页面滚动/缩放不会再让高亮复活
 
 - 背景：关闭高亮选择（Ctrl/⌘ 切换 disabled）后，点击页面元素引起滚动/布局变化时，`scroll`/`resize` 直接触发 `render`，而 `render` 未检查 disabled → `current` 仍在 → 高亮重新出现。

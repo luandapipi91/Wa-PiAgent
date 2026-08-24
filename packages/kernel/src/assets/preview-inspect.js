@@ -225,9 +225,9 @@
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
 				if (pinned) {
-					// 锁定中再点一次：解除锁定；点到的元素成为 hover 目标
+					// 锁定中：点锁定元素（或其子元素）本身才解锁；点任何其他元素保持锁定
+					if (t !== current && !current.contains(t)) return;
 					pinned = false;
-					if (t.tagName) current = t;
 					render();
 					e.preventDefault();
 				} else {
