@@ -43,6 +43,14 @@ test("needsUpdate: build 不同(新版) → true", () => {
 test("needsUpdate: 远端 build 低于本地(降级) → false（不降级覆盖）", () => {
 	expect(needsUpdate("20260823-1", { build: "20260822-1" })).toBe(false);
 });
+// seq 未零填充跨个位/十位时，字符串字典序会失准（"20260823-9" > "20260823-10"），
+// 这里验证按日期+seq 数值比较，避免降级/升级漏判。
+test("needsUpdate: 同日跨个位升级（-9 → -10）→ true", () => {
+	expect(needsUpdate("20260823-9", { build: "20260823-10" })).toBe(true);
+});
+test("needsUpdate: 同日跨个位降级（-10 → -9）→ false（降级防护）", () => {
+	expect(needsUpdate("20260823-10", { build: "20260823-9" })).toBe(false);
+});
 test("needsUpdate: manifest 无 build → false（不更新）", () => {
 	expect(needsUpdate("20260823-1", {})).toBe(false);
 	expect(needsUpdate(null, null)).toBe(false);
