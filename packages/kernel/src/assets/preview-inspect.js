@@ -104,6 +104,17 @@
 		document.documentElement.appendChild(hl);
 		document.documentElement.appendChild(bar);
 
+		// 高亮选择框下方提示：说明可关闭高亮选择功能（跟随浮窗显示）；按键按平台：mac 用 ⌘、Windows 用 Ctrl
+		var tip = document.createElement("div");
+		var isMac = /Mac|iPhone|iPad/.test(navigator.userAgent || "");
+		tip.textContent = (isMac ? "⌘" : "Ctrl") + " 关闭高亮选择功能";
+		tip.style.cssText =
+			"position:absolute;z-index:2147483647;display:none;" +
+			"background:rgba(30,41,59,.9);color:rgba(255,255,255,.75);" +
+			"font:11px/1.5 sans-serif;padding:2px 6px;border-radius:4px;" +
+			"pointer-events:none;white-space:nowrap;";
+		document.documentElement.appendChild(tip);
+
 		var current = null;
 		// 选择父级后的锁定：鼠标在锁定元素内部移动（含其子元素）不切换选中，移出才解锁。
 		// 否则选完父级后随便动一下鼠标，hover 又把选中抢回子元素。
@@ -111,11 +122,39 @@
 		// 点击锁定（pinned）：点击元素后高亮固定在该元素、不再跟鼠标走，浮窗显示锁图标。
 		// 解除：再次点击当前元素 / 点锁图标 / 点「发送到聊天」。
 		var pinned = false;
+		// Ctrl/Cmd 关闭/打开高亮选择功能（开关），状态经主应用持久化（本地预览 iframe 为
+		// 不透明源、无法自用 localStorage，故由主应用存取并在 iframe 加载时下发）。
+		var disabled = false;
+		function applyInspectState() {
+			if (disabled) {
+				hl.style.display = "none";
+				bar.style.display = "none";
+				tip.style.display = "none";
+			} else if (current) {
+				render();
+			}
+		}
+		function setDisabled(v) {
+			disabled = v;
+			applyInspectState();
+			try {
+				window.parent.postMessage(
+					{ type: "hiagent:inspect:changed", enabled: !v },
+					"*",
+				);
+			} catch (e) {
+				/* 忽略 */
+			}
+		}
+		function toggleInspect() {
+			setDisabled(!disabled);
+		}
 
 		function render() {
 			if (!current || !current.getBoundingClientRect) {
 				hl.style.display = "none";
 				bar.style.display = "none";
+				tip.style.display = "none";
 				return;
 			}
 			var r = current.getBoundingClientRect();
@@ -129,6 +168,10 @@
 			bar.style.display = "flex";
 			bar.style.left = x + "px";
 			bar.style.top = Math.max(0, y - 28) + "px";
+			// 提示小字：显示在浮窗下方
+			tip.style.display = "flex";
+			tip.style.left = x + "px";
+			tip.style.top = Math.max(0, y - 28) + 26 + "px";
 			label.textContent = displayLabel(current);
 			// 锁图标：锁定态显示，否则隐藏
 			btnLock.style.display = pinned ? "inline-block" : "none";
@@ -137,6 +180,7 @@
 		document.addEventListener(
 			"mousemove",
 			(e) => {
+				if (disabled) return;
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
 				if (!t.tagName) return;
@@ -170,6 +214,7 @@
 		document.addEventListener(
 			"click",
 			(e) => {
+				if (disabled) return;
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
 				if (pinned) {
@@ -191,6 +236,29 @@
 		);
 		window.addEventListener("scroll", render, true);
 		window.addEventListener("resize", render);
+
+		// Ctrl / Cmd 关闭或打开高亮选择功能（按键即切换开关）
+		document.addEventListener(
+			"keydown",
+			(e) => {
+				if (e.key === "Control" || e.key === "Meta") toggleInspect();
+			},
+			true,
+		);
+		// 主应用下发持久化的开关状态
+		window.addEventListener("message", (e) => {
+			if (e.source !== window.parent) return;
+			var d = e.data;
+			if (!d || d.type !== "hiagent:inspect:set") return;
+			disabled = !d.enabled;
+			applyInspectState();
+		});
+		// 主动查询父：读取当前持久化的开关状态（关闭则本次预览直接禁用）
+		try {
+			window.parent.postMessage({ type: "hiagent:inspect:query" }, "*");
+		} catch (e) {
+			/* 忽略 */
+		}
 
 		function onBtn(e) {
 			e.preventDefault();

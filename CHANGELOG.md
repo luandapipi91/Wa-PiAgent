@@ -1,3 +1,12 @@
+## 2026-08-24 — feat(preview): 预览高亮选择支持 Ctrl/Cmd 开关 + 平台按键提示 + 状态本地保存
+
+- 背景：高亮选择（hover 高亮/元素锁定）默认一直开启、无关闭入口；希望按 Ctrl/Cmd 关闭，且关闭后本地记住（下次预览仍关闭）、再按才打开。
+- 方案：`preview-inspect.js` 把「关闭高亮选择」改为开关：按 Ctrl（Windows）/⌘（mac）切换开启/关闭；关闭态隐藏高亮/浮窗/提示且不再响应 hover/click；浮窗下方新增一行小字提示当前平台按键（mac 显示 ⌘、Windows 显示 Ctrl）。
+- 持久化：本地预览 iframe 为不透明源（sandbox 无 allow-same-origin）无法自用 localStorage，故开关状态由主应用 `BrowserPanel` 持久化（key `hiagent.preview.inspect`），经 postMessage 双向同步：iframe 加载时 query 查询、切换时 changed 上报、主应用收到 query 回 set 下发。
+- 实现位置：`packages/kernel/src/assets/preview-inspect.js`、`packages/frontend/src/components/BrowserPanel.tsx`。
+- 验证：`preview-inspect.test.ts` 6 pass + `preview-inspect.integration.test.ts` 11 pass；浏览器实测「hover 高亮+平台提示 → Ctrl 关闭（不响应）→ 再按打开恢复」及「主应用下发 set 关闭」；`BrowserPanel.test.tsx` 25 pass 无回归。
+- 影响范围：`preview-inspect.js`、`BrowserPanel.tsx`。注：需重新打包/更新 kernel 后本地预览生效。
+
 ## 2026-08-24 — v0.2.21 发版（kernel 二进制动态更新 + 内核版本独立管控 0.1 关于页显示 + 预览锁定 + Pi 依赖升级）
 
 - 版本：0.2.20 → 0.2.21。
