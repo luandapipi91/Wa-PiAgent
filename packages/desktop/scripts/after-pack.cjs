@@ -35,6 +35,15 @@ function signMacArtifact(appOutDir, packager) {
 exports.default = async (context) => {
 	const { appOutDir, packager, electronPlatformName } = context;
 	if (electronPlatformName === "darwin") {
+		// WA_PI_SKIP_MAC_SIGN=1：跳过 macOS 签名——测试/本地打包用，避免 codesign 访问
+		// 钥匙串自签名证书私钥时弹出钥匙串密码授权框（阻塞/用户不知密码）。
+		// 正式发版不设此变量，即照常用 mac-sign.cjs 的自签名（或正式身份）签名。
+		if (process.env.WA_PI_SKIP_MAC_SIGN === "1") {
+			console.log(
+				"[afterPack] ⏭️ WA_PI_SKIP_MAC_SIGN=1，跳过 macOS 签名（测试包；屏幕录制等 TCC 权限需在系统设置手动授权）",
+			);
+			return;
+		}
 		signMacArtifact(appOutDir, packager);
 	}
 };
