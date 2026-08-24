@@ -19,6 +19,7 @@ beforeEach(() => {
 		floatRect: { x: 100, y: 60, w: 720, h: 480 },
 		minimized: false,
 		bubblePos: { x: 500, y: 400 },
+		bySession: {},
 	});
 });
 
@@ -111,3 +112,58 @@ test("setBubblePos clamp 在视口内并持久化", () => {
 	expect(saved.y).toBe(p.y);
 });
 
+test("activateSession 记录当前会话预览、恢复目标会话预览", () => {
+	useBrowserStore.getState().openBrowser("/a/index.html", "A");
+	expect(useBrowserStore.getState().sessionId).toBe("A");
+	expect(useBrowserStore.getState().open).toBe(true);
+
+	// 切到从未打开预览的 B：A 被记住，B 显示空预览
+	useBrowserStore.getState().activateSession("B");
+	expect(useBrowserStore.getState().sessionId).toBe("B");
+	expect(useBrowserStore.getState().open).toBe(false);
+	expect(useBrowserStore.getState().path).toBeNull();
+
+	// B 打开自己的预览
+	useBrowserStore.getState().openBrowser("/b/index.html", "B");
+	expect(useBrowserStore.getState().path).toBe("/b/index.html");
+
+	// 切回 A：B 被记住，A 的预览恢复
+	useBrowserStore.getState().activateSession("A");
+	expect(useBrowserStore.getState().sessionId).toBe("A");
+	expect(useBrowserStore.getState().open).toBe(true);
+	expect(useBrowserStore.getState().path).toBe("/a/index.html");
+
+	// 再切回 B：A 被记住，B 的预览恢复
+	useBrowserStore.getState().activateSession("B");
+	expect(useBrowserStore.getState().sessionId).toBe("B");
+	expect(useBrowserStore.getState().open).toBe(true);
+	expect(useBrowserStore.getState().path).toBe("/b/index.html");
+});
+
+test("closeBrowser 清空当前会话预览记忆", () => {
+	useBrowserStore.getState().openBrowser("/a/index.html", "A");
+	useBrowserStore.getState().closeBrowser();
+	// 切走再切回 A，预览应保持关闭
+	useBrowserStore.getState().activateSession("B");
+	useBrowserStore.getState().activateSession("A");
+	expect(useBrowserStore.getState().open).toBe(false);
+	expect(useBrowserStore.getState().path).toBeNull();
+});
+
+test("setPath / setMinimized 同步到当前会话记忆", () => {
+	useBrowserStore.getState().openBrowser("/a/index.html", "A");
+	useBrowserStore.getState().setPath("/a/v2.html");
+	useBrowserStore.getState().setMinimized(true);
+	useBrowserStore.getState().activateSession("B");
+	useBrowserStore.getState().activateSession("A");
+	expect(useBrowserStore.getState().path).toBe("/a/v2.html");
+	expect(useBrowserStore.getState().minimized).toBe(true);
+});
+
+test("切到从未见过的会话默认空预览", () => {
+	useBrowserStore.getState().openBrowser("/a/index.html", "A");
+	useBrowserStore.getState().activateSession("Z");
+	expect(useBrowserStore.getState().open).toBe(false);
+	expect(useBrowserStore.getState().path).toBeNull();
+	expect(useBrowserStore.getState().minimized).toBe(false);
+});

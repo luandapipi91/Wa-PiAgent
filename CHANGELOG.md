@@ -1,3 +1,12 @@
+## 2026-08-24 — feat(frontend): 浏览器预览按会话独立记忆，切换会话不再重置预览
+
+- 背景：之前点击侧栏切换会话时，`App.tsx` 的 `onSelectSession` 会无条件调用 `useBrowserStore.getState().closeBrowser()`，把全局预览 store 的 `open/path/sessionId` 全部清空，导致「切换会话后浏览器预览窗口重置」。
+- 方案：把预览状态从「单一全局」改为「按会话各自记住一份」。浏览器 store 新增 `bySession: Record<sessionId, SessionPreview>`（含 open/path/minimized）与 `activateSession(sessionId)`；切换会话时 `activateSession` 先记录当前会话预览、再恢复目标会话预览。`openBrowser/closeBrowser/setPath/setMinimized` 同步写入当前会话记忆；外部 URL 导航只写 current 不写 store.path，故 path 不变时不会覆盖外部视图。
+- 语义：预览上的「代码查看/分享」按钮跟随当前选中会话（`sessionId` 始终等于当前激活会话）；切到从未打开过预览的会话默认显示空窗口；关闭某会话预览会清空该会话记忆。
+- 组件：`BrowserPanel` 增加 `useEffect`，在 `store.path` 变化（会话切换恢复）时同步内部 `current/input`，否则面板挂载期间不随 path 变化而更新、会显示旧内容。同一 effect 顺带修复了「预览已打开时双击其它 html 文件不切换」——此前 `current/input` 从不跟 `store.path` 同步，双击后地址栏与 iframe 仍停留旧文件。
+- 验证：`store/browser.test.ts` 新增 activateSession 保存/恢复、closeBrowser 清空记忆、setPath/setMinimized 同步记忆、切到无预览会话默认空 4 例；`BrowserPanel.test.tsx` 新增「store.path 变化时同步渲染内容」「预览已打开再双击其他 html 切换」「空预览双击 html 切换」「外部 URL 显示中双击本地 html 切换」等用例；相关 44 个测试全绿。全量 frontend 套件失败数（~889）与基线一致，属并行/环境 flaky（ExplorerPanel 单独跑通过），与本次改动无关。
+- 影响范围：`packages/frontend/src/App.tsx`、`packages/frontend/src/store/browser.ts`、`packages/frontend/src/components/BrowserPanel.tsx`、`packages/frontend/src/store/browser.test.ts`、`packages/frontend/src/components/BrowserPanel.test.tsx`。
+
 ## 2026-08-24 — fix(kernel/compile): 编译内核未嵌入 preview-inspect.js，打包版本地 html 预览丢失元素选择/高亮
 
 - 背景：本地 html 预览的元素悬停高亮与「发送到聊天」依赖 kernel 注入的 `/preview-inspect.js`。该脚本由 `ws-server.ts` 的 `/preview-inspect.js` 路由经 `Bun.file(new URL("./assets/preview-inspect.js", import.meta.url))` 读取，但 `compile-binary.ts` 的 `--asset` 嵌入清单（原 `BRIDGE_ASSET_FILES`）只含 bridge 扩展三文件，**没有 preview-inspect.js**。
