@@ -699,10 +699,12 @@ app.whenReady().then(async () => {
 		try {
 			const { syncKernel } = require("./util/kernel-updater.cjs");
 			setProgress(12, "正在检查内核更新…");
+			// WA_PI_KERNEL_FEED_URL 仅供 E2E/测试指向本地 mock，生产默认走 OSS 公开读（kernel-latest.json）
 			const kRes = await syncKernel({
 				seedDir,
 				runtimeDir,
 				kernelExe,
+				feedUrl: process.env.WA_PI_KERNEL_FEED_URL || undefined,
 				version: app.getVersion(),
 				log,
 				onStatus: (t) => setProgress(12, t),
