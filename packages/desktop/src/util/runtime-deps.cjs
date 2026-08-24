@@ -56,23 +56,14 @@ async function syncSeed(seedDir, runtimeDir, log, opts = {}) {
 	if (kernelBuild == null) kernelBuild = await readLocalBuild(runtimeDir);
 	const isDynamicKernel = kernelBuild != null;
 	for (const f of SEED_FILES) {
+		// 动态 kernel（runtimeDir 有 .kernel-version）：runtime 的 kernel 二进制 + package.json + bun.lock
+		// 已是 kernel 动态更新后的最新版本（zip 内自带新依赖清单），不得用 seed 覆盖——seed 是 app 打包时
+		// 捆绑的旧内核版本（如 0.1），覆盖会把 runtime 回退成旧清单、关于页内核版本显示旧值。
+		// 依赖是否重装交由 ensureRuntimeDeps 按 build 号判定，不在此覆盖。
+		if (isDynamicKernel) continue;
 		const src = path.join(seedDir, f);
 		if (!(await exists(src))) continue;
-		// 动态 kernel 已有新二进制，不回退覆盖（保留动态更新结果）
-		if (isDynamicKernel && f === KERNEL_BIN) continue;
-		const dst = path.join(runtimeDir, f);
-		// 动态 kernel 下，seed 的 package.json 与 runtime 现有内容不同 → 删 .installed-version
-		// （触发 ensureRuntimeDeps 重装判定），避免依赖清单与已装产物不一致；相同则不删（避免无谓重装）。
-		if (isDynamicKernel && f === "package.json") {
-			const seedPkg = await fsp.readFile(src, "utf8");
-			const curPkg = await fsp.readFile(dst, "utf8").catch(() => null);
-			if (curPkg !== null && seedPkg !== curPkg) {
-				await fsp
-					.rm(path.join(runtimeDir, ".installed-version"), { force: true })
-					.catch(() => {});
-			}
-		}
-		await fsp.copyFile(src, dst);
+		await fsp.copyFile(src, path.join(runtimeDir, f));
 	}
 	for (const f of LEGACY_FILES) {
 		await fsp
