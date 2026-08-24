@@ -132,3 +132,53 @@ test("syncSeed: 清理 kernel.js 时代遗留文件（老用户 runtime 目录�
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("syncSeed: 动态 kernel 下 seed package.json 与 runtime 不同 → 删 .installed-version（触发依赖重装）", async () => {
+  const { base, seedDir, runtimeDir } = await makeTempDirs();
+  try {
+    const seedPkg = JSON.stringify({ deps: { a: "1" } });
+    await writeFile(join(seedDir, KERNEL_BIN), "binary");
+    await writeFile(join(seedDir, "package.json"), seedPkg);
+    await writeFile(join(seedDir, "bun.lock"), "{}");
+    // runtime 已有动态更新的 kernel + 标记 + 旧清单（与 seed 不同）
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(join(runtimeDir, KERNEL_BIN), "runtime-new");
+    await writeFile(join(runtimeDir, ".kernel-version"), "20260823-1");
+    await writeFile(join(runtimeDir, "package.json"), JSON.stringify({ deps: { a: "2" } }));
+    await writeFile(join(runtimeDir, ".installed-version"), "20260823-1");
+
+    await syncSeed(seedDir, runtimeDir, noopLog);
+
+    // package.json 已被 seed 覆盖
+    expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(seedPkg);
+    // 内容变化 → 删除标记以触发 ensureRuntimeDeps 重装判定
+    expect(
+      await readFile(join(runtimeDir, ".installed-version"), "utf8").catch(() => null),
+    ).toBe(null);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("syncSeed: 动态 kernel 下 seed package.json 与 runtime 相同 → 不删 .installed-version（避免无谓重装）", async () => {
+  const { base, seedDir, runtimeDir } = await makeTempDirs();
+  try {
+    const pkg = JSON.stringify({ deps: { a: "1" } });
+    await writeFile(join(seedDir, KERNEL_BIN), "binary");
+    await writeFile(join(seedDir, "package.json"), pkg);
+    await writeFile(join(seedDir, "bun.lock"), "{}");
+    // runtime 已有动态更新的 kernel + 标记 + 与 seed 相同的清单
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(join(runtimeDir, KERNEL_BIN), "runtime-new");
+    await writeFile(join(runtimeDir, ".kernel-version"), "20260823-1");
+    await writeFile(join(runtimeDir, "package.json"), pkg);
+    await writeFile(join(runtimeDir, ".installed-version"), "20260823-1");
+
+    await syncSeed(seedDir, runtimeDir, noopLog);
+
+    // 内容相同 → 保留标记，不触发重装
+    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe("20260823-1");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

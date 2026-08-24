@@ -60,7 +60,19 @@ async function syncSeed(seedDir, runtimeDir, log, opts = {}) {
 		if (!(await exists(src))) continue;
 		// 动态 kernel 已有新二进制，不回退覆盖（保留动态更新结果）
 		if (isDynamicKernel && f === KERNEL_BIN) continue;
-		await fsp.copyFile(src, path.join(runtimeDir, f));
+		const dst = path.join(runtimeDir, f);
+		// 动态 kernel 下，seed 的 package.json 与 runtime 现有内容不同 → 删 .installed-version
+		// （触发 ensureRuntimeDeps 重装判定），避免依赖清单与已装产物不一致；相同则不删（避免无谓重装）。
+		if (isDynamicKernel && f === "package.json") {
+			const seedPkg = await fsp.readFile(src, "utf8");
+			const curPkg = await fsp.readFile(dst, "utf8").catch(() => null);
+			if (curPkg !== null && seedPkg !== curPkg) {
+				await fsp
+					.rm(path.join(runtimeDir, ".installed-version"), { force: true })
+					.catch(() => {});
+			}
+		}
+		await fsp.copyFile(src, dst);
 	}
 	for (const f of LEGACY_FILES) {
 		await fsp
