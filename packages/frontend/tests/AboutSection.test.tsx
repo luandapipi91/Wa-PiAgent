@@ -12,7 +12,7 @@ import { useUpdaterStore, initUpdater } from "../src/store/updater";
 function mockUpdaterApi() {
 	const listeners: Array<(p: Record<string, unknown>) => void> = [];
 	const api = {
-		getInfo: vi.fn(async () => ({ appVersion: "0.1.0", isDesktop: true })),
+		getInfo: vi.fn(async () => ({ appVersion: "0.1.0", isDesktop: true, kernelVersion: null })),
 		check: vi.fn(async () => ({ ok: true })),
 		download: vi.fn(async () => ({ ok: true })),
 		quitAndInstall: vi.fn(async () => ({ ok: true })),
