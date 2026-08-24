@@ -1,3 +1,9 @@
+## 2026-08-24 — feat(desktop/启动): main.cjs 启动流程接入 kernel 动态更新检查（失败降级）
+
+- 在 2c 依赖安装块**之前**新增 `if (app.isPackaged)` 块调用 `syncKernel`：拉取构建清单，发现新 build 则下载/校验/覆盖 WaPiKernel 并写入 `.kernel-version`，进度 UI 新增 `setProgress(12, "正在检查内核更新…")` 阶段。仅当 `kRes.status === "updated"` 时取 `kernelBuild = kRes.build`，否则为 `null`；整个调用包在 try/catch，失败（超时/清单不可用/下载失败）一律 `log.error` 并置 `kernelBuild = null`，**绝不阻断启动**。
+- `ensureRuntimeDeps({ ... })` 新增传入 `kernelBuild`（运行时-依赖侧判定依赖重装，复用 Task 4 的 build 号判定）。
+- 影响范围：`packages/desktop/src/main.cjs`；验证：`node --check` 语法通过、`bun run typecheck` 干净、runtime-deps 8 pass / kernel-sidecar 15 pass / kernel-updater 14 pass 全绿，无回归。
+
 ## 2026-08-24 — feat(desktop/启动): runtime-deps.cjs 适配动态 kernel（syncSeed 跳过动态更新 + 依赖重装按 kernel build 号判定）
 
 - `syncSeed(seedDir, runtimeDir, log, opts)` 扩展：runtimeDir 已有 `.kernel-version`（kernel 被动态更新过）时**不再用 seed 覆盖 KERNEL_BIN**（保留动态更新后的新二进制）；无 `.kernel-version` 则照常用 seed 覆盖（首次/兼容旧行为，行为不变）。`package.json`/`bun.lock` 仍随 seed 照常同步。`opts.kernelBuild` 可预先传入，否则读 `.kernel-version` 得到（import 复用 kernel-updater 的 `readLocalBuild`，避免重复读文件）。
