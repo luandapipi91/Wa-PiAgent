@@ -1,15 +1,14 @@
-import { createHash } from "node:crypto";
 import { readFileSync, statSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { zipSync, strToU8 } from "fflate";
 
-/** 排序后路径拼接 → sha256 hex 前 12 位（项目名后缀） */
+/** 排序后路径拼接 → Bun.hash 产物（12 位 hex，分享 id 格式合规） */
 export function hashPaths(paths: string[]): string {
   // 输入路径先统一分隔符（反斜杠 \ → 正斜杠 /）：Windows 上同一文件可经
-  // 正/反斜杠两种入口进入，不规范化会得到不同 hash → 被当作不同项目反复建站
+  // 正/反斜杠两种入口进入，不规范化会得到不同 id → 被当作不同分享反复建站
   const normalized = paths.map((p) => p.replace(/\\/g, "/"));
   const joined = [...normalized].sort().join("\n");
-  return createHash("sha256").update(joined).digest("hex").slice(0, 12);
+  return Bun.hash(joined).toString(16).padStart(12, "0").slice(0, 12);
 }
 
 export interface ZipEntry {
