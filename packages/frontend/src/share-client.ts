@@ -76,6 +76,15 @@ export async function shareUpload(
 	)) as ShareUploadResult;
 }
 
+/** 按一组文件路径查询历史分享名（未分享过返回 { name: null }）。 */
+export async function shareNameForPaths(
+	paths: string[],
+): Promise<{ name: string | null }> {
+	return (await transport.post("/api/share/name-for-paths", { paths })) as {
+		name: string | null;
+	};
+}
+
 /** 读取分享设置（是否已配置 token + 渠道）。token 不明文下发，只有 hasToken 布尔。 */
 export async function shareSettings(): Promise<ShareSettingsInfo> {
 	const res = (await transport.get("/api/settings/share")) as {
