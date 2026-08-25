@@ -17,8 +17,13 @@ import { join } from "node:path";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "echo-mcp-server.ts");
 
+// 关键：process.execPath 在打包环境（~/.pi/agent/bin/bun 是 shim → exec 到 WaPiKernel）
+// 指向编译产物 WaPiKernel。spawn 它跑 fixture 时必须带 BUN_BE_BUN=1，否则 WaPiKernel
+// 以内核模式启动（监听 WS 端口 → EADDRINUSE → stderr 输出 kernel 日志 → 非 JSON），
+// SDK StdioClientTransport 收不到 JSON-RPC 导致连接挂起。生产走 startKernel 的
+// ensureBunBeBunEnv() 已注入该 env；测试不经 startKernel，需显式配置（见 src/index.ts:92）。
 function stdioConfig(name = "echo"): McpServerConfig {
-  return { name, command: process.execPath, args: [FIXTURE] };
+  return { name, command: process.execPath, args: [FIXTURE], env: { BUN_BE_BUN: "1" } };
 }
 
 /** 读 HTTP 请求体并 JSON.parse */
