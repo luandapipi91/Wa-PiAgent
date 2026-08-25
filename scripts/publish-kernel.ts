@@ -135,9 +135,13 @@ async function main() {
 
 	const target = targetArg as "win" | "linux" | "darwin";
 	const platform = platformFor(target);
-	const fileName = `kernel-${build}.zip`;
+	// fileName 带 platform 后缀，避免 darwin/win 用同 build 号时在 R2 上互相覆盖
+	// （kernel-<build>-<platform>.zip）。
+	const fileName = `kernel-${build}-${platform}.zip`;
 	const sha256File = `${fileName}.sha256`;
-	const manifestFile = "kernel-latest.json";
+	// 清单按平台区分，多平台共存互不覆盖：kernel-latest-<platform>.json
+	// （旧版 kernel-latest.json 单清单仅向后兼容，不再新写入）。
+	const manifestFile = `kernel-latest-${platform}.json`;
 
 	// 1. 打 zip + 计算 sha256/size
 	const zipPath = buildZip(KERNEL_DIR, target, build);

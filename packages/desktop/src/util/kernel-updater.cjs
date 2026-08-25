@@ -15,7 +15,13 @@ const fsp = require("node:fs/promises");
 const { createHash } = require("node:crypto");
 const path = require("node:path");
 
-const DEFAULT_FEED = "https://oss.wapiagent.top/releases/kernel/kernel-latest.json";
+/** 默认内核更新清单 URL。清单按平台区分（多平台共存互不覆盖）：
+ *   kernel-latest-<platform>.json，platform 形如 darwin-x64 / win32-x64 / linux-x64。
+ *   旧版单清单（kernel-latest.json）仅保留向后兼容，不再新写入。 */
+function defaultFeedUrl() {
+	const platform = currentPlatform();
+	return `https://oss.wapiagent.top/releases/kernel/kernel-latest-${platform}.json`;
+}
 const KERNEL_BIN = process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
 
 // 更新涉及的文件：kernel 二进制 + 依赖清单（seed 三件套） + 版本标记
@@ -246,7 +252,7 @@ async function syncKernel({
 	// 未注入时用全局 fetch（Node 18+）。不写成默认参数，避免 TS 把 fetchImpl 推断成
 	// typeof fetch 而让测试桩函数报缺 preconnect 的类型告警；行为完全等价。
 	const doFetch = fetchImpl || globalThis.fetch;
-	const url = feedUrl || DEFAULT_FEED;
+	const url = feedUrl || defaultFeedUrl();
 	// M9：全新安装首次启动时 runtimeDir（WA_PI_DIR/runtime）可能尚未创建，先确保存在，
 	// 否则后续写 zip 会抛 ENOENT → 首次启动误判更新失败并跳过 kernel 同步。
 	await fsp.mkdir(runtimeDir, { recursive: true });
@@ -322,5 +328,5 @@ module.exports = {
 	isSafeZipEntry,
 	currentPlatform,
 	KERNEL_BIN,
-	DEFAULT_FEED,
+	defaultFeedUrl,
 };
