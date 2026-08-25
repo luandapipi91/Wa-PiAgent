@@ -239,10 +239,26 @@ export function createShareRoutes(
 							name: item.name,
 							files: entries.map((e) => e.name),
 						}),
-				expiresAt,
+							expiresAt,
 				projectName: SHARE_PROJECT_NAME,
 				channel,
 			});
+		}),
+	);
+
+	// 查询一组文件路径是否已有历史分享名（同一组文件路径判定：hashPaths 相同）。
+	// 用于前端再次分享同组文件时预填上次使用的分享名（前端可改）。
+	router.add(
+		"POST",
+		"/api/share/name-for-paths",
+		wrap(async (req) => {
+			const b = await readJsonBody(req);
+			const paths: string[] = b.paths ?? [];
+			if (paths.length === 0)
+				return Response.json({ error: "paths 为空" }, { status: 400 });
+			const id = hashPaths(paths);
+			const item = (await loadItems(workspaceDir)).find((i) => i.id === id);
+			return Response.json({ name: item?.name ?? null });
 		}),
 	);
 

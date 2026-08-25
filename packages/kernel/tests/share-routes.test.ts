@@ -577,3 +577,37 @@ test("upload 同名合并后再次单文件分享：URL 带当次文件名而非
     // 合并后文件数 = a.html + b.html
     expect(d2.filesCount).toBe(2);
 });
+
+test("name-for-paths：已分享组返回历史 name（同一组文件路径）", async () => {
+    mockEdgeOne();
+    const router = setup();
+    // 先分享一次（自定义名「别名A」）
+    const paths = [join(dir, "prod", "index.html")];
+    await post(router, "/api/share/upload", {
+        paths,
+        name: "别名A",
+    });
+    // 再查同组路径 → 命中返回「别名A」
+    const res = await post(router, "/api/share/name-for-paths", { paths });
+    expect(res!.status).toBe(200);
+    const body = await res!.json();
+    expect(body.name).toBe("别名A");
+});
+
+test("name-for-paths：未分享过的组返回 { name: null }", async () => {
+    mockEdgeOne();
+    const router = setup();
+    const res = await post(router, "/api/share/name-for-paths", {
+        paths: [join(dir, "prod", "never-shared.txt")],
+    });
+    expect(res!.status).toBe(200);
+    const body = await res!.json();
+    expect(body.name).toBeNull();
+});
+
+test("name-for-paths：paths 为空返回 400", async () => {
+    mockEdgeOne();
+    const router = setup();
+    const res = await post(router, "/api/share/name-for-paths", { paths: [] });
+    expect(res!.status).toBe(400);
+});
