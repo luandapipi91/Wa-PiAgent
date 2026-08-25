@@ -1,3 +1,37 @@
+## 2026-08-27 — feat(share): 再次分享同组文件时预填上一次分享名
+
+- 新增：分享文件弹窗打开时，若该组文件路径之前分享过，预填上一次使用的分享名称到输入框（用户仍可编辑后生成链接）。
+- 实现：kernel 新增 `POST /api/share/name-for-paths`，按 `hashPaths(paths)` 匹配 `item.id` 返回历史分享名；前端 `ShareResultModal` 挂载后调用，仅当用户未手动改过输入框时回填（`nameEditedRef` 防覆盖）。
+- 调整：`hashPaths` 改用 `Bun.hash` 生成分享 id（保留正/反斜杠归一化，输出 12 位 hex，分享 id 格式保持合规）。不做兼容性迁移。
+- 验证：TDD —— `share-pack.test.ts` 4 pass 0 fail（行为契约保持）；`share-routes.test.ts` 22 pass 0 fail（含 name-for-paths 命中/null/400 三例）；`ShareButton.test.tsx` 17 pass 0 fail（含回填/默认名/防覆盖三例）。
+- 影响范围：`packages/kernel/src/share/pack.ts`、`packages/kernel/src/routes/share.ts`、`packages/frontend/src/share-client.ts`、`packages/frontend/src/components/ui/ShareButton.tsx` 及相关测试。
+
+## 2026-08-25 — fix(kernel): 中止（停止）成功后广播 agent_end，修复前端停止后永远卡「思考中」
+
+- 背景：点击「停止」后 agent 实际已停下（`handle.busy=false`），但前端一直显示「思考中」。
+  根因：`AgentManager.abort()` 成功路径（abort RPC 正常返回）只更新内部 `handle.busy/thinkingSince`，
+  **不向前端广播任何退出思考态的事件**（`agent_end`/`agent_settled`）。前端 `statusBySession` 退不出
+  thinking 完全依赖 pi 侧是否广播 `agent_settled`，而 pi 的 `session.abort()` 在 agent 已 idle 时
+  `waitForIdle()` 立即返回，`_emitAgentSettled` 不触发、不广播 `agent_settled` → 前端永远卡住。
+  只有 5s 超时强杀路径才广播 `agent_end`，正常成功路径缺失。
+- 修复：`abort()` 成功路径补合成广播 `type:"agent_end"`（幂等，前端再次复位为 idle），与超时强杀路径并列，两条分支互斥不重复。
+- 验证：TDD —— 新增测试「abort 成功返回后广播 agent_end（前端退出思考态兜底）」，改动前失败（仅广播 queue_update），改动后通过；agent-manager 全量 113 pass 0 fail，ws-agent-prompt-echo 全绿；kernel 类型检查干净。
+- 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/agent-manager.test.ts`。
+
+## 2026-08-24 — feat(ui): 外观设置新增「回复过程默认折叠」开关（agent 回复中工具调用/思维链默认不展开）
+
+- 新增：系统设置→外观 增加 switch 开关「回复过程默认折叠」，开启后（默认开启）agent 回复过程中工具调用与思维链默认折叠（不自动展开），仍可手动点开查看；关闭后恢复旧行为（回复过程中默认展开）。
+- 实现：`store/ui-prefs.ts` 新增 `collapseProcessByDefault`（默认 true）+ `setCollapseProcessByDefault`，经 `useAutoCollapse` 的 `defaultCollapsed` 参数接入；覆盖 ThinkingCard / ToolCallCard / ToolGroupCard，**并同步接入 DelegateCard / FleetCard**（后两者原在 `hasProgress` 有实时进度时强制默认展开，会无视开关；现开关开启时即使有进度也默认折叠，用户仍可手动展开）。增加中英文文案。
+- 验证：TDD —— 新增 store / useAutoCollapse / AppearanceSection / 卡片行为（Thinking/ToolCall/Delegate/Fleet 开关开折叠、开关关展开）测试；受限并发全量 1894 pass 0 fail；typecheck 干净；浏览器实测开关切换与持久化生效。
+- 影响范围：`packages/frontend/src/store/ui-prefs.ts`、`packages/frontend/src/components/blocks/useAutoCollapse.ts`、`packages/frontend/src/components/blocks/ThinkingCard.tsx`、`packages/frontend/src/components/blocks/ToolCallCard.tsx`、`packages/frontend/src/components/blocks/DelegateCard.tsx`、`packages/frontend/src/components/blocks/FleetCard.tsx`、`packages/frontend/src/components/settings/AppearanceSection.tsx`、`packages/frontend/src/i18n/locales/zh.ts`、`packages/frontend/src/i18n/locales/en.ts` 及相关测试。
+
+## 2026-08-24 — fix(kernel): 上传附件发给 AI 的路径改为绝对路径（不再用项目相对路径）
+
+- 背景：上传附件存盘时本就用绝对路径（`.wa-pi/uploads` 是绝对路径下子目录），但发 prompt 前 `buildPromptContent()` 用 `path.relative(handle.cwd, a.path)` 把绝对路径改写成项目相对路径（`@.wa-pi/uploads/xxx`）。该相对引用依赖 AI（pi 进程）以 `handle.cwd` 为基准解析——一旦 AI 中途 cd、附件在项目外（`@../Desktop/xxx`）、跨盘符或解析基准不一致，AI 就找不到文件（用户反馈“AI 经常找不到位置”）。回归自 commit `e5c74cba`。
+- 修复：`buildPromptContent()` 去掉 `relative(cwd, a.path)` 改写，直接发**绝对路径** `@引用`（统一正斜杠），不再依赖 cwd 解析。同时移除 `node:path` 的 `relative` 导入。
+- 验证：更新 `agent-manager.test.ts` / `composer-attachments.test.ts` 中断言（从 basename 改为完整绝对路径引用），改动前 1 个失败（图片累计超限回退），修复后 123 pass 0 fail；kernel 类型检查干净。
+- 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/composer-attachments.test.ts`。
+
 ## 2026-08-24 — v0.2.22 补丁发版（关于页内核版本显示修复 + Windows bash 检测修复 + 内核独立发布）
 
 - 版本：0.2.21 → 0.2.22。
