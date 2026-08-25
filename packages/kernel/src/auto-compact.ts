@@ -1,16 +1,18 @@
 /**
- * 发送前自动压缩的预留 token 数。
- * 采用社区做法（Claude Code 固定 33K autocompact buffer，200K 窗口占 16.5%、1M 窗口占 3.3%），
- * 与 pi DEFAULT_COMPACTION_SETTINGS.reserveTokens（16384）同量级。
- * pi-ai 请求层已把 max_tokens clamp 到「窗口 − 当前占用 − 4096」，输出空间由 pi 保证，
- * 这里只需固定小预留做发送前提前量，不能按模型 maxTokens 上限预留（会把 1M 窗口提前到 61.6% 就压缩）。
+ * 发送前自动压缩的触发阈值：上下文使用率达到 85% 时先压缩再发送。
+ *
+ * 原实现固定 33000 预留（1M 窗口下 96.7% 才触发），对 pi 的「字符数/4」token 估算
+ * 明显偏低、以及模型目录 contextWindow 偏小的场景，直到真实窗口边缘才触发压缩，
+ * 而此刻 pi 请求层的 max_tokens 已被顶到模型上限，叠加真实 token 数后越过窗口溢出（400）。
+ * 改为按窗口百分比触发，让压缩更早介入，留出足够安全区。
  */
-export const AUTO_COMPACT_RESERVE_TOKENS = 33000;
+export const AUTO_COMPACT_USAGE_RATIO = 0.85;
 
-/** 发送前是否需要先压缩：当前占用 + 固定预留超过上下文窗口 */
+/** 发送前是否需要先压缩：当前占用超过窗口的一定比例时触发 */
 export function shouldCompactBeforeSend(
-	usedTokens: number,
-	contextWindow: number,
+ usedTokens: number,
+ contextWindow: number,
 ): boolean {
-	return usedTokens > contextWindow - AUTO_COMPACT_RESERVE_TOKENS;
+ if (contextWindow <= 0) return false;
+ return usedTokens > contextWindow * AUTO_COMPACT_USAGE_RATIO;
 }
