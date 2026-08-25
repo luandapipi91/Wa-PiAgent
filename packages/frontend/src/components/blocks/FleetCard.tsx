@@ -13,6 +13,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 import { createMarkdownComponents } from "./markdown-components";
 import { useSessionStore } from "../../store/session";
+import { useUiPrefsStore } from "../../store/ui-prefs";
 import { useLiveElapsed } from "./useLiveElapsed";
 import { StreamingOutput } from "./StreamingOutput";
 
@@ -77,10 +78,7 @@ function extractAgentReplies(
 	const out: Array<string | undefined> = new Array(agentNames.length);
 	let segIdx = 0;
 	for (let i = 0; i < agentNames.length; i++) {
-		while (
-			segIdx < segments.length &&
-			segments[segIdx].agent !== agentNames[i]
-		) {
+		while (segIdx < segments.length && segments[segIdx].agent !== agentNames[i]) {
 			segIdx++;
 		}
 		if (segIdx >= segments.length) return null;
@@ -202,10 +200,14 @@ export const FleetCard = memo(function FleetCard({
 	};
 	const tasks = args.tasks ?? [];
 	const { t } = useTranslation();
+	const collapseProcessByDefault = useUiPrefsStore(
+		(s) => s.collapseProcessByDefault,
+	);
 	const { open: autoOpen } = useAutoCollapse({
 		isStreaming,
 		isDone: !!result,
 		executingMode: true,
+		defaultCollapsed: collapseProcessByDefault,
 	});
 
 	// 子代理进度：fleet 直接消费整个内层 map（多个 agent 共享同一 toolCallId）
@@ -216,11 +218,20 @@ export const FleetCard = memo(function FleetCard({
 	// 卡片展开态：null = 用户未手动操作（hasProgress 时默认展开、否则跟随 autoCollapse）；
 	// 一旦用户点头部折叠/展开就固定，progress 事件陆续到达不重置（避免执行中卡片“自动重新打开”）。
 	const [cardOpen, setCardOpen] = useState<boolean | null>(null);
-	const open = cardOpen ?? (hasProgress ? true : autoOpen);
+	// 开启「回复过程默认折叠」后，即使有实时进度也默认折叠（用户可手动展开）；
+	// 关闭时保持原行为：有进度默认展开、否则跟随 autoCollapse。
+	const open =
+		cardOpen ??
+		(collapseProcessByDefault ? autoOpen : hasProgress ? true : autoOpen);
 	// 头部点击统一记录用户选择（不再区分有无 progress，折叠状态单一来源）。
 	// null 时基于当前显示的 open 取反：执行中默认展开→点击折叠；完成态默认折叠→点击展开。
 	const handleToggle = () =>
-		setCardOpen((v) => !(v ?? (hasProgress ? true : autoOpen)));
+		setCardOpen(
+			(v) =>
+				!(
+					v ?? (collapseProcessByDefault ? autoOpen : hasProgress ? true : autoOpen)
+				),
+		);
 
 	const failed = !!result?.isError;
 	const full =

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
@@ -9,7 +16,10 @@ import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
-import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
+import {
+  FakeSessionClient,
+  fakeClientFactory,
+} from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { WA_PI_DIR } from "@wa-pi/shared";
 
@@ -22,7 +32,11 @@ interface PromptCall {
   opts?: any;
 }
 
-async function waitFor(condition: () => boolean, timeout = 3000, interval = 50) {
+async function waitFor(
+  condition: () => boolean,
+  timeout = 3000,
+  interval = 50,
+) {
   const start = Date.now();
   while (!condition()) {
     if (Date.now() - start > timeout) {
@@ -63,7 +77,9 @@ class SseReader {
     return this.events.shift();
   }
 
-  cancel() { this.reader.cancel().catch(() => {}); }
+  cancel() {
+    this.reader.cancel().catch(() => {});
+  }
 }
 
 /**
@@ -74,7 +90,11 @@ async function withComposerServer<T>(
     base: string,
     getPromptCalls: () => PromptCall[],
     sse: SseReader,
-    ctx: { fakes: FakeSessionClient[]; projectStore: ProjectStore; configStore: ConfigStore },
+    ctx: {
+      fakes: FakeSessionClient[];
+      projectStore: ProjectStore;
+      configStore: ConfigStore;
+    },
   ) => Promise<T>,
 ): Promise<T> {
   const baseDir = makeTempDir("wa-pi-composer-");
@@ -116,32 +136,50 @@ async function withComposerServer<T>(
   const sse = new SseReader(sseRes.body.getReader());
 
   try {
-    return await fn(base, () => fakes.flatMap((f) => f.prompted.map((text) => ({ text }))), sse, {
-      fakes,
-      projectStore,
-      configStore,
-    });
+    return await fn(
+      base,
+      () => fakes.flatMap((f) => f.prompted.map((text) => ({ text }))),
+      sse,
+      {
+        fakes,
+        projectStore,
+        configStore,
+      },
+    );
   } finally {
     sse.cancel();
     await server.stop();
-    const sessionIds = [...(((agentManager as any).sessions?.keys?.() ?? []) as Iterable<string>)];
+    const sessionIds = [
+      ...(((agentManager as any).sessions?.keys?.() ?? []) as Iterable<string>),
+    ];
     await agentManager.disposeAll().catch(() => {});
     for (const id of sessionIds) {
-      try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${id}.md`), { force: true }); } catch {}
+      try {
+        rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${id}.md`), {
+          force: true,
+        });
+      } catch {
+        /* 临时系统提示词文件可能不存在，清理失败可忽略 */
+      }
     }
     rmSync(baseDir, { recursive: true, force: true });
   }
 }
 
 /** 创建项目并返回 projectId（从 SSE 读取 project:created） */
-async function createProject(base: string, sse: SseReader, cwd: string): Promise<string> {
+async function createProject(
+  base: string,
+  sse: SseReader,
+  cwd: string,
+): Promise<string> {
   await fetch(`${base}/api/projects`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "P", cwd }),
   });
   const ev = await sse.next();
-  if (ev.type !== "project:created") throw new Error(`期望 project:created，收到 ${ev.type}`);
+  if (ev.type !== "project:created")
+    throw new Error(`期望 project:created，收到 ${ev.type}`);
   return ev.project.id;
 }
 
@@ -162,7 +200,9 @@ describe("composer attachments integration", () => {
         expect(resp.type).toBe("fs:readFile");
         expect(resp.path).toBe(filePath);
         expect(resp.mimeType).toBe("text/plain");
-        expect(resp.content).toBe(Buffer.from("hello world").toString("base64"));
+        expect(resp.content).toBe(
+          Buffer.from("hello world").toString("base64"),
+        );
       });
     } finally {
       rmSync(fileDir, { recursive: true, force: true });
@@ -187,7 +227,9 @@ describe("composer attachments integration", () => {
         const resp = await res.json();
         // ~ 展开后应正确读取文件
         expect(resp.type).toBe("fs:readFile");
-        expect(resp.content).toBe(Buffer.from("tilde expanded").toString("base64"));
+        expect(resp.content).toBe(
+          Buffer.from("tilde expanded").toString("base64"),
+        );
       });
     } finally {
       rmSync(filePath, { force: true });
@@ -207,10 +249,13 @@ describe("composer attachments integration", () => {
         const content = Buffer.from("new content");
         const form = new FormData();
         form.append("file", new Blob([content]), "notes.txt");
-        const res = await fetch(`${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`, {
-          method: "POST",
-          body: form,
-        });
+        const res = await fetch(
+          `${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`,
+          {
+            method: "POST",
+            body: form,
+          },
+        );
         const resp = await res.json();
         expect(resp.path).toBe(join(uploadDir, "notes (1).txt"));
         expect(readFileSync(resp.path, "utf8")).toBe("new content");
@@ -229,12 +274,17 @@ describe("composer attachments integration", () => {
 
         const form = new FormData();
         form.append("file", new Blob([Buffer.from("x")]), "../escape.txt");
-        const res = await fetch(`${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`, {
-          method: "POST",
-          body: form,
-        });
+        const res = await fetch(
+          `${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`,
+          {
+            method: "POST",
+            body: form,
+          },
+        );
         const resp = await res.json();
-        expect(resp.path).toBe(join(fileDir, ".wa-pi", "uploads", "escape.txt"));
+        expect(resp.path).toBe(
+          join(fileDir, ".wa-pi", "uploads", "escape.txt"),
+        );
         expect(existsSync(resp.path)).toBe(true);
       });
     } finally {
@@ -251,10 +301,13 @@ describe("composer attachments integration", () => {
 
         const form = new FormData();
         form.append("file", new Blob([Buffer.from("x")]), "..");
-        const res = await fetch(`${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`, {
-          method: "POST",
-          body: form,
-        });
+        const res = await fetch(
+          `${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`,
+          {
+            method: "POST",
+            body: form,
+          },
+        );
         const resp = await res.json();
         expect(resp.path).toBe(join(fileDir, ".wa-pi", "uploads", "upload"));
         expect(existsSync(resp.path)).toBe(true);
@@ -274,10 +327,13 @@ describe("composer attachments integration", () => {
         const content = Buffer.from("uploaded content");
         const form = new FormData();
         form.append("file", new Blob([content]), "notes.txt");
-        const res = await fetch(`${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`, {
-          method: "POST",
-          body: form,
-        });
+        const res = await fetch(
+          `${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`,
+          {
+            method: "POST",
+            body: form,
+          },
+        );
         const resp = await res.json();
         expect(resp.type).toBe("fs:upload");
         expect(resp.error).toBeUndefined();
@@ -299,16 +355,21 @@ describe("composer attachments integration", () => {
       await withComposerServer(async (base, getPromptCalls, sse) => {
         const projectId = await createProject(base, sse, fileDir);
 
-        const promptP = fetch(`${base}/api/agents/${encodeURIComponent(projectId)}/s-file/prompt`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            agentName: "dev",
-            text: "分析这个文件",
-            model: "test-provider/test-model",
-            attachments: [{ kind: "file", name: "notes.txt", path: filePath, size: 0 }],
-          }),
-        });
+        const promptP = fetch(
+          `${base}/api/agents/${encodeURIComponent(projectId)}/s-file/prompt`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              agentName: "dev",
+              text: "分析这个文件",
+              model: "test-provider/test-model",
+              attachments: [
+                { kind: "file", name: "notes.txt", path: filePath, size: 0 },
+              ],
+            }),
+          },
+        );
         // session:created 走 SSE 广播，非 HTTP 响应体
         const sseEv = await sse.next();
         expect(sseEv.type).toBe("session:created");
@@ -320,7 +381,7 @@ describe("composer attachments integration", () => {
         expect(calls).toHaveLength(1);
         expect(calls[0].text).toContain("分析这个文件");
         expect(calls[0].text).toContain("Attachments:");
-        expect(calls[0].text).toContain("[@notes.txt]");
+        expect(calls[0].text).toContain(`[@${filePath}]`);
         expect(calls[0].text).not.toContain("这是附件内容");
       });
     } finally {
@@ -337,16 +398,21 @@ describe("composer attachments integration", () => {
       await withComposerServer(async (base, getPromptCalls, sse) => {
         const projectId = await createProject(base, sse, fileDir);
 
-        const promptP = fetch(`${base}/api/agents/${encodeURIComponent(projectId)}/s-img/prompt`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            agentName: "dev",
-            text: "看这张图",
-            model: "test-provider/test-model",
-            attachments: [{ kind: "image", name: "shot.png", path: imgPath, size: 0 }],
-          }),
-        });
+        const promptP = fetch(
+          `${base}/api/agents/${encodeURIComponent(projectId)}/s-img/prompt`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              agentName: "dev",
+              text: "看这张图",
+              model: "test-provider/test-model",
+              attachments: [
+                { kind: "image", name: "shot.png", path: imgPath, size: 0 },
+              ],
+            }),
+          },
+        );
         const sseEv = await sse.next();
         expect(sseEv.type).toBe("session:created");
         await promptP;
@@ -357,7 +423,7 @@ describe("composer attachments integration", () => {
         expect(calls).toHaveLength(1);
         expect(calls[0].text).toContain("看这张图");
         expect(calls[0].text).toContain("Attachments:");
-        expect(calls[0].text).toContain("[@shot.png]");
+        expect(calls[0].text).toContain(`[@${imgPath}]`);
         expect(calls[0].opts).toBeUndefined();
       });
     } finally {
@@ -385,7 +451,9 @@ describe("composer attachments integration", () => {
         expect(resp.error).toBeUndefined();
         expect(resp.path).toBe(sourceDir);
         expect(existsSync(resp.path)).toBe(true);
-        expect(readFileSync(join(resp.path, "data.txt"), "utf8")).toBe("folder content");
+        expect(readFileSync(join(resp.path, "data.txt"), "utf8")).toBe(
+          "folder content",
+        );
       });
     } finally {
       rmSync(fileDir, { recursive: true, force: true });
@@ -409,16 +477,19 @@ describe("composer attachments integration", () => {
         const copied = await copyRes.json();
         const folderPath = copied.path as string;
 
-        const promptP = fetch(`${base}/api/agents/${encodeURIComponent(projectId)}/s-folder/prompt`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            agentName: "dev",
-            text: "看这个项目文档",
-            model: "test-provider/test-model",
-            attachments: [{ kind: "folder", name: "docs", path: folderPath }],
-          }),
-        });
+        const promptP = fetch(
+          `${base}/api/agents/${encodeURIComponent(projectId)}/s-folder/prompt`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              agentName: "dev",
+              text: "看这个项目文档",
+              model: "test-provider/test-model",
+              attachments: [{ kind: "folder", name: "docs", path: folderPath }],
+            }),
+          },
+        );
         const sseEv = await sse.next();
         expect(sseEv.type).toBe("session:created");
         await promptP;
@@ -429,7 +500,7 @@ describe("composer attachments integration", () => {
         expect(calls).toHaveLength(1);
         expect(calls[0].text).toContain("看这个项目文档");
         expect(calls[0].text).toContain("Attachments:");
-        expect(calls[0].text).toContain("[@docs]");
+        expect(calls[0].text).toContain(`[@${folderPath}]`);
       });
     } finally {
       rmSync(fileDir, { recursive: true, force: true });
@@ -453,26 +524,33 @@ describe("composer attachments integration", () => {
         );
         expect(cmdRes.ok).toBe(true);
         let data = await ctx.projectStore.load();
-        expect(data.sessions.find((s) => s.id === sessionId)?.primaryAgent).toBe("dev");
+        expect(
+          data.sessions.find((s) => s.id === sessionId)?.primaryAgent,
+        ).toBe("dev");
         expect(ctx.fakes.length).toBe(1);
 
         // 2. 用户在 dropdown 切到 qa 后发送 → agent:prompt(sessionId, qa)
-        const promptRes = await fetch(`${base}/api/agents/${projectId}/${sessionId}/prompt`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            agentName: "qa",
-            text: "切到qa",
-            model: "test-provider/test-model",
-            thinking: "disabled",
-          }),
-        });
+        const promptRes = await fetch(
+          `${base}/api/agents/${projectId}/${sessionId}/prompt`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              agentName: "qa",
+              text: "切到qa",
+              model: "test-provider/test-model",
+              thinking: "disabled",
+            }),
+          },
+        );
         expect(promptRes.ok).toBe(true);
 
         // 3. 旧 dev 进程被拆除，qa 进程接管；会话记录 primaryAgent 同步为 qa
         await waitFor(() => ctx.fakes.length === 2);
         data = await ctx.projectStore.load();
-        expect(data.sessions.find((s) => s.id === sessionId)?.primaryAgent).toBe("qa");
+        expect(
+          data.sessions.find((s) => s.id === sessionId)?.primaryAgent,
+        ).toBe("qa");
       });
     } finally {
       rmSync(cwd, { recursive: true, force: true });

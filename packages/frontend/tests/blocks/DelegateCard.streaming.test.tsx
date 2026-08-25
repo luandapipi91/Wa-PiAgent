@@ -2,19 +2,28 @@ import { test, expect, beforeEach } from "bun:test";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import { DelegateCard } from "../../src/components/blocks/DelegateCard";
 import { useSessionStore } from "../../src/store/session";
+import { useUiPrefsStore } from "../../src/store/ui-prefs";
 
 beforeEach(() => {
   useSessionStore.setState({
     progressByToolCall: {},
     progressSessionByToolCall: {},
   });
+  // 本文件基线为「回复过程折叠开关关闭」（执行中默认展开），聚焦卡片内容渲染；
+  // 折叠开关行为由 process-collapse.behavior 测试单独覆盖。
+  useUiPrefsStore.setState({ collapseProcessByDefault: false });
 });
 
 test("执行中 progress.output 渲染纯文本预览，不跑 markdown", () => {
   render(
     <DelegateCard
       sessionId="s1"
-      toolCall={{ type: "toolCall", id: "c1", name: "delegate", arguments: { agent: "pm", task: "调研" } }}
+      toolCall={{
+        type: "toolCall",
+        id: "c1",
+        name: "delegate",
+        arguments: { agent: "pm", task: "调研" },
+      }}
     />,
   );
   act(() => {
@@ -35,14 +44,21 @@ test("完成后（result 到达）渲染完整 markdown", () => {
   render(
     <DelegateCard
       sessionId="s1"
-      toolCall={{ type: "toolCall", id: "c2", name: "delegate", arguments: { agent: "pm", task: "调研" } }}
-      result={{
-        role: "toolResult",
-        toolCallId: "c2",
-        content: [{ type: "text", text: "**加粗** 结果" }],
-        isError: false,
-        timestamp: 1,
-      } as any}
+      toolCall={{
+        type: "toolCall",
+        id: "c2",
+        name: "delegate",
+        arguments: { agent: "pm", task: "调研" },
+      }}
+      result={
+        {
+          role: "toolResult",
+          toolCallId: "c2",
+          content: [{ type: "text", text: "**加粗** 结果" }],
+          isError: false,
+          timestamp: 1,
+        } as any
+      }
     />,
   );
   // 完成态卡片默认折叠（ProcessCard open=false 不渲染 children）；

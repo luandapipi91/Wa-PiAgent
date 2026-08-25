@@ -800,6 +800,11 @@ const en = {
 				desc:
 					"Drag the slider to adjust text size ({{min}}-{{max}}px). Only scales text, not layout. Takes effect immediately.",
 			},
+			collapseProcess: {
+				label: "Collapse reply process by default",
+				desc:
+					"When enabled, tool calls and thinking are collapsed by default during replies (still expandable manually).",
+			},
 		},
 		diagnostics: {
 			title: "Extension errors ({{count}} most recent)",

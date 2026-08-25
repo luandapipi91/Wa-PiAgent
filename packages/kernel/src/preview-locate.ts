@@ -13,8 +13,20 @@
  */
 
 const VOID_TAGS = new Set([
-	"area", "base", "br", "col", "embed", "hr", "img", "input",
-	"link", "meta", "param", "source", "track", "wbr",
+	"area",
+	"base",
+	"br",
+	"col",
+	"embed",
+	"hr",
+	"img",
+	"input",
+	"link",
+	"meta",
+	"param",
+	"source",
+	"track",
+	"wbr",
 ]);
 
 export interface ElementLocation {
@@ -46,9 +58,8 @@ export function locateElement(
 	if (segs.length === 0) return null;
 
 	// script/style 内容整体抹掉（保留换行，行号不变），避免 JS 字符串里的假标签干扰
-	const cleaned = html.replace(
-		/<(script|style)\b[\s\S]*?<\/\1\s*>/gi,
-		(m) => m.replace(/[^\n]/g, " "),
+	const cleaned = html.replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, (m) =>
+		m.replace(/[^\n]/g, " "),
 	);
 
 	// 行号索引：每个 \n 的位置 + 1 即下一行起点
@@ -57,7 +68,8 @@ export function locateElement(
 		if (cleaned[i] === "\n") lineStarts.push(i + 1);
 	}
 	const lineOf = (idx: number): number => {
-		let lo = 0, hi = lineStarts.length - 1;
+		let lo = 0,
+			hi = lineStarts.length - 1;
 		while (lo < hi) {
 			const mid = (lo + hi + 1) >> 1;
 			if (lineStarts[mid] <= idx) lo = mid;
@@ -96,7 +108,8 @@ export function locateElement(
 		const id = /\bid\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
 		const testid = /\bdata-testid\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
 		const role = /\brole\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
-		const parentCounts = stack.length > 0 ? stack[stack.length - 1].counts : rootCounts;
+		const parentCounts =
+			stack.length > 0 ? stack[stack.length - 1].counts : rootCounts;
 		const nth = (parentCounts.get(tag) ?? 0) + 1;
 		parentCounts.set(tag, nth);
 		const seg =
@@ -110,7 +123,11 @@ export function locateElement(
 							? `${tag}[role="${role}"]`
 							: `${tag}:nth-of-type(${nth})`;
 		const parentPath = stack.length > 0 ? stack[stack.length - 1].rec.path : [];
-		const rec: ElRecord = { path: [...parentPath, seg], startLine: line, endLine: line };
+		const rec: ElRecord = {
+			path: [...parentPath, seg],
+			startLine: line,
+			endLine: line,
+		};
 		records.push(rec);
 		if (!VOID_TAGS.has(tag) && m[4] !== "/") {
 			stack.push({ tag, rec, counts: new Map() });

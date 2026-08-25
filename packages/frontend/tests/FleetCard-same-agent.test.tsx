@@ -5,12 +5,16 @@ import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useToastStore } from "../src/store/toast";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 beforeEach(() => {
 	useSessionStore.setState({ messagesBySession: {}, progressByToolCall: {} });
 	useProjectsStore.setState({ sessions: [] });
 	useComposerPrefsStore.setState({ bySession: {} });
 	useToastStore.setState({ toasts: [] });
+	// 本文件基线为「回复过程折叠开关关闭」（执行中默认展开），聚焦各 agent 独立统计；
+	// 折叠开关行为由 process-collapse.behavior 测试单独覆盖。
+	useUiPrefsStore.setState({ collapseProcessByDefault: false });
 });
 
 // 复现场景：LLM 把两个独立任务派给同一个 agent（同名 agent 任务）

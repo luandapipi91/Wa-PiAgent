@@ -8,12 +8,16 @@ import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useToastStore } from "../src/store/toast";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 beforeEach(() => {
 	useSessionStore.setState({ messagesBySession: {}, progressByToolCall: {} });
 	useProjectsStore.setState({ sessions: [] });
 	useComposerPrefsStore.setState({ bySession: {} });
 	useToastStore.setState({ toasts: [] });
+	// 本文件基线为「回复过程折叠开关关闭」（展开），聚焦卡片内容/进度渲染；
+	// 折叠开关行为由 process-collapse.behavior / collapse 相关测试单独覆盖。
+	useUiPrefsStore.setState({ collapseProcessByDefault: false });
 });
 
 const fleetCall = {
@@ -57,15 +61,11 @@ function assistantMsg(
 }
 
 test("FleetCard 完成（非流式）：默认折叠，头部显示「并行派发 N 个任务」，且 data-muted=true", () => {
-	render(
-		<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />,
-	);
+	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
 	const header = screen.getByTestId("fleet-f1-header");
 	expect(header.textContent).toContain("并行派发 2 个任务");
 	expect(screen.queryByTestId("fleet-f1-body")).toBeNull();
-	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBe(
-		"true",
-	);
+	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBe("true");
 });
 
 test("FleetCard 执行中（无 result、非流式，如 block 已定稿但工具未返回）：默认展开且不透明", () => {
@@ -101,9 +101,7 @@ test("FleetCard 失败（result.isError）：meta 含「失败」", () => {
 });
 
 test("FleetCard 展开后结果经 ReactMarkdown 渲染", () => {
-	render(
-		<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />,
-	);
+	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	const body = screen.getByTestId("fleet-f1-body");
 	expect(body.textContent).toContain("并行任务完成");
@@ -136,9 +134,7 @@ test("MessageList 中 fleet 工具调用渲染为 FleetCard（非 ToolCallCard�
 		},
 	});
 	render(
-		<VirtuosoMockContext.Provider
-			value={{ viewportHeight: 800, itemHeight: 60 }}
-		>
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
@@ -183,9 +179,7 @@ test("fleet 与普通 toolCall 混合：fleet 独立成卡，普通调用为独�
 		},
 	});
 	render(
-		<VirtuosoMockContext.Provider
-			value={{ viewportHeight: 800, itemHeight: 60 }}
-		>
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
@@ -246,9 +240,7 @@ test("fleet 与 delegate 混合：各自独立成卡，互不干扰", () => {
 		},
 	});
 	render(
-		<VirtuosoMockContext.Provider
-			value={{ viewportHeight: 800, itemHeight: 60 }}
-		>
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
@@ -365,9 +357,7 @@ test("FleetCard 有进度时：统计行含工具计数，点开任务行显示�
 });
 
 test("FleetCard 任务清单格式：任务 N：委派【agent】task", () => {
-	render(
-		<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />,
-	);
+	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	const body = screen.getByTestId("fleet-f1-body");
 	expect(body.textContent).toContain("任务 1：委派【代码审查】review diff");
@@ -385,9 +375,7 @@ test("FleetCard 完成态按 agent 拆分：每任务点开显示各自回复（
 			},
 		],
 	};
-	render(
-		<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />,
-	);
+	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	// 无 progress：统计行显示「已完成 · 点击查看回复」
 	expect(screen.getByText(/任务 1：已完成 · 点击查看回复/)).toBeTruthy();
@@ -420,9 +408,7 @@ test("FleetCard 完成态读 result.details 持久化统计：无 progress 也�
 			},
 		},
 	};
-	render(
-		<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />,
-	);
+	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	// 无 progress 但有持久化统计：完成态统计行显示「已完成 调用了 X 个工具 …」
 	expect(

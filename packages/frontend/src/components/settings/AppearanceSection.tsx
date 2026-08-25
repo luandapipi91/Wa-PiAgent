@@ -27,6 +27,56 @@ const THEME_COLORS: ThemeColor[] = [
 	"red",
 ];
 
+/** 内联 switch 滑块（样式与通用设置内的 SoundSwitch 一致：38×22 轨道 + 18×18 白点）。 */
+function ToggleSwitch({
+	on,
+	onToggle,
+	testId,
+}: {
+	on: boolean;
+	onToggle: () => void;
+	testId: string;
+}) {
+	return (
+		<div
+			role="switch"
+			aria-checked={on}
+			tabIndex={0}
+			onClick={(e) => {
+				e.stopPropagation();
+				onToggle();
+			}}
+			onKeyDown={(e) => {
+				if (e.key === " " || e.key === "Enter") {
+					e.preventDefault();
+					onToggle();
+				}
+			}}
+			className="relative shrink-0 cursor-pointer"
+			style={{
+				width: 38,
+				height: 22,
+				borderRadius: 9999,
+				background: on ? "var(--brand)" : "var(--hairline-strong)",
+				transition: "background 0.2s",
+			}}
+			data-testid={testId}
+			data-on={on ? "true" : "false"}
+		>
+			<span
+				className="absolute top-0.5 rounded-full bg-white transition-all"
+				style={{
+					width: 18,
+					height: 18,
+					left: on ? undefined : 2,
+					right: on ? 2 : undefined,
+					boxShadow: "0 1px 2px rgba(0,0,0,.1)",
+				}}
+			/>
+		</div>
+	);
+}
+
 export function AppearanceSection() {
 	const fontSize = useUiPrefsStore((s) => s.fontSize);
 	const setFontSize = useUiPrefsStore((s) => s.setFontSize);
@@ -34,6 +84,12 @@ export function AppearanceSection() {
 	const setThemeMode = useUiPrefsStore((s) => s.setThemeMode);
 	const themeColor = useUiPrefsStore((s) => s.themeColor);
 	const setThemeColor = useUiPrefsStore((s) => s.setThemeColor);
+	const collapseProcessByDefault = useUiPrefsStore(
+		(s) => s.collapseProcessByDefault,
+	);
+	const setCollapseProcessByDefault = useUiPrefsStore(
+		(s) => s.setCollapseProcessByDefault,
+	);
 	const { t } = useTranslation();
 
 	return (
@@ -152,6 +208,23 @@ export function AppearanceSection() {
 				>
 					{fontSize}px
 				</span>
+			</div>
+
+			{/* 回复过程默认折叠（即时生效） */}
+			<div className="flex items-center justify-between gap-4">
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.appearance.collapseProcess.label")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.collapseProcess.desc")}
+					</span>
+				</div>
+				<ToggleSwitch
+					on={collapseProcessByDefault}
+					onToggle={() => setCollapseProcessByDefault(!collapseProcessByDefault)}
+					testId="collapse-process-toggle"
+				/>
 			</div>
 		</div>
 	);

@@ -1,6 +1,13 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ToolCallCard } from "../src/components/blocks/ToolCallCard";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
+
+// 本文件专注验证卡片参数 / 滚动渲染逻辑，基线为「回复过程折叠开关关闭」（展开）。
+// 折叠开关行为由 store-ui-prefs-collapse / useAutoCollapse 测试单独覆盖。
+beforeEach(() => {
+	useUiPrefsStore.setState({ collapseProcessByDefault: false });
+});
 
 // ── 卡片内部长文本预览区自动滚动（write 工具 content 流式增长跟随到底部）──
 

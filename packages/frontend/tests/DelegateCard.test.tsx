@@ -8,12 +8,16 @@ import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useToastStore } from "../src/store/toast";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 beforeEach(() => {
 	useSessionStore.setState({ messagesBySession: {}, progressByToolCall: {} });
 	useProjectsStore.setState({ sessions: [] });
 	useComposerPrefsStore.setState({ bySession: {} });
 	useToastStore.setState({ toasts: [] });
+	// 本文件基线为「回复过程折叠开关关闭」（展开），聚焦卡片内容/进度渲染；
+	// 折叠开关行为由 process-collapse.behavior / collapse 相关测试单独覆盖。
+	useUiPrefsStore.setState({ collapseProcessByDefault: false });
 });
 
 const call = {
@@ -146,9 +150,7 @@ test("MessageList 内联渲染 DelegateCard：无普通 toolCall 时不出现分
 		},
 	});
 	render(
-		<VirtuosoMockContext.Provider
-			value={{ viewportHeight: 800, itemHeight: 60 }}
-		>
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
@@ -194,9 +196,7 @@ test("delegate 与普通 toolCall 混合：delegate 内联独立成卡，普通�
 		},
 	});
 	render(
-		<VirtuosoMockContext.Provider
-			value={{ viewportHeight: 800, itemHeight: 60 }}
-		>
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
@@ -274,9 +274,7 @@ test("有进度且未完成时：摘要显示状态/耗时/工具计数，回复
 	expect(screen.getByText(/失败 1/)).toBeTruthy();
 	expect(screen.getByText(/执行中 1/)).toBeTruthy();
 	// 回复区直接显示流式 output（无需展开进度详情）
-	expect(screen.getByTestId("text-block").textContent).toContain(
-		"正在分析代码",
-	);
+	expect(screen.getByTestId("text-block").textContent).toContain("正在分析代码");
 	// 不再逐条列出工具（无 Bash/Read 名称）
 	expect(screen.queryByText(/Bash/)).toBeNull();
 	expect(screen.queryByText(/Read/)).toBeNull();
@@ -388,9 +386,7 @@ test("MessageList 对非 delegate 调用仍渲染 ToolCallCard", () => {
 		},
 	});
 	render(
-		<VirtuosoMockContext.Provider
-			value={{ viewportHeight: 800, itemHeight: 60 }}
-		>
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
@@ -615,9 +611,7 @@ test("有进度时：状态摘要行渲染在卡片底部（回复区之后）",
 			}}
 		/>,
 	);
-	const body = container.querySelector(
-		"[data-testid='delegate-tc-order-body']",
-	);
+	const body = container.querySelector("[data-testid='delegate-tc-order-body']");
 	const reply = container.querySelector("[data-testid='text-block']");
 	const progress = container.querySelector(
 		"[data-testid='delegate-progress-tc-order']",
