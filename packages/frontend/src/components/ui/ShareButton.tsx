@@ -7,7 +7,7 @@ import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 import { ProgressBar } from "./ProgressBar";
 import { useTranslation } from "../../i18n/useTranslation";
-import { shareSettings, shareUpload } from "../../share-client";
+import { shareSettings, shareUpload, shareNameForPaths } from "../../share-client";
 import { copyToClipboard } from "../../util/clipboard";
 import { useShareProgressStore } from "../../store/share-progress";
 import { useProjectsStore } from "../../store/projects";
@@ -110,6 +110,8 @@ export function ShareResultModal({
 			projectNameOfSession(sessionId, projects, sessions) ||
 			defaultShareName(paths),
 	);
+	// 记录用户是否手动改过分享名（回填逻辑据其判断是否应覆盖输入框）
+	const nameEditedRef = useRef(false);
 	// 生成流程状态
 	const [generating, setGenerating] = useState(false);
 	const [result, setResult] = useState<{
@@ -149,6 +151,23 @@ export function ShareResultModal({
 			cancelled = true;
 		};
 	}, []);
+
+	// 回填上次分享名：同一组文件路径（hashPaths 相同）命中历史分享记录时，预填其分享名。
+	// 仅在用户未手动改过输入框时生效，避免覆盖用户正在输入的内容。
+	useEffect(() => {
+		let cancelled = false;
+		shareNameForPaths(paths)
+			.then(({ name }) => {
+				if (cancelled || !name || nameEditedRef.current) return;
+				setShareName(name);
+			})
+			.catch(() => {
+				// 查询失败不影响分享主流程，保持默认名
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [paths]);
 
 	// 未配置分享参数（token）→ 自动打开 设置 → 分享 tab 引导配置，并关闭分享弹窗。
 	// redirectedRef 防止 onClose 引用变化导致 effect 重跑时重复跳转。
@@ -291,7 +310,10 @@ export function ShareResultModal({
 							<input
 								type="text"
 								value={shareName}
-								onChange={(e) => setShareName(e.target.value)}
+								onChange={(e) => {
+								setShareName(e.target.value);
+								nameEditedRef.current = true;
+							}}
 								placeholder={t("share.namePlaceholder")}
 								spellCheck={false}
 								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
