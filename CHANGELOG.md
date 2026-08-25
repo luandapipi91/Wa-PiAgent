@@ -1,3 +1,16 @@
+## 2026-08-27 — 内核独立发布 v0.1.3（自动压缩阈值改用率百分比更早触发）
+
+- 内核版本 0.1.2 → 0.1.3，发布包 `kernel-20260825-1.zip`（darwin-x64）。
+- 内容：`shouldCompactBeforeSend` 从固定 33000 预留改为窗口 85% 使用率阈值，修复大窗口下 pi token 估算偏低导致的窗口边缘溢出 400。
+- 验证：auto-compact.test.ts 7 pass 0 fail；内核编译 1000 模块；R2 发布 kernel-latest.json 已指向 0.1.3（sha256 39df27e8）。客户端启动检查内核清单自动更新。
+
+## 2026-08-27 — perf(kernel): 发送前自动压缩阈值从「窗口−33K 预留」改为「窗口 85%」更早触发
+
+- 背景：原 `shouldCompactBeforeSend` 用固定 33000 预留（1M 窗口下 96.7% 才触发），对 pi 的「字符数/4」token 估算偏低、目录 contextWindow 偏小的模型，直到真实窗口边缘才压缩；此刻 pi 请求层 max_tokens 已被顶到模型上限，叠加真实 token 越过窗口 → 400（DeepSeek V4 Flash：pi 估算 61 万≈真实 66.5 万，max_tokens 顶 384K 溢出 721 token）。
+- 修复：`shouldCompactBeforeSend` 改为「used > contextWindow × 0.85」，压缩提前到 85% 触发；常量 `AUTO_COMPACT_RESERVE_TOKENS`(33000) → `AUTO_COMPACT_USAGE_RATIO`(0.85)；同步更新 agent-manager 日志与 import。
+- 验证：TDD —— auto-compact.test.ts 7 pass 0 fail；旧符号残留引用清理干净。
+- 影响范围：`packages/kernel/src/auto-compact.ts`、`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/__tests__/auto-compact.test.ts`。
+
 ## 2026-08-27 — v0.2.23 发版（回复过程默认折叠开关 + 附件绝对路径修复 + MCP 测试兼容修复）
 
 - 版本：0.2.22 → 0.2.23。
