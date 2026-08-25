@@ -1,3 +1,9 @@
+## 2026-08-27 — v0.2.23 发版（回复过程默认折叠开关 + 附件绝对路径修复 + MCP 测试兼容修复）
+
+- 版本：0.2.22 → 0.2.23。
+- 主要：系统设置→外观 新增「回复过程默认折叠」开关；上传附件发 AI 的路径改绝对 path 引用；MCP stdio 连接测试打包环境兼容修复（BUN_BE_BUN=1）。
+- 验证：kernel 全量 1397 pass 0 fail；frontend 全量 1896 pass 0 fail；typecheck 通过；pack:mac + pack:win；publish-oss.ts 推 R2；git tag v0.2.23 + Gitee Release。
+
 ## 2026-08-27 — fix(test): MCP stdio 连接测试在打包环境下挂起（spawn 缺 BUN_BE_BUN=1）
 
 - 背景：打包/开发机 `~/.pi/agent/bin/bun` 是 shim，`exec` 到内核编译产物 `WaPiKernel`，`process.execPath` 指向它。MCP 测试用 `spawn(process.execPath, [echo-mcp-server.ts])` 跑 stdio server，但测试不经 `startKernel`（其 `ensureBunBeBunEnv()` 才会注入 `BUN_BE_BUN=1` 供子进程继承），导致 WaPiKernel 以内核模式启动（监听 WS 端口 → EADDRINUSE → stderr 输出内核日志 → 非 JSON）→ SDK StdioClientTransport 收不到 JSON-RPC → 连接挂起/关闭。

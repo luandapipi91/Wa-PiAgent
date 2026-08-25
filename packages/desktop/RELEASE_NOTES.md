@@ -1,12 +1,10 @@
-WA PI Agent 0.2.22 更新内容：
+WA PI Agent 0.2.23 更新内容：
+
+【新增】
+
+- 系统设置→外观 新增「回复过程默认折叠」开关：开启后（默认开启）agent 回复过程中工具调用/思维链/委派/并行派发默认折叠（不自动展开，仍可手动点开查看）；关闭恢复旧行为（回复过程中默认展开）
 
 【修复】
 
-- 关于页「内核版本」显示错误：内核动态更新后，runtime 内核清单被 syncSeed 覆盖回 app 捆绑的旧版（关于页读 runtime 的 package.json 显示旧值 0.1）。现 syncSeed 在动态 kernel 下不再覆盖 runtime 的 package.json / bun.lock，关于页正确显示更新后内核版本（0.1.1）
-- Windows 下 WSL 的 bash stub（C:\Windows\system32\bash.exe，WSL 未装但存在）被误判为已装 Git Bash，导致内核报 "No bash shell found"；现校验 bash --version 才算真可用
-- 内核独立发布时 kernelVersion 此前硬编码 bun runtime 版本（1.4.0），现改为读 kernel package.json 的独立管控版本（0.1.1）
-
-【改进】
-
-- 内核独立发布链路打通：publish-kernel.ts 发布内核包（kernel-<build>.zip + kernel-latest.json 传 OSS），客户端启动自动检查并更新，无需重发 app
-- 内核版本独立管控（0.1.1）在「关于」页显示
+- 上传附件发给 AI 的路径改为绝对 path 引用：不再用项目相对路径，避免 AI 中途 cd / 附件在项目外 / 跨盘符时找不到文件
+- MCP stdio 连接测试在打包环境下挂起：修复测试 spawn 子进程缺 `BUN_BE_BUN=1` 导致内核模式启动、连接超时的问题

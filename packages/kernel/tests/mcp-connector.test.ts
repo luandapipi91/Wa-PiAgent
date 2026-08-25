@@ -23,7 +23,12 @@ const FIXTURE = join(import.meta.dir, "fixtures", "echo-mcp-server.ts");
 // SDK StdioClientTransport 收不到 JSON-RPC 导致连接挂起。生产走 startKernel 的
 // ensureBunBeBunEnv() 已注入该 env；测试不经 startKernel，需显式配置（见 src/index.ts:92）。
 function stdioConfig(name = "echo"): McpServerConfig {
-  return { name, command: process.execPath, args: [FIXTURE], env: { BUN_BE_BUN: "1" } };
+  return {
+    name,
+    command: process.execPath,
+    args: [FIXTURE],
+    env: { BUN_BE_BUN: "1" },
+  };
 }
 
 /** 读 HTTP 请求体并 JSON.parse */
