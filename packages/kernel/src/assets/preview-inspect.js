@@ -4,7 +4,8 @@
  * - 浮动工具条：选择父级 / 发送到聊天（postMessage 给父页面）
  * 脚本整体防御：任何异常静默降级，绝不影响被预览页面。
  * selector 段规则与 kernel preview-locate.ts 严格一致：
- *   有 id → tag#id；否则 tag:nth-of-type(n)；根 <html> → 裸 tag。
+ *   有 id → tag#id；有 data-testid → tag[data-testid="v"]；有 role → tag[role="v"]；
+ *   否则 tag:nth-of-type(n)；根 <html> → 裸 tag。
  */
 (() => {
 	function buildSelector(el) {
@@ -17,24 +18,38 @@
 				segs.unshift(tag); // 根元素（html）：裸 tag
 				break;
 			}
-			if (cur.id) {
-				segs.unshift(tag + "#" + cur.id);
-			} else {
-				var nth = 0;
-				for (var i = 0; i < parent.children.length; i++) {
-					var s = parent.children[i];
-					if (s.tagName && s.tagName.toLowerCase() === tag) nth++;
-					if (s === cur) break;
-				}
-				segs.unshift(tag + ":nth-of-type(" + nth + ")");
-			}
+			segs.unshift(segFor(cur, tag));
 			cur = parent;
 		}
 		return segs.join(" > ");
 	}
+	// 元素段：有 id → tag#id；有 data-testid → tag[data-testid="v"]；有 role → tag[role="v"]；
+	// 否则 tag:nth-of-type(n)（n 为同标签兄弟序号，从 1 起）。段规则与 kernel preview-locate.ts 严格一致。
+	function segFor(el, tag) {
+		if (el.id) return tag + "#" + el.id;
+		var dt = el.getAttribute && el.getAttribute("data-testid");
+		if (dt) return tag + '[data-testid="' + dt + '"]';
+		var role = el.getAttribute && el.getAttribute("role");
+		if (role) return tag + '[role="' + role + '"]';
+		var nth = 0;
+		for (var i = 0; i < el.parentElement.children.length; i++) {
+			var s = el.parentElement.children[i];
+			if (s.tagName && s.tagName.toLowerCase() === tag) nth++;
+			if (s === el) break;
+		}
+		return tag + ":nth-of-type(" + nth + ")";
+	}
 
+	/** 元素语义标签（发给 agent 描述）：id → data-testid → role → aria-label → tag.类名（最多 3） */
 	function elLabel(el) {
 		var tag = el.tagName.toLowerCase();
+		if (el.id) return tag + "#" + el.id;
+		var dt = el.getAttribute && el.getAttribute("data-testid");
+		if (dt) return tag + "[data-testid=" + dt + "]";
+		var role = el.getAttribute && el.getAttribute("role");
+		if (role) return tag + "[role=" + role + "]";
+		var aria = el.getAttribute && el.getAttribute("aria-label");
+		if (aria) return tag + "(" + aria.slice(0, 20) + ")";
 		var cls = [];
 		if (el.classList) {
 			for (var i = 0; i < el.classList.length && cls.length < 3; i++)
@@ -280,7 +295,7 @@
 		var rafId = null;
 		function startFollow() {
 			if (rafId) return;
-			var tick = function () {
+			var tick = () => {
 				if (disabled || !pinned) {
 					rafId = null;
 					return;
