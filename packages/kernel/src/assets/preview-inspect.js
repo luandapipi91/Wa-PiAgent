@@ -165,6 +165,36 @@
 			setDisabled(!disabled);
 		}
 
+		// 元素是否完全移出视口（窗口滚动/元素移动出屏幕）
+		function isFullyOutOfViewport(r) {
+			return (
+				r.bottom <= 0 ||
+				r.top >= window.innerHeight ||
+				r.right <= 0 ||
+				r.left >= window.innerWidth
+			);
+		}
+		// 元素是否被某祖先 overflow 裁剪容器完全裁剪（元素在容器内滚出、容器本身仍在视口内）
+		function isClippedByAncestor(el) {
+			var p = el.parentElement;
+			while (p && p !== document.body && p !== document.documentElement) {
+				var ov = window.getComputedStyle(p).overflow;
+				if (ov && ov !== "visible") {
+					var pr = p.getBoundingClientRect();
+					var er = el.getBoundingClientRect();
+					if (
+						er.bottom <= pr.top ||
+						er.top >= pr.bottom ||
+						er.right <= pr.left ||
+						er.left >= pr.right
+					)
+						return true;
+				}
+				p = p.parentElement;
+			}
+			return false;
+		}
+
 		function render() {
 			// 已关闭高亮选择：任何触发（含 scroll/resize）都不再绘制，保持隐藏
 			if (disabled) {
@@ -186,6 +216,13 @@
 				return;
 			}
 			var r = current.getBoundingClientRect();
+			// 元素完全移出视口或被祖先裁剪容器裁剪时，高亮框随之隐藏（与元素一起消失）
+			if (isFullyOutOfViewport(r) || isClippedByAncestor(current)) {
+				hl.style.display = "none";
+				bar.style.display = "none";
+				tip.style.display = "none";
+				return;
+			}
 			var x = r.left + window.scrollX;
 			var y = r.top + window.scrollY;
 			hl.style.display = "block";
