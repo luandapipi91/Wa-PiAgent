@@ -71,7 +71,7 @@ import {
 import { SubagentTelemetry } from "./subagent-telemetry";
 import { lookupCatalogModel } from "./pi-catalog";
 import {
-	AUTO_COMPACT_RESERVE_TOKENS,
+	AUTO_COMPACT_USAGE_RATIO,
 	shouldCompactBeforeSend,
 } from "./auto-compact";
 import type { WaPiSpawnConfig } from "./subagent-runner";
@@ -1345,7 +1345,11 @@ export class AgentManager {
 
 			// 5. 自动 compact（busy 防并发；完成后由 _sendPromptNow 继续设 busy 发 prompt）
 			console.log(
-				`[kernel] session ${sessionId} 自动压缩：used=${used} + reserve=${AUTO_COMPACT_RESERVE_TOKENS} > contextWindow=${contextWindow}`,
+				`[kernel] session ${sessionId} 自动压缩：used=${used}(${(
+					(used / contextWindow) * 100
+				).toFixed(
+					1,
+				)}% > ${(AUTO_COMPACT_USAGE_RATIO * 100).toFixed(0)}%) > contextWindow=${contextWindow}`,
 			);
 			handle.busy = true;
 			try {
