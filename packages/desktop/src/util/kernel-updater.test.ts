@@ -18,6 +18,7 @@ import {
 	isSafeZipEntry,
 	currentPlatform,
 	KERNEL_BIN,
+	defaultFeedUrl,
 } from "./kernel-updater.cjs";
 
 const noopLog = { info: () => {}, error: () => {}, warn: () => {} };
@@ -29,6 +30,14 @@ const HAS_ZIP = spawnSync("zip", ["-v"]).status === 0;
 
 afterEach(async () => {
 	await rm(TMP, { recursive: true, force: true });
+});
+
+test("defaultFeedUrl: 按当前平台返回对应清单 URL（多平台共存不覆盖）", () => {
+	const platform = currentPlatform();
+	const url = defaultFeedUrl();
+	expect(url).toBe(
+		`https://oss.wapiagent.top/releases/kernel/kernel-latest-${platform}.json`,
+	);
 });
 
 test("needsUpdate: 本地为空(首次) → true", () => {
