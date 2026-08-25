@@ -9,11 +9,15 @@ const shareSettingsMock = mock(async () => ({
 	channel: "edgeone",
 }));
 const shareUploadMock = mock(async () => ({}));
+const shareNameForPathsMock = mock(
+	async (): Promise<{ name: string | null }> => ({ name: null }),
+);
 const copyMock = mock(async (..._args: any[]) => {});
 
 mock.module("../../share-client", () => ({
 	shareSettings: shareSettingsMock,
 	shareUpload: shareUploadMock,
+	shareNameForPaths: shareNameForPathsMock,
 	saveShareSettings: async () => {},
 }));
 mock.module("../../util/clipboard", () => ({
@@ -32,6 +36,7 @@ const URL = "https://share.edgeone.app/s/xyz789";
 beforeEach(() => {
 	shareSettingsMock.mockReset();
 	shareUploadMock.mockReset();
+	shareNameForPathsMock.mockReset();
 	copyMock.mockReset();
 	useShareProgressStore.setState({ phase: "idle", percent: 0 });
 	useSettingsStore.setState({ showSettings: false, activeSection: "general" });
@@ -39,6 +44,7 @@ beforeEach(() => {
 		hasToken: true,
 		channel: "edgeone",
 	});
+	shareNameForPathsMock.mockResolvedValue({ name: null });
 	shareUploadMock.mockResolvedValue({
 		url: URL,
 		expiresAt: Date.now() + 3 * 3600 * 1000,
@@ -241,5 +247,52 @@ test("分享弹窗点击阴影不关闭（防误触丢输入），X 按钮可关
 	fireEvent.click(screen.getByTestId("share-close"));
 	await waitFor(() =>
 		expect(screen.queryByTestId("share-result-modal")).toBeNull(),
+	);
+});
+
+test("再次分享同组文件：弹窗预填充上次分享名", async () => {
+	shareNameForPathsMock.mockResolvedValue({ name: "别名A" });
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	// 查询历史名并回填到输入框
+	await waitFor(() =>
+		expect(
+			(screen.getByTestId("share-name-input") as HTMLInputElement).value,
+		).toBe("别名A"),
+	);
+});
+
+test("无历史分享名：弹窗保持默认名（文件数）", async () => {
+	shareNameForPathsMock.mockResolvedValue({ name: null });
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-name-input");
+	expect(
+		(screen.getByTestId("share-name-input") as HTMLInputElement).value,
+	).toBe("3 个文件");
+});
+
+test("用户已手动改过输入框：历史名回填不覆盖用户输入", async () => {
+	// 先 resolve 一个历史名，但用户已经手动改了 → 不应覆盖
+	let resolveLookup!: (v: { name: string | null }) => void;
+	shareNameForPathsMock.mockImplementation(
+		() =>
+			new Promise((r) => {
+				resolveLookup = r;
+			}),
+	);
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-name-input");
+	// 用户手动改名
+	fireEvent.change(screen.getByTestId("share-name-input"), {
+		target: { value: "我改的" },
+	});
+	// 历史名查询此刻才完成
+	resolveLookup({ name: "别名A" });
+	await waitFor(() =>
+		expect(
+			(screen.getByTestId("share-name-input") as HTMLInputElement).value,
+		).toBe("我改的"),
 	);
 });
