@@ -27,6 +27,12 @@ function makeTempDir(prefix: string) {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
+// 与 agent-manager 的 buildPromptContent 保持一致的路径规范化：Windows 上 join 生成反斜杠，
+// 需统一成全正斜杠，才能与 prompt 文本里的 path: 引用精确匹配（保证测试跨平台通过）。
+function slash(p: string) {
+  return p.replace(/\\/g, "/");
+}
+
 interface PromptCall {
   text: string;
   opts?: any;
@@ -346,7 +352,7 @@ describe("composer attachments integration", () => {
     }
   });
 
-  it("agent:prompt 携带 file 附件时，最终 prompt 文本包含 @路径引用块", async () => {
+  it("agent:prompt 携带 file 附件时，最终 prompt 文本包含 path: 路径引用块", async () => {
     const fileDir = makeTempDir("wa-pi-attach-");
     const filePath = join(fileDir, "notes.txt");
     writeFileSync(filePath, "这是附件内容");
@@ -381,7 +387,7 @@ describe("composer attachments integration", () => {
         expect(calls).toHaveLength(1);
         expect(calls[0].text).toContain("分析这个文件");
         expect(calls[0].text).toContain("Attachments:");
-        expect(calls[0].text).toContain(`[@${filePath}]`);
+        expect(calls[0].text).toContain(`[path:${slash(filePath)}]`);
         expect(calls[0].text).not.toContain("这是附件内容");
       });
     } finally {
@@ -389,7 +395,7 @@ describe("composer attachments integration", () => {
     }
   });
 
-  it("agent:prompt 携带 image 附件时，最终 prompt 文本用 @路径引用而不是 base64", async () => {
+  it("agent:prompt 携带 image 附件时，最终 prompt 文本用 path: 路径引用而不是 base64", async () => {
     const fileDir = makeTempDir("wa-pi-img-");
     const imgPath = join(fileDir, "shot.png");
     writeFileSync(imgPath, "\x89PNG\r\n\x1a\n");
@@ -423,7 +429,7 @@ describe("composer attachments integration", () => {
         expect(calls).toHaveLength(1);
         expect(calls[0].text).toContain("看这张图");
         expect(calls[0].text).toContain("Attachments:");
-        expect(calls[0].text).toContain(`[@${imgPath}]`);
+        expect(calls[0].text).toContain(`[path:${slash(imgPath)}]`);
         expect(calls[0].opts).toBeUndefined();
       });
     } finally {
@@ -460,7 +466,7 @@ describe("composer attachments integration", () => {
     }
   });
 
-  it("agent:prompt 携带 folder 附件时，最终 prompt 文本包含 @相对路径引用", async () => {
+  it("agent:prompt 携带 folder 附件时，最终 prompt 文本包含 path: 绝对路径引用", async () => {
     const fileDir = makeTempDir("wa-pi-folder-attach-");
     const sourceDir = join(fileDir, "docs");
     mkdirSync(sourceDir);
@@ -500,7 +506,7 @@ describe("composer attachments integration", () => {
         expect(calls).toHaveLength(1);
         expect(calls[0].text).toContain("看这个项目文档");
         expect(calls[0].text).toContain("Attachments:");
-        expect(calls[0].text).toContain(`[@${folderPath}]`);
+        expect(calls[0].text).toContain(`[path:${slash(folderPath)}]`);
       });
     } finally {
       rmSync(fileDir, { recursive: true, force: true });

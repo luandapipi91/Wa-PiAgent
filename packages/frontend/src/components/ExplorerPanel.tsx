@@ -402,7 +402,7 @@ export function ExplorerPanel({
 		[addToast, t],
 	);
 
-	// 拖拽到输入框生成 @提及：dispatch 自定义事件，由 Composer 监听并插入
+	// 拖拽到输入框生成 path: 引用：dispatch 自定义事件，由 Composer 监听并插入
 	const startDrag = useCallback((e: React.PointerEvent, node: FlatNode) => {
 		if (e.button !== 0) return;
 		e.preventDefault();
@@ -410,6 +410,9 @@ export function ExplorerPanel({
 		el.setPointerCapture(e.pointerId);
 		const fpath = node.entry.path,
 			fname = node.entry.name;
+		// 与 kernel buildPromptContent 一致：绝对路径全正斜杠（Windows 盘符/拼接处归一），
+		// 避免 joinPath 在 Windows 产出 C:\proj/name 这类混合分隔符。
+		const ref = fpath.replace(/\\/g, "/");
 		let dragging = false;
 		let ghost: HTMLElement | null = null;
 
@@ -447,10 +450,10 @@ export function ExplorerPanel({
 				"textarea, [contenteditable], [role='textbox']",
 			);
 			if (editor instanceof HTMLElement) {
-				// 通过自定义事件通知 Composer 插入 @提及；Composer 监听后在编辑器光标处插入
+				// 通过自定义事件通知 Composer 插入 path: 引用；Composer 监听后在编辑器光标处插入
 				window.dispatchEvent(
 					new CustomEvent("wa-pi:insert-mention", {
-						detail: { text: `@${fpath} `, editor },
+						detail: { text: `path:${ref} `, editor },
 					}),
 				);
 			}

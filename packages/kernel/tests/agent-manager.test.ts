@@ -633,7 +633,7 @@ test("prompt — 图片附件转为 ImageContent 并经 client.prompt(text, { im
 	const text = fakes[0].prompted[0];
 	expect(text).toContain("描述这张图");
 	expect(text).toContain("Attachments:");
-	expect(text).toContain(`@${imgPath}`);
+	expect(text).toContain(`path:${imgPath}`);
 	// 图片必须真正发给 pi：作为 ImageContent 传给 client.prompt(text, { images })
 	expect(fakes[0].promptImages).toHaveLength(1);
 	expect(fakes[0].promptImages[0]).toEqual([
@@ -682,7 +682,7 @@ test("prompt — 单张图片超过 3.5MB 上限回退为附件，不内联", as
 
 	expect(fakes[0].prompted).toHaveLength(1);
 	// 文本引用保留，但 images 为空（不内联）
-	expect(fakes[0].prompted[0]).toContain(`@${imgPath}`);
+	expect(fakes[0].prompted[0]).toContain(`path:${imgPath}`);
 	expect(fakes[0].promptImages[0]).toEqual([]);
 });
 
@@ -715,8 +715,8 @@ test("prompt — 超过 3.5MB 但 ≤30MB 的真实图片用 bun:image 压缩为
 	});
 
 	expect(fakes[0].prompted).toHaveLength(1);
-	// 文本仍保留 @路径 引用
-	expect(fakes[0].prompted[0]).toContain(`@${imgPath}`);
+	// 文本仍保留 path: 路径 引用
+	expect(fakes[0].prompted[0]).toContain(`path:${imgPath}`);
 	// 图片被压缩为 webp 内联（mimeType 变为 image/webp，data 为 base64）
 	expect(fakes[0].promptImages[0]).toHaveLength(1);
 	const img = fakes[0].promptImages[0][0];
@@ -747,12 +747,12 @@ test("prompt — 超过 30MB 的图片直接降级为附件，不做无谓压缩
 	});
 
 	expect(fakes[0].prompted).toHaveLength(1);
-	expect(fakes[0].prompted[0]).toContain(`@${imgPath}`);
+	expect(fakes[0].prompted[0]).toContain(`path:${imgPath}`);
 	// 直接降级：images 为空
 	expect(fakes[0].promptImages[0]).toEqual([]);
 });
 
-test("prompt — 图片累计大小超过上限时，超出部分回退为附件（@路径 引用）", async () => {
+test("prompt — 图片累计大小超过上限时，超出部分回退为附件（path: 路径 引用）", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 
@@ -778,10 +778,10 @@ test("prompt — 图片累计大小超过上限时，超出部分回退为附件
 	});
 
 	expect(fakes[0].prompted).toHaveLength(1);
-	// 4 张图全部保留 @路径 文本引用（无论是否内联）
+	// 4 张图全部保留 path: 路径 文本引用（无论是否内联）
 	const text = fakes[0].prompted[0];
 	for (const p of paths) {
-		expect(text).toContain(`@${p}`);
+		expect(text).toContain(`path:${p}`);
 	}
 	// 前三张（9MB ≤ 10MB）内联为 ImageContent，第四张超累计上限回退为附件
 	expect(fakes[0].promptImages[0]).toHaveLength(3);
