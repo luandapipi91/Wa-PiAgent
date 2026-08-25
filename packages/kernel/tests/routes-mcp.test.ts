@@ -18,6 +18,10 @@ const STDIO_SERVER: McpServerConfig = {
   name: "echo",
   command: process.execPath,
   args: [FIXTURE],
+  // 打包环境 process.execPath 指向内核编译产物 WaPiKernel，spawn 需 BUN_BE_BUN=1
+  // 才以 bun 模式跑 fixture（否则以内核模式启动 → EADDRINUSE → 非 JSON 输出 → 挂起）。
+  // 生产走 startKernel 的 ensureBunBeBunEnv() 注入；测试需显式配置（src/index.ts:92）。
+  env: { BUN_BE_BUN: "1" },
 };
 
 /** 最小 mcpStore 桩：只实现 mcp:test 用到的方法 */

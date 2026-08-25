@@ -1,3 +1,11 @@
+## 2026-08-27 — fix(test): MCP stdio 连接测试在打包环境下挂起（spawn 缺 BUN_BE_BUN=1）
+
+- 背景：打包/开发机 `~/.pi/agent/bin/bun` 是 shim，`exec` 到内核编译产物 `WaPiKernel`，`process.execPath` 指向它。MCP 测试用 `spawn(process.execPath, [echo-mcp-server.ts])` 跑 stdio server，但测试不经 `startKernel`（其 `ensureBunBeBunEnv()` 才会注入 `BUN_BE_BUN=1` 供子进程继承），导致 WaPiKernel 以内核模式启动（监听 WS 端口 → EADDRINUSE → stderr 输出内核日志 → 非 JSON）→ SDK StdioClientTransport 收不到 JSON-RPC → 连接挂起/关闭。
+- 现象：`mcp-connector.test.ts` / `routes-mcp.test.ts` 的 testConnection/listTools/mcp:testResult/mcp:tools 等 4 例在 shim bun 下失败超时；用 `/usr/local/bin/bun` 跑全过（6 pass 0 fail）。
+- 修复：两处测试的 MCP stdio config 显式加 `env: { BUN_BE_BUN: "1" }`，使 spawn 的子进程以 bun 模式跑 fixture，与生产 `ensureBunBeBunEnv()` 行为一致。
+- 验证：shim bun 下 mcp-connector+routes-mcp 从 4 fail → 9 pass 0 fail；mcp 全量 27 pass 0 fail；kernel 全量 1397 pass 0 fail；kernel typecheck 通过。
+- 影响范围：`packages/kernel/tests/mcp-connector.test.ts`、`packages/kernel/tests/routes-mcp.test.ts`。
+
 ## 2026-08-27 — feat(share): 再次分享同组文件时预填上一次分享名
 
 - 新增：分享文件弹窗打开时，若该组文件路径之前分享过，预填上一次使用的分享名称到输入框（用户仍可编辑后生成链接）。
