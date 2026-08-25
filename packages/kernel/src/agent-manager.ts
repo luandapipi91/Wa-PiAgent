@@ -1404,7 +1404,7 @@ export class AgentManager {
 			handle.currentThinking = opts.thinking;
 		}
 
-		// 构建最终 prompt 文本：snippet 直接内联，文件统一用绝对路径 @引用（不依赖 cwd 解析），
+		// 构建最终 prompt 文本：snippet 直接内联，文件统一用绝对路径 path: 引用（不依赖 cwd 解析），
 		// 图片额外读取为 ImageContent（多模态），随 prompt 一起发给 pi。
 		const { text: finalText, images } = await buildPromptContent(
 			text,
@@ -2039,7 +2039,7 @@ async function readImageContent(
 	}
 }
 
-/** 构建 prompt 最终文本。snippet 直接内联；文件统一用绝对路径 @引用（不依赖 cwd 解析）；图片额外读取为 ImageContent 供多模态发送。 */
+/** 构建 prompt 最终文本。snippet 直接内联；文件统一用绝对路径 path: 引用（不依赖 cwd 解析）；图片额外读取为 ImageContent 供多模态发送。 */
 interface PromptContent {
 	text: string;
 	images: ImageContent[];
@@ -2059,7 +2059,7 @@ async function buildPromptContent(
 			textParts.push(`[片段: ${a.name}]\n${a.content}`);
 		} else if (a.kind === "image") {
 			const ref = a.path.replace(/\\/g, "/");
-			fileRefs.push(`@${ref}`);
+			fileRefs.push(`path:${ref}`);
 			// 图片同时作为多模态 content part 发给 pi：
 			// - 单张超过 MAX_IMAGE_INLINE_BYTES（对齐业界最严 Anthropic 5MB base64）→ 不内联
 			// - 累计超过 MAX_TOTAL_IMAGE_INLINE_BYTES → 超出部分不内联
@@ -2078,7 +2078,7 @@ async function buildPromptContent(
 			}
 		} else {
 			const ref = a.path.replace(/\\/g, "/");
-			fileRefs.push(`@${ref}`);
+			fileRefs.push(`path:${ref}`);
 		}
 	}
 

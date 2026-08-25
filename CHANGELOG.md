@@ -27,10 +27,11 @@
 
 ## 2026-08-24 — fix(kernel): 上传附件发给 AI 的路径改为绝对路径（不再用项目相对路径）
 
-- 背景：上传附件存盘时本就用绝对路径（`.wa-pi/uploads` 是绝对路径下子目录），但发 prompt 前 `buildPromptContent()` 用 `path.relative(handle.cwd, a.path)` 把绝对路径改写成项目相对路径（`@.wa-pi/uploads/xxx`）。该相对引用依赖 AI（pi 进程）以 `handle.cwd` 为基准解析——一旦 AI 中途 cd、附件在项目外（`@../Desktop/xxx`）、跨盘符或解析基准不一致，AI 就找不到文件（用户反馈“AI 经常找不到位置”）。回归自 commit `e5c74cba`。
-- 修复：`buildPromptContent()` 去掉 `relative(cwd, a.path)` 改写，直接发**绝对路径** `@引用`（统一正斜杠），不再依赖 cwd 解析。同时移除 `node:path` 的 `relative` 导入。
-- 验证：更新 `agent-manager.test.ts` / `composer-attachments.test.ts` 中断言（从 basename 改为完整绝对路径引用），改动前 1 个失败（图片累计超限回退），修复后 123 pass 0 fail；kernel 类型检查干净。
-- 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/composer-attachments.test.ts`。
+- 背景：上传附件存盘时本就用绝对路径（`.wa-pi/uploads` 是绝对路径下子目录），但发 prompt 前 `buildPromptContent()` 用 `path.relative(handle.cwd, a.path)` 把绝对路径改写成项目相对路径（`.wa-pi/uploads/xxx`）。该相对引用依赖 AI（pi 进程）以 `handle.cwd` 为基准解析——一旦 AI 中途 cd、附件在项目外（`../Desktop/xxx`）、跨盘符或解析基准不一致，AI 就找不到文件（用户反馈“AI 经常找不到位置”）。回归自 commit `e5c74cba`。
+- 修复：`buildPromptContent()` 去掉 `relative(cwd, a.path)` 改写，直接发**绝对路径** `path:` 引用（统一全正斜杠），不再依赖 cwd 解析。同时移除 `node:path` 的 `relative` 导入。**前端文件树拖拽到输入框的插入文本同步改为 `path:绝对路径`**（`ExplorerPanel.startDrag` 的 `wa-pi:insert-mention` 事件），与 kernel 引用格式保持一致。
+- Windows 兼容：路径用 `replace(/\\/g, "/")` 归一，Windows 绝对路径 `C:\Users\...` 转为 `C:/Users/...` 全正斜杠（跨平台可解析）；测试断言同步用正斜杠归一，保证 Windows 上也能通过。
+- 验证：更新 `agent-manager.test.ts` / `composer-attachments.test.ts` 中断言（从 basename 改为完整绝对路径 `path:` 引用），改动前 1 个失败（图片累计超限回退），修复后两个测试文件 124 pass 0 fail；kernel 类型检查干净；前端 MessageList/AttachmentChip/Composer 相关 105 pass 0 fail，ExplorerPanel 相关 21 pass 0 fail。
+- 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/composer-attachments.test.ts`、`packages/frontend/src/components/ExplorerPanel.tsx`。
 
 ## 2026-08-24 — v0.2.22 补丁发版（关于页内核版本显示修复 + Windows bash 检测修复 + 内核独立发布）
 
