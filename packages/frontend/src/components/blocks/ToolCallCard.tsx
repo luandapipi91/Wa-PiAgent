@@ -5,6 +5,7 @@ import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
 import { Linkify } from "./linkify";
 import { useTranslation } from "../../i18n/useTranslation";
+import { useUiPrefsStore } from "../../store/ui-prefs";
 import { Icon } from "../ui/Icon";
 
 /** 格式化工具调用参数 — 截断长值避免撑爆 UI（自 MessageList 迁入） */
@@ -71,8 +72,7 @@ function AutoScrollPre({ text }: { text: string }) {
 			onScroll={() => {
 				const el = ref.current;
 				if (el)
-					stickRef.current =
-						el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+					stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
 			}}
 			className={CODE_BLOCK_CLS}
 		>
@@ -201,10 +201,14 @@ export function ToolCallCard({
 	result?: ToolResultMessage;
 	isStreaming?: boolean;
 }) {
+	const collapseProcessByDefault = useUiPrefsStore(
+		(s) => s.collapseProcessByDefault,
+	);
 	const { open, toggle } = useAutoCollapse({
 		isStreaming,
 		isDone: !!result,
 		executingMode: true,
+		defaultCollapsed: collapseProcessByDefault,
 	});
 	const { t } = useTranslation();
 	const failed = !!result?.isError;
@@ -306,10 +310,14 @@ function ToolGroupCardInner({
 		const r = results.get(tc.id);
 		return r && r.isError;
 	}).length;
+	const collapseProcessByDefault = useUiPrefsStore(
+		(s) => s.collapseProcessByDefault,
+	);
 	const { open, toggle } = useAutoCollapse({
 		isStreaming,
 		isDone: doneCount === total,
 		executingMode: true,
+		defaultCollapsed: collapseProcessByDefault,
 	});
 	const { t } = useTranslation();
 

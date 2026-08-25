@@ -48,6 +48,10 @@ interface UiPrefsState {
 	/** 向导设置的默认智能体（displayName），null = 未设置 */
 	defaultAgent: string | null;
 	setDefaultAgent: (name: string | null) => void;
+	/** agent 回复过程中工具调用 / 思维链默认不展开（折叠），仅影响 Thinking/ToolCall 卡片，
+	 *  默认 true；用户仍可手动展开单个卡片。 */
+	collapseProcessByDefault: boolean;
+	setCollapseProcessByDefault: (v: boolean) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
@@ -73,6 +77,9 @@ export const AUTO_LAUNCH_DEFAULT = true;
 
 export const THEME_MODE_DEFAULT: ThemeMode = "system";
 export const THEME_COLOR_DEFAULT: ThemeColor = "green";
+
+/** 回复过程默认折叠：agent 回复过程中工具调用 / 思维链默认不展开（折叠）。 */
+export const COLLAPSE_PROCESS_DEFAULT = true;
 
 const STORAGE_KEY = "wa-pi-ui-prefs";
 
@@ -161,6 +168,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			},
 			defaultAgent: null,
 			setDefaultAgent: (name) => set({ defaultAgent: name }),
+			collapseProcessByDefault: COLLAPSE_PROCESS_DEFAULT,
+			setCollapseProcessByDefault: (v) => set({ collapseProcessByDefault: v }),
 		}),
 		{
 			name: STORAGE_KEY,

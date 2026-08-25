@@ -50,11 +50,11 @@ function el(
 }
 
 test("buildSelector：无 id 逐层 nth-of-type 回溯到根", () => {
-const p1 = el("p");
-const p2 = el("p");
-const div = el("div", { children: [p1, p2] });
-const body = el("body", { children: [div] });
-el("html", { children: [body] });
+	const p1 = el("p");
+	const p2 = el("p");
+	const div = el("div", { children: [p1, p2] });
+	const body = el("body", { children: [div] });
+	el("html", { children: [body] });
 	expect(buildSelector(p2)).toBe(
 		"html > body:nth-of-type(1) > div:nth-of-type(1) > p:nth-of-type(2)",
 	);
@@ -157,7 +157,12 @@ test("elLabel：无 id/testid/role 时回退到 aria-label", () => {
 test("elLabel：无语义时回退到类名 / 裸标签", () => {
 	const { elLabel } = require("../src/assets/preview-inspect.js");
 	expect(
-		elLabel({ tagName: "DIV", id: "", classList: ["a"], getAttribute: () => null }),
+		elLabel({
+			tagName: "DIV",
+			id: "",
+			classList: ["a"],
+			getAttribute: () => null,
+		}),
 	).toBe("div.a");
 	expect(
 		elLabel({

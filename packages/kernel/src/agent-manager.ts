@@ -43,7 +43,7 @@ import {
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
-import { relative, join, extname } from "node:path";
+import { join, extname } from "node:path";
 import {
 	mkdir,
 	writeFile,
@@ -1404,12 +1404,11 @@ export class AgentManager {
 			handle.currentThinking = opts.thinking;
 		}
 
-		// 构建最终 prompt 文本：snippet 直接内联，文件统一用 @相对路径 引用，
+		// 构建最终 prompt 文本：snippet 直接内联，文件统一用绝对路径 @引用（不依赖 cwd 解析），
 		// 图片额外读取为 ImageContent（多模态），随 prompt 一起发给 pi。
 		const { text: finalText, images } = await buildPromptContent(
 			text,
 			opts?.attachments ?? [],
-			handle.cwd,
 		);
 
 		if (handle.busy) {
@@ -1512,6 +1511,13 @@ export class AgentManager {
 		}
 		handle.busy = false;
 		handle.thinkingSince = null;
+		// abort RPC 成功返回时 pi 不一定广播 agent_settled（如 agent 已 idle 时
+		// session.abort() 的 waitForIdle 立即返回，_emitAgentSettled 不触发）。
+		// 前端退出思考态靠 agent_end/agent_settled 事件，此处合成 agent_end 兜底，
+		// 否则停止成功后前端永远卡在「思考中」。超时强杀路径已在上方广播，此分支补。
+		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+			type: "agent_end",
+		});
 		console.log(`[agent-manager] abort DONE session=${sessionId}`);
 	}
 
@@ -2033,7 +2039,7 @@ async function readImageContent(
 	}
 }
 
-/** 构建 prompt 最终文本。snippet 直接内联；文件统一用项目相对路径 @引用；图片额外读取为 ImageContent 供多模态发送。 */
+/** 构建 prompt 最终文本。snippet 直接内联；文件统一用绝对路径 @引用（不依赖 cwd 解析）；图片额外读取为 ImageContent 供多模态发送。 */
 interface PromptContent {
 	text: string;
 	images: ImageContent[];
@@ -2042,7 +2048,6 @@ interface PromptContent {
 async function buildPromptContent(
 	text: string,
 	attachments: AttachmentRef[],
-	cwd?: string,
 ): Promise<PromptContent> {
 	const textParts: string[] = [];
 	const fileRefs: string[] = [];
@@ -2053,8 +2058,8 @@ async function buildPromptContent(
 		if (a.kind === "snippet") {
 			textParts.push(`[片段: ${a.name}]\n${a.content}`);
 		} else if (a.kind === "image") {
-			const rel = cwd ? relative(cwd, a.path).replace(/\\/g, "/") : a.path;
-			fileRefs.push(`@${rel}`);
+			const ref = a.path.replace(/\\/g, "/");
+			fileRefs.push(`@${ref}`);
 			// 图片同时作为多模态 content part 发给 pi：
 			// - 单张超过 MAX_IMAGE_INLINE_BYTES（对齐业界最严 Anthropic 5MB base64）→ 不内联
 			// - 累计超过 MAX_TOTAL_IMAGE_INLINE_BYTES → 超出部分不内联
@@ -2072,8 +2077,8 @@ async function buildPromptContent(
 				}
 			}
 		} else {
-			const rel = cwd ? relative(cwd, a.path).replace(/\\/g, "/") : a.path;
-			fileRefs.push(`@${rel}`);
+			const ref = a.path.replace(/\\/g, "/");
+			fileRefs.push(`@${ref}`);
 		}
 	}
 

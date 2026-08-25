@@ -10,6 +10,7 @@ import { VirtuosoMockContext } from "react-virtuoso";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useSkillsStore } from "../src/store/skills";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 // 重新发送等交互会触发 api.post（真实 fetch），happy-dom 在 about:blank 下对相对 URL
 // 抛 NotSupportedError。mock 掉 api-client，返回空数据。
@@ -42,6 +43,9 @@ beforeEach(() => {
 	useProvidersStore.setState({ providers: [] });
 	useComposerPrefsStore.setState({ bySession: {} });
 	useToastStore.setState({ toasts: [] });
+	// 本文件专注于验证卡片内容 / 轮级摘要渲染逻辑，基线为「回复过程折叠开关关闭」（展开），
+	// 与折叠开关本身的行为隔离；新开关行为由 store-ui-prefs-collapse / useAutoCollapse 测试覆盖。
+	useUiPrefsStore.setState({ collapseProcessByDefault: false });
 });
 
 // 构造助手消息的便捷工厂：AssistantMessage 需要 content/model/stopReason/timestamp 完整字段

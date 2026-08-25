@@ -633,7 +633,7 @@ test("prompt — 图片附件转为 ImageContent 并经 client.prompt(text, { im
 	const text = fakes[0].prompted[0];
 	expect(text).toContain("描述这张图");
 	expect(text).toContain("Attachments:");
-	expect(text).toMatch(/@wa-pi-img-\d+\.png/);
+	expect(text).toContain(`@${imgPath}`);
 	// 图片必须真正发给 pi：作为 ImageContent 传给 client.prompt(text, { images })
 	expect(fakes[0].promptImages).toHaveLength(1);
 	expect(fakes[0].promptImages[0]).toEqual([
@@ -682,7 +682,7 @@ test("prompt — 单张图片超过 3.5MB 上限回退为附件，不内联", as
 
 	expect(fakes[0].prompted).toHaveLength(1);
 	// 文本引用保留，但 images 为空（不内联）
-	expect(fakes[0].prompted[0]).toContain("@wa-pi-img-oversize");
+	expect(fakes[0].prompted[0]).toContain(`@${imgPath}`);
 	expect(fakes[0].promptImages[0]).toEqual([]);
 });
 
@@ -716,7 +716,7 @@ test("prompt — 超过 3.5MB 但 ≤30MB 的真实图片用 bun:image 压缩为
 
 	expect(fakes[0].prompted).toHaveLength(1);
 	// 文本仍保留 @路径 引用
-	expect(fakes[0].prompted[0]).toContain("@wa-pi-img-compress");
+	expect(fakes[0].prompted[0]).toContain(`@${imgPath}`);
 	// 图片被压缩为 webp 内联（mimeType 变为 image/webp，data 为 base64）
 	expect(fakes[0].promptImages[0]).toHaveLength(1);
 	const img = fakes[0].promptImages[0][0];
@@ -747,7 +747,7 @@ test("prompt — 超过 30MB 的图片直接降级为附件，不做无谓压缩
 	});
 
 	expect(fakes[0].prompted).toHaveLength(1);
-	expect(fakes[0].prompted[0]).toContain("@wa-pi-img-huge");
+	expect(fakes[0].prompted[0]).toContain(`@${imgPath}`);
 	// 直接降级：images 为空
 	expect(fakes[0].promptImages[0]).toEqual([]);
 });
@@ -781,7 +781,7 @@ test("prompt — 图片累计大小超过上限时，超出部分回退为附件
 	// 4 张图全部保留 @路径 文本引用（无论是否内联）
 	const text = fakes[0].prompted[0];
 	for (const p of paths) {
-		expect(text).toMatch(new RegExp(`@${p.split("/").pop()}`));
+		expect(text).toContain(`@${p}`);
 	}
 	// 前三张（9MB ≤ 10MB）内联为 ImageContent，第四张超累计上限回退为附件
 	expect(fakes[0].promptImages[0]).toHaveLength(3);
@@ -2587,4 +2587,26 @@ test("移除回合看门狗：busy 后无任何事件不再强杀主代理（主
 	await new Promise((r) => setTimeout(r, 400));
 	expect(fake.alive).toBe(true); // 主代理不被看门狗强杀
 	fake.emit({ type: "agent_settled" } as any);
+});
+
+test("abort 成功返回后广播 agent_end（前端退出思考态兜底）", async () => {
+	// 复现「点击停止后前端永远思考中」：abort RPC 立即成功返回（不 hang），
+	// 但 pi 侧不再广播 agent_settled。前端退出 thinking 只能靠额外的 agent_end。
+	const received: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events: received });
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	// 模拟正在跑的一轮（agent_start 已置位 thinkingSince，busy=true）
+	await am.prompt(session.id, "进行中", { model: MODEL });
+	fake.emit({ type: "agent_start" } as any);
+	// 清掉此前 prompt 可能产生的记录，聚焦 abort 之后的广播
+	received.length = 0;
+
+	await am.abort(session.id);
+	expect(fake.aborts).toBe(1);
+
+	// abort 成功后必须合成 agent_end 让前端退出思考态
+	const types = received.map((r) => r.e?.type);
+	expect(types).toContain("agent_end");
 });

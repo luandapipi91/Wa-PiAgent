@@ -774,6 +774,11 @@ const zh = {
 				desc:
 					"拖动滑块调整文字大小（{{min}}-{{max}}px），只缩放文字、不改变布局，即时生效。",
 			},
+			collapseProcess: {
+				label: "回复过程默认折叠",
+				desc:
+					"开启后，agent 回复过程中工具调用和思维链默认不展开（折叠），仍然可手动展开查看。",
+			},
 		},
 		diagnostics: {
 			title: "扩展错误（最近 {{count}} 条）",

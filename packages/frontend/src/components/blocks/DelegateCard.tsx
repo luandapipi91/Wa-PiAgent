@@ -5,6 +5,7 @@ import { useAutoCollapse } from "./useAutoCollapse";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 import { useSessionStore } from "../../store/session";
+import { useUiPrefsStore } from "../../store/ui-prefs";
 import { useLiveElapsed } from "./useLiveElapsed";
 import { StreamingOutput } from "./StreamingOutput";
 
@@ -32,10 +33,14 @@ export const DelegateCard = memo(function DelegateCard({
 		if (status === "done") return t("common.statusDone");
 		return t("common.statusError");
 	};
+	const collapseProcessByDefault = useUiPrefsStore(
+		(s) => s.collapseProcessByDefault,
+	);
 	const { open: autoOpen } = useAutoCollapse({
 		isStreaming,
 		isDone: !!result,
 		executingMode: true,
+		defaultCollapsed: collapseProcessByDefault,
 	});
 
 	// 子代理进度：Task 8 为二级 map（[toolCallId][agent]），delegate 单 agent 取内层首项。
@@ -52,11 +57,20 @@ export const DelegateCard = memo(function DelegateCard({
 	const [progressExpanded, setProgressExpanded] = useState(false);
 	const [cardOpen, setCardOpen] = useState<boolean | null>(null);
 	const hasProgress = !!progress;
-	const open = cardOpen ?? (hasProgress ? true : autoOpen);
+	// 开启「回复过程默认折叠」后，即使有实时进度也默认折叠（用户可手动展开）；
+	// 关闭时保持原行为：有进度默认展开、否则跟随 autoCollapse。
+	const open =
+		cardOpen ??
+		(collapseProcessByDefault ? autoOpen : hasProgress ? true : autoOpen);
 	// 头部点击统一记录用户选择（不再区分有无 progress，折叠状态单一来源）。
 	// null 时基于当前显示的 open 取反：执行中默认展开→点击折叠；完成态默认折叠→点击展开。
 	const handleToggle = () =>
-		setCardOpen((v) => !(v ?? (hasProgress ? true : autoOpen)));
+		setCardOpen(
+			(v) =>
+				!(
+					v ?? (collapseProcessByDefault ? autoOpen : hasProgress ? true : autoOpen)
+				),
+		);
 
 	const failed = !!result?.isError;
 	const full =
@@ -110,11 +124,7 @@ export const DelegateCard = memo(function DelegateCard({
 			testId={`delegate-${toolCall.id}`}
 		>
 			<div className="mb-1 flex items-start gap-1">
-				<Icon
-					name="clipboard"
-					size={12}
-					style={{ marginTop: 2, flexShrink: 0 }}
-				/>
+				<Icon name="clipboard" size={12} style={{ marginTop: 2, flexShrink: 0 }} />
 				<span>
 					{t("blocks.delegate.taskLabel")}
 					{args.task}
@@ -149,9 +159,7 @@ export const DelegateCard = memo(function DelegateCard({
 					{result ? (
 						<button
 							type="button"
-							aria-label={
-								progressExpanded ? t("common.collapse") : t("common.expand")
-							}
+							aria-label={progressExpanded ? t("common.collapse") : t("common.expand")}
 							onClick={() => setProgressExpanded((v) => !v)}
 							className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-tertiary py-1"
 							style={{ cursor: "pointer" }}

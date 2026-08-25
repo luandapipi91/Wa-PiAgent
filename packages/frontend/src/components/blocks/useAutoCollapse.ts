@@ -10,18 +10,22 @@ import { useCallback, useState } from "react";
  * 流式展开时第一次点击会把用户态置为展开（open 仍为 true），要点两次才折叠。
  */
 export function useAutoCollapse(opts: {
-  isStreaming?: boolean;
-  isDone: boolean;
-  /** 为 true 时自动展开时机从「流式中」改为「执行中（未完成即展开）」 */
-  executingMode?: boolean;
+ isStreaming?: boolean;
+ isDone: boolean;
+ /** 为 true 时自动展开时机从「流式中」改为「执行中（未完成即展开）」 */
+ executingMode?: boolean;
+ /** 为 true 时强制默认折叠（回复过程默认不展开），用户仍可手动展开 */
+ defaultCollapsed?: boolean;
 }): { open: boolean; toggle: () => void } {
-  const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const autoOpen = opts.executingMode
+ const [userOpen, setUserOpen] = useState<boolean | null>(null);
+ const autoOpen = opts.defaultCollapsed
+  ? false
+  : opts.executingMode
     ? !opts.isDone
-    : (!!opts.isStreaming && !opts.isDone);
-  const open = userOpen ?? autoOpen;
-  const toggle = useCallback(() => {
-    setUserOpen(!open);
-  }, [open]);
-  return { open, toggle };
+    : !!opts.isStreaming && !opts.isDone;
+ const open = userOpen ?? autoOpen;
+ const toggle = useCallback(() => {
+  setUserOpen(!open);
+ }, [open]);
+ return { open, toggle };
 }
