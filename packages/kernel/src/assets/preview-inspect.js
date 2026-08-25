@@ -63,7 +63,7 @@
 
 	try {
 		init();
-	} catch (e) {
+	} catch {
 		/* 静默降级：inspect 失败不影响页面 */
 	}
 
@@ -142,7 +142,7 @@
 					{ type: "hiagent:inspect:changed", enabled: !v },
 					"*",
 				);
-			} catch (e) {
+			} catch {
 				/* 忽略 */
 			}
 		}
@@ -158,10 +158,16 @@
 				tip.style.display = "none";
 				return;
 			}
-			if (!current || !current.getBoundingClientRect) {
+			if (!current || !current.isConnected || !current.getBoundingClientRect) {
+				// 锁定元素已脱离文档：解除锁定并隐藏高亮（不卡死/悬空）
+				if (pinned && current && !current.isConnected) {
+					pinned = false;
+					current = null;
+				}
 				hl.style.display = "none";
 				bar.style.display = "none";
 				tip.style.display = "none";
+				btnLock.style.display = "none";
 				return;
 			}
 			var r = current.getBoundingClientRect();
@@ -179,7 +185,8 @@
 			tip.style.display = "flex";
 			tip.style.left = x + "px";
 			tip.style.top = y + r.height + 6 + "px";
-			label.textContent = displayLabel(current);
+			var disp = displayLabel(current);
+			if (label.textContent !== disp) label.textContent = disp;
 			// 锁图标：锁定态显示，否则隐藏
 			btnLock.style.display = pinned ? "inline-block" : "none";
 		}
@@ -236,6 +243,7 @@
 					pinned = true;
 					current = t;
 					render();
+					startFollow();
 					e.preventDefault();
 				}
 			},
@@ -263,8 +271,24 @@
 		// 主动查询父：读取当前持久化的开关状态（关闭则本次预览直接禁用）
 		try {
 			window.parent.postMessage({ type: "hiagent:inspect:query" }, "*");
-		} catch (e) {
+		} catch {
 			/* 忽略 */
+		}
+		// 锁定元素时用 rAF 循环持续跟随：元素移动/伸缩/被移除都能让高亮框及时更新，
+		// 不卡死（停在旧位置）也不悬空（元素没了仍显示）。元素脱离文档由 render 的
+		// isConnected 检测负责隐藏并解除锁定，tick 下一帧即自停。
+		var rafId = null;
+		function startFollow() {
+			if (rafId) return;
+			var tick = function () {
+				if (disabled || !pinned) {
+					rafId = null;
+					return;
+				}
+				render();
+				rafId = requestAnimationFrame(tick);
+			};
+			rafId = requestAnimationFrame(tick);
 		}
 
 		function onBtn(e) {
