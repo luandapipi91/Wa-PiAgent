@@ -55,3 +55,17 @@ test("void 元素（img）自身起止同行", () => {
 		endLine: 3,
 	});
 });
+
+test("按 data-testid 段定位", () => {
+	const html = ["<html>", "<body>", '<button data-testid="submit">Go</button>', "</body>", "</html>"].join("\n");
+	expect(
+		locateElement(html, 'html > body:nth-of-type(1) > button[data-testid="submit"]'),
+	).toEqual({ startLine: 3, endLine: 3 });
+});
+
+test("按 role 段定位", () => {
+	const html = ["<html>", "<body>", '<input role="textbox">', "</body>", "</html>"].join("\n");
+	expect(
+		locateElement(html, 'html > body:nth-of-type(1) > input[role="textbox"]'),
+	).toEqual({ startLine: 3, endLine: 3 });
+});

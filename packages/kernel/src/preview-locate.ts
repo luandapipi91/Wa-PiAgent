@@ -2,7 +2,8 @@
  * 静态解析 html，按 selector（" > " 路径，段为 tag / tag#id / tag:nth-of-type(n)）
  * 定位元素在源文件中的起止行号。不执行页面：JS 动态生成的元素定位不到，返回 null。
  * 段生成规则与前端 inspect 脚本 buildSelector 严格一致：
- * - 有 id → `tag#id`；否则 → `tag:nth-of-type(n)`（n 为同标签兄弟序号，从 1 起）
+ * - 有 id → `tag#id`；有 data-testid → `tag[data-testid="v"]`；有 role → `tag[role="v"]`；
+ *   否则 → `tag:nth-of-type(n)`（n 为同标签兄弟序号，从 1 起）
  * - 根元素（无父级，即 <html>）→ 裸 tag（body 有父元素，不特判，用 nth 形式）
  *
  * 已知限制（V1 接受，不补规则）：浏览器会隐式闭合的 HTML（如 `<p>one<p>two`、
@@ -93,11 +94,21 @@ export function locateElement(
 
 		const attrs = m[3] ?? "";
 		const id = /\bid\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
+		const testid = /\bdata-testid\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
+		const role = /\brole\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
 		const parentCounts = stack.length > 0 ? stack[stack.length - 1].counts : rootCounts;
 		const nth = (parentCounts.get(tag) ?? 0) + 1;
 		parentCounts.set(tag, nth);
 		const seg =
-			stack.length === 0 ? tag : id ? `${tag}#${id}` : `${tag}:nth-of-type(${nth})`;
+			stack.length === 0
+				? tag
+				: id
+					? `${tag}#${id}`
+					: testid
+						? `${tag}[data-testid="${testid}"]`
+						: role
+							? `${tag}[role="${role}"]`
+							: `${tag}:nth-of-type(${nth})`;
 		const parentPath = stack.length > 0 ? stack[stack.length - 1].rec.path : [];
 		const rec: ElRecord = { path: [...parentPath, seg], startLine: line, endLine: line };
 		records.push(rec);

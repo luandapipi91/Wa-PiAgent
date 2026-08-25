@@ -23,7 +23,7 @@ test("注入：</HEAD> 大小写不敏感", () => {
 // ── buildSelector（fake DOM：仅需 tagName/id/parentElement/children）──
 function el(
 	tag: string,
-	opts: { id?: string; children?: any[]; classes?: string[] } = {},
+	opts: { id?: string; children?: any[]; classes?: string[]; attrs?: Record<string, string> } = {},
 ): any {
 	const node: any = {
 		tagName: tag.toUpperCase(),
@@ -31,6 +31,7 @@ function el(
 		classList: opts.classes ?? [],
 		children: opts.children ?? [],
 		parentElement: null,
+		getAttribute: (name: string) => opts.attrs?.[name] ?? null,
 	};
 	for (const c of node.children) c.parentElement = node;
 	return node;
@@ -60,4 +61,21 @@ test("displayLabel：有 id 用 tag#id，否则 tag.类名（最多 3 个）", (
 	expect(displayLabel({ tagName: "DIV", id: "card", classList: ["a"] })).toBe("div#card");
 	expect(displayLabel({ tagName: "P", id: "", classList: ["x", "y", "z", "w"] })).toBe("p.x.y.z");
 	expect(displayLabel({ tagName: "SPAN", id: "", classList: [] })).toBe("span");
+});
+
+test("buildSelector：有 data-testid 用 tag[data-testid]", () => {
+	const btn = el("button", { attrs: { "data-testid": "submit" } });
+	const div = el("div", { children: [btn] });
+	const body = el("body", { children: [div] });
+	el("html", { children: [body] });
+	expect(buildSelector(btn)).toBe(
+		'html > body:nth-of-type(1) > div:nth-of-type(1) > button[data-testid="submit"]',
+	);
+});
+
+test("elLabel：语义标签 id/data-testid/role 优先", () => {
+	const { elLabel } = require("../src/assets/preview-inspect.js");
+	expect(elLabel({ tagName: "BUTTON", id: "submit", classList: [], getAttribute: () => null })).toBe("button#submit");
+	expect(elLabel({ tagName: "DIV", id: "", classList: [], getAttribute: (n: string) => (n === "data-testid" ? "card" : null) })).toBe("div[data-testid=card]");
+	expect(elLabel({ tagName: "INPUT", id: "", classList: [], getAttribute: (n: string) => (n === "role" ? "textbox" : null) })).toBe("input[role=textbox]");
 });
