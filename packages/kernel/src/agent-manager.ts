@@ -109,6 +109,7 @@ import {
 	loadPromptSegments,
 	ensureImChannelSegment,
 	ensureImPushSegment,
+	ensureScheduledTasksSegment,
 	DEFAULT_PROMPT_SEGMENTS,
 	DEFAULT_MEMORY_POLICY_PROMPT,
 	COMPACT_MEMORY_POLICY_PROMPT,
@@ -279,6 +280,8 @@ export class AgentManager {
 		);
 		// im-push 段同样不落盘，运行时补回（im-channel 之后、memory-policy 之前）
 		this.promptSegments = ensureImPushSegment(this.promptSegments);
+		// scheduled-tasks 段同样不落盘，运行时补回（memory-policy 之前、im-push 之后）
+		this.promptSegments = ensureScheduledTasksSegment(this.promptSegments);
 		return this.promptSegments;
 	}
 
@@ -888,6 +891,10 @@ export class AgentManager {
 			imPushContext: imPush?.targets?.length
 				? buildImPushSystemPrompt(imPush.targets)
 				: GENERIC_IM_PUSH_PROMPT,
+			// scheduled-tasks 段任务目录：工作目录下存在 .wa-pi/scheduled-tasks/ 时才注入引导，否则段不出现。
+			scheduledTasksDir: existsSync(join(cwd, ".wa-pi", "scheduled-tasks"))
+				? join(cwd, ".wa-pi", "scheduled-tasks")
+				: "",
 		});
 		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });

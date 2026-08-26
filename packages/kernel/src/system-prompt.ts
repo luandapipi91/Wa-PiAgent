@@ -39,6 +39,8 @@ export interface SystemPromptContext {
 	imChannelContext?: string;
 	/** IM 推送目标提示词（定时任务 @im-push-to 标记）：无标记为 undefined/""，段自动消失 */
 	imPushContext?: string;
+	/** scheduled-tasks 段的任务目录路径（目录存在才传；空/undefined 则段不出现） */
+	scheduledTasksDir?: string;
 }
 
 /** env-constraints 段的固定文案前缀（builtinSkillsDir 之后拼接） */
@@ -53,6 +55,7 @@ export const DYNAMIC_SEGMENT_IDS = new Set([
 	"env-constraints",
 	"im-channel",
 	"im-push",
+	"scheduled-tasks",
 	"memory-snapshot",
 	"memory-policy",
 ]);
@@ -163,6 +166,7 @@ export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
 	{ id: "env-constraints" }, // 动态：builtinSkillsDir + ENV_CONSTRAINTS_SUFFIX
 	{ id: "im-channel" }, // 动态：IM 渠道附加提示词（仅渠道会话出现，固定在记忆段之前）
 	{ id: "im-push" }, // 动态：定时任务 IM 推送目标引导（仅带 @im-push-to 标记的任务会话出现）
+	{ id: "scheduled-tasks" }, // 动态：定时任务管理引导（仅工作目录存在 .wa-pi/scheduled-tasks/ 时出现）
 	{ id: "memory-policy" }, // 动态：memoryPolicy（写入策略引导）
 	{ id: "memory-snapshot" }, // 动态：memorySnapshot
 ];
@@ -180,6 +184,12 @@ function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
 	if (seg.id === IM_CHANNEL_SEGMENT_ID) return ctx.imChannelContext ?? "";
 	// im-push 同为运行时注入段（定时任务推送目标引导）：始终取上下文值
 	if (seg.id === IM_PUSH_SEGMENT_ID) return ctx.imPushContext ?? "";
+	// scheduled-tasks 同为运行时注入段（定时任务管理引导）：仅目录存在时注入
+	if (seg.id === SCHEDULED_TASKS_SEGMENT_ID) {
+		return ctx.scheduledTasksDir
+			? `定时任务管理：当前工作目录下有 \`.wa-pi/scheduled-tasks/\` 目录，其中的 README.md 和 cron-task.ts 可帮助你创建、查看和管理定时任务。`
+			: "";
+	}
 
 	// 用户在 prompts.json 里显式写了 content：其余段（含动态段）都允许覆盖
 	if (seg.content && seg.content.length > 0) {
@@ -225,14 +235,18 @@ export function composePrompt(
 /** prompts.json 的 schema 版本。新增段/修改默认文案时递增；ensurePromptsConfig 据此对已存在
  *  文件做迁移——缺失段按最新默认补齐，已存在段 content 保留（含用户自定义，不覆盖）。
  *  v25：im-channel 段改为纯运行时注入，不再写入 prompts.json（保存时剔除，运行时补回）。
- *  v26：新增 im-push 段（定时任务推送目标引导，同样纯运行时注入不落盘）。 */
-export const PROMPTS_SCHEMA_VERSION = 26;
+ *  v26：新增 im-push 段（定时任务推送目标引导，同样纯运行时注入不落盘）。
+ *  v27：新增 scheduled-tasks 段（定时任务管理引导，同样纯运行时注入不落盘）。 */
+export const PROMPTS_SCHEMA_VERSION = 27;
 
 /** im-channel 段 id：IM 渠道附加提示词，运行时注入段——不持久化到 prompts.json */
 export const IM_CHANNEL_SEGMENT_ID = "im-channel";
 
 /** im-push 段 id：定时任务推送目标引导，运行时注入段——不持久化到 prompts.json */
 export const IM_PUSH_SEGMENT_ID = "im-push";
+
+/** scheduled-tasks 段 id：定时任务管理引导，运行时注入段——不持久化到 prompts.json */
+export const SCHEDULED_TASKS_SEGMENT_ID = "scheduled-tasks";
 
 /**
  * 确保段列表含 im-channel 占位段（无 content，运行时由 ctx.imChannelContext 填充）。
@@ -271,6 +285,28 @@ export function ensureImPushSegment(
 		return next;
 	}
 	const seg: PromptSegment = { id: IM_PUSH_SEGMENT_ID };
+	const memIdx = segments.findIndex((s) => s.id === "memory-policy");
+	if (memIdx < 0) return [...segments, seg];
+	return [...segments.slice(0, memIdx), seg, ...segments.slice(memIdx)];
+}
+
+/**
+ * 确保段列表含 scheduled-tasks 占位段（无 content，运行时由 ctx.scheduledTasksDir 填充）。
+ * 该段不写入 prompts.json（savePromptSegments 剔除），运行时加载段列表后需用本函数补回；
+ * 位置固定在 memory-policy 之前（im-push 亦在 memory-policy 前，两者顺序由段数组自然决定）。
+ * 已存在（旧版文件残留）则剥掉持久化的 content。
+ */
+export function ensureScheduledTasksSegment(
+	segments: PromptSegment[],
+): PromptSegment[] {
+	const idx = segments.findIndex((s) => s.id === SCHEDULED_TASKS_SEGMENT_ID);
+	if (idx >= 0) {
+		if (!segments[idx].content) return segments;
+		const next = segments.slice();
+		next[idx] = { id: SCHEDULED_TASKS_SEGMENT_ID };
+		return next;
+	}
+	const seg: PromptSegment = { id: SCHEDULED_TASKS_SEGMENT_ID };
 	const memIdx = segments.findIndex((s) => s.id === "memory-policy");
 	if (memIdx < 0) return [...segments, seg];
 	return [...segments.slice(0, memIdx), seg, ...segments.slice(memIdx)];
@@ -317,7 +353,10 @@ export async function savePromptSegments(
 	const { writeFile, mkdir } = await import("node:fs/promises");
 	const { dirname } = await import("node:path");
 	const persisted = segments.filter(
-		(s) => s.id !== IM_CHANNEL_SEGMENT_ID && s.id !== IM_PUSH_SEGMENT_ID,
+		(s) =>
+			s.id !== IM_CHANNEL_SEGMENT_ID &&
+			s.id !== IM_PUSH_SEGMENT_ID &&
+			s.id !== SCHEDULED_TASKS_SEGMENT_ID,
 	);
 	await mkdir(dirname(filePath), { recursive: true });
 	await writeFile(
