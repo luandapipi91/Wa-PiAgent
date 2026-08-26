@@ -29,11 +29,11 @@ import { ChannelManager } from "./channel-manager";
 import { WecomAdapter } from "./channels/wecom-adapter";
 import { MockAdapter } from "./channels/mock-adapter";
 import { TaskScheduler, resolveTaskModel } from "./scheduler";
-import {
-	appendExecutionRecord,
-	updateExecutionRecord,
-	loadScheduledTasks,
-} from "./scheduler-store";
+import { createFolderTaskStore } from "./scheduler-task-store";
+import { TaskFolderWatcher } from "./scheduler-watcher";
+import { migrateLegacySchedulerFiles } from "./scheduler-migrate";
+import { ensureScheduledTasksAssets } from "./scheduler-assets";
+import { buildSchedulerProjects } from "./scheduler-projects";
 import { parseImPushMentions, createImPushTool } from "./tools/robot-push";
 import type { ImPushInjection } from "./agent-manager";
 import { expandSkillTokens } from "./channels/skill-expand";
@@ -47,6 +47,7 @@ import {
 	SUBAGENT_OVERRIDES_FILE,
 	SCHEDULED_TASKS_FILE,
 	EXECUTION_RECORDS_FILE,
+	KERNEL_INFO_FILE,
 	assertBunVersionOrExit,
 	ensureBunBeBunEnv,
 } from "@wa-pi/shared";
@@ -368,17 +369,50 @@ export async function startKernel(opts?: {
 	await server.start();
 	console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);
 
+	// kernel 信息文件：CLI 据此发现运行中的 kernel（端口/pid/启动时间）
+	await writeFile(
+		KERNEL_INFO_FILE,
+		JSON.stringify(
+			{ port: server.actualPort, pid: process.pid, startedAt: Date.now() },
+			null,
+			2,
+		),
+		"utf8",
+	);
+
 	// 启动全部 enabled 渠道（无渠道时 ChannelManager.start() 空转不报错）。
 	// 放在 server.start() 之后：渠道进站会触发 ensureStarted/broadcast，HTTP 已就绪。
 	await channelManager.start();
 
-	// —— 定时任务调度器 ——
-	// 在 agentManager/channelManager 就绪后创建：executeTask 闭包依赖它们。
-	// scheduler 实例注入 ws-server 后，REST 路由的 onRunNow/onTaskChanged 回调生效。
+	// —— 定时任务：文件夹存储 + watcher 热加载 ——
+	const schedulerProjectsProvider = () =>
+		buildSchedulerProjects(async () => (await projectStore.load()).projects);
+	const taskStore = createFolderTaskStore({ projectsProvider: schedulerProjectsProvider });
+
+	// 旧 JSON 一次性迁移（幂等，无旧文件 no-op）
+	// 迁移在启动时执行：先一次性取出项目列表，resolveProject 同步查表（不再次读盘）
+	const legacyProjectById = new Map(
+		(await projectStore.load()).projects.map((p) => [p.id, p] as const),
+	);
+	const legacySysProject = { id: SYSTEM_PROJECT_ID, cwd: SYSTEM_PROJECT_CWD };
+	const { migrated: legacyMigrated } = await migrateLegacySchedulerFiles({
+		legacyTasksFile: SCHEDULED_TASKS_FILE,
+		legacyRecordsFile: EXECUTION_RECORDS_FILE,
+		resolveProject: (projectId?: string) => {
+			const p = projectId ? legacyProjectById.get(projectId) : undefined;
+			return p ? { id: p.id, cwd: p.cwd } : legacySysProject; // 查不到的项目回退默认工作区
+		},
+	});
+	if (legacyMigrated > 0)
+		console.log(`[kernel] 已迁移 ${legacyMigrated} 个旧定时任务到项目文件夹`);
+
+	// 确保各项目任务目录 + CLI/README 资产（Task 7 的 ensureScheduledTasksAssets）
+	for (const p of await schedulerProjectsProvider()) {
+		await ensureScheduledTasksAssets(p.cwd);
+	}
+
 	const scheduler = new TaskScheduler({
-		// 过渡接线（Task 6 切换为 FolderTaskStore.listAll）：SchedulerDeps 已改为
-		// loadTasks 注入，这里暂从旧 JSON 文件加载，保持迁移期调度行为不变
-		loadTasks: () => loadScheduledTasks(SCHEDULED_TASKS_FILE),
+		loadTasks: async () => (await taskStore.listAll()).tasks,
 		dataDir: WA_PI_DIR,
 		broadcast: (event) => broadcast(event as WSServerEvent),
 		executeTask: async (task: ScheduledTask): Promise<ExecutionRecord> => {
@@ -390,7 +424,7 @@ export async function startKernel(opts?: {
 				status: "running",
 				startedAt: Date.now(),
 			};
-			await appendExecutionRecord(EXECUTION_RECORDS_FILE, record);
+			await taskStore.appendRecord(task.projectId ?? SYSTEM_PROJECT_ID, task.id, record);
 			broadcast({
 				type: "scheduled-tasks:changed",
 			} as WSServerEvent);
@@ -515,14 +549,57 @@ export async function startKernel(opts?: {
 				record.error = err instanceof Error ? err.message : String(err);
 			}
 
-			// 更新执行记录（覆盖 running 态的初始记录）
-			await updateExecutionRecord(EXECUTION_RECORDS_FILE, record);
+			// 更新执行记录（覆盖 running 态的初始记录）—— append-only + 读取去重即完成回写
+			await taskStore.appendRecord(task.projectId ?? SYSTEM_PROJECT_ID, task.id, record);
 			return record;
 		},
 	});
+
+	// watcher：外部（CLI/agent 手改）文件变化 → 热生效 + 广播
+	const watcher = new TaskFolderWatcher({
+		store: taskStore,
+		projectsProvider: schedulerProjectsProvider,
+		applyTasks: (tasks, errors) => {
+			// 全量对账：新/改 → scheduleTask；消失 → cancelTask（TaskScheduler 内部幂等）
+			const ids = new Set(tasks.map((t) => t.id));
+			for (const t of tasks) {
+				try {
+					scheduler.scheduleTask(t);
+				} catch (err) {
+					broadcast({
+						type: "scheduled-task:error",
+						taskId: t.id,
+						error: String(err),
+					} as WSServerEvent);
+				}
+			}
+			for (const oldId of scheduler.scheduledIds()) {
+				if (!ids.has(oldId)) scheduler.cancelTask(oldId);
+			}
+			for (const e of errors) {
+				broadcast({
+					type: "scheduled-task:error",
+					taskId: e.taskId,
+					error: e.error,
+				} as WSServerEvent);
+			}
+			broadcast({ type: "scheduled-tasks:changed" } as WSServerEvent);
+		},
+	});
+	await watcher.start();
+	server.setSchedulerStore(taskStore);
 	server.setScheduler(scheduler);
 	await scheduler.start();
 	console.log("[kernel] 定时任务调度器已启动");
+
+	// 项目增删兜底对账：60s 一次同步 watcher 的项目集合与资产分发
+	setInterval(() => {
+		void watcher.syncProjects().then(async () => {
+			for (const p of await schedulerProjectsProvider()) {
+				await ensureScheduledTasksAssets(p.cwd);
+			}
+		});
+	}, 60_000);
 
 	// 空闲会话子进程回收：每 30s 扫描，回收 lastActivity 超过 1 分钟且非 busy 的会话进程。
 	// dispose 只杀进程、保留会话记录与 jsonl 历史，用户再点开时冷启动恢复。
