@@ -29,7 +29,7 @@ async function stampOf(file: string): Promise<string | null> {
 }
 
 /** 原子写：先写临时文件再 rename，避免分发中断留下半个文件 */
-async function atomicWrite(file: string, content: string): Promise<void> {
+export async function atomicWrite(file: string, content: string): Promise<void> {
 	const tmp = `${file}.tmp-${process.pid}`;
 	await writeFile(tmp, content, "utf8");
 	await rename(tmp, file);
