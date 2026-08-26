@@ -27,7 +27,13 @@ import { kernelBinaryName } from "../packages/kernel/scripts/compile-binary";
 import kernelPkg from "../packages/kernel/package.json" with { type: "json" };
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const KERNEL_DIR = join(REPO_ROOT, "packages", "desktop", "resources", "kernel");
+const KERNEL_DIR = join(
+	REPO_ROOT,
+	"packages",
+	"desktop",
+	"resources",
+	"kernel",
+);
 
 /** 内核版本（packages/kernel/package.json version；非 bun runtime 版本） */
 const KERNEL_VERSION = kernelPkg.version;
@@ -108,7 +114,9 @@ function buildZip(
 	const files = kernelZipEntries(kernelDir, target).map((e) => e.src);
 	for (const f of files) {
 		if (!existsSync(f)) {
-			throw new Error(`缺少 kernel 产物：${f}（请先运行 build-kernel-sidecar.ts）`);
+			throw new Error(
+				`缺少 kernel 产物：${f}（请先运行 build-kernel-sidecar.ts）`,
+			);
 		}
 	}
 	// 用系统 zip（macOS/Linux 自带；Windows 交叉打包在拥有 zip 的环境执行）
@@ -122,8 +130,9 @@ async function main() {
 	const targetArg =
 		process.argv.find((a) => a.startsWith("--target="))?.split("=")[1] ||
 		"darwin";
-	const changelogArg =
-		process.argv.find((a) => a.startsWith("--changelog="))?.split("=")[1];
+	const changelogArg = process.argv
+		.find((a) => a.startsWith("--changelog="))
+		?.split("=")[1];
 	const version = positionals[2];
 	const build = positionals[3] || makeBuild(new Date());
 	if (!version) {
@@ -189,7 +198,9 @@ async function main() {
 	await uploadSmall(client, `${PREFIX}/${manifestFile}`, manifest);
 	console.log(`✓ 已上传 ${PREFIX}/${manifestFile}`);
 
-	console.log(`\n✅ 发布完成: https://oss.wapiagent.top/${PREFIX}/${manifestFile}`);
+	console.log(
+		`\n✅ 发布完成: https://oss.wapiagent.top/${PREFIX}/${manifestFile}`,
+	);
 }
 
 if (import.meta.main) void main();
