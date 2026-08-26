@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/scheduler";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useClampMenu } from "../ProjectItem";
-import type { ScheduledTask, ExecutionStatus } from "@wa-pi/shared";
+import type { ScheduledTask, ExecutionStatus, TaskFileError } from "@wa-pi/shared";
 
 /** 右键菜单打开状态：屏幕坐标 + 目标任务 */
 interface TaskMenuState {
@@ -21,10 +21,12 @@ interface TaskMenuState {
 export function AutomationSidebar() {
 	const {
 		tasks,
+		taskErrors,
 		records,
 		selectedTaskId,
 		selectTask,
 		startCreate,
+		startFixError,
 		loadTasks,
 		loadRecords,
 		deleteTask,
@@ -118,7 +120,7 @@ export function AutomationSidebar() {
 						}}
 					/>
 				))}
-				{tasks.length === 0 && (
+				{tasks.length === 0 && taskErrors.length === 0 && (
 					<div
 						className="text-center py-8 text-xs"
 						style={{ color: "var(--text-tertiary)" }}
@@ -126,6 +128,10 @@ export function AutomationSidebar() {
 						暂无定时任务
 					</div>
 				)}
+				{/* 配置错误条目：解析/校验失败的定时任务文件，点击进入编辑表单修复 */}
+				{taskErrors.map((err) => (
+					<ErrorCard key={`err-${err.projectId}-${err.taskId}`} err={err} />
+				))}
 			</div>
 
 			{/* 右键上下文菜单（portal 到 body，模式对齐会话列表右键菜单） */}
@@ -182,6 +188,37 @@ export function AutomationSidebar() {
 					}}
 				/>
 			)}
+		</div>
+	);
+}
+
+/** 配置错误条目卡片：点击进入编辑表单修复坏文件（复用任务卡片样式，error 色标红） */
+function ErrorCard({ err }: { err: TaskFileError }) {
+	const { startFixError } = useSchedulerStore();
+	return (
+		<div
+			onClick={() => startFixError(err)}
+			className="rounded-md p-2.5 cursor-pointer transition-colors border"
+			style={{
+				background: "var(--surface-hover)",
+				borderColor: "#f87171",
+				borderStyle: "dashed",
+			}}
+			data-testid={`automation-task-error-${err.taskId}`}
+		>
+			<div className="flex items-center justify-between mb-1">
+				<span className="text-xs font-medium" style={{ color: "#f87171" }}>
+					⚠ 配置错误
+				</span>
+			</div>
+			<div className="flex flex-col gap-0.5">
+				<span className="text-[10px]" style={{ color: "var(--text-primary)" }}>
+					{err.taskId}
+				</span>
+				<span className="text-[10px] truncate" style={{ color: "#f87171" }}>
+					{err.error}
+				</span>
+			</div>
 		</div>
 	);
 }

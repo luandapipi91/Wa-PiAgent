@@ -2,7 +2,10 @@
 // 必须在任何引入 composer-prefs 的 import 之前导入本模块。
 import { mock } from "bun:test";
 
-export const composerDbDefaults: { model: string | null; thinking: string } = { model: null, thinking: "disabled" };
+export const composerDbDefaults: { model: string | null; thinking: string } = {
+  model: null,
+  thinking: "disabled",
+};
 export const composerDbSessions: Record<string, any> = {};
 export const composerDbNewSessionIds: Record<string, string> = {};
 

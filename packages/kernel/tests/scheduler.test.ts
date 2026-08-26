@@ -3,16 +3,12 @@
 // 因此断言不随时区漂移，也不依赖固定 TZ。
 
 import { describe, test, expect, mock } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import {
 	toCronExpression,
 	resolveTaskModel,
 	TaskScheduler,
 	type SchedulerDeps,
 } from "../src/scheduler";
-import { saveScheduledTasks } from "../src/scheduler-store";
 import type {
 	ScheduledTask,
 	ExecutionRecord,
@@ -198,11 +194,10 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
 	};
 }
 
-/** 构造 SchedulerDeps，broadcast/executeTask 默认空实现。 */
+/** 构造 SchedulerDeps，loadTasks 默认空列表，broadcast/executeTask 默认空实现。 */
 function makeDeps(overrides: Partial<SchedulerDeps> = {}): SchedulerDeps {
 	return {
-		tasksFile: "/tmp/wa-pi-unused-tasks.json",
-		recordsFile: "/tmp/wa-pi-unused-records.json",
+		loadTasks: async () => [],
 		dataDir: "/tmp",
 		executeTask: async () => ({
 			id: "rec-1",
@@ -388,29 +383,25 @@ describe("TaskScheduler", () => {
 		}
 	});
 
-	test("start: 从持久化文件加载，仅注册 enabled 任务", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "wa-pi-sched-"));
-		const tasksFile = join(dir, "tasks.json");
+	test("start: 从 loadTasks 加载，仅注册 enabled 任务", async () => {
 		const tasks: ScheduledTask[] = [
 			makeTask({ id: "on", enabled: true }),
 			makeTask({ id: "off", enabled: false }),
 		];
-		await saveScheduledTasks(tasksFile, tasks);
 		const { cronCalls, restore } = stubCron();
 		try {
-			const scheduler = new TaskScheduler(makeDeps({ tasksFile }));
+			const scheduler = new TaskScheduler(
+				makeDeps({ loadTasks: async () => tasks }),
+			);
 			await scheduler.start();
 			expect(cronCalls).toHaveLength(1); // 仅 enabled
 			expect(cronCalls[0].expr).toBe("30 9 * * *");
 		} finally {
 			restore();
-			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 
 	test("start: 某任务注册失败（cron 抛错）→ 广播 error，其余任务仍正常注册", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "wa-pi-sched-"));
-		const tasksFile = join(dir, "tasks.json");
 		const tasks: ScheduledTask[] = [
 			makeTask({
 				id: "bad",
@@ -422,7 +413,6 @@ describe("TaskScheduler", () => {
 			}),
 			makeTask({ id: "good", schedule: { type: "daily", time: "09:30" } }),
 		];
-		await saveScheduledTasks(tasksFile, tasks);
 		const broadcasts: { type: string; [k: string]: unknown }[] = [];
 		// 桩 Bun.cron：对非法表达式同步抛错，模拟格式错误的 custom 任务
 		const original = Bun.cron;
@@ -437,7 +427,10 @@ describe("TaskScheduler", () => {
 		}) as unknown as typeof Bun.cron;
 		try {
 			const scheduler = new TaskScheduler(
-				makeDeps({ tasksFile, broadcast: (e) => void broadcasts.push(e) }),
+				makeDeps({
+					loadTasks: async () => tasks,
+					broadcast: (e) => void broadcasts.push(e),
+				}),
 			);
 			await scheduler.start();
 			// 两个 enabled 任务都被尝试调用 Bun.cron
@@ -454,7 +447,24 @@ describe("TaskScheduler", () => {
 			expect(cronCalls[1].expr).toBe("30 9 * * *");
 		} finally {
 			mutableBun.cron = original;
-			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("scheduledIds: 返回已注册调度的任务 id 列表（watcher 对账用）", () => {
+		const { restore } = stubCron();
+		try {
+			const scheduler = new TaskScheduler(makeDeps());
+			expect(scheduler.scheduledIds()).toEqual([]);
+			scheduler.scheduleTask(makeTask({ id: "a" }));
+			scheduler.scheduleTask(makeTask({ id: "b" }));
+			// disabled 任务不注册，不进列表
+			scheduler.scheduleTask(makeTask({ id: "c", enabled: false }));
+			expect(scheduler.scheduledIds().sort()).toEqual(["a", "b"]);
+			// 取消后移出列表
+			scheduler.cancelTask("a");
+			expect(scheduler.scheduledIds()).toEqual(["b"]);
+		} finally {
+			restore();
 		}
 	});
 });

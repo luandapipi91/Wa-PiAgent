@@ -1,6 +1,17 @@
 import { test, expect } from "@playwright/test";
 import { E2E_WS_PORT, E2E_WA_PI_DIR } from "../playwright.config";
 import { saveProvider } from "./helpers";
+// Task 11：CLI 建任务 + 配置错误修复 的 E2E。用 Node 侧 child_process/fs 模拟
+// agent 经 CLI 写任务文件、直接写坏文件，需在 kernel 已分发资产后运行。
+import { execSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	rmSync,
+	writeFileSync,
+	readFileSync,
+} from "node:fs";
+import { join } from "node:path";
 
 // 定时任务系统 E2E：任务 10（规格场景 ①⑤ 的浏览器端全链路）
 //
@@ -65,6 +76,60 @@ async function deleteTaskQuiet(id: string): Promise<void> {
 	} catch {
 		/* 忽略：任务可能已被用例 5 删除 */
 	}
+}
+
+// ===== Task 11 专用：CLI 建任务 + 配置错误修复 两个新场景的常量与 helper =====
+// e2e-proj-1 的 cwd 由 global-setup 预置（projects.json: cwd=$E2E_WA_PI_DIR/e2e-project）；
+// kernel 启动时 ensureScheduledTasksAssets 向各项目分发 CLI 资产，并建 tasks/ logs/ 目录。
+const PROJ_CWD = join(E2E_WA_PI_DIR, "e2e-project");
+const CLI_ASSET = join(PROJ_CWD, ".wa-pi", "scheduled-tasks", "cron-task.ts");
+const TASKS_DIR = join(PROJ_CWD, ".wa-pi", "scheduled-tasks", "tasks");
+const LOGS_DIR = join(PROJ_CWD, ".wa-pi", "scheduled-tasks", "logs");
+
+/** 清理用删除（URL 编码 id，支持中文任务 id）：忽略不存在的报错，永不抛出 */
+async function deleteTaskQuietEncoded(id: string): Promise<void> {
+	if (!id) return;
+	try {
+		await api("DELETE", `/api/scheduled-tasks/${encodeURIComponent(id)}`);
+	} catch {
+		/* 忽略：任务可能已被其它用例删除 */
+	}
+}
+
+/** 轮询任务列表 errors 数组直到指定 taskId 的配置错误出现（坏文件 watcher 热载后条目出现） */
+async function findTaskError(taskId: string): Promise<any> {
+	const deadline = Date.now() + 10_000;
+	for (;;) {
+		const data = await api<{ errors: any[] }>("GET", "/api/scheduled-tasks");
+		const hit = (data.errors ?? []).find((e) => e.taskId === taskId);
+		if (hit) return hit;
+		if (Date.now() > deadline) throw new Error(`配置错误未出现: ${taskId}`);
+		await new Promise((r) => setTimeout(r, 200));
+	}
+}
+
+/** 轮询执行记录直到指定任务出现一条含 status 的记录（运行态即落盘，无真实模型也有效） */
+async function findRecord(taskId: string, timeoutMs = 30_000): Promise<any> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const data = await api<{ records: any[] }>(
+			"GET",
+			`/api/execution-records?taskId=${encodeURIComponent(taskId)}`,
+		);
+		const rec = (data.records ?? []).find((r) => r.status);
+		if (rec) return rec;
+		if (Date.now() > deadline) throw new Error(`执行记录未出现: ${taskId}`);
+		await new Promise((r) => setTimeout(r, 300));
+	}
+}
+
+/** 等待 kernel 把定时任务 CLI 资产分发到项目目录（ensureScheduledTasksAssets），上限 5s */
+async function waitForCliAsset(): Promise<void> {
+	const deadline = Date.now() + 5_000;
+	while (!existsSync(CLI_ASSET) && Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 200));
+	}
+	expect(existsSync(CLI_ASSET), `CLI 资产未就绪: ${CLI_ASSET}`).toBe(true);
 }
 
 test.describe
@@ -179,8 +244,9 @@ test.describe
 			await expect(save).toBeEnabled();
 			await save.click();
 
-			// 保存成功后弹窗关闭：有任务未选中 → 主区默认执行记录页
-			await expect(page.getByTestId("execution-records")).toBeVisible();
+			// 保存成功后弹窗关闭：store.createTask 新建后自动选中新任务（view=detail，
+			// selectedTaskId=新任务）→ 主区默认展示任务详情视图（非执行记录页）
+			await expect(page.getByTestId("task-detail-view")).toBeVisible();
 
 			// 任务卡片出现在侧边栏（id 经 REST 查询，UI 不暴露）
 			taskId = (await findTaskByName(TASK_NAME)).id;
@@ -325,5 +391,137 @@ test.describe
 			await page.getByTestId("execution-detail-back").click();
 			await expect(page.getByTestId("execution-records")).toBeVisible();
 			await expect(page.getByTestId("execution-detail-view")).toBeHidden();
+		});
+	});
+
+// ===== Task 11：定时任务 AI 化——CLI 外部建任务 + 配置错误修复 两条链 =====
+// 场景 6：agent 经分发的 CLI 直接写任务文件 → watcher 热载 → 前端列表可见 →
+//         触发立即执行 → 执行日志落盘 → 清理。模拟「agent 不经过 UI 建任务」的全链路。
+// 场景 7：坏任务文件（缺 name）→ 面板「配置错误」条目 → 点进编辑表单补全 →
+//         PUT upsert 修复 → 错误消失、任务正常显示。覆盖错误条目的展示与修复闭环。
+test.describe
+	.serial("定时任务 AI 化（CLI 建任务 + 配置错误修复）", () => {
+		test.beforeAll(async () => {
+			// 预置假 provider（幂等）：隔离环境无 provider 时 App 首启弹 onboarding 向导，
+			// 拦截对 sidebar-tab-automation 的点击（同上方「定时任务自动化」模式）。
+			await saveProvider({
+				id: "e2e-automation-provider",
+				name: "E2E Automation",
+				slug: "e2e-automation",
+				baseUrl: "http://localhost:9999/v1",
+				apiKey: "sk-e2e",
+				api: "openai-completions",
+				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+			});
+		});
+
+		test.beforeEach(async ({ page }) => {
+			test.setTimeout(90_000);
+			await page.goto("/", { timeout: 60_000 });
+			await page.getByTestId("sidebar-tab-automation").click();
+			await expect(page.getByTestId("automation-sidebar")).toBeVisible({
+				timeout: 10_000,
+			});
+		});
+
+		test("6 agent 经 CLI 创建任务 → 前端可见 → 触发 → 日志落盘 → 清理", async ({
+			page,
+		}) => {
+			// 1. 等 kernel 分发 CLI 资产到 e2e-proj-1（cwd=$E2E_WA_PI_DIR/e2e-project）
+			await waitForCliAsset();
+
+			// 2. 模拟 agent：经 CLI 直接写任务文件（add 不依赖 kernel 在线）
+			execSync(
+				`bun "${CLI_ASSET}" add --name "E2E任务" --agent dev --schedule '{"type":"daily","time":"09:30"}' --prompt "E2E：请整理今日文件"`,
+				{ cwd: PROJ_CWD },
+			);
+
+			let taskId = "";
+			try {
+				// 3. watcher 热载 → scheduled-tasks:changed SSE → 前端重拉 → 列表出现任务卡
+				const task = await findTaskByName("E2E任务");
+				taskId = task.id;
+				await expect(page.getByTestId(`automation-task-${taskId}`)).toBeVisible({
+					timeout: 10_000,
+				});
+
+				// 4. 触发立即执行（fire-and-forget，返回 200 即视为已受理）
+				await api(
+					"POST",
+					`/api/scheduled-tasks/${encodeURIComponent(taskId)}/run`,
+				);
+
+				// 5. 执行记录落盘（运行态一起 appendRecord 写 logs/<id>.log；无真实模型时记录仍存在）
+				await findRecord(taskId);
+
+				// 6. 断言日志文件存在且非空（executeTask 启动时同步 append 了 running 态行）
+				const logPath = join(LOGS_DIR, `${taskId}.log`);
+				expect(existsSync(logPath), `执行日志未落盘: ${logPath}`).toBe(true);
+				expect(readFileSync(logPath, "utf8").trim().length).toBeGreaterThan(0);
+			} finally {
+				// 清理：REST 删除任务 + 删除执行日志文件
+				await deleteTaskQuietEncoded(taskId);
+				rmSync(join(LOGS_DIR, `${taskId}.log`), { force: true });
+			}
+		});
+
+		test("7 坏文件 → 面板显示配置错误 → 修复后消失", async ({ page }) => {
+			// 1. 直接写一个坏任务文件（缺 name → parseTaskFile 抛错 → errors 条目）
+			const badId = `坏-${Math.random().toString(36).slice(2, 8)}`;
+			mkdirSync(TASKS_DIR, { recursive: true });
+			writeFileSync(
+				join(TASKS_DIR, `${badId}.md`),
+				[
+					"---",
+					`schedule: ${JSON.stringify({ type: "daily", time: "09:30" })}`,
+					'agentId: "dev"',
+					"---",
+					"",
+					"E2E：这个坏文件缺 name，会被判定为配置错误",
+					"",
+				].join("\n"),
+				"utf8",
+			);
+
+			try {
+				// 2. watcher 热载 → errors 条目 + 面板「配置错误」卡片（含错误原因）
+				const err = await findTaskError(badId);
+				expect(err.error).toContain("name 不能为空");
+				const errCard = page.getByTestId(`automation-task-error-${badId}`);
+				await expect(errCard).toBeVisible({ timeout: 10_000 });
+				await expect(errCard).toContainText("配置错误");
+				await expect(errCard).toContainText("name 不能为空");
+
+				// 3. 点击错误条目 → 编辑表单（回填 taskId/默认计划）→ 补全 name/agent/prompt → 保存
+				await errCard.click();
+				const form = page.getByTestId("task-edit-form");
+				await expect(form).toBeVisible();
+				await expect(page.getByTestId("task-edit-modal-title")).toContainText(
+					"编辑自动化",
+				);
+
+				await page.getByTestId("task-name-input").fill("E2E修复任务");
+				await page.getByTestId("task-agent-select").click();
+				await page.getByTestId("task-agent-item-研发").click();
+				await expect(page.getByTestId("task-agent-select")).toContainText("研发");
+				await page.getByTestId("task-prompt-input").fill("E2E：修复后的任务指令");
+
+				const save = page.getByTestId("task-save-btn");
+				await expect(save).toBeEnabled();
+				await save.click();
+
+				// 4. PUT upsert 修复后：错误条目消失、任务正常显示、REST errors 已清空
+				await expect(errCard).toBeHidden({ timeout: 10_000 });
+				const task = await findTaskByName("E2E修复任务");
+				await expect(page.getByTestId(`automation-task-${task.id}`)).toBeVisible({
+					timeout: 10_000,
+				});
+				const after = await api<{ errors: any[] }>("GET", "/api/scheduled-tasks");
+				expect(after.errors.find((e) => e.taskId === badId)).toBeFalsy();
+			} finally {
+				// 清理：删除修复后的任务 + 兜底删坏文件（若未修复成功）
+				await deleteTaskQuietEncoded(badId);
+				rmSync(join(TASKS_DIR, `${badId}.md`), { force: true });
+			}
 		});
 	});

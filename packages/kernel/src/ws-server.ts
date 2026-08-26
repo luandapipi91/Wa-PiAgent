@@ -10,8 +10,6 @@ import {
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_CWD,
 	resolveSessionCwd,
-	SCHEDULED_TASKS_FILE,
-	EXECUTION_RECORDS_FILE,
 	WA_PI_DIR,
 } from "@wa-pi/shared";
 import type { DirEntry } from "@wa-pi/shared";
@@ -89,11 +87,12 @@ import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
-import { createSchedulerRoutes } from "./routes/scheduler";
 import { createShareRoutes } from "./routes/share";
 import { registerContactRoutes } from "./routes/contacts";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
+import { createSchedulerRoutes } from "./routes/scheduler";
+import type { FolderTaskStore } from "./scheduler-task-store";
 import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
@@ -657,10 +656,25 @@ export class WSServer {
 			join(WA_PI_DIR, "share-workspace"),
 		);
 
-		// 定时任务路由：直接读写 JSON 文件，不走 callApi 适配器
+		// 定时任务路由改由 setSchedulerStore() 延迟注册：
+		// 数据源是文件夹存储（Task 6 装配），构造期 store 尚不存在
+	}
+
+	/**
+	 * 注入定时任务文件夹存储并注册 scheduler REST 路由。
+	 * index.ts 在调度器装配时调用（晚于构造器，可能晚于 start()——
+	 * router.handle 按请求分发，补注册立即生效）。
+	 */
+	setSchedulerStore(store: FolderTaskStore): void {
+		const callApi = (e: WSClientEvent, o?: { responseTypes?: string[] }) =>
+			this.callApi(e, o);
+		const ctx = {
+			projectStore: this.opts.projectStore,
+			markAllDirty: () => this.opts.agentManager.markAllDirty(),
+		};
+		// 定时任务路由：直接读写文件夹存储，不走 callApi 适配器
 		const schedulerRoutes = createSchedulerRoutes(
-			SCHEDULED_TASKS_FILE,
-			EXECUTION_RECORDS_FILE,
+			store,
 			(task) => {
 				// 调度注册失败（cron 非法等）不让已落盘的 CRUD 返回 500：
 				// 记日志 + 广播 error 事件让前端感知，任务本身已保存

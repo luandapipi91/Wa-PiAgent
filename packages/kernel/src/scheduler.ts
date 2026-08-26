@@ -4,7 +4,6 @@ import type {
 	ExecutionRecord,
 	ModelProvider,
 } from "@wa-pi/shared";
-import { loadScheduledTasks } from "./scheduler-store";
 
 /**
  * 将 schedule 配置转换为标准 5 字段 cron 表达式（分 时 日 月 周，按本地时间）。
@@ -65,8 +64,8 @@ export function resolveTaskModel(
 }
 
 export interface SchedulerDeps {
-	tasksFile: string;
-	recordsFile: string;
+	/** 全量任务加载（由文件夹存储层注入） */
+	loadTasks: () => Promise<ScheduledTask[]>;
 	dataDir: string;
 	// 执行回调（由 index.ts 注入，避免循环依赖）
 	executeTask: (task: ScheduledTask) => Promise<ExecutionRecord>;
@@ -88,7 +87,7 @@ export class TaskScheduler {
 
 	/** 启动时加载所有 enabled 任务 */
 	async start(): Promise<void> {
-		const tasks = await loadScheduledTasks(this.deps.tasksFile);
+		const tasks = await this.deps.loadTasks();
 		for (const task of tasks) {
 			if (!task.enabled) continue;
 			try {
@@ -141,8 +140,7 @@ export class TaskScheduler {
 
 	/** 手动立即执行指定任务（不受 cron 调度控制）*/
 	async runTaskNow(taskId: string): Promise<void> {
-		const tasks = await loadScheduledTasks(this.deps.tasksFile);
-		const task = tasks.find((t) => t.id === taskId);
+		const task = (await this.deps.loadTasks()).find((t) => t.id === taskId);
 		if (!task) throw new Error(`任务不存在: ${taskId}`);
 		try {
 			const record = await this.deps.executeTask(task);
@@ -160,6 +158,11 @@ export class TaskScheduler {
 				error: String(err),
 			});
 		}
+	}
+
+	/** 返回当前已注册调度的任务 id 列表（文件夹 watcher 对账用） */
+	scheduledIds(): string[] {
+		return [...this.jobs.keys()];
 	}
 
 	/** 停止所有任务 */
