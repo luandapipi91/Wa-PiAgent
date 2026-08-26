@@ -44,13 +44,27 @@ function beep(
 	osc.stop(t0 + durationSec + 0.05);
 }
 
-/** 任务完成提示音音频：真实青蛙叫声「呱 呱～」（截取 1.8s，public/ 资源）。 */
-const TASK_DONE_SOUND_URL = "/sounds/frog-croak.mp3";
+/** 任务完成提示音随机池：6 个新音效（各截取前 1 秒，public/ 资源）。原青蛙叫与 event-done-3 重复，已移除，只用新音效。 */
+export const TASK_DONE_SOUND_POOL: string[] = [
+	"/sounds/event-done-1.mp3",
+	"/sounds/event-done-2.mp3",
+	"/sounds/event-done-3.mp3",
+	"/sounds/event-done-4.mp3",
+	"/sounds/event-done-5.mp3",
+	"/sounds/event-done-6.mp3",
+];
 
-/** 任务完成音色：播放真实青蛙叫音频（受自动播放策略影响时静默降级）。 */
+/** 从随机池中等概率选一个音效。 */
+function pickTaskDoneSound(): string {
+	return TASK_DONE_SOUND_POOL[
+		Math.floor(Math.random() * TASK_DONE_SOUND_POOL.length)
+	];
+}
+
+/** 任务完成音色：从随机池播放一个音效（受自动播放策略影响时静默降级）。 */
 function taskDoneSound() {
 	try {
-		const audio = new Audio(TASK_DONE_SOUND_URL);
+		const audio = new Audio(pickTaskDoneSound());
 		audio.volume = 0.8;
 		void audio.play().catch(() => {});
 	} catch {

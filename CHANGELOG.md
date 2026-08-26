@@ -1,3 +1,23 @@
+## 2026-08-27 — feat(sound): 事件完成提示音改为随机池播放（新增 6 个前 1 秒音效 + 原有青蛙叫）
+
+- 背景：任务完成（`agent_end` 终态）提示音原先固定播放 `frog-croak.mp3` 一个文件，听感单一。用户希望从随机池等概率播放，新增 6 个音效（各截取前 1 秒）与原有青蛙叫混合随机。试听后确认其中某新音效与原有青蛙叫重复，最终决定移除原青蛙叫，随机池只用 6 个新音效。
+- 改动：
+  - `packages/frontend/public/sounds/` 新增 `event-done-1.mp3` ~ `event-done-6.mp3`（51miz 音效素材，`-t 1` 截取前 1 秒），并删除原 `frog-croak.mp3`。
+  - `sound.ts`：新增导出常量 `TASK_DONE_SOUND_POOL`（仅 6 个新音效）；`taskDoneSound()` 改为 `pickTaskDoneSound()` 从池中等概率随机选一个播放（音量 0.8、自动播放策略静默降级逻辑不变）；`previewTaskDone` 试听同样随机。
+- 验证：TDD —— `sound.test.ts` 更新「播放青蛙叫」为「播放随机池成员」，新增「池仅 6 个新音效、不含青蛙叫、无重复」「500 次采样覆盖全部池（等概率）」两例，15 pass 0 fail；`bun run typecheck` 通过；`bun run build` 后 `dist/sounds/` 同步 6 个新音频且清除 frog-croak。
+- 影响范围：`packages/frontend/src/util/sound.ts`、`packages/frontend/tests/sound.test.ts`、`packages/frontend/public/sounds/event-done-1..6.mp3`（删除 `frog-croak.mp3`）。
+
+## 2026-08-27 — fix(preview): 切到新建会话/空视图时关闭预览不残留；新建会话页顶部加预览图标
+
+- 背景：
+  - 会话页打开 HTML 预览后切到新建会话页，预览页面未关闭（BrowserPanel 挂载只取决于 store.open，与 view 无关），旧预览在新建页残留。
+  - 新建会话页顶部缺少预览浏览器入口，无法像会话页那样打开预览。
+- 修复：
+  - `App.tsx`：新增派生 view effect 分支——view 为 `new-session`/`empty` 时调用 `activateSession(null)` 关闭当前会话预览（切走关闭）；切回真实会话时由 `onSelectSession` 的 `activateSession(id)` 恢复（切回恢复）。
+  - `NewSessionPane.tsx`：顶部加入预览浏览器图标（`btn-browser-preview`），点击 `openBrowser(undefined, 自身锚点 sessionId)`；新增挂载 effect 调 `activateSession(自身 sessionId)` 实现“按会话记忆、切走关、切回恢复”（新建页预览锚点与草稿共用 `newSessionKey` 派生的 sessionId，同草稿持久化机制）。
+- 验证：TDD —— `browser.test.ts` 新增 activateSession(null) 关闭-恢复用例；`App.test.tsx` 新增“处于新建/空视图时已打开预览被关闭”；`NewSessionPane.test.tsx` 新增“顶部预览图标点击打开并归属锚点”；前端全量 1902 pass 0 fail；前端 typecheck 通过。
+- 影响范围：`packages/frontend/src/App.tsx`、`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/src/store/browser.test.ts`、`packages/frontend/tests/App.test.tsx`、`packages/frontend/tests/NewSessionPane.test.tsx`。
+
 ## 2026-08-27 — fix(preview): 本地预览高亮选择框在屏幕边缘时收敛进视口，不再溢出
 
 - 背景：本地 HTML 预览的元素高亮选择功能，选中屏幕边缘（右侧/底部/左侧/顶部）的元素时，高亮选择框用元素原始 `getBoundingClientRect` 换算的文档坐标直接定位，未对视口做 clamp，导致框跑到屏幕外无法操作；工具条（选择父级/发送到聊天）与提示小字（⌘ 关闭高亮）同样可能溢出。
