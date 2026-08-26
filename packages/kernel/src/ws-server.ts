@@ -91,6 +91,8 @@ import { createShareRoutes } from "./routes/share";
 import { registerContactRoutes } from "./routes/contacts";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
+import { createSchedulerRoutes } from "./routes/scheduler";
+import type { FolderTaskStore } from "./scheduler-task-store";
 import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
@@ -654,14 +656,54 @@ export class WSServer {
 			join(WA_PI_DIR, "share-workspace"),
 		);
 
-		// 定时任务路由：数据源已切换为文件夹存储（createFolderTaskStore），
-		// 需 projectsProvider + watcher 装配，统一在 Task 6 接线；此处暂不注册，
-		// /api/scheduled-tasks* 在接线前回落 404。
-		// Task 6 接线要点：createSchedulerRoutes(store, onTaskChanged, onTaskDeleted, onRunNow)
-		// —— onTaskChanged 内 try { this.scheduler?.scheduleTask(task) } 失败时广播
-		//    scheduled-task:error 并记日志；随后广播 scheduled-tasks:changed。
-		// —— onTaskDeleted: this.scheduler?.cancelTask(taskId) + 广播 scheduled-tasks:changed。
-		// —— onRunNow: await this.scheduler?.runTaskNow(taskId)。
+		// 定时任务路由改由 setSchedulerStore() 延迟注册：
+		// 数据源是文件夹存储（Task 6 装配），构造期 store 尚不存在
+	}
+
+	/**
+	 * 注入定时任务文件夹存储并注册 scheduler REST 路由。
+	 * index.ts 在调度器装配时调用（晚于构造器，可能晚于 start()——
+	 * router.handle 按请求分发，补注册立即生效）。
+	 */
+	setSchedulerStore(store: FolderTaskStore): void {
+		const callApi = (e: WSClientEvent, o?: { responseTypes?: string[] }) =>
+			this.callApi(e, o);
+		const ctx = {
+			projectStore: this.opts.projectStore,
+			markAllDirty: () => this.opts.agentManager.markAllDirty(),
+		};
+		// 定时任务路由：直接读写文件夹存储，不走 callApi 适配器
+		const schedulerRoutes = createSchedulerRoutes(
+			store,
+			(task) => {
+				// 调度注册失败（cron 非法等）不让已落盘的 CRUD 返回 500：
+				// 记日志 + 广播 error 事件让前端感知，任务本身已保存
+				try {
+					this.scheduler?.scheduleTask(task);
+				} catch (err) {
+					console.warn(
+						`[scheduler] 任务 ${task.id}（${task.name}）调度注册失败:`,
+						err,
+					);
+					this.broadcast({
+						type: "scheduled-task:error",
+						taskId: task.id,
+						error: err instanceof Error ? err.message : String(err),
+					});
+				}
+				// 任务变更后广播通知前端刷新列表
+				this.broadcast({ type: "scheduled-tasks:changed" });
+			},
+			(taskId) => {
+				this.scheduler?.cancelTask(taskId);
+				this.broadcast({ type: "scheduled-tasks:changed" });
+			},
+			async (taskId) => {
+				// 立即执行：委托 scheduler 执行并广播结果
+				await this.scheduler?.runTaskNow(taskId);
+			},
+		);
+		schedulerRoutes(this.router, callApi, ctx);
 	}
 
 	async start(): Promise<void> {
