@@ -3,6 +3,7 @@
 - 新增功能：新增 `packages/kernel/assets/scheduled-tasks/`（自包含 CLI `cron-task.ts` + 面向 agent 的 `README.md`）与 `packages/kernel/src/scheduler-assets.ts` 的 `ensureScheduledTasksAssets(projectCwd)`——确保项目 `.wa-pi/scheduled-tasks/`（tasks/logs）存在，按首行版本戳比对，旧版自动覆盖升级 CLI/README，用户自加文件不动；写入走 tmp+rename 原子写。CLI 子命令：help/list/show/add/set/validate/test/run，frontmatter/cron 求值逻辑内嵌（与 shared/task-file.ts 同规则），run 经 `${WA_PI_DIR}/kernel.json` 发现 kernel 后 curl 触发。
 - 打包裁决：kernel 走 `bun build --compile` 单文件编译，外置 assets 目录不随二进制分发，故用 Bun text import 把两个资产内嵌进 bundle（dev 的 bun run / bun test 原生支持；tsc 不认识 text import，用 @ts-expect-error 屏蔽）；已用临时编译产物冒烟验证分发与 CLI 可用。
 - 验证：TDD —— 先写测试跑红（模块不存在），实现后 `bun test tests/scheduler-assets.test.ts` 5 pass 0 fail（含 Bun.spawnSync 真实跑 CLI 的 help/add/list/validate/test 全链路与 kernel 离线报错路径）；kernel 全量 `bun run test` 通过；`tsc --noEmit` 通过。
+- 审查修复（同日归并）：CLI `loadTask` 补任务 id 路径校验（含 `/`、`\`、`..` 或空串即拒绝，堵 `set ../escape/out` 路径穿越）；`parseField` 补步进正整数校验（`*/0` 不再死循环，报「cron 步进非法」，对齐 shared）；`parseTask` 补 `schedule.type` 枚举与 `model` 类型检查（对齐 shared `validateTaskData`）。
 - 影响范围：`packages/kernel/assets/scheduled-tasks/cron-task.ts`、`packages/kernel/assets/scheduled-tasks/README.md`、`packages/kernel/src/scheduler-assets.ts`、`packages/kernel/tests/scheduler-assets.test.ts`。
 
 ## 2026-08-26 — refactor(kernel): 定时任务 REST 与调度器切换到文件夹存储

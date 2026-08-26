@@ -76,4 +76,43 @@ describe("cron-task.ts CLI", () => {
 		expect(r.exitCode).toBe(1);
 		expect(r.stderr.toString() + r.stdout.toString()).toContain("kernel");
 	});
+
+	// 路径穿越：id 含 ../ 必须拒绝，不能写出 tasks/ 目录外
+	test("任务 id 路径穿越被拒绝", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, ".wa-pi/scheduled-tasks/cron-task.ts");
+		const r = Bun.spawnSync(["bun", cli, "set", "../escape/out", "name", "X"], {
+			cwd: dir,
+			env: process.env,
+		});
+		expect(r.exitCode).toBe(1);
+		expect(r.stderr.toString() + r.stdout.toString()).toContain("id 非法");
+		expect(existsSync(join(dir, ".wa-pi/escape"))).toBe(false);
+	});
+
+	// cron 步进 */0 必须报错而非死循环（与 shared parseField 同规则）
+	test("cron 步进 */0 报错退出（不死循环）", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, ".wa-pi/scheduled-tasks/cron-task.ts");
+		writeFileSync(
+			join(dir, ".wa-pi/scheduled-tasks/tasks/零步.md"),
+			'---\nname: "零步"\nschedule: {"type":"custom","time":"00:00","cronExpression":"*/0 * * * *"}\nagentId: "main"\nenabled: true\n---\n\n测试\n',
+		);
+		const r = Bun.spawnSync(["bun", cli, "test", "零步"], { cwd: dir, env: process.env });
+		expect(r.exitCode).toBe(1);
+		expect(r.stderr.toString() + r.stdout.toString()).toContain("步进");
+	});
+
+	// schedule.type 枚举校验（与 shared validateTaskData 同规则）
+	test("schedule.type 非法时 validate 失败", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, ".wa-pi/scheduled-tasks/cron-task.ts");
+		writeFileSync(
+			join(dir, ".wa-pi/scheduled-tasks/tasks/年.md"),
+			'---\nname: "年"\nschedule: {"type":"yearly","time":"09:30"}\nagentId: "main"\nenabled: true\n---\n\n提示\n',
+		);
+		const r = Bun.spawnSync(["bun", cli, "validate", "年"], { cwd: dir, env: process.env });
+		expect(r.exitCode).toBe(1);
+		expect(r.stderr.toString() + r.stdout.toString()).toContain("schedule.type");
+	});
 });
