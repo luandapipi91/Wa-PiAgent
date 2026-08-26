@@ -101,4 +101,22 @@ describe("TaskFolderWatcher", () => {
 			errorsSeen.some((es) => es.length === 0 && applied.length > 0),
 		);
 	});
+
+	test("被 watch 的目录被外部删除后 watcher 不崩溃、stop 正常", async () => {
+		const store = createFolderTaskStore({
+			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
+		});
+		watcher = new TaskFolderWatcher({
+			store,
+			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
+			applyTasks: () => {},
+		});
+		await watcher.start();
+		// 外部直接删掉被 watch 的 tasks 目录：FSWatcher 会异步 emit 'error'，
+		// 有 error 监听时不应进程崩溃
+		rmSync(tasksDirOf(projA), { recursive: true, force: true });
+		await new Promise((r) => setTimeout(r, 1000));
+		// 进程无恙：watcher 仍可正常 stop（afterEach 还会再 stop 一次，幂等）
+		expect(() => watcher?.stop()).not.toThrow();
+	});
 });
