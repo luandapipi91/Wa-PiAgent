@@ -1,3 +1,9 @@
+## 2026-08-26 — feat(kernel): 旧定时任务 JSON 到项目文件夹的一次性迁移
+
+- 新增功能：新增 `packages/kernel/src/scheduler-migrate.ts` 的 `migrateLegacySchedulerFiles`——启动时一次性把旧全局 `scheduled-tasks.json` + `execution-records.json` 迁移到各项目 `.wa-pi/scheduled-tasks/` 文件夹格式：任务按 projectId 分发（无 projectId 进默认工作区），新 id = `sanitizeTaskId(name)`（冲突追加 -2），执行记录 taskId 同步改写为文件名 id 并追加到对应 log，孤儿记录丢弃；完成后旧文件重命名为 `.migrated` 归档；幂等（旧文件不存在即 no-op）。任务文件写入走 tmp+rename 原子写。
+- 验证：TDD —— `bun test tests/scheduler-migrate.test.ts` 3 pass 0 fail（无旧文件 no-op、按 projectId 分发 + 归档、重复执行 no-op）；kernel 全量测试通过；typecheck 通过。
+- 影响范围：`packages/kernel/src/scheduler-migrate.ts`、`packages/kernel/tests/scheduler-migrate.test.ts`（旧 `scheduler-store.ts` 仅作迁移读取用，Task 12 才删除）。
+
 ## 2026-08-27 — fix(steer): 同一会话同时只允许一条引导中，已有引导时后续引导降级为排队
 
 - 背景：原引导队列允许同时存在多条引导（`steerList`/`steering` 均为数组，可叠加）。用户期望「已有引导中时再按 Ctrl+回车只进排队队列」「排队消息的「引导」按钮在已有引导中置灰」「「立即」按钮保留可用」「引导完成后排队消息自动按顺序发送」。
