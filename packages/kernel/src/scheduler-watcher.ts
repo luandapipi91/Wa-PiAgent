@@ -81,7 +81,7 @@ export class TaskFolderWatcher {
 			// 简化判定：逐任务文件比对太细，这里用「任务集合指纹」——
 			// 重新扫描结果与自写内容一致时，applyTasks 本身幂等（调度器重复注册同 cron 无害），
 			// 因此只对「全部文件均为自写」的常见场景短路：
-			const allSelf = await this.allWritesAreSelf(tasks);
+			const allSelf = await this.allWritesAreSelf(tasks, errors);
 			if (allSelf) return;
 			this.deps.applyTasks(tasks, errors);
 		} catch (err) {
@@ -92,7 +92,12 @@ export class TaskFolderWatcher {
 	}
 
 	/** 当前任务文件内容是否全部来自 store 自写（无外部改动） */
-	private async allWritesAreSelf(tasks: ScheduledTask[]): Promise<boolean> {
+	private async allWritesAreSelf(
+		tasks: ScheduledTask[],
+		errors: TaskFileError[],
+	): Promise<boolean> {
+		// 存在解析/校验失败文件时不得短路：即便全是自写有效任务，也要 applyTasks 把 error 广播出去（无效文件不静默跳过）
+		if (errors.length > 0) return false;
 		const projects = await this.deps.projectsProvider();
 		const cwdOf = new Map(projects.map((p) => [p.id, p.cwd]));
 		let sawAny = false;

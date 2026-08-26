@@ -13,7 +13,7 @@ import cliSource from "../assets/scheduled-tasks/cron-task.ts" with { type: "tex
 // @ts-expect-error Bun text import：README.md 非 TS 模块，tsc 无法解析
 import readmeSource from "../assets/scheduled-tasks/README.md" with { type: "text" };
 
-export const SCHEDULER_ASSET_VERSION = 1;
+export const SCHEDULER_ASSET_VERSION = 2;
 
 const STAMP_CLI = `// wa-pi-cron-task-asset v${SCHEDULER_ASSET_VERSION}`;
 const STAMP_README = `<!-- wa-pi-scheduled-tasks-assets v${SCHEDULER_ASSET_VERSION} -->`;

@@ -8,6 +8,10 @@ import type {
 
 type AutoView = "detail" | "edit" | "records" | "record-detail";
 
+// taskId 来自文件名（可能含中文或 URL 保留字符，如 & = # + %），
+// 凡拼进 path 段或 query 值必须先编码，否则会被后端当分隔符解析而误删/查错。
+const encodeTaskId = (id: string) => encodeURIComponent(id);
+
 interface SchedulerState {
 	tasks: ScheduledTask[];
 	// 定时任务文件在解析/校验时发现的配置错误（Task 5 REST 响应 errors 字段）
@@ -53,7 +57,7 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 
 	loadRecords: async (taskId) => {
 		const url = taskId
-			? `/api/execution-records?taskId=${taskId}`
+			? `/api/execution-records?taskId=${encodeTaskId(taskId)}`
 			: "/api/execution-records";
 		const res = (await api.get(url)) as any;
 		set({ records: res?.records ?? [] });
@@ -68,14 +72,14 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	},
 
 	updateTask: async (id, data) => {
-		// taskId 来自文件名（可能含中文），URL path 需编码后再拼接
-		await api.put(`/api/scheduled-tasks/${encodeURIComponent(id)}`, data);
+		// taskId 来自文件名（可能含中文或保留字符），URL path 段编码后再拼接
+		await api.put(`/api/scheduled-tasks/${encodeTaskId(id)}`, data);
 		await get().loadTasks();
 		set({ view: "detail" });
 	},
 
 	deleteTask: async (id) => {
-		await api.del(`/api/scheduled-tasks/${id}`);
+		await api.del(`/api/scheduled-tasks/${encodeTaskId(id)}`);
 		await get().loadTasks();
 		if (get().selectedTaskId === id) {
 			set({ selectedTaskId: null, view: "detail" });
@@ -83,7 +87,7 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	},
 
 	runTaskNow: async (id) => {
-		await api.post(`/api/scheduled-tasks/${id}/run`, {});
+		await api.post(`/api/scheduled-tasks/${encodeTaskId(id)}/run`, {});
 	},
 
 	// 再点同一张卡片取消选中；点不同卡片切换选中

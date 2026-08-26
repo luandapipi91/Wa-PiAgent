@@ -19,11 +19,12 @@ export interface TaskFileData {
 	enabled: boolean;
 }
 
-/** 文件名 → 任务 id：保留中英文，剔除路径分隔符/控制字符/前导点；空名回退 "task" */
+/** 文件名 → 任务 id：保留中英文，剔除路径分隔符/控制字符/前导点，折叠中间连续点为 "-"；空名回退 "task" */
 export function sanitizeTaskId(name: string): string {
 	const cleaned = name
 		.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "")
 		.replace(/^\.+/, "")
+		.replace(/\.\.+/g, "-") // 先剥前导点再折叠中间点串，保证 "..hidden" 仍为 "hidden"、"生产..环境" 变 "生产-环境"
 		.trim();
 	return cleaned || "task";
 }

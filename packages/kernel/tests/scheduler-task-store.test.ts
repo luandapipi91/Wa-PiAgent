@@ -58,6 +58,16 @@ describe("create/list", () => {
 		expect(t1.id).not.toBe(t2.id);
 	});
 
+	test("含连续点点的名字可创建且能被 remove（id 折叠为 -，文件真的删除）", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const t = await store.create({ ...DATA, name: "生产..环境", prompt: "p" }, "pa");
+		expect(t.id).toBe("生产-环境"); // id 不再含 ..（与 assertValidTaskId 一致，可被管理）
+		const file = join(tasksDirOf(projA), "生产-环境.md");
+		expect(existsSync(file)).toBe(true);
+		expect(await store.remove(t.id)).toBe(true);
+		expect(existsSync(file)).toBe(false);
+	});
+
 	test("未知 projectId 抛错", async () => {
 		const store = createFolderTaskStore({ projectsProvider: projects });
 		await expect(store.create({ ...DATA, prompt: "p" }, "nope")).rejects.toThrow();
