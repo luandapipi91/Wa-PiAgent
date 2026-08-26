@@ -147,7 +147,11 @@ function nextRunTimes(expr: string, count: number): Date[] {
 // ===== 任务文件操作 =====
 
 function sanitizeTaskId(name: string): string {
-	const cleaned = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "").replace(/^\.+/, "").trim();
+	const cleaned = name
+		.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "")
+		.replace(/^\.+/, "")
+		.replace(/\.\.+/g, "-") // 先剥前导点再折叠中间点串（与 shared/task-file.ts 同规）
+		.trim();
 	return cleaned || "task";
 }
 

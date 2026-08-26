@@ -120,7 +120,7 @@ export function AutomationSidebar() {
 						}}
 					/>
 				))}
-				{tasks.length === 0 && (
+				{tasks.length === 0 && taskErrors.length === 0 && (
 					<div
 						className="text-center py-8 text-xs"
 						style={{ color: "var(--text-tertiary)" }}

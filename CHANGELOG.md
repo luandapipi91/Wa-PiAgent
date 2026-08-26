@@ -1,5 +1,7 @@
 ## 2026-08-26
 
+- **fix（定时任务 AI 化·整分支审查 5 项收口）**：①`sanitizeTaskId`（shared/task-file.ts 与 CLI cron-task.ts 同规则）在剥前导点后再折叠中间连续点为 `-`，并同步将 `SCHEDULER_ASSET_VERSION` 1→2 触发已分发 CLI 重写升级——修复“create 用未校验 id 建出含 `..` 的孤儿任务文件、update/remove/append 均拒绝该 id 导致永久无法管理”；②前端 scheduler store 抽出 `encodeTaskId`，`deleteTask`/`runTaskNow` 的 path 段与 `loadRecords` 的 `?taskId=` query 值统一编码，`updateTask` 复用同一助手——修复含 URL 保留字符的 id 被误删/查错；③60s 项目对账兜底加 `.catch` 防 unhandled rejection；④watcher `allWritesAreSelf` 在存在解析失败文件时不短路（否则错误不广播）；⑤自动化面板空态条件改为 `tasks.length===0 && taskErrors.length===0`，避免与错误卡片语义冲突。影响范围：kernel（scheduler-watcher/scheduler-assets/index/scheduler-task-store）、shared（task-file）、frontend（store/scheduler、AutomationSidebar）及各对应测试。
+
 - **重构（定时任务 AI 化）**：定时任务数据源从全局 `scheduled-tasks.json` 迁移为各项目 `.wa-pi/scheduled-tasks/` 文件夹（任务 md 文件 + 运行日志）；kernel fs.watch 热加载，CLI/agent 直接改文件即生效；每个项目自动分发 `cron-task.ts` CLI 与 README；系统提示词新增一句定时任务目录引导；旧 JSON 自动迁移归档；自动化面板新增「配置错误」条目展示与修复。影响范围：kernel（scheduler*/routes/index/system-prompt/agent-manager）、shared（task-file/types/constants）、frontend（automation 面板）、scripts（API 集成测试）、e2e。
 
 ## 2026-08-26 — test(e2e): automation.spec.ts 新增定时任务 AI 化（CLI 建任务 + 配置错误修复）两条端到端场景

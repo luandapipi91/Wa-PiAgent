@@ -598,7 +598,7 @@ export async function startKernel(opts?: {
 			for (const p of await schedulerProjectsProvider()) {
 				await ensureScheduledTasksAssets(p.cwd);
 			}
-		});
+		}).catch((e) => console.warn("[scheduler] 项目对账失败:", e));
 	}, 60_000);
 
 	// 空闲会话子进程回收：每 30s 扫描，回收 lastActivity 超过 1 分钟且非 busy 的会话进程。

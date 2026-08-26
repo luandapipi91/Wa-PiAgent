@@ -14,10 +14,11 @@ import type { ExecutionRecord } from "../src/types";
 const CTX = { taskId: "每日站会", projectId: "p1", createdAt: 1000, updatedAt: 2000 };
 
 describe("sanitizeTaskId", () => {
-	test("保留中英文，剔除路径分隔符与前导点", () => {
+	test("保留中英文，剔除路径分隔符与前导点，折叠中间点串", () => {
 		expect(sanitizeTaskId("每日站会提醒")).toBe("每日站会提醒");
 		expect(sanitizeTaskId("a/b\\c")).toBe("abc");
 		expect(sanitizeTaskId("..hidden")).toBe("hidden");
+		expect(sanitizeTaskId("生产..环境")).toBe("生产-环境");
 		expect(sanitizeTaskId("  ")).toBe("task");
 	});
 });

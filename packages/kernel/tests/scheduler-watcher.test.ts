@@ -102,6 +102,39 @@ describe("TaskFolderWatcher", () => {
 		);
 	});
 
+	test("自写有效任务 + 外部新增坏文件 → 不短路，applyTasks 仍被调用且 error 被广播", async () => {
+		const store = createFolderTaskStore({
+			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
+		});
+		const applied: ScheduledTask[][] = [];
+		const errorsSeen: TaskFileError[][] = [];
+		watcher = new TaskFolderWatcher({
+			store,
+			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
+			applyTasks: (tasks, errors) => {
+				applied.push(tasks);
+				errorsSeen.push(errors);
+			},
+		});
+		await watcher.start();
+		// store 自写一个有效任务（记录自写哈希）
+		await store.create(
+			{
+				name: "每日站会",
+				schedule: { type: "daily", time: "09:30" },
+				agentId: "main",
+				enabled: true,
+				prompt: "提醒站会",
+			},
+			"pa",
+		);
+		// 外部新增一个解析失败文件（非自写）
+		writeFileSync(join(tasksDirOf(projA), "坏任务.md"), "没有 frontmatter");
+		// 存在自写有效任务且 errors 非空：不得短路，applyTasks 需把 error 广播出去
+		await waitFor(() => errorsSeen.some((es) => es.some((e) => e.taskId === "坏任务")));
+		expect(applied.length).toBeGreaterThan(0);
+	});
+
 	test("被 watch 的目录被外部删除后 watcher 不崩溃、stop 正常", async () => {
 		const store = createFolderTaskStore({
 			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
