@@ -1,3 +1,9 @@
+## 2026-08-26 — feat(frontend): 自动化面板展示并修复配置错误的定时任务文件
+
+- 新增功能：scheduler store 新增 `taskErrors: TaskFileError[]` 状态与 `startFixError` action——`loadTasks` 读取 REST 响应 `errors` 存入 `taskErrors`；`startFixError` 用错误信息构造带 `id`（=taskId）的草稿进入编辑表单（id 非空 → 保存走 `updateTask` PUT upsert 修复坏文件，PUT url 对 id 做 encodeURIComponent 适配中文文件名）。AutomationSidebar 在任务列表后渲染「配置错误」条目卡片（⚠ 配置错误 + taskId + 错误原因，error 色 `#f87171` 标红，dashed 边框区分于正常任务），点击进入编辑表单修复。
+- 验证：TDD —— 先写 `AutomationMain-errors.test.tsx`（mock GET /api/scheduled-tasks 返回 `{ tasks: [], errors: [...] }`）跑红（2 fail），实现后 `bun run test -- src/components/automation/__tests__/AutomationMain-errors.test.tsx` 2 pass 0 fail；`bun run test -- src/components/automation` 99 pass 0 fail（含既有不回归）；`bun run typecheck` 0 error。
+- 影响范围：`packages/frontend/src/store/scheduler.ts`、`packages/frontend/src/components/automation/AutomationSidebar.tsx`、`packages/frontend/src/components/automation/__tests__/AutomationMain-errors.test.tsx`、`packages/frontend/src/components/automation/__tests__/AutomationSidebar.test.tsx`。
+
 ## 2026-08-26 — feat(kernel): 系统提示词新增 scheduled-tasks 运行时注入段
 
 - 新增功能：`system-prompt.ts` 新增 `SCHEDULED_TASKS_SEGMENT_ID = "scheduled-tasks"` 与 `ensureScheduledTasksSegment`（位置固定在 memory-policy 之前、im-push 之后），`SystemPromptContext` 增加 `scheduledTasksDir?`；当工作目录存在 `.wa-pi/scheduled-tasks/` 时注入「定时任务管理」引导文案（README.md / cron-task.ts），目录不存在则段不出现。该段为纯运行时注入段不落盘：`savePromptSegments` 剔除、运行时 `ensureScheduledTasksSegment` 补回，`PROMPTS_SCHEMA_VERSION` 26→27（注释标注 v27 新增 scheduled-tasks 段）。`agent-manager.ts` `getPromptSegments` 链上追加补回、`composePrompt` ctx 传 `scheduledTasksDir`（existsSync 探测工作目录）。

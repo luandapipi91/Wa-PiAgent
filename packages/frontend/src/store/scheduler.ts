@@ -1,11 +1,17 @@
 import { create } from "zustand";
 import { api } from "../api-client";
-import type { ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
+import type {
+	ScheduledTask,
+	ExecutionRecord,
+	TaskFileError,
+} from "@wa-pi/shared";
 
 type AutoView = "detail" | "edit" | "records" | "record-detail";
 
 interface SchedulerState {
 	tasks: ScheduledTask[];
+	// 定时任务文件在解析/校验时发现的配置错误（Task 5 REST 响应 errors 字段）
+	taskErrors: TaskFileError[];
 	records: ExecutionRecord[];
 	selectedTaskId: string | null;
 	view: AutoView;
@@ -24,12 +30,15 @@ interface SchedulerState {
 	setView: (view: AutoView) => void;
 	startCreate: () => void;
 	startEdit: (task: ScheduledTask) => void;
+	// 点击「配置错误」条目：用错误信息构造草稿（id 非空 → 编辑表单走 updateTask 修复坏文件）
+	startFixError: (err: TaskFileError) => void;
 	openRecordDetail: (recordId: string, from: "records" | "detail") => void;
 	closeRecordDetail: () => void;
 }
 
 export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	tasks: [],
+	taskErrors: [],
 	records: [],
 	selectedTaskId: null,
 	view: "detail",
@@ -39,7 +48,7 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 
 	loadTasks: async () => {
 		const res = (await api.get("/api/scheduled-tasks")) as any;
-		set({ tasks: res?.tasks ?? [] });
+		set({ tasks: res?.tasks ?? [], taskErrors: res?.errors ?? [] });
 	},
 
 	loadRecords: async (taskId) => {
@@ -59,7 +68,8 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	},
 
 	updateTask: async (id, data) => {
-		await api.put(`/api/scheduled-tasks/${id}`, data);
+		// taskId 来自文件名（可能含中文），URL path 需编码后再拼接
+		await api.put(`/api/scheduled-tasks/${encodeURIComponent(id)}`, data);
 		await get().loadTasks();
 		set({ view: "detail" });
 	},
@@ -99,6 +109,25 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 			view: "edit",
 			editingTask: task,
 			selectedTaskId: task.id,
+			selectedRecordId: null,
+		}),
+
+	// 配置错误条目 → 编辑表单：以错误信息构造草稿（id=taskId 非空，保存走 updateTask PUT upsert 修复）
+	startFixError: (err) =>
+		set({
+			view: "edit",
+			editingTask: {
+				id: err.taskId,
+				projectId: err.projectId,
+				name: err.taskId,
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "",
+				prompt: "",
+				enabled: true,
+				createdAt: 0,
+				updatedAt: 0,
+			},
+			selectedTaskId: err.taskId,
 			selectedRecordId: null,
 		}),
 
