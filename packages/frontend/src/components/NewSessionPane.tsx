@@ -438,13 +438,11 @@ export function NewSessionPane({
 								<ExplorerPanel
 									workspaceDir={workspaceDir}
 									projectName={projects.find((p) => p.id === projectId)?.name}
-										onOpenFile={(path) =>
-											isHtmlPath(path)
-												? useBrowserStore
-														.getState()
-														.openBrowser(path, sessionId)
-												: useSessionStore.getState().openFilePreview(path, sessionId)
-										}
+									onOpenFile={(path) =>
+										isHtmlPath(path)
+											? useBrowserStore.getState().openBrowser(path, sessionId)
+											: useSessionStore.getState().openFilePreview(path, sessionId)
+									}
 								/>
 							) : (
 								<div className="ep-empty">

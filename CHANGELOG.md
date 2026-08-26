@@ -1,3 +1,4 @@
+
 ## 2026-08-26 — feat(ui): 任务完成青蛙动画（随机姿势 + 聊天区四角随机蹦出）
 
 - 背景：任务完成（agent_end 终态）原先只有提示音、缺视觉反馈。用户希望加一只青蛙从聊天区域蹦出，每次姿势/形态不同、出现在四角之一，并可开关。
@@ -55,6 +56,64 @@
   - `render()` 中高亮框 `hl`、工具条 `bar`、提示小字 `tip` 均改走 `clampRectToViewport`，整体可见、可操作。
 - 验证：TDD —— `preview-inspect.test.ts` 新增 6 例（正常/右缘钳 left/底缘钳 top/负坐标钳 0/宽溢出收缩/高溢出收缩）；kernel preview 相关测试 48 pass 0 fail；kernel typecheck 通过；`KERNEL_ASSET_FILES` 确认含 preview-inspect.js。
 - 影响范围：`packages/kernel/src/assets/preview-inspect.js`、`packages/kernel/tests/preview-inspect.test.ts`。
+
+## 2026-08-26
+
+- **fix（定时任务 AI 化·整分支审查 5 项收口）**：①`sanitizeTaskId`（shared/task-file.ts 与 CLI cron-task.ts 同规则）在剥前导点后再折叠中间连续点为 `-`，并同步将 `SCHEDULER_ASSET_VERSION` 1→2 触发已分发 CLI 重写升级——修复“create 用未校验 id 建出含 `..` 的孤儿任务文件、update/remove/append 均拒绝该 id 导致永久无法管理”；②前端 scheduler store 抽出 `encodeTaskId`，`deleteTask`/`runTaskNow` 的 path 段与 `loadRecords` 的 `?taskId=` query 值统一编码，`updateTask` 复用同一助手——修复含 URL 保留字符的 id 被误删/查错；③60s 项目对账兜底加 `.catch` 防 unhandled rejection；④watcher `allWritesAreSelf` 在存在解析失败文件时不短路（否则错误不广播）；⑤自动化面板空态条件改为 `tasks.length===0 && taskErrors.length===0`，避免与错误卡片语义冲突。影响范围：kernel（scheduler-watcher/scheduler-assets/index/scheduler-task-store）、shared（task-file）、frontend（store/scheduler、AutomationSidebar）及各对应测试。
+
+- **重构（定时任务 AI 化）**：定时任务数据源从全局 `scheduled-tasks.json` 迁移为各项目 `.wa-pi/scheduled-tasks/` 文件夹（任务 md 文件 + 运行日志）；kernel fs.watch 热加载，CLI/agent 直接改文件即生效；每个项目自动分发 `cron-task.ts` CLI 与 README；系统提示词新增一句定时任务目录引导；旧 JSON 自动迁移归档；自动化面板新增「配置错误」条目展示与修复。影响范围：kernel（scheduler*/routes/index/system-prompt/agent-manager）、shared（task-file/types/constants）、frontend（automation 面板）、scripts（API 集成测试）、e2e。
+
+## 2026-08-26 — test(e2e): automation.spec.ts 新增定时任务 AI 化（CLI 建任务 + 配置错误修复）两条端到端场景
+
+- 新增 E2E：`packages/frontend/e2e/automation.spec.ts` 末尾追加 `test.describe.serial("定时任务 AI 化（CLI 建任务 + 配置错误修复）")`，含两条用例：①agent 经分发的 CLI（`bun <cwd>/.wa-pi/scheduled-tasks/cron-task.ts add --name E2E任务 --agent dev --schedule '{"type":"daily","time":"09:30"}' --prompt ...`）直接写任务文件 → watcher 热载 → 前端列表可见 → `POST /api/scheduled-tasks/:id/run` 触发 → 执行记录落盘 → `logs/E2E任务.log` 非空 → 清理；②坏任务文件（缺 name）→ 面板「⚠ 配置错误」条目 + 错误原因 → 点进编辑表单补全 → `PUT` upsert 修复 → 错误条目消失、任务正常显示、REST errors 清空。Node 侧复用本文件 `api`/`findTaskByName`，新增 `deleteTaskQuietEncoded`/`findTaskError`/`findRecord`/`waitForCliAsset` helper。
+- 测试环境：用偏移端口（`WA_PI_E2E_WS_PORT=9830 WA_PI_E2E_WEB_PORT=5183 WA_PI_WEB_PORT=5183`）避开本机真实 kernel（9776/9778 占用）。`automation.spec.ts` 全部 7 用例通过（既有 1-5 + 新增 6、7）。
+- 既有测试修正：因 commit 70a63256 给 store.createTask 加了「新建后自动选中新任务」行为，既有用例 2 的「保存后主区应为执行记录页」断言已过期（实际展示任务详情 `task-detail-view`），本任务修正该断言以匹配当前（刻意的）产品行为，其余既有用例不回归。
+- 影响范围：`packages/frontend/e2e/automation.spec.ts`。
+
+## 2026-08-26 — test(scripts): 定时任务文件夹化 API 集成测试（scheduler-api-it.sh）
+
+- **test(scripts)**：定时任务文件夹化 API 集成测试（scheduler-api-it.sh）
+- 新增 `scripts/scheduler-api-it.sh`：自含起停隔离临时 kernel 的定时任务文件夹化 REST API 集成验收脚本（9 场景：POST 建任务并落盘/列表/watcher 热加载/坏文件 errors/PUT 修复/run 触发/执行记录/DELETE/错误路径 400/404），用独立 `WA_PI_DIR`（mktemp -d）+ 空闲端口（9900 起，lsof 探测）隔离，不触碰宿主 9776/9778。退出清理对 kernel 先 `kill -TERM`（宽限 4s 走优雅退出 → agentManager.disposeAll 回收 pi 子进程），再用 `pkill -TERM -P` 兜底其直接子进程、`kill -KILL` 兜底未退出内核，避免残留孤儿 pi。
+- 影响范围：`scripts/scheduler-api-it.sh`（新增）；测试：9 场景全过，退出码 0。
+
+## 2026-08-26 — feat(frontend): 自动化面板展示并修复配置错误的定时任务文件
+
+- 新增功能：scheduler store 新增 `taskErrors: TaskFileError[]` 状态与 `startFixError` action——`loadTasks` 读取 REST 响应 `errors` 存入 `taskErrors`；`startFixError` 用错误信息构造带 `id`（=taskId）的草稿进入编辑表单（id 非空 → 保存走 `updateTask` PUT upsert 修复坏文件，PUT url 对 id 做 encodeURIComponent 适配中文文件名）。AutomationSidebar 在任务列表后渲染「配置错误」条目卡片（⚠ 配置错误 + taskId + 错误原因，error 色 `#f87171` 标红，dashed 边框区分于正常任务），点击进入编辑表单修复。
+- 验证：TDD —— 先写 `AutomationMain-errors.test.tsx`（mock GET /api/scheduled-tasks 返回 `{ tasks: [], errors: [...] }`）跑红（2 fail），实现后 `bun run test -- src/components/automation/__tests__/AutomationMain-errors.test.tsx` 2 pass 0 fail；`bun run test -- src/components/automation` 99 pass 0 fail（含既有不回归）；`bun run typecheck` 0 error。
+- 影响范围：`packages/frontend/src/store/scheduler.ts`、`packages/frontend/src/components/automation/AutomationSidebar.tsx`、`packages/frontend/src/components/automation/__tests__/AutomationMain-errors.test.tsx`、`packages/frontend/src/components/automation/__tests__/AutomationSidebar.test.tsx`。
+
+## 2026-08-26 — feat(kernel): 系统提示词新增 scheduled-tasks 运行时注入段
+
+- 新增功能：`system-prompt.ts` 新增 `SCHEDULED_TASKS_SEGMENT_ID = "scheduled-tasks"` 与 `ensureScheduledTasksSegment`（位置固定在 memory-policy 之前、im-push 之后），`SystemPromptContext` 增加 `scheduledTasksDir?`；当工作目录存在 `.wa-pi/scheduled-tasks/` 时注入「定时任务管理」引导文案（README.md / cron-task.ts），目录不存在则段不出现。该段为纯运行时注入段不落盘：`savePromptSegments` 剔除、运行时 `ensureScheduledTasksSegment` 补回，`PROMPTS_SCHEMA_VERSION` 26→27（注释标注 v27 新增 scheduled-tasks 段）。`agent-manager.ts` `getPromptSegments` 链上追加补回、`composePrompt` ctx 传 `scheduledTasksDir`（existsSync 探测工作目录）。
+- 验证：TDD —— 先写 `system-prompt-scheduled-tasks.test.ts` 跑红（模块未导出 0 pass），实现后 `bun test tests/system-prompt.test.ts tests/system-prompt-im-push.test.ts tests/system-prompt-scheduled-tasks.test.ts` 42 pass 0 fail；kernel 全量 `bun test` 无新增失败（仅既有第三层集成环境性失败），`tsc --noEmit` 0 error。
+- 影响范围：`packages/kernel/src/system-prompt.ts`、`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/system-prompt.test.ts`、`packages/kernel/tests/system-prompt-scheduled-tasks.test.ts`。
+
+## 2026-08-26 — feat(kernel): 定时任务装配切换——文件夹存储 + watcher + 迁移 + kernel.json
+
+- 新增功能：`index.ts` 调度器装配从旧 JSON 过渡接线整体切换为文件夹存储 + watcher 热加载——`schedulerProjectsProvider = () => buildSchedulerProjects(async () => (await projectStore.load()).projects)`、`taskStore = createFolderTaskStore({ projectsProvider })`；启动时 `migrateLegacySchedulerFiles` 一次性迁移旧 `scheduled-tasks.json`/`execution-records.json`（resolveProject 预取项目表 + 查不到回退默认工作区，迁移数 >0 打日志）；对每个项目 `ensureScheduledTasksAssets(p.cwd)` 分发 CLI/README；`TaskScheduler` 的 `loadTasks` 改为 `(await taskStore.listAll()).tasks`，`executeTask` 两处执行记录写入改走 `taskStore.appendRecord(task.projectId ?? SYSTEM_PROJECT_ID, task.id, record)`（append-only + 读取去重即完成 running→终态回写）；新增 `TaskFolderWatcher`（外部文件变化热生效：新/改 scheduleTask、消失 cancelTask、错误与列表变更广播），`server.setSchedulerStore(taskStore)` 注册 Scheduler REST 路由，并加 60s 项目增删兜底对账。`ws-server.ts` 新增 `setSchedulerStore(store)` 延迟注册 `/api/scheduled-tasks*`（数据源为文件夹存储）；`constants.ts` 新增 `KERNEL_INFO_FILE = ${WA_PI_DIR}/kernel.json`，`server.start()` 后写入 `{ port, pid, startedAt }` 供 CLI 发现 kernel，旧 `SCHEDULED_TASKS_FILE`/`EXECUTION_RECORDS_FILE` 标注「仅迁移读取用」。
+- 验证：TDD —— `scheduler-assembly.test.ts`（buildSchedulerProjects：默认工作区永远在内、已 seed 不重复追加）；聚焦 `bun test tests/scheduler-assembly.test.ts tests/scheduler.test.ts tests/routes-scheduler.test.ts` 58 pass 0 fail；kernel 全量 `bun test`（隔离集成测试走 `test.ts` 入口）1423 pass 0 fail，`tsc --noEmit` 0 error。
+- 影响范围：`packages/shared/src/constants.ts`、`packages/kernel/src/index.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/scheduler.ts`、`packages/kernel/src/scheduler-projects.ts`、`packages/kernel/tests/scheduler-assembly.test.ts`。
+
+## 2026-08-26 — feat(kernel): 定时任务 CLI 与 README 资产及自动分发
+
+- 新增功能：新增 `packages/kernel/assets/scheduled-tasks/`（自包含 CLI `cron-task.ts` + 面向 agent 的 `README.md`）与 `packages/kernel/src/scheduler-assets.ts` 的 `ensureScheduledTasksAssets(projectCwd)`——确保项目 `.wa-pi/scheduled-tasks/`（tasks/logs）存在，按首行版本戳比对，旧版自动覆盖升级 CLI/README，用户自加文件不动；写入走 tmp+rename 原子写。CLI 子命令：help/list/show/add/set/validate/test/run，frontmatter/cron 求值逻辑内嵌（与 shared/task-file.ts 同规则），run 经 `${WA_PI_DIR}/kernel.json` 发现 kernel 后 curl 触发。
+- 打包裁决：kernel 走 `bun build --compile` 单文件编译，外置 assets 目录不随二进制分发，故用 Bun text import 把两个资产内嵌进 bundle（dev 的 bun run / bun test 原生支持；tsc 不认识 text import，用 @ts-expect-error 屏蔽）；已用临时编译产物冒烟验证分发与 CLI 可用。
+- 验证：TDD —— 先写测试跑红（模块不存在），实现后 `bun test tests/scheduler-assets.test.ts` 5 pass 0 fail（含 Bun.spawnSync 真实跑 CLI 的 help/add/list/validate/test 全链路与 kernel 离线报错路径）；kernel 全量 `bun run test` 通过；`tsc --noEmit` 通过。
+- 审查修复（同日归并）：CLI `loadTask` 补任务 id 路径校验（含 `/`、`\`、`..` 或空串即拒绝，堵 `set ../escape/out` 路径穿越）；`parseField` 补步进正整数校验（`*/0` 不再死循环，报「cron 步进非法」，对齐 shared）；`parseTask` 补 `schedule.type` 枚举与 `model` 类型检查（对齐 shared `validateTaskData`）。
+- 影响范围：`packages/kernel/assets/scheduled-tasks/cron-task.ts`、`packages/kernel/assets/scheduled-tasks/README.md`、`packages/kernel/src/scheduler-assets.ts`、`packages/kernel/tests/scheduler-assets.test.ts`。
+
+## 2026-08-26 — refactor(kernel): 定时任务 REST 与调度器切换到文件夹存储
+
+- 重构：`createSchedulerRoutes` 签名改为 `(store: FolderTaskStore, onTaskChanged, onTaskDeleted, onRunNow)`，端点路径/方法/状态码不变；GET `/api/scheduled-tasks` 响应变为 `{ tasks, errors }`（解析失败的任务文件以 errors 条目返回）；POST 未传 projectId 进默认项目（SYSTEM_PROJECT_ID）；PUT 支持修复解析失败文件（upsert：body 完整合法时覆盖写，文件不存在 404）；DELETE 可删坏文件（幂等）；execution-records 改由 store.listRecords 从各项目 logs 聚合（倒序、200 上限、字段不变）；入口校验改用 shared 的 `validateTaskData`，删除本地副本。`SchedulerDeps` 改为 `{ loadTasks, dataDir, executeTask, broadcast }`（删 tasksFile/recordsFile），`TaskScheduler` 新增 `scheduledIds()`（watcher 对账用）。
+- 过渡适配：`ws-server.ts` 定时任务路由注册段暂缓接线（Task 6 装配 watcher 后统一接，接线前 `/api/scheduled-tasks*` 回落 404）；`index.ts` 的 TaskScheduler 暂以 `loadTasks: () => loadScheduledTasks(SCHEDULED_TASKS_FILE)` 注入，迁移期调度行为不变。
+- 验证：TDD —— 先改写测试跑红（20 fail），实现后 `bun test tests/routes-scheduler.test.ts tests/scheduler.test.ts` 56 pass 0 fail；kernel 全量 `bun run test` 通过；`tsc --noEmit` 通过。
+- 影响范围：`packages/kernel/src/scheduler.ts`、`packages/kernel/src/routes/scheduler.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/index.ts`、`packages/kernel/tests/routes-scheduler.test.ts`、`packages/kernel/tests/scheduler.test.ts`（旧 `scheduler-store.ts` 仍保留供 Task 4 迁移读取）。
+
+## 2026-08-26 — feat(kernel): 旧定时任务 JSON 到项目文件夹的一次性迁移
+
+- 新增功能：新增 `packages/kernel/src/scheduler-migrate.ts` 的 `migrateLegacySchedulerFiles`——启动时一次性把旧全局 `scheduled-tasks.json` + `execution-records.json` 迁移到各项目 `.wa-pi/scheduled-tasks/` 文件夹格式：任务按 projectId 分发（无 projectId 进默认工作区），新 id = `sanitizeTaskId(name)`（冲突追加 -2），执行记录 taskId 同步改写为文件名 id 并追加到对应 log，孤儿记录丢弃；完成后旧文件重命名为 `.migrated` 归档；幂等（旧文件不存在即 no-op）。任务文件写入走 tmp+rename 原子写。
+- 验证：TDD —— `bun test tests/scheduler-migrate.test.ts` 3 pass 0 fail（无旧文件 no-op、按 projectId 分发 + 归档、重复执行 no-op）；kernel 全量测试通过；typecheck 通过。
+- 影响范围：`packages/kernel/src/scheduler-migrate.ts`、`packages/kernel/tests/scheduler-migrate.test.ts`（旧 `scheduler-store.ts` 仅作迁移读取用，Task 12 才删除）。
 
 ## 2026-08-27 — fix(steer): 同一会话同时只允许一条引导中，已有引导时后续引导降级为排队
 

@@ -13,6 +13,7 @@ import { AutomationSidebar, lastRunTimeOf } from "../AutomationSidebar";
 // records 提供每任务最近执行状态（t1=success / t2=failed），供 TaskCard 状态点渲染。
 const selectTaskMock = mock();
 const startCreateMock = mock();
+const startFixErrorMock = mock();
 const loadTasksMock = mock();
 const setViewMock = mock();
 const deleteTaskMock = mock(async () => {});
@@ -46,6 +47,7 @@ const baseTasks = () => [
 mock.module("../../../store/scheduler", () => ({
 	useSchedulerStore: () => ({
 		tasks: baseTasks(),
+		taskErrors: [],
 		records: [
 			{
 				id: "r1",
@@ -72,6 +74,7 @@ mock.module("../../../store/scheduler", () => ({
 		selectedTaskId: "t1",
 		selectTask: selectTaskMock,
 		startCreate: startCreateMock,
+		startFixError: startFixErrorMock,
 		loadTasks: loadTasksMock,
 		setView: setViewMock,
 		deleteTask: deleteTaskMock,
@@ -83,6 +86,7 @@ mock.module("../../../store/scheduler", () => ({
 beforeEach(() => {
 	selectTaskMock.mockReset();
 	startCreateMock.mockReset();
+	startFixErrorMock.mockReset();
 	loadTasksMock.mockReset();
 	setViewMock.mockReset();
 	deleteTaskMock.mockReset();

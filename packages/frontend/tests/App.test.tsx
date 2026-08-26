@@ -492,7 +492,7 @@ test("切回新建会话页时，新建页此前打开的预览应恢复（不�
 		path: null,
 		sessionId: null,
 		bySession: {
-[anchor]: { open: true, path: "/a/index.html", minimized: false },
+			[anchor]: { open: true, path: "/a/index.html", minimized: false },
 		},
 	});
 
