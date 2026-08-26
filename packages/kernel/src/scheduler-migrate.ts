@@ -7,12 +7,23 @@
  * - 完成后旧文件重命名为 .migrated 归档（不删除，可人工回查）
  * - 幂等：旧文件不存在即 no-op
  */
-import { mkdir, rename, writeFile, stat } from "node:fs/promises";
+import { mkdir, rename, writeFile, stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ExecutionRecord } from "@wa-pi/shared";
+import type { ExecutionRecord, ScheduledTask } from "@wa-pi/shared";
 import { formatLogLine, sanitizeTaskId, serializeTaskFile } from "@wa-pi/shared";
 import { tasksDirOf, logsDirOf } from "./scheduler-task-store";
-import { loadScheduledTasks, loadExecutionRecords } from "./scheduler-store";
+
+// 旧 JSON 读取（替代已删除的旧存储层读函数）：文件缺失/损坏均回退空数组不抛错。
+// loadScheduledTasks(file) → readJsonArray<ScheduledTask>(file, "tasks")
+// loadExecutionRecords(file) → readJsonArray<ExecutionRecord>(file, "records")
+async function readJsonArray<T>(file: string, key: string): Promise<T[]> {
+	try {
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<string, T[]>;
+		return Array.isArray(raw[key]) ? raw[key] : [];
+	} catch {
+		return [];
+	}
+}
 
 async function exists(file: string): Promise<boolean> {
 	try {
@@ -29,9 +40,9 @@ export async function migrateLegacySchedulerFiles(deps: {
 	resolveProject: (projectId?: string) => { id: string; cwd: string };
 }): Promise<{ migrated: number }> {
 	if (!(await exists(deps.legacyTasksFile))) return { migrated: 0 };
-	const legacyTasks = await loadScheduledTasks(deps.legacyTasksFile);
+	const legacyTasks = await readJsonArray<ScheduledTask>(deps.legacyTasksFile, "tasks");
 	const legacyRecords = (await exists(deps.legacyRecordsFile))
-		? await loadExecutionRecords(deps.legacyRecordsFile)
+		? await readJsonArray<ExecutionRecord>(deps.legacyRecordsFile, "records")
 		: [];
 
 	// 旧 id → 新 id（执行记录改写用）

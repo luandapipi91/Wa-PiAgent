@@ -1,3 +1,7 @@
+## 2026-08-26
+
+- **重构（定时任务 AI 化）**：定时任务数据源从全局 `scheduled-tasks.json` 迁移为各项目 `.wa-pi/scheduled-tasks/` 文件夹（任务 md 文件 + 运行日志）；kernel fs.watch 热加载，CLI/agent 直接改文件即生效；每个项目自动分发 `cron-task.ts` CLI 与 README；系统提示词新增一句定时任务目录引导；旧 JSON 自动迁移归档；自动化面板新增「配置错误」条目展示与修复。影响范围：kernel（scheduler*/routes/index/system-prompt/agent-manager）、shared（task-file/types/constants）、frontend（automation 面板）、scripts（API 集成测试）、e2e。
+
 ## 2026-08-26 — test(e2e): automation.spec.ts 新增定时任务 AI 化（CLI 建任务 + 配置错误修复）两条端到端场景
 
 - 新增 E2E：`packages/frontend/e2e/automation.spec.ts` 末尾追加 `test.describe.serial("定时任务 AI 化（CLI 建任务 + 配置错误修复）")`，含两条用例：①agent 经分发的 CLI（`bun <cwd>/.wa-pi/scheduled-tasks/cron-task.ts add --name E2E任务 --agent dev --schedule '{"type":"daily","time":"09:30"}' --prompt ...`）直接写任务文件 → watcher 热载 → 前端列表可见 → `POST /api/scheduled-tasks/:id/run` 触发 → 执行记录落盘 → `logs/E2E任务.log` 非空 → 清理；②坏任务文件（缺 name）→ 面板「⚠ 配置错误」条目 + 错误原因 → 点进编辑表单补全 → `PUT` upsert 修复 → 错误条目消失、任务正常显示、REST errors 清空。Node 侧复用本文件 `api`/`findTaskByName`，新增 `deleteTaskQuietEncoded`/`findTaskError`/`findRecord`/`waitForCliAsset` helper。
