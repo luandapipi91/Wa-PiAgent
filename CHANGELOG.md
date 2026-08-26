@@ -1,3 +1,9 @@
+## 2026-08-26 — test(scripts): 定时任务文件夹化 API 集成测试（scheduler-api-it.sh）
+
+- **test(scripts)**：定时任务文件夹化 API 集成测试（scheduler-api-it.sh）
+- 新增 `scripts/scheduler-api-it.sh`：自含起停隔离临时 kernel 的定时任务文件夹化 REST API 集成验收脚本（9 场景：POST 建任务并落盘/列表/watcher 热加载/坏文件 errors/PUT 修复/run 触发/执行记录/DELETE/错误路径 400/404），用独立 `WA_PI_DIR`（mktemp -d）+ 空闲端口（9900 起，lsof 探测）隔离，不触碰宿主 9776/9778。退出清理对 kernel 先 `kill -TERM`（宽限 4s 走优雅退出 → agentManager.disposeAll 回收 pi 子进程），再用 `pkill -TERM -P` 兜底其直接子进程、`kill -KILL` 兜底未退出内核，避免残留孤儿 pi。
+- 影响范围：`scripts/scheduler-api-it.sh`（新增）；测试：9 场景全过，退出码 0。
+
 ## 2026-08-26 — feat(frontend): 自动化面板展示并修复配置错误的定时任务文件
 
 - 新增功能：scheduler store 新增 `taskErrors: TaskFileError[]` 状态与 `startFixError` action——`loadTasks` 读取 REST 响应 `errors` 存入 `taskErrors`；`startFixError` 用错误信息构造带 `id`（=taskId）的草稿进入编辑表单（id 非空 → 保存走 `updateTask` PUT upsert 修复坏文件，PUT url 对 id 做 encodeURIComponent 适配中文文件名）。AutomationSidebar 在任务列表后渲染「配置错误」条目卡片（⚠ 配置错误 + taskId + 错误原因，error 色 `#f87171` 标红，dashed 边框区分于正常任务），点击进入编辑表单修复。

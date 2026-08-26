@@ -40,9 +40,16 @@ cleanup() {
   set +e
   trap - EXIT INT TERM
   if [ -n "$KPID" ] && kill -0 "$KPID" 2>/dev/null; then
+    # 第一层：先给 kernel 发 TERM（优雅退出），再顺手杀它的直接子进程（如 run 触发时
+    # agentManager.ensureStarted 实际 spawn 的 pi 子进程），兜底那些因 resolveTaskModel
+    # 无 provider 抛错、catch 只置 failed 而未被内核回收的孤儿 pi（不用 setsid——macOS 无此命令）。
     kill -TERM "$KPID" 2>/dev/null
-    sleep 1
-    kill -KILL "$KPID" 2>/dev/null
+    pkill -TERM -P "$KPID" 2>/dev/null
+    # 宽限 4s：kernel 收到 SIGTERM 后走优雅退出（shutdown → agentManager.disposeAll() 会
+    # 回收所有 pi 子进程）；太短（原 1s）会把这套回收打断、留下孤儿，太长则拖慢测试收尾。
+    sleep 4
+    # 第二层：宽限期后仍存活（优雅退出被卡住）则强制 KILL 兜底。
+    kill -0 "$KPID" 2>/dev/null && kill -KILL "$KPID" 2>/dev/null
   fi
   [ -n "$WORK_DIR" ] && rm -rf "$WORK_DIR"
   [ -n "$RESP" ] && rm -rf "$RESP"
