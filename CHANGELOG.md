@@ -1,3 +1,10 @@
+## 2026-08-27 — fix(preview): 新建会话页从文件树打开 html 预览带 sessionId 锚点，切走切回能恢复
+
+- 背景：新建会话页预览「切走关、切回恢复」在文件树打开时失效——NewSessionPane 文件树双击 html 用 `openBrowser(path)`（不带 sessionId），预览未归属到本页锚点，切走时 `activateSession` 记不住它，切回自然不恢复。而预览图标用 `openBrowser(undefined, sessionId)`（带锚点）正常。
+- 修复：`NewSessionPane.tsx` 文件树 `onOpenFile` 的 html 分支改为 `openBrowser(path, sessionId)`，与非 html 的 `openFilePreview(path, sessionId)` 保持一致，预览按本页锚点记忆。
+- 验证：TDD —— 复现「用不带 sessionId 的 openBrowser 打开预览→切走→切回不恢复」红灯；「用带 sessionId 归属锚点→切走→切回恢复」绿灯；`NewSessionPane.test.tsx` 25 pass 0 fail；前端全量 1907 pass 0 fail；typecheck 通过。
+- 影响范围：`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/tests/NewSessionPane.test.tsx`。
+
 ## 2026-08-27 — feat(sound): 事件完成提示音改为随机池播放（新增 6 个前 1 秒音效 + 原有青蛙叫）
 
 - 背景：任务完成（`agent_end` 终态）提示音原先固定播放 `frog-croak.mp3` 一个文件，听感单一。用户希望从随机池等概率播放，新增 6 个音效（各截取前 1 秒）与原有青蛙叫混合随机。试听后确认其中某新音效与原有青蛙叫重复，最终决定移除原青蛙叫，随机池只用 6 个新音效。
