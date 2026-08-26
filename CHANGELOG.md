@@ -1,3 +1,9 @@
+## 2026-08-27 — v0.2.25 发版（预览归属/高亮收敛 + 提示音随机池 + 引导队列修复）
+
+- 版本：0.2.24 → 0.2.25。
+- 主要：切换会话预览归属到对应会话（新建页文件树 HTML 预览带 sessionId 锚点、切走不残留）；本地预览高亮框屏幕边缘收敛进视口；事件完成提示音改随机池（6 个音效，移除重复青蛙叫）；同一会话只允许一条引导中队列。
+- 验证：pack:mac + pack:win；publish-oss.ts 推 R2；git tag v0.2.25 + Gitee Release。
+
 ## 2026-08-27 — fix(preview): 新建会话页从文件树打开 html 预览带 sessionId 锚点，切走切回能恢复
 
 - 背景：新建会话页预览「切走关、切回恢复」在文件树打开时失效——NewSessionPane 文件树双击 html 用 `openBrowser(path)`（不带 sessionId），预览未归属到本页锚点，切走时 `activateSession` 记不住它，切回自然不恢复。而预览图标用 `openBrowser(undefined, sessionId)`（带锚点）正常。
