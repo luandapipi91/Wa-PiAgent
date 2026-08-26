@@ -185,3 +185,67 @@ test("displayLabel：无 id 但 data-testid 时显示语义标签", () => {
 		}),
 	).toBe("button[data-testid=submit]");
 });
+
+// ── clampRectToViewport：把文档坐标矩形平移/收缩到视口内（尺寸不变仅平移） ──
+test("clampRectToViewport：正常在视口内 → 不动", () => {
+	const { clampRectToViewport } = require("../src/assets/preview-inspect.js");
+	expect(clampRectToViewport(100, 100, 200, 60, 800, 600)).toEqual({
+		left: 100,
+		top: 100,
+		width: 200,
+		height: 60,
+	});
+});
+
+test("clampRectToViewport：元素在右侧边缘 → left 钳到视口内", () => {
+	const { clampRectToViewport } = require("../src/assets/preview-inspect.js");
+	// 元素 left=750，宽 200，右缘 950 > 视口宽 800 → left 钳到 800-200=600
+	expect(clampRectToViewport(750, 100, 200, 60, 800, 600)).toEqual({
+		left: 600,
+		top: 100,
+		width: 200,
+		height: 60,
+	});
+});
+
+test("clampRectToViewport：元素在底部边缘 → top 钳到视口内", () => {
+	const { clampRectToViewport } = require("../src/assets/preview-inspect.js");
+	// 元素 top=580，高 60，底缘 640 > 视口高 600 → top 钳到 600-60=540
+	expect(clampRectToViewport(100, 580, 200, 60, 800, 600)).toEqual({
+		left: 100,
+		top: 540,
+		width: 200,
+		height: 60,
+	});
+});
+
+test("clampRectToViewport：元素在左侧/顶部边缘（负坐标）→ 钳到 0", () => {
+	const { clampRectToViewport } = require("../src/assets/preview-inspect.js");
+	expect(clampRectToViewport(-50, -30, 200, 60, 800, 600)).toEqual({
+		left: 0,
+		top: 0,
+		width: 200,
+		height: 60,
+	});
+});
+
+test("clampRectToViewport：元素宽 > 视口 → 收缩到视口宽", () => {
+	const { clampRectToViewport } = require("../src/assets/preview-inspect.js");
+	// 元素 left=0，宽 1200 > 800，left 钳到 0，宽收缩到 800
+	expect(clampRectToViewport(0, 100, 1200, 60, 800, 600)).toEqual({
+		left: 0,
+		top: 100,
+		width: 800,
+		height: 60,
+	});
+});
+
+test("clampRectToViewport：元素高 > 视口 → 收缩到视口高", () => {
+	const { clampRectToViewport } = require("../src/assets/preview-inspect.js");
+	expect(clampRectToViewport(100, 0, 200, 900, 800, 600)).toEqual({
+		left: 100,
+		top: 0,
+		width: 200,
+		height: 600,
+	});
+});
