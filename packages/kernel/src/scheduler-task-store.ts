@@ -47,6 +47,23 @@ function hashOf(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
 }
 
+/** taskId 合法性：拒绝空串与路径穿越（/ \ ..），写入路径前统一校验 */
+function isValidTaskId(taskId: string): boolean {
+	return (
+		taskId !== "" &&
+		!taskId.includes("/") &&
+		!taskId.includes("\\") &&
+		!taskId.includes("..")
+	);
+}
+
+function assertValidTaskId(taskId: string): void {
+	if (!isValidTaskId(taskId)) throw new Error(`taskId 非法: ${taskId}`);
+}
+
+// tmp 文件名的模块级自增后缀：同进程并发写同一文件时避免 tmp 名互相覆盖/ENOENT
+let tmpCounter = 0;
+
 /** 原子写：tmp + rename，并记录内容哈希 */
 async function atomicWrite(
 	file: string,
@@ -54,7 +71,7 @@ async function atomicWrite(
 	writeHashes: Map<string, string>,
 ): Promise<void> {
 	await mkdir(dirname(file), { recursive: true });
-	const tmp = `${file}.tmp-${process.pid}`;
+	const tmp = `${file}.tmp-${process.pid}-${tmpCounter++}`;
 	await writeFile(tmp, content, "utf8");
 	await rename(tmp, file);
 	writeHashes.set(file, hashOf(content));
@@ -95,6 +112,20 @@ export function createFolderTaskStore(deps: {
 	projectsProvider: () => Promise<ProjectRef[]>;
 }): FolderTaskStore {
 	const writeHashes = new Map<string, string>();
+
+	// store 级写队列：create/update/remove 串行化（promise 链，同 scheduler-store 的
+	// enqueueWrite 模式）。并发同名 create 的 id 检测→写文件必须整体排队，
+	// 否则两个 create 会选中同一 id 互相覆盖（TOCTOU）。
+	// 注意：入队 op 内部不得再调用入队版函数（嵌套等待自身前置 → 死锁）。
+	let writeChain: Promise<void> = Promise.resolve();
+	function enqueueWrite<T>(op: () => Promise<T>): Promise<T> {
+		const result = writeChain.then(op);
+		writeChain = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
+	}
 
 	async function findProject(projectId: string): Promise<ProjectRef | null> {
 		const projects = await deps.projectsProvider();
@@ -144,6 +175,7 @@ export function createFolderTaskStore(deps: {
 	async function locateFile(
 		taskId: string,
 	): Promise<{ project: ProjectRef; file: string } | null> {
+		if (!isValidTaskId(taskId)) return null; // 路径穿越防护：非法 id 视为不存在
 		for (const project of await deps.projectsProvider()) {
 			const file = join(tasksDirOf(project.cwd), `${taskId}.md`);
 			if (await stat(file).then(() => true, () => false)) {
@@ -151,6 +183,89 @@ export function createFolderTaskStore(deps: {
 			}
 		}
 		return null;
+	}
+
+	async function findTaskById(
+		taskId: string,
+	): Promise<{ task: ScheduledTask; projectId: string } | null> {
+		const loc = await locateFile(taskId);
+		if (!loc) return null;
+		try {
+			const [content, st] = await Promise.all([
+				readFile(loc.file, "utf8"),
+				stat(loc.file),
+			]);
+			const task = parseTaskFile(content, {
+				taskId,
+				projectId: loc.project.id,
+				createdAt: Math.round(st.birthtimeMs || st.mtimeMs),
+				updatedAt: Math.round(st.mtimeMs),
+			});
+			return { task, projectId: loc.project.id };
+		} catch {
+			return null; // 文件存在但解析失败：findById 只看有效任务
+		}
+	}
+
+	// ---- 写操作内部实现（非入队版；入队包装只负责排队，op 内不得再调用入队版，否则死锁） ----
+
+	async function createImpl(
+		input: TaskFileData & { prompt: string },
+		projectId: string,
+	): Promise<ScheduledTask> {
+		const project = await findProject(projectId);
+		if (!project) throw new Error(`项目不存在: ${projectId}`);
+		const error = validateTaskData(input);
+		if (error) throw new Error(error);
+		// 同名冲突追加 -2/-3…
+		const base = sanitizeTaskId(input.name);
+		let taskId = base;
+		for (let i = 2; await stat(join(tasksDirOf(project.cwd), `${taskId}.md`)).then(() => true, () => false); i++) {
+			taskId = `${base}-${i}`;
+		}
+		const file = join(tasksDirOf(project.cwd), `${taskId}.md`);
+		await atomicWrite(file, serializeTaskFile(input, input.prompt), writeHashes);
+		const st = await stat(file);
+		return {
+			id: taskId,
+			projectId,
+			name: input.name,
+			schedule: input.schedule,
+			agentId: input.agentId,
+			model: input.model,
+			prompt: input.prompt,
+			enabled: input.enabled,
+			createdAt: Math.round(st.birthtimeMs || st.mtimeMs),
+			updatedAt: Math.round(st.mtimeMs),
+		};
+	}
+
+	async function updateImpl(
+		taskId: string,
+		input: TaskFileData & { prompt: string },
+	): Promise<ScheduledTask | null> {
+		assertValidTaskId(taskId);
+		const loc = await locateFile(taskId);
+		if (!loc) return null;
+		const error = validateTaskData(input);
+		if (error) throw new Error(error);
+		// 保留原 createdAt（birthtime 不因覆盖写改变，但显式读回最稳）
+		await atomicWrite(
+			loc.file,
+			serializeTaskFile(input, input.prompt),
+			writeHashes,
+		);
+		const found = await findTaskById(taskId);
+		return found?.task ?? null;
+	}
+
+	async function removeImpl(taskId: string): Promise<boolean> {
+		// 非法 taskId 由 locateFile 判空 → 返回 false（删除幂等，不抛错）
+		const loc = await locateFile(taskId);
+		if (!loc) return false;
+		await rm(loc.file, { force: true });
+		writeHashes.delete(loc.file);
+		return true;
 	}
 
 	return {
@@ -167,78 +282,15 @@ export function createFolderTaskStore(deps: {
 			return { tasks, errors };
 		},
 
-		async findById(taskId) {
-			const loc = await locateFile(taskId);
-			if (!loc) return null;
-			try {
-				const [content, st] = await Promise.all([
-					readFile(loc.file, "utf8"),
-					stat(loc.file),
-				]);
-				const task = parseTaskFile(content, {
-					taskId,
-					projectId: loc.project.id,
-					createdAt: Math.round(st.birthtimeMs || st.mtimeMs),
-					updatedAt: Math.round(st.mtimeMs),
-				});
-				return { task, projectId: loc.project.id };
-			} catch {
-				return null; // 文件存在但解析失败：findById 只看有效任务
-			}
-		},
+		findById: findTaskById,
 
-		async create(input, projectId) {
-			const project = await findProject(projectId);
-			if (!project) throw new Error(`项目不存在: ${projectId}`);
-			const error = validateTaskData(input);
-			if (error) throw new Error(error);
-			// 同名冲突追加 -2/-3…
-			const base = sanitizeTaskId(input.name);
-			let taskId = base;
-			for (let i = 2; await stat(join(tasksDirOf(project.cwd), `${taskId}.md`)).then(() => true, () => false); i++) {
-				taskId = `${base}-${i}`;
-			}
-			const file = join(tasksDirOf(project.cwd), `${taskId}.md`);
-			await atomicWrite(file, serializeTaskFile(input, input.prompt), writeHashes);
-			const st = await stat(file);
-			return {
-				id: taskId,
-				projectId,
-				name: input.name,
-				schedule: input.schedule,
-				agentId: input.agentId,
-				model: input.model,
-				prompt: input.prompt,
-				enabled: input.enabled,
-				createdAt: Math.round(st.birthtimeMs || st.mtimeMs),
-				updatedAt: Math.round(st.mtimeMs),
-			};
-		},
-
-		async update(taskId, input) {
-			const loc = await locateFile(taskId);
-			if (!loc) return null;
-			const error = validateTaskData(input);
-			if (error) throw new Error(error);
-			// 保留原 createdAt（birthtime 不因覆盖写改变，但显式读回最稳）
-			await atomicWrite(
-				loc.file,
-				serializeTaskFile(input, input.prompt),
-				writeHashes,
-			);
-			const found = await this.findById(taskId);
-			return found?.task ?? null;
-		},
-
-		async remove(taskId) {
-			const loc = await locateFile(taskId);
-			if (!loc) return false;
-			await rm(loc.file, { force: true });
-			writeHashes.delete(loc.file);
-			return true;
-		},
+		// create/update/remove 整体串行化：同名检测→写文件之间不被并发插队
+		create: (input, projectId) => enqueueWrite(() => createImpl(input, projectId)),
+		update: (taskId, input) => enqueueWrite(() => updateImpl(taskId, input)),
+		remove: (taskId) => enqueueWrite(() => removeImpl(taskId)),
 
 		async appendRecord(projectId, taskId, record) {
+			assertValidTaskId(taskId); // log 文件名直接来自 taskId，先挡路径穿越
 			const project = await findProject(projectId);
 			if (!project) throw new Error(`项目不存在: ${projectId}`);
 			const dir = logsDirOf(project.cwd);

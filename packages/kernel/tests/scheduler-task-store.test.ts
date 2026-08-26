@@ -152,3 +152,55 @@ describe("自写哈希", () => {
 		expect(store.lastWrittenHash(join(tasksDirOf(projA), "别的.md"))).toBeNull();
 	});
 });
+
+describe("并发安全", () => {
+	test("并发同名 create 串行化，得到两个不同 id", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const [t1, t2] = await Promise.all([
+			store.create({ ...DATA, prompt: "p1" }, "pa"),
+			store.create({ ...DATA, prompt: "p2" }, "pa"),
+		]);
+		expect(t1.id).not.toBe(t2.id);
+		expect([t1.id, t2.id].sort()).toEqual(["每日站会", "每日站会-2"]);
+		const { tasks, errors } = await store.listAll();
+		expect(errors).toEqual([]);
+		expect(tasks).toHaveLength(2);
+	});
+
+	test("并发 update 同一文件：不抛错且最终内容完整", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const t = await store.create({ ...DATA, prompt: "p" }, "pa");
+		await Promise.all([
+			store.update(t.id, { ...DATA, prompt: "u1" }),
+			store.update(t.id, { ...DATA, prompt: "u2" }),
+			store.update(t.id, { ...DATA, prompt: "u3" }),
+		]);
+		// 串行执行，最终内容为三者之一且可完整解析（无半写/tmp 冲突）
+		const found = await store.findById(t.id);
+		expect(found).not.toBeNull();
+		expect(["u1", "u2", "u3"]).toContain(found!.task.prompt);
+		expect((await store.listAll()).errors).toEqual([]);
+	});
+});
+
+describe("taskId 路径穿越防护", () => {
+	test("remove 非法 id 返回 false；appendRecord 非法 id 抛错", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		expect(await store.remove("../x")).toBe(false);
+		const rec = {
+			id: "r1", taskId: "../x", taskName: "x", status: "running" as const,
+			startedAt: Date.now(),
+		};
+		await expect(store.appendRecord("pa", "../x", rec)).rejects.toThrow();
+	});
+
+	test("findById/update 对非法 id 不越出 tasks 目录", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		expect(await store.findById("../x")).toBeNull();
+		await expect(
+			store.update("..\\x", { ...DATA, prompt: "p" }),
+		).rejects.toThrow();
+		// tasks 目录之外不产生任何文件
+		expect(existsSync(join(projA, ".wa-pi", "scheduled-tasks", "x.md"))).toBe(false);
+	});
+});
