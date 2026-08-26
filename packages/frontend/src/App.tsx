@@ -339,9 +339,19 @@ export function App() {
 
 	// 派生 view
 	useEffect(() => {
-		if (projects.length === 0) setView("empty");
-		else if (currentSessionId) setView("session");
-		else setView("new-session");
+		if (projects.length === 0) {
+			setView("empty");
+			// 无项目（空视图）：无新建页锚点可恢复，直接关闭预览，避免 BrowserPanel 残留
+			useBrowserStore.getState().activateSession(null);
+		} else if (currentSessionId) {
+			setView("session");
+		} else {
+			// 新建会话视图（无选中会话）：不在这里关预览。
+			// 新建页自身是预览记忆锚点，由 NewSessionPane 挂载时 activateSession(自身sid) 负责：
+			// 从会话切来（无自身预览）→ 落到空预览即关闭；切回（有自身预览）→ 恢复自身预览。
+			// 若此处再调 activateSession(null)，父组件 effect 后执行会把新页刚恢复的预览又关掉。
+			setView("new-session");
+		}
 	}, [projects.length, currentSessionId]);
 
 	// 首次启动引导：无任何模型供应商时自动弹出初始化向导。

@@ -57,6 +57,7 @@ import { NewSessionPane } from "../src/components/NewSessionPane";
 import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
+import { useBrowserStore } from "../src/store/browser";
 import { useProvidersStore } from "../src/store/providers";
 import { useRecordingStore } from "../src/store/recording";
 import { _setRecordingManager } from "../src/recording/recorder";
@@ -102,8 +103,7 @@ describe("NewSessionPane", () => {
 	beforeEach(() => {
 		composerDbDefaults.model = null;
 		composerDbDefaults.thinking = "disabled";
-		for (const k of Object.keys(composerDbSessions))
-			delete composerDbSessions[k];
+		for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
 		for (const k of Object.keys(composerDbNewSessionIds))
 			delete composerDbNewSessionIds[k];
 
@@ -172,6 +172,62 @@ describe("NewSessionPane", () => {
 		expect(screen.getByTestId("agent-select")).toBeTruthy();
 	});
 
+	it("顶部有预览浏览器图标：点击后打开浏览器预览并归属到新建会话锚点", () => {
+		render(<NewSessionPane />);
+		const btn = screen.getByTestId("btn-browser-preview");
+		expect(btn).toBeTruthy();
+		fireEvent.click(btn);
+		// 打开预览：browser store 置 open=true，归属到新建会话锚点 sessionId（按会话记忆）
+		const st = useBrowserStore.getState();
+		expect(st.open).toBe(true);
+		expect(st.sessionId).not.toBeNull();
+	});
+
+	it("切回新建会话页时恢复此前打开的预览（按会话记忆）", () => {
+		// 固定新建页锚点 sessionId：与 composer 草稿同一持久化机制
+		const anchor = "draft-session-anchor";
+		composerDbNewSessionIds["p1"] = anchor;
+		useComposerPrefsStore.setState({ newSessionIds: { p1: anchor } });
+		// 预设：该锚点此前打开过预览（切走时被记忆）
+		useBrowserStore.setState({
+			open: false,
+			path: null,
+			sessionId: null,
+			bySession: {
+				[anchor]: { open: true, path: "/a/index.html", minimized: false },
+			},
+		});
+
+		render(<NewSessionPane />);
+		expect(useBrowserStore.getState().open).toBe(true);
+		expect(useBrowserStore.getState().path).toBe("/a/index.html");
+		expect(useBrowserStore.getState().sessionId).toBe(anchor);
+	});
+
+	it("新建页开预览→切走→切回：预览应恢复（卸载-重挂载真实序列）", () => {
+		const anchor = "draft-session-anchor";
+		composerDbNewSessionIds["p1"] = anchor;
+		useComposerPrefsStore.setState({ newSessionIds: { p1: anchor } });
+
+		// 1) 新建页挂载，从文件树打开带 path 的 html 预览——注意 openBrowser 只传 path 不带 sessionId
+		//    （NewSessionPane 文件树双击的现有行为），预览应归属到本页锚点才能按会话记忆。
+		const { unmount } = render(<NewSessionPane />);
+		useBrowserStore.getState().openBrowser("/a/index.html");
+		expect(useBrowserStore.getState().open).toBe(true);
+		expect(useBrowserStore.getState().path).toBe("/a/index.html");
+
+		// 2) 切走：卸载新建页，模拟 activateSession 到真实会话
+		unmount();
+		useBrowserStore.getState().activateSession("A");
+		expect(useBrowserStore.getState().open).toBe(false);
+
+		// 3) 切回新建页：重新挂载 → 应恢复锚点预览（含 path）
+		render(<NewSessionPane />);
+		expect(useBrowserStore.getState().open).toBe(true);
+		expect(useBrowserStore.getState().path).toBe("/a/index.html");
+		expect(useBrowserStore.getState().sessionId).toBe(anchor);
+	});
+
 	it("clears text after sending", async () => {
 		composerDbDefaults.model = "gpt-4o";
 		composerDbDefaults.thinking = "disabled";
@@ -222,9 +278,7 @@ describe("NewSessionPane", () => {
 					api: "anthropic-messages",
 					baseUrl: "",
 					apiKey: "",
-					models: [
-						{ id: "claude-sonnet", contextWindow: 128000, maxTokens: 4096 },
-					],
+					models: [{ id: "claude-sonnet", contextWindow: 128000, maxTokens: 4096 }],
 				},
 			],
 		});
@@ -486,9 +540,7 @@ describe("NewSessionPane", () => {
 
 	it("无会话历史时默认回退列表第一项", () => {
 		render(<NewSessionPane />);
-		expect(screen.getByTestId("agent-select").textContent).toContain(
-			"需求设计",
-		);
+		expect(screen.getByTestId("agent-select").textContent).toContain("需求设计");
 	});
 
 	it("agent 下拉来自 agents store，pendingAgent 预选", () => {
@@ -496,9 +548,7 @@ describe("NewSessionPane", () => {
 			list: [agentCfg("需求设计"), agentCfg("代码审查")],
 		});
 		render(<NewSessionPane pendingAgent="代码审查" />);
-		expect(screen.getByTestId("agent-select").textContent).toContain(
-			"代码审查",
-		);
+		expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
 		fireEvent.click(screen.getByTestId("agent-select"));
 		expect(screen.getByTestId("agent-item-需求设计")).toBeTruthy();
 		expect(screen.getByTestId("agent-item-代码审查")).toBeTruthy();
@@ -509,13 +559,9 @@ describe("NewSessionPane", () => {
 			list: [agentCfg("技术实现"), agentCfg("代码审查")],
 		});
 		const { rerender } = render(<NewSessionPane />);
-		expect(screen.getByTestId("agent-select").textContent).toContain(
-			"技术实现",
-		);
+		expect(screen.getByTestId("agent-select").textContent).toContain("技术实现");
 		rerender(<NewSessionPane pendingAgent="代码审查" />);
-		expect(screen.getByTestId("agent-select").textContent).toContain(
-			"代码审查",
-		);
+		expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
 	});
 
 	it("agents list 为空时 pill 显示占位，展开下拉提示无智能体", () => {
@@ -559,9 +605,7 @@ describe("NewSessionPane", () => {
 			});
 		});
 		expect(btn.disabled).toBe(false);
-		expect(screen.getByTestId("agent-select").textContent).toContain(
-			"技术实现",
-		);
+		expect(screen.getByTestId("agent-select").textContent).toContain("技术实现");
 	});
 
 	it("空智能体列表：无有效选中值且发送被阻止（不回退到死智能体 dev）", async () => {
@@ -619,9 +663,7 @@ describe("NewSessionPane", () => {
 		expect(sysOption).toBeDefined();
 		expect(sysOption!.textContent).toContain("默认工作区");
 		expect(sysOption!.textContent).not.toContain("/tmp/workdir");
-		const normalOption = Array.from(select.options).find(
-			(o) => o.value === "p1",
-		);
+		const normalOption = Array.from(select.options).find((o) => o.value === "p1");
 		expect(normalOption).toBeDefined();
 		expect(normalOption!.textContent).toContain("/work/wa-pi");
 	});
