@@ -1,4 +1,5 @@
 import "./mock-composer-db";
+import { composerDbNewSessionIds } from "./mock-composer-db";
 import { test, expect, mock, beforeEach } from "bun:test";
 import {
 	render,
@@ -90,6 +91,7 @@ import { App } from "../src/App";
 import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";
 import { useSessionStore } from "../src/store/session";
+import { useBrowserStore } from "../src/store/browser";
 
 const agent = (displayName: string): AgentConfig => ({
 	displayName,
@@ -460,4 +462,45 @@ test("session:activated（预热完成）触发重拉 stats，补齐占比胶囊
 			(c) => c.method === "get" && c.path === "/api/sessions/s1/messages",
 		),
 	).toBe(false);
+});
+
+test("处于新建会话/空视图时，已打开的预览应被关闭（切走不残留）", async () => {
+	// 预设：某个会话打开了预览（open=true），但当前界面处于无会话状态（new-session 视图）。
+	// 修复前根因：切到 new-session / empty 视图时 App 层没调 activateSession(null) 关闭预览，
+	// 导致 BrowserPanel 因 open=true 仍挂载 → 预览在新建会话页残留。
+	useBrowserStore.setState({
+		open: true,
+		path: "/a/index.html",
+		sessionId: "A",
+	});
+
+	render(<App />);
+	await act(async () => {});
+
+	// 无会话 → new-session 视图：新建页自身无预览记忆（fallback 空预览），预览应被关闭
+	expect(useBrowserStore.getState().open).toBe(false);
+	expect(useBrowserStore.getState().path).toBeNull();
+});
+
+test("切回新建会话页时，新建页此前打开的预览应恢复（不被 App 层的关闭覆盖）", async () => {
+	// 新建页锚点（同草稿 newSessionKey 持久化）：此前打开过预览，被 bySession 记住。
+	// 用共享 mock 的 newSessionIds 让 NewSessionPane 挂载时 sid 固定为 anchor（否则读到随机 sid）。
+	const anchor = "draft-session-anchor";
+	composerDbNewSessionIds["p1"] = anchor;
+	useBrowserStore.setState({
+		open: false,
+		path: null,
+		sessionId: null,
+		bySession: {
+[anchor]: { open: true, path: "/a/index.html", minimized: false },
+		},
+	});
+
+	render(<App />);
+	await act(async () => {});
+
+	// 切到新建会话页：新建页锚点有预览记忆 → 应恢复 open=true（App 层不再用 null 覆盖）
+	expect(useBrowserStore.getState().open).toBe(true);
+	expect(useBrowserStore.getState().path).toBe("/a/index.html");
+	expect(useBrowserStore.getState().sessionId).toBe(anchor);
 });

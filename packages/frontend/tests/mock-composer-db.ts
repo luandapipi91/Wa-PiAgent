@@ -4,6 +4,7 @@ import { mock } from "bun:test";
 
 export const composerDbDefaults: { model: string | null; thinking: string } = { model: null, thinking: "disabled" };
 export const composerDbSessions: Record<string, any> = {};
+export const composerDbNewSessionIds: Record<string, string> = {};
 
 mock.module("../src/store/composer-db", () => ({
   getDefaults: async () => ({ ...composerDbDefaults }),
@@ -13,6 +14,6 @@ mock.module("../src/store/composer-db", () => ({
   deleteSessionPrefs: async () => {},
   getRecordingPrefs: async () => ({}),
   setRecordingPrefs: async () => {},
-  getNewSessionIds: async () => ({}),
+  getNewSessionIds: async () => ({ ...composerDbNewSessionIds }),
   setNewSessionIds: async () => {},
 }));

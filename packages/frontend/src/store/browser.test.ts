@@ -167,3 +167,20 @@ test("切到从未见过的会话默认空预览", () => {
 	expect(useBrowserStore.getState().path).toBeNull();
 	expect(useBrowserStore.getState().minimized).toBe(false);
 });
+
+test("activateSession(null)：切到无会话（新建/空视图）关闭预览但保留原会话记忆，切回恢复", () => {
+	useBrowserStore.getState().openBrowser("/a/index.html", "A");
+	expect(useBrowserStore.getState().open).toBe(true);
+
+	// 切到 null（无会话，如新建会话页）：预览应关闭，但 A 的记忆保留
+	useBrowserStore.getState().activateSession(null);
+	expect(useBrowserStore.getState().sessionId).toBeNull();
+	expect(useBrowserStore.getState().open).toBe(false);
+	expect(useBrowserStore.getState().path).toBeNull();
+
+	// 切回 A：恢复预览（“切走关闭，切回恢复”语义）
+	useBrowserStore.getState().activateSession("A");
+	expect(useBrowserStore.getState().sessionId).toBe("A");
+	expect(useBrowserStore.getState().open).toBe(true);
+	expect(useBrowserStore.getState().path).toBe("/a/index.html");
+});

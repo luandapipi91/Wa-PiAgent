@@ -143,6 +143,13 @@ export function NewSessionPane({
 		void loadSession(sessionId);
 	}, [sessionId, loadSession]);
 
+	// 新建会话页自身也是预览记忆的锚点（同草稿按 newSessionKey 持久化）：
+	// 挂载/切回时激活自身 preview（若 bySession 有记录则恢复“切走关、切回恢复”语义；
+	// 若从未开过预览则落到空预览 open=false，与切走关闭一致）。
+	useEffect(() => {
+		useBrowserStore.getState().activateSession(sessionId);
+	}, [sessionId]);
+
 	const [model, setModel] = useState<string | null>(defaults.model);
 	const [thinking, setThinking] = useState<ThinkingLevel>(defaults.thinking);
 	const providers = useProvidersStore((s) => s.providers);
@@ -296,6 +303,23 @@ export function NewSessionPane({
 			<div className="relative flex-1 flex flex-col items-center justify-center p-10 min-w-0">
 				{/* 默认工作区（__system__）的 cwd 是 workdir 父目录（内部会话目录，非项目文件），
 				    无文件可浏览 → 隐藏入口按钮（而非禁用），避免误导点击展开空态。 */}
+				{/* 浏览器预览入口（打开空预览窗口；归属到新建会话锚点 sessionId，按会话记忆） */}
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon absolute top-4 right-14"
+					data-testid="btn-browser-preview"
+					onClick={() =>
+						useBrowserStore.getState().openBrowser(undefined, sessionId)
+					}
+					title={t("session.browserPreview")}
+					style={{ color: "var(--text-tertiary)" }}
+				>
+					<Icon
+						name="globe"
+						size="1em"
+						className="text-[calc(18px*var(--font-scale))]"
+					/>
+				</button>
 				{projectId !== SYSTEM_PROJECT_ID && (
 					<button
 						type="button"
@@ -329,11 +353,11 @@ export function NewSessionPane({
 				<p className="text-sm text-secondary mb-7">{t("newSession.subtitle")}</p>
 				<div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
 					<select
-							value={projectId ?? ""}
-							onChange={(e) => {
-								setProjectTouched(true);
-								setProjectId(e.target.value || null);
-							}}
+						value={projectId ?? ""}
+						onChange={(e) => {
+							setProjectTouched(true);
+							setProjectId(e.target.value || null);
+						}}
 						className="flex-1 min-w-0 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
 						data-testid="project-select"
 					>
@@ -414,11 +438,13 @@ export function NewSessionPane({
 								<ExplorerPanel
 									workspaceDir={workspaceDir}
 									projectName={projects.find((p) => p.id === projectId)?.name}
-									onOpenFile={(path) =>
-										isHtmlPath(path)
-											? useBrowserStore.getState().openBrowser(path)
-											: useSessionStore.getState().openFilePreview(path, sessionId)
-									}
+										onOpenFile={(path) =>
+											isHtmlPath(path)
+												? useBrowserStore
+														.getState()
+														.openBrowser(path, sessionId)
+												: useSessionStore.getState().openFilePreview(path, sessionId)
+										}
 								/>
 							) : (
 								<div className="ep-empty">
