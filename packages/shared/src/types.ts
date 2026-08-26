@@ -1529,3 +1529,11 @@ export interface ExecutionRecord {
 }
 
 export type WSEvent = WSClientEvent | WSServerEvent;
+
+/** 解析失败的定时任务文件条目（任务列表接口随 tasks 一并返回，前端「配置错误」展示用） */
+export interface TaskFileError {
+	taskId: string; // 文件名（不含 .md）
+	projectId: string;
+	file: string; // 绝对路径
+	error: string;
+}
