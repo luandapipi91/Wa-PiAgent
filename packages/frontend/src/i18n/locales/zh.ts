@@ -779,6 +779,8 @@ const zh = {
 				desc:
 					"开启后，agent 回复过程中工具调用和思维链默认不展开（折叠），仍然可手动展开查看。",
 			},
+			taskDoneFrog: "任务完成动画",
+			taskDoneFrogDesc: "任务完成时，一只青蛙从聊天区角落蹦出。",
 		},
 		diagnostics: {
 			title: "扩展错误（最近 {{count}} 条）",

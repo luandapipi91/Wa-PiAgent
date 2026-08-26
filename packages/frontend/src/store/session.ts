@@ -16,6 +16,7 @@ import { useExtDialogStore } from "./ext-dialog";
 import { StreamingBatcher } from "./streaming-batcher";
 import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
+import { triggerTaskDoneFrog } from "../util/frog";
 
 interface SessionState {
 	// 已定稿消息：渲染主列表来源
@@ -152,7 +153,11 @@ interface SessionState {
 	 *  agent_end，需手动把 status 归 idle、清 streaming 占位与思考计时，否则 UI 永远卡 thinking。 */
 	failTurn: (sessionId: string) => void;
 	/** 设置会话的 Provider 连接状态（transient 网络错误 → degraded，驱动状态条）。 */
-	setNetStatus: (sessionId: string, status: "degraded" | null, message?: string) => void;
+	setNetStatus: (
+		sessionId: string,
+		status: "degraded" | null,
+		message?: string,
+	) => void;
 	/** 清除会话的 Provider 连接异常标记（重连成功 / 正常回复后）。 */
 	clearNetStatus: (sessionId: string) => void;
 	// 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
@@ -1060,9 +1065,12 @@ export const useSessionStore = create<SessionState>((set) => {
 					// 保持 thinking（不结算 idle/未读/耗时），等真正终态：成功轮的
 					// agent_end{willRetry:false}，或重试耗尽/中止的 auto_retry_end{success:false}。
 					if (event.willRetry === true) break;
-					// 任务完成提示音：仅终态播放（自动重试中间态上面已 break）；
-					// IM 渠道会话（sessionId 以 im- 开头）不播放提示音。
-					if (!sessionId.startsWith("im-")) playTaskDone();
+					// 任务完成提示音 + 青蛙动画：仅终态触发（自动重试中间态上面已 break）；
+					// IM 渠道会话（sessionId 以 im- 开头）不触发。
+					if (!sessionId.startsWith("im-")) {
+						playTaskDone();
+						triggerTaskDoneFrog(sessionId);
+					}
 					const away = sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
 					streamingBatcher.drop(sessionId);

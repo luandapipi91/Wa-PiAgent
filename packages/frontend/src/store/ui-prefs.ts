@@ -33,6 +33,9 @@ interface UiPrefsState {
 	/** 任务完成提示音开关（默认 true），即时生效。 */
 	soundTaskDone: boolean;
 	setSoundTaskDone: (v: boolean) => void;
+	/** 任务完成青蛙动画开关（默认 true），即时生效。 */
+	frogTaskDone: boolean;
+	setFrogTaskDone: (v: boolean) => void;
 	/** 需要操作（ask_user_question 待回答）提示音开关（默认 true），即时生效。 */
 	soundNeedsAction: boolean;
 	setSoundNeedsAction: (v: boolean) => void;
@@ -70,6 +73,7 @@ export const EXPORT_INCLUDE_USER_DEFAULT = false;
 export const LANGUAGE_DEFAULT: AppLanguage = "zh";
 
 export const SOUND_TASK_DONE_DEFAULT = true;
+export const FROG_TASK_DONE_DEFAULT = true;
 export const SOUND_NEEDS_ACTION_DEFAULT = true;
 
 /** 开机自启默认值：安装后默认开启 */
@@ -152,6 +156,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			},
 			soundTaskDone: SOUND_TASK_DONE_DEFAULT,
 			setSoundTaskDone: (v) => set({ soundTaskDone: v }),
+			frogTaskDone: FROG_TASK_DONE_DEFAULT,
+			setFrogTaskDone: (v) => set({ frogTaskDone: v }),
 			soundNeedsAction: SOUND_NEEDS_ACTION_DEFAULT,
 			setSoundNeedsAction: (v) => set({ soundNeedsAction: v }),
 			autoLaunch: AUTO_LAUNCH_DEFAULT,

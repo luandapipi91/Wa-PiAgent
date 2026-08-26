@@ -1,3 +1,19 @@
+## 2026-08-26 — feat(ui): 任务完成青蛙动画（随机姿势 + 聊天区四角随机蹦出）
+
+- 背景：任务完成（agent_end 终态）原先只有提示音、缺视觉反馈。用户希望加一只青蛙从聊天区域蹦出，每次姿势/形态不同、出现在四角之一，并可开关。
+- 改动：
+  - `util/frog.ts`：新增 `FrogPose`（jump/sit/wave/sleep）、`FrogCorner`（tl/tr/bl/br）类型，`pickFrogPose/pickFrogCorner`（rng 可注入），`triggerTaskDoneFrog(sessionId)`（受 `frogTaskDone` 开关控制 + 仅当触发会话是当前会话才生效 + 写入 frog store）。
+  - `store/frog.ts`：新增全局 `useFrogStore`（current burst + setCurrent/clear），`FrogBurst` 含 `corner` 与 `sessionId`。
+  - `components/ui/TaskDoneFrog.tsx`：在聊天区（MessageList 容器）内 `absolute` 四角随机蹦出 SVG 青蛙，每种姿势带内建动作（呼吸/眨眼/跳跃蹲跳/挥手/zzz 飘动），动画结束自动清除。
+  - `MessageList.tsx`：在聊天区容器内挂载 `<TaskDoneFrog />`（仅当前会话渲染）。
+  - `styles.css`：新增四角跳入 `wa-frog-in-tl/tr/bl/br` + 姿态内部动作 `wa-frog-breathe/blink/jump/wave/zfloat` 关键帧。
+  - `store/ui-prefs.ts`：新增 `frogTaskDone` 开关（默认 开）+ setter + 持久化。
+  - `store/session.ts`：agent_end 终态（非 IM 渠道）调用 `triggerTaskDoneFrog(sessionId)`。
+  - `AppearanceSection.tsx` + i18n：设置-外观新增「任务完成动画」开关（从通用 tab 移入）。
+- 验证：TDD —— frog / frog-trigger / TaskDoneFrog / store-ui-prefs-frog / session-frog / AppearanceSection-frog 共 30 项 0 fail；前端全量 1927 pass 0 fail；typecheck 通过。
+- E2E：新增 `task-done-frog.spec.ts`（外观 tab 开关可切换持久化，与 settings-sound 同构）；本机因隔离 kernel 冷启动未配置模型触发首屏引导 modal 未能实跑通过，CI/配置 provider 环境应通过。
+- 影响范围：`packages/frontend/src/util/frog.ts`、`store/frog.ts`、`components/ui/TaskDoneFrog.tsx`、`components/MessageList.tsx`、`store/ui-prefs.ts`、`store/session.ts`、`App.tsx`、`components/settings/AppearanceSection.tsx`、`components/settings/GeneralSection.tsx`、`styles.css`、i18n zh/en、tests 若干。
+
 ## 2026-08-27 — v0.2.25 发版（预览归属/高亮收敛 + 提示音随机池 + 引导队列修复）
 
 - 版本：0.2.24 → 0.2.25。

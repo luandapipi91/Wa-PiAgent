@@ -90,6 +90,8 @@ export function AppearanceSection() {
 	const setCollapseProcessByDefault = useUiPrefsStore(
 		(s) => s.setCollapseProcessByDefault,
 	);
+	const frogTaskDone = useUiPrefsStore((s) => s.frogTaskDone);
+	const setFrogTaskDone = useUiPrefsStore((s) => s.setFrogTaskDone);
 	const { t } = useTranslation();
 
 	return (
@@ -224,6 +226,22 @@ export function AppearanceSection() {
 					on={collapseProcessByDefault}
 					onToggle={() => setCollapseProcessByDefault(!collapseProcessByDefault)}
 					testId="collapse-process-toggle"
+				/>
+			</div>
+			{/* 任务完成动画（即时生效） */}
+			<div className="flex items-center justify-between gap-4">
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.appearance.taskDoneFrog")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.taskDoneFrogDesc")}
+					</span>
+				</div>
+				<ToggleSwitch
+					on={frogTaskDone}
+					onToggle={() => setFrogTaskDone(!frogTaskDone)}
+					testId="frog-task-done-toggle"
 				/>
 			</div>
 		</div>
