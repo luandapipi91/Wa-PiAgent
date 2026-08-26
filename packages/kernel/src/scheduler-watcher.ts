@@ -53,6 +53,13 @@ export class TaskFolderWatcher {
 			if (this.watchers.has(dir)) continue;
 			try {
 				const w = watch(dir, () => this.scheduleReload());
+				// FSWatcher 是 EventEmitter：目录被外部删除等会异步 emit 'error'，
+				// 无 listener 会进程级崩溃。捕获后从 map 移除，让 syncProjects 下次对账时重建。
+				w.on("error", (err) => {
+					console.warn(`[scheduler] watch 出错 ${dir}:`, err);
+					w.close();
+					this.watchers.delete(dir);
+				});
 				this.watchers.set(dir, w);
 			} catch (err) {
 				console.warn(`[scheduler] watch 失败 ${dir}:`, err);
@@ -68,14 +75,20 @@ export class TaskFolderWatcher {
 
 	private async reload(): Promise<void> {
 		if (this.stopped) return;
-		const { tasks, errors } = await this.deps.store.listAll();
-		// 防自写：若所有变更文件的当前内容哈希都等于 store 自写哈希，则跳过。
-		// 简化判定：逐任务文件比对太细，这里用「任务集合指纹」——
-		// 重新扫描结果与自写内容一致时，applyTasks 本身幂等（调度器重复注册同 cron 无害），
-		// 因此只对「全部文件均为自写」的常见场景短路：
-		const allSelf = await this.allWritesAreSelf(tasks);
-		if (allSelf) return;
-		this.deps.applyTasks(tasks, errors);
+		try {
+			const { tasks, errors } = await this.deps.store.listAll();
+			// 防自写：若所有变更文件的当前内容哈希都等于 store 自写哈希，则跳过。
+			// 简化判定：逐任务文件比对太细，这里用「任务集合指纹」——
+			// 重新扫描结果与自写内容一致时，applyTasks 本身幂等（调度器重复注册同 cron 无害），
+			// 因此只对「全部文件均为自写」的常见场景短路：
+			const allSelf = await this.allWritesAreSelf(tasks);
+			if (allSelf) return;
+			this.deps.applyTasks(tasks, errors);
+		} catch (err) {
+			// 兜底：listAll/projectsProvider 抛错不能成为 unhandled rejection，
+			// 本次变更丢失，下一次文件事件会再次触发重扫
+			console.warn("[scheduler] 热加载重扫失败:", err);
+		}
 	}
 
 	/** 当前任务文件内容是否全部来自 store 自写（无外部改动） */
