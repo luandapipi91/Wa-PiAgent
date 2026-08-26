@@ -448,8 +448,8 @@ export const SessionView = memo(function SessionView({
 											<div className="flex ml-2 gap-2">
 												<button
 													onClick={() => handlePromote(msg)}
-													disabled={historyLoading}
-													className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`}
+													disabled={historyLoading || steering.length > 0}
+													className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading || steering.length > 0 ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`}
 													data-testid="btn-promote"
 												>
 													{t("session.steeringBtn")}

@@ -1447,6 +1447,17 @@ export class AgentManager {
 			return;
 		}
 
+		// 同一会话同时只允许一条引导中：若 steerList 已有引导（busy 且有引导在流中），
+		// 第二条引导消息不叠加，转入 followUpList 排队（agent_settled 时按顺序发送）。
+		if (handle.steerList.length > 0) {
+			if (!handle.followUpList.some((e) => e.text === text)) {
+				handle.followUpList.push({ text });
+			}
+			this._emitLocalQueueUpdate(sessionId, handle);
+			handle.lastActiveAt = Date.now();
+			return;
+		}
+
 		// 双保险：pi steer() 尝试 mid-loop 投递 + 本地 steerList 兜底
 		handle.steerList.push(text);
 		// 如果该消息来自排队列表，则移除（避免 settled 时重复发送）

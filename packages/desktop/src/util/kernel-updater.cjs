@@ -22,10 +22,16 @@ function defaultFeedUrl() {
 	const platform = currentPlatform();
 	return `https://oss.wapiagent.top/releases/kernel/kernel-latest-${platform}.json`;
 }
-const KERNEL_BIN = process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
+const KERNEL_BIN =
+	process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
 
 // 更新涉及的文件：kernel 二进制 + 依赖清单（seed 三件套） + 版本标记
-const KERNEL_FILES = [KERNEL_BIN, "package.json", "bun.lock", ".kernel-version"];
+const KERNEL_FILES = [
+	KERNEL_BIN,
+	"package.json",
+	"bun.lock",
+	".kernel-version",
+];
 const BACKUP_DIR = ".kernel-update-backup";
 const ZIP_PREFIX = ".kernel-update-";
 
@@ -135,10 +141,17 @@ function listZipEntries(zipPath) {
 		child.stdout.on("data", (b) => {
 			out += b.toString();
 		});
-		child.on("error", (e) => reject(new Error(`列出 zip 条目失败: ${e.message}`)));
+		child.on("error", (e) =>
+			reject(new Error(`列出 zip 条目失败: ${e.message}`)),
+		);
 		child.on("exit", (code) => {
 			if (code !== 0) return reject(new Error(`列出 zip 条目退出码 ${code}`));
-			resolve(out.split("\n").map((s) => s.trim()).filter(Boolean));
+			resolve(
+				out
+					.split("\n")
+					.map((s) => s.trim())
+					.filter(Boolean),
+			);
 		});
 	});
 }
@@ -171,16 +184,20 @@ async function extractZip(zipPath, targetDir, log) {
 		child.on("error", (e) => reject(new Error(`解压失败: ${e.message}`)));
 		child.on("exit", (code) => {
 			if (code === 0) return resolve();
-			reject(
-				new Error(`解压退出码 ${code}${err ? `: ${err.slice(-200)}` : ""}`),
-			);
+			reject(new Error(`解压退出码 ${code}${err ? `: ${err.slice(-200)}` : ""}`));
 		});
 	});
 }
 
 // 备份旧 kernel → 解压覆盖 → 写 .kernel-version；任一环节失败则回滚备份。
 // 变更目标统一用 runtimeDir/KERNEL_BIN（不要用指向 seed 的 kernelExe）。
-async function applyKernelUpdate({ runtimeDir, zipPath, manifest, log, backupDir }) {
+async function applyKernelUpdate({
+	runtimeDir,
+	zipPath,
+	manifest,
+	log,
+	backupDir,
+}) {
 	const bk = backupDir || path.join(runtimeDir, BACKUP_DIR);
 	await fsp.mkdir(bk, { recursive: true });
 
@@ -209,7 +226,9 @@ async function applyKernelUpdate({ runtimeDir, zipPath, manifest, log, backupDir
 				// 原本存在 → 拷回旧内容，覆盖已写入的新产物
 				await fsp
 					.copyFile(path.join(bk, f), target)
-					.catch((err) => log?.warn(`[kernel-updater] 回滚 ${f} 失败: ${err.message}`));
+					.catch((err) =>
+						log?.warn(`[kernel-updater] 回滚 ${f} 失败: ${err.message}`),
+					);
 			} else {
 				// 原本不存在 → 删除解压产物 / 版本标记，还原到「无」状态
 				await fsp.rm(target, { force: true }).catch(() => {});
@@ -303,7 +322,13 @@ async function syncKernel({
 
 		// 应用（内部含备份 + 失败回滚）
 		const bk = backupDir || path.join(runtimeDir, BACKUP_DIR);
-		await applyKernelUpdate({ runtimeDir, zipPath, manifest, log, backupDir: bk });
+		await applyKernelUpdate({
+			runtimeDir,
+			zipPath,
+			manifest,
+			log,
+			backupDir: bk,
+		});
 
 		await fsp.rm(zipPath, { force: true });
 		// package.json 一旦变化由 runtime-deps.cjs 判定是否重装（本任务只写 .kernel-version）

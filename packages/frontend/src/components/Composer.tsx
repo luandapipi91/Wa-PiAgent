@@ -224,7 +224,16 @@ export function Composer({
       doSend(agentName, expandedText);
       return;
     }
-    // 运行中：乐观加入 steering 队列 + 调 /steer（复刻 SessionView.handlePromote 模式，
+    // 运行中：若已有一条引导中（steering 非空），同一会话同时只允许一条引导——
+    // 再按 Ctrl+Enter 降级为排队（走 doSend），不叠加第二个引导。
+    const hasActiveSteer =
+      (useSessionStore.getState().queueBySession[sessionId]?.steering?.length ??
+        0) > 0;
+    if (hasActiveSteer) {
+      doSend(agentName, expandedText);
+      return;
+    }
+    // 运行中：无引导中 → 乐观加入 steering 队列 + 调 /steer（复刻 SessionView.handlePromote 模式，
     // 不设 optimisticEcho——/steer 不触发 session:echo_user，与 handlePromote 一致）
     useSessionStore.setState((s) => {
       const cur = s.queueBySession[sessionId];

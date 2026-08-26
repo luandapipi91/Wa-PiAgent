@@ -1,3 +1,13 @@
+## 2026-08-27 — fix(steer): 同一会话同时只允许一条引导中，已有引导时后续引导降级为排队
+
+- 背景：原引导队列允许同时存在多条引导（`steerList`/`steering` 均为数组，可叠加）。用户期望「已有引导中时再按 Ctrl+回车只进排队队列」「排队消息的「引导」按钮在已有引导中置灰」「「立即」按钮保留可用」「引导完成后排队消息自动按顺序发送」。
+- 修复：
+  - 前端 `Composer.tsx` `handleSendSteer`：运行中且已有引导中（`steering` 非空）→ 降级走 `doSend` 排队路径（调 `/prompt`、入 `followUp`），不再叠加第二个引导（不调 `/steer`）。
+  - 前端 `SessionView.tsx` `btn-promote`：`disabled` 增加 `steering.length > 0`（已有引导中置灰「引导」按钮）；「立即」按钮保留可用。
+  - 后端 `agent-manager.ts` `steerMessage`：busy 分支若 `steerList` 非空 → 第二条引导消息转投 `followUpList` 排队（防御兜底，保证后端也只有一条引导）。
+- 验证：TDD —— 前端 Composer + SessionView 组件测试 63 pass 0 fail（新增「已有引导中 Ctrl+回车降级排队」「btn-promote 置灰」「btn-immediate 保留可用」三例）；kernel steer-queue-poc + routes-chat + agent-manager 146 pass 0 fail（更新「agent_settled 优先 drain steerList」反映新语义）；前端全量 1899 pass 0 fail；前后端 typecheck 通过。
+- 影响范围：`packages/frontend/src/components/Composer.tsx`、`packages/frontend/src/components/SessionView.tsx`、`packages/kernel/src/agent-manager.ts`、`packages/frontend/tests/Composer.test.tsx`、`packages/frontend/tests/SessionView.test.tsx`、`packages/kernel/tests/steer-queue-poc.test.ts`。
+
 ## 2026-08-27 — v0.2.24 发版（应用内置内核升级 0.1.3 + 内核更新清单平台化）
 
 - 版本：0.2.23 → 0.2.24。

@@ -109,16 +109,39 @@ test("agent_settled 后 followUp 逐条 drain（一次一条）", async () => {
   expect(fake.prompted).toEqual(["第一条", "F1", "F2"]);
 });
 
-test("steerMessage busy 时直调 client.steer()", async () => {
+test("steerMessage busy — 无已有引导时直调 client.steer()", async () => {
   const { session, am, fake } = await setup();
   fake.autoSettle = false;
 
   await am.prompt(session.id, "进行中", { model: MODEL }); // busy
   await am.steerMessage(session.id, "S1");
-  await am.steerMessage(session.id, "S2");
 
-  // steerMessage 直调 client.steer()
-  expect(fake.steered).toEqual(["S1", "S2"]);
+  // 无已有引导 → steerMessage 直调 client.steer()
+  expect(fake.steered).toEqual(["S1"]);
+});
+
+test("steerMessage busy — 已有引导中时第二条转 followUpList（不叠加第二个引导）", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.steerMessage(session.id, "引导1"); // 无已有引导 → 入引导流
+  // 等待微任务：steerMessage 内部推送 _emitLocalQueueUpdate
+  await new Promise((r) => setTimeout(r, 0));
+  await am.steerMessage(session.id, "引导2"); // 已有引导中 → 不再叠加
+  await new Promise((r) => setTimeout(r, 0));
+
+  // 只有第一条走了 client.steer（第二条不得再直调 steer）
+  expect(fake.steered).toEqual(["引导1"]);
+
+  // 第二条应转入 followUpList 排队（经 queue_update 反映 followUp 含 引导2）
+  const queueEvents = events.filter((e) => e.e.type === "queue_update");
+  const lastQueue = queueEvents[queueEvents.length - 1];
+  if (!lastQueue) throw new Error("未收到 queue_update 事件");
+  expect((lastQueue.e as any).followUp).toContain("引导2");
+  // steering 仍只有一条引导1
+  expect((lastQueue.e as any).steering).toEqual(["引导1"]);
 });
 
 test("steerMessage — idle 时不入队，直接以 prompt 生效", async () => {
@@ -166,23 +189,23 @@ test("agent_settled 优先 drain steerList（引导优先级高于排队）", as
 
   await am.prompt(session.id, "第一条", { model: MODEL }); // busy
   await am.prompt(session.id, "排队A", { model: MODEL }); // → followUpList
-  await am.steerMessage(session.id, "引导B"); // → steerList (优先)
-  await am.steerMessage(session.id, "引导C"); // → steerList
+  await am.steerMessage(session.id, "引导B"); // 无已有引导 → steerList (优先)
+  await am.steerMessage(session.id, "引导C"); // 已有引导中 → 转 followUpList
 
-  // 第一次 settled：drain steerList 第一条（引导B）
+  // 第一次 settled：drain steerList（引导B）——引导优先于排队
   fake.emit({ type: "agent_settled" });
   await flushDrain();
   expect(fake.prompted).toEqual(["第一条", "引导B"]);
 
-  // 第二次 settled：drain steerList 第二条（引导C）
+  // 第二次 settled：引导已清空，drain followUpList 首条（排队A）
   fake.emit({ type: "agent_settled" });
   await flushDrain();
-  expect(fake.prompted).toEqual(["第一条", "引导B", "引导C"]);
+  expect(fake.prompted).toEqual(["第一条", "引导B", "排队A"]);
 
-  // 第三次 settled：drain followUpList（排队A）
+  // 第三次 settled：drain followUpList 下一条（引导C）
   fake.emit({ type: "agent_settled" });
   await flushDrain();
-  expect(fake.prompted).toEqual(["第一条", "引导B", "引导C", "排队A"]);
+  expect(fake.prompted).toEqual(["第一条", "引导B", "排队A", "引导C"]);
 });
 
 test("bridge 上下文在 ensureStarted 后已注册（宿主工具回调入口）", async () => {

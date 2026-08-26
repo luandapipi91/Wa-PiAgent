@@ -303,6 +303,30 @@ test("空闲时排队消息显示「立即」按钮", async () => {
 	expect(screen.getByTestId("btn-promote")).toBeTruthy();
 });
 
+test("已有引导中时排队消息的「引导」按钮置灰", async () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "idle" },
+		queueBySession: { s1: { steering: ["已有引导"], followUp: ["排队消息"] } },
+	});
+	await renderSessionView("s1");
+	const promote = screen.getByTestId("btn-promote");
+	expect(promote).toBeTruthy();
+	// 同一会话同时只允许一条引导 → 已有引导中时「引导」按钮置灰
+	expect((promote as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("已有引导中时排队消息的「立即」按钮保留可用", async () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "idle" },
+		queueBySession: { s1: { steering: ["已有引导"], followUp: ["排队消息"] } },
+	});
+	await renderSessionView("s1");
+	const immediate = screen.getByTestId("btn-immediate");
+	expect(immediate).toBeTruthy();
+	// 「立即」不受“同时只能一条引导”限制，保持可用
+	expect((immediate as HTMLButtonElement).disabled).toBe(false);
+});
+
 test("点击引导按钮发送 steer 请求 + 乐观更新", async () => {
 	useSessionStore.setState({
 		statusBySession: { s1: "idle" },
