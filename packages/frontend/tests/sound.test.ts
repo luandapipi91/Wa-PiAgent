@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
+	TASK_DONE_SOUND_POOL,
 	playNeedsAction,
 	playTaskDone,
 	previewNeedsAction,
@@ -119,11 +120,28 @@ afterEach(() => {
 	delete (globalThis as any).AudioContext;
 });
 
-// --- 任务完成提示音：播放青蛙叫 mp3 ---
-test("playTaskDone：开关开 → 播放青蛙叫音频（frog-croak.mp3）", () => {
+// --- 任务完成提示音：随机池播放（只含 6 个新音效，不含原有青蛙叫）---
+test("任务完成提示音随机池：只含 6 个新音效，不含原有青蛙叫，且无重复", () => {
+	expect(TASK_DONE_SOUND_POOL).toHaveLength(6);
+	for (let i = 1; i <= 6; i++) {
+		expect(TASK_DONE_SOUND_POOL).toContain(`/sounds/event-done-${i}.mp3`);
+	}
+	expect(TASK_DONE_SOUND_POOL).not.toContain("/sounds/frog-croak.mp3");
+	expect(new Set(TASK_DONE_SOUND_POOL).size).toBe(TASK_DONE_SOUND_POOL.length);
+});
+
+test("playTaskDone：开关开 → 播放随机池内的音效", () => {
 	playTaskDone();
 	expect(audioCalls).toHaveLength(1);
-	expect(audioCalls[0].url).toContain("frog-croak.mp3");
+	expect(TASK_DONE_SOUND_POOL).toContain(audioCalls[0].url);
+});
+
+test("playTaskDone：多次采样能覆盖随机池（验证等概率随机选择）", () => {
+	for (let i = 0; i < 500; i++) playTaskDone();
+	const played = new Set(audioCalls.map((c) => c.url));
+	for (const url of TASK_DONE_SOUND_POOL) {
+		expect(played).toContain(url);
+	}
 });
 
 test("playTaskDone：开关关 → 不播放", () => {
