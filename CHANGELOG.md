@@ -1,3 +1,9 @@
+## 2026-08-27 — v0.2.24 发版（应用内置内核升级 0.1.3 + 内核更新清单平台化）
+
+- 版本：0.2.23 → 0.2.24。
+- 主要：应用内置内核从 0.1.2 升级到 0.1.3（auto-compact 阈值改用率百分比，修复大窗口 token 估算偏低导致 400 溢出）；内核更新清单平台化（kernel-latest-<platform>.json，多平台共存互不覆盖）。
+- 验证：kernel-updater.test.ts 21 pass 0 fail；auto-compact.test.ts 7 pass 0 fail；pack:mac + pack:win；publish-oss.ts 推 R2；git tag v0.2.24 + Gitee Release。
+
 ## 2026-08-27 — 内核独立发布 v0.1.3（自动压缩阈值改用率百分比更早触发）
 
 - 内核版本 0.1.2 → 0.1.3，发布包 `kernel-20260825-1.zip`（darwin-x64）。
