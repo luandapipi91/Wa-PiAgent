@@ -1,3 +1,10 @@
+## 2026-08-26 — refactor(kernel): 定时任务 REST 与调度器切换到文件夹存储
+
+- 重构：`createSchedulerRoutes` 签名改为 `(store: FolderTaskStore, onTaskChanged, onTaskDeleted, onRunNow)`，端点路径/方法/状态码不变；GET `/api/scheduled-tasks` 响应变为 `{ tasks, errors }`（解析失败的任务文件以 errors 条目返回）；POST 未传 projectId 进默认项目（SYSTEM_PROJECT_ID）；PUT 支持修复解析失败文件（upsert：body 完整合法时覆盖写，文件不存在 404）；DELETE 可删坏文件（幂等）；execution-records 改由 store.listRecords 从各项目 logs 聚合（倒序、200 上限、字段不变）；入口校验改用 shared 的 `validateTaskData`，删除本地副本。`SchedulerDeps` 改为 `{ loadTasks, dataDir, executeTask, broadcast }`（删 tasksFile/recordsFile），`TaskScheduler` 新增 `scheduledIds()`（watcher 对账用）。
+- 过渡适配：`ws-server.ts` 定时任务路由注册段暂缓接线（Task 6 装配 watcher 后统一接，接线前 `/api/scheduled-tasks*` 回落 404）；`index.ts` 的 TaskScheduler 暂以 `loadTasks: () => loadScheduledTasks(SCHEDULED_TASKS_FILE)` 注入，迁移期调度行为不变。
+- 验证：TDD —— 先改写测试跑红（20 fail），实现后 `bun test tests/routes-scheduler.test.ts tests/scheduler.test.ts` 56 pass 0 fail；kernel 全量 `bun run test` 通过；`tsc --noEmit` 通过。
+- 影响范围：`packages/kernel/src/scheduler.ts`、`packages/kernel/src/routes/scheduler.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/index.ts`、`packages/kernel/tests/routes-scheduler.test.ts`、`packages/kernel/tests/scheduler.test.ts`（旧 `scheduler-store.ts` 仍保留供 Task 4 迁移读取）。
+
 ## 2026-08-26 — feat(kernel): 旧定时任务 JSON 到项目文件夹的一次性迁移
 
 - 新增功能：新增 `packages/kernel/src/scheduler-migrate.ts` 的 `migrateLegacySchedulerFiles`——启动时一次性把旧全局 `scheduled-tasks.json` + `execution-records.json` 迁移到各项目 `.wa-pi/scheduled-tasks/` 文件夹格式：任务按 projectId 分发（无 projectId 进默认工作区），新 id = `sanitizeTaskId(name)`（冲突追加 -2），执行记录 taskId 同步改写为文件名 id 并追加到对应 log，孤儿记录丢弃；完成后旧文件重命名为 `.migrated` 归档；幂等（旧文件不存在即 no-op）。任务文件写入走 tmp+rename 原子写。
