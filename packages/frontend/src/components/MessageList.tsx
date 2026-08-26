@@ -23,6 +23,7 @@ import { useToastStore } from "../store/toast";
 import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
 import { useContactsStore } from "../store/contacts";
+import { TaskDoneFrog } from "./ui/TaskDoneFrog";
 import { DelegateCard } from "./blocks/DelegateCard";
 import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
@@ -613,6 +614,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 
 	return (
 		<div className="relative flex-1 min-h-0 overflow-hidden">
+			<TaskDoneFrog />
 			<Virtuoso
 				key={sessionId}
 				ref={virtuosoRef}
