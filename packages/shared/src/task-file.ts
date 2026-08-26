@@ -182,7 +182,8 @@ export function parseLogLine(line: string): ExecutionRecord | null {
 		} catch {
 			// 该候选位置不是真正的分隔符，继续向左找前一个 " | "
 		}
-		idx = line.lastIndexOf(" | ", idx - 1);
+		// 严格递减左移：idx=0 时 fromIndex=-1 会被钳制为 0 导致原地空转，须直接终止
+		idx = idx > 0 ? line.lastIndexOf(" | ", idx - 1) : -1;
 	}
 	return null;
 }

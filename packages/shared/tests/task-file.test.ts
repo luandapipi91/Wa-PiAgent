@@ -117,6 +117,10 @@ describe("log 行", () => {
 		expect(parseLogLine("普通文本行")).toBeNull();
 		expect(parseLogLine("[time] 成功 | {bad json")).toBeNull();
 	});
+	test("分隔符在行的最开头（idx=0）时不死循环、返回 null", () => {
+		expect(parseLogLine(" | garbage")).toBeNull();
+		expect(parseLogLine(" | ")).toBeNull();
+	});
 	test("summary 含分隔符 \" | \" 时仍能往返还原", () => {
 		const rec: ExecutionRecord = {
 			id: "r2", taskId: "t1", taskName: "任务", status: "success",
