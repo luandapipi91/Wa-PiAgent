@@ -64,12 +64,27 @@
 		return el.id ? tag + "#" + el.id : elLabel(el);
 	}
 
+	/**
+	 * 把文档坐标矩形 (x,y,w,h) 收敛到视口 (vw,vh) 内：
+	 * - 框尺寸不变（宽/高超出视口才收缩到视口大小）
+	 * - 仅平移 left/top，让框整体可见、可操作（选中屏幕边缘元素时选择框不跑到屏幕外）
+	 * 返回 { left, top, width, height }。
+	 */
+	function clampRectToViewport(x, y, w, h, vw, vh) {
+		var width = Math.min(w, vw);
+		var height = Math.min(h, vh);
+		var left = Math.min(Math.max(0, x), Math.max(0, vw - width));
+		var top = Math.min(Math.max(0, y), Math.max(0, vh - height));
+		return { left: left, top: top, width: width, height: height };
+	}
+
 	// node/bun 单测环境：仅导出纯函数，不触碰 DOM
 	if (typeof module !== "undefined" && module.exports) {
 		module.exports = {
 			buildSelector: buildSelector,
 			displayLabel: displayLabel,
 			elLabel: elLabel,
+			clampRectToViewport: clampRectToViewport,
 		};
 		return;
 	}
@@ -225,18 +240,30 @@
 			}
 			var x = r.left + window.scrollX;
 			var y = r.top + window.scrollY;
+			var vw = window.innerWidth;
+			var vh = window.innerHeight;
+			// 高亮框：尺寸不变（大于视口才收缩），整体收敛进视口——选中屏幕边缘元素时
+			// 选择框不跑到屏幕外，始终完整可见可操作。
+			var hlR = clampRectToViewport(x, y, r.width, r.height, vw, vh);
 			hl.style.display = "block";
-			hl.style.left = x + "px";
-			hl.style.top = y + "px";
-			hl.style.width = r.width + "px";
-			hl.style.height = r.height + "px";
+			hl.style.left = hlR.left + "px";
+			hl.style.top = hlR.top + "px";
+			hl.style.width = hlR.width + "px";
+			hl.style.height = hlR.height + "px";
+			// 工具条：位于元素上方（y-28），同样收敛进视口；内容撑开，需先 display 再量尺寸
 			bar.style.display = "flex";
-			bar.style.left = x + "px";
-			bar.style.top = Math.max(0, y - 28) + "px";
-			// 提示小字：显示在高亮框左下方、边框外
+			var barW = bar.offsetWidth;
+			var barH = bar.offsetHeight;
+			var barR = clampRectToViewport(x, y - 28, barW, barH, vw, vh);
+			bar.style.left = barR.left + "px";
+			bar.style.top = barR.top + "px";
+			// 提示小字：位于高亮框左下方（y+height+6），同样收敛进视口
 			tip.style.display = "flex";
-			tip.style.left = x + "px";
-			tip.style.top = y + r.height + 6 + "px";
+			var tipW = tip.offsetWidth;
+			var tipH = tip.offsetHeight;
+			var tipR = clampRectToViewport(x, y + r.height + 6, tipW, tipH, vw, vh);
+			tip.style.left = tipR.left + "px";
+			tip.style.top = tipR.top + "px";
 			var disp = displayLabel(current);
 			if (label.textContent !== disp) label.textContent = disp;
 			// 锁图标：锁定态显示，否则隐藏

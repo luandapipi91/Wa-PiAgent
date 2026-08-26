@@ -1,3 +1,12 @@
+## 2026-08-27 — fix(preview): 本地预览高亮选择框在屏幕边缘时收敛进视口，不再溢出
+
+- 背景：本地 HTML 预览的元素高亮选择功能，选中屏幕边缘（右侧/底部/左侧/顶部）的元素时，高亮选择框用元素原始 `getBoundingClientRect` 换算的文档坐标直接定位，未对视口做 clamp，导致框跑到屏幕外无法操作；工具条（选择父级/发送到聊天）与提示小字（⌘ 关闭高亮）同样可能溢出。
+- 修复：
+  - `preview-inspect.js` 新增纯函数 `clampRectToViewport(x,y,w,h,vw,vh)`：把文档坐标矩形平移（宽/高超视口才收缩）收敛到视口内，尺寸不变仅移动 left/top。
+  - `render()` 中高亮框 `hl`、工具条 `bar`、提示小字 `tip` 均改走 `clampRectToViewport`，整体可见、可操作。
+- 验证：TDD —— `preview-inspect.test.ts` 新增 6 例（正常/右缘钳 left/底缘钳 top/负坐标钳 0/宽溢出收缩/高溢出收缩）；kernel preview 相关测试 48 pass 0 fail；kernel typecheck 通过；`KERNEL_ASSET_FILES` 确认含 preview-inspect.js。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`、`packages/kernel/tests/preview-inspect.test.ts`。
+
 ## 2026-08-27 — fix(steer): 同一会话同时只允许一条引导中，已有引导时后续引导降级为排队
 
 - 背景：原引导队列允许同时存在多条引导（`steerList`/`steering` 均为数组，可叠加）。用户期望「已有引导中时再按 Ctrl+回车只进排队队列」「排队消息的「引导」按钮在已有引导中置灰」「「立即」按钮保留可用」「引导完成后排队消息自动按顺序发送」。
