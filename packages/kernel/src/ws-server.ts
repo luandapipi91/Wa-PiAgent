@@ -10,8 +10,6 @@ import {
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_CWD,
 	resolveSessionCwd,
-	SCHEDULED_TASKS_FILE,
-	EXECUTION_RECORDS_FILE,
 	WA_PI_DIR,
 } from "@wa-pi/shared";
 import type { DirEntry } from "@wa-pi/shared";
@@ -89,7 +87,6 @@ import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
-import { createSchedulerRoutes } from "./routes/scheduler";
 import { createShareRoutes } from "./routes/share";
 import { registerContactRoutes } from "./routes/contacts";
 import { ChannelConflictError } from "./channel-manager";
@@ -657,39 +654,14 @@ export class WSServer {
 			join(WA_PI_DIR, "share-workspace"),
 		);
 
-		// 定时任务路由：直接读写 JSON 文件，不走 callApi 适配器
-		const schedulerRoutes = createSchedulerRoutes(
-			SCHEDULED_TASKS_FILE,
-			EXECUTION_RECORDS_FILE,
-			(task) => {
-				// 调度注册失败（cron 非法等）不让已落盘的 CRUD 返回 500：
-				// 记日志 + 广播 error 事件让前端感知，任务本身已保存
-				try {
-					this.scheduler?.scheduleTask(task);
-				} catch (err) {
-					console.warn(
-						`[scheduler] 任务 ${task.id}（${task.name}）调度注册失败:`,
-						err,
-					);
-					this.broadcast({
-						type: "scheduled-task:error",
-						taskId: task.id,
-						error: err instanceof Error ? err.message : String(err),
-					});
-				}
-				// 任务变更后广播通知前端刷新列表
-				this.broadcast({ type: "scheduled-tasks:changed" });
-			},
-			(taskId) => {
-				this.scheduler?.cancelTask(taskId);
-				this.broadcast({ type: "scheduled-tasks:changed" });
-			},
-			async (taskId) => {
-				// 立即执行：委托 scheduler 执行并广播结果
-				await this.scheduler?.runTaskNow(taskId);
-			},
-		);
-		schedulerRoutes(this.router, callApi, ctx);
+		// 定时任务路由：数据源已切换为文件夹存储（createFolderTaskStore），
+		// 需 projectsProvider + watcher 装配，统一在 Task 6 接线；此处暂不注册，
+		// /api/scheduled-tasks* 在接线前回落 404。
+		// Task 6 接线要点：createSchedulerRoutes(store, onTaskChanged, onTaskDeleted, onRunNow)
+		// —— onTaskChanged 内 try { this.scheduler?.scheduleTask(task) } 失败时广播
+		//    scheduled-task:error 并记日志；随后广播 scheduled-tasks:changed。
+		// —— onTaskDeleted: this.scheduler?.cancelTask(taskId) + 广播 scheduled-tasks:changed。
+		// —— onRunNow: await this.scheduler?.runTaskNow(taskId)。
 	}
 
 	async start(): Promise<void> {

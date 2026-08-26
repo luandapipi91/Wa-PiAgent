@@ -32,6 +32,7 @@ import { TaskScheduler, resolveTaskModel } from "./scheduler";
 import {
 	appendExecutionRecord,
 	updateExecutionRecord,
+	loadScheduledTasks,
 } from "./scheduler-store";
 import { parseImPushMentions, createImPushTool } from "./tools/robot-push";
 import type { ImPushInjection } from "./agent-manager";
@@ -375,8 +376,9 @@ export async function startKernel(opts?: {
 	// 在 agentManager/channelManager 就绪后创建：executeTask 闭包依赖它们。
 	// scheduler 实例注入 ws-server 后，REST 路由的 onRunNow/onTaskChanged 回调生效。
 	const scheduler = new TaskScheduler({
-		tasksFile: SCHEDULED_TASKS_FILE,
-		recordsFile: EXECUTION_RECORDS_FILE,
+		// 过渡接线（Task 6 切换为 FolderTaskStore.listAll）：SchedulerDeps 已改为
+		// loadTasks 注入，这里暂从旧 JSON 文件加载，保持迁移期调度行为不变
+		loadTasks: () => loadScheduledTasks(SCHEDULED_TASKS_FILE),
 		dataDir: WA_PI_DIR,
 		broadcast: (event) => broadcast(event as WSServerEvent),
 		executeTask: async (task: ScheduledTask): Promise<ExecutionRecord> => {

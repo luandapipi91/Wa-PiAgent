@@ -3,26 +3,49 @@
  *
  * 使用真实 HttpRouter + createSchedulerRoutes（端点定义不重复），
  * 直接验证 CRUD + 执行记录查询 + 回调触发。
- * scheduler-store 读写真实临时文件（与 routes-channels 的 stub 模式不同，
- * scheduler 域不走 callApi 适配器，直接操作 JSON 文件）。
+ * 数据源为文件夹存储：临时项目目录 + createFolderTaskStore
+ * （scheduler 域不走 callApi 适配器，直接操作项目下 .wa-pi/scheduled-tasks/）。
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HttpRouter } from "../src/http-router";
 import { createSchedulerRoutes } from "../src/routes/scheduler";
-import { saveScheduledTasks } from "../src/scheduler-store";
-import type { ScheduledTask } from "@wa-pi/shared";
+import {
+	createFolderTaskStore,
+	tasksDirOf,
+	type FolderTaskStore,
+	type ProjectRef,
+} from "../src/scheduler-task-store";
+import {
+	SYSTEM_PROJECT_ID,
+	serializeTaskFile,
+	type ExecutionRecord,
+	type ScheduledTask,
+} from "@wa-pi/shared";
 
 let dir: string;
-let tasksFile: string;
-let recordsFile: string;
+let projA: string;
+let projB: string;
+let sysProj: string;
+let projects: ProjectRef[];
+let store: FolderTaskStore;
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "wa-pi-sched-route-"));
-	tasksFile = join(dir, "tasks.json");
-	recordsFile = join(dir, "records.json");
+	projA = join(dir, "proj-a");
+	projB = join(dir, "proj-b");
+	sysProj = join(dir, "sys");
+	mkdirSync(projA, { recursive: true });
+	mkdirSync(projB, { recursive: true });
+	mkdirSync(sysProj, { recursive: true });
+	projects = [
+		{ id: "pa", cwd: projA },
+		{ id: "pb", cwd: projB },
+		{ id: SYSTEM_PROJECT_ID, cwd: sysProj },
+	];
+	store = createFolderTaskStore({ projectsProvider: async () => projects });
 });
 
 afterEach(() => {
@@ -40,8 +63,7 @@ async function withServer<T>(
 ): Promise<T> {
 	const router = new HttpRouter();
 	const registrar = createSchedulerRoutes(
-		tasksFile,
-		recordsFile,
+		store,
 		opts?.onTaskChanged ?? (() => {}),
 		opts?.onTaskDeleted ?? (() => {}),
 		opts?.onRunNow ?? (async () => {}),
@@ -71,38 +93,130 @@ async function json(base: string, path: string, init?: RequestInit) {
 	return { status: res.status, body: await res.json() };
 }
 
-test("GET /api/scheduled-tasks — 空列表", async () => {
+/** 直接在项目任务目录写一个合法任务文件（绕过 POST，造数据用） */
+function writeTaskFile(
+	projectCwd: string,
+	taskId: string,
+	overrides: { name?: string } = {},
+): void {
+	mkdirSync(tasksDirOf(projectCwd), { recursive: true });
+	writeFileSync(
+		join(tasksDirOf(projectCwd), `${taskId}.md`),
+		serializeTaskFile(
+			{
+				name: overrides.name ?? taskId,
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "agent-1",
+				enabled: true,
+			},
+			"x",
+		),
+	);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+test("GET /api/scheduled-tasks — 空列表（tasks 与 errors 均为空）", async () => {
 	await withServer(async (base) => {
 		const { status, body } = await json(base, "/api/scheduled-tasks");
 		expect(status).toBe(200);
 		expect(body.tasks).toEqual([]);
+		expect(body.errors).toEqual([]);
 	});
 });
 
 test("GET /api/scheduled-tasks — 按 createdAt 倒序（新建任务排最前）", async () => {
-	// 直接写临时文件造乱序数据（绕过 POST 的 Date.now 同毫秒不确定）
-	const mk = (id: string, name: string, createdAt: number): ScheduledTask => ({
-		id,
-		name,
-		schedule: { type: "daily", time: "09:00" },
-		agentId: "agent-1",
-		prompt: "x",
-		enabled: true,
-		createdAt,
-		updatedAt: createdAt,
-	});
-	await saveScheduledTasks(tasksFile, [
-		mk("old", "旧任务", 1000),
-		mk("new", "新任务", 3000),
-		mk("mid", "中任务", 2000),
-	]);
+	// 直接写任务文件造数据；createdAt 取自文件 birthtime，间隔写保证时序可区分
+	writeTaskFile(projA, "旧任务");
+	await sleep(30);
+	writeTaskFile(projA, "中任务");
+	await sleep(30);
+	writeTaskFile(projB, "新任务");
 	await withServer(async (base) => {
 		const { body } = await json(base, "/api/scheduled-tasks");
 		expect(body.tasks.map((t: ScheduledTask) => t.id)).toEqual([
-			"new",
-			"mid",
-			"old",
+			"新任务",
+			"中任务",
+			"旧任务",
 		]);
+	});
+});
+
+test("GET /api/scheduled-tasks 返回 tasks + errors（含解析失败条目）", async () => {
+	writeTaskFile(projA, "好任务");
+	mkdirSync(tasksDirOf(projA), { recursive: true });
+	writeFileSync(join(tasksDirOf(projA), "坏任务.md"), "没有 frontmatter");
+	await withServer(async (base) => {
+		const { status, body } = await json(base, "/api/scheduled-tasks");
+		expect(status).toBe(200);
+		// 好任务正常列出
+		expect(body.tasks.map((t: ScheduledTask) => t.id)).toEqual(["好任务"]);
+		// 解析失败文件进 errors（taskId = 文件名去 .md）
+		expect(body.errors).toHaveLength(1);
+		expect(body.errors[0].taskId).toBe("坏任务");
+		expect(body.errors[0].projectId).toBe("pa");
+		expect(typeof body.errors[0].error).toBe("string");
+	});
+});
+
+test("POST 创建后任务文件落在 projectId 对应目录；未传 projectId 进默认项目", async () => {
+	let changedTask: ScheduledTask | null = null;
+	await withServer(
+		async (base) => {
+			const { status, body } = await json(base, "/api/scheduled-tasks", {
+				method: "POST",
+				body: JSON.stringify({
+					name: "每日站会",
+					schedule: { type: "daily", time: "09:30" },
+					agentId: "agent-1",
+					prompt: "写站会纪要",
+					projectId: "pa",
+				}),
+			});
+			expect(status).toBe(200);
+			// id = sanitizeTaskId(name)，任务文件落在 pa 项目目录
+			expect(body.task.id).toBe("每日站会");
+			expect(body.task.projectId).toBe("pa");
+			expect(
+				existsSync(join(tasksDirOf(projA), "每日站会.md")),
+			).toBe(true);
+			// onTaskChanged 被调
+			expect(changedTask).not.toBeNull();
+			expect(changedTask!.id).toBe("每日站会");
+
+			// 未传 projectId → 进默认项目（SYSTEM_PROJECT_ID）
+			const { body: sysCreated } = await json(base, "/api/scheduled-tasks", {
+				method: "POST",
+				body: JSON.stringify({
+					name: "默认项目任务",
+					schedule: { type: "daily", time: "10:00" },
+					agentId: "agent-1",
+					prompt: "x",
+				}),
+			});
+			expect(sysCreated.task.projectId).toBe(SYSTEM_PROJECT_ID);
+			expect(
+				existsSync(join(tasksDirOf(sysProj), "默认项目任务.md")),
+			).toBe(true);
+		},
+		{ onTaskChanged: (t) => (changedTask = t) },
+	);
+});
+
+test("POST projectId 不存在 → 400（store 抛错映射为 400）", async () => {
+	await withServer(async (base) => {
+		const { status, body } = await json(base, "/api/scheduled-tasks", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "x",
+				schedule: { type: "daily", time: "09:30" },
+				agentId: "agent-1",
+				prompt: "x",
+				projectId: "no-such-project",
+			}),
+		});
+		expect(status).toBe(400);
+		expect(typeof body.error).toBe("string");
 	});
 });
 
@@ -117,10 +231,11 @@ test("POST → GET → PUT → DELETE 完整 CRUD", async () => {
 				agentId: "agent-1",
 				prompt: "写日报",
 				enabled: false,
+				projectId: "pa",
 			}),
 		});
 		expect(created.task.name).toBe("日报");
-		expect(created.task.id).toBeTruthy();
+		expect(created.task.id).toBe("日报");
 		expect(created.task.enabled).toBe(false);
 		const id = created.task.id;
 
@@ -130,18 +245,24 @@ test("POST → GET → PUT → DELETE 完整 CRUD", async () => {
 		expect(list.tasks[0].id).toBe(id);
 
 		// 更新
-		const { body: updated } = await json(base, `/api/scheduled-tasks/${id}`, {
-			method: "PUT",
-			body: JSON.stringify({ name: "周报", enabled: true }),
-		});
+		const { body: updated } = await json(
+			base,
+			`/api/scheduled-tasks/${encodeURIComponent(id)}`,
+			{
+				method: "PUT",
+				body: JSON.stringify({ name: "周报", enabled: true }),
+			},
+		);
 		expect(updated.task.name).toBe("周报");
 		expect(updated.task.enabled).toBe(true);
 		expect(updated.task.schedule.type).toBe("daily"); // 未改字段保留
 
 		// 删除
-		const { body: deleted } = await json(base, `/api/scheduled-tasks/${id}`, {
-			method: "DELETE",
-		});
+		const { body: deleted } = await json(
+			base,
+			`/api/scheduled-tasks/${encodeURIComponent(id)}`,
+			{ method: "DELETE" },
+		);
 		expect(deleted.ok).toBe(true);
 
 		// 删除后列表为空
@@ -150,35 +271,81 @@ test("POST → GET → PUT → DELETE 完整 CRUD", async () => {
 	});
 });
 
-test("PUT 不存在的 id → 404", async () => {
+test("PUT 不存在的 id（body 完整合法）→ 404", async () => {
 	await withServer(async (base) => {
 		const res = await fetch(`${base}/api/scheduled-tasks/nonexistent`, {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ name: "x" }),
+			body: JSON.stringify({
+				name: "x",
+				schedule: { type: "daily", time: "09:30" },
+				agentId: "agent-1",
+				prompt: "x",
+			}),
 		});
 		expect(res.status).toBe(404);
 	});
 });
 
-test("POST 触发 onTaskChanged 回调", async () => {
-	let changedTask: ScheduledTask | null = null;
-	await withServer(
-		async (base) => {
-			await json(base, "/api/scheduled-tasks", {
-				method: "POST",
+test("PUT 修复解析失败文件（upsert）：200 且 errors 清空", async () => {
+	mkdirSync(tasksDirOf(projA), { recursive: true });
+	writeFileSync(join(tasksDirOf(projA), "坏任务.md"), "没有 frontmatter");
+	await withServer(async (base) => {
+		// 坏文件存在：GET 时进 errors
+		const { body: before } = await json(base, "/api/scheduled-tasks");
+		expect(before.errors).toHaveLength(1);
+
+		// PUT 完整合法 body → 覆盖写修复
+		const { status, body } = await json(
+			base,
+			`/api/scheduled-tasks/${encodeURIComponent("坏任务")}`,
+			{
+				method: "PUT",
 				body: JSON.stringify({
-					name: "回调测试",
-					schedule: { type: "daily", time: "10:00" },
+					name: "坏任务",
+					schedule: { type: "daily", time: "09:30" },
 					agentId: "agent-1",
-					prompt: "写日报",
+					prompt: "修复后的指令",
 				}),
-			});
-			expect(changedTask).not.toBeNull();
-			expect(changedTask!.name).toBe("回调测试");
-		},
-		{ onTaskChanged: (t) => (changedTask = t) },
-	);
+			},
+		);
+		expect(status).toBe(200);
+		expect(body.task.id).toBe("坏任务");
+
+		// 再 GET：errors 清空、tasks 含该任务
+		const { body: after } = await json(base, "/api/scheduled-tasks");
+		expect(after.errors).toEqual([]);
+		expect(after.tasks.map((t: ScheduledTask) => t.id)).toEqual(["坏任务"]);
+	});
+});
+
+test("PUT 修复解析失败文件但 body 不完整 → 400", async () => {
+	mkdirSync(tasksDirOf(projA), { recursive: true });
+	writeFileSync(join(tasksDirOf(projA), "坏任务.md"), "没有 frontmatter");
+	await withServer(async (base) => {
+		const { status } = await json(
+			base,
+			`/api/scheduled-tasks/${encodeURIComponent("坏任务")}`,
+			{ method: "PUT", body: JSON.stringify({ name: "坏任务" }) },
+		);
+		expect(status).toBe(400);
+	});
+});
+
+test("DELETE 可删除解析失败文件", async () => {
+	mkdirSync(tasksDirOf(projA), { recursive: true });
+	const badFile = join(tasksDirOf(projA), "坏任务.md");
+	writeFileSync(badFile, "没有 frontmatter");
+	await withServer(async (base) => {
+		const { status, body } = await json(
+			base,
+			`/api/scheduled-tasks/${encodeURIComponent("坏任务")}`,
+			{ method: "DELETE" },
+		);
+		expect(status).toBe(200);
+		expect(body.ok).toBe(true);
+		expect(existsSync(badFile)).toBe(false);
+	});
 });
 
 test("DELETE 触发 onTaskDeleted 回调", async () => {
@@ -192,11 +359,14 @@ test("DELETE 触发 onTaskDeleted 回调", async () => {
 					schedule: { type: "daily", time: "10:00" },
 					agentId: "agent-1",
 					prompt: "x",
+					projectId: "pa",
 				}),
 			});
-			await json(base, `/api/scheduled-tasks/${created.task.id}`, {
-				method: "DELETE",
-			});
+			await json(
+				base,
+				`/api/scheduled-tasks/${encodeURIComponent(created.task.id)}`,
+				{ method: "DELETE" },
+			);
 			expect(deletedId).toBe(created.task.id);
 		},
 		{ onTaskDeleted: (id) => (deletedId = id) },
@@ -218,6 +388,7 @@ test("POST /:id/run 触发即返回：onRunNow 未完成时响应已返回", asy
 					schedule: { type: "daily", time: "10:00" },
 					agentId: "agent-1",
 					prompt: "x",
+					projectId: "pa",
 				}),
 			});
 			// onRunNow 挂起直到测试手动放行
@@ -225,7 +396,7 @@ test("POST /:id/run 触发即返回：onRunNow 未完成时响应已返回", asy
 				release = resolve;
 			});
 			const res = await fetch(
-				`${base}/api/scheduled-tasks/${created.task.id}/run`,
+				`${base}/api/scheduled-tasks/${encodeURIComponent(created.task.id)}/run`,
 				{ method: "POST" },
 			);
 			// 响应在 onRunNow 挂起期间已返回（触发即返回）
@@ -244,46 +415,55 @@ test("POST /:id/run 触发即返回：onRunNow 未完成时响应已返回", asy
 	);
 });
 
-test("GET /api/execution-records — 空 + 筛选 + 倒序 + 200 上限", async () => {
+test("GET /api/execution-records 从 logs 聚合，响应结构与旧版一致", async () => {
+	// 经 store.appendRecord 写入两条不同项目的执行记录（含 sessionId/pushResults）
+	const r1: ExecutionRecord = {
+		id: "r1",
+		taskId: "t1",
+		taskName: "A",
+		status: "success",
+		startedAt: 100,
+		sessionId: "sess-1",
+		pushResults: [{ targetId: "ct_1", targetName: "张三", success: true }],
+	};
+	const r2: ExecutionRecord = {
+		id: "r2",
+		taskId: "t1",
+		taskName: "A",
+		status: "failed",
+		startedAt: 300,
+	};
+	const r3: ExecutionRecord = {
+		id: "r3",
+		taskId: "t2",
+		taskName: "B",
+		status: "success",
+		startedAt: 200,
+	};
+	await store.appendRecord("pa", "t1", r1);
+	await store.appendRecord("pa", "t1", r2);
+	await store.appendRecord("pb", "t2", r3);
+
 	await withServer(async (base) => {
-		// 空列表
-		const { body: empty } = await json(base, "/api/execution-records");
-		expect(empty.records).toEqual([]);
-
-		// 写入测试记录（绕过路由，直接写文件）
-		const { saveExecutionRecords } = await import("../src/scheduler-store");
-		await saveExecutionRecords(recordsFile, [
-			{
-				id: "r1",
-				taskId: "t1",
-				taskName: "A",
-				status: "success",
-				startedAt: 100,
-			},
-			{
-				id: "r2",
-				taskId: "t1",
-				taskName: "A",
-				status: "failed",
-				startedAt: 300,
-			},
-			{
-				id: "r3",
-				taskId: "t2",
-				taskName: "B",
-				status: "success",
-				startedAt: 200,
-			},
-		]);
-
-		// 全量（倒序：r2 > r3 > r1）
+		// 全量（倒序：r2 > r3 > r1），字段完整（sessionId/pushResults 保留）
 		const { body: all } = await json(base, "/api/execution-records");
-		expect(all.records.map((r: any) => r.id)).toEqual(["r2", "r3", "r1"]);
+		expect(all.records.map((r: ExecutionRecord) => r.id)).toEqual([
+			"r2",
+			"r3",
+			"r1",
+		]);
+		const rec1 = all.records.find((r: ExecutionRecord) => r.id === "r1");
+		expect(rec1.sessionId).toBe("sess-1");
+		expect(rec1.pushResults).toEqual([
+			{ targetId: "ct_1", targetName: "张三", success: true },
+		]);
 
 		// taskId 筛选
 		const { body: byTask } = await json(base, "/api/execution-records?taskId=t1");
-		expect(byTask.records).toHaveLength(2);
-		expect(byTask.records.map((r: any) => r.id)).toEqual(["r2", "r1"]);
+		expect(byTask.records.map((r: ExecutionRecord) => r.id)).toEqual([
+			"r2",
+			"r1",
+		]);
 
 		// status 筛选
 		const { body: byStatus } = await json(
@@ -302,6 +482,7 @@ describe("POST/PUT 校验", () => {
 		schedule: { type: "daily", time: "09:30" },
 		agentId: "agent-1",
 		prompt: "写日报",
+		projectId: "pa",
 	};
 
 	test("POST 缺 name/agentId/prompt → 400 + 错误信息，不落盘", async () => {
@@ -399,7 +580,7 @@ describe("POST/PUT 校验", () => {
 			});
 			const { status } = await json(
 				base,
-				`/api/scheduled-tasks/${created.task.id}`,
+				`/api/scheduled-tasks/${encodeURIComponent(created.task.id)}`,
 				{ method: "PUT", body: JSON.stringify({ name: "" }) },
 			);
 			expect(status).toBe(400);
@@ -445,7 +626,7 @@ describe("POST/PUT 校验", () => {
 			});
 			const { body: updated } = await json(
 				base,
-				`/api/scheduled-tasks/${created.task.id}`,
+				`/api/scheduled-tasks/${encodeURIComponent(created.task.id)}`,
 				{ method: "PUT", body: JSON.stringify({ model: "anthropic/claude" }) },
 			);
 			expect(updated.task.model).toBe("anthropic/claude");
@@ -453,7 +634,7 @@ describe("POST/PUT 校验", () => {
 			// 传 null 清空（前端「跟随默认」选项）
 			const { body: cleared } = await json(
 				base,
-				`/api/scheduled-tasks/${created.task.id}`,
+				`/api/scheduled-tasks/${encodeURIComponent(created.task.id)}`,
 				{ method: "PUT", body: JSON.stringify({ model: null }) },
 			);
 			expect(cleared.task.model).toBeUndefined();
