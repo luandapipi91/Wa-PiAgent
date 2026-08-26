@@ -1,3 +1,10 @@
+## 2026-08-26 — test(e2e): automation.spec.ts 新增定时任务 AI 化（CLI 建任务 + 配置错误修复）两条端到端场景
+
+- 新增 E2E：`packages/frontend/e2e/automation.spec.ts` 末尾追加 `test.describe.serial("定时任务 AI 化（CLI 建任务 + 配置错误修复）")`，含两条用例：①agent 经分发的 CLI（`bun <cwd>/.wa-pi/scheduled-tasks/cron-task.ts add --name E2E任务 --agent dev --schedule '{"type":"daily","time":"09:30"}' --prompt ...`）直接写任务文件 → watcher 热载 → 前端列表可见 → `POST /api/scheduled-tasks/:id/run` 触发 → 执行记录落盘 → `logs/E2E任务.log` 非空 → 清理；②坏任务文件（缺 name）→ 面板「⚠ 配置错误」条目 + 错误原因 → 点进编辑表单补全 → `PUT` upsert 修复 → 错误条目消失、任务正常显示、REST errors 清空。Node 侧复用本文件 `api`/`findTaskByName`，新增 `deleteTaskQuietEncoded`/`findTaskError`/`findRecord`/`waitForCliAsset` helper。
+- 测试环境：用偏移端口（`WA_PI_E2E_WS_PORT=9830 WA_PI_E2E_WEB_PORT=5183 WA_PI_WEB_PORT=5183`）避开本机真实 kernel（9776/9778 占用）。`automation.spec.ts` 全部 7 用例通过（既有 1-5 + 新增 6、7）。
+- 既有测试修正：因 commit 70a63256 给 store.createTask 加了「新建后自动选中新任务」行为，既有用例 2 的「保存后主区应为执行记录页」断言已过期（实际展示任务详情 `task-detail-view`），本任务修正该断言以匹配当前（刻意的）产品行为，其余既有用例不回归。
+- 影响范围：`packages/frontend/e2e/automation.spec.ts`。
+
 ## 2026-08-26 — test(scripts): 定时任务文件夹化 API 集成测试（scheduler-api-it.sh）
 
 - **test(scripts)**：定时任务文件夹化 API 集成测试（scheduler-api-it.sh）
