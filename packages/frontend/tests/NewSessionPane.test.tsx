@@ -209,17 +209,17 @@ describe("NewSessionPane", () => {
 		composerDbNewSessionIds["p1"] = anchor;
 		useComposerPrefsStore.setState({ newSessionIds: { p1: anchor } });
 
-		// 1) 新建页挂载，从文件树打开带 path 的 html 预览——注意 openBrowser 只传 path 不带 sessionId
-		//    （NewSessionPane 文件树双击的现有行为），预览应归属到本页锚点才能按会话记忆。
+		// 1) 新建页挂载，打开带 path 的 html 预览并归属到本页锚点 sessionId
+		//    （等价修复后文件树双击 openBrowser(path, sessionId)）。
 		const { unmount } = render(<NewSessionPane />);
-		useBrowserStore.getState().openBrowser("/a/index.html");
+		useBrowserStore.getState().openBrowser("/a/index.html", anchor);
 		expect(useBrowserStore.getState().open).toBe(true);
-		expect(useBrowserStore.getState().path).toBe("/a/index.html");
+		expect(useBrowserStore.getState().sessionId).toBe(anchor);
 
 		// 2) 切走：卸载新建页，模拟 activateSession 到真实会话
 		unmount();
 		useBrowserStore.getState().activateSession("A");
-		expect(useBrowserStore.getState().open).toBe(false);
+		expect(useBrowserStore.getState().open).toBe(false); // 切到 A（无预览）关闭
 
 		// 3) 切回新建页：重新挂载 → 应恢复锚点预览（含 path）
 		render(<NewSessionPane />);
