@@ -32,7 +32,7 @@ import { TaskScheduler, resolveTaskModel } from "./scheduler";
 import { createFolderTaskStore } from "./scheduler-task-store";
 import { TaskFolderWatcher } from "./scheduler-watcher";
 import { migrateLegacySchedulerFiles } from "./scheduler-migrate";
-import { ensureScheduledTasksAssets } from "./scheduler-assets";
+import { atomicWrite, ensureScheduledTasksAssets } from "./scheduler-assets";
 import { buildSchedulerProjects } from "./scheduler-projects";
 import { parseImPushMentions, createImPushTool } from "./tools/robot-push";
 import type { ImPushInjection } from "./agent-manager";
@@ -370,14 +370,14 @@ export async function startKernel(opts?: {
 	console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);
 
 	// kernel 信息文件：CLI 据此发现运行中的 kernel（端口/pid/启动时间）
-	await writeFile(
+	// 原子写（tmp+rename）：kernel.json 是 CLI 发现 kernel 的读入口，避免中断留下半个文件
+	await atomicWrite(
 		KERNEL_INFO_FILE,
 		JSON.stringify(
 			{ port: server.actualPort, pid: process.pid, startedAt: Date.now() },
 			null,
 			2,
 		),
-		"utf8",
 	);
 
 	// 启动全部 enabled 渠道（无渠道时 ChannelManager.start() 空转不报错）。
