@@ -104,7 +104,7 @@
 
 ### 第四层：自动化界面测试（E2E）
 
-- **工具：** Playwright + Chromium / agent-browser
+- **工具：** 浏览器自动化  或 Playwright + Chromium
 - **范围：** 真实浏览器中的完整业务流程（页面加载、表单提交、文件上传、跳转、删除等）
 - **要求：**
   - 通过 API 创建测试数据 → 浏览器操作 → 断言 DOM + API 状态 → finally 清理数据
