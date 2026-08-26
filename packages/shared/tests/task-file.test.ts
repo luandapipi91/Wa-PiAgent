@@ -117,6 +117,13 @@ describe("log 行", () => {
 		expect(parseLogLine("普通文本行")).toBeNull();
 		expect(parseLogLine("[time] 成功 | {bad json")).toBeNull();
 	});
+	test("summary 含分隔符 \" | \" 时仍能往返还原", () => {
+		const rec: ExecutionRecord = {
+			id: "r2", taskId: "t1", taskName: "任务", status: "success",
+			startedAt: 1725000000000, summary: "a | b",
+		};
+		expect(parseLogLine(formatLogLine(rec))).toEqual(rec);
+	});
 });
 
 describe("cronMatches / nextRunTimes", () => {

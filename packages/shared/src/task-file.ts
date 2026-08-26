@@ -169,18 +169,22 @@ export function formatLogLine(record: ExecutionRecord): string {
 	return `[${time}] ${STATUS_TEXT[record.status] ?? record.status}${dur}${note} | ${JSON.stringify(record)}`;
 }
 
-/** 解析 log 行尾 JSON 负载；普通文本行/损坏行返回 null（不抛错） */
+/** 解析 log 行尾 JSON 负载；普通文本行/损坏行返回 null（不抛错）。
+ *  JSON 负载内（summary/error 等字段）可能也含 " | "，故从右往左逐个候选位置
+ *  尝试解析，直到还原出含 id/startedAt 的合法记录。 */
 export function parseLogLine(line: string): ExecutionRecord | null {
-	const idx = line.lastIndexOf(" | ");
-	if (idx < 0) return null;
-	try {
-		const rec = JSON.parse(line.slice(idx + 3)) as ExecutionRecord;
-		return typeof rec?.id === "string" && typeof rec?.startedAt === "number"
-			? rec
-			: null;
-	} catch {
-		return null;
+	let idx = line.lastIndexOf(" | ");
+	while (idx >= 0) {
+		try {
+			const rec = JSON.parse(line.slice(idx + 3)) as ExecutionRecord;
+			if (typeof rec?.id === "string" && typeof rec?.startedAt === "number")
+				return rec;
+		} catch {
+			// 该候选位置不是真正的分隔符，继续向左找前一个 " | "
+		}
+		idx = line.lastIndexOf(" | ", idx - 1);
 	}
+	return null;
 }
 
 // ===== cron 求值（5 字段，本地时间；支持 *、*/n、单值、a-b、a-b/n、逗号列表） =====
