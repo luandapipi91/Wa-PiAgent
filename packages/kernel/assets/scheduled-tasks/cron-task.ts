@@ -25,6 +25,8 @@ const LOGS_DIR = join(BASE_DIR, "logs");
 
 // ===== frontmatter（受限 YAML 子集：每行 key: <JSON 值>）——与 kernel 同规则 =====
 
+const SCHEDULE_TYPES = ["minute", "hourly", "daily", "weekdays", "weekly", "monthly", "custom"];
+
 function serializeTask(data: any, prompt: string): string {
 	const lines = [
 		`name: ${JSON.stringify(data.name)}`,
@@ -58,7 +60,11 @@ function parseTask(content: string, id: string, file: string): any {
 	if (typeof data.name !== "string" || !data.name.trim()) throw new Error("name 不能为空");
 	if (typeof data.agentId !== "string" || !data.agentId.trim()) throw new Error("agentId 不能为空");
 	if (!prompt) throw new Error("prompt 不能为空（正文）");
+	if (data.model != null && typeof data.model !== "string")
+		throw new Error("model 必须是字符串（providerSlug/modelId）");
 	if (!schedule || typeof schedule !== "object") throw new Error("schedule 不能为空");
+	if (!SCHEDULE_TYPES.includes(schedule.type))
+		throw new Error(`schedule.type 必须是 ${SCHEDULE_TYPES.join("/")} 之一`);
 	const TIME_RE = /^(\d{2}):(\d{2})$/;
 	const tm = typeof schedule.time === "string" ? TIME_RE.exec(schedule.time) : null;
 	if (!tm || Number(tm[1]) > 23 || Number(tm[2]) > 59)
@@ -99,6 +105,8 @@ function parseField(field: string, min: number, max: number): Set<number> {
 		const stepMatch = /^(.+)\/(\d+)$/.exec(part);
 		const base = stepMatch ? stepMatch[1] : part;
 		const step = stepMatch ? Number(stepMatch[2]) : 1;
+		// 步进必须为正整数，否则 */0 之类会让 nextRunTimes 死循环（与 shared 同规则）
+		if (!Number.isInteger(step) || step < 1) throw new Error(`cron 步进非法: ${part}`);
 		let lo: number, hi: number;
 		if (base === "*") { lo = min; hi = max; }
 		else {
@@ -151,6 +159,9 @@ function listTaskFiles(): { id: string; file: string }[] {
 }
 
 function loadTask(id: string): any {
+	// id 即文件名，必须防止路径穿越（set ../escape/out ... 之类）
+	if (!id || id.includes("/") || id.includes("\\") || id.includes(".."))
+		throw new Error(`任务 id 非法: ${id}`);
 	const file = join(TASKS_DIR, `${id}.md`);
 	if (!existsSync(file)) throw new Error(`任务不存在: ${id}`);
 	return parseTask(readFileSync(file, "utf8"), id, file);
