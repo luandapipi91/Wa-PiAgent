@@ -16,7 +16,13 @@
  */
 
 import { join } from "node:path";
-import { WA_PI_DIR } from "@wa-pi/shared";
+import {
+	WA_PI_DIR,
+	CRON_CLI_FILE,
+	SCHEDULED_TASKS_README_FILE,
+	SCHEDULED_TASKS_TASKS_DIR,
+	SCHEDULED_TASKS_DIR_NAME,
+} from "@wa-pi/shared";
 
 /** 单个提示词段落 */
 export interface PromptSegment {
@@ -42,6 +48,9 @@ export interface SystemPromptContext {
 	imChannelContext?: string;
 	/** IM 推送目标提示词（定时任务 @im-push-to 标记）：无标记为 undefined/""，段自动消失 */
 	imPushContext?: string;
+	/** 定时任务管理引导提示词：由调用方构造（含路径/CLI 指引），经 ctx 传入，避免在渲染层写死
+	 *  （与 buildImPushSystemPrompt 同模式）。未提供则为 undefined/""，段自动不出现。 */
+	scheduledTasksContext?: string;
 }
 
 /** env-constraints 段的固定文案前缀（builtinSkillsDir 之后拼接） */
@@ -172,6 +181,14 @@ export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
 	{ id: "memory-snapshot" }, // 动态：memorySnapshot
 ];
 
+/** 定时任务管理引导提示词（经 ctx.scheduledTasksContext 注入）。
+ *  ——与 buildImPushSystemPrompt 同模式：文案在构造层产出，不在渲染层写死，
+ *     路径/文件名用常量拼接，避免硬编码漂移。 */
+export function buildScheduledTasksSystemPrompt(): string {
+	const schedRoot = join(WA_PI_DIR, SCHEDULED_TASKS_DIR_NAME);
+	return `定时任务管理：所有定时任务统一存放在 \`${schedRoot}/\` 目录下，其中的 \`${SCHEDULED_TASKS_README_FILE}\` 和 \`${CRON_CLI_FILE}\` 可帮助你创建、查看和管理定时任务。\n\n**重要：所有定时任务的创建、查看、修改、启停、运行都必须通过 \`${CRON_CLI_FILE}\` CLI（\`bun ${CRON_CLI_FILE} <command>\`）来完成，禁止直接编、辑删除目录下的任何文件（\`${SCHEDULED_TASKS_TASKS_DIR}/xxx.md\`）或日志，也不要在目录下手写/篡改文件——文件格式由 CLI 与 kernel 维护，直接编辑可能导致任务校验失败或丢失。**`;
+}
+
 /**
  * 根据段落 id 与上下文，渲染单个段落的最终文本。
  *
@@ -185,11 +202,9 @@ function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
 	if (seg.id === IM_CHANNEL_SEGMENT_ID) return ctx.imChannelContext ?? "";
 	// im-push 同为运行时注入段（定时任务推送目标引导）：始终取上下文值
 	if (seg.id === IM_PUSH_SEGMENT_ID) return ctx.imPushContext ?? "";
-	// scheduled-tasks 同为运行时注入段（定时任务管理引导）：始终直接注入（不再判目录是否存在）
-	if (seg.id === SCHEDULED_TASKS_SEGMENT_ID) {
-		const schedRoot = join(WA_PI_DIR, "scheduled-tasks");
-		return `定时任务管理：所有定时任务统一存放在 \`${schedRoot}/\` 目录下，其中的 README.md 和 cron-task.ts 可帮助你创建、查看和管理定时任务。\n\n**重要：所有定时任务的创建、查看、修改、启停、运行都必须通过 \`cron-task.ts\` CLI（\`bun cron-task.ts <command>\`）来完成，禁止直接编辑目录下的任务文件（\`tasks/xxx.md\`）或日志，也不要在目录下手写/篡改文件——文件格式由 CLI 与 kernel 维护，直接编辑可能导致任务校验失败或丢失。**`;
-	}
+	// scheduled-tasks 同为运行时注入段（定时任务管理引导）：始终取上下文值（文案由调用方构造）
+	if (seg.id === SCHEDULED_TASKS_SEGMENT_ID)
+		return ctx.scheduledTasksContext ?? "";
 
 	// 用户在 prompts.json 里显式写了 content：其余段（含动态段）都允许覆盖
 	if (seg.content && seg.content.length > 0) {

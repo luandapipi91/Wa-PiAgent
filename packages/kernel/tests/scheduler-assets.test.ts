@@ -173,6 +173,38 @@ describe("cron-task.ts CLI", () => {
 		expect(showOther.exitCode).toBe(0);
 	});
 
+	// delete 隔离：agent 场景只能删本项目任务，删其他项目被拒且明确告知agent
+	test("agent 场景 delete 其他项目任务被拒（明确提示），delete 本项目成功", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, "cron-task.ts");
+		writeFileSync(
+			join(dir, "tasks", "本d.md"),
+			'---\nname: "本d"\nschedule: {"type":"daily","time":"09:00"}\nagentId: "a"\nprojectId: "pa"\nenabled: true\n---\n\nx\n',
+		);
+		writeFileSync(
+			join(dir, "tasks", "别d.md"),
+			'---\nname: "别d"\nschedule: {"type":"daily","time":"09:00"}\nagentId: "a"\nprojectId: "pb"\nenabled: true\n---\n\nx\n',
+		);
+		const agentEnv = { ...CLI_ENV, WA_PI_SCHEDULER_PROJECT_ID: "pa" };
+		// delete 其他项目（pb）任务 → 拒绝，且提示不可删除其他项目任务
+		const delOther = Bun.spawnSync([process.execPath, cli, "delete", "别d"], {
+			cwd: dir,
+			env: agentEnv,
+		});
+		expect(delOther.exitCode).toBe(1);
+		const delOtherMsg = delOther.stderr.toString() + delOther.stdout.toString();
+		expect(delOtherMsg).toContain("不属于当前项目");
+		expect(delOtherMsg).toContain("不可以");
+		expect(existsSync(join(dir, "tasks", "别d.md"))).toBe(true); // 未删除
+		// delete 本项目（pa）任务 → 成功
+		const delOwn = Bun.spawnSync([process.execPath, cli, "delete", "本d"], {
+			cwd: dir,
+			env: agentEnv,
+		});
+		expect(delOwn.exitCode).toBe(0);
+		expect(existsSync(join(dir, "tasks", "本d.md"))).toBe(false);
+	});
+
 	// schedule.type 枚举校验（与 shared validateTaskData 同规则）
 	test("schedule.type 非法时 validate 失败", async () => {
 		await ensureScheduledTasksAssets(dir);
@@ -187,5 +219,55 @@ describe("cron-task.ts CLI", () => {
 		});
 		expect(r.exitCode).toBe(1);
 		expect(r.stderr.toString() + r.stdout.toString()).toContain("schedule.type");
+	});
+
+	// add --im-push：把 @im-push-to(ch_xx,ct_xxx) 标记注入 prompt，执行时可注册 im_push_to 工具推送
+	test("add --im-push 注入推送标记到 prompt（可重复、去重）", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, "cron-task.ts");
+		const r = Bun.spawnSync(
+			[
+				process.execPath,
+				cli,
+				"add",
+				"--name",
+				"推送任务",
+				"--agent",
+				"a",
+				"--schedule",
+				'{"type":"daily","time":"09:00"}',
+				"--im-push",
+				"ch_企微,ct_111",
+				"--im-push",
+				"ch_企微,ct_222",
+				"--prompt",
+				"每天早上汇报",
+			],
+			{ cwd: dir, env: CLI_ENV },
+		);
+		expect(r.exitCode).toBe(0);
+		const prompt = readFileSync(join(dir, "tasks", "推送任务.md"), "utf8");
+		expect(prompt).toContain("@im-push-to(ch_企微,ct_111)");
+		expect(prompt).toContain("@im-push-to(ch_企微,ct_222)");
+		// prompt 正文仍在（标记注入在最前，正文保留）
+		expect(prompt).toContain("每天早上汇报");
+	});
+
+	// set im-push：向已有任务补充推送目标（去重，不重复加同一 ct）
+	test("set im-push 注入推送标记且去重", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, "cron-task.ts");
+		writeFileSync(
+			join(dir, "tasks", "补.md"),
+			'---\nname: "补"\nschedule: {"type":"daily","time":"09:00"}\nagentId: "a"\nprojectId: "__system__"\nenabled: true\n---\n\n任务正文\n',
+		);
+		const r = Bun.spawnSync(
+			[process.execPath, cli, "set", "补", "im-push", "ch_企微,ct_333"],
+			{ cwd: dir, env: CLI_ENV },
+		);
+		expect(r.exitCode).toBe(0);
+		const prompt = readFileSync(join(dir, "tasks", "补.md"), "utf8");
+		expect(prompt).toContain("@im-push-to(ch_企微,ct_333)");
+		expect(prompt).toContain("任务正文");
 	});
 });

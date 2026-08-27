@@ -37,6 +37,13 @@ export const CHANNEL_TMP_DIR = `${WA_PI_DIR}/tmp/channels`; // 渠道图片等�
 // 新数据全部全局存于 WA_PI_DIR/scheduled-tasks/（任务定义 + CLI + 执行记录）
 export const SCHEDULED_TASKS_FILE = `${WA_PI_DIR}/scheduled-tasks.json`; // 定时任务配置（仅迁移读取用）
 export const EXECUTION_RECORDS_FILE = `${WA_PI_DIR}/execution-records.json`; // 定时任务执行记录（仅迁移读取用）
+
+// 定时任务资产文件名/目录名常量（供 system-prompt 文案、scheduler-assets 分发引用，避免魔法字符串漂移）
+export const SCHEDULED_TASKS_DIR_NAME = "scheduled-tasks"; // 全局存放根目录名（WA_PI_DIR/<此名>/）
+export const CRON_CLI_FILE = "cron-task.ts"; // 定时任务 CLI 文件名
+export const SCHEDULED_TASKS_README_FILE = "README.md"; // 定时任务说明文件名
+export const SCHEDULED_TASKS_TASKS_DIR = "tasks"; // 任务定义子目录名
+export const SCHEDULED_TASKS_LOGS_DIR = "logs"; // 执行日志子目录名
 export const KERNEL_INFO_FILE = `${WA_PI_DIR}/kernel.json`; // kernel 端口/pid 信息，CLI 发现 kernel 用
 export const CONTACTS_FILE = `${WA_PI_DIR}/contacts.json`; // 企微机器人通讯录（对话过的人/群）
 

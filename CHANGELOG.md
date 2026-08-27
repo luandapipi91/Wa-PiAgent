@@ -1,4 +1,44 @@
 
+## 2026-08-27 — fix(ui): 手动 /compact 压缩成功后「已压缩」提示消失
+
+- 背景：手动调用 `/compact` 压缩上下文成功后，原来屏幕中间的「已压缩早期上下文 · 压缩前 N token」提示不再出现。
+- 根因：`store/session.ts` 的 `refreshTokenTotals` 在历史重拉时用 `return !mm?.compactionDone` **无条件移除**成功的本地 `compaction_status` 消息，完全依赖服务端历史的 `compactionSummary` 节点兑底渲染。但服务端历史不保证总是含 `compactionSummary`（手动 /compact 后 compaction 节点尚未落盘 /RPC 时序竞态），此时本地成功消息被删、又无兑底，提示彻底消失。
+- 修复：仅当服务端历史确实含 `compactionSummary`（兑底已生效）时才移除本地成功消息；否则保留本地成功提示作为兑底。
+  - `store/session.ts`：新增 `serverHasCompactionSummary` 判断，成功消息仅在该判断为真时移除，避免「压缩成功」提示消失。
+- 验证：TDD —— 新增回归测试 `compaction_end 成功但服务端历史无 compactionSummary：本地成功提示应保留（不消失）`；场景 A（服务端含 compactionSummary 不产生重复提示）既有测试保持通过；前端全量 1934 pass 0 fail；typecheck 通过。
+- 影响范围：`packages/frontend/src/store/session.ts`、`packages/frontend/tests/store-session.test.ts`。
+
+## 2026-08-27 — feat(kernel): 定时任务全局化收口——项目隔离 + ctx 注入模板 + delete 命令 + --im-push 推送标记
+
+- 背景：定时任务已改造为全局目录（WA_PI_DIR/scheduled-tasks/）架构，本次收口 agent 侧管理与执行链路：①agent 对话中创建的定时任务默认归属当前会话项目，且编辑/运行/删除不允许越权操作其他项目任务；②system prompt 的定时任务引导文案改经 ctx 注入（不再在渲染层写死，路径/文件名用共享常量拼接）；③CLI 新增 delete 命令与 --im-push 推送目标标记，让 agent 建带推送目标的任务、执行时能注册 im_push_to 工具推送。
+- 改动：
+  - `agent-manager.ts`：pi 子进程 env 注入 `WA_PI_SCHEDULER_PROJECT_ID`（归属当前会话项目）；system prompt 注入 `scheduledTasksContext: buildScheduledTasksSystemPrompt()`。
+  - `system-prompt.ts`：`SystemPromptContext` 新增 `scheduledTasksContext`；scheduled-tasks 段改 `return ctx.scheduledTasksContext ?? ""`（不再写死）；新增 `buildScheduledTasksSystemPrompt()`（路径/文件名用共享常量），文案含「必须通过 CLI 操作、禁止直接编辑目录文件」约束。
+  - `shared/constants.ts`：新增定时任务资产文件名/目录名常量（SCHEDULED_TASKS_DIR_NAME/CRON_CLI_FILE/SCHEDULED_TASKS_README_FILE/SCHEDULED_TASKS_TASKS_DIR/SCHEDULED_TASKS_LOGS_DIR）。
+  - `scheduler-assets.ts`：分发时改用共享常量拼接路径/文件名，避免魔法字符串。
+  - `assets/scheduled-tasks/cron-task.ts`：新增 `--im-push 渠道,联系人`（可重复，注入 @im-push-to 标记到 prompt，执行时注册 im_push_to 推送）；`set` 新增 `im-push` key；新增 `delete` 命令（项目隔离：agent 场景只能删本项目任务，跨项目明确提示不可操作）；`assertOwnProject` 校验（编辑/运行/删除均隔离）；help 补充示例用法。
+- 验证：kernel 全量 1441 pass 0 fail；scheduler-assets 12 pass（含 im-push 注入/delete 隔离用例）；system-prompt-scheduled-tasks 37 pass（含 「未注入 ctx 不出现」）；typecheck clean。
+- 影响范围：`packages/kernel/src/agent-manager.ts`、`system-prompt.ts`、`scheduler-assets.ts`、`packages/kernel/assets/scheduled-tasks/cron-task.ts`、`packages/shared/src/constants.ts`、`packages/kernel/tests/scheduler-assets.test.ts`、`system-prompt-scheduled-tasks.test.ts`。
+
+- 背景：手动调用 `/compact` 压缩上下文成功后，原来屏幕中间的「已压缩早期上下文 · 压缩前 N token」提示不再出现。
+- 根因：`store/session.ts` 的 `refreshTokenTotals` 在历史重拉时用 `return !mm?.compactionDone` **无条件移除**成功的本地 `compaction_status` 消息，完全依赖服务端历史的 `compactionSummary` 节点兑底渲染。但服务端历史不保证总是含 `compactionSummary`（手动 /compact 后 compaction 节点尚未落盘 /RPC 时序竞态），此时本地成功消息被删、又无兑底，提示彻底消失。
+- 修复：仅当服务端历史确实含 `compactionSummary`（兑底已生效）时才移除本地成功消息；否则保留本地成功提示作为兑底。
+  - `store/session.ts`：新增 `serverHasCompactionSummary` 判断，成功消息仅在该判断为真时移除，避免「压缩成功」提示消失。
+- 验证：TDD —— 新增回归测试 `compaction_end 成功但服务端历史无 compactionSummary：本地成功提示应保留（不消失）`；场景 A（服务端含 compactionSummary 不产生重复提示）既有测试保持通过；前端 typecheck 通过。
+- 影响范围：`packages/frontend/src/store/session.ts`、`packages/frontend/tests/store-session.test.ts`。
+
+## 2026-08-27 — feat(kernel): 新增 list_contacts 工具（agent 查询当前系统可用联系人）
+
+- 背景：im_push_to 推送要求 agent 知道目标联系人 id，但 agent 无从枚举。本次暴露查询侧工具 `list_contacts`（与 im_push_to 对称，只读），让 agent 能拿到当前系统可用的联系人列表，确定推送目标。
+- 改动：
+  - `tools/robot-push.ts`：新增 `contactLabelOf`（名称回退：remark → group 退 chatId 前 8 位 / person 退 userId → 兜底 id）、`formatContactsMarkdown`（Markdown 列表，渠道名经 listWithStatus 映射，解析不到回退 channelId）、`createListContactsTool`（工具定义 + execute，含可选 channelId 过滤）。
+  - `wa-pi-bridge.extension.ts`：注册 `list_contacts` 工具（始终注册，Type.Optional(channelId)）。
+  - `agent-manager.ts`：新增 `listContactsExecutor` opts + `setListContactsExecutor` setter；`handleTool` 增加 `list_contacts` 分发（未接线返回明确错误、executor 抛错返回失败文本）。
+  - `index.ts`：构造 channelManager 后 `setListContactsExecutor` 绑定 `createListContactsTool({ channelManager })`（惰性后绑定，解决循环依赖）。
+  - `tests/list-contacts.test.ts`：新增 15 项单元/集成测试；`bridge.test.ts` 契约测试同步（工具数 12→13，ALL_BRIDGE_TOOLS 加入 list_contacts）。
+- 验证：kernel 相关测试（list-contacts/robot-push/bridge）60 pass 0 fail；typecheck 通过；shared 141 pass 0 fail。
+- 影响范围：`packages/kernel/src/tools/robot-push.ts`、`wa-pi-bridge.extension.ts`、`agent-manager.ts`、`index.ts`、`packages/kernel/tests/list-contacts.test.ts`、`bridge.test.ts`。
+
 ## 2026-08-26 — feat(ui): 任务完成青蛙动画（随机姿势 + 聊天区四角随机蹦出）
 
 - 背景：任务完成（agent_end 终态）原先只有提示音、缺视觉反馈。用户希望加一只青蛙从聊天区域蹦出，每次姿势/形态不同、出现在四角之一，并可开关。

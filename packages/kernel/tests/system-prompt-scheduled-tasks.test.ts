@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import {
 	composePrompt,
+	buildScheduledTasksSystemPrompt,
 	DEFAULT_PROMPT_SEGMENTS,
 	ensureScheduledTasksSegment,
 	loadPromptSegments,
@@ -27,10 +28,11 @@ function tempFile(): string {
 	return join(mkdtempSync(join(tmpdir(), "wa-pi-sp-st-")), "prompts.json");
 }
 
-test("scheduled-tasks 段：始终注入引导文案（不再判目录存在）", () => {
+test("scheduled-tasks 段：经 ctx 注入引导文案（不再判目录存在）", () => {
 	const prompt = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
 		defaultBasePrompt: "base",
 		builtinSkillsDir: "/skills",
+		scheduledTasksContext: buildScheduledTasksSystemPrompt(),
 	});
 	expect(prompt).toContain("scheduled-tasks");
 	expect(prompt).toContain("README.md");
@@ -40,6 +42,15 @@ test("scheduled-tasks 段：始终注入引导文案（不再判目录存在）"
 	expect(prompt).toContain("必须通过");
 	expect(prompt).toContain("cron-task.ts");
 	expect(prompt).toContain("禁止直接编辑");
+});
+
+test("scheduled-tasks 段：未注入 ctx 时不出现（文案不在渲染层写死）", () => {
+	const prompt = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
+		defaultBasePrompt: "base",
+		builtinSkillsDir: "/skills",
+	});
+	expect(prompt).not.toContain("定时任务管理");
+	expect(prompt).not.toContain("~/.pi/agent");
 });
 
 test("ensureScheduledTasksSegment：缺失时插到 memory-policy 之前；残留 content 被剥掉", () => {
