@@ -103,6 +103,9 @@ export function GeneralSection() {
 	const setLanguage = useUiPrefsStore((s) => s.setLanguage);
 	const soundTaskDone = useUiPrefsStore((s) => s.soundTaskDone);
 	const setSoundTaskDone = useUiPrefsStore((s) => s.setSoundTaskDone);
+	// 定时任务完成提示音（默认关）：仅作用于定时任务执行会话（sched- 前缀）
+	const soundSchedTaskDone = useUiPrefsStore((s) => s.soundSchedTaskDone);
+	const setSoundSchedTaskDone = useUiPrefsStore((s) => s.setSoundSchedTaskDone);
 	const soundNeedsAction = useUiPrefsStore((s) => s.soundNeedsAction);
 	const setSoundNeedsAction = useUiPrefsStore((s) => s.setSoundNeedsAction);
 	const autoLaunch = useUiPrefsStore((s) => s.autoLaunch);
@@ -334,6 +337,16 @@ export function GeneralSection() {
 					on={soundTaskDone}
 					onToggle={() => setSoundTaskDone(!soundTaskDone)}
 					testId="sound-task-done-toggle"
+				/>
+			</div>
+			<div className="flex items-center justify-between">
+				<span className="text-sm text-primary" style={{ marginRight: 15 }}>
+					{t("settings.general.sound.schedTaskDone")}
+				</span>
+				<SoundSwitch
+					on={soundSchedTaskDone}
+					onToggle={() => setSoundSchedTaskDone(!soundSchedTaskDone)}
+					testId="sound-sched-task-done-toggle"
 				/>
 			</div>
 			<div className="flex items-center justify-between">

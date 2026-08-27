@@ -144,3 +144,14 @@ test("开启系统代理并保存 → PUT /api/settings/proxy（httpProxy 由 ke
 		proxy: { useSystemProxy: true, httpProxy: "" },
 	});
 });
+
+test("定时任务完成提示音开关：默认关闭，点击切换写 store", async () => {
+	render(<GeneralSection />);
+	// 面板初始为「加载中」态，等提示音分组渲染完成再断言
+	await screen.findByTestId("sound-task-done-toggle");
+	const toggle = screen.getByTestId("sound-sched-task-done-toggle");
+	// 需求：定时任务完成提示音默认关
+	expect(toggle.getAttribute("data-on")).toBe("false");
+	fireEvent.click(toggle);
+	expect(useUiPrefsStore.getState().soundSchedTaskDone).toBe(true);
+});

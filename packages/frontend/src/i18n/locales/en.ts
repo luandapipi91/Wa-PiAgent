@@ -778,6 +778,7 @@ const en = {
 				desc:
 					"Play a sound when a task finishes or needs your action. Effective immediately.",
 				taskDone: "Task complete",
+				schedTaskDone: "Scheduled task complete",
 				needsAction: "Action required",
 				preview: "Preview",
 			},

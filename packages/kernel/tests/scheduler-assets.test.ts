@@ -45,7 +45,15 @@ describe("ensureScheduledTasksAssets", () => {
 
 describe("cron-task.ts CLI", () => {
 	// CLI 用脚本所在目录为 BASE_DIR（kernel 分发到哪以哪为根），shim 环境下 run 需 BUN_BE_BUN=1
-	const CLI_ENV = { ...process.env, BUN_BE_BUN: "1" };
+	const CLI_ENV: Record<string, string | undefined> = {
+		...process.env,
+		BUN_BE_BUN: "1",
+	};
+	// 默认项目走 __system__、无项目作用域——剥离宿主 env 注入的 WA_PI_SCHEDULER_PROJECT_ID
+	// （否则测试运行在 agent 会话里会继承当前项目 UUID，导致 DEFAULT_PROJECT_ID/PROJECT_SCOPE
+	// 被绑到该 UUID，list 显示非「默认工作区」、set 跨项目被拒）。需作用域的用例会显式重设。
+	delete CLI_ENV.WA_PI_SCHEDULER_PROJECT_ID;
+	delete CLI_ENV.WA_PI_IM_PUSH_TARGETS;
 
 	test("help / add / list / validate / test 全链路", async () => {
 		await ensureScheduledTasksAssets(dir);

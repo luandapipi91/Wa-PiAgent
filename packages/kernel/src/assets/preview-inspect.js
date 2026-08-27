@@ -40,6 +40,71 @@
 		return tag + ":nth-of-type(" + nth + ")";
 	}
 
+	/**
+	 * 从 /preview/<encDir>/<encRel> 还原磁盘绝对路径（dir 与 rel 各自 decodeURIComponent）。
+	 * 嵌套 iframe 场景：内层页面向上层回传选中元素时需携带自身真实文件路径（srcPath），
+	 * 否则主应用会用外层页面路径去 /api/preview-locate 定位行号、查错文件。
+	 * 非 /preview/ 前缀、无文件段、解码失败 → null。
+	 */
+	function parsePreviewPathname(pathname) {
+		if (typeof pathname !== "string") return null;
+		if (pathname.lastIndexOf("/preview/", 0) !== 0) return null;
+		var rest = pathname.slice("/preview/".length);
+		var slash = rest.indexOf("/");
+		if (slash === -1) return null; // 无文件段
+		var dir, rel;
+		try {
+			// 段内允许 %2F 等编码（与 kernel resolvePreviewPath 的解码口径一致）
+			// 解码后可能拼出多层路径/..，越权由 kernel allowlist 兑底，这里只做还原
+			var dirRaw = rest.slice(0, slash);
+			var relRaw = rest.slice(slash + 1);
+			if (!dirRaw || !relRaw) return null;
+			dir = decodeURIComponent(dirRaw);
+			rel = decodeURIComponent(relRaw);
+		} catch {
+			return null;
+		}
+		return dir + "/" + rel;
+	}
+
+	/** 本预览页自身对应的磁盘路径（非 /preview 加载则 null）；发 picked 消息时携带 */
+	function selfPreviewPath() {
+		try {
+			return parsePreviewPathname(location.pathname);
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * 向子 iframe 注入 inspect 脚本（srcdoc/about:blank 型）。
+	 * 背景：srcdoc 型子 iframe 内容内联在属性里，不发 HTTP 请求，kernel 无从注入，
+	 * 子文档内没有任何 inspect 脚本 → 元素选中完全失效。srcdoc/about:blank 子文档
+	 * 继承父源，contentDocument 可达，由父页脚本代注入；script src 解析到同 host
+	 * （dev 走 vite /preview 代理、生产由 kernel 直出）。跨源子 iframe 不可达，静默跳过。
+	 * createScript(doc) 由调用方提供（真实环境创建 <script>，测试环境记录调用），
+	 * 返回 truthy 表示已注入；未初始化（无 __hiagentInspect）才注入，防重入。
+	 */
+	function injectInspectIntoFrames(frames, createScript) {
+		var injected = 0;
+		for (var i = 0; i < frames.length; i++) {
+			var doc = null;
+			try {
+				doc = frames[i].contentDocument;
+			} catch {
+				continue; // 跨源不可达：kernel 已无从注入也无能为力，静默跳过
+			}
+			if (!doc || !doc.documentElement) continue; // 尚未加载完成：load 事件会重试
+			if (doc.defaultView && doc.defaultView.__hiagentInspect) continue; // 已初始化
+			try {
+				if (createScript(doc)) injected++;
+			} catch {
+				/* 静默降级：单个子 iframe 注入失败不影响其余 */
+			}
+		}
+		return injected;
+	}
+
 	/** 元素语义标签（发给 agent 描述）：id → data-testid → role → aria-label → tag.类名（最多 3） */
 	function elLabel(el) {
 		var tag = el.tagName.toLowerCase();
@@ -78,13 +143,32 @@
 		return { left: left, top: top, width: width, height: height };
 	}
 
+	/**
+	 * 由元素视口矩形计算 absolute 遮罩层的页面坐标：
+	 * 先在【视口坐标系】内收敛（保证框完整落在当前视口内），再加滚动偏移
+	 * 转成页面坐标赋给 overlay。注意顺序不能反：若先加偏移再 clamp，
+	 * 滚动后框会被拉回文档首屏、视觉上「消失」。
+	 */
+	function layoutOverlayInPage(vLeft, vTop, w, h, sx, sy, vw, vh) {
+		var c = clampRectToViewport(vLeft, vTop, w, h, vw, vh);
+		return {
+			left: c.left + sx,
+			top: c.top + sy,
+			width: c.width,
+			height: c.height,
+		};
+	}
+
 	// node/bun 单测环境：仅导出纯函数，不触碰 DOM
 	if (typeof module !== "undefined" && module.exports) {
 		module.exports = {
 			buildSelector: buildSelector,
 			displayLabel: displayLabel,
+			parsePreviewPathname: parsePreviewPathname,
+			injectInspectIntoFrames: injectInspectIntoFrames,
 			elLabel: elLabel,
 			clampRectToViewport: clampRectToViewport,
+			layoutOverlayInPage: layoutOverlayInPage,
 		};
 		return;
 	}
@@ -164,9 +248,25 @@
 				render();
 			}
 		}
+		// 把开关状态下发到本页所有子 iframe（嵌套预览页的层级间状态一致）。
+		// 非预览子 iframe（外部页面/广告等）无 inspect 脚本，消息被忽略，无害。
+		function sendSetToChildren(enabled) {
+			var frames = document.querySelectorAll("iframe");
+			for (var i = 0; i < frames.length; i++) {
+				try {
+					frames[i].contentWindow.postMessage(
+						{ type: "hiagent:inspect:set", enabled: enabled },
+						"*",
+					);
+				} catch {
+					/* 忽略 */
+				}
+			}
+		}
 		function setDisabled(v) {
 			disabled = v;
 			applyInspectState();
+			sendSetToChildren(!v);
 			try {
 				window.parent.postMessage(
 					{ type: "hiagent:inspect:changed", enabled: !v },
@@ -238,30 +338,56 @@
 				tip.style.display = "none";
 				return;
 			}
-			var x = r.left + window.scrollX;
-			var y = r.top + window.scrollY;
 			var vw = window.innerWidth;
 			var vh = window.innerHeight;
-			// 高亮框：尺寸不变（大于视口才收缩），整体收敛进视口——选中屏幕边缘元素时
-			// 选择框不跑到屏幕外，始终完整可见可操作。
-			var hlR = clampRectToViewport(x, y, r.width, r.height, vw, vh);
+			var sx = window.scrollX;
+			var sy = window.scrollY;
+			// 高亮框/工具条/提示：先在视口系收敛再转页面坐标——滚动后仍贴合目标元素
+			var hlR = layoutOverlayInPage(
+				r.left,
+				r.top,
+				r.width,
+				r.height,
+				sx,
+				sy,
+				vw,
+				vh,
+			);
 			hl.style.display = "block";
 			hl.style.left = hlR.left + "px";
 			hl.style.top = hlR.top + "px";
 			hl.style.width = hlR.width + "px";
 			hl.style.height = hlR.height + "px";
-			// 工具条：位于元素上方（y-28），同样收敛进视口；内容撑开，需先 display 再量尺寸
+			// 工具条：位于元素上方（top-28）；内容撑开，需先 display 再量尺寸
 			bar.style.display = "flex";
 			var barW = bar.offsetWidth;
 			var barH = bar.offsetHeight;
-			var barR = clampRectToViewport(x, y - 28, barW, barH, vw, vh);
+			var barR = layoutOverlayInPage(
+				r.left,
+				r.top - 28,
+				barW,
+				barH,
+				sx,
+				sy,
+				vw,
+				vh,
+			);
 			bar.style.left = barR.left + "px";
 			bar.style.top = barR.top + "px";
-			// 提示小字：位于高亮框左下方（y+height+6），同样收敛进视口
+			// 提示小字：位于高亮框下方（top+height+6）
 			tip.style.display = "flex";
 			var tipW = tip.offsetWidth;
 			var tipH = tip.offsetHeight;
-			var tipR = clampRectToViewport(x, y + r.height + 6, tipW, tipH, vw, vh);
+			var tipR = layoutOverlayInPage(
+				r.left,
+				r.top + r.height + 6,
+				tipW,
+				tipH,
+				sx,
+				sy,
+				vw,
+				vh,
+			);
 			tip.style.left = tipR.left + "px";
 			tip.style.top = tipR.top + "px";
 			var disp = displayLabel(current);
@@ -339,13 +465,68 @@
 			},
 			true,
 		);
-		// 主应用下发持久化的开关状态
+		/**
+		 * e.source 是否为本页某个「本地预览子 iframe」的窗口（子层消息合法性校验，
+		 * 防任意窗口伪造 picked/changed 注入）。判定：是本页 iframe + 解析后 src
+		 * 与本文档同 protocol+host 且路径在 /preview/ 下。
+		 * 注意不能用 location.origin 比较：预览页是 sandbox 不透明源，
+		 * location.origin 为 "null"，与真实源永不相等，必须比 protocol+host。
+		 */
+		function isChildPreviewWindow(source) {
+			var frames = document.querySelectorAll("iframe");
+			for (var i = 0; i < frames.length; i++) {
+				if (frames[i].contentWindow !== source) continue;
+				try {
+					var u = new URL(frames[i].getAttribute("src") || "", location.href);
+					var here = new URL(location.href);
+					if (u.protocol !== here.protocol || u.host !== here.host) return false;
+					return u.pathname.lastIndexOf("/preview/", 0) === 0;
+				} catch {
+					return false;
+				}
+			}
+			return false;
+		}
+		// 消息路由（支持嵌套 iframe 预览）：
+		// - parent 下发 hiagent:inspect:set → 应用自身 + 逐层下发子 iframe
+		// - 子 iframe 上来 hiagent:inspect:query → 用自身状态直接回复（主应用只处理直接子层）
+		// - 子 iframe 上来 hiagent:inspect:changed → 走 setDisabled（同步自身 + 上报主应用 + 下发子层）
+		// - 子 iframe 上来 hiagent:element-picked → 原样转发 parent（逐层中继到主应用）
 		window.addEventListener("message", (e) => {
-			if (e.source !== window.parent) return;
 			var d = e.data;
-			if (!d || d.type !== "hiagent:inspect:set") return;
-			disabled = !d.enabled;
-			applyInspectState();
+			if (!d || typeof d.type !== "string") return;
+			if (e.source === window.parent) {
+				if (d.type !== "hiagent:inspect:set") return;
+				disabled = !d.enabled;
+				applyInspectState();
+				sendSetToChildren(!d.enabled);
+				return;
+			}
+			if (!isChildPreviewWindow(e.source)) return;
+			if (d.type === "hiagent:inspect:query") {
+				try {
+					e.source.postMessage(
+						{ type: "hiagent:inspect:set", enabled: !disabled },
+						"*",
+					);
+				} catch {
+					/* 忽略 */
+				}
+				return;
+			}
+			if (d.type === "hiagent:inspect:changed") {
+				setDisabled(d.enabled !== false);
+				return;
+			}
+			if (d.type === "hiagent:element-picked") {
+				// 已在顶层（无 App 外壳，如直接开预览 URL）：parent 是自己，转发会自发自收
+				if (window.parent === window) return;
+				try {
+					window.parent.postMessage(d, "*");
+				} catch {
+					/* 忽略 */
+				}
+			}
 		});
 		// 主动查询父：读取当前持久化的开关状态（关闭则本次预览直接禁用）
 		try {
@@ -391,12 +572,15 @@
 		btnSend.addEventListener("click", (e) => {
 			onBtn(e);
 			if (!current) return;
+			// srcPath：本页对应的磁盘路径。嵌套 iframe 时主应用只有外层页路径，
+			// 靠它把选中元素定位到实际所在文件（/api/preview-locate 行号查询也用它）
 			window.parent.postMessage(
 				{
 					type: "hiagent:element-picked",
 					selector: buildSelector(current),
 					tagName: current.tagName.toLowerCase(),
 					elLabel: elLabel(current),
+					srcPath: selfPreviewPath(),
 				},
 				"*",
 			);
@@ -410,5 +594,41 @@
 			pinned = false;
 			render();
 		});
+
+		// srcdoc/about:blank 型子 iframe 由父页代注入（不发 HTTP 请求，kernel 无从注入）。
+		// 三个触发时机：init（子 iframe 可能已就绪）/ iframe load / DOM 动态新增。
+		// 已初始化的子文档由 __hiagentInspect 防重入，重复调用无害。
+		function createChildScript(doc) {
+			var s = doc.createElement("script");
+			s.src = "/preview-inspect.js";
+			doc.documentElement.appendChild(s);
+			return true;
+		}
+		function injectChildren() {
+			injectInspectIntoFrames(
+				document.querySelectorAll("iframe"),
+				createChildScript,
+			);
+		}
+		try {
+			injectChildren();
+			// iframe 加载完成（srcdoc 内容就绪）后再试一次；捕获阶段监听所有子 iframe 的 load
+			document.addEventListener(
+				"load",
+				(e) => {
+					if (e && e.target && e.target.tagName === "IFRAME") injectChildren();
+				},
+				true,
+			);
+			// 页面动态新增 iframe（原型面板初始化时才创建等）也能被覆盖
+			if (typeof MutationObserver !== "undefined") {
+				new MutationObserver(injectChildren).observe(document.documentElement, {
+					childList: true,
+					subtree: true,
+				});
+			}
+		} catch {
+			/* 静默降级：子 iframe 注入失败不影响父页自身选中能力 */
+		}
 	}
 })();

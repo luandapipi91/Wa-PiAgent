@@ -2035,6 +2035,31 @@ test("正常会话（piSessionFile 存在）进程崩溃退出 → 不删除 ses
 	expect(rollbacks).toEqual([]);
 });
 
+test("进程崩溃退出 → 现场落盘 <WA_PI_DIR>/logs/agent-crash.log（session/code 可查）", async () => {
+	const { project, session, am, fakes } = await setup({});
+	// 正常会话（有消息文件）才走崩溃分支而非孤儿回滚
+	writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	fakes[0].simulateCrash(133);
+
+	// logAgentCrash 是 fire-and-forget 追加写，轮询等待落盘
+	const logPath = join(WA_PI_DIR, "logs", "agent-crash.log");
+	let text = "";
+	for (let i = 0; i < 100; i++) {
+		try {
+			text = readFileSync(logPath, "utf8");
+		} catch {
+			/* 文件尚未产生，继续等 */
+		}
+		if (text.includes(`session=${session.id}`)) break;
+		await new Promise((r) => setTimeout(r, 20));
+	}
+	expect(text).toContain(`session=${session.id}`);
+	expect(text).toContain("agent=dev");
+	expect(text).toContain("code=133");
+});
+
 // ─── 静态断言 ───────────────────────────────────────────────────────────────
 
 test("WA_PI_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {

@@ -198,18 +198,25 @@ export class RpcClient {
 		return !!this.proc && !this.exited && this.proc.exitCode === null;
 	}
 
+	/** 子进程 PID（未启动时 null）；崩溃后用于与系统 .ips 报告交叉比对 */
+	get pid(): number | null {
+		return this.proc?.pid ?? null;
+	}
+
 	/** 发送任意 RPC 命令，resolve 为 response.data（无 data 时为 undefined）；success:false 时 reject */
-	async command(cmd: Record<string, any>): Promise<any> {
+	async command(cmd: Record<string, unknown>): Promise<any> {
 		const proc = this.proc;
 		if (!proc || !this.isAlive()) {
 			throw new Error(`pi rpc 进程不可用${this.formatStderrTail()}`);
 		}
-		const id = cmd.id ?? `req-${++this.seq}`;
+		const id = (cmd.id ?? `req-${++this.seq}`) as string;
 		// per-command 超时覆盖（compact 等长耗时 LLM 命令），timeoutMs 不进 wire
 		const { timeoutMs: cmdTimeoutMs, ...rest } = cmd;
 		const payload = { ...rest, id };
 		return await new Promise((resolve, reject) => {
-			const timeoutMs = cmdTimeoutMs ?? this.opts.commandTimeoutMs ?? 60_000;
+			const timeoutMs = (cmdTimeoutMs ?? this.opts.commandTimeoutMs ?? 60_000) as
+				| number
+				| undefined;
 			// Infinity 显式关闭超时：setTimeout(Infinity) 溢出按 1ms 处理会立即误超时
 			const timer = Number.isFinite(timeoutMs)
 				? setTimeout(() => {
@@ -250,6 +257,11 @@ export class RpcClient {
 	): Promise<any> {
 		return this.command({
 			type: "prompt",
+			// pi 的 prompt success 要等 preflight 完成才发，preflight 里可能夹带隐性上下文压缩
+			// （LLM 长调用，慢模型大会话实测 60s+）。默认 60s 会把「压缩中」误报为命令超时，
+			// 前端表现为「agent 启动失败: RPC 命令超时」。真实失败（无 API key、模型校验不过）
+			// pi 立即回 error 不受影响；与 compact 对齐给 10 分钟。
+			timeoutMs: 10 * 60_000,
 			message,
 			...(opts?.images ? { images: opts.images } : {}),
 			...(opts?.streamingBehavior
@@ -567,9 +579,17 @@ export function resolvePiCliPath(
 	}
 }
 
-/** 解析运行 pi CLI 的运行时：env 覆盖 > PATH 上的 bun > process.execPath */
+/**
+ * 解析运行 pi CLI 的运行时：env 覆盖 > PATH 上的 bun > process.execPath
+ * Windows 例外：直接用 process.execPath，不走 PATH 上的 bun。原因：桌面端会往
+ * PATH 上放 bun.cmd shim（内容为 UTF-8 写入的 kernel 路径），而 cmd.exe 按系统
+ * ANSI 代码页（中文系统 GBK）解析批处理，安装路径含中文时被误读 → 「系统找不到
+ * 指定的路径。」→ pi rpc 全部启动失败（code=1）。kernel 自身就是 bun --compile
+ * 产物（dev 下是真 bun），配合子进程继承的 BUN_BE_BUN=1 可直接充当 bun runtime。
+ */
 export function resolvePiRuntime(): string {
 	if (process.env.WA_PI_PI_RUNTIME) return process.env.WA_PI_PI_RUNTIME;
+	if (process.platform === "win32") return process.execPath;
 	const which = (globalThis as any).Bun?.which;
 	if (typeof which === "function") {
 		const bunPath = which("bun");

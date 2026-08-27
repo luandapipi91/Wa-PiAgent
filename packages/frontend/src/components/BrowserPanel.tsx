@@ -29,7 +29,10 @@ export function BrowserPanel() {
 		path ? { kind: "local", path } : null,
 	);
 	const [input, setInput] = useState(path ?? "");
-	const [refreshKey, setRefreshKey] = useState(0);
+	// 刷新令牌在 store：手动按钮与「任务完成修改清单命中预览文件」的自动刷新同源递增，
+	// 令牌变化 → HtmlPreview iframe key 变化 → 重挂重拉磁盘最新内容
+	const refreshToken = useBrowserStore((s) => s.refreshToken);
+	const bumpRefresh = useBrowserStore((s) => s.bumpRefresh);
 	const [shareOpen, setShareOpen] = useState(false);
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
@@ -194,7 +197,7 @@ export function BrowserPanel() {
 					title={t("browser.refresh")}
 					data-testid="browser-refresh"
 					disabled={!current}
-					onClick={() => setRefreshKey((k) => k + 1)}
+					onClick={bumpRefresh}
 				>
 					<Icon
 						name="refresh"
@@ -317,13 +320,13 @@ export function BrowserPanel() {
 						<HtmlPreview
 							ref={iframeRef}
 							path={current.path}
-							refreshKey={refreshKey}
+							refreshKey={refreshToken}
 						/>
 					) : (
 						<HtmlPreview
 							ref={iframeRef}
 							externalUrl={current.url}
-							refreshKey={refreshKey}
+							refreshKey={refreshToken}
 						/>
 					)
 				) : (

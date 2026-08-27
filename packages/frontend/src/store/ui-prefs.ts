@@ -33,6 +33,10 @@ interface UiPrefsState {
 	/** 任务完成提示音开关（默认 true），即时生效。 */
 	soundTaskDone: boolean;
 	setSoundTaskDone: (v: boolean) => void;
+	/** 定时任务完成提示音开关（默认 false：定时任务完成默认不响），即时生效。
+	 * 仅作用于定时任务执行会话（sched- 前缀）；普通会话提示音仍由 soundTaskDone 控制 */
+	soundSchedTaskDone: boolean;
+	setSoundSchedTaskDone: (v: boolean) => void;
 	/** 任务完成青蛙动画开关（默认 true），即时生效。 */
 	frogTaskDone: boolean;
 	setFrogTaskDone: (v: boolean) => void;
@@ -73,6 +77,8 @@ export const EXPORT_INCLUDE_USER_DEFAULT = false;
 export const LANGUAGE_DEFAULT: AppLanguage = "zh";
 
 export const SOUND_TASK_DONE_DEFAULT = true;
+/** 定时任务完成提示音默认关（需求：默认不响） */
+export const SOUND_SCHED_TASK_DONE_DEFAULT = false;
 export const FROG_TASK_DONE_DEFAULT = true;
 export const SOUND_NEEDS_ACTION_DEFAULT = true;
 
@@ -156,6 +162,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			},
 			soundTaskDone: SOUND_TASK_DONE_DEFAULT,
 			setSoundTaskDone: (v) => set({ soundTaskDone: v }),
+			soundSchedTaskDone: SOUND_SCHED_TASK_DONE_DEFAULT,
+			setSoundSchedTaskDone: (v) => set({ soundSchedTaskDone: v }),
 			frogTaskDone: FROG_TASK_DONE_DEFAULT,
 			setFrogTaskDone: (v) => set({ frogTaskDone: v }),
 			soundNeedsAction: SOUND_NEEDS_ACTION_DEFAULT,
