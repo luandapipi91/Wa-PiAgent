@@ -73,6 +73,8 @@ describe("cron-task.ts CLI", () => {
 
 		const list = run(["list"]);
 		expect(list.stdout.toString()).toContain("每日站会");
+		// add 未指定 --project，projectId 默认 __system__ → list 显示「默认工作区」
+		expect(list.stdout.toString()).toContain("[默认工作区]");
 
 		expect(run(["validate", "每日站会"]).exitCode).toBe(0);
 		const testOut = run(["test", "每日站会"]);
@@ -269,5 +271,45 @@ describe("cron-task.ts CLI", () => {
 		const prompt = readFileSync(join(dir, "tasks", "补.md"), "utf8");
 		expect(prompt).toContain("@im-push-to(ch_企微,ct_333)");
 		expect(prompt).toContain("任务正文");
+	});
+
+	// list 显示所属项目：__system__ → 默认工作区；非系统项目 → projectId
+	test("list 显示所属项目（系统默认默认工作区，非系统显示 projectId）", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, "cron-task.ts");
+		const run = (args: string[]) =>
+			Bun.spawnSync([process.execPath, cli, ...args], {
+				cwd: dir,
+				env: CLI_ENV,
+			});
+		// 系统默认（__system__，未指定 --project）→ [默认工作区]
+		run([
+			"add",
+			"--name",
+			"系统任务",
+			"--agent",
+			"a",
+			"--schedule",
+			'{"type":"daily","time":"09:00"}',
+			"--prompt",
+			"x",
+		]);
+		// 指定项目 pa → [pa]
+		run([
+			"add",
+			"--name",
+			"项目任务",
+			"--agent",
+			"a",
+			"--schedule",
+			'{"type":"daily","time":"09:00"}',
+			"--project",
+			"pa",
+			"--prompt",
+			"x",
+		]);
+		const out = run(["list"]).stdout.toString();
+		expect(out).toContain("[默认工作区]");
+		expect(out).toContain("[pa]");
 	});
 });

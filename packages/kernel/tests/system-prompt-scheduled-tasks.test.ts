@@ -38,10 +38,10 @@ test("scheduled-tasks 段：经 ctx 注入引导文案（不再判目录存在�
 	expect(prompt).toContain("README.md");
 	// 全局目录路径由 WA_PI_DIR 决定（测试环境被 setup.ts 覆盖为临时目录），动态断言
 	expect(prompt).toContain(join(WA_PI_DIR, "scheduled-tasks"));
-	// 约束：所有定时任务操作必须通过 CLI，不能直接编辑目录文件
+	// 约束：所有定时任务操作必须通过 CLI，不能直接编辑或删除目录文件
 	expect(prompt).toContain("必须通过");
 	expect(prompt).toContain("cron-task.ts");
-	expect(prompt).toContain("禁止直接编辑");
+	expect(prompt).toContain("禁止直接编辑或删除");
 });
 
 test("scheduled-tasks 段：未注入 ctx 时不出现（文案不在渲染层写死）", () => {
