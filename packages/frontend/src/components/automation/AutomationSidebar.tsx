@@ -3,7 +3,11 @@ import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/scheduler";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useClampMenu } from "../ProjectItem";
-import type { ScheduledTask, ExecutionStatus, TaskFileError } from "@wa-pi/shared";
+import type {
+	ScheduledTask,
+	ExecutionStatus,
+	TaskFileError,
+} from "@wa-pi/shared";
 
 /** 右键菜单打开状态：屏幕坐标 + 目标任务 */
 interface TaskMenuState {

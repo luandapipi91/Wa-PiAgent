@@ -1,6 +1,8 @@
 /**
- * 定时任务文件夹热加载：fs.watch 各项目 tasks 目录，外部改动（CLI/agent 直接改文件）
- * 防抖 300ms 后重新扫描并回调 applyTasks。
+ * 定时任务热加载：fs.watch 全局 tasks 目录（~/.pi/agent/scheduled-tasks/tasks），
+ * 外部改动（CLI/agent 直接改文件）防抖 300ms 后重新扫描并回调 applyTasks。
+ *
+ * 全局化后只 watch 一个目录（不再每项目一个），任务归属由 frontmatter 的 projectId 决定。
  *
  * 防自写循环：kernel 自身经 store 写入的文件记录了内容哈希，事件触发时比对，
  * 哈希一致说明是自己写的（REST 已同步调度），跳过重载。
@@ -13,7 +15,6 @@ import {
 	tasksDirOf,
 	taskContentHash,
 	type FolderTaskStore,
-	type ProjectRef,
 } from "./scheduler-task-store";
 
 const DEBOUNCE_MS = 300;
@@ -21,10 +22,9 @@ const DEBOUNCE_MS = 300;
 export class TaskFolderWatcher {
 	private deps: {
 		store: FolderTaskStore;
-		projectsProvider: () => Promise<ProjectRef[]>;
 		applyTasks: (tasks: ScheduledTask[], errors: TaskFileError[]) => void;
 	};
-	private watchers = new Map<string, FSWatcher>(); // key: tasksDir
+	private watcher: FSWatcher | null = null;
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private stopped = false;
 
@@ -32,38 +32,21 @@ export class TaskFolderWatcher {
 		this.deps = deps;
 	}
 
-	/** 启动：对当前全部项目建 watch（目录不存在先由调用方确保） */
+	/** 启动：对全局 tasks 目录建 watch（目录不存在由调用方/ensure 确保） */
 	async start(): Promise<void> {
-		await this.syncProjects();
-	}
-
-	/** 项目增删时调用：新项目补 watch，消失的停 watch */
-	async syncProjects(): Promise<void> {
 		if (this.stopped) return;
-		const projects = await this.deps.projectsProvider();
-		const wanted = new Map<string, string>(); // tasksDir → projectId（去重：同 cwd 只 watch 一次）
-		for (const p of projects) wanted.set(tasksDirOf(p.cwd), p.id);
-		for (const [dir, w] of this.watchers) {
-			if (!wanted.has(dir)) {
-				w.close();
-				this.watchers.delete(dir);
-			}
-		}
-		for (const dir of wanted.keys()) {
-			if (this.watchers.has(dir)) continue;
-			try {
-				const w = watch(dir, () => this.scheduleReload());
-				// FSWatcher 是 EventEmitter：目录被外部删除等会异步 emit 'error'，
-				// 无 listener 会进程级崩溃。捕获后从 map 移除，让 syncProjects 下次对账时重建。
-				w.on("error", (err) => {
-					console.warn(`[scheduler] watch 出错 ${dir}:`, err);
-					w.close();
-					this.watchers.delete(dir);
-				});
-				this.watchers.set(dir, w);
-			} catch (err) {
-				console.warn(`[scheduler] watch 失败 ${dir}:`, err);
-			}
+		const dir = tasksDirOf();
+		try {
+			this.watcher = watch(dir, () => this.scheduleReload());
+			// FSWatcher 是 EventEmitter：目录被外部删除等会异步 emit 'error'，
+			// 无 listener 会进程级崩溃。捕获后关闭，避免持续崩溃。
+			this.watcher.on("error", (err) => {
+				console.warn(`[scheduler] watch 出错 ${dir}:`, err);
+				this.watcher?.close();
+				this.watcher = null;
+			});
+		} catch (err) {
+			console.warn(`[scheduler] watch 失败 ${dir}:`, err);
 		}
 	}
 
@@ -85,7 +68,7 @@ export class TaskFolderWatcher {
 			if (allSelf) return;
 			this.deps.applyTasks(tasks, errors);
 		} catch (err) {
-			// 兜底：listAll/projectsProvider 抛错不能成为 unhandled rejection，
+			// 兜底：listAll 抛错不能成为 unhandled rejection，
 			// 本次变更丢失，下一次文件事件会再次触发重扫
 			console.warn("[scheduler] 热加载重扫失败:", err);
 		}
@@ -98,13 +81,9 @@ export class TaskFolderWatcher {
 	): Promise<boolean> {
 		// 存在解析/校验失败文件时不得短路：即便全是自写有效任务，也要 applyTasks 把 error 广播出去（无效文件不静默跳过）
 		if (errors.length > 0) return false;
-		const projects = await this.deps.projectsProvider();
-		const cwdOf = new Map(projects.map((p) => [p.id, p.cwd]));
 		let sawAny = false;
 		for (const t of tasks) {
-			const cwd = cwdOf.get(t.projectId ?? "");
-			if (!cwd) continue;
-			const file = join(tasksDirOf(cwd), `${t.id}.md`);
+			const file = join(tasksDirOf(), `${t.id}.md`);
 			const selfHash = this.deps.store.lastWrittenHash(file);
 			if (!selfHash) return false; // 存在非自写文件 → 不短路
 			sawAny = true;
@@ -121,7 +100,7 @@ export class TaskFolderWatcher {
 	stop(): void {
 		this.stopped = true;
 		if (this.timer) clearTimeout(this.timer);
-		for (const w of this.watchers.values()) w.close();
-		this.watchers.clear();
+		this.watcher?.close();
+		this.watcher = null;
 	}
 }

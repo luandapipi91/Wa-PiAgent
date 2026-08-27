@@ -20,27 +20,24 @@ const baseCtx: any = {
 	imChannelContext: undefined,
 	imPushContext: undefined,
 };
+// scheduled-tasks 段：全局化后始终直接注入（不再依赖 ctx.scheduledTasksDir）
 
 function tempFile(): string {
 	return join(mkdtempSync(join(tmpdir(), "wa-pi-sp-st-")), "prompts.json");
 }
 
-test("scheduled-tasks 段：ctx.scheduledTasksDir 非空时注入引导文案", () => {
+test("scheduled-tasks 段：始终注入引导文案（不再判目录存在）", () => {
 	const prompt = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
 		defaultBasePrompt: "base",
 		builtinSkillsDir: "/skills",
-		scheduledTasksDir: "/proj/.wa-pi/scheduled-tasks",
 	});
-	expect(prompt).toContain(".wa-pi/scheduled-tasks/");
+	expect(prompt).toContain("scheduled-tasks");
 	expect(prompt).toContain("README.md");
-});
-
-test("scheduled-tasks 段：scheduledTasksDir 为空时段不出现", () => {
-	const prompt = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
-		defaultBasePrompt: "base",
-		builtinSkillsDir: "/skills",
-	});
-	expect(prompt).not.toContain("scheduled-tasks");
+	expect(prompt).toContain(".pi/agent/scheduled-tasks");
+	// 约束：所有定时任务操作必须通过 CLI，不能直接编辑目录文件
+	expect(prompt).toContain("必须通过");
+	expect(prompt).toContain("cron-task.ts");
+	expect(prompt).toContain("禁止直接编辑");
 });
 
 test("ensureScheduledTasksSegment：缺失时插到 memory-policy 之前；残留 content 被剥掉", () => {

@@ -24,9 +24,7 @@ describe("buildSchedulerProjects", () => {
 			{ id: SYSTEM_PROJECT_ID, cwd: SYSTEM_PROJECT_CWD },
 			{ id: "p1", cwd: "/tmp/a" },
 		]);
-		expect(
-			projects.filter((p) => p.id === SYSTEM_PROJECT_ID).length,
-		).toBe(1);
+		expect(projects.filter((p) => p.id === SYSTEM_PROJECT_ID).length).toBe(1);
 		expect(projects.length).toBe(2);
 	});
 });

@@ -17,6 +17,8 @@ export interface TaskFileData {
 	agentId: string;
 	model?: string;
 	enabled: boolean;
+	/** 任务归属项目（全局化后任务文件自带归属，不再靠所在目录推断） */
+	projectId: string;
 }
 
 /** 文件名 → 任务 id：保留中英文，剔除路径分隔符/控制字符/前导点，折叠中间连续点为 "-"；空名回退 "task" */
@@ -30,7 +32,13 @@ export function sanitizeTaskId(name: string): string {
 }
 
 const SCHEDULE_TYPES = [
-	"minute", "hourly", "daily", "weekdays", "weekly", "monthly", "custom",
+	"minute",
+	"hourly",
+	"daily",
+	"weekdays",
+	"weekly",
+	"monthly",
+	"custom",
 ] as const;
 
 const TIME_RE = /^(\d{2}):(\d{2})$/;
@@ -80,6 +88,7 @@ export function serializeTaskFile(data: TaskFileData, prompt: string): string {
 		`agentId: ${JSON.stringify(data.agentId)}`,
 	];
 	if (data.model != null) lines.push(`model: ${JSON.stringify(data.model)}`);
+	lines.push(`projectId: ${JSON.stringify(data.projectId)}`);
 	lines.push(`enabled: ${JSON.stringify(data.enabled)}`);
 	return `---\n${lines.join("\n")}\n---\n\n${prompt.trim()}\n`;
 }
@@ -91,7 +100,12 @@ export function serializeTaskFile(data: TaskFileData, prompt: string): string {
  */
 export function parseTaskFile(
 	content: string,
-	ctx: { taskId: string; projectId: string; createdAt: number; updatedAt: number },
+	ctx: {
+		taskId: string;
+		projectId: string;
+		createdAt: number;
+		updatedAt: number;
+	},
 ): ScheduledTask {
 	if (!content.startsWith("---\n")) {
 		throw new Error("缺少 frontmatter（文件须以 --- 开头）");
@@ -123,9 +137,14 @@ export function parseTaskFile(
 	};
 	const error = validateTaskData(candidate);
 	if (error) throw new Error(error);
+	// projectId 优先读 frontmatter（全局化后任务文件自带归属），缺省回退 ctx.projectId 兼容旧文件
+	const projectId =
+		typeof data.projectId === "string" && data.projectId.trim()
+			? data.projectId
+			: ctx.projectId;
 	return {
 		id: ctx.taskId,
-		projectId: ctx.projectId,
+		projectId,
 		name: candidate.name as string,
 		schedule: candidate.schedule as TaskSchedule,
 		agentId: candidate.agentId as string,
@@ -233,7 +252,8 @@ function parseField(field: string, min: number, max: number): Set<number> {
 /** 判断 date（本地时间）是否匹配 5 字段 cron 表达式；非法表达式抛 Error */
 export function cronMatches(expr: string, date: Date): boolean {
 	const fields = expr.trim().split(/\s+/);
-	if (fields.length !== 5) throw new Error(`cron 表达式必须是 5 个字段: ${expr}`);
+	if (fields.length !== 5)
+		throw new Error(`cron 表达式必须是 5 个字段: ${expr}`);
 	const sets = fields.map((f, i) =>
 		parseField(f, FIELD_RANGES[i][0], FIELD_RANGES[i][1]),
 	);
@@ -248,7 +268,11 @@ export function cronMatches(expr: string, date: Date): boolean {
 }
 
 /** 从 from 起按分钟扫描，返回未来 count 个触发时间（上限扫描 2 年，找不到则返回已找到的） */
-export function nextRunTimes(expr: string, count: number, from: Date = new Date()): Date[] {
+export function nextRunTimes(
+	expr: string,
+	count: number,
+	from: Date = new Date(),
+): Date[] {
 	// 先验证表达式合法性（throws on invalid）
 	cronMatches(expr, from);
 	const result: Date[] = [];

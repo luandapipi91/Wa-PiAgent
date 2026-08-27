@@ -7,7 +7,13 @@
  * （scheduler 域不走 callApi 适配器，直接操作项目下 .wa-pi/scheduled-tasks/）。
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	rmSync,
+	writeFileSync,
+	existsSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HttpRouter } from "../src/http-router";
@@ -15,6 +21,7 @@ import { createSchedulerRoutes } from "../src/routes/scheduler";
 import {
 	createFolderTaskStore,
 	tasksDirOf,
+	setScheduledTasksRoot,
 	type FolderTaskStore,
 	type ProjectRef,
 } from "../src/scheduler-task-store";
@@ -40,6 +47,8 @@ beforeEach(() => {
 	mkdirSync(projA, { recursive: true });
 	mkdirSync(projB, { recursive: true });
 	mkdirSync(sysProj, { recursive: true });
+	// 全局根切到临时目录（任务数据统一存 tasksDirOf()/logsDirOf()，项目仅用于 create 校验）
+	setScheduledTasksRoot(join(dir, "scheduled-tasks"));
 	projects = [
 		{ id: "pa", cwd: projA },
 		{ id: "pb", cwd: projB },
@@ -93,21 +102,21 @@ async function json(base: string, path: string, init?: RequestInit) {
 	return { status: res.status, body: await res.json() };
 }
 
-/** 直接在项目任务目录写一个合法任务文件（绕过 POST，造数据用） */
+/** 直接在全局任务目录写一个合法任务文件（绕过 POST，造数据用） */
 function writeTaskFile(
-	projectCwd: string,
 	taskId: string,
-	overrides: { name?: string } = {},
+	overrides: { name?: string; projectId?: string } = {},
 ): void {
-	mkdirSync(tasksDirOf(projectCwd), { recursive: true });
+	mkdirSync(tasksDirOf(), { recursive: true });
 	writeFileSync(
-		join(tasksDirOf(projectCwd), `${taskId}.md`),
+		join(tasksDirOf(), `${taskId}.md`),
 		serializeTaskFile(
 			{
 				name: overrides.name ?? taskId,
 				schedule: { type: "daily", time: "09:00" },
 				agentId: "agent-1",
 				enabled: true,
+				projectId: overrides.projectId ?? "pa",
 			},
 			"x",
 		),
@@ -127,11 +136,11 @@ test("GET /api/scheduled-tasks — 空列表（tasks 与 errors 均为空）", a
 
 test("GET /api/scheduled-tasks — 按 createdAt 倒序（新建任务排最前）", async () => {
 	// 直接写任务文件造数据；createdAt 取自文件 birthtime，间隔写保证时序可区分
-	writeTaskFile(projA, "旧任务");
+	writeTaskFile("旧任务");
 	await sleep(30);
-	writeTaskFile(projA, "中任务");
+	writeTaskFile("中任务");
 	await sleep(30);
-	writeTaskFile(projB, "新任务");
+	writeTaskFile("新任务");
 	await withServer(async (base) => {
 		const { body } = await json(base, "/api/scheduled-tasks");
 		expect(body.tasks.map((t: ScheduledTask) => t.id)).toEqual([
@@ -143,9 +152,9 @@ test("GET /api/scheduled-tasks — 按 createdAt 倒序（新建任务排最前�
 });
 
 test("GET /api/scheduled-tasks 返回 tasks + errors（含解析失败条目）", async () => {
-	writeTaskFile(projA, "好任务");
-	mkdirSync(tasksDirOf(projA), { recursive: true });
-	writeFileSync(join(tasksDirOf(projA), "坏任务.md"), "没有 frontmatter");
+	writeTaskFile("好任务");
+	mkdirSync(tasksDirOf(), { recursive: true });
+	writeFileSync(join(tasksDirOf(), "坏任务.md"), "没有 frontmatter");
 	await withServer(async (base) => {
 		const { status, body } = await json(base, "/api/scheduled-tasks");
 		expect(status).toBe(200);
@@ -154,7 +163,8 @@ test("GET /api/scheduled-tasks 返回 tasks + errors（含解析失败条目）"
 		// 解析失败文件进 errors（taskId = 文件名去 .md）
 		expect(body.errors).toHaveLength(1);
 		expect(body.errors[0].taskId).toBe("坏任务");
-		expect(body.errors[0].projectId).toBe("pa");
+		// 全局化后 projectId 从 frontmatter 读；坏文件无 frontmatter 因此 projectId 为空
+		expect(body.errors[0].projectId).toBe("");
 		expect(typeof body.errors[0].error).toBe("string");
 	});
 });
@@ -177,9 +187,7 @@ test("POST 创建后任务文件落在 projectId 对应目录；未传 projectId
 			// id = sanitizeTaskId(name)，任务文件落在 pa 项目目录
 			expect(body.task.id).toBe("每日站会");
 			expect(body.task.projectId).toBe("pa");
-			expect(
-				existsSync(join(tasksDirOf(projA), "每日站会.md")),
-			).toBe(true);
+			expect(existsSync(join(tasksDirOf(), "每日站会.md"))).toBe(true);
 			// onTaskChanged 被调
 			expect(changedTask).not.toBeNull();
 			expect(changedTask!.id).toBe("每日站会");
@@ -195,9 +203,7 @@ test("POST 创建后任务文件落在 projectId 对应目录；未传 projectId
 				}),
 			});
 			expect(sysCreated.task.projectId).toBe(SYSTEM_PROJECT_ID);
-			expect(
-				existsSync(join(tasksDirOf(sysProj), "默认项目任务.md")),
-			).toBe(true);
+			expect(existsSync(join(tasksDirOf(), "默认项目任务.md"))).toBe(true);
 		},
 		{ onTaskChanged: (t) => (changedTask = t) },
 	);
@@ -288,8 +294,8 @@ test("PUT 不存在的 id（body 完整合法）→ 404", async () => {
 });
 
 test("PUT 修复解析失败文件（upsert）：200 且 errors 清空", async () => {
-	mkdirSync(tasksDirOf(projA), { recursive: true });
-	writeFileSync(join(tasksDirOf(projA), "坏任务.md"), "没有 frontmatter");
+	mkdirSync(tasksDirOf(), { recursive: true });
+	writeFileSync(join(tasksDirOf(), "坏任务.md"), "没有 frontmatter");
 	await withServer(async (base) => {
 		// 坏文件存在：GET 时进 errors
 		const { body: before } = await json(base, "/api/scheduled-tasks");
@@ -320,8 +326,8 @@ test("PUT 修复解析失败文件（upsert）：200 且 errors 清空", async (
 });
 
 test("PUT 修复解析失败文件但 body 不完整 → 400", async () => {
-	mkdirSync(tasksDirOf(projA), { recursive: true });
-	writeFileSync(join(tasksDirOf(projA), "坏任务.md"), "没有 frontmatter");
+	mkdirSync(tasksDirOf(), { recursive: true });
+	writeFileSync(join(tasksDirOf(), "坏任务.md"), "没有 frontmatter");
 	await withServer(async (base) => {
 		const { status } = await json(
 			base,
@@ -333,8 +339,8 @@ test("PUT 修复解析失败文件但 body 不完整 → 400", async () => {
 });
 
 test("DELETE 可删除解析失败文件", async () => {
-	mkdirSync(tasksDirOf(projA), { recursive: true });
-	const badFile = join(tasksDirOf(projA), "坏任务.md");
+	mkdirSync(tasksDirOf(), { recursive: true });
+	const badFile = join(tasksDirOf(), "坏任务.md");
 	writeFileSync(badFile, "没有 frontmatter");
 	await withServer(async (base) => {
 		const { status, body } = await json(

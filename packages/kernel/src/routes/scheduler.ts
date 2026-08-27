@@ -3,7 +3,7 @@
  *
  * 与 channels/settings 等域不同，scheduler 域无对应 WSClientEvent，
  * 因此不走 callApi → handle() 适配器，而是直接读写文件夹存储层
- * （各项目 cwd 下 .wa-pi/scheduled-tasks/ 为唯一数据源）。
+ * （全部任务全局存储于 WA_PI_DIR/scheduled-tasks/）。
  * 闭包工厂模式：createSchedulerRoutes(...) 返回 RouteRegistrar，
  * 闭包捕获 FolderTaskStore 和三个调度器回调。
  */
@@ -49,6 +49,8 @@ export function createSchedulerRoutes(
 			const error = validateTaskData(body);
 			if (error) return jsonError(error, 400);
 			try {
+				const projectId =
+					typeof body.projectId === "string" ? body.projectId : SYSTEM_PROJECT_ID;
 				const task = await store.create(
 					{
 						name: body.name,
@@ -56,11 +58,10 @@ export function createSchedulerRoutes(
 						agentId: body.agentId,
 						model: typeof body.model === "string" ? body.model : undefined,
 						enabled: body.enabled ?? true,
+						projectId,
 						prompt: body.prompt,
 					},
-					typeof body.projectId === "string"
-						? body.projectId
-						: SYSTEM_PROJECT_ID,
+					projectId,
 				);
 				onTaskChanged(task);
 				return json({ task });
@@ -80,22 +81,22 @@ export function createSchedulerRoutes(
 				const error = validateTaskData(body);
 				if (error) return jsonError(error, 400);
 				try {
+					const projectId =
+						typeof body.projectId === "string" ? body.projectId : SYSTEM_PROJECT_ID;
 					const task = await store.update(params.id, {
 						name: body.name,
 						schedule: body.schedule,
 						agentId: body.agentId,
 						model: typeof body.model === "string" ? body.model : undefined,
 						enabled: body.enabled ?? true,
+						projectId,
 						prompt: body.prompt,
 					});
 					if (!task) return new Response("Not found", { status: 404 });
 					onTaskChanged(task);
 					return json({ task });
 				} catch (err) {
-					return jsonError(
-						err instanceof Error ? err.message : String(err),
-						400,
-					);
+					return jsonError(err instanceof Error ? err.message : String(err), 400);
 				}
 			}
 			// 部分更新也按完整任务校验（合并后再验）——PUT 语义为整体替换
@@ -113,6 +114,7 @@ export function createSchedulerRoutes(
 				// model null（前端「跟随默认」）归一为 undefined，保持存储里 model 仅 string|undefined
 				model: typeof merged.model === "string" ? merged.model : undefined,
 				enabled: merged.enabled ?? true,
+				projectId: merged.projectId,
 				prompt: merged.prompt,
 			});
 			if (!task) return new Response("Not found", { status: 404 });

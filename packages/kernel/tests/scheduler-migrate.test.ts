@@ -1,9 +1,20 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
+import {
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+	existsSync,
+	readFileSync,
+	mkdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { migrateLegacySchedulerFiles } from "../src/scheduler-migrate";
-import { tasksDirOf, logsDirOf } from "../src/scheduler-task-store";
+import {
+	tasksDirOf,
+	logsDirOf,
+	setScheduledTasksRoot,
+} from "../src/scheduler-task-store";
 import { parseTaskFile, parseLogLine } from "@wa-pi/shared";
 
 let dir: string;
@@ -15,6 +26,8 @@ beforeEach(() => {
 	projA = join(dir, "proj-a");
 	sysCwd = join(dir, "workdir");
 	mkdirSync(projA, { recursive: true });
+	// 全局根切到临时目录
+	setScheduledTasksRoot(join(dir, "scheduled-tasks"));
 });
 
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -28,7 +41,9 @@ function writeLegacy(tasks: unknown[], records: unknown[]) {
 }
 
 const resolveProject = (projectId?: string) =>
-	projectId === "pa" ? { id: "pa", cwd: projA } : { id: "__system__", cwd: sysCwd };
+	projectId === "pa"
+		? { id: "pa", cwd: projA }
+		: { id: "__system__", cwd: sysCwd };
 
 describe("migrateLegacySchedulerFiles", () => {
 	test("无旧文件 → no-op", async () => {
@@ -44,17 +59,35 @@ describe("migrateLegacySchedulerFiles", () => {
 		const { tasksFile, recordsFile } = writeLegacy(
 			[
 				{
-					id: "uuid-1", name: "每日站会", schedule: { type: "daily", time: "09:30" },
-					agentId: "main", prompt: "提醒站会", projectId: "pa",
-					enabled: true, createdAt: 1, updatedAt: 2,
+					id: "uuid-1",
+					name: "每日站会",
+					schedule: { type: "daily", time: "09:30" },
+					agentId: "main",
+					prompt: "提醒站会",
+					projectId: "pa",
+					enabled: true,
+					createdAt: 1,
+					updatedAt: 2,
 				},
 				{
-					id: "uuid-2", name: "全局提醒", schedule: { type: "daily", time: "08:00" },
-					agentId: "main", prompt: "喝水", enabled: false, createdAt: 3, updatedAt: 4,
+					id: "uuid-2",
+					name: "全局提醒",
+					schedule: { type: "daily", time: "08:00" },
+					agentId: "main",
+					prompt: "喝水",
+					enabled: false,
+					createdAt: 3,
+					updatedAt: 4,
 				},
 			],
 			[
-				{ id: "r1", taskId: "uuid-1", taskName: "每日站会", status: "success", startedAt: 100 },
+				{
+					id: "r1",
+					taskId: "uuid-1",
+					taskName: "每日站会",
+					status: "success",
+					startedAt: 100,
+				},
 			],
 		);
 		const r = await migrateLegacySchedulerFiles({
@@ -63,17 +96,21 @@ describe("migrateLegacySchedulerFiles", () => {
 			resolveProject,
 		});
 		expect(r.migrated).toBe(2);
-		// 任务文件落位，id 从 uuid 变为名称文件名
-		const taskFile = join(tasksDirOf(projA), "每日站会.md");
+		// 任务文件统一落位全局目录，id 从 uuid 变为名称文件名；projectId 持久化进 frontmatter
+		const taskFile = join(tasksDirOf(), "每日站会.md");
 		expect(existsSync(taskFile)).toBe(true);
 		const task = parseTaskFile(readFileSync(taskFile, "utf8"), {
-			taskId: "每日站会", projectId: "pa", createdAt: 1, updatedAt: 2,
+			taskId: "每日站会",
+			projectId: "",
+			createdAt: 1,
+			updatedAt: 2,
 		});
 		expect(task.prompt).toBe("提醒站会");
 		expect(task.enabled).toBe(true);
-		expect(existsSync(join(tasksDirOf(sysCwd), "全局提醒.md"))).toBe(true);
-		// 执行记录迁入对应 log，taskId 改写为新 id
-		const log = readFileSync(join(logsDirOf(projA), "每日站会.log"), "utf8");
+		expect(task.projectId).toBe("pa"); // projectId 从 frontmatter 读回
+		expect(existsSync(join(tasksDirOf(), "全局提醒.md"))).toBe(true);
+		// 执行记录迁入全局 log，taskId 改写为新 id
+		const log = readFileSync(join(logsDirOf(), "每日站会.log"), "utf8");
 		const rec = parseLogLine(log.trim());
 		expect(rec?.taskId).toBe("每日站会");
 		// 归档
@@ -84,8 +121,16 @@ describe("migrateLegacySchedulerFiles", () => {
 
 	test("迁移后重复执行 → no-op（旧文件已归档）", async () => {
 		const f = writeLegacy([], []);
-		await migrateLegacySchedulerFiles({ legacyTasksFile: f.tasksFile, legacyRecordsFile: f.recordsFile, resolveProject });
-		const r = await migrateLegacySchedulerFiles({ legacyTasksFile: f.tasksFile, legacyRecordsFile: f.recordsFile, resolveProject });
+		await migrateLegacySchedulerFiles({
+			legacyTasksFile: f.tasksFile,
+			legacyRecordsFile: f.recordsFile,
+			resolveProject,
+		});
+		const r = await migrateLegacySchedulerFiles({
+			legacyTasksFile: f.tasksFile,
+			legacyRecordsFile: f.recordsFile,
+			resolveProject,
+		});
 		expect(r.migrated).toBe(0);
 	});
 });
