@@ -298,7 +298,7 @@ export function NewSessionPane({
 	};
 
 	return (
-		<div className="flex-1 flex min-w-0" data-testid="new-session-pane">
+		<div className="flex-1 flex min-w-0 min-h-0" data-testid="new-session-pane">
 			{/* 主列：居中内容 + 右上角文件树开关 */}
 			{/* 主列：居中内容 + 右上角文件树开关。
 				居中用对称 auto-margin spacer（而非 justify-center）：空间不足时 margin 归零退化为顶对齐，

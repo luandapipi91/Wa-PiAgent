@@ -1,4 +1,20 @@
 
+## 2026-08-27 — fix(new-session): 文件树两处修复：根行撑破 + 右键菜单超窗
+
+**① 文件树内容超高时根行被撑破、输入框裁出视口**
+
+- 根因（系统化调试定位）：新建会话根行 `flex-1 flex min-w-0` 作为 overflow-hidden flex 列的子项缺 `min-h-0`，flex automatic minimum size 被右侧文件树内容高度撑破 → 整行溢出，主列文档流末端的输入框被祖先裁出视口且滚动不可达。与下方 08-30 条目（justify-center 路径）不同源：本路径由树内容高直接传导，主列自身的滚动出口救不了（主列只是 stretch 跟随被撑高的行，滚动永不触发）。
+- 修复：根行补 `min-h-0` 钳制行高（对照组 SessionView 根行 h-full、同款 aside 写法不复发，反证充分性），树内容高由 aside 内部 `flex-1 overflow-auto` 吸收为内部滚动。
+- 验证：新增组件契约测试（文件树展开场景，先红后绿）+ Playwright E2E（真实浏览器矮视口复现，先撤修复证红、再恢复证绿，布局指标：行高钉在视口、树内部滚动 888/359、输入框底边 278 < 视口 400）。
+
+**② 树底部文件右键菜单超出窗口、底部项不可点**
+
+- 根因（系统化调试定位）：`ep-ctx-menu` 用 `e.clientY` 原样作 `position:fixed` 的 top，无任何视口边界检测/翻转 → 树底部文件右键时菜单（约 130px 高）固定向下展开，底部菜单项落出视口无法点击。fixed 定位不受滚动容器裁剪，与①不同源。
+- 修复：`ExplorerContextMenu` 复用 ProjectItem 既有的 `useClampMenu`（渲染后 useLayoutEffect 实测菜单尺寸、视口四边钳制），新建会话页与会话页共用本组件，一处修复两处受益。
+- 验证：clampMenuPos 纯函数守护 3 用例 + 集成测试（先红后绿）+ Playwright E2E（矮视口树滚到底右键最底部文件，断言菜单整体与最底项均在视口内且真实可点；撤修复证红、恢复证绿）。
+
+- 影响范围：`packages/frontend/src/components/NewSessionPane.tsx`（1 行 class）、`packages/frontend/src/components/ExplorerPanel.tsx`（ref + 钳制 hook）、新增 3 测试文件；全量前端 1999/1999 ✓。
+
 ## 2026-08-30 — v0.2.29 发版（浮窗拖拽与默认态修复 + SidebarResizer 宽度传播）
 
 - 版本：0.2.28 → 0.2.29。
