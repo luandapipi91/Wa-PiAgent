@@ -1,7 +1,7 @@
 /**
- * 定时任务文件夹存储层：每个项目 cwd 下 .wa-pi/scheduled-tasks/ 为唯一数据源。
+ * 定时任务文件夹存储层：全部任务统一存放全局目录 WA_PI_DIR/scheduled-tasks/。
  *
- * - tasks/<任务id>.md：任务文件（frontmatter + prompt 正文），id = 文件名
+ * - tasks/<任务id>.md：任务文件（frontmatter + prompt 正文，含 projectId 归属），id = 文件名
  * - logs/<任务id>.log：执行日志（append-only；同 id 记录读取时去重取最新，
  *   running → 终态 的回写就是追加一条同 id 新行）
  * - 所有写文件 tmp+rename 原子写；写入时记录内容哈希（lastWrittenHash），
@@ -18,6 +18,7 @@ import {
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
+import { WA_PI_DIR } from "@wa-pi/shared";
 import type { ExecutionRecord, ScheduledTask } from "@wa-pi/shared";
 import {
 	formatLogLine,
@@ -35,12 +36,24 @@ export interface ProjectRef {
 	cwd: string;
 }
 
-export function tasksDirOf(projectCwd: string): string {
-	return join(projectCwd, ".wa-pi", "scheduled-tasks", "tasks");
+/** 定时任务全局统一存放根：`~/.pi/agent/scheduled-tasks/`（WA_PI_DIR/scheduled-tasks/）。
+ *  任务定义 md + CLI + README + 执行记录 logs 全部在此，不再按项目分散。
+ *  默认取 WA_PI_DIR/scheduled-tasks；单测用 setScheduledTasksRoot 切到 tmpdir。 */
+export const SCHEDULED_TASKS_ROOT = join(WA_PI_DIR, "scheduled-tasks");
+let scheduledTasksRoot = SCHEDULED_TASKS_ROOT;
+export function setScheduledTasksRoot(dir: string): void {
+	scheduledTasksRoot = dir;
+}
+export function getScheduledTasksRoot(): string {
+	return scheduledTasksRoot;
 }
 
-export function logsDirOf(projectCwd: string): string {
-	return join(projectCwd, ".wa-pi", "scheduled-tasks", "logs");
+export function tasksDirOf(): string {
+	return join(scheduledTasksRoot, "tasks");
+}
+
+export function logsDirOf(): string {
+	return join(scheduledTasksRoot, "logs");
 }
 
 function hashOf(content: string): string {
@@ -102,10 +115,6 @@ export interface FolderTaskStore {
 	}): Promise<ExecutionRecord[]>;
 	/** watcher 防自写循环：返回 store 最近一次写入该文件的内容哈希；非自写/未知 → null */
 	lastWrittenHash(file: string): string | null;
-	/** 项目目录扫描入口（watcher 用）：解析单项目任务文件 */
-	listProjectTasks(
-		project: ProjectRef,
-	): Promise<{ tasks: ScheduledTask[]; errors: TaskFileError[] }>;
 }
 
 export function createFolderTaskStore(deps: {
@@ -132,8 +141,12 @@ export function createFolderTaskStore(deps: {
 		return projects.find((p) => p.id === projectId) ?? null;
 	}
 
-	async function listProjectTasks(project: ProjectRef) {
-		const dir = tasksDirOf(project.cwd);
+	/** 全局扫描单个 tasks 目录（项目归属由任务 frontmatter 的 projectId 决定） */
+	async function listGlobalTasks(): Promise<{
+		tasks: ScheduledTask[];
+		errors: TaskFileError[];
+	}> {
+		const dir = tasksDirOf();
 		const tasks: ScheduledTask[] = [];
 		const errors: TaskFileError[] = [];
 		let entries: string[] = [];
@@ -151,18 +164,17 @@ export function createFolderTaskStore(deps: {
 					readFile(file, "utf8"),
 					stat(file),
 				]);
-				tasks.push(
-					parseTaskFile(content, {
-						taskId,
-						projectId: project.id,
-						createdAt: Math.round(st.birthtimeMs || st.mtimeMs),
-						updatedAt: Math.round(st.mtimeMs),
-					}),
-				);
+				const task = parseTaskFile(content, {
+					taskId,
+					projectId: "",
+					createdAt: Math.round(st.birthtimeMs || st.mtimeMs),
+					updatedAt: Math.round(st.mtimeMs),
+				});
+				tasks.push(task);
 			} catch (err) {
 				errors.push({
 					taskId,
-					projectId: project.id,
+					projectId: "", // projectId 从 frontmatter 解析失败时设为空，调用方可从文件内容再读
 					file,
 					error: err instanceof Error ? err.message : String(err),
 				});
@@ -171,18 +183,16 @@ export function createFolderTaskStore(deps: {
 		return { tasks, errors };
 	}
 
-	/** 按 id 定位任务文件（含解析失败的文件——PUT 修复/DELETE 需要） */
-	async function locateFile(
-		taskId: string,
-	): Promise<{ project: ProjectRef; file: string } | null> {
+	/** 按 id 定位任务文件（含解析失败的文件——PUT 修复/DELETE 需要）。全局单目录，无需遍历项目。 */
+	async function locateFile(taskId: string): Promise<{ file: string } | null> {
 		if (!isValidTaskId(taskId)) return null; // 路径穿越防护：非法 id 视为不存在
-		for (const project of await deps.projectsProvider()) {
-			const file = join(tasksDirOf(project.cwd), `${taskId}.md`);
-			if (await stat(file).then(() => true, () => false)) {
-				return { project, file };
-			}
-		}
-		return null;
+		const file = join(tasksDirOf(), `${taskId}.md`);
+		return (await stat(file).then(
+			() => true,
+			() => false,
+		))
+			? { file }
+			: null;
 	}
 
 	async function findTaskById(
@@ -197,11 +207,11 @@ export function createFolderTaskStore(deps: {
 			]);
 			const task = parseTaskFile(content, {
 				taskId,
-				projectId: loc.project.id,
+				projectId: "",
 				createdAt: Math.round(st.birthtimeMs || st.mtimeMs),
 				updatedAt: Math.round(st.mtimeMs),
 			});
-			return { task, projectId: loc.project.id };
+			return { task, projectId: task.projectId ?? "" };
 		} catch {
 			return null; // 文件存在但解析失败：findById 只看有效任务
 		}
@@ -217,14 +227,26 @@ export function createFolderTaskStore(deps: {
 		if (!project) throw new Error(`项目不存在: ${projectId}`);
 		const error = validateTaskData(input);
 		if (error) throw new Error(error);
-		// 同名冲突追加 -2/-3…
+		// 同名冲突追加 -2/-3…（全局唯一，跨项目同名也追加后缀）
 		const base = sanitizeTaskId(input.name);
 		let taskId = base;
-		for (let i = 2; await stat(join(tasksDirOf(project.cwd), `${taskId}.md`)).then(() => true, () => false); i++) {
+		for (
+			let i = 2;
+			await stat(join(tasksDirOf(), `${taskId}.md`)).then(
+				() => true,
+				() => false,
+			);
+			i++
+		) {
 			taskId = `${base}-${i}`;
 		}
-		const file = join(tasksDirOf(project.cwd), `${taskId}.md`);
-		await atomicWrite(file, serializeTaskFile(input, input.prompt), writeHashes);
+		const file = join(tasksDirOf(), `${taskId}.md`);
+		// 把 projectId 并入序列化数据（全局化后任务文件自带归属）
+		await atomicWrite(
+			file,
+			serializeTaskFile({ ...input, projectId }, input.prompt),
+			writeHashes,
+		);
 		const st = await stat(file);
 		return {
 			id: taskId,
@@ -249,10 +271,15 @@ export function createFolderTaskStore(deps: {
 		if (!loc) return null;
 		const error = validateTaskData(input);
 		if (error) throw new Error(error);
+		// 保留原 projectId（若 input 未显式传，则从原文件读回，避免更新时丢失归属）
+		const prev = await findTaskById(taskId);
+		const projectId = input.projectId?.trim()
+			? input.projectId
+			: (prev?.projectId ?? "");
 		// 保留原 createdAt（birthtime 不因覆盖写改变，但显式读回最稳）
 		await atomicWrite(
 			loc.file,
-			serializeTaskFile(input, input.prompt),
+			serializeTaskFile({ ...input, projectId }, input.prompt),
 			writeHashes,
 		);
 		const found = await findTaskById(taskId);
@@ -269,31 +296,22 @@ export function createFolderTaskStore(deps: {
 	}
 
 	return {
-		listProjectTasks,
-
 		async listAll() {
-			const tasks: ScheduledTask[] = [];
-			const errors: TaskFileError[] = [];
-			for (const project of await deps.projectsProvider()) {
-				const r = await listProjectTasks(project);
-				tasks.push(...r.tasks);
-				errors.push(...r.errors);
-			}
-			return { tasks, errors };
+			return listGlobalTasks();
 		},
 
 		findById: findTaskById,
 
 		// create/update/remove 整体串行化：同名检测→写文件之间不被并发插队
-		create: (input, projectId) => enqueueWrite(() => createImpl(input, projectId)),
+		create: (input, projectId) =>
+			enqueueWrite(() => createImpl(input, projectId)),
 		update: (taskId, input) => enqueueWrite(() => updateImpl(taskId, input)),
 		remove: (taskId) => enqueueWrite(() => removeImpl(taskId)),
 
-		async appendRecord(projectId, taskId, record) {
+		async appendRecord(_projectId, taskId, record) {
 			assertValidTaskId(taskId); // log 文件名直接来自 taskId，先挡路径穿越
-			const project = await findProject(projectId);
-			if (!project) throw new Error(`项目不存在: ${projectId}`);
-			const dir = logsDirOf(project.cwd);
+			// 全局化后 log 按 taskId 命名（全局唯一），projectId 不再用于定位目录
+			const dir = logsDirOf();
 			await mkdir(dir, { recursive: true });
 			const line = formatLogLine(record);
 			const file = join(dir, `${taskId}.log`);
@@ -302,29 +320,28 @@ export function createFolderTaskStore(deps: {
 
 		async listRecords(filter) {
 			const byId = new Map<string, ExecutionRecord>();
-			for (const project of await deps.projectsProvider()) {
-				const dir = logsDirOf(project.cwd);
-				let entries: string[] = [];
-				try {
-					entries = await readdir(dir);
-				} catch {
-					continue;
-				}
-				for (const entry of entries) {
-					if (!entry.endsWith(".log")) continue;
-					const taskId = entry.slice(0, -4);
-					if (filter.taskId && filter.taskId !== taskId) continue;
-					const content = await readFile(join(dir, entry), "utf8");
-					for (const line of content.split("\n")) {
-						if (!line.trim()) continue;
-						const rec = parseLogLine(line);
-						if (!rec) continue;
-						byId.set(rec.id, rec); // 同 id 后写覆盖先写：running → 终态
-					}
+			const dir = logsDirOf();
+			let entries: string[] = [];
+			try {
+				entries = await readdir(dir);
+			} catch {
+				return [];
+			}
+			for (const entry of entries) {
+				if (!entry.endsWith(".log")) continue;
+				const taskId = entry.slice(0, -4);
+				if (filter.taskId && filter.taskId !== taskId) continue;
+				const content = await readFile(join(dir, entry), "utf8");
+				for (const line of content.split("\n")) {
+					if (!line.trim()) continue;
+					const rec = parseLogLine(line);
+					if (!rec) continue;
+					byId.set(rec.id, rec); // 同 id 后写覆盖先写：running → 终态
 				}
 			}
 			let records = [...byId.values()];
-			if (filter.status) records = records.filter((r) => r.status === filter.status);
+			if (filter.status)
+				records = records.filter((r) => r.status === filter.status);
 			return records.sort((a, b) => b.startedAt - a.startedAt).slice(0, 200);
 		},
 

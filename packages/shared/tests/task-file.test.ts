@@ -11,7 +11,12 @@ import {
 } from "../src/task-file";
 import type { ExecutionRecord } from "../src/types";
 
-const CTX = { taskId: "每日站会", projectId: "p1", createdAt: 1000, updatedAt: 2000 };
+const CTX = {
+	taskId: "每日站会",
+	projectId: "p1",
+	createdAt: 1000,
+	updatedAt: 2000,
+};
 
 describe("sanitizeTaskId", () => {
 	test("保留中英文，剔除路径分隔符与前导点，折叠中间点串", () => {
@@ -32,9 +37,12 @@ describe("parse/serialize 往返", () => {
 				agentId: "main",
 				model: "p/m",
 				enabled: true,
+				projectId: "p1",
 			},
 			"提醒我写站会",
 		);
+		// projectId 应持久化进 frontmatter（全局化后任务文件自带归属）
+		expect(md).toContain('projectId: "p1"');
 		const task = parseTaskFile(md, CTX);
 		expect(task).toEqual({
 			id: "每日站会",
@@ -52,7 +60,13 @@ describe("parse/serialize 往返", () => {
 
 	test("model 缺省时不出现在 frontmatter，解析为 undefined", () => {
 		const md = serializeTaskFile(
-			{ name: "n", schedule: { type: "daily", time: "08:00" }, agentId: "a", enabled: false },
+			{
+				name: "n",
+				schedule: { type: "daily", time: "08:00" },
+				agentId: "a",
+				enabled: false,
+				projectId: "p2",
+			},
 			"do it",
 		);
 		expect(md).not.toContain("model:");
@@ -61,16 +75,36 @@ describe("parse/serialize 往返", () => {
 		expect(task.enabled).toBe(false);
 	});
 
+	test("parse 时 projectId 从 frontmatter 读回（不依赖 ctx 默认）", () => {
+		const md = serializeTaskFile(
+			{
+				name: "n",
+				schedule: { type: "daily", time: "08:00" },
+				agentId: "a",
+				enabled: true,
+				projectId: "proj-abc",
+			},
+			"body",
+		);
+		// ctx.projectId 为 p1，但文件里写的是 proj-abc → 应读文件值
+		const task = parseTaskFile(md, { ...CTX, projectId: "p1" });
+		expect(task.projectId).toBe("proj-abc");
+	});
+
 	test("缺 frontmatter / 非法 JSON / 校验失败均抛中文错误", () => {
 		expect(() => parseTaskFile("没有 frontmatter", CTX)).toThrow("frontmatter");
-		expect(() =>
-			parseTaskFile('---\nname: {oops}\n---\n\nbody', CTX),
-		).toThrow();
+		expect(() => parseTaskFile("---\nname: {oops}\n---\n\nbody", CTX)).toThrow();
 		// 空 prompt（正文为空）
 		expect(() =>
 			parseTaskFile(
 				serializeTaskFile(
-					{ name: "n", schedule: { type: "daily", time: "08:00" }, agentId: "a", enabled: true },
+					{
+						name: "n",
+						schedule: { type: "daily", time: "08:00" },
+						agentId: "a",
+						enabled: true,
+						projectId: "p1",
+					},
 					"   ",
 				),
 				CTX,
@@ -80,7 +114,13 @@ describe("parse/serialize 往返", () => {
 		expect(() =>
 			parseTaskFile(
 				serializeTaskFile(
-					{ name: "n", schedule: { type: "daily", time: "25:00" }, agentId: "a", enabled: true },
+					{
+						name: "n",
+						schedule: { type: "daily", time: "25:00" },
+						agentId: "a",
+						enabled: true,
+						projectId: "p1",
+					},
 					"body",
 				),
 				CTX,
@@ -93,10 +133,20 @@ describe("validateTaskData", () => {
 	test("与现有 REST 校验规则一致", () => {
 		expect(validateTaskData({})).toBe("name 不能为空");
 		expect(
-			validateTaskData({ name: "n", agentId: "a", prompt: "p", schedule: { type: "custom", time: "09:00" } }),
+			validateTaskData({
+				name: "n",
+				agentId: "a",
+				prompt: "p",
+				schedule: { type: "custom", time: "09:00" },
+			}),
 		).toContain("cronExpression");
 		expect(
-			validateTaskData({ name: "n", agentId: "a", prompt: "p", schedule: { type: "daily", time: "09:00" } }),
+			validateTaskData({
+				name: "n",
+				agentId: "a",
+				prompt: "p",
+				schedule: { type: "daily", time: "09:00" },
+			}),
 		).toBeNull();
 	});
 });
@@ -104,9 +154,15 @@ describe("validateTaskData", () => {
 describe("log 行", () => {
 	test("format → parse 往返还原完整 ExecutionRecord", () => {
 		const rec: ExecutionRecord = {
-			id: "r1", taskId: "t1", taskName: "任务", status: "success",
-			startedAt: 1725000000000, finishedAt: 1725000034000, durationMs: 34000,
-			sessionId: "sched-t1-1", summary: "日报已生成",
+			id: "r1",
+			taskId: "t1",
+			taskName: "任务",
+			status: "success",
+			startedAt: 1725000000000,
+			finishedAt: 1725000034000,
+			durationMs: 34000,
+			sessionId: "sched-t1-1",
+			summary: "日报已生成",
 			pushResults: [{ targetId: "ct1", targetName: "ct1", success: true }],
 		};
 		const line = formatLogLine(rec);
@@ -122,10 +178,14 @@ describe("log 行", () => {
 		expect(parseLogLine(" | garbage")).toBeNull();
 		expect(parseLogLine(" | ")).toBeNull();
 	});
-	test("summary 含分隔符 \" | \" 时仍能往返还原", () => {
+	test('summary 含分隔符 " | " 时仍能往返还原', () => {
 		const rec: ExecutionRecord = {
-			id: "r2", taskId: "t1", taskName: "任务", status: "success",
-			startedAt: 1725000000000, summary: "a | b",
+			id: "r2",
+			taskId: "t1",
+			taskName: "任务",
+			status: "success",
+			startedAt: 1725000000000,
+			summary: "a | b",
 		};
 		expect(parseLogLine(formatLogLine(rec))).toEqual(rec);
 	});

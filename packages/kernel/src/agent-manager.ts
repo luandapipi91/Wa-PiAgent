@@ -891,10 +891,6 @@ export class AgentManager {
 			imPushContext: imPush?.targets?.length
 				? buildImPushSystemPrompt(imPush.targets)
 				: GENERIC_IM_PUSH_PROMPT,
-			// scheduled-tasks 段任务目录：工作目录下存在 .wa-pi/scheduled-tasks/ 时才注入引导，否则段不出现。
-			scheduledTasksDir: existsSync(join(cwd, ".wa-pi", "scheduled-tasks"))
-				? join(cwd, ".wa-pi", "scheduled-tasks")
-				: "",
 		});
 		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });
@@ -984,6 +980,8 @@ export class AgentManager {
 				WA_PI_BRIDGE_URL: this.opts.bridgeBaseUrl?.() ?? "",
 				WA_PI_BRIDGE_TOKEN: getBridgeToken(),
 				WA_PI_SESSION_ID: sessionId,
+				// 定时任务归属当前会话项目：agent 调 CLI 建任务时自动用本项目（隔离）
+				WA_PI_SCHEDULER_PROJECT_ID: projectId,
 				// 定时任务会话：联系人列表注入 env，bridge 扩展读到才注册 im_push_to
 				...(imPush?.targets?.length
 					? {

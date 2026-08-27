@@ -2,7 +2,11 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createFolderTaskStore, tasksDirOf } from "../src/scheduler-task-store";
+import {
+	createFolderTaskStore,
+	tasksDirOf,
+	setScheduledTasksRoot,
+} from "../src/scheduler-task-store";
 import { TaskFolderWatcher } from "../src/scheduler-watcher";
 import type { ScheduledTask, TaskFileError } from "@wa-pi/shared";
 
@@ -13,7 +17,10 @@ let watcher: TaskFolderWatcher | null = null;
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "wa-pi-watcher-"));
 	projA = join(dir, "proj-a");
-	mkdirSync(tasksDirOf(projA), { recursive: true });
+	mkdirSync(projA, { recursive: true });
+	// 全局根切到临时目录
+	setScheduledTasksRoot(join(dir, "scheduled-tasks"));
+	mkdirSync(tasksDirOf(), { recursive: true });
 });
 
 afterEach(() => {
@@ -23,10 +30,7 @@ afterEach(() => {
 });
 
 /** 等 applyTasks 被调用（watcher 有 300ms 防抖，轮询等待） */
-async function waitFor(
-	cond: () => boolean,
-	timeoutMs = 5000,
-): Promise<void> {
+async function waitFor(cond: () => boolean, timeoutMs = 5000): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (!cond()) {
 		if (Date.now() > deadline) throw new Error("waitFor 超时");
@@ -34,7 +38,7 @@ async function waitFor(
 	}
 }
 
-const MD = `---\nname: "每日站会"\nschedule: {"type":"daily","time":"09:30"}\nagentId: "main"\nenabled: true\n---\n\n提醒站会\n`;
+const MD = `---\nname: "每日站会"\nschedule: {"type":"daily","time":"09:30"}\nagentId: "main"\nprojectId: "pa"\nenabled: true\n---\n\n提醒站会\n`;
 
 describe("TaskFolderWatcher", () => {
 	test("外部新增任务文件 → applyTasks 收到新任务", async () => {
@@ -44,12 +48,13 @@ describe("TaskFolderWatcher", () => {
 		const applied: ScheduledTask[][] = [];
 		watcher = new TaskFolderWatcher({
 			store,
-			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
 			applyTasks: (tasks) => applied.push(tasks),
 		});
 		await watcher.start();
-		writeFileSync(join(tasksDirOf(projA), "每日站会.md"), MD);
-		await waitFor(() => applied.some((ts) => ts.some((t) => t.id === "每日站会")));
+		writeFileSync(join(tasksDirOf(), "每日站会.md"), MD);
+		await waitFor(() =>
+			applied.some((ts) => ts.some((t) => t.id === "每日站会")),
+		);
 	});
 
 	test("store 自身写入（同内容哈希）不触发 applyTasks", async () => {
@@ -59,7 +64,6 @@ describe("TaskFolderWatcher", () => {
 		const applied: ScheduledTask[][] = [];
 		watcher = new TaskFolderWatcher({
 			store,
-			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
 			applyTasks: (tasks) => applied.push(tasks),
 		});
 		await watcher.start();
@@ -69,6 +73,7 @@ describe("TaskFolderWatcher", () => {
 				schedule: { type: "daily", time: "09:30" },
 				agentId: "main",
 				enabled: true,
+				projectId: "pa",
 				prompt: "提醒站会",
 			},
 			"pa",
@@ -86,16 +91,17 @@ describe("TaskFolderWatcher", () => {
 		const applied: ScheduledTask[][] = [];
 		watcher = new TaskFolderWatcher({
 			store,
-			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
 			applyTasks: (tasks, errors) => {
 				applied.push(tasks);
 				errorsSeen.push(errors);
 			},
 		});
 		await watcher.start();
-		const bad = join(tasksDirOf(projA), "坏任务.md");
+		const bad = join(tasksDirOf(), "坏任务.md");
 		writeFileSync(bad, "没有 frontmatter");
-		await waitFor(() => errorsSeen.some((es) => es.some((e) => e.taskId === "坏任务")));
+		await waitFor(() =>
+			errorsSeen.some((es) => es.some((e) => e.taskId === "坏任务")),
+		);
 		rmSync(bad, { force: true });
 		await waitFor(() =>
 			errorsSeen.some((es) => es.length === 0 && applied.length > 0),
@@ -110,7 +116,6 @@ describe("TaskFolderWatcher", () => {
 		const errorsSeen: TaskFileError[][] = [];
 		watcher = new TaskFolderWatcher({
 			store,
-			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
 			applyTasks: (tasks, errors) => {
 				applied.push(tasks);
 				errorsSeen.push(errors);
@@ -124,14 +129,17 @@ describe("TaskFolderWatcher", () => {
 				schedule: { type: "daily", time: "09:30" },
 				agentId: "main",
 				enabled: true,
+				projectId: "pa",
 				prompt: "提醒站会",
 			},
 			"pa",
 		);
 		// 外部新增一个解析失败文件（非自写）
-		writeFileSync(join(tasksDirOf(projA), "坏任务.md"), "没有 frontmatter");
+		writeFileSync(join(tasksDirOf(), "坏任务.md"), "没有 frontmatter");
 		// 存在自写有效任务且 errors 非空：不得短路，applyTasks 需把 error 广播出去
-		await waitFor(() => errorsSeen.some((es) => es.some((e) => e.taskId === "坏任务")));
+		await waitFor(() =>
+			errorsSeen.some((es) => es.some((e) => e.taskId === "坏任务")),
+		);
 		expect(applied.length).toBeGreaterThan(0);
 	});
 
@@ -141,13 +149,12 @@ describe("TaskFolderWatcher", () => {
 		});
 		watcher = new TaskFolderWatcher({
 			store,
-			projectsProvider: () => Promise.resolve([{ id: "pa", cwd: projA }]),
 			applyTasks: () => {},
 		});
 		await watcher.start();
 		// 外部直接删掉被 watch 的 tasks 目录：FSWatcher 会异步 emit 'error'，
 		// 有 error 监听时不应进程崩溃
-		rmSync(tasksDirOf(projA), { recursive: true, force: true });
+		rmSync(tasksDirOf(), { recursive: true, force: true });
 		await new Promise((r) => setTimeout(r, 1000));
 		// 进程无恙：watcher 仍可正常 stop（afterEach 还会再 stop 一次，幂等）
 		expect(() => watcher?.stop()).not.toThrow();

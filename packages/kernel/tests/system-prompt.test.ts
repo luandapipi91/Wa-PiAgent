@@ -267,9 +267,7 @@ test("ensurePromptsConfig 首次调用写入默认配置", async () => {
 	expect(loaded).toEqual(
 		DEFAULT_PROMPT_SEGMENTS.filter(
 			(s) =>
-				s.id !== "im-channel" &&
-				s.id !== "im-push" &&
-				s.id !== "scheduled-tasks",
+				s.id !== "im-channel" && s.id !== "im-push" && s.id !== "scheduled-tasks",
 		),
 	);
 	rmSync(f, { force: true });
@@ -321,7 +319,9 @@ test("ensurePromptsConfig 迁移旧格式文件（无 schemaVersion）→ 保留
 	// 缺失段（memory-policy 等）追加最新默认
 	expect(byId.get("memory-policy")!.content ?? "").toBe(""); // 动态段，content 为空由运行时填充
 	// 缺失段（self-protection）追加最新默认静态段
-	expect(byId.get("self-protection")!.content).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
+	expect(byId.get("self-protection")!.content).toBe(
+		DEFAULT_SELF_PROTECTION_PROMPT,
+	);
 	expect(byId.has("env-constraints")).toBe(true);
 	expect(byId.has("memory-snapshot")).toBe(true);
 	// 废弃 id 被丢弃
@@ -353,7 +353,9 @@ test("ensurePromptsConfig 迁移 22→23：补 self-protection 段且保留 base
 	expect(loaded).not.toBeNull();
 	const byId = new Map((loaded as PromptSegment[]).map((s) => [s.id, s]));
 	// 缺失的 self-protection 段以默认 content 补齐
-	expect(byId.get("self-protection")!.content).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
+	expect(byId.get("self-protection")!.content).toBe(
+		DEFAULT_SELF_PROTECTION_PROMPT,
+	);
 	// 已存在段用户 content 保留（不被默认覆盖）
 	expect(byId.get("base")!.content).toBe("MY CUSTOM BASE");
 	expect(byId.get("delegate-mechanism")!.content).toBe("OLD MECHANISM TEXT");
@@ -402,9 +404,7 @@ test("ensurePromptsConfig 全新机器首次写入含 schemaVersion + 最新静�
 	expect(raw.segments).toEqual(
 		DEFAULT_PROMPT_SEGMENTS.filter(
 			(s) =>
-				s.id !== "im-channel" &&
-				s.id !== "im-push" &&
-				s.id !== "scheduled-tasks",
+				s.id !== "im-channel" && s.id !== "im-push" && s.id !== "scheduled-tasks",
 		),
 	);
 	rmSync(f, { force: true });

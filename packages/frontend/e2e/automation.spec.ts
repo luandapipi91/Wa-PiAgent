@@ -80,11 +80,12 @@ async function deleteTaskQuiet(id: string): Promise<void> {
 
 // ===== Task 11 专用：CLI 建任务 + 配置错误修复 两个新场景的常量与 helper =====
 // e2e-proj-1 的 cwd 由 global-setup 预置（projects.json: cwd=$E2E_WA_PI_DIR/e2e-project）；
-// kernel 启动时 ensureScheduledTasksAssets 向各项目分发 CLI 资产，并建 tasks/ logs/ 目录。
+// kernel 启动时 ensureScheduledTasksAssets 把 CLI 资产分发到全局目录（全局化后统一存 WA_PI_DIR/scheduled-tasks）。
 const PROJ_CWD = join(E2E_WA_PI_DIR, "e2e-project");
-const CLI_ASSET = join(PROJ_CWD, ".wa-pi", "scheduled-tasks", "cron-task.ts");
-const TASKS_DIR = join(PROJ_CWD, ".wa-pi", "scheduled-tasks", "tasks");
-const LOGS_DIR = join(PROJ_CWD, ".wa-pi", "scheduled-tasks", "logs");
+const SCHED_ROOT = join(E2E_WA_PI_DIR, "scheduled-tasks");
+const CLI_ASSET = join(SCHED_ROOT, "cron-task.ts");
+const TASKS_DIR = join(SCHED_ROOT, "tasks");
+const LOGS_DIR = join(SCHED_ROOT, "logs");
 
 /** 清理用删除（URL 编码 id，支持中文任务 id）：忽略不存在的报错，永不抛出 */
 async function deleteTaskQuietEncoded(id: string): Promise<void> {
@@ -446,10 +447,7 @@ test.describe
 				});
 
 				// 4. 触发立即执行（fire-and-forget，返回 200 即视为已受理）
-				await api(
-					"POST",
-					`/api/scheduled-tasks/${encodeURIComponent(taskId)}/run`,
-				);
+				await api("POST", `/api/scheduled-tasks/${encodeURIComponent(taskId)}/run`);
 
 				// 5. 执行记录落盘（运行态一起 appendRecord 写 logs/<id>.log；无真实模型时记录仍存在）
 				await findRecord(taskId);

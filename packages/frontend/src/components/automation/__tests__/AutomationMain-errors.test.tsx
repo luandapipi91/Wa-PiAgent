@@ -3,7 +3,13 @@
 // 拿到的 errors 存进 store，AutomationSidebar 渲染错误条目；点击错误条目 → startFixError
 // 构造带 id 的草稿 → AutomationMain 弹出编辑表单，保存走 updateTask → PUT upsert 修复坏文件。
 import { afterEach, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, act } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	act,
+} from "@testing-library/react";
 import { AutomationSidebar } from "../AutomationSidebar";
 import { AutomationMain } from "../AutomationMain";
 
@@ -159,9 +165,9 @@ test("点击错误条目进入编辑表单，保存调用 PUT /api/scheduled-tas
 	expect(screen.getByTestId("task-edit-modal")).toBeTruthy();
 	expect(screen.getByText("编辑自动化")).toBeTruthy();
 	// 回填任务名 = taskId
-	expect(
-		(screen.getByTestId("task-name-input") as HTMLInputElement).value,
-	).toBe("坏任务");
+	expect((screen.getByTestId("task-name-input") as HTMLInputElement).value).toBe(
+		"坏任务",
+	);
 	// 草稿 agentId 为空 → 需选智能体并填指令才能保存
 	fireEvent.click(screen.getByTestId("task-agent-select"));
 	fireEvent.click(screen.getByTestId("task-agent-item-小助手"));

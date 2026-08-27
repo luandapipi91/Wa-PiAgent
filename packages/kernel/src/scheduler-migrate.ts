@@ -10,7 +10,11 @@
 import { mkdir, rename, writeFile, stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExecutionRecord, ScheduledTask } from "@wa-pi/shared";
-import { formatLogLine, sanitizeTaskId, serializeTaskFile } from "@wa-pi/shared";
+import {
+	formatLogLine,
+	sanitizeTaskId,
+	serializeTaskFile,
+} from "@wa-pi/shared";
 import { tasksDirOf, logsDirOf } from "./scheduler-task-store";
 
 // 旧 JSON 读取（替代已删除的旧存储层读函数）：文件缺失/损坏均回退空数组不抛错。
@@ -40,21 +44,28 @@ export async function migrateLegacySchedulerFiles(deps: {
 	resolveProject: (projectId?: string) => { id: string; cwd: string };
 }): Promise<{ migrated: number }> {
 	if (!(await exists(deps.legacyTasksFile))) return { migrated: 0 };
-	const legacyTasks = await readJsonArray<ScheduledTask>(deps.legacyTasksFile, "tasks");
+	const legacyTasks = await readJsonArray<ScheduledTask>(
+		deps.legacyTasksFile,
+		"tasks",
+	);
 	const legacyRecords = (await exists(deps.legacyRecordsFile))
 		? await readJsonArray<ExecutionRecord>(deps.legacyRecordsFile, "records")
 		: [];
 
 	// 旧 id → 新 id（执行记录改写用）
-	const idMap = new Map<string, { newId: string; projectId: string; cwd: string }>();
+	const idMap = new Map<
+		string,
+		{ newId: string; projectId: string; cwd: string }
+	>();
 	let migrated = 0;
 	for (const task of legacyTasks) {
 		const project = deps.resolveProject(task.projectId);
-		const dir = tasksDirOf(project.cwd);
+		const dir = tasksDirOf();
 		await mkdir(dir, { recursive: true });
 		const base = sanitizeTaskId(task.name);
 		let newId = base;
-		for (let i = 2; await exists(join(dir, `${newId}.md`)); i++) newId = `${base}-${i}`;
+		for (let i = 2; await exists(join(dir, `${newId}.md`)); i++)
+			newId = `${base}-${i}`;
 		const content = serializeTaskFile(
 			{
 				name: task.name,
@@ -62,6 +73,7 @@ export async function migrateLegacySchedulerFiles(deps: {
 				agentId: task.agentId,
 				model: typeof task.model === "string" ? task.model : undefined,
 				enabled: task.enabled,
+				projectId: project.id,
 			},
 			task.prompt,
 		);
@@ -84,10 +96,12 @@ export async function migrateLegacySchedulerFiles(deps: {
 	}
 	for (const [oldId, records] of byTask) {
 		const mapped = idMap.get(oldId)!;
-		const dir = logsDirOf(mapped.cwd);
+		const dir = logsDirOf();
 		await mkdir(dir, { recursive: true });
 		const lines = records.map((r) => formatLogLine(r)).join("\n");
-		await writeFile(join(dir, `${mapped.newId}.log`), `${lines}\n`, { flag: "a" });
+		await writeFile(join(dir, `${mapped.newId}.log`), `${lines}\n`, {
+			flag: "a",
+		});
 	}
 
 	await rename(deps.legacyTasksFile, `${deps.legacyTasksFile}.migrated`);

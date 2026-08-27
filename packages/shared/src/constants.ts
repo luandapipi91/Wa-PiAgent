@@ -34,7 +34,7 @@ export const CHANNELS_FILE = `${WA_PI_DIR}/channels.json`; // IM 渠道机器人
 export const CHANNEL_SESSIONS_FILE = `${WA_PI_DIR}/channel-sessions.json`; // IM 会话→hiagent 会话映射
 export const CHANNEL_TMP_DIR = `${WA_PI_DIR}/tmp/channels`; // 渠道图片等临时文件
 // 以下两个旧 JSON 常量仅迁移读取用（migrateLegacySchedulerFiles 一次性迁移后归档 .migrated）；
-// 新数据以各项目 cwd 下 .wa-pi/scheduled-tasks/ 为唯一数据源
+// 新数据全部全局存于 WA_PI_DIR/scheduled-tasks/（任务定义 + CLI + 执行记录）
 export const SCHEDULED_TASKS_FILE = `${WA_PI_DIR}/scheduled-tasks.json`; // 定时任务配置（仅迁移读取用）
 export const EXECUTION_RECORDS_FILE = `${WA_PI_DIR}/execution-records.json`; // 定时任务执行记录（仅迁移读取用）
 export const KERNEL_INFO_FILE = `${WA_PI_DIR}/kernel.json`; // kernel 端口/pid 信息，CLI 发现 kernel 用

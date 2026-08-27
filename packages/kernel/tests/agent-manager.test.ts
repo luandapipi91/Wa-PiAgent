@@ -192,6 +192,12 @@ test("ensureStarted 创建 pi rpc client 并传入会话参数（--session / --s
 	expect(getBridgeSession(session.id)).toBeDefined();
 });
 
+test("ensureStarted 注入 WA_PI_SCHEDULER_PROJECT_ID（定时任务归属当前会话项目）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect(fakes[0].opts.env?.WA_PI_SCHEDULER_PROJECT_ID).toBe(project.id);
+});
+
 test("ensureStarted 无显式 tools 时不传 --tools、用 --exclude-tools 排除 subagent", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
@@ -1588,9 +1594,9 @@ test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加�
 
 		const prompt = readSysprompt(session.id);
 		expect(prompt).not.toContain(unique);
-		// memory-snapshot 段为空被过滤；im-push 通用常驻段（工具始终注册后对所有
-		// 普通会话注入，本功能有意变更）成为最后一段，不再以 env-constraints 结尾
-		expect(prompt.trimEnd().endsWith("不要调用 im_push_to。")).toBe(true);
+		// memory-policy/memory-snapshot 为空被过滤；scheduled-tasks 段始终注入（全局化后
+		// 不再判目录存在）且在 im-push 之后，成为最后一段
+		expect(prompt.trimEnd()).toContain("定时任务管理");
 	} finally {
 		await globalStore.remove("memory", unique).catch(() => {});
 	}

@@ -387,7 +387,9 @@ export async function startKernel(opts?: {
 	// —— 定时任务：文件夹存储 + watcher 热加载 ——
 	const schedulerProjectsProvider = () =>
 		buildSchedulerProjects(async () => (await projectStore.load()).projects);
-	const taskStore = createFolderTaskStore({ projectsProvider: schedulerProjectsProvider });
+	const taskStore = createFolderTaskStore({
+		projectsProvider: schedulerProjectsProvider,
+	});
 
 	// 旧 JSON 一次性迁移（幂等，无旧文件 no-op）
 	// 迁移在启动时执行：先一次性取出项目列表，resolveProject 同步查表（不再次读盘）
@@ -406,10 +408,8 @@ export async function startKernel(opts?: {
 	if (legacyMigrated > 0)
 		console.log(`[kernel] 已迁移 ${legacyMigrated} 个旧定时任务到项目文件夹`);
 
-	// 确保各项目任务目录 + CLI/README 资产（Task 7 的 ensureScheduledTasksAssets）
-	for (const p of await schedulerProjectsProvider()) {
-		await ensureScheduledTasksAssets(p.cwd);
-	}
+	// 确保全局定时任务目录 + CLI/README 资产（全局统一存放，仅一次）
+	await ensureScheduledTasksAssets();
 
 	const scheduler = new TaskScheduler({
 		loadTasks: async () => (await taskStore.listAll()).tasks,
@@ -424,7 +424,11 @@ export async function startKernel(opts?: {
 				status: "running",
 				startedAt: Date.now(),
 			};
-			await taskStore.appendRecord(task.projectId ?? SYSTEM_PROJECT_ID, task.id, record);
+			await taskStore.appendRecord(
+				task.projectId ?? SYSTEM_PROJECT_ID,
+				task.id,
+				record,
+			);
 			broadcast({
 				type: "scheduled-tasks:changed",
 			} as WSServerEvent);
@@ -550,15 +554,18 @@ export async function startKernel(opts?: {
 			}
 
 			// 更新执行记录（覆盖 running 态的初始记录）—— append-only + 读取去重即完成回写
-			await taskStore.appendRecord(task.projectId ?? SYSTEM_PROJECT_ID, task.id, record);
+			await taskStore.appendRecord(
+				task.projectId ?? SYSTEM_PROJECT_ID,
+				task.id,
+				record,
+			);
 			return record;
 		},
 	});
 
-	// watcher：外部（CLI/agent 手改）文件变化 → 热生效 + 广播
+	// watcher：外部（CLI/agent 手改）文件变化 → 热生效 + 广播（全局单目录）
 	const watcher = new TaskFolderWatcher({
 		store: taskStore,
-		projectsProvider: schedulerProjectsProvider,
 		applyTasks: (tasks, errors) => {
 			// 全量对账：新/改 → scheduleTask；消失 → cancelTask（TaskScheduler 内部幂等）
 			const ids = new Set(tasks.map((t) => t.id));
@@ -591,15 +598,6 @@ export async function startKernel(opts?: {
 	server.setScheduler(scheduler);
 	await scheduler.start();
 	console.log("[kernel] 定时任务调度器已启动");
-
-	// 项目增删兜底对账：60s 一次同步 watcher 的项目集合与资产分发
-	setInterval(() => {
-		void watcher.syncProjects().then(async () => {
-			for (const p of await schedulerProjectsProvider()) {
-				await ensureScheduledTasksAssets(p.cwd);
-			}
-		}).catch((e) => console.warn("[scheduler] 项目对账失败:", e));
-	}, 60_000);
 
 	// 空闲会话子进程回收：每 30s 扫描，回收 lastActivity 超过 1 分钟且非 busy 的会话进程。
 	// dispose 只杀进程、保留会话记录与 jsonl 历史，用户再点开时冷启动恢复。
