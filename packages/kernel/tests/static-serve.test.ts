@@ -11,7 +11,9 @@ test("resolveStaticPath: 已知资产返回拼好的路径", () => {
 });
 
 test("resolveStaticPath: 拒绝路径穿越", () => {
-  expect(resolveStaticPath("/../../etc/passwd", "/web")).toBe("/web/index.html");
+  expect(resolveStaticPath("/../../etc/passwd", "/web")).toBe(
+    "/web/index.html",
+  );
 });
 
 test("getMimeType: 常见类型", () => {
@@ -22,4 +24,12 @@ test("getMimeType: 常见类型", () => {
   expect(getMimeType("a.svg")).toBe("image/svg+xml");
   expect(getMimeType("a.webm")).toBe("audio/webm");
   expect(getMimeType("a.weba")).toBe("audio/webm");
+});
+
+test("getMimeType: 前端框架文件（vue/jsx/tsx）按文本处理，可进代码预览", () => {
+  // 回归：.vue 曾无映射，Bun 兑底返回 application/octet-stream，
+  // checkPreviewable 判非文本直接拒绝 → 代码预览报「不支持的文件类型」
+  expect(getMimeType("App.vue")).toBe("text/x-vue");
+  expect(getMimeType("Comp.jsx")).toBe("text/jsx");
+  expect(getMimeType("Comp.tsx")).toBe("text/typescript-jsx");
 });

@@ -77,7 +77,13 @@ export function clampRect(r: FloatRect): FloatRect {
 function defaultRect(): FloatRect {
 	const w = Math.min(720, window.innerWidth - 80);
 	const h = Math.min(480, window.innerHeight - 80);
-	return clampRect({ x: window.innerWidth - w - 40, y: 60, w, h });
+	// 无历史记录时默认在视口正中弹出（用户期待；曾为右上角偏移）
+	return clampRect({
+		x: (window.innerWidth - w) / 2,
+		y: (window.innerHeight - h) / 2,
+		w,
+		h,
+	});
 }
 
 function loadMode(): BrowserMode {
@@ -127,9 +133,10 @@ function writeNow(key: string, value: string): void {
 }
 
 /**
- * 持久化防抖（毫秒）：拖拽期 setSplitRatio/setFloatRect 每帧调用，
+ * 持久化防抖（毫秒）：分屏比例 setSplitRatio 在拖拽分隔条期间高频调用，
  * trailing debounce 把 60Hz 的 localStorage 写入合并为停手后一次。
  * <=0 时同步写入（测试用，保持断言确定性）。
+ * 注：浮窗位置 setFloatRect 已改为 mouseup 直写，不走此防抖。
  */
 let persistDebounceMs = 300;
 export function setPersistDebounceMs(ms: number): void {
@@ -296,7 +303,9 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 	},
 	setFloatRect: (rect) => {
 		const clamped = clampRect(rect);
-		save(LS.rect, JSON.stringify(clamped));
+		// 直写而非防抖：调用方是拖动 mouseup 一次性提交（低频），
+		// 防抖会在「拖完立刻退出应用」时丢最后一次位置
+		writeNow(LS.rect, JSON.stringify(clamped));
 		set({ floatRect: clamped });
 	},
 	setMinimized: (minimized) =>

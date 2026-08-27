@@ -47,6 +47,7 @@ function guessLanguage(path: string): string {
 		tsx: "typescript",
 		js: "javascript",
 		jsx: "javascript",
+		vue: "markup",
 		json: "json",
 		rs: "rust",
 		md: "markdown",

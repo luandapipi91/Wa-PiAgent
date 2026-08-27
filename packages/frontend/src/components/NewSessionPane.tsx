@@ -300,7 +300,13 @@ export function NewSessionPane({
 	return (
 		<div className="flex-1 flex min-w-0" data-testid="new-session-pane">
 			{/* 主列：居中内容 + 右上角文件树开关 */}
-			<div className="relative flex-1 flex flex-col items-center justify-center p-10 min-w-0">
+			{/* 主列：居中内容 + 右上角文件树开关。
+				居中用对称 auto-margin spacer（而非 justify-center）：空间不足时 margin 归零退化为顶对齐，
+				配合纵向滚动保证文件树挤窄/小视口下输入框仍可达，不再被祖先裁出屏 */}
+			<div
+				className="relative flex-1 flex flex-col items-center overflow-y-auto p-10 min-w-0"
+				data-testid="new-session-scroll"
+			>
 				{/* 默认工作区（__system__）的 cwd 是 workdir 父目录（内部会话目录，非项目文件），
 				    无文件可浏览 → 隐藏入口按钮（而非禁用），避免误导点击展开空态。 */}
 				{/* 浏览器预览入口（打开空预览窗口；归属到新建会话锚点 sessionId，按会话记忆） */}
@@ -346,6 +352,8 @@ export function NewSessionPane({
 						/>
 					</button>
 				)}
+
+				<div className="mt-auto shrink-0" />
 
 				<h2 className="text-[calc(26px*var(--font-scale))] font-extrabold tracking-tight text-primary mb-2">
 					{t("newSession.title")}
@@ -404,6 +412,7 @@ export function NewSessionPane({
 					isRunning={false}
 					isNewSession={true}
 				/>
+				<div className="mt-auto shrink-0" />
 			</div>
 
 			{/* 右侧文件树侧栏：开关由 new-session-explorer store 控制；双击文件弹窗预览 */}

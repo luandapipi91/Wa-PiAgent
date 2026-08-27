@@ -53,6 +53,7 @@ export function SidebarResizer({
     }
   }, []);
 
+  /** 拖拽中变更回调时保留最新引用，避免旧闭包继续被调用 */
   const onMouseMove = useCallback(
     (e: MouseEvent) => {
       const d = drag.current;
@@ -85,9 +86,12 @@ export function SidebarResizer({
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
+      // 冒泡隔离：把手按下即归把手所有。宿主容器可能有「拖拽移动」类处理器
+      // （如浮动预览窗整窗拖动），不阻断会让拖宽度同时带动窗口平移
+      e.stopPropagation();
       drag.current = { startX: e.clientX, startWidth: getWidth() };
       document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
+      document.body.style.cursor = "ew-resize";
       shieldIframes(true);
       window.addEventListener("mousemove", onMouseMove);
       window.addEventListener("mouseup", onMouseUp);
@@ -104,7 +108,7 @@ export function SidebarResizer({
         data-variant="inline"
         title={title}
         onMouseDown={onMouseDown}
-        className="group flex shrink-0 cursor-col-resize items-center justify-center self-stretch"
+        className="group flex shrink-0 cursor-ew-resize items-center justify-center self-stretch"
         style={{ width: 10 }}
       >
         <div className="h-5 w-1 rounded-full bg-[var(--hairline-strong)] transition-colors group-hover:bg-[var(--brand)]" />
@@ -118,7 +122,8 @@ export function SidebarResizer({
       onMouseDown={onMouseDown}
       style={{
         width: 2,
-        cursor: "col-resize",
+        // mac 下 col-resize 字形是带竖线的特殊图形而非箭头；ew-resize 才是标准 ↔ 双向箭头
+        cursor: "ew-resize",
         flexShrink: 0,
         background: "var(--hairline)",
         position: "relative",

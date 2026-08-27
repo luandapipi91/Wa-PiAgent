@@ -290,6 +290,10 @@ export function getMimeType(filePath: string): string {
 		".json": "application/json",
 		".ts": "text/typescript",
 		".tsx": "text/typescript-jsx",
+		// 前端框架文件：无映射时 Bun 兑底返回 application/octet-stream，
+		// checkPreviewable 判非文本直接拒绝 → .vue 代码预览报「不支持的文件类型」
+		".jsx": "text/jsx",
+		".vue": "text/x-vue",
 		".png": "image/png",
 		".jpg": "image/jpeg",
 		".jpeg": "image/jpeg",

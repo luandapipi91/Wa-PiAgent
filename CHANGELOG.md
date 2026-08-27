@@ -1,4 +1,28 @@
 
+## 2026-08-30 — fix(preview/float): 拖地址栏宽度不再带动浮窗 + 默认居中弹出、位置直写不丢
+
+- 背景：①浮窗模式下拖动地址栏宽度把手会把浮窗带若同步平移；②浮窗无历史时默认弹在右上角而非期待中的居中；③浮窗位置落盘走 300ms 防抖，「拖完立刻退出应用」会丢最后一次位置。
+- 根因：①SidebarResizer.onMouseDown 只有 preventDefault 无 stopPropagation，把手 div 不在 FloatWindow 整窗拖动的交互元素白名单内 → 冒泡触发两组 window mousemove 循环并行消费同一 dx；②defaultRect 为右上角偏移；③setFloatRect 现仅在拖动 mouseup 一次性提交，防抖前提已不成立。
+- 修复：①SidebarResizer 补 stopPropagation（沿用 FloatWindow 角手柄先例），宿主含侧栏/分屏/浮窗全场景受益；②defaultRect 改视口正中；③setFloatRect 改 writeNow 直写，防抖仅保留给高频的分屏比例。④把手手势 col-resize → ew-resize：mac 下 col-resize 字形是带竖线的特殊图形而非箭头，ew-resize 才是标准 ↔ 双向箭头（悬停/拖拽期/panel 形态三处统一，旧断言同步更新）。
+- 取证：真实浏览器端到端验证——默认弹出双轴居中✓；拖把手 width: moved=false 且地址栏宽度生效✓；跨刷新位置还原✓。
+- 验证：TDD 新增 3 用例（默认居中/直写落盘/冒泡隔离，均先红后绿）；全量回归 1993/1993 ✓；bun run build ✓。
+- 影响范围：`packages/frontend/src/components/SidebarResizer.tsx`、`src/store/browser.ts`、新增 2 测试文件。
+
+## 2026-08-30 — fix(new-session): 文件树展开多时输入框被顶出屏底
+
+- 根因（系统化调试定位）：新建会话页主列为「无收缩出口 + justify-center 对称溢出」的 flex 列；右侧文件树 aside 挤窄主列后，Dropdown/输入框/附件 chips 换行增高，内容总高超限 → 整列溢出，因 justify-center 上下对称裁切，位于内容底部的输入框被祖先 overflow-hidden 裁出视口。文件树自身滚动链完备，系通过挤窄间接触发。
+- 修复：主列改用对称 auto-margin spacer 居中（去 justify-center，首尾插 mt-auto spacer）+ 主列自带 overflow-y-auto——空间充裕时视觉居中不变；超高时 margin 归零退化为顶对齐可滚动，输入框任何视口下可达。
+- 验证：TDD 新增可达性契约用例（先红后绿）；全量回归 1990/1990 ✓；bun run build ✓；待用户真实环境复现场景确认。
+- 影响范围：`packages/frontend/src/components/NewSessionPane.tsx`（3 处微调）、新增 `__tests__/new-session-reachability.test.tsx`。
+
+## 2026-08-30 — feat(preview): 元素选中显性开关 + 地址栏默认半宽/可拽调宽
+
+- 背景：预览元素选中只能靠页面内 Ctrl/⌘ 快捷键切换，无可视入口；地址栏曾无限伸展显得过长。
+- 实现：①BrowserPanel 工具栏新增「元素选中」图标开关（element 图标，激活品牌色高亮；点击写 localStorage 并即时下发 inspect:set，iframe 快捷键切换经 changed 消息反向同步，双通道一致；仅本地预览可用）。②地址栏默认 width:50% 占工具栏一半，右侧新增 inline 拖拽小把手（SidebarResizer 新 variant，hairline-strong 圆角条 + hover 品牌色 + 悬浮提示），拖拽实时更新并持久化 localStorage（hiagent.preview.urlbar.width），clamp [160, 工具栏−按钮区预留] 不挤占图标；弹性空白右推后所有动作按钮贴工具栏右缘。
+- 清理：移除存量未引用变量 externalUrl（无行为影响）。
+- 验证：TDD 新增 19 用例（inspect 开关 6、地址栏宽度/拖拽/可见性 7、纯函数 6，均先红后绿）；全量回归 1989/1989 ✓；bun run build ✓。
+- 影响范围：`packages/frontend/src/components/BrowserPanel.tsx`、`SidebarResizer.tsx`（新增可选 props，panel 默认形态不变）、`urlbar-size.ts`、i18n zh/en、对应测试文件。
+
 ## 2026-08-28 — v0.2.28 发版（预览地址栏适配 + 嵌套子页双高亮修复）
 
 - 版本：0.2.27 → 0.2.28。
@@ -13,6 +37,13 @@
 - 修复：held 语义改为「全屏存在任意锁定」= suppressed || pinned（query 回复与 sendSetToChildren 两处）。
 - 验证：同源诊断页三断言（合成 mousemove + 读 UI display）：A 锁定后 B 鼠标移入全隐藏 ✓、A 锁定保持 ✓、A 锁定下强制重载 B 再移入仍全隐藏 ✓（时序场景）。
 - 影响范围：`packages/kernel/src/assets/preview-inspect.js`。
+
+## 2026-08-28 — fix(preview): .vue 文件无法进代码预览（MIME 误判非文本）
+
+- 背景：用户反馈 .vue/.tsx/.jsx 无法使用文件预览。实测定位：.tsx/.jsx 实际可预览（映射表/Bun 兑底均返回 text/ 前缀）；**.vue 无映射**，Bun 兑底返回 application/octet-stream，kernel checkPreviewable 判非文本直接拒绝 → 代码预览报「不支持的文件类型: application/octet-stream」。
+- 修复：getMimeType 映射表显式补 .jsx（text/jsx）/.vue（text/x-vue）；前端 guessLanguage 补 vue → markup（单文件组件按 HTML 结构高亮）。
+- 验证：TDD——static-serve.test 新增回归用例（先红后绿）+ 实测三扩展名全部可预览。
+- 影响范围：`packages/kernel/src/ws-server.ts`、`packages/frontend/src/components/blocks/FileViewer.tsx`。
 
 ## 2026-08-28 — feat(preview): 嵌套子页文件被修改时外层预览也自动刷新
 
