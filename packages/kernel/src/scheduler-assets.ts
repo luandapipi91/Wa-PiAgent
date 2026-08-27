@@ -8,7 +8,14 @@
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { WA_PI_DIR } from "@wa-pi/shared";
+import {
+	WA_PI_DIR,
+	CRON_CLI_FILE,
+	SCHEDULED_TASKS_README_FILE,
+	SCHEDULED_TASKS_TASKS_DIR,
+	SCHEDULED_TASKS_LOGS_DIR,
+	SCHEDULED_TASKS_DIR_NAME,
+} from "@wa-pi/shared";
 // @ts-expect-error Bun text import：编译期把 cron-task.ts 全文内嵌为字符串
 import cliSource from "../assets/scheduled-tasks/cron-task.ts" with {
 	type: "text",
@@ -44,14 +51,14 @@ export async function atomicWrite(
 }
 
 export async function ensureScheduledTasksAssets(
-	base: string = join(WA_PI_DIR, "scheduled-tasks"),
+	base: string = join(WA_PI_DIR, SCHEDULED_TASKS_DIR_NAME),
 ): Promise<void> {
-	await mkdir(join(base, "tasks"), { recursive: true });
-	await mkdir(join(base, "logs"), { recursive: true });
-	const cliTarget = join(base, "cron-task.ts");
+	await mkdir(join(base, SCHEDULED_TASKS_TASKS_DIR), { recursive: true });
+	await mkdir(join(base, SCHEDULED_TASKS_LOGS_DIR), { recursive: true });
+	const cliTarget = join(base, CRON_CLI_FILE);
 	if ((await stampOf(cliTarget)) !== STAMP_CLI)
 		await atomicWrite(cliTarget, cliSource);
-	const readmeTarget = join(base, "README.md");
+	const readmeTarget = join(base, SCHEDULED_TASKS_README_FILE);
 	if ((await stampOf(readmeTarget)) !== STAMP_README)
 		await atomicWrite(readmeTarget, readmeSource);
 }

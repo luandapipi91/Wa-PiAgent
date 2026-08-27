@@ -7,11 +7,26 @@
  *   help                          显示本说明
  *   list                          列出全部任务（含解析失败的文件）
  *   show <id>                     显示任务详情（id = 文件名，不含 .md）
- *   add --name N --agent A --schedule '<json>' [--model M] [--project P] [--disabled] --prompt P
- *   set <id> <key> <value>        修改字段（key: name/enabled/time/agent/model/project/prompt）
+ *   add --name N --agent A --schedule '<json>' [--model M] [--project P] [--im-push 渠道,联系人] [--disabled] --prompt P
+ *        --im-push 可重复，把 @im-push-to(渠道,ct_xxx) 推送到标记注入 prompt（执行时注册 im_push_to 工具）
+ *   set <id> <key> <value>        修改字段（key: name/enabled/time/agent/model/project/prompt/im-push）
+ *   delete <id>                   删除任务（项目隔离：agent 场景只能删本项目任务）
  *   validate <id>                 校验任务文件
  *   test <id>                     校验 + 显示未来 5 次触发时间（不执行）
  *   run <id>                      立即触发执行（需 wa-pi kernel 在线）
+ *
+ * 示例用法：
+ *   bun cron-task.ts list
+ *   bun cron-task.ts show 每日巡检
+ *   # 创建每天 09:30 执行、结果推送给 ct_123 的任务
+ *   bun cron-task.ts add --name 每日巡检 --agent main \
+ *     --schedule '{"type":"daily","time":"09:30"}' \
+ *     --im-push ch_企微,ct_123 --prompt '检查服务器并汇报'
+ *   # 改时间 / 生效
+ *   bun cron-task.ts set 每日巡检 time 10:00
+ *   bun cron-task.ts set 每日巡检 im-push ch_企微,ct_123
+ *   bun cron-task.ts run 每日巡检
+ *   bun cron-task.ts delete 每日巡检
  *
  * 任务统一存放在全局目录 ~/.pi/agent/scheduled-tasks/（即 WA_PI_DIR/scheduled-tasks/）下的
  * tasks/ 与 logs/，跨项目共享；任务归属项目记录在 frontmatter 的 projectId 字段。
@@ -23,6 +38,7 @@ import {
 	existsSync,
 	mkdirSync,
 	renameSync,
+	rmSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -241,8 +257,26 @@ function loadTask(id: string): any {
 function assertOwnProject(task: any, id: string): void {
 	if (PROJECT_SCOPE && task.projectId !== PROJECT_SCOPE)
 		throw new Error(
-			`任务 ${id} 不属于当前项目（${task.projectId}），仅允许操作本项目任务`,
+			`任务 ${id} 不属于当前项目（它归属于项目 ${task.projectId}，当前项目是 ${PROJECT_SCOPE}）。不可以操作/删除其他项目的任务——已阻止本次操作。`,
 		);
+}
+
+/** 把未含的 @im-push-to(ch_xxx,ct_xxx) 标记注入 prompt（按联系人去重；已存在的 ct 不重复加）。
+ *  执行时 kernel 会 parseImPushMentions 读 prompt 里的标记，注入 im_push_to 工具并推送。
+ *  pushTarget 格式：`渠道,联系人`（如 `ch_企微,ct_xxx`；渠道 q 缺省用 ch_channel）。 */
+function injectImPushMentions(prompt: string, pushTargets: string[]): string {
+	if (!pushTargets.length) return prompt;
+	const existingCts = new Set(prompt.match(/ct_[a-zA-Z0-9_-]+/g) ?? []);
+	const extra: string[] = [];
+	for (const t of pushTargets) {
+		const [channel, ct] = t.split(",");
+		if (!ct || !/^ct_[a-zA-Z0-9_-]+$/.test(ct))
+			fail(`--im-push 格式应为一渠道,联系人（如 ch_xx,ct_xxx）: ${t}`);
+		if (existingCts.has(ct)) continue;
+		existingCts.add(ct);
+		extra.push(`@im-push-to(${channel || "ch_channel"},${ct})`);
+	}
+	return extra.length ? `${extra.join(" ")}\n${prompt}` : prompt;
 }
 
 function atomicWrite(file: string, content: string): void {
@@ -326,8 +360,12 @@ function main(): void {
 		}
 		case "add": {
 			const opts: Record<string, string> = {};
-			for (let i = 0; i < args.length; i += 2)
-				opts[args[i].replace(/^--/, "")] = args[i + 1];
+			const pushTargets: string[] = [];
+			for (let i = 0; i < args.length; i += 2) {
+				const key = args[i].replace(/^--/, "");
+				if (key === "im-push") pushTargets.push(args[i + 1]);
+				else opts[key] = args[i + 1];
+			}
 			if (!opts.name) fail("缺少 --name");
 			if (!opts.agent) fail("缺少 --agent");
 			if (!opts.schedule)
@@ -339,6 +377,9 @@ function main(): void {
 			} catch {
 				fail("--schedule 不是合法 JSON");
 			}
+			// 推送目标：把 @im-push-to(渠道,ct_xxx) 标记注入 prompt，执行时 kernel 据此注册
+			// im_push_to 工具并推送（prompt 里已含的 ct 去重，不重复加）
+			const prompt = injectImPushMentions(opts.prompt, pushTargets);
 			const data = {
 				name: opts.name,
 				schedule,
@@ -347,7 +388,7 @@ function main(): void {
 				projectId: opts.project ?? DEFAULT_PROJECT_ID,
 				enabled: !args.includes("--disabled"),
 			};
-			const content = serializeTask(data, opts.prompt);
+			const content = serializeTask(data, prompt);
 			parseTask(content, "check", "check"); // 写前校验
 			const base = sanitizeTaskId(opts.name);
 			let id = base;
@@ -373,6 +414,8 @@ function main(): void {
 			else if (key === "project") t.projectId = value;
 			else if (key === "model") t.model = value;
 			else if (key === "prompt") t.prompt = value;
+			else if (key === "im-push")
+				t.prompt = injectImPushMentions(t.prompt, [value]);
 			else fail(`不支持的字段: ${key}`);
 			const content = serializeTask(t, t.prompt);
 			parseTask(content, id, t.file); // 写前校验
@@ -407,6 +450,26 @@ function main(): void {
 			]);
 			if (res.exitCode !== 0) fail("触发请求失败（kernel 不可达？）");
 			console.log(`已触发任务: ${id}（执行日志见 logs/${id}.log）`);
+			return;
+		}
+		case "delete": {
+			const id = args[0] ?? fail("缺少任务 id");
+			// 路径穿越防护（id 即文件名）
+			if (!id || id.includes("/") || id.includes("\\") || id.includes(".."))
+				fail(`任务 id 非法: ${id}`);
+			const file = join(TASKS_DIR, `${id}.md`);
+			if (!existsSync(file)) fail(`任务不存在: ${id}`);
+			// 项目隔离：能解析的正常任务校验归属；坏文件（无法解析归属）允许删（清理）；归属不符拒绝
+			try {
+				const t = loadTask(id);
+				assertOwnProject(t, id);
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				if (/不属于当前项目/.test(msg) || /id 非法/.test(msg)) fail(msg);
+				// 其余（坏文件解析失败等 json.fail）→ 放行删除
+			}
+			rmSync(file, { force: true });
+			console.log(`已删除任务: ${id}（${id}.md）`);
 			return;
 		}
 		default:

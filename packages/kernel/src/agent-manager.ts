@@ -110,6 +110,7 @@ import {
 	ensureImChannelSegment,
 	ensureImPushSegment,
 	ensureScheduledTasksSegment,
+	buildScheduledTasksSystemPrompt,
 	DEFAULT_PROMPT_SEGMENTS,
 	DEFAULT_MEMORY_POLICY_PROMPT,
 	COMPACT_MEMORY_POLICY_PROMPT,
@@ -891,6 +892,8 @@ export class AgentManager {
 			imPushContext: imPush?.targets?.length
 				? buildImPushSystemPrompt(imPush.targets)
 				: GENERIC_IM_PUSH_PROMPT,
+			// 定时任务管理引导（含路径/CLI 指引）：由构造函数产出经 ctx 注入，不在渲染层写死
+			scheduledTasksContext: buildScheduledTasksSystemPrompt(),
 		});
 		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });
