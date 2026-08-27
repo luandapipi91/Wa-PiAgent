@@ -59,68 +59,253 @@ import { buildAdditionalExtensionPaths } from "../src/extensions";
 type Category = "explore" | "edit" | "simple";
 const CASES: Array<{ category: Category; prompt: string }> = [
   // --- explore (30) ---
-  { category: "explore", prompt: "找出 packages/kernel/src 里所有调用 RpcClient.command 的地方，总结它们分别做什么。" },
-  { category: "explore", prompt: "审计整个 packages/frontend/src 下 data-testid 的使用，按组件归类列出。" },
-  { category: "explore", prompt: "agent-manager.ts 的会话生命周期是怎样的？从创建到销毁经过哪些方法，把调用链整理出来。" },
-  { category: "explore", prompt: "搜索全仓库，列出所有读取或写入 ~/.wa-pi 下文件的代码位置。" },
-  { category: "explore", prompt: "packages/kernel 里有哪些地方处理了 pi 子进程异常退出？把每条路径的文件和处理方式找出来。" },
-  { category: "explore", prompt: "调查 packages/frontend 的 store 目录：每个 store 的职责是什么，它们之间有没有交叉引用？" },
-  { category: "explore", prompt: "找出所有引用 SUBAGENT_TYPES 常量的文件，解释每处用它来做什么。" },
-  { category: "explore", prompt: "bridge-extension.ts 生成的扩展注册了哪些工具？每个工具的 schema 和超时分别是多少，逐条列出。" },
-  { category: "explore", prompt: "审计 packages/kernel/tests 下哪些测试文件用到了 fake-pi fixture，各自覆盖了什么场景。" },
-  { category: "explore", prompt: "系统提示词从 prompts.json 到最终注入 pi 进程经过哪些步骤？把相关函数和调用点都找出来。" },
-  { category: "explore", prompt: "列出 packages/shared/src 里所有导出的常量，并按用途分类。" },
-  { category: "explore", prompt: "调查前端 MessageList 组件的渲染分块逻辑：segmentBlocks 怎么工作，有哪些块类型？" },
-  { category: "explore", prompt: "找出 packages/frontend 里所有发送 WebSocket 消息的调用点，归纳它们各发什么类型的消息。" },
-  { category: "explore", prompt: "审计 packages/kernel/src/routes 下所有 HTTP 端点，按 方法+路径+handler 列出清单。" },
-  { category: "explore", prompt: "调查 packages/desktop：它的入口在哪，和 kernel/frontend 是怎么协作的？" },
-  { category: "explore", prompt: "找出所有使用 ProviderStore 的代码位置，说明每处读写了什么数据。" },
-  { category: "explore", prompt: "搜索全仓库对 process.env 的读取，按环境变量名归组，说明每个变量的用途。" },
-  { category: "explore", prompt: "调查 scripts/ 目录：每个脚本的用途是什么，分别被谁调用（package.json 脚本、启动脚本、CI）？" },
-  { category: "explore", prompt: "找出前端所有 localStorage 读写点，列出每个 key 的名称和用途。" },
-  { category: "explore", prompt: "审计 kernel 里 WebSocket 消息的分发链路：从收到前端消息到业务处理经过哪些模块？" },
-  { category: "explore", prompt: "调查 patches/ 目录下的补丁：各自改了哪个包的什么行为，为什么需要这些补丁？" },
-  { category: "explore", prompt: "列出 packages/kernel/tests 下所有测试文件，并给出每个文件主要覆盖的 src 模块对应关系。" },
-  { category: "explore", prompt: "搜索全仓库的 TODO 和 FIXME 注释，按包归类统计并列出内容。" },
-  { category: "explore", prompt: "调查前端的路由结构：有哪些页面路由，各自对应哪个组件文件？" },
-  { category: "explore", prompt: "找出所有 spawn/fork 子进程的代码位置，说明各自的进程类型和生命周期管理方式。" },
-  { category: "explore", prompt: "调查 kernel 的会话持久化机制：消息历史写到哪里、什么格式、由谁触发落盘？" },
-  { category: "explore", prompt: "找出前端所有 fetch/HTTP 请求调用，归纳它们分别打到 kernel 的哪些端点。" },
-  { category: "explore", prompt: "搜索全仓库对 projects.json / providers.json / prompts.json 等配置文件的读写点，按文件归类。" },
-  { category: "explore", prompt: "调查 packages/kernel/src/extensions.ts：扩展路径是怎么收集的，涉及哪些扩展源？" },
-  { category: "explore", prompt: "找出所有处理子代理遥测（telemetry）的代码，说明数据从产生到落盘的完整链路。" },
+  {
+    category: "explore",
+    prompt:
+      "找出 packages/kernel/src 里所有调用 RpcClient.command 的地方，总结它们分别做什么。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "审计整个 packages/frontend/src 下 data-testid 的使用，按组件归类列出。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "agent-manager.ts 的会话生命周期是怎样的？从创建到销毁经过哪些方法，把调用链整理出来。",
+  },
+  {
+    category: "explore",
+    prompt: "搜索全仓库，列出所有读取或写入 ~/.wa-pi 下文件的代码位置。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "packages/kernel 里有哪些地方处理了 pi 子进程异常退出？把每条路径的文件和处理方式找出来。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "调查 packages/frontend 的 store 目录：每个 store 的职责是什么，它们之间有没有交叉引用？",
+  },
+  {
+    category: "explore",
+    prompt: "找出所有引用 SUBAGENT_TYPES 常量的文件，解释每处用它来做什么。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "bridge-extension.ts 生成的扩展注册了哪些工具？每个工具的 schema 和超时分别是多少，逐条列出。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "审计 packages/kernel/tests 下哪些测试文件用到了 fake-pi fixture，各自覆盖了什么场景。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "系统提示词从 prompts.json 到最终注入 pi 进程经过哪些步骤？把相关函数和调用点都找出来。",
+  },
+  {
+    category: "explore",
+    prompt: "列出 packages/shared/src 里所有导出的常量，并按用途分类。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "调查前端 MessageList 组件的渲染分块逻辑：segmentBlocks 怎么工作，有哪些块类型？",
+  },
+  {
+    category: "explore",
+    prompt:
+      "找出 packages/frontend 里所有发送 WebSocket 消息的调用点，归纳它们各发什么类型的消息。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "审计 packages/kernel/src/routes 下所有 HTTP 端点，按 方法+路径+handler 列出清单。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "调查 packages/desktop：它的入口在哪，和 kernel/frontend 是怎么协作的？",
+  },
+  {
+    category: "explore",
+    prompt: "找出所有使用 ProviderStore 的代码位置，说明每处读写了什么数据。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "搜索全仓库对 process.env 的读取，按环境变量名归组，说明每个变量的用途。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "调查 scripts/ 目录：每个脚本的用途是什么，分别被谁调用（package.json 脚本、启动脚本、CI）？",
+  },
+  {
+    category: "explore",
+    prompt: "找出前端所有 localStorage 读写点，列出每个 key 的名称和用途。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "审计 kernel 里 WebSocket 消息的分发链路：从收到前端消息到业务处理经过哪些模块？",
+  },
+  {
+    category: "explore",
+    prompt:
+      "调查 patches/ 目录下的补丁：各自改了哪个包的什么行为，为什么需要这些补丁？",
+  },
+  {
+    category: "explore",
+    prompt:
+      "列出 packages/kernel/tests 下所有测试文件，并给出每个文件主要覆盖的 src 模块对应关系。",
+  },
+  {
+    category: "explore",
+    prompt: "搜索全仓库的 TODO 和 FIXME 注释，按包归类统计并列出内容。",
+  },
+  {
+    category: "explore",
+    prompt: "调查前端的路由结构：有哪些页面路由，各自对应哪个组件文件？",
+  },
+  {
+    category: "explore",
+    prompt:
+      "找出所有 spawn/fork 子进程的代码位置，说明各自的进程类型和生命周期管理方式。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "调查 kernel 的会话持久化机制：消息历史写到哪里、什么格式、由谁触发落盘？",
+  },
+  {
+    category: "explore",
+    prompt:
+      "找出前端所有 fetch/HTTP 请求调用，归纳它们分别打到 kernel 的哪些端点。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "搜索全仓库对 projects.json / providers.json / prompts.json 等配置文件的读写点，按文件归类。",
+  },
+  {
+    category: "explore",
+    prompt:
+      "调查 packages/kernel/src/extensions.ts：扩展路径是怎么收集的，涉及哪些扩展源？",
+  },
+  {
+    category: "explore",
+    prompt:
+      "找出所有处理子代理遥测（telemetry）的代码，说明数据从产生到落盘的完整链路。",
+  },
   // --- edit (10) ---
-  { category: "edit", prompt: "给 packages/kernel/src/subagent-telemetry.ts 的文件头注释补充一句落盘位置说明。" },
-  { category: "edit", prompt: "packages/frontend/src/components/settings/SkillSection.tsx 里搜索框的 placeholder 改成「搜索技能名称...」。" },
-  { category: "edit", prompt: "把 packages/kernel/src/delegate-tool.ts 里 MAX_SUBAGENT_CONCURRENCY 的注释更新为当前实际语义。" },
-  { category: "edit", prompt: "给 packages/kernel/src/rpc-client.ts 的 getSessionStats 方法补一段 JSDoc 说明返回结构。" },
-  { category: "edit", prompt: "CHANGELOG.md 顶部加一条今天的占位条目（类型：其他，内容：评测脚本冒烟）。" },
-  { category: "edit", prompt: "packages/kernel/src/subagent-runner.ts 中 mapThinking 函数加一个 'minimal' 级别的注释说明。" },
-  { category: "edit", prompt: "把 packages/kernel/scripts/eval-delegate-trigger.ts 里的每用例默认超时改为 240s（已在 2025-03 从 180s 更新）。" },
-  { category: "edit", prompt: "给 packages/kernel/src/agent-manager.ts 的 _flushSubagentTelemetry 方法补充边界情况注释（无记录时不落盘）。" },
-  { category: "edit", prompt: "给 packages/shared/src/constants.ts 的 WA_PI_DIR 常量注释补充一句「可用 WA_PI_DIR 环境变量覆盖」。" },
-  { category: "edit", prompt: "scripts/port.ts 文件头加一行注释说明这个脚本的用途。" },
+  {
+    category: "edit",
+    prompt:
+      "给 packages/kernel/src/subagent-telemetry.ts 的文件头注释补充一句落盘位置说明。",
+  },
+  {
+    category: "edit",
+    prompt:
+      "packages/frontend/src/components/settings/SkillSection.tsx 里搜索框的 placeholder 改成「搜索技能名称...」。",
+  },
+  {
+    category: "edit",
+    prompt:
+      "把 packages/kernel/src/delegate-tool.ts 里 MAX_SUBAGENT_CONCURRENCY 的注释更新为当前实际语义。",
+  },
+  {
+    category: "edit",
+    prompt:
+      "给 packages/kernel/src/rpc-client.ts 的 getSessionStats 方法补一段 JSDoc 说明返回结构。",
+  },
+  {
+    category: "edit",
+    prompt:
+      "CHANGELOG.md 顶部加一条今天的占位条目（类型：其他，内容：评测脚本冒烟）。",
+  },
+  {
+    category: "edit",
+    prompt:
+      "packages/kernel/src/subagent-runner.ts 中 mapThinking 函数加一个 'minimal' 级别的注释说明。",
+  },
+  {
+    category: "edit",
+    prompt:
+      "把 packages/kernel/scripts/eval-delegate-trigger.ts 里的每用例默认超时改为 240s（已在 2025-03 从 180s 更新）。",
+  },
+  {
+    category: "edit",
+    prompt:
+      "给 packages/kernel/src/agent-manager.ts 的 _flushSubagentTelemetry 方法补充边界情况注释（无记录时不落盘）。",
+  },
+  {
+    category: "edit",
+    prompt:
+      "给 packages/shared/src/constants.ts 的 WA_PI_DIR 常量注释补充一句「可用 WA_PI_DIR 环境变量覆盖」。",
+  },
+  {
+    category: "edit",
+    prompt: "scripts/port.ts 文件头加一行注释说明这个脚本的用途。",
+  },
   // --- simple (20) ---
-  { category: "simple", prompt: "packages/kernel/src/rpc-client.ts 的 buildPiArgs 函数支持哪些参数？念一下。" },
+  {
+    category: "simple",
+    prompt:
+      "packages/kernel/src/rpc-client.ts 的 buildPiArgs 函数支持哪些参数？念一下。",
+  },
   { category: "simple", prompt: "MAX_SUBAGENT_CONCURRENCY 的值是多少？" },
-  { category: "simple", prompt: "读 packages/kernel/package.json，告诉我 test 脚本是什么。" },
+  {
+    category: "simple",
+    prompt: "读 packages/kernel/package.json，告诉我 test 脚本是什么。",
+  },
   { category: "simple", prompt: "PROMPTS_SCHEMA_VERSION 当前是几？" },
   { category: "simple", prompt: "delegate 工具的参数有哪两个？" },
   { category: "simple", prompt: "WA_PI_DIR 默认指向哪个目录？" },
-  { category: "simple", prompt: "subagent-telemetry.ts 里 estimateTokens 的估算比例是多少？" },
-  { category: "simple", prompt: "packages/shared/src/constants.ts 里 SUBAGENT_TYPES 有哪几个内置类型？" },
+  {
+    category: "simple",
+    prompt: "subagent-telemetry.ts 里 estimateTokens 的估算比例是多少？",
+  },
+  {
+    category: "simple",
+    prompt:
+      "packages/shared/src/constants.ts 里 SUBAGENT_TYPES 有哪几个内置类型？",
+  },
   { category: "simple", prompt: "fleet 工具的并发上限是多少？" },
-  { category: "simple", prompt: "读 packages/kernel/src/system-prompt.ts 前 20 行，告诉我这个文件是做什么的。" },
+  {
+    category: "simple",
+    prompt:
+      "读 packages/kernel/src/system-prompt.ts 前 20 行，告诉我这个文件是做什么的。",
+  },
   { category: "simple", prompt: "DEFAULT_AGENT_TOOLS 里包含哪几个工具名？" },
-  { category: "simple", prompt: "packages/kernel/package.json 的 name 字段是什么？" },
+  {
+    category: "simple",
+    prompt: "packages/kernel/package.json 的 name 字段是什么？",
+  },
   { category: "simple", prompt: "resolvePiCliPath 函数定义在哪个文件里？" },
   { category: "simple", prompt: "bunfig.toml 里配置了什么？读一下告诉我。" },
-  { category: "simple", prompt: "tsconfig.base.json 的 compilerOptions.target 是什么？" },
+  {
+    category: "simple",
+    prompt: "tsconfig.base.json 的 compilerOptions.target 是什么？",
+  },
   { category: "simple", prompt: "PI_AGENTS_DIR 指向哪个目录？" },
-  { category: "simple", prompt: "packages/frontend/package.json 里有没有 vitest 这个依赖？" },
-  { category: "simple", prompt: "SUBAGENT_OVERRIDES_FILE 这个常量定义在哪个文件？" },
+  {
+    category: "simple",
+    prompt: "packages/frontend/package.json 里有没有 vitest 这个依赖？",
+  },
+  {
+    category: "simple",
+    prompt: "SUBAGENT_OVERRIDES_FILE 这个常量定义在哪个文件？",
+  },
   { category: "simple", prompt: "start.bat 是干什么的？读一下告诉我。" },
-  { category: "simple", prompt: "eval-delegate-trigger.ts 里 stub server 监听哪个地址和端口？" },
+  {
+    category: "simple",
+    prompt: "eval-delegate-trigger.ts 里 stub server 监听哪个地址和端口？",
+  },
 ];
 
 // ---- CLI 参数 ----
@@ -141,18 +326,48 @@ interface CliOpts {
 }
 
 function parseArgs(argv: string[]): CliOpts {
-  const opts: CliOpts = { limit: CASES.length, sample: 0, categories: null, repeat: 1, model: null, thinking: null, dryRun: false, out: null, timeoutSec: 240 };
+  const opts: CliOpts = {
+    limit: CASES.length,
+    sample: 0,
+    categories: null,
+    repeat: 1,
+    model: null,
+    thinking: null,
+    dryRun: false,
+    out: null,
+    timeoutSec: 240,
+  };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
-      case "--limit": opts.limit = parseInt(argv[++i]!, 10); break;
-      case "--sample": opts.sample = parseInt(argv[++i]!, 10); break;
-      case "--category": opts.categories = argv[++i]!.split(",").map(s => s.trim()) as Category[]; break;
-      case "--repeat": opts.repeat = Math.max(1, parseInt(argv[++i]!, 10)); break;
-      case "--model": opts.model = argv[++i]!; break;
-      case "--thinking": opts.thinking = argv[++i]!; break;
-      case "--dry-run": opts.dryRun = true; break;
-      case "--out": opts.out = argv[++i]!; break;
-      case "--timeout": opts.timeoutSec = parseInt(argv[++i]!, 10); break;
+      case "--limit":
+        opts.limit = parseInt(argv[++i]!, 10);
+        break;
+      case "--sample":
+        opts.sample = parseInt(argv[++i]!, 10);
+        break;
+      case "--category":
+        opts.categories = argv[++i]!.split(",").map((s) =>
+          s.trim(),
+        ) as Category[];
+        break;
+      case "--repeat":
+        opts.repeat = Math.max(1, parseInt(argv[++i]!, 10));
+        break;
+      case "--model":
+        opts.model = argv[++i]!;
+        break;
+      case "--thinking":
+        opts.thinking = argv[++i]!;
+        break;
+      case "--dry-run":
+        opts.dryRun = true;
+        break;
+      case "--out":
+        opts.out = argv[++i]!;
+        break;
+      case "--timeout":
+        opts.timeoutSec = parseInt(argv[++i]!, 10);
+        break;
       default:
         console.error(`未知参数: ${argv[i]}`);
         process.exit(2);
@@ -170,7 +385,9 @@ function selectCases(opts: CliOpts): typeof CASES {
   if (opts.sample > 0) {
     const picked: typeof CASES = [];
     for (const cat of ["explore", "edit", "simple"] as const) {
-      picked.push(...pool.filter((c) => c.category === cat).slice(0, opts.sample));
+      picked.push(
+        ...pool.filter((c) => c.category === cat).slice(0, opts.sample),
+      );
     }
     return picked;
   }
@@ -178,9 +395,18 @@ function selectCases(opts: CliOpts): typeof CASES {
 }
 
 // ---- stub bridge server：记录 delegate/fleet 调用并立即应答，不真跑子代理 ----
-interface StubCall { tool: string; params: unknown; at: string }
+interface StubCall {
+  tool: string;
+  params: unknown;
+  at: string;
+}
 
-function startStubBridge(): Promise<{ server: Server; port: number; token: string; calls: StubCall[] }> {
+function startStubBridge(): Promise<{
+  server: Server;
+  port: number;
+  token: string;
+  calls: StubCall[];
+}> {
   const token = randomUUID();
   const calls: StubCall[] = [];
   const server = createServer((req, res) => {
@@ -192,9 +418,15 @@ function startStubBridge(): Promise<{ server: Server; port: number; token: strin
     req.on("data", (c) => (body += c));
     req.on("end", () => {
       let msg: any = null;
-      try { msg = JSON.parse(body); } catch { /* 非法 JSON 按 400 处理 */ }
+      try {
+        msg = JSON.parse(body);
+      } catch {
+        /* 非法 JSON 按 400 处理 */
+      }
       if (!msg || msg.token !== token) {
-        res.writeHead(403, { "content-type": "application/json" }).end(JSON.stringify({ error: "bad_token" }));
+        res
+          .writeHead(403, { "content-type": "application/json" })
+          .end(JSON.stringify({ error: "bad_token" }));
         return;
       }
       const tool = String(msg.tool ?? "");
@@ -205,15 +437,20 @@ function startStubBridge(): Promise<{ server: Server; port: number; token: strin
           : tool === "ask_user_question"
             ? "（评测桩：用户已取消提问）"
             : "（评测桩：ok）";
-      res.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({ content: [{ type: "text", text }] }),
-      );
+      res
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ content: [{ type: "text", text }] }));
     });
   });
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
-      resolve({ server, port: typeof addr === "object" && addr ? addr.port : 0, token, calls });
+      resolve({
+        server,
+        port: typeof addr === "object" && addr ? addr.port : 0,
+        token,
+        calls,
+      });
     });
   });
 }
@@ -264,9 +501,14 @@ async function runOneCase(
   const stubMark = ctx.stubCalls.length; // 记录本用例前的 stub 调用数，用例后取增量
 
   let settled!: () => void;
-  const settledPromise = new Promise<void>((resolve) => { settled = resolve; });
+  const settledPromise = new Promise<void>((resolve) => {
+    settled = resolve;
+  });
   const onEvent = (e: RpcEvent) => {
-    if (e.type === "tool_execution_start" && typeof (e as any).toolName === "string") {
+    if (
+      e.type === "tool_execution_start" &&
+      typeof (e as any).toolName === "string"
+    ) {
       result.toolsCalled.push((e as any).toolName);
     }
     if (e.type === "agent_settled") settled();
@@ -305,12 +547,22 @@ async function runOneCase(
     await Promise.race([
       settledPromise,
       new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error(`用例超时 (${ctx.timeoutSec}s)`)), ctx.timeoutSec * 1000),
+        setTimeout(
+          () => reject(new Error(`用例超时 (${ctx.timeoutSec}s)`)),
+          ctx.timeoutSec * 1000,
+        ),
       ),
     ]);
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
-    try { await client.abort(); } catch { /* 忽略 */ }
+    // 中止当前用例的 pi 会话；abort 失败（如进程已退出）不影响用例失败结果上报
+    try {
+      await client.abort();
+    } catch (abortErr) {
+      console.log(
+        `用例 #${index} abort 失败（忽略）: ${abortErr instanceof Error ? abortErr.message : String(abortErr)}`,
+      );
+    }
   } finally {
     await client.dispose().catch(() => {});
   }
@@ -328,7 +580,9 @@ async function runOneCase(
       if (call.tool === "delegate") {
         result.delegateCalls.push({ tool: "delegate", agent: params?.agent });
       } else {
-        const agents = Array.isArray(params?.tasks) ? params.tasks.map((t: any) => t?.agent).join("+") : undefined;
+        const agents = Array.isArray(params?.tasks)
+          ? params.tasks.map((t: any) => t?.agent).join("+")
+          : undefined;
         result.delegateCalls.push({ tool: "fleet", agent: agents });
       }
     }
@@ -341,7 +595,9 @@ async function runOneCase(
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const cases = selectCases(opts);
-  console.log(`\n=== Delegate 触发率评测：${cases.length}/${CASES.length} 条用例 ===`);
+  console.log(
+    `\n=== Delegate 触发率评测：${cases.length}/${CASES.length} 条用例 ===`,
+  );
 
   // 模型：--model 或 providers.json 第一个 provider 的第一个模型
   const store = new ProviderStore();
@@ -359,13 +615,17 @@ async function main() {
   } else {
     const p = providers[0];
     if (!p || p.models.length === 0) {
-      console.error("providers.json 无可用 provider/模型，请先配置或用 --model 指定");
+      console.error(
+        "providers.json 无可用 provider/模型，请先配置或用 --model 指定",
+      );
       process.exit(2);
     }
     providerSlug = slugifyProviderName(p.name, []);
     modelId = p.models[0]!.id;
   }
-  console.log(`模型: ${providerSlug}/${modelId}   thinking: ${opts.thinking ?? "(pi 默认)"}   单例超时: ${opts.timeoutSec}s`);
+  console.log(
+    `模型: ${providerSlug}/${modelId}   thinking: ${opts.thinking ?? "(pi 默认)"}   单例超时: ${opts.timeoutSec}s`,
+  );
 
   if (opts.dryRun) {
     for (const [i, c] of cases.entries()) {
@@ -376,7 +636,8 @@ async function main() {
 
   // 准备：prompts / 系统提示词 / 扩展 / stub bridge
   await ensurePromptsConfig(PROMPTS_FILE);
-  const segments = (await loadPromptSegments(PROMPTS_FILE)) ?? DEFAULT_PROMPT_SEGMENTS;
+  const segments =
+    (await loadPromptSegments(PROMPTS_FILE)) ?? DEFAULT_PROMPT_SEGMENTS;
   const agentsDir = join(WA_PI_DIR, "agents");
   const delegateRoster = buildDelegateRoster([], {}, agentsDir);
   const composed = composePrompt(segments, {
@@ -391,7 +652,7 @@ async function main() {
 
   await ensureProviderExtensionRegistered(store);
   await ensureBridgeExtension();
-  const extensionPaths = buildAdditionalExtensionPaths([]);
+  const extensionPaths = buildAdditionalExtensionPaths();
 
   const stub = await startStubBridge();
   const bridgeUrl = `http://127.0.0.1:${stub.port}`;
@@ -399,10 +660,13 @@ async function main() {
   const runs: CaseResult[][] = [];
   try {
     for (let round = 0; round < opts.repeat; round++) {
-      if (opts.repeat > 1) console.log(`\n--- 第 ${round + 1}/${opts.repeat} 轮 ---`);
+      if (opts.repeat > 1)
+        console.log(`\n--- 第 ${round + 1}/${opts.repeat} 轮 ---`);
       const results: CaseResult[] = [];
       for (const [i, c] of cases.entries()) {
-        process.stdout.write(`[${i + 1}/${cases.length}] ${c.category}: ${c.prompt.slice(0, 40)}... `);
+        process.stdout.write(
+          `[${i + 1}/${cases.length}] ${c.category}: ${c.prompt.slice(0, 40)}... `,
+        );
         const r = await runOneCase(i, c.category, c.prompt, {
           promptFile,
           extensionPaths,
@@ -444,20 +708,28 @@ async function main() {
   };
   const stats = (values: number[]) => {
     const mean = values.reduce((s, v) => s + v, 0) / values.length;
-    const std = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length);
+    const std = Math.sqrt(
+      values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length,
+    );
     return { mean, std };
   };
 
   console.log("\n=== SUMMARY ===");
   for (const cat of ["explore", "edit", "simple"] as const) {
-    const perRun = runs.map((rs) => rate(rs, cat)).filter((x): x is NonNullable<typeof x> => x !== null);
+    const perRun = runs
+      .map((rs) => rate(rs, cat))
+      .filter((x): x is NonNullable<typeof x> => x !== null);
     if (perRun.length === 0) continue;
     if (perRun.length === 1) {
-      console.log(`${cat}: ${perRun[0]!.n}/${perRun[0]!.total} 触发 delegate/fleet (${perRun[0]!.pct.toFixed(0)}%)`);
+      console.log(
+        `${cat}: ${perRun[0]!.n}/${perRun[0]!.total} 触发 delegate/fleet (${perRun[0]!.pct.toFixed(0)}%)`,
+      );
     } else {
       const { mean, std } = stats(perRun.map((x) => x.pct));
       const detail = perRun.map((x) => `${x.pct.toFixed(0)}%`).join(" / ");
-      console.log(`${cat}: mean ${mean.toFixed(1)}% ± ${std.toFixed(1)}  (${perRun.length} 轮: ${detail})`);
+      console.log(
+        `${cat}: mean ${mean.toFixed(1)}% ± ${std.toFixed(1)}  (${perRun.length} 轮: ${detail})`,
+      );
     }
   }
   const exploreRates = runs.map((rs) => rate(rs, "explore")?.pct ?? 0);
@@ -472,12 +744,25 @@ async function main() {
   }
   const allResults = runs.flat();
   console.log(`错误用例: ${allResults.filter((r) => r.error).length}`);
-  console.log(`总耗时: ${(allResults.reduce((s, r) => s + r.elapsedMs, 0) / 1000).toFixed(1)}s`);
+  console.log(
+    `总耗时: ${(allResults.reduce((s, r) => s + r.elapsedMs, 0) / 1000).toFixed(1)}s`,
+  );
 
-  const outPath = opts.out ?? join(WA_PI_DIR, `eval-delegate-trigger-${Date.now()}.json`);
+  const outPath =
+    opts.out ?? join(WA_PI_DIR, `eval-delegate-trigger-${Date.now()}.json`);
   await writeFile(
     outPath,
-    JSON.stringify({ model: `${providerSlug}/${modelId}`, thinking: opts.thinking, at: new Date().toISOString(), repeat: opts.repeat, runs }, null, 2),
+    JSON.stringify(
+      {
+        model: `${providerSlug}/${modelId}`,
+        thinking: opts.thinking,
+        at: new Date().toISOString(),
+        repeat: opts.repeat,
+        runs,
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
   console.log(`结果已写入: ${outPath}`);

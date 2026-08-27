@@ -234,9 +234,7 @@ function parseArgs(argv: string[]): CliOpts {
 				opts.sample = parseInt(argv[++i]!, 10);
 				break;
 			case "--category":
-				opts.categories = argv[++i]!.split(",").map((s) =>
-					s.trim(),
-				) as Category[];
+				opts.categories = argv[++i]!.split(",").map((s) => s.trim()) as Category[];
 				break;
 			case "--repeat":
 				opts.repeat = Math.max(1, parseInt(argv[++i]!, 10));
@@ -285,9 +283,7 @@ function selectCases(opts: CliOpts): typeof CASES {
 	if (opts.sample > 0) {
 		const picked: typeof CASES = [];
 		for (const cat of ["user", "project", "mixed", "implicit"] as const) {
-			picked.push(
-				...pool.filter((c) => c.category === cat).slice(0, opts.sample),
-			);
+			picked.push(...pool.filter((c) => c.category === cat).slice(0, opts.sample));
 		}
 		return picked;
 	}
@@ -407,8 +403,7 @@ function startStubBridge(cwd: string): Promise<StubBridge> {
 								{
 									type: "text",
 									text:
-										"记忆操作失败: " +
-										(err instanceof Error ? err.message : String(err)),
+										"记忆操作失败: " + (err instanceof Error ? err.message : String(err)),
 								},
 							],
 							details: { error: "memory_op_failed" },
@@ -571,9 +566,7 @@ async function runOneCase(
 			result.memoryAdds.push({
 				target: String(call.params.target ?? ""),
 				scope:
-					call.params.scope !== undefined
-						? String(call.params.scope)
-						: undefined,
+					call.params.scope === undefined ? undefined : String(call.params.scope),
 				content: String(call.params.content ?? ""),
 			});
 		}
@@ -734,7 +727,7 @@ async function main() {
 
 	await ensureProviderExtensionRegistered(store);
 	await ensureBridgeExtension();
-	const extensionPaths = buildAdditionalExtensionPaths([]);
+	const extensionPaths = buildAdditionalExtensionPaths();
 
 	const stub = await startStubBridge(join(import.meta.dir, "../../.."));
 	const bridgeUrl = `http://127.0.0.1:${stub.port}`;

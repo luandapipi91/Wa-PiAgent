@@ -32,6 +32,6 @@ describe("shouldCompactBeforeSend", () => {
 	});
 
 	test("80% 阈值常量正确", () => {
-		expect(AUTO_COMPACT_USAGE_RATIO).toBe(0.80);
+		expect(AUTO_COMPACT_USAGE_RATIO).toBe(0.8);
 	});
 });

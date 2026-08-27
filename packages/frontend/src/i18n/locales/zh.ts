@@ -752,6 +752,7 @@ const zh = {
 				label: "提示音",
 				desc: "任务完成或等待你操作时播放提示音，即时生效。",
 				taskDone: "任务完成",
+				schedTaskDone: "定时任务完成",
 				needsAction: "需要操作",
 				preview: "试听",
 			},

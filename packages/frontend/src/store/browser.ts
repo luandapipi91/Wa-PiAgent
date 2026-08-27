@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { FileChangeSnapshot } from "@wa-pi/shared";
 
 /** 预览窗口模式：split=与聊天分屏；full=占满主内容区；float=浮动窗 */
 export type BrowserMode = "split" | "full" | "float";
@@ -93,6 +94,7 @@ function loadRatio(): number {
 	try {
 		const v = Number(localStorage.getItem(LS.ratio));
 		if (v >= 0.2 && v <= 0.8) return v;
+		// pi-lens-ignore: error-swallowing
 	} catch {
 		/* 同上 */
 	}
@@ -174,6 +176,9 @@ interface BrowserState {
 	path: string | null;
 	/** 来源会话 id（供「代码」预览 / 分享 / 元素 chip 落入使用），可能为 null */
 	sessionId: string | null;
+	/** 刷新令牌：变化即重挂 iframe（BrowserPanel 传给 HtmlPreview 作 key）。
+	 * 任务完成时被修改的预览文件经 maybeRefreshForFileChanges 自动递增；手动刷新按钮同源 bumpRefresh */
+	refreshToken: number;
 	mode: BrowserMode;
 	splitRatio: number;
 	floatRect: FloatRect;
@@ -194,12 +199,24 @@ interface BrowserState {
 	setBubblePos: (pos: BubblePos) => void;
 	/** 同步当前预览路径（地址栏加载本地 html 时调用）：模式切换重挂面板后可从 store 恢复内容 */
 	setPath: (path: string | null) => void;
+	/** 递增刷新令牌 → iframe 重挂重新加载（手动刷新按钮） */
+	bumpRefresh: () => void;
+	/** 任务完成上报的修改清单命中「当前会话正在预览的文件」时递增刷新令牌。
+	 * 只看面板当前显示的预览（open/path/sessionId）：未显示会话的预览记忆无需刷新——
+	 * 切回时 iframe 挂载即加载磁盘最新内容（kernel 预览响应 no-store） */
+	maybeRefreshForFileChanges: (
+		sessionId: string | null,
+		files: FileChangeSnapshot[],
+	) => void;
+	/** 判定修改清单是否命中当前预览（精确命中预览文件，或同目录含子目录的嵌套子页 html）。独立导出便于单测 */
+	matchesFileChange: (files: FileChangeSnapshot[]) => boolean;
 }
 
-export const useBrowserStore = create<BrowserState>((set) => ({
+export const useBrowserStore = create<BrowserState>((set, get) => ({
 	open: false,
 	path: null,
 	sessionId: null,
+	refreshToken: 0,
 	mode: loadMode(),
 	splitRatio: loadRatio(),
 	floatRect: loadRect(),
@@ -215,12 +232,12 @@ export const useBrowserStore = create<BrowserState>((set) => ({
 			minimized: false,
 			// 有归属会话时同步写入该会话的记忆
 			bySession:
-				sid != null
-					? {
+				sid == null
+					? state.bySession
+					: {
 							...state.bySession,
 							[sid]: { open: true, path: path ?? null, minimized: false },
-						}
-					: state.bySession,
+						},
 		}));
 	},
 	closeBrowser: () =>
@@ -233,12 +250,12 @@ export const useBrowserStore = create<BrowserState>((set) => ({
 				minimized: false,
 				// 关闭即清空该会话的记忆，切回时不弹出
 				bySession:
-					sid != null
-						? {
+					sid == null
+						? state.bySession
+						: {
 								...state.bySession,
 								[sid]: { open: false, path: null, minimized: false },
-							}
-						: state.bySession,
+							},
 			};
 		}),
 	activateSession: (sessionId) =>
@@ -303,5 +320,34 @@ export const useBrowserStore = create<BrowserState>((set) => ({
 		const clamped = clampBubblePos(pos);
 		save(LS.bubble, JSON.stringify(clamped));
 		set({ bubblePos: clamped });
+	},
+	bumpRefresh: () => set((s) => ({ refreshToken: s.refreshToken + 1 })),
+	maybeRefreshForFileChanges: (sessionId, files) => {
+		if (!sessionId || !files.length) return;
+		const st = get();
+		if (!st.open || st.sessionId !== sessionId || !st.path) return;
+		// files 是 FileChangeSnapshot 对象数组，按 path 字段匹配（非字符串数组）
+		if (!st.matchesFileChange(files)) return;
+		set({ refreshToken: st.refreshToken + 1 });
+	},
+	matchesFileChange: (files) => {
+		const st = get();
+		if (!st.path) return false;
+		const dir = st.path.slice(0, st.path.lastIndexOf("/") + 1); // 含尾斜杠的目录前缀
+		return files.some((f) => {
+			const p = f?.path;
+			if (!p) return false;
+			// ① 精确命中：预览文件本身被改
+			if (p === st.path) return true;
+			// ② 嵌套子页：预览 A.html 内 <iframe src="./B.html"> 引用的 B.html 被改 ——
+			// 外层没变但渲染内容已过时。不解析 iframe 引用树（需 kernel 新接口），
+			// 近似为「预览文件同目录（含子目录）的本地 html」：刷新幂等（重挂重拉），
+			// 无关 html 多刷无害；精确性换零 kernel 改动。
+			return (
+				(p.endsWith(".html") || p.endsWith(".htm")) &&
+				p.startsWith(dir) &&
+				p.length > dir.length
+			);
+		});
 	},
 }));

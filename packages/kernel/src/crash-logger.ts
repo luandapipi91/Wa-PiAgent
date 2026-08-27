@@ -102,3 +102,50 @@ export function installCrashHandlers(
   handle("unhandledRejection", (r) => logger.unhandledRejection(r), reason),
  );
 }
+
+// ---- agent 子进程崩溃记录 ----
+//
+// 背景：pi rpc 子进程被原生信号杀死（SIGTRAP/SIGSEGV，如 Bun 运行时 panic）时，
+// panic 原文只打在该子进程的 stderr 上，RpcClient 内存里留的尾巴随对象丢弃即失，
+// 导致事后只有 code=133 这类数字可查（2026-08-27 SIGTRAP 案例无法定位 panic 文本）。
+// 本模块把退出现场（code/signal/pid + stderr 尾部）持久化到
+// ~/.pi/agent/logs/agent-crash.log，供与 ~/Library/Logs/DiagnosticReports 的 .ips
+// 崩溃报告交叉比对。写入静默吞错，绝不反向影响会话重建流程。
+
+/** agent 子进程一次异常退出的现场数据 */
+export interface AgentCrashEntry {
+ sessionId: string;
+ agentName: string;
+ code: number | null;
+ signal: string | null;
+ pid: number | null;
+ /** RpcClient.getStderrTail() 的行数组 */
+ stderrLines: string[];
+}
+
+/** 单条 stderr 行的最大长度（超长截断） */
+const CRASH_STDERR_MAX_LINE = 2000;
+/** 落盘保留的 stderr 最大行数（panic 文本在末尾，尾部足够） */
+const CRASH_STDERR_MAX_LINES = 50;
+
+/** 把崩溃条目格式化为日志块（纯函数，便于单测） */
+export function formatAgentCrashBlock(entry: AgentCrashEntry): string {
+ const ts = new Date().toISOString();
+ const lines = entry.stderrLines
+  .slice(-CRASH_STDERR_MAX_LINES)
+  .map((l) => l.slice(0, CRASH_STDERR_MAX_LINE));
+ return [
+  `===== ${ts} agent 进程崩溃 session=${entry.sessionId} agent=${entry.agentName} pid=${entry.pid ?? "?"} code=${entry.code ?? "null"} signal=${entry.signal ?? "none"} =====`,
+  `最近 stderr（末 ${lines.length} 行）：`,
+  lines.length ? lines.join("\n") : "(无)",
+  "",
+ ].join("\n");
+}
+
+/** 把一次 agent 子进程异常退出现场追加写入日志文件（异步、静默吞错） */
+export function logAgentCrash(logPath: string, entry: AgentCrashEntry): void {
+ const block = formatAgentCrashBlock(entry);
+ mkdir(dirname(logPath), { recursive: true })
+  .then(() => appendFile(logPath, block + "\n"))
+  .catch(() => {}); // 日志写失败静默吞错
+}

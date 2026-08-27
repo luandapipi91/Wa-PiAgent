@@ -44,6 +44,7 @@ import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
 import { join, extname } from "node:path";
+import { logAgentCrash } from "./crash-logger";
 import {
 	mkdir,
 	writeFile,
@@ -69,7 +70,6 @@ import {
 	isProviderExtensionStale,
 } from "./provider-extension";
 import { SubagentTelemetry } from "./subagent-telemetry";
-import { lookupCatalogModel } from "./pi-catalog";
 import {
 	AUTO_COMPACT_USAGE_RATIO,
 	shouldCompactBeforeSend,
@@ -194,6 +194,15 @@ export const WA_PI_DEFAULT_SYSTEM_PROMPT = WA_PI_DEFAULT_BASE_PROMPT;
 /** 永不放行给 LLM 直接调用的工具（subagent 必须走宿主 delegate 工具） */
 const ALWAYS_EXCLUDED_TOOLS = ["subagent"];
 
+/** 单个任务周期内崩溃自动接力上限：超过后回落为报错提示，不再自动续跑（用户拍板 2 次） */
+const AUTO_RESUME_MAX_ATTEMPTS = 2;
+/** 崩溃后延迟重建毫秒数：给进程退出/资源释放留缓冲 */
+const AUTO_RESUME_DELAY_MS = 1_000;
+/** 续跑触发消息前缀标记：LLM 可见、前端按此过滤不渲染（用户无感） */
+export const AUTO_RESUME_MARKER = "[WAPI-AUTO-RESUME]";
+/** 续跑触发指令：告知 agent 从中断处接续任务（隐藏于 UI） */
+const AUTO_RESUME_PROMPT = `${AUTO_RESUME_MARKER} 你之前的运行因故障异常中断。请根据上方对话历史判断已完成进度，先检查可能写到一半的文件或操作，从中断处继续完成原任务，不要重复已完成的工作。`;
+
 /** 单个会话的运行时句柄 */
 interface SessionHandle {
 	client: RpcClient;
@@ -233,13 +242,12 @@ interface SessionHandle {
 	/** transient 网络错误标记：true 时 agent_settled 跳过 followUp/steer drain，
 	 *  避免网络不可用时自动发送排队消息（会再失败）。用户重发后清除。 */
 	netDegraded: boolean;
+	/** 崩溃自动接力计数（当前任务周期内）：用户主动发消息时清零（熔断参数） */
+	autoResumeCount: number;
 	/** 最近一次活跃时间戳（ms）：prompt / message_end / steer / 打开会话时刷新。
 	 *  供 reapIdleSessions 判断是否回收该会话子进程，避免每轮读盘。 */
 	lastActiveAt: number;
 }
-
-/** 模型上下文窗口缓存（modelId → contextWindow），避免每次发送都读 pi-ai 目录 */
-const modelContextWindowCache = new Map<string, number>();
 
 /** abort RPC 无响应的默认兜底超时（ms）：pi agent loop 卡死时强杀进程，保证停止生效 */
 const ABORT_RPC_TIMEOUT_MS = 5_000;
@@ -992,6 +1000,7 @@ export class AgentManager {
 			piSessionFile: sessionEntity.piSessionFile,
 			crashed: false,
 			disposed: false,
+			autoResumeCount: 0,
 			subagentTelemetry,
 			subagentAborts,
 			currentModel: null,
@@ -1219,6 +1228,22 @@ export class AgentManager {
 		console.error(
 			`[kernel] session ${sessionId} pi 进程意外退出 (code=${code} signal=${signal ?? "none"})`,
 		);
+		// 崩溃现场落盘：子进程 stderr 尾部（Bun/Node 原生崩溃的 panic 原文在这）
+		// 是定位 code=133/139 类信号崩溃的唯一线索，内存尾巴随对象丢弃即失。
+		// 异步追加到 <WA_PI_DIR>/logs/agent-crash.log；getStderrTail 用可选链兼容
+		// 测试假 client（退出处理链路上任何异常都不允许影响错误事件与重建流程）。
+		try {
+			logAgentCrash(join(process.env.WA_PI_DIR ?? "", "logs", "agent-crash.log"), {
+				sessionId,
+				agentName: handle.meta.agentName,
+				code,
+				signal,
+				pid: handle.client.pid ?? null,
+				stderrLines: handle.client.getStderrTail?.() ?? [],
+			});
+		} catch (e) {
+			void e;
+		}
 		// 合成 message_end 错误事件：复用 extractSdkErrorMessage → 前端 ⚠️ 渲染管线
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "message_end",
@@ -1353,8 +1378,10 @@ export class AgentManager {
 
 	/**
 	 * 发送前自动压缩防护。
-	 * 当前上下文占用 + 固定预留（33K，社区做法）超过上下文窗口时，先 compact 再继续发送，
-	 * 作为 pi「turn 结束后阈值压缩 + 请求层 max_tokens clamp」之外的发送前提前量。
+	 * 当前上下文占用超过窗口一定比例（AUTO_COMPACT_USAGE_RATIO）时，先 compact 再继续发送，
+	 * 作为 pi「prompt preflight 隐性压缩 + turn 结束后阈值压缩」之外的发送前提前量。
+	 * 数据源必须与 pi 同源（getSessionStats().contextUsage），否则会出现「kernel 不压、pi 在
+	 * prompt preflight 里隐性长压缩」的缝隙，压缩耗时叠加 prompt RPC 超时导致误报启动失败。
 	 * 压缩失败不阻断发送（退回现状，让原消息走正常错误渲染）。
 	 */
 	private async _autoCompactIfNeeded(
@@ -1362,39 +1389,30 @@ export class AgentManager {
 		handle: SessionHandle,
 	): Promise<void> {
 		try {
-			// 1. 解析当前模型 id（"provider/modelId" → modelId）
-			const currentModel = handle.currentModel;
-			if (!currentModel) return;
-			const slash = currentModel.indexOf("/");
-			const modelId = slash >= 0 ? currentModel.slice(slash + 1) : currentModel;
-
-			// 2. 查模型上下文窗口，带进程内缓存
-			let contextWindow = modelContextWindowCache.get(modelId);
-			if (contextWindow === undefined) {
-				const catalogModel = await lookupCatalogModel(modelId);
-				if (!catalogModel) return;
-				contextWindow = catalogModel.contextWindow;
-				modelContextWindowCache.set(modelId, contextWindow);
-			}
-			if (contextWindow <= 0) return;
-
-			// 3. 读当前上下文占用（pi get_session_stats.contextUsage）
+			// 读当前上下文水位（pi get_session_stats.contextUsage：{ tokens, contextWindow, percent }），
+			// 与 pi 内部压缩判断同源。此前经 pi-ai 模型目录查窗口：用户自定义模型（自填 baseUrl 的
+			// 中转）不在目录里 → 预压缩静默失效，pi 在 prompt preflight 里的隐性压缩成为唯一防线，
+			// 慢模型大会话下压缩耗时超 prompt RPC 60s 超时，被误报为「agent 启动失败: RPC 命令超时」。
 			const stats = await handle.client.getSessionStats();
 			const cu = stats?.contextUsage;
 			if (!cu || typeof cu !== "object") return;
-			const used = (cu as any).used ?? (cu as any).tokens;
+			// tokens 为 null（压缩边界后尚无新 assistant usage）时跳过：此刻上下文刚压完必然很小，
+			// pi 侧防重压检查也不会触发，与 pi 判断一致
+			const used = (cu as any).tokens ?? (cu as any).used;
 			if (typeof used !== "number" || used <= 0) return;
+			const windowFromPi = (cu as any).contextWindow;
+			if (typeof windowFromPi !== "number" || windowFromPi <= 0) return;
 
-			// 4. 判断是否超限：输入占用 + 固定预留 > 窗口
-			if (!shouldCompactBeforeSend(used, contextWindow)) return;
+			// 判断是否超限：占用超窗口比例阈值
+			if (!shouldCompactBeforeSend(used, windowFromPi)) return;
 
-			// 5. 自动 compact（busy 防并发；完成后由 _sendPromptNow 继续设 busy 发 prompt）
+			// 自动 compact（busy 防并发；compact RPC 超时 10 分钟；完成后由 _sendPromptNow 继续设 busy 发 prompt）
 			console.log(
 				`[kernel] session ${sessionId} 自动压缩：used=${used}(${(
-					(used / contextWindow) * 100
+					(used / windowFromPi) * 100
 				).toFixed(
 					1,
-				)}% > ${(AUTO_COMPACT_USAGE_RATIO * 100).toFixed(0)}%) > contextWindow=${contextWindow}`,
+				)}% > ${(AUTO_COMPACT_USAGE_RATIO * 100).toFixed(0)}%) > contextWindow=${windowFromPi}`,
 			);
 			handle.busy = true;
 			try {

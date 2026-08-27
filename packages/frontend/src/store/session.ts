@@ -10,6 +10,7 @@ import type {
 	SubagentProgressEvent,
 } from "@wa-pi/shared";
 import { useProjectsStore } from "./projects";
+import { useBrowserStore } from "./browser";
 import { useDiagnosticsStore, extensionNameFromPath } from "./diagnostics";
 import { useToastStore } from "./toast";
 import { useExtDialogStore } from "./ext-dialog";
@@ -17,6 +18,7 @@ import { StreamingBatcher } from "./streaming-batcher";
 import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
 import { triggerTaskDoneFrog } from "../util/frog";
+import { useUiPrefsStore } from "./ui-prefs";
 
 interface SessionState {
 	// 已定稿消息：渲染主列表来源
@@ -1078,9 +1080,15 @@ export const useSessionStore = create<SessionState>((set) => {
 					if (event.willRetry === true) break;
 					// 任务完成提示音 + 青蛙动画：仅终态触发（自动重试中间态上面已 break）；
 					// IM 渠道会话（sessionId 以 im- 开头）不触发。
+					// 定时任务执行会话（sched- 前缀）：提示音由独立开关 soundSchedTaskDone 控制
+					// （默认关），且一律不触发青蛙动画（需求：定时任务完成不需要动画）。
 					if (!sessionId.startsWith("im-")) {
-						playTaskDone();
-						triggerTaskDoneFrog(sessionId);
+						if (sessionId.startsWith("sched-")) {
+							if (useUiPrefsStore.getState().soundSchedTaskDone) playTaskDone();
+						} else {
+							playTaskDone();
+							triggerTaskDoneFrog(sessionId);
+						}
 					}
 					const away = sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
@@ -1528,6 +1536,8 @@ export const useSessionStore = create<SessionState>((set) => {
 					set((s) => ({
 						fileChangesBySession: { ...s.fileChangesBySession, [sessionId]: files },
 					}));
+					// 任务完成修改清单命中当前会话预览文件时自动刷新预览（iframe 重挂重拉最新内容）
+					useBrowserStore.getState().maybeRefreshForFileChanges(sessionId, files);
 					break;
 				}
 				// tool_execution_* 等其他透传事件：渲染层不消费

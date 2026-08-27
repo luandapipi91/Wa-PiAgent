@@ -36,6 +36,12 @@ export default defineConfig({
 		command: "bun run --filter @wa-pi/frontend dev",
 		url: `http://localhost:${E2E_WEB_PORT}`,
 		reuseExistingServer: !process.env.CI,
-		env: { WA_PI_DIR: E2E_WA_PI_DIR, WA_PI_WS_PORT: String(E2E_WS_PORT) },
+		env: {
+			WA_PI_DIR: E2E_WA_PI_DIR,
+			WA_PI_WS_PORT: String(E2E_WS_PORT),
+			// vite 监听端口也要同步偏移：否则 vite 读 .env 的 WA_PI_WEB_PORT（5180），
+			// dev 正跑着时 strictPort 直接退出，webServer 起不来
+			WA_PI_WEB_PORT: String(E2E_WEB_PORT),
+		},
 	},
 });
