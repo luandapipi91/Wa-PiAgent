@@ -1,4 +1,11 @@
 
+## 2026-08-28 — v0.2.27 发版（预览自动刷新 + 定时任务全局化收口 + 稳定性修复）
+
+- 版本：0.2.26 → 0.2.27。
+- 主要：浏览器本地 HTML 预览支持自动刷新与嵌套预览刷新；定时任务 cron-task CLI 全局目录架构收口（list 显示所属项目、set im-push 注入推送标记、--project/--no-im-push 归属与关闭）；rpc-client 子进程/连接稳定性修复；内核崩溃日志（agent-crash-log）落盘；预览元素选择/浏览器 store、设置-音效/通用面板调整；定时任务 cron-task CLI 测试确定性（剥离宿主项目 env）。
+- 验证：typecheck 全绿；kernel/shared/desktop/frontend 四层回归全绿；修复 scheduler-assets CLI_ENV 剥离宿主 WA_PI_SCHEDULER_PROJECT_ID。
+- 影响范围：kernel（rpc-client/crash-logger/preview-inspect/scheduler*/auto-compact）、frontend（BrowserPanel/browser store/element-pick/session/ui-prefs/settings）、shared（task-file/constants）、scripts、e2e。
+
 ## 2026-08-28 — chore(deps): 底层 Pi 引擎升级 0.84.2 → 0.84.3
 
 - 背景：pi.dev 发布 0.84.3（Windows PowerShell 工具、更安全的托管更新、模型/思考控制等；RPC `toolcall_start` 事件补齐 tool call id/name）。升级后安装包首启动态装依赖与动态内核发版均自动跟随（版本单一来源 `packages/kernel/package.json`，`build-kernel-sidecar.ts` / `publish-kernel.ts` 自动读取）。
