@@ -11,8 +11,17 @@ interface Props {
   minWidth?: number;
   /** 最大宽度占视口比例，默认 0.4（40%） */
   maxRatio?: number;
+  /** 绝对最大宽度（px）：优先于 maxRatio 生效。用于“需要为固定区域预留空间”的场景
+   * （如地址栏右侧的图标按钮区）。取函数而非数值：布局宽度只有在拖拽时读才新鲜
+   * （面板初次挂载/窗口变化后的旧 prop 会把过期上限固化进 JSX） */
+  getMaxPx?: () => number;
   /** 测试钩子 */
   testId?: string;
+  /** 视觉形态：panel=面板边缘发丝细线（默认）；
+   *  inline=工具栏内嵌小把手（热区更宽、可见圆角条 + hover 品牌色高亮） */
+  variant?: "panel" | "inline";
+  /** 悬浮提示文案（随形态透传到 title） */
+  title?: string;
 }
 
 /**
@@ -24,7 +33,17 @@ interface Props {
  * 时 mousemove/mouseup 被吞导致拖拽卡死、监听器泄漏。
  * 视觉 2px 宽，含更宽的透明热区便于抓取。
  */
-export function SidebarResizer({ side, getWidth, onResize, minWidth = 200, maxRatio = 0.4, testId }: Props) {
+export function SidebarResizer({
+  side,
+  getWidth,
+  onResize,
+  minWidth = 200,
+  maxRatio = 0.4,
+  getMaxPx,
+  testId,
+  variant = "panel",
+  title,
+}: Props) {
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
 
   /** 拖拽期间屏蔽/恢复所有 iframe 指针事件（防 iframe 吞 mousemove/mouseup） */
@@ -38,11 +57,19 @@ export function SidebarResizer({ side, getWidth, onResize, minWidth = 200, maxRa
     (e: MouseEvent) => {
       const d = drag.current;
       if (!d) return;
-      const delta = side === "left" ? e.clientX - d.startX : d.startX - e.clientX;
-      const clamped = Math.max(minWidth, Math.min(window.innerWidth * maxRatio, d.startWidth + delta));
+      const delta =
+        side === "left" ? e.clientX - d.startX : d.startX - e.clientX;
+      const clamped = Math.max(
+        minWidth,
+        Math.min(
+          getMaxPx?.() ?? Infinity,
+          window.innerWidth * maxRatio,
+          d.startWidth + delta,
+        ),
+      );
       onResize(clamped);
     },
-    [side, onResize, minWidth, maxRatio],
+    [side, onResize, minWidth, maxRatio, getMaxPx],
   );
 
   const onMouseUp = useCallback(() => {
@@ -67,6 +94,23 @@ export function SidebarResizer({ side, getWidth, onResize, minWidth = 200, maxRa
     },
     [getWidth, onMouseMove, onMouseUp, shieldIframes],
   );
+
+  if (variant === "inline") {
+    // 内嵌小把手：10px 热区内居中一条 4×20 圆角竖条，
+    // hairline-strong 常态可见、hover/拖拽感知用品牌色高亮提示「这里能拖」
+    return (
+      <div
+        data-testid={testId}
+        data-variant="inline"
+        title={title}
+        onMouseDown={onMouseDown}
+        className="group flex shrink-0 cursor-col-resize items-center justify-center self-stretch"
+        style={{ width: 10 }}
+      >
+        <div className="h-5 w-1 rounded-full bg-[var(--hairline-strong)] transition-colors group-hover:bg-[var(--brand)]" />
+      </div>
+    );
+  }
 
   return (
     <div

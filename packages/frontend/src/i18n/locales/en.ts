@@ -199,6 +199,8 @@ const en = {
 		copy: "Copy path or URL",
 		copied: "Copied",
 		refresh: "Refresh",
+		urlbarResize: "Drag to resize address bar",
+		inspect: "Element pick (Ctrl / Cmd inside the preview also toggles)",
 		code: "View source",
 		share: "Share",
 		modeSplit: "Split with chat",

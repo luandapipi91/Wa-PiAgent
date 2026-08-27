@@ -189,6 +189,8 @@ const zh = {
 		copy: "复制路径/网址",
 		copied: "已复制",
 		refresh: "刷新",
+		urlbarResize: "拖动调整地址栏宽度",
+		inspect: "元素选中开关（预览页内按 Ctrl / ⌘ 也可切换）",
 		code: "查看源码",
 		share: "分享",
 		modeSplit: "与聊天分屏",

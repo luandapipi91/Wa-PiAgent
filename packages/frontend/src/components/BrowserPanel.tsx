@@ -4,6 +4,14 @@ import { useBrowserStore } from "../store/browser";
 import { useSessionStore } from "../store/session";
 import { HtmlPreview } from "./blocks/HtmlPreview";
 import { ShareResultModal } from "./ui/ShareButton";
+import { SidebarResizer } from "./SidebarResizer";
+import {
+	URLBAR_WIDTH_KEY,
+	MIN_URLBAR_W,
+	urlBarMaxW,
+	halfUrlBarW,
+	loadStoredUrlBarW,
+} from "./urlbar-size";
 import { isHtmlPath, toExternalUrl } from "../preview-url";
 import { copyToClipboard } from "../util/clipboard";
 import { useToastStore } from "../store/toast";
@@ -34,6 +42,15 @@ export function BrowserPanel() {
 	const refreshToken = useBrowserStore((s) => s.refreshToken);
 	const bumpRefresh = useBrowserStore((s) => s.bumpRefresh);
 	const [shareOpen, setShareOpen] = useState(false);
+	// 元素选中开关的可视镜像：真相源仍是 localStorage（与 kernel 注入脚本共享），
+	// 这里同步展示——点击开关写入并即时下发，iframe 内快捷键切换后经 changed 消息反向同步
+	const [inspectOn, setInspectOn] = useState(
+		() => localStorage.getItem(INSPECT_KEY) !== "off",
+	);
+	// 地址栏宽度：null = 未定制 → CSS 50% 占工具栏一半；拖拽后记录数值并持久化，
+	// 上限 = 工具栏宽 − 图标按钮区预留，伸缩不得挤占图标
+	const [urlW, setUrlW] = useState<number | null>(loadStoredUrlBarW);
+	const toolbarRef = useRef<HTMLDivElement | null>(null);
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
 
@@ -46,7 +63,6 @@ export function BrowserPanel() {
 	}, [path]);
 
 	const loadedPath = current?.kind === "local" ? current.path : null;
-	const externalUrl = current?.kind === "external" ? current.url : null;
 
 	const openPath = (raw: string) => {
 		const p = raw.trim();
@@ -123,6 +139,12 @@ export function BrowserPanel() {
 
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
+	// 拖拽中实时更新宽度并逐次落盘（localStorage 同步轻量，无需等 mouseup 事件回调）
+	const handleUrlResize = (w: number) => {
+		setUrlW(w);
+		localStorage.setItem(URLBAR_WIDTH_KEY, String(w));
+	};
+
 	// inspect 消息监听：仅本地预览；source 必须来自预览 iframe（独特源 origin 为 "null"，
 	// 不能按 origin 校验），消息体经 parseInspectMessage 白名单校验
 	useEffect(() => {
@@ -142,6 +164,7 @@ export function BrowserPanel() {
 			}
 			if (data?.type === "hiagent:inspect:changed") {
 				localStorage.setItem(INSPECT_KEY, data.enabled ? "on" : "off");
+				setInspectOn(Boolean(data.enabled));
 				return;
 			}
 			const picked = parseInspectMessage(e.data);
@@ -161,11 +184,28 @@ export function BrowserPanel() {
 
 	const canCodeShare = loadedPath !== null;
 
+	// 显性开关切换：写回持久层 + 即时通知预览 iframe 生效（不等下次 query 上报）
+	const toggleInspect = () => {
+		const next = !inspectOn;
+		setInspectOn(next);
+		localStorage.setItem(INSPECT_KEY, next ? "on" : "off");
+		iframeRef.current?.contentWindow?.postMessage(
+			{ type: "hiagent:inspect:set", enabled: next },
+			"*",
+		);
+	};
+
 	return (
 		<div className="flex flex-col h-full bg-surface" data-testid="browser-panel">
-			{/* 工具栏 */}
-			<div className="flex items-center gap-1.5 px-3 py-2 border-b border-hairline">
-				<div className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md border border-hairline bg-surface-hover">
+			{/* 工具栏：地址栏定宽可拖拽调宽；空白吸收在输入区与按钮之间 → 按钮贴右缘 */}
+			<div
+				ref={toolbarRef}
+				className="flex items-center gap-1.5 px-3 py-2 border-b border-hairline"
+			>
+				<div
+					className="flex shrink-0 items-center gap-2 px-2 py-1.5 rounded-md border border-hairline bg-surface-hover"
+					style={{ width: urlW ?? "50%", minWidth: MIN_URLBAR_W }}
+				>
 					<Icon name="globe" size={14} className="text-secondary" />
 					<input
 						value={input}
@@ -173,10 +213,27 @@ export function BrowserPanel() {
 						onKeyDown={(e) => e.key === "Enter" && openPath(input)}
 						placeholder={t("browser.placeholder")}
 						spellCheck={false}
-						className="flex-1 bg-transparent text-sm text-primary outline-none"
+						className="w-full bg-transparent text-sm text-primary outline-none"
 						data-testid="browser-input"
 					/>
 				</div>
+				{/* 拖拽把手：调地址栏宽度，上限扣除右侧按钮区不挤占图标；
+					inline 形态=可见小把手+hover 高亮 */}
+				<div className="self-stretch flex items-center">
+					<SidebarResizer
+						side="left"
+						testId="browser-url-resize"
+						variant="inline"
+						title={t("browser.urlbarResize")}
+						minWidth={MIN_URLBAR_W}
+						maxRatio={0.6}
+						getWidth={() => urlW ?? halfUrlBarW(toolbarRef.current?.clientWidth ?? 0)}
+						onResize={handleUrlResize}
+						getMaxPx={() => urlBarMaxW(toolbarRef.current?.clientWidth ?? 0)}
+					/>
+				</div>
+				{/* 弹性空白：把所有动作按钮推到工具栏右缘 */}
+				<div className="flex-1" />
 				<button
 					type="button"
 					className="fv-btn fv-btn--icon"
@@ -201,6 +258,23 @@ export function BrowserPanel() {
 				>
 					<Icon
 						name="refresh"
+						size="1em"
+						className="text-[calc(16px*var(--font-scale))]"
+					/>
+				</button>
+				{/* 元素选中显性开关：与预览页内 Ctrl/⌘ 快捷键双通道同源，仅本地预览可用（外部 URL 无注入脚本） */}
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon"
+					title={t("browser.inspect")}
+					data-testid="browser-inspect"
+					aria-pressed={inspectOn}
+					disabled={!loadedPath}
+					onClick={toggleInspect}
+					style={inspectOn ? { color: "var(--brand)" } : undefined}
+				>
+					<Icon
+						name="element"
 						size="1em"
 						className="text-[calc(16px*var(--font-scale))]"
 					/>

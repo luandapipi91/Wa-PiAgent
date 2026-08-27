@@ -1,4 +1,20 @@
 
+## 2026-08-28 — fix(preview): A 锁定后移入嵌套子页仍出现子页 hover（双高亮残窗）
+
+- 背景：互斥机制后用户反馈 A 层锁定元素后移入 B 页面，B 仍出现 hover 高亮（双高亮）。
+- 根因：A 锁定时向子层广播 hold:true 的时序早于子 iframe 加载完成时消息丢失；子层 init 经 query 补齐状态，但 query/set 回复的 held 字段只用 suppressed（只表示「其他层锁定」），自身锁定（pinned）时为 false —— 子层拿到 false 不抑制。
+- 修复：held 语义改为「全屏存在任意锁定」= suppressed || pinned（query 回复与 sendSetToChildren 两处）。
+- 验证：同源诊断页三断言（合成 mousemove + 读 UI display）：A 锁定后 B 鼠标移入全隐藏 ✓、A 锁定保持 ✓、A 锁定下强制重载 B 再移入仍全隐藏 ✓（时序场景）。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`。
+
+## 2026-08-28 — feat(preview): 嵌套子页文件被修改时外层预览也自动刷新
+
+- 背景：自动刷新（file_changes 命中判定）只比对预览外层路径——预览 A.html 内 `<iframe src="./B.html">` 引用的 B.html 被修改时不触发，外层渲染内容过时。
+- 实现：命中判定放宽——精确命中预览文件，或「预览文件同目录（含子目录）的本地 html」也命中（嵌套子页近似）。不解析 iframe 引用树（需 kernel 新接口）：刷新幂等（重挂重拉磁盘最新 no-store），同项目无关 html 多刷无害，精确性换零 kernel 改动。逻辑提为 `matchesFileChange` 独立可测。
+- 验证：TDD——browser store 新增 4 用例（同目录/子目录命中、兄弟目录与非 html 不命中、目录前缀撞字符串前缀不误命中，先红后绿）；session 接线测试同步语义更新；真实 LLM 全链路 E2E（新增 `preview-nested-refresh.spec.ts`）：预览 A.html → agent edit 工具改子文件 B.html → 不点刷新，外层 iframe 内子页内容自动「版本一」→「版本二」✓。
+- 附带修复：playwright.config webServer env 漏传 WA_PI_WEB_PORT——dev vite 占用 5180 时 E2E webServer 起不来（strictPort 退出）。
+- 影响范围：`packages/frontend/src/store/browser.ts`、`packages/frontend/playwright.config.ts`、测试文件、新增 `e2e/preview-nested-refresh.spec.ts`。前端全量 bun test 在本机高负载下大面积超时（stash 基线对照同失败且更多，环境性问题），定向测试与干净环境 E2E 全绿。
+
 ## 2026-08-28 — v0.2.27 发版（预览自动刷新 + 定时任务全局化收口 + 稳定性修复）
 
 - 版本：0.2.26 → 0.2.27。
@@ -19,6 +35,34 @@
 - 实现：① `ui-prefs.ts` 新增 `soundSchedTaskDone`（默认 false）+ setter（persist 自动持久化）；② `session.ts` agent_end 分支拆分——`sched-` 前缀会话提示音由新开关控制、一律不调 triggerTaskDoneFrog（动画硬性关闭无开关），普通会话与 IM 会话行为不变；③ GeneralSection 提示音分组新增「定时任务完成」开关行（testid sound-sched-task-done-toggle）+ zh/en i18n key。
 - 验证：TDD——session 接线 5 用例（sched 默认静音无动画/开关开有声仍无动画/普通会话不变/im- 回归/willRetry 回归，先红后绿）+ GeneralSection 组件用例（默认关、点击写 store）；E2E settings-sound.spec 2/2（新开关默认关→开→localStorage 持久化→刷新保持；顺带修复该 spec 单独跑时被 onboarding 向导拦截的既有问题——预置假 provider，与 file-change-summary.spec 同模式）；前端全量回归 1966 pass 0 fail；typecheck 干净。
 - 影响范围：`packages/frontend/src/store/ui-prefs.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/components/settings/GeneralSection.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`、`e2e/settings-sound.spec.ts`。
+
+## 2026-08-28 — feat(preview): 嵌套选中互斥 + 锁图标常驻（可交互元素稳定锁定）
+
+- 背景：①嵌套 iframe 内选中后，父层对整个 `<iframe>` 元素的 hover 高亮会叠加在子层锁定框上，双层高亮混乱，用户感知为「点击锁定不了」；②可交互元素（点击后页面自身响应/重渲染）点击锁定不稳定——框架重渲染重建 DOM 节点，锁定的旧节点脱离文档触发自动解除。
+- 实现（kernel preview-inspect.js）：①全屏唯一锁定互斥——锁定状态经逐层消息传播（上行 `inspect:lock` 子→父、下行 `inspect:lock-hold` 父→子，中间层转发+广播其他子层，排除来源防自解锁）：任一层锁定时其余层 suppressed（不 hover 不绘制），点击其他层元素则抢占锁定（被抢占方被动解除并清 current，防抑制解除后残留 current 画出「鬼高亮」）；新加载子层经 query 回复的 held 字段补齐状态。②锁图标常驻双态——hover 中点开锁图标即锁定当前元素（不点击元素本身，页面零扰动），再点解除；图标开/闭锁切换。③节点重建跟随——锁定时快照 selector，元素脱离文档时 querySelector 找同名 tagName 接替节点续锁；「选择父级」同步刷新快照。锁图标 SVG 改 DOM 构建消除 innerHTML。
+- 验证：真实浏览器 E2E（sandbox 壳 + src 型嵌套）：B 内点击锁定 → A 无任何高亮 ✓；点 A 层元素抢占 → B 解除、A 锁定 ✓；点 B 抢回 → A 高亮消失 ✓；hover 点锁锁定/再点解除 ✓；全屏恒单一锁定。单测 36 全绿。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`。
+
+## 2026-08-28 — fix(preview): hover 选中跨层残留改为全局广播方案（快速移动可靠）
+
+- 背景：首版 hover 互斥依赖「鼠标进入子 iframe 时父层收到 target=IFRAME 的边界 mousemove」触发清理——快速移动鼠标时该边界事件根本不发生（事件直接跳进 B 深处），A 残留不清，用户实测仍双高亮。
+- 改为全局广播方案（用户提出）：本层获得 hover（current null→有）时向上广播 `inspect:hover`；父层收到后清除自身 hover 残留 + 通知其他子层清除 + 记 hoverOwner；本层恢复 hover 时若存在 hoverOwner 则向其发 `hover-clear`。不依赖边界事件，子层收到 mousemove 即广播，快速移动必然覆盖。
+- 验证：同源诊断页模拟「快速移动」（跳过一切边界事件直接跨层派发 mousemove）：A hover → 快速跳 B（B hover + A 清除）✓ → 快速跳回 A（A hover + B 清除）✓；单测 36 全绿。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`。
+
+## 2026-08-28 — fix(preview): hover 选中跨层残留（A hover 后移入 B 双高亮）
+
+- 背景：互斥只覆盖了点击锁定（pinned），未覆盖 hover 选中（mousemove 驱动的 current）——鼠标从 A 移入嵌套 B 后事件全部进入 B 文档，A 再也收不到 mousemove，A 的 hover 高亮永久残留原地，与 B 的新 hover 双高亮（用户截图场景）。
+- 实现：①mousemove 中 target 为 IFRAME 时（鼠标进入子层，A 收到的最后一批事件）清除本层 current 并记 mouseInChild；②鼠标移回本层（mouseInChild 复位）时下行广播 `inspect:hover-clear`，子层收到后清自身 hover 残留并逐层下传。与锁定互斥（pinned/hold）正交共存：锁定态 hover-clear 不清锁定。
+- 验证：同源诊断页合成事件四步断言（A hover 显示 → 进 iframe 后 A 清除 → B 内 hover 显示且 A 保持清除 → 移回 A 后 A 显示 + B 清除，hover-clear 消息确认到达 B）全绿；排查注记：合成 mousemove 派发到 document 时 target 无 tagName 会被 handler 忽略，须派发到具体元素；盲选 querySelector 可能命中零尺寸空元素被视口检查合理隐藏，E2E 须选可见元素。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`。
+
+## 2026-08-28 — feat(preview): 嵌套选中互斥 + 锁图标常驻（可交互元素稳定锁定）
+
+- 背景：①嵌套 iframe 内选中后，父层对整个 `<iframe>` 元素的 hover 高亮会叠加在子层锁定框上，双层高亮混乱，用户感知为「点击锁定不了」；②可交互元素（点击后页面自身响应/重渲染）点击锁定不稳定——框架重渲染重建 DOM 节点，锁定的旧节点脱离文档触发自动解除。
+- 实现（kernel preview-inspect.js）：①全屏唯一锁定互斥——锁定状态经逐层消息传播（上行 `inspect:lock` 子→父、下行 `inspect:lock-hold` 父→子，中间层转发+广播其他子层，排除来源防自解锁）：任一层锁定时其余层 suppressed（不 hover 不绘制），点击其他层元素则抢占锁定（被抢占方被动解除并清 current，防抑制解除后残留 current 画出「鬼高亮」）；新加载子层经 query 回复的 held 字段补齐状态（held=suppressed||pinned，覆盖 hold 广播早于子层加载的时序）。②锁图标常驻双态——hover 中点开锁图标即锁定当前元素（不点击元素本身，页面零扰动），再点解除；图标开/闭锁切换。③节点重建跟随——锁定时快照 selector，元素脱离文档时 querySelector 找同名 tagName 接替节点续锁；「选择父级」同步刷新快照。锁图标 SVG 改 DOM 构建消除 innerHTML。
+- 验证：真实浏览器 E2E（sandbox 壳 + 真实 hlh PRD 预约功能优化页 src 型嵌套，埋点确认消息链）：A 锁定 → 点 B 内元素 → B 锁定 + A 解除（lock 消息经 A 校验+转发到顶）✓；全屏恒单一锁定 ✓；单测 36 全绿。排查注记：合成事件的 clientX/Y 为 undefined、盲选 querySelector 可能命中隐藏元素，E2E 坐标须经 iframe 几何换算后用真实可见元素。
+- 影响范围：`packages/kernel/src/assets/preview-inspect.js`。
 
 ## 2026-08-28 — fix(preview): srcdoc 内选中元素「发送到聊天」无反应（srcPath=null 被误拒）
 

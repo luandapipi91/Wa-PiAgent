@@ -209,8 +209,6 @@
 		var btnLock = document.createElement("button");
 		btnLock.title = "解除高亮锁定";
 		btnLock.style.cssText = btnStyle + ";display:none;";
-		btnLock.innerHTML =
-			'<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto;vertical-align:-0.125em" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9.5" rx="2"></rect><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path></svg>';
 		bar.appendChild(btnLock);
 		bar.appendChild(label);
 		bar.appendChild(btnParent);
@@ -230,12 +228,109 @@
 		document.documentElement.appendChild(tip);
 
 		var current = null;
+		// 工具条锁图标：DOM 构建 SVG（不 innerHTML，静态常量无用户输入）；缓存避免重复建
+		var SVG_NS = "http://www.w3.org/2000/svg";
+		var padlockCache = { locked: null, unlocked: null };
+		function padlockSvg(locked) {
+			var key = locked ? "locked" : "unlocked";
+			if (padlockCache[key]) return padlockCache[key];
+			var svg = document.createElementNS(SVG_NS, "svg");
+			svg.setAttribute("width", "12");
+			svg.setAttribute("height", "12");
+			svg.setAttribute("viewBox", "0 0 24 24");
+			svg.setAttribute("fill", "none");
+			svg.setAttribute("stroke", "currentColor");
+			svg.setAttribute("stroke-width", "1.6");
+			svg.setAttribute("stroke-linecap", "round");
+			svg.setAttribute("stroke-linejoin", "round");
+			svg.style.cssText = "display:block;margin:auto;vertical-align:-0.125em";
+			svg.setAttribute("aria-hidden", "true");
+			var body = document.createElementNS(SVG_NS, "rect");
+			body.setAttribute("x", "5");
+			body.setAttribute("y", "10.5");
+			body.setAttribute("width", "14");
+			body.setAttribute("height", "9.5");
+			body.setAttribute("rx", "2");
+			var shackle = document.createElementNS(SVG_NS, "path");
+			// 闭锁：钩环两端都插入锁体；开锁：右侧端抬起
+			shackle.setAttribute(
+				"d",
+				locked ? "M8 10.5V7a4 4 0 0 1 8 0v3.5" : "M8 10.5V7a4 4 0 0 1 7.6-1.6",
+			);
+			svg.appendChild(body);
+			svg.appendChild(shackle);
+			padlockCache[key] = svg;
+			return svg;
+		}
 		// 选择父级后的锁定：鼠标在锁定元素内部移动（含其子元素）不切换选中，移出才解锁。
 		// 否则选完父级后随便动一下鼠标，hover 又把选中抢回子元素。
 		var locked = false;
 		// 点击锁定（pinned）：点击元素后高亮固定在该元素、不再跟鼠标走，浮窗显示锁图标。
 		// 解除：再次点击当前元素 / 点锁图标 / 点「发送到聊天」。
 		var pinned = false;
+		// 全屏唯一锁定互斥：其他层（父/兄弟子层）存在锁定时，本层抑制 hover 高亮与
+		// 提示 UI，避免双层高亮叠加混乱；点击其他层元素则抢占锁定（被抢占方自动解除）。
+		// 状态经逐层消息传播：上行 lock（子→父）与下行 lock-hold（父→子）。
+		var suppressed = false;
+		// 锁定时的 selector 快照：框架重渲染重建节点后，按它找接替节点续锁
+		var lockedSelector = null;
+		// 全局唯一 hover：当前持有 hover 的子层窗口（本层 mousemove 恢复时通知它清除）
+		var hoverOwner = null;
+		/** pinnened 变化后同步全链：上行告知父层（抑制祖先生高亮）、下行抑制子层 */
+		function broadcastLock() {
+			try {
+				if (window.parent !== window)
+					window.parent.postMessage(
+						{ type: "hiagent:inspect:lock", locked: pinned },
+						"*",
+					);
+			} catch {
+				/* 忽略 */
+			}
+			sendHoldToChildren(pinned, null);
+		}
+		/** 下行广播锁定持有状态；excludeWin 为锁定来源子层（防它收到 hold:true 被自己误解除） */
+		function sendHoldToChildren(held, excludeWin) {
+			var frames = document.querySelectorAll("iframe");
+			for (var i = 0; i < frames.length; i++) {
+				try {
+					if (excludeWin && frames[i].contentWindow === excludeWin) continue;
+					frames[i].contentWindow.postMessage(
+						{ type: "hiagent:inspect:lock-hold", held: held },
+						"*",
+					);
+				} catch {
+					/* 忽略 */
+				}
+			}
+		}
+		function setSuppressed(v) {
+			if (suppressed === v) return;
+			suppressed = v;
+			if (v && pinned) {
+				// 其他层抢占了锁定：被动解除（不回发）。current 一并清空——
+				// 否则抑制解除后 render 会把残留 current 当 hover 目标画出「鬼高亮」
+				pinned = false;
+				lockedSelector = null;
+				current = null;
+			}
+			render();
+		}
+		/** 通知子层清除 hover 残留（excludeWin 为 hover 来源子层，它自己不需要清）；逐层下传到最深处 */
+		function sendHoverClearToChildren(excludeWin) {
+			var frames = document.querySelectorAll("iframe");
+			for (var i = 0; i < frames.length; i++) {
+				try {
+					if (excludeWin && frames[i].contentWindow === excludeWin) continue;
+					frames[i].contentWindow.postMessage(
+						{ type: "hiagent:inspect:hover-clear" },
+						"*",
+					);
+				} catch {
+					/* 忽略 */
+				}
+			}
+		}
 		// Ctrl/Cmd 关闭/打开高亮选择功能（开关），状态经主应用持久化（本地预览 iframe 为
 		// 不透明源、无法自用 localStorage，故由主应用存取并在 iframe 加载时下发）。
 		var disabled = false;
@@ -255,7 +350,13 @@
 			for (var i = 0; i < frames.length; i++) {
 				try {
 					frames[i].contentWindow.postMessage(
-						{ type: "hiagent:inspect:set", enabled: enabled },
+						{
+							type: "hiagent:inspect:set",
+							enabled: enabled,
+							// held = 全屏存在任意锁定（自身锁定也算）：A 锁定时 hold 广播
+							// 可能早于子 iframe 加载而丢失，靠 query/set 补齐，语义必须含自身
+							held: suppressed || pinned,
+						},
 						"*",
 					);
 				} catch {
@@ -318,11 +419,35 @@
 				tip.style.display = "none";
 				return;
 			}
+			// 其他层存在锁定（互斥抑制）：本层不再绘制任何高亮 UI，全屏只剩锁定层的框
+			// （自己持有锁定权时不受抑制——锁定分支里已清除）
+			if (suppressed && !pinned) {
+				hl.style.display = "none";
+				bar.style.display = "none";
+				tip.style.display = "none";
+				return;
+			}
 			if (!current || !current.isConnected || !current.getBoundingClientRect) {
-				// 锁定元素已脱离文档：解除锁定并隐藏高亮（不卡死/悬空）
+				// 锁定元素已脱离文档：框架重渲染（React 等）会重建节点 —— 先按锁定时的
+				// selector 找接替节点续锁（tagName 一致才接，防 nth-of-type 误接）；
+				// 找不到才真正解除锁定并隐藏高亮（不卡死/悬空）
 				if (pinned && current && !current.isConnected) {
-					pinned = false;
-					current = null;
+					var alt = null;
+					if (lockedSelector) {
+						try {
+							alt = document.querySelector(lockedSelector);
+						} catch {
+							alt = null;
+						}
+					}
+					if (alt && alt.tagName === current.tagName) {
+						current = alt;
+					} else {
+						pinned = false;
+						lockedSelector = null;
+						current = null;
+						broadcastLock();
+					}
 				}
 				hl.style.display = "none";
 				bar.style.display = "none";
@@ -392,19 +517,34 @@
 			tip.style.top = tipR.top + "px";
 			var disp = displayLabel(current);
 			if (label.textContent !== disp) label.textContent = disp;
-			// 锁图标：锁定态显示，否则隐藏
-			btnLock.style.display = pinned ? "inline-block" : "none";
+			// 锁图标常驻：未锁定（开锁图标）点它锁定当前元素——不点击元素本身，
+			// 页面零扰动（可交互元素点击会触发页面自身行为/重渲染，无法稳定锁定）；
+			// 已锁定（闭锁图标）点它解除。hover 跟随中随时可锁。
+			btnLock.style.display = "inline-block";
+			btnLock.title = pinned ? "解除高亮锁定" : "锁定当前元素";
+			btnLock.replaceChildren(padlockSvg(pinned));
 		}
 
 		document.addEventListener(
 			"mousemove",
 			(e) => {
 				if (disabled) return;
+				// 其他层锁定中：本层不 hover 不高亮（互斥）；点击仍可抢占锁定
+				if (suppressed) return;
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
 				if (!t.tagName) return;
 				// 点击锁定中：hover 不再切换选中，高亮固定在锁定元素
 				if (pinned) return;
+				// 鼠标悬停在子 iframe 元素上（尚未进入/无法进入其文档）：本层不选中 iframe
+				// 外壳（会画出罩住子层的大框），清掉自身残留 hover，等子层脚本接管
+				if (t.tagName === "IFRAME") {
+					if (current) {
+						current = null;
+						render();
+					}
+					return;
+				}
 				// 粘性区：元素上缘到工具条之间的通道（含工具条），鼠标经过时保持当前选中。
 				// 否则从元素移向工具条会穿过间隙命中其他元素，选中被切走，永远点不到按钮。
 				if (current && bar.style.display !== "none") {
@@ -424,8 +564,30 @@
 					if (t === current || current.contains(t)) return;
 					locked = false;
 				}
+				var prev = current;
 				current = t;
+				// 全局唯一 hover（用户方案）：本层获得选中时，①清掉此前持有 hover 的
+				// 子层残留；②向上广播「选中在我这里」，父层收到后清除它自己的残留——
+				// 快速跨层移动时边界事件不可靠，靠子层主动广播保证父层必然感知
+				if (!prev && hoverOwner) {
+					try {
+						hoverOwner.postMessage({ type: "hiagent:inspect:hover-clear" }, "*");
+					} catch {
+						/* 忽略 */
+					}
+					hoverOwner = null;
+				}
 				render();
+				if (!prev) {
+					try {
+						window.parent.postMessage(
+							{ type: "hiagent:inspect:hover", has: true },
+							"*",
+						);
+					} catch {
+						/* 忽略 */
+					}
+				}
 			},
 			true,
 		);
@@ -440,15 +602,22 @@
 					// 锁定中：点锁定元素（或其子元素）本身才解锁；点任何其他元素保持锁定
 					if (t !== current && !current.contains(t)) return;
 					pinned = false;
+					lockedSelector = null;
 					render();
+					broadcastLock();
 					e.preventDefault();
 				} else {
 					// 首次点击：锁定该元素（高亮固定 + 浮窗显示锁图标）
 					if (!t.tagName) return;
 					pinned = true;
 					current = t;
+					lockedSelector = buildSelector(t);
+					// 抢占成功：锁定权归本层，清除来自其他层的抑制（其锁定已被 hold 广播解除）
+					suppressed = false;
 					render();
 					startFollow();
+					// 互斥同步：抑制父层与兄弟子层的高亮，全屏只剩本层锁定
+					broadcastLock();
 					e.preventDefault();
 				}
 			},
@@ -496,8 +665,25 @@
 			var d = e.data;
 			if (!d || typeof d.type !== "string") return;
 			if (e.source === window.parent) {
+				// 下行：父层持有锁定（lock-hold）→ 本层抑制 hover，并逐层下传子层
+				if (d.type === "hiagent:inspect:lock-hold") {
+					setSuppressed(!!d.held);
+					sendHoldToChildren(!!d.held, null);
+					return;
+				}
+				// 下行：鼠标已回到父层 → 清除本层 hover 残留（非锁定态），并逐层下传
+				if (d.type === "hiagent:inspect:hover-clear") {
+					if (!pinned && current) {
+						current = null;
+						render();
+					}
+					sendHoverClearToChildren();
+					return;
+				}
 				if (d.type !== "hiagent:inspect:set") return;
 				disabled = !d.enabled;
+				// 随开关同步锁定持有状态（新加载子层 query 补齐用）；无 held 字段则不动
+				if (d.held !== undefined) setSuppressed(!!d.held);
 				applyInspectState();
 				sendSetToChildren(!d.enabled);
 				return;
@@ -506,7 +692,12 @@
 			if (d.type === "hiagent:inspect:query") {
 				try {
 					e.source.postMessage(
-						{ type: "hiagent:inspect:set", enabled: !disabled },
+						{
+							type: "hiagent:inspect:set",
+							enabled: !disabled,
+							// 同 sendSetToChildren：含自身锁定，覆盖 hold 广播早于子层加载的时序
+							held: suppressed || pinned,
+						},
 						"*",
 					);
 				} catch {
@@ -516,6 +707,42 @@
 			}
 			if (d.type === "hiagent:inspect:changed") {
 				setDisabled(d.enabled !== false);
+				return;
+			}
+			if (d.type === "hiagent:inspect:lock") {
+				// 上行：子层锁定/解锁 → 本层抑制/恢复 hover，并广播其他子层 + 向上转发
+				setSuppressed(!!d.locked);
+				// 排除来源：它自己刚锁定，不能被 hold:true 误解除
+				sendHoldToChildren(!!d.locked, e.source);
+				if (window.parent !== window) {
+					try {
+						window.parent.postMessage(
+							{ type: "hiagent:inspect:lock", locked: !!d.locked },
+							"*",
+						);
+					} catch {
+						/* 忽略 */
+					}
+				}
+				return;
+			}
+			if (d.type === "hiagent:inspect:hover") {
+				// 上行：子层获得 hover（用户方案：选中即全局广播）→
+				// ①清除本层 hover 残留（锁定态不清）；②通知其他子层清残留；
+				// ③记 hoverOwner（本层恢复 hover 时回发 hover-clear）；④向上转发
+				if (!pinned && current) {
+					current = null;
+					render();
+				}
+				sendHoverClearToChildren(e.source);
+				hoverOwner = e.source;
+				if (window.parent !== window) {
+					try {
+						window.parent.postMessage(d, "*");
+					} catch {
+						/* 忽略 */
+					}
+				}
 				return;
 			}
 			if (d.type === "hiagent:element-picked") {
@@ -566,6 +793,8 @@
 				// html 包含一切元素，锁定会让 hover 永久失效，不锁；
 				// body 可锁：移到页边空白（命中 html）即解锁
 				locked = current.tagName !== "HTML";
+				// 锁定中换选目标：selector 快照同步更新（节点重建接替才不会接错）
+				if (pinned) lockedSelector = buildSelector(current);
 				render();
 			}
 		});
@@ -586,13 +815,29 @@
 			);
 			// 发送到聊天后解除高亮锁定（高亮恢复 hover 跟随）
 			pinned = false;
+			lockedSelector = null;
 			render();
+			broadcastLock();
 		});
 		btnLock.addEventListener("click", (e) => {
 			onBtn(e);
-			// 点锁图标：解除高亮锁定
-			pinned = false;
+			if (pinned) {
+				// 已锁定（闭锁图标）：解除高亮锁定
+				pinned = false;
+				lockedSelector = null;
+				render();
+				broadcastLock();
+				return;
+			}
+			// 未锁定（开锁图标）：锁定当前 hover 元素 —— 不点击元素本身，
+			// 页面零扰动（可交互元素点击会触发页面自身行为/重渲染，无法稳定锁定）
+			if (!current || !current.tagName) return;
+			pinned = true;
+			lockedSelector = buildSelector(current);
+			suppressed = false;
 			render();
+			startFollow();
+			broadcastLock();
 		});
 
 		// srcdoc/about:blank 型子 iframe 由父页代注入（不发 HTTP 请求，kernel 无从注入）。

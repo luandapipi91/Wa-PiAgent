@@ -48,7 +48,7 @@ async function openSession(page: Page): Promise<void> {
 		agentName: "研发",
 		text: "请回复：好的",
 		model: "deepseek/deepseek-v4-flash",
-		sessionId: "s-nc-" + Math.random().toString(36).slice(2),
+		sessionId: "s-nc-" + randomUUID().slice(0, 8),
 	});
 	await page.getByText("E2E项目").first().click();
 	await page.getByTestId(`session-${session.id}`).click();
