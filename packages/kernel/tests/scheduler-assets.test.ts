@@ -312,4 +312,61 @@ describe("cron-task.ts CLI", () => {
 		expect(out).toContain("[默认工作区]");
 		expect(out).toContain("[pa]");
 	});
+
+	// --im-push 默认：agent 会话 env WA_PI_IM_PUSH_TARGETS 注入时，add 未传 --im-push 也自动注入推送标记
+	test("add 未传 --im-push 时用 env 默认推送目标自动注入（裸 ct_xxx 渠道兑底）", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, "cron-task.ts");
+		const pushEnv = { ...CLI_ENV, WA_PI_IM_PUSH_TARGETS: "ct_777,ct_888" };
+		const r = Bun.spawnSync(
+			[
+				process.execPath,
+				cli,
+				"add",
+				"--name",
+				"默认推送",
+				"--agent",
+				"a",
+				"--schedule",
+				'{"type":"daily","time":"09:00"}',
+				"--prompt",
+				"默认推送正文",
+			],
+			{ cwd: dir, env: pushEnv },
+		);
+		expect(r.exitCode).toBe(0);
+		const prompt = readFileSync(join(dir, "tasks", "默认推送.md"), "utf8");
+		// 裸 ct_xxx 自动注入（渠道兑底 ch_channel）
+		expect(prompt).toContain("@im-push-to(ch_channel,ct_777)");
+		expect(prompt).toContain("@im-push-to(ch_channel,ct_888)");
+		expect(prompt).toContain("默认推送正文");
+	});
+
+	// --no-im-push：env 有默认推送目标时，显式 --no-im-push 强制关闭，不注入任何标记
+	test("add --no-im-push 强制关闭默认推送（env 有目标也不注入）", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, "cron-task.ts");
+		const pushEnv = { ...CLI_ENV, WA_PI_IM_PUSH_TARGETS: "ct_777" };
+		const r = Bun.spawnSync(
+			[
+				process.execPath,
+				cli,
+				"add",
+				"--name",
+				"关闭推送",
+				"--agent",
+				"a",
+				"--schedule",
+				'{"type":"daily","time":"09:00"}',
+				"--no-im-push",
+				"--prompt",
+				"关闭推送正文",
+			],
+			{ cwd: dir, env: pushEnv },
+		);
+		expect(r.exitCode).toBe(0);
+		const prompt = readFileSync(join(dir, "tasks", "关闭推送.md"), "utf8");
+		expect(prompt).not.toContain("@im-push-to");
+		expect(prompt).toContain("关闭推送正文");
+	});
 });

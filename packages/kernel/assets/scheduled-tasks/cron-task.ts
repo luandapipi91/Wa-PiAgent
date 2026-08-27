@@ -7,8 +7,9 @@
  *   help                          显示本说明
  *   list                          列出全部任务（含解析失败的文件）
  *   show <id>                     显示任务详情（id = 文件名，不含 .md）
- *   add --name N --agent A --schedule '<json>' [--model M] [--project P] [--im-push 渠道,联系人] [--disabled] --prompt P
+ *   add --name N --agent A --schedule '<json>' [--model M] [--project P] [--im-push 渠道,联系人] [--no-im-push] [--disabled] --prompt P
  *        --im-push 可重复，把 @im-push-to(渠道,ct_xxx) 推送到标记注入 prompt（执行时注册 im_push_to 工具）
+ *        --no-im-push 显式关闭推送（默认自动用 env 的默认推送目标，无需显式传 --im-push）
  *   set <id> <key> <value>        修改字段（key: name/enabled/time/agent/model/project/prompt/im-push）
  *   delete <id>                   删除任务（项目隔离：agent 场景只能删本项目任务）
  *   validate <id>                 校验任务文件
@@ -51,6 +52,13 @@ const DEFAULT_PROJECT_ID =
 	process.env.WA_PI_SCHEDULER_PROJECT_ID || "__system__";
 // 项目作用域：agent 场景下由 kernel 注入当前会话项目 id，非空时 CLI 只操作该项目任务（隔离）
 const PROJECT_SCOPE = process.env.WA_PI_SCHEDULER_PROJECT_ID || "";
+// 默认推送目标：agent 会话注入的 WA_PI_IM_PUSH_TARGETS（ct_xxx 列表，逗号分隔）。
+// CLI 由 agent spawn 时继承该 env；add 未显式传 --im-push 时用它作缺省，确保任务执行时
+// prompt 带 @im-push-to 标记 → kernel 注册 im_push_to 工具 → 能推送出去（否则怎么都推不出去）。
+const DEFAULT_PUSH_TARGETS = (process.env.WA_PI_IM_PUSH_TARGETS || "")
+	.split(",")
+	.map((t) => t.trim())
+	.filter(Boolean);
 
 function serializeTask(data: any, prompt: string): string {
 	const lines = [
@@ -274,7 +282,17 @@ function injectImPushMentions(prompt: string, pushTargets: string[]): string {
 	const existingCts = new Set(prompt.match(/ct_[a-zA-Z0-9_-]+/g) ?? []);
 	const extra: string[] = [];
 	for (const t of pushTargets) {
-		const [channel, ct] = t.split(",");
+		// 兼容两种输入：`渠道,ct_xxx`（显式 --im-push） 或裸 `ct_xxx`（默认推送目标 env）。
+		const [maybeChannel, maybeCt] = t.split(",");
+		let channel: string | undefined;
+		let ct: string | undefined;
+		if (maybeChannel && /^ct_[a-zA-Z0-9_-]+$/.test(maybeChannel)) {
+			// 裸联系人（无渠道）→ 渠道兜底 ch_channel
+			ct = maybeChannel;
+		} else {
+			channel = maybeChannel;
+			ct = maybeCt;
+		}
 		if (!ct || !/^ct_[a-zA-Z0-9_-]+$/.test(ct))
 			fail(`--im-push 格式应为一渠道,联系人（如 ch_xx,ct_xxx）: ${t}`);
 		if (existingCts.has(ct)) continue;
@@ -368,11 +386,22 @@ function main(): void {
 		case "add": {
 			const opts: Record<string, string> = {};
 			const pushTargets: string[] = [];
-			for (let i = 0; i < args.length; i += 2) {
-				const key = args[i].replace(/^--/, "");
-				if (key === "im-push") pushTargets.push(args[i + 1]);
-				else opts[key] = args[i + 1];
+			let noImPush = false;
+			// 逐个 token 扫描：带值参数（--name N）取下一个为值；无值布尔参数（--no-im-push/--disabled）只置位。
+			for (let i = 0; i < args.length; i++) {
+				const a = args[i];
+				if (a === "--no-im-push") {
+					noImPush = true;
+					continue;
+				}
+				if (a === "--disabled") continue;
+				if (!a.startsWith("--")) continue;
+				const key = a.replace(/^--/, "");
+				if (key === "im-push") pushTargets.push(args[++i]);
+				else opts[key] = args[++i];
 			}
+			if (!noImPush && pushTargets.length === 0 && DEFAULT_PUSH_TARGETS.length > 0)
+				pushTargets.push(...DEFAULT_PUSH_TARGETS);
 			if (!opts.name) fail("缺少 --name");
 			if (!opts.agent) fail("缺少 --agent");
 			if (!opts.schedule)
