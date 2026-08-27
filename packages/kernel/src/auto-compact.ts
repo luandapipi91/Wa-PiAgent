@@ -6,7 +6,7 @@
  * 而此刻 pi 请求层的 max_tokens 已被顶到模型上限，叠加真实 token 数后越过窗口溢出（400）。
  * 改为按窗口百分比触发，让压缩更早介入，留出足够安全区。
  */
-export const AUTO_COMPACT_USAGE_RATIO = 0.85;
+export const AUTO_COMPACT_USAGE_RATIO = 0.8;
 
 /** 发送前是否需要先压缩：当前占用超过窗口的一定比例时触发 */
 export function shouldCompactBeforeSend(
