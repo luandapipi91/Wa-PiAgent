@@ -5,20 +5,20 @@ import {
 } from "../auto-compact";
 
 describe("shouldCompactBeforeSend", () => {
-	test("占用远低于 85% 时不压缩", () => {
+	test("占用远低于 80% 时不压缩", () => {
 		expect(shouldCompactBeforeSend(122_000, 1_000_000)).toBe(false);
 	});
 
-	test("占用不足 85% 时不压缩", () => {
+	test("占用不足 80% 时不压缩", () => {
 		expect(shouldCompactBeforeSend(849_999, 1_000_000)).toBe(false);
 	});
 
-	test("恰好等于 85% 边界时不压缩（严格大于才触发）", () => {
-		expect(shouldCompactBeforeSend(850_000, 1_000_000)).toBe(false);
+	test("恰好等于 80% 边界时不压缩（严格大于才触发）", () => {
+		expect(shouldCompactBeforeSend(800_000, 1_000_000)).toBe(false);
 	});
 
-	test("占用超过 85% 时触发压缩", () => {
-		expect(shouldCompactBeforeSend(850_001, 1_000_000)).toBe(true);
+	test("占用超过 80% 时触发压缩", () => {
+		expect(shouldCompactBeforeSend(800_001, 1_000_000)).toBe(true);
 	});
 
 	test("1M 窗口 70 万占用不触发，96.8 万触发", () => {
@@ -31,7 +31,7 @@ describe("shouldCompactBeforeSend", () => {
 		expect(shouldCompactBeforeSend(100, -1)).toBe(false);
 	});
 
-	test("85% 阈值常量正确", () => {
-		expect(AUTO_COMPACT_USAGE_RATIO).toBe(0.85);
+	test("80% 阈值常量正确", () => {
+		expect(AUTO_COMPACT_USAGE_RATIO).toBe(0.80);
 	});
 });
