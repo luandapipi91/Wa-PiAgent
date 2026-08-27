@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import { existsSync } from "node:fs";
 import { collectProxyEnv, resolvePiRuntime } from "../src/rpc-client";
 
@@ -24,6 +24,12 @@ describe("resolvePiRuntime", () => {
 	// ~/.pi/agent/bin 放 bun 链接，Bun.which("bun") 命中它且 ≠ process.execPath。
 	const platformDesc = Object.getOwnPropertyDescriptor(process, "platform");
 	const originalEnvRuntime = process.env.WA_PI_PI_RUNTIME;
+
+	// 宿主 shell 若被启动链 export 过 WA_PI_PI_RUNTIME，会让两个用例在第一行
+	// 提前返回（覆盖 win32/which 分支），单测必须与宿主 env 解耦
+	beforeEach(() => {
+		delete process.env.WA_PI_PI_RUNTIME;
+	});
 
 	afterEach(() => {
 		if (platformDesc) Object.defineProperty(process, "platform", platformDesc);
