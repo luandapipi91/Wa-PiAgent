@@ -1,4 +1,11 @@
 
+## 2026-08-30 — v0.2.29 发版（浮窗拖拽与默认态修复 + SidebarResizer 宽度传播）
+
+- 版本：0.2.28 → 0.2.29。
+- 主要：浏览器浮窗默认居中弹出、位置直写不丢；拖地址栏宽度不再带动浮窗移动；浮窗拖拽/尺寸手柄体验修正；SidebarResizer 宽度传播；新建会话页可达性检测。
+- 验证：typecheck 全绿；四层回归全绿。
+- 影响范围：frontend（BrowserPanel/SidebarResizer/browser store/NewSessionPane）、kernel（ws-server/static-serve）。
+
 ## 2026-08-30 — fix(preview/float): 拖地址栏宽度不再带动浮窗 + 默认居中弹出、位置直写不丢
 
 - 背景：①浮窗模式下拖动地址栏宽度把手会把浮窗带若同步平移；②浮窗无历史时默认弹在右上角而非期待中的居中；③浮窗位置落盘走 300ms 防抖，「拖完立刻退出应用」会丢最后一次位置。
