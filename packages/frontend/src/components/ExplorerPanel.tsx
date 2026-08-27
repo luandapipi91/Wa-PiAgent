@@ -10,6 +10,7 @@ import { useToastStore } from "../store/toast";
 import { useTranslation } from "../i18n/useTranslation";
 import { Icon } from "./ui/Icon";
 import { ShareResultModal } from "./ui/ShareButton";
+import { useClampMenu } from "./ProjectItem";
 
 type Entry = { name: string; path: string; isDir: boolean };
 
@@ -47,6 +48,10 @@ function ExplorerContextMenu({
 	onShare: (paths: string[]) => void;
 	t: TFunction;
 }) {
+	// 菜单渲染后实测尺寸钳制到视口内（复用 ProjectItem 的 useClampMenu）：
+	// 修复底部文件右键时菜单固定向下展开、底部项超出窗口不可点
+	const menuRef = useRef<HTMLDivElement>(null);
+	useClampMenu(menuRef, { x, y });
 	useEffect(() => {
 		const close = (e: MouseEvent) => {
 			if (e.target instanceof Element && e.target.closest("[data-ctx-menu]"))
@@ -67,7 +72,12 @@ function ExplorerContextMenu({
 	// 多选（>1）：复制路径/默认应用打开/在访达显示对多个条目无意义，只保留「分享所选」
 	if (sel.length > 1) {
 		return (
-			<div className="ep-ctx-menu" data-ctx-menu="" style={{ left: x, top: y }}>
+			<div
+				className="ep-ctx-menu"
+				data-ctx-menu=""
+				ref={menuRef}
+				style={{ left: x, top: y }}
+			>
 				<button
 					className="ep-ctx-item"
 					data-testid="ep-ctx-share-multi"
@@ -82,7 +92,12 @@ function ExplorerContextMenu({
 		);
 	}
 	return (
-		<div className="ep-ctx-menu" data-ctx-menu="" style={{ left: x, top: y }}>
+		<div
+			className="ep-ctx-menu"
+			data-ctx-menu=""
+			ref={menuRef}
+			style={{ left: x, top: y }}
+		>
 			<button
 				className="ep-ctx-item"
 				data-testid="ep-ctx-share"
