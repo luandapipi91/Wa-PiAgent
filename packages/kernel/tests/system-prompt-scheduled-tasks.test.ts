@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WA_PI_DIR } from "@wa-pi/shared";
 import {
 	composePrompt,
 	DEFAULT_PROMPT_SEGMENTS,
@@ -33,7 +34,8 @@ test("scheduled-tasks 段：始终注入引导文案（不再判目录存在）"
 	});
 	expect(prompt).toContain("scheduled-tasks");
 	expect(prompt).toContain("README.md");
-	expect(prompt).toContain(".pi/agent/scheduled-tasks");
+	// 全局目录路径由 WA_PI_DIR 决定（测试环境被 setup.ts 覆盖为临时目录），动态断言
+	expect(prompt).toContain(join(WA_PI_DIR, "scheduled-tasks"));
 	// 约束：所有定时任务操作必须通过 CLI，不能直接编辑目录文件
 	expect(prompt).toContain("必须通过");
 	expect(prompt).toContain("cron-task.ts");
