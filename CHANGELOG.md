@@ -1,4 +1,11 @@
 
+## 2026-08-28 — v0.2.28 发版（预览地址栏适配 + 嵌套子页双高亮修复）
+
+- 版本：0.2.27 → 0.2.28。
+- 主要：浏览器预览地址栏尺寸适配（urlbar-size，随面板宽度自适应）；inspect 锁定开关；A 锁定后移入嵌套子页不再出现子页 hover 双高亮残窗；SidebarResizer/面板拖拽在预览分屏下的宽度计算修正。
+- 验证：typecheck 全绿；四层回归全绿。
+- 影响范围：frontend（BrowserPanel/SidebarResizer/urlbar-size/browser store/i18n）、kernel（preview-inspect.js）。
+
 ## 2026-08-28 — fix(preview): A 锁定后移入嵌套子页仍出现子页 hover（双高亮残窗）
 
 - 背景：互斥机制后用户反馈 A 层锁定元素后移入 B 页面，B 仍出现 hover 高亮（双高亮）。
