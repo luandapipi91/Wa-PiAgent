@@ -34,7 +34,11 @@ import { TaskFolderWatcher } from "./scheduler-watcher";
 import { migrateLegacySchedulerFiles } from "./scheduler-migrate";
 import { atomicWrite, ensureScheduledTasksAssets } from "./scheduler-assets";
 import { buildSchedulerProjects } from "./scheduler-projects";
-import { parseImPushMentions, createImPushTool } from "./tools/robot-push";
+import {
+	parseImPushMentions,
+	createImPushTool,
+	createListContactsTool,
+} from "./tools/robot-push";
 import type { ImPushInjection } from "./agent-manager";
 import { expandSkillTokens } from "./channels/skill-expand";
 import {
@@ -365,6 +369,13 @@ export async function startKernel(opts?: {
 		await channelManager.pushToContact(contact, message);
 		return `已成功推送给 ${contact}`;
 	});
+
+	// 主聊天 list_contacts 全局执行器后绑定：与 im_push_to 同款惰性模式（channelManager 晚构造）。
+	// 调用时实时按 channelId 拉取联系人列表 + 渠道名映射并格式化，供 agent 枚举推送目标。
+	const listContactsTool = createListContactsTool({ channelManager });
+	agentManager.setListContactsExecutor((channelId?: string) =>
+		listContactsTool.execute({ channelId }),
+	);
 
 	await server.start();
 	console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);

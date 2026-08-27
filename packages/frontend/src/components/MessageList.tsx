@@ -51,7 +51,7 @@ interface Props {
 	readOnly?: boolean;
 }
 
-interface RenderedRow {
+export interface RenderedRow {
 	main: SessionMessage;
 	toolResults: Map<string, ToolResultMessage>;
 	/** 合并行中专用的 streaming 起始 index（内容数组中从该 index 开始为新到达的流式块） */
@@ -317,6 +317,15 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	// virtuoso 数据：displayRows + 独立流式占位行（未合并进末行时追加在末尾）。
 	// computeItemKey 消费。key 基础为 agentName:timestamp，重复时追加序号后缀保证唯一
 	// （同 turn 多 assistant 被 custom 消息隔断、不同 turn 巧合同 timestamp 等场景）。
+	const lastContentIdx = useMemo(() => {
+		// 找最后一条"内容消息"（非 custom 系统提示行）：
+		// custom 行（extension_notify 通知 / agent_switch / compaction_status / reload_config）
+		// 仅作为系统间距提示渲染居中行，不承载实际消息内容。文件修改清单应挂在最后一条
+		// 真正的消息内容下，而非最后一条系统提示行——否则末尾插入 notify 通知（如插件反馈）
+		// 会抢占 i === displayRows.length - 1，把文件修改清单顶掉。
+		return lastContentRowIndex(displayRows);
+	}, [displayRows]);
+
 	const listRows = useMemo<VirtuosoRow[]>(() => {
 		const seen = new Map<string, number>();
 		const out: VirtuosoRow[] = displayRows.map((row, i) => {
@@ -418,6 +427,27 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			}
 		}
 	}, [sessionId, listRows.length, scrollToEnd]);
+
+	// 压缩状态消息（compaction_start 插入「正在压缩…」/ compaction_end 替换「已压缩…」）
+	// 是 idle 状态下的内容增长——三条自动滚动路径（followOutput / 强制贴底 effect / 200ms interval）
+	// 全部依赖 autoScrollActive（streaming/子代理/thinking），压缩时均为 false，故不会自动滚到底。
+	// 用户停在底部时，压缩状态消息插入/替换应跟随滚到底（否则看不到「正在压缩/已压缩」提示）。
+	// 仅当 stickBottom=true（用户意图看最新）时滚动，不打扰上翻阅读历史的用户。
+	// 用「最后一条 compaction_status 消息的 content+timestamp」作标识：插入/替换都会变化。
+	const lastCompactionKey = useMemo(() => {
+		for (let i = displayRows.length - 1; i >= 0; i--) {
+			const m = displayRows[i].main.message as any;
+			if (m?.customType === "compaction_status") {
+				return `${m.content}:${m.timestamp}`;
+			}
+		}
+		return null;
+	}, [displayRows]);
+	useEffect(() => {
+		if (lastCompactionKey && stickBottom) {
+			scrollToEnd();
+		}
+	}, [lastCompactionKey, stickBottom, scrollToEnd]);
 
 	// 流式期间的强制贴底滚动（恢复 virtuoso 改造前的「每帧贴底」语义）。
 	// followOutput 在「用户消息已追加但 autoScrollActive 尚未置真」的窗口里返回 false 不滚，
@@ -653,7 +683,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 								}
 								isStreaming={isMergedStreamingRow}
 								isActiveTurnRow={isActiveTurnRow && i === displayRows.length - 1}
-								isLastMessage={i === displayRows.length - 1}
+								isLastMessage={i === lastContentIdx}
 							/>
 						</div>
 					);
@@ -782,6 +812,29 @@ function collapseSameTurnAssistants(rows: RenderedRow[]): RenderedRow[] {
 		}
 	}
 	return out;
+}
+
+/**
+ * 判断一条消息是否为 custom 系统提示行（extension_notify 通知 / agent_switch / compaction_status 等）。
+ * custom 行仅作为系统间距提示渲染居中行，不承载实际消息内容；文件修改清单不应挂在它下面。
+ */
+function isSystemMessage(m: any): boolean {
+	return (
+		m?.type === "custom" || m?.type === "custom_message" || m?.role === "custom"
+	);
+}
+
+/**
+ * 找到 displayRows 中最后一条"内容消息"（非 custom 系统提示行）的索引。
+ * 没有内容消息时返回 -1。
+ * 用途：文件修改清单应挂在最后一条真正的消息内容下，而非最后一条系统提示行——
+ * 否则末尾插入 notify 通知（如插件反馈）会抢占 displayRows 末位，把文件修改清单顶掉。
+ */
+export function lastContentRowIndex(rows: RenderedRow[]): number {
+	for (let i = rows.length - 1; i >= 0; i--) {
+		if (!isSystemMessage(rows[i].main.message as any)) return i;
+	}
+	return -1;
 }
 
 function stripAttachmentRefs(content: string): string {

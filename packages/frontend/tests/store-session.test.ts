@@ -115,13 +115,11 @@ test("message_start(user) 添加用户消息到 messages", () => {
 	});
 	useSessionStore.getState().handleSDKEvent("s1", env);
 	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
-	expect(useSessionStore.getState().messagesBySession["s1"][0].message).toEqual(
-		{
-			role: "user",
-			content: "你好",
-			timestamp: 1,
-		},
-	);
+	expect(useSessionStore.getState().messagesBySession["s1"][0].message).toEqual({
+		role: "user",
+		content: "你好",
+		timestamp: 1,
+	});
 });
 
 test("message_start(assistant) 设置 streamingMessage", () => {
@@ -1752,17 +1750,20 @@ test("compaction_start 插入「正在压缩上下文」状态消息；compactio
 	);
 	await new Promise((r) => setTimeout(r, 0));
 	const after = useSessionStore.getState().messagesBySession["s1"];
-	// 成功的本地状态消息被去重（服务端 compactionSummary 承担同一文案的展示）；
-	// 进行中/取消/失败才保留本地
+	// 方案 A：本地成功状态消息保留在消息流末尾（当前操作位置的实时反馈），
+	// 不进服务端 compactionSummary；服务端历史的 compactionSummary 被剔除（防会话顶部重复）。
 	const localSuccess = after.filter(
 		(m) => (m.message as any).customType === "compaction_status",
 	);
-	expect(localSuccess).toHaveLength(0);
-	// 服务端压缩节点消息存在（渲染文案与 live 一致：—— 已压缩早期上下文 · 压缩前 1K token ——）
+	expect(localSuccess).toHaveLength(1);
+	expect((localSuccess[0].message as any).content).toBe(
+		"已压缩早期上下文 · 压缩前 1K token",
+	);
+	// 服务端压缩节点消息被剔除（本地已承载成功提示，避免会话顶部重复出现）
 	const summaryMsg = after.find(
 		(m) => (m.message as any).role === "compactionSummary",
 	);
-	expect(summaryMsg).toBeDefined();
+	expect(summaryMsg).toBeUndefined();
 	// compaction_end 是权威信号：触发 refreshTokenTotals（不依赖 agent_end 文本检测）
 	expect(getCalls).toBe(2);
 	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(1000);
@@ -1872,6 +1873,51 @@ test("compaction_end 自动压缩（reason=threshold）同样触发 token 刷新
 	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(5000);
 	expect(useSessionStore.getState().tokenTotals["s1"]?.cacheRead).toBe(20000);
 	expect(useSessionStore.getState().tokenTotals["s1"]?.total).toBe(27000);
+});
+
+// 回归：compaction_end 成功但服务端历史重拉不带 compactionSummary 时，
+// 本地成功的 compaction_status 消息不能被无条件清除——否则「已压缩」提示会彻底消失。
+// 修复前 refreshTokenTotals 用 `return !mm?.compactionDone` 无条件移除成功消息，
+// 完全依赖服务端 compactionSummary 兜底；当服务端历史未返回该节点（手动 /compact 后
+// 落盘时序竞态等），提示就丢了。修复后仅当服务端确实提供了 compactionSummary 才移除。
+test("compaction_end 成功但服务端历史无 compactionSummary：本地成功提示应保留（不消失）", async () => {
+	getCalls = 0;
+	useSessionStore.setState({ messagesBySession: {}, tokenTotals: {} });
+	// 服务端历史空——模拟手动 /compact 后 compaction 节点尚未落盘/时序竞态
+	mockMessages.messages = [];
+
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "compaction_start", reason: "manual" }),
+		);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "compaction_end",
+			reason: "manual",
+			result: {
+				summary: "摘要",
+				firstKeptEntryId: "abc",
+				tokensBefore: 1000,
+				estimatedTokensAfter: 300,
+			},
+			aborted: false,
+			willRetry: false,
+		}),
+	);
+	await new Promise((r) => setTimeout(r, 0));
+
+	const msgs = useSessionStore.getState().messagesBySession["s1"] ?? [];
+	const statusMsgs = msgs.filter(
+		(m) => (m.message as any).customType === "compaction_status",
+	);
+	// 成功提示必须保留（本地保留作为兑底，因为服务端无 compactionSummary）
+	expect(statusMsgs.length).toBe(1);
+	expect((statusMsgs[0].message as any).content).toBe(
+		"已压缩早期上下文 · 压缩前 1K token",
+	);
 });
 
 // ── extension_dialog / extension_editor_text：pi 扩展 dialog 子协议事件分发 ──

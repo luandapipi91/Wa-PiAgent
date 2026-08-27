@@ -1,4 +1,5 @@
 import type { ChannelManager } from "../channel-manager";
+import type { ContactEntity } from "@wa-pi/shared";
 
 // ---------------------------------------------------------------------------
 // @im-push-to(ch_xxx,ct_xxx) 函数式标记（唯一格式；旧 @ch_/@ct_ 裸标记已废弃）。
@@ -38,6 +39,117 @@ interface ImPushResultPayload {
 	targetId: string;
 	success: boolean;
 	error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// list_contacts —— 联系人查询侧工具（与 im_push_to 对称，只读）
+// ---------------------------------------------------------------------------
+
+/** 联系人显示名：remark 优先；group 退 chatId 前 8 位、person 退 userId；兜底 id。
+ *  反馈：与前端接触 store 的 contactLabel 命名规则保持一致。 */
+export function contactLabelOf(c: ContactEntity): string {
+	return (
+		c.remark || (c.kind === "group" ? c.chatId?.slice(0, 8) : c.userId) || c.id
+	);
+}
+
+export interface ListContactsToolDeps {
+	channelManager: {
+		listContacts(channelId?: string): Promise<ContactEntity[]>;
+		listWithStatus(): Promise<Array<{ id: string; type: string; name: string }>>;
+	};
+}
+
+/** 渠道类型 → 中文标签（对齐前端 i18n 的 settings.bot.channelXxx）。
+ *  wecom=企业微信、wechat=微信、feishu=飞书、qq=QQ；未知类型回退原值。 */
+export function channelTypeLabel(type: string): string {
+	switch (type) {
+		case "wecom":
+			return "企业微信";
+		case "wechat":
+			return "微信";
+		case "feishu":
+			return "飞书";
+		case "qq":
+			return "QQ";
+		default:
+			return type;
+	}
+}
+
+/** 生成 contacts markdown 列表：channelId 提供时标题带渠道标识，否则标全部。
+ *  channelMap 把 channelId 映射为 { type, name }；所属渠道列显示「类型名 · 机器人名」，
+ *  机器人名缺失或渠道未知时回退为类型标签。 */
+export function formatContactsMarkdown(
+	contacts: ContactEntity[],
+	channelMap: Map<string, { type: string; name: string }>,
+	channelId?: string,
+): string {
+	if (contacts.length === 0) return "当前没有可用联系人";
+	const head = channelId
+		? `## 渠道 ${channelId} 的联系人（共 ${contacts.length} 个）`
+		: `## 当前可用联系人（共 ${contacts.length} 个）`;
+	const rows = contacts
+		.map((c, i) => {
+			const kind = c.kind === "group" ? "群聊" : "个人";
+			const ch = channelMap.get(c.channelId);
+			const chLabel = ch
+				? `${channelTypeLabel(ch.type)} · ${ch.name}`
+				: c.channelId;
+			return `| ${i + 1} | ${c.id} | ${contactLabelOf(c)} | ${kind} | ${chLabel} |`;
+		})
+		.join("\n");
+	return `${head}\n\n| # | 联系人 ID | 名称 | 类型 | 所属渠道 |\n|---|-----------|------|------|------------|\n${rows}`;
+}
+
+/** list_contacts 工具定义（与 im_push_to 同款 RPC 格式，只读） */
+export interface ListContactsTool {
+	name: "list_contacts";
+	description: string;
+	inputSchema: {
+		type: "object";
+		properties: {
+			channelId: { type: "string"; description: string };
+		};
+		required: string[];
+	};
+	execute(args: { channelId?: string }): Promise<string>;
+}
+
+/** 构建 list_contacts 工具定义：调用 channelManager 拉取联系人 + 渠道名映射并格式化。 */
+export function createListContactsTool(
+	deps: ListContactsToolDeps,
+): ListContactsTool {
+	return {
+		name: "list_contacts",
+		description:
+			"获取当前系统可用的 IM 联系人列表。可传 channelId 过滤某一渠道；缺省返回全部。返回每行含联系人 id 与显示名，所属渠道列显示「渠道类型 · 机器人名」（如企业微信 · xx），便于确定 im_push_to 的推送目标。",
+		inputSchema: {
+			type: "object",
+			properties: {
+				channelId: {
+					type: "string",
+					description: "所属机器人渠道 ID（ch_xxx）；缺省返回全部联系人",
+				},
+			},
+			required: [],
+		},
+		async execute(args: { channelId?: string }): Promise<string> {
+			const { channelId } = args ?? {};
+			try {
+				const [contacts, channels] = await Promise.all([
+					deps.channelManager.listContacts(channelId),
+					deps.channelManager.listWithStatus(),
+				]);
+				const channelMap = new Map<string, { type: string; name: string }>();
+				for (const c of channels) channelMap.set(c.id, c);
+				return formatContactsMarkdown(contacts, channelMap, channelId);
+			} catch (err) {
+				const error = err instanceof Error ? err.message : String(err);
+				return `获取联系人失败：${error}`;
+			}
+		},
+	};
 }
 
 export interface ImPushToolDeps {

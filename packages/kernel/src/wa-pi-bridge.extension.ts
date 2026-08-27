@@ -480,6 +480,31 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// list_contacts：始终注册（与 im_push_to 对称的查询侧工具，只读）。
+	// agent 借此枚举当前系统可用联系人（含显示名/渠道名称），确定可推送目标。
+	pi.registerTool({
+		name: "list_contacts",
+		label: "IM Contacts",
+		description:
+			"获取当前系统可用的 IM 联系人列表。可传 channelId 过滤某一渠道；缺省返回全部。返回每行含联系人 id 与显示名，所属渠道列显示「渠道类型 · 机器人名」（如企业微信 · xx），便于确定 im_push_to 的推送目标。",
+		parameters: Type.Object({
+			channelId: Type.Optional(
+				Type.String({
+					description: "所属机器人渠道 ID（ch_xxx）；缺省返回全部联系人",
+				}),
+			),
+		}),
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"list_contacts",
+				toolCallId,
+				params,
+				signal,
+				DEFAULT_TIMEOUT_MS,
+			);
+		},
+	});
+
 	// 内部热重载触发点：kernel 装卸插件后经 prompt("/__!wa_pi_reload") 触发，
 	// 调 ctx.reload() → session.reload()（重读 settings.json packages + 重放 session_start，
 	// 让活跃扩展重发 widget/status 恢复 UI）。动态扩展走 pi 官方 packages 机制，
