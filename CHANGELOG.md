@@ -1,4 +1,11 @@
 
+## 2026-08-27 — v0.2.26 发版（定时任务 AI 化 + 全局目录架构）
+
+- 版本：0.2.25 → 0.2.26。
+- 主要：定时任务 AI 化——定时任务从全局 JSON 迁移为文件夹存储（~/.pi/agent/scheduled-tasks/ 下 tasks/ 任务 md + logs/ 日志），agent 可用分发的 cron-task.ts CLI 自主创建/查看/修改/启停/运行；kernel fs.watch 热加载；系统提示词注入定时任务管理引导；自动化面板新增「配置错误」条目展示与修复；旧 JSON 自动迁移归档；定时任务推送默认开启（--no-im-push 显式关闭）；cron-task.ts 支持 --project 归属与 set project、list 显示所属项目（CLI v3 全局目录架构）；发送前自动压缩阈值统一为窗口 80%。
+- 验证：typecheck 全绿；kernel/shared/desktop/frontend 四层回归全绿（frontend 1942 pass 0 fail）；修复 auto-compact 用例如 80% 阈值自洽 + scheduler-watcher waitFor 放宽到 10s 防并行 flaky。
+- 影响范围：kernel（scheduler*/routes/index/system-prompt/agent-manager/wa-pi-bridge/auto-compact）、shared（task-file/types/constants）、frontend（automation 面板/MessageList/session/store）、scripts（API 集成测试）、e2e。
+
 ## 2026-08-27 — fix(ui): 插件 notify 通知不再顶掉消息流末尾的文件修改清单
 
 - 背景：扩展（插件）经 `ctx.ui.notify()` 发出的通知（如 /lens-toggle 执行结果）出现在聊天里时，会与消息流末尾的「📄 已修改 N 个文件」文件修改清单冲突——通知一来，文件修改清单就不显示了。期望两者共存。
