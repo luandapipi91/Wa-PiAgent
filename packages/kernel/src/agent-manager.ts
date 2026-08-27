@@ -171,6 +171,9 @@ export interface AgentManagerOpts {
 	 *  channelManager 构造晚于 AgentManager（循环依赖），由 index.ts 经 setImPushExecutor 后绑定；
 	 *  定时任务会话仍用 ensureStarted 的 imPush 注入（优先于本执行器）。 */
 	imPushExecutor?: (contact: string, message: string) => Promise<string>;
+	/** 主聊天 list_contacts 全局执行器：调用时实时按 channelId 走 channelManager 拉取联系人列表。
+	 *  channelManager 构造晚于 AgentManager（循环依赖），由 index.ts 经 setListContactsExecutor 后绑定。 */
+	listContactsExecutor?: (channelId?: string) => Promise<string>;
 	// 测试注入 fake；生产不传 → 默认 new BrowserManager()。browser_* 工具的分派目标
 	browserManager?: BrowserManager;
 	// 测试注入 mock；生产留空 → 真实 RpcClient
@@ -291,6 +294,13 @@ export class AgentManager {
 		executor: (contact: string, message: string) => Promise<string>,
 	): void {
 		this.opts.imPushExecutor = executor;
+	}
+
+	/** 后绑定 list_contacts 全局执行器（channelManager 晚置，index.ts 构造后调用）。 */
+	setListContactsExecutor(
+		executor: (channelId?: string) => Promise<string>,
+	): void {
+		this.opts.listContactsExecutor = executor;
 	}
 
 	/**
@@ -840,6 +850,33 @@ export class AgentManager {
 						const error = err instanceof Error ? err.message : String(err);
 						return {
 							content: [{ type: "text", text: `推送失败：${error}` }],
+							details: { error },
+						};
+					}
+				}
+				// list_contacts：查询当前系统可用联系人（只读）。走全局 executor（channelManager
+				// 全局长连接，调用时实时按 channelId 拉取联系人列表），工具始终注册。
+				if (tool === "list_contacts") {
+					const execute = am.opts.listContactsExecutor;
+					if (!execute) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "通讯录未就绪（kernel 未接线 channelManager）",
+								},
+							],
+							details: { error: "contacts unavailable" },
+						};
+					}
+					const p = params as { channelId?: string };
+					try {
+						const text = await execute(p.channelId);
+						return { content: [{ type: "text", text }], details: {} };
+					} catch (err) {
+						const error = err instanceof Error ? err.message : String(err);
+						return {
+							content: [{ type: "text", text: `获取联系人失败：${error}` }],
 							details: { error },
 						};
 					}

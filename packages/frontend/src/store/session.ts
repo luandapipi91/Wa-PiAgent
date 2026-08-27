@@ -405,20 +405,31 @@ export const useSessionStore = create<SessionState>((set) => {
 				if (!res?.messages) return;
 				// 整表覆盖：agent_end 时刻无 streaming，服务端历史为准；
 				// GET 在途时若乐观消息已写入，SDK 回显会补回，短暂覆盖可接受。
-				// 保留本地 compaction_status 中的「进行中/取消/失败」消息：它们不在服务端历史里，
-				// 整表覆盖会把它冲掉。成功的压缩（「已压缩…」）不保留——服务端历史会渲染
-				// compactionSummary 节点（同一文案），保留本地这条会出现重复提示。
+				// 本地 compaction_status 消息（进行中/取消/失败/成功）全部保留：它们是当前会话
+				// 压缩操作的实时反馈，位于消息流末尾（用户当前操作位置）。服务端历史不落盘这些
+				// 状态消息（仅落盘 compaction 节点），整表覆盖会把它们冲掉，必须从 prev 里捞回。
+				// 若本地已有一条成功的 compaction_status（当前会话刚发生压缩），服务端历史上
+				// 同一点的 compactionSummary 节点会在上方重复渲染（readSessionHistory 把它
+				// unshift 到数组最前 = 会话顶部），造成「压缩成功提示跑到会话顶部」的问题。
+				// 因此仅在本地有成功提示时，从服务端历史里剔除 compactionSummary 避免顶部重复；
+				// 重新打开会话（无本地成功提示）时保留服务端 compactionSummary 作为历史标记。
 				const prev = useSessionStore.getState().messagesBySession[sessionId] ?? [];
 				const localStatus = prev.filter((m: any) => {
 					const mm = m.message as any;
-					if (mm?.customType !== "compaction_status") return false;
-					// 保留进行中/取消/失败的压缩状态消息；移除成功的（服务端历史会渲染 compactionSummary）。
-					return !mm?.compactionDone;
+					return mm?.customType === "compaction_status";
 				});
+				const hasLocalDone = localStatus.some(
+					(m: any) => (m.message as any)?.compactionDone === true,
+				);
+				const serverMessages = hasLocalDone
+					? (res.messages ?? []).filter(
+							(m: any) => (m?.message ?? m)?.role !== "compactionSummary",
+						)
+					: (res.messages ?? []);
 				useSessionStore.setState((s) => ({
 					messagesBySession: {
 						...s.messagesBySession,
-						[sessionId]: [...res.messages, ...localStatus],
+						[sessionId]: [...serverMessages, ...localStatus],
 					},
 				}));
 				const stats = (statsRes as any)?.stats as

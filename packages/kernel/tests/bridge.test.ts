@@ -61,6 +61,7 @@ const ALL_BRIDGE_TOOLS = [
 	"browser_screenshot",
 	"browser_close",
 	"im_push_to",
+	"list_contacts",
 ];
 
 const validAskParams: AskParams = {
@@ -788,7 +789,7 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 
 // ── C1：im_push_to 始终注册（Task 2 变更：不再依赖 WA_PI_IM_PUSH_TARGETS env）──
 
-test("im_push_to：未设 env 也注册（12 工具，普通会话工具面板可用）", async () => {
+test("im_push_to：未设 env 也注册（13 工具，普通会话工具面板可用）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	delete process.env.WA_PI_IM_PUSH_TARGETS;
 	try {
@@ -802,12 +803,12 @@ test("im_push_to：未设 env 也注册（12 工具，普通会话工具面板�
 	}
 });
 
-test("im_push_to：始终注册（共 12 个工具），description 为通用引导（不含联系人列表）", async () => {
+test("im_push_to：始终注册（共 13 个工具），description 为通用引导（不含联系人列表）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools).toHaveLength(12);
+		expect(tools).toHaveLength(13);
 		const imPush = tools.find((t: any) => t.name === "im_push_to");
 		expect(imPush).toBeTruthy();
 		// env 仅作诊断用途，不再写入 description（联系人由消息标记自描述）
@@ -830,7 +831,9 @@ test("resolvePiCliPath: 主解析失败（编译产物虚拟 FS 不可达磁盘�
 	// node_modules；运行时 kernel 进程 cwd = runtimeDir（磁盘依赖已装），从 cwd 解析可行。
 	const fakeReq = {
 		resolve: () => {
-			throw new Error("Cannot find module '@earendil-works/pi-coding-agent/package.json'");
+			throw new Error(
+				"Cannot find module '@earendil-works/pi-coding-agent/package.json'",
+			);
 		},
 	} as any;
 	const cli = resolvePiCliPath(fakeReq);
