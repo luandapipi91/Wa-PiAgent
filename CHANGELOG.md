@@ -1,5 +1,13 @@
 
-## 2026-08-27 — fix(ui): 手动 /compact 压缩成功后「已压缩」提示消失
+## 2026-08-27 — fix(kernel): 定时任务 list 显示所属项目 + 保留「禁止直接编辑或删除」约束
+
+- 背景：①CLI `list` 命令默认不显示任务所属项目，agent/用户无从区分任务归属；用户要求 list 返回所属项目，系统项目显示「默认工作区」。②自动格式化工具误把 system-prompt 的「禁止直接编辑」文案加工成「禁止直接编、辑删除」，且用户要求保留「删除」语义（delete 也不能直接操作目录文件）。
+- 修复：
+  - `cron-task.ts`：新增 `projectLabelOf`（`__system__`/空 → 默认工作区，否则显示 projectId）；`list` 输出在任务名前加 `[所属项目]` 列。
+  - `system-prompt.ts`：文案改回「禁止直接编辑或删除目录下的任务文件」，保留「删除」语义；`system-prompt-scheduled-tasks.test.ts` 断言同步为「禁止直接编辑或删除」，防止格式化工具再次破坏。
+  - `scheduler-assets.test.ts`：新增 `list` 显示所属项目用例（__system__ → [默认工作区]、--project pa → [pa]）。
+- 验证：kernel 全量 1463 pass 0 fail（含修复前 1 fail：system-prompt 文案被误改导致断言不过，已修复）；scheduler-assets 13 pass；typecheck clean。
+- 影响范围：`packages/kernel/assets/scheduled-tasks/cron-task.ts`、`system-prompt.ts`、`packages/kernel/tests/scheduler-assets.test.ts`、`system-prompt-scheduled-tasks.test.ts`。
 
 - 背景：手动调用 `/compact` 压缩上下文成功后，原来屏幕中间的「已压缩早期上下文 · 压缩前 N token」提示不再出现。
 - 根因：`store/session.ts` 的 `refreshTokenTotals` 在历史重拉时用 `return !mm?.compactionDone` **无条件移除**成功的本地 `compaction_status` 消息，完全依赖服务端历史的 `compactionSummary` 节点兑底渲染。但服务端历史不保证总是含 `compactionSummary`（手动 /compact 后 compaction 节点尚未落盘 /RPC 时序竞态），此时本地成功消息被删、又无兑底，提示彻底消失。
@@ -38,6 +46,16 @@
   - `tests/list-contacts.test.ts`：新增 15 项单元/集成测试；`bridge.test.ts` 契约测试同步（工具数 12→13，ALL_BRIDGE_TOOLS 加入 list_contacts）。
 - 验证：kernel 相关测试（list-contacts/robot-push/bridge）60 pass 0 fail；typecheck 通过；shared 141 pass 0 fail。
 - 影响范围：`packages/kernel/src/tools/robot-push.ts`、`wa-pi-bridge.extension.ts`、`agent-manager.ts`、`index.ts`、`packages/kernel/tests/list-contacts.test.ts`、`bridge.test.ts`。
+
+## 2026-08-27 — fix(kernel): list_contacts 所属渠道列改显示「渠道类型 · 机器人名」
+
+- 背景：list_contacts 初版所属渠道列用了机器人自定义名（channels.json 的 `name`，如「小 co」），导致 agent 看到的是机器人昵称而非渠道类型，误判归属。用户期望显示渠道类型名（如企微/企业微信）。
+- 修复：
+  - `tools/robot-push.ts`：新增 `channelTypeLabel`（wecom→企业微信、wechat→微信、feishu→飞书、qq→QQ、未知回退原值）；`formatContactsMarkdown` 渠道列改显示「渠道类型 · 机器人名」，渠道未知回退 channelId。
+  - `wa-pi-bridge.extension.ts` + `createListContactsTool`：description 同步更新说明。
+  - `tests/list-contacts.test.ts`：新增 `channelTypeLabel` 用例，`formatContactsMarkdown` 断言渠道列「企业微信 · 小 co」。
+- 验证：kernel 相关测试（list-contacts/robot-push/bridge）65 pass 0 fail；typecheck 通过。
+- 影响范围：`packages/kernel/src/tools/robot-push.ts`、`wa-pi-bridge.extension.ts`、`packages/kernel/tests/list-contacts.test.ts`。
 
 ## 2026-08-26 — feat(ui): 任务完成青蛙动画（随机姿势 + 聊天区四角随机蹦出）
 

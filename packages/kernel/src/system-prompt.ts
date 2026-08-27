@@ -186,7 +186,7 @@ export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
  *     路径/文件名用常量拼接，避免硬编码漂移。 */
 export function buildScheduledTasksSystemPrompt(): string {
 	const schedRoot = join(WA_PI_DIR, SCHEDULED_TASKS_DIR_NAME);
-	return `定时任务管理：所有定时任务统一存放在 \`${schedRoot}/\` 目录下，其中的 \`${SCHEDULED_TASKS_README_FILE}\` 和 \`${CRON_CLI_FILE}\` 可帮助你创建、查看和管理定时任务。\n\n**重要：所有定时任务的创建、查看、修改、启停、运行都必须通过 \`${CRON_CLI_FILE}\` CLI（\`bun ${CRON_CLI_FILE} <command>\`）来完成，禁止直接编、辑删除目录下的任何文件（\`${SCHEDULED_TASKS_TASKS_DIR}/xxx.md\`）或日志，也不要在目录下手写/篡改文件——文件格式由 CLI 与 kernel 维护，直接编辑可能导致任务校验失败或丢失。**`;
+	return `定时任务管理：所有定时任务统一存放在 \`${schedRoot}/\` 目录下，其中的 \`${SCHEDULED_TASKS_README_FILE}\` 和 \`${CRON_CLI_FILE}\` 可帮助你创建、查看和管理定时任务。\n\n**重要：所有定时任务的创建、查看、修改、启停、运行都必须通过 \`${CRON_CLI_FILE}\` CLI（\`bun ${CRON_CLI_FILE} <command>\`）来完成，禁止直接编辑或删除目录下的任务文件（\`${SCHEDULED_TASKS_TASKS_DIR}/xxx.md\`）或日志，也不要在目录下手写/篡改文件——文件格式由 CLI 与 kernel 维护，直接编辑可能导致任务校验失败或丢失。**`;
 }
 
 /**

@@ -261,6 +261,11 @@ function assertOwnProject(task: any, id: string): void {
 		);
 }
 
+/** 项目显示名：系统默认项目（__system__）显示为「默认工作区」，其余显示 projectId。 */
+function projectLabelOf(pid: string | undefined): string {
+	return !pid || pid === "__system__" ? "默认工作区" : pid;
+}
+
 /** 把未含的 @im-push-to(ch_xxx,ct_xxx) 标记注入 prompt（按联系人去重；已存在的 ct 不重复加）。
  *  执行时 kernel 会 parseImPushMentions 读 prompt 里的标记，注入 im_push_to 工具并推送。
  *  pushTarget 格式：`渠道,联系人`（如 `ch_企微,ct_xxx`；渠道 q 缺省用 ch_channel）。 */
@@ -342,8 +347,10 @@ function main(): void {
 					const t = parseTask(readFileSync(file, "utf8"), id, file);
 					const cron = toCron(t.schedule);
 					const next = nextRunTimes(cron, 1)[0];
+					// 显示所属项目：系统默认项目（__system__）显示「默认工作区」
+					const proj = projectLabelOf(t.projectId);
 					console.log(
-						`${t.enabled ? "●" : "○"} ${id}\t${t.name}\t${cron}${next ? `\t下次: ${fmtTime(next)}` : ""}`,
+						`${t.enabled ? "●" : "○"} ${id}\t[${proj}]\t${t.name}\t${cron}${next ? `\t下次: ${fmtTime(next)}` : ""}`,
 					);
 				} catch (err) {
 					console.log(
