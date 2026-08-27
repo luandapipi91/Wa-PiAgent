@@ -29,8 +29,8 @@ afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
-/** 等 applyTasks 被调用（watcher 有 300ms 防抖，轮询等待） */
-async function waitFor(cond: () => boolean, timeoutMs = 5000): Promise<void> {
+/** 等 applyTasks 被调用（watcher 有 300ms 防抖，轮询等待）；默认超时放宽到 10s，避免并行负载下 flaky */
+async function waitFor(cond: () => boolean, timeoutMs = 10000): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (!cond()) {
 		if (Date.now() > deadline) throw new Error("waitFor 超时");

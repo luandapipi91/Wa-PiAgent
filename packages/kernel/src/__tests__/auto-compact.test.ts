@@ -10,7 +10,7 @@ describe("shouldCompactBeforeSend", () => {
 	});
 
 	test("占用不足 80% 时不压缩", () => {
-		expect(shouldCompactBeforeSend(849_999, 1_000_000)).toBe(false);
+		expect(shouldCompactBeforeSend(799_999, 1_000_000)).toBe(false);
 	});
 
 	test("恰好等于 80% 边界时不压缩（严格大于才触发）", () => {
