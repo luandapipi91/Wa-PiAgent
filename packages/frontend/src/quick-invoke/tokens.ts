@@ -83,7 +83,7 @@ export interface ElementRef {
 /** 组装元素 token 文本（![路径|起-止行|标签]），行号缺失时 lines 段为空 */
 export function formatElementToken(ref: ElementRef): string {
   const lines =
-    ref.startLine != null ? `${ref.startLine}-${ref.endLine ?? ref.startLine}` : "";
+    ref.startLine == null ? "" : `${ref.startLine}-${ref.endLine ?? ref.startLine}`;
   return `![${ref.path}|${lines}|${ref.elLabel}]`;
 }
 
@@ -368,7 +368,9 @@ export function textToHtml(
       }
       if (s.type === "file") {
         const token = `#[${s.value}]`;
-        return `<span class="chip chip-file" contenteditable="false" data-token="${escapeHtml(token)}">#${escapeHtml(s.value)}</span>`;
+        // 与 element 分支一致：只显示文件名（path: 引用前缀 + 目录部分裁掉），data-token 保留完整路径
+        const display = s.value.replace(/^path:/, "").split(/[\\/]/).pop() || s.value;
+        return `<span class="chip chip-file" contenteditable="false" data-token="${escapeHtml(token)}">#${escapeHtml(display)}</span>`;
       }
       if (s.type === "skill") {
         const token = `$[${s.value}]`;

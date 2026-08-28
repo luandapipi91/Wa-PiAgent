@@ -58,10 +58,15 @@ test("拖拽文件树文件到输入框，派发 #[路径] chip token 而非 pat
 		fireEvent.pointerUp(nodeEl, { pointerId: 1, clientX: 60, clientY: 60 });
 
 		await waitFor(() => expect(dispatched.length).toBe(1));
-		const detail = dispatched[0]!.detail as { text: string };
-		// 文件 chip token（value 带 path: 引用标记）：输入框渲染 .chip-file 胶囊，
-		// 发送时 expandTokens 展开为 #path:/tmp/proj/a.ts
+		const detail = dispatched[0]!.detail as {
+			text: string;
+			editor?: HTMLElement;
+		};
+		// 文件 chip token（value 带 path: 引用标记）：发送时 expandTokens 展开为 #path:/tmp/proj/a.ts
 		expect(detail.text).toBe("#[path:/tmp/proj/a.ts] ");
+		// 不携带 editor：ComposerInput 必须走受控 setText 路径——
+		// execCommand 只改 DOM，受控同步后 text===DOM 不会重渲染，token 永远无法 chip 化
+		expect(detail.editor).toBeUndefined();
 	} finally {
 		window.removeEventListener("wa-pi:insert-mention", onInsert);
 		document.elementFromPoint = origFromPoint;

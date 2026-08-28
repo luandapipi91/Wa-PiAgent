@@ -380,25 +380,12 @@ export function ComposerInput({
 	// 监听文件树拖拽释放的 @提及事件：在编辑器光标处插入，失败则追加到末尾
 	useEffect(() => {
 		const onInsert = (e: Event) => {
-			const detail = (e as CustomEvent).detail as
-				| { text: string; editor?: HTMLElement }
-				| undefined;
+			const detail = (e as CustomEvent).detail as { text: string } | undefined;
 			if (!detail?.text) return;
-			const editor = detail.editor;
-			let inserted = false;
-			if (editor) {
-				editor.focus();
-				// contentEditable：用 execCommand 在当前光标处插入文本（仍广泛支持，最可靠）
-				try {
-					inserted = document.execCommand("insertText", false, detail.text);
-				} catch {
-					/* 降级到末尾追加 */
-				}
-			}
-			if (!inserted) {
-				// 回退：追加到受控 text 末尾
-				setText(text + detail.text);
-			}
+			// 统一走受控 text 追加：state 变化驱动 textToHtml 重渲染，token 自动 chip 化。
+			// （曾有带 editor 的 execCommand 光标处插入——execCommand 只改 DOM，受控同步后
+			//   text===DOM 不会触发重渲染，token 无法 chip 化；现无生产者，已移除。）
+			setText(text + detail.text);
 		};
 		window.addEventListener("wa-pi:insert-mention", onInsert as EventListener);
 		return () =>
@@ -528,7 +515,12 @@ export function ComposerInput({
 	/** 计算光标在 text 中的 token 文本偏移：光标前 DOM → token 文本长度 */
 	function caretTokenOffset(el: HTMLElement): number {
 		const sel = window.getSelection();
-		if (!sel || sel.rangeCount === 0 || !sel.anchorNode || !el.contains(sel.anchorNode))
+		if (
+			!sel ||
+			sel.rangeCount === 0 ||
+			!sel.anchorNode ||
+			!el.contains(sel.anchorNode)
+		)
 			return -1;
 		const range = document.createRange();
 		range.setStart(el, 0);

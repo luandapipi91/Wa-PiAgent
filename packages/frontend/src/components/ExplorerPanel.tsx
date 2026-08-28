@@ -460,16 +460,18 @@ export function ExplorerPanel({
 			if (ghostEl) ghostEl.remove();
 			if (!dragging) return;
 			const target = document.elementFromPoint(upEv.clientX, upEv.clientY);
-			// 命中输入框：textarea（原生）或 contentEditable 编辑器（[role=textbox]）
-			const editor = target?.closest(
+			// 命中输入框才插入：textarea（原生）或 contentEditable 编辑器（[role=textbox]）
+			const hitEditor = target?.closest(
 				"textarea, [contenteditable], [role='textbox']",
 			);
-			if (editor instanceof HTMLElement) {
-				// 通过自定义事件通知 Composer 插入文件 chip token #[path:引用]；
-				// 输入框渲染绿色 chip-file 胶囊，发送时 expandTokens 展开为 #path:引用
+			if (hitEditor) {
+				// 文件 chip token #[path:引用]：经 insert-mention 事件由 ComposerInput 追加到受控
+				// text 末尾（state 驱动 textToHtml 重渲染出 chip-file 胶囊），发送时展开为 #path:引用。
+				// 刻意不传 editor：execCommand 只改 DOM，受控同步后 text===DOM 不触发重渲染，
+				// token 永远无法 chip 化（与 element-pick 同一模式）。
 				window.dispatchEvent(
 					new CustomEvent("wa-pi:insert-mention", {
-						detail: { text: `#[path:${ref}] `, editor },
+						detail: { text: `#[path:${ref}] ` },
 					}),
 				);
 			}
