@@ -48,12 +48,11 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
     const file = await readMultipartFile(req);
     if (!file) return paramErrorResponse("缺少 file 字段", "file");
     if (file.content.byteLength > MAX_UPLOAD_BYTES) {
-      // code 化错误：error 保留旧文案兜底，code/params 供新前端按字典渲染
+      // code 化错误：error 保留旧文案兜底，code/params 收进嵌套 failure 供新前端按字典渲染
       return Response.json(
         {
           error: `文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`,
-          code: "attachment.tooLarge",
-          params: { maxMb: MAX_UPLOAD_BYTES / 1024 / 1024 },
+          failure: { code: "attachment.tooLarge", params: { maxMb: MAX_UPLOAD_BYTES / 1024 / 1024 } },
         },
         { status: 400 },
       );
