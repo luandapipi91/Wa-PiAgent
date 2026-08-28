@@ -19,8 +19,7 @@ export const COMMAND_TOKEN_RE = /\/\[([^\]]+)\]/g;
 export const ELEMENT_TOKEN_RE = /!\[([^\]]+)\]/g;
 /** 元素定位文本正则：expandTokens 展开后的形态（path [line: 起-止] [el: 标签] / path [el: 标签]），
  *  历史消息回显时重新 chip 化用。path 按非空格串匹配（含空格的路径不 chip 化，纯文本兜底）。 */
-const ELEMENT_LOCATOR_RE =
-	/^(\S+)(?: \[line: (\d+-\d+)\])? \[el: ([^\]]+)\]$/;
+const ELEMENT_LOCATOR_RE = /^(\S+)(?: \[line: (\d+-\d+)\])? \[el: ([^\]]+)\]$/;
 
 /** IM 推送 token 正则：匹配完整 @im-push-to(ch_xxx,ct_xxx) 标记。
  *  与 automation/prompt-tokens.ts 的 IM_PUSH_TOKEN_RE 保持一致——
@@ -83,7 +82,9 @@ export interface ElementRef {
 /** 组装元素 token 文本（![路径|起-止行|标签]），行号缺失时 lines 段为空 */
 export function formatElementToken(ref: ElementRef): string {
   const lines =
-    ref.startLine == null ? "" : `${ref.startLine}-${ref.endLine ?? ref.startLine}`;
+    ref.startLine == null
+      ? ""
+      : `${ref.startLine}-${ref.endLine ?? ref.startLine}`;
   return `![${ref.path}|${lines}|${ref.elLabel}]`;
 }
 
@@ -369,7 +370,11 @@ export function textToHtml(
       if (s.type === "file") {
         const token = `#[${s.value}]`;
         // 与 element 分支一致：只显示文件名（path: 引用前缀 + 目录部分裁掉），data-token 保留完整路径
-        const display = s.value.replace(/^path:/, "").split(/[\\/]/).pop() || s.value;
+        const display =
+          s.value
+            .replace(/^path:/, "")
+            .split(/[\\/]/)
+            .pop() || s.value;
         return `<span class="chip chip-file" contenteditable="false" data-token="${escapeHtml(token)}">#${escapeHtml(display)}</span>`;
       }
       if (s.type === "skill") {
