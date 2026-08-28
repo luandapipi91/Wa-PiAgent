@@ -222,12 +222,17 @@ test("saveHttpIdleTimeoutMs：拒绝 0 / 负数 / 小数 / Infinity（0 会被 p
 	await expect(saveHttpIdleTimeoutMs(60_000, file)).resolves.toBe(60_000);
 });
 
-// —— defaultTools（Windows 默认命令工具切换 powershell）——
+// —— defaultTools（默认内置工具清单：pi 引擎默认激活集仅 read/bash/edit/write，
+// grep/find/ls 注册但未激活；用 settings.json.defaultTools 替换默认激活集，
+// 不生成硬白名单，扩展/MCP 工具仍全放行）——
 import {
 	loadDefaultTools,
 	saveDefaultTools,
 	defaultToolsForPlatform,
+	ensureDefaultTools,
 	WINDOWS_DEFAULT_TOOLS,
+	UNIX_DEFAULT_TOOLS,
+	LEGACY_WINDOWS_DEFAULT_TOOLS,
 } from "../src/settings-store";
 
 test("saveDefaultTools/loadDefaultTools: 写入并读回（保留其他字段）", async () => {
@@ -256,13 +261,51 @@ test("loadDefaultTools: 未配置/格式非法返回 undefined", async () => {
 	expect(await loadDefaultTools(p2)).toBeUndefined();
 });
 
-test("defaultToolsForPlatform: win32 返回 powershell 清单，其他平台不写", () => {
+test("defaultToolsForPlatform: 全平台返回清单，均含 grep/find/ls；win 用 powershell 换 bash", () => {
 	expect(defaultToolsForPlatform("win32")).toEqual(WINDOWS_DEFAULT_TOOLS);
-	expect(defaultToolsForPlatform("darwin")).toBeNull();
-	expect(defaultToolsForPlatform("linux")).toBeNull();
-	// 清单语义：bash 被 powershell 替换，其余为 pi 内置默认四件套
+	expect(defaultToolsForPlatform("darwin")).toEqual(UNIX_DEFAULT_TOOLS);
+	expect(defaultToolsForPlatform("linux")).toEqual(UNIX_DEFAULT_TOOLS);
+	// 全平台清单都必须补齐 pi 注册表里的 grep/find/ls（根因修复：默认激活集缺失）
+	for (const list of [WINDOWS_DEFAULT_TOOLS, UNIX_DEFAULT_TOOLS]) {
+		for (const t of ["grep", "find", "ls"]) {
+			expect(list).toContain(t);
+		}
+	}
+	// Windows 平台语义：bash 由 powershell 接管
 	expect(WINDOWS_DEFAULT_TOOLS).toContain("powershell");
 	expect(WINDOWS_DEFAULT_TOOLS).not.toContain("bash");
+	// macOS/Linux 平台语义：bash 在列、无 powershell
+	expect(UNIX_DEFAULT_TOOLS).toContain("bash");
+	expect(UNIX_DEFAULT_TOOLS).not.toContain("powershell");
+});
+
+test("ensureDefaultTools: 未配置 → 写入当前平台清单（written）", async () => {
+	const p = join(dir, "settings-ensure-missing.json");
+	await writeFile(p, JSON.stringify({ retry: { maxRetries: 3 } }), "utf8");
+	await expect(ensureDefaultTools(p)).resolves.toBe("written");
+	expect(await loadDefaultTools(p)).toEqual(defaultToolsForPlatform());
+});
+
+test("ensureDefaultTools: 旧版自动写入的清单 → 升级为新清单（upgraded）", async () => {
+	const p = join(dir, "settings-ensure-legacy.json");
+	await saveDefaultTools([...LEGACY_WINDOWS_DEFAULT_TOOLS], p);
+	await expect(ensureDefaultTools(p)).resolves.toBe("upgraded");
+	expect(await loadDefaultTools(p)).toEqual(defaultToolsForPlatform());
+});
+
+test("ensureDefaultTools: 用户自定义清单 → 不覆盖（kept）", async () => {
+	const p = join(dir, "settings-ensure-custom.json");
+	const custom = ["read", "bash"];
+	await saveDefaultTools(custom, p);
+	await expect(ensureDefaultTools(p)).resolves.toBe("kept");
+	expect(await loadDefaultTools(p)).toEqual(custom);
+});
+
+test("ensureDefaultTools: 已是新清单 → 幂等 kept", async () => {
+	const p = join(dir, "settings-ensure-current.json");
+	await saveDefaultTools(defaultToolsForPlatform(), p);
+	await expect(ensureDefaultTools(p)).resolves.toBe("kept");
+	expect(await loadDefaultTools(p)).toEqual(defaultToolsForPlatform());
 });
 
 // —— language（界面语言偏好：前端切换语言时双写 kernel settings.json，后端 i18n 基建）——

@@ -18,9 +18,7 @@ import {
 	loadTrashSettings,
 	ensureHttpIdleTimeout,
 	applySystemProxy,
-	loadDefaultTools,
-	saveDefaultTools,
-	defaultToolsForPlatform,
+	ensureDefaultTools,
 } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle, SubagentProgressThrottle } from "./event-throttle";
@@ -100,15 +98,15 @@ export async function startKernel(opts?: {
 	// 需 BUN_BE_BUN=1 才充当 bun CLI；此处写入 process.env 供所有子进程继承。
 	ensureBunBeBunEnv();
 
-	// Windows 默认命令工具切换为 pi 的 powershell（pi >= 0.84.3）：不再下载
-	// PortableGit 保障 bash（PowerShell 是 Windows 自带，零外部依赖；bash 仍可经
-	// 用户自装 Git Bash 由 pi 引擎自动探测使用）。仅在用户未自定义 defaultTools
-	// 时写入，尊重手工配置；幂等——已写入则不再重复写。
-	const winDefaultTools = defaultToolsForPlatform();
-	if (winDefaultTools && (await loadDefaultTools()) === undefined) {
-		await saveDefaultTools(winDefaultTools);
+	// 内置默认工具清单对齐（settings.json.defaultTools）：pi 引擎默认激活集仅
+	// read/bash/edit/write，grep/find/ls 注册但未激活；wa-pi 产品语义是内置工具
+	// 全放行，用 defaultTools 替换默认激活集——不生成硬白名单，扩展/MCP 工具仍
+	// 全放行。Windows 的 bash→powershell 平台适配沿用同一机制。未配置或仍是旧版
+	// 自动写入的清单时写入/升级；用户自定义不被覆盖。
+	const defaultToolsOutcome = await ensureDefaultTools();
+	if (defaultToolsOutcome !== "kept") {
 		console.log(
-			"[tools] Windows 默认命令工具已切换为 powershell（新 pi 会话生效）",
+			"[tools] 默认内置工具清单已写入 settings.json.defaultTools（新 pi 会话生效）",
 		);
 	}
 	// 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到

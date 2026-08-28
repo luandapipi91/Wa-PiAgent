@@ -629,16 +629,51 @@ export async function saveShareSettings(
  * Windows 会话的默认内置工具清单（settings.json.defaultTools）：
  * bash 由 pi >= 0.84.3 的 powershell 工具接管（Windows 自带 PowerShell，零外部依赖；
  * bash 仅在用户自装 Git Bash 时由 pi 引擎自动探测使用，wa-pi 不再下载 PortableGit）。
- * pi 侧语义：--tools 未传时 defaultTools 替换内置默认激活集（read/bash/edit/write），
- * 不生成硬白名单——扩展/MCP 工具仍全放行，与 wa-pi 的排除式放行设计兼容。
  */
-export const WINDOWS_DEFAULT_TOOLS = ["read", "powershell", "edit", "write"];
+export const WINDOWS_DEFAULT_TOOLS = [
+	"read",
+	"powershell",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+];
 
-/** 平台对应的默认工具清单；null = 不写 settings.json（沿用 pi 引擎自身默认） */
-export function defaultToolsForPlatform(
-	platform: string = process.platform,
-): string[] | null {
-	return platform === "win32" ? [...WINDOWS_DEFAULT_TOOLS] : null;
+/**
+ * macOS / Linux 会话的默认内置工具清单（settings.json.defaultTools）。
+ * 背景：pi 引擎的默认激活集只有 read/bash/edit/write，grep/find/ls 虽在注册表
+ * 但不激活——wa-pi 的产品语义是内置工具全放行，故用 defaultTools 替换默认
+ * 激活集（pi 侧语义：--tools 未传时替换内置默认，不生成硬白名单，扩展/MCP
+ * 工具仍全放行，与排除式放行设计兼容）。
+ */
+export const UNIX_DEFAULT_TOOLS = [
+	"read",
+	"bash",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+];
+
+/**
+ * 旧版（defaultTools 仅做 Windows powershell 平台适配时代）自动写入的清单。
+ * 存量升级判断用：磁盘值恰等于此清单 → 视为旧版自动写入而非用户自定义，
+ * 启动时升级到当前平台新清单；其他非空值一律视为用户自定义，不覆盖。
+ */
+export const LEGACY_WINDOWS_DEFAULT_TOOLS = [
+	"read",
+	"powershell",
+	"edit",
+	"write",
+];
+
+/** 平台对应的默认内置工具清单 */
+export function defaultToolsForPlatform(platform: string = process.platform): string[] {
+	return platform === "win32"
+		? [...WINDOWS_DEFAULT_TOOLS]
+		: [...UNIX_DEFAULT_TOOLS];
 }
 
 /**
@@ -664,4 +699,28 @@ export async function saveDefaultTools(
 	settings.defaultTools = tools;
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+}
+
+const stringListEquals = (a: string[], b: string[]): boolean =>
+	a.length === b.length && a.every((t, i) => t === b[i]);
+
+/**
+ * 启动守卫：把 settings.json.defaultTools 对齐到当前平台默认清单。
+ * - 未配置 → 写入（written）：新装/从未写过。
+ * - 恰为旧版自动写入的清单 → 升级（upgraded）：存量 Windows 老用户补齐 grep/find/ls。
+ * - 其他非空值（用户自定义/已是新清单）→ 不动（kept）：尊重手工配置，幂等。
+ */
+export async function ensureDefaultTools(
+	file: string = SETTINGS_FILE,
+): Promise<"written" | "upgraded" | "kept"> {
+	const current = await loadDefaultTools(file);
+	if (current === undefined) {
+		await saveDefaultTools(defaultToolsForPlatform(), file);
+		return "written";
+	}
+	if (stringListEquals(current, LEGACY_WINDOWS_DEFAULT_TOOLS)) {
+		await saveDefaultTools(defaultToolsForPlatform(), file);
+		return "upgraded";
+	}
+	return "kept";
 }
