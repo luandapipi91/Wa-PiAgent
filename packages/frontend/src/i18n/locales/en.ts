@@ -685,6 +685,11 @@ const en = {
 		readFailed: "Read failed",
 		copyFailedShort: "Copy failed",
 	},
+	updater: {
+		failed: "Update failed",
+		checkFailed: "Check failed",
+		downloadFailed: "Download failed",
+	},
 	emptyState: {
 		title: "Start your first project",
 		subtitle:

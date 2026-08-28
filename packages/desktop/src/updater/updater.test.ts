@@ -59,6 +59,7 @@ describe("translateUpdaterEvent", () => {
 		});
 		expect(out.phase).toBe("error");
 		expect(out.message).toBe("网络失败");
+		expect(out.raw).toBe("网络失败");
 	});
 
 	test("未知事件 → null（忽略）", () => {

@@ -11,6 +11,33 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 
+// 语言来源：桌面主进程通过 onStatus 把进度文案透传给用户（desktop 无 react-i18next）。
+// 本模块在 bun 测试环境下无 electron，故延迟探测；非 Electron 环境回退 zh。
+const MSG = {
+	zh: {
+		detectingNetwork: "正在检测网络环境…",
+		downloadingNode: "正在下载 Node.js",
+		installingNode: "正在安装 Node.js…",
+	},
+	en: {
+		detectingNetwork: "Checking network environment…",
+		downloadingNode: "Downloading Node.js",
+		installingNode: "Installing Node.js…",
+	},
+};
+let cachedLocale;
+function detectDesktopLocale() {
+	if (cachedLocale) return cachedLocale;
+	try {
+		const { app } = require("electron");
+		cachedLocale = String(app.getLocale()).startsWith("zh") ? "zh" : "en";
+	} catch {
+		cachedLocale = "zh";
+	}
+	return cachedLocale;
+}
+const t = (k) => MSG[detectDesktopLocale()][k] ?? MSG.zh[k];
+
 // Node.js LTS 版本（Jod）
 const NODE_LTS = "v22.23.2";
 const IP_CHECK_TIMEOUT = 5_000;
@@ -197,7 +224,7 @@ async function ensureNodeRuntime({
 	}
 
 	// 3. IP 地理位置检测
-	if (onStatus) onStatus("正在检测网络环境…");
+	if (onStatus) onStatus(t("detectingNetwork"));
 	const isCN = await detectIsCN(log);
 
 	// 4. 下载（按 IP 检测结果排序的源列表，逐个尝试）
@@ -209,7 +236,7 @@ async function ensureNodeRuntime({
 
 	let downloaded = false;
 	for (const url of urls) {
-		if (onStatus) onStatus(`正在下载 Node.js ${NODE_LTS}…`);
+		if (onStatus) onStatus(`${t("downloadingNode")} ${NODE_LTS}…`);
 		if (await downloadToFile(url, tmpArchive, log)) {
 			downloaded = true;
 			break;
@@ -222,7 +249,7 @@ async function ensureNodeRuntime({
 	}
 
 	// 5. 解压 + 安装到目标目录
-	if (onStatus) onStatus("正在安装 Node.js…");
+	if (onStatus) onStatus(t("installingNode"));
 	try {
 		await fsp.mkdir(tmpExtract, { recursive: true });
 		extractArchive(tmpArchive, tmpExtract);
