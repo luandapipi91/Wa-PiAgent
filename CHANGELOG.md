@@ -1,4 +1,11 @@
 
+## 2026-08-28 — feat(frontend): 文件树拖拽到输入框改为文件 chip（#path: 引用）
+
+- 背景：文件树拖拽文件到聊天输入框插入的是 `path:xxx` 纯文本，无 chip 样式。
+- 改动：ExplorerPanel 拖拽释放派发的文本改为文件 chip token `#[path:路径] `——输入框经既有 textToHtml 渲染绿色 chip-file 胶囊，发送时 expandTokens 展开为 `#path:路径` 引用（与附件引用 path: 约定一致）；下游插入事件/渲染/序列化全部复用既有机制。
+- 验证：新增 ExplorerPanel.drag-chip.test.tsx（指针链模拟断言派发格式）；frontend 全量 2001 pass / 0 fail；typecheck 绿。
+- 影响范围：packages/frontend/src/components/ExplorerPanel.tsx（一行）、新增 tests/ExplorerPanel.drag-chip.test.tsx。
+
 ## 2026-08-28 — fix(kernel): 系统打开出口剥离 WA_PI_* 环境变量（防子进程继承端口/目录变量）
 
 - 背景：文件树右键「默认方式打开」打开项目 start.command 时，macOS open 经 LaunchServices 把 kernel 环境传给 Terminal 里的脚本——继承的 WA_PI_WS_PORT/WA_PI_WEB_PORT 使 bun run dev 启动即 killPort 抢占宿主实例端口；访达双击走 launchd 环境干净故无此问题。

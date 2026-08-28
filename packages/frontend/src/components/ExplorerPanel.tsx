@@ -465,10 +465,11 @@ export function ExplorerPanel({
 				"textarea, [contenteditable], [role='textbox']",
 			);
 			if (editor instanceof HTMLElement) {
-				// 通过自定义事件通知 Composer 插入 path: 引用；Composer 监听后在编辑器光标处插入
+				// 通过自定义事件通知 Composer 插入文件 chip token #[path:引用]；
+				// 输入框渲染绿色 chip-file 胶囊，发送时 expandTokens 展开为 #path:引用
 				window.dispatchEvent(
 					new CustomEvent("wa-pi:insert-mention", {
-						detail: { text: `path:${ref} `, editor },
+						detail: { text: `#[path:${ref}] `, editor },
 					}),
 				);
 			}
