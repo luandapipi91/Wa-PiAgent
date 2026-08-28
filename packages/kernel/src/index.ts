@@ -56,6 +56,7 @@ import {
 	assertBunVersionOrExit,
 	ensureBunBeBunEnv,
 } from "@wa-pi/shared";
+import { KernelError, toKernelPayload } from "./kernel-error";
 import type { ExecutionRecord, ScheduledTask, PushResult } from "@wa-pi/shared";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -530,7 +531,8 @@ export async function startKernel(opts?: {
 				while (agentManager.isSessionBusy(sessionId)) {
 					if (Date.now() > deadline) {
 						await agentManager.abort(sessionId).catch(() => {});
-						throw new Error("任务执行超时（30 分钟）");
+						// 经 record.error 展示在执行记录详情（ExecutionDetailView）
+						throw new KernelError("scheduler.taskTimeout", { minutes: 30 });
 					}
 					await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 				}
@@ -568,6 +570,12 @@ export async function startKernel(opts?: {
 				record.finishedAt = Date.now();
 				record.durationMs = record.finishedAt - record.startedAt;
 				record.error = err instanceof Error ? err.message : String(err);
+				// 结构化错误随记录落盘：前端按 errorCode 查字典渲染
+				const payload = toKernelPayload(err);
+				if (payload) {
+					record.errorCode = payload.code;
+					record.errorParams = payload.params;
+				}
 			}
 
 			// 更新执行记录（覆盖 running 态的初始记录）—— append-only + 读取去重即完成回写

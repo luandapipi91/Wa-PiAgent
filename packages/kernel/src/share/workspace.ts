@@ -19,6 +19,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { strToU8, zipSync } from "fflate";
+import { KernelError } from "../kernel-error";
 
 /** 分享 id 合法格式：hashPaths 产物（sha256 hex 前 12 位）。
  *  所有把 id 拼进文件路径的入口必须先过这个校验，防路径穿越。 */
@@ -198,7 +199,7 @@ export async function addItem(
 	entries: { name: string; data: Uint8Array }[],
 ): Promise<ShareItem> {
 	if (!SHARE_NAME_RE.test(name))
-		throw new Error("分享名称含非法字符（仅限字母/数字/中文/-_./空格）");
+		throw new KernelError("share.invalidName", { name });
 	const existing = await loadItems(dir);
 	const old = existing.find((i) => i.name === name);
 	const target = join(itemsDir(dir), name);
@@ -241,10 +242,10 @@ export async function renameItem(
 	newName: string,
 ): Promise<ShareItem> {
 	if (!SHARE_NAME_RE.test(newName))
-		throw new Error("分享名称含非法字符（仅限字母/数字/中文/-_./空格）");
+		throw new KernelError("share.invalidName", { name: newName });
 	const items = await loadItems(dir);
 	const item = items.find((i) => i.id === id);
-	if (!item) throw new Error("分享不存在");
+	if (!item) throw new KernelError("share.notFound", { id });
 	if (item.name === newName) return item;
 	const srcDir = join(itemsDir(dir), item.name);
 	const dstDir = join(itemsDir(dir), newName);

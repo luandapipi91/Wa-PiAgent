@@ -76,7 +76,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve, isAbsolute } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import type { PackageInfo } from "@wa-pi/shared";
-import { WA_PI_DIR } from "@wa-pi/shared";
+import { WA_PI_DIR, KernelError } from "@wa-pi/shared";
 import { NpmPackageService } from "./npm-package-service";
 import { hasSkillMd } from "./skill-utils";
 
@@ -259,7 +259,8 @@ export class ExtensionManager {
 
   async install(rawInput: string, onProgress?: (line: string) => void): Promise<PackageInfo> {
     const parsed = parseExtensionInput(rawInput);
-    if (!parsed) throw new Error("无效的插件名称格式");
+    if (!parsed)
+      throw new KernelError("ext.invalidName", undefined, rawInput);
 
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
@@ -270,12 +271,14 @@ export class ExtensionManager {
 
     if (existing.has(parsed.name)) {
       const existingVersion = this.pkgService.getInstalledVersion(parsed.name);
-      throw new Error(existingVersion
-        ? `已安装 v${existingVersion}，请使用升级`
-        : `已安装 ${parsed.name}`);
+      throw new KernelError(
+        "ext.alreadyInstalled",
+        { name: parsed.name },
+        existingVersion ? `v${existingVersion}` : undefined,
+      );
     }
     if (disabledNames.has(parsed.name)) {
-      throw new Error(`该插件已禁用，请先启用`);
+      throw new KernelError("ext.disabled", { name: parsed.name });
     }
 
     let entry: string;
@@ -294,7 +297,7 @@ export class ExtensionManager {
       case "local": {
         const abs = isAbsolute(parsed.name) ? parsed.name : resolve(parsed.name);
         if (!existsSync(join(abs, "package.json"))) {
-          throw new Error(`路径不存在或不是有效的 Pi 包: ${abs}`);
+          throw new KernelError("ext.invalidPackagePath", { path: abs });
         }
         entry = abs;
         break;
@@ -329,7 +332,8 @@ export class ExtensionManager {
     const matchedPkgs = existingPkgs.get(name);
     const matchedDisabled = existingDisabled.get(name);
 
-    if (!matchedPkgs && !matchedDisabled) throw new Error(`未安装: ${name}`);
+    if (!matchedPkgs && !matchedDisabled)
+      throw new KernelError("ext.notInstalled", { name });
 
     // npm 来源：卸载 node_modules 中的包
     const matched = matchedPkgs ?? matchedDisabled!;
@@ -354,17 +358,17 @@ export class ExtensionManager {
     const matched = existing.get(name);
     if (!matched) {
       if (disabledNames.has(name)) {
-        throw new Error(`该插件已禁用，请先启用后升级`);
+        throw new KernelError("ext.disabled", { name });
       }
-      throw new Error(`未安装: ${name}`);
+      throw new KernelError("ext.notInstalled", { name });
     }
 
     if (!matched.startsWith("npm:")) {
       if (matched.startsWith("git:")) {
         // git: 无自动升级，提示用户手动修改 ref
-        throw new Error("Git 来源插件暂不支持自动升级，请先卸载后重新安装新版本");
+        throw new KernelError("ext.upgradeUnsupported", { source: "git" });
       }
-      throw new Error("本地路径插件不支持升级");
+      throw new KernelError("ext.upgradeUnsupported", { source: "local" });
     }
 
     const result = await this.pkgService.upgrade(name, onProgress);
@@ -414,7 +418,7 @@ export class ExtensionManager {
       await this.writeSettings({ ...settings, packages: updatedPkgs });
       return;
     }
-    throw new Error(`未找到已安装的包: ${name}，请先安装`);
+    throw new KernelError("ext.notInstalled", { name });
   }
 
   async disable(name: string): Promise<void> {
@@ -438,7 +442,7 @@ export class ExtensionManager {
     if (existingDisabled.has(name)) return;
 
     // 两者皆无 → 未安装
-    throw new Error(`未安装: ${name}`);
+    throw new KernelError("ext.notInstalled", { name });
   }
 
   /**

@@ -37,3 +37,19 @@ export function formatKernelError(p: KernelErrorLike): {
 	const main = i18n.t(key, { ...p.params, defaultValue: unknown });
 	return { main, detail: p.detail };
 }
+
+/**
+ * HTTP 层错误的一站式格式化：ApiError.failure 按 code 渲染；
+ * 无 failure（老 kernel / 网络错误 / 非 Error 值）时原样展示。供 catch 处直接调用。
+ *
+ * 用鸭子类型识别 ApiError（不模块顶层依赖 api-client：组件测试常 mock api-client，
+ * 顶层 import 会因 mock 缺少 ApiError 导出而崩）。
+ */
+export function formatApiError(e: unknown): string {
+	const failure =
+		typeof e === "object" && e !== null && "failure" in e
+			? (e as { failure?: KernelErrorLike }).failure
+			: undefined;
+	const message = e instanceof Error ? e.message : String(e);
+	return formatKernelError(failure ?? { message }).main;
+}

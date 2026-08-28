@@ -5,7 +5,8 @@
  * 大文件不再经 WS 帧内存缓冲，直接流式写盘。
  */
 import type { RouteRegistrar } from "./types";
-import { readJsonBody } from "./types";
+import { readJsonBody, paramErrorResponse } from "./types";
+import { toKernelPayload } from "@wa-pi/shared";
 import { resolveCwdForFsRequest, uniquePath } from "../ws-server";
 import { appendChunk, finalizeRecording, discardRecording } from "../recording-store";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -42,10 +43,10 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
   r.add("POST", "/api/files/upload", async (req) => {
     const projectId = new URL(req.url).searchParams.get("projectId") ?? "";
     const sessionId = new URL(req.url).searchParams.get("sessionId") ?? undefined;
-    if (!projectId) return Response.json({ error: "缺少 projectId" }, { status: 400 });
+    if (!projectId) return paramErrorResponse("缺少 projectId", "projectId");
 
     const file = await readMultipartFile(req);
-    if (!file) return Response.json({ error: "缺少 file 字段" }, { status: 400 });
+    if (!file) return paramErrorResponse("缺少 file 字段", "file");
     if (file.content.byteLength > MAX_UPLOAD_BYTES) {
       // code 化错误：error 保留旧文案兜底，code/params 供新前端按字典渲染
       return Response.json(
@@ -65,7 +66,14 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
       await writeFile(filePath, file.content);
       return Response.json({ type: "fs:upload", path: filePath });
     } catch (e) {
-      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      const payload = toKernelPayload(e);
+      return Response.json(
+        {
+          error: e instanceof Error ? e.message : String(e),
+          ...(payload ? { failure: payload } : {}),
+        },
+        { status: 500 },
+      );
     }
   });
 
@@ -74,14 +82,21 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
     const b = await readJsonBody(req);
     const { projectId, recId, chunk, sessionId } = b;
     if (!projectId || !recId || typeof chunk !== "string") {
-      return Response.json({ error: "缺少参数: projectId/recId/chunk" }, { status: 400 });
+      return paramErrorResponse("缺少参数: projectId/recId/chunk", "projectId/recId/chunk");
     }
     try {
       const uploadDir = await resolveUploadDir(projectStore, projectId, sessionId);
       await appendChunk(uploadDir, recId, chunk);
       return Response.json({ ok: true });
     } catch (e) {
-      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      const payload = toKernelPayload(e);
+      return Response.json(
+        {
+          error: e instanceof Error ? e.message : String(e),
+          ...(payload ? { failure: payload } : {}),
+        },
+        { status: 500 },
+      );
     }
   });
 
@@ -90,14 +105,21 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
     const b = await readJsonBody(req);
     const { projectId, recId, finalName, sessionId } = b;
     if (!projectId || !recId || !finalName) {
-      return Response.json({ error: "缺少参数: projectId/recId/finalName" }, { status: 400 });
+      return paramErrorResponse("缺少参数: projectId/recId/finalName", "projectId/recId/finalName");
     }
     try {
       const uploadDir = await resolveUploadDir(projectStore, projectId, sessionId);
       const path = await finalizeRecording(uploadDir, recId, finalName);
       return Response.json({ type: "fs:recording:finalize", path });
     } catch (e) {
-      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      const payload = toKernelPayload(e);
+      return Response.json(
+        {
+          error: e instanceof Error ? e.message : String(e),
+          ...(payload ? { failure: payload } : {}),
+        },
+        { status: 500 },
+      );
     }
   });
 
@@ -106,14 +128,21 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
     const b = await readJsonBody(req);
     const { projectId, recId, sessionId } = b;
     if (!projectId || !recId) {
-      return Response.json({ error: "缺少参数: projectId/recId" }, { status: 400 });
+      return paramErrorResponse("缺少参数: projectId/recId", "projectId/recId");
     }
     try {
       const uploadDir = await resolveUploadDir(projectStore, projectId, sessionId);
       await discardRecording(uploadDir, recId);
       return Response.json({ ok: true });
     } catch (e) {
-      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      const payload = toKernelPayload(e);
+      return Response.json(
+        {
+          error: e instanceof Error ? e.message : String(e),
+          ...(payload ? { failure: payload } : {}),
+        },
+        { status: 500 },
+      );
     }
   });
 };

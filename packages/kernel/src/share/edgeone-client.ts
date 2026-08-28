@@ -1,6 +1,7 @@
 // EdgeOne REST 客户端（产物分享用）：纯 REST + API Token 注入，无 CLI/浏览器登录。
 // 从 POC（~/poc-edgeone-share/poc-share.mjs）移植的可单测纯函数。
 import COS from "cos-nodejs-sdk-v5";
+import { KernelError } from "../kernel-error";
 export const API_ENDPOINTS = {
   china: "https://pages-api.cloud.tencent.com/v1",
   global: "https://pages-api.edgeone.ai/v1",
@@ -32,7 +33,7 @@ export async function detectBaseUrl(token: string): Promise<string> {
       /* 尝试下一个端点 */
     }
   }
-  throw new Error("EdgeOne API 端点均不可用：请检查 token 与网络");
+  throw new KernelError("share.edgeoneUnreachable");
 }
 
 /** 通用 API 调用：校验 HTTP 状态与业务 Code，返回完整 JSON */
@@ -47,15 +48,25 @@ export async function apiCall<T = any>(
     headers: authHeaders(token),
     body: JSON.stringify({ Action: action, ...body }),
   });
-  if (!res.ok) throw new Error(`[${action}] HTTP ${res.status}`);
+  if (!res.ok)
+    throw new KernelError("share.edgeoneApiFailed", { action }, `HTTP ${res.status}`);
   const json = await res.json();
   if (json.Code !== 0)
-    throw new Error(`[${action}] Code ${json.Code}: ${json.Message}`);
+    throw new KernelError(
+      "share.edgeoneApiFailed",
+      { action },
+      `Code ${json.Code}: ${json.Message}`,
+    );
   // Pages API 的另一套错误形态：顶层 Code=0，错误嵌在 Data.Response.Error
   // （如 CreatePagesProject 名称长度校验失败）。不拦截会静默流向下游，
   // 表现为 ProjectId/DeploymentId undefined → 轮询永不命中 → 部署超时。
   const nested = json?.Data?.Response?.Error;
-  if (nested) throw new Error(`[${action}] ${nested.Code}: ${nested.Message}`);
+  if (nested)
+    throw new KernelError(
+      "share.edgeoneApiFailed",
+      { action },
+      `${nested.Code}: ${nested.Message}`,
+    );
   return json;
 }
 
@@ -92,7 +103,12 @@ export async function getOrCreateProject(
   const requeryId = requery?.Data?.Response?.Projects?.[0]?.ProjectId;
   // 拿不到 ProjectId 必须抛错：静默返回 undefined 会让下游 COS 路径/部署
   // 全部带 undefined，最终表现为「部署超时」而不是真实原因
-  if (!requeryId) throw new Error(`获取/创建 Pages 项目失败: ${projectName}`);
+  if (!requeryId)
+    throw new KernelError(
+      "share.edgeoneProjectFailed",
+      undefined,
+      projectName,
+    );
   return requeryId;
 }
 
@@ -110,7 +126,8 @@ export async function getPresetDomain(
   const p = res?.Data?.Response?.Projects?.[0];
   // PresetDomain 为空（如项目创建后尚未分配）时 Name 不是域名，拼不出可访问链接
   // → 直接抛错，让上层返回明确失败，而不是产出打不开的分享链接
-  if (!p?.PresetDomain) throw new Error("无法获取项目域名");
+  if (!p?.PresetDomain)
+    throw new KernelError("share.domainUnavailable", { channel: "EdgeOne" });
   return p.PresetDomain;
 }
 
@@ -278,10 +295,15 @@ export async function deployWorkspace(
       finalStatus = d.Status;
       if (d.Status !== "Process") break;
     }
-    if (i === 39) throw new Error("EdgeOne 部署超时");
+    if (i === 39)
+      throw new KernelError("share.deployTimeout", { channel: "EdgeOne" });
   }
   if (finalStatus !== "Success")
-    throw new Error(`EdgeOne 部署失败: ${finalStatus}`);
+    throw new KernelError(
+      "share.deployFailed",
+      { channel: "EdgeOne" },
+      finalStatus,
+    );
 
   const preset = await getPresetDomain(baseUrl, token, projectId);
   const domain = normalizeDomain(opts.customDomain) || preset;

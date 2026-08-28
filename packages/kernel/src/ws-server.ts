@@ -2400,10 +2400,12 @@ export class WSServer {
 					const skillResult = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
+					const payload = toKernelPayload(err);
 					this.broadcast({
 						type: "extension:error",
 						name: event.name,
 						error: (err as Error).message,
+						...(payload ?? {}),
 					});
 				}
 				break;
@@ -2417,10 +2419,12 @@ export class WSServer {
 					const skillResult = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
+					const payload = toKernelPayload(err);
 					this.broadcast({
 						type: "extension:error",
 						name: event.name,
 						error: (err as Error).message,
+						...(payload ?? {}),
 					});
 				}
 				break;
@@ -2437,10 +2441,12 @@ export class WSServer {
 					const skillResult = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
+					const payload = toKernelPayload(err);
 					this.broadcast({
 						type: "extension:error",
 						name: event.name,
 						error: (err as Error).message,
+						...(payload ?? {}),
 					});
 				}
 				break;
@@ -2459,10 +2465,12 @@ export class WSServer {
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
 					// name=repair 不匹配任何 installs/upgrading → 前端落全局 error 区
+					const payload = toKernelPayload(err);
 					this.broadcast({
 						type: "extension:error",
 						name: "repair",
 						error: (err as Error).message,
+						...(payload ?? {}),
 					});
 				}
 				break;
@@ -2657,6 +2665,9 @@ export class WSServer {
 					status: McpServerStatus;
 					toolCount?: number;
 					error?: string;
+					code?: string;
+					params?: Record<string, string | number>;
+					detail?: string;
 				}) => {
 					this.broadcast({
 						type: "mcp:testResult",
@@ -2665,6 +2676,9 @@ export class WSServer {
 						status: payload.status,
 						toolCount: payload.toolCount,
 						error: payload.error,
+						code: payload.code,
+						params: payload.params,
+						detail: payload.detail,
 					});
 				};
 				try {
@@ -2679,6 +2693,9 @@ export class WSServer {
 						status: outcome.status,
 						toolCount: outcome.toolCount,
 						error: outcome.error,
+						code: outcome.code,
+						params: outcome.params,
+						detail: outcome.detail,
 					});
 				} catch (err) {
 					emitTestResult({

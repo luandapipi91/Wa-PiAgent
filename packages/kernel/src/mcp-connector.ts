@@ -19,6 +19,7 @@ import type {
   McpToolParam,
   McpToolSummary,
 } from "@wa-pi/shared";
+import { KernelError, toKernelPayload } from "@wa-pi/shared";
 
 /** 连接超时：MCP 握手 + 工具发现通常 < 5s，20s 兜底慢启动 / npx 拉包 */
 const CONNECT_TIMEOUT_MS = 20_000;
@@ -26,7 +27,12 @@ const CONNECT_TIMEOUT_MS = 20_000;
 export interface McpTestOutcome {
   status: McpServerStatus;
   toolCount?: number;
+  /** 错误信息（KernelError 时为 code，老渲染兜底用） */
   error?: string;
+  /** 结构化错误：code 由前端字典渲染；detail 为技术细节 */
+  code?: string;
+  params?: Record<string, string | number>;
+  detail?: string;
 }
 
 /** 测试连接：连上返回 connected + 工具数；失败返回 error */
@@ -47,7 +53,12 @@ export async function testConnection(
           "服务器响应不是合法的 JSON-RPC 消息（通常是缺少 Authorization 头、鉴权失败，或该 URL 并非 MCP 端点）",
       };
     }
-    return { status: "error", error: errorMessage(err) };
+    const payload = toKernelPayload(err);
+    return {
+      status: "error",
+      error: errorMessage(err),
+      ...(payload ?? {}),
+    };
   }
 }
 
@@ -110,13 +121,12 @@ function createTransport(config: McpServerConfig, defaultCwd?: string) {
         new URL(config.url),
         requestInit ? { requestInit } : undefined,
       );
-    } catch (err) {
-      throw new Error(`MCP 服务器 ${config.name} 的 url 无效: ${config.url}`, {
-        cause: err,
-      });
+    } catch {
+      // 原始 SyntaxError 无用户价值：URL 进 detail 供排查，主文案由前端字典渲染
+      throw new KernelError("mcp.invalidUrl", { name: config.name }, config.url);
     }
   }
-  throw new Error(`MCP 服务器 ${config.name} 缺少 command 或 url`);
+  throw new KernelError("mcp.missingCommandOrUrl", { name: config.name });
 }
 
 async function fetchAllTools(client: Client, signal: AbortSignal) {
