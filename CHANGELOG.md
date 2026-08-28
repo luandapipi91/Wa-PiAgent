@@ -1,4 +1,12 @@
 
+## 2026-08-28 — feat(kernel): Windows 默认命令工具切换为 powershell（bash 运行时映射）
+
+- 背景：wa-pi 在 Windows 上依赖下载 PortableGit（~64MB）保障 bash 工具可用。pi 0.84.3 提供原生 powershell 工具（pwsh/Windows PowerShell 自带，零外部依赖），产品决策：Windows 默认命令执行统一走 powershell，配置数据与用户均无需感知平台差异。
+- 方案（运行时语义映射，非数据替换）：工具集配置（角色白名单/UI 勾选/frontmatter）跨平台只写 bash——它是「命令执行」能力的语义占位；①默认路径：启动时在 settings.json.defaultTools 写入 read/powershell/edit/write（仅 Windows 且用户未自定义时，幂等）；②显式白名单路径：buildPiArgs 输出 --tools 前经 mapToolsForPlatform 平台映射（win32 上 bash→powershell，去重），一处覆盖内置子代理/用户自定义角色/存量配置；macOS/Linux 零变化。
+- 移除：PortableGit 自动下载与 settings.json.shellPath 自动接线（服务对象已退出默认集；bash 仍可经用户自装 Git 由 pi 引擎自动探测）；loadShellPath/saveShellPath 孤立函数一并移除。bash-runtime.ts 与 diagnose-bash.ts 保留（diagnose 仍可诊断系统 bash）。
+- 验证：新增 mapToolsForPlatform 3 测（win32 映射/并存去重/非 win32 原样）+ buildPiArgs win32 集成断言 + defaultTools 读写与平台函数 3 测全绿；rpc-client 10/10、settings-store 15/15、builtin-agents 6/6、shared constants 19/19；agent-manager 唯一失败经基线对照为工作区并行 crash-log 改动预置失败。
+- 影响范围：packages/kernel/src/{rpc-client,settings-store,index}.ts、相关测试；UI 工具清单不变（仍只含 bash，用户无需感知 powershell）。生效需随下次内核发版。
+
 ## 2026-08-30 — v0.2.30 发版（新建会话文件树两处修复）
 
 - 版本：0.2.29 → 0.2.30。
@@ -28,6 +36,13 @@
 - 主要：浏览器浮窗默认居中弹出、位置直写不丢；拖地址栏宽度不再带动浮窗移动；浮窗拖拽/尺寸手柄体验修正；SidebarResizer 宽度传播；新建会话页可达性检测。
 - 验证：typecheck 全绿；四层回归全绿。
 - 影响范围：frontend（BrowserPanel/SidebarResizer/browser store/NewSessionPane）、kernel（ws-server/static-serve）。
+
+## 2026-08-30 — fix(settings): 模型「测试连接」报错不再泄露本地代理信息，网络失败改用户可读文案
+
+- 背景：故意输错 apiKey 点「测试连接」，返回的错误文案末尾却拼着【代理: <http://127.0.0.1:xxxx】——proxyDiagnostic()> 对所有失败场景无差别附加代理环境变量诊断，对上游已应答的错误纯具误导。
+- 修复（按产品语义「代理对用户完全隐藏」）：①上游已应答的 HTTP 错误（401/404 等）只展示状态码+上游错误体；②网络层失败改人话文案「网络连接失败，请检查网络后重试」，不透传 ECONNREFUSED 等技术细节；③超时改「连接超时（N 秒），请检查网络后重试」；④proxyDiagnostic() 整个移除。
+- 验证：TDD 新增/更新 5 用例（HTTP 错误无代理后缀、网络失败人话文案、真实超时路径经 setTestTimeoutMs(30) 验证、代理变量注入/还原），11/11 先红后绿；kernel typecheck ✓；全量回归 53 fail 与 stash 基线一致（既有环境性集成测试，非本次引入）。
+- 影响范围：`packages/kernel/src/provider-test.ts`、`tests/provider-test.test.ts`。桌面应用需重启（打包版需重新打包 kernel）。
 
 ## 2026-08-30 — fix(preview/float): 拖地址栏宽度不再带动浮窗 + 默认居中弹出、位置直写不丢
 
