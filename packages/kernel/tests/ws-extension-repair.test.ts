@@ -18,6 +18,7 @@ import { ProjectStore } from "../src/project-store";
 import { SkillManager } from "../src/skill-manager";
 import { WSServer } from "../src/ws-server";
 import type { PackageInfo } from "@wa-pi/shared";
+import { KernelError } from "@wa-pi/shared";
 
 // ---------------------------------------------------------------------------
 // helpers（照抄 ws-extension-skill-refresh.test.ts，仅 repair 相关改动）
@@ -255,7 +256,23 @@ test("extension:repair 失败广播 extension:error（name=repair）", async () 
 
 		const err = await waitForSseEvent(ctx.reader, "extension:error");
 		expect(err?.name).toBe("repair");
+		// 普通 Error 无 code → error 字段保留原 message；KernelError 时另带 code/params/detail
 		expect(String(err?.error)).toContain("删除 node_modules 失败");
+	} finally {
+		await ctx.cleanup();
+	}
+});
+
+test("extension:repair 抛 KernelError 时广播携带 code/params/detail", async () => {
+	const ctx = await setup(async () => {
+		throw new KernelError("npm.repairCleanupFailed", undefined, "EBUSY: mock");
+	});
+	try {
+		await fetch(`${ctx.base}/api/extensions/repair`, { method: "POST" });
+		const err = await waitForSseEvent(ctx.reader, "extension:error");
+		expect(err?.name).toBe("repair");
+		expect(err?.code).toBe("npm.repairCleanupFailed");
+		expect(err?.detail).toBe("EBUSY: mock");
 	} finally {
 		await ctx.cleanup();
 	}

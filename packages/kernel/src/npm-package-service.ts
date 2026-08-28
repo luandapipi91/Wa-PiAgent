@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { KernelError } from "./kernel-error";
 
 export interface NpmPackageServiceOpts {
   /** 包管理器命令，默认 ["bun"]，从 settings.json.npmCommand 读取 */
@@ -134,10 +135,15 @@ export class NpmPackageService {
     const pkg = version ? `${name}@${version}` : name;
     const { exitCode, stderr } = await this.spawn(["add", pkg], onProgress);
     if (exitCode !== 0) {
-      throw new Error(`安装失败: ${stderr || `exit code ${exitCode}`}`);
+      throw new KernelError(
+        "npm.installFailed",
+        undefined,
+        stderr || `exit code ${exitCode}`,
+      );
     }
     const actualVersion = this.getInstalledVersion(name);
-    if (!actualVersion) throw new Error(`安装后未找到包: ${name}`);
+    if (!actualVersion)
+      throw new KernelError("npm.installVerifyFailed", { name });
     return { version: actualVersion };
   }
 
@@ -146,7 +152,11 @@ export class NpmPackageService {
     if (!existsSync(join(this.runtimeDir, "node_modules", name))) return;
     const { exitCode, stderr } = await this.spawn(["remove", name]);
     if (exitCode !== 0) {
-      throw new Error(`卸载失败: ${stderr || `exit code ${exitCode}`}`);
+      throw new KernelError(
+        "npm.uninstallFailed",
+        undefined,
+        stderr || `exit code ${exitCode}`,
+      );
     }
   }
 
@@ -161,10 +171,15 @@ export class NpmPackageService {
   ): Promise<{ version: string }> {
     const { exitCode, stderr } = await this.spawn(["add", name], onProgress);
     if (exitCode !== 0) {
-      throw new Error(`升级失败: ${stderr || `exit code ${exitCode}`}`);
+      throw new KernelError(
+        "npm.upgradeFailed",
+        undefined,
+        stderr || `exit code ${exitCode}`,
+      );
     }
     const actualVersion = this.getInstalledVersion(name);
-    if (!actualVersion) throw new Error(`升级后未找到包: ${name}`);
+    if (!actualVersion)
+      throw new KernelError("npm.upgradeVerifyFailed", { name });
     return { version: actualVersion };
   }
 
@@ -182,8 +197,10 @@ export class NpmPackageService {
           break;
         } catch (err) {
           if (attempt === 2) {
-            throw new Error(
-              `删除 node_modules 失败（可能有会话正在使用扩展）：${(err as Error).message}。请关闭正在使用扩展的会话后重试`,
+            throw new KernelError(
+              "npm.repairCleanupFailed",
+              undefined,
+              (err as Error).message,
             );
           }
           await new Promise((r) => setTimeout(r, 1000));
@@ -194,7 +211,11 @@ export class NpmPackageService {
 
     const { exitCode, stderr } = await this.spawn(["install"], onProgress);
     if (exitCode !== 0) {
-      throw new Error(`修复失败: ${stderr || `exit code ${exitCode}`}`);
+      throw new KernelError(
+        "npm.repairFailed",
+        undefined,
+        stderr || `exit code ${exitCode}`,
+      );
     }
 
     // 校验：package.json 每个直接依赖都能在 node_modules 读到版本
@@ -205,7 +226,9 @@ export class NpmPackageService {
       (name) => !this.getInstalledVersion(name),
     );
     if (missing.length > 0) {
-      throw new Error(`修复后仍缺少依赖: ${missing.join(", ")}`);
+      throw new KernelError("npm.repairVerifyFailed", {
+        names: missing.join(", "),
+      });
     }
   }
 

@@ -12,6 +12,7 @@ import type {
   McpToolsResult,
 } from "@wa-pi/shared";
 import { api } from "../api-client";
+import { formatKernelError } from "../util/kernel-error";
 
 interface McpState {
   servers: McpServerConfig[];
@@ -108,8 +109,15 @@ export const useMcpStore = create<McpState>((set, get) => ({
           status === "error"
             ? {
                 ...s.errors,
-                [data.serverName]:
-                  data.error ?? i18n.t("store.mcpConnectFailed"),
+                [data.serverName]: data.code
+                  ? // code 化错误：按字典渲染（如 mcp.invalidUrl），老文案兑底
+                    formatKernelError({
+                      code: data.code,
+                      params: data.params,
+                      detail: data.detail,
+                      message: data.error,
+                    }).main
+                  : (data.error ?? i18n.t("store.mcpConnectFailed")),
               }
             : s.errors,
         toolCounts:

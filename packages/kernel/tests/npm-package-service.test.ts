@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drainLines, NpmPackageService } from "../src/npm-package-service";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 let dir: string;
 beforeEach(() => {
@@ -189,7 +190,8 @@ test("install 超时：子进程挂起时按 opTimeoutMs 终止并报超时错�
     opTimeoutMs: 300,
   });
   const startedAt = Date.now();
-  await expect(svc.install("some-pkg")).rejects.toThrow("超时");
+  // 超时 stderr 进 detail，主文案走 code（前端字典渲染）
+  expect(await errorCodeOf(svc.install("some-pkg"))).toBe("npm.installFailed");
   expect(Date.now() - startedAt).toBeLessThan(5_000);
 }, 10_000);
 
@@ -248,7 +250,7 @@ test("repair 安装退出非 0 时抛「修复失败」", async () => {
     await svc.repair();
     expect.unreachable("expected repair to fail");
   } catch (err) {
-    expect((err as Error).message).toContain("修复失败");
+    expect((err as { code?: string }).code).toBe("npm.repairFailed");
   }
 });
 
@@ -294,10 +296,10 @@ test("repair 校验失败：install 成功但依赖缺失时列出缺失包", as
     await svc.repair();
     expect.unreachable("expected repair to fail on missing deps");
   } catch (err) {
-    const msg = (err as Error).message;
-    expect(msg).toContain("修复后仍缺少依赖");
-    expect(msg).toContain("missing-a");
-    expect(msg).toContain("missing-b");
+    expect((err as { code?: string }).code).toBe("npm.repairVerifyFailed");
+    // 缺失包名进 params.names，人话文案由前端字典插值
+    expect((err as { params?: Record<string, string> }).params?.names).toContain("missing-a");
+    expect((err as { params?: Record<string, string> }).params?.names).toContain("missing-b");
   }
 });
 

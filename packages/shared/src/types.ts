@@ -1456,8 +1456,12 @@ export interface ShareProgressEvent {
 	percent?: number;
 	loaded?: number;
 	total?: number;
-	/** phase=error 时的错误信息 */
+	/** phase=error 时的错误信息（KernelError 时为 code，老渲染兑底用） */
 	error?: string;
+	/** phase=error 时的结构化错误（code 由前端字典渲染） */
+	code?: string;
+	params?: Record<string, string | number>;
+	detail?: string;
 }
 
 // ============ 定时任务 SSE 事件 ============
@@ -1545,6 +1549,9 @@ export interface ExecutionRecord {
 	sessionId?: string;
 	pushResults?: PushResult[];
 	error?: string;
+	/** 结构化错误（任务执行失败时；errorCode 由前端字典渲染，与 error 兜底并存） */
+	errorCode?: string;
+	errorParams?: Record<string, string | number>;
 	summary?: string;
 }
 

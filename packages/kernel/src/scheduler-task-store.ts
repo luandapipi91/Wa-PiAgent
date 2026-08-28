@@ -18,7 +18,7 @@ import {
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
-import { WA_PI_DIR } from "@wa-pi/shared";
+import { WA_PI_DIR, KernelError } from "@wa-pi/shared";
 import type { ExecutionRecord, ScheduledTask } from "@wa-pi/shared";
 import {
 	formatLogLine,
@@ -71,7 +71,8 @@ function isValidTaskId(taskId: string): boolean {
 }
 
 function assertValidTaskId(taskId: string): void {
-	if (!isValidTaskId(taskId)) throw new Error(`taskId 非法: ${taskId}`);
+	if (!isValidTaskId(taskId))
+		throw new KernelError("scheduler.invalidTaskId", { taskId });
 }
 
 // tmp 文件名的模块级自增后缀：同进程并发写同一文件时避免 tmp 名互相覆盖/ENOENT
@@ -224,7 +225,7 @@ export function createFolderTaskStore(deps: {
 		projectId: string,
 	): Promise<ScheduledTask> {
 		const project = await findProject(projectId);
-		if (!project) throw new Error(`项目不存在: ${projectId}`);
+		if (!project) throw new KernelError("project.notFound", { id: projectId });
 		const error = validateTaskData(input);
 		if (error) throw new Error(error);
 		// 同名冲突追加 -2/-3…（全局唯一，跨项目同名也追加后缀）

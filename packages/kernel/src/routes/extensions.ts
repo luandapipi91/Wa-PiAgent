@@ -6,7 +6,7 @@
  * 丢弃 HTTP 响应体，仅靠 SSE 事件翻转状态。故此处不再需要 responseTypes / 错误状态码映射。
  */
 import type { RouteRegistrar, RouteContext } from "./types";
-import { readJsonBody } from "./types";
+import { readJsonBody, paramErrorResponse } from "./types";
 
 export const registerExtensionRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext) => {
   r.add("GET", "/api/extensions", async () => callApi({ type: "extension:list" }));
@@ -42,10 +42,7 @@ export const registerExtensionRoutes: RouteRegistrar = (r, callApi, ctx: RouteCo
   r.add("POST", "/api/extensions/commands/toggle", async (req) => {
     const b = await readJsonBody(req);
     if (!b?.packageName || !b?.command || typeof b.enabled !== "boolean") {
-      return new Response(
-        JSON.stringify({ error: "参数缺失或类型错误" }),
-        { status: 400 }
-      );
+      return paramErrorResponse("参数缺失或类型错误", "packageName/command/enabled");
     }
     return callApi({ type: "extension:commands:toggle", ...b });
   });
@@ -53,7 +50,7 @@ export const registerExtensionRoutes: RouteRegistrar = (r, callApi, ctx: RouteCo
   r.add("POST", "/api/extensions/dialog/respond", async (req) => {
     const b = await readJsonBody(req);
     if (!b?.requestId) {
-      return new Response(JSON.stringify({ error: "参数缺失" }), { status: 400 });
+      return paramErrorResponse("参数缺失", "requestId");
     }
     return callApi({ type: "extension:dialog:respond", ...b });
   });

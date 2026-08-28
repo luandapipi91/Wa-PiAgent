@@ -2,7 +2,7 @@
  * 文件系统域路由（阶段二·去 WS 化）
  */
 import type { RouteRegistrar } from "./types";
-import { readJsonBody } from "./types";
+import { readJsonBody, paramErrorResponse } from "./types";
 import { resolveCwdForFsRequest, uniquePath } from "../ws-server";
 import { readdir, readFile, copyFile, stat, mkdir } from "node:fs/promises";
 import { join, basename, dirname } from "node:path";
@@ -157,7 +157,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		const b = await readJsonBody(req);
 		const { path, showHidden } = b;
 		if (typeof path !== "string")
-			return Response.json({ error: "缺少 path" }, { status: 400 });
+			return paramErrorResponse("缺少 path", "path");
 		try {
 			const entries = await listDir(path, showHidden);
 			return Response.json({ type: "fs:listDir", path, entries });
@@ -175,7 +175,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		const b = await readJsonBody(req);
 		const { path } = b;
 		if (typeof path !== "string")
-			return Response.json({ error: "缺少 path" }, { status: 400 });
+			return paramErrorResponse("缺少 path", "path");
 		try {
 			const absPath = expandTilde(path);
 			const exists = existsSync(absPath);
@@ -195,7 +195,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		const b = await readJsonBody(req);
 		const { path } = b;
 		if (typeof path !== "string")
-			return Response.json({ error: "缺少 path" }, { status: 400 });
+			return paramErrorResponse("缺少 path", "path");
 		try {
 			const absPath = expandTilde(path);
 			const check = await checkPreviewable(absPath);
@@ -302,7 +302,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		const b = await readJsonBody(req);
 		const { path } = b;
 		if (typeof path !== "string")
-			return Response.json({ error: "缺少 path" }, { status: 400 });
+			return paramErrorResponse("缺少 path", "path");
 		try {
 			let absPath = expandTilde(path);
 			if (!existsSync(absPath)) {
@@ -351,7 +351,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		const b = await readJsonBody(req);
 		const { path } = b;
 		if (typeof path !== "string")
-			return Response.json({ error: "缺少 path" }, { status: 400 });
+			return paramErrorResponse("缺少 path", "path");
 		try {
 			let absPath = expandTilde(path);
 			if (!existsSync(absPath)) {

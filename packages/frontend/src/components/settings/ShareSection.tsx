@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { formatApiError } from "../../util/kernel-error";
 import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
 import { useToastStore } from "../../store/toast";
@@ -312,9 +313,7 @@ export function ShareSection() {
 			setSavedByChannel((prev) => ({ ...prev, [channel]: true }));
 			useToastStore.getState().add(t("settings.share.saved"), "success");
 		} catch (e) {
-			useToastStore
-				.getState()
-				.add(e instanceof Error ? e.message : String(e), "error");
+			useToastStore.getState().add(formatApiError(e), "error");
 		} finally {
 			setSaving(false);
 		}
@@ -352,9 +351,7 @@ export function ShareSection() {
 			useToastStore.getState().add(t("settings.share.copied"), "success");
 			setTimeout(() => setCopiedId(null), 1500);
 		} catch (e) {
-			useToastStore
-				.getState()
-				.add(e instanceof Error ? e.message : String(e), "error");
+			useToastStore.getState().add(formatApiError(e), "error");
 		}
 	};
 
@@ -367,9 +364,7 @@ export function ShareSection() {
 			useToastStore.getState().add(t("settings.share.renamedDeploy"), "success");
 			await refresh();
 		} catch (e) {
-			useToastStore
-				.getState()
-				.add(e instanceof Error ? e.message : String(e), "error");
+			useToastStore.getState().add(formatApiError(e), "error");
 		}
 	};
 
@@ -378,9 +373,7 @@ export function ShareSection() {
 			await shareDelete(id);
 			await refresh();
 		} catch (e) {
-			useToastStore
-				.getState()
-				.add(e instanceof Error ? e.message : String(e), "error");
+			useToastStore.getState().add(formatApiError(e), "error");
 		}
 	};
 
@@ -390,9 +383,7 @@ export function ShareSection() {
 			await shareClear();
 			await refresh();
 		} catch (e) {
-			useToastStore
-				.getState()
-				.add(e instanceof Error ? e.message : String(e), "error");
+			useToastStore.getState().add(formatApiError(e), "error");
 		}
 	};
 
@@ -406,9 +397,7 @@ export function ShareSection() {
 		try {
 			await shareOpenFolder();
 		} catch (e) {
-			useToastStore
-				.getState()
-				.add(e instanceof Error ? e.message : String(e), "error");
+			useToastStore.getState().add(formatApiError(e), "error");
 		}
 	};
 
@@ -419,9 +408,7 @@ export function ShareSection() {
 			useToastStore.getState().add(t("settings.share.deployed"), "success");
 			await refresh();
 		} catch (e) {
-			useToastStore
-				.getState()
-				.add(e instanceof Error ? e.message : String(e), "error");
+			useToastStore.getState().add(formatApiError(e), "error");
 		} finally {
 			setDeploying(false);
 		}

@@ -15,6 +15,8 @@ import {
 	logsDirOf,
 	setScheduledTasksRoot,
 } from "../src/scheduler-task-store";
+import { errorCodeOf } from "./helpers/kernel-error-code";
+import type { ExecutionRecord } from "@wa-pi/shared";
 
 let dir: string;
 let projA: string;
@@ -103,9 +105,12 @@ describe("create/list", () => {
 
 	test("未知 projectId 抛错", async () => {
 		const store = createFolderTaskStore({ projectsProvider: projects });
-		await expect(
-			store.create({ ...DATA, projectId: "nope", prompt: "p" }, "nope"),
-		).rejects.toThrow();
+		// 复用任务 3 的 project.notFound（同语义：项目不存在）
+		expect(
+			await errorCodeOf(
+				store.create({ ...DATA, projectId: "nope", prompt: "p" }, "nope"),
+			),
+		).toBe("project.notFound");
 	});
 });
 
@@ -285,4 +290,19 @@ describe("taskId 路径穿越防护", () => {
 		// 全局 tasks 目录之外不产生任何文件
 		expect(existsSync(join(dir, "scheduled-tasks", "tasks", "x.md"))).toBe(false);
 	});
+});
+
+// ---- 任务 4 i18n：KernelError code 断言 ----
+test("非法 taskId → KernelError scheduler.invalidTaskId（appendRecord 路径）", async () => {
+	const store = createFolderTaskStore({ projectsProvider: projects });
+	const rec: ExecutionRecord = {
+		id: "r-x",
+		taskId: "../evil",
+		taskName: "x",
+		status: "running" as const,
+		startedAt: Date.now(),
+	};
+	expect(await errorCodeOf(store.appendRecord("pa", "../evil", rec))).toBe(
+		"scheduler.invalidTaskId",
+	);
 });
