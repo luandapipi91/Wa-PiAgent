@@ -993,6 +993,27 @@ const en = {
 		noToken: "Configure a Token first in Settings → Share",
 		merged: "Merged into share {{name}} ({{count}} files total), old files kept",
 	},
+	// Kernel structured error messages (codes mirror the sdk-errors mapping table
+	// and provider-test on the kernel side). Keys are dotted full codes, resolved
+	// by formatKernelError in util/kernel-error.ts.
+	kernelMsg: {
+		unknown: "An unknown error occurred",
+		"provider.testNetwork": "Network connection failed. Check your network and try again",
+		"provider.testTimeout": "Connection timed out. Check your network and try again",
+		"provider.httpStatus": "Connection failed (HTTP {{status}})",
+		"model.badRequest": "Bad request ({{status}}). Check your provider settings",
+		"model.authFailed": "Authentication failed ({{status}}). Check your API key",
+		"model.forbidden": "Access denied ({{status}}). Check your API key or permissions",
+		"model.notFound": "Endpoint not found ({{status}}). Check the provider baseUrl or model ID",
+		"model.timeout": "Request timed out ({{status}}). Try again later",
+		"model.rateLimited": "Too many requests ({{status}}). Try again later",
+		"model.serverError": "Server error ({{status}}). Try again later",
+		"model.badGateway": "Bad gateway ({{status}}). Try again later",
+		"model.serviceUnavailable": "Service unavailable ({{status}}). Try again later",
+		"model.gatewayTimeout": "Gateway timeout ({{status}}). Try again later",
+		"model.clientError": "Request error ({{status}}). Check request parameters or provider settings",
+		"model.callFailed": "Model call failed. Check the model and provider settings (model unavailable or authentication failed)",
+	},
 };
 
 export default en;

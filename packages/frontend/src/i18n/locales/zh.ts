@@ -959,6 +959,26 @@ const zh = {
 		noToken: "请先在 设置 → 分享 配置 Token",
 		merged: "已合并到分享 {{name}}（共 {{count}} 个文件），旧文件已保留",
 	},
+	// kernel 结构化错误文案（code 与 kernel 侧 sdk-errors 映射表 / provider-test 一一对应）。
+	// key 为带点号的完整 code，由 util/kernel-error.ts 的 formatKernelError 查表渲染。
+	kernelMsg: {
+		unknown: "发生未知错误",
+		"provider.testNetwork": "网络连接失败，请检查网络后重试",
+		"provider.testTimeout": "连接超时，请检查网络后重试",
+		"provider.httpStatus": "连接失败（HTTP {{status}}）",
+		"model.badRequest": "请求格式错误（{{status}}），请检查 Provider 配置",
+		"model.authFailed": "鉴权失败（{{status}}），请检查 API Key",
+		"model.forbidden": "访问被拒绝（{{status}}），请检查 API Key 或权限",
+		"model.notFound": "接口不存在（{{status}}），请检查 Provider 的 baseUrl 或模型 ID",
+		"model.timeout": "请求超时（{{status}}），请稍后重试",
+		"model.rateLimited": "请求过于频繁（{{status}}），请稍后重试",
+		"model.serverError": "服务端错误（{{status}}），请稍后重试",
+		"model.badGateway": "网关错误（{{status}}），请稍后重试",
+		"model.serviceUnavailable": "服务不可用（{{status}}），请稍后重试",
+		"model.gatewayTimeout": "网关超时（{{status}}），请稍后重试",
+		"model.clientError": "请求错误（{{status}}），请检查请求参数或 Provider 配置",
+		"model.callFailed": "模型调用失败，请检查模型与 Provider 配置（模型不可用或鉴权失败）",
+	},
 };
 
 export default zh;
