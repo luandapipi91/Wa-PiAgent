@@ -1,7 +1,12 @@
 import { test, expect } from "bun:test";
 import {
-  formatRelativeTime, aggregateAgentState, makeAgentStateKey, parseAgentStateKey,
-  randomSessionId, resolveSessionCwd,
+  formatRelativeTime,
+  aggregateAgentState,
+  makeAgentStateKey,
+  parseAgentStateKey,
+  randomSessionId,
+  resolveSessionCwd,
+  sanitizeOpenEnv,
 } from "../src/pure";
 import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "../src/constants";
 import type { AgentState } from "../src/types";
@@ -17,7 +22,10 @@ test("formatRelativeTime 各档", () => {
 });
 
 test("aggregateAgentState 优先级", () => {
-  const mk = (status: AgentState["status"]): AgentState => ({ name: "dev", status });
+  const mk = (status: AgentState["status"]): AgentState => ({
+    name: "dev",
+    status,
+  });
   expect(aggregateAgentState([mk("idle"), mk("blocked")])).toBe("blocked");
   expect(aggregateAgentState([mk("idle"), mk("thinking")])).toBe("thinking");
   expect(aggregateAgentState([mk("idle")])).toBe("idle");
@@ -68,4 +76,32 @@ test("resolveSessionCwd 系统项目 project.cwd 为空时返回空串（绝不�
   // 不请求；kernel 调用点均有 !project.cwd 前置校验，不会走到这里。
   const session = { projectId: SYSTEM_PROJECT_ID, createdAt: 1721567890123 };
   expect(resolveSessionCwd(session, { cwd: "" })).toBe("");
+});
+
+test("sanitizeOpenEnv 剥离 WA_PI_* 内部变量（防 open 出口环境继承）", () => {
+  const env = sanitizeOpenEnv({
+    PATH: "/usr/bin",
+    HOME: "/Users/co",
+    LANG: "zh_CN.UTF-8",
+    WA_PI_WS_PORT: "9776",
+    WA_PI_DIR: "/Users/co/.pi/agent",
+    WA_PI_PI_RUNTIME: "/path/to/bun",
+    WA_PI_WEB_PORT: "5180",
+  });
+  // 系统变量原样保留（影响默认应用行为，不能白名单化）
+  expect(env.PATH).toBe("/usr/bin");
+  expect(env.HOME).toBe("/Users/co");
+  expect(env.LANG).toBe("zh_CN.UTF-8");
+  // wa-pi 内部命名空间全部剥离：被打开的 .command 继承端口/目录变量后
+  // dev.ts 启动即 killPort 会抢占宿主实例端口
+  expect(env.WA_PI_WS_PORT).toBeUndefined();
+  expect(env.WA_PI_DIR).toBeUndefined();
+  expect(env.WA_PI_PI_RUNTIME).toBeUndefined();
+  expect(env.WA_PI_WEB_PORT).toBeUndefined();
+});
+
+test("sanitizeOpenEnv 跳过 undefined 值键，空输入返回空对象", () => {
+  const out = sanitizeOpenEnv({ A: "1", B: undefined });
+  expect(out).toEqual({ A: "1" });
+  expect(sanitizeOpenEnv({})).toEqual({});
 });

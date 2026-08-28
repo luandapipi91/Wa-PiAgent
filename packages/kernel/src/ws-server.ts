@@ -10,6 +10,7 @@ import {
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_CWD,
 	resolveSessionCwd,
+	sanitizeOpenEnv,
 	WA_PI_DIR,
 } from "@wa-pi/shared";
 import type { DirEntry } from "@wa-pi/shared";
@@ -1075,7 +1076,12 @@ export class WSServer {
 							: process.platform === "win32"
 								? "start"
 								: "xdg-open";
-					spawn(openCmd, [dir], { shell: true, stdio: "ignore" });
+					// 同 spawnOpen：净化环境，防被打开的访达/脚本继承 WA_PI_* 内部变量
+					spawn(openCmd, [dir], {
+						shell: true,
+						stdio: "ignore",
+						env: sanitizeOpenEnv(process.env),
+					});
 				}
 				break;
 			}
@@ -2056,7 +2062,7 @@ export class WSServer {
 							truncated,
 						});
 					}
-				} catch (e) {
+				} catch {
 					if (activeSearches.has(requestId)) {
 						reply({
 							type: "fs:search",
@@ -2185,7 +2191,7 @@ export class WSServer {
 							allModels,
 							event.api,
 						);
-					} catch (err) {
+					} catch {
 						// 目录查询失败：回退用户配置的 baseUrl，不阻断测试
 					}
 				}

@@ -10,6 +10,7 @@ import { statSync } from "node:fs";
 import { unzipSync } from "fflate";
 import type { HttpRouter } from "../http-router";
 import type { ShareProgressEvent } from "@wa-pi/shared";
+import { sanitizeOpenEnv } from "@wa-pi/shared";
 import { readJsonBody } from "./types";
 import {
 	CF_SHARE_PROJECT_NAME,
@@ -239,7 +240,7 @@ export function createShareRoutes(
 							name: item.name,
 							files: entries.map((e) => e.name),
 						}),
-							expiresAt,
+				expiresAt,
 				projectName: SHARE_PROJECT_NAME,
 				channel,
 			});
@@ -341,9 +342,11 @@ export function createShareRoutes(
 					: process.platform === "win32"
 						? "explorer"
 						: "xdg-open";
+			// 同 spawnOpen：净化环境，防被打开的访达/脚本继承 WA_PI_* 内部变量
 			const child = spawn(cmd, [workspaceDir], {
 				detached: true,
 				stdio: "ignore",
+				env: sanitizeOpenEnv(process.env),
 			});
 			child.unref();
 			return Response.json({ ok: true });
