@@ -1,4 +1,11 @@
 
+## 2026-08-30 — fix(desktop): splash 窗口与 runtime-deps 依赖进度文案接入系统语言渲染（Task 5 审查遗漏补漏）
+
+- 背景：Task 5 审查发现两个未列入批次、但仍面向用户显示中文的启动窗口/进度文件仍硬编码中文——splash-html.cjs（启动页 HTML）与 runtime-deps.cjs（依赖下载进度 onStatus），故补入本批一起修。
+- 实现：splash-html.cjs 的 `buildSplashHTML` 增加 `locale="zh"` 参数 + 内联 zh/en MSG 字典（initializing/switchPort/quit/switching），`<html lang>` 与 4 处中文（status 初始文案、换端口/退出按钮、script 内「正在切换」）改按 locale 取；main.cjs 调用处传入模块级 `LOCALE`。runtime-deps.cjs 引入同构 `detectDesktopLocale` + MSG + `t()`（支持 `{{n}}` 插值），runInstall / ensureRuntimeDeps 两处 onStatus 改 `t("downloadingN", { n })` / `t("downloading")`。同时给三个 util 文件（kernel-updater/node-runtime/runtime-deps）的 `detectDesktopLocale` 增加 `process.versions.electron` 守卫——避免非 Electron（bun 测试）下 `require("electron")` 触发二进制下载而阻塞/超时。splash-html.test.ts 新增 locale=en/zh 渲染断言。
+- 验证：node --check（splash-html/runtime-deps/main）全绿；splash-html.test 9 pass、tests/runtime-deps 8 pass、src/util/__tests__/runtime-deps 10 pass、node-runtime 15 pass、kernel-updater 20 pass、updater 15 pass。
+- 影响范围：packages/desktop/src/{main.cjs, util/splash-html.cjs, util/runtime-deps.cjs, util/kernel-updater.cjs, util/node-runtime.cjs}、packages/desktop/tests/splash-html.test.ts。
+
 ## 2026-08-30 — feat(desktop): 启动进度/更新文案按系统语言渲染（desktop 独立通道 i18n，任务 5）
 
 - 背景：desktop 主进程在启动进度窗 / 内核更新 / Node 安装等环节有硬编码中文透传给用户；desktop 无 react-i18next，且启动进度窗早于前端挂载，不能依赖前端传语言。方案：主进程用 Electron `app.getLocale()` 定模块级 LOCALE，内联 zh/en 文案字典 + `t()`，把所有面向用户文案改为按 LOCALE 取。

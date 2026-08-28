@@ -183,6 +183,7 @@ function buildSplashURL() {
 		logoB64,
 		canvasBg: CANVAS_BG,
 		brandGreen: BRAND_GREEN,
+		locale: LOCALE,
 	});
 	return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }

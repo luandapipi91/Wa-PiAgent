@@ -25,6 +25,9 @@ let cachedLocale;
 function detectDesktopLocale() {
 	if (cachedLocale) return cachedLocale;
 	try {
+		// 仅在实际 Electron 进程才 require("electron")：非 Electron（如 bun 测试）下
+		// require("electron") 会触发二进制下载并阻塞/超时，故先验 process.versions.electron。
+		if (!process.versions.electron) throw new Error("非 Electron 进程");
 		const { app } = require("electron");
 		cachedLocale = String(app.getLocale()).startsWith("zh") ? "zh" : "en";
 	} catch {

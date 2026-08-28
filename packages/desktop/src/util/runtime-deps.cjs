@@ -20,6 +20,43 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { readLocalBuild } = require("./kernel-updater.cjs");
 
+// 语言来源：桌面主进程通过 onStatus 把进度文案透传给用户（desktop 无 react-i18next）。
+// 本模块在 bun 测试环境下无 electron，故延迟探测；非 Electron 环境回退 zh。
+const MSG = {
+	zh: {
+		downloading: "正在下载依赖…",
+		downloadingN: "正在下载依赖… {{n}} 个包",
+	},
+	en: {
+		downloading: "Downloading dependencies…",
+		downloadingN: "Downloading dependencies… {{n}} packages",
+	},
+};
+let cachedLocale;
+function detectDesktopLocale() {
+	if (cachedLocale) return cachedLocale;
+	try {
+		// 仅在实际 Electron 进程才 require("electron")：非 Electron（如 bun 测试）下
+		// require("electron") 会触发二进制下载并阻塞/超时，故先验 process.versions.electron。
+		if (!process.versions.electron) throw new Error("非 Electron 进程");
+		const { app } = require("electron");
+		cachedLocale = String(app.getLocale()).startsWith("zh") ? "zh" : "en";
+	} catch {
+		cachedLocale = "zh";
+	}
+	return cachedLocale;
+}
+// t()：字典查询 + 可选参数插值（{{key}} 用法，与 kernel-updater 的 t 同构，仅多了插值）。
+const t = (k, params) => {
+	let s = MSG[detectDesktopLocale()][k] ?? MSG.zh[k];
+	if (params) {
+		for (const [key, val] of Object.entries(params)) {
+			s = s.replace(`{{${key}}}`, String(val));
+		}
+	}
+	return s;
+};
+
 const DEFAULT_REGISTRY = "https://registry.npmmirror.com";
 const FALLBACK_REGISTRY = "https://registry.npmjs.org";
 const KERNEL_BIN =
@@ -182,7 +219,7 @@ function runInstall({ kernelExe, runtimeDir, registry, log, onStatus }) {
 			if (!text) return;
 			log.info(`[deps] ${text}`);
 			const m = text.match(/downloaded and extracted \[?(\d+)\]?/);
-			if (m && onStatus) onStatus(`正在下载依赖… ${m[1]} 个包`);
+			if (m && onStatus) onStatus(t("downloadingN", { n: m[1] }));
 		};
 		child.stdout.on("data", handle);
 		child.stderr.on("data", (b) => {
@@ -249,7 +286,7 @@ async function ensureRuntimeDeps({
 		process.env.WA_PI_REGISTRY || DEFAULT_REGISTRY,
 		FALLBACK_REGISTRY,
 	];
-	if (onStatus) onStatus(`正在下载依赖…`);
+	if (onStatus) onStatus(t("downloading"));
 	// 主源 → 回退源，安装后校验产物；失败清理 node_modules 再重试一轮。
 	// 全部失败时抛错（main.cjs 显示错误页），不写标记 → 下次启动自动重试（兜底）。
 	await installWithRetry({
