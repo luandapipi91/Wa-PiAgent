@@ -1,4 +1,11 @@
 
+## 2026-08-30 — v0.3.1 发版（Windows 默认命令切换 PowerShell + 稳定性修复）
+
+- 版本：0.2.30 → 0.3.1（次版本号升级）。
+- 主要：Windows 默认命令工具切换为 PowerShell（bash 运行时映射，下线 PortableGit bash-runtime 链路，无需安装 Git Bash）；智能体预设/内置角色与连接稳定性调整；设置存储与共享常量调整；模型测试连接错误不再泄露本地代理信息（网络失败改用户可读文案）。
+- 验证：typecheck 全绿；四层回归全绿（frontend 1999 pass / 0 fail）。
+- 影响范围：kernel（bash-runtime 下线/ws-server/agent-manager/rpc-client/settings-store/builtin-agents）、shared（constants）、frontend。
+
 ## 2026-08-28 — feat(kernel): Windows 默认命令工具切换为 powershell（bash 运行时映射）
 
 - 背景：wa-pi 在 Windows 上依赖下载 PortableGit（~64MB）保障 bash 工具可用。pi 0.84.3 提供原生 powershell 工具（pwsh/Windows PowerShell 自带，零外部依赖），产品决策：Windows 默认命令执行统一走 powershell，配置数据与用户均无需感知平台差异。

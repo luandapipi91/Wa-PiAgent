@@ -1,6 +1,6 @@
 {
 	"name": "@wa-pi/desktop",
-	"version": "0.2.30",
+	"version": "0.3.1",
 	"license": "MIT",
 	"private": true,
 	"type": "module",
