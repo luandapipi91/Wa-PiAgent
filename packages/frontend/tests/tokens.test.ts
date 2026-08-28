@@ -97,6 +97,18 @@ test("textToHtml 渲染文件 chip 为 span", () => {
   expect(html).toContain("chip-file");
 });
 
+test("textToHtml 文件 chip 只显示文件名（path: 前缀+目录裁掉），data-token 保留完整路径", () => {
+  // 拖拽引用 #[path:绝对路径]：显示文件名，data-token 保留完整引用
+  const html = textToHtml("#[path:/tmp/proj/a.ts]");
+  expect(html).toContain('data-token="#[path:/tmp/proj/a.ts]"');
+  expect(html).toContain(">#a.ts</span>");
+  expect(html).toContain("chip-file");
+  // @ 面板相对路径同样只显示文件名
+  const html2 = textToHtml("#[packages/App.tsx]");
+  expect(html2).toContain('data-token="#[packages/App.tsx]"');
+  expect(html2).toContain(">#App.tsx</span>");
+});
+
 test("textToHtml 渲染技能 chip 为 span", () => {
   // 技能 chip 的闪电图标已由 Unicode ⚡ 改为内联 svg（iconSvg("bolt")），
   // 故只断言 svg 标记 + 技能名 + class，不再断言 ⚡ 字面量。

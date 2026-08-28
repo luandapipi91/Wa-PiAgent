@@ -17,6 +17,7 @@ import {
 	cleanup,
 } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import { useState } from "react";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 import { emitEventForTesting, disconnectEvents } from "../src/events";
 import { useProvidersStore } from "../src/store/providers";
@@ -155,6 +156,47 @@ function renderComposer(props?: Partial<ComponentProps<typeof ComposerInput>>) {
 		/>,
 	);
 }
+
+test("wa-pi:insert-mention 文件 token 追加后渲染为 chip-file 胶囊", async () => {
+	// 受控 wrapper：让 setText 真正更新 text，驱动 textToHtml 重渲染
+	function Harness() {
+		const [text, setText] = useState("");
+		return (
+			<ComposerInput
+				text={text}
+				setText={setText}
+				model="openai/gpt-4o"
+				setModel={mock()}
+				thinking="disabled"
+				setThinking={mock()}
+				attachments={[]}
+				setAttachments={mock() as any}
+				projectId="p1"
+				sessionId="s1"
+				onSend={mock()}
+				placeholder="输入..."
+			/>
+		);
+	}
+	render(<Harness />);
+
+	// 模拟文件树拖拽释放的插入事件（不带 editor，走受控 setText 路径）
+	act(() => {
+		window.dispatchEvent(
+			new CustomEvent("wa-pi:insert-mention", {
+				detail: { text: "#[path:/proj/a.ts] " },
+			}),
+		);
+	});
+
+	await waitFor(() => {
+		const editor = screen.getByRole("textbox") as HTMLElement;
+		// 输入框内渲染出文件 chip（显示 basename，data-token 保留完整引用）
+		expect(editor.innerHTML).toContain("chip-file");
+		expect(editor.innerHTML).toContain('data-token="#[path:/proj/a.ts]"');
+		expect(editor.innerHTML).toContain(">#a.ts</span>");
+	});
+});
 
 function completeLatestUpload(_expectedPath: string) {
 	const call = fetchCalls.at(-1);
@@ -485,9 +527,7 @@ test("输入 # 触发文件面板", async () => {
 
 	await waitFor(() => {
 		expect(
-			apiCalls.some(
-				(c) => c.path === "/api/fs/search" && c.body?.query === "App",
-			),
+			apiCalls.some((c) => c.path === "/api/fs/search" && c.body?.query === "App"),
 		).toBe(true);
 	});
 
@@ -632,9 +672,7 @@ test("选中文件后生成 #[path] chip token", async () => {
 			query: "hello",
 			durationMs: 10,
 			truncated: false,
-			matches: [
-				{ name: "hello.txt", isDir: false, path: "/proj/p1/hello.txt" },
-			],
+			matches: [{ name: "hello.txt", isDir: false, path: "/proj/p1/hello.txt" }],
 		});
 	});
 
@@ -1051,9 +1089,7 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
 		// pi 框架内置命令（model/compact/...）已全部注释移除，改用 prompt 模板命令
 		// 验证同一 dispatch 路径（wa-pi:pi-command）。
 		useCommandsStore.setState({
-			commands: [
-				{ name: "myreview", description: "我的审查", source: "prompt" },
-			],
+			commands: [{ name: "myreview", description: "我的审查", source: "prompt" }],
 			loading: false,
 		});
 		const setText = mock();
@@ -1078,9 +1114,7 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
 
 	it("选中插件命令（extension）插入 /[命令名] chip token 到输入框", () => {
 		useCommandsStore.setState({
-			commands: [
-				{ name: "goal", description: "设定目标", source: "extension" },
-			],
+			commands: [{ name: "goal", description: "设定目标", source: "extension" }],
 			loading: false,
 		});
 		const setText = mock();

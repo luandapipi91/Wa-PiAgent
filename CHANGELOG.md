@@ -2,9 +2,10 @@
 ## 2026-08-28 — feat(frontend): 文件树拖拽到输入框改为文件 chip（#path: 引用）
 
 - 背景：文件树拖拽文件到聊天输入框插入的是 `path:xxx` 纯文本，无 chip 样式。
-- 改动：ExplorerPanel 拖拽释放派发的文本改为文件 chip token `#[path:路径] `——输入框经既有 textToHtml 渲染绿色 chip-file 胶囊，发送时 expandTokens 展开为 `#path:路径` 引用（与附件引用 path: 约定一致）；下游插入事件/渲染/序列化全部复用既有机制。
-- 验证：新增 ExplorerPanel.drag-chip.test.tsx（指针链模拟断言派发格式）；frontend 全量 2001 pass / 0 fail；typecheck 绿。
-- 影响范围：packages/frontend/src/components/ExplorerPanel.tsx（一行）、新增 tests/ExplorerPanel.drag-chip.test.tsx。
+- 改动：ExplorerPanel 拖拽释放派发的文本改为文件 chip token `#[path:路径]`——输入框经既有 textToHtml 渲染绿色 chip-file 胶囊（只显示文件名，data-token 保留完整 `#path:绝对路径` 引用），发送时 expandTokens 展开为 `#path:路径`（与附件引用 path: 约定一致）。
+- 过程中修复一个隐性缺陷：插入事件原本携带 `editor` 走 `execCommand("insertText")`——该路径只改 DOM，受控同步后 text===DOM 不会触发 textToHtml 重渲染，token 永远无法 chip 化。改为不带 editor、统一走受控 `setText` 追加（与 element-pick 同模式），token 才能渲染成胶囊；`ComposerInput` 同步移除已无生产者的 execCommand 分支。
+- 验证：新增 drag-chip 测试（指针链模拟断言派发格式 + editor 为 undefined）+ ComposerInput 端到端（dispatch 后输入框出现 chip-file 胶囊）+ tokens basename 显示测试；frontend 全量 2003 pass / 0 fail；typecheck 绿。
+- 影响范围：packages/frontend/src/components/{ExplorerPanel,ui/ComposerInput}.tsx、src/quick-invoke/tokens.ts、tests/{ExplorerPanel.drag-chip,ComposerInput,tokens}.test.tsx/ts。
 
 ## 2026-08-28 — fix(kernel): 系统打开出口剥离 WA_PI_* 环境变量（防子进程继承端口/目录变量）
 
