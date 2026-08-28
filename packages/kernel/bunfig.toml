@@ -1,0 +1,8 @@
+[test]
+coverage = false
+# 全局测试 preload（裸 bun test 与 bun run test 均自动生效）：
+#   tests/setup.ts 把 WA_PI_DIR/PI_CODING_AGENT_DIR 隔离到临时目录 + 清代理 env——
+#   防止测试读写正式 ~/.pi/agent（与运行中的 kernel 文件竞争）、fetch 走宿主代理中继。
+#   此 preload 不引入 happy-dom（kernel 测试不需要 DOM；前端有自己的 bunfig preload，
+#   由根 package.json 的 test 脚本分两步跑时单独触发，互不影响）。
+preload = ["./tests/setup.ts"]

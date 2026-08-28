@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
 	SYSTEM_PROJECT_ID,
 	resolveSessionCwd,
@@ -20,6 +20,8 @@ import ImSessionTitle from "./ImSessionTitle";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { STATUS_COLORS } from "../theme/colors";
 import { AnsiText } from "./ui/AnsiText";
+import { expandedTextToHtml, ensureChipStyles } from "../quick-invoke/tokens";
+import { useSkillsStore } from "../store/skills";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
@@ -134,6 +136,15 @@ export const SessionView = memo(function SessionView({
 	// 的 hooks 数量不一致，触发 "Rendered fewer hooks than expected"（#300）。
 	const explorerOpen = useExplorerStore((s) => s.open);
 	const explorerWidth = useExplorerStore((s) => s.width);
+	// 队列面板 chip 渲染（同上：必须在 early return 之前）：/skill:x、#path 展开形态
+	// 还原 + textToHtml（同 MessageList 模式：稳定数组 selector + useMemo 成 Set，
+	// 避免每次渲染新 Set 触发无限重渲染）
+	const enabledSkills = useSkillsStore((s) => s.skills);
+	const knownSkills = useMemo(
+		() => new Set(enabledSkills.map((k) => k.name)),
+		[enabledSkills],
+	);
+	ensureChipStyles();
 
 	if (!session) return null;
 	// header 状态（圆点颜色与文案共用）：等待回复 blocked > 运行中 thinking > 空闲 idle
@@ -422,7 +433,15 @@ export const SessionView = memo(function SessionView({
 										key={i}
 										className="text-[calc(12px*var(--font-scale))] text-secondary mt-1 pl-2"
 									>
-										{msg}
+										<span
+											// pi-lens-ignore: dangerously-set-inner-html —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
+											dangerouslySetInnerHTML={{
+												__html: expandedTextToHtml(msg, {
+													knownSkills,
+													hideTrigger: true,
+												}),
+											}}
+										/>
 									</div>
 								))}
 							</div>
@@ -443,7 +462,15 @@ export const SessionView = memo(function SessionView({
 											className={`flex items-center justify-between px-2.5 py-1.5 ${i < followUp.length - 1 ? "border-b border-hairline" : ""}`}
 										>
 											<span className="text-secondary truncate flex-1 text-[calc(12.5px*var(--font-scale))]">
-												{msg}
+												<span
+													// pi-lens-ignore: dangerously-set-inner-html —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
+													dangerouslySetInnerHTML={{
+														__html: expandedTextToHtml(msg, {
+															knownSkills,
+															hideTrigger: true,
+														}),
+													}}
+												/>
 											</span>
 											<div className="flex ml-2 gap-2">
 												<button

@@ -15,6 +15,7 @@ import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProvidersStore } from "../src/store/providers";
+import { useSkillsStore } from "../src/store/skills";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 import { disconnectEvents } from "../src/events";
 
@@ -1148,4 +1149,136 @@ test("setStatus/setWidget 的 ANSI 颜色解析为内联样式", async () => {
 	const widgetExpanded = screen.getByTestId("ext-widget-pi-goal");
 	expect(widgetExpanded.textContent).toContain("第二行");
 	expect(widgetExpanded.textContent).not.toContain("\x1b");
+});
+
+test("运行中 Ctrl+Enter 发引导：附件随 /steer 请求发出并清空输入框附件", async () => {
+	// provider 提供可用模型（composerDbDefaults.model = openai/gpt-4o），否则发送守卫拦截
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "prov-1",
+				name: "OpenAI",
+				slug: "openai",
+				baseUrl: "",
+				apiKey: "",
+				api: "openai-completions",
+				models: [{ id: "gpt-4o" }],
+			},
+		] as any,
+	});
+	// 运行中 + 无活跃引导 → Ctrl+Enter 走 /steer 分支（bug 场景）。
+	// 注意清 queueBySession：前置用例残留的 steering 会触发「已有引导 → 降级 doSend」
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		queueBySession: { s1: { steering: [], followUp: [] } },
+	});
+	// 预置附件草稿（图片 + 大文本片段）
+	useComposerPrefsStore.setState({
+		bySession: {
+			s1: {
+				text: "",
+				model: "openai/gpt-4o",
+				thinking: "disabled",
+				attachments: [
+					{ kind: "image", name: "shot.png", path: "/tmp/shot.png", size: 8 },
+					{ kind: "snippet", name: "长文本", content: "一大段上下文" },
+				],
+			},
+		} as any,
+	});
+	await renderSessionView("s1");
+
+	// 输入文本后按 Ctrl+Enter
+	// composer 输入框是 contentEditable div：直接设 textContent 后派发 input 事件
+	const textbox = document.querySelector('[role="textbox"]')! as HTMLElement;
+	textbox.textContent = "看这张图继续";
+	fireEvent.input(textbox);
+	await act(async () => {});
+	console.log(
+		"DBG status:",
+		JSON.stringify(useSessionStore.getState().statusBySession),
+	);
+	console.log(
+		"DBG prefs:",
+		JSON.stringify(useComposerPrefsStore.getState().bySession["s1"]),
+	);
+	console.log(
+		"DBG providers:",
+		JSON.stringify(useProvidersStore.getState().providers.length),
+	);
+	await act(async () => {
+		fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true });
+	});
+	console.log("DBG apiCalls:", JSON.stringify(apiCalls));
+
+	// 附件随 /steer 请求发出（大文本 snippet 与图片一并透传）
+	const calls = apiCalls.filter(
+		(c) => c.method === "post" && c.path === "/api/sessions/s1/steer",
+	);
+	expect(calls).toHaveLength(1);
+	expect(calls[0].body.text).toContain("看这张图继续");
+	expect(calls[0].body.attachments).toEqual([
+		{ kind: "image", name: "shot.png", path: "/tmp/shot.png", size: 8 },
+		{ kind: "snippet", name: "长文本", content: "一大段上下文" },
+	]);
+
+	// 发送后输入框附件清空（此前 steer 分支漏清导致附件残留）
+	await waitFor(() => {
+		const prefs = useComposerPrefsStore.getState().bySession["s1"];
+		expect(prefs?.attachments ?? []).toEqual([]);
+	});
+	// 乐观更新：文本进入引导队列
+	const state = useSessionStore.getState();
+	expect(state.queueBySession["s1"]!.steering).toContain("看这张图继续");
+});
+
+test("排队队列渲染技能/文件 chip（expandedTextToHtml 接入）", async () => {
+	// 运行中 + 队列里是 expandTokens 展开后的文本（与真实数据流一致：
+	// 乐观入队与 kernel queue_update 回传的都是展开后形态）
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		queueBySession: {
+			s1: {
+				steering: ["/skill:brainstorm 先梳理思路"],
+				followUp: ["看 #path:packages/App.tsx 这个文件"],
+			},
+		},
+	});
+	// 已启用技能（/skill:x 还原的 knownSkills 过滤源）
+	useSkillsStore.setState({
+		skills: [
+			{ name: "brainstorm", description: "", path: "/tmp/skills/brainstorm" },
+		],
+	} as any);
+	await renderSessionView("s1");
+
+	const panel = document.querySelector('[data-testid="queue-panel"]')!;
+	// steering 区：技能 chip（闪电胶囊）
+	expect(panel.querySelector(".chip-skill")).toBeTruthy();
+	expect(panel.querySelector(".chip-skill")!.textContent).toContain(
+		"brainstorm",
+	);
+	// followUp 区：文件 chip（data-token 保留完整路径原文）
+	expect(panel.querySelector(".chip-file")).toBeTruthy();
+	expect(panel.querySelector(".chip-file")!.getAttribute("data-token")).toBe(
+		"#[path:packages/App.tsx]",
+	);
+});
+
+test("排队队列：knownSkills 未命中的 /skill:x 不渲染 chip（防误判）", async () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		queueBySession: {
+			s1: {
+				steering: ["/skill:not-a-real-skill 参数"],
+				followUp: [],
+			},
+		},
+	});
+	await renderSessionView("s1");
+
+	const panel = document.querySelector('[data-testid="queue-panel"]')!;
+	expect(panel.querySelector(".chip-skill")).toBeNull();
+	// 原样文本保留（可见而非丢失）
+	expect(panel.textContent).toContain("/skill:not-a-real-skill");
 });

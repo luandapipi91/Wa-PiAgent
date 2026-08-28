@@ -790,7 +790,7 @@ describe("Composer", () => {
     expect(textbox.textContent).toBe("用户改过的");
   });
 
-  it("运行中 Ctrl+Enter 发送引导消息（steering）：调 /steer、入 steering 队列、不进 followUp、清空输入框、保留附件", async () => {
+  it("运行中 Ctrl+Enter 发送引导消息（steering）：调 /steer、入 steering 队列、不进 followUp、清空输入框与附件", async () => {
     const keptAttachment: AttachmentDraft[] = [
       { kind: "snippet", name: "keep", content: "keep" },
     ];
@@ -821,6 +821,8 @@ describe("Composer", () => {
         .at(-1);
       expect(steerReq?.path).toBe("/api/sessions/s1/steer");
       expect(steerReq?.body).toMatchObject({ text: "引导消息" });
+      // 附件随 /steer 请求发出（steer 链路 attachments 透传）
+      expect(steerReq?.body.attachments).toEqual(keptAttachment);
       const s = useSessionStore.getState();
       expect(s.queueBySession["s1"]?.steering).toContain("引导消息");
       expect(s.queueBySession["s1"]?.followUp ?? []).not.toContain("引导消息");
@@ -831,10 +833,10 @@ describe("Composer", () => {
     expect(
       sent.filter((s) => s.path && s.path.includes("/prompt")),
     ).toHaveLength(0);
-    // 运行中 steer 只清空文本、保留附件（/steer 只接受 text，附件不随引导发送清空）
+    // steer 分支发送后与 doSend 一致清空附件（附件已随请求发出，不再残留输入框）
     expect(
-      useComposerPrefsStore.getState().bySession["s1"]?.attachments,
-    ).toEqual(keptAttachment);
+      useComposerPrefsStore.getState().bySession["s1"]?.attachments ?? [],
+    ).toEqual([]);
   });
 
   it("空闲时 Ctrl+Enter 等同普通发送：调 /prompt", async () => {

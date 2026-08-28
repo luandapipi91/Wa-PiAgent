@@ -1,8 +1,5 @@
 import { test, expect, afterEach } from "bun:test";
 import {
-  FILE_TOKEN_RE,
-  SKILL_TOKEN_RE,
-  AGENT_TOKEN_RE,
   expandTokens,
   textToSegments,
   segmentsToText,
@@ -14,10 +11,16 @@ import {
   selectionToTokenText,
 } from "../src/quick-invoke/tokens";
 
-test("expandTokens 展开文件 token（#[path] -> #path）", () => {
+test("expandTokens 展开文件 token（统一带 path: 锚）", () => {
   expect(expandTokens("看这个 #[packages/App.tsx] 文件")).toBe(
-    "看这个 #packages/App.tsx 文件",
+    "看这个 #path:packages/App.tsx 文件",
   );
+  // 拖拽插入的已带 path: 前缀 → 不重复
+  expect(expandTokens("看 #[path:/abs/dir] 目录")).toBe(
+    "看 #path:/abs/dir 目录",
+  );
+  // 纯数字文件夹名也支持
+  expect(expandTokens("#[2024]")).toBe("#path:2024");
 });
 
 test("expandTokens 展开技能 token 为 /skill:name + 空格（SDK _expandSkillCommand 用空格分隔技能名和参数）", () => {
@@ -37,7 +40,7 @@ test("expandTokens 技能后紧跟用户文字时加空格分隔", () => {
 
 test("expandTokens 同时展开文件和技能 token", () => {
   expect(expandTokens("#[a.tsx] 和 $[my-skill]")).toBe(
-    "#a.tsx 和 /skill:my-skill ",
+    "#path:a.tsx 和 /skill:my-skill ",
   );
 });
 
@@ -273,4 +276,80 @@ test("selectionToTokenText：选中普通文本无 chip 时原样输出", () => 
   const range = document.createRange();
   range.selectNodeContents(div);
   expect(selectionToTokenText(range)).toBe("普通文本内容");
+});
+
+// ── expandedTextToHtml：展开形态还原 + chip 渲染（排队队列面板场景）──
+
+import {
+  expandedTextToHtml,
+  ensureChipStyles,
+} from "../src/quick-invoke/tokens";
+
+test("expandedTextToHtml：/skill:name 还原为技能 chip（knownSkills 命中）", () => {
+  const html = expandedTextToHtml("先 /skill:brainstorm  再继续", {
+    knownSkills: new Set(["brainstorm"]),
+  });
+  expect(html).toContain('class="chip chip-skill"');
+  expect(html).toContain("brainstorm");
+  expect(html).not.toContain("/skill:brainstorm");
+});
+
+test("expandedTextToHtml：knownSkills 未命中的 /skill:x 保持原样（防任意文本误判）", () => {
+  const html = expandedTextToHtml("跑 /skill:not-a-skill 看看", {
+    knownSkills: new Set(["brainstorm"]),
+  });
+  expect(html).not.toContain("chip-skill");
+  expect(html).toContain("/skill:not-a-skill");
+});
+
+test("expandedTextToHtml：#path: 锚还原为文件 chip（零误判，含纯数字文件夹名）", () => {
+  const html = expandedTextToHtml(
+    "看 #path:packages/App.tsx 和 #path:README.md 和 #path:2024",
+    {},
+  );
+  expect((html.match(/class="chip chip-file"/g) ?? []).length).toBe(3);
+  // data-token 保留完整路径
+  expect(html).toContain('data-token="#[path:packages/App.tsx]"');
+  expect(html).toContain('data-token="#[path:README.md]"');
+  expect(html).toContain('data-token="#[path:2024]"');
+});
+
+test("expandedTextToHtml：裸 #词（无 path: 锚）不还原（零误判取舍）", () => {
+  // #docs、#1、# 标题 均非文件引用形态——文件引用请走 #[x] token（展开后自动带锚）
+  const html = expandedTextToHtml("整理 #docs，问题 #1 和 # 标题", {});
+  expect(html).not.toContain("chip-file");
+  expect(html).toContain("#docs");
+  expect(html).toContain("#1");
+});
+
+test("expandedTextToHtml：原样 token 形态 #[x] 不重复还原（负向前瞻）", () => {
+  const html = expandedTextToHtml("看 #[App.tsx]", {});
+  // textToHtml 本身识别 #[x] 原样形态 → 仍渲染为 chip，且不会出现 [[x]]
+  expect(html).toContain('class="chip chip-file"');
+  expect(html).not.toContain("[[");
+});
+
+test("expandedTextToHtml：agent chip 支持 hideTrigger，element 展开形态原生识别", () => {
+  const html = expandedTextToHtml("@[Plan] 看样式 [line: 1-2] [el: div.card]", {
+    hideTrigger: true,
+  });
+  expect(html).toContain("chip-agent");
+  expect(html).not.toContain(">@");
+  expect(html).toContain("chip-element");
+});
+
+test("expandedTextToHtml：普通文本经 escapeHtml 转义（防注入）", () => {
+  const html = expandedTextToHtml(
+    "<img src=x onerror=alert(1)> #path:a.txt",
+    {},
+  );
+  expect(html).not.toContain("<img src=x");
+  expect(html).toContain("&lt;img");
+  expect(html).toContain("chip-file");
+});
+
+test("expandedTextToHtml：chip 渲染需要 ensureChipStyles 样式已注入（幂等）", () => {
+  ensureChipStyles();
+  ensureChipStyles(); // 多次调用安全
+  // 仅验证不抛异常（样式注入属 DOM 副作用，chip class 断言在上面的用例覆盖）
 });

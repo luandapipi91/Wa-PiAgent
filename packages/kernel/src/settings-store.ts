@@ -370,11 +370,14 @@ export function parseRegQueryValue(output: string, valueName: string): string {
 /** 执行 reg query 读取注册表值（读不到返回空串） */
 async function readRegValue(key: string, value: string): Promise<string> {
 	return new Promise((resolve) => {
+		// 兕底超时：同 readMacSystemProxy——mock/异常环境下 callback 可能永不调用。
+		const guard = setTimeout(() => resolve(""), 5000);
 		execFile(
 			"reg",
 			["query", key, "/v", value],
 			{ windowsHide: true, timeout: 5000, maxBuffer: 64 * 1024 },
 			(err, stdout) => {
+				clearTimeout(guard);
 				if (err) {
 					console.log(`[proxy] reg query ${value} 失败: ${err.message}`);
 					resolve("");
@@ -440,11 +443,16 @@ export function parseScutilProxyOutput(output: string): string {
 /** macOS 读系统代理：scutil --proxy（系统自带命令，纯 JS 子进程） */
 async function readMacSystemProxy(): Promise<string> {
 	return new Promise((resolve) => {
+		// 兕底超时：execFile 自身的 timeout 只对真实子进程生效；测试 mock（mock.module
+		// 替换 child_process）或异常环境下 callback 可能永不调用，曾致 kernel 启动
+		// 永久挂死（全量测试卡死根因之一）。5s 后强制按「无代理」继续启动。
+		const guard = setTimeout(() => resolve(""), 5000);
 		execFile(
 			"scutil",
 			["--proxy"],
 			{ timeout: 5000, maxBuffer: 64 * 1024 },
 			(err, stdout) => {
+				clearTimeout(guard);
 				if (err) {
 					console.log(`[proxy] scutil 读系统代理失败: ${err.message}`);
 					resolve("");

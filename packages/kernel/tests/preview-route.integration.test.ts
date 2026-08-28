@@ -25,12 +25,16 @@ const ORIG_ENV = {
 const TMP_ROOT = await mkdtemp(join(tmpdir(), "wa-pi-preview-"));
 process.env.WA_PI_DIR = TMP_ROOT;
 
+// projects.json 必须写到 kernel 实际使用的数据目录（从 shared 常量取）：
+// bun test（bunfig [test].preload 全局生效）时常量固化的是 preload 的临时目录，
+// 上方 env 自设无效——写 TMP_ROOT 会让 allowlist 找不到项目而放行失败。
+const { WA_PI_DIR: KERNEL_DATA_DIR } = await import("@wa-pi/shared");
 const { startKernel } = await import("../src/index");
 
 // 预置 projects.json：让 /preview 的 allowlist 放行 TMP_ROOT 内的请求
-// （ensureSystemProject 是追加式写入，不会覆盖本文件）
+// （ensureSystemProject 是追加式写入，不会覆盖本文件；preload 目录全新，覆盖安全）
 await writeFile(
-	join(TMP_ROOT, "projects.json"),
+	join(KERNEL_DATA_DIR, "projects.json"),
 	JSON.stringify({
 		projects: [{ id: "preview-test", name: "t", cwd: TMP_ROOT, createdAt: 0 }],
 		sessions: [],
@@ -83,6 +87,7 @@ afterAll(async () => {
 	process.env.https_proxy = ORIG_ENV.https_proxy ?? "";
 	process.env.PI_CODING_AGENT_DIR = ORIG_ENV.PI_CODING_AGENT_DIR ?? "";
 	process.env.PI_EXPERIMENTAL = ORIG_ENV.PI_EXPERIMENTAL ?? "";
+	await rm(join(KERNEL_DATA_DIR, "projects.json"), { force: true });
 	await rm(TMP_ROOT, { recursive: true, force: true });
 	await rm(OUTSIDE_SECRET, { recursive: true, force: true });
 });

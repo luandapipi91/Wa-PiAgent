@@ -109,7 +109,11 @@ export function parseElementPayload(
  */
 export function expandTokens(text: string): string {
   return normalizeTriggerChars(text)
-    .replace(FILE_TOKEN_RE, "#$1")
+    .replace(FILE_TOKEN_RE, (_m, p1) =>
+      // 统一带 path: 锚：展开形态恒为 #path:xxx（拖拽的 #[path:/abs] 已带前缀不重复），
+      // 排队队列面板的 chip 还原只认 #path: 锚（零误判，纯数字文件夹名 #path:2024 也支持）。
+      p1.startsWith("path:") ? `#${p1}` : `#path:${p1}`,
+    )
     .replace(SKILL_TOKEN_RE, "/skill:$1 ") // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
     .replace(COMMAND_TOKEN_RE, "/$1 ") // 命令 chip 展开为 /命令名 ，pi 识别为斜杠命令
     .replace(ELEMENT_TOKEN_RE, (_m, p1) => {
@@ -401,6 +405,35 @@ export function textToHtml(
       return escapeHtml(s.value).replace(/\n/g, "<br>");
     })
     .join("");
+}
+
+/**
+ * 把 expandTokens 展开后形态的文本渲染为 chip HTML（展示场景，如排队队列面板）。
+ *
+ * 排队队列（SessionView 顶部队列面板）/kernel queue_update 回传的都是 expandTokens
+ * 展开后的纯文本（$[x]→/skill:x 、#[x]→#path:xxx），而 textToHtml 只识别 token 原文
+ * 形态，直接渲染会把 token 原文当普通文本显示。本函数先还原再渲染：
+ * - /skill:name → $[name]（knownSkills 过滤，防任意 /skill:xxx 文本误判，约束与
+ *   MessageList.formatSkillBlocks 一致）
+ * - #path:xxx → #[path:xxx]（file/folder 展开形态恒带 path: 锚，零误判：纯数字
+ *   文件夹名 #path:2024、无扩展名目录 #path:docs 都支持；裸 #词（#docs、#1、
+ *   "# 标题"）不猜——文件引用请走 #[x] token，展开后自动带锚）
+ * - @[agent] 与 element 展开形态（path [line: a-b] [el: x]）textToHtml 原生支持，
+ *   无需还原；命令 chip 展开形态 /cmd 与任意斜杠文本无法区分，保持原样不还原。
+ */
+export function expandedTextToHtml(
+  text: string,
+  opts?: { knownSkills?: ReadonlySet<string>; hideTrigger?: boolean },
+): string {
+  const restored = text
+    .replace(/\/skill:([^\s/]+)\s*/g, (m, name: string) =>
+      opts?.knownSkills?.has(name) ? `$[${name}] ` : m,
+    )
+    // file 只认 expandTokens 展开产物的 #path: 锚（零误判，纯数字文件夹名如
+    // #path:2024 也支持）；裸 #词（#docs、#1、# 标题）不猜——文件引用请走
+    // #[x] token（展开后自动带锚）。
+    .replace(/#path:(\S+)/g, "#[path:$1]");
+  return textToHtml(restored, { hideTrigger: opts?.hideTrigger });
 }
 
 // ── 复制语义保留：选中 DOM → token 文本 ──
