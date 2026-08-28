@@ -41,3 +41,18 @@ test("splash HTML 按钮并排（flex-direction:row，不换行）", () => {
 	expect(html).toMatch(/\.actions\{[^}]*flex-direction:row/);
 	expect(html).not.toMatch(/\.actions\{[^}]*flex-direction:column/);
 });
+
+test("splash HTML 默认 locale=zh → lang=zh 且渲染中文", () => {
+	const html = buildSplashHTML({});
+	expect(html).toContain('<html lang="zh">');
+	expect(html).toContain("正在启动…");
+});
+
+test("splash HTML locale=en → lang=en 且渲染英文", () => {
+	const html = buildSplashHTML({ locale: "en" });
+	expect(html).toContain('<html lang="en">');
+	expect(html).toContain("Initializing…");
+	expect(html).toContain("Switch port");
+	expect(html).toContain("Quit");
+	expect(html).toContain("Switching…");
+});
