@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import type { McpServerConfig } from "@wa-pi/shared";
+import { KernelError } from "./kernel-error";
 import type { ProjectStore } from "./project-store";
 
 interface McpConfigFile {
@@ -31,7 +32,7 @@ export class McpStore {
     const servers = await this.list(projectId);
     const server = servers.find(s => s.name === serverName);
     if (!server) {
-      throw new Error(`MCP 服务器 ${serverName} 不存在`);
+      throw new KernelError("mcp.serverNotFound", { name: serverName });
     }
     return server;
   }
@@ -49,7 +50,7 @@ export class McpStore {
 
     if (originalName) {
       if (!cfg.mcpServers[originalName]) {
-        throw new Error(`原服务器 ${originalName} 不存在`);
+        throw new KernelError("mcp.originalServerNotFound", { name: originalName });
       }
       if (originalName !== config.name) {
         delete cfg.mcpServers[originalName];
@@ -64,7 +65,7 @@ export class McpStore {
     const path = await this.resolveConfigPath(projectId);
     const cfg = await this.readConfig(path);
     if (!cfg.mcpServers[serverName]) {
-      throw new Error(`服务器 ${serverName} 不存在`);
+      throw new KernelError("mcp.serverNotFound", { name: serverName });
     }
     delete cfg.mcpServers[serverName];
     await this.writeConfig(path, cfg);
@@ -78,8 +79,11 @@ export class McpStore {
     }
     const { projects } = await this.opts.projectStore.load();
     const project = projects.find(p => p.id === projectId);
-    if (!project || !project.cwd) {
-      throw new Error(`项目不存在或缺少工作目录: ${projectId}`);
+    if (!project) {
+      throw new KernelError("project.notFound", { id: projectId });
+    }
+    if (!project.cwd) {
+      throw new KernelError("project.cwdMissing", { name: project.name ?? projectId });
     }
     return join(project.cwd, ".mcp.json");
   }
@@ -96,7 +100,7 @@ export class McpStore {
       if (e.code === "ENOENT") {
         return { mcpServers: {} };
       }
-      throw new Error(`解析 ${path} 失败: ${e.message}`);
+      throw new KernelError("mcp.configParseFailed", undefined, `解析 ${path} 失败: ${e.message}`);
     }
   }
 

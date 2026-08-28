@@ -6,6 +6,7 @@ import {
 	readSessionHistory,
 	computeSessionUsage,
 } from "../src/session-history";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 let dir: string;
 beforeEach(() => {
@@ -450,7 +451,7 @@ test("文件不存在：抛错（调用方回退进程路径）", async () => {
 test("空文件/无有效行：抛错", async () => {
 	const file = join(dir, "empty.jsonl");
 	writeFileSync(file, "\n\n  \n");
-	await expect(readSessionHistory(file)).rejects.toThrow(/无有效行/);
+	expect(await errorCodeOf(readSessionHistory(file))).toBe("session.noValidLines");
 });
 
 test("无消息的合法文件：返回空数组（新会话）", async () => {

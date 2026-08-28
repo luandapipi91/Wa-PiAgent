@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { makeDefaultAgentConfig } from "../src/agent-md";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 function tempAgentsDir() {
   const dir = join(import.meta.dir, ".tmp-agents-" + Math.random().toString(36).slice(2));
@@ -65,7 +66,8 @@ test("createAgent: 生成默认配置；重名自动加 -2 后缀；非法名抛
   expect(b.displayName).toBe("代码审查-2");
   const c = await cs.createAgent("代码审查");
   expect(c.displayName).toBe("代码审查-3");
-  await expect(cs.createAgent("a/b")).rejects.toThrow("非法 displayName");
+  await expect(cs.createAgent("a/b")).rejects.toThrow();
+  expect(await errorCodeOf(cs.createAgent("a/b"))).toBe("agent.invalidDisplayName");
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -75,7 +77,8 @@ test("deleteAgent: 删除文件；不存在抛错", async () => {
   await cs.createAgent("临时");
   await cs.deleteAgent("临时");
   expect(await cs.getAgent("临时")).toBeNull();
-  await expect(cs.deleteAgent("临时")).rejects.toThrow("智能体不存在");
+  await expect(cs.deleteAgent("临时")).rejects.toThrow();
+  expect(await errorCodeOf(cs.deleteAgent("临时"))).toBe("agent.notFound");
   rmSync(dir, { recursive: true, force: true });
 });
 

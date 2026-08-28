@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PROJECTS_FILE, WA_PI_DIR, SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import type { ProjectEntity, SessionEntity, AgentName } from "@wa-pi/shared";
+import { KernelError } from "./kernel-error";
 
 interface ProjectsFile {
 	projects: ProjectEntity[];
@@ -38,7 +39,7 @@ export class ProjectStore {
 		const data = await this.load();
 		// cwd 去重：同一目录不允许重复添加
 		if (data.projects.some((p) => p.cwd === input.cwd)) {
-			throw new Error("相同目录的项目已存在");
+			throw new KernelError("project.duplicateCwd");
 		}
 		const project: ProjectEntity = {
 			id: randomUUID(),
@@ -82,7 +83,7 @@ export class ProjectStore {
 	): Promise<void> {
 		const data = await this.load();
 		const p = data.projects.find((x) => x.id === id);
-		if (!p) throw new Error(`项目不存在: ${id}`);
+		if (!p) throw new KernelError("project.notFound", { id });
 		if (patch.name !== undefined) p.name = patch.name;
 		if (patch.cwd !== undefined) p.cwd = patch.cwd;
 		await this.save(data);
@@ -136,7 +137,7 @@ export class ProjectStore {
 	async renameSession(id: string, title: string): Promise<void> {
 		const data = await this.load();
 		const s = data.sessions.find((x) => x.id === id);
-		if (!s) throw new Error(`会话不存在: ${id}`);
+		if (!s) throw new KernelError("session.notFound", { sessionId: id });
 		s.title = title;
 		await this.save(data);
 	}
@@ -161,7 +162,7 @@ export class ProjectStore {
 	async setSessionAgent(id: string, agentName: AgentName): Promise<void> {
 		const data = await this.load();
 		const s = data.sessions.find((x) => x.id === id);
-		if (!s) throw new Error(`会话不存在: ${id}`);
+		if (!s) throw new KernelError("session.notFound", { sessionId: id });
 		s.primaryAgent = agentName;
 		await this.save(data);
 	}
@@ -171,7 +172,7 @@ export class ProjectStore {
 	async setSessionProjectId(id: string, projectId: string): Promise<void> {
 		const data = await this.load();
 		const s = data.sessions.find((x) => x.id === id);
-		if (!s) throw new Error(`会话不存在: ${id}`);
+		if (!s) throw new KernelError("session.notFound", { sessionId: id });
 		s.projectId = projectId;
 		await this.save(data);
 	}

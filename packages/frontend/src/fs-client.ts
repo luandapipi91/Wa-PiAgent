@@ -2,6 +2,8 @@
 import i18n from "./i18n";
 import { api } from "./api-client";
 import type { DirEntry } from "@wa-pi/shared";
+import { KernelError } from "@wa-pi/shared";
+import { formatKernelError } from "./util/kernel-error";
 
 /**
  * 底层传输抽象。默认走真实 api-client；单测可通过 `_setFsTransport` 注入伪传输，
@@ -65,12 +67,20 @@ export async function readFile(path: string): Promise<{
 		mimeType?: string;
 		resolvedPath?: string;
 		reason?: string;
+		code?: string;
+		params?: Record<string, string | number>;
 		type?: string;
 	};
 	if (res.type === "fs:unsupported")
 		return {
 			content: "",
-			unsupported: res.reason ?? i18n.t("store.unsupportedPreview"),
+			// code 化错误（attachment.*）按 kernelMsg 字典渲染；无 code（旧通道）reason 原样兜底
+			unsupported:
+				formatKernelError({
+					code: res.code,
+					params: res.params,
+					message: res.reason,
+				}).main || i18n.t("store.unsupportedPreview"),
 		};
 	if (!res.content) throw new Error(res.reason ?? i18n.t("store.readFailed"));
 	return {
@@ -117,7 +127,12 @@ export async function uploadFile(
 		: `/api/files/upload?projectId=${encodeURIComponent(projectId)}`;
 	const res = await fetch(url, { method: "POST", body: form });
 	const data = await res.json().catch(() => ({}));
-	if (!res.ok) throw new Error(data.error ?? `${res.status}`);
+	if (!res.ok) {
+		// code 化错误（attachment.tooLarge）抛 KernelError：上层 formatKernelError 按字典渲染；
+		// 无 code（其他错误路径）维持纯 message，行为不变
+		if (data.code) throw new KernelError(data.code, data.params);
+		throw new Error(data.error ?? `${res.status}`);
+	}
 	return { path: data.path };
 }
 

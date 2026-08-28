@@ -4,6 +4,7 @@ import { PI_AGENTS_DIR, ALL_AGENT_NAMES } from "@wa-pi/shared";
 import type { AgentConfig, AgentName } from "@wa-pi/shared";
 import { parseAgentMd, stringifyAgentMd, validateAgentConfig, makeDefaultAgentConfig } from "./agent-md";
 import { makeSeedAgentConfig } from "./default-agent-seeds";
+import { KernelError } from "./kernel-error";
 
 export class ConfigStore {
   constructor(private agentsDir: string = PI_AGENTS_DIR) {}
@@ -55,7 +56,8 @@ export class ConfigStore {
 
   async createAgent(displayName: string): Promise<AgentConfig> {
     const trimmed = displayName.trim();
-    if (!trimmed || /[/\\:*?"<>|]/.test(trimmed)) throw new Error(`非法 displayName: ${displayName}`);
+    if (!trimmed || /[/\\:*?"<>|]/.test(trimmed))
+      throw new KernelError("agent.invalidDisplayName", { name: displayName });
     const unique = await this.uniqueName(trimmed);
     const config = makeDefaultAgentConfig(unique);
     await this.saveAgent(config);
@@ -63,7 +65,8 @@ export class ConfigStore {
   }
 
   async deleteAgent(displayName: string): Promise<void> {
-    if (!(await this.getAgent(displayName))) throw new Error(`智能体不存在: ${displayName}`);
+    if (!(await this.getAgent(displayName)))
+      throw new KernelError("agent.notFound", { name: displayName });
     await unlink(join(this.agentsDir, `${displayName}.md`));
   }
 

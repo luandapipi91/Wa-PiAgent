@@ -1060,6 +1060,9 @@ export interface FSUploadResult {
 	id: string;
 	path: string;
 	error?: string;
+	/** code 化错误（第二批 i18n）：结构化载荷，前端 formatKernelError 按 code 查字典渲染 */
+	code?: string;
+	params?: Record<string, string | number>;
 }
 export interface FSCopyRequest {
 	type: "fs:copy";
@@ -1107,12 +1110,18 @@ export interface FSErrorEvent {
 	type: "fs:error";
 	path: string;
 	reason: string;
+	/** code 化错误（第二批 i18n）：结构化载荷，前端 formatKernelError 按 code 查字典渲染 */
+	code?: string;
+	params?: Record<string, string | number>;
 }
 /** 文件不支持预览（非文本/超限等）：前端据此降级为下载/提示 */
 export interface FSUnsupportedEvent {
 	type: "fs:unsupported";
 	path: string;
 	reason: string;
+	/** code 化错误（第二批 i18n）：结构化载荷，前端 formatKernelError 按 code 查字典渲染 */
+	code?: string;
+	params?: Record<string, string | number>;
 }
 
 // 录音：边录边落盘协议（与 fs:upload 同通道，id 关联请求-响应）

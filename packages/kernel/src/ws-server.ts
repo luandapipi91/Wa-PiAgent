@@ -97,6 +97,7 @@ import type { FolderTaskStore } from "./scheduler-task-store";
 import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
+import { KernelError } from "./kernel-error";
 
 /**
  * 统一错误兑底：KernelError 转结构化载荷（code/params/detail），前端按
@@ -158,23 +159,36 @@ const MAX_PREVIEW_BYTES = 3 * 1024 * 1024;
 
 async function checkPreviewable(
 	absPath: string,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<
+	{ ok: true } | { ok: false; reason: string; code?: string; params?: Record<string, string | number> }
+> {
 	const mime = getMimeType(absPath);
 	const isText =
 		mime.startsWith("text/") ||
 		mime === "application/json" ||
 		mime === "application/xml" ||
 		mime === "image/svg+xml";
-	if (!isText) return { ok: false, reason: `不支持的文件类型: ${mime}` };
+	if (!isText)
+		return {
+			ok: false,
+			reason: `不支持的文件类型: ${mime}`,
+			code: "attachment.unsupportedType",
+			params: { mime },
+		};
 	try {
 		const s = await stat(absPath);
 		if (s.size > MAX_PREVIEW_BYTES)
 			return {
 				ok: false,
 				reason: `文件过大 (${(s.size / 1024 / 1024).toFixed(1)}MB > ${MAX_PREVIEW_BYTES / 1024 / 1024}MB)`,
+				code: "attachment.previewTooLarge",
+				params: {
+					sizeMb: (s.size / 1024 / 1024).toFixed(1),
+					maxMb: MAX_PREVIEW_BYTES / 1024 / 1024,
+				},
 			};
 	} catch {
-		return { ok: false, reason: "无法获取文件信息" };
+		return { ok: false, reason: "无法获取文件信息", code: "attachment.statFailed" };
 	}
 	return { ok: true };
 }
@@ -390,9 +404,9 @@ export async function resolveCwdForFsRequest(
 ): Promise<string> {
 	const { projects, sessions } = await projectStore.load();
 	const project = projects.find((p) => p.id === projectId);
-	if (!project) throw new Error(`项目不存在: ${projectId}`);
+	if (!project) throw new KernelError("project.notFound", { id: projectId });
 	if (!project.cwd)
-		throw new Error(`项目工作目录缺失: ${project.name ?? projectId}`);
+		throw new KernelError("project.cwdMissing", { name: project.name ?? projectId });
 	if (!sessionId) return project.cwd;
 	const session = sessions.find((s) => s.id === sessionId);
 	if (!session) return project.cwd; // session 不存在 → 降级，保持向后兼容
@@ -1069,7 +1083,11 @@ export class WSServer {
 			case "project:update": {
 				// 默认工作区（系统项目）不可改名：拦截在所有校验/落盘之前
 				if (event.projectId === SYSTEM_PROJECT_ID) {
-					this.broadcast({ type: "error", message: "默认工作区不可修改" });
+					this.broadcast({
+						type: "error",
+						message: "默认工作区不可修改",
+						code: "project.defaultImmutable",
+					});
 					break;
 				}
 				await this.opts.projectStore.updateProject(event.projectId, {
@@ -1082,7 +1100,11 @@ export class WSServer {
 			case "project:delete": {
 				// 默认工作区（系统项目）不可删除：拦截在所有校验/落盘之前
 				if (event.projectId === SYSTEM_PROJECT_ID) {
-					this.broadcast({ type: "error", message: "默认工作区不可删除" });
+					this.broadcast({
+						type: "error",
+						message: "默认工作区不可删除",
+						code: "project.defaultUndeletable",
+					});
 					break;
 				}
 				await this.opts.projectStore.deleteProject(event.projectId);
@@ -1122,6 +1144,8 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: `智能体不存在: ${event.agentName}`,
+						code: "agent.notFound",
+						params: { name: event.agentName },
 						sessionId: event.sessionId,
 					});
 					break;
@@ -1442,6 +1466,7 @@ export class WSServer {
 									type: "error",
 									message:
 										"会话属于其他项目，不能跨项目发送消息；请切换到会话所属项目后再试",
+									code: "session.crossProject",
 									sessionId: event.sessionId,
 								});
 								return;
@@ -1460,7 +1485,9 @@ export class WSServer {
 							} catch (e) {
 								reply({
 									type: "error",
-									message: `默认工作区会话目录创建失败: ${(e as Error).message}`,
+									message: "默认工作区会话目录创建失败",
+									code: "project.defaultDirCreateFailed",
+									detail: (e as Error).message,
 									sessionId: event.sessionId,
 								});
 								return;
@@ -1550,7 +1577,9 @@ export class WSServer {
 						} catch (err) {
 							this.broadcast({
 								type: "error",
-								message: `agent 启动失败: ${(err as Error).message}`,
+								message: "agent 启动失败",
+								code: "session.agentStartFailed",
+								detail: (err as Error).message,
 								agentName: event.agentName,
 								sessionId: session.id,
 							});
@@ -1577,7 +1606,9 @@ export class WSServer {
 						.catch((err) => {
 							this.broadcast({
 								type: "error",
-								message: `agent 启动失败: ${(err as Error).message}`,
+								message: "agent 启动失败",
+								code: "session.agentStartFailed",
+								detail: (err as Error).message,
 								agentName: event.agentName,
 								sessionId: event.sessionId,
 							});
@@ -1617,6 +1648,7 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: "该提问已失效（可能已取消或会话已切换），请重新发起",
+						code: "session.promptStale",
 					});
 				}
 				break;
@@ -1632,7 +1664,9 @@ export class WSServer {
 				} catch (err) {
 					this.broadcast({
 						type: "error",
-						message: `引导失败: ${(err as Error).message}`,
+						message: "引导失败",
+						code: "session.steerFailed",
+						detail: (err as Error).message,
 					});
 					break;
 				}
@@ -1647,7 +1681,9 @@ export class WSServer {
 				} catch (err) {
 					this.broadcast({
 						type: "error",
-						message: `立即执行失败: ${(err as Error).message}`,
+						message: "立即执行失败",
+						code: "session.executeFailed",
+						detail: (err as Error).message,
 					});
 					break;
 				}
@@ -1698,6 +1734,8 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: `预设不存在: ${event.id}`,
+						code: "agent.presetNotFound",
+						params: { id: event.id },
 						status: 404,
 					});
 				}
@@ -1897,6 +1935,8 @@ export class WSServer {
 							type: "fs:unsupported",
 							path: event.path,
 							reason: check.reason,
+							code: check.code,
+							params: check.params,
 						});
 						break;
 					}
@@ -1929,6 +1969,8 @@ export class WSServer {
 											type: "fs:unsupported",
 											path: found,
 											reason: check2.reason,
+											code: check2.code,
+											params: check2.params,
 										});
 										break;
 									}
@@ -1962,7 +2004,9 @@ export class WSServer {
 					);
 					const buffer = Buffer.from(event.content, "base64");
 					if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-						throw new Error(`文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`);
+						throw new KernelError("attachment.tooLarge", {
+							maxMb: MAX_UPLOAD_BYTES / 1024 / 1024,
+						});
 					}
 					const uploadDir = join(cwd, ".wa-pi", "uploads");
 					await mkdir(uploadDir, { recursive: true });
@@ -1970,11 +2014,14 @@ export class WSServer {
 					await writeFile(filePath, buffer);
 					reply({ type: "fs:upload", id: event.id, path: filePath });
 				} catch (e) {
+					const payload = toKernelPayload(e);
 					reply({
 						type: "fs:upload",
 						id: event.id,
 						path: "",
 						error: String(e instanceof Error ? e.message : e),
+						code: payload?.code,
+						params: payload?.params,
 					});
 				}
 				break;
@@ -2459,6 +2506,8 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: "对话不存在或已应答",
+						code: "extui.dialogMissing",
+						params: { requestId: event.requestId },
 						sessionId: event.sessionId,
 					});
 					break;
@@ -2721,7 +2770,12 @@ export class WSServer {
 			}
 			case "contacts:rename": {
 				if (!this.opts.channelManager) {
-					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					reply({
+						type: "error",
+						message: "通讯录未启用",
+						code: "contacts.disabled",
+						status: 400,
+					});
 					break;
 				}
 				try {
@@ -2730,7 +2784,13 @@ export class WSServer {
 						event.remark,
 					);
 					if (!c) {
-						reply({ type: "error", message: "联系人不存在", status: 404 });
+						reply({
+							type: "error",
+							message: "联系人不存在",
+							code: "contacts.notFound",
+							params: { id: event.id },
+							status: 404,
+						});
 						break;
 					}
 					this.broadcast({ type: "contacts:changed" });
@@ -2749,7 +2809,12 @@ export class WSServer {
 			}
 			case "contacts:ensure": {
 				if (!this.opts.channelManager) {
-					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					reply({
+						type: "error",
+						message: "通讯录未启用",
+						code: "contacts.disabled",
+						status: 400,
+					});
 					break;
 				}
 				try {
@@ -2770,7 +2835,12 @@ export class WSServer {
 			}
 			case "contacts:sync-wecom": {
 				if (!this.opts.channelManager) {
-					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					reply({
+						type: "error",
+						message: "通讯录未启用",
+						code: "contacts.disabled",
+						status: 400,
+					});
 					break;
 				}
 				try {
