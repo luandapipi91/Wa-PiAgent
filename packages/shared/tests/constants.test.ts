@@ -64,10 +64,10 @@ test("DEFAULT_AGENT_TOOLS 不再包含 pi-lens 专属工具", () => {
 // ---- resolveAgentTools：baseTools + harvestedTools（MCP direct 工具名）合并 ----
 
 test("resolveAgentTools: 注入 harvested（MCP direct）工具名（保留 base 顺序）", () => {
-	const result = resolveAgentTools(["read", "edit"], [
-		"mcp_playwright_browser_navigate",
-		"mcp_playwright_browser_click",
-	]);
+	const result = resolveAgentTools(
+		["read", "edit"],
+		["mcp_playwright_browser_navigate", "mcp_playwright_browser_click"],
+	);
 	expect(result).toEqual([
 		"read",
 		"edit",
@@ -77,10 +77,10 @@ test("resolveAgentTools: 注入 harvested（MCP direct）工具名（保留 base
 });
 
 test("resolveAgentTools: harvested 与 base 重复时去重", () => {
-	const result = resolveAgentTools(["read", "bash"], [
-		"read",
-		"mcp_playwright_browser_navigate",
-	]);
+	const result = resolveAgentTools(
+		["read", "bash"],
+		["read", "mcp_playwright_browser_navigate"],
+	);
 	// read 已在 base，去重；只并入新工具
 	expect(result).toEqual(["read", "bash", "mcp_playwright_browser_navigate"]);
 });
@@ -203,9 +203,7 @@ test("isSubagentType / normalizeSubagentType 识别 Plan", () => {
 // ---- SUBAGENT_OVERRIDES_FILE：内置 subagent 的 model/thinking 覆盖文件路径 ----
 
 test("SUBAGENT_OVERRIDES_FILE 指向 ~/.pi/agent/subagent-overrides.json", () => {
-	expect(SUBAGENT_OVERRIDES_FILE.endsWith("subagent-overrides.json")).toBe(
-		true,
-	);
+	expect(SUBAGENT_OVERRIDES_FILE.endsWith("subagent-overrides.json")).toBe(true);
 	expect(SUBAGENT_OVERRIDES_FILE.includes(".pi/agent")).toBe(true);
 	expect(SUBAGENT_OVERRIDES_FILE.includes(".wa-pi")).toBe(false);
 });

@@ -3,7 +3,7 @@
 
 - 背景：wa-pi 在 Windows 上依赖下载 PortableGit（~64MB）保障 bash 工具可用。pi 0.84.3 提供原生 powershell 工具（pwsh/Windows PowerShell 自带，零外部依赖），产品决策：Windows 默认命令执行统一走 powershell，配置数据与用户均无需感知平台差异。
 - 方案（运行时语义映射，非数据替换）：工具集配置（角色白名单/UI 勾选/frontmatter）跨平台只写 bash——它是「命令执行」能力的语义占位；①默认路径：启动时在 settings.json.defaultTools 写入 read/powershell/edit/write（仅 Windows 且用户未自定义时，幂等）；②显式白名单路径：buildPiArgs 输出 --tools 前经 mapToolsForPlatform 平台映射（win32 上 bash→powershell，去重），一处覆盖内置子代理/用户自定义角色/存量配置；macOS/Linux 零变化。
-- 移除：PortableGit 自动下载与 settings.json.shellPath 自动接线（服务对象已退出默认集；bash 仍可经用户自装 Git 由 pi 引擎自动探测）；loadShellPath/saveShellPath 孤立函数一并移除。bash-runtime.ts 与 diagnose-bash.ts 保留（diagnose 仍可诊断系统 bash）。
+- 移除：PortableGit 自动下载与 settings.json.shellPath 自动接线（服务对象已退出默认集；bash 仍可经用户自装 Git 由 pi 引擎自动探测）；loadShellPath/saveShellPath 孤立函数、bash-runtime.ts、diagnose-bash.ts、bash-runtime.test.ts 一并删除（零引用，无死代码）。
 - 验证：新增 mapToolsForPlatform 3 测（win32 映射/并存去重/非 win32 原样）+ buildPiArgs win32 集成断言 + defaultTools 读写与平台函数 3 测全绿；rpc-client 10/10、settings-store 15/15、builtin-agents 6/6、shared constants 19/19；agent-manager 唯一失败经基线对照为工作区并行 crash-log 改动预置失败。
 - 影响范围：packages/kernel/src/{rpc-client,settings-store,index}.ts、相关测试；UI 工具清单不变（仍只含 bash，用户无需感知 powershell）。生效需随下次内核发版。
 
