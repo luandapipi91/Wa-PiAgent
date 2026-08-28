@@ -298,8 +298,12 @@ test("repair 校验失败：install 成功但依赖缺失时列出缺失包", as
   } catch (err) {
     expect((err as { code?: string }).code).toBe("npm.repairVerifyFailed");
     // 缺失包名进 params.names，人话文案由前端字典插值
-    expect((err as { params?: Record<string, string> }).params?.names).toContain("missing-a");
-    expect((err as { params?: Record<string, string> }).params?.names).toContain("missing-b");
+    expect(
+      (err as { params?: Record<string, string> }).params?.names,
+    ).toContain("missing-a");
+    expect(
+      (err as { params?: Record<string, string> }).params?.names,
+    ).toContain("missing-b");
   }
 });
 

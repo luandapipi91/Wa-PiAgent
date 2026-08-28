@@ -125,7 +125,10 @@ export const useUpdaterStore = create<UpdaterState>((set) => ({
 		try {
 			await api.check();
 		} catch (e) {
-			set({ status: "error", error: (e as Error).message ?? i18n.t("updater.checkFailed") });
+			set({
+				status: "error",
+				error: (e as Error).message ?? i18n.t("updater.checkFailed"),
+			});
 		}
 	},
 
@@ -135,7 +138,10 @@ export const useUpdaterStore = create<UpdaterState>((set) => ({
 		try {
 			await api.download();
 		} catch (e) {
-			set({ status: "error", error: (e as Error).message ?? i18n.t("updater.downloadFailed") });
+			set({
+				status: "error",
+				error: (e as Error).message ?? i18n.t("updater.downloadFailed"),
+			});
 		}
 	},
 

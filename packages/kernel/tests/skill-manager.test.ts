@@ -6,7 +6,10 @@ import { errorCodeOf } from "./helpers/kernel-error-code";
 
 /** 创建临时隔离目录 */
 function tmpDir() {
-  const dir = join(import.meta.dir, ".tmp-skills-" + Math.random().toString(36).slice(2));
+  const dir = join(
+    import.meta.dir,
+    ".tmp-skills-" + Math.random().toString(36).slice(2),
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -46,7 +49,7 @@ test("scan 扫描出内置目录的技能", async () => {
   createSkill(join(dir, "skills"), "brave-search", "web 搜索");
   const mgr = new SkillManager(dir);
   const result = await mgr.scan();
-  expect(result.allSkills.some(s => s.name === "brave-search")).toBe(true);
+  expect(result.allSkills.some((s) => s.name === "brave-search")).toBe(true);
 });
 
 test("addDir 添加用户目录后 scan 能扫到该目录技能", async () => {
@@ -60,19 +63,23 @@ test("addDir 添加用户目录后 scan 能扫到该目录技能", async () => {
   const mgr = new SkillManager(dir);
   await mgr.addDir(userDir);
   const result = await mgr.scan();
-  expect(result.allSkills.some(s => s.name === "user-skill")).toBe(true);
+  expect(result.allSkills.some((s) => s.name === "user-skill")).toBe(true);
   expect(result.dirs).toContain(userDir);
 });
 
 test("addDir 路径不存在抛错", async () => {
   const mgr = new SkillManager(dir);
-  expect(await errorCodeOf(mgr.addDir(join(dir, "nonexistent")))).toBe("skill.dirNotFound");
+  expect(await errorCodeOf(mgr.addDir(join(dir, "nonexistent")))).toBe(
+    "skill.dirNotFound",
+  );
 });
 
 test("removeDir 内置目录抛错", async () => {
   const mgr = new SkillManager(dir);
   const builtinDir = join(dir, "skills");
-  expect(await errorCodeOf(mgr.removeDir(builtinDir))).toBe("skill.builtinUndeletable");
+  expect(await errorCodeOf(mgr.removeDir(builtinDir))).toBe(
+    "skill.builtinUndeletable",
+  );
 });
 
 test("addDir 拒绝明显非技能的超大目录", async () => {
@@ -101,19 +108,19 @@ test("toggleSkill 禁用后 skills 不含该技能但 allSkills 含", async () =
   const mgr = new SkillManager(dir);
   await mgr.toggleSkill("brave-search", true);
   const result = await mgr.scan();
-  expect(result.allSkills.some(s => s.name === "brave-search")).toBe(true);
-  expect(result.skills.some(s => s.name === "brave-search")).toBe(false);
+  expect(result.allSkills.some((s) => s.name === "brave-search")).toBe(true);
+  expect(result.skills.some((s) => s.name === "brave-search")).toBe(false);
   expect(result.disabledSkills).toContain("brave-search");
 });
 
 test("toggleSkill 启用后从 disabledSkills 移除", async () => {
   createSkill(join(dir, "skills"), "brave-search", "web 搜索");
   const mgr = new SkillManager(dir);
-  await mgr.toggleSkill("brave-search", true);   // 先禁用
-  await mgr.toggleSkill("brave-search", false);  // 再启用
+  await mgr.toggleSkill("brave-search", true); // 先禁用
+  await mgr.toggleSkill("brave-search", false); // 再启用
   const result = await mgr.scan();
   expect(result.disabledSkills).not.toContain("brave-search");
-  expect(result.skills.some(s => s.name === "brave-search")).toBe(true);
+  expect(result.skills.some((s) => s.name === "brave-search")).toBe(true);
 });
 
 test("去重：内置目录同名技能优先于用户目录", async () => {
@@ -126,9 +133,9 @@ test("去重：内置目录同名技能优先于用户目录", async () => {
   const mgr = new SkillManager(dir);
   await mgr.addDir(userDir);
   const result = await mgr.scan();
-  const dup = result.allSkills.find(s => s.name === "dup-skill");
+  const dup = result.allSkills.find((s) => s.name === "dup-skill");
   expect(dup).toBeTruthy();
-  expect(dup!.description).toBe("内置版本");  // 内置优先
+  expect(dup!.description).toBe("内置版本"); // 内置优先
 });
 
 test("scan 返回的 SkillInfo 含 skill 目录绝对路径", async () => {
@@ -140,8 +147,8 @@ test("scan 返回的 SkillInfo 含 skill 目录绝对路径", async () => {
   const mgr = new SkillManager(dir);
   await mgr.addDir(userDir);
   const result = await mgr.scan();
-  const builtin = result.allSkills.find(s => s.name === "brave-search");
-  const user = result.allSkills.find(s => s.name === "user-skill");
+  const builtin = result.allSkills.find((s) => s.name === "brave-search");
+  const user = result.allSkills.find((s) => s.name === "user-skill");
   expect(builtin?.path).toBe(join(join(dir, "skills"), "brave-search"));
   expect(user?.path).toBe(join(userDir, "user-skill"));
 });

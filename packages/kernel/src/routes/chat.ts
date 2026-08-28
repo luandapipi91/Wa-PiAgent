@@ -4,21 +4,35 @@
 import type { RouteContext, RouteRegistrar } from "./types";
 import { readJsonBody } from "./types";
 
-export const registerChatRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext) => {
+export const registerChatRoutes: RouteRegistrar = (
+  r,
+  callApi,
+  ctx: RouteContext,
+) => {
   r.add("POST", "/api/agents/:projectId/:sessionId/prompt", async (req, p) => {
     const b = await readJsonBody(req);
-    return callApi({
-      type: "agent:prompt",
-      projectId: p.projectId, sessionId: p.sessionId,
-      agentName: b.agentName, text: b.text, model: b.model, thinking: b.thinking, attachments: b.attachments,
-    }, { responseTypes: ["error"] });
+    return callApi(
+      {
+        type: "agent:prompt",
+        projectId: p.projectId,
+        sessionId: p.sessionId,
+        agentName: b.agentName,
+        text: b.text,
+        model: b.model,
+        thinking: b.thinking,
+        attachments: b.attachments,
+      },
+      { responseTypes: ["error"] },
+    );
   });
 
   r.add("POST", "/api/agents/:projectId/:sessionId/abort", async (req, p) => {
     const b = await readJsonBody(req);
     return callApi({
       type: "agent:abort",
-      projectId: p.projectId, sessionId: p.sessionId, agentName: b.agentName,
+      projectId: p.projectId,
+      sessionId: p.sessionId,
+      agentName: b.agentName,
     });
   });
 
@@ -27,14 +41,17 @@ export const registerChatRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext
     const b = await readJsonBody(req);
     return callApi({
       type: "agent:answer",
-      sessionId: p.sessionId, toolCallId: b.toolCallId, reply: b.reply,
+      sessionId: p.sessionId,
+      toolCallId: b.toolCallId,
+      reply: b.reply,
     });
   });
   r.add("POST", "/api/sessions/:sessionId/cancel-ask", async (req, p) => {
     const b = await readJsonBody(req);
     return callApi({
       type: "agent:cancel-ask",
-      sessionId: p.sessionId, toolCallId: b.toolCallId,
+      sessionId: p.sessionId,
+      toolCallId: b.toolCallId,
     });
   });
 
@@ -43,7 +60,9 @@ export const registerChatRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext
     const b = await readJsonBody(req);
     return callApi({
       type: "steer:message",
-      sessionId: p.sessionId, text: b.text,
+      sessionId: p.sessionId,
+      text: b.text,
+      attachments: b.attachments,
     });
   });
   // 简化版立即执行：abort + steer
@@ -51,12 +70,13 @@ export const registerChatRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext
     const b = await readJsonBody(req);
     return callApi({
       type: "steer:immediate-message",
-      sessionId: p.sessionId, text: b.text,
+      sessionId: p.sessionId,
+      text: b.text,
+      attachments: b.attachments,
     });
   });
   // 清空排队列表
   r.add("POST", "/api/sessions/:sessionId/clear-queue", async (_req, p) =>
-    callApi({ type: "clear-queue", sessionId: p.sessionId }));
-
-
+    callApi({ type: "clear-queue", sessionId: p.sessionId }),
+  );
 };

@@ -15,8 +15,13 @@ import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import type {
-  MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
-  MemoryArchiveFile, MemoryCategory, MemoryScope,
+  MemoryEntry,
+  ArchivedMemory,
+  InstructionFile,
+  MemoryConfig,
+  MemoryArchiveFile,
+  MemoryCategory,
+  MemoryScope,
 } from "@wa-pi/shared";
 import { KernelError } from "./kernel-error";
 import type { ProjectStore } from "./project-store";
@@ -56,12 +61,28 @@ export class MemoryStore {
    * 列出所有记忆 + 归档记忆
    * @param projectId 当前项目 ID；传入时额外读取对应项目记忆，不传则只返回全局记忆
    */
-  async list(projectId?: string): Promise<{ memories: MemoryEntry[]; archived: ArchivedMemory[] }> {
+  async list(
+    projectId?: string,
+  ): Promise<{ memories: MemoryEntry[]; archived: ArchivedMemory[] }> {
     const memories: MemoryEntry[] = [];
 
     const globalStore = getGlobalMemoryStore(this.opts.waPiDir);
-    memories.push(...await this.toEntries(globalStore, "memory", "global", `${GLOBAL_REL_PREFIX}/MEMORY.md`));
-    memories.push(...await this.toEntries(globalStore, "user", "global", `${GLOBAL_REL_PREFIX}/USER.md`));
+    memories.push(
+      ...(await this.toEntries(
+        globalStore,
+        "memory",
+        "global",
+        `${GLOBAL_REL_PREFIX}/MEMORY.md`,
+      )),
+    );
+    memories.push(
+      ...(await this.toEntries(
+        globalStore,
+        "user",
+        "global",
+        `${GLOBAL_REL_PREFIX}/USER.md`,
+      )),
+    );
 
     const cwd = projectId ? await this.getProjectCwd(projectId) : null;
     if (cwd) {
@@ -71,8 +92,22 @@ export class MemoryStore {
         const name = projectNameFromCwd(cwd);
         const projectStore = getProjectMemoryStore(this.opts.waPiDir, cwd);
         const relBase = `${PROJECTS_MEMORY_DIR}/${name}`;
-        memories.push(...await this.toEntries(projectStore, "memory", "project", `${relBase}/MEMORY.md`));
-        memories.push(...await this.toEntries(projectStore, "user", "project", `${relBase}/USER.md`));
+        memories.push(
+          ...(await this.toEntries(
+            projectStore,
+            "memory",
+            "project",
+            `${relBase}/MEMORY.md`,
+          )),
+        );
+        memories.push(
+          ...(await this.toEntries(
+            projectStore,
+            "user",
+            "project",
+            `${relBase}/USER.md`,
+          )),
+        );
       } catch (err) {
         console.error(`[kernel] 读取项目记忆失败 (cwd=${cwd}):`, err);
       }
@@ -105,7 +140,11 @@ export class MemoryStore {
    * 手动添加记忆（UI「+ 添加」入口）。
    * 固定写入 memory target（USER target 由 agent / amaster 维护）。
    */
-  async add(scope: MemoryScope, text: string, projectId?: string): Promise<void> {
+  async add(
+    scope: MemoryScope,
+    text: string,
+    projectId?: string,
+  ): Promise<void> {
     const store = await this.getStoreForScope(scope, projectId);
     await store.add("memory", text);
   }
@@ -139,19 +178,19 @@ export class MemoryStore {
   /** 恢复：从 sidecar 移除 → 追加回 store */
   async restore(id: string): Promise<void> {
     const archived = await this.loadArchive();
-    const entry = archived.find(a => a.id === id);
+    const entry = archived.find((a) => a.id === id);
     if (!entry) throw new KernelError("memory.archiveNotFound", { id });
 
     const store = createAmasterStore(dirname(entry.sourceFile));
     const target: MemoryTarget = entry.category === "user" ? "user" : "memory";
     await store.add(target, entry.text);
-    await this.saveArchive(archived.filter(a => a.id !== id));
+    await this.saveArchive(archived.filter((a) => a.id !== id));
   }
 
   /** 彻底删除：从 sidecar 移除，不写回 store */
   async purge(id: string): Promise<void> {
     const archived = await this.loadArchive();
-    await this.saveArchive(archived.filter(a => a.id !== id));
+    await this.saveArchive(archived.filter((a) => a.id !== id));
   }
 
   /** 扫描已加载的指令文件，对齐 pi 框架 resource-loader.js loadProjectContextFiles 行为：
@@ -166,12 +205,14 @@ export class MemoryStore {
 
     /** 从指定目录加载第一个命中的指令文件（null = 无命中/已见过）。
      *  用磁盘上实际文件名（readdir）做路径去重，兼容 macOS 大小写不敏感文件系统。 */
-    const loadFromDir = async (dir: string): Promise<InstructionFile | null> => {
+    const loadFromDir = async (
+      dir: string,
+    ): Promise<InstructionFile | null> => {
       try {
         const dirents = await readdir(dir);
         for (const candidate of candidates) {
           // 在目录 entries 中查找匹配（直接按名匹配，兼顾大小写不敏感系统）
-          const match = dirents.find(d => d === candidate);
+          const match = dirents.find((d) => d === candidate);
           if (match) {
             const p = join(dir, match);
             if (seen.has(p)) continue;
@@ -222,7 +263,10 @@ export class MemoryStore {
   /** 读记忆配置开关 */
   async getConfig(): Promise<MemoryConfig> {
     try {
-      const raw = await readFile(join(this.opts.waPiDir, HERMES_CONFIG_FILE), "utf8");
+      const raw = await readFile(
+        join(this.opts.waPiDir, HERMES_CONFIG_FILE),
+        "utf8",
+      );
       const data = JSON.parse(raw);
       return {
         reviewEnabled: data.reviewEnabled ?? true,
@@ -245,8 +289,10 @@ export class MemoryStore {
     } catch {
       // 文件不存在，从空开始
     }
-    if (opts.reviewEnabled !== undefined) existing.reviewEnabled = opts.reviewEnabled;
-    if (opts.memoryPolicyStyle !== undefined) existing.memoryPolicyStyle = opts.memoryPolicyStyle;
+    if (opts.reviewEnabled !== undefined)
+      existing.reviewEnabled = opts.reviewEnabled;
+    if (opts.memoryPolicyStyle !== undefined)
+      existing.memoryPolicyStyle = opts.memoryPolicyStyle;
     await mkdir(this.opts.waPiDir, { recursive: true });
     await writeFile(configPath, JSON.stringify(existing, null, 2), "utf8");
   }
@@ -254,7 +300,10 @@ export class MemoryStore {
   // —— 辅助方法 ——
 
   /** 按 scope 取 store；project scope 必须能解析出 cwd，否则抛错 */
-  private async getStoreForScope(scope: MemoryScope, projectId?: string): Promise<AmasterStore> {
+  private async getStoreForScope(
+    scope: MemoryScope,
+    projectId?: string,
+  ): Promise<AmasterStore> {
     if (scope === "global") return getGlobalMemoryStore(this.opts.waPiDir);
     if (!projectId) throw new Error("项目记忆需要 projectId");
     const cwd = await this.getProjectCwd(projectId);
@@ -267,7 +316,12 @@ export class MemoryStore {
     store: AmasterStore;
     target: MemoryTarget;
     oldText: string;
-    meta: { category: MemoryCategory; scope: MemoryScope; sourceFile: string; rawIndex: number };
+    meta: {
+      category: MemoryCategory;
+      scope: MemoryScope;
+      sourceFile: string;
+      rawIndex: number;
+    };
   }> {
     const colonIdx = id.lastIndexOf(":");
     if (colonIdx === -1) throw new Error(`无效的记忆 ID: ${id}`);
@@ -275,7 +329,9 @@ export class MemoryStore {
     const rawIndex = parseInt(id.slice(colonIdx + 1), 10);
 
     const target = targetFromRelPath(relPath);
-    const scope: MemoryScope = relPath.startsWith(GLOBAL_REL_PREFIX) ? "global" : "project";
+    const scope: MemoryScope = relPath.startsWith(GLOBAL_REL_PREFIX)
+      ? "global"
+      : "project";
     const sourceFile = join(this.opts.waPiDir, relPath);
     const store = createAmasterStore(dirname(sourceFile));
 
@@ -288,14 +344,19 @@ export class MemoryStore {
       store,
       target,
       oldText,
-      meta: { category: categoryForTarget(target), scope, sourceFile, rawIndex },
+      meta: {
+        category: categoryForTarget(target),
+        scope,
+        sourceFile,
+        rawIndex,
+      },
     };
   }
 
   /** 按 projectId 从 ProjectStore 查 cwd */
   private async getProjectCwd(projectId: string): Promise<string | null> {
     const { projects } = await this.opts.projectStore.load();
-    return projects.find(p => p.id === projectId)?.cwd ?? null;
+    return projects.find((p) => p.id === projectId)?.cwd ?? null;
   }
 
   /** 加载归档 sidecar */

@@ -28,9 +28,12 @@ export class McpStore {
   }
 
   /** 取单个服务器配置（含 name）；不存在抛错。供连接测试 / 工具列举复用 */
-  async getServer(serverName: string, projectId?: string): Promise<McpServerConfig> {
+  async getServer(
+    serverName: string,
+    projectId?: string,
+  ): Promise<McpServerConfig> {
     const servers = await this.list(projectId);
-    const server = servers.find(s => s.name === serverName);
+    const server = servers.find((s) => s.name === serverName);
     if (!server) {
       throw new KernelError("mcp.serverNotFound", { name: serverName });
     }
@@ -43,14 +46,20 @@ export class McpStore {
     return cfg.settings ?? {};
   }
 
-  async save(config: McpServerConfig, projectId?: string, originalName?: string): Promise<void> {
+  async save(
+    config: McpServerConfig,
+    projectId?: string,
+    originalName?: string,
+  ): Promise<void> {
     const path = await this.resolveConfigPath(projectId);
     const cfg = await this.readConfig(path);
     const { name, ...serverData } = config;
 
     if (originalName) {
       if (!cfg.mcpServers[originalName]) {
-        throw new KernelError("mcp.originalServerNotFound", { name: originalName });
+        throw new KernelError("mcp.originalServerNotFound", {
+          name: originalName,
+        });
       }
       if (originalName !== config.name) {
         delete cfg.mcpServers[originalName];
@@ -78,12 +87,14 @@ export class McpStore {
       return join(this.opts.waPiDir, "mcp.json");
     }
     const { projects } = await this.opts.projectStore.load();
-    const project = projects.find(p => p.id === projectId);
+    const project = projects.find((p) => p.id === projectId);
     if (!project) {
       throw new KernelError("project.notFound", { id: projectId });
     }
     if (!project.cwd) {
-      throw new KernelError("project.cwdMissing", { name: project.name ?? projectId });
+      throw new KernelError("project.cwdMissing", {
+        name: project.name ?? projectId,
+      });
     }
     return join(project.cwd, ".mcp.json");
   }
@@ -100,7 +111,11 @@ export class McpStore {
       if (e.code === "ENOENT") {
         return { mcpServers: {} };
       }
-      throw new KernelError("mcp.configParseFailed", undefined, `解析 ${path} 失败: ${e.message}`);
+      throw new KernelError(
+        "mcp.configParseFailed",
+        undefined,
+        `解析 ${path} 失败: ${e.message}`,
+      );
     }
   }
 

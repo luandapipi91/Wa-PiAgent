@@ -158,10 +158,14 @@ async function findFileByBasename(
 /** 预览上限：3MB */
 const MAX_PREVIEW_BYTES = 3 * 1024 * 1024;
 
-async function checkPreviewable(
-	absPath: string,
-): Promise<
-	{ ok: true } | { ok: false; reason: string; code?: string; params?: Record<string, string | number> }
+async function checkPreviewable(absPath: string): Promise<
+	| { ok: true }
+	| {
+			ok: false;
+			reason: string;
+			code?: string;
+			params?: Record<string, string | number>;
+	  }
 > {
 	const mime = getMimeType(absPath);
 	const isText =
@@ -189,7 +193,11 @@ async function checkPreviewable(
 				},
 			};
 	} catch {
-		return { ok: false, reason: "无法获取文件信息", code: "attachment.statFailed" };
+		return {
+			ok: false,
+			reason: "无法获取文件信息",
+			code: "attachment.statFailed",
+		};
 	}
 	return { ok: true };
 }
@@ -407,7 +415,9 @@ export async function resolveCwdForFsRequest(
 	const project = projects.find((p) => p.id === projectId);
 	if (!project) throw new KernelError("project.notFound", { id: projectId });
 	if (!project.cwd)
-		throw new KernelError("project.cwdMissing", { name: project.name ?? projectId });
+		throw new KernelError("project.cwdMissing", {
+			name: project.name ?? projectId,
+		});
 	if (!sessionId) return project.cwd;
 	const session = sessions.find((s) => s.id === sessionId);
 	if (!session) return project.cwd; // session 不存在 → 降级，保持向后兼容
@@ -1666,7 +1676,9 @@ export class WSServer {
 			}
 			case "steer:message": {
 				try {
-					await this.opts.agentManager.steerMessage(event.sessionId, event.text);
+					await this.opts.agentManager.steerMessage(event.sessionId, event.text, {
+						attachments: event.attachments,
+					});
 				} catch (err) {
 					this.broadcast({
 						type: "error",
@@ -1683,7 +1695,9 @@ export class WSServer {
 			case "steer:immediate-message": {
 				try {
 					await this.opts.agentManager.abort(event.sessionId);
-					await this.opts.agentManager.steerMessage(event.sessionId, event.text);
+					await this.opts.agentManager.steerMessage(event.sessionId, event.text, {
+						attachments: event.attachments,
+					});
 				} catch (err) {
 					this.broadcast({
 						type: "error",

@@ -8,7 +8,11 @@ import type { RouteRegistrar } from "./types";
 import { readJsonBody, paramErrorResponse } from "./types";
 import { toKernelPayload } from "@wa-pi/shared";
 import { resolveCwdForFsRequest, uniquePath } from "../ws-server";
-import { appendChunk, finalizeRecording, discardRecording } from "../recording-store";
+import {
+  appendChunk,
+  finalizeRecording,
+  discardRecording,
+} from "../recording-store";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 
@@ -26,7 +30,9 @@ async function resolveUploadDir(
 }
 
 /** 从 multipart form-data 读取第一个 file 字段；无文件返回 null。 */
-async function readMultipartFile(req: Request): Promise<{ name: string; content: Uint8Array } | null> {
+async function readMultipartFile(
+  req: Request,
+): Promise<{ name: string; content: Uint8Array } | null> {
   const ct = req.headers.get("content-type") ?? "";
   if (!ct.includes("multipart/form-data")) return null;
   const form = await req.formData();
@@ -42,7 +48,8 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
   // POST /api/files/upload：multipart 上传，替代 fs:upload base64 分片
   r.add("POST", "/api/files/upload", async (req) => {
     const projectId = new URL(req.url).searchParams.get("projectId") ?? "";
-    const sessionId = new URL(req.url).searchParams.get("sessionId") ?? undefined;
+    const sessionId =
+      new URL(req.url).searchParams.get("sessionId") ?? undefined;
     if (!projectId) return paramErrorResponse("缺少 projectId", "projectId");
 
     const file = await readMultipartFile(req);
@@ -52,14 +59,21 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
       return Response.json(
         {
           error: `文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`,
-          failure: { code: "attachment.tooLarge", params: { maxMb: MAX_UPLOAD_BYTES / 1024 / 1024 } },
+          failure: {
+            code: "attachment.tooLarge",
+            params: { maxMb: MAX_UPLOAD_BYTES / 1024 / 1024 },
+          },
         },
         { status: 400 },
       );
     }
 
     try {
-      const uploadDir = await resolveUploadDir(projectStore, projectId, sessionId);
+      const uploadDir = await resolveUploadDir(
+        projectStore,
+        projectId,
+        sessionId,
+      );
       const safeName = basename(file.name).replace(/[\\/]/g, "_") || "upload";
       const filePath = await uniquePath(uploadDir, safeName);
       await writeFile(filePath, file.content);
@@ -81,10 +95,17 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
     const b = await readJsonBody(req);
     const { projectId, recId, chunk, sessionId } = b;
     if (!projectId || !recId || typeof chunk !== "string") {
-      return paramErrorResponse("缺少参数: projectId/recId/chunk", "projectId/recId/chunk");
+      return paramErrorResponse(
+        "缺少参数: projectId/recId/chunk",
+        "projectId/recId/chunk",
+      );
     }
     try {
-      const uploadDir = await resolveUploadDir(projectStore, projectId, sessionId);
+      const uploadDir = await resolveUploadDir(
+        projectStore,
+        projectId,
+        sessionId,
+      );
       await appendChunk(uploadDir, recId, chunk);
       return Response.json({ ok: true });
     } catch (e) {
@@ -104,10 +125,17 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
     const b = await readJsonBody(req);
     const { projectId, recId, finalName, sessionId } = b;
     if (!projectId || !recId || !finalName) {
-      return paramErrorResponse("缺少参数: projectId/recId/finalName", "projectId/recId/finalName");
+      return paramErrorResponse(
+        "缺少参数: projectId/recId/finalName",
+        "projectId/recId/finalName",
+      );
     }
     try {
-      const uploadDir = await resolveUploadDir(projectStore, projectId, sessionId);
+      const uploadDir = await resolveUploadDir(
+        projectStore,
+        projectId,
+        sessionId,
+      );
       const path = await finalizeRecording(uploadDir, recId, finalName);
       return Response.json({ type: "fs:recording:finalize", path });
     } catch (e) {
@@ -130,7 +158,11 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
       return paramErrorResponse("缺少参数: projectId/recId", "projectId/recId");
     }
     try {
-      const uploadDir = await resolveUploadDir(projectStore, projectId, sessionId);
+      const uploadDir = await resolveUploadDir(
+        projectStore,
+        projectId,
+        sessionId,
+      );
       await discardRecording(uploadDir, recId);
       return Response.json({ ok: true });
     } catch (e) {

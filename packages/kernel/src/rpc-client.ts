@@ -270,8 +270,13 @@ export class RpcClient {
 		});
 	}
 
-	steer(message: string): Promise<any> {
-		return this.command({ type: "steer", message });
+	/** message 为文本；images 为 ImageContent 数组（pi 原生 steer RPC 支持多模态） */
+	steer(message: string, images?: any[]): Promise<any> {
+		return this.command({
+			type: "steer",
+			message,
+			...(images && images.length > 0 ? { images } : {}),
+		});
 	}
 
 	followUp(message: string): Promise<any> {

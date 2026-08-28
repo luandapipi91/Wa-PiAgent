@@ -317,8 +317,7 @@ async function pollDeployment(
  *  GET /client/v4/accounts 返回当前 token 可访问的账号列表，取第一个。 */
 export async function getCloudflareAccountId(token: string): Promise<string> {
   const accounts = await cfApi<{ id: string }[]>(token, `/accounts?per_page=5`);
-  if (!accounts?.length)
-    throw new KernelError("share.cloudflareAccountEmpty");
+  if (!accounts?.length) throw new KernelError("share.cloudflareAccountEmpty");
   return accounts[0].id;
 }
 

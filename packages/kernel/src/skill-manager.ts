@@ -2,8 +2,12 @@ import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { SkillInfo, SkillSource } from "@wa-pi/shared";
 import {
-  withTimeout, hasSkillMd, scanSkillsDir,
-  SKILL_SCAN_TIMEOUT_MS, ADD_DIR_TIMEOUT_MS, ADD_DIR_NON_SKILL_THRESHOLD,
+  withTimeout,
+  hasSkillMd,
+  scanSkillsDir,
+  SKILL_SCAN_TIMEOUT_MS,
+  ADD_DIR_TIMEOUT_MS,
+  ADD_DIR_NON_SKILL_THRESHOLD,
   ScanTimeoutError,
 } from "./skill-utils";
 import { KernelError } from "./kernel-error";
@@ -87,11 +91,16 @@ export class SkillManager {
         `扫描目录超时: ${this.builtinDir}`,
       );
       for (const skill of list) {
-        if (!seen.has(skill.name)) { seen.add(skill.name); allSkills.push(skill); }
+        if (!seen.has(skill.name)) {
+          seen.add(skill.name);
+          allSkills.push(skill);
+        }
       }
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      console.error(`[skill-manager] 扫描目录失败或超时，已跳过: ${this.builtinDir} (${reason})`);
+      console.error(
+        `[skill-manager] 扫描目录失败或超时，已跳过: ${this.builtinDir} (${reason})`,
+      );
     }
 
     // 用户目录
@@ -103,11 +112,16 @@ export class SkillManager {
           `扫描目录超时: ${dir}`,
         );
         for (const skill of list) {
-          if (!seen.has(skill.name)) { seen.add(skill.name); allSkills.push(skill); }
+          if (!seen.has(skill.name)) {
+            seen.add(skill.name);
+            allSkills.push(skill);
+          }
         }
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
-        console.error(`[skill-manager] 扫描目录失败或超时，已跳过: ${dir} (${reason})`);
+        console.error(
+          `[skill-manager] 扫描目录失败或超时，已跳过: ${dir} (${reason})`,
+        );
       }
     }
 
@@ -120,19 +134,30 @@ export class SkillManager {
           `扫描扩展技能目录超时: ${ext.path}`,
         );
         for (const skill of list) {
-          if (!seen.has(skill.name)) { seen.add(skill.name); allSkills.push(skill); }
+          if (!seen.has(skill.name)) {
+            seen.add(skill.name);
+            allSkills.push(skill);
+          }
         }
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
-        console.error(`[skill-manager] 扫描扩展技能目录失败或超时，已跳过: ${ext.path} (${reason})`);
+        console.error(
+          `[skill-manager] 扫描扩展技能目录失败或超时，已跳过: ${ext.path} (${reason})`,
+        );
       }
     }
 
     // 过滤禁用技能
-    const skills = allSkills.filter(s => !disabledSkills.includes(s.name));
+    const skills = allSkills.filter((s) => !disabledSkills.includes(s.name));
     const dirs = [this.builtinDir, ...userDirs];
 
-    return { skills, allSkills, dirs, disabledSkills, builtinDir: this.builtinDir };
+    return {
+      skills,
+      allSkills,
+      dirs,
+      disabledSkills,
+      builtinDir: this.builtinDir,
+    };
   }
 
   /**
@@ -148,8 +173,10 @@ export class SkillManager {
     } catch {
       throw new KernelError("skill.dirNotFound", { path });
     }
-    if (!st.isDirectory()) throw new KernelError("skill.notADirectory", { path });
-    if (path === this.builtinDir) throw new KernelError("skill.builtinDuplicate", { path });
+    if (!st.isDirectory())
+      throw new KernelError("skill.notADirectory", { path });
+    if (path === this.builtinDir)
+      throw new KernelError("skill.builtinDuplicate", { path });
 
     // 快速验证：防止用户误选 /Library 之类的超大目录导致后续扫描负担
     const check = await withTimeout(
@@ -181,11 +208,12 @@ export class SkillManager {
    * @throws 尝试删除内置目录时抛出 "内置目录不可删除"
    */
   async removeDir(path: string): Promise<void> {
-    if (path === this.builtinDir) throw new KernelError("skill.builtinUndeletable", { path });
+    if (path === this.builtinDir)
+      throw new KernelError("skill.builtinUndeletable", { path });
     const settings = await this.readSettings();
     const dirs = settings.userSkillDirs ?? [];
     if (!dirs.includes(path)) return;
-    settings.userSkillDirs = dirs.filter(d => d !== path);
+    settings.userSkillDirs = dirs.filter((d) => d !== path);
     await this.writeSettings(settings);
   }
 
@@ -204,7 +232,7 @@ export class SkillManager {
       }
     } else {
       if (!list.includes(skillName)) return;
-      settings.disabledSkills = list.filter(n => n !== skillName);
+      settings.disabledSkills = list.filter((n) => n !== skillName);
       await this.writeSettings(settings);
     }
   }

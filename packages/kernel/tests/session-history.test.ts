@@ -147,14 +147,7 @@ test("压缩感知：压缩前的旧消息省略，插入 compactionSummary 摘�
 			msg("m3", "m2", "user", "问题二", 3),
 			msg("m4", "m3", "assistant", "回答二", 4),
 			// firstKeptEntryId 指向链上不存在的 id：旧消息（m1-m4）全部被压缩省略
-			compactionEntry(
-				"c1",
-				"m4",
-				"gone-entry",
-				"（压缩摘要：早期对话）",
-				5000,
-				5,
-			),
+			compactionEntry("c1", "m4", "gone-entry", "（压缩摘要：早期对话）", 5000, 5),
 			msg("m5", "c1", "user", "压缩后问题", 6),
 			msg("m6", "m5", "assistant", "压缩后回答", 7),
 		].join("\n") + "\n",
@@ -398,7 +391,13 @@ test("computeSessionUsage：toolResult.usage 计入子代理拆分，compaction 
 					content: [{ type: "text", text: "子代理结果" }],
 					isError: false,
 					timestamp: 3,
-					usage: { input: 300, output: 130, cacheRead: 1000, cacheWrite: 0, cost: { total: 0.01 } },
+					usage: {
+						input: 300,
+						output: 130,
+						cacheRead: 1000,
+						cacheWrite: 0,
+						cost: { total: 0.01 },
+					},
 				},
 			}),
 			// compaction 条目自带的摘要生成 usage 计入主代理（对齐官方 totals）
@@ -410,7 +409,13 @@ test("computeSessionUsage：toolResult.usage 计入子代理拆分，compaction 
 				summary: "（摘要）",
 				firstKeptEntryId: "m1",
 				tokensBefore: 50000,
-				usage: { input: 32000, output: 1200, cacheRead: 0, cacheWrite: 0, cost: { total: 0.03 } },
+				usage: {
+					input: 32000,
+					output: 1200,
+					cacheRead: 0,
+					cacheWrite: 0,
+					cost: { total: 0.03 },
+				},
 			}),
 		].join("\n") + "\n",
 	);
@@ -451,7 +456,9 @@ test("文件不存在：抛错（调用方回退进程路径）", async () => {
 test("空文件/无有效行：抛错", async () => {
 	const file = join(dir, "empty.jsonl");
 	writeFileSync(file, "\n\n  \n");
-	expect(await errorCodeOf(readSessionHistory(file))).toBe("session.noValidLines");
+	expect(await errorCodeOf(readSessionHistory(file))).toBe(
+		"session.noValidLines",
+	);
 });
 
 test("无消息的合法文件：返回空数组（新会话）", async () => {

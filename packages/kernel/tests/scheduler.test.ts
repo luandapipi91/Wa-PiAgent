@@ -176,7 +176,9 @@ describe("resolveTaskModel", () => {
 	test("无 task.model 且 provider 无模型 → 抛错", async () => {
 		expect(
 			await errorCodeOf(
-				new Promise(() => resolveTaskModel(undefined, [makeProvider({ models: [] })])),
+				new Promise(() =>
+					resolveTaskModel(undefined, [makeProvider({ models: [] })]),
+				),
 			),
 		).toBe("scheduler.noProvider");
 	});

@@ -1,5 +1,9 @@
 import { test, expect } from "bun:test";
-import { KernelError, toKernelPayload, type KernelErrorPayload } from "../src/kernel-errors";
+import {
+	KernelError,
+	toKernelPayload,
+	type KernelErrorPayload,
+} from "../src/kernel-errors";
 
 test("KernelError 携带 code/params/detail，toKernelPayload 输出稳定结构", () => {
 	const e = new KernelError("session.notFound", { id: "s1" });

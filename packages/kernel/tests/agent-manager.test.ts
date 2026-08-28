@@ -474,9 +474,9 @@ test("prompt — 未选择模型时抛错", async () => {
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	await expect(am.prompt(session.id, "你好")).rejects.toThrow();
-	expect(
-		await errorCodeOf(am.prompt(session.id, "你好")),
-	).toBe("model.notSelected");
+	expect(await errorCodeOf(am.prompt(session.id, "你好"))).toBe(
+		"model.notSelected",
+	);
 });
 
 test("prompt — agent 空闲且无排队 → 直接 prompt", async () => {
@@ -1421,7 +1421,9 @@ test("switchAgent: 会话未启动时从 projectStore 降级取 projectId 并直
 test("switchAgent: 会话不存在时抛错", async () => {
 	const { am } = await setup();
 	await expect(am.switchAgent("nope", "pm")).rejects.toThrow();
-	expect(await errorCodeOf(am.switchAgent("nope", "pm"))).toBe("session.notFound");
+	expect(await errorCodeOf(am.switchAgent("nope", "pm"))).toBe(
+		"session.notFound",
+	);
 });
 
 test("switchAgent: 持久化更新在拆除前完成，挂起期间 sessions 不为空（消除并发 ensureStarted 竞态）", async () => {

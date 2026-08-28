@@ -116,7 +116,11 @@ export function createShareRoutes(
 		const latest = await loadShareSettings(cfg.settingsFile);
 		const token = latest.token || cfg.token;
 		if (!token)
-			return failWith(400, "未配置分享 Token（设置 → 分享）", "share.tokenMissing");
+			return failWith(
+				400,
+				"未配置分享 Token（设置 → 分享）",
+				"share.tokenMissing",
+			);
 		return {
 			token,
 			channel: latest.channel || cfg.channel || "edgeone",
@@ -235,7 +239,12 @@ export function createShareRoutes(
 			} catch (e: any) {
 				const payload = toKernelPayload(e);
 				if (payload?.code === "share.invalidName")
-					return failWith(409, "分享名称含非法字符（仅限字母/数字/中文/-_./空格）", "share.invalidName", payload.params);
+					return failWith(
+						409,
+						"分享名称含非法字符（仅限字母/数字/中文/-_./空格）",
+						"share.invalidName",
+						payload.params,
+					);
 				throw e;
 			}
 
@@ -341,7 +350,12 @@ export function createShareRoutes(
 			} catch (e: any) {
 				const payload = toKernelPayload(e);
 				if (payload?.code === "share.invalidName")
-					return failWith(409, "分享名称含非法字符（仅限字母/数字/中文/-_./空格）", "share.invalidName", payload.params);
+					return failWith(
+						409,
+						"分享名称含非法字符（仅限字母/数字/中文/-_./空格）",
+						"share.invalidName",
+						payload.params,
+					);
 				if (payload?.code === "share.notFound")
 					return failWith(409, "分享不存在", "share.notFound", payload.params);
 				throw e;
@@ -406,15 +420,13 @@ export function createShareRoutes(
 			const b = await readJsonBody(req);
 			const item = (await loadItems(workspaceDir)).find((i) => i.id === b.id);
 			if (!item)
-				return failWith(404, "分享不存在", "share.notFound", { id: String(b.id ?? "") });
+				return failWith(404, "分享不存在", "share.notFound", {
+					id: String(b.id ?? ""),
+				});
 			// 本地有记录但从未成功部署（不在部署快照里）→ 线上是 404，不出链接
 			const deployed = await loadLastDeployed(workspaceDir);
 			if (!deployed.some((i) => i.id === item.id))
-				return failWith(
-					409,
-					"内容尚未部署，请先立即部署",
-					"share.notDeployed",
-				);
+				return failWith(409, "内容尚未部署，请先立即部署", "share.notDeployed");
 			// 当前渠道实时读取设置；CF 渠道链接公开恒定，幂等返回条目子路径（不重签 token），
 			// 拼法与 upload 端点 CF 分支一致：itemShareUrl 复用（单文件指向真实文件、分享名自动编码）
 			const settings = await loadShareSettings(cfg.settingsFile);

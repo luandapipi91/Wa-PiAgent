@@ -78,18 +78,18 @@ test("apiCall：非 2xx 状态码抛 HTTP 错误", async () => {
   fetchMock.mockImplementation(async (_url: string, _init?: any) => {
     return new Response("oops", { status: 500 });
   });
-  expect(
-    await errorCodeOf(apiCall("https://api", "tk", "SomeAction")),
-  ).toBe("share.edgeoneApiFailed");
+  expect(await errorCodeOf(apiCall("https://api", "tk", "SomeAction"))).toBe(
+    "share.edgeoneApiFailed",
+  );
 });
 
 test("apiCall：业务 Code!==0 抛业务错误", async () => {
   fetchMock.mockImplementation(async (_url: string, _init?: any) => {
     return JSON_RES({ Code: 4000, Message: "bad request" });
   });
-  expect(
-    await errorCodeOf(apiCall("https://api", "tk", "SomeAction")),
-  ).toBe("share.edgeoneApiFailed");
+  expect(await errorCodeOf(apiCall("https://api", "tk", "SomeAction"))).toBe(
+    "share.edgeoneApiFailed",
+  );
 });
 
 test("getOrCreateProject：已存在则直接返回 ProjectId", async () => {

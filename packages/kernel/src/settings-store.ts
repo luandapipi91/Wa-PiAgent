@@ -670,7 +670,9 @@ export const LEGACY_WINDOWS_DEFAULT_TOOLS = [
 ];
 
 /** 平台对应的默认内置工具清单 */
-export function defaultToolsForPlatform(platform: string = process.platform): string[] {
+export function defaultToolsForPlatform(
+	platform: string = process.platform,
+): string[] {
 	return platform === "win32"
 		? [...WINDOWS_DEFAULT_TOOLS]
 		: [...UNIX_DEFAULT_TOOLS];

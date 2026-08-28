@@ -219,8 +219,8 @@ interface SessionHandle {
 	messages: any[];
 	/** 排队消息列表（agent_settled 时逐条 drain） */
 	followUpList: Array<{ text: string; images?: ImageContent[] }>;
-	/** 引导消息列表（优先级高于 followUpList，agent_settled 时优先 drain） */
-	steerList: string[];
+	/** 引导消息列表（优先级高于 followUpList，agent_settled 时优先 drain；images 随条目透传） */
+	steerList: Array<{ text: string; images?: ImageContent[] }>;
 	/** 系统提示词临时文件（dispose 时清理） */
 	promptFile: string | null;
 	/** 记忆快照临时文件（dispose 时清理） */
@@ -569,7 +569,9 @@ export class AgentManager {
 		const project = projects.find((p) => p.id === projectId);
 		if (!project) throw new KernelError("project.notFound", { id: projectId });
 		if (!project.cwd) {
-			throw new KernelError("project.cwdMissing", { name: project.name ?? projectId });
+			throw new KernelError("project.cwdMissing", {
+				name: project.name ?? projectId,
+			});
 		}
 
 		const sessionEntity = sessions.find((s) => s.id === sessionId);
@@ -1150,9 +1152,14 @@ export class AgentManager {
 				}
 				// 优先 drain 引导消息（如果 pi 已投递则 queue_update 会清掉 steerList）
 				if (handle.steerList.length > 0) {
-					const text = handle.steerList.shift()!;
+					const entry = handle.steerList.shift()!;
 					this._emitLocalQueueUpdate(sessionId, handle);
-					void this._sendPromptNow(sessionId, handle, text).catch((err) => {
+					void this._sendPromptNow(
+						sessionId,
+						handle,
+						entry.text,
+						entry.images,
+					).catch((err) => {
 						console.error(`[kernel] session ${sessionId} steer drain 失败:`, err);
 					});
 				} else if (handle.followUpList.length > 0) {
@@ -1188,7 +1195,7 @@ export class AgentManager {
 		if (event.type === "queue_update") {
 			event = {
 				...event,
-				steering: [...handle.steerList],
+				steering: handle.steerList.map((e) => e.text),
 				followUp: handle.followUpList.map((e) => e.text),
 			};
 		}
@@ -1434,7 +1441,7 @@ export class AgentManager {
 	private _emitLocalQueueUpdate(sessionId: string, handle: SessionHandle): void {
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "queue_update",
-			steering: [...handle.steerList],
+			steering: handle.steerList.map((e) => e.text),
 			followUp: handle.followUpList.map((e) => e.text),
 		});
 	}
@@ -1493,10 +1500,23 @@ export class AgentManager {
 		this._emitLocalQueueUpdate(sessionId, handle);
 	}
 
-	/** 发送引导消息。运行中优先调 pi steer()（mid-loop 投递），同时存本地兜底 */
-	async steerMessage(sessionId: string, text: string): Promise<void> {
+	/** 发送引导消息。运行中优先调 pi steer()（mid-loop 投递），同时存本地兜底。
+	 *  attachments 附件全量透传（大文本片段内联、文件转 path: 引用、图片转多模态 images），
+	 *  与普通 prompt 路径同一套 buildPromptContent 转换。 */
+	async steerMessage(
+		sessionId: string,
+		text: string,
+		opts?: { attachments?: AttachmentRef[] },
+	): Promise<void> {
 		const handle = this.sessions.get(sessionId);
 		if (!handle) return;
+
+		// 来自排队列表的提升（前端只有文本，附件无法重传）：images 从排队 entry 继承；
+		// 新发起的引导（Ctrl+Enter 等）：attachments 经 buildPromptContent 统一转换。
+		const queued = handle.followUpList.find((e) => e.text === text);
+		const { text: finalText, images } = queued
+			? { text, images: queued.images }
+			: await buildPromptContent(text, opts?.attachments ?? []);
 
 		if (!handle.busy) {
 			// 空闲直发（用户点「引导/立即」时 agent 已 settled）。
@@ -1504,7 +1524,7 @@ export class AgentManager {
 			// 避免发送失败时消息已出队（丢失）。必须与下方 busy 分支一致地从
 			// followUpList 移除，否则后续 queue_update（如 drain/prompt/settled）
 			// 会把它打回队列，前端乐观移除的第一条又恢复——「顶部的待引导消息没变化」。
-			await this._sendPromptNow(sessionId, handle, text);
+			await this._sendPromptNow(sessionId, handle, finalText, images);
 			const fi = handle.followUpList.findIndex((e) => e.text === text);
 			if (fi >= 0) handle.followUpList.splice(fi, 1);
 			this._emitLocalQueueUpdate(sessionId, handle);
@@ -1515,7 +1535,7 @@ export class AgentManager {
 		// 第二条引导消息不叠加，转入 followUpList 排队（agent_settled 时按顺序发送）。
 		if (handle.steerList.length > 0) {
 			if (!handle.followUpList.some((e) => e.text === text)) {
-				handle.followUpList.push({ text });
+				handle.followUpList.push({ text: finalText, images });
 			}
 			this._emitLocalQueueUpdate(sessionId, handle);
 			handle.lastActiveAt = Date.now();
@@ -1523,14 +1543,14 @@ export class AgentManager {
 		}
 
 		// 双保险：pi steer() 尝试 mid-loop 投递 + 本地 steerList 兜底
-		handle.steerList.push(text);
+		handle.steerList.push({ text: finalText, images });
 		// 如果该消息来自排队列表，则移除（避免 settled 时重复发送）
 		const fi = handle.followUpList.findIndex((e) => e.text === text);
 		if (fi >= 0) handle.followUpList.splice(fi, 1);
 		this._emitLocalQueueUpdate(sessionId, handle);
 		// 用户发送引导消息视为活跃，刷新空闲回收计时
 		handle.lastActiveAt = Date.now();
-		handle.client.steer(text).catch(() => {
+		handle.client.steer(finalText, images).catch(() => {
 			// steer 失败不丢消息——agent_settled 时 steerList 会兜底
 		});
 	}

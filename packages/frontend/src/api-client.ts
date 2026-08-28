@@ -48,7 +48,8 @@ async function request(
 		const message =
 			data?.error ?? data?.message ?? `${res.status} ${res.statusText}`;
 		// 结构化错误：优先 failure 嵌套（routes 层本批形态），兼容顶层 code/params（任务 3 先例）
-		const failure: KernelErrorPayload | undefined = data?.failure ??
+		const failure: KernelErrorPayload | undefined =
+			data?.failure ??
 			(data?.code
 				? { code: data.code, params: data.params, detail: data.detail }
 				: undefined);

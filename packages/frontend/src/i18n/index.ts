@@ -8,19 +8,19 @@ import en from "./locales/en";
  * 同步 <html lang> 属性，便于辅助技术与搜索引擎识别界面语言。
  */
 export function syncHtmlLang(lang: AppLanguage): void {
-	try {
-		document.documentElement.lang = lang;
-	} catch {
-		/* 非浏览器环境（测试 SSR 等）静默降级 */
-	}
+ try {
+  document.documentElement.lang = lang;
+ } catch {
+  /* 非浏览器环境（测试 SSR 等）静默降级 */
+ }
 }
 
 /** 切换语言并同步所有副作用（i18n 实例 + <html lang>）。供 store 调用。
  *  <html lang> 同步先行设置（不依赖 i18n.changeLanguage 的异步完成），避免
  *  连续切换时同步断言读到旧值。 */
 export async function changeLanguage(lang: AppLanguage): Promise<void> {
-	syncHtmlLang(lang);
-	await i18n.changeLanguage(lang);
+ syncHtmlLang(lang);
+ await i18n.changeLanguage(lang);
 }
 
 /** 首次启动语言（localStorage 优先 → navigator → zh）。模块加载时同步求值。 */
@@ -39,14 +39,14 @@ export const initialLanguage: AppLanguage = detectInitialLanguage();
  * - escapeValue=false：React 自身转义文本节点，无需 i18next 重复转义。
  */
 void i18n.use(initReactI18next).init({
-	resources: {
-		zh: { translation: zh },
-		en: { translation: en },
-	},
-	lng: initialLanguage,
-	fallbackLng: "zh",
-	interpolation: { escapeValue: false },
-	returnNull: false,
+ resources: {
+  zh: { translation: zh },
+  en: { translation: en },
+ },
+ lng: initialLanguage,
+ fallbackLng: "zh",
+ interpolation: { escapeValue: false },
+ returnNull: false,
 });
 syncHtmlLang(initialLanguage);
 

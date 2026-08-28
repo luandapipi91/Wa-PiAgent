@@ -88,11 +88,17 @@ async function findFileByBasename(
 const MAX_PREVIEW_BYTES = 3 * 1024 * 1024;
 
 /** 检查文件是否可预览（文本类型 + 图片 + 大小不超标）；不可预览时携带 code/params 供前端按字典渲染 */
-export async function checkPreviewable(
-	absPath: string,
-): Promise<{
-	ok: true;
-} | { ok: false; reason: string; code?: string; params?: Record<string, string | number> }> {
+export async function checkPreviewable(absPath: string): Promise<
+	| {
+			ok: true;
+	  }
+	| {
+			ok: false;
+			reason: string;
+			code?: string;
+			params?: Record<string, string | number>;
+	  }
+> {
 	const mime = getMimeType(absPath);
 	const isText =
 		mime.startsWith("text/") ||
@@ -121,7 +127,11 @@ export async function checkPreviewable(
 				},
 			};
 	} catch {
-		return { ok: false, reason: "无法获取文件信息", code: "attachment.statFailed" };
+		return {
+			ok: false,
+			reason: "无法获取文件信息",
+			code: "attachment.statFailed",
+		};
 	}
 	return { ok: true };
 }
@@ -160,8 +170,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	r.add("POST", "/api/fs/list-dir", async (req) => {
 		const b = await readJsonBody(req);
 		const { path, showHidden } = b;
-		if (typeof path !== "string")
-			return paramErrorResponse("缺少 path", "path");
+		if (typeof path !== "string") return paramErrorResponse("缺少 path", "path");
 		try {
 			const entries = await listDir(path, showHidden);
 			return Response.json({ type: "fs:listDir", path, entries });
@@ -178,8 +187,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	r.add("POST", "/api/fs/stat", async (req) => {
 		const b = await readJsonBody(req);
 		const { path } = b;
-		if (typeof path !== "string")
-			return paramErrorResponse("缺少 path", "path");
+		if (typeof path !== "string") return paramErrorResponse("缺少 path", "path");
 		try {
 			const absPath = expandTilde(path);
 			const exists = existsSync(absPath);
@@ -198,8 +206,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	r.add("POST", "/api/fs/read-file", async (req) => {
 		const b = await readJsonBody(req);
 		const { path } = b;
-		if (typeof path !== "string")
-			return paramErrorResponse("缺少 path", "path");
+		if (typeof path !== "string") return paramErrorResponse("缺少 path", "path");
 		try {
 			const absPath = expandTilde(path);
 			const check = await checkPreviewable(absPath);
@@ -305,8 +312,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	r.add("POST", "/api/fs/reveal-file", async (req) => {
 		const b = await readJsonBody(req);
 		const { path } = b;
-		if (typeof path !== "string")
-			return paramErrorResponse("缺少 path", "path");
+		if (typeof path !== "string") return paramErrorResponse("缺少 path", "path");
 		try {
 			let absPath = expandTilde(path);
 			if (!existsSync(absPath)) {
@@ -354,8 +360,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	r.add("POST", "/api/fs/open-with-default-app", async (req) => {
 		const b = await readJsonBody(req);
 		const { path } = b;
-		if (typeof path !== "string")
-			return paramErrorResponse("缺少 path", "path");
+		if (typeof path !== "string") return paramErrorResponse("缺少 path", "path");
 		try {
 			let absPath = expandTilde(path);
 			if (!existsSync(absPath)) {
