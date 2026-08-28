@@ -34,6 +34,57 @@ const WA_PI_DIR =
 	process.env.WA_PI_DIR || path.join(os.homedir(), ".pi", "agent");
 const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
 
+// 语言来源：桌面主进程不经过 react-i18next（desktop 无它），且启动进度窗早于前端挂载，
+// 不能依赖前端传语言。用 Electron app.getLocale() 定模块级 LOCALE，内联最简 zh/en 文案字典 + t()。
+// （kernel-updater / node-runtime 的 onStatus 进度文案在各自文件内置同构字典，避免跨模块引入 electron 依赖。）
+const LOCALE = app.getLocale().startsWith("zh") ? "zh" : "en";
+// 启动进度 / 面向用户文案字典（zh/en 各一份，key 覆盖 main.cjs 全部透过 setProgress 面向用户的文案）。
+const MSG = {
+	zh: {
+		initializing: "正在初始化…",
+		noPort: "未找到可用端口，请检查网络或重启电脑后再试。",
+		portOccupiedAutoSwitch: "检测到端口占用，自动换端口启动…",
+		portOccupiedAutoCleanup: "检测到端口占用，正在自动清理…",
+		detectingNode: "正在检测 Node.js…",
+		checkingKernelUpdate: "正在检查内核更新…",
+		preparingDeps: "正在准备依赖…",
+		downloadingDeps: "正在下载依赖…",
+		startingKernel: "正在启动内核…",
+		loadingInterface: "正在加载界面…",
+		ready: "就绪",
+		depsInstallFailed: "依赖安装失败，请检查网络后重启",
+		kernelStartFailed: "内核启动失败",
+		depsInstallFailedTitle: "内核依赖安装失败",
+		depsInstallFailedDesc:
+			"已自动重试多次。请检查网络连接后点击重试；若反复失败，可能是网络无法访问依赖源（npmmirror / npmjs），请切换网络后重试。",
+		retry: "重试",
+		quit: "退出",
+		restarting: "重启中…",
+	},
+	en: {
+		initializing: "Initializing…",
+		noPort: "No available port found. Check your network or restart and try again.",
+		portOccupiedAutoSwitch: "Port in use — switching to a free port…",
+		portOccupiedAutoCleanup: "Port in use — cleaning up automatically…",
+		detectingNode: "Checking for Node.js…",
+		checkingKernelUpdate: "Checking kernel update…",
+		preparingDeps: "Preparing dependencies…",
+		downloadingDeps: "Downloading dependencies…",
+		startingKernel: "Starting kernel…",
+		loadingInterface: "Loading interface…",
+		ready: "Ready",
+		depsInstallFailed: "Dependency installation failed. Check your network and restart",
+		kernelStartFailed: "Kernel failed to start",
+		depsInstallFailedTitle: "Kernel dependency installation failed",
+		depsInstallFailedDesc:
+			"Automatically retried multiple times. Check your network connection and click Retry; if it keeps failing, the network may be unable to reach the dependency sources (npmmirror / npmjs). Switch networks and try again.",
+		retry: "Retry",
+		quit: "Quit",
+		restarting: "Restarting…",
+	},
+};
+const t = (k) => MSG[LOCALE][k] ?? MSG.zh[k];
+
 // 进程登记簿（G）：kernel 启动登记 / 退出自删 / 启动清扫，全程依赖注入便于测试
 const registryOpts = {
 	fs,
@@ -398,7 +449,7 @@ app.whenReady().then(async () => {
 
 	// 1) 启动页【立即】出现 + 主窗口隐藏创建（等内核就绪再渲染显示）
 	createSplash();
-	setProgress(10, "正在初始化…");
+	setProgress(10, t("initializing"));
 	createWindow();
 
 	// 自动更新：系统设置 → 关于（Cloudflare R2 + electron-updater）
@@ -492,7 +543,7 @@ app.whenReady().then(async () => {
 			const switched = await autoSwitchPortAndRelaunch();
 			if (!switched) {
 				log.error(`[port-switch] 未找到可用端口（从 ${FIXED_PORT + 1} 起）`);
-				setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
+				setProgress(-1, t("noPort"));
 				splashWindow?.webContents
 					?.executeJavaScript(
 						"window.__showActions&&window.__showActions({quit:true})",
@@ -511,7 +562,7 @@ app.whenReady().then(async () => {
 		const switched = await autoSwitchPortAndRelaunch();
 		if (!switched) {
 			log.error(`[port-switch] 找不到可用端口（从 ${FIXED_PORT + 1} 起）`);
-			setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
+			setProgress(-1, t("noPort"));
 		}
 	});
 
@@ -641,7 +692,7 @@ app.whenReady().then(async () => {
 		const switched = await autoSwitchPortAndRelaunch();
 		if (!switched) {
 			log.error(`[port-switch] 未找到可用端口（从 ${FIXED_PORT + 1} 起）`);
-			setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
+			setProgress(-1, t("noPort"));
 			splashWindow?.webContents
 				?.executeJavaScript(
 					"window.__showActions&&window.__showActions({quit:true})",
@@ -657,12 +708,12 @@ app.whenReady().then(async () => {
 			// 因此 dev 遇占用不杀进程，直接复用自愈兜底的「换端口启动」路径（自动找可用端口 relaunch）。
 			if (!app.isPackaged) {
 				log.info(`[dev] 端口 ${FIXED_PORT} 被占用，不清理占用进程，自动换端口启动`);
-				setProgress(10, "检测到端口占用，自动换端口启动…");
+				setProgress(10, t("portOccupiedAutoSwitch"));
 				await selfHealFailed();
 				return;
 			}
 			log.error(`端口 ${FIXED_PORT} 被占用，尝试自动清理`);
-			setProgress(10, "检测到端口占用，正在自动清理…");
+			setProgress(10, t("portOccupiedAutoCleanup"));
 			const healed = await attemptSelfHeal({
 				rounds: 3,
 				isPortInUse: () => isPortInUse(FIXED_PORT),
@@ -695,7 +746,7 @@ app.whenReady().then(async () => {
 	if (app.isPackaged) {
 		try {
 			const { ensureNodeRuntime } = require("./util/node-runtime.cjs");
-			setProgress(8, "正在检测 Node.js…");
+			setProgress(8, t("detectingNode"));
 			nodeExe = await ensureNodeRuntime({
 				waPiDir: WA_PI_DIR,
 				log,
@@ -717,7 +768,7 @@ app.whenReady().then(async () => {
 	if (app.isPackaged) {
 		try {
 			const { syncKernel } = require("./util/kernel-updater.cjs");
-			setProgress(12, "正在检查内核更新…");
+			setProgress(12, t("checkingKernelUpdate"));
 			// WA_PI_KERNEL_FEED_URL 仅供 E2E/测试指向本地 mock，生产默认走 OSS 公开读（kernel-latest.json）
 			const kRes = await syncKernel({
 				seedDir,
@@ -740,11 +791,11 @@ app.whenReady().then(async () => {
 	let runDir = seedDir;
 	if (app.isPackaged) {
 		const { ensureRuntimeDeps } = require("./util/runtime-deps.cjs");
-		setProgress(15, "正在准备依赖…");
+		setProgress(15, t("preparingDeps"));
 		let ip = 15;
 		const installTrickle = setInterval(() => {
 			ip = Math.min(80, ip + 3);
-			setProgress(ip, "正在下载依赖…");
+			setProgress(ip, t("downloadingDeps"));
 		}, 2000);
 		try {
 			runDir = await ensureRuntimeDeps({
@@ -760,23 +811,23 @@ app.whenReady().then(async () => {
 		} catch (e) {
 			clearInterval(installTrickle);
 			log.error("依赖安装失败", e);
-			setProgress(-1, "依赖安装失败，请检查网络后重启");
+			setProgress(-1, t("depsInstallFailed"));
 			mainWindow.webContents.once("did-finish-load", revealMainWindow);
 			const detail = String(e.message || e).replace(/</g, "&lt;");
 			mainWindow.loadURL(
 				"data:text/html;charset=utf-8," +
 					encodeURIComponent(
 						`<body style='font-family:system-ui;padding:48px;color:#a00'>
-<h2>内核依赖安装失败</h2>
-<p style='color:#444'>已自动重试多次。请检查网络连接后点击重试；若反复失败，可能是网络无法访问依赖源（npmmirror / npmjs），请切换网络后重试。</p>
+<h2>${t("depsInstallFailedTitle")}</h2>
+<p style='color:#444'>${t("depsInstallFailedDesc")}</p>
 <pre style='color:#888;font-size:12px;white-space:pre-wrap'>${detail}</pre>
 <div style='margin-top:24px'>
-<button id='retry' style='font-size:16px;padding:8px 24px;margin-right:12px'>重试</button>
-<button id='quit' style='font-size:16px;padding:8px 24px'>退出</button>
+<button id='retry' style='font-size:16px;padding:8px 24px;margin-right:12px'>${t("retry")}</button>
+<button id='quit' style='font-size:16px;padding:8px 24px'>${t("quit")}</button>
 </div>
 <script>
 const btn = document.getElementById('retry');
-btn.onclick = () => { btn.disabled = true; btn.textContent = '重启中…'; window.waPiApp.retryInstall(); };
+btn.onclick = () => { btn.disabled = true; btn.textContent = '${t("restarting")}'; window.waPiApp.retryInstall(); };
 document.getElementById('quit').onclick = () => window.waPiApp.quit();
 </script>
 </body>`,
@@ -813,11 +864,11 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 	}
 
 	// 2d) 启动内核（packaged 从 runtimeDir 跑；dev 从源码跑）
-	setProgress(85, "正在启动内核…");
+	setProgress(85, t("startingKernel"));
 	let kp = 85;
 	const trickle = setInterval(() => {
 		kp = Math.min(95, kp + 4);
-		setProgress(kp, "正在启动内核…");
+		setProgress(kp, t("startingKernel"));
 	}, 1500);
 	try {
 		sidecar = await startSidecar({
@@ -842,10 +893,10 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			log.error("[registry] 登记 kernel 进程失败", e);
 		}
 		clearInterval(trickle);
-		setProgress(98, "正在加载界面…");
+		setProgress(98, t("loadingInterface"));
 		// 内核页面渲染完成 → 关启动页、显示主窗口
 		mainWindow.webContents.once("did-finish-load", () => {
-			setProgress(100, "就绪");
+			setProgress(100, t("ready"));
 			revealMainWindow();
 		});
 		mainWindow.loadURL(`http://127.0.0.1:${actualPort}`);
@@ -853,10 +904,12 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		clearInterval(trickle);
 		log.error("kernel 启动失败", e);
 		// 错误：切到主窗口显示（主窗口带标题栏可关闭/重试），启动页退出
-		setProgress(-1, "内核启动失败");
+		setProgress(-1, t("kernelStartFailed"));
 		mainWindow.webContents.once("did-finish-load", revealMainWindow);
 		mainWindow.loadURL(
-			"data:text/html;charset=utf-8,<body style='font-family:system-ui;padding:48px;color:#a00'>内核启动失败：" +
+			"data:text/html;charset=utf-8,<body style='font-family:system-ui;padding:48px;color:#a00'>" +
+				t("kernelStartFailed") +
+				": " +
 				String(e.message || e) +
 				"</body>",
 		);

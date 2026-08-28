@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "../i18n";
 
 // vite 构建时从 package.json 注入；浏览器 dev（未走 vite define）为 undefined，兜底 "—"。
 const BUILD_VERSION =
@@ -101,7 +102,7 @@ function applyEvent(
 		case "error":
 			return {
 				status: "error",
-				error: (payload.message as string) ?? "更新失败",
+				error: (payload.message as string) ?? i18n.t("updater.failed"),
 			};
 		default:
 			return {};
@@ -124,7 +125,7 @@ export const useUpdaterStore = create<UpdaterState>((set) => ({
 		try {
 			await api.check();
 		} catch (e) {
-			set({ status: "error", error: (e as Error).message ?? "检查失败" });
+			set({ status: "error", error: (e as Error).message ?? i18n.t("updater.checkFailed") });
 		}
 	},
 
@@ -134,7 +135,7 @@ export const useUpdaterStore = create<UpdaterState>((set) => ({
 		try {
 			await api.download();
 		} catch (e) {
-			set({ status: "error", error: (e as Error).message ?? "下载失败" });
+			set({ status: "error", error: (e as Error).message ?? i18n.t("updater.downloadFailed") });
 		}
 	},
 

@@ -1,4 +1,11 @@
 
+## 2026-08-30 — feat(desktop): 启动进度/更新文案按系统语言渲染（desktop 独立通道 i18n，任务 5）
+
+- 背景：desktop 主进程在启动进度窗 / 内核更新 / Node 安装等环节有硬编码中文透传给用户；desktop 无 react-i18next，且启动进度窗早于前端挂载，不能依赖前端传语言。方案：主进程用 Electron `app.getLocale()` 定模块级 LOCALE，内联 zh/en 文案字典 + `t()`，把所有面向用户文案改为按 LOCALE 取。
+- 实现：main.cjs 顶部接通 LOCALE + MSG 字典 + `t()`，覆盖全部 setProgress 文案（正在初始化/端口占用自动换端口/自动清理/未找到可用端口/检测 Node.js/检查内核更新/准备依赖/下载依赖/启动内核/加载界面/就绪/依赖安装失败/内核启动失败）及两处错误页 HTML（依赖安装失败页、内核启动失败页）；kernel-updater.cjs / node-runtime.cjs 的 onStatus 进度文案接入各自内置同构字典 + 延迟探测 LOCALE（bun 测试无 electron 时回退 zh）；updater.cjs 错误/广播对象在保留 `message` 原字符串不变前提下追加 `raw` 原始错误细节（`{ phase:"error", message, raw }`、`{ ok:false, error, raw }`）；前端 store/updater.ts 兜底文案改 `i18n.t("updater.failed")` 等，并新增 zh/en 字典段 `updater.{failed,checkFailed,downloadFailed}`。
+- 验证：node --check 四文件（main/kernel-updater/node-runtime/updater）全绿；updater.test.ts 15 pass（追加 raw 断言，:61 message 断言仍通过）、kernel-updater.test.ts 20 pass；前端 zh/en `updater` 段 key 镜像一致。
+- 影响范围：packages/desktop/src/{main.cjs, util/kernel-updater.cjs, util/node-runtime.cjs, updater/updater.cjs, updater/updater.test.ts}、packages/frontend/src/{store/updater.ts, i18n/locales/{zh,en}.ts}。
+
 ## 2026-08-30 — feat(kernel): language 偏好打通前端→kernel settings（后端 i18n 基建，任务 1）
 
 - 背景：后端 i18n 化第一步——前端切换语言时把偏好双写到 kernel settings.json，供后续 kernel 生成消息按此语言输出；前端真源仍在 ui-prefs（localStorage），kernel 侧缺省 undefined = 跟随前端。

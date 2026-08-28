@@ -663,6 +663,11 @@ const zh = {
 		readFailed: "读取失败",
 		copyFailedShort: "复制失败",
 	},
+	updater: {
+		failed: "更新失败",
+		checkFailed: "检查失败",
+		downloadFailed: "下载失败",
+	},
 	emptyState: {
 		title: "开始你的第一个项目",
 		subtitle:
