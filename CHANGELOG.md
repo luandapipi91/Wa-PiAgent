@@ -1,3 +1,10 @@
+## 2026-08-28 — fix(kernel): 默认会话补齐 grep/find/ls 内置工具（defaultTools 全平台写入）
+
+- 背景：所有角色会话里 grep/find/ls 三个内置工具不可用。根因：RPC 架构迁移（f80d8f89）后，角色 tools 为空时不再显式传全量白名单、改为依赖 pi 引擎默认；而 pi 引擎默认激活集仅 read/bash/edit/write，grep/find/ls 注册但未激活。旧架构「空则回退 DEFAULT_AGENT_TOOLS 显式传白名单」的行为未随迁移带走；UI 侧空数组渲染为全选，掩盖了「未配置≠已开启」的语义。
+- 实现：settings-store 的 defaultToolsForPlatform 改为全平台返回清单——macOS/Linux 新增 UNIX_DEFAULT_TOOLS（read/bash/edit/write/grep/find/ls），Windows 清单同样补齐三工具（powershell 适配保留）；新增 ensureDefaultTools 启动守卫（未配置→写入；恰为旧版自动写入的 LEGACY_WINDOWS_DEFAULT_TOOLS→升级；用户自定义→不覆盖）；kernel index.ts 启动守卫改调 ensureDefaultTools。pi 侧语义：--tools 未传时 defaultTools 替换内置默认激活集，不生成硬白名单，扩展/MCP 工具仍全放行。
+- 已知边界：grep/find 执行依赖外部 rg/fd 二进制（wa-pi 恒 --offline 且 ensureTool 离线跳过下载），激活后调用会报 "ripgrep not found"——离线分发另立任务；ls 无外部依赖立即可用。
+- 验证：settings-store 单测 23 pass（defaultToolsForPlatform 全平台断言 + ensureDefaultTools 四分支）；kernel typecheck 绿；E2E——ensureDefaultTools 写入实机 settings.json 后按排除式 spawn 条件建真实 pi 会话，getActiveToolNames 含 grep/find/ls 且扩展/MCP 工具照常在列。
+- 影响范围：packages/kernel/src/{settings-store,index}.ts、packages/kernel/tests/settings-store.test.ts。
 
 ## 2026-08-30 — feat(i18n): kernel 后端面向用户文案 code 化全链路收尾（任务 0-6）
 
