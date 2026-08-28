@@ -1,6 +1,11 @@
 import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import { existsSync } from "node:fs";
-import { collectProxyEnv, resolvePiRuntime } from "../src/rpc-client";
+import {
+	collectProxyEnv,
+	resolvePiRuntime,
+	mapToolsForPlatform,
+	buildPiArgs,
+} from "../src/rpc-client";
 
 // 代理变量列表（与 collectProxyEnv 内部一致）
 const PROXY_KEYS = [
@@ -80,4 +85,41 @@ describe("collectProxyEnv", () => {
 		expect(out.http_proxy).toBe("http://127.0.0.1:7890");
 		expect(out.https_proxy).toBe("http://127.0.0.1:7890");
 	});
+});
+
+// —— mapToolsForPlatform（Windows bash→powershell 运行时映射）——
+
+describe("mapToolsForPlatform", () => {
+	test("win32：bash 映射为 powershell，其余工具原样", () => {
+		expect(mapToolsForPlatform(["read", "bash", "grep"], "win32")).toEqual([
+			"read",
+			"powershell",
+			"grep",
+		]);
+	});
+
+	test("win32：bash 与 powershell 并存时映射后去重", () => {
+		expect(mapToolsForPlatform(["bash", "powershell", "edit"], "win32")).toEqual([
+			"powershell",
+			"edit",
+		]);
+	});
+
+	test("非 win32：原样返回（macOS/Linux 继续用 bash）", () => {
+		const tools = ["read", "bash", "grep"];
+		expect(mapToolsForPlatform(tools, "darwin")).toBe(tools);
+		expect(mapToolsForPlatform(tools, "linux")).toBe(tools);
+	});
+});
+
+test("buildPiArgs：win32 下 --tools 清单经平台映射", () => {
+	const platformDesc = Object.getOwnPropertyDescriptor(process, "platform");
+	Object.defineProperty(process, "platform", { value: "win32" });
+	try {
+		const args = buildPiArgs({ tools: ["read", "bash"] });
+		expect(args).toContain("--tools");
+		expect(args[args.indexOf("--tools") + 1]).toBe("read,powershell");
+	} finally {
+		if (platformDesc) Object.defineProperty(process, "platform", platformDesc);
+	}
 });

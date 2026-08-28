@@ -199,22 +199,45 @@ test("saveHttpIdleTimeoutMs：拒绝 0 / 负数 / 小数 / Infinity（0 会被 p
 	await expect(saveHttpIdleTimeoutMs(60_000, file)).resolves.toBe(60_000);
 });
 
-// —— shellPath（PortableGit bash 接线）——
-import { loadShellPath, saveShellPath } from "../src/settings-store";
+// —— defaultTools（Windows 默认命令工具切换 powershell）——
+import {
+	loadDefaultTools,
+	saveDefaultTools,
+	defaultToolsForPlatform,
+	WINDOWS_DEFAULT_TOOLS,
+} from "../src/settings-store";
 
-test("saveShellPath/loadShellPath: 写入并读回（保留其他字段）", async () => {
-	const p = join(dir, "settings-shellpath.json");
-	await writeFile(p, JSON.stringify({ retry: { maxRetries: 2 } }), "utf8");
-	await saveShellPath("C:\\portable\\bash.exe", p);
+test("saveDefaultTools/loadDefaultTools: 写入并读回（保留其他字段）", async () => {
+	const p = join(dir, "settings-defaulttools.json");
+	await writeFile(p, JSON.stringify({ retry: { maxRetries: 3 } }), "utf8");
+	await saveDefaultTools(["read", "powershell", "edit", "write"], p);
 	const raw = JSON.parse(await readFile(p, "utf8"));
-	expect(raw.shellPath).toBe("C:\\portable\\bash.exe");
+	expect(raw.defaultTools).toEqual(["read", "powershell", "edit", "write"]);
 	// 保留其他字段（read-modify-write）
-	expect(raw.retry.maxRetries).toBe(2);
-	expect(await loadShellPath(p)).toBe("C:\\portable\\bash.exe");
+	expect(raw.retry.maxRetries).toBe(3);
+	expect(await loadDefaultTools(p)).toEqual([
+		"read",
+		"powershell",
+		"edit",
+		"write",
+	]);
 });
 
-test("loadShellPath: 未配置返回 undefined", async () => {
-	const p = join(dir, "settings-no-shellpath.json");
-	await writeFile(p, JSON.stringify({}), "utf8");
-	expect(await loadShellPath(p)).toBeUndefined();
+test("loadDefaultTools: 未配置/格式非法返回 undefined", async () => {
+	const p1 = join(dir, "settings-no-defaulttools.json");
+	await writeFile(p1, JSON.stringify({}), "utf8");
+	expect(await loadDefaultTools(p1)).toBeUndefined();
+	// 非字符串数组的脏数据视同未配置
+	const p2 = join(dir, "settings-bad-defaulttools.json");
+	await writeFile(p2, JSON.stringify({ defaultTools: ["read", 42] }), "utf8");
+	expect(await loadDefaultTools(p2)).toBeUndefined();
+});
+
+test("defaultToolsForPlatform: win32 返回 powershell 清单，其他平台不写", () => {
+	expect(defaultToolsForPlatform("win32")).toEqual(WINDOWS_DEFAULT_TOOLS);
+	expect(defaultToolsForPlatform("darwin")).toBeNull();
+	expect(defaultToolsForPlatform("linux")).toBeNull();
+	// 清单语义：bash 被 powershell 替换，其余为 pi 内置默认四件套
+	expect(WINDOWS_DEFAULT_TOOLS).toContain("powershell");
+	expect(WINDOWS_DEFAULT_TOOLS).not.toContain("bash");
 });

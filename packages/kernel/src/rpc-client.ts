@@ -630,6 +630,21 @@ export interface PiLaunchSpec {
 	appendSystemPrompt?: string;
 }
 
+/**
+ * Windows 平台工具名映射：bash → powershell（pi >= 0.84.3 的 Windows 原生命令工具）。
+ * 工具集配置（角色白名单/UI 勾选/frontmatter）跨平台只写 bash——它是「命令执行」
+ * 能力的语义占位，Windows 运行时统一落地为 powershell，配置数据与用户均无需
+ * 感知平台差异。非 win32 原样返回；bash 与 powershell 并存时映射后去重。
+ */
+export function mapToolsForPlatform(
+	tools: string[],
+	platform: string = process.platform,
+): string[] {
+	if (platform !== "win32") return tools;
+	const mapped = tools.map((t) => (t === "bash" ? "powershell" : t));
+	return [...new Set(mapped)];
+}
+
 /** 把启动规格翻译成 pi CLI 参数数组（--mode rpc 由 RpcClient 自带，不在此处） */
 export function buildPiArgs(spec: PiLaunchSpec): string[] {
 	const args: string[] = [];
@@ -640,7 +655,7 @@ export function buildPiArgs(spec: PiLaunchSpec): string[] {
 	if (spec.noSkills) args.push("--no-skills");
 	for (const s of spec.skillPaths ?? []) args.push("--skill", s);
 	if (spec.tools && spec.tools.length > 0)
-		args.push("--tools", spec.tools.join(","));
+		args.push("--tools", mapToolsForPlatform(spec.tools).join(","));
 	if (spec.excludeTools && spec.excludeTools.length > 0)
 		args.push("--exclude-tools", spec.excludeTools.join(","));
 	if (spec.thinking) args.push("--thinking", spec.thinking);

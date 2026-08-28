@@ -16,7 +16,7 @@ import { join } from "node:path";
  * 用户可在 ~/.pi/agent/agents/ 覆盖同名文件自定义。
  */
 export const BUILTIN_AGENT_CONTENT: Record<string, string> = {
-  "general-purpose": `---
+ "general-purpose": `---
 name: general-purpose
 description: 继承调用者的全部工具，执行复杂多步任务。
 mode: subagent
@@ -30,7 +30,7 @@ delegationHints:
 
 General-purpose agent for complex, multi-step tasks.`,
 
-  "Explore": `---
+ Explore: `---
 name: Explore
 description: 只读代码探索，快速搜索和理解代码库结构。
 mode: subagent
@@ -72,7 +72,7 @@ Use Bash ONLY for read-only operations: ls, git status, git log, git diff, find,
 - Do not use emojis
 - Be thorough and precise`,
 
-  "Plan": `---
+ Plan: `---
 name: Plan
 description: 只读代码架构师，探索代码库并设计实施方案。
 mode: subagent
@@ -132,11 +132,11 @@ List 3-5 files most critical for implementing this plan:
  * 已存在的同名文件不覆盖（用户自定义优先）。
  */
 export function seedBuiltinAgents(agentsDir: string): void {
-  mkdirSync(agentsDir, { recursive: true });
-  for (const [name, content] of Object.entries(BUILTIN_AGENT_CONTENT)) {
-    const filePath = join(agentsDir, `${name}.md`);
-    if (!existsSync(filePath)) {
-      writeFileSync(filePath, content, "utf-8");
-    }
+ mkdirSync(agentsDir, { recursive: true });
+ for (const [name, content] of Object.entries(BUILTIN_AGENT_CONTENT)) {
+  const filePath = join(agentsDir, `${name}.md`);
+  if (!existsSync(filePath)) {
+   writeFileSync(filePath, content, "utf-8");
   }
+ }
 }

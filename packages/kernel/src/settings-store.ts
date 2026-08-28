@@ -588,23 +588,42 @@ export async function saveShareSettings(
 }
 
 /**
- * 读取 settings.json.shellPath（pi 引擎 bash 工具的 shell 路径）。
- * 未配置返回 undefined——pi 引擎回退到系统 bash 探测（Git Bash / PATH）。
+ * Windows 会话的默认内置工具清单（settings.json.defaultTools）：
+ * bash 由 pi >= 0.84.3 的 powershell 工具接管（Windows 自带 PowerShell，零外部依赖；
+ * bash 仅在用户自装 Git Bash 时由 pi 引擎自动探测使用，wa-pi 不再下载 PortableGit）。
+ * pi 侧语义：--tools 未传时 defaultTools 替换内置默认激活集（read/bash/edit/write），
+ * 不生成硬白名单——扩展/MCP 工具仍全放行，与 wa-pi 的排除式放行设计兼容。
  */
-export async function loadShellPath(
-	file: string = SETTINGS_FILE,
-): Promise<string | undefined> {
-	const raw = await readSettingsJson(file);
-	return typeof raw.shellPath === "string" ? raw.shellPath : undefined;
+export const WINDOWS_DEFAULT_TOOLS = ["read", "powershell", "edit", "write"];
+
+/** 平台对应的默认工具清单；null = 不写 settings.json（沿用 pi 引擎自身默认） */
+export function defaultToolsForPlatform(
+	platform: string = process.platform,
+): string[] | null {
+	return platform === "win32" ? [...WINDOWS_DEFAULT_TOOLS] : null;
 }
 
-/** 写入 settings.json.shellPath（read-modify-write 保留其他字段）。 */
-export async function saveShellPath(
-	path: string,
+/**
+ * 读取 settings.json.defaultTools（pi 引擎内置工具的初始激活集）。
+ * 未配置或格式非法返回 undefined。
+ */
+export async function loadDefaultTools(
+	file: string = SETTINGS_FILE,
+): Promise<string[] | undefined> {
+	const raw = await readSettingsJson(file);
+	const v = raw.defaultTools;
+	return Array.isArray(v) && v.every((t) => typeof t === "string")
+		? (v as string[])
+		: undefined;
+}
+
+/** 写入 settings.json.defaultTools（read-modify-write 保留其他字段）。 */
+export async function saveDefaultTools(
+	tools: string[],
 	file: string = SETTINGS_FILE,
 ): Promise<void> {
 	const settings = await readSettingsJson(file);
-	settings.shellPath = path;
+	settings.defaultTools = tools;
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
 }
