@@ -13,3 +13,4 @@ export * from "./agency-presets";
 export * from "./runtime-check";
 export * from "./bun-download";
 export * from "./task-file";
+export * from "./kernel-errors";
