@@ -1,4 +1,13 @@
 
+## 2026-08-30 — feat(i18n): kernel 后端面向用户文案 code 化全链路收尾（任务 0-6）
+
+- 背景：kernel/desktop 后端透传给 UI 的人话文案（B 类，约 160-170 处）全部改为「结构化错误码 + 参数」协议，由前端按界面语言用 react-i18next 字典渲染，一劳永逸解决「后端动态返回消息不翻译、英文界面显示中文」的历史欠账。
+- 实现概要：①shared 新增 `KernelError(code, params?, detail?)` 契约（`KernelErrorPayload`），ws-server/HTTP routes 统一捕获为 `{code, params, detail}` 透传；②语言偏好打通——前端切语言双写 `/api/settings/language`；③前端新增 `kernelMsg` 字典段（zh/en 同步），`formatKernelError` 单一出口负责 code→`t()` 映射 + params 插值 + detail 分离；④store/service/routes 逐批 code 化；⑤desktop 用 Electron `app.getLocale()` 内联 zh/en 字典独立渲染启动/更新文案。
+- error 字段兼容策略：新 kernel + 旧前端仍读 `message`（payload 被序列化当 message 显示，不炸）；旧 kernel + 新前端走 error 字符串原样显示（现状兜底）。新前端优先用 `failure.code` 渲染，未命中 code 时回退 `message`。
+- 豁免清单（明确不纳入，防范围蔓延）：1) channels IM 回复文案（IM 对端、无语言偏好来源，留待独立批次）；2) 工具结果/提示词（robot-push/delegate-tool/browser-tools，受众为 LLM 与会话流）；3) routes/ 与 ws-server 既有英文结构码（bad_request 等）；4) 前端自身硬编码中文残留（属前端 i18n 欠账）；5) 日志文本（log.error/console 不面向用户）；6) C 类技术细节（已进 detail 字段，如 ENOENT、rpc-client 内部契约断言、agent-md 解析/序列化防御）。
+- 验证：kernel 全量 1475 pass / 53 fail（与改造前基线一致，全为既有环境性集成测试失败）；frontend 全量 2009 pass / 0 fail；frontend build 成功。
+- 影响范围：packages/shared/src/kernel-errors.ts、packages/kernel/src/{kernel-error,ws-server,settings-store}.ts 及 store/service/routes 批量、packages/frontend/src/{util/kernel-error.ts, App.tsx, api-client.ts, i18n/locales, store/ui-prefs.ts, components/settings/GeneralSection.tsx}、packages/desktop/src/{main.cjs, util/*, updater/updater.cjs}。
+
 ## 2026-08-30 — fix(desktop): splash 窗口与 runtime-deps 依赖进度文案接入系统语言渲染（Task 5 审查遗漏补漏）
 
 - 背景：Task 5 审查发现两个未列入批次、但仍面向用户显示中文的启动窗口/进度文件仍硬编码中文——splash-html.cjs（启动页 HTML）与 runtime-deps.cjs（依赖下载进度 onStatus），故补入本批一起修。
