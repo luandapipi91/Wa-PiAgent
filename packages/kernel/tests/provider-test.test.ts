@@ -61,6 +61,12 @@ test("openai-completions 非 2xx 失败带状态码", async () => {
 	});
 	expect(result.ok).toBe(false);
 	expect(result.error).toContain("401");
+	// 结构化失败载荷：code + params 供前端按字典渲染，detail 带上游响应原文
+	expect(result.failure).toEqual({
+		code: "provider.httpStatus",
+		params: { status: 401 },
+		detail: expect.stringContaining("invalid api key"),
+	});
 });
 
 test("anthropic-messages POST /v1/messages 2xx 成功", async () => {
@@ -120,9 +126,11 @@ test("网络错误（fetch reject）返回失败", async () => {
 		models,
 	});
 	expect(result.ok).toBe(false);
-	// 用户可读文案，不透传原始错误码
-	expect(result.error).toContain("网络");
-	expect(result.error).not.toContain("ECONNREFUSED");
+	// error 兜底串改英文（技术兜底，用户可读文案由前端按 failure.code 查字典渲染）
+	expect(result.error).toBe("network error");
+	expect(result.failure).toEqual({ code: "provider.testNetwork" });
+	// 结构化通道不透传原始错误码
+	expect(JSON.stringify(result.failure)).not.toContain("ECONNREFUSED");
 });
 
 test("baseUrl 结尾无 / 自动补全路径", async () => {
@@ -170,13 +178,18 @@ test(
 		});
 		expect(result.ok).toBe(false);
 		expect(result.error).toContain("401");
+		expect(result.failure).toEqual({
+			code: "provider.httpStatus",
+			params: { status: 401 },
+			detail: expect.stringContaining("invalid api key"),
+		});
 		expect(result.error).not.toContain("代理");
 		expect(result.error).not.toContain("127.0.0.1");
 	}),
 );
 
 test(
-	"网络层异常显示用户可读文案，不透传技术细节与代理信息",
+	"网络层异常返回结构化 failure + 英文兜底串，不透传技术细节与代理信息",
 	withProxyEnv(async () => {
 		globalThis.fetch = mock(async () => {
 			throw new Error("ECONNREFUSED");
@@ -188,7 +201,8 @@ test(
 			models,
 		});
 		expect(result.ok).toBe(false);
-		expect(result.error).toContain("网络");
+		expect(result.error).toBe("network error");
+		expect(result.failure).toEqual({ code: "provider.testNetwork" });
 		// 代理与技术细节对用户隐藏
 		expect(result.error).not.toContain("代理");
 		expect(result.error).not.toContain("127.0.0.1");
@@ -216,7 +230,8 @@ test("超时显示用户可读文案，不附带代理信息", async () => {
 			models,
 		});
 		expect(result.ok).toBe(false);
-		expect(result.error).toContain("超时");
+		expect(result.error).toMatch(/^timeout after \d+s$/);
+		expect(result.failure).toEqual({ code: "provider.testTimeout" });
 		expect(result.error).not.toContain("代理");
 	} finally {
 		delete process.env.HTTPS_PROXY;

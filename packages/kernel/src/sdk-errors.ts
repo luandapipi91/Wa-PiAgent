@@ -19,52 +19,110 @@
 // 该模块未通过 package.json exports 暴露，无法直接 import，故在此复制精简版，
 // 与 pi-ai 保持同步即可。
 
-import type { SDKEvent } from "@wa-pi/shared";
+import type { KernelErrorPayload, SDKEvent } from "@wa-pi/shared";
 
 /**
  * HTTP 状态码 → 通用提示文案枚举。
  * provider 返回整页 HTML 时只取状态码，映射成用户可读的通用提示，
  * 不贴网站页面的 title/HTML（不可读且无信息量）。
  */
-const HTTP_STATUS_HINTS: Record<string, string> = {
-	"400": "请求格式错误（400），请检查 Provider 配置",
-	"401": "鉴权失败（401），请检查 API Key",
-	"403": "访问被拒绝（403），请检查 API Key 或权限",
-	"404": "接口不存在（404），请检查 Provider 的 baseUrl 或模型 ID",
-	"408": "请求超时（408），请稍后重试",
-	"429": "请求过于频繁（429），请稍后重试",
-	"500": "服务端错误（500），请稍后重试",
-	"502": "网关错误（502），请稍后重试",
-	"503": "服务不可用（503），请稍后重试",
-	"504": "网关超时（504），请稍后重试",
-	"524": "网关超时（524），请稍后重试",
+const HTTP_STATUS_HINTS: Record<string, { code: string; text: string }> = {
+	"400": {
+		code: "model.badRequest",
+		text: "请求格式错误（400），请检查 Provider 配置",
+	},
+	"401": {
+		code: "model.authFailed",
+		text: "鉴权失败（401），请检查 API Key",
+	},
+	"403": {
+		code: "model.forbidden",
+		text: "访问被拒绝（403），请检查 API Key 或权限",
+	},
+	"404": {
+		code: "model.notFound",
+		text: "接口不存在（404），请检查 Provider 的 baseUrl 或模型 ID",
+	},
+	"408": { code: "model.timeout", text: "请求超时（408），请稍后重试" },
+	"429": {
+		code: "model.rateLimited",
+		text: "请求过于频繁（429），请稍后重试",
+	},
+	"500": {
+		code: "model.serverError",
+		text: "服务端错误（500），请稍后重试",
+	},
+	"502": { code: "model.badGateway", text: "网关错误（502），请稍后重试" },
+	"503": {
+		code: "model.serviceUnavailable",
+		text: "服务不可用（503），请稍后重试",
+	},
+	// 504 与 524（Cloudflare 专有）同为网关超时：共用 code，状态码经 params 区分
+	"504": {
+		code: "model.gatewayTimeout",
+		text: "网关超时（504），请稍后重试",
+	},
+	"524": {
+		code: "model.gatewayTimeout",
+		text: "网关超时（524），请稍后重试",
+	},
 };
 
 /**
  * 清洗 errorMessage：provider 返回的错误页（整页 HTML）不可读，
- * 提取 HTTP 状态码映射到预设的通用提示文案。
+ * 提取 HTTP 状态码映射到预设提示（中文兼容文案 + 结构化 payload）。
  *
- * 例："404 <!DOCTYPE html>..." → "接口不存在（404），请检查 Provider 的 baseUrl 或模型 ID"
+ * 例："404 <!DOCTYPE html>..." →
+ *   message: "接口不存在（404），请检查 Provider 的 baseUrl 或模型 ID"
+ *   payload: { code: "model.notFound", params: { status: "404" }, detail: 原文 }
  *
- * 已知状态码用 HTTP_STATUS_HINTS 精确映射；未枚举的状态码按段位给通用提示
- * （4xx 客户端错误 / 5xx 服务端错误），仍带上具体状态码供排查。
- * 非 HTML（正常错误文案如 "Connection error."）原样返回。
+ * 已知状态码用 HTTP_STATUS_HINTS 精确映射；未枚举的状态码按段位
+ * （4xx → model.clientError / 5xx → model.serverError）；
+ * HTML 但无法识别状态码 → model.callFailed 兜底。
+ * 非 HTML（正常错误文案如 "Connection error."）原样透传，不发 code
+ * （payload 为 undefined，前端回落 message，避免字典文案比原文更失真）。
  */
-function sanitizeErrorMessage(raw: string): string {
+function sanitizeError(raw: string): {
+	message: string;
+	payload?: KernelErrorPayload;
+} {
 	// 含 <!DOCTYPE 或 <html 才视为 HTML 错误页，避免误伤含尖括号的正常文案
-	if (!/<(?:!DOCTYPE\s+html|html[\s>])/i.test(raw)) return raw;
+	if (!/<(?:!DOCTYPE\s+html|html[\s>])/i.test(raw)) return { message: raw };
 	// 提取 HTTP 状态码（provider 常把状态码拼在 HTML 前，如 "404 <!DOCTYPE"）
 	const statusMatch = raw.match(/\b(\d{3})\b/);
 	if (statusMatch) {
-		const code = statusMatch[1];
-		if (HTTP_STATUS_HINTS[code]) return HTTP_STATUS_HINTS[code];
-		const n = parseInt(code, 10);
+		const status = statusMatch[1];
+		const hint = HTTP_STATUS_HINTS[status];
+		if (hint)
+			return {
+				message: hint.text,
+				payload: { code: hint.code, params: { status }, detail: raw },
+			};
+		const n = parseInt(status, 10);
 		if (n >= 400 && n < 500)
-			return `请求错误（${code}），请检查请求参数或 Provider 配置`;
-		if (n >= 500 && n < 600) return `服务端错误（${code}），请稍后重试`;
+			return {
+				message: `请求错误（${status}），请检查请求参数或 Provider 配置`,
+				payload: {
+					code: "model.clientError",
+					params: { status },
+					detail: raw,
+				},
+			};
+		if (n >= 500 && n < 600)
+			return {
+				message: `服务端错误（${status}），请稍后重试`,
+				payload: {
+					code: "model.serverError",
+					params: { status },
+					detail: raw,
+				},
+			};
 	}
 	// HTML 但无法识别状态码：降级到兜底，不贴整页
-	return FALLBACK_MESSAGE;
+	return {
+		message: FALLBACK_MESSAGE,
+		payload: { code: "model.callFailed", detail: raw },
+	};
 }
 
 /** errorMessage 缺失时的兜底文案（例如某些 provider 不回具体错误信息） */
@@ -187,7 +245,10 @@ export type ErrorCategory = "transient" | "fatal";
 
 export interface ClassifiedError {
 	category: ErrorCategory;
+	/** 中文兼容文案：保留供未迁移的老渲染路径兑底（前端新路径优先按 failure.code 查字典） */
 	message: string;
+	/** 结构化失败载荷（见 sanitizeError / 映射表）；非 HTML 原文透传时缺省 */
+	failure?: KernelErrorPayload;
 }
 
 /**
@@ -210,7 +271,7 @@ export function extractSdkErrorMessage(event: SDKEvent): string | null {
 			: null;
 	// 用户主动停止（abort/cancel）不是错误：不提取文案，保持与 stopReason:"aborted" 一致静默。
 	if (detail && isAbortErrorMessage(detail)) return null;
-	return detail ? sanitizeErrorMessage(detail) : FALLBACK_MESSAGE;
+	return detail ? sanitizeError(detail).message : FALLBACK_MESSAGE;
 }
 
 /**
@@ -239,8 +300,12 @@ export function classifySdkError(event: SDKEvent): ClassifiedError | null {
 	// "The operation was aborted." 提示的根因）。
 	if (detail && isAbortErrorMessage(detail)) return null;
 
-	// 展示文案需清洗（HTML 错误页不可读）；分类正则仍用原始 detail（保留完整信息供匹配）
-	const message = detail ? sanitizeErrorMessage(detail) : FALLBACK_MESSAGE;
+	// 展示文案需清洗（HTML 错误页不可读）；分类正则仍用原始 detail（保留完整信息供匹配）。
+	// sanitizeError 同时产出中文兼容文案与结构化 payload（code/params/detail，见映射表）。
+	const sanitized = detail
+		? sanitizeError(detail)
+		: { message: FALLBACK_MESSAGE, payload: { code: "model.callFailed" } as KernelErrorPayload };
+	const message = sanitized.message;
 
 	// 无具体文案时无法判别，保守归 fatal
 	const category: ErrorCategory = detail
@@ -251,7 +316,7 @@ export function classifySdkError(event: SDKEvent): ClassifiedError | null {
 				: "fatal"
 		: "fatal";
 
-	return { category, message };
+	return { category, message, failure: sanitized.payload };
 }
 
 /**

@@ -5,6 +5,9 @@ export interface KernelErrorPayload {
 	detail?: string;
 }
 
+/** provider 连通测试的结构化失败载荷：与 KernelErrorPayload 同构（code/params/detail） */
+export type ProviderTestFailure = KernelErrorPayload;
+
 export class KernelError extends Error {
 	readonly code: string;
 	readonly params?: Record<string, string | number>;

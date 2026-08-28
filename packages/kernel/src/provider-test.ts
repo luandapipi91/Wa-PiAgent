@@ -1,4 +1,4 @@
-import type { ProviderApi, ProviderModel } from "@wa-pi/shared";
+import type { ProviderApi, ProviderModel, ProviderTestFailure } from "@wa-pi/shared";
 
 interface TestInput {
 	baseUrl: string;
@@ -9,7 +9,10 @@ interface TestInput {
 
 export interface TestResult {
 	ok: boolean;
+	/** 英文技术兑底串（用户可读文案由前端按 failure.code 查字典渲染） */
 	error?: string;
+	/** 结构化失败载荷：前端按 code 查 kernelMsg 字典渲染，优先于 error */
+	failure?: ProviderTestFailure;
 }
 
 /** 超时 10 秒 */
@@ -47,6 +50,11 @@ export async function testProviderConnection(
 			return {
 				ok: false,
 				error: `HTTP ${res.status} ${body.slice(0, 200)}`.trim(),
+				failure: {
+					code: "provider.httpStatus",
+					params: { status: res.status },
+					detail: body.slice(0, 200),
+				},
 			};
 		} else {
 			// anthropic-messages：发最小请求（路径与 Anthropic SDK 一致，用 /v1/messages）
@@ -71,15 +79,24 @@ export async function testProviderConnection(
 			return {
 				ok: false,
 				error: `HTTP ${res.status} ${body.slice(0, 200)}`.trim(),
+				failure: {
+					code: "provider.httpStatus",
+					params: { status: res.status },
+					detail: body.slice(0, 200),
+				},
 			};
 		}
 	} catch {
-		// 面向用户的人话文案：代理/错误码等基础设施细节对用户隐藏
+		// error 兑底串改英文：人话文案由前端按 failure.code 查字典渲染（i18n），
+		// 代理/错误码等基础设施细节同样不透传
 		return {
 			ok: false,
 			error: controller.signal.aborted
-				? `连接超时（${Math.round(timeoutMs / 1000)} 秒），请检查网络后重试`
-				: "网络连接失败，请检查网络后重试",
+				? `timeout after ${Math.round(timeoutMs / 1000)}s`
+				: "network error",
+			failure: controller.signal.aborted
+				? { code: "provider.testTimeout" }
+				: { code: "provider.testNetwork" },
 		};
 	} finally {
 		clearTimeout(timer);
