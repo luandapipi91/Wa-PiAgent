@@ -406,3 +406,76 @@ test("isTransientErrorMessage: insufficient_quota → false", () => {
 test("isTransientErrorMessage: 空字符串 → false", () => {
 	expect(isTransientErrorMessage("")).toBe(false);
 });
+
+// ========== 结构化 failure（KernelErrorPayload）==========
+//
+// message（中文兼容文案）保留；新增 failure 按映射表给出稳定 code + params，
+// 前端按 code 查 kernelMsg 字典渲染（i18n），detail 携带原始错误信息供排查。
+// 映射表见 sdk-errors.ts HTTP_STATUS_HINTS（14 条，格式 model.<语义>）。
+
+test("classifySdkError: 404 HTML 错误页 → failure=model.notFound + status params", () => {
+	const html = "404 <!DOCTYPE html><html><body>Not Found</body></html>";
+	const result = classifySdkError(errEvent(html));
+	expect(result?.failure).toEqual({
+		code: "model.notFound",
+		params: { status: "404" },
+		detail: html,
+	});
+});
+
+test("classifySdkError: 401 HTML → model.authFailed", () => {
+	const html = "401 <!DOCTYPE html><html><body>unauthorized</body></html>";
+	expect(classifySdkError(errEvent(html))?.failure?.code).toBe(
+		"model.authFailed",
+	);
+});
+
+test("classifySdkError: 429 HTML → model.rateLimited", () => {
+	const html = "429 <!DOCTYPE html><html><body>too many requests</body></html>";
+	expect(classifySdkError(errEvent(html))?.failure?.code).toBe(
+		"model.rateLimited",
+	);
+});
+
+test("classifySdkError: 未枚举 422 HTML → model.clientError", () => {
+	const html =
+		"422 <!DOCTYPE html><html><body>Unprocessable Entity</body></html>";
+	const f = classifySdkError(errEvent(html))?.failure;
+	expect(f?.code).toBe("model.clientError");
+	expect(f?.params).toEqual({ status: "422" });
+});
+
+test("classifySdkError: 未枚举 507 HTML → model.serverError", () => {
+	const html =
+		"507 <!DOCTYPE html><html><body>Insufficient Storage</body></html>";
+	const f = classifySdkError(errEvent(html))?.failure;
+	expect(f?.code).toBe("model.serverError");
+	expect(f?.params).toEqual({ status: "507" });
+});
+
+test("classifySdkError: HTML 无状态码 → model.callFailed（detail 保留原文）", () => {
+	const html = "<!DOCTYPE html><html><body>weird error</body></html>";
+	const f = classifySdkError(errEvent(html))?.failure;
+	expect(f?.code).toBe("model.callFailed");
+	expect(f?.detail).toBe(html);
+});
+
+test("classifySdkError: 无 errorMessage → failure=model.callFailed（无 detail）", () => {
+	const event: SDKEvent = {
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [],
+			model: "m",
+			stopReason: "error",
+			timestamp: 1,
+		} as any,
+	};
+	expect(classifySdkError(event)?.failure).toEqual({
+		code: "model.callFailed",
+	});
+});
+
+test("classifySdkError: 非 HTML 原文（Connection error.）→ failure 缺省（原文透传）", () => {
+	expect(classifySdkError(errEvent("Connection error."))?.failure).toBeUndefined();
+});

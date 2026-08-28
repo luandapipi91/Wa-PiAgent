@@ -981,6 +981,10 @@ export interface SessionUpdatedEvent {
 export interface ErrorEvent {
 	type: "error";
 	message: string;
+	/** 结构化错误载荷（ws-server replyError 兜底 KernelError 时携带）：前端按 code 查 kernelMsg 字典渲染，优先于 message */
+	code?: string;
+	params?: Record<string, string | number>;
+	detail?: string;
 	agentName?: AgentName;
 	sessionId?: string; // 真正出错的会话；前端据此精确路由，缺省回落 currentSessionId
 	status?: number; // REST 适配层（callApi）映射的 HTTP 状态码提示，缺省 400；如 Bot ID 冲突 → 409
@@ -992,6 +996,10 @@ export interface NetStatusEvent {
 	type: "net:status";
 	status: "degraded"; // 预留将来加 "recovered"
 	message: string;
+	/** 结构化错误载荷（classifySdkError transient 分支携带）：前端按 code 查字典渲染，优先于 message */
+	code?: string;
+	params?: Record<string, string | number>;
+	detail?: string;
 	agentName?: AgentName;
 	sessionId?: string;
 }

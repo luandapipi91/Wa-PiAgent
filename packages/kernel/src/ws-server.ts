@@ -11,6 +11,7 @@ import {
 	SYSTEM_PROJECT_CWD,
 	resolveSessionCwd,
 	WA_PI_DIR,
+	toKernelPayload,
 } from "@wa-pi/shared";
 import type { DirEntry } from "@wa-pi/shared";
 import type { ConfigStore } from "./config-store";
@@ -96,6 +97,36 @@ import type { FolderTaskStore } from "./scheduler-task-store";
 import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
+
+/**
+ * 统一错误兑底：KernelError 转结构化载荷（code/params/detail），前端按
+ * kernelMsg 字典渲染；普通 Error（未迁移模块）走原 message 通道，行为不变。
+ * extra 用于透传调用点已有的附加字段（如 sessionId），KernelError 分支同样保留。
+ */
+function replyError(
+	reply: (p: any) => void,
+	err: unknown,
+	extra?: Record<string, unknown>,
+) {
+	const payload = toKernelPayload(err);
+	if (payload)
+		reply({
+			type: "error",
+			// message 保留 err.message（KernelError 的 message 即 code），
+			// 兑底老前端渲染路径；新前端优先 code/params/detail
+			message: err instanceof Error ? err.message : String(err),
+			code: payload.code,
+			params: payload.params,
+			detail: payload.detail,
+			...extra,
+		});
+	else
+		reply({
+			type: "error",
+			message: err instanceof Error ? err.message : String(err),
+			...extra,
+		});
+}
 
 /** 展开路径开头的 ~ 为 HOME 目录（Node.js 不自动展开 shell ~ 约定） */
 function expandTilde(p: string): string {
@@ -1104,11 +1135,7 @@ export class WSServer {
 					});
 					await this.broadcastProjectsList();
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-						sessionId: event.sessionId,
-					});
+					replyError(reply, err, { sessionId: event.sessionId });
 				}
 				break;
 			}
@@ -1118,11 +1145,7 @@ export class WSServer {
 					// 重建后 broadcast 更新列表（重建可能改变 session 的 piSessionFile 等）
 					await this.broadcastProjectsList();
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-						sessionId: event.sessionId,
-					});
+					replyError(reply, err, { sessionId: event.sessionId });
 				}
 				break;
 			}
@@ -1139,11 +1162,7 @@ export class WSServer {
 						commands,
 					});
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-						sessionId: event.sessionId,
-					});
+					replyError(reply, err, { sessionId: event.sessionId });
 				}
 				break;
 			}
@@ -1657,10 +1676,7 @@ export class WSServer {
 						agents: await this.opts.configStore.listAgents(),
 					});
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-					});
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -1721,10 +1737,7 @@ export class WSServer {
 						agents: await this.opts.configStore.listAgents(),
 					});
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-					});
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -1806,10 +1819,7 @@ export class WSServer {
 					const subagents = await getSubagentInfo(overrides);
 					reply({ type: "subagent:list", subagents });
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-					});
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -1826,10 +1836,7 @@ export class WSServer {
 					// 保存后广播更新列表给所有前端
 					reply({ type: "subagent:list", subagents });
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-					});
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2195,7 +2202,13 @@ export class WSServer {
 					api: event.api,
 					models: event.models,
 				});
-				reply({ type: "provider:test", ok: result.ok, error: result.error });
+				// failure 结构化透传：前端按 code 查 kernelMsg 字典渲染（优先于 error 兑底串）
+				reply({
+					type: "provider:test",
+					ok: result.ok,
+					error: result.error,
+					failure: result.failure,
+				});
 				break;
 			}
 			case "settings:get": {
@@ -2221,7 +2234,7 @@ export class WSServer {
 					this.opts.agentManager.markAllDirty();
 					reply({ type: "settings:current", retry, httpIdleTimeoutMs });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2264,7 +2277,7 @@ export class WSServer {
 					const result = await this.scanSkillsWithExtensions();
 					reply({ type: "skill:list", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2283,7 +2296,7 @@ export class WSServer {
 					const result = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2294,7 +2307,7 @@ export class WSServer {
 					const result = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2303,7 +2316,7 @@ export class WSServer {
 					const { packages } = await this.opts.extensionManager.list();
 					reply({ type: "extension:list", packages });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2320,7 +2333,7 @@ export class WSServer {
 					const skillResult = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2416,7 +2429,7 @@ export class WSServer {
 					const commands = await this.opts.agentManager.getCommands("");
 					reply({ type: "extension:commands:list", commands });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2431,7 +2444,7 @@ export class WSServer {
 					// 广播命令变更事件：前端据此刷新 / 菜单命令列表（开启/关闭后立即生效）
 					this.broadcast({ type: "extension:commands:changed" });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2459,7 +2472,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					reply({ type: "memory:list", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2469,7 +2482,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2479,7 +2492,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2489,7 +2502,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2499,7 +2512,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2509,7 +2522,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2520,7 +2533,7 @@ export class WSServer {
 					);
 					reply({ type: "instruction:list", instructions });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2529,7 +2542,7 @@ export class WSServer {
 					const config = await this.opts.memoryStore.getConfig();
 					reply({ type: "memory:config", config });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2541,7 +2554,7 @@ export class WSServer {
 					const config = await this.opts.memoryStore.getConfig();
 					this.broadcast({ type: "memory:config", config });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2551,7 +2564,7 @@ export class WSServer {
 					const servers = await this.opts.mcpStore.list(event.projectId);
 					reply({ type: "mcp:list", projectId: event.projectId, servers });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2569,7 +2582,7 @@ export class WSServer {
 						servers,
 					});
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2583,7 +2596,7 @@ export class WSServer {
 						servers,
 					});
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}

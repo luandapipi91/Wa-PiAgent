@@ -294,11 +294,19 @@ export async function startKernel(opts?: {
 			//   - fatal（鉴权/配额/模型不可用）→ {type:"error"} 红色会话消息
 			const classified = classifySdkError(event as any);
 			if (classified) {
+				// 结构化字段透传：前端 formatKernelError 按 code 查 kernelMsg 字典渲染，
+				// message（中文兼容文案）保留供未迁移的老渲染路径兑底
+				const structured = {
+					code: classified.failure?.code,
+					params: classified.failure?.params,
+					detail: classified.failure?.detail,
+				};
 				if (classified.category === "transient") {
 					broadcast({
 						type: "net:status",
 						status: "degraded",
 						message: classified.message,
+						...structured,
 						agentName,
 						sessionId,
 					});
@@ -309,6 +317,7 @@ export async function startKernel(opts?: {
 					broadcast({
 						type: "error",
 						message: classified.message,
+						...structured,
 						agentName,
 						sessionId,
 					});
