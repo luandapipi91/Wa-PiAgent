@@ -11,6 +11,8 @@ import {
 	applySystemProxy,
 	loadShareSettings,
 	saveShareSettings,
+	loadLanguage,
+	saveLanguage,
 } from "../settings-store";
 
 export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
@@ -72,5 +74,16 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 				accountId: saved.accountId,
 			},
 		});
+	});
+	// 界面语言偏好（后端 i18n 基建：前端切换语言时双写 kernel settings.json；
+	// ctx.settingsFile 供测试注入隔离文件）。白名单校验在 saveLanguage（非法值 → 500 {error}）。
+	r.add("GET", "/api/settings/language", async () => {
+		const language = await loadLanguage(ctx.settingsFile);
+		return Response.json({ language: language ?? null });
+	});
+	r.add("PUT", "/api/settings/language", async (req) => {
+		const b = await readJsonBody(req);
+		const language = await saveLanguage(b.language, ctx.settingsFile);
+		return Response.json({ language });
 	});
 };

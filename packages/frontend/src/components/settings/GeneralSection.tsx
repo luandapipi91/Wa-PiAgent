@@ -208,8 +208,12 @@ export function GeneralSection() {
 			// 图片导出范围草稿生效（仅当与当前值不同时才写入）
 			if (draftExportIncludeUser !== exportIncludeUser)
 				setExportIncludeUser(draftExportIncludeUser);
-			// 语言草稿生效（仅当与当前值不同时才写入）
-			if (draftLang !== language) setLanguage(draftLang);
+			// 语言草稿生效（仅当与当前值不同时才写入），并双写 kernel settings.json
+			// （后端 i18n 基建：kernel 侧生成的消息将来按此语言输出）
+			if (draftLang !== language) {
+				setLanguage(draftLang);
+				await api.put("/api/settings/language", { language: draftLang });
+			}
 			setSaved(true);
 		} catch (e) {
 			// 保存失败：用 toast 提示，不再在按钮旁显示 inline 文本

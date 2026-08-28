@@ -522,6 +522,9 @@ export interface SessionStatsRequest {
 }
 
 // ===== 通用设置（系统设置 > 通用）=====
+/** 界面语言。kernel 侧副本：前端切换语言时经 /api/settings/language 双写到 settings.json，
+ *  供后端 i18n（kernel 生成的消息按此语言输出）读取；前端真源仍在 ui-prefs（localStorage）。 */
+export type KernelLanguage = "zh" | "en";
 /** pi 自动重试配置（持久化在 settings.json.retry，pi settings-manager 直接消费） */
 export interface RetrySettings {
 	maxRetries: number; // 重试次数上限，0-10，默认 3
