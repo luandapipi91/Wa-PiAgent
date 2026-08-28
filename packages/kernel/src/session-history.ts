@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import { reconcileDanglingAsks } from "./ask-tool";
 import { isTransientErrorMessage } from "./sdk-errors";
 import type { AgentMessage } from "@wa-pi/shared";
+import { KernelError } from "./kernel-error";
 
 interface SessionLogEntry {
 	type?: string;
@@ -169,7 +170,7 @@ export async function readSessionHistory(
 			// 坏行跳过（写入中途截断等）
 		}
 	}
-	if (entries.length === 0) throw new Error(`会话文件无有效行: ${file}`);
+	if (entries.length === 0) throw new KernelError("session.noValidLines", undefined, file);
 
 	const byId = new Map<string, SessionLogEntry>();
 	for (const e of entries) {
@@ -364,7 +365,7 @@ export async function computeSessionUsage(
 		}
 	}
 	if (!sawAny && raw.trim().length === 0) {
-		throw new Error(`会话文件无有效行: ${file}`);
+		throw new KernelError("session.noValidLines", undefined, file);
 	}
 	const withTotal = (a: typeof main): SessionUsageSummary => ({
 		...a,

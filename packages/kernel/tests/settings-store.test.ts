@@ -16,6 +16,7 @@ import {
 	loadLanguage,
 	saveLanguage,
 } from "../src/settings-store";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 // settings-store 直接读写磁盘 settings.json：用临时目录隔离，不碰真实 ~/.wa-pi
 let dir: string;
@@ -85,16 +86,28 @@ test("saveRetrySettings：边界值 0 次与上限 10 次均可保存，11 次�
 			{ maxRetries: MAX_RETRIES_LIMIT + 1, baseDelayMs: 2000 },
 			file,
 		),
-	).rejects.toThrow("0-10");
+	).rejects.toThrow();
+	expect(
+		await errorCodeOf(
+			saveRetrySettings(
+				{ maxRetries: MAX_RETRIES_LIMIT + 1, baseDelayMs: 2000 },
+				file,
+			),
+		),
+	).toBe("settings.invalidRetries");
 });
 
 test("saveRetrySettings：拒绝非整数 / 负数 / 越界间隔", async () => {
-	await expect(
-		saveRetrySettings({ maxRetries: 1.5, baseDelayMs: 2000 }, file),
-	).rejects.toThrow("整数");
-	await expect(
-		saveRetrySettings({ maxRetries: -1, baseDelayMs: 2000 }, file),
-	).rejects.toThrow("0-10");
+	expect(
+		await errorCodeOf(
+			saveRetrySettings({ maxRetries: 1.5, baseDelayMs: 2000 }, file),
+		),
+	).toBe("settings.invalidRetries");
+	expect(
+		await errorCodeOf(
+			saveRetrySettings({ maxRetries: -1, baseDelayMs: 2000 }, file),
+		),
+	).toBe("settings.invalidRetries");
 	await expect(
 		saveRetrySettings(
 			{ maxRetries: 3, baseDelayMs: BASE_DELAY_MIN_MS - 1 },
@@ -193,10 +206,18 @@ test("ensureHttpIdleTimeout：已有用户值不覆盖；非数字（如字符�
 
 test("saveHttpIdleTimeoutMs：拒绝 0 / 负数 / 小数 / Infinity（0 会被 pi 翻译成永不超时）", async () => {
 	await writeFile(file, JSON.stringify({}), "utf8");
-	await expect(saveHttpIdleTimeoutMs(0, file)).rejects.toThrow("整数");
-	await expect(saveHttpIdleTimeoutMs(-1000, file)).rejects.toThrow("整数");
-	await expect(saveHttpIdleTimeoutMs(1500.5, file)).rejects.toThrow("整数");
-	await expect(saveHttpIdleTimeoutMs(Infinity, file)).rejects.toThrow("整数");
+	expect(await errorCodeOf(saveHttpIdleTimeoutMs(0, file))).toBe(
+		"settings.invalidIdleTimeout",
+	);
+	expect(await errorCodeOf(saveHttpIdleTimeoutMs(-1000, file))).toBe(
+		"settings.invalidIdleTimeout",
+	);
+	expect(await errorCodeOf(saveHttpIdleTimeoutMs(1500.5, file))).toBe(
+		"settings.invalidIdleTimeout",
+	);
+	expect(await errorCodeOf(saveHttpIdleTimeoutMs(Infinity, file))).toBe(
+		"settings.invalidIdleTimeout",
+	);
 	// 合法值正常保存
 	await expect(saveHttpIdleTimeoutMs(60_000, file)).resolves.toBe(60_000);
 });

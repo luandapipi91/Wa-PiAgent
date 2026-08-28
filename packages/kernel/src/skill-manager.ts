@@ -6,6 +6,7 @@ import {
   SKILL_SCAN_TIMEOUT_MS, ADD_DIR_TIMEOUT_MS, ADD_DIR_NON_SKILL_THRESHOLD,
   ScanTimeoutError,
 } from "./skill-utils";
+import { KernelError } from "./kernel-error";
 
 /** settings.json 中与技能相关的字段 */
 interface SkillSettings {
@@ -145,10 +146,10 @@ export class SkillManager {
     try {
       st = await stat(path);
     } catch {
-      throw new Error("目录不存在");
+      throw new KernelError("skill.dirNotFound", { path });
     }
-    if (!st.isDirectory()) throw new Error("路径不是目录");
-    if (path === this.builtinDir) throw new Error("内置目录无需重复添加");
+    if (!st.isDirectory()) throw new KernelError("skill.notADirectory", { path });
+    if (path === this.builtinDir) throw new KernelError("skill.builtinDuplicate", { path });
 
     // 快速验证：防止用户误选 /Library 之类的超大目录导致后续扫描负担
     const check = await withTimeout(
@@ -157,13 +158,13 @@ export class SkillManager {
       "目录验证超时",
     ).catch((err) => {
       if (err instanceof ScanTimeoutError) {
-        throw new Error("目录验证超时，请检查目录是否过大");
+        throw new KernelError("skill.dirCheckTimeout", { path });
       }
       throw err;
     });
 
     if (!check.found && check.inspectedCount > ADD_DIR_NON_SKILL_THRESHOLD) {
-      throw new Error("未检测到 SKILL.md，请选择一个技能目录或包含技能目录的父目录");
+      throw new KernelError("skill.noSkillMd", { path });
     }
 
     const settings = await this.readSettings();
@@ -180,7 +181,7 @@ export class SkillManager {
    * @throws 尝试删除内置目录时抛出 "内置目录不可删除"
    */
   async removeDir(path: string): Promise<void> {
-    if (path === this.builtinDir) throw new Error("内置目录不可删除");
+    if (path === this.builtinDir) throw new KernelError("skill.builtinUndeletable", { path });
     const settings = await this.readSettings();
     const dirs = settings.userSkillDirs ?? [];
     if (!dirs.includes(path)) return;

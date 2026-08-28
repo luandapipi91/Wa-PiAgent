@@ -17,6 +17,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { WA_PI_DIR } from "@wa-pi/shared";
+import { KernelError } from "./kernel-error";
 import { ensureProxyRelay } from "./proxy-relay";
 import type {
 	RetrySettings,
@@ -102,7 +103,7 @@ export async function saveRetrySettings(
 		maxRetries < 0 ||
 		maxRetries > MAX_RETRIES_LIMIT
 	) {
-		throw new Error(`重试次数需为 0-${MAX_RETRIES_LIMIT} 的整数`);
+		throw new KernelError("settings.invalidRetries", { max: MAX_RETRIES_LIMIT });
 	}
 	if (
 		!Number.isInteger(baseDelayMs) ||
@@ -195,7 +196,9 @@ export async function saveHttpIdleTimeoutMs(
 	file: string = SETTINGS_FILE,
 ): Promise<number> {
 	if (!Number.isInteger(timeoutMs) || timeoutMs < HTTP_IDLE_TIMEOUT_MIN_MS) {
-		throw new Error(`HTTP 空闲超时需为 ≥${HTTP_IDLE_TIMEOUT_MIN_MS}ms 的整数`);
+		throw new KernelError("settings.invalidIdleTimeout", {
+			min: HTTP_IDLE_TIMEOUT_MIN_MS,
+		});
 	}
 	const settings = await readSettingsJson(file);
 	settings.httpIdleTimeoutMs = timeoutMs;

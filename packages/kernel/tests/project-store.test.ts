@@ -8,6 +8,7 @@ import {
 	SYSTEM_PROJECT_NAME,
 	SYSTEM_PROJECT_CWD,
 } from "@wa-pi/shared";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 function tempFile() {
 	return join(
@@ -104,8 +105,8 @@ test("createProject 相同 cwd 抛错", async () => {
 	const store = new ProjectStore(f);
 	await store.createProject({ name: "项目A", cwd: "/work/same" });
 	expect(
-		store.createProject({ name: "项目B", cwd: "/work/same" }),
-	).rejects.toThrow("相同目录的项目已存在");
+		await errorCodeOf(store.createProject({ name: "项目B", cwd: "/work/same" })),
+	).toBe("project.duplicateCwd");
 	rmSync(f, { force: true });
 });
 

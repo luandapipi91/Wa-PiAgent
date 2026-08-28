@@ -3,6 +3,7 @@ import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { isModelAvailable, SUBAGENT_TYPES } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
+import { formatKernelError } from "../../util/kernel-error";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
 import { useSkillsStore } from "../../store/skills";
@@ -511,8 +512,11 @@ export function ComposerInput({
 					{ kind, name: file.name, path, size: file.size },
 				]);
 			} catch (err) {
+				// 上传失败：KernelError（attachment.tooLarge）按 kernelMsg 字典渲染；
+				// 纯 Error（无 code）沿 message 原样展示，行为不变
 				setUploadError(
-					err instanceof Error ? err.message : t("composer.uploadFailed"),
+					formatKernelError(err as { message?: string }).main ||
+						t("composer.uploadFailed"),
 				);
 			} finally {
 				setPendingUploads((n) => n - 1);
@@ -762,7 +766,8 @@ export function ComposerInput({
 			// Ctrl 系 + Enter 均视为发送/引导）。
 			if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
 				e.preventDefault();
-				if (canSend) onSendSteer ? onSendSteer() : onSend();
+				// 括号包裹三元表达式语句（biome no-unused-expressions）：语义不变
+				if (canSend) (onSendSteer ? onSendSteer() : onSend());
 				return;
 			}
 			// 正常 Enter 发送
