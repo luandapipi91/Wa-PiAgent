@@ -1,4 +1,18 @@
 
+## 2026-08-28 — fix(kernel): 系统打开出口剥离 WA_PI_* 环境变量（防子进程继承端口/目录变量）
+
+- 背景：文件树右键「默认方式打开」打开项目 start.command 时，macOS open 经 LaunchServices 把 kernel 环境传给 Terminal 里的脚本——继承的 WA_PI_WS_PORT/WA_PI_WEB_PORT 使 bun run dev 启动即 killPort 抢占宿主实例端口；访达双击走 launchd 环境干净故无此问题。
+- 修复：shared 新增 sanitizeOpenEnv（逐键拷贝剥离 WA_PI_* 前缀，保留系统变量），接线 kernel 三处打开出口：fs.ts spawnOpen（open-with-default-app / reveal-file 共用）、ws-server.ts project:open-dir、share.ts open-folder。
+- 验证：shared pure 单测（剥离/保留/undefined/空输入）+ kernel fs-open-env.test.ts（mock spawn 断言净化 env 传参）全绿；fs 域测试 11 pass；shared/kernel typecheck 绿。
+- 影响范围：packages/shared/src/pure.ts、packages/kernel/src/{routes/fs,routes/share,ws-server}.ts、新增 kernel/tests/fs-open-env.test.ts。
+
+## 2026-08-28 — fix(frontend): 全屏预览关闭后不再重置会话界面（文件树展开状态保留）
+
+- 背景：预览全屏模式（full）下点关闭回到会话时，聊天侧整块卸载重挂——文件树展开状态、草稿、滚动位置等全部丢失（split/float 早在 8-22 已保持挂载，唯独 full 用互斥条件渲染漏掉）。
+- 修复：App.tsx 聊天侧容器改为始终挂载，full 模式仅 `display:none` 视觉隐藏（样式提取为 chatPaneStyle 模块级函数，避免嵌套三元）。预览任何模式切换/关闭均不影响会话窗口内部状态。
+- 验证：新增组件测试（full→close 后 session-view 同一 DOM 节点断言）+ E2E（展开目录→全屏预览→关闭→树仍展开）；frontend 单测 2000 pass / 0 fail，typecheck 绿；browser-preview spec 除「浮动模式」外全绿，该用例经 git stash 基线对照确认为既有失败，与本改动无关。
+- 影响范围：packages/frontend/src/App.tsx、tests/App-browser-full-close.test.tsx（新增）、e2e/browser-preview.spec.ts。
+
 ## 2026-08-30 — v0.3.1 发版（Windows 默认命令切换 PowerShell + 稳定性修复）
 
 - 版本：0.2.30 → 0.3.1（次版本号升级）。

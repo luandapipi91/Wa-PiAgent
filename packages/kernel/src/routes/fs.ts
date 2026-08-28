@@ -9,6 +9,7 @@ import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { sanitizeOpenEnv } from "@wa-pi/shared";
 
 /** 展开路径开头的 ~ 为 HOME 目录 */
 function expandTilde(p: string): string {
@@ -28,12 +29,15 @@ export function defaultOpenCommand(platform: NodeJS.Platform): string {
 /**
  * spawn 系统打开命令：不经 shell（参数数组传递，避免用户路径含特殊字符时的命令注入）。
  * Windows 的 start 是 cmd 内置，经 cmd /c 调用且首参数为空串占位窗口标题。
+ * 环境经 sanitizeOpenEnv 净化：剥离 WA_PI_* 内部变量，防止被打开的脚本
+ * （如用户项目的 start.command）继承端口/目录变量后 killPort 抢占宿主实例端口。
  */
 export function spawnOpen(cmd: string, target: string): void {
+	const env = sanitizeOpenEnv(process.env);
 	if (process.platform === "win32") {
-		spawn("cmd", ["/c", cmd, "", target], { stdio: "ignore" });
+		spawn("cmd", ["/c", cmd, "", target], { stdio: "ignore", env });
 	} else {
-		spawn(cmd, [target], { stdio: "ignore" });
+		spawn(cmd, [target], { stdio: "ignore", env });
 	}
 }
 
