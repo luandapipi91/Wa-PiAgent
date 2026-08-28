@@ -1,5 +1,5 @@
 import { test, expect, mock, afterEach } from "bun:test";
-import { testProviderConnection } from "../src/provider-test";
+import { testProviderConnection, setTestTimeoutMs } from "../src/provider-test";
 import type { ProviderModel } from "@wa-pi/shared";
 
 // mock 全局 fetch
@@ -36,7 +36,7 @@ test("openai-completions GET /models 2xx 成功", async () => {
 
 test("openai-completions 请求带 Authorization Bearer", async () => {
 	const fetchMock = mock(
-		async (input: string, init?: any) => new Response("{}", { status: 200 }),
+		async (_input: string, _init?: any) => new Response("{}", { status: 200 }),
 	);
 	globalThis.fetch = fetchMock as any;
 	await testProviderConnection({
@@ -76,7 +76,7 @@ test("anthropic-messages POST /v1/messages 2xx 成功", async () => {
 
 test("anthropic-messages 带 x-api-key + anthropic-version header", async () => {
 	const fetchMock = mock(
-		async (input: string, init?: any) => new Response("{}", { status: 200 }),
+		async (_input: string, _init?: any) => new Response("{}", { status: 200 }),
 	);
 	globalThis.fetch = fetchMock as any;
 	await testProviderConnection({
@@ -120,7 +120,9 @@ test("网络错误（fetch reject）返回失败", async () => {
 		models,
 	});
 	expect(result.ok).toBe(false);
-	expect(result.error).toContain("ECONNREFUSED");
+	// 用户可读文案，不透传原始错误码
+	expect(result.error).toContain("网络");
+	expect(result.error).not.toContain("ECONNREFUSED");
 });
 
 test("baseUrl 结尾无 / 自动补全路径", async () => {
@@ -135,4 +137,89 @@ test("baseUrl 结尾无 / 自动补全路径", async () => {
 	const [url] = fetchMock.mock.calls[0] as any;
 	// 不应出现双斜杠
 	expect(String(url)).not.toContain("//models");
+});
+
+// ── 代理诊断后缀：只服务网络层失败，不再污染上游已应答的错误 ──
+
+const ORIGINAL_HTTPS_PROXY = process.env.HTTPS_PROXY;
+const ORIGINAL_HTTP_PROXY = process.env.HTTP_PROXY;
+
+function withProxyEnv(fn: () => Promise<void>) {
+	process.env.HTTPS_PROXY = "http://127.0.0.1:61614";
+	return async () => {
+		try {
+			await fn();
+		} finally {
+			if (ORIGINAL_HTTPS_PROXY === undefined) delete process.env.HTTPS_PROXY;
+			else process.env.HTTPS_PROXY = ORIGINAL_HTTPS_PROXY;
+			if (ORIGINAL_HTTP_PROXY === undefined) delete process.env.HTTP_PROXY;
+			else process.env.HTTP_PROXY = ORIGINAL_HTTP_PROXY;
+		}
+	};
+}
+
+test(
+	"上游已应答的 HTTP 错误（如 401 错误 key）不附带代理诊断",
+	withProxyEnv(async () => {
+		mockFetch(401, { error: "invalid api key" });
+		const result = await testProviderConnection({
+			baseUrl: "https://api.z.ai/api/paas/v4",
+			apiKey: "wrong-key",
+			api: "openai-completions",
+			models,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("401");
+		expect(result.error).not.toContain("代理");
+		expect(result.error).not.toContain("127.0.0.1");
+	}),
+);
+
+test(
+	"网络层异常显示用户可读文案，不透传技术细节与代理信息",
+	withProxyEnv(async () => {
+		globalThis.fetch = mock(async () => {
+			throw new Error("ECONNREFUSED");
+		}) as any;
+		const result = await testProviderConnection({
+			baseUrl: "https://unreachable.example.com/v1",
+			apiKey: "sk-test",
+			api: "openai-completions",
+			models,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("网络");
+		// 代理与技术细节对用户隐藏
+		expect(result.error).not.toContain("代理");
+		expect(result.error).not.toContain("127.0.0.1");
+		expect(result.error).not.toContain("ECONNREFUSED");
+	}),
+);
+
+test("超时显示用户可读文案，不附带代理信息", async () => {
+	process.env.HTTPS_PROXY = "http://127.0.0.1:61614";
+	setTestTimeoutMs(30);
+	try {
+		// 真实超时路径：fetch 永不 resolve，直到 controller.abort() 触发 signal 才 reject
+		globalThis.fetch = mock(
+			(_input: any, init?: any) =>
+				new Promise((_res, rej) => {
+					init?.signal?.addEventListener("abort", () =>
+						rej(new DOMException("aborted", "AbortError")),
+					);
+				}),
+		) as any;
+		const result = await testProviderConnection({
+			baseUrl: "https://slow.example.com/v1",
+			apiKey: "sk-test",
+			api: "openai-completions",
+			models,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("超时");
+		expect(result.error).not.toContain("代理");
+	} finally {
+		delete process.env.HTTPS_PROXY;
+		setTestTimeoutMs(10_000);
+	}
 });

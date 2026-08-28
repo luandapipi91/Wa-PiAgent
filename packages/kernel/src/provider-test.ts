@@ -13,12 +13,12 @@ export interface TestResult {
 }
 
 /** 超时 10 秒 */
-const TIMEOUT_MS = 10000;
+const DEFAULT_TIMEOUT_MS = 10000;
+let timeoutMs = DEFAULT_TIMEOUT_MS;
 
-/** 当前代理环境变量诊断（仅在检测到代理时附加，帮助定位「走没走代理」问题） */
-function proxyDiagnostic(): string {
-	const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-	return proxy ? `【代理: ${proxy}】` : "";
+/** 测试用：调整连通测试超时（毫秒） */
+export function setTestTimeoutMs(ms: number): void {
+	timeoutMs = ms;
 }
 
 /**
@@ -32,7 +32,7 @@ export async function testProviderConnection(
 ): Promise<TestResult> {
 	const base = input.baseUrl.replace(/\/+$/, ""); // 去尾部斜杠
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
 
 	try {
 		if (input.api === "openai-completions") {
@@ -42,9 +42,11 @@ export async function testProviderConnection(
 			});
 			if (res.ok) return { ok: true };
 			const body = await res.text().catch(() => "");
+			// 上游已应答的 HTTP 错误（401/404 等）：错误已在眼前，不再附带代理诊断
+			// （代理后缀只服务「连接层失败走没走代理」的定位，混入会误导用户）
 			return {
 				ok: false,
-				error: `HTTP ${res.status} ${body.slice(0, 200)} ${proxyDiagnostic()}`.trim(),
+				error: `HTTP ${res.status} ${body.slice(0, 200)}`.trim(),
 			};
 		} else {
 			// anthropic-messages：发最小请求（路径与 Anthropic SDK 一致，用 /v1/messages）
@@ -65,18 +67,19 @@ export async function testProviderConnection(
 			});
 			if (res.ok) return { ok: true };
 			const body = await res.text().catch(() => "");
+			// 同上：HTTP 状态错误不附带代理诊断
 			return {
 				ok: false,
-				error: `HTTP ${res.status} ${body.slice(0, 200)} ${proxyDiagnostic()}`.trim(),
+				error: `HTTP ${res.status} ${body.slice(0, 200)}`.trim(),
 			};
 		}
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
+	} catch {
+		// 面向用户的人话文案：代理/错误码等基础设施细节对用户隐藏
 		return {
 			ok: false,
 			error: controller.signal.aborted
-				? `超时（${TIMEOUT_MS}ms）${proxyDiagnostic()}`.trim()
-				: `${msg} ${proxyDiagnostic()}`.trim(),
+				? `连接超时（${Math.round(timeoutMs / 1000)} 秒），请检查网络后重试`
+				: "网络连接失败，请检查网络后重试",
 		};
 	} finally {
 		clearTimeout(timer);
