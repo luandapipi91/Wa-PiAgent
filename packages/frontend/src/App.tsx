@@ -28,6 +28,7 @@ import { useMemoryStore } from "./store/memory";
 import { useChannelsStore } from "./store/channels";
 import { useContactsStore } from "./store/contacts";
 import { useToastStore } from "./store/toast";
+import { formatKernelError } from "./util/kernel-error";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
 import { initUpdater } from "./store/updater";
@@ -194,6 +195,11 @@ export function App() {
 					// kernel/pi 错误：注入出错的会话作为系统错误消息（红色显示）。
 					// 优先用事件携带的 sessionId 精确路由；缺省回落 currentSessionId。
 					const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
+					// 结构化错误（code/params/detail）按 kernelMsg 字典渲染；
+					// 纯 message（未迁移模块）原样展示，行为不变。
+					// detail 是技术细节：不混入主文案，仅记入控制台供排查。
+					const { main, detail } = formatKernelError(e);
+					if (detail) console.warn("[kernel error detail]", detail);
 					// 会话主智能体已删除：打开重选弹窗（错误消息照常注入，提示用户重发）
 					if (e.message === "agent_missing" && e.sessionId)
 						setAgentMissingSessionId(e.sessionId);
@@ -207,7 +213,7 @@ export function App() {
 						useSessionStore.getState().append(sid, {
 							message: {
 								role: "assistant",
-								content: [{ type: "text", text: e.message }],
+								content: [{ type: "text", text: main }],
 								model: "system",
 								stopReason: "error",
 								timestamp: Date.now(),
@@ -216,7 +222,7 @@ export function App() {
 							sessionId: sid,
 						});
 					} else {
-						useToastStore.getState().add(e.message);
+						useToastStore.getState().add(main);
 					}
 					break;
 				}
@@ -226,10 +232,12 @@ export function App() {
 					// 不调用 failTurn：transient 后 pi 会发 agent_end 自然复位 thinking，
 					// 让 pi 内部重试期间（busy=true）新消息继续排队（现有机制）。
 					const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
+					// 结构化错误按 kernelMsg 字典渲染；纯 message 原样展示（兼容）
+					const { main } = formatKernelError(e);
 					if (sid) {
-						useSessionStore.getState().setNetStatus(sid, "degraded", e.message);
+						useSessionStore.getState().setNetStatus(sid, "degraded", main);
 					} else {
-						useToastStore.getState().add(e.message);
+						useToastStore.getState().add(main);
 					}
 					break;
 				}
