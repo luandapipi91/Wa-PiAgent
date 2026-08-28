@@ -304,7 +304,10 @@ export function classifySdkError(event: SDKEvent): ClassifiedError | null {
 	// sanitizeError 同时产出中文兼容文案与结构化 payload（code/params/detail，见映射表）。
 	const sanitized = detail
 		? sanitizeError(detail)
-		: { message: FALLBACK_MESSAGE, payload: { code: "model.callFailed" } as KernelErrorPayload };
+		: {
+				message: FALLBACK_MESSAGE,
+				payload: { code: "model.callFailed" } as KernelErrorPayload,
+			};
 	const message = sanitized.message;
 
 	// 无具体文案时无法判别，保守归 fatal

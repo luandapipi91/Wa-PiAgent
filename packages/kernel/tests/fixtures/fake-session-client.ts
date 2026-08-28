@@ -18,6 +18,8 @@ export class FakeSessionClient {
 	/** prompt 时传入的 images 数组（opts.images），与 prompted 同步记录 */
 	promptImages: any[][] = [];
 	steered: string[] = [];
+	/** steer 时传入的 images 数组，与 steered 同步记录 */
+	steerImages: any[][] = [];
 	followUps: string[] = [];
 	/** compact 调用记录（customInstructions 未传时为 undefined） */
 	compacted: Array<{ customInstructions?: string }> = [];
@@ -111,8 +113,9 @@ export class FakeSessionClient {
 		}
 	}
 
-	async steer(text: string): Promise<void> {
+	async steer(text: string, images?: any[]): Promise<void> {
 		this.steered.push(text);
+		this.steerImages.push(images ?? []);
 	}
 
 	/** 热重载扩展调用记录（_reloadIfDirty 经此触发 session.reload()）。

@@ -12,7 +12,11 @@ export class KernelError extends Error {
 	readonly code: string;
 	readonly params?: Record<string, string | number>;
 	readonly detail?: string;
-	constructor(code: string, params?: Record<string, string | number>, detail?: string) {
+	constructor(
+		code: string,
+		params?: Record<string, string | number>,
+		detail?: string,
+	) {
 		super(code);
 		this.code = code;
 		this.params = params;
@@ -23,7 +27,9 @@ export class KernelError extends Error {
 export function toKernelPayload(e: unknown): KernelErrorPayload | null {
 	if (e instanceof KernelError) {
 		const params = e.params
-			? Object.fromEntries(Object.entries(e.params).map(([k, v]) => [k, String(v)]))
+			? Object.fromEntries(
+					Object.entries(e.params).map(([k, v]) => [k, String(v)]),
+				)
 			: undefined;
 		return { code: e.code, params, detail: e.detail };
 	}

@@ -974,7 +974,8 @@ const zh = {
 		"model.badRequest": "请求格式错误（{{status}}），请检查 Provider 配置",
 		"model.authFailed": "鉴权失败（{{status}}），请检查 API Key",
 		"model.forbidden": "访问被拒绝（{{status}}），请检查 API Key 或权限",
-		"model.notFound": "接口不存在（{{status}}），请检查 Provider 的 baseUrl 或模型 ID",
+		"model.notFound":
+			"接口不存在（{{status}}），请检查 Provider 的 baseUrl 或模型 ID",
 		"model.timeout": "请求超时（{{status}}），请稍后重试",
 		"model.rateLimited": "请求过于频繁（{{status}}），请稍后重试",
 		"model.serverError": "服务端错误（{{status}}），请稍后重试",
@@ -982,7 +983,8 @@ const zh = {
 		"model.serviceUnavailable": "服务不可用（{{status}}），请稍后重试",
 		"model.gatewayTimeout": "网关超时（{{status}}），请稍后重试",
 		"model.clientError": "请求错误（{{status}}），请检查请求参数或 Provider 配置",
-		"model.callFailed": "模型调用失败，请检查模型与 Provider 配置（模型不可用或鉴权失败）",
+		"model.callFailed":
+			"模型调用失败，请检查模型与 Provider 配置（模型不可用或鉴权失败）",
 		// ===== 第二批：store/service + ws-server A 类模板错误 code 化（41 个） =====
 		"project.notFound": "项目不存在（{{id}}）",
 		"project.cwdMissing": "项目「{{name}}」缺少工作目录，请先在项目设置中补全",
@@ -994,7 +996,8 @@ const zh = {
 		"session.notStarted": "会话未启动（{{sessionId}}），请重试",
 		"session.startFailed": "会话启动失败（{{sessionId}}）",
 		"session.fileMissing": "会话记录文件缺失（{{sessionId}}），请尝试重建会话",
-		"session.crossProject": "会话属于其他项目，不能跨项目发送消息；请切换到会话所属项目后再试",
+		"session.crossProject":
+			"会话属于其他项目，不能跨项目发送消息；请切换到会话所属项目后再试",
 		"session.promptStale": "该提问已失效（可能已取消或会话已切换），请重新发起",
 		"session.agentStartFailed": "agent 启动失败",
 		"session.steerFailed": "引导失败",
@@ -1014,7 +1017,8 @@ const zh = {
 		"skill.notADirectory": "路径不是目录",
 		"skill.builtinDuplicate": "内置目录无需重复添加",
 		"skill.dirCheckTimeout": "目录验证超时，请检查目录是否过大",
-		"skill.noSkillMd": "未检测到 SKILL.md，请选择一个技能目录或包含技能目录的父目录",
+		"skill.noSkillMd":
+			"未检测到 SKILL.md，请选择一个技能目录或包含技能目录的父目录",
 		"skill.builtinUndeletable": "内置目录不可删除",
 		"settings.invalidRetries": "重试次数需为 0-{{max}} 的整数",
 		"settings.invalidIdleTimeout": "HTTP 空闲超时需为不小于 {{min}}ms 的整数",
@@ -1035,12 +1039,14 @@ const zh = {
 		"share.notFound": "分享不存在",
 		"share.notDeployed": "内容尚未部署，请先立即部署",
 		"share.edgeoneUnreachable": "EdgeOne API 端点均不可用，请检查 Token 与网络",
-		"share.edgeoneApiFailed": "EdgeOne API 调用失败（{{action}}），请检查 Token 与网络配置",
+		"share.edgeoneApiFailed":
+			"EdgeOne API 调用失败（{{action}}），请检查 Token 与网络配置",
 		"share.edgeoneProjectFailed": "获取/创建 EdgeOne Pages 项目失败",
 		"share.domainUnavailable": "无法获取 {{channel}} 项目域名",
 		"share.deployTimeout": "{{channel}} 部署超时，请稍后重试",
 		"share.deployFailed": "{{channel}} 部署失败",
-		"share.cloudflareApiFailed": "Cloudflare API 调用失败，请检查 Token 与网络配置",
+		"share.cloudflareApiFailed":
+			"Cloudflare API 调用失败，请检查 Token 与网络配置",
 		"share.assetCheckFailed": "分享文件校验失败，请重试",
 		"share.assetUploadFailed": "分享文件上传失败，请重试",
 		"share.cloudflareAccountEmpty": "Cloudflare 账号列表为空，请检查 Token 权限",
@@ -1049,13 +1055,15 @@ const zh = {
 		"ext.disabled": "插件已禁用，请先启用后再试",
 		"ext.invalidPackagePath": "路径不存在或不是有效的 Pi 包（{{path}}）",
 		"ext.notInstalled": "插件 {{name}} 未安装，请先安装",
-		"ext.upgradeUnsupported": "{{source}} 来源的插件不支持自动升级，请卸载后重新安装",
+		"ext.upgradeUnsupported":
+			"{{source}} 来源的插件不支持自动升级，请卸载后重新安装",
 		"npm.installFailed": "插件安装失败，请检查网络或镜像源配置",
 		"npm.installVerifyFailed": "安装完成但未找到包 {{name}}，请重试",
 		"npm.uninstallFailed": "插件卸载失败",
 		"npm.upgradeFailed": "插件升级失败，请检查网络或镜像源配置",
 		"npm.upgradeVerifyFailed": "升级完成但未找到包 {{name}}，请重试",
-		"npm.repairCleanupFailed": "清理扩展依赖失败，可能有会话正在使用扩展，请关闭后重试",
+		"npm.repairCleanupFailed":
+			"清理扩展依赖失败，可能有会话正在使用扩展，请关闭后重试",
 		"npm.repairFailed": "依赖修复失败，请检查网络或镜像源配置",
 		"npm.repairVerifyFailed": "修复后仍缺少依赖（{{names}}），请重试",
 		"mcp.invalidUrl": "MCP 服务器 {{name}} 的 URL 无效",

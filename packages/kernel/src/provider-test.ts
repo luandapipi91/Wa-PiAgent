@@ -1,4 +1,8 @@
-import type { ProviderApi, ProviderModel, ProviderTestFailure } from "@wa-pi/shared";
+import type {
+	ProviderApi,
+	ProviderModel,
+	ProviderTestFailure,
+} from "@wa-pi/shared";
 
 interface TestInput {
 	baseUrl: string;

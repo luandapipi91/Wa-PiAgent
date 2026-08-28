@@ -12,7 +12,8 @@ export function validatePackageName(raw: string): string | null {
   if (name.startsWith("@") && name.indexOf("/") === -1) return null;
 
   // npm package name spec
-  if (!/^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(name)) return null;
+  if (!/^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(name))
+    return null;
   if (name.length > 214) return null;
 
   // 拒绝危险字符
@@ -26,7 +27,7 @@ export function validatePackageName(raw: string): string | null {
 // 输入格式解析
 interface ParsedInput {
   source: "npm" | "git" | "local";
-  name: string;   // npm 包名 / git repo URL / 本地路径
+  name: string; // npm 包名 / git repo URL / 本地路径
   version?: string; // 仅 npm
 }
 
@@ -49,15 +50,25 @@ export function parseExtensionInput(raw: string): ParsedInput | null {
     // "> 0" 已正确排除 scope-only 名；旧版 `&& !startsWith("@")` 守卫会让 @scope/pkg@1.0.0 永远无法拆分。
     const atIdx = validated.lastIndexOf("@");
     if (atIdx > 0) {
-      return { source: "npm", name: validated.slice(0, atIdx), version: validated.slice(atIdx + 1) };
+      return {
+        source: "npm",
+        name: validated.slice(0, atIdx),
+        version: validated.slice(atIdx + 1),
+      };
     }
     return { source: "npm", name: validated };
   }
 
   // Windows 绝对路径：盘符（C:\ 或 C:/）与 UNC（\\server\share）
-  const isWindowsAbs = /^[A-Za-z]:[\\/]/.test(input) || input.startsWith("\\\\");
+  const isWindowsAbs =
+    /^[A-Za-z]:[\\/]/.test(input) || input.startsWith("\\\\");
 
-  if (input.startsWith("/") || input.startsWith("./") || input.startsWith("~/") || isWindowsAbs) {
+  if (
+    input.startsWith("/") ||
+    input.startsWith("./") ||
+    input.startsWith("~/") ||
+    isWindowsAbs
+  ) {
     return { source: "local", name: input };
   }
 
@@ -66,7 +77,11 @@ export function parseExtensionInput(raw: string): ParsedInput | null {
   if (!validated) return null;
   const atIdx = validated.lastIndexOf("@");
   if (atIdx > 0) {
-    return { source: "npm", name: validated.slice(0, atIdx), version: validated.slice(atIdx + 1) };
+    return {
+      source: "npm",
+      name: validated.slice(0, atIdx),
+      version: validated.slice(atIdx + 1),
+    };
   }
   return { source: "npm", name: validated };
 }
@@ -141,7 +156,10 @@ export class ExtensionManager {
     // 数据迁移：旧字段 waPiPackages → packages（pi 官方字段，让 pi 自动发现加载）。
     // 历史上 wa-pi 用 waPiPackages 避开 pi 自动发现（配合 -e 显式加载）；
     // 现改用 pi 官方 packages 机制（包装在 agentDir/npm/，pi 自动加载），waPiPackages 作旧字段废弃。
-    if (!Array.isArray(settings.packages) && Array.isArray(settings.waPiPackages)) {
+    if (
+      !Array.isArray(settings.packages) &&
+      Array.isArray(settings.waPiPackages)
+    ) {
       settings.packages = settings.waPiPackages;
       delete settings.waPiPackages;
       if (Array.isArray(settings.disabledPackages)) {
@@ -155,17 +173,25 @@ export class ExtensionManager {
 
   private async writeSettings(settings: ExtensionSettings): Promise<void> {
     await mkdir(this.dataDir, { recursive: true });
-    await writeFile(join(this.dataDir, "settings.json"), JSON.stringify(settings, null, 2), "utf8");
+    await writeFile(
+      join(this.dataDir, "settings.json"),
+      JSON.stringify(settings, null, 2),
+      "utf8",
+    );
   }
 
   /** 确保 npmCommand 存在，首启写入默认值 */
-  private async ensureNpmCommand(settings: ExtensionSettings): Promise<ExtensionSettings> {
+  private async ensureNpmCommand(
+    settings: ExtensionSettings,
+  ): Promise<ExtensionSettings> {
     if (!settings.npmCommand) {
       settings.npmCommand = ["bun"];
       await this.writeSettings(settings);
     }
     if (!this.injected) {
-      this.pkgService = new NpmPackageService(NPM_DIR, { npmCommand: settings.npmCommand });
+      this.pkgService = new NpmPackageService(NPM_DIR, {
+        npmCommand: settings.npmCommand,
+      });
     }
     return settings;
   }
@@ -206,7 +232,10 @@ export class ExtensionManager {
     const disabledPkgs = settings.waPiDisabledPackages ?? [];
     const result: PackageInfo[] = [];
 
-    const parseEntry = async (p: string, enabled: boolean): Promise<PackageInfo> => {
+    const parseEntry = async (
+      p: string,
+      enabled: boolean,
+    ): Promise<PackageInfo> => {
       if (p.startsWith("npm:")) {
         const rest = p.slice(4);
         const atIdx = rest.lastIndexOf("@");
@@ -217,12 +246,17 @@ export class ExtensionManager {
 
         if (enabled) {
           let latestVersion: string | undefined;
-          try { latestVersion = await this.pkgService.getLatestVersion(name); } catch {}
+          try {
+            latestVersion = await this.pkgService.getLatestVersion(name);
+          } catch {}
           return {
             name,
             source: "npm",
             version: installedVersion ?? version,
-            latestVersion: latestVersion && latestVersion !== installedVersion ? latestVersion : undefined,
+            latestVersion:
+              latestVersion && latestVersion !== installedVersion
+                ? latestVersion
+                : undefined,
             description: this.pkgService.getDescription(name),
             enabled: true,
           };
@@ -257,10 +291,12 @@ export class ExtensionManager {
     return { packages: result };
   }
 
-  async install(rawInput: string, onProgress?: (line: string) => void): Promise<PackageInfo> {
+  async install(
+    rawInput: string,
+    onProgress?: (line: string) => void,
+  ): Promise<PackageInfo> {
     const parsed = parseExtensionInput(rawInput);
-    if (!parsed)
-      throw new KernelError("ext.invalidName", undefined, rawInput);
+    if (!parsed) throw new KernelError("ext.invalidName", undefined, rawInput);
 
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
@@ -286,7 +322,11 @@ export class ExtensionManager {
 
     switch (parsed.source) {
       case "npm": {
-        const result = await this.pkgService.install(parsed.name, parsed.version, onProgress);
+        const result = await this.pkgService.install(
+          parsed.name,
+          parsed.version,
+          onProgress,
+        );
         version = result.version;
         entry = `npm:${parsed.name}@${version}`;
         break;
@@ -295,7 +335,9 @@ export class ExtensionManager {
         entry = `git:${parsed.name}`;
         break;
       case "local": {
-        const abs = isAbsolute(parsed.name) ? parsed.name : resolve(parsed.name);
+        const abs = isAbsolute(parsed.name)
+          ? parsed.name
+          : resolve(parsed.name);
         if (!existsSync(join(abs, "package.json"))) {
           throw new KernelError("ext.invalidPackagePath", { path: abs });
         }
@@ -311,12 +353,16 @@ export class ExtensionManager {
 
     return {
       // local 来源：身份用 package.json name（与 list()/extractNames 对齐），读不到退回原始输入
-      name: parsed.source === "local"
-        ? (readLocalPkgName(entry) ?? parsed.name)
-        : parsed.name,
+      name:
+        parsed.source === "local"
+          ? (readLocalPkgName(entry) ?? parsed.name)
+          : parsed.name,
       source: parsed.source,
       version,
-      description: parsed.source === "npm" ? this.pkgService.getDescription(parsed.name) : undefined,
+      description:
+        parsed.source === "npm"
+          ? this.pkgService.getDescription(parsed.name)
+          : undefined,
       enabled: true,
     };
   }
@@ -342,12 +388,23 @@ export class ExtensionManager {
     }
     // git 和 local 来源：不从磁盘删除，只从对应列表移除
 
-    const updatedPkgs = matchedPkgs ? pkgs.filter((p) => p !== matchedPkgs) : pkgs;
-    const updatedDisabled = matchedDisabled ? disabledPkgs.filter((p) => p !== matchedDisabled) : disabledPkgs;
-    await this.writeSettings({ ...settings, packages: updatedPkgs, waPiDisabledPackages: updatedDisabled });
+    const updatedPkgs = matchedPkgs
+      ? pkgs.filter((p) => p !== matchedPkgs)
+      : pkgs;
+    const updatedDisabled = matchedDisabled
+      ? disabledPkgs.filter((p) => p !== matchedDisabled)
+      : disabledPkgs;
+    await this.writeSettings({
+      ...settings,
+      packages: updatedPkgs,
+      waPiDisabledPackages: updatedDisabled,
+    });
   }
 
-  async upgrade(name: string, onProgress?: (line: string) => void): Promise<PackageInfo> {
+  async upgrade(
+    name: string,
+    onProgress?: (line: string) => void,
+  ): Promise<PackageInfo> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
     const pkgs = settings.packages ?? [];
@@ -373,7 +430,7 @@ export class ExtensionManager {
 
     const result = await this.pkgService.upgrade(name, onProgress);
     const entry = `npm:${name}@${result.version}`;
-    const updated = pkgs.map((p) => p === matched ? entry : p);
+    const updated = pkgs.map((p) => (p === matched ? entry : p));
     await this.writeSettings({ ...settings, packages: updated });
 
     return {
@@ -406,7 +463,11 @@ export class ExtensionManager {
       // 从 disabledPackages 移回 packages
       const updatedDisabled = disabledPkgs.filter((p) => p !== matchedDisabled);
       const updatedPkgs = [...pkgs, matchedDisabled];
-      await this.writeSettings({ ...settings, packages: updatedPkgs, waPiDisabledPackages: updatedDisabled });
+      await this.writeSettings({
+        ...settings,
+        packages: updatedPkgs,
+        waPiDisabledPackages: updatedDisabled,
+      });
       return;
     }
 
@@ -434,7 +495,11 @@ export class ExtensionManager {
       // 从 packages 移到 disabledPackages
       const updatedPkgs = pkgs.filter((p) => p !== matched);
       const updatedDisabled = [...disabledPkgs, matched];
-      await this.writeSettings({ ...settings, packages: updatedPkgs, waPiDisabledPackages: updatedDisabled });
+      await this.writeSettings({
+        ...settings,
+        packages: updatedPkgs,
+        waPiDisabledPackages: updatedDisabled,
+      });
       return;
     }
 
@@ -448,7 +513,10 @@ export class ExtensionManager {
   /**
    * 读取命令开关状态（缺省 true：附加命令默认全部开启，仅显式关闭的为 false）
    */
-  async getCommandToggle(packageName: string, command: string): Promise<boolean> {
+  async getCommandToggle(
+    packageName: string,
+    command: string,
+  ): Promise<boolean> {
     const settings = await this.readSettings();
     return settings.waPiCommandToggles?.[packageName]?.[command] ?? true;
   }
@@ -456,7 +524,11 @@ export class ExtensionManager {
   /**
    * 设置命令开关状态并持久化
    */
-  async setCommandToggle(packageName: string, command: string, enabled: boolean): Promise<void> {
+  async setCommandToggle(
+    packageName: string,
+    command: string,
+    enabled: boolean,
+  ): Promise<void> {
     const settings = await this.readSettings();
     const toggles = settings.waPiCommandToggles ?? {};
     const pkg = toggles[packageName] ?? {};
@@ -487,7 +559,9 @@ export class ExtensionManager {
    * 入口处用 hasSkillMd 做快速过滤，只返回通过检测的路径。
    * 供 skill-manager.scan() 扫描 + agent-manager additionalSkillPaths 两处消费。
    */
-  async getEnabledExtensionSkillPaths(): Promise<{ path: string; packageName: string }[]> {
+  async getEnabledExtensionSkillPaths(): Promise<
+    { path: string; packageName: string }[]
+  > {
     // 热路径用轻量方法：list() 会对每个启用包跑 bun pm ls + npm view（registry 网络请求），
     // 而这里只需要启用包名
     const enabledNames = await this.listEnabledPackageNames();

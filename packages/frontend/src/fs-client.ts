@@ -130,7 +130,8 @@ export async function uploadFile(
 	if (!res.ok) {
 		// code 化错误（attachment.tooLarge）抛 KernelError：上层 formatKernelError 按字典渲染；
 		// 与 api-client 同策略：优先 read 嵌套 failure，回退顶层 code/params（兼容旧形态）
-		const failure = data?.failure ??
+		const failure =
+			data?.failure ??
 			(data?.code ? { code: data.code, params: data.params } : undefined);
 		if (failure) throw new KernelError(failure.code, failure.params);
 		throw new Error(data.error ?? `${res.status}`);

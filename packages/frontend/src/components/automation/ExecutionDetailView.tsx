@@ -111,11 +111,11 @@ export function ExecutionDetailView() {
 				>
 					{record.errorCode
 						? // code 化错误按字典渲染（如 scheduler.taskTimeout），老记录原样展示
-						  formatKernelError({
+							formatKernelError({
 								code: record.errorCode,
 								params: record.errorParams,
 								message: record.error,
-							  }).main
+							}).main
 						: record.error}
 				</div>
 			)}

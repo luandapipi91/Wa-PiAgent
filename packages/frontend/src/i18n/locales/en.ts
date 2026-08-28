@@ -1003,58 +1003,81 @@ const en = {
 	// by formatKernelError in util/kernel-error.ts.
 	kernelMsg: {
 		unknown: "An unknown error occurred",
-		"provider.testNetwork": "Network connection failed. Check your network and try again",
-		"provider.testTimeout": "Connection timed out. Check your network and try again",
+		"provider.testNetwork":
+			"Network connection failed. Check your network and try again",
+		"provider.testTimeout":
+			"Connection timed out. Check your network and try again",
 		"provider.httpStatus": "Connection failed (HTTP {{status}})",
 		"model.badRequest": "Bad request ({{status}}). Check your provider settings",
 		"model.authFailed": "Authentication failed ({{status}}). Check your API key",
-		"model.forbidden": "Access denied ({{status}}). Check your API key or permissions",
-		"model.notFound": "Endpoint not found ({{status}}). Check the provider baseUrl or model ID",
+		"model.forbidden":
+			"Access denied ({{status}}). Check your API key or permissions",
+		"model.notFound":
+			"Endpoint not found ({{status}}). Check the provider baseUrl or model ID",
 		"model.timeout": "Request timed out ({{status}}). Try again later",
 		"model.rateLimited": "Too many requests ({{status}}). Try again later",
 		"model.serverError": "Server error ({{status}}). Try again later",
 		"model.badGateway": "Bad gateway ({{status}}). Try again later",
-		"model.serviceUnavailable": "Service unavailable ({{status}}). Try again later",
+		"model.serviceUnavailable":
+			"Service unavailable ({{status}}). Try again later",
 		"model.gatewayTimeout": "Gateway timeout ({{status}}). Try again later",
-		"model.clientError": "Request error ({{status}}). Check request parameters or provider settings",
-		"model.callFailed": "Model call failed. Check the model and provider settings (model unavailable or authentication failed)",
+		"model.clientError":
+			"Request error ({{status}}). Check request parameters or provider settings",
+		"model.callFailed":
+			"Model call failed. Check the model and provider settings (model unavailable or authentication failed)",
 		// ===== Batch 2: A-class template error codes for store/service + ws-server (41) =====
 		"project.notFound": "Project not found ({{id}})",
-		"project.cwdMissing": "Project \"{{name}}\" is missing a working directory. Complete it in project settings first",
+		"project.cwdMissing":
+			'Project "{{name}}" is missing a working directory. Complete it in project settings first',
 		"project.duplicateCwd": "A project with the same directory already exists",
 		"project.defaultImmutable": "The default workspace cannot be modified",
 		"project.defaultUndeletable": "The default workspace cannot be deleted",
-		"project.defaultDirCreateFailed": "Failed to create the default workspace session directory",
+		"project.defaultDirCreateFailed":
+			"Failed to create the default workspace session directory",
 		"session.notFound": "Session not found ({{sessionId}})",
 		"session.notStarted": "Session not started ({{sessionId}}). Please try again",
 		"session.startFailed": "Failed to start session ({{sessionId}})",
-		"session.fileMissing": "Session log file missing ({{sessionId}}). Try recreating the session",
-		"session.crossProject": "This session belongs to another project and cannot receive messages across projects. Switch to the session's project first",
-		"session.promptStale": "This prompt is no longer valid (it may have been canceled or the session has switched). Please send it again",
+		"session.fileMissing":
+			"Session log file missing ({{sessionId}}). Try recreating the session",
+		"session.crossProject":
+			"This session belongs to another project and cannot receive messages across projects. Switch to the session's project first",
+		"session.promptStale":
+			"This prompt is no longer valid (it may have been canceled or the session has switched). Please send it again",
 		"session.agentStartFailed": "Failed to start agent",
 		"session.steerFailed": "Failed to steer the session",
 		"session.executeFailed": "Failed to run immediately",
-		"session.noValidLines": "The session file has no valid content; history cannot be read",
-		"model.notSelected": "No model selected. Pick one in the model selector first",
-		"model.parseFailed": "Unrecognized model {{pattern}}. Use the provider/modelId format",
+		"session.noValidLines":
+			"The session file has no valid content; history cannot be read",
+		"model.notSelected":
+			"No model selected. Pick one in the model selector first",
+		"model.parseFailed":
+			"Unrecognized model {{pattern}}. Use the provider/modelId format",
 		"agent.notFound": "Agent not found ({{name}})",
-		"agent.invalidDisplayName": "Name cannot be empty or contain invalid characters ({{name}})",
+		"agent.invalidDisplayName":
+			"Name cannot be empty or contain invalid characters ({{name}})",
 		"agent.presetNotFound": "Preset not found ({{id}})",
 		"mcp.serverNotFound": "MCP server {{name}} does not exist",
-		"mcp.originalServerNotFound": "Original server {{name}} does not exist; cannot rename",
+		"mcp.originalServerNotFound":
+			"Original server {{name}} does not exist; cannot rename",
 		"mcp.configParseFailed": "Failed to parse the MCP config file",
-		"memory.entryStale": "Entry does not exist or has been modified. Refresh the list",
+		"memory.entryStale":
+			"Entry does not exist or has been modified. Refresh the list",
 		"memory.archiveNotFound": "Archived entry not found",
 		"skill.dirNotFound": "Directory does not exist",
 		"skill.notADirectory": "Path is not a directory",
 		"skill.builtinDuplicate": "Built-in directory is already included",
-		"skill.dirCheckTimeout": "Directory check timed out. The directory may be too large",
-		"skill.noSkillMd": "No SKILL.md found. Select a skill directory or a parent folder containing skills",
+		"skill.dirCheckTimeout":
+			"Directory check timed out. The directory may be too large",
+		"skill.noSkillMd":
+			"No SKILL.md found. Select a skill directory or a parent folder containing skills",
 		"skill.builtinUndeletable": "Built-in directory cannot be deleted",
-		"settings.invalidRetries": "Retry count must be an integer between 0 and {{max}}",
-		"settings.invalidIdleTimeout": "HTTP idle timeout must be an integer of at least {{min}}ms",
+		"settings.invalidRetries":
+			"Retry count must be an integer between 0 and {{max}}",
+		"settings.invalidIdleTimeout":
+			"HTTP idle timeout must be an integer of at least {{min}}ms",
 		"attachment.unsupportedType": "Unsupported file type: {{mime}}",
-		"attachment.previewTooLarge": "File too large ({{sizeMb}}MB exceeds the {{maxMb}}MB limit)",
+		"attachment.previewTooLarge":
+			"File too large ({{sizeMb}}MB exceeds the {{maxMb}}MB limit)",
 		"attachment.statFailed": "Failed to get file info",
 		"attachment.tooLarge": "File exceeds the {{maxMb}}MB limit",
 		"extui.dialogMissing": "Dialog does not exist or has already been answered",
@@ -1065,39 +1088,59 @@ const en = {
 		"share.pathsRequired": "Select files or folders to share first",
 		"share.invalidId": "Invalid share ID",
 		"share.nameRequired": "Share name cannot be empty",
-		"share.tokenMissing": "Share token not configured. Set it up in Settings → Share",
-		"share.invalidName": "Share name contains invalid characters (letters/digits/CJK/-_./space only)",
+		"share.tokenMissing":
+			"Share token not configured. Set it up in Settings → Share",
+		"share.invalidName":
+			"Share name contains invalid characters (letters/digits/CJK/-_./space only)",
 		"share.notFound": "Share not found",
 		"share.notDeployed": "Not deployed yet. Run deploy first",
-		"share.edgeoneUnreachable": "All EdgeOne API endpoints unreachable. Check token and network",
-		"share.edgeoneApiFailed": "EdgeOne API call failed ({{action}}). Check token and network settings",
-		"share.edgeoneProjectFailed": "Failed to get or create the EdgeOne Pages project",
+		"share.edgeoneUnreachable":
+			"All EdgeOne API endpoints unreachable. Check token and network",
+		"share.edgeoneApiFailed":
+			"EdgeOne API call failed ({{action}}). Check token and network settings",
+		"share.edgeoneProjectFailed":
+			"Failed to get or create the EdgeOne Pages project",
 		"share.domainUnavailable": "Failed to get the {{channel}} project domain",
 		"share.deployTimeout": "{{channel}} deployment timed out. Try again later",
 		"share.deployFailed": "{{channel}} deployment failed",
-		"share.cloudflareApiFailed": "Cloudflare API call failed. Check token and network settings",
+		"share.cloudflareApiFailed":
+			"Cloudflare API call failed. Check token and network settings",
 		"share.assetCheckFailed": "Share file verification failed. Try again",
 		"share.assetUploadFailed": "Share file upload failed. Try again",
-		"share.cloudflareAccountEmpty": "Cloudflare account list is empty. Check token permissions",
+		"share.cloudflareAccountEmpty":
+			"Cloudflare account list is empty. Check token permissions",
 		"ext.invalidName": "Invalid package name format",
-		"ext.alreadyInstalled": "Package {{name}} is already installed. Use upgrade instead",
+		"ext.alreadyInstalled":
+			"Package {{name}} is already installed. Use upgrade instead",
 		"ext.disabled": "Package is disabled. Enable it first",
-		"ext.invalidPackagePath": "Path does not exist or is not a valid Pi package ({{path}})",
+		"ext.invalidPackagePath":
+			"Path does not exist or is not a valid Pi package ({{path}})",
 		"ext.notInstalled": "Package {{name}} is not installed. Install it first",
-		"ext.upgradeUnsupported": "Packages from {{source}} do not support auto-upgrade. Reinstall after uninstalling",
-		"npm.installFailed": "Package installation failed. Check network or registry settings",
-		"npm.installVerifyFailed": "Package {{name}} not found after installation. Try again",
+		"ext.upgradeUnsupported":
+			"Packages from {{source}} do not support auto-upgrade. Reinstall after uninstalling",
+		"npm.installFailed":
+			"Package installation failed. Check network or registry settings",
+		"npm.installVerifyFailed":
+			"Package {{name}} not found after installation. Try again",
 		"npm.uninstallFailed": "Package uninstallation failed",
-		"npm.upgradeFailed": "Package upgrade failed. Check network or registry settings",
-		"npm.upgradeVerifyFailed": "Package {{name}} not found after upgrade. Try again",
-		"npm.repairCleanupFailed": "Failed to clean up extension dependencies. A session may be using them; close it and retry",
-		"npm.repairFailed": "Dependency repair failed. Check network or registry settings",
-		"npm.repairVerifyFailed": "Dependencies still missing after repair ({{names}}). Try again",
+		"npm.upgradeFailed":
+			"Package upgrade failed. Check network or registry settings",
+		"npm.upgradeVerifyFailed":
+			"Package {{name}} not found after upgrade. Try again",
+		"npm.repairCleanupFailed":
+			"Failed to clean up extension dependencies. A session may be using them; close it and retry",
+		"npm.repairFailed":
+			"Dependency repair failed. Check network or registry settings",
+		"npm.repairVerifyFailed":
+			"Dependencies still missing after repair ({{names}}). Try again",
 		"mcp.invalidUrl": "Invalid URL for MCP server {{name}}",
-		"mcp.missingCommandOrUrl": "MCP server {{name}} is missing a command or url configuration",
-		"scheduler.noProvider": "No model provider available. Configure at least one provider in settings first",
+		"mcp.missingCommandOrUrl":
+			"MCP server {{name}} is missing a command or url configuration",
+		"scheduler.noProvider":
+			"No model provider available. Configure at least one provider in settings first",
 		"scheduler.invalidTaskId": "Invalid task ID ({{taskId}})",
-		"scheduler.taskTimeout": "Task timed out (over {{minutes}} minutes) and was aborted",
+		"scheduler.taskTimeout":
+			"Task timed out (over {{minutes}} minutes) and was aborted",
 	},
 };
 

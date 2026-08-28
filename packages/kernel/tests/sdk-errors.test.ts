@@ -477,5 +477,7 @@ test("classifySdkError: 无 errorMessage → failure=model.callFailed（无 deta
 });
 
 test("classifySdkError: 非 HTML 原文（Connection error.）→ failure 缺省（原文透传）", () => {
-	expect(classifySdkError(errEvent("Connection error."))?.failure).toBeUndefined();
+	expect(
+		classifySdkError(errEvent("Connection error."))?.failure,
+	).toBeUndefined();
 });

@@ -348,7 +348,9 @@ test("renameItem 重名 → 合并：目标记录保留 id，源目录文件合�
 test("addItem 非法分享名 → KernelError share.invalidName", async () => {
   const d = await tmp();
   expect(
-    await errorCodeOf(addItem(d, "abc123abc123", "非 法!", [entry("a.txt", "1")])),
+    await errorCodeOf(
+      addItem(d, "abc123abc123", "非 法!", [entry("a.txt", "1")]),
+    ),
   ).toBe("share.invalidName");
 });
 

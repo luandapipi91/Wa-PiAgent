@@ -8,12 +8,22 @@
 import type { RouteRegistrar, RouteContext } from "./types";
 import { readJsonBody, paramErrorResponse } from "./types";
 
-export const registerExtensionRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext) => {
-  r.add("GET", "/api/extensions", async () => callApi({ type: "extension:list" }));
+export const registerExtensionRoutes: RouteRegistrar = (
+  r,
+  callApi,
+  ctx: RouteContext,
+) => {
+  r.add("GET", "/api/extensions", async () =>
+    callApi({ type: "extension:list" }),
+  );
 
   r.add("POST", "/api/extensions/toggle", async (req) => {
     const b = await readJsonBody(req);
-    return callApi({ type: "extension:toggle", name: b.name, enabled: b.enabled });
+    return callApi({
+      type: "extension:toggle",
+      name: b.name,
+      enabled: b.enabled,
+    });
   });
 
   r.add("POST", "/api/extensions/install", async (req) => {
@@ -32,17 +42,20 @@ export const registerExtensionRoutes: RouteRegistrar = (r, callApi, ctx: RouteCo
   });
 
   r.add("POST", "/api/extensions/repair", async () =>
-    callApi({ type: "extension:repair" })
+    callApi({ type: "extension:repair" }),
   );
 
   r.add("GET", "/api/extensions/commands", async () =>
-    callApi({ type: "extension:commands:list" })
+    callApi({ type: "extension:commands:list" }),
   );
 
   r.add("POST", "/api/extensions/commands/toggle", async (req) => {
     const b = await readJsonBody(req);
     if (!b?.packageName || !b?.command || typeof b.enabled !== "boolean") {
-      return paramErrorResponse("参数缺失或类型错误", "packageName/command/enabled");
+      return paramErrorResponse(
+        "参数缺失或类型错误",
+        "packageName/command/enabled",
+      );
     }
     return callApi({ type: "extension:commands:toggle", ...b });
   });

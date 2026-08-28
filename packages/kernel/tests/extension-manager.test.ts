@@ -2,20 +2,31 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ExtensionManager, validatePackageName, parseExtensionInput } from "../src/extension-manager";
+import {
+  ExtensionManager,
+  validatePackageName,
+  parseExtensionInput,
+} from "../src/extension-manager";
 import type { NpmPackageService } from "../src/npm-package-service";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { errorCodeOf } from "./helpers/kernel-error-code";
 
 function tmpDir(): string {
-  const dir = join(import.meta.dir, ".tmp-ext-" + Math.random().toString(36).slice(2));
+  const dir = join(
+    import.meta.dir,
+    ".tmp-ext-" + Math.random().toString(36).slice(2),
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 let dir: string;
-beforeEach(() => { dir = tmpDir(); });
-afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+beforeEach(() => {
+  dir = tmpDir();
+});
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
 
 // ---- validatePackageName ----
 test("validatePackageName 接受合法裸名", () => {
@@ -69,11 +80,17 @@ test("parseExtensionInput 解析本地路径", () => {
 });
 
 test("parseExtensionInput 解析 Windows 盘符路径（反斜杠/正斜杠）", () => {
-  const backslash = parseExtensionInput("H:\\workspace\\hiagent\\examples\\ext-ui-bridge-demo");
+  const backslash = parseExtensionInput(
+    "H:\\workspace\\hiagent\\examples\\ext-ui-bridge-demo",
+  );
   expect(backslash?.source).toBe("local");
-  expect(backslash?.name).toBe("H:\\workspace\\hiagent\\examples\\ext-ui-bridge-demo");
+  expect(backslash?.name).toBe(
+    "H:\\workspace\\hiagent\\examples\\ext-ui-bridge-demo",
+  );
 
-  const slash = parseExtensionInput("/path/to/HiAgent/examples/ext-ui-bridge-demo");
+  const slash = parseExtensionInput(
+    "/path/to/HiAgent/examples/ext-ui-bridge-demo",
+  );
   expect(slash?.source).toBe("local");
   expect(slash?.name).toBe("/path/to/HiAgent/examples/ext-ui-bridge-demo");
 });
@@ -106,7 +123,10 @@ const mockPkgService = {
 } satisfies Omit<NpmPackageService, "runtimeDir" | "spawn">;
 
 function mockManager(dataDir: string) {
-  return new ExtensionManager(dataDir, mockPkgService as unknown as NpmPackageService);
+  return new ExtensionManager(
+    dataDir,
+    mockPkgService as unknown as NpmPackageService,
+  );
 }
 
 test("list 返回空列表", async () => {
@@ -116,184 +136,258 @@ test("list 返回空列表", async () => {
 });
 
 test("install 写入 npm:name@version 到 packages", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({ npmCommand: ["bun"] }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   const info = await mgr.install("test-pkg");
   expect(info.name).toBe("test-pkg");
   expect(info.version).toBe("9.9.9");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toContain("npm:test-pkg@9.9.9");
 });
 
 test("install 拒绝重复安装", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
-  expect(await errorCodeOf(mgr.install("test-pkg"))).toBe("ext.alreadyInstalled");
+  expect(await errorCodeOf(mgr.install("test-pkg"))).toBe(
+    "ext.alreadyInstalled",
+  );
 });
 
 test("uninstall 从 packages 移除", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0", "npm:other@2.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:test-pkg@1.0.0", "npm:other@2.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.uninstall("test-pkg");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual(["npm:other@2.0.0"]);
   expect(settings.packages).not.toContain("npm:test-pkg@1.0.0");
 });
 
 test("disable 把条目从 packages 移到 disabledPackages（仍可见 enabled:false）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.disable("test-pkg");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([]);
   expect(settings.waPiDisabledPackages).toEqual(["npm:test-pkg@1.0.0"]);
 
   // disable 后该包仍出现在 list() 里，enabled:false
   const { packages } = await mgr.list();
-  const found = packages.find(p => p.name === "test-pkg");
+  const found = packages.find((p) => p.name === "test-pkg");
   expect(found).toBeDefined();
   expect(found!.enabled).toBe(false);
 });
 
 test("disable 对已禁用包幂等（no-op，不写）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: [],
-    waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: [],
+      waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.disable("test-pkg"); // should not throw
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.waPiDisabledPackages).toEqual(["npm:test-pkg@1.0.0"]);
   expect(settings.packages).toEqual([]);
 });
 
 test("disable 对未安装包抛错", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: [],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: [],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   expect(await errorCodeOf(mgr.disable("nope"))).toBe("ext.notInstalled");
 });
 
 test("enable 把 disabled 包移回 packages（enabled:true）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: [],
-    waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: [],
+      waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.enable("test-pkg");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toContain("npm:test-pkg@1.0.0");
   expect(settings.waPiDisabledPackages).toEqual([]);
 
   // list 中该包 enabled:true
   const { packages } = await mgr.list();
-  const found = packages.find(p => p.name === "test-pkg");
+  const found = packages.find((p) => p.name === "test-pkg");
   expect(found).toBeDefined();
   expect(found!.enabled).toBe(true);
 });
 
 test("enable 对已启用包幂等（no-op）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
-    waPiDisabledPackages: [],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:test-pkg@1.0.0"],
+      waPiDisabledPackages: [],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.enable("test-pkg");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual(["npm:test-pkg@1.0.0"]);
   expect(settings.waPiDisabledPackages).toEqual([]);
 });
 
 test("enable 兜底：从 node_modules 恢复（在两列表皆无时）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: [],
-    waPiDisabledPackages: [],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: [],
+      waPiDisabledPackages: [],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   // mockPkgService.getInstalledVersion("test-pkg") 返回 "9.9.9"
   await mgr.enable("test-pkg");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toContain("npm:test-pkg@9.9.9");
 });
 
 test("list 把 disabledPackages 条目标为 enabled:false", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:enabled-pkg@1.0.0"],
-    waPiDisabledPackages: ["npm:disabled-pkg@2.0.0", "git:github.com/x/y", "/local/path"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:enabled-pkg@1.0.0"],
+      waPiDisabledPackages: [
+        "npm:disabled-pkg@2.0.0",
+        "git:github.com/x/y",
+        "/local/path",
+      ],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   const { packages } = await mgr.list();
 
-  const enabled = packages.find(p => p.name === "enabled-pkg");
+  const enabled = packages.find((p) => p.name === "enabled-pkg");
   expect(enabled).toBeDefined();
   expect(enabled!.enabled).toBe(true);
 
-  const disabled = packages.find(p => p.name === "disabled-pkg");
+  const disabled = packages.find((p) => p.name === "disabled-pkg");
   expect(disabled).toBeDefined();
   expect(disabled!.enabled).toBe(false);
 
-  const gitPkg = packages.find(p => p.source === "git");
+  const gitPkg = packages.find((p) => p.source === "git");
   expect(gitPkg).toBeDefined();
   expect(gitPkg!.enabled).toBe(false);
 
-  const localPkg = packages.find(p => p.source === "local");
+  const localPkg = packages.find((p) => p.source === "local");
   expect(localPkg).toBeDefined();
   expect(localPkg!.enabled).toBe(false);
 });
 
 test("uninstall 同时支持 packages 和 disabledPackages", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:other@2.0.0"],
-    waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:other@2.0.0"],
+      waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.uninstall("test-pkg");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.waPiDisabledPackages).toEqual([]);
   expect(settings.packages).toEqual(["npm:other@2.0.0"]);
 });
 
 test("uninstall 对两列表皆无的包抛错", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: [],
-    waPiDisabledPackages: [],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: [],
+      waPiDisabledPackages: [],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   expect(await errorCodeOf(mgr.uninstall("nope"))).toBe("ext.notInstalled");
 });
 
 test("install 命中 disabledPackages 时抛「已禁用，请先启用」", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: [],
-    waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: [],
+      waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   expect(await errorCodeOf(mgr.install("test-pkg"))).toBe("ext.disabled");
 });
@@ -304,20 +398,30 @@ test("install 命中 disabledPackages 时抛「已禁用，请先启用」", asy
 function makeLocalPkg(name?: string): string {
   const pkgDir = join(dir, "local-ext");
   mkdirSync(pkgDir, { recursive: true });
-  writeFileSync(join(pkgDir, "package.json"), JSON.stringify(name ? { name } : {}), "utf8");
+  writeFileSync(
+    join(pkgDir, "package.json"),
+    JSON.stringify(name ? { name } : {}),
+    "utf8",
+  );
   return pkgDir;
 }
 
 test("install local：身份用 package.json name，settings 存绝对路径", async () => {
   const pkgDir = makeLocalPkg("local-demo");
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({ npmCommand: ["bun"] }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
 
   const info = await mgr.install(pkgDir);
   expect(info.name).toBe("local-demo");
   expect(info.source).toBe("local");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([pkgDir]);
 
   // list() 展示名也是包名（前端「附加命令」弹窗按此 name 匹配命令的 packageName）
@@ -328,7 +432,11 @@ test("install local：身份用 package.json name，settings 存绝对路径", a
 
 test("install local：重复安装按原始路径命中「已安装」（路径别名）", async () => {
   const pkgDir = makeLocalPkg("local-demo");
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({ npmCommand: ["bun"] }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.install(pkgDir);
   // 再次按同一路径安装：extractNames 的路径别名必须命中，否则产生重复条目
@@ -339,28 +447,42 @@ test("install local：重复安装按原始路径命中「已安装」（路径�
 
 test("local 生命周期：按包名 disable / enable / uninstall", async () => {
   const pkgDir = makeLocalPkg("local-demo");
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({ npmCommand: ["bun"] }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.install(pkgDir);
 
   await mgr.disable("local-demo");
-  let settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  let settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([]);
   expect(settings.waPiDisabledPackages).toEqual([pkgDir]);
 
   await mgr.enable("local-demo");
-  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([pkgDir]);
   expect(settings.waPiDisabledPackages).toEqual([]);
 
   await mgr.uninstall("local-demo");
-  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([]);
 });
 
 test("install local：package.json 无 name 字段时身份退化为路径", async () => {
   const pkgDir = makeLocalPkg();
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({ npmCommand: ["bun"] }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   const info = await mgr.install(pkgDir);
   expect(info.name).toBe(pkgDir);
@@ -369,27 +491,37 @@ test("install local：package.json 无 name 字段时身份退化为路径", asy
 });
 
 test("upgrade 对仅在 disabledPackages 的包抛「请先启用后升级」", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: [],
-    waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: [],
+      waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   expect(await errorCodeOf(mgr.upgrade("test-pkg"))).toBe("ext.disabled");
 });
 
 test("不可变更新：保留 settings.json 其他字段（含 disabledPackages）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    disabledSkills: ["x"],
-    other: 1,
-    packages: [],
-    waPiDisabledPackages: ["npm:legacy@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      disabledSkills: ["x"],
+      other: 1,
+      packages: [],
+      waPiDisabledPackages: ["npm:legacy@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.install("new-pkg");
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.disabledSkills).toEqual(["x"]);
   expect(settings.other).toBe(1);
   expect(settings.waPiDisabledPackages).toEqual(["npm:legacy@1.0.0"]);
@@ -398,10 +530,14 @@ test("不可变更新：保留 settings.json 其他字段（含 disabledPackages
 // ---- SHOULD-FIX 5 新增覆盖：upgrade happy-path / git 生命周期 / scoped+version 解析 ----
 
 test("upgrade happy-path：升级 npm 包并更新 settings 条目为新版本", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   const info = await mgr.upgrade("test-pkg");
   // mock upgrade 返回 version "9.9.9"
@@ -410,17 +546,23 @@ test("upgrade happy-path：升级 npm 包并更新 settings 条目为新版本",
   expect(info.version).toBe("9.9.9");
   expect(info.enabled).toBe(true);
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   // 旧条目被替换为新版本
   expect(settings.packages).toContain("npm:test-pkg@9.9.9");
   expect(settings.packages).not.toContain("npm:test-pkg@1.0.0");
 });
 
 test("upgrade 透传 onProgress 给 pkgService（流式进度回推）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:test-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const lines: string[] = [];
   const mgr = mockManager(dir);
   await mgr.upgrade("test-pkg", (l) => lines.push(l));
@@ -428,34 +570,46 @@ test("upgrade 透传 onProgress 给 pkgService（流式进度回推）", async (
 });
 
 test("git 来源生命周期：install→disable→enable→uninstall 按 bare name 查找（验证 fix #2）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: [],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: [],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   const repo = "github.com/user/repo";
   const info = await mgr.install(`git:${repo}`);
   expect(info.name).toBe(repo);
   expect(info.source).toBe("git");
 
-  let settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  let settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([`git:${repo}`]);
 
   // disable 按 bare name（repo）查找，证明 extractNames 已正确剥掉 git: 前缀
   await mgr.disable(repo);
-  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([]);
   expect(settings.waPiDisabledPackages).toEqual([`git:${repo}`]);
 
   // enable 按 bare name 移回
   await mgr.enable(repo);
-  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([`git:${repo}`]);
   expect(settings.waPiDisabledPackages).toEqual([]);
 
   // uninstall 按 bare name 移除
   await mgr.uninstall(repo);
-  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.packages).toEqual([]);
   expect(settings.waPiDisabledPackages).toEqual([]);
 });
@@ -471,9 +625,16 @@ test("scoped+version 安装：@scope/pkg@1.0.0 拆分为 name + version（验证
     },
     getInstalledVersion: (_name: string) => "1.0.0" as string | undefined,
   };
-  const mgr = new ExtensionManager(dir, scopedMock as unknown as NpmPackageService);
+  const mgr = new ExtensionManager(
+    dir,
+    scopedMock as unknown as NpmPackageService,
+  );
 
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({ npmCommand: ["bun"] }),
+    "utf8",
+  );
   const info = await mgr.install("@scope/pkg@1.0.0");
   expect(info.name).toBe("@scope/pkg");
   expect(info.version).toBe("1.0.0");
@@ -481,7 +642,9 @@ test("scoped+version 安装：@scope/pkg@1.0.0 拆分为 name + version（验证
   // install 被以拆分后的 name + version 调用
   expect(calls).toEqual([{ name: "@scope/pkg", version: "1.0.0" }]);
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   // 写入条目为 npm:@scope/pkg@<resolved>
   expect(settings.packages).toContain("npm:@scope/pkg@1.0.0");
 });
@@ -514,8 +677,10 @@ function createExtSkillPackage(pkgName: string, skillName: string) {
   const pkgDir = join(WA_PI_DIR, "npm", "node_modules", pkgName);
   const skillsDir = join(pkgDir, "skills");
   mkdirSync(join(skillsDir, skillName), { recursive: true });
-  writeFileSync(join(skillsDir, skillName, "SKILL.md"),
-    `---\nname: ${skillName}\ndescription: ext skill\n---\n# ${skillName}`);
+  writeFileSync(
+    join(skillsDir, skillName, "SKILL.md"),
+    `---\nname: ${skillName}\ndescription: ext skill\n---\n# ${skillName}`,
+  );
 }
 
 test("getEnabledExtensionSkillPaths 返回含 SKILL.md 的扩展技能路径", async () => {
@@ -536,7 +701,10 @@ test("getEnabledExtensionSkillPaths 返回含 SKILL.md 的扩展技能路径", a
     expect(paths[0].path.replace(/\\/g, "/")).toContain("my-ext-pkg/skills");
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
-    rmSync(join(WA_PI_DIR, "npm", "node_modules", "my-ext-pkg"), { recursive: true, force: true });
+    rmSync(join(WA_PI_DIR, "npm", "node_modules", "my-ext-pkg"), {
+      recursive: true,
+      force: true,
+    });
   }
 });
 
@@ -551,7 +719,10 @@ test("getEnabledExtensionSkillPaths 跳过无 skills/ 的扩展", async () => {
     expect(paths).toHaveLength(0);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
-    rmSync(join(WA_PI_DIR, "npm", "node_modules", "no-skill-pkg"), { recursive: true, force: true });
+    rmSync(join(WA_PI_DIR, "npm", "node_modules", "no-skill-pkg"), {
+      recursive: true,
+      force: true,
+    });
   }
 });
 
@@ -568,7 +739,10 @@ test("getEnabledExtensionSkillPaths 不返回已禁用的扩展", async () => {
     expect(paths).toHaveLength(0);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
-    rmSync(join(WA_PI_DIR, "npm", "node_modules", "disabled-pkg"), { recursive: true, force: true });
+    rmSync(join(WA_PI_DIR, "npm", "node_modules", "disabled-pkg"), {
+      recursive: true,
+      force: true,
+    });
   }
 });
 
@@ -576,9 +750,12 @@ test("getEnabledExtensionSkillPaths 不返回已禁用的扩展", async () => {
 
 test("listEnabledPackageNames 返回启用包裸名（npm:/git:/local 条目）", async () => {
   const mgr = mockManager(dir);
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    packages: ["npm:npm-pkg@9.9.9", "git:github.com/u/r", "/opt/local-pkg"],
-  }));
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      packages: ["npm:npm-pkg@9.9.9", "git:github.com/u/r", "/opt/local-pkg"],
+    }),
+  );
   const names = await mgr.listEnabledPackageNames();
   expect(names).toEqual(["npm-pkg", "github.com/u/r", "/opt/local-pkg"]);
 });
@@ -592,19 +769,39 @@ test("listEnabledPackageNames 不触碰 pkgService（无版本/registry 查询�
   // 根因回归守卫：会话启动链路曾因 list() 内 getLatestVersion → npm view 网络请求卡数秒。
   // 轻量方法必须纯读 settings.json；注入全部抛错的 pkgService，被调用即测试失败。
   const throwingService = {
-    install: async () => { throw new Error("不应调用 install"); },
-    uninstall: async () => { throw new Error("不应调用 uninstall"); },
-    upgrade: async () => { throw new Error("不应调用 upgrade"); },
-    repair: async () => { throw new Error("不应调用 repair"); },
-    getInstalledVersion: () => { throw new Error("不应调用 getInstalledVersion"); },
-    getLatestVersion: async () => { throw new Error("不应调用 getLatestVersion"); },
-    getDescription: () => { throw new Error("不应调用 getDescription"); },
+    install: async () => {
+      throw new Error("不应调用 install");
+    },
+    uninstall: async () => {
+      throw new Error("不应调用 uninstall");
+    },
+    upgrade: async () => {
+      throw new Error("不应调用 upgrade");
+    },
+    repair: async () => {
+      throw new Error("不应调用 repair");
+    },
+    getInstalledVersion: () => {
+      throw new Error("不应调用 getInstalledVersion");
+    },
+    getLatestVersion: async () => {
+      throw new Error("不应调用 getLatestVersion");
+    },
+    getDescription: () => {
+      throw new Error("不应调用 getDescription");
+    },
   } satisfies Omit<NpmPackageService, "runtimeDir" | "spawn">;
-  const mgr = new ExtensionManager(dir, throwingService as unknown as NpmPackageService);
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    packages: ["npm:a@1.0.0"],
-    waPiDisabledPackages: ["npm:b@2.0.0"],
-  }));
+  const mgr = new ExtensionManager(
+    dir,
+    throwingService as unknown as NpmPackageService,
+  );
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      packages: ["npm:a@1.0.0"],
+      waPiDisabledPackages: ["npm:b@2.0.0"],
+    }),
+  );
   // 只返回启用列表，不含禁用包
   expect(await mgr.listEnabledPackageNames()).toEqual(["a"]);
 });
@@ -617,9 +814,13 @@ test("getCommandToggle 缺省返回 true（无 settings.json）", async () => {
 });
 
 test("getCommandToggle 缺省返回 true（有 settings.json 但无 toggles）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    packages: ["npm:my-pkg@1.0.0"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      packages: ["npm:my-pkg@1.0.0"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   expect(await mgr.getCommandToggle("my-pkg", "my-command")).toBe(true);
 });
@@ -634,7 +835,9 @@ test("setCommandToggle 持久化后重读返回新值", async () => {
   expect(await mgr2.getCommandToggle("my-pkg", "cmd-a")).toBe(true);
 
   // settings.json 落盘结构验证
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.waPiCommandToggles).toEqual({ "my-pkg": { "cmd-a": true } });
 });
 
@@ -644,17 +847,23 @@ test("setCommandToggle 关闭开关并持久化", async () => {
   await mgr.setCommandToggle("my-pkg", "cmd-a", false);
   expect(await mgr.getCommandToggle("my-pkg", "cmd-a")).toBe(false);
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   expect(settings.waPiCommandToggles).toEqual({ "my-pkg": { "cmd-a": false } });
 });
 
 test("getCommandToggles 返回全部（多包多命令）", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    waPiCommandToggles: {
-      "pkg-a": { "cmd-1": true, "cmd-2": false },
-      "pkg-b": { "cmd-3": true },
-    },
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      waPiCommandToggles: {
+        "pkg-a": { "cmd-1": true, "cmd-2": false },
+        "pkg-b": { "cmd-3": true },
+      },
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   expect(await mgr.getCommandToggles()).toEqual({
     "pkg-a": { "cmd-1": true, "cmd-2": false },
@@ -668,16 +877,22 @@ test("getCommandToggles 无 settings.json 返回空对象", async () => {
 });
 
 test("setCommandToggle 保留其他 toggles 与其他 settings 字段", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["npm:my-pkg@1.0.0"],
-    waPiCommandToggles: { "my-pkg": { "cmd-a": true } },
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:my-pkg@1.0.0"],
+      waPiCommandToggles: { "my-pkg": { "cmd-a": true } },
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   await mgr.setCommandToggle("my-pkg", "cmd-b", true);
   await mgr.setCommandToggle("other-pkg", "cmd-x", true);
 
-  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  const settings = JSON.parse(
+    require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"),
+  );
   // 已有 toggles 不被覆盖，其他 settings 字段保留
   expect(settings.waPiCommandToggles).toEqual({
     "my-pkg": { "cmd-a": true, "cmd-b": true },
@@ -702,10 +917,14 @@ test("install local 路径无效 → KernelError ext.invalidPackagePath", async 
 });
 
 test("upgrade git 来源 → KernelError ext.upgradeUnsupported", async () => {
-  writeFileSync(join(dir, "settings.json"), JSON.stringify({
-    npmCommand: ["bun"],
-    packages: ["git:some/repo"],
-  }), "utf8");
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["git:some/repo"],
+    }),
+    "utf8",
+  );
   const mgr = mockManager(dir);
   expect(await errorCodeOf(mgr.upgrade("some/repo"))).toBe(
     "ext.upgradeUnsupported",

@@ -759,7 +759,7 @@ export function ComposerInput({
 			if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
 				e.preventDefault();
 				// 括号包裹三元表达式语句（biome no-unused-expressions）：语义不变
-				if (canSend) (onSendSteer ? onSendSteer() : onSend());
+				if (canSend) onSendSteer ? onSendSteer() : onSend();
 				return;
 			}
 			// 正常 Enter 发送

@@ -6,14 +6,20 @@ import { makeDefaultAgentConfig } from "../src/agent-md";
 import { errorCodeOf } from "./helpers/kernel-error-code";
 
 function tempAgentsDir() {
-  const dir = join(import.meta.dir, ".tmp-agents-" + Math.random().toString(36).slice(2));
+  const dir = join(
+    import.meta.dir,
+    ".tmp-agents-" + Math.random().toString(36).slice(2),
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 test("listAgents 读全部 .md", async () => {
   const dir = tempAgentsDir();
-  writeFileSync(join(dir, "研发.md"), `---\ndisplayName: 研发\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\ntools: read\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`);
+  writeFileSync(
+    join(dir, "研发.md"),
+    `---\ndisplayName: 研发\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\ntools: read\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`,
+  );
   const store = new ConfigStore(dir);
   const agents = await store.listAgents();
   expect(agents).toHaveLength(1);
@@ -32,10 +38,16 @@ test("saveAgent 持久化并可读回", async () => {
   const dir = tempAgentsDir();
   const store = new ConfigStore(dir);
   const errs = await store.saveAgent({
-    displayName: "研发", avatar: "⚙️", avatarColor: "a-b",
-    description: "d", model: "m", thinking: "high",
- tools: ["read"],
-    skills: [], mcpServers: [], partners: { askTo: [] },
+    displayName: "研发",
+    avatar: "⚙️",
+    avatarColor: "a-b",
+    description: "d",
+    model: "m",
+    thinking: "high",
+    tools: ["read"],
+    skills: [],
+    mcpServers: [],
+    partners: { askTo: [] },
     systemPromptBody: "正文",
   });
   expect(errs).toEqual([]);
@@ -48,10 +60,16 @@ test("saveAgent 拒绝非法配置不写盘", async () => {
   const dir = tempAgentsDir();
   const store = new ConfigStore(dir);
   const errs = await store.saveAgent({
-    displayName: "", model: "", thinking: "high" as never,
-    avatar: "", avatarColor: "", description: "",
- tools: [], skills: [],
-    mcpServers: [], partners: { askTo: [] },
+    displayName: "",
+    model: "",
+    thinking: "high" as never,
+    avatar: "",
+    avatarColor: "",
+    description: "",
+    tools: [],
+    skills: [],
+    mcpServers: [],
+    partners: { askTo: [] },
   } as never);
   expect(errs.length).toBeGreaterThan(0);
   rmSync(dir, { recursive: true, force: true });
@@ -67,7 +85,9 @@ test("createAgent: 生成默认配置；重名自动加 -2 后缀；非法名抛
   const c = await cs.createAgent("代码审查");
   expect(c.displayName).toBe("代码审查-3");
   await expect(cs.createAgent("a/b")).rejects.toThrow();
-  expect(await errorCodeOf(cs.createAgent("a/b"))).toBe("agent.invalidDisplayName");
+  expect(await errorCodeOf(cs.createAgent("a/b"))).toBe(
+    "agent.invalidDisplayName",
+  );
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -101,13 +121,32 @@ test("seedDefaults: 空目录写入全部 9 个内置专家角色", async () => 
   const dir = tempAgentsDir();
   const cs = new ConfigStore(dir);
   await cs.seedDefaults();
-  const names = (await cs.listAgents()).map(a => a.displayName).sort();
-  expect(names).toEqual([
-    "UX设计师", "产品经理", "前端开发者", "会议纪要专家", "数据分析师",
-    "测试结果分析师", "代码审查员", "高级项目经理", "后端架构师",
-  ].sort());
+  const names = (await cs.listAgents()).map((a) => a.displayName).sort();
+  expect(names).toEqual(
+    [
+      "UX设计师",
+      "产品经理",
+      "前端开发者",
+      "会议纪要专家",
+      "数据分析师",
+      "测试结果分析师",
+      "代码审查员",
+      "高级项目经理",
+      "后端架构师",
+    ].sort(),
+  );
   // 9 个角色有完整种子内容：description 非空、delegationHints 三项齐全、默认全量互联
-  for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师", "高级项目经理", "会议纪要专家"]) {
+  for (const name of [
+    "前端开发者",
+    "后端架构师",
+    "产品经理",
+    "测试结果分析师",
+    "数据分析师",
+    "代码审查员",
+    "UX设计师",
+    "高级项目经理",
+    "会议纪要专家",
+  ]) {
     const agent = (await cs.getAgent(name))!;
     expect(agent.description).toBeTruthy();
     expect(agent.systemPromptBody).toBeTruthy();
@@ -148,17 +187,29 @@ test("seedDefaults: 存量环境只补缺失角色，不新建已移除的旧角
 
   await cs.seedDefaults();
 
-  const names = (await cs.listAgents()).map(a => a.displayName);
+  const names = (await cs.listAgents()).map((a) => a.displayName);
   // 9 个内建 + 旧角色 + 自定义角色 = 11
   expect(names).toHaveLength(11);
-  for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师", "高级项目经理", "会议纪要专家"]) {
+  for (const name of [
+    "前端开发者",
+    "后端架构师",
+    "产品经理",
+    "测试结果分析师",
+    "数据分析师",
+    "代码审查员",
+    "UX设计师",
+    "高级项目经理",
+    "会议纪要专家",
+  ]) {
     expect(names).toContain(name);
   }
   for (const removed of ["需求设计", "项目管理", "质量验收"]) {
     expect(names).not.toContain(removed);
   }
   // 已有角色内容未被改动
-  expect((await cs.getAgent("前端开发者"))!.description).toBe("老用户的自定义实现");
+  expect((await cs.getAgent("前端开发者"))!.description).toBe(
+    "老用户的自定义实现",
+  );
   expect((await cs.getAgent("技术实现"))!.description).toBe("");
   rmSync(dir, { recursive: true, force: true });
 });
@@ -184,7 +235,9 @@ test("listAgents 过滤 displayName 为空的条目（如内置 agent 用 name �
   const store = new ConfigStore(dir);
   // 写入一个合法 agent + 一个模拟内置 agent（用 name 而非 displayName 的 pi-open-agents 格式）
   await store.saveAgent(makeDefaultAgentConfig("测试"));
-  writeFileSync(join(dir, "Explore.md"), `---
+  writeFileSync(
+    join(dir, "Explore.md"),
+    `---
 name: Explore
 description: 探索
 mode: subagent
@@ -192,12 +245,13 @@ systemPrompt: replace
 thinking: medium
 tools: read, bash
 ---
-READ-ONLY explorer body`);
+READ-ONLY explorer body`,
+  );
   const list = await store.listAgents();
-  const names = list.map(a => a.displayName);
+  const names = list.map((a) => a.displayName);
   expect(names).toContain("测试");
   expect(names).not.toContain(undefined);
-  expect(list.length).toBe(1);  // Explore 被过滤
+  expect(list.length).toBe(1); // Explore 被过滤
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -205,7 +259,9 @@ test("migrateNameToDisplayName 跳过无 displayName 的内置 agent（不生成
   const dir = tempAgentsDir();
   const store = new ConfigStore(dir);
   // 模拟内置 subagent（有 name 字段但无 displayName 字段）
-  writeFileSync(join(dir, "Explore.md"), `---
+  writeFileSync(
+    join(dir, "Explore.md"),
+    `---
 name: Explore
 description: 只读探索
 mode: subagent
@@ -213,9 +269,12 @@ systemPrompt: replace
 thinking: medium
 tools: read, bash
 ---
-READ-ONLY explorer body`);
+READ-ONLY explorer body`,
+  );
   // 同时有一个合法旧格式 agent（有 name + displayName）
-  writeFileSync(join(dir, "old.md"), `---
+  writeFileSync(
+    join(dir, "old.md"),
+    `---
 name: old
 displayName: 旧智能体
 avatar: "🤖"
@@ -229,7 +288,8 @@ mcpServers: []
 partners:
   askTo: []
 ---
-`);
+`,
+  );
 
   const mapping = await store.migrateNameToDisplayName();
 
@@ -238,7 +298,7 @@ partners:
   expect(mapping.get("old")).toBe("旧智能体");
 
   // undefined.md 不应存在
-  const filesAfter = (await store.listAgents()).map(a => a.displayName);
+  const filesAfter = (await store.listAgents()).map((a) => a.displayName);
   expect(filesAfter).not.toContain("undefined");
   expect(filesAfter).not.toContain(undefined as any);
   // 旧格式 agent 被迁移

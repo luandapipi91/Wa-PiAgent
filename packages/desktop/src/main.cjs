@@ -63,7 +63,8 @@ const MSG = {
 	},
 	en: {
 		initializing: "Initializing…",
-		noPort: "No available port found. Check your network or restart and try again.",
+		noPort:
+			"No available port found. Check your network or restart and try again.",
 		portOccupiedAutoSwitch: "Port in use — switching to a free port…",
 		portOccupiedAutoCleanup: "Port in use — cleaning up automatically…",
 		detectingNode: "Checking for Node.js…",
@@ -73,7 +74,8 @@ const MSG = {
 		startingKernel: "Starting kernel…",
 		loadingInterface: "Loading interface…",
 		ready: "Ready",
-		depsInstallFailed: "Dependency installation failed. Check your network and restart",
+		depsInstallFailed:
+			"Dependency installation failed. Check your network and restart",
 		kernelStartFailed: "Kernel failed to start",
 		depsInstallFailedTitle: "Kernel dependency installation failed",
 		depsInstallFailedDesc:

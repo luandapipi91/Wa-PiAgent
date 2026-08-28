@@ -230,14 +230,21 @@ test("extension:repair 成功后广播 changed/repair:done/skill:changed，进�
 	const ctx = await setup();
 	try {
 		// 经 HTTP 路由触发（与前端真实链路一致）
-		const res = await fetch(`${ctx.base}/api/extensions/repair`, { method: "POST" });
+		const res = await fetch(`${ctx.base}/api/extensions/repair`, {
+			method: "POST",
+		});
 		expect(res.ok).toBe(true);
 
-		const progress = await waitForSseEvent(ctx.reader, "extension:repair:progress");
+		const progress = await waitForSseEvent(
+			ctx.reader,
+			"extension:repair:progress",
+		);
 		expect(progress?.message).toBe("bun install 输出行");
 		const changed = await waitForSseEvent(ctx.reader, "extension:changed");
 		expect(Array.isArray(changed?.packages)).toBe(true);
-		expect(await waitForSseEvent(ctx.reader, "extension:repair:done")).not.toBeNull();
+		expect(
+			await waitForSseEvent(ctx.reader, "extension:repair:done"),
+		).not.toBeNull();
 		expect(await waitForSseEvent(ctx.reader, "skill:changed")).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
@@ -250,7 +257,9 @@ test("extension:repair 失败广播 extension:error（name=repair）", async () 
 		throw new Error("删除 node_modules 失败：模拟");
 	});
 	try {
-		const res = await fetch(`${ctx.base}/api/extensions/repair`, { method: "POST" });
+		const res = await fetch(`${ctx.base}/api/extensions/repair`, {
+			method: "POST",
+		});
 		// fire-and-forget 语义：业务错误经 SSE 广播而非 HTTP 错误码（与 install 一致）
 		expect(res.ok).toBe(true);
 

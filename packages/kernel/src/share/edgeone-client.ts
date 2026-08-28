@@ -49,7 +49,11 @@ export async function apiCall<T = any>(
     body: JSON.stringify({ Action: action, ...body }),
   });
   if (!res.ok)
-    throw new KernelError("share.edgeoneApiFailed", { action }, `HTTP ${res.status}`);
+    throw new KernelError(
+      "share.edgeoneApiFailed",
+      { action },
+      `HTTP ${res.status}`,
+    );
   const json = await res.json();
   if (json.Code !== 0)
     throw new KernelError(
@@ -104,11 +108,7 @@ export async function getOrCreateProject(
   // 拿不到 ProjectId 必须抛错：静默返回 undefined 会让下游 COS 路径/部署
   // 全部带 undefined，最终表现为「部署超时」而不是真实原因
   if (!requeryId)
-    throw new KernelError(
-      "share.edgeoneProjectFailed",
-      undefined,
-      projectName,
-    );
+    throw new KernelError("share.edgeoneProjectFailed", undefined, projectName);
   return requeryId;
 }
 

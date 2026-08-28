@@ -182,7 +182,7 @@ export interface ToolCall {
 	type: "toolCall";
 	id: string;
 	name: string;
-	arguments: Record<string, any>;
+	arguments: Record<string, unknown>;
 }
 export interface ImageContent {
 	type: "image";
@@ -386,17 +386,19 @@ export interface AskCancelAskEvent {
 	sessionId: string;
 	toolCallId: string;
 }
-/** 简化版引导：前端乐观更新后直调 pi steer() */
+/** 简化版引导：前端乐观更新后直调 pi steer()（attachments 全量透传，kernel 侧统一转文本/多模态） */
 export interface SteerMessageEvent {
 	type: "steer:message";
 	sessionId: string;
 	text: string;
+	attachments?: AttachmentRef[];
 }
 /** 简化版立即执行：abort + steer */
 export interface SteerImmediateMessageEvent {
 	type: "steer:immediate-message";
 	sessionId: string;
 	text: string;
+	attachments?: AttachmentRef[];
 }
 /** 清空会话 followUp 排队列表（fire-and-forget） */
 export interface ClearQueueEvent {

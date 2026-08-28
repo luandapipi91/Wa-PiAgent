@@ -96,10 +96,7 @@ function dedupeConsecutiveFailedTurns(msgs: any[]): any[] {
 		// 或下一对是同文本 user 后跟成功（重发后成功）→ 也折叠当前失败组
 		if (isFailedTurnStart(msgs, i)) {
 			const nextUser = msgs[i + 2];
-			if (
-				nextUser?.role === "user" &&
-				userText(nextUser) === userText(msgs[i])
-			) {
+			if (nextUser?.role === "user" && userText(nextUser) === userText(msgs[i])) {
 				i++; // 跳过 user + error assistant 两条
 				continue;
 			}
@@ -170,7 +167,8 @@ export async function readSessionHistory(
 			// 坏行跳过（写入中途截断等）
 		}
 	}
-	if (entries.length === 0) throw new KernelError("session.noValidLines", undefined, file);
+	if (entries.length === 0)
+		throw new KernelError("session.noValidLines", undefined, file);
 
 	const byId = new Map<string, SessionLogEntry>();
 	for (const e of entries) {
@@ -185,8 +183,7 @@ export async function readSessionHistory(
 		while (cur && typeof cur.id === "string" && !visited.has(cur.id)) {
 			visited.add(cur.id);
 			chain.push(cur);
-			cur =
-				typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
+			cur = typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
 		}
 		chain.reverse();
 
@@ -344,10 +341,7 @@ export async function computeSessionUsage(
 		}
 		if (!e || typeof e !== "object") continue;
 		// compaction / branch_summary 条目：摘要生成的 LLM 消耗计入主代理（对齐官方 totals）
-		if (
-			(e.type === "compaction" || e.type === "branch_summary") &&
-			e.usage
-		) {
+		if ((e.type === "compaction" || e.type === "branch_summary") && e.usage) {
 			sawAny = true;
 			add(main, e.usage);
 			continue;

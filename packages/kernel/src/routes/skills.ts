@@ -10,10 +10,18 @@ export const registerSkillRoutes: RouteRegistrar = (r, callApi, ctx) => {
   r.add("POST", "/api/skills/toggle", async (req) => {
     const b = await readJsonBody(req);
     // REST 侧用 enabled 语义；WS 事件为 skillName/disabled（true=禁用），这里取反
-    if (typeof b.name !== "string" || !b.name || typeof b.enabled !== "boolean") {
+    if (
+      typeof b.name !== "string" ||
+      !b.name ||
+      typeof b.enabled !== "boolean"
+    ) {
       return paramErrorResponse("缺少参数: name/enabled", "name/enabled");
     }
-    return callApi({ type: "skill:toggle", skillName: b.name, disabled: !b.enabled });
+    return callApi({
+      type: "skill:toggle",
+      skillName: b.name,
+      disabled: !b.enabled,
+    });
   });
 
   r.add("POST", "/api/skills/dirs", async (req) => {

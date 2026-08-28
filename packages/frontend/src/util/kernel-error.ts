@@ -15,10 +15,10 @@ import i18n from "../i18n";
 
 /** kernel 错误载荷的宽松形状（兼容结构化 / 纯 message 两种来源） */
 export interface KernelErrorLike {
-	code?: string;
-	params?: Record<string, string | number>;
-	detail?: string;
-	message?: string;
+  code?: string;
+  params?: Record<string, string | number>;
+  detail?: string;
+  message?: string;
 }
 
 /**
@@ -26,16 +26,16 @@ export interface KernelErrorLike {
  * 未知 code 兜底 kernelMsg.unknown；无 code 走 message 原样展示。
  */
 export function formatKernelError(p: KernelErrorLike): {
-	main: string;
-	detail?: string;
+  main: string;
+  detail?: string;
 } {
-	// 无 code：旧 kernel / 未迁移模块的纯 message，原样展示（兼容）
-	if (!p.code) return { main: p.message ?? "" };
-	const key = `kernelMsg.${p.code}`;
-	const unknown = i18n.t("kernelMsg.unknown");
-	// params 直接展开给 i18next 做插值（如 {{status}}）；查不到 code 时兜底 unknown
-	const main = i18n.t(key, { ...p.params, defaultValue: unknown });
-	return { main, detail: p.detail };
+  // 无 code：旧 kernel / 未迁移模块的纯 message，原样展示（兼容）
+  if (!p.code) return { main: p.message ?? "" };
+  const key = `kernelMsg.${p.code}`;
+  const unknown = i18n.t("kernelMsg.unknown");
+  // params 直接展开给 i18next 做插值（如 {{status}}）；查不到 code 时兜底 unknown
+  const main = i18n.t(key, { ...p.params, defaultValue: unknown });
+  return { main, detail: p.detail };
 }
 
 /**
@@ -46,10 +46,10 @@ export function formatKernelError(p: KernelErrorLike): {
  * 顶层 import 会因 mock 缺少 ApiError 导出而崩）。
  */
 export function formatApiError(e: unknown): string {
-	const failure =
-		typeof e === "object" && e !== null && "failure" in e
-			? (e as { failure?: KernelErrorLike }).failure
-			: undefined;
-	const message = e instanceof Error ? e.message : String(e);
-	return formatKernelError(failure ?? { message }).main;
+  const failure =
+    typeof e === "object" && e !== null && "failure" in e
+      ? (e as { failure?: KernelErrorLike }).failure
+      : undefined;
+  const message = e instanceof Error ? e.message : String(e);
+  return formatKernelError(failure ?? { message }).main;
 }

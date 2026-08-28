@@ -123,7 +123,11 @@ function createTransport(config: McpServerConfig, defaultCwd?: string) {
       );
     } catch {
       // 原始 SyntaxError 无用户价值：URL 进 detail 供排查，主文案由前端字典渲染
-      throw new KernelError("mcp.invalidUrl", { name: config.name }, config.url);
+      throw new KernelError(
+        "mcp.invalidUrl",
+        { name: config.name },
+        config.url,
+      );
     }
   }
   throw new KernelError("mcp.missingCommandOrUrl", { name: config.name });

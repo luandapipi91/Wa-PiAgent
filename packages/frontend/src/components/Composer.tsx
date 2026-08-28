@@ -140,13 +140,7 @@ export function Composer({
         );
     // 空闲时：乐观 UI 立即显示用户消息 + AI loading，不等 SDK 回声。
     // 运行中：消息发给 kernel 入队（followUp），立即显示在顶部队列面板。
-    if (!isRunning) {
-      if (!isExtCmd) {
-        useSessionStore
-          .getState()
-          .optimisticSend(sessionId, expandedText, targetAgent);
-      }
-    } else {
+    if (isRunning) {
       // 乐观追加到排队列表，同时标记 optimisticEcho 防止 kernel 的 session:echo_user
       // 把 followUp 消息重复注入到会话列表（echo_user 会对每条 prompt 回传）
       useSessionStore.setState((s) => {
@@ -165,6 +159,10 @@ export function Composer({
           },
         };
       });
+    } else if (!isExtCmd) {
+      useSessionStore
+        .getState()
+        .optimisticSend(sessionId, expandedText, targetAgent);
     }
     // 发送消息视为活跃：刷新该会话 lastActivity（点击查看不更新，发消息/收回复才更新）
     useProjectsStore.getState().touchSession(sessionId);
@@ -252,6 +250,7 @@ export function Composer({
     api
       .post(`/api/sessions/${encodeURIComponent(sessionId)}/steer`, {
         text: expandedText,
+        attachments: attachments.length > 0 ? attachments : undefined,
       })
       .catch((err) => console.error("[composer] 引导发送失败:", err));
     if (debounceRef.current) {
@@ -260,6 +259,8 @@ export function Composer({
     }
     setText("");
     setSessionPrefs(sessionId, { text: "" });
+    // 附件已随引导发出，与 doSend 一致清空（此前漏清导致附件残留在输入框）
+    setSessionPrefs(sessionId, { attachments: [] });
   };
 
   return (
