@@ -18,6 +18,7 @@ import type {
   MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
   MemoryArchiveFile, MemoryCategory, MemoryScope,
 } from "@wa-pi/shared";
+import { KernelError } from "./kernel-error";
 import type { ProjectStore } from "./project-store";
 import {
   getGlobalMemoryStore,
@@ -113,14 +114,14 @@ export class MemoryStore {
   async update(id: string, text: string): Promise<void> {
     const { store, target, oldText } = await this.resolveForMutation(id);
     const ok = await store.replace(target, oldText, text);
-    if (!ok) throw new Error("条目不存在或已被修改，请刷新列表");
+    if (!ok) throw new KernelError("memory.entryStale");
   }
 
   /** 归档（软删除）：从 store 移除 → 写入 sidecar */
   async archive(id: string): Promise<void> {
     const { store, target, oldText, meta } = await this.resolveForMutation(id);
     const ok = await store.remove(target, oldText);
-    if (!ok) throw new Error("条目不存在或已被修改，请刷新列表");
+    if (!ok) throw new KernelError("memory.entryStale");
 
     const archived = await this.loadArchive();
     archived.push({
@@ -139,7 +140,7 @@ export class MemoryStore {
   async restore(id: string): Promise<void> {
     const archived = await this.loadArchive();
     const entry = archived.find(a => a.id === id);
-    if (!entry) throw new Error("归档条目不存在");
+    if (!entry) throw new KernelError("memory.archiveNotFound", { id });
 
     const store = createAmasterStore(dirname(entry.sourceFile));
     const target: MemoryTarget = entry.category === "user" ? "user" : "memory";
@@ -257,7 +258,7 @@ export class MemoryStore {
     if (scope === "global") return getGlobalMemoryStore(this.opts.waPiDir);
     if (!projectId) throw new Error("项目记忆需要 projectId");
     const cwd = await this.getProjectCwd(projectId);
-    if (!cwd) throw new Error(`项目不存在: ${projectId}`);
+    if (!cwd) throw new KernelError("project.notFound", { id: projectId });
     return getProjectMemoryStore(this.opts.waPiDir, cwd);
   }
 
@@ -281,7 +282,7 @@ export class MemoryStore {
     const entries = await store.entries(target);
     const oldText = entries[rawIndex];
     if (oldText === undefined) {
-      throw new Error("条目不存在或已被修改，请刷新列表");
+      throw new KernelError("memory.entryStale");
     }
     return {
       store,

@@ -52,7 +52,12 @@ export interface ExtensionChangedEvent {
 export interface ExtensionErrorEvent {
 	type: "extension:error";
 	name: string;
+	/** 错误信息（KernelError 时为 code，老渲染兑底用） */
 	error: string;
+	/** 结构化错误：code 由前端字典渲染；detail 为技术细节 */
+	code?: string;
+	params?: Record<string, string | number>;
+	detail?: string;
 }
 /** 安装/升级期间流式推送的包管理器日志行；name 为用户原始输入 */
 export interface ExtensionProgressEvent {

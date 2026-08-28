@@ -8,6 +8,17 @@ import type { WSClientEvent } from "@wa-pi/shared";
 import type { HttpRouter } from "../http-router";
 import type { ProjectStore } from "../project-store";
 
+/** HTTP 400 参数校验错误的统一出口：error 保留旧文案兑底，failure 供新前端按 code 渲染 */
+export function paramErrorResponse(error: string, name: string): Response {
+	return Response.json(
+		{
+			error,
+			failure: { code: "common.missingParam", params: { name } },
+		},
+		{ status: 400 },
+	);
+}
+
 /** REST 适配器：见 WSServer.callApi 的语义注释 */
 export type CallApiFn = (
  event: WSClientEvent,

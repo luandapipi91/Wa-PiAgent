@@ -165,3 +165,20 @@ test("testConnection: 需 Authorization 头但未配置 headers 时返回 error�
     await close();
   }
 });
+
+// ---- 任务 4 i18n：配置错误 code 化（用户可配置触发，outcome 携带结构化错误） ----
+
+test("testConnection: url 非法 → outcome 携带 mcp.invalidUrl", async () => {
+  const outcome = await testConnection({
+    name: "badurl",
+    url: "not-a-valid-url",
+  });
+  expect(outcome.status).toBe("error");
+  expect(outcome.code).toBe("mcp.invalidUrl");
+});
+
+test("testConnection: 缺 command 与 url → outcome 携带 mcp.missingCommandOrUrl", async () => {
+  const outcome = await testConnection({ name: "noconf" } as McpServerConfig);
+  expect(outcome.status).toBe("error");
+  expect(outcome.code).toBe("mcp.missingCommandOrUrl");
+});

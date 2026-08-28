@@ -10,7 +10,7 @@ import { statSync } from "node:fs";
 import { unzipSync } from "fflate";
 import type { HttpRouter } from "../http-router";
 import type { ShareProgressEvent } from "@wa-pi/shared";
-import { sanitizeOpenEnv } from "@wa-pi/shared";
+import { sanitizeOpenEnv, toKernelPayload } from "@wa-pi/shared";
 import { readJsonBody } from "./types";
 import {
 	CF_SHARE_PROJECT_NAME,
@@ -72,12 +72,39 @@ export function createShareRoutes(
 	cfg: ShareRouteCfg,
 	workspaceDir: string,
 ): void {
+	/** HTTP 错误响应：error 保留可读文案（无文案时传 code）兑底，failure 供新前端按 code 渲染 */
+	const failWith = (
+		status: number,
+		error: string,
+		code: string,
+		params?: Record<string, string | number>,
+		detail?: string,
+	): Response =>
+		Response.json(
+			{
+				error,
+				failure: {
+					code,
+					...(params ? { params } : {}),
+					...(detail ? { detail } : {}),
+				},
+			},
+			{ status },
+		);
+
 	const wrap = (fn: (req: Request) => Promise<Response>) => {
 		return async (req: Request) => {
 			try {
 				return await fn(req);
 			} catch (e: any) {
-				return Response.json({ error: e?.message ?? String(e) }, { status: 500 });
+				const payload = toKernelPayload(e);
+				return Response.json(
+					{
+						error: e?.message ?? String(e),
+						...(payload ? { failure: payload } : {}),
+					},
+					{ status: 500 },
+				);
 			}
 		};
 	};
@@ -89,10 +116,7 @@ export function createShareRoutes(
 		const latest = await loadShareSettings(cfg.settingsFile);
 		const token = latest.token || cfg.token;
 		if (!token)
-			return Response.json(
-				{ error: "未配置分享 Token（设置 → 分享）" },
-				{ status: 400 },
-			);
+			return failWith(400, "未配置分享 Token（设置 → 分享）", "share.tokenMissing");
 		return {
 			token,
 			channel: latest.channel || cfg.channel || "edgeone",
@@ -142,9 +166,11 @@ export function createShareRoutes(
 			emit({ phase: "done" });
 			return { url: r.rootUrl, expiresAt: r.expiresAt, channel: "edgeone" };
 		} catch (e) {
+			const payload = toKernelPayload(e);
 			emit({
 				phase: "error",
 				error: e instanceof Error ? e.message : String(e),
+				...(payload ?? {}),
 			});
 			throw e;
 		}
@@ -168,7 +194,7 @@ export function createShareRoutes(
 			const b = await readJsonBody(req);
 			const paths: string[] = b.paths ?? [];
 			if (paths.length === 0)
-				return Response.json({ error: "paths 为空" }, { status: 400 });
+				return failWith(400, "paths 为空", "share.pathsRequired");
 
 			const auth = await requireToken();
 			if (auth instanceof Response) return auth;
@@ -179,13 +205,18 @@ export function createShareRoutes(
 				paths.length === 1 && statSync(paths[0]).isDirectory() ? paths[0] : null;
 			const entries = collectZipEntries(paths, commonRoot(paths));
 			if (entries.length === 0)
-				return Response.json({ error: "paths 为空" }, { status: 400 });
+				return failWith(400, "paths 为空", "share.pathsRequired");
 			const oversized = entries.find((e) => e.data.byteLength > MAX_FILE_BYTES);
-			if (oversized)
-				return Response.json(
-					{ error: `文件超过 25MB 上限: ${oversized.name}` },
-					{ status: 413 },
+			if (oversized) {
+				const maxMb = Math.floor(MAX_FILE_BYTES / 1024 / 1024);
+				return failWith(
+					413,
+					`文件超过 ${maxMb}MB 上限: ${oversized.name}`,
+					"attachment.tooLarge",
+					{ maxMb },
+					oversized.name,
 				);
+			}
 
 			const id = hashPaths(paths);
 			const autoName = singleDir
@@ -202,8 +233,9 @@ export function createShareRoutes(
 			try {
 				item = await addItem(workspaceDir, id, name, entries);
 			} catch (e: any) {
-				if (/非法字符/.test(e?.message ?? ""))
-					return Response.json({ error: e.message }, { status: 409 });
+				const payload = toKernelPayload(e);
+				if (payload?.code === "share.invalidName")
+					return failWith(409, "分享名称含非法字符（仅限字母/数字/中文/-_./空格）", "share.invalidName", payload.params);
 				throw e;
 			}
 
@@ -256,7 +288,7 @@ export function createShareRoutes(
 			const b = await readJsonBody(req);
 			const paths: string[] = b.paths ?? [];
 			if (paths.length === 0)
-				return Response.json({ error: "paths 为空" }, { status: 400 });
+				return failWith(400, "paths 为空", "share.pathsRequired");
 			const id = hashPaths(paths);
 			const item = (await loadItems(workspaceDir)).find((i) => i.id === id);
 			return Response.json({ name: item?.name ?? null });
@@ -288,7 +320,7 @@ export function createShareRoutes(
 			const b = await readJsonBody(req);
 			// id 直接拼进文件路径，必须严格校验格式防路径穿越
 			if (typeof b.id !== "string" || !SHARE_ID_RE.test(b.id))
-				return Response.json({ error: "id 非法" }, { status: 400 });
+				return failWith(400, "id 非法", "share.invalidId");
 			await removeItem(workspaceDir, b.id);
 			return Response.json({ ok: true });
 		}),
@@ -300,15 +332,18 @@ export function createShareRoutes(
 		wrap(async (req) => {
 			const b = await readJsonBody(req);
 			if (typeof b.id !== "string" || !SHARE_ID_RE.test(b.id))
-				return Response.json({ error: "id 非法" }, { status: 400 });
+				return failWith(400, "id 非法", "share.invalidId");
 			if (typeof b.name !== "string" || !b.name.trim())
-				return Response.json({ error: "名称不能为空" }, { status: 400 });
+				return failWith(400, "名称不能为空", "share.nameRequired");
 			try {
 				const item = await renameItem(workspaceDir, b.id, b.name.trim());
 				return Response.json({ ok: true, item });
 			} catch (e: any) {
-				if (/重复|非法字符|不存在/.test(e?.message ?? ""))
-					return Response.json({ error: e.message }, { status: 409 });
+				const payload = toKernelPayload(e);
+				if (payload?.code === "share.invalidName")
+					return failWith(409, "分享名称含非法字符（仅限字母/数字/中文/-_./空格）", "share.invalidName", payload.params);
+				if (payload?.code === "share.notFound")
+					return failWith(409, "分享不存在", "share.notFound", payload.params);
 				throw e;
 			}
 		}),
@@ -370,13 +405,15 @@ export function createShareRoutes(
 		wrap(async (req) => {
 			const b = await readJsonBody(req);
 			const item = (await loadItems(workspaceDir)).find((i) => i.id === b.id);
-			if (!item) return Response.json({ error: "分享不存在" }, { status: 404 });
+			if (!item)
+				return failWith(404, "分享不存在", "share.notFound", { id: String(b.id ?? "") });
 			// 本地有记录但从未成功部署（不在部署快照里）→ 线上是 404，不出链接
 			const deployed = await loadLastDeployed(workspaceDir);
 			if (!deployed.some((i) => i.id === item.id))
-				return Response.json(
-					{ error: "内容尚未部署，请先立即部署" },
-					{ status: 409 },
+				return failWith(
+					409,
+					"内容尚未部署，请先立即部署",
+					"share.notDeployed",
 				);
 			// 当前渠道实时读取设置；CF 渠道链接公开恒定，幂等返回条目子路径（不重签 token），
 			// 拼法与 upload 端点 CF 分支一致：itemShareUrl 复用（单文件指向真实文件、分享名自动编码）

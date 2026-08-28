@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { ModelProvider, ProviderApi, ProviderModel } from "@wa-pi/shared";
+import type {
+  ModelProvider,
+  ProviderApi,
+  ProviderModel,
+  ProviderTestFailure,
+} from "@wa-pi/shared";
 import { api } from "../api-client";
 
 interface TestInput {
@@ -19,7 +24,9 @@ interface ProvidersState {
   save: (p: ModelProvider) => void;
   remove: (id: string) => void;
   setProviders: (ps: ModelProvider[]) => void;
-  test: (input: TestInput) => Promise<{ ok: boolean; error?: string }>;
+  test: (
+    input: TestInput,
+  ) => Promise<{ ok: boolean; error?: string; failure?: ProviderTestFailure }>;
 }
 
 export const useProvidersStore = create<ProvidersState>((set) => ({
@@ -50,7 +57,9 @@ export const useProvidersStore = create<ProvidersState>((set) => ({
     const res = (await api.post("/api/providers/test", input)) as {
       ok: boolean;
       error?: string;
+      failure?: ProviderTestFailure;
     };
-    return { ok: res.ok, error: res.error };
+    // failure 透传：前端按 code 查 kernelMsg 字典渲染（优先于 error 兑底串）
+    return { ok: res.ok, error: res.error, failure: res.failure };
   },
 }));

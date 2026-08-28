@@ -3,8 +3,9 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ExtensionManager, validatePackageName, parseExtensionInput } from "../src/extension-manager";
-import { NpmPackageService } from "../src/npm-package-service";
+import type { NpmPackageService } from "../src/npm-package-service";
 import { WA_PI_DIR } from "@wa-pi/shared";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 function tmpDir(): string {
   const dir = join(import.meta.dir, ".tmp-ext-" + Math.random().toString(36).slice(2));
@@ -131,7 +132,7 @@ test("install 拒绝重复安装", async () => {
     packages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
-  await expect(mgr.install("test-pkg")).rejects.toThrow("已安装");
+  expect(await errorCodeOf(mgr.install("test-pkg"))).toBe("ext.alreadyInstalled");
 });
 
 test("uninstall 从 packages 移除", async () => {
@@ -186,7 +187,7 @@ test("disable 对未安装包抛错", async () => {
     packages: [],
   }), "utf8");
   const mgr = mockManager(dir);
-  await expect(mgr.disable("nope")).rejects.toThrow("未安装");
+  expect(await errorCodeOf(mgr.disable("nope"))).toBe("ext.notInstalled");
 });
 
 test("enable 把 disabled 包移回 packages（enabled:true）", async () => {
@@ -284,7 +285,7 @@ test("uninstall 对两列表皆无的包抛错", async () => {
     waPiDisabledPackages: [],
   }), "utf8");
   const mgr = mockManager(dir);
-  await expect(mgr.uninstall("nope")).rejects.toThrow("未安装");
+  expect(await errorCodeOf(mgr.uninstall("nope"))).toBe("ext.notInstalled");
 });
 
 test("install 命中 disabledPackages 时抛「已禁用，请先启用」", async () => {
@@ -294,7 +295,7 @@ test("install 命中 disabledPackages 时抛「已禁用，请先启用」", asy
     waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
-  await expect(mgr.install("test-pkg")).rejects.toThrow("该插件已禁用，请先启用");
+  expect(await errorCodeOf(mgr.install("test-pkg"))).toBe("ext.disabled");
 });
 
 // ---- local 来源：身份统一为 package.json name ----
@@ -331,7 +332,7 @@ test("install local：重复安装按原始路径命中「已安装」（路径�
   const mgr = mockManager(dir);
   await mgr.install(pkgDir);
   // 再次按同一路径安装：extractNames 的路径别名必须命中，否则产生重复条目
-  await expect(mgr.install(pkgDir)).rejects.toThrow("已安装");
+  expect(await errorCodeOf(mgr.install(pkgDir))).toBe("ext.alreadyInstalled");
   // 按包名安装（不同写法同一身份）不重复：包名不是合法输入格式，走 npm 校验被拒，
   // 这里验证 disable/uninstall 按包名操作即可（见下条）
 });
@@ -374,7 +375,7 @@ test("upgrade 对仅在 disabledPackages 的包抛「请先启用后升级」", 
     waPiDisabledPackages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
-  await expect(mgr.upgrade("test-pkg")).rejects.toThrow("该插件已禁用，请先启用后升级");
+  expect(await errorCodeOf(mgr.upgrade("test-pkg"))).toBe("ext.disabled");
 });
 
 test("不可变更新：保留 settings.json 其他字段（含 disabledPackages）", async () => {
@@ -684,4 +685,34 @@ test("setCommandToggle 保留其他 toggles 与其他 settings 字段", async ()
   });
   expect(settings.npmCommand).toEqual(["bun"]);
   expect(settings.packages).toEqual(["npm:my-pkg@1.0.0"]);
+});
+
+// ---- 任务 4 i18n：KernelError code 断言（人话文案由前端 kernelMsg 字典渲染） ----
+
+test("install 非法输入 → KernelError ext.invalidName", async () => {
+  const mgr = mockManager(dir);
+  expect(await errorCodeOf(mgr.install("bad name!"))).toBe("ext.invalidName");
+});
+
+test("install local 路径无效 → KernelError ext.invalidPackagePath", async () => {
+  const mgr = mockManager(dir);
+  expect(await errorCodeOf(mgr.install("/no/such/dir"))).toBe(
+    "ext.invalidPackagePath",
+  );
+});
+
+test("upgrade git 来源 → KernelError ext.upgradeUnsupported", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: ["git:some/repo"],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  expect(await errorCodeOf(mgr.upgrade("some/repo"))).toBe(
+    "ext.upgradeUnsupported",
+  );
+});
+
+test("upgrade 未安装 → KernelError ext.notInstalled", async () => {
+  const mgr = mockManager(dir);
+  expect(await errorCodeOf(mgr.upgrade("ghost"))).toBe("ext.notInstalled");
 });

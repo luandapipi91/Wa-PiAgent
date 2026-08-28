@@ -522,6 +522,9 @@ export interface SessionStatsRequest {
 }
 
 // ===== 通用设置（系统设置 > 通用）=====
+/** 界面语言。kernel 侧副本：前端切换语言时经 /api/settings/language 双写到 settings.json，
+ *  供后端 i18n（kernel 生成的消息按此语言输出）读取；前端真源仍在 ui-prefs（localStorage）。 */
+export type KernelLanguage = "zh" | "en";
 /** pi 自动重试配置（持久化在 settings.json.retry，pi settings-manager 直接消费） */
 export interface RetrySettings {
 	maxRetries: number; // 重试次数上限，0-10，默认 3
@@ -978,6 +981,10 @@ export interface SessionUpdatedEvent {
 export interface ErrorEvent {
 	type: "error";
 	message: string;
+	/** 结构化错误载荷（ws-server replyError 兜底 KernelError 时携带）：前端按 code 查 kernelMsg 字典渲染，优先于 message */
+	code?: string;
+	params?: Record<string, string | number>;
+	detail?: string;
 	agentName?: AgentName;
 	sessionId?: string; // 真正出错的会话；前端据此精确路由，缺省回落 currentSessionId
 	status?: number; // REST 适配层（callApi）映射的 HTTP 状态码提示，缺省 400；如 Bot ID 冲突 → 409
@@ -989,6 +996,10 @@ export interface NetStatusEvent {
 	type: "net:status";
 	status: "degraded"; // 预留将来加 "recovered"
 	message: string;
+	/** 结构化错误载荷（classifySdkError transient 分支携带）：前端按 code 查字典渲染，优先于 message */
+	code?: string;
+	params?: Record<string, string | number>;
+	detail?: string;
 	agentName?: AgentName;
 	sessionId?: string;
 }
@@ -1049,6 +1060,9 @@ export interface FSUploadResult {
 	id: string;
 	path: string;
 	error?: string;
+	/** code 化错误（第二批 i18n）：结构化载荷，前端 formatKernelError 按 code 查字典渲染 */
+	code?: string;
+	params?: Record<string, string | number>;
 }
 export interface FSCopyRequest {
 	type: "fs:copy";
@@ -1096,12 +1110,18 @@ export interface FSErrorEvent {
 	type: "fs:error";
 	path: string;
 	reason: string;
+	/** code 化错误（第二批 i18n）：结构化载荷，前端 formatKernelError 按 code 查字典渲染 */
+	code?: string;
+	params?: Record<string, string | number>;
 }
 /** 文件不支持预览（非文本/超限等）：前端据此降级为下载/提示 */
 export interface FSUnsupportedEvent {
 	type: "fs:unsupported";
 	path: string;
 	reason: string;
+	/** code 化错误（第二批 i18n）：结构化载荷，前端 formatKernelError 按 code 查字典渲染 */
+	code?: string;
+	params?: Record<string, string | number>;
 }
 
 // 录音：边录边落盘协议（与 fs:upload 同通道，id 关联请求-响应）
@@ -1436,8 +1456,12 @@ export interface ShareProgressEvent {
 	percent?: number;
 	loaded?: number;
 	total?: number;
-	/** phase=error 时的错误信息 */
+	/** phase=error 时的错误信息（KernelError 时为 code，老渲染兑底用） */
 	error?: string;
+	/** phase=error 时的结构化错误（code 由前端字典渲染） */
+	code?: string;
+	params?: Record<string, string | number>;
+	detail?: string;
 }
 
 // ============ 定时任务 SSE 事件 ============
@@ -1525,6 +1549,9 @@ export interface ExecutionRecord {
 	sessionId?: string;
 	pushResults?: PushResult[];
 	error?: string;
+	/** 结构化错误（任务执行失败时；errorCode 由前端字典渲染，与 error 兜底并存） */
+	errorCode?: string;
+	errorParams?: Record<string, string | number>;
 	summary?: string;
 }
 

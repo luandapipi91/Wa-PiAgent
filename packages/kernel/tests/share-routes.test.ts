@@ -495,7 +495,11 @@ test("部署失败广播 error 阶段（含错误信息）", async () => {
     const res = await post(router, "/api/share/deploy", {});
     expect(res!.status).toBe(500);
     expect(events.at(-1)).toMatchObject({ phase: "error" });
-    expect(events.at(-1).error).toContain("boom");
+    // 错误结构化：code 供前端字典渲染，技术细节（业务 Code/Message）进 detail
+    expect(events.at(-1)).toMatchObject({
+        code: "share.edgeoneApiFailed",
+        detail: "Code -1: boom",
+    });
 });
 
 test("open-folder：200 + opener 收到 workspaceDir + 目录被创建", async () => {

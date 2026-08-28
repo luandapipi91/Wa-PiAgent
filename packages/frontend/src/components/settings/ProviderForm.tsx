@@ -4,6 +4,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
 import { useToastStore } from "../../store/toast";
+import { formatKernelError } from "../../util/kernel-error";
 import { api } from "../../api-client";
 import type {
   ModelProvider,
@@ -203,9 +204,12 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
     } else {
       // 连接失败：用 toast 提示，不再 inline 显示失败文案（成功仍 inline「✓ 连接成功」）
       setTestStatus({ state: "idle" });
-      useToastStore
-        .getState()
-        .add(result.error ?? t("settings.provider.connectFailed"), "error");
+      // 结构化 failure（provider.httpStatus 等）按 kernelMsg 字典渲染；
+      // 老路径纯 error 串原样展示（兼容）
+      const { main } = formatKernelError(
+        result.failure ?? { message: result.error },
+      );
+      useToastStore.getState().add(main, "error");
     }
   };
 

@@ -6,6 +6,7 @@ import {
   getOrCreateProject,
   getProjectSubdomain,
 } from "../src/share/cloudflare-pages-client";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 // 可配置的 fetch mock：按 URL 段返回预设 JSON
 function installFetchMock() {
@@ -121,9 +122,9 @@ describe("getProjectSubdomain", () => {
       }
       throw new Error(`unhandled: ${u}`);
     }) as typeof fetch;
-    expect(getProjectSubdomain("tk", "acc-1", "wapi-shares")).rejects.toThrow(
-      "无法获取 Cloudflare 项目域名",
-    );
+    expect(
+      await errorCodeOf(getProjectSubdomain("tk", "acc-1", "wapi-shares")),
+    ).toBe("share.domainUnavailable");
   });
 });
 
@@ -266,7 +267,9 @@ describe("deployToCloudflare", () => {
       }
       throw new Error(`unhandled: ${u}`);
     }) as typeof fetch;
-    expect(getCloudflareAccountId("tk")).rejects.toThrow("账号列表为空");
+    expect(await errorCodeOf(getCloudflareAccountId("tk"))).toBe(
+      "share.cloudflareAccountEmpty",
+    );
   });
 
   test("check-missing 返回 401 时抛出带状态/信息的错误", async () => {
@@ -294,13 +297,15 @@ describe("deployToCloudflare", () => {
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
 
-    await expect(
-      deployToCloudflare({
-        token: "tk",
-        accountId: "acc-1",
-        files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
-      }),
-    ).rejects.toThrow("check-missing failed: HTTP 401");
+    expect(
+      await errorCodeOf(
+        deployToCloudflare({
+          token: "tk",
+          accountId: "acc-1",
+          files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+        }),
+      ),
+    ).toBe("share.assetCheckFailed");
   });
 
   test("check-missing 返回 HTTP 200 但响应非数组时抛明确错误（而非 missing.includes TypeError）", async () => {
@@ -329,13 +334,15 @@ describe("deployToCloudflare", () => {
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
 
-    await expect(
-      deployToCloudflare({
-        token: "tk",
-        accountId: "acc-1",
-        files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
-      }),
-    ).rejects.toThrow("check-missing failed");
+    expect(
+      await errorCodeOf(
+        deployToCloudflare({
+          token: "tk",
+          accountId: "acc-1",
+          files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+        }),
+      ),
+    ).toBe("share.assetCheckFailed");
   });
 
   test("check-missing 返回 {success, result} 包络形态（真实 CF API）时正常走通部署", async () => {
@@ -418,12 +425,14 @@ describe("deployToCloudflare", () => {
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
 
-    await expect(
-      deployToCloudflare({
-        token: "tk",
-        accountId: "acc-1",
-        files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
-      }),
-    ).rejects.toThrow("upload failed: HTTP 200");
+    expect(
+      await errorCodeOf(
+        deployToCloudflare({
+          token: "tk",
+          accountId: "acc-1",
+          files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+        }),
+      ),
+    ).toBe("share.assetUploadFailed");
   });
 });

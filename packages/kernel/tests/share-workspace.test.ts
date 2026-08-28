@@ -15,6 +15,7 @@ import {
   saveLastDeployed,
   totalSize,
 } from "../src/share/workspace";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 let dirs: string[] = [];
 async function tmp(): Promise<string> {
@@ -342,6 +343,20 @@ test("renameItem 重名 → 合并：目标记录保留 id，源目录文件合�
   expect(await readFile(join(d, "items/乙/a.txt"), "utf8")).toBe("1");
   expect(await readFile(join(d, "items/乙/b.txt"), "utf8")).toBe("2");
   expect(existsSync(join(d, "items/甲"))).toBe(false);
+});
+
+test("addItem 非法分享名 → KernelError share.invalidName", async () => {
+  const d = await tmp();
+  expect(
+    await errorCodeOf(addItem(d, "abc123abc123", "非 法!", [entry("a.txt", "1")])),
+  ).toBe("share.invalidName");
+});
+
+test("renameItem 不存在的 id → KernelError share.notFound", async () => {
+  const d = await tmp();
+  expect(await errorCodeOf(renameItem(d, "no-such-id", "新名"))).toBe(
+    "share.notFound",
+  );
 });
 
 test("pendingCount：重命名后计为未部署变更（签名含 name）", async () => {

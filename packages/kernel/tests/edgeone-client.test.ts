@@ -10,6 +10,7 @@ import {
   normalizeDomain,
   SHARE_PROJECT_NAME,
 } from "../src/share/edgeone-client";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 const fetchMock = mock(
   async (_url: string, _init?: any) => new Response("{}", { status: 200 }),
@@ -77,18 +78,18 @@ test("apiCall：非 2xx 状态码抛 HTTP 错误", async () => {
   fetchMock.mockImplementation(async (_url: string, _init?: any) => {
     return new Response("oops", { status: 500 });
   });
-  await expect(apiCall("https://api", "tk", "SomeAction")).rejects.toThrow(
-    "[SomeAction] HTTP 500",
-  );
+  expect(
+    await errorCodeOf(apiCall("https://api", "tk", "SomeAction")),
+  ).toBe("share.edgeoneApiFailed");
 });
 
 test("apiCall：业务 Code!==0 抛业务错误", async () => {
   fetchMock.mockImplementation(async (_url: string, _init?: any) => {
     return JSON_RES({ Code: 4000, Message: "bad request" });
   });
-  await expect(apiCall("https://api", "tk", "SomeAction")).rejects.toThrow(
-    "[SomeAction] Code 4000: bad request",
-  );
+  expect(
+    await errorCodeOf(apiCall("https://api", "tk", "SomeAction")),
+  ).toBe("share.edgeoneApiFailed");
 });
 
 test("getOrCreateProject：已存在则直接返回 ProjectId", async () => {
@@ -138,7 +139,9 @@ test("detectBaseUrl：两端点全失败则抛错", async () => {
   fetchMock.mockImplementation(async (_url: string, _init?: any) => {
     return new Response("{}", { status: 500 });
   });
-  await expect(detectBaseUrl("tk")).rejects.toThrow("EdgeOne API 端点均不可用");
+  expect(await errorCodeOf(detectBaseUrl("tk"))).toBe(
+    "share.edgeoneUnreachable",
+  );
 });
 
 test("getPresetDomain：返回项目 PresetDomain", async () => {
@@ -174,9 +177,8 @@ test("getPresetDomain：PresetDomain 为空时抛错，不静默降级用 Name�
       },
     });
   });
-  await expect(getPresetDomain("https://api", "tk", "p1")).rejects.toThrow(
-    "无法获取项目域名",
-  );
+  const code = await errorCodeOf(getPresetDomain("https://api", "tk", "p1"));
+  expect(code).toBe("share.domainUnavailable");
 });
 
 afterEach(() => {
@@ -311,14 +313,16 @@ test("deployWorkspace：部署失败终态抛错", async () => {
       });
     return respond({});
   }) as any;
-  await expect(
-    deployWorkspace({
-      token: "t",
-      zip: new Uint8Array([1]),
-      cosFactory: fakeCos,
-      pollIntervalMs: 1,
-    }),
-  ).rejects.toThrow("部署失败");
+  expect(
+    await errorCodeOf(
+      deployWorkspace({
+        token: "t",
+        zip: new Uint8Array([1]),
+        cosFactory: fakeCos,
+        pollIntervalMs: 1,
+      }),
+    ),
+  ).toBe("share.deployFailed");
 });
 
 test("apiCall：顶层 Code=0 但 Data.Response.Error 嵌套错误时抛错（回归：项目名过短静默失败→部署超时）", async () => {
@@ -338,7 +342,7 @@ test("apiCall：顶层 Code=0 但 Data.Response.Error 嵌套错误时抛错（�
       { status: 200, headers: { "content-type": "application/json" } },
     )) as any;
   const { apiCall } = await import("../src/share/edgeone-client");
-  await expect(
-    apiCall("https://x", "t", "CreatePagesProject", {}),
-  ).rejects.toThrow("Name ranges from 5 to 63 length");
+  expect(
+    await errorCodeOf(apiCall("https://x", "t", "CreatePagesProject", {})),
+  ).toBe("share.edgeoneApiFailed");
 });

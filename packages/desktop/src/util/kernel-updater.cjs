@@ -15,6 +15,28 @@ const fsp = require("node:fs/promises");
 const { createHash } = require("node:crypto");
 const path = require("node:path");
 
+// 语言来源：桌面主进程通过 onStatus 把进度文案透传给用户（desktop 无 react-i18next）。
+// 本模块在 bun 测试环境下无 electron，故延迟探测；非 Electron 环境回退 zh。
+const MSG = {
+	zh: { checkingKernelUpdate: "正在检查内核更新…" },
+	en: { checkingKernelUpdate: "Checking kernel update…" },
+};
+let cachedLocale;
+function detectDesktopLocale() {
+	if (cachedLocale) return cachedLocale;
+	try {
+		// 仅在实际 Electron 进程才 require("electron")：非 Electron（如 bun 测试）下
+		// require("electron") 会触发二进制下载并阻塞/超时，故先验 process.versions.electron。
+		if (!process.versions.electron) throw new Error("非 Electron 进程");
+		const { app } = require("electron");
+		cachedLocale = String(app.getLocale()).startsWith("zh") ? "zh" : "en";
+	} catch {
+		cachedLocale = "zh";
+	}
+	return cachedLocale;
+}
+const t = (k) => MSG[detectDesktopLocale()][k] ?? MSG.zh[k];
+
 /** 默认内核更新清单 URL。清单按平台区分（多平台共存互不覆盖）：
  *   kernel-latest-<platform>.json，platform 形如 darwin-x64 / win32-x64 / linux-x64。
  *   旧版单清单（kernel-latest.json）仅保留向后兼容，不再新写入。 */
@@ -298,7 +320,7 @@ async function syncKernel({
 	log?.info(
 		`[kernel-updater] 发现新 build ${manifest.build}（本地 ${localBuild || "无"}）`,
 	);
-	onStatus?.("正在检查内核更新…");
+	onStatus?.(t("checkingKernelUpdate"));
 
 	const zipName = manifest.url || `kernel-${manifest.build}.zip`;
 	const zipUrl = /^https?:\/\//i.test(zipName)

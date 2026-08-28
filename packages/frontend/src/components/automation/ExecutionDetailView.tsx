@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
 import { useSessionStore } from "../../store/session";
 import { api } from "../../api-client";
+import { formatKernelError } from "../../util/kernel-error";
 import { MessageList } from "../MessageList";
 
 /**
@@ -108,7 +109,14 @@ export function ExecutionDetailView() {
 					className="px-3 py-2 text-[11px] flex-shrink-0"
 					style={{ color: "#f87171", background: "rgba(239,68,68,0.06)" }}
 				>
-					{record.error}
+					{record.errorCode
+						? // code 化错误按字典渲染（如 scheduler.taskTimeout），老记录原样展示
+						  formatKernelError({
+								code: record.errorCode,
+								params: record.errorParams,
+								message: record.error,
+							  }).main
+						: record.error}
 				</div>
 			)}
 

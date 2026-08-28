@@ -33,7 +33,12 @@ function translateUpdaterEvent({ type, info, progress, error }) {
 		case "update-downloaded":
 			return { phase: "downloaded", version: info?.version ?? null };
 		case "error":
-			return { phase: "error", message: error?.message || String(error) };
+			// message 保留原错误字符串（供前端/测试兼容），raw 追加原始错误细节。
+			return {
+				phase: "error",
+				message: error?.message || String(error),
+				raw: error?.message || String(error),
+			};
 		default:
 			return null;
 	}
@@ -192,8 +197,16 @@ function setupUpdater({
 			return { ok: true };
 		} catch (e) {
 			log(`[updater] check 失败: ${e.message || e}`);
-			broadcast({ phase: "error", message: e.message || String(e) });
-			return { ok: false, error: e.message || String(e) };
+			broadcast({
+				phase: "error",
+				message: e.message || String(e),
+				raw: e.message || String(e),
+			});
+			return {
+				ok: false,
+				error: e.message || String(e),
+				raw: e.message || String(e),
+			};
 		}
 	});
 
@@ -204,8 +217,16 @@ function setupUpdater({
 			return { ok: true };
 		} catch (e) {
 			log(`[updater] download 失败: ${e.message || e}`);
-			broadcast({ phase: "error", message: e.message || String(e) });
-			return { ok: false, error: e.message || String(e) };
+			broadcast({
+				phase: "error",
+				message: e.message || String(e),
+				raw: e.message || String(e),
+			});
+			return {
+				ok: false,
+				error: e.message || String(e),
+				raw: e.message || String(e),
+			};
 		}
 	});
 

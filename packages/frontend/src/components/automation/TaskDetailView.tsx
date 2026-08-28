@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
 import { useToastStore } from "../../store/toast";
+import { formatApiError } from "../../util/kernel-error";
 import { useContactsStore } from "../../store/contacts";
 import {
 	SYSTEM_PROJECT_ID,
@@ -72,8 +73,16 @@ export function TaskDetailView() {
 						try {
 							await runTaskNow(task.id);
 							useToastStore.getState().add("已触发执行", "success");
-						} catch {
-							useToastStore.getState().add("触发执行失败，请稍后重试", "error");
+						} catch (e) {
+							// 错误按 code 字典渲染；无结构化信息时保留原兜底文案
+							useToastStore
+								.getState()
+								.add(
+									formatApiError(e) === (e as Error)?.message
+										? "触发执行失败，请稍后重试"
+										: formatApiError(e),
+									"error",
+								);
 						}
 					}}
 					className="text-[10px] px-2 py-1 rounded cursor-pointer border"
