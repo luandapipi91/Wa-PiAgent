@@ -18,6 +18,11 @@ interface SpawnOpts {
 }
 const spawnCalls: Array<{ cmd: string; args: string[]; opts?: SpawnOpts }> = [];
 
+// ⚠️ mock.module 注册后在同 worker 内持续生效，且 Bun 1.4 无恢复 API（mock.module 返回
+// undefined，实测）。无 --isolate 的全量混跑中会泄漏给后续文件。已知后果与兜底：
+// 后续启动完整 kernel 的 integration 测试中 applySystemProxy 的 execFile("scutil")
+// 拿到永不回调的 stub——settings-store 的 readMacSystemProxy/readRegValue 已加 5s
+// 兜底超时，挂死已降级为最多 5s 延迟。正式入口 bun run test 用 --isolate 隔离，无此问题。
 mock.module("node:child_process", () => ({
 	spawn: (cmd: string, args: string[], opts?: SpawnOpts) => {
 		spawnCalls.push({ cmd, args, opts });

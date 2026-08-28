@@ -18,11 +18,17 @@ const ORIG_ENV = {
 const TMP_ROOT = await mkdtemp(join(tmpdir(), "wa-pi-inspect-"));
 process.env.WA_PI_DIR = TMP_ROOT;
 
+// projects.json 必须写到 kernel 实际使用的数据目录（见下方说明），从 shared 常量取：
+// - bun test（bunfig [test].preload 全局生效）：常量固化的是 preload 的临时目录，上方
+//   env 自设无效——写 TMP_ROOT 会让 allowlist 找不到项目而放行失败（曾致混跑 7 fail）
+// - bun <file> 直接执行（无 preload）：常量固化的是上方 env 设置的 TMP_ROOT
+const { WA_PI_DIR: KERNEL_DATA_DIR } = await import("@wa-pi/shared");
 const { startKernel } = await import("../src/index");
 
-// 预置 projects.json：让 /preview 与 /api/preview-locate 的 allowlist 放行 TMP_ROOT
+// 预置 projects.json：让 /preview 与 /api/preview-locate 的 allowlist 放行 TMP_ROOT。
+// preload 的 mkdtemp 目录是全新的，覆盖写入安全；afterAll 中删除还原。
 await writeFile(
-	join(TMP_ROOT, "projects.json"),
+	join(KERNEL_DATA_DIR, "projects.json"),
 	JSON.stringify({
 		projects: [{ id: "inspect-test", name: "t", cwd: TMP_ROOT, createdAt: 0 }],
 		sessions: [],
@@ -73,6 +79,8 @@ const ENC = encodeURIComponent(TMP_ROOT);
 
 afterAll(async () => {
 	await kernel.stop();
+	// 删除本文件写入的 projects.json（preload 临时目录原本不存在该文件，还原空目录）
+	await rm(join(KERNEL_DATA_DIR, "projects.json"), { force: true });
 	for (const [k, v] of Object.entries(ORIG_ENV)) {
 		if (v === undefined) delete process.env[k];
 		else process.env[k] = v;
@@ -129,7 +137,9 @@ test("GET /api/preview-locate 文件不存在 404", async () => {
 });
 
 test("GET /api/preview-locate 元素定位不到返回 nulls", async () => {
-	const selector = encodeURIComponent("html > body:nth-of-type(1) > ul:nth-of-type(1)");
+	const selector = encodeURIComponent(
+		"html > body:nth-of-type(1) > ul:nth-of-type(1)",
+	);
 	const r = await fetch(
 		`${BASE}/api/preview-locate?path=${encodeURIComponent(join(TMP_ROOT, "index.html"))}&selector=${selector}`,
 	);

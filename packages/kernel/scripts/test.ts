@@ -31,8 +31,10 @@ function run(args: string[]): boolean {
 
 let ok = true;
 
-// 全局 preload：清除宿主中继代理 env，让测试直连（见 tests/setup.ts）
-const PRELOAD = "--preload=./tests/setup.ts";
+// 全局 preload（清代理 env + WA_PI_DIR 隔离）已配置在 bunfig.toml 的 [test].preload，
+// 裸 bun test 与本入口均自动生效，无需再显式传参。
+// 历史背景：曾只在显式传参时生效，裸 bun test 无隔离导致 mock 泄漏+真实目录写入
+// 令全量测试挂死（详见 tests/fs-open-env.test.ts 头注释与 settings-store 兑底超时）。
 
 // 1. 全量测试（排除启动完整 kernel 的集成测试）
 // 注意：--path-ignore-patterns 逗号分隔不生效（会把整个字符串当单个 glob 匹配），
@@ -49,13 +51,12 @@ ok =
 		"--isolate",
 		"--parallel=4",
 		"--max-concurrency=8",
-		PRELOAD,
 		...ignoreArgs,
 	]) && ok;
 
 // 2. 独立进程单独补跑集成测试（与其他测试隔离，验证 kernel 启动链路）
 for (const file of INTEGRATION_TESTS) {
-	ok = run(["test", "--isolate", PRELOAD, file]) && ok;
+	ok = run(["test", "--isolate", file]) && ok;
 }
 
 if (!ok) {
