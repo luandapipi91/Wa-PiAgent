@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { AgentName } from "@wa-pi/shared";
 import i18n from "i18next";
 import { useTranslation } from "./i18n/useTranslation";
@@ -54,6 +54,21 @@ import { BrowserPanel } from "./components/BrowserPanel";
 import { FloatPreview } from "./components/FloatPreview";
 
 export type View = "empty" | "new-session" | "session";
+
+// 聊天侧容器样式：split 分屏按剩余宽度收窄；full 全屏预览时仅 display:none 视觉隐藏
+// （聊天侧保持挂载，预览关闭/切模式不卸载子树，文件树展开等内部状态不丢）
+function chatPaneStyle(
+	browserOpen: boolean,
+	browserMode: string,
+	splitRatio: number,
+): CSSProperties | undefined {
+	if (browserOpen && browserMode === "full") return { display: "none" };
+	if (browserOpen && browserMode === "split") {
+		// 减去分隔条 2px：聊天侧 + 预览侧 + 分隔条合计才等于 100%，否则预览右缘被裁
+		return { width: `calc(${(1 - splitRatio) * 100}% - 2px)`, flex: "none" };
+	}
+	return undefined;
+}
 
 export function App() {
 	// 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
@@ -596,61 +611,55 @@ export function App() {
 					</div>
 				)}
 				<div ref={mainRowRef} className="flex-1 flex overflow-hidden">
-					{/* 全屏预览时聊天侧整体隐藏；split/float 时聊天保持挂载（不再因预览卸载重挂） */}
-					{(!browserOpen || browserMode !== "full") && (
-						<div
-							className="flex-1 flex flex-col overflow-hidden"
-							style={
-								browserOpen && browserMode === "split"
-									? // 减去分隔条 2px：聊天侧 + 预览侧 + 分隔条合计才等于 100%，否则预览右缘被裁
-										{ width: `calc(${(1 - splitRatio) * 100}% - 2px)`, flex: "none" }
-									: undefined
-							}
-						>
-							{sidebarTab === "automation" ? (
-								<AutomationMain />
-							) : view === "empty" ? (
-								<EmptyState
-									onNewProject={() => {
-										void useProjectsStore.getState().createProjectFromDir();
-									}}
-								/>
-							) : null}
-							{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
-							{view === "new-session" && sidebarTab !== "automation" && (
-								<NewSessionPane
-									pendingAgent={pendingAgent}
-									onConsumePendingAgent={() => setPendingAgent(null)}
-								/>
-							)}
-							{view === "session" &&
-								sidebarTab !== "automation" &&
-								currentSessionId &&
-								(() => {
-									// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
-									// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
-									const imConv = conversations.find(
-										(c) => c.sessionId === currentSessionId,
-									);
-									const label = imConv
-										? imConv.chatType === "group"
-											? t("app.imSourceGroup", {
-													channel: imConv.channelName,
-													chatId: imConv.chatId.slice(0, 8),
-													from: imConv.fromUserId,
-												})
-											: t("app.imSourceSingle", { channel: imConv.channelName })
-										: undefined;
-									return (
-										<SessionView
-											sessionId={currentSessionId}
-											sourceLabel={label}
-											imConv={imConv}
-										/>
-									);
-								})()}
-						</div>
-					)}
+					{/* 聊天侧始终挂载：split 分屏按比例收窄；full 全屏时仅 display:none 视觉隐藏——
+							预览任何模式切换/关闭都不卸载聊天子树，文件树展开、草稿、滚动位置等内部状态不丢 */}
+					<div
+						className="flex-1 flex flex-col overflow-hidden"
+						style={chatPaneStyle(browserOpen, browserMode, splitRatio)}
+					>
+						{sidebarTab === "automation" ? (
+							<AutomationMain />
+						) : view === "empty" ? (
+							<EmptyState
+								onNewProject={() => {
+									void useProjectsStore.getState().createProjectFromDir();
+								}}
+							/>
+						) : null}
+						{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
+						{view === "new-session" && sidebarTab !== "automation" && (
+							<NewSessionPane
+								pendingAgent={pendingAgent}
+								onConsumePendingAgent={() => setPendingAgent(null)}
+							/>
+						)}
+						{view === "session" &&
+							sidebarTab !== "automation" &&
+							currentSessionId &&
+							(() => {
+								// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
+								// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
+								const imConv = conversations.find(
+									(c) => c.sessionId === currentSessionId,
+								);
+								const label = imConv
+									? imConv.chatType === "group"
+										? t("app.imSourceGroup", {
+												channel: imConv.channelName,
+												chatId: imConv.chatId.slice(0, 8),
+												from: imConv.fromUserId,
+											})
+										: t("app.imSourceSingle", { channel: imConv.channelName })
+									: undefined;
+								return (
+									<SessionView
+										sessionId={currentSessionId}
+										sourceLabel={label}
+										imConv={imConv}
+									/>
+								);
+							})()}
+					</div>
 					{browserOpen && browserMode === "split" && (
 						<>
 							<SidebarResizer
