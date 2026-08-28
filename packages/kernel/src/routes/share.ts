@@ -235,7 +235,7 @@ export function createShareRoutes(
 			} catch (e: any) {
 				const payload = toKernelPayload(e);
 				if (payload?.code === "share.invalidName")
-					return failWith(409, payload.code, payload.code, payload.params);
+					return failWith(409, "分享名称含非法字符（仅限字母/数字/中文/-_./空格）", "share.invalidName", payload.params);
 				throw e;
 			}
 
@@ -340,8 +340,10 @@ export function createShareRoutes(
 				return Response.json({ ok: true, item });
 			} catch (e: any) {
 				const payload = toKernelPayload(e);
-				if (payload?.code === "share.invalidName" || payload?.code === "share.notFound")
-					return failWith(409, payload.code, payload.code, payload.params);
+				if (payload?.code === "share.invalidName")
+					return failWith(409, "分享名称含非法字符（仅限字母/数字/中文/-_./空格）", "share.invalidName", payload.params);
+				if (payload?.code === "share.notFound")
+					return failWith(409, "分享不存在", "share.notFound", payload.params);
 				throw e;
 			}
 		}),
