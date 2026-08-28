@@ -85,7 +85,12 @@ export interface McpTestResult {
   status?: McpServerStatus;
   /** 连上时的工具数，供卡片展示 */
   toolCount?: number;
+  /** 错误信息（KernelError 时为 code，老渲染兜底用） */
   error?: string;
+  /** 结构化错误：code 由前端字典渲染；detail 为技术细节 */
+  code?: string;
+  params?: Record<string, string | number>;
+  detail?: string;
 }
 export interface McpToolsResult {
   type: "mcp:tools";

@@ -2,6 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SkillManager } from "../src/skill-manager";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 /** 创建临时隔离目录 */
 function tmpDir() {
@@ -65,13 +66,13 @@ test("addDir 添加用户目录后 scan 能扫到该目录技能", async () => {
 
 test("addDir 路径不存在抛错", async () => {
   const mgr = new SkillManager(dir);
-  expect(mgr.addDir(join(dir, "nonexistent"))).rejects.toThrow("目录不存在");
+  expect(await errorCodeOf(mgr.addDir(join(dir, "nonexistent")))).toBe("skill.dirNotFound");
 });
 
 test("removeDir 内置目录抛错", async () => {
   const mgr = new SkillManager(dir);
   const builtinDir = join(dir, "skills");
-  expect(mgr.removeDir(builtinDir)).rejects.toThrow("内置目录不可删除");
+  expect(await errorCodeOf(mgr.removeDir(builtinDir))).toBe("skill.builtinUndeletable");
 });
 
 test("addDir 拒绝明显非技能的超大目录", async () => {
@@ -81,7 +82,8 @@ test("addDir 拒绝明显非技能的超大目录", async () => {
     mkdirSync(join(bigDir, `folder-${i}`), { recursive: true });
   }
   const mgr = new SkillManager(dir);
-  await expect(mgr.addDir(bigDir)).rejects.toThrow("未检测到 SKILL.md");
+  await expect(mgr.addDir(bigDir)).rejects.toThrow();
+  expect(await errorCodeOf(mgr.addDir(bigDir))).toBe("skill.noSkillMd");
 });
 
 test("removeDir 用户目录后 settings.json 移除", async () => {

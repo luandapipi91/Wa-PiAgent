@@ -3,6 +3,7 @@ import { useSchedulerStore } from "../../store/scheduler";
 import { useAgentsStore } from "../../store/agents";
 import { useProjectsStore } from "../../store/projects";
 import { useToastStore } from "../../store/toast";
+import { formatApiError } from "../../util/kernel-error";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { AgentDropdown } from "../ui/AgentDropdown";
 import { TaskPromptComposer } from "./TaskPromptComposer";
@@ -107,8 +108,16 @@ export function TaskEditForm() {
 			} else {
 				await createTask(data);
 			}
-		} catch {
-			useToastStore.getState().add("保存任务失败，请稍后重试", "error");
+		} catch (e) {
+			// 错误按 code 字典渲染（如 project.notFound）；无结构化信息时保留原兜底文案
+			useToastStore
+				.getState()
+				.add(
+					formatApiError(e) === (e as Error)?.message
+						? "保存任务失败，请稍后重试"
+						: formatApiError(e),
+					"error",
+				);
 		}
 	};
 

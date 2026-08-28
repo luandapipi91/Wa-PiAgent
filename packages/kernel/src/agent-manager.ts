@@ -104,6 +104,7 @@ import {
 	type UiResponseFields,
 } from "./rpc-client";
 import { extUiRegistry } from "./ext-ui-registry";
+import { KernelError } from "./kernel-error";
 import {
 	composePrompt,
 	loadPromptSegments,
@@ -423,7 +424,7 @@ export class AgentManager {
 			(await this.opts.projectStore.load()).sessions.find(
 				(s) => s.id === sessionId,
 			)?.projectId;
-		if (!projectId) throw new Error(`会话不存在: ${sessionId}`);
+		if (!projectId) throw new KernelError("session.notFound", { sessionId });
 		await this.opts.projectStore.setSessionAgent(sessionId, agentName);
 		// 拆除 + 重建为连续同步段（无 await）：并发 ensureStarted 会命中 starting 复用同一创建 promise
 		this._teardownSession(sessionId);
@@ -566,15 +567,15 @@ export class AgentManager {
 		// 从 ProjectStore 拉 project + session 实体（校验存在性 + 拿 cwd / piSessionFile）
 		const { projects, sessions } = await this.opts.projectStore.load();
 		const project = projects.find((p) => p.id === projectId);
-		if (!project) throw new Error(`项目不存在: ${projectId}`);
+		if (!project) throw new KernelError("project.notFound", { id: projectId });
 		if (!project.cwd) {
-			throw new Error(`项目工作目录缺失: ${project.name ?? projectId}`);
+			throw new KernelError("project.cwdMissing", { name: project.name ?? projectId });
 		}
 
 		const sessionEntity = sessions.find((s) => s.id === sessionId);
-		if (!sessionEntity) throw new Error(`会话不存在: ${sessionId}`);
+		if (!sessionEntity) throw new KernelError("session.notFound", { sessionId });
 		if (!sessionEntity.piSessionFile) {
-			throw new Error(`会话 piSessionFile 缺失: ${sessionId}`);
+			throw new KernelError("session.fileMissing", { sessionId });
 		}
 
 		// 计算本次会话的 cwd（普通项目会话用 project.cwd；默认工作区会话用 resolveSessionCwd 推导）
@@ -1449,11 +1450,11 @@ export class AgentManager {
 		},
 	): Promise<void> {
 		const handle = this.sessions.get(sessionId);
-		if (!handle) throw new Error(`会话未启动: ${sessionId}`);
+		if (!handle) throw new KernelError("session.notStarted", { sessionId });
 
 		// 所有消息必须跟随用户显式选择的模型，禁止回退到 agent config 或 pi 默认模型
 		if (!opts?.model) {
-			throw new Error("未选择模型，请先在模型选择器中选择一个模型");
+			throw new KernelError("model.notSelected");
 		}
 
 		// 按请求切换模型（"provider/modelId" 拆分；无 "/" 时经 get_available_models 解析）
@@ -1783,11 +1784,11 @@ export class AgentManager {
 		if (!handle) {
 			const { sessions } = await this.opts.projectStore.load();
 			const se = sessions.find((s) => s.id === sessionId);
-			if (!se) throw new Error(`会话不存在: ${sessionId}`);
+			if (!se) throw new KernelError("session.notFound", { sessionId });
 			await this.ensureStarted(se.projectId, se.primaryAgent, sessionId);
 		}
 		const h = this.sessions.get(sessionId);
-		if (!h) throw new Error(`会话启动失败: ${sessionId}`);
+		if (!h) throw new KernelError("session.startFailed", { sessionId });
 		await this.switchAgent(sessionId, h.meta.agentName);
 	}
 
@@ -1964,7 +1965,7 @@ export class AgentManager {
 		} catch {
 			/* 查询失败走下面的错误 */
 		}
-		throw new Error(`模型解析失败 (${pattern}): 请使用 "provider/modelId" 形式`);
+		throw new KernelError("model.parseFailed", { pattern });
 	}
 }
 

@@ -2,6 +2,7 @@
 // 流程：创建/获取项目 → 计算内容寻址 hash（与 wrangler hashFile 一致）→ 拿 JWT →
 //      check-missing 跳过已上传 → 分桶上传 → multipart 创建部署 → 轮询到成功
 import { hashFileContent } from "./file-hash";
+import { KernelError } from "../kernel-error";
 
 export const CF_API_BASE = "https://api.cloudflare.com/client/v4";
 export const CF_SHARE_PROJECT_NAME = "wapi-shares"; // 与 edgeone 固定项目同名，互不冲突（不同平台）
@@ -74,7 +75,7 @@ async function cfApi<T = any>(
   }));
   if (!res.ok || json.success === false) {
     const msg = (json.errors?.[0]?.message ?? `HTTP ${res.status}`) as string;
-    throw new Error(msg);
+    throw new KernelError("share.cloudflareApiFailed", undefined, msg);
   }
   return json.result as T;
 }
@@ -113,7 +114,8 @@ function resolveSubdomain(p: {
   domains?: string[];
 }): string {
   const sub = p.subdomain || p.domains?.[0];
-  if (!sub) throw new Error("无法获取 Cloudflare 项目域名");
+  if (!sub)
+    throw new KernelError("share.domainUnavailable", { channel: "Cloudflare" });
   return sub;
 }
 
@@ -169,8 +171,10 @@ async function uploadFiles(
   if (!missingRes.ok) {
     // JWT 失效或 4xx 时，错误 JSON 不能被当成 string[] 用，抛出带状态/信息的错误
     const msg = missingJson.errors?.[0]?.message;
-    throw new Error(
-      `check-missing failed: HTTP ${missingRes.status}${msg ? ` ${msg}` : ""}`,
+    throw new KernelError(
+      "share.assetCheckFailed",
+      undefined,
+      `HTTP ${missingRes.status}${msg ? ` ${msg}` : ""}`,
     );
   }
   // HTTP 200：真实 CF API 返回 {success, result: string[]}（wrangler fetchResult 解包 result 字段），
@@ -180,8 +184,10 @@ async function uploadFiles(
     : (missingJson?.result as unknown as string[] | undefined);
   if (!Array.isArray(missing)) {
     const msg = missingJson?.errors?.[0]?.message;
-    throw new Error(
-      `check-missing failed: 响应格式异常${msg ? ` ${msg}` : ""}`,
+    throw new KernelError(
+      "share.assetCheckFailed",
+      undefined,
+      `响应格式异常${msg ? ` ${msg}` : ""}`,
     );
   }
 
@@ -215,8 +221,10 @@ async function uploadFiles(
     if (!upRes.ok || upJson.success === false) {
       // 同时校验 HTTP 状态与业务 success 字段，避免 success:false 被当作成功静默跳过
       const msg = upJson.errors?.[0]?.message;
-      throw new Error(
-        `upload failed: HTTP ${upRes.status}${msg ? ` ${msg}` : ""}`,
+      throw new KernelError(
+        "share.assetUploadFailed",
+        undefined,
+        `HTTP ${upRes.status}${msg ? ` ${msg}` : ""}`,
       );
     }
     uploadedBytes += content.byteLength;
@@ -274,7 +282,11 @@ async function createDeployment(
   );
   const json = await res.json();
   if (!res.ok || json.success === false) {
-    throw new Error(json.errors?.[0]?.message ?? `HTTP ${res.status}`);
+    throw new KernelError(
+      "share.cloudflareApiFailed",
+      undefined,
+      json.errors?.[0]?.message ?? `HTTP ${res.status}`,
+    );
   }
   return json.result;
 }
@@ -295,9 +307,10 @@ async function pollDeployment(
     )) as { latest_stage?: { name?: string; status?: string } };
     const stage = dep.latest_stage;
     if (stage?.name === "deploy" && stage.status === "success") return;
-    if (stage?.status === "failure") throw new Error("Cloudflare 部署失败");
+    if (stage?.status === "failure")
+      throw new KernelError("share.deployFailed", { channel: "Cloudflare" });
   }
-  throw new Error("Cloudflare 部署超时");
+  throw new KernelError("share.deployTimeout", { channel: "Cloudflare" });
 }
 
 /** 用 API Token 自动获取 Account ID（用户无需手动填写）
@@ -305,7 +318,7 @@ async function pollDeployment(
 export async function getCloudflareAccountId(token: string): Promise<string> {
   const accounts = await cfApi<{ id: string }[]>(token, `/accounts?per_page=5`);
   if (!accounts?.length)
-    throw new Error("Cloudflare 账号列表为空，请检查 Token 权限");
+    throw new KernelError("share.cloudflareAccountEmpty");
   return accounts[0].id;
 }
 
@@ -313,7 +326,7 @@ export async function deployToCloudflare(
   opts: CloudflareShareOptions,
 ): Promise<CloudflareDeployResult> {
   const { token, files } = opts;
-  if (!token) throw new Error("未配置 Cloudflare API Token");
+  if (!token) throw new KernelError("share.tokenMissing");
   // Account ID 可通过接口获取：未配置时用 token 自动拉取，用户无需手动填写
   const accountId = opts.accountId || (await getCloudflareAccountId(token));
   const projectName = opts.projectName ?? CF_SHARE_PROJECT_NAME;

@@ -10,6 +10,7 @@
 import type { RouteRegistrar } from "./types";
 import { readJsonBody } from "./types";
 import type { ScheduledTask } from "@wa-pi/shared";
+import { toKernelPayload } from "@wa-pi/shared";
 import { SYSTEM_PROJECT_ID, validateTaskData } from "@wa-pi/shared";
 import type { FolderTaskStore } from "../scheduler-task-store";
 
@@ -20,12 +21,23 @@ function json(data: unknown): Response {
 	});
 }
 
-/** 400 JSON 错误响应 */
-function jsonError(error: string, status: number): Response {
-	return new Response(JSON.stringify({ error }), {
-		status,
-		headers: { "Content-Type": "application/json" },
-	});
+/** 400 JSON 错误响应；failure 可选（KernelError 时结构化透传，供前端按 code 渲染） */
+function jsonError(
+	error: string,
+	status: number,
+	failure?: {
+		code: string;
+		params?: Record<string, string | number>;
+		detail?: string;
+	},
+): Response {
+	return new Response(
+		JSON.stringify({ error, ...(failure ? { failure } : {}) }),
+		{
+			status,
+			headers: { "Content-Type": "application/json" },
+		},
+	);
 }
 
 export function createSchedulerRoutes(
@@ -66,7 +78,12 @@ export function createSchedulerRoutes(
 				onTaskChanged(task);
 				return json({ task });
 			} catch (err) {
-				return jsonError(err instanceof Error ? err.message : String(err), 400);
+				const payload = toKernelPayload(err);
+				return jsonError(
+					err instanceof Error ? err.message : String(err),
+					400,
+					payload ?? undefined,
+				);
 			}
 		});
 
@@ -96,7 +113,12 @@ export function createSchedulerRoutes(
 					onTaskChanged(task);
 					return json({ task });
 				} catch (err) {
-					return jsonError(err instanceof Error ? err.message : String(err), 400);
+					const payload = toKernelPayload(err);
+					return jsonError(
+						err instanceof Error ? err.message : String(err),
+						400,
+						payload ?? undefined,
+					);
 				}
 			}
 			// 部分更新也按完整任务校验（合并后再验）——PUT 语义为整体替换

@@ -3,21 +3,40 @@
 const DEFAULT_CANVAS_BG = "#F5F5F7";
 const DEFAULT_BRAND_GREEN = "#4BA26F";
 
+// 面向用户文案字典（zh/en 各一份）。locale 由调用方传入（main.cjs 用系统语言），默认 zh。
+const MSG = {
+	zh: {
+		initializing: "正在启动…",
+		switchPort: "换端口启动",
+		quit: "退出",
+		switching: "正在切换…",
+	},
+	en: {
+		initializing: "Initializing…",
+		switchPort: "Switch port",
+		quit: "Quit",
+		switching: "Switching…",
+	},
+};
+
 /**
  * 生成启动页内联 HTML。
  * @param {Object} opts
  * @param {string} [opts.logoB64] - logo base64（空则用色块占位）
  * @param {string} [opts.canvasBg] - 页面背景色
  * @param {string} [opts.brandGreen] - 品牌绿
+ * @param {string} [opts.locale] - 渲染语言（"zh" | "en"），默认 "zh"
  * @returns {string} HTML 字符串
  */
 function buildSplashHTML({
 	logoB64 = "",
 	canvasBg = DEFAULT_CANVAS_BG,
 	brandGreen = DEFAULT_BRAND_GREEN,
+	locale = "zh",
 } = {}) {
 	const logoSrc = logoB64 ? `data:image/png;base64,${logoB64}` : "";
-	return `<!doctype html><html lang="zh"><head><meta charset="utf-8"/><style>
+	const m = MSG[locale] ?? MSG.zh;
+	return `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"/><style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
 body{background:${canvasBg};display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#1d1d1f;user-select:none;overflow:hidden;-webkit-app-region:drag}
@@ -36,15 +55,15 @@ body{background:${canvasBg};display:flex;flex-direction:column;align-items:cente
 ${logoSrc ? `<img class="logo" src="${logoSrc}" alt="WA PI Agent"/>` : `<div class="logo" style="background:${brandGreen}"></div>`}
 <div class="name">WA PI Agent</div>
 <div class="bar"><div class="fill" id="fill"></div></div>
-<div class="status" id="status">正在启动…</div>
+<div class="status" id="status">${m.initializing}</div>
 <div class="actions">
-<button id="switch-port-btn" class="btn" type="button">换端口启动</button>
-<button id="quit-btn" class="btn" type="button">退出</button>
+<button id="switch-port-btn" class="btn" type="button">${m.switchPort}</button>
+<button id="quit-btn" class="btn" type="button">${m.quit}</button>
 </div>
 <script>
 window.__setProgress=function(p,t){var f=document.getElementById('fill');if(f)f.style.width=Math.max(5,Math.min(100,p))+'%';var s=document.getElementById('status');if(s){if(t){s.textContent=t;s.className='status';}if(p<0){s.className='status err';}}};
 window.__showActions=function(opts){var sb=document.getElementById('switch-port-btn'),qb=document.getElementById('quit-btn');if(sb)sb.style.display=opts&&opts.switchPort?'block':'none';if(qb)qb.style.display=opts&&opts.quit?'block':'none';};
-document.getElementById('switch-port-btn').addEventListener('click',function(){this.disabled=true;this.textContent='正在切换…';if(window.waPiApp)window.waPiApp.switchPortStart();});
+document.getElementById('switch-port-btn').addEventListener('click',function(){this.disabled=true;this.textContent='${m.switching}';if(window.waPiApp)window.waPiApp.switchPortStart();});
 document.getElementById('quit-btn').addEventListener('click',function(){if(window.waPiApp)window.waPiApp.quit();});
 </script>
 </body></html>`;

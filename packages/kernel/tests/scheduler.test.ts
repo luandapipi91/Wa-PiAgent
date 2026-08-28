@@ -15,6 +15,7 @@ import type {
 	TaskSchedule,
 	ModelProvider,
 } from "@wa-pi/shared";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 // ===== 简报约定的 toCronExpression 用例（契约测试，原样保留）=====
 
@@ -166,14 +167,18 @@ describe("resolveTaskModel", () => {
 		);
 	});
 
-	test("无 task.model 且无 provider → 抛错", () => {
-		expect(() => resolveTaskModel(undefined, [])).toThrow("无可用的模型供应商");
+	test("无 task.model 且无 provider → 抛错", async () => {
+		expect(
+			await errorCodeOf(new Promise(() => resolveTaskModel(undefined, []))),
+		).toBe("scheduler.noProvider");
 	});
 
-	test("无 task.model 且 provider 无模型 → 抛错", () => {
-		expect(() =>
-			resolveTaskModel(undefined, [makeProvider({ models: [] })]),
-		).toThrow("无可用的模型供应商");
+	test("无 task.model 且 provider 无模型 → 抛错", async () => {
+		expect(
+			await errorCodeOf(
+				new Promise(() => resolveTaskModel(undefined, [makeProvider({ models: [] })])),
+			),
+		).toBe("scheduler.noProvider");
 	});
 });
 

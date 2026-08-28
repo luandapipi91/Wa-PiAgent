@@ -155,3 +155,27 @@ test("定时任务完成提示音开关：默认关闭，点击切换写 store",
 	fireEvent.click(toggle);
 	expect(useUiPrefsStore.getState().soundSchedTaskDone).toBe(true);
 });
+
+test("语言切换保存 → 写 ui-prefs store 并双写 PUT /api/settings/language", async () => {
+	useUiPrefsStore.setState({ language: "zh" });
+	render(<GeneralSection />);
+	await screen.findByTestId("retry-max-input");
+
+	fireEvent.change(screen.getByTestId("language-select"), {
+		target: { value: "en" },
+	});
+	// 草稿态：未保存时 store 不变、不发 language 请求
+	expect(useUiPrefsStore.getState().language).toBe("zh");
+	expect(putMock).not.toHaveBeenCalledWith(
+		"/api/settings/language",
+		expect.anything(),
+	);
+
+	fireEvent.click(screen.getByTestId("retry-save-btn"));
+	await new Promise((r) => setTimeout(r, 10));
+	// 本地生效（ui-prefs）+ 双写 kernel settings.json
+	expect(useUiPrefsStore.getState().language).toBe("en");
+	expect(putMock).toHaveBeenCalledWith("/api/settings/language", {
+		language: "en",
+	});
+});

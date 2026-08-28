@@ -1,5 +1,7 @@
 // ===== 模型供应商类型定义 =====
 
+import type { ProviderTestFailure } from "./kernel-errors";
+
 /** API 格式（对齐 Pi 的 api 字段子集） */
 export type ProviderApi = "openai-completions" | "anthropic-messages";
 
@@ -60,6 +62,8 @@ export interface ProviderTestResult {
  type: "provider:test";
  ok: boolean;
  error?: string;
+ /** 结构化失败载荷（provider.httpStatus / testNetwork / testTimeout）：前端按 code 查字典渲染，优先于 error */
+ failure?: ProviderTestFailure;
 }
 export interface ProviderChangedEvent {
  type: "provider:changed";

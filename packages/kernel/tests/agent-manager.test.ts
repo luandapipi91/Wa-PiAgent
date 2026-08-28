@@ -43,6 +43,7 @@ import {
 	closeSync,
 } from "node:fs";
 import { join } from "node:path";
+import { errorCodeOf } from "./helpers/kernel-error-code";
 
 const MODEL = "anthropic/test-model";
 
@@ -472,7 +473,10 @@ test("prompt — 未选择模型时抛错", async () => {
 	const { project, session, am } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 
-	await expect(am.prompt(session.id, "你好")).rejects.toThrow("未选择模型");
+	await expect(am.prompt(session.id, "你好")).rejects.toThrow();
+	expect(
+		await errorCodeOf(am.prompt(session.id, "你好")),
+	).toBe("model.notSelected");
 });
 
 test("prompt — agent 空闲且无排队 → 直接 prompt", async () => {
@@ -567,7 +571,10 @@ test("prompt — 未启动的会话抛错", async () => {
 	const { am } = await setup();
 	await expect(
 		am.prompt("nonexistent", "你好", { model: MODEL }),
-	).rejects.toThrow("会话未启动");
+	).rejects.toThrow();
+	expect(
+		await errorCodeOf(am.prompt("nonexistent", "你好", { model: MODEL })),
+	).toBe("session.notStarted");
 });
 
 test("prompt — 「provider/modelId」按第一个 / 拆分调 setModel", async () => {
@@ -601,7 +608,10 @@ test("prompt — 裸 modelId 经 get_available_models 解析 provider", async ()
 
 	await expect(
 		am.prompt(session.id, "你好", { model: "no-such-model" }),
-	).rejects.toThrow("模型解析失败");
+	).rejects.toThrow();
+	expect(
+		await errorCodeOf(am.prompt(session.id, "你好", { model: "no-such-model" })),
+	).toBe("model.parseFailed");
 });
 
 test("prompt — thinking level 映射（disabled→off，max→xhigh，其余透传）", async () => {
@@ -1410,7 +1420,8 @@ test("switchAgent: 会话未启动时从 projectStore 降级取 projectId 并直
 
 test("switchAgent: 会话不存在时抛错", async () => {
 	const { am } = await setup();
-	await expect(am.switchAgent("nope", "pm")).rejects.toThrow("会话不存在");
+	await expect(am.switchAgent("nope", "pm")).rejects.toThrow();
+	expect(await errorCodeOf(am.switchAgent("nope", "pm"))).toBe("session.notFound");
 });
 
 test("switchAgent: 持久化更新在拆除前完成，挂起期间 sessions 不为空（消除并发 ensureStarted 竞态）", async () => {

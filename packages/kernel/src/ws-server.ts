@@ -12,6 +12,7 @@ import {
 	resolveSessionCwd,
 	sanitizeOpenEnv,
 	WA_PI_DIR,
+	toKernelPayload,
 } from "@wa-pi/shared";
 import type { DirEntry } from "@wa-pi/shared";
 import type { ConfigStore } from "./config-store";
@@ -97,6 +98,37 @@ import type { FolderTaskStore } from "./scheduler-task-store";
 import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
+import { KernelError } from "./kernel-error";
+
+/**
+ * 统一错误兑底：KernelError 转结构化载荷（code/params/detail），前端按
+ * kernelMsg 字典渲染；普通 Error（未迁移模块）走原 message 通道，行为不变。
+ * extra 用于透传调用点已有的附加字段（如 sessionId），KernelError 分支同样保留。
+ */
+function replyError(
+	reply: (p: any) => void,
+	err: unknown,
+	extra?: Record<string, unknown>,
+) {
+	const payload = toKernelPayload(err);
+	if (payload)
+		reply({
+			type: "error",
+			// message 保留 err.message（KernelError 的 message 即 code），
+			// 兑底老前端渲染路径；新前端优先 code/params/detail
+			message: err instanceof Error ? err.message : String(err),
+			code: payload.code,
+			params: payload.params,
+			detail: payload.detail,
+			...extra,
+		});
+	else
+		reply({
+			type: "error",
+			message: err instanceof Error ? err.message : String(err),
+			...extra,
+		});
+}
 
 /** 展开路径开头的 ~ 为 HOME 目录（Node.js 不自动展开 shell ~ 约定） */
 function expandTilde(p: string): string {
@@ -128,23 +160,36 @@ const MAX_PREVIEW_BYTES = 3 * 1024 * 1024;
 
 async function checkPreviewable(
 	absPath: string,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<
+	{ ok: true } | { ok: false; reason: string; code?: string; params?: Record<string, string | number> }
+> {
 	const mime = getMimeType(absPath);
 	const isText =
 		mime.startsWith("text/") ||
 		mime === "application/json" ||
 		mime === "application/xml" ||
 		mime === "image/svg+xml";
-	if (!isText) return { ok: false, reason: `不支持的文件类型: ${mime}` };
+	if (!isText)
+		return {
+			ok: false,
+			reason: `不支持的文件类型: ${mime}`,
+			code: "attachment.unsupportedType",
+			params: { mime },
+		};
 	try {
 		const s = await stat(absPath);
 		if (s.size > MAX_PREVIEW_BYTES)
 			return {
 				ok: false,
 				reason: `文件过大 (${(s.size / 1024 / 1024).toFixed(1)}MB > ${MAX_PREVIEW_BYTES / 1024 / 1024}MB)`,
+				code: "attachment.previewTooLarge",
+				params: {
+					sizeMb: (s.size / 1024 / 1024).toFixed(1),
+					maxMb: MAX_PREVIEW_BYTES / 1024 / 1024,
+				},
 			};
 	} catch {
-		return { ok: false, reason: "无法获取文件信息" };
+		return { ok: false, reason: "无法获取文件信息", code: "attachment.statFailed" };
 	}
 	return { ok: true };
 }
@@ -360,9 +405,9 @@ export async function resolveCwdForFsRequest(
 ): Promise<string> {
 	const { projects, sessions } = await projectStore.load();
 	const project = projects.find((p) => p.id === projectId);
-	if (!project) throw new Error(`项目不存在: ${projectId}`);
+	if (!project) throw new KernelError("project.notFound", { id: projectId });
 	if (!project.cwd)
-		throw new Error(`项目工作目录缺失: ${project.name ?? projectId}`);
+		throw new KernelError("project.cwdMissing", { name: project.name ?? projectId });
 	if (!sessionId) return project.cwd;
 	const session = sessions.find((s) => s.id === sessionId);
 	if (!session) return project.cwd; // session 不存在 → 降级，保持向后兼容
@@ -1039,7 +1084,11 @@ export class WSServer {
 			case "project:update": {
 				// 默认工作区（系统项目）不可改名：拦截在所有校验/落盘之前
 				if (event.projectId === SYSTEM_PROJECT_ID) {
-					this.broadcast({ type: "error", message: "默认工作区不可修改" });
+					this.broadcast({
+						type: "error",
+						message: "默认工作区不可修改",
+						code: "project.defaultImmutable",
+					});
 					break;
 				}
 				await this.opts.projectStore.updateProject(event.projectId, {
@@ -1052,7 +1101,11 @@ export class WSServer {
 			case "project:delete": {
 				// 默认工作区（系统项目）不可删除：拦截在所有校验/落盘之前
 				if (event.projectId === SYSTEM_PROJECT_ID) {
-					this.broadcast({ type: "error", message: "默认工作区不可删除" });
+					this.broadcast({
+						type: "error",
+						message: "默认工作区不可删除",
+						code: "project.defaultUndeletable",
+					});
 					break;
 				}
 				await this.opts.projectStore.deleteProject(event.projectId);
@@ -1097,6 +1150,8 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: `智能体不存在: ${event.agentName}`,
+						code: "agent.notFound",
+						params: { name: event.agentName },
 						sessionId: event.sessionId,
 					});
 					break;
@@ -1110,11 +1165,7 @@ export class WSServer {
 					});
 					await this.broadcastProjectsList();
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-						sessionId: event.sessionId,
-					});
+					replyError(reply, err, { sessionId: event.sessionId });
 				}
 				break;
 			}
@@ -1124,11 +1175,7 @@ export class WSServer {
 					// 重建后 broadcast 更新列表（重建可能改变 session 的 piSessionFile 等）
 					await this.broadcastProjectsList();
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-						sessionId: event.sessionId,
-					});
+					replyError(reply, err, { sessionId: event.sessionId });
 				}
 				break;
 			}
@@ -1145,11 +1192,7 @@ export class WSServer {
 						commands,
 					});
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-						sessionId: event.sessionId,
-					});
+					replyError(reply, err, { sessionId: event.sessionId });
 				}
 				break;
 			}
@@ -1429,6 +1472,7 @@ export class WSServer {
 									type: "error",
 									message:
 										"会话属于其他项目，不能跨项目发送消息；请切换到会话所属项目后再试",
+									code: "session.crossProject",
 									sessionId: event.sessionId,
 								});
 								return;
@@ -1447,7 +1491,9 @@ export class WSServer {
 							} catch (e) {
 								reply({
 									type: "error",
-									message: `默认工作区会话目录创建失败: ${(e as Error).message}`,
+									message: "默认工作区会话目录创建失败",
+									code: "project.defaultDirCreateFailed",
+									detail: (e as Error).message,
 									sessionId: event.sessionId,
 								});
 								return;
@@ -1537,7 +1583,9 @@ export class WSServer {
 						} catch (err) {
 							this.broadcast({
 								type: "error",
-								message: `agent 启动失败: ${(err as Error).message}`,
+								message: "agent 启动失败",
+								code: "session.agentStartFailed",
+								detail: (err as Error).message,
 								agentName: event.agentName,
 								sessionId: session.id,
 							});
@@ -1564,7 +1612,9 @@ export class WSServer {
 						.catch((err) => {
 							this.broadcast({
 								type: "error",
-								message: `agent 启动失败: ${(err as Error).message}`,
+								message: "agent 启动失败",
+								code: "session.agentStartFailed",
+								detail: (err as Error).message,
 								agentName: event.agentName,
 								sessionId: event.sessionId,
 							});
@@ -1604,6 +1654,7 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: "该提问已失效（可能已取消或会话已切换），请重新发起",
+						code: "session.promptStale",
 					});
 				}
 				break;
@@ -1619,7 +1670,9 @@ export class WSServer {
 				} catch (err) {
 					this.broadcast({
 						type: "error",
-						message: `引导失败: ${(err as Error).message}`,
+						message: "引导失败",
+						code: "session.steerFailed",
+						detail: (err as Error).message,
 					});
 					break;
 				}
@@ -1634,7 +1687,9 @@ export class WSServer {
 				} catch (err) {
 					this.broadcast({
 						type: "error",
-						message: `立即执行失败: ${(err as Error).message}`,
+						message: "立即执行失败",
+						code: "session.executeFailed",
+						detail: (err as Error).message,
 					});
 					break;
 				}
@@ -1663,10 +1718,7 @@ export class WSServer {
 						agents: await this.opts.configStore.listAgents(),
 					});
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-					});
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -1688,6 +1740,8 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: `预设不存在: ${event.id}`,
+						code: "agent.presetNotFound",
+						params: { id: event.id },
 						status: 404,
 					});
 				}
@@ -1727,10 +1781,7 @@ export class WSServer {
 						agents: await this.opts.configStore.listAgents(),
 					});
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-					});
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -1812,10 +1863,7 @@ export class WSServer {
 					const subagents = await getSubagentInfo(overrides);
 					reply({ type: "subagent:list", subagents });
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-					});
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -1832,10 +1880,7 @@ export class WSServer {
 					// 保存后广播更新列表给所有前端
 					reply({ type: "subagent:list", subagents });
 				} catch (err) {
-					reply({
-						type: "error",
-						message: err instanceof Error ? err.message : String(err),
-					});
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -1896,6 +1941,8 @@ export class WSServer {
 							type: "fs:unsupported",
 							path: event.path,
 							reason: check.reason,
+							code: check.code,
+							params: check.params,
 						});
 						break;
 					}
@@ -1928,6 +1975,8 @@ export class WSServer {
 											type: "fs:unsupported",
 											path: found,
 											reason: check2.reason,
+											code: check2.code,
+											params: check2.params,
 										});
 										break;
 									}
@@ -1961,7 +2010,9 @@ export class WSServer {
 					);
 					const buffer = Buffer.from(event.content, "base64");
 					if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-						throw new Error(`文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`);
+						throw new KernelError("attachment.tooLarge", {
+							maxMb: MAX_UPLOAD_BYTES / 1024 / 1024,
+						});
 					}
 					const uploadDir = join(cwd, ".wa-pi", "uploads");
 					await mkdir(uploadDir, { recursive: true });
@@ -1969,11 +2020,14 @@ export class WSServer {
 					await writeFile(filePath, buffer);
 					reply({ type: "fs:upload", id: event.id, path: filePath });
 				} catch (e) {
+					const payload = toKernelPayload(e);
 					reply({
 						type: "fs:upload",
 						id: event.id,
 						path: "",
 						error: String(e instanceof Error ? e.message : e),
+						code: payload?.code,
+						params: payload?.params,
 					});
 				}
 				break;
@@ -2201,7 +2255,13 @@ export class WSServer {
 					api: event.api,
 					models: event.models,
 				});
-				reply({ type: "provider:test", ok: result.ok, error: result.error });
+				// failure 结构化透传：前端按 code 查 kernelMsg 字典渲染（优先于 error 兑底串）
+				reply({
+					type: "provider:test",
+					ok: result.ok,
+					error: result.error,
+					failure: result.failure,
+				});
 				break;
 			}
 			case "settings:get": {
@@ -2227,7 +2287,7 @@ export class WSServer {
 					this.opts.agentManager.markAllDirty();
 					reply({ type: "settings:current", retry, httpIdleTimeoutMs });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2270,7 +2330,7 @@ export class WSServer {
 					const result = await this.scanSkillsWithExtensions();
 					reply({ type: "skill:list", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2289,7 +2349,7 @@ export class WSServer {
 					const result = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2300,7 +2360,7 @@ export class WSServer {
 					const result = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2309,7 +2369,7 @@ export class WSServer {
 					const { packages } = await this.opts.extensionManager.list();
 					reply({ type: "extension:list", packages });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2326,7 +2386,7 @@ export class WSServer {
 					const skillResult = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2346,10 +2406,12 @@ export class WSServer {
 					const skillResult = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
+					const payload = toKernelPayload(err);
 					this.broadcast({
 						type: "extension:error",
 						name: event.name,
 						error: (err as Error).message,
+						...(payload ?? {}),
 					});
 				}
 				break;
@@ -2363,10 +2425,12 @@ export class WSServer {
 					const skillResult = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
+					const payload = toKernelPayload(err);
 					this.broadcast({
 						type: "extension:error",
 						name: event.name,
 						error: (err as Error).message,
+						...(payload ?? {}),
 					});
 				}
 				break;
@@ -2383,10 +2447,12 @@ export class WSServer {
 					const skillResult = await this.scanSkillsWithExtensions();
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
+					const payload = toKernelPayload(err);
 					this.broadcast({
 						type: "extension:error",
 						name: event.name,
 						error: (err as Error).message,
+						...(payload ?? {}),
 					});
 				}
 				break;
@@ -2405,10 +2471,12 @@ export class WSServer {
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
 					// name=repair 不匹配任何 installs/upgrading → 前端落全局 error 区
+					const payload = toKernelPayload(err);
 					this.broadcast({
 						type: "extension:error",
 						name: "repair",
 						error: (err as Error).message,
+						...(payload ?? {}),
 					});
 				}
 				break;
@@ -2422,7 +2490,7 @@ export class WSServer {
 					const commands = await this.opts.agentManager.getCommands("");
 					reply({ type: "extension:commands:list", commands });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2437,7 +2505,7 @@ export class WSServer {
 					// 广播命令变更事件：前端据此刷新 / 菜单命令列表（开启/关闭后立即生效）
 					this.broadcast({ type: "extension:commands:changed" });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2452,6 +2520,8 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: "对话不存在或已应答",
+						code: "extui.dialogMissing",
+						params: { requestId: event.requestId },
 						sessionId: event.sessionId,
 					});
 					break;
@@ -2465,7 +2535,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					reply({ type: "memory:list", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2475,7 +2545,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2485,7 +2555,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2495,7 +2565,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2505,7 +2575,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2515,7 +2585,7 @@ export class WSServer {
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2526,7 +2596,7 @@ export class WSServer {
 					);
 					reply({ type: "instruction:list", instructions });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2535,7 +2605,7 @@ export class WSServer {
 					const config = await this.opts.memoryStore.getConfig();
 					reply({ type: "memory:config", config });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2547,7 +2617,7 @@ export class WSServer {
 					const config = await this.opts.memoryStore.getConfig();
 					this.broadcast({ type: "memory:config", config });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2557,7 +2627,7 @@ export class WSServer {
 					const servers = await this.opts.mcpStore.list(event.projectId);
 					reply({ type: "mcp:list", projectId: event.projectId, servers });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2575,7 +2645,7 @@ export class WSServer {
 						servers,
 					});
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2589,7 +2659,7 @@ export class WSServer {
 						servers,
 					});
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					replyError(reply, err);
 				}
 				break;
 			}
@@ -2601,6 +2671,9 @@ export class WSServer {
 					status: McpServerStatus;
 					toolCount?: number;
 					error?: string;
+					code?: string;
+					params?: Record<string, string | number>;
+					detail?: string;
 				}) => {
 					this.broadcast({
 						type: "mcp:testResult",
@@ -2609,6 +2682,9 @@ export class WSServer {
 						status: payload.status,
 						toolCount: payload.toolCount,
 						error: payload.error,
+						code: payload.code,
+						params: payload.params,
+						detail: payload.detail,
 					});
 				};
 				try {
@@ -2623,6 +2699,9 @@ export class WSServer {
 						status: outcome.status,
 						toolCount: outcome.toolCount,
 						error: outcome.error,
+						code: outcome.code,
+						params: outcome.params,
+						detail: outcome.detail,
 					});
 				} catch (err) {
 					emitTestResult({
@@ -2714,7 +2793,12 @@ export class WSServer {
 			}
 			case "contacts:rename": {
 				if (!this.opts.channelManager) {
-					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					reply({
+						type: "error",
+						message: "通讯录未启用",
+						code: "contacts.disabled",
+						status: 400,
+					});
 					break;
 				}
 				try {
@@ -2723,7 +2807,13 @@ export class WSServer {
 						event.remark,
 					);
 					if (!c) {
-						reply({ type: "error", message: "联系人不存在", status: 404 });
+						reply({
+							type: "error",
+							message: "联系人不存在",
+							code: "contacts.notFound",
+							params: { id: event.id },
+							status: 404,
+						});
 						break;
 					}
 					this.broadcast({ type: "contacts:changed" });
@@ -2742,7 +2832,12 @@ export class WSServer {
 			}
 			case "contacts:ensure": {
 				if (!this.opts.channelManager) {
-					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					reply({
+						type: "error",
+						message: "通讯录未启用",
+						code: "contacts.disabled",
+						status: 400,
+					});
 					break;
 				}
 				try {
@@ -2763,7 +2858,12 @@ export class WSServer {
 			}
 			case "contacts:sync-wecom": {
 				if (!this.opts.channelManager) {
-					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					reply({
+						type: "error",
+						message: "通讯录未启用",
+						code: "contacts.disabled",
+						status: 400,
+					});
 					break;
 				}
 				try {

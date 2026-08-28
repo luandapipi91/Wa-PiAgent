@@ -4,6 +4,7 @@ import type {
 	ExecutionRecord,
 	ModelProvider,
 } from "@wa-pi/shared";
+import { KernelError } from "@wa-pi/shared";
 
 /**
  * 将 schedule 配置转换为标准 5 字段 cron 表达式（分 时 日 月 周，按本地时间）。
@@ -58,7 +59,7 @@ export function resolveTaskModel(
 	const first = providers[0];
 	const firstModel = first?.models?.[0];
 	if (!first || !firstModel) {
-		throw new Error("无可用的模型供应商，请先在设置中配置至少一个供应商");
+		throw new KernelError("scheduler.noProvider");
 	}
 	return `${first.slug ?? first.name}/${firstModel.id}`;
 }
