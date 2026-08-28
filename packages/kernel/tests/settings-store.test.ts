@@ -13,6 +13,8 @@ import {
 	loadHttpIdleTimeoutMs,
 	saveHttpIdleTimeoutMs,
 	ensureHttpIdleTimeout,
+	loadLanguage,
+	saveLanguage,
 } from "../src/settings-store";
 
 // settings-store 直接读写磁盘 settings.json：用临时目录隔离，不碰真实 ~/.wa-pi
@@ -240,4 +242,48 @@ test("defaultToolsForPlatform: win32 返回 powershell 清单，其他平台不�
 	// 清单语义：bash 被 powershell 替换，其余为 pi 内置默认四件套
 	expect(WINDOWS_DEFAULT_TOOLS).toContain("powershell");
 	expect(WINDOWS_DEFAULT_TOOLS).not.toContain("bash");
+});
+
+// —— language（界面语言偏好：前端切换语言时双写 kernel settings.json，后端 i18n 基建）——
+
+test("loadLanguage：文件不存在/未配置 → 返回 undefined（跟随前端，不落默认值）", async () => {
+	expect(await loadLanguage(file)).toBeUndefined();
+	await writeFile(file, JSON.stringify({ retry: { maxRetries: 3 } }), "utf8");
+	expect(await loadLanguage(file)).toBeUndefined();
+});
+
+// 照抄 loadDefaultTools 的语义：磁盘脏数据（白名单外/非字符串）视同未配置
+test("loadLanguage：磁盘脏数据（白名单外字符串/非字符串）→ 视同未配置返回 undefined", async () => {
+	await writeFile(file, JSON.stringify({ language: "fr" }), "utf8");
+	expect(await loadLanguage(file)).toBeUndefined();
+	await writeFile(file, JSON.stringify({ language: 42 }), "utf8");
+	expect(await loadLanguage(file)).toBeUndefined();
+});
+
+test("saveLanguage/loadLanguage：zh 与 en 写入并持久化，保留其他字段（read-modify-write）", async () => {
+	await writeFile(
+		file,
+		JSON.stringify({ retry: { maxRetries: 5 }, defaultModel: "m1" }),
+		"utf8",
+	);
+	expect(await saveLanguage("en", file)).toBe("en");
+	const onDisk = JSON.parse(await readFile(file, "utf8"));
+	expect(onDisk.language).toBe("en");
+	// 其他字段不被冲掉
+	expect(onDisk.retry.maxRetries).toBe(5);
+	expect(onDisk.defaultModel).toBe("m1");
+	expect(await loadLanguage(file)).toBe("en");
+
+	// 切回 zh 同样可写可读
+	expect(await saveLanguage("zh", file)).toBe("zh");
+	expect(await loadLanguage(file)).toBe("zh");
+});
+
+test("saveLanguage：白名单外（fr/空串/非字符串）→ throw 且不落盘", async () => {
+	await writeFile(file, JSON.stringify({ language: "zh" }), "utf8");
+	await expect(saveLanguage("fr" as any, file)).rejects.toThrow();
+	await expect(saveLanguage("" as any, file)).rejects.toThrow();
+	await expect(saveLanguage(42 as any, file)).rejects.toThrow();
+	// 非法值不落盘：文件内容保持原样
+	expect(JSON.parse(await readFile(file, "utf8")).language).toBe("zh");
 });

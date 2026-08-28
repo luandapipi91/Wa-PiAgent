@@ -1,4 +1,11 @@
 
+## 2026-08-30 — feat(kernel): language 偏好打通前端→kernel settings（后端 i18n 基建，任务 1）
+
+- 背景：后端 i18n 化第一步——前端切换语言时把偏好双写到 kernel settings.json，供后续 kernel 生成消息按此语言输出；前端真源仍在 ui-prefs（localStorage），kernel 侧缺省 undefined = 跟随前端。
+- 实现：shared 新增 `KernelLanguage = "zh" | "en"`；kernel settings-store 按既有逐字段函数模式新增 `loadLanguage`/`saveLanguage`（白名单校验、非法值 throw、read-modify-write 保留其他字段、脏数据视同未配置）；routes/settings.ts 新增 GET/PUT `/api/settings/language`（ctx.settingsFile 测试注入，非法值 500 {error}）；前端 GeneralSection 保存回调在 setLanguage 生效后双写 `PUT /api/settings/language`（失败走统一 toast），ui-prefs store 不变。
+- 验证：TDD 先红后绿——kernel settings-store 新增 4 测 + language 路由 3 测（HttpRouter 真实往返/白名单拒绝不落盘）、GeneralSection 双写组件测试 1 测全绿；typecheck（shared/kernel/frontend）全绿；kernel 全量与前端 settings/store 目录的失败项经 stash 基线对照均为既有并发污染（fetch is not a function 等），非本次引入。
+- 影响范围：packages/shared/src/types.ts、packages/kernel/src/{settings-store,routes/settings}.ts、packages/frontend/src/components/settings/GeneralSection.tsx 及两包对应测试。
+
 ## 2026-08-30 — v0.3.1 发版（Windows 默认命令切换 PowerShell + 稳定性修复）
 
 - 版本：0.2.30 → 0.3.1（次版本号升级）。

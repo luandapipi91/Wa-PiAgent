@@ -22,6 +22,7 @@ import type {
 	RetrySettings,
 	TrashSettings,
 	ProxySettings,
+	KernelLanguage,
 } from "@wa-pi/shared";
 
 /** 与 pi settings-manager 的默认值对齐（未配置时的回退） */
@@ -48,6 +49,7 @@ interface SettingsJson {
 	retry?: Partial<RetrySettings>;
 	trash?: Partial<TrashSettings>;
 	share?: Partial<ShareSettings>;
+	language?: KernelLanguage;
 	httpIdleTimeoutMs?: number;
 	useSystemProxy?: boolean;
 	httpProxy?: string;
@@ -216,6 +218,39 @@ export async function ensureHttpIdleTimeout(
 	settings.httpIdleTimeoutMs = DEFAULT_HTTP_IDLE_TIMEOUT_MS;
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+}
+
+// ===== 界面语言偏好（后端 i18n 基建）=====
+/** 语言白名单：与前端 AppLanguage（zh/en）保持一致 */
+export const LANGUAGE_WHITELIST = ["zh", "en"] as const;
+
+/** 读取界面语言偏好；未配置/文件不存在/磁盘脏数据（白名单外）返回 undefined（跟随前端，不落默认值） */
+export async function loadLanguage(
+	file: string = SETTINGS_FILE,
+): Promise<KernelLanguage | undefined> {
+	const raw = (await readSettingsJson(file)).language;
+	if (typeof raw !== "string") return undefined;
+	return (LANGUAGE_WHITELIST as readonly string[]).includes(raw)
+		? (raw as KernelLanguage)
+		: undefined;
+}
+
+/** 保存界面语言偏好（read-modify-write，保留其他字段）。前端切换语言时经 REST 双写。
+ *  @throws Error 白名单外的语言值 */
+export async function saveLanguage(
+	language: KernelLanguage,
+	file: string = SETTINGS_FILE,
+): Promise<KernelLanguage> {
+	if (!(LANGUAGE_WHITELIST as readonly string[]).includes(language)) {
+		throw new Error(
+			`不支持的语言 "${String(language)}"（可选：${LANGUAGE_WHITELIST.join(" / ")}）`,
+		);
+	}
+	const settings = await readSettingsJson(file);
+	settings.language = language;
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+	return language;
 }
 
 /** 系统代理默认值（未配置时：关闭 + 空代理 = 直连） */
