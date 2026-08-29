@@ -138,6 +138,13 @@ async function globalSetup() {
 		"PK\x03\x04 e2e-zip-placeholder",
 		"utf8",
 	);
+	// 预置 shell 脚本（主流代码文件预览 E2E 依赖）：kernel 显式映射 text/x-shellscript 放行，
+	// 前端 bash 高亮渲染——回归「主流代码文件被 Bun 兑底 mime 拦截报不支持」
+	writeFileSync(
+		join(SEED_PROJECT_CWD, "build.sh"),
+		'#!/bin/bash\necho "e2e build"\nexit 0\n',
+		"utf8",
+	);
 	mkdirSync(join(E2E_WA_PI_DIR, "projects-memory", "e2e-project"), {
 		recursive: true,
 	});

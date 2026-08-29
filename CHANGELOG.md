@@ -34,6 +34,14 @@
 - 验证：TDD 红→绿；MessageList.subagent-scroll.test 新增 2 用例（折叠后模拟 Virtuoso 异步重测二次偏移→收敛拉回；二次偏移但用户已上翻→不拉回）14/14 绿；前端正式姿势全量 2036 tests / 0 fail；typecheck 绿。
 - 影响范围：packages/frontend/src/components/MessageList.tsx、tests/MessageList.subagent-scroll.test.tsx。
 
+## 2026-09-01 — feat(preview): 文件预览支持 .sh/.java/.go 等主流代码文件（kernel 放行 + Prism 语言补齐）
+
+- 背景：.sh/.go/.py/.rs 等主流代码文件预览报「不支持的文件类型」。两层根因：①kernel getMimeType 无显式映射时 Bun 兑底 mime 多为 application/*（非 text/*，如 .sh→application/x-sh、.rs→application/rls-services+xml），checkPreviewable 白名单直接拒绝；②前端 guessLanguage 的 sh→bash/java→java/toml→toml 映射是死代码——prism-react-renderer 内置 Prism 缺这三个语言（纯文本兕底），且 .kt/.swift/.cs/.rb 内置有语言却未映射。
+- 实现：①kernel ws-server.ts getMimeType 显式映射 17 个主流扩展名为 text/x-*（.sh/.bash/.zsh/.go/.py/.rs/.java/.kt/.kts/.swift/.cs/.rb/.php/.sql/.toml/.scala/.cjs，照 .vue 先例）；②前端新增 prism-extra-langs.ts：prismjs@1.29.0 官方语言定义（bash/java/csharp/ruby/toml，MIT）以字符串内联 + new Function 注入 prism-react-renderer 内置 Prism 实例（其与 prismjs npm 包实例不同，直接 import components 不生效；经 biome-ignore 豁免，避免格式化破坏正则转义）；③guessLanguage 补 bash/zsh/kt/kts/swift/cs/rb/h/hpp/cc/cxx/mjs/cjs 映射，加载时 side-effect 注册。
+- 验证：TDD 红→绿；kernel fs-routes.test 新增 17 扩展名放行用例（覆盖 Bun 兑底拦截的全部主流代码扩展名）9/9 绿；FileViewer.test 新增 .sh/.kt/.cs/.toml 语法着色用例（断言命中各语言稳定 token class，纯文本兕底无 token）17/17 绿；独立脚本验证 5 语言注册 + 关键字命中 + tokenize 产出类型 token 14 项 ALL PASS；前端全量 2038 pass / 0 fail；双包 typecheck 绿；E2E explorer.spec 新增「双击 build.sh → 代码高亮预览非 unsupported」用例，同文件 5/5 绿（global-setup 顺带预置 build.sh）。
+- 已知边界：php/scala/dart/lua 等 kernel 已放行可预览（文本+行号），但 Prism 无对应语法注册，高亮为纯文本兕底；超大文件 3MB 上限不变。
+- 影响范围：packages/kernel/src/ws-server.ts、tests/fs-routes.test.ts、packages/frontend/src/components/blocks/{FileViewer.tsx,prism-extra-langs.ts（新增）}、tests/FileViewer.test.tsx、e2e/{explorer.spec.ts,global-setup.ts}、CHANGELOG。
+
 ## 2026-09-01 — fix(frontend): 文件树拖拽插入格式与手输 # 统一 + 聊天窗补 #path: chip 还原
 
 - 背景：文件树拖拽文件到输入框插入的是 `#[path:绝对路径]`（带 path: 锚），与手输 # 面板选中的 `#[相对路径]`（无锚）不一致；两形态在输入框都被宽容正则 chip 化，掩盖了差异——发送后展开产物分化，聊天窗渲染层只认 `#[x]` 方括号原文形态、无 #path: 还原分支，导致发送后聊天窗（拖拽/手输一视同仁）与部分场景排队区均无 chip 渲染。
@@ -835,7 +843,7 @@ __② 树底部文件右键菜单超出窗口、底部项不可点__
 ### 修复
 
 - 修复两个导致「对话中发送的排队/引导消息在本轮结束后未发出，且一直挂在聊天窗顶部队列面板」的缺陷：
-  1. __netDegraded 永久卡死__：transient 网络错误（超时/限流/5xx）后 `markNetDegraded(true)`，`agent_settled` 跳过 followUp/steer drain（避免网络不可用时自动发送再次失败），但该标记__只靠用户重发（_sendPromptNow 成功）清除__——用户若不再发新消息（排队消息仍等自动发出），netDegraded 永久为 true，后续所有 settled 都跳过 drain，消息永不发出且队列残留。修复：`agent_start`（新一轮开始）时清除 netDegraded（新一轮说明网络可能已恢复），恢复后续 settled drain。
+  1. __netDegraded 永久卡死__：transient 网络错误（超时/限流/5xx）后 `markNetDegraded(true)`，`agent_settled` 跳过 followUp/steer drain（避免网络不可用时自动发送再次失败），但该标记__只靠用户重发（*sendPromptNow 成功）清除*_——用户若不再发新消息（排队消息仍等自动发出），netDegraded 永久为 true，后续所有 settled 都跳过 drain，消息永不发出且队列残留。修复：`agent_start`（新一轮开始）时清除 netDegraded（新一轮说明网络可能已恢复），恢复后续 settled drain。
   2. __busy 竞态致直发不入队__：`am.prompt()` 在多个 await（_resolveModel/setModel/setThinkingLevel/buildPromptContent）之后才检查 `handle.busy`，若这期间本轮已 `agent_settled`（busy 翻 false），消息被 `_sendPromptNow` 直发而非 `followUpList.push`，且直发路径不发 `queue_update` → 前端 isRunning 时乐观入队的显示无人清，队列残留。修复：prompt 决定直发（!busy）后补发 `_emitLocalQueueUpdate`，让前端同步真实队列，清乐观残留。
 
 - 影响范围：`packages/kernel/src/agent-manager.ts`（agent_start 清 netDegraded + prompt 直发补 queue_update）；测试：steer-queue-poc.test.ts 补修复A/B 两例（23 pass）；kernel 相关回归 agent-manager/idle-reap 112 pass、ws-agent-prompt-echo/steer-title-fill 8 pass、channel-manager/reply-composer/composer-attachments/pi-disconnect 54 pass + typecheck 干净。
@@ -2698,7 +2706,7 @@ __② 树底部文件右键菜单超出窗口、底部项不可点__
 - __修复(kernel)__：网络错误不再灌入对话流，改用顶部状态条提示（transient / fatal 分类）；每个会话固定自己的思考强度（未设置回退全局默认）；重启后会话标题丢失（createSession 幂等）。
 - __修复__：委托子代理「No API key」（跟随主模型 + extensionPaths 透传）；聊天界面未选模型自动选第一个可用模型；打包后 MCP 连接「Executable not found: npx」（新增 npx/npm 包装脚本 + findSystemNode）；已完成 thinking 块因新 thinking 到达误展开（每段独立成卡）；过程卡片展开/弱化逻辑统一（executingMode）。
 - __新增__：README.md（产品定位/特性/架构图/截图）。
-- __重构__：全项目重命名 HiAgent → WA PI Agent / wa-pi（约 290 个文件：包名 @hiagent/_→ @wa-pi/_、数据目录 ~/.hiagent → ~/.wa-pi、二进制 hiagent-kernel → wa-pi-kernel、环境变量 HIAGENT_*→ WA_PI_*）。
+- __重构__：全项目重命名 HiAgent → WA PI Agent / wa-pi（约 290 个文件：包名 @hiagent/*→ @wa-pi/*、数据目录 ~/.hiagent → ~/.wa-pi、二进制 hiagent-kernel → wa-pi-kernel、环境变量 HIAGENT_*→ WA_PI_*）。
 
 ## 2026-07-29 — 思考强度持久化三次修复 / 依赖整体升级 / TUI 命令治理
 

@@ -1,6 +1,8 @@
 // 文件预览器：移植自 cocode 的 file-viewer，适配 WaPi 的 fs-client（HTTP REST + base64）。
 // 支持：代码语法高亮(行号)、图片缩放/平移、大文件截断提示、选中复制为 @path:行号 引用。
 import { Highlight, themes } from "prism-react-renderer";
+// 注册内置缺失的主流语言（bash/java/csharp/ruby/toml），side-effect：加载即注入内置 Prism
+import "./prism-extra-langs";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -57,6 +59,21 @@ function guessLanguage(path: string): string {
 		go: "go",
 		java: "java",
 		sh: "bash",
+		bash: "bash",
+		zsh: "bash",
+		kt: "kotlin",
+		kts: "kotlin",
+		swift: "swift",
+		cs: "csharp",
+		rb: "ruby",
+		h: "c",
+		hpp: "cpp",
+		cc: "cpp",
+		xx: "cpp",
+		cpp: "cpp",
+		c: "c",
+		mjs: "javascript",
+		cjs: "javascript",
 		yaml: "yaml",
 		yml: "yaml",
 		toml: "toml",

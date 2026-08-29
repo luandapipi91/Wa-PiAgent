@@ -38,13 +38,43 @@ describe("checkPreviewable", () => {
 		}
 	});
 
+	it("放行主流代码文件（.sh/.bash/.zsh/.go/.py/.rs/.java/.kt/.swift/.cs/.rb/.php/.sql/.toml/.scala）", async () => {
+		// 这些扩展名的 Bun 兕底 mime 多为 application/*（非 text/*），须由 getMimeType
+		// 显式映射为 text/x-* 才能过白名单——否则文件预览报「不支持的文件类型」
+		const files = [
+			"deploy.sh",
+			"run.bash",
+			"run.zsh",
+			"main.go",
+			"app.py",
+			"lib.rs",
+			"App.java",
+			"Main.kt",
+			"Main.kts",
+			"View.swift",
+			"Program.cs",
+			"app.rb",
+			"index.php",
+			"query.sql",
+			"config.toml",
+			"Main.scala",
+			"app.cjs",
+		];
+		for (const f of files) {
+			writeFileSync(join(root, f), "// preview");
+			const r = await checkPreviewable(join(root, f));
+			expect(r.ok ? "" : `${f}: ${r.reason}`).toBe("");
+			expect(r.ok).toBe(true);
+		}
+	});
+
 	it("拒绝二进制不可预览文件（exe/zip）", async () => {
 		writeFileSync(join(root, "a.exe"), "MZ");
 		writeFileSync(join(root, "b.zip"), "PK");
 		for (const f of ["a.exe", "b.zip"]) {
 			const r = await checkPreviewable(join(root, f));
 			expect(r.ok).toBe(false);
-			expect(!r.ok ? r.reason : "").toMatch(/不支持的文件类型/);
+			expect(r.ok ? "" : r.reason).toMatch(/不支持的文件类型/);
 		}
 	});
 
@@ -53,13 +83,13 @@ describe("checkPreviewable", () => {
 		writeFileSync(join(root, "big.txt"), big);
 		const r = await checkPreviewable(join(root, "big.txt"));
 		expect(r.ok).toBe(false);
-		expect(!r.ok ? r.reason : "").toMatch(/文件过大/);
+		expect(r.ok ? "" : r.reason).toMatch(/文件过大/);
 	});
 
 	it("拒绝不存在的文件", async () => {
 		const r = await checkPreviewable(join(root, "nope.txt"));
 		expect(r.ok).toBe(false);
-		expect(!r.ok ? r.reason : "").toMatch(/无法获取文件信息/);
+		expect(r.ok ? "" : r.reason).toMatch(/无法获取文件信息/);
 	});
 });
 

@@ -150,6 +150,43 @@ test.describe
 			await expect(page.getByTestId("fv-reveal")).toBeVisible({ timeout: 5000 });
 		});
 
+		test("双击 shell 脚本：主流代码文件走代码高亮预览（非 unsupported）", async ({
+			page,
+		}) => {
+			test.setTimeout(60_000);
+			await page.goto("/");
+			await page.waitForTimeout(2000);
+
+			const sessionId = await createSession();
+			await page.getByText("E2E项目").first().click();
+			await page.getByTestId(`session-${sessionId}`).click();
+			await expect(page.getByTestId("session-view")).toBeVisible({
+				timeout: 8000,
+			});
+
+			await page.getByTestId("btn-explorer").click();
+			await expect(page.getByTestId("explorer-aside")).toBeVisible({
+				timeout: 5000,
+			});
+
+			const shNode = page
+				.locator('[data-testid="explorer-panel"]')
+				.getByText("build.sh");
+			await expect(shNode).toBeVisible({ timeout: 5000 });
+			await shNode.dblclick();
+
+			// 代码高亮预览：内容渲染 + 行号分支，绝不落「不支持预览」占位
+			// （回归：.sh 曾被 Bun 兑底 mime application/x-sh 拦截报「不支持的文件类型」）
+			await expect(page.getByTestId("file-viewer")).toBeVisible({
+				timeout: 5000,
+			});
+			await expect(page.getByTestId("fv-unsupported")).toHaveCount(0);
+			await expect(page.getByTestId("file-viewer")).toContainText("e2e build");
+			await expect(
+				page.getByTestId("file-viewer").locator("[data-line]"),
+			).not.toHaveCount(0);
+		});
+
 		test("文件树拖拽文件到输入框 → 统一 #[相对路径] chip → 发送后聊天窗 chip 渲染", async ({
 			page,
 		}) => {

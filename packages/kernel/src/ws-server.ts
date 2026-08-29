@@ -341,6 +341,7 @@ export function getMimeType(filePath: string): string {
 		".css": "text/css",
 		".js": "text/javascript",
 		".mjs": "text/javascript",
+		".cjs": "text/javascript",
 		".json": "application/json",
 		".ts": "text/typescript",
 		".tsx": "text/typescript-jsx",
@@ -348,6 +349,25 @@ export function getMimeType(filePath: string): string {
 		// checkPreviewable 判非文本直接拒绝 → .vue 代码预览报「不支持的文件类型」
 		".jsx": "text/jsx",
 		".vue": "text/x-vue",
+		// 主流代码文件：无映射时 Bun 兑底多为 application/*（非 text/*），
+		// checkPreviewable 判非文本直接拒绝 → 预览报「不支持的文件类型」；
+		// 统一显式映射 text/x-* 放行（前端按扩展名选 Prism 语言高亮）
+		".sh": "text/x-shellscript",
+		".bash": "text/x-shellscript",
+		".zsh": "text/x-shellscript",
+		".go": "text/x-go",
+		".py": "text/x-python",
+		".rs": "text/x-rust",
+		".java": "text/x-java",
+		".kt": "text/x-kotlin",
+		".kts": "text/x-kotlin",
+		".swift": "text/x-swift",
+		".cs": "text/x-csharp",
+		".rb": "text/x-ruby",
+		".php": "text/x-php",
+		".sql": "text/x-sql",
+		".toml": "text/x-toml",
+		".scala": "text/x-scala",
 		".png": "image/png",
 		".jpg": "image/jpeg",
 		".jpeg": "image/jpeg",
