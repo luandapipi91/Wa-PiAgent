@@ -28,6 +28,52 @@ import { useToastStore } from "../src/store/toast";
 
 const fake = makeFakeFsTransport();
 
+// 主流代码文件预览：语法着色断言（驱动 prism-extra-langs 注册 + guessLanguage 映射）
+test("主流代码文件渲染语法着色而非纯文本兜底（.sh/.kt/.cs/.toml）", async () => {
+	// token class 取各语言定义中稳定命中的规则：
+	// - bash: echo 是 builtin；- kotlin: class 是 keyword；
+	// - csharp: namespace 是 keyword；- toml: 表头 [sec] 是 class-name
+	const cases = [
+		{
+			path: "/work/demo/deploy.sh",
+			code: "#!/bin/bash\necho hello",
+			token: ".token.builtin",
+		},
+		{ path: "/work/demo/Main.kt", code: "class Main", token: ".token.keyword" },
+		{
+			path: "/work/demo/App.cs",
+			code: "namespace App;",
+			token: ".token.keyword",
+		},
+		{
+			path: "/work/demo/app.toml",
+			code: "[sec]\nk = 1",
+			token: ".token.class-name",
+		},
+	];
+	for (const c of cases) {
+		fake.setResponse("fs:readFile", {
+			content: btoa(c.code),
+			mimeType: "text/plain",
+		});
+		render(<FileViewer path={c.path} onClose={() => {}} />);
+		await waitFor(() =>
+			expect(screen.getByTestId("file-viewer").textContent).toContain(
+				c.code.split("\n")[0],
+			),
+		);
+		// 行号分支存在（代码高亮而非 md/图片/unsupported）
+		expect(
+			screen.getByTestId("file-viewer").querySelector("[data-line]"),
+		).not.toBeNull();
+		// 语法着色：命中该语言的稳定 token class（纯文本兕底不会有）
+		expect(
+			screen.getByTestId("file-viewer").querySelector(c.token),
+		).not.toBeNull();
+		cleanup();
+	}
+});
+
 beforeEach(() => {
 	_setFsTransport(fake.transport);
 	fake.calls.length = 0;
