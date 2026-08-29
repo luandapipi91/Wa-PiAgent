@@ -40,6 +40,10 @@
 			html {
 				scroll-behavior: smooth;
 			}
+			html,
+			body {
+				overflow-x: clip;
+			}
 			body {
 				font-family:
 					system-ui,
@@ -94,8 +98,9 @@
 				margin: 0 auto;
 				padding: 10px 24px;
 				display: flex;
+				flex-wrap: wrap;
 				align-items: center;
-				gap: 22px;
+				gap: 6px 22px;
 			}
 			.brand {
 				display: flex;
@@ -139,6 +144,12 @@
 			@media (max-width: 760px) {
 				.nav-links a:not(.nav-cta) {
 					display: none;
+				}
+			}
+			@media (max-width: 560px) {
+				code {
+					white-space: normal;
+					overflow-wrap: anywhere;
 				}
 			}
 
@@ -322,21 +333,21 @@
 			}
 			.scene-hint {
 				position: absolute;
-				top: -6px;
-				right: -12px;
+				top: -8px;
+				left: -4px;
 				font-size: 13px;
 				color: var(--glow);
-				transform: rotate(8deg);
+				transform: rotate(-6deg);
 				animation: hintWiggle 2.6s ease-in-out infinite;
 				white-space: nowrap;
 			}
 			@keyframes hintWiggle {
 				0%,
 				100% {
-					transform: rotate(8deg) translateY(0);
+					transform: rotate(-6deg) translateY(0);
 				}
 				50% {
-					transform: rotate(4deg) translateY(-4px);
+					transform: rotate(-2deg) translateY(-4px);
 				}
 			}
 			/* 树影 */
@@ -813,6 +824,7 @@
 			}
 			.chorus {
 				display: flex;
+				flex-wrap: wrap;
 				justify-content: center;
 				align-items: flex-end;
 				gap: 6px;
@@ -1046,7 +1058,7 @@
 					</div>
 				</div>
 				<div class="frog-scene">
-					<span class="scene-hint">点我一下 ↘</span>
+					<span class="scene-hint">↘ 点我一下</span>
 					<svg
 						class="frog frog-hero"
 						viewBox="0 0 200 200"
@@ -1272,7 +1284,7 @@
 						<div class="feature-illus">
 							<svg
 								viewBox="0 0 340 160"
-								style="height: 150px; width: auto"
+								style="max-height: 150px; max-width: 100%; width: auto"
 								role="img"
 								aria-label="@ 指派多智能体协作示意图"
 							>
@@ -1415,7 +1427,7 @@
 						<div class="feature-illus">
 							<svg
 								viewBox="0 0 340 160"
-								style="height: 150px; width: auto"
+								style="max-height: 150px; max-width: 100%; width: auto"
 								role="img"
 								aria-label="定时任务与 IM 推送示意图"
 							>
