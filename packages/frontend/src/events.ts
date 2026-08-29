@@ -41,19 +41,31 @@ const typedHandlers: TypedHandlers = new Map();
 
 function dispatch(event: WSServerEvent): void {
   for (const h of globalHandlers) {
-    try { h(event); } catch (e) { console.warn("[events] handler error:", e); }
+    try {
+      h(event);
+    } catch (e) {
+      console.warn("[events] handler error:", e);
+    }
   }
   const set = typedHandlers.get((event as any).type);
   if (set) {
     for (const h of set) {
-      try { h(event); } catch (e) { console.warn("[events] typed handler error:", e); }
+      try {
+        h(event);
+      } catch (e) {
+        console.warn("[events] typed handler error:", e);
+      }
     }
   }
 }
 
 function connect(): void {
   if (typeof EventSource === "undefined") return;
-  if (source?.readyState === EventSource.OPEN || source?.readyState === EventSource.CONNECTING) return;
+  if (
+    source?.readyState === EventSource.OPEN ||
+    source?.readyState === EventSource.CONNECTING
+  )
+    return;
 
   startWatchdog();
   source = new EventSource(SSE_URL);
@@ -91,7 +103,9 @@ function connect(): void {
 export function heartbeatWatchdogTick(now: number = Date.now()): void {
   if (!source || source.readyState !== EventSource.OPEN) return;
   if (now - lastFrameAt <= HEARTBEAT_TIMEOUT_MS) return;
-  console.warn("[events] 超过 10s 未收到任何帧（kernel 心跳 5s），判定连接假活，主动断线重连");
+  console.warn(
+    "[events] 超过 10s 未收到任何帧（kernel 心跳 5s），判定连接假活，主动断线重连",
+  );
   source.close();
   source = null;
   setConnectionState("reconnecting");
@@ -100,7 +114,10 @@ export function heartbeatWatchdogTick(now: number = Date.now()): void {
 
 function startWatchdog(): void {
   if (watchdogTimer) return;
-  watchdogTimer = setInterval(() => heartbeatWatchdogTick(), WATCHDOG_INTERVAL_MS);
+  watchdogTimer = setInterval(
+    () => heartbeatWatchdogTick(),
+    WATCHDOG_INTERVAL_MS,
+  );
 }
 
 function scheduleReconnect(): void {
@@ -126,7 +143,10 @@ export function onMessage(handler: ServerEventHandler): () => void {
 }
 
 /** 按事件类型注册监听器，返回注销函数。 */
-export function onEventType(type: string, handler: ServerEventHandler): () => void {
+export function onEventType(
+  type: string,
+  handler: ServerEventHandler,
+): () => void {
   let set = typedHandlers.get(type);
   if (!set) {
     set = new Set();
@@ -143,13 +163,21 @@ export function onEventType(type: string, handler: ServerEventHandler): () => vo
 /** 设置重连成功后回调（用于前端刷新快照对齐状态）。 */
 export function onReconnect(cb: () => void): () => void {
   onReconnectCallback = cb;
-  return () => { if (onReconnectCallback === cb) onReconnectCallback = null; };
+  return () => {
+    if (onReconnectCallback === cb) onReconnectCallback = null;
+  };
 }
 
 /** 主动断开并清理（测试用）。 */
 export function disconnectEvents(): void {
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  }
   source?.close();
   source = null;
   lastFrameAt = Date.now();
@@ -167,9 +195,13 @@ export function emitEventForTesting(event: WSServerEvent): void {
 }
 
 /** 订阅连接状态变化；返回取消订阅函数。 */
-export function onConnectionChange(listener: (s: ConnectionState) => void): () => void {
+export function onConnectionChange(
+  listener: (s: ConnectionState) => void,
+): () => void {
   connectionListeners.push(listener);
-  return () => { connectionListeners = connectionListeners.filter(l => l !== listener); };
+  return () => {
+    connectionListeners = connectionListeners.filter((l) => l !== listener);
+  };
 }
 
 /** 获取当前连接状态。 */
