@@ -58,6 +58,16 @@ test("渲染应用名与版本号", () => {
 	expect(screen.getByText("版本 0.1.0")).toBeTruthy();
 });
 
+test("渲染官网外链（R2 公开渠道，新窗口打开）", () => {
+	render(<AboutSection />);
+	const link = screen.getByTestId("about-website-link") as HTMLAnchorElement;
+	expect(link).toBeTruthy();
+	expect(link.href).toBe("https://www.wapiagent.top/index.html");
+	expect(link.target).toBe("_blank");
+	expect(link.rel).toContain("noreferrer");
+	expect(link.textContent).toBe("官方网站");
+});
+
 test("渲染内核版本（kernelVersion；为 null 时兜底“—”）", () => {
 	useUpdaterStore.setState({ kernelVersion: "20260824-2" });
 	render(<AboutSection />);

@@ -825,6 +825,7 @@ const en = {
 		about: {
 			version: "Version {{version}}",
 			kernelVersion: "Kernel {{version}}",
+			website: "Website",
 			onboardingDesc:
 				"Reopen the onboarding wizard to configure models and the default agent",
 			onboardingButton: "Reopen wizard",

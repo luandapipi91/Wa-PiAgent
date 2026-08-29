@@ -1,3 +1,10 @@
+## 2026-08-29 — feat(website): 新增青蛙主题官网 + R2 发布 + 关于页入口
+
+- 背景：项目缺少面向新用户的官网。需求：绿色森林青蛙主题，展示好玩特点（任务完成青蛙动画/提示音、所见即所得页面编辑精准选中）、使用指南（MCP/技能/模型/自定义智能体）、设置指南（通用/外观/插件/分享）、路线图（会话分支管理/项目对外连接/IM 机器人）、极简理念，并提供 GitHub 仓库与最新下载入口，上传到 R2 并在系统设置-关于加入口。
+- 实现：①新增 `website/index.html` 单文件官网（零依赖，内联 CSS/JS/插画）：森林深绿 Hero + 萤火虫 + 树影、青蛙 SVG 形象复用应用内 TaskDoneFrog 设计（坐/跳/挥手/睡四姿态），点击任意青蛙触发跳跃 + 呱气泡 + WebAudio 合成蛙鸣彩蛋；文案基于真实设置页 UI。②新增 `scripts/publish-web.ts`（复用 s3-upload.cjs 的 createS3Client，显式设置 Content-Type，重试 3 次）：把 website/ 上传到 wapiweb 桶根路径；实测 R2 S3 endpoint 匿名访问返回 400（非公开读），且 R2 自定义域无默认首页（/ 404，需带 /index.html 完整路径）；用户确认 wapiweb 已绑 <www.wapiagent.top> 后，关于页链接定为正式域名 <https://www.wapiagent.top/index.html（curl> 200 实测）。⑤应要求移除曾有的 wapioss web/ 双写渠道：脚本简化为仅传 wapiweb，并删除 wapioss 桶已上传的 web/index.html 对象（ListObjects 确认清零、公网 URL 已 404）。③关于页新增「官方网站」外链（globe 图标 + brand 色，新窗口打开），i18n 双语补键。④特性区新增两张大卡（用户反馈补充）：「🤖 智能体战队，@ 一下随时指派」（中心 @ 徽章 + 三蛙协作网络 SVG 插画）与「⏰ 定时跑任务，结果推到聊天群」（时钟 + 任务卡 + IM 推送气泡 SVG 插画）；原小卡区对应的"自己的智能体/自动化定时任务"两张薄卡删除，mini-grid 改 2 列（剩 MCP/技能/记忆/本地优先 4 卡）。⑥README.md / README.zh-CN.md 头部徽章区新增官网与下载最新版链接（中英文）。⑦官网支持 i18n：采用与 README 同款双语双文件模式，新增 `website/index.en.html` 英文版（全文案翻译、呱气泡改 Ribbit!、lang=en），中英文版导航与页脚互链；⑧README 内容参考官网对齐（中英同步）：补「🎨 所见即所得的页面预览与编辑」「⏰ 自动化定时任务」两个特性小节，多智能体节补「@ 随时指派」，桌面体验补青蛙蹦出道贺；修正事实错误——自动化定时任务从路线图「接下来的方向」移入「已经交付」（代码已上线）。
+- 验证：publish-web 单测 5/5 绿（contentType 映射 + collectFiles 递归/排序）；AboutSection.test 新增官网链接用例（href/target/rel/文案断言）；前端 typecheck 绿；本地浏览器实机验证渲染（Hero/特性/指南/设置/路线图/页脚截图）+ 点击青蛙彩蛋；R2 上传后公网 curl 200 验证。
+- 影响范围：website/index.html、website/index.en.html（新增）、scripts/publish-web.ts + publish-web.test.ts（新增）、packages/frontend/src/components/settings/AboutSection.tsx、src/i18n/locales/{zh,en}.ts、tests/AboutSection.test.tsx、README.md、README.zh-CN.md。
+
 ## 2026-09-01 — fix(frontend): 富文本粘贴后光标跳到输入框末尾（web/桌面通用）
 
 - 背景：粘贴源带 text/html 时（网页、Office、应用内复制——handleCopy 会写 text/html），handlePaste 走「caretTokenOffset 算偏移 → text.slice 拼接 → setText」，半受控 useEffect 检测 DOM 与 text 不一致后 innerHTML 全量重写，并把光标无条件强推到末尾——在文本中间粘贴时光标跳到输入框末尾而非粘贴内容之后。
@@ -12,6 +19,13 @@
 - 验证：menu.test 新增 2 用例（编辑 role 全集 + 模板复用一致性）7/7 绿；desktop 全量 220 pass（唯一失败 kernel-updater.integration 系本机缺 zip CLI 的既有环境问题，与本次无关）；一次性 Electron E2E 真实验证 sendInputEvent 打字→Ctrl+Z→文本回滚成功（PASS）。
 - 影响范围：packages/desktop/src/main.cjs、src/util/menu.cjs、tests/menu.test.ts。
 - 已知边界：输入框为半受控 contentEditable，chip 插入/富文本粘贴/清空等外部 setText 会 innerHTML 重写 DOM 并清空原生 undo 栈，此类操作之前的输入无法撤销——需命令式 undo 栈支持，另行评估。
+
+## 2026-09-01 — fix(frontend): 长任务结束整轮折叠后滚动位置跳中间（收敛循环兑底）
+
+- 背景：长上下文任务执行中用户贴底跟随；agent_end 到达时整轮过程卡片折叠成 TurnSummary，末行高度骤减数千 px，视口从底部跳到中间。根因：折叠时刻的单次 scrollToEnd 补偿在 React commit 后同步执行，而 Virtuoso 行高缓存要等 ResizeObserver 异步重测才更新——单次 scrollToIndex 基于过期缓存计算 scrollTop，重测完成后位置再次偏移且无人校正（此时 autoScrollActive 已 false，三条自动贴底路径全部失效）。
+- 实现：折叠时刻（isActiveTurnRow true→false 且贴底）启动收敛循环（同进入会话定位的已验证模式）：每 100ms 检查距底 >40px 则拉回，贴底即停；用户上翻（stickBottom=false）或超时 2s 退出，不与用户抢滚动。timer 存 ref 跨 effect 重跑存活（折叠后行数变化会重建 scrollToEnd 重跑 effect，局部变量会被 cleanup 误清）；循环内经 scrollToEndRef 取最新 scrollToEnd（闭包旧引用在行数减少时 end index 越界）。
+- 验证：TDD 红→绿；MessageList.subagent-scroll.test 新增 2 用例（折叠后模拟 Virtuoso 异步重测二次偏移→收敛拉回；二次偏移但用户已上翻→不拉回）14/14 绿；前端正式姿势全量 2036 tests / 0 fail；typecheck 绿。
+- 影响范围：packages/frontend/src/components/MessageList.tsx、tests/MessageList.subagent-scroll.test.tsx。
 
 ## 2026-09-01 — fix(frontend): 文件树拖拽插入格式与手输 # 统一 + 聊天窗补 #path: chip 还原
 

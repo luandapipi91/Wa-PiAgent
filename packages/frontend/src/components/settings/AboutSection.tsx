@@ -5,6 +5,9 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 import { VersionTimeline } from "./VersionTimeline";
 
+/** 官网地址（Cloudflare R2 公开域名；R2 无默认首页，需带 /index.html 完整路径） */
+const WEBSITE_URL = "https://www.wapiagent.top/index.html";
+
 /** 字节数格式化：B / KB / MB / GB */
 function fmtBytes(n: number): string {
 	if (!n) return "0 B";
@@ -62,15 +65,25 @@ export function AboutSection() {
 				})}
 			</div>
 			<div
+				className="mt-2 inline-flex items-center gap-1 text-[13px] cursor-pointer hover:underline"
+				style={{ color: "var(--brand)" }}
+			>
+				<Icon name="globe" size={13} />
+				<a
+					data-testid="about-website-link"
+					href={WEBSITE_URL}
+					target="_blank"
+					rel="noreferrer"
+				>
+					{t("settings.about.website")}
+				</a>
+			</div>
+			<div
 				className="w-[280px] h-px my-5"
 				style={{ background: "var(--hairline)" }}
 			/>
 
-			{!showUpdateControls ? (
-				<div className="text-xs text-tertiary">
-					{t("settings.about.desktopOnly")}
-				</div>
-			) : (
+			{showUpdateControls ? (
 				<div
 					className="flex flex-col items-center gap-3 w-[340px]"
 					data-testid="updater-status"
@@ -212,6 +225,10 @@ export function AboutSection() {
 							</button>
 						</>
 					)}
+				</div>
+			) : (
+				<div className="text-xs text-tertiary">
+					{t("settings.about.desktopOnly")}
 				</div>
 			)}
 
