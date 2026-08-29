@@ -37,6 +37,7 @@ import {
 	textToHtml,
 	ensureChipStyles,
 	registerAgentMeta,
+	restoreFilePathTokens,
 } from "../quick-invoke/tokens";
 
 const EMPTY: SessionMessage[] = [];
@@ -354,6 +355,10 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			behavior: "auto",
 		});
 	}, [listRows.length]);
+	// 折叠收敛循环经此取最新 scrollToEnd：interval 存活期跨越渲染，effect 闭包里的
+	// scrollToEnd 可能持有过期 listRows.length（行数减少时 end index 越界）。
+	const scrollToEndRef = useRef(scrollToEnd);
+	scrollToEndRef.current = scrollToEnd;
 	const handleScrollToBottom = useCallback(() => {
 		scrollToEnd();
 		setStickBottom(true);
@@ -507,6 +512,10 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	useEffect(() => {
 		return () => {
 			if (atBottomTimerRef.current) clearTimeout(atBottomTimerRef.current);
+			if (collapseConvergeTimerRef.current) {
+				clearInterval(collapseConvergeTimerRef.current);
+				collapseConvergeTimerRef.current = undefined;
+			}
 		};
 	}, []);
 
@@ -533,6 +542,19 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	const atBottomTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
 	);
+	// 整轮折叠收敛循环的 timer。存 ref 而非 effect 局部变量：折叠补偿 effect 依赖
+	// scrollToEnd（随 listRows.length 重建），折叠后行数变化（如独立流式占位行移除）
+	// 会重跑 effect 执行 cleanup，把进行中的循环清掉；存 ref 可跨 effect 重跑存活，
+	// 由循环退出条件或卸载 cleanup 清理。
+	const collapseConvergeTimerRef = useRef<
+		ReturnType<typeof setInterval> | undefined
+	>(undefined);
+	const stopCollapseConverge = useCallback(() => {
+		if (collapseConvergeTimerRef.current) {
+			clearInterval(collapseConvergeTimerRef.current);
+			collapseConvergeTimerRef.current = undefined;
+		}
+	}, []);
 	const scrollerElRef = useRef<HTMLElement | null>(null);
 	const handleScrollerScroll = useCallback(() => {
 		const el = scrollerElRef.current;
@@ -633,14 +655,38 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	// Virtuoso 虚拟化行高测量有延迟，折叠瞬间 scrollTop 停在旧位置（用户看到的内容不在
 	// 底部）；且此时 autoScrollActive 已变 false，200ms interval 停止兑底。故在折叠时刻
 	// 主动 scrollToEnd 一次，抵消高度骤减，保持贴底。
+	//
+	// 单次补偿不够：commit 后同步执行的 scrollToEnd 基于 Virtuoso 折叠前的行高缓存计算
+	// scrollTop，缓存要等 ResizeObserver 异步重测才更新；重测完成后位置可能再次偏移
+	// （视口停在中间，回归 bug）。故折叠时刻启动收敛循环（同进入会话定位模式）：
+	// 距底 >40px 则拉回，贴底即停；用户上翻（stickBottom=false）或超时 2s 退出，
+	// 不与用户抢滚动。间隔 100ms 让偏移在用户感知之前被校正。
 	const prevActiveTurnRef = useRef(false);
 	useEffect(() => {
 		const wasActive = prevActiveTurnRef.current;
 		prevActiveTurnRef.current = isActiveTurnRow;
 		if (wasActive && !isActiveTurnRow && stickBottomRef.current) {
 			scrollToEnd();
+			stopCollapseConverge();
+			const startedAt = Date.now();
+			const converge = setInterval(() => {
+				const el = scrollerElRef.current;
+				if (!el || !stickBottomRef.current || Date.now() - startedAt > 2000) {
+					// 用户上翻/超时/容器已卸载：退出，不与用户抢滚动
+					stopCollapseConverge();
+					return;
+				}
+				if (el.scrollHeight - el.clientHeight - el.scrollTop > 40) {
+					// 未贴底（布局仍在收敛或二次偏移）→ 再次拉回
+					scrollToEndRef.current();
+				} else {
+					// 已贴底：收敛完成
+					stopCollapseConverge();
+				}
+			}, 100);
+			collapseConvergeTimerRef.current = converge;
 		}
-	}, [isActiveTurnRow, scrollToEnd]);
+	}, [isActiveTurnRow, scrollToEnd, stopCollapseConverge]);
 
 	return (
 		<div className="relative flex-1 min-h-0 overflow-hidden">
@@ -1052,11 +1098,15 @@ export const MessageRow = memo(function MessageRow({
 	const isUser = m.role === "user";
 
 	if (isUser) {
-		const displayText = formatSkillBlocks(
-			stripAttachmentRefs(
-				typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? ""),
+		const displayText = restoreFilePathTokens(
+			// #path: 锚还原（expandTokens 展开产物 → #[path:x] token 原文）：与排队区
+			// expandedTextToHtml 同款还原，保证发送后的文件引用在聊天窗也渲染为 chip
+			formatSkillBlocks(
+				stripAttachmentRefs(
+					typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? ""),
+				),
+				knownSkills,
 			),
-			knownSkills,
 		);
 		// textToHtml 把 @[agent]/#[file]/$[skill] token 渲染为 chip。
 		// hideTrigger=true：展示场景不显示 @ 触发符（仅显示智能体名 + 头像），与输入框 ComposerTextarea 区分。

@@ -1,3 +1,17 @@
+## 2026-09-01 — fix(frontend): 文件树拖拽插入格式与手输 # 统一 + 聊天窗补 #path: chip 还原
+
+- 背景：文件树拖拽文件到输入框插入的是 `#[path:绝对路径]`（带 path: 锚），与手输 # 面板选中的 `#[相对路径]`（无锚）不一致；两形态在输入框都被宽容正则 chip 化，掩盖了差异——发送后展开产物分化，聊天窗渲染层只认 `#[x]` 方括号原文形态、无 #path: 还原分支，导致发送后聊天窗（拖拽/手输一视同仁）与部分场景排队区均无 chip 渲染。
+- 实现：①ExplorerPanel 拖拽插入统一为手输格式 `#[相对工作区路径]`（相对 workspaceDir 裁剪，规则与 ComposerInput # 面板一致；项目外文件保留原路径；useCallback 依赖补 workspaceDir），两链路展开产物（#path:相对路径）同构；②tokens.ts 导出共享还原函数 restoreFilePathTokens（#path:锚 → #[path:x]，零误判：裸 #词不猜、已还原形态不重复包里；含空格路径 \S+ 截断为既有边界），expandedTextToHtml 复用；③MessageList 用户消息回显链路接入 restoreFilePathTokens（stripAttachmentRefs → formatSkillBlocks → restoreFilePathTokens → textToHtml），与排队区行为对齐。
+- 验证：TDD 红→绿；ExplorerPanel.drag-chip.test 拖拽派发文本断言改为 #[a.ts] （统一格式）；MessageList.test 新增 2 用例（#path: 展开形态回显渲染 chip-file + 裸 #词不误渲染）；tokens.test 新增 2 用例（锚还原含纯数字目录名/裸 #词不误伤）；全量前端 2036 tests / 0 fail；typecheck 绿；E2E explorer.spec 新增真实指针拖拽用例（拖 AGENTS.md → 输入框 chip data-token 为 #[AGENTS.md] → 发送后聊天窗 chip 渲染）通过，同文件 4/4 绿（顺带补 beforeAll 预置假 provider 规避首启 onboarding 遮罩拦截，html-preview 同款）。
+- 影响范围：packages/frontend/src/components/{ExplorerPanel.tsx,MessageList.tsx}、src/quick-invoke/tokens.ts、tests/{ExplorerPanel.drag-chip.test.tsx,MessageList.test.tsx,tokens.test.ts}、e2e/explorer.spec.ts。
+
+## 2026-09-01 — feat(frontend): 文件预览弹窗点遮罩不关闭 + 右下角拖动调整大小
+
+- 背景：文件预览弹窗（FilePreviewModal）点阴影/遮罩即关闭，预览时极易误触丢窗口；且窗口固定 80vw×80vh 不可调整。参考 HTML 预览浮动窗（FloatWindow）交互对齐：点外部不关闭 + 右下角手柄拖尺寸 + localStorage 持久化。
+- 实现：①FilePreviewModal 移除 closeOnOverlayClick（Modal 基础组件默认点遮罩不关闭，✕/ESC 入口保留）；②Modal 新增 resizable/onResize props（默认关闭，不影响既有调用方）：右下角 14×14 手柄（与 FloatWindow 同款），mousedown 时卡片转 fixed 锚定左上角（避免 flex 居中导致拖动时左上角反向漂移），拖拽中直写 DOM style 跟手、mouseup 一次性回调最终尺寸；尺寸 clamp 最小 320×240、最大不超视口；拖拽中内容区 pointer-events:none 防文本选择干扰，拖拽中卸载清理 window 监听防泄漏；③FilePreviewModal 接入 resizable + 尺寸持久化 localStorage（key hiagent.filePreview.size，坏数据回落默认 80vw/80vh），重开保持上次尺寸。
+- 验证：TDD 红→绿；Modal.test 新增 4 用例（手柄渲染/拖拽锚定与一次性回调/clamp 上下限）9/9 绿；FilePreviewModal.test 遮罩用例改为「点遮罩不关闭」+ 新增拖动持久化与默认尺寸用例 11/11 绿；前端全量 2030 tests / 0 fail；typecheck 绿；E2E html-preview.spec 新增「点遮罩不关闭 + 手柄拖动变大 + ESC 关闭」用例通过。已知：该 spec 既有用例「双击 .html → session-view 卸载」在未含本改动的基线上同样失败（stash 对照验证，与本变更无关；browser-panel 打开链路正常，疑似断言与 browser 默认 mode 行为脱节，待另行排查）。
+- 影响范围：packages/frontend/src/components/ui/{Modal.tsx,Modal.test.tsx}、src/components/blocks/FilePreviewModal.tsx、tests/FilePreviewModal.test.tsx、e2e/html-preview.spec.ts。
+
 ## 2026-09-01 — fix(frontend): 排队队列面板渲染技能/文件路径 chip
 
 - 背景：agent 运行中时，聊天窗顶部队列区（steering 引导 + followUp 排队）里消息文本的技能/文件路径 chip 显示为 token 原文而非胶囊。根因：队列面板两处纯文本插值 {msg}，且队列里存的是 expandTokens 展开后形态（$[x]→/skill:x 、#[x]→#path，乐观入队与 kernel queue_update 回传一致），而 textToHtml 只识别 token 原文形态——渲染与还原两层都缺。

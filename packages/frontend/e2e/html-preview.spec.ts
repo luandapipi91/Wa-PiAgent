@@ -151,6 +151,43 @@ test.describe
 			await expect(modal).toContainText("HTML 预览 E2E", { timeout: 10_000 });
 		});
 
+		test("文件预览弹窗：点遮罩不关闭，右下角手柄拖动调整大小，ESC 仍关闭", async ({
+			page,
+		}) => {
+			test.setTimeout(60_000);
+			await openSession(page);
+			await openHtmlPreview(page);
+
+			await page.getByTestId("browser-code").click();
+			const modal = page.getByTestId("file-preview-modal");
+			await expect(modal).toBeVisible({ timeout: 5000 });
+
+			// 点遮罩（阴影处，视口左上角远离卡片）不关闭弹窗
+			await page.getByTestId("modal-overlay").click({ position: { x: 5, y: 5 } });
+			await expect(modal).toBeVisible();
+
+			// 右下角手柄拖动 → 窗口变大（初始 80vw×80vh @ 1280×720 = 1024×576）
+			const handle = page.getByTestId("modal-resize-handle");
+			await expect(handle).toBeVisible();
+			const before = (await modal.boundingBox())!;
+			await handle.hover();
+			await page.mouse.down();
+			// 拖 +100/+60（手柄中心在边缘内 7px，净增量 ≈ +93/+53，均在 clamp 上限内）
+			await page.mouse.move(
+				before.x + before.width + 100,
+				before.y + before.height + 60,
+				{ steps: 5 },
+			);
+			await page.mouse.up();
+			const after = (await modal.boundingBox())!;
+			expect(after.width).toBeGreaterThan(before.width + 80);
+			expect(after.height).toBeGreaterThan(before.height + 40);
+
+			// ESC 仍是保留的关闭入口
+			await page.keyboard.press("Escape");
+			await expect(modal).toHaveCount(0);
+		});
+
 		test("预览窗口点分享按钮 → 分享弹窗出现（未配 token 则跳设置分享引导）", async ({
 			page,
 		}) => {
