@@ -27,7 +27,7 @@ import {
 import {
 	registerAgentMeta,
 	registerContactMeta,
-	selectionToTokenText,
+	textToHtml,
 } from "../../quick-invoke/tokens";
 import { imPushToken } from "../automation/prompt-tokens";
 import { ContactPickerDialog, type ImPushTarget } from "./ContactPickerDialog";
@@ -516,22 +516,6 @@ export function ComposerInput({
 		e.target.value = "";
 	};
 
-	/** 计算光标在 text 中的 token 文本偏移：光标前 DOM → token 文本长度 */
-	function caretTokenOffset(el: HTMLElement): number {
-		const sel = window.getSelection();
-		if (
-			!sel ||
-			sel.rangeCount === 0 ||
-			!sel.anchorNode ||
-			!el.contains(sel.anchorNode)
-		)
-			return -1;
-		const range = document.createRange();
-		range.setStart(el, 0);
-		range.setEnd(sel.anchorNode, sel.anchorOffset);
-		return selectionToTokenText(range).length;
-	}
-
 	const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
 		const files = e.clipboardData.files;
 		if (files.length > 0) {
@@ -554,17 +538,13 @@ export function ComposerInput({
 			return;
 		}
 		// 富文本粘贴净化：contenteditable 默认会把剪贴板 HTML（带网页样式）插入 DOM。
-		// 这里拦截，把纯文本 token 合入 text state（而非直接插 DOM）——
-		// 受控层检测 text 变化后用 textToHtml 重渲染，粘贴的 $[技能] / @[智能体] 等会重新 chip 化。
+		// 这里拦截，改为在光标处原生插入 textToHtml 渲染产物（token 立即 chip 化、源样式丢弃），
+		// 而非拼接 text 走 setText 全量重写——重写会把光标强推到输入框末尾，
+		// 且清空原生 undo 栈。原生插入后光标自然停在粘贴内容之后，粘贴可 Ctrl+Z 撤销；
+		// 后续 input 事件照常经 extractText 同步 state。
 		if (getData("text/html")) {
 			e.preventDefault();
-			const el = e.currentTarget;
-			const offset = caretTokenOffset(el);
-			const newText =
-				offset >= 0
-					? text.slice(0, offset) + plainText + text.slice(offset)
-					: text + plainText;
-			setText(newText);
+			document.execCommand("insertHTML", false, textToHtml(plainText));
 		}
 	};
 
