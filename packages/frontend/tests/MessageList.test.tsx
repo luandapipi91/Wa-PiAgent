@@ -1778,6 +1778,61 @@ test("历史用户消息中 @[智能体名称] 渲染为 chip 样式（非字面
 	expect(chip?.querySelector(".chip-agent-avatar")?.textContent).toBe("📋");
 });
 
+test("用户消息含 expandTokens 展开的 #path: 文件引用 → 还原渲染为 chip-file", () => {
+	// 发送时 expandTokens 把 #[x] 展开为 #path:x 存储；聊天窗回显必须还原为 chip，
+	// 与排队区 expandedTextToHtml 行为一致（否则拖拽/手输文件引用发送后都是一串纯文本）
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: {
+						role: "user",
+						content: "看看 #path:packages/frontend/src/App.tsx 的实现",
+						timestamp: 1,
+					},
+				},
+			],
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+
+	const chip = document.querySelector(".chip-file");
+	expect(chip).toBeTruthy();
+	// data-token 保留还原后的完整 token（与输入框 chip 同构）
+	expect(chip?.getAttribute("data-token")).toBe(
+		"#[path:packages/frontend/src/App.tsx]",
+	);
+	// chip 只显示文件名，不显示路径全串
+	expect(chip?.textContent).toContain("App.tsx");
+	expect(chip?.textContent).not.toContain("packages/frontend");
+});
+
+test("用户消息裸 #词（无 path: 锚）不误渲染为文件 chip", () => {
+	// 零误判取舍与排队区一致：#docs、#1、# 标题不是文件引用，不猜
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "整理 #docs 和问题 #1", timestamp: 1 },
+				},
+			],
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+
+	expect(document.querySelector(".chip-file")).toBeNull();
+});
+
 test("历史用户消息中非 token 文本仍正常显示（chip 与正文共存）", () => {
 	registerAgentMeta("项目管理", { avatar: "📋" });
 

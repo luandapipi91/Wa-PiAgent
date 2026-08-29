@@ -1,7 +1,8 @@
 /**
  * 文件树拖拽文件到输入框：释放后经 wa-pi:insert-mention 派发的文本
- * 必须是文件 chip token `#[路径] `（输入框渲染绿色 chip-file 胶囊，
- * 发送时 expandTokens 展开为 #路径），而非旧的 `path:路径 ` 纯文本。
+ * 必须与手输 # 面板选中插入的格式完全一致：`#[相对路径] `（相对 workspaceDir，
+ * 无 path: 锚）。两链路同构保证发送后 expandTokens 展开产物一致（#path:相对路径），
+ * 聊天窗/排队区 chip 还原行为一致；不再插入旧版 `#[path:绝对路径]`。
  *
  * 指针链模拟：pointerdown（节点）→ pointermove（>5px 触发拖拽态）→
  * pointerup（落点 elementFromPoint mock 到 contenteditable 编辑器）。
@@ -62,8 +63,9 @@ test("拖拽文件树文件到输入框，派发 #[路径] chip token 而非 pat
 			text: string;
 			editor?: HTMLElement;
 		};
-		// 文件 chip token（value 带 path: 引用标记）：发送时 expandTokens 展开为 #path:/tmp/proj/a.ts
-		expect(detail.text).toBe("#[path:/tmp/proj/a.ts] ");
+		// 与手输 # 面板选中插入格式完全一致：#[相对路径]（相对 workspaceDir，无 path: 锚），
+		// 发送时 expandTokens 展开为 #path:相对路径，与手输链路产物同构
+		expect(detail.text).toBe("#[a.ts] ");
 		// 不携带 editor：ComposerInput 必须走受控 setText 路径——
 		// execCommand 只改 DOM，受控同步后 text===DOM 不会重渲染，token 永远无法 chip 化
 		expect(detail.editor).toBeUndefined();

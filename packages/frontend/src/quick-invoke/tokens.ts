@@ -408,6 +408,18 @@ export function textToHtml(
 }
 
 /**
+ * 把 expandTokens 展开产物的 file 锚（#path:xxx）还原为 token 原文形态（#[path:xxx]）。
+ * 供所有展示场景统一复用：排队队列面板（expandedTextToHtml）、聊天窗用户消息回显
+ * （MessageList displayText 链路）。零误判：#path: 锚只由 expandTokens 产生，纯数字
+ * 文件夹名（#path:2024）、无扩展名目录都支持；裸 #词（#docs、#1、# 标题）不猜——
+ * 文件引用请走 #[x] token（展开后自动带锚）。已知边界：路径含空格时 \S+ 截断
+ * （与 expandTokens 展开不转义空格的既有边界一致）。
+ */
+export function restoreFilePathTokens(text: string): string {
+  return text.replace(/#path:(\S+)/g, "#[path:$1]");
+}
+
+/**
  * 把 expandTokens 展开后形态的文本渲染为 chip HTML（展示场景，如排队队列面板）。
  *
  * 排队队列（SessionView 顶部队列面板）/kernel queue_update 回传的都是 expandTokens
@@ -415,9 +427,7 @@ export function textToHtml(
  * 形态，直接渲染会把 token 原文当普通文本显示。本函数先还原再渲染：
  * - /skill:name → $[name]（knownSkills 过滤，防任意 /skill:xxx 文本误判，约束与
  *   MessageList.formatSkillBlocks 一致）
- * - #path:xxx → #[path:xxx]（file/folder 展开形态恒带 path: 锚，零误判：纯数字
- *   文件夹名 #path:2024、无扩展名目录 #path:docs 都支持；裸 #词（#docs、#1、
- *   "# 标题"）不猜——文件引用请走 #[x] token，展开后自动带锚）
+ * - #path:xxx → #[path:xxx]（复用 restoreFilePathTokens，聊天窗同款还原）
  * - @[agent] 与 element 展开形态（path [line: a-b] [el: x]）textToHtml 原生支持，
  *   无需还原；命令 chip 展开形态 /cmd 与任意斜杠文本无法区分，保持原样不还原。
  */
@@ -425,14 +435,11 @@ export function expandedTextToHtml(
   text: string,
   opts?: { knownSkills?: ReadonlySet<string>; hideTrigger?: boolean },
 ): string {
-  const restored = text
-    .replace(/\/skill:([^\s/]+)\s*/g, (m, name: string) =>
+  const restored = restoreFilePathTokens(
+    text.replace(/\/skill:([^\s/]+)\s*/g, (m, name: string) =>
       opts?.knownSkills?.has(name) ? `$[${name}] ` : m,
-    )
-    // file 只认 expandTokens 展开产物的 #path: 锚（零误判，纯数字文件夹名如
-    // #path:2024 也支持）；裸 #词（#docs、#1、# 标题）不猜——文件引用请走
-    // #[x] token（展开后自动带锚）。
-    .replace(/#path:(\S+)/g, "#[path:$1]");
+    ),
+  );
   return textToHtml(restored, { hideTrigger: opts?.hideTrigger });
 }
 

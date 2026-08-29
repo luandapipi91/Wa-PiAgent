@@ -283,6 +283,7 @@ test("selectionToTokenText：选中普通文本无 chip 时原样输出", () => 
 import {
   expandedTextToHtml,
   ensureChipStyles,
+  restoreFilePathTokens,
 } from "../src/quick-invoke/tokens";
 
 test("expandedTextToHtml：/skill:name 还原为技能 chip（knownSkills 命中）", () => {
@@ -346,6 +347,21 @@ test("expandedTextToHtml：普通文本经 escapeHtml 转义（防注入）", ()
   expect(html).not.toContain("<img src=x");
   expect(html).toContain("&lt;img");
   expect(html).toContain("chip-file");
+});
+
+// ── restoreFilePathTokens：file 锚还原（聊天窗/排队区共享）──
+
+test("restoreFilePathTokens：#path: 锚还原为 #[path:x]（含纯数字目录名）", () => {
+  expect(restoreFilePathTokens("看 #path:src/App.tsx 和 #path:2024")).toBe(
+    "看 #[path:src/App.tsx] 和 #[path:2024]",
+  );
+});
+
+test("restoreFilePathTokens：裸 #词与已还原形态不误伤", () => {
+  // 裸 #词不是文件引用，不猜；#[path:x] 中 # 后是 [ 不匹配锚，不重复包里
+  expect(restoreFilePathTokens("整理 #docs 和 #1，见 #[path:a.ts]")).toBe(
+    "整理 #docs 和 #1，见 #[path:a.ts]",
+  );
 });
 
 test("expandedTextToHtml：chip 渲染需要 ensureChipStyles 样式已注入（幂等）", () => {

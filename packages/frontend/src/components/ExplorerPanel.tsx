@@ -418,68 +418,76 @@ export function ExplorerPanel({
 	);
 
 	// 拖拽到输入框生成 path: 引用：dispatch 自定义事件，由 Composer 监听并插入
-	const startDrag = useCallback((e: React.PointerEvent, node: FlatNode) => {
-		if (e.button !== 0) return;
-		e.preventDefault();
-		const el = e.currentTarget as HTMLElement;
-		el.setPointerCapture(e.pointerId);
-		const fpath = node.entry.path,
-			fname = node.entry.name;
-		// 与 kernel buildPromptContent 一致：绝对路径全正斜杠（Windows 盘符/拼接处归一），
-		// 避免 joinPath 在 Windows 产出 C:\proj/name 这类混合分隔符。
-		const ref = fpath.replace(/\\/g, "/");
-		let dragging = false;
-		let ghost: HTMLElement | null = null;
+	const startDrag = useCallback(
+		(e: React.PointerEvent, node: FlatNode) => {
+			if (e.button !== 0) return;
+			e.preventDefault();
+			const el = e.currentTarget as HTMLElement;
+			el.setPointerCapture(e.pointerId);
+			const fpath = node.entry.path,
+				fname = node.entry.name;
+			// 绝对路径全正斜杠（Windows 盘符/拼接处归一），避免 joinPath 在 Windows 产出混合分隔符。
+			const ref = fpath.replace(/\\/g, "/");
+			// 统一为手输 # 面板的插入格式：#[相对路径]（相对 workspaceDir，无 path: 锚）。
+			// 两链路同构：输入框 chip、发送展开（#path:相对路径）、聊天窗/排队区 chip 还原全链路一致；
+			// 项目外文件（不以 workspaceDir 开头）保留原路径。与 ComposerInput # 面板的相对化规则一致。
+			const wsDir = workspaceDir.replace(/\\/g, "/");
+			const rel = ref.startsWith(wsDir + "/") ? ref.slice(wsDir.length + 1) : ref;
+			let dragging = false;
+			let ghost: HTMLElement | null = null;
 
-		const onMove = (ev: PointerEvent) => {
-			if (
-				!dragging &&
-				Math.abs(ev.clientX - e.clientX) < 5 &&
-				Math.abs(ev.clientY - e.clientY) < 5
-			)
-				return;
-			if (!dragging) {
-				dragging = true;
-				ghost = document.createElement("div");
-				ghost.className = "ep-drag-ghost";
-				ghost.textContent = fname;
-				document.body.appendChild(ghost);
-			}
-			if (ghost) {
-				ghost.style.left = ev.clientX + "px";
-				ghost.style.top = ev.clientY + "px";
-			}
-		};
+			const onMove = (ev: PointerEvent) => {
+				if (
+					!dragging &&
+					Math.abs(ev.clientX - e.clientX) < 5 &&
+					Math.abs(ev.clientY - e.clientY) < 5
+				)
+					return;
+				if (!dragging) {
+					dragging = true;
+					ghost = document.createElement("div");
+					ghost.className = "ep-drag-ghost";
+					ghost.textContent = fname;
+					document.body.appendChild(ghost);
+				}
+				if (ghost) {
+					ghost.style.left = ev.clientX + "px";
+					ghost.style.top = ev.clientY + "px";
+				}
+			};
 
-		const onUp = (upEv: PointerEvent) => {
-			el.releasePointerCapture(upEv.pointerId);
-			el.removeEventListener("pointermove", onMove);
-			el.removeEventListener("pointerup", onUp);
-			const ghostEl = ghost;
-			ghost = null;
-			if (ghostEl) ghostEl.remove();
-			if (!dragging) return;
-			const target = document.elementFromPoint(upEv.clientX, upEv.clientY);
-			// 命中输入框才插入：textarea（原生）或 contentEditable 编辑器（[role=textbox]）
-			const hitEditor = target?.closest(
-				"textarea, [contenteditable], [role='textbox']",
-			);
-			if (hitEditor) {
-				// 文件 chip token #[path:引用]：经 insert-mention 事件由 ComposerInput 追加到受控
-				// text 末尾（state 驱动 textToHtml 重渲染出 chip-file 胶囊），发送时展开为 #path:引用。
-				// 刻意不传 editor：execCommand 只改 DOM，受控同步后 text===DOM 不触发重渲染，
-				// token 永远无法 chip 化（与 element-pick 同一模式）。
-				window.dispatchEvent(
-					new CustomEvent("wa-pi:insert-mention", {
-						detail: { text: `#[path:${ref}] ` },
-					}),
+			const onUp = (upEv: PointerEvent) => {
+				el.releasePointerCapture(upEv.pointerId);
+				el.removeEventListener("pointermove", onMove);
+				el.removeEventListener("pointerup", onUp);
+				const ghostEl = ghost;
+				ghost = null;
+				if (ghostEl) ghostEl.remove();
+				if (!dragging) return;
+				const target = document.elementFromPoint(upEv.clientX, upEv.clientY);
+				// 命中输入框才插入：textarea（原生）或 contentEditable 编辑器（[role=textbox]）
+				const hitEditor = target?.closest(
+					"textarea, [contenteditable], [role='textbox']",
 				);
-			}
-		};
+				if (hitEditor) {
+					// 文件 chip token #[相对路径]：与手输 # 面板选中插入格式完全一致，经
+					// insert-mention 事件由 ComposerInput 追加到受控 text 末尾（state 驱动
+					// textToHtml 重渲染出 chip-file 胶囊），发送时 expandTokens 展开为 #path:相对路径。
+					// 刻意不传 editor：execCommand 只改 DOM，受控同步后 text===DOM 不触发重渲染，
+					// token 永远无法 chip 化（与 element-pick 同一模式）。
+					window.dispatchEvent(
+						new CustomEvent("wa-pi:insert-mention", {
+							detail: { text: `#[${rel}] ` },
+						}),
+					);
+				}
+			};
 
-		el.addEventListener("pointermove", onMove);
-		el.addEventListener("pointerup", onUp);
-	}, []);
+			el.addEventListener("pointermove", onMove);
+			el.addEventListener("pointerup", onUp);
+		},
+		[workspaceDir],
+	);
 
 	if (!workspaceDir) {
 		return <div className="ep-empty">{t("explorer.emptyNoWorkspace")}</div>;
