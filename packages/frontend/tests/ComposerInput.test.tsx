@@ -352,120 +352,136 @@ test("plain text paste is not intercepted", async () => {
 
 // === 富文本粘贴净化 ===
 
-test("粘贴富文本 HTML：只保留纯文本，不插入 HTML 样式", async () => {
+test("粘贴富文本 HTML：在光标处插入净化产物（insertHTML），不经 setText 全量重写", () => {
 	const setText = mock();
 	renderComposer({ setText, text: "" });
 
 	const textbox = screen
 		.getByTestId("composer-input")
 		.querySelector('[role="textbox"]')!;
-	fireEvent.paste(textbox, {
-		clipboardData: {
-			files: [],
-			getData: (type: string) =>
-				type === "text/html"
-					? '<span style="color:red;font-weight:bold">加粗<b>内容</b></span>'
-					: "加粗内容",
-		},
-	});
+	const execSpy = mock(() => true);
+	const origExec = document.execCommand;
+	document.execCommand = execSpy as any;
+	try {
+		fireEvent.paste(textbox, {
+			clipboardData: {
+				files: [],
+				getData: (type: string) =>
+					type === "text/html"
+						? '<span style="color:red;font-weight:bold">加粗<b>内容</b></span>'
+						: "加粗内容",
+			},
+		});
+	} finally {
+		document.execCommand = origExec;
+	}
 
-	await waitFor(() => expect(setText).toHaveBeenCalledWith("加粗内容"));
+	// 插入的是 textToHtml(plain) 净化产物（源样式被丢弃）
+	expect(execSpy).toHaveBeenCalledWith("insertHTML", false, "加粗内容");
+	// 不再 setText 全量拼接（半受控 innerHTML 重写会把光标强推到末尾）
+	expect(setText).not.toHaveBeenCalled();
 });
 
-test("粘贴多行富文本：纯文本保留换行，丢弃 HTML 结构", async () => {
+test("粘贴多行富文本：换行保留为 <br>，丢弃源 HTML 结构", () => {
 	const setText = mock();
 	renderComposer({ setText, text: "" });
 
 	const textbox = screen
 		.getByTestId("composer-input")
 		.querySelector('[role="textbox"]')!;
-	fireEvent.paste(textbox, {
-		clipboardData: {
-			files: [],
-			getData: (type: string) =>
-				type === "text/html"
-					? '<div style="color:red">第一行</div><div>第二行</div>'
-					: "第一行\n第二行",
-		},
-	});
+	const execSpy = mock(() => true);
+	const origExec = document.execCommand;
+	document.execCommand = execSpy as any;
+	try {
+		fireEvent.paste(textbox, {
+			clipboardData: {
+				files: [],
+				getData: (type: string) =>
+					type === "text/html"
+						? '<div style="color:red">第一行</div><div>第二行</div>'
+						: "第一行\n第二行",
+			},
+		});
+	} finally {
+		document.execCommand = origExec;
+	}
 
-	await waitFor(() => expect(setText).toHaveBeenCalledWith("第一行\n第二行"));
+	expect(execSpy).toHaveBeenCalledWith("insertHTML", false, "第一行<br>第二行");
+	expect(setText).not.toHaveBeenCalled();
 });
 
-test("粘贴含 chip token 的富文本：setText 收到 token 原文（跨输入框复制后重渲染成 chip）", async () => {
+test("粘贴含 chip token 的富文本：插入渲染产物（token 立即 chip 化）", () => {
 	const setText = mock();
 	renderComposer({ setText, text: "hello" });
 
 	const textbox = screen
 		.getByTestId("composer-input")
 		.querySelector('[role="textbox"]')!;
-	// 模拟从另一输入框复制：text/plain 是 token 原文，text/html 是纯文本 token
-	fireEvent.paste(textbox, {
-		clipboardData: {
-			files: [],
-			getData: (type: string) =>
-				type === "text/html"
-					? "$[using-git-worktrees] 导弹发射地方"
-					: "$[using-git-worktrees] 导弹发射地方",
-		},
-	});
+	const execSpy = mock(() => true);
+	const origExec = document.execCommand;
+	document.execCommand = execSpy as any;
+	try {
+		fireEvent.paste(textbox, {
+			clipboardData: {
+				files: [],
+				getData: (type: string) =>
+					type === "text/html"
+						? "$[using-git-worktrees] 导弹发射地方"
+						: "$[using-git-worktrees] 导弹发射地方",
+			},
+		});
+	} finally {
+		document.execCommand = origExec;
+	}
 
-	// setText 收到 token 原文（而非 chip 显示文本），受控层会重渲染成 chip
-	await waitFor(() =>
-		expect(setText).toHaveBeenCalledWith(
-			expect.stringContaining("$[using-git-worktrees]"),
-		),
-	);
+	// insertHTML 收到 textToHtml 渲染产物：技能 token 已是 chip span
+	const inserted = (execSpy.mock.calls[0] as unknown[])[2] as string;
+	expect(inserted).toContain("chip-skill");
+	expect(inserted).toContain("using-git-worktrees");
+	// 后续 state 同步由 input 事件的 extractText 驱动，而非此处 setText
+	expect(setText).not.toHaveBeenCalled();
 });
 
-test("粘贴含 chip token 后 DOM 渲染出 chip（而非纯文本）", async () => {
-	// 用受控 state 驱动：setText 真实更新 → 重渲染出 chip
+test("粘贴含 chip token 后 DOM 渲染出 chip 且 state 收到 token 原文（语义不丢）", () => {
+	// 仿真 execCommand：真实执行插入（测试环境无真实选区，追加到末尾等价），
+	// 触发 input 走 extractText → onTextChange，验证 chip 化 + token 原文还原闭环
 	let currentText = "";
 	const setText = (v: string) => {
 		currentText = v;
 	};
-	const { rerender } = renderComposer({ text: "", setText });
+	renderComposer({ text: "", setText });
 
 	const textbox = screen
 		.getByTestId("composer-input")
 		.querySelector('[role="textbox"]')!;
-	fireEvent.paste(textbox, {
-		clipboardData: {
-			files: [],
-			getData: (type: string) =>
-				type === "text/html"
-					? "$[using-git-worktrees] 导弹发射地方"
-					: "$[using-git-worktrees] 导弹发射地方",
-		},
-	});
+	const origExec = document.execCommand;
+	document.execCommand = ((cmd: string, _ui: boolean, html: string) => {
+		if (cmd === "insertHTML") {
+			textbox.innerHTML += html;
+			fireEvent.input(textbox);
+		}
+		return true;
+	}) as any;
+	try {
+		fireEvent.paste(textbox, {
+			clipboardData: {
+				files: [],
+				getData: (type: string) =>
+					type === "text/html"
+						? "$[using-git-worktrees] 导弹发射地方"
+						: "$[using-git-worktrees] 导弹发射地方",
+			},
+		});
+	} finally {
+		document.execCommand = origExec;
+	}
 
-	// 模拟受控层收到 setText 后的重渲染
-	await waitFor(() => expect(currentText).toContain("$[using-git-worktrees]"));
-	rerender(
-		<ComposerInput
-			text={currentText}
-			setText={setText}
-			model="openai/gpt-4o"
-			setModel={mock()}
-			thinking="disabled"
-			setThinking={mock()}
-			attachments={[]}
-			setAttachments={mock() as any}
-			projectId="p1"
-			sessionId="s1"
-			onSend={mock()}
-			placeholder="输入..."
-		/>,
-	);
-
-	// 粘贴后输入框内应出现带 data-token 的 chip span（技能被重渲染成 chip）
-	await waitFor(() => {
-		expect(
-			screen
-				.getByTestId("composer-input")
-				.querySelector('[data-token="$[using-git-worktrees]"]'),
-		).toBeTruthy();
-	});
+	// DOM：token 渲染成 chip
+	expect(
+		textbox.querySelector('[data-token="$[using-git-worktrees]"]'),
+	).toBeTruthy();
+	// state：extractText 还原 token 原文（而非 chip 显示文本）
+	expect(currentText).toContain("$[using-git-worktrees]");
 });
 
 // === 长文本粘贴自动转附件（>30 行 → 文件上传）===

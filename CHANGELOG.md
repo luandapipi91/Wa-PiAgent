@@ -1,3 +1,10 @@
+## 2026-09-01 — fix(frontend): 富文本粘贴后光标跳到输入框末尾（web/桌面通用）
+
+- 背景：粘贴源带 text/html 时（网页、Office、应用内复制——handleCopy 会写 text/html），handlePaste 走「caretTokenOffset 算偏移 → text.slice 拼接 → setText」，半受控 useEffect 检测 DOM 与 text 不一致后 innerHTML 全量重写，并把光标无条件强推到末尾——在文本中间粘贴时光标跳到输入框末尾而非粘贴内容之后。
+- 实现：handlePaste 的 html 分支改为 `document.execCommand("insertHTML", false, textToHtml(plainText))` 在光标处原生插入渲染产物：光标自然停在粘贴内容之后；token 立即 chip 化（textToHtml 产物）；原生 undo 栈保留（粘贴可 Ctrl+Z 撤销）；后续 input 事件照常经 extractText 同步 state。删除不再使用的 caretTokenOffset 与 selectionToTokenText import。
+- 验证：ComposerInput.test 重写 4 个富文本粘贴用例（insertHTML 参数断言 + setText 不被直接调用 + 仿真 execCommand 验证 chip 化与 token 原文还原闭环）49/49 绿；前端全量 2036 pass / 0 fail；typecheck 绿；新增 e2e/composer-paste-caret.spec.ts 真实 Chromium 验证（中间粘贴→光标 offset 12 非文末 17→Ctrl+Z 回滚；token 粘贴→chip 化→光标在 chip 后文本节点末尾）2/2 绿。
+- 影响范围：packages/frontend/src/components/ui/ComposerInput.tsx、tests/ComposerInput.test.tsx、e2e/composer-paste-caret.spec.ts（新增）。execCommand 虽标记 deprecated，仍是 contentEditable 在光标处插入的事实标准（Notion/ProseMirror 同款做法）。
+
 ## 2026-09-01 — fix(desktop): Windows/Linux 桌面端输入框 Ctrl+Z 撤销失效
 
 - 背景：桌面壳非 macOS 平台 `Menu.setApplicationMenu(null)`，而 Electron 在 Win/Linux 上编辑快捷键（Ctrl+Z / Ctrl+Shift+Z / Ctrl+X/C/V/A）依赖应用菜单中带 role 的菜单项绑定到 webContents 命令，菜单置空后输入框 Ctrl+Z 撤销/剪切/粘贴等全部无响应（macOS 因始终有菜单不受影响）。
