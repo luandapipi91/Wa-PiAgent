@@ -236,6 +236,7 @@ function createWindow() {
 		width: 1280,
 		height: 860,
 		show: false, // 隐藏直到内核页面渲染就绪，避免白屏
+		autoHideMenuBar: true, // Win/Linux 应用菜单存在时会显示菜单栏；隐藏保外观，Alt 可唤出
 		backgroundColor: CANVAS_BG,
 		icon: path.join(__dirname, "assets", "icon.ico"),
 		// sandbox:false：preload 需 require('electron').clipboard 注入 waPiClipboard（sandbox 下该模块不在白名单，会导致复制失效）
@@ -290,6 +291,7 @@ function createWindow() {
 			width: 1000,
 			height: 700,
 			backgroundColor: "#ffffff",
+			autoHideMenuBar: true, // 同主窗口：隐藏菜单栏保外观，编辑快捷键仍生效
 			webPreferences: {
 				nodeIntegration: false,
 				contextIsolation: true,
@@ -607,13 +609,19 @@ app.whenReady().then(async () => {
 		onOpen: activateApp,
 		onQuit: () => app.quit(),
 	});
-	const { buildAppMenuTemplate } = require("./util/menu.cjs");
+	const {
+		buildAppMenuTemplate,
+		buildEditMenuTemplate,
+	} = require("./util/menu.cjs");
 	if (process.platform === "darwin") {
 		Menu.setApplicationMenu(
 			Menu.buildFromTemplate(buildAppMenuTemplate(app.name)),
 		);
 	} else {
-		Menu.setApplicationMenu(null);
+		// Windows/Linux：编辑快捷键（Ctrl+Z / Ctrl+Shift+Z / Ctrl+X/C/V/A）依赖应用菜单中
+		// 带 role 的菜单项绑定，置 null 会让输入框撤销/剪切/粘贴等全部失效。
+		// 设置编辑菜单保住快捷键，菜单栏由窗口 autoHideMenuBar 隐藏，界面外观不变。
+		Menu.setApplicationMenu(Menu.buildFromTemplate(buildEditMenuTemplate()));
 	}
 
 	// 2) kernel sidecar（解释运行；首启 Defender 扫描可能要几分钟）
