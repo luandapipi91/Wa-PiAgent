@@ -20,6 +20,28 @@
 - 影响范围：packages/desktop/src/main.cjs、src/util/menu.cjs、tests/menu.test.ts。
 - 已知边界：输入框为半受控 contentEditable，chip 插入/富文本粘贴/清空等外部 setText 会 innerHTML 重写 DOM 并清空原生 undo 栈，此类操作之前的输入无法撤销——需命令式 undo 栈支持，另行评估。
 
+## 2026-08-29 — feat(website): 新增青蛙主题官网 + R2 发布 + 关于页入口
+
+- 背景：项目缺少面向新用户的官网。需求：绿色森林青蛙主题，展示好玩特点（任务完成青蛙动画/提示音、所见即所得页面编辑精准选中）、使用指南（MCP/技能/模型/自定义智能体）、设置指南（通用/外观/插件/分享）、路线图（会话分支管理/项目对外连接/IM 机器人）、极简理念，并提供 GitHub 仓库与最新下载入口，上传到 R2 并在系统设置-关于加入口。
+- 实现：①新增 `website/index.html` 单文件官网（零依赖，内联 CSS/JS/插画）：森林深绿 Hero + 萤火虫 + 树影、青蛙 SVG 形象复用应用内 TaskDoneFrog 设计（坐/跳/挥手/睡四姿态），点击任意青蛙触发跳跃 + 呱气泡 + WebAudio 合成蛙鸣彩蛋；文案基于真实设置页 UI。②新增 `scripts/publish-web.ts`（复用 s3-upload.cjs 的 createS3Client，显式设置 Content-Type，重试 3 次）：把 website/ 上传到 wapiweb 桶根路径；实测 R2 S3 endpoint 匿名访问返回 400（非公开读），且 R2 自定义域无默认首页（/ 404，需带 /index.html 完整路径）；用户确认 wapiweb 已绑 <www.wapiagent.top> 后，关于页链接定为正式域名 <https://www.wapiagent.top/index.html（curl> 200 实测）。⑤应要求移除曾有的 wapioss web/ 双写渠道：脚本简化为仅传 wapiweb，并删除 wapioss 桶已上传的 web/index.html 对象（ListObjects 确认清零、公网 URL 已 404）。③关于页新增「官方网站」外链（globe 图标 + brand 色，新窗口打开），i18n 双语补键。④特性区新增两张大卡（用户反馈补充）：「🤖 智能体战队，@ 一下随时指派」（中心 @ 徽章 + 三蛙协作网络 SVG 插画）与「⏰ 定时跑任务，结果推到聊天群」（时钟 + 任务卡 + IM 推送气泡 SVG 插画）；原小卡区对应的"自己的智能体/自动化定时任务"两张薄卡删除，mini-grid 改 2 列（剩 MCP/技能/记忆/本地优先 4 卡）。⑥README.md / README.zh-CN.md 头部徽章区新增官网与下载最新版链接（中英文）。⑦官网支持 i18n：采用与 README 同款双语双文件模式，新增 `website/index.en.html` 英文版（全文案翻译、呱气泡改 Ribbit!、lang=en），中英文版导航与页脚互链；⑧README 内容参考官网对齐（中英同步）：补「🎨 所见即所得的页面预览与编辑」「⏰ 自动化定时任务」两个特性小节，多智能体节补「@ 随时指派」，桌面体验补青蛙蹦出道贺；修正事实错误——自动化定时任务从路线图「接下来的方向」移入「已经交付」（代码已上线）。
+- 验证：publish-web 单测 5/5 绿（contentType 映射 + collectFiles 递归/排序）；AboutSection.test 新增官网链接用例（href/target/rel/文案断言）；前端 typecheck 绿；本地浏览器实机验证渲染（Hero/特性/指南/设置/路线图/页脚截图）+ 点击青蛙彩蛋；R2 上传后公网 curl 200 验证。
+- 影响范围：website/index.html、website/index.en.html（新增）、scripts/publish-web.ts + publish-web.test.ts（新增）、packages/frontend/src/components/settings/AboutSection.tsx、src/i18n/locales/{zh,en}.ts、tests/AboutSection.test.tsx、README.md、README.zh-CN.md。
+
+## 2026-09-01 — fix(frontend): 富文本粘贴后光标跳到输入框末尾（web/桌面通用）
+
+- 背景：粘贴源带 text/html 时（网页、Office、应用内复制——handleCopy 会写 text/html），handlePaste 走「caretTokenOffset 算偏移 → text.slice 拼接 → setText」，半受控 useEffect 检测 DOM 与 text 不一致后 innerHTML 全量重写，并把光标无条件强推到末尾——在文本中间粘贴时光标跳到输入框末尾而非粘贴内容之后。
+- 实现：handlePaste 的 html 分支改为 `document.execCommand("insertHTML", false, textToHtml(plainText))` 在光标处原生插入渲染产物：光标自然停在粘贴内容之后；token 立即 chip 化（textToHtml 产物）；原生 undo 栈保留（粘贴可 Ctrl+Z 撤销）；后续 input 事件照常经 extractText 同步 state。删除不再使用的 caretTokenOffset 与 selectionToTokenText import。
+- 验证：ComposerInput.test 重写 4 个富文本粘贴用例（insertHTML 参数断言 + setText 不被直接调用 + 仿真 execCommand 验证 chip 化与 token 原文还原闭环）49/49 绿；前端全量 2036 pass / 0 fail；typecheck 绿；新增 e2e/composer-paste-caret.spec.ts 真实 Chromium 验证（中间粘贴→光标 offset 12 非文末 17→Ctrl+Z 回滚；token 粘贴→chip 化→光标在 chip 后文本节点末尾）2/2 绿。
+- 影响范围：packages/frontend/src/components/ui/ComposerInput.tsx、tests/ComposerInput.test.tsx、e2e/composer-paste-caret.spec.ts（新增）。execCommand 虽标记 deprecated，仍是 contentEditable 在光标处插入的事实标准（Notion/ProseMirror 同款做法）。
+
+## 2026-09-01 — fix(desktop): Windows/Linux 桌面端输入框 Ctrl+Z 撤销失效
+
+- 背景：桌面壳非 macOS 平台 `Menu.setApplicationMenu(null)`，而 Electron 在 Win/Linux 上编辑快捷键（Ctrl+Z / Ctrl+Shift+Z / Ctrl+X/C/V/A）依赖应用菜单中带 role 的菜单项绑定到 webContents 命令，菜单置空后输入框 Ctrl+Z 撤销/剪切/粘贴等全部无响应（macOS 因始终有菜单不受影响）。
+- 实现：menu.cjs 提取共享 buildEditMenuTemplate()（含 undo/redo/cut/copy/paste/selectAll role，macOS 应用菜单复用同一数据）；main.cjs 非 darwin 分支改设该编辑菜单，主窗口与外链子窗口加 autoHideMenuBar: true 隐藏菜单栏保外观（Alt 可唤出）。
+- 验证：menu.test 新增 2 用例（编辑 role 全集 + 模板复用一致性）7/7 绿；desktop 全量 220 pass（唯一失败 kernel-updater.integration 系本机缺 zip CLI 的既有环境问题，与本次无关）；一次性 Electron E2E 真实验证 sendInputEvent 打字→Ctrl+Z→文本回滚成功（PASS）。
+- 影响范围：packages/desktop/src/main.cjs、src/util/menu.cjs、tests/menu.test.ts。
+- 已知边界：输入框为半受控 contentEditable，chip 插入/富文本粘贴/清空等外部 setText 会 innerHTML 重写 DOM 并清空原生 undo 栈，此类操作之前的输入无法撤销——需命令式 undo 栈支持，另行评估。
+
 ## 2026-09-01 — fix(frontend): 长任务结束整轮折叠后滚动位置跳中间（收敛循环兑底）
 
 - 背景：长上下文任务执行中用户贴底跟随；agent_end 到达时整轮过程卡片折叠成 TurnSummary，末行高度骤减数千 px，视口从底部跳到中间。根因：折叠时刻的单次 scrollToEnd 补偿在 React commit 后同步执行，而 Virtuoso 行高缓存要等 ResizeObserver 异步重测才更新——单次 scrollToIndex 基于过期缓存计算 scrollTop，重测完成后位置再次偏移且无人校正（此时 autoScrollActive 已 false，三条自动贴底路径全部失效）。
