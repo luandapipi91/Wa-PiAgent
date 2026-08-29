@@ -19,6 +19,8 @@ Visual session management · Multi-agent collaboration · IM bot channels · MCP
 ![Agent Engine](https://img.shields.io/badge/Agent_Engine-pi-5B5BD6)
 ![i18n](https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)
 
+🌍 [Website](https://www.wapiagent.top/index.html) · [⬇ Download](https://github.com/luandapipi91/Wa-PiAgent/releases/latest)
+
 </div>
 
 ---
@@ -77,13 +79,21 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 
 - **One codebase, two ends**: run `bun run dev` in the browser, or package an **Electron desktop app** (macOS / Windows / Linux)
 - **Full-featured sessions**: message queueing / steering, interrupt & resume, history branching, attachments, **voice input**, and per-message reasoning effort (off / mid / high / max)
-- **No need to stare at the screen**: sound cues when a task finishes or needs your input
+- **No need to stare at the screen**: sound cues when a task finishes or needs your input — plus a frog hopping out from a corner of the chat to congratulate you (toggleable in Appearance settings)
 - **Bilingual UI (Chinese & English)**, with customizable font size and export preferences
+
+### 🎨 WYSIWYG page preview & editing
+
+- **Live preview**: AI-generated pages render instantly in the preview panel — local HTML and external URL modes
+- **Precise element picking**: hover to highlight, click an element or its parent, and "send to chat" — the AI receives a locator precise to the source line, not a screenshot
+- **Nested iframes included**: elements inside inner pages still resolve to real files on disk, so fixes always land in the right place
+- A collaboration booster for designers: point and fix, no more screenshot ping-pong
 
 ### 🤖 A multi-agent team
 
 - **9 built-in expert roles** (senior project manager, product manager, frontend/backend developers, test analyst, code reviewer, data analyst, UX designer, meeting minutes) — ready out of the box
 - **Custom agents**: prompt, tool whitelist, skills, model, and reasoning effort all independently configurable
+- **Assign with @**: type `@` in the chat box to summon the agent panel and put a specific role on the job; use the "relationship web" so agents collaborate proactively or on demand
 - **Task delegation**: agents can invoke sub-agents via `delegate` / `fleet` (three built-in types: general-purpose / Explore / Plan) — complex tasks are split, run concurrently, and aggregated automatically
 
 ### 💬 IM bot channels
@@ -91,6 +101,12 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 - Put agents on IM: configure **bots** in Settings, bind any agent, and incoming IM messages are handled by it automatically
 - **WeCom (Enterprise WeChat) supported**; WeChat, Feishu, and QQ channel types are reserved
 - IM conversations are grouped separately in the sidebar, managed alongside local sessions
+
+### ⏰ Scheduled automation
+
+- **Schedule-driven**: let agents run on a cron schedule — daily inspections, timed data aggregation, periodic reports, unattended
+- **Status at a glance**: success / failure / running indicators with last-run time; right-click to run immediately
+- **Results pushed to IM**: when a task completes, an IM bot pushes the results into your WeCom group
 
 ### 🔌 MCP connectors
 
@@ -197,12 +213,12 @@ bun run typecheck      # Type checking
 - [x] pi RPC event transparency: retry / compaction / summarization progress, extension status & widget visualization
 - [x] Electron desktop packaging and auto-update
 - [x] IM bot channels (WeCom)
+- [x] Scheduled automation (cron-driven, with IM push notifications)
 - [x] Bilingual Chinese & English UI
 
 **What's next:**
 
 - [ ] **Visual workflow orchestration** — upgrade multi-agent collaboration from "one conversation" to "reusable workflows": drag-and-drop task nodes, and let your AI team run the process you define, automatically
-- [ ] **Scheduled tasks** — let agents run on a schedule: daily code inspections, timed data aggregation, periodic report generation, unattended
 - [ ] **Connectors** — a ready-to-use connector marketplace on top of MCP: more IM platforms, more SaaS services, configure and go
 - [ ] **Artifact sharing** — one-click export and sharing of conversations, analysis reports, and generated images, so AI output flows to where your team needs it
 - [ ] **Diff monitoring** — watch what you care about: automatic detection of changes in files, pages, and data sources, with real-time alerts that can be handed straight to an agent
