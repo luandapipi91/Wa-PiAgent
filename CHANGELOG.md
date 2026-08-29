@@ -1,3 +1,11 @@
+## 2026-09-01 — fix(desktop): Windows/Linux 桌面端输入框 Ctrl+Z 撤销失效
+
+- 背景：桌面壳非 macOS 平台 `Menu.setApplicationMenu(null)`，而 Electron 在 Win/Linux 上编辑快捷键（Ctrl+Z / Ctrl+Shift+Z / Ctrl+X/C/V/A）依赖应用菜单中带 role 的菜单项绑定到 webContents 命令，菜单置空后输入框 Ctrl+Z 撤销/剪切/粘贴等全部无响应（macOS 因始终有菜单不受影响）。
+- 实现：menu.cjs 提取共享 buildEditMenuTemplate()（含 undo/redo/cut/copy/paste/selectAll role，macOS 应用菜单复用同一数据）；main.cjs 非 darwin 分支改设该编辑菜单，主窗口与外链子窗口加 autoHideMenuBar: true 隐藏菜单栏保外观（Alt 可唤出）。
+- 验证：menu.test 新增 2 用例（编辑 role 全集 + 模板复用一致性）7/7 绿；desktop 全量 220 pass（唯一失败 kernel-updater.integration 系本机缺 zip CLI 的既有环境问题，与本次无关）；一次性 Electron E2E 真实验证 sendInputEvent 打字→Ctrl+Z→文本回滚成功（PASS）。
+- 影响范围：packages/desktop/src/main.cjs、src/util/menu.cjs、tests/menu.test.ts。
+- 已知边界：输入框为半受控 contentEditable，chip 插入/富文本粘贴/清空等外部 setText 会 innerHTML 重写 DOM 并清空原生 undo 栈，此类操作之前的输入无法撤销——需命令式 undo 栈支持，另行评估。
+
 ## 2026-09-01 — fix(frontend): 文件树拖拽插入格式与手输 # 统一 + 聊天窗补 #path: chip 还原
 
 - 背景：文件树拖拽文件到输入框插入的是 `#[path:绝对路径]`（带 path: 锚），与手输 # 面板选中的 `#[相对路径]`（无锚）不一致；两形态在输入框都被宽容正则 chip 化，掩盖了差异——发送后展开产物分化，聊天窗渲染层只认 `#[x]` 方括号原文形态、无 #path: 还原分支，导致发送后聊天窗（拖拽/手输一视同仁）与部分场景排队区均无 chip 渲染。
