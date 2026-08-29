@@ -674,3 +674,123 @@ test("整轮结束（isActiveTurnRow true→false）时主动滚动到底部", a
 	expect(last.index).toBe(1); // 末行
 	expect(last.align).toBe("end");
 });
+
+// ============================================================================
+// 回归：折叠补偿的单次 scrollToEnd 在 Virtuoso 行高缓存重测（ResizeObserver 异步）
+// 之前执行，基于过期缓存计算的 scrollTop 不准；重测完成后位置可能再次偏移
+// （视口停在中间），且此时 autoScrollActive 已 false、无任何路径再校正。
+// 修复：折叠时刻启动收敛循环（同进入会话定位模式）：未贴底则拉回，贴底/用户
+// 上翻/超时 2s 退出。
+// ============================================================================
+test("折叠后布局二次偏移（Virtuoso 异步重测）→ 收敛循环再次拉回底部", async () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")],
+		},
+		statusBySession: { s1: "thinking" },
+	});
+	render(<MessageList sessionId="s1" />);
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+
+	// 贴底基线（scrollTop=1600 = maxScrollTop，距底 0）
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 1600,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+		value: 2000,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "clientHeight", {
+		value: 400,
+		writable: true,
+	});
+
+	// 整轮结束：折叠 + 既有单次补偿
+	scrollToIndexCalls.length = 0;
+	useSessionStore.setState({ statusBySession: { s1: "idle" } });
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	const countAfterCollapse = scrollToIndexCalls.length;
+
+	// 模拟 ResizeObserver 异步重测后的二次布局：总高骤减、scrollTop 停在中部
+	// （距底 100px）。maxScrollTop 同步减小 → handleScrollerScroll 不误判用户上翻，
+	// stickBottom 保持 true。
+	setTimeout(() => {
+		Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+			value: 600,
+			writable: true,
+		});
+		Object.defineProperty(mockScrollerEl!, "scrollTop", {
+			value: 100,
+			writable: true,
+		});
+		mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+	}, 60);
+
+	// 修复前：单次补偿已结束，偏移后无任何调用 → waitFor 超时失败
+	// 修复后：收敛循环检测到未贴底 → 再次拉回
+	await waitFor(
+		() => {
+			expect(scrollToIndexCalls.length).toBeGreaterThan(countAfterCollapse);
+		},
+		{ timeout: 1500 },
+	);
+	const last = scrollToIndexCalls[scrollToIndexCalls.length - 1];
+	expect(last.index).toBe(1); // 末行
+	expect(last.align).toBe("end");
+});
+
+test("折叠后布局二次偏移但用户已主动上翻 → 不得拉回", async () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")],
+		},
+		statusBySession: { s1: "thinking" },
+	});
+	render(<MessageList sessionId="s1" />);
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+
+	// 贴底基线
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 1600,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+		value: 2000,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "clientHeight", {
+		value: 400,
+		writable: true,
+	});
+
+	// 整轮结束：折叠 + 单次补偿
+	scrollToIndexCalls.length = 0;
+	useSessionStore.setState({ statusBySession: { s1: "idle" } });
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	const countAfterCollapse = scrollToIndexCalls.length;
+
+	// 用户主动上翻：wheel 输入 + scrollTop 减小且 maxScrollTop 不变 → stickBottom=false
+	mockScrollerEl!.dispatchEvent(new Event("wheel", { bubbles: true }));
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 1200,
+		writable: true,
+	});
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+	// 布局二次偏移（Virtuoso 重测）——收敛循环必须尊重用户上翻，不得拉回
+	setTimeout(() => {
+		Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+			value: 600,
+			writable: true,
+		});
+		Object.defineProperty(mockScrollerEl!, "scrollTop", {
+			value: 300,
+			writable: true,
+		});
+		mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+	}, 60);
+
+	await new Promise((r) => setTimeout(r, 700));
+	expect(scrollToIndexCalls.length).toBe(countAfterCollapse);
+});
