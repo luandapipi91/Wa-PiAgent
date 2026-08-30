@@ -61,8 +61,9 @@ export class FakeSessionClient {
 		return this.alive;
 	}
 
-	async command(cmd: Record<string, any>): Promise<any> {
-		switch (cmd.type) {
+	async command(cmd: Record<string, unknown>): Promise<any> {
+		const type = cmd.type as string;
+		switch (type) {
 			case "get_messages":
 				return { messages: this.messagesToReturn };
 			case "get_available_models":
@@ -116,6 +117,23 @@ export class FakeSessionClient {
 	async steer(text: string, images?: any[]): Promise<void> {
 		this.steered.push(text);
 		this.steerImages.push(images ?? []);
+	}
+
+	/** clear_queue 调用记录（pi 0.84.4 新增 RPC） */
+	clearQueueCalls = 0;
+	/** clear_queue 返回值：pi 侧被清空的 steering/followUp 文本 */
+	clearQueueToReturn: any = { steering: [], followUp: [] };
+	/** 下一次 clearQueue 押该错误（注入旧版 pi 无 clear_queue 的失败路径），用后自动清除 */
+	nextClearQueueError: Error | null = null;
+
+	async clearQueue(): Promise<any> {
+		this.clearQueueCalls++;
+		if (this.nextClearQueueError) {
+			const err = this.nextClearQueueError;
+			this.nextClearQueueError = null;
+			throw err;
+		}
+		return this.clearQueueToReturn;
 	}
 
 	/** 热重载扩展调用记录（_reloadIfDirty 经此触发 session.reload()）。

@@ -457,11 +457,11 @@ export function restoreKnownCommands(
 ): string {
   if (!known || known.size === 0) return text;
   const alt = [...known]
-    .map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .map((c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
   return text.replace(
     new RegExp(`(^|\\s)/(${alt})(?=$|[\\s，。；！？、）」])`, "g"),
-    (_m, pre: string, cmd: string) => `${pre}/[${cmd}] `,
+    (_m: string, pre: string, cmd: string) => `${pre}/[${cmd}] `,
   );
 }
 

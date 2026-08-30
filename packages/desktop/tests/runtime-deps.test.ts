@@ -154,16 +154,19 @@ test("syncSeed: 清理 kernel.js 时代遗留文件（老用户 runtime 目录�
   }
 });
 
-test("syncSeed: 动态 kernel（有 .kernel-version）→ 不覆盖 seed 的 package.json/bun.lock（保留动态更新后的 runtime 清单）", async () => {
+test("syncSeed: 动态 kernel 下 seed 依赖清单变化 → 覆盖 package.json/bun.lock 并删 .installed-version（触发重装升 pi），KERNEL_BIN 仍保留", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
-    // seed 是 app 捆绑的旧内核清单
-    const seedPkg = JSON.stringify({ deps: { a: "1" } });
+    // seed 是 app 升级后的新清单（pi ^0.84.4）；键名用真实 package.json 的 dependencies
+    const seedPkg = JSON.stringify({ dependencies: { a: "1", pi: "0.84.4" } });
     await writeFile(join(seedDir, KERNEL_BIN), "binary");
     await writeFile(join(seedDir, "package.json"), seedPkg);
-    await writeFile(join(seedDir, "bun.lock"), "{}");
-    // runtime 已有动态更新的 kernel + 标记 + 更新后清单（0.1.1，与 seed 不同）
-    const runtimePkg = JSON.stringify({ version: "0.1.1", deps: { a: "2" } });
+    await writeFile(join(seedDir, "bun.lock"), "new-lock");
+    // runtime 已有动态更新的 kernel + 旧清单（pi 0.84.3 已装）+ 重装标记
+    const runtimePkg = JSON.stringify({
+      version: "0.1.1",
+      dependencies: { a: "1", pi: "0.84.3" },
+    });
     await mkdir(runtimeDir, { recursive: true });
     await writeFile(join(runtimeDir, KERNEL_BIN), "runtime-new");
     await writeFile(join(runtimeDir, ".kernel-version"), "20260823-1");
@@ -171,20 +174,19 @@ test("syncSeed: 动态 kernel（有 .kernel-version）→ 不覆盖 seed 的 pac
     await writeFile(join(runtimeDir, "bun.lock"), "runtime-lock");
     await writeFile(join(runtimeDir, ".installed-version"), "20260823-1");
 
-    await syncSeed(seedDir, runtimeDir, noopLog);
+    await syncSeed(seedDir, runtimeDir, noopLog, { kernelBuild: "20260823-1" });
 
-    // 动态 kernel：runtime 的 kernel 二进制 / package.json / bun.lock 不被 seed 覆盖（保留更新后版本）
-    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(
-      "runtime-new",
-    );
+    // 依赖变化：package.json/bun.lock 被 seed 覆盖（pi 升到 0.84.4）+ .installed-version 删除（触发重装）
     expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(
-      runtimePkg,
+      seedPkg,
     );
     expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe(
-      "runtime-lock",
+      "new-lock",
     );
-    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe(
-      "20260823-1",
+    expect(await readdir(runtimeDir)).not.toContain(".installed-version");
+    // kernel 二进制仍保留动态更新结果（不被 seed 回退）
+    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(
+      "runtime-new",
     );
   } finally {
     await rm(base, { recursive: true, force: true });
@@ -194,7 +196,7 @@ test("syncSeed: 动态 kernel（有 .kernel-version）→ 不覆盖 seed 的 pac
 test("syncSeed: 动态 kernel 下 seed package.json 与 runtime 相同 → 不删 .installed-version（避免无谓重装）", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
-    const pkg = JSON.stringify({ deps: { a: "1" } });
+    const pkg = JSON.stringify({ dependencies: { a: "1" } });
     await writeFile(join(seedDir, KERNEL_BIN), "binary");
     await writeFile(join(seedDir, "package.json"), pkg);
     await writeFile(join(seedDir, "bun.lock"), "{}");
