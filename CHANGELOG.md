@@ -1,33 +1,16 @@
-## 2026-09-01 — feat(preview): 排队区/聊天窗引导附件尾段渲染为「附件:文件名」chip
-
-- 背景：引导消息带附件时，kernel buildPromptContent 把附件拼成「Attachments:\n[path:/abs]」尾段；排队区（steering/followUp 面板）把它原样显示为多行纯文本，聊天窗则用 stripAttachmentRefs 整段剥掉完全不显示。用户希望两处都渲染为「附件:pasted-text.txt」这种 chip 样式。
-- 实现：tokens.ts 新增 renderAttachmentTail（导出）——匹配末尾附件尾段（与原 stripAttachmentRefs 同款正则，仅尾部零误判），提取全部 path 项生成「附件:文件名」chip（新类 chip-attachment，info 蓝色系，与文件 chip 绿色区分；data-token 保留完整 path 引用），正文剥掉尾段。①排队区 expandedTextToHtml 接入（尾段 chip 接在正文后）；②聊天窗 MessageList 用户消息链路改用 renderAttachmentTail（替代 stripAttachmentRefs 的剥除职责，chip 接在 textToHtml 产物后；display 链路其余不变，重发按钮仍用剥尾段后的 displayText，重发行为不变）；stripAttachmentRefs 无调用方后删除；ensureChipStyles 补 .chip-attachment 样式。核心 tokenizer 不动（[path:x] 无 # 前缀，全局识别会波及输入框）。
-- 验证：TDD 红→绿；tokens.test 新增 3 用例（单附件 chip 含显示文本与 data-token/多附件双 chip/非尾段 [path:x] 零误判）；SessionView.test 新增排队区集成用例；MessageList.test 新增聊天窗用例（附件 chip + 正文保留 + 尾段原文不出现），重发等既有用例无回归；tokens/SessionView/MessageList 87+76 绿；前端全量 2043 pass / 0 fail；typecheck 绿。
-- 已知边界：路径含「]」或「,」时与原 stripAttachmentRefs 同款截断限制（Windows 常规路径不含）；乐观入队阶段（queue_update 回传前）文本无尾段则暂无附件 chip，回传后出现；重发按钮沿用剥尾段后的文本（重发不带附件引用，现状行为未变）。
-- 影响范围：packages/frontend/src/quick-invoke/tokens.ts、src/components/MessageList.tsx、tests/{tokens.test.ts,SessionView.test.tsx,MessageList.test.tsx}、CHANGELOG。
-
-## 2026-09-01 — feat(preview): 预览大小上限 3MB → 5MB + ws/http 双链路预览判定对齐（补嗅探兑底与图片放行）
-
-- 背景：用户要求预览上限提高到 5MB。排查发现 MAX_PREVIEW_BYTES 与 checkPreviewable 存在两份实现（routes/fs.ts 服务 HTTP 路由、ws-server.ts 服务 WS 主链路 fs:readFile），且行为已漂移：ws-server 版缺上一轮的文本喷探兑底（WS 链路下 .gitignore 等未识别类型仍报不支持）、也缺 image/* 放行分支。
-- 实现：①两处 MAX_PREVIEW_BYTES 同步 3MB → 5MB；②ws-server.ts 的 checkPreviewable 对齐 routes/fs.ts 版：补 image/* 放行 + 文本喷探兑底（looksBinary 头部 8KB NUL 检查），注释双向标注同步要求（两文件循环依赖——fs.ts import ws-server 的 getMimeType——故为受控复制，改动须两处同步）。
-- 验证：TDD 红→绿；fs-routes.test 大小用例改为「5MB+1 拒绝 + 4MB 边界内放行」双断言，11/11 绿；前端全量 2038 pass / 0 fail；双包 typecheck 绿（E2E 无需新增：用例文件均小于上限，喷探行为已由上一轮 E2E 覆盖）。
-- 已知边界：两份 checkPreviewable 为受控复制（循环依赖所致），后续如再调整预览判定逻辑务必两处同步；根治可把 getMimeType/checkPreviewable 抽到独立模块消除循环，另行评估。
-- 影响范围：packages/kernel/src/{routes/fs.ts,ws-server.ts}、tests/fs-routes.test.ts、frontend blocks/FileViewer.tsx（仅注释）、CHANGELOG。
-
-## 2026-09-01 — feat(preview): 未识别类型文件文本嗅探兑底——内容为文本即纯文本打开，仅真二进制拒绝
-
-- 背景：用户要求「不支持的都纯文本打开」。此前扩展名未识别/未映射（dotfile 如 .gitignore、无后缀如 Makefile/LICENSE、新格式）一律报「不支持的文件类型」；逐个补扩展名映射无法穷尽（dotfile 还存在 extname 返回空、映射表天然失效的结构性问题）。
-- 实现：kernel fs.ts checkPreviewable 加文本喷探兑底——mime 不在白名单时读头部 8KB（BINARY_SNIFF_BYTES）检查 NUL 字节（Git 同款策略），含 NUL 判为二进制拒绝（reason 改「二进制文件不支持预览」），否则按纯文本放行；读失败按二进制处理。白名单内（text/*、json/xml/svg、image/*）与 3MB 上限逻辑不变。前端零改动：喷探放行的文件经 guessLanguage 兑底 text 纯文本渲染。
-- 验证：TDD 红→绿；kernel fs-routes.test 新增 2 用例（扩展名未识别但内容为文本 → 兑底放行，覆盖 dotfile/无扩展名/中文内容；含 NUL 真二进制即使扩展名未识别也拒绝）；既有 exe/zip 用例测试数据真实化（假头 "MZ"/"PK" 无 NUL 在喷探策略下会被当文本——改为真实 DOS header/local file header 含 NUL 字节，断言改匹配新文案）；global-setup sample.zip 同步真实 zip 头（含 NUL）；kernel fs-routes 11/11 绿；前端全量 2038 pass / 0 fail；双包 typecheck 绿；E2E explorer.spec 5/5 绿（sample.zip 仍正确拒绝、build.sh 仍高亮）。
-- 已知边界：头部 8KB 无 NUL 的二进制（军见，如纯文本包裹的二进制格式）会被当文本打开显示乱码；UTF-16 编码文本含 NUL 会被判二进制拒——均为 Git 喷探同款取舍。
-- 影响范围：packages/kernel/src/routes/fs.ts、tests/fs-routes.test.ts、packages/frontend/e2e/global-setup.ts。
-
 ## 2026-09-01 — v0.3.4 发版（代码预览扩展 + 官网移动端适配）
 
 - 版本：0.3.3 → 0.3.4。
 - 主要：文件预览支持 .sh/.java/.go 等主流代码文件高亮（新增 prism-extra-langs）；官网移动端适配修复，青蛙指示文字位置/方向修正。
 - 验证：typecheck 全绿；四层回归全绿。
 - 影响范围：frontend（prism-extra-langs/预览高亮）、website/。
+## 2026-09-01 — fix(kernel): 多插件并行升级互踩——只有一个成功、其余回退
+
+- 背景：系统设置同时升级多个插件时只有一个成功，其余要么报错要么显示回退旧版本。两处结构性根因叠加：①NpmPackageService 的 spawn 互斥队列是实例字段，而 ExtensionManager.ensureNpmCommand 每次操作都无条件重建实例——并发 upgrade 各持独立队列互斥失效，并发 bun add 互踩共享 runtimeDir（Windows EBUSY/ENOENT），后跑者失败；②upgrade 在开始时读 settings 快照、完成后按旧快照整文件覆盖写回——后完成者把先完成者刚写入的新版本条目抹掉（丢失更新），表现为「升级成功后又回退」。
+- 实现：①opQueue 提升为模块级变量（跨实例共享互斥：无论实例怎么重建，任一时刻只有一个 bun 子进程操作共享目录）；②新增 settingsQueue 互斥 + mutateSettings（互斥内重读最新快照→只替换自己的条目→写回），upgrade 写回改走该路径消除丢失更新；升级期间被并发卸载的包不复活。
+- 验证：TDD 红绿——新增「跨实例并发互斥（峰值=1）」「并发升级两包后完成者不覆盖先完成者」2 用例，修复前红/修复后绿；npm-package-service + extension-manager 全部 78/78 绿；kernel 全量 stash 基线对比：基线 103 fail vs 改动后 104 fail，唯一差异 readSystemProxy 系 5s 超时敏感的环境 flaky（单跑 pass 证实），本改动新增失败 = 0。
+- 影响范围：packages/kernel/src/npm-package-service.ts、src/extension-manager.ts、tests/{npm-package-service,extension-manager}.test.ts。
+- 已知边界：settings.json 读-改-写竞态在 install/uninstall/enable/disable 路径仍存在（本次仅 upgrade 写回走互斥；bun add 层面互斥已由模块级队列覆盖所有路径），后续可统一收敛到 mutateSettings。
 
 ## 2026-09-01 — v0.3.3 发版（青蛙主题官网上线 + 折叠滚动收敛）
 
@@ -64,6 +47,30 @@
 - 实现：折叠时刻（isActiveTurnRow true→false 且贴底）启动收敛循环（同进入会话定位的已验证模式）：每 100ms 检查距底 >40px 则拉回，贴底即停；用户上翻（stickBottom=false）或超时 2s 退出，不与用户抢滚动。timer 存 ref 跨 effect 重跑存活（折叠后行数变化会重建 scrollToEnd 重跑 effect，局部变量会被 cleanup 误清）；循环内经 scrollToEndRef 取最新 scrollToEnd（闭包旧引用在行数减少时 end index 越界）。
 - 验证：TDD 红→绿；MessageList.subagent-scroll.test 新增 2 用例（折叠后模拟 Virtuoso 异步重测二次偏移→收敛拉回；二次偏移但用户已上翻→不拉回）14/14 绿；前端正式姿势全量 2036 tests / 0 fail；typecheck 绿。
 - 影响范围：packages/frontend/src/components/MessageList.tsx、tests/MessageList.subagent-scroll.test.tsx。
+
+## 2026-09-01 — feat(preview): 排队区/聊天窗引导附件尾段渲染为「附件:文件名」chip
+
+- 背景：引导消息带附件时，kernel buildPromptContent 把附件拼成「Attachments:\n[path:/abs]」尾段；排队区（steering/followUp 面板）把它原样显示为多行纯文本，聊天窗则用 stripAttachmentRefs 整段剥掉完全不显示。用户希望两处都渲染为「附件:pasted-text.txt」这种 chip 样式。
+- 实现：tokens.ts 新增 renderAttachmentTail（导出）——匹配末尾附件尾段（与原 stripAttachmentRefs 同款正则，仅尾部零误判），提取全部 path 项生成「附件:文件名」chip（新类 chip-attachment，info 蓝色系，与文件 chip 绿色区分；data-token 保留完整 path 引用），正文剥掉尾段。①排队区 expandedTextToHtml 接入（尾段 chip 接在正文后）；②聊天窗 MessageList 用户消息链路改用 renderAttachmentTail（替代 stripAttachmentRefs 的剥除职责，chip 接在 textToHtml 产物后；display 链路其余不变，重发按钮仍用剥尾段后的 displayText，重发行为不变）；stripAttachmentRefs 无调用方后删除；ensureChipStyles 补 .chip-attachment 样式。核心 tokenizer 不动（[path:x] 无 # 前缀，全局识别会波及输入框）。
+- 验证：TDD 红→绿；tokens.test 新增 3 用例（单附件 chip 含显示文本与 data-token/多附件双 chip/非尾段 [path:x] 零误判）；SessionView.test 新增排队区集成用例；MessageList.test 新增聊天窗用例（附件 chip + 正文保留 + 尾段原文不出现），重发等既有用例无回归；tokens/SessionView/MessageList 87+76 绿；前端全量 2043 pass / 0 fail；typecheck 绿。
+- 已知边界：路径含「]」或「,」时与原 stripAttachmentRefs 同款截断限制（Windows 常规路径不含）；乐观入队阶段（queue_update 回传前）文本无尾段则暂无附件 chip，回传后出现；重发按钮沿用剥尾段后的文本（重发不带附件引用，现状行为未变）。
+- 影响范围：packages/frontend/src/quick-invoke/tokens.ts、src/components/MessageList.tsx、tests/{tokens.test.ts,SessionView.test.tsx,MessageList.test.tsx}、CHANGELOG。
+
+## 2026-09-01 — feat(preview): 预览大小上限 3MB → 5MB + ws/http 双链路预览判定对齐（补嗅探兑底与图片放行）
+
+- 背景：用户要求预览上限提高到 5MB。排查发现 MAX_PREVIEW_BYTES 与 checkPreviewable 存在两份实现（routes/fs.ts 服务 HTTP 路由、ws-server.ts 服务 WS 主链路 fs:readFile），且行为已漂移：ws-server 版缺上一轮的文本喷探兑底（WS 链路下 .gitignore 等未识别类型仍报不支持）、也缺 image/* 放行分支。
+- 实现：①两处 MAX_PREVIEW_BYTES 同步 3MB → 5MB；②ws-server.ts 的 checkPreviewable 对齐 routes/fs.ts 版：补 image/* 放行 + 文本喷探兑底（looksBinary 头部 8KB NUL 检查），注释双向标注同步要求（两文件循环依赖——fs.ts import ws-server 的 getMimeType——故为受控复制，改动须两处同步）。
+- 验证：TDD 红→绿；fs-routes.test 大小用例改为「5MB+1 拒绝 + 4MB 边界内放行」双断言，11/11 绿；前端全量 2038 pass / 0 fail；双包 typecheck 绿（E2E 无需新增：用例文件均小于上限，喷探行为已由上一轮 E2E 覆盖）。
+- 已知边界：两份 checkPreviewable 为受控复制（循环依赖所致），后续如再调整预览判定逻辑务必两处同步；根治可把 getMimeType/checkPreviewable 抽到独立模块消除循环，另行评估。
+- 影响范围：packages/kernel/src/{routes/fs.ts,ws-server.ts}、tests/fs-routes.test.ts、frontend blocks/FileViewer.tsx（仅注释）、CHANGELOG。
+
+## 2026-09-01 — feat(preview): 未识别类型文件文本嗅探兑底——内容为文本即纯文本打开，仅真二进制拒绝
+
+- 背景：用户要求「不支持的都纯文本打开」。此前扩展名未识别/未映射（dotfile 如 .gitignore、无后缀如 Makefile/LICENSE、新格式）一律报「不支持的文件类型」；逐个补扩展名映射无法穷尽（dotfile 还存在 extname 返回空、映射表天然失效的结构性问题）。
+- 实现：kernel fs.ts checkPreviewable 加文本喷探兑底——mime 不在白名单时读头部 8KB（BINARY_SNIFF_BYTES）检查 NUL 字节（Git 同款策略），含 NUL 判为二进制拒绝（reason 改「二进制文件不支持预览」），否则按纯文本放行；读失败按二进制处理。白名单内（text/*、json/xml/svg、image/*）与 3MB 上限逻辑不变。前端零改动：喷探放行的文件经 guessLanguage 兑底 text 纯文本渲染。
+- 验证：TDD 红→绿；kernel fs-routes.test 新增 2 用例（扩展名未识别但内容为文本 → 兑底放行，覆盖 dotfile/无扩展名/中文内容；含 NUL 真二进制即使扩展名未识别也拒绝）；既有 exe/zip 用例测试数据真实化（假头 "MZ"/"PK" 无 NUL 在喷探策略下会被当文本——改为真实 DOS header/local file header 含 NUL 字节，断言改匹配新文案）；global-setup sample.zip 同步真实 zip 头（含 NUL）；kernel fs-routes 11/11 绿；前端全量 2038 pass / 0 fail；双包 typecheck 绿；E2E explorer.spec 5/5 绿（sample.zip 仍正确拒绝、build.sh 仍高亮）。
+- 已知边界：头部 8KB 无 NUL 的二进制（军见，如纯文本包裹的二进制格式）会被当文本打开显示乱码；UTF-16 编码文本含 NUL 会被判二进制拒——均为 Git 喷探同款取舍。
+- 影响范围：packages/kernel/src/routes/fs.ts、tests/fs-routes.test.ts、packages/frontend/e2e/global-setup.ts。
 
 ## 2026-09-01 — feat(preview): 文件预览支持 .sh/.java/.go 等主流代码文件（kernel 放行 + Prism 语言补齐）
 
