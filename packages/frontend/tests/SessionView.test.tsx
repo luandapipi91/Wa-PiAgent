@@ -1265,6 +1265,33 @@ test("排队队列渲染技能/文件 chip（expandedTextToHtml 接入）", asyn
 	);
 });
 
+test("排队队列渲染引导附件为附件 chip（Attachments 尾段）", async () => {
+	// 引导带附件时 kernel buildPromptContent 拼的尾段（queue_update 回传原样）：
+	// 排队区应把它渲染为「附件:文件名」chip 而非纯文本原文
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		queueBySession: {
+			s1: {
+				steering: [
+					"继续优化\n\nAttachments:\n[path:C:/Users/co/.pi/agent/workdir/1787968432299/.wa-pi/uploads/pasted-text.txt]",
+				],
+				followUp: [],
+			},
+		},
+	});
+	await renderSessionView("s1");
+
+	const panel = document.querySelector('[data-testid="queue-panel"]')!;
+	const chip = panel.querySelector(".chip-attachment");
+	expect(chip).toBeTruthy();
+	expect(chip!.textContent).toContain("附件:pasted-text.txt");
+	expect(chip!.getAttribute("data-token")).toBe(
+		"path:C:/Users/co/.pi/agent/workdir/1787968432299/.wa-pi/uploads/pasted-text.txt",
+	);
+	// 尾段原文不再出现
+	expect(panel.textContent).not.toContain("Attachments:");
+});
+
 test("排队队列：knownSkills 未命中的 /skill:x 不渲染 chip（防误判）", async () => {
 	useSessionStore.setState({
 		statusBySession: { s1: "thinking" },

@@ -38,6 +38,7 @@ import {
 	ensureChipStyles,
 	registerAgentMeta,
 	restoreFilePathTokens,
+	renderAttachmentTail,
 } from "../quick-invoke/tokens";
 
 const EMPTY: SessionMessage[] = [];
@@ -883,10 +884,6 @@ export function lastContentRowIndex(rows: RenderedRow[]): number {
 	return -1;
 }
 
-function stripAttachmentRefs(content: string): string {
-	return content.replace(/\n\nAttachments:\n\[[\s\S]*?\]$/g, "");
-}
-
 /**
  * 把技能引用统一改写为 $[name] chip token（渲染为带闪电 SVG 图标的技能 chip）。两种输入形态：
  *
@@ -1098,19 +1095,22 @@ export const MessageRow = memo(function MessageRow({
 	const isUser = m.role === "user";
 
 	if (isUser) {
+		// 引导附件尾段（kernel buildPromptContent 拼的 Attachments:\n[path:x]）：
+		// 提取为「附件:文件名」chip HTML 并剥掉尾段，与排队区 expandedTextToHtml 同款；
+		// body 传入后续链路（替代原 stripAttachmentRefs 的剥除职责）
+		const { body, html: attachmentHtml } = renderAttachmentTail(
+			typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? ""),
+		);
 		const displayText = restoreFilePathTokens(
 			// #path: 锚还原（expandTokens 展开产物 → #[path:x] token 原文）：与排队区
 			// expandedTextToHtml 同款还原，保证发送后的文件引用在聊天窗也渲染为 chip
-			formatSkillBlocks(
-				stripAttachmentRefs(
-					typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? ""),
-				),
-				knownSkills,
-			),
+			formatSkillBlocks(body, knownSkills),
 		);
 		// textToHtml 把 @[agent]/#[file]/$[skill] token 渲染为 chip。
 		// hideTrigger=true：展示场景不显示 @ 触发符（仅显示智能体名 + 头像），与输入框 ComposerTextarea 区分。
-		const displayHtml = textToHtml(displayText, { hideTrigger: true });
+		const base = textToHtml(displayText, { hideTrigger: true });
+		// 附件 chip 接在正文后（尾段本就在消息末尾）
+		const displayHtml = attachmentHtml ? `${base} ${attachmentHtml}` : base;
 		return (
 			<div
 				className="flex flex-row-reverse gap-2.5 max-w-[90%] ml-auto"
