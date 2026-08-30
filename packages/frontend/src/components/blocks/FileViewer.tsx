@@ -162,7 +162,7 @@ function PreviewImage({
 }
 
 // md 预览 memo 化：react-markdown v10 无内置 memo，components 引用一变就全量重解析整份 md。
-// FileViewer 挂在 SessionView 下，流式期间 SessionView 每帧重渲染 → 每帧重解析（上限 3MB）。
+// FileViewer 挂在 SessionView 下，流式期间 SessionView 每帧重渲染 → 每帧重解析（上限 5MB）。
 // 与聊天区 MarkdownBlock（React.memo）做法一致：只接收 content/sessionId 两个稳定 prop，
 // 不接收 onClose 等新引用，保证组件引用不变时 React 跳过重渲染。
 const MarkdownPreview = memo(function MarkdownPreview({

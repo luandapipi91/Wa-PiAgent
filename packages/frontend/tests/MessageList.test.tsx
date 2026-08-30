@@ -1812,6 +1812,42 @@ test("用户消息含 expandTokens 展开的 #path: 文件引用 → 还原渲�
 	expect(chip?.textContent).not.toContain("packages/frontend");
 });
 
+test("用户消息含引导附件尾段（Attachments:\n[path:x]）→ 渲染为附件 chip 而非整段丢弃", () => {
+	// 引导带附件时 kernel 拼的尾段：聊天窗此前用 stripAttachmentRefs 整段剥掉，
+	// 现与排队区一致渲染为「附件:文件名」chip（正文保留，尾段原文不出现）
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: {
+						role: "user",
+						content:
+							"帮我看看\n\nAttachments:\n[path:C:/Users/co/.pi/agent/workdir/1787968432299/.wa-pi/uploads/pasted-text.txt]",
+						timestamp: 1,
+					},
+				},
+			],
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+
+	const chip = document.querySelector(".chip-attachment");
+	expect(chip).toBeTruthy();
+	expect(chip!.textContent).toContain("附件:pasted-text.txt");
+	expect(chip!.getAttribute("data-token")).toBe(
+		"path:C:/Users/co/.pi/agent/workdir/1787968432299/.wa-pi/uploads/pasted-text.txt",
+	);
+	// 正文保留、尾段原文不出现
+	const row = document.querySelector('[data-testid^="msg-"]');
+	expect(row!.textContent).toContain("帮我看看");
+	expect(row!.textContent).not.toContain("Attachments:");
+});
+
 test("用户消息裸 #词（无 path: 锚）不误渲染为文件 chip", () => {
 	// 零误判取舍与排队区一致：#docs、#1、# 标题不是文件引用，不猜
 	useSessionStore.setState({

@@ -84,8 +84,25 @@ async function findFileByBasename(
 	return null;
 }
 
-/** 预览上限：3MB，超过则跳过内容读取 */
-const MAX_PREVIEW_BYTES = 3 * 1024 * 1024;
+/** 预览上限：5MB，超过则跳过内容读取 */
+const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
+
+/** 二进制嗅探字节数：头部 8KB 含 NUL 字节判为二进制（Git 同款策略） */
+const BINARY_SNIFF_BYTES = 8000;
+
+/** 文本嗅探：头部含 NUL 字节 → 二进制。用于 mime 未识别文件的纯文本兑底判定 */
+async function looksBinary(absPath: string): Promise<boolean> {
+	try {
+		const head = new Uint8Array(
+			await Bun.file(absPath).slice(0, BINARY_SNIFF_BYTES).arrayBuffer(),
+		);
+		for (const b of head) if (b === 0) return true;
+		return false;
+	} catch {
+		// 读不到内容按二进制处理（后续 stat 也会拒绝）
+		return true;
+	}
+}
 
 /** 检查文件是否可预览（文本类型 + 图片 + 大小不超标）；不可预览时携带 code/params 供前端按字典渲染 */
 export async function checkPreviewable(absPath: string): Promise<
@@ -107,13 +124,17 @@ export async function checkPreviewable(absPath: string): Promise<
 		mime === "image/svg+xml";
 	// 放行图片预览：前端 FileViewer 拿到 base64 拼 data URI 展示，支持缩放
 	const isImage = mime.startsWith("image/");
-	if (!isText && !isImage)
-		return {
-			ok: false,
-			reason: `不支持的文件类型: ${mime}`,
-			code: "attachment.unsupportedType",
-			params: { mime },
-		};
+	if (!isText && !isImage) {
+		// 兑底纯文本策略：扩展名未识别/未映射（dotfile、无后缀、新格式）的文件，
+		// 只要内容是文本就按纯文本预览；头部含 NUL 的真二进制才拒绝
+		if (await looksBinary(absPath))
+			return {
+				ok: false,
+				reason: `二进制文件不支持预览: ${mime}`,
+				code: "attachment.unsupportedType",
+				params: { mime },
+			};
+	}
 	try {
 		const s = await stat(absPath);
 		if (s.size > MAX_PREVIEW_BYTES)

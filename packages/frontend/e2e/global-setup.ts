@@ -133,10 +133,20 @@ async function globalSetup() {
 		"utf8",
 	);
 	// 预置一个不支持预览的文件（zip）：FileViewer unsupported 分支显示「在文件管理器中打开」按钮的 E2E 依赖
+	// 头部含 NUL（真 zip local file header 结构），被文本喷探判为二进制 → unsupported
 	writeFileSync(
 		join(SEED_PROJECT_CWD, "sample.zip"),
-		"PK\x03\x04 e2e-zip-placeholder",
-		"utf8",
+		Buffer.from([
+			0x50,
+			0x4b,
+			0x03,
+			0x04,
+			0x14,
+			0x00,
+			0x00,
+			0x00,
+			...Buffer.from(" e2e-zip-placeholder", "utf8"),
+		]),
 	);
 	// 预置 shell 脚本（主流代码文件预览 E2E 依赖）：kernel 显式映射 text/x-shellscript 放行，
 	// 前端 bash 高亮渲染——回归「主流代码文件被 Bun 兑底 mime 拦截报不支持」

@@ -207,6 +207,11 @@ export function ensureChipStyles() {
       color: var(--success);
       border: 1px solid var(--success-soft);
     }
+    .chip-attachment {
+      background-color: var(--info-soft, var(--accent-soft));
+      color: var(--info, var(--accent));
+      border: 1px solid var(--info-soft, var(--accent-soft));
+    }
     .chip-skill {
       background-color: var(--accent-soft);
       color: var(--accent);
@@ -419,6 +424,29 @@ export function restoreFilePathTokens(text: string): string {
   return text.replace(/#path:(\S+)/g, "#[path:$1]");
 }
 
+/** 引导附件尾段：kernel buildPromptContent 拼的「Attachments:\n[path:a,\npath:b]」
+ *  （与 MessageList.stripAttachmentRefs 同款正则，仅匹配末尾，正文中的同形文本零误判） */
+const ATTACHMENT_TAIL_RE = /\n\nAttachments:\n\[[\s\S]*?\]$/;
+
+/** 把引导附件尾段渲染为「附件:文件名」chip 列表（排队区 steering/followUp + 聊天窗用户消息）。
+ *  [path:x] 无 # 前缀，textToHtml 不识别（会落纯文本分支）；此处先提取尾段生成 chip HTML，
+ *  正文剥掉尾段。返回剥尾段后的正文与 chip HTML（无尾段时 html 为空串）。 */
+export function renderAttachmentTail(text: string): {
+  body: string;
+  html: string;
+} {
+  const m = text.match(ATTACHMENT_TAIL_RE);
+  if (!m || m.index === undefined) return { body: text, html: "" };
+  const refs = [...m[0].matchAll(/path:([^,\]]+)/g)].map((x) => x[1].trim());
+  const html = refs
+    .map((p) => {
+      const name = p.split(/[\\/]/).pop() || p;
+      return `<span class="chip chip-attachment" contenteditable="false" data-token="${escapeHtml(`path:${p}`)}">${escapeHtml(`附件:${name}`)}</span>`;
+    })
+    .join(" ");
+  return { body: text.slice(0, m.index), html };
+}
+
 /**
  * 把 expandTokens 展开后形态的文本渲染为 chip HTML（展示场景，如排队队列面板）。
  *
@@ -435,12 +463,17 @@ export function expandedTextToHtml(
   text: string,
   opts?: { knownSkills?: ReadonlySet<string>; hideTrigger?: boolean },
 ): string {
+  // 引导附件尾段先提取 chip 化（[path:x] 无 # 前缀，textToHtml 不识别）
+  const { body, html: attachmentHtml } = renderAttachmentTail(text);
   const restored = restoreFilePathTokens(
-    text.replace(/\/skill:([^\s/]+)\s*/g, (m, name: string) =>
+    body.replace(/\/skill:([^\s/]+)\s*/g, (m, name: string) =>
       opts?.knownSkills?.has(name) ? `$[${name}] ` : m,
     ),
   );
-  return textToHtml(restored, { hideTrigger: opts?.hideTrigger });
+  const base = textToHtml(restored, { hideTrigger: opts?.hideTrigger });
+  if (!attachmentHtml) return base;
+  // 附件 chip 接在正文后（尾段本就在消息末尾）
+  return base ? `${base} ${attachmentHtml}` : attachmentHtml;
 }
 
 // ── 复制语义保留：选中 DOM → token 文本 ──

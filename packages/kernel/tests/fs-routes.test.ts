@@ -68,22 +68,64 @@ describe("checkPreviewable", () => {
 		}
 	});
 
-	it("拒绝二进制不可预览文件（exe/zip）", async () => {
-		writeFileSync(join(root, "a.exe"), "MZ");
-		writeFileSync(join(root, "b.zip"), "PK");
+	it("拒绝二进制不可预览文件（exe/zip，头部含 NUL 被喷探判为二进制）", async () => {
+		// 真实文件头：exe = MZ + DOS header（含 NUL）；zip = PK\x03\x04 + 版本字段（含 NUL）
+		writeFileSync(
+			join(root, "a.exe"),
+			Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00]),
+		);
+		writeFileSync(
+			join(root, "b.zip"),
+			Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]),
+		);
 		for (const f of ["a.exe", "b.zip"]) {
 			const r = await checkPreviewable(join(root, f));
 			expect(r.ok).toBe(false);
-			expect(r.ok ? "" : r.reason).toMatch(/不支持的文件类型/);
+			expect(r.ok ? "" : r.reason).toMatch(/二进制文件不支持预览/);
 		}
 	});
 
-	it("拒绝超过 3MB 的大文件", async () => {
-		const big = Buffer.alloc(3 * 1024 * 1024 + 1);
+	it("扩展名未识别但内容为文本 → 兑底纯文本放行（dotfile/无扩展名）", async () => {
+		// 产品决策：不支持的类型只要内容是文本就按纯文本打开（Git 同款喷探：头部含 NUL 判二进制）
+		// 覆盖三类兑底场景：dotfile（extname 返回空、映射表天然失效）、无扩展名、未映射扩展名
+		writeFileSync(join(root, ".gitignore"), "node_modules/\n");
+		writeFileSync(join(root, "Makefile"), "build:\n\techo ok\n");
+		writeFileSync(join(root, "LICENSE"), "MIT License\n");
+		writeFileSync(join(root, "notes"), "中文纯文本内容");
+		for (const f of [".gitignore", "Makefile", "LICENSE", "notes"]) {
+			const r = await checkPreviewable(join(root, f));
+			expect(r.ok ? "" : `${f}: ${r.reason}`).toBe("");
+			expect(r.ok).toBe(true);
+		}
+	});
+
+	it("内容含 NUL 的真二进制（即使扩展名未识别）→ 拒绝", async () => {
+		// 喷探策略下 exe/zip 真实头部含 NUL 仍拒绝；无扩展名二进制同样拒绝
+		writeFileSync(
+			join(root, "payload"),
+			Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00]),
+		);
+		writeFileSync(
+			join(root, "archive"),
+			Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]),
+		);
+		for (const f of ["payload", "archive"]) {
+			const r = await checkPreviewable(join(root, f));
+			expect(r.ok).toBe(false);
+		}
+	});
+
+	it("拒绝超过 5MB 的大文件（4MB 边界内放行）", async () => {
+		const big = Buffer.alloc(5 * 1024 * 1024 + 1);
 		writeFileSync(join(root, "big.txt"), big);
 		const r = await checkPreviewable(join(root, "big.txt"));
 		expect(r.ok).toBe(false);
 		expect(r.ok ? "" : r.reason).toMatch(/文件过大/);
+		// 边界内：4MB 文本放行（锁定上限调整后的行为）
+		writeFileSync(join(root, "mid.txt"), Buffer.alloc(4 * 1024 * 1024));
+		const r2 = await checkPreviewable(join(root, "mid.txt"));
+		expect(r2.ok ? "" : `mid.txt: ${r2.reason}`).toBe("");
+		expect(r2.ok).toBe(true);
 	});
 
 	it("拒绝不存在的文件", async () => {

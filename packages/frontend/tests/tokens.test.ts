@@ -349,6 +349,46 @@ test("expandedTextToHtml：普通文本经 escapeHtml 转义（防注入）", ()
   expect(html).toContain("chip-file");
 });
 
+// ── expandedTextToHtml：引导附件尾段 chip 化（排队区 steering/followUp）──
+
+test("expandedTextToHtml：Attachments 尾段 [path:x] 渲染为「附件:文件名」chip", () => {
+  const html = expandedTextToHtml(
+    "帮我看看\n\nAttachments:\n[path:C:/Users/co/.pi/agent/workdir/1787968432299/.wa-pi/uploads/pasted-text.txt]",
+    {},
+  );
+  // 附件 chip：显示「附件:文件名」，data-token 保留完整 path 引用
+  expect(html).toContain('class="chip chip-attachment"');
+  expect(html).toContain("附件:pasted-text.txt");
+  expect(html).toContain(
+    'data-token="path:C:/Users/co/.pi/agent/workdir/1787968432299/.wa-pi/uploads/pasted-text.txt"',
+  );
+  // 尾段原文不再以纯文本形式出现
+  expect(html).not.toContain("Attachments:");
+  expect(html).not.toContain("[path:");
+  // 正文保留
+  expect(html).toContain("帮我看看");
+});
+
+test("expandedTextToHtml：多附件尾段渲染为多个附件 chip", () => {
+  const html = expandedTextToHtml(
+    "处理一下\n\nAttachments:\n[path:C:/a/pasted-text.txt,\npath:C:/b/log.txt]",
+    {},
+  );
+  expect((html.match(/class="chip chip-attachment"/g) ?? []).length).toBe(2);
+  expect(html).toContain("附件:pasted-text.txt");
+  expect(html).toContain("附件:log.txt");
+});
+
+test("expandedTextToHtml：非尾段的 [path:x] 不误渲染为附件 chip（零误判）", () => {
+  // 仅匹配末尾的 Attachments 尾段；正文中的方括号文本保持原样
+  const html = expandedTextToHtml(
+    "普通消息 [path:not-attachment] 保持原样",
+    {},
+  );
+  expect(html).not.toContain("chip-attachment");
+  expect(html).toContain("[path:not-attachment]");
+});
+
 // ── restoreFilePathTokens：file 锚还原（聊天窗/排队区共享）──
 
 test("restoreFilePathTokens：#path: 锚还原为 #[path:x]（含纯数字目录名）", () => {
