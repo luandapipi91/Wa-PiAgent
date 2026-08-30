@@ -5,6 +5,14 @@
 - 验证：typecheck 全绿；四层回归全绿。
 - 影响范围：kernel（preview/rpc-client/agent-manager）、desktop（kernel-updater 测试）、frontend（Composer 复制链路）。
 
+## 2026-09-01 — fix(kernel): 子代理会话 MCP 工具不可见——spawn 链路补装 pi-mcp-adapter + 白名单并入 MCP 工具
+
+- 背景：delegate/fleet 派发的子代理是独立 `pi --mode rpc --no-session` 进程，spawn 时 `-e` 扩展集硬性只含 provider-extension.ts，pi-mcp-adapter 从未在子进程加载，MCP 工具（mcp 聚合 + direct）根本未注册（非白名单过滤）；且受限白名单（内置只读类型 5 工具 / 命名 agent cfg.tools）未像主会话那样并入 MCP direct 工具名。
+- 实现：extensions.ts 新增 mcpAdapterExtensionPath()（防御式解析，只取 adapter——不带入 wa-pi-bridge：子代理无 WA_PI_BRIDGE_URL，bridge 工具全依赖宿主回调；也不带 pi-web-access，工具面保持最小）；agent-manager spawnFn extensionPaths 追加 adapter；内置只读白名单 = 5 只读工具 ∪ mcp 聚合 ∪ MCP direct 名（resolveMcpDirectToolNames，仅 readOnly 分支调用避免无谓连网）。命名智能体保持原始设计不变：严格按「智能体设置-工具」勾选集透传放行，未勾选（空数组）= 不传 --tools 全放行，不自动并入 MCP 工具名（需要可直接勾选或不勾走全放行）。general-purpose（空白名单）不传 --tools 全量放行，加载 adapter 后自动可见，无需改白名单。
+- 验证：新增 tests/agent-manager-subagent-mcp.test.ts 4 用例（adapter 入口解析 / Explore 白名单合并+扩展注入 / general-purpose 空白名单全量 / 命名智能体严格按勾选集放行）全绿（TDD：命名智能体用例先红后绿）；真实 spawn 冒烟实证子代理进程内可见 mcp、mcp__dbx；kernel 全量回归除 3 个既有失败（fs-open-env 平台差异、agent-manager 图片压缩、browser-e2e 白名单——stash 基线对照证实与本次无关）+ static-serve 并行批次 flaky（单跑 pass）外全绿；typecheck 绿。
+- 影响范围：packages/kernel/src/{agent-manager,extensions}.ts、tests/{agent-manager-subagent-mcp,agent-manager-subagent-overrides}.test.ts。
+- 注意：子代理生效需重启 wa-pi 应用（kernel 代码改动运行中进程不热载）。
+
 ## 2026-09-01 — v0.3.5 发版（预览文本嗅探兜底 + 引导附件卡片化 + 插件并行升级修复）
 
 - 版本：0.3.4 → 0.3.5。

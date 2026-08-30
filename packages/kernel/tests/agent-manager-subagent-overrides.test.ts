@@ -15,7 +15,10 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
-import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
+import {
+  FakeSessionClient,
+  fakeClientFactory,
+} from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
@@ -47,13 +50,20 @@ beforeEach(() => {
 afterEach(async () => {
   // 恢复真实 overrides 文件
   try {
-    if (overridesBackup === null) rmSync(SUBAGENT_OVERRIDES_FILE, { force: true });
+    if (overridesBackup === null)
+      rmSync(SUBAGENT_OVERRIDES_FILE, { force: true });
     else writeFileSync(SUBAGENT_OVERRIDES_FILE, overridesBackup, "utf8");
-  } catch {}
+  } catch {
+    /* 恢复失败可忽略 */
+  }
   overridesBackup = null;
   for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
   for (const f of tmpFiles.splice(0)) {
-    try { rmSync(f, { force: true }); } catch {}
+    try {
+      rmSync(f, { force: true });
+    } catch {
+      /* 临时文件清理失败可忽略 */
+    }
   }
 });
 
@@ -67,23 +77,35 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
   // 写入真实 override：Plan → openai/gpt-4o + max
   writeFileSync(
     SUBAGENT_OVERRIDES_FILE,
-    JSON.stringify({ overrides: [{ type: "Plan", model: "openai/gpt-4o", thinking: "max" }] }),
+    JSON.stringify({
+      overrides: [{ type: "Plan", model: "openai/gpt-4o", thinking: "max" }],
+    }),
     "utf8",
   );
 
   const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const project = await projectStore.createProject({
+    name: "测试",
+    cwd: "/tmp",
+  });
   const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
+    projectId: project.id,
+    primaryAgent: "dev",
+    title: "测试",
   });
 
   const configStore = {
-    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      partners: { askTo: [] },
+    })),
   } as any;
 
   const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
-    projectStore, configStore, onEvent: () => {},
+    projectStore,
+    configStore,
+    onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
   });
@@ -94,7 +116,10 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
   const ctx = getBridgeSession(session.id);
   expect(ctx).toBeDefined();
   const result = await ctx!.handleTool(
-    "delegate", "tc-plan", { agent: "Plan", task: "设计个方案" }, new AbortController().signal,
+    "delegate",
+    "tc-plan",
+    { agent: "Plan", task: "设计个方案" },
+    new AbortController().signal,
   );
 
   // spawn 不应报错
@@ -108,30 +133,48 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
   expect(planConfig.thinking).toBe("max");
 
   // 清理本次会话的系统提示词临时文件
-  try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
+  try {
+    rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), {
+      force: true,
+    });
+  } catch {
+    /* 临时提示词清理失败可忽略 */
+  }
 });
 
 test("内置 subagent override model 无效时降级为 null（不传 --model）", async () => {
   // 写入 override：Explore → "test-model"（明显无效的模型，不含 /）
   writeFileSync(
     SUBAGENT_OVERRIDES_FILE,
-    JSON.stringify({ overrides: [{ type: "Explore", model: "test-model", thinking: "high" }] }),
+    JSON.stringify({
+      overrides: [{ type: "Explore", model: "test-model", thinking: "high" }],
+    }),
     "utf8",
   );
 
   const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const project = await projectStore.createProject({
+    name: "测试",
+    cwd: "/tmp",
+  });
   const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
+    projectId: project.id,
+    primaryAgent: "dev",
+    title: "测试",
   });
 
   const configStore = {
-    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      partners: { askTo: [] },
+    })),
   } as any;
 
   const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
-    projectStore, configStore, onEvent: () => {},
+    projectStore,
+    configStore,
+    onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
   });
@@ -141,7 +184,10 @@ test("内置 subagent override model 无效时降级为 null（不传 --model）
   const ctx = getBridgeSession(session.id);
   expect(ctx).toBeDefined();
   const result = await ctx!.handleTool(
-    "delegate", "tc-explore", { agent: "Explore", task: "搜索代码" }, new AbortController().signal,
+    "delegate",
+    "tc-explore",
+    { agent: "Explore", task: "搜索代码" },
+    new AbortController().signal,
   );
 
   // spawn 不应因模型无效而报错
@@ -151,30 +197,50 @@ test("内置 subagent override model 无效时降级为 null（不传 --model）
   expect(capturedConfigs.length).toBeGreaterThan(0);
   const exploreConfig = capturedConfigs.find((c: any) => c.name === "Explore");
   expect(exploreConfig).toBeDefined();
-  expect(exploreConfig.model).toBeNull();  // 无效模型 → null
-  expect(exploreConfig.thinking).toBe("high");  // thinking 照常透传
+  expect(exploreConfig.model).toBeNull(); // 无效模型 → null
+  expect(exploreConfig.thinking).toBe("high"); // thinking 照常透传
 
   // 清理
-  try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
+  try {
+    rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), {
+      force: true,
+    });
+  } catch {
+    /* 临时提示词清理失败可忽略 */
+  }
 });
 
 test("子智能体跟随主模型：无 override 时用主会话 currentModel", async () => {
   // 不写 override 文件（备份在 afterEach 恢复；确保为空状态）
-  try { rmSync(SUBAGENT_OVERRIDES_FILE, { force: true }); } catch {}
+  try {
+    rmSync(SUBAGENT_OVERRIDES_FILE, { force: true });
+  } catch {
+    /* overrides 清理失败可忽略 */
+  }
 
   const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const project = await projectStore.createProject({
+    name: "测试",
+    cwd: "/tmp",
+  });
   const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
+    projectId: project.id,
+    primaryAgent: "dev",
+    title: "测试",
   });
 
   const configStore = {
-    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      partners: { askTo: [] },
+    })),
   } as any;
 
   const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
-    projectStore, configStore, onEvent: () => {},
+    projectStore,
+    configStore,
+    onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
   });
@@ -182,11 +248,15 @@ test("子智能体跟随主模型：无 override 时用主会话 currentModel", 
   await am.ensureStarted(project.id, "dev", session.id);
 
   // 模拟主会话已用模型发过消息（prompt 时记录到 handle.currentModel）
-  (am as any).sessions.get(session.id).currentModel = "opencode-zen-go/deepseek-v4-flash";
+  (am as any).sessions.get(session.id).currentModel =
+    "opencode-zen-go/deepseek-v4-flash";
 
   const ctx = getBridgeSession(session.id);
   const result = await ctx!.handleTool(
-    "delegate", "tc-plan2", { agent: "Plan", task: "设计个方案" }, new AbortController().signal,
+    "delegate",
+    "tc-plan2",
+    { agent: "Plan", task: "设计个方案" },
+    new AbortController().signal,
   );
   expect(result.content[0].text).toBe("ok");
 
@@ -195,26 +265,46 @@ test("子智能体跟随主模型：无 override 时用主会话 currentModel", 
   // 无 override → 跟随主会话当前模型
   expect(planConfig.model).toBe("opencode-zen-go/deepseek-v4-flash");
 
-  try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
+  try {
+    rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), {
+      force: true,
+    });
+  } catch {
+    /* 临时提示词清理失败可忽略 */
+  }
 });
 
 test("只读内置子智能体（Explore/Plan）spawn 配置 tools 为只读白名单，不含 browser_*", async () => {
   // 不写 override 文件（备份在 afterEach 恢复；确保干净状态）
-  try { rmSync(SUBAGENT_OVERRIDES_FILE, { force: true }); } catch {}
+  try {
+    rmSync(SUBAGENT_OVERRIDES_FILE, { force: true });
+  } catch {
+    /* overrides 清理失败可忽略 */
+  }
 
   const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const project = await projectStore.createProject({
+    name: "测试",
+    cwd: "/tmp",
+  });
   const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
+    projectId: project.id,
+    primaryAgent: "dev",
+    title: "测试",
   });
 
   const configStore = {
-    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      partners: { askTo: [] },
+    })),
   } as any;
 
   const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
-    projectStore, configStore, onEvent: () => {},
+    projectStore,
+    configStore,
+    onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
   });
@@ -227,17 +317,28 @@ test("只读内置子智能体（Explore/Plan）spawn 配置 tools 为只读白�
   // Explore / Plan 均为只读内置子智能体：spawn 配置 tools 应为只读白名单（不含 browser_*）
   for (const agent of ["Explore", "Plan"]) {
     const result = await ctx!.handleTool(
-      "delegate", `tc-${agent}-ro`, { agent, task: "搜索代码" }, new AbortController().signal,
+      "delegate",
+      `tc-${agent}-ro`,
+      { agent, task: "搜索代码" },
+      new AbortController().signal,
     );
     expect(result.content[0].text).toBe("ok");
 
     const cfg = capturedConfigs.find((c: any) => c.name === agent);
     expect(cfg).toBeDefined();
-    expect(cfg.tools).toEqual(["read", "bash", "grep", "find", "ls"]);
+    // 只读白名单 + mcp 聚合工具（子代理加载 pi-mcp-adapter 后的聚合入口；
+    // 本测试无 mcpStore，direct 工具名为空）
+    expect(cfg.tools).toEqual(["read", "bash", "grep", "find", "ls", "mcp"]);
     for (const t of cfg.tools ?? []) {
       expect(t).not.toMatch(/^browser_/);
     }
   }
 
-  try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
+  try {
+    rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), {
+      force: true,
+    });
+  } catch {
+    /* 临时提示词清理失败可忽略 */
+  }
 });

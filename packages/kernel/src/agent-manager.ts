@@ -54,7 +54,10 @@ import {
 	stat,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { buildAdditionalExtensionPaths } from "./extensions";
+import {
+	buildAdditionalExtensionPaths,
+	mcpAdapterExtensionPath,
+} from "./extensions";
 import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { reconcileDanglingAsks } from "./ask-tool";
@@ -666,7 +669,18 @@ export class AgentManager {
 							override?.thinking ??
 							this.sessions.get(sessionId)?.currentThinking ??
 							null,
-						tools: builtin.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
+						// 内置只读类型白名单并入 MCP direct 工具名 + mcp 聚合工具：子代理是
+						// 独立 pi 进程，MCP 工具由随 spawn 加载的 pi-mcp-adapter 注册（见
+						// spawnFn extensionPaths），白名单不放行则加载了也看不见。与主会话
+						// restricted 路径（resolveAgentTools 合并 direct 名）镜像；另放行
+						// "mcp" 聚合工具，覆盖 directTools=false（走聚合模式）的 mcp.json
+						// 配置——否则该配置下子代理依然看不到任何 MCP 工具。
+						tools: builtin.readOnly
+							? resolveAgentTools(
+									["read", "bash", "grep", "find", "ls", "mcp"],
+									await this.getMcpDirectToolNames(),
+								)
+							: [],
 						skills: [],
 					};
 				}
@@ -690,6 +704,9 @@ export class AgentManager {
 				// 跟随主模型：agent 未单独配置时用主会话当前模型
 				model: cfgModel ?? this.sessions.get(sessionId)?.currentModel ?? null,
 				thinking: cfg.thinking,
+				// 原始设计：命名智能体按「智能体设置-工具」勾选集透传放行——勾选即放行；
+				// 未勾选（空数组）= 不传 --tools 全放行。不自动并入 MCP 工具名：需要
+				// MCP 工具可直接勾选，或不勾选走全放行（内置只读类型除外，见上）。
 				tools: cfg.tools,
 				skills: cfg.skills,
 				skillsAllOff: cfg.skillsAllOff,
@@ -720,9 +737,17 @@ export class AgentManager {
 		// spawn 闭包经 getCallSignal 取值叠加中止（bridge 流式断连 → 中止子代理）
 		let currentCallSignal: AbortSignal | undefined;
 
+		// 子进程扩展集：provider-extension（自定义 provider/apiKey，缺失会 No API key）
+		// + pi-mcp-adapter（MCP 工具须在子进程内注册，子代理才能看见/调用 MCP 工具）。
+		// 不带 wa-pi-bridge / pi-web-access：子代理无 WA_PI_BRIDGE_URL（bridge 工具
+		// 全依赖宿主回调），工具面保持最小。
+		const mcpAdapterPath = mcpAdapterExtensionPath();
 		const spawnFn = makeSpawnFn({
 			resolveConfig: resolveSpawnConfig,
-			extensionPaths: existsSync(providerExtPath) ? [providerExtPath] : [],
+			extensionPaths: [
+				...(existsSync(providerExtPath) ? [providerExtPath] : []),
+				...(mcpAdapterPath ? [mcpAdapterPath] : []),
+			],
 			// 派发前自愈：extension 文件可能与 providers.json 不同步（空壳/过时/手动改坏），
 			// 导致子进程报 "No API key found"。按需重生，保证子进程加载到含所需 provider 的 extension。
 			ensureExtension: this.opts.providerStore
