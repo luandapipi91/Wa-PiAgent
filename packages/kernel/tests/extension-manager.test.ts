@@ -1,6 +1,6 @@
 // packages/kernel/tests/extension-manager.test.ts
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ExtensionManager,
@@ -934,4 +934,39 @@ test("upgrade git 来源 → KernelError ext.upgradeUnsupported", async () => {
 test("upgrade 未安装 → KernelError ext.notInstalled", async () => {
   const mgr = mockManager(dir);
   expect(await errorCodeOf(mgr.upgrade("ghost"))).toBe("ext.notInstalled");
+});
+
+test("并发升级两个包：后完成者不覆盖先完成者的版本（写回重读最新快照）", async () => {
+  // 回归：upgrade 曾在开始时读 settings 快照、完成后按旧快照整文件覆盖写回——
+  // 并发升级 a、b 时，后完成的 b 用旧快照把 a 刚写入的新版本抹掉（丢失更新），
+  // 表现为「升级成功后又回退」。写回必须在互斥队列内重读最新快照，只替换自己的条目。
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({
+      npmCommand: ["bun"],
+      packages: ["npm:a@1.0.0", "npm:b@1.0.0"],
+    }),
+    "utf8",
+  );
+  const slowMock = {
+    ...mockPkgService,
+    upgrade: async (name: string) => {
+      // b 慢于 a 完成：a 先写回，b 后写回——旧实现会把 a 的新版本覆盖回 1.0.0
+      if (name === "b") await new Promise((r) => setTimeout(r, 50));
+      return { version: "2.0.0" };
+    },
+    getDescription: () => "Mock description" as string | undefined,
+  } satisfies Omit<NpmPackageService, "runtimeDir" | "spawn">;
+  const mgr = new ExtensionManager(
+    dir,
+    slowMock as unknown as NpmPackageService,
+  );
+
+  await Promise.all([mgr.upgrade("a"), mgr.upgrade("b")]);
+
+  const settings = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.packages).toContain("npm:a@2.0.0");
+  expect(settings.packages).toContain("npm:b@2.0.0");
+  expect(settings.packages).not.toContain("npm:a@1.0.0");
+  expect(settings.packages).not.toContain("npm:b@1.0.0");
 });

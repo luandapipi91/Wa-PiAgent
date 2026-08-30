@@ -20,6 +20,12 @@ export interface NpmPackageServiceOpts {
  *  2 分钟无结果判定失败（getLatestVersion 的 5s kill 同款防护思路） */
 const NPM_OP_TIMEOUT_MS = 120_000;
 
+/** 模块级操作队列：所有 NpmPackageService 实例共享同一把互斥。
+ *  必须跨实例：ExtensionManager.ensureNpmCommand 每次操作都会重建实例，
+ *  若队列挂在实例上，并发 upgrade 各持独立队列、互斥失效——并发 bun add
+ *  互踩共享 runtimeDir（Windows EBUSY/ENOENT），多插件同时升级只有一个成功。 */
+let opQueue: Promise<void> = Promise.resolve();
+
 export class NpmPackageService {
   private npmCommand: string[];
   private opTimeoutMs: number;
@@ -60,10 +66,7 @@ export class NpmPackageService {
   /** 执行包管理器子进程，返回 exitCode + stderr；onProgress 按行转发 stdout/stderr。
    *  超时（默认 opTimeoutMs）kill 进程并返回 exitCode=-1 + 超时说明，
    *  由调用方统一走「exitCode !== 0 → throw」的既有错误路径。
-   *  串行化：所有子进程操作排队，一次只跑一个。
-   *  背景：并行安装多个插件会并发 bun add 写同一 runtimeDir/node_modules + 读同一
-   *  bun 缓存 → Windows EBUSY（failed copying files from cache，文件锁）+ ENOENT
-   *  （缓存竞态）。队列保证任一时刻只有一个 bun 子进程在操作共享目录。 */
+   *  串行化：所有子进程操作排队，一次只跑一个（队列模块级，跨实例共享）。 */
   private async spawn(
     args: string[],
     onProgress?: (line: string) => void,
@@ -71,12 +74,10 @@ export class NpmPackageService {
     return this.enqueue(() => this.spawnInner(args, onProgress));
   }
 
-  private opQueue: Promise<void> = Promise.resolve();
-
   private enqueue<T>(op: () => Promise<T>): Promise<T> {
-    const run = this.opQueue.then(op);
+    const run = opQueue.then(op);
     // 队列吞错：单个操作失败不影响后续排队操作（错误由调用方自行处理）
-    this.opQueue = run.then(
+    opQueue = run.then(
       () => undefined,
       () => undefined,
     );

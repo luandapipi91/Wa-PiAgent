@@ -180,6 +180,26 @@ export class ExtensionManager {
     );
   }
 
+  /** settings.json 读-改-写互斥：并发操作（多插件同时升级等）的写回在此排队，
+   *  且写回前重读最新快照——否则后完成者用自己请求开始时的旧快照整文件覆盖，
+   *  会抹掉先完成者刚写入的结果（丢失更新，表现为「升级成功后又回退」）。 */
+  private settingsQueue: Promise<void> = Promise.resolve();
+
+  private async mutateSettings(
+    mutate: (settings: ExtensionSettings) => void,
+  ): Promise<void> {
+    const run = this.settingsQueue.then(async () => {
+      const settings = await this.readSettings();
+      mutate(settings);
+      await this.writeSettings(settings);
+    });
+    this.settingsQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   /** 确保 npmCommand 存在，首启写入默认值 */
   private async ensureNpmCommand(
     settings: ExtensionSettings,
@@ -248,7 +268,10 @@ export class ExtensionManager {
           let latestVersion: string | undefined;
           try {
             latestVersion = await this.pkgService.getLatestVersion(name);
-          } catch {}
+          } catch {
+            // 最新版本为可选字段：失败（离线/超时）不影响列表展示；
+            // getLatestVersion 内部已自捕获返回 undefined，此处仅双保险。
+          }
           return {
             name,
             source: "npm",
@@ -430,8 +453,15 @@ export class ExtensionManager {
 
     const result = await this.pkgService.upgrade(name, onProgress);
     const entry = `npm:${name}@${result.version}`;
-    const updated = pkgs.map((p) => (p === matched ? entry : p));
-    await this.writeSettings({ ...settings, packages: updated });
+    // 写回在互斥队列内重读最新 settings：若按本请求开始时的旧快照整文件覆盖，
+    // 并发升级时会把其他包刚写入的新版本条目抹掉（丢失更新 →「升级成功又回退」）。
+    // 只替换能按 name 匹配到的条目；若升级期间该包已被并发卸载（匹配不到），不复活。
+    await this.mutateSettings((latest) => {
+      const latestPkgs = latest.packages ?? [];
+      latest.packages = latestPkgs.map((p) =>
+        this.extractNames([p]).get(name) === p ? entry : p,
+      );
+    });
 
     return {
       name,
