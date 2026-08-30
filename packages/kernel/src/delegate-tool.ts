@@ -31,8 +31,8 @@ import { runSubagentAgent as defaultRunSubagentAgent } from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
 /** fleet 工具并行派发子任务的最大并发上限，超出部分排队等待。也作为内部 runWithConcurrency 的默认限流值。
- * 控制为 5：每个子代理 pi 进程约占 300MB，5 个 ≈ 1.5GB，避免累积超 macOS 内存限制被 SIGKILL。 */
-export const MAX_SUBAGENT_CONCURRENCY = 5;
+ * 控制为 6：每个子代理 pi 进程约占 300MB，6 个 ≈ 1.8GB，在可接受范围内（用户拍板 2026-09-01）。 */
+export const MAX_SUBAGENT_CONCURRENCY = 6;
 
 export interface DelegateTarget {
 	name: string;

@@ -5,6 +5,12 @@
 - 验证：typecheck 全绿；四层回归全绿。
 - 影响范围：kernel（preview/rpc-client/agent-manager）、desktop（kernel-updater 测试）、frontend（Composer 复制链路）。
 
+## 2026-09-01 — feat(kernel): 委托并发上限 5 → 6
+
+- 变更：fleet 并行派发子代理上限 MAX_SUBAGENT_CONCURRENCY 由 5 提升至 6（用户拍板）；fleet 工具描述运行时读常量自动同步。
+- 验证：断言先红后绿，delegate-tool 44/44 绿。
+- 影响范围：packages/kernel/src/delegate-tool.ts、tests/delegate-tool.test.ts。
+
 ## 2026-09-01 — fix(kernel): 子代理会话 MCP 工具不可见——spawn 链路补装 pi-mcp-adapter + 白名单并入 MCP 工具
 
 - 背景：delegate/fleet 派发的子代理是独立 `pi --mode rpc --no-session` 进程，spawn 时 `-e` 扩展集硬性只含 provider-extension.ts，pi-mcp-adapter 从未在子进程加载，MCP 工具（mcp 聚合 + direct）根本未注册（非白名单过滤）；且受限白名单（内置只读类型 5 工具 / 命名 agent cfg.tools）未像主会话那样并入 MCP direct 工具名。
