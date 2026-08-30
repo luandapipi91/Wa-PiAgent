@@ -2197,6 +2197,47 @@ test("steerMessage 运行中时调用 pi steer", async () => {
 	expect(fakes[0].prompted).toHaveLength(0);
 });
 
+test("clearQueue 调 pi clear_queue RPC 并清空双队列 + 推 queue_update", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const handle = (am as any).sessions.get(session.id);
+	// 运行中场景：steerList 镜像 pi 侧 steering 队列，followUp 为本地排队
+	handle.steerList = [{ text: "运行中引导", images: [] }];
+	handle.followUpList = [{ text: "排队消息", images: [] }];
+	handle.busy = true;
+	// pi 0.84.4 clear_queue 返回被清文本
+	fakes[0].clearQueueToReturn = {
+		steering: ["运行中引导"],
+		followUp: ["排队消息"],
+	};
+
+	await am.clearQueue(session.id);
+
+	// pi clear_queue RPC 被调用
+	expect(fakes[0].clearQueueCalls).toBe(1);
+	// 双队列清空（pi 侧已清，本地镜像同步）
+	expect(handle.steerList).toEqual([]);
+	expect(handle.followUpList).toEqual([]);
+	// 推送 queue_update（双队列空，前端对齐）
+	const qu = events.filter((e) => e.e.type === "queue_update").at(-1);
+	expect(qu?.e).toMatchObject({ steering: [], followUp: [] });
+});
+
+test("clearQueue：pi RPC 失败（旧版 pi 无 clear_queue）→ 兜底仅清本地队列", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	const handle = (am as any).sessions.get(session.id);
+	handle.followUpList = [{ text: "排队消息", images: [] }];
+	fakes[0].nextClearQueueError = new Error("旧版 pi 无 clear_queue");
+
+	await am.clearQueue(session.id);
+
+	expect(fakes[0].clearQueueCalls).toBe(1);
+	expect(handle.followUpList).toEqual([]);
+});
+
 test("abort 清空 followUpList 并调用 client.abort", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);

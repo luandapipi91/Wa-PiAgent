@@ -1620,10 +1620,23 @@ export class AgentManager {
 		console.log(`[agent-manager] abort DONE session=${sessionId}`);
 	}
 
-	/** 清空排队列表（不清 steerList，不 abort，不取消 ask） */
-	clearFollowUpList(sessionId: string): void {
+	/** 清空排队消息：调 pi clear_queue RPC（0.84.4+）清 pi 侧 steering/followUp 队列，
+	 *  同步清本地 steerList/followUpList 并推送 queue_update 对齐前端。
+	 *  不 abort、不取消 ask。RPC 失败（旧版 pi 无 clear_queue）时兑底仅清本地队列，
+	 *  不阻塞用户操作。 */
+	async clearQueue(sessionId: string): Promise<void> {
 		const handle = this.sessions.get(sessionId);
 		if (!handle) return;
+		try {
+			await handle.client.clearQueue();
+		} catch (err) {
+			// 旧版 pi 无 clear_queue 或 RPC 失败：仍清本地队列（不阻塞用户操作）
+			console.warn(
+				`[agent-manager] clear_queue RPC 失败，兑底仅清本地队列 session=${sessionId}:`,
+				err,
+			);
+		}
+		handle.steerList = [];
 		handle.followUpList = [];
 		this._emitLocalQueueUpdate(sessionId, handle);
 	}

@@ -389,8 +389,8 @@ test("BUG: 清空排队后仍发送排队消息", async () => {
   await am.prompt(session.id, "排队A", { model: MODEL });
   await am.prompt(session.id, "排队B", { model: MODEL });
 
-  // 清空排队（模拟前端调用）
-  am.clearFollowUpList(session.id);
+  // 清空排队（模拟前端调用）：clearQueue 调 pi clear_queue RPC + 清本地双队列
+  await am.clearQueue(session.id);
 
   // agent_settled 后不应再发送排队消息
   fake.emit({ type: "agent_settled" });

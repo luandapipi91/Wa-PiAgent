@@ -279,6 +279,11 @@ export class RpcClient {
 		});
 	}
 
+	/** 清空 pi 侧排队的 steering/followUp 消息，返回被清文本（pi 0.84.4 新增 RPC） */
+	clearQueue(): Promise<{ steering: string[]; followUp: string[] }> {
+		return this.command({ type: "clear_queue" });
+	}
+
 	followUp(message: string): Promise<any> {
 		return this.command({ type: "follow_up", message });
 	}

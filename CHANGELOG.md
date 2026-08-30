@@ -56,6 +56,16 @@
 - 验证：TDD 红→绿；MessageList.subagent-scroll.test 新增 2 用例（折叠后模拟 Virtuoso 异步重测二次偏移→收敛拉回；二次偏移但用户已上翻→不拉回）14/14 绿；前端正式姿势全量 2036 tests / 0 fail；typecheck 绿。
 - 影响范围：packages/frontend/src/components/MessageList.tsx、tests/MessageList.subagent-scroll.test.tsx。
 
+## 2026-09-01 — feat(preview): pi 升级 0.84.4 + 清空队列接入 clear_queue RPC（全清语义）
+
+- 背景：pi 0.84.4 发布（Windows taskkill 崩溃修复/JSONL 尾行完整性/DeepSeek V4 Flash Vision 内置/clear_queue RPC/扩展消息插入时机修复/大工具结果压缩时机优化等）。用户要求升级并让清空队列操作使用新 RPC。
+- 升级：kernel 三包 @earendil-works/pi-{agent-core,ai,coding-agent} ^0.84.3 → ^0.84.4（bun.lock 同步）。kernel 不 import pi SDK API（仅解析 dist/cli.js spawn + wire 协议），升级风险面 = 协议与事件形态稳定性。
+- clear_queue 接入：①rpc-client 新增 clearQueue()（type: "clear_queue"，返回被清 {steering, followUp} 文本）；②agent-manager 的 clearFollowUpList 升级为 async clearQueue——调 pi clear_queue 清 pi 侧 steering/followUp 队列 + 同步清本地 steerList/followUpList + 推 queue_update 对齐前端；RPC 失败（旧版 pi）兑底仅清本地不阻塞。语义升级：原「仅清 followUp 保留 steering（pi 侧 steering 队列此前清不掉）」→「清空全部排队」。③ws-server clear-queue case 改 await clearQueue；④前端 SessionView 按钮条件扩展（steering 或 followUp 任一非空显示）+ 乐观双清；fake-session-client command 签名 Record<string,any> → unknown 对齐真实 RpcClient。
+- runtimeDir 盲区修复：desktop runtime-deps.cjs syncSeed 原在动态 kernel 场景无条件跳过清单同步——已装用户升级 app 后 pi 停留旧版（0.84.3）无法自动升级。现实现依赖对比：seed 与 runtime 的 package.json 依赖签名不一致（depsSignature 键排序归一对比）时覆盖清单 + 删 .installed-version 触发重装升 pi；一致则跳过避免无谓重装；KERNEL_BIN 二进制仍保护不被 seed 回退。
+- 验证：TDD 红→绿；agent-manager.test 新增 2 用例（clearQueue 调 RPC + 双队列清空 + queue_update 推送；RPC 失败兑底仅清本地）；steer-queue-poc.test 的 clearFollowUpList 调用同步迁移；runtime-deps.test 新增正向用例（动态 kernel + seed 依赖变化 → 覆盖清单 + 删标记 + KERNEL_BIN 保留）+ 守卫用例数据键名修正（deps → dependencies 贴近真实结构）8/8 绿；kernel 相关 161 pass（唯一失败「bun:image 压缩 webp」系 Windows ftruncate EPERM 环境问题，基线即失败与升级无关）；desktop 全量 220 pass / 1 fail（基线一致）；前端全量 2052 pass / 0 fail；双包 typecheck 绿。
+- 已知边界/升级注意：0.84.4 行为变化需发版后观察——extension messages（triggerTurn:false）插入时机变化、大工具结果跨压缩阈值就地压缩（compaction UI 表现）、DeepSeek V4 Flash Vision 内置（可替换自定义 vision-exp 模型修复图片降级）；两份预览判定受控复制的同步注释已就位。
+- 影响范围：packages/kernel/package.json + bun.lock、src/{rpc-client,agent-manager,ws-server}.ts、tests/{agent-manager.test,steer-queue-poc.test,fixtures/fake-session-client}、packages/desktop/src/util/runtime-deps.cjs、tests/runtime-deps.test.ts、frontend SessionView.tsx、CHANGELOG。
+
 ## 2026-09-01 — feat(preview): 聊天窗/排队区 /命令展开形态按白名单还原为命令 chip（skill chip 复制粘贴确认已闭环）
 
 - 背景：用户要求 skill 与 / 命令也支持 chip 还原。排查结论：①skill/command chip 的复制粘贴已由上一轮 onCopy 拦截闭环（rangeHasToken/selectionToTokenText 只读 data-token，类型无关，tokens.test 既有混合选区用例佐证）；②真正缺口是命令 chip 发送后 expandTokens 展开为 /cmd 纯文本（无锚），聊天窗回显与排队区均显示纯文本（此前作为已知边界声明「/cmd 与任意斜杠文本无法区分」）。本轮引入命令白名单消除该边界。

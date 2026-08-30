@@ -1755,7 +1755,7 @@ export class WSServer {
 				break;
 			}
 			case "clear-queue": {
-				this.opts.agentManager.clearFollowUpList(event.sessionId);
+				await this.opts.agentManager.clearQueue(event.sessionId);
 				break;
 			}
 

@@ -93,12 +93,50 @@ async function syncSeed(seedDir, runtimeDir, log, opts = {}) {
 	let kernelBuild = opts.kernelBuild;
 	if (kernelBuild == null) kernelBuild = await readLocalBuild(runtimeDir);
 	const isDynamicKernel = kernelBuild != null;
+	const readJsonOrNull = async (p) => {
+		try {
+			return JSON.parse(await fsp.readFile(p, "utf8"));
+		} catch {
+			return null;
+		}
+	};
+	// 依赖清单签名（键排序归一，防键序差异误判"清单变化"）
+	const depsSignature = (manifest) =>
+		Object.entries(manifest?.dependencies ?? {})
+			.map(([k, v]) => `${k}@${v}`)
+			.sort()
+			.join(",");
 	for (const f of SEED_FILES) {
-		// 动态 kernel（runtimeDir 有 .kernel-version）：runtime 的 kernel 二进制 + package.json + bun.lock
-		// 已是 kernel 动态更新后的最新版本（zip 内自带新依赖清单），不得用 seed 覆盖——seed 是 app 打包时
-		// 捆绑的旧内核版本（如 0.1），覆盖会把 runtime 回退成旧清单、关于页内核版本显示旧值。
-		// 依赖是否重装交由 ensureRuntimeDeps 按 build 号判定，不在此覆盖。
-		if (isDynamicKernel) continue;
+		// 动态 kernel（runtimeDir 有 .kernel-version）：KERNEL_BIN 不覆盖——
+		// 保留 kernel-updater 动态更新后的新二进制。
+		// package.json / bun.lock 例外：seed 依赖清单与 runtime 不一致时（app 升级
+		// 带来新 pi 版本），用 seed 覆盖并删 .installed-version，触发 ensureRuntimeDeps
+		// 重装升 pi；依赖一致则跳过（避免无谓重装）。
+		if (isDynamicKernel) {
+			if (f !== "package.json" && f !== "bun.lock") continue;
+			if (f === "package.json") {
+				const seedManifest = await readJsonOrNull(path.join(seedDir, f));
+				const runtimeManifest = await readJsonOrNull(path.join(runtimeDir, f));
+				if (
+					!seedManifest ||
+					!runtimeManifest ||
+					depsSignature(seedManifest) === depsSignature(runtimeManifest)
+				)
+					continue;
+				await fsp.copyFile(path.join(seedDir, f), path.join(runtimeDir, f));
+				// 删重装跳过标记：ensureRuntimeDeps 在 syncSeed 之后读 marker，
+				// 发现已删即触发 bun install 重装（升 pi）
+				await fsp
+					.rm(path.join(runtimeDir, ".installed-version"), {
+						force: true,
+					})
+					.catch(() => {});
+				log.info(
+					`[deps] 动态 kernel 场景 seed 依赖清单变化：已覆盖 package.json 并清除重装标记`,
+				);
+				continue;
+			}
+		}
 		const src = path.join(seedDir, f);
 		if (!(await exists(src))) continue;
 		await fsp.copyFile(src, path.join(runtimeDir, f));

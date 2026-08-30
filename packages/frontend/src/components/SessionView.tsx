@@ -218,14 +218,13 @@ export const SessionView = memo(function SessionView({
 			{ text },
 		);
 	};
-	const handleClearFollowUp = () => {
+	// 清空全部排队（steering + followUp）：kernel clearQueue 调 pi 0.84.4 clear_queue RPC
+	// 清 pi 侧队列，同步清本地双队列后推 queue_update 对齐（ RPC 失败兑底仅清本地）
+	const handleClearQueue = () => {
 		useSessionStore.setState((s) => ({
 			queueBySession: {
 				...s.queueBySession,
-				[sessionId]: {
-					steering: s.queueBySession[sessionId]?.steering ?? [],
-					followUp: [],
-				},
+				[sessionId]: { steering: [], followUp: [] },
 			},
 		}));
 		void api.post(
@@ -414,9 +413,9 @@ export const SessionView = memo(function SessionView({
 											{stopping ? t("session.stopping") : t("session.stop")}
 										</button>
 									)}
-									{followUp.length > 0 && (
+									{(steering.length > 0 || followUp.length > 0) && (
 										<button
-											onClick={handleClearFollowUp}
+											onClick={handleClearQueue}
 											disabled={historyLoading}
 											className={`text-[calc(11.5px*var(--font-scale))] px-2 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
 											data-testid="btn-clear-queue"

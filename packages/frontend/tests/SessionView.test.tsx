@@ -371,7 +371,7 @@ test("点击立即按钮发送 steer:immediate 请求", async () => {
 	expect(calls[0].body).toEqual({ text: "消息A" });
 });
 
-test("点击清空排队按钮立即清空 followUp 列表", async () => {
+test("点击清空排队按钮立即清空全部排队（steering + followUp）", async () => {
 	useSessionStore.setState({
 		statusBySession: { s1: "idle" },
 		queueBySession: {
@@ -388,10 +388,11 @@ test("点击清空排队按钮立即清空 followUp 列表", async () => {
 		clearBtn.click();
 	});
 
-	// 乐观更新：followUp 立即清空，steering 不受影响
+	// 乐观更新：双队列立即清空（kernel clearQueue 调 pi 0.84.4 clear_queue 全清语义，
+	// pi 侧 steering 队列此前无法通过清空操作移除，现由 RPC 一并清掉）
 	const state = useSessionStore.getState();
 	expect(state.queueBySession["s1"]!.followUp).toEqual([]);
-	expect(state.queueBySession["s1"]!.steering).toEqual(["引导中消息"]);
+	expect(state.queueBySession["s1"]!.steering).toEqual([]);
 });
 test("GET /messages 返回 isActive=false 时不清除本地乐观 thinking（核心回归测试）", async () => {
 	// 场景：新建会话发送消息 → echo_user 已到 → optimisticSend 设 status=thinking。
