@@ -1812,6 +1812,43 @@ test("用户消息含 expandTokens 展开的 #path: 文件引用 → 还原渲�
 	expect(chip?.textContent).not.toContain("packages/frontend");
 });
 
+test("聊天窗复制 chip → 剪贴板改写为 token 原文（粘贴回输入框可还原 chip）", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: {
+						role: "user",
+						content: "看 #[path:packages/App.tsx] 这个",
+						timestamp: 1,
+					},
+				},
+			],
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+
+	const chip = document.querySelector(".chip-file")!;
+	// 模拟选中 chip（user-select:all 原子选区）后 Ctrl+C
+	const range = document.createRange();
+	range.selectNode(chip);
+	const sel = window.getSelection()!;
+	sel.removeAllRanges();
+	sel.addRange(range);
+
+	const setData = mock(() => {});
+	fireEvent.copy(chip, { clipboardData: { setData } });
+
+	// 剪贴板被改写为 token 原文（而非可见文本 #App.tsx）——粘贴回输入框可渲染 chip
+	expect(setData).toHaveBeenCalledWith("text/plain", "#[path:packages/App.tsx]");
+	expect(setData).toHaveBeenCalledWith("text/html", "#[path:packages/App.tsx]");
+});
+
 test("用户消息含引导附件尾段（Attachments:\n[path:x]）→ 渲染为附件 chip 而非整段丢弃", () => {
 	// 引导带附件时 kernel 拼的尾段：聊天窗此前用 stripAttachmentRefs 整段剥掉，
 	// 现与排队区一致渲染为「附件:文件名」chip（正文保留，尾段原文不出现）

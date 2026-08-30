@@ -9,6 +9,7 @@ import {
   clearAgentMeta,
   normalizeTriggerChars,
   selectionToTokenText,
+  rangeHasToken,
 } from "../src/quick-invoke/tokens";
 
 test("expandTokens 展开文件 token（统一带 path: 锚）", () => {
@@ -276,6 +277,34 @@ test("selectionToTokenText：选中普通文本无 chip 时原样输出", () => 
   const range = document.createRange();
   range.selectNodeContents(div);
   expect(selectionToTokenText(range)).toBe("普通文本内容");
+});
+
+// ── rangeHasToken：展示区复制拦截判定（选区含 chip 才改写剪贴板）──
+
+test("rangeHasToken：选区含 chip → true", () => {
+  document.body.innerHTML = `<div>看 <span class="chip" data-token="#[a.ts]" contenteditable="false">#a.ts</span> 这个</div>`;
+  const div = document.querySelector("div") as HTMLElement;
+  const range = document.createRange();
+  range.selectNodeContents(div);
+  expect(rangeHasToken(range)).toBe(true);
+});
+
+test("rangeHasToken：纯文本选区 → false（复制放行走浏览器默认）", () => {
+  document.body.innerHTML = `<div>普通文本内容</div>`;
+  const div = document.querySelector("div") as HTMLElement;
+  const range = document.createRange();
+  range.selectNodeContents(div);
+  expect(rangeHasToken(range)).toBe(false);
+});
+
+test("rangeHasToken：光标落在 chip 文本内（原子选区）→ true", () => {
+  document.body.innerHTML = `<div><span class="chip" data-token="#[a.ts]" contenteditable="false">#a.ts</span></div>`;
+  const chip = document.querySelector("[data-token]") as HTMLElement;
+  const textNode = chip.firstChild as Text;
+  const range = document.createRange();
+  range.setStart(textNode, 0);
+  range.setEnd(textNode, 2);
+  expect(rangeHasToken(range)).toBe(true);
 });
 
 // ── expandedTextToHtml：展开形态还原 + chip 渲染（排队队列面板场景）──

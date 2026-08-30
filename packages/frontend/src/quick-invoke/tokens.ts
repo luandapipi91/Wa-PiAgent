@@ -551,3 +551,18 @@ export function selectionToTokenText(range: Range): string {
   tmp.appendChild(frag);
   return nodeToTokenText(tmp);
 }
+
+/** Range 选区是否触及 chip（data-token 元素）：展示区复制拦截的判定依据——
+ *  含 chip 的选区复制时改写剪贴板为 token 原文（粘贴回输入框可还原 chip）；
+ *  纯文本选区返回 false，放行浏览器默认复制（保留 markdown 渲染形态） */
+export function rangeHasToken(range: Range): boolean {
+  const at = (node: Node | null) =>
+    (node instanceof Element ? node : node?.parentElement)?.closest?.(
+      "[data-token]",
+    );
+  if (at(range.startContainer) || at(range.endContainer)) return true;
+  // 选区横跨多个节点：克隆内容检查中间是否夹着 chip
+  const holder = document.createElement("div");
+  holder.appendChild(range.cloneContents());
+  return !!holder.querySelector("[data-token]");
+}
