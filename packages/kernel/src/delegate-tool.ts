@@ -119,8 +119,7 @@ export function buildDelegateRoster(
 		const lines = ["<agent>"];
 		lines.push(`  <name>${e.name}</name>`);
 		lines.push(`  <description>${e.description || "（无简介）"}</description>`);
-		if (agentsDir)
-			lines.push(`  <location>${agentsDir}/${e.name}.md</location>`);
+		if (agentsDir) lines.push(`  <location>${agentsDir}/${e.name}.md</location>`);
 		const h = e.delegationHints;
 		if (h?.whenToDelegate)
 			lines.push(`  <whenToDelegate>${h.whenToDelegate}</whenToDelegate>`);
@@ -153,10 +152,7 @@ function toPiToolUsage(u?: SubagentUsage) {
 		cacheWrite: t.cacheWrite ?? 0,
 		totalTokens:
 			t.total ??
-			(t.input ?? 0) +
-				(t.output ?? 0) +
-				(t.cacheRead ?? 0) +
-				(t.cacheWrite ?? 0),
+			(t.input ?? 0) + (t.output ?? 0) + (t.cacheRead ?? 0) + (t.cacheWrite ?? 0),
 		cost: {
 			input: 0,
 			output: 0,

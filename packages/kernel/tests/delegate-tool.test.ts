@@ -160,11 +160,7 @@ test("delegate: 内置类型名 general-purpose 放行（绕过 askTo 名单）"
 	});
 	expect(res.isError).toBe(false);
 	expect(res.content[0].text).toBe("general-purpose:do something");
-	expect(spawn).toHaveBeenCalledWith(
-		"general-purpose",
-		"do something",
-		"tc-gp",
-	);
+	expect(spawn).toHaveBeenCalledWith("general-purpose", "do something", "tc-gp");
 });
 
 test("delegate: 内置类型名 Explore 放行（大小写敏感）", async () => {
@@ -694,12 +690,7 @@ test("makeSpawnFn: 派发登记 AbortController 到 abortRegistry，中止信号
 test("fleet: 同名 agent 多任务各自收到不同 taskIndex（原始数组序号）", async () => {
 	const taskIndexs: number[] = [];
 	const spawn = mock(
-		async (
-			_agent: string,
-			_task: string,
-			_tcId: string,
-			taskIndex?: number,
-		) => {
+		async (_agent: string, _task: string, _tcId: string, taskIndex?: number) => {
 			taskIndexs.push(taskIndex!);
 			return { text: "done", isError: false };
 		},
@@ -718,12 +709,7 @@ test("fleet: 同名 agent 多任务各自收到不同 taskIndex（原始数组�
 // A2：同名 agent 的 details.fleet 按任务序号 key（不互相覆盖）
 test("fleet: 同名 agent 的 details.fleet 按任务序号 key（不互相覆盖）", async () => {
 	const spawn = mock(
-		async (
-			_agent: string,
-			_task: string,
-			_tcId: string,
-			taskIndex?: number,
-		) => ({
+		async (_agent: string, _task: string, _tcId: string, taskIndex?: number) => ({
 			text: "done",
 			isError: false,
 			toolStats:
@@ -750,12 +736,7 @@ test("fleet: 同名 agent 的 details.fleet 按任务序号 key（不互相覆�
 // A3：越权项不打乱 taskIndex 编号（按原始数组序号）
 test("fleet: 越权项不打乱 taskIndex 编号（按原始数组序号）", async () => {
 	const spawn = mock(
-		async (
-			_agent: string,
-			_task: string,
-			_tcId: string,
-			taskIndex?: number,
-		) => ({
+		async (_agent: string, _task: string, _tcId: string, taskIndex?: number) => ({
 			text: `idx-${taskIndex}`,
 			isError: false,
 		}),
