@@ -4,7 +4,15 @@
 // 不 mock 被测逻辑、不跨进程下载远端；网络、解压、文件 IO 均为真实。
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, writeFile, readFile, rm, access, readdir } from "node:fs/promises";
+import {
+	mkdtemp,
+	mkdir,
+	writeFile,
+	readFile,
+	rm,
+	access,
+	readdir,
+} from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -12,8 +20,12 @@ import { join } from "node:path";
 import { syncKernel, KERNEL_BIN } from "./kernel-updater.cjs";
 
 const noopLog = { info: () => {}, error: () => {}, warn: () => {} };
-// 仅当本机有 zip CLI 才跑（真实打包/解压链路依赖它，也保证测试真的执行而非被跳过）。
-const HAS_ZIP = spawnSync("zip", ["-v"]).status === 0;
+// 打包/解压链路跨平台：Windows 用内置 tar -a（bsdtar 按扩展名出 zip）打包 + tar -xf 解压；
+// macOS/Linux 用 zip/unzip。仅当平台工具齐备才跑集成测试（保证真的执行而非被跳过）。
+const HAS_ZIP =
+	process.platform === "win32"
+		? spawnSync("tar", ["--version"]).status === 0
+		: spawnSync("zip", ["-v"]).status === 0;
 
 const MANIFEST_BUILD = "20260823-1";
 
@@ -32,15 +44,27 @@ beforeAll(async () => {
 	await mkdir(stage, { recursive: true });
 	newBin = `FAKE_KERNEL_BIN_${Date.now()}`;
 	await writeFile(join(stage, KERNEL_BIN), newBin);
-	await writeFile(join(stage, "package.json"), '{"name":"fake-kernel","version":"1.0.0"}');
+	await writeFile(
+		join(stage, "package.json"),
+		'{"name":"fake-kernel","version":"1.0.0"}',
+	);
 	await writeFile(join(stage, "bun.lock"), "fake-bun-lock-content");
 
 	const zipPath = join(tmpDir, "kernel.zip");
-	const zipRes = spawnSync(
-		"zip",
-		["-j", "-q", zipPath, KERNEL_BIN, "package.json", "bun.lock"],
-		{ cwd: stage },
-	);
+	// 打包测试数据：Windows 无 zip 命令，用内置 tar -a（bsdtar 按扩展名出 zip 格式，
+	// 条目位于根目录，产物与 Info-ZIP 等价）；macOS/Linux 保持 zip 命令。
+	const isWin = process.platform === "win32";
+	const zipRes = isWin
+		? spawnSync(
+				"tar",
+				["-a", "-cf", zipPath, KERNEL_BIN, "package.json", "bun.lock"],
+				{ cwd: stage },
+			)
+		: spawnSync(
+				"zip",
+				["-j", "-q", zipPath, KERNEL_BIN, "package.json", "bun.lock"],
+				{ cwd: stage },
+			);
 	expect(zipRes.status).toBe(0);
 
 	zipBuf = await readFile(zipPath);
@@ -77,46 +101,45 @@ afterAll(async () => {
 });
 
 if (HAS_ZIP) {
-	test(
-		"集成: 本地 mock HTTP 走 下载→sha 校验→真实解压→覆盖 runtime→写版本→清理临时 zip/备份",
-		async () => {
-			// runtimeDir 含旧 WaPiKernel 与旧 .kernel-version（旧 build），无新三件套 → 应触发更新
-			const runtimeDir = join(tmpDir, "runtime");
-			await mkdir(runtimeDir, { recursive: true });
-			const oldBin = "OLD_KERNEL_BIN";
-			await writeFile(join(runtimeDir, KERNEL_BIN), oldBin);
-			await writeFile(join(runtimeDir, ".kernel-version"), "20260822-1");
+	test("集成: 本地 mock HTTP 走 下载→sha 校验→真实解压→覆盖 runtime→写版本→清理临时 zip/备份", async () => {
+		// runtimeDir 含旧 WaPiKernel 与旧 .kernel-version（旧 build），无新三件套 → 应触发更新
+		const runtimeDir = join(tmpDir, "runtime");
+		await mkdir(runtimeDir, { recursive: true });
+		const oldBin = "OLD_KERNEL_BIN";
+		await writeFile(join(runtimeDir, KERNEL_BIN), oldBin);
+		await writeFile(join(runtimeDir, ".kernel-version"), "20260822-1");
 
-			// 不注入 fetchImpl —— 用真实全局 fetch 走完整链路
-			const res = await syncKernel({ runtimeDir, feedUrl, log: noopLog });
+		// 不注入 fetchImpl —— 用真实全局 fetch 走完整链路
+		const res = await syncKernel({ runtimeDir, feedUrl, log: noopLog });
 
-			expect(res.status).toBe("updated");
-			expect(res.build).toBe(MANIFEST_BUILD);
+		expect(res.status).toBe("updated");
+		expect(res.build).toBe(MANIFEST_BUILD);
 
-			// 真实解压覆盖成功：KERNEL_BIN == zip 里的假 kernel
-			expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(newBin);
-			expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(
-				'{"name":"fake-kernel","version":"1.0.0"}',
-			);
-			expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe(
-				"fake-bun-lock-content",
-			);
-			// 版本标记 == manifest.build
-			expect(await readFile(join(runtimeDir, ".kernel-version"), "utf8")).toBe(
-				MANIFEST_BUILD,
-			);
+		// 真实解压覆盖成功：KERNEL_BIN == zip 里的假 kernel
+		expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(newBin);
+		expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(
+			'{"name":"fake-kernel","version":"1.0.0"}',
+		);
+		expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe(
+			"fake-bun-lock-content",
+		);
+		// 版本标记 == manifest.build
+		expect(await readFile(join(runtimeDir, ".kernel-version"), "utf8")).toBe(
+			MANIFEST_BUILD,
+		);
 
-			// 临时 zip 已清理（无 .kernel-update-*.zip 残留）
-			await expect(
-				access(join(runtimeDir, `.kernel-update-${MANIFEST_BUILD}.zip`)),
-			).rejects.toThrow();
-			const leftovers = (await readdir(runtimeDir)).filter((f) =>
-				f.startsWith(".kernel-update-"),
-			);
-			expect(leftovers).toHaveLength(0);
+		// 临时 zip 已清理（无 .kernel-update-*.zip 残留）
+		await expect(
+			access(join(runtimeDir, `.kernel-update-${MANIFEST_BUILD}.zip`)),
+		).rejects.toThrow();
+		const leftovers = (await readdir(runtimeDir)).filter((f) =>
+			f.startsWith(".kernel-update-"),
+		);
+		expect(leftovers).toHaveLength(0);
 
-			// 备份目录已清理
-			await expect(access(join(runtimeDir, ".kernel-update-backup"))).rejects.toThrow();
-		},
-	);
+		// 备份目录已清理
+		await expect(
+			access(join(runtimeDir, ".kernel-update-backup")),
+		).rejects.toThrow();
+	});
 }
