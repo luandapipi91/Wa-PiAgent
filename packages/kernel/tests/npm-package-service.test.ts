@@ -363,3 +363,41 @@ setTimeout(() => { fs.writeFileSync(counter, String(n)); process.exit(0); }, 300
   const peakVal = Number(await Bun.file(peak).text());
   expect(peakVal).toBe(1);
 });
+
+test("并行安装串行化：跨实例并发同样互斥（队列必须模块级共享）", async () => {
+  // 回归：opQueue 曾是实例字段，而 ExtensionManager.ensureNpmCommand 每次操作都
+  // 重建 NpmPackageService 实例 → 并发 upgrade 各持独立队列 → 互斥失效，
+  // 并发 bun add 互踩共享 runtimeDir（Windows EBUSY/ENOENT），
+  // 多插件同时升级只有一个成功。队列必须跨实例共享，两实例并发时峰值仍为 1。
+  const dir2 = dir + "-x2";
+  mkdirSync(join(dir2, "node_modules"), { recursive: true });
+  const pkgs = [
+    [dir, "pkg-a"],
+    [dir2, "pkg-b"],
+  ] as const;
+  for (const [d, name] of pkgs) {
+    mkdirSync(join(d, "node_modules", name), { recursive: true });
+    writeFileSync(
+      join(d, "node_modules", name, "package.json"),
+      JSON.stringify({ name, version: "1.0.0" }),
+    );
+  }
+  const svc1 = new NpmPackageService(dir);
+  const svc2 = new NpmPackageService(dir2);
+
+  let active = 0;
+  let peak = 0;
+  const fakeSpawn = async () => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 25));
+    active--;
+    return { exitCode: 0, stderr: "" };
+  };
+  // spawnInner 为 private（仅类型层），运行时替换以观察并发峰值
+  (svc1 as unknown as { spawnInner: unknown }).spawnInner = fakeSpawn;
+  (svc2 as unknown as { spawnInner: unknown }).spawnInner = fakeSpawn;
+
+  await Promise.all([svc1.upgrade("pkg-a"), svc2.upgrade("pkg-b")]);
+  expect(peak).toBe(1);
+});
