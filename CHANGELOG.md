@@ -56,6 +56,14 @@
 - 验证：TDD 红→绿；MessageList.subagent-scroll.test 新增 2 用例（折叠后模拟 Virtuoso 异步重测二次偏移→收敛拉回；二次偏移但用户已上翻→不拉回）14/14 绿；前端正式姿势全量 2036 tests / 0 fail；typecheck 绿。
 - 影响范围：packages/frontend/src/components/MessageList.tsx、tests/MessageList.subagent-scroll.test.tsx。
 
+## 2026-09-01 — feat(preview): 聊天窗/排队区 /命令展开形态按白名单还原为命令 chip（skill chip 复制粘贴确认已闭环）
+
+- 背景：用户要求 skill 与 / 命令也支持 chip 还原。排查结论：①skill/command chip 的复制粘贴已由上一轮 onCopy 拦截闭环（rangeHasToken/selectionToTokenText 只读 data-token，类型无关，tokens.test 既有混合选区用例佐证）；②真正缺口是命令 chip 发送后 expandTokens 展开为 /cmd 纯文本（无锚），聊天窗回显与排队区均显示纯文本（此前作为已知边界声明「/cmd 与任意斜杠文本无法区分」）。本轮引入命令白名单消除该边界。
+- 实现：tokens.ts 新增 restoreKnownCommands（导出，排队区/聊天窗共享）——knownCommands 白名单内 /cmd 独立成词（前导行首/空白，后随空白/行尾/中英标点）还原为 /[cmd] token 渲染 chip-command；同前缀词（/goalxyz）与白名单外斜杠文本零误判不猜；expandedTextToHtml opts 加 knownCommands。MessageList 与 SessionView 传入 knownCommands（useCommandsStore.allCommands 命令名 + KERNEL_INTERCEPTED_COMMANDS，useMemo 稳定 Set 模式）。
+- 验证：TDD 红→绿；tokens.test 新增 3 用例（白名单命中渲染 chip-command/中文标点结尾命中/白名单外与同前缀词零误判）；SessionView.test 新增排队区集成用例、MessageList.test 新增聊天窗集成用例（/goal → data-token="/goal]"→"/[goal]" 的 chip）；三文件 172/172 绿；前端全量 2052 pass / 0 fail；typecheck 绿。排查备注：SessionView 挂载时 useCommandsStore.load() 会用 mock 空响应覆盖测试预置 store，集成用例改为渲染稳定后重新注入（模拟 load 成功后的真实状态）。
+- 已知边界：knownCommands 为空（命令清单未加载）时保持纯文本（既有边界）；URL 路径中的 /cmd（前导非空白）不误判；skill 的 /skill:name 形态仍走 knownSkills 过滤不变。
+- 影响范围：packages/frontend/src/quick-invoke/tokens.ts、src/components/{MessageList.tsx,SessionView.tsx}、tests/{tokens.test.ts,MessageList.test.tsx,SessionView.test.tsx}、CHANGELOG。
+
 ## 2026-09-01 — fix(preview): 聊天窗复制 chip 粘贴回输入框不渲染 chip（展示区复制语义保留）
 
 - 背景：聊天窗/展示区的 chip（dangerouslySetInnerHTML 渲染，无 copy 拦截）被选中复制时走浏览器默认行为——剪贴板 text/plain 是可见文本（如 #App.tsx，丢失 token 结构），粘贴回输入框后 textToHtml 不识别，渲染为纯文本。输入框内复制无此问题（ComposerTextarea.handleCopy 已用 selectionToTokenText 写 token 原文）。

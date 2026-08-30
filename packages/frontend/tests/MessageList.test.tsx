@@ -10,6 +10,7 @@ import { VirtuosoMockContext } from "react-virtuoso";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useSkillsStore } from "../src/store/skills";
+import { useCommandsStore } from "../src/store/commands";
 import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 // 重新发送等交互会触发 api.post（真实 fetch），happy-dom 在 about:blank 下对相对 URL
@@ -1847,6 +1848,33 @@ test("聊天窗复制 chip → 剪贴板改写为 token 原文（粘贴回输入
 	// 剪贴板被改写为 token 原文（而非可见文本 #App.tsx）——粘贴回输入框可渲染 chip
 	expect(setData).toHaveBeenCalledWith("text/plain", "#[path:packages/App.tsx]");
 	expect(setData).toHaveBeenCalledWith("text/html", "#[path:packages/App.tsx]");
+});
+
+test("用户消息含已知命令 /goal → 渲染为命令 chip（knownCommands 白名单）", () => {
+	// 命令 chip 发送后展开为 /cmd 纯文本存储；聊天窗回显按已知命令名单还原为 chip
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "/goal 开始规划", timestamp: 1 },
+				},
+			],
+		},
+	});
+	useCommandsStore.setState({
+		allCommands: [{ name: "goal", source: "extension" }],
+		commands: [{ name: "goal", source: "extension" }],
+	} as any);
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+
+	const chip = document.querySelector(".chip-command");
+	expect(chip).toBeTruthy();
+	expect(chip!.getAttribute("data-token")).toBe("/[goal]");
 });
 
 test("用户消息含引导附件尾段（Attachments:\n[path:x]）→ 渲染为附件 chip 而非整段丢弃", () => {
