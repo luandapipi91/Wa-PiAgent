@@ -11,6 +11,7 @@
 - 主要：文件预览支持 .sh/.java/.go 等主流代码文件高亮（新增 prism-extra-langs）；官网移动端适配修复，青蛙指示文字位置/方向修正。
 - 验证：typecheck 全绿；四层回归全绿。
 - 影响范围：frontend（prism-extra-langs/预览高亮）、website/。
+
 ## 2026-09-01 — fix(kernel): 多插件并行升级互踩——只有一个成功、其余回退
 
 - 背景：系统设置同时升级多个插件时只有一个成功，其余要么报错要么显示回退旧版本。两处结构性根因叠加：①NpmPackageService 的 spawn 互斥队列是实例字段，而 ExtensionManager.ensureNpmCommand 每次操作都无条件重建实例——并发 upgrade 各持独立队列互斥失效，并发 bun add 互踩共享 runtimeDir（Windows EBUSY/ENOENT），后跑者失败；②upgrade 在开始时读 settings 快照、完成后按旧快照整文件覆盖写回——后完成者把先完成者刚写入的新版本条目抹掉（丢失更新），表现为「升级成功后又回退」。
@@ -54,6 +55,14 @@
 - 实现：折叠时刻（isActiveTurnRow true→false 且贴底）启动收敛循环（同进入会话定位的已验证模式）：每 100ms 检查距底 >40px 则拉回，贴底即停；用户上翻（stickBottom=false）或超时 2s 退出，不与用户抢滚动。timer 存 ref 跨 effect 重跑存活（折叠后行数变化会重建 scrollToEnd 重跑 effect，局部变量会被 cleanup 误清）；循环内经 scrollToEndRef 取最新 scrollToEnd（闭包旧引用在行数减少时 end index 越界）。
 - 验证：TDD 红→绿；MessageList.subagent-scroll.test 新增 2 用例（折叠后模拟 Virtuoso 异步重测二次偏移→收敛拉回；二次偏移但用户已上翻→不拉回）14/14 绿；前端正式姿势全量 2036 tests / 0 fail；typecheck 绿。
 - 影响范围：packages/frontend/src/components/MessageList.tsx、tests/MessageList.subagent-scroll.test.tsx。
+
+## 2026-09-01 — fix(preview): 聊天窗复制 chip 粘贴回输入框不渲染 chip（展示区复制语义保留）
+
+- 背景：聊天窗/展示区的 chip（dangerouslySetInnerHTML 渲染，无 copy 拦截）被选中复制时走浏览器默认行为——剪贴板 text/plain 是可见文本（如 #App.tsx，丢失 token 结构），粘贴回输入框后 textToHtml 不识别，渲染为纯文本。输入框内复制无此问题（ComposerTextarea.handleCopy 已用 selectionToTokenText 写 token 原文）。
+- 实现：①tokens.ts 新增导出 rangeHasToken(range)——判定选区是否触及 chip（data-token 元素，含起终点祖先与克隆内容三重检查）；②MessageList 根容器挂 onCopy：选区含 chip 时 preventDefault 并把剪贴板 text/plain + text/html 都改写为 token 原文（复用 selectionToTokenText，与输入框 handleCopy 同机制）；纯文本选区放行（浏览器默认复制，保留 markdown 渲染形态不被破坏）。
+- 验证：TDD 红→绿；tokens.test 新增 rangeHasToken 3 用例（选区含 chip/纯文本放行/chip 内原子选区）；MessageList.test 新增聊天窗复制集成用例（fireEvent.copy + clipboardData spy，断言 setData 写入 token 原文而非可见文本）；两文件 124/124 绿；前端全量 2047 pass / 0 fail；typecheck 绿。
+- 已知边界：粘贴侧 handlePaste 只读 text/plain 重新渲染（剪贴板 html 被忽略），修复依赖复制源头写对 token 原文；纯文本粘贴 token 原文（无 text/html 场景）仍显示为纯文本原文（state 语义不丢，仅视觉不 chip 化，既有行为）。
+- 影响范围：packages/frontend/src/quick-invoke/tokens.ts、src/components/MessageList.tsx、tests/{tokens.test.ts,MessageList.test.tsx}、CHANGELOG。
 
 ## 2026-09-01 — feat(preview): 排队区/聊天窗引导附件尾段渲染为「附件:文件名」chip
 

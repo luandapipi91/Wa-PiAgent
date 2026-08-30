@@ -15,7 +15,15 @@ import { useComposerPrefsStore } from "../store/composer-prefs";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ClipboardEvent,
+} from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -39,6 +47,8 @@ import {
 	registerAgentMeta,
 	restoreFilePathTokens,
 	renderAttachmentTail,
+	rangeHasToken,
+	selectionToTokenText,
 } from "../quick-invoke/tokens";
 
 const EMPTY: SessionMessage[] = [];
@@ -689,8 +699,25 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 		}
 	}, [isActiveTurnRow, scrollToEnd, stopCollapseConverge]);
 
+	// 复制语义保留：选区含 chip 时把剪贴板改写为 token 原文（粘贴回输入框可还原 chip）。
+	// 纯文本选区放行（浏览器默认复制，保留 markdown 渲染形态）。与输入框 ComposerTextarea.handleCopy 同机制。
+	const handleCopyWithTokens = (e: ClipboardEvent) => {
+		const sel = window.getSelection();
+		if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+		const range = sel.getRangeAt(0);
+		if (!rangeHasToken(range)) return;
+		const tokenText = selectionToTokenText(range);
+		if (!tokenText) return;
+		e.preventDefault();
+		e.clipboardData.setData("text/plain", tokenText);
+		e.clipboardData.setData("text/html", tokenText);
+	};
+
 	return (
-		<div className="relative flex-1 min-h-0 overflow-hidden">
+		<div
+			className="relative flex-1 min-h-0 overflow-hidden"
+			onCopy={handleCopyWithTokens}
+		>
 			<TaskDoneFrog />
 			<Virtuoso
 				key={sessionId}
