@@ -428,8 +428,8 @@ test("makeSpawnFn: onProgress 回调正确绑定", async () => {
 	expect(receivedToolCallIds.length).toBeGreaterThan(0);
 });
 
-test("MAX_SUBAGENT_CONCURRENCY 为 5（控制内存：5 子代理 × ~300MB 不超 macOS 限制）", () => {
-	expect(MAX_SUBAGENT_CONCURRENCY).toBe(5);
+test("MAX_SUBAGENT_CONCURRENCY 为 6（控制内存：6 子代理 × ~300MB 约 1.8GB，可接受）", () => {
+	expect(MAX_SUBAGENT_CONCURRENCY).toBe(6);
 });
 
 // ---- onSpawnComplete 遥测回调 ----
