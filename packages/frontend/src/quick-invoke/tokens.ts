@@ -447,6 +447,24 @@ export function renderAttachmentTail(text: string): {
   return { body: text.slice(0, m.index), html };
 }
 
+/** 已知命令白名单还原（排队区/聊天窗共享）：命令 chip 发送后经 expandTokens 展开为
+ *  /cmd 纯文本（无锚），展示侧按已知命令名单还原为 /[cmd] token 渲染 chip。
+ *  零误判约束：/cmd 必须独立成词（前导行首/空白，后随空白/行尾/中英标点），
+ *  同前缀词（/goalxyz）与白名单外斜杠文本不猜。known 为空时原样返回。 */
+export function restoreKnownCommands(
+  text: string,
+  known?: ReadonlySet<string>,
+): string {
+  if (!known || known.size === 0) return text;
+  const alt = [...known]
+    .map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  return text.replace(
+    new RegExp(`(^|\\s)/(${alt})(?=$|[\\s，。；！？、）」])`, "g"),
+    (_m, pre: string, cmd: string) => `${pre}/[${cmd}] `,
+  );
+}
+
 /**
  * 把 expandTokens 展开后形态的文本渲染为 chip HTML（展示场景，如排队队列面板）。
  *
@@ -457,17 +475,24 @@ export function renderAttachmentTail(text: string): {
  *   MessageList.formatSkillBlocks 一致）
  * - #path:xxx → #[path:xxx]（复用 restoreFilePathTokens，聊天窗同款还原）
  * - @[agent] 与 element 展开形态（path [line: a-b] [el: x]）textToHtml 原生支持，
- *   无需还原；命令 chip 展开形态 /cmd 与任意斜杠文本无法区分，保持原样不还原。
+ *   无需还原；命令 chip 展开形态 /cmd 经 knownCommands 白名单还原（无清单则保持原样）。
  */
 export function expandedTextToHtml(
   text: string,
-  opts?: { knownSkills?: ReadonlySet<string>; hideTrigger?: boolean },
+  opts?: {
+    knownSkills?: ReadonlySet<string>;
+    knownCommands?: ReadonlySet<string>;
+    hideTrigger?: boolean;
+  },
 ): string {
   // 引导附件尾段先提取 chip 化（[path:x] 无 # 前缀，textToHtml 不识别）
   const { body, html: attachmentHtml } = renderAttachmentTail(text);
   const restored = restoreFilePathTokens(
-    body.replace(/\/skill:([^\s/]+)\s*/g, (m, name: string) =>
-      opts?.knownSkills?.has(name) ? `$[${name}] ` : m,
+    restoreKnownCommands(
+      body.replace(/\/skill:([^\s/]+)\s*/g, (m, name: string) =>
+        opts?.knownSkills?.has(name) ? `$[${name}] ` : m,
+      ),
+      opts?.knownCommands,
     ),
   );
   const base = textToHtml(restored, { hideTrigger: opts?.hideTrigger });

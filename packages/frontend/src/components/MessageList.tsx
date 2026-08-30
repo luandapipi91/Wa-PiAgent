@@ -5,12 +5,13 @@ import type {
 	AgentName,
 	ThinkingLevel,
 } from "@wa-pi/shared";
-import { isModelAvailable } from "@wa-pi/shared";
+import { isModelAvailable, KERNEL_INTERCEPTED_COMMANDS } from "@wa-pi/shared";
 import { useTranslation } from "../i18n/useTranslation";
 import { useSessionStore } from "../store/session";
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useSkillsStore } from "../store/skills";
+import { useCommandsStore } from "../store/commands";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
@@ -49,6 +50,7 @@ import {
 	renderAttachmentTail,
 	rangeHasToken,
 	selectionToTokenText,
+	restoreKnownCommands,
 } from "../quick-invoke/tokens";
 
 const EMPTY: SessionMessage[] = [];
@@ -1079,6 +1081,16 @@ export const MessageRow = memo(function MessageRow({
 		() => new Set(enabledSkills.map((k) => k.name)),
 		[enabledSkills],
 	);
+	// 已知命令白名单（插件/prompt/builtin + kernel 拦截命令）：聊天窗回显 /cmd 展开形态还原为命令 chip
+	const allCommands = useCommandsStore((s) => s.allCommands);
+	const knownCommands = useMemo(
+		() =>
+			new Set<string>([
+				...allCommands.map((c) => c.name),
+				...KERNEL_INTERCEPTED_COMMANDS,
+			]),
+		[allCommands],
+	);
 
 	// custom 消息（如 agent_switch 分隔行 / pi-subagents 完成通知）：
 	// 兼容两种字段——前端构造用 type:"custom"，Pi SDK 内存消息用 role:"custom"。
@@ -1129,9 +1141,13 @@ export const MessageRow = memo(function MessageRow({
 			typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? ""),
 		);
 		const displayText = restoreFilePathTokens(
+			restoreKnownCommands(
+				// /cmd 已知命令白名单还原（命令 chip 展开形态 → /[cmd] token）
+				formatSkillBlocks(body, knownSkills),
+				knownCommands,
+			),
 			// #path: 锚还原（expandTokens 展开产物 → #[path:x] token 原文）：与排队区
 			// expandedTextToHtml 同款还原，保证发送后的文件引用在聊天窗也渲染为 chip
-			formatSkillBlocks(body, knownSkills),
 		);
 		// textToHtml 把 @[agent]/#[file]/$[skill] token 渲染为 chip。
 		// hideTrigger=true：展示场景不显示 @ 触发符（仅显示智能体名 + 头像），与输入框 ComposerTextarea 区分。

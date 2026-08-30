@@ -418,6 +418,34 @@ test("expandedTextToHtml：非尾段的 [path:x] 不误渲染为附件 chip（�
   expect(html).toContain("[path:not-attachment]");
 });
 
+// ── expandedTextToHtml：已知命令 /cmd 白名单还原（命令 chip 展开形态）──
+
+test("expandedTextToHtml：白名单内 /cmd 渲染为命令 chip", () => {
+  const html = expandedTextToHtml("/goal 开始规划", {
+    knownCommands: new Set(["goal", "compact"]),
+  });
+  expect(html).toContain('class="chip chip-command"');
+  expect(html).toContain('data-token="/goal]"'.replace("/goal]", "/[goal]"));
+  expect(html).toContain("开始规划");
+});
+
+test("expandedTextToHtml：/compact 中文标点结尾也命中白名单还原", () => {
+  const html = expandedTextToHtml("先 /compact。再继续", {
+    knownCommands: new Set(["compact"]),
+  });
+  expect(html).toContain(
+    'data-token="/compact"'.replace("/compact", "/[compact]"),
+  );
+});
+
+test("expandedTextToHtml：白名单外与同前缀词不误渲染（零误判）", () => {
+  const html = expandedTextToHtml("访问 /goalxyz 和 /unknown 路径", {
+    knownCommands: new Set(["goal", "compact"]),
+  });
+  expect(html).not.toContain("chip-command");
+  expect(html).toContain("/goalxyz");
+});
+
 // ── restoreFilePathTokens：file 锚还原（聊天窗/排队区共享）──
 
 test("restoreFilePathTokens：#path: 锚还原为 #[path:x]（含纯数字目录名）", () => {

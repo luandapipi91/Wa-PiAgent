@@ -16,6 +16,7 @@ import { useSessionStore } from "../src/store/session";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProvidersStore } from "../src/store/providers";
 import { useSkillsStore } from "../src/store/skills";
+import { useCommandsStore } from "../src/store/commands";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 import { disconnectEvents } from "../src/events";
 
@@ -1290,6 +1291,41 @@ test("排队队列渲染引导附件为附件 chip（Attachments 尾段）", asy
 	);
 	// 尾段原文不再出现
 	expect(panel.textContent).not.toContain("Attachments:");
+});
+
+test("排队队列渲染已知命令 /cmd 为命令 chip（knownCommands 白名单）", async () => {
+	// 命令 chip 发送后展开为 /cmd 纯文本；排队区按已知命令名单还原为 chip
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		queueBySession: {
+			s1: {
+				steering: ["/goal 开始规划"],
+				followUp: [],
+			},
+		},
+	});
+	useCommandsStore.setState({
+		allCommands: [{ name: "goal", source: "extension" }],
+		commands: [{ name: "goal", source: "extension" }],
+	} as any);
+	await renderSessionView("s1");
+	// SessionView 挂载时 useCommandsStore.load() 会用 mock 空响应覆盖 store——
+	// 渲染稳定后重新注入命令清单（模拟 load 成功后的真实状态），触发重渲染
+	useCommandsStore.setState({
+		allCommands: [{ name: "goal", source: "extension" }],
+		commands: [{ name: "goal", source: "extension" }],
+	} as any);
+
+	const panel = document.querySelector('[data-testid="queue-panel"]')!;
+	const chip = await waitFor(() => {
+		const el = panel.querySelector(".chip-command");
+		if (!el) throw new Error("chip not yet");
+		return el;
+	});
+	expect(chip).toBeTruthy();
+	expect(chip!.getAttribute("data-token")).toBe("/[goal]");
+	// 白名单外不误渲染
+	expect(panel.querySelector(".chip-file")).toBeNull();
 });
 
 test("排队队列：knownSkills 未命中的 /skill:x 不渲染 chip（防误判）", async () => {

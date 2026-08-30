@@ -22,6 +22,8 @@ import { STATUS_COLORS } from "../theme/colors";
 import { AnsiText } from "./ui/AnsiText";
 import { expandedTextToHtml, ensureChipStyles } from "../quick-invoke/tokens";
 import { useSkillsStore } from "../store/skills";
+import { useCommandsStore } from "../store/commands";
+import { KERNEL_INTERCEPTED_COMMANDS } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
@@ -64,7 +66,6 @@ export const SessionView = memo(function SessionView({
 	const isBlocked = useIsBlocked(sessionId);
 	const reloading = useSessionStore((s) => s.reloading);
 	const messages = useSessionStore((s) => s.messagesBySession[sessionId]);
-	const isNewSession = !messages || messages.length === 0;
 
 	// 思考起算时间（按会话独立，切会话不重置/不沿用）。每秒计时交给 <ThinkingTimer> 独立持有，
 	// 避免每秒 setElapsed 重渲染整个 SessionView（含 MessageList 的 markdown）造成计时卡顿。
@@ -143,6 +144,16 @@ export const SessionView = memo(function SessionView({
 	const knownSkills = useMemo(
 		() => new Set(enabledSkills.map((k) => k.name)),
 		[enabledSkills],
+	);
+	// 已知命令白名单：排队区 /cmd 展开形态还原为命令 chip（同 MessageList 模式）
+	const allCommands = useCommandsStore((s) => s.allCommands);
+	const knownCommands = useMemo(
+		() =>
+			new Set<string>([
+				...allCommands.map((c) => c.name),
+				...KERNEL_INTERCEPTED_COMMANDS,
+			]),
+		[allCommands],
 	);
 	ensureChipStyles();
 
@@ -438,6 +449,7 @@ export const SessionView = memo(function SessionView({
 											dangerouslySetInnerHTML={{
 												__html: expandedTextToHtml(msg, {
 													knownSkills,
+													knownCommands,
 													hideTrigger: true,
 												}),
 											}}
@@ -467,6 +479,7 @@ export const SessionView = memo(function SessionView({
 													dangerouslySetInnerHTML={{
 														__html: expandedTextToHtml(msg, {
 															knownSkills,
+															knownCommands,
 															hideTrigger: true,
 														}),
 													}}
