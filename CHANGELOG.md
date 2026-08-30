@@ -1,3 +1,10 @@
+## 2026-09-01 — v0.3.6 发版（Pi 引擎 0.84.4 + 清空队列即生效 + chip 复制修复）
+
+- 版本：0.3.5 → 0.3.6。
+- 主要：底层 Pi 引擎升级 0.84.4（连接与运行稳定性提升）；一键清空排队消息立即生效（接入 clear_queue RPC，不再等当前轮次结束）；修复聊天窗复制 chip 粘贴回输入框不渲染为卡片的问题；修复 runtimeDir 升级后 Pi 引擎未跟进的盲区；kernel-updater 集成测试跨平台修复（Windows 打包用内置 tar）。
+- 验证：typecheck 全绿；四层回归全绿。
+- 影响范围：kernel（preview/rpc-client/agent-manager）、desktop（kernel-updater 测试）、frontend（Composer 复制链路）。
+
 ## 2026-09-01 — v0.3.5 发版（预览文本嗅探兜底 + 引导附件卡片化 + 插件并行升级修复）
 
 - 版本：0.3.4 → 0.3.5。
