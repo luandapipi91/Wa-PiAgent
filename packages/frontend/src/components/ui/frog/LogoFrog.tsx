@@ -206,14 +206,14 @@ export function LogoFrog({ width }: { width: number }) {
 							strokeWidth="2.5"
 							fill="none"
 						/>
-					<g className="wlf-pupils">
-						<circle cx="38" cy="31" r="11" fill="#16171B" />
-						<circle cx="82" cy="31" r="11" fill="#16171B" />
-						<circle cx="33" cy="24" r="5" fill="#FFFFFF" />
-						<circle cx="41" cy="34" r="2.5" fill="#FFFFFF" />
-						<circle cx="77" cy="24" r="5" fill="#FFFFFF" />
-						<circle cx="85" cy="34" r="2.5" fill="#FFFFFF" />
-					</g>
+						<g className="wlf-pupils">
+							<circle cx="38" cy="31" r="11" fill="#16171B" />
+							<circle cx="82" cy="31" r="11" fill="#16171B" />
+							<circle cx="33" cy="24" r="5" fill="#FFFFFF" />
+							<circle cx="41" cy="34" r="2.5" fill="#FFFFFF" />
+							<circle cx="77" cy="24" r="5" fill="#FFFFFF" />
+							<circle cx="85" cy="34" r="2.5" fill="#FFFFFF" />
+						</g>
 						<circle cx="24" cy="65" r="6" fill="#FFFFFF" opacity="0.18" />
 						<circle cx="96" cy="65" r="6" fill="#FFFFFF" opacity="0.18" />
 						<path
@@ -245,20 +245,20 @@ export function LogoFrog({ width }: { width: number }) {
 					</g>
 					<g className="wlf-quack-bubble">
 						<rect
-							x="96"
-							y="6"
-							width="36"
-							height="20"
-							rx="10"
+							x="16"
+							y="-16"
+							width="72"
+							height="40"
+							rx="20"
 							fill="#fff"
 							stroke="#3f6d33"
-							strokeWidth="2"
+							strokeWidth="3"
 						/>
 						<text
-							x="114"
-							y="21"
+							x="52"
+							y="12"
 							textAnchor="middle"
-							fontSize="13"
+							fontSize="26"
 							fontWeight="700"
 							fill="#3f8e4f"
 						>
@@ -267,9 +267,9 @@ export function LogoFrog({ width }: { width: number }) {
 					</g>
 					<text
 						className="wlf-zzz"
-						x="108"
-						y="34"
-						fontSize="16"
+						x="100"
+						y="30"
+						fontSize="32"
 						fontWeight="700"
 						fill="#cfe6b8"
 					>
@@ -278,8 +278,8 @@ export function LogoFrog({ width }: { width: number }) {
 					<text
 						className="wlf-zzz z2"
 						x="118"
-						y="22"
-						fontSize="12"
+						y="12"
+						fontSize="24"
 						fontWeight="700"
 						fill="#cfe6b8"
 					>
@@ -311,8 +311,8 @@ export function LogoFrog({ width }: { width: number }) {
 			{/* B 组动作层：迷你蛙（平时隐藏，动作时跳出表演）+ 卷字舌头 */}
 			<svg
 				className="wlf-avatar absolute pointer-events-none"
-				width="26"
-				height="26"
+				width="44"
+				height="44"
 				viewBox="0 0 28 28"
 				aria-hidden="true"
 			>
