@@ -95,8 +95,13 @@ async function main() {
     }
     shared.assertBunVersionOrExit(); // 下载失败 → 保留原有中文报错退出（兜底）
   }
-  const { WS_PORT, FRONTEND_PORT } = await import("@wa-pi/shared");
-  await runDev(WS_PORT, FRONTEND_PORT);
+  // dev 浏览器版 WS 端口写死 9776，故意不走 shared 的 WS_PORT（它会优先读
+  // WA_PI_WS_PORT 环境变量）：生产 kernel 固定 9778，若环境残留 WA_PI_WS_PORT=9778，
+  // 下方 killPort 会误杀生产进程（2026-08-23 事故）。kernel 子进程的实际端口
+  // 仍由 runDev 内注入的 WA_PI_WS_PORT 传递，与 9778 无关。
+  const DEV_WS_PORT = 9776;
+  const { FRONTEND_PORT } = await import("@wa-pi/shared");
+  await runDev(DEV_WS_PORT, FRONTEND_PORT);
 }
 
 async function runDev(WS_PORT: number, FRONTEND_PORT: number) {

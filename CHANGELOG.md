@@ -1,3 +1,10 @@
+## 2026-08-31 — fix(scripts): dev 一键启动端口写死 9776，不再读 WA_PI_WS_PORT 环境变量
+
+- 背景：dev 启动脚本的 WS 端口取自 shared 的 WS_PORT（resolvePort 优先读 WA_PI_WS_PORT），环境残留变量（如 9778）会叠加到 killPort，导致误杀生产 kernel（2026-08-23 曾发生，仅靠记忆/删变量防不住复发）。
+- 修复：scripts/dev.ts 改为本地常量 DEV_WS_PORT=9776，不再从 shared 导入 WS_PORT；kernel 子进程实际端口仍由 runDev 内注入的 WA_PI_WS_PORT 传递（子进程只拿到写死后的值）。FRONTEND_PORT（WA_PI_WEB_PORT）与生产端口无冲突，维持原逻辑。
+- 验证：判别实验——设 WA_PI_WS_PORT=9999 启动 dev，日志显示「清理端口 9776 / 5180」「kernel 实际端口 9776」，kernel 实际监听 9776，全程未触碰 9999 与生产 9778。
+- 影响范围：scripts/dev.ts（仅 main() 端口来源一处）。
+
 ## 2026-08-31 — fix(kernel/shared): 合成 agent_end 打 synthetic 标记，修复一次任务完成蛙叫两声
 
 - 现象：notify/通知或命令提示出现时伴随蛙叫；一次任务完成可能响两声。
