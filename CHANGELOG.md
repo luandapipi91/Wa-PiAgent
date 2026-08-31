@@ -4,6 +4,12 @@
 - 主要：优化青蛙动画。
 - 验证：typecheck 全绿；四层回归全绿。
 - 影响范围：frontend（青蛙动画相关）。
+## 2026-08-31 — chore(scripts): 新增 GitHub 镜像同步工具 sync-github-mirror.ts
+
+- 需求：GitHub 镜像（luandapipi91/Wa-PiAgent）git 端点不通（push 挂起超时），此前每次同步都临时写脚本，固化为一条命令的正式工具。
+- 实现：scripts/sync-github-mirror.ts——Git Data API 快照式同步：校验/补传缺失 blob（base64，二进制自动识别）→ base_tree 增量 tree（本地全量 upsert + 远端多余 sha:null 删除）→ 无父快照 commit → 强推 main；带 5xx/限速重试与最终 ref 验证。用法：bun scripts/sync-github-mirror.ts [--skip-verify] [--message <msg>]，凭据走 git credential fill。
+- 测试：新增 sync-github-mirror.test.ts 9 用例（ls-tree 解析含 tree 行过滤/增量条目组装/二进制判断）全绿；真实环境实测幂等同步通过（504 自动重试后成功）。
+- 影响范围：scripts/sync-github-mirror.ts、scripts/sync-github-mirror.test.ts（新增）。
 
 ## 2026-08-31 — fix(scripts): dev 一键启动端口写死 9776，不再读 WA_PI_WS_PORT 环境变量
 
