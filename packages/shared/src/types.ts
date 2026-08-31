@@ -1190,6 +1190,9 @@ export type SDKEvent =
 			messages: AgentMessage[];
 			willRetry: boolean;
 			elapsedMs?: number;
+			/** kernel 兑底合成（扩展命令 50ms 复位 / compact 成败 / abort）：非真实任务完成，
+			 *  前端只复位思考态，不播完成音效/青蛙（否则一次完成可能叫两声） */
+			synthetic?: boolean;
 	  }
 	| {
 			// pi 会话级运行完全终结（重试/压缩重试/排队续跑全部耗尽）：
