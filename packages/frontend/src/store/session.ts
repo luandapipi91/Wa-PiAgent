@@ -1082,7 +1082,10 @@ export const useSessionStore = create<SessionState>((set) => {
 					// IM 渠道会话（sessionId 以 im- 开头）不触发。
 					// 定时任务执行会话（sched- 前缀）：提示音由独立开关 soundSchedTaskDone 控制
 					// （默认关），且一律不触发青蛙动画（需求：定时任务完成不需要动画）。
-					if (!sessionId.startsWith("im-")) {
+					// kernel 兑底合成的 agent_end（扩展命令/compact/abort 复位，synthetic:true）
+					// 不是真实任务完成：不响提示音、不蹦青蛙（状态复位照常走）。
+					const syntheticEnd = (event as any).synthetic === true;
+					if (!sessionId.startsWith("im-") && !syntheticEnd) {
 						if (sessionId.startsWith("sched-")) {
 							if (useUiPrefsStore.getState().soundSchedTaskDone) playTaskDone();
 						} else {
