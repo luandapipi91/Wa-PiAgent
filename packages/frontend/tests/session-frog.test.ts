@@ -6,10 +6,11 @@ const frogCalls = { trigger: 0 };
 
 mock.module("../src/util/frog", () => ({
 	triggerTaskDoneFrog: (_sessionId: string) => frogCalls.trigger++,
-	pickFrogPose: () => "sit",
-	pickFrogCorner: () => "bl",
-	FROG_POSES: ["jump", "sit", "wave", "sleep"],
-	FROG_CORNERS: ["tl", "tr", "bl", "br"],
+	pickFrogVariant: () => "sign",
+	pickFrogSpot: () => "dl",
+	resetFrogVariantCycle: () => {},
+	FROG_VARIANTS: ["sign"],
+	FROG_SPOTS: ["dl"],
 }));
 
 mock.module("../src/util/sound", () => ({
@@ -87,6 +88,17 @@ test("IM 渠道会话（im- 前缀）→ 不触发", () => {
 		.handleSDKEvent(
 			"im-x",
 			envelope({ type: "agent_end", willRetry: false } as any, "im-x"),
+		);
+	expect(frogCalls.trigger).toBe(0);
+});
+
+test("agent_end 合成事件（synthetic:true，kernel 兑底复位）→ 不触发青蛙动画", () => {
+	// kernel 的扩展命令/compact/abort 兑底合成 agent_end 不是真实任务完成，不蹦青蛙
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", willRetry: false, synthetic: true } as any),
 		);
 	expect(frogCalls.trigger).toBe(0);
 });
