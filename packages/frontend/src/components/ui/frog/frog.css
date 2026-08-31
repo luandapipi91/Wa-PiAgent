@@ -1860,7 +1860,7 @@
 		transform: scale(1.12, 0.86);
 	}
 	50% {
-		transform: scale(0.96, 1.06);
+		transform: scale(1.12, 0.86);
 	}
 	54%,
 	100% {
@@ -1869,8 +1869,14 @@
 }
 
 /* ========================================================================
-   Logo 鍔ㄦ€侀潚铔欙紙LogoFrog锛夛細闈欐€?Logo 澶嶅埢 + 14 涓殢鏈哄皬鍔ㄤ綔銆?   鑺傚锛欽S 姣?10~20s 闅忔満瑙﹀彂涓€娆★紙.wlf-a-<action> 鎸傚湪 .wlf-row 涓婏級锛?   骞虫椂瀹屽叏闈欐銆傞粯璁ら殣钘忎粎浣滅敤浜庝簲涓姩浣滃厓绱狅紙鐩存帴閫夋嫨鍣紝鏃犻€氶厤锛?   瑙勯伩鐧藉悕鍗曢仐婕忛棶棰橈級锛?wlf-avatar / .wlf-tongue / .wlf-eyelids /
-   .wlf-quack-bubble / .wlf-zzz锛屽叾浣欏叏閮ㄥ父鏄俱€?   ======================================================================== */
+   Logo 动态青蛙（LogoFrog）
+   - Logo 蛙脸常驻 idle 循环（wlf-idle-*，20s 一轮：眨眼→鼓气呱→张望→
+     打盹→翻面，间隔自然停顿），保证图标本身一直有生命感；
+   - 随机调度（10~20s 一次）只负责 B 组「跳出 Logo 与文字互动」动作；
+   - 默认隐藏仅作用于五个动作元素（直接选择器，无通配，规避白名单
+     遗漏问题）：.wlf-avatar / .wlf-tongue / .wlf-eyelids /
+     .wlf-quack-bubble / .wlf-zzz，其余全部常显。
+   ======================================================================== */
 .wlf-row .wlf-avatar,
 .wlf-row .wlf-tongue,
 .wlf-row .wlf-eyelids,
@@ -1883,7 +1889,7 @@
 	transform-box: fill-box;
 	transform-origin: 50% 50%;
 }
-/* 铔?z 鍦ㄦ枃瀛椾笅灞傦細鎺㈠ご鏃惰涓嶉€忔槑鏍囬閬綇褰㈡垚"韬?鐨勬晥鏋?*/
+/* 蛙 z 在文字下层：探头时被不透明标题遮住形成"躲"的效果 */
 .wlf-row .wlf-avatar {
 	position: absolute;
 	left: 9px;
@@ -1904,162 +1910,120 @@
 	transform-origin: 0 50%;
 }
 
-/* ---------- A1 blink 鐪ㄧ溂锛?600ms锛?---------- */
-.wlf-a-blink .wlf-eyelids {
-	animation: wlf-blink-lids 2600ms ease-in-out forwards;
-	transform-origin: 50% 20%;
+/* ---------- Logo 蛙脸常驻 idle 循环（20s 一轮） ---------- */
+.wlf-row .wlf-face {
+	animation: wlf-idle-face 20s ease-in-out infinite;
+	transform-origin: 50% 60%;
 }
-@keyframes wlf-blink-lids {
+@keyframes wlf-idle-face {
 	0%,
-	30% {
-		opacity: 0;
-		transform: scaleY(0.4);
+	14% {
+		transform: scale(1, 1) translateX(0) scaleX(1);
 	}
-	40%,
-	60% {
-		opacity: 1;
-		transform: scaleY(1);
+	18% {
+		transform: scale(1.06, 1.12) translateX(0) scaleX(1);
 	}
-	70%,
-	100% {
-		opacity: 0;
-		transform: scaleY(0.4);
+	24%,
+	36% {
+		transform: scale(1, 1) translateX(0) scaleX(1);
 	}
-}
-
-/* ---------- A2 quack 榧撴皵鍛憋紙3000ms锛?---------- */
-.wlf-a-quack .wlf-face {
-	animation: wlf-quack-face 3000ms ease-in-out forwards;
-	transform-origin: 50% 70%;
-}
-@keyframes wlf-quack-face {
-	0%,
-	30% {
-		transform: scale(1, 1);
+	39% {
+		transform: scale(1, 1) translateX(8px) scaleX(1);
 	}
-	45% {
-		transform: scale(1.05, 1.1);
+	42% {
+		transform: scale(1, 1) translateX(-8px) scaleX(1);
 	}
-	58% {
-		transform: scale(1.03, 1.05);
-	}
-	70%,
-	100% {
-		transform: scale(1, 1);
-	}
-}
-.wlf-a-quack .wlf-quack-bubble {
-	animation: wlf-quack-bubble 3000ms ease-out forwards;
-	transform-origin: 0 90%;
-}
-@keyframes wlf-quack-bubble {
-	0%,
-	35% {
-		opacity: 0;
-		transform: scale(0);
-	}
-	46% {
-		opacity: 1;
-		transform: scale(1.12);
-	}
-	54% {
-		opacity: 1;
-		transform: scale(1);
-	}
-	70% {
-		opacity: 1;
-	}
-	82%,
-	100% {
-		opacity: 0;
-		transform: scale(0.9);
-	}
-}
-
-/* ---------- A3 peek 宸﹀彸寮犳湜锛?800ms锛?---------- */
-.wlf-a-peek .wlf-face {
-	animation: wlf-peek-face 2800ms ease-in-out forwards;
-}
-@keyframes wlf-peek-face {
-	0%,
-	25% {
-		transform: translateX(0);
-	}
-	40% {
-		transform: translateX(8px);
-	}
-	55% {
-		transform: translateX(-8px);
-	}
-	70%,
-	100% {
-		transform: translateX(0);
-	}
-}
-
-/* ---------- A4 sleep 鎵撶浌锛?200ms锛?---------- */
-.wlf-a-sleep .wlf-eyelids {
-	animation: wlf-sleep-lids 4200ms ease-in-out forwards;
-}
-@keyframes wlf-sleep-lids {
-	0%,
-	12% {
-		opacity: 0;
-	}
-	22%,
+	46%,
 	78% {
-		opacity: 1;
+		transform: scale(1, 1) translateX(0) scaleX(1);
+	}
+	81% {
+		transform: scale(1, 1) translateX(0) scaleX(0);
+	}
+	84% {
+		transform: scale(1, 1) translateX(0) scaleX(-1);
 	}
 	88%,
 	100% {
+		transform: scale(1, 1) translateX(0) scaleX(1);
+	}
+}
+.wlf-row .wlf-eyelids {
+	animation: wlf-idle-eyelids 20s ease-in-out infinite;
+}
+@keyframes wlf-idle-eyelids {
+	0%,
+	1% {
+		opacity: 0;
+	}
+	2% {
+		opacity: 1;
+	}
+	3.5%,
+	57% {
+		opacity: 0;
+	}
+	61%,
+	70% {
+		opacity: 1;
+	}
+	74%,
+	100% {
 		opacity: 0;
 	}
 }
-.wlf-a-sleep .wlf-zzz {
-	animation: wlf-zzz-float 4200ms ease-out forwards;
+.wlf-row .wlf-quack-bubble {
+	animation: wlf-idle-bubble 20s ease-out infinite;
+	transform-origin: 0 90%;
 }
-.wlf-a-sleep .wlf-zzz.z2 {
-	animation-delay: 0.5s;
-}
-@keyframes wlf-zzz-float {
+@keyframes wlf-idle-bubble {
 	0%,
 	20% {
 		opacity: 0;
-		transform: translate(0, 0);
+		transform: scale(0);
+	}
+	24% {
+		opacity: 1;
+		transform: scale(1.12);
+	}
+	28% {
+		opacity: 1;
+		transform: scale(1);
 	}
 	34% {
+		opacity: 0;
+		transform: scale(0.9) translateY(-4px);
+	}
+	100% {
+		opacity: 0;
+		transform: scale(0);
+	}
+}
+.wlf-row .wlf-zzz {
+	animation: wlf-idle-zzz 20s ease-out infinite;
+}
+.wlf-row .wlf-zzz.z2 {
+	animation-delay: 0.6s;
+}
+@keyframes wlf-idle-zzz {
+	0%,
+	58% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	64% {
 		opacity: 1;
 	}
-	52%,
-	100% {
+	72% {
 		opacity: 0;
 		transform: translate(6px, -14px);
 	}
-}
-
-/* ---------- A5 flip 缈昏窡澶达紙3000ms锛?---------- */
-.wlf-a-flip .wlf-face {
-	animation: wlf-flip-face 3000ms ease-in-out forwards;
-	transform-origin: 50% 50%;
-}
-@keyframes wlf-flip-face {
-	0%,
-	30% {
-		transform: scaleX(1);
-	}
-	46% {
-		transform: scaleX(0);
-	}
-	62% {
-		transform: scaleX(-1);
-	}
-	78%,
 	100% {
-		transform: scaleX(1);
+		opacity: 0;
 	}
 }
 
-/* ---------- B1 hopUp 璺充笂鏂囧瓧锛?600ms锛?---------- */
+/* ---------- B1 hopUp 跳上文字（3600ms） ---------- */
 .wlf-a-hopUp .wlf-avatar {
 	animation: wlf-hopUp 3600ms ease-in-out forwards;
 }
@@ -2098,7 +2062,7 @@
 	}
 }
 
-/* ---------- B2 patrol 鏂囧瓧宸￠€伙紙4600ms锛?---------- */
+/* ---------- B2 patrol 文字巡逻（4600ms） ---------- */
 .wlf-a-patrol .wlf-avatar {
 	animation: wlf-patrol 4600ms ease-in-out forwards;
 }
@@ -2133,7 +2097,7 @@
 	}
 }
 
-/* ---------- B3 peekaboo 鏂囧瓧鍚庢帰澶达紙4000ms锛?---------- */
+/* ---------- B3 peekaboo 文字后探头（4000ms） ---------- */
 .wlf-a-peekaboo .wlf-avatar {
 	animation: wlf-peekaboo 4000ms ease-in-out forwards;
 }
@@ -2178,7 +2142,7 @@
 	}
 }
 
-/* ---------- B4 tongue 鑸屽ご鍗峰瓧姣嶏紙3600ms锛岄渶瀹屾暣鏂囧瓧锛?---------- */
+/* ---------- B4 tongue 舌头卷字母（3600ms，需完整文字） ---------- */
 .wlf-a-tongue .wlf-tongue {
 	opacity: 1;
 	animation: wlf-tongue-out 3600ms ease-in-out forwards;
@@ -2217,7 +2181,7 @@
 	}
 }
 
-/* ---------- B5 slide A瀛楁粦姊紙3600ms锛岄渶瀹屾暣鏂囧瓧锛?---------- */
+/* ---------- B5 slide A字滑梯（3600ms，需完整文字） ---------- */
 .wlf-a-slide .wlf-avatar {
 	animation: wlf-slide 3600ms ease-in-out forwards;
 }
@@ -2250,7 +2214,7 @@
 	}
 }
 
-/* ---------- B6 lie 鏂囧瓧搴婂崍鐫★紙4600ms锛岄渶瀹屾暣鏂囧瓧锛?---------- */
+/* ---------- B6 lie 文字床午睡（4600ms，需完整文字） ---------- */
 .wlf-a-lie .wlf-avatar {
 	animation: wlf-lie 4600ms ease-in-out forwards;
 }
@@ -2280,7 +2244,7 @@
 	}
 }
 
-/* ---------- B7 vault 璺抽┈瓒婂瓧锛?600ms锛?---------- */
+/* ---------- B7 vault 跳马越字（3600ms） ---------- */
 .wlf-a-vault .wlf-avatar {
 	animation: wlf-vault 3600ms ease-in-out forwards;
 }
@@ -2315,7 +2279,7 @@
 	}
 }
 
-/* ---------- B8 push 鎺ㄥ瓧锛?600ms锛岄渶瀹屾暣鏂囧瓧锛?---------- */
+/* ---------- B8 push 推字（3600ms，需完整文字） ---------- */
 .wlf-a-push .wlf-avatar {
 	animation: wlf-push-walk 3600ms ease-in-out forwards;
 }
@@ -2367,7 +2331,7 @@
 	}
 }
 
-/* ---------- B9 drum 鏂囧瓧鏈ㄧ惔锛?600ms锛?---------- */
+/* ---------- B9 drum 文字木琴（3600ms） ---------- */
 .wlf-a-drum .wlf-avatar {
 	animation: wlf-drum-walk 3600ms ease-in-out forwards;
 }
@@ -2438,4 +2402,3 @@
 		transform: translateY(-4px);
 	}
 }
-
