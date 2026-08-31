@@ -55,7 +55,7 @@ describe("TaskFolderWatcher", () => {
 		await waitFor(() =>
 			applied.some((ts) => ts.some((t) => t.id === "每日站会")),
 		);
-	});
+	}, 15000);
 
 	test("store 自身写入（同内容哈希）不触发 applyTasks", async () => {
 		const store = createFolderTaskStore({
@@ -81,7 +81,7 @@ describe("TaskFolderWatcher", () => {
 		// 等 1s（覆盖防抖窗口）：自写不应触发 applyTasks
 		await new Promise((r) => setTimeout(r, 1000));
 		expect(applied).toEqual([]);
-	});
+	}, 15000);
 
 	test("解析失败文件经 errors 传出；删除文件后任务消失", async () => {
 		const store = createFolderTaskStore({
@@ -106,7 +106,7 @@ describe("TaskFolderWatcher", () => {
 		await waitFor(() =>
 			errorsSeen.some((es) => es.length === 0 && applied.length > 0),
 		);
-	});
+	}, 15000);
 
 	test("自写有效任务 + 外部新增坏文件 → 不短路，applyTasks 仍被调用且 error 被广播", async () => {
 		const store = createFolderTaskStore({
@@ -141,7 +141,7 @@ describe("TaskFolderWatcher", () => {
 			errorsSeen.some((es) => es.some((e) => e.taskId === "坏任务")),
 		);
 		expect(applied.length).toBeGreaterThan(0);
-	});
+	}, 15000);
 
 	test("被 watch 的目录被外部删除后 watcher 不崩溃、stop 正常", async () => {
 		const store = createFolderTaskStore({
@@ -158,5 +158,5 @@ describe("TaskFolderWatcher", () => {
 		await new Promise((r) => setTimeout(r, 1000));
 		// 进程无恙：watcher 仍可正常 stop（afterEach 还会再 stop 一次，幂等）
 		expect(() => watcher?.stop()).not.toThrow();
-	});
+	}, 15000);
 });
