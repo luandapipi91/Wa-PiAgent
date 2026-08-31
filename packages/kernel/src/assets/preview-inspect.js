@@ -333,9 +333,12 @@
 		}
 		// Ctrl/Cmd 关闭/打开高亮选择功能（开关），状态经主应用持久化（本地预览 iframe 为
 		// 不透明源、无法自用 localStorage，故由主应用存取并在 iframe 加载时下发）。
-		var disabled = false;
+		// 初值 null = 尚未从主应用同步（query/set 任一到达后即为 true/false）。
+		// 未知态与「关」同样处理（不绘制高亮）——若初值偏向开，主应用侧 query 回复
+		// 一旦丢失，页面会永久保留高亮而开关显示关闭（状态失步，用户实测反馈）。
+		var disabled = null;
 		function applyInspectState() {
-			if (disabled) {
+			if (disabled !== false) {
 				hl.style.display = "none";
 				bar.style.display = "none";
 				tip.style.display = "none";
@@ -412,8 +415,8 @@
 		}
 
 		function render() {
-			// 已关闭高亮选择：任何触发（含 scroll/resize）都不再绘制，保持隐藏
-			if (disabled) {
+			// 已关闭/尚未同步：任何触发（含 scroll/resize）都不再绘制，保持隐藏
+			if (disabled !== false) {
 				hl.style.display = "none";
 				bar.style.display = "none";
 				tip.style.display = "none";
@@ -528,7 +531,7 @@
 		document.addEventListener(
 			"mousemove",
 			(e) => {
-				if (disabled) return;
+				if (disabled !== false) return;
 				// 其他层锁定中：本层不 hover 不高亮（互斥）；点击仍可抢占锁定
 				if (suppressed) return;
 				var t = e.target;
@@ -595,7 +598,7 @@
 		document.addEventListener(
 			"click",
 			(e) => {
-				if (disabled) return;
+				if (disabled !== false) return;
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
 				if (pinned) {
@@ -626,11 +629,29 @@
 		window.addEventListener("scroll", render, true);
 		window.addEventListener("resize", render);
 
-		// Ctrl / Cmd 关闭或打开高亮选择功能（按键即切换开关）
+		// Ctrl / Cmd 单独按下再松开（期间无其他按键）→ 切换高亮开关。
+		// 组合键（⌘C/⌘V/Ctrl+滚轮等）第一步也会按下修饰键——若 keydown 即翻转，
+		// 日常复制粘贴都会静默误切开关，是「开关与实际高亮不符」的高频扰动源，
+		// 故改为 keyup 时确认期间无其他按键才翻转。
+		var pendingModKey = null;
 		document.addEventListener(
 			"keydown",
 			(e) => {
-				if (e.key === "Control" || e.key === "Meta") toggleInspect();
+				if (e.key === "Control" || e.key === "Meta") {
+					if (!e.repeat) pendingModKey = e.key;
+				} else {
+					pendingModKey = null; // 组合键：取消待翻转
+				}
+			},
+			true,
+		);
+		document.addEventListener(
+			"keyup",
+			(e) => {
+				if ((e.key === "Control" || e.key === "Meta") && pendingModKey === e.key) {
+					pendingModKey = null;
+					toggleInspect();
+				}
 			},
 			true,
 		);
@@ -768,7 +789,7 @@
 		function startFollow() {
 			if (rafId) return;
 			var tick = () => {
-				if (disabled || !pinned) {
+				if (disabled !== false || !pinned) {
 					rafId = null;
 					return;
 				}

@@ -138,3 +138,20 @@ test("无内容（空窗口）时开关禁用", () => {
 	render(<BrowserPanel />);
 	expect(inspectBtn().disabled).toBe(true);
 });
+
+test("iframe load 后主动 push 当前开关状态（与 iframe 主动 query 双通道互补）", () => {
+	// 场景：刷新/换代后 iframe 主动 query 可能被 source 校验丢弃（曾致开关与实际
+	// 高亮状态不符）——load 完成后主应用主动 push 一次，确定性对齐。
+	localStorage.setItem(INSPECT_KEY, "off");
+	render(<BrowserPanel />);
+	const iframe = iframeEl();
+	const postSpy = mock((_data: any, _origin: string) => {});
+	iframe.contentWindow!.postMessage = postSpy as any;
+	act(() => {
+		fireEvent.load(iframe);
+	});
+	expect(postSpy).toHaveBeenCalledWith(
+		{ type: "hiagent:inspect:set", enabled: false },
+		"*",
+	);
+});

@@ -1,3 +1,25 @@
+## 2026-09-01 — fix(trash): 归档区行增加会话标题列（第一列标题、第二列角色）
+
+- 背景：归档区列表行首列主体显示的是 session.primaryAgent（角色名），没有会话标题列。用户要求第一列显示会话标题、角色放第二列。
+- 修复：TrashSessionRow 重排列——第一列 session.title（原行首独立 emoji 头像移入角色列作为角色头像）；第二列 emoji + primaryAgent 角色；后续 IM 标签/项目名/原因与归档时间/查看按钮不变。
+- 验证：新增 tests/TrashSessionRow.test.tsx 2 用例（标题与角色均渲染且标题 DOM 顺序在前；IM 会话标题 + IM 标识保留），先红后绿；前端 build 完成。
+- 影响范围：packages/frontend/src/components/TrashSessionRow.tsx、tests/TrashSessionRow.test.tsx（新增）。
+
+## 2026-09-01 — feat(trash): 自动归档默认天数 7 → 15；确认清理计时基准为进区时刻
+
+- 需求 1：自动归档未活动会话的默认天数 7 → 15。改 3 处硬编码：kernel TRASH_DEFAULTS.autoArchiveDays（权威兕底）、前端 GeneralSection 草稿初始显示、保存时非法输入兕底。已持久化 settings.json 的老用户不受影响（loadTrashSettings 仅兕底缺失字段）。
+- 需求 2 确认：自动清理的计时基准本就是 deletedAt（进入归档区时刻写入，归档区期间不更新，恢复后重删重置），非最后活动时间——「从进区开始计时」的语义现状已满足，无代码改动；project-store-trash 既有用例已锁定该语义。
+- 验证：settings-trash + project-store-trash 27 tests / 0 fail；GeneralSection 9/9；四包 typecheck 绿。
+- 影响范围：packages/kernel/src/settings-store.ts、packages/frontend/src/components/settings/GeneralSection.tsx。
+
+## 2026-09-01 — fix(preview): 元素选中开关与实际高亮状态失步（开启不亮/关闭反亮/刷新后失效）
+
+- 背景：html 预览的元素选中/高亮开关存在三症状：①开关开启但鼠标移入无高亮；②开关关闭页面反亮；③刷新后高亮失效需再刷一次。根因（消息链路全梳理）：开关状态唯一真相源是主应用 localStorage，iframe 内脚本初值偏向开（disabled=false），换代（刷新/自动刷新/mode 切换）后唯一同步路径是新文档主动 query→主应用回复——而所有消息发后即忘、换代窗口内被 e.source 严格校验静默丢弃（不可补偿）；另 Ctrl/⌘ 单按即翻转开关（⌘C 等组合键第一步也命中，高频扰动源）。
+- 修复（四层，拆掉每个竞态窗口）：①主应用主动 push：HtmlPreview 加 onLoad 回调，BrowserPanel 在 iframe load 完成后（head 内同步脚本监听器必已注册）主动下发当前开关状态——与 iframe 主动 query 的反向兕底形成双通道，任一成功即同步，push 幂等双达无害；②query 回复目标改为 e.source（谁问回谁）：换代窗口内新文档的 query 不再被发往旧 ref 而丢失；③脚本初值改未知态（disabled=null，与关同样处理不绘制高亮）：query/set 均断链时后果从「错误地亮」变为保守不亮，且四处 if(disabled) 判断点改显式 !== false；④快捷键改为「单按 Ctrl/⌘（按下→松开期间无其他按键）才翻转」：⌘C 等组合键不再静默误切开关（单按快捷键语义保留）。
+- 已知边界：嵌套 srcdoc 子 iframe 的脚本为异步注入，父层广播仍可能早于子层就绪而丢失——由子层就绪后主动 query 兑底（子层 query 由父层用自己的状态回复，父层状态已由 ①②保证新鲜）；竞态本身无法用 E2E 稳定注入，验证以组件层（push 通道）+ kernel integration 回归 + 实机使用为准。
+- 验证：kernel preview 相关（纯函数+真实浏览器 integration）48 tests / 0 fail；前端 inspect 开关组件测试新增 onLoad push 用例 7/7 绿；BrowserPanel 相关回归全绿；四包 typecheck 绿；前端 build 完成。
+- 影响范围：packages/kernel/src/assets/preview-inspect.js、packages/frontend/src/{components/BrowserPanel.tsx,components/blocks/HtmlPreview.tsx}、packages/frontend/src/components/__tests__/browser-inspect-toggle.test.tsx。
+
 ## 2026-09-01 — fix(desktop): 中文 Windows 安装包首启引导/界面显示英文（渲染进程 locale 修复）
 
 - 背景：用户反馈系统安装包首启，中文环境下初始化向导显示英文。根因（系统化调试+探针实证）：前端首启语言由 detect.ts 读渲染进程 navigator.language 决定（非 zh 开头→英文）；而中文 Windows 打包版上 Electron 渲染进程 Chromium 自动检测的 navigator.language 可能返回 en-US（未跟随系统显示语言）。主进程 app.getLocale() 已实证能拿到正确值（macOS 探针 zh-CN；onboarding 组件全走 t()、store 默认 zh，均已排除）。macOS 实测渲染进程正确，不受影响。

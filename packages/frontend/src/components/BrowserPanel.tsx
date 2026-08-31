@@ -156,7 +156,9 @@ export function BrowserPanel() {
 			// 预览 iframe 上报：查询/回写「高亮选择功能」开关状态（主应用持久化）
 			if (data?.type === "hiagent:inspect:query") {
 				const enabled = localStorage.getItem(INSPECT_KEY) !== "off";
-				iframeRef.current?.contentWindow?.postMessage(
+				// 回复给提问者（e.source）而非当前 ref：iframe 换代窗口内旧/新文档交替，
+				// 发给 ref 可能落到错误窗口，提问者收不到回复会永久停在初值
+				(e.source as Window | null)?.postMessage(
 					{ type: "hiagent:inspect:set", enabled },
 					"*",
 				);
@@ -189,8 +191,15 @@ export function BrowserPanel() {
 		const next = !inspectOn;
 		setInspectOn(next);
 		localStorage.setItem(INSPECT_KEY, next ? "on" : "off");
+		pushInspectState(next);
+	};
+
+	// iframe load 完成后主动下发当前开关状态：head 内同步 inspect 脚本此时监听器必已
+	// 注册，push 一次确定性对齐。反向兑底（iframe 加载时主动 query→主应用回复）在换代
+	// 窗口内可能被 source 校验丢弃，两通道任一成功即同步；push 幂等，双达无害。
+	const pushInspectState = (enabled: boolean) => {
 		iframeRef.current?.contentWindow?.postMessage(
-			{ type: "hiagent:inspect:set", enabled: next },
+			{ type: "hiagent:inspect:set", enabled },
 			"*",
 		);
 	};
@@ -395,6 +404,9 @@ export function BrowserPanel() {
 							ref={iframeRef}
 							path={current.path}
 							refreshKey={refreshToken}
+							onLoad={() =>
+								pushInspectState(localStorage.getItem(INSPECT_KEY) !== "off")
+							}
 						/>
 					) : (
 						<HtmlPreview
