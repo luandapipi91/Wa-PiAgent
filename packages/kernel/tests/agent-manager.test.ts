@@ -504,6 +504,9 @@ test("prompt — /compact 文本 → 调 compact RPC 而非 prompt（RPC 模式�
 	// 压缩不产生 agent_start/agent_end：kernel 需合成 agent_end 让前端退出思考态 + 刷新 token
 	const types = events.map((x) => x.e.type);
 	expect(types).toContain("agent_end");
+	// 合成事件必须带 synthetic 标记：前端据此跳过「任务完成」音效/青蛙（否则 /compact 也叫一声）
+	const compactEnd = events.find((x) => x.e.type === "agent_end")!;
+	expect((compactEnd.e as { synthetic?: boolean }).synthetic).toBe(true);
 });
 
 test("prompt — /compact 带自定义指令 → customInstructions 透传", async () => {
@@ -564,6 +567,9 @@ test("prompt — compact 失败 → 只合成 agent_end（退出思考态），�
 	const types = events.map((x) => x.e.type);
 	expect(types).toContain("agent_end");
 	expect(types).not.toContain("agent_settled");
+	// 合成事件必须带 synthetic 标记（前端不播完成音效）
+	const failEnd = events.find((x) => x.e.type === "agent_end")!;
+	expect((failEnd.e as { synthetic?: boolean }).synthetic).toBe(true);
 	expect(fakes[0].prompted).toEqual([]);
 });
 
@@ -2579,7 +2585,10 @@ test("扩展命令拦截 prompt 时不卡在 busy 状态", async () => {
 	expect(am.getThinkingSince(session.id)).toBeNull();
 
 	// 合成 agent_end：让前端退出 thinking / 清掉 loading 占位
-	expect(events.find((x) => x.e.type === "agent_end")).toBeTruthy();
+	const syntheticEnd = events.find((x) => x.e.type === "agent_end");
+	expect(syntheticEnd).toBeTruthy();
+	// 合成事件必须带 synthetic 标记（前端不播完成音效/青蛙）
+	expect((syntheticEnd!.e as { synthetic?: boolean }).synthetic).toBe(true);
 });
 
 // ─── 扩展 dialog 子协议：_onExtUiRequest 广播契约（前端 Task 4 消费的字段名）───
@@ -2694,4 +2703,8 @@ test("abort 成功返回后广播 agent_end（前端退出思考态兜底）", a
 	// abort 成功后必须合成 agent_end 让前端退出思考态
 	const types = received.map((r) => r.e?.type);
 	expect(types).toContain("agent_end");
+	// 合成事件必须带 synthetic 标记：pi 若已广播真实 agent_end（第 1 声），
+	// 合成兜底不得再触发音效（第 2 声）——一次完成只叫一声
+	const abortEnd = received.find((r) => r.e?.type === "agent_end")!;
+	expect((abortEnd.e as { synthetic?: boolean }).synthetic).toBe(true);
 });
