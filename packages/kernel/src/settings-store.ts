@@ -126,7 +126,7 @@ export async function saveRetrySettings(
 /** 回收站自动归档/清除默认设置（持久化在 settings.json.trash） */
 export const TRASH_DEFAULTS: TrashSettings = {
 	autoArchiveEnabled: true,
-	autoArchiveDays: 7,
+	autoArchiveDays: 15,
 	autoPurgeEnabled: false,
 	autoPurgeDays: 30,
 };

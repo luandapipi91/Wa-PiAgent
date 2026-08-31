@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 import { buildPreviewUrl } from "../../preview-url";
 
-type HtmlPreviewProps = { refreshKey?: number } & (
+type HtmlPreviewProps = { refreshKey?: number; onLoad?: () => void } & (
 	| { path: string; externalUrl?: never }
 	| { path?: never; externalUrl: string }
 );
@@ -13,9 +13,11 @@ type HtmlPreviewProps = { refreshKey?: number } & (
  *   让其以自己的源运行、可开新标签；受对方站点 X-Frame-Options/CSP 限制）
  * refreshKey 变化重挂载实现刷新。
  * ref 暴露 iframe 元素：父级（BrowserPanel）校验 inspect postMessage 的 source 用。
+ * onLoad：iframe 加载完成（head 内同步 inspect 脚本已执行、监听器已注册）时回调，
+ * 父级据此主动下发开关状态，与 iframe 主动 query 的反向兕底双通道互补。
  */
 export const HtmlPreview = forwardRef<HTMLIFrameElement, HtmlPreviewProps>(
-	function HtmlPreview({ path, externalUrl, refreshKey }, ref) {
+	function HtmlPreview({ path, externalUrl, refreshKey, onLoad }, ref) {
 		const src = externalUrl ?? buildPreviewUrl(path!);
 		const sandbox = externalUrl
 			? "allow-scripts allow-same-origin allow-popups allow-modals"
@@ -28,6 +30,7 @@ export const HtmlPreview = forwardRef<HTMLIFrameElement, HtmlPreviewProps>(
 				sandbox={sandbox}
 				title="HTML preview"
 				data-testid="html-preview-iframe"
+				onLoad={onLoad}
 				className="w-full h-full border-0 bg-white"
 			/>
 		);

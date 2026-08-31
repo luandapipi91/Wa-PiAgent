@@ -64,11 +64,8 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 				className="accent-brand shrink-0"
 				data-testid={`trash-checkbox-${session.id}`}
 			/>
-			<span className="text-base shrink-0">
-				{emoji ?? <Icon name="robot" size="1em" />}
-			</span>
 			<span
-				className={`text-sm font-medium truncate w-40 shrink-0 ${selected ? "text-white" : ""}`}
+				className={`text-sm font-medium truncate flex-1 min-w-0 ${selected ? "text-white" : ""}`}
 			>
 				{isIM && (
 					<>
@@ -79,7 +76,15 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 						/>{" "}
 					</>
 				)}
-				{session.primaryAgent}
+				{session.title}
+			</span>
+			<span
+				className={`flex items-center gap-1.5 shrink-0 ${selected ? "text-white/80" : "text-secondary"}`}
+			>
+				<span className="text-base">
+					{emoji ?? <Icon name="robot" size="1em" />}
+				</span>
+				<span className="text-xs">{session.primaryAgent}</span>
 			</span>
 			{isIM && (
 				<span
@@ -107,7 +112,7 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 				{projectName}
 			</span>
 			<span
-				className={`flex-1 text-xs flex items-center gap-1 min-w-0 ${selected ? "text-white/80" : "text-tertiary"}`}
+				className={`text-xs flex items-center gap-1 shrink-0 ${selected ? "text-white/80" : "text-tertiary"}`}
 			>
 				<span
 					className={`text-[10px] px-1.5 py-0.5 rounded ${

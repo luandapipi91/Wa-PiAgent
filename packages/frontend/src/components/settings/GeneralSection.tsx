@@ -121,7 +121,7 @@ export function GeneralSection() {
 		useState(exportIncludeUser);
 	// 回收站自动归档/清理设置：草稿态，点保存才生效
 	const [autoArchive, setAutoArchive] = useState(true);
-	const [archiveDays, setArchiveDays] = useState("7");
+	const [archiveDays, setArchiveDays] = useState("15");
 	const [autoPurge, setAutoPurge] = useState(false);
 	const [purgeDays, setPurgeDays] = useState("30");
 
@@ -175,7 +175,7 @@ export function GeneralSection() {
 		await api.put("/api/settings/trash", {
 			trash: {
 				autoArchiveEnabled: autoArchive,
-				autoArchiveDays: Math.max(1, Number(archiveDays) || 7),
+				autoArchiveDays: Math.max(1, Number(archiveDays) || 15),
 				autoPurgeEnabled: autoPurge,
 				autoPurgeDays: Math.max(1, Number(purgeDays) || 30),
 			},
