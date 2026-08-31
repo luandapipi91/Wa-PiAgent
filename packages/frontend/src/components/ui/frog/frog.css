@@ -1892,9 +1892,13 @@
 /* 蛙 z 在文字下层：探头时被不透明标题遮住形成"躲"的效果 */
 .wlf-row .wlf-avatar {
 	position: absolute;
-	left: 9px;
-	top: 11px;
+	left: 1px;
+	top: 2px;
 	z-index: 0;
+}
+/* 呱气泡/zzz 允许画出 Logo 块外（体积翻倍后溢出 viewBox） */
+.wlf-row .wlf-logo {
+	overflow: visible;
 }
 .wlf-row > [data-testid="sidebar-title"] {
 	position: relative;
@@ -1921,24 +1925,24 @@
 		transform: scale(1, 1) translateX(0) scaleX(1);
 	}
 	18% {
-		transform: scale(1.06, 1.12) translateX(0) scaleX(1);
+		transform: scale(1.18, 1.3) translateX(0) scaleX(1);
 	}
 	24%,
 	36% {
 		transform: scale(1, 1) translateX(0) scaleX(1);
 	}
 	39% {
-		transform: scale(1, 1) translateX(8px) scaleX(1);
+		transform: scale(1, 1) translateX(24px) scaleX(1);
 	}
 	42% {
-		transform: scale(1, 1) translateX(-8px) scaleX(1);
+		transform: scale(1, 1) translateX(-24px) scaleX(1);
 	}
 	46%,
 	72% {
 		transform: scale(1, 1) translateX(0) scaleX(1);
 	}
 	75% {
-		transform: scale(1.05, 0.9) translateX(0) scaleX(1) translateY(-6px);
+		transform: scale(1.14, 0.8) translateX(0) scaleX(1) translateY(-20px);
 	}
 	78% {
 		transform: scale(1, 1) translateX(0) scaleX(1);
@@ -1967,10 +1971,10 @@
 		transform: translate(0, 0);
 	}
 	38% {
-		transform: translate(4px, 1px);
+		transform: translate(9px, 2px);
 	}
 	41% {
-		transform: translate(-4px, 1px);
+		transform: translate(-9px, 2px);
 	}
 	46%,
 	100% {
@@ -2042,7 +2046,7 @@
 	}
 	72% {
 		opacity: 0;
-		transform: translate(6px, -14px);
+		transform: translate(10px, -26px);
 	}
 	100% {
 		opacity: 0;
@@ -2062,24 +2066,24 @@
 		opacity: 1;
 	}
 	16% {
-		transform: translate(20px, -8px) scale(1.05, 0.92);
+		transform: translate(20px, -2px) scale(1.05, 0.92);
 	}
 	30% {
-		transform: translate(48px, -20px) scale(0.95, 1.12);
+		transform: translate(48px, -2px) scale(0.95, 1.12);
 	}
 	38% {
-		transform: translate(62px, -16px) scale(1.1, 0.88);
+		transform: translate(62px, -2px) scale(1.1, 0.88);
 	}
 	44% {
-		transform: translate(60px, -18px) scale(1, 1);
+		transform: translate(60px, -2px) scale(1, 1);
 	}
 	74% {
 		opacity: 1;
-		transform: translate(60px, -18px);
+		transform: translate(60px, -2px);
 	}
 	86% {
 		opacity: 1;
-		transform: translate(24px, -6px) scale(0.98, 1.08);
+		transform: translate(24px, 0) scale(0.98, 1.08);
 	}
 	96%,
 	100% {
@@ -2101,20 +2105,20 @@
 		opacity: 1;
 	}
 	14% {
-		transform: translate(10px, 12px);
+		transform: translate(10px, 0);
 	}
 	44% {
-		transform: translate(96px, 12px);
+		transform: translate(96px, 0);
 	}
 	54% {
-		transform: translate(100px, 12px) scaleX(-1);
+		transform: translate(100px, 0) scaleX(-1);
 	}
 	84% {
-		transform: translate(10px, 12px) scaleX(-1);
+		transform: translate(10px, 0) scaleX(-1);
 	}
 	90% {
 		opacity: 1;
-		transform: translate(0, 12px) scaleX(-1);
+		transform: translate(0, 0) scaleX(-1);
 	}
 	96%,
 	100% {
@@ -2131,7 +2135,7 @@
 	0%,
 	8% {
 		opacity: 0;
-		transform: translate(0, 6px);
+		transform: translate(0, 0);
 	}
 	14%,
 	22% {
@@ -2144,7 +2148,7 @@
 	28%,
 	34% {
 		opacity: 0;
-		transform: translate(0, 6px);
+		transform: translate(0, 0);
 	}
 	42%,
 	50% {
@@ -2154,7 +2158,7 @@
 	56%,
 	62% {
 		opacity: 0;
-		transform: translate(0, 6px);
+		transform: translate(0, 0);
 	}
 	70%,
 	78% {
@@ -2164,7 +2168,7 @@
 	88%,
 	100% {
 		opacity: 0;
-		transform: translate(0, 6px);
+		transform: translate(0, 0);
 	}
 }
 
@@ -2214,25 +2218,25 @@
 @keyframes wlf-slide {
 	0% {
 		opacity: 0;
-		transform: translate(48px, -14px) rotate(-20deg);
+		transform: translate(48px, -2px) rotate(-20deg);
 	}
 	10% {
 		opacity: 1;
 	}
 	20% {
-		transform: translate(58px, 6px) rotate(24deg);
+		transform: translate(58px, 2px) rotate(24deg);
 	}
 	30% {
-		transform: translate(74px, 18px) rotate(0deg);
+		transform: translate(74px, 2px) rotate(0deg);
 	}
 	40%,
 	48% {
 		opacity: 1;
-		transform: translate(78px, 20px);
+		transform: translate(78px, 2px);
 	}
 	62% {
 		opacity: 0;
-		transform: translate(40px, 10px);
+		transform: translate(40px, 0);
 	}
 	100% {
 		opacity: 0;
@@ -2253,11 +2257,11 @@
 		opacity: 1;
 	}
 	18% {
-		transform: translate(40px, 8px) rotate(80deg);
+		transform: translate(40px, 0) rotate(80deg);
 	}
 	26%,
 	66% {
-		transform: translate(62px, 12px) rotate(90deg);
+		transform: translate(62px, 0) rotate(90deg);
 	}
 	76% {
 		opacity: 1;
@@ -2283,25 +2287,25 @@
 		opacity: 1;
 	}
 	14% {
-		transform: translate(6px, -6px) scale(1.06, 0.9);
+		transform: translate(6px, 0) scale(1.06, 0.9);
 	}
 	28% {
-		transform: translate(36px, -30px) rotate(-14deg) scale(0.95, 1.1);
+		transform: translate(36px, -12px) rotate(-14deg) scale(0.95, 1.1);
 	}
 	42% {
-		transform: translate(74px, -8px) rotate(10deg) scale(1.06, 0.92);
+		transform: translate(74px, -2px) rotate(10deg) scale(1.06, 0.92);
 	}
 	50% {
-		transform: translate(88px, 2px) rotate(0deg) scale(1, 1);
+		transform: translate(88px, 0) rotate(0deg) scale(1, 1);
 	}
 	60% {
 		opacity: 1;
-		transform: translate(88px, 2px);
+		transform: translate(88px, 0);
 	}
 	74%,
 	100% {
 		opacity: 0;
-		transform: translate(30px, 2px) scaleX(-1);
+		transform: translate(30px, 0) scaleX(-1);
 	}
 }
 
@@ -2318,17 +2322,17 @@
 		opacity: 1;
 	}
 	30% {
-		transform: translate(calc(var(--wlf-tx, 160px) - 60px), 6px);
+		transform: translate(calc(var(--wlf-tx, 160px) - 60px), 0);
 	}
 	44% {
-		transform: translate(calc(var(--wlf-tx, 160px) - 52px), 6px);
+		transform: translate(calc(var(--wlf-tx, 160px) - 52px), 0);
 	}
 	58% {
-		transform: translate(calc(var(--wlf-tx, 160px) - 66px), 6px);
+		transform: translate(calc(var(--wlf-tx, 160px) - 66px), 0);
 	}
 	72% {
 		opacity: 1;
-		transform: translate(calc(var(--wlf-tx, 160px) - 60px), 6px);
+		transform: translate(calc(var(--wlf-tx, 160px) - 60px), 0);
 	}
 	86%,
 	100% {
@@ -2370,26 +2374,26 @@
 		opacity: 1;
 	}
 	22% {
-		transform: translate(28px, 4px);
+		transform: translate(28px, 0);
 	}
 	30% {
 		transform: translate(24px, 0) rotate(-10deg);
 	}
 	40% {
-		transform: translate(28px, 4px) rotate(0deg);
+		transform: translate(28px, 0) rotate(0deg);
 	}
 	50% {
 		transform: translate(24px, 0) rotate(-10deg);
 	}
 	60% {
-		transform: translate(28px, 4px) rotate(0deg);
+		transform: translate(28px, 0) rotate(0deg);
 	}
 	70% {
 		transform: translate(24px, 0) rotate(-10deg);
 	}
 	80% {
 		opacity: 1;
-		transform: translate(28px, 4px) rotate(0deg);
+		transform: translate(28px, 0) rotate(0deg);
 	}
 	90%,
 	100% {
