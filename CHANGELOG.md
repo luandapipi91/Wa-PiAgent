@@ -1,3 +1,17 @@
+## 2026-08-31 — chore(kernel): 单个子代理委派整体硬上限默认 60 分钟 → 2 小时
+
+- 需求：单个子代理委派超时上限增长到 2 小时（用户拍板）。COMMAND_TIMEOUT_MS 同时是 RPC 命令超时与 settle 兑底共用默认值，一处常量两处生效。
+- 背景：长任务单代理实测可跑 39-50 分钟，60 分钟余量不足会误杀正常长任务。无进展探活 idleTimeoutMs（10 分钟静默判死）不动——它是“无进展”检测，与委派总时长上限是两个维度。
+- 验证：新增常量锁定用例（先红：期望 7200000 实际 3600000，后绿）；subagent-runner 全部 14 用例绿（含卡死超时/abort 短路/Infinity/探活既有回归）；kernel typecheck 绿。
+- 影响范围：packages/kernel/src/subagent-runner.ts、packages/kernel/tests/subagent-runner.test.ts。
+
+## 2026-08-31 — fix(website): 官网青蛙彩蛋音效由 Web Audio 合成电子音改为系统内置真实青蛙叫
+
+- 背景：官网青蛙点击音效是 oscillator 合成的电子模拟音，与产品内任务完成的青蛙音效不一致。
+- 修复：把产品系统青蛙叫（packages/frontend/public/sounds/event-done-3.mp3）以 base64 data URI 内嵌进 website/index.html（+23KB，保持单文件发布、无额外请求、不依赖 R2 Content-Type），点击青蛙改为 new Audio(FROG_CROAK_SRC) 播放（volume 0.8、静默降级），跳跃动画与呱气泡不变。
+- 验证：新增 packages/frontend/tests/website-frog-sound.test.ts 3 用例先红后绿（禁合成音回退 / 内嵌音频与 event-done-3.mp3 字节级一致 / Audio 播放逻辑存在）；前端全量 2058 tests / 0 fail（bun 1.4.0，1.3.14 全量收尾 DirInfo panic 系运行时 bug）；浏览器实测页面加载、音频 loadedmetadata 解码、点击触发 play + 气泡 + 跳跃、零 JS 错误。
+- 影响范围：website/index.html、packages/frontend/tests/website-frog-sound.test.ts（新增）。
+
 ## 2026-09-01 — v0.3.7 发版（预览高亮开关同步 + 归档 15 天 + 中文首启修复）
 
 - 版本：0.3.6 → 0.3.7。
