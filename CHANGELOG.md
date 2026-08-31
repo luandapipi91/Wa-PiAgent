@@ -1,3 +1,11 @@
+## 2026-08-31 — fix(kernel/shared): 合成 agent_end 打 synthetic 标记，修复一次任务完成蛙叫两声
+
+- 现象：notify/通知或命令提示出现时伴随蛙叫；一次任务完成可能响两声。
+- 根因：kernel 有 5 处兑底合成的 agent_end（扩展命令 50ms 复位 / compact 成败 / abort 强杀与成功兑底），语义只是「让前端退出思考态」，但事件不带任何标记——前端唯一守卫 willRetry===true 拦不住它们，每次合成都被当真实完成播放提示音+蹦青蛙。典型双叫：abort 时 pi 已广播真实 agent_end（第 1 声），kernel 又无条件合成（第 2 声）。
+- 修复：5 处合成事件统一加 synthetic:true（shared 类型加 synthetic?: boolean）；前端过滤由并行会话同日完成（见下方 feat(frontend) 条目），两侧合闸后合成事件只复位思考态、不再触发音效/青蛙。
+- 验证：新增前端 2 用例 + kernel 4 处断言先红后绿；session-sound/frog 12/12、agent-manager 116 pass（唯一 fail 为既有图片压缩环境性失败，与本次无关）；三包 typecheck 绿。
+- 影响范围：packages/kernel/src/agent-manager.ts、packages/shared/src/types.ts、packages/kernel/tests/agent-manager.test.ts、packages/frontend/tests/session-sound.test.ts。
+
 ## 2026-08-31 — feat(frontend): 任务完成青蛙全量重设计（19 动画变体 × 8 位置）
 
 - 需求：现有 4 姿势青蛙动画被判定过丑，POC 对齐后拍板 19 个新动画变体全量替换（16 剪影月光被排除），出现位置从 4 角扩展为 8 处（上左/上中/上右/中左/中右/下左/下中/下右）。

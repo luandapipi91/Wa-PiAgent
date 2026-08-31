@@ -131,6 +131,18 @@ test("agent_end 终态但会话来自 IM 渠道（im- 前缀）→ 不播放任�
 	expect(soundCalls.taskDone).toBe(0);
 });
 
+test("agent_end 合成事件（synthetic:true，kernel 兑底复位）→ 不播放提示音", () => {
+	// kernel 的扩展命令/compact/abort 兑底合成 agent_end 语义只是「退出思考态」，
+	// 不是真实任务完成：不播音效（否则 abort 时真实+合成各叫一声 = 一次完成叫两声）
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", willRetry: false, synthetic: true } as any),
+		);
+	expect(soundCalls.taskDone).toBe(0);
+});
+
 test("message_end 含 ask_user_question 但会话来自 IM 渠道（im- 前缀）→ 不播放", () => {
 	const imSessionId = "im-wecom-p1-123";
 	useSessionStore.getState().handleSDKEvent(

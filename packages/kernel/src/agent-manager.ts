@@ -1359,6 +1359,7 @@ export class AgentManager {
 				// 占位等不到终态事件，会一直转圈。合成 agent_end 让前端退出思考态。
 				this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 					type: "agent_end",
+					synthetic: true,
 				});
 			}
 		}, 50);
@@ -1394,6 +1395,7 @@ export class AgentManager {
 			// 这里只合成 agent_end 让前端退出思考态（压缩不产生 agent 事件）。
 			this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 				type: "agent_end",
+				synthetic: true,
 			});
 			return;
 		}
@@ -1403,6 +1405,7 @@ export class AgentManager {
 		// 压缩完成：合成 agent_end（前端退出思考态 + 触发 /compact token 刷新）
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "agent_end",
+			synthetic: true,
 		});
 		// 合成 agent_settled：走内部事件入口（复位 busy + drain 压缩期间排队的
 		// steer/followUp 消息），尾部转发 opts.onEvent 通知前端
@@ -1628,6 +1631,7 @@ export class AgentManager {
 			});
 			this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 				type: "agent_end",
+				synthetic: true,
 			});
 			// 拆除进程与资源：会话记录与 jsonl 保留，下次使用时 ensureStarted 自动重建
 			this._teardownSession(sessionId);
@@ -1639,8 +1643,11 @@ export class AgentManager {
 		// session.abort() 的 waitForIdle 立即返回，_emitAgentSettled 不触发）。
 		// 前端退出思考态靠 agent_end/agent_settled 事件，此处合成 agent_end 兜底，
 		// 否则停止成功后前端永远卡在「思考中」。超时强杀路径已在上方广播，此分支补。
+		// synthetic 标记：pi 可能已广播真实 agent_end（第 1 声），合成兑底不得再触发
+		// 完成音效（第 2 声）——一次任务完成只叫一声。
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "agent_end",
+			synthetic: true,
 		});
 		console.log(`[agent-manager] abort DONE session=${sessionId}`);
 	}
