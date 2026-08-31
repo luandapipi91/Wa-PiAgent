@@ -19,6 +19,13 @@
 - 验证：settings-trash + project-store-trash 27 tests / 0 fail；GeneralSection 9/9；四包 typecheck 绿。
 - 影响范围：packages/kernel/src/settings-store.ts、packages/frontend/src/components/settings/GeneralSection.tsx。
 
+## 2026-09-01 — chore(memory): memory_add 工具描述加「通用总结类才记」存储准则
+
+- 背景：agent 把什么都写入记忆（一次性任务细节、修 bug 过程等），记忆被当操作日志用。
+- 修复：重写 shared tool-schemas 的 MEM_ADD_DESC——明确记忆只存「可跨会话复用的通用总结类内容」（用户身份/偏好/习惯、稳定项目约定与决策、环境事实、可复用经验），排除一次性任务细节（改了哪些文件/修了什么 bug/命令输出/中间结果）与可从当前会话恢复的信息，并加「不确定就不记」判据；target/scope 参数指引保留。
+- 验证：TDD——tool-schemas.test 新增准则断言用例先红后绿 9/9；kernel amaster-memory + bridge 契约测试 41/41 不回归；shared/kernel typecheck 绿。
+- 影响范围：packages/shared/src/tool-schemas.ts、packages/shared/tests/tool-schemas.test.ts。
+
 ## 2026-09-01 — fix(preview): 元素选中开关与实际高亮状态失步（开启不亮/关闭反亮/刷新后失效）
 
 - 背景：html 预览的元素选中/高亮开关存在三症状：①开关开启但鼠标移入无高亮；②开关关闭页面反亮；③刷新后高亮失效需再刷一次。根因（消息链路全梳理）：开关状态唯一真相源是主应用 localStorage，iframe 内脚本初值偏向开（disabled=false），换代（刷新/自动刷新/mode 切换）后唯一同步路径是新文档主动 query→主应用回复——而所有消息发后即忘、换代窗口内被 e.source 严格校验静默丢弃（不可补偿）；另 Ctrl/⌘ 单按即翻转开关（⌘C 等组合键第一步也命中，高频扰动源）。
