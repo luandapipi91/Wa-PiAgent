@@ -1,7 +1,12 @@
 // LogoFrog 组件与动作池测试：渲染口径（sidebar-title 文本不变）、动作池过滤、动画结束复位。
 import { beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { LogoFrog, pickLogoAction, resetLogoActionCycle, LOGO_ACTION_MS } from "../src/components/ui/frog/LogoFrog";
+import {
+	LogoFrog,
+	pickLogoAction,
+	resetLogoActionCycle,
+	LOGO_ACTION_MS,
+} from "../src/components/ui/frog/LogoFrog";
 import type { LogoAction } from "../src/components/ui/frog/LogoFrog";
 
 beforeEach(() => {
@@ -12,7 +17,15 @@ beforeEach(() => {
 describe("pickLogoAction", () => {
 	test("返回的一定是合法动作且不与上一次重复（动作池仅 B 组，Logo 自身动作用常驻 idle 循环）", () => {
 		const LEGAL: LogoAction[] = [
-			"hopUp", "patrol", "peekaboo", "tongue", "slide", "lie", "vault", "push", "drum",
+			"hopUp",
+			"patrol",
+			"peekaboo",
+			"tongue",
+			"slide",
+			"lie",
+			"vault",
+			"push",
+			"drum",
 		];
 		for (let i = 0; i < 200; i++) {
 			const a = pickLogoAction(true);
@@ -30,7 +43,15 @@ describe("pickLogoAction", () => {
 
 	test("每个动作都有时长定义", () => {
 		const LEGAL: LogoAction[] = [
-			"hopUp", "patrol", "peekaboo", "tongue", "slide", "lie", "vault", "push", "drum",
+			"hopUp",
+			"patrol",
+			"peekaboo",
+			"tongue",
+			"slide",
+			"lie",
+			"vault",
+			"push",
+			"drum",
 		];
 		for (const a of LEGAL) {
 			expect(LOGO_ACTION_MS[a]).toBeGreaterThan(0);
@@ -42,7 +63,9 @@ describe("LogoFrog 渲染", () => {
 	test("渲染 Logo 块与标题，textContent 口径与旧版一致（WA PI / Agent）", () => {
 		render(<LogoFrog width={260} />);
 		expect(screen.getByTestId("sidebar-title").textContent).toContain("WA PI");
-		expect(screen.getByTestId("sidebar-title-agent").textContent).toContain("Agent");
+		expect(screen.getByTestId("sidebar-title-agent").textContent).toContain(
+			"Agent",
+		);
 		expect(document.querySelector(".wlf-logo")).toBeTruthy();
 	});
 

@@ -689,17 +689,17 @@ export function SketchSvg() {
 export function PixelSvg() {
 	return (
 		<g className="waf-root waf-root-pixel">
-		<g transform="translate(15,22)">
-			<g className="waf-pixel-frog">
-				<PixelFrogBody />
-				<g className="waf-pixel-eye-shut">
-					<rect x="18" y="18" width="18" height="9" fill="#6fbf4f" />
-					<rect x="54" y="18" width="18" height="9" fill="#6fbf4f" />
-					<rect x="20" y="21" width="14" height="3" fill="#22261e" />
-					<rect x="56" y="21" width="14" height="3" fill="#22261e" />
+			<g transform="translate(15,22)">
+				<g className="waf-pixel-frog">
+					<PixelFrogBody />
+					<g className="waf-pixel-eye-shut">
+						<rect x="18" y="18" width="18" height="9" fill="#6fbf4f" />
+						<rect x="54" y="18" width="18" height="9" fill="#6fbf4f" />
+						<rect x="20" y="21" width="14" height="3" fill="#22261e" />
+						<rect x="56" y="21" width="14" height="3" fill="#22261e" />
+					</g>
 				</g>
 			</g>
-		</g>
 			<path
 				className="waf-pixel-star"
 				d="M70 -52 l4 9 9 4 -9 4 -4 9 -4 -9 -9 -4 9 -4 z"
