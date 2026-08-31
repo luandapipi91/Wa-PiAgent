@@ -56,10 +56,14 @@ export const MEM_SCOPE_DESC =
   "Omit for the default — 'global' for the user target, 'project' for the memory target.";
 
 export const MEM_ADD_DESC =
-  "Append a new entry to memory. Save durable information that survives across sessions " +
-  "(user preferences, corrections, stable environment facts, conventions). Do NOT save task progress or temporary state. " +
+  "Append a new entry to memory. Memory stores generalizable summaries that future sessions need — " +
+  "NOT a log of everything you did. Record only: user identity/preferences/habits, stable project conventions " +
+  "and decisions, environment facts, reusable lessons. " +
+  "Do NOT record one-off task details (which files you edited, what bug you fixed, command output, " +
+  "intermediate results), temporary state, or anything recoverable from the current conversation or code. " +
+  "When in doubt, do not record. " +
   "TARGETS: 'user' for who the user is; 'memory' for your own notes. " +
-  "SCOPE: omit for default (user→global, memory→project), or set 'global'/'project' explicitly.";
+  "SCOPE: omit for the default — 'global' for the user target, 'project' for the memory target.";
 
 export const MEM_ADD_SNIPPET =
   "Append durable facts to MEMORY.md or USER.md (global or project scope).";
@@ -68,7 +72,8 @@ export const MEM_REPLACE_DESC =
   "Replace an existing memory entry. Find it by a short unique substring (oldText), replace with newContent. " +
   "Use this to update outdated entries instead of remove+add. SCOPE defaults like memory_add.";
 
-export const MEM_REPLACE_SNIPPET = "Update an existing MEMORY.md or USER.md entry.";
+export const MEM_REPLACE_SNIPPET =
+  "Update an existing MEMORY.md or USER.md entry.";
 
 export const MEM_REMOVE_DESC =
   "Remove a memory entry by a short unique substring (oldText). Use when an entry is wrong or no longer relevant. " +
@@ -80,7 +85,8 @@ export const MEM_READ_DESC =
   "Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
   "SCOPE defaults like memory_add.";
 
-export const MEM_READ_SNIPPET = "Read the current contents of MEMORY.md or USER.md.";
+export const MEM_READ_SNIPPET =
+  "Read the current contents of MEMORY.md or USER.md.";
 
 /** memory target schema（"memory" | "user"） */
 export const MemoryTargetSchema = Type.Union(
@@ -115,8 +121,7 @@ export const DELEGATE_DESCRIPTION = [
 
 export const DelegateParamsSchema = Type.Object({
   agent: Type.String({
-    description:
-      "可调起列表中的子智能体(subagent)名称",
+    description: "可调起列表中的子智能体(subagent)名称",
   }),
   task: Type.String({ description: "交给子智能体的任务描述" }),
 });
@@ -167,13 +172,24 @@ export const BROWSER_NAVIGATE_DESCRIPTION =
 export const BrowserNavigateParamsSchema = Type.Object({
   url: Type.String({ description: "http/https 或 about:blank URL" }),
   width: Type.Optional(
-    Type.Integer({ minimum: 1, maximum: 16384, description: "视口宽（仅新建视图时生效，默认 800）" }),
+    Type.Integer({
+      minimum: 1,
+      maximum: 16384,
+      description: "视口宽（仅新建视图时生效，默认 800）",
+    }),
   ),
   height: Type.Optional(
-    Type.Integer({ minimum: 1, maximum: 16384, description: "视口高（仅新建视图时生效，默认 600）" }),
+    Type.Integer({
+      minimum: 1,
+      maximum: 16384,
+      description: "视口高（仅新建视图时生效，默认 600）",
+    }),
   ),
   timeout: Type.Optional(
-    Type.Integer({ minimum: 1000, description: "页面加载超时毫秒数（默认 120000）" }),
+    Type.Integer({
+      minimum: 1000,
+      description: "页面加载超时毫秒数（默认 120000）",
+    }),
   ),
 });
 
@@ -203,8 +219,12 @@ export const BrowserEvaluateParamsSchema = Type.Object({
   selector: Type.Optional(
     Type.String({ description: "action=click/scrollTo 时的 CSS selector" }),
   ),
-  x: Type.Optional(Type.Integer({ description: "action=click 时的视口 x 坐标" })),
-  y: Type.Optional(Type.Integer({ description: "action=click 时的视口 y 坐标" })),
+  x: Type.Optional(
+    Type.Integer({ description: "action=click 时的视口 x 坐标" }),
+  ),
+  y: Type.Optional(
+    Type.Integer({ description: "action=click 时的视口 y 坐标" }),
+  ),
   button: Type.Optional(
     Type.Union([
       Type.Literal("left"),
@@ -224,7 +244,9 @@ export const BrowserEvaluateParamsSchema = Type.Object({
   ),
   clickCount: Type.Optional(Type.Integer({ minimum: 1, maximum: 3 })),
   text: Type.Optional(Type.String({ description: "action=type 时的文本" })),
-  key: Type.Optional(Type.String({ description: "action=press 时的键名或单字符" })),
+  key: Type.Optional(
+    Type.String({ description: "action=press 时的键名或单字符" }),
+  ),
   dx: Type.Optional(Type.Integer({ description: "action=scroll 的水平增量" })),
   dy: Type.Optional(Type.Integer({ description: "action=scroll 的垂直增量" })),
   block: Type.Optional(
@@ -236,7 +258,10 @@ export const BrowserEvaluateParamsSchema = Type.Object({
     ]),
   ),
   timeout: Type.Optional(
-    Type.Integer({ minimum: 100, description: "等待元素可操作/存在的毫秒数（默认 30000）" }),
+    Type.Integer({
+      minimum: 100,
+      description: "等待元素可操作/存在的毫秒数（默认 30000）",
+    }),
   ),
 });
 
@@ -252,7 +277,9 @@ export const BrowserScreenshotParamsSchema = Type.Object({
     ]),
   ),
   quality: Type.Optional(Type.Integer({ minimum: 0, maximum: 100 })),
-  return: Type.Optional(Type.Union([Type.Literal("path"), Type.Literal("base64")])),
+  return: Type.Optional(
+    Type.Union([Type.Literal("path"), Type.Literal("base64")]),
+  ),
 });
 
 export const BROWSER_CLOSE_DESCRIPTION =
