@@ -1,3 +1,10 @@
+## 2026-09-01 — v0.3.7 发版（预览高亮开关同步 + 归档 15 天 + 中文首启修复）
+
+- 版本：0.3.6 → 0.3.7。
+- 主要：回收站会话默认保留 15 天；归档区行改造（第一列标题、第二列角色）；预览高亮开关多窗口同步修复；桌面主进程 LOCALE 改为 app ready 后求值，修复中文打包版首启 splash/引导显示英文。
+- 验证：typecheck 全绿；四层回归全绿。
+- 影响范围：frontend（BrowserPanel/preview-inspect/TrashSessionRow/settings-store）、kernel（preview-inspect.js）、desktop（main.cjs LOCALE）。
+
 ## 2026-09-01 — fix(trash): 归档区行增加会话标题列（第一列标题、第二列角色）
 
 - 背景：归档区列表行首列主体显示的是 session.primaryAgent（角色名），没有会话标题列。用户要求第一列显示会话标题、角色放第二列。
