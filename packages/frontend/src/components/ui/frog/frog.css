@@ -1867,3 +1867,575 @@
 		transform: scale(1, 1);
 	}
 }
+
+/* ========================================================================
+   Logo 鍔ㄦ€侀潚铔欙紙LogoFrog锛夛細闈欐€?Logo 澶嶅埢 + 14 涓殢鏈哄皬鍔ㄤ綔銆?   鑺傚锛欽S 姣?10~20s 闅忔満瑙﹀彂涓€娆★紙.wlf-a-<action> 鎸傚湪 .wlf-row 涓婏級锛?   骞虫椂瀹屽叏闈欐銆傞粯璁ら殣钘忎粎浣滅敤浜庝簲涓姩浣滃厓绱狅紙鐩存帴閫夋嫨鍣紝鏃犻€氶厤锛?   瑙勯伩鐧藉悕鍗曢仐婕忛棶棰橈級锛?wlf-avatar / .wlf-tongue / .wlf-eyelids /
+   .wlf-quack-bubble / .wlf-zzz锛屽叾浣欏叏閮ㄥ父鏄俱€?   ======================================================================== */
+.wlf-row .wlf-avatar,
+.wlf-row .wlf-tongue,
+.wlf-row .wlf-eyelids,
+.wlf-row .wlf-quack-bubble,
+.wlf-row .wlf-zzz {
+	opacity: 0;
+}
+.wlf-row [class^="wlf-"],
+.wlf-row .wlf-ch-t {
+	transform-box: fill-box;
+	transform-origin: 50% 50%;
+}
+/* 铔?z 鍦ㄦ枃瀛椾笅灞傦細鎺㈠ご鏃惰涓嶉€忔槑鏍囬閬綇褰㈡垚"韬?鐨勬晥鏋?*/
+.wlf-row .wlf-avatar {
+	position: absolute;
+	left: 9px;
+	top: 11px;
+	z-index: 0;
+}
+.wlf-row > [data-testid="sidebar-title"] {
+	position: relative;
+	z-index: 1;
+}
+.wlf-row .wlf-tongue {
+	left: 34px;
+	top: 20px;
+	height: 8px;
+	width: calc(var(--wlf-tx, 160px) - 34px);
+	background: #e2707a;
+	border-radius: 4px;
+	transform-origin: 0 50%;
+}
+
+/* ---------- A1 blink 鐪ㄧ溂锛?600ms锛?---------- */
+.wlf-a-blink .wlf-eyelids {
+	animation: wlf-blink-lids 2600ms ease-in-out forwards;
+	transform-origin: 50% 20%;
+}
+@keyframes wlf-blink-lids {
+	0%,
+	30% {
+		opacity: 0;
+		transform: scaleY(0.4);
+	}
+	40%,
+	60% {
+		opacity: 1;
+		transform: scaleY(1);
+	}
+	70%,
+	100% {
+		opacity: 0;
+		transform: scaleY(0.4);
+	}
+}
+
+/* ---------- A2 quack 榧撴皵鍛憋紙3000ms锛?---------- */
+.wlf-a-quack .wlf-face {
+	animation: wlf-quack-face 3000ms ease-in-out forwards;
+	transform-origin: 50% 70%;
+}
+@keyframes wlf-quack-face {
+	0%,
+	30% {
+		transform: scale(1, 1);
+	}
+	45% {
+		transform: scale(1.05, 1.1);
+	}
+	58% {
+		transform: scale(1.03, 1.05);
+	}
+	70%,
+	100% {
+		transform: scale(1, 1);
+	}
+}
+.wlf-a-quack .wlf-quack-bubble {
+	animation: wlf-quack-bubble 3000ms ease-out forwards;
+	transform-origin: 0 90%;
+}
+@keyframes wlf-quack-bubble {
+	0%,
+	35% {
+		opacity: 0;
+		transform: scale(0);
+	}
+	46% {
+		opacity: 1;
+		transform: scale(1.12);
+	}
+	54% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	70% {
+		opacity: 1;
+	}
+	82%,
+	100% {
+		opacity: 0;
+		transform: scale(0.9);
+	}
+}
+
+/* ---------- A3 peek 宸﹀彸寮犳湜锛?800ms锛?---------- */
+.wlf-a-peek .wlf-face {
+	animation: wlf-peek-face 2800ms ease-in-out forwards;
+}
+@keyframes wlf-peek-face {
+	0%,
+	25% {
+		transform: translateX(0);
+	}
+	40% {
+		transform: translateX(8px);
+	}
+	55% {
+		transform: translateX(-8px);
+	}
+	70%,
+	100% {
+		transform: translateX(0);
+	}
+}
+
+/* ---------- A4 sleep 鎵撶浌锛?200ms锛?---------- */
+.wlf-a-sleep .wlf-eyelids {
+	animation: wlf-sleep-lids 4200ms ease-in-out forwards;
+}
+@keyframes wlf-sleep-lids {
+	0%,
+	12% {
+		opacity: 0;
+	}
+	22%,
+	78% {
+		opacity: 1;
+	}
+	88%,
+	100% {
+		opacity: 0;
+	}
+}
+.wlf-a-sleep .wlf-zzz {
+	animation: wlf-zzz-float 4200ms ease-out forwards;
+}
+.wlf-a-sleep .wlf-zzz.z2 {
+	animation-delay: 0.5s;
+}
+@keyframes wlf-zzz-float {
+	0%,
+	20% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	34% {
+		opacity: 1;
+	}
+	52%,
+	100% {
+		opacity: 0;
+		transform: translate(6px, -14px);
+	}
+}
+
+/* ---------- A5 flip 缈昏窡澶达紙3000ms锛?---------- */
+.wlf-a-flip .wlf-face {
+	animation: wlf-flip-face 3000ms ease-in-out forwards;
+	transform-origin: 50% 50%;
+}
+@keyframes wlf-flip-face {
+	0%,
+	30% {
+		transform: scaleX(1);
+	}
+	46% {
+		transform: scaleX(0);
+	}
+	62% {
+		transform: scaleX(-1);
+	}
+	78%,
+	100% {
+		transform: scaleX(1);
+	}
+}
+
+/* ---------- B1 hopUp 璺充笂鏂囧瓧锛?600ms锛?---------- */
+.wlf-a-hopUp .wlf-avatar {
+	animation: wlf-hopUp 3600ms ease-in-out forwards;
+}
+@keyframes wlf-hopUp {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	6% {
+		opacity: 1;
+	}
+	16% {
+		transform: translate(20px, -8px) scale(1.05, 0.92);
+	}
+	30% {
+		transform: translate(48px, -20px) scale(0.95, 1.12);
+	}
+	38% {
+		transform: translate(62px, -16px) scale(1.1, 0.88);
+	}
+	44% {
+		transform: translate(60px, -18px) scale(1, 1);
+	}
+	74% {
+		opacity: 1;
+		transform: translate(60px, -18px);
+	}
+	86% {
+		opacity: 1;
+		transform: translate(24px, -6px) scale(0.98, 1.08);
+	}
+	96%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+
+/* ---------- B2 patrol 鏂囧瓧宸￠€伙紙4600ms锛?---------- */
+.wlf-a-patrol .wlf-avatar {
+	animation: wlf-patrol 4600ms ease-in-out forwards;
+}
+@keyframes wlf-patrol {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0) scaleX(1);
+	}
+	6% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(10px, 12px);
+	}
+	44% {
+		transform: translate(96px, 12px);
+	}
+	54% {
+		transform: translate(100px, 12px) scaleX(-1);
+	}
+	84% {
+		transform: translate(10px, 12px) scaleX(-1);
+	}
+	90% {
+		opacity: 1;
+		transform: translate(0, 12px) scaleX(-1);
+	}
+	96%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0) scaleX(1);
+	}
+}
+
+/* ---------- B3 peekaboo 鏂囧瓧鍚庢帰澶达紙4000ms锛?---------- */
+.wlf-a-peekaboo .wlf-avatar {
+	animation: wlf-peekaboo 4000ms ease-in-out forwards;
+}
+@keyframes wlf-peekaboo {
+	0%,
+	8% {
+		opacity: 0;
+		transform: translate(0, 6px);
+	}
+	14%,
+	22% {
+		opacity: 1;
+		transform: translate(16px, 0);
+	}
+	18% {
+		transform: translate(14px, -3px);
+	}
+	28%,
+	34% {
+		opacity: 0;
+		transform: translate(0, 6px);
+	}
+	42%,
+	50% {
+		opacity: 1;
+		transform: translate(18px, 0);
+	}
+	56%,
+	62% {
+		opacity: 0;
+		transform: translate(0, 6px);
+	}
+	70%,
+	78% {
+		opacity: 1;
+		transform: translate(16px, 0);
+	}
+	88%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 6px);
+	}
+}
+
+/* ---------- B4 tongue 鑸屽ご鍗峰瓧姣嶏紙3600ms锛岄渶瀹屾暣鏂囧瓧锛?---------- */
+.wlf-a-tongue .wlf-tongue {
+	opacity: 1;
+	animation: wlf-tongue-out 3600ms ease-in-out forwards;
+}
+@keyframes wlf-tongue-out {
+	0%,
+	30% {
+		transform: scaleX(0);
+	}
+	42% {
+		transform: scaleX(1);
+	}
+	54% {
+		transform: scaleX(1);
+	}
+	66%,
+	100% {
+		transform: scaleX(0);
+	}
+}
+.wlf-a-tongue .wlf-ch-t {
+	animation: wlf-t-pull 3600ms ease-in-out forwards;
+	transform-origin: 50% 100%;
+}
+@keyframes wlf-t-pull {
+	0%,
+	40% {
+		transform: translate(0, 0) rotate(0deg);
+	}
+	48% {
+		transform: translate(-4px, -5px) rotate(-14deg);
+	}
+	56%,
+	100% {
+		transform: translate(0, 0) rotate(0deg);
+	}
+}
+
+/* ---------- B5 slide A瀛楁粦姊紙3600ms锛岄渶瀹屾暣鏂囧瓧锛?---------- */
+.wlf-a-slide .wlf-avatar {
+	animation: wlf-slide 3600ms ease-in-out forwards;
+}
+@keyframes wlf-slide {
+	0% {
+		opacity: 0;
+		transform: translate(48px, -14px) rotate(-20deg);
+	}
+	10% {
+		opacity: 1;
+	}
+	20% {
+		transform: translate(58px, 6px) rotate(24deg);
+	}
+	30% {
+		transform: translate(74px, 18px) rotate(0deg);
+	}
+	40%,
+	48% {
+		opacity: 1;
+		transform: translate(78px, 20px);
+	}
+	62% {
+		opacity: 0;
+		transform: translate(40px, 10px);
+	}
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+
+/* ---------- B6 lie 鏂囧瓧搴婂崍鐫★紙4600ms锛岄渶瀹屾暣鏂囧瓧锛?---------- */
+.wlf-a-lie .wlf-avatar {
+	animation: wlf-lie 4600ms ease-in-out forwards;
+}
+@keyframes wlf-lie {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0) rotate(0deg);
+	}
+	6% {
+		opacity: 1;
+	}
+	18% {
+		transform: translate(40px, 8px) rotate(80deg);
+	}
+	26%,
+	66% {
+		transform: translate(62px, 12px) rotate(90deg);
+	}
+	76% {
+		opacity: 1;
+		transform: translate(40px, 0) rotate(0deg);
+	}
+	86%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+
+/* ---------- B7 vault 璺抽┈瓒婂瓧锛?600ms锛?---------- */
+.wlf-a-vault .wlf-avatar {
+	animation: wlf-vault 3600ms ease-in-out forwards;
+}
+@keyframes wlf-vault {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	5% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(6px, -6px) scale(1.06, 0.9);
+	}
+	28% {
+		transform: translate(36px, -30px) rotate(-14deg) scale(0.95, 1.1);
+	}
+	42% {
+		transform: translate(74px, -8px) rotate(10deg) scale(1.06, 0.92);
+	}
+	50% {
+		transform: translate(88px, 2px) rotate(0deg) scale(1, 1);
+	}
+	60% {
+		opacity: 1;
+		transform: translate(88px, 2px);
+	}
+	74%,
+	100% {
+		opacity: 0;
+		transform: translate(30px, 2px) scaleX(-1);
+	}
+}
+
+/* ---------- B8 push 鎺ㄥ瓧锛?600ms锛岄渶瀹屾暣鏂囧瓧锛?---------- */
+.wlf-a-push .wlf-avatar {
+	animation: wlf-push-walk 3600ms ease-in-out forwards;
+}
+@keyframes wlf-push-walk {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	8% {
+		opacity: 1;
+	}
+	30% {
+		transform: translate(calc(var(--wlf-tx, 160px) - 60px), 6px);
+	}
+	44% {
+		transform: translate(calc(var(--wlf-tx, 160px) - 52px), 6px);
+	}
+	58% {
+		transform: translate(calc(var(--wlf-tx, 160px) - 66px), 6px);
+	}
+	72% {
+		opacity: 1;
+		transform: translate(calc(var(--wlf-tx, 160px) - 60px), 6px);
+	}
+	86%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+.wlf-a-push .wlf-ch-t {
+	animation: wlf-t-tilt 3600ms ease-in-out forwards;
+	transform-origin: 30% 100%;
+}
+@keyframes wlf-t-tilt {
+	0%,
+	30% {
+		transform: rotate(0deg);
+	}
+	42% {
+		transform: rotate(13deg);
+	}
+	54% {
+		transform: rotate(10deg);
+	}
+	68%,
+	100% {
+		transform: rotate(0deg);
+	}
+}
+
+/* ---------- B9 drum 鏂囧瓧鏈ㄧ惔锛?600ms锛?---------- */
+.wlf-a-drum .wlf-avatar {
+	animation: wlf-drum-walk 3600ms ease-in-out forwards;
+}
+@keyframes wlf-drum-walk {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	8% {
+		opacity: 1;
+	}
+	22% {
+		transform: translate(28px, 4px);
+	}
+	30% {
+		transform: translate(24px, 0) rotate(-10deg);
+	}
+	40% {
+		transform: translate(28px, 4px) rotate(0deg);
+	}
+	50% {
+		transform: translate(24px, 0) rotate(-10deg);
+	}
+	60% {
+		transform: translate(28px, 4px) rotate(0deg);
+	}
+	70% {
+		transform: translate(24px, 0) rotate(-10deg);
+	}
+	80% {
+		opacity: 1;
+		transform: translate(28px, 4px) rotate(0deg);
+	}
+	90%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+.wlf-a-drum .wlf-ch-w {
+	animation: wlf-ch-bounce 3600ms ease-in-out;
+}
+.wlf-a-drum .wlf-ch-a2 {
+	animation: wlf-ch-bounce 3600ms ease-in-out 0.15s;
+}
+.wlf-a-drum .wlf-ch-p {
+	animation: wlf-ch-bounce 3600ms ease-in-out 0.3s;
+}
+.wlf-a-drum .wlf-ch-i {
+	animation: wlf-ch-bounce 3600ms ease-in-out 0.45s;
+}
+@keyframes wlf-ch-bounce {
+	0%,
+	29%,
+	35%,
+	41%,
+	47%,
+	53%,
+	59%,
+	100% {
+		transform: translateY(0);
+	}
+	32%,
+	38%,
+	44%,
+	50%,
+	56% {
+		transform: translateY(-4px);
+	}
+}
+
