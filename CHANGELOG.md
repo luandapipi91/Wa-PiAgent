@@ -1,3 +1,11 @@
+## 2026-08-31 — feat(frontend): 任务完成青蛙全量重设计（19 动画变体 × 8 位置）
+
+- 需求：现有 4 姿势青蛙动画被判定过丑，POC 对齐后拍板 19 个新动画变体全量替换（16 剪影月光被排除），出现位置从 4 角扩展为 8 处（上左/上中/上右/中左/中右/下左/下中/下右）。
+- 实现：新架构 components/ui/frog/（TaskDoneFrog 入口 + variantSvgs 19 个 SVG + frog.css 全部 keyframes）；位置系统用 CSS 变量（--fx-ex/--fx-ey/--fx-hx/--fx-ix）注入走位向量，一套 keyframes 适配 8 位置；变体随机不连续重复。修复“默认隐藏+动画点亮”架构中 waf-root/stage 包装层被默认规则误隐藏导致青蛙完全不渲染的问题（根因：opacity 乘法叠加）。
+- 附带：session.ts 补充 synthetic agent_end（kernel 兑底合成）不触发青蛙/提示音的过滤（并行会话红灯测试转绿）；styles.css 旧 wa-frog-* 段落清除。
+- 测试：frog 相关 22 用例全绿（变体合法性/不连续重复/位置覆盖/组件渲染/触发链路/接线）；真实浏览器 8 位置 × sign 变体渲染验证通过。
+- 影响范围：packages/frontend/src/{util/frog.ts,store/frog.ts,store/session.ts,components/MessageList.tsx,components/ui/frog/*,styles.css}、tests/frog*.test.ts、tests/TaskDoneFrog.test.tsx、docs/superpowers/specs/2026-08-31-frog-variants-8spots-design.md（新增）。
+
 ## 2026-08-31 — chore(kernel): 单个子代理委派整体硬上限默认 60 分钟 → 2 小时
 
 - 需求：单个子代理委派超时上限增长到 2 小时（用户拍板）。COMMAND_TIMEOUT_MS 同时是 RPC 命令超时与 settle 兑底共用默认值，一处常量两处生效。
