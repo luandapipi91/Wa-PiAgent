@@ -32,7 +32,7 @@ import { useToastStore } from "../store/toast";
 import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
 import { useContactsStore } from "../store/contacts";
-import { TaskDoneFrog } from "./ui/TaskDoneFrog";
+import { TaskDoneFrog } from "./ui/frog/TaskDoneFrog";
 import { DelegateCard } from "./blocks/DelegateCard";
 import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
