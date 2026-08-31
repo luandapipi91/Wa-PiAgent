@@ -6,6 +6,13 @@
 - 验证：新增前端 2 用例 + kernel 4 处断言先红后绿；session-sound/frog 12/12、agent-manager 116 pass（唯一 fail 为既有图片压缩环境性失败，与本次无关）；三包 typecheck 绿。
 - 影响范围：packages/kernel/src/agent-manager.ts、packages/shared/src/types.ts、packages/kernel/tests/agent-manager.test.ts、packages/frontend/tests/session-sound.test.ts。
 
+## 2026-08-31 — feat(frontend): 左上角 Logo 换成动态青蛙（14 动作随机 · 10~20s 一次）
+
+- 需求：Logo 从静态 SVG 换成动态青蛙，随机做小动作、围绕标题文字互动；用户拍板参数：全部动作进随机池、10~20 秒一次、平时完全静止。
+- 实现：新组件 components/ui/frog/LogoFrog.tsx 替换 Sidebar 顶部静态 img+标题（内联 SVG 复刻 logo.svg + 标题字母拆 span，textContent 口径不变）；A 组 5 个 Logo 内动作（眨眼/鼓气/张望/打盹/翻面）+ B 组 9 个跳出文字互动（跳上文字/巡逻/探头/卷字/滑梯/躺字/跳马/推字/木琴）；动作随机不连续重复，窄侧栏（<240）自动退出字母级动作；卷字/推字目标坐标由 getBoundingClientRect 写入 CSS 变量。动画追加在 frog.css（wlf- 前缀，与任务蛙 waf- 隔离）。
+- 测试：新增 LogoFrog.test.tsx（动作池过滤/不重复/渲染口径/复位）；Sidebar 全部 10 用例、青蛙相关 39 用例全绿；typecheck 绿；真实浏览器逐动作定格截图验证通过。
+- 影响范围：packages/frontend/src/components/{Sidebar.tsx,ui/frog/LogoFrog.tsx,ui/frog/frog.css}、tests/LogoFrog.test.tsx、docs/superpowers/specs/2026-08-31-logo-frog-design.md（新增）。
+
 ## 2026-08-31 — feat(frontend): 任务完成青蛙全量重设计（19 动画变体 × 8 位置）
 
 - 需求：现有 4 姿势青蛙动画被判定过丑，POC 对齐后拍板 19 个新动画变体全量替换（16 剪影月光被排除），出现位置从 4 角扩展为 8 处（上左/上中/上右/中左/中右/下左/下中/下右）。
