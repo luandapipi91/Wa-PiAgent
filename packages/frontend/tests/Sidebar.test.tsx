@@ -166,11 +166,11 @@ test("侧栏窄宽（<240）→ 回收站/系统设置按钮 compact：隐藏文
 	expect(settingsBtn.querySelector("svg")).toBeTruthy();
 });
 
-test("侧栏宽（≥240）→ 回收站/系统设置显示文字", () => {
+test("侧栏宽（≥240）→ 归档区/系统设置显示文字", () => {
 	const { useSidebarStore } = require("../src/store/sidebar");
 	useSidebarStore.setState({ width: 264 });
 	renderSidebar();
-	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("回收站");
+	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("归档区");
 	expect(screen.getByTestId("settings-btn").textContent).toContain("系统设置");
 });
 

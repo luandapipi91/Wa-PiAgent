@@ -6,9 +6,9 @@ afterEach(() => {
 	cleanup();
 });
 
-test("正常显示回收站文字", () => {
+test("正常显示归档区文字", () => {
 	render(<RecycleBinButton onClick={() => {}} />);
-	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("回收站");
+	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("归档区");
 });
 
 test("compact 模式：隐藏文字只保留图标", () => {
@@ -45,6 +45,6 @@ test("compact 模式仍显示未读角标", () => {
 
 test("compact=false 正常显示文字与角标", () => {
 	render(<RecycleBinButton onClick={() => {}} count={5} compact={false} />);
-	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("回收站");
+	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("归档区");
 	expect(screen.getByTestId("recycle-bin-badge").textContent).toBe("5");
 });
