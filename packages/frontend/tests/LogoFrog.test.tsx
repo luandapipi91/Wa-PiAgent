@@ -10,10 +10,9 @@ beforeEach(() => {
 });
 
 describe("pickLogoAction", () => {
-	test("返回的一定是合法动作且不与上一次重复", () => {
+	test("返回的一定是合法动作且不与上一次重复（动作池仅 B 组，Logo 自身动作用常驻 idle 循环）", () => {
 		const LEGAL: LogoAction[] = [
-			"blink", "quack", "peek", "sleep", "flip", "hopUp", "patrol", "peekaboo",
-			"tongue", "slide", "lie", "vault", "push", "drum",
+			"hopUp", "patrol", "peekaboo", "tongue", "slide", "lie", "vault", "push", "drum",
 		];
 		for (let i = 0; i < 200; i++) {
 			const a = pickLogoAction(true);
@@ -31,8 +30,7 @@ describe("pickLogoAction", () => {
 
 	test("每个动作都有时长定义", () => {
 		const LEGAL: LogoAction[] = [
-			"blink", "quack", "peek", "sleep", "flip", "hopUp", "patrol", "peekaboo",
-			"tongue", "slide", "lie", "vault", "push", "drum",
+			"hopUp", "patrol", "peekaboo", "tongue", "slide", "lie", "vault", "push", "drum",
 		];
 		for (const a of LEGAL) {
 			expect(LOGO_ACTION_MS[a]).toBeGreaterThan(0);
