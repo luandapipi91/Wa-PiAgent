@@ -70,7 +70,12 @@ export function looksBinary(bytes: Uint8Array): boolean {
 	return false;
 }
 
-function gh<T>(method: string, path: string, pat: string, body?: unknown): Promise<T> {
+function gh<T>(
+	method: string,
+	path: string,
+	pat: string,
+	body?: unknown,
+): Promise<T> {
 	return fetch(`${API}${path}`, {
 		method,
 		headers: {
@@ -82,7 +87,9 @@ function gh<T>(method: string, path: string, pat: string, body?: unknown): Promi
 	}).then(async (res) => {
 		if (!res.ok) {
 			const text = await res.text().catch(() => "");
-			throw new Error(`GitHub API ${method} ${path} -> ${res.status}: ${text.slice(0, 300)}`);
+			throw new Error(
+				`GitHub API ${method} ${path} -> ${res.status}: ${text.slice(0, 300)}`,
+			);
 		}
 		return res.json() as Promise<T>;
 	});
@@ -119,10 +126,13 @@ function gitOut(args: string[], input?: string): Buffer {
 }
 
 function getPat(): string {
-	const out = gitOut(["credential", "fill"], "protocol=https\nhost=github.com\n\n")
-		.toString("utf8");
+	const out = gitOut(
+		["credential", "fill"],
+		"protocol=https\nhost=github.com\n\n",
+	).toString("utf8");
 	const m = out.match(/^password=(.+)$/m);
-	if (!m) throw new Error("git credential fill 未取到 github.com 的 PAT，请先配置凭据");
+	if (!m)
+		throw new Error("git credential fill 未取到 github.com 的 PAT，请先配置凭据");
 	return m[1];
 }
 
@@ -133,25 +143,34 @@ async function main() {
 	const message =
 		msgIdx >= 0 && args[msgIdx + 1]
 			? args[msgIdx + 1]
-			: (execSync("git log -1 --pretty=%B").toString("utf8").trim() || "sync");
+			: execSync("git log -1 --pretty=%B").toString("utf8").trim() || "sync";
 
 	const pat = getPat();
 	const log = (s: string) => console.log(s);
 
 	// 1. 本地全量清单
-	const local = (gitOut(["ls-tree", "-r", "HEAD"]).toString("utf8")
+	const local = gitOut(["ls-tree", "-r", "HEAD"])
+		.toString("utf8")
 		.split("\n")
 		.filter(Boolean)
 		.map(parseLsTreeLine)
-		.filter((e): e is LsTreeEntry => e !== null));
+		.filter((e): e is LsTreeEntry => e !== null);
 	log(`local files: ${local.length}`);
 
 	// 2. 远端当前 ref/commit/tree
 	const ref = await ghRetry<{ object: { sha: string } }>(
-		"GET", `/git/ref/heads/${BRANCH}`, pat, undefined, log,
+		"GET",
+		`/git/ref/heads/${BRANCH}`,
+		pat,
+		undefined,
+		log,
 	);
 	const commit0 = await ghRetry<{ tree: { sha: string } }>(
-		"GET", `/git/commits/${ref.object.sha}`, pat, undefined, log,
+		"GET",
+		`/git/commits/${ref.object.sha}`,
+		pat,
+		undefined,
+		log,
 	);
 	const baseTreeSha = commit0.tree.sha;
 	log(`remote base tree: ${baseTreeSha}`);
@@ -179,14 +198,19 @@ async function main() {
 				: { content: bytes.toString("utf8") };
 			await ghRetry("POST", "/git/blobs", pat, body, log);
 			uploaded++;
-			if (uploaded % 25 === 0) log(`  verified+uploaded: missing=${missing} uploaded=${uploaded}`);
+			if (uploaded % 25 === 0)
+				log(`  verified+uploaded: missing=${missing} uploaded=${uploaded}`);
 		}
 		log(`blob verify: missing=${missing} re-uploaded=${uploaded}`);
 	}
 
 	// 4. 远端 path 集合 → 增量条目
 	const remoteTree = await ghRetry<{ tree: { path: string; type: string }[] }>(
-		"GET", `/git/trees/${baseTreeSha}?recursive=1`, pat, undefined, log,
+		"GET",
+		`/git/trees/${baseTreeSha}?recursive=1`,
+		pat,
+		undefined,
+		log,
 	);
 	const remotePaths = new Set(
 		remoteTree.tree.filter((t) => t.type === "blob").map((t) => t.path),
@@ -197,20 +221,35 @@ async function main() {
 
 	// 5. 增量 tree → 快照 commit → 强推
 	const newTree = await ghRetry<{ sha: string }>(
-		"POST", "/git/trees", pat, { base_tree: baseTreeSha, tree: entries }, log,
+		"POST",
+		"/git/trees",
+		pat,
+		{ base_tree: baseTreeSha, tree: entries },
+		log,
 	);
 	log(`new tree: ${newTree.sha}`);
 	const newCommit = await ghRetry<{ sha: string }>(
-		"POST", "/git/commits", pat, { message, tree: newTree.sha, parents: [] }, log,
+		"POST",
+		"/git/commits",
+		pat,
+		{ message, tree: newTree.sha, parents: [] },
+		log,
 	);
 	log(`new commit: ${newCommit.sha}`);
 	await ghRetry(
-		"PATCH", `/git/refs/heads/${BRANCH}`, pat, { sha: newCommit.sha, force: true }, log,
+		"PATCH",
+		`/git/refs/heads/${BRANCH}`,
+		pat,
+		{ sha: newCommit.sha, force: true },
+		log,
 	);
 
 	// 6. 验证
 	const verify = await gh<{ object: { sha: string } }>(
-		"GET", `/git/ref/heads/${BRANCH}`, pat, undefined,
+		"GET",
+		`/git/ref/heads/${BRANCH}`,
+		pat,
+		undefined,
 	);
 	if (verify.object.sha === newCommit.sha) {
 		log(`MIRROR SYNC OK: ${REPO}@${BRANCH} -> ${verify.object.sha}`);
