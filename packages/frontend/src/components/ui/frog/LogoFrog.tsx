@@ -31,7 +31,12 @@ const ACTIONS: LogoAction[] = [
 ];
 
 /** 依赖完整文字（" Agent" 存在）的字母级动作：窄侧边栏时退出动作池。 */
-const FULL_TEXT_ONLY: ReadonlySet<string> = new Set(["tongue", "slide", "lie", "push"]);
+const FULL_TEXT_ONLY: ReadonlySet<string> = new Set([
+	"tongue",
+	"slide",
+	"lie",
+	"push",
+]);
 
 /** 各动作动画时长（ms），与 frog.css 的 wlf- keyframes 一致。 */
 export const LOGO_ACTION_MS: Record<LogoAction, number> = {
@@ -49,8 +54,13 @@ export const LOGO_ACTION_MS: Record<LogoAction, number> = {
 let lastAction: LogoAction | null = null;
 
 /** 随机挑一个动作，不与上一次重复；fullText=false 时排除字母级动作。rng 可注入。 */
-export function pickLogoAction(fullText: boolean, rng: () => number = Math.random): LogoAction {
-	const pool = ACTIONS.filter((a) => a !== lastAction && (fullText || !FULL_TEXT_ONLY.has(a)));
+export function pickLogoAction(
+	fullText: boolean,
+	rng: () => number = Math.random,
+): LogoAction {
+	const pool = ACTIONS.filter(
+		(a) => a !== lastAction && (fullText || !FULL_TEXT_ONLY.has(a)),
+	);
 	const picked = pool[Math.floor(rng() * pool.length)] ?? pool[0];
 	lastAction = picked;
 	return picked;
@@ -62,7 +72,15 @@ export function resetLogoActionCycle(): void {
 }
 
 /** 标题字母 span（inline-block 才能吃 transform）。 */
-function Ch({ c, cls, chRef }: { c: string; cls?: string; chRef?: React.Ref<HTMLSpanElement> }) {
+function Ch({
+	c,
+	cls,
+	chRef,
+}: {
+	c: string;
+	cls?: string;
+	chRef?: React.Ref<HTMLSpanElement>;
+}) {
 	if (c === " ") {
 		return (
 			<span style={{ display: "inline-block", whiteSpace: "pre" }}>{c}</span>
@@ -89,10 +107,13 @@ export function LogoFrog({ width }: { width: number }) {
 		let timer: ReturnType<typeof setTimeout>;
 		const schedule = () => {
 			if (cancelled) return;
-			timer = setTimeout(() => {
-				if (cancelled) return;
-				setActive(pickLogoAction(fullText));
-			}, 10_000 + Math.random() * 10_000);
+			timer = setTimeout(
+				() => {
+					if (cancelled) return;
+					setActive(pickLogoAction(fullText));
+				},
+				10_000 + Math.random() * 10_000,
+			);
 		};
 		scheduleRef.current = schedule;
 		schedule();
@@ -113,8 +134,14 @@ export function LogoFrog({ width }: { width: number }) {
 		const t = letterTRef.current?.getBoundingClientRect();
 		const row = rowRef.current?.getBoundingClientRect();
 		if (!t || !row || !rowRef.current) return;
-		rowRef.current.style.setProperty("--wlf-tx", `${Math.round(t.left - row.left + t.width / 2)}px`);
-		rowRef.current.style.setProperty("--wlf-ty", `${Math.round(t.top - row.top)}px`);
+		rowRef.current.style.setProperty(
+			"--wlf-tx",
+			`${Math.round(t.left - row.left + t.width / 2)}px`,
+		);
+		rowRef.current.style.setProperty(
+			"--wlf-ty",
+			`${Math.round(t.top - row.top)}px`,
+		);
 	}, [active]);
 
 	return (
@@ -153,11 +180,32 @@ export function LogoFrog({ width }: { width: number }) {
 				<rect x="10" y="10" width="120" height="120" rx="26" fill="#4BA26F" />
 				<g transform="translate(10,10)">
 					<g className="wlf-face">
-						<circle cx="60" cy="64" r="38" stroke="#FFFFFF" strokeWidth="2.5" fill="none" />
+						<circle
+							cx="60"
+							cy="64"
+							r="38"
+							stroke="#FFFFFF"
+							strokeWidth="2.5"
+							fill="none"
+						/>
 						<circle cx="38" cy="30" r="18" fill="#FFFFFF" />
-						<circle cx="38" cy="30" r="18" stroke="#FFFFFF" strokeWidth="2.5" fill="none" />
+						<circle
+							cx="38"
+							cy="30"
+							r="18"
+							stroke="#FFFFFF"
+							strokeWidth="2.5"
+							fill="none"
+						/>
 						<circle cx="82" cy="30" r="18" fill="#FFFFFF" />
-						<circle cx="82" cy="30" r="18" stroke="#FFFFFF" strokeWidth="2.5" fill="none" />
+						<circle
+							cx="82"
+							cy="30"
+							r="18"
+							stroke="#FFFFFF"
+							strokeWidth="2.5"
+							fill="none"
+						/>
 						<circle cx="38" cy="31" r="11" fill="#16171B" />
 						<circle cx="82" cy="31" r="11" fill="#16171B" />
 						<circle cx="33" cy="24" r="5" fill="#FFFFFF" />
@@ -178,19 +226,61 @@ export function LogoFrog({ width }: { width: number }) {
 					<g className="wlf-eyelids">
 						<ellipse cx="38" cy="16" rx="19" ry="15" fill="#4BA26F" />
 						<ellipse cx="82" cy="16" rx="19" ry="15" fill="#4BA26F" />
-						<path d="M24 30 Q38 40 52 30" stroke="#FFFFFF" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-						<path d="M68 30 Q82 40 96 30" stroke="#FFFFFF" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+						<path
+							d="M24 30 Q38 40 52 30"
+							stroke="#FFFFFF"
+							strokeWidth="2.5"
+							fill="none"
+							strokeLinecap="round"
+						/>
+						<path
+							d="M68 30 Q82 40 96 30"
+							stroke="#FFFFFF"
+							strokeWidth="2.5"
+							fill="none"
+							strokeLinecap="round"
+						/>
 					</g>
 					<g className="wlf-quack-bubble">
-						<rect x="96" y="6" width="36" height="20" rx="10" fill="#fff" stroke="#3f6d33" strokeWidth="2" />
-						<text x="114" y="21" textAnchor="middle" fontSize="13" fontWeight="700" fill="#3f8e4f">
+						<rect
+							x="96"
+							y="6"
+							width="36"
+							height="20"
+							rx="10"
+							fill="#fff"
+							stroke="#3f6d33"
+							strokeWidth="2"
+						/>
+						<text
+							x="114"
+							y="21"
+							textAnchor="middle"
+							fontSize="13"
+							fontWeight="700"
+							fill="#3f8e4f"
+						>
 							呱!
 						</text>
 					</g>
-					<text className="wlf-zzz" x="108" y="34" fontSize="16" fontWeight="700" fill="#cfe6b8">
+					<text
+						className="wlf-zzz"
+						x="108"
+						y="34"
+						fontSize="16"
+						fontWeight="700"
+						fill="#cfe6b8"
+					>
 						z
 					</text>
-					<text className="wlf-zzz z2" x="118" y="22" fontSize="12" fontWeight="700" fill="#cfe6b8">
+					<text
+						className="wlf-zzz z2"
+						x="118"
+						y="22"
+						fontSize="12"
+						fontWeight="700"
+						fill="#cfe6b8"
+					>
 						z
 					</text>
 				</g>
@@ -226,15 +316,38 @@ export function LogoFrog({ width }: { width: number }) {
 			>
 				<ellipse cx="14" cy="20" rx="10.5" ry="8.5" fill="#7ccb5e" />
 				<ellipse cx="14" cy="22" rx="6.5" ry="5" fill="#dcf5c8" />
-				<circle cx="9" cy="9" r="4.2" fill="#fff" stroke="#3f6d33" strokeWidth="1" />
-				<circle cx="19" cy="9" r="4.2" fill="#fff" stroke="#3f6d33" strokeWidth="1" />
+				<circle
+					cx="9"
+					cy="9"
+					r="4.2"
+					fill="#fff"
+					stroke="#3f6d33"
+					strokeWidth="1"
+				/>
+				<circle
+					cx="19"
+					cy="9"
+					r="4.2"
+					fill="#fff"
+					stroke="#3f6d33"
+					strokeWidth="1"
+				/>
 				<circle cx="9.5" cy="9.5" r="2" fill="#2b2b23" />
 				<circle cx="19.5" cy="9.5" r="2" fill="#2b2b23" />
-				<path d="M10 14 Q14 17 18 14" stroke="#2e4d26" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+				<path
+					d="M10 14 Q14 17 18 14"
+					stroke="#2e4d26"
+					strokeWidth="1.4"
+					fill="none"
+					strokeLinecap="round"
+				/>
 				<ellipse cx="7" cy="26" rx="4" ry="2" fill="#4d9440" />
 				<ellipse cx="21" cy="26" rx="4" ry="2" fill="#4d9440" />
 			</svg>
-			<span className="wlf-tongue absolute pointer-events-none" aria-hidden="true" />
+			<span
+				className="wlf-tongue absolute pointer-events-none"
+				aria-hidden="true"
+			/>
 		</div>
 	);
 }
