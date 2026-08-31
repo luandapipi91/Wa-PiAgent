@@ -206,12 +206,14 @@ export function LogoFrog({ width }: { width: number }) {
 							strokeWidth="2.5"
 							fill="none"
 						/>
+					<g className="wlf-pupils">
 						<circle cx="38" cy="31" r="11" fill="#16171B" />
 						<circle cx="82" cy="31" r="11" fill="#16171B" />
 						<circle cx="33" cy="24" r="5" fill="#FFFFFF" />
 						<circle cx="41" cy="34" r="2.5" fill="#FFFFFF" />
 						<circle cx="77" cy="24" r="5" fill="#FFFFFF" />
 						<circle cx="85" cy="34" r="2.5" fill="#FFFFFF" />
+					</g>
 						<circle cx="24" cy="65" r="6" fill="#FFFFFF" opacity="0.18" />
 						<circle cx="96" cy="65" r="6" fill="#FFFFFF" opacity="0.18" />
 						<path
