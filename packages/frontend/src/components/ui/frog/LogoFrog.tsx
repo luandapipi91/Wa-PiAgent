@@ -40,6 +40,9 @@ const ACTIONS: LogoAction[] = [
 /** 依赖完整文字（" Agent" 存在）的字母级动作：窄侧边栏时退出动作池。 */
 const FULL_TEXT_ONLY: ReadonlySet<string> = new Set(["tongue", "slide", "lie", "push"]);
 
+/** Logo 自身动作（A 组）：加权 2 倍，让 Logo 本身动的概率过半。 */
+const LOGO_INLINE: ReadonlySet<string> = new Set(["blink", "quack", "peek", "sleep", "flip"]);
+
 /** 各动作动画时长（ms），与 frog.css 的 wlf- keyframes 一致。 */
 export const LOGO_ACTION_MS: Record<LogoAction, number> = {
 	blink: 2600,
@@ -61,8 +64,11 @@ export const LOGO_ACTION_MS: Record<LogoAction, number> = {
 let lastAction: LogoAction | null = null;
 
 /** 随机挑一个动作，不与上一次重复；fullText=false 时排除字母级动作。rng 可注入。 */
+/** 随机挑一个动作，不与上一次重复；fullText=false 时排除字母级动作。
+ *  加权：A 组（Logo 自身动作）×2，保证“Logo 本身会动”的概率过半。 */
 export function pickLogoAction(fullText: boolean, rng: () => number = Math.random): LogoAction {
-	const pool = ACTIONS.filter((a) => a !== lastAction && (fullText || !FULL_TEXT_ONLY.has(a)));
+	const weighted = ACTIONS.flatMap((a) => (LOGO_INLINE.has(a) ? [a, a] : [a]));
+	const pool = weighted.filter((a) => a !== lastAction && (fullText || !FULL_TEXT_ONLY.has(a)));
 	const picked = pool[Math.floor(rng() * pool.length)] ?? pool[0];
 	lastAction = picked;
 	return picked;
