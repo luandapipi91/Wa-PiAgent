@@ -17,7 +17,15 @@ import type { SubagentProgressEvent } from "@wa-pi/shared";
 // cache-bust：绕过 overrides 测试的 mock.module，加载真实 subagent-runner
 const REAL_RUNNER_SPEC = "../src/subagent-runner.ts?real=1";
 type RunnerModule = typeof import("../src/subagent-runner");
-const { runSubagentAgent } = (await import(REAL_RUNNER_SPEC)) as RunnerModule;
+const { runSubagentAgent, COMMAND_TIMEOUT_MS } = (await import(
+	REAL_RUNNER_SPEC
+)) as RunnerModule;
+
+// 默认委派整体硬上限（RPC 命令超时 + settle 兕底共用）应为 2 小时
+// （用户拍板 2026-08-31：单个子代理委派上限由 60 分钟增长到 2 小时，长任务 fleet 不再被 1h 误杀）
+test("默认委派超时 COMMAND_TIMEOUT_MS 为 2 小时", () => {
+	expect(COMMAND_TIMEOUT_MS).toBe(2 * 60 * 60_000);
+});
 
 const FAKE_PI = join(import.meta.dir, "fixtures", "fake-pi.ts");
 const ARGV_DUMP_PI = join(import.meta.dir, "fixtures", "argv-dump-pi.ts");

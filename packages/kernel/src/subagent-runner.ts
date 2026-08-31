@@ -71,7 +71,7 @@ export interface SubagentRunOpts {
 	/** 测试覆盖：pi CLI 入口 / 运行时 */
 	cliPath?: string;
 	runtime?: string;
-	/** RPC 命令超时毫秒数，默认 60 分钟（3600000）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
+	/** RPC 命令超时毫秒数，默认 2 小时（7200000，用户拍板 2026-08-31 由 60 分钟增长）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
 	commandTimeoutMs?: number;
 	/** 无进展探活超时毫秒数，默认 10 分钟（600000）。进程存活但无任何业务事件
 	 *  （message_update / tool_execution_* / agent_start|end / thinking_delta）
@@ -88,8 +88,8 @@ export interface SubagentRunOpts {
  *  到期不再等待 settle，走 finally dispose 强杀（防用户停止后子代理后台再活满 settle 超时） */
 export const ABORT_GRACE_MS = 10_000;
 
-/** RPC 命令 / settle 兜底默认超时：子代理委托整体硬上限，默认 60 分钟。 */
-export const COMMAND_TIMEOUT_MS = 60 * 60_000;
+/** RPC 命令 / settle 兜底默认超时：子代理委托整体硬上限，默认 2 小时（用户拍板 2026-08-31，由 60 分钟增长：长任务单代理实测可跑 39-50 分钟，60 分钟余量不足）。 */
+export const COMMAND_TIMEOUT_MS = 2 * 60 * 60_000;
 
 /** 无进展探活默认超时：子代理进程存活但 10 分钟无任何业务事件判定卡死。 */
 export const LIVENESS_IDLE_MS = 10 * 60_000;
