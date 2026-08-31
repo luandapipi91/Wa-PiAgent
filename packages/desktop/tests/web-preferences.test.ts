@@ -10,6 +10,26 @@ const src = readFileSync(
 	"utf8",
 );
 
+test("主进程 LOCALE 在 app ready 后求值（getPlugins ready 前返回空串 → 曾致中文打包版首启 splash 恒为英文）", () => {
+	// 顶层不得再直接用 app.getLocale() 求值（ready 前返回空串，Electron 43 实测）
+	expect(src).not.toContain("const SYSTEM_LOCALE = app.getLocale();");
+	// 不存在 --lang 开关（曾用空串值污染渲染进程 locale，已回滚）
+	expect(src).not.toContain('appendSwitch("lang"');
+	// whenReady 回调开头重算 LOCALE（任何 splash/t() 使用之前）
+	expect(src).toContain(
+		'LOCALE = app.getLocale().startsWith("zh") ? "zh" : "en";',
+	);
+	const reassignIdx = src.indexOf(
+		'LOCALE = app.getLocale().startsWith("zh")',
+	);
+	const readyIdx = src.indexOf("app.whenReady()");
+	// 字符顺序：whenReady 语句先出现，重算在它的回调体内（执行时 ready 后才跑）
+	expect(reassignIdx).toBeGreaterThan(readyIdx);
+	// createSplash 的调用点必须在重算之后（whenReady 回调内，splash 首帧前已完成重算）
+	const splashCallIdx = src.indexOf("createSplash();");
+	expect(splashCallIdx).toBeGreaterThan(reassignIdx); // splash 创建前已完成重算
+});
+
 test("splashWindow 与 mainWindow 均显式关闭 sandbox，保证 preload 能 require clipboard", () => {
 	// 只匹配 BrowserWindow 的 webPreferences（WebContentsView 内容视图刻意不挂 preload/sandbox 保持隔离）
 	const blocks =
@@ -27,8 +47,7 @@ test("splashWindow 与 mainWindow 均显式关闭 sandbox，保证 preload 能 r
 
 test("外链子窗口：内容视图 WebContentsView 保持隔离，不挂 preload、不开 nodeIntegration", () => {
 	const viewBlock =
-		src.match(/new WebContentsView\([\s\S]*?webPreferences:\s*\{[^}]*\}/g) ??
-		[];
+		src.match(/new WebContentsView\([\s\S]*?webPreferences:\s*\{[^}]*\}/g) ?? [];
 	expect(viewBlock.length).toBeGreaterThanOrEqual(1);
 	const b = viewBlock[0];
 	expect(b).toContain("nodeIntegration: false");

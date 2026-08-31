@@ -36,8 +36,11 @@ const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
 
 // 语言来源：桌面主进程不经过 react-i18next（desktop 无它），且启动进度窗早于前端挂载，
 // 不能依赖前端传语言。用 Electron app.getLocale() 定模块级 LOCALE，内联最简 zh/en 文案字典 + t()。
-// （kernel-updater / node-runtime 的 onStatus 进度文案在各自文件内置同构字典，避免跨模块引入 electron 依赖。）
-const LOCALE = app.getLocale().startsWith("zh") ? "zh" : "en";
+// ⚠️ app.getLocale() 必须在 app ready 之后调用才返回真实系统 locale——ready 前（模块顶层）
+// 返回空串（Electron 43 实测：before=""，after="zh-CN"）。曾因在模块顶层求值得到空串 →
+// LOCALE 恒为 "en" → 中文 mac 打包版首启 splash/进度文案显示英文。故此处仅以 zh 占位，
+// whenReady 开头（任何 splash/t() 使用之前）重算真实值。
+let LOCALE = "zh";
 // 启动进度 / 面向用户文案字典（zh/en 各一份，key 覆盖 main.cjs 全部透过 setProgress 面向用户的文案）。
 const MSG = {
 	zh: {
@@ -421,8 +424,9 @@ app.commandLine.appendSwitch("enable-gpu-rasterization");
 app.commandLine.appendSwitch("enable-zero-copy");
 app.commandLine.appendSwitch("use-angle", "d3d11");
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
-
 app.whenReady().then(async () => {
+	// ready 后重算界面语言（ready 前 getLocale 返回空串，见顶部 LOCALE 注释）
+	LOCALE = app.getLocale().startsWith("zh") ? "zh" : "en";
 	// 「跟随系统」主题：同步系统主题到 themeSource（Windows 区分系统/应用主题），
 	// 并监听系统主题变化（nativeTheme updated）持续同步。
 	syncThemeSource();

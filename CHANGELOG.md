@@ -1,3 +1,11 @@
+## 2026-09-01 — fix(desktop): 中文 Windows 安装包首启引导/界面显示英文（渲染进程 locale 修复）
+
+- 背景：用户反馈系统安装包首启，中文环境下初始化向导显示英文。根因（系统化调试+探针实证）：前端首启语言由 detect.ts 读渲染进程 navigator.language 决定（非 zh 开头→英文）；而中文 Windows 打包版上 Electron 渲染进程 Chromium 自动检测的 navigator.language 可能返回 en-US（未跟随系统显示语言）。主进程 app.getLocale() 已实证能拿到正确值（macOS 探针 zh-CN；onboarding 组件全走 t()、store 默认 zh，均已排除）。macOS 实测渲染进程正确，不受影响。
+- 修复：main.cjs 在 app ready 前 appendSwitch("lang", SYSTEM_LOCALE)（SYSTEM_LOCALE = app.getLocale() 完整值，如 zh-CN）——显式强制渲染进程与应用 locale 跟随系统，消除 Chromium 自动检测的不确定性。探针验证机制两端：无开关 macOS→zh-CN 正确；--lang=en-US 强制→navigator=en-US 生效。修好后 LOCALE（splash/进度文案）不受影响（求值在前、值同源）。
+- 已知边界：Windows 实机效果需发版后实机确认（本机无 Windows 环境）；若用户 macOS 系统语言本身是英文，界面显示英文属跟随系统的正确行为，可在设置手动切换。
+- 验证：探针三连（无开关 macOS zh-CN / --lang=en-US 强制生效）；desktop web-preferences.test 新增源码断言（SYSTEM_LOCALE 定义 + --lang 注册 + 先于 whenReady）；desktop 全量 181 tests / 0 fail；node --check 绿。
+- 影响范围：packages/desktop/src/main.cjs、packages/desktop/tests/web-preferences.test.ts。
+
 ## 2026-09-01 — v0.3.6 发版（Pi 引擎 0.84.4 + 清空队列即生效 + chip 复制修复）
 
 - 版本：0.3.5 → 0.3.6。
