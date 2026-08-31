@@ -51,7 +51,10 @@ describe("buildEntries", () => {
 	];
 
 	test("本地全量 upsert + 远端多余文件删除（sha:null）", () => {
-		const entries = buildEntries(local, new Set(["keep.ts", "gone.ts", "also-gone.ts"]));
+		const entries = buildEntries(
+			local,
+			new Set(["keep.ts", "gone.ts", "also-gone.ts"]),
+		);
 		expect(entries).toEqual([
 			{ path: "keep.ts", mode: "100644", type: "blob", sha: "aaa" },
 			{ path: "new.ts", mode: "100644", type: "blob", sha: "bbb" },

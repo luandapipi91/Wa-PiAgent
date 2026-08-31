@@ -4,6 +4,7 @@
 - 主要：优化青蛙动画。
 - 验证：typecheck 全绿；四层回归全绿。
 - 影响范围：frontend（青蛙动画相关）。
+
 ## 2026-08-31 — chore(scripts): 新增 GitHub 镜像同步工具 sync-github-mirror.ts
 
 - 需求：GitHub 镜像（luandapipi91/Wa-PiAgent）git 端点不通（push 挂起超时），此前每次同步都临时写脚本，固化为一条命令的正式工具。
