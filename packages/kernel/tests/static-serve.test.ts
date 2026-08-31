@@ -1,0 +1,35 @@
+import { test, expect } from "bun:test";
+import { getMimeType, resolveStaticPath } from "../src/ws-server";
+
+test("resolveStaticPath: 干净路径返回 index.html", () => {
+  expect(resolveStaticPath("/", "/web")).toBe("/web/index.html");
+  expect(resolveStaticPath("/foo/bar", "/web")).toBe("/web/index.html");
+});
+
+test("resolveStaticPath: 已知资产返回拼好的路径", () => {
+  expect(resolveStaticPath("/assets/x.js", "/web")).toBe("/web/assets/x.js");
+});
+
+test("resolveStaticPath: 拒绝路径穿越", () => {
+  expect(resolveStaticPath("/../../etc/passwd", "/web")).toBe(
+    "/web/index.html",
+  );
+});
+
+test("getMimeType: 常见类型", () => {
+  expect(getMimeType("a.html")).toBe("text/html");
+  expect(getMimeType("a.js")).toBe("text/javascript");
+  expect(getMimeType("a.css")).toBe("text/css");
+  expect(getMimeType("a.md")).toBe("text/markdown");
+  expect(getMimeType("a.svg")).toBe("image/svg+xml");
+  expect(getMimeType("a.webm")).toBe("audio/webm");
+  expect(getMimeType("a.weba")).toBe("audio/webm");
+});
+
+test("getMimeType: 前端框架文件（vue/jsx/tsx）按文本处理，可进代码预览", () => {
+  // 回归：.vue 曾无映射，Bun 兑底返回 application/octet-stream，
+  // checkPreviewable 判非文本直接拒绝 → 代码预览报「不支持的文件类型」
+  expect(getMimeType("App.vue")).toBe("text/x-vue");
+  expect(getMimeType("Comp.jsx")).toBe("text/jsx");
+  expect(getMimeType("Comp.tsx")).toBe("text/typescript-jsx");
+});

@@ -1,0 +1,46 @@
+{
+  "name": "@wa-pi/frontend",
+  "version": "0.3.8",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "bun --env-file=.env.test test --isolate --timeout=20000",
+    "e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tailwindcss/typography": "^0.5.20",
+    "@wa-pi/shared": "workspace:*",
+    "html-to-image": "^1.11.13",
+    "i18next": "^26.3.6",
+    "idb": "^8.0.3",
+    "mermaid": "^11.16.1",
+    "motion": "^13.1.0",
+    "prism-react-renderer": "^2.4.1",
+    "react": "^19.2.8",
+    "react-complex-tree": "^2.6.2",
+    "react-diff-viewer-continued": "^4.4.0",
+    "react-dom": "^19.2.8",
+    "react-i18next": "^17.0.11",
+    "react-markdown": "^10.1.0",
+    "react-virtuoso": "^4.18.11",
+    "reactflow": "^11.11.4",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.11.2",
+    "@playwright/test": "^1.62.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.11.2",
+    "tailwindcss": "^3.4.19",
+    "vite": "^8.2.1"
+  }
+}

@@ -1,0 +1,331 @@
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
+import { PROJECTS_FILE, WA_PI_DIR, SYSTEM_PROJECT_ID } from "@wa-pi/shared";
+import type { ProjectEntity, SessionEntity, AgentName } from "@wa-pi/shared";
+import { KernelError } from "./kernel-error";
+
+interface ProjectsFile {
+	projects: ProjectEntity[];
+	sessions: SessionEntity[];
+}
+
+function empty(): ProjectsFile {
+	return { projects: [], sessions: [] };
+}
+
+export class ProjectStore {
+	constructor(private filePath: string = PROJECTS_FILE) {}
+
+	async load(): Promise<ProjectsFile> {
+		try {
+			const raw = await readFile(this.filePath, "utf8");
+			const data = JSON.parse(raw) as ProjectsFile;
+			return { projects: data.projects ?? [], sessions: data.sessions ?? [] };
+		} catch {
+			return empty();
+		}
+	}
+
+	private async save(data: ProjectsFile): Promise<void> {
+		await mkdir(dirname(this.filePath), { recursive: true });
+		await writeFile(this.filePath, JSON.stringify(data, null, 2), "utf8");
+	}
+
+	async createProject(input: {
+		name: string;
+		cwd: string;
+	}): Promise<ProjectEntity> {
+		const data = await this.load();
+		// cwd 去重：同一目录不允许重复添加
+		if (data.projects.some((p) => p.cwd === input.cwd)) {
+			throw new KernelError("project.duplicateCwd");
+		}
+		const project: ProjectEntity = {
+			id: randomUUID(),
+			name: input.name,
+			cwd: input.cwd,
+			createdAt: Date.now(),
+		};
+		data.projects.push(project);
+		await this.save(data);
+		return project;
+	}
+
+	/**
+	 * 创建固定 id 的系统项目（幂等）。
+	 *
+	 * 用于默认工作区：固定 id=SYSTEM_PROJECT_ID，绕过 createProject 的 cwd 去重
+	 * 和 randomUUID id 生成。同 id 已存在则返回现有记录，不重复插入。
+	 */
+	async createSystemProject(input: {
+		id: string;
+		name: string;
+		cwd: string;
+	}): Promise<ProjectEntity> {
+		const data = await this.load();
+		const existing = data.projects.find((p) => p.id === input.id);
+		if (existing) return existing;
+		const project: ProjectEntity = {
+			id: input.id,
+			name: input.name,
+			cwd: input.cwd,
+			createdAt: Date.now(),
+		};
+		data.projects.push(project);
+		await this.save(data);
+		return project;
+	}
+
+	async updateProject(
+		id: string,
+		patch: Partial<Pick<ProjectEntity, "name" | "cwd">>,
+	): Promise<void> {
+		const data = await this.load();
+		const p = data.projects.find((x) => x.id === id);
+		if (!p) throw new KernelError("project.notFound", { id });
+		if (patch.name !== undefined) p.name = patch.name;
+		if (patch.cwd !== undefined) p.cwd = patch.cwd;
+		await this.save(data);
+	}
+
+	async deleteProject(id: string): Promise<void> {
+		const data = await this.load();
+		data.projects = data.projects.filter((p) => p.id !== id);
+		// 软删除该项目下的活跃会话（移入回收站，而非物理删除）
+		for (const session of data.sessions) {
+			if (session.projectId === id && !session.deletedAt) {
+				session.deletedAt = Date.now();
+				session.deletedReason = "manual";
+			}
+		}
+		await this.save(data);
+	}
+
+	async createSession(input: {
+		projectId: string;
+		primaryAgent: AgentName;
+		title: string;
+		id?: string;
+		createdAt?: number; // 默认工作区用：让 mkdir 用的 ts 与 session.createdAt 严格一致
+		placeholder?: boolean; // getCommands 预热兜底用：标记为占位记录，loadActive 过滤
+		source?: "im" | "scheduler"; // 会话来源：scheduler 不进侧栏（loadActive 过滤）
+	}): Promise<SessionEntity> {
+		const data = await this.load();
+		const id = input.id ?? randomUUID();
+		// 去重：同 id session 已存在则返回已有记录（幂等），避免 getCommands 兜底分支
+		// 用 agentName 作 title 重复创建，覆盖正常会话标题
+		const existing = data.sessions.find((s) => s.id === id);
+		if (existing) return existing;
+		const now = input.createdAt ?? Date.now();
+		const session: SessionEntity = {
+			id,
+			projectId: input.projectId,
+			primaryAgent: input.primaryAgent,
+			title: input.title,
+			createdAt: now,
+			lastActivity: now,
+			piSessionFile: `${WA_PI_DIR}/sessions/${id}.jsonl`,
+			...(input.placeholder ? { placeholder: true } : {}),
+			...(input.source ? { source: input.source } : {}),
+		};
+		data.sessions.push(session);
+		await this.save(data);
+		return session;
+	}
+
+	async renameSession(id: string, title: string): Promise<void> {
+		const data = await this.load();
+		const s = data.sessions.find((x) => x.id === id);
+		if (!s) throw new KernelError("session.notFound", { sessionId: id });
+		s.title = title;
+		await this.save(data);
+	}
+
+	/**
+	 * 仅当会话标题为空时填充——用于兜底创建（标题留空）的会话，
+	 * 在用户首次发送消息时用消息内容自动命名。已有标题（用户手动命名或已填充）不动。
+	 * @returns true 表示标题被填充（调用方可据此广播 projects:list 刷新侧栏）
+	 */
+	async fillSessionTitleIfEmpty(id: string, title: string): Promise<boolean> {
+		if (!title || !title.trim()) return false;
+		const data = await this.load();
+		const s = data.sessions.find((x) => x.id === id);
+		if (!s) return false;
+		if (s.title && s.title.trim()) return false; // 已有标题，不覆盖
+		s.title = title.trim();
+		delete s.placeholder; // 预热占位记录转正：有真实消息后进侧栏
+		await this.save(data);
+		return true;
+	}
+
+	async setSessionAgent(id: string, agentName: AgentName): Promise<void> {
+		const data = await this.load();
+		const s = data.sessions.find((x) => x.id === id);
+		if (!s) throw new KernelError("session.notFound", { sessionId: id });
+		s.primaryAgent = agentName;
+		await this.save(data);
+	}
+
+	/** 纠正会话归属项目（agent:prompt 一致性：占位会话被另一项目接管时以请求为准）。
+	 *  仅用于无真实内容的占位会话；真实会话跨项目由上层拒绝，不调用本方法。 */
+	async setSessionProjectId(id: string, projectId: string): Promise<void> {
+		const data = await this.load();
+		const s = data.sessions.find((x) => x.id === id);
+		if (!s) throw new KernelError("session.notFound", { sessionId: id });
+		s.projectId = projectId;
+		await this.save(data);
+	}
+
+	async deleteSession(id: string): Promise<void> {
+		const data = await this.load();
+		const session = data.sessions.find((s) => s.id === id);
+		if (session) {
+			session.deletedAt = Date.now();
+			session.deletedReason = "manual";
+		}
+		await this.save(data);
+	}
+
+	/**
+	 * 加载全部数据，但会话只返回未软删除的（deletedAt 为空）。
+	 * 用于侧栏列表等只关心可见会话的场景。
+	 */
+	async loadActive(): Promise<ProjectsFile> {
+		const data = await this.load();
+		return {
+			projects: data.projects,
+			// 过滤软删除 + 预热占位记录（getCommands 兜底创建、尚无消息的会话）
+			// + 定时任务执行会话（独立于侧栏，只在执行记录里查看；存量数据靠 sched- 前缀兑底）
+			sessions: data.sessions.filter(
+				(s) =>
+					!s.deletedAt &&
+					!s.placeholder &&
+					s.source !== "scheduler" &&
+					!s.id.startsWith("sched-"),
+			),
+		};
+	}
+
+	/**
+	 * 从回收站恢复会话：清空 deletedAt/deletedReason。
+	 * 若会话原属项目已不存在，则归入默认工作区（SYSTEM_PROJECT_ID）。
+	 * 对未删除的会话调用为 no-op（仅清空本就为空的字段）。
+	 */
+	async restoreSession(id: string): Promise<void> {
+		const data = await this.load();
+		const session = data.sessions.find((s) => s.id === id);
+		if (session) {
+			// 如果原项目已被删除，恢复到默认工作区
+			if (!data.projects.find((p) => p.id === session.projectId)) {
+				session.projectId = SYSTEM_PROJECT_ID;
+			}
+			session.deletedAt = undefined;
+			session.deletedReason = undefined;
+		}
+		await this.save(data);
+	}
+
+	/**
+	 * 彻底删除：从存储中物理移除指定会话记录。
+	 * 不存在的 id 静默忽略。空数组直接返回。
+	 */
+	async permanentlyDeleteSessions(ids: string[]): Promise<void> {
+		if (ids.length === 0) return;
+		const idSet = new Set(ids);
+		const data = await this.load();
+		data.sessions = data.sessions.filter((s) => !idSet.has(s.id));
+		await this.save(data);
+	}
+
+	/**
+	 * 清空回收站：物理移除所有已软删除（deletedAt 非空）的会话。
+	 * @returns 实际移除的会话数量
+	 */
+	async emptyTrash(): Promise<number> {
+		const data = await this.load();
+		const before = data.sessions.length;
+		data.sessions = data.sessions.filter((s) => !s.deletedAt);
+		const removed = before - data.sessions.length;
+		await this.save(data);
+		return removed;
+	}
+
+	/**
+	 * 分页查询回收站：返回所有已软删除的会话，支持按项目过滤与 offset/limit 分页。
+	 * 结果按 deletedAt 倒序（最近删除的在前），total 为过滤后的总数（不受分页影响）。
+	 */
+	async loadTrash(opts?: {
+		projectId?: string;
+		offset?: number;
+		limit?: number;
+	}): Promise<{ sessions: SessionEntity[]; total: number }> {
+		const data = await this.load();
+		let deleted = data.sessions.filter((s) => s.deletedAt);
+		if (opts?.projectId) {
+			deleted = deleted.filter((s) => s.projectId === opts.projectId);
+		}
+		// 按 deletedAt 倒序（最近删除的在前）
+		deleted.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+		const total = deleted.length;
+		const offset = opts?.offset ?? 0;
+		const limit = opts?.limit ?? 100;
+		const sessions = deleted.slice(offset, offset + limit);
+		return { sessions, total };
+	}
+
+	/**
+	 * 自动归档：将超过阈值未活动且未删除的会话标记为软删除（deletedReason="auto"）。
+	 * @param thresholdMs 不活动阈值（毫秒），如 7 天
+	 * @returns 本次被归档的会话列表
+	 */
+	async archiveStaleSessions(thresholdMs: number): Promise<SessionEntity[]> {
+		const data = await this.load();
+		const cutoff = Date.now() - thresholdMs;
+		const archived: SessionEntity[] = [];
+		for (const session of data.sessions) {
+			if (!session.deletedAt && session.lastActivity < cutoff) {
+				session.deletedAt = Date.now();
+				session.deletedReason = "auto";
+				archived.push(session);
+			}
+		}
+		if (archived.length > 0) await this.save(data);
+		return archived;
+	}
+
+	/**
+	 * 自动清理：永久删除 deletedAt 早于 purgeBefore 的回收站会话。
+	 * @param purgeBefore 时间点（毫秒），早于此点的已删除会话将被物理移除
+	 * @returns 实际移除的会话数量
+	 */
+	async purgeOldTrashSessions(purgeBefore: number): Promise<number> {
+		const data = await this.load();
+		const before = data.sessions.length;
+		data.sessions = data.sessions.filter(
+			(s) => !s.deletedAt || s.deletedAt >= purgeBefore,
+		);
+		const removed = before - data.sessions.length;
+		if (removed > 0) await this.save(data);
+		return removed;
+	}
+
+	// 改 session 归属项目（老数据迁移用：孤儿 session 归入默认项目）
+	async reassignSession(sessionId: string, projectId: string): Promise<void> {
+		const data = await this.load();
+		const s = data.sessions.find((x) => x.id === sessionId);
+		if (s) {
+			s.projectId = projectId;
+			await this.save(data);
+		}
+	}
+
+	async touchSession(id: string): Promise<void> {
+		const data = await this.load();
+		const s = data.sessions.find((x) => x.id === id);
+		if (s) {
+			s.lastActivity = Date.now();
+			await this.save(data);
+		}
+	}
+}

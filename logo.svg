@@ -1,0 +1,28 @@
+<svg viewBox="0 0 140 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- HiAgent Complete Icon — green bg 126×126 (90%) centered in 140×140 viewBox -->
+  <!-- Transparent padding: 7 units on each side outside the green rect -->
+  <rect x="7" y="7" width="126" height="126" rx="27" fill="#4BA26F"/>
+  <g transform="translate(7, 7)">
+    <!-- Face outline -->
+    <circle cx="60" cy="64" r="38" stroke="#FFFFFF" stroke-width="2.5" fill="none"/>
+    <!-- Left eye bulge -->
+    <circle cx="38" cy="30" r="18" fill="#FFFFFF"/>
+    <circle cx="38" cy="30" r="18" stroke="#FFFFFF" stroke-width="2.5" fill="none"/>
+    <!-- Right eye bulge -->
+    <circle cx="82" cy="30" r="18" fill="#FFFFFF"/>
+    <circle cx="82" cy="30" r="18" stroke="#FFFFFF" stroke-width="2.5" fill="none"/>
+    <!-- Big cute pupils -->
+    <circle cx="38" cy="31" r="11" fill="#16171B"/>
+    <circle cx="82" cy="31" r="11" fill="#16171B"/>
+    <!-- Large sparkle highlights -->
+    <circle cx="33" cy="24" r="5" fill="#FFFFFF"/>
+    <circle cx="41" cy="34" r="2.5" fill="#FFFFFF"/>
+    <circle cx="77" cy="24" r="5" fill="#FFFFFF"/>
+    <circle cx="85" cy="34" r="2.5" fill="#FFFFFF"/>
+    <!-- Subtle blush cheeks -->
+    <circle cx="24" cy="65" r="6" fill="#FFFFFF" opacity="0.18"/>
+    <circle cx="96" cy="65" r="6" fill="#FFFFFF" opacity="0.18"/>
+    <!-- Wide happy smile -->
+    <path d="M 40,78 Q 60,95 80,78" stroke="#FFFFFF" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

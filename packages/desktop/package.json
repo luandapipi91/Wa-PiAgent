@@ -1,0 +1,26 @@
+{
+	"name": "@wa-pi/desktop",
+	"version": "0.3.8",
+	"license": "MIT",
+	"private": true,
+	"type": "module",
+	"main": "src/main.cjs",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test",
+		"dev": "unset ELECTRON_RUN_AS_NODE && electron .",
+		"build:win": "bun run scripts/build.ts --target=win",
+		"build:linux": "bun run scripts/build.ts --target=linux",
+		"build:mac": "bun run scripts/build.ts --target=mac",
+		"build:all": "bun run build:win && bun run build:linux && bun run build:mac"
+	},
+	"dependencies": {
+		"electron-updater": "^6.8.9"
+	},
+	"devDependencies": {
+		"electron": "^43.3.0",
+		"electron-builder": "^26.15.3",
+		"typescript": "^5.9.3",
+		"@types/bun": "^1.4.0"
+	}
+}

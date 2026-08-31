@@ -1,0 +1,2434 @@
+/* 任务完成青蛙（重设计版）：19 个动画变体 × 8 个聊天区位置。
+ *
+ * 架构约定（改动前必读）：
+ * - 位置系统：.waf-spot-* 注入 CSS 变量，keyframes 里的入场/出场 translate 引用变量，
+ *   因此一套 keyframes 适配全部 8 个位置：
+ *     --fx-ex / --fx-ey  通用入场（出场复用同向量 = 原路进出）
+ *     --fx-hx            水平型动画（lily/spa/salute）的滑入向量
+ *     --fx-ix            tongue ✓ 章朝聊天区中心的内侧偏移
+ * - 单次播放：所有动画 forwards，duration 由 TaskDoneFrog 按变体注入（VARIANT_MS），
+ *   节奏：0-20% 入场 → 20-76% 表演 → 76-96% 出场。
+ * - 元素默认 opacity:0，由各自 keyframes 显式控制；纯变换部件（不控 opacity 的）
+ *   在下方白名单中恢复 opacity:1 —— 新增变体时务必核对，否则道具会被藏住。
+ * - SVG 特有：transform-box: fill-box 让 scale/rotate 绕元素自身而非 viewBox。
+ */
+
+.waf-anchor {
+	pointer-events: none;
+}
+
+.waf-stage {
+	display: block;
+	overflow: visible; /* 道具（井口/荷叶/舌头等）允许画出 120 viewBox */
+}
+
+/* SVG 内所有部件：绕自身包围盒变换；默认隐藏（keyframes 逐个点亮） */
+.waf-anchor [class^="waf-"] {
+	transform-box: fill-box;
+	transform-origin: 50% 50%;
+	opacity: 0;
+}
+
+/* 哨兵动画：只用于 onAnimationEnd 感知总时长结束（视觉无变化） */
+@keyframes waf-sentinel {
+	0%,
+	100% {
+		opacity: 1;
+	}
+}
+
+/* 纯变换部件白名单：自身 keyframes 不控制 opacity，保持常显。
+   含 SVG 根（waf-stage）、变体容器（waf-root——它自身无动画，
+   若被默认隐藏规则命中则整棵子树乘 0 不可见）、气泡内层 g */
+.waf-anchor .waf-root,
+.waf-anchor .waf-stage,
+.waf-anchor .waf-bubble,
+.waf-anchor .waf-lily-frog,
+.waf-anchor .waf-para-frog,
+.waf-anchor .waf-surf-frog,
+.waf-anchor .waf-spa-towel,
+.waf-anchor .waf-salute-arm,
+.waf-anchor .waf-tongue-strip,
+.waf-anchor .waf-sketch-hop,
+.waf-anchor .waf-magic-wand,
+.waf-anchor .waf-gong-disk,
+.waf-anchor .waf-gong-hammer {
+	opacity: 1;
+}
+
+/* ---------- 8 个位置：走位变量 ---------- */
+.waf-spot-ul {
+	--fx-ex: -170px;
+	--fx-ey: -170px;
+	--fx-hx: -170px;
+	--fx-ix: 60px;
+}
+.waf-spot-um {
+	--fx-ex: 0px;
+	--fx-ey: -190px;
+	--fx-hx: -170px;
+	--fx-ix: 0px;
+}
+.waf-spot-ur {
+	--fx-ex: 170px;
+	--fx-ey: -170px;
+	--fx-hx: 170px;
+	--fx-ix: -60px;
+}
+.waf-spot-ml {
+	--fx-ex: -190px;
+	--fx-ey: 0px;
+	--fx-hx: -170px;
+	--fx-ix: 60px;
+}
+.waf-spot-mr {
+	--fx-ex: 190px;
+	--fx-ey: 0px;
+	--fx-hx: 170px;
+	--fx-ix: -60px;
+}
+.waf-spot-dl {
+	--fx-ex: -170px;
+	--fx-ey: 170px;
+	--fx-hx: -170px;
+	--fx-ix: 60px;
+}
+.waf-spot-dm {
+	--fx-ex: 0px;
+	--fx-ey: 190px;
+	--fx-hx: -170px;
+	--fx-ix: 0px;
+}
+.waf-spot-dr {
+	--fx-ex: 170px;
+	--fx-ey: 170px;
+	--fx-hx: 170px;
+	--fx-ix: -60px;
+}
+
+/* ---------- 通用 transform-origin 特例 ---------- */
+.waf-bounce-bubble,
+.waf-well-bubble,
+.waf-tad-bubble {
+	transform-origin: 20% 90%;
+}
+.waf-well-lid {
+	transform-origin: 0% 100%;
+}
+.waf-lily-frog,
+.waf-para-frog,
+.waf-surf-frog,
+.waf-tad-frog,
+.waf-sketch-hop,
+.waf-chorus-a,
+.waf-chorus-b,
+.waf-chorus-c {
+	transform-origin: 50% 100%;
+}
+.waf-backflip-frog {
+	transform-origin: 50% 55%;
+}
+.waf-tongue-strip {
+	transform-origin: 100% 50%;
+}
+.waf-salute-arm {
+	transform-origin: 20% 90%;
+}
+.waf-gong-hammer {
+	transform-origin: 80% 20%;
+}
+.waf-magic-wand {
+	transform-origin: 10% 90%;
+}
+.waf-sign-board {
+	transform-origin: 20% 95%;
+}
+.waf-para-umb {
+	transform-origin: 50% 90%;
+}
+
+/* ============ 01 bounce Q弹蹦跳（2800ms） ============ */
+.waf-bounce-frog {
+	animation: waf-bounce-frog 2800ms ease-in-out forwards;
+}
+@keyframes waf-bounce-frog {
+	0% {
+		transform: translate(var(--fx-ex), var(--fx-ey)) scale(1.15, 0.7);
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	11% {
+		transform: translate(calc(var(--fx-ex) * 0.5), calc(var(--fx-ey) * 0.5))
+			scale(0.92, 1.18);
+	}
+	15% {
+		transform: translate(calc(var(--fx-ex) * 0.28), calc(var(--fx-ey) * 0.28))
+			scale(1.16, 0.8);
+	}
+	19% {
+		transform: translate(calc(var(--fx-ex) * 0.1), calc(var(--fx-ey) * 0.1))
+			scale(0.96, 1.1);
+	}
+	23% {
+		transform: translate(0, 0) scale(1.18, 0.78);
+	}
+	28% {
+		transform: scale(0.97, 1.06);
+	}
+	33% {
+		transform: scale(1, 1);
+	}
+	62% {
+		transform: scale(1, 1);
+		opacity: 1;
+	}
+	72% {
+		transform: translate(calc(var(--fx-ex) * 0.15), calc(var(--fx-ey) * 0.15))
+			scale(0.92, 1.14);
+	}
+	84% {
+		transform: translate(var(--fx-ex), var(--fx-ey)) scale(0.85);
+		opacity: 0;
+	}
+	100% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+}
+.waf-bounce-ripple {
+	animation: waf-bounce-ripple 2800ms ease-out forwards;
+}
+.waf-bounce-ripple2 {
+	animation: waf-bounce-ripple 2800ms ease-out 0.5s forwards;
+}
+@keyframes waf-bounce-ripple {
+	0%,
+	20% {
+		opacity: 0;
+		transform: scale(0.2);
+	}
+	24% {
+		opacity: 0.8;
+	}
+	38%,
+	100% {
+		opacity: 0;
+		transform: scale(1.8);
+	}
+}
+.waf-bounce-dust {
+	animation: waf-bounce-dust 2800ms ease-out forwards;
+}
+.waf-bounce-dust.d2 {
+	animation-delay: 0.05s;
+}
+.waf-bounce-dust.d3 {
+	animation-delay: 0.1s;
+}
+@keyframes waf-bounce-dust {
+	0%,
+	24% {
+		opacity: 0;
+		transform: translate(0, 0) scale(0.4);
+	}
+	28% {
+		opacity: 0.7;
+	}
+	42%,
+	100% {
+		opacity: 0;
+		transform: translate(-30px, -20px) scale(1.2);
+	}
+}
+.waf-bounce-bubble {
+	animation: waf-bounce-bubble 2800ms ease-out forwards;
+}
+@keyframes waf-bounce-bubble {
+	0%,
+	40% {
+		opacity: 0;
+		transform: scale(0);
+	}
+	46% {
+		opacity: 1;
+		transform: scale(1.1);
+	}
+	50% {
+		transform: scale(1);
+	}
+	62% {
+		opacity: 1;
+	}
+	72%,
+	100% {
+		opacity: 0;
+		transform: scale(0.9) translateY(-6px);
+	}
+}
+
+/* ============ 02 backflip 后空翻✓（3400ms） ============ */
+.waf-backflip-frog {
+	animation: waf-backflip-frog 3400ms ease-in-out forwards;
+}
+@keyframes waf-backflip-frog {
+	0% {
+		transform: translate(var(--fx-ex), var(--fx-ey)) scale(1.15, 0.68);
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	20% {
+		transform: translate(calc(var(--fx-ex) * 0.35), calc(var(--fx-ey) * 0.35))
+			rotate(-200deg) scale(0.94, 1.12);
+	}
+	30% {
+		transform: translate(calc(var(--fx-ex) * 0.08), calc(var(--fx-ey) * 0.1))
+			rotate(-360deg) scale(1.16, 0.8);
+	}
+	35% {
+		transform: translate(0, 0) rotate(-360deg) scale(1, 1);
+	}
+	70% {
+		transform: rotate(-360deg);
+		opacity: 1;
+	}
+	82% {
+		transform: translate(calc(var(--fx-ex) * 0.4), calc(var(--fx-ey) * 0.4))
+			rotate(-400deg);
+	}
+	92%,
+	100% {
+		transform: translate(var(--fx-ex), var(--fx-ey)) rotate(-400deg) scale(0.85);
+		opacity: 0;
+	}
+}
+.waf-backflip-check {
+	animation: waf-backflip-check 3400ms ease-out forwards;
+}
+@keyframes waf-backflip-check {
+	0%,
+	38% {
+		opacity: 0;
+		transform: scale(0);
+	}
+	44% {
+		opacity: 1;
+		transform: scale(1.25);
+	}
+	48% {
+		transform: scale(1);
+	}
+	66% {
+		opacity: 1;
+	}
+	76%,
+	100% {
+		opacity: 0;
+	}
+}
+
+/* ============ 03 roll 打滚进场（3400ms） ============ */
+.waf-roll-frog {
+	animation: waf-roll-frog 3400ms ease-in-out forwards;
+}
+@keyframes waf-roll-frog {
+	0% {
+		transform: translate(var(--fx-ex), var(--fx-ey)) rotate(0deg) scale(0.72);
+		opacity: 0;
+	}
+	4% {
+		opacity: 1;
+	}
+	24% {
+		transform: translate(0, 0) rotate(720deg) scale(0.72);
+	}
+	30% {
+		transform: rotate(720deg) scale(1.12, 0.85);
+	}
+	35% {
+		transform: scale(0.95, 1.08);
+	}
+	40% {
+		transform: rotate(720deg) scale(1);
+	}
+	44% {
+		transform: rotate(712deg);
+	}
+	48% {
+		transform: rotate(725deg);
+	}
+	52% {
+		transform: rotate(719deg);
+	}
+	68% {
+		transform: rotate(720deg);
+		opacity: 1;
+	}
+	80% {
+		transform: translate(calc(var(--fx-ex) * 0.5), calc(var(--fx-ey) * 0.5))
+			rotate(840deg) scale(0.75);
+		opacity: 0;
+	}
+	100% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+}
+.waf-roll-ash {
+	animation: waf-roll-ash 3400ms ease-out forwards;
+}
+.waf-roll-ash.b {
+	animation-delay: 0.1s;
+}
+@keyframes waf-roll-ash {
+	0%,
+	54% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	58% {
+		opacity: 0.7;
+	}
+	70%,
+	100% {
+		opacity: 0;
+		transform: translate(20px, -22px);
+	}
+}
+
+/* ============ 04 lily 荷叶漂流（4000ms，水平 --fx-hx） ============ */
+.waf-lily-boat {
+	animation: waf-lily-boat 4000ms ease-in-out forwards;
+}
+@keyframes waf-lily-boat {
+	0% {
+		transform: translate(var(--fx-hx), 26px);
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	22% {
+		transform: translate(0, 26px);
+	}
+	30% {
+		transform: translate(0, 26px) rotate(-3.5deg);
+	}
+	38% {
+		transform: translate(0, 26px) rotate(3deg);
+	}
+	46% {
+		transform: translate(0, 26px) rotate(-1.5deg);
+	}
+	52% {
+		transform: translate(0, 26px) rotate(0deg);
+	}
+	72% {
+		transform: translate(0, 26px);
+		opacity: 1;
+	}
+	88%,
+	100% {
+		transform: translate(var(--fx-hx), 20px) rotate(-4deg);
+		opacity: 0;
+	}
+}
+.waf-lily-frog {
+	animation: waf-lily-frog 4000ms ease-in-out forwards;
+}
+@keyframes waf-lily-frog {
+	0%,
+	34% {
+		transform: scale(1, 1);
+	}
+	40% {
+		transform: scale(0.96, 1.12);
+	}
+	46%,
+	100% {
+		transform: scale(1, 1);
+	}
+}
+.waf-lily-note {
+	animation: waf-lily-note 4000ms ease-out forwards;
+}
+.waf-lily-note.n2 {
+	animation-delay: 0.8s;
+}
+@keyframes waf-lily-note {
+	0%,
+	42% {
+		opacity: 0;
+		transform: translate(0, 0) scale(0.6);
+	}
+	48% {
+		opacity: 0.9;
+	}
+	64%,
+	100% {
+		opacity: 0;
+		transform: translate(16px, -30px) scale(1.1);
+	}
+}
+
+/* ============ 05 parachute 伞降蛙（4000ms，固定垂直落下） ============ */
+.waf-para-all {
+	animation: waf-para-all 4000ms ease-in-out forwards;
+}
+@keyframes waf-para-all {
+	0% {
+		transform: translate(0, -260px) rotate(-13deg);
+		opacity: 0;
+	}
+	4% {
+		opacity: 1;
+	}
+	12% {
+		transform: translate(6px, -190px) rotate(12deg);
+	}
+	22% {
+		transform: translate(-8px, -120px) rotate(-10deg);
+	}
+	32% {
+		transform: translate(6px, -50px) rotate(8deg);
+	}
+	40% {
+		transform: translate(-2px, -8px) rotate(-3deg);
+	}
+	44% {
+		transform: translate(0, 0) rotate(0deg) scale(1.12, 0.82);
+	}
+	50% {
+		transform: scale(1, 1);
+	}
+	72% {
+		transform: translate(0, 0);
+		opacity: 1;
+	}
+	86%,
+	100% {
+		transform: translate(0, -160px);
+		opacity: 0;
+	}
+}
+.waf-para-umb {
+	animation: waf-para-umb 4000ms ease-in-out forwards;
+}
+@keyframes waf-para-umb {
+	0%,
+	46% {
+		opacity: 1;
+		transform: translate(0, 0) rotate(0deg);
+	}
+	56% {
+		opacity: 1;
+		transform: translate(-30px, -110px) rotate(-24deg);
+	}
+	66%,
+	100% {
+		opacity: 0;
+		transform: translate(-50px, -160px) rotate(-40deg);
+	}
+}
+.waf-para-frog {
+	animation: waf-para-frog 4000ms ease-in-out forwards;
+}
+@keyframes waf-para-frog {
+	0%,
+	50% {
+		transform: translateY(0);
+	}
+	60% {
+		transform: translateY(-7px);
+	}
+	66% {
+		transform: translateY(0);
+	}
+	72% {
+		transform: translateY(-4px);
+	}
+	78%,
+	100% {
+		transform: translateY(0);
+	}
+}
+
+/* ============ 06 well 井底之蛙（4200ms，原地） ============ */
+.waf-well-back,
+.waf-well-front {
+	animation: waf-well-ring 4200ms ease-in-out forwards;
+}
+@keyframes waf-well-ring {
+	0% {
+		opacity: 0;
+	}
+	4% {
+		opacity: 1;
+	}
+	74% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	88%,
+	100% {
+		opacity: 0;
+		transform: translateY(100px);
+	}
+}
+.waf-well-lid {
+	animation: waf-well-lid 4200ms ease-in-out forwards;
+}
+@keyframes waf-well-lid {
+	0%,
+	9% {
+		opacity: 1;
+		transform: rotate(0deg);
+	}
+	18% {
+		transform: rotate(-95deg);
+	}
+	28% {
+		opacity: 1;
+		transform: rotate(-105deg) translateY(6px);
+	}
+	40%,
+	100% {
+		opacity: 0;
+	}
+}
+.waf-well-frog {
+	animation: waf-well-frog 4200ms ease-in-out forwards;
+}
+@keyframes waf-well-frog {
+	0%,
+	17% {
+		transform: translateY(160px);
+		opacity: 0;
+	}
+	22% {
+		transform: translateY(50px);
+		opacity: 1;
+	}
+	30% {
+		transform: translateY(50px) rotate(-8deg);
+	}
+	38% {
+		transform: translateY(50px) rotate(8deg);
+	}
+	46% {
+		transform: translateY(50px) rotate(0deg);
+	}
+	52% {
+		transform: translateY(-8px);
+	}
+	57% {
+		transform: translateY(6px);
+	}
+	62% {
+		transform: translateY(0);
+	}
+	74% {
+		transform: translateY(0);
+		opacity: 1;
+	}
+	84%,
+	100% {
+		transform: translateY(-140px) rotate(-6deg);
+		opacity: 0;
+	}
+}
+.waf-well-bubble {
+	animation: waf-well-bubble 4200ms ease-out forwards;
+}
+@keyframes waf-well-bubble {
+	0%,
+	56% {
+		opacity: 0;
+		transform: scale(0);
+	}
+	62% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	72% {
+		opacity: 1;
+	}
+	80%,
+	100% {
+		opacity: 0;
+		transform: scale(0.9);
+	}
+}
+
+/* ============ 07 surf 冲浪蛙（4000ms，固定底部冲上） ============ */
+.waf-surf-board {
+	animation: waf-surf-board 4000ms ease-in-out forwards;
+}
+@keyframes waf-surf-board {
+	0% {
+		transform: translate(50px, 200px) rotate(14deg);
+		opacity: 0;
+	}
+	4% {
+		opacity: 1;
+	}
+	22% {
+		transform: translate(0, -8px) rotate(-4deg);
+	}
+	30% {
+		transform: translate(0, 10px) rotate(3deg);
+	}
+	40% {
+		transform: translate(0, -2px) rotate(-2deg);
+	}
+	50% {
+		transform: translate(0, 8px) rotate(2deg);
+	}
+	60% {
+		transform: translate(0, 0) rotate(0deg);
+	}
+	72% {
+		transform: translate(0, 0);
+		opacity: 1;
+	}
+	88%,
+	100% {
+		transform: translate(-300px, 40px) rotate(-10deg);
+		opacity: 0;
+	}
+}
+.waf-surf-frog {
+	animation: waf-surf-frog 4000ms ease-in-out forwards;
+}
+@keyframes waf-surf-frog {
+	0%,
+	32% {
+		transform: scale(1, 1);
+	}
+	38% {
+		transform: scale(1.04, 1.1);
+	}
+	46% {
+		transform: scale(0.98, 0.96);
+	}
+	56%,
+	100% {
+		transform: scale(1, 1);
+	}
+}
+.waf-surf-splash {
+	animation: waf-surf-splash 4000ms ease-out forwards;
+}
+.waf-surf-splash.s2 {
+	animation-delay: 0.12s;
+}
+.waf-surf-splash.s3 {
+	animation-delay: 0.24s;
+}
+@keyframes waf-surf-splash {
+	0%,
+	6% {
+		opacity: 0;
+		transform: translate(0, 0) scale(0.5);
+	}
+	10% {
+		opacity: 0.9;
+	}
+	26%,
+	100% {
+		opacity: 0;
+		transform: translate(-34px, -52px) scale(1.3);
+	}
+}
+
+/* ============ 08 spa 温泉蛙（4000ms，水平 --fx-hx） ============ */
+.waf-spa-tub {
+	animation: waf-spa-tub 4000ms ease-in-out forwards;
+}
+@keyframes waf-spa-tub {
+	0% {
+		transform: translate(var(--fx-hx), 8px);
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	22% {
+		transform: translate(0, 8px);
+	}
+	34% {
+		transform: translate(0, 13px);
+	}
+	46% {
+		transform: translate(0, 5px);
+	}
+	58% {
+		transform: translate(0, 10px);
+	}
+	68% {
+		transform: translate(0, 8px);
+		opacity: 1;
+	}
+	86%,
+	100% {
+		transform: translate(var(--fx-hx), 4px);
+		opacity: 0;
+	}
+}
+.waf-spa-steam {
+	animation: waf-spa-steam 4000ms ease-out forwards;
+}
+.waf-spa-steam.s2 {
+	animation-delay: 1s;
+}
+@keyframes waf-spa-steam {
+	0%,
+	30% {
+		opacity: 0;
+		transform: translateY(6px) scaleX(1);
+	}
+	42% {
+		opacity: 0.65;
+	}
+	58%,
+	100% {
+		opacity: 0;
+		transform: translateY(-26px) scaleX(1.4);
+	}
+}
+
+/* ============ 09 slingshot 弹弓入场（3600ms） ============ */
+.waf-sling-frog {
+	animation: waf-sling-frog 3600ms ease-in-out forwards;
+}
+@keyframes waf-sling-frog {
+	0% {
+		transform: translate(calc(var(--fx-ex) * 1.3), calc(var(--fx-ey) * 1.3))
+			scale(1.3, 0.85);
+		opacity: 0;
+	}
+	6% {
+		opacity: 1;
+	}
+	10% {
+		transform: translate(calc(var(--fx-ex) * 1.3), calc(var(--fx-ey) * 1.3))
+			scale(1.35, 0.8);
+	}
+	12% {
+		transform: translate(calc(var(--fx-ex) * 0.55), calc(var(--fx-ey) * 0.55))
+			scale(1.05, 1);
+	}
+	16% {
+		transform: translate(calc(var(--fx-ex) * 0.06), calc(var(--fx-ey) * 0.1))
+			scale(0.9, 1.12);
+	}
+	19% {
+		transform: translate(calc(var(--fx-ex) * -0.03), calc(var(--fx-ey) * -0.02))
+			scale(1.12, 0.85);
+	}
+	22% {
+		transform: translate(calc(var(--fx-ex) * 0.01), 2px) rotate(-7deg);
+	}
+	25% {
+		transform: translate(0, 2px) rotate(6deg);
+	}
+	28% {
+		transform: translate(0, 2px) rotate(-3deg);
+	}
+	31% {
+		transform: translate(0, 2px) rotate(0deg);
+	}
+	36% {
+		transform: translate(0, 0) scale(1);
+	}
+	66% {
+		transform: translate(0, 0);
+		opacity: 1;
+	}
+	78% {
+		transform: translate(calc(var(--fx-ex) * 0.3), calc(var(--fx-ey) * 0.3));
+		opacity: 1;
+	}
+	88%,
+	100% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+}
+.waf-sling-ghost {
+	animation: waf-sling-ghost 3600ms ease-in forwards;
+}
+.waf-sling-ghost.g2 {
+	animation-delay: 0.04s;
+}
+.waf-sling-ghost.g3 {
+	animation-delay: 0.08s;
+}
+@keyframes waf-sling-ghost {
+	0%,
+	10% {
+		opacity: 0;
+		transform: translate(calc(var(--fx-ex) * 1.3), calc(var(--fx-ey) * 1.3))
+			scale(1.3, 0.85);
+	}
+	12% {
+		opacity: 0.3;
+	}
+	17%,
+	100% {
+		opacity: 0;
+		transform: translate(calc(var(--fx-ex) * 0.4), calc(var(--fx-ey) * 0.4))
+			scale(1);
+	}
+}
+.waf-sling-band {
+	animation: waf-sling-band 3600ms ease-out forwards;
+}
+@keyframes waf-sling-band {
+	0%,
+	9% {
+		opacity: 1;
+		transform: translate(0, 0);
+	}
+	13% {
+		opacity: 1;
+		transform: translate(calc(var(--fx-ex) * 0.7), calc(var(--fx-ey) * 0.7));
+	}
+	16% {
+		transform: translate(calc(var(--fx-ex) * 0.45), calc(var(--fx-ey) * 0.45));
+	}
+	20% {
+		transform: translate(calc(var(--fx-ex) * 0.55), calc(var(--fx-ey) * 0.55));
+	}
+	26%,
+	100% {
+		opacity: 0;
+	}
+}
+.waf-sling-dizzy {
+	animation: waf-sling-dizzy 3600ms linear forwards;
+}
+@keyframes waf-sling-dizzy {
+	0%,
+	33% {
+		opacity: 0;
+		transform: rotate(0deg);
+	}
+	35% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 1;
+		transform: rotate(720deg);
+	}
+	52%,
+	100% {
+		opacity: 0;
+	}
+}
+
+/* ============ 10 flowers 撒花蛙（3600ms） ============ */
+.waf-flowers-frog {
+	animation: waf-flowers-frog 3600ms ease-in-out forwards;
+}
+@keyframes waf-flowers-frog {
+	0% {
+		transform: translate(var(--fx-ex), var(--fx-ey)) scale(1, 0.8);
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(calc(var(--fx-ex) * 0.2), calc(var(--fx-ey) * 0.2))
+			scale(0.95, 1.12);
+	}
+	18% {
+		transform: translate(calc(var(--fx-ex) * 0.05), calc(var(--fx-ey) * 0.05))
+			scale(1.15, 0.8);
+	}
+	22% {
+		transform: translate(0, 0) scale(1);
+	}
+	28% {
+		transform: rotate(-3deg);
+	}
+	34% {
+		transform: rotate(2deg);
+	}
+	40% {
+		transform: translateY(-10px) scale(1, 0.94);
+	}
+	46% {
+		transform: translateY(0) scale(1.04, 1.06);
+	}
+	52% {
+		transform: scale(1);
+	}
+	68% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	80% {
+		transform: translate(calc(var(--fx-ex) * 0.3), calc(var(--fx-ey) * 0.3))
+			scale(0.9);
+		opacity: 1;
+	}
+	90%,
+	100% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+}
+.waf-flowers-petal {
+	animation: waf-flowers-petal 3600ms ease-in-out forwards;
+}
+.waf-flowers-petal.p2 {
+	animation-delay: 0.08s;
+}
+.waf-flowers-petal.p3 {
+	animation-delay: 0.16s;
+}
+.waf-flowers-petal.p4 {
+	animation-delay: 0.12s;
+}
+.waf-flowers-petal.p5 {
+	animation-delay: 0.04s;
+}
+.waf-flowers-petal.p6 {
+	animation-delay: 0.2s;
+}
+@keyframes waf-flowers-petal {
+	0%,
+	46% {
+		opacity: 0;
+		transform: translate(0, 0) rotate(0deg) scale(0.4);
+	}
+	50% {
+		opacity: 1;
+	}
+	72%,
+	100% {
+		opacity: 0;
+		transform: translate(var(--fx-pdx, 0px), 80px) rotate(200deg) scale(1);
+	}
+}
+
+/* ============ 11 sign 举牌蛙（3600ms） ============ */
+.waf-sign-frog {
+	animation: waf-sign-frog 3600ms ease-in-out forwards;
+}
+@keyframes waf-sign-frog {
+	0% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(calc(var(--fx-ex) * 0.2), calc(var(--fx-ey) * 0.2))
+			scale(0.95, 1.1);
+	}
+	18% {
+		transform: translate(calc(var(--fx-ex) * 0.05), calc(var(--fx-ey) * 0.05))
+			scale(1.15, 0.8);
+	}
+	22% {
+		transform: translate(0, 0) scale(1);
+	}
+	62% {
+		transform: translate(0, 0);
+		opacity: 1;
+	}
+	80% {
+		transform: translate(calc(var(--fx-ex) * 0.85), calc(var(--fx-ey) * 0.85));
+		opacity: 1;
+	}
+	92%,
+	100% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+}
+.waf-sign-board {
+	animation: waf-sign-board 3600ms ease-in-out forwards;
+}
+@keyframes waf-sign-board {
+	0%,
+	26% {
+		opacity: 0;
+		transform: translate(calc(var(--fx-ix) * 0.5), 0) rotate(-75deg) scale(0.6);
+	}
+	34% {
+		opacity: 1;
+		transform: translate(calc(var(--fx-ix) * 0.5), 0) rotate(6deg) scale(1.06);
+	}
+	40% {
+		transform: translate(calc(var(--fx-ix) * 0.5), 0) rotate(-6deg);
+	}
+	50% {
+		transform: translate(calc(var(--fx-ix) * 0.5), 0) rotate(5deg);
+	}
+	58% {
+		transform: translate(calc(var(--fx-ix) * 0.5), 0) rotate(-3deg);
+	}
+	64% {
+		transform: translate(calc(var(--fx-ix) * 0.5), 0) rotate(0deg);
+	}
+	72% {
+		opacity: 1;
+	}
+	84%,
+	100% {
+		opacity: 0;
+	}
+}
+
+/* ============ 12 salute 敬礼蛙（3000ms，水平 --fx-hx） ============ */
+.waf-salute-frog {
+	animation: waf-salute-frog 3000ms ease-in-out forwards;
+}
+@keyframes waf-salute-frog {
+	0% {
+		transform: translate(var(--fx-hx), 0);
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	18% {
+		transform: translate(0, 0);
+	}
+	24% {
+		transform: scaleY(1.06);
+	}
+	30% {
+		transform: scaleY(1);
+	}
+	58% {
+		transform: translate(0, 0);
+		opacity: 1;
+	}
+	66% {
+		transform: scaleX(-1);
+	}
+	84% {
+		transform: translate(calc(var(--fx-hx) * -0.2), 0) scaleX(-1);
+		opacity: 1;
+	}
+	94%,
+	100% {
+		transform: translate(var(--fx-hx), 0) scaleX(-1);
+		opacity: 0;
+	}
+}
+.waf-salute-arm {
+	animation: waf-salute-arm 3000ms ease-in-out forwards;
+}
+@keyframes waf-salute-arm {
+	0%,
+	20% {
+		transform: rotate(0deg);
+	}
+	26% {
+		transform: rotate(-135deg);
+	}
+	60% {
+		transform: rotate(-135deg);
+	}
+	68%,
+	100% {
+		transform: rotate(0deg);
+	}
+}
+
+/* ============ 13 tongue 舌头盖✓章（3600ms，原地趴） ============ */
+.waf-tongue-frog {
+	animation: waf-tongue-frog 3600ms ease-in-out forwards;
+}
+@keyframes waf-tongue-frog {
+	0% {
+		transform: translate(calc(var(--fx-ex) * 0.6), calc(var(--fx-ey) * 0.6))
+			scale(0.92, 0.96);
+		opacity: 0;
+	}
+	6% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(0, 6px) scale(0.92, 0.96);
+	}
+	70% {
+		transform: translate(0, 6px) scale(0.92, 0.96);
+		opacity: 1;
+	}
+	82%,
+	100% {
+		transform: translate(calc(var(--fx-ex) * 0.4), calc(var(--fx-ey) * 0.4))
+			scale(0.92, 0.96);
+		opacity: 0;
+	}
+}
+.waf-tongue-strip {
+	animation: waf-tongue-strip 3600ms ease-in-out forwards;
+}
+@keyframes waf-tongue-strip {
+	0%,
+	22% {
+		transform: scaleX(0);
+	}
+	27% {
+		transform: scaleX(1);
+	}
+	34% {
+		transform: scaleX(1);
+	}
+	40%,
+	100% {
+		transform: scaleX(0);
+	}
+}
+.waf-tongue-stamp {
+	animation: waf-tongue-stamp 3600ms ease-out forwards;
+}
+@keyframes waf-tongue-stamp {
+	0%,
+	26% {
+		opacity: 0;
+		transform: translate(calc(var(--fx-ix) - 90px), 20px) scale(2) rotate(-14deg);
+	}
+	30% {
+		opacity: 1;
+		transform: translate(calc(var(--fx-ix) - 90px), 20px) scale(1) rotate(-8deg);
+	}
+	34% {
+		transform: translate(calc(var(--fx-ix) - 90px), 20px) scale(1.08)
+			rotate(-8deg);
+	}
+	74% {
+		opacity: 1;
+		transform: translate(calc(var(--fx-ix) - 90px), 20px) scale(1) rotate(-8deg);
+	}
+	86%,
+	100% {
+		opacity: 0;
+		transform: translate(calc(var(--fx-ix) - 90px), 20px) scale(1) rotate(-8deg);
+	}
+}
+
+/* ============ 14 sketch 手绘描边（3600ms，原地） ============ */
+.waf-sketch-line {
+	animation: waf-sketch-line 3600ms ease-in-out forwards;
+	stroke-dasharray: 900;
+	stroke-dashoffset: 900;
+}
+@keyframes waf-sketch-line {
+	0% {
+		opacity: 1;
+		stroke-dashoffset: 900;
+	}
+	36% {
+		opacity: 1;
+		stroke-dashoffset: 0;
+	}
+	74% {
+		opacity: 1;
+		stroke-dashoffset: 0;
+	}
+	84%,
+	100% {
+		opacity: 0;
+	}
+}
+.waf-sketch-fill {
+	animation: waf-sketch-fill 3600ms ease-in-out forwards;
+}
+@keyframes waf-sketch-fill {
+	0%,
+	34% {
+		opacity: 0;
+	}
+	46% {
+		opacity: 1;
+	}
+	74% {
+		opacity: 1;
+	}
+	84%,
+	100% {
+		opacity: 0;
+	}
+}
+.waf-sketch-hop {
+	animation: waf-sketch-hop 3600ms ease-in-out forwards;
+}
+@keyframes waf-sketch-hop {
+	0%,
+	52% {
+		transform: translateY(0);
+	}
+	58% {
+		transform: translateY(-24px);
+	}
+	64% {
+		transform: translateY(0);
+	}
+	68% {
+		transform: translateY(-9px);
+	}
+	72%,
+	100% {
+		transform: translateY(0);
+	}
+}
+.waf-sketch-check {
+	animation: waf-sketch-check 3600ms ease-in-out forwards;
+	stroke-dasharray: 120;
+	stroke-dashoffset: 120;
+}
+@keyframes waf-sketch-check {
+	0%,
+	60% {
+		opacity: 1;
+		stroke-dashoffset: 120;
+	}
+	72% {
+		opacity: 1;
+		stroke-dashoffset: 0;
+	}
+	86%,
+	100% {
+		opacity: 0;
+	}
+}
+
+/* ============ 15 pixel 像素蛙（3200ms，steps 硬切） ============ */
+.waf-pixel-frog {
+	animation: waf-pixel-frog 3200ms steps(1, end) forwards;
+}
+@keyframes waf-pixel-frog {
+	0% {
+		transform: translate(6px, 150px);
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+		transform: translate(6px, 150px) scale(1, 0.7);
+	}
+	10% {
+		transform: translate(3px, 80px) scale(0.95, 1.15);
+	}
+	14% {
+		transform: translate(0, 88px) scale(1.1, 0.85);
+	}
+	18% {
+		transform: translate(0, 84px) scale(1, 1);
+	}
+	68% {
+		transform: translate(0, 84px) scale(1, 1);
+		opacity: 1;
+	}
+	74% {
+		transform: translate(-6px, 70px) scale(0.95, 1.1);
+	}
+	80% {
+		transform: translate(-50px, -30px) scale(1, 0.9);
+	}
+	86%,
+	100% {
+		opacity: 0;
+	}
+}
+.waf-pixel-eye-shut {
+	animation: waf-pixel-eye-shut 3200ms steps(1, end) forwards;
+}
+@keyframes waf-pixel-eye-shut {
+	0%,
+	42% {
+		opacity: 0;
+	}
+	44% {
+		opacity: 1;
+	}
+	48%,
+	100% {
+		opacity: 0;
+	}
+}
+.waf-pixel-star {
+	animation: waf-pixel-star 3200ms steps(2, end) forwards;
+}
+.waf-pixel-star.s2 {
+	animation-delay: 0.3s;
+}
+@keyframes waf-pixel-star {
+	0%,
+	20% {
+		opacity: 0;
+		transform: scale(0.4);
+	}
+	22% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	34% {
+		opacity: 0.3;
+		transform: scale(0.7);
+	}
+	38% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	56%,
+	100% {
+		opacity: 0;
+	}
+}
+
+/* ============ 17 magic 魔法蛙（3800ms） ============ */
+.waf-magic-frog {
+	animation: waf-magic-frog 3800ms ease-in-out forwards;
+}
+@keyframes waf-magic-frog {
+	0% {
+		transform: translate(var(--fx-ex), var(--fx-ey)) scale(1, 0.8);
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(calc(var(--fx-ex) * 0.2), calc(var(--fx-ey) * 0.2))
+			scale(0.95, 1.1);
+	}
+	18% {
+		transform: translate(calc(var(--fx-ex) * 0.05), calc(var(--fx-ey) * 0.05))
+			scale(1.15, 0.8);
+	}
+	22% {
+		transform: translate(0, 0) scale(1);
+	}
+	54% {
+		transform: translate(0, 0) scale(1);
+	}
+	58% {
+		transform: translateY(-12px) scale(1, 1.06);
+	}
+	64% {
+		transform: translateY(0) scale(1);
+	}
+	70% {
+		transform: translate(0, 0);
+		opacity: 1;
+	}
+	82% {
+		transform: translate(calc(var(--fx-ex) * 0.4), calc(var(--fx-ey) * 0.4))
+			scale(0.9);
+		opacity: 1;
+	}
+	92%,
+	100% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+}
+.waf-magic-wand {
+	animation: waf-magic-wand 3800ms ease-in-out forwards;
+}
+@keyframes waf-magic-wand {
+	0%,
+	28% {
+		transform: rotate(-24deg);
+	}
+	38% {
+		transform: rotate(52deg);
+	}
+	46% {
+		transform: rotate(40deg);
+	}
+	58% {
+		transform: rotate(46deg);
+	}
+	68%,
+	100% {
+		transform: rotate(-24deg);
+	}
+}
+.waf-magic-star {
+	animation: waf-magic-star 3800ms ease-in-out forwards;
+}
+.waf-magic-star.s2 {
+	animation-delay: 0.12s;
+}
+.waf-magic-star.s3 {
+	animation-delay: 0.24s;
+}
+.waf-magic-star.s4 {
+	animation-delay: 0.18s;
+}
+.waf-magic-star.s5 {
+	animation-delay: 0.3s;
+}
+@keyframes waf-magic-star {
+	0%,
+	40% {
+		opacity: 0;
+		transform: translate(0, 0) scale(0.3);
+	}
+	48% {
+		opacity: 1;
+	}
+	58%,
+	100% {
+		opacity: 0;
+		transform: translate(var(--fx-sdx, 0px), var(--fx-sdy, 0px)) scale(1);
+	}
+}
+.waf-magic-badge {
+	animation: waf-magic-badge 3800ms ease-out forwards;
+}
+@keyframes waf-magic-badge {
+	0%,
+	56% {
+		opacity: 0;
+		transform: scale(0);
+	}
+	62% {
+		opacity: 1;
+		transform: scale(1.25);
+	}
+	66% {
+		transform: scale(1);
+	}
+	74% {
+		transform: scale(1) translateY(-4px);
+	}
+	84%,
+	100% {
+		opacity: 0;
+	}
+}
+
+/* ============ 18 tadpole 蝌蚪变身（3800ms，原地） ============ */
+.waf-tad-tad {
+	animation: waf-tad-tad 3800ms ease-in-out forwards;
+}
+@keyframes waf-tad-tad {
+	0% {
+		transform: translate(-260px, 57px);
+		opacity: 0;
+	}
+	4% {
+		opacity: 1;
+	}
+	22% {
+		transform: translate(37px, 57px);
+	}
+	26% {
+		transform: translate(30px, 48px) rotate(90deg);
+	}
+	32% {
+		transform: translate(34px, 56px) rotate(420deg) scale(0.9);
+	}
+	37% {
+		transform: translate(36px, 58px) rotate(760deg) scale(0.7);
+		opacity: 1;
+	}
+	40%,
+	100% {
+		opacity: 0;
+	}
+}
+.waf-tad-flash {
+	animation: waf-tad-flash 3800ms ease-out forwards;
+}
+@keyframes waf-tad-flash {
+	0%,
+	36% {
+		opacity: 0;
+		transform: scale(0.2);
+	}
+	40% {
+		opacity: 0.95;
+		transform: scale(1.15);
+	}
+	48%,
+	100% {
+		opacity: 0;
+		transform: scale(1.7);
+	}
+}
+.waf-tad-frog {
+	animation: waf-tad-frog 3800ms ease-in-out forwards;
+}
+@keyframes waf-tad-frog {
+	0%,
+	38% {
+		transform: scale(0);
+		opacity: 0;
+	}
+	44% {
+		transform: scale(1.2);
+		opacity: 1;
+	}
+	48% {
+		transform: scale(0.95);
+	}
+	52% {
+		transform: scale(1.03) rotate(-5deg);
+	}
+	56% {
+		transform: rotate(4deg);
+	}
+	60% {
+		transform: rotate(-2deg);
+	}
+	64% {
+		transform: rotate(0deg);
+	}
+	72% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	84%,
+	100% {
+		transform: translate(-200px, -40px) scale(0.8);
+		opacity: 0;
+	}
+}
+.waf-tad-bubble {
+	animation: waf-tad-bubble 3800ms ease-out forwards;
+}
+@keyframes waf-tad-bubble {
+	0%,
+	62% {
+		opacity: 0;
+		transform: scale(0);
+	}
+	68% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	78%,
+	100% {
+		opacity: 0;
+		transform: scale(0.9);
+	}
+}
+
+/* ============ 19 chorus 合唱谢幕（4200ms，原地） ============ */
+.waf-chorus-a {
+	animation: waf-chorus-a 4200ms ease-in-out forwards;
+}
+@keyframes waf-chorus-a {
+	0% {
+		transform: translate(40px, 190px);
+		opacity: 0;
+	}
+	4% {
+		opacity: 1;
+	}
+	10% {
+		transform: translate(8px, -24px) scale(0.8, 1.14);
+	}
+	14% {
+		transform: translate(0, 6px) scale(0.95, 0.9);
+	}
+	18% {
+		transform: translate(0, 0) scale(1);
+	}
+	56% {
+		transform: rotate(0deg);
+		opacity: 1;
+	}
+	62% {
+		transform: rotate(10deg);
+	}
+	67% {
+		transform: rotate(0deg);
+	}
+	74%,
+	100% {
+		transform: translate(-100px, 60px);
+		opacity: 0;
+	}
+}
+.waf-chorus-b {
+	animation: waf-chorus-b 4200ms ease-in-out forwards;
+}
+@keyframes waf-chorus-b {
+	0% {
+		transform: translate(-60px, 190px);
+		opacity: 0;
+	}
+	6% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(-8px, -20px) scale(0.8, 1.12);
+	}
+	18% {
+		transform: translate(0, 4px) scale(0.9, 0.92);
+	}
+	22% {
+		transform: translate(0, 0) scale(1);
+	}
+	56% {
+		transform: rotate(0deg);
+		opacity: 1;
+	}
+	62% {
+		transform: rotate(9deg);
+	}
+	67% {
+		transform: rotate(0deg);
+	}
+	78%,
+	100% {
+		transform: translate(90px, -30px);
+		opacity: 0;
+	}
+}
+.waf-chorus-c {
+	animation: waf-chorus-c 4200ms ease-in-out forwards;
+}
+@keyframes waf-chorus-c {
+	0% {
+		transform: translate(-70px, 190px);
+		opacity: 0;
+	}
+	10% {
+		opacity: 1;
+	}
+	18% {
+		transform: translate(-8px, -16px) scale(0.8, 1.1);
+	}
+	22% {
+		transform: translate(0, 4px) scale(0.9, 0.9);
+	}
+	26% {
+		transform: translate(0, 0) scale(1);
+	}
+	56% {
+		transform: rotate(0deg);
+		opacity: 1;
+	}
+	62% {
+		transform: rotate(11deg);
+	}
+	67% {
+		transform: rotate(0deg);
+	}
+	82%,
+	100% {
+		transform: translate(130px, 60px);
+		opacity: 0;
+	}
+}
+.waf-chorus-note {
+	animation: waf-chorus-note 4200ms ease-out forwards;
+}
+.waf-chorus-note.n2 {
+	animation-delay: 0.35s;
+}
+.waf-chorus-note.n3 {
+	animation-delay: 0.7s;
+}
+.waf-chorus-note.n4 {
+	animation-delay: 1.05s;
+}
+@keyframes waf-chorus-note {
+	0%,
+	34% {
+		opacity: 0;
+		transform: translate(0, 0) scale(0.5);
+	}
+	42% {
+		opacity: 0.9;
+	}
+	58%,
+	100% {
+		opacity: 0;
+		transform: translate(10px, -30px) scale(1.1);
+	}
+}
+
+/* ============ 20 gong 敲锣蛙（3600ms） ============ */
+.waf-gong-frog {
+	animation: waf-gong-frog 3600ms ease-in-out forwards;
+}
+@keyframes waf-gong-frog {
+	0% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+	5% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(calc(var(--fx-ex) * 0.2), calc(var(--fx-ey) * 0.2))
+			scale(0.95, 1.12);
+	}
+	18% {
+		transform: translate(calc(var(--fx-ex) * 0.05), calc(var(--fx-ey) * 0.05))
+			scale(1.15, 0.8);
+	}
+	22% {
+		transform: translate(0, 0) scale(1);
+	}
+	62% {
+		transform: translate(0, 0);
+		opacity: 1;
+	}
+	78% {
+		transform: translate(calc(var(--fx-ex) * 0.5), calc(var(--fx-ey) * 0.5))
+			scale(0.9);
+		opacity: 1;
+	}
+	88%,
+	100% {
+		transform: translate(var(--fx-ex), var(--fx-ey));
+		opacity: 0;
+	}
+}
+.waf-gong-hammer {
+	animation: waf-gong-hammer 3600ms ease-in-out forwards;
+}
+@keyframes waf-gong-hammer {
+	0%,
+	30% {
+		transform: rotate(-38deg);
+	}
+	35% {
+		transform: rotate(12deg);
+	}
+	40% {
+		transform: rotate(-38deg);
+	}
+	46% {
+		transform: rotate(12deg);
+	}
+	52%,
+	100% {
+		transform: rotate(-38deg);
+	}
+}
+.waf-gong-wave {
+	animation: waf-gong-wave 3600ms ease-out forwards;
+}
+.waf-gong-wave.w2 {
+	animation-delay: 0.5s;
+}
+@keyframes waf-gong-wave {
+	0%,
+	34% {
+		opacity: 0;
+		transform: scale(0.3);
+	}
+	38% {
+		opacity: 0.85;
+		transform: scale(0.8);
+	}
+	52%,
+	100% {
+		opacity: 0;
+		transform: scale(1.9);
+	}
+}
+.waf-gong-disk {
+	animation: waf-gong-disk 3600ms ease-in-out forwards;
+}
+@keyframes waf-gong-disk {
+	0%,
+	34% {
+		transform: scale(1, 1);
+	}
+	36% {
+		transform: scale(1.12, 0.86);
+	}
+	40% {
+		transform: scale(0.96, 1.06);
+	}
+	44% {
+		transform: scale(1, 1);
+	}
+	46% {
+		transform: scale(1.12, 0.86);
+	}
+	50% {
+		transform: scale(1.12, 0.86);
+	}
+	54%,
+	100% {
+		transform: scale(1, 1);
+	}
+}
+
+/* ========================================================================
+   Logo 动态青蛙（LogoFrog）
+   - Logo 蛙脸常驻 idle 循环（wlf-idle-*，20s 一轮：眨眼→鼓气呱→张望→
+     打盹→翻面，间隔自然停顿），保证图标本身一直有生命感；
+   - 随机调度（10~20s 一次）只负责 B 组「跳出 Logo 与文字互动」动作；
+   - 默认隐藏仅作用于五个动作元素（直接选择器，无通配，规避白名单
+     遗漏问题）：.wlf-avatar / .wlf-tongue / .wlf-eyelids /
+     .wlf-quack-bubble / .wlf-zzz，其余全部常显。
+   ======================================================================== */
+.wlf-row .wlf-avatar,
+.wlf-row .wlf-tongue,
+.wlf-row .wlf-eyelids,
+.wlf-row .wlf-quack-bubble,
+.wlf-row .wlf-zzz {
+	opacity: 0;
+}
+.wlf-row [class^="wlf-"],
+.wlf-row .wlf-ch-t {
+	transform-box: fill-box;
+	transform-origin: 50% 50%;
+}
+/* 蛙 z 在文字下层：探头时被不透明标题遮住形成"躲"的效果 */
+.wlf-row .wlf-avatar {
+	position: absolute;
+	left: 1px;
+	top: 2px;
+	z-index: 0;
+}
+/* 呱气泡/zzz 允许画出 Logo 块外（体积翻倍后溢出 viewBox） */
+.wlf-row .wlf-logo {
+	overflow: visible;
+}
+.wlf-row > [data-testid="sidebar-title"] {
+	position: relative;
+	z-index: 1;
+}
+.wlf-row .wlf-tongue {
+	left: 34px;
+	top: 20px;
+	height: 8px;
+	width: calc(var(--wlf-tx, 160px) - 34px);
+	background: #e2707a;
+	border-radius: 4px;
+	transform-origin: 0 50%;
+}
+
+/* ---------- Logo 蛙脸常驻 idle 循环（20s 一轮） ---------- */
+.wlf-row .wlf-face {
+	animation: wlf-idle-face 20s ease-in-out infinite;
+	transform-origin: 50% 60%;
+}
+@keyframes wlf-idle-face {
+	0%,
+	14% {
+		transform: scale(1, 1) translateX(0) scaleX(1);
+	}
+	18% {
+		transform: scale(1.18, 1.3) translateX(0) scaleX(1);
+	}
+	24%,
+	36% {
+		transform: scale(1, 1) translateX(0) scaleX(1);
+	}
+	39% {
+		transform: scale(1, 1) translateX(24px) scaleX(1);
+	}
+	42% {
+		transform: scale(1, 1) translateX(-24px) scaleX(1);
+	}
+	46%,
+	72% {
+		transform: scale(1, 1) translateX(0) scaleX(1);
+	}
+	75% {
+		transform: scale(1.14, 0.8) translateX(0) scaleX(1) translateY(-20px);
+	}
+	78% {
+		transform: scale(1, 1) translateX(0) scaleX(1);
+	}
+	81% {
+		transform: scale(1, 1) translateX(0) scaleX(0);
+	}
+	84% {
+		transform: scale(1, 1) translateX(0) scaleX(-1);
+	}
+	88%,
+	100% {
+		transform: scale(1, 1) translateX(0) scaleX(1);
+	}
+}
+.wlf-row .wlf-eyelids {
+	animation: wlf-idle-eyelids 20s ease-in-out infinite;
+}
+/* 眼神游走：张望段瞑孔朝文字方向多偏一点（POC 方案 01 细节） */
+.wlf-row .wlf-pupils {
+	animation: wlf-idle-pupils 20s ease-in-out infinite;
+}
+@keyframes wlf-idle-pupils {
+	0%,
+	34% {
+		transform: translate(0, 0);
+	}
+	38% {
+		transform: translate(9px, 2px);
+	}
+	41% {
+		transform: translate(-9px, 2px);
+	}
+	46%,
+	100% {
+		transform: translate(0, 0);
+	}
+}
+@keyframes wlf-idle-eyelids {
+	0%,
+	1% {
+		opacity: 0;
+	}
+	2% {
+		opacity: 1;
+	}
+	3.5%,
+	57% {
+		opacity: 0;
+	}
+	61%,
+	70% {
+		opacity: 1;
+	}
+	74%,
+	100% {
+		opacity: 0;
+	}
+}
+.wlf-row .wlf-quack-bubble {
+	animation: wlf-idle-bubble 20s ease-out infinite;
+	transform-origin: 0 90%;
+}
+@keyframes wlf-idle-bubble {
+	0%,
+	20% {
+		opacity: 0;
+		transform: scale(0);
+	}
+	24% {
+		opacity: 1;
+		transform: scale(1.12);
+	}
+	28% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	34% {
+		opacity: 0;
+		transform: scale(0.9) translateY(-4px);
+	}
+	100% {
+		opacity: 0;
+		transform: scale(0);
+	}
+}
+.wlf-row .wlf-zzz {
+	animation: wlf-idle-zzz 20s ease-out infinite;
+}
+.wlf-row .wlf-zzz.z2 {
+	animation-delay: 0.6s;
+}
+@keyframes wlf-idle-zzz {
+	0%,
+	58% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	64% {
+		opacity: 1;
+	}
+	72% {
+		opacity: 0;
+		transform: translate(10px, -26px);
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+/* ---------- B1 hopUp 跳上文字（3600ms） ---------- */
+.wlf-a-hopUp .wlf-avatar {
+	animation: wlf-hopUp 3600ms ease-in-out forwards;
+}
+@keyframes wlf-hopUp {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	6% {
+		opacity: 1;
+	}
+	16% {
+		transform: translate(20px, -2px) scale(1.05, 0.92);
+	}
+	30% {
+		transform: translate(48px, -2px) scale(0.95, 1.12);
+	}
+	38% {
+		transform: translate(62px, -2px) scale(1.1, 0.88);
+	}
+	44% {
+		transform: translate(60px, -2px) scale(1, 1);
+	}
+	74% {
+		opacity: 1;
+		transform: translate(60px, -2px);
+	}
+	86% {
+		opacity: 1;
+		transform: translate(24px, 0) scale(0.98, 1.08);
+	}
+	96%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+
+/* ---------- B2 patrol 文字巡逻（4600ms） ---------- */
+.wlf-a-patrol .wlf-avatar {
+	animation: wlf-patrol 4600ms ease-in-out forwards;
+}
+@keyframes wlf-patrol {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0) scaleX(1);
+	}
+	6% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(10px, 0);
+	}
+	44% {
+		transform: translate(96px, 0);
+	}
+	54% {
+		transform: translate(100px, 0) scaleX(-1);
+	}
+	84% {
+		transform: translate(10px, 0) scaleX(-1);
+	}
+	90% {
+		opacity: 1;
+		transform: translate(0, 0) scaleX(-1);
+	}
+	96%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0) scaleX(1);
+	}
+}
+
+/* ---------- B3 peekaboo 文字后探头（4000ms） ---------- */
+.wlf-a-peekaboo .wlf-avatar {
+	animation: wlf-peekaboo 4000ms ease-in-out forwards;
+}
+@keyframes wlf-peekaboo {
+	0%,
+	8% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	14%,
+	22% {
+		opacity: 1;
+		transform: translate(16px, 0);
+	}
+	18% {
+		transform: translate(14px, -3px);
+	}
+	28%,
+	34% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	42%,
+	50% {
+		opacity: 1;
+		transform: translate(18px, 0);
+	}
+	56%,
+	62% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	70%,
+	78% {
+		opacity: 1;
+		transform: translate(16px, 0);
+	}
+	88%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+
+/* ---------- B4 tongue 舌头卷字母（3600ms，需完整文字） ---------- */
+.wlf-a-tongue .wlf-tongue {
+	opacity: 1;
+	animation: wlf-tongue-out 3600ms ease-in-out forwards;
+}
+@keyframes wlf-tongue-out {
+	0%,
+	30% {
+		transform: scaleX(0);
+	}
+	42% {
+		transform: scaleX(1);
+	}
+	54% {
+		transform: scaleX(1);
+	}
+	66%,
+	100% {
+		transform: scaleX(0);
+	}
+}
+.wlf-a-tongue .wlf-ch-t {
+	animation: wlf-t-pull 3600ms ease-in-out forwards;
+	transform-origin: 50% 100%;
+}
+@keyframes wlf-t-pull {
+	0%,
+	40% {
+		transform: translate(0, 0) rotate(0deg);
+	}
+	48% {
+		transform: translate(-4px, -5px) rotate(-14deg);
+	}
+	56%,
+	100% {
+		transform: translate(0, 0) rotate(0deg);
+	}
+}
+
+/* ---------- B5 slide A字滑梯（3600ms，需完整文字） ---------- */
+.wlf-a-slide .wlf-avatar {
+	animation: wlf-slide 3600ms ease-in-out forwards;
+}
+@keyframes wlf-slide {
+	0% {
+		opacity: 0;
+		transform: translate(48px, -2px) rotate(-20deg);
+	}
+	10% {
+		opacity: 1;
+	}
+	20% {
+		transform: translate(58px, 2px) rotate(24deg);
+	}
+	30% {
+		transform: translate(74px, 2px) rotate(0deg);
+	}
+	40%,
+	48% {
+		opacity: 1;
+		transform: translate(78px, 2px);
+	}
+	62% {
+		opacity: 0;
+		transform: translate(40px, 0);
+	}
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+
+/* ---------- B6 lie 文字床午睡（4600ms，需完整文字） ---------- */
+.wlf-a-lie .wlf-avatar {
+	animation: wlf-lie 4600ms ease-in-out forwards;
+}
+@keyframes wlf-lie {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0) rotate(0deg);
+	}
+	6% {
+		opacity: 1;
+	}
+	18% {
+		transform: translate(40px, 0) rotate(80deg);
+	}
+	26%,
+	66% {
+		transform: translate(62px, 0) rotate(90deg);
+	}
+	76% {
+		opacity: 1;
+		transform: translate(40px, 0) rotate(0deg);
+	}
+	86%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+
+/* ---------- B7 vault 跳马越字（3600ms） ---------- */
+.wlf-a-vault .wlf-avatar {
+	animation: wlf-vault 3600ms ease-in-out forwards;
+}
+@keyframes wlf-vault {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	5% {
+		opacity: 1;
+	}
+	14% {
+		transform: translate(6px, 0) scale(1.06, 0.9);
+	}
+	28% {
+		transform: translate(36px, -12px) rotate(-14deg) scale(0.95, 1.1);
+	}
+	42% {
+		transform: translate(74px, -2px) rotate(10deg) scale(1.06, 0.92);
+	}
+	50% {
+		transform: translate(88px, 0) rotate(0deg) scale(1, 1);
+	}
+	60% {
+		opacity: 1;
+		transform: translate(88px, 0);
+	}
+	74%,
+	100% {
+		opacity: 0;
+		transform: translate(30px, 0) scaleX(-1);
+	}
+}
+
+/* ---------- B8 push 推字（3600ms，需完整文字） ---------- */
+.wlf-a-push .wlf-avatar {
+	animation: wlf-push-walk 3600ms ease-in-out forwards;
+}
+@keyframes wlf-push-walk {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	8% {
+		opacity: 1;
+	}
+	30% {
+		transform: translate(calc(var(--wlf-tx, 160px) - 60px), 0);
+	}
+	44% {
+		transform: translate(calc(var(--wlf-tx, 160px) - 52px), 0);
+	}
+	58% {
+		transform: translate(calc(var(--wlf-tx, 160px) - 66px), 0);
+	}
+	72% {
+		opacity: 1;
+		transform: translate(calc(var(--wlf-tx, 160px) - 60px), 0);
+	}
+	86%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+.wlf-a-push .wlf-ch-t {
+	animation: wlf-t-tilt 3600ms ease-in-out forwards;
+	transform-origin: 30% 100%;
+}
+@keyframes wlf-t-tilt {
+	0%,
+	30% {
+		transform: rotate(0deg);
+	}
+	42% {
+		transform: rotate(13deg);
+	}
+	54% {
+		transform: rotate(10deg);
+	}
+	68%,
+	100% {
+		transform: rotate(0deg);
+	}
+}
+
+/* ---------- B9 drum 文字木琴（3600ms） ---------- */
+.wlf-a-drum .wlf-avatar {
+	animation: wlf-drum-walk 3600ms ease-in-out forwards;
+}
+@keyframes wlf-drum-walk {
+	0% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+	8% {
+		opacity: 1;
+	}
+	22% {
+		transform: translate(28px, 0);
+	}
+	30% {
+		transform: translate(24px, 0) rotate(-10deg);
+	}
+	40% {
+		transform: translate(28px, 0) rotate(0deg);
+	}
+	50% {
+		transform: translate(24px, 0) rotate(-10deg);
+	}
+	60% {
+		transform: translate(28px, 0) rotate(0deg);
+	}
+	70% {
+		transform: translate(24px, 0) rotate(-10deg);
+	}
+	80% {
+		opacity: 1;
+		transform: translate(28px, 0) rotate(0deg);
+	}
+	90%,
+	100% {
+		opacity: 0;
+		transform: translate(0, 0);
+	}
+}
+.wlf-a-drum .wlf-ch-w {
+	animation: wlf-ch-bounce 3600ms ease-in-out;
+}
+.wlf-a-drum .wlf-ch-a2 {
+	animation: wlf-ch-bounce 3600ms ease-in-out 0.15s;
+}
+.wlf-a-drum .wlf-ch-p {
+	animation: wlf-ch-bounce 3600ms ease-in-out 0.3s;
+}
+.wlf-a-drum .wlf-ch-i {
+	animation: wlf-ch-bounce 3600ms ease-in-out 0.45s;
+}
+@keyframes wlf-ch-bounce {
+	0%,
+	29%,
+	35%,
+	41%,
+	47%,
+	53%,
+	59%,
+	100% {
+		transform: translateY(0);
+	}
+	32%,
+	38%,
+	44%,
+	50%,
+	56% {
+		transform: translateY(-4px);
+	}
+}
