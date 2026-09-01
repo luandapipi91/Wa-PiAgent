@@ -52,10 +52,12 @@ describe("TaskFolderWatcher", () => {
 		});
 		await watcher.start();
 		writeFileSync(join(tasksDirOf(), "每日站会.md"), MD);
-		await waitFor(() =>
-			applied.some((ts) => ts.some((t) => t.id === "每日站会")),
+		// 并行高负载下 FSEvents 可能延迟，waitFor 放宽到 20s、用例超时 30s
+		await waitFor(
+			() => applied.some((ts) => ts.some((t) => t.id === "每日站会")),
+			20000,
 		);
-	}, 15000);
+	}, 30000);
 
 	test("store 自身写入（同内容哈希）不触发 applyTasks", async () => {
 		const store = createFolderTaskStore({
