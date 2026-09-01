@@ -9,6 +9,11 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import {
+	GetBucketCorsCommand,
+	PutBucketCorsCommand,
+	type S3Client,
+} from "@aws-sdk/client-s3";
 // S3/R2 上传核心自 s3-upload.cjs 复用（S3Client 创建 + 分片/小文件上传），DRY
 import {
 	createS3Client,
@@ -60,6 +65,68 @@ export function orderArtifactsForUpload(artifacts: Artifact[]): Artifact[] {
 	const installers = artifacts.filter((a) => !isManifest(a));
 	const manifests = artifacts.filter(isManifest);
 	return [...installers, ...manifests];
+}
+
+// —— 桶级 CORS（官网下载直链依赖）——
+// 官网（www.wapiagent.top）用浏览器 fetch 读取 releases/latest*.yml 解析最新安装包直链；
+// 浏览器同源策略要求桶响应带 CORS 头。桶本身公开读，放开 GET/HEAD 不增加暴露面。
+
+/** 判断现有 CORS 规则是否已满足官网跨域读清单：含 GET 且放行官网域名、本地调试来源或全部来源 */
+export function hasWebsiteCorsRule(
+	rules: Array<{ AllowedMethods?: string[]; AllowedOrigins?: string[] }>,
+): boolean {
+	return rules.some(
+		(r) =>
+			(r.AllowedMethods ?? []).includes("GET") &&
+			(r.AllowedOrigins ?? []).some(
+				(o) =>
+					o === "*" ||
+					o.includes("wapiagent.top") ||
+					o.startsWith("http://localhost"),
+			),
+	);
+}
+
+/**
+ * 确保桶上有允许官网跨域读更新清单的 CORS 规则（幂等）：
+ * 已有满足条件的规则则不动（不覆盖控制台手工配置）；否则写入全来源 GET/HEAD。
+ * 失败仅告警不阻断发版——CORS 只影响官网直链，不影响应用内自动更新。
+ */
+export async function ensureBucketCors(client: S3Client): Promise<void> {
+	try {
+		const current = await client.send(
+			new GetBucketCorsCommand({ Bucket: BUCKET }),
+		);
+		if (hasWebsiteCorsRule(current.CORSRules ?? [])) {
+			console.log("✓ 桶 CORS 已满足官网跨域读清单，跳过");
+			return;
+		}
+	} catch {
+		// 无 CORS 配置（NoSuchCORSConfiguration）或读取失败 → 尝试写入
+	}
+	try {
+		await client.send(
+			new PutBucketCorsCommand({
+				Bucket: BUCKET,
+				CORSConfiguration: {
+					CORSRules: [
+						{
+							// 限定已知来源：官网正式域名 + 本地调试固定端口
+							//（R2 不接受 http://localhost:* 端口通配，会报 XML schema 错误）
+							AllowedOrigins: ["https://www.wapiagent.top", "http://localhost:8000"],
+							AllowedMethods: ["GET", "HEAD"],
+							AllowedHeaders: ["*"],
+						},
+					],
+				},
+			}),
+		);
+		console.log("✓ 已写入桶 CORS（公开 GET/HEAD，官网可跨域读更新清单）");
+	} catch (err) {
+		console.warn(
+			`⚠ 写入桶 CORS 失败（不影响安装包发布，仅影响官网下载直链）：${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
 }
 
 /** 从 version-history.json 第一条提取内容，格式化为 releaseNotes 文本 */
@@ -205,6 +272,9 @@ if (import.meta.main) {
 				console.log(`✓ 已上传 ${a.key}`);
 			}
 		}
+
+		// 发布后确保桶 CORS，官网下载直链才能跨域读清单（幂等，已配置则跳过）
+		await ensureBucketCors(client);
 
 		console.log(`\n✅ 发布完成: https://oss.wapiagent.top/${PREFIX}/latest.yml`);
 	}
