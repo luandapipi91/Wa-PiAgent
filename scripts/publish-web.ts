@@ -81,6 +81,9 @@ async function putWithRetry(
 					Key: key,
 					Body: body,
 					ContentType: contentTypeFor(key),
+					// 官网页面需更新即时生效：禁止浏览器启发式长缓存（无此头时浏览器按
+					// Last-Modified 年龄估算缓存期，旧页可被缓存数小时）；配合 ETag 走 304 协商。
+					CacheControl: "no-cache",
 				}),
 			);
 			return;

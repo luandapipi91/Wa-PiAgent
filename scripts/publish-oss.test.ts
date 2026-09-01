@@ -103,3 +103,43 @@ describe("orderArtifactsForUpload", () => {
 		]);
 	});
 });
+
+// —— 桶 CORS 幂等判断：官网跨域读更新清单 ——
+import { hasWebsiteCorsRule } from "./publish-oss";
+
+describe("hasWebsiteCorsRule", () => {
+	it("无规则时不满足", () => {
+		expect(hasWebsiteCorsRule([])).toBe(false);
+	});
+
+	it("官网域名 + GET 满足", () => {
+		expect(
+			hasWebsiteCorsRule([
+				{
+					AllowedOrigins: ["https://www.wapiagent.top"],
+					AllowedMethods: ["GET", "HEAD"],
+				},
+			]),
+		).toBe(true);
+	});
+
+	it("本地调试来源（http://localhost:8000）满足", () => {
+		expect(
+			hasWebsiteCorsRule([
+				{ AllowedOrigins: ["http://localhost:8000"], AllowedMethods: ["GET"] },
+			]),
+		).toBe(true);
+	});
+
+	it("只有 PUT 或无关域名时不满足", () => {
+		expect(
+			hasWebsiteCorsRule([
+				{ AllowedOrigins: ["https://example.com"], AllowedMethods: ["GET"] },
+				{
+					AllowedOrigins: ["https://www.wapiagent.top"],
+					AllowedMethods: ["PUT"],
+				},
+			]),
+		).toBe(false);
+	});
+});

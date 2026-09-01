@@ -1009,6 +1009,7 @@
 					>
 					<a
 						class="nav-cta"
+						data-dl
 						href="https://github.com/luandapipi91/Wa-PiAgent/releases/latest"
 						target="_blank"
 						rel="noreferrer"
@@ -1043,6 +1044,7 @@
 					<div class="hero-cta">
 						<a
 							class="btn btn-primary"
+							data-dl
 							href="https://github.com/luandapipi91/Wa-PiAgent/releases/latest"
 							target="_blank"
 							rel="noreferrer"
@@ -1781,6 +1783,7 @@
 					<div class="dl-btns">
 						<a
 							class="btn btn-green"
+							data-dl
 							href="https://github.com/luandapipi91/Wa-PiAgent/releases/latest"
 							target="_blank"
 							rel="noreferrer"
@@ -2029,6 +2032,7 @@
 						>GitHub repository</a
 					>
 					<a
+						data-dl
 						href="https://github.com/luandapipi91/Wa-PiAgent/releases/latest"
 						target="_blank"
 						rel="noreferrer"
@@ -2137,6 +2141,42 @@
 					croak();
 				});
 			});
+
+			// 下载地址动态化：按平台拉取 R2 更新清单（与应用内自动更新同一份清单），
+			// 把「下载」按钮直指最新安装包；拉取失败时保持 GitHub Releases 兑底。
+			(function () {
+				var FEED_BASE = "https://oss.wapiagent.top/releases/";
+				var isMac = /Mac|iPhone|iPad/i.test(navigator.userAgent);
+				// mac 给安装镜像 dmg；exe 给 Windows；zip/blockmap 供应用内自动更新使用
+				var ext = isMac ? ".dmg" : ".exe";
+				var feed = FEED_BASE + (isMac ? "latest-mac.yml" : "latest.yml");
+				fetch(feed)
+					.then(function (r) {
+						if (!r.ok) throw new Error("HTTP " + r.status);
+						return r.text();
+					})
+					.then(function (yml) {
+						var urls = yml.match(/^\s*-\s*url:\s*(\S+)\s*$/gm) || [];
+						var file = null;
+						for (var i = 0; i < urls.length; i++) {
+							var u = urls[i].replace(/^\s*-\s*url:\s*/, "").trim();
+							if (u.slice(-ext.length) === ext) {
+								file = new URL(u, feed).href;
+								break;
+							}
+						}
+						if (!file) return;
+						var version = (yml.match(/^version:\s*(\S+)\s*$/m) || [])[1] || "";
+						document.querySelectorAll("a[data-dl]").forEach(function (a) {
+							a.setAttribute("href", file);
+							if (version) a.setAttribute("title", "v" + version);
+							a.removeAttribute("target"); // 直链下载，无需新开标签页
+						});
+					})
+					.catch(function () {
+						/* 清单不可达时保持 GitHub Releases 兑底 */
+					});
+			})();
 		</script>
 	</body>
 </html>

@@ -2,6 +2,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { killPort, findAvailablePort } from "./port";
 import { openBrowser } from "./open-browser";
+import { waitFrontendReady } from "./frontend-ready";
 // @wa-pi/shared 改为动态 import:静态 import 在 node_modules 缺失时会直接崩,
 // 无法进入自修复流程。改为运行时检测 + 自动 bun install(见 ensureDeps)。
 
@@ -167,6 +168,26 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
   bindKernelEvents(kernel);
   bindFrontendEvents(frontend);
 
+  // 首次启动兜底：stdout 正则路径（见 bindFrontendEvents）在输出丢失时不会开浏览器，
+  // 主动探测就绪后补开（lastOpenedFrontendPort 已设说明正则已开过，跳过，不重复开）。
+  // 探测失败（vite 未就绪）也要打印，避免输出丢失时无声卡死无任何线索。
+  void (async () => {
+    const ok = await waitFrontendReady(FRONTEND_PORT, { timeoutMs: 60_000 });
+    if (ok) {
+      if (lastOpenedFrontendPort == null) {
+        const url = `http://localhost:${FRONTEND_PORT}`;
+        console.log("[dev] ▶ 打开浏览器 %s", url);
+        openBrowser(url);
+        lastOpenedFrontendPort = FRONTEND_PORT;
+      }
+    } else {
+      console.log(
+        "[dev] ⚠ 首次启动 60s 内未探测到前端(http://localhost:%d)，请查看上方 [web] 错误输出排查",
+        FRONTEND_PORT,
+      );
+    }
+  })();
+
   // 3. 统一 SIGINT/SIGTERM 清理
   const cleanup = async () => {
     console.log("\n[dev] 退出,清理子进程...");
@@ -178,19 +199,61 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
   process.on("SIGTERM", cleanup);
 
   // 4. 按 R 重新加载前后端代码（kill 两个子进程并重新 spawn）
+  // reloading 防重入：重载要经历杀树→清端口→spawn→等前端就绪（可达数十秒），
+  // 期间再按 R 会并发跑第二个 reloadAll，与第一个互相杀对方刚 spawn 的进程树、
+  // 抢占同一端口（2026-09-01 实测复现：两条"重新加载"交叠输出）。故重载进行中忽略后续按 R。
+  let reloading = false;
+
+  // 等待前端 dev server 就绪并给出确定性反馈。
+  // 不依赖 [web] 的 stdout：bun run --filter 的输出转发偶发丢输出（2026-09-01 现场
+  // 取证：vite 正常监听服务但终端零 [web] 输出），靠 stdout 正则判断就绪会漏反馈。
+  async function reportFrontendReady(scene: string): Promise<boolean> {
+    let lastLog = 0;
+    const ready = await waitFrontendReady(FRONTEND_PORT, {
+      timeoutMs: 60_000,
+      onPoll(elapsedMs) {
+        if (elapsedMs - lastLog >= 10_000) {
+          lastLog = elapsedMs;
+          console.log(
+            "[dev] 仍在等待前端启动... (%ds)",
+            Math.round(elapsedMs / 1000),
+          );
+        }
+      },
+    });
+    if (ready) {
+      console.log(
+        "[dev] ✓ 前端已就绪 http://localhost:%d （%s完成，浏览器未自动刷新时手动刷新即可）",
+        FRONTEND_PORT,
+        scene,
+      );
+    } else {
+      console.log(
+        "[dev] ⚠ 等待前端就绪超时(60s)，请查看上方 [web] 错误输出排查",
+      );
+    }
+    return ready;
+  }
+
   async function reloadAll() {
     console.log("\n[dev] 重新加载前后端代码...");
-    await Promise.all([stopProc(kernel), stopProc(frontend)]);
-    await killPort(WS_PORT);
-    const actualWsPort = await findAvailablePort(WS_PORT);
-    process.env.WA_PI_WS_PORT = String(actualWsPort);
-    console.log("[dev] kernel 实际端口 %d", actualWsPort);
-    await killPort(FRONTEND_PORT);
+    reloading = true;
+    try {
+      await Promise.all([stopProc(kernel), stopProc(frontend)]);
+      await killPort(WS_PORT);
+      const actualWsPort = await findAvailablePort(WS_PORT);
+      process.env.WA_PI_WS_PORT = String(actualWsPort);
+      console.log("[dev] kernel 实际端口 %d", actualWsPort);
+      await killPort(FRONTEND_PORT);
 
-    kernel = spawnKernel();
-    frontend = spawnFrontend();
-    bindKernelEvents(kernel);
-    bindFrontendEvents(frontend);
+      kernel = spawnKernel();
+      frontend = spawnFrontend();
+      bindKernelEvents(kernel);
+      bindFrontendEvents(frontend);
+      await reportFrontendReady("重载");
+    } finally {
+      reloading = false;
+    }
   }
 
   if (process.stdin.isTTY) {
@@ -199,7 +262,11 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", async (key: string) => {
       if (key === "r" || key === "R") {
-        await reloadAll();
+        if (reloading) {
+          console.log("[dev] 重载进行中，本次按 R 已忽略（完成后可再按）");
+        } else {
+          await reloadAll();
+        }
       } else if (key === "" || key === "") {
         // Ctrl+C / Ctrl+D
         await cleanup();

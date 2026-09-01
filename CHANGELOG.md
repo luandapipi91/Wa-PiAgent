@@ -1,3 +1,22 @@
+## 2026-09-01 — fix(scripts): dev 按 R 重载卡死修复（防重入 + 就绪主动探测 + 反馈）
+
+- 背景：start.command 调试模式按 R 重载偶发「卡死、前端起不来」。现场取证（进程树/fd/端口采样）定位三层根因：① reloadAll 无防重入，重载进行中再按 R 会并发跑第二个 reloadAll，互相杀对方刚 spawn 的进程树、抢同一端口（实测复现：两条「重新加载」交叠输出）；② 重载反馈真空：vite 冷启动（optimizer rebundle）实测可达 55s+，期间零 [web] 输出，且端口未变时浏览器不重开（lastOpenedFrontendPort 逻辑），用户视角=无声卡死；③ bun run --filter 输出转发偶发丢输出（现场取证：vite 正常监听服务但终端零 [web] 输出），依赖 stdout 正则判断就绪/开浏览器的路径会静默失效。
+- 修复：
+ 	- scripts/dev.ts：reloading 防重入标志，重载期间再按 R 打印「已忽略（完成后可再按）」；reloadAll 后新增 reportFrontendReady——主动 HTTP 轮询探测前端就绪，就绪打「✓ 前端已就绪」、超时(60s)打「⚠ 等待前端就绪超时」+每 10s 进度提示，不再单点依赖 [web] stdout；首启新增兑底探测：stdout 正则因输出丢失漏开浏览器时主动补开，探测失败同样明确告警，不再无声卡死。
+ 	- 新增 scripts/frontend-ready.ts：waitFrontendReady/isFrontendReady 纯探测函数（fetch 可注入；探测 URL 用 localhost 而非 127.0.0.1，vite 在 macOS 下可能只绑 ::1）。
+- 验证：新增单测 6/6（scripts/frontend-ready.test.ts，mock fetch 不依赖真实端口）；修改后 bun run dev 后台实跑：9776/5180 正常监听、[web] 正常输出。
+- 影响范围：scripts/dev.ts、新增 scripts/frontend-ready.ts、scripts/frontend-ready.test.ts。
+
+## 2026-09-01 — feat(website): 官网下载直连 R2 最新安装包（清单解析 + 桶 CORS）
+
+- 背景：官网四个「下载」按钮指向 GitHub Releases latest 页，需二次跳转才能下载；而 R2 上已有与应用内自动更新同源的版本清单（releases/latest.yml 与 latest-mac.yml，含 version 与安装包文件名），可直接解析出直链。
+- 实现：
+  - index.html / index.en.html：四处下载 `<a>` 加 `data-dl` 标记，内联脚本按 UA 平台 fetch 对应清单（mac → latest-mac.yml → 取 .dmg；其余 → latest.yml → 取 .exe），正则解析 version + files[].url，`new URL(rel, feed)` 拼出 `https://oss.wapiagent.top/releases/WaPi-Setup-<v>.<ext>` 直链，替换 href、title 标版本号、移除 target；fetch 失败静默保持 GitHub 兜底。
+  - publish-oss.ts：新增 hasWebsiteCorsRule（纯函数）+ ensureBucketCors（幂等：已有含 GET 且放行官网/localhost 的规则则跳过，不覆盖手工配置），main 上传完成后调用；失败仅告警不阻断发版。
+  - 已给 wapioss 桶实际写入 CORS：AllowedOrigins 为 <https://www.wapiagent.top> + <http://localhost:8000（精确> origin），GET/HEAD。踩坑：R2 不接受 `http://localhost:*` 端口通配，报「XML not well formed」，需用具体端口。
+- 验证：单测 9/9（新增 hasWebsiteCorsRule 4 例）；四包 typecheck 绿；实测——桶按 Origin 精确回显 access-control-allow-origin、恶意来源无 CORS 头；本地 8000 端口打开中英文官网，四处按钮均解析为 R2 直链（mac→dmg v0.3.8；win 分支解析 exe 通过），exe/dmg 直链 HEAD 200 且 content-length 与清单 size 完全一致。
+- 影响范围：website/index.html、website/index.en.html、scripts/publish-oss.ts、scripts/publish-oss.test.ts；R2 wapioss 桶 CORS 配置（线上已生效）。
+
 ## 2026-09-01 — v0.3.8 发版（优化青蛙动画）
 
 - 版本：0.3.7 → 0.3.8。
