@@ -1,3 +1,10 @@
+## 2026-09-01 — v0.3.9 发版（修复预览元素选中 bug）
+
+- 版本：0.3.8 → 0.3.9。
+- 主要：修复预览中元素选中不稳定的问题（preview-inspect 交互稳定性）。
+- 验证：typecheck 全绿；四层回归全绿。
+- 影响范围：packages/kernel/src/assets/preview-inspect.js（预览选中交互）。
+
 ## 2026-09-01 — fix(scripts): dev 按 R 重载卡死修复（防重入 + 就绪主动探测 + 反馈）
 
 - 背景：start.command 调试模式按 R 重载偶发「卡死、前端起不来」。现场取证（进程树/fd/端口采样）定位三层根因：① reloadAll 无防重入，重载进行中再按 R 会并发跑第二个 reloadAll，互相杀对方刚 spawn 的进程树、抢同一端口（实测复现：两条「重新加载」交叠输出）；② 重载反馈真空：vite 冷启动（optimizer rebundle）实测可达 55s+，期间零 [web] 输出，且端口未变时浏览器不重开（lastOpenedFrontendPort 逻辑），用户视角=无声卡死；③ bun run --filter 输出转发偶发丢输出（现场取证：vite 正常监听服务但终端零 [web] 输出），依赖 stdout 正则判断就绪/开浏览器的路径会静默失效。

@@ -120,7 +120,9 @@ test.describe
 			await page.waitForTimeout(500);
 			// 关闭后 UI 隐藏（锁头不可见）
 			await expect(
-				frame.locator('button[title="锁定当前元素"], button[title="解除高亮锁定"]').first(),
+				frame
+					.locator('button[title="锁定当前元素"], button[title="解除高亮锁定"]')
+					.first(),
 			).toBeHidden();
 
 			// ③ 再点开关打开
