@@ -414,6 +414,16 @@
 		}
 		function setDisabled(v) {
 			disabled = v;
+			// 关闭选中功能时直接清除锁定状态：锁定跨功能关闭没有意义（UI 隐藏后用户
+			// 无法操作锁定态，重开呈现「选中功能失效」）；重开为干净状态重新 hover 选中
+			if (disabled && pinned) {
+				pinned = false;
+				lockedSelector = null;
+				current = null;
+			}
+			// 防御：重开时若仍处于锁定，恢复跟随渲染（rAF 只在锁定动作时启动，
+			// 关闭期间自停，重开不会自动恢复）
+			if (!disabled && pinned) startFollow();
 			applyInspectState();
 			sendSetToChildren(!v);
 			try {
@@ -825,9 +835,18 @@
 				}
 				if (d.type !== "hiagent:inspect:set") return;
 				disabled = !d.enabled;
+				// 关闭选中功能时直接清除锁定状态（与 setDisabled 同策略）：锁定跨
+				// 功能关闭没有意义，且锁定态下 mousemove 被拦 → 重开无法选中新元素
+				if (disabled && pinned) {
+					pinned = false;
+					lockedSelector = null;
+					current = null;
+				}
 				// 随开关同步锁定持有状态（新加载子层 query 补齐用）；无 held 字段则不动
 				if (d.held !== undefined) setSuppressed(!!d.held);
 				applyInspectState();
+				// 防御：重开时若仍处于锁定，恢复跟随渲染（rAF 关闭期间自停后不会自动恢复）
+				if (!disabled && pinned) startFollow();
 				// 向子层透传的是 enabled 原值（曾误传 !d.enabled → 子层收到
 				// set(enabled=false) 被禁用 → srcdoc 嵌套原型高亮选择不出现）
 				sendSetToChildren(d.enabled);
