@@ -182,6 +182,51 @@
 	}
 
 	function init() {
+		// 性能诊断：统计 render 调用次数/耗时、mousemove 频率、强制布局读取(layout)、
+		// 锁定后 rAF 帧数，用于定位复杂预览页的卡顿（layout thrashing）。
+		// 开启方式（任一）：
+		//   a) 预览 iframe 自身上下文赋值 window.__inspectDebug = true（defineProperty setter 触发）；
+		//   b) sandbox 不透明源 iframe 读不到顶层自定义属性，改由顶层 console 发消息跨源激活：
+		//      document.querySelector('[data-testid="html-preview-iframe"]')
+		//        .contentWindow.postMessage({type:'hiagent:inspect:debug',enabled:true},'*')
+		// 开启后 setInterval 每 500ms 输出一次统计（不依赖 render 路径，设置完立刻可见）。
+		var perf = (window.__inspectPerf = {
+			render: 0,
+			renderMs: 0,
+			move: 0,
+			layout: 0,
+			rAF: 0,
+		});
+		var dbgTimer = null;
+		var dbgStart = () => {
+			if (dbgTimer) return;
+			dbgTimer = setInterval(() => {
+				console.warn(
+					"[inspect] render=" +
+						perf.render +
+						" renderMs=" +
+						perf.renderMs.toFixed(1) +
+						" move=" +
+						perf.move +
+						" layout=" +
+						perf.layout +
+						" rAF=" +
+						perf.rAF,
+				);
+			}, 500);
+		};
+		try {
+			Object.defineProperty(window, "__inspectDebug", {
+				configurable: true,
+				set: (v) => {
+					window.__inspectDebugOn = v === true;
+					if (window.__inspectDebugOn) dbgStart();
+				},
+				get: () => window.__inspectDebugOn === true,
+			});
+		} catch {
+			/* 忽略：个别环境 defineProperty 失败则退化为消息激活 */
+		}
 		var hl = document.createElement("div");
 		hl.style.cssText =
 			"position:absolute;pointer-events:none;z-index:2147483646;display:none;" +
@@ -207,8 +252,8 @@
 		// 锁图标：点击元素锁定后出现，表示「高亮已锁定/固定」；再点一次解除锁定。
 		// 预览脚本运行在被预览页(iframe)内，无法引用前端组件库，故内联 SVG（padlock）。
 		var btnLock = document.createElement("button");
-		btnLock.title = "解除高亮锁定";
-		btnLock.style.cssText = btnStyle + ";display:none;";
+		btnLock.title = "锁定当前元素";
+		btnLock.style.cssText = btnStyle + ";padding:7px 9px;display:none;";
 		bar.appendChild(btnLock);
 		bar.appendChild(label);
 		bar.appendChild(btnParent);
@@ -415,8 +460,16 @@
 		}
 
 		function render() {
+			var _rt = performance.now();
+			perf.render++;
+			// 诊断埋点：把 render 的判定结果写到 hl 的 data 属性上，供外部（如 E2E/
+			// 主应用调试）跨 iframe 读取，定位「高亮不出现」的隐藏原因
+			function markHide(reason) {
+				hl.dataset.hideReason = reason;
+			}
 			// 已关闭/尚未同步：任何触发（含 scroll/resize）都不再绘制，保持隐藏
 			if (disabled !== false) {
+				markHide("disabled:" + String(disabled));
 				hl.style.display = "none";
 				bar.style.display = "none";
 				tip.style.display = "none";
@@ -425,12 +478,14 @@
 			// 其他层存在锁定（互斥抑制）：本层不再绘制任何高亮 UI，全屏只剩锁定层的框
 			// （自己持有锁定权时不受抑制——锁定分支里已清除）
 			if (suppressed && !pinned) {
+				markHide("suppressed");
 				hl.style.display = "none";
 				bar.style.display = "none";
 				tip.style.display = "none";
 				return;
 			}
 			if (!current || !current.isConnected || !current.getBoundingClientRect) {
+				markHide(pinned ? "no-current:pinned" : "no-current");
 				// 锁定元素已脱离文档：框架重渲染（React 等）会重建节点 —— 先按锁定时的
 				// selector 找接替节点续锁（tagName 一致才接，防 nth-of-type 误接）；
 				// 找不到才真正解除锁定并隐藏高亮（不卡死/悬空）
@@ -452,6 +507,7 @@
 						broadcastLock();
 					}
 				}
+				markHide("disconnected");
 				hl.style.display = "none";
 				bar.style.display = "none";
 				tip.style.display = "none";
@@ -459,8 +515,10 @@
 				return;
 			}
 			var r = current.getBoundingClientRect();
+			perf.layout++;
 			// 元素完全移出视口或被祖先裁剪容器裁剪时，高亮框随之隐藏（与元素一起消失）
 			if (isFullyOutOfViewport(r) || isClippedByAncestor(current)) {
+				markHide(isFullyOutOfViewport(r) ? "out-of-viewport" : "clipped");
 				hl.style.display = "none";
 				bar.style.display = "none";
 				tip.style.display = "none";
@@ -525,12 +583,22 @@
 			// 已锁定（闭锁图标）点它解除。hover 跟随中随时可锁。
 			btnLock.style.display = "inline-block";
 			btnLock.title = pinned ? "解除高亮锁定" : "锁定当前元素";
-			btnLock.replaceChildren(padlockSvg(pinned));
+			delete hl.dataset.hideReason;
+			// 只在锁定状态变化时才替换图标节点：render 会被 mousemove / 锁定后 rAF
+			// 高频调用，若每次都 replaceChildren 重建锁 SVG，用户点击「正中间」（落点
+			// 在 SVG 上）时节点刚好被拆换，mousedown/mouseup 之间 DOM 被换 → click
+			// 派发异常 → 「点锁正中间不生效、点旁边（padding）反而 OK」。
+			if (btnLock.__lockState !== pinned) {
+				btnLock.__lockState = pinned;
+				btnLock.replaceChildren(padlockSvg(pinned));
+			}
+			perf.renderMs += performance.now() - _rt;
 		}
 
 		document.addEventListener(
 			"mousemove",
 			(e) => {
+				perf.move++;
 				if (disabled !== false) return;
 				// 其他层锁定中：本层不 hover 不高亮（互斥）；点击仍可抢占锁定
 				if (suppressed) return;
@@ -552,7 +620,9 @@
 				// 否则从元素移向工具条会穿过间隙命中其他元素，选中被切走，永远点不到按钮。
 				if (current && bar.style.display !== "none") {
 					var r = current.getBoundingClientRect();
+					perf.layout++;
 					var br = bar.getBoundingClientRect();
+					perf.layout++;
 					if (
 						e.clientX >= Math.min(r.left, br.left) - 4 &&
 						e.clientX <= Math.max(r.right, br.right) + 4 &&
@@ -594,24 +664,43 @@
 			},
 			true,
 		);
-		// 点击锁定 / 再点解除（capture：先于页面自身逻辑；浮窗内的点击交由按钮 handler 处理）
+		// 单击不锁定/不解锁（用户交互改为「双击锁定」）；仅隔离高亮层/工具条上的点击避免
+		// 单击不做锁定/解锁（锁定改双击）；页面点击是否拦截由 blockMouseForPage 按
+		// 「是否落在当前高亮框内」决定（见下方），此处无需独立 click handler。
+		// 双击锁定/解锁：自实现双击检测（click 间隔 <400ms + 落在高亮框内 → 切换）。
+		// 不用浏览器 dblclick 事件——快速连点时浏览器多击计数（第 3/5/7… 击不派发
+		// dblclick）会丢切换，表现为「快速双击没办法快速解锁/锁定」。
+		// capture：先于页面自身逻辑；浮窗内的点击交由按钮 handler 处理。
+		var lastClickTime = 0;
 		document.addEventListener(
 			"click",
 			(e) => {
 				if (disabled !== false) return;
 				var t = e.target;
 				if (!t || t === hl || t === bar || bar.contains(t)) return;
-				if (pinned) {
-					// 锁定中：点锁定元素（或其子元素）本身才解锁；点任何其他元素保持锁定
-					if (t !== current && !current.contains(t)) return;
-					pinned = false;
-					lockedSelector = null;
-					render();
-					broadcastLock();
-					e.preventDefault();
-				} else {
-					// 首次点击：锁定该元素（高亮固定 + 浮窗显示锁图标）
-					if (!t.tagName) return;
+				// 只处理「落在当前高亮框内」的点击（与 blockMouseForPage 同一命中语义）
+				if (!current || !current.getBoundingClientRect) return;
+				var r = current.getBoundingClientRect();
+				if (
+					e.clientX < r.left ||
+					e.clientX > r.right ||
+					e.clientY < r.top ||
+					e.clientY > r.bottom
+				) {
+					return;
+				}
+				var now = performance.now();
+				if (now - lastClickTime < 400) {
+					// 自判定双击：切换锁定/解锁
+					lastClickTime = 0;
+					if (pinned) {
+						// 已锁定：双击落在锁定框内 → 解锁（位置命中语义，见下）
+						pinned = false;
+						lockedSelector = null;
+						render();
+						broadcastLock();
+						return;
+					}
 					pinned = true;
 					current = t;
 					lockedSelector = buildSelector(t);
@@ -621,13 +710,39 @@
 					startFollow();
 					// 互斥同步：抑制父层与兄弟子层的高亮，全屏只剩本层锁定
 					broadcastLock();
-					e.preventDefault();
+					return;
 				}
+				lastClickTime = now;
 			},
 			true,
 		);
 		window.addEventListener("scroll", render, true);
 		window.addEventListener("resize", render);
+
+		// 有高亮选择框（current 已选中/锁定元素）时：点击落在高亮框（选中元素矩形）内的
+		// 事件阻止冒泡到被预览页（不穿透触发页面 → 不重渲染，避免干扰选中/锁定）。
+		// 点击高亮框外不拦（页面正常响应；hover 通过 mousemove 更新选中）。mousemove 不拦
+		// （hover 切换依赖它）。工具条 bar / 高亮层 hl 上的事件不拦（按钮可点）。
+		function blockMouseForPage(e) {
+			if (disabled !== false) return;
+			if (!current || !current.getBoundingClientRect) return;
+			var r = current.getBoundingClientRect();
+			if (
+				e.clientX < r.left ||
+				e.clientX > r.right ||
+				e.clientY < r.top ||
+				e.clientY > r.bottom
+			) {
+				return;
+			}
+			var t = e.target;
+			if (t === hl || t === bar || bar.contains(t)) return;
+			e.preventDefault();
+			e.stopPropagation();
+		}
+		["mousedown", "mouseup", "click", "dblclick", "contextmenu"].forEach((ev) => {
+			document.addEventListener(ev, blockMouseForPage, true);
+		});
 
 		// Ctrl / Cmd 单独按下再松开（期间无其他按键）→ 切换高亮开关。
 		// 组合键（⌘C/⌘V/Ctrl+滚轮等）第一步也会按下修饰键——若 keydown 即翻转，
@@ -701,12 +816,21 @@
 					sendHoverClearToChildren();
 					return;
 				}
+				// 跨源激活性能诊断：sandbox 不透明源 iframe 读不到顶层自定义属性，
+				// 顶层 console postMessage 此消息开启（见 init 内性能诊断注释的用法 b）
+				if (d.type === "hiagent:inspect:debug") {
+					window.__inspectDebugOn = d.enabled === true;
+					if (window.__inspectDebugOn) dbgStart();
+					return;
+				}
 				if (d.type !== "hiagent:inspect:set") return;
 				disabled = !d.enabled;
 				// 随开关同步锁定持有状态（新加载子层 query 补齐用）；无 held 字段则不动
 				if (d.held !== undefined) setSuppressed(!!d.held);
 				applyInspectState();
-				sendSetToChildren(!d.enabled);
+				// 向子层透传的是 enabled 原值（曾误传 !d.enabled → 子层收到
+				// set(enabled=false) 被禁用 → srcdoc 嵌套原型高亮选择不出现）
+				sendSetToChildren(d.enabled);
 				return;
 			}
 			if (!isChildPreviewWindow(e.source)) return;
@@ -786,6 +910,7 @@
 		// 不卡死（停在旧位置）也不悬空（元素没了仍显示）。元素脱离文档由 render 的
 		// isConnected 检测负责隐藏并解除锁定，tick 下一帧即自停。
 		var rafId = null;
+		var followFrame = 0;
 		function startFollow() {
 			if (rafId) return;
 			var tick = () => {
@@ -793,7 +918,11 @@
 					rafId = null;
 					return;
 				}
-				render();
+				perf.rAF++;
+				// 节流：每 3 帧（≈20fps）才真正 render 一次——复杂页面每帧
+				// getBoundingClientRect 强制布局全页，是锁定后卡顿/交互迟钝的主因
+				followFrame++;
+				if (followFrame % 3 === 0) render();
 				rafId = requestAnimationFrame(tick);
 			};
 			rafId = requestAnimationFrame(tick);
@@ -840,8 +969,15 @@
 			render();
 			broadcastLock();
 		});
+		var lastLockTap = 0;
 		btnLock.addEventListener("click", (e) => {
 			onBtn(e);
+			// 节流防连点：锁头是「单击切换」语义，用户习惯性快速连点两下会
+			// 翻转两次回到原状态（解锁→立即又锁定），感知为「锁头不生效」。
+			// 400ms 内只响应第一次点击。
+			var now = performance.now();
+			if (now - lastLockTap < 400) return;
+			lastLockTap = now;
 			if (pinned) {
 				// 已锁定（闭锁图标）：解除高亮锁定
 				pinned = false;
