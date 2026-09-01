@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { FloatWindow } from "./FloatWindow";
 import { FloatBubble } from "./FloatBubble";
 import { BrowserPanel } from "./BrowserPanel";
-import { useBrowserStore } from "../store/browser";
+import { defaultRect, useBrowserStore } from "../store/browser";
 
 /** 最小化/恢复动画时长（与 CSS transition 一致） */
 const ANIM_MS = 200;
@@ -16,7 +16,14 @@ type Phase = "open" | "hiding" | "hidden" | "opening";
  * - 气泡可拖动停放（持久化），点击恢复
  */
 export function FloatPreview() {
-	const rect = useBrowserStore((s) => s.floatRect);
+	const storedRect = useBrowserStore((s) => s.floatRect);
+	const setFloatRect = useBrowserStore((s) => s.setFloatRect);
+	// 无历史记录时渲染期现算双向居中（此时视口已就绪），并固化供后续直接恢复
+	const rect = storedRect ?? defaultRect();
+	useEffect(() => {
+		if (!storedRect) setFloatRect(rect);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在首次无记录时固化一次
+	}, [storedRect]);
 	const minimized = useBrowserStore((s) => s.minimized);
 	const bubblePos = useBrowserStore((s) => s.bubblePos);
 	const [phase, setPhase] = useState<Phase>(minimized ? "hidden" : "open");
