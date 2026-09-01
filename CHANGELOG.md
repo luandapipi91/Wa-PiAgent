@@ -9,8 +9,8 @@
 
 - 背景：start.command 调试模式按 R 重载偶发「卡死、前端起不来」。现场取证（进程树/fd/端口采样）定位三层根因：① reloadAll 无防重入，重载进行中再按 R 会并发跑第二个 reloadAll，互相杀对方刚 spawn 的进程树、抢同一端口（实测复现：两条「重新加载」交叠输出）；② 重载反馈真空：vite 冷启动（optimizer rebundle）实测可达 55s+，期间零 [web] 输出，且端口未变时浏览器不重开（lastOpenedFrontendPort 逻辑），用户视角=无声卡死；③ bun run --filter 输出转发偶发丢输出（现场取证：vite 正常监听服务但终端零 [web] 输出），依赖 stdout 正则判断就绪/开浏览器的路径会静默失效。
 - 修复：
- 	- scripts/dev.ts：reloading 防重入标志，重载期间再按 R 打印「已忽略（完成后可再按）」；reloadAll 后新增 reportFrontendReady——主动 HTTP 轮询探测前端就绪，就绪打「✓ 前端已就绪」、超时(60s)打「⚠ 等待前端就绪超时」+每 10s 进度提示，不再单点依赖 [web] stdout；首启新增兑底探测：stdout 正则因输出丢失漏开浏览器时主动补开，探测失败同样明确告警，不再无声卡死。
- 	- 新增 scripts/frontend-ready.ts：waitFrontendReady/isFrontendReady 纯探测函数（fetch 可注入；探测 URL 用 localhost 而非 127.0.0.1，vite 在 macOS 下可能只绑 ::1）。
+  - scripts/dev.ts：reloading 防重入标志，重载期间再按 R 打印「已忽略（完成后可再按）」；reloadAll 后新增 reportFrontendReady——主动 HTTP 轮询探测前端就绪，就绪打「✓ 前端已就绪」、超时(60s)打「⚠ 等待前端就绪超时」+每 10s 进度提示，不再单点依赖 [web] stdout；首启新增兑底探测：stdout 正则因输出丢失漏开浏览器时主动补开，探测失败同样明确告警，不再无声卡死。
+  - 新增 scripts/frontend-ready.ts：waitFrontendReady/isFrontendReady 纯探测函数（fetch 可注入；探测 URL 用 localhost 而非 127.0.0.1，vite 在 macOS 下可能只绑 ::1）。
 - 验证：新增单测 6/6（scripts/frontend-ready.test.ts，mock fetch 不依赖真实端口）；修改后 bun run dev 后台实跑：9776/5180 正常监听、[web] 正常输出。
 - 影响范围：scripts/dev.ts、新增 scripts/frontend-ready.ts、scripts/frontend-ready.test.ts。
 
