@@ -74,7 +74,8 @@ export function clampRect(r: FloatRect): FloatRect {
 	};
 }
 
-function defaultRect(): FloatRect {
+/** 浮窗默认尺寸+双向居中（无历史记录时的首次位置），必须在视口就绪后调用 */
+export function defaultRect(): FloatRect {
 	const w = Math.min(720, window.innerWidth - 80);
 	const h = Math.min(480, window.innerHeight - 80);
 	// 无历史记录时默认在视口正中弹出（用户期待；曾为右上角偏移）
@@ -107,7 +108,10 @@ function loadRatio(): number {
 	return 0.5;
 }
 
-function loadRect(): FloatRect {
+/** 无历史记录时返回 null：由渲染层在视口就绪后惰性计算居中（defaultRect）。
+ *  不能在 module 加载期计算——应用重启时窗口可能仍在启动阶段，视口尺寸未就绪，
+ *  算出的「居中」经 clampRect 退化为左上角，且此后无记录可覆盖，每次重启都复现。 */
+function loadRect(): FloatRect | null {
 	try {
 		const v = JSON.parse(localStorage.getItem(LS.rect) ?? "");
 		if (
@@ -119,9 +123,9 @@ function loadRect(): FloatRect {
 			return clampRect(v);
 		}
 	} catch {
-		/* 解析失败用默认 */
+		/* 解析失败视为无记录 */
 	}
-	return defaultRect();
+	return null;
 }
 
 function writeNow(key: string, value: string): void {
@@ -188,7 +192,8 @@ interface BrowserState {
 	refreshToken: number;
 	mode: BrowserMode;
 	splitRatio: number;
-	floatRect: FloatRect;
+	/** null = 尚无记录（未定位过）；渲染层惰性居中后经 setFloatRect 固化 */
+	floatRect: FloatRect | null;
 	/** 浮动窗最小化为气泡（不持久化：重开预览时应直接显示窗口） */
 	minimized: boolean;
 	/** 气泡位置（localStorage 持久化） */
