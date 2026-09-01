@@ -420,6 +420,9 @@
 				pinned = false;
 				lockedSelector = null;
 				current = null;
+				// 广播解除：锁定消失后父层/兄弟/子层的抑制链必须同步释放，
+				// 否则嵌套场景下子层被 hold:true 永久抑制（重开后再无高亮）
+				broadcastLock();
 			}
 			// 防御：重开时若仍处于锁定，恢复跟随渲染（rAF 只在锁定动作时启动，
 			// 关闭期间自停，重开不会自动恢复）
@@ -841,6 +844,8 @@
 					pinned = false;
 					lockedSelector = null;
 					current = null;
+					// 广播解除（同 setDisabled）：否则嵌套场景抑制链断不开
+					broadcastLock();
 				}
 				// 随开关同步锁定持有状态（新加载子层 query 补齐用）；无 held 字段则不动
 				if (d.held !== undefined) setSuppressed(!!d.held);
