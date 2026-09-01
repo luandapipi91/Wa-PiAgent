@@ -184,6 +184,42 @@ export function BrowserPanel() {
 		return () => window.removeEventListener("message", onMessage);
 	}, [loadedPath]);
 
+	// Cmd/Ctrl 单按切换「元素选中」主应用侧双通道：与预览页内快捷键互补。
+	// 焦点在预览 iframe 内时按键进 iframe 文档（不跨文档冒泡，不会双触发）；
+	// 焦点在主应用（输入框/空白处）时由本监听兜底——否则首次切换后焦点一旦
+	// 漂回主应用，后续 Cmd 静默失效，表现为「选中功能又丢了」。
+	useEffect(() => {
+		if (!loadedPath) return;
+		let pending: string | null = null;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Control" || e.key === "Meta") {
+				if (!e.repeat) pending = e.key;
+			} else {
+				pending = null; // 组合键（⌘C/⌘V 等）：取消待翻转
+			}
+		};
+		const onKeyUp = (e: KeyboardEvent) => {
+			if ((e.key === "Control" || e.key === "Meta") && pending === e.key) {
+				pending = null;
+				setInspectOn((prev) => {
+					const next = !prev;
+					localStorage.setItem(INSPECT_KEY, next ? "on" : "off");
+					iframeRef.current?.contentWindow?.postMessage(
+						{ type: "hiagent:inspect:set", enabled: next },
+						"*",
+					);
+					return next;
+				});
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		window.addEventListener("keyup", onKeyUp);
+		return () => {
+			window.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("keyup", onKeyUp);
+		};
+	}, [loadedPath]);
+
 	const canCodeShare = loadedPath !== null;
 
 	// 显性开关切换：写回持久层 + 即时通知预览 iframe 生效（不等下次 query 上报）
