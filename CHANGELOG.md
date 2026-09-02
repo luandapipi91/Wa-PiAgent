@@ -1,3 +1,9 @@
+## 2026-09-01 — fix(preview): 浮动预览无记录双向居中 + Cmd 切换双发去抖
+
+- 浮动 HTML 预览在从未定位过（无 localStorage 记录）时，重启应用后打开固定落左上角而非居中——默认位置在 store 模块加载期计算，重启时视口尺寸未就绪，居中经 clamp 退化为左上角且无记录可覆盖。改为 floatRect 允许 null（无记录语义），渲染期（视口就绪）现算双向居中并固化，此后重启恢复记录。
+- Cmd/Ctrl 单按切换「元素选中」有时一次按键触发两次（开了又关，等效失效）——部分键盘/驱动会双发 Meta keydown(非 repeat)+keyup 配对，pending 逻辑对双配对不设防。预览页内脚本与主应用双通道两处对称加 150ms 去抖窗（双发噪声间隔 <50ms 忽略；人手连按 >300ms 不受影响）。E2E 实证：双发只切换一次、人手连按正常。
+- 影响范围：packages/frontend/src/store/browser.ts、FloatPreview.tsx（+测试）、packages/kernel/src/assets/preview-inspect.js、packages/frontend/src/components/BrowserPanel.tsx。
+
 ## 2026-09-01 — v0.3.9 发版（修复预览元素选中 bug）
 
 - 版本：0.3.8 → 0.3.9。
