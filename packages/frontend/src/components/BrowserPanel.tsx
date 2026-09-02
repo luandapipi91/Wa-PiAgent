@@ -191,6 +191,9 @@ export function BrowserPanel() {
 	useEffect(() => {
 		if (!loadedPath) return;
 		let pending: string | null = null;
+		// 与预览页内快捷键同款去抖：部分键盘/驱动会双发 Meta keydown(非 repeat)
+		// +keyup 配对，第二配对在本窗内忽略——否则一次按键切换两次（开了又关）
+		let lastToggleAt = 0;
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Control" || e.key === "Meta") {
 				if (!e.repeat) pending = e.key;
@@ -201,6 +204,9 @@ export function BrowserPanel() {
 		const onKeyUp = (e: KeyboardEvent) => {
 			if ((e.key === "Control" || e.key === "Meta") && pending === e.key) {
 				pending = null;
+				const now = performance.now();
+				if (now - lastToggleAt < 150) return;
+				lastToggleAt = now;
 				setInspectOn((prev) => {
 					const next = !prev;
 					localStorage.setItem(INSPECT_KEY, next ? "on" : "off");

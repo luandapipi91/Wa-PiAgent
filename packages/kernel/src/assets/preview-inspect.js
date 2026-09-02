@@ -762,6 +762,10 @@
 		// 日常复制粘贴都会静默误切开关，是「开关与实际高亮不符」的高频扰动源，
 		// 故改为 keyup 时确认期间无其他按键才翻转。
 		var pendingModKey = null;
+		// 键盘切换去抖：部分键盘/驱动会双发 Meta keydown(非 repeat)+keyup 配对，
+		// 第二配对落在本窗内视为噪声忽略——否则一次按键切换两次（开了又关，等效失效）。
+		// 人手两次单按 Cmd 间隔 >300ms，不受影响。
+		var lastKbdToggleAt = 0;
 		document.addEventListener(
 			"keydown",
 			(e) => {
@@ -778,6 +782,9 @@
 			(e) => {
 				if ((e.key === "Control" || e.key === "Meta") && pendingModKey === e.key) {
 					pendingModKey = null;
+					var now = performance.now();
+					if (now - lastKbdToggleAt < 150) return;
+					lastKbdToggleAt = now;
 					toggleInspect();
 				}
 			},
