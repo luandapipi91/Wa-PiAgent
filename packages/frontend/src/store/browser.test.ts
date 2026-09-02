@@ -54,6 +54,7 @@ test("clampRatio 边界", () => {
 test("setFloatRect clamp 在视口内并持久化", () => {
 	useBrowserStore.getState().setFloatRect({ x: -50, y: 99999, w: 100, h: 100 });
 	const r = useBrowserStore.getState().floatRect;
+	if (!r) throw new Error("setFloatRect 后 floatRect 不应为 null");
 	expect(r.x).toBeGreaterThanOrEqual(0);
 	expect(r.y).toBeLessThanOrEqual(window.innerHeight - r.h);
 	expect(r.w).toBeGreaterThanOrEqual(320); // 最小宽
