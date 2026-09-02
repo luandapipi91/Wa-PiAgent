@@ -18,14 +18,9 @@ localStorage.removeItem("hiagent.browser.floatRect");
 
 const { useBrowserStore } = await import("../../store/browser");
 
-test("无历史记录时，浮窗默认弹出位置为视口居中", () => {
-	const r = useBrowserStore.getState().floatRect;
-	expect(r.w).toBeGreaterThan(0);
-	expect(r.h).toBeGreaterThan(0);
-	// 水平垂直都应落在视口中线附近（允许 clamp 取整误差 ±1px）
-	expect(Math.abs(r.x - (1280 - r.w) / 2)).toBeLessThanOrEqual(1);
-	expect(Math.abs(r.y - (800 - r.h) / 2)).toBeLessThanOrEqual(1);
-});
+// 注：「无历史记录 → floatRect 为 null → 渲染期 defaultRect 现算居中并固化」
+// 的行为覆盖已迁至 FloatPreview.test.tsx（store 层新语义为无记录返回 null，
+// 不再在模块加载期算默认位置），此处不再重复断言，避免跨文件模块缓存下的顺序脆弱性。
 
 test("setFloatRect 同步落盘：调用返回后立即可读（拖完立刻退出应用也不丢位置）", () => {
 	useBrowserStore.getState().setFloatRect({ x: 111, y: 222, w: 720, h: 480 });
