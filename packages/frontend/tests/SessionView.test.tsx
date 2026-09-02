@@ -1346,3 +1346,26 @@ test("排队队列：knownSkills 未命中的 /skill:x 不渲染 chip（防误�
 	// 原样文本保留（可见而非丢失）
 	expect(panel.textContent).toContain("/skill:not-a-real-skill");
 });
+
+test("排队队列：引导文字超长时限高滚动（不占满会话视野）", async () => {
+	// 回归：引导文字无限换行时面板无高度约束，会把 MessageList 挤没占满整个视野
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		queueBySession: {
+			s1: {
+				steering: ["超长引导文字".repeat(500)],
+				followUp: [],
+			},
+		},
+	});
+	await renderSessionView("s1");
+
+	const panel = document.querySelector('[data-testid="queue-panel"]')!;
+	// 内容区必须有独立滚动容器：限高 + 纵向滚动；状态栏（停止/清空）留在滚动区外
+	const scroll = panel.querySelector('[data-testid="queue-panel-content"]')!;
+	expect(scroll).toBeTruthy();
+	expect(scroll.className).toContain("max-h-[30vh]");
+	expect(scroll.className).toContain("overflow-y-auto");
+	// 超长内容仍完整渲染在滚动容器内（可见而非丢失）
+	expect(scroll.textContent).toContain("超长引导文字");
+});

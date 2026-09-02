@@ -1,3 +1,10 @@
+## 2026-09-02 — fix(frontend): 排队引导窗口超长文字撑满会话视野
+
+- 问题：队列面板（queue-panel）无高度约束，引导文字无限换行时面板自然高度等于全部内容高度，作为 flex-col 子项成为不可压缩下限，把 MessageList 挤没、占满整个会话视野（停止/清空按钮也可能被裁掉）。
+- 修复：面板内「引导 + 排队 + 提示」内容区包进限高滚动容器（`max-h-[30vh] overflow-y-auto`，testid `queue-panel-content`），状态栏（spinner/停止/清空）留在滚动区外固定可见；超长引导文字在容器内滚动查看，不再挤压会话。
+- 验证：SessionView.test 新增回归测试（限高+滚动+内容完整）；浏览器实证：超长引导下内容区钉在 40vh、内部可滚动（0→766px）、下方消息与 Composer 完全可见。
+- 影响范围：packages/frontend/src/components/SessionView.tsx、tests/SessionView.test.tsx。
+
 ## 2026-09-01 — v0.3.10 发版（浮动预览居中 + Cmd 切换去抖）
 
 - 版本：0.3.9 → 0.3.10。

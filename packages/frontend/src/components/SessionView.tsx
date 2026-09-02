@@ -427,100 +427,105 @@ export const SessionView = memo(function SessionView({
 							</div>
 						)}
 
-						{/* 引导中消息 */}
-						{steering.length > 0 && (
-							<div
-								className="mt-2 p-2.5 rounded-sm bg-warning-soft"
-								style={{ borderLeft: "3px solid var(--warning)" }}
-							>
-								<div className="flex items-center justify-between">
-									<span className="text-warning text-[calc(11.5px*var(--font-scale))] font-bold">
-										{t("session.steeringTitle")}
-									</span>
-								</div>
-								{steering.map((msg, i) => (
-									<div
-										key={i}
-										className="text-[calc(12px*var(--font-scale))] text-secondary mt-1 pl-2"
-									>
-										<span
-											// pi-lens-ignore: dangerously-set-inner-html —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
-											dangerouslySetInnerHTML={{
-												__html: expandedTextToHtml(msg, {
-													knownSkills,
-													knownCommands,
-													hideTrigger: true,
-												}),
-											}}
-										/>
+						<div
+							data-testid="queue-panel-content"
+							className="max-h-[30vh] overflow-y-auto"
+						>
+							{/* 引导中消息 */}
+							{steering.length > 0 && (
+								<div
+									className="mt-2 p-2.5 rounded-sm bg-warning-soft"
+									style={{ borderLeft: "3px solid var(--warning)" }}
+								>
+									<div className="flex items-center justify-between">
+										<span className="text-warning text-[calc(11.5px*var(--font-scale))] font-bold">
+											{t("session.steeringTitle")}
+										</span>
 									</div>
-								))}
-							</div>
-						)}
-
-						{/* 排队消息列表 */}
-						{followUp.length > 0 && (
-							<div>
-								<div className="flex items-center justify-between mb-1">
-									<span className="text-tertiary text-[calc(11.5px*var(--font-scale))]">
-										{t("session.queueCount", { count: followUp.length })}
-									</span>
-								</div>
-								<div className="rounded-sm bg-surface border border-hairline">
-									{followUp.map((msg, i) => (
+									{steering.map((msg, i) => (
 										<div
 											key={i}
-											className={`flex items-center justify-between px-2.5 py-1.5 ${i < followUp.length - 1 ? "border-b border-hairline" : ""}`}
+											className="text-[calc(12px*var(--font-scale))] text-secondary mt-1 pl-2"
 										>
-											<span className="text-secondary truncate flex-1 text-[calc(12.5px*var(--font-scale))]">
-												<span
-													// pi-lens-ignore: dangerously-set-inner-html —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
-													dangerouslySetInnerHTML={{
-														__html: expandedTextToHtml(msg, {
-															knownSkills,
-															knownCommands,
-															hideTrigger: true,
-														}),
-													}}
-												/>
-											</span>
-											<div className="flex ml-2 gap-2">
-												<button
-													onClick={() => handlePromote(msg)}
-													disabled={historyLoading || steering.length > 0}
-													className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading || steering.length > 0 ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`}
-													data-testid="btn-promote"
-												>
-													{t("session.steeringBtn")}
-												</button>
-												{!isRunning && (
-													<button
-														onClick={() => handleImmediate(msg)}
-														disabled={historyLoading}
-														className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
-														data-testid="btn-immediate"
-													>
-														{t("session.immediateBtn")}
-													</button>
-												)}
-											</div>
+											<span
+												// pi-lens-ignore: dangerously-set-inner-html —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
+												dangerouslySetInnerHTML={{
+													__html: expandedTextToHtml(msg, {
+														knownSkills,
+														knownCommands,
+														hideTrigger: true,
+													}),
+												}}
+											/>
 										</div>
 									))}
 								</div>
-							</div>
-						)}
+							)}
 
-						{/* 提示 */}
-						{followUp.length > 0 && (
-							<div className="text-tertiary text-[calc(11.5px*var(--font-scale))] mt-1 inline-flex items-center gap-1">
-								<Icon name="lightbulb" size={12} />
-								<span>
-									{isRunning
-										? t("session.steerHintRunning")
-										: t("session.steerHintIdle")}
-								</span>
-							</div>
-						)}
+							{/* 排队消息列表 */}
+							{followUp.length > 0 && (
+								<div>
+									<div className="flex items-center justify-between mb-1">
+										<span className="text-tertiary text-[calc(11.5px*var(--font-scale))]">
+											{t("session.queueCount", { count: followUp.length })}
+										</span>
+									</div>
+									<div className="rounded-sm bg-surface border border-hairline">
+										{followUp.map((msg, i) => (
+											<div
+												key={i}
+												className={`flex items-center justify-between px-2.5 py-1.5 ${i < followUp.length - 1 ? "border-b border-hairline" : ""}`}
+											>
+												<span className="text-secondary truncate flex-1 text-[calc(12.5px*var(--font-scale))]">
+													<span
+														// pi-lens-ignore: dangerously-set-inner-html —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
+														dangerouslySetInnerHTML={{
+															__html: expandedTextToHtml(msg, {
+																knownSkills,
+																knownCommands,
+																hideTrigger: true,
+															}),
+														}}
+													/>
+												</span>
+												<div className="flex ml-2 gap-2">
+													<button
+														onClick={() => handlePromote(msg)}
+														disabled={historyLoading || steering.length > 0}
+														className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading || steering.length > 0 ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`}
+														data-testid="btn-promote"
+													>
+														{t("session.steeringBtn")}
+													</button>
+													{!isRunning && (
+														<button
+															onClick={() => handleImmediate(msg)}
+															disabled={historyLoading}
+															className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
+															data-testid="btn-immediate"
+														>
+															{t("session.immediateBtn")}
+														</button>
+													)}
+												</div>
+											</div>
+										))}
+									</div>
+								</div>
+							)}
+
+							{/* 提示 */}
+							{followUp.length > 0 && (
+								<div className="text-tertiary text-[calc(11.5px*var(--font-scale))] mt-1 inline-flex items-center gap-1">
+									<Icon name="lightbulb" size={12} />
+									<span>
+										{isRunning
+											? t("session.steerHintRunning")
+											: t("session.steerHintIdle")}
+									</span>
+								</div>
+							)}
+						</div>
 					</div>
 				)}
 
