@@ -17,6 +17,10 @@ const INTEGRATION_TESTS = [
 	"tests/preview-inspect.integration.test.ts",
 ];
 
+/** 负载敏感测试：依赖真实文件系统事件（fs.watch/FSEvents），--parallel 多 worker
+ *  高并发下事件投递可被饿死（实测 30s 不达，串行跑 3.5s 即过），单独串行补跑。 */
+const LOAD_SENSITIVE_TESTS = ["tests/scheduler-watcher.test.ts"];
+
 function run(args: string[]): boolean {
 	const label = `bun ${args.join(" ")}`;
 	console.log(`[test] $ ${label}`);
@@ -45,6 +49,10 @@ const ignoreArgs = INTEGRATION_TESTS.flatMap((f) => [
 	"--path-ignore-patterns",
 	f,
 ]);
+const loadSensitiveIgnoreArgs = LOAD_SENSITIVE_TESTS.flatMap((f) => [
+	"--path-ignore-patterns",
+	f,
+]);
 ok =
 	run([
 		"test",
@@ -52,10 +60,16 @@ ok =
 		"--parallel=4",
 		"--max-concurrency=8",
 		...ignoreArgs,
+		...loadSensitiveIgnoreArgs,
 	]) && ok;
 
 // 2. 独立进程单独补跑集成测试（与其他测试隔离，验证 kernel 启动链路）
 for (const file of INTEGRATION_TESTS) {
+	ok = run(["test", "--isolate", file]) && ok;
+}
+
+// 3. 负载敏感测试串行补跑（无并行竞争，fs 事件即时可达）
+for (const file of LOAD_SENSITIVE_TESTS) {
 	ok = run(["test", "--isolate", file]) && ok;
 }
 
