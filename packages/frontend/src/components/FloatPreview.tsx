@@ -31,7 +31,8 @@ export function FloatPreview() {
 	const [opened, setOpened] = useState(!minimized);
 
 	useEffect(() => {
-		if (minimized && (phase === "open" || phase === "opening")) setPhase("hiding");
+		if (minimized && (phase === "open" || phase === "opening"))
+			setPhase("hiding");
 		if (!minimized && (phase === "hidden" || phase === "hiding")) {
 			setPhase("opening");
 			setOpened(false);

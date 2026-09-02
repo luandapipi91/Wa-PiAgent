@@ -44,7 +44,9 @@ test("无历史记录：首次打开双向居中并固化位置（重启后视�
 
 test("最小化：窗口收缩后隐藏（保持挂载），气泡出现；恢复后窗口回来", async () => {
 	render(<FloatPreview />);
-	const win = document.querySelector('[data-testid="float-window"]') as HTMLElement;
+	const win = document.querySelector(
+		'[data-testid="float-window"]',
+	) as HTMLElement;
 	expect(win.style.width).toBe("720px");
 
 	act(() => useBrowserStore.getState().setMinimized(true));
