@@ -1,3 +1,11 @@
+## 2026-09-04 — v0.3.11 发版（provider maxTokens + 会话切换链路修复）
+
+- 版本：0.3.10 → 0.3.11。
+- 修复：自定义 provider maxTokens 用户显式配置优先（第三方端点 400 必挂）；压缩期间排队消息发出后不显示；会话空闲回收后切换智能体必失败一次；切换失败无提示；小窗口下半屏预览关闭按钮被裁。
+- 优化：会话顶部标题不再撑高、角色入口只读展示；角色删除后提示可点击重选。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：kernel（provider-extension/agent-manager）、frontend（session store/SessionView/AgentSwitcher/BrowserPanel/i18n）。
+
 ## 2026-09-04 — fix(kernel): 自定义 provider 模型 maxTokens 用户显式配置优先（第三方端点 max_completion_tokens 超服务端上限 400 必挂）
 
 - 问题：自定义 provider 下模型 id 撞名内置目录（如 deepseek-v4-flash）时，生成的 extension 里 maxTokens 被目录标称值覆盖（pi-ai 0.84.2 目录标 393216，即 OpenRouter 官方端点的输出上限），且设置页里用户填的值形同虚设；pi-ai 把它原样透传为 max_completion_tokens，第三方兼容端点（实际上限 131072）直接 400 InvalidParameter，该模型下所有会话所有请求必挂。
