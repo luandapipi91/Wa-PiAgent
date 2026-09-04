@@ -11,15 +11,22 @@ import { E2E_WS_PORT } from "../playwright.config";
 const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
 
 /** 底层 REST 调用：非 2xx 抛错（带服务端 error 字段），返回解析后的 body */
-async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+async function api<T = any>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+    headers:
+      body !== undefined ? { "content-type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const data: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`REST ${method} ${path} 失败(${res.status}): ${data?.error ?? JSON.stringify(data)}`);
+    throw new Error(
+      `REST ${method} ${path} 失败(${res.status}): ${data?.error ?? JSON.stringify(data)}`,
+    );
   }
   return data as T;
 }
@@ -51,23 +58,32 @@ export async function createProject(name: string, cwd: string): Promise<any> {
     try {
       await api("POST", "/api/projects", { name, cwd });
     } catch (e) {
-      if (!String(e).includes("已存在")) throw e;
+      // 同名同目录已存在 → 容忍（kernel 现返回英文 code project.duplicateCwd，
+      // 旧中文「已存在」形态一并保留判定）
+      const msg = String(e);
+      if (!msg.includes("已存在") && !msg.includes("duplicateCwd")) throw e;
     }
     // 首轮短超时快速发现丢失，避免干等 10s；后续轮用完整超时等 kernel 事件循环平稳
     const found = await pollUntil(
       async () => {
         const data = await api("GET", "/api/projects");
-        return data.projects?.find((p: any) => p.name === name && p.cwd === cwd);
+        return data.projects?.find(
+          (p: any) => p.name === name && p.cwd === cwd,
+        );
       },
       attempt === 0 ? 3_000 : 10_000,
     ).catch(() => undefined);
     if (found) return found;
   }
-  throw new Error(`createProject 失败: ${name} 重 POST 3 轮后仍未出现在项目列表`);
+  throw new Error(
+    `createProject 失败: ${name} 重 POST 3 轮后仍未出现在项目列表`,
+  );
 }
 
 /** 预置模型供应商（旧 WS provider:save + 等 provider:changed：POST 返回时落盘已完成） */
-export async function saveProvider(provider: object): Promise<void> {
+export async function saveProvider(
+  provider: Record<string, unknown>,
+): Promise<void> {
   await api("POST", "/api/providers", { provider });
 }
 
@@ -76,7 +92,9 @@ export async function saveProvider(provider: object): Promise<void> {
 export async function deleteAllProviders(): Promise<void> {
   const data = await api("GET", "/api/providers");
   for (const p of (data.providers ?? []) as { id: string }[]) {
-    await api("DELETE", `/api/providers/${encodeURIComponent(p.id)}`).catch(() => {});
+    await api("DELETE", `/api/providers/${encodeURIComponent(p.id)}`).catch(
+      () => {},
+    );
   }
 }
 
@@ -90,18 +108,29 @@ export async function createAgent(displayName: string): Promise<any> {
 export async function deleteAgentQuiet(name: string): Promise<void> {
   try {
     await api("DELETE", `/api/agents/${encodeURIComponent(name)}`);
-  } catch { /* 忽略 */ }
+  } catch {
+    // 清理用删除：任何错误（404/网络）都视为已删除，永不抛出
+    return;
+  }
 }
 
 /** 读智能体配置（旧 WS agent:config:get + 等 agent:config） */
 export async function getAgentConfig(agentName: string): Promise<any> {
-  const res = await api("GET", `/api/agents/${encodeURIComponent(agentName)}/config`);
+  const res = await api(
+    "GET",
+    `/api/agents/${encodeURIComponent(agentName)}/config`,
+  );
   return res.config;
 }
 
 /** 存智能体配置（旧 WS agent:config:save + 等 agent:list 广播：PUT 返回时保存与广播均已完成） */
-export async function saveAgentConfig(agentName: string, config: object): Promise<void> {
-  await api("PUT", `/api/agents/${encodeURIComponent(agentName)}/config`, { config });
+export async function saveAgentConfig(
+  agentName: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  await api("PUT", `/api/agents/${encodeURIComponent(agentName)}/config`, {
+    config,
+  });
 }
 
 /** 添加技能目录（旧 WS skillDir:add + 等 skill:changed：POST 返回时重扫已完成） */
@@ -123,7 +152,8 @@ export async function createSessionViaPrompt(
   projectId: string,
   opts: { agentName: string; text: string; model?: string; sessionId?: string },
 ): Promise<any> {
-  const sessionId = opts.sessionId ?? "s-e2e-" + Math.random().toString(36).slice(2);
+  const sessionId =
+    opts.sessionId ?? "s-e2e-" + Math.random().toString(36).slice(2);
   await api("POST", `/api/agents/${projectId}/${sessionId}/prompt`, {
     agentName: opts.agentName,
     text: opts.text,

@@ -429,7 +429,11 @@ export class AgentManager {
 			)?.projectId;
 		if (!projectId) throw new KernelError("session.notFound", { sessionId });
 		await this.opts.projectStore.setSessionAgent(sessionId, agentName);
-		// 拆除 + 重建为连续同步段（无 await）：并发 ensureStarted 会命中 starting 复用同一创建 promise
+		// 拆除 + 重建为连续同步段（无 await）：并发 ensureStarted 会命中 starting 复用同一创建 promise。
+		// 清除 disposed 标记（与 ensureStarted 对齐）：missing 会话可能已被空闲回收（disposed.add），
+		// 否则 _createSession 末尾命中 disposed.has() 会拆掉刚建好的进程、抛「会话已清理」，
+		// 用户重选恢复必失败一次。
+		this.disposed.delete(sessionId);
 		this._teardownSession(sessionId);
 		const promise = this._createSession(projectId, agentName, sessionId);
 		this.starting.set(sessionId, promise);

@@ -9,6 +9,7 @@ import {
   extensionCoversProvider,
   resolveProviderBaseUrl,
   isProviderExtensionStale,
+  EXTENSION_GENERATOR_VERSION,
 } from "../src/provider-extension";
 import { GENERATED_DIR } from "@wa-pi/shared";
 import type { ModelProvider } from "@wa-pi/shared";
@@ -88,6 +89,66 @@ test("generateProviderExtension：内置目录有 baseUrl 时优先用内置（�
   // 应使用内置目录的 /v1 baseUrl，而非 provider.baseUrl 的不带 /v1
   expect(code).toContain('baseUrl: "https://opencode.ai/zen/go/v1"');
   expect(code).not.toContain('baseUrl: "https://opencode.ai/zen/go"');
+});
+
+test("generateProviderExtension：用户显式配置 maxTokens 优先于内置目录（回归：第三方端点 deepseek-v4-flash 目录 393216 超服务端上限 131072，所有请求 400）", () => {
+  // 用户在设置页把 maxTokens 改成端点实际支持的 131072；
+  // 目录标称 393216 是 OpenRouter 官方端点的值，第三方兼容端点不认。
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 131072 },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "my-deepseek/deepseek-v4-flash",
+      {
+        contextWindow: 1048576,
+        maxTokens: 393216,
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "deepseek-v4-flash",
+        baseUrl: "https://api.deepseek.com/v1",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  // 用户显式配置的 maxTokens 必须生效，不被目录值覆盖
+  expect(code).toContain("maxTokens: 131072");
+  expect(code).not.toContain("maxTokens: 393216");
+  // contextWindow 维持目录优先（目录 1048576 盖过用户 1000000，防压缩回归的既有语义不变）
+  expect(code).toContain("contextWindow: 1048576");
+});
+
+test("generateProviderExtension：用户未配置 maxTokens（0）时回落内置目录值（行为不变）", () => {
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      models: [{ id: "deepseek-v4-flash", contextWindow: 0, maxTokens: 0 }],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "my-deepseek/deepseek-v4-flash",
+      {
+        contextWindow: 1048576,
+        maxTokens: 384000,
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "deepseek-v4-flash",
+        baseUrl: "https://api.deepseek.com/v1",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  expect(code).toContain("maxTokens: 384000");
 });
 
 test("generateProviderExtension：anthropic-messages provider 不采用其他 api 分节的目录 baseUrl", () => {
@@ -285,6 +346,10 @@ test("ensureProviderExtensionRegistered 写 extension 文件到指定目录", as
     expect(existsSync(extFile)).toBe(true);
     const code = readFileSync(extFile, "utf8");
     expect(code).toContain('registerProvider("my-deepseek"');
+    // 头部带生成器版本标记（stale 判定据此在升级后强制重生成）
+    expect(code).toContain(
+      `// generator-version: ${EXTENSION_GENERATOR_VERSION}`,
+    );
 
     // 不再写 settings.json.packages（迁移后改由 additionalExtensionPaths 注入）
     expect(existsSync(join(dir, "settings.json"))).toBe(false);
@@ -841,7 +906,7 @@ test("generateProviderExtension：supportsVision 未设置 → 跟随目录默�
   expect(code).not.toContain('"image"');
 });
 
-// ---- isProviderExtensionStale：派发前 mtime 兜底，手改 providers.json 触发重生成 ----
+// ---- isProviderExtensionStale：派发前兜底（版本标记 + mtime），过期则重生成 ----
 
 async function writeFileWithMtime(
   file: string,
@@ -879,8 +944,50 @@ test("isProviderExtensionStale: extension 比 providers.json 更新 → false（
     const extFile = join(dir, "provider-extension.ts");
     await mkdir(dir, { recursive: true });
     await writeFileWithMtime(providersFile, "providers", 2000);
-    await writeFileWithMtime(extFile, "extension", 3000);
+    await writeFileWithMtime(
+      extFile,
+      `// generator-version: ${EXTENSION_GENERATOR_VERSION}\nextension`,
+      3000,
+    );
     expect(await isProviderExtensionStale(providersFile, extFile)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isProviderExtensionStale: extension 版本标记低于当前版本 → true（wa-pi 升级后模板修复强制落地）", async () => {
+  const dir = join(
+    import.meta.dir,
+    ".tmp-stale6-" + Math.random().toString(36).slice(2),
+  );
+  try {
+    const providersFile = join(dir, "providers.json");
+    const extFile = join(dir, "provider-extension.ts");
+    await mkdir(dir, { recursive: true });
+    await writeFileWithMtime(
+      extFile,
+      "// generator-version: 1\nextension",
+      3000,
+    );
+    await writeFileWithMtime(providersFile, "providers", 2000);
+    expect(await isProviderExtensionStale(providersFile, extFile)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isProviderExtensionStale: extension 无版本标记（旧生成器产物）→ true", async () => {
+  const dir = join(
+    import.meta.dir,
+    ".tmp-stale7-" + Math.random().toString(36).slice(2),
+  );
+  try {
+    const providersFile = join(dir, "providers.json");
+    const extFile = join(dir, "provider-extension.ts");
+    await mkdir(dir, { recursive: true });
+    await writeFileWithMtime(extFile, "extension", 3000);
+    await writeFileWithMtime(providersFile, "providers", 2000);
+    expect(await isProviderExtensionStale(providersFile, extFile)).toBe(true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

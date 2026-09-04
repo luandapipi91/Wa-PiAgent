@@ -7,23 +7,27 @@ import { api } from "../api-client";
 import { onMessage } from "../events";
 import { Modal } from "./ui/Modal";
 import { AgentDropdown } from "./ui/AgentDropdown";
+import { useToastStore } from "../store/toast";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
     sessionId: string;
+    /** 只读模式：仅显示当前角色图标+名字，不提供下拉切换/编辑（会话内固定角色入口） */
+    readOnly?: boolean;
 }
 
-export function AgentSwitcher({ sessionId }: Props) {
+export function AgentSwitcher({ sessionId, readOnly = false }: Props) {
     const session = useProjectsStore((s) =>
         s.sessions.find((x) => x.id === sessionId),
     );
     const agents = useAgentsStore((s) => s.list);
     const { t } = useTranslation();
+    const addToast = useToastStore((s) => s.add);
     // 待确认切换目标：非 null 时显示缓存失效确认框
     const [pending, setPending] = useState<AgentName | null>(null);
 
     // 监听 kernel 广播 session:updated：更新会话主智能体，并向消息流追加本地分隔行
-    // （CustomMessage 仅前端展示，不写入 jsonl；content 在构造时插值，避免存入模板占位符）
+    // （readOnly 只禁顶部下拉交互；primaryAgent 变化，含缺失恢复重选，仍应提示分隔行）
     useEffect(() => {
         return onMessage((e) => {
             if (e.type !== "session:updated" || e.sessionId !== sessionId)
@@ -52,14 +56,51 @@ export function AgentSwitcher({ sessionId }: Props) {
     const current = agents.find((a) => a.displayName === session.primaryAgent);
     const missing = !current;
 
-    // AgentDropdown 选中非当前项后弹出确认框；确认后才发 WS 切换（缓存失效语义）
+    // 只读模式仅约束「角色存在时不能随意切换」；角色被删除（missing）属异常态，
+    // 必须允许点击重选恢复（否则会话废了），因此只读展示只在角色存在时生效。
+    // 只读展示：与状态行统一样式（无边框盒子感，仅 emoji 色块 + 角色名）
+    if (readOnly && !missing) {
+        return (
+            <span
+                className="inline-flex min-w-0 items-center gap-1 text-[calc(12px*var(--font-scale))] text-secondary"
+                data-testid="agent-switcher"
+                title={current.displayName}
+            >
+                <span
+                    className="w-[16px] h-[16px] rounded-sm flex items-center justify-center text-[calc(11px*var(--font-scale))] flex-none"
+                    style={{
+                        background: current.avatarColor?.includes("-")
+                            ? `linear-gradient(135deg, ${current.avatarColor
+                                  .split("-")
+                                  .map((s) => s.trim())
+                                  .join(", ")})`
+                            : current.avatarColor || undefined,
+                    }}
+                >
+                    {current.avatar}
+                </span>
+                <span className="max-w-[180px] truncate">
+                    {current.displayName}
+                </span>
+            </span>
+        );
+    }
+
+    // 非只读，或角色已删除（missing）：走交互式 AgentDropdown，可点击展开重选
+    // （missing 时 pill 呈现警示态，点击可重选恢复）
     const handlePick = (name: AgentName) => setPending(name);
     const handleConfirm = () => {
-        if (pending)
-            void api.post(
-                `/api/sessions/${encodeURIComponent(sessionId)}/set-agent`,
-                { agentName: pending },
-            );
+        if (pending) {
+            const name = pending;
+            void api
+                .post(
+                    `/api/sessions/${encodeURIComponent(sessionId)}/set-agent`,
+                    { agentName: name },
+                )
+                .catch(() => {
+                    addToast(t("agentSwitcher.switchFailed"), "error");
+                });
+        }
         setPending(null);
     };
     const handleCancel = () => setPending(null);

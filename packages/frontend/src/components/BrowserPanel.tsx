@@ -248,13 +248,17 @@ export function BrowserPanel() {
 
 	return (
 		<div className="flex flex-col h-full bg-surface" data-testid="browser-panel">
-			{/* 工具栏：地址栏定宽可拖拽调宽；空白吸收在输入区与按钮之间 → 按钮贴右缘 */}
+			{/* 工具栏：地址栏定宽可拖拽调宽；空白吸收在输入区与按钮之间 → 按钮贴右缘。
+				flex-wrap 兜底：极窄面板（小窗口半屏）下按钮行整体换行，行尾关闭按钮不被
+				split 容器 overflow-hidden 裁掉 */}
 			<div
 				ref={toolbarRef}
-				className="flex items-center gap-1.5 px-3 py-2 border-b border-hairline"
+				className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-hairline"
 			>
+				{/* min-w-0 可收缩：中窄面板下地址栏先让位（缩到 MIN_URLBAR_W 下限），
+					按钮保持可见；仍不够宽时由工具栏 flex-wrap 换行兜底 */}
 				<div
-					className="flex shrink-0 items-center gap-2 px-2 py-1.5 rounded-md border border-hairline bg-surface-hover"
+					className="flex min-w-0 items-center gap-2 px-2 py-1.5 rounded-md border border-hairline bg-surface-hover"
 					style={{ width: urlW ?? "50%", minWidth: MIN_URLBAR_W }}
 				>
 					<Icon name="globe" size={14} className="text-secondary" />

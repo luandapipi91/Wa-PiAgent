@@ -244,28 +244,33 @@ export const SessionView = memo(function SessionView({
 				<header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
 					<div className="flex-1">
 						<div className="flex items-center gap-2">
+							{/* 标题最多折叠两行，超出省略：窗口太窄时不再把顶部撑高 */}
 							{imConv ? (
 								<ImSessionTitle sessionTitle={session.title} imConv={imConv} />
 							) : (
-								<span className="text-[calc(14px*var(--font-scale))] font-bold text-primary">
+								<span className="text-[calc(14px*var(--font-scale))] font-bold text-primary leading-[1.5] line-clamp-2">
 									{session.title}
 								</span>
 							)}
-							{/* IM 接入会话：智能体由机器人配置锁定，不暴露切换入口；普通会话保留 */}
-							{!sourceLabel && <AgentSwitcher sessionId={sessionId} />}
 						</div>
-						<div className="text-[calc(11.5px*var(--font-scale))] text-tertiary mt-px">
+						{/* 会话角色入口：固定为只读展示（图标+角色名），不提供切换/编辑；
+							IM 会话智能体由机器人配置锁定，均不暴露切换。
+							与项目目录、会话状态同放一行（标题下）靠右，不再挤占标题行 */}
+						<div className="flex items-center gap-2 text-[calc(11.5px*var(--font-scale))] text-tertiary mt-px">
 							<span
-								className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle"
+								className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
 								style={{ background: STATUS_COLORS[headerStatus] }}
 								data-testid="session-status-dot"
 							/>
-							{/* 默认工作区会话：不暴露内部工作目录，显示友好文案；普通项目会话仍显示 cwd */}
-							{session.projectId === SYSTEM_PROJECT_ID
-								? t("session.defaultWorkspace")
-								: (project?.cwd ?? "")}{" "}
-							· {t(AGENT_STATE_KEY[headerStatus])}
-							{sourceLabel && ` · ${sourceLabel}`}
+							<span className="min-w-0 truncate">
+								{/* 默认工作区会话：不暴露内部工作目录，显示友好文案；普通项目会话仍显示 cwd */}
+								{session.projectId === SYSTEM_PROJECT_ID
+									? t("session.defaultWorkspace")
+									: (project?.cwd ?? "")}{" "}
+								· {t(AGENT_STATE_KEY[headerStatus])}
+								{sourceLabel && ` · ${sourceLabel}`}
+							</span>
+							{!sourceLabel && <AgentSwitcher sessionId={sessionId} readOnly />}
 						</div>
 					</div>
 					{/* Token 胶囊标签组 */}

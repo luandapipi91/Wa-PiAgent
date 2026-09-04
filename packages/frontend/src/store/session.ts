@@ -428,10 +428,23 @@ export const useSessionStore = create<SessionState>((set) => {
 							(m: any) => (m?.message ?? m)?.role !== "compactionSummary",
 						)
 					: (res.messages ?? []);
+				// GET 在途期间本地新到的消息（如压缩结束自动 flush 的排队消息回声）不能被快照冲掉：
+				// drain 路径无 session:echo_user、SDK user 回声也只发一次，冲掉后无任何补回机制。
+				// 以服务端快照最后时间戳为界保留本地更新的消息；timestamp 相同视为服务端已含，
+				// 不重复保留（后续重新拉取时以服务端版本为准自然收敛）。
+				const serverLastTs = serverMessages.reduce(
+					(max: number, m: any) => Math.max(max, (m?.message ?? m)?.timestamp ?? 0),
+					0,
+				);
+				const newerLocal = prev.filter((m: any) => {
+					const mm = m.message as any;
+					if (mm?.customType === "compaction_status") return false; // localStatus 已单独保留
+					return (mm?.timestamp ?? 0) > serverLastTs;
+				});
 				useSessionStore.setState((s) => ({
 					messagesBySession: {
 						...s.messagesBySession,
-						[sessionId]: [...serverMessages, ...localStatus],
+						[sessionId]: [...serverMessages, ...newerLocal, ...localStatus],
 					},
 				}));
 				const stats = (statsRes as any)?.stats as

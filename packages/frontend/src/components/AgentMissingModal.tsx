@@ -2,6 +2,7 @@ import { useAgentsStore } from "../store/agents";
 import { api } from "../api-client";
 import { Modal } from "./ui/Modal";
 import { useTranslation } from "../i18n/useTranslation";
+import { useToastStore } from "../store/toast";
 
 interface Props {
   sessionId: string;
@@ -20,10 +21,15 @@ function avatarBackground(color?: string): string | undefined {
 export function AgentMissingModal({ sessionId, onClose }: Props) {
   const agents = useAgentsStore((s) => s.list);
   const { t } = useTranslation();
+  const addToast = useToastStore((s) => s.add);
   const pick = (name: string) => {
-    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/set-agent`, {
-      agentName: name,
-    });
+    void api
+      .post(`/api/sessions/${encodeURIComponent(sessionId)}/set-agent`, {
+        agentName: name,
+      })
+      .catch(() => {
+        addToast(t("agentSwitcher.switchFailed"), "error");
+      });
     onClose();
   };
   return (

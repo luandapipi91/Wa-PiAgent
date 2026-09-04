@@ -586,6 +586,7 @@ const zh = {
 		confirmTitle: "切换智能体",
 		confirmMessage: "切换智能体后所有缓存都会失效，是否继续？",
 		confirmAction: "继续切换",
+		switchFailed: "切换智能体失败，请重试",
 	},
 	agentMissing: {
 		title: "原智能体已删除",
