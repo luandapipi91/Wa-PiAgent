@@ -1875,6 +1875,81 @@ test("compaction_end 自动压缩（reason=threshold）同样触发 token 刷新
 	expect(useSessionStore.getState().tokenTotals["s1"]?.total).toBe(27000);
 });
 
+test("refreshTokenTotals 覆盖时保留本地比服务端快照新的消息（压缩结束自动 flush 的排队消息不被冲掉）", async () => {
+	// 场景：压缩中排队的消息在压缩结束后被 kernel 自动 drain 发出，pi 的 message_start(user)
+	// 回声已 append 到本地列表；compaction_end 触发的 refreshTokenTotals GET 读磁盘 jsonl，
+	// 快照读取早于该消息落盘 → 服务端快照不含它。整表覆盖会把刚显示的用户消息冲掉
+	// 且无补回（drain 路径无 echo_user、回声只发一次）→ 界面上用户消息消失。
+	getCalls = 0;
+	useSessionStore.setState({ messagesBySession: {}, tokenTotals: {} });
+	mockStats = null;
+	// 服务端快照：只有压缩前的历史（不含排队消息——读取时它尚未落盘）
+	mockMessages.messages = [
+		{
+			message: {
+				role: "assistant",
+				content: "压缩前历史",
+				timestamp: 100,
+				usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+			},
+			agentName: "dev",
+		},
+	];
+	// 本地列表：历史消息 + 排队消息回声（message_start(user) 已 append，timestamp 更新）
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: {
+						role: "assistant",
+						content: "压缩前历史",
+						timestamp: 100,
+					},
+					agentName: "dev",
+				},
+				{
+					message: {
+						role: "user",
+						content: "压缩中排队的消息",
+						timestamp: 200,
+					},
+					agentName: undefined,
+				},
+			],
+		},
+	} as any);
+
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "compaction_end",
+			reason: "manual",
+			result: {
+				summary: "摘要",
+				firstKeptEntryId: "abc",
+				tokensBefore: 1000,
+				estimatedTokensAfter: 300,
+			},
+			aborted: false,
+			willRetry: false,
+		}),
+	);
+	await new Promise((r) => setTimeout(r, 0));
+
+	const after = useSessionStore.getState().messagesBySession["s1"];
+	// 排队用户消息仍保留（未被快照覆盖冲掉）
+	const queued = after.find(
+		(m) =>
+			(m.message as any).role === "user" &&
+			(m.message as any).content === "压缩中排队的消息",
+	);
+	expect(queued).toBeDefined();
+	// 历史消息来自服务端权威快照，不重复
+	expect(
+		after.filter((m) => (m.message as any).content === "压缩前历史"),
+	).toHaveLength(1);
+});
+
 // 回归：compaction_end 成功但服务端历史重拉不带 compactionSummary 时，
 // 本地成功的 compaction_status 消息不能被无条件清除——否则「已压缩」提示会彻底消失。
 // 修复前 refreshTokenTotals 用 `return !mm?.compactionDone` 无条件移除成功消息，

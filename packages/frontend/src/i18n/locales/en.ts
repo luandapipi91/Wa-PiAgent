@@ -606,6 +606,7 @@ const en = {
 		confirmTitle: "Switch agent",
 		confirmMessage: "Switching the agent invalidates all caches. Continue?",
 		confirmAction: "Switch",
+		switchFailed: "Failed to switch agent, please retry",
 	},
 	agentMissing: {
 		title: "Linked agent deleted",

@@ -1424,6 +1424,22 @@ test("switchAgent: 会话未启动时从 projectStore 降级取 projectId 并直
 	expect(sessions.find((s) => s.id === session.id)!.primaryAgent).toBe("pm");
 });
 
+test("switchAgent: 会话已被 dispose（空闲回收）后切换不抛「会话已清理」，能重建", async () => {
+	// missing 会话典型时序：进程被空闲回收（disposed.add）后，用户点重选 → switchAgent。
+	// 与 ensureStarted 对齐：disposed 标记应被清除，重建成功，而不是拆掉新进程抛错。
+	const { projectStore, project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	await am.disposeSession(session.id); // 模拟空闲回收：disposed.add + teardown
+
+	await am.switchAgent(session.id, "pm"); // 修复前：抛「会话已清理」
+
+	// 重建成功：新 handle 存活，持久层已更新
+	expect(fakes).toHaveLength(2);
+	expect(fakes[1].alive).toBe(true);
+	const { sessions } = await projectStore.load();
+	expect(sessions.find((s) => s.id === session.id)!.primaryAgent).toBe("pm");
+});
+
 test("switchAgent: 会话不存在时抛错", async () => {
 	const { am } = await setup();
 	await expect(am.switchAgent("nope", "pm")).rejects.toThrow();

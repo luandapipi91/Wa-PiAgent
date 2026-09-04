@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { writeFile, mkdir, stat } from "node:fs/promises";
+import { writeFile, mkdir, stat, readFile } from "node:fs/promises";
 import { existsSync as nodeExistsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveProviderSlug, GENERATED_DIR } from "@wa-pi/shared";
@@ -84,6 +84,14 @@ function lookupSdkModel(
 	const hit = byId(allModels);
 	return hit ? modelToInfo(hit) : null;
 }
+
+/**
+ * extension 生成器模板版本。模板语义变更时 bump：stale 判定发现已生成文件
+ * 的版本标记低于此值（含旧版无标记的文件）即强制重生成，保证升级后模板
+ * 修复能落地（providers.json 未动时 mtime 兜底不会触发）。
+ * 历史：1 = 无版本标记的旧生成器；2 = maxTokens 改为用户显式配置优先。
+ */
+export const EXTENSION_GENERATOR_VERSION = 2;
 
 function modelToInfo(m: CatalogModel): SdkModelInfo {
 	return {
@@ -217,15 +225,22 @@ export function generateProviderExtension(
 								? baseInput.filter((x) => x !== "image")
 								: baseInput;
 					const cost = sdk?.cost ?? DEFAULT_SDK_MODEL.cost;
-					// contextWindow / maxTokens：内置目录优先，其次用户配置，最后默认值。
+					// contextWindow：内置目录优先，其次用户配置，最后默认值。
 					// 目录缺失（含派生 slug 错位）时若静默落 128000，pi 会按错误窗口
 					// 提前触发自动压缩（回归：用户配置 1M 却在 ~122K 被压缩）。
 					const contextWindow =
 						sdk?.contextWindow ??
 						(m.contextWindow > 0 ? m.contextWindow : DEFAULT_SDK_MODEL.contextWindow);
+					// maxTokens：用户显式配置优先（>0 即视为显式意图），目录值仅做缺省回退。
+					// 目录标称的是 OpenRouter 官方端点的输出上限，第三方兼容端点往往更小；
+					// 目录优先会盖掉用户设置页填的值并原样透传 max_completion_tokens，
+					// 被服务端 400 拒绝（回归：deepseek-v4-flash 目录 393216，端点上限
+					// 131072，所有请求必挂）。与 resolveEffectiveBaseUrl 的「用户显式
+					// 配置优先」哲学对齐；contextWindow 无此问题故维持目录优先。
 					const maxTokens =
-						sdk?.maxTokens ??
-						(m.maxTokens > 0 ? m.maxTokens : DEFAULT_SDK_MODEL.maxTokens);
+						m.maxTokens > 0
+							? m.maxTokens
+							: (sdk?.maxTokens ?? DEFAULT_SDK_MODEL.maxTokens);
 					return `      {
         id: ${JSON.stringify(m.id)},
         name: ${JSON.stringify(name)},
@@ -256,6 +271,7 @@ ${modelsCode}
 		.join("\n\n");
 
 	return `// 自动生成，勿手改 — 由 WaPi provider-extension.ts 从 providers.json + SDK 内置模型数据生成
+// generator-version: ${EXTENSION_GENERATOR_VERSION}
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
@@ -337,5 +353,10 @@ export async function isProviderExtensionStale(
 	if (!providersStat) return false;
 	// extension 文件不存在而 providers 存在：需要生成
 	if (!extStat) return true;
+	// 生成器模板变更（版本标记缺失或低于当前版本）→ 过期：wa-pi 升级后即使
+	// providers.json 未动也强制重生成，让新模板生效（mtime 兜底覆盖不到的场景）
+	const ext = await readFile(extensionPath, "utf8").catch(() => "");
+	const ver = Number(/generator-version: (\d+)/.exec(ext)?.[1] ?? 1);
+	if (ver < EXTENSION_GENERATOR_VERSION) return true;
 	return providersStat.mtimeMs >= extStat.mtimeMs;
 }

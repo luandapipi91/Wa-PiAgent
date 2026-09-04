@@ -12,6 +12,7 @@ import { SYSTEM_PROJECT_ID, type SessionMessage } from "@wa-pi/shared";
 import { SessionView } from "../src/components/SessionView";
 import { VirtuosoMockContext } from "react-virtuoso";
 import { useProjectsStore } from "../src/store/projects";
+import { useAgentsStore } from "../src/store/agents";
 import { useSessionStore } from "../src/store/session";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProvidersStore } from "../src/store/providers";
@@ -143,6 +144,37 @@ async function renderSessionView(sessionId: string) {
 	await act(async () => {});
 	return result;
 }
+
+test("会话标题最多折叠两行（line-clamp-2），不再无限撑高顶部", async () => {
+	await renderSessionView("s1");
+	const title = screen.getByText("测试");
+	expect(title.className).toContain("line-clamp-2");
+});
+
+test("会话角色入口保留但为只读：显示当前角色（dev），无切换下拉", async () => {
+	useAgentsStore.setState({
+		list: [
+			{
+				name: "dev",
+				displayName: "dev",
+				avatar: "🤖",
+				avatarColor: "#06b6d4-#3b82f6",
+				description: "",
+				model: "m",
+				thinking: "disabled",
+				tools: [],
+				skills: [],
+				mcpServers: [],
+				partners: { askTo: [] },
+			} as any,
+		],
+	});
+	await renderSessionView("s1");
+	// 仍显示当前角色名
+	expect(screen.getByText("dev")).toBeTruthy();
+	// 无切换下拉（只读：不渲染可展开的搜索框）
+	expect(screen.queryByTestId("switcher-search")).toBeNull();
+});
 
 test("渲染 header 标题 + 项目目录", async () => {
 	await renderSessionView("s1");
