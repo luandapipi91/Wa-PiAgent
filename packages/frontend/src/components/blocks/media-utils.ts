@@ -3,6 +3,7 @@
 // resolveAbsolutePath 只在函数体内调用（渲染期/事件期），顶层不得求值 FilePill 模块级值。
 import { defaultUrlTransform } from "react-markdown";
 import { resolveAbsolutePath } from "./FilePill";
+import { mediaKindOf } from "./file-path";
 import { pathToUploadUrl } from "../../fs-client";
 
 export type MediaItem = { src: string; kind: "image" | "video"; name: string };
@@ -89,24 +90,40 @@ export function splitMediaParagraphs(text: string): TextPart[] {
 	return parts;
 }
 
-/** 收集文本块内全部媒体（图片 ![]() + 视频段落），按文档顺序，供画廊 items。
- *  围栏代码块内容先剔除——代码块里的 ![](x) 是代码文本不是图片。 */
+// 文本内联媒体：![]() 图片语法，或反引号包裹的媒体路径（FilePill 同款——模型常用
+// 表格 + 行内代码列路径，如 `out/logo.png`，可选 :行号 后缀在收集时去掉）。
+const INLINE_MEDIA_RE =
+	/!\[([^\]]*)\]\((\S+?)\)|`([^`]+?\.(?:png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|mov|mkv|avi|m4v))(?::\d+)*`/gi;
+
+/** 收集文本块内全部媒体（图片 ![]() + 视频段落 + 反引号媒体路径），按文档顺序，供画廊 items。
+ *  围栏代码块内容先剔除——代码块里的 ![](x) 是代码文本不是图片。
+ *  同一文件以多种形式重复出现（如 ![]() 与反引号路径并列）时按 src+kind 去重，保留首次出现。 */
 export function collectMediaItems(text: string): MediaItem[] {
 	const items: MediaItem[] = [];
+	const push = (item: MediaItem) => {
+		if (!items.some((it) => it.src === item.src && it.kind === item.kind)) {
+			items.push(item);
+		}
+	};
 	for (const part of splitMediaParagraphs(text)) {
 		if (part.kind === "video") {
-			items.push({ src: part.src, kind: "video", name: part.name });
+			push({ src: part.src, kind: "video", name: part.name });
 			continue;
 		}
 		const noCode = part.text.replace(/```[\s\S]*?(?:```|$)/g, "");
-		const re = /!\[([^\]]*)\]\((\S+?)\)/g;
+		const re = new RegExp(INLINE_MEDIA_RE);
 		let m: RegExpExecArray | null;
 		while ((m = re.exec(noCode))) {
-			items.push({
-				src: m[2],
-				kind: "image",
-				name: m[1].trim() || fileNameOf(m[2]),
-			});
+			if (m[2] !== undefined) {
+				push({
+					src: m[2],
+					kind: "image",
+					name: m[1].trim() || fileNameOf(m[2]),
+				});
+			} else {
+				const kind = mediaKindOf(m[3]);
+				if (kind) push({ src: m[3], kind, name: fileNameOf(m[3]) });
+			}
 		}
 	}
 	return items;

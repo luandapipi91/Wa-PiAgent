@@ -121,7 +121,9 @@ export function createMarkdownComponents(
 		code: (props: any) => {
 			const text = String(props.children ?? "");
 			if (!props.className && parseFilePath(text)) {
-				return <FilePill rawText={text} sessionId={sessionId} />;
+				return (
+					<FilePill rawText={text} sessionId={sessionId} mediaItems={mediaItems} />
+				);
 			}
 			// 反引号包裹的裸 URL：渲染为可点击链接（autolink 不进入 code 构造）
 			if (!props.className && isLinkText(text)) {

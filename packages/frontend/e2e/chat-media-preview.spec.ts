@@ -44,14 +44,16 @@ function seedSession() {
 	// 真实图片落盘到项目 cwd（/file 白名单内）
 	writeFileSync(join(PROJ_CWD, "shot-a.png"), Buffer.from(PNG_B64, "base64"));
 	writeFileSync(join(PROJ_CWD, "shot-b.png"), Buffer.from(PNG_B64, "base64"));
+	writeFileSync(join(PROJ_CWD, "shot-c.png"), Buffer.from(PNG_B64, "base64"));
 }
 
 /** 注入 assistant 消息：2 张连续图片（→ 网格）+ 独立成段的视频路径 */
 async function injectMediaMessage(page: Page) {
 	const imgA = toPosix(join(PROJ_CWD, "shot-a.png"));
 	const imgB = toPosix(join(PROJ_CWD, "shot-b.png"));
+	const imgC = toPosix(join(PROJ_CWD, "shot-c.png")); // 仅以反引号路径引用（FilePill 场景）
 	const video = toPosix(join(PROJ_CWD, "clip.mp4")); // 不落盘：请求被 stall
-	const text = `截图如下：\n\n![shot-a](${imgA})\n![shot-b](${imgB})\n\n${video}\n\n以上是产出。`;
+	const text = `截图如下：\n\n![shot-a](${imgA})\n![shot-b](${imgB})\n\n${video}\n\n补充路径 \`${imgC}\` 备用。`;
 	await page.route(`**/api/sessions/${SESSION_ID}/messages`, (route) =>
 		route.fulfill({
 			contentType: "application/json",
@@ -118,16 +120,16 @@ test("对话媒体：缩略图网格 + 内联视频 + 画廊切换 + 视频复�
 	// 2) 视频段落 → 内联播放器（请求被 stall，元素稳定存在）
 	await expect(page.getByTestId("inline-video").locator("video")).toBeVisible();
 
-	// 3) 点击第 1 张图 → 画廊弹窗，计数 1 / 3
+	// 3) 点击第 1 张图 → 画廊弹窗，计数 1 / 4（2 图 + 视频 + 反引号路径图片）
 	await grid.getByTestId("md-image-card").first().click();
 	await expect(page.getByTestId("media-preview-modal")).toBeVisible();
-	await expect(page.getByTestId("media-counter")).toHaveText("1 / 3");
+	await expect(page.getByTestId("media-counter")).toHaveText("1 / 4");
 
-	// 4) 右箭头切到视频项（3 / 3），autoplay 视频可见
+	// 4) 右箭头切到视频项（3 / 4），autoplay 视频可见
 	await page.getByTestId("media-next").click();
-	await expect(page.getByTestId("media-counter")).toHaveText("2 / 3");
+	await expect(page.getByTestId("media-counter")).toHaveText("2 / 4");
 	await page.getByTestId("media-next").click();
-	await expect(page.getByTestId("media-counter")).toHaveText("3 / 3");
+	await expect(page.getByTestId("media-counter")).toHaveText("3 / 4");
 	await expect(page.getByTestId("media-video")).toBeVisible();
 
 	// 5) 视频项「复制路径」→ 剪贴板读回绝对路径（clipboard 写入是异步的，轮询读回）
@@ -139,6 +141,13 @@ test("对话媒体：缩略图网格 + 内联视频 + 画廊切换 + 视频复�
 	// 6) Esc 关闭
 	await page.keyboard.press("Escape");
 	await expect(page.getByTestId("media-preview-modal")).toHaveCount(0);
+
+	// 7) 反引号路径芯片（FilePill）点击 → 同一画廊打开并定位到第 4 项（图片）
+	await page.getByTestId("file-pill").click();
+	await expect(page.getByTestId("media-preview-modal")).toBeVisible();
+	await expect(page.getByTestId("media-counter")).toHaveText("4 / 4");
+	await expect(page.getByTestId("zoomable-image")).toBeVisible();
+	await page.keyboard.press("Escape");
 
 	// 数据清理：E2E WA_PI_DIR 由 globalSetup 下轮整体清空重建；本用例不产截图文件
 });

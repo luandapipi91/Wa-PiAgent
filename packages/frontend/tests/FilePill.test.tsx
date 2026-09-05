@@ -201,3 +201,55 @@ test("html 文件点击 → 打开浏览器预览（browser store），不走文
 	expect(useBrowserStore.getState().path).toBe("/work/demo/dist/index.html");
 	expect(useSessionStore.getState().filePreview).toBeNull();
 });
+
+test("图片扩展名芯片点击 → 打开媒体画廊（mediaPreview），不走文件预览", async () => {
+	fake.setResponse("fs:stat", { exists: true });
+	useSessionStore.setState({ mediaPreview: null });
+	render(<FilePill rawText="out/logo-blue.png" sessionId="s1" />);
+	await waitFor(() =>
+		expect(screen.getByTestId("file-pill").textContent).toContain("logo-blue.png"),
+	);
+	fireEvent.click(screen.getByTestId("file-pill"));
+	// 无 mediaItems 时以单媒体清单打开
+	expect(useSessionStore.getState().mediaPreview).toEqual({
+		items: [{ src: "out/logo-blue.png", kind: "image", name: "logo-blue.png" }],
+		index: 0,
+		sessionId: "s1",
+	});
+	expect(useSessionStore.getState().filePreview).toBeNull();
+});
+
+test("视频芯片点击 → 按传入的 mediaItems 清单定位画廊起点（绝对路径口径匹配）", async () => {
+	fake.setResponse("fs:stat", { exists: true });
+	useSessionStore.setState({ mediaPreview: null });
+	const items = [
+		{ src: "out/a.png", kind: "image" as const, name: "a.png" },
+		{ src: "out/clip.mp4", kind: "video" as const, name: "clip.mp4" },
+	];
+	render(
+		<FilePill rawText="out/clip.mp4" sessionId="s1" mediaItems={items} />,
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("file-pill").textContent).toContain("clip.mp4"),
+	);
+	fireEvent.click(screen.getByTestId("file-pill"));
+	expect(useSessionStore.getState().mediaPreview).toEqual({
+		items,
+		index: 1,
+		sessionId: "s1",
+	});
+});
+
+test("非媒体扩展名芯片仍走文件预览（行为不变）", async () => {
+	fake.setResponse("fs:stat", { exists: true });
+	useSessionStore.setState({ mediaPreview: null });
+	render(<FilePill rawText="src/index.ts:3" sessionId="s1" />);
+	await waitFor(() =>
+		expect(screen.getByTestId("file-pill").textContent).toContain("index.ts"),
+	);
+	fireEvent.click(screen.getByTestId("file-pill"));
+	expect(useSessionStore.getState().filePreview?.path).toBe(
+		"/work/demo/src/index.ts",
+	);
+	expect(useSessionStore.getState().mediaPreview).toBeNull();
+});
