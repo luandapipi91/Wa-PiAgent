@@ -7,6 +7,7 @@ import {
 	splitMediaParagraphs,
 	collectMediaItems,
 	resolveCopyPath,
+	mediaUrlTransform,
 } from "../../src/components/blocks/media-utils";
 import { useProjectsStore } from "../../src/store/projects";
 
@@ -130,4 +131,13 @@ test("collectMediaItems：代码块内的图片语法不收集", () => {
 test("resolveCopyPath：http 原样，本地路径解析为绝对路径", () => {
 	expect(resolveCopyPath("https://x.com/v.mp4", "s1")).toBe("https://x.com/v.mp4");
 	expect(resolveCopyPath("out/v.mp4", "s1")).toBe("/home/me/proj/out/v.mp4");
+});
+
+test("mediaUrlTransform：Windows 盘符路径放行，注入协议仍消毒", () => {
+	// react-markdown 默认 urlTransform 把 C:/... 误判为协议 "c" 清洗为空串
+	expect(mediaUrlTransform("C:/work/a.png")).toBe("C:/work/a.png");
+	expect(mediaUrlTransform("D:\\work\\b.png")).toBe("D:\\work\\b.png");
+	expect(mediaUrlTransform("/home/x/a.png")).toBe("/home/x/a.png");
+	expect(mediaUrlTransform("https://x.com/a.png")).toBe("https://x.com/a.png");
+	expect(mediaUrlTransform("javascript:alert(1)")).toBe("");
 });

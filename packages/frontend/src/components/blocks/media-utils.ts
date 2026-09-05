@@ -1,6 +1,7 @@
 // 对话媒体预览公共工具：媒体 src 路径映射、视频段落检测、画廊媒体清单收集。
 // ⚠️ 循环依赖约束（同 markdown-components 头部注释）：本模块 import FilePill 的
 // resolveAbsolutePath 只在函数体内调用（渲染期/事件期），顶层不得求值 FilePill 模块级值。
+import { defaultUrlTransform } from "react-markdown";
 import { resolveAbsolutePath } from "./FilePill";
 import { pathToUploadUrl } from "../../fs-client";
 
@@ -115,4 +116,12 @@ export function collectMediaItems(text: string): MediaItem[] {
 export function resolveCopyPath(src: string, sessionId: string): string {
 	if (/^(https?:|data:|blob:)/i.test(src)) return src;
 	return resolveAbsolutePath(src, sessionId);
+}
+
+/** react-markdown 的 urlTransform：默认实现把 Windows 盘符路径（C:/...）误判为未知协议
+ *  清洗为空串，导致 ![](C:/abs/x.png) 的 img src 为空、缩略图完全不渲染。
+ *  盘符路径直接放行，其余仍走默认消毒（javascript: 等注入协议继续拦截）。 */
+export function mediaUrlTransform(url: string): string {
+	if (/^[a-zA-Z]:[\\/]/.test(url)) return url;
+	return defaultUrlTransform(url);
 }
