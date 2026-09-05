@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import { readFile, revealFile, openFileWithDefaultApp } from "../../fs-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { createMarkdownComponents } from "./markdown-components";
+import { joinBaseDir } from "./media-utils";
 import { openInFileManagerLabel } from "../../util/platform";
 import { copyToClipboard } from "../../util/clipboard";
 import { useSessionStore } from "../../store/session";
@@ -124,9 +125,7 @@ function PreviewImage({
 			return;
 		}
 		// 相对路径：基于预览文件所在目录解析
-		const abs = baseDir
-			? `${baseDir.replace(/\\/g, "/").replace(/\/$/, "")}/${src}`
-			: src;
+		const abs = baseDir ? joinBaseDir(baseDir, src) : src;
 		readFile(abs)
 			.then((r) => {
 				if (!alive) return;

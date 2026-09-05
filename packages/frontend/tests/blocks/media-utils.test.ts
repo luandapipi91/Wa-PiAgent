@@ -1,0 +1,133 @@
+import { test, expect } from "bun:test";
+import {
+	resolveMediaSrc,
+	fileNameOf,
+	joinBaseDir,
+	matchVideoParagraph,
+	splitMediaParagraphs,
+	collectMediaItems,
+	resolveCopyPath,
+} from "../../src/components/blocks/media-utils";
+import { useProjectsStore } from "../../src/store/projects";
+
+// resolveAbsolutePath 相对路径分支依赖项目 cwd（与 FilePill 同一口径）
+useProjectsStore.setState({
+	projects: [{ id: "p1", cwd: "/home/me/proj" } as any],
+	sessions: [{ id: "s1", projectId: "p1" } as any],
+});
+
+test("resolveMediaSrc：http(s)/data/blob 原样返回", () => {
+	expect(resolveMediaSrc("https://x.com/a.png", "s1")).toBe("https://x.com/a.png");
+	expect(resolveMediaSrc("http://x.com/a.png", "s1")).toBe("http://x.com/a.png");
+	expect(resolveMediaSrc("data:image/png;base64,AAA", "s1")).toBe(
+		"data:image/png;base64,AAA",
+	);
+	expect(resolveMediaSrc("blob:http://x/1", "s1")).toBe("blob:http://x/1");
+});
+
+test("resolveMediaSrc：POSIX 绝对路径 → /file?path=", () => {
+	expect(resolveMediaSrc("/home/me/proj/out/a.png", "s1")).toBe(
+		"/file?path=" + encodeURIComponent("/home/me/proj/out/a.png"),
+	);
+});
+
+test("resolveMediaSrc：Windows 盘符路径归一化正斜杠 → /file?path=", () => {
+	expect(resolveMediaSrc("C:\\work\\a.png", "s1")).toBe(
+		"/file?path=" + encodeURIComponent("C:/work/a.png"),
+	);
+});
+
+test("resolveMediaSrc：相对路径拼项目 cwd → /file?path=", () => {
+	expect(resolveMediaSrc("out/a.png", "s1")).toBe(
+		"/file?path=" + encodeURIComponent("/home/me/proj/out/a.png"),
+	);
+});
+
+test("fileNameOf：去 query/hash，兼容反斜杠", () => {
+	expect(fileNameOf("/a/b/cat.png")).toBe("cat.png");
+	expect(fileNameOf("C:\\x\\dog.jpg")).toBe("dog.jpg");
+	expect(fileNameOf("https://x.com/a.png?v=2#f")).toBe("a.png");
+});
+
+test("joinBaseDir：baseDir 归一化后拼接", () => {
+	expect(joinBaseDir("C:\\work\\docs\\", "img/a.png")).toBe("C:/work/docs/img/a.png");
+});
+
+test("matchVideoParagraph：裸路径整段命中", () => {
+	expect(matchVideoParagraph("/home/me/proj/out/clip.mp4")).toEqual({
+		src: "/home/me/proj/out/clip.mp4",
+		name: "clip.mp4",
+	});
+});
+
+test("matchVideoParagraph：markdown 链接形式命中，名字取链接文本", () => {
+	expect(matchVideoParagraph("[演示视频](out/demo.webm)")).toEqual({
+		src: "out/demo.webm",
+		name: "演示视频",
+	});
+});
+
+test("matchVideoParagraph：各视频扩展名 + 大写 + query", () => {
+	for (const ext of ["mp4", "webm", "mov", "mkv", "avi", "m4v"]) {
+		expect(matchVideoParagraph(`/v/c.${ext}`)).not.toBeNull();
+	}
+	expect(matchVideoParagraph("/v/C.MP4")).not.toBeNull();
+	expect(matchVideoParagraph("https://x.com/v.mp4?token=1")).not.toBeNull();
+});
+
+test("matchVideoParagraph：句中夹杂路径不命中（走 FilePill 现状）", () => {
+	expect(matchVideoParagraph("视频已保存到 /path/xxx.mp4")).toBeNull();
+	expect(matchVideoParagraph("/path/xxx.mp4 已生成")).toBeNull();
+});
+
+test("matchVideoParagraph：非视频扩展名不命中", () => {
+	expect(matchVideoParagraph("/a/b.png")).toBeNull();
+	expect(matchVideoParagraph("/a/b.mp4.bak")).toBeNull();
+	expect(matchVideoParagraph("普通文本")).toBeNull();
+});
+
+test("splitMediaParagraphs：视频段落单独成 part，其余合并回 markdown", () => {
+	const parts = splitMediaParagraphs(
+		"说明文字\n\n/v/clip.mp4\n\n![a](/x/a.png)\n\n结尾",
+	);
+	expect(parts).toEqual([
+		{ kind: "markdown", text: "说明文字" },
+		{ kind: "video", src: "/v/clip.mp4", name: "clip.mp4" },
+		{ kind: "markdown", text: "![a](/x/a.png)\n\n结尾" },
+	]);
+});
+
+test("splitMediaParagraphs：围栏代码块内空行不分段", () => {
+	const text = "前文\n\n```ts\nconst a = 1;\n\nconst b = 2;\n```\n\n后文";
+	const parts = splitMediaParagraphs(text);
+	expect(parts).toEqual([
+		{ kind: "markdown", text: "前文" },
+		{ kind: "markdown", text: "```ts\nconst a = 1;\n\nconst b = 2;\n```" },
+		{ kind: "markdown", text: "后文" },
+	]);
+});
+
+test("splitMediaParagraphs：代码块内形似视频路径的行不抽为视频", () => {
+	const text = "```\n/v/clip.mp4\n```";
+	expect(splitMediaParagraphs(text)).toEqual([{ kind: "markdown", text }]);
+});
+
+test("collectMediaItems：图片与视频按文档顺序收集", () => {
+	const items = collectMediaItems(
+		"![a](/x/a.png)\n\n/v/clip.mp4\n\n![b](https://y.com/b.jpg)",
+	);
+	expect(items).toEqual([
+		{ src: "/x/a.png", kind: "image", name: "a" },
+		{ src: "/v/clip.mp4", kind: "video", name: "clip.mp4" },
+		{ src: "https://y.com/b.jpg", kind: "image", name: "b" },
+	]);
+});
+
+test("collectMediaItems：代码块内的图片语法不收集", () => {
+	expect(collectMediaItems("```\n![x](/x.png)\n```")).toEqual([]);
+});
+
+test("resolveCopyPath：http 原样，本地路径解析为绝对路径", () => {
+	expect(resolveCopyPath("https://x.com/v.mp4", "s1")).toBe("https://x.com/v.mp4");
+	expect(resolveCopyPath("out/v.mp4", "s1")).toBe("/home/me/proj/out/v.mp4");
+});
