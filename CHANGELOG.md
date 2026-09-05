@@ -1,3 +1,9 @@
+## 2026-09-05 — chore(deps): pi SDK 升级 0.84.4 → 0.85.1
+
+- 类型：依赖升级。`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` 三包 ^0.84.4 → ^0.85.1（[0.85.1 发布说明](https://pi.dev/news/releases/0.85.1)：新增 GPT-6 Astra；修复 0.85.0 误发布内部实验代码导致的 SDK import 失败、GPT-5.6+ 长 prompt-cache 请求参数等）。
+- 验证：kernel typecheck 绿；kernel 全量测试无新增失败（3 个失败为 master 既有基线）；打包链路覆盖——`bun run build` sidecar 编译通过（1007 modules），WaPiKernel.exe 冒烟启动正常、API 200。
+- 影响范围：packages/kernel/package.json、bun.lock。
+
 ## 2026-09-05 — feat: 对话媒体内联预览（图片网格/内联视频/画廊弹窗/复制）+ kernel /file 白名单泛化
 
 - 新增功能：AI 回复中的图片渲染为卡片缩略图（连续多图聚合 2 列网格、>4 叠 +N），独立成段的视频路径渲染为 InlineVideo 内联播放器；点击打开全局 MediaPreviewModal 画廊（箭头/键盘 ←→/缩略图条切换，图片滚轮缩放拖拽，缩放视口抽取为 ZoomableImage 复用组件）；预览复制能力（文字复制内容、图片复制 PNG、视频复制路径）。kernel `/file` 白名单从 .wa-pi/uploads 泛化为项目工作区（resolveMediaFile，realpath 前缀校验），补 mp4/mov/mkv/m4v/avi MIME。
