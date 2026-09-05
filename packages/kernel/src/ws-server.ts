@@ -399,30 +399,32 @@ export function getMimeType(filePath: string): string {
 		".pdf": "application/pdf",
 		".webm": "audio/webm",
 		".weba": "audio/webm",
+		// 视频类型：对话内联预览 <video> 直出（.webm 保持 audio/webm——录音附件既有语义，
+		// <video> 对容器内容嗅探，audio/webm 映射不影响 webm 视频播放）
+		".mp4": "video/mp4",
+		".mov": "video/quicktime",
+		".mkv": "video/x-matroska",
+		".m4v": "video/x-m4v",
+		".avi": "video/x-msvideo",
 	};
 	const ext = extname(filePath).toLowerCase();
 	return map[ext] ?? (Bun.file(filePath).type || "application/octet-stream");
 }
 
 /**
- * 解析 /file?path=<abs>：仅当 path 解析后落在某项目 .wa-pi/uploads 下才放行。
- * 防 .. 穿越与非 uploads 路径。返回安全绝对路径，否则 null。
+ * 解析 /file?path=<abs>：白名单为「项目工作区内任意文件」（.wa-pi/uploads 是自然子集）。
+ * realpath 后前缀必须落在某项目 cwd（同样 realpath）内——防 ../ 穿越、项目外绝对路径与
+ * 符号链接逃逸；文件不存在（realpath 失败）一律拒绝。判定复用 isPathInProjects，
+ * 与 /preview、/api/preview-locate 同一 allowlist 口径。
  */
-export function resolveUploadFile(
+export function resolveMediaFile(
 	url: URL,
 	projects: { cwd: string }[],
 ): string | null {
 	const raw = url.searchParams.get("path");
 	if (!raw) return null;
-	const resolved = resolve(raw); // 解析 .. 与相对段
-	for (const p of projects) {
-		if (!p.cwd) continue;
-		const uploadsRoot = resolve(join(p.cwd, ".wa-pi", "uploads"));
-		// 确保是 uploadsRoot 的子路径（含 .. 的合法文件名也放行，只要最终落在 uploads 下）
-		if (resolved === uploadsRoot || resolved.startsWith(uploadsRoot + sep))
-			return resolved;
-	}
-	return null;
+	const r = isPathInProjects(resolve(raw), projects);
+	return r.kind === "exists" ? r.path : null;
 }
 
 /** 在项目目录下生成不重复的文件路径；仅保留文件名并拒绝 `.` / `..`，防止路径穿越。 */
@@ -1014,7 +1016,7 @@ export class WSServer {
 				}
 				if (url.pathname === "/file") {
 					const { projects } = await this.opts.projectStore.load();
-					const filePath = resolveUploadFile(url, projects);
+					const filePath = resolveMediaFile(url, projects);
 					if (!filePath) return new Response("Forbidden", { status: 403 });
 					const file = Bun.file(filePath);
 					if (file.size > 0) {
