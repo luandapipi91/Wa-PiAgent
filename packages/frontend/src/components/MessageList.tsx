@@ -37,6 +37,12 @@ import { DelegateCard } from "./blocks/DelegateCard";
 import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
 import { FleetCard } from "./blocks/FleetCard";
+import { InlineVideo } from "./blocks/InlineVideo";
+import {
+	splitMediaParagraphs,
+	collectMediaItems,
+	type MediaItem,
+} from "./blocks/media-utils";
 import { createMarkdownComponents } from "./blocks/markdown-components";
 import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
@@ -1281,7 +1287,7 @@ export const MessageRow = memo(function MessageRow({
 					style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
 				>
 					{seg.texts.map((text, i) => (
-						<MarkdownBlock key={seg.blockIdxs[i]} text={text} sessionId={sessionId} />
+						<TextContent key={seg.blockIdxs[i]} text={text} sessionId={sessionId} />
 					))}
 				</div>
 				{seg === segments[lastTextSegIdx] && !isStreaming && !isActiveTurnRow && (
@@ -1341,13 +1347,15 @@ export const MessageRow = memo(function MessageRow({
 const MarkdownBlock = memo(function MarkdownBlock({
 	text,
 	sessionId,
+	mediaItems,
 }: {
 	text: string;
 	sessionId: string;
+	mediaItems: MediaItem[];
 }) {
 	const mdComponents = useMemo(
-		() => createMarkdownComponents(sessionId),
-		[sessionId],
+		() => createMarkdownComponents(sessionId, mediaItems),
+		[sessionId, mediaItems],
 	);
 	return (
 		<div className="prose prose-sm max-w-none" data-testid="text-block">
@@ -1355,6 +1363,48 @@ const MarkdownBlock = memo(function MarkdownBlock({
 				{text}
 			</ReactMarkdown>
 		</div>
+	);
+});
+
+// 文本块渲染：先过视频段落拆分——整段完全匹配视频路径/URL 的段落渲染 InlineVideo，
+// 其余段落走 MarkdownBlock。流式期间未完整段落不匹配整段正则 → 自然按纯文本渲染，
+// message_end 定稿后重算自动切换，无需额外状态。
+// mediaItems（画廊清单）useMemo([text]) 保持引用稳定，不破坏 MarkdownBlock 的 memo 跳过语义。
+const TextContent = memo(function TextContent({
+	text,
+	sessionId,
+}: {
+	text: string;
+	sessionId: string;
+}) {
+	const parts = useMemo(() => splitMediaParagraphs(text), [text]);
+	const mediaItems = useMemo(() => collectMediaItems(text), [text]);
+	if (parts.length === 1 && parts[0].kind === "markdown") {
+		return (
+			<MarkdownBlock text={text} sessionId={sessionId} mediaItems={mediaItems} />
+		);
+	}
+	return (
+		<>
+			{parts.map((p, i) =>
+				p.kind === "video" ? (
+					<InlineVideo
+						key={i}
+						src={p.src}
+						name={p.name}
+						sessionId={sessionId}
+						items={mediaItems}
+					/>
+				) : (
+					<MarkdownBlock
+						key={i}
+						text={p.text}
+						sessionId={sessionId}
+						mediaItems={mediaItems}
+					/>
+				),
+			)}
+		</>
 	);
 });
 
