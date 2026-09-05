@@ -286,6 +286,8 @@ const zh = {
 			unsupported: "不支持预览该文件",
 			readError: "无法读取文件：{{message}}",
 			unknownError: "未知错误",
+			copyImage: "复制图片",
+			copyPath: "复制路径",
 		},
 		toolCall: {
 			editNumber: "编辑 {{index}}",

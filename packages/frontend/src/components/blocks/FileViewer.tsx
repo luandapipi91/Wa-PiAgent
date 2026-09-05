@@ -13,7 +13,7 @@ import { createMarkdownComponents } from "./markdown-components";
 import { joinBaseDir } from "./media-utils";
 import { ZoomableImage } from "./ZoomableImage";
 import { openInFileManagerLabel } from "../../util/platform";
-import { copyToClipboard } from "../../util/clipboard";
+import { copyToClipboard, copyImageToClipboard, imageUrlToPngBlob } from "../../util/clipboard";
 import { useSessionStore } from "../../store/session";
 import { useToastStore } from "../../store/toast";
 import { Icon } from "../ui/Icon";
@@ -245,6 +245,16 @@ function ImageViewer({
 	onClose: () => void;
 }) {
 	const { t } = useTranslation();
+	const addToast = useToastStore((s) => s.add);
+	// 复制图片：fetch 取 blob → canvas 转 PNG → 剪贴板（剪贴板只保证支持 PNG）
+	const copyImage = async () => {
+		try {
+			await copyImageToClipboard(await imageUrlToPngBlob(src));
+			addToast(t("common.copiedToClipboard"), "success");
+		} catch {
+			addToast(t("common.copyFailed"), "error");
+		}
+	};
 	return (
 		<div className="flex flex-col h-full" data-testid="image-viewer">
 			<ZoomableImage
@@ -271,6 +281,14 @@ function ImageViewer({
 							title={t("blocks.fileViewer.zoomIn")}
 						>
 							<Icon name="plus" size={12} />
+						</button>
+						<button
+							className="fv-btn"
+							onClick={copyImage}
+							title={t("blocks.fileViewer.copyImage")}
+							data-testid="fv-copy-image"
+						>
+							<Icon name="clipboard" size={12} />
 						</button>
 						<button className="fv-btn" onClick={onClose} title={t("common.close")}>
 							<Icon name="x" size={12} />
@@ -403,6 +421,17 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 
 	const displayPath = resolvedPath ?? path;
 
+	const addToast = useToastStore((s) => s.add);
+	// 复制全文：FileViewer 无截断（kernel 对 >5MB 文件直接判 unsupported），content 即完整文件
+	const copyContent = async () => {
+		try {
+			await copyToClipboard(content ?? "");
+			addToast(t("common.copiedToClipboard"), "success");
+		} catch {
+			addToast(t("common.copyFailed"), "error");
+		}
+	};
+
 	// 复制 @path 或选中行的引用（copy-on-select：选中代码行后 Ctrl+C 自动复制为 @path:行号）
 	if (loading) {
 		return (
@@ -490,6 +519,15 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 						className="fv-btn"
 						testId="share-file-btn"
 					/>
+					<button
+						className="fv-btn"
+						onClick={copyContent}
+						title={t("common.copy")}
+						aria-label={t("common.copy")}
+						data-testid="fv-copy-content"
+					>
+						<Icon name="clipboard" size={12} />
+					</button>
 					<button className="fv-btn" onClick={onClose} title={t("common.close")}>
 						<Icon name="x" size={12} />
 					</button>
@@ -519,6 +557,15 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					className="fv-btn"
 					testId="share-file-btn"
 				/>
+				<button
+					className="fv-btn"
+					onClick={copyContent}
+					title={t("common.copy")}
+					aria-label={t("common.copy")}
+					data-testid="fv-copy-content"
+				>
+					<Icon name="clipboard" size={12} />
+				</button>
 				<button className="fv-btn" onClick={onClose} title={t("common.close")}>
 					<Icon name="x" size={12} />
 				</button>

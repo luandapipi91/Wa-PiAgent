@@ -4,7 +4,13 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { Modal } from "../ui/Modal";
 import { Icon } from "../ui/Icon";
 import { ZoomableImage } from "./ZoomableImage";
-import { resolveMediaSrc } from "./media-utils";
+import { resolveCopyPath, resolveMediaSrc } from "./media-utils";
+import { useToastStore } from "../../store/toast";
+import {
+	copyImageToClipboard,
+	copyToClipboard,
+	imageUrlToPngBlob,
+} from "../../util/clipboard";
 
 /** 全局媒体预览弹窗（画廊）：常驻挂载在 App 根，从 session store 读 mediaPreview。
  *  左右箭头 + 键盘 ←/→ 循环切换（Esc 关闭由 Modal 自带）；底部缩略图条点击跳转；
@@ -13,6 +19,7 @@ import { resolveMediaSrc } from "./media-utils";
 export function MediaPreviewModal() {
 	const preview = useSessionStore((s) => s.mediaPreview);
 	const { t } = useTranslation();
+	const addToast = useToastStore((s) => s.add);
 	const index = preview?.index ?? 0;
 	const count = preview?.items.length ?? 0;
 
@@ -39,6 +46,20 @@ export function MediaPreviewModal() {
 	const go = (d: number) =>
 		useSessionStore.getState().setMediaPreviewIndex((index + d + count) % count);
 
+	// 复制：图片 → canvas 转 PNG 写剪贴板；视频/其他 → 复制路径（本地路径解析为绝对路径）
+	const copy = async () => {
+		try {
+			if (item.kind === "image") {
+				await copyImageToClipboard(await imageUrlToPngBlob(src));
+			} else {
+				await copyToClipboard(resolveCopyPath(item.src, preview.sessionId));
+			}
+			addToast(t("common.copiedToClipboard"), "success");
+		} catch {
+			addToast(t("common.copyFailed"), "error");
+		}
+	};
+
 	return (
 		<Modal
 			onClose={close}
@@ -47,7 +68,7 @@ export function MediaPreviewModal() {
 			data-testid="media-preview-modal"
 		>
 			<div className="flex flex-col h-full">
-				{/* 头部：文件名 · i/N 计数 · 关闭（复制按钮在后续任务加入） */}
+				{/* 头部：文件名 · i/N 计数 · 复制 · 关闭 */}
 				<div className="flex items-center gap-2 px-3 py-2 border-b border-hairline bg-surface">
 					<span className="flex-1 truncate text-[calc(12px*var(--font-scale))] text-secondary inline-flex items-center gap-1.5">
 						<Icon name={item.kind === "image" ? "image" : "play"} size={13} />
@@ -58,6 +79,18 @@ export function MediaPreviewModal() {
 							</span>
 						)}
 					</span>
+					<button
+						className="fv-btn"
+						onClick={copy}
+						title={
+							item.kind === "image"
+								? t("blocks.fileViewer.copyImage")
+								: t("blocks.fileViewer.copyPath")
+						}
+						data-testid="media-copy"
+					>
+						<Icon name="clipboard" size={12} />
+					</button>
 					<button className="fv-btn" onClick={close} title={t("common.close")}>
 						<Icon name="x" size={12} />
 					</button>
