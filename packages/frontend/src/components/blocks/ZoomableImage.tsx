@@ -76,7 +76,7 @@ export function ZoomableImage({
 	}, [dragging]);
 
 	return (
-		<div className="flex flex-col h-full" data-testid="zoomable-image">
+		<div className="flex flex-col h-full w-full" data-testid="zoomable-image">
 			{renderToolbar?.({
 				zoom,
 				zoomIn: () => setZoom((z) => clampZoom(z * 1.25)),

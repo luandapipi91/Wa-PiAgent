@@ -121,12 +121,15 @@ const INLINE_MEDIA_RE =
 
 /** 收集文本块内全部媒体（图片 ![]() + 视频段落 + 反引号媒体路径），按文档顺序，供画廊 items。
  *  围栏代码块内容先剔除——代码块里的 ![](x) 是代码文本不是图片。
- *  同一文件以多种形式重复出现（如 ![]() 与反引号路径并列）时按 src+kind 去重，保留首次出现。 */
+ *  同一文件以多种形式重复出现（如 ![]() 与反引号路径并列）时按 src+kind 去重，保留首次出现。
+ *  src 统一归一为正斜杠：模型在 Windows 上常写反斜杠路径，画廊定位比较（it.src === src）
+ *  与 parseFilePath 的正斜杠口径才能对上。 */
 export function collectMediaItems(text: string): MediaItem[] {
 	const items: MediaItem[] = [];
 	const push = (item: MediaItem) => {
-		if (!items.some((it) => it.src === item.src && it.kind === item.kind)) {
-			items.push(item);
+		const src = item.src.replace(/\\/g, "/");
+		if (!items.some((it) => it.src === src && it.kind === item.kind)) {
+			items.push({ ...item, src });
 		}
 	};
 	for (const part of splitMediaParagraphs(text)) {

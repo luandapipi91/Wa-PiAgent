@@ -80,8 +80,9 @@ export function createMarkdownComponents(
 						{shown.map((k, i) => {
 							if (i === 3 && extra > 0) {
 								const src = (k as any).props.src as string | undefined;
+								const norm = src?.replace(/\\/g, "/");
 								const idx = mediaItems.findIndex(
-									(it) => it.src === src && it.kind === "image",
+									(it) => it.src === norm && it.kind === "image",
 								);
 								return (
 									<div key={i} className="relative">

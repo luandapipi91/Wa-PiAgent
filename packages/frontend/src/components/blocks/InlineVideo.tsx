@@ -32,7 +32,9 @@ export function InlineVideo({
 		);
 	}
 	const open = () => {
-		const idx = items.findIndex((it) => it.src === src && it.kind === "video");
+		// items 的 src 已归一正斜杠（collectMediaItems），比较前同步归一
+		const norm = src.replace(/\\/g, "/");
+		const idx = items.findIndex((it) => it.src === norm && it.kind === "video");
 		const list = idx >= 0 ? items : [{ src, kind: "video" as const, name }];
 		useSessionStore
 			.getState()
