@@ -3,10 +3,11 @@ import { Children, isValidElement } from "react";
 import { CodeBlockCard } from "./CodeBlockCard";
 import { MermaidBlock } from "./MermaidBlock";
 import { FilePill } from "./FilePill";
-import { parseFilePath } from "./file-path";
+import { mediaKindOf, parseFilePath } from "./file-path";
 import { MarkdownImage } from "./MarkdownImage";
+import { InlineVideo } from "./InlineVideo";
 import { useSessionStore } from "../../store/session";
-import type { MediaItem } from "./media-utils";
+import { fileNameOf, type MediaItem } from "./media-utils";
 
 // ⚠️ 循环依赖：FileViewer → markdown-components → FilePill → FileViewer。
 // 约束：本模块顶层不得引用 FileViewer/FilePill 的模块级值（如初始化、常量推导）；
@@ -42,7 +43,7 @@ function isLinkText(text: string): boolean {
 
 /**
  * 生成助手消息的 markdown 组件映射。
- * pre → CodeBlockCard / MermaidBlock；形似路径的内联 code → FilePill（块级 code 已被 pre 接管，不会走到这里）；a → 新标签页打开。
+ * pre → CodeBlockCard / MermaidBlock；形似路径的内联 code → 媒体（图片卡片/视频播放器）或 FilePill（块级 code 已被 pre 接管，不会走到这里）；a → 新标签页打开。
  * img → MarkdownImage 卡片缩略图；p → 同段落连续 ≥2 张图片聚合为 2 列网格（>4 张第 4 张叠「+N」）。
  * mediaItems：该文本块内全部媒体（collectMediaItems 收集），供点击打开画廊时传完整清单。
  */
@@ -120,7 +121,29 @@ export function createMarkdownComponents(
 		},
 		code: (props: any) => {
 			const text = String(props.children ?? "");
-			if (!props.className && parseFilePath(text)) {
+			const parsed = !props.className ? parseFilePath(text) : null;
+			if (parsed) {
+				// 媒体路径芯片直接渲染为缩略图/内联播放器（模型常用表格+行内代码列路径）
+				const kind = mediaKindOf(parsed.path);
+				if (kind === "image") {
+					return (
+						<MarkdownImage
+							src={parsed.path}
+							sessionId={sessionId}
+							items={mediaItems}
+						/>
+					);
+				}
+				if (kind === "video") {
+					return (
+						<InlineVideo
+							src={parsed.path}
+							name={fileNameOf(parsed.path)}
+							sessionId={sessionId}
+							items={mediaItems}
+						/>
+					);
+				}
 				return (
 					<FilePill rawText={text} sessionId={sessionId} mediaItems={mediaItems} />
 				);

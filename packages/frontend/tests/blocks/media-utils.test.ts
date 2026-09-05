@@ -4,6 +4,7 @@ import {
 	fileNameOf,
 	joinBaseDir,
 	matchVideoParagraph,
+	matchFencedMedia,
 	splitMediaParagraphs,
 	collectMediaItems,
 	resolveCopyPath,
@@ -108,8 +109,10 @@ test("splitMediaParagraphs：围栏代码块内空行不分段", () => {
 	]);
 });
 
-test("splitMediaParagraphs：代码块内形似视频路径的行不抽为视频", () => {
-	const text = "```\n/v/clip.mp4\n```";
+test("splitMediaParagraphs：代码块内形似视频路径的行（混在其他代码中）不抽为视频", () => {
+	// 整块围栏恰为单个媒体路径是「产出路径写进 ```text 块」特性（见 matchFencedMedia）；
+	// 这里锁定保护面：围栏内还有其他内容时仍按代码块渲染
+	const text = "```\nls -l /v/clip.mp4\n```";
 	expect(splitMediaParagraphs(text)).toEqual([{ kind: "markdown", text }]);
 });
 
@@ -163,4 +166,43 @@ test("collectMediaItems：同一文件 ![]() 与反引号路径重复时去重�
 
 test("collectMediaItems：反引号内非媒体扩展名不收集", () => {
 	expect(collectMediaItems("改一下 `src/index.ts` 和 `README.md`")).toEqual([]);
+});
+
+test("matchFencedMedia：整块围栏恰为单个媒体路径才命中", () => {
+	expect(matchFencedMedia("```text\nH:\\work\\test_video.mp4\n```")).toEqual({
+		src: "H:\\work\\test_video.mp4",
+		kind: "video",
+		name: "test_video.mp4",
+	});
+	expect(matchFencedMedia("```\n/x/a.png\n```")).toEqual({
+		src: "/x/a.png",
+		kind: "image",
+		name: "a.png",
+	});
+	// 围栏内多行/非媒体/带说明文字 → 不命中
+	expect(matchFencedMedia("```\npath: /x/a.png\n```")).toBeNull();
+	expect(matchFencedMedia("```\n/x/a.png\n/x/b.png\n```")).toBeNull();
+	expect(matchFencedMedia("```ts\nconst a = 1;\n```")).toBeNull();
+	expect(matchFencedMedia("普通段落")).toBeNull();
+});
+
+test("splitMediaParagraphs：整块围栏媒体路径抽为媒体 part", () => {
+	const parts = splitMediaParagraphs(
+		"生成完毕。\n\n```text\n/v/test_video.mp4\n```\n\n查收。",
+	);
+	expect(parts).toEqual([
+		{ kind: "markdown", text: "生成完毕。" },
+		{ kind: "video", src: "/v/test_video.mp4", name: "test_video.mp4" },
+		{ kind: "markdown", text: "查收。" },
+	]);
+});
+
+test("collectMediaItems：整块围栏媒体路径收进画廊清单", () => {
+	const items = collectMediaItems(
+		"![a](/x/a.png)\n\n```text\n/v/clip.mp4\n```",
+	);
+	expect(items).toEqual([
+		{ src: "/x/a.png", kind: "image", name: "a" },
+		{ src: "/v/clip.mp4", kind: "video", name: "clip.mp4" },
+	]);
 });

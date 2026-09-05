@@ -38,6 +38,7 @@ import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
 import { FleetCard } from "./blocks/FleetCard";
 import { InlineVideo } from "./blocks/InlineVideo";
+import { MarkdownImage } from "./blocks/MarkdownImage";
 import {
 	splitMediaParagraphs,
 	collectMediaItems,
@@ -1371,9 +1372,9 @@ const MarkdownBlock = memo(function MarkdownBlock({
 	);
 });
 
-// 文本块渲染：先过视频段落拆分——整段完全匹配视频路径/URL 的段落渲染 InlineVideo，
-// 其余段落走 MarkdownBlock。流式期间未完整段落不匹配整段正则 → 自然按纯文本渲染，
-// message_end 定稿后重算自动切换，无需额外状态。
+// 文本块渲染：先过媒体段落拆分——整段完全匹配视频路径/URL 的段落渲染 InlineVideo，
+// 整块围栏恰为单个媒体路径的渲染 InlineVideo/MarkdownImage，其余段落走 MarkdownBlock。
+// 流式期间未完整段落不匹配整段正则 → 自然按纯文本渲染，message_end 定稿后重算自动切换，无需额外状态。
 // mediaItems（画廊清单）useMemo([text]) 保持引用稳定，不破坏 MarkdownBlock 的 memo 跳过语义。
 const TextContent = memo(function TextContent({
 	text,
@@ -1400,6 +1401,14 @@ const TextContent = memo(function TextContent({
 						sessionId={sessionId}
 						items={mediaItems}
 					/>
+				) : p.kind === "image" ? (
+					<div key={i}>
+						<MarkdownImage
+							src={p.src}
+							sessionId={sessionId}
+							items={mediaItems}
+						/>
+					</div>
 				) : (
 					<MarkdownBlock
 						key={i}
