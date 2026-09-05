@@ -1,3 +1,10 @@
+## 2026-09-05 — test/fix(frontend): 对话媒体预览 Playwright E2E + 修复 Windows 盘符图片不渲染
+
+- 新增：e2e/chat-media-preview.spec.ts（第四层验收）——真实浏览器验证消息内图片缩略图 2 列网格、内联视频播放器、画廊弹窗箭头切换（1/3→3/3）、视频项复制路径读回剪贴板、Esc 关闭；数据用 projects.json 写会话 + page.route 注入 assistant 消息（不依赖真实 LLM），真实 PNG 落盘 e2e-proj-1 cwd 走 kernel /file，视频 /file 请求拦截后故意不应答避免 onerror 降级。
+- 修复：react-markdown 默认 urlTransform 把 Windows 盘符路径（C:/...）误判为未知协议清洗为空串，导致消息里 ![](C:/abs/x.png) 的 img src 为空、缩略图完全不渲染（E2E 在 Windows 上首跑即暴露）。media-utils 新增 mediaUrlTransform：盘符路径放行、其余仍走默认消毒（javascript: 继续拦截），MessageList 的 MarkdownBlock 接入。
+- 验证：新增 mediaUrlTransform 单元测试；前端单测全量绿；E2E 1 passed。
+- 影响范围：packages/frontend/e2e/chat-media-preview.spec.ts（新增）、src/components/blocks/media-utils.ts、src/components/MessageList.tsx、tests/blocks/media-utils.test.ts。
+
 ## 2026-09-01 — v0.3.8 发版（优化青蛙动画）
 
 - 版本：0.3.7 → 0.3.8。
