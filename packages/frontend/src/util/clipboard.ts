@@ -44,3 +44,22 @@ export async function copyImageToClipboard(pngBlob: Blob): Promise<void> {
 		]);
 	}
 }
+
+/** 任意图片 URL（http/data/blob）→ PNG Blob：非 PNG 经 canvas 重编码（剪贴板只保证支持 PNG）。
+ *  SVG/跨域受限图片 canvas 可能失败，由调用方 catch 后 toast 提示。 */
+export async function imageUrlToPngBlob(src: string): Promise<Blob> {
+	const blob = await (await fetch(src)).blob();
+	if (blob.type === "image/png") return blob;
+	const bitmap = await createImageBitmap(blob);
+	const canvas = document.createElement("canvas");
+	canvas.width = bitmap.width;
+	canvas.height = bitmap.height;
+	canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+	bitmap.close();
+	return await new Promise<Blob>((resolve, reject) =>
+		canvas.toBlob(
+			(b) => (b ? resolve(b) : reject(new Error("canvas 转 PNG 失败"))),
+			"image/png",
+		),
+	);
+}

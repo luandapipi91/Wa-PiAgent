@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "../../i18n/useTranslation";
 import { createMarkdownComponents } from "./markdown-components";
+import { mediaUrlTransform } from "./media-utils";
 import type { ExportTurn } from "../../util/export-chat-image";
 
 interface Props {
@@ -60,6 +61,7 @@ export function ExportImageCard({ turns }: Props) {
 							<ReactMarkdown
 								remarkPlugins={[remarkGfm]}
 								components={mdComponents}
+								urlTransform={mediaUrlTransform}
 							>
 								{t.assistant}
 							</ReactMarkdown>

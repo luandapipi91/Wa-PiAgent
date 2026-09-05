@@ -80,3 +80,60 @@ maybeTest("/file 对 .webm 返回 audio/webm 类型", async () => {
   expect(resp.status).toBe(200);
   expect(resp.headers.get("content-type")).toBe("audio/webm");
 });
+
+maybeTest("/file 白名单泛化：项目根下图片 200 + image/png", async () => {
+	const projectCwd = join(TMP_ROOT, "proj-media");
+	await mkdir(projectCwd, { recursive: true });
+	const projectStore = new ProjectStore();
+	await projectStore.createProject({ name: "media", cwd: projectCwd });
+	const filePath = join(projectCwd, "pic.png");
+	await writeFile(filePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+	const freePort = await getFreePort();
+	const started = await startKernel({ port: freePort });
+	stopHandle = started.stop;
+
+	const resp = await fetch(
+		`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(filePath)}`,
+	);
+	expect(resp.status).toBe(200);
+	expect(resp.headers.get("content-type")).toBe("image/png");
+});
+
+maybeTest("/file 拒绝项目外路径（403）", async () => {
+	const projectCwd = join(TMP_ROOT, "proj-media");
+	const projectStore = new ProjectStore();
+	await projectStore.createProject({ name: "media", cwd: projectCwd }).catch(() => {});
+	const outside = join(TMP_ROOT, "outside.bin");
+	await writeFile(outside, "x");
+
+	const freePort = await getFreePort();
+	const started = await startKernel({ port: freePort });
+	stopHandle = started.stop;
+
+	const resp = await fetch(
+		`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(outside)}`,
+	);
+	expect(resp.status).toBe(403);
+});
+
+maybeTest("/file 视频 Range 请求返回 206 + video/mp4", async () => {
+	const projectCwd = join(TMP_ROOT, "proj-media");
+	const projectStore = new ProjectStore();
+	await projectStore.createProject({ name: "media", cwd: projectCwd }).catch(() => {});
+	const filePath = join(projectCwd, "clip.mp4");
+	await writeFile(filePath, Buffer.alloc(1000, 7));
+
+	const freePort = await getFreePort();
+	const started = await startKernel({ port: freePort });
+	stopHandle = started.stop;
+
+	const resp = await fetch(
+		`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(filePath)}`,
+		{ headers: { Range: "bytes=0-99" } },
+	);
+	// Bun.file() 直出原生支持 Range（已实测），此处锁定行为防回归
+	expect(resp.status).toBe(206);
+	expect(resp.headers.get("content-range")).toBe("bytes 0-99/1000");
+	expect(resp.headers.get("content-type")).toBe("video/mp4");
+});

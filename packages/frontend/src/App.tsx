@@ -45,6 +45,7 @@ import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 import { CommandPalette } from "./components/CommandPalette";
 import { FilePreviewModal } from "./components/blocks/FilePreviewModal";
+import { MediaPreviewModal } from "./components/blocks/MediaPreviewModal";
 import { ExtensionDialog } from "./components/ExtensionDialog";
 import { AnsiText } from "./components/ui/AnsiText";
 import { useTrashStore } from "./store/trash";
@@ -745,6 +746,7 @@ export function App() {
 			)}
 			{browserOpen && browserMode === "float" && <FloatPreview />}
 			<FilePreviewModal />
+			<MediaPreviewModal />
 			<ExtensionDialog />
 			<ToastContainer />
 			<RecordingCapsule />

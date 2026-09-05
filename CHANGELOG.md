@@ -1,3 +1,10 @@
+## 2026-09-05 — feat: 对话媒体内联预览（图片网格/内联视频/画廊弹窗/复制）+ kernel /file 白名单泛化
+
+- 新增功能：AI 回复中的图片渲染为卡片缩略图（连续多图聚合 2 列网格、>4 叠 +N），独立成段的视频路径渲染为 InlineVideo 内联播放器；点击打开全局 MediaPreviewModal 画廊（箭头/键盘 ←→/缩略图条切换，图片滚轮缩放拖拽，缩放视口抽取为 ZoomableImage 复用组件）；预览复制能力（文字复制内容、图片复制 PNG、视频复制路径）。kernel `/file` 白名单从 .wa-pi/uploads 泛化为项目工作区（resolveMediaFile，realpath 前缀校验），补 mp4/mov/mkv/m4v/avi MIME。
+- 计划外修复：react-markdown 默认 urlTransform 把 Windows 盘符路径（C:/...）误判为未知协议清洗为空串，导致消息里 ![](C:/abs/x.png) 的 img src 为空、缩略图完全不渲染（E2E 在 Windows 上首跑即暴露）。media-utils 新增 mediaUrlTransform：盘符路径放行、其余仍走默认消毒（javascript: 继续拦截），MessageList 的 MarkdownBlock 接入。
+- 验证：四层回归全绿（kernel 3 个失败为 master 既有基线，与本功能无关）——kernel/frontend 单测与 typecheck、scripts/file-media-it.sh curl 集成（/file 媒体白名单 + Range 206）、e2e/chat-media-preview.spec.ts 1 passed（真实浏览器验证 2 列网格、内联视频、画廊切换、复制路径读回剪贴板、Esc 关闭；projects.json 写会话 + page.route 注入 assistant 消息，不依赖真实 LLM）。
+- 影响范围：`packages/kernel/src/ws-server.ts`、`packages/frontend/src/components/blocks/`（新增 media-utils/MarkdownImage/InlineVideo/MediaPreviewModal/ZoomableImage，修改 markdown-components/FileViewer）、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/App.tsx`、`packages/frontend/src/util/clipboard.ts`、`packages/frontend/src/i18n/locales/{zh,en}.ts`、`packages/frontend/e2e/chat-media-preview.spec.ts`、`scripts/file-media-it.sh`、各层测试。
+
 ## 2026-09-04 — v0.3.11 发版（provider maxTokens + 会话切换链路修复）
 
 - 版本：0.3.10 → 0.3.11。
