@@ -296,6 +296,8 @@ const en = {
 			unsupported: "This file type cannot be previewed",
 			readError: "Cannot read file: {{message}}",
 			unknownError: "unknown error",
+			copyImage: "Copy image",
+			copyPath: "Copy path",
 		},
 		toolCall: {
 			editNumber: "Edit {{index}}",

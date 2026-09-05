@@ -1,8 +1,12 @@
 import type { Components } from "react-markdown";
+import { Children, isValidElement } from "react";
 import { CodeBlockCard } from "./CodeBlockCard";
 import { MermaidBlock } from "./MermaidBlock";
 import { FilePill } from "./FilePill";
 import { parseFilePath } from "./file-path";
+import { MarkdownImage } from "./MarkdownImage";
+import { useSessionStore } from "../../store/session";
+import type { MediaItem } from "./media-utils";
 
 // ⚠️ 循环依赖：FileViewer → markdown-components → FilePill → FileViewer。
 // 约束：本模块顶层不得引用 FileViewer/FilePill 的模块级值（如初始化、常量推导）；
@@ -39,10 +43,70 @@ function isLinkText(text: string): boolean {
 /**
  * 生成助手消息的 markdown 组件映射。
  * pre → CodeBlockCard / MermaidBlock；形似路径的内联 code → FilePill（块级 code 已被 pre 接管，不会走到这里）；a → 新标签页打开。
+ * img → MarkdownImage 卡片缩略图；p → 同段落连续 ≥2 张图片聚合为 2 列网格（>4 张第 4 张叠「+N」）。
+ * mediaItems：该文本块内全部媒体（collectMediaItems 收集），供点击打开画廊时传完整清单。
  */
-export function createMarkdownComponents(sessionId: string): Components {
+export function createMarkdownComponents(
+	sessionId: string,
+	mediaItems: MediaItem[] = [],
+): Components {
+	const imgRenderer = (props: any) => (
+		<MarkdownImage
+			src={props.src}
+			alt={props.alt}
+			sessionId={sessionId}
+			items={mediaItems}
+		/>
+	);
 	return {
 		a: MarkdownLink,
+		img: imgRenderer,
+		p: (props: any) => {
+			// 连续图片段落：同一 markdown 段落内多个 img（行间仅空白文本节点）→ 2 列网格。
+			// 引用比较 k.type === imgRenderer 判定子节点是本模块图片（react-markdown 直接以
+			// 映射组件为元素类型）；FileViewer 的 MarkdownPreview 覆盖了 img → 不命中、不聚合。
+			const kids = Children.toArray(props.children).filter(
+				(c) => !(typeof c === "string" && c.trim() === ""),
+			);
+			if (
+				kids.length >= 2 &&
+				kids.every((k) => isValidElement(k) && k.type === imgRenderer)
+			) {
+				const shown = kids.slice(0, 4);
+				const extra = kids.length - shown.length;
+				return (
+					<div className="grid grid-cols-2 gap-2 my-1" data-testid="md-image-grid">
+						{shown.map((k, i) => {
+							if (i === 3 && extra > 0) {
+								const src = (k as any).props.src as string | undefined;
+								const idx = mediaItems.findIndex(
+									(it) => it.src === src && it.kind === "image",
+								);
+								return (
+									<div key={i} className="relative">
+										{k}
+										<button
+											type="button"
+											data-testid="md-image-more"
+											onClick={() =>
+												useSessionStore
+													.getState()
+													.openMediaPreview(mediaItems, Math.max(idx, 0), sessionId)
+											}
+											className="absolute inset-0 flex items-center justify-center rounded-md bg-black/55 text-white text-[calc(18px*var(--font-scale))] font-semibold cursor-pointer"
+										>
+											+{extra}
+										</button>
+									</div>
+								);
+							}
+							return k;
+						})}
+					</div>
+				);
+			}
+			return <p>{props.children}</p>;
+		},
 		pre: (props: any) => {
 			const codeEl = props.children;
 			const className: string = codeEl?.props?.className ?? "";
