@@ -41,6 +41,7 @@ import { InlineVideo } from "./blocks/InlineVideo";
 import {
 	splitMediaParagraphs,
 	collectMediaItems,
+	mediaUrlTransform,
 	type MediaItem,
 } from "./blocks/media-utils";
 import { createMarkdownComponents } from "./blocks/markdown-components";
@@ -1359,7 +1360,11 @@ const MarkdownBlock = memo(function MarkdownBlock({
 	);
 	return (
 		<div className="prose prose-sm max-w-none" data-testid="text-block">
-			<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+			<ReactMarkdown
+				remarkPlugins={[remarkGfm]}
+				components={mdComponents}
+				urlTransform={mediaUrlTransform}
+			>
 				{text}
 			</ReactMarkdown>
 		</div>
