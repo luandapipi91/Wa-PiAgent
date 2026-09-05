@@ -54,7 +54,7 @@ export function MarkdownImage({
 			<span className="relative block">
 				<img
 					src={resolveMediaSrc(src, sessionId)}
-					alt={name}
+					alt={alt?.trim() || name}
 					loading="lazy"
 					onLoad={(e) => {
 						const img = e.currentTarget;
