@@ -4,6 +4,7 @@
 - 计划外修复：react-markdown 默认 urlTransform 把 Windows 盘符路径（C:/...）误判为未知协议清洗为空串，导致消息里 ![](C:/abs/x.png) 的 img src 为空、缩略图完全不渲染（E2E 在 Windows 上首跑即暴露）。media-utils 新增 mediaUrlTransform：盘符路径放行、其余仍走默认消毒（javascript: 继续拦截），MessageList 的 MarkdownBlock 接入。
 - 验证：四层回归全绿（kernel 3 个失败为 master 既有基线，与本功能无关）——kernel/frontend 单测与 typecheck、scripts/file-media-it.sh curl 集成（/file 媒体白名单 + Range 206）、e2e/chat-media-preview.spec.ts 1 passed（真实浏览器验证 2 列网格、内联视频、画廊切换、复制路径读回剪贴板、Esc 关闭；projects.json 写会话 + page.route 注入 assistant 消息，不依赖真实 LLM）。
 - 影响范围：`packages/kernel/src/ws-server.ts`、`packages/frontend/src/components/blocks/`（新增 media-utils/MarkdownImage/InlineVideo/MediaPreviewModal/ZoomableImage，修改 markdown-components/FileViewer）、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/App.tsx`、`packages/frontend/src/util/clipboard.ts`、`packages/frontend/src/i18n/locales/{zh,en}.ts`、`packages/frontend/e2e/chat-media-preview.spec.ts`、`scripts/file-media-it.sh`、各层测试。
+- 追加（路径芯片预览）：图片/视频扩展名的路径芯片（FilePill，模型常用的表格+行内代码路径形式）点击改走 MediaPreviewModal 画廊而非文件预览；collectMediaItems 扩展收集反引号媒体路径（按 src+kind 去重），同文本块的媒体自动收进同一画廊清单，点任意芯片可按文档顺序翻页。file-path.ts 新增 mediaKindOf（图片/视频扩展名判定）。验证：media-utils/FilePill 单测新增 6 用例，E2E 增加「芯片点击 → 画廊定位 4/4」场景 1 passed，frontend 全量回归绿。
 
 ## 2026-09-04 — v0.3.11 发版（provider maxTokens + 会话切换链路修复）
 

@@ -141,3 +141,26 @@ test("mediaUrlTransform：Windows 盘符路径放行，注入协议仍消毒", (
 	expect(mediaUrlTransform("https://x.com/a.png")).toBe("https://x.com/a.png");
 	expect(mediaUrlTransform("javascript:alert(1)")).toBe("");
 });
+
+test("collectMediaItems：反引号媒体路径按文档顺序收集（FilePill 同款场景）", () => {
+	// 模型常用表格/行内代码列路径：`out/logo-blue.png`
+	const items = collectMediaItems(
+		"已保存：\n\n| 文件 | 路径 |\n| --- | --- |\n| 蓝 | `out/logo-blue.png` |\n\n视频在 `out/clip.mp4:12` 这里。",
+	);
+	expect(items).toEqual([
+		{ src: "out/logo-blue.png", kind: "image", name: "logo-blue.png" },
+		{ src: "out/clip.mp4", kind: "video", name: "clip.mp4" },
+	]);
+});
+
+test("collectMediaItems：同一文件 ![]() 与反引号路径重复时去重（保留首次）", () => {
+	const items = collectMediaItems("![a](/x/a.png)\n\n见 `/x/a.png` 与 `/x/b.png`。");
+	expect(items).toEqual([
+		{ src: "/x/a.png", kind: "image", name: "a" },
+		{ src: "/x/b.png", kind: "image", name: "b.png" },
+	]);
+});
+
+test("collectMediaItems：反引号内非媒体扩展名不收集", () => {
+	expect(collectMediaItems("改一下 `src/index.ts` 和 `README.md`")).toEqual([]);
+});

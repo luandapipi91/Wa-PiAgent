@@ -26,3 +26,14 @@ export function parseFilePath(text: string): ParsedFilePath | null {
   col: m[3] ? Number(m[3]) : undefined,
  };
 }
+
+// 图片/视频扩展名：路径芯片（FilePill）点击分发到媒体画廊用
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i;
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|mkv|avi|m4v)$/i;
+
+/** 按扩展名判断媒体类型；非媒体返回 null。入参为 parseFilePath 的 path（已去行号/无 query） */
+export function mediaKindOf(path: string): "image" | "video" | null {
+ if (IMAGE_EXT_RE.test(path)) return "image";
+ if (VIDEO_EXT_RE.test(path)) return "video";
+ return null;
+}
