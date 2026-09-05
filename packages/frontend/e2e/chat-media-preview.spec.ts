@@ -53,7 +53,8 @@ async function injectMediaMessage(page: Page) {
 	const imgB = toPosix(join(PROJ_CWD, "shot-b.png"));
 	const imgC = toPosix(join(PROJ_CWD, "shot-c.png")); // 仅以反引号路径引用（FilePill 场景）
 	const video = toPosix(join(PROJ_CWD, "clip.mp4")); // 不落盘：请求被 stall
-	const text = `截图如下：\n\n![shot-a](${imgA})\n![shot-b](${imgB})\n\n${video}\n\n补充路径 \`${imgC}\` 备用。`;
+	// 视频路径放 ```text 围栏块（模型常见输出习惯）；shot-c 仅以反引号行内代码引用（芯片场景）
+	const text = `截图如下：\n\n![shot-a](${imgA})\n![shot-b](${imgB})\n\n\`\`\`text\n${video}\n\`\`\`\n\n补充路径 \`${imgC}\` 备用。`;
 	await page.route(`**/api/sessions/${SESSION_ID}/messages`, (route) =>
 		route.fulfill({
 			contentType: "application/json",
@@ -117,7 +118,7 @@ test("对话媒体：缩略图网格 + 内联视频 + 画廊切换 + 视频复�
 	// 尺寸行填充
 	await expect(grid.getByTestId("md-image-dims").first()).toContainText("1×1");
 
-	// 2) 视频段落 → 内联播放器（请求被 stall，元素稳定存在）
+	// 2) 围栏块内视频路径 → 内联播放器（请求被 stall，元素稳定存在）
 	await expect(page.getByTestId("inline-video").locator("video")).toBeVisible();
 
 	// 3) 点击第 1 张图 → 画廊弹窗，计数 1 / 4（2 图 + 视频 + 反引号路径图片）
@@ -142,8 +143,10 @@ test("对话媒体：缩略图网格 + 内联视频 + 画廊切换 + 视频复�
 	await page.keyboard.press("Escape");
 	await expect(page.getByTestId("media-preview-modal")).toHaveCount(0);
 
-	// 7) 反引号路径芯片（FilePill）点击 → 同一画廊打开并定位到第 4 项（图片）
-	await page.getByTestId("file-pill").click();
+	// 7) 反引号路径芯片（行内 code 媒体路径）已渲染为图片卡片；点击 → 同一画廊定位到第 4 项
+	const cards = page.getByTestId("md-image-card");
+	await expect(cards).toHaveCount(3); // 网格 2 张 + 芯片场景 1 张
+	await cards.nth(2).click();
 	await expect(page.getByTestId("media-preview-modal")).toBeVisible();
 	await expect(page.getByTestId("media-counter")).toHaveText("4 / 4");
 	await expect(page.getByTestId("zoomable-image")).toBeVisible();

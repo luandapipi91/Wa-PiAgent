@@ -114,3 +114,27 @@ test("空行分隔的图片不聚合（非连续）", () => {
 	expect(screen.queryByTestId("md-image-grid")).toBeNull();
 	expect(screen.getAllByTestId("md-image-card").length).toBe(2);
 });
+
+test("反引号图片路径（芯片场景）渲染为图片卡片而非 FilePill", () => {
+	renderMd("| 文件 | 路径 |\n| --- | --- |\n| 蓝 | `/home/me/proj/out/logo-blue.png` |");
+	const card = screen.getByTestId("md-image-card");
+	const img = card.querySelector("img")!;
+	expect(img.getAttribute("src")).toBe(
+		"/file?path=" + encodeURIComponent("/home/me/proj/out/logo-blue.png"),
+	);
+	expect(screen.queryByTestId("file-pill")).toBeNull();
+});
+
+test("反引号视频路径渲染为内联播放器", () => {
+	renderMd("成片：`/home/me/proj/out/clip.mp4` 查收");
+	expect(screen.getByTestId("inline-video").querySelector("video")).toBeTruthy();
+});
+
+test("反引号非媒体路径仍渲染 FilePill", async () => {
+	renderMd("改一下 `src/index.ts` 这里");
+	// FilePill 需 stat 探测，未注入 transport 时 catch → fileExists=false → 回退纯文本 code；
+	// 无论哪种结果都不应出现图片卡片
+	await waitFor(() =>
+		expect(screen.queryByTestId("md-image-card")).toBeNull(),
+	);
+});

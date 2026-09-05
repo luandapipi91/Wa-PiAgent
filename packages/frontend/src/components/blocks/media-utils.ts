@@ -42,7 +42,25 @@ export function matchVideoParagraph(
 
 export type TextPart =
 	| { kind: "markdown"; text: string }
-	| { kind: "video"; src: string; name: string };
+	| { kind: "video"; src: string; name: string }
+	| { kind: "image"; src: string; name: string };
+
+// 围栏代码块整块只有一个媒体路径：模型常把产出路径放在 ```text 块里。
+// 整块匹配才放行——围栏里混有其他内容仍按代码块渲染（防误伤真代码）。
+const FENCED_MEDIA_RE = /^```[^\n]*\n?([\s\S]*?)\n?```$/;
+
+/** 整块围栏内容恰为单个媒体路径 → { src, kind, name }；否则 null */
+export function matchFencedMedia(
+	text: string,
+): { src: string; kind: "image" | "video"; name: string } | null {
+	const m = FENCED_MEDIA_RE.exec(text.trim());
+	if (!m) return null;
+	const inner = m[1].trim();
+	if (!/^\S+$/.test(inner)) return null;
+	const kind = mediaKindOf(inner);
+	if (!kind) return null;
+	return { src: inner, kind, name: fileNameOf(inner) };
+}
 
 /**
  * 把文本块按空行分段，整段命中视频的抽为 video part，其余合并回 markdown。
@@ -79,9 +97,15 @@ export function splitMediaParagraphs(text: string): TextPart[] {
 			flush();
 			parts.push({ kind: "video", src: v.src, name: v.name });
 		} else if (p.includes("```")) {
-			// 含围栏代码块的段落独立成 part，不与前后普通段落合并（避免破坏代码块结构）
+			// 含围栏代码块的段落独立成 part，不与前后普通段落合并（避免破坏代码块结构）；
+			// 整块围栏恰为单个媒体路径时抽为媒体 part（模型常把产出路径放 ```text 块里）
+			const fenced = matchFencedMedia(p);
 			flush();
-			parts.push({ kind: "markdown", text: p });
+			if (fenced) {
+				parts.push({ kind: fenced.kind, src: fenced.src, name: fenced.name });
+			} else {
+				parts.push({ kind: "markdown", text: p });
+			}
 		} else {
 			md.push(p);
 		}
@@ -106,8 +130,8 @@ export function collectMediaItems(text: string): MediaItem[] {
 		}
 	};
 	for (const part of splitMediaParagraphs(text)) {
-		if (part.kind === "video") {
-			push({ src: part.src, kind: "video", name: part.name });
+		if (part.kind === "video" || part.kind === "image") {
+			push({ src: part.src, kind: part.kind, name: part.name });
 			continue;
 		}
 		const noCode = part.text.replace(/```[\s\S]*?(?:```|$)/g, "");
