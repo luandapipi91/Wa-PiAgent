@@ -19,6 +19,7 @@ import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
 import { triggerTaskDoneFrog } from "../util/frog";
 import { useUiPrefsStore } from "./ui-prefs";
+import type { MediaItem } from "../components/blocks/media-utils";
 
 interface SessionState {
 	// 已定稿消息：渲染主列表来源
@@ -181,6 +182,13 @@ interface SessionState {
 	filePreview: { path: string; sessionId: string } | null;
 	openFilePreview: (path: string, sessionId: string) => void;
 	closeFilePreview: () => void;
+	// 全局媒体预览弹窗（画廊）：由 MarkdownImage / InlineVideo 触发，渲染在 App 根的
+	// MediaPreviewModal（常驻挂载点）。与 filePreview 同理放 store——宿主消息行在
+	// 流式结束/折叠/卸载时销毁，预览窗不被连带关闭；只有用户手动关闭才消失。
+	mediaPreview: { items: MediaItem[]; index: number; sessionId: string } | null;
+	openMediaPreview: (items: MediaItem[], index: number, sessionId: string) => void;
+	closeMediaPreview: () => void;
+	setMediaPreviewIndex: (index: number) => void;
 	/** 重载中（/reload 命令执行期间禁用发送） */
 	reloading: boolean;
 	setReloading: (v: boolean) => void;
@@ -313,6 +321,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		progressSessionByToolCall: {},
 		fileChangesBySession: {},
 		filePreview: null,
+		mediaPreview: null,
 
 		seedTokenTotal: (sessionId, messages, stats) => {
 			// lastUsage（供「本轮」胶囊）取可见消息中最后一条真实 usage
@@ -604,6 +613,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				fileChangesBySession: {},
 				editorTextInjection: {},
 				filePreview: null,
+				mediaPreview: null,
 			}),
 
 		markUnread: (sessionId) =>
@@ -803,6 +813,26 @@ export const useSessionStore = create<SessionState>((set) => {
 		},
 		closeFilePreview: () => {
 			set((s) => (s.filePreview ? { filePreview: null } : {}));
+		},
+
+		// 打开媒体画廊：items 为该文本块内全部媒体（collectMediaItems 收集），index 为起始项。
+		openMediaPreview: (items, index, sessionId) => {
+			if (items.length === 0) return;
+			set({ mediaPreview: { items, index, sessionId } });
+		},
+		closeMediaPreview: () => {
+			set((s) => (s.mediaPreview ? { mediaPreview: null } : {}));
+		},
+		// 画廊切换：越界/相同值不产生状态变更（与 openFilePreview 幂等口径一致）
+		setMediaPreviewIndex: (index) => {
+			set((s) =>
+				s.mediaPreview &&
+				index >= 0 &&
+				index < s.mediaPreview.items.length &&
+				index !== s.mediaPreview.index
+					? { mediaPreview: { ...s.mediaPreview, index } }
+					: {},
+			);
 		},
 
 		// 处理 sdk:event 信封事件：按 SDKEvent.type 分发到对应状态
