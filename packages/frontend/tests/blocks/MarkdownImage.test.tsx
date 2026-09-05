@@ -138,3 +138,19 @@ test("反引号非媒体路径仍渲染 FilePill", async () => {
 		expect(screen.queryByTestId("md-image-card")).toBeNull(),
 	);
 });
+
+test("表格里反斜杠路径芯片渲染为卡片，点击画廊收齐全部图片（真实场景回归）", () => {
+	// 模型在 Windows 上写反斜杠路径：items 归一后与 parseFilePath 口径一致，画廊不再退化为单媒体
+	const text =
+		"| 文件 | 路径 |\n| --- | --- |\n| 蓝 | `H:\\work\\logo-blue.png` |\n| 橙 | `H:\\work\\logo-orange.png` |";
+	renderMd(text);
+	const cards = screen.getAllByTestId("md-image-card");
+	expect(cards).toHaveLength(2);
+	fireEvent.click(cards[0]);
+	const mp = useSessionStore.getState().mediaPreview;
+	expect(mp?.items).toEqual([
+		{ src: "H:/work/logo-blue.png", kind: "image", name: "logo-blue.png" },
+		{ src: "H:/work/logo-orange.png", kind: "image", name: "logo-orange.png" },
+	]);
+	expect(mp?.index).toBe(0);
+});

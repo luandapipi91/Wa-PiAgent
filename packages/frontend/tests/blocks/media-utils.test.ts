@@ -206,3 +206,10 @@ test("collectMediaItems：整块围栏媒体路径收进画廊清单", () => {
 		{ src: "/v/clip.mp4", kind: "video", name: "clip.mp4" },
 	]);
 });
+
+test("collectMediaItems：反斜杠路径归一为正斜杠（Windows 模型输出口径）", () => {
+	const items = collectMediaItems("见 `H:\\work\\proj\\logo.png`。");
+	expect(items).toEqual([
+		{ src: "H:/work/proj/logo.png", kind: "image", name: "logo.png" },
+	]);
+});

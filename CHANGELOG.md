@@ -6,6 +6,7 @@
 - 影响范围：`packages/kernel/src/ws-server.ts`、`packages/frontend/src/components/blocks/`（新增 media-utils/MarkdownImage/InlineVideo/MediaPreviewModal/ZoomableImage，修改 markdown-components/FileViewer）、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/App.tsx`、`packages/frontend/src/util/clipboard.ts`、`packages/frontend/src/i18n/locales/{zh,en}.ts`、`packages/frontend/e2e/chat-media-preview.spec.ts`、`scripts/file-media-it.sh`、各层测试。
 - 追加（路径芯片预览）：图片/视频扩展名的路径芯片（FilePill，模型常用的表格+行内代码路径形式）点击改走 MediaPreviewModal 画廊而非文件预览；collectMediaItems 扩展收集反引号媒体路径（按 src+kind 去重），同文本块的媒体自动收进同一画廊清单，点任意芯片可按文档顺序翻页。file-path.ts 新增 mediaKindOf（图片/视频扩展名判定）。验证：media-utils/FilePill 单测新增 6 用例，E2E 增加「芯片点击 → 画廊定位 4/4」场景 1 passed，frontend 全量回归绿。
 - 追加（媒体路径直接内联渲染）：行内 code（反引号）里的图片/视频路径不再渲染为文字芯片，直接渲染为 MarkdownImage 卡片/InlineVideo 播放器（表格里的路径芯片变缩略图）；整块围栏代码块（```text）恰为单个媒体路径时同样识别为媒体渲染（混有其他内容的围栏仍按代码块渲染，防误伤真代码）。media-utils 新增 matchFencedMedia，TextPart 增加 image 类型。验证：media-utils/MarkdownImage 单测新增 8 用例，E2E 视频改为围栏块注入 + 芯片卡片点击场景 1 passed，frontend 全量回归绿。
+- 修复（画廊两个实测问题）：① 画廊弹窗图片不居中——ZoomableImage 根节点缺 w-full，作为 flex 子项只占内容宽，居中对齐无效；② 画廊无法切换其他图片——模型在 Windows 上写反斜杠路径，collectMediaItems 的清单 src（原始反斜杠）与 MarkdownImage 比较口径（parseFilePath 正斜杠）不一致导致定位失败退化为单媒体；清单 src 统一归一正斜杠，三处定位比较同步归一。验证：反斜杠场景单测 2 用例 + E2E 反斜杠芯片注入 1 passed，frontend 全量回归绿。
 
 ## 2026-09-04 — v0.3.11 发版（provider maxTokens + 会话切换链路修复）
 

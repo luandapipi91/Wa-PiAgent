@@ -51,7 +51,7 @@ function seedSession() {
 async function injectMediaMessage(page: Page) {
 	const imgA = toPosix(join(PROJ_CWD, "shot-a.png"));
 	const imgB = toPosix(join(PROJ_CWD, "shot-b.png"));
-	const imgC = toPosix(join(PROJ_CWD, "shot-c.png")); // 仅以反引号路径引用（FilePill 场景）
+	const imgC = join(PROJ_CWD, "shot-c.png"); // 仅以反引号路径引用（芯片场景）；故意保留 Windows 反斜杠，覆盖归一化路径
 	const video = toPosix(join(PROJ_CWD, "clip.mp4")); // 不落盘：请求被 stall
 	// 视频路径放 ```text 围栏块（模型常见输出习惯）；shot-c 仅以反引号行内代码引用（芯片场景）
 	const text = `截图如下：\n\n![shot-a](${imgA})\n![shot-b](${imgB})\n\n\`\`\`text\n${video}\n\`\`\`\n\n补充路径 \`${imgC}\` 备用。`;

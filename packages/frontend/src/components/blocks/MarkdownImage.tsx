@@ -36,7 +36,9 @@ export function MarkdownImage({
 	}
 	const name = fileNameOf(src);
 	const open = () => {
-		const idx = items.findIndex((it) => it.src === src && it.kind === "image");
+		// items 的 src 已归一正斜杠（collectMediaItems），比较前同步归一（![]( ) 里可能是反斜杠）
+		const norm = src.replace(/\\/g, "/");
+		const idx = items.findIndex((it) => it.src === norm && it.kind === "image");
 		const list =
 			idx >= 0
 				? items
