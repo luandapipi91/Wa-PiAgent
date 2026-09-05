@@ -3,7 +3,7 @@
 import { Highlight, themes } from "prism-react-renderer";
 // 注册内置缺失的主流语言（bash/java/csharp/ruby/toml），side-effect：加载即注入内置 Prism
 import "./prism-extra-langs";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
@@ -11,6 +11,7 @@ import { readFile, revealFile, openFileWithDefaultApp } from "../../fs-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { createMarkdownComponents } from "./markdown-components";
 import { joinBaseDir } from "./media-utils";
+import { ZoomableImage } from "./ZoomableImage";
 import { openInFileManagerLabel } from "../../util/platform";
 import { copyToClipboard } from "../../util/clipboard";
 import { useSessionStore } from "../../store/session";
@@ -233,7 +234,7 @@ type FileViewerProps = {
 	sessionId?: string;
 };
 
-/** 图片预览：滚轮缩放 + 拖拽平移 + 双击重置 */
+/** 图片预览：滚轮缩放 + 拖拽平移 + 双击重置（视口复用 ZoomableImage，本组件只提供工具栏） */
 function ImageViewer({
 	src,
 	alt,
@@ -243,110 +244,40 @@ function ImageViewer({
 	alt: string;
 	onClose: () => void;
 }) {
-	const [zoom, setZoom] = useState(1);
-	const [pan, setPan] = useState({ x: 0, y: 0 });
-	const [dragging, setDragging] = useState(false);
-	const dragRef = useRef({ startX: 0, startY: 0, panX: 0, panY: 0 });
-	const bodyRef = useRef<HTMLDivElement>(null);
 	const { t } = useTranslation();
-
-	const clampZoom = (z: number) => Math.max(0.1, Math.min(20, z));
-	const zoomReset = () => {
-		setZoom(1);
-		setPan({ x: 0, y: 0 });
-	};
-
-	// 滚轮缩放（手动绑定，关闭 passive 以便 preventDefault）
-	useEffect(() => {
-		const el = bodyRef.current;
-		if (!el) return;
-		const onWheel = (e: WheelEvent) => {
-			e.preventDefault();
-			const delta = e.deltaY > 0 ? -0.1 : 0.1;
-			setZoom((z) => clampZoom(z + delta * z));
-		};
-		el.addEventListener("wheel", onWheel, { passive: false });
-		return () => el.removeEventListener("wheel", onWheel);
-	}, []);
-
-	const onMouseDown = useCallback(
-		(e: React.MouseEvent) => {
-			if (zoom <= 1) return;
-			e.preventDefault();
-			setDragging(true);
-			dragRef.current = {
-				startX: e.clientX,
-				startY: e.clientY,
-				panX: pan.x,
-				panY: pan.y,
-			};
-		},
-		[zoom, pan],
-	);
-
-	useEffect(() => {
-		if (!dragging) return;
-		const onMove = (e: MouseEvent) => {
-			const dx = e.clientX - dragRef.current.startX;
-			const dy = e.clientY - dragRef.current.startY;
-			setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
-		};
-		const onUp = () => setDragging(false);
-		window.addEventListener("mousemove", onMove);
-		window.addEventListener("mouseup", onUp);
-		return () => {
-			window.removeEventListener("mousemove", onMove);
-			window.removeEventListener("mouseup", onUp);
-		};
-	}, [dragging]);
-
 	return (
 		<div className="flex flex-col h-full" data-testid="image-viewer">
-			<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
-				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate inline-flex items-center gap-1">
-					<Icon name="image" size={13} /> {alt}
-				</span>
-				<button
-					className="fv-btn"
-					onClick={() => setZoom((z) => clampZoom(z / 1.25))}
-					title={t("blocks.fileViewer.zoomOut")}
-				>
-					<Icon name="minus" size={12} />
-				</button>
-				<span className="text-[calc(11px*var(--font-scale))] text-tertiary w-10 text-center">
-					{Math.round(zoom * 100)}%
-				</span>
-				<button
-					className="fv-btn"
-					onClick={() => setZoom((z) => clampZoom(z * 1.25))}
-					title={t("blocks.fileViewer.zoomIn")}
-				>
-					<Icon name="plus" size={12} />
-				</button>
-				<button className="fv-btn" onClick={onClose} title={t("common.close")}>
-					<Icon name="x" size={12} />
-				</button>
-			</div>
-			<div
-				ref={bodyRef}
-				className="flex-1 overflow-hidden relative bg-canvas flex items-center justify-center p-2.5"
-				onMouseDown={onMouseDown}
-				onDoubleClick={zoomReset}
-				style={{
-					cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "default",
-				}}
-			>
-				<img
-					src={src}
-					alt={alt}
-					draggable={false}
-					className="max-w-full max-h-full select-none"
-					style={{
-						transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-						transformOrigin: "center center",
-					}}
-				/>
-			</div>
+			<ZoomableImage
+				src={src}
+				alt={alt}
+				renderToolbar={({ zoom, zoomIn, zoomOut }) => (
+					<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
+						<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate inline-flex items-center gap-1">
+							<Icon name="image" size={13} /> {alt}
+						</span>
+						<button
+							className="fv-btn"
+							onClick={zoomOut}
+							title={t("blocks.fileViewer.zoomOut")}
+						>
+							<Icon name="minus" size={12} />
+						</button>
+						<span className="text-[calc(11px*var(--font-scale))] text-tertiary w-10 text-center">
+							{Math.round(zoom * 100)}%
+						</span>
+						<button
+							className="fv-btn"
+							onClick={zoomIn}
+							title={t("blocks.fileViewer.zoomIn")}
+						>
+							<Icon name="plus" size={12} />
+						</button>
+						<button className="fv-btn" onClick={onClose} title={t("common.close")}>
+							<Icon name="x" size={12} />
+						</button>
+					</div>
+				)}
+			/>
 		</div>
 	);
 }
