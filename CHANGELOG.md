@@ -1,3 +1,9 @@
+## 2026-09-07 — fix(frontend): Git 图谱表格列错位
+
+- 修复：Git 图谱首行装饰 chip 多（HEAD/分支/tag/origin/*）时描述列内容溢出到日期列造成文字重叠——根因是描述列 `max-w-0` 但内部 flex 无 overflow 约束。表格改 `table-fixed` + colgroup 显式列宽（图列按最大泳道数动态计算，日期/作者/提交定宽，描述占剩余），描述列 `overflow-hidden`，作者列 truncate。
+- 验证：组件测试新增固定布局/裁剪断言（先 RED 后 GREEN），E2E 图谱场景新增「描述列右缘 ≤ 日期列左缘」坐标断言（种子仓库补 tag 让首行 chip 数量接近真实场景），6/6 passed。
+- 影响范围：packages/frontend（src/components/git/GitGraphModal.tsx、tests/GitGraphModal.test.tsx、e2e/git-branch.spec.ts）、CHANGELOG.md。
+
 ## 2026-09-06 — v0.3.13 发版（项目分支管理）
 
 - 版本：0.3.12 → 0.3.13。
