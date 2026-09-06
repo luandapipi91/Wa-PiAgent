@@ -1,3 +1,13 @@
+## 2026-09-06 — feat: 项目分支管理预览切换（kernel git 域 + 前端 Git 工具栏/分支菜单/Git 图谱）
+
+- 新增功能（kernel）：`git-service.ts` 封装 git 子进程（Bun.spawn 数组参数、15s 超时 kill、并发排空 stdout/stderr、模块级队列互斥状态改变操作；git 路径解析顺序 gitBin > `WA_PI_GIT_BIN` 环境变量 > PATH），提供 runGit/gitStatus/gitBranches/gitLog/gitCheckout/gitCreateBranch/gitPull；`routes/git.ts` 经 `createGitRoutes(broadcast)` 工厂注册 6 个 REST 端点（status/branches/log/checkout/branch/pull），状态改变成功后广播 `git:changed`。status 对非 git 目录/未安装 git 均降级 200 `isRepo:false`（前端静默隐藏工具栏，不报 500），__system__ 项目 400，log limit 默认 200 上限 1000。
+- 新增功能（动态刷新）：`git-watcher.ts` 监听项目 gitdir 的 HEAD/refs/packed-refs（worktree 的 gitdir 文件形式兼容），外部切换分支/提交时 300ms 防抖广播 `git:changed`，前端分支显示自动更新；status 端点命中时幂等挂载监听。
+- 新增功能（frontend）：会话视图 header 与新建会话页（右上角、文件树/浏览器预览按钮左侧，随项目下拉切换显隐）展示 Git 工具栏（仅普通项目渲染，isRepo=false 不显示）——「拉取最新代码」按钮（pulling 禁用 + toast 摘要：已最新 / from→to、N 文件 +N/-N）、项目 chip、分支 chip（portal 下拉：搜索过滤/当前打勾/切换分支/底部「创建并检出新分支」「Git 图谱」入口）、··· 菜单（Git 图谱/刷新状态）。创建分支对话框（isValidBranchName 前端预判、非法禁用提交）。Git 图谱模态（宽 880，五列表格 图|描述|日期|作者|提交，SVG 泳道圆点+竖线+斜线 7 色调色板，装饰 chip HEAD/tag/origin/* 区分样式，日期 MM/DD HH:mm，短 hash 前 7 位，首屏 200 条 + 加载更多 +200）。
+- shared：`git.ts` 新增 GitStatusResult/GitBranchesResult/GitCommitInfo/GitPullResult 等类型与 parseGitLog/parsePullOutput/isValidBranchName/layoutGitLanes 纯函数（泳道布局「最左泳道获胜」合并规则）；WSServerEvent 新增 `git:changed`。
+- 基础设施：前端 Icon 新增 branch/gitGraph 图标；i18n 新增 `git.*` 双语键；`src/store/git.ts` 按 projectId 缓存状态，SSE git:changed 触发刷新。
+- 验证：严格 TDD 逐循环推进——shared 单测 15 例、kernel git-service 15 例 + routes-git 19 例 + git-watcher 4 例、前端组件/store 测试 37 例，各包全量测试不破坏存量、typecheck 无新错误；scripts/git-api-it.sh curl 集成验收通过（真 git 仓库全链路：status/branches/log/checkout/branch/pull fast-forward）；e2e/git-branch.spec.ts 浏览器验收 6 场景（含外部切换分支自动刷新、新建会话页工具栏显隐）。
+- 影响范围：packages/shared（src/git.ts、src/index.ts、src/types.ts、tests/git.test.ts）、packages/kernel（src/git-service.ts、src/git-watcher.ts、src/routes/git.ts、src/ws-server.ts、tests/ 三个新测试文件）、packages/frontend（src/store/git.ts、src/components/git/ 5 个新组件、SessionView.tsx、NewSessionPane.tsx、ui/Icon.tsx、i18n/locales/{zh,en}.ts、e2e/git-branch.spec.ts）、scripts/git-api-it.sh、CHANGELOG.md。
+
 ## 2026-09-05 — v0.3.12 发版（对话媒体内联预览 + pi 0.85.1）
 
 - 版本：0.3.11 → 0.3.12。

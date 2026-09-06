@@ -94,6 +94,7 @@ import { registerContactRoutes } from "./routes/contacts";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
 import { createSchedulerRoutes } from "./routes/scheduler";
+import { createGitRoutes } from "./routes/git";
 import type { FolderTaskStore } from "./scheduler-task-store";
 import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
@@ -748,6 +749,8 @@ export class WSServer {
 		registerChannelRoutes(this.router, callApi, ctx);
 		registerContactRoutes(this.router, callApi, ctx);
 		registerFileRoutes(this.router, callApi, ctx);
+		// Git 分支管理路由：状态改变端点成功后经 broadcast 推送 git:changed
+		createGitRoutes((e) => this.broadcast(e))(this.router, callApi, ctx);
 
 		// 产物分享路由：工作区目录为本地事实源；token 与 channel 均由 handler 内
 		// 每次读取最新分享设置（保存后无需重启），注册处不传死值。

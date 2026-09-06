@@ -358,6 +358,27 @@ const ICONS = {
 			<path d="M13.5 13.5l7 2.8-2.9.9-.9 2.9-2.2-6.6z" {...F} />
 		</>
 	),
+	// ── Git ──
+	// 分支图标（对齐 lucide git-branch：主干竖线 + 顶部圆点 + 分出支线圆点）
+	branch: (
+		<>
+			<circle cx="6" cy="6" r="2.5" />
+			<circle cx="6" cy="18" r="2.5" />
+			<circle cx="18" cy="8" r="2.5" />
+			<path d="M6 8.5v7" />
+			<path d="M18 10.5a7 7 0 0 1-7 7" />
+		</>
+	),
+	// Git 图谱图标：两条泳道竖线 + 节点 + 合并斜线
+	gitGraph: (
+		<>
+			<path d="M7 3v18" />
+			<path d="M17 3v6a6 6 0 0 1-6 6" />
+			<circle cx="7" cy="7" r="2.2" />
+			<circle cx="7" cy="17" r="2.2" />
+			<circle cx="17" cy="7" r="2.2" />
+		</>
+	),
 } as const satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

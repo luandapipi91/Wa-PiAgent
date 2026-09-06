@@ -17,6 +17,7 @@ import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 import { AgentDropdown } from "./ui/AgentDropdown";
 import { ExplorerPanel } from "./ExplorerPanel";
+import { GitToolbar } from "./git/GitToolbar";
 import { SidebarResizer } from "./SidebarResizer";
 import { Icon } from "./ui/Icon";
 import { useBrowserStore } from "../store/browser";
@@ -80,6 +81,11 @@ export function NewSessionPane({
 		projectId === SYSTEM_PROJECT_ID
 			? ""
 			: (projects.find((p) => p.id === projectId)?.cwd ?? "");
+	// Git 工具栏目标项目：仅普通项目（默认工作区无固定仓库，不展示 git 操作）
+	const gitProject =
+		projectId && projectId !== SYSTEM_PROJECT_ID
+			? projects.find((p) => p.id === projectId)
+			: undefined;
 	// currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）；
 	// 用户已手动选择过项目则不再覆盖（保持用户选择）
 	useEffect(() => {
@@ -309,6 +315,12 @@ export function NewSessionPane({
 			>
 				{/* 默认工作区（__system__）的 cwd 是 workdir 父目录（内部会话目录，非项目文件），
 				    无文件可浏览 → 隐藏入口按钮（而非禁用），避免误导点击展开空态。 */}
+				{/* Git 工具栏：右上角（浏览器预览/文件树按钮左侧），与会话视图 header 一致靠右 */}
+				{gitProject && (
+					<div className="absolute top-4 right-24 z-10 max-w-[calc(100%-12rem)]">
+						<GitToolbar project={gitProject} />
+					</div>
+				)}
 				{/* 浏览器预览入口（打开空预览窗口；归属到新建会话锚点 sessionId，按会话记忆） */}
 				<button
 					type="button"
