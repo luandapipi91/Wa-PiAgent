@@ -53,11 +53,13 @@ beforeAll(async () => {
 	const zipPath = join(tmpDir, "kernel.zip");
 	// 打包测试数据：Windows 无 zip 命令，用内置 tar -a（bsdtar 按扩展名出 zip 格式，
 	// 条目位于根目录，产物与 Info-ZIP 等价）；macOS/Linux 保持 zip 命令。
+	// 输出用相对路径 "../kernel.zip"：GNU tar 会把盘符绝对路径（C:\...）误解析为远程主机
+	// （"Cannot connect to C: resolve failed"，本机 Git Bash 的 GNU tar 先于 System32 bsdtar）。
 	const isWin = process.platform === "win32";
 	const zipRes = isWin
 		? spawnSync(
 				"tar",
-				["-a", "-cf", zipPath, KERNEL_BIN, "package.json", "bun.lock"],
+				["-a", "-cf", "../kernel.zip", KERNEL_BIN, "package.json", "bun.lock"],
 				{ cwd: stage },
 			)
 		: spawnSync(

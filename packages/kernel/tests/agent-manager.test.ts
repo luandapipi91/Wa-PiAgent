@@ -725,9 +725,10 @@ test("prompt — 超过 3.5MB 但 ≤30MB 的真实图片用 bun:image 压缩为
 		.jpeg({ quality: 90 })
 		.bytes();
 	writeFileSync(imgPath, small);
-	const fd = openSync(imgPath, "a");
-	ftruncateSync(fd, 4 * 1024 * 1024); // 补零到 4MB > 3.5MB 单张上限（仍可解码）
-	closeSync(fd);
+	// 尾部补零到 4MB > 3.5MB 单张上限（仍可解码）。
+	// 用追加写而非 ftruncate：Windows 对 "a" 模式 fd 的 ftruncate 报 EPERM。
+	const pad = 4 * 1024 * 1024 - small.length;
+	if (pad > 0) writeFileSync(imgPath, Buffer.alloc(pad), { flag: "a" });
 
 	await am.prompt(session.id, "压缩这张大图", {
 		model: MODEL,

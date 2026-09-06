@@ -359,15 +359,17 @@ async function startWhitelistedAgent(tools: string[]) {
 	return { fakes };
 }
 
-test("白名单：agent tools 显式配置 read/bash（不含 browser_*）时 --tools 不含 browser_*", async () => {
-	const { fakes } = await startWhitelistedAgent(["read", "bash"]);
+test("白名单：agent tools 显式配置 read+shell（不含 browser_*）时 --tools 不含 browser_*", async () => {
+	// shell 工具按平台映射：POSIX 为 bash，Windows 为 powershell
+	const shellTool = process.platform === "win32" ? "powershell" : "bash";
+	const { fakes } = await startWhitelistedAgent(["read", shellTool]);
 
 	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
 		v.split(","),
 	);
-	// 白名单解析结果保留 read/bash
+	// 白名单解析结果保留 read 与平台 shell 工具
 	expect(tools).toContain("read");
-	expect(tools).toContain("bash");
+	expect(tools).toContain(shellTool);
 	// 4 个 browser_* 均不得出现在 --tools 中（未勾选即不可见）
 	for (const t of BROWSER_TOOLS) {
 		expect(tools, `--tools 不应含 ${t}`).not.toContain(t);

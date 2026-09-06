@@ -48,8 +48,12 @@ describe("spawnOpen 环境净化", () => {
 
 			expect(spawnCalls.length).toBe(1);
 			const { cmd, args, opts } = spawnCalls[0]!;
-			expect(cmd).toBe("open");
-			expect(args).toEqual(["/tmp/demo.command"]);
+			// Windows 上 start 经 cmd /c 包装（首参数是窗口标题，传空串占位）
+			const isWin = process.platform === "win32";
+			expect(cmd).toBe(isWin ? "cmd" : "open");
+			expect(args).toEqual(
+				isWin ? ["/c", "open", "", "/tmp/demo.command"] : ["/tmp/demo.command"],
+			);
 			// stdio ignore 保持（打开动作静默）
 			expect(opts?.stdio).toBe("ignore");
 			// env 必须显式传递且已净化
@@ -57,7 +61,10 @@ describe("spawnOpen 环境净化", () => {
 			expect(opts?.env?.WA_PI_TEST_WS_PORT).toBeUndefined();
 			expect(opts?.env?.WA_PI_TEST_DIR).toBeUndefined();
 			expect(opts?.env?.PATH).toBeDefined();
-			expect(opts?.env?.HOME).toBeDefined();
+			// Windows 无 HOME 概念（Git Bash 下可能有），用 USERPROFILE 兜底
+			expect(
+				isWin ? (opts?.env?.USERPROFILE ?? opts?.env?.HOME) : opts?.env?.HOME,
+			).toBeDefined();
 		} finally {
 			delete process.env.WA_PI_TEST_WS_PORT;
 			delete process.env.WA_PI_TEST_DIR;
