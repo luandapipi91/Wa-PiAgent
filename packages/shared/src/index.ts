@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./constants";
+export * from "./git";
 export * from "./pure";
 export * from "./ask";
 export * from "./providers";

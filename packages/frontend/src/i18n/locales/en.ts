@@ -1002,6 +1002,36 @@ const en = {
 		noToken: "Configure a Token first in Settings → Share",
 		merged: "Merged into share {{name}} ({{count}} files total), old files kept",
 	},
+	git: {
+		pullLatest: "Pull latest",
+		pulling: "Pulling…",
+		pullUpToDate: "Already up to date",
+		pullSummary:
+			"{{from}} → {{to}}, {{files}} files +{{insertions}}/-{{deletions}}",
+		pullFailed: "Pull failed: {{error}}",
+		searchBranch: "Search branches",
+		branches: "Branches",
+		createBranch: "Create and checkout new branch…",
+		graph: "Git Graph",
+		refresh: "Refresh status",
+		createTitle: "Create and checkout new branch",
+		createDesc:
+			"Create a new local branch from the current HEAD and switch to it right away.",
+		branchNamePlaceholder: "e.g. feature/git-branch-switcher",
+		createHint:
+			"This first version only supports creating from the current HEAD and switching.",
+		createConfirm: "Create & switch",
+		invalidBranchName: "Invalid branch name",
+		checkoutFailed: "Checkout failed: {{error}}",
+		createFailed: "Create branch failed: {{error}}",
+		colGraph: "Graph",
+		colDesc: "Description",
+		colDate: "Date",
+		colAuthor: "Author",
+		colCommit: "Commit",
+		logEmpty: "No commits yet",
+		loadMore: "Load more",
+	},
 	// Kernel structured error messages (codes mirror the sdk-errors mapping table
 	// and provider-test on the kernel side). Keys are dotted full codes, resolved
 	// by formatKernelError in util/kernel-error.ts.

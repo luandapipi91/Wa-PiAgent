@@ -28,6 +28,7 @@ import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
 import { isHtmlPath } from "../preview-url";
+import { GitToolbar } from "./git/GitToolbar";
 
 interface Props {
 	sessionId: string;
@@ -273,6 +274,10 @@ export const SessionView = memo(function SessionView({
 							{!sourceLabel && <AgentSwitcher sessionId={sessionId} readOnly />}
 						</div>
 					</div>
+					{/* Git 工具栏：仅普通项目会话（默认工作区无 git 仓库语义） */}
+					{project && session.projectId !== SYSTEM_PROJECT_ID && (
+						<GitToolbar project={project} />
+					)}
 					{/* Token 胶囊标签组 */}
 					{lastUsage && (
 						<div className="flex items-center gap-2" data-testid="token-capsules">

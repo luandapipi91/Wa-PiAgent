@@ -1450,6 +1450,7 @@ export type WSServerEvent =
 	| ScheduledTasksChangedEvent
 	| ScheduledTaskCompletedEvent
 	| ScheduledTaskErrorEvent
+	| GitChangedEvent
 	| ShareProgressEvent;
 
 /** 分享上传/部署进度（kernel → 前端广播，SSE） */
@@ -1467,6 +1468,14 @@ export interface ShareProgressEvent {
 	code?: string;
 	params?: Record<string, string | number>;
 	detail?: string;
+}
+
+// ============ Git 分支管理 SSE 事件 ============
+
+/** 仓库分支状态变更（checkout/新建分支/pull 成功后广播，前端刷新 Git 工具栏） */
+export interface GitChangedEvent {
+	type: "git:changed";
+	projectId: string;
 }
 
 // ============ 定时任务 SSE 事件 ============
