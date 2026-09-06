@@ -74,6 +74,22 @@ test("加载后渲染五列表格与提交行（短 hash/日期/作者/装饰 ch
 	expect(screen.getByTestId("git-log-row-bbbbbbb").textContent).toContain("co");
 });
 
+test("表格使用固定布局防列内容溢出重叠（装饰 chip 多时不挤压日期列）", async () => {
+	render(<GitGraphModal projectId="p1" onClose={() => {}} />);
+	await waitFor(() => screen.getByTestId("git-log-row-aaaaaaa"));
+	// table-fixed + colgroup 显式列宽：列宽不受内容多少影响，从根上避免错位
+	const table = screen
+		.getByTestId("git-log-row-aaaaaaa")
+		.closest("table")!;
+	expect(table.className).toContain("table-fixed");
+	expect(table.querySelector("colgroup")).toBeTruthy();
+	// 描述列内容必须裁剪（overflow-hidden），不能溢出到相邻列
+	const descCell = screen
+		.getByTestId("git-log-row-aaaaaaa")
+		.querySelectorAll("td")[1];
+	expect(descCell.className).toContain("overflow-hidden");
+});
+
 test("空提交列表显示空态", async () => {
 	getMock.mockImplementation(() => Promise.resolve({ commits: [] }));
 	render(<GitGraphModal projectId="p1" onClose={() => {}} />);

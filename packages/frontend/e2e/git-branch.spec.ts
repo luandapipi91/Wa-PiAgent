@@ -34,6 +34,7 @@ function seedRepo(): void {
 	writeFileSync(join(REPO, "c.txt"), "v3\n");
 	git("add .");
 	git('commit -qm "docs: e2e 第三个提交"');
+	git("tag v0.1.0");
 	git("branch feat/e2e-existing");
 }
 
@@ -170,6 +171,14 @@ test.describe.serial("Git 分支管理", () => {
 		await expect(modal).toContainText("e2e");
 		// 当前分支所在行应有 HEAD 装饰
 		await expect(modal.getByText("HEAD").first()).toBeVisible();
+
+		// 列不错位：首行（带 HEAD/分支/tag 装饰 chip）描述列右缘不得越过日期列左缘
+		const firstRow = modal.locator('[data-testid^="git-log-row-"]').first();
+		const tds = firstRow.locator("td");
+		const descBox = await tds.nth(1).boundingBox();
+		const dateBox = await tds.nth(2).boundingBox();
+		expect(descBox && dateBox).toBeTruthy();
+		expect(descBox!.x + descBox!.width).toBeLessThanOrEqual(dateBox!.x + 1);
 
 		await page.getByTestId("git-graph-close").click();
 		await expect(modal).toHaveCount(0);

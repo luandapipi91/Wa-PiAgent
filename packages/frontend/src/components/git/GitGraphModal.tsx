@@ -154,6 +154,14 @@ export function GitGraphModal({ projectId, onClose }: Props) {
 		() => new Map(rows.map((r) => [r.hash, r])),
 		[rows],
 	);
+	// 图列宽按最大泳道数计算（+24 为 td 左右 padding），表格局部固定避免列内容溢出重叠
+	const graphColW = useMemo(
+		() =>
+			Math.max(1, ...rows.map((r) => Math.max(r.laneCount, r.lane + 1))) *
+				LANE_W +
+			24,
+		[rows],
+	);
 	// 返回数达到 limit 说明可能还有更多
 	const hasMore = commits.length >= limit;
 
@@ -195,7 +203,15 @@ export function GitGraphModal({ projectId, onClose }: Props) {
 						{t("git.logEmpty")}
 					</div>
 				) : (
-					<table className="w-full text-[calc(12px*var(--font-scale))]">
+					<table className="w-full table-fixed text-[calc(12px*var(--font-scale))]">
+						{/* 固定列宽：图列按最大泳道数，日期/作者/提交定宽，描述占剩余 */}
+						<colgroup>
+							<col style={{ width: graphColW }} />
+							<col />
+							<col style={{ width: 116 }} />
+							<col style={{ width: 88 }} />
+							<col style={{ width: 88 }} />
+						</colgroup>
 						<thead>
 							<tr className="text-tertiary text-left border-b border-hairline">
 								<th className="px-3 py-1.5 font-normal">{t("git.colGraph")}</th>
@@ -217,16 +233,16 @@ export function GitGraphModal({ projectId, onClose }: Props) {
 										<td className="px-3 py-0 align-middle">
 											{row && <GraphCell row={row} />}
 										</td>
-										<td className="px-3 py-1 align-middle max-w-0">
+										<td className="px-3 py-1 align-middle overflow-hidden">
 											<div className="flex items-center gap-1 min-w-0">
 												{c.refs.length > 0 && (
-													<span className="flex items-center gap-1 flex-none">
+													<span className="flex items-center gap-1 flex-none overflow-hidden">
 														{c.refs.map((r, i) => (
 															<RefChip key={`${r.kind}-${r.name}-${i}`} r={r} />
 														))}
 													</span>
 												)}
-												<span className="text-primary truncate">
+												<span className="text-primary truncate min-w-0">
 													{c.subject}
 												</span>
 											</div>
@@ -234,7 +250,7 @@ export function GitGraphModal({ projectId, onClose }: Props) {
 										<td className="px-3 py-1 align-middle text-secondary whitespace-nowrap">
 											{formatCommitDate(c.date)}
 										</td>
-										<td className="px-3 py-1 align-middle text-secondary">
+										<td className="px-3 py-1 align-middle text-secondary truncate">
 											{c.author}
 										</td>
 										<td className="px-3 py-1 align-middle text-tertiary font-mono">
