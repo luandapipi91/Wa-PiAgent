@@ -151,12 +151,30 @@ function isSafeZipEntry(entry) {
 	return true;
 }
 
+// Windows 上解压/列条目用系统自带 bsdtar（System32\tar.exe，Win10 17063+ 内置）。
+// 不能直接用 PATH 里的 "tar"：若用户环境 Git usr\bin 先于 System32（如 Git Bash 继承的 PATH），
+// GNU tar 会把盘符路径（C:\...）误解析为远程主机（"Cannot connect to C: resolve failed"）。
+function tarExe() {
+	if (process.platform !== "win32") return "tar";
+	const sys32 = path.join(
+		process.env.SystemRoot || "C:\\Windows",
+		"System32",
+		"tar.exe",
+	);
+	try {
+		require("node:fs").accessSync(sys32);
+		return sys32;
+	} catch {
+		return "tar"; // 兜底：极老系统无内置 bsdtar
+	}
+}
+
 // 列出 zip 条目名（用于解压前安全校验）。macOS/Linux 用 unzip -Z1，Windows 交叉用 tar -tf。
 function listZipEntries(zipPath) {
 	return new Promise((resolve, reject) => {
 		const isWin = process.platform === "win32";
 		const args = isWin ? ["-tf", zipPath] : ["-Z1", zipPath];
-		const child = spawn(isWin ? "tar" : "unzip", args, {
+		const child = spawn(isWin ? tarExe() : "unzip", args, {
 			stdio: ["ignore", "pipe", "ignore"],
 		});
 		let out = "";
@@ -196,7 +214,7 @@ async function extractZip(zipPath, targetDir, log) {
 		const args = isWin
 			? ["-xf", zipPath, "-C", targetDir]
 			: ["-o", zipPath, "-d", targetDir];
-		const child = spawn(isWin ? "tar" : "unzip", args, {
+		const child = spawn(isWin ? tarExe() : "unzip", args, {
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let err = "";

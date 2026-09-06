@@ -1,3 +1,13 @@
+## 2026-09-05 — v0.3.12 发版（对话媒体内联预览 + pi 0.85.1）
+
+- 版本：0.3.11 → 0.3.12。
+- 新增：对话中图片直接显示缩略图（多图自动网格）、视频消息内直接播放、放大预览支持缩放/左右切换/缩略图条跳转、预览复制（文字内容/图片/视频路径）。
+- 优化：AI 引擎升级 pi 0.85.1（GPT-6 Astra 支持）。
+- RELEASE_NOTES.md 与 version-history.json 按业务口径只保留当次版本内容（AGENTS.md §8）。
+- 修复（Windows 平台测试/构建链路）：① fs-open-env 测试按平台分支（win32 走 cmd /c 包装，HOME 用 USERPROFILE 兜底）；② agent-manager 大图测试用追加写替代 ftruncate（Windows "a" 模式 fd 报 EPERM）；③ browser-e2e 白名单测试 shell 工具按平台映射（win32 为 powershell）；④ kernel-updater.cjs Windows 解压/列条目固定用 System32 bsdtar（GNU tar 把盘符路径误解析为远程主机 "Cannot connect to C:"，Git Bash 环境必现），集成测试打包改用相对输出路径。修复后 kernel/desktop 测试 gate 全绿。
+- 验证：frontend 全量 2143 pass、kernel gate 全部通过、desktop 226 全绿、sidecar 编译与冒烟通过、Windows 安装包构建成功（packages/desktop/release/WaPi-Setup-0.3.12.exe）。
+- 影响范围：packages/desktop（RELEASE_NOTES/package.json/kernel-updater.cjs 及测试）、packages/frontend（package.json/version-history.json）、packages/kernel（3 个测试文件）。
+
 ## 2026-09-05 — chore(deps): pi SDK 升级 0.84.4 → 0.85.1
 
 - 类型：依赖升级。`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` 三包 ^0.84.4 → ^0.85.1（[0.85.1 发布说明](https://pi.dev/news/releases/0.85.1)：新增 GPT-6 Astra；修复 0.85.0 误发布内部实验代码导致的 SDK import 失败、GPT-5.6+ 长 prompt-cache 请求参数等）。
