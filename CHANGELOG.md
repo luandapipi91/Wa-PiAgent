@@ -1,3 +1,11 @@
+## 2026-09-06 — v0.3.13 发版（项目分支管理）
+
+- 版本：0.3.12 → 0.3.13。
+- 新增：会话页/新建会话页 Git 工具栏（当前分支展示、分支搜索切换、创建新分支）、一键拉取最新代码（结果即时提示）、Git 图谱（图形化提交历史）、外部分支变更界面自动刷新。
+- RELEASE_NOTES.md 与 version-history.json 按业务口径只保留当次版本内容（AGENTS.md §8）。
+- 验证：shared 162 pass、kernel gate 全部通过、frontend 2180 pass / 0 fail、三包 typecheck 绿、Windows 安装包构建。
+- 影响范围：packages/desktop（RELEASE_NOTES/package.json）、packages/frontend（package.json/version-history.json）。
+
 ## 2026-09-06 — feat: 项目分支管理预览切换（kernel git 域 + 前端 Git 工具栏/分支菜单/Git 图谱）
 
 - 新增功能（kernel）：`git-service.ts` 封装 git 子进程（Bun.spawn 数组参数、15s 超时 kill、并发排空 stdout/stderr、模块级队列互斥状态改变操作；git 路径解析顺序 gitBin > `WA_PI_GIT_BIN` 环境变量 > PATH），提供 runGit/gitStatus/gitBranches/gitLog/gitCheckout/gitCreateBranch/gitPull；`routes/git.ts` 经 `createGitRoutes(broadcast)` 工厂注册 6 个 REST 端点（status/branches/log/checkout/branch/pull），状态改变成功后广播 `git:changed`。status 对非 git 目录/未安装 git 均降级 200 `isRepo:false`（前端静默隐藏工具栏，不报 500），__system__ 项目 400，log limit 默认 200 上限 1000。
