@@ -37,14 +37,14 @@ test("bunAssetForPlatform: 不支持平台抛错", () => {
   expect(() => bunAssetForPlatform("freebsd", "x64")).toThrow();
 });
 
-test("bunDownloadUrls: 默认版本 1.4.0，GitHub 固定 tag + npmmirror 固定版本", () => {
+test("bunDownloadUrls: 默认版本 1.4.2，GitHub 固定 tag + npmmirror 固定版本", () => {
   const urls = bunDownloadUrls("bun-windows-x64.zip");
   expect(urls).toHaveLength(2);
   expect(urls[0]).toBe(
-    "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip",
+    "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-windows-x64.zip",
   );
   expect(urls[1]).toBe(
-    "https://registry.npmmirror.com/-/binary/bun/bun-v1.4.0/bun-windows-x64.zip",
+    "https://registry.npmmirror.com/-/binary/bun/bun-v1.4.2/bun-windows-x64.zip",
   );
 });
 
