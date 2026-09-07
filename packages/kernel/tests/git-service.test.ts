@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 
@@ -15,8 +15,7 @@ const d = GIT ? describe : describe.skip;
 /** 同步跑 git（测试基建用，非被测代码） */
 function git(args: string[], cwd: string): string {
 	const r = spawnSync("git", args, { cwd, encoding: "utf-8" });
-	if (r.status !== 0)
-		throw new Error(`git ${args.join(" ")} 失败: ${r.stderr}`);
+	if (r.status !== 0) throw new Error(`git ${args.join(" ")} 失败: ${r.stderr}`);
 	return r.stdout;
 }
 
@@ -44,7 +43,15 @@ afterEach(async () => {
 	for (const dir of dirs) await rm(dir, { recursive: true, force: true });
 });
 
-import { runGit, gitStatus, gitBranches, gitLog, gitCheckout, gitCreateBranch, gitPull } from "../src/git-service";
+import {
+	runGit,
+	gitStatus,
+	gitBranches,
+	gitLog,
+	gitCheckout,
+	gitCreateBranch,
+	gitPull,
+} from "../src/git-service";
 
 d("runGit", () => {
 	it("执行成功返回 exitCode=0 与 stdout", async () => {
@@ -238,6 +245,46 @@ d("gitPull", () => {
 		expect(r2.from).not.toBe(r2.to);
 		expect(r2.filesChanged).toBeGreaterThan(0);
 		// 全链路 12+ 个真实 git 子进程，天然耗时可超 bun 默认 5s（并行负载下更甚）
+	}, 30000);
+});
+
+d("gitPull-本地未提交修改", () => {
+	it("dirty worktree 与远程更新并存：autostash 自动暂存恢复，拉取成功且本地改动保留", async () => {
+		const origin = mkdtempSync(join(tmpdir(), "wa-pi-git-origin-"));
+		dirs.push(origin);
+		git(["init", "--bare", "-b", "master"], origin);
+
+		const seed = mkdtempSync(join(tmpdir(), "wa-pi-git-seed-"));
+		dirs.push(seed);
+		git(["clone", origin, seed], tmpdir());
+		git(["config", "user.email", "test@example.com"], seed);
+		git(["config", "user.name", "Test"], seed);
+		writeFileSync(join(seed, "shared.txt"), "line1\nline2\nline3\n");
+		git(["add", "-A"], seed);
+		git(["commit", "-m", "init"], seed);
+		git(["push", "-u", "origin", "master"], seed);
+
+		const dir = mkdtempSync(join(tmpdir(), "wa-pi-git-clone-"));
+		dirs.push(dir);
+		git(["clone", origin, dir], tmpdir());
+		// 本地未提交修改：改第一行（与远程的第三行改动不同区域）
+		writeFileSync(join(dir, "shared.txt"), "line1-local\nline2\nline3\n");
+
+		// 远端更新同一文件第三行并推送
+		writeFileSync(join(seed, "shared.txt"), "line1\nline2\nline3-remote\n");
+		git(["commit", "-am", "remote-change"], seed);
+		git(["push"], seed);
+
+		// 修复前：裸 git pull 报 "would be overwritten by merge" 抛 git.pullFailed
+		const r = await gitPull(dir);
+		expect(r.ok).toBe(true);
+		// 本地未提交修改经 autostash 恢复，与远程改动并存
+		const content = readFileSync(join(dir, "shared.txt"), "utf-8");
+		expect(content).toContain("line1-local");
+		expect(content).toContain("line3-remote");
+		// 工作区仍为 dirty（本地改动恢复为未提交状态）
+		const st = await gitStatus(dir);
+		expect(st.dirty).toBe(true);
 	}, 30000);
 });
 
