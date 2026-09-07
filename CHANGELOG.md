@@ -1,3 +1,10 @@
+## 2026-09-07 — v0.3.15 发版（Git 拉取链路修复 + 窄窗口布局）
+
+- 版本：0.3.14 → 0.3.15。同内容覆盖 0.3.14 未触达的存量用户改用新版本号触达自动更新。
+- 修复：dirty worktree 拉取 autostash；toast 展示 stderr 原文；pull 失败后刷新状态缓存；窄窗口 header 收缩链与角色 icon 裁剪。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：kernel（git-service）、frontend（GitToolbar/git store/AgentSwitcher/SessionView）。
+
 ## 2026-09-07 — fix: 拉取最新代码在本地有未提交修改时失败 + toast 错误码不可读
 
 - 修复：会话工具栏「拉取最新代码」在 dirty worktree 时必败——kernel `gitPull` 执行裸 `git pull --no-edit`，当未提交文件与远程更新触碰同一文件时被 git 以 "would be overwritten by merge" 拒绝（非零退出码 → git.pullFailed）。改用 `git pull --autostash --no-edit`：拉取前自动 stash、成功后恢复本地修改；pop 真冲突时 merge 仍完成、修改保留在 stash（git 官方设计，退出码 0）。
