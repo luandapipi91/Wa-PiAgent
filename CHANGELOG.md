@@ -1,9 +1,12 @@
 ## 2026-09-07 — fix: 拉取最新代码在本地有未提交修改时失败 + toast 错误码不可读
 
 - 修复：会话工具栏「拉取最新代码」在 dirty worktree 时必败——kernel `gitPull` 执行裸 `git pull --no-edit`，当未提交文件与远程更新触碰同一文件时被 git 以 "would be overwritten by merge" 拒绝（非零退出码 → git.pullFailed）。改用 `git pull --autostash --no-edit`：拉取前自动 stash、成功后恢复本地修改；pop 真冲突时 merge 仍完成、修改保留在 stash（git 官方设计，退出码 0）。
-- 修复：pull 失败 toast 只显示光秃秃的错误码（`KernelError.message` 即 code 字面量，git stderr 原文在后端 `failure.detail` 里返回但前端未读），用户无法知道失败原因。GitToolbar catch 现在优先展示 `failure.detail`（stderr 原文，超 200 字符截断），其余错误回退原逻辑。
-- 验证：严格 TDD（先 RED 后 GREEN）——kernel 新增 dirty worktree + 远程同文件改动 → autostash 成功且本地改动保留（真 git 仓库驱动）；前端新增 ApiError + failure.detail → toast 展示 stderr 原文且不含错误码；GitToolbar/SessionView/NewSessionPane/git-store 组件与 store 测试 20 pass；e2e git-branch 6/6 passed；双包 typecheck 绿。既有超时失败（kernel git-service「互斥」用例、routes-git pull 200 用例，bun 默认 5s 超时在负载下触发）经基线 stash 对照确认与本次改动无关。
-- 影响范围：packages/kernel（src/git-service.ts、tests/git-service.test.ts）、packages/frontend（src/components/git/GitToolbar.tsx、tests/GitToolbar.test.tsx）、CHANGELOG.md。
+- 修复：pull 失败 toast 只显示光秃秃的错误码（`KernelError.message` 即 code 字面量，git stderr 原文在后端 `failure.detail` 里返回但前端未读），用户无法知道失败原因。GitToolbar catch 现在优先展示 `failure.detail`（stderr 原文），换行/连续空白压缩为单空格防 toast 断词错乱，超 200 字符截断，其余错误回退原逻辑。
+- 修复：pull 失败后不刷新 git 状态缓存——git-watcher 只监听 HEAD/refs 不监听 .git/config，外部 git 操作（如 agent 会话内的 git 命令）改动 tracking 配置后 UI 仍挂着过期的 ahead/behind 计数（实测 git 语义下「rev-list 成功 + pull 报 no tracking」不可能并存，↑23/↓70 与无上游报错同屏即缓存过期）。store git.pull 失败分支补一次 refresh（防御性吞掉 refresh 自身错误）。
+- 修复：窄窗口下会话 header 元素叠压——GitToolbar 子按钮均 flex-none 不可收缩、token 胶囊组无收缩约束，容器变窄时 header（flex nowrap）内各元素溢出叠压（实测主列 346px 时工具栏被压至 w=0、按钮绘制在容器外，token 胶囊整体溢出视口）。收缩链改造：标题区 flex-1 + min-w-0 + shrink-[5] 承担主要收缩（truncate），拉取按钮改 min-w-0 + 文本 truncate，工具栏/胶囊组保留 flex-wrap 作极端窄容器兜底换行；宽屏布局不变（1272px 实测单行、胶囊单行、0 溢出；612px 极端实测 0 溢出、按钮两行完整可点、header 151px）。
+- 修复：窄窗口下会话状态行角色 icon 溢出绘制——AgentSwitcher 只读态外层 min-w-0 被 flex 压至 w=0 后，内部 emoji 色块（flex-none、无裁剪兜底）仍绘制在容器外叠在状态圆点旁（对照组：同行 cwd 路径真 truncate 正确隐藏）。外层补 overflow-hidden：空间不足时角色名先 truncate、再窄整体渐次被裁直至隐藏，宽屏完整显示不受影响（1272px 实测 92px 完整展示、612px 实测不再出现）。
+- 验证：严格 TDD（先 RED 后 GREEN）——kernel 新增 dirty worktree + 远程同文件改动 → autostash 成功且本地改动保留（真 git 仓库驱动）；前端新增 ApiError + failure.detail（含换行压缩断言）→ toast 展示单行 stderr 原文且不含错误码；store 新增 pull 失败后 refresh 断言；GitToolbar/SessionView/NewSessionPane/git-store 组件与 store 测试 21 pass、AgentSwitcher 10 pass；e2e git-branch 6/6 passed；双包 typecheck 绿；布局修复经浏览器 1272/832/612px 三档几何断言（溢出元素计数均 0）+ 角色 icon 两端视觉验证。既有超时失败（kernel git-service「互斥」用例、routes-git pull 200 用例，bun 默认 5s 超时在负载下触发）经基线 stash 对照确认与本次改动无关。
+- 影响范围：packages/kernel（src/git-service.ts、tests/git-service.test.ts）、packages/frontend（src/components/git/GitToolbar.tsx、src/store/git.ts、tests/GitToolbar.test.tsx、tests/git-store.test.ts）、CHANGELOG.md。
 
 ## 2026-09-07 — v0.3.14 发版（修复 Git 图谱表格列错位）
 

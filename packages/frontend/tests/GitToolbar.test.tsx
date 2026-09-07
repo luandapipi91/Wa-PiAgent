@@ -166,14 +166,14 @@ test("拉取失败 toast 错误提示", async () => {
 	);
 });
 
-test("拉取失败时 toast 展示 git stderr 原文（failure.detail）而非错误码", async () => {
+test("拉取失败时 toast 展示 git stderr 原文（failure.detail，压缩换行）而非错误码", async () => {
 	postMock.mockImplementation((path: string) => {
 		if (path.endsWith("/git/pull"))
 			return Promise.reject(
 				new ApiError("git.pullFailed", 400, {
 					code: "git.pullFailed",
 					detail:
-						"error: Your local changes to the following files would be overwritten by merge: service.js",
+						"error: Your local changes to the following files would be overwritten by merge:\n\tservice.js\nPlease commit your changes or stash them before you merge.",
 				}),
 			);
 		return Promise.resolve({ ok: true });
@@ -194,6 +194,11 @@ test("拉取失败时 toast 展示 git stderr 原文（failure.detail）而非�
 			.getState()
 			.toasts.some((t) => t.message.includes("git.pullFailed")),
 	).toBe(false);
+	// stderr 换行/制表符压缩为单空格，toast 单行自然折行不断词
+	for (const t of useToastStore.getState().toasts) {
+		expect(t.message.includes("\n")).toBe(false);
+		expect(t.message.includes("\t")).toBe(false);
+	}
 });
 
 test("分支菜单切换分支调 checkout；失败 toast", async () => {

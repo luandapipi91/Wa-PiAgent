@@ -62,7 +62,7 @@ export function AgentSwitcher({ sessionId, readOnly = false }: Props) {
     if (readOnly && !missing) {
         return (
             <span
-                className="inline-flex min-w-0 items-center gap-1 text-[calc(12px*var(--font-scale))] text-secondary"
+                className="inline-flex min-w-0 overflow-hidden items-center gap-1 text-[calc(12px*var(--font-scale))] text-secondary"
                 data-testid="agent-switcher"
                 title={current.displayName}
             >
