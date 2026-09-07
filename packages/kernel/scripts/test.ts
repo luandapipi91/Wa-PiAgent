@@ -18,8 +18,15 @@ const INTEGRATION_TESTS = [
 ];
 
 /** 负载敏感测试：依赖真实文件系统事件（fs.watch/FSEvents），--parallel 多 worker
- *  高并发下事件投递可被饿死（实测 30s 不达，串行跑 3.5s 即过），单独串行补跑。 */
-const LOAD_SENSITIVE_TESTS = ["tests/scheduler-watcher.test.ts"];
+ *  高并发下事件投递可被饿死（实测 30s 不达，串行跑 3.5s 即过），单独串行补跑。
+ *  git 三件套同属此类：真实 git 子进程链 + 完整 kernel HTTP 服务，并行负载下
+ *  用例耗时被拉长到撞超时（bun 1.4.2 下实测并行全挂/串行 19 全过）。 */
+const LOAD_SENSITIVE_TESTS = [
+	"tests/scheduler-watcher.test.ts",
+	"tests/routes-git.test.ts",
+	"tests/git-service.test.ts",
+	"tests/git-watcher.test.ts",
+];
 
 function run(args: string[]): boolean {
 	const label = `bun ${args.join(" ")}`;
