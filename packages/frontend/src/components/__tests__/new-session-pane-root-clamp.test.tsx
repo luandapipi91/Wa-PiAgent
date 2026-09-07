@@ -11,6 +11,9 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 // —— 外围副作用隔离（__tests__ 下相对前缀必须 ../../，少一级会静默无效）——
 mock.module("../../api-client", () => ({
+	// GitToolbar 经 SessionView 链路被本测试渲染，其运行时导入 ApiError（instanceof 判错），
+	// mock 必须提供同名导出，否则 ESM 取绑定时 SyntaxError
+	ApiError: class ApiError extends Error {},
 	api: {
 		get: async () => ({}),
 		post: async () => ({}),
