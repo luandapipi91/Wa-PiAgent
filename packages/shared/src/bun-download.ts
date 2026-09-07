@@ -34,7 +34,7 @@ export function bunAssetForPlatform(
 }
 
 /** 下载源列表：GitHub 固定 tag（可重复）+ npmmirror 固定版本（国内回退） */
-export function bunDownloadUrls(archive: string, version = "1.4.0"): string[] {
+export function bunDownloadUrls(archive: string, version = "1.4.2"): string[] {
   return [
     `https://github.com/oven-sh/bun/releases/download/bun-v${version}/${archive}`,
     `https://registry.npmmirror.com/-/binary/bun/bun-v${version}/${archive}`,
