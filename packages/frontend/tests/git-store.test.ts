@@ -127,6 +127,35 @@ test("pull 返回 GitPullResult，期间 pulling=true，结束后刷新缓存", 
 	expect(useGitStore.getState().byProject["p1"].status?.branch).toBe("main");
 });
 
+test("pull 失败后同样刷新缓存（清理过期的 ahead/behind 计数）", async () => {
+	let rejectPull!: (e: unknown) => void;
+	postMock.mockImplementation((path: string) => {
+		if (path.endsWith("/git/pull"))
+			return new Promise((_, rj) => {
+				rejectPull = rj;
+			});
+		return Promise.resolve({ ok: true });
+	});
+	getMock.mockImplementation((path: string) => {
+		if (path.endsWith("/git/status"))
+			return Promise.resolve({
+				...STATUS,
+				branch: "master",
+				ahead: 0,
+				behind: 0,
+			});
+		if (path.endsWith("/git/branches"))
+			return Promise.resolve({ current: "master", branches: ["master"] });
+		return Promise.resolve({});
+	});
+	const p = useGitStore.getState().pull("p1");
+	rejectPull(new Error("git.pullFailed"));
+	await expect(p).rejects.toThrow();
+	expect(useGitStore.getState().byProject["p1"].pulling).toBe(false);
+	// 失败后也刷新了 status（mock 返回 master，证明 refresh 被调用、过期计数被清理）
+	expect(useGitStore.getState().byProject["p1"].status?.branch).toBe("master");
+});
+
 test("loadLog 按 limit 拉取提交列表", async () => {
 	const commits = [
 		{

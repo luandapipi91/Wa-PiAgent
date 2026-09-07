@@ -68,7 +68,8 @@ export function GitToolbar({ project }: Props) {
 			}
 		} catch (e) {
 			// 结构化 git 错误时展示 stderr 原文（如 "Your local changes ... would
-			// be overwritten"），而非光秃秃的错误码；超长时截断防 toast 溢出
+			// be overwritten"），而非光秃秃的错误码；换行/连续空白压成单空格防
+			// toast 断词错乱，超长截断
 			const failure = e instanceof ApiError ? e.failure : undefined;
 			const raw =
 				failure?.code === "git.pullFailed" && failure.detail
@@ -76,7 +77,8 @@ export function GitToolbar({ project }: Props) {
 					: e instanceof Error
 						? e.message
 						: String(e);
-			const errText = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+			const flat = raw.replace(/\s+/g, " ").trim();
+			const errText = flat.length > 200 ? `${flat.slice(0, 200)}…` : flat;
 			toast(t("git.pullFailed", { error: errText }), "error");
 		}
 	};
@@ -109,17 +111,22 @@ export function GitToolbar({ project }: Props) {
 	};
 
 	return (
-		<div className="flex items-center gap-2 min-w-0" data-testid="git-toolbar">
+		<div
+			className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"
+			data-testid="git-toolbar"
+		>
 			{/* 拉取最新代码 */}
 			<button
 				type="button"
 				data-testid="btn-git-pull"
 				disabled={pulling}
 				onClick={() => void handlePull()}
-				className="flex-none flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[calc(12px*var(--font-scale))] cursor-pointer transition-colors bg-surface-elevated text-secondary border-hairline hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+				className="min-w-0 flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[calc(12px*var(--font-scale))] cursor-pointer transition-colors bg-surface-elevated text-secondary border-hairline hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Icon name="refresh" size={12} className="flex-none" />
-				{pulling ? t("git.pulling") : t("git.pullLatest")}
+				<span className="truncate">
+					{pulling ? t("git.pulling") : t("git.pullLatest")}
+				</span>
 			</button>
 			{/* 项目 chip */}
 			<span

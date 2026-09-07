@@ -243,7 +243,9 @@ export const SessionView = memo(function SessionView({
 			<div className="relative flex-1 flex flex-col overflow-hidden min-w-0">
 				{/* 顶部状态栏 */}
 				<header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
-					<div className="flex-1">
+					{/* flex-1 + min-w-0 + 高 shrink 权重：窄容器下标题 truncate 承担主要收缩，
+					 工具栏/胶囊只按需微缩（否则 flex 按 basis 均摊会把工具栏压到 0 导致按钮叠压） */}
+					<div className="flex-1 min-w-0 shrink-[5]">
 						<div className="flex items-center gap-2">
 							{/* 标题最多折叠两行，超出省略：窗口太窄时不再把顶部撑高 */}
 							{imConv ? (
@@ -280,7 +282,10 @@ export const SessionView = memo(function SessionView({
 					)}
 					{/* Token 胶囊标签组 */}
 					{lastUsage && (
-						<div className="flex items-center gap-2" data-testid="token-capsules">
+						<div
+							className="flex flex-wrap items-center gap-x-2 gap-y-2 min-w-0 max-w-full"
+							data-testid="token-capsules"
+						>
 							<span className="token-capsule">
 								{t("session.thisTurn", {
 									input: fmtTok(lastUsage.input),

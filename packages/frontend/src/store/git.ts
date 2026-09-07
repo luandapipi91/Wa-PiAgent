@@ -54,8 +54,12 @@ export const useGitStore = create<GitState>((set, get) => {
 			patch(projectId, { loading: true, error: null });
 			try {
 				const [status, branches] = await Promise.all([
-					api.get(`/api/projects/${projectId}/git/status`) as Promise<GitStatusResult>,
-					api.get(`/api/projects/${projectId}/git/branches`) as Promise<GitBranchesResult>,
+					api.get(
+						`/api/projects/${projectId}/git/status`,
+					) as Promise<GitStatusResult>,
+					api.get(
+						`/api/projects/${projectId}/git/branches`,
+					) as Promise<GitBranchesResult>,
 				]);
 				patch(projectId, { status, branches, loading: false });
 			} catch (e) {
@@ -75,7 +79,9 @@ export const useGitStore = create<GitState>((set, get) => {
 			await api.post(`/api/projects/${projectId}/git/branch`, { name });
 			await get().refresh(projectId);
 		},
-		// 拉取最新：pulling 期间置位供按钮禁用；结束后刷新缓存并返回结果供轻提示
+		// 拉取最新：pulling 期间置位供按钮禁用；结束后刷新缓存并返回结果供轻提示。
+		// 失败也刷新：gitStatus 缓存可能已过期（如 tracking 配置被外部 git 操作改动，
+		// git-watcher 不监听 .git/config），不刷新会让界面挂着过期的 ahead/behind 计数
 		pull: async (projectId) => {
 			patch(projectId, { pulling: true });
 			try {
@@ -84,6 +90,11 @@ export const useGitStore = create<GitState>((set, get) => {
 				)) as GitPullResult;
 				await get().refresh(projectId);
 				return result;
+			} catch (e) {
+				await get()
+					.refresh(projectId)
+					.catch(() => {});
+				throw e;
 			} finally {
 				patch(projectId, { pulling: false });
 			}
