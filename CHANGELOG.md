@@ -1,3 +1,10 @@
+## 2026-09-07 — v0.3.14 发版（修复 Git 图谱表格列错位）
+
+- 版本：0.3.13 → 0.3.14。
+- 修复：Git 图谱首行装饰 chip 多时描述列溢出错位（table-fixed + colgroup 显式列宽）。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：frontend（GitGraphModal）。
+
 ## 2026-09-07 — fix(frontend): Git 图谱表格列错位
 
 - 修复：Git 图谱首行装饰 chip 多（HEAD/分支/tag/origin/*）时描述列内容溢出到日期列造成文字重叠——根因是描述列 `max-w-0` 但内部 flex 无 overflow 约束。表格改 `table-fixed` + colgroup 显式列宽（图列按最大泳道数动态计算，日期/作者/提交定宽，描述占剩余），描述列 `overflow-hidden`，作者列 truncate。
