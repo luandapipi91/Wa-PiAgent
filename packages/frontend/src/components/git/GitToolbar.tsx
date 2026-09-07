@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ProjectEntity } from "@wa-pi/shared";
+import { ApiError } from "../../api-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { useGitStore } from "../../store/git";
 import { useToastStore } from "../../store/toast";
@@ -66,12 +67,17 @@ export function GitToolbar({ project }: Props) {
 				);
 			}
 		} catch (e) {
-			toast(
-				t("git.pullFailed", {
-					error: e instanceof Error ? e.message : String(e),
-				}),
-				"error",
-			);
+			// 结构化 git 错误时展示 stderr 原文（如 "Your local changes ... would
+			// be overwritten"），而非光秃秃的错误码；超长时截断防 toast 溢出
+			const failure = e instanceof ApiError ? e.failure : undefined;
+			const raw =
+				failure?.code === "git.pullFailed" && failure.detail
+					? failure.detail
+					: e instanceof Error
+						? e.message
+						: String(e);
+			const errText = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+			toast(t("git.pullFailed", { error: errText }), "error");
 		}
 	};
 
@@ -103,10 +109,7 @@ export function GitToolbar({ project }: Props) {
 	};
 
 	return (
-		<div
-			className="flex items-center gap-2 min-w-0"
-			data-testid="git-toolbar"
-		>
+		<div className="flex items-center gap-2 min-w-0" data-testid="git-toolbar">
 			{/* 拉取最新代码 */}
 			<button
 				type="button"
@@ -179,10 +182,7 @@ export function GitToolbar({ project }: Props) {
 				/>
 			)}
 			{graphOpen && (
-				<GitGraphModal
-					projectId={project.id}
-					onClose={() => setGraphOpen(false)}
-				/>
+				<GitGraphModal projectId={project.id} onClose={() => setGraphOpen(false)} />
 			)}
 		</div>
 	);

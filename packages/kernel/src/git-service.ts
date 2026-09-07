@@ -111,7 +111,10 @@ export async function gitBranches(cwd: string): Promise<GitBranchesResult> {
 	const listR = await runGit(cwd, ["branch", "--format=%(refname:short)"]);
 	const branches =
 		listR.exitCode === 0
-			? listR.stdout.split("\n").map((s) => s.trim()).filter(Boolean)
+			? listR.stdout
+					.split("\n")
+					.map((s) => s.trim())
+					.filter(Boolean)
 			: [];
 	return { current, branches };
 }
@@ -174,13 +177,16 @@ async function shortHead(cwd: string): Promise<string | undefined> {
 	return r.exitCode === 0 ? r.stdout.trim() || undefined : undefined;
 }
 
-/** 拉取上游（锁内，`git pull --no-edit`，60s 超时）。
+/** 拉取上游（锁内，`git pull --autostash --no-edit`，60s 超时）。
+ *  --autostash：工作区有未提交修改时自动 stash→拉取→恢复，避免与 incoming
+ *  变更触碰同一文件时被 git 以 "would be overwritten" 拒绝（pop 真冲突时
+ *  merge 仍完成、本地修改保留在 stash 中，退出码为 0）。
  *  返回合并方式/前后 HEAD/变更统计；失败（无上游、冲突等）抛 git.pullFailed。 */
 export async function gitPull(cwd: string): Promise<GitPullResult> {
 	return enqueue(async () => {
 		await assertRepo(cwd);
 		const from = await shortHead(cwd);
-		const r = await runGit(cwd, ["pull", "--no-edit"], {
+		const r = await runGit(cwd, ["pull", "--autostash", "--no-edit"], {
 			timeoutMs: GIT_PULL_TIMEOUT_MS,
 		});
 		if (r.exitCode !== 0)

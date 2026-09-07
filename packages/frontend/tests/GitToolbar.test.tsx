@@ -8,6 +8,31 @@ import type { ProjectEntity } from "@wa-pi/shared";
 
 const getMock = mock();
 const postMock = mock();
+
+/** 与真实 api-client 同构的 ApiError（mock 模块内共享，保证 instanceof 成立） */
+class ApiError extends Error {
+	status: number;
+	failure?: {
+		code: string;
+		params?: Record<string, string | number>;
+		detail?: string;
+	};
+	constructor(
+		message: string,
+		status: number,
+		failure?: {
+			code: string;
+			params?: Record<string, string | number>;
+			detail?: string;
+		},
+	) {
+		super(message);
+		this.status = status;
+		this.failure = failure;
+		this.name = "ApiError";
+	}
+}
+
 mock.module("../src/api-client", () => ({
 	api: {
 		get: getMock,
@@ -15,6 +40,7 @@ mock.module("../src/api-client", () => ({
 		put: () => Promise.resolve({}),
 		del: () => Promise.resolve({}),
 	},
+	ApiError,
 }));
 
 const PROJECT: ProjectEntity = {
@@ -92,9 +118,9 @@ test("点击拉取：完成后 toast 摘要（fast-forward）", async () => {
 	fireEvent.click(screen.getByTestId("btn-git-pull"));
 	await waitFor(() =>
 		expect(
-			useToastStore.getState().toasts.some((t) =>
-				t.message.includes("aaa1111 → bbb2222"),
-			),
+			useToastStore
+				.getState()
+				.toasts.some((t) => t.message.includes("aaa1111 → bbb2222")),
 		).toBe(true),
 	);
 	const msg = useToastStore.getState().toasts[0].message;
@@ -119,9 +145,7 @@ test("已最新时 toast 提示「已是最新」", async () => {
 	fireEvent.click(screen.getByTestId("btn-git-pull"));
 	await waitFor(() =>
 		expect(
-			useToastStore.getState().toasts.some((t) =>
-				t.message.includes("已是最新"),
-			),
+			useToastStore.getState().toasts.some((t) => t.message.includes("已是最新")),
 		).toBe(true),
 	);
 });
@@ -137,11 +161,39 @@ test("拉取失败 toast 错误提示", async () => {
 	fireEvent.click(screen.getByTestId("btn-git-pull"));
 	await waitFor(() =>
 		expect(
-			useToastStore.getState().toasts.some((t) =>
-				t.message.includes("拉取失败"),
-			),
+			useToastStore.getState().toasts.some((t) => t.message.includes("拉取失败")),
 		).toBe(true),
 	);
+});
+
+test("拉取失败时 toast 展示 git stderr 原文（failure.detail）而非错误码", async () => {
+	postMock.mockImplementation((path: string) => {
+		if (path.endsWith("/git/pull"))
+			return Promise.reject(
+				new ApiError("git.pullFailed", 400, {
+					code: "git.pullFailed",
+					detail:
+						"error: Your local changes to the following files would be overwritten by merge: service.js",
+				}),
+			);
+		return Promise.resolve({ ok: true });
+	});
+	render(<GitToolbar project={PROJECT} />);
+	await waitFor(() => screen.getByTestId("btn-git-pull"));
+	fireEvent.click(screen.getByTestId("btn-git-pull"));
+	await waitFor(() =>
+		expect(
+			useToastStore
+				.getState()
+				.toasts.some((t) => t.message.includes("Your local changes")),
+		).toBe(true),
+	);
+	// 展示 stderr 原文而非光秃秃的错误码
+	expect(
+		useToastStore
+			.getState()
+			.toasts.some((t) => t.message.includes("git.pullFailed")),
+	).toBe(false);
 });
 
 test("分支菜单切换分支调 checkout；失败 toast", async () => {
