@@ -237,7 +237,8 @@ d("gitPull", () => {
 		expect(r2.to).toBeTruthy();
 		expect(r2.from).not.toBe(r2.to);
 		expect(r2.filesChanged).toBeGreaterThan(0);
-	});
+		// 全链路 12+ 个真实 git 子进程，天然耗时可超 bun 默认 5s（并行负载下更甚）
+	}, 30000);
 });
 
 d("gitPull-失败", () => {
