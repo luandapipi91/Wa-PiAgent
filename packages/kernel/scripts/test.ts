@@ -59,18 +59,20 @@ ok =
 		"--isolate",
 		"--parallel=4",
 		"--max-concurrency=8",
+		// git 域等真实子进程链路用例天然耗时可超默认 5s，统一放宽（真挂死仍会被 30s 兑住）
+		"--timeout=30000",
 		...ignoreArgs,
 		...loadSensitiveIgnoreArgs,
 	]) && ok;
 
 // 2. 独立进程单独补跑集成测试（与其他测试隔离，验证 kernel 启动链路）
 for (const file of INTEGRATION_TESTS) {
-	ok = run(["test", "--isolate", file]) && ok;
+	ok = run(["test", "--isolate", "--timeout=30000", file]) && ok;
 }
 
 // 3. 负载敏感测试串行补跑（无并行竞争，fs 事件即时可达）
 for (const file of LOAD_SENSITIVE_TESTS) {
-	ok = run(["test", "--isolate", file]) && ok;
+	ok = run(["test", "--isolate", "--timeout=30000", file]) && ok;
 }
 
 if (!ok) {
