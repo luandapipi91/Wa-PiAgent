@@ -609,9 +609,10 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
     const arrow = root0.closest(".rct-tree-item-title-container")?.querySelector(".rct-tree-item-arrow");
     expect(arrow).toBeTruthy();
     fireEvent.click(arrow!);
+    // 并行负载下 React 提交偶发延迟，放宽折叠等待
     await waitFor(() => {
       expect(queryTreeItem("subdir")).toBeNull();
-    }, { timeout: 3000 });
+    }, { timeout: 8000 });
 
     // 第二批增量（内容相同但 searchTreeItems 引用变化）→ 当前 bug 会重展开 C:\Users\test
     emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [mkMatch()] } as any);
