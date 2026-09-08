@@ -1,3 +1,15 @@
+## 2026-09-08 — fix: 会话自动归档误伤修复（阈值锁死/恢复重删/归档后活动不复活/并发写覆盖）
+
+- 修复：① `restoreSession` 恢复会话时同步续期 `lastActivity`——原先恢复不续期，不活动超阈值的旧会话恢复后会在下次 kernel 启动扫描（启动即扫）时立即被再次自动归档，形成「恢复→重启→重删」循环；② `touchSession` 自动归档（deletedReason=auto）的会话一旦有新活动即自动复活回到列表（手动删除的不复活），调用方据返回 true 广播列表刷新；③ ProjectStore 新增写互斥队列，串行化归档扫描/恢复/删除/touch 等高危读改写——原先并发写用旧快照互相覆盖（恢复被弹回归档区）；④ `save` 改临时文件+rename 原子写，防并发读到半截 JSON 回退空数据后全量覆盖丢数据；⑤ agent:prompt 发消息时若会话在回收站则先恢复再继续（发消息=最强使用信号，任何删除原因均复活）；⑥ 孤儿会话回滚（agent-manager _onProcessExit）仅清理预热占位记录（新增 deleteSessionIfPlaceholder）——原实现把「用户创建后还没发消息」的会话当孤儿软删进回收站，是「刚创建的会话被丢进归档区」的直接元凶。
+- 根因背景：实际生效阈值被 settings.json 持久化旧值锁死（v0.3.6 时代默认 7 天，后续默认改 15/30 均不生效），叠加 kernel 每次启动必扫 + 6h 定时扫描，导致大量不该归档的会话被批量扫入归档区；用户已手动将 autoArchiveDays 调至 30。另将 74 条被旧阈值误归档的存量会话通过 /api/trash/sessions/restore 批量恢复。
+- 验证：project-store 相关 3 个测试文件 31 pass（含新增 4 个回归用例：恢复续期、auto 复活、manual 不复活、touch 仅续期，后追加 deleteSessionIfPlaceholder 用例至 25 pass）；typecheck 全绿。
+- 影响范围：kernel（project-store、agent-manager、ws-server），存量数据一次性修复（运行时 projects.json）。
+
+## 2026-09-07 — 改进：会话 Git 工具栏收敛为分支 chip 单入口
+
+- 改进：会话头部 Git 工具栏从 4 个元素（拉取按钮/项目 chip/分支 chip/···菜单）收敛为仅分支 chip 一个入口；「拉取最新代码」「刷新状态」移入分支下拉菜单（列表分隔线下方，位于「创建并检出新分支」「Git 图谱」之前），拉取中菜单项显示「拉取中…」并禁用防重入，toast 反馈逻辑不变；删除「···」菜单及项目 chip。
+- 影响范围：frontend（GitToolbar/BranchChip/BranchMenu 新增 props 透传、Icon 新增 download-arrow、相关组件测试与 e2e git-branch 同步更新）。
+
 ## 2026-09-07 — v0.3.15 发版（Git 拉取链路修复 + 窄窗口布局）
 
 - 版本：0.3.14 → 0.3.15。同内容覆盖 0.3.14 未触达的存量用户改用新版本号触达自动更新。

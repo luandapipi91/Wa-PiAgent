@@ -2,13 +2,7 @@
 // 普通项目会话 header 渲染 Git 工具栏；默认工作区（SYSTEM_PROJECT_ID）不渲染。
 import "./mock-composer-db";
 import { test, expect, beforeEach, afterEach, mock } from "bun:test";
-import {
-	render,
-	screen,
-	waitFor,
-	act,
-	cleanup,
-} from "@testing-library/react";
+import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
 import { VirtuosoMockContext } from "react-virtuoso";
 import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import { SessionView } from "../src/components/SessionView";
@@ -109,9 +103,9 @@ test("普通项目会话 header 渲染 Git 工具栏", async () => {
 	// 工具栏位于 header 内
 	const header = screen.getByTestId("session-view").querySelector("header");
 	expect(header!.contains(screen.getByTestId("git-toolbar"))).toBe(true);
-	// 拉取按钮/项目 chip/分支 chip 就位
-	expect(screen.getByTestId("btn-git-pull")).toBeTruthy();
-	expect(screen.getByTestId("git-project-chip").textContent).toContain("P");
+	// 仅分支 chip（无拉取按钮/项目 chip）
+	expect(screen.queryByTestId("btn-git-pull")).toBeNull();
+	expect(screen.queryByTestId("git-project-chip")).toBeNull();
 	expect(screen.getByTestId("branch-chip").textContent).toContain("main");
 });
 

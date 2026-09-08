@@ -9,6 +9,10 @@ interface Props {
 	onSwitch: (branch: string) => void;
 	onCreateBranch: () => void;
 	onOpenGraph: () => void;
+	/** 拉取中（透传给菜单做禁用） */
+	pulling: boolean;
+	onPull: () => void;
+	onRefresh: () => void;
 }
 
 /**
@@ -21,6 +25,9 @@ export function BranchChip({
 	onSwitch,
 	onCreateBranch,
 	onOpenGraph,
+	pulling,
+	onPull,
+	onRefresh,
 }: Props) {
 	const [open, setOpen] = useState(false);
 	const pillRef = useRef<HTMLButtonElement>(null);
@@ -50,6 +57,9 @@ export function BranchChip({
 					onSwitch={onSwitch}
 					onCreateBranch={onCreateBranch}
 					onOpenGraph={onOpenGraph}
+					pulling={pulling}
+					onPull={onPull}
+					onRefresh={onRefresh}
 					anchorRef={pillRef}
 					onClose={() => setOpen(false)}
 				/>

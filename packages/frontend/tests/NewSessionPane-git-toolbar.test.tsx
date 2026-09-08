@@ -2,13 +2,7 @@
 // 新建会话页选中普通项目时渲染 Git 工具栏；选中默认工作区（SYSTEM_PROJECT_ID）时不渲染也不请求 git API。
 import "./mock-composer-db";
 import { test, expect, beforeEach, afterEach, mock } from "bun:test";
-import {
-	render,
-	screen,
-	waitFor,
-	act,
-	cleanup,
-} from "@testing-library/react";
+import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
 import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import { NewSessionPane } from "../src/components/NewSessionPane";
 import { useProjectsStore } from "../src/store/projects";
@@ -144,7 +138,7 @@ test("新建会话页选中普通项目时渲染 Git 工具栏", async () => {
 	// 工具栏位于新建会话面板内
 	const pane = screen.getByTestId("new-session-pane");
 	expect(pane.contains(screen.getByTestId("git-toolbar"))).toBe(true);
-	expect(screen.getByTestId("git-project-chip").textContent).toContain("项目A");
+	expect(screen.queryByTestId("git-project-chip")).toBeNull();
 	expect(screen.getByTestId("branch-chip").textContent).toContain("main");
 	// 与会话页一致靠右放置（右上角浏览器预览/文件树按钮的左侧）
 	const wrapper = screen.getByTestId("git-toolbar").parentElement!;

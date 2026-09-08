@@ -1,4 +1,4 @@
-// GitToolbar 组件测试：拉取按钮/项目 chip/分支 chip/···菜单/弹窗联动/非仓库不渲染
+// GitToolbar 组件测试：单入口分支 chip + 菜单内拉取/刷新 + 弹窗联动/非仓库不渲染
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { GitToolbar } from "../src/components/git/GitToolbar";
@@ -86,36 +86,42 @@ test("isRepo=false 时不渲染任何内容", async () => {
 	expect(screen.queryByTestId("git-toolbar")).toBeNull();
 });
 
-test("仓库项目渲染拉取按钮/项目 chip/分支 chip/···菜单", async () => {
+test("仓库项目仅渲染分支 chip，无拉取按钮/项目 chip/···菜单", async () => {
 	render(<GitToolbar project={PROJECT} />);
 	await waitFor(() => screen.getByTestId("git-toolbar"));
-	expect(screen.getByTestId("btn-git-pull").textContent).toContain(
-		"拉取最新代码",
-	);
-	expect(screen.getByTestId("git-project-chip").textContent).toContain(
-		"hiagent",
-	);
 	expect(screen.getByTestId("branch-chip").textContent).toContain("main");
+	expect(screen.queryByTestId("btn-git-pull")).toBeNull();
+	expect(screen.queryByTestId("git-project-chip")).toBeNull();
+	expect(screen.queryByTestId("git-more-menu-btn")).toBeNull();
 });
 
-test("点击拉取：完成后 toast 摘要（fast-forward）", async () => {
+test("分支菜单点击拉取：完成后关菜单 + toast 摘要（fast-forward）", async () => {
 	postMock.mockImplementation((path: string) => {
 		if (path.endsWith("/git/pull"))
-			return Promise.resolve({
-				ok: true,
-				mode: "fast-forward",
-				from: "aaa1111",
-				to: "bbb2222",
-				alreadyUpToDate: false,
-				filesChanged: 2,
-				insertions: 5,
-				deletions: 1,
-			});
+			return new Promise((resolve) =>
+				setTimeout(
+					() =>
+						resolve({
+							ok: true,
+							mode: "fast-forward",
+							from: "aaa1111",
+							to: "bbb2222",
+							alreadyUpToDate: false,
+							filesChanged: 2,
+							insertions: 5,
+							deletions: 1,
+						}),
+					20,
+				),
+			);
 		return Promise.resolve({ ok: true });
 	});
 	render(<GitToolbar project={PROJECT} />);
-	await waitFor(() => screen.getByTestId("btn-git-pull"));
-	fireEvent.click(screen.getByTestId("btn-git-pull"));
+	await waitFor(() => screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("menu-git-pull"));
+	// 点击即关菜单，pull 后台进行
+	expect(screen.queryByTestId("branch-menu")).toBeNull();
 	await waitFor(() =>
 		expect(
 			useToastStore
@@ -141,8 +147,9 @@ test("已最新时 toast 提示「已是最新」", async () => {
 		return Promise.resolve({ ok: true });
 	});
 	render(<GitToolbar project={PROJECT} />);
-	await waitFor(() => screen.getByTestId("btn-git-pull"));
-	fireEvent.click(screen.getByTestId("btn-git-pull"));
+	await waitFor(() => screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("menu-git-pull"));
 	await waitFor(() =>
 		expect(
 			useToastStore.getState().toasts.some((t) => t.message.includes("已是最新")),
@@ -157,8 +164,9 @@ test("拉取失败 toast 错误提示", async () => {
 		return Promise.resolve({ ok: true });
 	});
 	render(<GitToolbar project={PROJECT} />);
-	await waitFor(() => screen.getByTestId("btn-git-pull"));
-	fireEvent.click(screen.getByTestId("btn-git-pull"));
+	await waitFor(() => screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("menu-git-pull"));
 	await waitFor(() =>
 		expect(
 			useToastStore.getState().toasts.some((t) => t.message.includes("拉取失败")),
@@ -179,8 +187,9 @@ test("拉取失败时 toast 展示 git stderr 原文（failure.detail，压缩�
 		return Promise.resolve({ ok: true });
 	});
 	render(<GitToolbar project={PROJECT} />);
-	await waitFor(() => screen.getByTestId("btn-git-pull"));
-	fireEvent.click(screen.getByTestId("btn-git-pull"));
+	await waitFor(() => screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("menu-git-pull"));
 	await waitFor(() =>
 		expect(
 			useToastStore
@@ -213,13 +222,13 @@ test("分支菜单切换分支调 checkout；失败 toast", async () => {
 	);
 });
 
-test("···菜单含「Git 图谱」「刷新状态」，点击打开图谱弹窗", async () => {
+test("分支菜单含「Git 图谱」「刷新状态」，点击打开图谱弹窗", async () => {
 	render(<GitToolbar project={PROJECT} />);
-	await waitFor(() => screen.getByTestId("git-toolbar"));
-	fireEvent.click(screen.getByTestId("git-more-menu-btn"));
-	expect(screen.getByTestId("git-menu-graph")).toBeTruthy();
-	expect(screen.getByTestId("git-menu-refresh")).toBeTruthy();
-	fireEvent.click(screen.getByTestId("git-menu-graph"));
+	await waitFor(() => screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("branch-chip"));
+	expect(screen.getByTestId("menu-git-refresh")).toBeTruthy();
+	expect(screen.queryByTestId("git-menu-refresh")).toBeNull();
+	fireEvent.click(screen.getByTestId("btn-git-graph"));
 	await waitFor(() => screen.getByTestId("git-graph-modal"));
 });
 

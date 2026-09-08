@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { rmSync } from "node:fs";
+import { rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectStore } from "../src/project-store";
 import {
@@ -7,6 +7,7 @@ import {
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_NAME,
 	SYSTEM_PROJECT_CWD,
+	type SessionEntity,
 } from "@wa-pi/shared";
 import { errorCodeOf } from "./helpers/kernel-error-code";
 
@@ -373,5 +374,149 @@ test("placeholder 会话首次发消息转正：fillSessionTitleIfEmpty 填标�
 	expect(s?.placeholder).toBeUndefined();
 	const active = await store.loadActive();
 	expect(active.sessions.find((x) => x.id === "s-ph2")).toBeTruthy();
+	rmSync(f, { force: true });
+});
+
+// ---------- 自动归档回归：恢复续期 + 活动复活 ----------
+
+/** 直接修改盘上 JSON 中指定会话的字段（构造长期不活动等历史状态用，load 无缓存可安全改盘） */
+function mutateSessionOnDisk(
+	f: string,
+	id: string,
+	fn: (s: SessionEntity) => void,
+) {
+	const raw = JSON.parse(readFileSync(f, "utf8")) as {
+		sessions: SessionEntity[];
+	};
+	const s = raw.sessions.find((x) => x.id === id);
+	if (!s) throw new Error(`session ${id} not found`);
+	fn(s);
+	writeFileSync(f, JSON.stringify(raw, null, 2), "utf8");
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+
+test("restoreSession 恢复时续期 lastActivity，重启后扫描不再二次归档", async () => {
+	const f = tempFile();
+	const store = new ProjectStore(f);
+	const p = await store.createProject({ name: "P", cwd: "/p" });
+	const s = await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "旧会话",
+	});
+	// 构造 20 天不活动 → 按 15 天阈值归档命中
+	mutateSessionOnDisk(f, s.id, (x) => {
+		x.lastActivity = Date.now() - 20 * DAY;
+	});
+	const archived = await store.archiveStaleSessions(15 * DAY);
+	expect(archived.map((x) => x.id)).toContain(s.id);
+	// 用户从归档区恢复 → lastActivity 被续期
+	await store.restoreSession(s.id);
+	const restored = (await store.load()).sessions.find((x) => x.id === s.id);
+	expect(restored?.deletedAt).toBeUndefined();
+	expect(restored!.lastActivity).toBeGreaterThan(Date.now() - 60_000);
+	// 下次启动再扫（同样阈值）：不再归档（修复前会立即重删）
+	const again = await store.archiveStaleSessions(15 * DAY);
+	expect(again.map((x) => x.id)).not.toContain(s.id);
+	rmSync(f, { force: true });
+});
+
+test("touchSession 自动归档会话复活：清删除标记并回到活跃列表", async () => {
+	const f = tempFile();
+	const store = new ProjectStore(f);
+	const p = await store.createProject({ name: "P", cwd: "/p" });
+	const s = await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "在归档区里继续用",
+	});
+	mutateSessionOnDisk(f, s.id, (x) => {
+		x.lastActivity = Date.now() - 20 * DAY;
+	});
+	await store.archiveStaleSessions(15 * DAY);
+	expect(
+		(await store.loadActive()).sessions.find((x) => x.id === s.id),
+	).toBeUndefined();
+	// 归档区会话继续发消息 → touchSession 自动复活
+	const revived = await store.touchSession(s.id);
+	expect(revived).toBe(true);
+	const after = (await store.load()).sessions.find((x) => x.id === s.id);
+	expect(after?.deletedAt).toBeUndefined();
+	expect(after?.deletedReason).toBeUndefined();
+	expect(
+		(await store.loadActive()).sessions.find((x) => x.id === s.id),
+	).toBeTruthy();
+	expect(
+		(await store.loadTrash()).sessions.find((x) => x.id === s.id),
+	).toBeUndefined();
+	rmSync(f, { force: true });
+});
+
+test("touchSession 手动删除的会话不复活", async () => {
+	const f = tempFile();
+	const store = new ProjectStore(f);
+	const p = await store.createProject({ name: "P", cwd: "/p" });
+	const s = await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "手动删的",
+	});
+	await store.deleteSession(s.id);
+	const revived = await store.touchSession(s.id);
+	expect(revived).toBe(false);
+	const after = (await store.load()).sessions.find((x) => x.id === s.id);
+	expect(after?.deletedAt).toBeTruthy();
+	expect(after?.deletedReason).toBe("manual");
+	rmSync(f, { force: true });
+});
+
+test("touchSession 正常会话仅续期活动时间，返回 false", async () => {
+	const f = tempFile();
+	const store = new ProjectStore(f);
+	const p = await store.createProject({ name: "P", cwd: "/p" });
+	const s = await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "正常会话",
+	});
+	mutateSessionOnDisk(f, s.id, (x) => {
+		x.lastActivity = Date.now() - 60_000;
+	});
+	const revived = await store.touchSession(s.id);
+	expect(revived).toBe(false);
+	const after = (await store.load()).sessions.find((x) => x.id === s.id);
+	expect(after!.lastActivity).toBeGreaterThan(Date.now() - 60_000);
+	rmSync(f, { force: true });
+});
+
+test("deleteSessionIfPlaceholder 仅清理预热占位记录，非占位不动", async () => {
+	const f = tempFile();
+	const store = new ProjectStore(f);
+	const p = await store.createProject({ name: "P", cwd: "/p" });
+	// 占位会话（getCommands 预热场景）：可被孤儿回滚清理
+	const ph = await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "",
+		id: "s-ph",
+		placeholder: true,
+	});
+	expect(await store.deleteSessionIfPlaceholder(ph.id)).toBe(true);
+	const phAfter = (await store.load()).sessions.find((x) => x.id === ph.id);
+	expect(phAfter?.deletedAt).toBeTruthy();
+
+	// 非占位会话（已转正/用户创建）：孤儿回滚不得触碰
+	const normal = await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "新建还没发消息",
+	});
+	expect(await store.deleteSessionIfPlaceholder(normal.id)).toBe(false);
+	const nAfter = (await store.load()).sessions.find((x) => x.id === normal.id);
+	expect(nAfter?.deletedAt).toBeUndefined();
+
+	// 不存在的 id：静默返回 false
+	expect(await store.deleteSessionIfPlaceholder("s-none")).toBe(false);
 	rmSync(f, { force: true });
 });

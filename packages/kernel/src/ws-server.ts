@@ -1600,7 +1600,12 @@ export class WSServer {
 								agentName: event.agentName,
 							});
 						}
-						await this.opts.projectStore.touchSession(session.id);
+						// 发消息 = 最强的「要用它」信号：会话若在回收站（无论自动归档、
+						// 孤儿回滚还是误删），先恢复回列表再继续；有变动则广播刷新
+						const wasDeleted = Boolean(session.deletedAt);
+						if (wasDeleted) await this.opts.projectStore.restoreSession(session.id);
+						const revived = await this.opts.projectStore.touchSession(session.id);
+						if (wasDeleted || revived) await this.broadcastProjectsList();
 						try {
 							await this.opts.agentManager.ensureStarted(
 								event.projectId,
