@@ -9,6 +9,10 @@ interface Props {
 	onSwitch: (branch: string) => void;
 	onCreateBranch: () => void;
 	onOpenGraph: () => void;
+	/** 拉取中（禁用拉取项防重入） */
+	pulling: boolean;
+	onPull: () => void;
+	onRefresh: () => void;
 	/** 由 BranchChip 传入的 pill 锚点（定位用） */
 	anchorRef: React.RefObject<HTMLButtonElement | null>;
 	onClose: () => void;
@@ -25,6 +29,9 @@ export function BranchMenu({
 	onSwitch,
 	onCreateBranch,
 	onOpenGraph,
+	pulling,
+	onPull,
+	onRefresh,
 	anchorRef,
 	onClose,
 }: Props) {
@@ -125,6 +132,33 @@ export function BranchMenu({
 			</div>
 			{/* 底部入口 */}
 			<div className="border-t border-hairline mt-1 pt-1">
+				<div
+					data-testid="menu-git-pull"
+					onClick={() => {
+						if (pulling) return;
+						onPull();
+						onClose();
+					}}
+					className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm cursor-pointer text-left transition-colors text-secondary hover:bg-surface-hover text-[calc(12px*var(--font-scale))] ${
+						pulling ? "opacity-50 pointer-events-none" : ""
+					}`}
+				>
+					<Icon name="download-arrow" size={12} />
+					<span className="truncate">
+						{pulling ? t("git.pulling") : t("git.pullLatest")}
+					</span>
+				</div>
+				<div
+					data-testid="menu-git-refresh"
+					onClick={() => {
+						onRefresh();
+						onClose();
+					}}
+					className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm cursor-pointer text-left transition-colors text-secondary hover:bg-surface-hover text-[calc(12px*var(--font-scale))]"
+				>
+					<Icon name="refresh" size={12} />
+					<span className="truncate">{t("git.refresh")}</span>
+				</div>
 				<div
 					data-testid="btn-create-branch"
 					onClick={() => {

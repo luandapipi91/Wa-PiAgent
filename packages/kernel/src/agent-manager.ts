@@ -1246,15 +1246,20 @@ export class AgentManager {
 	): void {
 		if (handle.disposed) return;
 		// 孤儿会话回滚：piSessionFile 不存在说明从未 prompt（如 getCommands 兜底创建后
-		// 用户离开）。删除记录避免「列表出现、点进去空白」；正常会话崩溃不删（有消息文件）。
+		// 用户离开）。仅清理预热占位记录（deleteSessionIfPlaceholder），避免误伤
+		// 「用户创建后还没来得及发消息」的正常会话（曾致新会话被误删进回收站）；
+		// 正常会话崩溃不删（有消息文件）。
 		if (handle.piSessionFile && !existsSync(handle.piSessionFile)) {
-			console.warn(
-				`[kernel] 孤儿会话回滚：${sessionId} 从未写入消息文件，删除记录`,
-			);
 			void this.opts.projectStore
-				.deleteSession(sessionId)
+				.deleteSessionIfPlaceholder(sessionId)
+				.then((removed) => {
+					if (removed)
+						console.error(
+							`[kernel] 孤儿会话回滚：${sessionId} 从未写入消息文件，已清理占位记录`,
+						);
+					if (removed) this.opts.onSessionRollback?.(sessionId);
+				})
 				.catch((e) => console.error(`[kernel] 孤儿回滚删除失败 ${sessionId}:`, e));
-			this.opts.onSessionRollback?.(sessionId);
 			return;
 		}
 		handle.crashed = true;

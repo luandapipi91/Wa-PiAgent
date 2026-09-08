@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PROJECTS_FILE, WA_PI_DIR, SYSTEM_PROJECT_ID } from "@wa-pi/shared";
@@ -17,6 +17,23 @@ function empty(): ProjectsFile {
 export class ProjectStore {
 	constructor(private filePath: string = PROJECTS_FILE) {}
 
+	/**
+	 * 写互斥队列：串行化高危「读-改-写」操作（归档扫描/恢复/删除/touch）。
+	 * projects.json 是全量覆盖写，两个写操作在彼此的 await 窗口交叠时，
+	 * 后写者会用旧快照覆盖前者的修改
+	 * （典型：用户刚恢复的会话被并发归档扫描的旧数据弹回归档区）。
+	 * 低频用户操作（rename/updateProject 等）未入队，窗口毫秒级、危害低，接受。
+	 */
+	private writeQueue: Promise<unknown> = Promise.resolve();
+	private serialized<T>(fn: () => Promise<T>): Promise<T> {
+		const run = this.writeQueue.then(fn, fn);
+		this.writeQueue = run.then(
+			() => undefined,
+			() => undefined,
+		);
+		return run;
+	}
+
 	async load(): Promise<ProjectsFile> {
 		try {
 			const raw = await readFile(this.filePath, "utf8");
@@ -29,7 +46,11 @@ export class ProjectStore {
 
 	private async save(data: ProjectsFile): Promise<void> {
 		await mkdir(dirname(this.filePath), { recursive: true });
-		await writeFile(this.filePath, JSON.stringify(data, null, 2), "utf8");
+		// 原子写：先落临时文件再 rename，避免并发读读到半截 JSON
+		// （load 解析失败会回退空数据，若后续写回会把整个 store 清空）
+		const tmp = `${this.filePath}.${process.pid}.tmp`;
+		await writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
+		await rename(tmp, this.filePath);
 	}
 
 	async createProject(input: {
@@ -90,16 +111,18 @@ export class ProjectStore {
 	}
 
 	async deleteProject(id: string): Promise<void> {
-		const data = await this.load();
-		data.projects = data.projects.filter((p) => p.id !== id);
-		// 软删除该项目下的活跃会话（移入回收站，而非物理删除）
-		for (const session of data.sessions) {
-			if (session.projectId === id && !session.deletedAt) {
-				session.deletedAt = Date.now();
-				session.deletedReason = "manual";
+		return this.serialized(async () => {
+			const data = await this.load();
+			data.projects = data.projects.filter((p) => p.id !== id);
+			// 软删除该项目下的活跃会话（移入回收站，而非物理删除）
+			for (const session of data.sessions) {
+				if (session.projectId === id && !session.deletedAt) {
+					session.deletedAt = Date.now();
+					session.deletedReason = "manual";
+				}
 			}
-		}
-		await this.save(data);
+			await this.save(data);
+		});
 	}
 
 	async createSession(input: {
@@ -178,13 +201,33 @@ export class ProjectStore {
 	}
 
 	async deleteSession(id: string): Promise<void> {
-		const data = await this.load();
-		const session = data.sessions.find((s) => s.id === id);
-		if (session) {
+		return this.serialized(async () => {
+			const data = await this.load();
+			const session = data.sessions.find((s) => s.id === id);
+			if (session) {
+				session.deletedAt = Date.now();
+				session.deletedReason = "manual";
+			}
+			await this.save(data);
+		});
+	}
+
+	/**
+	 * 孤儿会话回滚专用：仅当会话仍是预热占位（placeholder=true）时才软删。
+	 * 防止误伤「用户创建后还没来得及发消息」的正常会话——此类会话一旦被
+	 * 恢复/接管/转正，placeholder 已清，不再属于可清理的占位垃圾。
+	 * @returns true 表示执行了删除；false 表示会话不存在或非占位记录，不动
+	 */
+	async deleteSessionIfPlaceholder(id: string): Promise<boolean> {
+		return this.serialized(async () => {
+			const data = await this.load();
+			const session = data.sessions.find((s) => s.id === id);
+			if (!session || !session.placeholder) return false;
 			session.deletedAt = Date.now();
 			session.deletedReason = "manual";
-		}
-		await this.save(data);
+			await this.save(data);
+			return true;
+		});
 	}
 
 	/**
@@ -213,17 +256,21 @@ export class ProjectStore {
 	 * 对未删除的会话调用为 no-op（仅清空本就为空的字段）。
 	 */
 	async restoreSession(id: string): Promise<void> {
-		const data = await this.load();
-		const session = data.sessions.find((s) => s.id === id);
-		if (session) {
-			// 如果原项目已被删除，恢复到默认工作区
-			if (!data.projects.find((p) => p.id === session.projectId)) {
-				session.projectId = SYSTEM_PROJECT_ID;
+		return this.serialized(async () => {
+			const data = await this.load();
+			const session = data.sessions.find((s) => s.id === id);
+			if (session) {
+				// 如果原项目已被删除，恢复到默认工作区
+				if (!data.projects.find((p) => p.id === session.projectId)) {
+					session.projectId = SYSTEM_PROJECT_ID;
+				}
+				session.deletedAt = undefined;
+				session.deletedReason = undefined;
+				// 恢复视为重新活动：续期 lastActivity，避免下次启动扫描按旧活动时间再次自动归档
+				session.lastActivity = Date.now();
 			}
-			session.deletedAt = undefined;
-			session.deletedReason = undefined;
-		}
-		await this.save(data);
+			await this.save(data);
+		});
 	}
 
 	/**
@@ -232,10 +279,12 @@ export class ProjectStore {
 	 */
 	async permanentlyDeleteSessions(ids: string[]): Promise<void> {
 		if (ids.length === 0) return;
-		const idSet = new Set(ids);
-		const data = await this.load();
-		data.sessions = data.sessions.filter((s) => !idSet.has(s.id));
-		await this.save(data);
+		return this.serialized(async () => {
+			const idSet = new Set(ids);
+			const data = await this.load();
+			data.sessions = data.sessions.filter((s) => !idSet.has(s.id));
+			await this.save(data);
+		});
 	}
 
 	/**
@@ -243,12 +292,14 @@ export class ProjectStore {
 	 * @returns 实际移除的会话数量
 	 */
 	async emptyTrash(): Promise<number> {
-		const data = await this.load();
-		const before = data.sessions.length;
-		data.sessions = data.sessions.filter((s) => !s.deletedAt);
-		const removed = before - data.sessions.length;
-		await this.save(data);
-		return removed;
+		return this.serialized(async () => {
+			const data = await this.load();
+			const before = data.sessions.length;
+			data.sessions = data.sessions.filter((s) => !s.deletedAt);
+			const removed = before - data.sessions.length;
+			await this.save(data);
+			return removed;
+		});
 	}
 
 	/**
@@ -280,18 +331,20 @@ export class ProjectStore {
 	 * @returns 本次被归档的会话列表
 	 */
 	async archiveStaleSessions(thresholdMs: number): Promise<SessionEntity[]> {
-		const data = await this.load();
-		const cutoff = Date.now() - thresholdMs;
-		const archived: SessionEntity[] = [];
-		for (const session of data.sessions) {
-			if (!session.deletedAt && session.lastActivity < cutoff) {
-				session.deletedAt = Date.now();
-				session.deletedReason = "auto";
-				archived.push(session);
+		return this.serialized(async () => {
+			const data = await this.load();
+			const cutoff = Date.now() - thresholdMs;
+			const archived: SessionEntity[] = [];
+			for (const session of data.sessions) {
+				if (!session.deletedAt && session.lastActivity < cutoff) {
+					session.deletedAt = Date.now();
+					session.deletedReason = "auto";
+					archived.push(session);
+				}
 			}
-		}
-		if (archived.length > 0) await this.save(data);
-		return archived;
+			if (archived.length > 0) await this.save(data);
+			return archived;
+		});
 	}
 
 	/**
@@ -320,12 +373,24 @@ export class ProjectStore {
 		}
 	}
 
-	async touchSession(id: string): Promise<void> {
-		const data = await this.load();
-		const s = data.sessions.find((x) => x.id === id);
-		if (s) {
+	/**
+	 * 刷新会话活动时间。
+	 * @returns 会话是否存在；若会话处于自动归档状态则同时恢复它并返回 true（供调用方广播列表刷新）
+	 */
+	async touchSession(id: string): Promise<boolean> {
+		return this.serialized(async () => {
+			const data = await this.load();
+			const s = data.sessions.find((x) => x.id === id);
+			if (!s) return false;
+			// 自动归档的会话一旦有新活动即自动恢复，回到活跃列表（手动删除的不复活）
+			const revived = Boolean(s.deletedAt && s.deletedReason === "auto");
+			if (revived) {
+				s.deletedAt = undefined;
+				s.deletedReason = undefined;
+			}
 			s.lastActivity = Date.now();
 			await this.save(data);
-		}
+			return revived;
+		});
 	}
 }

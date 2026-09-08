@@ -1995,7 +1995,7 @@ test("进程意外退出 → 合成 message_end 错误事件 + 下次 ensureStar
 
 // ─── 孤儿会话回滚（getCommands 兜底创建的 session 无消息文件，进程退出时删除记录）──
 
-test("孤儿会话（piSessionFile 不存在）进程退出 → 删除 session 记录 + 触发回滚回调", async () => {
+test("孤儿会话（piSessionFile 不存在）进程退出 → 用户创建的会话不误删（仅占位记录可清理）", async () => {
 	const rollbacks: string[] = [];
 	const projectStore = newProjectStore();
 	const project = await projectStore.createProject({
@@ -2026,12 +2026,12 @@ test("孤儿会话（piSessionFile 不存在）进程退出 → 删除 session �
 	// 模拟进程崩溃退出（非主动 dispose）
 	fakes[0].simulateCrash(1);
 
-	// 回滚：session 记录应被删除
-	await new Promise((r) => setTimeout(r, 50)); // 等 fire-and-forget deleteSession 落盘
-	// deleteSession 是软删除（设 deletedAt），loadActive 过滤已删除的会话
+	// 回滚：新契约下孤儿回滚仅清理预热占位记录（deleteSessionIfPlaceholder），
+	// 用户创建的正常会话即使从未 prompt 也不误删（曾致新会话被丢进回收站）
+	await new Promise((r) => setTimeout(r, 50)); // 等 fire-and-forget 清理尝试落盘
 	const { sessions } = await projectStore.loadActive();
-	expect(sessions.find((s) => s.id === session.id)).toBeUndefined();
-	expect(rollbacks).toEqual([session.id]);
+	expect(sessions.find((s) => s.id === session.id)).toBeDefined();
+	expect(rollbacks).toEqual([]);
 });
 
 test("正常会话（piSessionFile 存在）进程崩溃退出 → 不删除 session 记录", async () => {

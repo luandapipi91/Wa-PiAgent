@@ -114,6 +114,13 @@ const ICONS = {
 			<path d="M4 20h16" />
 		</>
 	),
+	"download-arrow": (
+		<>
+			<path d="M12 8v12" />
+			<path d="M6 14.5L12 20l6-5.5" />
+			<path d="M4 4h16" />
+		</>
+	),
 	// ── 操作 ──
 	refresh: (
 		<>

@@ -1,6 +1,6 @@
 // BranchChip 组件测试：分支 pill + portal 下拉（搜索过滤/当前打勾/切换回调/底部入口）
 import { test, expect, mock } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { BranchChip } from "../src/components/git/BranchChip";
 
 const BRANCHES = ["main", "dev", "feature/git-branch-switcher"];
@@ -12,6 +12,9 @@ function renderChip(overrides: Partial<Parameters<typeof BranchChip>[0]> = {}) {
 		onSwitch: mock(),
 		onCreateBranch: mock(),
 		onOpenGraph: mock(),
+		pulling: false,
+		onPull: mock(),
+		onRefresh: mock(),
 		...overrides,
 	};
 	render(<BranchChip {...props} />);
@@ -31,9 +34,35 @@ test("pill 显示当前分支名，点击展开带搜索框的菜单", () => {
 	expect(
 		screen.getByTestId("branch-item-feature/git-branch-switcher"),
 	).toBeTruthy();
-	// 底部两入口
+	// 底部入口：拉取/刷新 + 创建分支/Git 图谱
+	expect(screen.getByTestId("menu-git-pull")).toBeTruthy();
+	expect(screen.getByTestId("menu-git-refresh")).toBeTruthy();
 	expect(screen.getByTestId("btn-create-branch")).toBeTruthy();
 	expect(screen.getByTestId("btn-git-graph")).toBeTruthy();
+});
+
+test("拉取菜单项触发 onPull 并关闭菜单；拉取中禁用且不触发", () => {
+	const props = renderChip();
+	fireEvent.click(screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("menu-git-pull"));
+	expect(props.onPull).toHaveBeenCalledTimes(1);
+	expect(screen.queryByTestId("branch-menu")).toBeNull();
+
+	cleanup();
+	const props2 = renderChip({ pulling: true });
+	fireEvent.click(screen.getByTestId("branch-chip"));
+	const item = screen.getByTestId("menu-git-pull");
+	expect(item.textContent).toContain("拉取中");
+	fireEvent.click(item);
+	expect(props2.onPull).not.toHaveBeenCalled();
+});
+
+test("刷新菜单项触发 onRefresh 并关闭菜单", () => {
+	const props = renderChip();
+	fireEvent.click(screen.getByTestId("branch-chip"));
+	fireEvent.click(screen.getByTestId("menu-git-refresh"));
+	expect(props.onRefresh).toHaveBeenCalledTimes(1);
+	expect(screen.queryByTestId("branch-menu")).toBeNull();
 });
 
 test("搜索框过滤分支列表", () => {
