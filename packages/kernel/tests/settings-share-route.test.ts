@@ -37,7 +37,12 @@ describe("GET /api/settings/share", () => {
 		);
 		expect(res?.status).toBe(200);
 		expect(await res?.json()).toEqual({
-			share: { hasToken: false, channel: "edgeone", customDomain: "", accountId: "" },
+			share: {
+				hasToken: false,
+				channel: "edgeone",
+				customDomain: "",
+				accountId: "",
+			},
 		});
 	});
 });
@@ -54,7 +59,12 @@ describe("PUT /api/settings/share", () => {
 		expect(res?.status).toBe(200);
 		// 回包不再带 token 明文（脱敏为 hasToken）
 		expect(await res?.json()).toEqual({
-			share: { hasToken: true, channel: "edgeone", customDomain: "", accountId: "" },
+			share: {
+				hasToken: true,
+				channel: "edgeone",
+				customDomain: "",
+				accountId: "",
+			},
 		});
 		// 路由写盘到隔离文件后，store 层再读该文件也应看到新值（明文仍在落盘侧）
 		expect(await loadShareSettings(file)).toEqual({
@@ -80,7 +90,12 @@ describe("PUT /api/settings/share", () => {
 			new Request("http://localhost/api/settings/share", { method: "GET" }),
 		);
 		expect(await res?.json()).toEqual({
-			share: { hasToken: true, channel: "edgeone", customDomain: "", accountId: "" },
+			share: {
+				hasToken: true,
+				channel: "edgeone",
+				customDomain: "",
+				accountId: "",
+			},
 		});
 	});
 
