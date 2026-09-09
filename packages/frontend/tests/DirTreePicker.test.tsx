@@ -3,7 +3,7 @@
 // 不再 mock.module("../src/fs-client")：bun 的 mock.module 跨文件缓存会泄漏给
 // fs-client.test.ts（后者拿到伪造 listDir 而全挂）且无法按文件注销。
 import { test, expect, mock, beforeEach, afterEach, afterAll } from "bun:test";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { _setFsTransport } from "../src/fs-client";
 import { adaptLegacyTransport, type LegacyFsTransport } from "./fs-transport-adapter";
 import { emitEventForTesting } from "../src/events";
@@ -608,8 +608,10 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
     const root0 = treeItem("C:\\Users\\test");
     const arrow = root0.closest(".rct-tree-item-title-container")?.querySelector(".rct-tree-item-arrow");
     expect(arrow).toBeTruthy();
-    fireEvent.click(arrow!);
-    // 并行负载下 React 提交偶发延迟，放宽折叠等待
+    // act 包裹确保折叠状态更新同步提交（并行负载下裸 fireEvent 偶发丢失更新）
+    await act(async () => {
+      fireEvent.click(arrow!);
+    });
     await waitFor(() => {
       expect(queryTreeItem("subdir")).toBeNull();
     }, { timeout: 8000 });
