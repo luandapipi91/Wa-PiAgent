@@ -1,3 +1,10 @@
+## 2026-09-08 — v0.3.17 发版（分享空间功能）
+
+- 版本：0.3.16 → 0.3.17。
+- 新增：分享空间——Cloudflare 渠道多空间分享隔离（空间管理/分享时选空间/进度带空间名）；edgeone 渠道行为零变化。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：kernel（share spaces/路由）、shared（类型）、frontend（ShareSection/ShareButton/i18n）。
+
 ## 2026-09-08 — 新增功能: 分享空间（Cloudflare 渠道多空间分享隔离）
 
 - 新增：分享空间——一个空间 = 一个独立 Cloudflare Pages 项目，实现分享隔离；仅 cloudflare 渠道支持多空间，edgeone 渠道行为零变化（分享弹窗空间选择区替换为「空间功能仅 Cloudflare 渠道支持」提示，设置页隐藏空间管理区）。
