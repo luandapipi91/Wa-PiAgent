@@ -1468,6 +1468,8 @@ export interface ShareProgressEvent {
 	code?: string;
 	params?: Record<string, string | number>;
 	detail?: string;
+	/** CF 多空间分组部署时该阶段所属空间的显示名（默认空间不带，前端拼前缀展示） */
+	spaceName?: string;
 }
 
 // ============ Git 分支管理 SSE 事件 ============

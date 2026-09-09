@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { formatApiError } from "../../util/kernel-error";
 import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
@@ -12,7 +12,11 @@ import {
 	shareRefreshLink,
 	shareRename,
 	shareOpenFolder,
+	shareSpaces,
+	shareAddSpace,
+	shareDeleteSpace,
 	type ShareItemInfo,
+	type ShareSpaceInfo,
 } from "../../share-client";
 import { copyToClipboard } from "../../util/clipboard";
 import { useUiPrefsStore } from "../../store/ui-prefs";
@@ -27,7 +31,8 @@ import { useShareProgressStore } from "../../store/share-progress";
  * cloudflare 展示 API Token + Account ID + 注册链接 + 提示文案；
  * 保存 PUT /api/settings/share 全量提交 { channel, token, accountId, customDomain }
  * （token 空串时 kernel 保留原值），token 已保存时脱敏展示。
- * 我的分享：列表 / 复制链接 / 删除 / 清空 / 立即部署 / 存储用量 / 打开分享文件夹。
+ * 我的分享：列表（CF 渠道可用下拉按分享空间筛选；edgeone 无空间语义保持平铺） /
+ * 复制链接 / 删除 / 清空 / 立即部署 / 存储用量 / 打开分享文件夹。
  */
 /** 帮助弹窗里的图文步骤：数字圆圈 + 内容 */
 function HelpStep({ n, children }: { n: string; children: ReactNode }) {
@@ -245,6 +250,14 @@ export function ShareSection() {
 		"edgeone-token" | "cloudflare-token" | null
 	>(null);
 	const [items, setItems] = useState<ShareItemInfo[]>([]);
+	// 分享空间（仅 cloudflare 渠道语义）：列表 + 新增/删除管理
+	const [spaces, setSpaces] = useState<ShareSpaceInfo[]>([]);
+	const [addSpaceOpen, setAddSpaceOpen] = useState(false);
+	const [spaceNameDraft, setSpaceNameDraft] = useState("");
+	const [spaceProjectDraft, setSpaceProjectDraft] = useState("");
+	const [deletingSpace, setDeletingSpace] = useState<ShareSpaceInfo | null>(
+		null,
+	);
 	const [pending, setPending] = useState(0);
 	const [usage, setUsage] = useState({ totalSize: 0, totalLimit: 0 });
 	const [workspaceDir, setWorkspaceDir] = useState("");
@@ -288,6 +301,8 @@ export function ShareSection() {
 				setChannel(share?.channel === "cloudflare" ? "cloudflare" : "edgeone");
 				setCustomDomain(share?.customDomain ?? "");
 				setAccountId(share?.accountId ?? "");
+				// CF 渠道拉取空间列表（管理区展示 + 分享条数）；失败静默（非 CF 不拉）
+				if (share?.channel === "cloudflare") void refreshSpaces();
 			})
 			.catch(() => {});
 	}, []);
@@ -334,6 +349,24 @@ export function ShareSection() {
 	useEffect(() => {
 		void refresh();
 	}, []);
+
+	// 空间筛选（仅 cloudflare 渠道有空间语义；"all" = 全部分享）。
+	// cfSpaceId 缺失或 "default" 视为默认空间；edgeone 渠道无空间概念，始终显示全部。
+	const [spaceFilter, setSpaceFilter] = useState("all");
+	const visibleItems = useMemo(() => {
+		if (channel !== "cloudflare" || spaceFilter === "all") return items;
+		return items.filter((it) =>
+			spaceFilter === "default"
+				? !it.cfSpaceId || it.cfSpaceId === "default"
+				: it.cfSpaceId === spaceFilter,
+		);
+	}, [items, channel, spaceFilter]);
+
+	// CF 渠道直接进「我的分享」tab 而空间列表还没拉到时补拉一次（下拉选项需要）
+	useEffect(() => {
+		if (tab === "shares" && channel === "cloudflare" && spaces.length === 0)
+			void refreshSpaces();
+	}, [tab, channel, spaces.length]);
 
 	const formatSize = (n: number) =>
 		n >= 1 << 30
@@ -401,6 +434,49 @@ export function ShareSection() {
 		}
 	};
 
+	// ===== 分享空间管理（仅 cloudflare 渠道） =====
+
+	const refreshSpaces = async () => {
+		try {
+			setSpaces(await shareSpaces());
+		} catch {
+			/* 空间列表失败静默（不影响设置主流程） */
+		}
+	};
+
+	// 项目名自动建议：wapi-share-<6 位短随机>，用户可改
+	const suggestProjectName = () =>
+		`wapi-share-${Math.random().toString(36).slice(2, 8)}`;
+
+	const openAddSpace = () => {
+		setSpaceNameDraft("");
+		setSpaceProjectDraft(suggestProjectName());
+		setAddSpaceOpen(true);
+	};
+
+	const onAddSpace = async () => {
+		try {
+			await shareAddSpace(spaceNameDraft.trim(), spaceProjectDraft.trim());
+			setAddSpaceOpen(false);
+			useToastStore.getState().add(t("settings.share.spaceCreated"), "success");
+			await refreshSpaces();
+		} catch (e) {
+			useToastStore.getState().add(formatApiError(e), "error");
+		}
+	};
+
+	// 删除空间：仅本地映射；kernel 在空间下还有分享时返回 409（置灰预防 + 兕底报错）
+	const onDeleteSpace = async (s: ShareSpaceInfo) => {
+		setDeletingSpace(null);
+		try {
+			await shareDeleteSpace(s.id);
+			useToastStore.getState().add(t("settings.share.spaceDeleted"), "success");
+			await refreshSpaces();
+		} catch (e) {
+			useToastStore.getState().add(formatApiError(e), "error");
+		}
+	};
+
 	const onDeploy = async () => {
 		setDeploying(true);
 		try {
@@ -413,6 +489,74 @@ export function ShareSection() {
 			setDeploying(false);
 		}
 	};
+
+	// 单条分享渲染（平铺 / 分组共用）
+	const renderItem = (it: ShareItemInfo) => (
+		<li
+			key={it.id}
+			className="flex items-center gap-2 text-xs"
+			data-testid={`share-item-${it.id}`}
+		>
+			{editingId === it.id ? (
+				<input
+					type="text"
+					value={renameDraft}
+					onChange={(e) => setRenameDraft(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") void onRename(it.id);
+						if (e.key === "Escape") setEditingId(null);
+					}}
+					onBlur={() => void onRename(it.id)}
+					autoFocus
+					spellCheck={false}
+					className="px-1.5 py-0.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-40"
+					data-testid={`share-rename-input-${it.id}`}
+				/>
+			) : (
+				<span className="flex items-center gap-1">
+					<span
+						className="text-primary"
+						data-testid={`share-item-name-${it.id}`}
+					>
+						{it.name}
+					</span>
+					<button
+						type="button"
+						onClick={() => {
+							setEditingId(it.id);
+							setRenameDraft(it.name);
+						}}
+						className="p-0.5 text-secondary hover:text-primary cursor-pointer border-0 bg-transparent"
+						title={t("settings.share.rename")}
+						aria-label={t("settings.share.rename")}
+						data-testid={`share-rename-${it.id}`}
+					>
+						<Icon name="edit" size={12} />
+					</button>
+				</span>
+			)}
+			<span className="text-secondary">{formatSize(it.size)}</span>
+			<span className="text-secondary">
+				{new Date(it.createdAt).toLocaleString()}
+			</span>
+			<button
+				onClick={() => void onCopy(it.id)}
+				className="px-2 py-0.5 rounded-sm border border-hairline bg-surface cursor-pointer hover:text-primary transition-colors"
+				data-testid={`share-copy-${it.id}`}
+			>
+				{copiedId === it.id
+					? t("settings.share.copied")
+					: t("settings.share.copyLink")}
+			</button>
+			<button
+				onClick={() => void onDelete(it.id)}
+				className="px-2 py-0.5 rounded-sm border border-hairline bg-surface cursor-pointer hover:text-primary transition-colors"
+				data-testid={`share-delete-${it.id}`}
+			>
+				{t("settings.share.remove")}
+			</button>
+		</li>
+	);
 
 	const tabBtn = (key: "settings" | "shares", label: string, testid: string) => (
 		<button
@@ -580,6 +724,71 @@ export function ShareSection() {
 							<span className="text-xs text-secondary">
 								Cloudflare 分享链接永久公开；单文件 ≤ 25MB
 							</span>
+
+							{/* 分享空间管理（仅 CF 渠道）：一个空间 = 一个独立 Pages 项目 */}
+							<div className="flex flex-col gap-2" data-testid="share-spaces">
+								<div className="flex items-center gap-2">
+									<span className="text-sm font-medium text-primary">
+										{t("settings.share.spaces")}
+									</span>
+									<button
+										type="button"
+										onClick={openAddSpace}
+										className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
+										data-testid="share-space-add"
+									>
+										{t("settings.share.spaceAdd")}
+									</button>
+								</div>
+								<ul className="flex flex-col gap-1">
+									{spaces.map((s) => {
+										const count = s.shareCount ?? 0;
+										return (
+											<li
+												key={s.id}
+												className="flex items-center gap-2 text-xs"
+												data-testid={`share-space-${s.id}`}
+											>
+												<span className="text-primary">{s.name}</span>
+												{s.id === "default" && (
+													<span className="px-1 rounded-sm bg-surface text-secondary">
+														{t("settings.share.spaceDefaultTag")}
+													</span>
+												)}
+												<span className="text-secondary">{s.projectName}</span>
+												<span
+													className="text-secondary"
+													data-testid={`share-space-count-${s.id}`}
+												>
+													{t("settings.share.spaceShares", { count })}
+												</span>
+												{s.id !== "default" && (
+													<button
+														type="button"
+														disabled={count > 0}
+														title={
+															count > 0
+																? t("settings.share.spaceHasSharesTitle")
+																: t("settings.share.remove")
+														}
+														onClick={() => setDeletingSpace(s)}
+														className="px-2 py-0.5 rounded-sm border border-hairline bg-surface cursor-pointer hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+														data-testid={`share-space-delete-${s.id}`}
+													>
+														{t("settings.share.remove")}
+													</button>
+												)}
+											</li>
+										);
+									})}
+								</ul>
+								<span
+									className="text-xs text-secondary"
+									data-testid="share-spaces-quota"
+								>
+									{t("settings.share.spacesQuota")}
+								</span>
+							</div>
 						</>
 					)}
 
@@ -609,9 +818,35 @@ export function ShareSection() {
 									t("settings.share.usageOnly", {
 										used: formatSize(usage.totalSize),
 									})}
-						</span>
-						<button
-							onClick={() => void onOpenFolder()}
+					</span>
+					{/* 空间筛选下拉（仅 cloudflare 渠道有空间语义；edgeone 无空间概念不显示） */}
+					{channel === "cloudflare" && (
+						<select
+							value={spaceFilter}
+							onChange={(e) => setSpaceFilter(e.target.value)}
+							className="px-2 py-1 rounded-sm border border-hairline bg-surface text-xs text-primary outline-none"
+							data-testid="share-space-filter"
+						>
+							<option value="all">{t("share.allSpaces")}</option>
+							{(spaces.length
+								? spaces
+								: [
+										{
+											id: "default",
+											name: t("share.spaceDefault"),
+											projectName: "wapi-shares",
+											createdAt: 0,
+										},
+									]
+							).map((s) => (
+								<option key={s.id} value={s.id}>
+									{s.name}
+								</option>
+							))}
+						</select>
+					)}
+					<button
+						onClick={() => void onOpenFolder()}
 							className="p-1 text-secondary hover:text-primary cursor-pointer border-0 bg-transparent"
 							title={t("settings.share.openFolder")}
 							aria-label={t("settings.share.openFolder")}
@@ -632,78 +867,13 @@ export function ShareSection() {
 							</svg>
 						</button>
 					</div>
-					{items.length === 0 ? (
+					{visibleItems.length === 0 ? (
 						<span className="text-xs text-secondary">
 							{t("settings.share.empty")}
 						</span>
 					) : (
 						<ul className="flex flex-col gap-1">
-							{items.map((it) => (
-								<li
-									key={it.id}
-									className="flex items-center gap-2 text-xs"
-									data-testid={`share-item-${it.id}`}
-								>
-									{editingId === it.id ? (
-										<input
-											type="text"
-											value={renameDraft}
-											onChange={(e) => setRenameDraft(e.target.value)}
-											onKeyDown={(e) => {
-												if (e.key === "Enter") void onRename(it.id);
-												if (e.key === "Escape") setEditingId(null);
-											}}
-											onBlur={() => void onRename(it.id)}
-											autoFocus
-											spellCheck={false}
-											className="px-1.5 py-0.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-40"
-											data-testid={`share-rename-input-${it.id}`}
-										/>
-									) : (
-										<span className="flex items-center gap-1">
-											<span
-												className="text-primary"
-												data-testid={`share-item-name-${it.id}`}
-											>
-												{it.name}
-											</span>
-											<button
-												type="button"
-												onClick={() => {
-													setEditingId(it.id);
-													setRenameDraft(it.name);
-												}}
-												className="p-0.5 text-secondary hover:text-primary cursor-pointer border-0 bg-transparent"
-												title={t("settings.share.rename")}
-												aria-label={t("settings.share.rename")}
-												data-testid={`share-rename-${it.id}`}
-											>
-												<Icon name="edit" size={12} />
-											</button>
-										</span>
-									)}
-									<span className="text-secondary">{formatSize(it.size)}</span>
-									<span className="text-secondary">
-										{new Date(it.createdAt).toLocaleString()}
-									</span>
-									<button
-										onClick={() => void onCopy(it.id)}
-										className="px-2 py-0.5 rounded-sm border border-hairline bg-surface cursor-pointer hover:text-primary transition-colors"
-										data-testid={`share-copy-${it.id}`}
-									>
-										{copiedId === it.id
-											? t("settings.share.copied")
-											: t("settings.share.copyLink")}
-									</button>
-									<button
-										onClick={() => void onDelete(it.id)}
-										className="px-2 py-0.5 rounded-sm border border-hairline bg-surface cursor-pointer hover:text-primary transition-colors"
-										data-testid={`share-delete-${it.id}`}
-									>
-										{t("settings.share.remove")}
-									</button>
-								</li>
-							))}
+							{visibleItems.map(renderItem)}
 						</ul>
 					)}
 					<div className="flex items-center gap-2">
@@ -768,6 +938,69 @@ export function ShareSection() {
 					onConfirm={() => void onClear()}
 					onCancel={() => setConfirmClear(false)}
 				/>
+			)}
+			{deletingSpace && (
+				<ConfirmDialog
+					title={t("settings.share.spaceDelete")}
+					message={t("settings.share.spaceDeleteConfirm")}
+					confirmText={t("settings.share.remove")}
+					danger
+					onConfirm={() => void onDeleteSpace(deletingSpace)}
+					onCancel={() => setDeletingSpace(null)}
+				/>
+			)}
+			{addSpaceOpen && (
+				<Modal
+					onClose={() => setAddSpaceOpen(false)}
+					width={420}
+					data-testid="share-space-modal"
+				>
+					<div className="flex flex-col gap-3 p-4">
+						<div className="text-sm font-bold text-primary">
+							{t("settings.share.spaceAdd")}
+						</div>
+						<label className="flex flex-col gap-1">
+							<span className="text-xs text-secondary">
+								{t("settings.share.spaceName")}
+							</span>
+							<input
+								type="text"
+								value={spaceNameDraft}
+								onChange={(e) => setSpaceNameDraft(e.target.value)}
+								placeholder={t("settings.share.spaceNamePlaceholder")}
+								autoFocus
+								spellCheck={false}
+								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+								data-testid="share-space-name-input"
+							/>
+						</label>
+						<label className="flex flex-col gap-1">
+							<span className="text-xs text-secondary">
+								{t("settings.share.spaceProjectName")}
+							</span>
+							<input
+								type="text"
+								value={spaceProjectDraft}
+								onChange={(e) => setSpaceProjectDraft(e.target.value)}
+								spellCheck={false}
+								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+								data-testid="share-space-project-input"
+							/>
+							<span className="text-xs text-secondary">
+								{t("settings.share.spaceProjectNameHint")}
+							</span>
+						</label>
+						<button
+							type="button"
+							onClick={() => void onAddSpace()}
+							className="self-start px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
+							style={{ background: "var(--brand)", color: "var(--on-brand)" }}
+							data-testid="share-space-submit"
+						>
+							{t("settings.share.spaceCreate")}
+						</button>
+					</div>
+				</Modal>
 			)}
 			{helpFor && (
 				<Modal

@@ -17,6 +17,8 @@ interface ShareProgressState {
 	/** 0-100，仅 uploading 阶段有真实值 */
 	percent: number;
 	error?: string;
+	/** CF 多空间分组部署时该阶段所属空间的显示名（多空间语境下提示当前部署目标） */
+	spaceName?: string;
 }
 
 export const useShareProgressStore = create<ShareProgressState>(() => ({
@@ -26,7 +28,12 @@ export const useShareProgressStore = create<ShareProgressState>(() => ({
 
 // 模块加载即订阅（onEventType 内部幂等建立 SSE 连接）
 onEventType("share:progress", (e) => {
-	const ev = e as { phase?: SharePhase; percent?: number; error?: string };
+	const ev = e as {
+		phase?: SharePhase;
+		percent?: number;
+		error?: string;
+		spaceName?: string;
+	};
 	if (!ev.phase) return;
 	useShareProgressStore.setState({
 		phase: ev.phase,
@@ -35,5 +42,6 @@ onEventType("share:progress", (e) => {
 				? 100
 				: (ev.percent ?? useShareProgressStore.getState().percent),
 		error: ev.error,
+		spaceName: ev.spaceName,
 	});
 });

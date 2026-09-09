@@ -749,6 +749,24 @@ const en = {
 			copyLink: "Copy link",
 			copied: "Copied",
 			remove: "Delete",
+			// Share spaces (Cloudflare only): one space = one standalone Pages project
+			spaces: "Share spaces",
+			spacesQuota: "Cloudflare allows up to 100 Pages projects per account",
+			spaceAdd: "Add space",
+			spaceName: "Space name",
+			spaceNamePlaceholder: "e.g. Blog site",
+			spaceProjectName: "Pages project name",
+			spaceProjectNameHint:
+				"Lowercase letters, digits and dashes, ≤58 chars; immutable once created",
+			spaceShares: "{{count}} shares",
+			spaceDefaultTag: "Built-in",
+			spaceDelete: "Delete space",
+			spaceDeleteConfirm:
+				"Only removes the local space mapping; the cloud Pages project is untouched. Delete?",
+			spaceDeleted: "Space removed (cloud project untouched)",
+			spaceCreated: "Space created",
+			spaceHasSharesTitle:
+				"This space still has shares — clear them before deleting",
 		},
 		general: {
 			exportTurns: {
@@ -1001,6 +1019,10 @@ const en = {
 		expiresIn: "Link valid for {{hours}} hours",
 		noToken: "Configure a Token first in Settings → Share",
 		merged: "Merged into share {{name}} ({{count}} files total), old files kept",
+		spaceLabel: "Share space",
+		allSpaces: "All shares",
+		spaceDefault: "Default space",
+		spaceOnlyCloudflare: "Spaces are only supported for the Cloudflare channel",
 	},
 	git: {
 		pullLatest: "Pull latest",
@@ -1143,6 +1165,15 @@ const en = {
 		"share.assetUploadFailed": "Share file upload failed. Try again",
 		"share.cloudflareAccountEmpty":
 			"Cloudflare account list is empty. Check token permissions",
+		"share.spaceNameRequired": "Space name is required",
+		"share.spaceInvalidProjectName":
+			"Invalid project name (must start with a lowercase letter/digit; only lowercase letters, digits and dashes allowed; ≤58 chars)",
+		"share.spaceNameConflict": "A space with this name already exists",
+		"share.spaceProjectConflict": "A Pages project with this name already exists",
+		"share.spaceDefaultImmutable": "The default space cannot be deleted",
+		"share.spaceNotFound": "Space not found",
+		"share.spaceHasShares":
+			"This space still has shares — clear them before deleting",
 		"ext.invalidName": "Invalid package name format",
 		"ext.alreadyInstalled":
 			"Package {{name}} is already installed. Use upgrade instead",

@@ -592,13 +592,29 @@ export const SHARE_DEFAULTS = {
 	customDomain: "",
 	accountId: "",
 } as const;
+
+/** 分享空间（仅 cloudflare 渠道语义）：一个空间 = 一个独立 Cloudflare Pages 项目。
+ *  内置默认空间（id "default"、项目名 wapi-shares）代码内置不存列表，见 share/spaces.ts。 */
+export interface ShareSpace {
+	/** 短随机 id（8 位 hex）；内置默认空间固定 "default" */
+	id: string;
+	/** 显示名（设置页/分享弹窗展示） */
+	name: string;
+	/** 对应的 CF Pages 项目名（部署目标） */
+	projectName: string;
+	createdAt: number;
+}
+
 export interface ShareSettings {
 	token: string;
 	channel: "edgeone" | "cloudflare";
-	/** 自定义加速域名（可选）；空 = 用项目预设域名 */
+	/** 自定义加速域名（可选）；空 = 用项目预设域名。
+	 *  TODO 空间级域名（每空间绑定独立域名）列为后续需求，当前保持渠道级全局。 */
 	customDomain: string;
 	/** Cloudflare Pages 账号 ID（channel=cloudflare 时使用）；空 = 未配置 */
 	accountId?: string;
+	/** 用户自定义分享空间列表（仅 cloudflare 渠道语义；默认空间不入列表） */
+	spaces?: ShareSpace[];
 }
 
 /** 读取产物分享配置；字段缺失逐项回退默认值 */
@@ -611,11 +627,13 @@ export async function loadShareSettings(
 		channel: raw.channel ?? SHARE_DEFAULTS.channel,
 		customDomain: raw.customDomain ?? SHARE_DEFAULTS.customDomain,
 		accountId: raw.accountId ?? SHARE_DEFAULTS.accountId,
+		spaces: Array.isArray(raw.spaces) ? raw.spaces : [],
 	};
 }
 
 /** 保存产物分享配置（read-modify-write）。token 传空串或缺省（undefined）时保留已保存值：
- * 前端编辑自定义域名等字段时不会把 token 冲掉。 */
+ * 前端编辑自定义域名等字段时不会把 token 冲掉。spaces 未传（undefined）时同样保留：
+ * 前端保存设置不携带空间列表，避免冲掉空间 CRUD 维护的映射；显式传数组（含空）则覆盖。 */
 export async function saveShareSettings(
 	share: ShareSettings,
 	file: string = SETTINGS_FILE,
@@ -627,6 +645,7 @@ export async function saveShareSettings(
 		channel: share.channel ?? SHARE_DEFAULTS.channel,
 		customDomain: share.customDomain ?? SHARE_DEFAULTS.customDomain,
 		accountId: share.accountId ?? SHARE_DEFAULTS.accountId,
+		spaces: share.spaces ?? settings.share?.spaces ?? [],
 	};
 	settings.share = next;
 	await writeSettingsJson(file, settings);

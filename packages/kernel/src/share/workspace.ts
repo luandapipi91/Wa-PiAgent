@@ -34,6 +34,22 @@ export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 /** EdgeOne 免费版总存储上限 5GB（仅 edgeone 渠道；cloudflare 渠道不限，list 端点按 channel 动态返回 0） */
 export const TOTAL_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
 
+/** 按 cfSpaceId 把分享记录分组（CF 渠道多空间部署用）。
+ *  缺失 cfSpaceId 或 "default" 归默认空间（存量数据兼容），其余按空间 id 原样分组。 */
+export function groupItemsBySpace(
+	items: ShareItem[],
+): Map<string, ShareItem[]> {
+	const groups = new Map<string, ShareItem[]>();
+	for (const it of items) {
+		const key =
+			it.cfSpaceId && it.cfSpaceId !== "default" ? it.cfSpaceId : "default";
+		const list = groups.get(key);
+		if (list) list.push(it);
+		else groups.set(key, [it]);
+	}
+	return groups;
+}
+
 export interface ShareItem {
 	id: string;
 	/** 分享名：文件夹名（items/<name>/）与 URL 子路径（/<name>/），全库唯一 */
@@ -42,6 +58,9 @@ export interface ShareItem {
 	files: string[];
 	size: number;
 	createdAt: number;
+	/** 所属 CF 分享空间（仅 cloudflare 渠道语义）；缺失或 "default" = 默认空间。
+	 *  存量记录无此字段，自动归默认空间（不迁移）。 */
+	cfSpaceId?: string;
 }
 
 const stateFile = (dir: string) => join(dir, "state.json");
@@ -190,18 +209,25 @@ async function dirSizeOf(dir: string, files: string[]): Promise<number> {
 }
 
 /** 新增/合并一个分享：entries 写入 items/<name>/（name 为文件夹名）。
- *  同名（同 id 或不同 id）→ 合并：旧文件保留、新文件追加、同路径新覆盖旧；
- *  记录合并为一条（files 并集、size 重算、createdAt=本次时间）。 */
+ *  同名（同 id 或同空间内不同 id）→ 合并：旧文件保留、新文件追加、同路径新覆盖旧；
+ *  记录合并为一条（files 并集、size 重算、createdAt=本次时间）。
+ *  cfSpaceId（可选，仅 cloudflare 渠道）：空间隔离——同名不同空间不合并，保持独立记录。 */
 export async function addItem(
 	dir: string,
 	id: string,
 	name: string,
 	entries: { name: string; data: Uint8Array }[],
+	cfSpaceId?: string,
 ): Promise<ShareItem> {
 	if (!SHARE_NAME_RE.test(name))
 		throw new KernelError("share.invalidName", { name });
 	const existing = await loadItems(dir);
-	const old = existing.find((i) => i.name === name);
+	// 合并只在同空间内匹配：缺失 cfSpaceId 的存量记录与 "default" 视为同一空间
+	const spaceKey = cfSpaceId && cfSpaceId !== "default" ? cfSpaceId : "default";
+	const sameSpace = (i: ShareItem) =>
+		(i.cfSpaceId && i.cfSpaceId !== "default" ? i.cfSpaceId : "default") ===
+		spaceKey;
+	const old = existing.find((i) => i.name === name && sameSpace(i));
 	const target = join(itemsDir(dir), name);
 	// 合并语义：不删旧目录，旧文件保留；新文件写入（同路径 writeFile 自然覆盖）
 	await mkdir(target, { recursive: true });
@@ -220,15 +246,15 @@ export async function addItem(
 	}
 	const files = [...new Set([...existingFiles, ...entries.map((e) => e.name)])];
 	const size = await dirSizeOf(target, files);
-	const item: ShareItem = {
-		id,
-		name,
-		files,
-		size,
-		createdAt: Date.now(),
-	};
-	// 去掉旧记录（同 id 覆盖更新，或同 name 合并）
-	const items = existing.filter((i) => i.id !== id && i.name !== name);
+	// 缺省（"default" 语义）不写字段：存量兼容 + 避免 state.json 出现冗余键
+	const item: ShareItem =
+		cfSpaceId && cfSpaceId !== "default"
+			? { id, name, files, size, createdAt: Date.now(), cfSpaceId }
+			: { id, name, files, size, createdAt: Date.now() };
+	// 去掉旧记录（同 id 覆盖更新，或同空间内同名合并；跨空间同名保留）
+	const items = existing.filter(
+		(i) => i.id !== id && !(i.name === name && sameSpace(i)),
+	);
 	items.unshift(item);
 	await writeState(stateFile(dir), items);
 	return item;
@@ -320,7 +346,6 @@ export function renderIndexHtml(): string {
 `;
 }
 
-/** 按 state.json 记录把工作区打成部署 zip（index.html + <name>/... 全量） */
 /** 分享目录索引页：列出该目录内全部文件（相对链接），供多文件/合并后的目录 URL 直接访问。
  *  EdgeOne 目录 URL 带 eo_token/eo_time query——点击子链接会丢 query 导致 401，
  *  故用脚本从 location.search 读取 query 拼到每个链接上（仅本目录，不泄露其他分享）。 */
@@ -347,8 +372,15 @@ document.querySelectorAll(".file-link").forEach(function (a) {
 </body></html>`;
 }
 
-export async function buildDeployZip(dir: string): Promise<Uint8Array> {
-	const items = await loadItems(dir);
+/** 按 state.json 记录把工作区打成部署 zip（index.html + <name>/... 全量）。
+ *  filter（可选）：只打包命中的记录（CF 渠道多空间分组部署，每空间独立 zip）。 */
+export async function buildDeployZip(
+	dir: string,
+	filter?: (item: ShareItem) => boolean,
+): Promise<Uint8Array> {
+	const items = filter
+		? (await loadItems(dir)).filter(filter)
+		: await loadItems(dir);
 	const files: Record<string, Uint8Array> = {
 		"index.html": strToU8(renderIndexHtml()),
 	};

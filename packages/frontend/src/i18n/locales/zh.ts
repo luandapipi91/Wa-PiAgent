@@ -725,6 +725,22 @@ const zh = {
 			copyLink: "复制链接",
 			copied: "已复制",
 			remove: "删除",
+			// 分享空间（仅 cloudflare 渠道）：一个空间 = 一个独立 Pages 项目
+			spaces: "分享空间",
+			spacesQuota: "Cloudflare 每账户上限 100 个 Pages 项目",
+			spaceAdd: "新增空间",
+			spaceName: "空间名称",
+			spaceNamePlaceholder: "例如：博客站点",
+			spaceProjectName: "Pages 项目名",
+			spaceProjectNameHint: "小写字母/数字/连字符，≤58 字符，创建后不可修改",
+			spaceShares: "{{count}} 条分享",
+			spaceDefaultTag: "内置",
+			spaceDelete: "删除空间",
+			spaceDeleteConfirm:
+				"仅删除本地空间映射，云端 Pages 项目不受影响。确定删除？",
+			spaceDeleted: "空间已删除（云端项目不受影响）",
+			spaceCreated: "空间已创建",
+			spaceHasSharesTitle: "该空间下还有分享，请先清空",
 		},
 		general: {
 			exportTurns: {
@@ -967,6 +983,10 @@ const zh = {
 		expiresIn: "链接 {{hours}} 小时内有效",
 		noToken: "请先在 设置 → 分享 配置 Token",
 		merged: "已合并到分享 {{name}}（共 {{count}} 个文件），旧文件已保留",
+		spaceLabel: "分享空间",
+		allSpaces: "全部分享",
+		spaceDefault: "默认空间",
+		spaceOnlyCloudflare: "空间功能仅 Cloudflare 渠道支持",
 	},
 	git: {
 		pullLatest: "拉取最新代码",
@@ -981,7 +1001,8 @@ const zh = {
 		graph: "Git 图谱",
 		refresh: "刷新状态",
 		createTitle: "创建并检出新分支",
-		createDesc: "基于当前 HEAD 创建一个新的本地分支，并在创建成功后立即切换过去。",
+		createDesc:
+			"基于当前 HEAD 创建一个新的本地分支，并在创建成功后立即切换过去。",
 		branchNamePlaceholder: "例如 feature/git-branch-switcher",
 		createHint: "首版只支持基于当前 HEAD 创建并切换。",
 		createConfirm: "创建并切换",
@@ -1082,6 +1103,14 @@ const zh = {
 		"share.assetCheckFailed": "分享文件校验失败，请重试",
 		"share.assetUploadFailed": "分享文件上传失败，请重试",
 		"share.cloudflareAccountEmpty": "Cloudflare 账号列表为空，请检查 Token 权限",
+		"share.spaceNameRequired": "空间名称不能为空",
+		"share.spaceInvalidProjectName":
+			"项目名不合法（小写字母/数字开头，仅小写字母/数字/连字符，≤58 字符）",
+		"share.spaceNameConflict": "已存在同名空间",
+		"share.spaceProjectConflict": "已存在同名 Pages 项目",
+		"share.spaceDefaultImmutable": "默认空间不可删除",
+		"share.spaceNotFound": "空间不存在",
+		"share.spaceHasShares": "该空间下还有分享，请先清空后再删除",
 		"ext.invalidName": "无效的插件名称格式",
 		"ext.alreadyInstalled": "插件 {{name}} 已安装，请使用升级",
 		"ext.disabled": "插件已禁用，请先启用后再试",
