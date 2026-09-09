@@ -1,3 +1,12 @@
+## 2026-09-08 — 新增功能: 分享空间（Cloudflare 渠道多空间分享隔离）
+
+- 新增：分享空间——一个空间 = 一个独立 Cloudflare Pages 项目，实现分享隔离；仅 cloudflare 渠道支持多空间，edgeone 渠道行为零变化（分享弹窗空间选择区替换为「空间功能仅 Cloudflare 渠道支持」提示，设置页隐藏空间管理区）。
+- 数据模型：`ShareSettings` 新增 `spaces`（`ShareSpace { id, name, projectName, createdAt }`，保存链路对未传 spaces 保留原值）；内置默认空间（id=default、项目名 wapi-shares）代码内置不存列表；`ShareItem` 新增可选 `cfSpaceId`——缺失或 "default" 均归默认空间，存量分享自动归入默认空间，不做迁移工具。
+- kernel：新增 `POST /api/share/spaces`（校验 CF 项目名规则 `^[a-z0-9][a-z0-9-]*$`、≤58 字符、与已有空间及默认空间不重名不重项目名）、`DELETE /api/share/spaces/:id`（默认空间不可删；空间下还有分享返回 409 提示先清空；只删本地映射不删云端项目，响应带提示文案）、`GET /api/share/spaces`（列表含默认空间 + 每空间分享数）；upload 新增可选 `cfSpaceId`（仅 cloudflare 生效，未知 id 404，其他渠道忽略）；deployNow CF 分支按 cfSpaceId 分组——每组独立打包 zip、独立走既有 CF 上传流程（projectName 已在客户端参数化，默认 wapi-shares），组间串行、全部成功才写部署快照，部署进度 SSE 带空间名（ShareProgressEvent 新增 spaceName）；refresh-link CF 分支按条目 cfSpaceId 解析目标项目；addItem 同名合并限定同空间（跨空间同名保持独立记录，保证空间隔离）。
+- frontend：设置 → 分享新增「分享空间」管理区（仅 CF 渠道显示：列表名称/项目名/分享条数、新增弹窗项目名自动建议 `wapi-share-<短随机>` 可改、有分享删除置灰 + title 提示、删除走确认弹窗成功 toast；配额静态文案「Cloudflare 每账户上限 100 个 Pages 项目」）；ShareButton 分享弹窗 CF 渠道显示空间下拉（默认空间 + 用户空间，生成时透传 cfSpaceId）；进度文本带空间名前缀；i18n zh/en 同步补全（settings.share、share、kernelMsg 三段）。
+- 验证：kernel share-spaces 单测 15 pass（按 cfSpaceId 分组/空间 CRUD 校验/存量缺失 cfSpaceId 归默认空间/buildDeployZip 按空间过滤/settings spaces 保留链路）+ share-routes 28 pass（空间 CRUD 路由/CF 分组部署到不同项目/edgeone 渠道带空间参数行为零变化）；frontend 组件测试 45 pass（ShareSection 空间管理区 CF 显示/EdgeOne 隐藏/新增/删除置灰与确认、ShareButton 空间下拉/edgeone 提示/三参调用形态不变）；kernel+frontend 全量单测绿（bun run test：2191 pass 0 fail）；typecheck 四包全绿；e2e 无 share 相关 spec，settings-provider spec「打开设置页」失败经 stash 基线对照确认为既有失败（与本次改动无关）；测试产物（test-results/）已清理。
+- 影响范围：packages/kernel（src/share/spaces.ts 新增、src/share/workspace.ts、src/routes/share.ts、src/settings-store.ts、tests/share-spaces.test.ts 新增、tests/share-routes.test.ts）、packages/shared（src/types.ts ShareProgressEvent.spaceName）、packages/frontend（src/share-client.ts、src/store/share-progress.ts、components/settings/ShareSection.tsx、components/ui/ShareButton.tsx、i18n/locales/zh.ts、en.ts 及两个组件测试）、CHANGELOG.md。
+
 ## 2026-09-08 — v0.3.16 发版（会话归档误伤修复 + Git 工具栏收敛）
 
 - 版本：0.3.15 → 0.3.16。

@@ -12,12 +12,14 @@ const shareUploadMock = mock(async () => ({}));
 const shareNameForPathsMock = mock(
 	async (): Promise<{ name: string | null }> => ({ name: null }),
 );
+const shareSpacesMock = mock(async (): Promise<unknown[]> => []);
 const copyMock = mock(async (..._args: any[]) => {});
 
 mock.module("../../share-client", () => ({
 	shareSettings: shareSettingsMock,
 	shareUpload: shareUploadMock,
 	shareNameForPaths: shareNameForPathsMock,
+	shareSpaces: shareSpacesMock,
 	saveShareSettings: async () => {},
 }));
 mock.module("../../util/clipboard", () => ({
@@ -37,6 +39,7 @@ beforeEach(() => {
 	shareSettingsMock.mockReset();
 	shareUploadMock.mockReset();
 	shareNameForPathsMock.mockReset();
+	shareSpacesMock.mockReset();
 	copyMock.mockReset();
 	useShareProgressStore.setState({ phase: "idle", percent: 0 });
 	useSettingsStore.setState({ showSettings: false, activeSection: "general" });
@@ -45,6 +48,7 @@ beforeEach(() => {
 		channel: "edgeone",
 	});
 	shareNameForPathsMock.mockResolvedValue({ name: null });
+	shareSpacesMock.mockResolvedValue([]);
 	shareUploadMock.mockResolvedValue({
 		url: URL,
 		expiresAt: Date.now() + 3 * 3600 * 1000,
@@ -295,4 +299,59 @@ test("用户已手动改过输入框：历史名回填不覆盖用户输入", as
 			(screen.getByTestId("share-name-input") as HTMLInputElement).value,
 		).toBe("我改的"),
 	);
+});
+
+// ===== 分享空间（CF 渠道多空间）=====
+
+test("channel=cloudflare：显示空间下拉（默认空间+用户空间），生成携带 cfSpaceId", async () => {
+	shareSettingsMock.mockResolvedValue({
+		hasToken: true,
+		channel: "cloudflare",
+	});
+	shareSpacesMock.mockResolvedValue([
+		{
+			id: "default",
+			name: "默认空间",
+			projectName: "wapi-shares",
+			createdAt: 0,
+			shareCount: 0,
+		},
+		{
+			id: "sp1",
+			name: "博客",
+			projectName: "wapi-blog",
+			createdAt: 1,
+			shareCount: 0,
+		},
+	]);
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	// 下拉出现：默认空间选中 + 用户空间可选
+	const select = (await screen.findByTestId(
+		"share-space-select",
+	)) as HTMLSelectElement;
+	expect(select.value).toBe("default");
+	fireEvent.change(select, { target: { value: "sp1" } });
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-url");
+	expect(shareUploadMock).toHaveBeenCalledWith(
+		PATHS,
+		undefined,
+		"3 个文件",
+		"sp1",
+	);
+});
+
+test("channel=edgeone：显示「仅 Cloudflare 支持」提示，无下拉，生成不带 cfSpaceId", async () => {
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-files");
+	expect(screen.getByTestId("share-space-hint").textContent).toContain(
+		"仅 Cloudflare",
+	);
+	expect(screen.queryByTestId("share-space-select")).toBeNull();
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-url");
+	// 三参调用：edgeone 渠道空间参数不透传
+	expect(shareUploadMock).toHaveBeenCalledWith(PATHS, undefined, "3 个文件");
 });

@@ -7,7 +7,13 @@ import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 import { ProgressBar } from "./ProgressBar";
 import { useTranslation } from "../../i18n/useTranslation";
-import { shareSettings, shareUpload, shareNameForPaths } from "../../share-client";
+import {
+	shareSettings,
+	shareUpload,
+	shareNameForPaths,
+	shareSpaces,
+	type ShareSpaceInfo,
+} from "../../share-client";
 import { copyToClipboard } from "../../util/clipboard";
 import { useShareProgressStore } from "../../store/share-progress";
 import { useProjectsStore } from "../../store/projects";
@@ -102,6 +108,11 @@ export function ShareResultModal({
 	// 挂载时检查 token：checking 完成前显示加载；token 为空 → 引导配置
 	const [checking, setChecking] = useState(true);
 	const [noToken, setNoToken] = useState(false);
+	// 分享渠道：cloudflare 渠道支持多空间（选择部署目标项目），edgeone 无空间概念
+	const [channel, setChannel] = useState("");
+	// 空间列表（仅 cloudflare 渠道拉取；首项为内置默认空间）与选中空间 id
+	const [spaces, setSpaces] = useState<ShareSpaceInfo[]>([]);
+	const [spaceId, setSpaceId] = useState("default");
 	// 分享名（文件夹名/URL 子路径）：默认项目名（用户要求，优先显式传入，否则按会话反查），
 	// 缺省回退文件/目录自动名；可修改；重复时 kernel 409
 	const [shareName, setShareName] = useState(
@@ -139,6 +150,14 @@ export function ShareResultModal({
 			.then((s) => {
 				if (cancelled) return;
 				if (!s.hasToken) setNoToken(true);
+				setChannel(s.channel);
+				// CF 渠道拉空间列表供下拉选择；失败不影响主流程（退化为默认空间）
+				if (s.channel === "cloudflare")
+					shareSpaces()
+						.then((list) => {
+							if (!cancelled) setSpaces(list);
+						})
+						.catch(() => {});
 			})
 			.catch(() => {
 				// 读不到配置按未配置处理，引导用户去设置
@@ -187,11 +206,13 @@ export function ShareResultModal({
 		setError(null);
 		setCopied(false);
 		try {
-			const res = await shareUpload(
-				paths,
-				sessionId,
-				shareName.trim() || undefined,
-			);
+			// 空间参数：仅 cloudflare 渠道且选了非默认空间时才透传；
+			// 无空间时保持三参调用形态（与既有行为完全一致）
+			const targetSpace =
+				channel === "cloudflare" && spaceId !== "default" ? spaceId : undefined;
+			const res = await (targetSpace
+				? shareUpload(paths, sessionId, shareName.trim() || undefined, targetSpace)
+				: shareUpload(paths, sessionId, shareName.trim() || undefined));
 			setResult(res);
 			// 同名合并：明确提示（旧文件保留、新文件追加），避免用户以为覆盖丢失了旧内容
 			if (res.merged) {
@@ -311,15 +332,47 @@ export function ShareResultModal({
 								type="text"
 								value={shareName}
 								onChange={(e) => {
-								setShareName(e.target.value);
-								nameEditedRef.current = true;
-							}}
+									setShareName(e.target.value);
+									nameEditedRef.current = true;
+								}}
 								placeholder={t("share.namePlaceholder")}
 								spellCheck={false}
 								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
 								data-testid="share-name-input"
 							/>
 						</div>
+						{/* 空间选择：仅 cloudflare 渠道；edgeone 显示静态提示（空间功能不支持） */}
+						{channel === "cloudflare" ? (
+							<div className="flex flex-col gap-1">
+								<span className="text-xs text-secondary">{t("share.spaceLabel")}</span>
+								<select
+									value={spaceId}
+									onChange={(e) => setSpaceId(e.target.value)}
+									className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+									data-testid="share-space-select"
+								>
+									{(spaces.length
+										? spaces
+										: [
+												{
+													id: "default",
+													name: t("share.spaceDefault"),
+													projectName: "wapi-shares",
+													createdAt: 0,
+												},
+											]
+									).map((s) => (
+										<option key={s.id} value={s.id}>
+											{s.name}
+										</option>
+									))}
+								</select>
+							</div>
+						) : (
+							<span className="text-xs text-secondary" data-testid="share-space-hint">
+								{t("share.spaceOnlyCloudflare")}
+							</span>
+						)}
 						<div className="flex flex-col gap-1" data-testid="share-files">
 							<span className="text-sm text-primary">
 								{t("share.files", { count: paths.length })}

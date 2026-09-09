@@ -615,3 +615,247 @@ test("name-for-paths：paths 为空返回 400", async () => {
     const res = await post(router, "/api/share/name-for-paths", { paths: [] });
     expect(res!.status).toBe(400);
 });
+
+// ===== 分享空间（CF 多空间）路由 =====
+
+/** DELETE 请求 helper（空间删除路由用） */
+function del(router: HttpRouter, path: string) {
+    return router.handle(new Request(`http://x${path}`, { method: "DELETE" }));
+}
+
+/** 泛化版 CF mock：任意项目名均可走通，记录部署请求的项目名（分组部署断言用） */
+function mockCloudflareAnyProject(deployedProjects: string[]) {
+    const handler = async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url);
+        const json = (body: unknown) =>
+            new Response(JSON.stringify(body), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+            });
+        if (u.includes("/upload-token"))
+            return json({ result: { jwt: "J" }, success: true });
+        if (u.includes("/pages/assets/check-missing")) {
+            const body = JSON.parse(String(init?.body));
+            return json(body.hashes as string[]);
+        }
+        if (u.includes("/pages/assets/upload")) return json({ success: true });
+        if (u.includes("/deployments/")) {
+            return json({
+                result: { latest_stage: { name: "deploy", status: "success" } },
+                success: true,
+            });
+        }
+        if (u.endsWith("/deployments")) {
+            const m = u.match(/\/pages\/projects\/([^/]+)\/deployments/);
+            deployedProjects.push(m?.[1] ?? "?");
+            return json({
+                result: {
+                    id: "dep-cf",
+                    url: `https://abc.${m?.[1] ?? "x"}.pages.dev`,
+                    environment: "production",
+                },
+                success: true,
+            });
+        }
+        if (/\/pages\/projects\/[^/]+$/.test(u) && !u.endsWith("/projects"))
+            return json({
+                result: {
+                    id: "proj-cf",
+                    subdomain: `${u.split("/").pop()}.pages.dev`,
+                },
+                success: true,
+            });
+        if (u.endsWith("/pages/projects") && init?.method === "POST")
+            return json({
+                result: { id: "proj-new", subdomain: "new.pages.dev" },
+                success: true,
+            });
+        throw new Error(`unhandled CF mock: ${u}`);
+    };
+    globalThis.fetch = handler as any;
+}
+
+/** 建 CF 渠道路由：settings 预写 cloudflare 渠道 + 可选空间列表 */
+function setupCf(spaces?: unknown[]) {
+    writeFileSync(
+        join(dir, "settings.json"),
+        JSON.stringify({
+            share: {
+                token: "tk_cf",
+                channel: "cloudflare",
+                accountId: "acc-cf",
+                ...(spaces ? { spaces } : {}),
+            },
+        }),
+    );
+    const router = new HttpRouter();
+    createShareRoutes(
+        router,
+        {
+            token: "tk_test",
+            settingsFile: join(dir, "settings.json"),
+            pollIntervalMs: 1,
+        },
+        workspaceDir,
+    );
+    return router;
+}
+
+test("空间 CRUD：新增写 settings、GET 带每空间分享数（默认空间内置）", async () => {
+    const router = setupCf();
+    // 初始列表：只有内置默认空间
+    let list = (await (await router.handle(
+        new Request("http://x/api/share/spaces"),
+    ))!.json()) as any;
+    expect(list.spaces).toHaveLength(1);
+    expect(list.spaces[0]).toMatchObject({
+        id: "default",
+        projectName: "wapi-shares",
+        shareCount: 0,
+    });
+
+    // 新增一个空间
+    const res = await post(router, "/api/share/spaces", {
+        name: "博客",
+        projectName: "wapi-blog",
+    });
+    expect(res!.status).toBe(200);
+    const created = (await res!.json()) as any;
+    expect(created.space.projectName).toBe("wapi-blog");
+
+    // GET 出现两个空间；传空间上传一条分享后 shareCount 正确
+    await post(router, "/api/share/upload", {
+        paths: [join(dir, "prod", "index.html")],
+        cfSpaceId: created.space.id,
+    });
+    list = (await (await router.handle(
+        new Request("http://x/api/share/spaces"),
+    ))!.json()) as any;
+    expect(list.spaces).toHaveLength(2);
+    const def = list.spaces.find((s: any) => s.id === "default");
+    const blog = list.spaces.find((s: any) => s.id === created.space.id);
+    expect(def.shareCount).toBe(0);
+    expect(blog.shareCount).toBe(1);
+}, 15000);
+
+test("空间 CRUD：重名/重项目名/非法项目名 → 409", async () => {
+    const router = setupCf();
+    await post(router, "/api/share/spaces", {
+        name: "博客",
+        projectName: "wapi-blog",
+    });
+    for (const body of [
+        { name: "博客", projectName: "other" }, // 重名
+        { name: "另一个", projectName: "wapi-blog" }, // 重项目名
+        { name: "另一个", projectName: "wapi-shares" }, // 与默认空间项目名冲突
+        { name: "另一个", projectName: "Bad_Name" }, // 非法项目名
+    ]) {
+        const res = await post(router, "/api/share/spaces", body);
+        expect(res!.status).toBe(409);
+    }
+}, 15000);
+
+test("空间删除：有分享 409、无分享 200+提示、默认空间 409、不存在 404", async () => {
+    const router = setupCf();
+    const created = (await (await post(router, "/api/share/spaces", {
+        name: "博客",
+        projectName: "wapi-blog",
+    }))!.json()) as any;
+
+    // 默认空间不可删
+    expect((await del(router, "/api/share/spaces/default"))!.status).toBe(409);
+    // 不存在
+    expect((await del(router, "/api/share/spaces/nosuchid"))!.status).toBe(404);
+
+    // 有分享 → 409 提示先清空
+    await post(router, "/api/share/upload", {
+        paths: [join(dir, "prod", "index.html")],
+        cfSpaceId: created.space.id,
+    });
+    const busy = await del(router, `/api/share/spaces/${created.space.id}`);
+    expect(busy!.status).toBe(409);
+
+    // 清空该空间分享（按名字删除）→ 删除成功，响应带「不删云端」提示
+    const list = (await (await router.handle(
+        new Request("http://x/api/share/list"),
+    ))!.json()) as any;
+    for (const it of list.items) {
+        if (it.cfSpaceId === created.space.id)
+            await post(router, "/api/share/delete", { id: it.id });
+    }
+    const ok = (await del(
+        router,
+        `/api/share/spaces/${created.space.id}`,
+    )) as any;
+    expect(ok!.status).toBe(200);
+    const body = await ok!.json();
+    expect(body.notice).toContain("云端");
+    // settings 里空间映射已移除
+    const spaces = (await (await router.handle(
+        new Request("http://x/api/share/spaces"),
+    ))!.json()) as any;
+    expect(spaces.spaces).toHaveLength(1);
+}, 15000);
+
+test("CF 渠道 upload 带 cfSpaceId → 记录归属该空间并部署到对应项目", async () => {
+    const deployed: string[] = [];
+    mockCloudflareAnyProject(deployed);
+    const router = setupCf([
+        { id: "sp1", name: "博客", projectName: "wapi-blog", createdAt: 1 },
+    ]);
+    const res = await post(router, "/api/share/upload", {
+        paths: [join(dir, "prod", "index.html")],
+        cfSpaceId: "sp1",
+    });
+    expect(res!.status).toBe(200);
+    const body = await res!.json();
+    expect(body.projectName).toBe("wapi-blog");
+    expect(body.url).toContain("wapi-blog.pages.dev");
+    expect(deployed).toEqual(["wapi-blog"]);
+    const list = (await (await router.handle(
+        new Request("http://x/api/share/list"),
+    ))!.json()) as any;
+    expect(list.items[0].cfSpaceId).toBe("sp1");
+}, 15000);
+
+test("CF 渠道 deploy 按 cfSpaceId 分组：每空间独立项目部署一次", async () => {
+    const deployed: string[] = [];
+    mockCloudflareAnyProject(deployed);
+    const router = setupCf([
+        { id: "sp1", name: "博客", projectName: "wapi-blog", createdAt: 1 },
+    ]);
+    // 两个不同文件（同组 paths 的 id 相同会被同 id 合并，无法分到两个空间）
+    mkdirSync(join(dir, "prod2"), { recursive: true });
+    writeFileSync(join(dir, "prod2", "page.html"), "<h1>y</h1>");
+    // 默认空间一条 + sp1 一条
+    await post(router, "/api/share/upload", {
+        paths: [join(dir, "prod", "index.html")],
+    });
+    await post(router, "/api/share/upload", {
+        paths: [join(dir, "prod2", "page.html")],
+        name: "blog",
+        cfSpaceId: "sp1",
+    });
+    // 上传即部署过；再清空快照模拟「立即部署」全量分组
+    deployed.length = 0;
+    const res = await post(router, "/api/share/deploy", {});
+    expect(res!.status).toBe(200);
+    expect(deployed.sort()).toEqual(["wapi-blog", "wapi-shares"]);
+}, 15000);
+
+test("edgeone 渠道 upload 带 cfSpaceId：忽略空间参数，行为零变化", async () => {
+    mockEdgeOne();
+    const router = setup();
+    const res = await post(router, "/api/share/upload", {
+        paths: [join(dir, "prod", "index.html")],
+        cfSpaceId: "sp1",
+    });
+    expect(res!.status).toBe(200);
+    const body = await res!.json();
+    expect(body.channel).toBe("edgeone");
+    expect(body.projectName).toBe("wapi-shares");
+    const list = (await (await router.handle(
+        new Request("http://x/api/share/list"),
+    ))!.json()) as any;
+    expect(list.items[0].cfSpaceId).toBeUndefined();
+}, 15000);

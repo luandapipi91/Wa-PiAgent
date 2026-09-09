@@ -30,6 +30,9 @@ const shareDeployMock = mock();
 const shareRefreshLinkMock = mock();
 const shareOpenFolderMock = mock();
 const shareRenameMock = mock();
+const shareSpacesFactoryMock = mock(async (): Promise<unknown[]> => []);
+const shareAddSpaceFactoryMock = mock(async () => ({}));
+const shareDeleteSpaceFactoryMock = mock(async () => ({ notice: "" }));
 mock.module("../../share-client", () => ({
 	shareList: shareListMock,
 	shareDelete: shareDeleteMock,
@@ -38,6 +41,9 @@ mock.module("../../share-client", () => ({
 	shareRefreshLink: shareRefreshLinkMock,
 	shareOpenFolder: shareOpenFolderMock,
 	shareRename: shareRenameMock,
+	shareSpaces: shareSpacesFactoryMock,
+	shareAddSpace: shareAddSpaceFactoryMock,
+	shareDeleteSpace: shareDeleteSpaceFactoryMock,
 }));
 
 const copyMock = mock();
@@ -75,6 +81,10 @@ beforeEach(() => {
 	shareDeployMock.mockReset();
 	shareRefreshLinkMock.mockReset();
 	shareOpenFolderMock.mockReset();
+	shareSpacesFactoryMock.mockReset();
+	shareAddSpaceFactoryMock.mockReset();
+	shareDeleteSpaceFactoryMock.mockReset();
+	shareSpacesFactoryMock.mockResolvedValue([]);
 	copyMock.mockReset();
 	shareListMock.mockImplementation(async () => emptyList);
 	shareDeleteMock.mockImplementation(async () => {});
@@ -222,6 +232,74 @@ test("我的分享：shareList 返回 2 条 → 渲染名称/大小；空列表�
 	await renderSharesTab();
 	expect(screen.getByText("暂无分享")).toBeTruthy();
 	expect(screen.queryByTestId("share-clear")).toBeNull();
+});
+
+test("我的分享空间筛选：CF 渠道下拉切换（全部/默认/自定义），edgeone 渠道无下拉", async () => {
+	// CF 渠道：空间列表（默认 + 自定义「博客」）+ 分享条目分属两个空间
+	getMock.mockImplementation(async () => ({
+		share: { hasToken: true, channel: "cloudflare" },
+	}));
+	shareSpacesFactoryMock.mockResolvedValue(cfSpaces);
+	shareListMock.mockImplementation(async () => ({
+		items: [
+			// 存量记录无 cfSpaceId → 默认空间
+			{
+				id: "s1",
+				name: "old-a",
+				files: ["index.html"],
+				size: 1024,
+				createdAt: 1780000000000,
+			},
+			// 自定义空间
+			{
+				id: "s2",
+				name: "blog-x",
+				files: ["index.html"],
+				size: 2048,
+				createdAt: 1780000000001,
+				cfSpaceId: "sp1",
+			},
+			// 显式 null → 默认空间
+			{
+				id: "s3",
+				name: "old-b",
+				files: ["index.html"],
+				size: 4096,
+				createdAt: 1780000000002,
+				cfSpaceId: null,
+			},
+		],
+		pending: 0,
+		totalSize: 7168,
+		totalLimit: 104857600,
+	}));
+	const { unmount } = await renderSharesTab();
+	// 下拉出现，默认「全部分享」：3 条全显（平铺，无分组头）
+	const filter = screen.getByTestId("share-space-filter") as HTMLSelectElement;
+	expect(filter.value).toBe("all");
+	expect(screen.getByTestId("share-item-s1")).toBeTruthy();
+	expect(screen.getByTestId("share-item-s2")).toBeTruthy();
+	expect(screen.getByTestId("share-item-s3")).toBeTruthy();
+	// 切到「博客」：只显 s2
+	fireEvent.change(filter, { target: { value: "sp1" } });
+	expect(screen.queryByTestId("share-item-s1")).toBeNull();
+	expect(screen.getByTestId("share-item-s2")).toBeTruthy();
+	expect(screen.queryByTestId("share-item-s3")).toBeNull();
+	// 切到默认空间：s1/s3（cfSpaceId 缺失与 null 都归默认）
+	fireEvent.change(filter, { target: { value: "default" } });
+	expect(screen.getByTestId("share-item-s1")).toBeTruthy();
+	expect(screen.queryByTestId("share-item-s2")).toBeNull();
+	expect(screen.getByTestId("share-item-s3")).toBeTruthy();
+	unmount();
+
+	// edgeone 渠道：无空间概念 → 无下拉，平铺全部
+	getMock.mockImplementation(async () => ({
+		share: { hasToken: true, channel: "edgeone" },
+	}));
+	await renderSharesTab();
+	expect(screen.queryByTestId("share-space-filter")).toBeNull();
+	expect(screen.getByTestId("share-item-s1")).toBeTruthy();
+	expect(screen.getByTestId("share-item-s2")).toBeTruthy();
 });
 
 test("存储用量：totalLimit=0（云端无接口可查）时只显示已用量，不显示上限", async () => {
@@ -562,4 +640,130 @@ test("我的分享：有未部署变更时按钮下方提示需部署生效", as
 	// 按钮下方提示明确含「需部署生效」语义
 	expect(screen.getByTestId("share-pending").textContent).toContain("未部署");
 	unmount();
+});
+
+// ===== 分享空间管理区（仅 cloudflare 渠道显示）=====
+
+const cfSpaces = [
+	{
+		id: "default",
+		name: "默认空间",
+		projectName: "wapi-shares",
+		createdAt: 0,
+		shareCount: 2,
+	},
+	{
+		id: "sp1",
+		name: "博客",
+		projectName: "wapi-blog",
+		createdAt: 1,
+		shareCount: 0,
+	},
+];
+
+test("分享空间管理区：CF 渠道显示（列表/新增/配额提示），默认空间不可删", async () => {
+	getMock.mockImplementation(async (path: string) =>
+		path === "/api/settings/share"
+			? { share: { hasToken: true, channel: "cloudflare" } }
+			: {},
+	);
+	shareSpacesFactoryMock.mockResolvedValue(cfSpaces);
+	render(<ShareSection />);
+	await screen.findByTestId("share-section");
+	fireEvent.click(screen.getByTestId("share-channel-cloudflare"));
+
+	// 管理区出现：空间列表（名称/项目名/条数）+ 新增按钮 + 配额静态文案
+	await screen.findByTestId("share-spaces");
+	expect(screen.getByText("博客")).toBeTruthy();
+	expect(screen.getByText("wapi-blog")).toBeTruthy();
+	expect(screen.getByTestId("share-space-count-sp1").textContent).toContain("0");
+	expect(screen.getByTestId("share-space-add")).toBeTruthy();
+	expect(screen.getByTestId("share-spaces-quota").textContent).toContain("100");
+	// 默认空间：无删除按钮（内置不可删）
+	expect(screen.queryByTestId("share-space-delete-default")).toBeNull();
+	// 空空间可删
+	expect(
+		(screen.getByTestId("share-space-delete-sp1") as HTMLButtonElement).disabled,
+	).toBe(false);
+
+	// EdgeOne 渠道下隐藏管理区
+	fireEvent.click(screen.getByTestId("share-channel-edgeone"));
+	await waitFor(() => expect(screen.queryByTestId("share-spaces")).toBeNull());
+});
+
+test("分享空间管理区：有分享的空间删除按钮置灰 + 提示", async () => {
+	getMock.mockImplementation(async (path: string) =>
+		path === "/api/settings/share"
+			? { share: { hasToken: true, channel: "cloudflare" } }
+			: {},
+	);
+	shareSpacesFactoryMock.mockResolvedValue([{ ...cfSpaces[1], shareCount: 3 }]);
+	render(<ShareSection />);
+	await screen.findByTestId("share-section");
+	fireEvent.click(screen.getByTestId("share-channel-cloudflare"));
+	await screen.findByTestId("share-spaces");
+	const delBtn = screen.getByTestId(
+		"share-space-delete-sp1",
+	) as HTMLButtonElement;
+	expect(delBtn.disabled).toBe(true);
+	expect(delBtn.title).toContain("清空");
+	// 置灰时点击不触发删除
+	fireEvent.click(delBtn);
+	expect(shareDeleteSpaceFactoryMock).not.toHaveBeenCalled();
+});
+
+test("新增空间：弹窗填名称（项目名自动建议可改）→ 提交后刷新列表", async () => {
+	getMock.mockImplementation(async (path: string) =>
+		path === "/api/settings/share"
+			? { share: { hasToken: true, channel: "cloudflare" } }
+			: {},
+	);
+	shareSpacesFactoryMock.mockResolvedValue(cfSpaces);
+	shareAddSpaceFactoryMock.mockResolvedValue({ space: { id: "sp2" } });
+	render(<ShareSection />);
+	await screen.findByTestId("share-section");
+	fireEvent.click(screen.getByTestId("share-channel-cloudflare"));
+	await screen.findByTestId("share-spaces");
+
+	fireEvent.click(screen.getByTestId("share-space-add"));
+	await screen.findByTestId("share-space-modal");
+	fireEvent.change(screen.getByTestId("share-space-name-input"), {
+		target: { value: "博客" },
+	});
+	// 项目名自动建议 wapi-share-<短随机>，可改
+	const projInput = screen.getByTestId(
+		"share-space-project-input",
+	) as HTMLInputElement;
+	expect(projInput.value).toMatch(/^wapi-share-/);
+	fireEvent.change(projInput, { target: { value: "wapi-blog" } });
+	fireEvent.click(screen.getByTestId("share-space-submit"));
+	await waitFor(() =>
+		expect(shareAddSpaceFactoryMock).toHaveBeenCalledWith("博客", "wapi-blog"),
+	);
+	// 提交后刷新列表
+	await waitFor(() => expect(shareSpacesFactoryMock).toHaveBeenCalledTimes(2));
+});
+
+test("删除空间：确认弹窗后调用删除，toast 展示「不删云端」提示", async () => {
+	getMock.mockImplementation(async (path: string) =>
+		path === "/api/settings/share"
+			? { share: { hasToken: true, channel: "cloudflare" } }
+			: {},
+	);
+	shareSpacesFactoryMock.mockResolvedValue(cfSpaces);
+	shareDeleteSpaceFactoryMock.mockResolvedValue({
+		notice:
+			"空间已删除（云端 Pages 项目未受影响，可手动在 Cloudflare 控制台清理）",
+	});
+	render(<ShareSection />);
+	await screen.findByTestId("share-section");
+	fireEvent.click(screen.getByTestId("share-channel-cloudflare"));
+	await screen.findByTestId("share-spaces");
+
+	fireEvent.click(screen.getByTestId("share-space-delete-sp1"));
+	await screen.findByTestId("confirm-dialog");
+	fireEvent.click(screen.getByTestId("confirm-ok"));
+	await waitFor(() =>
+		expect(shareDeleteSpaceFactoryMock).toHaveBeenCalledWith("sp1"),
+	);
 });

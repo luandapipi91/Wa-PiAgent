@@ -37,17 +37,20 @@ export interface ShareSettingsInput {
 /**
  * 底层传输抽象。默认走真实 api-client；单测可通过 `_setShareTransport` 注入伪传输。
  * put/get 必选：接口中已声明为必选方法，与 fs-client 一致的可注入形态。
+ * del 可选：仅空间删除等 DELETE 接口使用（老注入方不传也能正常 import）。
  */
 export interface ShareTransport {
 	post: (path: string, body?: unknown, timeoutMs?: number) => Promise<unknown>;
 	put: (path: string, body?: unknown) => Promise<unknown>;
 	get: (path: string) => Promise<unknown>;
+	del?: (path: string) => Promise<unknown>;
 }
 
 const defaultTransport: ShareTransport = {
 	post: (path, body, timeoutMs) => api.post(path, body, timeoutMs),
 	put: (path, body) => api.put(path, body),
 	get: (path) => api.get(path),
+	del: (path) => api.del(path),
 };
 let transport: ShareTransport = defaultTransport;
 
@@ -58,12 +61,14 @@ export function _setShareTransport(t: ShareTransport | null): void {
 
 /** 上传产物生成分享链接。未配置 token 时 kernel 返回 400（ApiError）。
  *  name 为分享名（缺省 kernel 自动生成）；重复时 kernel 返回 409。
+ *  cfSpaceId 可选（仅 cloudflare 渠道生效，其他渠道 kernel 忽略）：目标分享空间。
  *  上传含 COS 传输 + 部署轮询（最坏 40×5s），多文件/大文件远超默认 30s 超时，
  *  故用 10 分钟长超时（多选分享 signal timed out 回归）。 */
 export async function shareUpload(
 	paths: string[],
 	sessionId?: string,
 	name?: string,
+	cfSpaceId?: string,
 ): Promise<ShareUploadResult> {
 	return (await transport.post(
 		"/api/share/upload",
@@ -71,6 +76,7 @@ export async function shareUpload(
 			paths,
 			sessionId,
 			name,
+			...(cfSpaceId ? { cfSpaceId } : {}),
 		},
 		600_000,
 	)) as ShareUploadResult;
@@ -112,6 +118,8 @@ export interface ShareItemInfo {
 	files: string[];
 	size: number;
 	createdAt: number;
+	/** 所属 CF 分享空间 id（仅 cloudflare 渠道语义）；缺失或 "default" = 默认空间 */
+	cfSpaceId?: string | null;
 }
 
 /** 分享列表结果 */
@@ -169,4 +177,47 @@ export async function shareRefreshLink(
 /** 打开分享文件夹（浏览器/dev 端无 Electron 能力时由 kernel 调系统打开器） */
 export async function shareOpenFolder(): Promise<void> {
 	await transport.post("/api/share/open-folder");
+}
+
+// ===== 分享空间（仅 cloudflare 渠道；一个空间 = 一个独立 CF Pages 项目） =====
+
+/** 空间条目（GET /api/share/spaces 元素；内置默认空间在首位） */
+export interface ShareSpaceInfo {
+	id: string;
+	name: string;
+	projectName: string;
+	createdAt: number;
+	/** 该空间下的分享条数（默认空间含 cfSpaceId 缺失的存量记录） */
+	shareCount?: number;
+}
+
+/** 读取空间列表（含内置默认空间 + 每空间分享数） */
+export async function shareSpaces(): Promise<ShareSpaceInfo[]> {
+	const res = (await transport.get("/api/share/spaces")) as {
+		spaces?: ShareSpaceInfo[];
+	};
+	return res.spaces ?? [];
+}
+
+/** 新增空间（kernel 校验重名/项目名规则，非法返回 409/400） */
+export async function shareAddSpace(
+	name: string,
+	projectName: string,
+): Promise<{ space: ShareSpaceInfo }> {
+	return (await transport.post("/api/share/spaces", {
+		name,
+		projectName,
+	})) as { space: ShareSpaceInfo };
+}
+
+/** 删除空间（仅本地映射，不删云端项目；notice 为提示文案；
+ *  空间下还有分享时 kernel 返回 409） */
+export async function shareDeleteSpace(
+	id: string,
+): Promise<{ ok: boolean; notice?: string }> {
+	if (!transport.del)
+		throw new Error("transport 不支持 DELETE（测试注入不完整）");
+	return (await transport.del(
+		`/api/share/spaces/${encodeURIComponent(id)}`,
+	)) as { ok: boolean; notice?: string };
 }

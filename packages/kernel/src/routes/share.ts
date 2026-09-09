@@ -13,11 +13,17 @@ import type { ShareProgressEvent } from "@wa-pi/shared";
 import { sanitizeOpenEnv, toKernelPayload } from "@wa-pi/shared";
 import { readJsonBody } from "./types";
 import {
-	CF_SHARE_PROJECT_NAME,
 	deployToCloudflare,
 	getCloudflareAccountId,
 	getProjectSubdomain,
 } from "../share/cloudflare-pages-client";
+import {
+	assertSpaceDeletable,
+	buildNewSpace,
+	DEFAULT_SHARE_SPACE,
+	resolveShareSpace,
+	spaceKeyOf,
+} from "../share/spaces";
 import {
 	deployWorkspace,
 	detectBaseUrl,
@@ -34,6 +40,7 @@ import {
 	addItem,
 	buildDeployZip,
 	clearItems,
+	groupItemsBySpace,
 	loadItems,
 	loadLastDeployed,
 	MAX_FILE_BYTES,
@@ -44,7 +51,11 @@ import {
 	SHARE_ID_RE,
 	totalSize,
 } from "../share/workspace";
-import { loadShareSettings } from "../settings-store";
+import {
+	loadShareSettings,
+	saveShareSettings,
+	type ShareSpace,
+} from "../settings-store";
 
 export interface ShareRouteCfg {
 	/** 静态 token（测试注入）；为空的场景由 handler 内 loadShareSettings 读取最新值 */
@@ -92,10 +103,12 @@ export function createShareRoutes(
 			{ status },
 		);
 
-	const wrap = (fn: (req: Request) => Promise<Response>) => {
-		return async (req: Request) => {
+	const wrap = (
+		fn: (req: Request, params: Record<string, string>) => Promise<Response>,
+	) => {
+		return async (req: Request, params: Record<string, string>) => {
 			try {
-				return await fn(req);
+				return await fn(req, params);
 			} catch (e: any) {
 				const payload = toKernelPayload(e);
 				return Response.json(
@@ -111,7 +124,13 @@ export function createShareRoutes(
 
 	/** 读取最新分享设置并校验 token；未配返回 400 Response */
 	async function requireToken(): Promise<
-		{ token: string; channel: string; customDomain: string } | Response
+		| {
+				token: string;
+				channel: string;
+				customDomain: string;
+				spaces: ShareSpace[];
+		  }
+		| Response
 	> {
 		const latest = await loadShareSettings(cfg.settingsFile);
 		const token = latest.token || cfg.token;
@@ -125,39 +144,70 @@ export function createShareRoutes(
 			token,
 			channel: latest.channel || cfg.channel || "edgeone",
 			customDomain: latest.customDomain,
+			spaces: latest.spaces ?? [],
 		};
 	}
 
-	/** 进度广播：packing → uploading（真实百分比）→ deploying → done / error */
+	/** 进度广播：packing → uploading（真实百分比）→ deploying → done / error；
+	 *  CF 多空间分组部署时带 spaceName（默认空间不带，前端拼前缀展示）。 */
 	const emit = (e: Omit<ShareProgressEvent, "type">) =>
 		cfg.broadcast?.({ type: "share:progress", ...e });
 
 	/** 部署当前工作区到线上（按 settings.channel 分派：cloudflare → CF Pages，否则 edgeone）；
-	 *  成功写部署快照；全程广播进度。 */
+	 *  成功写部署快照；全程广播进度。
+	 *  CF 渠道多空间：按 cfSpaceId 分组（缺失=默认空间）每组独立 zip + 独立项目部署，
+	 *  组间串行（A/B/C 依次）；全部成功才写部署快照，任一组失败不写（重试幂等，CF 内容寻址去重）。
+	 *  返回 urls：空间键 → 项目根链接（upload 响应用本次分享所属空间的链接拼条目 URL）。 */
 	async function deployNow(
 		token: string,
 		customDomain: string,
-	): Promise<{ url: string; expiresAt: number; channel: string }> {
+	): Promise<{
+		urls: Record<string, string>;
+		expiresAt: number;
+		channel: string;
+	}> {
 		const settings = await loadShareSettings(cfg.settingsFile);
-		emit({ phase: "packing" });
-		const zip = await buildDeployZip(workspaceDir);
-		try {
-			if (settings.channel === "cloudflare") {
-				const files = unzipToFiles(zip);
-				const result = await deployToCloudflare({
-					token,
-					accountId: settings.accountId ?? "",
-					files,
-					onProgress: (p) => emit(p),
-					pollIntervalMs: cfg.pollIntervalMs,
-				});
-				await saveLastDeployed(workspaceDir, await loadItems(workspaceDir));
+		if (settings.channel === "cloudflare") {
+			const items = await loadItems(workspaceDir);
+			const groups = groupItemsBySpace(items);
+			const urls: Record<string, string> = {};
+			try {
+				for (const [spaceId, groupItems] of groups) {
+					const space = resolveShareSpace(settings.spaces ?? [], spaceId);
+					emit({ phase: "packing", spaceName: space.name });
+					const zip = await buildDeployZip(workspaceDir, (it) =>
+						groupItems.some((g) => g.id === it.id),
+					);
+					const files = unzipToFiles(zip);
+					const result = await deployToCloudflare({
+						token,
+						accountId: settings.accountId ?? "",
+						files,
+						projectName: space.projectName,
+						onProgress: (p) => emit({ ...p, spaceName: space.name }),
+						pollIntervalMs: cfg.pollIntervalMs,
+					});
+					urls[spaceId] = result.url;
+				}
+				await saveLastDeployed(workspaceDir, items);
 				emit({ phase: "done" });
 				// expiresAt=0 表示永久（前端按此渲染）；CF 渠道无过期时间
-				return { url: result.url, expiresAt: 0, channel: "cloudflare" };
+				return { urls, expiresAt: 0, channel: "cloudflare" };
+			} catch (e) {
+				const payload = toKernelPayload(e);
+				emit({
+					phase: "error",
+					error: e instanceof Error ? e.message : String(e),
+					...(payload ?? {}),
+				});
+				throw e;
 			}
+		}
 
-			// 原 edgeone 逻辑不变
+		// 原 edgeone 逻辑不变（全量进 wapi-shares，无空间概念）
+		emit({ phase: "packing" });
+		try {
+			const zip = await buildDeployZip(workspaceDir);
 			const r = await deployWorkspace({
 				token,
 				zip,
@@ -168,7 +218,11 @@ export function createShareRoutes(
 			});
 			await saveLastDeployed(workspaceDir, await loadItems(workspaceDir));
 			emit({ phase: "done" });
-			return { url: r.rootUrl, expiresAt: r.expiresAt, channel: "edgeone" };
+			return {
+				urls: { default: r.rootUrl },
+				expiresAt: r.expiresAt,
+				channel: "edgeone",
+			};
 		} catch (e) {
 			const payload = toKernelPayload(e);
 			emit({
@@ -229,13 +283,30 @@ export function createShareRoutes(
 					? (entries[0].name.split("/").pop() ?? entries[0].name)
 					: `${entries.length} 个文件`;
 			// 用户指定分享名（文件夹名/URL 子路径，穿透）；缺省用自动名。
-			// 同名不再报错，addItem 内部合并（旧文件保留、新文件追加）；此处探测是否发生合并，供前端提示。
+			// 同名不再报错，addItem 内部同空间合并（旧文件保留、新文件追加）；此处探测是否发生合并，供前端提示。
 			const name =
 				typeof b.name === "string" && b.name.trim() ? b.name.trim() : autoName;
-			const existed = (await loadItems(workspaceDir)).some((i) => i.name === name);
+			// 空间参数（可选）：仅 cloudflare 渠道生效，其他渠道忽略（EdgeOne 行为零变化）；
+			// "default" 视为不传（默认空间不落字段，存量兼容）。未知 id 拒绝（不静默归默认，防脏数据）。
+			let cfSpaceId: string | undefined;
+			if (
+				auth.channel === "cloudflare" &&
+				typeof b.cfSpaceId === "string" &&
+				b.cfSpaceId.trim()
+			) {
+				const sid = b.cfSpaceId.trim();
+				if (sid !== "default") {
+					if (!auth.spaces.some((s) => s.id === sid))
+						return failWith(404, "空间不存在", "share.spaceNotFound", { id: sid });
+					cfSpaceId = sid;
+				}
+			}
+			const existed = (await loadItems(workspaceDir)).some(
+				(i) => i.name === name && spaceKeyOf(i.cfSpaceId) === spaceKeyOf(cfSpaceId),
+			);
 			let item;
 			try {
-				item = await addItem(workspaceDir, id, name, entries);
+				item = await addItem(workspaceDir, id, name, entries, cfSpaceId);
 			} catch (e: any) {
 				const payload = toKernelPayload(e);
 				if (payload?.code === "share.invalidName")
@@ -248,10 +319,14 @@ export function createShareRoutes(
 				throw e;
 			}
 
-			const { url, expiresAt, channel } = await deployNow(
+			const { urls, expiresAt, channel } = await deployNow(
 				auth.token,
 				auth.customDomain,
 			);
+			// 本次分享所属空间的项目根链接：分组部署返回每空间一个根链接，
+			// 取本次空间对应的（未知键兑底全量首个，正常不会走到）
+			const space = resolveShareSpace(auth.spaces, cfSpaceId);
+			const url = urls[spaceKeyOf(cfSpaceId)] ?? Object.values(urls)[0] ?? "";
 			return Response.json({
 				id: item.id,
 				name: item.name,
@@ -282,7 +357,9 @@ export function createShareRoutes(
 							files: entries.map((e) => e.name),
 						}),
 				expiresAt,
-				projectName: SHARE_PROJECT_NAME,
+				// 部署目标项目名：CF 渠道按空间（默认 wapi-shares），edgeone 固定 wapi-shares
+				projectName:
+					channel === "cloudflare" ? space.projectName : SHARE_PROJECT_NAME,
 				channel,
 			});
 		}),
@@ -431,13 +508,15 @@ export function createShareRoutes(
 			// 拼法与 upload 端点 CF 分支一致：itemShareUrl 复用（单文件指向真实文件、分享名自动编码）
 			const settings = await loadShareSettings(cfg.settingsFile);
 			if (settings.channel === "cloudflare") {
-				// .pages.dev 子域全局唯一：用真实项目子域拼链接，不硬编码 wapi-shares.pages.dev
+				// .pages.dev 子域全局唯一：用真实项目子域拼链接，不硬编码 wapi-shares.pages.dev；
+				// 多空间：按条目 cfSpaceId 解析目标项目（存量缺失 → 默认空间 wapi-shares）
 				const accountId =
 					settings.accountId || (await getCloudflareAccountId(settings.token));
+				const space = resolveShareSpace(settings.spaces ?? [], item.cfSpaceId);
 				const subdomain = await getProjectSubdomain(
 					settings.token,
 					accountId,
-					CF_SHARE_PROJECT_NAME,
+					space.projectName,
 				);
 				return Response.json({
 					url: itemShareUrl(`https://${subdomain}`, item),
@@ -459,6 +538,114 @@ export function createShareRoutes(
 			return Response.json({
 				url: itemShareUrl(rootUrl, item),
 				expiresAt: Date.now() + 3 * 3600_000,
+			});
+		}),
+	);
+
+	// ===== 分享空间（仅 cloudflare 渠道语义；一个空间 = 一个独立 CF Pages 项目） =====
+
+	/** 空间接口错误 code → HTTP 状态（409 业务冲突，404 不存在，400 参数非法） */
+	const SPACE_ERROR_STATUS: Record<string, number> = {
+		"share.spaceNameRequired": 400,
+		"share.spaceInvalidProjectName": 409,
+		"share.spaceNameConflict": 409,
+		"share.spaceProjectConflict": 409,
+		"share.spaceDefaultImmutable": 409,
+		"share.spaceNotFound": 404,
+		"share.spaceHasShares": 409,
+	};
+	/** 空间错误兑底文案（前端按 code 查 kernelMsg 字典渲染，error 仅老渲染兑底） */
+	const SPACE_ERROR_TEXT: Record<string, string> = {
+		"share.spaceNameRequired": "空间名称不能为空",
+		"share.spaceInvalidProjectName":
+			"项目名不合法（小写字母/数字开头，仅小写字母/数字/连字符，≤58 字符）",
+		"share.spaceNameConflict": "已存在同名空间",
+		"share.spaceProjectConflict": "已存在同名 Pages 项目",
+		"share.spaceDefaultImmutable": "默认空间不可删除",
+		"share.spaceNotFound": "空间不存在",
+		"share.spaceHasShares": "该空间下还有分享，请先清空后再删除",
+	};
+	/** 空间校验错误 → 响应；非空间错误原样抛出 */
+	function spaceFail(e: unknown): Response {
+		const payload = toKernelPayload(e);
+		const code = payload?.code ?? "";
+		const status = SPACE_ERROR_STATUS[code];
+		if (status)
+			return failWith(status, SPACE_ERROR_TEXT[code], code, payload?.params);
+		throw e;
+	}
+
+	// 空间列表（含内置默认空间在首位）+ 每空间分享数（settings 里可能有 token 未配，
+	// 列表用于设置页管理与分享弹窗下拉，不校验 token）
+	router.add(
+		"GET",
+		"/api/share/spaces",
+		wrap(async () => {
+			const settings = await loadShareSettings(cfg.settingsFile);
+			const items = await loadItems(workspaceDir);
+			const countOf = (id: string) =>
+				items.filter((it) => spaceKeyOf(it.cfSpaceId) === id).length;
+			return Response.json({
+				spaces: [
+					{ ...DEFAULT_SHARE_SPACE, shareCount: countOf("default") },
+					...(settings.spaces ?? []).map((s) => ({
+						...s,
+						shareCount: countOf(s.id),
+					})),
+				],
+			});
+		}),
+	);
+
+	// 新增空间：校验通过后写 settings.spaces（token 传空串保留已存值，空间列表整体覆盖）
+	router.add(
+		"POST",
+		"/api/share/spaces",
+		wrap(async (req) => {
+			const b = await readJsonBody(req);
+			const settings = await loadShareSettings(cfg.settingsFile);
+			const spaces = settings.spaces ?? [];
+			try {
+				const space = buildNewSpace(
+					String(b.name ?? ""),
+					String(b.projectName ?? ""),
+					spaces,
+				);
+				await saveShareSettings(
+					{ ...settings, token: "", spaces: [...spaces, space] },
+					cfg.settingsFile,
+				);
+				return Response.json({ space });
+			} catch (e) {
+				return spaceFail(e);
+			}
+		}),
+	);
+
+	// 删除空间：默认空间不可删；空间下还有分享拒绝；只删本地映射，不删云端项目（响应带提示）
+	router.add(
+		"DELETE",
+		"/api/share/spaces/:id",
+		wrap(async (_req, params) => {
+			const settings = await loadShareSettings(cfg.settingsFile);
+			const spaces = settings.spaces ?? [];
+			try {
+				assertSpaceDeletable(params.id, spaces, await loadItems(workspaceDir));
+			} catch (e) {
+				return spaceFail(e);
+			}
+			await saveShareSettings(
+				{
+					...settings,
+					token: "",
+					spaces: spaces.filter((s) => s.id !== params.id),
+				},
+				cfg.settingsFile,
+			);
+			return Response.json({
+				ok: true,
+				notice:
+					"空间已删除（云端 Pages 项目未受影响，可手动在 Cloudflare 控制台清理）",
 			});
 		}),
 	);
