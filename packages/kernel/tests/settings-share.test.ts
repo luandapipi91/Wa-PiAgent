@@ -40,9 +40,8 @@ test("save 后 load 往返一致（token 脱敏无关，原样存取）", async 
     file,
   );
   expect(await loadShareSettings(file)).toEqual({
+    ...SHARE_DEFAULTS,
     token: "tk_abc",
-    channel: "edgeone",
-    customDomain: "",
     accountId: "acc-1",
   });
 });

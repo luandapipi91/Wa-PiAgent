@@ -591,6 +591,7 @@ export const SHARE_DEFAULTS = {
 	channel: "edgeone" as "edgeone" | "cloudflare",
 	customDomain: "",
 	accountId: "",
+	spaces: [] as ShareSpace[],
 } as const;
 
 /** 分享空间（仅 cloudflare 渠道语义）：一个空间 = 一个独立 Cloudflare Pages 项目。
