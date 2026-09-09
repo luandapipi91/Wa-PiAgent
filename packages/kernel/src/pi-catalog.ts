@@ -21,9 +21,16 @@ export interface CatalogModel {
   baseUrl: string;
   reasoning: boolean;
   input: string[];
-  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  cost: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
   contextWindow: number;
   maxTokens: number;
+  /** pi 官方为特定网关声明的兼容开关（如 requiresReasoningContentOnAssistantMessages），生成 extension 时透传 */
+  compat?: Record<string, unknown>;
 }
 
 /** providers/all.js 的导出形状（只声明用到的部分） */
@@ -50,7 +57,9 @@ function loadCatalog(): Promise<CatalogModule> {
     }
     const pkgJsonPath = req.resolve("@earendil-works/pi-ai/package.json");
     const allJs = join(dirname(pkgJsonPath), "dist", "providers", "all.js");
-    catalogPromise = import(pathToFileURL(allJs).href) as Promise<CatalogModule>;
+    catalogPromise = import(
+      pathToFileURL(allJs).href
+    ) as Promise<CatalogModule>;
   }
   return catalogPromise;
 }
@@ -58,11 +67,15 @@ function loadCatalog(): Promise<CatalogModule> {
 /** 全部内置模型的扁平列表（所有 provider） */
 export async function getAllCatalogModels(): Promise<CatalogModel[]> {
   const catalog = await loadCatalog();
-  return catalog.getBuiltinProviders().flatMap((p) => catalog.getBuiltinModels(p));
+  return catalog
+    .getBuiltinProviders()
+    .flatMap((p) => catalog.getBuiltinModels(p));
 }
 
 /** provider 显示名（如 "deepseek" → "DeepSeek"）；找不到时回退为 key 本身 */
-export async function getProviderDisplayName(providerKey: string): Promise<string> {
+export async function getProviderDisplayName(
+  providerKey: string,
+): Promise<string> {
   const catalog = await loadCatalog();
   const hit = catalog.builtinProviders().find((p) => p.id === providerKey);
   return hit?.name ?? providerKey;
@@ -72,7 +85,9 @@ export async function getProviderDisplayName(providerKey: string): Promise<strin
  * 按 model ID 在目录中查找（先精确匹配，再大小写不敏感）。
  * 供 provider-extension 生成时补全用户自定义模型的元数据。
  */
-export async function lookupCatalogModel(modelId: string): Promise<CatalogModel | null> {
+export async function lookupCatalogModel(
+  modelId: string,
+): Promise<CatalogModel | null> {
   const all = await getAllCatalogModels();
   const exact = all.find((m) => m.id === modelId);
   if (exact) return exact;

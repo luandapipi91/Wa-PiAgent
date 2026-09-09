@@ -739,10 +739,55 @@ test("generateProviderExtension：自建网关端点的 reasoning 模型显式�
     ],
   ]);
   const code = generateProviderExtension(providers, sdkModelMap);
-  expect(code).toContain("compat: { supportsDeveloperRole: false }");
+  expect(code).toContain('compat: {"supportsDeveloperRole":false}');
 });
 
-test("generateProviderExtension：官方目录端点不追加 compat（保持 pi 自动探测）", () => {
+test("generateProviderExtension：内置目录模型的 compat 透传（回归：OpenCode Go 网关要求 assistant 消息回传 reasoning_content，多轮 400）", () => {
+  // pi 内置目录为 opencode-go 的 deepseek-v4-flash 显式声明了
+  // compat.requiresReasoningContentOnAssistantMessages；生成 extension 时若
+  // 丢弃该字段，pi 的 detectCompat（仅认 deepseek 官方端点）会漏配 → 多轮
+  // 请求不回传 reasoning_content → 网关 400（invalid_request_error）。
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "OpenCode Go",
+      slug: "opencode-go",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "opencode-go/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek V4 Flash",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+        api: "openai-completions",
+        compat: {
+          requiresReasoningContentOnAssistantMessages: true,
+          thinkingFormat: "deepseek",
+        },
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  // compat 原样透传到生成的模型对象
+  expect(code).toContain(
+    `compat: ${JSON.stringify({
+      requiresReasoningContentOnAssistantMessages: true,
+      thinkingFormat: "deepseek",
+    })}`,
+  );
+});
+
+test("generateProviderExtension：目录无 compat 且官方端点时不输出 compat 字段（保持 pi 自动探测）", () => {
   const providers = [
     sampleProvider({
       id: "p1",

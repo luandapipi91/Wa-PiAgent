@@ -20,6 +20,7 @@ type SdkModelInfo = Pick<
 	| "name"
 	| "baseUrl"
 	| "api"
+	| "compat"
 >;
 
 /** 默认模型参数（目录查询失败时的 fallback） */
@@ -89,9 +90,12 @@ function lookupSdkModel(
  * extension 生成器模板版本。模板语义变更时 bump：stale 判定发现已生成文件
  * 的版本标记低于此值（含旧版无标记的文件）即强制重生成，保证升级后模板
  * 修复能落地（providers.json 未动时 mtime 兜底不会触发）。
+/** extension 生成器模板版本。模板语义变更时 bump：stale 判定发现已生成文件
+ * 的版本标记低于此值（含旧版无标记的文件）即强制重生成，保证升级后模板
+ * 修复能落地（providers.json 未动时 mtime 兑底不会触发）。
  * 历史：1 = 无版本标记的旧生成器；2 = maxTokens 改为用户显式配置优先。
- */
-export const EXTENSION_GENERATOR_VERSION = 2;
+ * 3 = 透传内置目录模型 compat（OpenCode Go 网关要求 assistant 消息回传 reasoning_content）。 */
+export const EXTENSION_GENERATOR_VERSION = 3;
 
 function modelToInfo(m: CatalogModel): SdkModelInfo {
 	return {
@@ -108,6 +112,7 @@ function modelToInfo(m: CatalogModel): SdkModelInfo {
 		name: m.name,
 		baseUrl: m.baseUrl,
 		api: m.api,
+		compat: m.compat,
 	};
 }
 
@@ -241,6 +246,19 @@ export function generateProviderExtension(
 						m.maxTokens > 0
 							? m.maxTokens
 							: (sdk?.maxTokens ?? DEFAULT_SDK_MODEL.maxTokens);
+					// 内置目录的 compat 透传：pi 官方为特定网关声明的兼容开关（如 OpenCode
+					// Go 网关要求 assistant 消息回传 reasoning_content——目录 compat
+					// .requiresReasoningContentOnAssistantMessages 显式声明；引擎的
+					// detectCompat 仅对 deepseek 官方端点自动开启，自定义供应商漏配会
+					// 在多轮对话 400）。自建网关（生效 baseUrl 与目录不同）时 developer
+					// role 修正叠加其上——目录 compat 未必适用用户自己的端点。
+					const compat = {
+						...sdk?.compat,
+						...(customEndpoint && reasoning ? { supportsDeveloperRole: false } : {}),
+					};
+					const compatCode = Object.keys(compat).length
+						? `\n        compat: ${JSON.stringify(compat)},`
+						: "";
 					return `      {
         id: ${JSON.stringify(m.id)},
         name: ${JSON.stringify(name)},
@@ -249,12 +267,7 @@ export function generateProviderExtension(
         input: ${JSON.stringify(input)},
         cost: ${JSON.stringify(cost)},
         contextWindow: ${contextWindow},
-        maxTokens: ${maxTokens},${
-									customEndpoint && reasoning
-										? `
-        compat: { supportsDeveloperRole: false },`
-										: ""
-								}
+        maxTokens: ${maxTokens},${compatCode}
       }`;
 				})
 				.join(",\n");
