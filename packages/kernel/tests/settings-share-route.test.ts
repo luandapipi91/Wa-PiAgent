@@ -62,6 +62,7 @@ describe("PUT /api/settings/share", () => {
 			channel: "edgeone",
 			customDomain: "",
 			accountId: "",
+			spaces: [],
 		});
 	});
 
