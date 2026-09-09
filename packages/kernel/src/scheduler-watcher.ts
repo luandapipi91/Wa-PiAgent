@@ -18,6 +18,8 @@ import {
 } from "./scheduler-task-store";
 
 const DEBOUNCE_MS = 300;
+/** 轮询兜底间隔：fs.watch 丢事件时由此自愈 */
+const POLL_MS = 5000;
 
 export class TaskFolderWatcher {
 	private deps: {
@@ -26,6 +28,9 @@ export class TaskFolderWatcher {
 	};
 	private watcher: FSWatcher | null = null;
 	private timer: ReturnType<typeof setTimeout> | null = null;
+	/** 轮询兜底：fs.watch 在部分平台/高负载下会彻底丢事件（实测 bun 1.4.2 偶发 30s 零事件），
+	 *  定时重扫自愈；内容未变时 reload 被 allWritesAreSelf 短路，无副作用 */
+	private poll: ReturnType<typeof setInterval> | null = null;
 	private stopped = false;
 
 	constructor(deps: TaskFolderWatcher["deps"]) {
@@ -48,6 +53,7 @@ export class TaskFolderWatcher {
 		} catch (err) {
 			console.warn(`[scheduler] watch 失败 ${dir}:`, err);
 		}
+		this.poll = setInterval(() => this.scheduleReload(), POLL_MS);
 	}
 
 	private scheduleReload(): void {
@@ -100,6 +106,8 @@ export class TaskFolderWatcher {
 	stop(): void {
 		this.stopped = true;
 		if (this.timer) clearTimeout(this.timer);
+		if (this.poll) clearInterval(this.poll);
+		this.poll = null;
 		this.watcher?.close();
 		this.watcher = null;
 	}
