@@ -1,3 +1,10 @@
+## 2026-09-09 — v0.3.18 发版（下拉选择器修复 + thinking 模型 400 修复）
+
+- 版本：0.3.17 → 0.3.18。
+- 修复：模型/思考下拉宽度自适应与箭头统一；自定义供应商 thinking 模型多轮 400（compat 透传 reasoning_content，扩展生成版本 2→3 强制重生成）。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：frontend（AutoWidthSelect/ModelSelector/ThinkingSelector）、kernel（pi-catalog/provider-extension）。
+
 ## 2026-09-08 — fix: 模型/思考下拉选择器——宽度自适应 + 箭头统一
 
 - 修复 ①（过宽）：`ModelSelector` 用原生 `<select>`，其固有宽度按**最宽 option** 计算，模型名长短差异大时（如「阿里云 Token Plan CN/qwen3.8-flash-plus-very-long-model-name」）选择器被撑到 371–495px，箭头随元素右边缘跑到离文字很远的地方。
