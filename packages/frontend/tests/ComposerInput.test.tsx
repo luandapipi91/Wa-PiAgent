@@ -230,7 +230,8 @@ test("disables send and shows placeholder when no model is selected", () => {
 	renderComposer({ model: null });
 	const select = screen.getByTestId("model-selector") as HTMLSelectElement;
 	expect(select.value).toBe("");
-	expect(screen.getByText("选择模型")).toBeTruthy();
+	// AutoWidthSelect 的占位 span 与 option 文案同文案，getAllByText 断言至少存在
+	expect(screen.getAllByText("选择模型").length).toBeGreaterThan(0);
 	expect(
 		(screen.getByTestId("composer-send") as HTMLButtonElement).disabled,
 	).toBe(true);
