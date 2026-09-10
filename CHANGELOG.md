@@ -6,6 +6,13 @@
 - 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
 - 影响范围：frontend（MessageList/blocks/quick-invoke）、kernel（provider-test/ws-server）。
 
+## 2026-09-10 — v0.3.20 发版（气泡指令文本泄漏修复）
+
+- 版本：0.3.19 → 0.3.20。
+- 修复：用户消息气泡顶部多出一行 pi-lens 抑制指令文本（改到合法注释位，抑制仍生效）。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：frontend（MessageList）。
+
 ## 2026-09-10 — fix(frontend): 每条用户气泡顶部多出一行 pi-lens 抑制指令文本
 
 - 症状：用户发消息后觉得“发出去的内容里多了些莫名其妙的东西”——**每一条**用户气泡顶部都多出一行 `// pi-lens-ignore: dangerously-set-inner-html`，看起来像是被塞进了发出的消息。
