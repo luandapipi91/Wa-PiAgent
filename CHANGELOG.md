@@ -6,6 +6,15 @@
 - 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
 - 影响范围：frontend（MessageList/blocks/quick-invoke）、kernel（provider-test/ws-server）。
 
+## 2026-09-10 — fix(frontend): 每条用户气泡顶部多出一行 pi-lens 抑制指令文本
+
+- 症状：用户发消息后觉得“发出去的内容里多了些莫名其妙的东西”——**每一条**用户气泡顶部都多出一行 `// pi-lens-ignore: dangerously-set-inner-html`，看起来像是被塞进了发出的消息。
+- 根因：该抑制指令被写在用户气泡的 **JSX children 区**（开标签属性区才是注释位置），React 把它当文本节点渲染，故对所有用户气泡无条件生效。**发送链路本身干净**：落库 jsonl 里 user 原文就是「编辑一下」「？」（已核对），内核/模型从未收到该文本。
+- 修复：指令移到 `<p>` 开标签属性区（pi-lens 只按源文本行匹配——诊断行或紧邻上一行，属性区同样生效，与 SessionView 既有写法一致）；children 处补一条 JSX 表达式注释说明为何不能写在那里，防复发。
+- 测试：新增组件回归 `tests/MessageList.test.tsx`（气泡文本 == 原文，且不含该指令）＋ `e2e/bubble-render.spec.ts`（真实浏览器：填「编辑一下」发送后断言气泡与聊天区文本）；两者均做变异验证（还原事故写法 → 均精确报红，收到串就是用户看到的原样）。
+- 验证：MessageList 单测 79 pass；frontend 全量 2225 pass 0 fail；tsc 绿；vite build 后 dist 已不含该字符串；pi-lens 该文件 error 级诊断仍为 0（抑制仍生效）。
+- 影响范围：packages/frontend（src/components/MessageList.tsx、tests/MessageList.test.tsx、e2e/bubble-render.spec.ts 新增；dist 重建）。
+
 ## 2026-09-10 — fix(kernel): OpenCode Go 供应商「测试连接」假报 400（漏 x-opencode-session）
 
 - 症状：供应商编辑弹窗点「测试连接」，anthropic-messages 格式的 OpenCode Go/Zen 一律弹「连接失败（HTTP 400）」，但保存后真实对话完全可用。
