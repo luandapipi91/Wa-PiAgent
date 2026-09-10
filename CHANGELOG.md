@@ -1,3 +1,46 @@
+## 2026-09-10 — fix(kernel): OpenCode Go 供应商「测试连接」假报 400（漏 x-opencode-session）
+
+- 症状：供应商编辑弹窗点「测试连接」，anthropic-messages 格式的 OpenCode Go/Zen 一律弹「连接失败（HTTP 400）」，但保存后真实对话完全可用。
+- 根因（实测复现定案）：该网关要求请求带稳定会话 ID `x-opencode-session`，缺失时固定回 `400 MissingSessionID`（"Request is missing x-opencode-session and cannot be routed efficiently"）；模型名/`max_tokens`/`stream` 均非变量（模型名不存在回的是 401）。pi 本体会对 opencode 域名自动补该头（`pi-coding-agent/dist/core/provider-attribution.js`），所以真实链路可用；而内核连通测试自己 `fetch` 探测，未带该头 → 假 400。
+- 修复：`provider-test.ts` 新增 `opencodeSessionHeaders()`，判定口径与 pi 对齐（provider slug 命中 opencode/opencode-go，或 baseUrl 主机名为 opencode.ai），anthropic-messages 分支注入 `x-opencode-session`（单次探测无对话上下文，每次生成新 UUID）；`TestInput` 增 `slug?`，ws-server 的 `provider:test` 透传 `event.slug`。openai-completions 分支未动（实测 `GET {base}/models` 无该头也是 200）。
+- 测试：`tests/provider-test.test.ts` 追加 3 例（opencode 域名带会话头 / 仅 slug 命中自建代理域名也带 / 其他供应商不带），修复前 2 例红；真实网关回归——隔离内核 POST `/api/providers/test` 真实凭据 `ok:true`，错 key 仍 401、openai 分支仍 200（未变成一律放行）。
+- 影响范围：packages/kernel（src/provider-test.ts、src/ws-server.ts、tests/provider-test.test.ts）。
+
+## 2026-09-09 — fix(frontend): 流式输出时文件 chip/图片/视频闪烁（每帧整树 remount）
+
+- 症状：流式输出期间，消息里的 FilePill 路径 chip、MarkdownImage 图片、InlineVideo 反复闪烁（图片白闪重解码、视频黑闪重载、chip↔纯文本三态跳）；**同一根因的第二症状**：超 20 行的流式代码块点「展开」无效——展开态是 CodeBlockCard 本地 state，每帧重挂载即重置回折叠，用户感知为「点了没用，一直在渲染」。
+- 根因（探路 + DOM 身份测试实锤）：`MarkdownBlock` 内 `mdComponents = useMemo(createMarkdownComponents(sessionId, mediaItems), [sessionId, mediaItems])`——流式中 `mediaItems`（TextContent 每帧 `collectMediaItems(text)` 产新数组）每帧新引用 → components 对象每帧重建 → 内含的 code/p/img 渲染函数 type 每帧变化 → React 按 type 变化把**整棵 markdown 树每帧卸载重挂**。连带 FilePill 每帧重跑 statFile（fileExists 重置 → chip→文本→chip）。
+- 修复：`createMarkdownComponents` 第二参接受 `MediaItem[] | (() => MediaItem[])`，渲染器内改经 `resolveItems()` 事件时求值（mediaItems 本就只用于点击打开画廊，不参与「是否渲染 chip」的判断）；`MarkdownBlock` 用 ref 中转最新清单、components 依赖收敛为 `[sessionId]`——流式期间零重挂载，点击画廊仍拿当前帧完整清单。模式对照：StreamingOutput 的既有写法 `useMemo(..., [sessionId])` 即稳定先例。
+- 测试（TDD 红→绿）：新增 `tests/blocks/markdown-streaming-stability.test.tsx`——「text 多帧增长后 chip/图片卡片必须仍是同一 DOM 节点」的节点身份断言（重挂载=闪烁机制本身，是最直接的闪烁探针）；修复前红（节点实例变化）修复后绿。已知 happy-dom 坑：about:blank 下相对 URL /file? 不可解析会同步 fire img error 降级 FilePill，需 `happyDOM.setURL("http://localhost/")`（同 MarkdownImage.test 既有处理）。代码块展开失效补 2 例（闭合围栏 + 流式尾巴未闭合围栏：点展开→增长后行数仍全显不回 20）；经变异验证（临时回退旧依赖三例全红）确认新用例确实能抓住本 bug。
+- 验证：流式稳定性 3 例全绿；blocks 全目录 + MessageList + MessageRow 回归 212 pass 0 fail（后又复跑 95 pass）；tsc 绿；build 通过。另注：`StreamingOutput`（子代理卡）存在「输出中纯文本 ↔ 停顿 500ms 切 markdown」的双模式硬切换（设计如此，省流式开销），chip 只在停顿时出现，属另一独立行为，本次未动。
+- 影响范围：packages/frontend（src/components/blocks/markdown-components.tsx——签名扩展 + 5 处 resolveItems()；src/components/MessageList.tsx——MarkdownBlock 依赖收敛 + 导出仅供测试；tests/blocks/markdown-streaming-stability.test.tsx 新增）。
+
+## 2026-09-09 — feat(frontend): edit/write 工具卡右侧 +N -M 行数统计
+
+- 新增：edit/write 工具调用卡片标题行右侧（ProcessCard meta 槽，状态字旁）显示增删行数「+N -M」——新增绿（text-success）/删除红（text-danger）font-mono；write 只显示 +N（覆盖写前的旧行数在调用点不可知，不虚报删除数）。回合折叠时随卡片一并收起（展开两层后可见，与过程卡既有行为一致）。
+- 数据源两级（导出纯函数 `editLineStats`）：① edit 已完成用 `result.details.diff`（pi edit 工具返回，逐行数 +前缀/-前缀；忽略上下文行、"  ..." 省略行与 +++/--- 文件头，覆盖跨 edits 的真实行差）；② 执行中或旧会话无 details 时从 arguments 推算（edits[] 数组或平铺 oldText/newText 同款兼容，流式畸形形状逐项跳过不崩溃）。失败结果 / 其他工具 / 统计全 0 → null 不渲染，无噪音。
+- 测试（TDD 红→绿）：ToolCallCard.test.tsx 追加 13 例（纯函数 8 + 渲染 5），既有 9 例不回归；新增 `e2e/tool-line-stats.spec.ts`（chat-media-preview 注入模式，无 LLM 依赖）：真实浏览器验证 edit +1/-2 绿红分色、write +3 无 -M、bash 无统计。E2E 踩坑：回合结束后过程区折叠为「本轮过程」摘要，单卡又嵌在「N 个工具调用」组卡内，断言前需依次展开两层（chat-blocks.spec 单步不折叠，无此覆盖）。
+- 验证：ToolCallCard 22 pass 0 fail；上游 ProcessCard/MessageRow/MessageList 回归 99 pass 0 fail；tsc 绿；build 通过；e2e 新用例通过。
+- 影响范围：packages/frontend（src/components/blocks/ToolCallCard.tsx——新增导出 editLineStats + meta 接线；顺带按 pi-lens blocker 把本文件 4 处 `Record<string, any>` 收窄为 `Record<string, unknown>`（含 3 处既有函数，纯类型无行为变化）；tests/ToolCallCard.test.tsx、e2e/tool-line-stats.spec.ts）。
+
+## 2026-09-09 — fix: 聊天长过程卡折叠后视口跳顶
+
+- 问题：消息内思考过程/工具调用卡很长时把列表撑高，用户滚动到卡片头部点击「折叠」后，整个聊天视口跳到列表顶部（或被拽到底部），正在查看的内容瞬间消失。
+- 根因（e2e 实测定位）：①过程卡 body 为条件渲染，折叠时行高阶跃骤减，列表总高塌缩 → scrollTop 被浏览器 clamp；②折叠后视口恰处物理贴底时，Virtuoso 在内部布局数据收敛期间会把视口重置到列表头（st≈0）；③clamp 造成「假贴底」，`atBottomStateChange(true)` 误置 stickBottom=true，后续流式内容增长触发贴底回拉把视口拽走；④点击折叠按钮的 pointerdown 会刷新「用户滚动输入」标记（350ms 窗口），导致 clamp 的 scroll 事件被误判为用户上翻、假贴底检测从未执行。
+- 修复：新增 `blocks/toggleViewport.ts`（两段式视口恢复——以折叠前锚点文档位置为准：250ms 布局收敛后锚点回位 + 2s 监听窗口内视口重置即恢复，同步监听抢在 Virtuoso 重算可视区间之前避免行 unmount 丢展开状态；500ms 后贴底解除，脱离贴底阈值 30px 关闭 Virtuoso 内建 bottom-pinning 对流式增长的跟随）；`ProcessCard`/`TurnSummary` 的 toggle 接入；`MessageList.handleScrollerScroll` 假贴底检测提前（条件更具体者优先，不依赖 isUserScrollInput——点击按钮的 pointer 输入不再干扰判定）+ `handleAtBottomChange(true)` 粘性抑制（清除时机=用户真实滚动输入或浮钮显式回底）。
+- 已知限制：折叠时若所在行被 Virtuoso 短暂移出渲染窗口，行内展开状态会重置（用户需再点一次展开），视口位置本身已恢复。
+- 测试：新增 `tests/blocks/toggleViewport.test.ts` 6 例（无 scroller 退化、贴底跳过、clamp 回位、物理极限止步、无漂移不动、归零恢复）；新增 `e2e/collapse-viewport.spec.ts`（非贴底折叠 → 视口保持 + 贴底解除 + 流式增长不拽走，4 断言）；更新 `MessageList.subagent-scroll.test.tsx` 贴底折叠轨迹数据为真实轨迹（st 始终等于当步 maxScrollTop）。全量 frontend 单测 1667 例 0 fail；typecheck 绿；collapse-viewport + send-scroll e2e 回归通过（send-scroll 的 B/C 用例在改动前后基线上同样偶发失败，为多 spec 共享 kernel 的既有环境问题，非本次回归）。
+- 影响范围：packages/frontend（src/components/blocks/toggleViewport.ts 新增、ProcessCard.tsx、TurnSummary.tsx、MessageList.tsx、对应测试与 e2e）。
+
+## 2026-09-09 — fix: 超长无空格字符串的用户消息撑爆窗口
+
+- 问题：用户消息含超长无空格字符串（base64/长 token 等）时，气泡不折行、宽度被撑到 80 万 px，横向撑爆聊天窗口。
+- 根因：用户消息链路（行容器 `flex max-w-[90%]` → `flex-col` → 气泡 `<p>`）三层都缺 `min-w-0` / `overflow-wrap` 防护；flex 子项 min-width:auto 使 max-width 失效，无空格串按自然宽度渲染（e2e 实测气泡 812,113px）。assistant 侧有 `w-[90%] min-w-0` + prose break-word 防护，不受影响。
+- 修复：用户消息行容器与 flex-col 补 `min-w-0`，气泡补 `[overflow-wrap:anywhere]`。e2e 实测气泡 812,113px → 854px（≤ 列表宽 1014px），正常折行。
+- 测试：新增 `e2e/long-token-message.spec.ts`（无横向溢出 + 气泡宽度约束 + 内容存在性断言）；MessageList 相关单测 31 例回归通过。
+- 影响范围：packages/frontend（src/components/MessageList.tsx 用户消息气泡、e2e/long-token-message.spec.ts 新增）。
+- 追加（同日）：修复超长文本发送卡死 UI——`textToSegments` 的 element 正则分支含无界量词 `\S+`，对无空格超长串（54 万字符 base64）灾难性回溯（实测 115s，主线程完全卡死）。修复：`textToSegments` 增加快速路径，文本不含 token 特征字符时直接返回单段（语义与 split 无匹配等价），实测 54 万字符 115s → 1ms；新增 e2e 通过 UI 发送 4600 字符 base64 验证折行与不卡死。
+
 ## 2026-09-09 — v0.3.18 发版（下拉选择器修复 + thinking 模型 400 修复）
 
 - 版本：0.3.17 → 0.3.18。

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import { useRef } from "react";
 import { Icon } from "../ui/Icon";
+import { togglePreservingViewport } from "./toggleViewport";
 
 export type ProcessTone = "accent" | "success" | "warning" | "danger";
 
@@ -42,6 +44,14 @@ export function ProcessCard(props: {
 	const { tone, icon, title, meta, open, onToggle, muted, testId, children } =
 		props;
 	const t = TONE_STYLE[tone];
+	// 折叠/展开时保持视口位置：长卡在虚拟列表中高度阶跃会让浏览器 clamp scrollTop
+	// （视口跳顶/跳底），以头部按钮为锚点补偿（详见 toggleViewport 注释）
+	const headerRef = useRef<HTMLButtonElement | null>(null);
+	const handleToggle = () => {
+		const el = headerRef.current;
+		if (el) togglePreservingViewport(el, onToggle);
+		else onToggle();
+	};
 	return (
 		<div
 			data-testid={testId}
@@ -50,7 +60,8 @@ export function ProcessCard(props: {
 		>
 			<button
 				type="button"
-				onClick={onToggle}
+				ref={headerRef}
+				onClick={handleToggle}
 				data-testid={testId ? `${testId}-header` : undefined}
 				className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left select-none"
 				style={{ cursor: "pointer" }}

@@ -9,7 +9,7 @@ import { useUiPrefsStore } from "../../store/ui-prefs";
 import { Icon } from "../ui/Icon";
 
 /** 格式化工具调用参数 — 截断长值避免撑爆 UI（自 MessageList 迁入） */
-export function formatArgs(args: Record<string, any>): string {
+export function formatArgs(args: Record<string, unknown>): string {
 	const keys = Object.keys(args);
 	if (keys.length === 0) return "";
 	const parts = keys.map((k) => {
@@ -21,6 +21,73 @@ export function formatArgs(args: Record<string, any>): string {
 		return s.length > 80 ? `${k}: ${s.slice(0, 77)}...` : `${k}: ${s}`;
 	});
 	return parts.join(", ");
+}
+
+/** 行数统计（edit/write 卡片右侧 +N -M） */
+export interface EditLineStats {
+	added: number;
+	removed: number;
+}
+
+function countLines(s: string): number {
+	return s === "" ? 0 : s.split("\n").length;
+}
+
+/** 计算 edit/write 的增删行数；无可靠数据（其他工具/失败/无法解析）返回 null 不展示。
+ *  优先级：edit 已完成时用 result.details.diff（pi edit-diff 生成，+<行号>/-<行号>/空格开头上下文，
+ *  最准）；执行中或旧会话无 details 时从 arguments.edits[]（兼容平铺 oldText/newText）推算；
+ *  write 没有删除数（覆盖写前的旧行数在调用点不可知），只报 content 行数。 */
+export function editLineStats(
+	toolName: string,
+	args: Record<string, unknown>,
+	result?: ToolResultMessage,
+): EditLineStats | null {
+	if (toolName !== "edit" && toolName !== "write") return null;
+	if (result?.isError) return null;
+
+	if (toolName === "edit") {
+		const details = result?.details;
+		if (
+			details &&
+			typeof details === "object" &&
+			typeof (details as any).diff === "string"
+		) {
+			let added = 0;
+			let removed = 0;
+			for (const line of (details as any).diff.split("\n")) {
+				if (line.startsWith("+++") || line.startsWith("---")) continue;
+				if (line.startsWith("+")) added++;
+				else if (line.startsWith("-")) removed++;
+			}
+			if (added > 0 || removed > 0) return { added, removed };
+		}
+
+		// 兜底（执行中 / 旧会话）：参数推算。与 EditArgsView 同款兼容：edits 数组或平铺 oldText/newText
+		const edits = Array.isArray(args.edits)
+			? args.edits
+			: args.oldText !== undefined || args.newText !== undefined
+				? [{ oldText: args.oldText, newText: args.newText }]
+				: [];
+		let added = 0;
+		let removed = 0;
+		let seen = false;
+		for (const e of edits) {
+			if (!e || typeof e !== "object") continue;
+			const oldText = typeof e.oldText === "string" ? e.oldText : undefined;
+			const newText = typeof e.newText === "string" ? e.newText : undefined;
+			if (oldText === undefined && newText === undefined) continue;
+			seen = true;
+			if (oldText !== undefined) removed += countLines(oldText);
+			if (newText !== undefined) added += countLines(newText);
+		}
+		return seen && (added > 0 || removed > 0) ? { added, removed } : null;
+	}
+
+	// write
+	const content = args.content;
+	if (typeof content !== "string") return null;
+	const added = countLines(content);
+	return added > 0 ? { added, removed: 0 } : null;
 }
 
 /** 多行/长字符串代码块样式：真实换行缩进展示、带行号，不设高度限制（完整可读） */
@@ -116,12 +183,12 @@ function ArgValue({ v }: { v: any }): ReactNode {
 }
 
 /** 通用工具参数展开视图：美化 JSON，长字符串还原为真实文本 */
-function PrettyArgsView({ args }: { args: Record<string, any> }) {
+function PrettyArgsView({ args }: { args: Record<string, unknown> }) {
 	return <ArgValue v={args} />;
 }
 
 /** edit 工具专用参数视图：文件路径 + 新旧内容代码块（兼容 edits 数组与平铺两种参数结构） */
-function EditArgsView({ args }: { args: Record<string, any> }) {
+function EditArgsView({ args }: { args: Record<string, unknown> }) {
 	const { t } = useTranslation();
 	const edits = Array.isArray(args.edits)
 		? args.edits
@@ -213,6 +280,7 @@ export function ToolCallCard({
 	const { t } = useTranslation();
 	const failed = !!result?.isError;
 	const tone = !result ? "accent" : failed ? "danger" : "success";
+	const stats = editLineStats(toolCall.name, toolCall.arguments, result);
 	return (
 		<ProcessCard
 			tone={tone}
@@ -227,13 +295,30 @@ export function ToolCallCard({
 			}
 			title={toolCallTitle(toolCall, t("blocks.toolCall.askUserQuestionName"))}
 			meta={
-				!result ? (
-					<Spinner />
-				) : failed ? (
-					t("blocks.toolCall.failedMeta")
-				) : (
-					t("blocks.toolCall.doneMeta")
-				)
+				<>
+					{!result ? (
+						<Spinner />
+					) : failed ? (
+						t("blocks.toolCall.failedMeta")
+					) : (
+						t("blocks.toolCall.doneMeta")
+					)}
+					{stats && (
+						<span
+							data-testid={`toolcall-${toolCall.id}-stats`}
+							className="inline-flex items-center gap-1 font-mono"
+						>
+							{stats.removed > 0 ? (
+								<>
+									<span className="text-success">+{stats.added}</span>
+									<span className="text-danger">-{stats.removed}</span>
+								</>
+							) : (
+								<span className="text-success">+{stats.added}</span>
+							)}
+						</span>
+					)}
+				</>
 			}
 			open={open}
 			onToggle={toggle}

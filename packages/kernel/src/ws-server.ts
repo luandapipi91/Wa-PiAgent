@@ -2321,6 +2321,7 @@ export class WSServer {
 					apiKey: event.apiKey,
 					api: event.api,
 					models: event.models,
+					slug: event.slug,
 				});
 				// failure 结构化透传：前端按 code 查 kernelMsg 字典渲染（优先于 error 兑底串）
 				reply({

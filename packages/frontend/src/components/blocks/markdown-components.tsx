@@ -46,17 +46,23 @@ function isLinkText(text: string): boolean {
  * pre → CodeBlockCard / MermaidBlock；形似路径的内联 code → 媒体（图片卡片/视频播放器）或 FilePill（块级 code 已被 pre 接管，不会走到这里）；a → 新标签页打开。
  * img → MarkdownImage 卡片缩略图；p → 同段落连续 ≥2 张图片聚合为 2 列网格（>4 张第 4 张叠「+N」）。
  * mediaItems：该文本块内全部媒体（collectMediaItems 收集），供点击打开画廊时传完整清单。
+ * 传数组或返回数组的 getter 均可：流式场景传 getter（如 () => ref.current），
+ * 让 components 的 useMemo 依赖不随清单每帧变化——否则内联渲染函数 type 每帧变化，
+ * React 会整树 remount，chip/图片/视频全部闪烁。
  */
 export function createMarkdownComponents(
 	sessionId: string,
-	mediaItems: MediaItem[] = [],
+	mediaItems: MediaItem[] | (() => MediaItem[]) = [],
 ): Components {
+	/** 事件/渲染时求值最新清单：getter 形态下每次点击拿到的都是当前帧的完整画廊 */
+	const resolveItems = (): MediaItem[] =>
+		typeof mediaItems === "function" ? mediaItems() : mediaItems;
 	const imgRenderer = (props: any) => (
 		<MarkdownImage
 			src={props.src}
 			alt={props.alt}
 			sessionId={sessionId}
-			items={mediaItems}
+			items={resolveItems()}
 		/>
 	);
 	return {
@@ -81,7 +87,7 @@ export function createMarkdownComponents(
 							if (i === 3 && extra > 0) {
 								const src = (k as any).props.src as string | undefined;
 								const norm = src?.replace(/\\/g, "/");
-								const idx = mediaItems.findIndex(
+								const idx = resolveItems().findIndex(
 									(it) => it.src === norm && it.kind === "image",
 								);
 								return (
@@ -93,7 +99,7 @@ export function createMarkdownComponents(
 											onClick={() =>
 												useSessionStore
 													.getState()
-													.openMediaPreview(mediaItems, Math.max(idx, 0), sessionId)
+													.openMediaPreview(resolveItems(), Math.max(idx, 0), sessionId)
 											}
 											className="absolute inset-0 flex items-center justify-center rounded-md bg-black/55 text-white text-[calc(18px*var(--font-scale))] font-semibold cursor-pointer"
 										>
@@ -131,7 +137,7 @@ export function createMarkdownComponents(
 						<MarkdownImage
 							src={parsed.path}
 							sessionId={sessionId}
-							items={mediaItems}
+							items={resolveItems()}
 						/>
 					);
 				}
@@ -141,12 +147,16 @@ export function createMarkdownComponents(
 							src={parsed.path}
 							name={fileNameOf(parsed.path)}
 							sessionId={sessionId}
-							items={mediaItems}
+							items={resolveItems()}
 						/>
 					);
 				}
 				return (
-					<FilePill rawText={text} sessionId={sessionId} mediaItems={mediaItems} />
+					<FilePill
+						rawText={text}
+						sessionId={sessionId}
+						mediaItems={resolveItems()}
+					/>
 				);
 			}
 			// 反引号包裹的裸 URL：渲染为可点击链接（autolink 不进入 code 构造）

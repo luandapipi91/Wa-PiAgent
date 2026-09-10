@@ -255,6 +255,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	const lastUserScrollInputRef = useRef(0);
 	const markUserScrollInput = useCallback(() => {
 		lastUserScrollInputRef.current = Date.now();
+		fakeAtBottomRef.current = false;
 	}, []);
 	const isUserScrollInput = useCallback(() => {
 		return Date.now() - lastUserScrollInputRef.current < 350;
@@ -381,6 +382,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	const scrollToEndRef = useRef(scrollToEnd);
 	scrollToEndRef.current = scrollToEnd;
 	const handleScrollToBottom = useCallback(() => {
+		fakeAtBottomRef.current = false;
 		scrollToEnd();
 		setStickBottom(true);
 	}, [scrollToEnd]);
@@ -468,6 +470,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			}
 		}
 		return null;
+		// pi-lens-ignore: no-explicit-any
 	}, [displayRows]);
 	useEffect(() => {
 		if (lastCompactionKey && stickBottom) {
@@ -509,6 +512,9 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	const handleAtBottomChange = useCallback(
 		(atBottom: boolean) => {
 			if (atBottom) {
+				// 假贴底抑制（粘性）：折叠长卡 clamp 伪造的贴底（见 handleScrollerScroll 内
+				// 注释），不恢复贴底跟随，直到用户真实滚动输入或显式回底
+				if (fakeAtBottomRef.current) return;
 				everAtBottomRef.current = true;
 				userScrolledAwayRef.current = false;
 				setStickBottom(true);
@@ -559,6 +565,16 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	// 最近一次 scroll 事件是否判定为「用户上翻」（同步标记，供 handleAtBottomChange
 	// 在 Virtuoso 先于本组件执行 scroll 监听时区分「用户滚动离底」与「内容被动离底」）。
 	const userScrolledAwayRef = useRef(false);
+	// 假贴底发生时刻（见 handleScrollerScroll 假贴底分支）：折叠长卡时内容高度骤减把
+	// scrollTop clamp 到贴底位置，用户并非主动回底，同帧的 atBottomStateChange(true)
+	// 不应恢复贴底跟随（否则后续流式内容增长会触发回拉把视口拽走）
+	// 假贴底标记（见 handleScrollerScroll 假贴底分支）：折叠长卡时内容高度骤减把
+	// scrollTop clamp 到贴底位置，用户并非主动回底，atBottomStateChange(true) 不应
+	// 恢复贴底跟随（否则后续流式内容增长会触发回拉把视口拽走）。粘性置位：恢复视口
+	// 后 st 往往仍处于物理贴底，一次性窗口过期后 atBottomStateChange(true) 会再次
+	// 误置 stickBottom=true。清除时机=用户真实滚动输入（markUserScrollInput）或
+	// 点击浮钮显式回底（handleScrollToBottom）。
+	const fakeAtBottomRef = useRef(false);
 	// handleAtBottomChange 延迟一帧判断用的 timer（卸载时清理）
 	const atBottomTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
@@ -589,12 +605,29 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			lastScrollTopRef.current = st;
 			return;
 		}
+		// 被动 clamp 伪造贴底（优先于上翻判定——条件更具体）：内容高度骤减（折叠长卡）
+		// 把 scrollTop 压到贴底位置，但 clamp 前用户并不在底部（在看中间内容）。同一次
+		// scroll 事件里 Virtuoso 的 atBottomStateChange(true) 会误置 stickBottom=true，
+		// 后续内容增长时触发贴底回拉把用户拽离正在查看的位置（视口飞走，甚至 Virtuoso
+		// 在内部高度未收敛时 scrollToIndex 把视口打到列表头）。此处识别并纠正。
+		// 注意不能用 isUserScrollInput 区分：点击折叠按钮的 pointerdown 也会刷新输入
+		// 标记，350ms 窗口内的 clamp 会被误判成用户滚动。
+		if (
+			st < lastScrollTopRef.current &&
+			maxScrollTop < prevMax &&
+			lastScrollTopRef.current < prevMax - 40 &&
+			maxScrollTop - st < 40
+		) {
+			setStickBottom(false);
+			userScrolledAwayRef.current = true;
+			fakeAtBottomRef.current = true;
+		}
 		// 用户主动上翻：scrollTop 减小，且（有滚动输入标记 或 maxScrollTop 未减小）。
 		// maxScrollTop 未减小 = 内容高度没变（无 clamp 理由），scrollTop 减小只能是
 		// 用户滚动（wheel/触摸惯性/键盘/滚动条）——触摸惯性阶段无输入事件，靠此识别。
 		// 内容折叠导致被动 clamp：scrollTop 减小且 maxScrollTop 同步减小 → 不是上翻。
 		// 向下/贴底（scrollTop 增大或不变）= 程序化贴底或用户在底部 → 保持跟随。
-		if (
+		else if (
 			st < lastScrollTopRef.current &&
 			(isUserScrollInput() || maxScrollTop >= prevMax)
 		) {
@@ -1164,17 +1197,18 @@ export const MessageRow = memo(function MessageRow({
 		const displayHtml = attachmentHtml ? `${base} ${attachmentHtml}` : base;
 		return (
 			<div
-				className="flex flex-row-reverse gap-2.5 max-w-[90%] ml-auto"
+				className="flex flex-row-reverse gap-2.5 max-w-[90%] ml-auto min-w-0"
 				data-testid={`msg-${sessionId}-${m.timestamp}`}
 			>
-				<div className="flex flex-col items-end">
+				<div className="flex flex-col items-end min-w-0">
 					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
 						{t("message.me")} · {formatTime(m.timestamp, t("common.yesterday"))}
 					</div>
 					<div
-						className="px-3.5 py-2.5 text-[calc(13.5px*var(--font-scale))] bg-surface text-primary border border-hairline"
+						className="px-3.5 py-2.5 text-[calc(13.5px*var(--font-scale))] bg-surface text-primary border border-hairline [overflow-wrap:anywhere]"
 						style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}
 					>
+						// pi-lens-ignore: dangerously-set-inner-html
 						<p dangerouslySetInnerHTML={{ __html: displayHtml }} />
 					</div>
 					{showResend && (
@@ -1346,7 +1380,8 @@ export const MessageRow = memo(function MessageRow({
 // 单 text block 的 Markdown 渲染。memo：流式合并行中只有内容变化的 block（流式中的
 // 末块）重渲染，已定稿 block（text 字符串引用不变）整块跳过——避免合并行里定稿段落
 // 每帧全量重跑 ReactMarkdown/remarkGfm（超长回复的卡顿热点）。
-const MarkdownBlock = memo(function MarkdownBlock({
+// 导出仅供测试（markdown-streaming-stability.test.tsx 锁「流式增长不重挂载」契约）。
+export const MarkdownBlock = memo(function MarkdownBlock({
 	text,
 	sessionId,
 	mediaItems,
@@ -1355,9 +1390,16 @@ const MarkdownBlock = memo(function MarkdownBlock({
 	sessionId: string;
 	mediaItems: MediaItem[];
 }) {
+	// mediaItems 用 ref 中转：components 的 useMemo 依赖只能有 sessionId——流式中
+	// mediaItems 每帧新引用会让 components 每帧重建，内联渲染函数 type 变化导致
+	// 整棵 markdown 树每帧 remount（chip/图片/视频闪烁的根因，契约见
+	// tests/blocks/markdown-streaming-stability.test.tsx）。画廊清单由渲染器在
+	// 点击时经 getter 读取最新值，功能不受影响。
+	const mediaItemsRef = useRef(mediaItems);
+	mediaItemsRef.current = mediaItems;
 	const mdComponents = useMemo(
-		() => createMarkdownComponents(sessionId, mediaItems),
-		[sessionId, mediaItems],
+		() => createMarkdownComponents(sessionId, () => mediaItemsRef.current),
+		[sessionId],
 	);
 	return (
 		<div className="prose prose-sm max-w-none" data-testid="text-block">
@@ -1403,11 +1445,7 @@ const TextContent = memo(function TextContent({
 					/>
 				) : p.kind === "image" ? (
 					<div key={i}>
-						<MarkdownImage
-							src={p.src}
-							sessionId={sessionId}
-							items={mediaItems}
-						/>
+						<MarkdownImage src={p.src} sessionId={sessionId} items={mediaItems} />
 					</div>
 				) : (
 					<MarkdownBlock
