@@ -2687,3 +2687,31 @@ test("block 间距：折叠态展开后 children 容器也用 gap-1.5", () => {
 	const childrenContainer = thinkingCard.parentElement!;
 	expect(childrenContainer.className).toContain("gap-1.5");
 });
+
+// ── 回归：用户气泡不得渲染出 pi-lens 抑制指令 ──
+// 事故（2026-09-10）：`// pi-lens-ignore: dangerously-set-inner-html` 被写在 JSX
+// children 区（而非开标签属性区），React 把它当文本节点渲染，于是**每一条**用户
+// 气泡顶部都多出一行注释文本，用户误以为"发出去的消息里多了东西"（实际落库原文干净）。
+test("用户气泡只渲染消息原文，不渲染 pi-lens 抑制指令", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "编辑一下", timestamp: 1 },
+				},
+			],
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	const row = screen.getByTestId("msg-s1-1");
+	const bubble = row.querySelector("p")!.parentElement!;
+	// 渲染内容 == 消息原文（气泡内不含任何注释文本）
+	expect(bubble.textContent?.trim()).toBe("编辑一下");
+	expect(bubble.textContent).not.toContain("pi-lens-ignore");
+	expect(bubble.textContent).not.toContain("dangerously-set-inner-html");
+});

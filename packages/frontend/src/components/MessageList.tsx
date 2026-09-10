@@ -1208,8 +1208,13 @@ export const MessageRow = memo(function MessageRow({
 						className="px-3.5 py-2.5 text-[calc(13.5px*var(--font-scale))] bg-surface text-primary border border-hairline [overflow-wrap:anywhere]"
 						style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}
 					>
-						// pi-lens-ignore: dangerously-set-inner-html
-						<p dangerouslySetInnerHTML={{ __html: displayHtml }} />
+						{/* 抑制指令必须落在开标签属性区（而不是 children 区）：写在 children 里会被
+						    React 当成文本节点渲染，气泡顶部会多出一行抑制指令文本。
+						    pi-lens 只扫描源文本行（诊断行或紧邻上一行），此处同样生效。 */}
+						<p
+							// pi-lens-ignore: dangerously-set-inner-html
+							dangerouslySetInnerHTML={{ __html: displayHtml }}
+						/>
 					</div>
 					{showResend && (
 						<button
