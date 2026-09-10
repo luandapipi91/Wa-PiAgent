@@ -1,3 +1,11 @@
+## 2026-09-10 — v0.3.19 发版（工具卡行数统计 + 渲染稳定性修复）
+
+- 版本：0.3.18 → 0.3.19。
+- 新增：edit/write 工具卡 +N -M 行数统计。
+- 修复：流式输出卡片闪烁；长过程卡折叠后视口跳顶；超长无空格字符串撑爆窗口；OpenCode Go 测试连接假报 400。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：frontend（MessageList/blocks/quick-invoke）、kernel（provider-test/ws-server）。
+
 ## 2026-09-10 — fix(kernel): OpenCode Go 供应商「测试连接」假报 400（漏 x-opencode-session）
 
 - 症状：供应商编辑弹窗点「测试连接」，anthropic-messages 格式的 OpenCode Go/Zen 一律弹「连接失败（HTTP 400）」，但保存后真实对话完全可用。
