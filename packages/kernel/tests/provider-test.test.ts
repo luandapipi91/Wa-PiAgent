@@ -115,6 +115,52 @@ test("anthropic-messages Kimi Code baseUrl 不带 /v1 也能拼出正确路径",
 	expect(String(url)).not.toBe("https://api.kimi.com/coding/messages");
 });
 
+// ── OpenCode Go/Zen 会话路由头：缺 x-opencode-session 时上游回 400 MissingSessionID，
+// 而 pi 本体对 opencode 域名会自动补该头（provider-attribution），故真实对话可用、
+// 连通测试却假报 400。判定与 pi 一致：provider slug 或 baseUrl 主机名命中 opencode.ai。
+
+test("anthropic-messages + opencode 域名自动带 x-opencode-session", async () => {
+	const fetchMock = mock(async () => new Response("{}", { status: 200 }));
+	globalThis.fetch = fetchMock as any;
+	await testProviderConnection({
+		baseUrl: "https://opencode.ai/zen/go",
+		apiKey: "sk-opencode-test",
+		api: "anthropic-messages",
+		models,
+		slug: "opencode-go",
+	});
+	const [, init] = fetchMock.mock.calls[0] as any;
+	expect(String(init.headers["x-opencode-session"] ?? "")).not.toBe("");
+});
+
+test("anthropic-messages + 仅 slug 命中 opencode（自建代理域名）也带会话头", async () => {
+	const fetchMock = mock(async () => new Response("{}", { status: 200 }));
+	globalThis.fetch = fetchMock as any;
+	await testProviderConnection({
+		baseUrl: "https://my-proxy.example.com/zen/go",
+		apiKey: "sk-opencode-test",
+		api: "anthropic-messages",
+		models,
+		slug: "opencode-go",
+	});
+	const [, init] = fetchMock.mock.calls[0] as any;
+	expect(String(init.headers["x-opencode-session"] ?? "")).not.toBe("");
+});
+
+test("anthropic-messages + 其他供应商不带 opencode 会话头", async () => {
+	const fetchMock = mock(async () => new Response("{}", { status: 200 }));
+	globalThis.fetch = fetchMock as any;
+	await testProviderConnection({
+		baseUrl: "https://api.anthropic.com",
+		apiKey: "sk-ant-test",
+		api: "anthropic-messages",
+		models,
+		slug: "anthropic",
+	});
+	const [, init] = fetchMock.mock.calls[0] as any;
+	expect(init.headers["x-opencode-session"]).toBeUndefined();
+});
+
 test("网络错误（fetch reject）返回失败", async () => {
 	globalThis.fetch = mock(async () => {
 		throw new Error("ECONNREFUSED");

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
+import { togglePreservingViewport } from "./toggleViewport";
 
 /** 时长格式化：<60s → "45 秒"；>=60s → "2 分 15 秒"。
  *  secLabel/minLabel 可选，用于本地化单位（默认中文，保持导出函数的测试兼容）。 */
@@ -37,27 +38,35 @@ export function TurnSummary({
 }) {
 	const { t } = useTranslation();
 	const [open, setOpen] = useState(false);
+	// 展开整轮过程（行高骤增/骤减）时保持视口位置，同 ProcessCard（详见 toggleViewport 注释）
+	const headerRef = useRef<HTMLButtonElement | null>(null);
+	const handleToggle = () => {
+		const el = headerRef.current;
+		if (el) togglePreservingViewport(el, () => setOpen((v) => !v));
+		else setOpen((v) => !v);
+	};
 	return (
 		<div className="flex flex-col gap-1">
 			<button
 				type="button"
+				ref={headerRef}
 				aria-expanded={open}
-				onClick={() => setOpen((v) => !v)}
+				onClick={handleToggle}
 				className="w-full flex items-center gap-2 text-[calc(11px*var(--font-scale))] text-tertiary select-none"
 				data-testid="turn-summary"
 			>
 				<span className="flex-1 border-t border-hairline" />
 				<span className="whitespace-nowrap">
-					{elapsedMs != null
-						? t("blocks.turnSummary.withDuration", {
+					{elapsedMs == null
+						? t("blocks.turnSummary.processOnly", { steps })
+						: t("blocks.turnSummary.withDuration", {
 								elapsed: formatElapsed(elapsedMs, {
 									seconds: (s) => t("blocks.turnSummary.seconds", { sec: s }),
 									minutesSeconds: (m, s) =>
 										t("blocks.turnSummary.minutesSeconds", { min: m, sec: s }),
 								}),
 								steps,
-							})
-						: t("blocks.turnSummary.processOnly", { steps })}
+							})}
 				</span>
 				<span className="flex-1 border-t border-hairline" />
 			</button>

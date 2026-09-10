@@ -9,6 +9,8 @@ interface TestInput {
 	apiKey: string;
 	api: ProviderApi;
 	models: ProviderModel[];
+	/** 供应商 slug（用于判定是否 opencode 网关，与 pi 本体判定口径一致） */
+	slug?: string;
 }
 
 export interface TestResult {
@@ -17,6 +19,32 @@ export interface TestResult {
 	error?: string;
 	/** 结构化失败载荷：前端按 code 查 kernelMsg 字典渲染，优先于 error */
 	failure?: ProviderTestFailure;
+}
+
+/** OpenCode Go/Zen 网关主机名（会话路由头判定用） */
+const OPENCODE_HOST = "opencode.ai";
+
+/**
+ * OpenCode Go/Zen 要求请求带稳定会话 ID（`x-opencode-session`），缺失时上游固定回
+ * 400 MissingSessionID（"Request is missing x-opencode-session and cannot be routed
+ * efficiently"）。pi 本体对 opencode 域名会自动补该头（pi-coding-agent 的
+ * provider-attribution），所以真实对话可用、连通测试却假报 400 —— 这里对齐同一口径：
+ * provider slug 命中 opencode/opencode-go，或 baseUrl 主机名为 opencode.ai。
+ */
+function opencodeSessionHeaders(
+	baseUrl: string,
+	slug?: string,
+): Record<string, string> {
+	const bySlug = slug === "opencode" || slug === "opencode-go";
+	let byHost = false;
+	try {
+		byHost = new URL(baseUrl).hostname === OPENCODE_HOST;
+	} catch {
+		// baseUrl 非法：交给 fetch 报网络错，这里不做主机判定
+	}
+	if (!bySlug && !byHost) return {};
+	// 探测请求无对话上下文，每次生成新会话 ID（网关仅用于路由/提示缓存）
+	return { "x-opencode-session": crypto.randomUUID() };
 }
 
 /** 超时 10 秒 */
@@ -69,6 +97,7 @@ export async function testProviderConnection(
 					"content-type": "application/json",
 					"x-api-key": input.apiKey,
 					"anthropic-version": "2023-06-01",
+					...opencodeSessionHeaders(base, input.slug),
 				},
 				body: JSON.stringify({
 					model: modelId,

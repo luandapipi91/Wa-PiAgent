@@ -263,6 +263,13 @@ export function escapeHtml(str: string): string {
  * 也插入结果数组，破坏 segment 划分。
  */
 export function textToSegments(text: string): Segment[] {
+  // 快速路径：文本不含任何 token 特征（@im-push-to( / @[ / #[ / $[ / ¥[ / ![ / /[ / [el: ）
+  // 时不可能切出非 text 段，直接返回单段。
+  // 必要性：combined 的 element 分支含无界薾心量词 \\S+，对无空格超长串（如 base64）
+  // 会灾难性回溯——实测 54 万字符耗时 115s（O(n²)），前端主线程被完全卡死。
+  if (!/@im-push-to\(|@\[|#\[|[$¥]\[|\/\[|!\[|\[el: /.test(text)) {
+    return [{ type: "text", value: text }];
+  }
   const combined =
     /(@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)|@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\]|\/\[[^\]]+\]|!\[[^\]]+\]|\S+ (?:\[line: \d+-\d+\] )?\[el: [^\]]+\])/g;
   const parts = text.split(combined).filter((p) => p !== "");

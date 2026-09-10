@@ -1,7 +1,11 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { ToolCallCard } from "../src/components/blocks/ToolCallCard";
+import {
+	ToolCallCard,
+	editLineStats,
+} from "../src/components/blocks/ToolCallCard";
 import { useUiPrefsStore } from "../src/store/ui-prefs";
+import type { ToolResultMessage } from "@wa-pi/shared";
 
 // 本文件专注验证卡片参数 / 滚动渲染逻辑，基线为「回复过程折叠开关关闭」（展开）。
 // 折叠开关行为由 store-ui-prefs-collapse / useAutoCollapse 测试单独覆盖。
@@ -210,5 +214,150 @@ describe("ToolCallCard 工具参数渲染", () => {
 		const body = screen.getByTestId("toolcall-t1-body");
 		expect(body.querySelector(".max-h-60")).toBeNull();
 		expect(body.querySelector(".overflow-auto")).toBeNull();
+	});
+});
+
+// ── edit/write 行数统计（卡片右侧 meta 的 +N -M）──
+
+const editResultMsg = (
+	over: Partial<ToolResultMessage> = {},
+): ToolResultMessage => ({
+	role: "toolResult",
+	toolCallId: "t1",
+	toolName: "edit",
+	content: [{ type: "text", text: "Done." }],
+	isError: false,
+	timestamp: 0,
+	...over,
+});
+
+describe("editLineStats 纯函数", () => {
+	test("优先用 result.details.diff：数 +行/-行，上下文与省略行不计", () => {
+		// pi edit 返回的 diff 行格式：+<行号> 内容 / -<行号> 内容 / 空格开头=上下文 / "  ..."=省略
+		const result = editResultMsg({
+			details: {
+				diff: "+12 \t<div>\n-5 \t<p>hi</p>\n 11 \t</div>\n  ...\n+13 \t</div>",
+			},
+		});
+		expect(editLineStats("edit", editCall.arguments, result)).toEqual({
+			added: 2,
+			removed: 1,
+		});
+	});
+
+	test("diff 的 +++/--- 文件头不计入", () => {
+		const result = editResultMsg({
+			details: { diff: "--- a/x.ts\n+++ b/x.ts\n+1 new\n-2 old" },
+		});
+		expect(editLineStats("edit", editCall.arguments, result)).toEqual({
+			added: 1,
+			removed: 1,
+		});
+	});
+
+	test("执行中（无 result）→ 从 edits 参数推算", () => {
+		// editCall：oldText 3 行 / newText 3 行
+		expect(editLineStats("edit", editCall.arguments, undefined)).toEqual({
+			added: 3,
+			removed: 3,
+		});
+	});
+
+	test("兼容平铺 oldText/newText 参数", () => {
+		const args = {
+			path: "a.ts",
+			oldText: "const a = 1;\nconst b = 2;",
+			newText: "const a = 2;",
+		};
+		expect(editLineStats("edit", args, undefined)).toEqual({
+			added: 1,
+			removed: 2,
+		});
+	});
+
+	test("result 无 details → 回退参数推算", () => {
+		expect(editLineStats("edit", editCall.arguments, editResultMsg())).toEqual({
+			added: 3,
+			removed: 3,
+		});
+	});
+
+	test("失败结果 / 畸形或空参数 → null（不渲染无意义的统计）", () => {
+		expect(
+			editLineStats("edit", editCall.arguments, editResultMsg({ isError: true })),
+		).toBeNull();
+		expect(
+			editLineStats("edit", { path: "a.ts", edits: [null] }, undefined),
+		).toBeNull();
+		expect(
+			editLineStats(
+				"edit",
+				{ path: "a.ts", edits: [{ oldText: "", newText: "" }] },
+				undefined,
+			),
+		).toBeNull();
+	});
+
+	test("write：content 行数为新增数，无删除数", () => {
+		expect(
+			editLineStats("write", { path: "a.md", content: "l1\nl2\nl3" }, undefined),
+		).toEqual({
+			added: 3,
+			removed: 0,
+		});
+		expect(editLineStats("write", { path: "a.md" }, undefined)).toBeNull();
+	});
+
+	test("其他工具 → null", () => {
+		expect(editLineStats("bash", { command: "ls" }, undefined)).toBeNull();
+	});
+});
+
+describe("ToolCallCard 行数统计 meta", () => {
+	test("edit 完成后卡片右侧显示 +N -M", () => {
+		render(
+			<ToolCallCard
+				toolCall={editCall}
+				result={editResultMsg({ details: { diff: "+10 x\n-3 y\n-4 z" } })}
+			/>,
+		);
+		const stats = screen.getByTestId("toolcall-t1-stats");
+		expect(stats.textContent).toContain("+1");
+		expect(stats.textContent).toContain("-2");
+	});
+
+	test("edit 执行中（无 result）→ 按参数推算并显示", () => {
+		render(<ToolCallCard toolCall={editCall} isStreaming />);
+		const stats = screen.getByTestId("toolcall-t1-stats");
+		expect(stats.textContent).toContain("+3");
+		expect(stats.textContent).toContain("-3");
+	});
+
+	test("edit 失败结果 → 不显示统计", () => {
+		render(
+			<ToolCallCard
+				toolCall={editCall}
+				result={editResultMsg({ isError: true })}
+			/>,
+		);
+		expect(screen.queryByTestId("toolcall-t1-stats")).toBeNull();
+	});
+
+	test("write 显示 +N（无删除数）", () => {
+		render(<ToolCallCard toolCall={writeCall("a\nb\nc")} />);
+		const stats = screen.getByTestId("toolcall-w1-stats");
+		expect(stats.textContent).toContain("+3");
+		expect(stats.textContent).not.toContain("-3");
+	});
+
+	test("非 edit/write 工具不显示统计", () => {
+		const call = {
+			type: "toolCall" as const,
+			id: "t9",
+			name: "bash",
+			arguments: { command: "ls" },
+		};
+		render(<ToolCallCard toolCall={call} />);
+		expect(screen.queryByTestId("toolcall-t9-stats")).toBeNull();
 	});
 });

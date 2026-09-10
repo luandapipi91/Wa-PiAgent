@@ -506,23 +506,26 @@ test("内容折叠导致 scrollTop 被动减小（无用户输入）→ 不误�
 	mockAtBottomStateChange!(true);
 	await new Promise((r) => setTimeout(r, 30));
 
-	// 内容折叠：内容变短 → 浏览器被动 clamp scrollTop 减小（无用户输入）→ scroll 事件
-	Object.defineProperty(mockScrollerEl!, "scrollTop", {
-		value: 800,
-		writable: true,
-	});
-	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
-		value: 2000,
-		writable: true,
-	});
+	// 内容折叠：内容变短 → 浏览器被动 clamp scrollTop 减小（无用户输入）→ scroll 事件。
+	// 真实贴底折叠轨迹：st 始终等于当时的 maxScrollTop（每步都贴底），只是贴底位置
+	// 随内容骤减而上移（2800→2000→1000）。
 	Object.defineProperty(mockScrollerEl!, "clientHeight", {
 		value: 400,
 		writable: true,
 	});
+	// 折叠第一步：totalHeight 部分更新 → clamp 到新 maxScrollTop=1600（仍贴底）
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+		value: 2000,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 1600,
+		writable: true,
+	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
-	// 内容折叠：scrollHeight 同步减小（内容变短）→ maxScrollTop 减小 → 浏览器
-	// 被动 clamp scrollTop（无用户输入）→ scroll 事件。maxScrollTop 同步减小是
-	// 「被动 clamp」与「用户上翻」的关键区别（用户上翻时内容高度不变）。
+	// 折叠第二步：scrollHeight 同步减小（内容变短）→ 浏览器再次 clamp（无用户输入）
+	// → scroll 事件。maxScrollTop 同步减小是「被动 clamp」与「用户上翻」的关键区别
+	// （用户上翻时内容高度不变）。
 	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
 		value: 1000,
 		writable: true,
@@ -532,8 +535,8 @@ test("内容折叠导致 scrollTop 被动减小（无用户输入）→ 不误�
 		writable: true,
 	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
-	// 折叠完成后仍在底部（新 maxScrollTop = 600 + 400 = 1000？非精确；这里简化：
-	// Virtuoso 重新评估后 atBottomStateChange(true) 恢复贴底）
+	// 折叠完成后仍在底部（maxScrollTop = 600；Virtuoso 重新评估后
+	// atBottomStateChange(true) 确认贴底）
 	mockAtBottomStateChange!(true);
 
 	// 关键断言：无用户输入时 scroll 事件不应置 stickBottom=false。
