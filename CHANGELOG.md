@@ -1,3 +1,10 @@
+## 2026-09-14 — v0.3.21 发版（浮动预览独立窗口）
+
+- 版本：0.3.20 → 0.3.21。
+- 新增：浮动预览改为独立系统窗口，可移出主窗口之外与主窗口并行显示。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）；Electron E2E 8 pass。
+- 影响范围：frontend（preview-window/PreviewWindowRoot/BrowserPanel/FloatPreview）、desktop（main/preload）。
+
 ## 2026-09-14 — feat(frontend/desktop): 浮动预览改为独立系统窗口承载（可移出主窗口、与主窗口并行显示）
 
 - 需求：预览原先只能在主窗口内浮动（DOM 浮层，被主窗口边界锁死），无法拖出主窗口与它并行显示。
