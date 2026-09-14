@@ -1,3 +1,14 @@
+## 2026-09-14 — feat(frontend/desktop): 浮动预览改为独立系统窗口承载（可移出主窗口、与主窗口并行显示）
+
+- 需求：预览原先只能在主窗口内浮动（DOM 浮层，被主窗口边界锁死），无法拖出主窗口与它并行显示。
+- 方案：浮动模式（float）的**呈现载体**从「主窗口内的绝对定位浮层」换成**真正的 Electron 无边框窗口**。新窗口加载同一份前端（同端口同源，localStorage/IndexedDB 与 `/api` 相对路径照旧），靠 URL 标记 `?wa-preview-win=1` 分流为「预览窗口模式」只渲染预览面板；预览内容仍是窗口内的同源 iframe，所以 inspect（hover 高亮/锁定/选中）的 postMessage 协议**零改动**。主窗口在浮动模式下收起预览区，只剩最小化后的气泡入口。
+- 实现：desktop 新增 `createPreviewWindow`（`frame:false` 自绘无边框 + 单例 + 与主窗口同款 webPreferences，刻意不设 parent）与 `previewwin:open|cmd|act|set-size` 四条 IPC（事件统一经主进程 `previewwin:event` 中转，两个渲染进程不直连）；preload 新增 `waPiPreviewWin` 桥。前端新增 `preview-window.ts`（URL 标记/参数解析/桥类型）、`PreviewWindowRoot.tsx`（独立窗口根：铺满的 BrowserPanel + 右下角缩放手柄 + Toast + 源码预览弹窗）、`preview-window-driver.ts`（主窗口侧驱动 hook：开/关窗、最小化恢复、事件翻译）；`BrowserPanel` 增 `detached` 形态（工具栏兼作拖动区、关闭/最小化/切模式改走 IPC、元素选中取裸 token 转发主窗口）；`store/browser.ts` 增 `detachedRect`（屏幕坐标持久化，不夹主窗口视口）。
+- 修复：独立预览窗口里点「分享」毫无反应——分享弹窗在**未配置分享 token** 时会自动关闭并跳「设置 → 分享」，而设置弹窗原本只挂在主窗口 App 层。现在改为**转发给主窗口**：主窗口被激活到前台（最小化先 restore）+ 直接打开「设置 → 分享」。选转发而非在独立窗口渲染设置，是因为设置里模型/技能/插件等数据都只在主窗口加载，独立窗口渲染会出现「数据空白的设置页」。同类入口一并排查：源码弹窗（`FilePreviewModal`）已在独立窗口挂载、媒体弹窗不由预览面板触发。
+- 保留：`float` 模式与最小化气泡（`FloatBubble`）都保留，气泡语义改为「恢复独立窗口」；旧 DOM 浮层组件 `FloatWindow` 留在仓库但不再挂载。
+- 测试：单测（`preview-window`、`preview-window-driver`、`element-pick.buildElementToken`、store `detachedRect`）；组件（`FloatPreview` 契约改写、BrowserPanel detached 分支）；desktop 源码断言（无边框/sandbox/不设 parent/主窗口收起时同步隐藏/桥导出）；新增 Electron E2E `e2e-electron/preview-window.spec.ts`（真实窗口 8 例：浮动→独立窗无边框、最小化→气泡→恢复、切回内嵌、**跨窗口元素 chip 落入主窗口输入框**、**窗口内点分享→激活主窗口并打开设置分享分区**、手柄缩放、关闭、**窗口内点查看源码就地弹窗**）；浏览器 E2E `browser-preview.spec.ts` 两个浮动用例改为「宿主驱动指令」口径（注入 mock 桥）。
+- 验证：typecheck 全绿；frontend 全量 2251 pass 0 fail；desktop 230 pass 0 fail；Electron E2E 8 pass；浏览器 E2E 预览相关 spec 绿。
+- 影响范围：packages/desktop（main.cjs、preload.cjs、tests）、packages/frontend（main.tsx、App.tsx、BrowserPanel、FloatPreview、store/browser、element-pick + 三个新模块 + 两份 E2E 配置）。
+
 ## 2026-09-10 — v0.3.19 发版（工具卡行数统计 + 渲染稳定性修复）
 
 - 版本：0.3.18 → 0.3.19。

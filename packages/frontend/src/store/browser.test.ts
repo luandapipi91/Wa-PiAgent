@@ -3,6 +3,7 @@ import {
 	useBrowserStore,
 	clampRatio,
 	clampRect,
+	clampDetachedRect,
 	setPersistDebounceMs,
 } from "./browser";
 
@@ -17,6 +18,7 @@ beforeEach(() => {
 		mode: "split",
 		splitRatio: 0.5,
 		floatRect: { x: 100, y: 60, w: 720, h: 480 },
+		detachedRect: null,
 		minimized: false,
 		bubblePos: { x: 500, y: 400 },
 		bySession: {},
@@ -184,4 +186,62 @@ test("activateSession(null)：切到无会话（新建/空视图）关闭预览�
 	expect(useBrowserStore.getState().sessionId).toBe("A");
 	expect(useBrowserStore.getState().open).toBe(true);
 	expect(useBrowserStore.getState().path).toBe("/a/index.html");
+});
+
+// ── 独立预览窗口（float 模式的承载者）的窗口 rect ──
+// 屏幕坐标：允许副屏负坐标、允许大于主窗口视口，故不能复用 clampRect（视口 clamp）。
+
+test("setDetachedRect：屏幕坐标不夹到主窗口视口，仅约束最小尺寸并持久化", () => {
+	useBrowserStore
+		.getState()
+		.setDetachedRect({ x: -1920, y: -240, w: 100, h: 50 });
+	const r = useBrowserStore.getState().detachedRect!;
+	expect(r.x).toBe(-1920); // 副屏（主屏左侧）负坐标合法
+	expect(r.y).toBe(-240);
+	expect(r.w).toBe(320); // 最小宽
+	expect(r.h).toBe(240); // 最小高
+	expect(
+		JSON.parse(localStorage.getItem("hiagent.browser.detachedRect")!),
+	).toEqual(r);
+});
+
+test("clampDetachedRect：超大尺寸不裁剪（独立窗口可大于主窗口视口）", () => {
+	expect(clampDetachedRect({ x: 0, y: 0, w: 99999, h: 99999 })).toEqual({
+		x: 0,
+		y: 0,
+		w: 99999,
+		h: 99999,
+	});
+});
+
+test("clampDetachedRect：非有限数回退（NaN 坐标会让 setBounds 静默失败）", () => {
+	expect(clampDetachedRect({ x: NaN, y: Infinity, w: 800, h: 600 })).toEqual({
+		x: 0,
+		y: 0,
+		w: 800,
+		h: 600,
+	});
+	expect(clampDetachedRect({ x: 10, y: 20, w: NaN, h: NaN })).toEqual({
+		x: 10,
+		y: 20,
+		w: 320,
+		h: 240,
+	});
+});
+
+test("独立窗口 rect 与浮窗 rect 互不干扰（两套持久化键各写各的）", () => {
+	useBrowserStore.getState().setDetachedRect({ x: 40, y: 80, w: 900, h: 700 });
+	useBrowserStore.getState().setFloatRect({ x: 10, y: 20, w: 640, h: 400 });
+	expect(useBrowserStore.getState().detachedRect).toEqual({
+		x: 40,
+		y: 80,
+		w: 900,
+		h: 700,
+	});
+	expect(JSON.parse(localStorage.getItem("hiagent.browser.floatRect")!).x).toBe(
+		10,
+	);
+	expect(
+		JSON.parse(localStorage.getItem("hiagent.browser.detachedRect")!).x,
+	).toBe(40);
 });

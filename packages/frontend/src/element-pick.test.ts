@@ -1,5 +1,9 @@
 import { test, expect } from "bun:test";
-import { parseInspectMessage, sendElementToChat } from "./element-pick";
+import {
+	parseInspectMessage,
+	sendElementToChat,
+	buildElementToken,
+} from "./element-pick";
 
 test("parseInspectMessage：合法消息解析", () => {
 	expect(
@@ -141,4 +145,33 @@ test("sendElementToChat：elLabel 带类名原样进 token", async () => {
 		elLabel: "div.card.title",
 	});
 	expect(await got).toBe(" ![C:\\proj\\dist\\index.html||div.card.title] ");
+});
+
+test("buildElementToken：返回裸 token（无前后空格），供独立预览窗口经 IPC 转发到主窗口插入", async () => {
+	const token = await buildElementToken("/proj/index.html", {
+		selector: "html > body > div#card",
+		tagName: "div",
+		elLabel: "div.card",
+	});
+	expect(token).toBe("![/proj/index.html||div.card]");
+});
+
+test("buildElementToken：srcPath 优先（与 sendElementToChat 同源口径）", async () => {
+	const token = await buildElementToken("/proj/outer.html", {
+		selector: "html > body > h1",
+		tagName: "h1",
+		elLabel: "h1",
+		srcPath: "/proj/inner.html",
+	});
+	expect(token).toBe("![/proj/inner.html||h1]");
+});
+
+test("sendElementToChat 仍派发带前后空格的插入事件（复用的回归护栏）", async () => {
+	const got = captureInsert();
+	await sendElementToChat("/proj/index.html", {
+		selector: "html",
+		tagName: "html",
+		elLabel: "html",
+	});
+	expect(await got).toBe(" ![/proj/index.html||html] ");
 });

@@ -54,6 +54,7 @@ import { AutomationMain } from "./components/automation/AutomationMain";
 import { useBrowserStore } from "./store/browser";
 import { BrowserPanel } from "./components/BrowserPanel";
 import { FloatPreview } from "./components/FloatPreview";
+import { usePreviewWindowDriver } from "./preview-window-driver";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -122,6 +123,10 @@ export function App() {
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => onConnectionChange(setConnState), []);
+
+	// 浮动预览的呈现是独立系统窗口（能移出主窗口、与主窗口并行显示）：
+	// 这里只驱动窗口开关/显隐，并把独立窗口上报的动作翻译成 store 变更
+	usePreviewWindowDriver();
 
 	useEffect(() => {
 		connectEvents();
@@ -744,6 +749,7 @@ export function App() {
 			{paletteOpen && (
 				<CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 			)}
+			{/* 浮动模式：预览由独立窗口承载（能拖出主窗口），主窗口这里只剩最小化后的气泡入口 */}
 			{browserOpen && browserMode === "float" && <FloatPreview />}
 			<FilePreviewModal />
 			<MediaPreviewModal />

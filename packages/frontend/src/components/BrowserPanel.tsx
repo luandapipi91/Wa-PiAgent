@@ -17,7 +17,11 @@ import { copyToClipboard } from "../util/clipboard";
 import { useToastStore } from "../store/toast";
 import { useProjectsStore } from "../store/projects";
 import { useTranslation } from "../i18n/useTranslation";
-import { parseInspectMessage, sendElementToChat } from "../element-pick";
+import {
+	parseInspectMessage,
+	buildElementToken,
+	sendElementToChat,
+} from "../element-pick";
 
 type Current =
 	| { kind: "local"; path: string }
@@ -26,7 +30,16 @@ type Current =
 /** 预览元素高亮选择的开关状态（主应用本地保存；本地预览 iframe 为不透明源无法自存，故放主应用） */
 const INSPECT_KEY = "hiagent.preview.inspect";
 
-export function BrowserPanel() {
+interface Props {
+	/**
+	 * 是否渲染在独立预览窗口中（浮动模式的承载窗口）。
+	 * 独立窗口里窗口开关（关闭/最小化/切回内嵌）需经 IPC 由主进程与主窗口处理，
+	 * 元素选中也需转发到主窗口的聊天输入框，因此行为与内嵌模式不同。
+	 */
+	detached?: boolean;
+}
+
+export function BrowserPanel({ detached = false }: Props = {}) {
 	// 逐字段 selector 订阅：整订阅会让 splitRatio/floatRect 拖拽期的每帧变化也触发本组件重渲染
 	const path = useBrowserStore((s) => s.path);
 	const sessionId = useBrowserStore((s) => s.sessionId);
@@ -171,6 +184,14 @@ export function BrowserPanel() {
 			}
 			const picked = parseInspectMessage(e.data);
 			if (!picked) return;
+			if (detached) {
+				// 独立窗口：本窗口没有聊天输入框，且自定义事件不跨窗口，
+				// 取到裸 token 后经主进程转发给主窗口插入
+				void buildElementToken(path, picked).then((token) =>
+					window.waPiPreviewWin?.act({ type: "element", token }),
+				);
+				return;
+			}
 			const browser = useBrowserStore.getState();
 			if (browser.mode === "full") {
 				// 全屏时聊天（及输入框）未挂载：先切回分屏让 composer 挂载，再延迟投递插入事件
@@ -182,7 +203,7 @@ export function BrowserPanel() {
 		};
 		window.addEventListener("message", onMessage);
 		return () => window.removeEventListener("message", onMessage);
-	}, [loadedPath]);
+	}, [loadedPath, detached]);
 
 	// Cmd/Ctrl 单按切换「元素选中」主应用侧双通道：与预览页内快捷键互补。
 	// 焦点在预览 iframe 内时按键进 iframe 文档（不跨文档冒泡，不会双触发）；
@@ -228,6 +249,10 @@ export function BrowserPanel() {
 
 	const canCodeShare = loadedPath !== null;
 
+	// 独立窗口里的窗口开关动作：窗口本体由主进程管，状态变更回主窗口（状态的权威在主窗口 store）
+	const detachedAct = (payload: { type: string; [key: string]: unknown }) =>
+		window.waPiPreviewWin?.act(payload);
+
 	// 显性开关切换：写回持久层 + 即时通知预览 iframe 生效（不等下次 query 上报）
 	const toggleInspect = () => {
 		const next = !inspectOn;
@@ -254,12 +279,14 @@ export function BrowserPanel() {
 			<div
 				ref={toolbarRef}
 				className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-hairline"
+				data-preview-drag={detached ? "1" : undefined}
 			>
 				{/* min-w-0 可收缩：中窄面板下地址栏先让位（缩到 MIN_URLBAR_W 下限），
 					按钮保持可见；仍不够宽时由工具栏 flex-wrap 换行兜底 */}
 				<div
 					className="flex min-w-0 items-center gap-2 px-2 py-1.5 rounded-md border border-hairline bg-surface-hover"
 					style={{ width: urlW ?? "50%", minWidth: MIN_URLBAR_W }}
+					data-no-drag={detached ? "1" : undefined}
 				>
 					<Icon name="globe" size={14} className="text-secondary" />
 					<input
@@ -274,7 +301,10 @@ export function BrowserPanel() {
 				</div>
 				{/* 拖拽把手：调地址栏宽度，上限扣除右侧按钮区不挤占图标；
 					inline 形态=可见小把手+hover 高亮 */}
-				<div className="self-stretch flex items-center">
+				<div
+					className="self-stretch flex items-center"
+					data-no-drag={detached ? "1" : undefined}
+				>
 					<SidebarResizer
 						side="left"
 						testId="browser-url-resize"
@@ -339,9 +369,13 @@ export function BrowserPanel() {
 					className="fv-btn fv-btn--icon"
 					title={t("browser.modeSplit")}
 					data-testid="browser-mode-split"
-					aria-pressed={mode === "split"}
-					onClick={() => setMode("split")}
-					style={mode === "split" ? { color: "var(--brand)" } : undefined}
+					aria-pressed={!detached && mode === "split"}
+					onClick={() =>
+						detached ? detachedAct({ type: "mode", mode: "split" }) : setMode("split")
+					}
+					style={
+						!detached && mode === "split" ? { color: "var(--brand)" } : undefined
+					}
 				>
 					<Icon
 						name="columns"
@@ -354,9 +388,13 @@ export function BrowserPanel() {
 					className="fv-btn fv-btn--icon"
 					title={t("browser.modeFull")}
 					data-testid="browser-mode-full"
-					aria-pressed={mode === "full"}
-					onClick={() => setMode("full")}
-					style={mode === "full" ? { color: "var(--brand)" } : undefined}
+					aria-pressed={!detached && mode === "full"}
+					onClick={() =>
+						detached ? detachedAct({ type: "mode", mode: "full" }) : setMode("full")
+					}
+					style={
+						!detached && mode === "full" ? { color: "var(--brand)" } : undefined
+					}
 				>
 					<Icon
 						name="monitor"
@@ -364,21 +402,24 @@ export function BrowserPanel() {
 						className="text-[calc(16px*var(--font-scale))]"
 					/>
 				</button>
-				<button
-					type="button"
-					className="fv-btn fv-btn--icon"
-					title={t("browser.modeFloat")}
-					data-testid="browser-mode-float"
-					aria-pressed={mode === "float"}
-					onClick={() => setMode("float")}
-					style={mode === "float" ? { color: "var(--brand)" } : undefined}
-				>
-					<Icon
-						name="float"
-						size="1em"
-						className="text-[calc(16px*var(--font-scale))]"
-					/>
-				</button>
+				{/* 浮动按钮：独立窗口自身就是浮动模式的呈现，故不在其中渲染（避免自指切换） */}
+				{!detached && (
+					<button
+						type="button"
+						className="fv-btn fv-btn--icon"
+						title={t("browser.modeFloat")}
+						data-testid="browser-mode-float"
+						aria-pressed={mode === "float"}
+						onClick={() => setMode("float")}
+						style={mode === "float" ? { color: "var(--brand)" } : undefined}
+					>
+						<Icon
+							name="float"
+							size="1em"
+							className="text-[calc(16px*var(--font-scale))]"
+						/>
+					</button>
+				)}
 				{/* 最小化为气泡（仅浮动模式显示；气泡点击可恢复） */}
 				{mode === "float" && (
 					<button
@@ -386,7 +427,11 @@ export function BrowserPanel() {
 						className="fv-btn fv-btn--icon"
 						title={t("browser.minimize")}
 						data-testid="browser-minimize"
-						onClick={() => useBrowserStore.getState().setMinimized(true)}
+						onClick={() =>
+							detached
+								? detachedAct({ type: "minimize" })
+								: useBrowserStore.getState().setMinimized(true)
+						}
 					>
 						<Icon
 							name="minus"
@@ -431,7 +476,9 @@ export function BrowserPanel() {
 					className="fv-btn fv-btn--icon"
 					title={t("common.close")}
 					data-testid="browser-close"
-					onClick={closeBrowser}
+					onClick={() =>
+						detached ? detachedAct({ type: "close" }) : closeBrowser()
+					}
 					style={{ color: "var(--danger)" }}
 				>
 					<Icon
