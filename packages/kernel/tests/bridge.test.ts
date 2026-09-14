@@ -755,8 +755,9 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 	registerBridgeSession(sessionId, {
 		cwd: "/tmp",
 		async handleTool() {
-			// 模拟子代理长时间静默（长推理/慢首 token/单个长工具调用）：250ms 无任何 progress
-			await new Promise((r) => setTimeout(r, 250));
+			// 模拟子代理长时间静默（长推理/慢首 token/单个长工具调用）：600ms 无任何 progress
+			// （心跳 50ms → 理想 12 个 ping；并行负载下定时器延迟也能稳过 >=3 断言）
+			await new Promise((r) => setTimeout(r, 600));
 			return { content: [{ type: "text", text: "done" }] };
 		},
 	});
