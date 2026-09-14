@@ -4,6 +4,31 @@ import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
 
+// 浏览器环境没有 Electron IPC 桥：注入 mock 桥，验宿（主窗口）侧的驱动逻辑。
+// 浮动模式的呈现是**独立系统窗口**，真实窗口行为由 e2e-electron/preview-window.spec.ts 验。
+async function installPreviewBridge(
+	page: import("@playwright/test").Page,
+): Promise<void> {
+	await page.addInitScript(() => {
+		const calls = { opens: [] as unknown[], cmds: [] as unknown[] };
+		const listeners: Array<(e: unknown) => void> = [];
+		(window as any).__previewBridge = { calls, listeners };
+		(window as any).waPiPreviewWin = {
+			open: async (payload: unknown) => {
+				calls.opens.push(payload);
+				return { ok: true };
+			},
+			cmd: (payload: unknown) => calls.cmds.push(payload),
+			act: () => {},
+			setSize: () => {},
+			onEvent: (cb: (e: unknown) => void) => {
+				listeners.push(cb);
+				return () => {};
+			},
+		};
+	});
+}
+
 // 浏览器预览：分屏/全屏/浮动 + 本地 html 元素选中 chip
 test.describe
 	.serial("浏览器预览与元素选中", () => {
@@ -124,53 +149,41 @@ test.describe
 			await expect(page.getByTestId("session-view")).toBeVisible();
 		});
 
-		test("浮动模式：拖动位置、停靠回分屏", async ({ page }) => {
+		test("浮动模式：交给独立窗口承载（主窗口不再渲染内嵌浮层）", async ({
+			page,
+		}) => {
+			await installPreviewBridge(page);
 			await enterSession(page, "预览浮动测试");
 			await openPreview(page);
 			await page.getByTestId("browser-mode-float").click();
-			const win = page.getByTestId("float-window");
-			await expect(win).toBeVisible();
-			const before = await win.boundingBox();
-			// 无标题栏：从工具栏上缘的非交互 padding 区按住拖动（横向取中，避开两侧按钮/输入框）
-			await page.mouse.move(before!.x + before!.width / 2, before!.y + 4);
-			await page.mouse.down();
-			// 默认 rect 锚在视口右缘 40px（store defaultRect），向右拖会被 clampRect 钳住；
-			// 改为向左 60 / 向下 60 验证位置跟随
-			await page.mouse.move(before!.x + before!.width / 2 - 60, before!.y + 64, {
-				steps: 5,
-			});
-			await page.mouse.up();
-			const after = await win.boundingBox();
-			expect(Math.abs(after!.x - before!.x + 60)).toBeLessThan(20);
-			expect(Math.abs(after!.y - before!.y - 60)).toBeLessThan(20);
-			// 第二次拖动：路径大幅下压横穿 iframe 区域（回归：iframe 吞事件导致拖不动/卡死），
-			// 拖完后窗口仍应跟随且后续拖拽可用
-			await page.mouse.move(after!.x + after!.width / 2, after!.y + 4);
-			await page.mouse.down();
-			await page.mouse.move(after!.x + after!.width / 2 - 60, after!.y + 104, {
-				steps: 10,
-			});
-			await page.mouse.up();
-			const after2 = await win.boundingBox();
-			expect(Math.abs(after2!.y - after!.y - 100)).toBeLessThan(30);
-			// 浮动时聊天仍在
+			// 浮动预览已改为独立系统窗口：主窗口不残留旧的内嵌浮层，也不留面板
+			await expect(page.getByTestId("float-window")).toHaveCount(0);
+			await expect(page.getByTestId("browser-panel")).toHaveCount(0);
+			// 聊天不受影响（浮动模式不再占用主窗口预览区）
 			await expect(page.getByTestId("session-view")).toBeVisible();
-			// 停靠 = 工具栏 split 模式按钮
-			await page.getByTestId("browser-mode-split").click();
-			await expect(page.getByTestId("browser-split-resizer")).toBeVisible();
+			// 宿主已按当前预览内容请求开窗
+			const opens = await page.evaluate(
+				() => (window as any).__previewBridge.calls.opens,
+			);
+			expect(opens.at(-1).path).toContain("index.html");
 		});
 
-		test("浮动模式：最小化为气泡，点击气泡恢复", async ({ page }) => {
+		test("浮动模式：最小化为气泡，点击气泡请求恢复窗口", async ({ page }) => {
+			await installPreviewBridge(page);
 			await enterSession(page, "预览最小化测试");
 			await openPreview(page);
 			await page.getByTestId("browser-mode-float").click();
-			await expect(page.getByTestId("float-window")).toBeVisible();
-			// 最小化：窗口隐藏（保持挂载）、气泡出现，聊天不受影响
-			await page.getByTestId("browser-minimize").click();
-			await expect(page.getByTestId("float-window")).toBeHidden();
+			// 独立窗口上报最小化（真实场景由 Electron 主进程中转，这里直接投递事件）
+			await page.evaluate(() =>
+				(window as any).__previewBridge.listeners.forEach((cb: any) =>
+					cb({ type: "minimized" }),
+				),
+			);
+			// 主窗口出现恢复入口，聊天不受影响
 			await expect(page.getByTestId("float-bubble")).toBeVisible();
 			await expect(page.getByTestId("session-view")).toBeVisible();
-			// 预览未关闭（浏览器仍开着，只是最小化）
+			// 等 pop-in 动画（0.18s）结束：动画期间 transform: scale 会让 boundingBox 取到缩放态
+			await page.waitForTimeout(400);
 			// 气泡可拖动停放位置（拖完持久化）
 			const bubble = page.getByTestId("float-bubble");
 			const before = await bubble.boundingBox();
@@ -188,10 +201,13 @@ test.describe
 			);
 			expect(Math.abs(saved.x - after!.x)).toBeLessThan(2);
 			expect(Math.abs(saved.y - after!.y)).toBeLessThan(2);
-			// 点击气泡（无拖动）恢复
+			// 点击气泡（无拖动）→ 清除最小化并请求恢复独立窗口
 			await page.getByTestId("float-bubble").click();
-			await expect(page.getByTestId("float-window")).toBeVisible();
 			await expect(page.getByTestId("float-bubble")).toHaveCount(0);
+			const cmds = await page.evaluate(
+				() => (window as any).__previewBridge.calls.cmds,
+			);
+			expect(cmds.at(-1)).toEqual({ type: "restore" });
 		});
 
 		test("元素选中：hover 高亮 → 发送到聊天 → chip 落入输入框", async ({

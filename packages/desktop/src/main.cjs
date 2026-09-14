@@ -119,6 +119,8 @@ function syncThemeSource() {
 
 let splashWindow = null;
 let mainWindow = null;
+// 预览独立窗口（浮动模式的承载窗口）：单例，主窗口收起时同步隐藏
+let previewWindow = null;
 let sidecar = null;
 let isQuitting = false;
 let isUpdating = false;
@@ -261,6 +263,8 @@ function createWindow() {
 			for (const w of childWindows) {
 				if (!w.isDestroyed()) w.hide();
 			}
+			// 预览独立窗口同为无 parent 窗口，需手动同步隐藏
+			if (previewWindow && !previewWindow.isDestroyed()) previewWindow.hide();
 			if (process.platform === "darwin") app.dock.hide();
 		}
 	});
@@ -877,6 +881,174 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			log.error("[runtime-bin] 创建符号链接失败", e);
 		}
 	}
+
+	// 2c++) 预览独立窗口（浮动模式的承载窗口）。
+	// 浮动预览不再是主窗口内的 DOM 浮层，而是真正的系统窗口（能移出主窗口、与主窗口并行显示）。
+	// 窗口加载同一份前端（同端口同源，保证 localStorage/IndexedDB 与 API 相对路径可用），
+	// 前端按 query 分流为「预览窗口模式」；预览内容仍是窗口内的同源 iframe，
+	// 所以 inspect（高亮/锁定/选中）的 postMessage 协议零改动。
+	const PREVIEW_MIN_W = 320;
+	const PREVIEW_MIN_H = 240;
+	/** 主窗口下行消息（独立窗口的全部事件都经主窗口中转处理，两个渲染进程不直连） */
+	const sendToMain = (payload) => {
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			mainWindow.webContents.send("previewwin:event", payload);
+		}
+	};
+	/** 无历史记录时的默认摆放：相对主窗口偏移，避免完全遮盖主窗口 */
+	const defaultPreviewBounds = () => {
+		const b =
+			mainWindow && !mainWindow.isDestroyed()
+				? mainWindow.getBounds()
+				: { x: 80, y: 80, width: 1280, height: 860 };
+		return { x: b.x + 64, y: b.y + 64, width: 900, height: 700 };
+	};
+	const createPreviewWindow = (payload = {}) => {
+		// 单例：已存在则只同步最新预览内容（主窗口切会话/切文件后不显示陈旧内容），
+		// 最小化态下不打扰（仅同步），可见时才聚焦
+		if (previewWindow && !previewWindow.isDestroyed()) {
+			previewWindow.webContents.send("previewwin:event", {
+				type: "sync",
+				path: payload.path ?? null,
+				sessionId: payload.sessionId ?? null,
+			});
+			if (previewWindow.isVisible()) previewWindow.focus();
+			return { ok: true };
+		}
+		const rect = payload.rect;
+		const bounds =
+			rect && [rect.x, rect.y, rect.w, rect.h].every((n) => Number.isFinite(n))
+				? {
+						x: Math.round(rect.x),
+						y: Math.round(rect.y),
+						width: Math.round(rect.w),
+						height: Math.round(rect.h),
+					}
+				: defaultPreviewBounds();
+		previewWindow = new BrowserWindow({
+			...bounds,
+			minWidth: PREVIEW_MIN_W,
+			minHeight: PREVIEW_MIN_H,
+			// 无边框自绘：拖动区由前端工具栏承担（-webkit-app-region: drag），缩放靠右下角自绘手柄
+			frame: false,
+			show: false, // 等前端首帧渲染完成（act: ready）后再显示，避免白屏
+			backgroundColor: CANVAS_BG,
+			icon: path.join(__dirname, "assets", "icon.ico"),
+			// sandbox:false：preload 需 require('electron').clipboard 注入 waPiClipboard（sandbox 下该模块不在白名单，会导致复制失效）
+			webPreferences: {
+				nodeIntegration: false,
+				contextIsolation: true,
+				sandbox: false,
+				preload: path.join(__dirname, "preload.cjs"),
+			},
+		});
+		const win = previewWindow;
+		const params = new URLSearchParams({ "wa-preview-win": "1" });
+		if (payload.path) params.set("path", String(payload.path));
+		if (payload.sessionId) params.set("sid", String(payload.sessionId));
+		win.loadURL(`http://127.0.0.1:${actualPort}/?${params.toString()}`);
+		// 位置/尺寸变化回报主窗口持久化（拖动中连续触发 → 防抖合并）
+		let rectTimer = null;
+		const reportRect = () => {
+			if (rectTimer) clearTimeout(rectTimer);
+			rectTimer = setTimeout(() => {
+				rectTimer = null;
+				if (!previewWindow || previewWindow.isDestroyed()) return;
+				const b = previewWindow.getBounds();
+				sendToMain({
+					type: "rect",
+					rect: { x: b.x, y: b.y, w: b.width, h: b.height },
+				});
+			}, 300);
+		};
+		win.on("moved", reportRect);
+		win.on("resized", reportRect);
+		win.on("closed", () => {
+			if (rectTimer) clearTimeout(rectTimer);
+			if (win === previewWindow) previewWindow = null;
+			sendToMain({ type: "closed" });
+		});
+		return { ok: true };
+	};
+	// 独立窗口上报的动作：窗口开关在主进程执行，状态变更转发主窗口（状态的权威在渲染层 store）
+	const handlePreviewAct = (payload) => {
+		const type = payload?.type;
+		if (!previewWindow || previewWindow.isDestroyed()) return;
+		switch (type) {
+			case "ready":
+				if (!previewWindow.isVisible()) previewWindow.show();
+				return;
+			case "minimize": // 最小化 = 隐藏窗口，主窗口据此渲染气泡（点气泡恢复）
+				previewWindow.hide();
+				sendToMain({ type: "minimized" });
+				return;
+			case "close": // 关闭预览：关窗 + 主窗口 closeBrowser（清该会话预览记忆）
+				previewWindow.close();
+				sendToMain({ type: "close" });
+				return;
+			case "mode": // 独立窗口内切回内嵌（分屏/全屏）：关窗 + 主窗口切换模式
+				previewWindow.close();
+				sendToMain({ type: "mode", mode: payload.mode });
+				return;
+			case "element": // 选中元素：转发到主窗口插入聊天输入框
+				sendToMain({ type: "element", token: String(payload.token ?? "") });
+				return;
+			case "open-settings": // 设置弹窗只在主窗口（数据/上下文都在那边）：转发并把主窗口带到前台
+				sendToMain({
+					type: "open-settings",
+					section: String(payload.section ?? "general"),
+				});
+				if (mainWindow && !mainWindow.isDestroyed()) {
+					if (mainWindow.isMinimized()) mainWindow.restore();
+					mainWindow.show();
+					mainWindow.focus();
+				}
+				return;
+			default:
+				return;
+		}
+	};
+	// 只接受主窗口的开窗请求（独立窗口自身不得再开窗，防递归）
+	ipcMain.handle("previewwin:open", (event, payload) => {
+		if (!mainWindow || event.sender !== mainWindow.webContents) {
+			return { ok: false, reason: "forbidden" };
+		}
+		return createPreviewWindow(payload || {});
+	});
+	// 主窗口 → 独立窗口的窗口指令（关闭/恢复显示）
+	ipcMain.on("previewwin:cmd", (event, payload) => {
+		if (!mainWindow || event.sender !== mainWindow.webContents) return;
+		if (!previewWindow || previewWindow.isDestroyed()) return;
+		switch (payload?.type) {
+			case "close":
+				previewWindow.close();
+				return;
+			case "restore": // 点气泡恢复：显示并聚焦
+				previewWindow.show();
+				previewWindow.focus();
+				return;
+			default:
+				return;
+		}
+	});
+	ipcMain.on("previewwin:act", (event, payload) => {
+		if (!previewWindow || event.sender !== previewWindow.webContents) return;
+		handlePreviewAct(payload);
+	});
+	// 右下角缩放手柄：只改宽高，窗口左上角不动
+	ipcMain.on("previewwin:set-size", (event, payload) => {
+		if (!previewWindow || event.sender !== previewWindow.webContents) return;
+		const w = Math.round(Number(payload?.w));
+		const h = Math.round(Number(payload?.h));
+		if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+		const b = previewWindow.getBounds();
+		previewWindow.setBounds({
+			x: b.x,
+			y: b.y,
+			width: Math.max(PREVIEW_MIN_W, w),
+			height: Math.max(PREVIEW_MIN_H, h),
+		});
+	});
 
 	// 2d) 启动内核（packaged 从 runtimeDir 跑；dev 从源码跑）
 	setProgress(85, t("startingKernel"));

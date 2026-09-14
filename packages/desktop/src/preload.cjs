@@ -55,6 +55,23 @@ contextBridge.exposeInMainWorld("waPiLinkWin", {
 	},
 });
 
+// 预览独立窗口（浮动模式的承载窗口）桥：
+// 浮动预览不再是主窗口内的 DOM 浮层，而是真正的系统窗口。
+// - 主窗口侧：open 开窗（带初始 path/sessionId/屏幕坐标）、cmd 下发窗口指令、onEvent 接独立窗口上报
+// - 独立窗口侧：act 上报动作（最小化/关闭/切回内嵌/元素回传）、setSize 缩放手柄、onEvent 收主窗口指令
+// 两侧共用 onEvent（主进程统一用 previewwin:event 下行），按消息 type 自行分发。
+contextBridge.exposeInMainWorld("waPiPreviewWin", {
+	open: (payload) => ipcRenderer.invoke("previewwin:open", payload),
+	cmd: (payload) => ipcRenderer.send("previewwin:cmd", payload),
+	act: (payload) => ipcRenderer.send("previewwin:act", payload),
+	setSize: (size) => ipcRenderer.send("previewwin:set-size", size),
+	onEvent: (callback) => {
+		const listener = (_event, payload) => callback(payload);
+		ipcRenderer.on("previewwin:event", listener);
+		return () => ipcRenderer.removeListener("previewwin:event", listener);
+	},
+});
+
 // 自动更新桥接：暴露给渲染进程（系统设置 → 关于 页签）
 // IPC 通道由 updater/updater.cjs 的 setupUpdater 注册。
 contextBridge.exposeInMainWorld("waPiUpdater", {

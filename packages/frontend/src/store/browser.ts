@@ -15,6 +15,7 @@ const LS = {
 	mode: "hiagent.browser.mode",
 	ratio: "hiagent.browser.splitRatio",
 	rect: "hiagent.browser.floatRect",
+	detachedRect: "hiagent.browser.detachedRect",
 	bubble: "hiagent.browser.bubblePos",
 } as const;
 
@@ -85,6 +86,40 @@ export function defaultRect(): FloatRect {
 		w,
 		h,
 	});
+}
+
+/**
+ * 独立预览窗口的 rect clamp：**屏幕坐标**，因此不能复用 clampRect。
+ * 与浮窗 rect 的区别：不夹进主窗口视口（允许副屏负坐标、允许宽/高大于主窗口），
+ * 只保证「有限数值 + 不小于最小尺寸」——NaN/Infinity 会让 Electron setBounds 静默失败。
+ */
+export function clampDetachedRect(r: FloatRect): FloatRect {
+	const num = (v: number, fallback: number) =>
+		Number.isFinite(v) ? v : fallback;
+	return {
+		x: num(r.x, 0),
+		y: num(r.y, 0),
+		w: Math.max(MIN_W, num(r.w, MIN_W)),
+		h: Math.max(MIN_H, num(r.h, MIN_H)),
+	};
+}
+
+/** 读独立窗口位置尺寸（屏幕坐标）；无记录/形状非法返回 null（首次由主进程给默认位置） */
+function loadDetachedRect(): FloatRect | null {
+	try {
+		const v = JSON.parse(localStorage.getItem(LS.detachedRect) ?? "");
+		if (
+			v &&
+			[v.x, v.y, v.w, v.h].every(
+				(n) => typeof n === "number" && Number.isFinite(n),
+			)
+		) {
+			return clampDetachedRect(v);
+		}
+	} catch {
+		/* 解析失败视为无记录 */
+	}
+	return null;
 }
 
 function loadMode(): BrowserMode {
@@ -194,6 +229,8 @@ interface BrowserState {
 	splitRatio: number;
 	/** null = 尚无记录（未定位过）；渲染层惰性居中后经 setFloatRect 固化 */
 	floatRect: FloatRect | null;
+	/** 独立预览窗口的屏幕坐标 rect（float 模式的承载窗口）；null = 无记录，由主进程给默认位置 */
+	detachedRect: FloatRect | null;
 	/** 浮动窗最小化为气泡（不持久化：重开预览时应直接显示窗口） */
 	minimized: boolean;
 	/** 气泡位置（localStorage 持久化） */
@@ -207,6 +244,7 @@ interface BrowserState {
 	setMode: (mode: BrowserMode) => void;
 	setSplitRatio: (ratio: number) => void;
 	setFloatRect: (rect: FloatRect) => void;
+	setDetachedRect: (rect: FloatRect) => void;
 	setMinimized: (minimized: boolean) => void;
 	setBubblePos: (pos: BubblePos) => void;
 	/** 同步当前预览路径（地址栏加载本地 html 时调用）：模式切换重挂面板后可从 store 恢复内容 */
@@ -232,6 +270,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 	mode: loadMode(),
 	splitRatio: loadRatio(),
 	floatRect: loadRect(),
+	detachedRect: loadDetachedRect(),
 	minimized: false,
 	bubblePos: loadBubblePos(),
 	bySession: {},
@@ -312,6 +351,12 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 		// 防抖会在「拖完立刻退出应用」时丢最后一次位置
 		writeNow(LS.rect, JSON.stringify(clamped));
 		set({ floatRect: clamped });
+	},
+	setDetachedRect: (rect) => {
+		const clamped = clampDetachedRect(rect);
+		// 同 setFloatRect：调用方是窗口 move/resize 结束的一次性上报，低频直写
+		writeNow(LS.detachedRect, JSON.stringify(clamped));
+		set({ detachedRect: clamped });
 	},
 	setMinimized: (minimized) =>
 		set((state) => {

@@ -19,9 +19,7 @@ test("主进程 LOCALE 在 app ready 后求值（getPlugins ready 前返回空�
 	expect(src).toContain(
 		'LOCALE = app.getLocale().startsWith("zh") ? "zh" : "en";',
 	);
-	const reassignIdx = src.indexOf(
-		'LOCALE = app.getLocale().startsWith("zh")',
-	);
+	const reassignIdx = src.indexOf('LOCALE = app.getLocale().startsWith("zh")');
 	const readyIdx = src.indexOf("app.whenReady()");
 	// 字符顺序：whenReady 语句先出现，重算在它的回调体内（执行时 ready 后才跑）
 	expect(reassignIdx).toBeGreaterThan(readyIdx);
@@ -90,4 +88,54 @@ test("地址栏壳页面包含地址输入/复制/导航交互", () => {
 	expect(html).toContain("waPiLinkWin");
 	expect(html).toContain("onUrlChanged");
 	expect(html).toContain("waPiClipboard");
+});
+
+test("预览独立窗口：浮动模式的承载窗口（无边框自绘 + 单例 + 主进程中转 IPC）", () => {
+	const blocks =
+		src.match(/new BrowserWindow\(\{[\s\S]*?webPreferences:\s*\{[^}]*\}/g) ?? [];
+	// 预览窗口是文件里最后一个 BrowserWindow（splash → 主窗口 → 外链子窗口 → 预览窗口）
+	const previewBlock = blocks.filter((b) => b.includes("frame: false")).at(-1);
+	expect(previewBlock).toBeTruthy();
+	// 无边框自绘：拖动区由前端工具栏承担（-webkit-app-region: drag）
+	expect(previewBlock!).toContain("frame: false");
+	// 等前端首帧渲染完成（act: ready）后再显示，避免白屏
+	expect(previewBlock!).toContain("show: false");
+	expect(previewBlock!).toContain("minWidth: PREVIEW_MIN_W");
+	// 同外链子窗口：不设 parent（macOS 多屏拖动消失防回归）
+	expect(previewBlock!).not.toContain("parent:");
+
+	// URL 标记：与前端 preview-window.ts 的 PREVIEW_WIN_PARAM 对应（前端据此分流渲染预览窗口根）
+	expect(src).toContain('"wa-preview-win"');
+	// 四类 IPC：开窗 / 窗口指令 / 动作上报 / 缩放手柄，事件统一走 previewwin:event 中转
+	expect(src).toContain('ipcMain.handle("previewwin:open"');
+	expect(src).toContain('ipcMain.on("previewwin:cmd"');
+	expect(src).toContain('ipcMain.on("previewwin:act"');
+	expect(src).toContain('ipcMain.on("previewwin:set-size"');
+	expect(src).toContain('"previewwin:event"');
+});
+
+test("预览独立窗口：只接受主窗口的开窗请求（防独立窗口自身递归开窗）", () => {
+	expect(src).toContain('return { ok: false, reason: "forbidden" };');
+	expect(src).toContain("event.sender !== mainWindow.webContents");
+});
+
+test("预览独立窗口：已存在时同步最新预览内容（主窗口切会话/切文件后不显示陈旧内容）", () => {
+	expect(src).toContain('type: "sync"');
+});
+
+test("主窗口收起时同步隐藏预览独立窗口", () => {
+	expect(src).toContain(
+		"if (previewWindow && !previewWindow.isDestroyed()) previewWindow.hide();",
+	);
+});
+
+test("preload 暴露 waPiPreviewWin 桥（开窗/指令/动作/缩放/事件）", () => {
+	const preload = readFileSync(
+		join(import.meta.dir, "..", "src", "preload.cjs"),
+		"utf8",
+	);
+	expect(preload).toContain('exposeInMainWorld("waPiPreviewWin"');
+	for (const member of ["open:", "cmd:", "act:", "setSize:", "onEvent:"]) {
+		expect(preload).toContain(member);
+	}
 });

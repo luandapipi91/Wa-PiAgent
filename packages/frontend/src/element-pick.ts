@@ -42,13 +42,14 @@ export function parseInspectMessage(data: unknown): ElementPicked | null {
 }
 
 /**
- * 元素选中发送到聊天：调 /api/preview-locate 取行号（失败降级无行号），
- * 组装元素 token 经 wa-pi:insert-mention 事件插入输入框（光标处内联 chip）。
+ * 组装元素 token：调 /api/preview-locate 取行号（失败降级无行号）。
+ * 独立预览窗口场景下事件无法跨窗口，由面板把裸 token 经 IPC 转发给主窗口插入，
+ * 故这里把「取行号 + 组装」独立出来供两处复用。
  */
-export async function sendElementToChat(
+export async function buildElementToken(
 	path: string,
 	picked: ElementPicked,
-): Promise<void> {
+): Promise<string> {
 	// 嵌套 iframe：选中元素在实际加载的子页面里，优先用 picked.srcPath 定位；
 	// 无 srcPath（旧版脚本/单层）回退外层 path，行为不变
 	const locatePath = picked.srcPath || path;
@@ -70,12 +71,23 @@ export async function sendElementToChat(
 	} catch {
 		/* 行号是增强信息：接口失败降级为无行号 chip，不阻塞 */
 	}
-	const token = formatElementToken({
+	return formatElementToken({
 		path: locatePath,
 		startLine,
 		endLine,
 		elLabel: picked.elLabel,
 	});
+}
+
+/**
+ * 元素选中发送到聊天：取行号组装 token 后经 wa-pi:insert-mention 事件插入输入框
+ * （光标处内联 chip）。仅同窗口内的预览面板可用。
+ */
+export async function sendElementToChat(
+	path: string,
+	picked: ElementPicked,
+): Promise<void> {
+	const token = await buildElementToken(path, picked);
 	// 前后补空格：防止与前/后文本粘连（粘连会污染定位路径、破坏 chip 化）
 	window.dispatchEvent(
 		new CustomEvent("wa-pi:insert-mention", { detail: { text: ` ${token} ` } }),

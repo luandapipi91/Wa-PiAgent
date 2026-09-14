@@ -1,102 +1,27 @@
-import { useEffect, useState } from "react";
-import { FloatWindow } from "./FloatWindow";
 import { FloatBubble } from "./FloatBubble";
-import { BrowserPanel } from "./BrowserPanel";
-import { defaultRect, useBrowserStore } from "../store/browser";
-
-/** 最小化/恢复动画时长（与 CSS transition 一致） */
-const ANIM_MS = 200;
-
-type Phase = "open" | "hiding" | "hidden" | "opening";
+import { useBrowserStore } from "../store/browser";
 
 /**
- * 浮动预览层：浮动窗 + 最小化气泡。
- * - 最小化：窗口带 transition 收缩飞向气泡位置（hiding），动画结束隐藏但保持挂载（hidden，预览状态不丢）
- * - 恢复：从气泡位置展开回窗口（opening → open）
- * - 气泡可拖动停放（持久化），点击恢复
+ * 浮动预览的主窗口侧宿主。
+ *
+ * 浮动模式的呈现已改由独立系统窗口承担（见 PreviewWindowRoot）：预览面板能移出主窗口、
+ * 与主窗口并行显示，不再受主窗口边界限制。因此主窗口这里只剩最小化后的气泡入口——
+ * 点气泡恢复独立窗口。
+ *
+ * 窗口的开/关/显示不放在本组件的生命周期里：预览被关闭（open=false）时本组件先卸载，
+ * 那时仍需向主进程收尾关窗，所以统一由 App 侧的 effect 驱动。
  */
 export function FloatPreview() {
-	const storedRect = useBrowserStore((s) => s.floatRect);
-	const setFloatRect = useBrowserStore((s) => s.setFloatRect);
-	// 无历史记录时渲染期现算双向居中（此时视口已就绪），并固化供后续直接恢复
-	const rect = storedRect ?? defaultRect();
-	useEffect(() => {
-		if (!storedRect) setFloatRect(rect);
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在首次无记录时固化一次
-	}, [storedRect]);
 	const minimized = useBrowserStore((s) => s.minimized);
 	const bubblePos = useBrowserStore((s) => s.bubblePos);
-	const [phase, setPhase] = useState<Phase>(minimized ? "hidden" : "open");
-	// opening 动画的展开帧：先以收缩态渲染一帧，再切展开态触发 transition
-	const [opened, setOpened] = useState(!minimized);
 
-	useEffect(() => {
-		if (minimized && (phase === "open" || phase === "opening"))
-			setPhase("hiding");
-		if (!minimized && (phase === "hidden" || phase === "hiding")) {
-			setPhase("opening");
-			setOpened(false);
-		}
-	}, [minimized, phase]);
-
-	// hiding 动画结束 → hidden（独立 effect：timer 不被相位切换 effect 的 cleanup 误清）
-	useEffect(() => {
-		if (phase !== "hiding") return;
-		const t = setTimeout(() => setPhase("hidden"), ANIM_MS);
-		return () => clearTimeout(t);
-	}, [phase]);
-
-	useEffect(() => {
-		if (phase !== "opening" || opened) return;
-		const raf = requestAnimationFrame(() => setOpened(true));
-		return () => cancelAnimationFrame(raf);
-	}, [phase, opened]);
-
-	useEffect(() => {
-		if (phase !== "opening" || !opened) return;
-		const t = setTimeout(() => setPhase("open"), ANIM_MS);
-		return () => clearTimeout(t);
-	}, [phase, opened]);
-
-	// 收缩目标：气泡中心点、尺寸归零、透明
-	const collapsed: React.CSSProperties = {
-		left: bubblePos.x + 22,
-		top: bubblePos.y + 22,
-		width: 0,
-		height: 0,
-		opacity: 0,
-		overflow: "hidden",
-		pointerEvents: "none",
-		transition: `all ${ANIM_MS}ms ease-in`,
-	};
-
-	const animStyle =
-		phase === "hiding"
-			? collapsed
-			: phase === "hidden"
-				? { display: "none" as const }
-				: phase === "opening"
-					? opened
-						? { transition: `all ${ANIM_MS}ms ease-out` }
-						: { ...collapsed, transition: "none" }
-					: undefined;
-
+	if (!minimized) return null;
 	return (
-		<>
-			<FloatWindow
-				rect={rect}
-				animStyle={animStyle}
-				onRectChange={(r) => useBrowserStore.getState().setFloatRect(r)}
-			>
-				<BrowserPanel />
-			</FloatWindow>
-			{phase === "hidden" && (
-				<FloatBubble
-					pos={bubblePos}
-					onPosChange={(p) => useBrowserStore.getState().setBubblePos(p)}
-					onRestore={() => useBrowserStore.getState().setMinimized(false)}
-				/>
-			)}
-		</>
+		<FloatBubble
+			pos={bubblePos}
+			onPosChange={(p) => useBrowserStore.getState().setBubblePos(p)}
+			// 恢复独立窗口由 App 侧 effect 响应 minimized 变化后下发（cmd restore）
+			onRestore={() => useBrowserStore.getState().setMinimized(false)}
+		/>
 	);
 }

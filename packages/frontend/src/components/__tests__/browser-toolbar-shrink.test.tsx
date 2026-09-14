@@ -31,6 +31,9 @@ mock.module("../util/clipboard", () => ({
 mock.module("../../element-pick", () => ({
 	parseInspectMessage: () => null,
 	sendElementToChat: async () => {},
+	// 独立预览窗口把裸 token 经 IPC 转发主窗口时用；mock 模块必须导出全部被引用成员，
+	// 否则加载期即报 "Export named 'buildElementToken' not found"
+	buildElementToken: async () => "![/mock/index.html||mock]",
 }));
 mock.module("../i18n/useTranslation", () => ({
 	useTranslation: () => ({ t: (k: string) => k }),
