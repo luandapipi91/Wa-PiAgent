@@ -524,6 +524,42 @@ describe("TuiPanel 格宽实测", () => {
 		expect(cursor.style.left).toBe(`${12 + 5 * MEASURED}px`);
 		expect(cursor.style.width).toBe(`${MEASURED}px`);
 	});
+
+	/**
+	 * 浏览器回退字体的 CJK 前进宽 ≈ 1.67 格（≠ 终端语义的 2 格），不校正的话含中文的行
+	 * 整体比 TUI 假设的窄，行内右对齐/边框字符与光标都会左移。因此每个全角字符包一个
+	 * 固定宽度的行内块，宽 = 2 × 实测格宽。
+	 */
+	test("含中文的帧行：每个全角字符按 2 格宽渲染，半角部分不包 box", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		useTuiPanelStore.getState().setFrame("s1", "p1", ["▸ 中文 ok"], null);
+		stubRects({ width: 800, height: 400 });
+		stubMetricProbe(MEASURED);
+		render(<TuiPanel sessionId="s1" />);
+		const boxes = [...body().querySelectorAll<HTMLElement>("[data-tui-wide]")];
+		expect(boxes.map((b) => b.textContent)).toEqual(["中", "文"]);
+		expect(boxes.map((b) => b.style.width)).toEqual([
+			`${2 * MEASURED}px`,
+			`${2 * MEASURED}px`,
+		]);
+		// 全角被拆成多个节点，但整行可见文本不变（复制/选择仍是原文本）
+		expect(body().textContent).toBe("▸ 中文 ok");
+	});
+
+	test("带 ANSI 属性的帧行：全角字符同样按 2 格渲染（属性与格宽互不干扰）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		useTuiPanelStore
+			.getState()
+			.setFrame("s1", "p1", ["\u001b[1m中文\u001b[0m"], null);
+		stubRects({ width: 800, height: 400 });
+		stubMetricProbe(MEASURED);
+		render(<TuiPanel sessionId="s1" />);
+		const box = body().querySelector<HTMLElement>("[data-tui-wide]")!;
+		expect(box.textContent).toBe("中");
+		expect(box.style.width).toBe(`${2 * MEASURED}px`);
+		// 粗体来自 SGR 1：外层片段仍带属性
+		expect(box.closest("span[style*=font-weight]")).toBeTruthy();
+	});
 });
 
 describe("TuiPanel 窗口拖动与缩放", () => {
@@ -691,7 +727,9 @@ describe("TuiPanel 快照补发", () => {
 			),
 		).toBe(true);
 		expect(screen.getByText(/pi-lens/)).toBeTruthy();
-		expect(screen.getByText(/恢复的帧/)).toBeTruthy();
+		// 全角字符被拆成固定宽度片段（「全角占两格」，见「TuiPanel 格宽实测」），
+		// 连续文本断言改看容器文本
+		expect(screen.getByTestId("tui-panel-body").textContent).toContain("恢复的帧");
 	});
 
 	test("快照里没有 custom 面板 → 清掉陈旧状态（断开期间面板已关）", async () => {

@@ -205,11 +205,14 @@ export function splitOsc8(text: string): Array<{ text: string; url?: string }> {
  * 一行帧：OSC 8 链接渲染为 `<a target="_blank" rel="noreferrer">`，
  * 由 Electron 侧的 setWindowOpenHandler 转成应用内新窗口（无需新增 IPC）。
  * 帧的 ANSI 属性必须渲染（AnsiText 默认 attrs=false 只为守历史契约）。
+ *
+ * `cellWidth` 传给 AnsiText 后，全角字符按 2 格宽渲染（实测格宽是唯一基准，
+ * 与尺寸上报/鼠标命中同一份，见 CELL 常量处的注释）；不传则保持原样（挂件缩略图不需要）。
  */
-function FrameLine({ text }: { text: string }) {
+function FrameLine({ text, cellWidth }: { text: string; cellWidth?: number }) {
 	const segments = splitOsc8(text);
 	if (segments.length === 1 && !segments[0].url) {
-		return <AnsiText text={segments[0].text} />;
+		return <AnsiText text={segments[0].text} cellWidth={cellWidth} />;
 	}
 	return (
 		<>
@@ -225,10 +228,10 @@ function FrameLine({ text }: { text: string }) {
 						className="underline"
 						style={{ color: "#60a5fa" }}
 					>
-						<AnsiText text={seg.text} />
+						<AnsiText text={seg.text} cellWidth={cellWidth} />
 					</a>
 				) : (
-					<AnsiText key={i} text={seg.text} />
+					<AnsiText key={i} text={seg.text} cellWidth={cellWidth} />
 				),
 			)}
 		</>
@@ -634,7 +637,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 								paddingLeft: BODY_PAD_X,
 							}}
 						>
-							<FrameLine text={line} />
+							<FrameLine text={line} cellWidth={cellWidth} />
 						</div>
 					))}
 					{panel.cursor && (

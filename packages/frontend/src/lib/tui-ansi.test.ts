@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseSgrSpans, stripOsc, takeLinks } from "./tui-ansi";
+import {
+	isWideChar,
+	parseSgrSpans,
+	splitByCellWidth,
+	stripOsc,
+	takeLinks,
+} from "./tui-ansi";
 
 describe("parseSgrSpans", () => {
 	test("无 ANSI 时返回单段纯文本", () => {
@@ -24,6 +30,40 @@ describe("parseSgrSpans", () => {
 
 	test("非 SGR（光标/清屏）序列被丢弃，不外泄到文本", () => {
 		expect(parseSgrSpans("a\u001b[2Kb")).toEqual([{ text: "ab", attrs: {} }]);
+	});
+});
+
+describe("isWideChar / splitByCellWidth（终端「全角占两格」语义）", () => {
+	test("汉字/假名/谚文/全角形式算两格", () => {
+		for (const ch of ["中", "文", "、", "。", "あ", "ア", "한", "Ａ", "１", "￥", "　"]) {
+			expect([ch, isWideChar(ch.codePointAt(0)!)]).toEqual([ch, true]);
+		}
+	});
+
+	test("ASCII 与 East Asian Ambiguous（如 ▸ ○ ·）算一格", () => {
+		for (const ch of ["a", "Z", "9", " ", "·", "▸", "○", "—", "€"]) {
+			expect([ch, isWideChar(ch.codePointAt(0)!)]).toEqual([ch, false]);
+		}
+	});
+
+	test("按全角/半角把一行切成片段（全角片段整体占两倍的格数）", () => {
+		expect(splitByCellWidth("▸ 中文 ok")).toEqual([
+			{ text: "▸ ", wide: false },
+			{ text: "中文", wide: true },
+			{ text: " ok", wide: false },
+		]);
+		// 无全角字符时只有一段、且是半角段（调用方据此走原路径，不产生额外节点）
+		expect(splitByCellWidth("plain")).toEqual([{ text: "plain", wide: false }]);
+		expect(splitByCellWidth("")).toEqual([]);
+	});
+
+	test("代理对（CJK 扩展 B 的汉字）不会被拆坏", () => {
+		const ch = "\u{20000}";
+		expect(splitByCellWidth(`a${ch}b`)).toEqual([
+			{ text: "a", wide: false },
+			{ text: ch, wide: true },
+			{ text: "b", wide: false },
+		]);
 	});
 });
 
