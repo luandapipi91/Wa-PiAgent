@@ -295,6 +295,8 @@ const zh = {
 			unknownError: "未知错误",
 			copyImage: "复制图片",
 			copyPath: "复制路径",
+			truncated:
+				"文件较大，仅显示前 {{shown}} 行（共 {{total}} 行）。完整内容请用「用默认应用打开」查看。",
 		},
 		toolCall: {
 			editNumber: "编辑 {{index}}",

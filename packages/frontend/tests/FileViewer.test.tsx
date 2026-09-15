@@ -425,3 +425,44 @@ test("点击分享按钮：打开分享弹层（share-result-modal）", async ()
 	// 弹层内展示待分享文件（README.md 文件名）
 	expect(screen.getByTestId("share-files")).toBeTruthy();
 });
+
+// ===== 大文件截断渲染 =====
+// 背景：kernel 只拦 >5MB，≤5MB 的文本会被整份送进渲染层；FileViewer 原先无行数上限，
+// 全量 Prism 分词 + 每 token 一个 span（5MB ≈ 190 万 token ≈ 200 万 DOM 节点）会冻结渲染进程。
+// 因此 FileViewer 必须有渲染上限（截断显示 + 提示），与 kernel 的大小限制互补。
+
+test("大文件只渲染前 N 行，并提示完整内容的查看方式", async () => {
+	const total = 6000;
+	const code = Array.from({ length: total }, (_, i) => `line ${i}`).join("\n");
+	fake.setResponse("fs:readFile", {
+		content: btoa(code),
+		mimeType: "text/plain",
+	});
+	const { container } = render(
+		<FileViewer path="/work/huge.log" onClose={() => {}} />,
+	);
+
+	await waitFor(() => {
+		const rendered = container.querySelectorAll("[data-line]").length;
+		expect(rendered).toBe(5000);
+		expect(rendered).toBeLessThan(total);
+	});
+	// 提示里要有真实行数，用户才知道被截断了多少
+	expect(screen.getByTestId("fv-truncated").textContent).toContain("6000");
+});
+
+test("未超过上限的文件不截断、不显示提示", async () => {
+	const code = Array.from({ length: 120 }, (_, i) => `line ${i}`).join("\n");
+	fake.setResponse("fs:readFile", {
+		content: btoa(code),
+		mimeType: "text/plain",
+	});
+	const { container } = render(
+		<FileViewer path="/work/small.log" onClose={() => {}} />,
+	);
+
+	await waitFor(() =>
+		expect(container.querySelectorAll("[data-line]").length).toBe(120),
+	);
+	expect(screen.queryByTestId("fv-truncated")).toBeNull();
+});

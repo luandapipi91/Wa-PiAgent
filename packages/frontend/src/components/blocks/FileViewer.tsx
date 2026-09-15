@@ -13,7 +13,11 @@ import { createMarkdownComponents } from "./markdown-components";
 import { joinBaseDir } from "./media-utils";
 import { ZoomableImage } from "./ZoomableImage";
 import { openInFileManagerLabel } from "../../util/platform";
-import { copyToClipboard, copyImageToClipboard, imageUrlToPngBlob } from "../../util/clipboard";
+import {
+	copyToClipboard,
+	copyImageToClipboard,
+	imageUrlToPngBlob,
+} from "../../util/clipboard";
 import { useSessionStore } from "../../store/session";
 import { useToastStore } from "../../store/toast";
 import { Icon } from "../ui/Icon";
@@ -332,6 +336,13 @@ const PathBar = memo(function PathBar({ path }: { path: string }) {
 	);
 });
 
+/** 单次渲染的最大行数：超过就只渲染前 N 行。
+ *
+ *  kernel 只拦 >5MB 的文件，≤5MB 的文本仍会整份送进来；而全量 Prism 分词后每个 token 一个
+ *  <span>（5MB ≈ 190 万 token ≈ 200 万 DOM 节点，分词本身 2.3 秒）会冻结渲染进程。
+ *  截断渲染 + 明确提示，与 kernel 的大小限制互补（复制全文仍用完整内容）。 */
+const MAX_RENDER_LINES = 5000;
+
 export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	const [content, setContent] = useState<string | null>(null);
 	const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -421,8 +432,16 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 
 	const displayPath = resolvedPath ?? path;
 
+	// 渲染上限：只把前 MAX_RENDER_LINES 行交给高亮组件，其余截断（提示中给出真实总行数）。
+	// 必须放在组件体（不能放进 useEffect），JSX 里要用到这三个值。
+	const totalLines = content ? content.split("\n").length : 0;
+	const isTruncated = totalLines > MAX_RENDER_LINES;
+	const renderedCode = isTruncated
+		? content!.split("\n").slice(0, MAX_RENDER_LINES).join("\n")
+		: (content ?? "");
+
 	const addToast = useToastStore((s) => s.add);
-	// 复制全文：FileViewer 无截断（kernel 对 >5MB 文件直接判 unsupported），content 即完整文件
+	// 复制全文：content 始终是完整文件（渲染层可能截断，复制不截断）
 	const copyContent = async () => {
 		try {
 			await copyToClipboard(content ?? "");
@@ -571,9 +590,20 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				</button>
 			</div>
 			<div ref={bodyRef} className="flex-1 overflow-auto bg-surface p-2.5">
+				{isTruncated && (
+					<div
+						data-testid="fv-truncated"
+						className="sticky top-0 z-10 mb-2 rounded border border-[color:var(--border)] bg-[color:var(--surface-secondary)] px-2 py-1 text-[calc(11px*var(--font-scale))] text-secondary"
+					>
+						{t("blocks.fileViewer.truncated", {
+							shown: String(MAX_RENDER_LINES),
+							total: String(totalLines),
+						})}
+					</div>
+				)}
 				<Highlight
 					theme={isDark ? themes.nightOwl : themes.github}
-					code={content ?? ""}
+					code={renderedCode}
 					language={language}
 				>
 					{({ tokens, getLineProps, getTokenProps }) => (

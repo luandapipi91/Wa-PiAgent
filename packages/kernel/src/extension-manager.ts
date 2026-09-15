@@ -131,6 +131,31 @@ interface ExtensionSettings {
 // 包装在此处，pi 的 packages 自动发现才能找到。
 const NPM_DIR = join(WA_PI_DIR, "npm");
 
+/** 对齐 packages 数组里 npm 条目的版本 pin 与磁盘实装版本。
+ *
+ *  只改版本部分，保留条目顺序与其它形式（git:/本地路径）；实装版本不存在时不动该条目
+ *  （避免把条目写坏）。返回新数组与人类可读的变更列表。
+ *
+ *  为什么要对齐：settings.json 存的是**精确实装版本**，而 agentDir/npm/package.json 是
+ *  caret 范围；依赖树被盘外重解析（repair 删 lock 后 bun install、装/卸其它包时的 bun add）
+ *  会把 node_modules 顶到新版本而 pin 不动 → pi 在 --offline 下按精确范围校验失败 → 整包跳过。
+ */
+export function alignPinList(
+  list: string[],
+  getInstalled: (name: string) => string | undefined,
+): { list: string[]; changes: string[] } {
+  const changes: string[] = [];
+  const next = list.map((entry) => {
+    const parsed = parseExtensionInput(entry);
+    if (!parsed || parsed.source !== "npm" || !parsed.version) return entry;
+    const installed = getInstalled(parsed.name);
+    if (!installed || installed === parsed.version) return entry;
+    changes.push(`${parsed.name}: ${parsed.version} → ${installed}`);
+    return `npm:${parsed.name}@${installed}`;
+  });
+  return { list: next, changes };
+}
+
 export class ExtensionManager {
   private pkgService: NpmPackageService;
   private injected: boolean;
@@ -470,6 +495,42 @@ export class ExtensionManager {
       description: this.pkgService.getDescription(name),
       enabled: true,
     };
+  }
+
+  /** 启动时对齐 packages / waPiDisabledPackages 里的版本 pin 与磁盘实装版本（幂等）。
+   *
+   *  为什么需要：settings.json 存精确实装版本，而 agentDir/npm/package.json 是 caret 范围；
+   *  依赖树被盘外重解析（repair 删 lock 后 bun install、装/卸其它包时的 bun add）会把
+   *  node_modules 顶到新版本而 pin 不动 → pi 在 --offline 下遇到「pin ≠ 实装」判定需要安装、
+   *  装不了便整包跳过该扩展（静默不加载、界面无任何报错）。这里把 pin 拉回实装版本，
+   *  覆盖所有成因，也能把已经漂移的机器拉回。无漂移时不写文件（零副作用）。
+   */
+  async alignPackagePins(): Promise<{ aligned: string[] }> {
+    const keys = ["packages", "waPiDisabledPackages"] as const;
+    const current = await this.readSettings();
+    const hasDrift = keys.some((key) => {
+      const list = current[key];
+      return (
+        Array.isArray(list) &&
+        alignPinList(list, (name) => this.pkgService.getInstalledVersion(name))
+          .changes.length > 0
+      );
+    });
+    if (!hasDrift) return { aligned: [] };
+
+    const aligned: string[] = [];
+    await this.mutateSettings((settings) => {
+      for (const key of keys) {
+        const list = settings[key];
+        if (!Array.isArray(list)) continue;
+        const { list: nextList, changes } = alignPinList(list, (name) =>
+          this.pkgService.getInstalledVersion(name),
+        );
+        settings[key] = nextList;
+        aligned.push(...changes);
+      }
+    });
+    return { aligned };
   }
 
   /** 修复依赖目录：全量重建 node_modules（版本漂移/半安装的自愈入口） */

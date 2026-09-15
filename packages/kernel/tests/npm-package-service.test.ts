@@ -1,9 +1,11 @@
 // packages/kernel/tests/npm-package-service.test.ts
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -346,7 +348,13 @@ const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;
 fs.writeFileSync(counter, String(n + 1));
 const p = fs.existsSync(peak) ? Number(fs.readFileSync(peak, "utf8")) : 0;
 fs.writeFileSync(peak, String(Math.max(p, n + 1)));
-const name = process.argv[2] === "add" ? process.argv[3].split("@")[0] : "pkg";
+// 从参数里找包 spec：跳过 argv[1] 子命令与其后的 flag（如 --exact），
+// 避免按固定位置取值——包管理器参数格式一变就解析错位。
+const _args = process.argv.slice(2).slice(1).filter((a) => !a.startsWith("-"));
+const _spec = _args[0] ?? "pkg";
+const name = (_spec.startsWith("@")
+  ? _spec.slice(_spec.indexOf("/") + 1)
+  : _spec).split("@")[0];
 const d = ${JSON.stringify(dir)};
 fs.mkdirSync(d + "/node_modules/" + name, { recursive: true });
 fs.writeFileSync(d + "/node_modules/" + name + "/package.json", JSON.stringify({ name, version: "1.0.0" }));
@@ -400,4 +408,47 @@ test("并行安装串行化：跨实例并发同样互斥（队列必须模块�
 
   await Promise.all([svc1.upgrade("pkg-a"), svc2.upgrade("pkg-b")]);
   expect(peak).toBe(1);
+});
+
+// ===== --exact：bun add 必须写精确版本（防 pin 漂移导致扩展静默失效）=====
+// 背景：bun add 默认把 caret 范围（^x.y.z）写进 package.json，而 settings.packages 存的是
+// 精确实装版本。依赖树一旦被盘外重解析（repair 删 lock 后 bun install、装/卸其它包时的
+// bun add），node_modules 会顶到新版本而 pin 不动 → pi 启动时按精确范围校验失败 →
+// 离线模式下整包被跳过（扩展静默不加载）。加 --exact 从根上消除这种漂移。
+
+/** 造一个"记录收到的参数"的假包管理器命令 */
+function makeArgRecorder(dir: string): { cmd: string; read: () => string[] } {
+  const argsFile = join(dir, "spawn-args.txt");
+  const script = join(dir, "record-args.sh");
+  writeFileSync(script, `#!/bin/sh\nprintf '%s\\n' "$@" > ${argsFile}\n`);
+  chmodSync(script, 0o755);
+  return {
+    cmd: script,
+    read: () =>
+      existsSync(argsFile)
+        ? readFileSync(argsFile, "utf8").trim().split("\n")
+        : [],
+  };
+}
+
+test("install 以 --exact 调用包管理器", async () => {
+  const rec = makeArgRecorder(dir);
+  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd] });
+  // 假命令不会真的安装，随后 getInstalledVersion 校验失败抛错——参数已记录，忽略异常
+  await svc.install("demo-pkg", "1.2.3").catch(() => {});
+  expect(rec.read()).toEqual(["add", "--exact", "demo-pkg@1.2.3"]);
+});
+
+test("install 不带版本时同样带 --exact", async () => {
+  const rec = makeArgRecorder(dir);
+  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd] });
+  await svc.install("demo-pkg").catch(() => {});
+  expect(rec.read()).toEqual(["add", "--exact", "demo-pkg"]);
+});
+
+test("upgrade 以 --exact 调用包管理器", async () => {
+  const rec = makeArgRecorder(dir);
+  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd] });
+  await svc.upgrade("demo-pkg").catch(() => {});
+  expect(rec.read()).toEqual(["add", "--exact", "demo-pkg"]);
 });

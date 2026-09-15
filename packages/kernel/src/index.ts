@@ -11,6 +11,7 @@ import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureBridgeExtension } from "./bridge-extension";
 import { deployTuiHostExtension } from "./tui-host-deploy";
+import { deployCompactionGuardExtension } from "./compaction-guard-deploy";
 import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
@@ -146,6 +147,14 @@ export async function startKernel(opts?: {
 	const memoryStore = new MemoryStore({ waPiDir: WA_PI_DIR, projectStore });
 	const mcpStore = new McpStore({ waPiDir: WA_PI_DIR, projectStore });
 
+	// 启动时对齐扩展 pin（幂等）：依赖树被盘外重解析（repair 删 lock 后 bun install、
+	// 装/卸其它包时的 bun add）会把 node_modules 顶到新版本而 settings 的 pin 未变，
+	// pi 在 --offline 下遇到「pin ≠ 实装」会整包跳过该扩展（静默不加载、界面无报错）。
+	const { aligned: alignedPins } = await extensionManager.alignPackagePins();
+	if (alignedPins.length > 0) {
+		console.log(`[kernel] 扩展版本 pin 已对齐：${alignedPins.join("；")}`);
+	}
+
 	// 启动时把已有 providers 注册成 Pi extension（幂等）
 	await ensureProviderExtensionRegistered(providerStore);
 
@@ -154,6 +163,10 @@ export async function startKernel(opts?: {
 
 	// 启动时部署宿主扩展（幂等）：RPC 模式下 pi 子进程经它接管 ctx.ui.custom，渲染图形面板
 	await deployTuiHostExtension();
+
+	// 启动时部署压缩守卫扩展（幂等）：接管 pi 的摘要生成，避免长会话摘要被输出上限截断后
+	// 压缩永久失败、每轮重试刷屏（pi issue #8371/#8196）
+	await deployCompactionGuardExtension();
 
 	// 迁移旧版 agent 数据（含 name 字段、文件名用内部 name）到 displayName 作 id（幂等）
 	const nameMapping = await configStore.migrateNameToDisplayName();
