@@ -1164,3 +1164,115 @@ describe("TuiPanel 聊天列定位与挂件拖动", () => {
 		expect(parseFloat(badge().style.top)).toBe(16);
 	});
 });
+
+/**
+ * 浮窗主题化（本组用例的由来）：三态外壳此前写死了暗色 hex（#101014/#1a1a21/#8b8b9a/#d2d2de），
+ * 亮色主题下仍是黑底白字。改法：一律换成 styles.css 语义 token 对应的 Tailwind 类
+ * （bg-canvas / bg-surface-elevated / text-primary / text-secondary / text-accent）。
+ *
+ * 断言口径：happy-dom 没有真实 CSS 计算，只能断言「类名命中语义类」+「内联样式里不留 hex」
+ * ——后者正是这次要防的回归（把 hex 从内联样式搬进类名以外的任何地方都会被抓到）。
+ * 帧里插件输出的 ANSI 前景/背景色由 AnsiText 自带内联样式，**不在此列**（终端语义，保持原样），
+ * 所以只扫面板外壳元素自身，不扫帧行内部。
+ */
+describe("TuiPanel 浮窗主题化", () => {
+	/** 内联样式里出现任何 hex 色值都算硬编码残留 */
+	const HEX = /#[0-9a-fA-F]{3,8}/;
+	const assertNoInlineHex = (el: HTMLElement) => {
+		expect(el.getAttribute("style") ?? "").not.toMatch(HEX);
+	};
+
+	test("展开态：卡片/标题栏/内容区用主题类，内联样式无硬编码色", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		useTuiPanelStore.getState().setFrame("s1", "p1", ["Objective"], null);
+		render(<TuiPanel sessionId="s1" />);
+
+		// 卡片：终端内容底色取最底层的 canvas，并补齐浮层描边（与仓库其他浮层一致）
+		const box = screen.getByTestId("tui-panel-expanded");
+		expect(box.className).toContain("bg-canvas");
+		expect(box.className).toContain("border-hairline");
+		assertNoInlineHex(box);
+
+		// 标题栏：抬高一层的表面色
+		const header = screen.getByTestId("tui-panel-header");
+		expect(header.className).toContain("bg-surface-elevated");
+		assertNoInlineHex(header);
+
+		// 标题文字与两个按钮：次级文字色
+		expect(screen.getByText(/pi-goal-x/).className).toContain("text-secondary");
+		expect(screen.getByTitle("收起").className).toContain("text-secondary");
+		expect(screen.getByTitle("取消该交互").className).toContain("text-secondary");
+
+		// 内容区默认文字色：主文字色（帧里 ANSI 显式色仍由 AnsiText 覆盖）
+		const b = body();
+		expect(b.className).toContain("text-primary");
+		assertNoInlineHex(b);
+	});
+
+	test("展开态：光标方块取主题文字色，不再写死 rgba 常量", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		useTuiPanelStore
+			.getState()
+			.setFrame("s1", "p1", ["aaa", "bb"], { row: 1, col: 3 });
+		render(<TuiPanel sessionId="s1" />);
+
+		const cursor = screen.getByTestId("tui-panel-cursor");
+		expect(cursor.style.background).toContain("var(--text-primary)");
+		// 保留原来的半透明（mix-blend-difference 下的反色强度靠它），只是颜色来源换成了主题变量
+		expect(Number(cursor.style.opacity)).toBeCloseTo(0.75, 5);
+		assertNoInlineHex(cursor);
+	});
+
+	test("挂件态：卡片与预览区用主题类", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		useTuiPanelStore.getState().setFrame("s1", "p1", ["Objective"], null);
+		render(<TuiPanel sessionId="s1" />);
+		act(() => useTuiPanelStore.getState().collapse("s1"));
+
+		const badge = screen.getByTestId("tui-panel-badge");
+		expect(badge.className).toContain("bg-surface-elevated");
+		assertNoInlineHex(badge);
+
+		expect(screen.getByText(/pi-goal-x/).className).toContain("text-secondary");
+		expect(screen.getByTitle("收成胶囊").className).toContain("text-secondary");
+
+		// 预览区：与展开态内容区同一套底色/文字色
+		const preview = badge.querySelector("div.whitespace-pre") as HTMLElement;
+		expect(preview.className).toContain("bg-canvas");
+		expect(preview.className).toContain("text-primary");
+		assertNoInlineHex(preview);
+	});
+
+	test("胶囊态：容器与标题/取消按钮用主题类", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		act(() => useTuiPanelStore.getState().collapseDeeper("s1"));
+
+		const pill = screen.getByTestId("tui-panel-pill");
+		expect(pill.className).toContain("text-primary");
+		assertNoInlineHex(pill);
+
+		const box = pill.parentElement as HTMLElement;
+		expect(box.className).toContain("bg-surface-elevated");
+		assertNoInlineHex(box);
+
+		expect(screen.getByTitle("取消该交互").className).toContain("text-secondary");
+	});
+
+	test("面板内 OSC 8 链接用语义 accent 类（沿用仓库链接口径）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		useTuiPanelStore
+			.getState()
+			.setFrame(
+				"s1",
+				"p1",
+				["\u001b]8;;https://example.com\u0007文档\u001b]8;;\u0007"],
+				null,
+			);
+		render(<TuiPanel sessionId="s1" />);
+
+		const link = body().querySelector("a") as HTMLAnchorElement;
+		expect(link.className).toContain("text-accent");
+		assertNoInlineHex(link);
+	});
+});
