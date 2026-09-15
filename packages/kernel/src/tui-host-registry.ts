@@ -200,9 +200,9 @@ export function createTuiHostRegistry(opts: TuiHostRegistryOptions): TuiHostRegi
 		const line = JSON.stringify({
 			type: event.type,
 			panelId: event.panelId,
-			...(event.data !== undefined ? { data: event.data } : {}),
-			...(event.cols !== undefined ? { cols: event.cols } : {}),
-			...(event.rows !== undefined ? { rows: event.rows } : {}),
+			...(event.data === undefined ? {} : { data: event.data }),
+			...(event.cols === undefined ? {} : { cols: event.cols }),
+			...(event.rows === undefined ? {} : { rows: event.rows }),
 		});
 		if (cur.subscriber) {
 			cur.subscriber(line);

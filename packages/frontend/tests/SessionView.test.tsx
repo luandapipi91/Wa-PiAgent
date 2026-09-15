@@ -1408,8 +1408,7 @@ const { useTuiPanelStore } = await import("../src/store/tui-panel");
 // happy-dom 无布局：getBoundingClientRect 全为 0，宽度上报需手工桩实测宽度
 function stubDockWidth(width: number) {
 	const original = HTMLElement.prototype.getBoundingClientRect;
-	HTMLElement.prototype.getBoundingClientRect = function () {
-		return {
+	HTMLElement.prototype.getBoundingClientRect = () => ({
 			left: 0,
 			top: 0,
 			width,
@@ -1419,8 +1418,7 @@ function stubDockWidth(width: number) {
 			x: 0,
 			y: 0,
 			toJSON: () => ({}),
-		} as DOMRect;
-	};
+		} as DOMRect);
 	return () => {
 		HTMLElement.prototype.getBoundingClientRect = original;
 	};
