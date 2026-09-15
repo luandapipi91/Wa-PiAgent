@@ -93,7 +93,7 @@ function cellNodes(
 ): ReactNode[] {
   const runs = splitByCellWidth(text);
   if (runs.length === 1 && !runs[0].wide) return [text];
-  return runs.flatMap((run) =>
+  return runs.flatMap<ReactNode>((run) =>
     run.wide
       ? [...run.text].map((ch) => (
           <span
