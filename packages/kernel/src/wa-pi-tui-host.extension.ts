@@ -4,7 +4,10 @@
 // 整帧文本行经 kernel 送给图形界面，并把前端输入按 panelId 路由回面板。
 // 本文件由 deployTuiHostExtension() 连同 tui-host/ 目录复制到 GENERATED_DIR，
 // 经 -e 注入 pi 进程（与 wa-pi-bridge 并行）。
-import type { ExtensionAPI, KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	KeybindingsManager,
+} from "@earendil-works/pi-coding-agent";
 import { getKeybindings, setCapabilities } from "@earendil-works/pi-tui";
 import {
 	connectInputChannel,
@@ -40,6 +43,9 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "rpc") return;
+		// SAFETY: ctx.ui 运行时就是 pi 的 ExtensionUIContext（具名方法集合），断言成 Record 只为写
+		// patchUiForTuiHost 的形参类型；后者只重写 custom/setWidget/onTerminalInput 这几个它在
+		// 运行期确实拥有的成员，不按任意键取值，所以这个断言丢的是成员类型信息而非真实约束。
 		const ui = ctx.ui as unknown as Record<string, unknown> | undefined;
 		if (!ui || typeof ui.custom !== "function") return;
 		// 能力上报（规格 §4.2）：images:null 让依赖图片的组件走自身的文本占位降级，
@@ -59,6 +65,8 @@ export default function (pi: ExtensionAPI): void {
 			// pi-tui 的 getKeybindings() 拿的是 pi 启动时 setKeybindings() 注入的实例
 			// （interactive-mode 用 pi-coding-agent 的 KeybindingsManager 子类创建），
 			// 但 pi-tui 只声明了基类类型，只能按 pi 的形参类型断言（panel.ts 同款处理）。
+			// SAFETY: 运行期拿到的是 pi-tui KeybindingsManager 的子类实例，子类拥有基类的全部
+			// 公开成员，差异只在基类/子类的私有字段；面板只调 matches/getKeys，故不会掩盖缺口。
 			keybindings: getKeybindings() as unknown as KeybindingsManager,
 		});
 		patchUiForTuiHost(ui, bridge);

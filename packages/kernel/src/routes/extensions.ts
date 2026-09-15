@@ -90,7 +90,15 @@ export const registerExtensionRoutes: RouteRegistrar = (
   // 扩展 TUI 面板快照（补发，规格 §5.4）：会话切换/前端重连时前端主动拉取。
   // 无面板/无该会话状态返回空 panels（不是 404：“没有面板”是合法态）。
   r.add("GET", "/api/extensions/tui-snapshot", async (req) => {
-    const sessionId = new URL(req.url).searchParams.get("sessionId");
+    // new URL() 对非法 URL 会抛 TypeError（路由层兜成 500），而 URL 解析不了等价于
+    // 没给参数，所以按「参数缺失」返回 400。本仓没有既有的 query helper（其余 GET 路由
+    // 也是直接 new URL(req.url).searchParams），故就地兜住这一处。
+    let sessionId: string | null = null;
+    try {
+      sessionId = new URL(req.url).searchParams.get("sessionId");
+    } catch {
+      // 解析失败：sessionId 保持 null，落进下面的参数缺失分支
+    }
     if (!sessionId) {
       return paramErrorResponse("参数缺失", "sessionId");
     }

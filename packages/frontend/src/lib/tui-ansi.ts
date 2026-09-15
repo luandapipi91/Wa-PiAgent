@@ -53,7 +53,11 @@ export function applySgrCodes(attrs: SgrAttrs, codes: number[]): SgrAttrs {
 }
 
 function sameAttrs(a: SgrAttrs, b: SgrAttrs): boolean {
-	for (const k of ATTR_KEYS) if (!!a[k] !== !!b[k]) return false;
+	for (const k of ATTR_KEYS) {
+		const av = a[k] === true;
+		const bv = b[k] === true;
+		if (av !== bv) return false;
+	}
 	return true;
 }
 
@@ -130,7 +134,10 @@ export function takeLinks(text: string): Array<{ text: string; url: string }> {
 		if (url) {
 			open = { url, from: m.index + m[0].length };
 		} else if (open) {
-			links.push({ text: stripOsc(text.slice(open.from, m.index)), url: open.url });
+			links.push({
+				text: stripOsc(text.slice(open.from, m.index)),
+				url: open.url,
+			});
 			open = null;
 		}
 	}
@@ -173,7 +180,9 @@ export function isWideChar(codePoint: number): boolean {
  * 用 `for...of` 迭代码点，代理对（扩展 B 及以后的汉字）不会被拆成两个半字符。
  * 调用方据片段顺序拼接：全角片段要按字符包固定宽度的行内块，半角片段原样输出。
  */
-export function splitByCellWidth(text: string): Array<{ text: string; wide: boolean }> {
+export function splitByCellWidth(
+	text: string,
+): Array<{ text: string; wide: boolean }> {
 	const runs: Array<{ text: string; wide: boolean }> = [];
 	let buffer = "";
 	let wide = false;
