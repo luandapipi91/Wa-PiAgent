@@ -1,3 +1,13 @@
+## 2026-09-15 — feat(kernel/shared/frontend): 扩展 TUI 宿主与三态面板（ctx.ui.custom / setWidget 图形化）
+
+- 需求：pi 扩展用 `ctx.ui.custom()` / `setWidget()` 实现的面板，在 WaPi 图形界面下此前无渲染（custom 直接报错、widget 退化为纯文本），只能用真终端体验。
+- 方案：新增 pi 侧 **wa-pi-tui-host** 扩展（`packages/kernel/src/wa-pi-tui-host.extension.ts` + `tui-host/*`，随 kernel 部署到 GENERATED_DIR 并经 `-e` 注入 pi 进程）。它建一块**假 Terminal + 整屏 TUI**，RPC 模式下接管 `ui.custom` / `setWidget` 组件工厂 / `onTerminalInput`：面板帧按 80ms 采样、内容相同不推送，经 `/bridge/tui-host/frames` NDJSON 长连接送 kernel；前端按键/粘贴/鼠标/尺寸/取消经 `/api/extensions/tui-input` 按 panelId 路由回面板；会话切换用 `/api/extensions/tui-snapshot` 补发最后一帧。能力上报改 `setCapabilities({ images: null, trueColor: true, hyperlinks: true })`：**图像降级为文本占位**（由组件自身降级），真彩与 OSC 8 链接照常渲染。
+- 前端：新增三态 TUI 面板（`components/TuiPanel.tsx` + `store/tui-panel.ts`），浮在**右上角**——展开态（标题栏可拖动、右下角可缩放、键盘锁给面板）、挂件态（实时帧预览卡片，点主体展开）、胶囊态（只剩标题 + 取消）；收起逐级下探、展开一步到位，位置尺寸持久化到 localStorage。展开时 Composer 同步禁用，收起后立即恢复可用。
+- 兼容：`ui.custom` 的原生 `Component` 契约（render/invalidate/handleInput）与 setWidget 的「组件或纯文本」两种形态都支持；`ui.__waPiTuiHost` 使 wa-pi-bridge 的 notify+throw 兜底让位（按 bridge 实例幂等，pi reload 复用同一 uiContext 也能重新接管）。widget 面板仍走既有 `extension_widget` → ExtWidgetDock 通道，与浮窗互不覆盖。
+- 测试：单测（假 Terminal、帧采集/节流、面板宿主 settle 保证、按键编码、ANSI/OSC 链接、widget 宿主）；组件测（TuiPanel 三态渲染与输入上报）；接口测（tui-input / tui-snapshot 正常 + 参数缺失 400）；E2E `e2e/tui-panel.spec.ts`（真实 pi 进程 + 真实浏览器 3 例：面板出现→方向键选择→回车回显并关闭、三态收起/展开、收起态输入框恢复可用），3 pass。
+- 验证：typecheck 全绿；前端单测/组件测与 kernel 单测/接口测全绿；浏览器 E2E 3 pass。
+- 影响范围：packages/kernel（wa-pi-tui-host.extension.ts、tui-host/*、tui-host-deploy.ts、routes/extensions.ts、extensions.ts、agent-manager.ts）、packages/shared（TUI 帧/事件/快照类型）、packages/frontend（TuiPanel、store/tui-panel、lib/tui-keys、lib/tui-ansi、AnsiText、SessionView、App、store/session、i18n）；examples/tui-host-demo 测试桩。
+
 ## 2026-09-14 — v0.3.21 发版（浮动预览独立窗口）
 
 - 版本：0.3.20 → 0.3.21。
