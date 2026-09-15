@@ -1,3 +1,10 @@
+## 2026-09-15 — docs(website): 官网补上「TUI 插件完整支持」
+
+- 官网「设置一览 → 插件」卡新增一条：**TUI 插件完整支持**——为 pi 写的扩展无需改动，状态栏 / Widget / 对话框以 GUI 原生组件呈现；中英文两版（`index.html` / `index.en.html`）同步。
+- 落点选择：内核 `wa-pi-tui-host` + 前端三态 `TuiPanel` 已随 v0.3.22 交付，但官网全文此前无任何 TUI 表述（README 早有「TUI 插件开箱即用」口径）。故选 settings 的插件卡：`#features` 的 `.feature-duo` 与 `.mini-grid` 均为固定 2 列，插卡会留缺口；插件卡的 bullet 列表可自然扩展且 grid 拉伸保证四卡等高。
+- 验证：`packages/frontend/tests/website-frog-sound.test.ts` 3 pass（未触碰青蛙音频 base64 与点击逻辑）、`scripts/publish-web.test.ts` 5 pass；本地渲染确认插件卡 6 条、四卡等高（379px）不破版。
+- 影响范围：website/index.html、website/index.en.html。
+
 ## 2026-09-15 — v0.3.22 发版（TUI 宿主功能 + 压缩守卫/扩展 pin/文件预览修复）
 
 - 版本：0.3.21 → 0.3.22。

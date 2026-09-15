@@ -20,7 +20,10 @@ import {
 	waitFor,
 	cleanup,
 } from "@testing-library/react";
-import { FileViewer } from "../src/components/blocks/FileViewer";
+import {
+	FileViewer,
+	computeChunkWindow,
+} from "../src/components/blocks/FileViewer";
 import { _setFsTransport } from "../src/fs-client";
 import { makeFakeFsTransport } from "./fs-transport";
 import { useSessionStore } from "../src/store/session";
@@ -426,12 +429,34 @@ test("点击分享按钮：打开分享弹层（share-result-modal）", async ()
 	expect(screen.getByTestId("share-files")).toBeTruthy();
 });
 
-// ===== 大文件截断渲染 =====
-// 背景：kernel 只拦 >5MB，≤5MB 的文本会被整份送进渲染层；FileViewer 原先无行数上限，
-// 全量 Prism 分词 + 每 token 一个 span（5MB ≈ 190 万 token ≈ 200 万 DOM 节点）会冻结渲染进程。
-// 因此 FileViewer 必须有渲染上限（截断显示 + 提示），与 kernel 的大小限制互补。
+// ===== 大文件虚拟滚动（替代截断：内容完整、只渲染可视块）=====
+// 背景：kernel 只拦 >5MB，≤5MB 文本会整份送进渲染层；全量分词 + 每 token 一个 span
+// （5MB ≈ 190 万 token ≈ 200 万 DOM 节点）会冻结渲染进程。截断虽能救性能但影响浏览，
+// 因此改为块级虚拟滚动：按块只渲染可视区域（每块 200 行），滚动时窗口跟随。
 
-test("大文件只渲染前 N 行，并提示完整内容的查看方式", async () => {
+test("computeChunkWindow：顶部/中部/底部窗口与占位高度", () => {
+	const base = {
+		totalLines: 6000,
+		chunkLines: 200,
+		lineHeight: 18,
+		viewportHeight: 600,
+		overscanChunks: 1,
+	};
+	const top = computeChunkWindow({ ...base, scrollTop: 0 });
+	expect(top.firstChunk).toBe(0);
+	expect(top.topSpacer).toBe(0);
+	expect(top.lastChunk).toBeGreaterThanOrEqual(0);
+
+	const middle = computeChunkWindow({ ...base, scrollTop: 3600 * 5 });
+	expect(middle.firstChunk).toBe(4); // 5 - overscan
+	expect(middle.topSpacer).toBe(4 * 3600);
+
+	const bottom = computeChunkWindow({ ...base, scrollTop: 3600 * 29 });
+	expect(bottom.lastChunk).toBe(29);
+	expect(bottom.bottomSpacer).toBe(0);
+});
+
+test("大文件：不截断、无截断提示，只渲染可视块（内容仍可完整滚动浏览）", async () => {
 	const total = 6000;
 	const code = Array.from({ length: total }, (_, i) => `line ${i}`).join("\n");
 	fake.setResponse("fs:readFile", {
@@ -442,16 +467,48 @@ test("大文件只渲染前 N 行，并提示完整内容的查看方式", async
 		<FileViewer path="/work/huge.log" onClose={() => {}} />,
 	);
 
-	await waitFor(() => {
-		const rendered = container.querySelectorAll("[data-line]").length;
-		expect(rendered).toBe(5000);
-		expect(rendered).toBeLessThan(total);
-	});
-	// 提示里要有真实行数，用户才知道被截断了多少
-	expect(screen.getByTestId("fv-truncated").textContent).toContain("6000");
+	await waitFor(() =>
+		expect(container.querySelectorAll("[data-line]").length).toBeGreaterThan(0),
+	);
+	// 不再截断：既没有截断提示，也没有"只显示前 N 行"的行为
+	expect(screen.queryByTestId("fv-truncated")).toBeNull();
+	// 只渲染可视窗口（远小于总行数），起点为第 1 行
+	const rendered = container.querySelectorAll("[data-line]").length;
+	expect(rendered).toBeLessThan(total / 4);
+	expect(container.querySelector("[data-line]")?.getAttribute("data-line")).toBe(
+		"1",
+	);
 });
 
-test("未超过上限的文件不截断、不显示提示", async () => {
+test("滚动到中部：虚拟窗口跟随，渲染对应区间的行号", async () => {
+	const total = 6000;
+	const code = Array.from({ length: total }, (_, i) => `line ${i}`).join("\n");
+	fake.setResponse("fs:readFile", {
+		content: btoa(code),
+		mimeType: "text/plain",
+	});
+	const { container } = render(
+		<FileViewer path="/work/huge.log" onClose={() => {}} />,
+	);
+	await waitFor(() =>
+		expect(container.querySelectorAll("[data-line]").length).toBeGreaterThan(0),
+	);
+
+	const body = screen.getByTestId("fv-body");
+	body.scrollTop = 3600 * 10; // 第 11 块起点
+	fireEvent.scroll(body);
+
+	await waitFor(() => {
+		const nums = [...container.querySelectorAll("[data-line]")].map((el) =>
+			Number(el.getAttribute("data-line")),
+		);
+		expect(nums.length).toBeGreaterThan(0);
+		// 视口已在中部：最早渲染的行号明显大于 1
+		expect(Math.min(...nums)).toBeGreaterThan(200);
+	});
+});
+
+test("小文件：不截断、不提示，行号从 1 开始", async () => {
 	const code = Array.from({ length: 120 }, (_, i) => `line ${i}`).join("\n");
 	fake.setResponse("fs:readFile", {
 		content: btoa(code),
@@ -462,7 +519,7 @@ test("未超过上限的文件不截断、不显示提示", async () => {
 	);
 
 	await waitFor(() =>
-		expect(container.querySelectorAll("[data-line]").length).toBe(120),
+		expect(container.querySelectorAll("[data-line]").length).toBeGreaterThan(0),
 	);
 	expect(screen.queryByTestId("fv-truncated")).toBeNull();
 });
