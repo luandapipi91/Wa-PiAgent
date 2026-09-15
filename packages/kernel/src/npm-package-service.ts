@@ -134,7 +134,12 @@ export class NpmPackageService {
     onProgress?: (line: string) => void,
   ): Promise<{ version: string }> {
     const pkg = version ? `${name}@${version}` : name;
-    const { exitCode, stderr } = await this.spawn(["add", pkg], onProgress);
+    // --exact：写精确版本而非 caret 范围，避免与 settings.packages 的精确 pin 漂移
+    // （漂移 + --offline 会让 pi 整包跳过该扩展，见 upgrade() 注释）
+    const { exitCode, stderr } = await this.spawn(
+      ["add", "--exact", pkg],
+      onProgress,
+    );
     if (exitCode !== 0) {
       throw new KernelError(
         "npm.installFailed",
@@ -162,15 +167,23 @@ export class NpmPackageService {
   }
 
   /** 升级 npm 包到最新版。
-   *  用 `add <name>`（不带版本号）而非 `update <name>`：bun 默认把精确版本写入
-   *  package.json（save-exact），而 `update` 只在现有 semver 范围内重新解析——
-   *  精确版本范围内只有自身一个版本，导致 exit 0 但版本不变（升级静默失败）。
-   *  `add` 会强制解析到最新版并写入，与 install 行为一致。 */
+   *  用 `add <name>`（不带版本号）而非 `update <name>`：`update` 只在现有 semver 范围内
+   *  重新解析，而 package.json 里写的是精确版本（见下），范围内只有自身一个版本，
+   *  导致 exit 0 但版本不变（升级静默失败）。`add` 会强制解析到最新版并写入。
+   *
+   *  **必须带 `--exact`**：bun 默认把 caret 范围（^x.y.z）写进 package.json，而
+   *  settings.packages 存的是精确实装版本。两者一旦不同步（依赖树被 `repair` 删 lock 后
+   *  `bun install`、或装/卸其它包时的 `bun add` 重解析顶到新版本），pi 启动时会因
+   *  「pin ≠ 实装」判定需要安装，而 Wa-Pi 强制 --offline 装不了 → 整包被静默跳过
+   *  （扩展不加载、界面无任何报错）。写精确版本可从根上消除这种漂移。 */
   async upgrade(
     name: string,
     onProgress?: (line: string) => void,
   ): Promise<{ version: string }> {
-    const { exitCode, stderr } = await this.spawn(["add", name], onProgress);
+    const { exitCode, stderr } = await this.spawn(
+      ["add", "--exact", name],
+      onProgress,
+    );
     if (exitCode !== 0) {
       throw new KernelError(
         "npm.upgradeFailed",
@@ -219,10 +232,20 @@ export class NpmPackageService {
       );
     }
 
-    // 校验：package.json 每个直接依赖都能在 node_modules 读到版本
-    const deps =
-      JSON.parse(readFileSync(join(this.runtimeDir, "package.json"), "utf8"))
-        .dependencies ?? {};
+    // 校验：package.json 每个直接依赖都能在 node_modules 读到版本。
+    // package.json 不可读/损坏时抛明确的 repairVerifyFailed：不能静默跳过校验，
+    // 否则会把「修坏了」报成「修复成功」。
+    const pkgJsonPath = join(this.runtimeDir, "package.json");
+    let deps: Record<string, string>;
+    try {
+      deps = JSON.parse(readFileSync(pkgJsonPath, "utf8")).dependencies ?? {};
+    } catch (err) {
+      throw new KernelError(
+        "npm.repairVerifyFailed",
+        { names: pkgJsonPath },
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     const missing = Object.keys(deps).filter(
       (name) => !this.getInstalledVersion(name),
     );
@@ -236,7 +259,7 @@ export class NpmPackageService {
   /** 查询 npm registry 最新版本 */
   async getLatestVersion(name: string): Promise<string | undefined> {
     try {
-      const { exitCode, stderr } = await this.spawn(["pm", "ls", name]);
+      const { exitCode } = await this.spawn(["pm", "ls", name]);
       if (exitCode !== 0) return undefined;
       // 用 npm view 查最新版本（bun pm ls 不提供此信息）
       // 此命令只读，使用 npm 而非 bun 因为 bun 无等效命令

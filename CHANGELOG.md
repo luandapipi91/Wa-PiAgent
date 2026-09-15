@@ -1,3 +1,28 @@
+## 2026-09-15 — fix(frontend): 文件预览加渲染上限（修复打开几 MB 文本时卡死）
+
+- 问题：kernel 只拦 >5MB 的文件，≤5MB 的文本会**整份**送进渲染层；而 `FileViewer` 原先无行数上限、无虚拟化——全量 Prism 分词（实测 5MB ≈ 189 万 token，`tokenize` 单次 2.3s），且每个 token 一个 `<span>`、每行一个 `div`（`display:table`）⇒ 约 200 万 DOM 节点，渲染进程直接冻结（无报错，非死循环）。该限制阈值历史上从 512KB（7-28）放宽到 3MB、再到 5MB（8-30），放宽时**未同步给前端加渲染上限**，于是「几 MB 的日志/代码文件现在能打开，一打开就卡死」；>5MB 的仍会被 kernel 拦（实测 40MB 文本 0.67s 返回 `attachment.previewTooLarge`）。
+- 修复：`FileViewer` 增加 `MAX_RENDER_LINES = 5000` 渲染上限——超过则只把前 5000 行交给高亮组件，并在查看区顶部常驻提示「文件较大，仅显示前 5000 行（共 N 行）。完整内容请用「用默认应用打开」查看」；新增 i18n 键 `blocks.fileViewer.truncated`（zh/en 同步）。复制全文仍使用完整内容（渲染截断不影响复制）。
+- 测试：`tests/FileViewer.test.tsx` 新增 2 例（6000 行 → 仅渲染 5000 行且提示含真实总行数；120 行 → 不截断、不提示）。
+- 验证：组件测试 19 pass；前端全量 2360 pass / 0 fail；typecheck 全绿；kernel 侧隔离实测确认「>5MB 拦、≤5MB 放行」，故卡死区间确为前端全量渲染。
+- 影响范围：packages/frontend（components/blocks/FileViewer.tsx、i18n/locales/{zh,en}.ts、tests/FileViewer.test.tsx）。
+
+## 2026-09-15 — fix(kernel): 扩展静默失效（pin 漂移）——加 --exact + 启动时对齐 pin
+
+- 问题：settings.json 的 `packages` 存**精确实装版本**，而 `agentDir/npm/package.json` 是 caret 范围（`^x.y.z`）。依赖树一旦被盘外重解析（`repair()` 删 lock 后 `bun install`、装/卸其它包时的 `bun add`），node_modules 会被顶到新版本而 pin 不动。pi 在 Wa-Pi 强制的 `--offline` 下遇到「pin ≠ 实装」会判定需要安装、装不了便**整包 continue 跳过**（pi core/package-manager.js:996-1016）→ 扩展静默不加载，且无任何报错（插件页显示的是实装版本，界面看不出异常）。实测：pi-token-speed（pin 0.9.0 / 装 0.10.1）与 pi-cache-optimizer（2.8.7 / 2.8.10）均被跳过。
+- 修复：① `NpmPackageService.install/upgrade` 的 `bun add` 加 `--exact`（写精确版本，从根上消除漂移；原注释「bun 默认 save-exact」有误，已更正）；② 新增 `ExtensionManager.alignPackagePins()`，kernel 启动时把 `packages` 与 `waPiDisabledPackages` 的 npm 条目 pin 对齐磁盘实装版本——无漂移不写文件、实装版本不存在不动条目、git:/本地路径跳过、走 `mutateSettings` 互斥写；覆盖所有成因并能把已漂移的机器拉回。
+- 顺带收口：`repair()` 校验处的 `JSON.parse` 包裹为明确的 `npm.repairVerifyFailed`（不静默跳过校验，避免把「修坏了」报成「修复成功」）。
+- 测试：新增 `tests/extension-manager-align-pins.test.ts`（9 例：纯函数 6 + 只在下标真有漂移时写文件 3）；扩展 `tests/npm-package-service.test.ts`（+3 例断言 `--exact`，并把并发测试桩改为按 flag 解析包名，不再按固定位置取 argv）。
+- 验证：typecheck 全绿；kernel 全量测试「全部通过」；隔离内核实测（人为造漂移）日志输出「扩展版本 pin 已对齐：pi-token-speed: 0.9.0 → 0.10.1；pi-cache-optimizer: 2.8.7 → 2.8.10」，settings.json 被正确改写且其它字段保留。
+- 影响范围：packages/kernel（src/npm-package-service.ts、src/extension-manager.ts、src/index.ts、tests/npm-package-service.test.ts、tests/extension-manager-align-pins.test.ts）。
+
+## 2026-09-15 — fix(kernel): 压缩守卫扩展（修复长会话压缩失败死循环）
+
+- 问题：pi 内置摘要的输出预算是 `0.8 × reserveTokens`（默认 16384 → 13107），长会话写详尽摘要必被输出上限截断；pi ≥0.85 把 `stopReason=length`（摘要被截断）判为失败并整份作废、每轮重试，前端表现为「压缩失败」刷屏。输入侧亦无上限，会话超窗口后压缩永久失败（pi issue #8371/#8196）。
+- 方案：新增随内核分发的 pi 扩展（`compaction-guard.extension.ts` 入口 + `compaction-guard-core.ts` 纯逻辑 + `compaction-guard-deploy.ts` 部署到 GENERATED_DIR 并进入 `-e` 清单）。策略：① 输出预算按模型能力动态算（min(期望 32768, 模型输出上限, 窗口剩余空间)，且不超过窗口一半）② 输入超窗口时先丢最旧消息、只剩一条则截断文本尾部 ③ 摘要被输出上限截断时按上限采用并标注，而非整份作废 ④ 窗口装不下 / 摘要为空 / 调用报错 / 被取消一律返回 undefined，交回 pi 内置压缩。
+- 测试：单测 30 例（`tests/compaction-guard.test.ts` 预算/裁剪/收尾、`tests/compaction-guard-handler.test.ts` 编排、`tests/compaction-guard-extension.test.ts` 接线、`tests/compaction-guard-deploy.test.ts` 部署）+ 清单护栏（`tests/compile-binary.test.ts`、`tests/extensions.test.ts`）。
+- 验证：typecheck 全绿；相关测试 44 pass；真实链路对照（隔离 pi 0.85.1 + DeepSeek 官方接口、窗口 30000/预留 8192 长会话）——不加载守卫复现 `Turn prefix summarization failed: generation hit the token cap and the summary is incomplete`，加载后摘要生成成功（errorMessage=None）。
+- 影响范围：packages/kernel（新增 compaction-guard.extension.ts、compaction-guard-core.ts、compaction-guard-deploy.ts、tests/compaction-guard*.test.ts；改 src/extensions.ts、src/index.ts、scripts/compile-binary.ts、tests/extensions.test.ts、tests/compile-binary.test.ts）。
+
 ## 2026-09-15 — feat(kernel/shared/frontend): 扩展 TUI 宿主与三态面板（ctx.ui.custom / setWidget 图形化）
 
 - 需求：pi 扩展用 `ctx.ui.custom()` / `setWidget()` 实现的面板，在 WaPi 图形界面下此前无渲染（custom 直接报错、widget 退化为纯文本），只能用真终端体验。

@@ -11,6 +11,7 @@ import {
   kernelBinaryName,
 } from "../scripts/compile-binary";
 import { TUI_HOST_EXTENSION_FILES } from "../src/tui-host-deploy";
+import { COMPACTION_GUARD_EXTENSION_FILES } from "../src/compaction-guard-deploy";
 import { basename, join } from "node:path";
 
 test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/--asset/--outfile", () => {
@@ -70,7 +71,15 @@ test("KERNEL_ASSET_FILES: 全部资产真实存在且包含 preview-inspect.js",
   ]) {
     expect(names).toContain(name);
   }
-  expect(KERNEL_ASSET_FILES).toHaveLength(10);
+  // compaction-guard 扩展两文件必须嵌入：入口 + 入口相对 import 的纯逻辑模块，
+  // 缺一即打包版部署不完整 → 压缩守卫失效（compaction-guard-deploy.ts 从 assets/ 读取）。
+  for (const name of [
+    "compaction-guard.extension.ts",
+    "compaction-guard-core.ts",
+  ]) {
+    expect(names).toContain(name);
+  }
+  expect(KERNEL_ASSET_FILES).toHaveLength(12);
   for (const f of KERNEL_ASSET_FILES) expect(existsSync(f)).toBe(true);
 });
 
@@ -83,6 +92,15 @@ test("KERNEL_ASSET_FILES 覆盖 tui-host 部署清单全部源文件（防清单
   }
 });
 
+test("KERNEL_ASSET_FILES 覆盖 compaction-guard 部署清单全部源文件（防清单漂移）", () => {
+  // 两处清单必须同步：compaction-guard-deploy.ts 的源文件清单（dev 读源码）
+  // 与 KERNEL_ASSET_FILES（packaged 唯一来源）。漏一个 → 打包版 GENERATED_DIR 缺文件 → 压缩守卫失效。
+  const assetNames = new Set(KERNEL_ASSET_FILES.map((f) => basename(f)));
+  for (const [source] of COMPACTION_GUARD_EXTENSION_FILES) {
+    expect(assetNames).toContain(basename(source));
+  }
+});
+
 test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名挂载）且资产平铺", () => {
   const dir = stageAssetDir();
   try {
@@ -90,6 +108,8 @@ test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名
     // bridge-extension.ts 固定读 __dirname/assets/，故嵌入目录必须字面叫 assets。
     expect(basename(dir)).toBe("assets");
     const expected = [
+      "compaction-guard-core.ts",
+      "compaction-guard.extension.ts",
       "file-snapshot.ts",
       "frame.ts",
       "host.ts",
