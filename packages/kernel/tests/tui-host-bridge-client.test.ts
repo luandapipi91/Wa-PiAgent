@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { connectInputChannel, createFrameSink, splitNdjson } from "../src/tui-host/host.ts";
+import {
+	backoffDelay,
+	connectInputChannel,
+	createFrameSink,
+	createFrameStream,
+	splitNdjson,
+} from "../src/tui-host/host.ts";
 
 describe("splitNdjson", () => {
 	test("逐行切分，半行保留在缓冲", () => {
@@ -35,6 +41,27 @@ describe("createFrameSink", () => {
 		sink.attach((l) => written.push(l));
 		expect(written).toHaveLength(3);
 		expect(JSON.parse(written.at(-1)!).n).toBe(9);
+	});
+
+	test("溢出优先丢画面帧：open/close 控制帧被保留", () => {
+		const sink = createFrameSink({ maxQueue: 3 });
+		sink.push({ type: "open", panelId: "p1" });
+		sink.push({ type: "close", panelId: "p1", reason: "done" });
+		for (let i = 0; i < 10; i++) sink.push({ type: "frame", panelId: "p1", n: i });
+		const written: string[] = [];
+		sink.attach((l) => written.push(l));
+		expect(written.map((l) => JSON.parse(l).type)).toEqual(["open", "close", "frame"]);
+		expect(JSON.parse(written.at(-1)!).n).toBe(9);
+	});
+
+	test("队列里全是控制帧时退化为丢最旧（保住最新的 open/close）", () => {
+		const sink = createFrameSink({ maxQueue: 2 });
+		sink.push({ type: "open", panelId: "p1" });
+		sink.push({ type: "open", panelId: "p2" });
+		sink.push({ type: "close", panelId: "p2", reason: "done" });
+		const written: string[] = [];
+		sink.attach((l) => written.push(l));
+		expect(written.map((l) => JSON.parse(l).panelId)).toEqual(["p2", "p2"]);
 	});
 
 	test("detach 后帧回到队列，重新 attach 时按序补发", () => {
@@ -123,6 +150,7 @@ describe("connectInputChannel", () => {
 			sessionId: "s1",
 			onEvent: () => {},
 			retryMs: 5,
+			log: () => {},
 			fetchImpl: (async () => {
 				calls += 1;
 				if (calls === 1) return new Response("");
@@ -133,5 +161,138 @@ describe("connectInputChannel", () => {
 		await Bun.sleep(60);
 		channel.stop();
 		expect(calls).toBeGreaterThanOrEqual(2);
+	});
+
+	test("stop 后不再重连（不泄定时器）", async () => {
+		let calls = 0;
+		const channel = connectInputChannel({
+			bridgeUrl: "http://127.0.0.1:9",
+			token: "tok",
+			sessionId: "s1",
+			onEvent: () => {},
+			retryMs: 5,
+			log: () => {},
+			fetchImpl: (async () => {
+				calls += 1;
+				throw new Error("kernel 不在");
+			}) as unknown as typeof fetch,
+		});
+		channel.start();
+		await Bun.sleep(30);
+		expect(calls).toBeGreaterThan(1);
+		channel.stop();
+		const after = calls;
+		await Bun.sleep(60);
+		expect(calls).toBe(after);
+	});
+
+	test("401 按指数退避重连，日志带 sessionId 与状态码", async () => {
+		const logs: string[] = [];
+		const channel = connectInputChannel({
+			bridgeUrl: "http://127.0.0.1:9",
+			token: "tok",
+			sessionId: "s1",
+			onEvent: () => {},
+			retryMs: 10,
+			maxRetryMs: 40,
+			log: (m) => logs.push(m),
+			fetchImpl: (async () => new Response("", { status: 401 })) as unknown as typeof fetch,
+		});
+		channel.start();
+		await Bun.sleep(80);
+		channel.stop();
+		expect(logs[0]).toContain("401");
+		expect(logs[0]).toContain("session=s1");
+		expect(logs[0]).toContain("10ms 后重连");
+		expect(logs[1]).toContain("20ms 后重连");
+	});
+});
+
+describe("backoffDelay", () => {
+	test("指数增长并封顶", () => {
+		expect([1, 2, 3, 4, 5, 6].map((n) => backoffDelay(n, 1000, 5000))).toEqual([1000, 2000, 4000, 5000, 5000, 5000]);
+	});
+});
+
+/**
+ * 模拟 kernel 侧：读请求体行，响应挂到连接结束才返回（真实 kernel 不提前回响应，
+ * 否则客户端会立刻 detach 并 1s 重连）。
+ */
+function kernelStub() {
+	const lines: string[] = [];
+	let rest = "";
+	let finish: (() => void) | null = null;
+	let requests = 0;
+	const fetchImpl = (async (_url: string, init: RequestInit) => {
+		requests += 1;
+		const reader = (init.body as ReadableStream<Uint8Array>).getReader();
+		const decoder = new TextDecoder();
+		void (async () => {
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				const chunk = splitNdjson(rest, decoder.decode(value, { stream: true }));
+				rest = chunk.rest;
+				lines.push(...chunk.lines);
+			}
+			finish?.();
+		})();
+		await new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		return new Response("");
+	}) as unknown as typeof fetch;
+	return { lines, requests: () => requests, fetchImpl };
+}
+
+describe("createFrameStream", () => {
+	test("先发鉴权行再逐行送帧；stop 后优雅断流且不再重连", async () => {
+		const sink = createFrameSink();
+		const kernel = kernelStub();
+		const stream = createFrameStream({
+			bridgeUrl: "http://127.0.0.1:9",
+			token: "tok",
+			sessionId: "s1",
+			sink,
+			retryMs: 20,
+			fetchImpl: kernel.fetchImpl,
+		});
+		stream.start();
+		sink.push({ type: "open", panelId: "p1" });
+		sink.push({ type: "frame", panelId: "p1", lines: ["hi"] });
+		await Bun.sleep(20);
+
+		expect(JSON.parse(kernel.lines[0]!)).toEqual({ token: "tok", sessionId: "s1" });
+		expect(kernel.lines.slice(1).map((l) => JSON.parse(l).type)).toEqual(["open", "frame"]);
+
+		stream.stop();
+		await Bun.sleep(60);
+		expect(kernel.requests()).toBe(1);
+	});
+
+	test("401 按指数退避重连，日志带 sessionId 与状态码", async () => {
+		const logs: string[] = [];
+		let calls = 0;
+		const stream = createFrameStream({
+			bridgeUrl: "http://127.0.0.1:9",
+			token: "tok",
+			sessionId: "s1",
+			sink: createFrameSink(),
+			retryMs: 10,
+			maxRetryMs: 40,
+			log: (m) => logs.push(m),
+			fetchImpl: (async () => {
+				calls += 1;
+				return new Response("", { status: 401 });
+			}) as unknown as typeof fetch,
+		});
+		stream.start();
+		await Bun.sleep(80);
+		stream.stop();
+		expect(calls).toBeGreaterThanOrEqual(2);
+		expect(logs[0]).toContain("401");
+		expect(logs[0]).toContain("session=s1");
+		expect(logs[0]).toContain("10ms 后重连");
+		expect(logs[1]).toContain("20ms 后重连");
 	});
 });

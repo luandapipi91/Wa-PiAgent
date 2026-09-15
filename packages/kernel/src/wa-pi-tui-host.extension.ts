@@ -9,13 +9,11 @@ import { getKeybindings, setCapabilities } from "@earendil-works/pi-tui";
 import {
 	connectInputChannel,
 	createFrameSink,
+	createFrameStream,
 	createPanelBridge,
 	patchUiForTuiHost,
 	type PanelBridge,
 } from "./tui-host/host.ts";
-
-/** 帧流断开后的重连间隔 */
-const FRAME_RETRY_MS = 1000;
 
 export default function (pi: ExtensionAPI): void {
 	const bridgeUrl = process.env.WA_PI_BRIDGE_URL ?? "";
@@ -23,54 +21,22 @@ export default function (pi: ExtensionAPI): void {
 	const sessionId = process.env.WA_PI_SESSION_ID ?? "";
 	if (!bridgeUrl || !token || !sessionId) return; // 子代理/无宿主环境：不接管
 
+	// 帧出口是进程级的：断线/会话切换期间的帧先排队，重连或下一个会话 attach 时按序补发（规格 §8）。
 	const sink = createFrameSink();
+	// 当前会话的面板桥。可变引用：输入订阅流的回调每次都取当前 bridge，
+	// 会话重建后输入才会路由到新 bridge（旧 bridge 已 disposeAll，不可逆）。
+	let bridge: PanelBridge | null = null;
 
 	// 帧流（规格 §5.1）：长连接把 NDJSON 帧写给 kernel。响应要等本连接结束才回来，
-	// 所以只 await 连接本身。断线后按固定间隔重连（本地回环，失败通常只是 kernel 重启
-	// 或会话刚起步，不需要指数退避）；断线期间的帧留在 sink 队列里（规格 §8）。
-	const startFrameStream = async (): Promise<void> => {
-		const encoder = new TextEncoder();
-		let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-		const body = new ReadableStream<Uint8Array>({
-			start(c) {
-				controller = c;
-				// 首行鉴权：kernel 读到 token/sessionId 后才把后续行当帧处理
-				c.enqueue(encoder.encode(`${JSON.stringify({ token, sessionId })}\n`));
-			},
-		});
-		sink.attach((line) => {
-			try {
-				controller?.enqueue(encoder.encode(`${line}\n`));
-			} catch {
-				// 连接已关：本帧丢弃，重连后 attach 会补发随后入队的帧
-			}
-		});
-		try {
-			const res = await fetch(`${bridgeUrl}/bridge/tui-host/frames`, {
-				method: "POST",
-				// 流式请求体（Bun 1.4.2 实测可用）；duplex 是流式 body 的规范要求，DOM 类型里尚未收录
-				duplex: "half",
-				headers: { "content-type": "application/x-ndjson" },
-				body,
-			} as RequestInit);
-			// 非 2xx（如 token 过期）要读掉响应体释放连接，之后仍然走重连
-			if (!res.ok) await res.text().catch(() => "");
-		} catch {
-			// 连接失败：交给下面的重连
-		}
-		sink.detach();
-		setTimeout(() => void startFrameStream(), FRAME_RETRY_MS);
-	};
-	void startFrameStream();
-
+	// 所以实现里只 await 连接本身；断线按基准间隔重连，连续失败按指数退避（上限 5s）。
+	const frameStream = createFrameStream({ bridgeUrl, token, sessionId, sink });
 	// 输入订阅流（规格 §5.2）：kernel 把按键/粘贴/鼠标/尺寸/取消推回来，按 panelId 路由
-	let bridge: PanelBridge | null = null;
-	connectInputChannel({
+	const inputChannel = connectInputChannel({
 		bridgeUrl,
 		token,
 		sessionId,
 		onEvent: (event) => bridge?.handleInput(event),
-	}).start();
+	});
 
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "rpc") return;
@@ -80,7 +46,14 @@ export default function (pi: ExtensionAPI): void {
 		// trueColor / hyperlinks 对应前端 AnsiText 的 truecolor 与 OSC 8 链接解析。
 		// 只在 rpc（图形界面）模式覆盖，别动真实终端下的自动探测结果。
 		setCapabilities({ images: null, trueColor: true, hyperlinks: true });
-		bridge ??= createPanelBridge({
+		// 两个流都跟着会话起停：session_shutdown（quit/new/fork/resume/reload）是扩展唯一
+		// 的收尾时机，不停掉就会留下空转的重连定时器（start 可重入，不会建第二条连接）。
+		frameStream.start();
+		inputChannel.start();
+		// 每个会话一个 bridge：disposeAll 不可逆（teardown 后它只会静默 resolve(undefined)），
+		// 所以换会话/reload 后必须换新的。patchUiForTuiHost 按 bridge 实例判定幂等，
+		// 因此能重新接管 pi reload 时复用的同一个 uiContext 对象（旧的已废 bridge 换掉）。
+		bridge = createPanelBridge({
 			sink,
 			theme: ctx.ui.theme,
 			// pi-tui 的 getKeybindings() 拿的是 pi 启动时 setKeybindings() 注入的实例
@@ -91,10 +64,12 @@ export default function (pi: ExtensionAPI): void {
 		patchUiForTuiHost(ui, bridge);
 	});
 
-	// 会话 teardown：结算所有排队/在开的面板并在 kernel 侧收尾（规格 §4.8）。
+	// 会话 teardown：结算所有排队/在开的面板，并停掉帧流/订阅流（规格 §4.8）。
 	// 不结算就会留下挂起的 await custom()——历史上正是这类挂死让命令一直「思考中」。
 	pi.on("session_shutdown", () => {
 		bridge?.disposeAll();
 		bridge = null;
+		frameStream.stop();
+		inputChannel.stop();
 	});
 }

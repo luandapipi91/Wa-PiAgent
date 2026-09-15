@@ -29,14 +29,16 @@ export interface FrameSink {
 
 /**
  * 帧出口：扩展与 kernel 的帧流未就绪时先把帧排队，就绪后按序 flush。
- * 队列有上限，溢出丢最旧的帧——面板画面永远以最新一帧为准，
- * 丢旧帧比卡内存或迟延渲染合理。
+ * 队列有上限，溢出时**优先丢画面帧**（`frame`）而留住 `open`/`close` 控制帧：
+ * 丢 close 会让前端留下永不消失的幽灵面板，丢 open 会让后续帧指向未知面板；
+ * 队列里全是控制帧时才退化为丢最旧（保最新发生的 open/close）。
+ * 画面帧永远以最新一帧为准，丢旧画面比卡内存或迟延渲染合理。
  *
  * detach 在连接断开后调用：回到排队态，否则后续帧会写向已关掉的连接而被静默丢掉。
  */
 export function createFrameSink(opts: { maxQueue?: number } = {}): FrameSink {
 	const maxQueue = opts.maxQueue ?? 200;
-	const queue: string[] = [];
+	const queue: Array<{ line: string; control: boolean }> = [];
 	let writer: ((line: string) => void) | null = null;
 	return {
 		push: (frame) => {
@@ -45,13 +47,16 @@ export function createFrameSink(opts: { maxQueue?: number } = {}): FrameSink {
 				writer(line);
 				return;
 			}
-			queue.push(line);
-			if (queue.length > maxQueue) queue.splice(0, queue.length - maxQueue);
+			queue.push({ line, control: frame.type !== "frame" });
+			while (queue.length > maxQueue) {
+				const frameIdx = queue.findIndex((entry) => !entry.control);
+				queue.splice(frameIdx === -1 ? 0 : frameIdx, 1);
+			}
 		},
 		attach: (write) => {
 			writer = write;
 			const pending = queue.splice(0, queue.length);
-			for (const line of pending) write(line);
+			for (const entry of pending) write(entry.line);
 		},
 		detach: () => {
 			writer = null;
@@ -62,6 +67,8 @@ export function createFrameSink(opts: { maxQueue?: number } = {}): FrameSink {
 export interface TuiHostPatchBridge {
 	openCustom: (factory: unknown, options: unknown, ctx: unknown) => Promise<unknown>;
 	openWidget: (key: string, factory: unknown, options: unknown, ctx: unknown) => void;
+	/** 插件清除组件（setWidget(key, undefined)）或改成纯文本：关闭该 key 的 widget 通道 */
+	closeWidget: (key: string) => void;
 	setInputListeners: (listeners: Set<(data: string) => void>) => void;
 }
 
@@ -106,6 +113,16 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 	// （onTerminalInput 随时可能被调用），拷贝会让后注册的监听器永远收不到输入。
 	let inputListeners = new Set<(data: string) => void>();
 
+	/** 停采样、释放组件并从表里摘掉该 key（不发帧；发不发 close 由调用方决定） */
+	const releaseWidget = (key: string): boolean => {
+		const existing = widgets.get(key);
+		if (!existing) return false;
+		clearInterval(existing.timer);
+		existing.host.dispose();
+		widgets.delete(key);
+		return true;
+	};
+
 	const next = () => {
 		if (disposed) return;
 		const start = waiting.shift();
@@ -135,6 +152,8 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 			title: PANEL_TITLE,
 			cols: PANEL_COLS,
 			rows: PANEL_ROWS,
+			// 队列深度只在 open 时写一次：入队者变多不会重发 open（前端徽标看不到 >1 的排队数，
+			// 要实时反映需要 kernel 支持重发 open，见任务 9 审查的「待记账」项）
 			pending: waiting.length + 1,
 		});
 
@@ -178,6 +197,9 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 	};
 
 	return {
+		// options 只用于 widget 的 placement：`options.overlay === true`（覆盖式浮窗，规格 §4.3）
+		// 按控制者裁定**有意降级**为普通整屏面板——图形界面下 overlay 与普通浮窗呈现无差别，
+		// 因此不再做浮层语义（panel.ts 已预留 showOverlay 钩子，真要接时在那边改）。
 		openCustom: (factory, _options, _ctx) =>
 			new Promise<unknown>((resolve) => {
 				const start = () => startPanel(factory, resolve);
@@ -186,12 +208,8 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 			}),
 
 		openWidget: (key, factory, options, _ctx) => {
-			const existing = widgets.get(key);
-			if (existing) {
-				clearInterval(existing.timer);
-				existing.host.dispose();
-				widgets.delete(key);
-			}
+			// 替换：旧的宿主与采样定时器先释放（规格 §4.4 的「组件被替换时 dispose」）
+			releaseWidget(key);
 			const host = createWidgetHost({ cols: WIDGET_COLS, factory: factory as never, theme: opts.theme as Theme });
 			const panelId = `w:${key}`;
 			// placement 沿 pi 的 widget 语义（规格 §4.4）：前端 dock 据此决定摆在输入框上方还是下方
@@ -208,11 +226,29 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 				...(placement ? { placement } : {}),
 			});
 			host.start();
+			// 首次采样当作「工厂是否产出」的校验：widget.ts 的首帧没有去重基线，
+			// 组件有效必得帧；工厂抛错或返回 undefined（pi 的签名允许）时会在同一次
+			// 调用里补一帧 close，否则前端会挂着一个永不更新的空面板（幽灵面板）。
+			// 顺便让首帧与 custom 路径一致地立刻上屏，不必等第一个 80ms 采样点。
+			const first = host.sample();
+			if (!first) {
+				host.dispose();
+				sink.push({ type: "close", panelId, kind: "widget", widgetKey: key, reason: "empty" });
+				return;
+			}
+			sink.push({ type: "frame", panelId, kind: "widget", widgetKey: key, lines: first.lines });
 			const timer = setInterval(() => {
 				const frame = host.sample();
 				if (frame) sink.push({ type: "frame", panelId, kind: "widget", widgetKey: key, lines: frame.lines });
 			}, WIDGET_SAMPLE_MS);
 			widgets.set(key, { host, timer });
+		},
+
+		closeWidget: (key) => {
+			// 清除（setWidget(key, undefined)）或内容从组件换成纯文本：前端那块 widget 必须跟着消失
+			if (releaseWidget(key)) {
+				sink.push({ type: "close", panelId: `w:${key}`, kind: "widget", widgetKey: key, reason: "removed" });
+			}
 		},
 
 		setInputListeners: (listeners) => {
@@ -221,6 +257,8 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 
 		handleInput: (event) => {
 			const panelId = event.panelId;
+			// 缺 panelId / 未知 type 一律静默丢弃（无日志）：协议不匹配时不拿日志刷屏，
+			// 排查靠任务 6/11 的接口与 E2E 测试（记账项，见任务 9 审查的次要 6）
 			if (!panelId) return;
 			if (event.type === "cancel") {
 				if (active?.panelId === panelId) active.host.cancel();
@@ -247,11 +285,7 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 		disposeAll: () => {
 			disposed = true;
 			for (const start of waiting.splice(0, waiting.length)) start();
-			for (const widget of widgets.values()) {
-				clearInterval(widget.timer);
-				widget.host.dispose();
-			}
-			widgets.clear();
+			for (const key of [...widgets.keys()]) releaseWidget(key);
 			active?.host.dispose();
 			active = null;
 		},
@@ -261,15 +295,25 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 /**
  * 接管 ui 上下文的三个成员（规格 §4.3/4.4/4.6）。
  *
- * 幂等：已打过标记的 ui 直接返回，避免多个 session_start 反复包裹。
- * 标记 `__waPiTuiHost` 同时供 wa-pi-bridge 的 notify+throw 兜底让位。
+ * 幂等按**bridge 实例**判定（`__waPiTuiHostBridge`）：同一个 bridge 重复 patch 直接返回，
+ * 避免多次 session_start 反复包裹；换了 bridge 就必须重新 patch。
+ * 这一点不能只看 ui 上的布尔标记：pi 的 reload 会先发 session_shutdown（扩展据此把
+ * bridge 完全丢弃）再用**同一个 uiContext 对象**发 session_start，若只认布尔标记，
+ * 新 bridge 会被挡下，ui.custom 仍指向已废弃的旧 bridge（它只会静默 resolve(undefined)），
+ * 同时 `__waPiTuiHost` 又让 wa-pi-bridge 的 notify+throw 兜底继续让位——两条路一起失效。
+ * 布尔标记 `__waPiTuiHost` 保留：它同时供 wa-pi-bridge 的兜底让位使用。
  */
 export function patchUiForTuiHost(ui: Record<string, unknown>, bridge: TuiHostPatchBridge): void {
-	if (ui.__waPiTuiHost === true) return;
+	if (ui.__waPiTuiHostBridge === bridge) return;
 	ui.__waPiTuiHost = true;
+	ui.__waPiTuiHostBridge = bridge;
 
 	const originalSetWidget = ui.setWidget as ((key: string, content: unknown, options?: unknown) => void) | undefined;
-	const listeners = new Set<(data: string) => void>();
+	// 监听器集合跟着 ui 对象走，重新 patch 时沿用同一个集合：否则 reload 前插件注册的
+	// onTerminalInput 回调会变成孤儿（pi 自己复用的 uiContext 里这个集合也是跨 session 存续的）。
+	const existingListeners = ui.__waPiTuiHostListeners as Set<(data: string) => void> | undefined;
+	const listeners = existingListeners ?? new Set<(data: string) => void>();
+	ui.__waPiTuiHostListeners = listeners;
 	bridge.setInputListeners(listeners);
 
 	ui.custom = (factory: unknown, options: unknown, ctx: unknown) => bridge.openCustom(factory, options, ctx);
@@ -279,6 +323,10 @@ export function patchUiForTuiHost(ui: Record<string, unknown>, bridge: TuiHostPa
 			bridge.openWidget(key, content, options, undefined);
 			return;
 		}
+		// 非组件内容就是 pi 的「清除/纯文本」语义：先让旧 widget 通道收尾，再透传原实现。
+		// 清除（undefined）时如果不通知 widget 通道，宿主与采样定时器会继续存活，
+		// 前端那块面板就永远不会消失（幽灵面板）。
+		bridge.closeWidget(key);
 		originalSetWidget?.(key, content, options);
 	};
 
@@ -299,16 +347,24 @@ export interface TuiHostInputEvent {
 	rows?: number;
 }
 
-export interface InputChannelOptions {
+/** 帧流/输入订阅流共用的连接与重试选项 */
+export interface BridgeStreamOptions {
 	/** kernel 的 bridge 基址（WA_PI_BRIDGE_URL） */
 	bridgeUrl: string;
 	token: string;
 	sessionId: string;
-	onEvent: (event: TuiHostInputEvent) => void;
-	/** 断流后的重连间隔（规格 §8：帧流/订阅流断开要能恢复） */
+	/** 正常断流后的重连间隔（规格 §8：帧流/订阅流断开要能恢复） */
 	retryMs?: number;
+	/** 连续失败时的重连间隔上限（指数退避封顶） */
+	maxRetryMs?: number;
 	/** 便于单测注入 */
 	fetchImpl?: typeof fetch;
+	/** 连续失败的日志出口（默认 console.warn），便于单测断言 */
+	log?: (message: string) => void;
+}
+
+export interface InputChannelOptions extends BridgeStreamOptions {
+	onEvent: (event: TuiHostInputEvent) => void;
 }
 
 export interface InputChannel {
@@ -316,7 +372,165 @@ export interface InputChannel {
 	stop(): void;
 }
 
+export interface FrameStreamOptions extends BridgeStreamOptions {
+	sink: FrameSink;
+}
+
+export interface FrameStream {
+	/** 开始（或重启）帧流；重入/重复调用不会建立第二条连接 */
+	start(): void;
+	/** 停止：停掉重连定时器并优雅结束当前连接（已入队的帧仍会送出） */
+	stop(): void;
+}
+
 const DEFAULT_RETRY_MS = 1000;
+/** 连续失败的重连间隔上限：token 失效（401）等场景不至于无限 1s 轮询 */
+const DEFAULT_MAX_RETRY_MS = 5000;
+
+/** 指数退避：第 failures 次连续失败后的等待时长（base × 2^(failures-1)，封顶 maxMs） */
+export function backoffDelay(failures: number, baseMs: number, maxMs: number): number {
+	const n = Math.max(1, Math.floor(failures));
+	return Math.min(baseMs * 2 ** (n - 1), maxMs);
+}
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** 一次连接尝试：run 返回 null = 正常结束，返回字符串 = 失败原因 */
+interface RetryAttempt {
+	run(): Promise<string | null>;
+	/** stop() 时的即时收尾（无论连接是否已建立） */
+	stop?(): void;
+	/** 本次尝试结束后的清理（无论成功失败） */
+	cleanup?(): void;
+}
+
+/**
+ * 「连接 → 断开 → 重连」骨架，帧流与输入订阅流共用：
+ * - 正常结束（kernel 重启、会话结束）按基准间隔重连，不累计失败；
+ * - 失败（网络错、非 2xx）按指数退避重连并打一行日志，避免认证失效场景刷屏；
+ * - stop() 停掉定时器并断开当前连接，之后不再重连（不泄定时器）。
+ */
+function createRetryLoop(opts: {
+	label: string;
+	sessionId: string;
+	retryMs?: number;
+	maxRetryMs?: number;
+	log?: (message: string) => void;
+	connect: () => RetryAttempt;
+}): { start(): void; stop(): void } {
+	const retryMs = opts.retryMs ?? DEFAULT_RETRY_MS;
+	const maxRetryMs = opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS;
+	const log = opts.log ?? ((message: string) => console.warn(message));
+	let stopped = false;
+	let running = false;
+	let failures = 0;
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let current: RetryAttempt | null = null;
+
+	const run = async (): Promise<void> => {
+		if (stopped || running) return;
+		running = true;
+		const attempt = opts.connect();
+		current = attempt;
+		let failure: string | null = null;
+		try {
+			failure = await attempt.run();
+		} catch (err) {
+			failure = errorText(err);
+		} finally {
+			current = null;
+			running = false;
+			attempt.cleanup?.();
+		}
+		if (stopped) return;
+		let delay: number;
+		if (failure === null) {
+			failures = 0;
+			delay = retryMs;
+		} else {
+			failures += 1;
+			delay = backoffDelay(failures, retryMs, maxRetryMs);
+			// 退避封顶后日志最多每 maxRetryMs 一行，认证失败等场景不会形成刷屏
+			log(
+				`[wa-pi-tui-host] ${opts.label}（第 ${failures} 次，session=${opts.sessionId}）：${failure}，${delay}ms 后重连`,
+			);
+		}
+		timer = setTimeout(() => void run(), delay);
+	};
+
+	return {
+		start: () => {
+			stopped = false;
+			void run();
+		},
+		stop: () => {
+			stopped = true;
+			if (timer) clearTimeout(timer);
+			timer = null;
+			current?.stop?.();
+		},
+	};
+}
+
+/**
+ * 帧流（规格 §5.1）：长连接把 NDJSON 帧写给 kernel，首行是 {token,sessionId} 鉴权，
+ * 之后每行一帧；响应要等本连接结束才回来，所以只 await 连接本身。
+ *
+ * 断线期间的帧留在 sink 队列里（规格 §8），重连后 attach 会按序补发。
+ */
+export function createFrameStream(opts: FrameStreamOptions): FrameStream {
+	const fetchImpl = opts.fetchImpl ?? fetch;
+	const encoder = new TextEncoder();
+	return createRetryLoop({
+		label: "帧流连接失败",
+		sessionId: opts.sessionId,
+		retryMs: opts.retryMs,
+		maxRetryMs: opts.maxRetryMs,
+		log: opts.log,
+		connect: () => {
+			let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+			const body = new ReadableStream<Uint8Array>({
+				start(c) {
+					controller = c;
+					// 首行鉴权：kernel 读到 token/sessionId 后才把后续行当帧处理
+					c.enqueue(encoder.encode(`${JSON.stringify({ token: opts.token, sessionId: opts.sessionId })}\n`));
+				},
+			});
+			opts.sink.attach((line) => {
+				try {
+					controller?.enqueue(encoder.encode(`${line}\n`));
+				} catch {
+					// 连接已关：本帧丢弃，重连后 attach 会补发随后入队的帧
+				}
+			});
+			return {
+				// 优雅收尾：关掉请求体的写入端，已入队的帧（如 teardown 的 close）随流送达 kernel；
+				// 直接 abort 会把这些帧连同连接一起丢掉，前端会留下幽灵面板。
+				stop: () => {
+					try {
+						controller?.close();
+					} catch {
+						/* 已关闭 */
+					}
+				},
+				cleanup: () => opts.sink.detach(),
+				run: async () => {
+					const res = await fetchImpl(`${opts.bridgeUrl}/bridge/tui-host/frames`, {
+						method: "POST",
+						// 流式请求体（Bun 1.4.2 实测可用）；duplex 是流式 body 的规范要求，DOM 类型里尚未收录
+						duplex: "half",
+						headers: { "content-type": "application/x-ndjson" },
+						body,
+					} as RequestInit);
+					if (res.ok) return null;
+					// 非 2xx（如 token 失效 401）要读掉响应体释放连接
+					await res.text().catch(() => "");
+					return `HTTP ${res.status}`;
+				},
+			};
+		},
+	});
+}
 
 /**
  * 订阅 kernel 的输入流（规格 §5.2）：POST /bridge/tui-host/subscribe 的 NDJSON
@@ -327,57 +541,62 @@ const DEFAULT_RETRY_MS = 1000;
  */
 export function connectInputChannel(opts: InputChannelOptions): InputChannel {
 	const fetchImpl = opts.fetchImpl ?? fetch;
-	const retryMs = opts.retryMs ?? DEFAULT_RETRY_MS;
-	const abort = new AbortController();
-	let stopped = false;
-	let timer: ReturnType<typeof setTimeout> | null = null;
-
-	const run = async (): Promise<void> => {
-		if (stopped) return;
-		try {
-			const res = await fetchImpl(`${opts.bridgeUrl}/bridge/tui-host/subscribe`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ token: opts.token, sessionId: opts.sessionId }),
-				signal: abort.signal,
-			});
-			if (!res.ok || !res.body) throw new Error(`subscribe ${res.status}`);
-			const reader = res.body.getReader();
-			const decoder = new TextDecoder();
-			let rest = "";
-			for (;;) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				const chunk = splitNdjson(rest, decoder.decode(value, { stream: true }));
-				rest = chunk.rest;
-				for (const line of chunk.lines) {
-					let event: TuiHostInputEvent;
+	return createRetryLoop({
+		label: "输入订阅连接失败",
+		sessionId: opts.sessionId,
+		retryMs: opts.retryMs,
+		maxRetryMs: opts.maxRetryMs,
+		log: opts.log,
+		connect: () => {
+			const abort = new AbortController();
+			return {
+				stop: () => abort.abort(),
+				run: async (): Promise<string | null> => {
+					let res: Response;
 					try {
-						event = JSON.parse(line) as TuiHostInputEvent;
-					} catch {
-						continue; // 脏行：跳过，保持订阅流
+						res = await fetchImpl(`${opts.bridgeUrl}/bridge/tui-host/subscribe`, {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ token: opts.token, sessionId: opts.sessionId }),
+							signal: abort.signal,
+						});
+					} catch (err) {
+						return errorText(err);
 					}
+					if (!res.ok) {
+						await res.text().catch(() => "");
+						return `HTTP ${res.status}`;
+					}
+					if (!res.body) return "响应没有流式 body";
+					const reader = res.body.getReader();
+					const decoder = new TextDecoder();
+					let rest = "";
 					try {
-						opts.onEvent(event);
-					} catch {
-						// 单个事件的宿主/插件异常不打断读流
+						for (;;) {
+							const { done, value } = await reader.read();
+							if (done) break;
+							const chunk = splitNdjson(rest, decoder.decode(value, { stream: true }));
+							rest = chunk.rest;
+							for (const line of chunk.lines) {
+								let event: TuiHostInputEvent;
+								try {
+									event = JSON.parse(line) as TuiHostInputEvent;
+								} catch {
+									continue; // 脏行：跳过，保持订阅流
+								}
+								try {
+									opts.onEvent(event);
+								} catch {
+									// 单个事件的宿主/插件异常不打断读流
+								}
+							}
+						}
+					} catch (err) {
+						return `读取流失败：${errorText(err)}`;
 					}
-				}
-			}
-		} catch {
-			// 连接或读取失败：下面统一重连
-		}
-		if (stopped) return;
-		timer = setTimeout(() => void run(), retryMs);
-	};
-
-	return {
-		start: () => void run(),
-		stop: () => {
-			stopped = true;
-			if (timer) clearTimeout(timer);
-			timer = null;
-			abort.abort();
+					return null; // 流正常结束
+				},
+			};
 		},
-	};
+	});
 }
