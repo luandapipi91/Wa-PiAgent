@@ -2778,6 +2778,15 @@ export class WSServer {
 				reply({ type: "extension:tui:input", ok: true });
 				break;
 			}
+			case "extension:tui:snapshot": {
+				// 面板快照（补发，规格 §5.4）：registry 里的元数据 + 最新帧。
+				// 未注册会话 / 无面板在快照里同样是「无」，统一回空数组。
+				reply({
+					type: "extension:tui:snapshot",
+					panels: tuiHostRegistry.snapshot(event.sessionId)?.panels ?? [],
+				});
+				break;
+			}
 			// ===== 记忆管理 =====
 			case "memory:list": {
 				try {

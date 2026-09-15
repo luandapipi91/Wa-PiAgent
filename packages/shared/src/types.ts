@@ -44,6 +44,8 @@ import type {
 	ExtensionDialogRespondResult,
 	ExtensionTuiInputEvent,
 	ExtensionTuiInputResult,
+	ExtensionTuiSnapshotEvent,
+	ExtensionTuiSnapshotResult,
 } from "./extensions";
 import type {
 	MemoryListEvent,
@@ -774,6 +776,7 @@ export type WSClientEvent =
 	| ExtensionCommandToggleEvent
 	| ExtensionDialogRespondEvent
 	| ExtensionTuiInputEvent
+	| ExtensionTuiSnapshotEvent
 	| MemoryListEvent
 	| MemoryUpdateEvent
 	| MemoryArchiveEvent
@@ -1351,6 +1354,32 @@ export type SDKEvent =
 			widgetPlacement?: "aboveEditor" | "belowEditor";
 	  }
 	| {
+			// 扩展 TUI 面板（ctx.ui.custom 兼容，规格 §5.4）：面板打开或元数据变化。
+			// kind 固定为 custom——widget 的帧走上面的 extension_widget 通道（规格 §6.4），
+			// 不在此协议上；字段保留 kind 以与 registry 元数据同形。
+			type: "extension_tui_open";
+			panelId: string;
+			kind: "custom" | "widget";
+			title: string;
+			cols: number;
+			rows: number;
+			/** 同会话排队中的面板数（含当前） */
+			pending: number;
+	  }
+	| {
+			// 面板整帧（行内可含 ANSI）；cursor 为方块光标所在格（无光标为 null）
+			type: "extension_tui_frame";
+			panelId: string;
+			lines: string[];
+			cursor?: { row: number; col: number } | null;
+	  }
+	| {
+			// 面板关闭：done=正常结束 / cancel=用户取消 / dispose=会话销毁
+			type: "extension_tui_close";
+			panelId: string;
+			reason: "done" | "cancel" | "dispose";
+	  }
+	| {
 			// ctx.ui.setTitle（fire-and-forget）：GUI 下展示为聊天窗顶部状态条
 			// （产品决策：不写 document.title，避免公共标题被扩展覆盖）。
 			type: "extension_title";
@@ -1415,6 +1444,7 @@ export type WSServerEvent =
 	| ExtensionCommandsChangedEvent
 	| ExtensionDialogRespondResult
 	| ExtensionTuiInputResult
+	| ExtensionTuiSnapshotResult
 	| MemoryListResult
 	| MemoryChangedEvent
 	| McpListResult

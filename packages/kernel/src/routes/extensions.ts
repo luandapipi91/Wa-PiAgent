@@ -86,4 +86,14 @@ export const registerExtensionRoutes: RouteRegistrar = (
       rows: b.rows,
     });
   });
+
+  // 扩展 TUI 面板快照（补发，规格 §5.4）：会话切换/前端重连时前端主动拉取。
+  // 无面板/无该会话状态返回空 panels（不是 404：“没有面板”是合法态）。
+  r.add("GET", "/api/extensions/tui-snapshot", async (req) => {
+    const sessionId = new URL(req.url).searchParams.get("sessionId");
+    if (!sessionId) {
+      return paramErrorResponse("参数缺失", "sessionId");
+    }
+    return callApi({ type: "extension:tui:snapshot", sessionId });
+  });
 };
