@@ -13,6 +13,7 @@
 import {
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 	type ClipboardEvent as ReactClipboardEvent,
@@ -32,13 +33,17 @@ const EXPANDED_SIZE = { width: 680, height: 380 };
 /** 缩放下限（px）：再小就看不到帧内容 */
 const MIN_SIZE = { width: 320, height: 200 };
 /**
- * 面板内一格（终端单元格）的宽高（px）：等宽字体 12px / 19.4px 行高下的定值。
- * 鼠标列行换算、尺寸上报、widget 宽度上报共用这一份——渲染字体（font-mono）、
- * 行高（style.height = CELL.height）与换算必须同源，否则坐标与光标会整体偏移。
+ * 面板内一格（终端单元格）的**兜底**宽高（px）：等宽字体 12px / 19.4px 行高下的定值。
+ *
+ * 格宽的真实值由挂载时用隐藏探针 span 实测（`measureCellWidth`）——字体/字号/窗口缩放一变，
+ * 硬编码就会与实际前进宽失配，鼠标列换算与光标方块会整体偏移。行高不是字体度量，由本常量锁定
+ * （每行 style.height），所以只实测宽。实测失败（无布局的宿主、字体未就绪）才回退到此值。
  */
 export const CELL = { width: 7.2, height: 19.4 };
 /** 帧文本区左右内边距（px），列换算前要先减去它 */
 const BODY_PAD_X = 12;
+/** 量宽探针的字符数：越多越能摊薄单字符的亚像素取整误差 */
+const METRIC_PROBE_CHARS = 20;
 /** 挂件预览最多显示的行数 */
 const BADGE_PREVIEW_LINES = 5;
 /** 拖动与点击的位移阈值（px，与 FloatBubble 同口径） */
@@ -54,13 +59,13 @@ interface PanelRect {
 }
 
 /** 像素宽度 → 终端列数（非有限值返回 0，由调用方决定是否上报） */
-export function colsFromWidth(px: number): number {
-	return Number.isFinite(px) ? Math.max(0, Math.floor(px / CELL.width)) : 0;
+export function colsFromWidth(px: number, cellWidth = CELL.width): number {
+	return Number.isFinite(px) ? Math.max(0, Math.floor(px / cellWidth)) : 0;
 }
 
 /** 像素高度 → 终端行数（非有限值返回 0） */
-export function rowsFromHeight(px: number): number {
-	return Number.isFinite(px) ? Math.max(0, Math.floor(px / CELL.height)) : 0;
+export function rowsFromHeight(px: number, cellHeight = CELL.height): number {
+	return Number.isFinite(px) ? Math.max(0, Math.floor(px / cellHeight)) : 0;
 }
 
 /**
@@ -75,8 +80,9 @@ export function reportTuiSize(
 	panelId: string,
 	textWidth: number,
 	textHeight: number,
+	cellWidth = CELL.width,
 ): void {
-	const cols = colsFromWidth(textWidth - BODY_PAD_X);
+	const cols = colsFromWidth(textWidth - BODY_PAD_X, cellWidth);
 	const rows = rowsFromHeight(textHeight);
 	if (cols < 1 || rows < 1) return;
 	void api
@@ -99,8 +105,9 @@ export function reportWidgetCols(
 	sessionId: string,
 	widgetKey: string,
 	width: number,
+	cellWidth = CELL.width,
 ): void {
-	const cols = colsFromWidth(width);
+	const cols = colsFromWidth(width, cellWidth);
 	if (cols < 1) return;
 	void api
 		.post("/api/extensions/tui-input", {
@@ -234,6 +241,20 @@ function axisIndex(offset: number, cell: number): number {
 	return Math.max(1, Math.floor(offset / cell) + 1);
 }
 
+/**
+ * 实测一格宽度（px）：面板内那个隐藏等宽探针 span 的实宽 ÷ 探针字符数。
+ *
+ * 返回 null 时调用方回退到 `CELL.width`：无布局的宿主（组件测试的 happy-dom）量到 0，
+ * `font-display: swap` 的字体尚未就绪时也可能偏小——宁可退到常量，也不能拿 0/NaN 换算列行。
+ */
+function measureCellWidth(probe: HTMLElement | null): number | null {
+	if (!probe) return null;
+	const chars = probe.textContent?.length ?? 0;
+	if (chars < 1) return null;
+	const cell = probe.getBoundingClientRect().width / chars;
+	return Number.isFinite(cell) && cell > 1 ? cell : null;
+}
+
 export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	const { t } = useTranslation();
 	const panel = useTuiPanelStore((s) =>
@@ -241,6 +262,13 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	);
 	const boxRef = useRef<HTMLDivElement | null>(null);
 	const bodyRef = useRef<HTMLDivElement | null>(null);
+	const probeRef = useRef<HTMLSpanElement | null>(null);
+	/**
+	 * 实测格宽：ref 供一切「像素 ↔ 列」换算同步读取（尺寸上报、鼠标命中、光标），
+	 * state 只用于触发重渲染（渲染期要用它画光标方块与全角格宽）。两者必须同时更新。
+	 */
+	const cellRef = useRef(CELL.width);
+	const [cellWidth, setCellWidth] = useState(CELL.width);
 	const [rect, setRect] = useState<PanelRect>(() => loadPanelRect());
 	// 拖动/缩放会话：mousedown 起、窗口级监听、mouseup 一次性提交（阈值 5px）
 	const dragRef = useRef<{
@@ -288,7 +316,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		const cur = useTuiPanelStore.getState().bySession[sessionId];
 		if (!cur) return;
 		const { width, height } = el.getBoundingClientRect();
-		reportTuiSize(sessionId, cur.panelId, width, height);
+		reportTuiSize(sessionId, cur.panelId, width, height, cellRef.current);
 	}, [sessionId]);
 
 	/**
@@ -341,6 +369,31 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		reportPanelSize();
 	}, [panel?.mode, panel?.panelId, sessionId, reportPanelSize]);
 
+	/**
+	 * 实测一格宽度（规格 §7.2 的「用等宽字体保证全角占两格」需要以真实度量为基准）。
+	 *
+	 * 用 layout effect：它在同一次提交里先于下面的尺寸上报 effect 跑，把 ref 换成实测值，
+	 * 上报就不会先发一版硬编码列数再补一版（重渲染只用于重画光标/全角格宽）。
+	 * 字体是本地 woff2 + `font-display: swap`：首帧可能还没换上，所以 `document.fonts.ready`
+	 * 后再量一次（量不到/量到同一个值就什么也不做）。
+	 */
+	useLayoutEffect(() => {
+		if (panel?.mode !== "expanded") return;
+		let stopped = false;
+		const measure = () => {
+			if (stopped) return;
+			const width = measureCellWidth(probeRef.current);
+			if (width === null || width === cellRef.current) return;
+			cellRef.current = width;
+			setCellWidth(width);
+		};
+		measure();
+		void document.fonts?.ready.then(measure).catch(() => {});
+		return () => {
+			stopped = true;
+		};
+	}, [panel?.mode, panel?.panelId]);
+
 	// 鼠标左键在面板外松开时复位按下态并补一个 up（否则回到面板会把上一次的 down 与
 	// 新一次的点按混成一次点击）
 	useEffect(() => {
@@ -356,7 +409,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				data: encodeMouse(
 					"up",
 					pressed.button,
-					axisIndex(e.clientX - box.left - BODY_PAD_X, CELL.width),
+					axisIndex(e.clientX - box.left - BODY_PAD_X, cellRef.current),
 					axisIndex(e.clientY - box.top, CELL.height),
 				),
 			});
@@ -433,7 +486,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	const cellAt = (el: HTMLElement, clientX: number, clientY: number) => {
 		const box = el.getBoundingClientRect();
 		return {
-			col: axisIndex(clientX - box.left - BODY_PAD_X, CELL.width),
+			col: axisIndex(clientX - box.left - BODY_PAD_X, cellRef.current),
 			row: axisIndex(clientY - box.top, CELL.height),
 		};
 	};
@@ -510,6 +563,19 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					background: "#101014",
 				}}
 			>
+				{/*
+				 * 量宽探针：与帧文本同字体同字号（font-mono 从容器继承 + 12px），
+				 * 绝对定位 + visibility: hidden（display:none 会没有布局，量不到宽度）。
+				 */}
+				<span
+					ref={probeRef}
+					data-testid="tui-panel-metric"
+					aria-hidden="true"
+					className="pointer-events-none absolute left-0 top-0 whitespace-pre text-[12px]"
+					style={{ visibility: "hidden" }}
+				>
+					{"M".repeat(METRIC_PROBE_CHARS)}
+				</span>
 				{/* 标题栏：拖动把手 + 标题 + 排队角标 + 「—」收起 + 「✕」取消 */}
 				<div
 					data-testid="tui-panel-header"
@@ -576,9 +642,9 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 							data-testid="tui-panel-cursor"
 							className="pointer-events-none absolute"
 							style={{
-								left: BODY_PAD_X + panel.cursor.col * CELL.width,
+								left: BODY_PAD_X + panel.cursor.col * cellWidth,
 								top: panel.cursor.row * CELL.height,
-								width: CELL.width,
+								width: cellWidth,
 								height: CELL.height,
 								background: "rgba(210,210,222,.75)",
 								mixBlendMode: "difference",
