@@ -1,6 +1,6 @@
 // kernel 单二进制编译：bun build --compile 把 desktop-server.ts 连同全部依赖
-// （含已 patch 的 pi-mcp-adapter）内联进原生可执行文件；--asset 把 bridge 三文件
-// 嵌入到产物 import.meta.dir/assets/（bridge-extension.ts 运行时读取）。
+// （含已 patch 的 pi-mcp-adapter）内联进原生可执行文件；--asset 把 bridge/tui-host 扩展等
+// 运行时资产嵌入到产物 import.meta.dir/assets/（bridge-extension.ts / tui-host-deploy.ts 运行时读取）。
 // 只有原生 .node 依赖（@napi-rs/keyring）external——无法内联进虚拟 FS。
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -12,6 +12,8 @@ const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
 /** kernel 运行时需嵌入编译产物的资产：--asset 嵌入源（编译产物 import.meta.dir/assets/ 运行时读取）。
  * - bridge 扩展三文件：bridge-extension.ts 从 assets/ 读取后部署到 GENERATED_DIR；
+ * - tui-host 扩展六文件：tui-host-deploy.ts 从 assets/ 读取后部署到 GENERATED_DIR
+ *   （入口 + 入口相对 import 的 tui-host/ 5 模块，缺一即面板静默不可用）；
  * - preview-inspect.js：ws-server.ts 的 /preview-inspect.js 路由经
  *   new URL("./assets/preview-inspect.js", import.meta.url) 读取，注入本地 html 预览提供元素选中。
  * 关键：bun --compile 不会自动打包 new URL(...) 引用的文件（Bun.file(new URL(...)) 会 ENOENT），
@@ -22,6 +24,12 @@ export const KERNEL_ASSET_FILES = [
 	join(KERNEL_SRC, "file-snapshot.ts"),
 	join(REPO_ROOT, "packages", "shared", "src", "tool-schemas.ts"),
 	join(KERNEL_SRC, "assets", "preview-inspect.js"),
+	join(KERNEL_SRC, "wa-pi-tui-host.extension.ts"),
+	join(KERNEL_SRC, "tui-host", "terminal.ts"),
+	join(KERNEL_SRC, "tui-host", "frame.ts"),
+	join(KERNEL_SRC, "tui-host", "panel.ts"),
+	join(KERNEL_SRC, "tui-host", "widget.ts"),
+	join(KERNEL_SRC, "tui-host", "host.ts"),
 ];
 
 /** 必须 external 的包：原生 .node 依赖无法内联进虚拟 FS，运行时从磁盘 node_modules 加载 */

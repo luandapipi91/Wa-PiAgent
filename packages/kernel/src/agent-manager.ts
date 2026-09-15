@@ -991,7 +991,7 @@ export class AgentManager {
 		//   运行时注册，wa-pi 不感知其工具名但默认全部放行）。
 		// - 显式配置 tools：白名单——config.tools ∪ MCP direct 工具名。
 		// 动态扩展走 pi 官方 packages 机制（settings.json packages + ~/.pi/agent/npm/），
-		// 不再经 -e；-e 只传内置（PKG_EXTENSIONS）+ provider-extension + wa-pi-bridge。
+		// 不再经 -e；-e 只传内置（PKG_EXTENSIONS）+ provider-extension + wa-pi-bridge + wa-pi-tui-host。
 		const extensionPaths = buildAdditionalExtensionPaths();
 
 		const restricted = !!config?.tools?.length;

@@ -174,7 +174,8 @@ export function mcpAdapterExtensionPath(): string | null {
  * 构造传给 pi 进程 -e 参数的扩展入口（仅内置 + wa-pi 自生成）。
  * 含 PKG_EXTENSIONS（pi-web-access/pi-mcp-adapter 等 wa-pi 内置依赖）、
  * provider-extension（providers.json → GENERATED_DIR）、
- * wa-pi-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）。
+ * wa-pi-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）、
+ * wa-pi-tui-host（图形界面下的 TUI 宿主，见 tui-host-deploy.ts）。
  *
  * 动态安装的第三方扩展不再走 -e：改由 pi 官方 packages 机制自动加载
  * （settings.json 的 packages 字段 + 包装在 ~/.pi/agent/npm/node_modules/）。
@@ -182,8 +183,13 @@ export function mcpAdapterExtensionPath(): string | null {
  */
 export function buildAdditionalExtensionPaths(): string[] {
  const paths = PKG_EXTENSIONS.map((name) => resolveExtensionEntryFile(name));
- // provider-extension / wa-pi-bridge 由 main()/ws-server 动态生成，首启或测试前可能尚未存在
- for (const generated of ["provider-extension.ts", "wa-pi-bridge.ts"]) {
+ // provider-extension / wa-pi-bridge / wa-pi-tui-host 由 main()/ws-server 动态生成，
+ // 首启或测试前可能尚未存在
+ for (const generated of [
+  "provider-extension.ts",
+  "wa-pi-bridge.ts",
+  "wa-pi-tui-host.ts",
+ ]) {
   const p = join(GENERATED_DIR, generated);
   if (existsSync(p)) paths.push(p);
  }
