@@ -10,6 +10,7 @@ import { McpStore } from "./mcp-store";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureBridgeExtension } from "./bridge-extension";
+import { deployTuiHostExtension } from "./tui-host-deploy";
 import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
@@ -150,6 +151,9 @@ export async function startKernel(opts?: {
 
 	// 启动时生成 bridge 扩展（幂等）：RPC 模式下 pi 子进程经它注册宿主工具并回调 /bridge/tool
 	await ensureBridgeExtension();
+
+	// 启动时部署宿主扩展（幂等）：RPC 模式下 pi 子进程经它接管 ctx.ui.custom，渲染图形面板
+	await deployTuiHostExtension();
 
 	// 迁移旧版 agent 数据（含 name 字段、文件名用内部 name）到 displayName 作 id（幂等）
 	const nameMapping = await configStore.migrateNameToDisplayName();

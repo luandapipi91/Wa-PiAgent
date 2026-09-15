@@ -209,6 +209,13 @@ const en = {
 		minimize: "Minimize to bubble",
 		restore: "Restore preview",
 	},
+	tuiPanel: {
+		collapse: "Collapse",
+		collapseDeeper: "Shrink to pill",
+		cancel: "Cancel this interaction",
+		expand: "Expand",
+		pending: "Waiting for your input",
+	},
 	blocks: {
 		turnSummary: {
 			withDuration: "This turn {{elapsed}} · {{steps}} steps",
