@@ -25,6 +25,10 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
   // wa-pi-bridge 同样按需追加（RPC 模式宿主工具桥，bridge-extension.ts 生成）
   const bridgeExt = join(GENERATED_DIR, "wa-pi-bridge.ts");
   expect(paths.includes(bridgeExt)).toBe(existsSync(bridgeExt));
+
+  // wa-pi-tui-host 同样按需追加（RPC 模式图形面板宿主，tui-host-deploy.ts 部署）
+  const tuiHostExt = join(GENERATED_DIR, "wa-pi-tui-host.ts");
+  expect(paths.includes(tuiHostExt)).toBe(existsSync(tuiHostExt));
 });
 
 test("内置扩展清单：不含已移除的 pi-open-agents / 不含 pi-intercom", async () => {
