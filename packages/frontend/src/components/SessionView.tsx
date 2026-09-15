@@ -30,7 +30,7 @@ import { Icon } from "./ui/Icon";
 import { isHtmlPath } from "../preview-url";
 import { GitToolbar } from "./git/GitToolbar";
 import { useTuiPanelStore } from "../store/tui-panel";
-import { reportWidgetCols } from "./TuiPanel";
+import { TuiPanel, reportWidgetCols } from "./TuiPanel";
 
 interface Props {
 	sessionId: string;
@@ -131,8 +131,8 @@ export const SessionView = memo(function SessionView({
 	const widgets = useSessionStore((s) => s.extWidgetBySession[sessionId]);
 	const widgetEntries = widgets ? Object.entries(widgets) : [];
 	// 扩展 TUI 面板展开态：键盘锁给面板，Composer 同步禁用（收起态恢复可用）
-	const tuiExpanded = useTuiPanelStore((s) =>
-		s.bySession[sessionId]?.mode === "expanded",
+	const tuiExpanded = useTuiPanelStore(
+		(s) => s.bySession[sessionId]?.mode === "expanded",
 	);
 	const [stopping, setStopping] = useState(false);
 	useEffect(() => {
@@ -584,6 +584,10 @@ export const SessionView = memo(function SessionView({
 						))}
 					</div>
 				)}
+				{/* 扩展 TUI 面板（ctx.ui.custom）三态浮窗：挂在聊天列容器内 ⇒ absolute
+				    定位天然相对聊天列（挂件才贴在聊天区域右上角，且拖不出本列、不盖右侧面板）。
+				    放容器末尾：它是 absolute，不参与本列的 flex 排版 */}
+				<TuiPanel sessionId={sessionId} />
 			</div>
 			{/* 右侧文件树面板：开关由 explorer store 控制；双击文件弹窗预览 */}
 			{explorerOpen && (

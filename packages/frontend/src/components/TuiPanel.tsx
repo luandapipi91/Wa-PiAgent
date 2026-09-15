@@ -24,11 +24,7 @@ import type { ExtensionTuiSnapshotResult } from "@wa-pi/shared";
 import { useTuiPanelStore } from "../store/tui-panel";
 import { useTranslation } from "../i18n/useTranslation";
 import { api } from "../api-client";
-import {
-	encodeKey,
-	encodeMouse,
-	encodePaste,
-} from "../lib/tui-keys";
+import { encodeKey, encodeMouse, encodePaste } from "../lib/tui-keys";
 import { AnsiText } from "./ui/AnsiText";
 
 /** 展开态默认尺寸（px），与规格 §7.1 一致 */
@@ -49,6 +45,8 @@ const BODY_PAD_X = 12;
 const METRIC_PROBE_CHARS = 20;
 /** 挂件预览最多显示的行数 */
 const BADGE_PREVIEW_LINES = 5;
+/** 挂件态卡片宽度（px）：位置只锚右缘，宽度固定 */
+const BADGE_WIDTH = 268;
 /** 拖动与点击的位移阈值（px，与 FloatBubble 同口径） */
 const DRAG_THRESHOLD = 5;
 /** 浮窗位置尺寸的持久化键（窗口级，不按会话区分：位置是用户对浮窗的偏好） */
@@ -59,6 +57,12 @@ interface PanelRect {
 	y: number;
 	w: number;
 	h: number;
+}
+
+/** 定位上下文（聊天列容器）的尺寸 */
+interface Size {
+	width: number;
+	height: number;
 }
 
 /** 像素宽度 → 终端列数（非有限值返回 0，由调用方决定是否上报） */
@@ -124,10 +128,35 @@ export function reportWidgetCols(
 		.catch(() => {});
 }
 
-/** 浮窗位置尺寸 clamp：不小于最小尺寸，整体留在视口内 */
-function clampPanelRect(r: PanelRect): PanelRect {
-	const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
-	const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
+/** 视口尺寸：无布局宿主（组件测试的 happy-dom）与容器量不到时的兜底基准 */
+function viewportSize(): Size {
+	return {
+		width: Number.isFinite(window.innerWidth) ? window.innerWidth : 0,
+		height: Number.isFinite(window.innerHeight) ? window.innerHeight : 0,
+	};
+}
+
+/**
+ * 读定位上下文的尺寸。面板是 absolute，坐标系是**最近的定位祖先**：聊天列容器
+ * （SessionView 里那个 relative 的 div），clamp 与默认位置都必须以它为基准。
+ * 历史缺陷（用户实测）：以 window 为基准，于是挂件贴到了**整个窗口**的右上角。
+ *
+ * 首选 offsetParent（浏览器里就是那个定位祖先）；无布局宿主（happy-dom 的 offsetParent
+ * 是 undefined）退回 parentElement。量不到正数宽高（尚未挂载、display:none）再退回视口，
+ * 保证无布局宿主仍可运行。
+ */
+function locateSize(el: HTMLElement | null): Size {
+	const box = (el?.offsetParent ?? el?.parentElement)?.getBoundingClientRect();
+	if (box && box.width > 0 && box.height > 0) {
+		return { width: box.width, height: box.height };
+	}
+	return viewportSize();
+}
+
+/** 浮窗位置尺寸 clamp：不小于最小尺寸，整体留在定位上下文内 */
+function clampPanelRect(r: PanelRect, size: Size): PanelRect {
+	const vw = Math.max(0, size.width);
+	const vh = Math.max(0, size.height);
 	const w = Math.max(
 		MIN_SIZE.width,
 		Math.min(Math.max(vw, MIN_SIZE.width), r.w),
@@ -141,21 +170,21 @@ function clampPanelRect(r: PanelRect): PanelRect {
 	return { w, h, x: cl(r.x, vw - w), y: cl(r.y, vh - h) };
 }
 
-/** 默认位置：主内容区右上角（与挂件态同锚点） */
-function defaultPanelRect(): PanelRect {
+/** 默认位置：定位上下文（聊天列）右上角 */
+function defaultPanelRect(size: Size): PanelRect {
 	const w = Math.min(
 		EXPANDED_SIZE.width,
-		Math.max(MIN_SIZE.width, window.innerWidth - 32),
+		Math.max(MIN_SIZE.width, size.width - 32),
 	);
 	const h = Math.min(
 		EXPANDED_SIZE.height,
-		Math.max(MIN_SIZE.height, window.innerHeight - 32),
+		Math.max(MIN_SIZE.height, size.height - 32),
 	);
-	return clampPanelRect({ x: window.innerWidth - w - 16, y: 16, w, h });
+	return clampPanelRect({ x: size.width - w - 16, y: 16, w, h }, size);
 }
 
-/** 读回上次的位置尺寸；无记录/形状非法用默认值 */
-function loadPanelRect(): PanelRect {
+/** 读回上次的位置尺寸；无记录/形状非法返回 null（调用方按当前尺寸算默认值） */
+function readSavedRect(): PanelRect | null {
 	try {
 		const v = JSON.parse(localStorage.getItem(LS_RECT) ?? "");
 		if (
@@ -164,12 +193,22 @@ function loadPanelRect(): PanelRect {
 				(n) => typeof n === "number" && Number.isFinite(n),
 			)
 		) {
-			return clampPanelRect(v);
+			return v;
 		}
 	} catch {
 		/* 解析失败用默认 */
 	}
-	return defaultPanelRect();
+	return null;
+}
+
+/** 位置尺寸：用户拖过的用持久化值，否则按给定尺寸算默认右上角 */
+function loadPanelRect(size: Size): PanelRect {
+	const saved = readSavedRect();
+	return saved ? clampPanelRect(saved, size) : defaultPanelRect(size);
+}
+
+function sameRect(a: PanelRect, b: PanelRect): boolean {
+	return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
 function savePanelRect(r: PanelRect): void {
@@ -283,16 +322,35 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	 */
 	const cellRef = useRef(CELL.width);
 	const [cellWidth, setCellWidth] = useState(CELL.width);
-	const [rect, setRect] = useState<PanelRect>(() => loadPanelRect());
+	// 首帧还没有 DOM 引用，只能按视口读回持久化值占位；挂载后由 useLayoutEffect
+	// 用真实容器尺寸重算（见下），所以这里传视口尺寸不影响最终结果。
+	const [rect, setRect] = useState<PanelRect>(() => loadPanelRect(viewportSize()));
+	/**
+	 * 定位上下文尺寸：渲染期要用它把挂件/胶囊的右缘锚到矩形的右缘
+	 * （right = 容器宽 − 矩形右缘），所以要有 state；ref 供拖动期同步读取。
+	 */
+	const [ctxSize, setCtxSize] = useState<Size>(viewportSize);
+	const ctxSizeRef = useRef<Size>(viewportSize());
 	// 拖动/缩放会话：mousedown 起、窗口级监听、mouseup 一次性提交（阈值 5px）
 	const dragRef = useRef<{
 		kind: "move" | "resize";
+		/**
+		 * 位置锚点：展开态写 left/top（尺寸可缩放，是矩形的原点）；
+		 * 挂件/胶囊写 right/top——它们宽度由内容决定，右缘锚在矩形的右缘
+		 * 才能贴住聊天列右上角（左缘锚会让小卡片飘在列中间）。
+		 */
+		anchor: "left" | "right";
 		startX: number;
 		startY: number;
 		base: PanelRect;
 		moved: boolean;
 		last?: PanelRect;
 	} | null>(null);
+	/**
+	 * 拖动结束的那次 mouseup，浏览器还会补一个 click：用它把「拖动」与「点击」分开
+	 * （挂件/胶囊的点击语义是展开，拖动过就不能再顺带展开）。
+	 */
+	const dragClickRef = useRef(false);
 	// 鼠标上报的左键按下态：决定松开时要不要补一个 up（点击语义）
 	const pressRef = useRef<{ button: number } | null>(null);
 
@@ -378,6 +436,24 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		};
 	}, [sessionId]);
 
+	/**
+	 * 挂载/切态后用**真实容器尺寸**重算位置：首帧没有 DOM 引用（useState 初值只能按
+	 * 视口占位，见上），这里才真正落到聊天列坐标系。用户拖过的位置尊重持久化值、只做边界
+	 * clamp；从未拖过的按容器尺寸重算默认右上角——否则「容器宽 − 面板宽 − 16」那 16px
+	 * 边距会被 clamp 吃掉（视口默认值比容器默认值靠右，只会被夹到贴边）。
+	 */
+	useLayoutEffect(() => {
+		if (!panel) return;
+		const size = locateSize(boxRef.current);
+		ctxSizeRef.current = size;
+		setCtxSize(size);
+		const saved = readSavedRect();
+		setRect((r) => {
+			const next = saved ? clampPanelRect(saved, size) : defaultPanelRect(size);
+			return sameRect(next, r) ? r : next;
+		});
+	}, [panel?.panelId, panel?.mode]);
+
 	// 展开态：接管键盘焦点 + 按文本区（不含标题栏）实际宽高上报终端列行
 	useEffect(() => {
 		if (panel?.mode !== "expanded" || !sessionId) return;
@@ -436,11 +512,19 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 
 	// === 浮窗拖动 / 缩放（与 FloatBubble 同套路：直接改 DOM，mouseup 提交一次）===
 
-	const applyRect = useCallback((r: PanelRect) => {
+	/**
+	 * 拖动期的直接 DOM 写入（每帧 setState 太重）。只写当前态也由 React 渲染的那几个
+	 * 属性，避免与 React 的 style diff 脱节（写完残留的键会让浮窗被左右两边同时撑住）。
+	 */
+	const applyDragRect = useCallback((r: PanelRect, anchor: "left" | "right") => {
 		const el = boxRef.current;
 		if (!el) return;
-		el.style.left = `${r.x}px`;
 		el.style.top = `${r.y}px`;
+		if (anchor === "right") {
+			el.style.right = `${ctxSizeRef.current.width - (r.x + r.w)}px`;
+			return;
+		}
+		el.style.left = `${r.x}px`;
 		el.style.width = `${r.w}px`;
 		el.style.height = `${r.h}px`;
 	}, []);
@@ -457,11 +541,12 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				d.kind === "move"
 					? { ...d.base, x: d.base.x + dx, y: d.base.y + dy }
 					: { ...d.base, w: d.base.w + dx, h: d.base.h + dy },
+				ctxSizeRef.current,
 			);
 			d.last = next;
-			applyRect(next);
+			applyDragRect(next, d.anchor);
 		},
-		[applyRect],
+		[applyDragRect],
 	);
 
 	const onWindowMouseUp = useCallback(() => {
@@ -472,6 +557,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		window.removeEventListener("mousemove", onWindowMouseMove);
 		window.removeEventListener("mouseup", onWindowMouseUp);
 		if (!d.moved || !d.last) return; // 未拖动 = 点击，交给按钮自身的 click
+		dragClickRef.current = true; // mouseup 之后补的那个 click 要吃掉
 		setRect(d.last);
 		savePanelRect(d.last);
 		// 尺寸变了要告诉终端重新排版（读 applyRect 后的文本区 rect）；只移动位置则不必
@@ -479,12 +565,18 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	}, [onWindowMouseMove, reportPanelSize]);
 
 	const beginDrag = useCallback(
-		(kind: "move" | "resize", e: ReactMouseEvent) => {
+		(
+			kind: "move" | "resize",
+			e: ReactMouseEvent,
+			anchor: "left" | "right",
+		) => {
 			e.preventDefault();
 			// preventDefault 也会吃掉默认聚焦：显式收回焦点，否则拖动后键盘锁静默失效
 			focusPanel();
+			dragClickRef.current = false; // 新一次按下作废上一次的「拖动过」
 			dragRef.current = {
 				kind,
+				anchor,
 				startX: e.clientX,
 				startY: e.clientY,
 				base: rect,
@@ -496,6 +588,13 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		},
 		[rect, focusPanel, onWindowMouseMove, onWindowMouseUp],
 	);
+
+	/** 返回 true = 这次点击是拖动后浏览器补的，调用方应忽略它（拖动 ≠ 点击） */
+	const isDragClick = useCallback(() => {
+		if (!dragClickRef.current) return false;
+		dragClickRef.current = false;
+		return true;
+	}, []);
 
 	// === 鼠标 / 键盘 / 粘贴上报 ===
 
@@ -566,7 +665,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				tabIndex={0}
 				onKeyDown={onKeyDown}
 				onPaste={onPaste}
-				className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] font-mono shadow-2xl outline-none"
+				className="absolute z-50 flex flex-col overflow-hidden rounded-[10px] font-mono shadow-2xl outline-none"
 				style={{
 					left: rect.x,
 					top: rect.y,
@@ -594,7 +693,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					onMouseDown={(e) => {
 						// 标题栏按钮的点击不当作拖动（否则拖动会吃掉按钮的 click）
 						if ((e.target as HTMLElement).closest("button")) return;
-						beginDrag("move", e);
+						beginDrag("move", e, "left");
 					}}
 					className="flex shrink-0 cursor-move items-center gap-2 px-2.5 py-1.5"
 					style={{ background: "#1a1a21" }}
@@ -671,7 +770,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				{/* 右下角缩放手柄（nwse-resize） */}
 				<div
 					data-testid="tui-panel-resize"
-					onMouseDown={(e) => beginDrag("resize", e)}
+					onMouseDown={(e) => beginDrag("resize", e, "left")}
 					className="absolute bottom-0 right-0 h-3.5 w-3.5"
 					style={{ cursor: "nwse-resize" }}
 				/>
@@ -683,11 +782,29 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	if (panel.mode === "badge") {
 		return (
 			<div
+				ref={boxRef}
 				data-testid="tui-panel-badge"
 				title={t("tuiPanel.expand")}
-				onClick={() => store.expand(sessionId)}
-				className="fixed z-50 cursor-pointer overflow-hidden rounded-[10px] shadow-xl"
-				style={{ right: 16, top: 16, width: 268, background: "#1a1a21" }}
+				onMouseDown={(e) => {
+					// 卡片里的按钮照旧可点；其余区域按下即开始拖动（阈值 5px）
+					if ((e.target as HTMLElement).closest("button")) return;
+					beginDrag("move", e, "right");
+				}}
+				onClick={() => {
+					// 拖动过的那次 click 要吃掉，否则一拖就展开
+					if (isDragClick()) return;
+					store.expand(sessionId);
+				}}
+				className="absolute z-50 cursor-pointer overflow-hidden rounded-[10px] shadow-xl"
+				style={{
+					/* 右缘锚在矩形的右缘：默认就是聊天列右上角（− 16px 边距）。
+					   max(0,…)：容器变窄（开文件树/预览）后矩形会瞬时越界，
+					   不夹一下挂件会被推到列外看不见（等下次拖动/切态才重新 clamp） */
+					right: Math.max(0, ctxSize.width - (rect.x + rect.w)),
+					top: Math.max(0, rect.y),
+					width: BADGE_WIDTH,
+					background: "#1a1a21",
+				}}
 			>
 				<div className="flex items-center gap-1.5 px-2 py-1.5">
 					<span
@@ -724,17 +841,26 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		);
 	}
 
-	// 胶囊态：最小挂件
+	// 胶囊态：最小挂件（同样可拖；位置与展开态共用一份矩形）
 	return (
 		<div
-			className="fixed z-50 flex h-8 items-center gap-2 rounded-pill pl-3 pr-2 shadow-lg"
-			style={{ right: 16, top: 16, background: "#1a1a21" }}
+			ref={boxRef}
+			onMouseDown={(e) => beginDrag("move", e, "right")}
+			className="absolute z-50 flex h-8 items-center gap-2 rounded-pill pl-3 pr-2 shadow-lg"
+			style={{
+				right: Math.max(0, ctxSize.width - (rect.x + rect.w)), // 同上：容器变窄时夹在列内
+				top: Math.max(0, rect.y),
+				background: "#1a1a21",
+			}}
 		>
 			<button
 				type="button"
 				data-testid="tui-panel-pill"
 				title={t("tuiPanel.expand")}
-				onClick={() => store.expand(sessionId)}
+				onClick={() => {
+					if (isDragClick()) return;
+					store.expand(sessionId);
+				}}
 				className="max-w-[220px] truncate border-0 bg-transparent font-mono text-[11.5px]"
 				style={{ color: "#d2d2de" }}
 			>
@@ -743,7 +869,11 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 			<button
 				type="button"
 				title={t("tuiPanel.cancel")}
-				onClick={() => post({ type: "cancel" })}
+				onClick={() => {
+					// 胶囊整块是拖动区（标题按钮占了大半），拖动过就别当真取消
+					if (isDragClick()) return;
+					post({ type: "cancel" });
+				}}
 				className="h-[18px] w-[18px] rounded-sm border-0 bg-transparent text-[12px] leading-none hover:bg-surface-hover"
 				style={{ color: "#8b8b9a" }}
 			>

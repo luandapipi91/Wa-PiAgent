@@ -123,9 +123,12 @@ function stubMetricProbe(cellWidth: number) {
 }
 
 /**
- * 面板布局桩：容器尺寸取展开浮窗的**实时内联样式**（拖动/缩放直接改它），
- * 文本区尺寸 = 容器尺寸 − 标题栏高度。
+ * 面板布局桩：面板尺寸取展开浮窗的**实时内联样式**（拖动/缩放直接改它），
+ * 文本区尺寸 = 面板尺寸 − 标题栏高度。
  * 必须区分容器与文本区——「按容器上报」正是要修的错（多算标题栏那 1 行）。
+ *
+ * 面板**之外**的元素一律零矩形：面板是 absolute，坐标基准变成它的定位上下文
+ * （聊天列容器），桩若把面板尺寸也塞给定位上下文，容器尺寸就被面板冒充了。
  */
 function stubPanelLayout(headerHeight: number) {
 	const original = HTMLElement.prototype.getBoundingClientRect;
@@ -135,8 +138,11 @@ function stubPanelLayout(headerHeight: number) {
 		const boxEl = document.querySelector<HTMLElement>(
 			'[data-testid="tui-panel-expanded"]',
 		);
-		const w = boxEl ? Number.parseFloat(boxEl.style.width) || 0 : 0;
-		const h = boxEl ? Number.parseFloat(boxEl.style.height) || 0 : 0;
+		if (!boxEl || (boxEl !== this && !boxEl.contains(this))) {
+			return domRect({ left: 0, top: 0, width: 0, height: 0 });
+		}
+		const w = Number.parseFloat(boxEl.style.width) || 0;
+		const h = Number.parseFloat(boxEl.style.height) || 0;
 		const isBody = this.getAttribute?.("data-testid") === "tui-panel-body";
 		return domRect(
 			isBody
@@ -151,6 +157,26 @@ function stubPanelLayout(headerHeight: number) {
 	};
 	restores.push(() => {
 		HTMLElement.prototype.getBoundingClientRect = original;
+	});
+}
+
+/**
+ * 聊天列容器桩：**可叠加**——面板是 absolute，坐标基准是最近的定位祖先（SessionView
+ * 里聊天列那个 relative 容器），而 stubRects 给所有元素同一矩形，区分不出容器与面板。
+ * 只对 `data-testid="chat-column"` 的元素返回容器尺寸，其余沿用已装的桩。
+ */
+function stubChatColumn(width: number, height: number) {
+	const previous = HTMLElement.prototype.getBoundingClientRect;
+	HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+		const probe = probeRect(this);
+		if (probe) return probe;
+		if (this.getAttribute?.("data-testid") === "chat-column") {
+			return domRect({ left: 0, top: 0, width, height });
+		}
+		return previous.call(this);
+	};
+	restores.push(() => {
+		HTMLElement.prototype.getBoundingClientRect = previous;
 	});
 }
 
@@ -176,7 +202,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	for (const restore of restores) restore();
+	// 必须**倒序**恢复：桩是可叠加的（后装的包装先装的），正序恢复会把先装的那个
+	// 再装回去——此后所有用例都读到残留的矩形（locateSize 读定位上下文时就会中招）。
+	for (const restore of restores.slice().reverse()) restore();
 	restores.length = 0;
 	cleanup();
 });
@@ -841,5 +869,180 @@ describe("TuiPanel 链接与挂件态的配合", () => {
 		fireEvent.click(screen.getByTitle("收起"));
 		fireEvent.click(screen.getByTestId("tui-panel-badge").querySelector("a")!);
 		expect(useTuiPanelStore.getState().bySession.s1!.mode).toBe("badge");
+	});
+});
+
+/**
+ * 用户实测缺陷（本组用例的由来）：
+ *   1. 挂件没对齐聊天区域右上角——三态都是 `fixed` + 挂在 App 根节点上，
+ *      坐标又以 window 为基准，于是贴的是**整个窗口**的右上角；
+ *   2. 挂件不能拖动——拖动只实现在展开态。
+ * 修法：面板挂进 SessionView 的聊天列容器（relative）内、三态改 absolute、
+ * 坐标基准换成该容器，并给挂件/胶囊补上「阈值 5px + 窗口级监听」的拖动。
+ */
+describe("TuiPanel 聊天列定位与挂件拖动", () => {
+	/** 聊天列容器尺寸：比窗口（happy-dom 1024×768）窄，好抓「按窗口算」的错 */
+	const CHAT = { width: 900, height: 600 };
+	/** 展开态默认尺寸（与组件内 EXPANDED_SIZE 同口径） */
+	const EXPANDED = { width: 680, height: 380 };
+	const LS_KEY = "hiagent.tuiPanel.rect";
+
+	/** 与 SessionView 的真实结构一致：面板挂在聊天列容器（relative）内 */
+	const renderInChatColumn = () =>
+		render(
+			<div data-testid="chat-column">
+				<TuiPanel sessionId="s1" />
+			</div>,
+		);
+	const expanded = () => screen.getByTestId("tui-panel-expanded");
+	const badge = () => screen.getByTestId("tui-panel-badge");
+	/** 胶囊态的定位在容器上（testid 在标题按钮上，与现网一致） */
+	const pillBox = () =>
+		screen.getByTestId("tui-panel-pill").parentElement as HTMLElement;
+	const savedRect = () => JSON.parse(localStorage.getItem(LS_KEY)!);
+	const mode = () => useTuiPanelStore.getState().bySession.s1!.mode;
+
+	test("三态都改成 absolute 定位（相对聊天列，不再相对整个窗口）", () => {
+		stubChatColumn(CHAT.width, CHAT.height);
+		useTuiPanelStore.getState().open("s1", META);
+		renderInChatColumn();
+
+		expect(expanded().className).toContain("absolute");
+		expect(expanded().className).not.toContain("fixed");
+
+		act(() => useTuiPanelStore.getState().collapse("s1"));
+		expect(badge().className).toContain("absolute");
+		expect(badge().className).not.toContain("fixed");
+
+		act(() => useTuiPanelStore.getState().collapseDeeper("s1"));
+		expect(pillBox().className).toContain("absolute");
+		expect(pillBox().className).not.toContain("fixed");
+	});
+
+	test("默认位置取聊天列右上角（容器宽 − 面板宽 − 16），不是窗口右上角", () => {
+		stubChatColumn(CHAT.width, CHAT.height);
+		useTuiPanelStore.getState().open("s1", META);
+		renderInChatColumn();
+
+		// 按窗口宽 1024 会算成 328：钉住基准是聊天列容器
+		expect(parseFloat(expanded().style.left)).toBe(
+			CHAT.width - EXPANDED.width - 16,
+		);
+		expect(parseFloat(expanded().style.top)).toBe(16);
+	});
+
+	test("挂件贴聊天列右上角：右缘 = 容器右缘 − 16", () => {
+		stubChatColumn(CHAT.width, CHAT.height);
+		useTuiPanelStore.getState().open("s1", META);
+		renderInChatColumn();
+		act(() => useTuiPanelStore.getState().collapse("s1"));
+
+		expect(badge().style.right).toBe("16px");
+		expect(badge().style.top).toBe("16px");
+	});
+
+	/**
+	 * 挂件拖动：与展开态共用同一份持久化矩形（只改 x/y、保留 w/h），
+	 * 拖完再展开时面板落在对应位置；拖动**不等于**点击展开。
+	 */
+	test("拖动挂件改位置且不展开（位移 > 5px），位置与展开态共用同一份矩形", () => {
+		stubChatColumn(CHAT.width, CHAT.height);
+		useTuiPanelStore.getState().open("s1", META);
+		renderInChatColumn();
+		act(() => useTuiPanelStore.getState().collapse("s1"));
+
+		fireEvent.mouseDown(badge(), { clientX: 800, clientY: 40 });
+		// ≤5px 的位移还算「点击」：位置一点都不能动
+		fireEvent.mouseMove(window, { clientX: 797, clientY: 41 });
+		expect(badge().style.right).toBe("16px");
+		// 左移 100px、下移 20px
+		fireEvent.mouseMove(window, { clientX: 700, clientY: 60 });
+		fireEvent.mouseUp(window);
+
+		expect(mode()).toBe("badge");
+		// 右缘锚在矩形右缘：整体左移 100px ⇒ right 增 100
+		expect(badge().style.right).toBe(`${16 + 100}px`);
+		expect(badge().style.top).toBe(`${16 + 20}px`);
+		expect(savedRect().x).toBe(CHAT.width - EXPANDED.width - 16 - 100);
+		expect(savedRect().y).toBe(16 + 20);
+		expect(savedRect().w).toBe(EXPANDED.width); // 拖动不动尺寸
+
+		// 真实浏览器 mouseup 后会补一个 click：拖动过就必须吃掉它（否则一拖就展开）
+		fireEvent.click(badge());
+		expect(mode()).toBe("badge");
+		// 没拖动的那次点击照常展开，且落到挂件拖到的位置
+		fireEvent.click(badge());
+		expect(mode()).toBe("expanded");
+		expect(parseFloat(expanded().style.left)).toBe(savedRect().x);
+	});
+
+	test("挂件点击（位移 ≤ 5px）仍展开，且不写位置", () => {
+		stubChatColumn(CHAT.width, CHAT.height);
+		useTuiPanelStore.getState().open("s1", META);
+		renderInChatColumn();
+		act(() => useTuiPanelStore.getState().collapse("s1"));
+
+		fireEvent.mouseDown(badge(), { clientX: 800, clientY: 40 });
+		fireEvent.mouseMove(window, { clientX: 803, clientY: 42 });
+		fireEvent.mouseUp(window);
+		fireEvent.click(badge());
+
+		expect(mode()).toBe("expanded");
+		// 点击不是拖动：不落盘用户位置（下次仍按容器默认右上角）
+		expect(localStorage.getItem(LS_KEY)).toBeNull();
+	});
+
+	test("挂件拖不出聊天列：越过右边界被限制在容器宽 − 面板宽", () => {
+		stubChatColumn(CHAT.width, CHAT.height);
+		useTuiPanelStore.getState().open("s1", META);
+		renderInChatColumn();
+		act(() => useTuiPanelStore.getState().collapse("s1"));
+
+		fireEvent.mouseDown(badge(), { clientX: 700, clientY: 40 });
+		fireEvent.mouseMove(window, { clientX: 2400, clientY: 40 });
+		fireEvent.mouseUp(window);
+
+		// 按窗口宽 1024 会算成 344：钉住 clamp 用的是聊天列宽
+		expect(savedRect().x).toBe(CHAT.width - EXPANDED.width);
+		expect(badge().style.right).toBe("0px");
+	});
+
+	test("拖动展开态面板也在聊天列内 clamp（宽高都用容器尺寸）", () => {
+		stubChatColumn(CHAT.width, CHAT.height);
+		useTuiPanelStore.getState().open("s1", META);
+		renderInChatColumn();
+
+		fireEvent.mouseDown(screen.getByTestId("tui-panel-header"), {
+			clientX: 500,
+			clientY: 300,
+		});
+		fireEvent.mouseMove(window, { clientX: 2400, clientY: 2400 });
+		fireEvent.mouseUp(window);
+
+		expect(parseFloat(expanded().style.left)).toBe(CHAT.width - EXPANDED.width);
+		expect(parseFloat(expanded().style.top)).toBe(CHAT.height - EXPANDED.height);
+		expect(savedRect().x).toBe(CHAT.width - EXPANDED.width);
+		expect(savedRect().y).toBe(CHAT.height - EXPANDED.height);
+	});
+
+	test("胶囊态同样可拖（三态一致），拖动后那次 click 不展开", () => {
+		stubChatColumn(CHAT.width, CHAT.height);
+		useTuiPanelStore.getState().open("s1", META);
+		renderInChatColumn();
+		act(() => useTuiPanelStore.getState().collapse("s1"));
+		act(() => useTuiPanelStore.getState().collapseDeeper("s1"));
+
+		fireEvent.mouseDown(pillBox(), { clientX: 800, clientY: 40 });
+		fireEvent.mouseMove(window, { clientX: 750, clientY: 40 });
+		fireEvent.mouseUp(window);
+
+		expect(mode()).toBe("pill");
+		expect(savedRect().x).toBe(CHAT.width - EXPANDED.width - 16 - 50);
+		// mouseup 补的 click 落在标题按钮上：拖动过就吃掉
+		fireEvent.click(screen.getByTestId("tui-panel-pill"));
+		expect(mode()).toBe("pill");
+		// 没拖动的点击照常展开
+		fireEvent.click(screen.getByTestId("tui-panel-pill"));
+		expect(mode()).toBe("expanded");
 	});
 });
