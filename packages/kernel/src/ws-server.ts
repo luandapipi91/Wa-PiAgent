@@ -61,6 +61,11 @@ import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { extUiRegistry } from "./ext-ui-registry";
 import {
+	setTuiHostBroadcast,
+	tuiHostRegistry,
+	type TuiHostFrame,
+} from "./tui-host-registry";
+import {
 	handleBridgeRequest,
 	handleBridgeStream,
 	isBridgeStreamTool,
@@ -522,6 +527,12 @@ export async function searchFiles(
 }
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
+/**
+ * tui-host 输入订阅流的心跳间隔（与 bridge 流式路径一致）。
+ * 必要性：Bun idleTimeout=255s 会掐断静默长连接（实测：静默 >idleTimeout 直接 ECONNRESET），
+ * 而面板安静时输入流可以持续几分钟无数据；ping 无业务含义，扩展侧收到就丢（host.ts 的 handleInput）。
+ */
+const TUI_SUBSCRIBE_HEARTBEAT_MS = 15_000;
 const activeSearches = new Set<string>();
 
 export interface WSServerOpts {
@@ -653,6 +664,11 @@ export class WSServer {
 	private _pendingAbortOnStart = new Set<string>(); // abort 时 agent 未启动则标记，agent_start 时执行 // abort 时递增，旧链 handler 版本不匹配则跳过
 
 	constructor(private opts: WSServerOpts) {
+		// tui-host registry 是模块级单例（agent-manager 的会话销毁路径也要用它），
+		// 这里注入它的 SSE 出口——与 index.ts 的 crashBroadcast 同为「先建后注入」模式。
+		setTuiHostBroadcast((sessionId, event) =>
+			this.broadcastTuiHostEvent(sessionId, event),
+		);
 		this.registerRoutes();
 	}
 
@@ -678,6 +694,26 @@ export class WSServer {
 			}
 		}
 		this.sseBus.broadcast(e.type, e);
+	}
+
+	/**
+	 * tui-host 面板事件出口（registry 的 broadcast 依赖）：按会话上下文包成 sdk:event 信封，
+	 * 与 /bridge/file-changes 同一条路径。会话未注册（进程已拆）时丢弃。
+	 */
+	private broadcastTuiHostEvent(
+		sessionId: string,
+		event: Record<string, unknown>,
+	): void {
+		const meta = this.opts.agentManager.getSessionMeta(sessionId);
+		if (!meta) return;
+		this.broadcast({
+			type: "sdk:event",
+			projectId: meta.projectId,
+			sessionId,
+			agentName: meta.agentName,
+			// extension_tui_* / extension_widget 帧此处按原样透传（与 file_changes 同款桥接）
+			event: event as any,
+		});
 	}
 
 	/**
@@ -1016,6 +1052,138 @@ export class WSServer {
 						});
 					}
 					return Response.json({ ok: true }, { status: 200 });
+				}
+				// pi 进程内 tui-host 扩展上报面板帧（长连接 NDJSON：扩展持续写、永不主动结束）
+				if (url.pathname === "/bridge/tui-host/frames") {
+					if (req.method !== "POST")
+						return new Response("Method Not Allowed", { status: 405 });
+					// 流式请求体不能 await req.json()：body 永不结束，json() 会挂死且 body 被消费。
+					// 协议是「首行 {token,sessionId} 鉴权 + 之后每行一帧」（规格 §5.1，与扩展侧 host.ts 对齐）。
+					const reader = req.body?.getReader();
+					if (!reader) return Response.json({ error: "invalid_body" }, { status: 400 });
+					const decoder = new TextDecoder();
+					let buf = "";
+					// 读下一行完整行；流结束时把残余当整行（完整 JSON body 无换行也要认）
+					const nextLine = async (): Promise<string | null> => {
+						for (;;) {
+							const nl = buf.indexOf("\n");
+							if (nl >= 0) {
+								const line = buf.slice(0, nl).trim();
+								buf = buf.slice(nl + 1);
+								if (line) return line;
+								continue;
+							}
+							const { done, value } = await reader.read();
+							if (done) {
+								const rest = buf.trim();
+								buf = "";
+								return rest || null;
+							}
+							buf += decoder.decode(value, { stream: true });
+						}
+					};
+					try {
+						const headLine = await nextLine();
+						let head: { token?: unknown; sessionId?: unknown } | null = null;
+						try {
+							head = headLine
+								? (JSON.parse(headLine) as { token?: unknown; sessionId?: unknown })
+								: null;
+						} catch {
+							head = null;
+						}
+						if (typeof head?.token !== "string" || !verifyBridgeToken(head.token)) {
+							// 鉴权失败尽快回 401：取消读流，不让扩展继续写
+							void reader.cancel().catch(() => {});
+							return Response.json({ error: "invalid_token" }, { status: 401 });
+						}
+						if (typeof head.sessionId !== "string" || !head.sessionId) {
+							void reader.cancel().catch(() => {});
+							return Response.json({ error: "invalid_body" }, { status: 400 });
+						}
+						const sessionId = head.sessionId;
+						for (;;) {
+							const line = await nextLine();
+							if (line === null) break;
+							let frame: TuiHostFrame | null = null;
+							try {
+								frame = JSON.parse(line) as TuiHostFrame;
+							} catch {
+								continue; // 脏行/半行：跳过，保持长连接
+							}
+							if (!frame || typeof frame !== "object") continue;
+							tuiHostRegistry.applyFrame(sessionId, frame);
+						}
+					} catch {
+						// 扩展断连（读流异常/连接重置）：正常收尾，客户端按退避重连
+					}
+					// 响应等读循环结束（客户端关流）才回：读循环期间提前返回会让扩展误判断连而重连
+					return Response.json({ ok: true });
+				}
+				// pi 进程内 tui-host 扩展订阅面板输入（长连接 NDJSON：kernel 持续写）
+				if (url.pathname === "/bridge/tui-host/subscribe") {
+					if (req.method !== "POST")
+						return new Response("Method Not Allowed", { status: 405 });
+					let body: unknown;
+					try {
+						body = await req.json();
+					} catch {
+						return Response.json({ error: "invalid_json" }, { status: 400 });
+					}
+					const { token, sessionId } = (body ?? {}) as {
+						token?: unknown;
+						sessionId?: unknown;
+					};
+					if (typeof token !== "string" || !verifyBridgeToken(token))
+						return Response.json({ error: "invalid_token" }, { status: 401 });
+					if (typeof sessionId !== "string" || !sessionId)
+						return Response.json({ error: "invalid_body" }, { status: 400 });
+					const enc = new TextEncoder();
+					let detach: (() => void) | null = null;
+					let heartbeat: ReturnType<typeof setInterval> | null = null;
+					let closed = false;
+					let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
+					const write = (line: string) => {
+						if (closed || !controllerRef) return;
+						try {
+							controllerRef.enqueue(enc.encode(line + "\n"));
+						} catch {
+							// 连接已关：标记后停写（cancel 会摘订阅者与定时器）
+							closed = true;
+							controllerRef = null;
+						}
+					};
+					const stream = new ReadableStream<Uint8Array>({
+						start(controller) {
+							controllerRef = controller;
+							// 注册即把断连期间排队的输入按序补发（规格 §6.1）
+							detach = tuiHostRegistry.attachSubscriber(sessionId, write);
+							// 首行 ping：Bun 要写出首个数据块才发响应头，空流会让扩展的 fetch 永远挂起；
+							// 同一帧兼作保活，之后按间隔续发。
+							write(JSON.stringify({ type: "ping" }));
+							heartbeat = setInterval(
+								() => write(JSON.stringify({ type: "ping" })),
+								TUI_SUBSCRIBE_HEARTBEAT_MS,
+							);
+						},
+						cancel() {
+							// 客户端断连（扩展重连前）在这里唯一可靠感知：摘掉订阅者，后续输入回到排队
+							closed = true;
+							controllerRef = null;
+							if (heartbeat) {
+								clearInterval(heartbeat);
+								heartbeat = null;
+							}
+							detach?.();
+							detach = null;
+						},
+					});
+					return new Response(stream, {
+						headers: {
+							"content-type": "application/x-ndjson",
+							"cache-control": "no-store",
+						},
+					});
 				}
 				if (url.pathname === "/file") {
 					const { projects } = await this.opts.projectStore.load();
@@ -2595,6 +2763,19 @@ export class WSServer {
 					break;
 				}
 				reply({ type: "extension:dialog:respond", ok: true });
+				break;
+			}
+			case "extension:tui:input": {
+				// 扩展 TUI 面板输入：入队 → 由扩展的输入订阅流取走（未就绪则暂存，重连后补发）
+				tuiHostRegistry.enqueueInput({
+					sessionId: event.sessionId,
+					panelId: event.panelId,
+					type: event.inputType,
+					data: event.data,
+					cols: event.cols,
+					rows: event.rows,
+				});
+				reply({ type: "extension:tui:input", ok: true });
 				break;
 			}
 			// ===== 记忆管理 =====

@@ -127,3 +127,27 @@ export interface ExtensionDialogRespondResult {
 	type: "extension:dialog:respond";
 	ok: true;
 }
+
+// 前端 → kernel：扩展 TUI 面板（ctx.ui.custom / widget 组件兼容）的输入事件，
+// kernel 入队后由扩展的输入订阅流取走（规格 §5.3）。
+// 注：REST 体里输入类型字段名是 `type`（规格 §5.3 的线上协议，与事件判别字段同名），
+// routes/extensions.ts 把它映射到这里的 inputType，避免与判别字段撞名。
+export interface ExtensionTuiInputEvent {
+	type: "extension:tui:input";
+	sessionId: string;
+	/** custom 面板为 `p<n>`，widget 面板为 `w:<key>` */
+	panelId: string;
+	/** 输入类型：按键/粘贴/鼠标序列/尺寸/取消面板 */
+	inputType: "key" | "paste" | "mouse" | "resize" | "cancel";
+	/** key/paste/mouse 的终端序列或文本 */
+	data?: string;
+	/** resize 的目标列数/行数 */
+	cols?: number;
+	rows?: number;
+}
+
+// kernel → 前端
+export interface ExtensionTuiInputResult {
+	type: "extension:tui:input";
+	ok: true;
+}

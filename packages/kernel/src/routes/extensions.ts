@@ -67,4 +67,23 @@ export const registerExtensionRoutes: RouteRegistrar = (
     }
     return callApi({ type: "extension:dialog:respond", ...b });
   });
+
+  // 扩展 TUI 面板输入（按键/粘贴/鼠标/尺寸/取消）：kernel 入队后由扩展的输入订阅流取走。
+  // 线上体的输入类型字段名是 `type`（规格 §5.3），与事件判别字段同名，
+  // 故显式映射到 inputType，不能整个 spread（会覆盖 type 导致事件分派不到）。
+  r.add("POST", "/api/extensions/tui-input", async (req) => {
+    const b = await readJsonBody(req);
+    if (!b?.sessionId || !b?.panelId || !b?.type) {
+      return paramErrorResponse("参数缺失", "sessionId/panelId/type");
+    }
+    return callApi({
+      type: "extension:tui:input",
+      sessionId: b.sessionId,
+      panelId: b.panelId,
+      inputType: b.type,
+      data: b.data,
+      cols: b.cols,
+      rows: b.rows,
+    });
+  });
 };
