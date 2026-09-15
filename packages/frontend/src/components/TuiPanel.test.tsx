@@ -316,7 +316,11 @@ describe("TuiPanel 鼠标上报", () => {
 		]);
 	});
 
-	test("按住拖选 → drag 序列带左键修饰", () => {
+	/**
+	 * 拖选不再转发 drag 序列：复制路径改成「浏览器原生选择 + Cmd+C」（规格 §7.5 的偏离裁定），
+	 * 而 TUI 收到 drag 会自己走选择逻辑、把原生选字打断。点击要用的 down/up 仍照发。
+	 */
+	test("按住拖动只发 down/up（点击语义），不产出 drag 序列", () => {
 		useTuiPanelStore.getState().open("s1", META);
 		stubRects({ width: 720, height: 388 });
 		render(<TuiPanel sessionId="s1" />);
@@ -325,14 +329,33 @@ describe("TuiPanel 鼠标上报", () => {
 		fireEvent.mouseMove(el, { clientX: atCol(5), clientY: CELL.height });
 		fireEvent.mouseUp(window, { clientX: atCol(5), clientY: CELL.height });
 
-		expect(tuiInputCalls("mouse").map((c) => c.body.data)).toEqual([
+		const mouse = tuiInputCalls("mouse").map((c) => c.body.data);
+		expect(mouse).toEqual([
 			encodeMouse("down", 0, 1, 1),
-			encodeMouse("drag", 0, 6, 2),
 			encodeMouse("up", 0, 6, 2),
 		]);
+		expect(mouse).not.toContain(encodeMouse("drag", 0, 6, 2));
 	});
 
-	test("未按下时移动不产生 drag 序列", () => {
+	/**
+	 * 复制能力靠浏览器原生选择：mousedown 不能 preventDefault（否则拖选连选区都起不来），
+	 * 元素上也要显式声明可选中（祖先若有 user-select: none，这一点能覆盖回来）。
+	 */
+	test("按下面板文本区不阻止默认行为，且文本可选中", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		stubRects({ width: 720, height: 388 });
+		render(<TuiPanel sessionId="s1" />);
+		const el = body();
+		// fireEvent 返回 false = 默认行为被 preventDefault 吃掉
+		expect(
+			fireEvent.mouseDown(el, { button: 0, clientX: atCol(1), clientY: 0 }),
+		).toBe(true);
+		expect(el.style.userSelect).toBe("text");
+		// 焦点仍要收回面板：Composer 已 disabled，焦点留在外面会静默丢键
+		expect(document.activeElement).toBe(screen.getByTestId("tui-panel-expanded"));
+	});
+
+	test("未按下时移动不产生任何鼠标上报", () => {
 		useTuiPanelStore.getState().open("s1", META);
 		stubRects({ width: 720, height: 388 });
 		render(<TuiPanel sessionId="s1" />);
