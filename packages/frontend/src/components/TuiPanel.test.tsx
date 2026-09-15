@@ -732,8 +732,8 @@ describe("TuiPanel 快照补发", () => {
 		).toBe(true);
 		expect(screen.getByText(/pi-lens/)).toBeTruthy();
 		// 全角字符被拆成固定宽度片段（「全角占两格」，见「TuiPanel 格宽实测」），
-		// 连续文本断言改看容器文本
-		expect(screen.getByTestId("tui-panel-body").textContent).toContain("恢复的帧");
+		// 连续文本查询命不中单个节点，改断容器文本；光标覆盖层是空 div，不贡献文本
+		expect(screen.getByTestId("tui-panel-body").textContent).toBe("恢复的帧");
 	});
 
 	test("快照里没有 custom 面板 → 清掉陈旧状态（断开期间面板已关）", async () => {

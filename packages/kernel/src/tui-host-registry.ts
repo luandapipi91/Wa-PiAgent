@@ -237,13 +237,15 @@ export function createTuiHostRegistry(opts: TuiHostRegistryOptions): TuiHostRegi
 		if (!cur) return;
 		// 会话销毁（进程拆除/重建）：在开的 custom 面板必须通知前端收起（规格 §6.1），
 		// 否则旧帧会变成点不掉的幽灵面板（扩展进程已死，后续输入无人接）。
+		// reason 用 `dispose`（规格 §4.8 把「会话销毁」列为独立终止路径，与用户取消区分），
+		// 与扩展侧 `disposeAll` 的口径一致；前端不读 reason，只按事件卸载面板。
 		// widget 不在此列：它们的清除由 ctx.ui.setWidget 的 pi 通道与 extension_ui_reset 覆盖。
 		for (const panel of cur.panels.values()) {
 			if (panel.kind === "widget") continue;
 			opts.broadcast(sessionId, {
 				type: "extension_tui_close",
 				panelId: panel.panelId,
-				reason: "cancel",
+				reason: "dispose",
 			});
 		}
 	};
