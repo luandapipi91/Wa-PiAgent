@@ -245,6 +245,10 @@ function kernelStub() {
 	return { lines, requests: () => requests, fetchImpl };
 }
 
+/** 从帧流桩收到的行里取业务帧类型（每连接的鉴权首行没有 type，会被过滤掉） */
+const frameTypes = (lines: string[]): string[] =>
+	lines.map((l) => JSON.parse(l).type).filter((t): t is string => typeof t === "string");
+
 describe("createFrameStream", () => {
 	test("先发鉴权行再逐行送帧；stop 后优雅断流且不再重连", async () => {
 		const sink = createFrameSink();
@@ -294,5 +298,53 @@ describe("createFrameStream", () => {
 		expect(logs[0]).toContain("session=s1");
 		expect(logs[0]).toContain("10ms 后重连");
 		expect(logs[1]).toContain("20ms 后重连");
+	});
+
+	test("空闲期按间隔发 ping 保活；stop 后心跳定时器一起停掉", async () => {
+		const sink = createFrameSink();
+		const kernel = kernelStub();
+		const stream = createFrameStream({
+			bridgeUrl: "http://127.0.0.1:9",
+			token: "tok",
+			sessionId: "s1",
+			sink,
+			retryMs: 20,
+			heartbeatMs: 5, // 真实值是 15s（规格 §5.1），单测里缩短到可观测
+			fetchImpl: kernel.fetchImpl,
+		});
+		stream.start();
+		await Bun.sleep(30);
+		const pings = () => frameTypes(kernel.lines).filter((t) => t === "ping").length;
+		expect(pings()).toBeGreaterThanOrEqual(2);
+
+		stream.stop();
+		const after = pings();
+		await Bun.sleep(60);
+		expect(pings()).toBe(after);
+	});
+
+	test("stop 后立即 push 的帧不被吞掉：重新 start 后送达（reload 窗口）", async () => {
+		const sink = createFrameSink();
+		const kernel = kernelStub();
+		const stream = createFrameStream({
+			bridgeUrl: "http://127.0.0.1:9",
+			token: "tok",
+			sessionId: "s1",
+			sink,
+			retryMs: 20,
+			fetchImpl: kernel.fetchImpl,
+		});
+		stream.start();
+		sink.push({ type: "open", panelId: "p1" });
+		await Bun.sleep(20);
+		expect(frameTypes(kernel.lines)).toEqual(["open"]);
+
+		// teardown：stop 之后立刻入队的帧（disposeAll 的 close）必须回到队列而不是被丢掉
+		stream.stop();
+		sink.push({ type: "close", panelId: "p1", reason: "done" });
+		await Bun.sleep(20); // 等旧尝试收尾，否则 start 会被 running 守卫挡回
+		stream.start();
+		await Bun.sleep(40);
+		expect(frameTypes(kernel.lines)).toEqual(["open", "close"]);
 	});
 });
