@@ -33,6 +33,7 @@ async function waitFor(cond: () => boolean, timeoutMs = 1000): Promise<void> {
 /** 仿 rpc-mode ui 上下文的测试形状 */
 type FakeUi = {
 	__waPiTuiHost?: boolean;
+	__waPiTuiHostBridge?: unknown;
 	custom: (...args: unknown[]) => Promise<unknown>;
 	setWidget: (key: string, content: unknown, options?: unknown) => void;
 	onTerminalInput: (cb: (data: string) => void) => () => void;
@@ -60,6 +61,7 @@ function makeUi() {
 const fakeBridge: TuiHostPatchBridge = {
 	openCustom: async () => ({ ok: true }),
 	openWidget: () => {},
+	closeWidget: () => {},
 	setInputListeners: () => {},
 };
 
@@ -95,6 +97,21 @@ describe("patchUiForTuiHost", () => {
 		expect(widgetCalls).toEqual(["b"]);
 	});
 
+	test("setWidget 传非组件（清除/纯文本）时交给 closeWidget，且仍透传原实现", () => {
+		const { ui, calls } = makeUi();
+		const closed: string[] = [];
+		patchUiForTuiHost(ui as unknown as Record<string, unknown>, {
+			...fakeBridge,
+			closeWidget: (key) => {
+				closed.push(key);
+			},
+		});
+		ui.setWidget("dash", undefined);
+		ui.setWidget("dash", ["纯文本"]);
+		expect(closed).toEqual(["dash", "dash"]);
+		expect(calls).toEqual(["setWidget:dash:undefined", "setWidget:dash:object"]);
+	});
+
 	test("onTerminalInput 返回可注销函数，且监听器被交给 bridge", () => {
 		const { ui } = makeUi();
 		const seen: Set<(data: string) => void>[] = [];
@@ -109,13 +126,54 @@ describe("patchUiForTuiHost", () => {
 		expect(seen).toHaveLength(1);
 	});
 
-	test("重复 patch 不叠加（已标记则原样返回）", () => {
+	test("换 bridge 重新 patch 时沿用同一个监听器集合（reload 前的订阅不丢）", () => {
 		const { ui } = makeUi();
 		const asUi = ui as unknown as Record<string, unknown>;
-		patchUiForTuiHost(asUi, { ...fakeBridge, openCustom: async () => "first" });
+		const seen: Set<(data: string) => void>[] = [];
+		const track = (s: Set<(data: string) => void>) => {
+			seen.push(s);
+		};
+		patchUiForTuiHost(asUi, { ...fakeBridge, setInputListeners: track });
+		const cb = () => {};
+		ui.onTerminalInput(cb);
+		patchUiForTuiHost(asUi, { ...fakeBridge, setInputListeners: track });
+		expect(seen).toHaveLength(2);
+		expect(seen[1]).toBe(seen[0]);
+		expect([...seen[1]!]).toEqual([cb]);
+	});
+
+	test("重复 patch 不叠加（同一个 bridge 则原样返回）", () => {
+		const { ui } = makeUi();
+		const asUi = ui as unknown as Record<string, unknown>;
+		const bridge: TuiHostPatchBridge = { ...fakeBridge, openCustom: async () => "first" };
+		patchUiForTuiHost(asUi, bridge);
 		const firstCustom = asUi.custom;
-		patchUiForTuiHost(asUi, { ...fakeBridge, openCustom: async () => "second" });
+		patchUiForTuiHost(asUi, bridge);
 		expect(asUi.custom).toBe(firstCustom);
+	});
+
+	test("换 bridge 重新 patch 同一个 ui 对象：custom 走新 bridge", async () => {
+		const { ui } = makeUi();
+		const asUi = ui as unknown as Record<string, unknown>;
+		const seen: string[] = [];
+		patchUiForTuiHost(asUi, {
+			...fakeBridge,
+			openCustom: async () => {
+				seen.push("旧");
+				return "旧";
+			},
+		});
+		patchUiForTuiHost(asUi, {
+			...fakeBridge,
+			openCustom: async () => {
+				seen.push("新");
+				return "新";
+			},
+		});
+		await expect(ui.custom(() => ({ render: () => [] }), undefined, undefined)).resolves.toBe("新");
+		expect(seen).toEqual(["新"]);
+		// 布尔标记保留：wa-pi-bridge 的兜底靠它让位
+		expect(asUi.__waPiTuiHost).toBe(true);
 	});
 });
 
@@ -213,13 +271,66 @@ describe("createPanelBridge", () => {
 		bridge.disposeAll();
 	});
 
+	test("widget 工厂抛错或返回空值：open 后立即 close，不留幽灵面板", async () => {
+		const { sink, frames } = collect();
+		const bridge = createPanelBridge({ sink });
+		bridge.openWidget(
+			"boom",
+			() => {
+				throw new Error("插件的工厂炸了");
+			},
+			undefined,
+			undefined,
+		);
+		expect(frames().map((f) => f.type)).toEqual(["open", "close"]);
+		expect(frames()[1]).toMatchObject({ panelId: "w:boom", reason: "empty" });
+
+		bridge.openWidget("empty", () => undefined as never, undefined, undefined);
+		expect(frames().map((f) => f.type)).toEqual(["open", "close", "open", "close"]);
+
+		// 没有宿主的 widget 不得留下采样定时器
+		await Bun.sleep(200);
+		expect(frames().filter((f) => f.type === "frame")).toHaveLength(0);
+	});
+
+	test("清除 widget（setWidget(key, undefined)）：发 close 并释放宿主与采样定时器", async () => {
+		const { sink, frames } = collect();
+		const bridge = createPanelBridge({ sink });
+		let disposed = 0;
+		bridge.openWidget(
+			"dash",
+			() => ({ render: () => ["w"], dispose: () => {
+				disposed += 1;
+			} }),
+			undefined,
+			undefined,
+		);
+		await waitFor(() => frames().some((f) => f.type === "frame" && f.panelId === "w:dash"));
+
+		bridge.closeWidget("dash");
+		expect(frames().at(-1)).toMatchObject({ type: "close", panelId: "w:dash", reason: "removed" });
+		expect(disposed).toBe(1);
+
+		// 采样定时器已停：清除后不再推帧
+		await Bun.sleep(200);
+		expect(frames().filter((f) => f.panelId === "w:dash" && f.type === "frame")).toHaveLength(1);
+
+		// 从未开过的 key：不发多余帧
+		bridge.closeWidget("never");
+		expect(frames().some((f) => f.panelId === "w:never")).toBe(false);
+		bridge.disposeAll();
+	});
+
 	test("disposeAll（会话 teardown）：挂起面板以 cancelled 结算，widget 采样停止", async () => {
 		const { sink, frames } = collect();
 		const bridge = createPanelBridge({ sink });
 		const panel = bridge.openCustom(() => makeComponent("stuck").component, undefined, undefined);
-		bridge.openWidget("dash", () => ({ render: () => ["w"] }), undefined, undefined);
+		// render 每次都不一样：若采样定时器还活着，teardown 后还会继续推新帧
+		let renders = 0;
+		bridge.openWidget("dash", () => ({ render: () => [`w${++renders}`] }), undefined, undefined);
 		await Bun.sleep(10);
-		expect(frames().map((f) => f.type)).toEqual(["open", "frame", "open"]);
+		// widget 首帧在 openWidget 里就上屏（与 custom 路径一致），所以不靠 80ms 采样点
+		expect(frames().map((f) => f.type)).toEqual(["open", "frame", "open", "frame"]);
 
 		bridge.disposeAll();
 		await expect(panel).resolves.toBeUndefined();
@@ -227,6 +338,32 @@ describe("createPanelBridge", () => {
 
 		// widget 的采样定时器必须停：否则面板关掉后仍会向 kernel 推帧
 		await Bun.sleep(200);
-		expect(frames().filter((f) => f.panelId === "w:dash" && f.type === "frame")).toHaveLength(0);
+		expect(frames().filter((f) => f.panelId === "w:dash" && f.type === "frame")).toHaveLength(1);
+	});
+});
+
+describe("patchUiForTuiHost + createPanelBridge：会话重建", () => {
+	test("teardown 后新 bridge 接管同一个 ui 对象，custom 重新可用（reload 场景）", async () => {
+		const { ui } = makeUi();
+		const asUi = ui as unknown as Record<string, unknown>;
+
+		// 第一个会话：patch 后又被 teardown（pi 的 session_shutdown）
+		const first = collect();
+		const firstBridge = createPanelBridge({ sink: first.sink });
+		patchUiForTuiHost(asUi, firstBridge);
+		firstBridge.disposeAll();
+
+		// reload：同一个 uiContext 对象 + 新 bridge（旧 bridge 的 disposed 不可逆）
+		const second = collect();
+		const secondBridge = createPanelBridge({ sink: second.sink });
+		patchUiForTuiHost(asUi, secondBridge);
+
+		const panel = ui.custom(() => makeComponent("after-reload").component, undefined, undefined);
+		await waitFor(() => second.frames().some((f) => f.type === "open"));
+		expect(second.frames().map((f) => f.type)).toEqual(["open", "frame"]);
+
+		secondBridge.handleInput({ type: "cancel", panelId: second.frames()[0]?.panelId as string });
+		await expect(panel).resolves.toBeUndefined();
+		expect(second.frames().at(-1)?.reason).toBe("cancel");
 	});
 });
