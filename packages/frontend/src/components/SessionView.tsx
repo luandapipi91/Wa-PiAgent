@@ -29,6 +29,8 @@ import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
 import { isHtmlPath } from "../preview-url";
 import { GitToolbar } from "./git/GitToolbar";
+import { useTuiPanelStore } from "../store/tui-panel";
+import { reportWidgetCols } from "./TuiPanel";
 
 interface Props {
 	sessionId: string;
@@ -128,6 +130,10 @@ export const SessionView = memo(function SessionView({
 	// 扩展 setWidget 文本块：统一交给 ExtWidgetDock 渲染（收起悬浮队列 + 展开占位）
 	const widgets = useSessionStore((s) => s.extWidgetBySession[sessionId]);
 	const widgetEntries = widgets ? Object.entries(widgets) : [];
+	// 扩展 TUI 面板展开态：键盘锁给面板，Composer 同步禁用（收起态恢复可用）
+	const tuiExpanded = useTuiPanelStore((s) =>
+		s.bySession[sessionId]?.mode === "expanded",
+	);
 	const [stopping, setStopping] = useState(false);
 	useEffect(() => {
 		if (!isRunning) setStopping(false);
@@ -549,13 +555,13 @@ export const SessionView = memo(function SessionView({
 				{/* 扩展 setWidget：展开块在 Composer 前占位；chip 队列悬浮贴 Composer 上沿。
 				    Composer 作为 children 传入，ExtWidgetDock 用 relative 层包住它，
 				    chip 队列 absolute bottom-full 紧贴 Composer 上沿（不依赖固定高度） */}
-				<ExtWidgetDock widgets={widgetEntries}>
+				<ExtWidgetDock widgets={widgetEntries} sessionId={sessionId}>
 					<Composer
 						sessionId={sessionId}
 						agentName={session.primaryAgent}
 						isRunning={status === "thinking"}
 						isNewSession={!messages || messages.length === 0}
-						disabled={isBlocked || reloading}
+						disabled={isBlocked || reloading || tuiExpanded}
 					/>
 				</ExtWidgetDock>
 				{/* 扩展 setStatus：聊天列底部状态栏（右对齐，只占中间区域） */}
@@ -658,16 +664,22 @@ type WidgetEntry = [string, { lines: string[]; placement?: string }];
  */
 function ExtWidgetDock({
 	widgets,
+	sessionId,
 	children,
 }: {
 	widgets: WidgetEntry[];
+	/** widget 宽度上报需要会话号（resize 走 /api/extensions/tui-input） */
+	sessionId: string;
 	children?: React.ReactNode;
 }) {
 	const { t } = useTranslation();
 	// expandedKey：当前展开的 widget key（null = 全部收起）
 	const [expandedKey, setExpandedKey] = useState<string | null>(null);
 	const trackRef = useRef<HTMLDivElement>(null);
+	const dockRef = useRef<HTMLDivElement>(null);
 	const [overflow, setOverflow] = useState({ left: false, right: false });
+	// widget key 列表（顺序变/增删都要重新上报）；用字符串做依赖避免每次渲染重跑
+	const widgetKeys = widgets.map(([key]) => key).join(",");
 
 	// 计算左右箭头是否显示（溢出 + 未到头）
 	const updateOverflow = () => {
@@ -701,6 +713,24 @@ function ExtWidgetDock({
 		const step = chip ? (chip as HTMLElement).offsetWidth + 4 : 120;
 		el.scrollBy({ left: dir === "left" ? -step : step, behavior: "smooth" });
 	};
+
+	// widget 宽度上报：pi 的 setWidget 按终端列数排版，列数不对正文会错乱换行。
+	// 实测容器宽度 → 列数（与三态面板共用同一份 CELL 常量）；无布局（宽度 0）时不报。
+	useEffect(() => {
+		if (!widgetKeys) return;
+		const el = dockRef.current;
+		if (!el) return;
+		const report = () => {
+			const width = el.getBoundingClientRect().width;
+			for (const key of widgetKeys.split(",")) {
+				reportWidgetCols(sessionId, key, width);
+			}
+		};
+		report();
+		const ro = new ResizeObserver(report);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [sessionId, widgetKeys]);
 
 	const expanded = widgets.find(([key]) => key === expandedKey);
 
@@ -753,8 +783,9 @@ function ExtWidgetDock({
 				</div>
 			)}
 
-			{/* Composer wrapper：relative 让 chip 队列用 absolute bottom-full 紧贴其上沿 */}
-			<div className="relative flex flex-col">
+			{/* Composer wrapper：relative 让 chip 队列用 absolute bottom-full 紧贴其上沿；
+			    dockRef 同时是 widget 宽度上报的测量点（容器宽 = 终端列数换算源） */}
+			<div ref={dockRef} className="relative flex flex-col">
 				{children}
 				{/* 收起队列：半透明悬浮贴 Composer 上沿，单一队列，溢出时箭头滚动 */}
 				{widgets.filter(([key]) => key !== expandedKey).length > 0 && (
