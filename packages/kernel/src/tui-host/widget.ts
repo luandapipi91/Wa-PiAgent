@@ -79,8 +79,17 @@ export function createWidgetHost(opts: WidgetHostOptions): WidgetHost {
 			return null;
 		}
 		if (sameFrame(lastFrame, frame)) return null;
-		lastFrame = frame;
-		opts.onFrame?.(frame);
+		try {
+			opts.onFrame?.(frame);
+			// 推送成功后才推进去重基线（与 panel.ts:202-208 的「先记帧后推送」不同）：
+			// 取舍是「宁可重发，不可丢帧」——通道抛错时这一帧不会被永久去重掉，
+			// 下次采样会连同后续变化一起重试推送（at-least-once），
+			// 代价是通道持续失败时会反复尝试推送同一帧。
+			lastFrame = frame;
+		} catch {
+			// 推送通道（任务 9 接 kernel 帧流）抛错不得逃逸到 pi 主循环：
+			// 采样循环必须活着，即使这一帧推失败也照常把帧交给调用方
+		}
 		return frame;
 	};
 
@@ -88,6 +97,9 @@ export function createWidgetHost(opts: WidgetHostOptions): WidgetHost {
 		start,
 		sample,
 		resize: (next: number) => {
+			// 非有限值（NaN / Infinity）直接忽略、保持旧宽度：
+			// 否则 Math.floor(NaN) 会把 NaN 原样透传给组件渲染（任务 1 已在尺寸上踩过同类坑）
+			if (!Number.isFinite(next)) return;
 			cols = Math.max(20, Math.floor(next));
 		},
 		dispose: () => {
