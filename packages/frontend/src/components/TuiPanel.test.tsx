@@ -49,6 +49,39 @@ const tuiInputCalls = (type?: string) =>
 
 // === getBoundingClientRect 桩（happy-dom 无布局，全为 0）===
 const restores: Array<() => void> = [];
+
+function domRect(r: {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+}): DOMRect {
+	return {
+		...r,
+		right: r.left + r.width,
+		bottom: r.top + r.height,
+		x: r.left,
+		y: r.top,
+		toJSON: () => ({}),
+	} as DOMRect;
+}
+
+/**
+ * 面板里那个隐藏量宽 span 的桩矩形：一格 = cellWidth（默认取常量——JetBrains Mono
+ * 12px 的真实前进宽，与现有用例的期望值同源）。非探针元素返回 null，交给各桩自己处理。
+ *
+ * 没有这条，全局矩形桩会把探针也算成面板宽，实测格宽就变成“面板宽 ÷ 探针字数”的垃圾值。
+ */
+function probeRect(el: HTMLElement, cellWidth = CELL.width): DOMRect | null {
+	if (el.getAttribute?.("data-testid") !== "tui-panel-metric") return null;
+	return domRect({
+		left: 0,
+		top: 0,
+		width: cellWidth * (el.textContent?.length ?? 0),
+		height: 0,
+	});
+}
+
 function stubRects(rect: {
 	left?: number;
 	top?: number;
@@ -57,15 +90,8 @@ function stubRects(rect: {
 }) {
 	const original = HTMLElement.prototype.getBoundingClientRect;
 	const r = { left: 0, top: 0, width: 0, height: 0, ...rect };
-	HTMLElement.prototype.getBoundingClientRect = function () {
-		return {
-			...r,
-			right: r.left + r.width,
-			bottom: r.top + r.height,
-			x: r.left,
-			y: r.top,
-			toJSON: () => ({}),
-		} as DOMRect;
+	HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+		return probeRect(this) ?? domRect(r);
 	};
 	restores.push(() => {
 		HTMLElement.prototype.getBoundingClientRect = original;
@@ -76,6 +102,21 @@ function stubRects(rect: {
 const HEADER_HEIGHT = 30;
 
 /**
+ * 格宽探针桩：面板里那个隐藏的量宽 span 给实测宽（cellWidth × 探针字符数），
+ * 其余元素沿用已装的桩（通常是零布局的 happy-dom）。
+ * 必须是**可叠加**的桩：测宽与面板布局是两个独立坐标，得同时生效。
+ */
+function stubMetricProbe(cellWidth: number) {
+	const previous = HTMLElement.prototype.getBoundingClientRect;
+	HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+		return probeRect(this, cellWidth) ?? previous.call(this);
+	};
+	restores.push(() => {
+		HTMLElement.prototype.getBoundingClientRect = previous;
+	});
+}
+
+/**
  * 面板布局桩：容器尺寸取展开浮窗的**实时内联样式**（拖动/缩放直接改它），
  * 文本区尺寸 = 容器尺寸 − 标题栏高度。
  * 必须区分容器与文本区——「按容器上报」正是要修的错（多算标题栏那 1 行）。
@@ -83,23 +124,19 @@ const HEADER_HEIGHT = 30;
 function stubPanelLayout(headerHeight: number) {
 	const original = HTMLElement.prototype.getBoundingClientRect;
 	HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+		const probe = probeRect(this);
+		if (probe) return probe;
 		const boxEl = document.querySelector<HTMLElement>(
 			'[data-testid="tui-panel-expanded"]',
 		);
 		const w = boxEl ? Number.parseFloat(boxEl.style.width) || 0 : 0;
 		const h = boxEl ? Number.parseFloat(boxEl.style.height) || 0 : 0;
 		const isBody = this.getAttribute?.("data-testid") === "tui-panel-body";
-		const r = isBody
-			? { left: 0, top: headerHeight, width: w, height: Math.max(0, h - headerHeight) }
-			: { left: 0, top: 0, width: w, height: h };
-		return {
-			...r,
-			right: r.left + r.width,
-			bottom: r.top + r.height,
-			x: r.left,
-			y: r.top,
-			toJSON: () => ({}),
-		} as DOMRect;
+		return domRect(
+			isBody
+				? { left: 0, top: headerHeight, width: w, height: Math.max(0, h - headerHeight) }
+				: { left: 0, top: 0, width: w, height: h },
+		);
 	};
 	restores.push(() => {
 		HTMLElement.prototype.getBoundingClientRect = original;
@@ -437,6 +474,55 @@ describe("TuiPanel 尺寸上报", () => {
 		stubRects({ width: 720, height: 388 });
 		render(<TuiPanel sessionId="s1" />);
 		expect(tuiInputCalls("resize")).toHaveLength(0);
+	});
+});
+
+describe("TuiPanel 格宽实测", () => {
+	/** 桩：实测格宽 8px（与兜底常量 7.2px 不同，以便区分用了哪一份度量） */
+	const MEASURED = 8;
+
+	test("尺寸上报按实测格宽换算（不再是硬编码常量）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		stubPanelLayout(HEADER_HEIGHT);
+		stubMetricProbe(MEASURED);
+		render(<TuiPanel sessionId="s1" />);
+		const reported = tuiInputCalls("resize").at(-1)!.body;
+		expect(reported.cols).toBe(Math.floor((680 - 12) / MEASURED)); // 83
+		expect(reported.rows).toBe(Math.floor((380 - HEADER_HEIGHT) / CELL.height)); // 行高仍由常量锁定
+		// 用硬编码 7.2 会报 92 列（多报 9 列）：钒住修的就是它
+		expect(reported.cols).not.toBe(Math.floor((680 - 12) / CELL.width));
+	});
+
+	test("鼠标列换算用同一份实测格宽（上报与命中同一度量）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		stubRects({ width: 800, height: 400 });
+		stubMetricProbe(MEASURED);
+		render(<TuiPanel sessionId="s1" />);
+		// 第 10 列：按实测 8px 是 12+9×8=84px（按常量 7.2px 会算成第 11 列）
+		fireEvent.mouseDown(body(), {
+			clientX: 12 + 9 * MEASURED,
+			clientY: 2 * CELL.height,
+			button: 0,
+		});
+		expect(tuiInputCalls("mouse").at(-1)!.body.data).toBe(
+			encodeMouse("down", 0, 10, 3),
+		);
+	});
+
+	/**
+	 * 含中文的帧行：全角字符的列由 kernel 按「CJK 占 2 格」算好塞进 `cursor.col`，
+	 * 前端只用同一份实测格宽做「列 → 像素」换算。若谁改回按字符个数换算，这个用例会红。
+	 */
+	test("含中文的帧行：光标列位置按实测格宽换算（全角占 2 格）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		// 「▸ 中文」= 1 + 1 + 2 + 2 = 6 格，col 5 落在「文」上（按字符个数只有 4）
+		useTuiPanelStore.getState().setFrame("s1", "p1", ["▸ 中文"], { row: 0, col: 5 });
+		stubRects({ width: 800, height: 400 });
+		stubMetricProbe(MEASURED);
+		render(<TuiPanel sessionId="s1" />);
+		const cursor = screen.getByTestId("tui-panel-cursor");
+		expect(cursor.style.left).toBe(`${12 + 5 * MEASURED}px`);
+		expect(cursor.style.width).toBe(`${MEASURED}px`);
 	});
 });
 
