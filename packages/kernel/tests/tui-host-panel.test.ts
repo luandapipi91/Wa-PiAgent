@@ -304,7 +304,7 @@ describe("createPanelHost", () => {
 		host.dispose();
 	});
 
-	test("未提供 copySelection / openUrl 时用安全默认", async () => {
+	test("未提供 copySelection 时不传（保留 pi-tui 的 OSC 52 兜底）；openUrl 缺省为 no-op", () => {
 		let capturedTui!: TuiAltScreen;
 		const host = createPanelHost({
 			title: "probe",
@@ -318,10 +318,12 @@ describe("createPanelHost", () => {
 			keybindings: undefined as never,
 		});
 		host.start();
-		// 剪贴板通道未接入时不得假装复制成功；超链接默认 no-op
-		const copySelection = readInternal(capturedTui, "copySelection") as () => Promise<boolean>;
-		await expect(copySelection()).resolves.toBe(false);
+		// 规格 §7.5：缺省必须不传。pi-tui 的 copyTextToClipboard 只在 copySelection 为假值时
+		// 才回退到 OSC 52 写；传一个返回 false 的函数会把它赋成实例字段、关掉这条兜底。
+		expect(readInternal(capturedTui, "copySelection")).toBeUndefined();
+		// 超链接没有回退行为要求，缺省为 no-op
 		const openUrl = readInternal(capturedTui, "openUrl") as (url: string) => void;
+		expect(typeof openUrl).toBe("function");
 		expect(() => openUrl("https://example.com")).not.toThrow();
 		host.dispose();
 	});

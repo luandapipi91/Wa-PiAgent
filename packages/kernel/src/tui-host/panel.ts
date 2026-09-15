@@ -26,7 +26,7 @@ export interface PanelHostOptions<T> {
 	keybindings: KeybindingsManager;
 	/**
 	 * 拖选复制：接前端剪贴板（规格 §4.3 / §7.5）。
-	 * 缺省时用「返回 false」的安全默认——剪贴板通道未接入时不假装复制成功。
+	 * 缺省时构造里**不传**该字段（而不是传一个返回 false 的 no-op）——见构造处注释。
 	 */
 	copySelection?: (text: string) => Promise<boolean>;
 	/** 点击 OSC 8 超链接：接系统浏览器（规格 §4.3 / §7.5）。缺省时为 no-op */
@@ -82,8 +82,13 @@ export function createPanelHost<T>(opts: PanelHostOptions<T>): PanelHost<T> {
 	const tui = new TuiAltScreen(terminal, false, undefined, {
 		mouse: true,
 		wheelScrollLines: 3,
-		copySelection: opts.copySelection ?? (async () => false),
 		openUrl: opts.openUrl ?? (() => {}),
+		// copySelection 只在调用方显式提供时才传。pi-tui 的 copyTextToClipboard 语义是
+		// 「未提供（字段为假值）才回退到 OSC 52 写」（规格 §7.5：「若未提供 copySelection，
+		// TuiAltScreen 会回退到 OSC 52 写，前端可用 \x1b]52;... 解析兜底」）。
+		// 因此缺省传一个返回 false 的 no-op 会把这层兜底关掉——拖选复制会直接落到
+		// 「Copy failed」而无论如何都写不出 OSC 52，所以这里必须留 undefined。
+		...(opts.copySelection ? { copySelection: opts.copySelection } : {}),
 	});
 
 	let settled = false;
