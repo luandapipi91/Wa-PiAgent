@@ -19,13 +19,16 @@ import {
 	type ClipboardEvent as ReactClipboardEvent,
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
-	type WheelEvent as ReactWheelEvent,
 } from "react";
 import type { ExtensionTuiSnapshotResult } from "@wa-pi/shared";
 import { useTuiPanelStore } from "../store/tui-panel";
 import { useTranslation } from "../i18n/useTranslation";
 import { api } from "../api-client";
-import { encodeKey, encodeMouse, encodePaste, encodeWheel } from "../lib/tui-keys";
+import {
+	encodeKey,
+	encodeMouse,
+	encodePaste,
+} from "../lib/tui-keys";
 import { AnsiText } from "./ui/AnsiText";
 
 /** 展开态默认尺寸（px），与规格 §7.1 一致 */
@@ -104,7 +107,11 @@ export function reportTuiSize(
  * 用兜底常量而不是面板的实测格宽：widget dock 是另一处布局（字号跟 `--font-scale`），
  * 要准就得在它自己那儿量——超出本次范围，属已知局限。
  */
-export function reportWidgetCols(sessionId: string, widgetKey: string, width: number): void {
+export function reportWidgetCols(
+	sessionId: string,
+	widgetKey: string,
+	width: number,
+): void {
 	const cols = colsFromWidth(width);
 	if (cols < 1) return;
 	void api
@@ -121,8 +128,14 @@ export function reportWidgetCols(sessionId: string, widgetKey: string, width: nu
 function clampPanelRect(r: PanelRect): PanelRect {
 	const vw = Number.isFinite(window.innerWidth) ? window.innerWidth : 0;
 	const vh = Number.isFinite(window.innerHeight) ? window.innerHeight : 0;
-	const w = Math.max(MIN_SIZE.width, Math.min(Math.max(vw, MIN_SIZE.width), r.w));
-	const h = Math.max(MIN_SIZE.height, Math.min(Math.max(vh, MIN_SIZE.height), r.h));
+	const w = Math.max(
+		MIN_SIZE.width,
+		Math.min(Math.max(vw, MIN_SIZE.width), r.w),
+	);
+	const h = Math.max(
+		MIN_SIZE.height,
+		Math.min(Math.max(vh, MIN_SIZE.height), r.h),
+	);
 	const cl = (v: number, max: number) =>
 		Math.max(0, Math.min(Math.max(0, max), Number.isFinite(v) ? v : 0));
 	return { w, h, x: cl(r.x, vw - w), y: cl(r.y, vh - h) };
@@ -343,7 +356,9 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		const before =
 			useTuiPanelStore.getState().bySession[sessionId]?.panelId ?? null;
 		void api
-			.get(`/api/extensions/tui-snapshot?sessionId=${encodeURIComponent(sessionId)}`)
+			.get(
+				`/api/extensions/tui-snapshot?sessionId=${encodeURIComponent(sessionId)}`,
+			)
 			.then((body) => {
 				if (cancelled) return;
 				// 请求在途时面板变了（SSE open 与慢到的快照竞态）：保留新面板，
@@ -505,16 +520,12 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		// 焦点仍要显式收回：拖动把手等处会 preventDefault，这里保持一致，避免点过别处后面板丢键
 		focusPanel();
 		pressRef.current = { button: e.button };
-		const { col, row } = cellAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
+		const { col, row } = cellAt(
+			e.currentTarget as HTMLElement,
+			e.clientX,
+			e.clientY,
+		);
 		post({ type: "mouse", data: encodeMouse("down", e.button, col, row) });
-	};
-
-	const onBodyWheel = (e: ReactWheelEvent) => {
-		const { col, row } = cellAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-		post({
-			type: "mouse",
-			data: encodeWheel(e.deltaY < 0 ? "up" : "down", col, row),
-		});
 	};
 
 	const onKeyDown = (e: ReactKeyboardEvent) => {
@@ -618,11 +629,15 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				<div
 					ref={bodyRef}
 					data-testid="tui-panel-body"
-					className="relative flex-1 overflow-hidden text-[12px]"
+					// 纵向必须可滚：pi 侧取的是整帧快照（不按可视行数裁剪），长面板
+					// （如 pi-goal-x 的提案全文 40+ 行）此前被 overflow-hidden 静默裁掉，
+					// 用户既看不到也滚不到。横向仍裁，否则长行会把列对齐撑破。
+					className="relative flex-1 overflow-y-auto overflow-x-hidden text-[12px]"
 					// user-select: text：面板文本要能选中复制（祖先若设了 user-select: none，这里覆盖回来）
 					style={{ color: "#d2d2de", userSelect: "text" }}
 					onMouseDown={onBodyMouseDown}
-					onWheel={onBodyWheel}
+					// 滚轮不再转发给插件，改为滚动本容器：插件视口的变化不会体现在整帧快照里，
+					// 转发等于「滚了没反应」；点击与拖拽仍照旧转发（插件的鼠标选择交互）。
 					onContextMenu={(e) => e.preventDefault()}
 				>
 					{panel.lines.map((line, i) => (

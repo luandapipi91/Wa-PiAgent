@@ -2,7 +2,13 @@
 // 覆盖：三态渲染与切换、ANSI 属性、OSC 8 链接、光标、键盘/粘贴/鼠标/滚轮上报、
 // 尺寸上报与 NaN 守卫、快照补发（成功/空/失败/竞态）、窗口拖动与缩放。
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import type { ExtensionTuiSnapshotResult } from "@wa-pi/shared";
 import { useTuiPanelStore } from "../store/tui-panel";
 import { encodeMouse, encodeWheel } from "../lib/tui-keys";
@@ -134,7 +140,12 @@ function stubPanelLayout(headerHeight: number) {
 		const isBody = this.getAttribute?.("data-testid") === "tui-panel-body";
 		return domRect(
 			isBody
-				? { left: 0, top: headerHeight, width: w, height: Math.max(0, h - headerHeight) }
+				? {
+						left: 0,
+						top: headerHeight,
+						width: w,
+						height: Math.max(0, h - headerHeight),
+					}
 				: { left: 0, top: 0, width: w, height: h },
 		);
 	};
@@ -155,7 +166,9 @@ beforeEach(() => {
 			body: init?.body ? JSON.parse(String(init.body)) : undefined,
 		});
 		if (String(url).includes("tui-snapshot")) {
-			return snapshotDeferred ? snapshotDeferred.promise : new Promise<Response>(() => {});
+			return snapshotDeferred
+				? snapshotDeferred.promise
+				: new Promise<Response>(() => {});
 		}
 		if (tuiInputFails) return new Response("boom", { status: 500 });
 		return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -265,7 +278,9 @@ describe("TuiPanel 三态切换", () => {
 		// 「—」收起后回到上次收起级别（首次为 badge）也是 badge：再深一层用「收成胶囊」
 		fireEvent.click(screen.getByTitle("收成胶囊"));
 		expect(useTuiPanelStore.getState().bySession.s1!.mode).toBe("pill");
-		expect(screen.getByTestId("tui-panel-pill").textContent).toContain("pi-goal-x");
+		expect(screen.getByTestId("tui-panel-pill").textContent).toContain(
+			"pi-goal-x",
+		);
 		fireEvent.click(screen.getByTestId("tui-panel-pill"));
 		expect(useTuiPanelStore.getState().bySession.s1!.mode).toBe("expanded");
 	});
@@ -344,7 +359,11 @@ describe("TuiPanel 鼠标上报", () => {
 		stubRects({ width: 720, height: 388 });
 		render(<TuiPanel sessionId="s1" />);
 		const el = body();
-		fireEvent.mouseDown(el, { clientX: atCol(5), clientY: 2 * CELL.height, button: 0 });
+		fireEvent.mouseDown(el, {
+			clientX: atCol(5),
+			clientY: 2 * CELL.height,
+			button: 0,
+		});
 		fireEvent.mouseUp(window, { clientX: atCol(5), clientY: 2 * CELL.height });
 
 		expect(tuiInputCalls("mouse").map((c) => c.body.data)).toEqual([
@@ -372,6 +391,27 @@ describe("TuiPanel 鼠标上报", () => {
 			encodeMouse("up", 0, 6, 2),
 		]);
 		expect(mouse).not.toContain(encodeMouse("drag", 0, 6, 2));
+	});
+
+	/**
+	 * 长帧必须能滚到：pi 侧取的是**整帧快照**（不按可视行数裁剪），所以内容区一旦用
+	 * overflow-hidden，超出的几十行会被静默裁掉——用户既看不到也滚不到。
+	 * 真实场景：pi-goal-x 的提案确认面板（constraints/tasks/verification 全文 40+ 行）
+	 * 远超面板的 ~19 行。
+	 */
+	test("长帧超出面板高度时内容区可纵向滚动，且全部行都在 DOM 里", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		const lines = Array.from({ length: 60 }, (_, i) => `line-${i}`);
+		useTuiPanelStore.getState().setFrame("s1", "p1", lines, null);
+		stubRects({ width: 720, height: 388 });
+		render(<TuiPanel sessionId="s1" />);
+
+		const el = body();
+		// 纵向可滚（class 断言，与仓库其他组件测同口径：happy-dom 无真实 CSS 布局）
+		expect(el.className).toContain("overflow-y-auto");
+		// 不裁剪帧内容：首行与末行都在 DOM 里，滚动即可到达
+		expect(screen.getByText("line-0")).toBeTruthy();
+		expect(screen.getByText("line-59")).toBeTruthy();
 	});
 
 	/**
@@ -406,22 +446,30 @@ describe("TuiPanel 鼠标上报", () => {
 	 * 才能验证「事件坐标 → 终端列行」的换算。
 	 */
 	const wheelAt = (el: HTMLElement, clientX: number, deltaY: number) => {
-		const ev = new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true });
+		const ev = new WheelEvent("wheel", {
+			deltaY,
+			bubbles: true,
+			cancelable: true,
+		});
 		Object.defineProperty(ev, "clientX", { value: clientX });
 		Object.defineProperty(ev, "clientY", { value: 0 });
 		fireEvent(el, ev);
 	};
 
-	test("滚轮 → SGR 滚轮序列（上为 64）", () => {
+	/**
+	 * 滚轮改为滚动面板内容本身，不再转发给插件。
+	 *
+	 * 真实缺陷（用户实测）：pi 侧取的是**整帧快照**（不按可视行数裁剪），插件的视口
+	 * 滚动不会体现在帧里——转发出去等于「滚了没反应」，还会与本地滚动打架。
+	 * 内容区必须是 overflow-y-auto，长帧要能滚到最后一行。
+	 */
+	test("滚轮滚动面板内容，不再产出 mouse 上报", () => {
 		useTuiPanelStore.getState().open("s1", META);
 		stubRects({ width: 720, height: 388 });
 		render(<TuiPanel sessionId="s1" />);
 		wheelAt(body(), atCol(5), -100);
 		wheelAt(body(), atCol(5), 100);
-		expect(tuiInputCalls("mouse").map((c) => c.body.data)).toEqual([
-			encodeWheel("up", 6, 1),
-			encodeWheel("down", 6, 1),
-		]);
+		expect(tuiInputCalls("mouse")).toEqual([]);
 	});
 
 	test("坐标缺失（非有限值）兜底为第 1 列 1 行，不把 NaN 发出去", () => {
@@ -516,7 +564,9 @@ describe("TuiPanel 格宽实测", () => {
 	test("含中文的帧行：光标列位置按实测格宽换算（全角占 2 格）", () => {
 		useTuiPanelStore.getState().open("s1", META);
 		// 「▸ 中文」= 1 + 1 + 2 + 2 = 6 格，col 5 落在「文」上（按字符个数只有 4）
-		useTuiPanelStore.getState().setFrame("s1", "p1", ["▸ 中文"], { row: 0, col: 5 });
+		useTuiPanelStore
+			.getState()
+			.setFrame("s1", "p1", ["▸ 中文"], { row: 0, col: 5 });
 		stubRects({ width: 800, height: 400 });
 		stubMetricProbe(MEASURED);
 		render(<TuiPanel sessionId="s1" />);
@@ -781,7 +831,12 @@ describe("TuiPanel 链接与挂件态的配合", () => {
 		useTuiPanelStore.getState().open("s1", META);
 		useTuiPanelStore
 			.getState()
-			.setFrame("s1", "p1", ["\u001b]8;;https://example.com\u0007文档\u001b]8;;\u0007"], null);
+			.setFrame(
+				"s1",
+				"p1",
+				["\u001b]8;;https://example.com\u0007文档\u001b]8;;\u0007"],
+				null,
+			);
 		render(<TuiPanel sessionId="s1" />);
 		fireEvent.click(screen.getByTitle("收起"));
 		fireEvent.click(screen.getByTestId("tui-panel-badge").querySelector("a")!);
