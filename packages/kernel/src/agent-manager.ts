@@ -107,6 +107,7 @@ import {
 	type UiResponseFields,
 } from "./rpc-client";
 import { extUiRegistry } from "./ext-ui-registry";
+import { tuiHostRegistry } from "./tui-host-registry";
 import { KernelError } from "./kernel-error";
 import {
 	composePrompt,
@@ -991,7 +992,7 @@ export class AgentManager {
 		//   运行时注册，wa-pi 不感知其工具名但默认全部放行）。
 		// - 显式配置 tools：白名单——config.tools ∪ MCP direct 工具名。
 		// 动态扩展走 pi 官方 packages 机制（settings.json packages + ~/.pi/agent/npm/），
-		// 不再经 -e；-e 只传内置（PKG_EXTENSIONS）+ provider-extension + wa-pi-bridge。
+		// 不再经 -e；-e 只传内置（PKG_EXTENSIONS）+ provider-extension + wa-pi-bridge + wa-pi-tui-host。
 		const extensionPaths = buildAdditionalExtensionPaths();
 
 		const restricted = !!config?.tools?.length;
@@ -1776,6 +1777,9 @@ export class AgentManager {
 		// 永远不返回（进程已死无实际阻塞，但 registry 条目会泄漏）
 		extUiRegistry.cancelAllForSession(sessionId);
 		unregisterBridgeSession(sessionId);
+		// tui-host 面板状态（帧缓存 + 输入队列）随会话销毁清掉：否则同一 sessionId
+		// 重建/恢复时会补发已死进程的旧帧与陈旧输入
+		tuiHostRegistry.clearSession(sessionId);
 		const handle = this.sessions.get(sessionId);
 		if (handle) {
 			handle.disposed = true;

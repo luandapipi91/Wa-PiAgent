@@ -591,8 +591,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "rpc") return;
-		const ui = ctx.ui;
+		const ui = ctx.ui as (typeof ctx.ui & { __waPiTuiHost?: boolean }) | undefined;
 		if (!ui || typeof ui.custom !== "function") return;
+		// 已被 wa-pi-tui-host 接管：它提供真正的面板渲染，兜底必须让位，
+		// 否则两个 session_start 钩子的先后顺序会决定哪个生效（前者会被后者覆盖）。
+		if (ui.__waPiTuiHost === true) return;
 		const msg = "此命令需要终端全屏面板（TUI），在当前图形界面模式下不支持";
 		// 先 notify（前端 extension_notify 已对接：聊天窗口中间居中显示，30s 自动消失），
 		// 再同步 throw 解除 Promise 挂起。throw 带 [custom-unsupported] 标记：

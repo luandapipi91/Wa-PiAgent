@@ -10,6 +10,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
+import { tuiHostRegistry } from "../src/tui-host-registry";
 import { fakeClientFactory, FakeSessionClient } from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import type { RpcClientOpts, RpcClient } from "../src/rpc-client";
@@ -92,4 +93,25 @@ test("reapIdleSessions 不回收阈值内的会话", async () => {
   expect(reaped).toEqual([]);
   expect(fakes[0].alive).toBe(true);
   expect((am as any).sessions.has(session.id)).toBe(true);
+});
+
+// 会话销毁路径要清 tui-host 面板状态：不清则同一 sessionId 重建/恢复时会补发已死进程的旧帧与陈旧输入
+test("回收会话时清空该会话的 tui-host 面板与输入队列", async () => {
+  const { session, am } = await setup();
+  const handle = (am as any).sessions.get(session.id) as any;
+  handle.busy = false;
+  handle.lastActiveAt = Date.now() - 10_000;
+  // 用 widget 面板建档：不带 SSE 广播（本用例只验证 clearSession 接线，不依赖广播出口）
+  tuiHostRegistry.applyFrame(session.id, {
+    type: "open",
+    panelId: "w:goal",
+    kind: "widget",
+    widgetKey: "goal",
+  });
+  tuiHostRegistry.enqueueInput({ sessionId: session.id, panelId: "p1", type: "key", data: "a" });
+  expect(tuiHostRegistry.sessionIds()).toContain(session.id);
+
+  await am.reapIdleSessions(5_000);
+
+  expect(tuiHostRegistry.sessionIds()).not.toContain(session.id);
 });

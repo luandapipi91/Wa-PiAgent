@@ -1401,3 +1401,87 @@ test("排队队列：引导文字超长时限高滚动（不占满会话视野�
 	// 超长内容仍完整渲染在滚动容器内（可见而非丢失）
 	expect(scroll.textContent).toContain("超长引导文字");
 });
+
+// === 扩展 TUI 面板（ctx.ui.custom）与聊天列的联动 ===
+const { useTuiPanelStore } = await import("../src/store/tui-panel");
+
+// happy-dom 无布局：getBoundingClientRect 全为 0，宽度上报需手工桩实测宽度
+function stubDockWidth(width: number) {
+	const original = HTMLElement.prototype.getBoundingClientRect;
+	HTMLElement.prototype.getBoundingClientRect = function () {
+		return {
+			left: 0,
+			top: 0,
+			width,
+			height: 0,
+			right: width,
+			bottom: 0,
+			x: 0,
+			y: 0,
+			toJSON: () => ({}),
+		} as DOMRect;
+	};
+	return () => {
+		HTMLElement.prototype.getBoundingClientRect = original;
+	};
+}
+
+test("TUI 面板展开态禁用 Composer，收起后恢复可用", async () => {
+	await renderSessionView("s1");
+	const textbox = () =>
+		screen.getByTestId("composer-input").querySelector('[role="textbox"]')! as HTMLElement;
+	expect(textbox().isContentEditable).toBe(true);
+
+	// 展开态：键盘锁给面板，输入框不可编辑
+	act(() => {
+		useTuiPanelStore.getState().open("s1", {
+			panelId: "p1",
+			kind: "custom",
+			title: "pi-goal-x",
+			cols: 85,
+			rows: 24,
+			pending: 1,
+		});
+	});
+	await act(async () => {});
+	expect(textbox().isContentEditable).toBe(false);
+
+	// 收起态：恢复可用
+	act(() => {
+		useTuiPanelStore.getState().collapse("s1");
+	});
+	expect(textbox().isContentEditable).toBe(true);
+	act(() => {
+		useTuiPanelStore.getState().close("s1");
+	});
+});
+
+test("widget 宽度按容器实测宽度换算成列数上报 resize（panelId=w:<key>）", async () => {
+	const restore = stubDockWidth(720); // 720 / 7.2 = 100 列
+	try {
+		useSessionStore.setState({
+			extWidgetBySession: {
+				s1: { "pi-goal": { lines: ["目标"], placement: "aboveEditor" as const } },
+			},
+		});
+		await renderSessionView("s1");
+		await waitFor(() => {
+			expect(
+				apiCalls.some(
+					(c) =>
+						c.method === "post" &&
+						c.path === "/api/extensions/tui-input" &&
+						c.body?.panelId === "w:pi-goal" &&
+						c.body?.type === "resize" &&
+						c.body?.cols === 100 &&
+						c.body?.sessionId === "s1",
+				),
+			).toBe(true);
+		});
+	} finally {
+		restore();
+		act(() => {
+			useSessionStore.setState({ extWidgetBySession: {} });
+		});
+	}
+});

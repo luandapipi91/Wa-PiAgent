@@ -1,4 +1,10 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import {
+	applySgrCodes,
+	splitByCellWidth,
+	stripOsc,
+	type SgrAttrs,
+} from "../../lib/tui-ansi";
 
 // 16 色 foreground 映射（对齐 WaPi 语义色板，无对应时用近似 hex）
 const FG_16: Record<number, string> = {
@@ -43,40 +49,122 @@ function xterm256(n: number): string {
 }
 
 /**
- * 把带 ANSI SGR 颜色码的字符串解析为 ReactNode 数组。
- * 仅处理颜色（foreground/background），其他控制序列丢弃。
+ * 非颜色 SGR 属性 → inline style。无属性时返回 undefined，避免产生多余的 style 对象。
  */
-export function parseAnsiToNodes(text: string): ReactNode[] {
-  if (!text.includes("\x1b[")) return [text];
+function attrsToStyle(a: SgrAttrs): CSSProperties | undefined {
+  if (!a.bold && !a.dim && !a.italic && !a.underline && !a.inverse) return undefined;
+  return {
+    ...(a.bold ? { fontWeight: 600 } : {}),
+    ...(a.dim ? { opacity: 0.65 } : {}),
+    ...(a.italic ? { fontStyle: "italic" } : {}),
+    ...(a.underline ? { textDecoration: "underline" } : {}),
+    ...(a.inverse ? { filter: "invert(1)" } : {}),
+  };
+}
+
+export interface ParseAnsiOptions {
+  /**
+   * 是否把非颜色 SGR 属性（粗体/暗/斜体/下划线/反显）渲染成 inline style。
+   *
+   * 默认 false，保持本函数的历史契约：只解析颜色，其余 SGR 一律丢弃
+   * （`tests/ansi-text.test.ts` 的「非法/不支持的序列被丢弃」断言依赖此行为）。
+   * 面板渲染路径（`AnsiText` 组件）传 true。
+   */
+  attrs?: boolean;
+  /**
+   * 一格宽度（px）；传入时按终端语义把**全角字符渲染成 2 格宽**：每个全角字符包一个
+   * 固定宽度的行内块（宽 = 2 × cellWidth）。浏览器里 CJK 的前进宽由回退字体决定
+   * （≈ 1.67 格 ≠ 终端的 2 格），不校正会让含中文的帧行整体错位——详见 `isWideChar`。
+   *
+   * 不传则完全保持原有输出（其它消费者不受影响）：没有全角字符的行也只多一次扫描。
+   */
+  cellWidth?: number;
+}
+
+/**
+ * 按终端列宽把纯文本切成 ReactNode：全角字符各占一格**宽 2 格**的行内块，其余原样输出。
+ * 文本里没有全角字符时返回单个字符串（保持旧输出，不产生多余节点与换行影响）。
+ * `nextKey` 由调用方提供，与其它节点共用一套 key。
+ */
+function cellNodes(
+  text: string,
+  cellWidth: number,
+  nextKey: () => number,
+): ReactNode[] {
+  const runs = splitByCellWidth(text);
+  if (runs.length === 1 && !runs[0].wide) return [text];
+  return runs.flatMap<ReactNode>((run) =>
+    run.wide
+      ? [...run.text].map((ch) => (
+          <span
+            key={nextKey()}
+            data-tui-wide="2"
+            style={{
+              display: "inline-block",
+              width: 2 * cellWidth,
+              // 行内块（原子行内级）不继承祖先的 text-decoration：显式 inherit，
+              // 下划线/删除线（SGR 4/9、链接的 underline）才能照常画在汉字下面
+              textDecoration: "inherit",
+            }}
+          >
+            {ch}
+          </span>
+        ))
+      : [run.text],
+  );
+}
+
+/**
+ * 把带 ANSI SGR 码的字符串解析为 ReactNode 数组。
+ *
+ * 处理颜色（foreground/background）与可选的 `attrs`；非 SGR 控制序列一律丢弃，
+ * OSC 序列先由 `stripOsc` 统一剥掉（OSC 8 的可见文本保留，标记丢弃）。
+ */
+export function parseAnsiToNodes(text: string, options: ParseAnsiOptions = {}): ReactNode[] {
+  const withAttrs = options.attrs === true;
+  const cellWidth = options.cellWidth;
+  const clean = stripOsc(text);
+  let key = 0;
+  const nextKey = () => key++;
+  if (!clean.includes("\x1b[")) {
+    return cellWidth ? cellNodes(clean, cellWidth, nextKey) : [clean];
+  }
 
   const nodes: ReactNode[] = [];
   let fg: string | null = null;
   let bg: string | null = null;
+  let attrs: SgrAttrs = {};
   let buffer = "";
-  let key = 0;
 
   const flush = () => {
     if (!buffer) return;
-    if (fg || bg) {
+    const attrStyle = withAttrs ? attrsToStyle(attrs) : undefined;
+    const children: ReactNode = cellWidth
+      ? cellNodes(buffer, cellWidth, nextKey)
+      : buffer;
+    if (fg || bg || attrStyle) {
       nodes.push(
-        <span key={key++} style={{ color: fg ?? undefined, background: bg ?? undefined }}>
-          {buffer}
+        <span key={nextKey()} style={{ color: fg ?? undefined, background: bg ?? undefined, ...attrStyle }}>
+          {children}
         </span>,
       );
-    } else {
+    } else if (typeof children === "string") {
       // 无样式的相邻纯文本合并为一个字符串节点，避免产生冗余片段
       const last = nodes[nodes.length - 1];
       if (typeof last === "string") {
-        nodes[nodes.length - 1] = last + buffer;
+        nodes[nodes.length - 1] = last + children;
       } else {
-        nodes.push(buffer);
+        nodes.push(children);
       }
+    } else {
+      // 已按格宽分段的节点各自带 key，直接平铺（分段本身就是分段，不再合并）
+      nodes.push(...children);
     }
     buffer = "";
   };
 
   // 按 \x1b[ 切分，逐段解析 SGR 序列
-  const parts = text.split(/(\x1b\[[0-9;?]*[A-Za-z])/);
+  const parts = clean.split(/(\x1b\[[0-9;?]*[A-Za-z])/);
   for (const part of parts) {
     if (!part) continue;
     if (part.startsWith("\x1b[")) {
@@ -87,6 +175,9 @@ export function parseAnsiToNodes(text: string): ReactNode[] {
       if (cmd !== "m") continue; // 只处理 SGR
 
       const codes = params.split(";").map((s) => parseInt(s, 10));
+      // 非颜色属性交给 tui-ansi 维护（同一份属性码语义，避免两处重复实现）。
+      // 注：这里沿用颜色分支的解析习惯——`ESC[m`（空参数）是空码列表，不做重置。
+      if (withAttrs) attrs = applySgrCodes(attrs, codes.filter((n) => Number.isFinite(n)));
       for (let i = 0; i < codes.length; i++) {
         const code = codes[i];
         if (Number.isNaN(code)) continue;
@@ -121,6 +212,13 @@ export function parseAnsiToNodes(text: string): ReactNode[] {
   return nodes;
 }
 
-export function AnsiText({ text }: { text: string }) {
-  return <>{parseAnsiToNodes(text)}</>;
+export function AnsiText({
+  text,
+  cellWidth,
+}: {
+  text: string;
+  /** 见 `ParseAnsiOptions.cellWidth`：面板帧传实测格宽让全角字符占 2 格 */
+  cellWidth?: number;
+}) {
+  return <>{parseAnsiToNodes(text, { attrs: true, cellWidth })}</>;
 }

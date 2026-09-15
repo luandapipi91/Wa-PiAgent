@@ -10,6 +10,7 @@ import {
   KERNEL_ASSET_FILES,
   kernelBinaryName,
 } from "../scripts/compile-binary";
+import { TUI_HOST_EXTENSION_FILES } from "../src/tui-host-deploy";
 import { basename, join } from "node:path";
 
 test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/--asset/--outfile", () => {
@@ -57,8 +58,29 @@ test("KERNEL_ASSET_FILES: 全部资产真实存在且包含 preview-inspect.js",
   // 读取，bun --compile 不会自动打包该引用，漏加则打包版元素选中/高亮失效——回归护栏）。
   const names = KERNEL_ASSET_FILES.map((f) => basename(f));
   expect(names).toContain("preview-inspect.js");
-  expect(KERNEL_ASSET_FILES).toHaveLength(4);
+  // tui-host 扩展六文件必须嵌入：入口 + 入口相对 import 的 tui-host/ 5 模块，
+  // 缺一即打包版部署不完整 → 图形面板挂起（tui-host-deploy.ts 从 assets/ 读取）。
+  for (const name of [
+    "wa-pi-tui-host.extension.ts",
+    "terminal.ts",
+    "frame.ts",
+    "panel.ts",
+    "widget.ts",
+    "host.ts",
+  ]) {
+    expect(names).toContain(name);
+  }
+  expect(KERNEL_ASSET_FILES).toHaveLength(10);
   for (const f of KERNEL_ASSET_FILES) expect(existsSync(f)).toBe(true);
+});
+
+test("KERNEL_ASSET_FILES 覆盖 tui-host 部署清单全部源文件（防清单漂移：打包版部署缺文件）", () => {
+  // 两处清单必须同步：tui-host-deploy.ts 的源文件清单（dev 下直接读源码）
+  // 与 KERNEL_ASSET_FILES（packaged 下唯一来源）。漏一个 → 打包版 GENERATED_DIR 缺文件。
+  const assetNames = new Set(KERNEL_ASSET_FILES.map((f) => basename(f)));
+  for (const [source] of TUI_HOST_EXTENSION_FILES) {
+    expect(assetNames).toContain(basename(source));
+  }
 });
 
 test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名挂载）且资产平铺", () => {
@@ -69,9 +91,15 @@ test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名
     expect(basename(dir)).toBe("assets");
     const expected = [
       "file-snapshot.ts",
+      "frame.ts",
+      "host.ts",
+      "panel.ts",
       "preview-inspect.js",
+      "terminal.ts",
       "tool-schemas.ts",
       "wa-pi-bridge.extension.ts",
+      "wa-pi-tui-host.extension.ts",
+      "widget.ts",
     ].sort();
     expect(readdirSync(dir).sort()).toEqual(expected);
   } finally {
