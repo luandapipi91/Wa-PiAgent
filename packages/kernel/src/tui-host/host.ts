@@ -374,6 +374,8 @@ export interface InputChannel {
 
 export interface FrameStreamOptions extends BridgeStreamOptions {
 	sink: FrameSink;
+	/** 空闲期心跳间隔（默认 15s，规格 §5.1），便于单测注入短间隔 */
+	heartbeatMs?: number;
 }
 
 export interface FrameStream {
@@ -386,6 +388,12 @@ export interface FrameStream {
 const DEFAULT_RETRY_MS = 1000;
 /** 连续失败的重连间隔上限：token 失效（401）等场景不至于无限 1s 轮询 */
 const DEFAULT_MAX_RETRY_MS = 5000;
+/**
+ * 空闲期心跳间隔（规格 §5.1，沿用 bridge-registry 的 handleBridgeStream 参数）：
+ * kernel 的 HTTP 服务设了 idleTimeout=255s，静默的长连接会被定时掐断；
+ * 面板静止（画面无变化，没有业务帧可发）时靠 ping 帧保活。
+ */
+const DEFAULT_HEARTBEAT_MS = 15_000;
 
 /** 指数退避：第 failures 次连续失败后的等待时长（base × 2^(failures-1)，封顶 maxMs） */
 export function backoffDelay(failures: number, baseMs: number, maxMs: number): number {
@@ -476,6 +484,10 @@ function createRetryLoop(opts: {
  * 帧流（规格 §5.1）：长连接把 NDJSON 帧写给 kernel，首行是 {token,sessionId} 鉴权，
  * 之后每行一帧；响应要等本连接结束才回来，所以只 await 连接本身。
  *
+ * 空闲期按 DEFAULT_HEARTBEAT_MS 发一帧 {type:"ping"} 保活：kernel 侧 idleTimeout=255s
+ * 会掐断静默长连接，面板静止时没有业务帧，不发心跳就会被周期性断连重连（重连窗口还丢帧）。
+ * ping 无业务含义，kernel 的 applyFrame 静默忽略。
+ *
  * 断线期间的帧留在 sink 队列里（规格 §8），重连后 attach 会按序补发。
  */
 export function createFrameStream(opts: FrameStreamOptions): FrameStream {
@@ -489,6 +501,12 @@ export function createFrameStream(opts: FrameStreamOptions): FrameStream {
 		log: opts.log,
 		connect: () => {
 			let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+			let heartbeat: ReturnType<typeof setInterval> | null = null;
+			// 心跳只在本连接存活期间跑：连接结束或 stop 就停表，不向已断开的 sink 推 ping
+			const stopHeartbeat = () => {
+				if (heartbeat) clearInterval(heartbeat);
+				heartbeat = null;
+			};
 			const body = new ReadableStream<Uint8Array>({
 				start(c) {
 					controller = c;
@@ -503,17 +521,29 @@ export function createFrameStream(opts: FrameStreamOptions): FrameStream {
 					// 连接已关：本帧丢弃，重连后 attach 会补发随后入队的帧
 				}
 			});
+			// 经 sink 推 ping 而不是直写 controller：与业务帧共用同一条出口
+			heartbeat = setInterval(() => {
+				opts.sink.push({ type: "ping" });
+			}, opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS);
 			return {
 				// 优雅收尾：关掉请求体的写入端，已入队的帧（如 teardown 的 close）随流送达 kernel；
 				// 直接 abort 会把这些帧连同连接一起丢掉，前端会留下幽灵面板。
 				stop: () => {
+					stopHeartbeat();
+					// 先摘掉 sink 再关 body：body 关闭后推来的帧必须回到队列等下次 attach 补发，
+					// 否则会写进已关的 controller 被 catch 静默吞掉（reload 时 teardown 与下一个
+					// session_start 同轮次的话，这些帧就丢了）。已入 body 的帧不受影响。
+					opts.sink.detach();
 					try {
 						controller?.close();
 					} catch {
 						/* 已关闭 */
 					}
 				},
-				cleanup: () => opts.sink.detach(),
+				cleanup: () => {
+					stopHeartbeat();
+					opts.sink.detach();
+				},
 				run: async () => {
 					const res = await fetchImpl(`${opts.bridgeUrl}/bridge/tui-host/frames`, {
 						method: "POST",
