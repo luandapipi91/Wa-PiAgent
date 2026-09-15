@@ -6,6 +6,8 @@
 // 职责边界：本组件只负责「画 + 收输入」。
 // - 面板数据来自 store/tui-panel（帧由 SSE 的 extension_tui_frame 写入）；
 // - 生命周期归 kernel：✕ 只发 cancel，面板消失由 kernel 回推 close 事件驱动（规格 §5）；
+// - 复制路径：面板内容本来就是 DOM 文本，用户**拖选 + Cmd+C** 即可复制（浏览器原生选择），
+//   因此 body 上不阻止默认行为、也不向 TUI 转发拖拽序列（规格 §7.5 的偏离，见 onBodyMouseDown）；
 // - widget 面板不进本组件（走既有 extension_widget → ExtWidgetDock，规格 §6.4），
 //   只有它的宽度上报复用本文件的 CELL 常量与上报函数。
 import {
@@ -249,7 +251,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		moved: boolean;
 		last?: PanelRect;
 	} | null>(null);
-	// 鼠标上报的左键按下态：决定移动是 drag 还是忽略
+	// 鼠标上报的左键按下态：决定松开时要不要补一个 up（点击语义）
 	const pressRef = useRef<{ button: number } | null>(null);
 
 	/**
@@ -339,7 +341,8 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		reportPanelSize();
 	}, [panel?.mode, panel?.panelId, sessionId, reportPanelSize]);
 
-	// 鼠标左键在面板外松开时复位按下态（否则回到面板会误发 drag）
+	// 鼠标左键在面板外松开时复位按下态并补一个 up（否则回到面板会把上一次的 down 与
+	// 新一次的点按混成一次点击）
 	useEffect(() => {
 		const onUp = (e: MouseEvent) => {
 			const pressed = pressRef.current;
@@ -435,21 +438,21 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		};
 	};
 
+	/**
+	 * 面板 body 的鼠标按下。
+	 *
+	 * **刻意不 preventDefault**：面板帧就是普通 DOM 文本，浏览器原生选择 + Cmd+C 是复制路径
+	 * （规格 §7.5：`copySelection` 的宿主钩子被「浏览器原生选择」替代——OSC 52 兜底会经
+	 * `stripOsc` 与假 Terminal 的 `write()` 被丢掉，拖拽转发若还 preventDefault，两条复制路径
+	 * 就都不通）。同理不再上报 `drag` 序列（`encodeMouse("drag", …)`）：TUI 收到 drag 会走它
+	 * 自己的选择逻辑并打断原生选字。点击要用的 down/up 与滚轮仍照发——TUI 的选择/滚动靠它们。
+	 */
 	const onBodyMouseDown = (e: ReactMouseEvent) => {
-		// 终端式交互：不要浏览器的选字/拖拽默认行为
-		e.preventDefault();
-		// 但默认聚焦也被 preventDefault 吃掉了：显式把焦点还给面板（拖动把手同理）
+		// 焦点仍要显式收回：拖动把手等处会 preventDefault，这里保持一致，避免点过别处后面板丢键
 		focusPanel();
 		pressRef.current = { button: e.button };
 		const { col, row } = cellAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
 		post({ type: "mouse", data: encodeMouse("down", e.button, col, row) });
-	};
-
-	const onBodyMouseMove = (e: ReactMouseEvent) => {
-		const pressed = pressRef.current;
-		if (!pressed) return;
-		const { col, row } = cellAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-		post({ type: "mouse", data: encodeMouse("drag", pressed.button, col, row) });
 	};
 
 	const onBodyWheel = (e: ReactWheelEvent) => {
@@ -549,9 +552,9 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					ref={bodyRef}
 					data-testid="tui-panel-body"
 					className="relative flex-1 overflow-hidden text-[12px]"
-					style={{ color: "#d2d2de" }}
+					// user-select: text：面板文本要能选中复制（祖先若设了 user-select: none，这里覆盖回来）
+					style={{ color: "#d2d2de", userSelect: "text" }}
 					onMouseDown={onBodyMouseDown}
-					onMouseMove={onBodyMouseMove}
 					onWheel={onBodyWheel}
 					onContextMenu={(e) => e.preventDefault()}
 				>
