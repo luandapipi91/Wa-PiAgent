@@ -324,7 +324,9 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	const [cellWidth, setCellWidth] = useState(CELL.width);
 	// 首帧还没有 DOM 引用，只能按视口读回持久化值占位；挂载后由 useLayoutEffect
 	// 用真实容器尺寸重算（见下），所以这里传视口尺寸不影响最终结果。
-	const [rect, setRect] = useState<PanelRect>(() => loadPanelRect(viewportSize()));
+	const [rect, setRect] = useState<PanelRect>(() =>
+		loadPanelRect(viewportSize()),
+	);
 	/**
 	 * 定位上下文尺寸：渲染期要用它把挂件/胶囊的右缘锚到矩形的右缘
 	 * （right = 容器宽 − 矩形右缘），所以要有 state；ref 供拖动期同步读取。
@@ -565,11 +567,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	}, [onWindowMouseMove, reportPanelSize]);
 
 	const beginDrag = useCallback(
-		(
-			kind: "move" | "resize",
-			e: ReactMouseEvent,
-			anchor: "left" | "right",
-		) => {
+		(kind: "move" | "resize", e: ReactMouseEvent, anchor: "left" | "right") => {
 			e.preventDefault();
 			// preventDefault 也会吃掉默认聚焦：显式收回焦点，否则拖动后键盘锁静默失效
 			focusPanel();
