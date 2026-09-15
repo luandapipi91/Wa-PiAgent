@@ -11,7 +11,10 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { tuiHostRegistry } from "../src/tui-host-registry";
-import { fakeClientFactory, FakeSessionClient } from "./fixtures/fake-session-client";
+import {
+  fakeClientFactory,
+  FakeSessionClient,
+} from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import type { RpcClientOpts, RpcClient } from "../src/rpc-client";
 import { rmSync } from "node:fs";
@@ -24,7 +27,13 @@ beforeEach(() => {});
 afterEach(async () => {
   for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
   for (const f of tmpFiles.splice(0)) {
-    try { rmSync(f, { force: true, recursive: true }); } catch {}
+    // 测试收尾清理临时文件：删不掉不影响任何断言（文件本就可能是 never-created/已被删），
+    // 所以在 catch 里只记录一句原因、不向上抛。
+    try {
+      rmSync(f, { force: true, recursive: true });
+    } catch {
+      /* 清理失败可安全忽略：断言已跑完，残留临时文件不影响测试结果 */
+    }
   }
 });
 
@@ -33,9 +42,14 @@ async function setup() {
   const tmpFile = `/tmp/wa-pi-idle-reap-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
   tmpFiles.push(tmpFile);
   const projectStore = new ProjectStore(tmpFile);
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const project = await projectStore.createProject({
+    name: "测试",
+    cwd: "/tmp",
+  });
   const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "t",
+    projectId: project.id,
+    primaryAgent: "dev",
+    title: "t",
   });
   const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
@@ -108,7 +122,12 @@ test("回收会话时清空该会话的 tui-host 面板与输入队列", async (
     kind: "widget",
     widgetKey: "goal",
   });
-  tuiHostRegistry.enqueueInput({ sessionId: session.id, panelId: "p1", type: "key", data: "a" });
+  tuiHostRegistry.enqueueInput({
+    sessionId: session.id,
+    panelId: "p1",
+    type: "key",
+    data: "a",
+  });
   expect(tuiHostRegistry.sessionIds()).toContain(session.id);
 
   await am.reapIdleSessions(5_000);

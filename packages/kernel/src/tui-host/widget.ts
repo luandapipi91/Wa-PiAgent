@@ -38,10 +38,17 @@ function createDumbTui(onInvalidate: () => void): TUI {
 		removeChild: () => {},
 		addInputListener: () => () => {},
 		removeInputListener: () => {},
-		showOverlay: () => ({ hide: () => {}, setHidden: () => {}, isHidden: () => true }),
+		showOverlay: () => ({
+			hide: () => {},
+			setHidden: () => {},
+			isHidden: () => true,
+		}),
 		hideOverlay: () => {},
 		hasOverlay: () => false,
 	};
+	// SAFETY: 哑 TUI 只被组件当绘制信号口用（requestRender/invalidate 触发采样），焦点/子组件/
+	// 输入/浮层这几个成员补的是空实现；本宿主只取 render(width) 的结果、不跑真实渲染循环，
+	// 故 TUI 上未被实现的其余成员不会被访问（理由见上面「哑 TUI」段）。
 	return dumb as unknown as TUI;
 }
 
