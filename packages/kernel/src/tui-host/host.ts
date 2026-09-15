@@ -99,8 +99,8 @@ const WIDGET_SAMPLE_MS = 80;
 
 /**
  * overlay 降级时给插件的安全句柄：GUI 下 overlay 就是普通浮窗，隐藏/聚焦没有对应动作，
- * 全部 no-op。`isHidden`/`isFocused` 返回**面板当下真实的状态**（显示中、键盘锁在面板上），
- * 不假装一个「已隐藏」状态——插件据此跳过的渲染会被平白吞掉。
+ * 全部 no-op。`isHidden`/`isFocused` 报「面板在显示 / 持有交互」这两个当下真实的状态
+ * （降级后没有浮层隐藏态）——取值只影响插件内部的无副作用分支，因为一切变更都是 no-op。
  */
 const DEGRADED_OVERLAY_HANDLE: OverlayHandle = {
 	hide() {},

@@ -550,15 +550,19 @@ describe("TuiPanel 格宽实测", () => {
 		useTuiPanelStore.getState().open("s1", META);
 		useTuiPanelStore
 			.getState()
-			.setFrame("s1", "p1", ["\u001b[1m中文\u001b[0m"], null);
+			.setFrame("s1", "p1", ["\u001b[1;4m中文\u001b[0m"], null);
 		stubRects({ width: 800, height: 400 });
 		stubMetricProbe(MEASURED);
 		render(<TuiPanel sessionId="s1" />);
 		const box = body().querySelector<HTMLElement>("[data-tui-wide]")!;
 		expect(box.textContent).toBe("中");
 		expect(box.style.width).toBe(`${2 * MEASURED}px`);
-		// 粗体来自 SGR 1：外层片段仍带属性
-		expect(box.closest("span[style*=font-weight]")).toBeTruthy();
+		// 粗体/下划线来自 SGR 1;4：外层片段仍带属性
+		const styled = box.closest<HTMLElement>("span[style*=font-weight]")!;
+		expect(styled.style.fontWeight).toBe("600");
+		expect(styled.style.textDecoration).toBe("underline");
+		// 行内块不继承祖先的 text-decoration，必须显式 inherit 才能让下划线画到汉字下
+		expect(box.style.textDecoration).toBe("inherit");
 	});
 });
 

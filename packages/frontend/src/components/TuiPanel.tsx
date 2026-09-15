@@ -64,8 +64,8 @@ export function colsFromWidth(px: number, cellWidth = CELL.width): number {
 }
 
 /** 像素高度 → 终端行数（非有限值返回 0） */
-export function rowsFromHeight(px: number, cellHeight = CELL.height): number {
-	return Number.isFinite(px) ? Math.max(0, Math.floor(px / cellHeight)) : 0;
+export function rowsFromHeight(px: number): number {
+	return Number.isFinite(px) ? Math.max(0, Math.floor(px / CELL.height)) : 0;
 }
 
 /**
@@ -100,14 +100,12 @@ export function reportTuiSize(
  * widget 宽度上报（列数）：pi 的 setWidget 按列数排版，宽度不对正文会错乱换行。
  * panelId 用 `w:<widgetKey>`（kernel 侧的 widget panel id，规格 §6.4）；
  * widget 只吃列数，行数无关，故这里只发 cols。
+ *
+ * 用兜底常量而不是面板的实测格宽：widget dock 是另一处布局（字号跟 `--font-scale`），
+ * 要准就得在它自己那儿量——超出本次范围，属已知局限。
  */
-export function reportWidgetCols(
-	sessionId: string,
-	widgetKey: string,
-	width: number,
-	cellWidth = CELL.width,
-): void {
-	const cols = colsFromWidth(width, cellWidth);
+export function reportWidgetCols(sessionId: string, widgetKey: string, width: number): void {
+	const cols = colsFromWidth(width);
 	if (cols < 1) return;
 	void api
 		.post("/api/extensions/tui-input", {

@@ -98,8 +98,14 @@ function cellNodes(
       ? [...run.text].map((ch) => (
           <span
             key={nextKey()}
-            data-tui-wide="1"
-            style={{ display: "inline-block", width: 2 * cellWidth }}
+            data-tui-wide="2"
+            style={{
+              display: "inline-block",
+              width: 2 * cellWidth,
+              // 行内块（原子行内级）不继承祖先的 text-decoration：显式 inherit，
+              // 下划线/删除线（SGR 4/9、链接的 underline）才能照常画在汉字下面
+              textDecoration: "inherit",
+            }}
           >
             {ch}
           </span>
