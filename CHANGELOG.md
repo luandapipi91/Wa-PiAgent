@@ -1,3 +1,11 @@
+## 2026-09-15 — v0.3.22 发版（TUI 宿主功能 + 压缩守卫/扩展 pin/文件预览修复）
+
+- 版本：0.3.21 → 0.3.22。
+- 新增：扩展 TUI 宿主与三态面板（ctx.ui.custom / setWidget 图形化）。
+- 修复：文件预览大文本卡死（渲染上限 5000 行）；扩展 pin 漂移静默失效；长会话压缩失败死循环。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：kernel（tui-host/extension-manager/compaction-guard）、shared、frontend。
+
 ## 2026-09-15 — fix(frontend): 文件预览加渲染上限（修复打开几 MB 文本时卡死）
 
 - 问题：kernel 只拦 >5MB 的文件，≤5MB 的文本会**整份**送进渲染层；而 `FileViewer` 原先无行数上限、无虚拟化——全量 Prism 分词（实测 5MB ≈ 189 万 token，`tokenize` 单次 2.3s），且每个 token 一个 `<span>`、每行一个 `div`（`display:table`）⇒ 约 200 万 DOM 节点，渲染进程直接冻结（无报错，非死循环）。该限制阈值历史上从 512KB（7-28）放宽到 3MB、再到 5MB（8-30），放宽时**未同步给前端加渲染上限**，于是「几 MB 的日志/代码文件现在能打开，一打开就卡死」；>5MB 的仍会被 kernel 拦（实测 40MB 文本 0.67s 返回 `attachment.previewTooLarge`）。
