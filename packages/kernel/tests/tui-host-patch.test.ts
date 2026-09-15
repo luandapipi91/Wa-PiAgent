@@ -321,6 +321,46 @@ describe("createPanelBridge", () => {
 		bridge.disposeAll();
 	});
 
+	test("openCustom 传 onHandle：overlay 降级路径也照常回调一次安全句柄", async () => {
+		const { sink, frames } = collect();
+		const bridge = createPanelBridge({ sink });
+		type HandleProbe = {
+			hide(): void;
+			setHidden(hidden: boolean): void;
+			isHidden(): boolean;
+			focus(): void;
+			unfocus(): void;
+			isFocused(): boolean;
+			getBounds(): unknown;
+		};
+		const handles: HandleProbe[] = [];
+		const panel = bridge.openCustom(
+			() => makeComponent("panel").component,
+			{ overlay: true, onHandle: (h: unknown) => handles.push(h as HandleProbe) },
+			undefined,
+		);
+		await Bun.sleep(10);
+
+		// 规格 §4.3：onHandle 照常回调——拿不到句柄的插件会在自己的 hide() 上炸 TypeError
+		expect(handles).toHaveLength(1);
+		const handle = handles[0];
+		expect(() => {
+			handle.hide();
+			handle.setHidden(true);
+			handle.isHidden();
+			handle.focus();
+			handle.unfocus();
+			handle.isFocused();
+			handle.getBounds();
+		}).not.toThrow();
+
+		// overlay 本身降级为普通整屏面板（控制者裁定）：面板照常开着，且只回调一次
+		expect(frames().filter((f) => f.type === "open")).toHaveLength(1);
+		bridge.handleInput({ type: "cancel", panelId: frames()[0]?.panelId as string });
+		await expect(panel).resolves.toBeUndefined();
+		expect(handles).toHaveLength(1);
+	});
+
 	test("disposeAll（会话 teardown）：挂起面板以 cancelled 结算，widget 采样停止", async () => {
 		const { sink, frames } = collect();
 		const bridge = createPanelBridge({ sink });

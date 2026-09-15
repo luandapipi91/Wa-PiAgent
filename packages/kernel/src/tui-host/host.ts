@@ -10,6 +10,7 @@
 // 本目录会被原样复制到 GENERATED_DIR 供 pi 进程加载，因此只依赖 pi-tui /
 // pi-coding-agent 的类型（`import type` 擦除后无运行时代价）。
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type { OverlayHandle } from "@earendil-works/pi-tui";
 import { createPanelHost, type PanelHost } from "./panel.ts";
 import { createWidgetHost, type WidgetHost } from "./widget.ts";
 
@@ -95,6 +96,21 @@ const WIDGET_COLS = 80;
 const WIDGET_ROWS = 10;
 /** widget 的采样节奏，与 panel.ts 的 80ms 一致（采样是唯一的节流点，规格 §4.5） */
 const WIDGET_SAMPLE_MS = 80;
+
+/**
+ * overlay 降级时给插件的安全句柄：GUI 下 overlay 就是普通浮窗，隐藏/聚焦没有对应动作，
+ * 全部 no-op。`isHidden`/`isFocused` 返回**面板当下真实的状态**（显示中、键盘锁在面板上），
+ * 不假装一个「已隐藏」状态——插件据此跳过的渲染会被平白吞掉。
+ */
+const DEGRADED_OVERLAY_HANDLE: OverlayHandle = {
+	hide() {},
+	setHidden() {},
+	isHidden: () => false,
+	focus() {},
+	unfocus() {},
+	isFocused: () => true,
+	getBounds: () => undefined,
+};
 
 /**
  * 把 patchUiForTuiHost 的三个接管点落到真实宿主上：
@@ -197,15 +213,28 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 	};
 
 	return {
-		// options 只用于 widget 的 placement：`options.overlay === true`（覆盖式浮窗，规格 §4.3）
-		// 按控制者裁定**有意降级**为普通整屏面板——图形界面下 overlay 与普通浮窗呈现无差别，
-		// 因此不再做浮层语义（panel.ts 已预留 showOverlay 钩子，真要接时在那边改）。
-		openCustom: (factory, _options, _ctx) =>
-			new Promise<unknown>((resolve) => {
+		// options 只用于 widget 的 placement；custom 这边 `options.overlay === true`（覆盖式浮窗，
+		// 规格 §4.3）按控制者裁定**有意降级**为普通整屏面板——图形界面下 overlay 与普通浮窗
+		// 呈现无差别，因此不再做浮层语义（panel.ts 已预留 showOverlay 钩子，真要接时在那边改）。
+		// 但 `onHandle` 必须照常回调（规格 §4.3 原文）：同一个 custom 调用里的插件拿不到句柄，
+		// 后续 `handle.hide()` / `setHidden()` 就会抛 TypeError——降级的是浮层语义，不是回调契约。
+		openCustom: (factory, options, _ctx) => {
+			const onHandle = (
+				options as { onHandle?: (handle: OverlayHandle) => void } | undefined
+			)?.onHandle;
+			if (typeof onHandle === "function") {
+				try {
+					onHandle(DEGRADED_OVERLAY_HANDLE);
+				} catch {
+					/* 插件自己的回调异常不影响面板开启 */
+				}
+			}
+			return new Promise<unknown>((resolve) => {
 				const start = () => startPanel(factory, resolve);
 				if (active) waiting.push(start);
 				else start();
-			}),
+			});
+		},
 
 		openWidget: (key, factory, options, _ctx) => {
 			// 替换：旧的宿主与采样定时器先释放（规格 §4.4 的「组件被替换时 dispose」）
