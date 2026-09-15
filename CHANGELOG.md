@@ -1,3 +1,13 @@
+## 2026-09-15 — feat(kernel+frontend): 插件注册面冲突——安装后问 pi 要注册表，重复命令当场拦下
+
+- 背景：同时启用两个功能重复的插件（pi-goal-x 与 @narumitw/pi-goal 都注册 `goal` 命令）会让插件行为错乱。根因实测：pi 对命令重名**既不报错也不拦**——两者共存时 pi 给出 `goal:1`(pi-goal-x) / `goal:2`(@narumitw/pi-goal) 两份都要加载，谁生效取决于加载顺序；而 wa-pi 安装流程只校验「包名是否重复」。
+- 实现（运行时探测，不猜源码）：新增 `packages/kernel/src/extension-probe.ts` —— 装完插件后起一个临时 pi（`--no-session --offline`，读同一 agentDir 的 settings.json），用 `get_commands` 拿「命令 → 归属包」（复用 tui-command-filter 的 `attachPackageName`，并把 pi 的重名后缀 `名字:N` 归一化）。同一原始命令名归属 ≥2 个包、且涉及本次新装包 → 冲突。
+- 编排在 `ws-server` 的 `extension:install`：install 成功后探测；冲突则 `uninstall` 回滚本次安装 + 广播 `extension:changed`，再抛 `ext.commandConflict`（params: name/other/names）走既有 `extension:error` 链路，前端渲染「插件 A 与已安装的 B 都注册了命令 /goal，功能重复，请先卸载其中一个」。探测失败（pi 起不来 / 超时）返回 null → 放行，不阻断正常安装。
+- 方案取舍：最初版本用「静态扫插件源码提取 registerCommand/registerTool 名」+ 多级回溯，**已废弃**——命令名不在 package.json 里声明，扫源码只能正则猜写法，遇循环注册 / 字符串拼接 / 编译产物即漏判；pi 的运行时注册表才是权威数据源。工具名因 pi 未暴露清单 RPC 暂不纳入（pi 自身对 tool 冲突有 diagnostics）。
+- 测试（四层）：纯函数单测 4 例（冲突判定口径）；API 层 2 例（真实 HTTP + SSE 断言 `extension:error.code=ext.commandConflict` 与 params，走真实 pi 探测）；E2E 2 例（真实浏览器在设置→插件页装两个同名命令的本地插件，第二个被拦且界面给出可读提示；不重叠的两插件可共存）。
+- 验证：独立复现脚本实测——装 α 后探测到 `dbg-dup ← dbg-alpha`，装 β 后 `dbg-dup ← dbg-alpha,dbg-beta` → 冲突命中；用户机器上两个真插件共存时 pi 确实报告 `goal:1` / `goal:2` 双份归属。
+- 影响范围：packages/kernel/src/extension-probe.ts（新增）、packages/kernel/src/ws-server.ts、packages/kernel/tests/extension-probe.test.ts（新增）、packages/kernel/tests/ws-extension-conflict.test.ts（新增）、packages/frontend/e2e/extension-conflict.spec.ts（新增）、packages/frontend/src/i18n/locales/{zh,en}.ts。
+
 ## 2026-09-15 — fix(scripts): GitHub 镜像同步改为「只提交变化条目」（修 POST /git/trees 超时挂起）
 
 - 问题：`POST /git/trees` 把所有本地文件（1047 条）全量 upsert 进 tree 请求体，且 blob 存在性校验对每个文件各发一次 `GET /git/blobs/:sha`。实测该请求体在 GitHub 侧构树超时——返回 `504 We couldn't respond to your request in time`，重试 3 次仍失败，还出现过请求挂起（30 分钟无响应），镜像同步彻底跑不动；而镜像 main 停在 8/31 快照（当时条目更少才成功）。

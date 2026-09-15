@@ -1125,6 +1125,8 @@ const zh = {
 		"ext.notInstalled": "插件 {{name}} 未安装，请先安装",
 		"ext.upgradeUnsupported":
 			"{{source}} 来源的插件不支持自动升级，请卸载后重新安装",
+		"ext.commandConflict":
+			"插件 {{name}} 与已安装的 {{other}} 都注册了命令 {{names}}，功能重复，请先卸载其中一个",
 		"npm.installFailed": "插件安装失败，请检查网络或镜像源配置",
 		"npm.installVerifyFailed": "安装完成但未找到包 {{name}}，请重试",
 		"npm.uninstallFailed": "插件卸载失败",

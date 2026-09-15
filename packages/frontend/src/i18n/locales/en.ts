@@ -1190,6 +1190,8 @@ const en = {
 		"ext.notInstalled": "Package {{name}} is not installed. Install it first",
 		"ext.upgradeUnsupported":
 			"Packages from {{source}} do not support auto-upgrade. Reinstall after uninstalling",
+		"ext.commandConflict":
+			"Extension {{name}} and installed {{other}} both register command {{names}} — uninstall one of them first",
 		"npm.installFailed":
 			"Package installation failed. Check network or registry settings",
 		"npm.installVerifyFailed":

@@ -105,6 +105,7 @@ import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
 import { KernelError } from "./kernel-error";
+import { findConflictsFor, probeCommandPackages } from "./extension-probe";
 
 /**
  * 统一错误兑底：KernelError 转结构化载荷（code/params/detail），前端按
@@ -2635,7 +2636,39 @@ export class WSServer {
 				try {
 					const onProgress = (message: string) =>
 						reply({ type: "extension:progress", name: event.name, message });
-					await this.opts.extensionManager.install(event.name, onProgress);
+					const installed = await this.opts.extensionManager.install(
+						event.name,
+						onProgress,
+					);
+					// 注册面冲突校验：装完后直接用 pi 的运行时注册表判断（不猜源码）。pi 对重名
+					// 命令不拦、加 :1/:2 后缀双侧加载，两个功能重复的插件共存时命令归属取决于
+					// 加载顺序。冲突则回滚本次安装；探测失败返回 null → 放行（不阻断正常安装）。
+					const owners = await probeCommandPackages();
+					const conflicts = owners ? findConflictsFor(owners, installed.name) : [];
+					if (conflicts.length > 0) {
+						await this.opts.extensionManager
+							.uninstall(installed.name)
+							.catch(() => undefined);
+						this.opts.agentManager.markAllDirty();
+						const { packages } = await this.opts.extensionManager.list();
+						this.broadcast({ type: "extension:changed", packages });
+						const others = [
+							...new Set(
+								conflicts.flatMap((c) =>
+									c.packages.filter((p) => p !== installed.name),
+								),
+							),
+						];
+						throw new KernelError(
+							"ext.commandConflict",
+							{
+								name: installed.name,
+								other: others.join(" / "),
+								names: conflicts.map((c) => `/${c.name}`).join(" / "),
+							},
+							conflicts.map((c) => `/${c.name} ← ${c.packages.join(",")}`).join("; "),
+						);
+					}
 					this.opts.agentManager.markAllDirty();
 					const { packages } = await this.opts.extensionManager.list();
 					this.broadcast({ type: "extension:changed", packages });
