@@ -305,8 +305,6 @@ const en = {
 			unknownError: "unknown error",
 			copyImage: "Copy image",
 			copyPath: "Copy path",
-			truncated:
-				"Large file: showing the first {{shown}} lines ({{total}} total). Use “Open with default app” for the full content.",
 		},
 		toolCall: {
 			editNumber: "Edit {{index}}",

@@ -336,12 +336,56 @@ const PathBar = memo(function PathBar({ path }: { path: string }) {
 	);
 });
 
-/** 单次渲染的最大行数：超过就只渲染前 N 行。
+/** 虚拟滚动的块大小（行/块）与基准行高（行高实测后会修正）。
  *
- *  kernel 只拦 >5MB 的文件，≤5MB 的文本仍会整份送进来；而全量 Prism 分词后每个 token 一个
- *  <span>（5MB ≈ 190 万 token ≈ 200 万 DOM 节点，分词本身 2.3 秒）会冻结渲染进程。
- *  截断渲染 + 明确提示，与 kernel 的大小限制互补（复制全文仍用完整内容）。 */
-const MAX_RENDER_LINES = 5000;
+ *  kernel 只拦 >5MB 的文件，≤5MB 的文本会整份送进渲染层；若把整份文本交给高亮组件，
+ *  全量 Prism 分词 + 每 token 一个 <span>（5MB ≈ 190 万 token ≈ 200 万 DOM 节点，
+ *  分词本身 2.3 秒）会冻结渲染进程。截断能救性能但影响浏览，因此改为**块级虚拟滚动**：
+ *  只把可视区域内的块交给高亮组件渲染，内容保持完整、可滚动浏览全文。 */
+const VIRTUAL_CHUNK_LINES = 200;
+const DEFAULT_LINE_HEIGHT = 18;
+
+/** 计算可视窗口：返回要渲染的块区间与上下占位高度（纯函数，便于单测）。
+ *
+ *  占位用「未渲染行数 × 行高」，因此滚动条长度与全文一致；overscan 多渲染一屏外的块，
+ *  避免快速滚动时出现空白。 */
+export function computeChunkWindow(opts: {
+	scrollTop: number;
+	viewportHeight: number;
+	totalLines: number;
+	chunkLines: number;
+	lineHeight: number;
+	overscanChunks?: number;
+}): {
+	firstChunk: number;
+	lastChunk: number;
+	topSpacer: number;
+	bottomSpacer: number;
+	chunkHeight: number;
+} {
+	const chunkHeight = Math.max(1, opts.chunkLines * opts.lineHeight);
+	const totalChunks = Math.max(1, Math.ceil(opts.totalLines / opts.chunkLines));
+	const overscan = opts.overscanChunks ?? 1;
+	const viewport = Math.max(0, opts.viewportHeight);
+	const firstChunk = Math.max(
+		0,
+		Math.floor(opts.scrollTop / chunkHeight) - overscan,
+	);
+	const lastChunk = Math.min(
+		totalChunks - 1,
+		Math.floor((opts.scrollTop + viewport) / chunkHeight) + overscan,
+	);
+	const topSpacer = firstChunk * chunkHeight;
+	const renderedEndLine = Math.min(
+		opts.totalLines,
+		(lastChunk + 1) * opts.chunkLines,
+	);
+	const bottomSpacer = Math.max(
+		0,
+		(opts.totalLines - renderedEndLine) * opts.lineHeight,
+	);
+	return { firstChunk, lastChunk, topSpacer, bottomSpacer, chunkHeight };
+}
 
 export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	const [content, setContent] = useState<string | null>(null);
@@ -432,16 +476,47 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 
 	const displayPath = resolvedPath ?? path;
 
-	// 渲染上限：只把前 MAX_RENDER_LINES 行交给高亮组件，其余截断（提示中给出真实总行数）。
-	// 必须放在组件体（不能放进 useEffect），JSX 里要用到这三个值。
-	const totalLines = content ? content.split("\n").length : 0;
-	const isTruncated = totalLines > MAX_RENDER_LINES;
-	const renderedCode = isTruncated
-		? content!.split("\n").slice(0, MAX_RENDER_LINES).join("\n")
-		: (content ?? "");
+	// 虚拟滚动：按块切分全文，只把可视块交给高亮组件（必须放在组件体，JSX 要用）
+	const allLines = useMemo(
+		() => (content === null ? [] : content.split("\n")),
+		[content],
+	);
+	const [scrollTop, setScrollTop] = useState(0);
+	const [viewportHeight, setViewportHeight] = useState(0);
+	const [lineHeight, setLineHeight] = useState(DEFAULT_LINE_HEIGHT);
+
+	// 测量视口高度与实际行高（行高随 --font-scale 缩放，实测后修正以保证滚动位置准确）
+	useEffect(() => {
+		const el = bodyRef.current;
+		if (!el) return;
+		const measure = () => {
+			setViewportHeight(el.clientHeight);
+			const probe = el.querySelector<HTMLElement>("[data-line]");
+			const h = probe?.offsetHeight ?? 0;
+			if (h > 0) setLineHeight(h);
+		};
+		measure();
+		if (typeof ResizeObserver === "undefined") return;
+		const ro = new ResizeObserver(measure);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [content]);
+
+	const chunkWindow = computeChunkWindow({
+		scrollTop,
+		// 首帧/无测量环境（如测试）拿不到真实高度时用兜底值，保证首屏可渲染
+		viewportHeight: viewportHeight > 0 ? viewportHeight : 600,
+		totalLines: allLines.length,
+		chunkLines: VIRTUAL_CHUNK_LINES,
+		lineHeight,
+	});
+	const visibleChunks: number[] = [];
+	for (let i = chunkWindow.firstChunk; i <= chunkWindow.lastChunk; i++) {
+		visibleChunks.push(i);
+	}
 
 	const addToast = useToastStore((s) => s.add);
-	// 复制全文：content 始终是完整文件（渲染层可能截断，复制不截断）
+	// 复制全文：content 始终是完整文件（渲染层虚拟滚动，不截断）
 	const copyContent = async () => {
 		try {
 			await copyToClipboard(content ?? "");
@@ -589,50 +664,59 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					<Icon name="x" size={12} />
 				</button>
 			</div>
-			<div ref={bodyRef} className="flex-1 overflow-auto bg-surface p-2.5">
-				{isTruncated && (
-					<div
-						data-testid="fv-truncated"
-						className="sticky top-0 z-10 mb-2 rounded border border-[color:var(--border)] bg-[color:var(--surface-secondary)] px-2 py-1 text-[calc(11px*var(--font-scale))] text-secondary"
-					>
-						{t("blocks.fileViewer.truncated", {
-							shown: String(MAX_RENDER_LINES),
-							total: String(totalLines),
-						})}
-					</div>
-				)}
-				<Highlight
-					theme={isDark ? themes.nightOwl : themes.github}
-					code={renderedCode}
-					language={language}
-				>
-					{({ tokens, getLineProps, getTokenProps }) => (
-						<pre className="text-[calc(12px*var(--font-scale))] font-mono m-0">
-							<code>
-								{tokens.map((line, i) => (
-									<div
-										{...getLineProps({ line, key: i })}
-										key={i}
-										className="table-row"
-										data-line={i + 1}
-									>
-										<span
-											className="table-cell pr-3 text-right text-tertiary select-none"
-											style={{ opacity: 0.6 }}
-										>
-											{i + 1}
-										</span>
-										<span className="table-cell whitespace-pre">
-											{line.map((token, tKey) => (
-												<span {...getTokenProps({ token, key: tKey })} key={tKey} />
-											))}
-										</span>
-									</div>
-								))}
-							</code>
-						</pre>
-					)}
-				</Highlight>
+			<div
+				ref={bodyRef}
+				data-testid="fv-body"
+				onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+				className="flex-1 overflow-auto bg-surface p-2.5"
+			>
+				{/* 上下占位撑出完整滚动高度（未渲染行数 × 行高），保证可滚动浏览全文 */}
+				<div style={{ height: chunkWindow.topSpacer }} />
+				{visibleChunks.map((ci) => {
+					const start = ci * VIRTUAL_CHUNK_LINES;
+					const chunkCode = allLines
+						.slice(start, start + VIRTUAL_CHUNK_LINES)
+						.join("\n");
+					return (
+						<Highlight
+							key={ci}
+							theme={isDark ? themes.nightOwl : themes.github}
+							code={chunkCode}
+							language={language}
+						>
+							{({ tokens, getLineProps, getTokenProps }) => (
+								<pre className="text-[calc(12px*var(--font-scale))] font-mono m-0">
+									<code>
+										{tokens.map((line, i) => {
+											const lineNo = start + i + 1;
+											return (
+												<div
+													{...getLineProps({ line, key: i })}
+													key={i}
+													className="table-row"
+													data-line={lineNo}
+												>
+													<span
+														className="table-cell pr-3 text-right text-tertiary select-none"
+														style={{ opacity: 0.6 }}
+													>
+														{lineNo}
+													</span>
+													<span className="table-cell whitespace-pre">
+														{line.map((token, tKey) => (
+															<span {...getTokenProps({ token, key: tKey })} key={tKey} />
+														))}
+													</span>
+												</div>
+											);
+										})}
+									</code>
+								</pre>
+							)}
+						</Highlight>
+					);
+				})}
+				<div style={{ height: chunkWindow.bottomSpacer }} />
 			</div>
 			<PathBar path={displayPath} />
 		</div>
