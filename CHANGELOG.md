@@ -1,3 +1,15 @@
+## 2026-09-15 — fix(frontend): 浏览器（无 Electron 桥）遗留 float 偏好吞掉 html 预览
+
+- 问题：`hiagent.browser.mode` 按 origin 持久化，且读到合法值就直接采用（**不校验有没有 Electron 桥**），而 float 的承载者在 0.3.21 已从「主窗口内 DOM 浮层」换成 **Electron 独立系统窗口**。于是浏览器（dev / 纯 web，无桥）里只要存着 float 偏好（早期版本留下的，或在浮动按钮上点过一次），打开预览就彻底没有承载者：App 在 float 分支只渲染 `FloatPreview`（非 minimized 时返回 null），窗口驱动 hook 又因无桥直接 return ⇒ 打开 html 预览「毫无反应」；而面板不渲染意味着没有任何 UI 出路切回内嵌，刷新也不恢复。实测复现：设 `localStorage["hiagent.browser.mode"]="float"` 后打开 index.html —— 旧行为下 `browser-panel` 永不出现（E2E 打开预览的断言等 5s 超时）。
+- 修复（读、写、渲染三层口径一致，均只改无桥环境）：
+  ① 新增 `hasPreviewBridge()` 与纯函数 `resolveMode(stored, hasBridge)`，`loadMode()` 改走它 —— 无桥时 `float` 降级为 `split`，且**只降级读取、不改写 localStorage**（同一份偏好桌面端仍按 float 生效）。
+  ② `setMode("float")` 无桥时同样降级为 `split` 并落盘 split（有桥时原样）。
+  ③ App 渲染分支加兜底：无桥时 float 一律按 split 呈现，覆盖 store 被外部置成 float 等异常路径。
+  ④ `BrowserPanel` 的浮动按钮改为仅在 `hasPreviewBridge()` 时渲染 —— 无桥时点了只会让预览消失且无路可退，不如不显示。
+- 测试：单测新增 `resolveMode`（float 需桥 / 无桥降级 / 非法值走默认 / 只降级不写盘）与 `setMode` 无桥降级（原「setMode 持久化 float」用例改为注入桥 stub 后验有桥路径）；组件测新增「浮动按钮需 Electron 桥」（无桥不渲染、有桥渲染且可切换）；App 级新增 `tests/App-browser-float-compat.test.tsx`（无桥且 store 为 float 时仍按分屏渲染出预览面板）；E2E `e2e/browser-preview.spec.ts` 新增「遗留 float 偏好（无桥）：html 预览不消失，自动降级为分屏」（真实浏览器，并断言偏好未被改写）。
+- 验证：红→绿双证 —— 旧实现下 App 级用例失败、E2E 用例在 `browser-panel` 断言处失败（真实浏览器复现用户现象）；修复后均通过。前端全量 2372 pass / 0 fail；四包 typecheck 全绿；`e2e/browser-preview.spec.ts` 7 pass（另 1 例失败在 afterAll 清理 `rmSync` 的 `EBUSY` 目录锁，与本改动无关）；`e2e-electron/preview-window.spec.ts` 首例失败经对照实验确认为**环境既有问题**（把三个源文件还原到 HEAD 后同样失败、失败点一致），与本改动无关。
+- 影响范围：packages/frontend（src/store/browser.ts、src/App.tsx、src/components/BrowserPanel.tsx、src/store/browser.test.ts、src/components/BrowserPanel.test.tsx、e2e/browser-preview.spec.ts、新增 tests/App-browser-float-compat.test.tsx）。
+
 ## 2026-09-15 — docs(website): 官网补上「TUI 插件完整支持」
 
 - 官网「设置一览 → 插件」卡新增一条：**TUI 插件完整支持**——为 pi 写的扩展无需改动，状态栏 / Widget / 对话框以 GUI 原生组件呈现；中英文两版（`index.html` / `index.en.html`）同步。

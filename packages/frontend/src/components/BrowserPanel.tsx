@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./ui/Icon";
-import { useBrowserStore } from "../store/browser";
+import { hasPreviewBridge, useBrowserStore } from "../store/browser";
 import { useSessionStore } from "../store/session";
 import { HtmlPreview } from "./blocks/HtmlPreview";
 import { ShareResultModal } from "./ui/ShareButton";
@@ -404,8 +404,9 @@ export function BrowserPanel({ detached = false }: Props = {}) {
 						className="text-[calc(16px*var(--font-scale))]"
 					/>
 				</button>
-				{/* 浮动按钮：独立窗口自身就是浮动模式的呈现，故不在其中渲染（避免自指切换） */}
-				{!detached && (
+				{/* 浮动按钮：独立窗口自身就是浮动模式的呈现，故不在其中渲染（避免自指切换）；
+				    无 Electron 桥（浏览器 dev）时浮动模式没有承载者，隐藏以免点了预览消失 */}
+				{!detached && hasPreviewBridge() && (
 					<button
 						type="button"
 						className="fv-btn fv-btn--icon"

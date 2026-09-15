@@ -51,7 +51,7 @@ import { AnsiText } from "./components/ui/AnsiText";
 import { useTrashStore } from "./store/trash";
 import { useSchedulerStore } from "./store/scheduler";
 import { AutomationMain } from "./components/automation/AutomationMain";
-import { useBrowserStore } from "./store/browser";
+import { hasPreviewBridge, useBrowserStore } from "./store/browser";
 import { BrowserPanel } from "./components/BrowserPanel";
 import { FloatPreview } from "./components/FloatPreview";
 import { usePreviewWindowDriver } from "./preview-window-driver";
@@ -118,7 +118,12 @@ export function App() {
 
 	// 浏览器预览：split 模式与聊天并排（可拖分隔条），full 模式占满主内容区；聊天侧保持挂载不再因预览重挂
 	const browserOpen = useBrowserStore((s) => s.open);
-	const browserMode = useBrowserStore((s) => s.mode);
+	const browserModeRaw = useBrowserStore((s) => s.mode);
+	// 无 Electron 桥时 float 没有承载者（主窗口只剩气泡、窗口驱动直接 return）：一律按
+	// 分屏呈现，避免「打开 html 预览毫无反应」。有桥时原样。读侧/写侧已各自降级，
+	// 这里是渲染兜底，覆盖 store 被外部置成 float 等异常路径
+	const browserMode: string =
+		browserModeRaw === "float" && !hasPreviewBridge() ? "split" : browserModeRaw;
 	const splitRatio = useBrowserStore((s) => s.splitRatio);
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 

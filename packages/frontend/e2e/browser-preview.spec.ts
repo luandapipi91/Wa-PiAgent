@@ -156,6 +156,33 @@ test.describe
 			await expect(page.getByTestId("session-view")).toBeVisible();
 		});
 
+		test("遗留 float 偏好（浏览器无 Electron 桥）：html 预览不消失，自动降级为分屏", async ({
+			page,
+		}) => {
+			// 浏览器环境没有 Electron 桥，但 localStorage 可能留着 float——早期版本 float 是
+			// 主窗口内的 DOM 浮层，同一 origin 的持久化偏好会被继承。float 的承载者现在是
+			// 独立系统窗口，无桥时它没有任何承载者：旧实现下打开预览直接「毫无反应」，
+			// 而且面板不渲染，用户也没有 UI 出路切回内嵌。
+			// 注意：beforeEach 也注册了 addInitScript（把 mode 设回 split，防止串行用例互相污染），
+			// addInitScript 按注册顺序执行，这里后注册的一条在每次导航时最后执行 → 最终为 float，
+			// 不能改用 evaluate+reload（reload 同样触发 beforeEach 那条脚本，会把 float 覆盖掉）。
+			await page.addInitScript(() =>
+				localStorage.setItem("hiagent.browser.mode", "float"),
+			);
+			await page.goto("/");
+			await enterSession(page, "预览遗留浮动偏好");
+			await openPreview(page);
+			// 面板在 = 预览没被吞（旧行为下此处会等不到 browser-panel）
+			await expect(page.getByTestId("browser-panel")).toBeVisible();
+			await expect(page.getByTestId("browser-split-resizer")).toBeVisible();
+			// 无桥时不渲染浮动按钮（点了只会让预览消失且无路可退）
+			await expect(page.getByTestId("browser-mode-float")).toHaveCount(0);
+			// 只降级读取、不改写偏好：同 origin 的桌面端下次仍按 float 生效
+			expect(
+				await page.evaluate(() => localStorage.getItem("hiagent.browser.mode")),
+			).toBe("float");
+		});
+
 		test("浮动模式：交给独立窗口承载（主窗口不再渲染内嵌浮层）", async ({
 			page,
 		}) => {

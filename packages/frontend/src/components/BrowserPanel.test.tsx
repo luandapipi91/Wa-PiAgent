@@ -248,12 +248,35 @@ test("模式切换按钮：渲染 split/full，点击切换 store.mode", () => {
   expect(useBrowserStore.getState().mode).toBe("full");
   fireEvent.click(splitBtn);
   expect(useBrowserStore.getState().mode).toBe("split");
-  const floatBtn = document.querySelector(
-    '[data-testid="browser-mode-float"]',
-  )!;
-  expect(floatBtn).toBeTruthy();
-  fireEvent.click(floatBtn);
-  expect(useBrowserStore.getState().mode).toBe("float");
+});
+
+test("浮动按钮需 Electron 桥：无桥不渲染（浮动模式无承载者），有桥渲染且可切换", () => {
+  useBrowserStore.setState({ mode: "split" });
+  const { unmount } = render(<BrowserPanel />);
+  expect(
+    document.querySelector('[data-testid="browser-mode-float"]'),
+  ).toBeNull();
+  unmount();
+
+  const w = window as unknown as { waPiPreviewWin?: unknown };
+  w.waPiPreviewWin = {
+    open: async () => ({ ok: true }),
+    cmd: () => {},
+    act: () => {},
+    setSize: () => {},
+    onEvent: () => () => {},
+  };
+  try {
+    render(<BrowserPanel />);
+    const floatBtn = document.querySelector(
+      '[data-testid="browser-mode-float"]',
+    )!;
+    expect(floatBtn).toBeTruthy();
+    fireEvent.click(floatBtn);
+    expect(useBrowserStore.getState().mode).toBe("float");
+  } finally {
+    delete w.waPiPreviewWin;
+  }
 });
 
 test("浮动模式显示最小化按钮，点击置 minimized；分屏不显示", () => {

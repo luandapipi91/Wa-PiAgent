@@ -132,17 +132,40 @@ export function defaultBrowserMode(hasElectronBridge: boolean): BrowserMode {
 	return hasElectronBridge ? "float" : "split";
 }
 
+/** 当前环境有没有 Electron 独立预览窗口桥（浏览器 dev / 纯 web 环境没有） */
+export function hasPreviewBridge(): boolean {
+	return typeof window !== "undefined" && Boolean(window.waPiPreviewWin);
+}
+
+/**
+ * 解析持久化的预览模式（读时降级）。
+ *
+ * float 的承载者是 Electron 独立窗口：无桥环境下主窗口只渲染一个气泡、窗口驱动
+ * 直接 return，即「float 没有任何承载者」——表现为打开 html 预览毫无反应；又因为
+ * 面板不渲染，用户还没有任何 UI 出路切回内嵌。而 `hiagent.browser.mode` 按 origin
+ * 持久化，浏览器里可能留着早期的 float 偏好（float 曾是主窗口内的 DOM 浮层），
+ * 于是升级后一打开预览就永久失效。
+ *
+ * 故无桥时把 float 一律降级为 split；**只降级读取，不改写 localStorage**——
+ * 同一份偏好桌面端（有桥）仍需按 float 生效。
+ */
+export function resolveMode(
+	stored: string | null,
+	hasElectronBridge: boolean,
+): BrowserMode {
+	if (stored === "float") return hasElectronBridge ? "float" : "split";
+	if (stored === "split" || stored === "full") return stored;
+	// 无记录 / 非法值：走默认（桌面端独立窗口、浏览器分屏）
+	return defaultBrowserMode(hasElectronBridge);
+}
+
 function loadMode(): BrowserMode {
 	try {
-		const v = localStorage.getItem(LS.mode);
-		if (v === "full" || v === "float" || v === "split") return v;
+		return resolveMode(localStorage.getItem(LS.mode), hasPreviewBridge());
 	} catch {
-		/* 隐私模式等场景读不到就当默认值 */
+		/* 隐私模式等场景读不到 localStorage，当无记录走默认 */
+		return defaultBrowserMode(hasPreviewBridge());
 	}
-	// 已选过模式的老用户沿用其偏好（localStorage 有记录时上面已返回）
-	return defaultBrowserMode(
-		typeof window !== "undefined" && Boolean(window.waPiPreviewWin),
-	);
 }
 
 function loadRatio(): number {
@@ -350,8 +373,11 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 			};
 		}),
 	setMode: (mode) => {
-		save(LS.mode, mode);
-		set({ mode });
+		// 无桥环境（浏览器）没有独立窗口承载者：float 会让预览彻底消失且无路可退，
+		// 故直接按分屏落地；有桥时原样
+		const next = mode === "float" && !hasPreviewBridge() ? "split" : mode;
+		save(LS.mode, next);
+		set({ mode: next });
 	},
 	setSplitRatio: (ratio) => {
 		const clamped = clampRatio(ratio);
