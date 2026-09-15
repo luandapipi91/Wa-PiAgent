@@ -182,6 +182,87 @@ test("tui-input 缺参数时返回参数错误（400）", async () => {
 	}
 });
 
+test("tui-snapshot：缺 sessionId → 400", async () => {
+	const { server, base } = await start();
+	try {
+		const res = await fetch(`${base}/api/extensions/tui-snapshot`);
+		expect(res.status).toBe(400);
+		expect((await res.json()).failure?.code).toBe("common.missingParam");
+	} finally {
+		await server.stop();
+	}
+});
+
+test("tui-snapshot：无面板的会话返回空结构（200，不是 404）", async () => {
+	const { server, base } = await start();
+	try {
+		const res = await fetch(`${base}/api/extensions/tui-snapshot?sessionId=s2`);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ type: "extension:tui:snapshot", panels: [] });
+	} finally {
+		await server.stop();
+	}
+});
+
+// 补发端点（规格 §5.4）：会话切换/前端重连时前端拉取 registry 里缓存的元数据 + 最后一帧。
+// 端点透传 registry 快照（含 widget 面板，它们的帧走 extension_widget 通道、由前端过滤），
+// 因此这里种子数据里带一个 widget 面板。
+test("tui-snapshot：返回会话面板元数据 + 最新缓存帧", async () => {
+	const { server, base } = await start();
+	try {
+		tuiHostRegistry.applyFrame("s1", {
+			type: "open",
+			panelId: "p1",
+			kind: "custom",
+			title: "pi-goal-x · Confirm",
+			cols: 85,
+			rows: 24,
+			pending: 1,
+		});
+		tuiHostRegistry.applyFrame("s1", {
+			type: "frame",
+			panelId: "p1",
+			lines: ["a", "b"],
+			cursor: { row: 1, col: 0 },
+		});
+		tuiHostRegistry.applyFrame("s1", {
+			type: "open",
+			panelId: "w:goal",
+			kind: "widget",
+			widgetKey: "goal",
+			title: "goal",
+			cols: 80,
+			rows: 10,
+			pending: 1,
+			placement: "belowEditor",
+		});
+
+		const res = await fetch(`${base}/api/extensions/tui-snapshot?sessionId=s1`);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.type).toBe("extension:tui:snapshot");
+		expect(body.panels[0]).toEqual({
+			panelId: "p1",
+			kind: "custom",
+			title: "pi-goal-x · Confirm",
+			cols: 85,
+			rows: 24,
+			pending: 1,
+			lastFrame: { lines: ["a", "b"], cursor: { row: 1, col: 0 } },
+		});
+		// widget 面板也在快照里（端点只透传；前端 store 自行过滤，见修正 B）
+		expect(body.panels[1]).toMatchObject({ panelId: "w:goal", kind: "widget", widgetKey: "goal" });
+
+		// 尚未收到帧的面板：lastFrame 为 null（前端据此保持空白而非渲染旧内容）
+		tuiHostRegistry.applyFrame("s1", { type: "open", panelId: "p2", kind: "custom", title: "T2" });
+		const body2 = await (await fetch(`${base}/api/extensions/tui-snapshot?sessionId=s1`)).json();
+		const p2 = body2.panels.find((p: { panelId?: string }) => p.panelId === "p2");
+		expect(p2?.lastFrame).toBeNull();
+	} finally {
+		await server.stop();
+	}
+});
+
 test("帧流：首行鉴权 + open/frame/close 落到注册表并广播 SSE（ping 心跳静默忽略）", async () => {
 	const { server, base } = await start();
 	const sse = await openSse(base);

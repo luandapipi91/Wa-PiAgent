@@ -14,6 +14,7 @@ import { useBrowserStore } from "./browser";
 import { useDiagnosticsStore, extensionNameFromPath } from "./diagnostics";
 import { useToastStore } from "./toast";
 import { useExtDialogStore } from "./ext-dialog";
+import { useTuiPanelStore } from "./tui-panel";
 import { StreamingBatcher } from "./streaming-batcher";
 import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
@@ -1548,6 +1549,28 @@ export const useSessionStore = create<SessionState>((set) => {
 							},
 						};
 					});
+					break;
+				// 扩展 TUI 面板（ctx.ui.custom 兼容）：右上角三态浮窗。
+				// 注意边界（规格 §6.4）：widget 的帧不走这里，而是上面的 extension_widget 通道（ExtWidgetDock），
+				// 两者互不覆盖。三态（展开/挂件/胶囊）是用户态，存在 tui-panel store 里。
+				case "extension_tui_open":
+					useTuiPanelStore.getState().open(sessionId, {
+						panelId: event.panelId,
+						kind: event.kind,
+						title: event.title,
+						cols: event.cols,
+						rows: event.rows,
+						pending: event.pending,
+					});
+					break;
+				case "extension_tui_frame":
+					// panelId 一并交给 store 校验：面板切换后旧面板的迟到帧必须丢弃（规格 §8）
+					useTuiPanelStore
+						.getState()
+						.setFrame(sessionId, event.panelId, event.lines, event.cursor ?? null);
+					break;
+				case "extension_tui_close":
+					useTuiPanelStore.getState().close(sessionId);
 					break;
 				// 扩展 setTitle：会话级标题，聊天窗顶部状态条展示（不写 document.title）。
 				case "extension_title":
