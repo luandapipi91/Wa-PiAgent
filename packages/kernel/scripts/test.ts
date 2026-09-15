@@ -15,6 +15,8 @@ const INTEGRATION_TESTS = [
 	"tests/file-route.integration.test.ts",
 	"tests/preview-route.integration.test.ts",
 	"tests/preview-inspect.integration.test.ts",
+	// tui-host 端点集成（真实 WSServer + 流式 NDJSON），并行负载下 30s 超时，串行 2s 即过
+	"tests/tui-host-routes.integration.test.ts",
 ];
 
 /** 负载敏感测试：依赖真实文件系统事件（fs.watch/FSEvents），--parallel 多 worker
