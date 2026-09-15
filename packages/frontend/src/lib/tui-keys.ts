@@ -31,11 +31,26 @@ const NAMED: Record<string, string> = {
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Dead"]);
 
 /**
+ * 带修饰键时改用 xterm 的 CSI 1;<mod><final> 形式编码的导航键。
+ *
+ * mod = 1 + shift*1 + alt*2 + ctrl*4（Ctrl=5、Shift+Ctrl=6、Alt+Ctrl=7、Shift+Alt+Ctrl=8）。
+ * 不这样做的话 Ctrl+↑ 会退化成裸 ↑，调用方（TUI 面板）不忽略错值，等于按错键。
+ */
+const MODIFIABLE: Record<string, string> = {
+	ArrowUp: "A",
+	ArrowDown: "B",
+	ArrowRight: "C",
+	ArrowLeft: "D",
+	Home: "H",
+	End: "F",
+};
+
+/**
  * 浏览器键盘事件 → 终端按键序列；无法映射时返回 null（调用方忽略该按键）。
  *
  * 三条原则：
  * 1. meta（Cmd）组合一律放行给浏览器，否则面板里无法复制/粘贴；
- * 2. kitty 键盘协议未启用（假终端恒报 false），只需传统序列；
+ * 2. kitty 键盘协议未启用（假终端恒报 false），只需传统序列（带修饰的导航键按 xterm 规则编码）；
  * 3. 不认识的功能键返回 null，不猜。
  */
 export function encodeKey(e: KeyLike): string | null {
@@ -44,6 +59,9 @@ export function encodeKey(e: KeyLike): string | null {
 
 	const named = NAMED[e.key];
 	if (named !== undefined) {
+		const final = MODIFIABLE[e.key];
+		const mod = (e.shiftKey ? 1 : 0) + (e.altKey ? 2 : 0) + (e.ctrlKey ? 4 : 0);
+		if (final !== undefined && mod > 0) return `\u001b[1;${1 + mod}${final}`;
 		const seq = e.key === "Tab" && e.shiftKey ? "\u001b[Z" : named;
 		return e.altKey ? `\u001b${seq}` : seq;
 	}

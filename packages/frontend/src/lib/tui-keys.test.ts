@@ -24,6 +24,17 @@ describe("encodeKey", () => {
 		expect(encodeKey({ ...base, key: "Backspace" })).toBe("\u007f");
 	});
 
+	test("方向键与 Home/End 带修饰键时用 xterm 的 CSI 1;<mod><final>", () => {
+		// mod = 1 + shift*1 + alt*2 + ctrl*4（Ctrl=5、Shift+Ctrl=6、Alt+Ctrl=7、Shift+Alt+Ctrl=8）
+		expect(encodeKey({ ...base, key: "ArrowUp", ctrlKey: true })).toBe("\u001b[1;5A");
+		expect(encodeKey({ ...base, key: "ArrowDown", ctrlKey: true })).toBe("\u001b[1;5B");
+		expect(encodeKey({ ...base, key: "ArrowRight", shiftKey: true, ctrlKey: true })).toBe("\u001b[1;6C");
+		expect(encodeKey({ ...base, key: "Home", altKey: true, ctrlKey: true })).toBe("\u001b[1;7H");
+		expect(encodeKey({ ...base, key: "ArrowLeft", shiftKey: true, altKey: true, ctrlKey: true })).toBe("\u001b[1;8D");
+		expect(encodeKey({ ...base, key: "ArrowUp", shiftKey: true })).toBe("\u001b[1;2A");
+		expect(encodeKey({ ...base, key: "End", altKey: true })).toBe("\u001b[1;3F");
+	});
+
 	test("Ctrl+字母 编成控制字节；Ctrl+Enter 用 CSI u", () => {
 		expect(encodeKey({ ...base, key: "a", ctrlKey: true })).toBe("\u0001");
 		expect(encodeKey({ ...base, key: "C", ctrlKey: true })).toBe("\u0003");
