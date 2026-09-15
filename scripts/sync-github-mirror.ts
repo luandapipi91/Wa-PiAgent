@@ -158,9 +158,7 @@ async function main() {
 		/* 非 git 环境等：用占位信息 */
 	}
 	const message =
-		msgIdx >= 0 && args[msgIdx + 1]
-			? args[msgIdx + 1]
-			: localMessage || "sync";
+		msgIdx >= 0 && args[msgIdx + 1] ? args[msgIdx + 1] : localMessage || "sync";
 
 	const pat = getPat();
 	const log = (s: string) => console.log(s);
