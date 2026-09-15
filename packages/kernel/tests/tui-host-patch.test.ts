@@ -374,7 +374,8 @@ describe("createPanelBridge", () => {
 
 		bridge.disposeAll();
 		await expect(panel).resolves.toBeUndefined();
-		expect(frames().at(-1)).toMatchObject({ type: "close", panelId: "p1", reason: "cancel" });
+		// 会话销毁是独立的终止路径（规格 §4.8）：reason 是 dispose，不是用户取消的 cancel
+		expect(frames().at(-1)).toMatchObject({ type: "close", panelId: "p1", reason: "dispose" });
 
 		// widget 的采样定时器必须停：否则面板关掉后仍会向 kernel 推帧
 		await Bun.sleep(200);
