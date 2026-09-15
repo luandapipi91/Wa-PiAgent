@@ -172,6 +172,14 @@ describe("wa-pi-tui-host 扩展入口", () => {
 			const opens = kernel.frames.filter((f) => f.type === "open");
 			expect(opens).toHaveLength(2);
 			expect(opens.at(-1)?.panelId).toBe("p1"); // 新 bridge 的编号重新开始，说明确实是新 bridge
+			// 会话销毁的 close 帧标 dispose（规格 §4.8：与用户取消是两条终止路径）。
+			// 它会在 shutdown 时先入 sink 队列（disposeAll 的 settle 是微任务，此时帧流已 detach），
+			// 下一个会话 attach 时按序补发——所以断言放在这里。
+			expect(
+				kernel.frames.some(
+					(f) => f.type === "close" && f.panelId === "p1" && f.reason === "dispose",
+				),
+			).toBe(true);
 
 			// 输入经订阅流回到新面板，并结算
 			kernel.send({ type: "key", panelId: "p1", data: "\u001b[B" });

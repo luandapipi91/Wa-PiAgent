@@ -121,6 +121,8 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 	const { sink } = opts;
 	let seq = 0;
 	let disposed = false;
+	/** 会话销毁进行中：用于把 close 帧的 reason 区分为 dispose（规格 §4.8），而非用户 cancel */
+	let disposing = false;
 	let active: { panelId: string; host: PanelHost<unknown> } | null = null;
 	/** 同会话同时只开一个面板：并发的 custom 在这里排队（规格 §4.7） */
 	const waiting: Array<() => void> = [];
@@ -198,7 +200,10 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 
 		void host.result.then((r) => {
 			const done = r.status === "done";
-			finish(done ? r.value : undefined, done ? "done" : "cancel");
+			// 会话销毁 ≠ 用户取消：两者都回 cancelled，但规格 §4.8 把「会话销毁」列为
+			// 独立的终止路径，只有 reason 能区分（前端对 close 的处理不分 reason，只影响语义）。
+			const reason = done ? "done" : disposing ? "dispose" : "cancel";
+			finish(done ? r.value : undefined, reason);
 		});
 	};
 
@@ -313,6 +318,8 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 
 		disposeAll: () => {
 			disposed = true;
+			// 先置位再 dispose：host.dispose() 触发的 result.then 靠它把 reason 判成 dispose
+			disposing = true;
 			for (const start of waiting.splice(0, waiting.length)) start();
 			for (const key of [...widgets.keys()]) releaseWidget(key);
 			active?.host.dispose();
