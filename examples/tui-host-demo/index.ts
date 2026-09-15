@@ -17,17 +17,18 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			const items = ["alpha", "beta", "gamma"];
 			let index = 0;
-			const picked = await ctx.ui.custom<string>((_tui, _theme, _keybindings, done) => ({
-				render: () =>
-					items.map((item, i) => `${i === index ? "▸" : " "} ${item}`),
-				invalidate: () => {},
-				handleInput: (data: string) => {
-					// 方向键按 xterm 序列判定（与前端 lib/tui-keys.ts 的编码一致）
-					if (data === "\u001b[B") index = Math.min(items.length - 1, index + 1);
-					else if (data === "\u001b[A") index = Math.max(0, index - 1);
-					else if (data === "\r") done(items[index]!);
-				},
-			}));
+			const picked = await ctx.ui.custom<string>(
+				(_tui, _theme, _keybindings, done) => ({
+					render: () => items.map((item, i) => `${i === index ? "▸" : " "} ${item}`),
+					invalidate: () => {},
+					handleInput: (data: string) => {
+						// 方向键按 xterm 序列判定（与前端 lib/tui-keys.ts 的编码一致）
+						if (data === "\u001b[B") index = Math.min(items.length - 1, index + 1);
+						else if (data === "\u001b[A") index = Math.max(0, index - 1);
+						else if (data === "\r") done(items[index]!);
+					},
+				}),
+			);
 			ctx.ui.notify(`tui-demo 选择：${String(picked)}`, "info");
 		},
 	});

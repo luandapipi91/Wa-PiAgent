@@ -143,6 +143,19 @@ describe("独立窗口上报的事件翻译", () => {
 		expect(useBrowserStore.getState().mode).toBe("split");
 	});
 
+	test("path → 同步主窗口的预览路径（独立窗口里换文件后切回内嵌能恢复同一内容）", () => {
+		useBrowserStore.setState({
+			open: true,
+			path: "/old.html",
+			sessionId: "A",
+			mode: "float",
+		});
+		renderHook(() => usePreviewWindowDriver());
+		emit({ type: "path", path: "/new.html" });
+		expect(useBrowserStore.getState().path).toBe("/new.html");
+		expect(useBrowserStore.getState().bySession.A?.path).toBe("/new.html");
+	});
+
 	test("rect → 持久化屏幕坐标（下次弹出回到原位）", () => {
 		renderHook(() => usePreviewWindowDriver());
 		emit({ type: "rect", rect: { x: -1200, y: 40, w: 1000, h: 800 } });

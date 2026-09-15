@@ -4,11 +4,20 @@
 // 其相对 import 的 tui-host/*.ts 5 个模块保持 tui-host/ 子目录结构一并落盘，
 // 这样入口的相对路径在 GENERATED_DIR 下仍可解析（无需改写 import）。
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { deployTuiHostExtension, TUI_HOST_EXTENSION_NAME } from "../src/tui-host-deploy.ts";
+import {
+	deployTuiHostExtension,
+	TUI_HOST_EXTENSION_NAME,
+} from "../src/tui-host-deploy.ts";
 
 let dir: string;
 
@@ -37,7 +46,9 @@ describe("deployTuiHostExtension", () => {
 
 	test("重复部署幂等（覆盖写入，不抛错）", async () => {
 		await deployTuiHostExtension(dir);
-		await expect(deployTuiHostExtension(dir)).resolves.toContain(TUI_HOST_EXTENSION_NAME);
+		await expect(deployTuiHostExtension(dir)).resolves.toContain(
+			TUI_HOST_EXTENSION_NAME,
+		);
 	});
 });
 
@@ -48,7 +59,11 @@ describe("deployTuiHostExtension", () => {
 // node_modules 解析，/tmp 下找不到。
 test("部署后的入口可被动态 import 并注册 session 事件（相对 import 可解析）", async () => {
 	const deployDir = join(import.meta.dir, ".tmp-tui-host-deploy-load");
-	const envKeys = ["WA_PI_BRIDGE_URL", "WA_PI_BRIDGE_TOKEN", "WA_PI_SESSION_ID"] as const;
+	const envKeys = [
+		"WA_PI_BRIDGE_URL",
+		"WA_PI_BRIDGE_TOKEN",
+		"WA_PI_SESSION_ID",
+	] as const;
 	const savedEnv = envKeys.map((key) => [key, process.env[key]] as const);
 	try {
 		rmSync(deployDir, { recursive: true, force: true });

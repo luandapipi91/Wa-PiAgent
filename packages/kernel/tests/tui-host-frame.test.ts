@@ -37,20 +37,28 @@ describe("sameFrame", () => {
 	const base = { lines: ["a", "b"], cursor: { row: 1, col: 0 } };
 
 	test("内容与光标全同时为 true", () => {
-		expect(sameFrame(base, { lines: ["a", "b"], cursor: { row: 1, col: 0 } })).toBe(true);
+		expect(
+			sameFrame(base, { lines: ["a", "b"], cursor: { row: 1, col: 0 } }),
+		).toBe(true);
 	});
 
 	test("行内容变化为 false", () => {
-		expect(sameFrame(base, { lines: ["a", "c"], cursor: { row: 1, col: 0 } })).toBe(false);
+		expect(
+			sameFrame(base, { lines: ["a", "c"], cursor: { row: 1, col: 0 } }),
+		).toBe(false);
 	});
 
 	test("行数变化为 false", () => {
-		expect(sameFrame(base, { lines: ["a"], cursor: { row: 1, col: 0 } })).toBe(false);
+		expect(sameFrame(base, { lines: ["a"], cursor: { row: 1, col: 0 } })).toBe(
+			false,
+		);
 	});
 
 	test("光标变化为 false；两边都无光标时为 true", () => {
 		expect(sameFrame(base, { lines: ["a", "b"], cursor: null })).toBe(false);
-		expect(sameFrame({ lines: ["z"], cursor: null }, { lines: ["z"], cursor: null })).toBe(true);
+		expect(
+			sameFrame({ lines: ["z"], cursor: null }, { lines: ["z"], cursor: null }),
+		).toBe(true);
 	});
 
 	test("前一帧为 null 时为 false（首次必然推送）", () => {

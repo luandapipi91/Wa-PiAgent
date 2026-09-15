@@ -80,7 +80,9 @@ export interface TuiHostRegistry {
 	applyFrame(sessionId: string, frame: TuiHostFrame): void;
 	enqueueInput(event: TuiInputEvent): void;
 	attachSubscriber(sessionId: string, write: (line: string) => void): () => void;
-	snapshot(sessionId: string): { panels: Array<TuiPanelMeta & { lastFrame: TuiFrame | null }> } | null;
+	snapshot(
+		sessionId: string,
+	): { panels: Array<TuiPanelMeta & { lastFrame: TuiFrame | null }> } | null;
 	/** 有状态的会话 id（测试与将来的会话清理用） */
 	sessionIds(): string[];
 	clearSession(sessionId: string): void;
@@ -98,7 +100,9 @@ const widgetKeyOf = (panelId: string, widgetKey?: string): string =>
  *
  * 实例由 createTuiHostRegistry 构造；广播出口是可注入的（生产由 ws-server 注入 SSE）。
  */
-export function createTuiHostRegistry(opts: TuiHostRegistryOptions): TuiHostRegistry {
+export function createTuiHostRegistry(
+	opts: TuiHostRegistryOptions,
+): TuiHostRegistry {
 	const bySession = new Map<string, SessionEntry>();
 
 	const entry = (sessionId: string): SessionEntry => {
@@ -171,7 +175,9 @@ export function createTuiHostRegistry(opts: TuiHostRegistryOptions): TuiHostRegi
 					cols: frame.cols ?? DEFAULT_COLS,
 					rows: frame.rows ?? DEFAULT_ROWS,
 					pending: frame.pending ?? 1,
-					...(kind === "widget" ? { widgetKey: widgetKeyOf(panelId, frame.widgetKey) } : {}),
+					...(kind === "widget"
+						? { widgetKey: widgetKeyOf(panelId, frame.widgetKey) }
+						: {}),
 					...(frame.placement ? { placement: frame.placement } : {}),
 				});
 				return;
@@ -209,10 +215,14 @@ export function createTuiHostRegistry(opts: TuiHostRegistryOptions): TuiHostRegi
 			return;
 		}
 		cur.queue.push(line);
-		if (cur.queue.length > MAX_QUEUE) cur.queue.splice(0, cur.queue.length - MAX_QUEUE);
+		if (cur.queue.length > MAX_QUEUE)
+			cur.queue.splice(0, cur.queue.length - MAX_QUEUE);
 	};
 
-	const attachSubscriber = (sessionId: string, write: (line: string) => void): (() => void) => {
+	const attachSubscriber = (
+		sessionId: string,
+		write: (line: string) => void,
+	): (() => void) => {
 		const cur = entry(sessionId);
 		cur.subscriber = write;
 		const pending = cur.queue.splice(0, cur.queue.length);

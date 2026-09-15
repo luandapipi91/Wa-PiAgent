@@ -11,7 +11,10 @@ describe("WaPiFakeTerminal", () => {
 	test("start 保存回调，inject 把按键原样交给 onInput", () => {
 		const t = new WaPiFakeTerminal();
 		const seen: string[] = [];
-		t.start((d) => seen.push(d), () => {});
+		t.start(
+			(d) => seen.push(d),
+			() => {},
+		);
 		t.inject("\u001b[A");
 		t.inject("a");
 		expect(seen).toEqual(["\u001b[A", "a"]);
@@ -20,7 +23,12 @@ describe("WaPiFakeTerminal", () => {
 	test("resize 更新尺寸并触发 onResize；同尺寸不重复触发", () => {
 		const t = new WaPiFakeTerminal();
 		let n = 0;
-		t.start(() => {}, () => { n += 1; });
+		t.start(
+			() => {},
+			() => {
+				n += 1;
+			},
+		);
 		t.resize(100, 30);
 		expect(t.columns).toBe(100);
 		expect(t.rows).toBe(30);
@@ -46,7 +54,10 @@ describe("WaPiFakeTerminal", () => {
 	test("stop 之后 inject 不再投递", () => {
 		const t = new WaPiFakeTerminal();
 		const seen: string[] = [];
-		t.start((d) => seen.push(d), () => {});
+		t.start(
+			(d) => seen.push(d),
+			() => {},
+		);
 		t.stop();
 		t.inject("a");
 		expect(seen).toEqual([]);

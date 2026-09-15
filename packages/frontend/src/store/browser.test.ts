@@ -4,6 +4,7 @@ import {
 	clampRatio,
 	clampRect,
 	clampDetachedRect,
+	defaultBrowserMode,
 	setPersistDebounceMs,
 } from "./browser";
 
@@ -244,4 +245,11 @@ test("独立窗口 rect 与浮窗 rect 互不干扰（两套持久化键各写�
 	expect(
 		JSON.parse(localStorage.getItem("hiagent.browser.detachedRect")!).x,
 	).toBe(40);
+});
+
+test("defaultBrowserMode：桌面端（有 Electron 桥）默认独立窗口承载；浏览器无桥回退分屏", () => {
+	// 需求：默认浮窗——首次打开预览直接弹独立窗口
+	expect(defaultBrowserMode(true)).toBe("float");
+	// 浏览器 dev 没有窗口承载者，浮窗会表现为「打开预览毫无反应」，故回退内嵌分屏
+	expect(defaultBrowserMode(false)).toBe("split");
 });

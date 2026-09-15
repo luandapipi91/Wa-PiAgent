@@ -4,11 +4,16 @@ import { TuiAltScreen, type Component } from "@earendil-works/pi-tui";
 // 即 pi-tui 基类的子类）。pi-tui 0.85.1 确实有 KeybindingsManager 导出
 // （pi-tui/dist/index.d.ts:21），但把基类实例赋给该形参实测报 TS2739，所以类型来源不能改回 pi-tui。
 // Theme 则根本不在 pi-tui 的导出里，只能从 pi-coding-agent 取。`import type` 会被擦除，无运行时代价。
-import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	KeybindingsManager,
+	Theme,
+} from "@earendil-works/pi-coding-agent";
 import { WaPiFakeTerminal } from "./terminal.ts";
 import { extractFrame, sameFrame, type TuiFrame } from "./frame.ts";
 
-export type PanelResult<T> = { status: "done"; value: T } | { status: "cancelled" };
+export type PanelResult<T> =
+	| { status: "done"; value: T }
+	| { status: "cancelled" };
 
 export interface PanelHostOptions<T> {
 	/** 面板标题：宿主本身不消费，由任务 9 写进 open 帧的元数据（规格 §5.1） */
@@ -64,7 +69,9 @@ const SAMPLE_INTERVAL_MS = 80;
 type DisposableComponent = Component & { dispose?: () => void };
 
 /** 工厂可能同步返回组件，也可能返回 Promise<组件> */
-function isThenable(value: Component | Promise<Component>): value is Promise<Component> {
+function isThenable(
+	value: Component | Promise<Component>,
+): value is Promise<Component> {
 	return typeof (value as { then?: unknown }).then === "function";
 }
 

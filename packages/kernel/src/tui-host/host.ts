@@ -9,13 +9,19 @@
 //
 // 本目录会被原样复制到 GENERATED_DIR 供 pi 进程加载，因此只依赖 pi-tui /
 // pi-coding-agent 的类型（`import type` 擦除后无运行时代价）。
-import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	KeybindingsManager,
+	Theme,
+} from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
 import { createPanelHost, type PanelHost } from "./panel.ts";
 import { createWidgetHost, type WidgetHost } from "./widget.ts";
 
 /** NDJSON 行切分：返回完整行与剩余半行 */
-export function splitNdjson(buffer: string, chunk: string): { lines: string[]; rest: string } {
+export function splitNdjson(
+	buffer: string,
+	chunk: string,
+): { lines: string[]; rest: string } {
 	const merged = buffer + chunk;
 	const parts = merged.split("\n");
 	const rest = parts.pop() ?? "";
@@ -66,8 +72,17 @@ export function createFrameSink(opts: { maxQueue?: number } = {}): FrameSink {
 }
 
 export interface TuiHostPatchBridge {
-	openCustom: (factory: unknown, options: unknown, ctx: unknown) => Promise<unknown>;
-	openWidget: (key: string, factory: unknown, options: unknown, ctx: unknown) => void;
+	openCustom: (
+		factory: unknown,
+		options: unknown,
+		ctx: unknown,
+	) => Promise<unknown>;
+	openWidget: (
+		key: string,
+		factory: unknown,
+		options: unknown,
+		ctx: unknown,
+	) => void;
 	/** 插件清除组件（setWidget(key, undefined)）或改成纯文本：关闭该 key 的 widget 通道 */
 	closeWidget: (key: string) => void;
 	setInputListeners: (listeners: Set<(data: string) => void>) => void;
@@ -126,7 +141,10 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 	let active: { panelId: string; host: PanelHost<unknown> } | null = null;
 	/** 同会话同时只开一个面板：并发的 custom 在这里排队（规格 §4.7） */
 	const waiting: Array<() => void> = [];
-	const widgets = new Map<string, { host: WidgetHost; timer: ReturnType<typeof setInterval> }>();
+	const widgets = new Map<
+		string,
+		{ host: WidgetHost; timer: ReturnType<typeof setInterval> }
+	>();
 	// 持有 Set 引用而不是拷贝：patchUiForTuiHost 先建集合并交给我们，插件随后才 add
 	// （onTerminalInput 随时可能被调用），拷贝会让后注册的监听器永远收不到输入。
 	let inputListeners = new Set<(data: string) => void>();
@@ -160,7 +178,13 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 			factory: factory as never,
 			theme: opts.theme as Theme,
 			keybindings: opts.keybindings as KeybindingsManager,
-			onFrame: (frame) => sink.push({ type: "frame", panelId, lines: frame.lines, cursor: frame.cursor }),
+			onFrame: (frame) =>
+				sink.push({
+					type: "frame",
+					panelId,
+					lines: frame.lines,
+					cursor: frame.cursor,
+				}),
 		});
 		active = { panelId, host };
 		sink.push({
@@ -246,10 +270,16 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 		openWidget: (key, factory, options, _ctx) => {
 			// 替换：旧的宿主与采样定时器先释放（规格 §4.4 的「组件被替换时 dispose」）
 			releaseWidget(key);
-			const host = createWidgetHost({ cols: WIDGET_COLS, factory: factory as never, theme: opts.theme as Theme });
+			const host = createWidgetHost({
+				cols: WIDGET_COLS,
+				factory: factory as never,
+				theme: opts.theme as Theme,
+			});
 			const panelId = `w:${key}`;
 			// placement 沿 pi 的 widget 语义（规格 §4.4）：前端 dock 据此决定摆在输入框上方还是下方
-			const placement = (options as { placement?: "aboveEditor" | "belowEditor" } | undefined)?.placement;
+			const placement = (
+				options as { placement?: "aboveEditor" | "belowEditor" } | undefined
+			)?.placement;
 			sink.push({
 				type: "open",
 				panelId,
@@ -269,13 +299,32 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 			const first = host.sample();
 			if (!first) {
 				host.dispose();
-				sink.push({ type: "close", panelId, kind: "widget", widgetKey: key, reason: "empty" });
+				sink.push({
+					type: "close",
+					panelId,
+					kind: "widget",
+					widgetKey: key,
+					reason: "empty",
+				});
 				return;
 			}
-			sink.push({ type: "frame", panelId, kind: "widget", widgetKey: key, lines: first.lines });
+			sink.push({
+				type: "frame",
+				panelId,
+				kind: "widget",
+				widgetKey: key,
+				lines: first.lines,
+			});
 			const timer = setInterval(() => {
 				const frame = host.sample();
-				if (frame) sink.push({ type: "frame", panelId, kind: "widget", widgetKey: key, lines: frame.lines });
+				if (frame)
+					sink.push({
+						type: "frame",
+						panelId,
+						kind: "widget",
+						widgetKey: key,
+						lines: frame.lines,
+					});
 			}, WIDGET_SAMPLE_MS);
 			widgets.set(key, { host, timer });
 		},
@@ -283,7 +332,13 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 		closeWidget: (key) => {
 			// 清除（setWidget(key, undefined)）或内容从组件换成纯文本：前端那块 widget 必须跟着消失
 			if (releaseWidget(key)) {
-				sink.push({ type: "close", panelId: `w:${key}`, kind: "widget", widgetKey: key, reason: "removed" });
+				sink.push({
+					type: "close",
+					panelId: `w:${key}`,
+					kind: "widget",
+					widgetKey: key,
+					reason: "removed",
+				});
 			}
 		},
 
@@ -302,7 +357,8 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 			}
 			// widget 无焦点、不收键盘/鼠标（规格 §4.4），只接受尺寸变化
 			if (panelId.startsWith("w:")) {
-				if (event.type === "resize" && typeof event.cols === "number") widgets.get(panelId.slice(2))?.host.resize(event.cols);
+				if (event.type === "resize" && typeof event.cols === "number")
+					widgets.get(panelId.slice(2))?.host.resize(event.cols);
 				return;
 			}
 			if (active?.panelId !== panelId) return;
@@ -311,7 +367,11 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 				return;
 			}
 			if (event.data === undefined) return;
-			if (event.type === "key" || event.type === "paste" || event.type === "mouse") {
+			if (
+				event.type === "key" ||
+				event.type === "paste" ||
+				event.type === "mouse"
+			) {
 				active.host.inject(event.data);
 				// 插件注册的 onTerminalInput 监听器只收按键/粘贴（鼠标序列由 TuiAltScreen 自己解析）
 				if (event.type !== "mouse") forwardToListeners(event.data);
@@ -341,20 +401,28 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
  * 同时 `__waPiTuiHost` 又让 wa-pi-bridge 的 notify+throw 兜底继续让位——两条路一起失效。
  * 布尔标记 `__waPiTuiHost` 保留：它同时供 wa-pi-bridge 的兜底让位使用。
  */
-export function patchUiForTuiHost(ui: Record<string, unknown>, bridge: TuiHostPatchBridge): void {
+export function patchUiForTuiHost(
+	ui: Record<string, unknown>,
+	bridge: TuiHostPatchBridge,
+): void {
 	if (ui.__waPiTuiHostBridge === bridge) return;
 	ui.__waPiTuiHost = true;
 	ui.__waPiTuiHostBridge = bridge;
 
-	const originalSetWidget = ui.setWidget as ((key: string, content: unknown, options?: unknown) => void) | undefined;
+	const originalSetWidget = ui.setWidget as
+		| ((key: string, content: unknown, options?: unknown) => void)
+		| undefined;
 	// 监听器集合跟着 ui 对象走，重新 patch 时沿用同一个集合：否则 reload 前插件注册的
 	// onTerminalInput 回调会变成孤儿（pi 自己复用的 uiContext 里这个集合也是跨 session 存续的）。
-	const existingListeners = ui.__waPiTuiHostListeners as Set<(data: string) => void> | undefined;
+	const existingListeners = ui.__waPiTuiHostListeners as
+		| Set<(data: string) => void>
+		| undefined;
 	const listeners = existingListeners ?? new Set<(data: string) => void>();
 	ui.__waPiTuiHostListeners = listeners;
 	bridge.setInputListeners(listeners);
 
-	ui.custom = (factory: unknown, options: unknown, ctx: unknown) => bridge.openCustom(factory, options, ctx);
+	ui.custom = (factory: unknown, options: unknown, ctx: unknown) =>
+		bridge.openCustom(factory, options, ctx);
 
 	ui.setWidget = (key: string, content: unknown, options?: unknown) => {
 		if (typeof content === "function") {
@@ -434,12 +502,17 @@ const DEFAULT_MAX_RETRY_MS = 5000;
 const DEFAULT_HEARTBEAT_MS = 15_000;
 
 /** 指数退避：第 failures 次连续失败后的等待时长（base × 2^(failures-1)，封顶 maxMs） */
-export function backoffDelay(failures: number, baseMs: number, maxMs: number): number {
+export function backoffDelay(
+	failures: number,
+	baseMs: number,
+	maxMs: number,
+): number {
 	const n = Math.max(1, Math.floor(failures));
 	return Math.min(baseMs * 2 ** (n - 1), maxMs);
 }
 
-const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+const errorText = (err: unknown): string =>
+	err instanceof Error ? err.message : String(err);
 
 /** 一次连接尝试：run 返回 null = 正常结束，返回字符串 = 失败原因 */
 interface RetryAttempt {
@@ -549,7 +622,11 @@ export function createFrameStream(opts: FrameStreamOptions): FrameStream {
 				start(c) {
 					controller = c;
 					// 首行鉴权：kernel 读到 token/sessionId 后才把后续行当帧处理
-					c.enqueue(encoder.encode(`${JSON.stringify({ token: opts.token, sessionId: opts.sessionId })}\n`));
+					c.enqueue(
+						encoder.encode(
+							`${JSON.stringify({ token: opts.token, sessionId: opts.sessionId })}\n`,
+						),
+					);
 				},
 			});
 			opts.sink.attach((line) => {

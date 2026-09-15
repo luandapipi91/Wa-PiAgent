@@ -141,6 +141,8 @@ export function BrowserPanel({ detached = false }: Props = {}) {
 		setInput(p);
 		// 同步到 store：模式切换（split/full/float）重挂面板后可恢复预览内容
 		useBrowserStore.getState().setPath(p);
+		// 独立窗口里换文件也要让主窗口知道：否则切回内嵌（并排/全屏）会停在空预览
+		if (detached) window.waPiPreviewWin?.act({ type: "path", path: p });
 	};
 
 	const copyCurrent = () => {

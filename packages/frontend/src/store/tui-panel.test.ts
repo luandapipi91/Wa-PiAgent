@@ -34,7 +34,9 @@ describe("useTuiPanelStore", () => {
 
 	test("setFrame 写入帧与光标", () => {
 		useTuiPanelStore.getState().open("s1", meta);
-		useTuiPanelStore.getState().setFrame("s1", "p1", ["a", "b"], { row: 1, col: 0 });
+		useTuiPanelStore
+			.getState()
+			.setFrame("s1", "p1", ["a", "b"], { row: 1, col: 0 });
 		const v = useTuiPanelStore.getState().bySession.s1!;
 		expect(v.lines).toEqual(["a", "b"]);
 		expect(v.cursor).toEqual({ row: 1, col: 0 });
@@ -45,7 +47,9 @@ describe("useTuiPanelStore", () => {
 		useTuiPanelStore.getState().setFrame("s1", "p1", ["old"], null);
 		// p1 关闭、p2 打开后，仍可能收到 p1 的迟到帧：不能覆盖 p2 的画面
 		useTuiPanelStore.getState().open("s1", { ...meta, panelId: "p2" });
-		useTuiPanelStore.getState().setFrame("s1", "p1", ["late"], { row: 0, col: 0 });
+		useTuiPanelStore
+			.getState()
+			.setFrame("s1", "p1", ["late"], { row: 0, col: 0 });
 		const v = useTuiPanelStore.getState().bySession.s1!;
 		expect(v.panelId).toBe("p2");
 		expect(v.lines).toEqual([]);
@@ -87,7 +91,9 @@ describe("useTuiPanelStore", () => {
 
 	test("多会话各自独立（面板随会话记忆）", () => {
 		useTuiPanelStore.getState().open("s1", meta);
-		useTuiPanelStore.getState().open("s2", { ...meta, panelId: "p9", title: "另一个面板" });
+		useTuiPanelStore
+			.getState()
+			.open("s2", { ...meta, panelId: "p9", title: "另一个面板" });
 		useTuiPanelStore.getState().collapse("s1");
 		expect(useTuiPanelStore.getState().bySession.s1!.mode).toBe("badge");
 		expect(useTuiPanelStore.getState().bySession.s2!.mode).toBe("expanded");
@@ -154,10 +160,14 @@ describe("useTuiPanelStore", () => {
 	test("restoreFrom：面板已换（panelId 变了）→ 按新面板默认展开态", () => {
 		useTuiPanelStore.getState().open("s1", meta);
 		useTuiPanelStore.getState().collapse("s1");
-		useTuiPanelStore.getState().restoreFrom(
-			"s1",
-			snapshot([{ ...meta, panelId: "p2", lastFrame: { lines: ["new"], cursor: null } }]),
-		);
+		useTuiPanelStore
+			.getState()
+			.restoreFrom(
+				"s1",
+				snapshot([
+					{ ...meta, panelId: "p2", lastFrame: { lines: ["new"], cursor: null } },
+				]),
+			);
 		const v = useTuiPanelStore.getState().bySession.s1!;
 		expect(v.panelId).toBe("p2");
 		expect(v.lines).toEqual(["new"]);

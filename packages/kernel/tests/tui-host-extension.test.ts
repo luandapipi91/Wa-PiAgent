@@ -12,7 +12,11 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { splitNdjson } from "../src/tui-host/host.ts";
 
-const ENV_KEYS = ["WA_PI_BRIDGE_URL", "WA_PI_BRIDGE_TOKEN", "WA_PI_SESSION_ID"] as const;
+const ENV_KEYS = [
+	"WA_PI_BRIDGE_URL",
+	"WA_PI_BRIDGE_TOKEN",
+	"WA_PI_SESSION_ID",
+] as const;
 const savedEnv = ENV_KEYS.map((key) => [key, process.env[key]] as const);
 afterAll(() => {
 	for (const [key, value] of savedEnv) {
@@ -43,7 +47,8 @@ function installKernelStub() {
 					if (done) break;
 					const chunk = splitNdjson(rest, decoder.decode(value, { stream: true }));
 					rest = chunk.rest;
-					for (const line of chunk.lines) frames.push(JSON.parse(line) as Record<string, unknown>);
+					for (const line of chunk.lines)
+						frames.push(JSON.parse(line) as Record<string, unknown>);
 				}
 				for (const finish of finishes.splice(0, finishes.length)) finish();
 			})();
@@ -130,7 +135,9 @@ describe("wa-pi-tui-host 扩展入口", () => {
 		for (const key of ENV_KEYS) delete process.env[key];
 		const mod = await import(pathToFileURL(ENTRY).href);
 		const handlers = new Map<string, Handler>();
-		mod.default({ on: (type: string, handler: Handler) => void handlers.set(type, handler) });
+		mod.default({
+			on: (type: string, handler: Handler) => void handlers.set(type, handler),
+		});
 		expect(handlers.size).toBe(0);
 	});
 
@@ -142,7 +149,9 @@ describe("wa-pi-tui-host 扩展入口", () => {
 		try {
 			const mod = await import(pathToFileURL(ENTRY).href);
 			const handlers = new Map<string, Handler>();
-			mod.default({ on: (type: string, handler: Handler) => void handlers.set(type, handler) });
+			mod.default({
+				on: (type: string, handler: Handler) => void handlers.set(type, handler),
+			});
 			const sessionStart = handlers.get("session_start")!;
 			const sessionShutdown = handlers.get("session_shutdown")!;
 			const ui = makeUi();
@@ -156,7 +165,11 @@ describe("wa-pi-tui-host 扩展入口", () => {
 			ui.onTerminalInput((data: string) => {
 				pluginKeys.push(data);
 			});
-			const first = ui.custom(() => makeComponent("第一个会话").component, undefined, undefined);
+			const first = ui.custom(
+				() => makeComponent("第一个会话").component,
+				undefined,
+				undefined,
+			);
 			await waitFor(() => kernel.frames.some((f) => f.type === "frame"));
 			expect(kernel.frames.filter((f) => f.type === "open")).toHaveLength(1);
 
@@ -168,7 +181,9 @@ describe("wa-pi-tui-host 扩展入口", () => {
 			sessionStart({ reason: "reload" }, ctx);
 			const probe = makeComponent("reload 后");
 			const second = ui.custom(() => probe.component, undefined, undefined);
-			await waitFor(() => kernel.frames.filter((f) => f.type === "open").length === 2);
+			await waitFor(
+				() => kernel.frames.filter((f) => f.type === "open").length === 2,
+			);
 			const opens = kernel.frames.filter((f) => f.type === "open");
 			expect(opens).toHaveLength(2);
 			expect(opens.at(-1)?.panelId).toBe("p1"); // 新 bridge 的编号重新开始，说明确实是新 bridge

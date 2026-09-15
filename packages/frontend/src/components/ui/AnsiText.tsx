@@ -1,9 +1,9 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
-	applySgrCodes,
-	splitByCellWidth,
-	stripOsc,
-	type SgrAttrs,
+  applySgrCodes,
+  splitByCellWidth,
+  stripOsc,
+  type SgrAttrs,
 } from "../../lib/tui-ansi";
 
 // 16 色 foreground 映射（对齐 WaPi 语义色板，无对应时用近似 hex）
@@ -30,8 +30,22 @@ const FG_16: Record<number, string> = {
 function xterm256(n: number): string {
   if (n < 16) {
     const system = [
-      "#000000","#800000","#008000","#808000","#000080","#800080","#008080","#c0c0c0",
-      "#808080","#ff0000","#00ff00","#ffff00","#0000ff","#ff00ff","#00ffff","#ffffff",
+      "#000000",
+      "#800000",
+      "#008000",
+      "#808000",
+      "#000080",
+      "#800080",
+      "#008080",
+      "#c0c0c0",
+      "#808080",
+      "#ff0000",
+      "#00ff00",
+      "#ffff00",
+      "#0000ff",
+      "#ff00ff",
+      "#00ffff",
+      "#ffffff",
     ];
     return system[n] ?? "#000000";
   }
@@ -40,7 +54,8 @@ function xterm256(n: number): string {
     const r = Math.floor(idx / 36);
     const g = Math.floor((idx % 36) / 6);
     const b = idx % 6;
-    const toHex = (v: number) => (v === 0 ? 0 : 55 + v * 40).toString(16).padStart(2, "0");
+    const toHex = (v: number) =>
+      (v === 0 ? 0 : 55 + v * 40).toString(16).padStart(2, "0");
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
   }
   const gray = 8 + (n - 232) * 10;
@@ -52,7 +67,8 @@ function xterm256(n: number): string {
  * 非颜色 SGR 属性 → inline style。无属性时返回 undefined，避免产生多余的 style 对象。
  */
 function attrsToStyle(a: SgrAttrs): CSSProperties | undefined {
-  if (!a.bold && !a.dim && !a.italic && !a.underline && !a.inverse) return undefined;
+  if (!a.bold && !a.dim && !a.italic && !a.underline && !a.inverse)
+    return undefined;
   return {
     ...(a.bold ? { fontWeight: 600 } : {}),
     ...(a.dim ? { opacity: 0.65 } : {}),
@@ -120,7 +136,10 @@ function cellNodes(
  * 处理颜色（foreground/background）与可选的 `attrs`；非 SGR 控制序列一律丢弃，
  * OSC 序列先由 `stripOsc` 统一剥掉（OSC 8 的可见文本保留，标记丢弃）。
  */
-export function parseAnsiToNodes(text: string, options: ParseAnsiOptions = {}): ReactNode[] {
+export function parseAnsiToNodes(
+  text: string,
+  options: ParseAnsiOptions = {},
+): ReactNode[] {
   const withAttrs = options.attrs === true;
   const cellWidth = options.cellWidth;
   const clean = stripOsc(text);
@@ -144,7 +163,14 @@ export function parseAnsiToNodes(text: string, options: ParseAnsiOptions = {}): 
       : buffer;
     if (fg || bg || attrStyle) {
       nodes.push(
-        <span key={nextKey()} style={{ color: fg ?? undefined, background: bg ?? undefined, ...attrStyle }}>
+        <span
+          key={nextKey()}
+          style={{
+            color: fg ?? undefined,
+            background: bg ?? undefined,
+            ...attrStyle,
+          }}
+        >
           {children}
         </span>,
       );
@@ -177,29 +203,48 @@ export function parseAnsiToNodes(text: string, options: ParseAnsiOptions = {}): 
       const codes = params.split(";").map((s) => parseInt(s, 10));
       // 非颜色属性交给 tui-ansi 维护（同一份属性码语义，避免两处重复实现）。
       // 注：这里沿用颜色分支的解析习惯——`ESC[m`（空参数）是空码列表，不做重置。
-      if (withAttrs) attrs = applySgrCodes(attrs, codes.filter((n) => Number.isFinite(n)));
+      if (withAttrs)
+        attrs = applySgrCodes(
+          attrs,
+          codes.filter((n) => Number.isFinite(n)),
+        );
       for (let i = 0; i < codes.length; i++) {
         const code = codes[i];
         if (Number.isNaN(code)) continue;
-        if (code === 0) { fg = null; bg = null; }
-        else if (code === 39) { fg = null; }
-        else if (code === 49) { bg = null; }
-        else if (code >= 30 && code <= 37) { fg = FG_16[code] ?? null; }
-        else if (code >= 90 && code <= 97) { fg = FG_16[code] ?? null; }
-        else if (code >= 40 && code <= 47) { bg = FG_16[code - 10] ?? null; }
-        else if (code >= 100 && code <= 107) { bg = FG_16[code - 10] ?? null; }
-        else if (code === 38 || code === 48) {
+        if (code === 0) {
+          fg = null;
+          bg = null;
+        } else if (code === 39) {
+          fg = null;
+        } else if (code === 49) {
+          bg = null;
+        } else if (code >= 30 && code <= 37) {
+          fg = FG_16[code] ?? null;
+        } else if (code >= 90 && code <= 97) {
+          fg = FG_16[code] ?? null;
+        } else if (code >= 40 && code <= 47) {
+          bg = FG_16[code - 10] ?? null;
+        } else if (code >= 100 && code <= 107) {
+          bg = FG_16[code - 10] ?? null;
+        } else if (code === 38 || code === 48) {
           const isFg = code === 38;
           if (codes[i + 1] === 5 && typeof codes[i + 2] === "number") {
             const color = xterm256(codes[i + 2]);
-            if (isFg) fg = color; else bg = color;
+            if (isFg) fg = color;
+            else bg = color;
             i += 2;
-          } else if (codes[i + 1] === 2 && typeof codes[i + 2] === "number" && typeof codes[i + 3] === "number" && typeof codes[i + 4] === "number") {
+          } else if (
+            codes[i + 1] === 2 &&
+            typeof codes[i + 2] === "number" &&
+            typeof codes[i + 3] === "number" &&
+            typeof codes[i + 4] === "number"
+          ) {
             const r = codes[i + 2].toString(16).padStart(2, "0");
             const g = codes[i + 3].toString(16).padStart(2, "0");
             const b = codes[i + 4].toString(16).padStart(2, "0");
             const color = `#${r}${g}${b}`;
-            if (isFg) fg = color; else bg = color;
+            if (isFg) fg = color;
+            else bg = color;
             i += 4;
           }
         }

@@ -36,7 +36,8 @@ describe("createFrameSink", () => {
 
 	test("队列有上限，溢出丢最旧的帧（保留最新画面）", () => {
 		const sink = createFrameSink({ maxQueue: 3 });
-		for (let i = 0; i < 10; i++) sink.push({ type: "frame", panelId: "p1", n: i });
+		for (let i = 0; i < 10; i++)
+			sink.push({ type: "frame", panelId: "p1", n: i });
 		const written: string[] = [];
 		sink.attach((l) => written.push(l));
 		expect(written).toHaveLength(3);
@@ -47,10 +48,15 @@ describe("createFrameSink", () => {
 		const sink = createFrameSink({ maxQueue: 3 });
 		sink.push({ type: "open", panelId: "p1" });
 		sink.push({ type: "close", panelId: "p1", reason: "done" });
-		for (let i = 0; i < 10; i++) sink.push({ type: "frame", panelId: "p1", n: i });
+		for (let i = 0; i < 10; i++)
+			sink.push({ type: "frame", panelId: "p1", n: i });
 		const written: string[] = [];
 		sink.attach((l) => written.push(l));
-		expect(written.map((l) => JSON.parse(l).type)).toEqual(["open", "close", "frame"]);
+		expect(written.map((l) => JSON.parse(l).type)).toEqual([
+			"open",
+			"close",
+			"frame",
+		]);
 		expect(JSON.parse(written.at(-1)!).n).toBe(9);
 	});
 
@@ -77,7 +83,10 @@ describe("createFrameSink", () => {
 });
 
 /** 造一个可手动推入 NDJSON 文本的响应流，代替真实 kernel */
-function ndjsonResponse(): { response: Response; push: (text: string) => void } {
+function ndjsonResponse(): {
+	response: Response;
+	push: (text: string) => void;
+} {
 	const encoder = new TextEncoder();
 	let controller!: ReadableStreamDefaultController<Uint8Array>;
 	const stream = new ReadableStream<Uint8Array>({
@@ -115,7 +124,10 @@ describe("connectInputChannel", () => {
 		channel.stop();
 
 		expect(requests[0]!.url).toBe("http://127.0.0.1:9/bridge/tui-host/subscribe");
-		expect(JSON.parse(requests[0]!.body)).toEqual({ token: "tok", sessionId: "s1" });
+		expect(JSON.parse(requests[0]!.body)).toEqual({
+			token: "tok",
+			sessionId: "s1",
+		});
 		expect(events).toEqual([
 			{ type: "key", panelId: "p1", data: "\u001b[A" },
 			{ type: "cancel", panelId: "p1" },
@@ -136,7 +148,9 @@ describe("connectInputChannel", () => {
 			fetchImpl: (async () => fake.response) as unknown as typeof fetch,
 		});
 		channel.start();
-		fake.push('{"type":"key","panelId":"p1"}\n{"type":"cancel","panelId":"p1"}\n');
+		fake.push(
+			'{"type":"key","panelId":"p1"}\n{"type":"cancel","panelId":"p1"}\n',
+		);
 		await Bun.sleep(10);
 		channel.stop();
 		expect(seen).toEqual(["key", "cancel"]);
@@ -196,7 +210,8 @@ describe("connectInputChannel", () => {
 			retryMs: 10,
 			maxRetryMs: 40,
 			log: (m) => logs.push(m),
-			fetchImpl: (async () => new Response("", { status: 401 })) as unknown as typeof fetch,
+			fetchImpl: (async () =>
+				new Response("", { status: 401 })) as unknown as typeof fetch,
 		});
 		channel.start();
 		await Bun.sleep(80);
@@ -210,7 +225,9 @@ describe("connectInputChannel", () => {
 
 describe("backoffDelay", () => {
 	test("指数增长并封顶", () => {
-		expect([1, 2, 3, 4, 5, 6].map((n) => backoffDelay(n, 1000, 5000))).toEqual([1000, 2000, 4000, 5000, 5000, 5000]);
+		expect([1, 2, 3, 4, 5, 6].map((n) => backoffDelay(n, 1000, 5000))).toEqual([
+			1000, 2000, 4000, 5000, 5000, 5000,
+		]);
 	});
 });
 
@@ -247,7 +264,9 @@ function kernelStub() {
 
 /** 从帧流桩收到的行里取业务帧类型（每连接的鉴权首行没有 type，会被过滤掉） */
 const frameTypes = (lines: string[]): string[] =>
-	lines.map((l) => JSON.parse(l).type).filter((t): t is string => typeof t === "string");
+	lines
+		.map((l) => JSON.parse(l).type)
+		.filter((t): t is string => typeof t === "string");
 
 describe("createFrameStream", () => {
 	test("先发鉴权行再逐行送帧；stop 后优雅断流且不再重连", async () => {
@@ -266,8 +285,14 @@ describe("createFrameStream", () => {
 		sink.push({ type: "frame", panelId: "p1", lines: ["hi"] });
 		await Bun.sleep(20);
 
-		expect(JSON.parse(kernel.lines[0]!)).toEqual({ token: "tok", sessionId: "s1" });
-		expect(kernel.lines.slice(1).map((l) => JSON.parse(l).type)).toEqual(["open", "frame"]);
+		expect(JSON.parse(kernel.lines[0]!)).toEqual({
+			token: "tok",
+			sessionId: "s1",
+		});
+		expect(kernel.lines.slice(1).map((l) => JSON.parse(l).type)).toEqual([
+			"open",
+			"frame",
+		]);
 
 		stream.stop();
 		await Bun.sleep(60);
@@ -314,7 +339,8 @@ describe("createFrameStream", () => {
 		});
 		stream.start();
 		await Bun.sleep(30);
-		const pings = () => frameTypes(kernel.lines).filter((t) => t === "ping").length;
+		const pings = () =>
+			frameTypes(kernel.lines).filter((t) => t === "ping").length;
 		expect(pings()).toBeGreaterThanOrEqual(2);
 
 		stream.stop();

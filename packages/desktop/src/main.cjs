@@ -993,6 +993,9 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			case "element": // 选中元素：转发到主窗口插入聊天输入框
 				sendToMain({ type: "element", token: String(payload.token ?? "") });
 				return;
+			case "path": // 独立窗口里换了预览文件：同步给主窗口（切回内嵌时恢复同一内容）
+				sendToMain({ type: "path", path: payload.path ?? null });
+				return;
 			case "open-settings": // 设置弹窗只在主窗口（数据/上下文都在那边）：转发并把主窗口带到前台
 				sendToMain({
 					type: "open-settings",
