@@ -72,6 +72,40 @@ function stubRects(rect: {
 	});
 }
 
+/** 面板标题栏高度（px）：容器高 − 它就是文本区高（镜像真实布局） */
+const HEADER_HEIGHT = 30;
+
+/**
+ * 面板布局桩：容器尺寸取展开浮窗的**实时内联样式**（拖动/缩放直接改它），
+ * 文本区尺寸 = 容器尺寸 − 标题栏高度。
+ * 必须区分容器与文本区——「按容器上报」正是要修的错（多算标题栏那 1 行）。
+ */
+function stubPanelLayout(headerHeight: number) {
+	const original = HTMLElement.prototype.getBoundingClientRect;
+	HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+		const boxEl = document.querySelector<HTMLElement>(
+			'[data-testid="tui-panel-expanded"]',
+		);
+		const w = boxEl ? Number.parseFloat(boxEl.style.width) || 0 : 0;
+		const h = boxEl ? Number.parseFloat(boxEl.style.height) || 0 : 0;
+		const isBody = this.getAttribute?.("data-testid") === "tui-panel-body";
+		const r = isBody
+			? { left: 0, top: headerHeight, width: w, height: Math.max(0, h - headerHeight) }
+			: { left: 0, top: 0, width: w, height: h };
+		return {
+			...r,
+			right: r.left + r.width,
+			bottom: r.top + r.height,
+			x: r.left,
+			y: r.top,
+			toJSON: () => ({}),
+		} as DOMRect;
+	};
+	restores.push(() => {
+		HTMLElement.prototype.getBoundingClientRect = original;
+	});
+}
+
 beforeEach(() => {
 	localStorage.clear();
 	useTuiPanelStore.setState({ bySession: {} });
@@ -341,13 +375,23 @@ describe("TuiPanel 鼠标上报", () => {
 });
 
 describe("TuiPanel 尺寸上报", () => {
-	test("展开时按元素实际宽高上报 resize", () => {
+	/**
+	 * 上报基准必须是**文本区**（body），不是含标题栏的容器：
+	 * 按容器（680×380）换算会得到 94×19，而可见网格只有 92×18（左内边距 12px、标题栏 30px），
+	 * 多出来的 2 列 1 行会被 body 的 overflow-hidden 裁掉。
+	 */
+	test("上报的 cols/rows 与文本区尺寸一致（不含标题栏误差）", () => {
 		useTuiPanelStore.getState().open("s1", META);
-		stubRects({ width: 720, height: 388 });
+		stubPanelLayout(HEADER_HEIGHT);
 		render(<TuiPanel sessionId="s1" />);
-		expect(tuiInputCalls("resize").map((c) => c.body)).toEqual([
-			{ sessionId: "s1", panelId: "p1", type: "resize", cols: 100, rows: 20 },
-		]);
+		const reported = tuiInputCalls("resize").at(-1)!.body;
+		expect(reported.cols).toBe(Math.floor((680 - 12) / CELL.width)); // 92
+		expect(reported.rows).toBe(
+			Math.floor((380 - HEADER_HEIGHT) / CELL.height), // 18
+		);
+		// 容器语义会多算标题栏那 1 行（19）与左内边距那 2 列（94）：钉住修的就是它
+		expect(reported.cols).toBeLessThan(Math.floor(680 / CELL.width));
+		expect(reported.rows).toBeLessThan(Math.floor(380 / CELL.height));
 	});
 
 	test("宽高非有限值（NaN 透传历史坑）不上报", () => {
@@ -398,8 +442,9 @@ describe("TuiPanel 窗口拖动与缩放", () => {
 		);
 	});
 
-	test("拖右下角把手缩放浮窗并上报新列行", () => {
+	test("拖右下角把手缩放浮窗并上报新列行（按文本区，非容器）", () => {
 		useTuiPanelStore.getState().open("s1", META);
+		stubPanelLayout(HEADER_HEIGHT);
 		render(<TuiPanel sessionId="s1" />);
 		expect(parseFloat(expanded().style.width)).toBe(680);
 
@@ -412,8 +457,10 @@ describe("TuiPanel 窗口拖动与缩放", () => {
 
 		expect(parseFloat(expanded().style.width)).toBe(752);
 		expect(parseFloat(expanded().style.height)).toBe(399.4);
+		// 展开时一次（容器 680×380 → 文本区 680×350），缩放提交再一次（752×399.4 → 752×369.4）
 		expect(tuiInputCalls("resize").map((c) => c.body)).toEqual([
-			{ sessionId: "s1", panelId: "p1", type: "resize", cols: 104, rows: 20 },
+			{ sessionId: "s1", panelId: "p1", type: "resize", cols: 92, rows: 18 },
+			{ sessionId: "s1", panelId: "p1", type: "resize", cols: 102, rows: 19 },
 		]);
 	});
 
@@ -455,6 +502,53 @@ describe("TuiPanel 窗口拖动与缩放", () => {
 		useTuiPanelStore.getState().open("s2", META);
 		render(<TuiPanel sessionId="s2" />);
 		expect(parseFloat(expanded().style.left)).toBe(moved);
+	});
+});
+
+describe("TuiPanel 焦点归属", () => {
+	const expanded = () => screen.getByTestId("tui-panel-expanded");
+
+	/** 造一个面板外的可聚焦元素并聚焦它，模拟「用户点过 Composer / 侧栏」 */
+	function focusOutside() {
+		const outside = document.createElement("input");
+		document.body.appendChild(outside);
+		outside.focus();
+		return outside;
+	}
+
+	/**
+	 * mousedown 被 preventDefault 会吃掉浏览器「把焦点给可聚焦祖先」的默认动作，
+	 * 必须显式把焦点还给面板容器——否则点过别处再点回面板时焦点回不来，
+	 * 而 Composer 已 disabled：面板看着是活的却在丢键。
+	 */
+	test("焦点在别处时，按下面板文本区会把焦点收回面板", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		const outside = focusOutside();
+		fireEvent.mouseDown(body(), { button: 0 });
+		expect(document.activeElement).toBe(expanded());
+		outside.remove();
+	});
+
+	test("焦点在别处时，按标题栏拖动也把焦点收回面板", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		const outside = focusOutside();
+		fireEvent.mouseDown(screen.getByTestId("tui-panel-header"), {
+			clientX: 500,
+			clientY: 300,
+		});
+		expect(document.activeElement).toBe(expanded());
+		outside.remove();
+	});
+
+	test("标题栏按钮不抢焦点（按钮自身是可聚焦元素）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		const outside = focusOutside();
+		fireEvent.mouseDown(screen.getByTitle("取消该交互"));
+		expect(document.activeElement).not.toBe(expanded());
+		outside.remove();
 	});
 });
 

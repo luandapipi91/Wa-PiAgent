@@ -62,18 +62,20 @@ export function rowsFromHeight(px: number): number {
 }
 
 /**
- * 上报面板尺寸（cols/rows）给 kernel 的假终端。
+ * 上报文本区尺寸（cols/rows）给 kernel 的假终端。
+ * textWidth/textHeight 是**文本区客户区**尺寸（不含标题栏）：文本区左边有内边距，
+ * 可用列宽要再减去 BODY_PAD_X——这与鼠标换算（cellAt）用的是同一个原点。
  * 唯一入口：cols/rows 非正（非有限值、不足一格）一律不发——
  * 历史上踩过 NaN 直接透传到 kernel 的坑，终端 resize 会拿到非法列行。
  */
 export function reportTuiSize(
 	sessionId: string,
 	panelId: string,
-	width: number,
-	height: number,
+	textWidth: number,
+	textHeight: number,
 ): void {
-	const cols = colsFromWidth(width);
-	const rows = rowsFromHeight(height);
+	const cols = colsFromWidth(textWidth - BODY_PAD_X);
+	const rows = rowsFromHeight(textHeight);
 	if (cols < 1 || rows < 1) return;
 	void api
 		.post("/api/extensions/tui-input", {
@@ -272,6 +274,32 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	);
 
 	/**
+	 * 上报展开态文本区尺寸（cols/rows）。
+	 * 基准必须是**文本区**（bodyRef）而不是容器（boxRef）：容器含标题栏，
+	 * 按容器换算会多报标题栏那 1 行、左内边距那 2 列，帧的右缘与末行会被 overflow-hidden 裁掉。
+	 * 鼠标换算（cellAt）也以文本区为原点，两者必须同源。
+	 */
+	const reportPanelSize = useCallback(() => {
+		if (!sessionId) return;
+		const el = bodyRef.current;
+		if (!el) return;
+		const cur = useTuiPanelStore.getState().bySession[sessionId];
+		if (!cur) return;
+		const { width, height } = el.getBoundingClientRect();
+		reportTuiSize(sessionId, cur.panelId, width, height);
+	}, [sessionId]);
+
+	/**
+	 * 把键盘焦点收回面板容器。
+	 * mousedown 的 preventDefault 会吃掉浏览器「把焦点给可聚焦祖先」的默认动作，
+	 * 不显式还回来，用户点过别处（Composer/侧栏）再点回面板时焦点回不来，
+	 * 而 Composer 已 disabled——面板看着是活的却在静默丢键。
+	 */
+	const focusPanel = useCallback(() => {
+		boxRef.current?.focus({ preventScroll: true });
+	}, []);
+
+	/**
 	 * 会话切换补发（规格 §5.4）：kernel 里面板可能是在本前端没订阅时开的，
 	 * 切过去先拉一次快照铺回面板与最后一帧。
 	 *
@@ -304,15 +332,12 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		};
 	}, [sessionId]);
 
-	// 展开态：接管键盘焦点 + 按元素实际宽高上报终端列行
+	// 展开态：接管键盘焦点 + 按文本区（不含标题栏）实际宽高上报终端列行
 	useEffect(() => {
 		if (panel?.mode !== "expanded" || !sessionId) return;
-		const el = boxRef.current;
-		if (!el) return;
-		el.focus();
-		const box = el.getBoundingClientRect();
-		reportTuiSize(sessionId, panel.panelId, box.width, box.height);
-	}, [panel?.mode, panel?.panelId, sessionId]);
+		boxRef.current?.focus();
+		reportPanelSize();
+	}, [panel?.mode, panel?.panelId, sessionId, reportPanelSize]);
 
 	// 鼠标左键在面板外松开时复位按下态（否则回到面板会误发 drag）
 	useEffect(() => {
@@ -377,18 +402,15 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		if (!d.moved || !d.last) return; // 未拖动 = 点击，交给按钮自身的 click
 		setRect(d.last);
 		savePanelRect(d.last);
-		// 尺寸变了要告诉终端重新排版；只移动位置则不必
-		if (d.kind === "resize") {
-			const cur = sessionId
-				? useTuiPanelStore.getState().bySession[sessionId]
-				: undefined;
-			if (cur) reportTuiSize(sessionId!, cur.panelId, d.last.w, d.last.h);
-		}
-	}, [onWindowMouseMove, sessionId]);
+		// 尺寸变了要告诉终端重新排版（读 applyRect 后的文本区 rect）；只移动位置则不必
+		if (d.kind === "resize") reportPanelSize();
+	}, [onWindowMouseMove, reportPanelSize]);
 
 	const beginDrag = useCallback(
 		(kind: "move" | "resize", e: ReactMouseEvent) => {
 			e.preventDefault();
+			// preventDefault 也会吃掉默认聚焦：显式收回焦点，否则拖动后键盘锁静默失效
+			focusPanel();
 			dragRef.current = {
 				kind,
 				startX: e.clientX,
@@ -400,7 +422,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 			window.addEventListener("mousemove", onWindowMouseMove);
 			window.addEventListener("mouseup", onWindowMouseUp);
 		},
-		[rect, onWindowMouseMove, onWindowMouseUp],
+		[rect, focusPanel, onWindowMouseMove, onWindowMouseUp],
 	);
 
 	// === 鼠标 / 键盘 / 粘贴上报 ===
@@ -414,8 +436,10 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	};
 
 	const onBodyMouseDown = (e: ReactMouseEvent) => {
-		// 终端式交互：不要浏览器的选字/拖拽默认行为，焦点也留在面板上
+		// 终端式交互：不要浏览器的选字/拖拽默认行为
 		e.preventDefault();
+		// 但默认聚焦也被 preventDefault 吃掉了：显式把焦点还给面板（拖动把手同理）
+		focusPanel();
 		pressRef.current = { button: e.button };
 		const { col, row } = cellAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
 		post({ type: "mouse", data: encodeMouse("down", e.button, col, row) });
