@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { applySgrCodes, stripOsc, type SgrAttrs } from "../../lib/tui-ansi";
 
 // 16 色 foreground 映射（对齐 WaPi 语义色板，无对应时用近似 hex）
 const FG_16: Record<number, string> = {
@@ -43,23 +44,54 @@ function xterm256(n: number): string {
 }
 
 /**
- * 把带 ANSI SGR 颜色码的字符串解析为 ReactNode 数组。
- * 仅处理颜色（foreground/background），其他控制序列丢弃。
+ * 非颜色 SGR 属性 → inline style。无属性时返回 undefined，避免产生多余的 style 对象。
  */
-export function parseAnsiToNodes(text: string): ReactNode[] {
-  if (!text.includes("\x1b[")) return [text];
+function attrsToStyle(a: SgrAttrs): CSSProperties | undefined {
+  if (!a.bold && !a.dim && !a.italic && !a.underline && !a.inverse) return undefined;
+  return {
+    ...(a.bold ? { fontWeight: 600 } : {}),
+    ...(a.dim ? { opacity: 0.65 } : {}),
+    ...(a.italic ? { fontStyle: "italic" } : {}),
+    ...(a.underline ? { textDecoration: "underline" } : {}),
+    ...(a.inverse ? { filter: "invert(1)" } : {}),
+  };
+}
+
+export interface ParseAnsiOptions {
+  /**
+   * 是否把非颜色 SGR 属性（粗体/暗/斜体/下划线/反显）渲染成 inline style。
+   *
+   * 默认 false，保持本函数的历史契约：只解析颜色，其余 SGR 一律丢弃
+   * （`tests/ansi-text.test.ts` 的「非法/不支持的序列被丢弃」断言依赖此行为）。
+   * 面板渲染路径（`AnsiText` 组件）传 true。
+   */
+  attrs?: boolean;
+}
+
+/**
+ * 把带 ANSI SGR 码的字符串解析为 ReactNode 数组。
+ *
+ * 处理颜色（foreground/background）与可选的 `attrs`；非 SGR 控制序列一律丢弃，
+ * OSC 序列先由 `stripOsc` 统一剥掉（OSC 8 的可见文本保留，标记丢弃）。
+ */
+export function parseAnsiToNodes(text: string, options: ParseAnsiOptions = {}): ReactNode[] {
+  const withAttrs = options.attrs === true;
+  const clean = stripOsc(text);
+  if (!clean.includes("\x1b[")) return [clean];
 
   const nodes: ReactNode[] = [];
   let fg: string | null = null;
   let bg: string | null = null;
+  let attrs: SgrAttrs = {};
   let buffer = "";
   let key = 0;
 
   const flush = () => {
     if (!buffer) return;
-    if (fg || bg) {
+    const attrStyle = withAttrs ? attrsToStyle(attrs) : undefined;
+    if (fg || bg || attrStyle) {
       nodes.push(
-        <span key={key++} style={{ color: fg ?? undefined, background: bg ?? undefined }}>
+        <span key={key++} style={{ color: fg ?? undefined, background: bg ?? undefined, ...attrStyle }}>
           {buffer}
         </span>,
       );
@@ -76,7 +108,7 @@ export function parseAnsiToNodes(text: string): ReactNode[] {
   };
 
   // 按 \x1b[ 切分，逐段解析 SGR 序列
-  const parts = text.split(/(\x1b\[[0-9;?]*[A-Za-z])/);
+  const parts = clean.split(/(\x1b\[[0-9;?]*[A-Za-z])/);
   for (const part of parts) {
     if (!part) continue;
     if (part.startsWith("\x1b[")) {
@@ -87,6 +119,9 @@ export function parseAnsiToNodes(text: string): ReactNode[] {
       if (cmd !== "m") continue; // 只处理 SGR
 
       const codes = params.split(";").map((s) => parseInt(s, 10));
+      // 非颜色属性交给 tui-ansi 维护（同一份属性码语义，避免两处重复实现）。
+      // 注：这里沿用颜色分支的解析习惯——`ESC[m`（空参数）是空码列表，不做重置。
+      if (withAttrs) attrs = applySgrCodes(attrs, codes.filter((n) => Number.isFinite(n)));
       for (let i = 0; i < codes.length; i++) {
         const code = codes[i];
         if (Number.isNaN(code)) continue;
@@ -122,5 +157,5 @@ export function parseAnsiToNodes(text: string): ReactNode[] {
 }
 
 export function AnsiText({ text }: { text: string }) {
-  return <>{parseAnsiToNodes(text)}</>;
+  return <>{parseAnsiToNodes(text, { attrs: true })}</>;
 }
