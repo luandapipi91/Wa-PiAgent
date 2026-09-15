@@ -54,6 +54,11 @@ export function usePreviewWindowDriver(): void {
 					useSettingsStore.getState().open();
 					useSettingsStore.getState().setSection(e.section as SettingsSection);
 					break;
+				case "path":
+					// 独立窗口里换了预览文件：同步到主窗口（含该会话的预览记忆），
+					// 切回内嵌时才能恢复到同一内容，而不是停在空预览
+					store.setPath(e.path);
+					break;
 				case "closed":
 					// 兜底：窗口被关掉但仍自称处于浮动模式（如窗口被外部关闭）→ 收尾为关闭预览。
 					// 走正常路径（切模式/关闭预览）时 store 已经更新，这里不会重复动作。

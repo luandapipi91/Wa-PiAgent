@@ -37,14 +37,22 @@ test("extension_tui_open/frame/close 事件驱动面板 store（custom 浮窗通
 
 	handleSDKEvent(
 		"s1",
-		sdk({ type: "extension_tui_frame", panelId: "p1", lines: ["a"], cursor: { row: 0, col: 1 } }),
+		sdk({
+			type: "extension_tui_frame",
+			panelId: "p1",
+			lines: ["a"],
+			cursor: { row: 0, col: 1 },
+		}),
 	);
 	expect(useTuiPanelStore.getState().bySession.s1).toMatchObject({
 		lines: ["a"],
 		cursor: { row: 0, col: 1 },
 	});
 
-	handleSDKEvent("s1", sdk({ type: "extension_tui_close", panelId: "p1", reason: "done" }));
+	handleSDKEvent(
+		"s1",
+		sdk({ type: "extension_tui_close", panelId: "p1", reason: "done" }),
+	);
 	expect(useTuiPanelStore.getState().bySession.s1).toBeUndefined();
 });
 

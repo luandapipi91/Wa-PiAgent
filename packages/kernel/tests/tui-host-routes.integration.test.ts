@@ -54,7 +54,9 @@ async function start(extraOpts: Partial<WSServerOpts> = {}) {
 		agentManager: {
 			disposeAll: async () => {},
 			getSessionMeta: (sid: string) =>
-				sid === "s1" ? { projectId: "p1", agentName: "default" as const } : undefined,
+				sid === "s1"
+					? { projectId: "p1", agentName: "default" as const }
+					: undefined,
 		} as any,
 		channelManager: null,
 		port: 0,
@@ -64,7 +66,12 @@ async function start(extraOpts: Partial<WSServerOpts> = {}) {
 	return { server, base: `http://127.0.0.1:${server.actualPort}` };
 }
 
-const jsonPost = (base: string, path: string, body: unknown, init: RequestInit = {}) =>
+const jsonPost = (
+	base: string,
+	path: string,
+	body: unknown,
+	init: RequestInit = {},
+) =>
 	fetch(`${base}${path}`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -76,7 +83,10 @@ const jsonPost = (base: string, path: string, body: unknown, init: RequestInit =
  * 按行读 NDJSON 响应（跨 read 保留半行缓冲）。
  * 默认跳过 ping 行：订阅流会周期性发心跳保活，扩展侧（host.ts 的 handleInput）收到即丢。
  */
-function ndjsonReader(body: ReadableStream<Uint8Array>, opts: { skipPing?: boolean } = {}) {
+function ndjsonReader(
+	body: ReadableStream<Uint8Array>,
+	opts: { skipPing?: boolean } = {},
+) {
 	const skipPing = opts.skipPing ?? true;
 	const reader = body.getReader();
 	const dec = new TextDecoder();
@@ -89,7 +99,8 @@ function ndjsonReader(body: ReadableStream<Uint8Array>, opts: { skipPing?: boole
 					const line = buf.slice(0, nl);
 					buf = buf.slice(nl + 1);
 					if (!line.trim()) continue;
-					if (skipPing && (JSON.parse(line) as { type?: string }).type === "ping") continue;
+					if (skipPing && (JSON.parse(line) as { type?: string }).type === "ping")
+						continue;
 					return line;
 				}
 				const { value, done } = await reader.read();
@@ -103,7 +114,13 @@ function ndjsonReader(body: ReadableStream<Uint8Array>, opts: { skipPing?: boole
 /** 读 SSE 直到拿到 sdk:event 帧（跳过内核 5s 一次的 heartbeat 帧） */
 async function readSdkEvent(
 	sse: ReadableStreamDefaultReader<Uint8Array>,
-): Promise<{ type: string; projectId: string; sessionId: string; agentName: string; event: Record<string, unknown> }> {
+): Promise<{
+	type: string;
+	projectId: string;
+	sessionId: string;
+	agentName: string;
+	event: Record<string, unknown>;
+}> {
 	for (let i = 0; i < 10; i++) {
 		const frame = await readSseFrame(sse);
 		if (frame.data?.type === "sdk:event") return frame.data;
@@ -133,7 +150,8 @@ function openFrameStream(base: string, head: Record<string, unknown>) {
 	} as RequestInit);
 	return {
 		resP,
-		write: (frame: unknown) => ctrl.enqueue(enc.encode(JSON.stringify(frame) + "\n")),
+		write: (frame: unknown) =>
+			ctrl.enqueue(enc.encode(JSON.stringify(frame) + "\n")),
 		close: () => ctrl.close(),
 	};
 }
@@ -164,8 +182,21 @@ test("frames/bridge 端点：非 POST → 405", async () => {
 test("subscribe 端点：无效 token → 401；缺 sessionId → 400", async () => {
 	const { server, base } = await start();
 	try {
-		expect((await jsonPost(base, "/bridge/tui-host/subscribe", { token: "wrong", sessionId: "s1" })).status).toBe(401);
-		expect((await jsonPost(base, "/bridge/tui-host/subscribe", { token: getBridgeToken() })).status).toBe(400);
+		expect(
+			(
+				await jsonPost(base, "/bridge/tui-host/subscribe", {
+					token: "wrong",
+					sessionId: "s1",
+				})
+			).status,
+		).toBe(401);
+		expect(
+			(
+				await jsonPost(base, "/bridge/tui-host/subscribe", {
+					token: getBridgeToken(),
+				})
+			).status,
+		).toBe(400);
 	} finally {
 		await server.stop();
 	}
@@ -198,7 +229,10 @@ test("tui-snapshot：无面板的会话返回空结构（200，不是 404）", a
 	try {
 		const res = await fetch(`${base}/api/extensions/tui-snapshot?sessionId=s2`);
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ type: "extension:tui:snapshot", panels: [] });
+		expect(await res.json()).toEqual({
+			type: "extension:tui:snapshot",
+			panels: [],
+		});
 	} finally {
 		await server.stop();
 	}
@@ -251,11 +285,22 @@ test("tui-snapshot：返回会话面板元数据 + 最新缓存帧", async () =>
 			lastFrame: { lines: ["a", "b"], cursor: { row: 1, col: 0 } },
 		});
 		// widget 面板也在快照里（端点只透传；前端 store 自行过滤，见修正 B）
-		expect(body.panels[1]).toMatchObject({ panelId: "w:goal", kind: "widget", widgetKey: "goal" });
+		expect(body.panels[1]).toMatchObject({
+			panelId: "w:goal",
+			kind: "widget",
+			widgetKey: "goal",
+		});
 
 		// 尚未收到帧的面板：lastFrame 为 null（前端据此保持空白而非渲染旧内容）
-		tuiHostRegistry.applyFrame("s1", { type: "open", panelId: "p2", kind: "custom", title: "T2" });
-		const body2 = await (await fetch(`${base}/api/extensions/tui-snapshot?sessionId=s1`)).json();
+		tuiHostRegistry.applyFrame("s1", {
+			type: "open",
+			panelId: "p2",
+			kind: "custom",
+			title: "T2",
+		});
+		const body2 = await (
+			await fetch(`${base}/api/extensions/tui-snapshot?sessionId=s1`)
+		).json();
 		const p2 = body2.panels.find((p: { panelId?: string }) => p.panelId === "p2");
 		expect(p2?.lastFrame).toBeNull();
 	} finally {
@@ -300,7 +345,12 @@ test("帧流：首行鉴权 + open/frame/close 落到注册表并广播 SSE（pi
 
 		// ping 在下一帧之前：心跳若被当成事件广播，下一读拿到的就不是 extension_tui_frame
 		write({ type: "ping" });
-		write({ type: "frame", panelId: "p1", lines: ["a", "b"], cursor: { row: 1, col: 0 } });
+		write({
+			type: "frame",
+			panelId: "p1",
+			lines: ["a", "b"],
+			cursor: { row: 1, col: 0 },
+		});
 		const framed = await readSdkEvent(sse);
 		expect(framed.event).toEqual({
 			type: "extension_tui_frame",
@@ -308,11 +358,18 @@ test("帧流：首行鉴权 + open/frame/close 落到注册表并广播 SSE（pi
 			lines: ["a", "b"],
 			cursor: { row: 1, col: 0 },
 		});
-		expect(tuiHostRegistry.snapshot("s1")?.panels[0]?.lastFrame?.lines).toEqual(["a", "b"]);
+		expect(tuiHostRegistry.snapshot("s1")?.panels[0]?.lastFrame?.lines).toEqual([
+			"a",
+			"b",
+		]);
 
 		write({ type: "close", panelId: "p1", reason: "done" });
 		const closed = await readSdkEvent(sse);
-		expect(closed.event).toEqual({ type: "extension_tui_close", panelId: "p1", reason: "done" });
+		expect(closed.event).toEqual({
+			type: "extension_tui_close",
+			panelId: "p1",
+			reason: "done",
+		});
 		expect(tuiHostRegistry.snapshot("s1")?.panels).toHaveLength(0);
 
 		// 流结束（扩展进程退出）后响应才回来：HTTP 状态 200
@@ -364,7 +421,13 @@ test("帧流：widget 帧走既有 extension_widget 通道（widgetKey + placeme
 			pending: 1,
 			placement: "belowEditor",
 		});
-		write({ type: "frame", panelId: "w:goal", kind: "widget", widgetKey: "goal", lines: ["w1"] });
+		write({
+			type: "frame",
+			panelId: "w:goal",
+			kind: "widget",
+			widgetKey: "goal",
+			lines: ["w1"],
+		});
 		const framed = await readSdkEvent(sse);
 		expect(framed.event).toEqual({
 			type: "extension_widget",
@@ -532,9 +595,18 @@ test("真实扩展客户端（host.ts）↔ kernel：帧上行、输入下行全
 			rows: 24,
 			pending: 1,
 		});
-		sink.push({ type: "frame", panelId: "p1", lines: ["a"], cursor: { row: 0, col: 1 } });
+		sink.push({
+			type: "frame",
+			panelId: "p1",
+			lines: ["a"],
+			cursor: { row: 0, col: 1 },
+		});
 		const opened = await readSdkEvent(sse);
-		expect(opened.event).toMatchObject({ type: "extension_tui_open", panelId: "p1", title: "扩展面板" });
+		expect(opened.event).toMatchObject({
+			type: "extension_tui_open",
+			panelId: "p1",
+			title: "扩展面板",
+		});
 		const framed = await readSdkEvent(sse);
 		expect(framed.event).toEqual({
 			type: "extension_tui_frame",

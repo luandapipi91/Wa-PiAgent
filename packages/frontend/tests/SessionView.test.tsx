@@ -1408,7 +1408,8 @@ const { useTuiPanelStore } = await import("../src/store/tui-panel");
 // happy-dom 无布局：getBoundingClientRect 全为 0，宽度上报需手工桩实测宽度
 function stubDockWidth(width: number) {
 	const original = HTMLElement.prototype.getBoundingClientRect;
-	HTMLElement.prototype.getBoundingClientRect = () => ({
+	HTMLElement.prototype.getBoundingClientRect = () =>
+		({
 			left: 0,
 			top: 0,
 			width,
@@ -1418,7 +1419,7 @@ function stubDockWidth(width: number) {
 			x: 0,
 			y: 0,
 			toJSON: () => ({}),
-		} as DOMRect);
+		}) as DOMRect;
 	return () => {
 		HTMLElement.prototype.getBoundingClientRect = original;
 	};
@@ -1427,7 +1428,9 @@ function stubDockWidth(width: number) {
 test("TUI 面板展开态禁用 Composer，收起后恢复可用", async () => {
 	await renderSessionView("s1");
 	const textbox = () =>
-		screen.getByTestId("composer-input").querySelector('[role="textbox"]')! as HTMLElement;
+		screen
+			.getByTestId("composer-input")
+			.querySelector('[role="textbox"]')! as HTMLElement;
 	expect(textbox().isContentEditable).toBe(true);
 
 	// 展开态：键盘锁给面板，输入框不可编辑

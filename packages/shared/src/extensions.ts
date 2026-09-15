@@ -179,5 +179,8 @@ export interface ExtensionTuiSnapshotPanel {
 	widgetKey?: string;
 	placement?: "aboveEditor" | "belowEditor";
 	/** 最后一帧（行内可含 ANSI）；面板尚未渲染过帧时为 null */
-	lastFrame: { lines: string[]; cursor: { row: number; col: number } | null } | null;
+	lastFrame: {
+		lines: string[];
+		cursor: { row: number; col: number } | null;
+	} | null;
 }

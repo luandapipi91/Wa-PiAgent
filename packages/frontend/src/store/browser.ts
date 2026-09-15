@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { FileChangeSnapshot } from "@wa-pi/shared";
 
-/** 预览窗口模式：split=与聊天分屏；full=占满主内容区；float=浮动窗 */
+/** 预览窗口模式：split=与聊天分屏；full=占满主内容区；float=独立窗口承载（可移出主窗口、与主窗口并行） */
 export type BrowserMode = "split" | "full" | "float";
 
 export interface FloatRect {
@@ -122,6 +122,16 @@ function loadDetachedRect(): FloatRect | null {
 	return null;
 }
 
+/**
+ * 默认预览模式：桌面端（有 Electron 桥）默认就用独立窗口承载（需求：默认浮窗，
+ * 首次打开预览直接弹独立窗口）；浏览器 dev 无桥时回退 split——float 在浏览器里
+ * 没有承载者，会表现为「打开预览毫无反应」。
+ * 抽成纯函数便于单测（loadMode 在模块加载期执行，单测难以重载模块）。
+ */
+export function defaultBrowserMode(hasElectronBridge: boolean): BrowserMode {
+	return hasElectronBridge ? "float" : "split";
+}
+
 function loadMode(): BrowserMode {
 	try {
 		const v = localStorage.getItem(LS.mode);
@@ -129,7 +139,10 @@ function loadMode(): BrowserMode {
 	} catch {
 		/* 隐私模式等场景读不到就当默认值 */
 	}
-	return "split";
+	// 已选过模式的老用户沿用其偏好（localStorage 有记录时上面已返回）
+	return defaultBrowserMode(
+		typeof window !== "undefined" && Boolean(window.waPiPreviewWin),
+	);
 }
 
 function loadRatio(): number {

@@ -38,6 +38,13 @@ test.describe
 		let projectId = "";
 
 		test.beforeEach(async ({ page }) => {
+			// 本 spec 会注入 mock 桥（installPreviewBridge），而“默认模式”判定看的就是有没有 Electron 桥
+			// （store/browser.ts defaultBrowserMode：有桥即默认浮窗）——这里显式固定 split，
+			// 保持“内嵌预览”相关断言的原口径；浮动路径另有专门用例。
+			// addInitScript 在每次导航前执行（下面还会 clear 一次 localStorage）。
+			await page.addInitScript(() => {
+				localStorage.setItem("hiagent.browser.mode", "split");
+			});
 			await page.goto("/");
 			// 预览窗口模式按 origin 存 localStorage（E2E 隔离 WA_PI_DIR 但 localStorage 不隔离），
 			// 串行用例间会互相污染默认模式，进页面前先清

@@ -28,7 +28,14 @@ const NAMED: Record<string, string> = {
 };
 
 /** 修饰键本身不发序列 */
-const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Dead"]);
+const MODIFIER_KEYS = new Set([
+	"Shift",
+	"Control",
+	"Alt",
+	"Meta",
+	"CapsLock",
+	"Dead",
+]);
 
 /**
  * 带修饰键时改用 xterm 的 CSI 1;<mod><final> 形式编码的导航键。
@@ -92,7 +99,11 @@ export function encodeMouse(
 }
 
 /** 滚轮 → SGR 鼠标序列（上 64 / 下 65；坐标 1-based，由调用方换算成终端列行） */
-export function encodeWheel(direction: "up" | "down", col: number, row: number): string {
+export function encodeWheel(
+	direction: "up" | "down",
+	col: number,
+	row: number,
+): string {
 	const code = direction === "up" ? 64 : 65;
 	return `\u001b[<${code};${Math.max(1, col)};${Math.max(1, row)}M`;
 }

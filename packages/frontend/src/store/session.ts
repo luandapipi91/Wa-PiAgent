@@ -187,7 +187,11 @@ interface SessionState {
 	// MediaPreviewModal（常驻挂载点）。与 filePreview 同理放 store——宿主消息行在
 	// 流式结束/折叠/卸载时销毁，预览窗不被连带关闭；只有用户手动关闭才消失。
 	mediaPreview: { items: MediaItem[]; index: number; sessionId: string } | null;
-	openMediaPreview: (items: MediaItem[], index: number, sessionId: string) => void;
+	openMediaPreview: (
+		items: MediaItem[],
+		index: number,
+		sessionId: string,
+	) => void;
 	closeMediaPreview: () => void;
 	setMediaPreviewIndex: (index: number) => void;
 	/** 重载中（/reload 命令执行期间禁用发送） */

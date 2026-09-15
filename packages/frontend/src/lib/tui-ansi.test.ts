@@ -35,7 +35,19 @@ describe("parseSgrSpans", () => {
 
 describe("isWideChar / splitByCellWidth（终端「全角占两格」语义）", () => {
 	test("汉字/假名/谚文/全角形式算两格", () => {
-		for (const ch of ["中", "文", "、", "。", "あ", "ア", "한", "Ａ", "１", "￥", "　"]) {
+		for (const ch of [
+			"中",
+			"文",
+			"、",
+			"。",
+			"あ",
+			"ア",
+			"한",
+			"Ａ",
+			"１",
+			"￥",
+			"　",
+		]) {
 			expect([ch, isWideChar(ch.codePointAt(0)!)]).toEqual([ch, true]);
 		}
 	});
@@ -73,8 +85,12 @@ describe("stripOsc / takeLinks", () => {
 	});
 
 	test("抽取 OSC 8 链接的文本与 URL", () => {
-		const links = takeLinks("看\u001b]8;;https://x.dev\u0007这里\u001b]8;;\u0007！");
+		const links = takeLinks(
+			"看\u001b]8;;https://x.dev\u0007这里\u001b]8;;\u0007！",
+		);
 		expect(links).toEqual([{ text: "这里", url: "https://x.dev" }]);
-		expect(stripOsc("看\u001b]8;;https://x.dev\u0007这里\u001b]8;;\u0007！")).toBe("看这里！");
+		expect(
+			stripOsc("看\u001b]8;;https://x.dev\u0007这里\u001b]8;;\u0007！"),
+		).toBe("看这里！");
 	});
 });

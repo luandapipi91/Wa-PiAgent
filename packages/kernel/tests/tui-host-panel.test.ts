@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { Text, type Component, type TuiAltScreen } from "@earendil-works/pi-tui";
+import {
+	Text,
+	type Component,
+	type TuiAltScreen,
+} from "@earendil-works/pi-tui";
 import { createPanelHost } from "../src/tui-host/panel.ts";
 import type { TuiFrame } from "../src/tui-host/frame.ts";
 
@@ -66,7 +70,10 @@ describe("createPanelHost", () => {
 		host.inject("\u001b[B");
 		expect(probe.keys).toEqual(["\u001b[B"]);
 		doneRef.fn?.("confirmed");
-		await expect(host.result).resolves.toEqual({ status: "done", value: "confirmed" });
+		await expect(host.result).resolves.toEqual({
+			status: "done",
+			value: "confirmed",
+		});
 	});
 
 	test("cancel 结束并标记 cancelled", async () => {
@@ -169,7 +176,9 @@ describe("createPanelHost", () => {
 		let disposed = 0;
 		const frames: TuiFrame[] = [];
 		// 用对象属性承接 resolve：局部 let 会被控制流分析窄化成 null
-		const deferred: { resolve: ((c: ProbeComponent) => void) | null } = { resolve: null };
+		const deferred: { resolve: ((c: ProbeComponent) => void) | null } = {
+			resolve: null,
+		};
 		const pending = new Promise<ProbeComponent>((r) => {
 			deferred.resolve = r;
 		});

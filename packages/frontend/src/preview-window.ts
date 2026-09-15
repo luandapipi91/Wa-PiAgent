@@ -34,6 +34,8 @@ export type PreviewWinEvent =
 	/** 独立窗口请求打开设置：设置弹窗是主窗口的单例（模型/技能/插件等数据都在那边加载），
 	 *  独立窗口只负责转发（典型来源：未配置分享 token 时分享弹窗自动跳「设置 → 分享」） */
 	| { type: "open-settings"; section: string }
+	/** 独立窗口里换了预览文件：同步给主窗口（切回内嵌时恢复同一内容） */
+	| { type: "path"; path: string | null }
 	/** 窗口已关闭 */
 	| { type: "closed" }
 	/** 主窗口 → 独立窗口：同步当前预览内容（切会话/切文件时） */

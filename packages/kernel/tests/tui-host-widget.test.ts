@@ -35,7 +35,9 @@ describe("createWidgetHost", () => {
 	test("组件调 requestRender 后再次采样能拿到新内容", () => {
 		let text = "v1";
 		// 用对象属性承接 tui：局部 let 会被控制流分析窄化成 null（赋值发生在闭包里）
-		const dumbTuiRef: { tui: { requestRender?: () => void } | null } = { tui: null };
+		const dumbTuiRef: { tui: { requestRender?: () => void } | null } = {
+			tui: null,
+		};
 		const host = createWidgetHost({
 			cols: 60,
 			factory: (tui) => {
@@ -77,7 +79,13 @@ describe("createWidgetHost", () => {
 		let disposed = 0;
 		const host = createWidgetHost({
 			cols: 60,
-			factory: () => ({ render: () => ["x"], invalidate: () => {}, dispose: () => { disposed += 1; } }),
+			factory: () => ({
+				render: () => ["x"],
+				invalidate: () => {},
+				dispose: () => {
+					disposed += 1;
+				},
+			}),
 			theme: {} as never,
 		});
 		host.start();
@@ -88,7 +96,12 @@ describe("createWidgetHost", () => {
 	test("渲染抛错时不抛出，sample 返回 null", () => {
 		const host = createWidgetHost({
 			cols: 60,
-			factory: () => ({ render: () => { throw new Error("bad"); }, invalidate: () => {} }),
+			factory: () => ({
+				render: () => {
+					throw new Error("bad");
+				},
+				invalidate: () => {},
+			}),
 			theme: {} as never,
 		});
 		host.start();
@@ -155,7 +168,9 @@ describe("createWidgetHost", () => {
 	test("factory 抛错时 sample 返回 null 且不抛给调用方", () => {
 		const host = createWidgetHost({
 			cols: 60,
-			factory: () => { throw new Error("boom"); },
+			factory: () => {
+				throw new Error("boom");
+			},
 			theme: {} as never,
 		});
 		host.start();

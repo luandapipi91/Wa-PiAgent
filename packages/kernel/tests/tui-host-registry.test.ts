@@ -5,7 +5,12 @@ import { createTuiHostRegistry } from "../src/tui-host-registry.ts";
 type BroadcastEvent = Record<string, unknown> & { type: string };
 
 function setup() {
-	const events: Array<{ sessionId: string; type: string; panelId?: string; event: BroadcastEvent }> = [];
+	const events: Array<{
+		sessionId: string;
+		type: string;
+		panelId?: string;
+		event: BroadcastEvent;
+	}> = [];
 	const reg = createTuiHostRegistry({
 		broadcast: (sessionId, event) => {
 			events.push({
@@ -43,7 +48,10 @@ describe("TuiHostRegistry", () => {
 		reg.openPanel("s1", meta);
 		reg.pushFrame("s1", "p1", { lines: ["a"], cursor: null });
 		expect(reg.snapshot("s1")?.panels[0]?.lastFrame?.lines).toEqual(["a"]);
-		expect(events.map((e) => e.type)).toEqual(["extension_tui_open", "extension_tui_frame"]);
+		expect(events.map((e) => e.type)).toEqual([
+			"extension_tui_open",
+			"extension_tui_frame",
+		]);
 	});
 
 	test("pushFrame 对未打开的面板静默忽略", () => {
@@ -55,11 +63,20 @@ describe("TuiHostRegistry", () => {
 
 	test("无订阅者时输入入队；attachSubscriber 后立即 flush", () => {
 		const { reg } = setup();
-		reg.enqueueInput({ sessionId: "s1", panelId: "p1", type: "key", data: "\u001b[A" });
+		reg.enqueueInput({
+			sessionId: "s1",
+			panelId: "p1",
+			type: "key",
+			data: "\u001b[A",
+		});
 		const lines: string[] = [];
 		const detach = reg.attachSubscriber("s1", (l) => lines.push(l));
 		expect(lines).toHaveLength(1);
-		expect(JSON.parse(lines[0]!)).toEqual({ type: "key", panelId: "p1", data: "\u001b[A" });
+		expect(JSON.parse(lines[0]!)).toEqual({
+			type: "key",
+			panelId: "p1",
+			data: "\u001b[A",
+		});
 		detach();
 	});
 
@@ -79,18 +96,34 @@ describe("TuiHostRegistry", () => {
 		const lines: string[] = [];
 		const detach = reg.attachSubscriber("s1", (l) => lines.push(l));
 		detach();
-		reg.enqueueInput({ sessionId: "s1", panelId: "p1", type: "resize", cols: 100, rows: 30 });
+		reg.enqueueInput({
+			sessionId: "s1",
+			panelId: "p1",
+			type: "resize",
+			cols: 100,
+			rows: 30,
+		});
 		expect(lines).toHaveLength(0);
 		const lines2: string[] = [];
 		reg.attachSubscriber("s1", (l) => lines2.push(l));
 		expect(lines2).toHaveLength(1);
-		expect(JSON.parse(lines2[0]!)).toEqual({ type: "resize", panelId: "p1", cols: 100, rows: 30 });
+		expect(JSON.parse(lines2[0]!)).toEqual({
+			type: "resize",
+			panelId: "p1",
+			cols: 100,
+			rows: 30,
+		});
 	});
 
 	test("输入队列有上限，溢出丢最旧（订阅流断开期间不无限增长）", () => {
 		const { reg } = setup();
 		for (let i = 0; i < 501; i++) {
-			reg.enqueueInput({ sessionId: "s1", panelId: "p1", type: "key", data: `k${i}` });
+			reg.enqueueInput({
+				sessionId: "s1",
+				panelId: "p1",
+				type: "key",
+				data: `k${i}`,
+			});
 		}
 		const lines: string[] = [];
 		reg.attachSubscriber("s1", (l) => lines.push(l));
@@ -121,7 +154,12 @@ describe("TuiHostRegistry", () => {
 	test("clearSession 通知前端收起在开的 custom 面板（会话销毁不留幽灵面板）", () => {
 		const { reg, events } = setup();
 		reg.openPanel("s1", meta);
-		reg.applyFrame("s1", { type: "open", panelId: "w:goal", kind: "widget", widgetKey: "goal" });
+		reg.applyFrame("s1", {
+			type: "open",
+			panelId: "w:goal",
+			kind: "widget",
+			widgetKey: "goal",
+		});
 		events.length = 0;
 		reg.clearSession("s1");
 		expect(events).toHaveLength(1);
@@ -162,14 +200,23 @@ describe("TuiHostRegistry", () => {
 			pending: 2,
 			lastFrame: null,
 		});
-		reg.applyFrame("s1", { type: "frame", panelId: "p1", lines: ["a"], cursor: { row: 1, col: 2 } });
+		reg.applyFrame("s1", {
+			type: "frame",
+			panelId: "p1",
+			lines: ["a"],
+			cursor: { row: 1, col: 2 },
+		});
 		expect(reg.snapshot("s1")?.panels[0]?.lastFrame).toEqual({
 			lines: ["a"],
 			cursor: { row: 1, col: 2 },
 		});
 		reg.applyFrame("s1", { type: "close", panelId: "p1", reason: "done" });
 		expect(reg.snapshot("s1")?.panels).toHaveLength(0);
-		expect(types()).toEqual(["extension_tui_open", "extension_tui_frame", "extension_tui_close"]);
+		expect(types()).toEqual([
+			"extension_tui_open",
+			"extension_tui_frame",
+			"extension_tui_close",
+		]);
 	});
 
 	test("applyFrame 忽略 ping（心跳）与缺 panelId 的脏帧", () => {
@@ -205,7 +252,12 @@ describe("TuiHostRegistry", () => {
 			cols: 80,
 			rows: 10,
 		});
-		reg.applyFrame("s1", { type: "frame", panelId: "w:goal", lines: ["w1"], cursor: null });
+		reg.applyFrame("s1", {
+			type: "frame",
+			panelId: "w:goal",
+			lines: ["w1"],
+			cursor: null,
+		});
 		expect(types()).toEqual(["extension_widget"]);
 		expect(events[0]?.event).toEqual({
 			type: "extension_widget",
@@ -218,17 +270,36 @@ describe("TuiHostRegistry", () => {
 
 	test("widget 帧缺 placement 时按 aboveEditor 广播（与 extension_widget 缺省语义一致）", () => {
 		const { reg, events } = setup();
-		reg.applyFrame("s1", { type: "open", panelId: "w:goal", kind: "widget", widgetKey: "goal" });
+		reg.applyFrame("s1", {
+			type: "open",
+			panelId: "w:goal",
+			kind: "widget",
+			widgetKey: "goal",
+		});
 		reg.applyFrame("s1", { type: "frame", panelId: "w:goal", lines: ["w1"] });
-		expect(events[0]?.event).toMatchObject({ widgetKey: "goal", widgetPlacement: "aboveEditor" });
+		expect(events[0]?.event).toMatchObject({
+			widgetKey: "goal",
+			widgetPlacement: "aboveEditor",
+		});
 	});
 
 	test("widget 的 open/close 只维护注册表状态，不广播浮窗事件（不占用 custom 面板通道）", () => {
 		const { reg, events, types } = setup();
-		reg.applyFrame("s1", { type: "open", panelId: "w:goal", kind: "widget", widgetKey: "goal" });
+		reg.applyFrame("s1", {
+			type: "open",
+			panelId: "w:goal",
+			kind: "widget",
+			widgetKey: "goal",
+		});
 		expect(types()).toEqual([]);
 		expect(reg.snapshot("s1")?.panels).toHaveLength(1);
-		reg.applyFrame("s1", { type: "close", panelId: "w:goal", kind: "widget", widgetKey: "goal", reason: "removed" });
+		reg.applyFrame("s1", {
+			type: "close",
+			panelId: "w:goal",
+			kind: "widget",
+			widgetKey: "goal",
+			reason: "removed",
+		});
 		expect(types()).toEqual([]);
 		expect(reg.snapshot("s1")?.panels).toHaveLength(0);
 	});
@@ -236,10 +307,19 @@ describe("TuiHostRegistry", () => {
 	test("custom 与 widget 同会话共存：各自走各自通道，互不覆盖", () => {
 		const { reg, events, types } = setup();
 		reg.openPanel("s1", meta);
-		reg.applyFrame("s1", { type: "open", panelId: "w:goal", kind: "widget", widgetKey: "goal" });
+		reg.applyFrame("s1", {
+			type: "open",
+			panelId: "w:goal",
+			kind: "widget",
+			widgetKey: "goal",
+		});
 		reg.applyFrame("s1", { type: "frame", panelId: "w:goal", lines: ["w1"] });
 		reg.pushFrame("s1", "p1", { lines: ["a"], cursor: null });
-		expect(types()).toEqual(["extension_tui_open", "extension_widget", "extension_tui_frame"]);
+		expect(types()).toEqual([
+			"extension_tui_open",
+			"extension_widget",
+			"extension_tui_frame",
+		]);
 		expect(reg.snapshot("s1")?.panels).toHaveLength(2);
 		expect(events[1]?.panelId).toBeUndefined();
 		expect(events[2]?.panelId).toBe("p1");

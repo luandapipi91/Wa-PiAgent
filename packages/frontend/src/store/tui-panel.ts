@@ -28,7 +28,10 @@ export interface TuiPanelView {
 	lastCollapsedMode: "badge" | "pill";
 }
 
-type TuiPanelMeta = Omit<TuiPanelView, "lines" | "cursor" | "mode" | "lastCollapsedMode">;
+type TuiPanelMeta = Omit<
+	TuiPanelView,
+	"lines" | "cursor" | "mode" | "lastCollapsedMode"
+>;
 
 interface TuiPanelState {
 	/** 按会话索引；同会话同时只有一个 custom 面板（规格 §4.7） */
@@ -76,7 +79,9 @@ export const useTuiPanelStore = create<TuiPanelState>((set) => ({
 		set((s) => {
 			const cur = s.bySession[sessionId];
 			if (!cur || cur.panelId !== panelId) return s;
-			return { bySession: { ...s.bySession, [sessionId]: { ...cur, lines, cursor } } };
+			return {
+				bySession: { ...s.bySession, [sessionId]: { ...cur, lines, cursor } },
+			};
 		}),
 
 	close: (sessionId) =>
@@ -90,7 +95,9 @@ export const useTuiPanelStore = create<TuiPanelState>((set) => ({
 	restoreFrom: (sessionId, snapshot) =>
 		set((s) => {
 			// 快照含 widget 面板（registry 原样透传）：本 store 只认 custom，其余忽略
-			const panel = [...snapshot.panels].reverse().find((p) => p.kind === "custom");
+			const panel = [...snapshot.panels]
+				.reverse()
+				.find((p) => p.kind === "custom");
 			const prev = s.bySession[sessionId];
 			const bySession = { ...s.bySession };
 			if (!panel) {
@@ -119,7 +126,9 @@ export const useTuiPanelStore = create<TuiPanelState>((set) => ({
 		set((s) => {
 			const cur = s.bySession[sessionId];
 			if (!cur || cur.mode === "expanded") return s;
-			return { bySession: { ...s.bySession, [sessionId]: { ...cur, mode: "expanded" } } };
+			return {
+				bySession: { ...s.bySession, [sessionId]: { ...cur, mode: "expanded" } },
+			};
 		}),
 
 	collapse: (sessionId) =>
@@ -127,7 +136,10 @@ export const useTuiPanelStore = create<TuiPanelState>((set) => ({
 			const cur = s.bySession[sessionId];
 			if (!cur || cur.mode === cur.lastCollapsedMode) return s;
 			return {
-				bySession: { ...s.bySession, [sessionId]: { ...cur, mode: cur.lastCollapsedMode } },
+				bySession: {
+					...s.bySession,
+					[sessionId]: { ...cur, mode: cur.lastCollapsedMode },
+				},
 			};
 		}),
 

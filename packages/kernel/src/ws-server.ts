@@ -1060,7 +1060,8 @@ export class WSServer {
 					// 流式请求体不能 await req.json()：body 永不结束，json() 会挂死且 body 被消费。
 					// 协议是「首行 {token,sessionId} 鉴权 + 之后每行一帧」（规格 §5.1，与扩展侧 host.ts 对齐）。
 					const reader = req.body?.getReader();
-					if (!reader) return Response.json({ error: "invalid_body" }, { status: 400 });
+					if (!reader)
+						return Response.json({ error: "invalid_body" }, { status: 400 });
 					const decoder = new TextDecoder();
 					let buf = "";
 					// 读下一行完整行；流结束时把残余当整行（完整 JSON body 无换行也要认）
@@ -1142,7 +1143,8 @@ export class WSServer {
 					let detach: (() => void) | null = null;
 					let heartbeat: ReturnType<typeof setInterval> | null = null;
 					let closed = false;
-					let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
+					let controllerRef: ReadableStreamDefaultController<Uint8Array> | null =
+						null;
 					const write = (line: string) => {
 						if (closed || !controllerRef) return;
 						try {

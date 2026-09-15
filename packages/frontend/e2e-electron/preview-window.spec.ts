@@ -28,10 +28,11 @@ const PREVIEW_WIN_MARK = "wa-preview-win=1";
  *  指向 /Applications/…/Resources/web 的**旧前端**，会让本次 Electron 加载已安装版
  *  而不是仓库源码构建的 dist（曾表现为新功能完全不生效）；
  *  WA_PI_WS_PORT / WA_PI_BRIDGE_* 同理会把 kernel 指向宿主实例。 */
-function e2eEnv(): Record<string, string | undefined> {
-	const env: Record<string, string | undefined> = { ...process.env };
-	for (const key of Object.keys(env)) {
-		if (key.startsWith("WA_PI_")) delete env[key];
+function e2eEnv(): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const [key, value] of Object.entries(process.env)) {
+		// 滤掉 undefined（electron.launch 的 env 只接受 string）与宿主的 WA_PI_*
+		if (value !== undefined && !key.startsWith("WA_PI_")) env[key] = value;
 	}
 	return {
 		...env,
@@ -182,24 +183,21 @@ test.afterAll(async () => {
 
 test.describe
 	.serial("浮动预览由独立系统窗口承载", () => {
-		test("浮动模式：预览移到独立窗口，主窗口收起预览区（无边框自绘）", async () => {
+		test("默认无历史偏好：打开预览直接进独立窗口（默认浮窗）", async () => {
 			await main.getByTestId("btn-browser-preview").click();
-			await expect(main.getByTestId("browser-panel")).toBeVisible();
-			await main.getByTestId("browser-input").fill(HTML_PATH);
-			await main.getByTestId("browser-input").press("Enter");
-			await expect(main.getByTestId("html-preview-iframe")).toBeVisible();
 
-			await main.getByTestId("browser-mode-float").click();
-
-			// 主窗口不再有预览面板（浮动模式由独立窗口承载，不影响旧的内嵌浮层回归）
+			// 默认模式是浮动（独立窗口承载）：主窗口不渲染预览面板，也没有旧的内嵌浮层
 			await expect(main.getByTestId("browser-panel")).toHaveCount(0);
 			await expect(main.getByTestId("float-window")).toHaveCount(0);
 
 			const preview = await findPreviewWindow();
 			await preview.waitForSelector('[data-testid="browser-panel"]');
-			// 独立窗口里是一块完整面板：预览 iframe 指向 kernel /preview 路由
+			// 空预览：在独立窗口里加载本地 html
+			await preview.getByTestId("browser-input").fill(HTML_PATH);
+			await preview.getByTestId("browser-input").press("Enter");
 			const iframe = preview.getByTestId("html-preview-iframe");
 			await expect(iframe).toBeVisible();
+			// 预览 iframe 指向 kernel /preview 路由
 			expect(await iframe.getAttribute("src")).toContain("/preview/");
 
 			const state = await previewWindowState();
