@@ -136,3 +136,56 @@ export function takeLinks(text: string): Array<{ text: string; url: string }> {
 	}
 	return links;
 }
+
+/**
+ * 终端语义下占**两格**的字符（East Asian Wide / Fullwidth 的常用区段）。
+ *
+ * 为什么需要它：浏览器里全角字符的前进宽由回退字体决定（JetBrains Mono 没有汉字，
+ * 会落到 MiSans 之类的 CJK 字体上，前进宽 ≈ 1em ≈ 1.67 格），而 pi-tui 的 `visibleWidth`
+ * 按两格排版。不校正就会让含中文的帧行整体错位（帧行里的 `cursor.col` 也按两格算）。
+ *
+ * 取舍：只认明确为 Wide/Fullwidth 的区段，East Asian **Ambiguous**（`▸ ○ · — €` 等）
+ * 与 emoji 一律算一格——反向多判会把本来按一格排的字符撑开，比漏判更糟。
+ * 已知局限：emoji（终端算 2 格）在这里按 1 格处理，含 emoji 的行仍会偏 1 格。
+ * 与 `visibleWidth` 的另一处差异：这里按码点判断，不处理组合字素/零宽字符。
+ */
+export function isWideChar(codePoint: number): boolean {
+	return (
+		(codePoint >= 0x1100 && codePoint <= 0x115f) || // 谚文字母
+		(codePoint >= 0x2e80 && codePoint <= 0x303e) || // CJK 部首、康熙部首、CJK 符号与标点（含 U+3000 全角空格）
+		(codePoint >= 0x3041 && codePoint <= 0x33ff) || // 假名、注音、谚文兼容字母、CJK 兼容、方块单位
+		(codePoint >= 0x3400 && codePoint <= 0x4dbf) || // CJK 扩展 A
+		(codePoint >= 0x4e00 && codePoint <= 0x9fff) || // CJK 统一表意文字
+		(codePoint >= 0xa000 && codePoint <= 0xa4cf) || // 彝文
+		(codePoint >= 0xac00 && codePoint <= 0xd7a3) || // 谚文音节
+		(codePoint >= 0xf900 && codePoint <= 0xfaff) || // CJK 兼容表意文字
+		(codePoint >= 0xfe10 && codePoint <= 0xfe19) || // 竖排形式
+		(codePoint >= 0xfe30 && codePoint <= 0xfe6f) || // CJK 兼容形式、小写变体
+		(codePoint >= 0xff01 && codePoint <= 0xff60) || // 全角 ASCII 变体
+		(codePoint >= 0xffe0 && codePoint <= 0xffe6) || // 全角货币符号
+		(codePoint >= 0x20000 && codePoint <= 0x3fffd) // CJK 扩展 B 及以后（代理对）
+	);
+}
+
+/**
+ * 按「全角 / 半角」把文本切成片段（全角片段每字符占 2 格，半角每字符占 1 格）。
+ *
+ * 用 `for...of` 迭代码点，代理对（扩展 B 及以后的汉字）不会被拆成两个半字符。
+ * 调用方据片段顺序拼接：全角片段要按字符包固定宽度的行内块，半角片段原样输出。
+ */
+export function splitByCellWidth(text: string): Array<{ text: string; wide: boolean }> {
+	const runs: Array<{ text: string; wide: boolean }> = [];
+	let buffer = "";
+	let wide = false;
+	for (const ch of text) {
+		const isWide = isWideChar(ch.codePointAt(0) ?? 0);
+		if (buffer && isWide !== wide) {
+			runs.push({ text: buffer, wide });
+			buffer = "";
+		}
+		wide = isWide;
+		buffer += ch;
+	}
+	if (buffer) runs.push({ text: buffer, wide });
+	return runs;
+}

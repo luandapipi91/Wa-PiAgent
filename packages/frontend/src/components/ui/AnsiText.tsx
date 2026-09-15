@@ -1,5 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
-import { applySgrCodes, stripOsc, type SgrAttrs } from "../../lib/tui-ansi";
+import {
+	applySgrCodes,
+	splitByCellWidth,
+	stripOsc,
+	type SgrAttrs,
+} from "../../lib/tui-ansi";
 
 // 16 色 foreground 映射（对齐 WaPi 语义色板，无对应时用近似 hex）
 const FG_16: Record<number, string> = {
@@ -66,6 +71,41 @@ export interface ParseAnsiOptions {
    * 面板渲染路径（`AnsiText` 组件）传 true。
    */
   attrs?: boolean;
+  /**
+   * 一格宽度（px）；传入时按终端语义把**全角字符渲染成 2 格宽**：每个全角字符包一个
+   * 固定宽度的行内块（宽 = 2 × cellWidth）。浏览器里 CJK 的前进宽由回退字体决定
+   * （≈ 1.67 格 ≠ 终端的 2 格），不校正会让含中文的帧行整体错位——详见 `isWideChar`。
+   *
+   * 不传则完全保持原有输出（其它消费者不受影响）：没有全角字符的行也只多一次扫描。
+   */
+  cellWidth?: number;
+}
+
+/**
+ * 按终端列宽把纯文本切成 ReactNode：全角字符各占一格**宽 2 格**的行内块，其余原样输出。
+ * 文本里没有全角字符时返回单个字符串（保持旧输出，不产生多余节点与换行影响）。
+ * `nextKey` 由调用方提供，与其它节点共用一套 key。
+ */
+function cellNodes(
+  text: string,
+  cellWidth: number,
+  nextKey: () => number,
+): ReactNode[] {
+  const runs = splitByCellWidth(text);
+  if (runs.length === 1 && !runs[0].wide) return [text];
+  return runs.flatMap((run) =>
+    run.wide
+      ? [...run.text].map((ch) => (
+          <span
+            key={nextKey()}
+            data-tui-wide="1"
+            style={{ display: "inline-block", width: 2 * cellWidth }}
+          >
+            {ch}
+          </span>
+        ))
+      : [run.text],
+  );
 }
 
 /**
@@ -76,33 +116,43 @@ export interface ParseAnsiOptions {
  */
 export function parseAnsiToNodes(text: string, options: ParseAnsiOptions = {}): ReactNode[] {
   const withAttrs = options.attrs === true;
+  const cellWidth = options.cellWidth;
   const clean = stripOsc(text);
-  if (!clean.includes("\x1b[")) return [clean];
+  let key = 0;
+  const nextKey = () => key++;
+  if (!clean.includes("\x1b[")) {
+    return cellWidth ? cellNodes(clean, cellWidth, nextKey) : [clean];
+  }
 
   const nodes: ReactNode[] = [];
   let fg: string | null = null;
   let bg: string | null = null;
   let attrs: SgrAttrs = {};
   let buffer = "";
-  let key = 0;
 
   const flush = () => {
     if (!buffer) return;
     const attrStyle = withAttrs ? attrsToStyle(attrs) : undefined;
+    const children: ReactNode = cellWidth
+      ? cellNodes(buffer, cellWidth, nextKey)
+      : buffer;
     if (fg || bg || attrStyle) {
       nodes.push(
-        <span key={key++} style={{ color: fg ?? undefined, background: bg ?? undefined, ...attrStyle }}>
-          {buffer}
+        <span key={nextKey()} style={{ color: fg ?? undefined, background: bg ?? undefined, ...attrStyle }}>
+          {children}
         </span>,
       );
-    } else {
+    } else if (typeof children === "string") {
       // 无样式的相邻纯文本合并为一个字符串节点，避免产生冗余片段
       const last = nodes[nodes.length - 1];
       if (typeof last === "string") {
-        nodes[nodes.length - 1] = last + buffer;
+        nodes[nodes.length - 1] = last + children;
       } else {
-        nodes.push(buffer);
+        nodes.push(children);
       }
+    } else {
+      // 已按格宽分段的节点各自带 key，直接平铺（分段本身就是分段，不再合并）
+      nodes.push(...children);
     }
     buffer = "";
   };
@@ -156,6 +206,13 @@ export function parseAnsiToNodes(text: string, options: ParseAnsiOptions = {}): 
   return nodes;
 }
 
-export function AnsiText({ text }: { text: string }) {
-  return <>{parseAnsiToNodes(text, { attrs: true })}</>;
+export function AnsiText({
+  text,
+  cellWidth,
+}: {
+  text: string;
+  /** 见 `ParseAnsiOptions.cellWidth`：面板帧传实测格宽让全角字符占 2 格 */
+  cellWidth?: number;
+}) {
+  return <>{parseAnsiToNodes(text, { attrs: true, cellWidth })}</>;
 }
