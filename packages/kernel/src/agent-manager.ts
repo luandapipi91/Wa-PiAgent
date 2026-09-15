@@ -107,6 +107,7 @@ import {
 	type UiResponseFields,
 } from "./rpc-client";
 import { extUiRegistry } from "./ext-ui-registry";
+import { tuiHostRegistry } from "./tui-host-registry";
 import { KernelError } from "./kernel-error";
 import {
 	composePrompt,
@@ -1776,6 +1777,9 @@ export class AgentManager {
 		// 永远不返回（进程已死无实际阻塞，但 registry 条目会泄漏）
 		extUiRegistry.cancelAllForSession(sessionId);
 		unregisterBridgeSession(sessionId);
+		// tui-host 面板状态（帧缓存 + 输入队列）随会话销毁清掉：否则同一 sessionId
+		// 重建/恢复时会补发已死进程的旧帧与陈旧输入
+		tuiHostRegistry.clearSession(sessionId);
 		const handle = this.sessions.get(sessionId);
 		if (handle) {
 			handle.disposed = true;
