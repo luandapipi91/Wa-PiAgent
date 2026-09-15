@@ -1,3 +1,11 @@
+## 2026-09-15 — fix(scripts): GitHub 镜像同步改为「只提交变化条目」（修 POST /git/trees 超时挂起）
+
+- 问题：`POST /git/trees` 把所有本地文件（1047 条）全量 upsert 进 tree 请求体，且 blob 存在性校验对每个文件各发一次 `GET /git/blobs/:sha`。实测该请求体在 GitHub 侧构树超时——返回 `504 We couldn't respond to your request in time`，重试 3 次仍失败，还出现过请求挂起（30 分钟无响应），镜像同步彻底跑不动；而镜像 main 停在 8/31 快照（当时条目更少才成功）。
+- 修复：`buildEntries(local, remoteShas)` 改为**只提交「内容变化 / 新增」的条目与远端多余文件的删除**，未变化条目交给 `base_tree` 复用；blob 存在性校验也只针对这些条目（未变化文件的 blob 必然已在远端）。`gitOut` / `git log` 两处 `execSync` 补 try/catch 并附上下文（`git log` 失败时回退占位提交信息，不再中断同步）。
+- 测试：`scripts/sync-github-mirror.test.ts` 的 `buildEntries` 用例改写为 Map 口径（内容变化才提交 / 新增文件提交 / 远端多余文件删除 / 完全一致返回空），11 pass。
+- 验证：改造后一次同步通过 —— `tree entries: upsert=219 delete=0 unchanged=828`、`blob verify: missing=0`、`MIRROR SYNC OK: luandapipi91/Wa-PiAgent@main -> d715021a`（此前同一环境连续 3 次 504 / 挂起）。请求数由 1047+1 降到 219+1。
+- 影响范围：scripts/sync-github-mirror.ts、scripts/sync-github-mirror.test.ts。
+
 ## 2026-09-15 — fix(frontend): 浏览器（无 Electron 桥）遗留 float 偏好吞掉 html 预览
 
 - 问题：`hiagent.browser.mode` 按 origin 持久化，且读到合法值就直接采用（**不校验有没有 Electron 桥**），而 float 的承载者在 0.3.21 已从「主窗口内 DOM 浮层」换成 **Electron 独立系统窗口**。于是浏览器（dev / 纯 web，无桥）里只要存着 float 偏好（早期版本留下的，或在浮动按钮上点过一次），打开预览就彻底没有承载者：App 在 float 分支只渲染 `FloatPreview`（非 minimized 时返回 null），窗口驱动 hook 又因无桥直接 return ⇒ 打开 html 预览「毫无反应」；而面板不渲染意味着没有任何 UI 出路切回内嵌，刷新也不恢复。实测复现：设 `localStorage["hiagent.browser.mode"]="float"` 后打开 index.html —— 旧行为下 `browser-panel` 永不出现（E2E 打开预览的断言等 5s 超时）。

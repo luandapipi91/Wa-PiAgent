@@ -50,22 +50,52 @@ describe("buildEntries", () => {
 		{ mode: "100644", sha: "bbb", path: "new.ts" },
 	];
 
-	test("本地全量 upsert + 远端多余文件删除（sha:null）", () => {
+	test("只提交内容变化的文件；未变化的由 base_tree 复用", () => {
 		const entries = buildEntries(
 			local,
-			new Set(["keep.ts", "gone.ts", "also-gone.ts"]),
+			new Map([
+				["keep.ts", "aaa"], // 一致 → 跳过
+				["new.ts", "old"], // 内容变了 → 提交
+			]),
 		);
 		expect(entries).toEqual([
-			{ path: "keep.ts", mode: "100644", type: "blob", sha: "aaa" },
 			{ path: "new.ts", mode: "100644", type: "blob", sha: "bbb" },
+		]);
+	});
+
+	test("远端没有的新文件作为 upsert 提交", () => {
+		const entries = buildEntries(local, new Map([["keep.ts", "aaa"]]));
+		expect(entries).toEqual([
+			{ path: "new.ts", mode: "100644", type: "blob", sha: "bbb" },
+		]);
+	});
+
+	test("远端多余文件删除（sha:null）", () => {
+		const entries = buildEntries(
+			local,
+			new Map([
+				["keep.ts", "aaa"],
+				["new.ts", "bbb"],
+				["gone.ts", "ccc"],
+				["also-gone.ts", "ddd"],
+			]),
+		);
+		expect(entries).toEqual([
 			{ path: "gone.ts", mode: "100644", type: "blob", sha: null },
 			{ path: "also-gone.ts", mode: "100644", type: "blob", sha: null },
 		]);
 	});
 
-	test("远端与本地完全一致时无删除条目", () => {
-		const entries = buildEntries(local, new Set(["keep.ts", "new.ts"]));
-		expect(entries.every((e) => e.sha !== null)).toBe(true);
+	test("本地与远端完全一致时返回空（不发无谓请求，也避开 GitHub 构树超时）", () => {
+		expect(
+			buildEntries(
+				local,
+				new Map([
+					["keep.ts", "aaa"],
+					["new.ts", "bbb"],
+				]),
+			),
+		).toEqual([]);
 	});
 });
 

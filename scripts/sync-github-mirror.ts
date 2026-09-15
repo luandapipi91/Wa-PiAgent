@@ -2,9 +2,9 @@
 //
 // 背景：该镜像仓库的 git 端点连接被重置（git push 会挂起超时），但 api.github.com 可达，
 // 因此走 Git Data API 做「快照式同步」：
-//   1) 校验本地全部 blob 在远端是否存在，缺失的补传（base64）；
-//   2) 以远端当前 tree 为 base，提交「本地全量 upsert + 远端多余文件删除」的增量 tree；
-//   3) 创建无父快照 commit，强推 main。
+//   1) 以远端当前 tree 为 base，算出「内容变化/新增/删除」的条目（未变化的由 base_tree 复用）；
+//   2) 只校验并补传这些条目的 blob（base64）；
+//   3) 提交增量 tree，创建无父快照 commit，强推 main。
 // 幂等：重复执行安全（已存在的 blob/tree 由 GitHub 去重复用）。
 //
 // 用法：
@@ -42,18 +42,22 @@ export function parseLsTreeLine(line: string): LsTreeEntry | null {
 	};
 }
 
-/** 组装增量 tree 条目：本地全量 upsert + 远端多余文件显式删除（sha: null）。 */
+/** 组装要提交的 tree 条目：只含「内容变化 / 新增」的文件与远端多余文件的删除。
+ *  内容未变的条目交给 base_tree 复用——全量 upsert（每个文件一条）会让
+ *  POST /git/trees 的请求体上千条，GitHub 侧构树超时（实测 504，重试还会挂住），
+ *  而且这些条目每次内容都一样、纯属无谓流量。 */
 export function buildEntries(
 	local: LsTreeEntry[],
-	remotePaths: ReadonlySet<string>,
+	remoteShas: ReadonlyMap<string, string>,
 ): TreeEntry[] {
 	const entries: TreeEntry[] = [];
 	const localPaths = new Set<string>();
 	for (const e of local) {
 		localPaths.add(e.path);
+		if (remoteShas.get(e.path) === e.sha) continue; // 内容一致：由 base_tree 复用
 		entries.push({ path: e.path, mode: e.mode, type: "blob", sha: e.sha });
 	}
-	for (const p of remotePaths) {
+	for (const p of remoteShas.keys()) {
 		if (!localPaths.has(p)) {
 			entries.push({ path: p, mode: "100644", type: "blob", sha: null });
 		}
@@ -119,10 +123,16 @@ async function ghRetry<T>(
 }
 
 function gitOut(args: string[], input?: string): Buffer {
-	return execSync(["git", ...args].join(" "), {
-		input,
-		maxBuffer: 1024 * 1024 * 64,
-	}) as Buffer;
+	try {
+		return execSync(["git", ...args].join(" "), {
+			input,
+			maxBuffer: 1024 * 1024 * 64,
+		}) as Buffer;
+	} catch (err) {
+		throw new Error(
+			`git ${args.join(" ")} 失败：${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
 }
 
 function getPat(): string {
@@ -140,10 +150,17 @@ async function main() {
 	const args = process.argv.slice(2);
 	const skipVerify = args.includes("--skip-verify");
 	const msgIdx = args.indexOf("--message");
+	// 取不到本地 commit 信息时回退占位信息（不让 git log 的失败中断同步）
+	let localMessage = "";
+	try {
+		localMessage = execSync("git log -1 --pretty=%B").toString("utf8").trim();
+	} catch {
+		/* 非 git 环境等：用占位信息 */
+	}
 	const message =
 		msgIdx >= 0 && args[msgIdx + 1]
 			? args[msgIdx + 1]
-			: execSync("git log -1 --pretty=%B").toString("utf8").trim() || "sync";
+			: localMessage || "sync";
 
 	const pat = getPat();
 	const log = (s: string) => console.log(s);
@@ -175,13 +192,29 @@ async function main() {
 	const baseTreeSha = commit0.tree.sha;
 	log(`remote base tree: ${baseTreeSha}`);
 
-	// 3. 校验本地 blob 在远端的存在性，缺失则补传（base64）
+	// 3. 远端 tree（path → sha）→ 只提交真正变化的条目（未变化的由 base_tree 复用）
+	const remoteTree = await ghRetry<{
+		tree: { path: string; sha: string; type: string }[];
+	}>("GET", `/git/trees/${baseTreeSha}?recursive=1`, pat, undefined, log);
+	const remoteShas = new Map<string, string>(
+		remoteTree.tree
+			.filter((t) => t.type === "blob")
+			.map((t) => [t.path, t.sha] as [string, string]),
+	);
+	const entries = buildEntries(local, remoteShas);
+	const upserts = entries.filter((e) => e.sha !== null);
+	const deletes = entries.length - upserts.length;
+	log(
+		`tree entries: upsert=${upserts.length} delete=${deletes} unchanged=${local.length - upserts.length}`,
+	);
+
+	// 4. 只校验本次要提交的 blob（未变化文件的 blob 必然已在远端），缺失则补传（base64）
 	if (skipVerify) {
 		log("blob verify skipped (--skip-verify)");
 	} else {
 		let missing = 0;
 		let uploaded = 0;
-		for (const e of local) {
+		for (const e of upserts) {
 			let exists = true;
 			try {
 				await gh("GET", `/git/blobs/${e.sha}`, pat, undefined);
@@ -192,7 +225,7 @@ async function main() {
 			}
 			if (exists) continue;
 			missing++;
-			const bytes = gitOut(["cat-file", "blob", e.sha]);
+			const bytes = gitOut(["cat-file", "blob", e.sha as string]);
 			const body = looksBinary(bytes)
 				? { content: Buffer.from(bytes).toString("base64"), encoding: "base64" }
 				: { content: bytes.toString("utf8") };
@@ -203,21 +236,6 @@ async function main() {
 		}
 		log(`blob verify: missing=${missing} re-uploaded=${uploaded}`);
 	}
-
-	// 4. 远端 path 集合 → 增量条目
-	const remoteTree = await ghRetry<{ tree: { path: string; type: string }[] }>(
-		"GET",
-		`/git/trees/${baseTreeSha}?recursive=1`,
-		pat,
-		undefined,
-		log,
-	);
-	const remotePaths = new Set(
-		remoteTree.tree.filter((t) => t.type === "blob").map((t) => t.path),
-	);
-	const entries = buildEntries(local, remotePaths);
-	const deletes = entries.filter((e) => e.sha === null).length;
-	log(`tree entries: upsert=${entries.length - deletes} delete=${deletes}`);
 
 	// 5. 增量 tree → 快照 commit → 强推
 	const newTree = await ghRetry<{ sha: string }>(
