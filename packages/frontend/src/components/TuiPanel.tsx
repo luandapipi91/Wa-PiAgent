@@ -365,8 +365,8 @@ function FrameLine({ text, cellWidth }: { text: string; cellWidth?: number }) {
 						rel="noreferrer"
 						/* 挂件态整体是可点展开区：链点不要顺带把面板展开 */
 						onClick={(e) => e.stopPropagation()}
-						className="underline"
-						style={{ color: "#60a5fa" }}
+						/* 链接色走主题 accent（与 markdown 链接同一口径），不再写死暗色蓝 */
+						className="text-accent underline"
 					>
 						<AnsiText text={seg.text} cellWidth={cellWidth} />
 					</a>
@@ -803,13 +803,13 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				tabIndex={0}
 				onKeyDown={onKeyDown}
 				onPaste={onPaste}
-				className="absolute z-50 flex flex-col overflow-hidden rounded-[10px] font-mono shadow-2xl outline-none"
+				/* bg-canvas：终端内容底色取主题最底层的画布色；描边与仓库其他浮层同口径 */
+				className="absolute z-50 flex flex-col overflow-hidden rounded-[10px] border border-hairline bg-canvas font-mono shadow-2xl outline-none"
 				style={{
 					left: rect.x,
 					top: rect.y,
 					width: rect.w,
 					height: rect.h,
-					background: "#101014",
 				}}
 			>
 				{/*
@@ -833,13 +833,9 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 						if ((e.target as HTMLElement).closest("button")) return;
 						beginDrag("move", e);
 					}}
-					className="flex shrink-0 cursor-move items-center gap-2 px-2.5 py-1.5"
-					style={{ background: "#1a1a21" }}
+					className="flex shrink-0 cursor-move items-center gap-2 bg-surface-elevated px-2.5 py-1.5"
 				>
-					<span
-						className="mr-auto truncate text-[11px]"
-						style={{ color: "#8b8b9a" }}
-					>
+					<span className="mr-auto truncate text-[11px] text-secondary">
 						{panel.title}
 					</span>
 					{pendingBadge}
@@ -847,8 +843,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 						type="button"
 						title={t("tuiPanel.collapse")}
 						onClick={() => store.collapse(sessionId)}
-						className="h-[18px] w-[18px] rounded-sm border-0 bg-transparent text-[12px] leading-none hover:bg-surface-hover"
-						style={{ color: "#8b8b9a" }}
+						className="h-[18px] w-[18px] rounded-sm border-0 bg-transparent text-[12px] leading-none text-secondary hover:bg-surface-hover"
 					>
 						—
 					</button>
@@ -856,8 +851,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 						type="button"
 						title={t("tuiPanel.cancel")}
 						onClick={() => post({ type: "cancel" })}
-						className="h-[18px] w-[18px] rounded-sm border-0 bg-transparent text-[12px] leading-none hover:bg-surface-hover"
-						style={{ color: "#8b8b9a" }}
+						className="h-[18px] w-[18px] rounded-sm border-0 bg-transparent text-[12px] leading-none text-secondary hover:bg-surface-hover"
 					>
 						✕
 					</button>
@@ -869,9 +863,10 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					// 纵向必须可滚：pi 侧取的是整帧快照（不按可视行数裁剪），长面板
 					// （如 pi-goal-x 的提案全文 40+ 行）此前被 overflow-hidden 静默裁掉，
 					// 用户既看不到也滚不到。横向仍裁，否则长行会把列对齐撑破。
-					className="relative flex-1 overflow-y-auto overflow-x-hidden text-[12px]"
+					className="relative flex-1 overflow-y-auto overflow-x-hidden text-[12px] text-primary"
 					// user-select: text：面板文本要能选中复制（祖先若设了 user-select: none，这里覆盖回来）
-					style={{ color: "#d2d2de", userSelect: "text" }}
+					// 这里的 text-primary 只是**默认**文字色：帧里 ANSI 显式前景色由 AnsiText 内联样式覆盖
+					style={{ userSelect: "text" }}
 					onMouseDown={onBodyMouseDown}
 					// 滚轮不再转发给插件，改为滚动本容器：插件视口的变化不会体现在整帧快照里，
 					// 转发等于「滚了没反应」；点击与拖拽仍照旧转发（插件的鼠标选择交互）。
@@ -899,7 +894,11 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 								top: panel.cursor.row * CELL.height,
 								width: cellWidth,
 								height: CELL.height,
-								background: "rgba(210,210,222,.75)",
+								/* 反色方块：颜色取主题的主文字色（亮/暗主题各自反色），
+								   保留原来的 .75 半透明——mix-blend-difference 下的反色强度靠它，
+								   降到完全不透明会在亮色主题里变成一块刺眼的实心反色 */
+								background: "var(--text-primary)",
+								opacity: 0.75,
 								mixBlendMode: "difference",
 							}}
 						/>
@@ -938,7 +937,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					if (isDragClick()) return;
 					store.expand(sessionId);
 				}}
-				className="absolute z-50 cursor-pointer overflow-hidden rounded-[10px] shadow-xl"
+				className="absolute z-50 cursor-pointer overflow-hidden rounded-[10px] bg-surface-elevated shadow-xl"
 				style={{
 					/* 左缘锚定：left 就是左缘相对容器的偏移，位置与自身宽度解耦。
 					   旧实现按 right = 容器宽 − (x + 展开宽 680) 定位，于是实际左缘 = x + 412，
@@ -946,14 +945,10 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					left: collapsedPos.x,
 					top: collapsedPos.y,
 					width: BADGE_WIDTH,
-					background: "#1a1a21",
 				}}
 			>
 				<div className="flex items-center gap-1.5 px-2 py-1.5">
-					<span
-						className="mr-auto truncate font-mono text-[10.5px]"
-						style={{ color: "#8b8b9a" }}
-					>
+					<span className="mr-auto truncate font-mono text-[10.5px] text-secondary">
 						{panel.title}
 					</span>
 					{pendingBadge}
@@ -964,16 +959,12 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 							e.stopPropagation();
 							store.collapseDeeper(sessionId);
 						}}
-						className="h-[16px] w-[16px] rounded-sm border-0 bg-transparent text-[11px] leading-none hover:bg-surface-hover"
-						style={{ color: "#8b8b9a" }}
+						className="h-[16px] w-[16px] rounded-sm border-0 bg-transparent text-[11px] leading-none text-secondary hover:bg-surface-hover"
 					>
 						–
 					</button>
 				</div>
-				<div
-					className="whitespace-pre px-2.5 py-2 font-mono text-[9.5px] leading-[1.66]"
-					style={{ background: "#101014", color: "#d2d2de" }}
-				>
+				<div className="whitespace-pre bg-canvas px-2.5 py-2 font-mono text-[9.5px] leading-[1.66] text-primary">
 					{panel.lines.slice(0, BADGE_PREVIEW_LINES).map((line, i) => (
 						<div key={i}>
 							<FrameLine text={line} />
@@ -989,11 +980,10 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		<div
 			ref={boxRef}
 			onMouseDown={(e) => beginDrag("move", e, true)}
-			className="absolute z-50 flex h-8 items-center gap-2 rounded-pill pl-3 pr-2 shadow-lg"
+			className="absolute z-50 flex h-8 items-center gap-2 rounded-pill bg-surface-elevated pl-3 pr-2 shadow-lg"
 			style={{
 				left: collapsedPos.x, // 同上：左缘锚定，容器变窄时由 collapsedPos 夹在列内
 				top: collapsedPos.y,
-				background: "#1a1a21",
 			}}
 		>
 			<button
@@ -1004,8 +994,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					if (isDragClick()) return;
 					store.expand(sessionId);
 				}}
-				className="max-w-[220px] truncate border-0 bg-transparent font-mono text-[11.5px]"
-				style={{ color: "#d2d2de" }}
+				className="max-w-[220px] truncate border-0 bg-transparent font-mono text-[11.5px] text-primary"
 			>
 				{panel.title}
 			</button>
@@ -1017,8 +1006,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					if (isDragClick()) return;
 					post({ type: "cancel" });
 				}}
-				className="h-[18px] w-[18px] rounded-sm border-0 bg-transparent text-[12px] leading-none hover:bg-surface-hover"
-				style={{ color: "#8b8b9a" }}
+				className="h-[18px] w-[18px] rounded-sm border-0 bg-transparent text-[12px] leading-none text-secondary hover:bg-surface-hover"
 			>
 				✕
 			</button>
