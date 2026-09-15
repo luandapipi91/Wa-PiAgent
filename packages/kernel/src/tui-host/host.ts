@@ -223,6 +223,8 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
 		// 呈现无差别，因此不再做浮层语义（panel.ts 已预留 showOverlay 钩子，真要接时在那边改）。
 		// 但 `onHandle` 必须照常回调（规格 §4.3 原文）：同一个 custom 调用里的插件拿不到句柄，
 		// 后续 `handle.hide()` / `setHidden()` 就会抛 TypeError——降级的是浮层语义，不是回调契约。
+		// 调用时机是 pi 的超集：pi 只在 `overlay === true` 时回调，这里只要插件提供就回调。
+		// GUI 下 overlay 降级为普通浮窗、句柄为 no-op 级安全对象，故不区分 overlay 分支。
 		openCustom: (factory, options, _ctx) => {
 			const onHandle = (
 				options as { onHandle?: (handle: OverlayHandle) => void } | undefined

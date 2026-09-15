@@ -129,7 +129,7 @@ describe("TuiHostRegistry", () => {
 			sessionId: "s1",
 			type: "extension_tui_close",
 			panelId: "p1",
-			event: { reason: "cancel" },
+			event: { reason: "dispose" },
 		});
 		expect(reg.sessionIds()).toEqual([]);
 	});

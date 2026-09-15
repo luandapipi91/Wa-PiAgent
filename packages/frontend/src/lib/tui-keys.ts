@@ -84,6 +84,8 @@ export function encodeMouse(
 	col: number,
 	row: number,
 ): string {
+	// 当前无生产调用者：面板拖拽已改浏览器原生选择（见 TuiPanel），但保留该相位
+	// 以完整覆盖 SGR 鼠标编码（拖拽 = 按键 + 32），并被测试当负向参照。
 	const base = phase === "drag" ? button + 32 : button;
 	const final = phase === "up" ? "m" : "M";
 	return `\u001b[<${base};${Math.max(1, col)};${Math.max(1, row)}${final}`;
