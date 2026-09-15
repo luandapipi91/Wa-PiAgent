@@ -199,6 +199,13 @@ const zh = {
 		minimize: "最小化为气泡",
 		restore: "恢复预览",
 	},
+	tuiPanel: {
+		collapse: "收起",
+		collapseDeeper: "收成胶囊",
+		cancel: "取消该交互",
+		expand: "展开",
+		pending: "等待你输入",
+	},
 	blocks: {
 		turnSummary: {
 			withDuration: "本轮时长 {{elapsed}} · {{steps}} 个步骤",
