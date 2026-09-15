@@ -3,6 +3,10 @@
 //   badge    —— 挂件态：右上角预览卡片（实时帧缩略），点主体展开；
 //   pill     —— 胶囊态：最小挂件，只剩标题 + 取消。
 //
+// 三态的位置：一律**左缘锚定**（left/top = 元素左/上缘相对容器的偏移），且
+// 展开态与收起态（挂件 + 胶囊）各自一份——两者宽度不同（680 / 268），
+// 共享一份 x 在左缘锚定下没法同时贴紧容器右缘。位置在 `rect` / `pos` 两个 state 里。
+//
 // 职责边界：本组件只负责「画 + 收输入」。
 // - 面板数据来自 store/tui-panel（帧由 SSE 的 extension_tui_frame 写入）；
 // - 生命周期归 kernel：✕ 只发 cancel，面板消失由 kernel 回推 close 事件驱动（规格 §5）；
@@ -49,14 +53,29 @@ const BADGE_PREVIEW_LINES = 5;
 const BADGE_WIDTH = 268;
 /** 拖动与点击的位移阈值（px，与 FloatBubble 同口径） */
 const DRAG_THRESHOLD = 5;
-/** 浮窗位置尺寸的持久化键（窗口级，不按会话区分：位置是用户对浮窗的偏好） */
+/** 展开态位置尺寸的持久化键（窗口级，不按会话区分：位置是用户对浮窗的偏好） */
 const LS_RECT = "hiagent.tuiPanel.rect";
+/**
+ * 收起态（挂件 + 胶囊）位置的持久化键：与展开态**分开存**。
+ * 挂件 268 宽、展开 680 宽，共享一份 x 时左缘锚定下小卡片贴不住右缘；分开存也就不会有切态跳位。
+ */
+const LS_COLLAPSED = "hiagent.tuiPanel.collapsed";
 
 interface PanelRect {
 	x: number;
 	y: number;
 	w: number;
 	h: number;
+}
+
+/**
+ * 收起态（挂件 + 胶囊）的位置：只有左缘与上缘。
+ * 挂件与胶囊共用这一份（两者高度差小、切换时视觉上不跳），胶囊宽度由内容决定
+ * （标题 max-w 220 + 取消按钮 + 内边距 ≈ 266px ≤ 挂件宽），所以复用挂件的默认 x 也能贴近右缘。
+ */
+interface PanelPos {
+	x: number;
+	y: number;
 }
 
 /** 定位上下文（聊天列容器）的尺寸 */
@@ -153,6 +172,11 @@ function locateSize(el: HTMLElement | null): Size {
 	return viewportSize();
 }
 
+/** 数值 clamp：夹到 [0, max]，非有限值当 0（历史 NaN 透传的坑），max 为负时取 0 */
+function clampNum(v: number, max: number): number {
+	return Math.max(0, Math.min(Math.max(0, max), Number.isFinite(v) ? v : 0));
+}
+
 /** 浮窗位置尺寸 clamp：不小于最小尺寸，整体留在定位上下文内 */
 function clampPanelRect(r: PanelRect, size: Size): PanelRect {
 	const vw = Math.max(0, size.width);
@@ -165,9 +189,27 @@ function clampPanelRect(r: PanelRect, size: Size): PanelRect {
 		MIN_SIZE.height,
 		Math.min(Math.max(vh, MIN_SIZE.height), r.h),
 	);
-	const cl = (v: number, max: number) =>
-		Math.max(0, Math.min(Math.max(0, max), Number.isFinite(v) ? v : 0));
-	return { w, h, x: cl(r.x, vw - w), y: cl(r.y, vh - h) };
+	return { w, h, x: clampNum(r.x, vw - w), y: clampNum(r.y, vh - h) };
+}
+
+/**
+ * 收起态（挂件/胶囊）位置 clamp：x 按**挂件自身宽度**限制，不能用展开态的 rect.w。
+ *
+ * 历史缺陷（用户实测「只能停在一个固定位置、拖不动了」）：收起态复用展开矩形的 x、又按
+ * 680 宽 clamp，渲染时还按 `right = 容器宽 − (x + 680)` 定位，于是实际左缘 = x + 412，
+ * 可达区间被压成 [412, 898]——左侧 412px 永远拖不到。左缘锚定 + 按自身宽 clamp 之后，
+ * x ∈ [0, 容器宽 − 挂件宽]，能一直拖到容器左上角。
+ *
+ * height 是收起态元素的实测高（胶囊固定 32、挂件随预览行数变）；量不到（无布局宿主）传 0，
+ * 那就只限制在容器上界内——宁可宽松，也不能拿错的高度把挂件夹在半空。
+ */
+function clampCollapsedPos(p: PanelPos, size: Size, height = 0): PanelPos {
+	const vw = Math.max(0, size.width);
+	const vh = Math.max(0, size.height);
+	return {
+		x: clampNum(p.x, vw - BADGE_WIDTH),
+		y: clampNum(p.y, vh - Math.max(0, height)),
+	};
 }
 
 /** 默认位置：定位上下文（聊天列）右上角 */
@@ -181,6 +223,14 @@ function defaultPanelRect(size: Size): PanelRect {
 		Math.max(MIN_SIZE.height, size.height - 32),
 	);
 	return clampPanelRect({ x: size.width - w - 16, y: 16, w, h }, size);
+}
+
+/**
+ * 收起态默认位置：定位上下文（聊天列）右上角，按**挂件自身宽度**算偏移。
+ * 胶囊复用同一份默认位置（见 PanelPos 注释），两者切态不会跳位。
+ */
+function defaultCollapsedPos(size: Size): PanelPos {
+	return clampCollapsedPos({ x: size.width - BADGE_WIDTH - 16, y: 16 }, size);
 }
 
 /** 读回上次的位置尺寸；无记录/形状非法返回 null（调用方按当前尺寸算默认值） */
@@ -205,6 +255,46 @@ function readSavedRect(): PanelRect | null {
 function loadPanelRect(size: Size): PanelRect {
 	const saved = readSavedRect();
 	return saved ? clampPanelRect(saved, size) : defaultPanelRect(size);
+}
+
+/**
+ * 读回收起态位置；无记录/形状非法返回 null（调用方按当前尺寸算默认值，
+ * 历史数据里可能只有 {x} 或少字段，不能当有效位置用）。
+ */
+function readSavedPos(): PanelPos | null {
+	try {
+		const v = JSON.parse(localStorage.getItem(LS_COLLAPSED) ?? "");
+		if (
+			v &&
+			[v.x, v.y].every((n) => typeof n === "number" && Number.isFinite(n))
+		) {
+			return { x: v.x, y: v.y };
+		}
+	} catch {
+		/* 解析失败用默认 */
+	}
+	return null;
+}
+
+/**
+ * 收起态位置：用户拖过的用持久化值（按挂件宽 clamp 回容器内），
+ * 否则按容器尺寸算默认右上角。
+ */
+function loadCollapsedPos(size: Size): PanelPos {
+	const saved = readSavedPos();
+	return saved ? clampCollapsedPos(saved, size) : defaultCollapsedPos(size);
+}
+
+function samePos(a: PanelPos, b: PanelPos): boolean {
+	return a.x === b.x && a.y === b.y;
+}
+
+function saveCollapsedPos(p: PanelPos): void {
+	try {
+		localStorage.setItem(LS_COLLAPSED, JSON.stringify(p));
+	} catch {
+		/* 存储不可用（隐私模式等）忽略：位置记忆非关键路径 */
+	}
 }
 
 function sameRect(a: PanelRect, b: PanelRect): boolean {
@@ -324,29 +414,37 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	const [cellWidth, setCellWidth] = useState(CELL.width);
 	// 首帧还没有 DOM 引用，只能按视口读回持久化值占位；挂载后由 useLayoutEffect
 	// 用真实容器尺寸重算（见下），所以这里传视口尺寸不影响最终结果。
+	// 展开态与收起态各一份位置：宽度不同，共享 x 在左缘锚定下贴不住右缘。
 	const [rect, setRect] = useState<PanelRect>(() =>
 		loadPanelRect(viewportSize()),
 	);
+	const [pos, setPos] = useState<PanelPos>(() =>
+		loadCollapsedPos(viewportSize()),
+	);
 	/**
-	 * 定位上下文尺寸：渲染期要用它把挂件/胶囊的右缘锚到矩形的右缘
-	 * （right = 容器宽 − 矩形右缘），所以要有 state；ref 供拖动期同步读取。
+	 * 定位上下文尺寸：三态都是左缘锚定（不再在渲染期换算右缘偏移），但它仍要参与
+	 * clamp 与默认位置换算，所以要有 state；ref 供拖动期同步读取。
 	 */
 	const [ctxSize, setCtxSize] = useState<Size>(viewportSize);
 	const ctxSizeRef = useRef<Size>(viewportSize());
 	// 拖动/缩放会话：mousedown 起、窗口级监听、mouseup 一次性提交（阈值 5px）
 	const dragRef = useRef<{
 		kind: "move" | "resize";
-		/**
-		 * 位置锚点：展开态写 left/top（尺寸可缩放，是矩形的原点）；
-		 * 挂件/胶囊写 right/top——它们宽度由内容决定，右缘锚在矩形的右缘
-		 * 才能贴住聊天列右上角（左缘锚会让小卡片飘在列中间）。
-		 */
-		anchor: "left" | "right";
+		/** 拖动作用在哪个位置：收起态（挂件/胶囊）改 pos，展开态改 rect，两者互不影响 */
+		collapsed: boolean;
 		startX: number;
 		startY: number;
-		base: PanelRect;
+		/** 基准位置：展开态取 rect.x/y，收起态取（已 clamp 的）pos */
+		base: PanelPos;
+		/** 基准宽高：只有展开态会改（缩放） */
+		w: number;
+		h: number;
+		/** 收起态底边 clamp 用的元素实测高（0 = 量不到，只限制在容器上界内） */
+		height: number;
 		moved: boolean;
-		last?: PanelRect;
+		/** 拖动中的最新位置：收起态写 last，展开态写 lastRect，mouseup 各取各的提交 */
+		last?: PanelPos;
+		lastRect?: PanelRect;
 	} | null>(null);
 	/**
 	 * 拖动结束的那次 mouseup，浏览器还会补一个 click：用它把「拖动」与「点击」分开
@@ -443,16 +541,26 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	 * 视口占位，见上），这里才真正落到聊天列坐标系。用户拖过的位置尊重持久化值、只做边界
 	 * clamp；从未拖过的按容器尺寸重算默认右上角——否则「容器宽 − 面板宽 − 16」那 16px
 	 * 边距会被 clamp 吃掉（视口默认值比容器默认值靠右，只会被夹到贴边）。
+	 * 展开态与收起态各算各的：宽度不同，clamp 上限也不同。
 	 */
 	useLayoutEffect(() => {
 		if (!panel) return;
 		const size = locateSize(boxRef.current);
 		ctxSizeRef.current = size;
 		setCtxSize(size);
-		const saved = readSavedRect();
+		const savedRect = readSavedRect();
 		setRect((r) => {
-			const next = saved ? clampPanelRect(saved, size) : defaultPanelRect(size);
+			const next = savedRect
+				? clampPanelRect(savedRect, size)
+				: defaultPanelRect(size);
 			return sameRect(next, r) ? r : next;
+		});
+		const savedPos = readSavedPos();
+		setPos((p) => {
+			const next = savedPos
+				? clampCollapsedPos(savedPos, size)
+				: defaultCollapsedPos(size);
+			return samePos(next, p) ? p : next;
 		});
 	}, [panel?.panelId, panel?.mode]);
 
@@ -515,21 +623,22 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	// === 浮窗拖动 / 缩放（与 FloatBubble 同套路：直接改 DOM，mouseup 提交一次）===
 
 	/**
-	 * 拖动期的直接 DOM 写入（每帧 setState 太重）。只写当前态也由 React 渲染的那几个
-	 * 属性，避免与 React 的 style diff 脱节（写完残留的键会让浮窗被左右两边同时撑住）。
+	 * 拖动期的直接 DOM 写入（每帧 setState 太重）。三态一律左缘锚定，只写 left/top
+	 * （展开态另写 width/height），**不写 right**——右缘锚定会让位置随自身宽度漂移。
+	 * 只写当前态本来就由 React 渲染的属性，避免与 React 的 style diff 脱节。
 	 */
-	const applyDragRect = useCallback((r: PanelRect, anchor: "left" | "right") => {
-		const el = boxRef.current;
-		if (!el) return;
-		el.style.top = `${r.y}px`;
-		if (anchor === "right") {
-			el.style.right = `${ctxSizeRef.current.width - (r.x + r.w)}px`;
-			return;
-		}
-		el.style.left = `${r.x}px`;
-		el.style.width = `${r.w}px`;
-		el.style.height = `${r.h}px`;
-	}, []);
+	const applyDragPos = useCallback(
+		(p: PanelPos, size?: { w: number; h: number }) => {
+			const el = boxRef.current;
+			if (!el) return;
+			el.style.left = `${p.x}px`;
+			el.style.top = `${p.y}px`;
+			if (!size) return;
+			el.style.width = `${size.w}px`;
+			el.style.height = `${size.h}px`;
+		},
+		[],
+	);
 
 	const onWindowMouseMove = useCallback(
 		(e: MouseEvent) => {
@@ -539,16 +648,27 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 			const dy = e.clientY - d.startY;
 			if (!d.moved && Math.abs(dx) + Math.abs(dy) <= DRAG_THRESHOLD) return;
 			d.moved = true;
+			// 收起态：只改自己的位置，按挂件宽（而不是展开态 680）clamp
+			if (d.collapsed) {
+				const next = clampCollapsedPos(
+					{ x: d.base.x + dx, y: d.base.y + dy },
+					ctxSizeRef.current,
+					d.height,
+				);
+				d.last = next;
+				applyDragPos(next);
+				return;
+			}
 			const next = clampPanelRect(
 				d.kind === "move"
-					? { ...d.base, x: d.base.x + dx, y: d.base.y + dy }
-					: { ...d.base, w: d.base.w + dx, h: d.base.h + dy },
+					? { x: d.base.x + dx, y: d.base.y + dy, w: d.w, h: d.h }
+					: { x: d.base.x, y: d.base.y, w: d.w + dx, h: d.h + dy },
 				ctxSizeRef.current,
 			);
-			d.last = next;
-			applyDragRect(next, d.anchor);
+			d.lastRect = next;
+			applyDragPos(next, { w: next.w, h: next.h });
 		},
-		[applyDragRect],
+		[applyDragPos],
 	);
 
 	const onWindowMouseUp = useCallback(() => {
@@ -558,33 +678,53 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		document.body.style.userSelect = "";
 		window.removeEventListener("mousemove", onWindowMouseMove);
 		window.removeEventListener("mouseup", onWindowMouseUp);
-		if (!d.moved || !d.last) return; // 未拖动 = 点击，交给按钮自身的 click
+		if (!d.moved) return; // 未拖动 = 点击，交给按钮自身的 click
 		dragClickRef.current = true; // mouseup 之后补的那个 click 要吃掉
-		setRect(d.last);
-		savePanelRect(d.last);
-		// 尺寸变了要告诉终端重新排版（读 applyRect 后的文本区 rect）；只移动位置则不必
+		// 收起态与展开态各提交各的位置（互不覆写）
+		if (d.collapsed) {
+			if (!d.last) return;
+			setPos(d.last);
+			saveCollapsedPos(d.last);
+			return;
+		}
+		if (!d.lastRect) return;
+		setRect(d.lastRect);
+		savePanelRect(d.lastRect);
+		// 尺寸变了要告诉终端重新排版（读 applyDragPos 后的文本区 rect）；只移动位置则不必
 		if (d.kind === "resize") reportPanelSize();
 	}, [onWindowMouseMove, reportPanelSize]);
 
+	/**
+	 * 开始拖动/缩放。`collapsed` 决定改哪一份位置：挂件/胶囊传 true（改 pos），
+	 * 展开态标题栏与缩放手柄传 false（改 rect）。
+	 */
 	const beginDrag = useCallback(
-		(kind: "move" | "resize", e: ReactMouseEvent, anchor: "left" | "right") => {
+		(kind: "move" | "resize", e: ReactMouseEvent, collapsed = false) => {
 			e.preventDefault();
 			// preventDefault 也会吃掉默认聚焦：显式收回焦点，否则拖动后键盘锁静默失效
 			focusPanel();
 			dragClickRef.current = false; // 新一次按下作废上一次的「拖动过」
+			// 收起态底边限制用元素实测高；量不到（无布局宿主）当 0，只限制在容器上界内
+			const measured = boxRef.current?.getBoundingClientRect().height ?? 0;
+			const height = collapsed && Number.isFinite(measured) ? measured : 0;
 			dragRef.current = {
 				kind,
-				anchor,
+				collapsed,
 				startX: e.clientX,
 				startY: e.clientY,
-				base: rect,
+				// 收起态的基准取**渲染用的**（已 clamp 的）位置：容器刚变窄时状态值可能越界，
+				// 直接从越界值起拖会先跳一下
+				base: collapsed ? clampCollapsedPos(pos, ctxSizeRef.current, height) : rect,
+				w: rect.w,
+				h: rect.h,
+				height,
 				moved: false,
 			};
 			document.body.style.userSelect = "none";
 			window.addEventListener("mousemove", onWindowMouseMove);
 			window.addEventListener("mouseup", onWindowMouseUp);
 		},
-		[rect, focusPanel, onWindowMouseMove, onWindowMouseUp],
+		[rect, pos, focusPanel, onWindowMouseMove, onWindowMouseUp],
 	);
 
 	/** 返回 true = 这次点击是拖动后浏览器补的，调用方应忽略它（拖动 ≠ 点击） */
@@ -691,7 +831,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					onMouseDown={(e) => {
 						// 标题栏按钮的点击不当作拖动（否则拖动会吃掉按钮的 click）
 						if ((e.target as HTMLElement).closest("button")) return;
-						beginDrag("move", e, "left");
+						beginDrag("move", e);
 					}}
 					className="flex shrink-0 cursor-move items-center gap-2 px-2.5 py-1.5"
 					style={{ background: "#1a1a21" }}
@@ -768,13 +908,18 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				{/* 右下角缩放手柄（nwse-resize） */}
 				<div
 					data-testid="tui-panel-resize"
-					onMouseDown={(e) => beginDrag("resize", e, "left")}
+					onMouseDown={(e) => beginDrag("resize", e)}
 					className="absolute bottom-0 right-0 h-3.5 w-3.5"
 					style={{ cursor: "nwse-resize" }}
 				/>
 			</div>
 		);
 	}
+
+	// 收起态（挂件/胶囊）共用的位置：渲染期按当前容器尺寸再夹一次。
+	// 容器变窄（开文件树/预览）后 state 里的位置会瞬时越界，不夹挂件会被推到列外看不见
+	// （等下次拖动/切态才重新 clamp）。
+	const collapsedPos = clampCollapsedPos(pos, ctxSize);
 
 	// 挂件态：右上角预览卡片（实时帧缩略 + 点开 + 再深一层收成胶囊）
 	if (panel.mode === "badge") {
@@ -786,7 +931,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				onMouseDown={(e) => {
 					// 卡片里的按钮照旧可点；其余区域按下即开始拖动（阈值 5px）
 					if ((e.target as HTMLElement).closest("button")) return;
-					beginDrag("move", e, "right");
+					beginDrag("move", e, true);
 				}}
 				onClick={() => {
 					// 拖动过的那次 click 要吃掉，否则一拖就展开
@@ -795,11 +940,11 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 				}}
 				className="absolute z-50 cursor-pointer overflow-hidden rounded-[10px] shadow-xl"
 				style={{
-					/* 右缘锚在矩形的右缘：默认就是聊天列右上角（− 16px 边距）。
-					   max(0,…)：容器变窄（开文件树/预览）后矩形会瞬时越界，
-					   不夹一下挂件会被推到列外看不见（等下次拖动/切态才重新 clamp） */
-					right: Math.max(0, ctxSize.width - (rect.x + rect.w)),
-					top: Math.max(0, rect.y),
+					/* 左缘锚定：left 就是左缘相对容器的偏移，位置与自身宽度解耦。
+					   旧实现按 right = 容器宽 − (x + 展开宽 680) 定位，于是实际左缘 = x + 412，
+					   左侧 412px 永远拖不到（用户实测的「只能停在一个固定位置」） */
+					left: collapsedPos.x,
+					top: collapsedPos.y,
 					width: BADGE_WIDTH,
 					background: "#1a1a21",
 				}}
@@ -839,15 +984,15 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		);
 	}
 
-	// 胶囊态：最小挂件（同样可拖；位置与展开态共用一份矩形）
+	// 胶囊态：最小挂件（可拖；与挂件共享同一份收起态位置，与展开态互不影响）
 	return (
 		<div
 			ref={boxRef}
-			onMouseDown={(e) => beginDrag("move", e, "right")}
+			onMouseDown={(e) => beginDrag("move", e, true)}
 			className="absolute z-50 flex h-8 items-center gap-2 rounded-pill pl-3 pr-2 shadow-lg"
 			style={{
-				right: Math.max(0, ctxSize.width - (rect.x + rect.w)), // 同上：容器变窄时夹在列内
-				top: Math.max(0, rect.y),
+				left: collapsedPos.x, // 同上：左缘锚定，容器变窄时由 collapsedPos 夹在列内
+				top: collapsedPos.y,
 				background: "#1a1a21",
 			}}
 		>
