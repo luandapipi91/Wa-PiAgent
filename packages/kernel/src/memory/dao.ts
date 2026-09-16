@@ -46,6 +46,8 @@ export interface ListOpts {
   projectId?: string | null;
   kind?: MemoryKind;
   includeArchived?: boolean;
+  /** 最多取多少行（快照 L1 用：只取预算够用的量，不把整个 scope 载入内存） */
+  limit?: number;
 }
 
 export interface SearchOpts extends ListOpts {
@@ -192,8 +194,9 @@ export class MemoryDao {
 
   list(opts: ListOpts = {}): MemoryRow[] {
     const { where, params } = this.buildFilter(opts);
+    const limit = typeof opts.limit === "number" && opts.limit > 0 ? ` LIMIT ${Math.floor(opts.limit)}` : "";
     const rows = this.db
-      .query(`SELECT * FROM memories ${where} ORDER BY updated_at DESC`)
+      .query(`SELECT * FROM memories ${where} ORDER BY updated_at DESC${limit}`)
       .all(...params) as RawRow[];
     return rows.map(toRow);
   }
@@ -208,6 +211,33 @@ export class MemoryDao {
       if (r.kind in out) out[r.kind as MemoryKind] = r.n;
     }
     return out;
+  }
+
+  /**
+   * 指定过滤下最早的 updated_at（无行返回 null）。
+   *
+   * 快照索引块只为算一个「时间跨度」，不该为此把整个 scope 的行连全文读进内存
+   * （上万条时既费内存，`Math.min(...rows.map(...))` 的展开还会直接 RangeError）。
+   * excludeProfile：索引块描述 L2/L3，不掺用户画像。
+   * before：只看某时间点之前的行（快照用它先求「超窗口」集合的最早时间）。
+   */
+  oldestUpdatedAt(
+    opts: ListOpts & { excludeProfile?: boolean; before?: number } = {},
+  ): number | null {
+    const { where, params } = this.buildFilter(opts);
+    const extra: string[] = [];
+    if (opts.excludeProfile) extra.push("kind <> 'profile'");
+    if (opts.before !== undefined) {
+      extra.push("updated_at < ?");
+      params.push(opts.before);
+    }
+    const conds = [where.replace(/^WHERE\s+/, ""), ...extra].filter(Boolean);
+    const row = this.db
+      .query(
+        `SELECT MIN(updated_at) AS t FROM memories${conds.length ? ` WHERE ${conds.join(" AND ")}` : ""}`,
+      )
+      .get(...params) as { t: number | null } | null;
+    return row?.t ?? null;
   }
 
   /**
