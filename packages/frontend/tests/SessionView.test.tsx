@@ -1145,6 +1145,9 @@ test("扩展 setWidget：aboveEditor 在 Composer 上方、belowEditor 在下方
 	fireEvent.click(goal);
 	const goalExpanded = screen.getByTestId("ext-widget-pi-goal");
 	expect(goalExpanded.textContent).toContain("进度 4/6");
+	// 回归：展开态头部不得把内部位置标识（aboveEditor/belowEditor）当文本渲染出来
+	expect(goalExpanded.textContent).not.toContain("aboveEditor");
+	expect(goalExpanded.textContent).not.toContain("belowEditor");
 
 	// 点击"收起 ✕"回到窄条，完整内容消失
 	fireEvent.click(screen.getByTestId("ext-widget-collapse-pi-goal"));

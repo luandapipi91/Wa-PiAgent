@@ -1,3 +1,12 @@
+## 2026-09-16 — fix(frontend): TUI 面板展开态不再把内部位置标识当标题渲染
+
+- 问题：第三方插件（如 rpiv-todos）的 TUI 面板展开后，标题显示为「rpiv-todos aboveEditor」——内部字段 `placement` 的枚举字面量被当成可见文本渲染了出来。
+- 根因：`SessionView.tsx` 的 `ExtWidgetDock` 展开态头部把这个值硬编码渲染成文字；kernel 与 store 全程只把它作为独立字段（`widgetPlacement`/`placement`）广播，未做任何字符串拼接，协议里也只有 `aboveEditor`/`belowEditor` 两个取值。
+- 修复：删除该标签（展开态头部只保留 widget key 与正文）；上/下位置仍由左边框颜色与收起态箭头图标表达，不依赖这段文字。
+- 四层测试：组件回归断言（展开态头部不含 aboveEditor/belowEditor）+ E2E 同款断言（ext-ui-bridge-demo）。
+- 验证：SessionView 49 pass / 0 fail；frontend typecheck 退出 0；frontend 全量 2392 pass / 0 fail；E2E `-g "ANSI 颜色渲染"` 1 passed（5.0s，PI_E2E=1 实跑）。
+- 影响范围：packages/frontend/src/components/SessionView.tsx、tests/SessionView.test.tsx、e2e/ext-ui-bridge-demo.spec.ts。
+
 ## 2026-09-16 — fix(kernel): 发送前自动压缩估算按 CJK 加权 + 双条件判定，修复长中文会话撞上游窗口 400 卡死
 
 - 问题：pi 上报的上下文占用 = 最后一条有效 assistant 的 usage + 其后新增消息按「字符数÷4」估算。该口径对中文严重低估（实测中文≈1.48 tok/字，估算只有 0.25），长中文会话下内核按 `0.8 × contextWindow` 判定永远不触发压缩，而请求实际已越过上游窗口边界 → 上游持续返回 `400 {"model":...}` 且永久卡死。

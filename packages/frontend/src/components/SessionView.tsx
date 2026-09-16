@@ -469,7 +469,7 @@ export const SessionView = memo(function SessionView({
 											className="text-[calc(12px*var(--font-scale))] text-secondary mt-1 pl-2"
 										>
 											<span
-												// pi-lens-ignore: dangerously-set-inner-html —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
+												// pi-lens-ignore: dangerously-set-inner-html, property_identifier —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
 												dangerouslySetInnerHTML={{
 													__html: expandedTextToHtml(msg, {
 														knownSkills,
@@ -499,7 +499,7 @@ export const SessionView = memo(function SessionView({
 											>
 												<span className="text-secondary truncate flex-1 text-[calc(12.5px*var(--font-scale))]">
 													<span
-														// pi-lens-ignore: dangerously-set-inner-html —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
+														// pi-lens-ignore: dangerously-set-inner-html, property_identifier —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
 														dangerouslySetInnerHTML={{
 															__html: expandedTextToHtml(msg, {
 																knownSkills,
@@ -757,19 +757,6 @@ function ExtWidgetDock({
 						<span className="flex items-center gap-1.5">
 							<span className="font-mono text-[calc(12px*var(--font-scale))] font-semibold text-secondary">
 								{expanded[0]}
-							</span>
-							<span
-								className="text-[calc(10px*var(--font-scale))]"
-								style={{
-									color:
-										expanded[1].placement === "belowEditor"
-											? "var(--text-tertiary)"
-											: "var(--accent)",
-								}}
-							>
-								{expanded[1].placement === "belowEditor"
-									? "belowEditor"
-									: "aboveEditor"}
 							</span>
 						</span>
 						<button
