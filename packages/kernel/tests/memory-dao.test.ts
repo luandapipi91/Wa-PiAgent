@@ -202,5 +202,38 @@ test("对不存在的 id 操作返回 false；空查询返回空数组", () => {
   expect(dao.search("   ", {})).toEqual([]);
 });
 
+// ── 补充：检索链路（DAO → 真实 FTS 表）的行为边界 ────────────────────────
+// buildMatchExpr 的纯函数行为已在 memory-fts-query.test.ts 覆盖，
+// 这里只验证表达式绑进 `MATCH ?` 后的整条链路。
+
+test("特殊字符查询经 DAO 打到真实 FTS 表也不抛错", () => {
+  add({ content: '含括号 (x)、星号 *、引号 "y" 与非空内容' });
+  for (const q of ["(", ")", "*", 'a"b', '"', "* ( )", "AND", "NOT"]) {
+    expect(() => dao.search(q, {})).not.toThrow();
+  }
+});
+
+test("命中条数超 limit 时按综合分截断", () => {
+  for (let i = 0; i < 15; i++) add({ content: `发版记录第 ${i} 条` });
+  expect(dao.search("发版", { limit: 50 }).length).toBe(15); // 候选齐全，默认 limit 10 会截断
+  const hits = dao.search("发版", { limit: 5 });
+  expect(hits).toHaveLength(5);
+  // 截断发生在排序之后：留下的必须是综合分最高的那几条
+  const scores = hits.map((h) => h.score);
+  expect(scores).toEqual([...scores].sort((a, b) => b - a));
+});
+
+test("search 命中后刷新 use_count 与 last_used_at", () => {
+  const row = add({ content: "热度信号 zebrause" });
+  expect(dao.getById(row.id)!.useCount).toBe(0);
+  expect(dao.getById(row.id)!.lastUsedAt).toBeNull();
+
+  expect(dao.search("zebrause", {}).map((h) => h.id)).toEqual([row.id]);
+
+  const after = dao.getById(row.id)!;
+  expect(after.useCount).toBe(1);
+  expect(after.lastUsedAt).not.toBeNull();
+});
+
 // 取消引用防误报（保留 dao 供后续任务扩展）
 export {};
