@@ -63,7 +63,9 @@ export const MEM_ADD_DESC =
   "intermediate results), temporary state, or anything recoverable from the current conversation or code. " +
   "When in doubt, do not record. " +
   "TARGETS: 'user' for who the user is; 'memory' for your own notes. " +
-  "SCOPE: omit for the default — 'global' for the user target, 'project' for the memory target.";
+  "SCOPE: omit for the default — 'global' for the user target, 'project' for the memory target. " +
+  "KIND: omit for automatic routing (user+global → profile, otherwise knowledge); " +
+  "pass 'execution' to record a dated execution-log entry.";
 
 export const MEM_ADD_SNIPPET =
   "Append durable facts to MEMORY.md or USER.md (global or project scope).";
@@ -88,6 +90,15 @@ export const MEM_READ_DESC =
 export const MEM_READ_SNIPPET =
   "Read the current contents of MEMORY.md or USER.md.";
 
+export const MEM_SEARCH_DESC =
+  "Full-text (BM25) search across all memory layers, including entries NOT shown in the system prompt. " +
+  "Use this before assuming you don't know something — L2 (project knowledge) and L3 (execution log) " +
+  "are searchable but not injected. Supports Chinese and English queries. " +
+  "Returns id/title/snippet/score; use the id with memory_replace / memory_remove.";
+
+export const MEM_SEARCH_SNIPPET =
+  "Search all memory layers (including non-injected L2/L3) by keyword.";
+
 /** memory target schema（"memory" | "user"） */
 export const MemoryTargetSchema = Type.Union(
   [Type.Literal("memory"), Type.Literal("user")],
@@ -98,6 +109,16 @@ export const MemoryTargetSchema = Type.Union(
 export const MemoryScopeSchema = Type.Union(
   [Type.Literal("global"), Type.Literal("project")],
   { description: MEM_SCOPE_DESC },
+);
+
+/** memory kind schema（用户画像 / 知识 / 执行流水） */
+export const MemoryKindSchema = Type.Union(
+  [Type.Literal("knowledge"), Type.Literal("execution")],
+  {
+    description:
+      "Entry class. 'knowledge' (default): durable facts, conventions, decisions — long-term retrievable. " +
+      "'execution': a dated record of what was done (task, result, timeline). Omit to route by target+scope.",
+  },
 );
 
 // =========================================================================
@@ -297,6 +318,7 @@ export const BRIDGE_TOOL_NAMES = [
   "memory_replace",
   "memory_remove",
   "memory_read",
+  "memory_search",
   "delegate",
   "fleet",
   "browser_navigate",
