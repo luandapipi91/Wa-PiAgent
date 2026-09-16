@@ -173,6 +173,26 @@ test.describe.serial("记忆管理", () => {
     ).toBeVisible();
   });
 
+  test("单字检索：bigram 索引无 unigram 时回退子串匹配，单个汉字也能命中", async ({
+    page,
+  }) => {
+    await openMemorySection(page);
+
+    const req = page.waitForRequest((r) =>
+      r.url().includes("/api/memories/search"),
+    );
+    // 单个汉字：索引里只有相邻二元组，FTS 必然零命中，靠 DAO 子串回退才看得到
+    await page.getByTestId("memory-search").fill("条");
+    await req;
+
+    await expect(page.getByTestId("memory-search-total")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.locator('[data-testid^="memory-card-"]').first(),
+    ).toBeVisible();
+  });
+
   test("层筛选下推服务端：检索态点「知识」后请求带 kind=knowledge", async ({
     page,
   }) => {

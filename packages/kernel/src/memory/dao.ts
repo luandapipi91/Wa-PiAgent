@@ -306,6 +306,95 @@ export class MemoryDao {
   }
 
   /**
+   * 子串回退的 WHERE 片段（见 searchBySubstring 的说明）。
+   * 与 matchClause 共用 buildFilter，保证过滤条件与 FTS 路径完全一致。
+   */
+  private substringClause(
+    rawQuery: string,
+    opts: ListOpts,
+  ): { extra: string; params: SQLQueryBindings[]; like: string } | null {
+    const needle = rawQuery.trim();
+    // 空查询与 FTS 路径同口径：视为无命中（不做全表扫描）
+    if (!needle) return null;
+    const { where, params } = this.buildFilter({
+      ...opts,
+      includeArchived: opts.includeArchived ?? false,
+    });
+    const extra = where ? `AND ${where.replace(/^WHERE\s+/, "")}` : "";
+    // LIKE 元字符转义：SQLite 默认把 % / _ 当通配符，查询 "100%" 会命中一切
+    const like = `%${needle.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    return { extra, params, like };
+  }
+
+  /**
+   * 子串回退：FTS 零命中时改走 LIKE 子串匹配。
+   *
+   * 为什么需要：写入索引的正文经 bigram() 切成**相邻二元组**，单个汉字只作为二元组的
+   * 一部分存在（「张智」→ `张智`），因此「张」这类单字查询的 token 永远比不中——
+   * 实测查「张」FTS 命中 0，而库里有 4 条正文含「张」。UI 走本地 includes 时被掩盖，
+   * 切到服务端检索后暴露。
+   *
+   * 为什么不在写侧补 unigram：那要重建存量 memories_fts（迁移），而查询侧回退零迁移。
+   * 触发条件刻意收紧为「FTS 零命中」——有 FTS 命中时绝不回退，否则「张智」会退化成
+   * 把所有只含「张」的条目也捞出来，相关性被稀释。
+   *
+   * 打分：子串命中之间无强弱之分，bm25 分量统一取 1，仍叠加时间衰减与 kind 权重，
+   * 与 FTS 路径的排序语义保持一致。
+   */
+  private searchBySubstring(
+    rawQuery: string,
+    opts: SearchOpts,
+    w: { bm25: number; time: number; kind: number },
+    halfLife: number,
+    now: number,
+  ): SearchHit[] {
+    const clause = this.substringClause(rawQuery, opts);
+    if (!clause) return [];
+    const rows = this.db
+      .query(
+        `SELECT m.*
+           FROM memories m
+          WHERE (m.content LIKE ? ESCAPE '\\'
+                 OR m.title LIKE ? ESCAPE '\\'
+                 OR m.tags LIKE ? ESCAPE '\\') ${clause.extra}
+          ORDER BY m.updated_at DESC
+          LIMIT ${CANDIDATE_LIMIT}`,
+      )
+      .all(
+        clause.like,
+        clause.like,
+        clause.like,
+        ...clause.params,
+      ) as RawRow[];
+    if (rows.length === 0) return [];
+
+    const hits: SearchHit[] = rows.map((r) => {
+      const row = toRow(r);
+      const ageDays = Math.max(0, (now - row.updatedAt) / 86_400_000);
+      const timeScore = Math.exp(-ageDays / halfLife);
+      return {
+        ...row,
+        snippet: makeSnippet(row.content, rawQuery),
+        score: w.bm25 * 1 + w.time * timeScore + w.kind * KIND_BOOST[row.kind],
+      };
+    });
+    hits.sort((a, b) => b.score - a.score);
+    return this.touchHits(hits.slice(0, opts.limit ?? 10));
+  }
+
+  /** 命中即刷新热度信号（供后续「热度」排序用） */
+  private touchHits(hits: SearchHit[]): SearchHit[] {
+    const touched = Date.now();
+    for (const h of hits) {
+      this.db.run(
+        "UPDATE memories SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?",
+        [touched, h.id],
+      );
+    }
+    return hits;
+  }
+
+  /**
    * 与 search 同口径的真实命中总数。
    *
    * 关键：**不**加 LIMIT —— 既不受调用方的 limit 影响，也不受检索候选
@@ -323,7 +412,22 @@ export class MemoryDao {
           WHERE memories_fts MATCH ? ${clause.extra}`,
       )
       .get(clause.expr, ...clause.params) as { n: number } | null;
-    return row?.n ?? 0;
+    const n = row?.n ?? 0;
+    if (n > 0) return n;
+
+    // 与 search 同源的回退：FTS 零命中时按子串口径统计，否则「命中了却显示共 0 条」
+    const sub = this.substringClause(rawQuery, opts);
+    if (!sub) return 0;
+    const row2 = this.db
+      .query(
+        `SELECT COUNT(*) AS n
+           FROM memories m
+          WHERE (m.content LIKE ? ESCAPE '\\'
+                 OR m.title LIKE ? ESCAPE '\\'
+                 OR m.tags LIKE ? ESCAPE '\\') ${sub.extra}`,
+      )
+      .get(sub.like, sub.like, sub.like, ...sub.params) as { n: number } | null;
+    return row2?.n ?? 0;
   }
 
   /** BM25 检索 + 时间衰减 + kind 加权综合排序（规格 §5） */
@@ -345,7 +449,10 @@ export class MemoryDao {
       )
       .all(clause.expr, ...clause.params) as Array<RawRow & { score: number }>;
 
-    if (rows.length === 0) return [];
+    if (rows.length === 0) {
+      // 索引对单字等查询天然无 token 可比（bigram 取舍），零命中时回退子串匹配
+      return this.searchBySubstring(rawQuery, opts, w, halfLife, now);
+    }
 
     // bm25 返回负值（越小越相关）；同批次内 min-max 归一到 [0,1]
     const scores = rows.map((r) => r.score);
@@ -367,17 +474,7 @@ export class MemoryDao {
     });
 
     hits.sort((a, b) => b.score - a.score);
-    const limited = hits.slice(0, opts.limit ?? 10);
-
-    // 命中即刷新热度信号（供后续“热度”排序用）
-    const touched = Date.now();
-    for (const h of limited) {
-      this.db.run(
-        "UPDATE memories SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?",
-        [touched, h.id],
-      );
-    }
-    return limited;
+    return this.touchHits(hits.slice(0, opts.limit ?? 10));
   }
 
   private buildFilter(opts: ListOpts): {

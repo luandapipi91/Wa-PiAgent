@@ -179,6 +179,62 @@ test("counts 返回三种 kind 的计数", () => {
   expect(dao.counts({})).toEqual({ profile: 1, knowledge: 1, execution: 2 });
 });
 
+// ── 单字/短查询：FTS 零命中时的子串回退 ─────────────────────────────────
+// bigram 索引只存相邻二元组（「张智」→ `张智`），单个汉字从不单独成 token，
+// 所以查「张」FTS 必然零命中而库里确有含「张」的条目（实测 0 vs 4）。
+// 回退只在 FTS 零命中时启用，且与 FTS 路径共用同一份过滤条件。
+
+test("单字检索：FTS 无 token 可比时回退子串匹配（查「张」能查到「张智」）", () => {
+  const hit = add({ content: "用户姓名：张智。称呼时用「张智」。" });
+  add({ content: "无关内容：李四的偏好" });
+
+  expect(dao.search("张", {}).map((h) => h.id)).toEqual([hit.id]);
+  expect(dao.countMatches("张")).toBe(1);
+});
+
+test("单字检索与过滤条件同口径（scope / kind / 归档）", () => {
+  const g = add({ content: "全局含张", scope: "global", projectId: null });
+  const p = add({ content: "项目含张", scope: "project", projectId: "Wa-Pi" });
+  const exec = add({ content: "执行含张", kind: "execution" });
+  const gone = add({ content: "归档含张" });
+  dao.archive(gone.id);
+
+  expect(dao.search("张", {}).map((h) => h.id).sort()).toEqual(
+    [exec.id, g.id, p.id].sort(),
+  );
+  expect(dao.search("张", { scope: "global" }).map((h) => h.id)).toEqual([g.id]);
+  expect(dao.search("张", { kind: "execution" }).map((h) => h.id)).toEqual([
+    exec.id,
+  ]);
+  expect(dao.search("张", { archivedOnly: true }).map((h) => h.id)).toEqual([
+    gone.id,
+  ]);
+});
+
+test("单字检索的 totalMatched 与 search 同口径（回退路径也一致）", () => {
+  add({ content: "甲张" });
+  add({ content: "乙张" });
+  add({ content: "丙无" });
+  expect(dao.countMatches("张")).toBe(2);
+  expect(dao.countMatches("张")).toBe(dao.search("张", { limit: 100 }).length);
+});
+
+test("有 FTS 命中时不回退：查「张智」不会把只含「张」的条目也捞出来", () => {
+  const zz = add({ content: "张智是用户" });
+  add({ content: "张三是另一个人" });
+
+  expect(dao.search("张智", {}).map((h) => h.id)).toEqual([zz.id]);
+  expect(dao.countMatches("张智")).toBe(1);
+});
+
+test("子串回退里 LIKE 元字符是字面量：查「%」只命中真含百分号的条目", () => {
+  const pct = add({ content: "缓存命中率 100% 的说明" });
+  add({ content: "没有任何百分号的内容" });
+
+  expect(dao.search("%", {}).map((h) => h.id)).toEqual([pct.id]);
+  expect(dao.countMatches("%")).toBe(1);
+});
+
 // ── 补充：简报 9 例未覆盖的评分与纯函数路径 ──────────────────────────────
 // 权重置零隔离单一因子，避免用「大致排序」这类软断言。
 
