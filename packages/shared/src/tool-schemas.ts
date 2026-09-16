@@ -49,7 +49,8 @@ export const AskParamsSchema = Type.Object({
 // =========================================================================
 
 export const MEM_TARGET_DESC =
-  "Which memory file: 'memory' (your notes → MEMORY.md) or 'user' (user profile → USER.md).";
+  "Which memory target: 'user' for who the user is (their profile), " +
+  "'memory' for your own notes.";
 
 export const MEM_SCOPE_DESC =
   "Where this entry lives: 'global' (cross-project) or 'project' (current project only). " +
@@ -68,27 +69,30 @@ export const MEM_ADD_DESC =
   "pass 'execution' to record a dated execution-log entry.";
 
 export const MEM_ADD_SNIPPET =
-  "Append durable facts to MEMORY.md or USER.md (global or project scope).";
+  "Append durable facts to the user profile or your own notes (global or project scope).";
 
 export const MEM_REPLACE_DESC =
-  "Replace an existing memory entry. Find it by a short unique substring (oldText), replace with newContent. " +
+  "Replace an existing memory entry. Prefer the entry id from memory_search / memory_read; " +
+  "without an id, locate it by a short unique substring (oldText) and replace with newContent. " +
   "Use this to update outdated entries instead of remove+add. SCOPE defaults like memory_add.";
 
 export const MEM_REPLACE_SNIPPET =
-  "Update an existing MEMORY.md or USER.md entry.";
+  "Update an existing memory entry (user profile or your notes).";
 
 export const MEM_REMOVE_DESC =
-  "Remove a memory entry by a short unique substring (oldText). Use when an entry is wrong or no longer relevant. " +
-  "SCOPE defaults like memory_add.";
+  "Remove a memory entry. Prefer the entry id from memory_search / memory_read; " +
+  "without an id, locate it by a short unique substring (oldText). " +
+  "Use when an entry is wrong or no longer relevant. SCOPE defaults like memory_add.";
 
-export const MEM_REMOVE_SNIPPET = "Delete an entry from MEMORY.md or USER.md.";
+export const MEM_REMOVE_SNIPPET =
+  "Delete a memory entry (user profile or your notes).";
 
 export const MEM_READ_DESC =
   "Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
   "SCOPE defaults like memory_add.";
 
 export const MEM_READ_SNIPPET =
-  "Read the current contents of MEMORY.md or USER.md.";
+  "Read the current contents of a memory store (user profile or your notes).";
 
 export const MEM_SEARCH_DESC =
   "Full-text (BM25) search across all memory layers, including entries NOT shown in the system prompt. " +
