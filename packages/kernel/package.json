@@ -11,7 +11,8 @@
     "build": "bun run scripts/compile-binary.ts",
     "test": "bun ./scripts/test.ts",
     "typecheck": "tsc --noEmit",
-    "eval:delegate": "bun run scripts/eval-delegate-trigger.ts"
+    "eval:delegate": "bun run scripts/eval-delegate-trigger.ts",
+    "eval:memory": "bun run scripts/eval-memory-write.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.85.1",

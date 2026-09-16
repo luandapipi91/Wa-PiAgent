@@ -15,17 +15,28 @@
 //   ——写入的是隔离 memRoot 下的 memories.db，不污染真实记忆。
 //
 // 用法：
-//   bun run scripts/eval-memory-write.ts [--limit N] [--sample N] [--category user,project,mixed]
+//   bun run scripts/eval-memory-write.ts [--limit N] [--sample N]
+//     [--category user,project,mixed,implicit,negative]
 //     [--repeat N] [--model slug/modelId] [--thinking off|low|medium|high|xhigh]
-//     [--dry-run] [--out path] [--timeout sec] [--mem-root path]
+//     [--threshold 0.85] [--dry-run] [--selftest] [--out path] [--timeout sec] [--mem-root path]
 //   --sample N：每类各取前 N 条（冒烟推荐 --sample 1）；--mem-root：隔离记忆库所在目录
 //   （memories.db 落在其下；默认 <WA_PI_DIR>/tmp/eval-memory-write/<uuid>，自动清理）
+//   --dry-run：只列出用例集结构（分类/意图分布/条数自检），不调模型
+//   --selftest：用合成 CaseResult 自检判定逻辑（含反例与 kind=execution 分支），不调模型
 //
-// 判定标准（每个用例）：
-//   1. agent 调用了 memory_add（写入动作发生）
-//   2. 路由正确：user 类用例 target=user；project 类用例 target=memory；mixed 类两类都有
-//   3. 落库生效：隔离记忆库中存在对应 scope/target 的条目
-// 汇总时给出「写入通过率」，任何用例 3 项全过才算 PASS。
+// 判定标准：
+//   正例（user / project / mixed / implicit）：
+//     1. agent 调用了 memory_add（写入动作发生）
+//     2. 路由正确：user 类用例 target=user；project 类用例 target=memory；mixed 类两类都有
+//     3. 落库生效：隔离记忆库中存在对应 scope/target 的条目
+//     4. expectKind=execution 的用例：至少一条 memory_add 带 kind=execution
+//   反例（negative，不该写记忆的场景）：
+//     任何 memory_add 都算失败（误触发）；一次都没写才算 PASS
+//
+// 汇总与门禁：
+//   正例触发率 = 正例通过数 / 正例总数 —— 低于 --threshold（默认 0.85）即 process.exit(1)
+//   反例误触发率 = 反例中「调用了 memory_add」的比例 —— 仅作报告指标，不设硬门禁
+//   （误触发率越高越差；正例失败明细会随门禁一起打印）
 
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -449,6 +460,8 @@ interface CliOpts {
 	model: string | null;
 	thinking: string | null;
 	dryRun: boolean;
+	selftest: boolean;
+	threshold: number;
 	out: string | null;
 	timeoutSec: number;
 	memRoot: string | null;
@@ -464,6 +477,8 @@ function parseArgs(argv: string[]): CliOpts {
 		model: null,
 		thinking: null,
 		dryRun: false,
+		selftest: false,
+		threshold: 0.85,
 		out: null,
 		timeoutSec: 180,
 		memRoot: null,
@@ -492,6 +507,18 @@ function parseArgs(argv: string[]): CliOpts {
 			case "--dry-run":
 				opts.dryRun = true;
 				break;
+			case "--selftest":
+				opts.selftest = true;
+				break;
+			case "--threshold": {
+				const v = Number(argv[++i]);
+				if (!Number.isFinite(v) || v < 0 || v > 1) {
+					console.error("--threshold 需要 0..1 之间的小数（如 0.85 / 1.0）");
+					process.exit(2);
+				}
+				opts.threshold = v;
+				break;
+			}
 			case "--out":
 				opts.out = argv[++i]!;
 				break;
@@ -518,6 +545,9 @@ function parseArgs(argv: string[]): CliOpts {
 	return opts;
 }
 
+/** 所有分类（顺序即 --sample 的取样顺序与汇总展示顺序） */
+const ALL_CATEGORIES = ["user", "project", "mixed", "implicit", "negative"] as const;
+
 /** 选用例：--category 过滤类别；--sample N = 每类前 N 条；否则前 --limit 条 */
 function selectCases(opts: CliOpts): typeof CASES {
 	let pool = CASES;
@@ -526,7 +556,7 @@ function selectCases(opts: CliOpts): typeof CASES {
 	}
 	if (opts.sample > 0) {
 		const picked: typeof CASES = [];
-		for (const cat of ["user", "project", "mixed", "implicit"] as const) {
+		for (const cat of ALL_CATEGORIES) {
 			picked.push(...pool.filter((c) => c.category === cat).slice(0, opts.sample));
 		}
 		return picked;
@@ -669,7 +699,15 @@ interface CaseResult {
 	prompt: string;
 	expectUser: boolean;
 	expectProject: boolean;
-	memoryAdds: Array<{ target: string; scope?: string; content: string }>;
+	/** 期望出现 kind=execution 的 memory_add（来自用例定义） */
+	expectKind?: "execution";
+	memoryAdds: Array<{
+		target: string;
+		scope?: string;
+		/** 从 call.params.kind 原样捕获；agent 未传时为 undefined */
+		kind?: string;
+		content: string;
+	}>;
 	toolsCalled: string[];
 	userEntryExists: boolean;
 	projectEntryExists: boolean;
@@ -703,6 +741,7 @@ async function runOneCase(
 		prompt: c.prompt,
 		expectUser: c.expectUser,
 		expectProject: c.expectProject,
+		expectKind: c.expectKind,
 		memoryAdds: [],
 		toolsCalled: [],
 		userEntryExists: false,
@@ -788,6 +827,7 @@ async function runOneCase(
 				target: String(call.params.target ?? ""),
 				scope:
 					call.params.scope === undefined ? undefined : String(call.params.scope),
+				kind: call.params.kind === undefined ? undefined : String(call.params.kind),
 				content: String(call.params.content ?? ""),
 			});
 		}
@@ -801,9 +841,20 @@ async function runOneCase(
 	return result;
 }
 
-/** 单用例判定：是否通过（写入发生 + 路由正确 + 落盘生效） */
+/** 单用例判定：是否通过。
+ *  反例（negative）：任何 memory_add 都是误触发 → 失败；一次都没写 → 通过。
+ *  正例：写入发生 + 路由正确 + 落盘生效（+ expectKind=execution 时校验 kind）。 */
 function casePassed(r: CaseResult): { pass: boolean; reasons: string[] } {
 	const reasons: string[] = [];
+
+	// 反例分支优先：反例不要求任何写入，只要求「没写」
+	if (r.category === "negative") {
+		if (r.memoryAdds.length > 0) {
+			reasons.push(`反例：不应写入，却调用 memory_add ${r.memoryAdds.length} 次`);
+		}
+		return { pass: reasons.length === 0, reasons };
+	}
+
 	const hasUser = r.memoryAdds.some((m) => m.target === "user");
 	const hasProject = r.memoryAdds.some((m) => m.target === "memory");
 
@@ -826,12 +877,147 @@ function casePassed(r: CaseResult): { pass: boolean; reasons: string[] } {
 	if (r.expectProject && !r.projectEntryExists)
 		reasons.push("项目记忆未入库");
 
+	// 执行流水类：要求至少一条 memory_add 带 kind=execution（未传 kind 时按路由落到
+	// profile/knowledge，不算过）
+	if (r.expectKind === "execution" && !r.memoryAdds.some((m) => m.kind === "execution"))
+		reasons.push("期望 kind=execution 的写入，未出现");
+
 	return { pass: reasons.length === 0, reasons };
+}
+
+/** 汇总指标：正例触发率（门禁）+ 反例误触发率（仅报告，越低越好） */
+interface EvalStats {
+	posTotal: number;
+	posPassed: number;
+	posRate: number;
+	negTotal: number;
+	negTriggered: number;
+	negRate: number;
+}
+
+function computeStats(all: CaseResult[]): EvalStats {
+	const positives = all.filter((r) => r.category !== "negative");
+	const negatives = all.filter((r) => r.category === "negative");
+	const posPassed = positives.filter((r) => casePassed(r).pass).length;
+	// 反例误触发：反例中出现任何 memory_add 的用例数
+	const negTriggered = negatives.filter((r) => r.memoryAdds.length > 0).length;
+	return {
+		posTotal: positives.length,
+		posPassed,
+		posRate: positives.length > 0 ? posPassed / positives.length : 1,
+		negTotal: negatives.length,
+		negTriggered,
+		negRate: negatives.length > 0 ? negTriggered / negatives.length : 0,
+	};
+}
+
+/** 硬门禁：正例触发率低于阈值 → 非零退出（无正例时视为不适用，不拦） */
+function gateFails(stats: EvalStats, threshold: number): boolean {
+	return stats.posTotal > 0 && stats.posRate < threshold;
+}
+
+/** 判定逻辑自检（--selftest）：合成 CaseResult 跑真判定函数，不调模型。
+ *  用作四层测试里的「单元层」：覆盖反例分支、kind=execution 分支与门禁谓词。 */
+function runSelftest(): boolean {
+	const mk = (
+		cat: Category,
+		over: Partial<CaseResult> = {},
+	): CaseResult => ({
+		index: 0,
+		category: cat,
+		prompt: "（自检）",
+		expectUser: false,
+		expectProject: false,
+		memoryAdds: [],
+		toolsCalled: [],
+		userEntryExists: false,
+		projectEntryExists: false,
+		elapsedMs: 0,
+		...over,
+	});
+	const userAdd = { target: "user", kind: "profile", content: "x" };
+	const projAdd = { target: "memory", content: "x" };
+	const projExec = { target: "memory", kind: "execution", content: "x" };
+
+	const checks: Array<[string, boolean]> = [
+		["反例未写入 → 通过", casePassed(mk("negative")).pass === true],
+		[
+			"反例写入 → 失败（理由含「反例」）",
+			casePassed(mk("negative", { memoryAdds: [projAdd] })).pass === false &&
+				casePassed(mk("negative", { memoryAdds: [projAdd] })).reasons.some((s) =>
+					s.includes("反例"),
+				),
+		],
+		[
+			"正例未写入 → 失败",
+			casePassed(mk("user", { expectUser: true })).pass === false,
+		],
+		[
+			"正例路由+落库正确 → 通过",
+			casePassed(
+				mk("user", { expectUser: true, memoryAdds: [userAdd], userEntryExists: true }),
+			).pass === true,
+		],
+		[
+			"正例路由不符（user 类写了 memory）→ 失败",
+			casePassed(
+				mk("user", { expectUser: true, memoryAdds: [projAdd], projectEntryExists: true }),
+			).pass === false,
+		],
+		[
+			"正例 kind=execution 缺 kind → 失败",
+			casePassed(
+				mk("implicit", {
+					expectProject: true,
+					expectKind: "execution",
+					memoryAdds: [projAdd],
+					projectEntryExists: true,
+				}),
+			).pass === false,
+		],
+		[
+			"正例 kind=execution 带 kind → 通过",
+			casePassed(
+				mk("implicit", {
+					expectProject: true,
+					expectKind: "execution",
+					memoryAdds: [projExec],
+					projectEntryExists: true,
+				}),
+			).pass === true,
+		],
+	];
+
+	// 统计与门禁：用真实 computeStats / gateFails
+	const pos = mk("user", { expectUser: true, memoryAdds: [userAdd], userEntryExists: true });
+	const fail = mk("project", { expectProject: true }); // 未写 → 失败
+	const negOk = mk("negative");
+	const negBad = mk("negative", { memoryAdds: [projAdd] });
+	const stats = computeStats([pos, fail, negOk, negBad]);
+	checks.push(
+		["统计：正例 1/2 = 50%", stats.posTotal === 2 && stats.posPassed === 1 && stats.posRate === 0.5],
+		["统计：反例误触发 1/2 = 50%", stats.negTotal === 2 && stats.negTriggered === 1 && stats.negRate === 0.5],
+		["门禁：50% < 0.85 → 拦", gateFails(stats, 0.85) === true],
+		["门禁：50% < 1.0 → 拦", gateFails(stats, 1.0) === true],
+		["门禁：50% >= 0.5 → 不拦", gateFails(stats, 0.5) === false],
+		["门禁：无正例时不适用 → 不拦", gateFails(computeStats([negOk]), 1.0) === false],
+	);
+
+	let failed = 0;
+	for (const [name, ok] of checks) {
+		if (!ok) failed++;
+		console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
+	}
+	console.log(`\n自检: ${checks.length - failed}/${checks.length} 通过`);
+	return failed === 0;
 }
 
 // ---- main ----
 async function main() {
 	const opts = parseArgs(process.argv.slice(2));
+	if (opts.selftest) {
+		process.exit(runSelftest() ? 0 : 1);
+	}
 	const cases = selectCases(opts);
 	console.log(`\n=== 记忆写入评测：${cases.length}/${CASES.length} 条用例 ===`);
 
@@ -908,8 +1094,36 @@ async function main() {
 
 	if (opts.dryRun) {
 		for (const [i, c] of cases.entries()) {
-			console.log(`[${i + 1}] ${c.category}: ${c.prompt.slice(0, 50)}`);
+			const tag = [
+				c.expectKind ? `kind=${c.expectKind}` : "",
+				c.intent ? `intent=${c.intent}` : "",
+			]
+				.filter(Boolean)
+				.join(" ");
+			console.log(
+				`[${i + 1}] ${c.category}${tag ? ` (${tag})` : ""}: ${c.prompt.slice(0, 50)}`,
+			);
 		}
+		// 用例集结构自检（不看模型，只看用例集本身）
+		const positive = CASES.filter((c) => c.category !== "negative");
+		const negative = CASES.filter((c) => c.category === "negative");
+		console.log("\n--- 用例集结构 ---");
+		for (const cat of ALL_CATEGORIES) {
+			const n = CASES.filter((c) => c.category === cat).length;
+			if (n > 0) console.log(`${cat}: ${n} 条`);
+		}
+		console.log(`正例合计: ${positive.length} 条（要求 ≥30）`);
+		const execCount = positive.filter((c) => c.expectKind === "execution").length;
+		console.log(`其中执行流水(expectKind=execution): ${execCount} 条`);
+		console.log(
+			"正例意图分布: " +
+				(["preference", "identity", "decision", "execution"] as const)
+					.map((it) => `${it}=${positive.filter((c) => c.intent === it).length}`)
+					.join(" "),
+		);
+		console.log(`反例合计: ${negative.length} 条（要求 ≥10）`);
+		if (positive.length < 30) console.warn("⚠️ 正例不足 30 条");
+		if (negative.length < 10) console.warn("⚠️ 反例不足 10 条");
 		return;
 	}
 
@@ -985,7 +1199,10 @@ async function main() {
 				const { pass, reasons } = casePassed(r);
 				const adds = r.memoryAdds.length
 					? r.memoryAdds
-							.map((m) => `${m.target}${m.scope ? `@${m.scope}` : ""}`)
+							.map(
+								(m) =>
+									`${m.target}${m.scope ? `@${m.scope}` : ""}${m.kind ? `/${m.kind}` : ""}`,
+							)
 							.join(",")
 					: "none";
 				const files = `${r.userEntryExists ? "USER✓" : "USER✗"}/${r.projectEntryExists ? "MEM✓" : "MEM✗"}`;
@@ -1007,18 +1224,35 @@ async function main() {
 		}
 	}
 
-	// 汇总
+	// 汇总：正例触发率（硬门禁）/ 反例误触发率（仅报告）/ 分类明细
 	console.log("\n=== SUMMARY ===");
 	const all = runs.flat();
-	let passed = 0;
-	for (const cat of ["user", "project", "mixed", "implicit"] as const) {
+	const stats = computeStats(all);
+
+	// 分类明细（negative 单列，不计入正例触发率）
+	for (const cat of ALL_CATEGORIES) {
 		const catResults = all.filter((r) => r.category === cat);
 		if (catResults.length === 0) continue;
+		if (cat === "negative") {
+			const triggered = catResults.filter((r) => r.memoryAdds.length > 0).length;
+			console.log(`negative(反例): ${catResults.length - triggered}/${catResults.length} 未触发写入`);
+			continue;
+		}
 		const catPassed = catResults.filter((r) => casePassed(r).pass).length;
-		passed += catPassed;
 		console.log(`${cat}: ${catPassed}/${catResults.length} 通过`);
 	}
-	console.log(`合计: ${passed}/${all.length} 通过`);
+	console.log(
+		stats.posTotal === 0
+			? "正例触发率: 本次无正例（门禁不适用）"
+			: `正例触发率: ${stats.posPassed}/${stats.posTotal} = ${(stats.posRate * 100).toFixed(1)}%` +
+					`  (门禁阈值 ${(opts.threshold * 100).toFixed(1)}%)`,
+	);
+	if (stats.negTotal > 0) {
+		console.log(
+			`反例误触发率: ${stats.negTriggered}/${stats.negTotal} = ${(stats.negRate * 100).toFixed(1)}%` +
+				`  (越低越好；仅报告，不设硬门禁)`,
+		);
+	}
 	const userWrites = all.filter((r) =>
 		r.memoryAdds.some((m) => m.target === "user"),
 	).length;
@@ -1048,6 +1282,10 @@ async function main() {
 				at: new Date().toISOString(),
 				repeat: opts.repeat,
 				memRoot,
+				threshold: opts.threshold,
+				positiveRate: stats.posRate,
+				negativeRate: stats.negRate,
+				stats,
 				runs,
 			},
 			null,
@@ -1056,6 +1294,19 @@ async function main() {
 		"utf8",
 	);
 	console.log(`结果已写入: ${outPath}`);
+
+	// 硬门禁：正例触发率低于阈值 → 非零退出（反例误触发率仅打印，不拦）
+	if (gateFails(stats, opts.threshold)) {
+		console.error(
+			`\n[GATE FAILED] 正例触发率 ${(stats.posRate * 100).toFixed(1)}% < 阈值 ${(opts.threshold * 100).toFixed(1)}%`,
+		);
+		for (const r of all.filter((r) => r.category !== "negative" && !casePassed(r).pass)) {
+			console.error(
+				`  - [${r.category}] ${r.prompt.slice(0, 40)} → ${casePassed(r).reasons.join("; ")}`,
+			);
+		}
+		process.exit(1);
+	}
 }
 
 main().catch((e) => {
