@@ -110,9 +110,20 @@ const jsonResult = (v: unknown) => ({
 });
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
+/**
+ * 回灌模型前的注入净化。
+ *
+ * 快照路径（snapshot.ts）已对注入系统提示词的条目做过防护；检索/读取结果是同一批数据的
+ * 另一条回灌通道，若不过滤就等于把刚移植的防护整个旁路掉——数据库被外部/存量污染时，
+ * 同一条目在快照里是占位符，而 search/read 返回的仍是原载荷。
+ */
+function sanitize(text: string): string {
+  return firstThreatMessage(text, "strict") ? "[BLOCKED]" : text;
+}
+
 function toEntryJson(r: MemoryRow) {
   return {
-    id: r.id, title: r.title, content: r.content, kind: r.kind,
+    id: r.id, title: sanitize(r.title), content: sanitize(r.content), kind: r.kind,
     scope: r.scope, projectId: r.projectId,
     createdAt: new Date(r.createdAt).toISOString(),
     updatedAt: new Date(r.updatedAt).toISOString(),
@@ -162,7 +173,7 @@ function resolveTargets(
       result: jsonResult({
         success: false,
         error: `Multiple entries matched '${oldText}'. Be more specific or pass id.`,
-        matches: rows.map((r) => ({ id: r.id, title: r.title })),
+        matches: rows.map((r) => ({ id: r.id, title: sanitize(r.title) })),
       }),
     };
   }
@@ -191,7 +202,12 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         const content = str(params.content);
         if (!content.trim()) return jsonResult({ success: false, error: "Content cannot be empty." });
 
-        const threat = firstThreatMessage(content, "strict");
+        // title 与 content 同样会回灌模型上下文（search 结果 / read 条目 / 快照），
+        // 必须同规则校验，否则写入侧只扫 content 就能用 title 夹带载荷绕过防护。
+        const title = str(params.title);
+        const threat =
+          firstThreatMessage(content, "strict") ??
+          (title ? firstThreatMessage(title, "strict") : null);
         if (threat) return jsonResult({ success: false, error: threat });
 
         const check = requireProjectId(ctx, scope);
@@ -201,7 +217,7 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         const tags = Array.isArray(params.tags) ? params.tags.filter((t) => typeof t === "string").join(",") : "";
         const row = ctx.dao.insert({
           kind, target, scope, projectId, content,
-          source: "agent", title: str(params.title) || undefined, tags,
+          source: "agent", title: title || undefined, tags,
         });
         return jsonResult({
           success: true, id: row.id, kind: row.kind, scope: row.scope,
@@ -243,7 +259,7 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         });
         return jsonResult({
           results: hits.map((h) => ({
-            id: h.id, title: h.title, snippet: h.snippet, kind: h.kind,
+            id: h.id, title: sanitize(h.title), snippet: sanitize(h.snippet), kind: h.kind,
             scope: h.scope, projectId: h.projectId,
             updatedAt: new Date(h.updatedAt).toISOString(),
             score: Number(h.score.toFixed(4)), archived: h.archived === 1,
