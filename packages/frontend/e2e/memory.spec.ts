@@ -6,10 +6,22 @@
 // 注：E2E_WA_PI_DIR 已改为固定目录（playwright.config.ts），worker 与 globalSetup 进程
 // 拿到一致路径；本 spec 只读 UI，不直接写隔离目录。
 import { test, expect } from "@playwright/test";
+import { saveProvider } from "./helpers";
 
 // 记忆管理现作为「系统设置」面板的一个分区。
 // 此辅助函数打开设置弹窗并切到「记忆」分区。
+// 先预置假 provider：全新隔离目录无 provider 时首启 onboarding 向导会弹出，
+// 其 modal-overlay 会拦截 settings-btn 的点击（settings-sound / file-change-summary 同坑，
+// 本 spec 在此修复前一直因此为红）。
 async function openMemorySection(page: import("@playwright/test").Page) {
+  await saveProvider({
+    id: "memory-e2e-provider",
+    name: "Memory E2E",
+    baseUrl: "https://example.invalid",
+    apiKey: "sk-test",
+    api: "openai-completions",
+    models: [{ id: "test-model", contextWindow: 100000, maxTokens: 8192 }],
+  });
   await page.goto("/");
   await page.getByTestId("settings-btn").click();
   await expect(page.getByTestId("settings-modal")).toBeVisible();
@@ -96,8 +108,9 @@ test.describe.serial("记忆管理", () => {
     await expect(page.getByTestId("memory-scope-select")).toContainText("E2E项目");
     await expect(page.getByText("E2E 项目记忆条目").first()).toBeVisible({ timeout: 5000 });
 
-    // 关闭设置弹窗（点遮罩）
-    await page.getByTestId("modal-overlay").click({ position: { x: 0, y: 0 } });
+    // 关闭设置弹窗：自 87105067 起 Modal 默认 closeOnOverlayClick=false（防误触丢输入），
+    // 点遮罩不再关闭，改用标题栏的关闭按钮
+    await page.getByTestId("settings-close").click();
     await expect(page.getByTestId("settings-modal")).toBeHidden({ timeout: 3000 });
 
     // 重新打开设置 → 记忆页
@@ -127,5 +140,79 @@ test.describe.serial("记忆管理", () => {
     // （按钮限定在 memory-page 内：侧栏也有「项目」分区标题，全局 getByText 会歧义）
     await page.getByTestId("memory-page").getByRole("button", { name: "项目", exact: true }).click();
     await expect(page.getByTestId("instruction-item-project")).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── 服务端检索（批 2 检索体验，spec §12 第四层验收）────────────────────
+
+  test("服务端检索：命中摘要与命中总数，清空后回到完整列表", async ({ page }) => {
+    await openMemorySection(page);
+
+    const search = page.getByTestId("memory-search");
+    const req = page.waitForRequest((r) =>
+      r.url().includes("/api/memories/search"),
+    );
+    await search.fill("记忆");
+    await req;
+
+    // 结果来自服务端：统计行 + 卡片（卡片正文是检索摘要而非全文）
+    await expect(page.getByTestId("memory-search-total")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.locator('[data-testid^="memory-card-"]').first(),
+    ).toBeVisible();
+    await expect(page.getByTestId("memory-card-snippet-hint").first()).toBeVisible();
+
+    // 清空搜索词 → 退出检索态，回到本地完整列表
+    await search.fill("");
+    await expect(page.getByTestId("memory-search-total")).toBeHidden({
+      timeout: 3000,
+    });
+    await expect(
+      page.locator('[data-testid^="memory-card-"]').first(),
+    ).toBeVisible();
+  });
+
+  test("层筛选下推服务端：检索态点「知识」后请求带 kind=knowledge", async ({
+    page,
+  }) => {
+    await openMemorySection(page);
+
+    const first = page.waitForRequest((r) =>
+      r.url().includes("/api/memories/search"),
+    );
+    await page.getByTestId("memory-search").fill("记忆");
+    await first;
+
+    // 层筛选变更应带上 kind 重新向服务端检索（不是本地过滤）
+    const withKind = page.waitForRequest(
+      (r) =>
+        r.url().includes("/api/memories/search") &&
+        r.url().includes("kind=knowledge"),
+    );
+    await page
+      .getByTestId("memory-kind-filter")
+      .getByRole("button", { name: "知识", exact: true })
+      .click();
+    await withKind;
+  });
+
+  test("归档 Tab 检索：请求带 archivedOnly=true，命中卡片带「已归档」徽标", async ({
+    page,
+  }) => {
+    await openMemorySection(page);
+    await page.getByTestId("tab-归档").click();
+
+    const req = page.waitForRequest(
+      (r) =>
+        r.url().includes("/api/memories/search") &&
+        r.url().includes("archivedOnly=true"),
+    );
+    await page.getByTestId("memory-search").fill("E2E");
+    await req;
+
+    await expect(
+      page.getByTestId("memory-card-archived-badge").first(),
+    ).toBeVisible({ timeout: 5000 });
   });
 });

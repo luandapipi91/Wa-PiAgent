@@ -1,14 +1,37 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryPage } from "../src/components/memory/MemoryPage";
 import { useMemoryStore } from "../src/store/memory";
 import { useProjectsStore } from "../src/store/projects";
 import type { MemoryEntry } from "@wa-pi/shared";
 
+// 检索走服务端（GET /api/memories/search）：mock api-client，
+// 只对 search 路由给出可配置响应，其余路由返回 null（不覆盖用例预设的 store 状态）。
+const getMock = mock();
+let searchResponse: unknown = { type: "memory:search", results: [], totalMatched: 0 };
+mock.module("../src/api-client", () => ({
+	api: {
+		get: getMock,
+		post: () => Promise.resolve({}),
+		put: () => Promise.resolve({}),
+		del: () => Promise.resolve({}),
+	},
+}));
+
+const searchUrls = () =>
+	getMock.mock.calls
+		.map((c) => String(c[0]))
+		.filter((u) => u.includes("/memories/search"));
+
 const originalMemory = useMemoryStore.getState();
 const originalProjects = useProjectsStore.getState();
 
 beforeEach(() => {
+	getMock.mockReset();
+	searchResponse = { type: "memory:search", results: [], totalMatched: 0 };
+	getMock.mockImplementation(async (url: string) =>
+		url.includes("/memories/search") ? searchResponse : null,
+	);
   useProjectsStore.setState({
     currentProjectId: "p1",
     projects: [
@@ -74,14 +97,205 @@ test("点击指令文件 Tab 展示指令列表", () => {
   expect(screen.getByTestId("instruction-item-project")).toBeTruthy();
 });
 
-test("搜索框过滤记忆", () => {
+test("搜索框触发服务端检索：渲染 snippet 与命中数，清空后回到完整列表", async () => {
+  searchResponse = {
+    type: "memory:search",
+    results: [
+      {
+        id: "hit-1",
+        title: "项目依赖",
+        snippet: "项目使用 pnpm 作为包管理器",
+        kind: "knowledge",
+        scope: "global",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        score: 1.5,
+        archived: false,
+      },
+    ],
+    totalMatched: 1,
+  };
   render(<MemoryPage />);
   const input = screen.getByTestId("memory-search") as HTMLInputElement;
   fireEvent.change(input, { target: { value: "pnpm" } });
-  expect(screen.getByText("项目使用 pnpm")).toBeTruthy();
 
-  fireEvent.change(input, { target: { value: "不存在的关键词" } });
-  expect(screen.getByTestId("memory-empty")).toBeTruthy();
+  await waitFor(() => {
+    expect(searchUrls().length).toBeGreaterThan(0);
+  });
+  expect(searchUrls()[0]).toContain("q=pnpm");
+
+  // 摘要（而非正文）来自服务端检索结果
+  await waitFor(() => {
+    expect(screen.getByText("项目使用 pnpm 作为包管理器")).toBeTruthy();
+  });
+  expect(screen.getByTestId("memory-search-total").textContent).toContain("1");
+
+  // 清空输入 → 退出检索态，回到本地完整列表
+  fireEvent.change(input, { target: { value: "" } });
+  await waitFor(() => {
+    expect(screen.queryByTestId("memory-search-total")).toBeNull();
+  });
+  expect(screen.getByText("项目使用 pnpm")).toBeTruthy();
+});
+
+test("层筛选下推服务端：检索态点「执行」后请求带 kind=execution", async () => {
+  render(<MemoryPage />);
+  const input = screen.getByTestId("memory-search") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "pnpm" } });
+  await waitFor(() => expect(searchUrls().length).toBe(1));
+
+  fireEvent.click(screen.getByRole("button", { name: "执行" }));
+  await waitFor(() => expect(searchUrls().length).toBe(2));
+  expect(searchUrls()[1]).toContain("kind=execution");
+});
+
+test("检索在途显示「检索中」：不闪本地列表，也不显示上一轮结果", async () => {
+  let resolveSearch: (v: unknown) => void = () => {};
+  getMock.mockImplementation((url: string): Promise<unknown> =>
+    url.includes("/memories/search")
+      ? new Promise((res) => {
+          resolveSearch = res;
+        })
+      : Promise.resolve(null),
+  );
+  render(<MemoryPage />);
+  fireEvent.change(screen.getByTestId("memory-search"), {
+    target: { value: "pnpm" },
+  });
+
+  // 防抖 + 请求在途：显示检索中，本地列表已让位（不再闪一下旧数据）
+  await waitFor(() =>
+    expect(screen.getByTestId("memory-search-status")).toBeTruthy(),
+  );
+  expect(screen.queryByText("项目使用 pnpm")).toBeNull();
+  // 等请求真的发出（防抖结束），否则 resolve 句柄还是空函数
+  await waitFor(() => expect(searchUrls().length).toBe(1));
+
+  resolveSearch({
+    type: "memory:search",
+    results: [
+      {
+        id: "hit-1",
+        title: "项目依赖",
+        snippet: "第一轮命中",
+        kind: "knowledge",
+        scope: "global",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        score: 1,
+        archived: false,
+      },
+    ],
+    totalMatched: 1,
+  });
+  await waitFor(() => expect(screen.getByText("第一轮命中")).toBeTruthy());
+
+  // 改词重检：在途阶段上一轮结果必须让位给「检索中」，不残留旧命中
+  let resolveSecond: (v: unknown) => void = () => {};
+  getMock.mockImplementation((url: string): Promise<unknown> =>
+    url.includes("/memories/search")
+      ? new Promise((res) => {
+          resolveSecond = res;
+        })
+      : Promise.resolve(null),
+  );
+  fireEvent.change(screen.getByTestId("memory-search"), {
+    target: { value: "pnpm 第二轮" },
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId("memory-search-status")).toBeTruthy(),
+  );
+  expect(screen.queryByText("第一轮命中")).toBeNull();
+  await waitFor(() => expect(searchUrls().length).toBe(2));
+
+  resolveSecond({
+    type: "memory:search",
+    results: [
+      {
+        id: "hit-2",
+        title: "项目依赖",
+        snippet: "第二轮命中",
+        kind: "knowledge",
+        scope: "global",
+        updatedAt: "2026-08-02T00:00:00.000Z",
+        score: 1,
+        archived: false,
+      },
+    ],
+    totalMatched: 1,
+  });
+  await waitFor(() => expect(screen.getByText("第二轮命中")).toBeTruthy());
+});
+
+test("检索无结果时显示专属空态", async () => {
+  searchResponse = { type: "memory:search", results: [], totalMatched: 0 };
+  render(<MemoryPage />);
+  fireEvent.change(screen.getByTestId("memory-search"), {
+    target: { value: "不存在的关键词" },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("memory-empty-search")).toBeTruthy();
+  });
+  expect(screen.getByText("没有匹配的记忆")).toBeTruthy();
+});
+
+test("归档 Tab 检索：请求带 archivedOnly=true，结果卡片带「已归档」徽标", async () => {
+  searchResponse = {
+    type: "memory:search",
+    results: [
+      {
+        id: "hit-archived",
+        title: "旧决策",
+        snippet: "曾用 npm，后改 pnpm",
+        kind: "knowledge",
+        scope: "global",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        score: 0.9,
+        archived: true,
+      },
+    ],
+    totalMatched: 1,
+  };
+  render(<MemoryPage />);
+  fireEvent.click(screen.getByTestId("tab-归档"));
+  fireEvent.change(screen.getByTestId("memory-search"), {
+    target: { value: "pnpm" },
+  });
+
+  await waitFor(() => expect(searchUrls().length).toBeGreaterThan(0));
+  expect(searchUrls()[searchUrls().length - 1]).toContain("archivedOnly=true");
+  await waitFor(() => {
+    expect(screen.getByTestId("memory-card-archived-badge")).toBeTruthy();
+  });
+});
+
+test("搜索结果卡片只读：不渲染「编辑」，保留「归档」", async () => {
+  searchResponse = {
+    type: "memory:search",
+    results: [
+      {
+        id: "hit-2",
+        title: "摘要",
+        snippet: "这是一段检索摘要",
+        kind: "knowledge",
+        scope: "global",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        score: 1,
+        archived: false,
+      },
+    ],
+    totalMatched: 1,
+  };
+  render(<MemoryPage />);
+  fireEvent.change(screen.getByTestId("memory-search"), {
+    target: { value: "摘要" },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByText("这是一段检索摘要")).toBeTruthy();
+  });
+  expect(screen.queryByTestId("memory-edit")).toBeNull();
+  expect(screen.getByTestId("memory-archive")).toBeTruthy();
+  expect(screen.getByTestId("memory-card-snippet-hint")).toBeTruthy();
 });
 
 test("记忆卡片编辑 — 点击编辑展开文本框，保存后回调（带当前 projectId）", () => {

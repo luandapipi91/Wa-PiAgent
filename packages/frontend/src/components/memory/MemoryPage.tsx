@@ -21,6 +21,10 @@ export function MemoryPage() {
 		memoryScope,
 		selectedProjectId,
 		searchQuery,
+		searchResults,
+		searchTotalMatched,
+		searching,
+		searchParams,
 		load,
 		loadInstructions,
 		setMemories,
@@ -38,6 +42,8 @@ export function MemoryPage() {
 		setMemoryScope,
 		setSelectedProjectId,
 		setSearchQuery,
+		search,
+		clearSearch,
 	} = useMemoryStore();
 
 	const currentProjectId = useProjectsStore((s) => s.currentProjectId);
@@ -75,14 +81,50 @@ export function MemoryPage() {
 		}
 	}, [activeProjectId, activeTab, loadInstructions]);
 
-	// 筛选后的记忆：先按作用域（全局/项目）过滤，再按层级与搜索词
+	// 检索态：只要搜索词非空就走服务端结果（含防抖等待与请求在途两段窗口，
+	// 那两段 searchResults 仍是上一轮的结果，由 searchPending 显示「检索中」，
+	// 不闪旧结果、也不闪本地列表）
+	const isSearchActive = searchQuery.trim().length > 0;
+	const searchPending =
+		searching ||
+		searchResults === null ||
+		!searchParams ||
+		searchParams.query !== searchQuery ||
+		searchParams.scope !== memoryScope ||
+		searchParams.projectId !== (activeProjectId ?? null) ||
+		searchParams.kind !== kindFilter ||
+		searchParams.archivedOnly !== (activeTab === "archived");
+
+	// 搜索词/作用域/层/Tab 变化 → 防抖 250ms 后下推服务端 FTS+BM25 检索
+	useEffect(() => {
+		if (!searchQuery.trim()) {
+			clearSearch();
+			return;
+		}
+		const timer = setTimeout(() => {
+			search({
+				query: searchQuery,
+				scope: memoryScope,
+				projectId: activeProjectId ?? null,
+				kind: kindFilter,
+				archivedOnly: activeTab === "archived",
+			});
+		}, 250);
+		return () => clearTimeout(timer);
+	}, [
+		searchQuery,
+		memoryScope,
+		activeProjectId,
+		kindFilter,
+		activeTab,
+		search,
+		clearSearch,
+	]);
+
+	// 非检索态的记忆列表：按作用域（全局/项目）与层级过滤（关键词过滤已交由服务端 FTS）
 	const filteredMemories = memories
 		.filter((m) => m.scope === memoryScope)
-		.filter((m) => kindFilter === null || m.kind === kindFilter)
-		.filter(
-			(m) =>
-				!searchQuery || m.text.toLowerCase().includes(searchQuery.toLowerCase()),
-		);
+		.filter((m) => kindFilter === null || m.kind === kindFilter);
 
 	// 当前作用域下的记忆总数（tab 徽标用）：只随作用域变化，不随分类/搜索等临时筛选跳动
 	const scopeMemoriesCount = memories.filter(
@@ -91,6 +133,56 @@ export function MemoryPage() {
 
 	const filteredInstructions = instructions.filter(
 		(i) => scopeFilter === "all" || i.scope === scopeFilter,
+	);
+
+	// 服务端检索结果块（三态：检索中 / 空态 / 统计行 + 卡片）
+	const renderSearchResults = () => (
+		<div data-testid="memory-search-results">
+			{searchPending ? (
+				<div
+					className="text-[calc(12px*var(--font-scale))] text-tertiary py-2"
+					data-testid="memory-search-status"
+				>
+					{t("memory.searching")}
+				</div>
+			) : searchResults.length > 0 ? (
+				<>
+					<div
+						className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2"
+						data-testid="memory-search-total"
+					>
+						{searchResults.length < searchTotalMatched
+							? t("memory.searchTotal", {
+									total: searchTotalMatched,
+									shown: searchResults.length,
+								})
+							: t("memory.searchTotalAll", { total: searchTotalMatched })}
+					</div>
+					{searchResults.map((hit) => (
+						<MemoryCard
+							key={hit.id}
+							entry={{
+								id: hit.id,
+								text: hit.snippet,
+								scope: hit.scope,
+								kind: hit.kind,
+								createdAt: hit.updatedAt,
+								updatedAt: hit.updatedAt,
+								projectId: hit.projectId,
+							}}
+							readOnly
+							archivedBadge={hit.archived}
+							mode={hit.archived ? "archived" : "active"}
+							onArchive={() => archive(activeProjectId ?? "", hit.id)}
+							onRestore={() => restore(activeProjectId ?? "", hit.id)}
+							onPurge={() => purge(activeProjectId ?? "", hit.id)}
+						/>
+					))}
+				</>
+			) : (
+				<MemoryEmpty type="search" />
+			)}
+		</div>
 	);
 
 	// 当前筛选下的指令文件数（tab 徽标用，与列表同口径）
@@ -338,7 +430,9 @@ export function MemoryPage() {
 			{/* 列表内容 */}
 			<div className="flex-1 overflow-y-auto px-5 py-3.5">
 				{activeTab === "saved" &&
-					(filteredMemories.length === 0 ? (
+					(isSearchActive ? (
+						renderSearchResults()
+					) : filteredMemories.length === 0 ? (
 						<MemoryEmpty type="memory" />
 					) : (
 						filteredMemories.map((m) => (
@@ -351,7 +445,9 @@ export function MemoryPage() {
 						))
 					))}
 				{activeTab === "archived" &&
-					(archived.length === 0 ? (
+					(isSearchActive ? (
+						renderSearchResults()
+					) : archived.length === 0 ? (
 						<MemoryEmpty type="memory" />
 					) : (
 						archived.map((m) => (

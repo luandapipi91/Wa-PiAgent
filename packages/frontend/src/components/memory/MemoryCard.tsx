@@ -11,6 +11,10 @@ interface Props {
   onArchive?: () => void;
   onRestore?: () => void;
   onPurge?: () => void;
+  /** 只读展示（搜索结果卡片）：隐藏「编辑」（正文是摘要，编辑会用摘要覆盖正文）*/
+  readOnly?: boolean;
+  /** 展示「已归档」小徽标（搜索结果里可能含归档条目）*/
+  archivedBadge?: boolean;
 }
 
 export function MemoryCard({
@@ -20,6 +24,8 @@ export function MemoryCard({
   onArchive,
   onRestore,
   onPurge,
+  readOnly = false,
+  archivedBadge = false,
 }: Props) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
@@ -72,6 +78,18 @@ export function MemoryCard({
         >
           {kindLabel}
         </span>
+        {archivedBadge && (
+          <span
+            className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded"
+            style={{
+              background: "var(--hairline-strong)",
+              color: "var(--text-secondary)",
+            }}
+            data-testid="memory-card-archived-badge"
+          >
+            {t("memoryCard.archivedBadge")}
+          </span>
+        )}
       </div>
 
       {/* 内容 / 编辑态 */}
@@ -118,13 +136,23 @@ export function MemoryCard({
             {entry.text}
           </p>
           <div className="flex items-center justify-between">
-            <span className="text-[calc(10.5px*var(--font-scale))] text-tertiary">
-              {isArchived
-                ? t("memoryCard.archivedAt", {
-                    date:
-                      (entry as ArchivedMemory).archivedAt?.slice(0, 10) ?? "",
-                  })
-                : (entry.updatedAt?.slice(0, 10) ?? "")}
+            <span className="flex items-center gap-2">
+              <span className="text-[calc(10.5px*var(--font-scale))] text-tertiary">
+                {isArchived
+                  ? t("memoryCard.archivedAt", {
+                      date:
+                        (entry as ArchivedMemory).archivedAt?.slice(0, 10) ?? "",
+                    })
+                  : (entry.updatedAt?.slice(0, 10) ?? "")}
+              </span>
+              {readOnly && (
+                <span
+                  className="text-[calc(10px*var(--font-scale))] text-tertiary"
+                  data-testid="memory-card-snippet-hint"
+                >
+                  {t("memoryCard.snippetHint")}
+                </span>
+              )}
             </span>
             <div className="flex gap-1.5">
               {isArchived ? (
@@ -146,11 +174,13 @@ export function MemoryCard({
                 </>
               ) : (
                 <>
-                  <CardButton
-                    onClick={() => setEditing(true)}
-                    testId="memory-edit"
-                    text={t("memoryCard.editButton")}
-                  />
+                  {!readOnly && (
+                    <CardButton
+                      onClick={() => setEditing(true)}
+                      testId="memory-edit"
+                      text={t("memoryCard.editButton")}
+                    />
+                  )}
                   <CardButton
                     onClick={onArchive}
                     testId="memory-archive"

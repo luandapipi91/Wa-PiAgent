@@ -10,6 +10,7 @@ import type {
   MemoryChangedEvent,
   InstructionListResult,
   MemoryConfigEvent,
+  MemorySearchResult,
 } from "@wa-pi/shared";
 import { api } from "../api-client";
 
@@ -17,6 +18,17 @@ type ActiveTab = "saved" | "archived" | "instructions";
 type ScopeFilter = "all" | "global" | "project";
 /** 记忆页顶部作用域选择：global 全局记忆，project 当前选中项目记忆 */
 type MemoryScope = "global" | "project";
+
+/** 服务端检索参数：关键词/作用域/层/是否只看归档 一并下推内核 FTS+BM25 */
+export interface MemorySearchParams {
+  query: string;
+  scope: MemoryScope;
+  /** scope=project 时必填（UI 侧 project id，内核解析成项目名）*/
+  projectId: string | null;
+  kind: MemoryKind | null;
+  archivedOnly: boolean;
+  limit?: number;
+}
 
 interface MemoryState {
   // 数据
@@ -38,6 +50,12 @@ interface MemoryState {
   searchQuery: string;
   loading: boolean;
 
+  // 服务端检索状态（searchResults === null 表示未处于检索态）
+  searchResults: MemorySearchResult[] | null;
+  searchTotalMatched: number;
+  searching: boolean;
+  searchParams: MemorySearchParams | null;
+
   // actions
   load: (projectId: string) => void;
   loadInstructions: (projectId: string) => void;
@@ -56,6 +74,8 @@ interface MemoryState {
   setMemoryScope: (s: MemoryScope) => void;
   setSelectedProjectId: (id: string | null) => void;
   setSearchQuery: (q: string) => void;
+  search: (params: MemorySearchParams) => void;
+  clearSearch: () => void;
 }
 
 export const useMemoryStore = create<MemoryState>((set, get) => ({
@@ -71,6 +91,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   selectedProjectId: null,
   searchQuery: "",
   loading: false,
+  searchResults: null,
+  searchTotalMatched: 0,
+  searching: false,
+  searchParams: null,
 
   load: (projectId) => {
     set({ loading: true });
@@ -102,12 +126,16 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         console.error("[memory] 加载指令文件失败:", err);
       });
   },
-  setMemories: (data) =>
+  setMemories: (data) => {
     set({
       memories: data.memories,
       archived: data.archived,
       loading: false,
-    }),
+    });
+    // 检索态下（归档/恢复/彻底删除后列表回推）用同参数重跑，避免结果陈旧
+    const { searchResults, searchParams, search } = get();
+    if (searchResults !== null && searchParams) search(searchParams);
+  },
   setInstructions: (data) => set({ instructions: data.instructions }),
   setConfig: (data) => set({ config: data.config }),
   update: (projectId, entryId, text) => {
@@ -136,4 +164,53 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   setMemoryScope: (s) => set({ memoryScope: s }),
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
+  search: (params) => {
+    if (!params.query.trim()) {
+      set({
+        searchResults: null,
+        searchTotalMatched: 0,
+        searching: false,
+        searchParams: null,
+      });
+      return;
+    }
+    // scope=project 但没有项目 id：内核会 400 project.notFound，直接落空结果
+    if (params.scope === "project" && !params.projectId) {
+      set({ searchResults: [], searchTotalMatched: 0, searching: false, searchParams: params });
+      return;
+    }
+    const qs = new URLSearchParams();
+    qs.set("q", params.query);
+    qs.set("scope", params.scope);
+    if (params.scope === "project" && params.projectId) {
+      qs.set("projectId", params.projectId);
+    }
+    if (params.kind) qs.set("kind", params.kind);
+    if (params.archivedOnly) qs.set("archivedOnly", "true");
+    qs.set("limit", String(params.limit ?? 50));
+
+    set({ searching: true, searchParams: params });
+    api
+      .get(`/api/memories/search?${qs.toString()}`)
+      .then((data: any) => {
+        if (data?.type === "memory:search") {
+          set({
+            searchResults: data.results ?? [],
+            searchTotalMatched: data.totalMatched ?? 0,
+            searching: false,
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("[memory] 检索失败:", err);
+        set({ searching: false, searchResults: [], searchTotalMatched: 0 });
+      });
+  },
+  clearSearch: () =>
+    set({
+      searchResults: null,
+      searchTotalMatched: 0,
+      searching: false,
+      searchParams: null,
+    }),
 }));

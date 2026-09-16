@@ -1,3 +1,14 @@
+## 2026-09-16 — feat(memory): 记忆面板收敛——移除旧分类维度 + 搜索接通服务端 FTS/BM25
+
+- 问题（两处欠账）：①旧 markdown 时代的 `category`（记忆/用户/失败）与新的三层 `kind`（画像/知识/执行）在同一工具栏并列，7 个筛选按钮里「失败」在 DB 模式下无任何写入来源、点了恒为空列表；②搜索框仍是本地 `text.includes`（只搜已加载列表），内核已实现的 FTS5/BM25 检索前端零调用，归档 Tab 的搜索框输入后完全无反应（静默失效）。
+- 移除旧维度：`MemoryEntry.category` / `MemoryCategory` 类型、kernel `toEntry` 的派生、前端 store `categoryFilter`、工具栏分类 chip 组、卡片分类徽标、i18n 三个 key；层筛选补「全部」（= 不筛层）。旧归档 JSON 的 `category` 读取**保留**（历史迁移兼容，删了会把 `category:"user"` 的条目降级成 knowledge）。
+- 检索接通服务端：`store/memory.ts` 新增 `search()`/`clearSearch()` 与 `searchResults/searchTotalMatched/searching/searchParams`；`MemoryPage` 250ms 防抖后把「关键词 + 作用域 + 层 + 是否只看归档」一并下推 `GET /api/memories/search`，结果渲染检索摘要 + 命中总数（未截断的 `totalMatched`），检索态无结果用专属空态；`searchPending` 保证在途阶段显示「检索中」，既不闪上一轮结果也不闪本地列表；`scope=project` 无项目 id 时不发请求（避开服务端 400 `project.notFound`）；数据变更（归档/恢复/删除后的 `memory:changed`）在检索态自动按同参数重跑。
+- 内核补 `archivedOnly` 全链路（事件 / 路由 `?archivedOnly=true` / 分发 / `MemoryStore.search` / DAO `buildFilter`）：与 `includeArchived` 互斥且本字段优先；`results` 与 `totalMatched` 共用同一份过滤条件，口径天然一致。归档 Tab 由此可独立检索（命中卡片带「已归档」徽标）。
+- 已知限制：搜索结果卡片只读（摘要 ≠ 正文，不提供行内编辑，避免用摘要覆盖原文），保留归档/恢复/彻底删除动作；按 id 取单条记忆的接口未做，留待后续。
+- 测试：kernel 记忆域 105 pass / 0 fail（DAO 补 archivedOnly 三例、路由两例）；前端 store 单测 10 例 + 记忆组件 31 例；E2E `memory.spec.ts` 10/10（新增服务端检索、层筛选下推、归档检索三例，并修好该 spec 之前一直红的两处：缺假 provider 导致 onboarding 遮罩拦截点击、用 `settings-close` 替代自 87105067 起已废弃的「点遮罩关闭」交互）。
+- 验证：shared / kernel / frontend typecheck 退出 0。
+- 影响范围：packages/shared/src/memory.ts、packages/kernel/src/{memory-store,ws-server,routes/memory,memory/dao}.ts、packages/frontend/src/{store/memory.ts,components/memory/*,i18n/locales/*}、对应测试与 e2e/memory.spec.ts。
+
 ## 2026-09-16 — perf(frontend): 文件树大目录卡顿修复——虚拟滚动 + 轮询按需更新
 
 - 问题：项目文件树展开大目录（如 node_modules 数千条目）后电脑卡顿。根因：①全量真实 DOM（几千行节点常驻，每行 4 元素+SVG）；②5s 轮询递归重建所有已展开目录、全部节点对象重建后 `setFlatList` 整表替换，每 5s 一次全量 reconcile。

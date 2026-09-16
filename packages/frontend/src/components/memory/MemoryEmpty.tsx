@@ -2,11 +2,29 @@
 import { useTranslation } from "../../i18n/useTranslation";
 
 interface Props {
-  type: "memory" | "instructions";
+  type: "memory" | "instructions" | "search";
 }
 
 export function MemoryEmpty({ type }: Props) {
   const { t } = useTranslation();
+  if (type === "search") {
+    return (
+      <div className="flex flex-col items-center justify-center py-16" data-testid="memory-empty-search">
+        <div
+          className="flex items-center justify-center text-3xl mb-4"
+          style={{
+            width: 72, height: 72, borderRadius: 20,
+            background: "linear-gradient(135deg, var(--surface-elevated), var(--surface-hover))",
+            border: "1px solid var(--hairline)",
+          }}
+        >🔍</div>
+        <h4 className="font-extrabold text-lg mb-1.5 text-primary">{t("memoryEmpty.searchTitle")}</h4>
+        <p className="text-[calc(13px*var(--font-scale))] text-tertiary text-center leading-relaxed">
+          {t("memoryEmpty.searchHint")}
+        </p>
+      </div>
+    );
+  }
   if (type === "instructions") {
     return (
       <div className="flex flex-col items-center justify-center py-16" data-testid="memory-empty-instructions">

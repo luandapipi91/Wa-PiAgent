@@ -466,6 +466,9 @@ const en = {
 		scopeProjectBtn: "Project memory",
 		globalOption: "🌐 Global memory",
 		projectOption: "📁 {{name}}",
+		searching: "Searching…",
+		searchTotal: "{{total}} matches, showing first {{shown}}",
+		searchTotalAll: "{{total}} matches",
 	},
 	memoryCard: {
 		scopeGlobal: "○ Global",
@@ -477,6 +480,8 @@ const en = {
 		purgeButton: "Delete permanently",
 		editButton: "Edit",
 		archiveButton: "Archive",
+		archivedBadge: "Archived",
+		snippetHint: "Match excerpt",
 	},
 	memoryEmpty: {
 		instructionsTitle: "No instruction files",
@@ -487,6 +492,9 @@ const en = {
 		memoryHint1:
 			"The agent automatically learns and remembers your preferences, corrections, and experience.",
 		memoryHint2: "Start a conversation and memories will accumulate here.",
+		searchTitle: "No matching memories",
+		searchHint:
+			"Try another keyword, or clear the search box to see the full list",
 	},
 	memoryInstruction: {
 		scopeGlobal: "Global",

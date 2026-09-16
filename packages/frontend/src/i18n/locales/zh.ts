@@ -452,6 +452,9 @@ const zh = {
 		scopeProjectBtn: "项目记忆",
 		globalOption: "🌐 全局记忆",
 		projectOption: "📁 {{name}}",
+		searching: "检索中…",
+		searchTotal: "命中 {{total}} 条，显示前 {{shown}} 条",
+		searchTotalAll: "命中 {{total}} 条",
 	},
 	memoryCard: {
 		scopeGlobal: "○ 全局",
@@ -463,6 +466,8 @@ const zh = {
 		purgeButton: "彻底删除",
 		editButton: "编辑",
 		archiveButton: "归档",
+		archivedBadge: "已归档",
+		snippetHint: "检索摘要",
 	},
 	memoryEmpty: {
 		instructionsTitle: "没有指令文件",
@@ -471,6 +476,8 @@ const zh = {
 		memoryTitle: "还没有记忆",
 		memoryHint1: "智能体会在对话中自动学习并记住你的偏好、纠正和经验。",
 		memoryHint2: "开始一段对话，记忆会自动积累到这里。",
+		searchTitle: "没有匹配的记忆",
+		searchHint: "换个关键词，或清空搜索回到完整列表",
 	},
 	memoryInstruction: {
 		scopeGlobal: "全局",
