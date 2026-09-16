@@ -64,13 +64,21 @@ import {
 	openMemoryDb,
 	projectNameFromCwd,
 } from "../src/memory";
-// ---- 用例集（16 条：user 4 + project 4 + mixed 2 + implicit 6）----
-// user：应写 target=user（默认 → 全局）
-// project：应写 target=memory（默认 → 项目）
+// ---- 用例集（正例 32 条 + 反例 12 条）----
+// user：应写 target=user（默认 → 全局）——用户偏好 / 身份与环境
+// project：应写 target=memory（默认 → 项目）——项目决策与约定
 // mixed：应同时写用户信息 + 项目信息（两类都要落盘）
 // implicit（隐形记忆）：用户未说「记住」，但对话中自然透露了值得跨会话保留的信息，
 //   agent 应主动识别并写入（这是本评测的核心场景——自动判断而不是等显式指令）
-type Category = "user" | "project" | "mixed" | "implicit";
+// negative（反例）：正常对话但**不该**写记忆——闲聊 / 纯查询与操作请求 / 一次性细节 /
+//   用户明确说不用记 / 临时状态。反例一律 expectUser=false + expectProject=false，
+//   只要出现任何 memory_add 就算误触发。
+// 执行流水（已完成动作 + 结论）：expectKind="execution"，要求至少一条写入带 kind=execution
+//   （系统提示词规定「完成一件有跨会话价值的事 → memory_add(kind=execution)」）。
+type Category = "user" | "project" | "mixed" | "implicit" | "negative";
+
+/** 用例意图标签：仅用于 --dry-run 的意图分布自检，不参与判定 */
+type Intent = "preference" | "identity" | "decision" | "execution" | "none";
 
 interface MemoryCase {
 	category: Category;
@@ -79,16 +87,21 @@ interface MemoryCase {
 	expectUser: boolean;
 	/** 期望出现 target=memory 的 memory_add */
 	expectProject: boolean;
+	/** 期望出现 kind=execution 的 memory_add（执行流水类用例） */
+	expectKind?: "execution";
+	/** 意图标签（偏好 / 身份环境 / 项目决策 / 执行流水 / 反例） */
+	intent?: Intent;
 }
 
 const CASES: MemoryCase[] = [
-	// --- user (4)：用户记忆 → 全局作用域 ---
+	// --- user (9)：用户记忆 → 全局作用域（偏好 4 + 身份/环境 5）---
 	{
 		category: "user",
 		prompt:
 			"请记住我的用户信息：我叫 Alex，是 wa-pi 项目的维护者，日常使用中文沟通。请把这条用户画像保存到记忆里。",
 		expectUser: true,
 		expectProject: false,
+		intent: "identity",
 	},
 	{
 		category: "user",
@@ -96,12 +109,14 @@ const CASES: MemoryCase[] = [
 			"用户刚才告诉我：他喜欢用 pnpm 而不是 npm。请把这条用户偏好写入记忆。",
 		expectUser: true,
 		expectProject: false,
+		intent: "preference",
 	},
 	{
 		category: "user",
 		prompt: "记住用户的偏好：回复要简洁直接，不要长篇大论。",
 		expectUser: true,
 		expectProject: false,
+		intent: "preference",
 	},
 	{
 		category: "user",
@@ -109,19 +124,57 @@ const CASES: MemoryCase[] = [
 			"用户是 Windows 环境开发者，使用 VS Code 作为编辑器。请记住这条用户信息。",
 		expectUser: true,
 		expectProject: false,
+		intent: "identity",
 	},
-	// --- project (4)：项目记忆 → 项目作用域 ---
+	{
+		category: "user",
+		prompt: "我习惯用 fd 代替 find，以后给我命令都按 fd 的写法来。",
+		expectUser: true,
+		expectProject: false,
+		intent: "preference",
+	},
+	{
+		category: "user",
+		prompt: "我写 TypeScript 喜欢用 tab 缩进（宽度算 2），格式化就按这个风格来。",
+		expectUser: true,
+		expectProject: false,
+		intent: "preference",
+	},
+	{
+		category: "user",
+		prompt: "我叫 co，GitHub 上也是这个 ID，shell 用 zsh + starship。",
+		expectUser: true,
+		expectProject: false,
+		intent: "identity",
+	},
+	{
+		category: "user",
+		prompt: "我这边是 M2 MacBook，16G 内存，别建议我跑太重的并行任务。",
+		expectUser: true,
+		expectProject: false,
+		intent: "identity",
+	},
+	{
+		category: "user",
+		prompt: "我的仓库都放在 ~/Documents/work 下面，编辑器主要用 Cursor。",
+		expectUser: true,
+		expectProject: false,
+		intent: "identity",
+	},
+	// --- project (8)：项目记忆 → 项目作用域（决策/约定）---
 	{
 		category: "project",
 		prompt: "记住这个项目的约定：所有测试必须覆盖单元、组件、API、E2E 四层。",
 		expectUser: false,
 		expectProject: true,
+		intent: "decision",
 	},
 	{
 		category: "project",
 		prompt: "记住本项目使用 Bun 作为运行时和包管理器，测试用 bun:test。",
 		expectUser: false,
 		expectProject: true,
+		intent: "decision",
 	},
 	{
 		category: "project",
@@ -129,6 +182,7 @@ const CASES: MemoryCase[] = [
 			"项目约定：新增功能必须更新 CHANGELOG.md，提交信息遵循 Conventional Commits。请记住。",
 		expectUser: false,
 		expectProject: true,
+		intent: "decision",
 	},
 	{
 		category: "project",
@@ -136,14 +190,44 @@ const CASES: MemoryCase[] = [
 			"记住：这个仓库是 monorepo，前端在 packages/frontend，内核在 packages/kernel。",
 		expectUser: false,
 		expectProject: true,
+		intent: "decision",
 	},
-	// --- mixed (2)：一次会话同时写用户记忆 + 项目记忆 ---
+	{
+		category: "project",
+		prompt: "我们讨论后定了：日志统一走 pino，不再用 console.log 打点。",
+		expectUser: false,
+		expectProject: true,
+		intent: "decision",
+	},
+	{
+		category: "project",
+		prompt: "项目约定：所有对外接口的参数都用 typebox 写 schema 校验。",
+		expectUser: false,
+		expectProject: true,
+		intent: "decision",
+	},
+	{
+		category: "project",
+		prompt: "前端状态管理最终定了 zustand，不引入 Redux。",
+		expectUser: false,
+		expectProject: true,
+		intent: "decision",
+	},
+	{
+		category: "project",
+		prompt: "这个项目里 commit 信息统一用中文写。",
+		expectUser: false,
+		expectProject: true,
+		intent: "decision",
+	},
+	// --- mixed (4)：一次会话同时写用户记忆 + 项目记忆 ---
 	{
 		category: "mixed",
 		prompt:
 			"用户说他是这个项目的主力开发者，同时让我记住：本项目部署用 Electron + Vite。请把用户信息和项目信息分别写入记忆。",
 		expectUser: true,
 		expectProject: true,
+		intent: "identity",
 	},
 	{
 		category: "mixed",
@@ -151,20 +235,40 @@ const CASES: MemoryCase[] = [
 			"请记住：用户希望所有文档用中文撰写；另外记住本项目的约定：代码注释使用中文。请分别保存到合适的记忆文件。",
 		expectUser: true,
 		expectProject: true,
+		intent: "decision",
 	},
-	// --- implicit (6)：隐形记忆——无「记住」指令，agent 应根据对话内容自动判断写入 ---
+	{
+		category: "mixed",
+		prompt:
+			"我这个人在代码里不留 TODO，看到就顺手清掉；项目这边刚统一了 lint 走 biome。",
+		expectUser: true,
+		expectProject: true,
+		intent: "preference",
+	},
+	{
+		category: "mixed",
+		prompt:
+			"用户说他常用 fish shell；另外我刚把 kernel 的构建脚本从 tsc 换成 bun build 了。",
+		expectUser: true,
+		expectProject: true,
+		expectKind: "execution",
+		intent: "execution",
+	},
+	// --- implicit (11)：隐形记忆——无「记住」指令，agent 应根据对话内容自动判断写入 ---
 	// implicit-user：对话中自然透露用户偏好/身份/工具链
 	{
 		category: "implicit",
 		prompt: "我平时都用 pnpm 装依赖，npm 用得少。",
 		expectUser: true,
 		expectProject: false,
+		intent: "preference",
 	},
 	{
 		category: "implicit",
 		prompt: "这个报错帮我看看——对了，我这边是 macOS，Node 20。",
 		expectUser: true,
 		expectProject: false,
+		intent: "identity",
 	},
 	// implicit-project：对话中确认项目技术选型/约定/决策
 	{
@@ -173,6 +277,7 @@ const CASES: MemoryCase[] = [
 			"我们决定用 Vitest 替代 Jest 跑组件测试，统一走 @testing-library/react。",
 		expectUser: false,
 		expectProject: true,
+		intent: "decision",
 	},
 	{
 		category: "implicit",
@@ -180,6 +285,7 @@ const CASES: MemoryCase[] = [
 			"CI 用的是 GitHub Actions，打包走 Electron Builder，发布到 GitHub Releases。",
 		expectUser: false,
 		expectProject: true,
+		intent: "decision",
 	},
 	// implicit-mixed：同一段对话同时透露用户信息 + 项目信息
 	{
@@ -188,6 +294,7 @@ const CASES: MemoryCase[] = [
 			"我是这个项目的主力，平时用 Windows 开发。项目这边刚定了用 Bun 替代 Node 作为运行时。",
 		expectUser: true,
 		expectProject: true,
+		intent: "identity",
 	},
 	{
 		category: "implicit",
@@ -195,6 +302,141 @@ const CASES: MemoryCase[] = [
 			"用户希望回复简洁直接；另外这次明确了项目约定：commit 信息必须用中文写。",
 		expectUser: true,
 		expectProject: true,
+		intent: "decision",
+	},
+	// implicit-execution（执行流水）：已完成的动作 + 结论，期望 kind=execution 的项目记忆
+	{
+		category: "implicit",
+		prompt:
+			"我刚把 kernel 的 SQLite 连接改成 WAL 模式了，并发写不再报 SQLITE_BUSY。",
+		expectUser: false,
+		expectProject: true,
+		expectKind: "execution",
+		intent: "execution",
+	},
+	{
+		category: "implicit",
+		prompt:
+			"这次排查出根因是 stub bridge 没注册 sessionId 映射，改完已经验证通过了。",
+		expectUser: false,
+		expectProject: true,
+		expectKind: "execution",
+		intent: "execution",
+	},
+	{
+		category: "implicit",
+		prompt: "刚把前端记忆面板的层标签加上，L1/L2/L3 现在能区分显示了。",
+		expectUser: false,
+		expectProject: true,
+		expectKind: "execution",
+		intent: "execution",
+	},
+	// implicit 补充：偏好/身份 + 约定
+	{
+		category: "implicit",
+		prompt: "我用的是 fish shell，路径都习惯用 ~ 简写。",
+		expectUser: true,
+		expectProject: false,
+		intent: "identity",
+	},
+	{
+		category: "implicit",
+		prompt: "我们这边定了个规矩：新接口先写测试再写实现。",
+		expectUser: false,
+		expectProject: true,
+		intent: "decision",
+	},
+	// --- negative (12)：反例——正常对话但不该写记忆（任何 memory_add 都算误触发）---
+	// 闲聊
+	{
+		category: "negative",
+		prompt: "今天天气不错啊，随便聊聊。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	{
+		category: "negative",
+		prompt: "你觉得程序员这个职业未来几年会怎么变？",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	// 纯查询请求
+	{
+		category: "negative",
+		prompt: "帮我读一下 packages/kernel/src/memory/dao.ts 的前 50 行。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	{
+		category: "negative",
+		prompt: "dao.ts 里 list 这个方法在哪定义的？",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	// 纯操作请求
+	{
+		category: "negative",
+		prompt: "把 README.md 里写错的「修该」改成「修改」。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	{
+		category: "negative",
+		prompt: '帮我把这段 JSON 格式化成 2 空格缩进：{"a":1,"b":[1,2,3]}',
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	// 一次性细节
+	{
+		category: "negative",
+		prompt:
+			"这次报错的堆栈是 TypeError: Cannot read properties of undefined (reading 'port')，在 desktop-server.ts 第 412 行。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	{
+		category: "negative",
+		prompt: "临时文件我放 /tmp/wa-pi-scratch-20260916 了，用完可以直接删。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	{
+		category: "negative",
+		prompt: "这个文件我刚改了两行，你 diff 一下看看对不对。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	// 用户明确表示不需要记
+	{
+		category: "negative",
+		prompt: "这个不用记，我就随口问一句。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	{
+		category: "negative",
+		prompt: "别把这条写进记忆，我只是临时试一下。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
+	},
+	// 临时状态
+	{
+		category: "negative",
+		prompt: "我先重启一下服务，你稍等我一下。",
+		expectUser: false,
+		expectProject: false,
+		intent: "none",
 	},
 ];
 
