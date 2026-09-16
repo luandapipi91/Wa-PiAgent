@@ -119,6 +119,63 @@ test("browser_* 工具 schema 定义关键字段", async () => {
   );
 });
 
+test("记忆工具的模型可见文案不再指向已废弃的 MEMORY.md / USER.md 文件", async () => {
+  const schemas = (await import("@wa-pi/shared/tool-schemas")) as Record<
+    string,
+    unknown
+  >;
+  // 这 5 个常量的文本会作为 description / promptSnippet 进入模型上下文
+  for (const name of [
+    "MEM_TARGET_DESC",
+    "MEM_ADD_SNIPPET",
+    "MEM_REPLACE_SNIPPET",
+    "MEM_REMOVE_SNIPPET",
+    "MEM_READ_SNIPPET",
+  ]) {
+    const value = schemas[name];
+    expect(typeof value).toBe("string");
+    expect(value as string).not.toContain("MEMORY.md");
+    expect(value as string).not.toContain("USER.md");
+  }
+});
+
+test("tool-schemas 全模块字符串导出都不得出现 MEMORY.md / USER.md（防回归）", async () => {
+  const schemas = (await import("@wa-pi/shared/tool-schemas")) as Record<
+    string,
+    unknown
+  >;
+  const offenders = Object.entries(schemas)
+    .filter(
+      ([, value]) =>
+        typeof value === "string" && /MEMORY\.md|USER\.md/.test(value),
+    )
+    .map(([name]) => name);
+  expect(offenders).toEqual([]);
+});
+
+test("MEM_TARGET_DESC 保留「target 怎么选」的分层语义", async () => {
+  const { MEM_TARGET_DESC } = await import("@wa-pi/shared/tool-schemas");
+  // user = 关于用户是谁；memory = 我自己的笔记
+  expect(MEM_TARGET_DESC).toContain("'user'");
+  expect(MEM_TARGET_DESC).toContain("'memory'");
+  expect(MEM_TARGET_DESC).toContain("who the user is");
+  expect(MEM_TARGET_DESC).toContain("your own notes");
+});
+
+test("MEM_REPLACE_DESC / MEM_REMOVE_DESC 说明「id 优先，无 id 才用 oldText」", async () => {
+  const { MEM_REPLACE_DESC, MEM_REMOVE_DESC } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  for (const desc of [MEM_REPLACE_DESC, MEM_REMOVE_DESC]) {
+    // 工具实现是 id 优先，描述必须让模型能学到这件事
+    expect(desc).toMatch(/[Pp]refer/);
+    expect(desc).toContain("id");
+    expect(desc).toContain("memory_search");
+    expect(desc).toContain("memory_read");
+    expect(desc).toContain("oldText");
+  }
+});
+
 test("BRIDGE_TOOL_NAMES 包含 4 个 browser 工具", async () => {
   const { BRIDGE_TOOL_NAMES } = await import("@wa-pi/shared/tool-schemas");
   for (const name of [

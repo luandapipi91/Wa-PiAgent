@@ -6,6 +6,9 @@ import { WSServer } from "./ws-server";
 import { SkillManager } from "./skill-manager";
 import { ExtensionManager } from "./extension-manager";
 import { MemoryStore } from "./memory-store";
+import { MemoryDao } from "./memory/dao";
+import { openMemoryDb } from "./memory/db";
+import { importLegacyMemories } from "./memory/import";
 import { McpStore } from "./mcp-store";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
@@ -146,6 +149,18 @@ export async function startKernel(opts?: {
 	const extensionManager = new ExtensionManager(WA_PI_DIR);
 	const memoryStore = new MemoryStore({ waPiDir: WA_PI_DIR, projectStore });
 	const mcpStore = new McpStore({ waPiDir: WA_PI_DIR, projectStore });
+
+	// 存量记忆一次性迁移（markdown/归档 sidecar → SQLite）：放在初始化之后、接受会话之前，
+	// 让首个会话就能检索到历史记忆。幂等——源文件重命名为 .imported 后不再重复导入。
+	// 模块内部已逐来源容错，这里再兜一层 catch：迁移任何异常都不能阻断 kernel 启动。
+	// 关键：openMemoryDb 必须在 async 包裹内部**延迟求值**。它是同步抛的（磁盘满 / 权限 /
+	// memories.db 损坏），若作为实参在 .catch() 挂载之前求值，异常会逃逸到 desktop-server
+	// 的 catch → process.exit(1)，后端进程直接起不来。
+	await (async () =>
+		importLegacyMemories(WA_PI_DIR, new MemoryDao(openMemoryDb(WA_PI_DIR)))
+	)().catch((err) => {
+		console.error("[kernel] 记忆迁移失败（不影响启动）:", err);
+	});
 
 	// 启动时对齐扩展 pin（幂等）：依赖树被盘外重解析（repair 删 lock 后 bun install、
 	// 装/卸其它包时的 bun add）会把 node_modules 顶到新版本而 settings 的 pin 未变，

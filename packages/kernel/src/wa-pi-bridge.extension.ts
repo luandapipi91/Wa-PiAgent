@@ -24,8 +24,11 @@ import {
 	MEM_REMOVE_SNIPPET,
 	MEM_READ_DESC,
 	MEM_READ_SNIPPET,
+	MEM_SEARCH_DESC,
+	MEM_SEARCH_SNIPPET,
 	MemoryTargetSchema,
 	MemoryScopeSchema,
+	MemoryKindSchema,
 	DELEGATE_DESCRIPTION,
 	DelegateParamsSchema,
 	FLEET_DESCRIPTION,
@@ -280,6 +283,18 @@ export default function (pi: ExtensionAPI) {
 			target: MemoryTargetSchema,
 			scope: Type.Optional(MemoryScopeSchema),
 			content: Type.String({ description: "The entry content to append." }),
+			kind: Type.Optional(MemoryKindSchema),
+			title: Type.Optional(
+				Type.String({
+					description:
+						"Optional short title; derived from content when omitted.",
+				}),
+			),
+			tags: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Optional keywords for retrieval.",
+				}),
+			),
 		}),
 		async execute(toolCallId, params, signal) {
 			return callBridge(
@@ -298,11 +313,20 @@ export default function (pi: ExtensionAPI) {
 		description: MEM_REPLACE_DESC,
 		promptSnippet: MEM_REPLACE_SNIPPET,
 		parameters: Type.Object({
-			target: MemoryTargetSchema,
+			id: Type.Optional(
+				Type.String({
+					description:
+						"Entry id from memory_search / memory_read (preferred).",
+				}),
+			),
+			target: Type.Optional(MemoryTargetSchema),
 			scope: Type.Optional(MemoryScopeSchema),
-			oldText: Type.String({
-				description: "A short substring uniquely identifying the entry to replace.",
-			}),
+			oldText: Type.Optional(
+				Type.String({
+					description:
+						"Substring uniquely identifying the entry when id is unknown.",
+				}),
+			),
 			newContent: Type.String({
 				description: "The replacement entry content.",
 			}),
@@ -324,11 +348,15 @@ export default function (pi: ExtensionAPI) {
 		description: MEM_REMOVE_DESC,
 		promptSnippet: MEM_REMOVE_SNIPPET,
 		parameters: Type.Object({
-			target: MemoryTargetSchema,
+			id: Type.Optional(Type.String({ description: "Entry id (preferred)." })),
+			target: Type.Optional(MemoryTargetSchema),
 			scope: Type.Optional(MemoryScopeSchema),
-			oldText: Type.String({
-				description: "A short substring uniquely identifying the entry to remove.",
-			}),
+			oldText: Type.Optional(
+				Type.String({
+					description:
+						"Substring uniquely identifying the entry when id is unknown.",
+				}),
+			),
 		}),
 		async execute(toolCallId, params, signal) {
 			return callBridge(
@@ -347,12 +375,47 @@ export default function (pi: ExtensionAPI) {
 		description: MEM_READ_DESC,
 		promptSnippet: MEM_READ_SNIPPET,
 		parameters: Type.Object({
-			target: MemoryTargetSchema,
+			target: Type.Optional(MemoryTargetSchema),
 			scope: Type.Optional(MemoryScopeSchema),
+			kind: Type.Optional(MemoryKindSchema),
+			limit: Type.Optional(
+				Type.Number({ description: "Max entries (default 50)." }),
+			),
 		}),
 		async execute(toolCallId, params, signal) {
 			return callBridge(
 				"memory_read",
+				toolCallId,
+				params,
+				signal,
+				DEFAULT_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "memory_search",
+		label: "Memory",
+		description: MEM_SEARCH_DESC,
+		promptSnippet: MEM_SEARCH_SNIPPET,
+		parameters: Type.Object({
+			query: Type.String({
+				description: "Keywords to search for (Chinese or English).",
+			}),
+			scope: Type.Optional(MemoryScopeSchema),
+			kind: Type.Optional(MemoryKindSchema),
+			limit: Type.Optional(
+				Type.Number({ description: "Max results (default 10)." }),
+			),
+			includeArchived: Type.Optional(
+				Type.Boolean({
+					description: "Include archived entries (default false).",
+				}),
+			),
+		}),
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"memory_search",
 				toolCallId,
 				params,
 				signal,

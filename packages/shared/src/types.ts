@@ -57,8 +57,10 @@ import type {
 	InstructionListEvent,
 	MemoryConfigGetEvent,
 	MemoryConfigSetEvent,
+	MemorySearchEvent,
 	MemoryListResult,
 	MemoryChangedEvent,
+	MemorySearchResultEvent,
 	InstructionListResult,
 	MemoryConfigEvent,
 } from "./memory";
@@ -786,6 +788,7 @@ export type WSClientEvent =
 	| InstructionListEvent
 	| MemoryConfigGetEvent
 	| MemoryConfigSetEvent
+	| MemorySearchEvent
 	| McpListEvent
 	| McpSaveEvent
 	| McpDeleteEvent
@@ -1447,6 +1450,7 @@ export type WSServerEvent =
 	| ExtensionTuiSnapshotResult
 	| MemoryListResult
 	| MemoryChangedEvent
+	| MemorySearchResultEvent
 	| McpListResult
 	| McpChangedEvent
 	| McpTestResult

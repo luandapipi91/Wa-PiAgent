@@ -21,22 +21,35 @@ mock.module("../../api-client", () => ({
 	},
 }));
 
-const makeEntry = (id: string, scope: "global" | "project", text: string) => ({
+// 新数据模型（SQLite）：id 为 uuid，条目自带 kind；sourceFile/rawIndex 已废弃
+const makeEntry = (
+	id: string,
+	scope: "global" | "project",
+	text: string,
+	kind: "profile" | "knowledge" | "execution" = "knowledge",
+) => ({
 	id,
 	text,
 	category: "memory",
 	scope,
-	sourceFile: "MEMORY.md",
-	rawIndex: 0,
+	kind,
+	createdAt: "2026-07-01T00:00:00.000Z",
 	updatedAt: "2026-08-01T00:00:00.000Z",
 });
 
 // 模拟后端返回：全局 4 条 + 项目 5 条（与用户实测 9 vs 4 一致）
 const globalMemories = [1, 2, 3, 4].map((i) =>
-	makeEntry(`g${i}`, "global", `全局记忆 ${i}`),
+	makeEntry(`1f0a0000-0000-4000-8000-00000000000${i}`, "global", `全局记忆 ${i}`),
 );
 const projectMemories = [1, 2, 3, 4, 5].map((i) =>
-	makeEntry(`p${i}`, "project", `项目记忆 ${i}`),
+	makeEntry(`2f0a0000-0000-4000-8000-00000000000${i}`, "project", `项目记忆 ${i}`),
+);
+// 层分布：全局 g1=画像、g2=执行，其余知识；项目 p1=执行，其余知识
+const globalKindMemories = globalMemories.map((m, i) =>
+	i === 0 ? { ...m, kind: "profile" as const } : i === 1 ? { ...m, kind: "execution" as const } : m,
+);
+const projectKindMemories = projectMemories.map((m, i) =>
+	i === 0 ? { ...m, kind: "execution" as const } : m,
 );
 
 // 指令文件：全局 2 个 + 项目 1 个（同类计数问题的复现场景）
@@ -61,7 +74,7 @@ beforeEach(() => {
 				],
 			};
 		}
-		return { memories: [...globalMemories, ...projectMemories], archived: [] };
+		return { memories: [...globalKindMemories, ...projectKindMemories], archived: [] };
 	});
 	useProjectsStore.setState({
 		currentProjectId: "proj-1",
@@ -72,6 +85,7 @@ beforeEach(() => {
 		activeTab: "saved",
 		categoryFilter: "all",
 		scopeFilter: "all",
+		kindFilter: null,
 		searchQuery: "",
 	});
 });
@@ -143,4 +157,45 @@ test("指令文件 tab 徽标随作用域筛选联动：筛选 global 时显示 
 			document.querySelectorAll('[data-testid^="instruction-item-"]').length,
 		).toBe(2);
 	});
+});
+
+// —— 层标签 / 层筛选（任务 14）：数据经真实 load() 路径进入面板 ——
+test("记忆卡片带层标签：全局 4 条按 kind 渲染 画像/知识/执行", async () => {
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	await waitFor(() => {
+		expect(useMemoryStore.getState().memories.length).toBe(9);
+	});
+
+	const badges = [
+		...document.querySelectorAll('[data-testid="memory-kind-badge"]'),
+	].map((el) => el.textContent);
+	// 全局作用域渲染 4 张卡片，每张一个层标签
+	expect(badges.length).toBe(4);
+	expect(badges).toContain("画像");
+	expect(badges).toContain("执行");
+	expect(badges.filter((b) => b === "知识").length).toBe(2);
+});
+
+test("层筛选：全局作用域下点「执行」只剩执行层，徽标仍按作用域计数", async () => {
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	await waitFor(() => {
+		expect(useMemoryStore.getState().memories.length).toBe(9);
+	});
+
+	// 全局 g2 被造为 execution 层
+	fireEvent.click(screen.getByRole("button", { name: "执行" }));
+
+	await waitFor(() => {
+		expect(
+			document.querySelectorAll('[data-testid^="memory-card-"]').length,
+		).toBe(1);
+	});
+	expect(screen.getByText("全局记忆 2")).toBeTruthy();
+	expect(screen.queryByText("全局记忆 1")).toBeNull();
+	expect(screen.queryByText("项目记忆 1")).toBeNull();
+
+	// tab 徽标口径不变：仍显示当前作用域（全局）下的 4 条
+	expect(screen.getByTestId("tab-已保存").textContent).toContain("4");
 });

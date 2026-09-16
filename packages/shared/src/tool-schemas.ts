@@ -49,7 +49,8 @@ export const AskParamsSchema = Type.Object({
 // =========================================================================
 
 export const MEM_TARGET_DESC =
-  "Which memory file: 'memory' (your notes → MEMORY.md) or 'user' (user profile → USER.md).";
+  "Which memory target: 'user' for who the user is (their profile), " +
+  "'memory' for your own notes.";
 
 export const MEM_SCOPE_DESC =
   "Where this entry lives: 'global' (cross-project) or 'project' (current project only). " +
@@ -63,30 +64,44 @@ export const MEM_ADD_DESC =
   "intermediate results), temporary state, or anything recoverable from the current conversation or code. " +
   "When in doubt, do not record. " +
   "TARGETS: 'user' for who the user is; 'memory' for your own notes. " +
-  "SCOPE: omit for the default — 'global' for the user target, 'project' for the memory target.";
+  "SCOPE: omit for the default — 'global' for the user target, 'project' for the memory target. " +
+  "KIND: omit for automatic routing (user+global → profile, otherwise knowledge); " +
+  "pass 'execution' to record a dated execution-log entry.";
 
 export const MEM_ADD_SNIPPET =
-  "Append durable facts to MEMORY.md or USER.md (global or project scope).";
+  "Append durable facts to the user profile or your own notes (global or project scope).";
 
 export const MEM_REPLACE_DESC =
-  "Replace an existing memory entry. Find it by a short unique substring (oldText), replace with newContent. " +
+  "Replace an existing memory entry. Prefer the entry id from memory_search / memory_read; " +
+  "without an id, locate it by a short unique substring (oldText) and replace with newContent. " +
   "Use this to update outdated entries instead of remove+add. SCOPE defaults like memory_add.";
 
 export const MEM_REPLACE_SNIPPET =
-  "Update an existing MEMORY.md or USER.md entry.";
+  "Update an existing memory entry (user profile or your notes).";
 
 export const MEM_REMOVE_DESC =
-  "Remove a memory entry by a short unique substring (oldText). Use when an entry is wrong or no longer relevant. " +
-  "SCOPE defaults like memory_add.";
+  "Remove a memory entry. Prefer the entry id from memory_search / memory_read; " +
+  "without an id, locate it by a short unique substring (oldText). " +
+  "Use when an entry is wrong or no longer relevant. SCOPE defaults like memory_add.";
 
-export const MEM_REMOVE_SNIPPET = "Delete an entry from MEMORY.md or USER.md.";
+export const MEM_REMOVE_SNIPPET =
+  "Delete a memory entry (user profile or your notes).";
 
 export const MEM_READ_DESC =
   "Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
   "SCOPE defaults like memory_add.";
 
 export const MEM_READ_SNIPPET =
-  "Read the current contents of MEMORY.md or USER.md.";
+  "Read the current contents of a memory store (user profile or your notes).";
+
+export const MEM_SEARCH_DESC =
+  "Full-text (BM25) search across all memory layers, including entries NOT shown in the system prompt. " +
+  "Use this before assuming you don't know something — L2 (project knowledge) and L3 (execution log) " +
+  "are searchable but not injected. Supports Chinese and English queries. " +
+  "Returns id/title/snippet/score; use the id with memory_replace / memory_remove.";
+
+export const MEM_SEARCH_SNIPPET =
+  "Search all memory layers (including non-injected L2/L3) by keyword.";
 
 /** memory target schema（"memory" | "user"） */
 export const MemoryTargetSchema = Type.Union(
@@ -98,6 +113,16 @@ export const MemoryTargetSchema = Type.Union(
 export const MemoryScopeSchema = Type.Union(
   [Type.Literal("global"), Type.Literal("project")],
   { description: MEM_SCOPE_DESC },
+);
+
+/** memory kind schema（用户画像 / 知识 / 执行流水） */
+export const MemoryKindSchema = Type.Union(
+  [Type.Literal("knowledge"), Type.Literal("execution")],
+  {
+    description:
+      "Entry class. 'knowledge' (default): durable facts, conventions, decisions — long-term retrievable. " +
+      "'execution': a dated record of what was done (task, result, timeline). Omit to route by target+scope.",
+  },
 );
 
 // =========================================================================
@@ -297,6 +322,7 @@ export const BRIDGE_TOOL_NAMES = [
   "memory_replace",
   "memory_remove",
   "memory_read",
+  "memory_search",
   "delegate",
   "fleet",
   "browser_navigate",

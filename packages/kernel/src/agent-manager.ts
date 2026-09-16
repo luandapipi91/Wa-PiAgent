@@ -59,7 +59,16 @@ import {
 	mcpAdapterExtensionPath,
 } from "./extensions";
 import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
-import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
+import { Database } from "bun:sqlite";
+import { MemoryDao } from "./memory/dao";
+import { openMemoryDb } from "./memory/db";
+import { projectNameFromCwd } from "./memory/paths";
+import type { MemoryToolContext } from "./memory/tools";
+import {
+	renderSnapshot,
+	DEFAULT_SNAPSHOT_BUDGET,
+	DEFAULT_WINDOW_DAYS,
+} from "./memory/snapshot";
 import { reconcileDanglingAsks } from "./ask-tool";
 import {
 	makeDelegateTool,
@@ -835,14 +844,14 @@ export class AgentManager {
 		// bridge 会话上下文：ask/memory 走默认工厂，delegate/fleet 接宿主实现；
 		// reviewEnabled=false 时记忆工具返回关闭提示（对齐迁移前「不注册记忆工具」的行为）
 		const memoryEnabled = memConfig?.reviewEnabled !== false;
+		// 记忆库打开失败（磁盘/权限/损坏）只降级记忆功能，不阻断会话创建
+		const memoryCtx = tryOpenMemoryCtx(WA_PI_DIR, cwd);
 		const am = this; // handleTool 是对象方法简写，this 指向 bridgeCtx；AgentManager 实例另存
 		const defaultCtx = makeDefaultBridgeContext({
 			sessionId,
 			cwd,
-			memoryStores: {
-				global: getGlobalMemoryStore(WA_PI_DIR),
-				project: getProjectMemoryStore(WA_PI_DIR, cwd),
-			},
+			// 记忆工具走 SQLite DAO；库不可用时给占位上下文（memory_* 已在 handleTool 拦下）
+			memoryCtx: memoryCtx ?? unavailableMemoryCtx(),
 		});
 		const bridgeCtx: BridgeSessionContext = {
 			cwd,
@@ -937,6 +946,15 @@ export class AgentManager {
 							{ type: "text", text: "记忆功能已关闭（reviewEnabled=false）" },
 						],
 						details: { error: "memory_disabled" },
+					};
+				}
+				// 记忆库不可用（打开失败）：明确报错降级，不让占位 DAO 承接写入
+				if (!memoryCtx && tool.startsWith("memory_")) {
+					return {
+						content: [
+							{ type: "text", text: "记忆库不可用，记忆功能已降级" },
+						],
+						details: { error: "memory_unavailable" },
 					};
 				}
 				// browser_*：宿主浏览器自动化工具（Bun.WebView）。分派到 browserManager，
@@ -2331,23 +2349,62 @@ async function buildPromptContent(
 }
 
 /**
- * 构造注入系统提示词的记忆快照：全局 memory+user，叠加项目 memory+user。
- * 返回 amaster 已做 promptware 清洗的冻结快照；无任何记忆时返回空串。
+ * 构造注入系统提示词的记忆快照：全局段 + 当前项目段各渲染一次（SQLite L1 渲染）。
  * 只读——agent 写记忆走 bridge 回调的记忆工具，全局记忆由用户经 UI 维护。
+ * 两段都空时返回空串（调用方据此整段不注入）。
  */
 async function buildMemorySnapshot(
 	waPiDir: string,
 	projectCwd: string,
 ): Promise<string> {
+	const dao = new MemoryDao(openMemoryDb(waPiDir));
 	const parts: string[] = [];
-	const globalSnap = await getGlobalMemoryStore(waPiDir).snapshotAll();
+	const globalSnap = renderSnapshot(dao, {
+		scope: "global",
+		projectId: null,
+		windowDays: DEFAULT_WINDOW_DAYS,
+		budget: DEFAULT_SNAPSHOT_BUDGET,
+	});
 	if (globalSnap) parts.push(globalSnap);
-	const projectSnap = await getProjectMemoryStore(
-		waPiDir,
-		projectCwd,
-	).snapshotAll();
+	const projectSnap = renderSnapshot(dao, {
+		scope: "project",
+		// 项目标识取 cwd basename（与 DB project_id 列一致）
+		projectId: projectNameFromCwd(projectCwd),
+		windowDays: DEFAULT_WINDOW_DAYS,
+		budget: DEFAULT_SNAPSHOT_BUDGET,
+	});
 	if (projectSnap) parts.push(projectSnap);
 	return parts.join("\n\n");
+}
+
+/**
+ * 打开会话记忆上下文（SQLite DAO + 项目标识）。
+ * openMemoryDb 会同步 mkdir + 建表，而会话创建路径在 SQLite 迁移前不做任何记忆 I/O
+ * （旧 markdown store 是惰性构造），所以这里必须兜底：
+ * 记忆库打不开只降级记忆功能，绝不阻断会话创建。
+ */
+export function tryOpenMemoryCtx(
+	waPiDir: string,
+	cwd: string,
+): MemoryToolContext | null {
+	try {
+		return {
+			dao: new MemoryDao(openMemoryDb(waPiDir)),
+			projectId: projectNameFromCwd(cwd),
+		};
+	} catch (err) {
+		console.error("[kernel] 记忆库不可用，本次会话的记忆功能已降级:", err);
+		return null;
+	}
+}
+
+/**
+ * 记忆库不可用时的占位上下文（只为满足 makeDefaultBridgeContext 的类型）。
+ * memory_* 已在 handleTool 里被前置拦下并回错误，这个空 DAO 不会被读到；
+ * 万一将来有代码绕过拦截，它会报 SQL 错误而不是静默丢数据。
+ */
+function unavailableMemoryCtx(): MemoryToolContext {
+	return { dao: new MemoryDao(new Database(":memory:")), projectId: null };
 }
 
 /**

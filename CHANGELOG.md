@@ -7,6 +7,16 @@
 - 验证：SessionView 49 pass / 0 fail；frontend typecheck 退出 0；frontend 全量 2392 pass / 0 fail；E2E `-g "ANSI 颜色渲染"` 1 passed（5.0s，PI_E2E=1 实跑）。
 - 影响范围：packages/frontend/src/components/SessionView.tsx、tests/SessionView.test.tsx、e2e/ext-ui-bridge-demo.spec.ts。
 
+## 2026-09-16 — feat(memory): 三层记忆系统落地（markdown → SQLite + FTS5/BM25）
+
+- 新增：SQLite（`bun:sqlite` + FTS5/BM25）三层记忆系统——L1 常驻注入 / L2 知识层 / L3 执行时间线层；中文按 bigram 分词建索引；新增 `memory_search` 工具与 `GET /api/memories/search` 检索端点。
+- 新增：提示词注入防护自实现（移植 `@amaster.ai/pi-shared` 规则表，保留其 Apache-2.0 归属）。
+- 移除：`@amaster.ai/pi-memory` 依赖及其 markdown 存储；存量 markdown 与归档 JSON 一次性迁移进 SQLite（幂等，迁移后原文件重命名为 `.imported`）。
+- 变更：记忆注入形态——标题行不再携带字数/预算等元数据，`RECENT MEMORY` 只带条数，超出预算的条目自然下沉而非报错；前端记忆面板适配新模型（卡片显示层级标签、工具栏可按层筛选，条目 id 改为 uuid）。
+- 验证：前端全量 2386 pass / 0 fail（含新增 6 例层标签 / 层筛选组件用例），前端 typecheck 退出 0。
+- 影响范围：packages/kernel、packages/shared、packages/frontend。
+- 后续（批 2）：前端服务端检索体验、真实模型冒烟评测（写入触发率 ≥ 85%）、E2E 扩展。
+
 ## 2026-09-16 — fix(kernel): 发送前自动压缩估算按 CJK 加权 + 双条件判定，修复长中文会话撞上游窗口 400 卡死
 
 - 问题：pi 上报的上下文占用 = 最后一条有效 assistant 的 usage + 其后新增消息按「字符数÷4」估算。该口径对中文严重低估（实测中文≈1.48 tok/字，估算只有 0.25），长中文会话下内核按 `0.8 × contextWindow` 判定永远不触发压缩，而请求实际已越过上游窗口边界 → 上游持续返回 `400 {"model":...}` 且永久卡死。

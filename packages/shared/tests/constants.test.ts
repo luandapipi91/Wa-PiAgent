@@ -42,6 +42,7 @@ test("DEFAULT_AGENT_TOOLS 含 Pi 内置文件工具、网络工具与 amaster me
 	expect(DEFAULT_AGENT_TOOLS).toContain("memory_replace");
 	expect(DEFAULT_AGENT_TOOLS).toContain("memory_remove");
 	expect(DEFAULT_AGENT_TOOLS).toContain("memory_read");
+	expect(DEFAULT_AGENT_TOOLS).toContain("memory_search");
 	expect(DEFAULT_AGENT_TOOLS).toContain("ask_user_question");
 });
 

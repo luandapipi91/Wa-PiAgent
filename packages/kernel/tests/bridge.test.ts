@@ -1,12 +1,13 @@
 // bridge 扩展层测试：
 // - ensureBridgeExtension 生成文件 + 幂等覆盖
-// - 契约：生成的扩展与现有实现（ask-tool / amaster-memory / delegate-tool）的
+// - 契约：生成的扩展与现有实现（ask-tool / memory/tools / delegate-tool）的
 //   name/description/schema 完全一致（agent 可见契约不变）
 // - 真实 pi --mode rpc 加载扩展不崩（get_state / get_commands）
 // - handleBridgeRequest：token / session 校验与结果透传
 // - makeDefaultBridgeContext：ask 复用逻辑、memory 回路、delegate/fleet 桩
 // - ws-server /bridge/tool 路由 + 扩展 execute 经真实 HTTP 的全链路
 import { test, expect, beforeEach, afterEach, afterAll } from "bun:test";
+import { Database } from "bun:sqlite";
 import {
 	existsSync,
 	readFileSync,
@@ -33,11 +34,10 @@ import {
 } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { makeAskTool } from "../src/ask-tool";
-import {
-	createAgentMemoryTools,
-	getGlobalMemoryStore,
-	getProjectMemoryStore,
-} from "../src/amaster-memory";
+import { createMemoryTools } from "../src/memory/tools";
+import { MemoryDao } from "../src/memory/dao";
+import { SCHEMA_SQL } from "../src/memory/schema";
+import { closeAllMemoryDbs, openMemoryDb } from "../src/memory/db";
 import { makeDelegateTool, makeFleetTool } from "../src/delegate-tool";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
@@ -54,6 +54,7 @@ const ALL_BRIDGE_TOOLS = [
 	"memory_replace",
 	"memory_remove",
 	"memory_read",
+	"memory_search",
 	"delegate",
 	"fleet",
 	"browser_navigate",
@@ -89,6 +90,7 @@ beforeEach(() => {
 afterEach(async () => {
 	unregisterBridgeSession("s1");
 	unregisterBridgeSession("s-bridge");
+	closeAllMemoryDbs(); // makeMemoryCtx 用 tmpDir 下的 memories.db，连接缓存需随目录一起清
 	rmSync(tmpDir, { recursive: true, force: true });
 	for (const f of tmpFiles.splice(0)) rmSync(f, { force: true });
 	for (const c of clients.splice(0)) await c.dispose().catch(() => {});
@@ -142,16 +144,17 @@ async function loadBridgeTools(env?: Record<string, string>) {
 	return tools;
 }
 
-function makeMemoryStores() {
+function makeMemoryCtx() {
 	return {
-		global: getGlobalMemoryStore(tmpDir),
-		project: getProjectMemoryStore(tmpDir, join(tmpDir, "repos", "my-app")),
+		dao: new MemoryDao(openMemoryDb(tmpDir)),
+		// 项目标识 = cwd basename（与 agent-manager 的 projectNameFromCwd(cwd) 一致）
+		projectId: "my-app",
 	};
 }
 
 // ---- ensureBridgeExtension ----
 
-test("ensureBridgeExtension 生成文件存在且包含全部 12 个工具名，幂等覆盖", async () => {
+test("ensureBridgeExtension 生成文件存在且包含全部 14 个工具名，幂等覆盖", async () => {
 	const p1 = await ensureBridgeExtension();
 	expect(p1).toBe(BRIDGE_EXTENSION_PATH);
 	expect(existsSync(p1)).toBe(true);
@@ -183,9 +186,15 @@ test("契约：扩展工具的 name/description/schema 与现有实现一致", a
 		JSON.parse(JSON.stringify(askReal.parameters)),
 	);
 
-	// memory_*：4 个工具逐一比对（含 promptSnippet）
-	const stores = makeMemoryStores();
-	const memReal = createAgentMemoryTools(stores.global, stores.project) as any[];
+	// memory_*：与 kernel 侧 memory/tools.ts 逐一比对（含 promptSnippet）——
+	// 自任务 10 起 memory 工具的实现真源是 memory/tools.ts（不再委托 amaster
+	// MemoryStore），故基准同步换成它，否则比对的是将被删除的旧实现。
+	const memDb = new Database(":memory:");
+	memDb.run(SCHEMA_SQL);
+	const memReal = createMemoryTools({
+		dao: new MemoryDao(memDb),
+		projectId: "my-app",
+	}) as any[];
 	for (const real of memReal) {
 		const bridge = bridgeTools.find((t) => t.name === real.name);
 		expect(bridge, `缺少 ${real.name}`).toBeTruthy();
@@ -331,7 +340,7 @@ test("default ctx：ask 校验失败 → details.error，不阻塞", async () =>
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const out = await ctx.handleTool(
 		"ask_user_question",
@@ -347,7 +356,7 @@ test("default ctx：ask cancel → details.cancelled=true", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const p = ctx.handleTool(
 		"ask_user_question",
@@ -365,7 +374,7 @@ test("default ctx：ask 正常 answers 文本拼接", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const p = ctx.handleTool(
 		"ask_user_question",
@@ -391,7 +400,7 @@ test("default ctx：memory_add 后 memory_read 能读回", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const signal = new AbortController().signal;
 	await ctx.handleTool(
@@ -413,7 +422,7 @@ test("default ctx：delegate/fleet 返回 not_wired 桩", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const signal = new AbortController().signal;
 	for (const tool of ["delegate", "fleet"]) {
@@ -626,7 +635,7 @@ test("扩展 execute：缺 env 报 missing_env；配好 env 后经 ws-server 全
 		const ctx = makeDefaultBridgeContext({
 			sessionId: "s-bridge",
 			cwd: tmpDir,
-			memoryStores: makeMemoryStores(),
+			memoryCtx: makeMemoryCtx(),
 		});
 		registerBridgeSession("s-bridge", ctx);
 		const tools = await loadBridgeTools({
@@ -790,7 +799,7 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 
 // ── C1：im_push_to 始终注册（Task 2 变更：不再依赖 WA_PI_IM_PUSH_TARGETS env）──
 
-test("im_push_to：未设 env 也注册（13 工具，普通会话工具面板可用）", async () => {
+test("im_push_to：未设 env 也注册（14 工具，普通会话工具面板可用）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	delete process.env.WA_PI_IM_PUSH_TARGETS;
 	try {
@@ -804,12 +813,12 @@ test("im_push_to：未设 env 也注册（13 工具，普通会话工具面板�
 	}
 });
 
-test("im_push_to：始终注册（共 13 个工具），description 为通用引导（不含联系人列表）", async () => {
+test("im_push_to：始终注册（共 14 个工具），description 为通用引导（不含联系人列表）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools).toHaveLength(13);
+		expect(tools).toHaveLength(14);
 		const imPush = tools.find((t: any) => t.name === "im_push_to");
 		expect(imPush).toBeTruthy();
 		// env 仅作诊断用途，不再写入 description（联系人由消息标记自描述）

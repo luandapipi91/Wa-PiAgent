@@ -6,6 +6,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { MemoryCard } from "./MemoryCard";
 import { InstructionItem } from "./InstructionItem";
 import { MemoryEmpty } from "./MemoryEmpty";
+import { KIND_I18N_KEY, MEMORY_KINDS } from "./kind-label";
 
 export function MemoryPage() {
 	const { t } = useTranslation();
@@ -17,6 +18,7 @@ export function MemoryPage() {
 		activeTab,
 		categoryFilter,
 		scopeFilter,
+		kindFilter,
 		memoryScope,
 		selectedProjectId,
 		searchQuery,
@@ -34,6 +36,7 @@ export function MemoryPage() {
 		setTab,
 		setCategoryFilter,
 		setScopeFilter,
+		setKindFilter,
 		setMemoryScope,
 		setSelectedProjectId,
 		setSearchQuery,
@@ -74,10 +77,11 @@ export function MemoryPage() {
 		}
 	}, [activeProjectId, activeTab, loadInstructions]);
 
-	// 筛选后的记忆：先按作用域（全局/项目）过滤，再按分类与搜索词
+	// 筛选后的记忆：先按作用域（全局/项目）过滤，再按分类、层级与搜索词
 	const filteredMemories = memories
 		.filter((m) => m.scope === memoryScope)
 		.filter((m) => categoryFilter === "all" || m.category === categoryFilter)
+		.filter((m) => kindFilter === null || m.kind === kindFilter)
 		.filter(
 			(m) =>
 				!searchQuery ||
@@ -258,6 +262,17 @@ export function MemoryPage() {
 													? t("memory.categoryUser")
 													: t("memory.categoryFailure")
 									}
+								/>
+							))}
+						</div>
+						{/* 层级筛选（L1 画像 / L2 知识 / L3 执行）：点已选中的层可取消 */}
+						<div className="flex gap-1.5 shrink-0" data-testid="memory-kind-filter">
+							{MEMORY_KINDS.map((k) => (
+								<FilterChip
+									key={k}
+									active={kindFilter === k}
+									onClick={() => setKindFilter(kindFilter === k ? null : k)}
+									label={t(KIND_I18N_KEY[k])}
 								/>
 							))}
 						</div>

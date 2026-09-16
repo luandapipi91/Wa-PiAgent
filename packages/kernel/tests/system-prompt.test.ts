@@ -11,6 +11,8 @@ import {
 	DEFAULT_SELF_PROTECTION_PROMPT,
 	composeSubagentPrompt,
 	WA_PI_DEFAULT_BASE_PROMPT,
+	DEFAULT_MEMORY_POLICY_PROMPT,
+	COMPACT_MEMORY_POLICY_PROMPT,
 	ENV_CONSTRAINTS_SUFFIX,
 	PROMPTS_SCHEMA_VERSION,
 	type PromptSegment,
@@ -442,4 +444,45 @@ test("savePromptSegments 写入 schemaVersion，loadPromptSegments 往返仅返�
 	const loaded = await loadPromptSegments(f);
 	expect(loaded).toEqual(segs);
 	rmSync(f, { force: true });
+});
+
+// ===== 记忆策略段：检索优先与三层说明（SQLite 架构） =====
+
+/** 两个版本必须都覆盖的引导点：先查再答 / execution 流水 / 按 id 变更 */
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略：先查再答（L2/L3 可检索但不注入）", (_name, prompt) => {
+	expect(prompt).toContain("memory_search");
+	expect(prompt).toContain("不注入");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略：引导写入 kind=execution 执行流水", (_name, prompt) => {
+	expect(prompt).toContain("kind=execution");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略：变更前先取 id，再按 id 精确变更", (_name, prompt) => {
+	expect(prompt).toMatch(/memory_search[\s\S]*memory_replace/);
+	expect(prompt).toContain("id");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略不再宣称记忆落在 MEMORY.md / USER.md（DB 化后二者非真源）", (_name, prompt) => {
+	expect(prompt).not.toContain("MEMORY.md");
+	expect(prompt).not.toContain("USER.md");
+});
+
+test("DEFAULT 记忆策略分层说明：profile / knowledge / execution 与 target 路由", () => {
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("kind=profile");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("kind=knowledge");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("target=user");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("target=memory");
 });
