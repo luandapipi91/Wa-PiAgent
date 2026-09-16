@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { MemoryEntry, ArchivedMemory } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
+import { KIND_I18N_KEY } from "./kind-label";
 
 interface Props {
   entry: MemoryEntry;
@@ -26,6 +27,9 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
 
   const cat = CATEGORY_STYLE[entry.category] ?? CATEGORY_STYLE.memory;
   const isArchived = mode === "archived";
+  // 层标签：旧数据可能没有 kind（后端历史条目），拿不到映射时退回原始值
+  const kindKey = KIND_I18N_KEY[entry.kind];
+  const kindLabel = kindKey ? t(kindKey) : entry.kind;
 
   const handleSave = () => {
     onEdit?.(draft);
@@ -50,7 +54,7 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
       }}
       data-testid={`memory-card-${entry.id}`}
     >
-      {/* 头部：分类标签 + 作用域 */}
+      {/* 头部：分类标签 + 作用域 + 层级 */}
       <div className="flex items-center gap-2 mb-2">
         <span
           className="text-[calc(10px*var(--font-scale))] font-semibold px-2 py-0.5 rounded-full"
@@ -59,6 +63,11 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
         <span className="text-[calc(10px*var(--font-scale))] text-tertiary">
           {entry.scope === "global" ? t("memoryCard.scopeGlobal") : t("memoryCard.scopeProject")}
         </span>
+        <span
+          className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded"
+          style={{ background: "var(--canvas)", color: "var(--text-secondary)" }}
+          data-testid="memory-kind-badge"
+        >{kindLabel}</span>
       </div>
 
       {/* 内容 / 编辑态 */}

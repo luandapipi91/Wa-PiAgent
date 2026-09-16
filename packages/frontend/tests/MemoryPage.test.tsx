@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryPage } from "../src/components/memory/MemoryPage";
 import { useMemoryStore } from "../src/store/memory";
 import { useProjectsStore } from "../src/store/projects";
+import type { MemoryEntry } from "@wa-pi/shared";
 
 const originalMemory = useMemoryStore.getState();
 const originalProjects = useProjectsStore.getState();
@@ -17,12 +18,13 @@ beforeEach(() => {
   });
   useMemoryStore.setState({
     memories: [{
-      id: "memories/global/MEMORY.md:0",
+      id: "5f1a2b3c-0000-4000-8000-000000000001",
       text: "项目使用 pnpm",
       category: "memory",
       scope: "global",
-      sourceFile: "/fake/MEMORY.md",
-      rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z",
+      kind: "knowledge",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
     }],
     archived: [],
     instructions: [{
@@ -71,8 +73,8 @@ test("点击指令文件 Tab 展示指令列表", () => {
 test("分类筛选 — 点击失败只筛选 failure 类别", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "a:0", text: "记忆A", category: "memory", scope: "global", sourceFile: "/a", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "b:0", text: "失败B", category: "failure", scope: "global", sourceFile: "/b", rawIndex: 0, kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "11111111-1111-4111-8111-111111111111", text: "记忆A", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "22222222-2222-4222-8222-222222222222", text: "失败B", category: "failure", scope: "global", kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
   });
   render(<MemoryPage />);
@@ -98,8 +100,8 @@ test("记忆卡片编辑 — 点击编辑展开文本框，保存后回调（带
   const editMock = mock();
   useMemoryStore.setState({
     memories: [{
-      id: "test:0", text: "原始内容", category: "memory",
-      scope: "global", sourceFile: "/fake", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z",
+      id: "33333333-3333-4333-8333-333333333333", text: "原始内容", category: "memory",
+      scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z",
     }],
   });
   useMemoryStore.setState({ update: editMock });
@@ -112,7 +114,7 @@ test("记忆卡片编辑 — 点击编辑展开文本框，保存后回调（带
   fireEvent.change(textarea, { target: { value: "修改后内容" } });
   fireEvent.click(screen.getByTestId("memory-edit-save"));
 
-  expect(editMock).toHaveBeenCalledWith("p1", "test:0", "修改后内容");
+  expect(editMock).toHaveBeenCalledWith("p1", "33333333-3333-4333-8333-333333333333", "修改后内容");
 });
 
 test("作用域下拉：展开后含「全局记忆」+ 每个项目", () => {
@@ -130,8 +132,8 @@ test("作用域下拉：展开后含「全局记忆」+ 每个项目", () => {
 test("选择某个项目 → 切到该项目记忆，按钮显示项目名", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "g:0", text: "全局A", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "p:0", text: "项目1专属", category: "memory", scope: "project", sourceFile: "/p", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "44444444-4444-4444-8444-444444444444", text: "全局A", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "55555555-5555-4555-8555-555555555555", text: "项目1专属", category: "memory", scope: "project", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
   });
   render(<MemoryPage />);
@@ -152,7 +154,7 @@ test("选择某个项目 → 切到该项目记忆，按钮显示项目名", () 
 test("选择「全局记忆」选项切回全局", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "g:0", text: "全局A", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "66666666-6666-4666-8666-666666666666", text: "全局A", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
     memoryScope: "project",
   });
@@ -229,8 +231,8 @@ test("Bug1: 关闭重开设置后，项目作用域仍显示上次选中的项�
     memoryScope: "project",
     selectedProjectId: "aicpm",
     memories: [
-      { id: "g:0", text: "全局记忆", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "aicpm:0", text: "aicpm 项目记忆", category: "memory", scope: "project", sourceFile: "/a", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "77777777-7777-4777-8777-777777777777", text: "全局记忆", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "88888888-8888-4888-8888-888888888888", text: "aicpm 项目记忆", category: "memory", scope: "project", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
   });
   // 重新渲染（模拟关闭设置后重开 → MemoryPage 重新挂载，但 store 状态保留）
@@ -303,4 +305,94 @@ test("Bug2: currentProjectId 和 selectedProjectId 均为 null 时，指令文�
   fireEvent.click(screen.getByTestId("tab-指令文件"));
   // 即使 activeProjectId 为 null，也应触发 loadInstructions("") 扫描全局指令文件
   expect(loadInstructionsMock).toHaveBeenCalledWith("");
+});
+
+// —— 层标签 / 层筛选（任务 14：SQLite 三层记忆的前端适配） ——
+// 新数据模型下条目自带 kind（profile 画像 / knowledge 知识 / execution 执行），
+// 面板需能按层筛选；fixture 用 uuid 形式 id，与 DB 一致。
+const KIND_FIXTURE: MemoryEntry[] = [
+  { id: "aaaaaaaa-0000-4000-8000-000000000001", text: "画像条目", category: "user", scope: "global", kind: "profile", createdAt: "2026-01-01T00:00:00.000Z" },
+  { id: "aaaaaaaa-0000-4000-8000-000000000002", text: "知识条目", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+  { id: "aaaaaaaa-0000-4000-8000-000000000003", text: "执行失败条目", category: "failure", scope: "global", kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
+  { id: "aaaaaaaa-0000-4000-8000-000000000005", text: "知识失败条目", category: "failure", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+];
+
+test("层筛选 — 点击「知识」只显示 knowledge 层，再点一次取消筛选", () => {
+  useMemoryStore.setState({ memories: KIND_FIXTURE });
+  render(<MemoryPage />);
+  // 未筛选时三层都可见，且卡片带层标签
+  expect(screen.getByText("画像条目")).toBeTruthy();
+  expect(screen.getByText("知识条目")).toBeTruthy();
+  expect(screen.getByText("执行失败条目")).toBeTruthy();
+  expect(
+    document.querySelectorAll('[data-testid="memory-kind-badge"]').length,
+  ).toBe(4);
+
+  const knowledgeChip = screen.getByRole("button", { name: "知识" });
+  fireEvent.click(knowledgeChip);
+  // 只留 knowledge 层
+  expect(screen.getByText("知识条目")).toBeTruthy();
+  expect(screen.queryByText("画像条目")).toBeNull();
+  expect(screen.queryByText("执行失败条目")).toBeNull();
+  expect(screen.queryByText("知识失败条目")).toBeTruthy();
+  expect(
+    document.querySelectorAll('[data-testid^="memory-card-"]').length,
+  ).toBe(2);
+
+  // 再次点击同一层 → 取消筛选，三层恢复
+  fireEvent.click(knowledgeChip);
+  expect(screen.getByText("画像条目")).toBeTruthy();
+  expect(screen.getByText("执行失败条目")).toBeTruthy();
+});
+
+test("层筛选 — 无命中时显示空态", () => {
+  useMemoryStore.setState({
+    memories: [KIND_FIXTURE[1]], // 只有 knowledge
+  });
+  render(<MemoryPage />);
+  fireEvent.click(screen.getByRole("button", { name: "执行" }));
+  expect(screen.getByTestId("memory-empty")).toBeTruthy();
+  expect(screen.queryByText("知识条目")).toBeNull();
+});
+
+test("层筛选与分类筛选叠加 — 执行层 + 失败分类", () => {
+  useMemoryStore.setState({
+    memories: [
+      ...KIND_FIXTURE,
+      { id: "aaaaaaaa-0000-4000-8000-000000000004", text: "执行成功条目", category: "memory", scope: "global", kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
+    ],
+  });
+  render(<MemoryPage />);
+
+  // 单独按「失败」分类筛：还剩两条（执行失败 + 知识失败）
+  fireEvent.click(screen.getAllByText("失败", { selector: "button" })[0]);
+  expect(screen.getByText("执行失败条目")).toBeTruthy();
+  expect(screen.getByText("知识失败条目")).toBeTruthy();
+
+  // 叠加「执行」层筛：只剩一条
+  fireEvent.click(screen.getByRole("button", { name: "执行" }));
+  expect(screen.getByText("执行失败条目")).toBeTruthy();
+  expect(screen.queryByText("知识失败条目")).toBeNull();
+  expect(screen.queryByText("执行成功条目")).toBeNull();
+  expect(screen.queryByText("画像条目")).toBeNull();
+});
+
+test("层筛选作用于当前作用域内的数据（项目作用域下按层筛选）", () => {
+  useMemoryStore.setState({
+    memories: [
+      { id: "bbbbbbbb-0000-4000-8000-000000000001", text: "全局知识", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "bbbbbbbb-0000-4000-8000-000000000002", text: "项目知识", category: "memory", scope: "project", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "bbbbbbbb-0000-4000-8000-000000000003", text: "项目执行", category: "memory", scope: "project", kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
+    ],
+    memoryScope: "project",
+  });
+  render(<MemoryPage />);
+  expect(screen.getByText("项目知识")).toBeTruthy();
+  expect(screen.getByText("项目执行")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "执行" }));
+  // 作用域与层是两个正交维度：先限项目，再限执行层
+  expect(screen.getByText("项目执行")).toBeTruthy();
+  expect(screen.queryByText("项目知识")).toBeNull();
+  expect(screen.queryByText("全局知识")).toBeNull();
 });

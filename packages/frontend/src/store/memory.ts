@@ -1,7 +1,7 @@
 // store/memory.ts — 记忆与指令文件管理 store
 import { create } from "zustand";
 import type {
-  MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
+  MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig, MemoryKind,
   MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
 } from "@wa-pi/shared";
 import { api } from "../api-client";
@@ -23,6 +23,8 @@ interface MemoryState {
   activeTab: ActiveTab;
   categoryFilter: CategoryFilter;
   scopeFilter: ScopeFilter;
+  /** 层级筛选（L1 画像 / L2 知识 / L3 执行）；null 表示不筛 */
+  kindFilter: MemoryKind | null;
   /** 记忆作用域：控制列表过滤与手动添加落点 */
   memoryScope: MemoryScope;
   /** 选中查看的项目（记忆作用域 + 指令文件 Tab 共用）。持久化到 store，
@@ -46,6 +48,7 @@ interface MemoryState {
   setTab: (tab: ActiveTab) => void;
   setCategoryFilter: (f: CategoryFilter) => void;
   setScopeFilter: (f: ScopeFilter) => void;
+  setKindFilter: (k: MemoryKind | null) => void;
   setMemoryScope: (s: MemoryScope) => void;
   setSelectedProjectId: (id: string | null) => void;
   setSearchQuery: (q: string) => void;
@@ -60,6 +63,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   activeTab: "saved",
   categoryFilter: "all",
   scopeFilter: "all",
+  kindFilter: null,
   memoryScope: "global",
   selectedProjectId: null,
   searchQuery: "",
@@ -101,6 +105,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   setTab: (tab) => set({ activeTab: tab }),
   setCategoryFilter: (f) => set({ categoryFilter: f }),
   setScopeFilter: (f) => set({ scopeFilter: f }),
+  setKindFilter: (k) => set({ kindFilter: k }),
   setMemoryScope: (s) => set({ memoryScope: s }),
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
