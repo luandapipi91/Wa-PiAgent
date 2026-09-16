@@ -175,9 +175,12 @@ export class MemoryDao {
   }
 
   restore(id: string): boolean {
+    // 只翻状态，不动 updated_at：恢复归档是状态变更而非内容更新，
+    // 不得伪造新近性（L1 常驻选取按 updated_at 窗口、list 按 updated_at 排序、
+    // search 时间衰减以 updated_at 为基准）。archive 同样不动 updated_at，两者对称。
     const res = this.db.run(
-      "UPDATE memories SET archived = 0, archived_at = NULL, updated_at = ? WHERE id = ? AND archived = 1",
-      [Date.now(), id],
+      "UPDATE memories SET archived = 0, archived_at = NULL WHERE id = ? AND archived = 1",
+      [id],
     );
     return res.changes > 0;
   }

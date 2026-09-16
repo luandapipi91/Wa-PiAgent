@@ -74,6 +74,24 @@ test("archive/restore 切换 archived 标记，purge 硬删", () => {
   expect(dao.getById(row.id)).toBeNull();
 });
 
+test("restore 只翻 archived、不刷新 updatedAt（恢复 ≠ 内容更新）", () => {
+  const row = add({ content: "两年前的旧约定" });
+  // updatedAt 取一个明显不等于当前时间的值，
+  // 否则「没刷新」与「刷新了但恰好同毫秒」无法区分。
+  const pinned = Date.now() - 60_000;
+  dao.db.run("UPDATE memories SET updated_at = ? WHERE id = ?", [pinned, row.id]);
+
+  expect(dao.archive(row.id)).toBe(true);
+  const before = dao.getById(row.id)!;
+  expect(before.updatedAt).toBe(pinned); // archive 本就不动 updatedAt
+
+  expect(dao.restore(row.id)).toBe(true);
+  const after = dao.getById(row.id)!;
+  expect(after.archived).toBe(0);
+  expect(after.updatedAt).toBe(before.updatedAt); // 严格相等，不是 toBeGreaterThanOrEqual
+  expect(after.updatedAt).toBe(pinned);
+});
+
 test("归档条目默认不出现在检索结果里", () => {
   const row = add({ content: "归档词 alpha" });
   dao.archive(row.id);
