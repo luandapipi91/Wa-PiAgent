@@ -142,6 +142,116 @@ test("条目可被检索（导入后 FTS 已同步）", async () => {
   expect(dao.search("发版", {})).toHaveLength(1);
 });
 
+// ---- 归档迁移保真（审查发现 K1）：必须保住 project_id 与 kind ----
+// 现场：旧 MemoryStore 的 sidecar 每条都带 sourceFile（<waPiDir>/projects-memory/<name>/MEMORY.md）
+// 与 id（projects-memory/<name>/MEMORY.md:<n>），项目名一直都在。迁移丢弃它就会得到
+// scope=project + project_id=NULL 的孤儿行：归档 Tab 看得到（归档段不按项目切分），
+// 一点「恢复」就既不在「已保存」也不在「归档」，UI 里彻底消失（数据其实还在库里），
+// 同时被 requireEntryOwnership 永久拒绝（AI 改不了删不了），跨域 search 却仍能命中。
+
+/** 写一份归档 sidecar（entries 原样透传，保留 sourceFile/id 形态） */
+function writeSidecar(entries: unknown[]) {
+  writeFileSync(join(dir, "memory-archive.json"), JSON.stringify({ entries }), "utf8");
+}
+
+function rowsByContent(): Map<string, ReturnType<MemoryDao["getById"]>> {
+  return new Map(
+    dao.list({ includeArchived: true }).map((r) => [r.content, r] as const),
+  ) as Map<string, ReturnType<MemoryDao["getById"]>>;
+}
+
+const ARCHIVED_AT = "2026-01-01T00:00:00.000Z";
+
+test("项目归档条目导入后 projectId 正确，且「恢复」后仍留在项目视图里", async () => {
+  const text = "项目归档条目 P";
+  writeSidecar([
+    {
+      id: "projects-memory/Wa-Pi/MEMORY.md:3",
+      text,
+      category: "memory",
+      scope: "project",
+      sourceFile: join(dir, "projects-memory/Wa-Pi/MEMORY.md"),
+      rawIndex: 3,
+      archivedAt: ARCHIVED_AT,
+    },
+  ]);
+  await importLegacyMemories(dir, dao);
+
+  const row = rowsByContent().get(text)!;
+  expect([row.scope, row.projectId, row.archived]).toEqual(["project", "Wa-Pi", 1]);
+
+  // 用户点「恢复」：archived=0 后必须仍能在项目视图里找到它
+  // （project_id 丢了的话这里就找不到 → 条目从所有按项目切分的视图消失）
+  expect(dao.restore(row.id)).toBe(true);
+  expect(dao.list({ scope: "project", projectId: "Wa-Pi" }).map((r) => r.id)).toEqual([row.id]);
+  expect(dao.counts({ scope: "project", projectId: "Wa-Pi" }).knowledge).toBe(1);
+});
+
+test("sourceFile 缺失时回退 id 前缀解析项目名；Windows 反斜杠同样识别", async () => {
+  writeSidecar([
+    {
+      id: "projects-memory/OnlyId/MEMORY.md:0",
+      text: "只有 id 的归档 Q",
+      category: "memory",
+      scope: "project",
+      archivedAt: ARCHIVED_AT,
+    },
+    {
+      id: "projects-memory/BsProj/MEMORY.md:1",
+      text: "反斜杠路径的归档 R",
+      category: "memory",
+      scope: "project",
+      sourceFile: "C:\\Users\\me\\.pi\\agent\\projects-memory\\BsProj\\MEMORY.md",
+      archivedAt: ARCHIVED_AT,
+    },
+  ]);
+  await importLegacyMemories(dir, dao);
+
+  const rows = rowsByContent();
+  expect(rows.get("只有 id 的归档 Q")!.projectId).toBe("OnlyId");
+  expect(rows.get("反斜杠路径的归档 R")!.projectId).toBe("BsProj");
+});
+
+test("user + global 的归档条目导入后 kind 为 profile（与 markdown 分支同规则）", async () => {
+  writeSidecar([
+    {
+      id: "memories/global/USER.md:0",
+      text: "归档的用户偏好 S",
+      category: "user",
+      scope: "global",
+      sourceFile: join(dir, "memories/global/USER.md"),
+      archivedAt: ARCHIVED_AT,
+    },
+    {
+      id: "memories/global/MEMORY.md:0",
+      text: "归档的全局笔记 T",
+      category: "memory",
+      scope: "global",
+      sourceFile: join(dir, "memories/global/MEMORY.md"),
+      archivedAt: ARCHIVED_AT,
+    },
+  ]);
+  // 全局条目本就没有项目名：project_id 为 NULL 是正常状态，不得刷日志
+  const logs = await runSilencingErrors();
+
+  const rows = rowsByContent();
+  const user = rows.get("归档的用户偏好 S")!;
+  const note = rows.get("归档的全局笔记 T")!;
+  expect([user.kind, user.target, user.projectId]).toEqual(["profile", "user", null]);
+  expect([note.kind, note.target, note.projectId]).toEqual(["knowledge", "memory", null]);
+  expect(logs).toEqual([]);
+});
+
+test("项目归档条目解析不出项目名时 project_id 留空并记日志（不静默产出孤儿行）", async () => {
+  writeSidecar([
+    { id: "???", text: "无来源的归档 U", category: "memory", scope: "project", archivedAt: ARCHIVED_AT },
+  ]);
+  const logs = await runSilencingErrors();
+
+  expect(rowsByContent().get("无来源的归档 U")!.projectId).toBeNull();
+  expect(logs.map((a) => String(a[0])).join("\n")).toContain("无法解析项目名");
+});
+
 // ---- 容错边界：kernel 启动时会调用迁移（任务 12 接线），任一来源失败都不得阻断 ----
 
 /** 静音 console.error（避免污染测试输出），并返回捕获到的日志参数列表 */
@@ -217,4 +327,34 @@ test("重命名失败不阻断：原文件保留原名，其他来源照常导�
   expect(dao.list({}).some((r) => r.content === "故障隔离：偏好仍导入 N")).toBe(true);
   expect(logs.length).toBeGreaterThan(0);
   expect(String(logs[0]![0])).toContain("MEMORY.md");
+
+  // 事务回滚防线：改名失败的来源不得留下半截数据。插入与 rename 不同一事务时，
+  // 这里的「改名失败 M」会已入库，而文件仍在原名下 → 下次启动重复导入并累积。
+  expect(dao.list({ includeArchived: true }).map((r) => r.content)).toEqual(["故障隔离：偏好仍导入 N"]);
+  const secondRun = await runSilencingErrors();
+  expect(secondRun.length).toBeGreaterThan(0);
+  expect(dao.list({ includeArchived: true }).map((r) => r.content)).toEqual(["故障隔离：偏好仍导入 N"]);
+});
+
+test("归档重命名失败：整批回滚，不留半截数据，修好目标后可重试", async () => {
+  writeSidecar([
+    { id: "memories/global/MEMORY.md:0", text: "归档回滚 V1", category: "memory", scope: "global", archivedAt: ARCHIVED_AT },
+    { id: "memories/global/MEMORY.md:1", text: "归档回滚 V2", category: "memory", scope: "global", archivedAt: ARCHIVED_AT },
+  ]);
+  // 稳定构造：rename(文件 → 非空目录) 必失败
+  mkdirSync(join(dir, "memory-archive.json.imported/keep"), { recursive: true });
+
+  const logs = await runSilencingErrors();
+
+  expect(existsSync(join(dir, "memory-archive.json"))).toBe(true);
+  expect(dao.list({ includeArchived: true })).toHaveLength(0);
+  expect(logs.map((a) => String(a[0])).join("\n")).toContain("归档导入失败");
+
+  // 文件未被改名，数据未丢：出路是修好目标路径后重试
+  rmSync(join(dir, "memory-archive.json.imported"), { recursive: true, force: true });
+  await runSilencingErrors();
+  expect(dao.list({ includeArchived: true }).map((r) => r.content).sort()).toEqual([
+    "归档回滚 V1",
+    "归档回滚 V2",
+  ]);
 });

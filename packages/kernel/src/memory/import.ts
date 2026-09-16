@@ -8,8 +8,8 @@
 // 每个来源各自独立 try/catch，一处失败只跳过该来源并打印日志，绝不向上抛——
 // 一份不可读的 MEMORY.md、一次 readdir 或一次 rename 失败都不该让 kernel 启动不了。
 // 不能用外层一刀切：那样一份坏文件会让整个迁移中止，其余来源白丢。
-import { readFile, readdir, rename, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { MemoryDao, MemoryKind } from "./dao";
 
@@ -17,9 +17,35 @@ const DELIMITER = "\n§\n";
 const IMPORTED_SUFFIX = ".imported";
 
 type LegacyTarget = "memory" | "user";
+type LegacyScope = "global" | "project";
 
-function kindFor(target: LegacyTarget, scope: "global" | "project"): MemoryKind {
+function kindFor(target: LegacyTarget, scope: LegacyScope): MemoryKind {
   return target === "user" && scope === "global" ? "profile" : "knowledge";
+}
+
+/** 归档 sidecar 的单条记录（只声明迁移用得到的字段） */
+interface SidecarEntry {
+  id?: string;
+  text: string;
+  category?: string;
+  scope?: string;
+  archivedAt?: string;
+  /** 旧 MemoryStore 写入的条目来源文件绝对路径 */
+  sourceFile?: string;
+}
+
+/**
+ * 从 sidecar 条目解析项目名：优先 sourceFile（绝对路径），回退 id（"<relPath>:<rawIndex>"）。
+ * 两者都形如 .../projects-memory/<name>/MEMORY.md —— 项目名一直都在，故不该丢：
+ * 丢了就会得到 scope=project 且 project_id=NULL 的孤儿行（任何按项目切分的视图都看不到它，
+ * 但跨域 search 仍能命中），用户点「恢复」后条目等于凭空消失。
+ * 分隔符可能是 \\ 或 /，归一化后再匹配。
+ */
+function projectIdFromSidecar(e: SidecarEntry): string | null {
+  const raw = typeof e.sourceFile === "string" && e.sourceFile ? e.sourceFile : e.id;
+  if (typeof raw !== "string" || !raw) return null;
+  const m = /(?:^|\/)projects-memory\/([^/]+)\//.exec(raw.replace(/\\/g, "/"));
+  return m ? m[1]! : null;
 }
 
 /**
@@ -50,25 +76,31 @@ async function importFile(
     .map((e) => e.trim())
     .filter(Boolean);
 
-  entries.forEach((content, index) => {
-    const row = dao.insert({
-      kind: kindFor(target, scope),
-      target,
-      scope,
-      projectId,
-      content,
-      source: "import",
+  // 插入与重命名放进同一事务（故 :renameSync 而非 await rename）——
+  // rename 失败（权限、目标是非空目录）时插入一并回滚，避免「已插入 + 未改名」
+  // 导致下次启动重复导入并累积。bun:sqlite 的事务在第一个 await 之后就不再受回滚
+  // 保护，事务体内只能用同步 fs。
+  dao.db.transaction(() => {
+    entries.forEach((content, index) => {
+      const row = dao.insert({
+        kind: kindFor(target, scope),
+        target,
+        scope,
+        projectId,
+        content,
+        source: "import",
+      });
+      // 顺序 → 时间戳：第 index 条比第 0 条早 index 秒
+      const createdAt = Math.round(info.mtimeMs) - index * 1000;
+      dao.db.run("UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?", [
+        createdAt,
+        createdAt,
+        row.id,
+      ]);
     });
-    // 顺序 → 时间戳：第 index 条比第 0 条早 index 秒
-    const createdAt = Math.round(info.mtimeMs) - index * 1000;
-    dao.db.run("UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?", [
-      createdAt,
-      createdAt,
-      row.id,
-    ]);
-  });
+    renameSync(absPath, absPath + IMPORTED_SUFFIX);
+  })();
 
-  await rename(absPath, absPath + IMPORTED_SUFFIX);
   return entries.length;
 }
 
@@ -89,32 +121,46 @@ async function importArchive(dao: MemoryDao, waPiDir: string): Promise<void> {
   const p = join(waPiDir, "memory-archive.json");
   if (!existsSync(p)) return;
   try {
-    const data = JSON.parse(await readFile(p, "utf8")) as {
-      entries?: Array<{ text: string; category?: string; scope?: string; archivedAt?: string }>;
-    };
-    for (const e of data.entries ?? []) {
-      if (!e.text?.trim()) continue;
-      const row = dao.insert({
-        kind: "knowledge",
-        target: e.category === "user" ? "user" : "memory",
-        scope: e.scope === "project" ? "project" : "global",
-        projectId: null,
-        content: e.text,
-        source: "import",
-      });
-      dao.archive(row.id);
-      // 迁移保真：dao.archive() 只能写“现在”，会把 sidecar 里的真实归档时间冲掉，
-      // 故在此回填原始时间；已归档的该条目不会再有其他写入者，回填安全。
-      // sidecar 里的 archivedAt 缺失或无法解析时保持 dao.archive() 写的值（不抛错）。
-      const archivedAt =
-        typeof e.archivedAt === "string" ? Date.parse(e.archivedAt) : Number.NaN;
-      if (Number.isFinite(archivedAt)) {
-        dao.db.run("UPDATE memories SET archived_at = ? WHERE id = ?", [archivedAt, row.id]);
+    const data = JSON.parse(await readFile(p, "utf8")) as { entries?: SidecarEntry[] };
+    // 整批一个事务：任一条插入或最后的重命名失败即全部回滚，文件保持原名，
+    // 下次启动整体重试，不留下「导了一半」的中间态。
+    dao.db.transaction(() => {
+      for (const e of data.entries ?? []) {
+        if (!e.text?.trim()) continue;
+        const target: LegacyTarget = e.category === "user" ? "user" : "memory";
+        const scope: LegacyScope = e.scope === "project" ? "project" : "global";
+        const projectId = scope === "project" ? projectIdFromSidecar(e) : null;
+        if (scope === "project" && !projectId) {
+          // 不能静默产出 project_id 为空的项目条目：它不属于任何项目，
+          // 恢复后会从所有按项目切分的视图里消失，故必须留日志。
+          console.error(
+            `[memory-import] 归档条目无法解析项目名，project_id 留空：${e.id ?? e.sourceFile ?? "(无 id)"}`,
+          );
+        }
+        const row = dao.insert({
+          // kind 与 markdown 分支同一套规则（kindFor）：user+global → profile，其余 knowledge
+          kind: kindFor(target, scope),
+          target,
+          scope,
+          projectId,
+          content: e.text,
+          source: "import",
+        });
+        dao.archive(row.id);
+        // 迁移保真：dao.archive() 只能写“现在”，会把 sidecar 里的真实归档时间冲掉，
+        // 故在此回填原始时间；已归档的该条目不会再有其他写入者，回填安全。
+        // sidecar 里的 archivedAt 缺失或无法解析时保持 dao.archive() 写的值（不抛错）。
+        const archivedAt =
+          typeof e.archivedAt === "string" ? Date.parse(e.archivedAt) : Number.NaN;
+        if (Number.isFinite(archivedAt)) {
+          dao.db.run("UPDATE memories SET archived_at = ? WHERE id = ?", [archivedAt, row.id]);
+        }
       }
-    }
-    await rename(p, p + IMPORTED_SUFFIX);
-  } catch {
-    // 归档文件损坏 → 跳过，不阻断启动
+      renameSync(p, p + IMPORTED_SUFFIX);
+    })();
+  } catch (err) {
+    // 归档文件损坏 / 重命名失败 → 整批回滚并跳过，不阻断启动；留日志便于排查
+    console.error(`[memory-import] 归档导入失败，已跳过：${p}`, err);
   }
 }
 
