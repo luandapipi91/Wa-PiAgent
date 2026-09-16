@@ -29,8 +29,6 @@ export interface ToolDefinition {
 
 export interface MemoryToolContext {
   dao: MemoryDao;
-  /** 记忆库所在数据目录（调用方持有；工具层不直接读写文件） */
-  waPiDir?: string;
   /** 项目标识（cwd basename）；无项目上下文时为 null */
   projectId: string | null;
 }

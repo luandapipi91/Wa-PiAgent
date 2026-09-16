@@ -97,3 +97,12 @@ test("命中注入防护的条目被替换为 [BLOCKED: id]", () => {
 test("默认预算是规格约定的 1800/1500/500", () => {
   expect(DEFAULT_SNAPSHOT_BUDGET).toEqual({ profile: 1800, knowledge: 1500, execution: 500 });
 });
+
+test("ctx.budget 只给部分字段时，未给的层回落默认配额（不静默取消上限）", () => {
+  // 2000 字 > 默认 knowledge 配额 1500：回落生效则它被下沉到索引块；
+  // 若不合并默认值，budget.knowledge 为 undefined 且比较恒 false → 超配额条目照样注入。
+  add("knowledge", "K".repeat(2000), { ageDays: 1 });
+  const out = renderSnapshot(dao, { ...CTX, budget: { profile: 1800 } as any });
+  expect(out).not.toContain("K".repeat(2000));
+  expect(out).toMatch(/L2 长期知识 1 条/);
+});

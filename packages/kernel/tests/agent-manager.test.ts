@@ -9,10 +9,11 @@
 // - simulateCrash() 模拟进程意外退出。
 // 系统提示词经 --system-prompt <file> 传入 pi：测试同步读
 // WA_PI_DIR/tmp/sysprompts/<sessionId>.md 断言组合结果（afterEach 统一清理）。
-import { test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { test, expect, mock, beforeEach, afterEach, spyOn } from "bun:test";
 import {
 	AgentManager,
 	WA_PI_DEFAULT_SYSTEM_PROMPT,
+	tryOpenMemoryCtx,
 } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import {
@@ -24,7 +25,8 @@ import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { extUiRegistry } from "../src/ext-ui-registry";
 import { SkillManager } from "../src/skill-manager";
-import { getGlobalMemoryStore } from "../src/amaster-memory";
+import { MemoryDao } from "../src/memory/dao";
+import { openMemoryDb } from "../src/memory/db";
 import {
 	WA_PI_DIR,
 	BUILTIN_SKILLS_DIR,
@@ -1584,12 +1586,36 @@ test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 
 	expect(prompt).toMatch(/internal terminology/i);
 });
 
+/** 往真实记忆库（WA_PI_DIR/memories.db）写一条全局记忆，返回清理函数（快照来源已换成 SQLite） */
+function seedGlobalMemory(content: string): () => void {
+	const dao = new MemoryDao(openMemoryDb(WA_PI_DIR));
+	const row = dao.insert({
+		kind: "knowledge",
+		target: "memory",
+		scope: "global",
+		projectId: null,
+		content,
+		source: "test",
+	});
+	return () => {
+		try {
+			dao.remove(row.id);
+		} catch {
+			// 尽力清理，失败静默
+		}
+	};
+}
+
+/** 记忆快照临时文件路径（--append-system-prompt 的入参） */
+function memorySnapshotPath(sessionId: string) {
+	return join(WA_PI_DIR, "tmp", "sysprompts", `${sessionId}-memory.md`);
+}
+
 test("系统提示词注入记忆快照（经 --append-system-prompt 独立文件）", async () => {
-	// 先向真实全局记忆写入一条唯一内容，验证快照写入独立 memory 文件而非 composePrompt。
+	// 先向 SQLite 记忆库写入一条唯一内容，验证快照写入独立 memory 文件而非 composePrompt。
 	// composePrompt 静态化以最大化 LLM 缓存命中率。
 	const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-	const globalStore = getGlobalMemoryStore(WA_PI_DIR);
-	await globalStore.add("memory", unique);
+	const cleanup = seedGlobalMemory(unique);
 	try {
 		const { project, session, am } = await setup();
 		await am.ensureStarted(project.id, "dev", session.id);
@@ -1599,24 +1625,27 @@ test("系统提示词注入记忆快照（经 --append-system-prompt 独立文�
 		expect(prompt).not.toContain(unique);
 
 		// 记忆快照应在 --append-system-prompt 独立文件中
-		const memoryFile = join(
-			WA_PI_DIR,
-			"tmp",
-			"sysprompts",
-			`${session.id}-memory.md`,
-		);
+		const memoryFile = memorySnapshotPath(session.id);
 		expect(existsSync(memoryFile)).toBe(true);
 		const memoryContent = readFileSync(memoryFile, "utf8");
 		expect(memoryContent).toContain(unique);
+		// 渲染契约：RECENT 标题行只带条数（无字数/预算元数据）
+		expect(memoryContent).toContain("RECENT MEMORY [1 条]");
+		expect(memoryContent).not.toContain("chars]");
 	} finally {
-		await globalStore.remove("memory", unique).catch(() => {});
+		cleanup();
 	}
+});
+
+test("记忆库为空时不注入记忆快照（不生成 memory 文件）", async () => {
+	const { project, session, am } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect(existsSync(memorySnapshotPath(session.id))).toBe(false);
 });
 
 test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加记忆快照", async () => {
 	const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-	const globalStore = getGlobalMemoryStore(WA_PI_DIR);
-	await globalStore.add("memory", unique);
+	const cleanup = seedGlobalMemory(unique);
 	try {
 		const { project, session, am } = await setup({
 			memoryStore: {
@@ -1630,12 +1659,30 @@ test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加�
 
 		const prompt = readSysprompt(session.id);
 		expect(prompt).not.toContain(unique);
+		expect(existsSync(memorySnapshotPath(session.id))).toBe(false);
 		// memory-policy/memory-snapshot 为空被过滤；scheduled-tasks 段始终注入（全局化后
 		// 不再判目录存在）且在 im-push 之后，成为最后一段
 		expect(prompt.trimEnd()).toContain("定时任务管理");
 	} finally {
-		await globalStore.remove("memory", unique).catch(() => {});
+		cleanup();
 	}
+});
+
+test("记忆库不可用时降级为 null 而不是抛出（记忆问题不得阻断会话创建）", () => {
+	// 目录位于普通文件之下 → mkdirSync/openMemoryDb 抛错，模拟记忆库不可用
+	const blocker = join(WA_PI_DIR, `not-a-dir-${Math.random().toString(36).slice(2)}`);
+	tmpPaths.push(blocker);
+	writeFileSync(blocker, "x");
+	const logged: unknown[] = [];
+	const spy = spyOn(console, "error").mockImplementation((...a: unknown[]) => {
+		logged.push(a);
+	});
+	try {
+		expect(tryOpenMemoryCtx(join(blocker, "mem"), "/tmp/proj")).toBeNull();
+	} finally {
+		spy.mockRestore();
+	}
+	expect(logged.length).toBeGreaterThan(0); // 降级必须留日志，不能静默
 });
 
 test("config 有 systemPromptBody 时替代默认 base 提示词", async () => {

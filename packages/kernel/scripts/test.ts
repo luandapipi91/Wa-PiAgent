@@ -15,6 +15,8 @@ const INTEGRATION_TESTS = [
 	"tests/file-route.integration.test.ts",
 	"tests/preview-route.integration.test.ts",
 	"tests/preview-inspect.integration.test.ts",
+	// 记忆迁移接线：启动完整 kernel 后断言存量 markdown 已入库（同属 WA_PI_DIR 快照类）
+	"tests/memory-migration-wiring.test.ts",
 	// tui-host 端点集成（真实 WSServer + 流式 NDJSON），并行负载下 30s 超时，串行 2s 即过
 	"tests/tui-host-routes.integration.test.ts",
 ];

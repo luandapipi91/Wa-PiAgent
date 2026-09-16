@@ -123,7 +123,10 @@ function renderIndex(rest: MemoryRow[]): string {
 export function renderSnapshot(dao: MemoryDao, ctx: SnapshotContext): string {
   const now = ctx.now ?? Date.now();
   const windowDays = ctx.windowDays ?? DEFAULT_WINDOW_DAYS;
-  const budget = ctx.budget ?? DEFAULT_SNAPSHOT_BUDGET;
+  // 合并默认值：调用方只给部分字段时，未给的层回落默认配额。
+  // 直接 `ctx.budget ?? DEFAULT` 会让缺字段的层得到 undefined 配额 —— 比较恒 false
+  // 就等于该层完全不设上限（静默取消配额），必须在入口处补全。
+  const budget = { ...DEFAULT_SNAPSHOT_BUDGET, ...ctx.budget };
   const windowStart = now - windowDays * 86_400_000;
 
   const all = dao.list({ scope: ctx.scope, projectId: ctx.projectId, includeArchived: false });

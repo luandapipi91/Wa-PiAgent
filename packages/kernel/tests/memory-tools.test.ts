@@ -18,7 +18,7 @@ async function call(name: string, params: any) {
 beforeEach(() => {
   const db = new Database(":memory:");
   db.run(SCHEMA_SQL);
-  ctx = { dao: new MemoryDao(db), waPiDir: "/tmp/x", projectId: "Wa-Pi" };
+  ctx = { dao: new MemoryDao(db), projectId: "Wa-Pi" };
   tools = createMemoryTools(ctx);
 });
 

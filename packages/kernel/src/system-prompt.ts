@@ -87,37 +87,37 @@ export const WA_PI_DEFAULT_BASE_PROMPT =
 
 /**
  * 默认 memory-policy 段（完整版，memoryPolicyStyle=full）：
- * 引导 agent 在日常对话中主动识别并写入值得跨会话保留的信息（含隐形记忆：
- * 用户未说「记住」但对话中自然出现的稳定事实/决策/约定），并给出 target/scope 路由规则。
+ * 引导 agent 主动检索（L2/L3 只可检索、不注入 L1）并主动写入值得跨会话保留的信息，
+ * 并给出 kind 分层与 target/scope 路由规则。
  * 正文中文，贴合中文用户请求、字符更省。
  */
 export const DEFAULT_MEMORY_POLICY_PROMPT =
 	"## Memory Policy\n\n" +
 	"对话中出现值得跨会话保留的信息时，**主动调用记忆工具写入**，不要只放在回复文本里。\n\n" +
-	"**主动记忆（不必等用户说「记住」——根据对话内容自行判断）：**\n" +
-	"- 用户在对话中自然透露的身份、偏好、习惯、工具链、运行环境（操作系统/Node 版本/编辑器）→ 主动写入用户记忆（target=user）\n" +
-	"- 对话中确认的技术选型、项目约定、架构决策、代码规范 → 主动写入项目记忆（target=memory）\n" +
-	"- **值得记**：对未来会话仍成立的稳定事实——用户是谁、常用工具、项目选型与约定；\n" +
-	"  **不值得记**：当前任务的一次性细节（某个文件的临时错误、一次性的数值、会自然变化的状态）\n\n" +
+	"**先查再答：** 遇到可能存过的问题（项目约定、历史决策、以前做过的事），先调 memory_search 检索——" +
+	"系统提示词里只展示了「近期」部分，L2 知识层与 L3 执行层**可检索但不注入**，不查就当作不存在。\n\n" +
+	"**主动记忆（不必等用户说「记住」）：**\n" +
+	"- 用户透露的身份、偏好、习惯、工具链、运行环境 → memory_add(target=user)\n" +
+	"- 对话中确认的技术选型、项目约定、架构决策、代码规范 → memory_add(target=memory)\n" +
+	"- 完成一件有跨会话价值的事（做了什么、结果如何）→ memory_add(target=memory, kind=execution)\n" +
+	"- **值得记**：对未来会话仍成立的稳定事实；**不值得记**：一次性细节、临时状态、能从句柄或代码里读到的内容\n\n" +
 	"**必须写入（用户明确要求时不得跳过）：**\n" +
 	"- 用户说了「记住 X」「记一下 X」「我的偏好是 X」→ 立即调用 memory_add\n\n" +
-	"**路由规则（memory_add 的 target / scope 参数）：**\n" +
-	"- target=user：关于「用户是谁」的信息（偏好、身份、习惯）→ 默认写入全局 USER.md\n" +
-	"- target=memory：关于「当前项目」的信息（技术栈、约定、决策、规范）→ 默认写入项目 MEMORY.md\n" +
-	"- 不要传 scope，让默认路由生效：user→全局，memory→项目\n\n" +
+	"**分层与路由：**\n" +
+	"- kind=profile（用户画像，永久常驻）；kind=knowledge（知识，近期常驻、旧的下沉可检索）；" +
+	"kind=execution（执行流水，按时间线检索）\n" +
+	"- target=user → 全局；target=memory → 默认当前项目（不传 scope 即可）\n\n" +
 	"**维护已有记忆：**\n" +
-	"- 记忆内容过时或被用户纠正 → memory_replace 更新旧条目\n" +
-	"- 记忆不再正确 → memory_remove 删除\n" +
-	"- 写入前可先用 memory_read 查看当前记忆，避免重复条目";
+	"- 先用 memory_search / memory_read 拿到条目 id，再用 memory_replace / memory_remove 按 id 精确变更\n" +
+	"- 没有 id 时可用 oldText 子串匹配，但多命中会被要求澄清；写入前先查重";
 
-/** 默认 memory-policy 段（精简版，memoryPolicyStyle=compact） */
+/** 默认 memory-policy 段（精简版，memoryPolicyStyle=compact）：与完整版同义，只压缩篇幅 */
 export const COMPACT_MEMORY_POLICY_PROMPT =
 	"## Memory Policy\n\n" +
-	"对话中出现值得跨会话保留的信息时（含用户未说「记住」但自然透露的偏好/身份/习惯、" +
-	"项目技术栈/约定/决策），立即调用 memory_add：\n" +
-	"- 用户偏好/身份/习惯 → target=user（默认全局）\n" +
-	"- 项目技术栈/约定/决策 → target=memory（默认项目）\n" +
-	"信息过时用 memory_replace 更新，错误用 memory_remove 删除。";
+	"先查再答：涉及项目约定/历史决策先调 memory_search（L2/L3 不注入，不查等于不存在）。\n" +
+	"值得跨会话保留的信息立即 memory_add：用户偏好/身份 → target=user；" +
+	"项目决策/约定 → target=memory；做完一件事的流水 → kind=execution。\n" +
+	"变更已有条目：memory_search / memory_read 取 id，再 memory_replace / memory_remove。";
 
 /** 默认 self-protection 段（强规则：禁止 agent 杀死宿主 kernel / Electron 进程，防误杀） */
 export const DEFAULT_SELF_PROTECTION_PROMPT =
