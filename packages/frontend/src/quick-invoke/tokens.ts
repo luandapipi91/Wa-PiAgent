@@ -435,6 +435,24 @@ export function restoreFilePathTokens(text: string): string {
  *  （与 MessageList.stripAttachmentRefs 同款正则，仅匹配末尾，正文中的同形文本零误判） */
 const ATTACHMENT_TAIL_RE = /\n\nAttachments:\n\[[\s\S]*?\]$/;
 
+/** 从消息文本的附件尾段提取附件路径列表（无尾段 → 空数组）。
+ *  「重新发送」靠它把历史消息（pi 落盘的只留路径）的附件找回。 */
+export function parseAttachmentTailPaths(text: string): string[] {
+  const m = text.match(ATTACHMENT_TAIL_RE);
+  if (!m) return [];
+  return [...m[0].matchAll(/path:([^,\]]+)/g)].map((x) => x[1].trim());
+}
+
+/** 由附件路径生成「附件:文件名」chip HTML（排队区 steering/followUp + 聊天窗用户消息同款）。 */
+export function attachmentPathsToHtml(paths: string[]): string {
+  return paths
+    .map((p) => {
+      const name = p.split(/[\\/]/).pop() || p;
+      return `<span class="chip chip-attachment" contenteditable="false" data-token="${escapeHtml(`path:${p}`)}">${escapeHtml(`附件:${name}`)}</span>`;
+    })
+    .join(" ");
+}
+
 /** 把引导附件尾段渲染为「附件:文件名」chip 列表（排队区 steering/followUp + 聊天窗用户消息）。
  *  [path:x] 无 # 前缀，textToHtml 不识别（会落纯文本分支）；此处先提取尾段生成 chip HTML，
  *  正文剥掉尾段。返回剥尾段后的正文与 chip HTML（无尾段时 html 为空串）。 */
@@ -444,14 +462,10 @@ export function renderAttachmentTail(text: string): {
 } {
   const m = text.match(ATTACHMENT_TAIL_RE);
   if (!m || m.index === undefined) return { body: text, html: "" };
-  const refs = [...m[0].matchAll(/path:([^,\]]+)/g)].map((x) => x[1].trim());
-  const html = refs
-    .map((p) => {
-      const name = p.split(/[\\/]/).pop() || p;
-      return `<span class="chip chip-attachment" contenteditable="false" data-token="${escapeHtml(`path:${p}`)}">${escapeHtml(`附件:${name}`)}</span>`;
-    })
-    .join(" ");
-  return { body: text.slice(0, m.index), html };
+  return {
+    body: text.slice(0, m.index),
+    html: attachmentPathsToHtml(parseAttachmentTailPaths(text)),
+  };
 }
 
 /** 已知命令白名单还原（排队区/聊天窗共享）：命令 chip 发送后经 expandTokens 展开为

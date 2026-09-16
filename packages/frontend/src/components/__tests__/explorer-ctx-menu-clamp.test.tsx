@@ -5,7 +5,18 @@
 // 修复契约：菜单渲染后实测尺寸并钳制到视口内（复用 ProjectItem 的 clampMenuPos/useClampMenu
 // 既有范本），NewSessionPane 与 SessionView 两处文件树共用本组件，一处修复两处受益。
 import { beforeEach, afterEach, expect, mock, test } from "bun:test";
+import type { ReactElement } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { VirtuosoMockContext } from "react-virtuoso";
+
+// 虚拟化列表在 happy-dom 无布局：用 VirtuosoMockContext 提供视口测量值才渲染行
+function renderExplorer(ui: ReactElement) {
+	return render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 600, itemHeight: 24 }}>
+			{ui}
+		</VirtuosoMockContext.Provider>,
+	);
+}
 
 // —— 外围副作用隔离（__tests__ 下相对前缀必须 ../../，少一级会静默无效）——
 mock.module("../../fs-client", () => ({
@@ -78,7 +89,7 @@ beforeEach(() => {
 });
 
 test("右键树底部文件：菜单 top 被钳到视口内（不再原样钉在 clientY）", async () => {
-	render(<ExplorerPanel workspaceDir="H:/fake" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="H:/fake" onOpenFile={() => {}} />);
 	// 树渲染完成
 	await screen.findByText("b.txt");
 

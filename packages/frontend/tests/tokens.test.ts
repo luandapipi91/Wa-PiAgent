@@ -10,6 +10,9 @@ import {
   normalizeTriggerChars,
   selectionToTokenText,
   rangeHasToken,
+  parseAttachmentTailPaths,
+  attachmentPathsToHtml,
+  renderAttachmentTail,
 } from "../src/quick-invoke/tokens";
 
 test("expandTokens 展开文件 token（统一带 path: 锚）", () => {
@@ -465,4 +468,38 @@ test("expandedTextToHtml：chip 渲染需要 ensureChipStyles 样式已注入（
   ensureChipStyles();
   ensureChipStyles(); // 多次调用安全
   // 仅验证不抛异常（样式注入属 DOM 副作用，chip class 断言在上面的用例覆盖）
+});
+
+// ── 附件尾段解析/chip 生成（「重新发送」靠解析还原附件路径）──
+
+test("parseAttachmentTailPaths：提取尾段里的附件路径（多附件、Windows 盘符）", () => {
+  expect(
+    parseAttachmentTailPaths(
+      "看图\n\nAttachments:\n[path:C:/a/pasted-text.txt,\npath:C:/b/log.txt]",
+    ),
+  ).toEqual(["C:/a/pasted-text.txt", "C:/b/log.txt"]);
+});
+
+test("parseAttachmentTailPaths：无尾段 / 非末尾的同形文本 → 空数组（零误判）", () => {
+  expect(parseAttachmentTailPaths("普通消息")).toEqual([]);
+  expect(
+    parseAttachmentTailPaths("Attachments:\n[path:C:/a.txt]\n后面还有正文"),
+  ).toEqual([]);
+});
+
+test("attachmentPathsToHtml：生成「附件:文件名」chip 并转义文件名", () => {
+  expect(attachmentPathsToHtml([])).toBe("");
+  const html = attachmentPathsToHtml(["/tmp/uploads/<img src=x>.txt"]);
+  expect(html).toContain('class="chip chip-attachment"');
+  expect(html).toContain("附件:&lt;img src=x&gt;.txt");
+  expect(html).toContain(
+    'data-token="path:/tmp/uploads/&lt;img src=x&gt;.txt"',
+  );
+});
+
+test("renderAttachmentTail：剥尾段后的正文 + chip 与解析/生成两步等价", () => {
+  const text = "处理一下\n\nAttachments:\n[path:C:/a/x.txt]";
+  const { body, html } = renderAttachmentTail(text);
+  expect(body).toBe("处理一下");
+  expect(html).toBe(attachmentPathsToHtml(parseAttachmentTailPaths(text)));
 });

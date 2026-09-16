@@ -559,6 +559,7 @@ input[type="range"]::-moz-range-thumb {
 /* ── ExplorerPanel 文件树 ── */
 .ep-tree {
 	font-size: calc(12.5px * var(--font-scale));
+	height: 100%;
 }
 .ep-node {
 	display: flex;

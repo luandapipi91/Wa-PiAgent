@@ -6,6 +6,7 @@ import type {
 	SessionMessage,
 	AgentStatus,
 	AgentName,
+	AttachmentRef,
 	SDKEventEnvelope,
 	SubagentProgressEvent,
 } from "@wa-pi/shared";
@@ -140,6 +141,7 @@ interface SessionState {
 		sessionId: string,
 		text: string,
 		agentName: AgentName,
+		attachments?: AttachmentRef[],
 	) => void;
 	/** kernel session:echo_user 回声的幂等入口：Composer 已乐观置入则跳过；
 	 *  标志被 message_start/agent_end/failTurn 提前清除后到达（notify 穿插延长冷启动
@@ -690,7 +692,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				return { netStatusBySession: next, netMessageBySession: nextMsg };
 			}),
 
-		optimisticSend: (sessionId, text, agentName) =>
+		optimisticSend: (sessionId, text, agentName, attachments) =>
 			set((s) => {
 				const ts = Date.now();
 				const list = s.messagesBySession[sessionId] ?? [];
@@ -715,6 +717,10 @@ export const useSessionStore = create<SessionState>((set) => {
 											optimistic: true,
 										},
 										agentName: undefined,
+										// 附件引用随消息保留：发送失败（请求未达 pi、无回声，
+										// 正文里也没有附件尾段）时，「重新发送」靠它把附件一起重发
+										attachments:
+											attachments && attachments.length > 0 ? attachments : undefined,
 									},
 								],
 							},
@@ -887,10 +893,15 @@ export const useSessionStore = create<SessionState>((set) => {
 								}
 							}
 							const pending = pendingIdx >= 0;
+							// 占位消息上的附件引用迁移到 SDK 权威版本：否则回声一到，本地引用就没了，
+							// 「重新发送」只能靠正文尾段（仅 pi 落盘的历史消息才有）
+							const pendingAttachments = pending
+								? (list[pendingIdx] as SessionMessage).attachments
+								: undefined;
 							const newList = pending
 								? [
 										...list.slice(0, pendingIdx),
-										{ message: msg, agentName },
+										{ message: msg, agentName, attachments: pendingAttachments },
 										...list.slice(pendingIdx + 1),
 									]
 								: [...list, { message: msg, agentName }];

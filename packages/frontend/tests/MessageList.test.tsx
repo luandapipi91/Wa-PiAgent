@@ -14,11 +14,16 @@ import { useCommandsStore } from "../src/store/commands";
 import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 // 重新发送等交互会触发 api.post（真实 fetch），happy-dom 在 about:blank 下对相对 URL
-// 抛 NotSupportedError。mock 掉 api-client，返回空数据。
+// 抛 NotSupportedError。mock 掉 api-client，返回空数据；同时记录 post 调用供断言
+// （如「重新发送是否带上原附件」）。
+const apiPostCalls: Array<{ url: string; body: any }> = [];
 mock.module("../src/api-client", () => ({
 	api: {
 		get: () => Promise.resolve(null),
-		post: () => Promise.resolve({}),
+		post: (url: string, body?: any) => {
+			apiPostCalls.push({ url, body });
+			return Promise.resolve({});
+		},
 		put: () => Promise.resolve({}),
 		del: () => Promise.resolve({}),
 	},
@@ -44,6 +49,7 @@ beforeEach(() => {
 	useProvidersStore.setState({ providers: [] });
 	useComposerPrefsStore.setState({ bySession: {} });
 	useToastStore.setState({ toasts: [] });
+	apiPostCalls.length = 0;
 	// 本文件专注于验证卡片内容 / 轮级摘要渲染逻辑，基线为「回复过程折叠开关关闭」（展开），
 	// 与折叠开关本身的行为隔离；新开关行为由 store-ui-prefs-collapse / useAutoCollapse 测试覆盖。
 	useUiPrefsStore.setState({ collapseProcessByDefault: false });
@@ -2714,4 +2720,134 @@ test("用户气泡只渲染消息原文，不渲染 pi-lens 抑制指令", () =>
 	expect(bubble.textContent?.trim()).toBe("编辑一下");
 	expect(bubble.textContent).not.toContain("pi-lens-ignore");
 	expect(bubble.textContent).not.toContain("dangerously-set-inner-html");
+});
+
+// ── 重新发送：附件必须一起重发 ──
+//
+// 事故：带附件的消息发送失败后点「重新发送」，附件丢失（重发请求不带 attachments）。
+// 附件引用的两个来源：
+//   ① 发送时记录在消息上的本地 attachments —— 覆盖「请求未达 pi」的 transient 失败
+//      （此类失败没有 pi 回声，消息正文里也不存在附件尾段）
+//   ② 消息正文的附件尾段 Attachments:\n[path:...] —— 覆盖 pi 落盘的历史消息
+
+const ATT_FILE = {
+	kind: "file",
+	name: "方案.pptx",
+	path: "/tmp/uploads/plan.pptx",
+	size: 1234,
+} as const;
+const ATT_IMAGE = {
+	kind: "image",
+	name: "shot.png",
+	path: "/tmp/uploads/shot.png",
+	size: 5678,
+} as const;
+
+/** 渲染「末条是失败 assistant」的重发场景：用户消息 body + 可选本地附件引用 */
+function renderResendScene(userMessage: any, attachments?: any[]) {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ agentName: undefined, message: userMessage, attachments },
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "⚠️ 模型调用失败" }],
+						model: "system",
+						stopReason: "error",
+						timestamp: 2,
+					},
+				},
+			],
+		},
+		streamingBySession: {},
+	});
+	useProjectsStore.setState({
+		sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev" }] as any,
+	});
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "prov-ds",
+				name: "deepseek",
+				api: "openai-completions",
+				baseUrl: "",
+				apiKey: "",
+				models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096 }],
+			},
+		],
+	});
+	useComposerPrefsStore.setState({
+		bySession: {
+			s1: { model: "deepseek/deepseek-chat", thinking: "high", attachments: [] },
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+}
+
+test("重新发送：消息带本地附件引用 → 重发请求携带原附件，重建消息仍保留", () => {
+	renderResendScene({ role: "user", content: "看下这个方案", timestamp: 1 }, [
+		ATT_FILE,
+		ATT_IMAGE,
+	]);
+	fireEvent.click(screen.getByTestId("resend-s1-1"));
+	const call = apiPostCalls.find((c) => c.url.includes("/prompt"));
+	expect(call).toBeTruthy();
+	expect(call!.body.attachments).toEqual([ATT_FILE, ATT_IMAGE]);
+	// 重建的乐观消息保留附件：再次失败后重试仍能带上附件
+	const rebuilt = useSessionStore.getState().messagesBySession["s1"][0] as any;
+	expect(rebuilt.attachments).toEqual([ATT_FILE, ATT_IMAGE]);
+});
+
+test("重新发送：历史消息正文含附件尾段 → 从尾段还原附件（图片按扩展名重发为多模态）", () => {
+	renderResendScene({
+		role: "user",
+		content:
+			"看下这个方案\n\nAttachments:\n[path:/tmp/uploads/plan.pptx,\npath:/tmp/uploads/shot.png]",
+		timestamp: 1,
+	});
+	fireEvent.click(screen.getByTestId("resend-s1-1"));
+	const call = apiPostCalls.find((c) => c.url.includes("/prompt"));
+	expect(call).toBeTruthy();
+	expect(call!.body.attachments).toEqual([
+		{ kind: "file", name: "plan.pptx", path: "/tmp/uploads/plan.pptx", size: 0 },
+		{ kind: "image", name: "shot.png", path: "/tmp/uploads/shot.png", size: 0 },
+	]);
+	// 正文仍是剥掉尾段的 displayText（附件由内核按 attachments 重新拼尾段，避免重复）
+	expect(call!.body.text).toBe("看下这个方案");
+});
+
+test("重新发送：无附件消息 → 不产生空 attachments 字段（不影响旧行为）", () => {
+	renderResendScene({ role: "user", content: "纯文本", timestamp: 1 });
+	fireEvent.click(screen.getByTestId("resend-s1-1"));
+	const call = apiPostCalls.find((c) => c.url.includes("/prompt"));
+	expect(call).toBeTruthy();
+	expect(call!.body.attachments).toBeUndefined();
+});
+
+test("乐观占位消息带附件引用 → 立即显示附件 chip（不必等 pi 回声）", () => {
+	// 走真实发送路径：optimisticSend 带附件 → 占位消息上挂附件引用
+	useSessionStore.setState({ messagesBySession: {}, streamingBySession: {} });
+	useSessionStore
+		.getState()
+		.optimisticSend("s1", "看下这个方案", "dev", [ATT_FILE]);
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	const ts = (
+		useSessionStore.getState().messagesBySession["s1"][0].message as any
+	).timestamp;
+	const chip = screen
+		.getByTestId(`msg-s1-${ts}`)
+		.querySelector(".chip-attachment");
+	// chip 名取路径 basename：与 pi 落盘尾段（只有 path）的既有 chip 渲染保持一致，
+	// 避免同一条消息在「乐观占位 → pi 回声」前后显示不同名字
+	expect(chip?.textContent).toBe("附件:plan.pptx");
 });

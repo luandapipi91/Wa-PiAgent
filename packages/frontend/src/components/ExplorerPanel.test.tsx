@@ -1,9 +1,20 @@
 // ExplorerPanel 渲染契约测试：workspaceDir 空态 / 列表渲染 / 目录展开触发二次 listDir。
 import { test, expect, afterEach } from "bun:test";
+import type { ReactElement } from "react";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { VirtuosoMockContext } from "react-virtuoso";
 import { _setFsTransport } from "../fs-client";
 import { _setShareTransport } from "../share-client";
 import { ExplorerPanel } from "./ExplorerPanel";
+
+// 虚拟化列表在 happy-dom 无布局：必须用 VirtuosoMockContext 提供视口/行高测量值才渲染行
+function renderExplorer(ui: ReactElement) {
+	return render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 600, itemHeight: 24 }}>
+			{ui}
+		</VirtuosoMockContext.Provider>,
+	);
+}
 
 function mockTransport() {
 	_setFsTransport({
@@ -53,7 +64,9 @@ test("无 workspaceDir 时渲染空态提示", () => {
 
 test("列表渲染：目录与文件节点带正确 data-kind", async () => {
 	mockTransport();
-	render(<ExplorerPanel workspaceDir="C:\\proj" onOpenFile={() => {}} />);
+	renderExplorer(
+		<ExplorerPanel workspaceDir="C:\\proj" onOpenFile={() => {}} />,
+	);
 	await waitFor(() => expect(screen.getByText("src")).toBeTruthy());
 	expect(screen.getByText("readme.md")).toBeTruthy();
 	const dirNode = screen.getByText("src").closest(".ep-node") as HTMLElement;
@@ -79,7 +92,9 @@ test("点击目录展开触发 listDir 再次调用并渲染子节点", async ()
 		},
 		del: async () => ({}),
 	});
-	render(<ExplorerPanel workspaceDir="C:\\proj" onOpenFile={() => {}} />);
+	renderExplorer(
+		<ExplorerPanel workspaceDir="C:\\proj" onOpenFile={() => {}} />,
+	);
 	await waitFor(() => expect(screen.getByText("src")).toBeTruthy());
 	fireEvent.click(screen.getByText("src"));
 	await waitFor(() => expect(screen.getByText("index.ts")).toBeTruthy());
@@ -98,7 +113,7 @@ test("右键文件菜单含「默认方式打开」，点击调用 open-with-def
 		},
 		del: async () => ({}),
 	});
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	await waitFor(() => expect(screen.getByText("readme.md")).toBeTruthy());
 	const fileNode = screen
 		.getByText("readme.md")
@@ -121,7 +136,7 @@ test("Ctrl/Cmd+点击多选：两个文件节点 data-selected=true，再点取�
 		{ name: "a.ts", isDir: false },
 		{ name: "b.ts", isDir: false },
 	]);
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
 	const a = nodeOf("a.ts");
 	const b = nodeOf("b.ts");
@@ -148,7 +163,7 @@ test("Shift+点击区间连选：锚点到当前节点全选中", async () => {
 		{ name: "b.ts", isDir: false },
 		{ name: "c.ts", isDir: false },
 	]);
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
 	const a = nodeOf("a.ts");
 	const b = nodeOf("b.ts");
@@ -167,7 +182,7 @@ test("多选状态右键：菜单只有「分享所选」", async () => {
 		{ name: "b.ts", isDir: false },
 		{ name: "c.ts", isDir: false },
 	]);
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
 	const a = nodeOf("a.ts");
 	const b = nodeOf("b.ts");
@@ -185,7 +200,7 @@ test("多选状态右键：菜单只有「分享所选」", async () => {
 
 test("单选右键：菜单含「分享」与原有项", async () => {
 	mockListDir([{ name: "b.ts", isDir: false }]);
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	const node = await waitFor(() => nodeOf("b.ts"));
 	fireEvent.contextMenu(node);
 
@@ -220,7 +235,7 @@ test("多选右键「分享所选」：打开分享弹层且上传 paths 为选�
 		{ name: "b.ts", isDir: false },
 		{ name: "c.ts", isDir: false },
 	]);
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
 	const a = nodeOf("a.ts");
 	const b = nodeOf("b.ts");
@@ -276,7 +291,7 @@ test("多选右键分享：文件 + 目录混合选中，分享 paths 含文件�
 		{ name: "src", isDir: true },
 		{ name: "a.ts", isDir: false },
 	]);
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
 	const file = nodeOf("a.ts");
 	const dir = nodeOf("src");
@@ -312,7 +327,7 @@ test("右键目录菜单不含「默认方式打开」", async () => {
 		},
 		del: async () => ({}),
 	});
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	await waitFor(() => expect(screen.getByText("src")).toBeTruthy());
 	const dirNode = screen.getByText("src").closest(".ep-node") as HTMLElement;
 	fireEvent.contextMenu(dirNode);
@@ -325,7 +340,7 @@ test("多选后无修饰键点击目录：清除多选、单选该目录（原�
 		{ name: "src", isDir: true },
 		{ name: "a.ts", isDir: false },
 	]);
-	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
 	await waitFor(() => expect(screen.getByText("src")).toBeTruthy());
 	const src = nodeOf("src");
 	const a = nodeOf("a.ts");

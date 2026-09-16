@@ -160,9 +160,16 @@ export function Composer({
         };
       });
     } else if (!isExtCmd) {
+      // 附件一并随乐观消息保留：发送失败（请求未达 kernel、无回声）后
+      // 点「重新发送」时靠它把附件重发，否则附件静默丢失
       useSessionStore
         .getState()
-        .optimisticSend(sessionId, expandedText, targetAgent);
+        .optimisticSend(
+          sessionId,
+          expandedText,
+          targetAgent,
+          attachments.length > 0 ? attachments : undefined,
+        );
     }
     // 发送消息视为活跃：刷新该会话 lastActivity（点击查看不更新，发消息/收回复才更新）
     useProjectsStore.getState().touchSession(sessionId);

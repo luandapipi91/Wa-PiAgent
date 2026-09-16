@@ -20,6 +20,7 @@ import { useSkillsStore } from "../src/store/skills";
 import { useCommandsStore } from "../src/store/commands";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 import { disconnectEvents } from "../src/events";
+import { DOCK_STORAGE_KEY } from "../src/lib/widget-dock-position";
 
 // 记录所有 REST API 调用，替代原 WebSocket sentEvents。
 const apiCalls: { method: string; path: string; body?: any }[] = [];
@@ -1488,4 +1489,182 @@ test("widget 宽度按容器实测宽度换算成列数上报 resize（panelId=w
 			useSessionStore.setState({ extWidgetBySession: {} });
 		});
 	}
+});
+
+// === 扩展 widget chip 队列：默认靠右 + 自由拖动 + 位置持久化 ===
+
+type RectSpec = { left: number; top: number; width: number; height: number };
+
+// happy-dom 无布局（矩形全 0）：按元素分别给矩形桩，供拖动边界计算使用。
+function stubRectsFor(entries: Array<[Element, RectSpec]>) {
+	const original = HTMLElement.prototype.getBoundingClientRect;
+	const mk = (r: RectSpec) =>
+		({
+			left: r.left,
+			top: r.top,
+			right: r.left + r.width,
+			bottom: r.top + r.height,
+			width: r.width,
+			height: r.height,
+			x: r.left,
+			y: r.top,
+			toJSON: () => ({}),
+		}) as DOMRect;
+	HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+		const hit = entries.find(([el]) => el === this);
+		return mk(hit ? hit[1] : { left: 0, top: 0, width: 0, height: 0 });
+	};
+	return () => {
+		HTMLElement.prototype.getBoundingClientRect = original;
+	};
+}
+
+function setDockWidget() {
+	useSessionStore.setState({
+		extWidgetBySession: {
+			s1: {
+				"pi-goal": {
+					lines: ["── 目标 ──", "进度 4/6"],
+					placement: "aboveEditor" as const,
+				},
+			},
+		},
+	});
+}
+
+test("扩展 widget chip 队列：默认靠右对齐（内容自适应宽度，仍可溢出滚动）", async () => {
+	setDockWidget();
+	await renderSessionView("s1");
+	const queue = screen.getByTestId("ext-widget-dock");
+	// 靠右：容器 justify-end
+	expect(queue.className).toContain("justify-end");
+	// 轨道改成内容自适应宽度（去掉 flex-1），但仍受 max-w-full 限制、保留横向溢出滚动
+	const track = queue.querySelector(".overflow-x-auto") as HTMLElement;
+	expect(track.className).toContain("max-w-full");
+	expect(track.className).not.toContain("flex-1");
+});
+
+test("扩展 widget chip 队列：拖动后按位移 translate，松手写入 localStorage", async () => {
+	localStorage.removeItem(DOCK_STORAGE_KEY);
+	setDockWidget();
+	await renderSessionView("s1");
+	const queue = screen.getByTestId("ext-widget-dock");
+	const track = queue.querySelector(".overflow-x-auto") as HTMLElement;
+	const anchor = queue.parentElement as HTMLElement;
+	const column = anchor.parentElement as HTMLElement;
+	const restore = stubRectsFor([
+		[track, { left: 600, top: 300, width: 400, height: 30 }],
+		[anchor, { left: 600, top: 700, width: 400, height: 120 }],
+		[column, { left: 0, top: 0, width: 1000, height: 800 }],
+	]);
+	try {
+		// 阈值内（2px）不算拖动
+		fireEvent.pointerDown(queue, {
+			pointerId: 1,
+			clientX: 100,
+			clientY: 100,
+			button: 0,
+		});
+		fireEvent.pointerMove(queue, { pointerId: 1, clientX: 102, clientY: 100 });
+		expect(queue.style.transform).toBe("translate(0px, 0px)");
+		// 越过阈值 → 进入拖动，应用夹紧后的位移
+		fireEvent.pointerMove(queue, { pointerId: 1, clientX: 60, clientY: 120 });
+		expect(queue.style.transform).toBe("translate(-40px, 20px)");
+		// 松手保存
+		fireEvent.pointerUp(queue, { pointerId: 1 });
+		expect(JSON.parse(localStorage.getItem(DOCK_STORAGE_KEY) as string)).toEqual({
+			x: -40,
+			y: 20,
+		});
+	} finally {
+		restore();
+		localStorage.removeItem(DOCK_STORAGE_KEY);
+	}
+});
+
+test("扩展 widget chip 队列：下沿放宽到聊天列底部（可向下拖过输入框上沿）", async () => {
+	localStorage.removeItem(DOCK_STORAGE_KEY);
+	setDockWidget();
+	await renderSessionView("s1");
+	const queue = screen.getByTestId("ext-widget-dock");
+	const track = queue.querySelector(".overflow-x-auto") as HTMLElement;
+	const anchor = queue.parentElement as HTMLElement;
+	const column = anchor.parentElement as HTMLElement;
+	const restore = stubRectsFor([
+		[track, { left: 600, top: 300, width: 390, height: 30 }],
+		[anchor, { left: 600, top: 700, width: 400, height: 120 }],
+		[column, { left: 0, top: 0, width: 1000, height: 800 }],
+	]);
+	try {
+		fireEvent.pointerDown(queue, {
+			pointerId: 1,
+			clientX: 100,
+			clientY: 100,
+			button: 0,
+		});
+		// 向下拖 600px：放宽后 maxY = 聊天列底(800) − margin(4) − track 底(330) = 466，故被夹到 466
+		// （未放宽时下沿取输入框上沿 700 → maxY 只有 366）
+		fireEvent.pointerMove(queue, {
+			pointerId: 1,
+			clientX: 100,
+			clientY: 700,
+		});
+		expect(queue.style.transform).toBe("translate(0px, 466px)");
+		fireEvent.pointerUp(queue, { pointerId: 1 });
+	} finally {
+		restore();
+		localStorage.removeItem(DOCK_STORAGE_KEY);
+	}
+});
+
+test("扩展 widget chip 队列：重新挂载后从 localStorage 恢复位移", async () => {
+	localStorage.setItem(DOCK_STORAGE_KEY, JSON.stringify({ x: -40, y: 20 }));
+	try {
+		setDockWidget();
+		await renderSessionView("s1");
+		const queue = screen.getByTestId("ext-widget-dock");
+		expect(queue.style.transform).toBe("translate(-40px, 20px)");
+	} finally {
+		localStorage.removeItem(DOCK_STORAGE_KEY);
+	}
+});
+
+test("扩展 widget chip 队列：阈值内小位移不吞点击（仍能展开）", async () => {
+	setDockWidget();
+	await renderSessionView("s1");
+	const queue = screen.getByTestId("ext-widget-dock");
+	const chip = screen.getByTestId("ext-widget-pi-goal");
+	fireEvent.pointerDown(queue, {
+		pointerId: 2,
+		clientX: 100,
+		clientY: 100,
+		button: 0,
+	});
+	fireEvent.pointerMove(queue, { pointerId: 2, clientX: 102, clientY: 100 });
+	fireEvent.pointerUp(queue, { pointerId: 2 });
+	fireEvent.click(chip);
+	// 展开成功：第二行内容可见
+	expect(screen.getByTestId("ext-widget-pi-goal").textContent).toContain(
+		"进度 4/6",
+	);
+});
+
+test("扩展 widget chip 队列：拖动松手后的 click 被吞掉（不误展开）", async () => {
+	setDockWidget();
+	await renderSessionView("s1");
+	const queue = screen.getByTestId("ext-widget-dock");
+	const chip = screen.getByTestId("ext-widget-pi-goal");
+	fireEvent.pointerDown(queue, {
+		pointerId: 3,
+		clientX: 100,
+		clientY: 100,
+		button: 0,
+	});
+	fireEvent.pointerMove(queue, { pointerId: 3, clientX: 60, clientY: 100 });
+	fireEvent.pointerUp(queue, { pointerId: 3 });
+	// 拖动结束时浏览器会补一个 click：必须被吞掉，不能展开
+	fireEvent.click(chip);
+	expect(screen.getByTestId("ext-widget-pi-goal").textContent).not.toContain(
+		"进度 4/6",
+	);
 });

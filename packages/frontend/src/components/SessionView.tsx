@@ -31,6 +31,14 @@ import { isHtmlPath } from "../preview-url";
 import { GitToolbar } from "./git/GitToolbar";
 import { useTuiPanelStore } from "../store/tui-panel";
 import { TuiPanel, reportWidgetCols } from "./TuiPanel";
+import {
+	clampDockOffset,
+	computeDockBounds,
+	loadDockOffset,
+	saveDockOffset,
+	type DockBounds,
+	type DockOffset,
+} from "../lib/widget-dock-position";
 
 interface Props {
 	sessionId: string;
@@ -659,12 +667,17 @@ function ThinkingTimer({ thinkingSince }: { thinkingSince: number | null }) {
 
 type WidgetEntry = [string, { lines: string[]; placement?: string }];
 
+/** 拖动阈值（px）：位移超过该值才算拖动，否则视为点击（不影响 chip 展开） */
+const DRAG_THRESHOLD = 4;
+
 /**
  * 扩展 setWidget 文本块容器：
- * - 收起态：所有 widget（above/below 不分左右）排成单一队列，半透明悬浮贴 Composer 上沿，
+ * - 收起态：所有 widget（above/below 不分左右）排成单一队列，半透明悬浮贴 Composer 上沿且靠右，
  *   不占文档流高度 → 不挤压聊天区/输入框；above 用 ↑(紫)、below 用 ↓(灰) 图标区分。
  * - 展开态：点击窄条后在原位置（聊天区与 Composer 之间）插入展开块占位，显示完整内容。
  * - 溢出：窄条数量超出宽度时，左右出现箭头按钮，点击平滑滚动一个窄条宽度。
+ * - 拖动：整条队列可鼠标/触控拖动（相对默认位置的 translate），夹紧在聊天列内且不遮输入框，
+ *   位置持久化到 localStorage（见 lib/widget-dock-position）。
  */
 function ExtWidgetDock({
 	widgets,
@@ -682,6 +695,22 @@ function ExtWidgetDock({
 	const trackRef = useRef<HTMLDivElement>(null);
 	const dockRef = useRef<HTMLDivElement>(null);
 	const [overflow, setOverflow] = useState({ left: false, right: false });
+	// 拖动位移（相对默认位置；默认定位不动，仅叠加 transform）
+	const [offset, setOffset] = useState<DockOffset>(() => loadDockOffset());
+	const [dragging, setDragging] = useState(false);
+	// chip 队列容器：既是拖动事件代理，也是指针捕获宿主
+	const chipQueueRef = useRef<HTMLDivElement>(null);
+	// 拖动中的临时状态（不入 state：pointermove 逐帧写入不需要额外渲染）
+	const dragRef = useRef<{
+		pointerId: number;
+		startX: number;
+		startY: number;
+		baseOffset: DockOffset;
+		bounds: DockBounds | null;
+		dragging: boolean;
+	} | null>(null);
+	// 已进入拖动 → 吞掉松手后浏览器补发的 click（否则会误触展开）
+	const suppressClickRef = useRef(false);
 	// widget key 列表（顺序变/增删都要重新上报）；用字符串做依赖避免每次渲染重跑
 	const widgetKeys = widgets.map(([key]) => key).join(",");
 
@@ -716,6 +745,90 @@ function ExtWidgetDock({
 		const chip = el.querySelector('[data-collapsed="true"]');
 		const step = chip ? (chip as HTMLElement).offsetWidth + 4 : 120;
 		el.scrollBy({ left: dir === "left" ? -step : step, behavior: "smooth" });
+	};
+
+	// 拖动边界：以 chip 条（track）默认矩形为活动对象，限制在聊天列内。
+	// 下沿放宽到聊天列底部：允许向下拖过输入框上沿（代价是可能盖住输入区，用户已确认）。
+	// 无实测布局（宽度 0）时返回 null → 不做夹紧。
+	const measureDockBounds = (baseOffset: DockOffset): DockBounds | null => {
+		const track = trackRef.current;
+		const anchor = dockRef.current;
+		const column = anchor?.parentElement;
+		if (!track || !anchor || !column) return null;
+		const t = track.getBoundingClientRect();
+		const c = column.getBoundingClientRect();
+		if (t.width === 0 || c.width === 0 || c.height === 0) return null;
+		// track 的当前矩形已含已应用的偏移，减回去得到「默认位置」矩形
+		return computeDockBounds(
+			{
+				left: t.left - baseOffset.x,
+				top: t.top - baseOffset.y,
+				right: t.right - baseOffset.x,
+				bottom: t.bottom - baseOffset.y,
+			},
+			{ left: c.left, top: c.top, right: c.right, bottom: c.bottom },
+		);
+	};
+
+	const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+		// 鼠标仅响应左键；触摸/笔不限
+		if (e.pointerType === "mouse" && e.button !== 0) return;
+		// 新一轮手势开始：清掉上一轮可能残留的 click 抑制标记
+		suppressClickRef.current = false;
+		dragRef.current = {
+			pointerId: e.pointerId,
+			startX: e.clientX,
+			startY: e.clientY,
+			baseOffset: offset,
+			bounds: null,
+			dragging: false,
+		};
+	};
+
+	const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+		const drag = dragRef.current;
+		if (!drag || drag.pointerId !== e.pointerId) return;
+		const dx = e.clientX - drag.startX;
+		const dy = e.clientY - drag.startY;
+		if (!drag.dragging) {
+			// 未越过阈值：不当作拖动，也不阻止 click
+			if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+			drag.dragging = true;
+			drag.bounds = measureDockBounds(drag.baseOffset);
+			setDragging(true);
+			// 指针捕获：拖出 chip 区域仍能收到 move/up（happy-dom 等无此 API 时容错）
+			try {
+				chipQueueRef.current?.setPointerCapture?.(e.pointerId);
+			} catch {
+				/* 不支持指针捕获时退化为容器内拖动 */
+			}
+		}
+		const next = { x: drag.baseOffset.x + dx, y: drag.baseOffset.y + dy };
+		setOffset(drag.bounds ? clampDockOffset(next, drag.bounds) : next);
+		e.preventDefault();
+	};
+
+	const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+		const drag = dragRef.current;
+		if (!drag || drag.pointerId !== e.pointerId) return;
+		dragRef.current = null;
+		if (!drag.dragging) return;
+		suppressClickRef.current = true;
+		setDragging(false);
+		saveDockOffset(offset);
+		try {
+			chipQueueRef.current?.releasePointerCapture?.(e.pointerId);
+		} catch {
+			/* 忽略：未捕获时释放会抛错 */
+		}
+	};
+
+	// 拖动过的这次手势：在捕获阶段吞掉 click，避免误展开 / 误触箭头
+	const onClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+		if (!suppressClickRef.current) return;
+		suppressClickRef.current = false;
+		e.stopPropagation();
+		e.preventDefault();
 	};
 
 	// widget 宽度上报：pi 的 setWidget 按终端列数排版，列数不对正文会错乱换行。
@@ -780,7 +893,22 @@ function ExtWidgetDock({
 				{children}
 				{/* 收起队列：半透明悬浮贴 Composer 上沿，单一队列，溢出时箭头滚动 */}
 				{widgets.filter(([key]) => key !== expandedKey).length > 0 && (
-					<div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 flex items-end">
+					<div
+						ref={chipQueueRef}
+						data-testid="ext-widget-dock"
+						onPointerDown={onPointerDown}
+						onPointerMove={onPointerMove}
+						onPointerUp={endDrag}
+						onPointerCancel={endDrag}
+						onClickCapture={onClickCapture}
+						className="pointer-events-none absolute bottom-full left-0 right-0 z-20 flex items-end justify-end"
+						style={{
+							transform: `translate(${offset.x}px, ${offset.y}px)`,
+							// 祖先设 none：touch-action 按祖先后代取交集，可关掉 chip 上的原生平移手势
+							touchAction: "none",
+							userSelect: dragging ? "none" : undefined,
+						}}
+					>
 						{overflow.left && (
 							<button
 								type="button"
@@ -797,7 +925,7 @@ function ExtWidgetDock({
 						)}
 						<div
 							ref={trackRef}
-							className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto px-[5px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+							className="flex min-w-0 max-w-full items-end gap-1 overflow-x-auto px-[5px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 						>
 							{widgets
 								.filter(([key]) => key !== expandedKey)

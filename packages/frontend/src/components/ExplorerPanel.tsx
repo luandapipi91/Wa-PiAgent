@@ -1,8 +1,9 @@
 // 文件树面板：移植自 cocode 的 explorer.tsx，适配 WaPi 的 fs-client（HTTP REST）。
 // 特性：扁平数组懒加载、5s 轮询、展开状态 ref 保持、右键复制路径/在访达显示、双击文件预览。
 // WaPi 的 listDir 返回 DirEntry{name,isDir}（无 path），前端按父目录拼接绝对路径。
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
+import { Virtuoso } from "react-virtuoso";
 import { listDir, revealFile, openFileWithDefaultApp } from "../fs-client";
 import { copyToClipboard } from "../util/clipboard";
 import { openInFileManagerLabel } from "../util/platform";
@@ -14,7 +15,7 @@ import { useClampMenu } from "./ProjectItem";
 
 type Entry = { name: string; path: string; isDir: boolean };
 
-type FlatNode = {
+export type FlatNode = {
 	key: string;
 	entry: Entry;
 	depth: number;
@@ -145,6 +146,85 @@ function ExplorerContextMenu({
 	);
 }
 
+type RowProps = {
+	node: FlatNode;
+	selected: boolean;
+	onClick: (node: FlatNode, e: React.MouseEvent) => void;
+	onDoubleClick: (node: FlatNode) => void;
+	onContextMenu: (e: React.MouseEvent, node: FlatNode) => void;
+	onPointerDown: (e: React.PointerEvent, node: FlatNode) => void;
+};
+
+// 行组件 memo + 按值比较：轮询会重建全部节点对象（引用全变），浅比较无效，
+// 改为逐项比较渲染相关字段，值不变即跳过 DOM 更新——大目录下轮询/选中变化
+// 不再拖动所有可见行重渲染。
+const ExplorerRow = memo(
+	function ExplorerRow({
+		node,
+		selected,
+		onClick,
+		onDoubleClick,
+		onContextMenu,
+		onPointerDown,
+	}: RowProps) {
+		return (
+			<div
+				className="ep-node"
+				data-kind={node.entry.isDir ? "dir" : "file"}
+				data-selected={selected ? "true" : "false"}
+				style={{ paddingLeft: 8 + node.depth * 16 }}
+				onPointerDown={(e) => onPointerDown(e, node)}
+				onClick={(e) => onClick(node, e)}
+				onDoubleClick={() => onDoubleClick(node)}
+				onContextMenu={(e) => onContextMenu(e, node)}
+			>
+				<span className="ep-arrow">
+					{node.entry.isDir ? (
+						<Icon name={node.expanded ? "chevron-down" : "chevron-right"} size={10} />
+					) : null}
+				</span>
+				<span className="ep-icon inline-flex">
+					<Icon name={node.entry.isDir ? "folder" : "file"} size={13} />
+				</span>
+				<span className="ep-name">{node.entry.name}</span>
+			</div>
+		);
+	},
+	(a, b) =>
+		a.node.key === b.node.key &&
+		a.node.entry.name === b.node.entry.name &&
+		a.node.entry.isDir === b.node.entry.isDir &&
+		a.node.depth === b.node.depth &&
+		a.node.expanded === b.node.expanded &&
+		a.node.hasChildren === b.node.hasChildren &&
+		a.selected === b.selected &&
+		a.onClick === b.onClick &&
+		a.onDoubleClick === b.onDoubleClick &&
+		a.onContextMenu === b.onContextMenu &&
+		a.onPointerDown === b.onPointerDown,
+);
+
+// 轮询重建结果与现有树逐位值比较：内容无变化时复用旧数组引用（React 对相同
+// 引用直接跳过 re-render），消除每 5s 全量重渲染；有变化才整表替换。
+export function isSameTree(prev: FlatNode[], next: FlatNode[]): boolean {
+	if (prev.length !== next.length) return false;
+	for (let i = 0; i < prev.length; i++) {
+		const a = prev[i]!;
+		const b = next[i]!;
+		if (
+			a.key !== b.key ||
+			a.entry.name !== b.entry.name ||
+			a.entry.isDir !== b.entry.isDir ||
+			a.depth !== b.depth ||
+			a.expanded !== b.expanded ||
+			a.hasChildren !== b.hasChildren
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
 export function ExplorerPanel({
 	workspaceDir,
 	onOpenFile,
@@ -171,6 +251,9 @@ export function ExplorerPanel({
 	const [error, setError] = useState<string | null>(null);
 	const expandedRef = useRef<Set<string>>(new Set());
 	const togglingRef = useRef(false);
+	// latest ref：Shift 连选的索引查找读这里，让 handleClick 不依赖 flatList（回调身份稳定，memo 行才有效）
+	const flatListRef = useRef<FlatNode[]>([]);
+	flatListRef.current = flatList;
 	// Shift 连选锚点：最近一次单选/Ctrl 点击的节点 path
 	const lastSelectedRef = useRef<string | null>(null);
 	const addToast = useToastStore((s) => s.add);
@@ -247,7 +330,8 @@ export function ExplorerPanel({
 			if (togglingRef.current) return; // 手动展开进行中，跳过本周期
 			try {
 				setError(null);
-				setLoading(true);
+				// 仅首轮显示 loading：轮询周期置 true 会白白触发一次重渲染
+				if (flatListRef.current.length === 0) setLoading(true);
 				const entries = await loadDir(workspaceDir);
 				if (cancelled) return;
 				const expandedSet = expandedRef.current;
@@ -260,7 +344,8 @@ export function ExplorerPanel({
 				}));
 				const fullTree = await rebuildExpanded(rootNodes);
 				if (cancelled) return;
-				setFlatList(fullTree);
+				// 内容无变化时保留旧引用，跳过整表替换（大目录轮询零重渲染）
+				setFlatList((prev) => (isSameTree(prev, fullTree) ? prev : fullTree));
 				setLoading(false);
 			} catch (err) {
 				if (!cancelled) {
@@ -348,19 +433,18 @@ export function ExplorerPanel({
 				lastSelectedRef.current = node.entry.path;
 				return;
 			}
-			// Shift+点击：从锚点到当前节点按 flatList 索引区间连选
+			// Shift+点击：从锚点到当前节点按 flatList 索引区间连选（经 latest ref 读最新列表）
 			if (e.shiftKey) {
+				const list = flatListRef.current;
 				const anchor = lastSelectedRef.current;
 				const startIdx = anchor
-					? flatList.findIndex((n) => n.entry.path === anchor)
-					: flatList.findIndex((n) => n.entry.path === node.entry.path);
-				const endIdx = flatList.findIndex((n) => n.entry.path === node.entry.path);
+					? list.findIndex((n) => n.entry.path === anchor)
+					: list.findIndex((n) => n.entry.path === node.entry.path);
+				const endIdx = list.findIndex((n) => n.entry.path === node.entry.path);
 				if (startIdx !== -1 && endIdx !== -1) {
 					const [lo, hi] =
 						startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
-					setSelectedPaths(
-						new Set(flatList.slice(lo, hi + 1).map((n) => n.entry.path)),
-					);
+					setSelectedPaths(new Set(list.slice(lo, hi + 1).map((n) => n.entry.path)));
 				}
 				return;
 			}
@@ -369,7 +453,7 @@ export function ExplorerPanel({
 			lastSelectedRef.current = node.entry.path;
 			if (node.entry.isDir) toggleDir(node);
 		},
-		[toggleDir, flatList],
+		[toggleDir],
 	);
 
 	const handleDoubleClick = useCallback(
@@ -500,40 +584,22 @@ export function ExplorerPanel({
 	}
 
 	return (
-		<div
-			className="ep-tree"
-			style={{ overflow: "auto" }}
-			data-testid="explorer-panel"
-		>
-			{flatList.map((node) => {
-				const isSelected = selectedPaths.has(node.entry.path);
-				return (
-					<div
-						key={node.key}
-						className="ep-node"
-						data-kind={node.entry.isDir ? "dir" : "file"}
-						data-selected={isSelected ? "true" : "false"}
-						style={{ paddingLeft: 8 + node.depth * 16 }}
-						onPointerDown={(e) => startDrag(e, node)}
-						onClick={(e) => handleClick(node, e)}
-						onDoubleClick={() => handleDoubleClick(node)}
-						onContextMenu={(e) => handleContextMenu(e, node)}
-					>
-						<span className="ep-arrow">
-							{node.entry.isDir ? (
-								<Icon
-									name={node.expanded ? "chevron-down" : "chevron-right"}
-									size={10}
-								/>
-							) : null}
-						</span>
-						<span className="ep-icon inline-flex">
-							<Icon name={node.entry.isDir ? "folder" : "file"} size={13} />
-						</span>
-						<span className="ep-name">{node.entry.name}</span>
-					</div>
-				);
-			})}
+		<div className="ep-tree" data-testid="explorer-panel">
+			{/* 虚拟滚动：行高固定 24px（.ep-node），只渲染视口内行，大目录不再全量挂载 DOM */}
+			<Virtuoso
+				data={flatList}
+				fixedItemHeight={24}
+				itemContent={(_, node) => (
+					<ExplorerRow
+						node={node}
+						selected={selectedPaths.has(node.entry.path)}
+						onClick={handleClick}
+						onDoubleClick={handleDoubleClick}
+						onContextMenu={handleContextMenu}
+						onPointerDown={startDrag}
+					/>
+				)}
+			/>
 			{ctxMenu && (
 				<ExplorerContextMenu
 					x={ctxMenu.x}

@@ -288,6 +288,44 @@ describe("Composer", () => {
     expect(s.optimisticEchoBySession["s1"]).toBe(true);
   });
 
+  it("乐观发送：附件随消息保留（发送失败后「重新发送」才会带附件重发）", async () => {
+    const atts: AttachmentDraft[] = [
+      {
+        kind: "image",
+        name: "shot.png",
+        path: "/tmp/uploads/shot.png",
+        size: 123,
+      },
+    ];
+    useComposerPrefsStore.setState({
+      bySession: {
+        s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: atts },
+      },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbDefaults.thinking = "disabled";
+    composerDbSessions.s1 = {
+      model: "openai/gpt-4o",
+      thinking: "disabled",
+      attachments: atts,
+    };
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    typeIntoComposer("看下这张图");
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    const sm = useSessionStore.getState().messagesBySession["s1"][0];
+    expect(sm.attachments).toEqual(atts);
+    // 附件照旧随请求发给 kernel（原有行为不变）
+    await waitFor(() => {
+      const req = sent
+        .filter((s) => s.path && s.path.includes("/prompt"))
+        .at(-1);
+      expect(req?.body.attachments).toEqual(atts);
+    });
+  });
+
   it("已注册扩展命令（/uidemo）：不乐观插入用户消息，仍原样发给 kernel", () => {
     useComposerPrefsStore.setState({
       bySession: {
@@ -607,7 +645,7 @@ describe("Composer", () => {
 
     render(<Composer sessionId="s1" agentName="dev" />);
     await act(async () => {});
-    const textbox = typeIntoComposer("立即发送");
+    typeIntoComposer("立即发送");
     // 300ms 内点发送：防抖定时器必须被清理，否则发送后草稿会"复活"
     fireEvent.click(screen.getByTestId("composer-send"));
 

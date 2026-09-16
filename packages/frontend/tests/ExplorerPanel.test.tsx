@@ -1,5 +1,6 @@
 // ExplorerPanel 组件测试：目录展开/折叠、文件双击预览、右键菜单。
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import type { ReactElement } from "react";
 import {
 	render,
 	screen,
@@ -7,10 +8,20 @@ import {
 	waitFor,
 	cleanup,
 } from "@testing-library/react";
+import { VirtuosoMockContext } from "react-virtuoso";
 import { ExplorerPanel } from "../src/components/ExplorerPanel";
 import { _setFsTransport } from "../src/fs-client";
 import { makeFakeFsTransport } from "./fs-transport";
 import { useToastStore } from "../src/store/toast";
+
+// 虚拟化列表在 happy-dom 无布局：用 VirtuosoMockContext 提供视口测量值才渲染行
+function renderExplorer(ui: ReactElement) {
+	return render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 600, itemHeight: 24 }}>
+			{ui}
+		</VirtuosoMockContext.Provider>,
+	);
+}
 
 const fake = makeFakeFsTransport();
 
@@ -31,7 +42,7 @@ test("初始加载根目录，点击目录展开子项，再点折叠", async ()
 			{ name: "readme.md", isDir: false },
 		],
 	});
-	const { rerender } = render(
+	const { rerender } = renderExplorer(
 		<ExplorerPanel workspaceDir="/work/demo" onOpenFile={() => {}} />,
 	);
 
@@ -53,7 +64,9 @@ test("初始加载根目录，点击目录展开子项，再点折叠", async ()
 
 test("listDir 请求带 showHidden=true：隐藏文件/文件夹（.git/.env）不显示是 kernel 过滤导致，前端必须放行", async () => {
 	fake.setResponse("fs:listDir", { entries: [{ name: "a.ts", isDir: false }] });
-	render(<ExplorerPanel workspaceDir="/work/demo" onOpenFile={() => {}} />);
+	renderExplorer(
+		<ExplorerPanel workspaceDir="/work/demo" onOpenFile={() => {}} />,
+	);
 	await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
 
 	// 首次加载根目录的 list-dir 请求必须携带 showHidden: true
@@ -65,7 +78,7 @@ test("listDir 请求带 showHidden=true：隐藏文件/文件夹（.git/.env）�
 test("双击文件触发 onOpenFile（绝对路径）", async () => {
 	fake.setResponse("fs:listDir", { entries: [{ name: "a.ts", isDir: false }] });
 	const ref = { opened: null as string | null };
-	render(
+	renderExplorer(
 		<ExplorerPanel
 			workspaceDir="/work/demo"
 			onOpenFile={(p) => {
@@ -81,7 +94,9 @@ test("双击文件触发 onOpenFile（绝对路径）", async () => {
 
 test("右键文件弹出菜单，含复制路径项", async () => {
 	fake.setResponse("fs:listDir", { entries: [{ name: "b.ts", isDir: false }] });
-	render(<ExplorerPanel workspaceDir="/work/demo" onOpenFile={() => {}} />);
+	renderExplorer(
+		<ExplorerPanel workspaceDir="/work/demo" onOpenFile={() => {}} />,
+	);
 
 	const node = await waitFor(() => screen.getByText("b.ts"));
 	fireEvent.contextMenu(node);
@@ -91,6 +106,6 @@ test("右键文件弹出菜单，含复制路径项", async () => {
 });
 
 test("未设置 workspaceDir 显示占位", () => {
-	render(<ExplorerPanel workspaceDir="" onOpenFile={() => {}} />);
+	renderExplorer(<ExplorerPanel workspaceDir="" onOpenFile={() => {}} />);
 	expect(screen.getByText("未设置工作目录")).toBeTruthy();
 });

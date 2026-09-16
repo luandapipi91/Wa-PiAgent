@@ -8,7 +8,18 @@
  * pointerup（落点 elementFromPoint mock 到 contenteditable 编辑器）。
  */
 import { test, expect, mock } from "bun:test";
+import type { ReactElement } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { VirtuosoMockContext } from "react-virtuoso";
+
+// 虚拟化列表在 happy-dom 无布局：用 VirtuosoMockContext 提供视口测量值才渲染行
+function renderExplorer(ui: ReactElement) {
+	return render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 600, itemHeight: 24 }}>
+			{ui}
+		</VirtuosoMockContext.Provider>,
+	);
+}
 
 mock.module("../src/fs-client", () => ({
 	listDir: () => Promise.resolve([{ name: "a.ts", isDir: false }]),
@@ -37,7 +48,7 @@ test("拖拽文件树文件到输入框，派发 #[路径] chip token 而非 pat
 	window.addEventListener("wa-pi:insert-mention", onInsert);
 
 	try {
-		render(
+		renderExplorer(
 			<ExplorerPanel
 				workspaceDir="/tmp/proj"
 				projectName="proj"

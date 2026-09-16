@@ -4,7 +4,7 @@ import { test, expect, beforeEach, mock } from "bun:test";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useExtDialogStore } from "../src/store/ext-dialog";
-import type { SDKEventEnvelope } from "@wa-pi/shared";
+import type { AttachmentRef, SDKEventEnvelope } from "@wa-pi/shared";
 
 // message_update 已接 rAF 合帧（batcher）：断言前需等帧末提交
 const flushFrames = () =>
@@ -941,6 +941,40 @@ test("optimisticSend 立即追加用户消息 + 占位 assistant streaming + sta
 	expect(s.statusBySession["s1"]).toBe("thinking");
 	// 标记：等待 SDK message_start(user) 回声替换占位
 	expect(s.optimisticEchoBySession["s1"]).toBe(true);
+});
+
+test("optimisticSend 带附件 → 附件引用随消息保留（发送失败后「重新发送」靠它重发）", () => {
+	const atts: AttachmentRef[] = [
+		{ kind: "file", name: "方案.pptx", path: "/tmp/uploads/plan.pptx", size: 12 },
+	];
+	useSessionStore.getState().optimisticSend("s1", "看下这个方案", "dev", atts);
+	expect(
+		useSessionStore.getState().messagesBySession["s1"][0].attachments,
+	).toEqual(atts);
+});
+
+test("optimisticSend 无附件 → 消息不带 attachments 字段", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	expect(
+		useSessionStore.getState().messagesBySession["s1"][0].attachments,
+	).toBeUndefined();
+});
+
+test("message_start(user) 回声替换占位 → 附件引用迁移到 SDK 权威版本（不丢）", () => {
+	const atts: AttachmentRef[] = [
+		{ kind: "image", name: "shot.png", path: "/tmp/uploads/shot.png", size: 34 },
+	];
+	useSessionStore.getState().optimisticSend("s1", "看图", "dev", atts);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "message_start",
+			message: { role: "user", content: "看图", timestamp: 999 },
+		}),
+	);
+	const sm = useSessionStore.getState().messagesBySession["s1"][0];
+	expect((sm.message as any).timestamp).toBe(999); // 仍是 SDK 权威版本
+	expect(sm.attachments).toEqual(atts); // 附件引用被带过来
 });
 
 test("optimisticSend /compact 不插入用户消息（kernel 转 compact RPC，无 user 回声）", () => {

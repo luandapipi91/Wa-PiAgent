@@ -3,6 +3,7 @@ import type {
 	ToolResultMessage,
 	PromptEvent,
 	AgentName,
+	AttachmentRef,
 	ThinkingLevel,
 } from "@wa-pi/shared";
 import { isModelAvailable, KERNEL_INTERCEPTED_COMMANDS } from "@wa-pi/shared";
@@ -56,6 +57,8 @@ import {
 	registerAgentMeta,
 	restoreFilePathTokens,
 	renderAttachmentTail,
+	parseAttachmentTailPaths,
+	attachmentPathsToHtml,
 	rangeHasToken,
 	selectionToTokenText,
 	restoreKnownCommands,
@@ -199,7 +202,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 		}
 	}
 	const handleResend = useCallback(
-		(text: string, index: number) => {
+		(text: string, index: number, attachments?: AttachmentRef[]) => {
 			// 过期模型（provider 已删、prefs 残留）直接放弃重发：不裁剪、不发送，
 			// 否则消息被裁掉后后端才报模型解析失败，用户丢了原消息。
 			const prefs = useComposerPrefsStore.getState().bySession[sessionId];
@@ -213,6 +216,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 				session,
 				sessionId,
 				text,
+				attachments,
 				model: prefs?.model,
 				thinking:
 					prefs?.thinking ?? useComposerPrefsStore.getState().defaults.thinking,
@@ -220,7 +224,8 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			if (payload && session) {
 				useSessionStore
 					.getState()
-					.optimisticSend(sessionId, text, session.primaryAgent);
+					// 附件一并随重建的乐观消息保留：重试再失败时仍能带着附件重试
+					.optimisticSend(sessionId, text, session.primaryAgent, attachments);
 				// 重发清除 transient degraded 标记（kernel 侧 prompt 也会清除 netDegraded）
 				useSessionStore.getState().clearNetStatus(sessionId);
 				void api.post(
@@ -796,7 +801,10 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 								sessionId={sessionId}
 								showResend={showResend}
 								onResend={
-									showResend ? (text: string) => handleResend(text, vr.index) : undefined
+									showResend
+										? (text: string, attachments?: AttachmentRef[]) =>
+												handleResend(text, vr.index, attachments)
+										: undefined
 								}
 								isStreaming={isMergedStreamingRow}
 								isActiveTurnRow={isActiveTurnRow && i === displayRows.length - 1}
@@ -992,12 +1000,40 @@ function formatSkillBlocks(
  * 用当前选择的模型重发；缺会话/模型/文本时返回 null（调用方不发）。
  * 纯函数，便于单测（不触网）。
  */
+/** 图片扩展名：附件尾段只留路径，重发时按扩展名决定是否作为多模态图片内联。
+ *  猜错也无害：内核读图失败会降级为 path 引用文本（见 kernel buildPromptContent）。 */
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic)$/i;
+
+/** 取一条消息随带的附件引用（「重新发送」用），两个来源：
+ *  1. 消息上本地保留的 attachments——发送时记录，覆盖「请求未达 pi」的失败
+ *    （此类失败没有 pi 回声，正文里也不存在附件尾段）
+ *  2. 正文尾段 Attachments:\n[path:...]——pi 落盘的历史消息（本地引用已不在）
+ *  尾段只有路径：name 取 basename、size 记 0（内核重发只按 path 处理）、kind 按扩展名判定。 */
+function resolveMessageAttachments(
+	sm: SessionMessage,
+): AttachmentRef[] | undefined {
+	const local = sm.attachments;
+	if (local && local.length > 0) return local;
+	const m = sm.message as any;
+	const text =
+		typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? "");
+	const paths = parseAttachmentTailPaths(text);
+	if (paths.length === 0) return undefined;
+	return paths.map((p) => {
+		const name = p.split(/[\\/]/).pop() || p;
+		return IMAGE_EXT_RE.test(p)
+			? ({ kind: "image", name, path: p, size: 0 } as AttachmentRef)
+			: ({ kind: "file", name, path: p, size: 0 } as AttachmentRef);
+	});
+}
+
 export function buildResendPrompt(args: {
 	session: { projectId: string; primaryAgent: AgentName } | undefined;
 	sessionId: string;
 	text: string;
 	model: string | null | undefined;
 	thinking: ThinkingLevel;
+	attachments?: AttachmentRef[];
 }): PromptEvent | null {
 	if (!args.session || !args.model || !args.text.trim()) return null;
 	return {
@@ -1008,6 +1044,10 @@ export function buildResendPrompt(args: {
 		text: args.text,
 		model: args.model,
 		thinking: args.thinking,
+		attachments:
+			args.attachments && args.attachments.length > 0
+				? args.attachments
+				: undefined,
 	};
 }
 
@@ -1103,7 +1143,7 @@ export const MessageRow = memo(function MessageRow({
 	row: RenderedRow;
 	sessionId: string;
 	showResend?: boolean;
-	onResend?: (text: string) => void;
+	onResend?: (text: string, attachments?: AttachmentRef[]) => void;
 	isStreaming?: boolean;
 	isActiveTurnRow?: boolean;
 	isLastMessage?: boolean;
@@ -1193,8 +1233,18 @@ export const MessageRow = memo(function MessageRow({
 		// textToHtml 把 @[agent]/#[file]/$[skill] token 渲染为 chip。
 		// hideTrigger=true：展示场景不显示 @ 触发符（仅显示智能体名 + 头像），与输入框 ComposerTextarea 区分。
 		const base = textToHtml(displayText, { hideTrigger: true });
-		// 附件 chip 接在正文后（尾段本就在消息末尾）
-		const displayHtml = attachmentHtml ? `${base} ${attachmentHtml}` : base;
+		// 附件 chip 接在正文后（尾段本就在消息末尾）。
+		// 正文没有尾段时（乐观占位 / 发送失败无 pi 回声），用消息上本地保留的附件引用补 chip
+		// ——与「重新发送」取附件同源，避免「带着附件却看不到附件」的观感。
+		const localChipHtml = attachmentHtml
+			? ""
+			: attachmentPathsToHtml(
+					(row.main.attachments ?? [])
+						.filter((a) => "path" in a)
+						.map((a) => (a as { path: string }).path),
+				);
+		const chipHtml = attachmentHtml || localChipHtml;
+		const displayHtml = chipHtml ? `${base} ${chipHtml}` : base;
 		return (
 			<div
 				className="flex flex-row-reverse gap-2.5 max-w-[90%] ml-auto min-w-0"
@@ -1220,7 +1270,9 @@ export const MessageRow = memo(function MessageRow({
 						<button
 							type="button"
 							data-testid={`resend-${sessionId}-${m.timestamp}`}
-							onClick={() => onResend?.(displayText)}
+							onClick={() =>
+								onResend?.(displayText, resolveMessageAttachments(row.main))
+							}
 							className="mt-1 self-end inline-flex items-center gap-1 whitespace-nowrap text-[calc(12px*var(--font-scale))] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
 						>
 							<Icon name="refresh" size={11} /> {t("message.resend")}

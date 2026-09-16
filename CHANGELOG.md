@@ -1,3 +1,27 @@
+## 2026-09-16 — perf(frontend): 文件树大目录卡顿修复——虚拟滚动 + 轮询按需更新
+
+- 问题：项目文件树展开大目录（如 node_modules 数千条目）后电脑卡顿。根因：①全量真实 DOM（几千行节点常驻，每行 4 元素+SVG）；②5s 轮询递归重建所有已展开目录、全部节点对象重建后 `setFlatList` 整表替换，每 5s 一次全量 reconcile。
+- 实现（`ExplorerPanel.tsx`）：
+  - 虚拟滚动：`flatList.map` 全量渲染换成 `react-virtuoso`（依赖已有，先例 MessageList）+ `fixedItemHeight=24`（`.ep-node` 固定行高），只渲染视口内几十行；`.ep-tree` 加 `height:100%`（两处挂载点均为 flex-1 容器）。
+  - 行组件 `ExplorerRow` 抽出 + `memo` 自定义比较：轮询重建节点对象后引用全变，改为逐项比较渲染相关字段（key/name/isDir/depth/expanded/hasChildren/selected），值不变跳过 DOM 更新；`handleClick` 去掉 `flatList` 依赖（Shift 连选改读 `flatListRef` latest ref），回调身份稳定。
+  - 轮询按需更新：新增导出 `isSameTree`（逐位值比较），refresh 结束后 `setFlatList(prev => isSameTree(prev, fullTree) ? prev : fullTree)`——内容无变化时保留旧引用，React 跳过重渲染；`setLoading(true)` 仅首轮调用（轮询周期置 true 白白触发重渲染）。数据链路不变：仍是懒加载 + 5s 轮询。
+- 四层测试：纯函数 `isSameTree` 直测（同内容/空数组/长度/名称/isDir/展开态/hasChildren 各差异分支）+ 组件测试 5 例（`tests/ExplorerPanel.virtualized.test.tsx`：3000 节点只渲染 <100 行、virtuoso-scroller 标记、展开折叠/选中交互、isSameTree）+ E2E 1 例（`e2e/explorer-virtualized.spec.ts`：500 文件目录展开后 DOM 行数 <100、滚动到底末行按需渲染、跨 5s 轮询周期展开态保持）。
+- 迁移：现有 4 个直接渲染 ExplorerPanel 的测试文件（src/ExplorerPanel.test.tsx、tests/ExplorerPanel.test.tsx、drag-chip、ctx-menu-clamp）包 `VirtuosoMockContext`（happy-dom 无布局，需 mock 视口测量值才渲染行）。
+- 验证：tsc 退出 0；bun run build 成功；E2E explorer.spec.ts 5 例全过（预览/拖拽无回归）+ virtualized 1 passed；全量 bun run test 2417 pass / 4 fail（4 个 fail 为 mock.module 进程级泄漏导致的预存在互染，stash 基线验证与本次改动无关）。
+- 影响范围：packages/frontend/src/components/ExplorerPanel.tsx、src/styles.css、tests/ExplorerPanel.virtualized.test.tsx（新增）、e2e/explorer-virtualized.spec.ts（新增）、4 个既有测试文件适配。
+
+## 2026-09-16 — feat(frontend): 收缩态 TUI chip 队列改为靠右 + 可自由拖动 + 位置持久化
+
+- 需求：`ExtWidgetDock` 收起态 chip 队列默认贴在输入框上沿靠左，改为同贴上沿但水平靠右；整条队列支持鼠标/触控自由拖动（横向 + 纵向），松手停住并带边界约束；拖动后位置持久化，刷新/切会话后保留。
+- 实现：
+  - 靠右：chip 队列容器加 `justify-end`；轨道去掉 `flex-1` 改 `max-w-full` 内容自适应宽度，**保留** `overflow-x-auto` 与左右溢出滚动按钮（按钮仍在，行为不变）。
+  - 拖动：Pointer Events（`pointerdown/move/up/cancel`）挂在队列容器上（子 chip 的 pointer 事件冒泡到容器，`pointer-events-none` 祖先不影响冒泡）；用相对默认位置的 `transform: translate(x,y)` 表达位移，**不动** `absolute bottom-full left-0 right-0` 基准定位与 `dockRef` 宽度上报；移动阈值 4px 区分点击与拖动（阈值内不吞 click），进入拖动后 `setPointerCapture` + 捕获阶段吞掉随后的 click（并在下一次 `pointerdown` 清标记，避免残留标记吞掉无关点击）；拖动中容器 `touch-action: none` / `user-select: none`。
+  - 边界：以 chip 条（track）默认矩形为活动对象，限制在聊天列矩形内，**下沿放宽到聊天列底部**（允许向下拖过输入框上沿，代价是可能盖住输入区），留 4px 安全边距；无实测布局（宽度 0）时不夹紧。
+  - 持久化：新模块 `src/lib/widget-dock-position.ts`，键名 `wa-pi:ext-widget-dock-offset`；`clampDockOffset` / `computeDockBounds` 纯函数，`loadDockOffset` 对无记录/JSON 损坏/缺字段/非数值/localStorage 抛错一律回退 `{0,0}` 且不抛错。
+- 四层测试：单测 13 例（clamp 四角与越界、尺寸为 0、非有限值；computeDockBounds 数学值与零尺寸；load 的损坏 JSON/缺字段/非数值/null/抛错回退；save 的写入与抛错降级）+ 组件 6 例（默认 `justify-end` 与轨道 `max-w-full`、拖动后 `translate(-40px, 20px)` 并写入 localStorage、**下沿放宽后可向下拖到聊天列底部（拖 600px 被夹到 466）**、重新挂载恢复位移、阈值内小位移仍能展开、拖动后 click 被吞不误展开）+ E2E 2 断言（默认靠右 + 拖动 80px 位移并落盘，ext-ui-bridge-demo）。
+- 验证：frontend typecheck 退出 0；frontend 全量 2411 pass / 0 fail（新增 19 例，基线 2392）；E2E `-g "ANSI 颜色渲染"` 1 passed（15.1s，PI_E2E=1 偏移端口实跑）。
+- 影响范围：packages/frontend/src/components/SessionView.tsx、src/lib/widget-dock-position.ts（新增）、src/lib/widget-dock-position.test.ts（新增）、tests/SessionView.test.tsx、e2e/ext-ui-bridge-demo.spec.ts。
+
 ## 2026-09-16 — fix(frontend): TUI 面板展开态不再把内部位置标识当标题渲染
 
 - 问题：第三方插件（如 rpiv-todos）的 TUI 面板展开后，标题显示为「rpiv-todos aboveEditor」——内部字段 `placement` 的枚举字面量被当成可见文本渲染了出来。
@@ -17,6 +41,16 @@
 - 影响范围：packages/kernel、packages/shared、packages/frontend。
 - 后续（批 2）：前端服务端检索体验、真实模型冒烟评测（写入触发率 ≥ 85%）、E2E 扩展。
 
+## 2026-09-16 — fix(frontend): md 预览虚拟滚动拆散 HTML 容器，居中 logo 变左对齐
+
+- 问题：文件预览打开 README，顶部本应居中的 logo 变成左对齐（块级虚拟滚动引入后出现）。
+- 根因：`splitMarkdownBlocks` 把「空行/标题」当作安全切块边界，而 README 的 `<div align="center">` 与内容之间恰好就有空行 → 开标签、`<img>`、闭标签被切进不同块。每块是独立文档、单独经 `rehype-raw` 解析，标签无法配对（开标签被自动闭合成立即结束的空 div），`align` 无处继承。
+- 修复：切分时维护「未闭合 HTML 块级容器栈」（div/p/center/table/details… 等），容器闭合前不因空行/标题切块；void 标签（`<br>`/`<img>`）与自闭合标签不入栈，围栏代码块与行内代码里的标签不参与配对；200 行兜底仍生效（含未闭合容器的长文本）。
+- 四层测试：单测 3 例（容器跨空行不拆散、围栏内 HTML 样例不误配对、未闭合容器仍受行数上限）+ 组件 1 例（`div[align=center]` 的子孙里必须有 img 与 h1）+ E2E 1 例（真实浏览器 + 真实内核：PREVIEW.md 换成带空行的居中容器并预置 logo.png，断言 img/h1 都在容器内且计算 `text-align` 为居中；临时回退源码反向验证必红）。
+- 顺带修复：`e2e/explorer.spec.ts`「双击 md 文件渲染为 markdown」在 md 走块级虚拟滚动后就已失效（正文被切成多个 `text-block`，`getByTestId` 触发 strict mode 冲突），改为按元素类型断言——该用例在本次改动前即为红。
+- 验证：前端全量 2392 pass / 0 fail；frontend typecheck 退出 0；`explorer.spec.ts` E2E 5/5 通过（偏移端口，未干扰宿主实例）。
+- 影响范围：packages/frontend/src/components/blocks/FileViewer.tsx、tests/FileViewer.test.tsx、e2e/explorer.spec.ts、e2e/global-setup.ts。
+
 ## 2026-09-16 — fix(kernel): 发送前自动压缩估算按 CJK 加权 + 双条件判定，修复长中文会话撞上游窗口 400 卡死
 
 - 问题：pi 上报的上下文占用 = 最后一条有效 assistant 的 usage + 其后新增消息按「字符数÷4」估算。该口径对中文严重低估（实测中文≈1.48 tok/字，估算只有 0.25），长中文会话下内核按 `0.8 × contextWindow` 判定永远不触发压缩，而请求实际已越过上游窗口边界 → 上游持续返回 `400 {"model":...}` 且永久卡死。
@@ -27,7 +61,20 @@
 - 关键取舍：pi 压缩后 `get_messages` 返回的是「summary + 保留消息」，内核旧快照会残留压缩前历史；若无锚点时按全量估算会把旧历史重复计入 → 反复触发压缩，故在发送前同步重拉快照（避开与流式 `message_end` 的竞态）。
 - 测试：`context-estimate.test.ts` 22 例（CJK/ASCII 权重、emoji 不误判、image=4800、toolCall 参数计长、totalTokens 优先与分量回退、锚点跳过 error/aborted/无 usage、afterTs 过滤、无锚点回退、`ESTIMATE_SAFETY` 只放大尾部）；`auto-compact.test.ts` 扩真值表（两条规则交叉 7 组 + 边界/非法入参）；`auto-compact-behavior.test.ts` 新增 5 例联动验证（引擎低估 CJK 但内核估算触发压缩、条件②触发/不触发、compaction_end 成功后发送前重拉快照、压缩失败不刷新快照，用真实 AgentManager + 假 client）。
 - 验证：kernel typecheck 退出 0；`bun run test`（根 gate）退出 0，kernel 1824 pass / 0 fail，前端 2388 pass / 0 fail，全域 0 fail。
-- 影响范围：packages/kernel/src/context-estimate.ts（新增）、auto-compact.ts、agent-manager.ts、src/__tests__/{context-estimate,auto-compact}.test.ts、tests/auto-compact-behavior.test.ts、tests/fixtures/fake-session-client.ts。
+- 影响范围：packages/kernel/src/context-estimate.ts（新增）、auto-compact.ts、agent-manager.ts、src/**tests**/{context-estimate,auto-compact}.test.ts、tests/auto-compact-behavior.test.ts、tests/fixtures/fake-session-client.ts。
+
+## 2026-09-16 — fix(frontend): 带附件的消息发送失败后「重新发送」丢失附件
+
+- 问题：带附件的消息发送失败，点「重新发送」后附件不再发出（重发成了纯文本）。
+- 根因（三处叠加）：① `buildResendPrompt` 不产出 `attachments`，`handleResend` 里的 `payload.attachments` 恒为 undefined（内核 `agent:prompt` 链路本就完整支持）；② 重试入口只拿到被 `renderAttachmentTail` 剥掉附件尾段的 `displayText`，路径在回调前就丢了；③ 乐观占位消息不保存附件引用、且用户消息在「请求未达 pi」的失败下没有 pi 回声（正文里连 `Attachments:` 尾段都不存在），附件信息在前端彻底消失。
+- 修复：
+  ① `optimisticSend` 新增可选的附件引用，随乐观消息保留（`SessionMessage.attachments`，前端本地字段）；`message_start(user)` 回声替换占位时把它迁移到 pi 的权威版本，避免回声一到就丢。
+  ② `Composer` 发送时把附件一并交给 `optimisticSend`。
+  ③ `MessageList` 新增 `resolveMessageAttachments`：「重新发送」优先取消息上本地保留的附件，其次从正文尾段 `Attachments:\n[path:...]` 还原路径（pi 落盘的历史消息，name 取 basename、kind 按扩展名判定，size 记 0——内核重发只按 path 处理）；重发请求与重建的乐观消息都带上附件，于是连续重试也不丢。
+  ④ 用户气泡在正文无尾段时用本地附件引用补「附件:文件名」chip（与尾段渲染同源同款），发送失败后不再出现「带着附件却看不到附件」。
+- 四层测试：单测 3 例（tokens 的尾段解析/路径转 chip/两步等价）+ store 3 例（附件随消息保留、无附件不带字段、回声替换迁移附件）+ 组件 4 例（重发请求带原附件并保留在重建消息、尾段还原、无附件不受影响、乐观占位显示 chip）+ Composer 1 例（附件随消息保留且请求照旧带附件）+ E2E 1 例（真实内核 + 真浏览器：上传附件 → 发送失败 → 点重新发送 → 请求体带原附件且气泡 chip 仍在）。
+- 验证：红→绿双证——新用例在修复前失败，E2E 反向验证（临时 stash 源码）失败点正是 `resent.attachments === undefined`；修复后前端全量 2388 pass / 0 fail、四包 typecheck 全绿、E2E 1 pass（偏移端口对宿主无干扰）。API 层隔离实测：`POST /api/agents/:p/:s/prompt` 带 attachments → pi 落盘 user 消息含 `Attachments:\n[path:.../note.txt]`（附件确实传到模型侧）。
+- 影响范围：packages/frontend（src/store/session.ts、src/components/Composer.tsx、src/components/MessageList.tsx、src/quick-invoke/tokens.ts、e2e/resend-attachments.spec.ts 新增、tests/{MessageList,Composer,store-session,tokens}.test.*）、packages/shared/src/types.ts。
 
 ## 2026-09-16 — v0.4.1 发版（插件注册冲突校验 + 预览修复）
 
@@ -39,7 +86,7 @@
 
 ## 2026-09-15 — feat(kernel+frontend): 插件注册面冲突——安装后问 pi 要注册表，重复命令当场拦下
 
-- 背景：同时启用两个功能重复的插件（pi-goal-x 与 @narumitw/pi-goal 都注册 `goal` 命令）会让插件行为错乱。根因实测：pi 对命令重名**既不报错也不拦**——两者共存时 pi 给出 `goal:1`(pi-goal-x) / `goal:2`(@narumitw/pi-goal) 两份都要加载，谁生效取决于加载顺序；而 wa-pi 安装流程只校验「包名是否重复」。
+- 背景：同时启用两个功能重复的插件（pi-goal-x 与 @narumitw/pi-goal 都注册 `goal` 命令）会让插件行为错乱。根因实测：pi 对命令重名__既不报错也不拦__——两者共存时 pi 给出 `goal:1`(pi-goal-x) / `goal:2`(@narumitw/pi-goal) 两份都要加载，谁生效取决于加载顺序；而 wa-pi 安装流程只校验「包名是否重复」。
 - 实现（运行时探测，不猜源码）：新增 `packages/kernel/src/extension-probe.ts` —— 装完插件后起一个临时 pi（`--no-session --offline`，读同一 agentDir 的 settings.json），用 `get_commands` 拿「命令 → 归属包」（复用 tui-command-filter 的 `attachPackageName`，并把 pi 的重名后缀 `名字:N` 归一化）。同一原始命令名归属 ≥2 个包、且涉及本次新装包 → 冲突。
 - 编排在 `ws-server` 的 `extension:install`：install 成功后探测；冲突则 `uninstall` 回滚本次安装 + 广播 `extension:changed`，再抛 `ext.commandConflict`（params: name/other/names）走既有 `extension:error` 链路，前端渲染「插件 A 与已安装的 B 都注册了命令 /goal，功能重复，请先卸载其中一个」。探测失败（pi 起不来 / 超时）返回 null → 放行，不阻断正常安装。
 - 方案取舍：最初版本用「静态扫插件源码提取 registerCommand/registerTool 名」+ 多级回溯，**已废弃**——命令名不在 package.json 里声明，扫源码只能正则猜写法，遇循环注册 / 字符串拼接 / 编译产物即漏判；pi 的运行时注册表才是权威数据源。工具名因 pi 未暴露清单 RPC 暂不纳入（pi 自身对 tool 冲突有 diagnostics）。
@@ -50,7 +97,7 @@
 ## 2026-09-15 — fix(scripts): GitHub 镜像同步改为「只提交变化条目」（修 POST /git/trees 超时挂起）
 
 - 问题：`POST /git/trees` 把所有本地文件（1047 条）全量 upsert 进 tree 请求体，且 blob 存在性校验对每个文件各发一次 `GET /git/blobs/:sha`。实测该请求体在 GitHub 侧构树超时——返回 `504 We couldn't respond to your request in time`，重试 3 次仍失败，还出现过请求挂起（30 分钟无响应），镜像同步彻底跑不动；而镜像 main 停在 8/31 快照（当时条目更少才成功）。
-- 修复：`buildEntries(local, remoteShas)` 改为**只提交「内容变化 / 新增」的条目与远端多余文件的删除**，未变化条目交给 `base_tree` 复用；blob 存在性校验也只针对这些条目（未变化文件的 blob 必然已在远端）。`gitOut` / `git log` 两处 `execSync` 补 try/catch 并附上下文（`git log` 失败时回退占位提交信息，不再中断同步）。
+- 修复：`buildEntries(local, remoteShas)` 改为__只提交「内容变化 / 新增」的条目与远端多余文件的删除__，未变化条目交给 `base_tree` 复用；blob 存在性校验也只针对这些条目（未变化文件的 blob 必然已在远端）。`gitOut` / `git log` 两处 `execSync` 补 try/catch 并附上下文（`git log` 失败时回退占位提交信息，不再中断同步）。
 - 测试：`scripts/sync-github-mirror.test.ts` 的 `buildEntries` 用例改写为 Map 口径（内容变化才提交 / 新增文件提交 / 远端多余文件删除 / 完全一致返回空），11 pass。
 - 验证：改造后一次同步通过 —— `tree entries: upsert=219 delete=0 unchanged=828`、`blob verify: missing=0`、`MIRROR SYNC OK: luandapipi91/Wa-PiAgent@main -> d715021a`（此前同一环境连续 3 次 504 / 挂起）。请求数由 1047+1 降到 219+1。
 - 影响范围：scripts/sync-github-mirror.ts、scripts/sync-github-mirror.test.ts。
@@ -59,12 +106,12 @@
 
 - 问题：`hiagent.browser.mode` 按 origin 持久化，且读到合法值就直接采用（**不校验有没有 Electron 桥**），而 float 的承载者在 0.3.21 已从「主窗口内 DOM 浮层」换成 **Electron 独立系统窗口**。于是浏览器（dev / 纯 web，无桥）里只要存着 float 偏好（早期版本留下的，或在浮动按钮上点过一次），打开预览就彻底没有承载者：App 在 float 分支只渲染 `FloatPreview`（非 minimized 时返回 null），窗口驱动 hook 又因无桥直接 return ⇒ 打开 html 预览「毫无反应」；而面板不渲染意味着没有任何 UI 出路切回内嵌，刷新也不恢复。实测复现：设 `localStorage["hiagent.browser.mode"]="float"` 后打开 index.html —— 旧行为下 `browser-panel` 永不出现（E2E 打开预览的断言等 5s 超时）。
 - 修复（读、写、渲染三层口径一致，均只改无桥环境）：
-  ① 新增 `hasPreviewBridge()` 与纯函数 `resolveMode(stored, hasBridge)`，`loadMode()` 改走它 —— 无桥时 `float` 降级为 `split`，且**只降级读取、不改写 localStorage**（同一份偏好桌面端仍按 float 生效）。
+  ① 新增 `hasPreviewBridge()` 与纯函数 `resolveMode(stored, hasBridge)`，`loadMode()` 改走它 —— 无桥时 `float` 降级为 `split`，且__只降级读取、不改写 localStorage__（同一份偏好桌面端仍按 float 生效）。
   ② `setMode("float")` 无桥时同样降级为 `split` 并落盘 split（有桥时原样）。
   ③ App 渲染分支加兜底：无桥时 float 一律按 split 呈现，覆盖 store 被外部置成 float 等异常路径。
   ④ `BrowserPanel` 的浮动按钮改为仅在 `hasPreviewBridge()` 时渲染 —— 无桥时点了只会让预览消失且无路可退，不如不显示。
 - 测试：单测新增 `resolveMode`（float 需桥 / 无桥降级 / 非法值走默认 / 只降级不写盘）与 `setMode` 无桥降级（原「setMode 持久化 float」用例改为注入桥 stub 后验有桥路径）；组件测新增「浮动按钮需 Electron 桥」（无桥不渲染、有桥渲染且可切换）；App 级新增 `tests/App-browser-float-compat.test.tsx`（无桥且 store 为 float 时仍按分屏渲染出预览面板）；E2E `e2e/browser-preview.spec.ts` 新增「遗留 float 偏好（无桥）：html 预览不消失，自动降级为分屏」（真实浏览器，并断言偏好未被改写）。
-- 验证：红→绿双证 —— 旧实现下 App 级用例失败、E2E 用例在 `browser-panel` 断言处失败（真实浏览器复现用户现象）；修复后均通过。前端全量 2372 pass / 0 fail；四包 typecheck 全绿；`e2e/browser-preview.spec.ts` 7 pass（另 1 例失败在 afterAll 清理 `rmSync` 的 `EBUSY` 目录锁，与本改动无关）；`e2e-electron/preview-window.spec.ts` 首例失败经对照实验确认为**环境既有问题**（把三个源文件还原到 HEAD 后同样失败、失败点一致），与本改动无关。
+- 验证：红→绿双证 —— 旧实现下 App 级用例失败、E2E 用例在 `browser-panel` 断言处失败（真实浏览器复现用户现象）；修复后均通过。前端全量 2372 pass / 0 fail；四包 typecheck 全绿；`e2e/browser-preview.spec.ts` 7 pass（另 1 例失败在 afterAll 清理 `rmSync` 的 `EBUSY` 目录锁，与本改动无关）；`e2e-electron/preview-window.spec.ts` 首例失败经对照实验确认为__环境既有问题__（把三个源文件还原到 HEAD 后同样失败、失败点一致），与本改动无关。
 - 影响范围：packages/frontend（src/store/browser.ts、src/App.tsx、src/components/BrowserPanel.tsx、src/store/browser.test.ts、src/components/BrowserPanel.test.tsx、e2e/browser-preview.spec.ts、新增 tests/App-browser-float-compat.test.tsx）。
 
 ## 2026-09-15 — docs(website): 官网补上「TUI 插件完整支持」
@@ -84,8 +131,8 @@
 
 ## 2026-09-15 — fix(frontend): 文件预览块级虚拟滚动（代码 + markdown 两条分支）
 
-- 问题：kernel 只拦 >5MB 的文件，≤5MB 的文本会**整份**送进渲染层；而 `FileViewer` 原先无渲染上限、无虚拟化——全量 Prism 分词（实测 5MB ≈ 189 万 token，`tokenize` 单次 2.3s），每个 token 一个 `<span>`、每行一个 `div` ⇒ 约 200 万 DOM 节点，渲染进程直接冻结。该阈值历史上从 512KB（7-28）放宽到 3MB、再到 5MB（8-30），放宽时未同步给前端加防护，于是「几 MB 的日志/代码文件能打开，一打开就卡死」；>5MB 仍被 kernel 拦（实测 40MB 文本 0.67s 返回 `attachment.previewTooLarge`）。
-- 修复：两条渲染分支都改为**块级虚拟滚动**（只渲染可视块 + 上下占位撑出完整滚动高度；行号、横向滚动、选择复制均不受影响）：
+- 问题：kernel 只拦 >5MB 的文件，≤5MB 的文本会__整份__送进渲染层；而 `FileViewer` 原先无渲染上限、无虚拟化——全量 Prism 分词（实测 5MB ≈ 189 万 token，`tokenize` 单次 2.3s），每个 token 一个 `<span>`、每行一个 `div` ⇒ 约 200 万 DOM 节点，渲染进程直接冻结。该阈值历史上从 512KB（7-28）放宽到 3MB、再到 5MB（8-30），放宽时未同步给前端加防护，于是「几 MB 的日志/代码文件能打开，一打开就卡死」；>5MB 仍被 kernel 拦（实测 40MB 文本 0.67s 返回 `attachment.previewTooLarge`）。
+- 修复：两条渲染分支都改为__块级虚拟滚动__（只渲染可视块 + 上下占位撑出完整滚动高度；行号、横向滚动、选择复制均不受影响）：
   · **代码/文本分支**：按 200 行分块，块高固定（行高实测后修正，兼容字号缩放）；
   · **markdown 分支**（原先未覆盖，仍走 ReactMarkdown 全量解析 → 大 md 一样会卡）：按「顶层块」切分 —— 围栏代码块内部不切、标题与空行起新块、单块超 200 行强制切分（兜底）；每块独立渲染，块高用 ResizeObserver 实测后缓存，未实测块按行数估算占位，滚动条长度随实测收敛。
   （曾先实现「只渲染前 5000 行 + 截断提示」，因影响整篇浏览而改为虚拟滚动，截断逻辑与对应 i18n 文案已移除。）
@@ -95,7 +142,7 @@
 
 ## 2026-09-15 — fix(kernel): 扩展静默失效（pin 漂移）——加 --exact + 启动时对齐 pin
 
-- 问题：settings.json 的 `packages` 存**精确实装版本**，而 `agentDir/npm/package.json` 是 caret 范围（`^x.y.z`）。依赖树一旦被盘外重解析（`repair()` 删 lock 后 `bun install`、装/卸其它包时的 `bun add`），node_modules 会被顶到新版本而 pin 不动。pi 在 Wa-Pi 强制的 `--offline` 下遇到「pin ≠ 实装」会判定需要安装、装不了便**整包 continue 跳过**（pi core/package-manager.js:996-1016）→ 扩展静默不加载，且无任何报错（插件页显示的是实装版本，界面看不出异常）。实测：pi-token-speed（pin 0.9.0 / 装 0.10.1）与 pi-cache-optimizer（2.8.7 / 2.8.10）均被跳过。
+- 问题：settings.json 的 `packages` 存__精确实装版本__，而 `agentDir/npm/package.json` 是 caret 范围（`^x.y.z`）。依赖树一旦被盘外重解析（`repair()` 删 lock 后 `bun install`、装/卸其它包时的 `bun add`），node_modules 会被顶到新版本而 pin 不动。pi 在 Wa-Pi 强制的 `--offline` 下遇到「pin ≠ 实装」会判定需要安装、装不了便__整包 continue 跳过__（pi core/package-manager.js:996-1016）→ 扩展静默不加载，且无任何报错（插件页显示的是实装版本，界面看不出异常）。实测：pi-token-speed（pin 0.9.0 / 装 0.10.1）与 pi-cache-optimizer（2.8.7 / 2.8.10）均被跳过。
 - 修复：① `NpmPackageService.install/upgrade` 的 `bun add` 加 `--exact`（写精确版本，从根上消除漂移；原注释「bun 默认 save-exact」有误，已更正）；② 新增 `ExtensionManager.alignPackagePins()`，kernel 启动时把 `packages` 与 `waPiDisabledPackages` 的 npm 条目 pin 对齐磁盘实装版本——无漂移不写文件、实装版本不存在不动条目、git:/本地路径跳过、走 `mutateSettings` 互斥写；覆盖所有成因并能把已漂移的机器拉回。
 - 顺带收口：`repair()` 校验处的 `JSON.parse` 包裹为明确的 `npm.repairVerifyFailed`（不静默跳过校验，避免把「修坏了」报成「修复成功」）。
 - 测试：新增 `tests/extension-manager-align-pins.test.ts`（9 例：纯函数 6 + 只在下标真有漂移时写文件 3）；扩展 `tests/npm-package-service.test.ts`（+3 例断言 `--exact`，并把并发测试桩改为按 flag 解析包名，不再按固定位置取 argv）。
@@ -113,15 +160,15 @@
 ## 2026-09-15 — feat(kernel/shared/frontend): 扩展 TUI 宿主与三态面板（ctx.ui.custom / setWidget 图形化）
 
 - 需求：pi 扩展用 `ctx.ui.custom()` / `setWidget()` 实现的面板，在 WaPi 图形界面下此前无渲染（custom 直接报错、widget 退化为纯文本），只能用真终端体验。
-- 方案：新增 pi 侧 **wa-pi-tui-host** 扩展（`packages/kernel/src/wa-pi-tui-host.extension.ts` + `tui-host/*`，随 kernel 部署到 GENERATED_DIR 并经 `-e` 注入 pi 进程）。它建一块**假 Terminal + 整屏 TUI**，RPC 模式下接管 `ui.custom` / `setWidget` 组件工厂 / `onTerminalInput`：面板帧按 80ms 采样、内容相同不推送，经 `/bridge/tui-host/frames` NDJSON 长连接送 kernel；前端按键/粘贴/鼠标/尺寸/取消经 `/api/extensions/tui-input` 按 panelId 路由回面板；会话切换用 `/api/extensions/tui-snapshot` 补发最后一帧。能力上报改 `setCapabilities({ images: null, trueColor: true, hyperlinks: true })`：**图像降级为文本占位**（由组件自身降级），真彩与 OSC 8 链接照常渲染。
-- 前端：新增三态 TUI 面板（`components/TuiPanel.tsx` + `store/tui-panel.ts`），浮在**右上角**——展开态（标题栏可拖动、右下角可缩放、键盘锁给面板）、挂件态（实时帧预览卡片，点主体展开）、胶囊态（只剩标题 + 取消）；收起逐级下探、展开一步到位，位置尺寸持久化到 localStorage。展开时 Composer 同步禁用，收起后立即恢复可用。
+- 方案：新增 pi 侧 **wa-pi-tui-host** 扩展（`packages/kernel/src/wa-pi-tui-host.extension.ts` + `tui-host/*`，随 kernel 部署到 GENERATED_DIR 并经 `-e` 注入 pi 进程）。它建一块__假 Terminal + 整屏 TUI__，RPC 模式下接管 `ui.custom` / `setWidget` 组件工厂 / `onTerminalInput`：面板帧按 80ms 采样、内容相同不推送，经 `/bridge/tui-host/frames` NDJSON 长连接送 kernel；前端按键/粘贴/鼠标/尺寸/取消经 `/api/extensions/tui-input` 按 panelId 路由回面板；会话切换用 `/api/extensions/tui-snapshot` 补发最后一帧。能力上报改 `setCapabilities({ images: null, trueColor: true, hyperlinks: true })`：**图像降级为文本占位**（由组件自身降级），真彩与 OSC 8 链接照常渲染。
+- 前端：新增三态 TUI 面板（`components/TuiPanel.tsx` + `store/tui-panel.ts`），浮在__右上角__——展开态（标题栏可拖动、右下角可缩放、键盘锁给面板）、挂件态（实时帧预览卡片，点主体展开）、胶囊态（只剩标题 + 取消）；收起逐级下探、展开一步到位，位置尺寸持久化到 localStorage。展开时 Composer 同步禁用，收起后立即恢复可用。
 - 兼容：`ui.custom` 的原生 `Component` 契约（render/invalidate/handleInput）与 setWidget 的「组件或纯文本」两种形态都支持；`ui.__waPiTuiHost` 使 wa-pi-bridge 的 notify+throw 兜底让位（按 bridge 实例幂等，pi reload 复用同一 uiContext 也能重新接管）。widget 面板仍走既有 `extension_widget` → ExtWidgetDock 通道，与浮窗互不覆盖。
-- 修复（整分支审查收口）：①**拖选复制**改走「浏览器原生选择 + Cmd+C」——body 不再 `preventDefault`、显式 `user-select: text`，也不再向 TUI 转发鼠标 drag 序列（点击/滚轮照发）。原路径三重失效：上游不传 `copySelection`、OSC 52 兜底被前端 `stripOsc` 与假 Terminal 的 `write()` 丢弃。②**全角列宽**：面板格宽改为挂载时用隐藏等宽探针**实测**（字体缩放/换字号不再失真，量不到回退常量），并按终端语义把全角字符渲染成 2 格宽的行内块（含中文的帧行不再整体压窄、光标与边框字符不再左移）；③overlay 降级路径**照常回调** `onHandle`（给安全 no-op 句柄，插件不再拿到 `undefined` 后抛 TypeError）；④会话销毁的 close 帧真的发 `reason: "dispose"`（此前是死字面量，与「用户取消」的 `cancel` 无从区分）。
+- 修复（整分支审查收口）：①__拖选复制__改走「浏览器原生选择 + Cmd+C」——body 不再 `preventDefault`、显式 `user-select: text`，也不再向 TUI 转发鼠标 drag 序列（点击/滚轮照发）。原路径三重失效：上游不传 `copySelection`、OSC 52 兜底被前端 `stripOsc` 与假 Terminal 的 `write()` 丢弃。②__全角列宽__：面板格宽改为挂载时用隐藏等宽探针__实测__（字体缩放/换字号不再失真，量不到回退常量），并按终端语义把全角字符渲染成 2 格宽的行内块（含中文的帧行不再整体压窄、光标与边框字符不再左移）；③overlay 降级路径__照常回调__ `onHandle`（给安全 no-op 句柄，插件不再拿到 `undefined` 后抛 TypeError）；④会话销毁的 close 帧真的发 `reason: "dispose"`（此前是死字面量，与「用户取消」的 `cancel` 无从区分）。
 - 测试：单测（假 Terminal、帧采集/节流、面板宿主 settle 保证、按键编码、ANSI/OSC 链接、全角格宽换算、widget 宿主）；组件测（TuiPanel 三态渲染与输入上报、实测格宽、全角 2 格渲染、拖拽不转发、原生选择可选中）；接口测（tui-input / tui-snapshot 正常 + 参数缺失 400）；E2E `e2e/tui-panel.spec.ts`（真实 pi 进程 + 真实浏览器 3 例：面板出现→方向键选择→回车回显并关闭、三态收起/展开、收起态输入框恢复可用），3 pass。E2E 未覆盖中文与鼠标（挂账）。
 - 修复（收口验证）：①`AnsiText.tsx` 的 `runs.flatMap` 补显式类型参数 `ReactNode`，修掉 `TS2322`（此前两包 typecheck 自报全绿不实，实际前端 tsc 报错——**阻塞交付**）；②快照恢复用例的容器 `textContent` 断言从 `toContain` 收紧回 `toBe("恢复的帧")`（光标覆盖层是空 div，精确断言成立）；③`encodeMouse("drag")` 补注释（无生产调用者，保留以完整覆盖 SGR 相位，拖拽已改原生选择）；④`host.ts` 补注释说明 `onHandle` 调用时机是 pi 的超集（不区分 overlay 分支，行为不变）；⑤`tui-host-registry.clearSession` 合成 close 帧的 `reason` 由 `cancel` 统一为 `dispose`（与扩展侧 `disposeAll` 及规格 §4.8「会话销毁」口径一致，前端不读 reason 故无行为变化）。
-- 修复（用户实测反馈）：①**面板内容超出高度时可滚动**——内容区由 `overflow-hidden` 改为 `overflow-y-auto`（长面板如 pi-goal-x 的提案全文 40+ 行此前被静默裁掉，用户既看不到也滚不到），并**停止把滚轮转发给插件**（整帧快照下插件视口变化不体现在帧里，转发等于「滚了没反应」且与本地滚动打架），点击与拖拽仍照旧转发；②三态浮窗**锚定聊天列**（挂载点由 App 根移入 SessionView 聊天列容器、定位 `fixed` → `absolute`），并补齐**挂件/胶囊拖动**（5px 阈值区分「点击展开」与「拖动」）；③修掉挂件**左侧 412px 拖动死区**——收起态原先借用展开态宽度 680 做右缘锚定与 clamp，而挂件实际宽 268，导致渲染位置被平移 412px 且可移动范围被压成 [412,898]；改为三态左缘锚定、收起态位置独立（`hiagent.tuiPanel.collapsed`）、按各态自身宽度 clamp。真实浏览器实测：挂件默认 left=882（容器宽 1166 − 268 − 16），可拖到 (0,0) 与 (898,659)。
+- 修复（用户实测反馈）：①__面板内容超出高度时可滚动__——内容区由 `overflow-hidden` 改为 `overflow-y-auto`（长面板如 pi-goal-x 的提案全文 40+ 行此前被静默裁掉，用户既看不到也滚不到），并__停止把滚轮转发给插件__（整帧快照下插件视口变化不体现在帧里，转发等于「滚了没反应」且与本地滚动打架），点击与拖拽仍照旧转发；②三态浮窗__锚定聊天列__（挂载点由 App 根移入 SessionView 聊天列容器、定位 `fixed` → `absolute`），并补齐__挂件/胶囊拖动__（5px 阈值区分「点击展开」与「拖动」）；③修掉挂件__左侧 412px 拖动死区__——收起态原先借用展开态宽度 680 做右缘锚定与 clamp，而挂件实际宽 268，导致渲染位置被平移 412px 且可移动范围被压成 [412,898]；改为三态左缘锚定、收起态位置独立（`hiagent.tuiPanel.collapsed`）、按各态自身宽度 clamp。真实浏览器实测：挂件默认 left=882（容器宽 1166 − 268 − 16），可拖到 (0,0) 与 (898,659)。
 - 验证：typecheck 全绿；前端单测/组件测与 kernel 单测/接口测全绿；浏览器 E2E 3 pass。
-- 主题跟随（用户需求）：TUI 浮窗三态改为**主题语义色**（内容区 `bg-canvas`、标题栏/挂件/胶囊 `bg-surface-elevated`、默认文字 `text-primary`、次要文字 `text-secondary`、边框 `border-hairline`、面板内链接 `text-accent`、光标块用 `var(--text-primary)`），清掉 15 处写死的暗色 hex —— 此前面板恒为暗色、不跟应用主题（含 accent 变体）。ANSI 颜色（插件输出）不动。真实浏览器实测同一套类在 light 下 canvas=`#f5f5f7`/text=`#1d1d1f`、dark 下 canvas=`#1a1a1e`/text=`#f5f5f7`。
+- 主题跟随（用户需求）：TUI 浮窗三态改为__主题语义色__（内容区 `bg-canvas`、标题栏/挂件/胶囊 `bg-surface-elevated`、默认文字 `text-primary`、次要文字 `text-secondary`、边框 `border-hairline`、面板内链接 `text-accent`、光标块用 `var(--text-primary)`），清掉 15 处写死的暗色 hex —— 此前面板恒为暗色、不跟应用主题（含 accent 变体）。ANSI 颜色（插件输出）不动。真实浏览器实测同一套类在 light 下 canvas=`#f5f5f7`/text=`#1d1d1f`、dark 下 canvas=`#1a1a1e`/text=`#f5f5f7`。
 - 验证：typecheck 全绿；全量 2365 pass / 0 fail；TuiPanel 组件测 64 pass。
 - 影响范围：packages/kernel（wa-pi-tui-host.extension.ts、tui-host/*、tui-host-deploy.ts、routes/extensions.ts、extensions.ts、agent-manager.ts）、packages/shared（TUI 帧/事件/快照类型）、packages/frontend（TuiPanel、store/tui-panel、lib/tui-keys、lib/tui-ansi、AnsiText、SessionView、App、store/session、i18n）；examples/tui-host-demo 测试桩。
 
@@ -135,10 +182,10 @@
 ## 2026-09-14 — feat(frontend/desktop): 浮动预览改为独立系统窗口承载（可移出主窗口、与主窗口并行显示）
 
 - 需求：预览原先只能在主窗口内浮动（DOM 浮层，被主窗口边界锁死），无法拖出主窗口与它并行显示。
-- 方案：浮动模式（float）的**呈现载体**从「主窗口内的绝对定位浮层」换成**真正的 Electron 无边框窗口**。新窗口加载同一份前端（同端口同源，localStorage/IndexedDB 与 `/api` 相对路径照旧），靠 URL 标记 `?wa-preview-win=1` 分流为「预览窗口模式」只渲染预览面板；预览内容仍是窗口内的同源 iframe，所以 inspect（hover 高亮/锁定/选中）的 postMessage 协议**零改动**。主窗口在浮动模式下收起预览区，只剩最小化后的气泡入口。
+- 方案：浮动模式（float）的__呈现载体__从「主窗口内的绝对定位浮层」换成__真正的 Electron 无边框窗口__。新窗口加载同一份前端（同端口同源，localStorage/IndexedDB 与 `/api` 相对路径照旧），靠 URL 标记 `?wa-preview-win=1` 分流为「预览窗口模式」只渲染预览面板；预览内容仍是窗口内的同源 iframe，所以 inspect（hover 高亮/锁定/选中）的 postMessage 协议__零改动__。主窗口在浮动模式下收起预览区，只剩最小化后的气泡入口。
 - 实现：desktop 新增 `createPreviewWindow`（`frame:false` 自绘无边框 + 单例 + 与主窗口同款 webPreferences，刻意不设 parent）与 `previewwin:open|cmd|act|set-size` 四条 IPC（事件统一经主进程 `previewwin:event` 中转，两个渲染进程不直连）；preload 新增 `waPiPreviewWin` 桥。前端新增 `preview-window.ts`（URL 标记/参数解析/桥类型）、`PreviewWindowRoot.tsx`（独立窗口根：铺满的 BrowserPanel + 右下角缩放手柄 + Toast + 源码预览弹窗）、`preview-window-driver.ts`（主窗口侧驱动 hook：开/关窗、最小化恢复、事件翻译）；`BrowserPanel` 增 `detached` 形态（工具栏兼作拖动区、关闭/最小化/切模式改走 IPC、元素选中取裸 token 转发主窗口）；`store/browser.ts` 增 `detachedRect`（屏幕坐标持久化，不夹主窗口视口）。
-- 默认模式：预览默认改为**浮动（独立窗口）**——桌面端首次打开预览直接弹独立窗口（`defaultBrowserMode`：有 Electron 桥即 float）；浏览器 dev 无窗口承载者，回退内嵌分屏（否则会表现为「打开预览毫无反应」）。已选过模式的老用户沿用 localStorage 里记录的偏好。
-- 修复：独立预览窗口里点「分享」毫无反应——分享弹窗在**未配置分享 token** 时会自动关闭并跳「设置 → 分享」，而设置弹窗原本只挂在主窗口 App 层。现在改为**转发给主窗口**：主窗口被激活到前台（最小化先 restore）+ 直接打开「设置 → 分享」。选转发而非在独立窗口渲染设置，是因为设置里模型/技能/插件等数据都只在主窗口加载，独立窗口渲染会出现「数据空白的设置页」。同类入口一并排查：源码弹窗（`FilePreviewModal`）已在独立窗口挂载、媒体弹窗不由预览面板触发。
+- 默认模式：预览默认改为__浮动（独立窗口）__——桌面端首次打开预览直接弹独立窗口（`defaultBrowserMode`：有 Electron 桥即 float）；浏览器 dev 无窗口承载者，回退内嵌分屏（否则会表现为「打开预览毫无反应」）。已选过模式的老用户沿用 localStorage 里记录的偏好。
+- 修复：独立预览窗口里点「分享」毫无反应——分享弹窗在__未配置分享 token__ 时会自动关闭并跳「设置 → 分享」，而设置弹窗原本只挂在主窗口 App 层。现在改为__转发给主窗口__：主窗口被激活到前台（最小化先 restore）+ 直接打开「设置 → 分享」。选转发而非在独立窗口渲染设置，是因为设置里模型/技能/插件等数据都只在主窗口加载，独立窗口渲染会出现「数据空白的设置页」。同类入口一并排查：源码弹窗（`FilePreviewModal`）已在独立窗口挂载、媒体弹窗不由预览面板触发。
 - 修复：在独立窗口里用地址栏换预览文件后，切回内嵌（并排/全屏）会停在空预览——独立窗口的地址栏只写了自己的 store。现在 path 变化经 `previewwin:act {type:"path"}` 同步回主窗口（含该会话的预览记忆）。
 - 保留：`float` 模式与最小化气泡（`FloatBubble`）都保留，气泡语义改为「恢复独立窗口」；旧 DOM 浮层组件 `FloatWindow` 留在仓库但不再挂载。
 - 测试：单测（`preview-window`、`preview-window-driver`、`element-pick.buildElementToken`、store `detachedRect`）；组件（`FloatPreview` 契约改写、BrowserPanel detached 分支）；desktop 源码断言（无边框/sandbox/不设 parent/主窗口收起时同步隐藏/桥导出）；新增 Electron E2E `e2e-electron/preview-window.spec.ts`（真实窗口 8 例：默认无偏好→打开预览直接进独立窗口（无边框自绘）、最小化→气泡→恢复、切回内嵌、跨窗口元素 chip 落入主窗口输入框、窗口内点分享→激活主窗口并打开设置分享分区、手柄拖拽经 IPC 放大窗口、关闭、窗口内点查看源码就地弹窗）；浏览器 E2E `browser-preview.spec.ts` 两个浮动用例改为「宿主驱动指令」口径（注入 mock 桥）。
@@ -162,7 +209,7 @@
 
 ## 2026-09-10 — fix(frontend): 每条用户气泡顶部多出一行 pi-lens 抑制指令文本
 
-- 症状：用户发消息后觉得“发出去的内容里多了些莫名其妙的东西”——**每一条**用户气泡顶部都多出一行 `// pi-lens-ignore: dangerously-set-inner-html`，看起来像是被塞进了发出的消息。
+- 症状：用户发消息后觉得“发出去的内容里多了些莫名其妙的东西”——__每一条__用户气泡顶部都多出一行 `// pi-lens-ignore: dangerously-set-inner-html`，看起来像是被塞进了发出的消息。
 - 根因：该抑制指令被写在用户气泡的 **JSX children 区**（开标签属性区才是注释位置），React 把它当文本节点渲染，故对所有用户气泡无条件生效。**发送链路本身干净**：落库 jsonl 里 user 原文就是「编辑一下」「？」（已核对），内核/模型从未收到该文本。
 - 修复：指令移到 `<p>` 开标签属性区（pi-lens 只按源文本行匹配——诊断行或紧邻上一行，属性区同样生效，与 SessionView 既有写法一致）；children 处补一条 JSX 表达式注释说明为何不能写在那里，防复发。
 - 测试：新增组件回归 `tests/MessageList.test.tsx`（气泡文本 == 原文，且不含该指令）＋ `e2e/bubble-render.spec.ts`（真实浏览器：填「编辑一下」发送后断言气泡与聊天区文本）；两者均做变异验证（还原事故写法 → 均精确报红，收到串就是用户看到的原样）。
@@ -180,7 +227,7 @@
 ## 2026-09-09 — fix(frontend): 流式输出时文件 chip/图片/视频闪烁（每帧整树 remount）
 
 - 症状：流式输出期间，消息里的 FilePill 路径 chip、MarkdownImage 图片、InlineVideo 反复闪烁（图片白闪重解码、视频黑闪重载、chip↔纯文本三态跳）；**同一根因的第二症状**：超 20 行的流式代码块点「展开」无效——展开态是 CodeBlockCard 本地 state，每帧重挂载即重置回折叠，用户感知为「点了没用，一直在渲染」。
-- 根因（探路 + DOM 身份测试实锤）：`MarkdownBlock` 内 `mdComponents = useMemo(createMarkdownComponents(sessionId, mediaItems), [sessionId, mediaItems])`——流式中 `mediaItems`（TextContent 每帧 `collectMediaItems(text)` 产新数组）每帧新引用 → components 对象每帧重建 → 内含的 code/p/img 渲染函数 type 每帧变化 → React 按 type 变化把**整棵 markdown 树每帧卸载重挂**。连带 FilePill 每帧重跑 statFile（fileExists 重置 → chip→文本→chip）。
+- 根因（探路 + DOM 身份测试实锤）：`MarkdownBlock` 内 `mdComponents = useMemo(createMarkdownComponents(sessionId, mediaItems), [sessionId, mediaItems])`——流式中 `mediaItems`（TextContent 每帧 `collectMediaItems(text)` 产新数组）每帧新引用 → components 对象每帧重建 → 内含的 code/p/img 渲染函数 type 每帧变化 → React 按 type 变化把__整棵 markdown 树每帧卸载重挂__。连带 FilePill 每帧重跑 statFile（fileExists 重置 → chip→文本→chip）。
 - 修复：`createMarkdownComponents` 第二参接受 `MediaItem[] | (() => MediaItem[])`，渲染器内改经 `resolveItems()` 事件时求值（mediaItems 本就只用于点击打开画廊，不参与「是否渲染 chip」的判断）；`MarkdownBlock` 用 ref 中转最新清单、components 依赖收敛为 `[sessionId]`——流式期间零重挂载，点击画廊仍拿当前帧完整清单。模式对照：StreamingOutput 的既有写法 `useMemo(..., [sessionId])` 即稳定先例。
 - 测试（TDD 红→绿）：新增 `tests/blocks/markdown-streaming-stability.test.tsx`——「text 多帧增长后 chip/图片卡片必须仍是同一 DOM 节点」的节点身份断言（重挂载=闪烁机制本身，是最直接的闪烁探针）；修复前红（节点实例变化）修复后绿。已知 happy-dom 坑：about:blank 下相对 URL /file? 不可解析会同步 fire img error 降级 FilePill，需 `happyDOM.setURL("http://localhost/")`（同 MarkdownImage.test 既有处理）。代码块展开失效补 2 例（闭合围栏 + 流式尾巴未闭合围栏：点展开→增长后行数仍全显不回 20）；经变异验证（临时回退旧依赖三例全红）确认新用例确实能抓住本 bug。
 - 验证：流式稳定性 3 例全绿；blocks 全目录 + MessageList + MessageRow 回归 212 pass 0 fail（后又复跑 95 pass）；tsc 绿；build 通过。另注：`StreamingOutput`（子代理卡）存在「输出中纯文本 ↔ 停顿 500ms 切 markdown」的双模式硬切换（设计如此，省流式开销），chip 只在停顿时出现，属另一独立行为，本次未动。
@@ -221,8 +268,8 @@
 
 ## 2026-09-08 — fix: 模型/思考下拉选择器——宽度自适应 + 箭头统一
 
-- 修复 ①（过宽）：`ModelSelector` 用原生 `<select>`，其固有宽度按**最宽 option** 计算，模型名长短差异大时（如「阿里云 Token Plan CN/qwen3.8-flash-plus-very-long-model-name」）选择器被撑到 371–495px，箭头随元素右边缘跑到离文字很远的地方。
-- 方案：新增共享外壳 `ui/AutoWidthSelect.tsx`——「不可见占位 span 按**当前选中项**文案撑宽 + select 铺满」：外层 `inline-grid max-w-[240px]`，占位 span 与 select、箭头同处一格；select 用 `w-0 min-w-full`（百分比在 intrinsic sizing 中按 auto 处理，故不参与列宽固有计算——**只写 `w-full` 无效**，原生宽度仍会撑开）+ `appearance-none`，箭头改画 `Icon chevron-down` 贴右对齐。实测：长名 495px → 240px 截断，常规名按文字宽度收缩，行内不再溢出。
+- 修复 ①（过宽）：`ModelSelector` 用原生 `<select>`，其固有宽度按__最宽 option__ 计算，模型名长短差异大时（如「阿里云 Token Plan CN/qwen3.8-flash-plus-very-long-model-name」）选择器被撑到 371–495px，箭头随元素右边缘跑到离文字很远的地方。
+- 方案：新增共享外壳 `ui/AutoWidthSelect.tsx`——「不可见占位 span 按__当前选中项__文案撑宽 + select 铺满」：外层 `inline-grid max-w-[240px]`，占位 span 与 select、箭头同处一格；select 用 `w-0 min-w-full`（百分比在 intrinsic sizing 中按 auto 处理，故不参与列宽固有计算——**只写 `w-full` 无效**，原生宽度仍会撑开）+ `appearance-none`，箭头改画 `Icon chevron-down` 贴右对齐。实测：长名 495px → 240px 截断，常规名按文字宽度收缩，行内不再溢出。
 - 修复 ②（箭头不一致）：`ModelSelector` 换成自绘 chevron 后，同在一行的 `ThinkingSelector` 仍是原生 `<select>` 箭头，两个下拉图标长得不一样。改为两个选择器共用 `AutoWidthSelect`（一处实现保证长期一致），并给箭头加 `pointer-events-none` 使点击穿透到 select（实测 `elementFromPoint` 命中 SELECT）。顶部「默认工作区」项目选择器是带边框的字段样式（`flex-1` 撑满、箭头贴字段右缘属设计），与本行内文字型下拉不同类，本次不改。
 - 修复 ③（箭头太小）：箭头尺寸最终定为 `size="1.5em"` + `text-xs`。**关键认知：`chevron-down` 的图形只占 viewBox 宽度的一半**（path x=6→18），所以 1em 盒子只能画出 6×3px / 描边 0.8px 的箭头，比原生（≈ 9px 宽 / 1.3px 描边）小一圈——用户反馈「现在太小了」即此。实测各档可见尺寸：1em → 6×3px；**1.5em → 9×4.5px、描边 1.2px（与原生对齐，已采用）**；2em → 12×6px（比原生大）。用 em 而非 px，是为了随设置里的「文字大小」（`--font-scale`，`.text-xs` 本身带 scale）一起缩放；同时占位 span 与 select 的 `pr-4` 提到 **`pr-5`**（内边距 20px 必须大于 18px 箭头盒子，否则长文本会压到箭头上），最终文字→可见箭头间距 6.5px。
 - 新增测试：`AutoWidthSelect.test.tsx` 4 例（占位文案=当前选中项且随 value 跟随、appearance-none/w-0/min-w-full/truncate 结构、箭头 1.5em + text-xs + pointer-events-none + pr-5 让位断言、onChange/disabled 透传）；`tests/ModelSelector.test.tsx` 追加「宽度收缩」describe 6 例（含两个选择器箭头为同一枚 path + 同一 outerHTML 的一致性用例，直接锁住用户反馈；以及 providers 从空到加载完成不触发 hooks 顺序报错）。撑宽用的 `useMemo` 必须写在「无模型」early return **之前**，否则 models.length 0→n 时 hook 数量变化会让组件崩溃（已用变异测试验证该用例确实能抓到）。

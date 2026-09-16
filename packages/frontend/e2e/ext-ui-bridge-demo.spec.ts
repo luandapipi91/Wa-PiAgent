@@ -305,6 +305,40 @@ test.describe
         '[data-testid="ext-widget-ui-demo-color-above"]',
       );
       await expect(chip).toBeVisible({ timeout: 20_000 });
+
+      // 默认靠右：chip 队列整体贴着聊天列右侧（队列右缘不早于输入框右缘）
+      const composerBox = (await page
+        .getByTestId("composer-input")
+        .boundingBox())!;
+      const dockBefore = (await page
+        .getByTestId("ext-widget-dock")
+        .boundingBox())!;
+      expect(dockBefore.x + dockBefore.width).toBeGreaterThanOrEqual(
+        composerBox.x + composerBox.width - 2,
+      );
+
+      // 自由拖动：向左拖 80px 后队列整体平移，且位移写入 localStorage
+      const chipBox = (await chip.boundingBox())!;
+      const cx = chipBox.x + chipBox.width / 2;
+      const cy = chipBox.y + chipBox.height / 2;
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx - 80, cy, { steps: 8 });
+      await page.mouse.up();
+      const dockAfter = (await page
+        .getByTestId("ext-widget-dock")
+        .boundingBox())!;
+      expect(dockAfter.x).toBeLessThan(dockBefore.x - 40);
+      const stored = await page.evaluate(() =>
+        localStorage.getItem("wa-pi:ext-widget-dock-offset"),
+      );
+      expect(stored).toBeTruthy();
+      expect(JSON.parse(stored as string).x).toBeLessThan(-40);
+      // 清理：复位持久化位移，避免影响后续断言 / 重跑
+      await page.evaluate(() =>
+        localStorage.removeItem("wa-pi:ext-widget-dock-offset"),
+      );
+
       // 点击 chip 展开 → testid 转移到展开块，查看彩色行
       await chip.click();
       const expanded = page.locator(

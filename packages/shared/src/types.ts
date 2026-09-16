@@ -324,6 +324,9 @@ export interface SessionMessage {
 	message: AgentMessage; // Pi 原生消息，原样透传
 	agentName?: AgentName; // 哪个 agent 发的（assistant/toolResult 才有意义）
 	sessionId?: string; // 路由用，会话 ID
+	/** 该消息随带的附件引用（前端本地保留，供「重新发送」复用）。
+	 *  内核不回传此字段：pi 落盘的历史消息只有正文的 Attachments 尾段，由前端从尾段还原。 */
+	attachments?: AttachmentRef[];
 }
 
 export interface AgentState {
