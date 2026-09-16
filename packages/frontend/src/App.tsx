@@ -46,7 +46,6 @@ import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 import { CommandPalette } from "./components/CommandPalette";
 import { FilePreviewModal } from "./components/blocks/FilePreviewModal";
 import { MediaPreviewModal } from "./components/blocks/MediaPreviewModal";
-import { ExtensionDialog } from "./components/ExtensionDialog";
 import { AnsiText } from "./components/ui/AnsiText";
 import { useTrashStore } from "./store/trash";
 import { useSchedulerStore } from "./store/scheduler";
@@ -758,7 +757,9 @@ export function App() {
 			{browserOpen && browserMode === "float" && <FloatPreview />}
 			<FilePreviewModal />
 			<MediaPreviewModal />
-			<ExtensionDialog />
+			{/* 扩展 dialog 弹窗（select/confirm/input/editor）已移到 SessionView 内挂载：
+			    按 sessionId 过滤 + 只在当前会话视图渲染，与 ask 同款会话锁定，
+			    其它会话的 pending 不再盖住整个窗口 */}
 			{/* 扩展 TUI 面板（ctx.ui.custom）三态浮窗已移到 SessionView 的聊天列容器内：
 			    absolute 定位要相对聊天区域，挂在根节点会贴到整个窗口/盖住右侧面板 */}
 			<ToastContainer />

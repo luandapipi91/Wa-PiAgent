@@ -15,6 +15,7 @@ import { SidebarResizer } from "./SidebarResizer";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
+import { ExtensionDialog } from "./ExtensionDialog";
 import { AgentSwitcher } from "./AgentSwitcher";
 import ImSessionTitle from "./ImSessionTitle";
 import { ExplorerPanel } from "./ExplorerPanel";
@@ -596,6 +597,10 @@ export const SessionView = memo(function SessionView({
 				    定位天然相对聊天列（挂件才贴在聊天区域右上角，且拖不出本列、不盖右侧面板）。
 				    放容器末尾：它是 absolute，不参与本列的 flex 排版 */}
 				<TuiPanel sessionId={sessionId} />
+				{/* 扩展 dialog 弹窗（select/confirm/input/editor）：Modal 内部 portal 到 body，
+				    挂载位置只决定条件渲染作用域——放在 SessionView 内 ⇒ 只在当前会话有
+				    pending 请求时渲染，与 ask 同款会话锁定 */}
+				<ExtensionDialog sessionId={sessionId} />
 			</div>
 			{/* 右侧文件树面板：开关由 explorer store 控制；双击文件弹窗预览 */}
 			{explorerOpen && (

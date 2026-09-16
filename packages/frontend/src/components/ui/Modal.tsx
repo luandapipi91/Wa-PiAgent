@@ -18,6 +18,9 @@ interface ModalProps {
   width?: number | string;
   // 卡片高度，默认由内容撑开；可传 "80vh" 等固定高度
   height?: number | string;
+  // 卡片最大高度（如 "70vh"）：内容超出时被限制在该高度内，
+  // 配合内容区 overflow-y-auto 实现限高滚动（防长内容溢出视口）
+  maxHeight?: number | string;
   // 点击遮罩层是否关闭弹窗，默认 false：弹窗内可能正在输入/操作，点阴影误关会丢内容；
   // 需要点阴影关闭的弹窗（如简单确认框）显式传 true
   closeOnOverlayClick?: boolean;
@@ -40,6 +43,7 @@ export function Modal({
   onClose,
   width = 480,
   height,
+  maxHeight,
   closeOnOverlayClick = false,
   closeOnEsc = true,
   resizable = false,
@@ -149,6 +153,7 @@ export function Modal({
           background: "var(--surface)",
           width,
           height,
+          maxHeight,
           boxShadow: "var(--shadow-lg)",
           // relative：锚定右下角缩放手柄
           position: "relative",

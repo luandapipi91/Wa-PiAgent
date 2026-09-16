@@ -8,11 +8,21 @@ const sent: any[] = [];
 mock.module("../src/api-client", () => ({
   api: {
     get: () => Promise.resolve({}),
-    post: (path: string, body?: any) => { sent.push({ path, body }); return Promise.resolve({}); },
+    post: (path: string, body?: any) => {
+      sent.push({ path, body });
+      return Promise.resolve({});
+    },
     put: () => Promise.resolve({}),
     del: () => Promise.resolve({}),
   },
-  ApiError: class extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; this.name = "ApiError"; } },
+  ApiError: class extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+      this.name = "ApiError";
+    }
+  },
 }));
 
 import { ExtensionDialog } from "../src/components/ExtensionDialog";
@@ -31,15 +41,19 @@ beforeEach(() => {
 
 describe("ExtensionDialog", () => {
   it("队列为空时不渲染弹窗", () => {
-    render(<ExtensionDialog />);
+    render(<ExtensionDialog sessionId="s1" />);
     expect(screen.queryByTestId("modal-overlay")).toBeNull();
   });
 
   it("confirm：渲染 title/message，点「确认」POST { requestId, confirmed: true }", async () => {
     useExtDialogStore.getState().enqueue({
-      requestId: "r1", method: "confirm", title: "删除文件", message: "确定要删除吗？",
+      requestId: "r1",
+      sessionId: "s1",
+      method: "confirm",
+      title: "删除文件",
+      message: "确定要删除吗？",
     });
-    render(<ExtensionDialog />);
+    render(<ExtensionDialog sessionId="s1" />);
 
     expect(screen.getByText("删除文件")).toBeTruthy();
     expect(screen.getByText("确定要删除吗？")).toBeTruthy();
@@ -54,9 +68,13 @@ describe("ExtensionDialog", () => {
 
   it("confirm：点「取消」POST { requestId, cancelled: true }", async () => {
     useExtDialogStore.getState().enqueue({
-      requestId: "r2", method: "confirm", title: "t", message: "m",
+      requestId: "r2",
+      sessionId: "s1",
+      method: "confirm",
+      title: "t",
+      message: "m",
     });
-    render(<ExtensionDialog />);
+    render(<ExtensionDialog sessionId="s1" />);
 
     fireEvent.click(screen.getByTestId("ext-dialog-cancel"));
 
@@ -67,9 +85,13 @@ describe("ExtensionDialog", () => {
 
   it("select：渲染 options 按钮，点某项 POST { requestId, value: option }", async () => {
     useExtDialogStore.getState().enqueue({
-      requestId: "r3", method: "select", title: "选择方案", options: ["方案A", "方案B"],
+      requestId: "r3",
+      sessionId: "s1",
+      method: "select",
+      title: "选择方案",
+      options: ["方案A", "方案B"],
     });
-    render(<ExtensionDialog />);
+    render(<ExtensionDialog sessionId="s1" />);
 
     expect(screen.getByText("选择方案")).toBeTruthy();
     fireEvent.click(screen.getByText("方案B"));
@@ -81,9 +103,13 @@ describe("ExtensionDialog", () => {
 
   it("select：ESC / 点击遮罩不取消（只有「取消」按钮才取消）", async () => {
     useExtDialogStore.getState().enqueue({
-      requestId: "r4", method: "select", title: "t", options: ["A"],
+      requestId: "r4",
+      sessionId: "s1",
+      method: "select",
+      title: "t",
+      options: ["A"],
     });
-    render(<ExtensionDialog />);
+    render(<ExtensionDialog sessionId="s1" />);
 
     fireEvent.keyDown(window, { key: "Escape" });
     fireEvent.click(screen.getByTestId("modal-overlay"));
@@ -104,9 +130,13 @@ describe("ExtensionDialog", () => {
 
   it("input：单行输入（placeholder）提交 POST { value }；取消 POST { cancelled: true }", async () => {
     useExtDialogStore.getState().enqueue({
-      requestId: "r5", method: "input", title: "输入名称", placeholder: "请输入…",
+      requestId: "r5",
+      sessionId: "s1",
+      method: "input",
+      title: "输入名称",
+      placeholder: "请输入…",
     });
-    render(<ExtensionDialog />);
+    render(<ExtensionDialog sessionId="s1" />);
 
     const input = screen.getByTestId("ext-dialog-input") as HTMLInputElement;
     expect(input.placeholder).toBe("请输入…");
@@ -120,24 +150,49 @@ describe("ExtensionDialog", () => {
 
   it("editor：textarea 带 prefill，提交 POST { value: 编辑后文本 }", async () => {
     useExtDialogStore.getState().enqueue({
-      requestId: "r6", method: "editor", title: "编辑内容", prefill: "原始文本",
+      requestId: "r6",
+      sessionId: "s1",
+      method: "editor",
+      title: "编辑内容",
+      prefill: "原始文本",
     });
-    render(<ExtensionDialog />);
+    render(<ExtensionDialog sessionId="s1" />);
 
-    const textarea = screen.getByTestId("ext-dialog-editor") as HTMLTextAreaElement;
+    const textarea = screen.getByTestId(
+      "ext-dialog-editor",
+    ) as HTMLTextAreaElement;
     expect(textarea.value).toBe("原始文本");
     fireEvent.change(textarea, { target: { value: "改过的文本" } });
     fireEvent.click(screen.getByTestId("ext-dialog-ok"));
 
     await waitFor(() => {
-      expect(lastRespond()?.body).toEqual({ requestId: "r6", value: "改过的文本" });
+      expect(lastRespond()?.body).toEqual({
+        requestId: "r6",
+        value: "改过的文本",
+      });
     });
   });
 
   it("队列按序展示：应答当前后自动展示下一个请求", async () => {
-    useExtDialogStore.getState().enqueue({ requestId: "r7", method: "confirm", title: "第一个", message: "m1" });
-    useExtDialogStore.getState().enqueue({ requestId: "r8", method: "confirm", title: "第二个", message: "m2" });
-    render(<ExtensionDialog />);
+    useExtDialogStore
+      .getState()
+      .enqueue({
+        requestId: "r7",
+        sessionId: "s1",
+        method: "confirm",
+        title: "第一个",
+        message: "m1",
+      });
+    useExtDialogStore
+      .getState()
+      .enqueue({
+        requestId: "r8",
+        sessionId: "s1",
+        method: "confirm",
+        title: "第二个",
+        message: "m2",
+      });
+    render(<ExtensionDialog sessionId="s1" />);
 
     expect(screen.getByText("第一个")).toBeTruthy();
     fireEvent.click(screen.getByTestId("ext-dialog-ok"));
@@ -146,5 +201,68 @@ describe("ExtensionDialog", () => {
       expect(screen.getByText("第二个")).toBeTruthy();
     });
     expect(useExtDialogStore.getState().queue).toHaveLength(1);
+  });
+
+  it("会话锁定：其它会话的 pending 请求不在当前会话渲染", () => {
+    useExtDialogStore.getState().enqueue({
+      requestId: "r9",
+      sessionId: "s-other",
+      method: "confirm",
+      title: "别的会话",
+      message: "m",
+    });
+    render(<ExtensionDialog sessionId="s1" />);
+
+    expect(screen.queryByTestId("modal-overlay")).toBeNull();
+    // 队列不受影响：切到对应会话仍可展示
+    expect(useExtDialogStore.getState().queue).toHaveLength(1);
+  });
+
+  it("会话锁定：应答当前会话请求后，其它会话的 pending 保持不变", async () => {
+    useExtDialogStore.getState().enqueue({
+      requestId: "r10",
+      sessionId: "s-other",
+      method: "confirm",
+      title: "别的会话",
+      message: "m",
+    });
+    useExtDialogStore.getState().enqueue({
+      requestId: "r11",
+      sessionId: "s1",
+      method: "confirm",
+      title: "当前会话",
+      message: "m",
+    });
+    render(<ExtensionDialog sessionId="s1" />);
+
+    expect(screen.getByText("当前会话")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("ext-dialog-ok"));
+
+    await waitFor(() => {
+      expect(lastRespond()?.body).toEqual({
+        requestId: "r11",
+        confirmed: true,
+      });
+    });
+    const remain = useExtDialogStore.getState().queue;
+    expect(remain).toHaveLength(1);
+    expect(remain[0].requestId).toBe("r10");
+  });
+
+  it("限高：Modal 卡片 inline maxHeight=70vh，内容区可滚动（内容多时不溢出屏幕）", () => {
+    useExtDialogStore.getState().enqueue({
+      requestId: "r12",
+      sessionId: "s1",
+      method: "confirm",
+      title: "t",
+      message: "m",
+    });
+    render(<ExtensionDialog sessionId="s1" />);
+
+    const card = screen.getByTestId("ext-dialog") as HTMLElement;
+    expect(card.style.maxHeight).toBe("70vh");
+    // message 所在的内容区容器带滚动样式（header/footer 固定，中间区滚动）
+    const body = screen.getByText("m").parentElement as HTMLElement;
+    expect(body.className).toContain("overflow-y-auto");
   });
 });

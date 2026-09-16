@@ -5,10 +5,12 @@ import { useExtDialogStore, type ExtDialogRequest } from "../store/ext-dialog";
 import { useTranslation } from "../i18n/useTranslation";
 
 // pi 扩展 dialog 弹窗（select/confirm/input/editor）：kernel 把 pi 的 extension_ui_request
-// 桥接为 sdk:event(extension_dialog) 写入 ext-dialog store 队列，本组件逐个展示队首；
+// 桥接为 sdk:event(extension_dialog) 写入 ext-dialog store 队列（带 sessionId），本组件挂在 SessionView 内只展示当前会话的请求（与 ask 同款会话锁定）；
 // 应答统一 POST /api/extensions/dialog/respond（失败静默：pi 侧请求自带 timeout 兜底）。
-export function ExtensionDialog() {
-    const current = useExtDialogStore((s) => s.queue[0]);
+export function ExtensionDialog({ sessionId }: { sessionId: string }) {
+    const current = useExtDialogStore((s) =>
+        s.queue.find((d) => d.sessionId === sessionId),
+    );
     if (!current) return null;
 
     // 先弹出队列再 POST：同一请求绝不重复应答（双击与按钮竞态）
@@ -17,12 +19,13 @@ export function ExtensionDialog() {
         confirmed?: boolean;
         cancelled?: boolean;
     }) => {
-        const cur = useExtDialogStore.getState().queue[0];
-        useExtDialogStore.getState().resolveCurrent();
-        if (!cur) return;
+        const store = useExtDialogStore.getState();
+        // guard: already resolved (double click) - resolve by id, keep other sessions pending
+        if (!store.queue.some((d) => d.requestId === current.requestId)) return;
+        store.resolveById(current.requestId);
         await api
             .post("/api/extensions/dialog/respond", {
-                requestId: cur.requestId,
+                requestId: current.requestId,
                 ...fields,
             })
             .catch(() => {});
@@ -34,6 +37,8 @@ export function ExtensionDialog() {
         <Modal
             onClose={() => void respond({ cancelled: true })}
             width={480}
+            // 限高视口 70%：长消息/长选项列表在卡内滚动，不再垂直溢出屏幕
+            maxHeight="70vh"
             closeOnOverlayClick={false}
             closeOnEsc={false}
             data-testid="ext-dialog"
@@ -106,7 +111,9 @@ function DialogBody({
                     ✕
                 </button>
             </div>
-            <div className="p-4 text-sm text-secondary leading-relaxed flex flex-col gap-3">
+            {/* flex-1 min-h-0 + overflow-y-auto：卡片被 maxHeight 限制时中间内容区
+                压缩到剩余空间并出现滚动（header/footer 固定）；内容少时不受影响 */}
+            <div className="p-4 text-sm text-secondary leading-relaxed flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto">
                 {req.message && <div>{req.message}</div>}
                 {req.method === "select" && (
                     <div className="flex flex-col gap-2">
