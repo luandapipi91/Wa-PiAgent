@@ -360,7 +360,10 @@ export interface MarkdownBlock {
 
 /** 估算单个 markdown 块的高度（未实测时用于占位） */
 export function estimateMarkdownBlockHeight(block: MarkdownBlock): number {
-	return (block.endLine - block.startLine + 1) * MD_ESTIMATED_LINE_HEIGHT + MD_ESTIMATED_BLOCK_PADDING;
+	return (
+		(block.endLine - block.startLine + 1) * MD_ESTIMATED_LINE_HEIGHT +
+		MD_ESTIMATED_BLOCK_PADDING
+	);
 }
 
 /**
@@ -441,7 +444,8 @@ export function computeBlockWindow(opts: {
 	overscan?: number;
 }): { first: number; last: number; topSpacer: number; bottomSpacer: number } {
 	const blockCount = Math.max(0, opts.offsets.length - 1);
-	if (blockCount === 0) return { first: 0, last: -1, topSpacer: 0, bottomSpacer: 0 };
+	if (blockCount === 0)
+		return { first: 0, last: -1, topSpacer: 0, bottomSpacer: 0 };
 
 	const overscan = opts.overscan ?? 1;
 	const top = Math.max(0, opts.scrollTop);
@@ -456,10 +460,12 @@ export function computeBlockWindow(opts: {
 	last = Math.min(blockCount - 1, last + overscan);
 
 	const topSpacer = opts.offsets[first];
-	const bottomSpacer = Math.max(0, opts.offsets[blockCount] - opts.offsets[last + 1]);
+	const bottomSpacer = Math.max(
+		0,
+		opts.offsets[blockCount] - opts.offsets[last + 1],
+	);
 	return { first, last, topSpacer, bottomSpacer };
 }
-
 
 /** 计算可视窗口：返回要渲染的块区间与上下占位高度（纯函数，便于单测）。
  *
@@ -636,7 +642,8 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 		const offs = new Array<number>(mdBlocks.length + 1);
 		offs[0] = 0;
 		for (let i = 0; i < mdBlocks.length; i++) {
-			offs[i + 1] = offs[i] + (mdHeights[i] ?? estimateMarkdownBlockHeight(mdBlocks[i]));
+			offs[i + 1] =
+				offs[i] + (mdHeights[i] ?? estimateMarkdownBlockHeight(mdBlocks[i]));
 		}
 		return offs;
 	}, [mdBlocks, mdHeights]);

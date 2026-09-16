@@ -558,7 +558,7 @@ test("splitMarkdownBlocks：标题起新块、围栏代码块不被切开", () =
 
 	// 每块里的代码围栏必须成对（不能把 ``` 切开）
 	for (const b of blocks) {
-		expect(((b.text.match(/```/g) ?? []).length % 2)).toBe(0);
+		expect((b.text.match(/```/g) ?? []).length % 2).toBe(0);
 	}
 	// 标题作为块起点
 	expect(blocks.some((b) => b.text.trimStart().startsWith("## B"))).toBe(true);
@@ -581,24 +581,40 @@ test("splitMarkdownBlocks：无空行无标题的超长文本也会被切分（�
 
 test("computeBlockWindow：按偏移量定位可见块与上下占位", () => {
 	const offsets = [0, 100, 200, 300, 400]; // 4 块，各 100px
-	const top = computeBlockWindow({ offsets, scrollTop: 0, viewportHeight: 100, overscan: 0 });
+	const top = computeBlockWindow({
+		offsets,
+		scrollTop: 0,
+		viewportHeight: 100,
+		overscan: 0,
+	});
 	expect(top.first).toBe(0);
 	expect(top.topSpacer).toBe(0);
 	expect(top.bottomSpacer).toBe(300);
 
-	const mid = computeBlockWindow({ offsets, scrollTop: 200, viewportHeight: 100, overscan: 0 });
+	const mid = computeBlockWindow({
+		offsets,
+		scrollTop: 200,
+		viewportHeight: 100,
+		overscan: 0,
+	});
 	expect(mid.first).toBe(2);
 	expect(mid.topSpacer).toBe(200);
 	expect(mid.bottomSpacer).toBe(100);
 
-	const bottom = computeBlockWindow({ offsets, scrollTop: 400, viewportHeight: 100, overscan: 0 });
+	const bottom = computeBlockWindow({
+		offsets,
+		scrollTop: 400,
+		viewportHeight: 100,
+		overscan: 0,
+	});
 	expect(bottom.bottomSpacer).toBe(0);
 });
 
 test("大 md 文件：块级虚拟滚动只渲染可视块、不截断", async () => {
 	const md = Array.from(
 		{ length: 800 },
-		(_, i) => `## Section ${i}\n\nParagraph number ${i} with a bit of longer text.`,
+		(_, i) =>
+			`## Section ${i}\n\nParagraph number ${i} with a bit of longer text.`,
 	).join("\n\n");
 	fake.setResponse("fs:readFile", {
 		content: btoa(md),
@@ -609,10 +625,14 @@ test("大 md 文件：块级虚拟滚动只渲染可视块、不截断", async (
 	);
 
 	await waitFor(() =>
-		expect(container.querySelectorAll('[data-testid="text-block"]').length).toBeGreaterThan(0),
+		expect(
+			container.querySelectorAll('[data-testid="text-block"]').length,
+		).toBeGreaterThan(0),
 	);
 	expect(screen.queryByTestId("fv-truncated")).toBeNull();
 	// 只渲染可视块（远小于总块数）
-	const rendered = container.querySelectorAll('[data-testid="text-block"]').length;
+	const rendered = container.querySelectorAll(
+		'[data-testid="text-block"]',
+	).length;
 	expect(rendered).toBeLessThan(800 / 4);
 });
