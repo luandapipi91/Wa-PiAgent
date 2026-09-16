@@ -30,7 +30,6 @@ const makeEntry = (
 ) => ({
 	id,
 	text,
-	category: "memory",
 	scope,
 	kind,
 	createdAt: "2026-07-01T00:00:00.000Z",
@@ -98,7 +97,6 @@ beforeEach(() => {
 	useMemoryStore.setState({
 		memoryScope: "global",
 		activeTab: "saved",
-		categoryFilter: "all",
 		scopeFilter: "all",
 		kindFilter: null,
 		searchQuery: "",

@@ -2893,6 +2893,7 @@ export class WSServer {
 						projectId: event.projectId || undefined,
 						limit: event.limit,
 						includeArchived: event.includeArchived,
+						archivedOnly: event.archivedOnly,
 					});
 					reply({ type: "memory:search", results, totalMatched });
 				} catch (err) {

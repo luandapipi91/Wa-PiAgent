@@ -74,3 +74,6 @@ bun.lock
 
 # CI workflow 本地配置（不入库）
 .workflow/
+
+# pi 运行时数据（goal ledger 等，不入库）
+.pi/

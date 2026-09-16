@@ -1,8 +1,5 @@
 // ===== 记忆与指令文件管理类型定义 =====
 
-/** 记忆分类：来自文件来源 */
-export type MemoryCategory = "memory" | "user" | "failure";
-
 /** 记忆作用域：来自文件路径 */
 export type MemoryScope = "global" | "project";
 
@@ -13,7 +10,6 @@ export type MemoryKind = "profile" | "knowledge" | "execution";
 export interface MemoryEntry {
   id: string; // DB 模式：uuid（不透明字符串）
   text: string; // 记忆正文
-  category: MemoryCategory;
   scope: MemoryScope;
   kind: MemoryKind; // 记忆层级
   createdAt: string; // 创建时间（ISO）
@@ -113,6 +109,8 @@ export interface MemorySearchEvent {
   projectId?: string;
   limit?: number;
   includeArchived?: boolean;
+  /** 只看归档条目；与 includeArchived 同时给出时以本字段为准 */
+  archivedOnly?: boolean;
 }
 export interface MemoryConfigGetEvent {
   type: "memory:config:get";

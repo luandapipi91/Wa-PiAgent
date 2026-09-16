@@ -46,6 +46,8 @@ export interface ListOpts {
   projectId?: string | null;
   kind?: MemoryKind;
   includeArchived?: boolean;
+  /** 只看归档；与 includeArchived 互斥、本字段优先 */
+  archivedOnly?: boolean;
   /** 最多取多少行（快照 L1 用：只取预算够用的量，不把整个 scope 载入内存） */
   limit?: number;
 }
@@ -384,7 +386,8 @@ export class MemoryDao {
   } {
     const clauses: string[] = [];
     const params: SQLQueryBindings[] = [];
-    if (!opts.includeArchived) clauses.push("archived = 0");
+    if (opts.archivedOnly) clauses.push("archived = 1");
+    else if (!opts.includeArchived) clauses.push("archived = 0");
     if (opts.kind) {
       clauses.push("kind = ?");
       params.push(opts.kind);

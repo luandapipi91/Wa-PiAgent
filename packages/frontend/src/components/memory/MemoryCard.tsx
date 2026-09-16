@@ -13,28 +13,6 @@ interface Props {
   onPurge?: () => void;
 }
 
-// 分类标签配色（label 文案走 i18n：memory.categoryMemory / categoryUser / categoryFailure）
-const CATEGORY_STYLE: Record<
-  string,
-  { bg: string; color: string; labelKey: string }
-> = {
-  memory: {
-    bg: "var(--success-soft)",
-    color: "var(--success)",
-    labelKey: "memory.categoryMemory",
-  },
-  user: {
-    bg: "var(--accent-soft)",
-    color: "var(--accent)",
-    labelKey: "memory.categoryUser",
-  },
-  failure: {
-    bg: "var(--danger-soft)",
-    color: "var(--danger)",
-    labelKey: "memory.categoryFailure",
-  },
-};
-
 export function MemoryCard({
   entry,
   mode = "active",
@@ -47,7 +25,6 @@ export function MemoryCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(entry.text);
 
-  const cat = CATEGORY_STYLE[entry.category] ?? CATEGORY_STYLE.memory;
   const isArchived = mode === "archived";
   // 层标签：旧数据可能没有 kind（后端历史条目），拿不到映射时退回原始值
   const kindKey = KIND_I18N_KEY[entry.kind];
@@ -78,14 +55,8 @@ export function MemoryCard({
       }}
       data-testid={`memory-card-${entry.id}`}
     >
-      {/* 头部：分类标签 + 作用域 + 层级 */}
+      {/* 头部：作用域 + 层级 */}
       <div className="flex items-center gap-2 mb-2">
-        <span
-          className="text-[calc(10px*var(--font-scale))] font-semibold px-2 py-0.5 rounded-full"
-          style={{ background: cat.bg, color: cat.color }}
-        >
-          {t(cat.labelKey)}
-        </span>
         <span className="text-[calc(10px*var(--font-scale))] text-tertiary">
           {entry.scope === "global"
             ? t("memoryCard.scopeGlobal")

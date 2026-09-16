@@ -16,7 +16,6 @@ export function MemoryPage() {
 		instructions,
 		config,
 		activeTab,
-		categoryFilter,
 		scopeFilter,
 		kindFilter,
 		memoryScope,
@@ -34,7 +33,6 @@ export function MemoryPage() {
 		add,
 		setConfigValue,
 		setTab,
-		setCategoryFilter,
 		setScopeFilter,
 		setKindFilter,
 		setMemoryScope,
@@ -77,10 +75,9 @@ export function MemoryPage() {
 		}
 	}, [activeProjectId, activeTab, loadInstructions]);
 
-	// 筛选后的记忆：先按作用域（全局/项目）过滤，再按分类、层级与搜索词
+	// 筛选后的记忆：先按作用域（全局/项目）过滤，再按层级与搜索词
 	const filteredMemories = memories
 		.filter((m) => m.scope === memoryScope)
-		.filter((m) => categoryFilter === "all" || m.category === categoryFilter)
 		.filter((m) => kindFilter === null || m.kind === kindFilter)
 		.filter(
 			(m) =>
@@ -222,7 +219,7 @@ export function MemoryPage() {
 						</select>
 					</>
 				) : (
-					// 记忆筛选：作用域下拉（默认全局记忆，展开含「全局记忆」+ 项目列表）→ 搜索 → 分类 → 添加
+					// 记忆筛选：作用域下拉（默认全局记忆，展开含「全局记忆」+ 项目列表）→ 搜索 → 层级 → 添加
 					<>
 						<MemoryScopeDropdown
 							memoryScope={memoryScope}
@@ -246,26 +243,13 @@ export function MemoryPage() {
 							onChange={(e) => setSearchQuery(e.target.value)}
 							data-testid="memory-search"
 						/>
-						<div className="flex gap-1.5 shrink-0">
-							{(["all", "memory", "user", "failure"] as const).map((f) => (
-								<FilterChip
-									key={f}
-									active={categoryFilter === f}
-									onClick={() => setCategoryFilter(f)}
-									label={
-										f === "all"
-											? t("memory.filterAll")
-											: f === "memory"
-												? t("memory.categoryMemory")
-												: f === "user"
-													? t("memory.categoryUser")
-													: t("memory.categoryFailure")
-									}
-								/>
-							))}
-						</div>
-						{/* 层级筛选（L1 画像 / L2 知识 / L3 执行）：点已选中的层可取消 */}
+						{/* 层级筛选（L1 画像 / L2 知识 / L3 执行）：「全部」= 不筛；点已选中的层可取消 */}
 						<div className="flex gap-1.5 shrink-0" data-testid="memory-kind-filter">
+							<FilterChip
+								active={kindFilter === null}
+								onClick={() => setKindFilter(null)}
+								label={t("memory.filterAll")}
+							/>
 							{MEMORY_KINDS.map((k) => (
 								<FilterChip
 									key={k}

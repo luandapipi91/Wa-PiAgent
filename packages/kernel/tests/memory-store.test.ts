@@ -100,7 +100,6 @@ test("list 返回全局条目：uuid id、kind、ISO 时间戳，sourceFile/rawI
   expect(entry.text).toBe("项目用 pnpm");
   expect(entry.id).toMatch(UUID_RE);
   expect(entry.scope).toBe("global");
-  expect(entry.category).toBe("memory");
   expect(entry.kind).toBe("knowledge");
   expect(isIso(entry.createdAt)).toBe(true);
   expect(isIso(entry.updatedAt)).toBe(true);
@@ -109,7 +108,7 @@ test("list 返回全局条目：uuid id、kind、ISO 时间戳，sourceFile/rawI
   expect(entry.rawIndex).toBeUndefined();
 });
 
-test("list USER 类条目 category=user（kind=profile）", async () => {
+test("list USER 类条目 kind=profile", async () => {
   seed([
     {
       target: "user",
@@ -121,7 +120,7 @@ test("list USER 类条目 category=user（kind=profile）", async () => {
   ]);
 
   const { memories } = await makeStore().list();
-  const users = memories.filter((m) => m.category === "user");
+  const users = memories.filter((m) => m.kind === "profile");
   expect(users).toHaveLength(2);
   expect(users.every((u) => u.kind === "profile" && u.scope === "global")).toBe(
     true,

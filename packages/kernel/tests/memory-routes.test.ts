@@ -67,6 +67,7 @@ test("GET /api/memories/search 全量参数映射为 memory:search 事件", asyn
 			projectId: "p1",
 			limit: 3,
 			includeArchived: true,
+			archivedOnly: false,
 		},
 	]);
 });
@@ -83,6 +84,7 @@ test("GET /api/memories/search 缺参 → 空串 + limit 10 + includeArchived fa
 			projectId: "",
 			limit: 10,
 			includeArchived: false,
+			archivedOnly: false,
 		},
 	]);
 });
@@ -95,6 +97,18 @@ test("GET /api/memories/search 非法 limit 回落到默认 10", async () => {
 	seen.length = 0;
 	await r.handle(new Request("http://x/api/memories/search?q=a&limit=0"));
 	expect((seen[0] as any).limit).toBe(10);
+});
+
+test("GET /api/memories/search 的 archivedOnly 参数映射为事件字段", async () => {
+	const { r, seen } = makeRecordingRouter();
+	await r.handle(
+		new Request("http://x/api/memories/search?q=sqlite&archivedOnly=true"),
+	);
+	expect((seen[0] as any).archivedOnly).toBe(true);
+	// 未传该参数时恒为 false（与 includeArchived 同风格）
+	seen.length = 0;
+	await r.handle(new Request("http://x/api/memories/search?q=sqlite"));
+	expect((seen[0] as any).archivedOnly).toBe(false);
 });
 
 test("既有记忆路由未被改动：list / purge 仍映射原事件", async () => {
@@ -184,6 +198,43 @@ test("GET /api/memories/search：空串 scope 归一为 undefined，跨作用域
 		// 归档标记与 updatedAt 均为 UI 可直接渲染的值
 		expect(body.results.every((r: any) => r.archived === false)).toBe(true);
 		expect(body.results.every((r: any) => r.updatedAt.includes("T"))).toBe(true);
+	} finally {
+		await server.stop();
+	}
+});
+
+test("GET /api/memories/search：archivedOnly=true 只返回归档条目", async () => {
+	const { server, port } = await startTestServer();
+	try {
+		await seedViaApi(port, { scope: "global", text: "zebraarch 未归档" });
+		await seedViaApi(port, { scope: "global", text: "zebraarch 已归档" });
+
+		const listed = (await (
+			await fetch(`http://127.0.0.1:${port}/api/memories`)
+		).json()) as any;
+		const target = listed.memories.find((m: any) =>
+			m.text.includes("已归档"),
+		);
+		const archiveRes = await fetch(
+			`http://127.0.0.1:${port}/api/memories/archive`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ projectId: "", entryId: target.id }),
+			},
+		);
+		expect(archiveRes.status).toBe(200);
+
+		const res = await fetch(
+			`http://127.0.0.1:${port}/api/memories/search?q=zebraarch&archivedOnly=true`,
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as any;
+		expect(body.type).toBe("memory:search");
+		expect(body.results).toHaveLength(1);
+		expect(body.results[0].title).toContain("已归档");
+		expect(body.results[0].archived).toBe(true);
+		expect(body.totalMatched).toBe(1);
 	} finally {
 		await server.stop();
 	}

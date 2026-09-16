@@ -21,7 +21,6 @@ beforeEach(() => {
       {
         id: "5f1a2b3c-0000-4000-8000-000000000001",
         text: "项目使用 pnpm",
-        category: "memory",
         scope: "global",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -39,7 +38,6 @@ beforeEach(() => {
     ],
     config: { reviewEnabled: true, memoryPolicyStyle: "full" },
     activeTab: "saved",
-    categoryFilter: "all",
     scopeFilter: "all",
     memoryScope: "global",
     selectedProjectId: "p1",
@@ -76,36 +74,6 @@ test("点击指令文件 Tab 展示指令列表", () => {
   expect(screen.getByTestId("instruction-item-project")).toBeTruthy();
 });
 
-test("分类筛选 — 点击失败只筛选 failure 类别", () => {
-  useMemoryStore.setState({
-    memories: [
-      {
-        id: "11111111-1111-4111-8111-111111111111",
-        text: "记忆A",
-        category: "memory",
-        scope: "global",
-        kind: "knowledge",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
-      {
-        id: "22222222-2222-4222-8222-222222222222",
-        text: "失败B",
-        category: "failure",
-        scope: "global",
-        kind: "execution",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
-    ],
-  });
-  render(<MemoryPage />);
-  expect(screen.getByText("记忆A")).toBeTruthy();
-  expect(screen.getByText("失败B")).toBeTruthy();
-
-  fireEvent.click(screen.getAllByText("失败", { selector: "button" })[0]);
-  expect(screen.queryByText("记忆A")).toBeNull();
-  expect(screen.getByText("失败B")).toBeTruthy();
-});
-
 test("搜索框过滤记忆", () => {
   render(<MemoryPage />);
   const input = screen.getByTestId("memory-search") as HTMLInputElement;
@@ -123,7 +91,6 @@ test("记忆卡片编辑 — 点击编辑展开文本框，保存后回调（带
       {
         id: "33333333-3333-4333-8333-333333333333",
         text: "原始内容",
-        category: "memory",
         scope: "global",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -169,7 +136,6 @@ test("选择某个项目 → 切到该项目记忆，按钮显示项目名", () 
       {
         id: "44444444-4444-4444-8444-444444444444",
         text: "全局A",
-        category: "memory",
         scope: "global",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -177,7 +143,6 @@ test("选择某个项目 → 切到该项目记忆，按钮显示项目名", () 
       {
         id: "55555555-5555-4555-8555-555555555555",
         text: "项目1专属",
-        category: "memory",
         scope: "project",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -207,7 +172,6 @@ test("选择「全局记忆」选项切回全局", () => {
       {
         id: "66666666-6666-4666-8666-666666666666",
         text: "全局A",
-        category: "memory",
         scope: "global",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -293,7 +257,6 @@ test("Bug1: 关闭重开设置后，项目作用域仍显示上次选中的项�
       {
         id: "77777777-7777-4777-8777-777777777777",
         text: "全局记忆",
-        category: "memory",
         scope: "global",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -301,7 +264,6 @@ test("Bug1: 关闭重开设置后，项目作用域仍显示上次选中的项�
       {
         id: "88888888-8888-4888-8888-888888888888",
         text: "aicpm 项目记忆",
-        category: "memory",
         scope: "project",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -385,7 +347,6 @@ const KIND_FIXTURE: MemoryEntry[] = [
   {
     id: "aaaaaaaa-0000-4000-8000-000000000001",
     text: "画像条目",
-    category: "user",
     scope: "global",
     kind: "profile",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -393,7 +354,6 @@ const KIND_FIXTURE: MemoryEntry[] = [
   {
     id: "aaaaaaaa-0000-4000-8000-000000000002",
     text: "知识条目",
-    category: "memory",
     scope: "global",
     kind: "knowledge",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -401,7 +361,6 @@ const KIND_FIXTURE: MemoryEntry[] = [
   {
     id: "aaaaaaaa-0000-4000-8000-000000000003",
     text: "执行失败条目",
-    category: "failure",
     scope: "global",
     kind: "execution",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -409,7 +368,6 @@ const KIND_FIXTURE: MemoryEntry[] = [
   {
     id: "aaaaaaaa-0000-4000-8000-000000000005",
     text: "知识失败条目",
-    category: "failure",
     scope: "global",
     kind: "knowledge",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -454,14 +412,13 @@ test("层筛选 — 无命中时显示空态", () => {
   expect(screen.queryByText("知识条目")).toBeNull();
 });
 
-test("层筛选与分类筛选叠加 — 执行层 + 失败分类", () => {
+test("层筛选：执行层只显示执行条目", () => {
   useMemoryStore.setState({
     memories: [
       ...KIND_FIXTURE,
       {
         id: "aaaaaaaa-0000-4000-8000-000000000004",
         text: "执行成功条目",
-        category: "memory",
         scope: "global",
         kind: "execution",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -470,17 +427,38 @@ test("层筛选与分类筛选叠加 — 执行层 + 失败分类", () => {
   });
   render(<MemoryPage />);
 
-  // 单独按「失败」分类筛：还剩两条（执行失败 + 知识失败）
-  fireEvent.click(screen.getAllByText("失败", { selector: "button" })[0]);
+  fireEvent.click(screen.getByRole("button", { name: "执行" }));
+  // 只剩 execution 层：两条执行条目
+  expect(screen.getByText("执行失败条目")).toBeTruthy();
+  expect(screen.getByText("执行成功条目")).toBeTruthy();
+  expect(screen.queryByText("知识失败条目")).toBeNull();
+  expect(screen.queryByText("知识条目")).toBeNull();
+  expect(screen.queryByText("画像条目")).toBeNull();
+});
+
+test("层筛选：点「执行」只剩执行层，再点「全部」恢复全部层", () => {
+  useMemoryStore.setState({ memories: KIND_FIXTURE });
+  render(<MemoryPage />);
+
+  // 未筛选：四层条目都可见
+  expect(screen.getByText("画像条目")).toBeTruthy();
+  expect(screen.getByText("知识条目")).toBeTruthy();
   expect(screen.getByText("执行失败条目")).toBeTruthy();
   expect(screen.getByText("知识失败条目")).toBeTruthy();
 
-  // 叠加「执行」层筛：只剩一条
+  // 点「执行」→ 只剩执行层
   fireEvent.click(screen.getByRole("button", { name: "执行" }));
   expect(screen.getByText("执行失败条目")).toBeTruthy();
-  expect(screen.queryByText("知识失败条目")).toBeNull();
-  expect(screen.queryByText("执行成功条目")).toBeNull();
   expect(screen.queryByText("画像条目")).toBeNull();
+  expect(screen.queryByText("知识条目")).toBeNull();
+  expect(screen.queryByText("知识失败条目")).toBeNull();
+
+  // 点「全部」→ 恢复全部层
+  fireEvent.click(screen.getByRole("button", { name: "全部" }));
+  expect(screen.getByText("画像条目")).toBeTruthy();
+  expect(screen.getByText("知识条目")).toBeTruthy();
+  expect(screen.getByText("执行失败条目")).toBeTruthy();
+  expect(screen.getByText("知识失败条目")).toBeTruthy();
 });
 
 test("层筛选作用于当前作用域内的数据（项目作用域下按层筛选）", () => {
@@ -489,7 +467,6 @@ test("层筛选作用于当前作用域内的数据（项目作用域下按层�
       {
         id: "bbbbbbbb-0000-4000-8000-000000000001",
         text: "全局知识",
-        category: "memory",
         scope: "global",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -497,7 +474,6 @@ test("层筛选作用于当前作用域内的数据（项目作用域下按层�
       {
         id: "bbbbbbbb-0000-4000-8000-000000000002",
         text: "项目知识",
-        category: "memory",
         scope: "project",
         kind: "knowledge",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -505,7 +481,6 @@ test("层筛选作用于当前作用域内的数据（项目作用域下按层�
       {
         id: "bbbbbbbb-0000-4000-8000-000000000003",
         text: "项目执行",
-        category: "memory",
         scope: "project",
         kind: "execution",
         createdAt: "2026-01-01T00:00:00.000Z",

@@ -102,6 +102,58 @@ test("归档条目默认不出现在检索结果里", () => {
   expect(dao.search("alpha", { includeArchived: true })).toHaveLength(1);
 });
 
+test("archivedOnly 只返回归档行；includeArchived:false 只返回未归档行", () => {
+  const live = add({ content: "zebraarch 未归档" });
+  const gone = add({ content: "zebraarch 已归档" });
+  dao.archive(gone.id);
+
+  const onlyArchived = dao.search("zebraarch", {
+    archivedOnly: true,
+    weights: { bm25: 1, time: 0, kind: 0 },
+  });
+  expect(onlyArchived.map((h) => h.id)).toEqual([gone.id]);
+
+  expect(
+    dao
+      .search("zebraarch", { includeArchived: false })
+      .map((h) => h.id),
+  ).toEqual([live.id]);
+});
+
+test("archivedOnly 与 includeArchived 同时给出时 archivedOnly 优先", () => {
+  const live = add({ content: "zebraarch 未归档" });
+  const gone = add({ content: "zebraarch 已归档" });
+  dao.archive(gone.id);
+
+  const hits = dao.search("zebraarch", {
+    archivedOnly: true,
+    includeArchived: true,
+    weights: { bm25: 1, time: 0, kind: 0 },
+  });
+  expect(hits.map((h) => h.id)).toEqual([gone.id]);
+  expect(hits.map((h) => h.id)).not.toContain(live.id);
+});
+
+test("countMatches 与 archivedOnly 同口径：等于归档条数", () => {
+  add({ content: "zebraarch 未归档一" });
+  const goneA = add({ content: "zebraarch 已归档一" });
+  const goneB = add({ content: "zebraarch 已归档二" });
+  dao.archive(goneA.id);
+  dao.archive(goneB.id);
+
+  expect(dao.countMatches("zebraarch", { archivedOnly: true })).toBe(2);
+  expect(dao.countMatches("zebraarch", { archivedOnly: true })).toBe(
+    dao.search("zebraarch", { archivedOnly: true, limit: 100 }).length,
+  );
+  // 与「同时给 includeArchived」也保持同一口径（archivedOnly 优先）
+  expect(
+    dao.countMatches("zebraarch", {
+      archivedOnly: true,
+      includeArchived: true,
+    }),
+  ).toBe(2);
+});
+
 test("list 按 scope/projectId/kind 过滤", () => {
   add({ content: "a", scope: "global", projectId: null });
   add({ content: "b", scope: "project", projectId: "Wa-Pi" });

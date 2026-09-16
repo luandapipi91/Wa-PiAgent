@@ -83,6 +83,7 @@ export const registerMemoryRoutes: RouteRegistrar = (
       projectId: q.get("projectId") ?? "",
       limit: Number.isInteger(limit) && limit > 0 ? limit : 10,
       includeArchived: q.get("includeArchived") === "true",
+      archivedOnly: q.get("archivedOnly") === "true",
     });
   });
   r.add("GET", "/api/memories/config", async () =>

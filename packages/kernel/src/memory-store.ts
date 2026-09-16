@@ -43,6 +43,8 @@ export interface MemorySearchOpts {
   projectId?: string;
   limit?: number;
   includeArchived?: boolean;
+  /** 只看归档条目（归档 Tab 的服务端检索用） */
+  archivedOnly?: boolean;
 }
 
 export class MemoryStore {
@@ -58,7 +60,6 @@ export class MemoryStore {
     return {
       id: r.id,
       text: r.content,
-      category: r.target === "user" ? "user" : "memory",
       scope: r.scope,
       kind: r.kind,
       createdAt: new Date(r.createdAt).toISOString(),
@@ -136,6 +137,7 @@ export class MemoryStore {
       projectId: scope === "project" ? projectName : null,
       kind: opts.kind || undefined,
       includeArchived: opts.includeArchived === true,
+      archivedOnly: opts.archivedOnly === true,
     };
 
     const dao = this.dao();

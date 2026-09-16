@@ -14,7 +14,6 @@ import type {
 import { api } from "../api-client";
 
 type ActiveTab = "saved" | "archived" | "instructions";
-type CategoryFilter = "all" | "memory" | "user" | "failure";
 type ScopeFilter = "all" | "global" | "project";
 /** 记忆页顶部作用域选择：global 全局记忆，project 当前选中项目记忆 */
 type MemoryScope = "global" | "project";
@@ -28,7 +27,6 @@ interface MemoryState {
 
   // UI 状态
   activeTab: ActiveTab;
-  categoryFilter: CategoryFilter;
   scopeFilter: ScopeFilter;
   /** 层级筛选（L1 画像 / L2 知识 / L3 执行）；null 表示不筛 */
   kindFilter: MemoryKind | null;
@@ -53,7 +51,6 @@ interface MemoryState {
   add: (scope: MemoryScope, text: string, projectId?: string) => void;
   setConfigValue: (opts: Partial<MemoryConfig>) => void;
   setTab: (tab: ActiveTab) => void;
-  setCategoryFilter: (f: CategoryFilter) => void;
   setScopeFilter: (f: ScopeFilter) => void;
   setKindFilter: (k: MemoryKind | null) => void;
   setMemoryScope: (s: MemoryScope) => void;
@@ -68,7 +65,6 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   config: null,
 
   activeTab: "saved",
-  categoryFilter: "all",
   scopeFilter: "all",
   kindFilter: null,
   memoryScope: "global",
@@ -135,7 +131,6 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     void api.put("/api/memories/config", opts);
   },
   setTab: (tab) => set({ activeTab: tab }),
-  setCategoryFilter: (f) => set({ categoryFilter: f }),
   setScopeFilter: (f) => set({ scopeFilter: f }),
   setKindFilter: (k) => set({ kindFilter: k }),
   setMemoryScope: (s) => set({ memoryScope: s }),
