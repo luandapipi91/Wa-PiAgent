@@ -78,6 +78,34 @@ export function requireProjectId(
   return { ok: true, projectId: ctx.projectId };
 }
 
+/**
+ * 条目归属校验（id 变更路径的唯一入口）。
+ *
+ * 按 id 定位时，声明什么 scope 由**行自身**决定，不能信调用方：不传 scope 的
+ * memory_search 是跨域检索（规格允许，会返回别项目条目的 id），若这里不校验
+ * 归属，就能借 memory_search 拿到的 id 改掉/删掉**别的项目**的记忆。
+ * - 行 scope === "project"：先过 requireProjectId（缺上下文即拒绝），
+ *   再要求 row.projectId 与 ctx.projectId **严格相等**（大小写不同即不同项目，
+ *   与 DAO 的 `project_id = ?` 精确匹配口径一致；row.projectId 为 NULL 的迁移
+ *   遗留条目同样不匹配 → 拒绝）
+ * - 行 scope === "global"：全局记忆本就跨项目共享，任何会话都可读改，不额外校验
+ */
+export function requireEntryOwnership(
+  ctx: MemoryToolContext,
+  row: MemoryRow,
+): ProjectIdCheck {
+  if (row.scope !== "project") return { ok: true, projectId: null };
+  const check = requireProjectId(ctx, row.scope);
+  if (!check.ok) return check;
+  if (row.projectId !== check.projectId) {
+    return {
+      ok: false,
+      error: `该条目属于另一个项目（projectId ${row.projectId ?? "无"}），不能在项目 ${check.projectId} 下修改`,
+    };
+  }
+  return check;
+}
+
 const jsonResult = (v: unknown) => ({
   content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }],
   details: undefined,
@@ -103,10 +131,9 @@ function resolveTargets(
   const target: MemoryTarget = str(params.target) === "user" ? "user" : "memory";
   const scope = resolveScope(target, params.scope);
 
-  // 需要项目上下文的两种情况：
+  // scope 层面的两道校验：
   // 1) 无 id —— 只能按 scope + oldText 过滤匹配，匹配范围由 scope 决定
   // 2) 有 id 但调用方显式声明了 scope="project" —— 声明必须自洽
-  // 纯 id 定位（未声明 scope）不依赖 scope（id 全局唯一），故不校验。
   const guardScope: MemoryScope | undefined =
     id && params.scope !== "project" ? undefined : scope;
   const check = requireProjectId(ctx, guardScope);
@@ -115,6 +142,11 @@ function resolveTargets(
   if (id) {
     const row = ctx.dao.getById(id);
     if (!row) return { ok: false, result: jsonResult({ success: false, error: `No entry matched id '${id}'.` }) };
+    // 归属校验：scope 未声明时上面那道校验放行，由这一道按行自身的归属把关
+    const ownership = requireEntryOwnership(ctx, row);
+    if (!ownership.ok) {
+      return { ok: false, result: jsonResult({ success: false, error: ownership.error }) };
+    }
     return { ok: true, rows: [row] };
   }
 

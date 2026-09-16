@@ -211,3 +211,97 @@ test("未传 scope 的 read/search/全局变更仍可跨域（不因缺项目上
   });
   expect(replace.success).toBe(true);
 });
+
+// ── 以下五条为控制者指派的缺口修复（任务 11 补丁）：id 路径的项目归属校验 ──
+// 生产链路：不传 scope 的 memory_search 是跨域检索，会返回别项目条目的 id；
+// 若 id 路径不校验归属，memory_replace / memory_remove 就能改掉/删掉别项目的记忆。
+
+test("id 路径归属校验：跨项目 search 拿到的 id 不能改/删该项目条目", async () => {
+  await seedTwoProjects(); // 结束时 ctx.projectId = "P2"
+  const p2 = ctx.dao.list({ projectId: "P2" })[0];
+  ctx = { ...ctx, projectId: "P1" };
+  tools = createMemoryTools(ctx);
+
+  // 链路第一步：不传 scope 的检索确实能拿到别项目条目的 id（规格允许跨域只读）
+  const search = await call("memory_search", { query: "P2 项目备忘" });
+  expect(search.results.map((r: any) => r.id)).toContain(p2.id);
+
+  // 链路第二步：拿这个 id 去改 / 删 —— 必须被拒
+  const replace = await call("memory_replace", { id: p2.id, newContent: "被篡改" });
+  expect(replace.success).toBe(false);
+  expect(replace.error).toContain("另一个项目");
+  const remove = await call("memory_remove", { id: p2.id });
+  expect(remove.success).toBe(false);
+  expect(remove.error).toContain("另一个项目");
+
+  // 数据破坏防线：条目仍在、内容未变
+  const after = ctx.dao.getById(p2.id);
+  expect(after).not.toBeNull();
+  expect(after!.content).toBe("P2 项目备忘");
+  expect(ctx.dao.list({ includeArchived: true })).toHaveLength(2);
+});
+
+test("id 路径归属校验：无项目上下文时拒绝改/删项目条目", async () => {
+  await seedTwoProjects();
+  const p2 = ctx.dao.list({ projectId: "P2" })[0];
+  ctx = { ...ctx, projectId: null };
+  tools = createMemoryTools(ctx);
+
+  expect((await call("memory_replace", { id: p2.id, newContent: "被篡改" })).success).toBe(false);
+  expect((await call("memory_remove", { id: p2.id })).success).toBe(false);
+  expect(ctx.dao.getById(p2.id)!.content).toBe("P2 项目备忘");
+});
+
+test("id 路径归属校验：projectId 大小写不同视为不同项目（严格比较）", async () => {
+  await seedTwoProjects();
+  const p2 = ctx.dao.list({ projectId: "P2" })[0];
+  ctx = { ...ctx, projectId: "p2" };
+  tools = createMemoryTools(ctx);
+
+  expect((await call("memory_replace", { id: p2.id, newContent: "被篡改" })).success).toBe(false);
+  expect(ctx.dao.getById(p2.id)!.content).toBe("P2 项目备忘");
+});
+
+test("id 路径归属校验：本项目条目仍可改可删（不过度收紧）", async () => {
+  await seedTwoProjects();
+  const p1 = ctx.dao.list({ projectId: "P1" })[0];
+  const p2 = ctx.dao.list({ projectId: "P2" })[0];
+  ctx = { ...ctx, projectId: "P1" };
+  tools = createMemoryTools(ctx);
+
+  expect((await call("memory_replace", { id: p1.id, newContent: "P1 改过了" })).success).toBe(true);
+  expect(ctx.dao.getById(p1.id)!.content).toBe("P1 改过了");
+  expect((await call("memory_remove", { id: p1.id })).success).toBe(true);
+  expect(ctx.dao.getById(p1.id)).toBeNull();
+  // 别的项目不受牵连
+  expect(ctx.dao.getById(p2.id)!.content).toBe("P2 项目备忘");
+});
+
+test("id 路径归属校验：全局条目在任何项目上下文下仍可改可删（不误伤）", async () => {
+  const g = await call("memory_add", { target: "user", content: "全局画像 zglobal" });
+  expect(g.scope).toBe("global");
+  ctx = { ...ctx, projectId: "P1" };
+  tools = createMemoryTools(ctx);
+
+  expect((await call("memory_replace", { id: g.id, newContent: "改过的全局画像 zglobal" })).success).toBe(true);
+  expect((await call("memory_remove", { id: g.id })).success).toBe(true);
+  expect(ctx.dao.getById(g.id)).toBeNull();
+});
+
+test("id 路径归属校验：谎报 scope=global 无法绕过归属校验（按行自身 scope 判定）", async () => {
+  await seedTwoProjects();
+  const p2 = ctx.dao.list({ projectId: "P2" })[0];
+  ctx = { ...ctx, projectId: "P1" };
+  tools = createMemoryTools(ctx);
+
+  // 调用方声称目标是全局/user 域的条目，但该 id 实际是 P2 的项目条目
+  const replace = await call("memory_replace", {
+    id: p2.id, target: "user", scope: "global", newContent: "被篡改",
+  });
+  expect(replace.success).toBe(false);
+  const remove = await call("memory_remove", { id: p2.id, target: "user", scope: "global" });
+  expect(remove.success).toBe(false);
+
+  expect(ctx.dao.getById(p2.id)!.content).toBe("P2 项目备忘");
+  expect(ctx.dao.list({ includeArchived: true })).toHaveLength(2);
+});
