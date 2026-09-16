@@ -3,33 +3,33 @@
 //
 // 目标：验证在日常使用（真实 pi 进程 + 真实系统提示词 + wa-pi-bridge 扩展注册的
 // memory_* 工具）下，agent 能主动把「用户记忆」与「项目记忆」正确写入：
-// - 用户记忆：target=user → 全局 <memRoot>/memories/global/USER.md
-// - 项目记忆：target=memory → 项目 <memRoot>/projects-memory/<cwd basename>/MEMORY.md
+// - 用户记忆：target=user → 全局记忆（scope=global，kind=profile）
+// - 项目记忆：target=memory → 项目记忆（scope=project，project_id=<cwd basename>）
 //
 // 与 eval-delegate-trigger.ts 同构（同一评测骨架）：
 // - 系统提示词：composePrompt(prompts.json segments, { defaultBasePrompt, delegateRoster, builtinSkillsDir })
 // - 工具面：默认排除式（不传 --tools，仅 -xt subagent）+ 全套扩展（provider-extension + wa-pi-bridge）
 // - 与生产一致的部分（保证测的就是线上行为）：memory 工具由 wa-pi-bridge 扩展注册，
-//   agent 调用 memory_add 经 HTTP 回调 bridge；本脚本的 bridge stub 复用真实 amaster store
-//   （getGlobalMemoryStore / getProjectMemoryStore）按 target+scope 路由落盘，与 kernel
-//   makeDefaultBridgeContext 的记忆逻辑一致——写入目录为隔离的 memRoot，不污染真实记忆。
+//   agent 调用 memory_add 经 HTTP 回调 bridge；本脚本的 bridge stub 直接复用 kernel 的
+//   memory/tools 工具集（createMemoryTools + MemoryDao），与 makeDefaultBridgeContext 同源
+//   ——写入的是隔离 memRoot 下的 memories.db，不污染真实记忆。
 //
 // 用法：
 //   bun run scripts/eval-memory-write.ts [--limit N] [--sample N] [--category user,project,mixed]
 //     [--repeat N] [--model slug/modelId] [--thinking off|low|medium|high|xhigh]
 //     [--dry-run] [--out path] [--timeout sec] [--mem-root path]
-//   --sample N：每类各取前 N 条（冒烟推荐 --sample 1）；--mem-root：记忆写入根目录
-//   （默认 <WA_PI_DIR>/tmp/eval-memory-write/<uuid>，自动清理）
+//   --sample N：每类各取前 N 条（冒烟推荐 --sample 1）；--mem-root：隔离记忆库所在目录
+//   （memories.db 落在其下；默认 <WA_PI_DIR>/tmp/eval-memory-write/<uuid>，自动清理）
 //
 // 判定标准（每个用例）：
 //   1. agent 调用了 memory_add（写入动作发生）
 //   2. 路由正确：user 类用例 target=user；project 类用例 target=memory；mixed 类两类都有
-//   3. 落盘生效：对应 USER.md / MEMORY.md 文件存在且内容非空
+//   3. 落库生效：隔离记忆库中存在对应 scope/target 的条目
 // 汇总时给出「写入通过率」，任何用例 3 项全过才算 PASS。
 
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile, readFile, access } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	WA_PI_DIR,
@@ -59,12 +59,14 @@ import { ensureProviderExtensionRegistered } from "../src/provider-extension";
 import { ProviderStore } from "../src/provider-store";
 import { buildAdditionalExtensionPaths } from "../src/extensions";
 import {
-	getGlobalMemoryStore,
-	getProjectMemoryStore,
-} from "../src/amaster-memory";
+	createMemoryTools,
+	MemoryDao,
+	openMemoryDb,
+	projectNameFromCwd,
+} from "../src/memory";
 // ---- 用例集（16 条：user 4 + project 4 + mixed 2 + implicit 6）----
-// user：应写 target=user（默认 → 全局 USER.md）
-// project：应写 target=memory（默认 → 项目 MEMORY.md）
+// user：应写 target=user（默认 → 全局）
+// project：应写 target=memory（默认 → 项目）
 // mixed：应同时写用户信息 + 项目信息（两类都要落盘）
 // implicit（隐形记忆）：用户未说「记住」，但对话中自然透露了值得跨会话保留的信息，
 //   agent 应主动识别并写入（这是本评测的核心场景——自动判断而不是等显式指令）
@@ -80,7 +82,7 @@ interface MemoryCase {
 }
 
 const CASES: MemoryCase[] = [
-	// --- user (4)：用户记忆 → 全局 USER.md ---
+	// --- user (4)：用户记忆 → 全局作用域 ---
 	{
 		category: "user",
 		prompt:
@@ -108,7 +110,7 @@ const CASES: MemoryCase[] = [
 		expectUser: true,
 		expectProject: false,
 	},
-	// --- project (4)：项目记忆 → 项目 MEMORY.md ---
+	// --- project (4)：项目记忆 → 项目作用域 ---
 	{
 		category: "project",
 		prompt: "记住这个项目的约定：所有测试必须覆盖单元、组件、API、E2E 四层。",
@@ -290,7 +292,7 @@ function selectCases(opts: CliOpts): typeof CASES {
 	return pool.slice(0, Math.max(0, Math.min(opts.limit, pool.length)));
 }
 
-// ---- stub bridge server：memory_* 调用走真实 amaster store 写入隔离目录 ----
+// ---- stub bridge server：memory_* 调用走真实记忆工具集，写入隔离记忆库 ----
 interface MemoryCall {
 	tool: string;
 	params: any;
@@ -306,50 +308,31 @@ interface StubBridge {
 	setCaseRoot: (sessionId: string, root: string) => void;
 }
 
-/** 与 kernel makeDefaultBridgeContext 的记忆路由一致：target=user 默认全局，target=memory 默认项目 */
-function resolveMemoryScope(target: string, scope: unknown) {
-	if (scope === "global" || scope === "project")
-		return scope as "global" | "project";
-	return target === "user" ? "global" : "project";
-}
-
-/** 真实处理一次 memory_* 调用：按 target+scope 路由到隔离目录的 amaster store 并落盘 */
+/**
+ * 真实处理一次 memory_* 调用：与 kernel makeDefaultBridgeContext 同源——直接跑 memory/tools
+ * 的工具集（同一份实现），按 target+scope 路由写入隔离目录下的 memories.db。
+ */
 async function handleMemoryTool(
 	tool: string,
 	params: any,
 	memRoot: string,
 	cwd: string,
 ): Promise<{ ok: boolean; text: string }> {
-	const target: "memory" | "user" =
-		String(params.target ?? "") === "user" ? "user" : "memory";
-	const scope = resolveMemoryScope(target, params.scope);
-	const store =
-		scope === "global"
-			? getGlobalMemoryStore(memRoot)
-			: getProjectMemoryStore(memRoot, cwd);
-	switch (tool) {
-		case "memory_add":
-			await store.add(target, String(params.content ?? ""));
-			return { ok: true, text: "已写入记忆" };
-		case "memory_read": {
-			const entries = await store.entries(target);
-			return { ok: true, text: JSON.stringify({ entries }) };
-		}
-		case "memory_replace": {
-			const ok = await store.replace(
-				target,
-				String(params.oldText ?? ""),
-				String(params.newContent ?? ""),
-			);
-			return { ok, text: ok ? "已更新记忆" : "条目不存在" };
-		}
-		case "memory_remove": {
-			const ok = await store.remove(target, String(params.oldText ?? ""));
-			return { ok, text: ok ? "已删除记忆" : "条目不存在" };
-		}
-		default:
-			return { ok: true, text: "（评测桩：ok）" };
+	const tools = createMemoryTools({
+		dao: new MemoryDao(openMemoryDb(memRoot)),
+		projectId: projectNameFromCwd(cwd),
+	});
+	const def = tools.find((t) => t.name === tool);
+	if (!def) return { ok: true, text: "（评测桩：ok）" };
+	const res: any = await def.execute(tool, params);
+	const text = String(res?.content?.[0]?.text ?? "");
+	let ok = true;
+	try {
+		ok = JSON.parse(text)?.success !== false;
+	} catch {
+		/* 非 JSON 返回（理论上不会出现）按成功处理 */
 	}
+	return { ok, text };
 }
 
 function startStubBridge(cwd: string): Promise<StubBridge> {
@@ -427,18 +410,14 @@ function startStubBridge(cwd: string): Promise<StubBridge> {
 	});
 }
 
-/** 真实落盘验证：用例结束后检查隔离目录的目标文件是否存在且非空 */
-async function fileNonEmpty(filePath: string): Promise<boolean> {
-	try {
-		const st = await access(filePath)
-			.then(() => true)
-			.catch(() => false);
-		if (!st) return false;
-		const raw = await readFile(filePath, "utf8");
-		return raw.trim().length > 0;
-	} catch {
-		return false;
-	}
+/** 真实落库验证：用例结束后查隔离记忆库（memories.db）里是否有该范围的条目 */
+function hasEntry(
+	memRoot: string,
+	scope: "global" | "project",
+	target: "user" | "memory",
+): boolean {
+	const dao = new MemoryDao(openMemoryDb(memRoot));
+	return dao.list({ scope }).some((r) => r.target === target);
 }
 
 // ---- 单用例执行 ----
@@ -450,8 +429,8 @@ interface CaseResult {
 	expectProject: boolean;
 	memoryAdds: Array<{ target: string; scope?: string; content: string }>;
 	toolsCalled: string[];
-	userFileExists: boolean;
-	projectFileExists: boolean;
+	userEntryExists: boolean;
+	projectEntryExists: boolean;
 	elapsedMs: number;
 	error?: string;
 }
@@ -484,8 +463,8 @@ async function runOneCase(
 		expectProject: c.expectProject,
 		memoryAdds: [],
 		toolsCalled: [],
-		userFileExists: false,
-		projectFileExists: false,
+		userEntryExists: false,
+		projectEntryExists: false,
 		elapsedMs: 0,
 	};
 	const sessionId = `eval-memory-${randomUUID()}`;
@@ -572,13 +551,9 @@ async function runOneCase(
 		}
 	}
 
-	// 落盘验证：全局 USER.md 与项目 MEMORY.md（项目目录名 = cwd basename = hiagent）
-	result.userFileExists = await fileNonEmpty(
-		join(ctx.memRoot, "memories", "global", "USER.md"),
-	);
-	result.projectFileExists = await fileNonEmpty(
-		join(ctx.memRoot, "projects-memory", "hiagent", "MEMORY.md"),
-	);
+	// 落库验证：全局 user 条目与项目 memory 条目（每次用例独立库，故不必再按 project_id 过滤）
+	result.userEntryExists = hasEntry(ctx.memRoot, "global", "user");
+	result.projectEntryExists = hasEntry(ctx.memRoot, "project", "memory");
 
 	result.elapsedMs = Date.now() - startedAt;
 	return result;
@@ -603,11 +578,11 @@ function casePassed(r: CaseResult): { pass: boolean; reasons: string[] } {
 			`不期望 target=memory，却写入 (${r.memoryAdds.filter((m) => m.target === "memory").length} 次)`,
 		);
 
-	// 落盘：user 类/mixed 类要求全局 USER.md 生效；project 类/mixed 类要求项目 MEMORY.md 生效
-	if (r.expectUser && !r.userFileExists)
-		reasons.push("全局 USER.md 未落盘或为空");
-	if (r.expectProject && !r.projectFileExists)
-		reasons.push("项目 MEMORY.md 未落盘或为空");
+	// 落库：user 类/mixed 类要求全局 user 条目生效；project 类/mixed 类要求项目条目生效
+	if (r.expectUser && !r.userEntryExists)
+		reasons.push("全局 user 记忆未入库");
+	if (r.expectProject && !r.projectEntryExists)
+		reasons.push("项目记忆未入库");
 
 	return { pass: reasons.length === 0, reasons };
 }
@@ -696,11 +671,11 @@ async function main() {
 		return;
 	}
 
-	// 记忆隔离根目录：默认 <WA_PI_DIR>/tmp/eval-memory-write/<uuid>，结束时清理
+	// 隔离记忆库目录：memories.db 落在其下；默认 <WA_PI_DIR>/tmp/eval-memory-write/<uuid>，结束时清理
 	const memRoot =
 		opts.memRoot ?? join(WA_PI_DIR, "tmp", "eval-memory-write", randomUUID());
 	await mkdir(memRoot, { recursive: true });
-	console.log(`记忆写入目录: ${memRoot}（隔离，不污染真实记忆）`);
+	console.log(`隔离记忆库目录: ${memRoot}（memories.db，不污染真实记忆）`);
 
 	// 准备：prompts / 系统提示词 / 扩展 / stub bridge
 	await ensurePromptsConfig(PROMPTS_FILE);
@@ -771,7 +746,7 @@ async function main() {
 							.map((m) => `${m.target}${m.scope ? `@${m.scope}` : ""}`)
 							.join(",")
 					: "none";
-				const files = `${r.userFileExists ? "USER✓" : "USER✗"}/${r.projectFileExists ? "MEM✓" : "MEM✗"}`;
+				const files = `${r.userEntryExists ? "USER✓" : "USER✗"}/${r.projectEntryExists ? "MEM✓" : "MEM✗"}`;
 				process.stdout.write(
 					`→ ${pass ? "PASS" : "FAIL"} [${adds}] [${files}] (${(r.elapsedMs / 1000).toFixed(1)}s)` +
 						(r.error ? " ERR:" + r.error.slice(0, 60) : "") +

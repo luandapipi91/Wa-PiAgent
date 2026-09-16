@@ -37,7 +37,7 @@ test("WAL 已开启且 schema 版本已写入", () => {
 test("projectNameFromCwd 取 basename 并净化非法字符", () => {
   expect(projectNameFromCwd("/Users/co/repos/my-app")).toBe("my-app");
   expect(projectNameFromCwd("/Users/co/repos/my-app/")).toBe("my-app");
-  // 盘根 cwd（源码 "H:\\"，运行时 `H:\`），与 amaster-memory.test.ts 同断言一致
+  // 盘根 cwd（源码 "H:\\"，运行时 `H:\`）→ "H"
   expect(projectNameFromCwd("H:\\")).toBe("H");
   expect(projectNameFromCwd("/")).toBe("default");
 });
