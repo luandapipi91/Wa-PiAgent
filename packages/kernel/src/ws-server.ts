@@ -2882,6 +2882,24 @@ export class WSServer {
 				}
 				break;
 			}
+			case "memory:search": {
+				try {
+					// 空串参数归一为 undefined：路由层用 "" 表示「未传」，直接下传会让 DAO
+					// 按 scope='' / kind='' 过滤而一律零命中
+					const results = await this.opts.memoryStore.search({
+						query: event.query,
+						scope: event.scope || undefined,
+						kind: event.kind || undefined,
+						projectId: event.projectId || undefined,
+						limit: event.limit,
+						includeArchived: event.includeArchived,
+					});
+					reply({ type: "memory:search", results });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
 			case "instruction:list": {
 				try {
 					const instructions = await this.opts.memoryStore.listInstructions(

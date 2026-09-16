@@ -60,6 +60,9 @@ import {
 } from "./extensions";
 import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
+import { MemoryDao } from "./memory/dao";
+import { openMemoryDb } from "./memory/db";
+import { projectNameFromCwd } from "./memory/paths";
 import { reconcileDanglingAsks } from "./ask-tool";
 import {
 	makeDelegateTool,
@@ -839,9 +842,10 @@ export class AgentManager {
 		const defaultCtx = makeDefaultBridgeContext({
 			sessionId,
 			cwd,
-			memoryStores: {
-				global: getGlobalMemoryStore(WA_PI_DIR),
-				project: getProjectMemoryStore(WA_PI_DIR, cwd),
+			memoryCtx: {
+				// 记忆工具走 SQLite DAO；项目标识取 cwd basename（与 DB project_id 列一致）
+				dao: new MemoryDao(openMemoryDb(WA_PI_DIR)),
+				projectId: projectNameFromCwd(cwd),
 			},
 		});
 		const bridgeCtx: BridgeSessionContext = {

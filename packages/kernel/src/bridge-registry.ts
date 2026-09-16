@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import type { BridgeStreamFrame, SubagentProgressEvent } from "@wa-pi/shared";
 import { runAskTool } from "./ask-runner";
-import { createAgentMemoryTools, type AmasterStore } from "./amaster-memory";
+import { createMemoryTools, type MemoryToolContext } from "./memory/tools";
 
 /** 工具执行结果（与 pi AgentToolResult 对齐，经 HTTP 原样回传给扩展） */
 export interface BridgeToolResult {
@@ -177,16 +177,16 @@ export async function handleBridgeStream(
  * delegate/fleet 返回桩错误（宿主接线在后续任务完成）。
  *
  * - ask_user_question → runAskTool（ask-runner，与 SDK customTools 路径同一份实现）
- * - memory_* → createAgentMemoryTools 生成的对应工具的 execute
+ * - memory_* → createMemoryTools（memory/tools，SQLite DAO 后端）生成的对应工具的 execute
  * - delegate / fleet → not_wired 桩
  */
 export function makeDefaultBridgeContext(opts: {
   sessionId: string;
   cwd: string;
-  memoryStores: { global: AmasterStore; project: AmasterStore };
+  memoryCtx: MemoryToolContext;
 }): BridgeSessionContext {
   // 松开 ToolDefinition 的 SDK 泛型：本文件不引用 pi SDK 类型，按结构化签名调用
-  const memoryTools = createAgentMemoryTools(opts.memoryStores.global, opts.memoryStores.project) as unknown as Array<{
+  const memoryTools = createMemoryTools(opts.memoryCtx) as unknown as Array<{
     name: string;
     execute: (toolCallId: string, params: unknown, signal?: AbortSignal) => Promise<BridgeToolResult>;
   }>;

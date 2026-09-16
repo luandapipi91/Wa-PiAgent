@@ -22,7 +22,7 @@ beforeEach(() => {
       category: "memory",
       scope: "global",
       sourceFile: "/fake/MEMORY.md",
-      rawIndex: 0,
+      rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z",
     }],
     archived: [],
     instructions: [{
@@ -71,8 +71,8 @@ test("点击指令文件 Tab 展示指令列表", () => {
 test("分类筛选 — 点击失败只筛选 failure 类别", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "a:0", text: "记忆A", category: "memory", scope: "global", sourceFile: "/a", rawIndex: 0 },
-      { id: "b:0", text: "失败B", category: "failure", scope: "global", sourceFile: "/b", rawIndex: 0 },
+      { id: "a:0", text: "记忆A", category: "memory", scope: "global", sourceFile: "/a", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "b:0", text: "失败B", category: "failure", scope: "global", sourceFile: "/b", rawIndex: 0, kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
   });
   render(<MemoryPage />);
@@ -99,7 +99,7 @@ test("记忆卡片编辑 — 点击编辑展开文本框，保存后回调（带
   useMemoryStore.setState({
     memories: [{
       id: "test:0", text: "原始内容", category: "memory",
-      scope: "global", sourceFile: "/fake", rawIndex: 0,
+      scope: "global", sourceFile: "/fake", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z",
     }],
   });
   useMemoryStore.setState({ update: editMock });
@@ -130,8 +130,8 @@ test("作用域下拉：展开后含「全局记忆」+ 每个项目", () => {
 test("选择某个项目 → 切到该项目记忆，按钮显示项目名", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "g:0", text: "全局A", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0 },
-      { id: "p:0", text: "项目1专属", category: "memory", scope: "project", sourceFile: "/p", rawIndex: 0 },
+      { id: "g:0", text: "全局A", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "p:0", text: "项目1专属", category: "memory", scope: "project", sourceFile: "/p", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
   });
   render(<MemoryPage />);
@@ -152,7 +152,7 @@ test("选择某个项目 → 切到该项目记忆，按钮显示项目名", () 
 test("选择「全局记忆」选项切回全局", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "g:0", text: "全局A", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0 },
+      { id: "g:0", text: "全局A", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
     memoryScope: "project",
   });
@@ -229,8 +229,8 @@ test("Bug1: 关闭重开设置后，项目作用域仍显示上次选中的项�
     memoryScope: "project",
     selectedProjectId: "aicpm",
     memories: [
-      { id: "g:0", text: "全局记忆", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0 },
-      { id: "aicpm:0", text: "aicpm 项目记忆", category: "memory", scope: "project", sourceFile: "/a", rawIndex: 0 },
+      { id: "g:0", text: "全局记忆", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "aicpm:0", text: "aicpm 项目记忆", category: "memory", scope: "project", sourceFile: "/a", rawIndex: 0, kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
   });
   // 重新渲染（模拟关闭设置后重开 → MemoryPage 重新挂载，但 store 状态保留）

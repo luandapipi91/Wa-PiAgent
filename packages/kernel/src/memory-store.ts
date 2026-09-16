@@ -1,61 +1,71 @@
-// memory-store.ts — 记忆与指令文件管理服务
+// memory-store.ts — 记忆与指令文件管理服务（UI 侧）
 //
 // 设计要点：
-// - 记忆读写全部委托 amaster-memory（@amaster.ai/pi-memory host-controlled 包装层）：
-//   全局 <waPiDir>/memories/global，项目 <waPiDir>/projects-memory/<basename>。
-//   § 分隔格式由 amaster 单一维护，避免外部裸写触发 drift 检测。
-// - 归档使用 sidecar JSON（~/.pi/agent/memory-archive.json），wa-pi 自管，不进 amaster 文件。
-// - 记忆配置开关读写 hermes-memory-config.json。
-// - 指令文件仅扫描 AGENTS.md / CLAUDE.md（全局 + 项目 cwd）；记忆内容已由 memory tab
-//   展示、并由 AgentManager 注入系统提示词快照，不再作为指令文件重复注入。
-// - entry id 编码 "<relPath>:<rawIndex>"，relPath 相对 waPiDir，rawIndex 为该 store+target
-//   下 entries 的下标；变更时按 id 反查 store 并取 entries[rawIndex] 作为 oldText 调 amaster。
+// - 记忆读写全部委托 memory/*（SQLite DAO）：单库 <waPiDir>/memories.db 统管 global + project。
+//   旧的 markdown（amaster § 分隔文件）与归档 sidecar JSON 已由一次性迁移导入 DB，
+//   本服务不再触碰这两类文件。
+// - entry id 即 DAO 的 uuid（不透明字符串）；update/archive/restore/purge 直接按 id 走 DAO。
+// - projectId 是 UI 侧项目 id，查库前经 ProjectStore → cwd → projectNameFromCwd 解析为项目名
+//   （DB 的 project_id 列存的是项目名，与历史 projects-memory/<basename> 约定一致）。
+// - 指令文件仅扫描 AGENTS.md / CLAUDE.md（全局 + 项目 cwd）；记忆配置开关读写
+//   hermes-memory-config.json。两者与记忆存储无关，逻辑原样保留。
 
 import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import type {
   MemoryEntry,
   ArchivedMemory,
   InstructionFile,
   MemoryConfig,
-  MemoryArchiveFile,
-  MemoryCategory,
+  MemoryKind,
   MemoryScope,
+  MemorySearchResult,
 } from "@wa-pi/shared";
 import { KernelError } from "./kernel-error";
 import type { ProjectStore } from "./project-store";
-import {
-  getGlobalMemoryStore,
-  getProjectMemoryStore,
-  createAmasterStore,
-  projectNameFromCwd,
-  type AmasterStore,
-  type MemoryTarget,
-} from "./amaster-memory";
+import { openMemoryDb } from "./memory/db";
+import { MemoryDao, type MemoryRow, type SearchOpts } from "./memory/dao";
+import { projectNameFromCwd } from "./memory/paths";
 
-const ARCHIVE_FILE = "memory-archive.json";
 const HERMES_CONFIG_FILE = "hermes-memory-config.json";
-const PROJECTS_MEMORY_DIR = "projects-memory";
-const GLOBAL_REL_PREFIX = "memories/global";
-
-/** amaster target → wa-pi category */
-function categoryForTarget(target: MemoryTarget): MemoryCategory {
-  return target === "user" ? "user" : "memory";
-}
-
-/** 从 relPath 推断 target */
-function targetFromRelPath(relPath: string): MemoryTarget {
-  return relPath.replace(/\\/g, "/").endsWith("USER.md") ? "user" : "memory";
-}
 
 export interface MemoryStoreOpts {
   waPiDir: string;
   projectStore: ProjectStore;
 }
 
+/** 检索入参（UI「搜索记忆」）：scope/kind 空串视为未指定 */
+export interface MemorySearchOpts {
+  query: string;
+  scope?: MemoryScope | "";
+  kind?: MemoryKind | "";
+  /** UI 侧项目 id；作为过滤条件时必须是可解析的项目 */
+  projectId?: string;
+  limit?: number;
+  includeArchived?: boolean;
+}
+
 export class MemoryStore {
   constructor(private opts: MemoryStoreOpts) {}
+
+  /** 记忆库连接（openMemoryDb 按路径缓存，重复调用无额外开销） */
+  private dao(): MemoryDao {
+    return new MemoryDao(openMemoryDb(this.opts.waPiDir));
+  }
+
+  /** MemoryRow → shared 的 MemoryEntry（sourceFile/rawIndex 已废弃，不再填充） */
+  private toEntry(r: MemoryRow): MemoryEntry {
+    return {
+      id: r.id,
+      text: r.content,
+      category: r.target === "user" ? "user" : "memory",
+      scope: r.scope,
+      kind: r.kind,
+      createdAt: new Date(r.createdAt).toISOString(),
+      updatedAt: new Date(r.updatedAt).toISOString(),
+      projectId: r.projectId ?? undefined,
+    };
+  }
 
   /**
    * 列出所有记忆 + 归档记忆
@@ -64,133 +74,107 @@ export class MemoryStore {
   async list(
     projectId?: string,
   ): Promise<{ memories: MemoryEntry[]; archived: ArchivedMemory[] }> {
-    const memories: MemoryEntry[] = [];
+    const dao = this.dao();
+    const projectName = projectId ? await this.getProjectName(projectId) : null;
 
-    const globalStore = getGlobalMemoryStore(this.opts.waPiDir);
-    memories.push(
-      ...(await this.toEntries(
-        globalStore,
-        "memory",
-        "global",
-        `${GLOBAL_REL_PREFIX}/MEMORY.md`,
-      )),
-    );
-    memories.push(
-      ...(await this.toEntries(
-        globalStore,
-        "user",
-        "global",
-        `${GLOBAL_REL_PREFIX}/USER.md`,
-      )),
-    );
+    const globals = dao.list({ scope: "global", includeArchived: false });
+    const projects = projectName
+      ? dao.list({ scope: "project", projectId: projectName, includeArchived: false })
+      : [];
+    // 归档段与旧 sidecar 等价：不按作用域/项目切分，一条全局归档列表
+    const archived = dao
+      .list({ includeArchived: true })
+      .filter((r) => r.archived === 1);
 
-    const cwd = projectId ? await this.getProjectCwd(projectId) : null;
-    if (cwd) {
-      // 项目记忆目录不可访问（如 cwd 为盘根/含非法字符、磁盘已移除）时，跳过项目记忆，
-      // 仅返回全局记忆，避免整个列表抛错。
-      try {
-        const name = projectNameFromCwd(cwd);
-        const projectStore = getProjectMemoryStore(this.opts.waPiDir, cwd);
-        const relBase = `${PROJECTS_MEMORY_DIR}/${name}`;
-        memories.push(
-          ...(await this.toEntries(
-            projectStore,
-            "memory",
-            "project",
-            `${relBase}/MEMORY.md`,
-          )),
-        );
-        memories.push(
-          ...(await this.toEntries(
-            projectStore,
-            "user",
-            "project",
-            `${relBase}/USER.md`,
-          )),
-        );
-      } catch (err) {
-        console.error(`[kernel] 读取项目记忆失败 (cwd=${cwd}):`, err);
-      }
-    }
-
-    const archived = await this.loadArchive();
-    return { memories, archived };
+    return {
+      memories: [...globals, ...projects].map((r) => this.toEntry(r)),
+      archived: archived.map((r) => ({
+        ...this.toEntry(r),
+        archivedAt: new Date(r.archivedAt ?? 0).toISOString(),
+      })),
+    };
   }
 
-  /** 把单个 store+target 的 entries 映射为 MemoryEntry[] */
-  private async toEntries(
-    store: AmasterStore,
-    target: MemoryTarget,
-    scope: MemoryScope,
-    relPath: string,
-  ): Promise<MemoryEntry[]> {
-    const texts = await store.entries(target);
-    const sourceFile = join(this.opts.waPiDir, relPath);
-    return texts.map((text, rawIndex) => ({
-      id: `${relPath}:${rawIndex}`,
-      text,
-      category: categoryForTarget(target),
+  /**
+   * 全文检索：BM25 + 时间衰减 + kind 加权综合排序（spec §5）。
+   *
+   * scope 语义（与 list 对齐）：
+   * - "global"：只搜全局条目（此时忽略 projectId——全局条目的 project_id 为 NULL）
+   * - "project"：必须有可解析的 projectId，否则 project.notFound；
+   *   绝不降级为「不加项目过滤」，否则等于跨项目读到别的项目的记忆
+   * - 未指定：跨作用域检索；给了可解析的 projectId 则限定该项目
+   */
+  async search(opts: MemorySearchOpts): Promise<MemorySearchResult[]> {
+    const scope = opts.scope || undefined;
+    const projectId = opts.projectId?.trim() || undefined;
+    const projectName =
+      scope === "global" || !projectId ? null : await this.getProjectName(projectId);
+    if (scope === "project" && !projectName) {
+      throw new KernelError("project.notFound", { id: projectId ?? "" });
+    }
+
+    const daoOpts: SearchOpts = {
       scope,
-      sourceFile,
-      rawIndex,
-    }));
+      projectId: projectName ?? undefined,
+      kind: opts.kind || undefined,
+      limit: opts.limit,
+      includeArchived: opts.includeArchived === true,
+    };
+
+    return this.dao()
+      .search(opts.query, daoOpts)
+      .map((h) => ({
+        id: h.id,
+        title: h.title,
+        snippet: h.snippet,
+        kind: h.kind,
+        scope: h.scope,
+        projectId: h.projectId ?? undefined,
+        updatedAt: new Date(h.updatedAt).toISOString(),
+        score: Number(h.score.toFixed(4)),
+        archived: h.archived === 1,
+      }));
   }
 
   /**
    * 手动添加记忆（UI「+ 添加」入口）。
-   * 固定写入 memory target（USER target 由 agent / amaster 维护）。
+   * 固定写入 memory target（USER target 由 agent 维护）。
    */
-  async add(
-    scope: MemoryScope,
-    text: string,
-    projectId?: string,
-  ): Promise<void> {
-    const store = await this.getStoreForScope(scope, projectId);
-    await store.add("memory", text);
-  }
-
-  /** 编辑记忆：按 id 反查 store，取 oldText 调 amaster replace */
-  async update(id: string, text: string): Promise<void> {
-    const { store, target, oldText } = await this.resolveForMutation(id);
-    const ok = await store.replace(target, oldText, text);
-    if (!ok) throw new KernelError("memory.entryStale");
-  }
-
-  /** 归档（软删除）：从 store 移除 → 写入 sidecar */
-  async archive(id: string): Promise<void> {
-    const { store, target, oldText, meta } = await this.resolveForMutation(id);
-    const ok = await store.remove(target, oldText);
-    if (!ok) throw new KernelError("memory.entryStale");
-
-    const archived = await this.loadArchive();
-    archived.push({
-      id,
-      text: oldText,
-      category: meta.category,
-      scope: meta.scope,
-      sourceFile: meta.sourceFile,
-      rawIndex: meta.rawIndex,
-      archivedAt: new Date().toISOString(),
+  async add(scope: MemoryScope, text: string, projectId?: string): Promise<void> {
+    let projectName: string | null = null;
+    if (scope === "project") {
+      if (!projectId) throw new Error("项目记忆需要 projectId");
+      projectName = await this.getProjectName(projectId);
+      if (!projectName) throw new KernelError("project.notFound", { id: projectId });
+    }
+    this.dao().insert({
+      kind: "knowledge",
+      target: "memory",
+      scope,
+      projectId: projectName,
+      content: text,
+      source: "ui",
     });
-    await this.saveArchive(archived);
   }
 
-  /** 恢复：从 sidecar 移除 → 追加回 store */
+  /** 编辑记忆 */
+  async update(id: string, text: string): Promise<void> {
+    if (!this.dao().updateContent(id, text)) throw new KernelError("memory.entryStale");
+  }
+
+  /** 归档（软删除） */
+  async archive(id: string): Promise<void> {
+    if (!this.dao().archive(id)) throw new KernelError("memory.entryStale");
+  }
+
+  /** 恢复归档条目 */
   async restore(id: string): Promise<void> {
-    const archived = await this.loadArchive();
-    const entry = archived.find((a) => a.id === id);
-    if (!entry) throw new KernelError("memory.archiveNotFound", { id });
-
-    const store = createAmasterStore(dirname(entry.sourceFile));
-    const target: MemoryTarget = entry.category === "user" ? "user" : "memory";
-    await store.add(target, entry.text);
-    await this.saveArchive(archived.filter((a) => a.id !== id));
+    if (!this.dao().restore(id)) throw new KernelError("memory.archiveNotFound", { id });
   }
 
-  /** 彻底删除：从 sidecar 移除，不写回 store */
+  /** 彻底删除归档条目 */
   async purge(id: string): Promise<void> {
-    const archived = await this.loadArchive();
-    await this.saveArchive(archived.filter((a) => a.id !== id));
+    if (!this.dao().remove(id)) throw new KernelError("memory.archiveNotFound", { id });
   }
 
   /** 扫描已加载的指令文件，对齐 pi 框架 resource-loader.js loadProjectContextFiles 行为：
@@ -299,84 +283,15 @@ export class MemoryStore {
 
   // —— 辅助方法 ——
 
-  /** 按 scope 取 store；project scope 必须能解析出 cwd，否则抛错 */
-  private async getStoreForScope(
-    scope: MemoryScope,
-    projectId?: string,
-  ): Promise<AmasterStore> {
-    if (scope === "global") return getGlobalMemoryStore(this.opts.waPiDir);
-    if (!projectId) throw new Error("项目记忆需要 projectId");
-    const cwd = await this.getProjectCwd(projectId);
-    if (!cwd) throw new KernelError("project.notFound", { id: projectId });
-    return getProjectMemoryStore(this.opts.waPiDir, cwd);
-  }
-
-  /** 从 id 反查 store + target + 当前 oldText（变更前调用，保证命中最新文本） */
-  private async resolveForMutation(id: string): Promise<{
-    store: AmasterStore;
-    target: MemoryTarget;
-    oldText: string;
-    meta: {
-      category: MemoryCategory;
-      scope: MemoryScope;
-      sourceFile: string;
-      rawIndex: number;
-    };
-  }> {
-    const colonIdx = id.lastIndexOf(":");
-    if (colonIdx === -1) throw new Error(`无效的记忆 ID: ${id}`);
-    const relPath = id.slice(0, colonIdx).replace(/\\/g, "/");
-    const rawIndex = parseInt(id.slice(colonIdx + 1), 10);
-
-    const target = targetFromRelPath(relPath);
-    const scope: MemoryScope = relPath.startsWith(GLOBAL_REL_PREFIX)
-      ? "global"
-      : "project";
-    const sourceFile = join(this.opts.waPiDir, relPath);
-    const store = createAmasterStore(dirname(sourceFile));
-
-    const entries = await store.entries(target);
-    const oldText = entries[rawIndex];
-    if (oldText === undefined) {
-      throw new KernelError("memory.entryStale");
-    }
-    return {
-      store,
-      target,
-      oldText,
-      meta: {
-        category: categoryForTarget(target),
-        scope,
-        sourceFile,
-        rawIndex,
-      },
-    };
-  }
-
   /** 按 projectId 从 ProjectStore 查 cwd */
   private async getProjectCwd(projectId: string): Promise<string | null> {
     const { projects } = await this.opts.projectStore.load();
     return projects.find((p) => p.id === projectId)?.cwd ?? null;
   }
 
-  /** 加载归档 sidecar */
-  private async loadArchive(): Promise<ArchivedMemory[]> {
-    try {
-      const raw = await readFile(join(this.opts.waPiDir, ARCHIVE_FILE), "utf8");
-      const data = JSON.parse(raw) as MemoryArchiveFile;
-      return data.entries ?? [];
-    } catch {
-      return [];
-    }
-  }
-
-  /** 保存归档 sidecar */
-  private async saveArchive(entries: ArchivedMemory[]): Promise<void> {
-    await mkdir(this.opts.waPiDir, { recursive: true });
-    await writeFile(
-      join(this.opts.waPiDir, ARCHIVE_FILE),
-      JSON.stringify({ entries } satisfies MemoryArchiveFile, null, 2),
-      "utf8",
-    );
+  /** projectId（UI id）→ 项目名（DB project_id 列 / 历史目录名）；查不到返回 null */
+  private async getProjectName(projectId: string): Promise<string | null> {
+    const cwd = await this.getProjectCwd(projectId);
+    return cwd ? projectNameFromCwd(cwd) : null;
   }
 }

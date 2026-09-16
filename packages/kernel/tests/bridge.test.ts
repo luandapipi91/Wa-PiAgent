@@ -34,13 +34,10 @@ import {
 } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { makeAskTool } from "../src/ask-tool";
-import {
-	getGlobalMemoryStore,
-	getProjectMemoryStore,
-} from "../src/amaster-memory";
 import { createMemoryTools } from "../src/memory/tools";
 import { MemoryDao } from "../src/memory/dao";
 import { SCHEMA_SQL } from "../src/memory/schema";
+import { closeAllMemoryDbs, openMemoryDb } from "../src/memory/db";
 import { makeDelegateTool, makeFleetTool } from "../src/delegate-tool";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
@@ -93,6 +90,7 @@ beforeEach(() => {
 afterEach(async () => {
 	unregisterBridgeSession("s1");
 	unregisterBridgeSession("s-bridge");
+	closeAllMemoryDbs(); // makeMemoryCtx 用 tmpDir 下的 memories.db，连接缓存需随目录一起清
 	rmSync(tmpDir, { recursive: true, force: true });
 	for (const f of tmpFiles.splice(0)) rmSync(f, { force: true });
 	for (const c of clients.splice(0)) await c.dispose().catch(() => {});
@@ -146,10 +144,11 @@ async function loadBridgeTools(env?: Record<string, string>) {
 	return tools;
 }
 
-function makeMemoryStores() {
+function makeMemoryCtx() {
 	return {
-		global: getGlobalMemoryStore(tmpDir),
-		project: getProjectMemoryStore(tmpDir, join(tmpDir, "repos", "my-app")),
+		dao: new MemoryDao(openMemoryDb(tmpDir)),
+		// 项目标识 = cwd basename（与 agent-manager 的 projectNameFromCwd(cwd) 一致）
+		projectId: "my-app",
 	};
 }
 
@@ -341,7 +340,7 @@ test("default ctx：ask 校验失败 → details.error，不阻塞", async () =>
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const out = await ctx.handleTool(
 		"ask_user_question",
@@ -357,7 +356,7 @@ test("default ctx：ask cancel → details.cancelled=true", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const p = ctx.handleTool(
 		"ask_user_question",
@@ -375,7 +374,7 @@ test("default ctx：ask 正常 answers 文本拼接", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const p = ctx.handleTool(
 		"ask_user_question",
@@ -401,7 +400,7 @@ test("default ctx：memory_add 后 memory_read 能读回", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const signal = new AbortController().signal;
 	await ctx.handleTool(
@@ -423,7 +422,7 @@ test("default ctx：delegate/fleet 返回 not_wired 桩", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryStores: makeMemoryStores(),
+		memoryCtx: makeMemoryCtx(),
 	});
 	const signal = new AbortController().signal;
 	for (const tool of ["delegate", "fleet"]) {
@@ -636,7 +635,7 @@ test("扩展 execute：缺 env 报 missing_env；配好 env 后经 ws-server 全
 		const ctx = makeDefaultBridgeContext({
 			sessionId: "s-bridge",
 			cwd: tmpDir,
-			memoryStores: makeMemoryStores(),
+			memoryCtx: makeMemoryCtx(),
 		});
 		registerBridgeSession("s-bridge", ctx);
 		const tools = await loadBridgeTools({

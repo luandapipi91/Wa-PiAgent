@@ -6,15 +6,36 @@ export type MemoryCategory = "memory" | "user" | "failure";
 /** 记忆作用域：来自文件路径 */
 export type MemoryScope = "global" | "project";
 
+/** 记忆层级（DB 模式）：profile 常驻画像 / knowledge 知识 / execution 执行记录 */
+export type MemoryKind = "profile" | "knowledge" | "execution";
+
 /** 一条记忆条目 */
 export interface MemoryEntry {
-  id: string;                    // 格式："源文件相对路径:rawIndex"
-  text: string;                  // § 分隔后的单条文本
+  id: string;                    // DB 模式：uuid（不透明字符串）
+  text: string;                  // 记忆正文
   category: MemoryCategory;
   scope: MemoryScope;
-  sourceFile: string;            // 源文件绝对路径
-  rawIndex: number;              // 在源文件 § 分隔后的索引（0-based）
-  updatedAt?: string;            // 最后修改时间（来自 sidecar，可选）
+  kind: MemoryKind;              // 记忆层级
+  createdAt: string;             // 创建时间（ISO）
+  updatedAt?: string;            // 最后修改时间（ISO）
+  projectId?: string;            // 项目名（DB 模式的 project_id 列）
+  /** @deprecated DB 模式下无文件来源，恒为 undefined */
+  sourceFile?: string;
+  /** @deprecated DB 模式下无下标，恒为 undefined */
+  rawIndex?: number;
+}
+
+/** 检索结果条目（GET /api/memories/search，spec §5） */
+export interface MemorySearchResult {
+  id: string;
+  title: string;
+  snippet: string;
+  kind: MemoryKind;
+  scope: MemoryScope;
+  projectId?: string;
+  updatedAt: string;             // ISO
+  score: number;
+  archived: boolean;
 }
 
 /** 归档的记忆（sidecar 记录） */
@@ -79,6 +100,17 @@ export interface InstructionListEvent {
   type: "instruction:list";
   projectId: string;
 }
+export interface MemorySearchEvent {
+  type: "memory:search";
+  query: string;
+  /** 空串视为未指定（ws-server 分发处归一为 undefined） */
+  scope?: MemoryScope | "";
+  kind?: MemoryKind | "";
+  /** UI 侧项目 id（分发处解析为项目名后查库） */
+  projectId?: string;
+  limit?: number;
+  includeArchived?: boolean;
+}
 export interface MemoryConfigGetEvent { type: "memory:config:get"; }
 export interface MemoryConfigSetEvent {
   type: "memory:config:set";
@@ -100,6 +132,10 @@ export interface MemoryChangedEvent {
   type: "memory:changed";
   memories: MemoryEntry[];
   archived: ArchivedMemory[];
+}
+export interface MemorySearchResultEvent {
+  type: "memory:search";
+  results: MemorySearchResult[];
 }
 export interface InstructionListResult {
   type: "instruction:list";
