@@ -1,3 +1,11 @@
+## 2026-09-16 — v0.4.1 发版（插件注册冲突校验 + 预览修复）
+
+- 版本：0.3.22 → 0.4.1（大版本号）。
+- 新增：插件安装冲突校验（重名命令当场拦下回滚并提示）。
+- 修复：浏览器无 Electron 桥时 html 预览打不开；Markdown / 文件预览大文件卡顿（块级虚拟滚动）。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）；插件冲突四层测试（纯函数/API/E2E）。
+- 影响范围：kernel（extension-probe/ws-server）、frontend（预览、i18n）、scripts、website。
+
 ## 2026-09-15 — feat(kernel+frontend): 插件注册面冲突——安装后问 pi 要注册表，重复命令当场拦下
 
 - 背景：同时启用两个功能重复的插件（pi-goal-x 与 @narumitw/pi-goal 都注册 `goal` 命令）会让插件行为错乱。根因实测：pi 对命令重名**既不报错也不拦**——两者共存时 pi 给出 `goal:1`(pi-goal-x) / `goal:2`(@narumitw/pi-goal) 两份都要加载，谁生效取决于加载顺序；而 wa-pi 安装流程只校验「包名是否重复」。
@@ -53,6 +61,7 @@
 - 测试：`tests/FileViewer.test.tsx` 8 例（代码分支：`computeChunkWindow`、大文件不截断且只渲染可视块、滚动跟随、小文件；markdown 分支：`splitMarkdownBlocks` 切分规则、`computeBlockWindow` 偏移定位、大 md 只渲染可视块）。既有两个 md 用例的断言范围由「单个 text-block」调整为「容器层」（分块后不再唯一），断言内容不变。
 - 验证：FileViewer 25 pass；前端全量 2376 pass / 0 fail；typecheck 全绿。
 - 影响范围：packages/frontend（components/blocks/FileViewer.tsx、tests/FileViewer.test.tsx；i18n 的 truncated 文案已移除）。
+
 ## 2026-09-15 — fix(kernel): 扩展静默失效（pin 漂移）——加 --exact + 启动时对齐 pin
 
 - 问题：settings.json 的 `packages` 存**精确实装版本**，而 `agentDir/npm/package.json` 是 caret 范围（`^x.y.z`）。依赖树一旦被盘外重解析（`repair()` 删 lock 后 `bun install`、装/卸其它包时的 `bun add`），node_modules 会被顶到新版本而 pin 不动。pi 在 Wa-Pi 强制的 `--offline` 下遇到「pin ≠ 实装」会判定需要安装、装不了便**整包 continue 跳过**（pi core/package-manager.js:996-1016）→ 扩展静默不加载，且无任何报错（插件页显示的是实装版本，界面看不出异常）。实测：pi-token-speed（pin 0.9.0 / 装 0.10.1）与 pi-cache-optimizer（2.8.7 / 2.8.10）均被跳过。
