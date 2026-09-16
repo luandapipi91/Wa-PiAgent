@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -140,4 +140,81 @@ test("条目可被检索（导入后 FTS 已同步）", async () => {
   writeLegacy("memories/global/MEMORY.md", ["发版必须全量回归"], Date.now());
   await importLegacyMemories(dir, dao);
   expect(dao.search("发版", {})).toHaveLength(1);
+});
+
+// ---- 容错边界：kernel 启动时会调用迁移（任务 12 接线），任一来源失败都不得阻断 ----
+
+/** 静音 console.error（避免污染测试输出），并返回捕获到的日志参数列表 */
+async function runSilencingErrors(): Promise<unknown[][]> {
+  const spy = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await importLegacyMemories(dir, dao);
+    // 必须在 mockRestore 之前取走调用记录：restore 会一并清空调用历史
+    return spy.mock.calls.map((args) => [...args]);
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+test("某个来源读取失败（MEMORY.md 为目录）：该来源跳过且原文件保留原名，其他来源照常导入", async () => {
+  // 稳定构造：把 MEMORY.md 做成目录，readFile 对它必抛 EISDIR（不依赖权限位，跨平台一致）
+  mkdirSync(join(dir, "memories/global/MEMORY.md"), { recursive: true });
+  writeLegacy("memories/global/USER.md", ["故障隔离：偏好仍导入 J"], Date.now());
+
+  const logs = await runSilencingErrors();
+
+  // ① 该来源未导入，且原文件保留原名（未被误重命名）
+  expect(existsSync(join(dir, "memories/global/MEMORY.md"))).toBe(true);
+  expect(existsSync(join(dir, "memories/global/MEMORY.md.imported"))).toBe(false);
+  // ② 其他来源仍正常导入
+  expect(dao.list({ includeArchived: true }).map((r) => r.content)).toEqual([
+    "故障隔离：偏好仍导入 J",
+  ]);
+  // ③ 失败留日志（不静默吞），且日志里带上出错路径
+  expect(logs.length).toBeGreaterThan(0);
+  expect(String(logs[0]![0])).toContain("MEMORY.md");
+});
+
+test("projects-memory 读取失败（被做成文件）：跳过项目来源，global 与归档照常导入", async () => {
+  // 稳定构造：readdir 对普通文件必抛 ENOTDIR（不依赖权限位，跨平台一致）
+  writeFileSync(join(dir, "projects-memory"), "not a directory", "utf8");
+  writeLegacy("memories/global/MEMORY.md", ["故障隔离：全局笔记 K"], Date.now());
+  writeFileSync(
+    join(dir, "memory-archive.json"),
+    JSON.stringify({
+      entries: [
+        {
+          id: "x",
+          text: "故障隔离：归档 L",
+          category: "memory",
+          scope: "global",
+          archivedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    }),
+    "utf8",
+  );
+
+  const logs = await runSilencingErrors();
+
+  const contents = dao.list({ includeArchived: true }).map((r) => r.content);
+  expect(contents).toHaveLength(2);
+  expect(contents).toContain("故障隔离：全局笔记 K");
+  expect(contents).toContain("故障隔离：归档 L");
+  expect(logs.length).toBeGreaterThan(0);
+  expect(String(logs[0]![0])).toContain("projects-memory");
+});
+
+test("重命名失败不阻断：原文件保留原名，其他来源照常导入", async () => {
+  writeLegacy("memories/global/MEMORY.md", ["故障隔离：改名失败 M"], Date.now());
+  writeLegacy("memories/global/USER.md", ["故障隔离：偏好仍导入 N"], Date.now());
+  // 稳定构造：把 .imported 目标做成非空目录，rename(文件 → 非空目录) 在 POSIX/Windows 下必失败
+  mkdirSync(join(dir, "memories/global/MEMORY.md.imported/keep"), { recursive: true });
+
+  const logs = await runSilencingErrors();
+
+  expect(existsSync(join(dir, "memories/global/MEMORY.md"))).toBe(true);
+  expect(dao.list({}).some((r) => r.content === "故障隔离：偏好仍导入 N")).toBe(true);
+  expect(logs.length).toBeGreaterThan(0);
+  expect(String(logs[0]![0])).toContain("MEMORY.md");
 });
