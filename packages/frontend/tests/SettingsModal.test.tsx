@@ -1,0 +1,136 @@
+import { test, expect, mock, beforeEach } from "bun:test";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { SettingsModal } from "../src/components/SettingsModal";
+import { useSettingsStore } from "../src/store/settings";
+import { useProvidersStore } from "../src/store/providers";
+
+// 点击添加供应商等交互会触发 api（如 /api/models/presets，真实 fetch），happy-dom 在
+// about:blank 下对相对 URL 抛 NotSupportedError。mock 掉 api-client。presets 路径需
+// 返回结构化对象（ProviderFormModal 取 res.presets），其他返回 null 避免覆盖 store。
+mock.module("../src/api-client", () => ({
+	api: {
+		get: (path: string) => {
+			if (path.includes("/presets")) return Promise.resolve({ presets: [] });
+			return Promise.resolve(null);
+		},
+		post: () => Promise.resolve({}),
+		put: () => Promise.resolve({}),
+		del: () => Promise.resolve({}),
+	},
+}));
+
+beforeEach(() => {
+	useSettingsStore.setState(useSettingsStore.getInitialState(), true);
+	useProvidersStore.setState(useProvidersStore.getInitialState(), true);
+});
+
+test("渲染设置标题 + 左侧模型管理菜单", () => {
+	render(<SettingsModal onClose={() => {}} />);
+	expect(screen.getByText("系统设置")).toBeTruthy();
+	expect(screen.getByText("模型管理")).toBeTruthy();
+});
+
+test("渲染添加供应商按钮", () => {
+	render(<SettingsModal onClose={() => {}} />);
+	// 默认 tab 为「通用」，需切到模型管理才能看到供应商表单
+	fireEvent.click(screen.getByText("模型管理"));
+	expect(screen.getByTestId("add-provider-btn")).toBeTruthy();
+});
+
+test("点击添加供应商打开 ProviderFormModal", () => {
+	render(<SettingsModal onClose={() => {}} />);
+	fireEvent.click(screen.getByText("模型管理"));
+	fireEvent.click(screen.getByTestId("add-provider-btn"));
+	expect(screen.getByTestId("provider-form-modal")).toBeTruthy();
+});
+
+test("供应商列表渲染卡片", () => {
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "p1",
+				name: "Test Provider",
+				baseUrl: "https://api.test.com/v1",
+				apiKey: "sk-test",
+				api: "openai-completions",
+				models: [{ id: "m1", contextWindow: 128000, maxTokens: 4096 }],
+			},
+		],
+	});
+	render(<SettingsModal onClose={() => {}} />);
+	fireEvent.click(screen.getByText("模型管理"));
+	expect(screen.getByText("Test Provider")).toBeTruthy();
+	expect(screen.getByText("openai-completions")).toBeTruthy();
+});
+
+test("删除供应商弹 ConfirmDialog", () => {
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "p1",
+				name: "Test",
+				baseUrl: "x",
+				apiKey: "sk-test",
+				api: "openai-completions",
+				models: [{ id: "m", contextWindow: 1, maxTokens: 4096 }],
+			},
+		],
+	});
+	render(<SettingsModal onClose={() => {}} />);
+	fireEvent.click(screen.getByText("模型管理"));
+	fireEvent.click(screen.getByTestId("provider-delete-p1"));
+	expect(screen.getByTestId("confirm-dialog")).toBeTruthy();
+});
+
+test("确认删除调用 store.remove", () => {
+	const removeMock = mock();
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "p1",
+				name: "Test",
+				baseUrl: "x",
+				apiKey: "sk-test",
+				api: "openai-completions",
+				models: [{ id: "m", contextWindow: 1, maxTokens: 4096 }],
+			},
+		],
+		remove: removeMock,
+	});
+	render(<SettingsModal onClose={() => {}} />);
+	fireEvent.click(screen.getByText("模型管理"));
+	fireEvent.click(screen.getByTestId("provider-delete-p1"));
+	fireEvent.click(screen.getByTestId("confirm-ok"));
+	expect(removeMock).toHaveBeenCalledWith("p1");
+});
+
+test("左侧导航「通用」→ 切换到通用设置区块（自动重试表单）", async () => {
+	render(<SettingsModal onClose={() => {}} />);
+	fireEvent.click(screen.getByTestId("settings-nav-general"));
+	// GeneralSection 挂载后先显示「加载中…」，api 返回后才渲染表单
+	await waitFor(() =>
+		expect(screen.getByTestId("retry-max-input")).toBeTruthy(),
+	);
+	expect(screen.getByTestId("retry-delay-input")).toBeTruthy();
+});
+
+test("默认打开显示「通用」区块（activeSection 初始值 general）", async () => {
+	render(<SettingsModal onClose={() => {}} />);
+	// 默认即通用区块：GeneralSection 挂载后显示自动重试表单
+	await waitFor(() =>
+		expect(screen.getByTestId("retry-max-input")).toBeTruthy(),
+	);
+});
+
+test("左侧导航选中 tab 高亮为会话选中同款浅绿底色（accent-soft）", () => {
+	render(<SettingsModal onClose={() => {}} />);
+	const general = screen.getByTestId("settings-nav-general");
+	expect(general.style.background).toBe("var(--accent-soft)");
+	expect(general.style.color).toBe("var(--accent)");
+	// 点击切到「内存」后，新选中 tab 同样浅绿，旧 tab 恢复无底色
+	fireEvent.click(screen.getByTestId("settings-nav-memory"));
+	const memory = screen.getByTestId("settings-nav-memory");
+	expect(memory.style.background).toBe("var(--accent-soft)");
+	expect(memory.style.color).toBe("var(--accent)");
+	expect(general.style.background).not.toBe("var(--accent-soft)");
+});

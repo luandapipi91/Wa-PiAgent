@@ -1,0 +1,13 @@
+{
+  "name": "ext-ui-bridge-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WaPi UI 桥接测试桩：演示 notify / setStatus / setWidget / setTitle 四类扩展 UI 请求",
+  "type": "module",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

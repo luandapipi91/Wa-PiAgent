@@ -1,0 +1,56 @@
+appId: ai.wa-pi.desktop
+productName: WA PI Agent
+artifactName: "WaPi-Setup-${version}.${ext}"
+npmRebuild: false
+afterPack: scripts/after-pack.cjs
+afterAllArtifactBuild: scripts/after-all-artifact-build.cjs
+# 自动更新源：Cloudflare R2 自定义域名（oss.wapiagent.top → R2 bucket 公开读）。
+# 打包时据此生成 latest.yml（含 version/sha512/path）。
+# releaseNotes 由 publish-oss.ts 上传前从 version-history.json 读取注入 latest.yml
+# （electron-builder 26 不支持 releaseNotesFile）。
+publish:
+  provider: generic
+  url: https://oss.wapiagent.top/releases/
+directories:
+  output: release
+files:
+  - src/**
+  - package.json
+  - node_modules/**
+extraResources:
+  - from: resources/kernel
+    to: kernel
+    filter: ["**/*"]
+  - from: resources/web
+    to: web
+    filter: ["**/*"]
+asarUnpack:
+  - resources/**
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: src/assets/icon.ico
+  signExecutable: false # 跳过签名但保留 resEdit 图标嵌入
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: src/assets/icon.ico
+  uninstallerIcon: src/assets/icon.ico
+linux:
+  target: [AppImage]
+  icon: src/assets/icon.png
+  # scope 包名 @wa-pi/desktop 归一化后含 @/-，AppImage 可执行文件名不合法；显式指定合法名
+  executableName: wa-pi-desktop
+mac:
+  target:
+    - dmg
+    - zip
+  icon: src/assets/icon-mac.icns
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: false

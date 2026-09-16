@@ -1,0 +1,2425 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>门店店长管理绩效</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      :root {
+        --topbar: #191a21;
+        --topbar-text: #e7e9ee;
+        --green: #12b76a;
+        --green-bg: #e4f8ee;
+        --blue: #3b82f6;
+        --amber: #f5a623;
+        --orange: #f59e0b;
+        --purple: #c026d3;
+        --red: #ef4444;
+        --red-bg: #fdecec;
+        --bg: #f0f1f4;
+        --panel: #ffffff;
+        --border: #e5e7eb;
+        --border-light: #eef0f3;
+        --text: #1f2733;
+        --text-weak: #8a919e;
+        --text-faint: #b4bac3;
+        --head-bg: #f7f8fa;
+        --row-hover: #f7f9fc;
+        --radius: 8px;
+        --shadow:
+          0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+          "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 14px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ---------- 顶部深色栏 ---------- */
+      .topbar {
+        background: var(--topbar);
+        color: var(--topbar-text);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 20px;
+        position: sticky;
+        top: 0;
+        z-index: 30;
+      }
+      .tb-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .tb-brand .mark {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        background: linear-gradient(135deg, #4b8bff, #2f7cf6);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .tb-brand svg {
+        width: 14px;
+        height: 14px;
+        color: #fff;
+      }
+      .tb-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .tb-select {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--topbar-text);
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .tb-select:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .tb-select .caret {
+        width: 13px;
+        height: 13px;
+        color: #aeb3bd;
+      }
+      .tb-drop {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        min-width: 150px;
+        background: #fff;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        z-index: 60;
+        padding: 6px;
+        display: none;
+      }
+      .tb-select.open .tb-drop {
+        display: block;
+      }
+      .tb-drop li {
+        list-style: none;
+        padding: 8px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 13px;
+        color: var(--text);
+      }
+      .tb-drop li:hover {
+        background: var(--row-hover);
+      }
+      .tb-drop li.selected {
+        color: #2f7cf6;
+        background: #eef4ff;
+      }
+      .newstore-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        background: transparent;
+        color: var(--topbar-text);
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .newstore-btn:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .newstore-btn svg {
+        width: 13px;
+        height: 13px;
+      }
+
+      /* ---------- 主区 ---------- */
+      .content {
+        min-height: calc(100vh - 53px);
+        padding: 16px;
+      }
+      .content-inner {
+        max-width: 1180px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      /* 汇总卡片 */
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .card-label {
+        font-size: 13px;
+        color: var(--text);
+      }
+      .card-label b {
+        color: var(--blue);
+        font-weight: 600;
+      }
+      .card-amount {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--text);
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+      }
+      .card-note {
+        font-size: 12.5px;
+        color: var(--text-weak);
+      }
+      .card.primary .card-amount {
+        color: var(--green);
+      }
+
+      /* 阶梯规则卡 */
+      .rules {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+      .rules-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14.5px;
+        font-weight: 600;
+        margin-bottom: 14px;
+      }
+      .rules-head .edit {
+        width: 18px;
+        height: 18px;
+        color: var(--text-weak);
+      }
+      .rules-head .clear-filter {
+        margin-left: auto;
+        border: none;
+        background: #eef4ff;
+        color: #2f7cf6;
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 12px;
+        cursor: pointer;
+        display: none;
+      }
+      .rules-head .clear-filter.show {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .rules-head .clear-filter svg {
+        width: 12px;
+        height: 12px;
+      }
+      .rules-grid {
+        display: grid;
+        grid-template-columns: 1.5fr 1fr;
+        gap: 0 28px;
+      }
+      /* 阶梯人数总表（四列单表） */
+      .rl-row {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr 1fr 1fr;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border-light);
+        font-size: 13px;
+      }
+      .rl-row.head {
+        font-size: 12px;
+        color: var(--text-weak);
+        font-weight: 600;
+        border-bottom: 1px solid var(--border);
+      }
+      .rl-row.clickable {
+        cursor: pointer;
+        border-radius: 6px;
+        transition: background 0.12s;
+      }
+      .rl-row.clickable:hover {
+        background: var(--row-hover);
+      }
+      .rl-row.selected {
+        background: #eef4ff;
+        box-shadow: inset 0 0 0 1px #bcd3f7;
+      }
+      .rl-range {
+        font-weight: 600;
+      }
+      .rl-rates {
+        font-size: 11.5px;
+        color: var(--text-weak);
+        margin-top: 1px;
+        font-variant-numeric: tabular-nums;
+      }
+      .rl-num {
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .rl-row.head .rl-num {
+        color: var(--text-weak);
+      }
+      .rl-num.zero {
+        color: var(--text-faint);
+      }
+      /* 开店月份行内编辑 */
+      .open-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .edit-pencil {
+        border: none;
+        background: transparent;
+        color: var(--text-faint);
+        cursor: pointer;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border-radius: 5px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.12s;
+        flex-shrink: 0;
+      }
+      .edit-pencil:hover {
+        color: #2f7cf6;
+        background: #eef4ff;
+      }
+      .edit-pencil svg {
+        width: 12px;
+        height: 12px;
+      }
+      .open-select {
+        height: 28px;
+        border: 1px solid #bcd3f7;
+        border-radius: 6px;
+        background: #fff;
+        font-size: 12.5px;
+        color: var(--text);
+        padding: 0 4px;
+        cursor: pointer;
+      }
+      .open-select:focus {
+        outline: none;
+        border-color: #2f7cf6;
+      }
+      .rule-col-head {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        font-size: 13.5px;
+        font-weight: 600;
+        padding-bottom: 10px;
+        margin-bottom: 4px;
+        border-bottom: 2px solid var(--blue);
+      }
+      .rule-col.trans .rule-col-head {
+        border-bottom-color: var(--orange);
+      }
+      .rule-col-head .tag {
+        font-size: 11px;
+        color: var(--text-weak);
+        font-weight: 400;
+      }
+      .rule-rows {
+        display: flex;
+        flex-direction: column;
+      }
+      .rule-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 8px;
+        border-bottom: 1px solid var(--border-light);
+        font-size: 13px;
+      }
+      .rule-row.clickable {
+        cursor: pointer;
+        border-radius: 6px;
+        transition: background 0.12s;
+      }
+      .rule-row.clickable:hover {
+        background: var(--row-hover);
+      }
+      .rule-row.selected {
+        background: #eef4ff;
+        box-shadow: inset 0 0 0 1px #bcd3f7;
+      }
+      .rule-row .range {
+        width: 110px;
+        color: var(--text-weak);
+        font-variant-numeric: tabular-nums;
+      }
+      .rule-row .range.strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .rule-row .val {
+        font-weight: 600;
+        color: var(--text);
+      }
+      .rule-row .val.dash {
+        color: var(--text-faint);
+        font-weight: 400;
+      }
+      .rule-row .count {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--text-weak);
+        font-variant-numeric: tabular-nums;
+        background: #f0f2f5;
+        padding: 2px 8px;
+        border-radius: 10px;
+        white-space: nowrap;
+      }
+      .rule-row.selected .count {
+        background: #d9e6ff;
+        color: #2f7cf6;
+        font-weight: 600;
+      }
+      .rule-col.trans .rule-row .count {
+        background: #fdf3e2;
+        color: #b45309;
+      }
+      .rule-note {
+        margin-top: 10px;
+        font-size: 12px;
+        line-height: 1.7;
+        color: var(--text-weak);
+        background: #fafbfc;
+        border: 1px dashed var(--border);
+        border-radius: 6px;
+        padding: 8px 12px;
+      }
+      .rule-note b {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      /* 明细表 */
+      .table-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      .tabs {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .tab {
+        font-size: 13.5px;
+        color: var(--text-weak);
+        cursor: pointer;
+        padding-bottom: 7px;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -13px;
+      }
+      .tab b {
+        font-weight: 600;
+        color: inherit;
+        margin-left: 3px;
+      }
+      .tab.active {
+        color: #2f7cf6;
+        border-bottom-color: #2f7cf6;
+      }
+      .tabs-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .tabs-right .hint {
+        font-size: 12px;
+        color: var(--text-faint);
+      }
+      .export-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border: 1px solid #2f7cf6;
+        border-radius: 6px;
+        background: #fff;
+        color: #2f7cf6;
+        font-size: 12.5px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .export-btn:hover {
+        background: #2f7cf6;
+        color: #fff;
+      }
+      .export-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 1000px;
+      }
+      thead th {
+        background: var(--head-bg);
+        color: var(--text);
+        font-size: 12.5px;
+        font-weight: 600;
+        text-align: left;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+      }
+      tbody td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border-light);
+        font-size: 13px;
+        color: var(--text);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      tbody tr.store-row {
+        cursor: pointer;
+      }
+      tbody tr.store-row:hover {
+        background: var(--row-hover);
+      }
+      tbody tr.store-row.expanded {
+        background: #f4f7fd;
+      }
+      td.num {
+        text-align: right;
+      }
+      td.dash {
+        color: var(--text-faint);
+        text-align: center;
+      }
+      .store-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+      }
+      .store-cell .caret {
+        width: 14px;
+        height: 14px;
+        color: var(--text-faint);
+        transition: transform 0.18s;
+        flex-shrink: 0;
+      }
+      tr.expanded .store-cell .caret {
+        transform: rotate(90deg);
+        color: #2f7cf6;
+      }
+      .type-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        color: #5b6b84;
+        background: #edf1f7;
+      }
+      .type-tag.new {
+        color: #b45309;
+        background: #fdf3e2;
+      }
+      .tier-tag {
+        color: var(--text-weak);
+      }
+      .tier-tag.none {
+        color: var(--red);
+        font-weight: 500;
+      }
+      .amount-strong {
+        font-weight: 600;
+      }
+      .amount-none {
+        color: var(--text-faint);
+      }
+      .mgmt-count {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: #2f7cf6;
+        font-weight: 500;
+      }
+      .mgmt-count svg {
+        width: 13px;
+        height: 13px;
+      }
+      /* 人员子行 */
+      tr.sub-row td {
+        background: #fafcff;
+        border-bottom: 1px solid var(--border-light);
+        padding: 0;
+      }
+      .sub-wrap {
+        display: grid;
+        grid-template-columns: 14px 84px 110px 100px 1fr auto;
+        align-items: center;
+        column-gap: 12px;
+        padding: 8px 12px 8px 42px;
+        min-height: 40px;
+      }
+      .sub-wrap + .sub-wrap {
+        border-top: 1px dashed var(--border-light);
+      }
+      .sub-wrap .arrow {
+        color: #c3ccda;
+        font-size: 12px;
+      }
+      .role-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        text-align: center;
+      }
+      .sub-wrap .role-tag {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .role-tag.r1 {
+        color: var(--purple);
+        background: #fbeffc;
+      }
+      .role-tag.r2 {
+        color: #d97706;
+        background: #fef4e6;
+      }
+      .role-tag.r3 {
+        color: #2f7cf6;
+        background: #eef4ff;
+      }
+      .role-tag.r4 {
+        color: #92400e;
+        background: #fef3c7;
+        border: 1px solid #f0c869;
+        font-weight: 600;
+      }
+      .sub-wrap .mname {
+        font-weight: 500;
+      }
+      .sub-wrap .mamt {
+        font-weight: 600;
+        color: var(--green);
+        font-variant-numeric: tabular-nums;
+      }
+      .sub-wrap .mamt.none {
+        color: var(--text-faint);
+        font-weight: 400;
+      }
+      .sub-wrap .mnote {
+        font-size: 12px;
+        color: var(--text-faint);
+      }
+      .sub-empty {
+        padding: 8px 12px 8px 42px;
+        font-size: 12.5px;
+        color: var(--red);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .sub-empty svg {
+        width: 13px;
+        height: 13px;
+      }
+      /* 行内管理岗设置 */
+      .sub-wrap .m-remove {
+        border: none;
+        background: transparent;
+        color: var(--text-faint);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 3px 8px;
+        border-radius: 5px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      .sub-wrap .m-remove:hover {
+        color: var(--red);
+        background: var(--red-bg);
+      }
+      .sub-wrap .m-remove svg {
+        width: 12px;
+        height: 12px;
+      }
+      .sub-actions {
+        padding: 2px 12px 10px 42px;
+      }
+      .m-add {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border: 1px dashed #b9d0f5;
+        background: #f7faff;
+        color: #2f7cf6;
+        font-size: 12.5px;
+        padding: 5px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .m-add:hover {
+        background: #eef4ff;
+        border-color: #2f7cf6;
+      }
+      .m-add svg {
+        width: 12px;
+        height: 12px;
+      }
+      .m-edit-row {
+        display: grid;
+        grid-template-columns: 14px 84px 110px 100px 1fr auto;
+        align-items: center;
+        column-gap: 12px;
+        padding: 8px 12px 10px 42px;
+      }
+      .m-edit-row .arrow {
+        color: #c3ccda;
+        font-size: 12px;
+      }
+      .m-edit-row select {
+        height: 30px;
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: #fff;
+        font-size: 12.5px;
+        color: var(--text);
+        padding: 0 6px;
+        cursor: pointer;
+        box-sizing: border-box;
+      }
+      .m-edit-actions {
+        grid-column: 6;
+        justify-self: end;
+        display: flex;
+        gap: 8px;
+      }
+      .m-edit-row input {
+        height: 30px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 12.5px;
+        padding: 0 10px;
+        width: 140px;
+        outline: none;
+      }
+      .m-edit-row input:focus {
+        border-color: #2f7cf6;
+      }
+      .m-err {
+        font-size: 12px;
+        color: var(--red);
+      }
+      .m-confirm {
+        border: none;
+        background: #2f7cf6;
+        color: #fff;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      .m-confirm:hover {
+        background: #2668d4;
+      }
+      .m-cancel {
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      .m-cancel:hover {
+        border-color: var(--text-weak);
+      }
+      /* 表底汇总栏 */
+      tbody tr.sum-row td {
+        background: var(--head-bg);
+        border-top: 2px solid var(--border);
+        border-bottom: none;
+        font-weight: 600;
+      }
+      tbody tr.sum-row td.dash {
+        color: var(--text-faint);
+        font-weight: 400;
+      }
+      tbody tr.sum-row .sum-label {
+        color: var(--text);
+        font-size: 13px;
+      }
+      tbody tr.sum-row .sum-sub {
+        color: var(--text-weak);
+        font-weight: 400;
+        font-size: 12px;
+        margin-left: 8px;
+      }
+      tbody tr.sum-row td.num.amt {
+        color: var(--green);
+      }
+      /* 店长阶梯栏 */
+      .rule-col.sm .rule-col-head {
+        border-bottom-color: #8b5cf6;
+      }
+
+      /* 店长：按店长制度核算徽章（保留样式备用） */
+      .mamt-scheme {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        color: #6b7280;
+        background: #f0f2f5;
+        border: 1px dashed var(--border);
+        white-space: nowrap;
+      }
+
+      .table-foot {
+        padding: 10px 16px;
+        font-size: 12px;
+        color: var(--text-weak);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-top: 1px solid var(--border-light);
+        flex-wrap: wrap;
+      }
+      .page-count {
+        font-size: 12px;
+        color: var(--text-weak);
+      }
+      .pager {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .page-btn {
+        min-width: 28px;
+        height: 28px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+        cursor: pointer;
+        font-size: 13px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 8px;
+      }
+      .page-btn:hover:not(:disabled) {
+        border-color: #2f7cf6;
+        color: #2f7cf6;
+      }
+      .page-btn.active {
+        background: #2f7cf6;
+        color: #fff;
+        border-color: #2f7cf6;
+      }
+      .page-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .page-nums {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .page-size {
+        height: 28px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+        font-size: 12px;
+        padding: 0 6px;
+        cursor: pointer;
+      }
+      .page-size:focus {
+        outline: none;
+        border-color: #2f7cf6;
+      }
+
+      /* ---------- 新店设置弹窗 ---------- */
+      .modal-mask {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        z-index: 90;
+        display: none;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 60px 16px;
+      }
+      .modal-mask.open {
+        display: flex;
+      }
+      .modal {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 20px 50px rgba(16, 24, 40, 0.25);
+        width: 620px;
+        max-width: 100%;
+        max-height: calc(100vh - 120px);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .modal-head {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .modal-head .t {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .modal-head .x {
+        margin-left: auto;
+        border: none;
+        background: transparent;
+        color: var(--text-weak);
+        cursor: pointer;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-head .x:hover {
+        background: #eef1f5;
+        color: var(--text);
+      }
+      .modal-head .x svg {
+        width: 16px;
+        height: 16px;
+      }
+      .modal-tip {
+        padding: 10px 20px;
+        font-size: 12.5px;
+        line-height: 1.7;
+        color: var(--text-weak);
+        background: #fffbeb;
+        border-bottom: 1px solid #fdeec8;
+        display: flex;
+        gap: 6px;
+      }
+      .modal-tip svg {
+        width: 14px;
+        height: 14px;
+        color: #d97706;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+      .modal-body {
+        overflow: auto;
+        padding: 8px 20px 16px;
+      }
+      .ns-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border-light);
+      }
+      .ns-row:last-child {
+        border-bottom: none;
+      }
+      .ns-row .ns-name {
+        font-weight: 500;
+        width: 130px;
+        flex-shrink: 0;
+      }
+      .ns-row .ns-derive {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--text-weak);
+        background: #f0f2f5;
+        padding: 4px 10px;
+        border-radius: 10px;
+        white-space: nowrap;
+      }
+      .ns-row .ns-derive.active {
+        background: #fdf3e2;
+        color: #b45309;
+      }
+      .ns-row select {
+        height: 30px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: #fff;
+        font-size: 12.5px;
+        color: var(--text);
+        padding: 0 6px;
+        cursor: pointer;
+      }
+      .ns-row select:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .switch .slider {
+        position: absolute;
+        inset: 0;
+        background: #cbd5e1;
+        border-radius: 20px;
+        transition: background 0.15s;
+        cursor: pointer;
+      }
+      .switch .slider::before {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 2px;
+        top: 2px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform 0.15s;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.2);
+      }
+      .switch input:checked + .slider {
+        background: #2f7cf6;
+      }
+      .switch input:checked + .slider::before {
+        transform: translateX(16px);
+      }
+      .modal-foot {
+        padding: 12px 20px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+      .btn-primary {
+        border: none;
+        background: #2f7cf6;
+        color: #fff;
+        padding: 8px 20px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .btn-primary:hover {
+        background: #2668d4;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="tb-brand">
+        <span class="mark"
+          ><svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.3"
+          >
+            <path d="M4 20V10M10 20V4M16 20v-7M20 20H2" /></svg
+        ></span>
+        <span>门店店长管理绩效</span>
+      </div>
+      <div class="tb-right">
+        <div class="tb-select" id="dateSel">
+          <span class="label">09月2026年</span>
+          <svg
+            class="caret"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+          <ul class="tb-drop">
+            <li data-v="09月2026年" class="selected">09月2026年</li>
+            <li data-v="08月2026年">08月2026年</li>
+            <li data-v="07月2026年">07月2026年</li>
+          </ul>
+        </div>
+        <div class="tb-select" id="storeSel">
+          <span class="label">全部门店</span>
+          <svg
+            class="caret"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+          <ul class="tb-drop" id="storeDrop"></ul>
+        </div>
+        <button class="newstore-btn" id="openNewStore" type="button">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.2"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          新店设置
+        </button>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="content-inner">
+        <!-- 汇总卡片 -->
+        <div class="cards">
+          <div class="card">
+            <div class="card-label">纳入统计门店</div>
+            <div class="card-amount" id="cardStores">—</div>
+            <div class="card-note" id="cardStoresNote">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">达考核线门店 <b id="cardHit"></b></div>
+            <div class="card-amount" id="cardHitNum">—</div>
+            <div class="card-note">当月实收 ≥ 考核线</div>
+          </div>
+          <div class="card">
+            <div class="card-label">过渡期门店</div>
+            <div class="card-amount" id="cardNew">—</div>
+            <div class="card-note" id="cardNewNote">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">董事长提成合计</div>
+            <div class="card-amount" id="cardChairman">—</div>
+            <div class="card-note">每店按实收 0.4% 固定计提</div>
+          </div>
+          <div class="card primary">
+            <div class="card-label">管理绩效合计</div>
+            <div class="card-amount" id="cardTotal">—</div>
+            <div class="card-note">
+              本月应发（店长+副店长+店长助理，两套阶梯并行）
+            </div>
+          </div>
+        </div>
+
+        <!-- 提点阶梯规则 -->
+        <section class="rules">
+          <div class="rules-head">
+            <svg
+              class="edit"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+              />
+              <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z" />
+            </svg>
+            管理绩效规则
+            <button class="clear-filter" id="clearFilter" type="button">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+              清除档位筛选
+            </button>
+          </div>
+          <div class="rules-grid">
+            <div class="rule-col">
+              <div class="rule-col-head">
+                阶梯人数总表<span class="tag">两套提点 · 点击行筛选门店</span>
+              </div>
+              <div class="rule-rows" id="ladderTable"></div>
+            </div>
+            <div class="rule-col trans">
+              <div class="rule-col-head">
+                新店过渡期考核线<span class="tag"
+                  >开店起 9 个月 · 两套制度通用</span
+                >
+              </div>
+              <div class="rule-rows" id="transRows"></div>
+              <div class="rule-note">
+                过渡期实收 ≥ 当月考核线即达标；<b>≥ 13w 时直接按各自正常阶梯</b
+                >恒定提点（不打折）。考核线 = 13w × 阶段比例，第 10
+                个月起恢复正常标准。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 门店明细表 -->
+        <section class="table-card">
+          <div class="tabs">
+            <span class="tab active" data-f="all">全部<b id="cntAll"></b></span>
+            <span class="tab" data-f="mature"
+              >成熟店<b id="cntMature"></b
+            ></span>
+            <span class="tab" data-f="new">过渡期<b id="cntNew"></b></span>
+            <span class="tabs-right">
+              <span class="hint">按「当月实收」降序 · 点击行展开人员计发</span>
+              <button class="export-btn" id="exportBtn" type="button">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                导出表格
+              </button>
+            </span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>门店</th>
+                  <th>类型</th>
+                  <th>开店月份</th>
+                  <th style="text-align: right">当月实收</th>
+                  <th style="text-align: center">考核线</th>
+                  <th>命中档位</th>
+                  <th style="text-align: center">提点</th>
+                  <th style="text-align: center">管理岗</th>
+                  <th style="text-align: right">绩效合计</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+          <div class="table-foot" id="tableFoot">
+            <div class="page-count" id="pageCount"></div>
+            <div class="pager">
+              <button class="page-btn" id="prevBtn" title="上一页">‹</button>
+              <span class="page-nums" id="pageNums"></span>
+              <button class="page-btn" id="nextBtn" title="下一页">›</button>
+              <select class="page-size" id="pageSize">
+                <option value="10">10条/页</option>
+                <option value="20" selected>20条/页</option>
+                <option value="50">50条/页</option>
+              </select>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- 新店设置弹窗 -->
+    <div class="modal-mask" id="nsMask">
+      <div class="modal">
+        <div class="modal-head">
+          <span class="t">新店设置</span>
+          <button class="x" id="nsClose" type="button">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-tip">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <span
+            >手动标注新店并设置开店月份后，系统按「报表月份 − 开店月份 +
+            1」自动推算过渡期阶段与考核线（第1-3月 6.5w / 第4-6月 8.45w /
+            第7-9月 10.4w / 第10月起 13w）。修改不追溯历史月份。</span
+          >
+        </div>
+        <div class="modal-body" id="nsBody"></div>
+        <div class="modal-foot">
+          <button class="btn-primary" id="nsDone" type="button">完成</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      /* ========== 规则常量 ========== */
+      const CUR_MONTH = "2026-09"; // 当前报表月份（演示默认）
+      // 成熟店提点阶梯（全额提点制）
+      const LADDER = [
+        { label: "< 13w", min: 0, max: 130000, rate: 0, none: true },
+        { label: "13 ~ 15w", min: 130000, max: 150000, rate: 0.003 },
+        { label: "> 15 ~ 20w", min: 150000, max: 200000, rate: 0.0045 },
+        { label: "> 20 ~ 25w", min: 200000, max: 250000, rate: 0.0055 },
+        { label: "> 25 ~ 30w", min: 250000, max: 300000, rate: 0.007 },
+        { label: "> 30 ~ 35w", min: 300000, max: 350000, rate: 0.012 },
+        { label: "> 35 ~ 45w", min: 350000, max: 450000, rate: 0.015 },
+        { label: "> 45w", min: 450000, max: Infinity, rate: 0.015, cap: true },
+      ];
+      // 新店过渡期阶段
+      const PHASES = [
+        { label: "第 1 ~ 3 个月", from: 1, to: 3, line: 65000, ratio: "50%" },
+        { label: "第 4 ~ 6 个月", from: 4, to: 6, line: 84500, ratio: "65%" },
+        { label: "第 7 ~ 9 个月", from: 7, to: 9, line: 104000, ratio: "80%" },
+      ];
+      const MATURE_LINE = 130000;
+      // 店长阶梯（《门店店长管理绩效制度》）：区间与副店长/助理阶梯一致，提点更高；>45w 同口径封顶
+      const LADDER_SM = [
+        { label: "< 13w", min: 0, max: 130000, rate: 0, none: true },
+        { label: "13 ~ 15w", min: 130000, max: 150000, rate: 0.007 },
+        { label: "> 15 ~ 20w", min: 150000, max: 200000, rate: 0.011 },
+        { label: "> 20 ~ 25w", min: 200000, max: 250000, rate: 0.013 },
+        { label: "> 25 ~ 30w", min: 250000, max: 300000, rate: 0.015 },
+        { label: "> 30 ~ 35w", min: 300000, max: 350000, rate: 0.02 },
+        { label: "> 35 ~ 45w", min: 350000, max: 450000, rate: 0.025 },
+        { label: "> 45w", min: 450000, max: Infinity, rate: 0.025, cap: true },
+      ];
+      // 岗位 → 适用阶梯：店长用店长阶梯，副店长/店长助理用通知阶梯
+      const ladderForRole = (role) => (role === "店长" ? LADDER_SM : LADDER);
+
+      /* ========== 演示数据：9 家门店 / 18 名管理岗 ========== */
+      const STORES = [
+        {
+          name: "深圳福田店",
+          revenue: 468000,
+          isNew: false,
+          openMonth: "",
+          managers: [
+            { role: "店长", name: "陈志远" },
+            { role: "副店长", name: "刘雅婷" },
+            { role: "店长助理", name: "黄晓峰" },
+          ],
+        },
+        {
+          name: "深圳宝安店",
+          revenue: 316500,
+          isNew: false,
+          openMonth: "",
+          managers: [
+            { role: "店长", name: "王建国" },
+            { role: "副店长", name: "张敏" },
+          ],
+        },
+        {
+          name: "广州海珠店",
+          revenue: 236800,
+          isNew: false,
+          openMonth: "",
+          managers: [
+            { role: "店长", name: "李思颖" },
+            { role: "店长助理", name: "陈浩" },
+          ],
+        },
+        {
+          name: "广州金融城店",
+          revenue: 128400,
+          isNew: false,
+          openMonth: "",
+          managers: [
+            { role: "店长", name: "周伟明" },
+            { role: "副店长", name: "吴雪芬" },
+          ],
+        },
+        {
+          name: "成都天府五街店",
+          revenue: 118000,
+          isNew: false,
+          openMonth: "",
+          managers: [
+            { role: "店长", name: "赵天宇" },
+            { role: "副店长", name: "孙梦琪" },
+          ],
+        },
+        {
+          name: "珠海迎宾路店",
+          revenue: 92000,
+          isNew: true,
+          openMonth: "2026-05",
+          managers: [
+            { role: "店长", name: "林晓彤" },
+            { role: "店长助理", name: "郑凯文" },
+          ],
+        },
+        {
+          name: "武汉江汉路店",
+          revenue: 58000,
+          isNew: true,
+          openMonth: "2026-08",
+          managers: [{ role: "店长", name: "何俊杰" }],
+        },
+        {
+          name: "长沙五一广场店",
+          revenue: 146000,
+          isNew: true,
+          openMonth: "2026-01",
+          managers: [
+            { role: "店长", name: "杨玉兰" },
+            { role: "副店长", name: "高翔" },
+          ],
+        },
+        {
+          name: "西安钟楼店",
+          revenue: 96000,
+          isNew: true,
+          openMonth: "2026-03",
+          managers: [
+            { role: "店长", name: "罗静怡" },
+            { role: "店长助理", name: "马天乐" },
+          ],
+        },
+      ];
+
+      /* ========== 门店员工池（管理岗人选从这里拉取） ========== */
+      const STAFF = {
+        深圳福田店: ["林晓东", "周文静", "吴凯", "郑媛媛"],
+        深圳宝安店: ["黄志强", "许丽丽", "马俊驰"],
+        广州海珠店: ["宋佳明", "唐雪"],
+        广州金融城店: ["胡军", "曹芳"],
+        成都天府五街店: ["郭涛", "韩信", "邓超群"],
+        珠海迎宾路店: ["冯露", "彭飞"],
+        武汉江汉路店: ["曾静", "肖楠"],
+        长沙五一广场店: ["田雨", "白鹭"],
+        西安钟楼店: ["潘越", "杜鹃"],
+      };
+
+      /* ========== 核算逻辑 ========== */
+      function monthDiff(cur, open) {
+        const [cy, cm] = cur.split("-").map(Number);
+        const [oy, om] = open.split("-").map(Number);
+        return (cy - oy) * 12 + (cm - om) + 1; // 开店当月 = 第 1 月
+      }
+
+      /* 岗位常量（需在 calcStore 首次调用前声明） */
+      const ROLE_LIST = ["店长", "副店长", "店长助理"];
+      // 两套阶梯并行：店长按《门店店长管理绩效制度》阶梯计提；副店长/店长助理按《副店长及店长助理管理绩效制度》阶梯计提
+
+      const CHAIRMAN_NAME = "集团董事长";
+      const CHAIRMAN_RATE = 0.004; // 董事长固定提点 0.4%
+
+      // 派生单店核算结果
+      function calcStore(s) {
+        const r = { months: null, line: MATURE_LINE, phase: null };
+        if (s.isNew && s.openMonth) {
+          r.months = Math.max(1, monthDiff(CUR_MONTH, s.openMonth));
+          if (r.months <= 9) {
+            const ph = PHASES.find(
+              (p) => r.months >= p.from && r.months <= p.to,
+            );
+            r.phase = ph;
+            r.line = ph ? ph.line : MATURE_LINE;
+          } else {
+            r.line = MATURE_LINE; // 第 10 个月起
+          }
+        }
+        // 档位判定（两套阶梯区间一致，各自取提点）
+        let tier;
+        if (s.revenue < r.line) {
+          tier = LADDER[0]; // 无绩效
+        } else if (s.isNew && s.revenue < MATURE_LINE) {
+          // 过渡期：考核线 ~ 13w → 各自第一档
+          tier = LADDER[1];
+        } else {
+          tier = LADDER.find((t) => s.revenue > t.min && s.revenue <= t.max);
+          if (!tier) tier = LADDER[LADDER.length - 1];
+        }
+        const tierIdx = LADDER.indexOf(tier);
+        r.tier = tier;
+        r.tierIdx = tierIdx;
+        r.tierLabel = tier.none
+          ? "未达标"
+          : tier.cap
+            ? "> 45w（封顶）"
+            : tier.label;
+        r.rate = tier.none ? 0 : tier.rate; // 副店长/助理提点
+        r.smRate = LADDER_SM[tierIdx].none ? 0 : LADDER_SM[tierIdx].rate; // 店长提点
+        // 个人绩效 = 门店实收 × 各自阶梯提点，四舍五入到分（精度说明仅见于 PRD，界面不展示）；合计含全部管理岗
+        r.perPersonOf = {};
+        let totalAcc = 0;
+        s.managers.forEach((m) => {
+          const tt = ladderForRole(m.role)[tierIdx];
+          const amt = tt.none ? 0 : Math.round(s.revenue * tt.rate * 100) / 100;
+          r.perPersonOf[m.name + "|" + m.role] = amt;
+          totalAcc += amt;
+        });
+        r.perPerson = tier.none
+          ? 0
+          : Math.round(s.revenue * tier.rate * 100) / 100;
+        r.total = totalAcc;
+        return r;
+      }
+      const CALC = new Map(); // name -> calc
+      STORES.forEach((s) => CALC.set(s.name, calcStore(s)));
+
+      /* ========== 状态 ========== */
+      const state = {
+        tab: "all",
+        store: "全部",
+        tiers: new Set(), // 选中的阶梯索引（LADDER 下标）
+        page: 1,
+        pageSize: 20,
+        expanded: new Set(), // 展开的门店名
+        editing: null, // 正在添加管理岗的门店名
+        editOpenMonth: null, // 正在行内编辑开店月份的门店名
+      };
+
+      function roleClsOf(role) {
+        return role === "店长" ? "r1" : role === "副店长" ? "r2" : "r3";
+      }
+      function mkSvg(children, strokeWidth) {
+        const svg = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("stroke", "currentColor");
+        svg.setAttribute("stroke-width", strokeWidth || "2.4");
+        children.forEach(([tag, attrs]) => {
+          const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+          Object.keys(attrs).forEach((k) => n.setAttribute(k, attrs[k]));
+          svg.appendChild(n);
+        });
+        return svg;
+      }
+
+      /* ========== 工具 ========== */
+      const $ = (id) => document.getElementById(id);
+      function fmtMoney(n) {
+        const v = Math.round(n * 100) / 100; // 小数点后两位四舍五入
+        return (
+          "￥" +
+          v.toLocaleString("zh-CN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })
+        );
+      }
+      function fmtWan(n) {
+        return n % 10000 === 0 ? n / 10000 + "w" : (n / 10000).toFixed(2) + "w";
+      }
+      function el(tag, cls, text) {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined) e.textContent = text;
+        return e;
+      }
+      function pct(rate) {
+        return (
+          (rate * 100)
+            .toFixed(rate * 100 === parseInt(rate * 100) ? 1 : 2)
+            .replace(/\.0$/, "") + "%"
+        );
+      }
+
+      /* ========== 汇总卡片 ========== */
+      function renderCards() {
+        const totalManagers = STORES.reduce((a, s) => a + s.managers.length, 0);
+        const hit = STORES.filter((s) => CALC.get(s.name).rate > 0).length;
+        const news = STORES.filter(
+          (s) =>
+            s.isNew &&
+            CALC.get(s.name).months !== null &&
+            CALC.get(s.name).months <= 9,
+        );
+        const total = STORES.reduce((a, s) => a + CALC.get(s.name).total, 0);
+        const chairmanTotal = STORES.reduce(
+          (a, s) => a + Math.round(s.revenue * CHAIRMAN_RATE * 100) / 100,
+          0,
+        );
+        $("cardStores").textContent = STORES.length + " 家";
+        $("cardStoresNote").textContent = "管理岗 " + totalManagers + " 人";
+        $("cardHit").textContent = hit + "/" + STORES.length;
+        $("cardHitNum").textContent = hit + " 家";
+        $("cardNew").textContent = news.length + " 家";
+        $("cardNewNote").textContent = news.length
+          ? news
+              .map((s) => {
+                const c = CALC.get(s.name);
+                return "第" + c.months + "月·" + s.name.slice(0, 2);
+              })
+              .join(" · ")
+          : "无过渡期门店";
+        $("cardTotal").textContent = fmtMoney(total);
+        $("cardChairman").textContent = fmtMoney(chairmanTotal);
+      }
+
+      /* ========== 规则卡 ========== */
+      function renderRules() {
+        // 左栏：阶梯人数总表（四列：档位/两套提点 | 店长 | 副店长 | 店长助理）
+        const box = $("ladderTable");
+        box.replaceChildren();
+        const head = el("div", "rl-row head");
+        head.appendChild(el("span", null, "月实收档位（提点 副助/店长）"));
+        head.appendChild(el("span", "rl-num", "店长人数"));
+        head.appendChild(el("span", "rl-num", "副店长人数"));
+        head.appendChild(el("span", "rl-num", "助理人数"));
+        box.appendChild(head);
+        LADDER.forEach((t, i) => {
+          const row = el(
+            "div",
+            "rl-row clickable" + (state.tiers.has(i) ? " selected" : ""),
+          );
+          const c1 = el("div");
+          c1.appendChild(
+            el("div", "rl-range", t.label + (t.cap ? "（封顶）" : "")),
+          );
+          c1.appendChild(
+            el(
+              "div",
+              "rl-rates",
+              t.none
+                ? "—"
+                : "副助 " + pct(t.rate) + " · 店长 " + pct(LADDER_SM[i].rate),
+            ),
+          );
+          row.appendChild(c1);
+          ["店长", "副店长", "店长助理"].forEach((role) => {
+            const n = STORES.filter(
+              (s) => CALC.get(s.name).tierIdx === i,
+            ).reduce(
+              (a, s) => a + s.managers.filter((m) => m.role === role).length,
+              0,
+            );
+            row.appendChild(
+              el(
+                "span",
+                "rl-num" + (n === 0 ? " zero" : ""),
+                n === 0 ? "—" : n + " 人",
+              ),
+            );
+          });
+          row.onclick = () => {
+            if (state.tiers.has(i)) state.tiers.delete(i);
+            else state.tiers.add(i);
+            state.page = 1;
+            renderAll();
+          };
+          box.appendChild(row);
+        });
+        // 右栏：过渡期
+        const transBox = $("transRows");
+        transBox.replaceChildren();
+        PHASES.forEach((p) => {
+          const row = el("div", "rule-row");
+          row.appendChild(el("span", "range", p.label));
+          row.appendChild(el("span", "val", fmtWan(p.line)));
+          const n = STORES.filter((s) => {
+            const c = CALC.get(s.name);
+            return (
+              s.isNew &&
+              c.months !== null &&
+              c.months >= p.from &&
+              c.months <= p.to
+            );
+          }).length;
+          row.appendChild(el("span", "count", "本月 " + n + " 家"));
+          transBox.appendChild(row);
+        });
+        const matureRow = el("div", "rule-row");
+        matureRow.appendChild(el("span", "range", "第 10 个月起"));
+        matureRow.appendChild(el("span", "val", fmtWan(MATURE_LINE)));
+        const matureN = STORES.filter((s) => {
+          const c = CALC.get(s.name);
+          return !s.isNew || c.months === null || c.months > 9;
+        }).length;
+        matureRow.appendChild(el("span", "count", matureN + " 家已转正"));
+        transBox.appendChild(matureRow);
+        // 清除筛选按钮
+        $("clearFilter").classList.toggle("show", state.tiers.size > 0);
+      }
+      $("clearFilter").onclick = () => {
+        state.tiers.clear();
+        state.page = 1;
+        renderAll();
+      };
+
+      /* ========== 明细表 ========== */
+      function filteredStores() {
+        let list = STORES.slice();
+        if (state.store !== "全部")
+          list = list.filter((s) => s.name === state.store);
+        if (state.tab === "mature")
+          list = list.filter((s) => {
+            const c = CALC.get(s.name);
+            return !s.isNew || c.months === null || c.months > 9;
+          });
+        if (state.tab === "new")
+          list = list.filter((s) => {
+            const c = CALC.get(s.name);
+            return s.isNew && c.months !== null && c.months <= 9;
+          });
+        if (state.tiers.size)
+          list = list.filter((s) => {
+            const idx = LADDER.indexOf(CALC.get(s.name).tier);
+            return state.tiers.has(idx);
+          });
+        list.sort((a, b) => b.revenue - a.revenue);
+        return list;
+      }
+
+      function buildSubRow(s, c) {
+        const tr = el("tr", "sub-row");
+        const td = el("td");
+        td.colSpan = 9;
+        if (c.rate === 0) {
+          const empty = el("div", "sub-empty");
+          empty.appendChild(
+            el(
+              "span",
+              null,
+              "⚠ 该店当月实收未达考核线 " +
+                fmtWan(c.line) +
+                "，全体管理岗无管理绩效（达标后按人数计发）",
+            ),
+          );
+          td.appendChild(empty);
+        }
+        if (s.managers.length === 0) {
+          const empty2 = el("div", "sub-empty");
+          empty2.appendChild(
+            el(
+              "span",
+              null,
+              "该店暂未设置管理岗，点击下方「添加管理岗」配置人员",
+            ),
+          );
+          td.appendChild(empty2);
+        }
+        // 董事长行：每店固定，按实收 0.4% 固定提点计提（不走阶梯、不受考核线影响）
+        const cz = el("div", "sub-wrap");
+        cz.appendChild(el("span", "arrow", "└"));
+        cz.appendChild(el("span", "role-tag r4", "董事长"));
+        cz.appendChild(el("span", "mname", CHAIRMAN_NAME));
+        cz.appendChild(
+          el(
+            "span",
+            "mamt",
+            fmtMoney(Math.round(s.revenue * CHAIRMAN_RATE * 100) / 100),
+          ),
+        );
+        cz.appendChild(
+          el(
+            "span",
+            "mnote",
+            "= " +
+              s.revenue.toLocaleString("zh-CN") +
+              " × 0.4%（董事长固定提点）",
+          ),
+        );
+        td.appendChild(cz);
+        // 按岗位固定排序（店长→副店长→店长助理，同岗位按添加顺序），携带原索引供移除
+        const ordered = s.managers
+          .map((m, idx) => ({ m, idx }))
+          .sort(
+            (a, b) =>
+              ROLE_LIST.indexOf(a.m.role) - ROLE_LIST.indexOf(b.m.role) ||
+              a.idx - b.idx,
+          );
+        ordered.forEach(({ m, idx }) => {
+          const wrap = el("div", "sub-wrap");
+          wrap.appendChild(el("span", "arrow", "└"));
+          wrap.appendChild(el("span", "role-tag " + roleClsOf(m.role), m.role));
+          wrap.appendChild(el("span", "mname", m.name));
+          const rt = ladderForRole(m.role)[c.tierIdx];
+          wrap.appendChild(
+            el(
+              "span",
+              "mamt" + (rt.none ? " none" : ""),
+              rt.none
+                ? "—"
+                : fmtMoney(Math.round(s.revenue * rt.rate * 100) / 100),
+            ),
+          );
+          wrap.appendChild(
+            el(
+              "span",
+              "mnote",
+              rt.none
+                ? "未达考核线，当月不计发"
+                : "= " +
+                    s.revenue.toLocaleString("zh-CN") +
+                    " × " +
+                    pct(rt.rate) +
+                    (m.role === "店长"
+                      ? "（店长阶梯）"
+                      : "（副店长/助理阶梯）"),
+            ),
+          );
+          const rm = el("button", "m-remove");
+          rm.type = "button";
+          rm.title = "移除该管理岗";
+          rm.appendChild(
+            mkSvg(
+              [
+                ["line", { x1: "18", y1: "6", x2: "6", y2: "18" }],
+                ["line", { x1: "6", y1: "6", x2: "18", y2: "18" }],
+              ],
+              "2.2",
+            ),
+          );
+          rm.appendChild(el("span", null, "移除"));
+          rm.onclick = (ev) => {
+            ev.stopPropagation();
+            s.managers.splice(idx, 1);
+            CALC.set(s.name, calcStore(s));
+            renderAll();
+          };
+          wrap.appendChild(rm);
+          td.appendChild(wrap);
+        });
+        if (state.editing === s.name) {
+          td.appendChild(buildEditRow(s));
+        } else {
+          const actions = el("div", "sub-actions");
+          const add = el("button", "m-add");
+          add.type = "button";
+          add.appendChild(mkSvg([["path", { d: "M12 5v14M5 12h14" }]], "2.2"));
+          add.appendChild(el("span", null, "添加管理岗"));
+          add.onclick = (ev) => {
+            ev.stopPropagation();
+            state.editing = s.name;
+            renderTable();
+          };
+          actions.appendChild(add);
+          td.appendChild(actions);
+        }
+        tr.appendChild(td);
+        return tr;
+      }
+
+      function buildEditRow(s) {
+        const row = el("div", "m-edit-row");
+        row.appendChild(el("span", "arrow", "└"));
+        const sel = document.createElement("select");
+        ROLE_LIST.forEach((r) => {
+          const o = document.createElement("option");
+          o.value = r;
+          o.textContent = r;
+          sel.appendChild(o);
+        });
+        // 员工下拉：从该门店在职员工中拉取，排除已在管理岗的人
+        const empSel = document.createElement("select");
+        const candidates = (STAFF[s.name] || []).filter(
+          (n) => !s.managers.some((m) => m.name === n),
+        );
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "请选择员工";
+        empSel.appendChild(placeholder);
+        candidates.forEach((n) => {
+          const o = document.createElement("option");
+          o.value = n;
+          o.textContent = n;
+          empSel.appendChild(o);
+        });
+        const err = el("span", "m-err", "");
+        function confirmAdd() {
+          const name = empSel.value;
+          if (!name) {
+            err.textContent = "请选择员工";
+            empSel.focus();
+            return;
+          }
+          s.managers.push({ role: sel.value, name: name });
+          CALC.set(s.name, calcStore(s));
+          state.editing = null;
+          renderAll();
+        }
+        const ok = el("button", "m-confirm", "添加");
+        ok.type = "button";
+        ok.onclick = (ev) => {
+          ev.stopPropagation();
+          confirmAdd();
+        };
+        const cancel = el("button", "m-cancel", "取消");
+        cancel.type = "button";
+        cancel.onclick = (ev) => {
+          ev.stopPropagation();
+          state.editing = null;
+          renderTable();
+        };
+        empSel.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") confirmAdd();
+        });
+        empSel.addEventListener("change", () => {
+          err.textContent = "";
+        });
+        const actions2 = el("div", "m-edit-actions");
+        actions2.appendChild(ok);
+        actions2.appendChild(cancel);
+        row.appendChild(sel);
+        row.appendChild(empSel);
+        row.appendChild(err);
+        row.appendChild(actions2);
+        setTimeout(() => empSel.focus(), 0);
+        return row;
+      }
+
+      function renderTable() {
+        const list = filteredStores();
+        const totalPages = Math.max(1, Math.ceil(list.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const start = (state.page - 1) * state.pageSize;
+        const pageList = list.slice(start, start + state.pageSize);
+
+        $("cntAll").textContent = STORES.length;
+        const matureN = STORES.filter((s) => {
+          const c = CALC.get(s.name);
+          return !s.isNew || c.months === null || c.months > 9;
+        }).length;
+        $("cntMature").textContent = matureN;
+        $("cntNew").textContent = STORES.length - matureN;
+
+        const tbody = $("tableBody");
+        tbody.replaceChildren();
+        pageList.forEach((s) => {
+          const c = CALC.get(s.name);
+          const isOpen = state.expanded.has(s.name);
+          const tr = el("tr", "store-row" + (isOpen ? " expanded" : ""));
+
+          const tdName = el("td");
+          const cell = el("span", "store-cell");
+          const caret = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "svg",
+          );
+          caret.setAttribute("viewBox", "0 0 24 24");
+          caret.setAttribute("fill", "none");
+          caret.setAttribute("stroke", "currentColor");
+          caret.setAttribute("stroke-width", "2.4");
+          caret.classList.add("caret");
+          const poly = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "polyline",
+          );
+          poly.setAttribute("points", "9 18 15 12 9 6");
+          caret.appendChild(poly);
+          cell.appendChild(caret);
+          cell.appendChild(el("span", null, s.name));
+          tdName.appendChild(cell);
+          tr.appendChild(tdName);
+
+          // 类型
+          const c2 = CALC.get(s.name);
+          const isNewActive = s.isNew && c2.months !== null && c2.months <= 9;
+          const tdType = el("td");
+          tdType.appendChild(
+            el(
+              "span",
+              "type-tag" + (isNewActive ? " new" : ""),
+              isNewActive ? "新店·第" + c2.months + "月" : "成熟店",
+            ),
+          );
+          tr.appendChild(tdType);
+
+          const tdOpen = el("td");
+          // 所有行均可编辑开店月份：成熟店选月份即标为新店；新店可改月份或取消标注
+          const wrapO = el("span", "open-cell");
+          wrapO.appendChild(
+            el("span", null, s.isNew ? s.openMonth || "—" : "—"),
+          );
+          const pen = el("button", "edit-pencil");
+          pen.type = "button";
+          pen.title = "编辑开店月份";
+          pen.appendChild(
+            mkSvg(
+              [
+                ["path", { d: "M12 20h9" }],
+                ["path", { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }],
+              ],
+              "2",
+            ),
+          );
+          pen.onclick = (ev) => {
+            ev.stopPropagation();
+            state.editOpenMonth = s.name;
+            renderTable();
+          };
+          wrapO.appendChild(pen);
+          tdOpen.appendChild(wrapO);
+          if (state.editOpenMonth === s.name) {
+            tdOpen.replaceChildren();
+            const sel = document.createElement("select");
+            sel.className = "open-select";
+            const noneOpt = document.createElement("option");
+            noneOpt.value = "";
+            noneOpt.textContent = s.isNew ? "取消新店标注" : "不标注（成熟店）";
+            sel.appendChild(noneOpt);
+            monthOptions().forEach((v) => {
+              const o = document.createElement("option");
+              o.value = v;
+              o.textContent = v;
+              if (s.isNew && v === s.openMonth) o.selected = true;
+              sel.appendChild(o);
+            });
+            sel.onclick = (ev) => ev.stopPropagation();
+            sel.onchange = () => {
+              if (sel.value === "") {
+                s.isNew = false;
+              } else {
+                s.isNew = true;
+                s.openMonth = sel.value;
+              }
+              CALC.set(s.name, calcStore(s));
+              state.editOpenMonth = null;
+              renderAll();
+            };
+            tdOpen.appendChild(sel);
+          }
+          tr.appendChild(tdOpen);
+          const tdRev = el("td", "num", s.revenue.toLocaleString("zh-CN"));
+          tr.appendChild(tdRev);
+          tr.appendChild(el("td", "dash", fmtWan(c.line)));
+          const tdTier = el("td");
+          tdTier.appendChild(
+            el("span", "tier-tag" + (c.rate === 0 ? " none" : ""), c.tierLabel),
+          );
+          tr.appendChild(tdTier);
+          tr.appendChild(el("td", "dash", c.rate === 0 ? "—" : pct(c.rate)));
+          const tdM = el("td", "dash");
+          const mg = el("span", "mgmt-count");
+          const person = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "svg",
+          );
+          person.setAttribute("viewBox", "0 0 24 24");
+          person.setAttribute("fill", "none");
+          person.setAttribute("stroke", "currentColor");
+          person.setAttribute("stroke-width", "2");
+          const pc1 = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path",
+          );
+          pc1.setAttribute("d", "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2");
+          const pc2 = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "circle",
+          );
+          pc2.setAttribute("cx", "9");
+          pc2.setAttribute("cy", "7");
+          pc2.setAttribute("r", "4");
+          const pc3 = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path",
+          );
+          pc3.setAttribute(
+            "d",
+            "M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+          );
+          person.appendChild(pc1);
+          person.appendChild(pc2);
+          person.appendChild(pc3);
+          mg.appendChild(person);
+          mg.appendChild(el("span", null, String(s.managers.length)));
+          tdM.appendChild(mg);
+          tr.appendChild(tdM);
+          const tdTotal = el(
+            "td",
+            "num",
+            c.total > 0 ? fmtMoney(c.total) : "—",
+          );
+          if (c.total > 0) tdTotal.classList.add("amount-strong");
+          tr.appendChild(tdTotal);
+
+          tr.onclick = () => {
+            if (state.expanded.has(s.name)) state.expanded.delete(s.name);
+            else state.expanded.add(s.name);
+            renderTable();
+          };
+          tbody.appendChild(tr);
+          if (isOpen) tbody.appendChild(buildSubRow(s, c));
+        });
+
+        // 底部汇总栏（基于当前筛选全部结果，非仅当前页）
+        if (list.length) {
+          const sumRev = list.reduce((a, s2) => a + s2.revenue, 0);
+          const sumMgr = list.reduce((a, s2) => a + s2.managers.length, 0);
+          const sumTotal = list.reduce(
+            (a, s2) => a + CALC.get(s2.name).total,
+            0,
+          );
+          const hitN = list.filter((s2) => CALC.get(s2.name).rate > 0).length;
+          const trSum = el("tr", "sum-row");
+          const tdLabel = el("td");
+          tdLabel.colSpan = 3;
+          tdLabel.appendChild(
+            el("span", "sum-label", "合计 · " + list.length + " 家门店"),
+          );
+          tdLabel.appendChild(
+            el(
+              "span",
+              "sum-sub",
+              "达标 " +
+                hitN +
+                " 家 · 董事长提成 " +
+                fmtMoney(
+                  STORES.reduce(
+                    (a, s2) =>
+                      a + Math.round(s2.revenue * CHAIRMAN_RATE * 100) / 100,
+                    0,
+                  ),
+                ),
+            ),
+          );
+          trSum.appendChild(tdLabel);
+          trSum.appendChild(el("td", "num", sumRev.toLocaleString("zh-CN")));
+          trSum.appendChild(el("td", "dash", "—"));
+          trSum.appendChild(el("td", "dash", "—"));
+          trSum.appendChild(el("td", "dash", "—"));
+          trSum.appendChild(el("td", "dash", String(sumMgr)));
+          const tdAmt = el("td", "num amt", fmtMoney(sumTotal));
+          trSum.appendChild(tdAmt);
+          tbody.appendChild(trSum);
+        }
+
+        // 分页
+        $("pageCount").textContent =
+          "共 " +
+          list.length +
+          " 条 · 第 " +
+          state.page +
+          "/" +
+          totalPages +
+          " 页";
+        const nums = $("pageNums");
+        nums.replaceChildren();
+        for (let i = 1; i <= totalPages; i++) {
+          const b = el(
+            "button",
+            "page-btn" + (i === state.page ? " active" : ""),
+            String(i),
+          );
+          b.onclick = () => {
+            state.page = i;
+            renderTable();
+          };
+          nums.appendChild(b);
+        }
+        $("prevBtn").disabled = state.page <= 1;
+        $("nextBtn").disabled = state.page >= totalPages;
+      }
+      $("prevBtn").onclick = () => {
+        if (state.page > 1) {
+          state.page--;
+          renderTable();
+        }
+      };
+      $("nextBtn").onclick = () => {
+        const totalPages = Math.max(
+          1,
+          Math.ceil(filteredStores().length / state.pageSize),
+        );
+        if (state.page < totalPages) {
+          state.page++;
+          renderTable();
+        }
+      };
+      $("pageSize").onchange = (e) => {
+        state.pageSize = Number(e.target.value);
+        state.page = 1;
+        renderTable();
+      };
+
+      /* ========== Tab 切换 ========== */
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document
+            .querySelectorAll(".tab")
+            .forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+          state.tab = tab.dataset.f;
+          state.page = 1;
+          renderTable();
+        });
+      });
+
+      /* ========== 顶栏下拉 ========== */
+      function bindDrop(selId) {
+        const box = $(selId);
+        const label = box.querySelector(".label");
+        const dd = box.querySelector(".tb-drop");
+        box.addEventListener("click", (ev) => {
+          if (ev.target.closest("li")) return;
+          box.classList.toggle("open");
+        });
+        dd.addEventListener("click", (ev) => {
+          const li = ev.target.closest("li");
+          if (!li) return;
+          dd.querySelectorAll("li").forEach((x) =>
+            x.classList.remove("selected"),
+          );
+          li.classList.add("selected");
+          label.textContent = li.dataset.v;
+          box.classList.remove("open");
+        });
+      }
+      bindDrop("dateSel");
+      // 门店下拉动态生成
+      (function buildStoreDrop() {
+        const dd = $("storeDrop");
+        const items = ["全部"].concat(STORES.map((s) => s.name));
+        items.forEach((v, i) => {
+          const li = el(
+            "li",
+            i === 0 ? "selected" : "",
+            v === "全部" ? "全部门店" : v,
+          );
+          li.dataset.v = v;
+          li.addEventListener("click", () => {
+            state.store = v;
+            state.page = 1;
+            renderTable();
+          });
+          dd.appendChild(li);
+        });
+      })();
+      bindDrop("storeSel");
+
+      document.addEventListener("click", (ev) => {
+        if (!ev.target.closest(".tb-select")) {
+          document
+            .querySelectorAll(".tb-select")
+            .forEach((b) => b.classList.remove("open"));
+        }
+      });
+
+      /* ========== 新店设置弹窗 ========== */
+      const nsMask = $("nsMask");
+      function monthOptions(selected) {
+        const opts = [];
+        for (let y = 2025; y <= 2026; y++) {
+          for (let m = 1; m <= 12; m++) {
+            const v = y + "-" + String(m).padStart(2, "0");
+            if (v > CUR_MONTH) continue;
+            opts.push(v);
+          }
+        }
+        return opts;
+      }
+      function renderModal() {
+        const body = $("nsBody");
+        body.replaceChildren();
+        STORES.forEach((s) => {
+          const row = el("div", "ns-row");
+          row.appendChild(el("span", "ns-name", s.name));
+          const sw = el("label", "switch");
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.checked = s.isNew;
+          input.addEventListener("change", () => {
+            s.isNew = input.checked;
+            CALC.set(s.name, calcStore(s));
+            renderModal();
+            renderAll();
+          });
+          const slider = el("span", "slider");
+          sw.appendChild(input);
+          sw.appendChild(slider);
+          row.appendChild(sw);
+          const sel = document.createElement("select");
+          monthOptions().forEach((v) => {
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = v;
+            if (v === (s.openMonth || "2026-01")) opt.selected = true;
+            sel.appendChild(opt);
+          });
+          sel.disabled = !s.isNew;
+          sel.addEventListener("change", () => {
+            s.openMonth = sel.value;
+            CALC.set(s.name, calcStore(s));
+            renderModal();
+            renderAll();
+          });
+          row.appendChild(sel);
+          const c = CALC.get(s.name);
+          let deriveText;
+          if (!s.isNew) {
+            deriveText = "按成熟店核算 · 13w";
+          } else if (c.months !== null && c.months <= 9) {
+            deriveText =
+              "过渡期第 " + c.months + " 月 · 考核线 " + fmtWan(c.line);
+          } else {
+            deriveText = "已转正 · 考核线 13w";
+          }
+          row.appendChild(
+            el(
+              "span",
+              "ns-derive" +
+                (s.isNew && c.months !== null && c.months <= 9
+                  ? " active"
+                  : ""),
+              deriveText,
+            ),
+          );
+          body.appendChild(row);
+        });
+      }
+      $("openNewStore").onclick = () => {
+        renderModal();
+        nsMask.classList.add("open");
+      };
+      $("nsClose").onclick = () => nsMask.classList.remove("open");
+      $("nsDone").onclick = () => nsMask.classList.remove("open");
+      nsMask.addEventListener("click", (ev) => {
+        if (ev.target === nsMask) nsMask.classList.remove("open");
+      });
+
+      /* ========== 导出 CSV ========== */
+      $("exportBtn").onclick = () => {
+        const list = filteredStores();
+        const rows = [];
+        rows.push([
+          "门店",
+          "类型",
+          "开店月份",
+          "当月实收",
+          "考核线",
+          "命中档位",
+          "提点",
+          "管理岗人数",
+          "绩效合计",
+        ]);
+        const perStore = [];
+        list.forEach((s) => {
+          const c = CALC.get(s.name);
+          const isNewActive = s.isNew && c.months !== null && c.months <= 9;
+          rows.push([
+            s.name,
+            isNewActive ? "新店·第" + c.months + "月" : "成熟店",
+            s.isNew && s.openMonth ? s.openMonth : "",
+            s.revenue,
+            c.line,
+            c.tierLabel,
+            c.rate ? pct(c.rate) : "",
+            s.managers.length,
+            Number(c.total).toFixed(2),
+          ]);
+          perStore.push([
+            s.name,
+            "董事长",
+            CHAIRMAN_NAME,
+            (Math.round(s.revenue * CHAIRMAN_RATE * 100) / 100).toFixed(2),
+          ]);
+          s.managers.forEach((m) => {
+            const t = ladderForRole(m.role)[c.tierIdx];
+            const amt = t.none
+              ? ""
+              : (Math.round(s.revenue * t.rate * 100) / 100).toFixed(2);
+            perStore.push([s.name, m.role, m.name, amt]);
+          });
+        });
+        rows.push([]);
+        rows.push(["门店", "岗位", "姓名", "个人绩效"]);
+        perStore.forEach((r) => rows.push(r));
+        const csv =
+          "\uFEFF" +
+          rows
+            .map((r) =>
+              r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(","),
+            )
+            .join("\r\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        const monthLabel = $("dateSel").querySelector(".label").textContent;
+        a.download = "门店店长管理绩效_" + monthLabel + ".csv";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      };
+
+      /* ========== 渲染入口 ========== */
+      function renderAll() {
+        renderCards();
+        renderRules();
+        renderTable();
+      }
+      renderAll();
+    </script>
+  </body>
+</html>
