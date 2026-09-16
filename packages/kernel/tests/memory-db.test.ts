@@ -40,4 +40,7 @@ test("projectNameFromCwd 取 basename 并净化非法字符", () => {
   // 盘根 cwd（源码 "H:\\"，运行时 `H:\`）→ "H"
   expect(projectNameFromCwd("H:\\")).toBe("H");
   expect(projectNameFromCwd("/")).toBe("default");
+  // 多个非法字符夹杂合法字符（源码 "D:\\proj<bad>|name"，运行时 `D:\proj<bad>|name`）
+  // → 逐个剔掉 < > | 后得 "projbadname"
+  expect(projectNameFromCwd("D:\\proj<bad>|name")).toBe("projbadname");
 });

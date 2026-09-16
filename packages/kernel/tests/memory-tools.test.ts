@@ -99,6 +99,41 @@ test("memory_remove 按 id 删除", async () => {
   expect(ctx.dao.getById(added.id)).toBeNull();
 });
 
+// ── 以下两条补回被删 amaster-memory.test.ts 的覆盖缺口（任务 13 遗留）──
+// 旧文件是工具层 resolveTargets「oldText 未命中」与「remove 走 oldText 成功」的
+// 唯覆盖者；DAO 层虽有等价用例，但工具层的错误契约与入口解析无回归防线。
+
+test("oldText 匹配不到任何条目时 replace/remove 返回 No entry matched 且不动库", async () => {
+  await call("memory_add", { target: "memory", content: "库里已有的条目 keepmark" });
+  const before = ctx.dao.counts();
+
+  const replace = await call("memory_replace", {
+    target: "memory", oldText: "根本没这个词 zzz", newContent: "x",
+  });
+  expect(replace.success).toBe(false);
+  expect(replace.error).toBe("No entry matched '根本没这个词 zzz'.");
+
+  const remove = await call("memory_remove", { target: "memory", oldText: "根本没这个词 zzz" });
+  expect(remove.success).toBe(false);
+  expect(remove.error).toBe("No entry matched '根本没这个词 zzz'.");
+
+  // 未命中分支不得改动任何数据
+  expect(ctx.dao.counts()).toEqual(before);
+});
+
+test("memory_remove 按 oldText 唯一定位并真的删除条目", async () => {
+  await call("memory_add", { target: "memory", content: "唯一标记 trashmark 待删" });
+  await call("memory_add", { target: "memory", content: "另一条无关内容" });
+  const [target] = ctx.dao.findBySubstring("trashmark", { scope: "project", projectId: "Wa-Pi" });
+  expect(target).toBeTruthy();
+
+  const res = await call("memory_remove", { target: "memory", oldText: "trashmark" });
+  expect(res.success).toBe(true);
+  expect(res.id).toBe(target.id);
+  expect(ctx.dao.getById(target.id)).toBeNull();
+  expect(ctx.dao.counts().knowledge).toBe(1);
+});
+
 test("memory_search 支持中文查询（bigram 分词链路）", async () => {
   await call("memory_add", { target: "memory", content: "发版必须禁用 osxkeychain" });
   const res = await call("memory_search", { query: "发版" });

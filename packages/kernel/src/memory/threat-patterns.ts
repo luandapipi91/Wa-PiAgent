@@ -4,7 +4,7 @@
 // 因为记忆系统不再依赖该包，但防护能力不能丢：记忆条目会被注入系统提示词，
 // 必须拦下注入与窃取载荷。
 //
-// 版权归属：规则表源自 @amaster.ai/pi-shared v0.1.9（Apache-2.0），
+// 版权归属：规则表源自 @amaster.ai/pi-shared v0.1.15（Apache-2.0），
 // 详见仓库根 THIRD_PARTY_NOTICES.md。本文件为衍生使用。
 
 export type ThreatScope = "all" | "context" | "strict";

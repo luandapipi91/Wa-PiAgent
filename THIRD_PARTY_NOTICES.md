@@ -10,7 +10,7 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 
 | 包 | 版本 | 许可证 | 版权 / 作者 |
 | ---- | ------ | -------- | ------------- |
-| @amaster.ai/pi-shared | 0.1.9（规则表已移植至 packages/kernel/src/memory/threat-patterns.ts） | Apache-2.0 | 未声明 |
+| @amaster.ai/pi-shared | 0.1.15（规则表已移植至 packages/kernel/src/memory/threat-patterns.ts） | Apache-2.0 | 未声明 |
 | @earendil-works/pi-ai | ^0.85.1 | MIT | Mario Zechner |
 | @earendil-works/pi-coding-agent | ^0.85.1 | MIT | Mario Zechner |
 | @modelcontextprotocol/sdk | ^1.30.0 | MIT | Copyright (c) 2024 Anthropic, PBC |
