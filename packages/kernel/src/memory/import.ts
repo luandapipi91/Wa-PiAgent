@@ -83,6 +83,14 @@ async function importArchive(dao: MemoryDao, waPiDir: string): Promise<void> {
         source: "import",
       });
       dao.archive(row.id);
+      // 迁移保真：dao.archive() 只能写“现在”，会把 sidecar 里的真实归档时间冲掉，
+      // 故在此回填原始时间；已归档的该条目不会再有其他写入者，回填安全。
+      // sidecar 里的 archivedAt 缺失或无法解析时保持 dao.archive() 写的值（不抛错）。
+      const archivedAt =
+        typeof e.archivedAt === "string" ? Date.parse(e.archivedAt) : Number.NaN;
+      if (Number.isFinite(archivedAt)) {
+        dao.db.run("UPDATE memories SET archived_at = ? WHERE id = ?", [archivedAt, row.id]);
+      }
     }
     await rename(p, p + IMPORTED_SUFFIX);
   } catch {

@@ -80,6 +80,57 @@ test("导入归档 JSON 为 archived=1 条目", async () => {
   expect(row.archived).toBe(1);
 });
 
+test("归档条目的 archivedAt 回填为 sidecar 里的原始时间", async () => {
+  // 明显早于现在的固定值：若实现写成迁移当天，断言必红
+  const sidecarIso = "2026-01-01T00:00:00.000Z";
+  writeFileSync(
+    join(dir, "memory-archive.json"),
+    JSON.stringify({
+      entries: [{ id: "x", text: "历史归档 E", category: "memory", scope: "global", archivedAt: sidecarIso }],
+    }),
+    "utf8",
+  );
+  await importLegacyMemories(dir, dao);
+  const row = dao.list({ includeArchived: true }).find((r) => r.content === "历史归档 E")!;
+  expect(row.archived).toBe(1);
+  expect(dao.getById(row.id)!.archivedAt).toBe(Date.parse(sidecarIso));
+});
+
+test("普通 markdown 导入的条目 archivedAt 保持 null", async () => {
+  writeLegacy("memories/global/MEMORY.md", ["普通笔记 F"], Date.now());
+  writeLegacy("memories/global/USER.md", ["普通偏好 G"], Date.now());
+  await importLegacyMemories(dir, dao);
+  const rows = dao.list({ includeArchived: true });
+  expect(rows).toHaveLength(2);
+  for (const r of rows) {
+    expect(r.archived).toBe(0);
+    expect(dao.getById(r.id)!.archivedAt).toBeNull();
+  }
+});
+
+test("archivedAt 缺失或非法时回退为迁移时间，不抛错", async () => {
+  writeFileSync(
+    join(dir, "memory-archive.json"),
+    JSON.stringify({
+      entries: [
+        { id: "a", text: "无法解析时间 H", category: "memory", scope: "global", archivedAt: "not-a-date" },
+        { id: "b", text: "缺失时间 I", category: "memory", scope: "global" },
+      ],
+    }),
+    "utf8",
+  );
+  const before = Date.now();
+  await expect(importLegacyMemories(dir, dao)).resolves.toBeUndefined();
+  const after = Date.now();
+  for (const content of ["无法解析时间 H", "缺失时间 I"]) {
+    const row = dao.list({ includeArchived: true }).find((r) => r.content === content)!;
+    const readBack = dao.getById(row.id)!;
+    expect(readBack.archived).toBe(1);
+    expect(readBack.archivedAt!).toBeGreaterThanOrEqual(before);
+    expect(readBack.archivedAt!).toBeLessThanOrEqual(after);
+  }
+});
+
 test("无存量文件时静默返回，不报错", async () => {
   await expect(importLegacyMemories(dir, dao)).resolves.toBeUndefined();
   expect(dao.list({ includeArchived: true })).toHaveLength(0);
