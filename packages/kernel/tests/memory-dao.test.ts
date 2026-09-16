@@ -114,9 +114,7 @@ test("archivedOnly 只返回归档行；includeArchived:false 只返回未归档
   expect(onlyArchived.map((h) => h.id)).toEqual([gone.id]);
 
   expect(
-    dao
-      .search("zebraarch", { includeArchived: false })
-      .map((h) => h.id),
+    dao.search("zebraarch", { includeArchived: false }).map((h) => h.id),
   ).toEqual([live.id]);
 });
 
@@ -180,16 +178,16 @@ test("counts 返回三种 kind 的计数", () => {
 });
 
 // ── 单字/短查询：FTS 零命中时的子串回退 ─────────────────────────────────
-// bigram 索引只存相邻二元组（「张智」→ `张智`），单个汉字从不单独成 token，
-// 所以查「张」FTS 必然零命中而库里确有含「张」的条目（实测 0 vs 4）。
+// bigram 索引只存相邻二元组（「示例」→ `示例`），单个汉字从不单独成 token，
+// 所以查「示」FTS 必然零命中而库里确有含「示」的条目。
 // 回退只在 FTS 零命中时启用，且与 FTS 路径共用同一份过滤条件。
 
-test("单字检索：FTS 无 token 可比时回退子串匹配（查「张」能查到「张智」）", () => {
-  const hit = add({ content: "用户姓名：张智。称呼时用「张智」。" });
+test("单字检索：FTS 无 token 可比时回退子串匹配（查「示」能查到「示例」）", () => {
+  const hit = add({ content: "用户备注：示例。称呼时用「示例」。" });
   add({ content: "无关内容：李四的偏好" });
 
-  expect(dao.search("张", {}).map((h) => h.id)).toEqual([hit.id]);
-  expect(dao.countMatches("张")).toBe(1);
+  expect(dao.search("示", {}).map((h) => h.id)).toEqual([hit.id]);
+  expect(dao.countMatches("示")).toBe(1);
 });
 
 test("单字检索与过滤条件同口径（scope / kind / 归档）", () => {
@@ -199,10 +197,15 @@ test("单字检索与过滤条件同口径（scope / kind / 归档）", () => {
   const gone = add({ content: "归档含张" });
   dao.archive(gone.id);
 
-  expect(dao.search("张", {}).map((h) => h.id).sort()).toEqual(
-    [exec.id, g.id, p.id].sort(),
-  );
-  expect(dao.search("张", { scope: "global" }).map((h) => h.id)).toEqual([g.id]);
+  expect(
+    dao
+      .search("张", {})
+      .map((h) => h.id)
+      .sort(),
+  ).toEqual([exec.id, g.id, p.id].sort());
+  expect(dao.search("张", { scope: "global" }).map((h) => h.id)).toEqual([
+    g.id,
+  ]);
   expect(dao.search("张", { kind: "execution" }).map((h) => h.id)).toEqual([
     exec.id,
   ]);
@@ -219,12 +222,12 @@ test("单字检索的 totalMatched 与 search 同口径（回退路径也一致�
   expect(dao.countMatches("张")).toBe(dao.search("张", { limit: 100 }).length);
 });
 
-test("有 FTS 命中时不回退：查「张智」不会把只含「张」的条目也捞出来", () => {
-  const zz = add({ content: "张智是用户" });
-  add({ content: "张三是另一个人" });
+test("有 FTS 命中时不回退：查「示例」不会把只含「示」的条目也捞出来", () => {
+  const hit = add({ content: "示例是用户" });
+  add({ content: "样式是另一个词" });
 
-  expect(dao.search("张智", {}).map((h) => h.id)).toEqual([zz.id]);
-  expect(dao.countMatches("张智")).toBe(1);
+  expect(dao.search("示例", {}).map((h) => h.id)).toEqual([hit.id]);
+  expect(dao.countMatches("示例")).toBe(1);
 });
 
 test("子串回退里 LIKE 元字符是字面量：查「%」只命中真含百分号的条目", () => {

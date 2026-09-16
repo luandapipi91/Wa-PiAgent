@@ -1,5 +1,6 @@
 ## 2026-09-16
 
+- chore(memory): 统一子串回退注释与测试示例数据用词为「示例/示」（dao.ts 注释 + memory-dao 测试数据同步替换，对照条目同步调整，行为等价，34 测试全绿）
 - fix(frontend): pi 扩展 dialog 弹窗（select/confirm/input/editor）①限高视口 70%——Modal 加 maxHeight 能力，长消息/长选项列表在卡内滚动（header/footer 固定），不再垂直溢出屏幕；②会话锁定——ExtensionDialog 从 App 根节点移挂 SessionView 内按 sessionId 过滤（与 ask 同款），其它会话的 pending 请求不再盖住整个窗口；ext-dialog store 出队改按 requestId（resolveCurrent→resolveById），多会话并发 pending 互不误删。测试：组件（会话锁定/限高断言）+ E2E（真实浏览器注入 sdk:event：长内容 ratio=0.70 卡内滚动、跨会话不弹、切会话出现、应答出队）
 - v0.4.2 发版（三层记忆系统重构）
 - feat(memory): 记忆面板收敛——移除旧分类维度 + 搜索接通服务端 FTS/BM25

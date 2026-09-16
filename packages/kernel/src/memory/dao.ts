@@ -330,13 +330,13 @@ export class MemoryDao {
    * 子串回退：FTS 零命中时改走 LIKE 子串匹配。
    *
    * 为什么需要：写入索引的正文经 bigram() 切成**相邻二元组**，单个汉字只作为二元组的
-   * 一部分存在（「张智」→ `张智`），因此「张」这类单字查询的 token 永远比不中——
-   * 实测查「张」FTS 命中 0，而库里有 4 条正文含「张」。UI 走本地 includes 时被掩盖，
+   * 一部分存在（「示例」→ `示例`），因此「示」这类单字查询的 token 永远比不中——
+   * 实测单字查询 FTS 命中 0，而库里有正文含该字。UI 走本地 includes 时被掩盖，
    * 切到服务端检索后暴露。
    *
    * 为什么不在写侧补 unigram：那要重建存量 memories_fts（迁移），而查询侧回退零迁移。
-   * 触发条件刻意收紧为「FTS 零命中」——有 FTS 命中时绝不回退，否则「张智」会退化成
-   * 把所有只含「张」的条目也捞出来，相关性被稀释。
+   * 触发条件刻意收紧为「FTS 零命中」——有 FTS 命中时绝不回退，否则「示例」会退化成
+   * 把所有只含「示」的条目也捞出来，相关性被稀释。
    *
    * 打分：子串命中之间无强弱之分，bm25 分量统一取 1，仍叠加时间衰减与 kind 权重，
    * 与 FTS 路径的排序语义保持一致。
@@ -360,12 +360,7 @@ export class MemoryDao {
           ORDER BY m.updated_at DESC
           LIMIT ${CANDIDATE_LIMIT}`,
       )
-      .all(
-        clause.like,
-        clause.like,
-        clause.like,
-        ...clause.params,
-      ) as RawRow[];
+      .all(clause.like, clause.like, clause.like, ...clause.params) as RawRow[];
     if (rows.length === 0) return [];
 
     const hits: SearchHit[] = rows.map((r) => {
