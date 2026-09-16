@@ -213,6 +213,61 @@ test("GET /api/memories/search：project 作用域下无法解析 projectId → 
 	}
 });
 
+test("GET /api/memories/search：totalMatched 是未截断的真实命中总数（与 results.length 不同）", async () => {
+	const { server, port } = await startTestServer();
+	try {
+		for (const s of ["一", "二", "三"]) {
+			await seedViaApi(port, { scope: "global", text: `pagination 样本 ${s}` });
+		}
+
+		const res = await fetch(
+			`http://127.0.0.1:${port}/api/memories/search?q=pagination&limit=1`,
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as any;
+		expect(body.type).toBe("memory:search");
+		expect(body.results).toHaveLength(1);
+		expect(body.totalMatched).toBe(3);
+	} finally {
+		await server.stop();
+	}
+});
+
+test("GET /api/memories/search：未传 scope 不再限定项目（给了 projectId 也仍是跨域）", async () => {
+	const { server, port } = await startTestServer();
+	try {
+		await seedViaApi(port, { scope: "global", text: "sqlite 全局索引优化" });
+		await seedViaApi(port, { scope: "project", projectId: "p1", text: "sqlite 项目索引优化" });
+
+		// 不传 scope + 传了可解析的 projectId：仍是跨域检索（spec §5），全局条目不得被排除
+		const res = await fetch(
+			`http://127.0.0.1:${port}/api/memories/search?q=sqlite&projectId=p1`,
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as any;
+		expect(body.results.map((r: any) => r.scope).sort()).toEqual(["global", "project"]);
+		expect(body.totalMatched).toBe(2);
+	} finally {
+		await server.stop();
+	}
+});
+
+test("GET /api/memories/search：未传 scope 但 projectId 解析不到 → 400 + project.notFound", async () => {
+	const { server, port } = await startTestServer();
+	try {
+		await seedViaApi(port, { scope: "global", text: "sqlite 全局索引优化" });
+
+		const res = await fetch(
+			`http://127.0.0.1:${port}/api/memories/search?q=sqlite&projectId=nope`,
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as any;
+		expect(body.code).toBe("project.notFound");
+	} finally {
+		await server.stop();
+	}
+});
+
 test("GET /api/memories：列表仍返回全局 + 当前项目（DB 后端）", async () => {
 	const { server, port } = await startTestServer();
 	try {

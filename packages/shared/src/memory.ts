@@ -136,6 +136,8 @@ export interface MemoryChangedEvent {
 export interface MemorySearchResultEvent {
   type: "memory:search";
   results: MemorySearchResult[];
+  /** 真实命中总数（未截断）：可能大于 results.length（limit / 候选上限截断）。spec §5 */
+  totalMatched: number;
 }
 export interface InstructionListResult {
   type: "instruction:list";

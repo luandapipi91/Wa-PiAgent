@@ -24,7 +24,7 @@ import type {
 import { KernelError } from "./kernel-error";
 import type { ProjectStore } from "./project-store";
 import { openMemoryDb } from "./memory/db";
-import { MemoryDao, type MemoryRow, type SearchOpts } from "./memory/dao";
+import { MemoryDao, type ListOpts, type MemoryRow } from "./memory/dao";
 import { projectNameFromCwd } from "./memory/paths";
 
 const HERMES_CONFIG_FILE = "hermes-memory-config.json";
@@ -98,42 +98,56 @@ export class MemoryStore {
   /**
    * 全文检索：BM25 + 时间衰减 + kind 加权综合排序（spec §5）。
    *
-   * scope 语义（与 list 对齐）：
-   * - "global"：只搜全局条目（此时忽略 projectId——全局条目的 project_id 为 NULL）
-   * - "project"：必须有可解析的 projectId，否则 project.notFound；
+   * scope 语义（与工具层 memory_search / spec §5 对齐）：
+   * - "global"：只搜全局条目（全局条目的 project_id 为 NULL，无需按项目过滤）
+   * - "project"：限定到 projectId 对应项目；projectId 缺失或不可解析即 project.notFound，
    *   绝不降级为「不加项目过滤」，否则等于跨项目读到别的项目的记忆
-   * - 未指定：跨作用域检索；给了可解析的 projectId 则限定该项目
+   * - 未指定：**跨域检索 = 全局 + 所有项目**（等价于「全部」），不按项目过滤
+   *
+   * projectId 只要显式给出就必须可解析：解析不到即 project.notFound。
+   * 绝不能静默忽略调用方给出的过滤条件（静默忽略会返回全部项目的结果）。
+   *
+   * totalMatched 与 results 共用同一份过滤条件（dao 层 matchClause 复用），
+   * 且是未截断的真实命中总数——不受 limit、也不受检索候选上限影响。
    */
-  async search(opts: MemorySearchOpts): Promise<MemorySearchResult[]> {
+  async search(opts: MemorySearchOpts): Promise<{
+    results: MemorySearchResult[];
+    totalMatched: number;
+  }> {
     const scope = opts.scope || undefined;
     const projectId = opts.projectId?.trim() || undefined;
-    const projectName =
-      scope === "global" || !projectId ? null : await this.getProjectName(projectId);
+
+    // projectId → 项目名（DB 的 project_id 列存的是项目名，不是 UI 的 project id）
+    const projectName = projectId ? await this.getProjectName(projectId) : null;
+    if (projectId && !projectName) {
+      throw new KernelError("project.notFound", { id: projectId });
+    }
     if (scope === "project" && !projectName) {
       throw new KernelError("project.notFound", { id: projectId ?? "" });
     }
 
-    const daoOpts: SearchOpts = {
+    // 只有显式 scope=project 才把项目当成过滤条件；未指定 scope 是跨域检索
+    const filter: ListOpts = {
       scope,
-      projectId: projectName ?? undefined,
+      projectId: scope === "project" ? projectName : null,
       kind: opts.kind || undefined,
-      limit: opts.limit,
       includeArchived: opts.includeArchived === true,
     };
 
-    return this.dao()
-      .search(opts.query, daoOpts)
-      .map((h) => ({
-        id: h.id,
-        title: h.title,
-        snippet: h.snippet,
-        kind: h.kind,
-        scope: h.scope,
-        projectId: h.projectId ?? undefined,
-        updatedAt: new Date(h.updatedAt).toISOString(),
-        score: Number(h.score.toFixed(4)),
-        archived: h.archived === 1,
-      }));
+    const dao = this.dao();
+    const results = dao.search(opts.query, { ...filter, limit: opts.limit }).map((h) => ({
+      id: h.id,
+      title: h.title,
+      snippet: h.snippet,
+      kind: h.kind,
+      scope: h.scope,
+      projectId: h.projectId ?? undefined,
+      updatedAt: new Date(h.updatedAt).toISOString(),
+      score: Number(h.score.toFixed(4)),
+      archived: h.archived === 1,
+    }));
+
+    return { results, totalMatched: dao.countMatches(opts.query, filter) };
   }
 
   /**

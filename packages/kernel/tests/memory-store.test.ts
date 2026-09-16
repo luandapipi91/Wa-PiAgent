@@ -299,8 +299,9 @@ test("search 命中并映射为 MemorySearchResult", async () => {
   const store = makeStore();
   await store.add("global", "Gitee 推送必须禁用 osxkeychain 凭据助手");
 
-  const results = await store.search({ query: "osxkeychain" });
+  const { results, totalMatched } = await store.search({ query: "osxkeychain" });
   expect(results).toHaveLength(1);
+  expect(totalMatched).toBe(1);
   const r = results[0];
   expect(r.id).toMatch(UUID_RE);
   expect(r.title).toContain("Gitee");
@@ -320,15 +321,15 @@ test("search 支持 scope / kind 过滤", async () => {
   seed([{ kind: "execution", scope: "global", content: "sqlite 执行记录" }]);
 
   const globalOnly = await store.search({ query: "sqlite", scope: "global" });
-  expect(globalOnly.map((r) => r.scope)).toEqual(["global", "global"]);
+  expect(globalOnly.results.map((r) => r.scope)).toEqual(["global", "global"]);
 
   const projectOnly = await store.search({ query: "sqlite", scope: "project", projectId: "p1" });
-  expect(projectOnly).toHaveLength(1);
-  expect(projectOnly[0].projectId).toBe("my-app");
+  expect(projectOnly.results).toHaveLength(1);
+  expect(projectOnly.results[0].projectId).toBe("my-app");
 
   const execution = await store.search({ query: "sqlite", kind: "execution" });
-  expect(execution).toHaveLength(1);
-  expect(execution[0].kind).toBe("execution");
+  expect(execution.results).toHaveLength(1);
+  expect(execution.results[0].kind).toBe("execution");
 });
 
 test("search includeArchived 控制归档可见性", async () => {
@@ -337,25 +338,122 @@ test("search includeArchived 控制归档可见性", async () => {
   const id = (await store.list()).memories[0].id;
   await store.archive(id);
 
-  expect(await store.search({ query: "tailwind" })).toEqual([]);
+  const plain = await store.search({ query: "tailwind" });
+  expect(plain.results).toEqual([]);
+  expect(plain.totalMatched).toBe(0);
 
   const withArchived = await store.search({ query: "tailwind", includeArchived: true });
-  expect(withArchived).toHaveLength(1);
-  expect(withArchived[0].archived).toBe(true);
+  expect(withArchived.results).toHaveLength(1);
+  expect(withArchived.results[0].archived).toBe(true);
 });
 
 test("search limit 截断结果", async () => {
   const store = makeStore();
   for (let i = 0; i < 5; i++) await store.add("global", `sqlite 约定 ${i}`);
 
-  expect(await store.search({ query: "sqlite", limit: 2 })).toHaveLength(2);
+  expect((await store.search({ query: "sqlite", limit: 2 })).results).toHaveLength(2);
 });
 
-test("search 空查询返回空数组", async () => {
+test("search 空查询返回空结果", async () => {
   const store = makeStore();
   await store.add("global", "任意内容");
-  expect(await store.search({ query: "" })).toEqual([]);
-  expect(await store.search({ query: "   " })).toEqual([]);
+  expect(await store.search({ query: "" })).toEqual({ results: [], totalMatched: 0 });
+  expect(await store.search({ query: "   " })).toEqual({ results: [], totalMatched: 0 });
+});
+
+// ── 审查发现 1（Important）：HTTP/WS 这一路必须带出 totalMatched ──
+
+test("search 的 totalMatched 是未截断的真实命中总数，与 results.length 不同", async () => {
+  const store = makeStore();
+  for (const s of ["一", "二", "三"]) {
+    await store.add("global", `pagination sample ${s}`);
+  }
+
+  const paged = await store.search({ query: "pagination", limit: 1 });
+  expect(paged.results).toHaveLength(1);
+  expect(paged.totalMatched).toBe(3); // 真实命中 3 条，不是这一页的 1 条
+
+  const all = await store.search({ query: "pagination" });
+  expect(all.results).toHaveLength(3);
+  expect(all.totalMatched).toBe(3);
+});
+
+test("search 的 totalMatched 与 results 走同一套过滤条件（scope/kind/includeArchived）", async () => {
+  const store = makeStore("/repos/my-app");
+  await store.add("global", "口径一致 zebra 全局");
+  await store.add("project", "口径一致 zebra 项目", "p1");
+  seed([{ kind: "execution", scope: "global", content: "口径一致 zebra 执行" }]);
+
+  const all = await store.search({ query: "zebra" });
+  expect(all.results).toHaveLength(3);
+  expect(all.totalMatched).toBe(3);
+
+  const globalOnly = await store.search({ query: "zebra", scope: "global" });
+  expect(globalOnly.results).toHaveLength(2);
+  expect(globalOnly.totalMatched).toBe(2);
+
+  const projectOnly = await store.search({ query: "zebra", scope: "project", projectId: "p1" });
+  expect(projectOnly.results).toHaveLength(1);
+  expect(projectOnly.totalMatched).toBe(1);
+
+  const executionOnly = await store.search({ query: "zebra", kind: "execution" });
+  expect(executionOnly.results).toHaveLength(1);
+  expect(executionOnly.totalMatched).toBe(1);
+});
+
+// ── 审查发现 2（Important）：默认 scope 语义 = 跨域检索（spec §5）──
+
+test("search 未传 scope 是跨域检索：全局与项目条目都能命中", async () => {
+  const store = makeStore("/repos/my-app");
+  await store.add("global", "跨域检索 zebra 全局");
+  await store.add("project", "跨域检索 zebra 项目", "p1");
+
+  const noScope = await store.search({ query: "zebra" });
+  expect(noScope.results.map((r) => r.scope).sort()).toEqual(["global", "project"]);
+  expect(noScope.totalMatched).toBe(2);
+});
+
+test("search 未传 scope 时给了可解析的 projectId 也不限定项目（不再默认限定当前项目）", async () => {
+  const store = makeStore("/repos/my-app");
+  await store.add("global", "跨域检索 zebra 全局");
+  await store.add("project", "跨域检索 zebra 项目", "p1");
+
+  const results = await store.search({ query: "zebra", projectId: "p1" });
+  expect(results.results.map((r) => r.scope).sort()).toEqual(["global", "project"]);
+  expect(results.totalMatched).toBe(2);
+});
+
+test("search 显式 projectId 解析不到 → project.notFound（不得静默忽略过滤条件）", async () => {
+  const store = makeStore("/repos/my-app");
+  await store.add("global", "跨域检索 zebra 全局");
+  await store.add("project", "跨域检索 zebra 项目", "p1");
+
+  // 未传 scope
+  await expectKernelCode(
+    () => store.search({ query: "zebra", projectId: "nope" }),
+    "project.notFound",
+  );
+  // 显式 scope=project
+  await expectKernelCode(
+    () => store.search({ query: "zebra", scope: "project", projectId: "nope" }),
+    "project.notFound",
+  );
+  // scope=project 但根本没给 projectId
+  await expectKernelCode(
+    () => store.search({ query: "zebra", scope: "project" }),
+    "project.notFound",
+  );
+});
+
+test("search 显式 scope=project 仍限定到该项目（维持原语义）", async () => {
+  const store = makeStore("/repos/my-app");
+  await store.add("global", "限定语义 zebra 全局");
+  await store.add("project", "限定语义 zebra 本项目", "p1");
+  seed([{ scope: "project", projectId: "other-app", content: "限定语义 zebra 别项目" }]);
+
+  const results = await store.search({ query: "zebra", scope: "project", projectId: "p1" });
+  expect(results.results.map((r) => r.projectId)).toEqual(["my-app"]);
+  expect(results.totalMatched).toBe(1);
 });
 
 // ===== listInstructions：AGENTS.md / CLAUDE.md =====
@@ -429,6 +527,63 @@ test("listInstructions agentDir 与祖先目录重叠时去重", async () => {
   expect(ours).toHaveLength(1);
   expect(ours[0].scope).toBe("global");
   expect(ours[0].content).toBe("既是全局也是项目 cwd");
+});
+
+// ── listInstructions 一致性：对齐 pi 框架 resource-loader.js 的 context file 加载行为 ──
+// 这三例在任务 11 重写测试文件时被删（listInstructions 本身逐字未改），按用例名语义补回。
+
+test("listInstructions 候选列表包含大写变体（pi 兼容行为）", async () => {
+  // 只放 AGENTS.MD：候选列表必须包含大写变体，否则该文件永远扫不到
+  writeFileSync(join(tmpDir, "AGENTS.MD"), "大写变体内容", "utf8");
+
+  const instructions = await makeStore("/fake").listInstructions("p1");
+
+  // macOS 大小写不敏感 → 首候选 AGENTS.md 即命中同一文件（name 为磁盘上的实际名）
+  // Linux 大小写敏感 → 第二个候选 AGENTS.MD 命中。两者都是正确的，断言实际名在候选表内。
+  const ours = instructions.filter((i) => i.path.startsWith(tmpDir));
+  expect(ours).toHaveLength(1);
+  expect(["AGENTS.md", "AGENTS.MD"]).toContain(ours[0].name);
+  expect(ours[0].content).toBe("大写变体内容");
+  expect(ours[0].scope).toBe("global");
+});
+
+test("listInstructions 遍历祖先目录发现指令文件", async () => {
+  // 项目 cwd 在深层目录，指令文件放在它的祖先目录 tmpDir/a（既不是 agentDir 也不是 cwd）
+  const projectCwd = join(tmpDir, "a", "b", "c");
+  mkdirSync(projectCwd, { recursive: true });
+  writeFileSync(join(tmpDir, "a", "AGENTS.md"), "祖先 a 指令", "utf8");
+
+  const instructions = await makeStore(projectCwd).listInstructions("p1");
+
+  // 只有向上遍历（dirname(currentDir)）才能发现它
+  const ancestorInst = instructions.find((i) => i.path === join(tmpDir, "a", "AGENTS.md"));
+  expect(ancestorInst).toBeTruthy();
+  expect(ancestorInst!.content).toBe("祖先 a 指令");
+  expect(ancestorInst!.scope).toBe("project");
+  // 去掉 while 循环（只看 cwd）时本断言会红：cwd 下没有指令文件
+  expect(
+    instructions.filter((i) => i.scope === "project" && i.path.startsWith(tmpDir)).length,
+  ).toBe(1);
+});
+
+test("listInstructions 全局和祖先目录可同时返回多个指令文件", async () => {
+  // 全局：waPiDir = tmpDir；祖先：tmpDir/outer（cwd = tmpDir/outer/proj 的父目录）
+  writeFileSync(join(tmpDir, "AGENTS.md"), "全局指令", "utf8");
+  const projectCwd = join(tmpDir, "outer", "proj");
+  mkdirSync(projectCwd, { recursive: true });
+  writeFileSync(join(tmpDir, "outer", "AGENTS.md"), "祖先 outer 指令", "utf8");
+
+  const instructions = await makeStore(projectCwd).listInstructions("p1");
+  const ours = instructions.filter((i) => i.path.startsWith(tmpDir));
+
+  // 全局一段 + 祖先遍历命中一段，两个目录同时命中时都要返回（顺序：全局在前，祖先在内）
+  expect(ours.map((i) => i.path)).toEqual([
+    join(tmpDir, "AGENTS.md"),
+    join(tmpDir, "outer", "AGENTS.md"),
+  ]);
+  expect(ours[0].scope).toBe("global");
+  expect(ours[1].scope).toBe("project");
+  expect(ours[1].content).toBe("祖先 outer 指令");
 });
 
 // ===== getConfig / setConfig =====
