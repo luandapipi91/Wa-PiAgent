@@ -105,11 +105,20 @@ async function globalSetup() {
 		"# E2E 项目指令\n这是项目级指令文件",
 		"utf8",
 	);
-	// 预置 md 预览渲染测试文件（含标题/表格/代码块/mermaid）：explorer.spec.ts 双击断言 markdown 渲染
+	// 预置 md 预览渲染测试文件（含居中容器/标题/表格/代码块/mermaid）：explorer.spec.ts 双击断言 markdown 渲染
+	// 顶部 `<div align="center">` 内含空行与标题：块级虚拟滚动按空行切块时不得把它拆散（居中 logo 回归）
 	writeFileSync(
 		join(SEED_PROJECT_CWD, "PREVIEW.md"),
 		[
+			'<div align="center">',
+			"",
+			"**English** | 简体中文",
+			"",
+			'<img src="logo.png" alt="E2E logo" width="96" />',
+			"",
 			"# E2E 预览测试",
+			"",
+			"</div>",
 			"",
 			"| 列A | 列B |",
 			"|-----|-----|",
@@ -126,6 +135,14 @@ async function globalSetup() {
 			"",
 		].join("\n"),
 		"utf8",
+	);
+	// 居中容器里的 logo（2×2 PNG）：验证相对路径解析 + 图片确实渲染在容器内
+	writeFileSync(
+		join(SEED_PROJECT_CWD, "logo.png"),
+		Buffer.from(
+			"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGPQW+IPRAwQCgAfJgSFrCPwhQAAAABJRU5ErkJggg==",
+			"base64",
+		),
 	);
 	writeFileSync(
 		join(E2E_WA_PI_DIR, "projects.json"),

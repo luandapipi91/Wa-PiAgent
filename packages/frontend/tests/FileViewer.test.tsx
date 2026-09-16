@@ -334,6 +334,54 @@ test("md 文件：原始 HTML（div/img/br）渲染为真实标签，相对路�
 	expect(readCall).toBeTruthy();
 });
 
+// README 顶部真实写法：容器与内容之间有空行（块级虚拟滚动按空行切块时最容易踩的坑）
+const MD_CENTERED_README = `<div align="center">
+
+[English](./README.md) | **简体中文**
+
+<img src="assets/logo.png" alt="logo" width="96" />
+
+# WA PI Agent
+
+一句介绍
+
+</div>
+
+## 下一节
+
+正文
+`;
+
+test("md 文件：居中容器跨空行时 img 仍在其内（虚拟滚动不得拆散 HTML 容器）", async () => {
+	const htmlFake = makeFakeFsTransport((evt) => {
+		if (evt.type === "fs:readFile") {
+			if (evt.path === "/work/demo/README.md") {
+				return {
+					content: Buffer.from(MD_CENTERED_README, "utf-8").toString("base64"),
+					mimeType: "text/markdown",
+				};
+			}
+			if (evt.path === "/work/demo/assets/logo.png") {
+				return { content: btoa("fake-png"), mimeType: "image/png" };
+			}
+		}
+		return undefined;
+	});
+	_setFsTransport(htmlFake.transport);
+	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
+
+	await waitFor(() =>
+		expect(screen.getAllByTestId("text-block").length).toBeGreaterThan(0),
+	);
+	const tb = screen.getByTestId("file-viewer");
+
+	// 关键断言：居中容器的子孙里必须有 img 与标题，否则 align 无处可继承（logo 会左对齐）
+	const centered = tb.querySelector("div[align='center']");
+	expect(centered).toBeTruthy();
+	await waitFor(() => expect(centered?.querySelector("img")).toBeTruthy());
+	expect(centered?.querySelector("h1")?.textContent).toContain("WA PI Agent");
+});
+
 test("md 链接：相对路径点击在预览器内打开、外部链接 target=_blank", async () => {
 	fake.setResponse("fs:readFile", {
 		content: Buffer.from(
@@ -574,6 +622,71 @@ test("splitMarkdownBlocks：无空行无标题的超长文本也会被切分（�
 	const blocks = splitMarkdownBlocks(md);
 	expect(blocks.length).toBeGreaterThan(1);
 	// 每块不超过上限（默认 200 行）
+	for (const b of blocks) {
+		expect(b.endLine - b.startLine + 1).toBeLessThanOrEqual(200);
+	}
+});
+
+test("splitMarkdownBlocks：未闭合的 HTML 容器块不被空行/标题切开（居中 div 不被拆散）", () => {
+	// README 顶部常见写法：<div align="center"> 内部有空行、有标题、有图片。
+	// 若按空行切块，开标签与 img/闭标签会分属不同块 → align 无处继承 → 居中 logo 变左对齐。
+	const md = [
+		'<div align="center">',
+		"",
+		"[English](./README.md) | **简体中文**",
+		"",
+		'<img src="logo.svg" alt="WA PI Agent" width="96" />',
+		"",
+		"# WA PI Agent",
+		"",
+		"描述文字",
+		"",
+		"</div>",
+		"",
+		"---",
+		"",
+		"## 下一节",
+	].join("\n");
+	const blocks = splitMarkdownBlocks(md);
+
+	const holder = blocks.filter((b) => b.text.includes('<div align="center">'));
+	expect(holder.length).toBe(1);
+	// 开标签、内容、闭标签必须在同一块内
+	expect(holder[0].text).toContain('src="logo.svg"');
+	expect(holder[0].text).toContain("# WA PI Agent");
+	expect(holder[0].text).toContain("</div>");
+	// 容器闭合后照常切分（后续章节不并入容器块）
+	expect(holder[0].text).not.toContain("## 下一节");
+	expect(holder[0].text).not.toContain("---");
+	expect(blocks.length).toBeGreaterThan(1);
+});
+
+test("splitMarkdownBlocks：围栏代码块里的 HTML 样例不参与容器配对", () => {
+	const md = [
+		"# A",
+		"",
+		"```html",
+		'<div align="center">',
+		"```",
+		"",
+		"段落",
+		"",
+		"## B",
+	].join("\n");
+	const blocks = splitMarkdownBlocks(md);
+
+	// 代码块里的 <div> 没有闭标签，不能把后文一直吞进同一块
+	expect(blocks.some((b) => b.text.trimStart().startsWith("## B"))).toBe(true);
+	expect(blocks.length).toBeGreaterThan(2);
+});
+
+test("splitMarkdownBlocks：未闭合的 HTML 容器仍受行数上限约束（兜底不失效）", () => {
+	const md = [
+		'<div align="center">',
+		...Array.from({ length: 500 }, (_, i) => `line ${i}`),
+	].join("\n");
+	const blocks = splitMarkdownBlocks(md);
+	expect(blocks.length).toBeGreaterThan(1);
 	for (const b of blocks) {
 		expect(b.endLine - b.startLine + 1).toBeLessThanOrEqual(200);
 	}

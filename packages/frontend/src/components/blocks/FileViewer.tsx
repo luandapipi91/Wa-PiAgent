@@ -347,6 +347,60 @@ const DEFAULT_LINE_HEIGHT = 18;
 
 /** markdown 单块的最大行数：超过就强制切分（兜底，避免一个巨大块把渲染卡住） */
 const MD_BLOCK_MAX_LINES = 200;
+
+/** markdown 里可跨空行包住内容的 HTML 块级容器。
+ *  这类标签闭合前不能把空行/标题当块边界：每块单独解析（rehype-raw），
+ *  开标签与内容一旦分处不同块就无法配对，align/text-align 等继承样式随之丢失
+ *  （README 顶部 `<div align="center">` 里的居中 logo 曾因此变左对齐）。 */
+const HTML_CONTAINER_TAGS = new Set([
+	"div",
+	"p",
+	"center",
+	"section",
+	"article",
+	"aside",
+	"header",
+	"footer",
+	"main",
+	"nav",
+	"figure",
+	"figcaption",
+	"details",
+	"summary",
+	"blockquote",
+	"pre",
+	"form",
+	"fieldset",
+	"iframe",
+	"table",
+	"thead",
+	"tbody",
+	"tfoot",
+	"tr",
+	"th",
+	"td",
+	"caption",
+	"colgroup",
+	"ul",
+	"ol",
+	"li",
+	"dl",
+	"dt",
+	"dd",
+	"video",
+	"audio",
+	"picture",
+	"svg",
+	"h1",
+	"h2",
+	"h3",
+	"h4",
+	"h5",
+	"h6",
+]);
+
+/** HTML 标签匹配（模块级 /g 正则：使用前必须重置 lastIndex） */
+const HTML_TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)[^>]*>/g;
 /** markdown 块高度的估算参数（块高度不固定，实测前用它们占位） */
 const MD_ESTIMATED_LINE_HEIGHT = 22;
 const MD_ESTIMATED_BLOCK_PADDING = 16;
@@ -381,6 +435,25 @@ export function splitMarkdownBlocks(text: string): MarkdownBlock[] {
 	let start = 0;
 	let inFence = false;
 	let fenceChar = "";
+	/** 尚未闭合的 HTML 块级容器栈 */
+	const htmlStack: string[] = [];
+
+	/** 扫描一行的 HTML 标签以维护容器栈（行内代码/HTML 注释里的标签不参与配对） */
+	const scanHtmlTags = (line: string) => {
+		const src = line.replace(/`[^`]*`/g, "").replace(/<!--.*?-->/g, "");
+		HTML_TAG_RE.lastIndex = 0;
+		for (let m = HTML_TAG_RE.exec(src); m; m = HTML_TAG_RE.exec(src)) {
+			const tag = m[2].toLowerCase();
+			if (!HTML_CONTAINER_TAGS.has(tag)) continue;
+			if (m[1] === "/") {
+				// 闭合：连同它内部未闭合的同名标签一起出栈
+				const at = htmlStack.lastIndexOf(tag);
+				if (at >= 0) htmlStack.length = at;
+			} else if (!/\/\s*>$/.test(m[0])) {
+				htmlStack.push(tag);
+			}
+		}
+	};
 
 	const flush = (endExclusive: number) => {
 		if (endExclusive <= start) return;
@@ -412,7 +485,13 @@ export function splitMarkdownBlocks(text: string): MarkdownBlock[] {
 		}
 		if (inFence) continue; // 1) 围栏内不切
 
+		// 先记录「本行是否处于未闭合的 HTML 容器内」（闭标签行也算内部），再更新容器栈
+		const insideHtmlContainer = htmlStack.length > 0;
+		scanHtmlTags(line);
+
 		if (i <= start) continue;
+		// 0) 容器内不切：否则开/闭标签与内容分属不同块，居中/对齐等继承样式丢失
+		if (insideHtmlContainer) continue;
 		// 2) 标题起新块
 		if (/^#{1,6}\s/.test(line)) {
 			flush(i);
