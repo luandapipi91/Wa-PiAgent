@@ -23,6 +23,8 @@ import {
 import {
 	FileViewer,
 	computeChunkWindow,
+	computeBlockWindow,
+	splitMarkdownBlocks,
 } from "../src/components/blocks/FileViewer";
 import { _setFsTransport } from "../src/fs-client";
 import { makeFakeFsTransport } from "./fs-transport";
@@ -233,8 +235,12 @@ test("md 文件：渲染为 markdown（h1/table/pre），不出现 Prism 行号�
 	});
 	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
 
-	await waitFor(() => expect(screen.getByTestId("text-block")).toBeTruthy());
-	const textBlock = screen.getByTestId("text-block");
+	// md 现在按块渲染（块级虚拟滚动）→ 可能有多个 text-block；断言范围提到容器层，
+	// 内容断言与原用例等价（h1/table/pre 仍在这份渲染结果里）。
+	await waitFor(() =>
+		expect(screen.getAllByTestId("text-block").length).toBeGreaterThan(0),
+	);
+	const textBlock = screen.getByTestId("file-viewer");
 	expect(textBlock.querySelector("h1")?.textContent).toBe("Preview Title");
 	expect(textBlock.querySelector("table")).toBeTruthy();
 	expect(textBlock.querySelector("pre")).toBeTruthy();
@@ -300,8 +306,11 @@ test("md 文件：原始 HTML（div/img/br）渲染为真实标签，相对路�
 	_setFsTransport(htmlFake.transport);
 	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
 
-	await waitFor(() => expect(screen.getByTestId("text-block")).toBeTruthy());
-	const tb = screen.getByTestId("text-block");
+	// 同上：md 按块渲染，断言范围提到容器层
+	await waitFor(() =>
+		expect(screen.getAllByTestId("text-block").length).toBeGreaterThan(0),
+	);
+	const tb = screen.getByTestId("file-viewer");
 	// div/br 渲染为真实标签（不再是转义文本）
 	expect(tb.querySelector("div[align='center']")).toBeTruthy();
 	expect(tb.querySelector("br")).toBeTruthy();
@@ -522,4 +531,88 @@ test("小文件：不截断、不提示，行号从 1 开始", async () => {
 		expect(container.querySelectorAll("[data-line]").length).toBeGreaterThan(0),
 	);
 	expect(screen.queryByTestId("fv-truncated")).toBeNull();
+});
+
+// ===== markdown 块级虚拟滚动 =====
+// markdown 走的是独立分支（ReactMarkdown 全量解析），代码分支的虚拟滚动覆盖不到它。
+// 这里按「markdown 顶层块」切分后同样只渲染可视块，保留排版的同时避免大 md 卡死。
+
+test("splitMarkdownBlocks：标题起新块、围栏代码块不被切开", () => {
+	const md = [
+		"# A",
+		"",
+		"段落 1",
+		"段落 1 续",
+		"",
+		"```ts",
+		"const a = 1;",
+		"",
+		"const b = 2;",
+		"```",
+		"",
+		"## B",
+		"",
+		"尾段",
+	].join("\n");
+	const blocks = splitMarkdownBlocks(md);
+
+	// 每块里的代码围栏必须成对（不能把 ``` 切开）
+	for (const b of blocks) {
+		expect(((b.text.match(/```/g) ?? []).length % 2)).toBe(0);
+	}
+	// 标题作为块起点
+	expect(blocks.some((b) => b.text.trimStart().startsWith("## B"))).toBe(true);
+	// 内容不丢
+	const rebuilt = blocks.map((b) => b.text).join("\n");
+	expect(rebuilt).toContain("const b = 2;");
+	expect(rebuilt).toContain("尾段");
+	expect(blocks.length).toBeGreaterThan(1);
+});
+
+test("splitMarkdownBlocks：无空行无标题的超长文本也会被切分（有行数上限）", () => {
+	const md = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n");
+	const blocks = splitMarkdownBlocks(md);
+	expect(blocks.length).toBeGreaterThan(1);
+	// 每块不超过上限（默认 200 行）
+	for (const b of blocks) {
+		expect(b.endLine - b.startLine + 1).toBeLessThanOrEqual(200);
+	}
+});
+
+test("computeBlockWindow：按偏移量定位可见块与上下占位", () => {
+	const offsets = [0, 100, 200, 300, 400]; // 4 块，各 100px
+	const top = computeBlockWindow({ offsets, scrollTop: 0, viewportHeight: 100, overscan: 0 });
+	expect(top.first).toBe(0);
+	expect(top.topSpacer).toBe(0);
+	expect(top.bottomSpacer).toBe(300);
+
+	const mid = computeBlockWindow({ offsets, scrollTop: 200, viewportHeight: 100, overscan: 0 });
+	expect(mid.first).toBe(2);
+	expect(mid.topSpacer).toBe(200);
+	expect(mid.bottomSpacer).toBe(100);
+
+	const bottom = computeBlockWindow({ offsets, scrollTop: 400, viewportHeight: 100, overscan: 0 });
+	expect(bottom.bottomSpacer).toBe(0);
+});
+
+test("大 md 文件：块级虚拟滚动只渲染可视块、不截断", async () => {
+	const md = Array.from(
+		{ length: 800 },
+		(_, i) => `## Section ${i}\n\nParagraph number ${i} with a bit of longer text.`,
+	).join("\n\n");
+	fake.setResponse("fs:readFile", {
+		content: btoa(md),
+		mimeType: "text/markdown",
+	});
+	const { container } = render(
+		<FileViewer path="/work/huge.md" onClose={() => {}} />,
+	);
+
+	await waitFor(() =>
+		expect(container.querySelectorAll('[data-testid="text-block"]').length).toBeGreaterThan(0),
+	);
+	expect(screen.queryByTestId("fv-truncated")).toBeNull();
+	// 只渲染可视块（远小于总块数）
+	const rendered = container.querySelectorAll('[data-testid="text-block"]').length;
+	expect(rendered).toBeLessThan(800 / 4);
 });

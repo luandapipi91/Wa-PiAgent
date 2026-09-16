@@ -345,6 +345,122 @@ const PathBar = memo(function PathBar({ path }: { path: string }) {
 const VIRTUAL_CHUNK_LINES = 200;
 const DEFAULT_LINE_HEIGHT = 18;
 
+/** markdown 单块的最大行数：超过就强制切分（兜底，避免一个巨大块把渲染卡住） */
+const MD_BLOCK_MAX_LINES = 200;
+/** markdown 块高度的估算参数（块高度不固定，实测前用它们占位） */
+const MD_ESTIMATED_LINE_HEIGHT = 22;
+const MD_ESTIMATED_BLOCK_PADDING = 16;
+
+export interface MarkdownBlock {
+	/** 0-based 起止行（含） */
+	startLine: number;
+	endLine: number;
+	text: string;
+}
+
+/** 估算单个 markdown 块的高度（未实测时用于占位） */
+export function estimateMarkdownBlockHeight(block: MarkdownBlock): number {
+	return (block.endLine - block.startLine + 1) * MD_ESTIMATED_LINE_HEIGHT + MD_ESTIMATED_BLOCK_PADDING;
+}
+
+/**
+ * 把 markdown 切成「顶层块」，供块级虚拟滚动渲染。
+ *
+ * 切分意图是**宁可少切也不破坏结构**：
+ *  1. 围栏代码块（``` / ~~~）内部不切分——否则会把代码块劈成两半；
+ *  2. 标题行起新块（标题天然是章节边界）；
+ *  3. 空行之后的下一个非空行可作为块起点（段落/表格/列表之间的安全边界）；
+ *  4. 单块超过 MD_BLOCK_MAX_LINES 行时强制切分（兜底：无空行、无标题的超长文本）。
+ */
+export function splitMarkdownBlocks(text: string): MarkdownBlock[] {
+	const lines = text.split("\n");
+	const blocks: MarkdownBlock[] = [];
+	let start = 0;
+	let inFence = false;
+	let fenceChar = "";
+
+	const flush = (endExclusive: number) => {
+		if (endExclusive <= start) return;
+		blocks.push({
+			startLine: start,
+			endLine: endExclusive - 1,
+			text: lines.slice(start, endExclusive).join("\n"),
+		});
+	};
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+
+		// 4) 兜底：单块超过上限就切（即使当前在围栏内，也只能切，否则无法虚拟化）
+		if (i - start + 1 > MD_BLOCK_MAX_LINES) {
+			flush(i);
+			start = i;
+		}
+
+		const fence = /^\s*(`{3,}|~{3,})/.exec(line);
+		if (fence) {
+			const ch = fence[1][0];
+			if (!inFence) {
+				inFence = true;
+				fenceChar = ch;
+			} else if (ch === fenceChar) {
+				inFence = false;
+			}
+		}
+		if (inFence) continue; // 1) 围栏内不切
+
+		if (i <= start) continue;
+		// 2) 标题起新块
+		if (/^#{1,6}\s/.test(line)) {
+			flush(i);
+			start = i;
+			continue;
+		}
+		// 3) 空行后的第一个非空行起新块
+		if (lines[i - 1].trim() === "" && line.trim() !== "") {
+			flush(i);
+			start = i;
+		}
+	}
+	flush(lines.length);
+
+	return blocks.length > 0
+		? blocks
+		: [{ startLine: 0, endLine: Math.max(0, lines.length - 1), text }];
+}
+
+/**
+ * 按块偏移量计算可视窗口（纯函数）。
+ * offsets 长度 = 块数 + 1，offsets[i] 为第 i 块顶部偏移；占位高度按未渲染块的实际/估算高度求和，
+ * 因此滚动条长度与全文一致（块高度实测后会收敛）。
+ */
+export function computeBlockWindow(opts: {
+	offsets: number[];
+	scrollTop: number;
+	viewportHeight: number;
+	overscan?: number;
+}): { first: number; last: number; topSpacer: number; bottomSpacer: number } {
+	const blockCount = Math.max(0, opts.offsets.length - 1);
+	if (blockCount === 0) return { first: 0, last: -1, topSpacer: 0, bottomSpacer: 0 };
+
+	const overscan = opts.overscan ?? 1;
+	const top = Math.max(0, opts.scrollTop);
+	const bottom = top + Math.max(0, opts.viewportHeight);
+
+	let first = 0;
+	while (first < blockCount - 1 && opts.offsets[first + 1] <= top) first++;
+	let last = first;
+	while (last < blockCount - 1 && opts.offsets[last + 1] < bottom) last++;
+
+	first = Math.max(0, first - overscan);
+	last = Math.min(blockCount - 1, last + overscan);
+
+	const topSpacer = opts.offsets[first];
+	const bottomSpacer = Math.max(0, opts.offsets[blockCount] - opts.offsets[last + 1]);
+	return { first, last, topSpacer, bottomSpacer };
+}
+
+
 /** 计算可视窗口：返回要渲染的块区间与上下占位高度（纯函数，便于单测）。
  *
  *  占位用「未渲染行数 × 行高」，因此滚动条长度与全文一致；overscan 多渲染一屏外的块，
@@ -510,6 +626,53 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 		chunkLines: VIRTUAL_CHUNK_LINES,
 		lineHeight,
 	});
+	// —— markdown 块级虚拟滚动：块高度不固定，实测后缓存（未实测用估算占位）——
+	const mdBlocks = useMemo(
+		() => (isMarkdown && content !== null ? splitMarkdownBlocks(content) : []),
+		[isMarkdown, content],
+	);
+	const [mdHeights, setMdHeights] = useState<Record<number, number>>({});
+	const mdOffsets = useMemo(() => {
+		const offs = new Array<number>(mdBlocks.length + 1);
+		offs[0] = 0;
+		for (let i = 0; i < mdBlocks.length; i++) {
+			offs[i + 1] = offs[i] + (mdHeights[i] ?? estimateMarkdownBlockHeight(mdBlocks[i]));
+		}
+		return offs;
+	}, [mdBlocks, mdHeights]);
+	const mdWindow = computeBlockWindow({
+		offsets: mdOffsets,
+		scrollTop,
+		viewportHeight: viewportHeight > 0 ? viewportHeight : 600,
+	});
+	const visibleMdBlocks: number[] = [];
+	for (let i = mdWindow.first; i <= mdWindow.last; i++) visibleMdBlocks.push(i);
+
+	// 实测 md 块高度：测量结果写回 mdHeights，占位高度随之收敛到真实值
+	useEffect(() => {
+		if (typeof ResizeObserver === "undefined") return;
+		const body = bodyRef.current;
+		if (!body) return;
+		const els = body.querySelectorAll<HTMLElement>("[data-md-block]");
+		if (els.length === 0) return;
+		const ro = new ResizeObserver((entries) => {
+			setMdHeights((prev) => {
+				let next = prev;
+				for (const entry of entries) {
+					const el = entry.target as HTMLElement;
+					const index = Number(el.dataset.mdBlock);
+					const h = el.offsetHeight;
+					if (!Number.isFinite(index) || h <= 0 || next[index] === h) continue;
+					if (next === prev) next = { ...prev };
+					next[index] = h;
+				}
+				return next;
+			});
+		});
+		for (const el of els) ro.observe(el);
+		return () => ro.disconnect();
+	}, [mdBlocks, mdWindow.first, mdWindow.last]);
+
 	const visibleChunks: number[] = [];
 	for (let i = chunkWindow.firstChunk; i <= chunkWindow.lastChunk; i++) {
 		visibleChunks.push(i);
@@ -626,13 +789,25 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 						<Icon name="x" size={12} />
 					</button>
 				</div>
-				{/* markdown 预览：左右内间距 20px（px-5），上下 10px（py-2.5） */}
-				<div ref={bodyRef} className="flex-1 overflow-auto bg-surface px-5 py-2.5">
-					<MarkdownPreview
-						content={content}
-						sessionId={sessionId ?? ""}
-						baseDir={displayPath.replace(/\\/g, "/").replace(/\/[^/]*$/, "") ?? ""}
-					/>
+				{/* markdown 预览：左右内间距 20px（px-5），上下 10px（py-2.5）。
+				    块级虚拟滚动：只渲染可视块，块高度实测后缓存用于精确占位。 */}
+				<div
+					ref={bodyRef}
+					data-testid="fv-body"
+					onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+					className="flex-1 overflow-auto bg-surface px-5 py-2.5"
+				>
+					<div style={{ height: mdWindow.topSpacer }} />
+					{visibleMdBlocks.map((bi) => (
+						<div key={bi} data-md-block={bi}>
+							<MarkdownPreview
+								content={mdBlocks[bi].text}
+								sessionId={sessionId ?? ""}
+								baseDir={displayPath.replace(/\\/g, "/").replace(/\/[^/]*$/, "") ?? ""}
+							/>
+						</div>
+					))}
+					<div style={{ height: mdWindow.bottomSpacer }} />
 				</div>
 				<PathBar path={displayPath} />
 			</div>

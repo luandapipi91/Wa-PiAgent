@@ -43,14 +43,16 @@
 - 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
 - 影响范围：kernel（tui-host/extension-manager/compaction-guard）、shared、frontend。
 
-## 2026-09-15 — fix(frontend): 文件预览加渲染上限（修复打开几 MB 文本时卡死）
+## 2026-09-15 — fix(frontend): 文件预览块级虚拟滚动（代码 + markdown 两条分支）
 
-- 问题：kernel 只拦 >5MB 的文件，≤5MB 的文本会**整份**送进渲染层；而 `FileViewer` 原先无行数上限、无虚拟化——全量 Prism 分词（实测 5MB ≈ 189 万 token，`tokenize` 单次 2.3s），且每个 token 一个 `<span>`、每行一个 `div`（`display:table`）⇒ 约 200 万 DOM 节点，渲染进程直接冻结（无报错，非死循环）。该限制阈值历史上从 512KB（7-28）放宽到 3MB、再到 5MB（8-30），放宽时**未同步给前端加渲染上限**，于是「几 MB 的日志/代码文件现在能打开，一打开就卡死」；>5MB 的仍会被 kernel 拦（实测 40MB 文本 0.67s 返回 `attachment.previewTooLarge`）。
-- 修复：`FileViewer` 增加 `MAX_RENDER_LINES = 5000` 渲染上限——超过则只把前 5000 行交给高亮组件，并在查看区顶部常驻提示「文件较大，仅显示前 5000 行（共 N 行）。完整内容请用「用默认应用打开」查看」；新增 i18n 键 `blocks.fileViewer.truncated`（zh/en 同步）。复制全文仍使用完整内容（渲染截断不影响复制）。
-- 测试：`tests/FileViewer.test.tsx` 新增 2 例（6000 行 → 仅渲染 5000 行且提示含真实总行数；120 行 → 不截断、不提示）。
-- 验证：组件测试 19 pass；前端全量 2360 pass / 0 fail；typecheck 全绿；kernel 侧隔离实测确认「>5MB 拦、≤5MB 放行」，故卡死区间确为前端全量渲染。
-- 影响范围：packages/frontend（components/blocks/FileViewer.tsx、i18n/locales/{zh,en}.ts、tests/FileViewer.test.tsx）。
-
+- 问题：kernel 只拦 >5MB 的文件，≤5MB 的文本会**整份**送进渲染层；而 `FileViewer` 原先无渲染上限、无虚拟化——全量 Prism 分词（实测 5MB ≈ 189 万 token，`tokenize` 单次 2.3s），每个 token 一个 `<span>`、每行一个 `div` ⇒ 约 200 万 DOM 节点，渲染进程直接冻结。该阈值历史上从 512KB（7-28）放宽到 3MB、再到 5MB（8-30），放宽时未同步给前端加防护，于是「几 MB 的日志/代码文件能打开，一打开就卡死」；>5MB 仍被 kernel 拦（实测 40MB 文本 0.67s 返回 `attachment.previewTooLarge`）。
+- 修复：两条渲染分支都改为**块级虚拟滚动**（只渲染可视块 + 上下占位撑出完整滚动高度；行号、横向滚动、选择复制均不受影响）：
+  · **代码/文本分支**：按 200 行分块，块高固定（行高实测后修正，兼容字号缩放）；
+  · **markdown 分支**（原先未覆盖，仍走 ReactMarkdown 全量解析 → 大 md 一样会卡）：按「顶层块」切分 —— 围栏代码块内部不切、标题与空行起新块、单块超 200 行强制切分（兜底）；每块独立渲染，块高用 ResizeObserver 实测后缓存，未实测块按行数估算占位，滚动条长度随实测收敛。
+  （曾先实现「只渲染前 5000 行 + 截断提示」，因影响整篇浏览而改为虚拟滚动，截断逻辑与对应 i18n 文案已移除。）
+- 测试：`tests/FileViewer.test.tsx` 8 例（代码分支：`computeChunkWindow`、大文件不截断且只渲染可视块、滚动跟随、小文件；markdown 分支：`splitMarkdownBlocks` 切分规则、`computeBlockWindow` 偏移定位、大 md 只渲染可视块）。既有两个 md 用例的断言范围由「单个 text-block」调整为「容器层」（分块后不再唯一），断言内容不变。
+- 验证：FileViewer 25 pass；前端全量 2376 pass / 0 fail；typecheck 全绿。
+- 影响范围：packages/frontend（components/blocks/FileViewer.tsx、tests/FileViewer.test.tsx；i18n 的 truncated 文案已移除）。
 ## 2026-09-15 — fix(kernel): 扩展静默失效（pin 漂移）——加 --exact + 启动时对齐 pin
 
 - 问题：settings.json 的 `packages` 存**精确实装版本**，而 `agentDir/npm/package.json` 是 caret 范围（`^x.y.z`）。依赖树一旦被盘外重解析（`repair()` 删 lock 后 `bun install`、装/卸其它包时的 `bun add`），node_modules 会被顶到新版本而 pin 不动。pi 在 Wa-Pi 强制的 `--offline` 下遇到「pin ≠ 实装」会判定需要安装、装不了便**整包 continue 跳过**（pi core/package-manager.js:996-1016）→ 扩展静默不加载，且无任何报错（插件页显示的是实装版本，界面看不出异常）。实测：pi-token-speed（pin 0.9.0 / 装 0.10.1）与 pi-cache-optimizer（2.8.7 / 2.8.10）均被跳过。
