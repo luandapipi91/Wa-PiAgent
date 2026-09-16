@@ -14,7 +14,7 @@ import {
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MarkdownBlock } from "../../src/components/MessageList";
 import { collectMediaItems } from "../../src/components/blocks/media-utils";
-import { _setFsTransport } from "../../src/fs-client";
+import { _clearFsQueryCache, _setFsTransport } from "../../src/fs-client";
 
 // happy-dom 在 about:blank 下无法解析相对 URL（/file?path=...），img 插入时同步 fire
 // error 导致本地图片直接降级 FilePill（MarkdownImage.test.tsx 同款处理）：
@@ -22,11 +22,19 @@ import { _setFsTransport } from "../../src/fs-client";
 beforeAll(() => (window as any).happyDOM?.setURL?.("http://localhost/"));
 afterAll(() => (window as any).happyDOM?.setURL?.("about:blank"));
 
-// FilePill 挂载即 statFile 探测；mock 成存在，让 chip 处于稳定态（不被回退成纯文本干扰）
+// FilePill 挂载即探测文件存在性（批量接口 stat-batch）；mock 成存在，让 chip 处于稳定态
+// （不被回退成纯文本干扰）。需按请求里的 paths 回显；短 TTL 缓存每例前清空。
 beforeEach(() => {
+	_clearFsQueryCache();
 	_setFsTransport({
 		get: async () => ({}),
-		post: async () => ({ exists: true }),
+		post: async (path, body) => {
+			if (path === "/api/fs/stat-batch") {
+				const paths = (body as { paths?: string[] })?.paths ?? [];
+				return { results: paths.map((p) => ({ path: p, exists: true })) };
+			}
+			return { exists: true };
+		},
 		del: async () => ({}),
 	});
 });

@@ -66,6 +66,16 @@ export async function listDir(
 	return entries;
 }
 
+/** 单路径存在性探测：一次 stat（存在且是普通文件才 true）。
+ *  旧实现用 existsSync + stat 两次磁盘操作，后者对已存在路径是冗余的。 */
+export async function statIsFile(path: string): Promise<boolean> {
+	try {
+		return (await stat(expandTilde(path))).isFile();
+	} catch {
+		return false;
+	}
+}
+
 /** 在目录下递归搜索指定文件名（限制深度 5 层），返回第一个匹配的绝对路径 */
 async function findFileByBasename(
 	root: string,
@@ -210,14 +220,32 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		const { path } = b;
 		if (typeof path !== "string") return paramErrorResponse("缺少 path", "path");
 		try {
-			const absPath = expandTilde(path);
-			const exists = existsSync(absPath);
-			const isFile = exists && (await stat(absPath)).isFile();
+			const isFile = await statIsFile(path);
 			return Response.json({ type: "fs:stat", path, exists: isFile });
 		} catch (e) {
 			return Response.json({
 				type: "fs:error",
 				path,
+				reason: String(e instanceof Error ? e.message : e),
+			});
+		}
+	});
+
+	// POST /api/fs/stat-batch：一次探测多个路径（消息里每个路径 chip 各发一次 stat 的放大源头，
+	// 前端按同一批合并成这一个请求）。返回与入参顺序一致的 results，未知项按不存在处理。
+	r.add("POST", "/api/fs/stat-batch", async (req) => {
+		const b = await readJsonBody(req);
+		const raw = b?.paths;
+		if (!Array.isArray(raw)) return paramErrorResponse("缺少 paths", "paths");
+		const paths = raw.filter((p: unknown): p is string => typeof p === "string");
+		try {
+			const results = await Promise.all(
+				paths.map(async (p: string) => ({ path: p, exists: await statIsFile(p) })),
+			);
+			return Response.json({ type: "fs:statBatch", results });
+		} catch (e) {
+			return Response.json({
+				type: "fs:error",
 				reason: String(e instanceof Error ? e.message : e),
 			});
 		}

@@ -2,6 +2,7 @@ import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SkillSection } from "../src/components/settings/SkillSection";
 import { useSkillsStore } from "../src/store/skills";
+import { _clearFsQueryCache, _setFsTransport } from "../src/fs-client";
 import type { SkillInfo } from "@wa-pi/shared";
 
 // 添加技能目录等交互会触发 api（真实 fetch），happy-dom 在 about:blank 下对相对 URL
@@ -15,18 +16,9 @@ mock.module("../src/api-client", () => ({
     del: () => Promise.resolve({}),
   },
 }));
-mock.module("../src/fs-client", () => ({
-  getHome: async () => "/home",
-  getRoots: async () => [],
-  listDir: async () => [],
-  statFile: async () => false,
-  readFile: async () => ({ content: "" }),
-  revealFile: async () => {},
-  copyToUploads: async () => "",
-  uploadFile: async () => "",
-  searchFilesStream: async () => {},
-  _setFsTransport: () => {},
-}));
+// 注：不 mock.module("../src/fs-client")——bun 的 mock.module 会跨文件泄漏（仓库内
+// DirTreePicker / FilePicker / FilePill 等测试已因此统一改用 transport seam）。
+// 这里改为在 beforeEach 注入 fake transport：走真实 fs-client + 假响应。
 
 // 捕获 store 原始 action 方法，避免测试间 mock 泄漏
 const originalActions = {
@@ -37,9 +29,22 @@ const originalActions = {
 };
 
 beforeEach(() => {
+  // fs 系列（getRoots/listDir/search）走真实 fs-client + 假 transport：
+  // 避免 mock.module 跨文件泄漏，同时保证 getRoots() 不会因 null.roots 抛错。
+  _clearFsQueryCache();
+  _setFsTransport({
+    get: async (path) =>
+      path === "/api/fs/home" ? { home: "/home" } : { roots: [] },
+    post: async () => ({}),
+    del: async () => ({}),
+  });
   useSkillsStore.setState({
-    skills: [], allSkills: [], dirs: [], disabledSkills: [],
-    builtinDir: "/home/.wa-pi/skills", loading: false,
+    skills: [],
+    allSkills: [],
+    dirs: [],
+    disabledSkills: [],
+    builtinDir: "/home/.wa-pi/skills",
+    loading: false,
     toggleSkill: originalActions.toggleSkill,
     addDir: originalActions.addDir,
     removeDir: originalActions.removeDir,
@@ -106,7 +111,11 @@ test("添加/刷新按钮为 icon 按钮，与技能目录标题同行且右对�
 test("搜索框输入即实时过滤技能（按名称，大小写不敏感）", () => {
   useSkillsStore.setState({
     allSkills: [
-      { name: "brave-search", description: "web 搜索", path: "/skills/brave-search" },
+      {
+        name: "brave-search",
+        description: "web 搜索",
+        path: "/skills/brave-search",
+      },
       { name: "pdf-tools", description: "PDF 处理", path: "/skills/pdf-tools" },
     ],
   });
@@ -120,7 +129,11 @@ test("搜索框输入即实时过滤技能（按名称，大小写不敏感）",
 test("清空搜索后恢复完整技能列表", () => {
   useSkillsStore.setState({
     allSkills: [
-      { name: "brave-search", description: "web 搜索", path: "/skills/brave-search" },
+      {
+        name: "brave-search",
+        description: "web 搜索",
+        path: "/skills/brave-search",
+      },
       { name: "pdf-tools", description: "PDF 处理", path: "/skills/pdf-tools" },
     ],
   });
@@ -136,11 +149,17 @@ test("清空搜索后恢复完整技能列表", () => {
 test("搜索无匹配时显示提示", () => {
   useSkillsStore.setState({
     allSkills: [
-      { name: "brave-search", description: "web 搜索", path: "/skills/brave-search" },
+      {
+        name: "brave-search",
+        description: "web 搜索",
+        path: "/skills/brave-search",
+      },
     ],
   });
   render(<SkillSection />);
-  fireEvent.change(screen.getByTestId("skill-search-input"), { target: { value: "不存在" } });
+  fireEvent.change(screen.getByTestId("skill-search-input"), {
+    target: { value: "不存在" },
+  });
   expect(screen.getByText("无匹配的技能")).toBeTruthy();
 });
 
@@ -161,7 +180,9 @@ test("内置目录无删除按钮", () => {
     allSkills: [],
   });
   render(<SkillSection />);
-  expect(screen.queryByTestId("skill-dir-remove-/home/.wa-pi/skills")).toBeNull();
+  expect(
+    screen.queryByTestId("skill-dir-remove-/home/.wa-pi/skills"),
+  ).toBeNull();
 });
 
 test("用户目录有删除按钮", () => {
@@ -171,14 +192,20 @@ test("用户目录有删除按钮", () => {
     allSkills: [],
   });
   render(<SkillSection />);
-  expect(screen.getByTestId("skill-dir-remove-/home/.claude/skills")).toBeTruthy();
+  expect(
+    screen.getByTestId("skill-dir-remove-/home/.claude/skills"),
+  ).toBeTruthy();
 });
 
 test("技能列表渲染 + switch 开关在右侧", () => {
   const toggleMock = mock();
   useSkillsStore.setState({
     allSkills: [
-      { name: "brave-search", description: "web 搜索", path: "/skills/brave-search" },
+      {
+        name: "brave-search",
+        description: "web 搜索",
+        path: "/skills/brave-search",
+      },
       { name: "pdf-tools", description: "PDF 处理", path: "/skills/pdf-tools" },
     ],
     disabledSkills: ["pdf-tools"],
@@ -206,9 +233,7 @@ test("技能列表渲染 + switch 开关在右侧", () => {
 test("开关点击立即乐观更新 UI，不等待服务端响应", () => {
   // 使用真实的 toggleSkill（会发起 HTTP 但在 happy-dom 中静默失败）
   useSkillsStore.setState({
-    allSkills: [
-      { name: "skill-a", description: "A", path: "/a" },
-    ],
+    allSkills: [{ name: "skill-a", description: "A", path: "/a" }],
     disabledSkills: [],
     toggleSkill: originalActions.toggleSkill,
   });
@@ -242,7 +267,11 @@ test("点击添加技能目录弹出 DirTreePicker", () => {
 test("无 source 的技能归入内置技能分组", () => {
   useSkillsStore.setState({
     allSkills: [
-      { name: "brainstorming", description: "创意工作前使用", path: "/skills/brainstorming" },
+      {
+        name: "brainstorming",
+        description: "创意工作前使用",
+        path: "/skills/brainstorming",
+      },
     ],
   });
   render(<SkillSection />);
@@ -253,7 +282,12 @@ test("无 source 的技能归入内置技能分组", () => {
 test("builtin 类型技能显示「内置」标签", () => {
   useSkillsStore.setState({
     allSkills: [
-      { name: "brainstorming", description: "desc", path: "/p", source: { type: "builtin" } },
+      {
+        name: "brainstorming",
+        description: "desc",
+        path: "/p",
+        source: { type: "builtin" },
+      },
     ],
   });
   render(<SkillSection />);
@@ -264,7 +298,12 @@ test("builtin 类型技能显示「内置」标签", () => {
 test("extension 类型技能单独分组并显示插件名标签", () => {
   useSkillsStore.setState({
     allSkills: [
-      { name: "pdf", description: "PDF 处理", path: "/ext/pdf", source: { type: "extension", name: "zcode-guide" } },
+      {
+        name: "pdf",
+        description: "PDF 处理",
+        path: "/ext/pdf",
+        source: { type: "extension", name: "zcode-guide" },
+      },
     ],
   });
   render(<SkillSection />);
@@ -274,11 +313,36 @@ test("extension 类型技能单独分组并显示插件名标签", () => {
 
 test("多个 source 类型混合分组正确", () => {
   const skills: SkillInfo[] = [
-    { name: "builtin-a", description: "", path: "/b/a", source: { type: "builtin" } },
-    { name: "builtin-b", description: "", path: "/b/b", source: { type: "builtin" } },
-    { name: "plugin-x", description: "", path: "/p/x", source: { type: "extension", name: "pkg-a" } },
-    { name: "plugin-y", description: "", path: "/p/y", source: { type: "extension", name: "pkg-a" } },
-    { name: "local-1", description: "", path: "/l/1", source: { type: "user" } },
+    {
+      name: "builtin-a",
+      description: "",
+      path: "/b/a",
+      source: { type: "builtin" },
+    },
+    {
+      name: "builtin-b",
+      description: "",
+      path: "/b/b",
+      source: { type: "builtin" },
+    },
+    {
+      name: "plugin-x",
+      description: "",
+      path: "/p/x",
+      source: { type: "extension", name: "pkg-a" },
+    },
+    {
+      name: "plugin-y",
+      description: "",
+      path: "/p/y",
+      source: { type: "extension", name: "pkg-a" },
+    },
+    {
+      name: "local-1",
+      description: "",
+      path: "/l/1",
+      source: { type: "user" },
+    },
   ];
   useSkillsStore.setState({ allSkills: skills });
   render(<SkillSection />);
@@ -290,7 +354,12 @@ test("多个 source 类型混合分组正确", () => {
 test("空分组不显示标题", () => {
   useSkillsStore.setState({
     allSkills: [
-      { name: "only-plugin", description: "", path: "/p", source: { type: "extension", name: "pkg" } },
+      {
+        name: "only-plugin",
+        description: "",
+        path: "/p",
+        source: { type: "extension", name: "pkg" },
+      },
     ],
   });
   render(<SkillSection />);

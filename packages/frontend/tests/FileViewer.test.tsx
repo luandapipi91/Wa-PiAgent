@@ -31,7 +31,14 @@ import { makeFakeFsTransport } from "./fs-transport";
 import { useSessionStore } from "../src/store/session";
 import { useToastStore } from "../src/store/toast";
 
-const fake = makeFakeFsTransport();
+// FilePill 走批量探测（/api/fs/stat-batch）：响应需按请求里的 paths 回显，否则客户端
+// 会把未回显的路径按“不存在”处理（chip 回退为纯文本）。statExists 可按用例覆盖。
+let statExists = true;
+const fake = makeFakeFsTransport((evt) => {
+	if (evt.type !== "fs:statBatch") return undefined;
+	const paths = (evt as { paths?: string[] }).paths ?? [];
+	return { results: paths.map((p) => ({ path: p, exists: statExists })) };
+});
 
 // 主流代码文件预览：语法着色断言（驱动 prism-extra-langs 注册 + guessLanguage 映射）
 test("主流代码文件渲染语法着色而非纯文本兜底（.sh/.kt/.cs/.toml）", async () => {
@@ -269,7 +276,7 @@ test("md 文件：内联路径复用聊天区渲染为文件胶囊", async () =>
 		content: btoa("# T\n\n`docs/a.md`\n"),
 		mimeType: "text/markdown",
 	});
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	render(
 		<FileViewer path="/work/demo/README.md" onClose={() => {}} sessionId="s1" />,
 	);

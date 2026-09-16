@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type {
 	ToolCall,
 	ToolResultMessage,
@@ -241,6 +241,8 @@ export const FleetCard = memo(function FleetCard({
 			)
 			.join("\n") ?? "";
 	// 从 result.details 读持久化的 fleet 工具统计（kernel 注入；刷新/历史会话仍可用）
+	// SAFETY: ToolResultMessage 的类型面未声明 details，但 kernel 在序列化工具结果时一定带上它；
+	// 这里按运行时实际形状读取，取不到时自然退化为 undefined（下方 persistedStats 已有兑底）。
 	const fleetDetails = (
 		result as unknown as
 			| { details?: { fleet?: Record<string, ToolStats> } }
@@ -252,7 +254,12 @@ export const FleetCard = memo(function FleetCard({
 	const repliesByAgent = extractAgentReplies(full, agentNames);
 	const canSplit = repliesByAgent !== null;
 	const formattedFull = full.replace(/【(.+?)】/g, "\n---\n**$1**  \n");
-	const mdComponents = createMarkdownComponents(sessionId);
+	// 必须 useMemo 固定：内联组件对象每帧变新会让整棵子树 remount，其内 FilePill 反复跑
+	// statFile（chip↔文本三态闪 + 无谓请求）。与 MessageList / StreamingOutput 同款处理。
+	const mdComponents = useMemo(
+		() => createMarkdownComponents(sessionId),
+		[sessionId],
+	);
 
 	// 任务条目：优先按 tasks（编号与任务清单一致），tasks 为空时按 progress agents 兜底
 	const rows = (

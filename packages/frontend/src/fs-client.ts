@@ -37,23 +37,120 @@ export async function getRoots(): Promise<string[]> {
 	return res.roots;
 }
 
+// ── 目录列表 / 存在性探测的「在途去重 + 短 TTL 缓存」──
+//
+// 为什么要做：这两类请求是消息/文件树高频路径（ExplorerPanel 每 5s 轮询已展开目录、
+// 每条消息里每个路径 chip 各探测一次、虚拟滚动滚回视口会重挂载重发）。没有去重时，
+// 同一路径会在同一时刻被重复请求，批量返回时集中 setState 造成界面卡顿。
+//
+// 两级策略：
+// - listDir：只做**在途去重**（同路径并发合并为一个请求），不缓存结果——目录内容随时会变，
+//   缓存会让「点击展开」「轮询刷新」拿到过期列表。
+// - stat：幂等的存在性查询，除在途去重外再加 3s TTL 缓存（吸收虚拟滚动重挂载的重复探测）。
+const STAT_TTL_MS = 3000;
+const inflightListDir = new Map<string, Promise<DirEntry[]>>();
+const statCache = new Map<string, { at: number; exists: boolean }>();
+
+/** 清空 fs 查询状态（测试用；也让写操作后可主动失效）。
+ *  必须连同批调度器状态一起复位：残留的 scheduled=true 会让后续调用只入队、永不 flush，
+ *  Promise 永久挂起（表现为 chip 永远停在“探测中”）。 */
+export function _clearFsQueryCache(): void {
+	inflightListDir.clear();
+	statCache.clear();
+	pendingStatPaths = [];
+	pendingStatResolvers = [];
+	statFlushScheduled = false;
+}
+
 export async function listDir(
 	path: string,
 	showHidden?: boolean,
 ): Promise<DirEntry[]> {
-	const res = (await transport.post("/api/fs/list-dir", {
-		path,
-		showHidden,
-	})) as { entries?: DirEntry[] };
-	return res.entries ?? [];
+	const key = `${showHidden ? 1 : 0}\u0000${path}`;
+	const inflight = inflightListDir.get(key);
+	if (inflight) return inflight;
+
+	const task = (async () => {
+		try {
+			const res = (await transport.post("/api/fs/list-dir", {
+				path,
+				showHidden,
+			})) as { entries?: DirEntry[] };
+			return res.entries ?? [];
+		} finally {
+			inflightListDir.delete(key);
+		}
+	})();
+	inflightListDir.set(key, task);
+	return task;
 }
 
-/** 轻量文件存在性探测（不读内容），供 FilePill 挂载校验 */
+/** 批量存在性探测：一次 HTTP 拿多个路径（未知/失败项按不存在处理） */
+export async function statFiles(
+	paths: string[],
+): Promise<Map<string, boolean>> {
+	const out = new Map<string, boolean>();
+	const need: string[] = [];
+	const now = Date.now();
+	for (const p of paths) {
+		if (out.has(p) || need.includes(p)) continue;
+		const cached = statCache.get(p);
+		if (cached && now - cached.at < STAT_TTL_MS) out.set(p, cached.exists);
+		else need.push(p);
+	}
+	if (need.length === 0) return out;
+
+	const res = (await transport.post("/api/fs/stat-batch", {
+		paths: need,
+	})) as { results?: { path: string; exists?: boolean }[] };
+	for (const r of res.results ?? []) {
+		const exists = r.exists === true;
+		out.set(r.path, exists);
+		statCache.set(r.path, { at: Date.now(), exists });
+	}
+	for (const p of need) if (!out.has(p)) out.set(p, false);
+	return out;
+}
+
+// 同一次事件循环内的多次探测合并为一个请求：一条消息里 N 个路径 chip 各自挂载时
+// 会各调一次，这里攒到下一个 tick 一起发（从 N 次请求降到 1 次）。
+let pendingStatPaths: string[] = [];
+let pendingStatResolvers: ((m: Map<string, boolean>) => void)[] = [];
+let statFlushScheduled = false;
+
+/** 批量调度的存在性探测：同一 tick 内的多次调用自动合并为一个 HTTP 请求 */
+export function statFilesBatched(
+	paths: string[],
+): Promise<Map<string, boolean>> {
+	return new Promise((resolve) => {
+		pendingStatPaths.push(...paths);
+		pendingStatResolvers.push(resolve);
+		if (statFlushScheduled) return;
+		statFlushScheduled = true;
+		// 用微任务而非 setTimeout：批窗口只需覆盖「同一次 React 提交里挂载的多个 chip」
+		// （它们的 useEffect 在同一批次同步执行），微任务既够快也不受定时器环境影响——
+		// 用 setTimeout 时在负载高的环境下曾出现回调迟迟不触发、Promise 挂起。
+		queueMicrotask(() => {
+			const batch = [...new Set(pendingStatPaths)];
+			const resolvers = pendingStatResolvers;
+			pendingStatPaths = [];
+			pendingStatResolvers = [];
+			statFlushScheduled = false;
+			statFiles(batch)
+				.then((m) => {
+					for (const r of resolvers) r(m);
+				})
+				.catch(() => {
+					for (const r of resolvers) r(new Map());
+				});
+		});
+	});
+}
+
+/** 轻量文件存在性探测（不读内容），供 FilePill 挂载校验（走缓存） */
 export async function statFile(path: string): Promise<boolean> {
-	const res = (await transport.post("/api/fs/stat", { path })) as {
-		exists?: boolean;
-	};
-	return res.exists === true;
+	const m = await statFiles([path]);
+	return m.get(path) === true;
 }
 
 export async function readFile(path: string): Promise<{

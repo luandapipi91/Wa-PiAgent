@@ -14,13 +14,18 @@ function deriveType(method: string, path: string): string {
   if (method === "GET" && path === "/api/fs/roots") return "fs:roots";
   if (method === "POST" && path === "/api/fs/list-dir") return "fs:listDir";
   if (method === "POST" && path === "/api/fs/stat") return "fs:stat";
+  if (method === "POST" && path === "/api/fs/stat-batch") return "fs:statBatch";
   if (method === "POST" && path === "/api/fs/read-file") return "fs:readFile";
   if (method === "POST" && path === "/api/fs/copy") return "fs:copy";
   if (method === "POST" && path === "/api/fs/search") return "fs:search";
-  if (method === "POST" && path === "/api/fs/search/cancel") return "fs:search:cancel";
-  if (method === "POST" && path === "/api/files/recording/append") return "fs:recording:append";
-  if (method === "POST" && path === "/api/files/recording/finalize") return "fs:recording:finalize";
-  if (method === "POST" && path === "/api/files/recording/discard") return "fs:recording:discard";
+  if (method === "POST" && path === "/api/fs/search/cancel")
+    return "fs:search:cancel";
+  if (method === "POST" && path === "/api/files/recording/append")
+    return "fs:recording:append";
+  if (method === "POST" && path === "/api/files/recording/finalize")
+    return "fs:recording:finalize";
+  if (method === "POST" && path === "/api/files/recording/discard")
+    return "fs:recording:discard";
   return `fs:${method}:${path}`;
 }
 
@@ -62,7 +67,8 @@ export function makeFakeFsTransport(responder?: FsResponder): FakeFsTransport {
     const type = deriveType(method, path);
     const call: FsCall = { method, path, type, body };
     calls.push(call);
-    const evt = body !== undefined ? { type, ...(body as object) } : { type, path };
+    const evt =
+      body !== undefined ? { type, ...(body as object) } : { type, path };
     sent.push(evt);
 
     const resp = await responder?.(evt, emit, call);

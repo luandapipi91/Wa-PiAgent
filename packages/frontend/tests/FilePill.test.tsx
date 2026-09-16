@@ -14,14 +14,21 @@ import {
 	resolveAbsolutePath,
 } from "../src/components/blocks/FilePill";
 import { FilePreviewModal } from "../src/components/blocks/FilePreviewModal";
-import { _setFsTransport } from "../src/fs-client";
+import { _clearFsQueryCache, _setFsTransport } from "../src/fs-client";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
 import { useBrowserStore } from "../src/store/browser";
 import { useToastStore } from "../src/store/toast";
 import { makeFakeFsTransport } from "./fs-transport";
 
-const fake = makeFakeFsTransport();
+// FilePill 现在走批量探测（statFilesBatched → /api/fs/stat-batch），响应需按请求里的
+// paths 动态生成：path 必须回显，否则客户端会把未回显的路径按「不存在」处理。
+let statExists = true;
+const fake = makeFakeFsTransport((evt) => {
+	if (evt.type !== "fs:statBatch") return undefined;
+	const paths = (evt as { paths?: string[] }).paths ?? [];
+	return { results: paths.map((p) => ({ path: p, exists: statExists })) };
+});
 
 beforeEach(() => {
 	useProjectsStore.setState({
@@ -30,6 +37,8 @@ beforeEach(() => {
 	});
 	useSessionStore.setState({ filePreview: null });
 	useToastStore.setState({ toasts: [] });
+	statExists = true;
+	_clearFsQueryCache();
 	_setFsTransport(fake.transport);
 	fake.calls.length = 0;
 	fake.sent.length = 0;
@@ -39,7 +48,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 test("渲染胶囊（basename + 行号），点击写入全局 store 并弹预览，readFile 解析到项目 cwd", async () => {
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	fake.setResponse("fs:readFile", {
 		content: btoa("file-content-123"),
 		mimeType: "text/plain",
@@ -74,7 +83,7 @@ test("渲染胶囊（basename + 行号），点击写入全局 store 并弹预�
 });
 
 test("Windows 盘符绝对路径渲染胶囊，点击后预览解析为盘符路径", async () => {
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	fake.setResponse("fs:readFile", {
 		content: btoa("win-content"),
 		mimeType: "text/plain",
@@ -114,7 +123,7 @@ test("resolveAbsolutePath Windows cwd 拼接相对路径时统一为正斜杠", 
 });
 
 test("statFile 返回不存在时回退为纯文本 code", async () => {
-	fake.setResponse("fs:stat", { exists: false });
+	statExists = false;
 	render(<FilePill rawText="src/missing.ts" sessionId="s1" />);
 
 	await waitFor(() => expect(screen.queryByTestId("file-pill")).toBeNull());
@@ -127,7 +136,7 @@ test("非路径文本回退为普通 code", () => {
 });
 
 test("预览 Modal 由常驻 FilePreviewModal 渲染（宿主 FilePill 卸载后仍保持打开）", async () => {
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	fake.setResponse("fs:readFile", {
 		content: btoa("file-content-123"),
 		mimeType: "text/plain",
@@ -159,7 +168,7 @@ test("预览 Modal 由常驻 FilePreviewModal 渲染（宿主 FilePill 卸载后
 });
 
 test("用户手动关闭（ESC）后预览消失且 store 清空", async () => {
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	fake.setResponse("fs:readFile", {
 		content: btoa("file-content-123"),
 		mimeType: "text/plain",
@@ -185,7 +194,7 @@ test("用户手动关闭（ESC）后预览消失且 store 清空", async () => {
 });
 
 test("html 文件点击 → 打开浏览器预览（browser store），不走文件预览", async () => {
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	fake.setResponse("fs:readFile", {
 		content: btoa("<html></html>"),
 		mimeType: "text/html",
@@ -203,11 +212,13 @@ test("html 文件点击 → 打开浏览器预览（browser store），不走文
 });
 
 test("图片扩展名芯片点击 → 打开媒体画廊（mediaPreview），不走文件预览", async () => {
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	useSessionStore.setState({ mediaPreview: null });
 	render(<FilePill rawText="out/logo-blue.png" sessionId="s1" />);
 	await waitFor(() =>
-		expect(screen.getByTestId("file-pill").textContent).toContain("logo-blue.png"),
+		expect(screen.getByTestId("file-pill").textContent).toContain(
+			"logo-blue.png",
+		),
 	);
 	fireEvent.click(screen.getByTestId("file-pill"));
 	// 无 mediaItems 时以单媒体清单打开
@@ -220,15 +231,13 @@ test("图片扩展名芯片点击 → 打开媒体画廊（mediaPreview），不
 });
 
 test("视频芯片点击 → 按传入的 mediaItems 清单定位画廊起点（绝对路径口径匹配）", async () => {
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	useSessionStore.setState({ mediaPreview: null });
 	const items = [
 		{ src: "out/a.png", kind: "image" as const, name: "a.png" },
 		{ src: "out/clip.mp4", kind: "video" as const, name: "clip.mp4" },
 	];
-	render(
-		<FilePill rawText="out/clip.mp4" sessionId="s1" mediaItems={items} />,
-	);
+	render(<FilePill rawText="out/clip.mp4" sessionId="s1" mediaItems={items} />);
 	await waitFor(() =>
 		expect(screen.getByTestId("file-pill").textContent).toContain("clip.mp4"),
 	);
@@ -241,7 +250,7 @@ test("视频芯片点击 → 按传入的 mediaItems 清单定位画廊起点（
 });
 
 test("非媒体扩展名芯片仍走文件预览（行为不变）", async () => {
-	fake.setResponse("fs:stat", { exists: true });
+	statExists = true;
 	useSessionStore.setState({ mediaPreview: null });
 	render(<FilePill rawText="src/index.ts:3" sessionId="s1" />);
 	await waitFor(() =>
@@ -252,4 +261,24 @@ test("非媒体扩展名芯片仍走文件预览（行为不变）", async () =>
 		"/work/demo/src/index.ts",
 	);
 	expect(useSessionStore.getState().mediaPreview).toBeNull();
+});
+
+// 回归（2026-09-16 卡顿定位）：消息里每个路径 chip 原本各发一次 /api/fs/stat——
+// 一条消息几十个路径就是几十个并发请求。改为同一 tick 内合并成一个 stat-batch 请求。
+test("同一 tick 挂载的多个 chip 合并为一个 stat-batch 请求", async () => {
+	statExists = true;
+	render(
+		<>
+			<FilePill rawText="src/a.ts" sessionId="s1" />
+			<FilePill rawText="src/b.ts" sessionId="s1" />
+			<FilePill rawText="src/c.ts" sessionId="s1" />
+		</>,
+	);
+	await waitFor(() => expect(screen.getAllByTestId("file-pill").length).toBe(3));
+	const batchCalls = fake.calls.filter((c) => c.path === "/api/fs/stat-batch");
+	expect(batchCalls.length).toBe(1);
+	// 单路径接口不再被调用
+	expect(fake.calls.filter((c) => c.path === "/api/fs/stat").length).toBe(0);
+	const body = batchCalls[0].body as { paths: string[] };
+	expect(body.paths.length).toBe(3);
 });

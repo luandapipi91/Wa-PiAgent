@@ -4,7 +4,7 @@ import { useSessionStore } from "../../store/session";
 import { Icon } from "../ui/Icon";
 import { mediaKindOf, parseFilePath } from "./file-path";
 import type { MediaItem } from "./media-utils";
-import { statFile } from "../../fs-client";
+import { statFilesBatched } from "../../fs-client";
 import { openFileOrPreview } from "../../open-file-preview";
 
 /** 从会话找到项目 cwd（相对路径据此拼绝对路径）。ProjectEntity 的路径字段为 cwd */
@@ -55,9 +55,10 @@ export function FilePill({
     if (!parsed) return;
     const abs = resolveAbsolutePath(parsed.path, sessionId);
     let alive = true;
-    statFile(abs)
-      .then((exists) => {
-        if (alive) setFileExists(exists);
+    // 批量调度：同一 tick 内挂载的多个 FilePill 会合并成一个 stat-batch 请求
+    statFilesBatched([abs])
+      .then((m) => {
+        if (alive) setFileExists(m.get(abs) === true);
       })
       .catch(() => {
         if (alive) setFileExists(false);
@@ -84,7 +85,9 @@ export function FilePill({
         (it) =>
           it.kind === kind && resolveAbsolutePath(it.src, sessionId) === abs,
       );
-      useSessionStore.getState().openMediaPreview(items, Math.max(idx, 0), sessionId);
+      useSessionStore
+        .getState()
+        .openMediaPreview(items, Math.max(idx, 0), sessionId);
       return;
     }
     openFileOrPreview(abs, sessionId);
