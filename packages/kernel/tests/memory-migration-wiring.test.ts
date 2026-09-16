@@ -93,7 +93,9 @@ test("startKernel 启动即迁移存量 markdown 记忆，坏来源不阻断启�
 	expect(contents).toContain(LEGACY_MEMORY_2);
 
 	// 幂等标记：源文件已重命名，重复启动不会重复导入
-	expect(existsSync(join(TMP_ROOT, "memories", "global", "MEMORY.md"))).toBe(false);
+	expect(existsSync(join(TMP_ROOT, "memories", "global", "MEMORY.md"))).toBe(
+		false,
+	);
 	expect(
 		existsSync(join(TMP_ROOT, "memories", "global", "MEMORY.md.imported")),
 	).toBe(true);

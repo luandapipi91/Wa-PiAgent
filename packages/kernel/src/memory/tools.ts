@@ -9,12 +9,28 @@
 // - 写入前做注入防护校验；返回错误对象而不抛异常（与旧行为一致）
 import { Type } from "typebox";
 import {
-  MEM_ADD_DESC, MEM_ADD_SNIPPET, MEM_REPLACE_DESC, MEM_REPLACE_SNIPPET,
-  MEM_REMOVE_DESC, MEM_REMOVE_SNIPPET, MEM_READ_DESC, MEM_READ_SNIPPET,
-  MEM_SEARCH_DESC, MEM_SEARCH_SNIPPET, MemoryTargetSchema, MemoryScopeSchema,
+  MEM_ADD_DESC,
+  MEM_ADD_SNIPPET,
+  MEM_REPLACE_DESC,
+  MEM_REPLACE_SNIPPET,
+  MEM_REMOVE_DESC,
+  MEM_REMOVE_SNIPPET,
+  MEM_READ_DESC,
+  MEM_READ_SNIPPET,
+  MEM_SEARCH_DESC,
+  MEM_SEARCH_SNIPPET,
+  MemoryTargetSchema,
+  MemoryScopeSchema,
   MemoryKindSchema,
 } from "@wa-pi/shared";
-import type { ListOpts, MemoryDao, MemoryKind, MemoryRow, MemoryScope, MemoryTarget } from "./dao";
+import type {
+  ListOpts,
+  MemoryDao,
+  MemoryKind,
+  MemoryRow,
+  MemoryScope,
+  MemoryTarget,
+} from "./dao";
 import { firstThreatMessage } from "./threat-patterns";
 
 export interface ToolDefinition {
@@ -24,7 +40,11 @@ export interface ToolDefinition {
   parameters: unknown;
   promptSnippet?: string;
   promptGuidelines?: string[];
-  execute: (toolCallId: string, params: any, signal?: AbortSignal) => Promise<unknown>;
+  execute: (
+    toolCallId: string,
+    params: any,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
 }
 
 export interface MemoryToolContext {
@@ -33,7 +53,10 @@ export interface MemoryToolContext {
   projectId: string | null;
 }
 
-export function resolveScope(target: MemoryTarget, scope: unknown): MemoryScope {
+export function resolveScope(
+  target: MemoryTarget,
+  scope: unknown,
+): MemoryScope {
   if (scope === "global" || scope === "project") return scope;
   return target === "user" ? "global" : "project";
 }
@@ -105,7 +128,12 @@ export function requireEntryOwnership(
 }
 
 const jsonResult = (v: unknown) => ({
-  content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }],
+  content: [
+    {
+      type: "text" as const,
+      text: typeof v === "string" ? v : JSON.stringify(v, null, 2),
+    },
+  ],
   details: undefined,
 });
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -123,8 +151,12 @@ function sanitize(text: string): string {
 
 function toEntryJson(r: MemoryRow) {
   return {
-    id: r.id, title: sanitize(r.title), content: sanitize(r.content), kind: r.kind,
-    scope: r.scope, projectId: r.projectId,
+    id: r.id,
+    title: sanitize(r.title),
+    content: sanitize(r.content),
+    kind: r.kind,
+    scope: r.scope,
+    projectId: r.projectId,
     createdAt: new Date(r.createdAt).toISOString(),
     updatedAt: new Date(r.updatedAt).toISOString(),
     archived: r.archived === 1,
@@ -137,7 +169,8 @@ function resolveTargets(
   params: Record<string, unknown>,
 ): { ok: true; rows: MemoryRow[] } | { ok: false; result: unknown } {
   const id = str(params.id);
-  const target: MemoryTarget = str(params.target) === "user" ? "user" : "memory";
+  const target: MemoryTarget =
+    str(params.target) === "user" ? "user" : "memory";
   const scope = resolveScope(target, params.scope);
 
   // scope 层面的两道校验：
@@ -146,26 +179,55 @@ function resolveTargets(
   const guardScope: MemoryScope | undefined =
     id && params.scope !== "project" ? undefined : scope;
   const check = requireProjectId(ctx, guardScope);
-  if (!check.ok) return { ok: false, result: jsonResult({ success: false, error: check.error }) };
+  if (!check.ok)
+    return {
+      ok: false,
+      result: jsonResult({ success: false, error: check.error }),
+    };
 
   if (id) {
     const row = ctx.dao.getById(id);
-    if (!row) return { ok: false, result: jsonResult({ success: false, error: `No entry matched id '${id}'.` }) };
+    if (!row)
+      return {
+        ok: false,
+        result: jsonResult({
+          success: false,
+          error: `No entry matched id '${id}'.`,
+        }),
+      };
     // 归属校验：scope 未声明时上面那道校验放行，由这一道按行自身的归属把关
     const ownership = requireEntryOwnership(ctx, row);
     if (!ownership.ok) {
-      return { ok: false, result: jsonResult({ success: false, error: ownership.error }) };
+      return {
+        ok: false,
+        result: jsonResult({ success: false, error: ownership.error }),
+      };
     }
     return { ok: true, rows: [row] };
   }
 
   const oldText = str(params.oldText).trim();
   if (!oldText) {
-    return { ok: false, result: jsonResult({ success: false, error: "Provide either id or oldText." }) };
+    return {
+      ok: false,
+      result: jsonResult({
+        success: false,
+        error: "Provide either id or oldText.",
+      }),
+    };
   }
-  const rows = ctx.dao.findBySubstring(oldText, { scope, projectId: check.projectId });
+  const rows = ctx.dao.findBySubstring(oldText, {
+    scope,
+    projectId: check.projectId,
+  });
   if (rows.length === 0) {
-    return { ok: false, result: jsonResult({ success: false, error: `No entry matched '${oldText}'.` }) };
+    return {
+      ok: false,
+      result: jsonResult({
+        success: false,
+        error: `No entry matched '${oldText}'.`,
+      }),
+    };
   }
   if (rows.length > 1) {
     return {
@@ -192,15 +254,29 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         scope: Type.Optional(MemoryScopeSchema),
         content: Type.String({ description: "The entry content to append." }),
         kind: Type.Optional(MemoryKindSchema),
-        title: Type.Optional(Type.String({ description: "Optional short title; derived from content when omitted." })),
-        tags: Type.Optional(Type.Array(Type.String(), { description: "Optional keywords for retrieval." })),
+        title: Type.Optional(
+          Type.String({
+            description:
+              "Optional short title; derived from content when omitted.",
+          }),
+        ),
+        tags: Type.Optional(
+          Type.Array(Type.String(), {
+            description: "Optional keywords for retrieval.",
+          }),
+        ),
       }),
       async execute(_id: string, params: Record<string, unknown>) {
-        const target: MemoryTarget = str(params.target) === "user" ? "user" : "memory";
+        const target: MemoryTarget =
+          str(params.target) === "user" ? "user" : "memory";
         const scope = resolveScope(target, params.scope);
         const kind = resolveKind(target, scope, params.kind);
         const content = str(params.content);
-        if (!content.trim()) return jsonResult({ success: false, error: "Content cannot be empty." });
+        if (!content.trim())
+          return jsonResult({
+            success: false,
+            error: "Content cannot be empty.",
+          });
 
         // title 与 content 同样会回灌模型上下文（search 结果 / read 条目 / 快照），
         // 必须同规则校验，否则写入侧只扫 content 就能用 title 夹带载荷绕过防护。
@@ -211,16 +287,28 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         if (threat) return jsonResult({ success: false, error: threat });
 
         const check = requireProjectId(ctx, scope);
-        if (!check.ok) return jsonResult({ success: false, error: check.error });
+        if (!check.ok)
+          return jsonResult({ success: false, error: check.error });
         const projectId = check.projectId;
 
-        const tags = Array.isArray(params.tags) ? params.tags.filter((t) => typeof t === "string").join(",") : "";
+        const tags = Array.isArray(params.tags)
+          ? params.tags.filter((t) => typeof t === "string").join(",")
+          : "";
         const row = ctx.dao.insert({
-          kind, target, scope, projectId, content,
-          source: "agent", title: title || undefined, tags,
+          kind,
+          target,
+          scope,
+          projectId,
+          content,
+          source: "agent",
+          title: title || undefined,
+          tags,
         });
         return jsonResult({
-          success: true, id: row.id, kind: row.kind, scope: row.scope,
+          success: true,
+          id: row.id,
+          kind: row.kind,
+          scope: row.scope,
           totals: ctx.dao.counts({ scope, projectId }),
         });
       },
@@ -231,21 +319,34 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
       description: MEM_SEARCH_DESC,
       promptSnippet: MEM_SEARCH_SNIPPET,
       parameters: Type.Object({
-        query: Type.String({ description: "Keywords to search for (Chinese or English)." }),
+        query: Type.String({
+          description: "Keywords to search for (Chinese or English).",
+        }),
         scope: Type.Optional(MemoryScopeSchema),
         kind: Type.Optional(MemoryKindSchema),
-        limit: Type.Optional(Type.Number({ description: "Max results (default 10)." })),
-        includeArchived: Type.Optional(Type.Boolean({ description: "Include archived entries (default false)." })),
+        limit: Type.Optional(
+          Type.Number({ description: "Max results (default 10)." }),
+        ),
+        includeArchived: Type.Optional(
+          Type.Boolean({
+            description: "Include archived entries (default false).",
+          }),
+        ),
       }),
       async execute(_id: string, params: Record<string, unknown>) {
-        const scope = (params.scope === "global" || params.scope === "project")
-          ? (params.scope as MemoryScope)
-          : undefined;
+        const scope =
+          params.scope === "global" || params.scope === "project"
+            ? (params.scope as MemoryScope)
+            : undefined;
         const check = requireProjectId(ctx, scope);
-        if (!check.ok) return jsonResult({ success: false, error: check.error });
+        if (!check.ok)
+          return jsonResult({ success: false, error: check.error });
 
         const query = str(params.query);
-        const kind = (params.kind === "execution" || params.kind === "knowledge") ? params.kind : undefined;
+        const kind =
+          params.kind === "execution" || params.kind === "knowledge"
+            ? params.kind
+            : undefined;
         // search 与 countMatches 必须拿到同一份过滤条件，否则 totalMatched 与 results 口径不一
         const filter: ListOpts = {
           scope,
@@ -259,10 +360,15 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         });
         return jsonResult({
           results: hits.map((h) => ({
-            id: h.id, title: sanitize(h.title), snippet: sanitize(h.snippet), kind: h.kind,
-            scope: h.scope, projectId: h.projectId,
+            id: h.id,
+            title: sanitize(h.title),
+            snippet: sanitize(h.snippet),
+            kind: h.kind,
+            scope: h.scope,
+            projectId: h.projectId,
             updatedAt: new Date(h.updatedAt).toISOString(),
-            score: Number(h.score.toFixed(4)), archived: h.archived === 1,
+            score: Number(h.score.toFixed(4)),
+            archived: h.archived === 1,
           })),
           // 真实命中总数（与 results 同过滤条件，但不受 limit / CANDIDATE_LIMIT 截断）
           totalMatched: ctx.dao.countMatches(query, filter),
@@ -278,19 +384,30 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         target: Type.Optional(MemoryTargetSchema),
         scope: Type.Optional(MemoryScopeSchema),
         kind: Type.Optional(MemoryKindSchema),
-        limit: Type.Optional(Type.Number({ description: "Max entries (default 50)." })),
+        limit: Type.Optional(
+          Type.Number({ description: "Max entries (default 50)." }),
+        ),
       }),
       async execute(_id: string, params: Record<string, unknown>) {
-        const scope = (params.scope === "global" || params.scope === "project")
-          ? (params.scope as MemoryScope)
-          : undefined;
+        const scope =
+          params.scope === "global" || params.scope === "project"
+            ? (params.scope as MemoryScope)
+            : undefined;
         const check = requireProjectId(ctx, scope);
-        if (!check.ok) return jsonResult({ success: false, error: check.error });
+        if (!check.ok)
+          return jsonResult({ success: false, error: check.error });
         const projectId = check.projectId ?? undefined;
 
-        const target = str(params.target) === "user" ? "user"
-          : str(params.target) === "memory" ? "memory" : undefined;
-        const kind = (params.kind === "execution" || params.kind === "knowledge") ? params.kind : undefined;
+        const target =
+          str(params.target) === "user"
+            ? "user"
+            : str(params.target) === "memory"
+              ? "memory"
+              : undefined;
+        const kind =
+          params.kind === "execution" || params.kind === "knowledge"
+            ? params.kind
+            : undefined;
         const limit = typeof params.limit === "number" ? params.limit : 50;
 
         const rows = ctx.dao
@@ -309,17 +426,33 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
       description: MEM_REPLACE_DESC,
       promptSnippet: MEM_REPLACE_SNIPPET,
       parameters: Type.Object({
-        id: Type.Optional(Type.String({ description: "Entry id from memory_search / memory_read (preferred)." })),
+        id: Type.Optional(
+          Type.String({
+            description:
+              "Entry id from memory_search / memory_read (preferred).",
+          }),
+        ),
         target: Type.Optional(MemoryTargetSchema),
         scope: Type.Optional(MemoryScopeSchema),
-        oldText: Type.Optional(Type.String({ description: "Substring uniquely identifying the entry when id is unknown." })),
-        newContent: Type.String({ description: "The replacement entry content." }),
+        oldText: Type.Optional(
+          Type.String({
+            description:
+              "Substring uniquely identifying the entry when id is unknown.",
+          }),
+        ),
+        newContent: Type.String({
+          description: "The replacement entry content.",
+        }),
       }),
       async execute(_id: string, params: Record<string, unknown>) {
         const resolved = resolveTargets(ctx, params);
         if (!resolved.ok) return resolved.result;
         const newContent = str(params.newContent);
-        if (!newContent.trim()) return jsonResult({ success: false, error: "Content cannot be empty." });
+        if (!newContent.trim())
+          return jsonResult({
+            success: false,
+            error: "Content cannot be empty.",
+          });
         const threat = firstThreatMessage(newContent, "strict");
         if (threat) return jsonResult({ success: false, error: threat });
         const ok = ctx.dao.updateContent(resolved.rows[0].id, newContent);
@@ -332,10 +465,17 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
       description: MEM_REMOVE_DESC,
       promptSnippet: MEM_REMOVE_SNIPPET,
       parameters: Type.Object({
-        id: Type.Optional(Type.String({ description: "Entry id (preferred)." })),
+        id: Type.Optional(
+          Type.String({ description: "Entry id (preferred)." }),
+        ),
         target: Type.Optional(MemoryTargetSchema),
         scope: Type.Optional(MemoryScopeSchema),
-        oldText: Type.Optional(Type.String({ description: "Substring uniquely identifying the entry when id is unknown." })),
+        oldText: Type.Optional(
+          Type.String({
+            description:
+              "Substring uniquely identifying the entry when id is unknown.",
+          }),
+        ),
       }),
       async execute(_id: string, params: Record<string, unknown>) {
         const resolved = resolveTargets(ctx, params);

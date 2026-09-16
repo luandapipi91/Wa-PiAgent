@@ -951,9 +951,7 @@ export class AgentManager {
 				// 记忆库不可用（打开失败）：明确报错降级，不让占位 DAO 承接写入
 				if (!memoryCtx && tool.startsWith("memory_")) {
 					return {
-						content: [
-							{ type: "text", text: "记忆库不可用，记忆功能已降级" },
-						],
+						content: [{ type: "text", text: "记忆库不可用，记忆功能已降级" }],
 						details: { error: "memory_unavailable" },
 					};
 				}

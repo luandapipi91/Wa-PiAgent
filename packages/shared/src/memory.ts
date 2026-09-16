@@ -11,14 +11,14 @@ export type MemoryKind = "profile" | "knowledge" | "execution";
 
 /** 一条记忆条目 */
 export interface MemoryEntry {
-  id: string;                    // DB 模式：uuid（不透明字符串）
-  text: string;                  // 记忆正文
+  id: string; // DB 模式：uuid（不透明字符串）
+  text: string; // 记忆正文
   category: MemoryCategory;
   scope: MemoryScope;
-  kind: MemoryKind;              // 记忆层级
-  createdAt: string;             // 创建时间（ISO）
-  updatedAt?: string;            // 最后修改时间（ISO）
-  projectId?: string;            // 项目名（DB 模式的 project_id 列）
+  kind: MemoryKind; // 记忆层级
+  createdAt: string; // 创建时间（ISO）
+  updatedAt?: string; // 最后修改时间（ISO）
+  projectId?: string; // 项目名（DB 模式的 project_id 列）
   /** @deprecated DB 模式下无文件来源，恒为 undefined */
   sourceFile?: string;
   /** @deprecated DB 模式下无下标，恒为 undefined */
@@ -33,7 +33,7 @@ export interface MemorySearchResult {
   kind: MemoryKind;
   scope: MemoryScope;
   projectId?: string;
-  updatedAt: string;             // ISO
+  updatedAt: string; // ISO
   score: number;
   archived: boolean;
 }
@@ -45,10 +45,10 @@ export interface ArchivedMemory extends MemoryEntry {
 
 /** 指令文件 */
 export interface InstructionFile {
-  path: string;                  // 绝对路径
-  name: string;                  // AGENTS.md / CLAUDE.md
+  path: string; // 绝对路径
+  name: string; // AGENTS.md / CLAUDE.md
   scope: MemoryScope;
-  content: string;               // 文件全文（UI 截取摘要）
+  content: string; // 文件全文（UI 截取摘要）
 }
 
 /** 记忆配置（开关状态） */
@@ -65,7 +65,10 @@ export interface MemoryArchiveFile {
 // ===== WS 协议事件（记忆管理）=====
 
 // 前端 → kernel
-export interface MemoryListEvent { type: "memory:list"; projectId: string; }
+export interface MemoryListEvent {
+  type: "memory:list";
+  projectId: string;
+}
 export interface MemoryUpdateEvent {
   type: "memory:update";
   projectId: string;
@@ -111,7 +114,9 @@ export interface MemorySearchEvent {
   limit?: number;
   includeArchived?: boolean;
 }
-export interface MemoryConfigGetEvent { type: "memory:config:get"; }
+export interface MemoryConfigGetEvent {
+  type: "memory:config:get";
+}
 export interface MemoryConfigSetEvent {
   type: "memory:config:set";
   reviewEnabled?: boolean;

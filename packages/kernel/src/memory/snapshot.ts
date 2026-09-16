@@ -93,7 +93,10 @@ function pickProfile(rows: MemoryRow[], budget: number): Picked[] {
  */
 function pickRecent(rows: MemoryRow[], budget: SnapshotBudget): Picked[] {
   const picked: Picked[] = [];
-  const used: Record<"knowledge" | "execution", number> = { knowledge: 0, execution: 0 };
+  const used: Record<"knowledge" | "execution", number> = {
+    knowledge: 0,
+    execution: 0,
+  };
   for (const row of rows) {
     const kind = row.kind as "knowledge" | "execution";
     const text = safeContent(row);
@@ -123,8 +126,12 @@ function renderIndex(l2: number, l3: number, oldest: number | null): string {
     l2 ? `L2 长期知识 ${l2} 条` : "",
     l3 ? `L3 执行记忆 ${l3} 条` : "",
     // 用 UTC 日期，保证同一时间戳在任何时区渲染结果一致
-    oldest === null ? "" : `${new Date(oldest).toISOString().slice(0, 10)} 至今`,
-  ].filter(Boolean).join(" | ");
+    oldest === null
+      ? ""
+      : `${new Date(oldest).toISOString().slice(0, 10)} 至今`,
+  ]
+    .filter(Boolean)
+    .join(" | ");
 
   return `[${head}]\n[需要更多记忆时用 memory_search 检索]`;
 }
@@ -145,9 +152,14 @@ function oldestDownsunk(
   pickedRecent: Picked[],
   truncated: boolean,
 ): number | null {
-  const outOfWindow = dao.oldestUpdatedAt({ ...filter, excludeProfile: true, before: windowStart });
+  const outOfWindow = dao.oldestUpdatedAt({
+    ...filter,
+    excludeProfile: true,
+    before: windowStart,
+  });
   if (outOfWindow !== null) return outOfWindow;
-  if (truncated) return dao.oldestUpdatedAt({ ...filter, excludeProfile: true });
+  if (truncated)
+    return dao.oldestUpdatedAt({ ...filter, excludeProfile: true });
 
   const injected = new Set(pickedRecent.map((p) => p.id));
   let oldest: number | null = null;
@@ -167,19 +179,36 @@ export function renderSnapshot(dao: MemoryDao, ctx: SnapshotContext): string {
   // 就等于该层完全不设上限（静默取消配额），必须在入口处补全。
   const budget = { ...DEFAULT_SNAPSHOT_BUDGET, ...ctx.budget };
   const windowStart = now - windowDays * 86_400_000;
-  const filter: ListOpts = { scope: ctx.scope, projectId: ctx.projectId, includeArchived: false };
+  const filter: ListOpts = {
+    scope: ctx.scope,
+    projectId: ctx.projectId,
+    includeArchived: false,
+  };
 
   // 索引块条数与"有没有记忆"都走聚合查询：不载入全文，也不因 L1 取数上界而算错
   const totals = dao.counts(filter);
   if (totals.profile + totals.knowledge + totals.execution === 0) return "";
 
   // L1 三段各自带上界取数；dao.list 已按 updated_at DESC 排序
-  const profileRows = dao.list({ ...filter, kind: "profile", limit: L1_SCAN_LIMIT });
-  const knowledgeRows = dao.list({ ...filter, kind: "knowledge", limit: L1_SCAN_LIMIT });
-  const executionRows = dao.list({ ...filter, kind: "execution", limit: L1_SCAN_LIMIT });
+  const profileRows = dao.list({
+    ...filter,
+    kind: "profile",
+    limit: L1_SCAN_LIMIT,
+  });
+  const knowledgeRows = dao.list({
+    ...filter,
+    kind: "knowledge",
+    limit: L1_SCAN_LIMIT,
+  });
+  const executionRows = dao.list({
+    ...filter,
+    kind: "execution",
+    limit: L1_SCAN_LIMIT,
+  });
   // 取满上界即视为被截断（更早的行没进内存）；只影响索引块的时间跨度取值，不影响条数
   const truncated =
-    knowledgeRows.length === L1_SCAN_LIMIT || executionRows.length === L1_SCAN_LIMIT;
+    knowledgeRows.length === L1_SCAN_LIMIT ||
+    executionRows.length === L1_SCAN_LIMIT;
   const inWindow = [...knowledgeRows, ...executionRows]
     .filter((r) => r.updatedAt >= windowStart)
     .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -188,13 +217,24 @@ export function renderSnapshot(dao: MemoryDao, ctx: SnapshotContext): string {
   const pickedRecent = pickRecent(inWindow, budget);
 
   // 索引块的条数 = 总量 − 已注入的（已注入的不算"下沉"，否则索引会重复报数）
-  const injectedKnowledge = pickedRecent.filter((p) => p.kind === "knowledge").length;
-  const injectedExecution = pickedRecent.filter((p) => p.kind === "execution").length;
+  const injectedKnowledge = pickedRecent.filter(
+    (p) => p.kind === "knowledge",
+  ).length;
+  const injectedExecution = pickedRecent.filter(
+    (p) => p.kind === "execution",
+  ).length;
   const l2 = totals.knowledge - injectedKnowledge;
   const l3 = totals.execution - injectedExecution;
   const oldest =
     l2 > 0 || l3 > 0
-      ? oldestDownsunk(dao, filter, windowStart, inWindow, pickedRecent, truncated)
+      ? oldestDownsunk(
+          dao,
+          filter,
+          windowStart,
+          inWindow,
+          pickedRecent,
+          truncated,
+        )
       : null;
 
   return [

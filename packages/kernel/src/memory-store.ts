@@ -79,7 +79,11 @@ export class MemoryStore {
 
     const globals = dao.list({ scope: "global", includeArchived: false });
     const projects = projectName
-      ? dao.list({ scope: "project", projectId: projectName, includeArchived: false })
+      ? dao.list({
+          scope: "project",
+          projectId: projectName,
+          includeArchived: false,
+        })
       : [];
     // 归档段与旧 sidecar 等价：不按作用域/项目切分，一条全局归档列表
     const archived = dao
@@ -135,17 +139,19 @@ export class MemoryStore {
     };
 
     const dao = this.dao();
-    const results = dao.search(opts.query, { ...filter, limit: opts.limit }).map((h) => ({
-      id: h.id,
-      title: h.title,
-      snippet: h.snippet,
-      kind: h.kind,
-      scope: h.scope,
-      projectId: h.projectId ?? undefined,
-      updatedAt: new Date(h.updatedAt).toISOString(),
-      score: Number(h.score.toFixed(4)),
-      archived: h.archived === 1,
-    }));
+    const results = dao
+      .search(opts.query, { ...filter, limit: opts.limit })
+      .map((h) => ({
+        id: h.id,
+        title: h.title,
+        snippet: h.snippet,
+        kind: h.kind,
+        scope: h.scope,
+        projectId: h.projectId ?? undefined,
+        updatedAt: new Date(h.updatedAt).toISOString(),
+        score: Number(h.score.toFixed(4)),
+        archived: h.archived === 1,
+      }));
 
     return { results, totalMatched: dao.countMatches(opts.query, filter) };
   }
@@ -154,12 +160,17 @@ export class MemoryStore {
    * 手动添加记忆（UI「+ 添加」入口）。
    * 固定写入 memory target（USER target 由 agent 维护）。
    */
-  async add(scope: MemoryScope, text: string, projectId?: string): Promise<void> {
+  async add(
+    scope: MemoryScope,
+    text: string,
+    projectId?: string,
+  ): Promise<void> {
     let projectName: string | null = null;
     if (scope === "project") {
       if (!projectId) throw new Error("项目记忆需要 projectId");
       projectName = await this.getProjectName(projectId);
-      if (!projectName) throw new KernelError("project.notFound", { id: projectId });
+      if (!projectName)
+        throw new KernelError("project.notFound", { id: projectId });
     }
     this.dao().insert({
       kind: "knowledge",
@@ -173,7 +184,8 @@ export class MemoryStore {
 
   /** 编辑记忆 */
   async update(id: string, text: string): Promise<void> {
-    if (!this.dao().updateContent(id, text)) throw new KernelError("memory.entryStale");
+    if (!this.dao().updateContent(id, text))
+      throw new KernelError("memory.entryStale");
   }
 
   /** 归档（软删除） */
@@ -183,12 +195,14 @@ export class MemoryStore {
 
   /** 恢复归档条目 */
   async restore(id: string): Promise<void> {
-    if (!this.dao().restore(id)) throw new KernelError("memory.archiveNotFound", { id });
+    if (!this.dao().restore(id))
+      throw new KernelError("memory.archiveNotFound", { id });
   }
 
   /** 彻底删除归档条目 */
   async purge(id: string): Promise<void> {
-    if (!this.dao().remove(id)) throw new KernelError("memory.archiveNotFound", { id });
+    if (!this.dao().remove(id))
+      throw new KernelError("memory.archiveNotFound", { id });
   }
 
   /** 扫描已加载的指令文件，对齐 pi 框架 resource-loader.js loadProjectContextFiles 行为：

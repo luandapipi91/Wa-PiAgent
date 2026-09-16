@@ -100,20 +100,40 @@ export function makeSnippet(content: string, rawQuery: string): string {
 }
 
 interface RawRow {
-  id: string; kind: string; target: string; scope: string; project_id: string | null;
-  content: string; title: string; tags: string; source: string;
-  created_at: number; updated_at: number; last_used_at: number | null;
-  use_count: number; archived: number; archived_at: number | null;
+  id: string;
+  kind: string;
+  target: string;
+  scope: string;
+  project_id: string | null;
+  content: string;
+  title: string;
+  tags: string;
+  source: string;
+  created_at: number;
+  updated_at: number;
+  last_used_at: number | null;
+  use_count: number;
+  archived: number;
+  archived_at: number | null;
 }
 
 function toRow(r: RawRow): MemoryRow {
   return {
-    id: r.id, kind: r.kind as MemoryKind, target: r.target as MemoryTarget,
-    scope: r.scope as MemoryScope, projectId: r.project_id,
-    content: r.content, title: r.title, tags: r.tags, source: r.source,
-    createdAt: r.created_at, updatedAt: r.updated_at,
-    lastUsedAt: r.last_used_at, useCount: r.use_count,
-    archived: r.archived, archivedAt: r.archived_at,
+    id: r.id,
+    kind: r.kind as MemoryKind,
+    target: r.target as MemoryTarget,
+    scope: r.scope as MemoryScope,
+    projectId: r.project_id,
+    content: r.content,
+    title: r.title,
+    tags: r.tags,
+    source: r.source,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    lastUsedAt: r.last_used_at,
+    useCount: r.use_count,
+    archived: r.archived,
+    archivedAt: r.archived_at,
   };
 }
 
@@ -129,8 +149,19 @@ export class MemoryDao {
          (id, kind, target, scope, project_id, content, title, tags, source,
           created_at, updated_at, last_used_at, use_count, archived, archived_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,0,0,NULL)`,
-      [id, input.kind, input.target, input.scope, input.projectId ?? null,
-       input.content, title, input.tags ?? "", input.source, now, now],
+      [
+        id,
+        input.kind,
+        input.target,
+        input.scope,
+        input.projectId ?? null,
+        input.content,
+        title,
+        input.tags ?? "",
+        input.source,
+        now,
+        now,
+      ],
     );
     const row = this.getById(id)!;
     this.syncFts(row);
@@ -138,7 +169,9 @@ export class MemoryDao {
   }
 
   getById(id: string): MemoryRow | null {
-    const r = this.db.query("SELECT * FROM memories WHERE id = ?").get(id) as RawRow | null;
+    const r = this.db
+      .query("SELECT * FROM memories WHERE id = ?")
+      .get(id) as RawRow | null;
     return r ? toRow(r) : null;
   }
 
@@ -146,8 +179,10 @@ export class MemoryDao {
   findBySubstring(text: string, opts: ListOpts = {}): MemoryRow[] {
     const trimmed = text.trim();
     if (!trimmed) return [];
-    return this.list({ ...opts, includeArchived: opts.includeArchived ?? false })
-      .filter((r) => r.content.includes(trimmed));
+    return this.list({
+      ...opts,
+      includeArchived: opts.includeArchived ?? false,
+    }).filter((r) => r.content.includes(trimmed));
   }
 
   updateContent(id: string, content: string): boolean {
@@ -194,7 +229,10 @@ export class MemoryDao {
 
   list(opts: ListOpts = {}): MemoryRow[] {
     const { where, params } = this.buildFilter(opts);
-    const limit = typeof opts.limit === "number" && opts.limit > 0 ? ` LIMIT ${Math.floor(opts.limit)}` : "";
+    const limit =
+      typeof opts.limit === "number" && opts.limit > 0
+        ? ` LIMIT ${Math.floor(opts.limit)}`
+        : "";
     const rows = this.db
       .query(`SELECT * FROM memories ${where} ORDER BY updated_at DESC${limit}`)
       .all(...params) as RawRow[];
@@ -206,7 +244,11 @@ export class MemoryDao {
     const rows = this.db
       .query(`SELECT kind, COUNT(*) AS n FROM memories ${where} GROUP BY kind`)
       .all(...params) as Array<{ kind: string; n: number }>;
-    const out: Record<MemoryKind, number> = { profile: 0, knowledge: 0, execution: 0 };
+    const out: Record<MemoryKind, number> = {
+      profile: 0,
+      knowledge: 0,
+      execution: 0,
+    };
     for (const r of rows) {
       if (r.kind in out) out[r.kind as MemoryKind] = r.n;
     }
@@ -336,12 +378,21 @@ export class MemoryDao {
     return limited;
   }
 
-  private buildFilter(opts: ListOpts): { where: string; params: SQLQueryBindings[] } {
+  private buildFilter(opts: ListOpts): {
+    where: string;
+    params: SQLQueryBindings[];
+  } {
     const clauses: string[] = [];
     const params: SQLQueryBindings[] = [];
     if (!opts.includeArchived) clauses.push("archived = 0");
-    if (opts.kind) { clauses.push("kind = ?"); params.push(opts.kind); }
-    if (opts.scope) { clauses.push("scope = ?"); params.push(opts.scope); }
+    if (opts.kind) {
+      clauses.push("kind = ?");
+      params.push(opts.kind);
+    }
+    if (opts.scope) {
+      clauses.push("scope = ?");
+      params.push(opts.scope);
+    }
     // undefined / null / 空串都不加条件（空串不是合法的 projectId）
     if (opts.projectId) {
       clauses.push("project_id = ?");
@@ -357,6 +408,9 @@ export class MemoryDao {
   private syncFts(row: MemoryRow): void {
     const body = bigram(`${row.title} ${row.content} ${row.tags}`);
     this.db.run("DELETE FROM memories_fts WHERE memory_id = ?", [row.id]);
-    this.db.run("INSERT INTO memories_fts(body, memory_id) VALUES (?, ?)", [body, row.id]);
+    this.db.run("INSERT INTO memories_fts(body, memory_id) VALUES (?, ?)", [
+      body,
+      row.id,
+    ]);
   }
 }

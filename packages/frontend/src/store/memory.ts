@@ -1,8 +1,15 @@
 // store/memory.ts — 记忆与指令文件管理 store
 import { create } from "zustand";
 import type {
-  MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig, MemoryKind,
-  MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
+  MemoryEntry,
+  ArchivedMemory,
+  InstructionFile,
+  MemoryConfig,
+  MemoryKind,
+  MemoryListResult,
+  MemoryChangedEvent,
+  InstructionListResult,
+  MemoryConfigEvent,
 } from "@wa-pi/shared";
 import { api } from "../api-client";
 
@@ -71,17 +78,40 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   load: (projectId) => {
     set({ loading: true });
-    api.get(`/api/memories?projectId=${projectId}`).then((data: any) => { if (data) get().setMemories(data); }).catch((err) => { console.error("[memory] 加载记忆列表失败:", err); set({ loading: false }); });
-    api.get("/api/memories/config").then((data: any) => { if (data) get().setConfig(data); }).catch((err) => { console.error("[memory] 加载记忆配置失败:", err); });
+    api
+      .get(`/api/memories?projectId=${projectId}`)
+      .then((data: any) => {
+        if (data) get().setMemories(data);
+      })
+      .catch((err) => {
+        console.error("[memory] 加载记忆列表失败:", err);
+        set({ loading: false });
+      });
+    api
+      .get("/api/memories/config")
+      .then((data: any) => {
+        if (data) get().setConfig(data);
+      })
+      .catch((err) => {
+        console.error("[memory] 加载记忆配置失败:", err);
+      });
   },
   loadInstructions: (projectId) => {
-    api.get(`/api/instructions?projectId=${projectId}`).then((data: any) => { if (data) get().setInstructions(data); }).catch((err) => { console.error("[memory] 加载指令文件失败:", err); });
+    api
+      .get(`/api/instructions?projectId=${projectId}`)
+      .then((data: any) => {
+        if (data) get().setInstructions(data);
+      })
+      .catch((err) => {
+        console.error("[memory] 加载指令文件失败:", err);
+      });
   },
-  setMemories: (data) => set({
-    memories: data.memories,
-    archived: data.archived,
-    loading: false,
-  }),
+  setMemories: (data) =>
+    set({
+      memories: data.memories,
+      archived: data.archived,
+      loading: false,
+    }),
   setInstructions: (data) => set({ instructions: data.instructions }),
   setConfig: (data) => set({ config: data.config }),
   update: (projectId, entryId, text) => {
@@ -94,7 +124,9 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     void api.post("/api/memories/restore", { projectId, entryId });
   },
   purge: (projectId, entryId) => {
-    void api.del(`/api/memories/${encodeURIComponent(entryId)}?projectId=${projectId}`);
+    void api.del(
+      `/api/memories/${encodeURIComponent(entryId)}?projectId=${projectId}`,
+    );
   },
   add: (scope, text, projectId) => {
     void api.post("/api/memories", { scope, text, projectId });

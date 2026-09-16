@@ -475,10 +475,13 @@ test.each([
 test.each([
 	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
 	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
-])("%s 记忆策略不再宣称记忆落在 MEMORY.md / USER.md（DB 化后二者非真源）", (_name, prompt) => {
-	expect(prompt).not.toContain("MEMORY.md");
-	expect(prompt).not.toContain("USER.md");
-});
+])(
+	"%s 记忆策略不再宣称记忆落在 MEMORY.md / USER.md（DB 化后二者非真源）",
+	(_name, prompt) => {
+		expect(prompt).not.toContain("MEMORY.md");
+		expect(prompt).not.toContain("USER.md");
+	},
+);
 
 test("DEFAULT 记忆策略分层说明：profile / knowledge / execution 与 target 路由", () => {
 	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("kind=profile");

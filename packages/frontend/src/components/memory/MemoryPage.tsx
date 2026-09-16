@@ -84,8 +84,7 @@ export function MemoryPage() {
 		.filter((m) => kindFilter === null || m.kind === kindFilter)
 		.filter(
 			(m) =>
-				!searchQuery ||
-				m.text.toLowerCase().includes(searchQuery.toLowerCase()),
+				!searchQuery || m.text.toLowerCase().includes(searchQuery.toLowerCase()),
 		);
 
 	// 当前作用域下的记忆总数（tab 徽标用）：只随作用域变化，不随分类/搜索等临时筛选跳动
@@ -337,9 +336,7 @@ export function MemoryPage() {
 								add(
 									memoryScope,
 									text,
-									memoryScope === "project"
-										? (activeProjectId ?? undefined)
-										: undefined,
+									memoryScope === "project" ? (activeProjectId ?? undefined) : undefined,
 								);
 								setNewMemoryText("");
 								setShowAddForm(false);
@@ -415,9 +412,7 @@ function TabButton({
 			className="text-[calc(12px*var(--font-scale))] font-semibold py-1.5 px-3.5"
 			style={{
 				color: active ? "var(--brand)" : "var(--text-secondary)",
-				borderBottom: active
-					? "2px solid var(--accent)"
-					: "2px solid transparent",
+				borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
 				marginBottom: -1,
 			}}
 			data-testid={`tab-${label}`}

@@ -286,8 +286,7 @@ export default function (pi: ExtensionAPI) {
 			kind: Type.Optional(MemoryKindSchema),
 			title: Type.Optional(
 				Type.String({
-					description:
-						"Optional short title; derived from content when omitted.",
+					description: "Optional short title; derived from content when omitted.",
 				}),
 			),
 			tags: Type.Optional(
@@ -315,8 +314,7 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			id: Type.Optional(
 				Type.String({
-					description:
-						"Entry id from memory_search / memory_read (preferred).",
+					description: "Entry id from memory_search / memory_read (preferred).",
 				}),
 			),
 			target: Type.Optional(MemoryTargetSchema),

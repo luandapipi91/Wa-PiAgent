@@ -14,13 +14,35 @@ interface Props {
 }
 
 // 分类标签配色（label 文案走 i18n：memory.categoryMemory / categoryUser / categoryFailure）
-const CATEGORY_STYLE: Record<string, { bg: string; color: string; labelKey: string }> = {
-  memory: { bg: "var(--success-soft)", color: "var(--success)", labelKey: "memory.categoryMemory" },
-  user: { bg: "var(--accent-soft)", color: "var(--accent)", labelKey: "memory.categoryUser" },
-  failure: { bg: "var(--danger-soft)", color: "var(--danger)", labelKey: "memory.categoryFailure" },
+const CATEGORY_STYLE: Record<
+  string,
+  { bg: string; color: string; labelKey: string }
+> = {
+  memory: {
+    bg: "var(--success-soft)",
+    color: "var(--success)",
+    labelKey: "memory.categoryMemory",
+  },
+  user: {
+    bg: "var(--accent-soft)",
+    color: "var(--accent)",
+    labelKey: "memory.categoryUser",
+  },
+  failure: {
+    bg: "var(--danger-soft)",
+    color: "var(--danger)",
+    labelKey: "memory.categoryFailure",
+  },
 };
 
-export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestore, onPurge }: Props) {
+export function MemoryCard({
+  entry,
+  mode = "active",
+  onEdit,
+  onArchive,
+  onRestore,
+  onPurge,
+}: Props) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(entry.text);
@@ -46,7 +68,9 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
       className="mb-2.5 p-3.5"
       style={{
         background: "var(--surface)",
-        border: editing ? "1px solid var(--accent)" : "1px solid var(--hairline)",
+        border: editing
+          ? "1px solid var(--accent)"
+          : "1px solid var(--hairline)",
         borderRadius: 14,
         opacity: isArchived ? 0.75 : 1,
         boxShadow: editing ? "0 0 0 3px var(--accent-soft)" : "none",
@@ -59,15 +83,24 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
         <span
           className="text-[calc(10px*var(--font-scale))] font-semibold px-2 py-0.5 rounded-full"
           style={{ background: cat.bg, color: cat.color }}
-        >{t(cat.labelKey)}</span>
+        >
+          {t(cat.labelKey)}
+        </span>
         <span className="text-[calc(10px*var(--font-scale))] text-tertiary">
-          {entry.scope === "global" ? t("memoryCard.scopeGlobal") : t("memoryCard.scopeProject")}
+          {entry.scope === "global"
+            ? t("memoryCard.scopeGlobal")
+            : t("memoryCard.scopeProject")}
         </span>
         <span
           className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded"
-          style={{ background: "var(--canvas)", color: "var(--text-secondary)" }}
+          style={{
+            background: "var(--canvas)",
+            color: "var(--text-secondary)",
+          }}
           data-testid="memory-kind-badge"
-        >{kindLabel}</span>
+        >
+          {kindLabel}
+        </span>
       </div>
 
       {/* 内容 / 编辑态 */}
@@ -83,43 +116,75 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
               minHeight: 60,
             }}
             value={draft}
-            onChange={e => setDraft(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
             data-testid="memory-edit-textarea"
           />
           <div className="flex justify-end gap-2">
             <button
               onClick={handleCancel}
               className="text-[calc(11px*var(--font-scale))] text-secondary px-2.5 py-1 rounded-md"
-              style={{ border: "1px solid var(--hairline)", background: "transparent" }}
+              style={{
+                border: "1px solid var(--hairline)",
+                background: "transparent",
+              }}
               data-testid="memory-edit-cancel"
-            >{t("memoryCard.cancelButton")}</button>
+            >
+              {t("memoryCard.cancelButton")}
+            </button>
             <button
               onClick={handleSave}
               className="text-[calc(11px*var(--font-scale))] font-semibold text-white px-3.5 py-1 rounded-md"
               style={{ background: "var(--accent)", border: "none" }}
               data-testid="memory-edit-save"
-            >{t("memoryCard.saveButton")}</button>
+            >
+              {t("memoryCard.saveButton")}
+            </button>
           </div>
         </>
       ) : (
         <>
-          <p className="text-[calc(12.5px*var(--font-scale))] leading-relaxed text-primary m-0 mb-2">{entry.text}</p>
+          <p className="text-[calc(12.5px*var(--font-scale))] leading-relaxed text-primary m-0 mb-2">
+            {entry.text}
+          </p>
           <div className="flex items-center justify-between">
             <span className="text-[calc(10.5px*var(--font-scale))] text-tertiary">
-              {isArchived ? t("memoryCard.archivedAt", { date: (entry as ArchivedMemory).archivedAt?.slice(0, 10) ?? "" }) : entry.updatedAt?.slice(0, 10) ?? ""}
+              {isArchived
+                ? t("memoryCard.archivedAt", {
+                    date:
+                      (entry as ArchivedMemory).archivedAt?.slice(0, 10) ?? "",
+                  })
+                : (entry.updatedAt?.slice(0, 10) ?? "")}
             </span>
             <div className="flex gap-1.5">
               {isArchived ? (
                 <>
-                  <CardButton onClick={onRestore} testId="memory-restore" text={t("memoryCard.restoreButton")}
-                    color="var(--accent)" borderColor="var(--accent)" />
-                  <CardButton onClick={onPurge} testId="memory-purge" text={t("memoryCard.purgeButton")}
-                    color="var(--danger)" borderColor="var(--danger)" />
+                  <CardButton
+                    onClick={onRestore}
+                    testId="memory-restore"
+                    text={t("memoryCard.restoreButton")}
+                    color="var(--accent)"
+                    borderColor="var(--accent)"
+                  />
+                  <CardButton
+                    onClick={onPurge}
+                    testId="memory-purge"
+                    text={t("memoryCard.purgeButton")}
+                    color="var(--danger)"
+                    borderColor="var(--danger)"
+                  />
                 </>
               ) : (
                 <>
-                  <CardButton onClick={() => setEditing(true)} testId="memory-edit" text={t("memoryCard.editButton")} />
-                  <CardButton onClick={onArchive} testId="memory-archive" text={t("memoryCard.archiveButton")} />
+                  <CardButton
+                    onClick={() => setEditing(true)}
+                    testId="memory-edit"
+                    text={t("memoryCard.editButton")}
+                  />
+                  <CardButton
+                    onClick={onArchive}
+                    testId="memory-archive"
+                    text={t("memoryCard.archiveButton")}
+                  />
                 </>
               )}
             </div>
@@ -130,9 +195,18 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
   );
 }
 
-function CardButton({ onClick, testId, text, color, borderColor }: {
-  onClick?: () => void; testId: string; text: string;
-  color?: string; borderColor?: string;
+function CardButton({
+  onClick,
+  testId,
+  text,
+  color,
+  borderColor,
+}: {
+  onClick?: () => void;
+  testId: string;
+  text: string;
+  color?: string;
+  borderColor?: string;
 }) {
   return (
     <button
@@ -144,6 +218,8 @@ function CardButton({ onClick, testId, text, color, borderColor }: {
         border: `1px solid ${borderColor ?? "var(--hairline)"}`,
         background: "transparent",
       }}
-    >{text}</button>
+    >
+      {text}
+    </button>
   );
 }

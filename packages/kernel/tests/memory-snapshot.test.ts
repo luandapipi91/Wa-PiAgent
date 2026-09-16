@@ -2,7 +2,10 @@ import { test, expect, beforeEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { SCHEMA_SQL } from "../src/memory/schema";
 import { MemoryDao, type MemoryKind } from "../src/memory/dao";
-import { renderSnapshot, DEFAULT_SNAPSHOT_BUDGET } from "../src/memory/snapshot";
+import {
+  renderSnapshot,
+  DEFAULT_SNAPSHOT_BUDGET,
+} from "../src/memory/snapshot";
 
 let dao: MemoryDao;
 const NOW = Date.UTC(2026, 8, 16);
@@ -14,12 +17,20 @@ beforeEach(() => {
 
 function add(kind: MemoryKind, content: string, opts: any = {}) {
   const row = dao.insert({
-    kind, target: kind === "profile" ? "user" : "memory",
-    scope: "global", projectId: null, content, source: "test",
+    kind,
+    target: kind === "profile" ? "user" : "memory",
+    scope: "global",
+    projectId: null,
+    content,
+    source: "test",
   });
   if (opts.ageDays !== undefined) {
     const t = NOW - opts.ageDays * 86_400_000;
-    dao.db.run("UPDATE memories SET created_at=?, updated_at=? WHERE id=?", [t, t, row.id]);
+    dao.db.run("UPDATE memories SET created_at=?, updated_at=? WHERE id=?", [
+      t,
+      t,
+      row.id,
+    ]);
   }
   return row;
 }
@@ -61,7 +72,10 @@ test("execution 超窗口进 L3 索引块，窗口内进 L1", () => {
 test("profile 超预算时截断，且不写入 RECENT 块", () => {
   add("profile", "P".repeat(2000));
   add("knowledge", "知识在但预算被 profile 吃光");
-  const out = renderSnapshot(dao, { ...CTX, budget: { profile: 100, knowledge: 1500, execution: 500 } });
+  const out = renderSnapshot(dao, {
+    ...CTX,
+    budget: { profile: 100, knowledge: 1500, execution: 500 },
+  });
   expect(out).toContain("USER PROFILE");
   expect(out.length).toBeLessThan(1000);
 });
@@ -69,7 +83,10 @@ test("profile 超预算时截断，且不写入 RECENT 块", () => {
 test("knowledge 超预算时下沉到 L2 计数", () => {
   add("knowledge", "K".repeat(300), { ageDays: 1 });
   add("knowledge", "K2".repeat(50), { ageDays: 0 });
-  const out = renderSnapshot(dao, { ...CTX, budget: { profile: 1800, knowledge: 320, execution: 500 } });
+  const out = renderSnapshot(dao, {
+    ...CTX,
+    budget: { profile: 1800, knowledge: 320, execution: 500 },
+  });
   expect(out).toMatch(/L2 长期知识 1 条/);
 });
 
@@ -95,7 +112,11 @@ test("命中注入防护的条目被替换为 [BLOCKED: id]", () => {
 });
 
 test("默认预算是规格约定的 1800/1500/500", () => {
-  expect(DEFAULT_SNAPSHOT_BUDGET).toEqual({ profile: 1800, knowledge: 1500, execution: 500 });
+  expect(DEFAULT_SNAPSHOT_BUDGET).toEqual({
+    profile: 1800,
+    knowledge: 1500,
+    execution: 500,
+  });
 });
 
 test("ctx.budget 只给部分字段时，未给的层回落默认配额（不静默取消上限）", () => {
@@ -121,12 +142,22 @@ function bulkAdd(kind: MemoryKind, n: number, ageDays: number) {
         created_at, updated_at, last_used_at, use_count, archived, archived_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,0,0,NULL)`,
   );
-  const content = (i: number) => `${kind}:${String(i).padStart(6, "0")}:${"x".repeat(10)}`;
+  const content = (i: number) =>
+    `${kind}:${String(i).padStart(6, "0")}:${"x".repeat(10)}`;
   dao.db.transaction(() => {
     for (let i = 0; i < n; i++) {
       stmt.run(
-        `${kind}-${ageDays}-${i}`, kind, kind === "profile" ? "user" : "memory",
-        "global", null, content(i), content(i), "", "test", t, t,
+        `${kind}-${ageDays}-${i}`,
+        kind,
+        kind === "profile" ? "user" : "memory",
+        "global",
+        null,
+        content(i),
+        content(i),
+        "",
+        "test",
+        t,
+        t,
       );
     }
   })();
@@ -153,7 +184,9 @@ test("条目上万时不抛错：L1 不无界扫描，索引块条数仍精确",
   expect(out).toContain("L2 长期知识 2000 条");
   expect(out).not.toContain("knowledge:000000");
   // ③ 时间跨度仍可得出（无展开传参，不会 RangeError）
-  expect(out).toContain(`${new Date(NOW - 30 * 86_400_000).toISOString().slice(0, 10)} 至今`);
+  expect(out).toContain(
+    `${new Date(NOW - 30 * 86_400_000).toISOString().slice(0, 10)} 至今`,
+  );
 });
 
 test("索引块条数为「总量 − 已注入」：窗口内 2000 条、预算只装得下 30 条", () => {

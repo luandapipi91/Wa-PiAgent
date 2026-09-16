@@ -23,7 +23,11 @@ const ORIG_ENV = {
 const TMP_ROOT = mkdtempSync(join(tmpdir(), "wa-pi-mem-dbfail-"));
 const LEGACY_MEMORY = "库坏了也要起得来";
 mkdirSync(join(TMP_ROOT, "memories", "global"), { recursive: true });
-await writeFile(join(TMP_ROOT, "memories", "global", "MEMORY.md"), LEGACY_MEMORY, "utf8");
+await writeFile(
+	join(TMP_ROOT, "memories", "global", "MEMORY.md"),
+	LEGACY_MEMORY,
+	"utf8",
+);
 // 稳定构造：memories.db 占位成目录 → new Database(path) 必抛（不依赖权限位，跨平台一致）
 mkdirSync(join(TMP_ROOT, "memories.db"), { recursive: true });
 
@@ -67,9 +71,11 @@ afterAll(async () => {
 
 test("memories.db 打不开（被造成目录）时 startKernel 仍能启动，不抛错", async () => {
 	const logs: unknown[][] = [];
-	const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-		logs.push(args);
-	});
+	const spy = spyOn(console, "error").mockImplementation(
+		(...args: unknown[]) => {
+			logs.push(args);
+		},
+	);
 	let started: Awaited<ReturnType<typeof startKernel>>;
 	try {
 		started = await startKernel({ port: await getFreePort() });
@@ -83,6 +89,10 @@ test("memories.db 打不开（被造成目录）时 startKernel 仍能启动，�
 	// ② 失败必须留日志（不静默），且指向记忆迁移
 	expect(logs.map((a) => String(a[0])).join("\n")).toContain("记忆迁移失败");
 	// ③ 源文件保留原名：库修好后下次启动仍会重试迁移，数据不丢
-	expect(existsSync(join(TMP_ROOT, "memories", "global", "MEMORY.md"))).toBe(true);
-	expect(existsSync(join(TMP_ROOT, "memories", "global", "MEMORY.md.imported"))).toBe(false);
+	expect(existsSync(join(TMP_ROOT, "memories", "global", "MEMORY.md"))).toBe(
+		true,
+	);
+	expect(
+		existsSync(join(TMP_ROOT, "memories", "global", "MEMORY.md.imported")),
+	).toBe(false);
 });

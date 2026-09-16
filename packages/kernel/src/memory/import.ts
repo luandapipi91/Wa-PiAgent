@@ -42,7 +42,8 @@ interface SidecarEntry {
  * 分隔符可能是 \\ 或 /，归一化后再匹配。
  */
 function projectIdFromSidecar(e: SidecarEntry): string | null {
-  const raw = typeof e.sourceFile === "string" && e.sourceFile ? e.sourceFile : e.id;
+  const raw =
+    typeof e.sourceFile === "string" && e.sourceFile ? e.sourceFile : e.id;
   if (typeof raw !== "string" || !raw) return null;
   const m = /(?:^|\/)projects-memory\/([^/]+)\//.exec(raw.replace(/\\/g, "/"));
   return m ? m[1]! : null;
@@ -52,7 +53,10 @@ function projectIdFromSidecar(e: SidecarEntry): string | null {
  * 逐来源容错：只跑一个来源，失败则打印该来源路径与错误后跳过。
  * 日志必须保留（console.error）——静默吞掉会让迁移悄悄少导而无人知晓。
  */
-async function importSafely(label: string, run: () => Promise<unknown>): Promise<void> {
+async function importSafely(
+  label: string,
+  run: () => Promise<unknown>,
+): Promise<void> {
   try {
     await run();
   } catch (err) {
@@ -92,11 +96,10 @@ async function importFile(
       });
       // 顺序 → 时间戳：第 index 条比第 0 条早 index 秒
       const createdAt = Math.round(info.mtimeMs) - index * 1000;
-      dao.db.run("UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?", [
-        createdAt,
-        createdAt,
-        row.id,
-      ]);
+      dao.db.run(
+        "UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?",
+        [createdAt, createdAt, row.id],
+      );
     });
     renameSync(absPath, absPath + IMPORTED_SUFFIX);
   })();
@@ -104,7 +107,10 @@ async function importFile(
   return entries.length;
 }
 
-async function importProjectsMemory(dao: MemoryDao, waPiDir: string): Promise<void> {
+async function importProjectsMemory(
+  dao: MemoryDao,
+  waPiDir: string,
+): Promise<void> {
   const base = join(waPiDir, "projects-memory");
   if (!existsSync(base)) return;
   for (const name of await readdir(base)) {
@@ -112,8 +118,12 @@ async function importProjectsMemory(dao: MemoryDao, waPiDir: string): Promise<vo
     // 同一项目下的两个文件、以及各项目之间都独立容错：一个坏文件不妨碍其余导入
     const memoryPath = join(dir, "MEMORY.md");
     const userPath = join(dir, "USER.md");
-    await importSafely(memoryPath, () => importFile(dao, memoryPath, "project", name, "memory"));
-    await importSafely(userPath, () => importFile(dao, userPath, "project", name, "user"));
+    await importSafely(memoryPath, () =>
+      importFile(dao, memoryPath, "project", name, "memory"),
+    );
+    await importSafely(userPath, () =>
+      importFile(dao, userPath, "project", name, "user"),
+    );
   }
 }
 
@@ -121,7 +131,9 @@ async function importArchive(dao: MemoryDao, waPiDir: string): Promise<void> {
   const p = join(waPiDir, "memory-archive.json");
   if (!existsSync(p)) return;
   try {
-    const data = JSON.parse(await readFile(p, "utf8")) as { entries?: SidecarEntry[] };
+    const data = JSON.parse(await readFile(p, "utf8")) as {
+      entries?: SidecarEntry[];
+    };
     // 整批一个事务：任一条插入或最后的重命名失败即全部回滚，文件保持原名，
     // 下次启动整体重试，不留下「导了一半」的中间态。
     dao.db.transaction(() => {
@@ -151,9 +163,14 @@ async function importArchive(dao: MemoryDao, waPiDir: string): Promise<void> {
         // 故在此回填原始时间；已归档的该条目不会再有其他写入者，回填安全。
         // sidecar 里的 archivedAt 缺失或无法解析时保持 dao.archive() 写的值（不抛错）。
         const archivedAt =
-          typeof e.archivedAt === "string" ? Date.parse(e.archivedAt) : Number.NaN;
+          typeof e.archivedAt === "string"
+            ? Date.parse(e.archivedAt)
+            : Number.NaN;
         if (Number.isFinite(archivedAt)) {
-          dao.db.run("UPDATE memories SET archived_at = ? WHERE id = ?", [archivedAt, row.id]);
+          dao.db.run("UPDATE memories SET archived_at = ? WHERE id = ?", [
+            archivedAt,
+            row.id,
+          ]);
         }
       }
       renameSync(p, p + IMPORTED_SUFFIX);
@@ -168,15 +185,24 @@ async function importArchive(dao: MemoryDao, waPiDir: string): Promise<void> {
  * 执行迁移。幂等：文件已重命名为 .imported 后不再重复导入。
  * 任一来源失败都不应阻断 kernel 启动：逐来源独立 try/catch，失败留日志。
  */
-export async function importLegacyMemories(waPiDir: string, dao: MemoryDao): Promise<void> {
+export async function importLegacyMemories(
+  waPiDir: string,
+  dao: MemoryDao,
+): Promise<void> {
   const globalDir = join(waPiDir, "memories", "global");
   const globalMemory = join(globalDir, "MEMORY.md");
   const globalUser = join(globalDir, "USER.md");
 
-  await importSafely(globalMemory, () => importFile(dao, globalMemory, "global", null, "memory"));
-  await importSafely(globalUser, () => importFile(dao, globalUser, "global", null, "user"));
+  await importSafely(globalMemory, () =>
+    importFile(dao, globalMemory, "global", null, "memory"),
+  );
+  await importSafely(globalUser, () =>
+    importFile(dao, globalUser, "global", null, "user"),
+  );
   // 项目域整体包一层（内含 readdir），其每个文件在 importProjectsMemory 内部已各自容错
-  await importSafely(join(waPiDir, "projects-memory"), () => importProjectsMemory(dao, waPiDir));
+  await importSafely(join(waPiDir, "projects-memory"), () =>
+    importProjectsMemory(dao, waPiDir),
+  );
   // importArchive 自带 try/catch：损坏 JSON 仍静默跳过（既有行为，不改）
   await importArchive(dao, waPiDir);
 }

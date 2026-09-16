@@ -79,7 +79,10 @@ test("restore 只翻 archived、不刷新 updatedAt（恢复 ≠ 内容更新）
   // updatedAt 取一个明显不等于当前时间的值，
   // 否则「没刷新」与「刷新了但恰好同毫秒」无法区分。
   const pinned = Date.now() - 60_000;
-  dao.db.run("UPDATE memories SET updated_at = ? WHERE id = ?", [pinned, row.id]);
+  dao.db.run("UPDATE memories SET updated_at = ? WHERE id = ?", [
+    pinned,
+    row.id,
+  ]);
 
   expect(dao.archive(row.id)).toBe(true);
   const before = dao.getById(row.id)!;
@@ -106,7 +109,12 @@ test("list 按 scope/projectId/kind 过滤", () => {
   add({ content: "d", kind: "execution" });
 
   expect(dao.list({}).length).toBe(4);
-  expect(dao.list({ projectId: "Wa-Pi" }).map((r) => r.content).sort()).toEqual(["b", "d"]);
+  expect(
+    dao
+      .list({ projectId: "Wa-Pi" })
+      .map((r) => r.content)
+      .sort(),
+  ).toEqual(["b", "d"]);
   expect(dao.list({ kind: "execution" }).map((r) => r.content)).toEqual(["d"]);
   expect(dao.list({ scope: "global" }).map((r) => r.content)).toEqual(["a"]);
 });
@@ -143,7 +151,11 @@ test("kind 加权：同相关度下 profile > knowledge > execution", () => {
   add({ kind: "profile", target: "user", content: "zzz" });
   add({ kind: "knowledge", content: "zzz" });
   const hits = dao.search("zzz", { weights: { bm25: 0, time: 0, kind: 1 } });
-  expect(hits.map((h) => h.kind)).toEqual(["profile", "knowledge", "execution"]);
+  expect(hits.map((h) => h.kind)).toEqual([
+    "profile",
+    "knowledge",
+    "execution",
+  ]);
 });
 
 test("时间衰减：同相关度下新条目排在旧条目之前", () => {
@@ -247,7 +259,11 @@ test("countMatches 返回未截断的真实命中总数（不受 CANDIDATE_LIMIT
 test("countMatches 与 search 过滤口径一致（scope/projectId/kind/includeArchived）", () => {
   add({ content: "共同词 alpha", scope: "global", projectId: null });
   add({ content: "共同词 alpha", scope: "project", projectId: "Other" });
-  const archived = add({ content: "共同词 alpha", scope: "global", projectId: null });
+  const archived = add({
+    content: "共同词 alpha",
+    scope: "global",
+    projectId: null,
+  });
   dao.archive(archived.id);
   add({ content: "共同词 alpha", kind: "execution" });
 
@@ -264,7 +280,9 @@ test("countMatches 与 search 过滤口径一致（scope/projectId/kind/includeA
   agree({ scope: "global" });
   expect(dao.countMatches("共同词 alpha", { scope: "global" })).toBe(1);
   agree({ scope: "project", projectId: "Wa-Pi" });
-  expect(dao.countMatches("共同词 alpha", { scope: "project", projectId: "Wa-Pi" })).toBe(1);
+  expect(
+    dao.countMatches("共同词 alpha", { scope: "project", projectId: "Wa-Pi" }),
+  ).toBe(1);
   agree({ kind: "execution" });
   expect(dao.countMatches("共同词 alpha", { kind: "execution" })).toBe(1);
 
@@ -281,17 +299,30 @@ test("list 支持 limit：只取最新的 N 行，counts 口径不变", () => {
   expect(dao.list({ limit: 2 })).toHaveLength(2);
   expect(dao.list({})).toHaveLength(5);
   // 取数上界不得影响任何过滤条件
-  expect(dao.counts({ limit: 2 })).toEqual({ profile: 0, knowledge: 5, execution: 0 });
+  expect(dao.counts({ limit: 2 })).toEqual({
+    profile: 0,
+    knowledge: 5,
+    execution: 0,
+  });
   // 非法 limit（0 / 负数 / undefined）视为不限
   expect(dao.list({ limit: 0 })).toHaveLength(5);
   expect(dao.list({ limit: -1 })).toHaveLength(5);
 });
 
 test("oldestUpdatedAt：返回最早时间，excludeProfile / before / 过滤条件均生效", () => {
-  const profile = add({ kind: "profile", content: "画像", scope: "global", projectId: null });
+  const profile = add({
+    kind: "profile",
+    content: "画像",
+    scope: "global",
+    projectId: null,
+  });
   const old = add({ content: "旧知识", scope: "global", projectId: null });
   const mid = add({ content: "中间知识", scope: "global", projectId: null });
-  const other = add({ content: "别的项目", scope: "project", projectId: "Other" });
+  const other = add({
+    content: "别的项目",
+    scope: "project",
+    projectId: "Other",
+  });
   const set = (id: string, t: number) =>
     dao.db.run("UPDATE memories SET updated_at = ? WHERE id = ?", [t, id]);
   set(profile.id, 500);
@@ -302,20 +333,29 @@ test("oldestUpdatedAt：返回最早时间，excludeProfile / before / 过滤条
   expect(dao.oldestUpdatedAt()).toBe(100);
   expect(dao.oldestUpdatedAt({ excludeProfile: true })).toBe(100);
   expect(dao.oldestUpdatedAt({ scope: "global" })).toBe(500);
-  expect(dao.oldestUpdatedAt({ scope: "global", excludeProfile: true })).toBe(1000);
+  expect(dao.oldestUpdatedAt({ scope: "global", excludeProfile: true })).toBe(
+    1000,
+  );
   // before：只看某时间点之前的行（快照用它先求「超窗口」集合的最早时间）
   expect(dao.oldestUpdatedAt({ excludeProfile: true, before: 2500 })).toBe(100);
   expect(dao.oldestUpdatedAt({ excludeProfile: true, before: 100 })).toBeNull();
-  expect(dao.oldestUpdatedAt({ scope: "project", projectId: "没有这个项目" })).toBeNull();
+  expect(
+    dao.oldestUpdatedAt({ scope: "project", projectId: "没有这个项目" }),
+  ).toBeNull();
   // 归档条目默认不在集合内，与 list/counts 同口径
   dao.archive(old.id);
   expect(dao.oldestUpdatedAt({ excludeProfile: true })).toBe(100);
-  expect(dao.oldestUpdatedAt({ excludeProfile: true, includeArchived: true })).toBe(100);
-  expect(dao.oldestUpdatedAt({ scope: "global", excludeProfile: true })).toBe(2000);
   expect(
-    dao.oldestUpdatedAt({ scope: "global", excludeProfile: true, includeArchived: true }),
+    dao.oldestUpdatedAt({ excludeProfile: true, includeArchived: true }),
+  ).toBe(100);
+  expect(dao.oldestUpdatedAt({ scope: "global", excludeProfile: true })).toBe(
+    2000,
+  );
+  expect(
+    dao.oldestUpdatedAt({
+      scope: "global",
+      excludeProfile: true,
+      includeArchived: true,
+    }),
   ).toBe(1000);
 });
-
-// 取消引用防误报（保留 dao 供后续任务扩展）
-export {};

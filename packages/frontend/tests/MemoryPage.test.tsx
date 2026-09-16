@@ -17,22 +17,26 @@ beforeEach(() => {
     ],
   });
   useMemoryStore.setState({
-    memories: [{
-      id: "5f1a2b3c-0000-4000-8000-000000000001",
-      text: "项目使用 pnpm",
-      category: "memory",
-      scope: "global",
-      kind: "knowledge",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-02T00:00:00.000Z",
-    }],
+    memories: [
+      {
+        id: "5f1a2b3c-0000-4000-8000-000000000001",
+        text: "项目使用 pnpm",
+        category: "memory",
+        scope: "global",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      },
+    ],
     archived: [],
-    instructions: [{
-      path: "/fake/AGENTS.md",
-      name: "AGENTS.md",
-      scope: "project",
-      content: "行为准则",
-    }],
+    instructions: [
+      {
+        path: "/fake/AGENTS.md",
+        name: "AGENTS.md",
+        scope: "project",
+        content: "行为准则",
+      },
+    ],
     config: { reviewEnabled: true, memoryPolicyStyle: "full" },
     activeTab: "saved",
     categoryFilter: "all",
@@ -55,7 +59,9 @@ test("渲染标题 + 内联开关 + 默认已保存 Tab（默认全局记忆）"
   // 默认全局作用域 → 全局种子记忆可见
   expect(screen.getByText("项目使用 pnpm")).toBeTruthy();
   // 默认按钮文案为「全局记忆」
-  expect(screen.getByTestId("memory-scope-select").textContent).toContain("全局记忆");
+  expect(screen.getByTestId("memory-scope-select").textContent).toContain(
+    "全局记忆",
+  );
 });
 
 test("点击归档 Tab 切换到归档列表", () => {
@@ -73,8 +79,22 @@ test("点击指令文件 Tab 展示指令列表", () => {
 test("分类筛选 — 点击失败只筛选 failure 类别", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "11111111-1111-4111-8111-111111111111", text: "记忆A", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "22222222-2222-4222-8222-222222222222", text: "失败B", category: "failure", scope: "global", kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        text: "记忆A",
+        category: "memory",
+        scope: "global",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        text: "失败B",
+        category: "failure",
+        scope: "global",
+        kind: "execution",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
     ],
   });
   render(<MemoryPage />);
@@ -99,22 +119,34 @@ test("搜索框过滤记忆", () => {
 test("记忆卡片编辑 — 点击编辑展开文本框，保存后回调（带当前 projectId）", () => {
   const editMock = mock();
   useMemoryStore.setState({
-    memories: [{
-      id: "33333333-3333-4333-8333-333333333333", text: "原始内容", category: "memory",
-      scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z",
-    }],
+    memories: [
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        text: "原始内容",
+        category: "memory",
+        scope: "global",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
   });
   useMemoryStore.setState({ update: editMock });
 
   render(<MemoryPage />);
   fireEvent.click(screen.getByTestId("memory-edit"));
-  const textarea = screen.getByTestId("memory-edit-textarea") as HTMLTextAreaElement;
+  const textarea = screen.getByTestId(
+    "memory-edit-textarea",
+  ) as HTMLTextAreaElement;
   expect(textarea.value).toBe("原始内容");
 
   fireEvent.change(textarea, { target: { value: "修改后内容" } });
   fireEvent.click(screen.getByTestId("memory-edit-save"));
 
-  expect(editMock).toHaveBeenCalledWith("p1", "33333333-3333-4333-8333-333333333333", "修改后内容");
+  expect(editMock).toHaveBeenCalledWith(
+    "p1",
+    "33333333-3333-4333-8333-333333333333",
+    "修改后内容",
+  );
 });
 
 test("作用域下拉：展开后含「全局记忆」+ 每个项目", () => {
@@ -126,14 +158,30 @@ test("作用域下拉：展开后含「全局记忆」+ 每个项目", () => {
   expect(screen.getByTestId("memory-scope-option-global")).toBeTruthy();
   expect(screen.getByTestId("memory-scope-option-project-p1")).toBeTruthy();
   expect(screen.getByTestId("memory-scope-option-project-p2")).toBeTruthy();
-  expect(screen.getByTestId("memory-scope-option-project-p1").textContent).toContain("项目1");
+  expect(
+    screen.getByTestId("memory-scope-option-project-p1").textContent,
+  ).toContain("项目1");
 });
 
 test("选择某个项目 → 切到该项目记忆，按钮显示项目名", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "44444444-4444-4444-8444-444444444444", text: "全局A", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "55555555-5555-4555-8555-555555555555", text: "项目1专属", category: "memory", scope: "project", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      {
+        id: "44444444-4444-4444-8444-444444444444",
+        text: "全局A",
+        category: "memory",
+        scope: "global",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "55555555-5555-4555-8555-555555555555",
+        text: "项目1专属",
+        category: "memory",
+        scope: "project",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
     ],
   });
   render(<MemoryPage />);
@@ -148,13 +196,22 @@ test("选择某个项目 → 切到该项目记忆，按钮显示项目名", () 
   // 切到项目作用域：只看到项目记忆，按钮文案变为项目名
   expect(screen.getByText("项目1专属")).toBeTruthy();
   expect(screen.queryByText("全局A")).toBeNull();
-  expect(screen.getByTestId("memory-scope-select").textContent).toContain("项目1");
+  expect(screen.getByTestId("memory-scope-select").textContent).toContain(
+    "项目1",
+  );
 });
 
 test("选择「全局记忆」选项切回全局", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "66666666-6666-4666-8666-666666666666", text: "全局A", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      {
+        id: "66666666-6666-4666-8666-666666666666",
+        text: "全局A",
+        category: "memory",
+        scope: "global",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
     ],
     memoryScope: "project",
   });
@@ -187,7 +244,9 @@ test("项目作用域下添加记忆带 projectId", () => {
 
   // 再添加
   fireEvent.click(screen.getByTestId("memory-add-button"));
-  const textarea = screen.getByTestId("memory-add-textarea") as HTMLTextAreaElement;
+  const textarea = screen.getByTestId(
+    "memory-add-textarea",
+  ) as HTMLTextAreaElement;
   fireEvent.change(textarea, { target: { value: "新记忆" } });
   fireEvent.click(screen.getByTestId("memory-add-save"));
 
@@ -199,7 +258,9 @@ test("全局作用域下添加记忆不带 projectId", () => {
   useMemoryStore.setState({ add: addMock }); // 默认 global
   render(<MemoryPage />);
   fireEvent.click(screen.getByTestId("memory-add-button"));
-  const textarea = screen.getByTestId("memory-add-textarea") as HTMLTextAreaElement;
+  const textarea = screen.getByTestId(
+    "memory-add-textarea",
+  ) as HTMLTextAreaElement;
   fireEvent.change(textarea, { target: { value: "全局新记忆" } });
   fireEvent.click(screen.getByTestId("memory-add-save"));
 
@@ -223,22 +284,36 @@ test("Bug1: 关闭重开设置后，项目作用域仍显示上次选中的项�
   // 模拟「上次选了 aicpm 项目」的持久 store 状态（关闭弹窗后保留）
   useProjectsStore.setState({
     currentProjectId: null, // 无项目上下文打开设置
-    projects: [
-      { id: "aicpm", name: "aicpm", cwd: "/tmp/aicpm", createdAt: 0 },
-    ],
+    projects: [{ id: "aicpm", name: "aicpm", cwd: "/tmp/aicpm", createdAt: 0 }],
   });
   useMemoryStore.setState({
     memoryScope: "project",
     selectedProjectId: "aicpm",
     memories: [
-      { id: "77777777-7777-4777-8777-777777777777", text: "全局记忆", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "88888888-8888-4888-8888-888888888888", text: "aicpm 项目记忆", category: "memory", scope: "project", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        text: "全局记忆",
+        category: "memory",
+        scope: "global",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        text: "aicpm 项目记忆",
+        category: "memory",
+        scope: "project",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
     ],
   });
   // 重新渲染（模拟关闭设置后重开 → MemoryPage 重新挂载，但 store 状态保留）
   render(<MemoryPage />);
   // 按钮应显示项目名「aicpm」，而非兜底的「项目记忆」
-  expect(screen.getByTestId("memory-scope-select").textContent).toContain("aicpm");
+  expect(screen.getByTestId("memory-scope-select").textContent).toContain(
+    "aicpm",
+  );
   // 项目记忆应可见（非空）
   expect(screen.getByText("aicpm 项目记忆")).toBeTruthy();
   expect(screen.queryByText("全局记忆")).toBeNull();
@@ -252,9 +327,7 @@ test("Bug2: 指令文件 Tab 下项目选择器始终显示，且进入即加载
   const loadInstructionsMock = mock();
   useProjectsStore.setState({
     currentProjectId: "p1",
-    projects: [
-      { id: "p1", name: "项目1", cwd: "/tmp/p1", createdAt: 0 },
-    ],
+    projects: [{ id: "p1", name: "项目1", cwd: "/tmp/p1", createdAt: 0 }],
   });
   useMemoryStore.setState({
     selectedProjectId: "p1",
@@ -275,9 +348,7 @@ test("Bug2: selectedProjectId 为 null 时用 currentProjectId 兜底加载指�
   const loadInstructionsMock = mock();
   useProjectsStore.setState({
     currentProjectId: "p2",
-    projects: [
-      { id: "p2", name: "项目2", cwd: "/tmp/p2", createdAt: 0 },
-    ],
+    projects: [{ id: "p2", name: "项目2", cwd: "/tmp/p2", createdAt: 0 }],
   });
   useMemoryStore.setState({
     selectedProjectId: null, // store 里尚未选过
@@ -311,10 +382,38 @@ test("Bug2: currentProjectId 和 selectedProjectId 均为 null 时，指令文�
 // 新数据模型下条目自带 kind（profile 画像 / knowledge 知识 / execution 执行），
 // 面板需能按层筛选；fixture 用 uuid 形式 id，与 DB 一致。
 const KIND_FIXTURE: MemoryEntry[] = [
-  { id: "aaaaaaaa-0000-4000-8000-000000000001", text: "画像条目", category: "user", scope: "global", kind: "profile", createdAt: "2026-01-01T00:00:00.000Z" },
-  { id: "aaaaaaaa-0000-4000-8000-000000000002", text: "知识条目", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-  { id: "aaaaaaaa-0000-4000-8000-000000000003", text: "执行失败条目", category: "failure", scope: "global", kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
-  { id: "aaaaaaaa-0000-4000-8000-000000000005", text: "知识失败条目", category: "failure", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000001",
+    text: "画像条目",
+    category: "user",
+    scope: "global",
+    kind: "profile",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000002",
+    text: "知识条目",
+    category: "memory",
+    scope: "global",
+    kind: "knowledge",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000003",
+    text: "执行失败条目",
+    category: "failure",
+    scope: "global",
+    kind: "execution",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000005",
+    text: "知识失败条目",
+    category: "failure",
+    scope: "global",
+    kind: "knowledge",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
 ];
 
 test("层筛选 — 点击「知识」只显示 knowledge 层，再点一次取消筛选", () => {
@@ -359,7 +458,14 @@ test("层筛选与分类筛选叠加 — 执行层 + 失败分类", () => {
   useMemoryStore.setState({
     memories: [
       ...KIND_FIXTURE,
-      { id: "aaaaaaaa-0000-4000-8000-000000000004", text: "执行成功条目", category: "memory", scope: "global", kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
+      {
+        id: "aaaaaaaa-0000-4000-8000-000000000004",
+        text: "执行成功条目",
+        category: "memory",
+        scope: "global",
+        kind: "execution",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
     ],
   });
   render(<MemoryPage />);
@@ -380,9 +486,30 @@ test("层筛选与分类筛选叠加 — 执行层 + 失败分类", () => {
 test("层筛选作用于当前作用域内的数据（项目作用域下按层筛选）", () => {
   useMemoryStore.setState({
     memories: [
-      { id: "bbbbbbbb-0000-4000-8000-000000000001", text: "全局知识", category: "memory", scope: "global", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "bbbbbbbb-0000-4000-8000-000000000002", text: "项目知识", category: "memory", scope: "project", kind: "knowledge", createdAt: "2026-01-01T00:00:00.000Z" },
-      { id: "bbbbbbbb-0000-4000-8000-000000000003", text: "项目执行", category: "memory", scope: "project", kind: "execution", createdAt: "2026-01-01T00:00:00.000Z" },
+      {
+        id: "bbbbbbbb-0000-4000-8000-000000000001",
+        text: "全局知识",
+        category: "memory",
+        scope: "global",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "bbbbbbbb-0000-4000-8000-000000000002",
+        text: "项目知识",
+        category: "memory",
+        scope: "project",
+        kind: "knowledge",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "bbbbbbbb-0000-4000-8000-000000000003",
+        text: "项目执行",
+        category: "memory",
+        scope: "project",
+        kind: "execution",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
     ],
     memoryScope: "project",
   });

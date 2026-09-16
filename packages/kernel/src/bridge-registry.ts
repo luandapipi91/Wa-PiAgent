@@ -32,7 +32,10 @@ export interface BridgeSessionContext {
 const sessions = new Map<string, BridgeSessionContext>();
 
 /** 注册会话的 bridge 上下文（同 sessionId 重复注册覆盖旧值） */
-export function registerBridgeSession(sessionId: string, ctx: BridgeSessionContext): void {
+export function registerBridgeSession(
+  sessionId: string,
+  ctx: BridgeSessionContext,
+): void {
   sessions.set(sessionId, ctx);
 }
 
@@ -42,7 +45,9 @@ export function unregisterBridgeSession(sessionId: string): void {
 }
 
 /** 查询会话的 bridge 上下文；未注册返回 undefined */
-export function getBridgeSession(sessionId: string): BridgeSessionContext | undefined {
+export function getBridgeSession(
+  sessionId: string,
+): BridgeSessionContext | undefined {
   return sessions.get(sessionId);
 }
 
@@ -72,15 +77,25 @@ export type BridgeResponse =
  * { token, sessionId, toolCallId, tool, params } → 校验 → ctx.handleTool。
  * 校验失败/未注册返回结构化错误（由 ws-server 翻译成 HTTP 状态码）。
  */
-export async function handleBridgeRequest(body: unknown, signal?: AbortSignal): Promise<BridgeResponse> {
+export async function handleBridgeRequest(
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<BridgeResponse> {
   if (!body || typeof body !== "object") {
     return { ok: false, status: 400, error: "invalid_body" };
   }
-  const { token, sessionId, toolCallId, tool, params } = body as Record<string, unknown>;
+  const { token, sessionId, toolCallId, tool, params } = body as Record<
+    string,
+    unknown
+  >;
   if (typeof token !== "string" || !verifyBridgeToken(token)) {
     return { ok: false, status: 401, error: "invalid_token" };
   }
-  if (typeof sessionId !== "string" || typeof toolCallId !== "string" || typeof tool !== "string") {
+  if (
+    typeof sessionId !== "string" ||
+    typeof toolCallId !== "string" ||
+    typeof tool !== "string"
+  ) {
     return { ok: false, status: 400, error: "invalid_body" };
   }
   const ctx = sessions.get(sessionId);
@@ -91,10 +106,19 @@ export async function handleBridgeRequest(body: unknown, signal?: AbortSignal): 
     // signal 来自 HTTP 请求（ws-server 透传 req.signal）：客户端断连（如 pi 侧 bridge
     // 空闲超时 abort fetch）时服务端感知，ask 等阻塞工具据此作废 registry 条目，
     // 避免「条目仍在 pending、但已无人等待结果」的僵尸提问。缺省用永不 abort 的兜底。
-    const result = await ctx.handleTool(tool, toolCallId, params, signal ?? new AbortController().signal);
+    const result = await ctx.handleTool(
+      tool,
+      toolCallId,
+      params,
+      signal ?? new AbortController().signal,
+    );
     return { ok: true, status: 200, result };
   } catch (err) {
-    return { ok: false, status: 500, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -124,12 +148,20 @@ export async function handleBridgeStream(
   write: (ndjsonLine: string) => void,
   opts?: { heartbeatMs?: number; signal?: AbortSignal },
 ): Promise<BridgeResponse | null> {
-  if (!body || typeof body !== "object") return { ok: false, status: 400, error: "invalid_body" };
-  const { token, sessionId, toolCallId, tool, params } = body as Record<string, unknown>;
+  if (!body || typeof body !== "object")
+    return { ok: false, status: 400, error: "invalid_body" };
+  const { token, sessionId, toolCallId, tool, params } = body as Record<
+    string,
+    unknown
+  >;
   if (typeof token !== "string" || !verifyBridgeToken(token)) {
     return { ok: false, status: 401, error: "invalid_token" };
   }
-  if (typeof sessionId !== "string" || typeof toolCallId !== "string" || typeof tool !== "string") {
+  if (
+    typeof sessionId !== "string" ||
+    typeof toolCallId !== "string" ||
+    typeof tool !== "string"
+  ) {
     return { ok: false, status: 400, error: "invalid_body" };
   }
 
@@ -142,7 +174,8 @@ export async function handleBridgeStream(
   if (!ctx) return { ok: false, status: 404, error: "unknown_session" };
 
   // 流式出口：把 BridgeStreamFrame 序列化成 NDJSON 一行写回调用方
-  const emit = (frame: BridgeStreamFrame) => write(JSON.stringify(frame) + "\n");
+  const emit = (frame: BridgeStreamFrame) =>
+    write(JSON.stringify(frame) + "\n");
   emit({ type: "started", protocol: 1, tool, toolCallId });
 
   // 心跳：子代理长时间静默（长推理只产出 thinking、慢首 token、单个长工具调用）
@@ -157,9 +190,15 @@ export async function handleBridgeStream(
     // signal 来自 ws-server 流式分支：客户端断连（stream cancel）时 abort，
     // 级联中止正在执行的 delegate/fleet 子代理，防孤儿进程跑满 settle 超时、
     // 结果无人消费还持续烧 token。缺省用永不 abort 的兜底（测试/直调场景）。
-    const result = await ctx.handleTool(tool, toolCallId, params, opts?.signal ?? new AbortController().signal, (e: SubagentProgressEvent) => {
-      emit({ type: "progress", tool, toolCallId, progress: e });
-    });
+    const result = await ctx.handleTool(
+      tool,
+      toolCallId,
+      params,
+      opts?.signal ?? new AbortController().signal,
+      (e: SubagentProgressEvent) => {
+        emit({ type: "progress", tool, toolCallId, progress: e });
+      },
+    );
     emit({ type: "final", tool, toolCallId, ok: true, result });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
@@ -188,7 +227,11 @@ export function makeDefaultBridgeContext(opts: {
   // 松开 ToolDefinition 的 SDK 泛型：本文件不引用 pi SDK 类型，按结构化签名调用
   const memoryTools = createMemoryTools(opts.memoryCtx) as unknown as Array<{
     name: string;
-    execute: (toolCallId: string, params: unknown, signal?: AbortSignal) => Promise<BridgeToolResult>;
+    execute: (
+      toolCallId: string,
+      params: unknown,
+      signal?: AbortSignal,
+    ) => Promise<BridgeToolResult>;
   }>;
   return {
     cwd: opts.cwd,
@@ -198,13 +241,19 @@ export function makeDefaultBridgeContext(opts: {
       }
       if (tool === "delegate" || tool === "fleet") {
         // 桩：delegate/fleet 的宿主接线在后续任务完成
-        return { content: [{ type: "text", text: "delegate/fleet 尚未接入 bridge" }], details: { error: "not_wired" } };
+        return {
+          content: [{ type: "text", text: "delegate/fleet 尚未接入 bridge" }],
+          details: { error: "not_wired" },
+        };
       }
       const memTool = memoryTools.find((t) => t.name === tool);
       if (memTool) {
         return memTool.execute(toolCallId, params, signal);
       }
-      return { content: [{ type: "text", text: `未知 bridge 工具: ${tool}` }], details: { error: "unknown_tool" } };
+      return {
+        content: [{ type: "text", text: `未知 bridge 工具: ${tool}` }],
+        details: { error: "unknown_tool" },
+      };
     },
   };
 }

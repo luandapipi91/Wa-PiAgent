@@ -39,14 +39,26 @@ const makeEntry = (
 
 // 模拟后端返回：全局 4 条 + 项目 5 条（与用户实测 9 vs 4 一致）
 const globalMemories = [1, 2, 3, 4].map((i) =>
-	makeEntry(`1f0a0000-0000-4000-8000-00000000000${i}`, "global", `全局记忆 ${i}`),
+	makeEntry(
+		`1f0a0000-0000-4000-8000-00000000000${i}`,
+		"global",
+		`全局记忆 ${i}`,
+	),
 );
 const projectMemories = [1, 2, 3, 4, 5].map((i) =>
-	makeEntry(`2f0a0000-0000-4000-8000-00000000000${i}`, "project", `项目记忆 ${i}`),
+	makeEntry(
+		`2f0a0000-0000-4000-8000-00000000000${i}`,
+		"project",
+		`项目记忆 ${i}`,
+	),
 );
 // 层分布：全局 g1=画像、g2=执行，其余知识；项目 p1=执行，其余知识
 const globalKindMemories = globalMemories.map((m, i) =>
-	i === 0 ? { ...m, kind: "profile" as const } : i === 1 ? { ...m, kind: "execution" as const } : m,
+	i === 0
+		? { ...m, kind: "profile" as const }
+		: i === 1
+			? { ...m, kind: "execution" as const }
+			: m,
 );
 const projectKindMemories = projectMemories.map((m, i) =>
 	i === 0 ? { ...m, kind: "execution" as const } : m,
@@ -74,7 +86,10 @@ beforeEach(() => {
 				],
 			};
 		}
-		return { memories: [...globalKindMemories, ...projectKindMemories], archived: [] };
+		return {
+			memories: [...globalKindMemories, ...projectKindMemories],
+			archived: [],
+		};
 	});
 	useProjectsStore.setState({
 		currentProjectId: "proj-1",

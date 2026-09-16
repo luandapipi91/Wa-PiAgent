@@ -100,7 +100,9 @@ test("GET /api/memories/search 非法 limit 回落到默认 10", async () => {
 test("既有记忆路由未被改动：list / purge 仍映射原事件", async () => {
 	const { r, seen } = makeRecordingRouter();
 	await r.handle(new Request("http://x/api/memories?projectId=p1"));
-	await r.handle(new Request("http://x/api/memories/abc?projectId=p1", { method: "DELETE" }));
+	await r.handle(
+		new Request("http://x/api/memories/abc?projectId=p1", { method: "DELETE" }),
+	);
 	expect(seen).toEqual([
 		{ type: "memory:list", projectId: "p1" },
 		{ type: "memory:purge", projectId: "p1", entryId: "abc" },
@@ -115,7 +117,9 @@ async function startTestServer() {
 	writeFileSync(
 		projectFile,
 		JSON.stringify({
-			projects: [{ id: "p1", name: "test", cwd: PROJECT_CWD, createdAt: Date.now() }],
+			projects: [
+				{ id: "p1", name: "test", cwd: PROJECT_CWD, createdAt: Date.now() },
+			],
 			sessions: [],
 		}),
 		"utf8",
@@ -156,7 +160,11 @@ test("GET /api/memories/search：空串 scope 归一为 undefined，跨作用域
 	const { server, port } = await startTestServer();
 	try {
 		await seedViaApi(port, { scope: "global", text: "sqlite 全局索引优化" });
-		await seedViaApi(port, { scope: "project", projectId: "p1", text: "sqlite 项目索引优化" });
+		await seedViaApi(port, {
+			scope: "project",
+			projectId: "p1",
+			text: "sqlite 项目索引优化",
+		});
 
 		// scope 显式传空串：若原样下传，DAO 会按 scope='' 过滤 → 0 结果
 		const res = await fetch(
@@ -168,7 +176,9 @@ test("GET /api/memories/search：空串 scope 归一为 undefined，跨作用域
 		expect(body.results.map((r: any) => r.title).sort()).toEqual(
 			["sqlite 全局索引优化", "sqlite 项目索引优化"].sort(),
 		);
-		expect(body.results.every((r: any) => typeof r.score === "number")).toBe(true);
+		expect(body.results.every((r: any) => typeof r.score === "number")).toBe(
+			true,
+		);
 		const scopes = body.results.map((r: any) => r.scope).sort();
 		expect(scopes).toEqual(["global", "project"]);
 		// 归档标记与 updatedAt 均为 UI 可直接渲染的值
@@ -183,7 +193,11 @@ test("GET /api/memories/search：UI projectId 解析为项目名后过滤", asyn
 	const { server, port } = await startTestServer();
 	try {
 		await seedViaApi(port, { scope: "global", text: "sqlite 全局索引优化" });
-		await seedViaApi(port, { scope: "project", projectId: "p1", text: "sqlite 项目索引优化" });
+		await seedViaApi(port, {
+			scope: "project",
+			projectId: "p1",
+			text: "sqlite 项目索引优化",
+		});
 
 		const res = await fetch(
 			`http://127.0.0.1:${port}/api/memories/search?q=sqlite&scope=project&projectId=p1`,
@@ -237,7 +251,11 @@ test("GET /api/memories/search：未传 scope 不再限定项目（给了 projec
 	const { server, port } = await startTestServer();
 	try {
 		await seedViaApi(port, { scope: "global", text: "sqlite 全局索引优化" });
-		await seedViaApi(port, { scope: "project", projectId: "p1", text: "sqlite 项目索引优化" });
+		await seedViaApi(port, {
+			scope: "project",
+			projectId: "p1",
+			text: "sqlite 项目索引优化",
+		});
 
 		// 不传 scope + 传了可解析的 projectId：仍是跨域检索（spec §5），全局条目不得被排除
 		const res = await fetch(
@@ -245,7 +263,10 @@ test("GET /api/memories/search：未传 scope 不再限定项目（给了 projec
 		);
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as any;
-		expect(body.results.map((r: any) => r.scope).sort()).toEqual(["global", "project"]);
+		expect(body.results.map((r: any) => r.scope).sort()).toEqual([
+			"global",
+			"project",
+		]);
 		expect(body.totalMatched).toBe(2);
 	} finally {
 		await server.stop();
@@ -272,14 +293,23 @@ test("GET /api/memories：列表仍返回全局 + 当前项目（DB 后端）", 
 	const { server, port } = await startTestServer();
 	try {
 		await seedViaApi(port, { scope: "global", text: "全局记忆" });
-		await seedViaApi(port, { scope: "project", projectId: "p1", text: "项目记忆" });
+		await seedViaApi(port, {
+			scope: "project",
+			projectId: "p1",
+			text: "项目记忆",
+		});
 
 		const res = await fetch(`http://127.0.0.1:${port}/api/memories?projectId=p1`);
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as any;
 		expect(body.type).toBe("memory:list");
-		expect(body.memories.map((m: any) => m.text).sort()).toEqual(["全局记忆", "项目记忆"]);
-		expect(body.memories.every((m: any) => /^[0-9a-f-]{36}$/.test(m.id))).toBe(true);
+		expect(body.memories.map((m: any) => m.text).sort()).toEqual([
+			"全局记忆",
+			"项目记忆",
+		]);
+		expect(body.memories.every((m: any) => /^[0-9a-f-]{36}$/.test(m.id))).toBe(
+			true,
+		);
 		expect(body.archived).toEqual([]);
 	} finally {
 		await server.stop();

@@ -546,7 +546,13 @@ function parseArgs(argv: string[]): CliOpts {
 }
 
 /** 所有分类（顺序即 --sample 的取样顺序与汇总展示顺序） */
-const ALL_CATEGORIES = ["user", "project", "mixed", "implicit", "negative"] as const;
+const ALL_CATEGORIES = [
+	"user",
+	"project",
+	"mixed",
+	"implicit",
+	"negative",
+] as const;
 
 /** 选用例：--category 过滤类别；--sample N = 每类前 N 条；否则前 --limit 条 */
 function selectCases(opts: CliOpts): typeof CASES {
@@ -872,14 +878,15 @@ function casePassed(r: CaseResult): { pass: boolean; reasons: string[] } {
 		);
 
 	// 落库：user 类/mixed 类要求全局 user 条目生效；project 类/mixed 类要求项目条目生效
-	if (r.expectUser && !r.userEntryExists)
-		reasons.push("全局 user 记忆未入库");
-	if (r.expectProject && !r.projectEntryExists)
-		reasons.push("项目记忆未入库");
+	if (r.expectUser && !r.userEntryExists) reasons.push("全局 user 记忆未入库");
+	if (r.expectProject && !r.projectEntryExists) reasons.push("项目记忆未入库");
 
 	// 执行流水类：要求至少一条 memory_add 带 kind=execution（未传 kind 时按路由落到
 	// profile/knowledge，不算过）
-	if (r.expectKind === "execution" && !r.memoryAdds.some((m) => m.kind === "execution"))
+	if (
+		r.expectKind === "execution" &&
+		!r.memoryAdds.some((m) => m.kind === "execution")
+	)
 		reasons.push("期望 kind=execution 的写入，未出现");
 
 	return { pass: reasons.length === 0, reasons };
@@ -919,10 +926,7 @@ function gateFails(stats: EvalStats, threshold: number): boolean {
 /** 判定逻辑自检（--selftest）：合成 CaseResult 跑真判定函数，不调模型。
  *  用作四层测试里的「单元层」：覆盖反例分支、kind=execution 分支与门禁谓词。 */
 function runSelftest(): boolean {
-	const mk = (
-		cat: Category,
-		over: Partial<CaseResult> = {},
-	): CaseResult => ({
+	const mk = (cat: Category, over: Partial<CaseResult> = {}): CaseResult => ({
 		index: 0,
 		category: cat,
 		prompt: "（自检）",
@@ -955,13 +959,21 @@ function runSelftest(): boolean {
 		[
 			"正例路由+落库正确 → 通过",
 			casePassed(
-				mk("user", { expectUser: true, memoryAdds: [userAdd], userEntryExists: true }),
+				mk("user", {
+					expectUser: true,
+					memoryAdds: [userAdd],
+					userEntryExists: true,
+				}),
 			).pass === true,
 		],
 		[
 			"正例路由不符（user 类写了 memory）→ 失败",
 			casePassed(
-				mk("user", { expectUser: true, memoryAdds: [projAdd], projectEntryExists: true }),
+				mk("user", {
+					expectUser: true,
+					memoryAdds: [projAdd],
+					projectEntryExists: true,
+				}),
 			).pass === false,
 		],
 		[
@@ -989,18 +1001,31 @@ function runSelftest(): boolean {
 	];
 
 	// 统计与门禁：用真实 computeStats / gateFails
-	const pos = mk("user", { expectUser: true, memoryAdds: [userAdd], userEntryExists: true });
+	const pos = mk("user", {
+		expectUser: true,
+		memoryAdds: [userAdd],
+		userEntryExists: true,
+	});
 	const fail = mk("project", { expectProject: true }); // 未写 → 失败
 	const negOk = mk("negative");
 	const negBad = mk("negative", { memoryAdds: [projAdd] });
 	const stats = computeStats([pos, fail, negOk, negBad]);
 	checks.push(
-		["统计：正例 1/2 = 50%", stats.posTotal === 2 && stats.posPassed === 1 && stats.posRate === 0.5],
-		["统计：反例误触发 1/2 = 50%", stats.negTotal === 2 && stats.negTriggered === 1 && stats.negRate === 0.5],
+		[
+			"统计：正例 1/2 = 50%",
+			stats.posTotal === 2 && stats.posPassed === 1 && stats.posRate === 0.5,
+		],
+		[
+			"统计：反例误触发 1/2 = 50%",
+			stats.negTotal === 2 && stats.negTriggered === 1 && stats.negRate === 0.5,
+		],
 		["门禁：50% < 0.85 → 拦", gateFails(stats, 0.85) === true],
 		["门禁：50% < 1.0 → 拦", gateFails(stats, 1.0) === true],
 		["门禁：50% >= 0.5 → 不拦", gateFails(stats, 0.5) === false],
-		["门禁：无正例时不适用 → 不拦", gateFails(computeStats([negOk]), 1.0) === false],
+		[
+			"门禁：无正例时不适用 → 不拦",
+			gateFails(computeStats([negOk]), 1.0) === false,
+		],
 	);
 
 	let failed = 0;
@@ -1235,7 +1260,9 @@ async function main() {
 		if (catResults.length === 0) continue;
 		if (cat === "negative") {
 			const triggered = catResults.filter((r) => r.memoryAdds.length > 0).length;
-			console.log(`negative(反例): ${catResults.length - triggered}/${catResults.length} 未触发写入`);
+			console.log(
+				`negative(反例): ${catResults.length - triggered}/${catResults.length} 未触发写入`,
+			);
 			continue;
 		}
 		const catPassed = catResults.filter((r) => casePassed(r).pass).length;
@@ -1300,7 +1327,9 @@ async function main() {
 		console.error(
 			`\n[GATE FAILED] 正例触发率 ${(stats.posRate * 100).toFixed(1)}% < 阈值 ${(opts.threshold * 100).toFixed(1)}%`,
 		);
-		for (const r of all.filter((r) => r.category !== "negative" && !casePassed(r).pass)) {
+		for (const r of all.filter(
+			(r) => r.category !== "negative" && !casePassed(r).pass,
+		)) {
 			console.error(
 				`  - [${r.category}] ${r.prompt.slice(0, 40)} → ${casePassed(r).reasons.join("; ")}`,
 			);

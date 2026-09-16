@@ -157,8 +157,10 @@ export async function startKernel(opts?: {
 	// memories.db 损坏），若作为实参在 .catch() 挂载之前求值，异常会逃逸到 desktop-server
 	// 的 catch → process.exit(1)，后端进程直接起不来。
 	await (async () =>
-		importLegacyMemories(WA_PI_DIR, new MemoryDao(openMemoryDb(WA_PI_DIR)))
-	)().catch((err) => {
+		importLegacyMemories(
+			WA_PI_DIR,
+			new MemoryDao(openMemoryDb(WA_PI_DIR)),
+		))().catch((err) => {
 		console.error("[kernel] 记忆迁移失败（不影响启动）:", err);
 	});
 

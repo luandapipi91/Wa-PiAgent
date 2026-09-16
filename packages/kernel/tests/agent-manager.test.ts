@@ -1670,7 +1670,10 @@ test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加�
 
 test("记忆库不可用时降级为 null 而不是抛出（记忆问题不得阻断会话创建）", () => {
 	// 目录位于普通文件之下 → mkdirSync/openMemoryDb 抛错，模拟记忆库不可用
-	const blocker = join(WA_PI_DIR, `not-a-dir-${Math.random().toString(36).slice(2)}`);
+	const blocker = join(
+		WA_PI_DIR,
+		`not-a-dir-${Math.random().toString(36).slice(2)}`,
+	);
 	tmpPaths.push(blocker);
 	writeFileSync(blocker, "x");
 	const logged: unknown[] = [];
