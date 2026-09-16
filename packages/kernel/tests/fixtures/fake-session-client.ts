@@ -29,6 +29,8 @@ export class FakeSessionClient {
 	compactDelayMs = 0;
 	aborts = 0;
 	models: Array<{ provider: string; modelId: string }> = [];
+	/** set_model 回传的模型对象（contextWindow / maxTokens 等），默认 undefined */
+	modelToReturn: any = undefined;
 	thinkingLevels: string[] = [];
 	messagesToReturn: any[] = [];
 	availableModels: Array<{ id: string; provider: string }> = [];
@@ -45,6 +47,8 @@ export class FakeSessionClient {
 	startError: Error | null = null;
 	/** getMessages 时抛该错误 */
 	getMessagesError: Error | null = null;
+	/** getMessages 调用次数（验证压缩后快照重拉等行为） */
+	getMessagesCalls = 0;
 	/** prompt 时同步注入的事件（在自动 settle 之前，按序发出） */
 	onPromptEvents: RpcEvent[] = [];
 
@@ -80,6 +84,7 @@ export class FakeSessionClient {
 	}
 
 	async getMessages(): Promise<any[]> {
+		this.getMessagesCalls++;
 		if (this.getMessagesError) throw this.getMessagesError;
 		return this.messagesToReturn;
 	}
@@ -173,8 +178,10 @@ export class FakeSessionClient {
 		if (this.hangAbort) await new Promise(() => {});
 	}
 
-	async setModel(provider: string, modelId: string): Promise<void> {
+	async setModel(provider: string, modelId: string): Promise<any> {
 		this.models.push({ provider, modelId });
+		// 真实 pi 的 set_model 会回传模型对象（含 contextWindow / maxTokens）
+		return this.modelToReturn;
 	}
 
 	async setThinkingLevel(level: string): Promise<void> {

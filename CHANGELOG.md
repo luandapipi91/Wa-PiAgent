@@ -1,3 +1,15 @@
+## 2026-09-16 — fix(kernel): 发送前自动压缩估算按 CJK 加权 + 双条件判定，修复长中文会话撞上游窗口 400 卡死
+
+- 问题：pi 上报的上下文占用 = 最后一条有效 assistant 的 usage + 其后新增消息按「字符数÷4」估算。该口径对中文严重低估（实测中文≈1.48 tok/字，估算只有 0.25），长中文会话下内核按 `0.8 × contextWindow` 判定永远不触发压缩，而请求实际已越过上游窗口边界 → 上游持续返回 `400 {"model":...}` 且永久卡死。
+- 方案（内核侧 L1+L2，未动第三方包）：
+  ① 新增纯函数模块 `context-estimate.ts`：CJK 字符（汉字/全角标点/假名/韩文）按 4 个字符当量计（等价≈1 tok/字），提供 `charWeighted` / `estimateTextTokens` / `estimateMessageTokens`（复刻 pi 口径：user/custom/toolResult 计 text+image=4800 当量，assistant 计 text+thinking+toolCall(name+JSON arguments)）/ `estimateContextTokens`（锚点取最后一条有效 assistant usage，跳过 error/aborted/无 usage；`afterTs` 过滤压缩前的旧锚点；尾部估算乘 1.15 安全系数，锚点不乘；无锚点则全量估算）。
+  ② `shouldCompactBeforeSend` 改为双条件：① 占用超窗口 0.8（保留）；② 输入 + 模型 maxTokens + 4096 预留余量越窗口（maxTokens 未知/非正数时跳过）。签名向后兼容（第三参可选）。
+  ③ `agent-manager` 的 `SessionHandle` 增加 `modelContextWindow`/`modelMaxTokens`/`lastCompactionAt`/`messagesStale`；每轮 `set_model` 回传的模型真值缓存窗口与最大输出（拿不到时回退 `contextUsage.contextWindow`）；`_autoCompactIfNeeded` 用量取 `max(引擎 tokens, 内核估算)`，并在发送前重拉压缩后的消息快照（`compaction_end` 事件统一标记 `lastCompactionAt` + 快照过期，覆盖手动/自动/pi 内部三路径）。
+- 关键取舍：pi 压缩后 `get_messages` 返回的是「summary + 保留消息」，内核旧快照会残留压缩前历史；若无锚点时按全量估算会把旧历史重复计入 → 反复触发压缩，故在发送前同步重拉快照（避开与流式 `message_end` 的竞态）。
+- 测试：`context-estimate.test.ts` 22 例（CJK/ASCII 权重、emoji 不误判、image=4800、toolCall 参数计长、totalTokens 优先与分量回退、锚点跳过 error/aborted/无 usage、afterTs 过滤、无锚点回退、`ESTIMATE_SAFETY` 只放大尾部）；`auto-compact.test.ts` 扩真值表（两条规则交叉 7 组 + 边界/非法入参）；`auto-compact-behavior.test.ts` 新增 5 例联动验证（引擎低估 CJK 但内核估算触发压缩、条件②触发/不触发、compaction_end 成功后发送前重拉快照、压缩失败不刷新快照，用真实 AgentManager + 假 client）。
+- 验证：kernel typecheck 退出 0；`bun run test`（根 gate）退出 0，kernel 1824 pass / 0 fail，前端 2388 pass / 0 fail，全域 0 fail。
+- 影响范围：packages/kernel/src/context-estimate.ts（新增）、auto-compact.ts、agent-manager.ts、src/__tests__/{context-estimate,auto-compact}.test.ts、tests/auto-compact-behavior.test.ts、tests/fixtures/fake-session-client.ts。
+
 ## 2026-09-16 — v0.4.1 发版（插件注册冲突校验 + 预览修复）
 
 - 版本：0.3.22 → 0.4.1（大版本号）。

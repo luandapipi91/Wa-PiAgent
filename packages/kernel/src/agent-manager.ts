@@ -77,6 +77,7 @@ import {
 	AUTO_COMPACT_USAGE_RATIO,
 	shouldCompactBeforeSend,
 } from "./auto-compact";
+import { estimateContextTokens } from "./context-estimate";
 import type { WaPiSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { readBuiltinAgentPrompt } from "./subagent-info";
@@ -242,6 +243,14 @@ interface SessionHandle {
 	subagentAborts: Set<AbortController>;
 	/** 主会话当前模型（"provider/modelId"）：子智能体「跟随主模型」时透传给 spawn --model */
 	currentModel: string | null;
+	/** 当前模型上下文窗口（token）：取 set_model 返回的模型真值，未知为 null */
+	modelContextWindow: number | null;
+	/** 当前模型最大输出（token）：取 set_model 返回的模型真值，未知为 null */
+	modelMaxTokens: number | null;
+	/** 上次压缩完成时刻（ms）：估算时用于跳过压缩前的 assistant usage 锚点 */
+	lastCompactionAt: number | null;
+	/** 压缩后消息快照已过期：pi 压缩后上下文变为 summary + 保留消息，下次发送前需重拉 */
+	messagesStale: boolean;
 	/** 主会话当前 thinking level（prompt 时记录），子智能体「跟随主配置」时透传 */
 	currentThinking: ThinkingLevel | null;
 	/** transient 网络错误标记：true 时 agent_settled 跳过 followUp/steer drain，
@@ -1038,6 +1047,10 @@ export class AgentManager {
 			subagentAborts,
 			currentModel: null,
 			currentThinking: null,
+			modelContextWindow: null,
+			modelMaxTokens: null,
+			lastCompactionAt: null,
+			messagesStale: false,
 			netDegraded: false,
 			lastActiveAt: Date.now(),
 		};
@@ -1218,6 +1231,18 @@ export class AgentManager {
 					handle.steerList = [];
 				}
 				break;
+			// 压缩完成（手动 / 自动 / pi 自身阈值三路径都会 emit）：
+			// 1) 记录压缩时刻——估算时跳过「压缩前的 assistant usage 锚点」（反映的是压缩前上下文）
+			// 2) 标记消息快照过期——压缩后 pi 上下文已变为 summary + 保留消息，快照必须与之一致，
+			//    否则 estimateContextTokens 无锚点时会把压缩前历史重复计入 → 反复触发压缩
+			case "compaction_end": {
+				const ce = event as any;
+				if (!ce?.errorMessage && !ce?.aborted) {
+					handle.lastCompactionAt = Date.now();
+					handle.messagesStale = true;
+				}
+				break;
+			}
 		}
 
 		// pi 的 queue_update.followUp 始终为空（pi 不管排队），
@@ -1424,42 +1449,90 @@ export class AgentManager {
 
 	/**
 	 * 发送前自动压缩防护。
-	 * 当前上下文占用超过窗口一定比例（AUTO_COMPACT_USAGE_RATIO）时，先 compact 再继续发送，
-	 * 作为 pi「prompt preflight 隐性压缩 + turn 结束后阈值压缩」之外的发送前提前量。
-	 * 数据源必须与 pi 同源（getSessionStats().contextUsage），否则会出现「kernel 不压、pi 在
-	 * prompt preflight 里隐性长压缩」的缝隙，压缩耗时叠加 prompt RPC 超时导致误报启动失败。
-	 * 压缩失败不阻断发送（退回现状，让原消息走正常错误渲染）。
+	 * 当前上下文占用将越过窗口时，先 compact 再继续发送，作为 pi「prompt preflight 隐性压缩
+	 * + turn 结束后阈值压缩」之外的发送前提前量。判定保留「占用超窗口比例（AUTO_COMPACT_USAGE_RATIO）」
+	 * 并新增「输入 + 最大输出 + 预留余量越窗口」双条件（见 auto-compact.ts）。
+	 *
+	 * 占用取两个来源的较大值：
+	 * - 引擎口径 `get_session_stats().contextUsage.tokens`（pi 按 chars/4 估算，对 CJK 严重低估，作下限）
+	 * - 内核修正估算 `estimateContextTokens(handle.messages)`（CJK 加权 + 尾部 1.15 安全系数）
+	 * 窗口优先用 set_model 缓存的模型真值（用户自定义中转模型不在 pi 模型目录时同样可靠），
+	 * 回退 pi 上报的 contextWindow。压缩失败不阻断发送（退回现状，让原消息走正常错误渲染）。
 	 */
 	private async _autoCompactIfNeeded(
 		sessionId: string,
 		handle: SessionHandle,
 	): Promise<void> {
 		try {
-			// 读当前上下文水位（pi get_session_stats.contextUsage：{ tokens, contextWindow, percent }），
-			// 与 pi 内部压缩判断同源。此前经 pi-ai 模型目录查窗口：用户自定义模型（自填 baseUrl 的
-			// 中转）不在目录里 → 预压缩静默失效，pi 在 prompt preflight 里的隐性压缩成为唯一防线，
-			// 慢模型大会话下压缩耗时超 prompt RPC 60s 超时，被误报为「agent 启动失败: RPC 命令超时」。
-			const stats = await handle.client.getSessionStats();
-			const cu = stats?.contextUsage;
-			if (!cu || typeof cu !== "object") return;
-			// tokens 为 null（压缩边界后尚无新 assistant usage）时跳过：此刻上下文刚压完必然很小，
-			// pi 侧防重压检查也不会触发，与 pi 判断一致
-			const used = (cu as any).tokens ?? (cu as any).used;
-			if (typeof used !== "number" || used <= 0) return;
-			const windowFromPi = (cu as any).contextWindow;
-			if (typeof windowFromPi !== "number" || windowFromPi <= 0) return;
+			// 引擎口径水位（失败不阻断：窗口可来自缓存的模型真值）
+			let cu: any = null;
+			try {
+				const stats = await handle.client.getSessionStats();
+				cu = stats?.contextUsage;
+			} catch {
+				/* 统计查询失败：忽略，靠缓存模型真值 + 本地估算继续判定 */
+			}
 
-			// 判断是否超限：占用超窗口比例阈值
-			if (!shouldCompactBeforeSend(used, windowFromPi)) return;
+			// 压缩后消息快照过期：重拉 pi 当前上下文（summary + 保留消息），与估算口径对齐。
+			// 在发送前（非事件回调内）同步刷新，避开与流式 message_end 的竞态。
+			if (handle.messagesStale) {
+				try {
+					handle.messages = reconcileDanglingAsks(
+						await handle.client.getMessages(),
+					) as any[];
+					handle.messagesStale = false;
+				} catch {
+					/* 刷新失败沿用旧快照，仅影响估算精度，不影响发送 */
+				}
+			}
 
-			// 自动 compact（busy 防并发；compact RPC 超时 10 分钟；完成后由 _sendPromptNow 继续设 busy 发 prompt）
+			// 窗口真值：优先 set_model 返回的模型 contextWindow，回退 pi contextUsage.contextWindow
+			const modelWindow = handle.modelContextWindow;
+			const engineWindow = cu?.contextWindow;
+			const contextWindow =
+				typeof modelWindow === "number" && modelWindow > 0
+					? modelWindow
+					: typeof engineWindow === "number" && engineWindow > 0
+						? engineWindow
+						: 0;
+			if (contextWindow <= 0) return;
+
+			// 引擎口径（tokens 为 null——压缩边界后尚无新 assistant usage——时取 0）
+			const rawEngineTokens = cu?.tokens ?? cu?.used;
+			const engineUsed =
+				typeof rawEngineTokens === "number" && rawEngineTokens > 0
+					? rawEngineTokens
+					: 0;
+
+			// 内核修正估算（CJK 加权）；messages 缺失/为空时回退引擎口径，不抛错
+			const estimate =
+				Array.isArray(handle.messages) && handle.messages.length > 0
+					? estimateContextTokens(handle.messages, {
+							afterTs: handle.lastCompactionAt ?? undefined,
+						})
+					: null;
+			const used = Math.max(engineUsed, estimate?.tokens ?? 0);
+			if (used <= 0) return;
+
+			// 双条件判定：占用超比例，或本次输入 + 最大输出 + 预留余量越窗口
+			if (
+				!shouldCompactBeforeSend(
+					used,
+					contextWindow,
+					handle.modelMaxTokens ?? undefined,
+				)
+			) {
+				return;
+			}
+
 			console.log(
-				`[kernel] session ${sessionId} 自动压缩：used=${used}(${(
-					(used / windowFromPi) * 100
+				`[kernel] session ${sessionId} 自动压缩：used=${used}（引擎=${engineUsed}，估算=${estimate?.tokens ?? 0}，${(
+					(used / contextWindow) * 100
 				).toFixed(
 					1,
-				)}% > ${(AUTO_COMPACT_USAGE_RATIO * 100).toFixed(0)}%) > contextWindow=${windowFromPi}`,
+				)}%）contextWindow=${contextWindow} maxOut=${handle.modelMaxTokens ?? "?"} 阈值=${(AUTO_COMPACT_USAGE_RATIO * 100).toFixed(0)}%`,
 			);
+			// 自动 compact（busy 防并发；compact RPC 超时 10 分钟；完成后由 _sendPromptNow 继续设 busy 发 prompt）
 			handle.busy = true;
 			try {
 				await handle.client.compact();
@@ -1507,7 +1580,15 @@ export class AgentManager {
 			handle.client,
 			opts.model,
 		);
-		await handle.client.setModel(provider, modelId);
+		// set_model 成功时 pi 返回所设模型对象（含 contextWindow / maxTokens）：
+		// 缓存为真值供发送前压缩判定使用（模型目录可能缺字段，故不做假设）
+		const modelInfo = await handle.client.setModel(provider, modelId);
+		if (modelInfo && typeof modelInfo === "object") {
+			const cw = Number((modelInfo as any).contextWindow);
+			if (Number.isFinite(cw) && cw > 0) handle.modelContextWindow = cw;
+			const mt = Number((modelInfo as any).maxTokens);
+			if (Number.isFinite(mt) && mt > 0) handle.modelMaxTokens = mt;
+		}
 		// 记录主会话当前模型：子智能体「跟随主模型」（override/config model 为空）时透传
 		handle.currentModel = `${provider}/${modelId}`;
 
