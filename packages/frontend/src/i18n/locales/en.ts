@@ -495,6 +495,8 @@ const en = {
 		searchTitle: "No matching memories",
 		searchHint:
 			"Try another keyword, or clear the search box to see the full list",
+		searchingTitle: 'Searching: "{{query}}"',
+		searchingHint: "Searching memories, please wait…",
 	},
 	memoryInstruction: {
 		scopeGlobal: "Global",

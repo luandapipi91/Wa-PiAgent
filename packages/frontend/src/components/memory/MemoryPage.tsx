@@ -139,11 +139,8 @@ export function MemoryPage() {
 	const renderSearchResults = () => (
 		<div data-testid="memory-search-results">
 			{searchPending ? (
-				<div
-					className="text-[calc(12px*var(--font-scale))] text-tertiary py-2"
-					data-testid="memory-search-status"
-				>
-					{t("memory.searching")}
+				<div data-testid="memory-search-status">
+					<MemoryEmpty type="searching" query={searchQuery.trim()} />
 				</div>
 			) : searchResults.length > 0 ? (
 				<>

@@ -166,6 +166,10 @@ test("检索在途显示「检索中」：不闪本地列表，也不显示上�
   await waitFor(() =>
     expect(screen.getByTestId("memory-search-status")).toBeTruthy(),
   );
+  // 检索中三段式（同「没有匹配的记忆」空态规格）：🔍 + 「检索中：{词}」+ 提示语
+  expect(screen.getByTestId("memory-empty-searching")).toBeTruthy();
+  expect(screen.getByText("检索中：pnpm")).toBeTruthy();
+  expect(screen.getByText("正在检索记忆，请等待……")).toBeTruthy();
   expect(screen.queryByText("项目使用 pnpm")).toBeNull();
   // 等请求真的发出（防抖结束），否则 resolve 句柄还是空函数
   await waitFor(() => expect(searchUrls().length).toBe(1));

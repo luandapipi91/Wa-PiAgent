@@ -173,6 +173,35 @@ test.describe.serial("记忆管理", () => {
     ).toBeVisible();
   });
 
+  test("检索中空态：在途显示 🔍 + 「检索中：{词}」+ 等待提示（同记忆空态规格）", async ({
+    page,
+  }) => {
+    await openMemorySection(page);
+
+    // 拦截检索请求延迟放行：制造「在途」窗口
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((res) => (release = res));
+    await page.route(/\/api\/memories\/search/, async (route) => {
+      await gate;
+      await route.continue();
+    });
+
+    const search = page.getByTestId("memory-search");
+    await search.fill("记忆");
+
+    // 在途：三段式检索中空态（🔍 + 标题含搜索词 + 提示语）
+    await expect(page.getByTestId("memory-empty-searching")).toBeVisible();
+    await expect(page.getByText("检索中：记忆")).toBeVisible();
+    await expect(page.getByText("正在检索记忆，请等待……")).toBeVisible();
+
+    release?.();
+    // 放行后检索完成：空态让位给命中统计 + 卡片
+    await expect(page.getByTestId("memory-search-total")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByTestId("memory-empty-searching")).toBeHidden();
+  });
+
   test("单字检索：bigram 索引无 unigram 时回退子串匹配，单个汉字也能命中", async ({
     page,
   }) => {

@@ -478,6 +478,8 @@ const zh = {
 		memoryHint2: "开始一段对话，记忆会自动积累到这里。",
 		searchTitle: "没有匹配的记忆",
 		searchHint: "换个关键词，或清空搜索回到完整列表",
+		searchingTitle: "检索中：{{query}}",
+		searchingHint: "正在检索记忆，请等待……",
 	},
 	memoryInstruction: {
 		scopeGlobal: "全局",

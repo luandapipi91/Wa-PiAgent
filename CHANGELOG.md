@@ -3,12 +3,21 @@
 - 问题（两处欠账）：①旧 markdown 时代的 `category`（记忆/用户/失败）与新的三层 `kind`（画像/知识/执行）在同一工具栏并列，7 个筛选按钮里「失败」在 DB 模式下无任何写入来源、点了恒为空列表；②搜索框仍是本地 `text.includes`（只搜已加载列表），内核已实现的 FTS5/BM25 检索前端零调用，归档 Tab 的搜索框输入后完全无反应（静默失效）。
 - 移除旧维度：`MemoryEntry.category` / `MemoryCategory` 类型、kernel `toEntry` 的派生、前端 store `categoryFilter`、工具栏分类 chip 组、卡片分类徽标、i18n 三个 key；层筛选补「全部」（= 不筛层）。旧归档 JSON 的 `category` 读取**保留**（历史迁移兼容，删了会把 `category:"user"` 的条目降级成 knowledge）。
 - 检索接通服务端：`store/memory.ts` 新增 `search()`/`clearSearch()` 与 `searchResults/searchTotalMatched/searching/searchParams`；`MemoryPage` 250ms 防抖后把「关键词 + 作用域 + 层 + 是否只看归档」一并下推 `GET /api/memories/search`，结果渲染检索摘要 + 命中总数（未截断的 `totalMatched`），检索态无结果用专属空态；`searchPending` 保证在途阶段显示「检索中」，既不闪上一轮结果也不闪本地列表；`scope=project` 无项目 id 时不发请求（避开服务端 400 `project.notFound`）；数据变更（归档/恢复/删除后的 `memory:changed`）在检索态自动按同参数重跑。
+- 检索中提示：由行内文字改为与「没有匹配的记忆」同规格的空态（`MemoryEmpty type="searching"`：🔍 + 「检索中：{词}」+ 等待提示），组件测试与 E2E 同步（E2E 用 `page.route` 延迟放行制造在途窗口）。
 - 内核补 `archivedOnly` 全链路（事件 / 路由 `?archivedOnly=true` / 分发 / `MemoryStore.search` / DAO `buildFilter`）：与 `includeArchived` 互斥且本字段优先；`results` 与 `totalMatched` 共用同一份过滤条件，口径天然一致。归档 Tab 由此可独立检索（命中卡片带「已归档」徽标）。
 - 修复单字检索 0 命中：写入索引的正文经 `bigram()` 切成相邻二元组（「张智」→ `张智`），单个汉字从不单独成 token，因此查「张」FTS 必然零命中（实测：库里有 4 条含「张」，FTS 0 命中）；走本地 `includes` 时被掩盖，切服务端检索后暴露。修法为**查询侧子串回退**（零迁移，不改索引格式）：DAO `search`/`countMatches` 在 FTS 零命中时改走 `LIKE` 子串匹配并共用同一份过滤条件，子串命中之间无强弱之分故 bm25 分量取 1、仍叠加时间衰减与 kind 权重；LIKE 元字符（`%` `_` `\\`）转义为字面量。触发条件刻意收紧为「FTS 零命中」——有命中绝不回退，否则查「张智」会把只含「张」的条目也捞出来稀释相关性。
 - 已知限制：搜索结果卡片只读（摘要 ≠ 正文，不提供行内编辑，避免用摘要覆盖原文），保留归档/恢复/彻底删除动作；按 id 取单条记忆的接口未做，留待后续。
 - 测试：kernel 记忆域 239 pass / 0 fail（DAO 补单字回退 5 例：命中/过滤条件同口径/totalMatched 一致/有 FTS 命中不回退/LIKE 元字符字面量化，路由补 archivedOnly 两例）；前端 store 单测 10 例 + 记忆组件 31 例；E2E `memory.spec.ts` 11/11（新增服务端检索、单字检索、层筛选下推、归档检索四例，并修好该 spec 之前一直红的两处：缺假 provider 导致 onboarding 遮罩拦截点击、用 `settings-close` 替代自 87105067 起已废弃的「点遮罩关闭」交互）。
 - 验证：shared / kernel / frontend typecheck 退出 0。
 - 影响范围：packages/shared/src/memory.ts、packages/kernel/src/{memory-store,ws-server,routes/memory,memory/dao}.ts、packages/frontend/src/{store/memory.ts,components/memory/*,i18n/locales/*}、对应测试与 e2e/memory.spec.ts。
+
+## 2026-09-16 — feat(frontend): 记忆检索中状态改为三段式空态（含搜索词）
+
+- 需求：记忆页搜索在途时只有一行小字「检索中…」，改为与「没有匹配的记忆」同款三段式空态：🔍 圆角方块 icon 保留 + 标题「检索中：{搜索词}」+ 副文案「正在检索记忆，请等待……」。
+- 实现：`MemoryEmpty` 新增 `type="searching"`（复用 search 分支的 72×72 方块规格；标题 i18n 插值 query，query 为空回退「检索中…」）；`MemoryPage` 检索在途分支换用该组件，外层保留 `data-testid="memory-search-status"`（既有测试断言不变）；i18n zh/en 新增 `memoryEmpty.searchingTitle/searchingHint`。
+- 四层测试：组件测试补断言（memory-empty-searching + 「检索中：pnpm」+ 提示语，tests/MemoryPage.test.tsx 检索在途用例）+ E2E 1 例（route 拦截延迟放行制造在途窗口：断言三段式可见、放行后让位给命中列表，e2e/memory.spec.ts）。
+- 验证：tsc 退出 0；bun run build 成功；MemoryPage 组件测试 26 pass / 0 fail；E2E memory.spec.ts 12 passed。
+- 影响范围：packages/frontend/src/components/memory/MemoryEmpty.tsx、MemoryPage.tsx、src/i18n/locales/zh.ts、en.ts、tests/MemoryPage.test.tsx、e2e/memory.spec.ts。
 
 ## 2026-09-16 — perf(frontend): 文件树大目录卡顿修复——虚拟滚动 + 轮询按需更新
 
