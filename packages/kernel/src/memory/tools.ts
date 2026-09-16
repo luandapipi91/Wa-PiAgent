@@ -4,6 +4,8 @@
 // 约定：
 // - 未传 kind 时按 target+scope 路由（user+global → profile，其余 knowledge）
 // - 未传 scope 时按 target 路由（user → global，memory → project）
+// - 显式要求 project 范围时必须先过 requireProjectId 校验（缺 projectId 即拒绝，
+//   不得降级为「不加项目过滤」而跨项目读改删）
 // - 写入前做注入防护校验；返回错误对象而不抛异常（与旧行为一致）
 import { Type } from "typebox";
 import {
@@ -12,7 +14,7 @@ import {
   MEM_SEARCH_DESC, MEM_SEARCH_SNIPPET, MemoryTargetSchema, MemoryScopeSchema,
   MemoryKindSchema,
 } from "@wa-pi/shared";
-import type { MemoryDao, MemoryKind, MemoryRow, MemoryScope, MemoryTarget } from "./dao";
+import type { ListOpts, MemoryDao, MemoryKind, MemoryRow, MemoryScope, MemoryTarget } from "./dao";
 import { firstThreatMessage } from "./threat-patterns";
 
 export interface ToolDefinition {
@@ -48,6 +50,34 @@ export function resolveKind(
   return target === "user" && scope === "global" ? "profile" : "knowledge";
 }
 
+export type ProjectIdCheck =
+  | { ok: true; projectId: string | null }
+  | { ok: false; error: string };
+
+/**
+ * 项目上下文校验（add / read / search / replace / remove 共用的唯一入口）。
+ *
+ * 规则：显式要求 project 范围时必须有项目上下文，否则**拒绝执行**。
+ * 绝不能把缺失的 projectId 降级成「不加项目过滤」—— buildFilter 对 null 的
+ * 语义是「不加条件」，降级即等于跨所有项目读改删。
+ * - scope === "project"：必须有非空 ctx.projectId，否则 ok:false
+ * - scope === "global" / 未传 scope：合法，projectId 为 null（不按项目过滤）
+ *   （未传 scope 的 read/search 是跨域检索，规格允许）
+ *
+ * 返回值用判别式联合而非简报建议的 `string | null`：null 无法区分「合法但无项目」
+ * 与「非法」，调用方只要漏写一次额外判断就会静默重现 fail-open。
+ */
+export function requireProjectId(
+  ctx: MemoryToolContext,
+  scope: MemoryScope | undefined,
+): ProjectIdCheck {
+  if (scope !== "project") return { ok: true, projectId: null };
+  if (!ctx.projectId) {
+    return { ok: false, error: "项目记忆需要项目上下文（projectId）" };
+  }
+  return { ok: true, projectId: ctx.projectId };
+}
+
 const jsonResult = (v: unknown) => ({
   content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }],
   details: undefined,
@@ -70,21 +100,29 @@ function resolveTargets(
   params: Record<string, unknown>,
 ): { ok: true; rows: MemoryRow[] } | { ok: false; result: unknown } {
   const id = str(params.id);
+  const target: MemoryTarget = str(params.target) === "user" ? "user" : "memory";
+  const scope = resolveScope(target, params.scope);
+
+  // 需要项目上下文的两种情况：
+  // 1) 无 id —— 只能按 scope + oldText 过滤匹配，匹配范围由 scope 决定
+  // 2) 有 id 但调用方显式声明了 scope="project" —— 声明必须自洽
+  // 纯 id 定位（未声明 scope）不依赖 scope（id 全局唯一），故不校验。
+  const guardScope: MemoryScope | undefined =
+    id && params.scope !== "project" ? undefined : scope;
+  const check = requireProjectId(ctx, guardScope);
+  if (!check.ok) return { ok: false, result: jsonResult({ success: false, error: check.error }) };
+
   if (id) {
     const row = ctx.dao.getById(id);
     if (!row) return { ok: false, result: jsonResult({ success: false, error: `No entry matched id '${id}'.` }) };
     return { ok: true, rows: [row] };
   }
-  const target: MemoryTarget = str(params.target) === "user" ? "user" : "memory";
-  const scope = resolveScope(target, params.scope);
+
   const oldText = str(params.oldText).trim();
   if (!oldText) {
     return { ok: false, result: jsonResult({ success: false, error: "Provide either id or oldText." }) };
   }
-  const rows = ctx.dao.findBySubstring(oldText, {
-    scope,
-    projectId: scope === "project" ? ctx.projectId : null,
-  });
+  const rows = ctx.dao.findBySubstring(oldText, { scope, projectId: check.projectId });
   if (rows.length === 0) {
     return { ok: false, result: jsonResult({ success: false, error: `No entry matched '${oldText}'.` }) };
   }
@@ -126,10 +164,9 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         const threat = firstThreatMessage(content, "strict");
         if (threat) return jsonResult({ success: false, error: threat });
 
-        const projectId = scope === "project" ? ctx.projectId : null;
-        if (scope === "project" && !projectId) {
-          return jsonResult({ success: false, error: "项目记忆需要项目上下文（projectId）" });
-        }
+        const check = requireProjectId(ctx, scope);
+        if (!check.ok) return jsonResult({ success: false, error: check.error });
+        const projectId = check.projectId;
 
         const tags = Array.isArray(params.tags) ? params.tags.filter((t) => typeof t === "string").join(",") : "";
         const row = ctx.dao.insert({
@@ -158,11 +195,20 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         const scope = (params.scope === "global" || params.scope === "project")
           ? (params.scope as MemoryScope)
           : undefined;
-        const hits = ctx.dao.search(str(params.query), {
+        const check = requireProjectId(ctx, scope);
+        if (!check.ok) return jsonResult({ success: false, error: check.error });
+
+        const query = str(params.query);
+        const kind = (params.kind === "execution" || params.kind === "knowledge") ? params.kind : undefined;
+        // search 与 countMatches 必须拿到同一份过滤条件，否则 totalMatched 与 results 口径不一
+        const filter: ListOpts = {
           scope,
-          projectId: scope === "project" ? ctx.projectId : undefined,
-          kind: (params.kind === "execution" || params.kind === "knowledge") ? params.kind : undefined,
+          projectId: check.projectId ?? undefined,
+          kind,
           includeArchived: params.includeArchived === true,
+        };
+        const hits = ctx.dao.search(query, {
+          ...filter,
           limit: typeof params.limit === "number" ? params.limit : 10,
         });
         return jsonResult({
@@ -172,7 +218,8 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
             updatedAt: new Date(h.updatedAt).toISOString(),
             score: Number(h.score.toFixed(4)), archived: h.archived === 1,
           })),
-          totalMatched: hits.length,
+          // 真实命中总数（与 results 同过滤条件，但不受 limit / CANDIDATE_LIMIT 截断）
+          totalMatched: ctx.dao.countMatches(query, filter),
         });
       },
     },
@@ -191,18 +238,22 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         const scope = (params.scope === "global" || params.scope === "project")
           ? (params.scope as MemoryScope)
           : undefined;
+        const check = requireProjectId(ctx, scope);
+        if (!check.ok) return jsonResult({ success: false, error: check.error });
+        const projectId = check.projectId ?? undefined;
+
         const target = str(params.target) === "user" ? "user"
           : str(params.target) === "memory" ? "memory" : undefined;
         const kind = (params.kind === "execution" || params.kind === "knowledge") ? params.kind : undefined;
         const limit = typeof params.limit === "number" ? params.limit : 50;
 
         const rows = ctx.dao
-          .list({ scope, projectId: scope === "project" ? ctx.projectId : undefined, kind })
+          .list({ scope, projectId, kind })
           .filter((r) => !target || r.target === target)
           .slice(0, limit);
         return jsonResult({
           entries: rows.map(toEntryJson),
-          counts: ctx.dao.counts({ scope, projectId: scope === "project" ? ctx.projectId : undefined }),
+          counts: ctx.dao.counts({ scope, projectId }),
         });
       },
     },

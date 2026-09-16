@@ -235,5 +235,44 @@ test("search 命中后刷新 use_count 与 last_used_at", () => {
   expect(after.lastUsedAt).not.toBeNull();
 });
 
+// ── 补充：countMatches（memory_search 的 totalMatched 真实口径）───────────
+
+test("countMatches 返回未截断的真实命中总数（不受 CANDIDATE_LIMIT 影响）", () => {
+  for (let i = 0; i < 60; i++) add({ content: `发版记录第 ${i} 条` });
+  // 候选硬截断在 50，所以即便 limit 开到 100 也只能拿到 50 条
+  expect(dao.search("发版", { limit: 100 })).toHaveLength(50);
+  expect(dao.countMatches("发版")).toBe(60);
+});
+
+test("countMatches 与 search 过滤口径一致（scope/projectId/kind/includeArchived）", () => {
+  add({ content: "共同词 alpha", scope: "global", projectId: null });
+  add({ content: "共同词 alpha", scope: "project", projectId: "Other" });
+  const archived = add({ content: "共同词 alpha", scope: "global", projectId: null });
+  dao.archive(archived.id);
+  add({ content: "共同词 alpha", kind: "execution" });
+
+  // 用一个等值断言的辅助：count 与「把 limit 开大后的 search 条数」必须相等
+  const agree = (opts: Parameters<MemoryDao["countMatches"]>[1] = {}) => {
+    expect(dao.countMatches("共同词 alpha", opts)).toBe(
+      dao.search("共同词 alpha", { ...opts, limit: 100 }).length,
+    );
+  };
+  expect(dao.countMatches("共同词 alpha")).toBe(3); // 4 条里 1 条已归档
+  agree();
+  agree({ includeArchived: true });
+  expect(dao.countMatches("共同词 alpha", { includeArchived: true })).toBe(4);
+  agree({ scope: "global" });
+  expect(dao.countMatches("共同词 alpha", { scope: "global" })).toBe(1);
+  agree({ scope: "project", projectId: "Wa-Pi" });
+  expect(dao.countMatches("共同词 alpha", { scope: "project", projectId: "Wa-Pi" })).toBe(1);
+  agree({ kind: "execution" });
+  expect(dao.countMatches("共同词 alpha", { kind: "execution" })).toBe(1);
+
+  // 空查询 / 纯空白：无表达式即无命中
+  expect(dao.countMatches("")).toBe(0);
+  expect(dao.countMatches("   ")).toBe(0);
+  expect(dao.countMatches("不存在的词 zebraabsent")).toBe(0);
+});
+
 // 取消引用防误报（保留 dao 供后续任务扩展）
 export {};

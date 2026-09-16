@@ -210,30 +210,66 @@ export class MemoryDao {
     return out;
   }
 
-  /** BM25 检索 + 时间衰减 + kind 加权综合排序（规格 §5） */
-  search(rawQuery: string, opts: SearchOpts = {}): SearchHit[] {
+  /**
+   * search 与 countMatches 共用的 WHERE 片段。
+   *
+   * 抽出来的唯一目的：让「返回哪几条」与「共命中几条」永远走同一套过滤条件
+   * （scope / projectId / kind / includeArchived），否则两个数字口径会漂移。
+   * 空查询（buildMatchExpr 返回 null）视为无命中。
+   */
+  private matchClause(
+    rawQuery: string,
+    opts: ListOpts,
+  ): { expr: string; extra: string; params: SQLQueryBindings[] } | null {
     const expr = buildMatchExpr(rawQuery);
-    if (!expr) return [];
-
-    const w = { bm25: 1.0, time: 0.5, kind: 0.3, ...(opts.weights ?? {}) };
-    const halfLife = opts.halfLifeDays ?? 30;
-    const now = opts.now ?? Date.now();
-
+    if (!expr) return null;
     const { where, params } = this.buildFilter({
       ...opts,
       includeArchived: opts.includeArchived ?? false,
     });
     const extra = where ? `AND ${where.replace(/^WHERE\s+/, "")}` : "";
+    return { expr, extra, params };
+  }
+
+  /**
+   * 与 search 同口径的真实命中总数。
+   *
+   * 关键：**不**加 LIMIT —— 既不受调用方的 limit 影响，也不受检索候选
+   * 硬截断 CANDIDATE_LIMIT（50）影响。memory_search 的 totalMatched 用它，
+   * 从而回答「一共看到多少 / 还有多少没看到」而不是「这一页有几条」。
+   */
+  countMatches(rawQuery: string, opts: ListOpts = {}): number {
+    const clause = this.matchClause(rawQuery, opts);
+    if (!clause) return 0;
+    const row = this.db
+      .query(
+        `SELECT COUNT(*) AS n
+           FROM memories_fts
+           JOIN memories m ON m.id = memories_fts.memory_id
+          WHERE memories_fts MATCH ? ${clause.extra}`,
+      )
+      .get(clause.expr, ...clause.params) as { n: number } | null;
+    return row?.n ?? 0;
+  }
+
+  /** BM25 检索 + 时间衰减 + kind 加权综合排序（规格 §5） */
+  search(rawQuery: string, opts: SearchOpts = {}): SearchHit[] {
+    const clause = this.matchClause(rawQuery, opts);
+    if (!clause) return [];
+
+    const w = { bm25: 1.0, time: 0.5, kind: 0.3, ...(opts.weights ?? {}) };
+    const halfLife = opts.halfLifeDays ?? 30;
+    const now = opts.now ?? Date.now();
 
     const rows = this.db
       .query(
         `SELECT m.*, bm25(memories_fts) AS score
            FROM memories_fts
            JOIN memories m ON m.id = memories_fts.memory_id
-          WHERE memories_fts MATCH ? ${extra}
+          WHERE memories_fts MATCH ? ${clause.extra}
           LIMIT ${CANDIDATE_LIMIT}`,
       )
-      .all(expr, ...params) as Array<RawRow & { score: number }>;
+      .all(clause.expr, ...clause.params) as Array<RawRow & { score: number }>;
 
     if (rows.length === 0) return [];
 

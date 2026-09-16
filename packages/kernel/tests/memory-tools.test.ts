@@ -130,3 +130,84 @@ test("memory_search 透传 limit 与 includeArchived", async () => {
   expect(withArchived.results).toHaveLength(3);
   expect(withArchived.results.find((r: any) => r.id === one.id).archived).toBe(true);
 });
+
+// ── 以下四条对审查发现 1 / 2 建立回归防线 ─────────────────────────────
+
+test("memory_search 的 totalMatched 是真实命中总数，不是分页后的条数", async () => {
+  for (const s of ["一", "二", "三"]) {
+    await call("memory_add", { target: "memory", content: `pagination sample ${s}` });
+  }
+  const res = await call("memory_search", { query: "pagination", limit: 1 });
+  expect(res.results).toHaveLength(1);
+  expect(res.totalMatched).toBe(3);
+  // 不传 limit 时两者相等
+  expect((await call("memory_search", { query: "pagination" })).totalMatched).toBe(3);
+});
+
+/** 造两个不同项目的条目（模拟审查者的 P1/P2 现场） */
+async function seedTwoProjects() {
+  ctx = { ...ctx, projectId: "P1" };
+  tools = createMemoryTools(ctx);
+  await call("memory_add", { target: "memory", content: "P1 项目备忘" });
+  ctx = { ...ctx, projectId: "P2" };
+  tools = createMemoryTools(ctx);
+  await call("memory_add", { target: "memory", content: "P2 项目备忘" });
+}
+
+test("scope=project 但无项目上下文时 read/search/replace/remove 一律拒绝且不动库", async () => {
+  await seedTwoProjects();
+  ctx = { ...ctx, projectId: null };
+  tools = createMemoryTools(ctx);
+
+  const read = await call("memory_read", { scope: "project" });
+  expect(read.success).toBe(false);
+  const search = await call("memory_search", { query: "项目备忘", scope: "project" });
+  expect(search.success).toBe(false);
+  const replace = await call("memory_replace", {
+    target: "memory", scope: "project", oldText: "P2 项目备忘", newContent: "被篡改",
+  });
+  expect(replace.success).toBe(false);
+  const remove = await call("memory_remove", {
+    target: "memory", scope: "project", oldText: "P1 项目备忘",
+  });
+  expect(remove.success).toBe(false);
+
+  // 数据破坏防线：两个项目的条目都还在，且内容未被改写
+  const rows = ctx.dao.list({ includeArchived: true });
+  expect(rows).toHaveLength(2);
+  expect(rows.map((r) => r.content).sort()).toEqual(["P1 项目备忘", "P2 项目备忘"]);
+  expect(rows.map((r) => r.projectId).sort()).toEqual(["P1", "P2"]);
+});
+
+test("显式 scope=project 时按 oldText 与按 id 的变更同样被拒", async () => {
+  await seedTwoProjects();
+  const target = ctx.dao.list({ projectId: "P2" })[0];
+  ctx = { ...ctx, projectId: null };
+  tools = createMemoryTools(ctx);
+
+  // 未显式声明的 oldText 路径：target=memory 默认落 project，同样必须拒绝
+  const implicit = await call("memory_replace", {
+    target: "memory", oldText: "P2 项目备忘", newContent: "被篡改",
+  });
+  expect(implicit.success).toBe(false);
+  // 显式 scope=project + id 的路径
+  const byId = await call("memory_remove", { id: target.id, scope: "project" });
+  expect(byId.success).toBe(false);
+
+  // 目标条目仍未被改动
+  expect(ctx.dao.getById(target.id)!.content).toBe("P2 项目备忘");
+  expect(ctx.dao.list({ includeArchived: true })).toHaveLength(2);
+});
+
+test("未传 scope 的 read/search/全局变更仍可跨域（不因缺项目上下文被误拒）", async () => {
+  await call("memory_add", { target: "memory", scope: "global", content: "全局笔记 zebrascope" });
+  ctx = { ...ctx, projectId: null };
+  tools = createMemoryTools(ctx);
+
+  expect((await call("memory_read", {})).entries).toHaveLength(1);
+  expect((await call("memory_search", { query: "zebrascope" })).results).toHaveLength(1);
+  const replace = await call("memory_replace", {
+    target: "memory", scope: "global", oldText: "zebrascope", newContent: "改过了 zebrascope",
+  });
+  expect(replace.success).toBe(true);
+});
