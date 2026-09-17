@@ -344,11 +344,11 @@ export function App() {
 					void useChannelsStore.getState().loadConversations();
 					break;
 				// 定时任务变更/执行记录追加：重新拉取任务列表 + 执行记录（running 态需即时展示）
+				// 窗口不可见时跳过：广播是常驻心跳（无变化也每 5s 一次），后台拉取纯属浪费；
+				// 恢复可见时由下方 visibilitychange 监听统一补拉一次
 				case "scheduled-tasks:changed":
-					void useSchedulerStore.getState().loadTasks();
-					void useSchedulerStore.getState().loadRecords();
-					break;
 				case "scheduled-task:completed":
+					if (document.hidden) break;
 					void useSchedulerStore.getState().loadTasks();
 					void useSchedulerStore.getState().loadRecords();
 					break;
@@ -369,6 +369,17 @@ export function App() {
 			offReconnect();
 		};
 	}, []); // 空依赖：onMessage 用 getState，不需重订阅
+
+	// 窗口从不可见恢复时，补拉被 hidden 跳过的数据（定时任务列表 + 执行记录）
+	useEffect(() => {
+		const onVisibility = () => {
+			if (document.hidden) return;
+			void useSchedulerStore.getState().loadTasks();
+			void useSchedulerStore.getState().loadRecords();
+		};
+		document.addEventListener("visibilitychange", onVisibility);
+		return () => document.removeEventListener("visibilitychange", onVisibility);
+	}, []);
 
 	// 派生 view
 	useEffect(() => {

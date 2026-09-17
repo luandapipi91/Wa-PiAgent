@@ -327,6 +327,7 @@ export function ExplorerPanel({
 		let cancelled = false;
 
 		const refresh = async () => {
+			if (document.hidden) return; // 窗口不可见时跳过本周期，恢复可见后下一轮自动补上
 			if (togglingRef.current) return; // 手动展开进行中，跳过本周期
 			try {
 				setError(null);
