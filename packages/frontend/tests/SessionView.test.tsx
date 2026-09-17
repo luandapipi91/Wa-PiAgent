@@ -122,6 +122,7 @@ beforeEach(() => {
 	});
 	useSessionStore.setState({
 		messagesBySession: {},
+		historyLoadingBySession: {},
 		lastUsageBySession: {},
 		tokenTotals: {},
 		contextUsageBySession: {},
@@ -302,7 +303,7 @@ test("首次进入会话历史未到时显示加载指示，响应到达后消�
 	expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
 });
 
-test("会话已有消息时进入不显示历史加载（避免刷新闪烁）", async () => {
+test("会话已有消息时进入：骨架短暂显示后消失（缓存命中也走最短过渡，不闪断）", async () => {
 	// 预置 s1 已有历史消息（模拟再次进入已访问过的会话）
 	useSessionStore.getState().setMessages("s1", [
 		{

@@ -21,6 +21,7 @@ import {
 	memo,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -433,10 +434,18 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	// 本身看不到最新回复仍是体验问题）。此处补强：仅当 !autoScrollActive（idle，无 interval
 	// 兜底）时启用 200ms 收敛——thinking/流式中 interval 已持续贴底，重试会与用户极快上翻
 	// 冲突（回归防护用例）。重试仅当从未贴底（定位失败）时进行；已贴底后用户上翻绝不拉回。
-	useEffect(() => {
+	// useLayoutEffect：定位在 paint 前完成——历史就绪挂载列表后首帧即已贴底，
+	// 用户看不到「顶部首屏 → 跳底」过程（进入会话闪烁的最后一环）。
+	useLayoutEffect(() => {
 		if (listRows.length > 0 && didInitScrollRef.current !== sessionId) {
 			didInitScrollRef.current = sessionId;
-			scrollToEnd();
+			// 虚拟化未测量完成时 scrollToIndex 可能抛错（happy-dom/首帧时序）：吞掉，
+			// 由下方 200ms 收敛 interval 兜底贴底。
+			try {
+				scrollToEnd();
+			} catch {
+				/* 首帧测量未就绪，交由收敛逻辑 */
+			}
 			if (!autoScrollActiveRef.current) {
 				// Virtuoso 虚拟化首次大数据渲染时 scrollToIndex 定位不精确（估算行高），
 				// idle 无 interval/强制贴底兜底 → 视口可能停在中部。此处 200ms 收敛：
