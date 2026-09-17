@@ -18,11 +18,13 @@ export class ProjectStore {
 	constructor(private filePath: string = PROJECTS_FILE) {}
 
 	/**
-	 * 写互斥队列：串行化高危「读-改-写」操作（归档扫描/恢复/删除/touch）。
+	 * 写互斥队列：串行化所有「读-改-写」操作。
 	 * projects.json 是全量覆盖写，两个写操作在彼此的 await 窗口交叠时，
-	 * 后写者会用旧快照覆盖前者的修改
-	 * （典型：用户刚恢复的会话被并发归档扫描的旧数据弹回归档区）。
-	 * 低频用户操作（rename/updateProject 等）未入队，窗口毫秒级、危害低，接受。
+	 * 后写者会用旧快照覆盖前者的修改（lost update），
+	 * Windows 上还会因目标/tmp 被并发打开而报 rename EPERM
+	 * （典型：发消息链路的 createSession/fillSessionTitleIfEmpty 与 message_end
+	 * 的 fire-and-forget touchSession 并发；曾致 Windows 客户机 "Send failed: EPERM"）。
+	 * 所有公开写方法都必须包进 this.serialized()，新增写方法也不例外。
 	 */
 	private writeQueue: Promise<unknown> = Promise.resolve();
 	private serialized<T>(fn: () => Promise<T>): Promise<T> {
@@ -49,28 +51,49 @@ export class ProjectStore {
 		// 原子写：先落临时文件再 rename，避免并发读读到半截 JSON
 		// （load 解析失败会回退空数据，若后续写回会把整个 store 清空）
 		const tmp = `${this.filePath}.${process.pid}.tmp`;
-		await writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
-		await rename(tmp, this.filePath);
+		const json = JSON.stringify(data, null, 2);
+		await writeFile(tmp, json, "utf8");
+		// Windows：目标文件正被杀软实时扫描/并发读者短暂持有时，
+		// rename(MoveFileEx) 报 EPERM，错误沿发送链路冒泡成 "Send failed: EPERM"。
+		// 退避重试等句柄释放（50ms 起，最多重试 4 次）；Linux/macOS 的 rename
+		// 是原子调用、不受已打开句柄影响，不会走到重试分支。
+		let lastErr: unknown;
+		for (let attempt = 0; attempt <= 4; attempt++) {
+			try {
+				await rename(tmp, this.filePath);
+				return;
+			} catch (e: any) {
+				lastErr = e;
+				if (e?.code !== "EPERM") throw e;
+				await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+			}
+		}
+		throw lastErr;
 	}
 
 	async createProject(input: {
 		name: string;
 		cwd: string;
 	}): Promise<ProjectEntity> {
-		const data = await this.load();
-		// cwd 去重：同一目录不允许重复添加
-		if (data.projects.some((p) => p.cwd === input.cwd)) {
-			throw new KernelError("project.duplicateCwd");
-		}
-		const project: ProjectEntity = {
-			id: randomUUID(),
-			name: input.name,
-			cwd: input.cwd,
-			createdAt: Date.now(),
-		};
-		data.projects.push(project);
-		await this.save(data);
-		return project;
+		// 所有「读-改-写」写方法统一入队（见 writeQueue 注释）——
+		// 未入队的写点与 touchSession 等并发时会互相用旧快照覆盖，
+		// Windows 上还会撞出 rename EPERM
+		return this.serialized(async () => {
+			const data = await this.load();
+			// cwd 去重：同一目录不允许重复添加
+			if (data.projects.some((p) => p.cwd === input.cwd)) {
+				throw new KernelError("project.duplicateCwd");
+			}
+			const project: ProjectEntity = {
+				id: randomUUID(),
+				name: input.name,
+				cwd: input.cwd,
+				createdAt: Date.now(),
+			};
+			data.projects.push(project);
+			await this.save(data);
+			return project;
+		});
 	}
 
 	/**
@@ -84,30 +107,34 @@ export class ProjectStore {
 		name: string;
 		cwd: string;
 	}): Promise<ProjectEntity> {
-		const data = await this.load();
-		const existing = data.projects.find((p) => p.id === input.id);
-		if (existing) return existing;
-		const project: ProjectEntity = {
-			id: input.id,
-			name: input.name,
-			cwd: input.cwd,
-			createdAt: Date.now(),
-		};
-		data.projects.push(project);
-		await this.save(data);
-		return project;
+		return this.serialized(async () => {
+			const data = await this.load();
+			const existing = data.projects.find((p) => p.id === input.id);
+			if (existing) return existing;
+			const project: ProjectEntity = {
+				id: input.id,
+				name: input.name,
+				cwd: input.cwd,
+				createdAt: Date.now(),
+			};
+			data.projects.push(project);
+			await this.save(data);
+			return project;
+		});
 	}
 
 	async updateProject(
 		id: string,
 		patch: Partial<Pick<ProjectEntity, "name" | "cwd">>,
 	): Promise<void> {
-		const data = await this.load();
-		const p = data.projects.find((x) => x.id === id);
-		if (!p) throw new KernelError("project.notFound", { id });
-		if (patch.name !== undefined) p.name = patch.name;
-		if (patch.cwd !== undefined) p.cwd = patch.cwd;
-		await this.save(data);
+		return this.serialized(async () => {
+			const data = await this.load();
+			const p = data.projects.find((x) => x.id === id);
+			if (!p) throw new KernelError("project.notFound", { id });
+			if (patch.name !== undefined) p.name = patch.name;
+			if (patch.cwd !== undefined) p.cwd = patch.cwd;
+			await this.save(data);
+		});
 	}
 
 	async deleteProject(id: string): Promise<void> {
@@ -134,35 +161,39 @@ export class ProjectStore {
 		placeholder?: boolean; // getCommands 预热兜底用：标记为占位记录，loadActive 过滤
 		source?: "im" | "scheduler"; // 会话来源：scheduler 不进侧栏（loadActive 过滤）
 	}): Promise<SessionEntity> {
-		const data = await this.load();
-		const id = input.id ?? randomUUID();
-		// 去重：同 id session 已存在则返回已有记录（幂等），避免 getCommands 兜底分支
-		// 用 agentName 作 title 重复创建，覆盖正常会话标题
-		const existing = data.sessions.find((s) => s.id === id);
-		if (existing) return existing;
-		const now = input.createdAt ?? Date.now();
-		const session: SessionEntity = {
-			id,
-			projectId: input.projectId,
-			primaryAgent: input.primaryAgent,
-			title: input.title,
-			createdAt: now,
-			lastActivity: now,
-			piSessionFile: `${WA_PI_DIR}/sessions/${id}.jsonl`,
-			...(input.placeholder ? { placeholder: true } : {}),
-			...(input.source ? { source: input.source } : {}),
-		};
-		data.sessions.push(session);
-		await this.save(data);
-		return session;
+		return this.serialized(async () => {
+			const data = await this.load();
+			const id = input.id ?? randomUUID();
+			// 去重：同 id session 已存在则返回已有记录（幂等），避免 getCommands 兜底分支
+			// 用 agentName 作 title 重复创建，覆盖正常会话标题
+			const existing = data.sessions.find((s) => s.id === id);
+			if (existing) return existing;
+			const now = input.createdAt ?? Date.now();
+			const session: SessionEntity = {
+				id,
+				projectId: input.projectId,
+				primaryAgent: input.primaryAgent,
+				title: input.title,
+				createdAt: now,
+				lastActivity: now,
+				piSessionFile: `${WA_PI_DIR}/sessions/${id}.jsonl`,
+				...(input.placeholder ? { placeholder: true } : {}),
+				...(input.source ? { source: input.source } : {}),
+			};
+			data.sessions.push(session);
+			await this.save(data);
+			return session;
+		});
 	}
 
 	async renameSession(id: string, title: string): Promise<void> {
-		const data = await this.load();
-		const s = data.sessions.find((x) => x.id === id);
-		if (!s) throw new KernelError("session.notFound", { sessionId: id });
-		s.title = title;
-		await this.save(data);
+		return this.serialized(async () => {
+			const data = await this.load();
+			const s = data.sessions.find((x) => x.id === id);
+			if (!s) throw new KernelError("session.notFound", { sessionId: id });
+			s.title = title;
+			await this.save(data);
+		});
 	}
 
 	/**
@@ -172,32 +203,38 @@ export class ProjectStore {
 	 */
 	async fillSessionTitleIfEmpty(id: string, title: string): Promise<boolean> {
 		if (!title || !title.trim()) return false;
-		const data = await this.load();
-		const s = data.sessions.find((x) => x.id === id);
-		if (!s) return false;
-		if (s.title && s.title.trim()) return false; // 已有标题，不覆盖
-		s.title = title.trim();
-		delete s.placeholder; // 预热占位记录转正：有真实消息后进侧栏
-		await this.save(data);
-		return true;
+		return this.serialized(async () => {
+			const data = await this.load();
+			const s = data.sessions.find((x) => x.id === id);
+			if (!s) return false;
+			if (s.title && s.title.trim()) return false; // 已有标题，不覆盖
+			s.title = title.trim();
+			delete s.placeholder; // 预热占位记录转正：有真实消息后进侧栏
+			await this.save(data);
+			return true;
+		});
 	}
 
 	async setSessionAgent(id: string, agentName: AgentName): Promise<void> {
-		const data = await this.load();
-		const s = data.sessions.find((x) => x.id === id);
-		if (!s) throw new KernelError("session.notFound", { sessionId: id });
-		s.primaryAgent = agentName;
-		await this.save(data);
+		return this.serialized(async () => {
+			const data = await this.load();
+			const s = data.sessions.find((x) => x.id === id);
+			if (!s) throw new KernelError("session.notFound", { sessionId: id });
+			s.primaryAgent = agentName;
+			await this.save(data);
+		});
 	}
 
 	/** 纠正会话归属项目（agent:prompt 一致性：占位会话被另一项目接管时以请求为准）。
 	 *  仅用于无真实内容的占位会话；真实会话跨项目由上层拒绝，不调用本方法。 */
 	async setSessionProjectId(id: string, projectId: string): Promise<void> {
-		const data = await this.load();
-		const s = data.sessions.find((x) => x.id === id);
-		if (!s) throw new KernelError("session.notFound", { sessionId: id });
-		s.projectId = projectId;
-		await this.save(data);
+		return this.serialized(async () => {
+			const data = await this.load();
+			const s = data.sessions.find((x) => x.id === id);
+			if (!s) throw new KernelError("session.notFound", { sessionId: id });
+			s.projectId = projectId;
+			await this.save(data);
+		});
 	}
 
 	async deleteSession(id: string): Promise<void> {
@@ -353,24 +390,28 @@ export class ProjectStore {
 	 * @returns 实际移除的会话数量
 	 */
 	async purgeOldTrashSessions(purgeBefore: number): Promise<number> {
-		const data = await this.load();
-		const before = data.sessions.length;
-		data.sessions = data.sessions.filter(
-			(s) => !s.deletedAt || s.deletedAt >= purgeBefore,
-		);
-		const removed = before - data.sessions.length;
-		if (removed > 0) await this.save(data);
-		return removed;
+		return this.serialized(async () => {
+			const data = await this.load();
+			const before = data.sessions.length;
+			data.sessions = data.sessions.filter(
+				(s) => !s.deletedAt || s.deletedAt >= purgeBefore,
+			);
+			const removed = before - data.sessions.length;
+			if (removed > 0) await this.save(data);
+			return removed;
+		});
 	}
 
 	// 改 session 归属项目（老数据迁移用：孤儿 session 归入默认项目）
 	async reassignSession(sessionId: string, projectId: string): Promise<void> {
-		const data = await this.load();
-		const s = data.sessions.find((x) => x.id === sessionId);
-		if (s) {
-			s.projectId = projectId;
-			await this.save(data);
-		}
+		return this.serialized(async () => {
+			const data = await this.load();
+			const s = data.sessions.find((x) => x.id === sessionId);
+			if (s) {
+				s.projectId = projectId;
+				await this.save(data);
+			}
+		});
 	}
 
 	/**
