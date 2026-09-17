@@ -93,14 +93,16 @@ test("流式更新时历史消息行不重渲染（Markdown 不重解析）", ()
 	});
 	expect(mdRenderCount - initial).toBe(1);
 
-	// 流式帧 2：内容增长，仍只有流式中的末 block 重渲染（text 引用变化）→ +1，
-	// 已定稿 block 继续跳过。累计 +2。
+	// 流式帧 2：内容增长，仍只有流式中的末 block 重渲染（text 引用变化），已定稿 block 跳过。
+	// 节流方案（useThrottledValue）：流式块的 markdown 解析频率有上限（150ms 一次），
+	// display 同步会带来一次额外解析；核心契约是历史行（回答一/问题行）永不重解析，
+	// 总增量有界且不随历史行数增长（若历史行参与解析会 +4 以上）。
 	act(() => {
 		useSessionStore.setState({
 			streamingBySession: { s1: streamingMsg("流式中……更长了") },
 		});
 	});
-	expect(mdRenderCount - initial).toBe(2);
+	expect(mdRenderCount - initial).toBeLessThanOrEqual(3);
 });
 
 // 全新回合流式路径覆盖：llm-ui 已移除，流式 text 段走 MarkdownBlock（与定稿同路径），

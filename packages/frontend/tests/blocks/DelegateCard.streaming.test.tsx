@@ -14,7 +14,7 @@ beforeEach(() => {
   useUiPrefsStore.setState({ collapseProcessByDefault: false });
 });
 
-test("执行中 progress.output 渲染纯文本预览，不跑 markdown", () => {
+test("执行中 progress.output 渲染 markdown（节流）", () => {
   render(
     <DelegateCard
       sessionId="s1"
@@ -35,9 +35,9 @@ test("执行中 progress.output 渲染纯文本预览，不跑 markdown", () => 
       elapsedMs: 100,
     });
   });
-  const plain = screen.getByTestId("streaming-output-plain");
-  expect(plain.textContent).toBe("**加粗** 内容");
-  expect(plain.querySelector("strong")).toBeNull();
+  // 节流方案：流式中始终 markdown（无 plain↔md 交替闪烁）
+  const md = screen.getByTestId("streaming-output-md");
+  expect(md.querySelector("strong")?.textContent).toBe("加粗");
 });
 
 test("完成后（result 到达）渲染完整 markdown", () => {

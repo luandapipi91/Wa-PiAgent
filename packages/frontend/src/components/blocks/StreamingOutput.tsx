@@ -2,8 +2,7 @@ import { memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createMarkdownComponents } from "./markdown-components";
-import { Linkify } from "./linkify";
-import { useSettled } from "./useSettled";
+import { useThrottledValue } from "./useThrottledValue";
 
 /**
  * 子代理流式输出渲染（流式卡顿修复 3.3）：
@@ -16,33 +15,25 @@ export const StreamingOutput = memo(function StreamingOutput({
   text,
   sessionId,
   streaming,
-  idleMs = 500,
+  throttleMs = 50,
 }: {
   text: string;
   sessionId: string;
   /** true = 子代理执行中（progress.output 高频增长） */
   streaming: boolean;
-  idleMs?: number;
+  throttleMs?: number;
 }) {
-  const settled = useSettled(text, idleMs);
+  // 流式渲染节流（终版，替代 plain↔md 停顿降级——同主回复闪烁根因）：
+  // 流式中始终 markdown，解析节流 idleMs；结束后零延迟同步。
+  const displayText = useThrottledValue(text, streaming, throttleMs);
   const mdComponents = useMemo(
     () => createMarkdownComponents(sessionId),
     [sessionId],
   );
-  if (streaming && !settled) {
-    return (
-      <div
-        data-testid="streaming-output-plain"
-        className="whitespace-pre-wrap break-words"
-      >
-        <Linkify text={text} />
-      </div>
-    );
-  }
   return (
     <div data-testid="streaming-output-md">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-        {text}
+        {displayText}
       </ReactMarkdown>
     </div>
   );

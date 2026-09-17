@@ -2,7 +2,7 @@
 // 卡顿修复冒烟测试（trace 实证三轮修复的真实浏览器验收）
 //
 // 背景：2026-09-17 三轮卡顿修复——
-//   ① MarkdownBlock/ThinkingCard 流式停顿降级（阈值 50ms）
+//   ① MarkdownBlock/ThinkingCard/StreamingOutput 流式渲染节流（150ms，替代闪烁的停顿降级）
 //   ② 侧边栏渲染范围（ProjectList 字段 selector + SessionRow/ProjectItem memo
 //      + touchSession 无假引用变化）
 //   ③ SessionView 拆字段 selector（touchSession 新 session 对象不再击穿整树）
@@ -76,28 +76,14 @@ test.describe("卡顿修复冒烟", () => {
 			}
 		}, sessionId);
 
-		// 流式中：纯文本预览（不解析 markdown）
-		await expect(page.getByTestId("text-block-plain").first()).toBeVisible({ timeout: 3000 });
-
-		// 停顿 >10ms：快速切回 markdown（旧阈值 500ms 时 300ms 内仍是纯文本）
-		await page.waitForTimeout(300);
-		await expect(page.getByTestId("text-block").first()).toBeVisible({ timeout: 3000 });
+		// 流式中：markdown 直接渲染（节流方案，无纯文本闪烁阶段）
 		const md = page.getByTestId("text-block").first();
+		await expect(md).toBeVisible({ timeout: 3000 });
 		await expect(md.locator("strong").first()).toBeVisible();
-		expect(await page.getByTestId("text-block-plain").count()).toBe(0);
 
-		// 流式继续（持续新 delta，间隔 <10ms）：保持纯文本（计时不断被重置）
-		await page.evaluate(async (sid) => {
-			const { useSessionStore } = await import("/src/store/session.ts");
-			const h = useSessionStore.getState().handleSDKEvent;
-			const deadline = Date.now() + 800;
-			let i = 0;
-			while (Date.now() < deadline) {
-				h(sid, { event: { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: ` 追加${i++}` } }, agentName: "dev" } as any);
-				await new Promise((r) => setTimeout(r, 4));
-			}
-		}, sessionId);
-		await expect(page.getByTestId("text-block-plain").first()).toBeVisible({ timeout: 3000 });
+		// 内容增长：节流追上（150ms 窗口），无闪烁
+		await page.waitForTimeout(400);
+		await expect(page.getByTestId("text-block").first().getByText(/片段/).first()).toBeVisible();
 	});
 
 	test("修复①：thinking 流式中不跑 Linkify，停顿后恢复链接", async ({ page }) => {
@@ -120,20 +106,13 @@ test.describe("卡顿修复冒烟", () => {
 			}
 		}, sessionId);
 
-		// 流式中：thinking 卡片存在且无链接（跳过 Linkify）
+		// 流式中：thinking 始终链接化（节流方案，不闪烁）
 		const body = page.getByTestId("thinking-panel-body").first();
 		await expect(body).toBeVisible({ timeout: 3000 });
-		await expect(body.locator("a")).toHaveCount(0);
-
-		// 停顿后：Linkify 恢复（整跑时前序用例压力下 settled 定时器可能延迟，放宽等待）
-		await page.waitForTimeout(1000);
-		const bodyHtml = await page
-			.getByTestId("thinking-panel-body")
-			.first()
-			.evaluate((el) => el.innerHTML.slice(0, 300))
-			.catch(() => "(body 不存在)");
-		console.log(`[smoke-think] 停顿后 body: ${bodyHtml}`);
-		await expect(page.getByTestId("thinking-panel-body").first().locator("a").first()).toBeVisible({ timeout: 3000 });
+		await expect(body.locator("a").first()).toBeVisible({ timeout: 3000 });
+		// 节流窗口后内容追上
+		await page.waitForTimeout(400);
+		await expect(body.locator("a").first()).toBeVisible();
 	});
 
 	test("修复②③：工具循环（连续 message_end+touchSession）无秒级主线程长任务", async ({ page }) => {

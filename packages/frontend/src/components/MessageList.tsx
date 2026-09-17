@@ -35,7 +35,7 @@ import { useAgentsStore } from "../store/agents";
 import { useContactsStore } from "../store/contacts";
 import { TaskDoneFrog } from "./ui/frog/TaskDoneFrog";
 import { DelegateCard } from "./blocks/DelegateCard";
-import { useSettled } from "./blocks/useSettled";
+import { useThrottledValue } from "./blocks/useThrottledValue";
 import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
 import { FleetCard } from "./blocks/FleetCard";
@@ -1454,13 +1454,13 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 	sessionId,
 	mediaItems,
 	isStreaming,
-	idleMs = 10,
+	throttleMs = 50,
 }: {
 	text: string;
 	sessionId: string;
 	mediaItems: MediaItem[];
 	isStreaming?: boolean;
-	idleMs?: number;
+	throttleMs?: number;
 }) {
 	// mediaItems 用 ref 中转：components 的 useMemo 依赖只能有 sessionId——流式中
 	// mediaItems 每帧新引用会让 components 每帧重建，内联渲染函数 type 变化导致
@@ -1473,17 +1473,11 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 		() => createMarkdownComponents(sessionId, () => mediaItemsRef.current),
 		[sessionId],
 	);
-	const settled = useSettled(text, idleMs);
-	if (isStreaming && !settled) {
-		return (
-			<div
-				className="whitespace-pre-wrap break-words"
-				data-testid="text-block-plain"
-			>
-				{text}
-			</div>
-		);
-	}
+	// 流式渲染节流（终版，替代纯文本↔markdown 停顿降级——用户实测闪烁：阈值下每条
+	// delta 都可能触发 plain↔markdown 交替，切换会话也先纯文本再格式化闪一下）：
+	// 流式中始终渲染 markdown，解析经 useThrottledValue 节流（50ms），
+	// 消除闪烁的同时把逐帧全量解析降为低频；结束/历史消息零延迟同步。
+	const displayText = useThrottledValue(text, !!isStreaming, throttleMs);
 	return (
 		<div className="prose prose-sm max-w-none" data-testid="text-block">
 			<ReactMarkdown
@@ -1491,7 +1485,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 				components={mdComponents}
 				urlTransform={mediaUrlTransform}
 			>
-				{text}
+				{displayText}
 			</ReactMarkdown>
 		</div>
 	);

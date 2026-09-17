@@ -1,9 +1,6 @@
-// ThinkingCard 流式降级与 memo 契约（卡顿修复）：
-// 根因——thinking 往往是回复中最长的部分，流式中每个 delta 都让卡片重渲染，
-// Linkify 对全文跑 URL 正则 split 并重建 ReactNode 列表（每帧 O(全文)），且组件
-// 未 memo，同消息内其他块更新也连坐重渲染。
-// 修复——①流式中未停顿跳过 Linkify（纯文本），停顿 500ms 或结束后恢复链接化；
-// ②memo 化，props 不变时整块跳过。
+// ThinkingCard 流式节流与 memo 契约（卡顿修复终版，替代停顿降级）：
+// 停顿降级（plain↔Linkify 交替）用户实测闪烁，改为流式中始终 Linkify、
+// 经 useThrottledValue 节流（每帧 O(全文) 正则 split 降为低频）；memo 挡连坐。
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import { ThinkingCard } from "../../src/components/blocks/ThinkingCard";
@@ -18,53 +15,48 @@ test("ThinkingCard 是 memo 组件（props 不变时整块跳过重渲染）", (
 	expect((ThinkingCard as any).$$typeof).toBe(Symbol.for("react.memo"));
 });
 
-test("流式中未停顿：纯文本渲染，Linkify 不跑（无 <a>）", () => {
+test("流式中：始终 Linkify（不闪烁），裸 URL 可点击", () => {
 	render(
 		<ThinkingCard
 			thinking="先看 http://localhost:53213/ 这个接口"
 			isStreaming
-			idleMs={10_000}
+			throttleMs={10_000}
 		/>,
 	);
-	const panel = screen.getByTestId("thinking-panel-body");
-	expect(panel.querySelector("a")).toBeNull();
-	expect(panel.textContent).toContain("http://localhost:53213/");
-});
-
-test("流式中停顿 idleMs 后：Linkify 恢复，裸 URL 变链接", async () => {
-	render(
-		<ThinkingCard
-			thinking="先看 http://localhost:53213/ 这个接口"
-			isStreaming
-			idleMs={20}
-		/>,
-	);
-	expect(screen.getByTestId("thinking-panel-body").querySelector("a")).toBeNull();
-	await act(async () => {
-		await new Promise((r) => setTimeout(r, 60));
-	});
+	// 旧降级方案流式中无链接（红灯）；节流方案始终链接化
 	const a = screen.getByTestId("thinking-panel-body").querySelector("a");
 	expect(a?.getAttribute("href")).toBe("http://localhost:53213/");
 });
 
-test("非流式（思考完成）：保持原有 Linkify 行为", () => {
+test("流式中内容增长：节流——变化后立即查看仍是旧内容，窗口后追上", async () => {
+	const t1 = "先想 http://localhost:53213/";
+	const { rerender } = render(
+		<ThinkingCard thinking={t1} isStreaming throttleMs={20} />,
+	);
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 40));
+	});
+	const t2 = `${t1} 再想 http://localhost:53214/`;
+	rerender(<ThinkingCard thinking={t2} isStreaming throttleMs={20} />);
+	// 节流窗口内：新链接尚未出现
+	expect(
+		screen.getByTestId("thinking-panel-body").querySelector('[href="http://localhost:53214/"]'),
+	).toBeNull();
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 60));
+	});
+	expect(
+		screen.getByTestId("thinking-panel-body").querySelector('[href="http://localhost:53214/"]'),
+	).toBeTruthy();
+});
+
+test("非流式（思考完成）：保持 Linkify 行为（点击展开后断言）", () => {
 	render(
-		<ThinkingCard thinking="先看 http://localhost:53213/ 这个接口" />, 
+		<ThinkingCard thinking="先看 http://localhost:53213/ 这个接口" />,
 	);
 	// 整轮结束后卡片自动折叠（产品预期），点击头部展开后再断言内容
 	fireEvent.click(screen.getByTestId("thinking-panel-header"));
 	expect(
 		screen.getByTestId("thinking-panel-body").querySelector("a"),
 	).toBeTruthy();
-});
-
-test("默认停顿阈值为 10ms：停顿后快速恢复 Linkify（用户感知优化）", async () => {
-	useUiPrefsStore.setState({ collapseProcessByDefault: false });
-	render(<ThinkingCard thinking="见 http://localhost:53213/ 链接" isStreaming />);
-	expect(screen.getByTestId("thinking-panel-body").querySelector("a")).toBeNull();
-	await act(async () => {
-		await new Promise((r) => setTimeout(r, 30));
-	});
-	// 旧 50ms 时此断言失败（红灯）；阈值 10ms 后通过
-	expect(screen.getByTestId("thinking-panel-body").querySelector("a")).toBeTruthy();
 });
