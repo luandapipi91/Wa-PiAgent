@@ -35,6 +35,7 @@ import { useAgentsStore } from "../store/agents";
 import { useContactsStore } from "../store/contacts";
 import { TaskDoneFrog } from "./ui/frog/TaskDoneFrog";
 import { DelegateCard } from "./blocks/DelegateCard";
+import { useSettled } from "./blocks/useSettled";
 import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
 import { FleetCard } from "./blocks/FleetCard";
@@ -1380,7 +1381,12 @@ export const MessageRow = memo(function MessageRow({
 					style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
 				>
 					{seg.texts.map((text, i) => (
-						<TextContent key={seg.blockIdxs[i]} text={text} sessionId={sessionId} />
+						<TextContent
+							key={seg.blockIdxs[i]}
+							text={text}
+							sessionId={sessionId}
+							isStreaming={segIsStreaming}
+						/>
 					))}
 				</div>
 				{seg === segments[lastTextSegIdx] && !isStreaming && !isActiveTurnRow && (
@@ -1437,15 +1443,24 @@ export const MessageRow = memo(function MessageRow({
 // 单 text block 的 Markdown 渲染。memo：流式合并行中只有内容变化的 block（流式中的
 // 末块）重渲染，已定稿 block（text 字符串引用不变）整块跳过——避免合并行里定稿段落
 // 每帧全量重跑 ReactMarkdown/remarkGfm（超长回复的卡顿热点）。
-// 导出仅供测试（markdown-streaming-stability.test.tsx 锁「流式增长不重挂载」契约）。
+// 流式降级（卡顿修复，同 StreamingOutput 3.3 模式）：isStreaming 且未停顿
+// （useSettled）→ 纯文本预览，每帧只更新 text node，不跑 markdown 解析；
+// 停顿 500ms 或流式结束 → 完整 markdown。实测超长回复后期 remark 全量解析
+// 单帧可达数十至数百 ms，主线程被占满（点击无响应）即此。
+// 导出仅供测试（markdown-streaming-stability.test.tsx 锁「流式增长不重挂载」契约、
+// markdown-streaming-degrade.test.tsx 锁降级契约）。
 export const MarkdownBlock = memo(function MarkdownBlock({
 	text,
 	sessionId,
 	mediaItems,
+	isStreaming,
+	idleMs = 500,
 }: {
 	text: string;
 	sessionId: string;
 	mediaItems: MediaItem[];
+	isStreaming?: boolean;
+	idleMs?: number;
 }) {
 	// mediaItems 用 ref 中转：components 的 useMemo 依赖只能有 sessionId——流式中
 	// mediaItems 每帧新引用会让 components 每帧重建，内联渲染函数 type 变化导致
@@ -1458,6 +1473,17 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 		() => createMarkdownComponents(sessionId, () => mediaItemsRef.current),
 		[sessionId],
 	);
+	const settled = useSettled(text, idleMs);
+	if (isStreaming && !settled) {
+		return (
+			<div
+				className="whitespace-pre-wrap break-words"
+				data-testid="text-block-plain"
+			>
+				{text}
+			</div>
+		);
+	}
 	return (
 		<div className="prose prose-sm max-w-none" data-testid="text-block">
 			<ReactMarkdown
@@ -1475,18 +1501,26 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 // 整块围栏恰为单个媒体路径的渲染 InlineVideo/MarkdownImage，其余段落走 MarkdownBlock。
 // 流式期间未完整段落不匹配整段正则 → 自然按纯文本渲染，message_end 定稿后重算自动切换，无需额外状态。
 // mediaItems（画廊清单）useMemo([text]) 保持引用稳定，不破坏 MarkdownBlock 的 memo 跳过语义。
+// isStreaming 透传给 MarkdownBlock：流式中的末块走停顿降级（纯文本预览），见 MarkdownBlock 注释。
 const TextContent = memo(function TextContent({
 	text,
 	sessionId,
+	isStreaming,
 }: {
 	text: string;
 	sessionId: string;
+	isStreaming?: boolean;
 }) {
 	const parts = useMemo(() => splitMediaParagraphs(text), [text]);
 	const mediaItems = useMemo(() => collectMediaItems(text), [text]);
 	if (parts.length === 1 && parts[0].kind === "markdown") {
 		return (
-			<MarkdownBlock text={text} sessionId={sessionId} mediaItems={mediaItems} />
+			<MarkdownBlock
+				text={text}
+				sessionId={sessionId}
+				mediaItems={mediaItems}
+				isStreaming={isStreaming}
+			/>
 		);
 	}
 	return (
@@ -1510,6 +1544,7 @@ const TextContent = memo(function TextContent({
 						text={p.text}
 						sessionId={sessionId}
 						mediaItems={mediaItems}
+						isStreaming={isStreaming}
 					/>
 				),
 			)}
