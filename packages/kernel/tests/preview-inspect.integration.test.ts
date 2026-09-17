@@ -80,12 +80,12 @@ const ENC = encodeURIComponent(TMP_ROOT);
 afterAll(async () => {
 	await kernel.stop();
 	// 删除本文件写入的 projects.json（preload 临时目录原本不存在该文件，还原空目录）
-	await rm(join(KERNEL_DATA_DIR, "projects.json"), { force: true });
+	await rm(join(KERNEL_DATA_DIR, "projects.json"), { force: true }).catch(() => {}); // startKernel().stop() 不停 fs.watch 等句柄，Windows 锁目录到进程退出，清理尽力而为
 	for (const [k, v] of Object.entries(ORIG_ENV)) {
 		if (v === undefined) delete process.env[k];
 		else process.env[k] = v;
 	}
-	await rm(TMP_ROOT, { recursive: true, force: true });
+	await rm(TMP_ROOT, { recursive: true, force: true }).catch(() => {}); // startKernel().stop() 不停 fs.watch 等句柄，Windows 锁目录到进程退出，清理尽力而为
 });
 
 test("GET /preview/*.html 注入 inspect 脚本", async () => {

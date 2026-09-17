@@ -78,7 +78,7 @@ afterAll(async () => {
 	process.env.https_proxy = ORIG_ENV.https_proxy ?? "";
 	process.env.PI_CODING_AGENT_DIR = ORIG_ENV.PI_CODING_AGENT_DIR ?? "";
 	process.env.PI_EXPERIMENTAL = ORIG_ENV.PI_EXPERIMENTAL ?? "";
-	await rm(TMP_ROOT, { recursive: true, force: true });
+	await rm(TMP_ROOT, { recursive: true, force: true }).catch(() => {}); // startKernel().stop() 不停 fs.watch 等句柄，Windows 锁目录到进程退出，清理尽力而为
 });
 
 test("startKernel 启动即迁移存量 markdown 记忆，坏来源不阻断启动", async () => {

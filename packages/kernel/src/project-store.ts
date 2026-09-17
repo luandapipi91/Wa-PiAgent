@@ -46,6 +46,27 @@ export class ProjectStore {
 		}
 	}
 
+	/**
+	 * 写路径严格读：文件存在但读取/解析失败时抛错，而非回退空库。
+	 * load() 的 catch-empty 只适用于纯只读展示；若写路径拿到空快照后写回，
+	 * 会把整个 store 清空（projects.json 反复「变空」事故的根因）。
+	 * 文件不存在（ENOENT，首次启动）仍是合法空库。
+	 */
+	private async loadStrict(): Promise<ProjectsFile> {
+		try {
+			const raw = await readFile(this.filePath, "utf8");
+			const data = JSON.parse(raw) as ProjectsFile;
+			return { projects: data.projects ?? [], sessions: data.sessions ?? [] };
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return empty();
+			throw new KernelError(
+				"project.storeReadFailed",
+				{},
+				e instanceof Error ? e.message : String(e),
+			);
+		}
+	}
+
 	private async save(data: ProjectsFile): Promise<void> {
 		await mkdir(dirname(this.filePath), { recursive: true });
 		// 原子写：先落临时文件再 rename，避免并发读读到半截 JSON
@@ -79,7 +100,7 @@ export class ProjectStore {
 		// 未入队的写点与 touchSession 等并发时会互相用旧快照覆盖，
 		// Windows 上还会撞出 rename EPERM
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			// cwd 去重：同一目录不允许重复添加
 			if (data.projects.some((p) => p.cwd === input.cwd)) {
 				throw new KernelError("project.duplicateCwd");
@@ -108,7 +129,7 @@ export class ProjectStore {
 		cwd: string;
 	}): Promise<ProjectEntity> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const existing = data.projects.find((p) => p.id === input.id);
 			if (existing) return existing;
 			const project: ProjectEntity = {
@@ -128,7 +149,7 @@ export class ProjectStore {
 		patch: Partial<Pick<ProjectEntity, "name" | "cwd">>,
 	): Promise<void> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const p = data.projects.find((x) => x.id === id);
 			if (!p) throw new KernelError("project.notFound", { id });
 			if (patch.name !== undefined) p.name = patch.name;
@@ -139,7 +160,7 @@ export class ProjectStore {
 
 	async deleteProject(id: string): Promise<void> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			data.projects = data.projects.filter((p) => p.id !== id);
 			// 软删除该项目下的活跃会话（移入回收站，而非物理删除）
 			for (const session of data.sessions) {
@@ -162,7 +183,7 @@ export class ProjectStore {
 		source?: "im" | "scheduler"; // 会话来源：scheduler 不进侧栏（loadActive 过滤）
 	}): Promise<SessionEntity> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const id = input.id ?? randomUUID();
 			// 去重：同 id session 已存在则返回已有记录（幂等），避免 getCommands 兜底分支
 			// 用 agentName 作 title 重复创建，覆盖正常会话标题
@@ -188,7 +209,7 @@ export class ProjectStore {
 
 	async renameSession(id: string, title: string): Promise<void> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const s = data.sessions.find((x) => x.id === id);
 			if (!s) throw new KernelError("session.notFound", { sessionId: id });
 			s.title = title;
@@ -204,7 +225,7 @@ export class ProjectStore {
 	async fillSessionTitleIfEmpty(id: string, title: string): Promise<boolean> {
 		if (!title || !title.trim()) return false;
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const s = data.sessions.find((x) => x.id === id);
 			if (!s) return false;
 			if (s.title && s.title.trim()) return false; // 已有标题，不覆盖
@@ -217,7 +238,7 @@ export class ProjectStore {
 
 	async setSessionAgent(id: string, agentName: AgentName): Promise<void> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const s = data.sessions.find((x) => x.id === id);
 			if (!s) throw new KernelError("session.notFound", { sessionId: id });
 			s.primaryAgent = agentName;
@@ -229,7 +250,7 @@ export class ProjectStore {
 	 *  仅用于无真实内容的占位会话；真实会话跨项目由上层拒绝，不调用本方法。 */
 	async setSessionProjectId(id: string, projectId: string): Promise<void> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const s = data.sessions.find((x) => x.id === id);
 			if (!s) throw new KernelError("session.notFound", { sessionId: id });
 			s.projectId = projectId;
@@ -239,7 +260,7 @@ export class ProjectStore {
 
 	async deleteSession(id: string): Promise<void> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const session = data.sessions.find((s) => s.id === id);
 			if (session) {
 				session.deletedAt = Date.now();
@@ -257,7 +278,7 @@ export class ProjectStore {
 	 */
 	async deleteSessionIfPlaceholder(id: string): Promise<boolean> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const session = data.sessions.find((s) => s.id === id);
 			if (!session || !session.placeholder) return false;
 			session.deletedAt = Date.now();
@@ -294,7 +315,7 @@ export class ProjectStore {
 	 */
 	async restoreSession(id: string): Promise<void> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const session = data.sessions.find((s) => s.id === id);
 			if (session) {
 				// 如果原项目已被删除，恢复到默认工作区
@@ -318,7 +339,7 @@ export class ProjectStore {
 		if (ids.length === 0) return;
 		return this.serialized(async () => {
 			const idSet = new Set(ids);
-			const data = await this.load();
+			const data = await this.loadStrict();
 			data.sessions = data.sessions.filter((s) => !idSet.has(s.id));
 			await this.save(data);
 		});
@@ -330,7 +351,7 @@ export class ProjectStore {
 	 */
 	async emptyTrash(): Promise<number> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const before = data.sessions.length;
 			data.sessions = data.sessions.filter((s) => !s.deletedAt);
 			const removed = before - data.sessions.length;
@@ -369,7 +390,7 @@ export class ProjectStore {
 	 */
 	async archiveStaleSessions(thresholdMs: number): Promise<SessionEntity[]> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const cutoff = Date.now() - thresholdMs;
 			const archived: SessionEntity[] = [];
 			for (const session of data.sessions) {
@@ -391,7 +412,7 @@ export class ProjectStore {
 	 */
 	async purgeOldTrashSessions(purgeBefore: number): Promise<number> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const before = data.sessions.length;
 			data.sessions = data.sessions.filter(
 				(s) => !s.deletedAt || s.deletedAt >= purgeBefore,
@@ -405,7 +426,7 @@ export class ProjectStore {
 	// 改 session 归属项目（老数据迁移用：孤儿 session 归入默认项目）
 	async reassignSession(sessionId: string, projectId: string): Promise<void> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const s = data.sessions.find((x) => x.id === sessionId);
 			if (s) {
 				s.projectId = projectId;
@@ -420,7 +441,7 @@ export class ProjectStore {
 	 */
 	async touchSession(id: string): Promise<boolean> {
 		return this.serialized(async () => {
-			const data = await this.load();
+			const data = await this.loadStrict();
 			const s = data.sessions.find((x) => x.id === id);
 			if (!s) return false;
 			// 自动归档的会话一旦有新活动即自动恢复，回到活跃列表（手动删除的不复活）

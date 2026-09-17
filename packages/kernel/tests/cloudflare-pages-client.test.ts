@@ -66,11 +66,14 @@ function installFetchMock() {
   return calls;
 }
 
+const originalFetch = globalThis.fetch;
 beforeEach(() => {
   installFetchMock();
 });
 afterEach(() => {
-  delete (globalThis as any).fetch;
+  // 恢复原 fetch 而非 delete：bun test 单进程跑全部文件，删掉全局 fetch
+  // 会殃及本文件之后所有需要 fetch 的测试（fetch is not a function）
+  (globalThis as any).fetch = originalFetch;
 });
 
 describe("getProjectSubdomain", () => {

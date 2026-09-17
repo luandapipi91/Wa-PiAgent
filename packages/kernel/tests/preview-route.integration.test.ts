@@ -87,9 +87,9 @@ afterAll(async () => {
 	process.env.https_proxy = ORIG_ENV.https_proxy ?? "";
 	process.env.PI_CODING_AGENT_DIR = ORIG_ENV.PI_CODING_AGENT_DIR ?? "";
 	process.env.PI_EXPERIMENTAL = ORIG_ENV.PI_EXPERIMENTAL ?? "";
-	await rm(join(KERNEL_DATA_DIR, "projects.json"), { force: true });
-	await rm(TMP_ROOT, { recursive: true, force: true });
-	await rm(OUTSIDE_SECRET, { recursive: true, force: true });
+	await rm(join(KERNEL_DATA_DIR, "projects.json"), { force: true }).catch(() => {}); // startKernel().stop() 不停 fs.watch 等句柄，Windows 锁目录到进程退出，清理尽力而为
+	await rm(TMP_ROOT, { recursive: true, force: true }).catch(() => {}); // startKernel().stop() 不停 fs.watch 等句柄，Windows 锁目录到进程退出，清理尽力而为
+	await rm(OUTSIDE_SECRET, { recursive: true, force: true }).catch(() => {}); // startKernel().stop() 不停 fs.watch 等句柄，Windows 锁目录到进程退出，清理尽力而为
 });
 
 // happy-dom（root 测试环境的全局 preload）会替换 globalThis.fetch，

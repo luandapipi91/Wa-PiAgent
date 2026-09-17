@@ -60,7 +60,10 @@ describe("spawnOpen 环境净化", () => {
 			expect(opts?.env).toBeTruthy();
 			expect(opts?.env?.WA_PI_TEST_WS_PORT).toBeUndefined();
 			expect(opts?.env?.WA_PI_TEST_DIR).toBeUndefined();
-			expect(opts?.env?.PATH).toBeDefined();
+			// PATH 大小写平台相关（Windows 存储键为 Path），净化后必须保留（不区分大小写断言）
+			expect(
+				Object.keys(opts?.env ?? {}).some((k) => k.toUpperCase() === "PATH"),
+			).toBe(true);
 			// Windows 无 HOME 概念（Git Bash 下可能有），用 USERPROFILE 兜底
 			expect(
 				isWin ? (opts?.env?.USERPROFILE ?? opts?.env?.HOME) : opts?.env?.HOME,

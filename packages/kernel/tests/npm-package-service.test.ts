@@ -416,24 +416,33 @@ test("并行安装串行化：跨实例并发同样互斥（队列必须模块�
 // bun add），node_modules 会顶到新版本而 pin 不动 → pi 启动时按精确范围校验失败 →
 // 离线模式下整包被跳过（扩展静默不加载）。加 --exact 从根上消除这种漂移。
 
-/** 造一个"记录收到的参数"的假包管理器命令 */
-function makeArgRecorder(dir: string): { cmd: string; read: () => string[] } {
-  const argsFile = join(dir, "spawn-args.txt");
-  const script = join(dir, "record-args.sh");
-  writeFileSync(script, `#!/bin/sh\nprintf '%s\\n' "$@" > ${argsFile}\n`);
-  chmodSync(script, 0o755);
-  return {
-    cmd: script,
-    read: () =>
-      existsSync(argsFile)
-        ? readFileSync(argsFile, "utf8").trim().split("\n")
-        : [],
-  };
+/** 造一个"记录收到的参数"的假包管理器命令（跨平台：sh 脚本在 Windows 无法被 spawn 直接执行，
+ *  改用当前 bun 可执行文件跑 .js 记录器；npmCommand 注入 [bunExe, script]，spawn 后
+ *  process.argv.slice(2) 即包管理器收到的参数） */
+function makeArgRecorder(dir: string): {
+	cmd: string;
+	script: string;
+	read: () => string[];
+} {
+	const argsFile = join(dir, "spawn-args.json");
+	const script = join(dir, "record-args.js");
+	writeFileSync(
+		script,
+		`require("node:fs").writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(process.argv.slice(2)));\n`,
+	);
+	return {
+		cmd: process.execPath,
+		script,
+		read: () =>
+			existsSync(argsFile)
+				? (JSON.parse(readFileSync(argsFile, "utf8")) as string[])
+				: [],
+	};
 }
 
 test("install 以 --exact 调用包管理器", async () => {
   const rec = makeArgRecorder(dir);
-  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd] });
+  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd, rec.script] });
   // 假命令不会真的安装，随后 getInstalledVersion 校验失败抛错——参数已记录，忽略异常
   await svc.install("demo-pkg", "1.2.3").catch(() => {});
   expect(rec.read()).toEqual(["add", "--exact", "demo-pkg@1.2.3"]);
@@ -441,14 +450,14 @@ test("install 以 --exact 调用包管理器", async () => {
 
 test("install 不带版本时同样带 --exact", async () => {
   const rec = makeArgRecorder(dir);
-  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd] });
+  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd, rec.script] });
   await svc.install("demo-pkg").catch(() => {});
   expect(rec.read()).toEqual(["add", "--exact", "demo-pkg"]);
 });
 
 test("upgrade 以 --exact 调用包管理器", async () => {
   const rec = makeArgRecorder(dir);
-  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd] });
+  const svc = new NpmPackageService(dir, { npmCommand: [rec.cmd, rec.script] });
   await svc.upgrade("demo-pkg").catch(() => {});
   expect(rec.read()).toEqual(["add", "--exact", "demo-pkg"]);
 });

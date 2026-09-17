@@ -34,6 +34,15 @@ const LOAD_SENSITIVE_TESTS = [
 	"tests/git-watcher.test.ts",
 ];
 
+/** mock.module 泄漏类（2026-09-17）：fs-open-env 注册的 node:child_process mock
+ *  在 Bun 1.4 无恢复 API（mock.module 返回 undefined），且实测 --isolate 同 worker
+ *  （两文件 PID 相同）——主批混跑时泄漏影响后续文件（如 npm-package-service 的
+ *  spawn 链路）。主批排除、单独进程补跑。 */
+const MOCK_LEAKY_TESTS = [
+	"tests/fs-open-env.test.ts",
+	"tests/npm-package-service.test.ts",
+];
+
 function run(args: string[]): boolean {
 	const label = `bun ${args.join(" ")}`;
 	console.log(`[test] $ ${label}`);
@@ -66,6 +75,10 @@ const loadSensitiveIgnoreArgs = LOAD_SENSITIVE_TESTS.flatMap((f) => [
 	"--path-ignore-patterns",
 	f,
 ]);
+const mockLeakyIgnoreArgs = MOCK_LEAKY_TESTS.flatMap((f) => [
+	"--path-ignore-patterns",
+	f,
+]);
 ok =
 	run([
 		"test",
@@ -76,6 +89,7 @@ ok =
 		"--timeout=30000",
 		...ignoreArgs,
 		...loadSensitiveIgnoreArgs,
+		...mockLeakyIgnoreArgs,
 	]) && ok;
 
 // 2. 独立进程单独补跑集成测试（与其他测试隔离，验证 kernel 启动链路）
@@ -85,6 +99,11 @@ for (const file of INTEGRATION_TESTS) {
 
 // 3. 负载敏感测试串行补跑（无并行竞争，fs 事件即时可达）
 for (const file of LOAD_SENSITIVE_TESTS) {
+	ok = run(["test", "--isolate", "--timeout=30000", file]) && ok;
+}
+
+// 4. mock.module 泄漏类单独进程补跑（避免污染主批 / 被主批污染）
+for (const file of MOCK_LEAKY_TESTS) {
 	ok = run(["test", "--isolate", "--timeout=30000", file]) && ok;
 }
 

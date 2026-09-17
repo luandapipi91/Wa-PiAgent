@@ -53,7 +53,10 @@ afterAll(async () => {
   process.env.https_proxy = ORIG_ENV.https_proxy ?? "";
   process.env.PI_CODING_AGENT_DIR = ORIG_ENV.PI_CODING_AGENT_DIR ?? "";
   process.env.PI_EXPERIMENTAL = ORIG_ENV.PI_EXPERIMENTAL ?? "";
-  await rm(TMP_ROOT, { recursive: true, force: true });
+  // startKernel().stop() 只停 HTTP server，scheduler fs.watch/proxy-relay 句柄
+  // 会锁住 TMP_ROOT 到进程退出（Windows rm EBUSY）。测试进程即将结束句柄随之释放，
+  // 清理尽力而为：失败不阻断（残留目录由系统临时目录策略回收）
+  await rm(TMP_ROOT, { recursive: true, force: true }).catch(() => {});
 });
 
 const HAPPY_DOM_ACTIVE =
@@ -76,9 +79,15 @@ maybeTest("/file 对 .webm 返回 audio/webm 类型", async () => {
   const started = await startKernel({ port: freePort });
   stopHandle = started.stop;
 
-  const resp = await fetch(`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(filePath)}`);
-  expect(resp.status).toBe(200);
-  expect(resp.headers.get("content-type")).toBe("audio/webm");
+  try {
+    const resp = await fetch(`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(filePath)}`);
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get("content-type")).toBe("audio/webm");
+  } finally {
+    // 每用例用完即关：stopHandle 只留最后一份，中间实例的句柄（server/proxy-relay/
+    // scheduler watcher）会锁住 TMP_ROOT，afterAll 清理时 rm 撞 EBUSY（2026-09-17 实测）
+    await started.stop().catch(() => {});
+  }
 });
 
 maybeTest("/file 白名单泛化：项目根下图片 200 + image/png", async () => {
@@ -93,11 +102,16 @@ maybeTest("/file 白名单泛化：项目根下图片 200 + image/png", async ()
 	const started = await startKernel({ port: freePort });
 	stopHandle = started.stop;
 
-	const resp = await fetch(
-		`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(filePath)}`,
-	);
-	expect(resp.status).toBe(200);
-	expect(resp.headers.get("content-type")).toBe("image/png");
+	try {
+		const resp = await fetch(
+			`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(filePath)}`,
+		);
+		expect(resp.status).toBe(200);
+		expect(resp.headers.get("content-type")).toBe("image/png");
+	} finally {
+		// 每用例用完即关：中间实例句柄会锁住 TMP_ROOT，清理撞 EBUSY
+		await started.stop().catch(() => {});
+	}
 });
 
 maybeTest("/file 拒绝项目外路径（403）", async () => {
@@ -111,10 +125,14 @@ maybeTest("/file 拒绝项目外路径（403）", async () => {
 	const started = await startKernel({ port: freePort });
 	stopHandle = started.stop;
 
-	const resp = await fetch(
-		`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(outside)}`,
-	);
-	expect(resp.status).toBe(403);
+	try {
+		const resp = await fetch(
+			`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(outside)}`,
+		);
+		expect(resp.status).toBe(403);
+	} finally {
+		await started.stop().catch(() => {});
+	}
 });
 
 maybeTest("/file 视频 Range 请求返回 206 + video/mp4", async () => {
@@ -128,12 +146,16 @@ maybeTest("/file 视频 Range 请求返回 206 + video/mp4", async () => {
 	const started = await startKernel({ port: freePort });
 	stopHandle = started.stop;
 
-	const resp = await fetch(
-		`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(filePath)}`,
-		{ headers: { Range: "bytes=0-99" } },
-	);
-	// Bun.file() 直出原生支持 Range（已实测），此处锁定行为防回归
-	expect(resp.status).toBe(206);
-	expect(resp.headers.get("content-range")).toBe("bytes 0-99/1000");
-	expect(resp.headers.get("content-type")).toBe("video/mp4");
+	try {
+		const resp = await fetch(
+			`http://127.0.0.1:${started.port}/file?path=${encodeURIComponent(filePath)}`,
+			{ headers: { Range: "bytes=0-99" } },
+		);
+		// Bun.file() 直出原生支持 Range（已实测），此处锁定行为防回归
+		expect(resp.status).toBe(206);
+		expect(resp.headers.get("content-range")).toBe("bytes 0-99/1000");
+		expect(resp.headers.get("content-type")).toBe("video/mp4");
+	} finally {
+		await started.stop().catch(() => {});
+	}
 });

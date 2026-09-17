@@ -5,6 +5,7 @@ import { renameSync } from "node:fs";
 import { rm } from "node:fs/promises"; // promise 版 rm；mock 只覆盖 rename，其余导出保持原版
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { ProjectStore as ProjectStoreType } from "../project-store";
 
 // ---------------------------------------------------------------------------
 // 场景：Windows 上 projects.json 被杀软/并发读者短暂持有时，
@@ -100,7 +101,7 @@ describe("ProjectStore.save() EPERM 退避重试（Windows 锁定场景）", () 
 // ---------------------------------------------------------------------------
 
 /** 给 store 的 save 挂探针：记录最大并发度，并放大窗口让交叠确定性暴露 */
-function instrument(store: ProjectStore) {
+function instrument(store: ProjectStoreType) {
 	const state = { inFlight: 0, maxConcurrent: 0 };
 	const proto = Object.getPrototypeOf(store) as any;
 	const origSave = proto.save.bind(store);
