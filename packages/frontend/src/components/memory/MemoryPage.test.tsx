@@ -190,6 +190,163 @@ test("记忆卡片带层标签：全局 4 条按 kind 渲染 画像/知识/执�
 	expect(badges.filter((b) => b === "知识").length).toBe(2);
 });
 
+// —— 归档 tab 类型筛选回归：归档列表必须消费 kindFilter ——
+test("归档 tab：类型筛选生效——点「画像」只剩画像条目", async () => {
+	// 归档数据：画像 / 执行 / 知识 各一条（全 global，避免作用域干扰断言）
+	getMock.mockImplementation(async (url: string) => {
+		if (url.includes("/config")) {
+			return { config: { reviewEnabled: true, memoryPolicyStyle: "full" } };
+		}
+		if (url.includes("/instructions")) {
+			return { instructions: [] };
+		}
+		return {
+			memories: [],
+			archived: [
+				{
+					...makeEntry(
+						"a0000000-0000-4000-8000-000000000001",
+						"global",
+						"归档画像",
+						"profile",
+					),
+					archivedAt: "2026-09-01T00:00:00.000Z",
+				},
+				{
+					...makeEntry(
+						"a0000000-0000-4000-8000-000000000002",
+						"global",
+						"归档执行",
+						"execution",
+					),
+					archivedAt: "2026-09-01T00:00:00.000Z",
+				},
+				{
+					...makeEntry(
+						"a0000000-0000-4000-8000-000000000003",
+						"global",
+						"归档知识",
+						"knowledge",
+					),
+					archivedAt: "2026-09-01T00:00:00.000Z",
+				},
+			],
+		};
+	});
+
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	await waitFor(() => {
+		expect(useMemoryStore.getState().archived.length).toBe(3);
+	});
+
+	// 切到归档 tab
+	fireEvent.click(screen.getByTestId("tab-归档"));
+
+	// 初始：3 张归档卡片
+	await waitFor(() => {
+		expect(
+			document.querySelectorAll('[data-testid^="memory-card-"]').length,
+		).toBe(3);
+	});
+
+	// 点「画像」筛选 chip
+	fireEvent.click(screen.getByRole("button", { name: "画像" }));
+
+	// 修复前：列表纹丝不动（仍 3 张）；修复后：只剩 1 张画像卡片
+	await waitFor(() => {
+		expect(
+			document.querySelectorAll('[data-testid^="memory-card-"]').length,
+		).toBe(1);
+	});
+	expect(screen.getByText("归档画像")).toBeTruthy();
+	expect(screen.queryByText("归档执行")).toBeNull();
+	expect(screen.queryByText("归档知识")).toBeNull();
+
+	// 取消筛选后恢复 3 张
+	fireEvent.click(screen.getByRole("button", { name: "画像" }));
+	await waitFor(() => {
+		expect(
+			document.querySelectorAll('[data-testid^="memory-card-"]').length,
+		).toBe(3);
+	});
+});
+
+test("归档 tab：列表与徽标按作用域过滤——全局作用域下不含项目归档", async () => {
+	getMock.mockImplementation(async (url: string) => {
+		if (url.includes("/config")) {
+			return { config: { reviewEnabled: true, memoryPolicyStyle: "full" } };
+		}
+		if (url.includes("/instructions")) {
+			return { instructions: [] };
+		}
+		return {
+			memories: [],
+			archived: [
+				{
+					...makeEntry(
+						"b0000000-0000-4000-8000-000000000001",
+						"global",
+						"全局归档一",
+					),
+					archivedAt: "2026-09-01T00:00:00.000Z",
+				},
+				{
+					...makeEntry(
+						"b0000000-0000-4000-8000-000000000002",
+						"global",
+						"全局归档二",
+					),
+					archivedAt: "2026-09-01T00:00:00.000Z",
+				},
+				{
+					...makeEntry(
+						"b0000000-0000-4000-8000-000000000003",
+						"project",
+						"项目归档一",
+					),
+					archivedAt: "2026-09-01T00:00:00.000Z",
+				},
+			],
+		};
+	});
+
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	await waitFor(() => {
+		expect(useMemoryStore.getState().archived.length).toBe(3);
+	});
+
+	// 切到归档 tab
+	fireEvent.click(screen.getByTestId("tab-归档"));
+
+	// 全局作用域：只渲染 2 张全局归档卡片（修复前：混入项目归档，3 张）
+	await waitFor(() => {
+		expect(
+			document.querySelectorAll('[data-testid^="memory-card-"]').length,
+		).toBe(2);
+	});
+	expect(screen.getByText("全局归档一")).toBeTruthy();
+	expect(screen.getByText("全局归档二")).toBeTruthy();
+	expect(screen.queryByText("项目归档一")).toBeNull();
+
+	// 徽标口径与列表一致：显示 2 而非全量 3
+	const archivedTab = screen.getByTestId("tab-归档");
+	expect(archivedTab.textContent).toContain("2");
+	expect(archivedTab.textContent).not.toContain("3");
+
+	// 切到项目作用域后：列表与徽标变为 1
+	fireEvent.click(screen.getByTestId("memory-scope-select"));
+	fireEvent.click(screen.getByTestId("memory-scope-option-project-proj-1"));
+	await waitFor(() => {
+		expect(
+			document.querySelectorAll('[data-testid^="memory-card-"]').length,
+		).toBe(1);
+	});
+	expect(screen.getByText("项目归档一")).toBeTruthy();
+	expect(screen.getByTestId("tab-归档").textContent).toContain("1");
+});
+
 test("层筛选：全局作用域下点「执行」只剩执行层，徽标仍按作用域计数", async () => {
 	render(<MemoryPage />);
 	await screen.findByTestId("memory-page");

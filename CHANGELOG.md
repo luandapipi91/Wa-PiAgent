@@ -1,5 +1,7 @@
 ## 2026-09-16
 
+- fix(frontend): 记忆管理归档 Tab 作用域对齐——归档列表与徽标补上 scope 过滤（原先混显全局+项目归档），现在跟左上角作用域下拉一致：全局作用域只看全局归档，切项目只看该项目归档；徽标同口径只计当前作用域。测试：组件（归档列表/徽标随作用域切换 3→2→1）+ E2E（真实浏览器：全局归档不含项目条目、切项目后空态）
+- fix(frontend): 记忆管理归档 Tab 类型筛选失效——归档列表渲染直用原始 archived 数组未消费 kindFilter（已保存 Tab 走 filteredMemories 双过滤，归档路径漏了层级筛选），补 filteredArchived 同口径过滤；测试：组件回归（归档内点画像仅剩画像条目/取消恢复）+ E2E（真实浏览器归档→按 kind 徽标计数断言筛选/切回全量）
 - chore(memory): 统一子串回退注释与测试示例数据用词为「示例/示」（dao.ts 注释 + memory-dao 测试数据同步替换，对照条目同步调整，行为等价，34 测试全绿）
 - fix(frontend): pi 扩展 dialog 弹窗（select/confirm/input/editor）①限高视口 70%——Modal 加 maxHeight 能力，长消息/长选项列表在卡内滚动（header/footer 固定），不再垂直溢出屏幕；②会话锁定——ExtensionDialog 从 App 根节点移挂 SessionView 内按 sessionId 过滤（与 ask 同款），其它会话的 pending 请求不再盖住整个窗口；ext-dialog store 出队改按 requestId（resolveCurrent→resolveById），多会话并发 pending 互不误删。测试：组件（会话锁定/限高断言）+ E2E（真实浏览器注入 sdk:event：长内容 ratio=0.70 卡内滚动、跨会话不弹、切会话出现、应答出队）
 - v0.4.2 发版（三层记忆系统重构）

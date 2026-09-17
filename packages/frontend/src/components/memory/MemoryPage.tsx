@@ -126,8 +126,18 @@ export function MemoryPage() {
 		.filter((m) => m.scope === memoryScope)
 		.filter((m) => kindFilter === null || m.kind === kindFilter);
 
+	// 归档列表：作用域与层级筛选均与已保存 tab 同口径（徽标计数不随临时筛选跳动）
+	const filteredArchived = archived
+		.filter((m) => m.scope === memoryScope)
+		.filter((m) => kindFilter === null || m.kind === kindFilter);
+
 	// 当前作用域下的记忆总数（tab 徽标用）：只随作用域变化，不随分类/搜索等临时筛选跳动
 	const scopeMemoriesCount = memories.filter(
+		(m) => m.scope === memoryScope,
+	).length;
+
+	// 当前作用域下的归档总数（归档 tab 徽标用）：与 scopeMemoriesCount 同口径
+	const scopeArchivedCount = archived.filter(
 		(m) => m.scope === memoryScope,
 	).length;
 
@@ -251,7 +261,7 @@ export function MemoryPage() {
 					active={activeTab === "archived"}
 					onClick={() => setTab("archived")}
 					label={t("memory.tabArchived")}
-					count={archived.length}
+					count={scopeArchivedCount}
 				/>
 				<TabButton
 					active={activeTab === "instructions"}
@@ -444,10 +454,10 @@ export function MemoryPage() {
 				{activeTab === "archived" &&
 					(isSearchActive ? (
 						renderSearchResults()
-					) : archived.length === 0 ? (
+					) : filteredArchived.length === 0 ? (
 						<MemoryEmpty type="memory" />
 					) : (
-						archived.map((m) => (
+						filteredArchived.map((m) => (
 							<MemoryCard
 								key={m.id}
 								entry={m}
