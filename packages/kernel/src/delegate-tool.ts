@@ -13,6 +13,7 @@
 import {
 	DELEGATE_DESCRIPTION,
 	FLEET_DESCRIPTION,
+	FLEET_MAX_CONCURRENCY as MAX_SUBAGENT_CONCURRENCY,
 	DelegateParamsSchema,
 	FleetParamsSchema,
 } from "@wa-pi/shared";
@@ -30,9 +31,9 @@ import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
 import { runSubagentAgent as defaultRunSubagentAgent } from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
-/** fleet 工具并行派发子任务的最大并发上限，超出部分排队等待。也作为内部 runWithConcurrency 的默认限流值。
- * 控制为 6：每个子代理 pi 进程约占 300MB，6 个 ≈ 1.8GB，在可接受范围内（用户拍板 2026-09-01）。 */
-export const MAX_SUBAGENT_CONCURRENCY = 6;
+/** fleet 并行派发并发上限——定义唯一来源在 @wa-pi/shared 的 tool-schemas.ts（FLEET_MAX_CONCURRENCY，
+ * 与 FLEET_DESCRIPTION 文案同文件插值，杜绝数值与文案脱节），此处按旧名重导出兼容既有引用。 */
+export { MAX_SUBAGENT_CONCURRENCY };
 
 export interface DelegateTarget {
 	name: string;
@@ -394,14 +395,12 @@ export function makeFleetTool(opts: {
 	askTo: DelegateTarget[];
 	spawn: DelegateSpawnFn;
 }) {
-	const fleetDesc = FLEET_DESCRIPTION.replace(
-		"Concurrency limit is 6",
-		`Concurrency limit is ${MAX_SUBAGENT_CONCURRENCY}`,
-	);
 	return {
 		name: "fleet",
 		label: "Fleet",
-		description: fleetDesc,
+		// 文案在 shared 侧即按 FLEET_MAX_CONCURRENCY 插值完成；原 replace 回填已删——
+		// 其搜索串「6」与模板实际「5」不匹配而静默失效，描述一度停留在 5
+		description: FLEET_DESCRIPTION,
 		parameters: FleetParamsSchema,
 		async execute(
 			toolCallId: string,

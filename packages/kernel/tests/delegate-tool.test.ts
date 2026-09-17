@@ -428,6 +428,15 @@ test("MAX_SUBAGENT_CONCURRENCY 为 6（控制内存：6 子代理 × ~300MB 约 
 	expect(MAX_SUBAGENT_CONCURRENCY).toBe(6);
 });
 
+test("makeFleetTool 渲染后的描述包含真实并发数（防文案/数值脱节回归）", () => {
+	const spawn = async () => ({ text: "", isError: false });
+	const fleet = makeFleetTool({ askTo: [], spawn });
+	expect(fleet.description).toContain(
+		`Concurrency limit is ${MAX_SUBAGENT_CONCURRENCY}`,
+	);
+	expect(fleet.description).not.toContain("Concurrency limit is 5");
+});
+
 // ---- onSpawnComplete 遥测回调 ----
 
 test("makeSpawnFn: resolveConfig 为 null 时 onSpawnComplete 记录失败派发", async () => {

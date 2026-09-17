@@ -92,6 +92,19 @@ test("DELEGATE_DESCRIPTION 与 existing delegate-tool.ts 输出一致", async ()
   expect(FLEET_DESCRIPTION).toBe(fleetReal.description);
 });
 
+test("FLEET_DESCRIPTION 并发数与 FLEET_MAX_CONCURRENCY 同源（防模板/常量脱节回归）", async () => {
+  // 真实事故：模板硬编码 5、kernel 常量 6，delegate-tool 的 replace 因搜索串不匹配
+  // 而静默失效，模型看到的上限一直停留在 5。本测试锁定「文案与数值同源」。
+  const { FLEET_DESCRIPTION, FLEET_MAX_CONCURRENCY } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  expect(FLEET_MAX_CONCURRENCY).toBe(6); // 数值 2026-09-01 用户拍板
+  expect(FLEET_DESCRIPTION).toContain(
+    `Concurrency limit is ${FLEET_MAX_CONCURRENCY}`,
+  );
+  expect(FLEET_DESCRIPTION).not.toContain("Concurrency limit is 5");
+});
+
 test("browser_* 工具描述可从 @wa-pi/shared 导入且非空", async () => {
   const {
     BROWSER_NAVIGATE_DESCRIPTION,

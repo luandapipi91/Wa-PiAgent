@@ -211,6 +211,12 @@ export const DelegateParamsSchema = Type.Object({
 // fleet
 // =========================================================================
 
+/** fleet 并行派发子任务的最大并发上限（超出部分排队等待）。
+ * 数值依据：每个子代理 pi 进程约占 300MB，6 个 ≈ 1.8GB，可接受范围（用户拍板 2026-09-01）。
+ * 文案与数值同源：FLEET_DESCRIPTION 用本常量插值——曾发生「模板硬编码 5 / kernel 常量 6」
+ * 脱节，delegate-tool 的 replace 回填因搜索串不匹配而静默失效，模型看到的上限一直停留在 5。 */
+export const FLEET_MAX_CONCURRENCY = 6;
+
 export const FLEET_DESCRIPTION = [
   "Run multiple subagents in parallel, each in its own isolated context, and return all results together.",
   "The call blocks the main agent until every subagent finishes.",
@@ -231,7 +237,7 @@ export const FLEET_DESCRIPTION = [
   "",
   "Guidelines:",
   "- Keep tasks independent and self-contained (paths, context, expected output).",
-  "- Concurrency limit is 5; do not exceed it.",
+  `- Concurrency limit is ${FLEET_MAX_CONCURRENCY}; do not exceed it.`,
   "- Decide how many subagents to spawn from the task shape; do not wait for the user to specify a count.",
 ].join("\n");
 
