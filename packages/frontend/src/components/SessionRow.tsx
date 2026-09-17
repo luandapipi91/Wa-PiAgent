@@ -1,4 +1,4 @@
-import { useRef, useEffect, type MouseEvent } from "react";
+import { useRef, useEffect, memo, type MouseEvent } from "react";
 import type { SessionEntity } from "@wa-pi/shared";
 import { formatRelativeTime } from "@wa-pi/shared";
 import { agentEmoji } from "../theme/agents";
@@ -17,7 +17,9 @@ interface Props {
   subtitle?: string;
 }
 
-export function SessionRow({ session, selected, onSelect, onContextMenu, subtitle }: Props) {
+// memo（trace 卡顿修复 ②）：父级/列表重渲染时 props（session 对象引用 + 布尔 +
+// 稳定回调）不变的行整块跳过；配合 touchSession 只改目标会话对象，其余行引用稳定。
+export const SessionRow = memo(function SessionRow({ session, selected, onSelect, onContextMenu, subtitle }: Props) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const { t } = useTranslation();
   // 该会话是否有未读新回复（后台收到回复完成时置位，进入会话清掉）
@@ -102,4 +104,4 @@ export function SessionRow({ session, selected, onSelect, onContextMenu, subtitl
       )}
     </button>
   );
-}
+});

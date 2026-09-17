@@ -127,11 +127,17 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
 		}),
 	setCurrentSessionId: (id) => set({ currentSessionId: id }),
 	touchSession: (id) =>
-		set((s) => ({
+		set((s) => {
 			// 发消息/收到回复视为活跃：刷新该会话 lastActivity（驱动会话列表排序、时间显示、
 			// topAgentsByRecency）。只在发送 agent:prompt 与 message_end 时调用，点击查看不再调用。
-			sessions: s.sessions.map((x) =>
-				x.id === id ? { ...x, lastActivity: Date.now() } : x,
-			),
-		})),
+			// 目标不在列表（子代理/外部会话）时返回原 state：不再无条件 map 制造假引用变化
+			// （trace 实测曾是侧边栏全量连坐重渲染的入口：SessionRow+ProjectItem 占主线程近半）。
+			const target = s.sessions.find((x) => x.id === id);
+			if (!target) return s;
+			return {
+				sessions: s.sessions.map((x) =>
+					x.id === id ? { ...x, lastActivity: Date.now() } : x,
+				),
+			};
+		}),
 }));

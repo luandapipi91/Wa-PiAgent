@@ -3,6 +3,8 @@ import {
 	useEffect,
 	useRef,
 	useLayoutEffect,
+	useCallback,
+	memo,
 	type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -86,7 +88,9 @@ export function useClampMenu(
 	});
 }
 
-export function ProjectItem(props: Props) {
+// memo（trace 卡顿修复 ②）：ProjectList 重渲染时 project/sessions 引用不变的
+// 项目整块跳过（touchSession 后 sessions 新数组里未变的项目对象引用保持稳定）。
+export const ProjectItem = memo(function ProjectItem(props: Props) {
 	const { t } = useTranslation();
 	const expanded = useProjectUiStore((s) => s.isExpanded(props.project.id));
 	const toggleProject = useProjectUiStore((s) => s.toggleProject);
@@ -142,10 +146,11 @@ export function ProjectItem(props: Props) {
 	})();
 
 	// ---- 会话右键 ----
-	const handleSessionContextMenu = (e: MouseEvent, session: SessionEntity) => {
+	// useCallback：SessionRow memo 的前提——每次渲染新函数引用会让 memo 完全失效
+	const handleSessionContextMenu = useCallback((e: MouseEvent, session: SessionEntity) => {
 		window.dispatchEvent(new CustomEvent("project-menu-close"));
 		setSessionMenu({ x: e.clientX, y: e.clientY, session });
-	};
+	}, []);
 
 	// ---- 项目右键 ----
 	const handleProjectContextMenu = (e: MouseEvent) => {
@@ -526,4 +531,4 @@ export function ProjectItem(props: Props) {
 			)}
 		</div>
 	);
-}
+});

@@ -14,7 +14,13 @@ interface Props {
 }
 
 export function ProjectList(props: Props) {
-  const { projects, sessions, currentSessionId, currentProjectId } = useProjectsStore();
+  // 按字段 selector 订阅（trace 卡顿修复 ①）：整店订阅时 store 任意字段 set
+  // （如 dirPickerOpen）都会重渲染整个侧边栏列表（trace 实测 SessionRow+ProjectItem
+  // 占同步渲染主线程热点近半）。
+  const projects = useProjectsStore((s) => s.projects);
+  const sessions = useProjectsStore((s) => s.sessions);
+  const currentSessionId = useProjectsStore((s) => s.currentSessionId);
+  const currentProjectId = useProjectsStore((s) => s.currentProjectId);
   const { t } = useTranslation();
   const isNewSessionView = props.currentView === "new-session";
   // 默认工作区（系统项目）渲染在列表最顶部，与普通项目共用同一滚动容器
