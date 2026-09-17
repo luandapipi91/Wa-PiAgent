@@ -1,3 +1,11 @@
+## 2026-09-17 — v0.4.3 发版（会话切换体验 + 流式性能 + 稳定性修复）
+
+- 版本：0.4.2 → 0.4.3（27 提交）。
+- 修复：切换会话跳顶/加载重叠；流式卡顿与闪烁；侧边栏卡顿；失效提问无法取消；定时任务执行记录变卡；Windows 会话数据写入失败（EPERM）；记忆归档未按项目过滤；扩展弹窗裁切。
+- 优化：空闲暂停后台轮询；文件路径 chip / 文件树请求治理；自定义供应商 thinkingLevelMap 透传。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：frontend（MessageList/SessionView/侧边栏）、kernel（scheduler/project-store/memory/extension）。
+
 ## 2026-09-17
 - fix(frontend): 会话切换首帧贴底——历史就绪挂载列表后 useLayoutEffect 直接同步置 scrollTop（不等 virtuoso scrollToIndex 的异步调度），paint 前生效；实验过官方 initialTopMostItemIndex 方案但与 happy-dom 测试基建存在定位死锁（items 不渲染）故回滚，保留 scrollTop+收敛方案
 - fix(frontend): 会话切换首帧贴底——历史就绪挂载列表后 useLayoutEffect 直接同步置 scrollTop（不等 virtuoso scrollToIndex 的异步调度），paint 前生效，消除「顶部首屏→跳底」最后残留；E2E 新增真实 Chromium 断言（切会话首帧 scrollTop ≥90% 最大滚动距离）
