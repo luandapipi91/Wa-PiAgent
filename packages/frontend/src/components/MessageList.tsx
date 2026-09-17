@@ -1454,7 +1454,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 	sessionId,
 	mediaItems,
 	isStreaming,
-	idleMs = 50,
+	idleMs = 10,
 }: {
 	text: string;
 	sessionId: string;

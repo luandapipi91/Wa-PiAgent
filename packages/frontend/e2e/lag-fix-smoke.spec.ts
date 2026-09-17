@@ -66,28 +66,38 @@ test.describe("卡顿修复冒烟", () => {
 		const sessionId = await enterSession(page, "降级冒烟");
 		await waitHistoryReady(page, sessionId);
 
-		// 模拟快速流式：每 15ms 一个 delta，持续 ~600ms（间隔 < 50ms 阈值 → 保持纯文本）
+		// 同步连发 delta（间隔 0 < 10ms 阈值 → 纯文本预览）
 		await page.evaluate(async (sid) => {
 			const { useSessionStore } = await import("/src/store/session.ts");
 			const h = useSessionStore.getState().handleSDKEvent;
 			h(sid, { event: { type: "message_start", message: { role: "assistant", content: [], model: "m", timestamp: Date.now() } }, agentName: "dev" } as any);
-			const deadline = Date.now() + 600;
-			let i = 0;
-			while (Date.now() < deadline) {
-				h(sid, { event: { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: `片段${i++} **加粗**` } }, agentName: "dev" } as any);
-				await new Promise((r) => setTimeout(r, 15));
+			for (let i = 0; i < 30; i++) {
+				h(sid, { event: { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: `片段${i} **加粗**` } }, agentName: "dev" } as any);
 			}
 		}, sessionId);
 
-		// 持续流式中：纯文本预览（不解析 markdown）
+		// 流式中：纯文本预览（不解析 markdown）
 		await expect(page.getByTestId("text-block-plain").first()).toBeVisible({ timeout: 3000 });
 
-		// 停顿 >50ms：应切回 markdown（修复①阈值 50ms；旧 500ms 时 300ms 内仍是纯文本）
+		// 停顿 >10ms：快速切回 markdown（旧阈值 500ms 时 300ms 内仍是纯文本）
 		await page.waitForTimeout(300);
 		await expect(page.getByTestId("text-block").first()).toBeVisible({ timeout: 3000 });
 		const md = page.getByTestId("text-block").first();
 		await expect(md.locator("strong").first()).toBeVisible();
 		expect(await page.getByTestId("text-block-plain").count()).toBe(0);
+
+		// 流式继续（持续新 delta，间隔 <10ms）：保持纯文本（计时不断被重置）
+		await page.evaluate(async (sid) => {
+			const { useSessionStore } = await import("/src/store/session.ts");
+			const h = useSessionStore.getState().handleSDKEvent;
+			const deadline = Date.now() + 800;
+			let i = 0;
+			while (Date.now() < deadline) {
+				h(sid, { event: { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: ` 追加${i++}` } }, agentName: "dev" } as any);
+				await new Promise((r) => setTimeout(r, 4));
+			}
+		}, sessionId);
+		await expect(page.getByTestId("text-block-plain").first()).toBeVisible({ timeout: 3000 });
 	});
 
 	test("修复①：thinking 流式中不跑 Linkify，停顿后恢复链接", async ({ page }) => {
@@ -105,11 +115,8 @@ test.describe("卡顿修复冒烟", () => {
 			const { useSessionStore } = await import("/src/store/session.ts");
 			const h = useSessionStore.getState().handleSDKEvent;
 			h(sid, { event: { type: "message_start", message: { role: "assistant", content: [], model: "m", timestamp: Date.now() } }, agentName: "dev" } as any);
-			const deadline = Date.now() + 500;
-			let i = 0;
-			while (Date.now() < deadline) {
+			for (let i = 0; i < 30; i++) {
 				h(sid, { event: { type: "message_update", assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: `思考 see http://localhost:9${i}/ ok ` } }, agentName: "dev" } as any);
-				await new Promise((r) => setTimeout(r, 15));
 			}
 		}, sessionId);
 
@@ -118,8 +125,14 @@ test.describe("卡顿修复冒烟", () => {
 		await expect(body).toBeVisible({ timeout: 3000 });
 		await expect(body.locator("a")).toHaveCount(0);
 
-		// 停顿后：Linkify 恢复
-		await page.waitForTimeout(300);
+		// 停顿后：Linkify 恢复（整跑时前序用例压力下 settled 定时器可能延迟，放宽等待）
+		await page.waitForTimeout(1000);
+		const bodyHtml = await page
+			.getByTestId("thinking-panel-body")
+			.first()
+			.evaluate((el) => el.innerHTML.slice(0, 300))
+			.catch(() => "(body 不存在)");
+		console.log(`[smoke-think] 停顿后 body: ${bodyHtml}`);
 		await expect(page.getByTestId("thinking-panel-body").first().locator("a").first()).toBeVisible({ timeout: 3000 });
 	});
 

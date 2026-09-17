@@ -75,7 +75,7 @@ test("停顿后内容继续增长：回到纯文本预览（计时被新内容�
 	expect(screen.getByTestId("text-block-plain")).toBeTruthy();
 });
 
-test("默认停顿阈值为 50ms：停顿后快速切回 markdown（用户感知优化）", async () => {
+test("默认停顿阈值为 10ms：停顿后快速切回 markdown（用户感知优化）", async () => {
 	render(
 		<MarkdownBlock
 			text={md}
@@ -88,7 +88,7 @@ test("默认停顿阈值为 50ms：停顿后快速切回 markdown（用户感知
 	expect(screen.getByTestId("text-block-plain")).toBeTruthy();
 	// 停阦 50ms（等待 120ms > 阈值）应已切换；旧默认 500ms 时仍为纯文本（红灯）
 	await act(async () => {
-		await new Promise((r) => setTimeout(r, 120));
+		await new Promise((r) => setTimeout(r, 30));
 	});
 	expect(screen.getByTestId("text-block")).toBeTruthy();
 });

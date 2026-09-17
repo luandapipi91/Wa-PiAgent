@@ -145,12 +145,9 @@ export const SessionView = memo(function SessionView({
 	// 下面的 hooks 必须在 early return 之前调用，否则 session 在/不在两次渲染
 	// 调用的 hooks 数量不一致，触发 "Rendered fewer hooks than expected"。
 	const isRunning = status === "thinking";
-	// 扩展 setStatus 状态条目：聊天列底部状态栏（右对齐）
-	const extStatuses = useSessionStore((s) => s.extStatusBySession[sessionId]);
-	const extStatusEntries = extStatuses ? Object.entries(extStatuses) : [];
-	// 扩展 setWidget 文本块：统一交给 ExtWidgetDock 渲染（收起悬浮队列 + 展开占位）
-	const widgets = useSessionStore((s) => s.extWidgetBySession[sessionId]);
-	const widgetEntries = widgets ? Object.entries(widgets) : [];
+	// 扩展 setStatus/setWidget 的订阅已下沉到 ExtStatusBar/ExtWidgetDock 子组件
+	// （trace 卡顿修复④）：extension_status 每条事件新建整表对象，此前 SessionView
+	// 订阅对象引用被逐条击穿（E2E 探针实测 20 条 → 整树渲染 20 次），下沉后只重渲染状态条本身。
 	// 扩展 TUI 面板展开态：键盘锁给面板，Composer 同步禁用（收起态恢复可用）
 	const tuiExpanded = useTuiPanelStore(
 		(s) => s.bySession[sessionId]?.mode === "expanded",
@@ -587,7 +584,7 @@ export const SessionView = memo(function SessionView({
 				{/* 扩展 setWidget：展开块在 Composer 前占位；chip 队列悬浮贴 Composer 上沿。
 				    Composer 作为 children 传入，ExtWidgetDock 用 relative 层包住它，
 				    chip 队列 absolute bottom-full 紧贴 Composer 上沿（不依赖固定高度） */}
-				<ExtWidgetDock widgets={widgetEntries} sessionId={sessionId}>
+				<ExtWidgetDock sessionId={sessionId}>
 					<Composer
 						sessionId={sessionId}
 						agentName={sessionPrimaryAgent ?? ""}
@@ -597,25 +594,7 @@ export const SessionView = memo(function SessionView({
 					/>
 				</ExtWidgetDock>
 				{/* 扩展 setStatus：聊天列底部状态栏（右对齐，只占中间区域） */}
-				{extStatusEntries.length > 0 && (
-					<div
-						className="flex items-center justify-end gap-4 px-4 border-t border-hairline bg-surface-elevated text-[calc(11.5px*var(--font-scale))] text-secondary"
-						style={{ height: 26, flexShrink: 0 }}
-						data-testid="ext-status-bar"
-					>
-						{extStatusEntries.map(([key, text]) => (
-							<span key={key} className="flex items-center gap-1.5 min-w-0">
-								<span
-									className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
-									style={{ background: "var(--accent)" }}
-								/>
-								<span className="truncate">
-									<AnsiText text={text} />
-								</span>
-							</span>
-						))}
-					</div>
-				)}
+				<ExtStatusBar sessionId={sessionId} />
 				{/* 扩展 TUI 面板（ctx.ui.custom）三态浮窗：挂在聊天列容器内 ⇒ absolute
 				    定位天然相对聊天列（挂件才贴在聊天区域右上角，且拖不出本列、不盖右侧面板）。
 				    放容器末尾：它是 absolute，不参与本列的 flex 排版 */}
@@ -707,17 +686,59 @@ const DRAG_THRESHOLD = 4;
  * - 拖动：整条队列可鼠标/触控拖动（相对默认位置的 translate），夹紧在聊天列内且不遮输入框，
  *   位置持久化到 localStorage（见 lib/widget-dock-position）。
  */
-function ExtWidgetDock({
-	widgets,
+// 扩展 setStatus 状态条（trace 卡顿修复④）：自订阅 + memo，extension_status 每条
+// 事件只重渲染本条，不再击穿 SessionView 整树。selector 直接返回 store 内对象引用
+// （仅 extension_status set 时新建，Object.is 稳定）。
+export const ExtStatusBar = memo(function ExtStatusBar({ sessionId }: { sessionId: string }) {
+	// selector 返回 store 内对象引用（稳定）；Object.entries 在 useMemo 派生——
+	// 直接在 selector 里 entries 会使 getSnapshot 不稳定 → useSyncExternalStore 无限渲染
+	const statusMap = useSessionStore((s) => s.extStatusBySession[sessionId]);
+	const entries = useMemo(
+		() => (statusMap ? Object.entries(statusMap) : EMPTY_EXT_STATUS_ENTRIES),
+		[statusMap],
+	);
+	if (entries.length === 0) return null;
+	return (
+		<div
+			className="flex items-center justify-end gap-4 px-4 border-t border-hairline bg-surface-elevated text-[calc(11.5px*var(--font-scale))] text-secondary"
+			style={{ height: 26, flexShrink: 0 }}
+			data-testid="ext-status-bar"
+		>
+			{entries.map(([key, text]) => (
+				<span key={key} className="flex items-center gap-1.5 min-w-0">
+					<span
+						className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+						style={{ background: "var(--accent)" }}
+					/>
+					<span className="truncate">
+						<AnsiText text={text} />
+					</span>
+				</span>
+			))}
+		</div>
+	);
+});
+
+const EMPTY_EXT_STATUS_ENTRIES: [string, string][] = [];
+
+type WidgetEntryTuple = [string, { lines: string[]; placement: "aboveEditor" | "belowEditor" }];
+const EMPTY_WIDGET_ENTRIES: WidgetEntryTuple[] = [];
+
+export const ExtWidgetDock = memo(function ExtWidgetDock({
 	sessionId,
 	children,
 }: {
-	widgets: WidgetEntry[];
 	/** widget 宽度上报需要会话号（resize 走 /api/extensions/tui-input） */
 	sessionId: string;
 	children?: React.ReactNode;
 }) {
 	const { t } = useTranslation();
+	// 自订阅（trace 卡顿修复④）：widgets 由本组件订阅，SessionView 不再持有对象引用
+	const widgetMap = useSessionStore((s) => s.extWidgetBySession[sessionId]);
+	const widgets = useMemo(
+		() => (widgetMap ? Object.entries(widgetMap) : EMPTY_WIDGET_ENTRIES),
+		[widgetMap],
+	);
 	// expandedKey：当前展开的 widget key（null = 全部收起）
 	const [expandedKey, setExpandedKey] = useState<string | null>(null);
 	const trackRef = useRef<HTMLDivElement>(null);
@@ -1001,4 +1022,4 @@ function ExtWidgetDock({
 			</div>
 		</>
 	);
-}
+});

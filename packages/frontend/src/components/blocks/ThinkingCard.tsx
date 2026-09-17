@@ -16,7 +16,7 @@ import { Icon } from "../ui/Icon";
 export const ThinkingCard = memo(function ThinkingCard({
   thinking,
   isStreaming,
-  idleMs = 50,
+  idleMs = 10,
 }: {
   thinking: string;
   isStreaming?: boolean;
