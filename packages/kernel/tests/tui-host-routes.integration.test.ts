@@ -121,11 +121,13 @@ async function readSdkEvent(
 	agentName: string;
 	event: Record<string, unknown>;
 }> {
-	for (let i = 0; i < 10; i++) {
+	// 高负载下真实 pi 出首帧慢（心跳帧 5s 一发，10 帧 ≈ 50s 可能全是心跳），
+	// 放宽到 40 帧；整体仍有用例级 60s 超时兜底
+	for (let i = 0; i < 40; i++) {
 		const frame = await readSseFrame(sse);
 		if (frame.data?.type === "sdk:event") return frame.data;
 	}
-	throw new Error("未收到 sdk:event 帧");
+	throw new Error("未收到 sdk:event 帧（40 帧内）");
 }
 
 /**
