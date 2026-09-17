@@ -1,3 +1,10 @@
+## 2026-09-18 — v0.4.4 发版（IM 会话自愈重建 + fleet 上限一致性）
+
+- 版本：0.4.3 → 0.4.4（5 提交）。
+- 修复：IM 会话被自动回收后自愈重建全新会话 + 回收站对话不再展示；spawn 前 stored cwd 自愈重建丢失目录；fleet 并发上限「文案 5/实际 6」脱节修复（shared 单源同文件插值）+ fleet 评测扩到 20 条。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：kernel（agent-manager/ws-server）、shared（fleet 描述单源）。
+
 ## 2026-09-18
 - fix(kernel): spawn 前 stored cwd 自愈——存量 IM 会话 sessionId 内嵌时间戳与会话实体 createdAt 错位（旧版各取 Date.now() 相差秒级），pi jsonl 首行 stored cwd 指向的 workdir/<sessionId-ts> 被 workdir-cleaner 按 TTL 清理（引用集合只认 createdAt），resume 时 pi 非交互模式直接 exit(1)（"Stored session working directory does not exist"），IM 侧只看到「pi rpc 进程不可用」且无自愈。修复：_createSession 在 mkdir(推导 cwd) 后流式读 piSessionFile 首行 stored cwd（新增导出 readStoredSessionCwd，大文件只读首行、失败静默），目录缺失则重建，存量错位会话恢复且历史上下文不丢；未来任何原因导致的目录丢失同样自愈。测试：agent-manager-stored-cwd 新增 6 pass（readStoredSessionCwd 单测 5 例 + 错位会话 ensureStarted 自愈集成 1 例）
 - fix(kernel): IM 已回收会话自愈重建 + IM 窗口展示过滤——ensureSession 校验排除软删除（回收站，含自动归档 deletedReason:"auto"）与占位会话，失效即兜底新建全新会话（此前 load() 全量通过校验，消息继续落进已回收会话甚至报错）；listConversations 两分支（当前指针 + 历史归档）过滤已回收会话，回收站里的对话不再出现在 IM 窗口；新增 onSessionsArchived 批量清理映射（onSessionDeleted 改为委托），runAutoArchive 归档后调用联动消除悬空映射，下一条 IM 消息自动全新对话。测试：channel-manager 新增 4 例（禁复用/当前指针过滤/历史过滤/批量清理）+ 2 例 fixture 补实体，37 pass；channel 系回归 42 pass
