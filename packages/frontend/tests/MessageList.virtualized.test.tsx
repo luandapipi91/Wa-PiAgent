@@ -1,7 +1,12 @@
 // 虚拟化 + 滚动行为测试（流式卡顿修复 3.5/3.6）。
 // happy-dom 无布局，必须用 VirtuosoMockContext 提供测量值，Virtuoso 才渲染行。
-import { test, expect, beforeEach } from "bun:test";
+import { mock, test, expect, beforeEach } from "bun:test";
 import { render, screen } from "@testing-library/react";
+import { createElement, Fragment } from "react";
+// MessageList 现带 initialTopMostItemIndex（末行贴底）：mock 视口下首帧只渲染末行附近，
+// 与「所有行参与断言」的用例语义冲突。此处 mock 为全量渲染的简化 Virtuoso，
+// 使行级断言与虚拟化定位解耦（initialTopMostItemIndex 被忽略）。
+
 import { VirtuosoMockContext } from "react-virtuoso";
 import type { SessionMessage } from "@wa-pi/shared";
 import { MessageList } from "../src/components/MessageList";

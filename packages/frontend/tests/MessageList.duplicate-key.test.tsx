@@ -3,8 +3,29 @@
 // collapseSameTurnAssistants 因 custom 占独立行无法合并 → 两条同 agent+timestamp 行 → key 冲突。
 // 修复：① preprocess 跳过 subagent-notification（渲染层已过滤，数据层不应占行）
 //       ② listRows key 重复时追加序号后缀保证唯一
-import { test, expect, beforeEach } from "bun:test";
+import { mock, test, expect, beforeEach } from "bun:test";
 import { render, screen } from "@testing-library/react";
+import { createElement, Fragment } from "react";
+// MessageList 现带 initialTopMostItemIndex（末行贴底）：mock 视口下首帧只渲染末行附近，
+// 与「所有行参与断言」的用例语义冲突。此处 mock 为全量渲染的简化 Virtuoso，
+// 使行级断言与虚拟化定位解耦（initialTopMostItemIndex 被忽略）。
+mock.module("react-virtuoso", () => ({
+	Virtuoso: (props: any) => {
+		const { data, itemContent, computeItemKey } = props;
+		return createElement(
+			"div",
+			{ "data-testid": "message-list" },
+			data.map((vr: any, i: number) =>
+				createElement(
+					Fragment,
+					{ key: computeItemKey ? computeItemKey(i, vr) : i },
+					itemContent(i, vr),
+				),
+			),
+		);
+	},
+	VirtuosoMockContext: { Provider: ({ children }: any) => children },
+}));
 import { VirtuosoMockContext } from "react-virtuoso";
 import type { SessionMessage } from "@wa-pi/shared";
 import { MessageList } from "../src/components/MessageList";

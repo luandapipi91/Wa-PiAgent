@@ -6,6 +6,8 @@ import type { SessionMessage } from "@wa-pi/shared";
 // 修复前：streaming 每帧变化 → MessageList 全量重渲染 → 所有历史行的 Markdown 重新解析。
 // 修复后：preprocess useMemo + MessageRow memo → 只有合并的流式末行重渲染。
 let mdRenderCount = 0;
+// 简化 Virtuoso 的 Context stub（全量渲染 mock 下无尺寸语义）
+const VirtuosoMockContext = { Provider: ({ children }: any) => children };
 mock.module("react-markdown", () => ({
 	default: (props: any) => {
 		mdRenderCount++;
@@ -14,7 +16,26 @@ mock.module("react-markdown", () => ({
 }));
 
 import { MessageList } from "../src/components/MessageList";
-import { VirtuosoMockContext } from "react-virtuoso";
+// MessageList 现带 initialTopMostItemIndex（末行贴底），VirtuosoMockContext 下会从
+// 末行起渲染导致历史行不在视口、计数为 0。此测试契约是「历史行不重解析」的渲染计数，
+// 用全量渲染的简化 Virtuoso（所有行参与计数，契约更严）。
+mock.module("react-virtuoso", () => ({
+	Virtuoso: (props: any) => {
+		const { data, itemContent, computeItemKey, ...rest } = props;
+		void rest;
+		return (
+			<div data-testid="message-list">
+				{data.map((vr: any, i: number) => (
+					<div key={computeItemKey ? computeItemKey(i, vr) : i}>
+						{itemContent(i, vr)}
+					</div>
+				))}
+			</div>
+		);
+	},
+	VirtuosoMockContext: { Provider: ({ children }: any) => children },
+	VirtuosoHandle: null,
+}));
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 
@@ -71,6 +92,8 @@ test("流式更新时历史消息行不重渲染（Markdown 不重解析）", ()
 			],
 		},
 	});
+	// 注：MessageList 现带 initialTopMostItemIndex（末行贴底），mock Virtuoso 的
+	// 视口从末行起渲染——4 条消息合并后行数少，两条 assistant 均在渲染范围内。
 	render(
 		<VirtuosoMockContext.Provider
 			value={{ viewportHeight: 800, itemHeight: 60 }}

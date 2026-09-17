@@ -823,7 +823,8 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 				data-testid="message-list"
 				className="absolute inset-0 pt-4 pb-4 overflow-x-hidden"
 				// 会话切换首屏契约：Virtuoso 在历史就绪后才挂载（loading 期间不渲染列表），
-				// 挂载即带全量 data → 配合挂载后立即定位（layout effect），消除两段式闪烁。
+				// 挂载即带全量 data + initialTopMostItemIndex 末行（官方聊天场景用法：
+				// 挂载首帧直接从末行渲染，不存在「顶部首屏→滚动跳底」过程）。
 				data={listRows}
 				computeItemKey={(_i, vr) => vr.key}
 				increaseViewportBy={400}
