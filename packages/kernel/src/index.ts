@@ -690,6 +690,14 @@ export async function startKernel(opts?: {
 			if (archived.length > 0) {
 				console.log(`[kernel] 自动归档了 ${archived.length} 个未活动会话到回收站`);
 				await server.broadcastProjectsList();
+				// 归档即回收：同步清理 IM 映射（当前指针 + 历史归档），防止 IM 继续
+				// 往已回收会话里写消息 / IM 窗口继续展示已回收会话；下一条 IM 消息
+				// 经 ensureSession 兑底自动新建全新会话。
+				await channelManager
+					.onSessionsArchived(archived.map((s) => s.id))
+					.catch((e) =>
+						console.warn("[kernel] 归档后联动清理 IM 映射失败:", e),
+					);
 			}
 
 			// 可选：自动清理过期回收站会话（物理删除）

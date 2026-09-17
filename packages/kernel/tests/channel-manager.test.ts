@@ -307,6 +307,17 @@ test("listConversations：返回会话列表项（含预览与项目名）", asy
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "你好呀" });
 	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
+	// 当前会话实体在 projectStore 可见（createSession mock 不回填 load，手动塞；
+	// listConversations 只展示实体存在且未回收的会话）
+	projectSessions.push({
+		id: sessionsCreated[0].id,
+		projectId: "__system__",
+		primaryAgent: "前端开发者",
+		title: "IM · u1",
+		createdAt: 1000,
+		lastActivity: 1000,
+		piSessionFile: "",
+	});
 	const convs = await manager.listConversations();
 	expect(convs).toHaveLength(1);
 	expect(convs[0].channelName).toBe("测试机器人");
@@ -394,6 +405,19 @@ test("群聊隔离：同群不同用户 → 各自独立 mapping/会话；listCo
 	expect(sessionsCreated[0].title).toContain("userA");
 	expect(sessionsCreated[1].title).toContain("userB");
 
+	// 两个会话实体在 projectStore 可见（createSession mock 不回填 load，手动塞；
+	// listConversations 只展示实体存在且未回收的会话）
+	for (const s of sessionsCreated) {
+		projectSessions.push({
+			id: s.id,
+			projectId: "__system__",
+			primaryAgent: "前端开发者",
+			title: s.title,
+			createdAt: 1,
+			lastActivity: 1,
+			piSessionFile: "",
+		});
+	}
 	// listConversations 返回两条，fromUserId 各异、标题可区分
 	const convs = await manager.listConversations();
 	expect(convs).toHaveLength(2);
@@ -884,4 +908,125 @@ test("pushToContact：断线超时未恢复 → 抛错（含未连接提示与 d
 	await expect(manager.pushToContact(person!.id, "x")).rejects.toThrow(
 		/未连接.*模拟断线/,
 	);
+});
+
+// ─── 已回收（软删除）会话：IM 不复用、不展示，消息自动全新重建 ─────────────────
+
+/** 预置映射文件（channel-sessions 同构），指向受控的 sessionId */
+async function seedMapping(
+	channelId: string,
+	sessions: Record<string, string>,
+	history: string[] = [],
+) {
+	await Bun.write(
+		join(dir, "mappings.json"),
+		JSON.stringify({
+			schemaVersion: 2,
+			mappings: [
+				{
+					channelId,
+					chatId: "u1",
+					chatType: "single",
+					fromUserId: "u1",
+					currentProjectId: "__system__",
+					sessions,
+					historySessionIds: history,
+					lastMessagePreview: "",
+					updatedAt: 1,
+				},
+				],
+		}),
+	);
+}
+
+function fakeSessionEntity(id: string, extra: Record<string, unknown> = {}) {
+	return {
+		id,
+		projectId: "__system__",
+		primaryAgent: "前端开发者",
+		title: id,
+		createdAt: 1,
+		lastActivity: 2,
+		piSessionFile: `/x/${id}.jsonl`,
+		placeholder: false,
+		...extra,
+	};
+}
+
+test("已回收（软删除）会话：下一条 IM 消息自动新建全新会话，不再复用", async () => {
+	await manager.create(channel);
+	const channelId = (await manager.listWithStatus())[0].id;
+	// 映射指向一个已被自动归档（deletedReason:"auto"）的旧会话
+	await seedMapping(channelId, { __system__: "im-test-old" });
+	projectSessions.push(
+		fakeSessionEntity("im-test-old", { deletedAt: 100, deletedReason: "auto" }),
+	);
+
+	adapter!.inject({ chatId: "u1", text: "你好" });
+	await new Promise((r) => setTimeout(r, 500));
+
+	// 全新会话重建：绝不复用已回收会话、绝不把消息送进已回收会话
+	expect(sessionsCreated).toHaveLength(1);
+	expect(sessionsCreated[0].id).not.toBe("im-test-old");
+	expect(prompted).toHaveLength(1);
+	expect(prompted[0].sessionId).not.toBe("im-test-old");
+	// 映射同步更新为新会话
+	const raw = JSON.parse(await Bun.file(join(dir, "mappings.json")).text());
+	expect(raw.mappings[0].sessions.__system__).toBe(prompted[0].sessionId);
+});
+
+test("已回收（软删除）会话：不出现在 IM 会话列表（当前指针分支）", async () => {
+	await manager.create(channel);
+	const channelId = (await manager.listWithStatus())[0].id;
+	await seedMapping(channelId, { __system__: "im-test-archived" });
+	projectSessions.push(
+		fakeSessionEntity("im-test-archived", {
+			deletedAt: 100,
+			deletedReason: "auto",
+		}),
+	);
+
+	const list = await manager.listConversations();
+	expect(list.find((c) => c.sessionId === "im-test-archived")).toBeUndefined();
+});
+
+test("已回收（软删除）会话：不出现在 IM 会话列表（历史归档分支）；未回收的历史会话仍展示", async () => {
+	await manager.create(channel);
+	const channelId = (await manager.listWithStatus())[0].id;
+	await seedMapping(
+		channelId,
+		{ __system__: "im-test-current" },
+		["im-test-hist-live", "im-test-hist-dead"],
+	);
+	projectSessions.push(
+		fakeSessionEntity("im-test-current"),
+		fakeSessionEntity("im-test-hist-live"),
+		fakeSessionEntity("im-test-hist-dead", {
+			deletedAt: 100,
+			deletedReason: "manual",
+		}),
+	);
+
+	const list = await manager.listConversations();
+	expect(list.find((c) => c.sessionId === "im-test-hist-dead")).toBeUndefined();
+	expect(list.find((c) => c.sessionId === "im-test-hist-live")).toBeDefined();
+	expect(list.find((c) => c.sessionId === "im-test-current")).toBeDefined();
+});
+
+test("onSessionsArchived：批量清理映射（当前指针 + 历史归档）并广播", async () => {
+	await manager.create(channel);
+	const channelId = (await manager.listWithStatus())[0].id;
+	await seedMapping(
+		channelId,
+		{ __system__: "im-a", proj_x: "im-b" },
+		["im-c", "im-d"],
+	);
+
+	await manager.onSessionsArchived(["im-a", "im-c"]);
+
+	const raw = JSON.parse(await Bun.file(join(dir, "mappings.json")).text());
+	expect(raw.mappings[0].sessions.__system__).toBeUndefined();
+	expect(raw.mappings[0].sessions.proj_x).toBe("im-b"); // 未归档的引用不动
+	expect(raw.mappings[0].historySessionIds).toEqual(["im-d"]);
+	expect(broadcasted).toContain("channel-conversations:changed");
 });

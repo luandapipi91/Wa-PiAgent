@@ -250,18 +250,27 @@ export class ChannelManager {
 	 *  ws-server 的 session:delete 分支在删完 ProjectStore 后调用。
 	 *  非 IM 会话在 mapping 里查不到 → no-op。 */
 	async onSessionDeleted(sessionId: string): Promise<void> {
+		await this.onSessionsArchived([sessionId]);
+	}
+
+	/** 会话被回收（前端删除 / 自动归档进回收站）时批量联动清理 IM 映射：
+	 *  从所有映射的当前指针与 historySessionIds 中移除这些 id，IM 侧下一条消息
+	 *  经 ensureSession 兜底新建全新会话，IM 会话列表也不再展示。 */
+	async onSessionsArchived(sessionIds: string[]): Promise<void> {
+		if (sessionIds.length === 0) return;
+		const idSet = new Set(sessionIds);
 		const mappings = await loadChannelMappings(this.mappingsFile);
 		let changed = false;
 		for (const m of mappings) {
 			for (const [pid, sid] of Object.entries(m.sessions)) {
-				if (sid === sessionId) {
+				if (idSet.has(sid)) {
 					delete m.sessions[pid];
 					changed = true;
 				}
 			}
 			if (m.historySessionIds?.length) {
 				const before = m.historySessionIds.length;
-				m.historySessionIds = m.historySessionIds.filter((id) => id !== sessionId);
+				m.historySessionIds = m.historySessionIds.filter((id) => !idSet.has(id));
 				if (m.historySessionIds.length !== before) changed = true;
 			}
 		}
@@ -361,9 +370,13 @@ export class ChannelManager {
 		for (const m of mappings) {
 			const channel = channels.find((c) => c.id === m.channelId);
 			if (!channel) continue; // 渠道已删：历史映射不在列表显示
-			// 当前活跃会话（预览来自 mapping）
+			// 当前活跃会话（预览来自 mapping）：实体已回收（软删除/自动归档）或不存在则不展示
+			// （回收站里的会话不该出现在 IM 窗口）
 			const sessionId = m.sessions[m.currentProjectId];
-			if (sessionId) {
+			const currentEntity = sessionId
+				? sessions.find((s) => s.id === sessionId)
+				: undefined;
+			if (sessionId && currentEntity && !currentEntity.deletedAt) {
 				const project = projects.find((p) => p.id === m.currentProjectId);
 				result.push({
 					channelId: m.channelId,
@@ -380,11 +393,11 @@ export class ChannelManager {
 				});
 			}
 			// 已归档的历史会话（/new 产生）：从 projectStore 查实体拿 projectId/lastActivity；
-			// 实体已被删除（用户右键删过）则跳过——不展示已不存在的会话
+			// 实体不存在或已回收（用户右键删过 / 自动归档进回收站）则跳过——不展示已回收会话
 			for (const hid of m.historySessionIds ?? []) {
 				if (hid === sessionId) continue; // 去重：归档后同一会话又变成当前（理论上不会）
 				const ses = sessions.find((s) => s.id === hid);
-				if (!ses) continue;
+				if (!ses || ses.deletedAt) continue;
 				const project = projects.find((p) => p.id === ses.projectId);
 				result.push({
 					channelId: m.channelId,
@@ -877,14 +890,20 @@ export class ChannelManager {
 
 		const existing = mapping.sessions[mapping.currentProjectId];
 		if (existing) {
-			// 校验缓存的 sessionId 在 project-store 中仍存在，失效则兜底新建
-			if (sessions.some((s) => s.id === existing)) {
+			// 校验缓存的 sessionId 在 project-store 中仍存在且未被回收，失效则兜底新建。
+			// 软删除（回收站，含自动归档 deletedReason:"auto"）与占位记录都视为已不在：
+			// IM 消息绝不能落进已回收会话——按全新对话重建。
+			if (
+				sessions.some(
+					(s) => s.id === existing && !s.deletedAt && !s.placeholder,
+				)
+			) {
 				return existing;
 			}
-			// 旧会话已被删除：清除失效映射，走下方新建流程
+			// 旧会话已被删除/回收：清除失效映射，走下方新建流程
 			delete mapping.sessions[mapping.currentProjectId];
 			console.warn(
-				`[channel-manager] IM 映射缓存的会话 ${existing} 已失效（project-store 中不存在），兜底新建会话`,
+				`[channel-manager] IM 映射缓存的会话 ${existing} 已失效（不存在或已回收），兜底新建会话`,
 			);
 		}
 		const createdAt = Date.now();
