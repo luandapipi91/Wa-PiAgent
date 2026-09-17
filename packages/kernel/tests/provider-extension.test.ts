@@ -151,6 +151,53 @@ test("generateProviderExtension：用户未配置 maxTokens（0）时回落内�
   expect(code).toContain("maxTokens: 384000");
 });
 
+test("generateProviderExtension：透传内置目录 thinkingLevelMap（回归：glm-5.3-flash 始终思考模型丢失 off:null 声明导致智谱 400 1210）", () => {
+  // glm-5.3-flash 是“始终思考”模型，目录声明 off:null/medium:null（仅支持 low/high/max）。
+  // 生成 extension 时若丢失该字段，pi 侧钳制失效，“关闭思考”被原样发成
+  // thinking:{type:"disabled"}，智谱拒绝：该模型始终思考，不支持关闭思考。
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "智谱",
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      models: [{ id: "glm-5.3-flash", contextWindow: 1000000, maxTokens: 131072 }],
+    }),
+  ];
+  const [{ slug }] = slugifyProviders(providers);
+  const sdkModelMap = new Map([
+    [
+      `${slug}/glm-5.3-flash`,
+      {
+        contextWindow: 1000000,
+        maxTokens: 131072,
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "GLM-5.3-Flash",
+        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+        api: "openai-completions",
+        thinkingLevelMap: {
+          off: null,
+          minimal: null,
+          low: "low",
+          medium: null,
+          high: "high",
+          xhigh: null,
+          max: "max",
+        },
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  // thinkingLevelMap 必须原样透传（off:null 是钳制依据，不可丢弃）
+  expect(code).toContain("thinkingLevelMap");
+  expect(code).toContain('"off":null');
+  expect(code).toContain('"medium":null');
+  // 目录中无 thinkingLevelMap 的模型不输出该字段（保持生成物干净）
+  const codeNoMap = generateProviderExtension(providers, new Map());
+  expect(codeNoMap).not.toContain("thinkingLevelMap");
+});
+
 test("generateProviderExtension：anthropic-messages provider 不采用其他 api 分节的目录 baseUrl", () => {
   // 回归：opencode-go 的 deepseek-v4-flash 在内置目录里只挂在 openai-completions 分节
   // （baseUrl 带 /v1），provider 配的是 anthropic-messages——Anthropic SDK 会自己拼

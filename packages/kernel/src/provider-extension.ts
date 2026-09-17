@@ -21,6 +21,7 @@ type SdkModelInfo = Pick<
 	| "baseUrl"
 	| "api"
 	| "compat"
+	| "thinkingLevelMap"
 >;
 
 /** 默认模型参数（目录查询失败时的 fallback） */
@@ -94,8 +95,10 @@ function lookupSdkModel(
  * 的版本标记低于此值（含旧版无标记的文件）即强制重生成，保证升级后模板
  * 修复能落地（providers.json 未动时 mtime 兑底不会触发）。
  * 历史：1 = 无版本标记的旧生成器；2 = maxTokens 改为用户显式配置优先。
- * 3 = 透传内置目录模型 compat（OpenCode Go 网关要求 assistant 消息回传 reasoning_content）。 */
-export const EXTENSION_GENERATOR_VERSION = 3;
+ * 3 = 透传内置目录模型 compat（OpenCode Go 网关要求 assistant 消息回传 reasoning_content）。
+ * 4 = 透传内置目录模型 thinkingLevelMap（回归：glm-5.3-flash 始终思考模型丢失 off:null
+ *     声明 → pi 侧钳制失效 → “关闭思考”原样发智谱 → 400 1210“不支持关闭思考”）。 */
+export const EXTENSION_GENERATOR_VERSION = 4;
 
 function modelToInfo(m: CatalogModel): SdkModelInfo {
 	return {
@@ -113,6 +116,7 @@ function modelToInfo(m: CatalogModel): SdkModelInfo {
 		baseUrl: m.baseUrl,
 		api: m.api,
 		compat: m.compat,
+		thinkingLevelMap: m.thinkingLevelMap,
 	};
 }
 
@@ -259,6 +263,12 @@ export function generateProviderExtension(
 					const compatCode = Object.keys(compat).length
 						? `\n        compat: ${JSON.stringify(compat)},`
 						: "";
+					// 内置目录的 thinkingLevelMap 透传：值为 null 表示该模型不支持对应档位
+					// （如 glm-5.3-flash 始终思考，off:null/medium:null）。丢失会导致 pi 侧
+					// clampThinkingLevel 失效，off/medium 原样透传 → 智谱 400 1210。
+					const mapCode = sdk?.thinkingLevelMap
+						? `\n        thinkingLevelMap: ${JSON.stringify(sdk.thinkingLevelMap)},`
+						: "";
 					return `      {
         id: ${JSON.stringify(m.id)},
         name: ${JSON.stringify(name)},
@@ -267,7 +277,7 @@ export function generateProviderExtension(
         input: ${JSON.stringify(input)},
         cost: ${JSON.stringify(cost)},
         contextWindow: ${contextWindow},
-        maxTokens: ${maxTokens},${compatCode}
+        maxTokens: ${maxTokens},${mapCode}${compatCode}
       }`;
 				})
 				.join(",\n");

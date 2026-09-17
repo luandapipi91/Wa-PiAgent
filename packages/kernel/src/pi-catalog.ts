@@ -31,6 +31,9 @@ export interface CatalogModel {
   maxTokens: number;
   /** pi 官方为特定网关声明的兼容开关（如 requiresReasoningContentOnAssistantMessages），生成 extension 时透传 */
   compat?: Record<string, unknown>;
+  /** 思考档位映射表：值为 null 表示该模型不支持对应档位（如 glm-5.3-flash 始终思考，off:null/medium:null）。
+   *  生成 extension 时必须透传——丢失会导致 pi 侧钳制失效，“关闭思考”被原样发给智谱等始终思考模型 → 400 1210。 */
+  thinkingLevelMap?: Record<string, string | null>;
 }
 
 /** providers/all.js 的导出形状（只声明用到的部分） */
