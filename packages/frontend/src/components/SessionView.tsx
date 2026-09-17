@@ -64,11 +64,23 @@ export const SessionView = memo(function SessionView({
 	imConv,
 }: Props) {
 	const { t } = useTranslation();
-	const session = useProjectsStore((s) =>
-		s.sessions.find((x) => x.id === sessionId),
+	// 按字段订阅（trace 卡顿修复）：touchSession 每个 message_end 都新建 session 对象，
+	// 订阅整对象会让本组件（含 Composer/GitToolbar 等全部无 memo 的子树）整树连坐重渲染。
+	// 只订阅用到的原始值字段，对象引用变化即不再击穿。
+	const sessionTitle = useProjectsStore(
+		(s) => s.sessions.find((x) => x.id === sessionId)?.title,
+	);
+	const sessionProjectId = useProjectsStore(
+		(s) => s.sessions.find((x) => x.id === sessionId)?.projectId,
+	);
+	const sessionPrimaryAgent = useProjectsStore(
+		(s) => s.sessions.find((x) => x.id === sessionId)?.primaryAgent,
+	);
+	const sessionCreatedAt = useProjectsStore(
+		(s) => s.sessions.find((x) => x.id === sessionId)?.createdAt,
 	);
 	const project = useProjectsStore((s) =>
-		s.projects.find((p) => p.id === session?.projectId),
+		s.projects.find((p) => p.id === sessionProjectId),
 	);
 	const queue = useSessionStore((s) => s.queueBySession[sessionId]);
 	const status = useSessionStore((s) => s.statusBySession[sessionId] ?? "idle");
@@ -173,7 +185,12 @@ export const SessionView = memo(function SessionView({
 	);
 	ensureChipStyles();
 
-	if (!session) return null;
+	if (
+		sessionTitle == null &&
+		sessionProjectId == null &&
+		sessionPrimaryAgent == null
+	)
+		return null;
 	// header 状态（圆点颜色与文案共用）：等待回复 blocked > 运行中 thinking > 空闲 idle
 	const headerStatus: AgentStatus = isBlocked ? "blocked" : status;
 	const steering = queue?.steering ?? [];
@@ -184,8 +201,8 @@ export const SessionView = memo(function SessionView({
 		console.log(`[SessionView] handleStop sessionId=${sessionId}`);
 		setStopping(true);
 		void api.post(
-			`/api/agents/${encodeURIComponent(session.projectId)}/${encodeURIComponent(sessionId)}/abort`,
-			{ agentName: session.primaryAgent },
+			`/api/agents/${encodeURIComponent(sessionProjectId ?? "")}/${encodeURIComponent(sessionId)}/abort`,
+			{ agentName: sessionPrimaryAgent ?? "" },
 		);
 	};
 	// 乐观更新：立即移动消息位置（去重防止与 kernel queue_update 叠加），后台发 API
@@ -250,7 +267,13 @@ export const SessionView = memo(function SessionView({
 	};
 
 	// 文件树根目录：普通项目用 project.cwd，默认工作区会话用其专属临时目录 workdir/<createdAt>/
-	const workspaceDir = resolveSessionCwd(session, { cwd: project?.cwd ?? "" });
+	const workspaceDir =
+		sessionProjectId != null && sessionCreatedAt != null
+			? resolveSessionCwd(
+					{ projectId: sessionProjectId, createdAt: sessionCreatedAt },
+					{ cwd: project?.cwd ?? "" },
+				)
+			: "";
 
 	return (
 		<div className="flex-1 flex h-full" data-testid="session-view">
@@ -264,10 +287,10 @@ export const SessionView = memo(function SessionView({
 						<div className="flex items-center gap-2">
 							{/* 标题最多折叠两行，超出省略：窗口太窄时不再把顶部撑高 */}
 							{imConv ? (
-								<ImSessionTitle sessionTitle={session.title} imConv={imConv} />
+								<ImSessionTitle sessionTitle={sessionTitle ?? ""} imConv={imConv} />
 							) : (
 								<span className="text-[calc(14px*var(--font-scale))] font-bold text-primary leading-[1.5] line-clamp-2">
-									{session.title}
+									{sessionTitle}
 								</span>
 							)}
 						</div>
@@ -282,7 +305,7 @@ export const SessionView = memo(function SessionView({
 							/>
 							<span className="min-w-0 truncate">
 								{/* 默认工作区会话：不暴露内部工作目录，显示友好文案；普通项目会话仍显示 cwd */}
-								{session.projectId === SYSTEM_PROJECT_ID
+								{sessionProjectId === SYSTEM_PROJECT_ID
 									? t("session.defaultWorkspace")
 									: (project?.cwd ?? "")}{" "}
 								· {t(AGENT_STATE_KEY[headerStatus])}
@@ -292,7 +315,7 @@ export const SessionView = memo(function SessionView({
 						</div>
 					</div>
 					{/* Git 工具栏：仅普通项目会话（默认工作区无 git 仓库语义） */}
-					{project && session.projectId !== SYSTEM_PROJECT_ID && (
+					{project && sessionProjectId !== SYSTEM_PROJECT_ID && (
 						<GitToolbar project={project} />
 					)}
 					{/* Token 胶囊标签组 */}
@@ -567,7 +590,7 @@ export const SessionView = memo(function SessionView({
 				<ExtWidgetDock widgets={widgetEntries} sessionId={sessionId}>
 					<Composer
 						sessionId={sessionId}
-						agentName={session.primaryAgent}
+						agentName={sessionPrimaryAgent ?? ""}
 						isRunning={status === "thinking"}
 						isNewSession={!messages || messages.length === 0}
 						disabled={isBlocked || reloading || tuiExpanded}
