@@ -2,7 +2,7 @@
 // 时间戳+窗口方案：NewSessionPane.handleSend 记录发送时刻戳；窗口内无消息/流式时显示，
 // 回调到达后消息出现、条件自然失效；无回调时窗口到期自动隐藏（兜底）。
 import { test, expect, mock, beforeEach } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 
 mock.module("react-virtuoso", () => {
 	const { forwardRef, useImperativeHandle, createElement } = require("react");
@@ -33,6 +33,7 @@ mock.module("../src/api-client", () => ({
 import {
 	MessageList,
 	INITIALIZING_WINDOW_MS,
+	SKELETON_MIN_DISPLAY_MS,
 } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
@@ -197,4 +198,43 @@ test("服务器事件到达后 promptError 被清除（echoUser 路径）", () =
 	).toBe("");
 	render(<MessageList sessionId="s1" />);
 	expect(screen.queryByTestId("prompt-error-s1")).toBeNull();
+});
+
+test("切换已缓存会话（有消息）也显示骨架过渡（不再要求 messages 为空）", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "历史消息", timestamp: 1 },
+				},
+			],
+		},
+		historyLoadingBySession: { s1: true },
+		streamingBySession: {},
+		statusBySession: { s1: "idle" },
+	} as any);
+	render(<MessageList sessionId="s1" />);
+	expect(screen.getByTestId("history-loading-s1")).toBeTruthy();
+});
+
+test("骨架最短显示时长：历史就绪后不立即消失，补足 SKELETON_MIN_DISPLAY_MS 再隐藏", async () => {
+	useSessionStore.setState({
+		messagesBySession: { s1: [] },
+		historyLoadingBySession: { s1: true },
+		streamingBySession: {},
+		statusBySession: { s1: "idle" },
+	} as any);
+	render(<MessageList sessionId="s1" />);
+	expect(screen.getByTestId("history-loading-s1")).toBeTruthy();
+	// 历史就绪（本地缓存命中时可能仅几毫秒）：骨架不得闪没
+	act(() => {
+		useSessionStore.setState({ historyLoadingBySession: { s1: false } } as any);
+	});
+	expect(screen.getByTestId("history-loading-s1")).toBeTruthy();
+	// 补足最短显示时长后隐藏
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, SKELETON_MIN_DISPLAY_MS + 80));
+	});
+	expect(screen.queryByTestId("history-loading-s1")).toBeNull();
 });

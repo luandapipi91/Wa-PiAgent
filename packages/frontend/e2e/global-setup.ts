@@ -29,6 +29,10 @@ partners:
 // 保证 MemoryStore.list() 首次读取就有数据。
 const SEED_MEMORY_MD = "E2E 记忆条目一\n§\nE2E 记忆条目二";
 const SEED_USER_MD = "E2E 用户偏好记忆";
+// 注意：不要在此 seed providers.json——多数 spec 对供应商卡片/模型下拉的定位假设
+// 与既有自 seed 约定耦合，凭空多一个 provider 会引发 strict 冲突/计数失败（实测大面积挂）。
+// 「无 provider 首启弹 onboarding 向导」的连坐问题已在 onboarding-wizard.spec 的
+// afterAll 快照还愿中根治，各 spec 的自 seed 约定不变。
 
 // 预置一个测试项目（含项目级 AGENTS.md 指令文件 + 项目记忆），供记忆页作用域切换 E2E 使用。
 // 必须在 kernel 启动前写入 projects.json，保证 projects:list 首次返回就有数据。

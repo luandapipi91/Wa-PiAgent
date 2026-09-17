@@ -101,10 +101,11 @@ export const MEM_SEARCH_DESC =
   "Full-text (BM25) search across all memory layers, including entries NOT shown in the system prompt. " +
   "Use this before assuming you don't know something — L2 (project knowledge) and L3 (execution log) " +
   "are searchable but not injected. Supports Chinese and English queries. " +
+  "Optionally narrow by time range with since/until (see timeField for which timestamp they filter on). " +
   "Returns id/title/snippet/score; use the id with memory_replace / memory_remove.";
 
 export const MEM_SEARCH_SNIPPET =
-  "Search all memory layers (including non-injected L2/L3) by keyword.";
+  "Search all memory layers (including non-injected L2/L3) by keyword or time range.";
 
 /** memory target schema（"memory" | "user"） */
 export const MemoryTargetSchema = Type.Union(
@@ -130,6 +131,52 @@ export const MemoryKindSchema = Type.Union(
       "Omit to route by target+scope.",
   },
 );
+
+/** since/until 依据哪个时间列（默认更新时间） */
+export const MemoryTimeFieldSchema = Type.Union(
+  [Type.Literal("updated"), Type.Literal("created")],
+  {
+    description:
+      "Which timestamp `since`/`until` filter on. 'updated' (default): a replaced entry looks new. " +
+      "'created': first written; unaffected by later edits.",
+  },
+);
+
+/**
+ * memory_search 参数——kernel 工具与 pi bridge 扩展共用同一份定义。
+ * 时间边界接受毫秒时间戳或日期串（'YYYY-MM-DD' 按本地时区，until 含当天）。
+ */
+export const MemorySearchParamsSchema = Type.Object({
+  query: Type.String({
+    description: "Keywords to search for (Chinese or English).",
+  }),
+  scope: Type.Optional(MemoryScopeSchema),
+  kind: Type.Optional(MemoryKindSchema),
+  limit: Type.Optional(
+    Type.Number({ description: "Max results (default 10)." }),
+  ),
+  includeArchived: Type.Optional(
+    Type.Boolean({
+      description: "Include archived entries (default false).",
+    }),
+  ),
+  since: Type.Optional(
+    Type.Union([Type.Number(), Type.String()], {
+      description:
+        "Only entries at/after this time (inclusive). Accepts a millisecond timestamp, or a date string: " +
+        "'YYYY-MM-DD' means local midnight of that day, other strings use Date.parse. " +
+        "Unparseable values are ignored (no lower bound).",
+    }),
+  ),
+  until: Type.Optional(
+    Type.Union([Type.Number(), Type.String()], {
+      description:
+        "Only entries at/before this time (inclusive). Same formats as `since`; " +
+        "'YYYY-MM-DD' covers the whole local day (end of day). Unparseable values are ignored.",
+    }),
+  ),
+  timeField: Type.Optional(MemoryTimeFieldSchema),
+});
 
 // =========================================================================
 // delegate

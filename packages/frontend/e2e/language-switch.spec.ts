@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createProject } from "./helpers";
+import { createProject, ensureProvider } from "./helpers";
 
 /**
  * 系统设置-通用「语言」切换 E2E。
@@ -28,6 +28,10 @@ async function setUiPrefs(page: import("@playwright/test").Page, language: "zh" 
 }
 
 test.describe("系统设置-通用 语言切换", () => {
+  // 防无 provider 首启 onboarding 向导遮挡点击（子集单跑自保）
+  test.beforeAll(async () => {
+    await ensureProvider();
+  });
 
   test("默认中文：设置弹窗标题与通用分区文案为中文", async ({ page }) => {
     await setUiPrefs(page, "zh");
@@ -36,7 +40,8 @@ test.describe("系统设置-通用 语言切换", () => {
     await page.getByTestId("settings-btn").click();
     await expect(page.getByTestId("settings-modal")).toBeVisible({ timeout: 5000 });
     await expect(page.getByText("系统设置").first()).toBeVisible();
-    await expect(page.getByText("文字大小").first()).toBeVisible();
+    // 通用分区实际文案（“文字大小”已移至外观分区，勿再断言）
+    await expect(page.getByText("自动重试").first()).toBeVisible();
   });
 
   test("切换到英文：导航与通用分区文案变英文", async ({ page }) => {
@@ -94,6 +99,7 @@ test.describe("系统设置-通用 语言切换", () => {
     await page.getByTestId("retry-save-btn").click();
     await expect(page.getByText("系统设置").first()).toBeVisible();
     await expect(page.getByTestId("settings-nav-general")).toHaveText("通用");
-    await expect(page.getByText("文字大小").first()).toBeVisible();
+    // 通用分区实际文案（“文字大小”已移至外观分区，勿再断言）
+    await expect(page.getByText("自动重试").first()).toBeVisible();
   });
 });

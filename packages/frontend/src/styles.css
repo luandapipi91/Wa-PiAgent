@@ -322,6 +322,18 @@ input[type="range"]::-moz-range-thumb {
 	}
 }
 
+/* 会话加载骨架入场：渐显 + 轻微上移（只动 opacity/transform） */
+@keyframes skeleton-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 /* toast 滑入动画 */
 @keyframes toast-in {
 	from {

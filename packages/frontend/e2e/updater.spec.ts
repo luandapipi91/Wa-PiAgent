@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createProject } from "./helpers";
+import { createProject, ensureProvider } from "./helpers";
 
 /**
  * 关于页签更新流程 E2E。
@@ -46,6 +46,10 @@ window.waPiUpdater = {
 `;
 
 test.describe("关于页签更新流程（mock waPiUpdater）", () => {
+  // 防无 provider 首启 onboarding 向导遮挡点击（子集单跑自保）
+  test.beforeAll(async () => {
+    await ensureProvider();
+  });
 	test("检查更新 → 发现新版本 → 下载 → 就绪", async ({ page }) => {
 		await page.addInitScript(MOCK_SCRIPT);
 		// 建项目让 sidebar 显示（复用 settings-provider.spec.ts 模式）
@@ -58,14 +62,16 @@ test.describe("关于页签更新流程（mock waPiUpdater）", () => {
 		// 导航到「关于」页签
 		await page.getByTestId("settings-nav-about").click();
 
-		// 初始：版本 + 检查更新按钮可见（用 testid 主导，文案断言辅助）
+		// 初始：版本可见。桌面端打开设置即自动检查更新（SettingsModal effect +
+		// mock check 同步返回），可能已跳过 idle 态直达 available——两种状态都兼容：
+		// available 则直接进入下载流程，否则手动点「检查更新」
 		await expect(page.getByTestId("about-section")).toBeVisible();
 		await expect(page.getByText("版本 0.1.0")).toBeVisible();
-		await expect(page.getByTestId("check-update-btn")).toBeVisible();
-
-		// 检查更新 → 发现新版本 0.2.0
-		await page.getByTestId("check-update-btn").click();
-		await expect(page.getByTestId("download-update-btn")).toBeVisible();
+		const downloadBtn = page.getByTestId("download-update-btn");
+		if (!(await downloadBtn.isVisible().catch(() => false))) {
+			await page.getByTestId("check-update-btn").click();
+		}
+		await expect(downloadBtn).toBeVisible();
 		await expect(page.getByText(/0\.2\.0/)).toBeVisible();
 
 		// 立即更新 → 进度条 → 就绪

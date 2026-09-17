@@ -87,6 +87,45 @@ export async function saveProvider(
   await api("POST", "/api/providers", { provider });
 }
 
+/** 预置 ui-prefs localStorage（语言/字体/导出轮数）。
+ *  需要中文界面的 spec 必须用它显式预置——playwright headless 默认
+ *  navigator.language=en-US，i18n 无持久化时按 navigator 判定，页面会是英文。
+ *  与 language-switch.spec 的同名函数同构（抽到公共层复用）。 */
+export async function setUiPrefs(
+  page: import("@playwright/test").Page,
+  language: "zh" | "en",
+) {
+  await page.addInitScript((lang) => {
+    localStorage.setItem(
+      "wa-pi-ui-prefs",
+      JSON.stringify({ state: { language: lang, fontSize: 16, exportTurns: 1 }, version: 0 }),
+    );
+  }, language);
+}
+
+/** 确保至少存在一个 provider（无则补一个假 provider，返回是否为本函数新建）。
+ *  防「无 provider 首启弹 onboarding 向导」遮挡页面点击。各 spec 的 beforeAll 调用；
+ *  返回 true 时调用方 afterAll 应自行决定是否删除（一般可留着，后续 spec 复用）。 */
+export async function ensureProvider(): Promise<boolean> {
+  const list = await listProviders();
+  if (list.length > 0) return false;
+  await saveProvider({
+    id: "e2e-fallback-provider",
+    name: "E2E Fallback Provider",
+    baseUrl: "https://api.e2e-fallback.invalid/v1",
+    apiKey: "sk-e2e-fallback",
+    api: "openai-completions" as const,
+    models: [{ id: "e2e-fallback-model", contextWindow: 128000, maxTokens: 16384 }],
+  });
+  return true;
+}
+
+/** 读取当前全部模型供应商（onboarding 向导测试用于进入前快照、退出后还愿） */
+export async function listProviders(): Promise<Record<string, unknown>[]> {
+  const data = await api("GET", "/api/providers");
+  return (data.providers ?? []) as Record<string, unknown>[];
+}
+
 /** 清空全部模型供应商（onboarding 向导测试的前置条件）。
  *  DELETE /api/providers/:name 路由参数名虽叫 name，实现按 id 删除（provider:delete 的 id 字段）。 */
 export async function deleteAllProviders(): Promise<void> {

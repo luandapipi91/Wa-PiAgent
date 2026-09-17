@@ -1,9 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { createProject } from "./helpers";
+import { createProject, ensureProvider, setUiPrefs } from "./helpers";
 
 test.describe.serial("设置页供应商管理", () => {
 
   test("打开设置页", async ({ page }) => {
+    // headless 默认 navigator=en-US，显式锁定中文界面（「模型管理」等文案断言依赖）
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     // 先建项目让 sidebar 显示（复用 app-flow 的模式）
     await createProject("e2e-settings", "/tmp/e2e-settings");
@@ -16,12 +18,17 @@ test.describe.serial("设置页供应商管理", () => {
   });
 
   test("添加供应商完整流程", async ({ page }) => {
+    // headless 默认 navigator=en-US，显式锁定中文界面（「模型管理」等文案断言依赖）
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     // 确保有项目（serial 共享 kernel，可能上一步已建）
     await createProject("e2e-settings", "/tmp/e2e-settings");
 
     await page.goto("/");
     await page.getByTestId("settings-btn").click();
+    // 设置弹窗默认停在「通用」分区（settings store activeSection 初始值），
+    // 供应商操作需先切到「模型管理」
+    await page.getByRole("button", { name: "模型管理" }).click();
     await page.getByTestId("add-provider-btn").click();
 
     // 填表单
@@ -43,11 +50,15 @@ test.describe.serial("设置页供应商管理", () => {
   });
 
   test("删除供应商流程", async ({ page }) => {
+    // headless 默认 navigator=en-US，显式锁定中文界面（「模型管理」等文案断言依赖）
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await createProject("e2e-settings", "/tmp/e2e-settings");
 
     await page.goto("/");
     await page.getByTestId("settings-btn").click();
+    // 切到「模型管理」分区（默认「通用」，见上）
+    await page.getByRole("button", { name: "模型管理" }).click();
 
     // 删除上一步添加的那张卡片（按名称作用域，避免误删其他 spec 预置的 provider）
     const card = page.locator('[data-testid^="provider-card-"]', { hasText: "E2E Test Provider" });
@@ -63,11 +74,15 @@ test.describe.serial("设置页供应商管理", () => {
   });
 
   test("快捷选择预设填充表单并保存", async ({ page }) => {
+    // headless 默认 navigator=en-US，显式锁定中文界面（「模型管理」等文案断言依赖）
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await createProject("e2e-settings", "/tmp/e2e-settings");
 
     await page.goto("/");
     await page.getByTestId("settings-btn").click();
+    // 切到「模型管理」分区（默认「通用」，见上）
+    await page.getByRole("button", { name: "模型管理" }).click();
     await page.getByTestId("add-provider-btn").click();
 
     // 等待预设列表加载（聚焦搜索框出下拉，至少一个预设项）

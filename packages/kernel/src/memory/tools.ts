@@ -22,6 +22,7 @@ import {
   MemoryTargetSchema,
   MemoryScopeSchema,
   MemoryKindSchema,
+  MemorySearchParamsSchema,
 } from "@wa-pi/shared";
 import type {
   ListOpts,
@@ -137,6 +138,40 @@ const jsonResult = (v: unknown) => ({
   details: undefined,
 });
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/**
+ * 解析 memory_search 的 since/until 边界，返回毫秒时间戳；识别不了的值返回 undefined
+ * （= 不设该边界，而不是报错——与其余参数「非法即当没传」的惯例一致）。
+ * - 数字：按毫秒时间戳
+ * - "YYYY-MM-DD"：按本地时区；endOfDay 时补到 23:59:59.999，让 until 含当天
+ * - 其它字符串：走 Date.parse（带时间的 ISO 串等）
+ */
+export function parseTimeBound(
+  raw: unknown,
+  endOfDay = false,
+): number | undefined {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : undefined;
+  if (typeof raw !== "string") return undefined;
+  const s = raw.trim();
+  if (!s) return undefined;
+  // 纯数字串（≥10 位）按毫秒时间戳，避免被 Date.parse 当成年份
+  if (/^\d{10,}$/.test(s)) return Number(s);
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (dateOnly) {
+    const y = +dateOnly[1];
+    const mo = +dateOnly[2];
+    const d = +dateOnly[3];
+    const dt = endOfDay
+      ? new Date(y, mo - 1, d, 23, 59, 59, 999)
+      : new Date(y, mo - 1, d);
+    // Date 会把 2026-13-45 这类非法日期静默滚动成别的日子，必须回读校验
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d)
+      return undefined;
+    return dt.getTime();
+  }
+  const parsed = Date.parse(s);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 /**
  * 回灌模型前的注入净化。
@@ -318,21 +353,7 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
       label: "Memory",
       description: MEM_SEARCH_DESC,
       promptSnippet: MEM_SEARCH_SNIPPET,
-      parameters: Type.Object({
-        query: Type.String({
-          description: "Keywords to search for (Chinese or English).",
-        }),
-        scope: Type.Optional(MemoryScopeSchema),
-        kind: Type.Optional(MemoryKindSchema),
-        limit: Type.Optional(
-          Type.Number({ description: "Max results (default 10)." }),
-        ),
-        includeArchived: Type.Optional(
-          Type.Boolean({
-            description: "Include archived entries (default false).",
-          }),
-        ),
-      }),
+      parameters: MemorySearchParamsSchema,
       async execute(_id: string, params: Record<string, unknown>) {
         const scope =
           params.scope === "global" || params.scope === "project"
@@ -353,6 +374,9 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
           projectId: check.projectId ?? undefined,
           kind,
           includeArchived: params.includeArchived === true,
+          since: parseTimeBound(params.since),
+          until: parseTimeBound(params.until, true),
+          timeField: params.timeField === "created" ? "created" : "updated",
         };
         const hits = ctx.dao.search(query, {
           ...filter,

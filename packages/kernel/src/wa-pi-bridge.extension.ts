@@ -29,6 +29,7 @@ import {
 	MemoryTargetSchema,
 	MemoryScopeSchema,
 	MemoryKindSchema,
+	MemorySearchParamsSchema,
 	DELEGATE_DESCRIPTION,
 	DelegateParamsSchema,
 	FLEET_DESCRIPTION,
@@ -396,21 +397,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Memory",
 		description: MEM_SEARCH_DESC,
 		promptSnippet: MEM_SEARCH_SNIPPET,
-		parameters: Type.Object({
-			query: Type.String({
-				description: "Keywords to search for (Chinese or English).",
-			}),
-			scope: Type.Optional(MemoryScopeSchema),
-			kind: Type.Optional(MemoryKindSchema),
-			limit: Type.Optional(
-				Type.Number({ description: "Max results (default 10)." }),
-			),
-			includeArchived: Type.Optional(
-				Type.Boolean({
-					description: "Include archived entries (default false).",
-				}),
-			),
-		}),
+		parameters: MemorySearchParamsSchema,
 		async execute(toolCallId, params, signal) {
 			return callBridge(
 				"memory_search",

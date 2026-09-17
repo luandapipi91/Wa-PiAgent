@@ -26,6 +26,9 @@ export default defineConfig({
 	// 单 worker：全部 spec 共享同一隔离 kernel，session:created 等 SSE 广播会让并行 worker 的
 	// 页面互相干扰（addSession 自动选中他人会话、provider 卡片计数串台），必须串行跑
 	workers: 1,
+	// 注意：不要全局设 locale——多数 spec 在 navigator=en-US 的默认环境下编写并通过，
+	// 全局改 zh-CN 会让它们的文案断言大面积翻转（实测 43 fail）。需要中文界面的
+	// 用例用 addInitScript 预置 ui-prefs localStorage（见 language-switch.spec 的 setUiPrefs）。
 	use: { baseURL: `http://localhost:${E2E_WEB_PORT}`, headless: true },
 	// globalSetup 启动隔离 kernel（独立 WA_PI_DIR），globalTeardown 清理
 	globalSetup: "./e2e/global-setup.ts",

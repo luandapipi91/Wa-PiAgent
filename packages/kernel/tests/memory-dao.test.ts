@@ -470,3 +470,110 @@ test("oldestUpdatedAt：返回最早时间，excludeProfile / before / 过滤条
     }),
   ).toBe(1000);
 });
+
+// =========================================================================
+// 时间范围过滤（since/until）—— memory_search「按时间搜索」的 DAO 层
+// =========================================================================
+
+const DAY_MS = 86_400_000;
+
+/** insert 总写 Date.now()，测时间过滤要能把条目时间搬回去 */
+function retimeRow(id: string, updatedAt: number, createdAt?: number) {
+  dao.db.run("UPDATE memories SET updated_at = ?, created_at = ? WHERE id = ?", [
+    updatedAt,
+    createdAt ?? updatedAt,
+    id,
+  ]);
+}
+
+test("since/until 是闭区间：正好落在端点的条目也命中", () => {
+  const base = Date.now() - 10 * DAY_MS;
+  const a = add({ content: "锚点数据 alpha" });
+  const b = add({ content: "锚点数据 beta" });
+  const c = add({ content: "锚点数据 gamma" });
+  retimeRow(a.id, base);
+  retimeRow(b.id, base + 2 * DAY_MS);
+  retimeRow(c.id, base + 4 * DAY_MS);
+
+  // [base+2d, base+2d] 收缩到单点 —— 只有端点上的 b
+  expect(
+    dao
+      .search("锚点数据", { since: base + 2 * DAY_MS, until: base + 2 * DAY_MS })
+      .map((h) => h.id),
+  ).toEqual([b.id]);
+  // search / list / counts / countMatches 共用同一份 buildFilter，口径必须一致
+  expect(
+    dao
+      .search("锚点数据", { since: base, until: base + 2 * DAY_MS })
+      .map((h) => h.id)
+      .sort(),
+  ).toEqual([a.id, b.id].sort());
+  expect(
+    dao
+      .list({ since: base, until: base + 2 * DAY_MS })
+      .map((r) => r.id)
+      .sort(),
+  ).toEqual([a.id, b.id].sort());
+  expect(dao.counts({ since: base, until: base + 2 * DAY_MS }).knowledge).toBe(
+    2,
+  );
+  expect(
+    dao.countMatches("锚点数据", { since: base, until: base + 2 * DAY_MS }),
+  ).toBe(2);
+  // 不设边界的全量口径仍是 3
+  expect(dao.countMatches("锚点数据", {})).toBe(3);
+});
+
+test("timeField 默认 updated_at；created_at 不受后续修改影响", () => {
+  const now = Date.now();
+  const row = add({ content: "创建时间锚点 delta" });
+  // 30 天前创建，刚刚更新过
+  retimeRow(row.id, now, now - 30 * DAY_MS);
+
+  expect(dao.search("创建时间锚点", { since: now - DAY_MS })).toHaveLength(1);
+  expect(
+    dao.search("创建时间锚点", {
+      since: now - DAY_MS,
+      timeField: "created",
+    }),
+  ).toHaveLength(0);
+  expect(
+    dao.search("创建时间锚点", {
+      until: now - DAY_MS,
+      timeField: "created",
+    }),
+  ).toHaveLength(1);
+});
+
+test("时间范围与 kind / 归档过滤叠加时同时生效", () => {
+  const base = Date.now() - 5 * DAY_MS;
+  const keep = add({ content: "叠加锚点 keep" });
+  const archived = add({ content: "叠加锚点 archived" });
+  const other = add({ content: "叠加锚点 other", kind: "execution" });
+  for (const r of [keep, archived, other]) retimeRow(r.id, base);
+  dao.archive(archived.id);
+
+  expect(
+    dao
+      .search("叠加锚点", { since: base - DAY_MS })
+      .map((h) => h.id)
+      .sort(),
+  ).toEqual([keep.id, other.id].sort());
+  expect(
+    dao
+      .search("叠加锚点", { since: base - DAY_MS, kind: "execution" })
+      .map((h) => h.id),
+  ).toEqual([other.id]);
+  expect(
+    dao.search("叠加锚点", { since: base - DAY_MS, includeArchived: true }),
+  ).toHaveLength(3);
+});
+
+test("不传边界（undefined）时行为与改动前一致", () => {
+  const row = add({ content: "无边界锚点" });
+  expect(dao.search("无边界锚点", {})).toHaveLength(1);
+  expect(
+    dao.search("无边界锚点", { since: undefined, until: undefined }),
+  ).toHaveLength(1);
+  expect(dao.list({}).some((r) => r.id === row.id)).toBe(true);
+});

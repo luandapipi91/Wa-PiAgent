@@ -67,6 +67,44 @@ test("历史加载中（首次进入无缓存）：列表不挂载（loading 覆
 	expect(container.querySelector('[data-testid="message-list"]')).toBeNull();
 });
 
+test(
+	"数据就绪后骨架保持到列表首帧渲染完成（先渲染后撤，消除空帧闪烁）",
+	async () => {
+	// 首次进入：无缓存消息 + 加载中（骨架显示、列表未挂载）
+	useSessionStore.setState({
+		messagesBySession: { s1: [] },
+		historyLoadingBySession: { s1: true },
+	});
+	const { container } = render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	expect(container.querySelector('[data-testid="history-loading-s1"]')).toBeTruthy();
+	// 历史响应到达：列表立即挂载（骨架有不透明背景盖在其上继续显示），骨架不提前撤
+	act(() => {
+		useSessionStore.setState({
+			messagesBySession: {
+				s1: Array.from({ length: 40 }, (_, i) =>
+					msg(i + 1, i % 2 ? "assistant" : "user", `消息${i}`),
+				),
+			},
+			historyLoadingBySession: { s1: false },
+		});
+	});
+	// 数据就绪瞬间：列表已挂载 + 骨架仍在（等待列表首帧渲染完成）
+	// 旧实现：骨架由 500ms 计时独立撤除，与列表首帧竞争 → 空帧闪烁（红灯）
+	expect(container.querySelector('[data-testid="message-list"]')).toBeTruthy();
+	expect(container.querySelector('[data-testid="history-loading-s1"]')).toBeTruthy();
+	// 列表首帧渲染完成（rangeChanged）后骨架撤（2.5s 兜底上限 + 调度余量）
+	await waitFor(() => {
+		expect(container.querySelector('[data-testid="history-loading-s1"]')).toBeNull();
+	}, { timeout: 6000 });
+	expect(container.textContent).toContain("消息0");
+	},
+	10_000,
+);
+
 test("历史就绪：列表挂载对齐 skeleton 撤除（无重叠），全量 data 渲染", async () => {
 	const { container } = render(
 		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>

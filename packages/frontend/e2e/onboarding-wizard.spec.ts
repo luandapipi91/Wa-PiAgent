@@ -4,6 +4,7 @@ import {
   deleteAgentQuiet,
   deleteAllProviders,
   getAgentConfig,
+  listProviders,
   saveProvider,
 } from "./helpers";
 
@@ -16,7 +17,10 @@ import {
 // 环境说明：
 // - global-setup 以隔离 WA_PI_DIR + WA_PI_SKIP_AGENT_SEED=1 起 kernel，初始无 providers、
 //   仅预置 dev（研发）智能体；但共享 kernel 的其他 spec 可能写过 provider，
-//   故 beforeAll 先 deleteAllProviders() 保证「无模型」前提。
+// 共享 kernel 下其他 spec 可能写过 provider，
+//   故 beforeAll 先快照 + deleteAllProviders() 保证「无模型」前提，afterAll 原样还愿
+//   ——此前 afterAll 清空不还愿，同批次后续未自 seed 的 spec（字母序在其后）
+//   全被 onboarding 向导的 modal-overlay 拦截点击连坐失败。
 // - 自动弹出判定走 providers.loaded 标志（load() 返回合法数组才置 true），无 loading 中间态断言。
 // - testid 以组件实际为准：设置按钮是 settings-btn、新建会话页智能体 pill 是 agent-select
 //   （AgentDropdown 默认 pillTestId）；向导/选择器 testid 见 OnboardingWizard/AgentCreatePicker。
@@ -26,16 +30,24 @@ import {
 const AGENT_NAME = "E2E向导智能体";
 const PRESET_ID = "engineering-code-reviewer"; // 代码审查员
 
+/** 进入本 spec 前的 providers 快照：afterAll 按它还愿，不污染同批次后续 spec */
+let savedProviders: Record<string, unknown>[] = [];
+
 test.describe.serial("初始化向导", () => {
   test.beforeAll(async () => {
+    savedProviders = await listProviders();
     await deleteAllProviders(); // 确保 providers 为空 → 向导自动弹出
     await deleteAgentQuiet(AGENT_NAME);
   });
 
   test.afterAll(async () => {
-    // 还原环境：删掉测试智能体 + 清空 providers（用例 2 补的假 provider 不留给后续 spec）
+    // 还原环境：删掉测试智能体；providers 按进入前快照原样还愿
+    //（此前实现是清空不还愿，连坐同批次后续 spec）
     await deleteAgentQuiet(AGENT_NAME);
     await deleteAllProviders();
+    for (const p of savedProviders) {
+      await saveProvider(p);
+    }
   });
 
   test("无模型时自动弹出 → 跳过模型 → 从预设创建 → 新建会话默认选中", async ({ page }) => {

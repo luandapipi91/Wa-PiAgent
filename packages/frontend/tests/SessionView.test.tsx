@@ -294,11 +294,15 @@ test("首次进入会话历史未到时显示加载指示，响应到达后消�
 		deferred.resolve({ messages: history });
 	});
 
-	// 响应到达 → 加载消失、历史消息出现
-	await waitFor(() => {
-		expect(screen.queryByTestId("history-loading-s1")).toBeNull();
-		expect(screen.getByText("历史问题")).toBeTruthy();
-	});
+	// 响应到达 → 加载消失、历史消息出现。骨架有 SKELETON_MIN_DISPLAY_MS=500ms 最短过渡，
+	// 且列表为响应后首次挂载（挂载门控）+ 虚拟化测量，负载高时总耗时可能超过 1s，放宽等待窗
+	await waitFor(
+		() => {
+			expect(screen.queryByTestId("history-loading-s1")).toBeNull();
+			expect(screen.getByText("历史问题")).toBeTruthy();
+		},
+		{ timeout: 5000 },
+	);
 	// store 标志同步清掉
 	expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
 });
@@ -313,10 +317,14 @@ test("会话已有消息时进入：骨架短暂显示后消失（缓存命中�
 	]);
 	await renderSessionView("s1");
 	// 有消息则即便 loading 标志为 true 也不显示加载指示
-	await waitFor(() => {
-		expect(screen.queryByTestId("history-loading-s1")).toBeNull();
-		expect(screen.getByText("已存在")).toBeTruthy();
-	});
+	// 有消息也走骨架最短过渡（500ms）+ 列表首次挂载，负载高时超过 1s，放宽等待窗
+	await waitFor(
+		() => {
+			expect(screen.queryByTestId("history-loading-s1")).toBeNull();
+			expect(screen.getByText("已存在")).toBeTruthy();
+		},
+		{ timeout: 5000 },
+	);
 });
 
 test("运行中时排队消息隐藏「立即」按钮，保留「引导」按钮", async () => {

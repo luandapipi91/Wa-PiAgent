@@ -2,7 +2,11 @@ import { test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { SCHEMA_SQL } from "../src/memory/schema";
 import { MemoryDao } from "../src/memory/dao";
-import { createMemoryTools, type MemoryToolContext } from "../src/memory/tools";
+import {
+  createMemoryTools,
+  parseTimeBound,
+  type MemoryToolContext,
+} from "../src/memory/tools";
 import { renderSnapshot } from "../src/memory/snapshot";
 
 let ctx: MemoryToolContext;
@@ -531,4 +535,96 @@ test("memory_read 的条目 title 与 content 同样被净化", async () => {
   const entry = res.entries.find((e: any) => e.id === row.id);
   expect(entry.title).toBe("[BLOCKED]");
   expect(entry.content).toBe("[BLOCKED]");
+});
+
+// =========================================================================
+// memory_search 的时间范围过滤（since / until / timeField）
+// =========================================================================
+
+test("parseTimeBound：日期串按本地时区，until 补到当天末尾，非法值忽略", () => {
+  expect(parseTimeBound("2026-09-17")).toBe(new Date(2026, 8, 17).getTime());
+  expect(parseTimeBound("2026-09-17", true)).toBe(
+    new Date(2026, 8, 17, 23, 59, 59, 999).getTime(),
+  );
+  // 毫秒时间戳（数字或纯数字串）与带时间的 ISO 串
+  expect(parseTimeBound(1_760_000_000_000)).toBe(1_760_000_000_000);
+  expect(parseTimeBound("1760000000000")).toBe(1_760_000_000_000);
+  expect(parseTimeBound("2026-09-17T00:00:00.000Z")).toBe(
+    Date.parse("2026-09-17T00:00:00.000Z"),
+  );
+  // 识别不了的一律 undefined（= 不设该边界），而不是报错
+  for (const bad of [
+    undefined,
+    null,
+    "",
+    "   ",
+    "不是时间",
+    "2026-13-45",
+    {},
+    [],
+  ]) {
+    expect(parseTimeBound(bad)).toBeUndefined();
+  }
+});
+
+test("memory_search 用 since/until 收窄时间范围，results 与 totalMatched 同口径", async () => {
+  await call("memory_add", { target: "memory", content: "时间窗内条目 zebra" });
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate(),
+    ).padStart(2, "0")}`;
+  const now = new Date();
+  const today = fmt(now);
+  const yesterday = fmt(new Date(now.getTime() - 86_400_000));
+
+  // 闭区间：since=今天 / until=今天 都应命中
+  expect(
+    (await call("memory_search", { query: "时间窗内", since: today })).results,
+  ).toHaveLength(1);
+  expect(
+    (await call("memory_search", { query: "时间窗内", until: today })).results,
+  ).toHaveLength(1);
+
+  // until=昨天 → 范围外；results 与 totalMatched 必须同步为空
+  const miss = await call("memory_search", {
+    query: "时间窗内",
+    until: yesterday,
+  });
+  expect(miss.results).toHaveLength(0);
+  expect(miss.totalMatched).toBe(0);
+
+  // 非法值当没传（不报错、不过滤）
+  expect(
+    (await call("memory_search", { query: "时间窗内", since: "不是时间" }))
+      .results,
+  ).toHaveLength(1);
+});
+
+test("memory_search 的 timeField=created 按创建时间过滤", async () => {
+  const DAY = 86_400_000;
+  const now = Date.now();
+  const row = await call("memory_add", {
+    target: "memory",
+    content: "创建时间锚点 quokka",
+  });
+  // 30 天前创建、刚刚更新过
+  ctx.dao.db.run(
+    "UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?",
+    [now - 30 * DAY, now, row.id],
+  );
+  const sinceYesterday = new Date(now - DAY).toISOString();
+
+  expect(
+    (await call("memory_search", { query: "创建时间锚点", since: sinceYesterday }))
+      .results,
+  ).toHaveLength(1);
+  expect(
+    (
+      await call("memory_search", {
+        query: "创建时间锚点",
+        since: sinceYesterday,
+        timeField: "created",
+      })
+    ).results,
+  ).toHaveLength(0);
 });

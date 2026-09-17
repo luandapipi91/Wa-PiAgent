@@ -50,6 +50,12 @@ export interface ListOpts {
   archivedOnly?: boolean;
   /** 最多取多少行（快照 L1 用：只取预算够用的量，不把整个 scope 载入内存） */
   limit?: number;
+  /** 时间下界（含端点，毫秒时间戳）；undefined 即不设该边界 */
+  since?: number;
+  /** 时间上界（含端点，毫秒时间戳）；undefined 即不设该边界 */
+  until?: number;
+  /** since/until 依据的时间列（默认 updated_at）；只在设了边界时有意义 */
+  timeField?: "updated" | "created";
 }
 
 export interface SearchOpts extends ListOpts {
@@ -492,6 +498,16 @@ export class MemoryDao {
     if (opts.projectId) {
       clauses.push("project_id = ?");
       params.push(opts.projectId);
+    }
+    // 时间范围（含端点）。列名只从白名单常量里取，不拼接外部输入。
+    const timeCol = opts.timeField === "created" ? "created_at" : "updated_at";
+    if (typeof opts.since === "number") {
+      clauses.push(`${timeCol} >= ?`);
+      params.push(opts.since);
+    }
+    if (typeof opts.until === "number") {
+      clauses.push(`${timeCol} <= ?`);
+      params.push(opts.until);
     }
     return {
       where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",

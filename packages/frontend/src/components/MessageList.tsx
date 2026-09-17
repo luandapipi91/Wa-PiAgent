@@ -189,22 +189,38 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	const [skeletonShown, setSkeletonShown] = useState(false);
 	const skeletonShownAtRef = useRef(0);
 	const skeletonHideTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	// 列表首帧渲染完成信号（Virtuoso rangeChanged 首次回调）。骨架撤除以此为前提：
+	// 「先渲染后撤」splash 模式——撤骨架瞬间露出的是已贴底渲染完成的列表，
+	// 消除「骨架撤了但列表未就绪」的空帧闪烁（用户实测残留的最后一闪）。
+	const [listRendered, setListRendered] = useState(false);
+	useEffect(() => {
+		// 切换会话：重置（新会话重新走 渲染→放行）
+		setListRendered(false);
+	}, [sessionId]);
+
+
 	useEffect(() => {
 		if (showHistoryLoading) {
 			if (skeletonHideTimerRef.current) clearTimeout(skeletonHideTimerRef.current);
 			skeletonShownAtRef.current = Date.now();
 			setSkeletonShown(true);
 		} else if (skeletonShown) {
+			const hide = () => {
+				setSkeletonShown(false);
+				skeletonHideTimerRef.current = undefined;
+			};
+			if (!listRendered) {
+				// rangeChanged 未触发（空列表/测试环境）：2.5s 兜底强制撤（宁可见内容不白屏）
+				skeletonHideTimerRef.current = setTimeout(hide, 2500);
+				return;
+			}
 			const remain = Math.max(
 				0,
 				SKELETON_MIN_DISPLAY_MS - (Date.now() - skeletonShownAtRef.current),
 			);
-			skeletonHideTimerRef.current = setTimeout(() => {
-				setSkeletonShown(false);
-				skeletonHideTimerRef.current = undefined;
-			}, remain);
+			skeletonHideTimerRef.current = setTimeout(hide, remain);
 		}
-	}, [showHistoryLoading, skeletonShown]);
+	}, [showHistoryLoading, skeletonShown, listRendered]);
 	useEffect(
 		() => () => {
 			if (skeletonHideTimerRef.current) clearTimeout(skeletonHideTimerRef.current);
@@ -406,6 +422,12 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 		return out;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [displayRows, streaming, mergeStreamingIntoLast]);
+
+	useEffect(() => {
+		// 空列表（无消息）没有内容可等：直接视为渲染完成（rangeChanged 不会触发）
+		if (listRows.length === 0) setListRendered(true);
+	}, [listRows.length]);
+
 
 	// 浮动按钮「滚动到底部」：跳到最后一项并恢复贴底跟随。
 	const scrollToEnd = useCallback(() => {
@@ -813,9 +835,11 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			onCopy={handleCopyWithTokens}
 		>
 			<TaskDoneFrog />
-			{/* 挂载对齐 skeleton 撤除时机：skeleton 有最小展示时长 500ms（防一闪而过），
-			    只看 showHistoryLoading 会出现「列表已挂载 + skeleton 未撤」的重叠 */}
-			{!skeletonShown && (
+			{/* splash 模式（终版）：数据就绪即挂载列表（骨架有不透明背景盖在其上继续
+			    显示），骨架撤除等 listRendered（rangeChanged 首次回调=列表首帧渲染完成）
+			    —— 撤骨架瞬间露出的是已贴底渲染完成的列表，无空帧、无重叠。
+			    挂载条件只看 showHistoryLoading（skeletonShown 由撤除逻辑独立控制）。 */}
+			{!showHistoryLoading && (
 			<Virtuoso
 				key={sessionId}
 				ref={virtuosoRef}
@@ -826,6 +850,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 				// 挂载即带全量 data + initialTopMostItemIndex 末行（官方聊天场景用法：
 				// 挂载首帧直接从末行渲染，不存在「顶部首屏→滚动跳底」过程）。
 				data={listRows}
+				rangeChanged={() => setListRendered(true)}
 				computeItemKey={(_i, vr) => vr.key}
 				increaseViewportBy={400}
 				atBottomThreshold={20}
@@ -888,7 +913,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			)}
 			{skeletonShown && (
 				<div
-					className="absolute inset-0 flex items-center justify-center"
+					className="absolute inset-0 flex items-center justify-center bg-surface"
 					data-testid={`history-loading-${sessionId}`}
 				>
 					<SessionSkeleton label={t("message.loadSession")} />
