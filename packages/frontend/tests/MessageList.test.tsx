@@ -1,6 +1,28 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { SessionMessage } from "@wa-pi/shared";
+import { createElement, Fragment } from "react";
+
+// MessageList 现带 initialTopMostItemIndex（末行贴底，官方聊天场景用法）：
+// 真实 Virtuoso 挂载首帧只渲染末行附近——本文件断言的是「行级布局/重发/摘要」
+// 等与虚拟化定位无关的逻辑，用全量渲染的简化 Virtuoso 让所有行参与断言。
+mock.module("react-virtuoso", () => ({
+	Virtuoso: (props: any) => {
+		const { data, itemContent, computeItemKey } = props;
+		return createElement(
+			"div",
+			{ "data-testid": "message-list" },
+			data.map((vr: any, i: number) =>
+				createElement(
+					Fragment,
+					{ key: computeItemKey ? computeItemKey(i, vr) : i },
+					itemContent(i, vr),
+				),
+			),
+		);
+	},
+	VirtuosoMockContext: { Provider: ({ children }: any) => children },
+}));
 import {
 	MessageList,
 	MessageRow,

@@ -19,6 +19,20 @@ GlobalRegistrator.register();
 // @ts-ignore：fake-indexeddb 的 types 在 exports 解析上有问题，运行时无影响
 await import("fake-indexeddb/auto");
 
+// react-virtuoso 兼容 polyfill：happy-dom 无布局引擎，元素 offsetHeight 恒 0 →
+// virtuoso 抛 "Zero-sized element" 且 initialTopMostItemIndex（会话切换首帧贴底）
+// 定位死锁（items 不渲染→无测量→无法定位）。virtuoso 渲染每个 item 时写
+// data-known-size（sizeTree 已知值），getter 优先返回它，否则默认 60。
+// 副作用说明：所有元素的 offsetHeight 变为非 0——UI 测试鲜少断言 ===0，风险可控。
+Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+  configurable: true,
+  get(this: HTMLElement) {
+    const known = (this as HTMLElement).dataset?.knownSize;
+    if (known) return parseFloat(known);
+    return 60;
+  },
+});
+
 // 触发 i18n 模块顶层初始化（import 链会 init i18next 实例）。组件迁移到
 // useTranslation() 后依赖该实例就绪。测试语言锁定中文由 .env.test 的 WA_PI_LANG
 // 负责（detect.ts 读 process.env.WA_PI_LANG；bun --env-file=.env.test 加载，进程级

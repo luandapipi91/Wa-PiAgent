@@ -56,6 +56,27 @@ mock.module("../src/api-client", () => ({
 
 import { AgentSwitcher } from "../src/components/AgentSwitcher";
 import { MessageList } from "../src/components/MessageList";
+import { createElement, Fragment } from "react";
+// MessageList 现带 initialTopMostItemIndex（末行贴底）：mock 视口下首帧只渲染末行附近，
+// 与「所有行参与断言」的用例语义冲突。此处 mock 为全量渲染的简化 Virtuoso，
+// 使行级断言与虚拟化定位解耦（initialTopMostItemIndex 被忽略）。
+mock.module("react-virtuoso", () => ({
+	Virtuoso: (props: any) => {
+		const { data, itemContent, computeItemKey } = props;
+		return createElement(
+			"div",
+			{ "data-testid": "message-list" },
+			data.map((vr: any, i: number) =>
+				createElement(
+					Fragment,
+					{ key: computeItemKey ? computeItemKey(i, vr) : i },
+					itemContent(i, vr),
+				),
+			),
+		);
+	},
+	VirtuosoMockContext: { Provider: ({ children }: any) => children },
+}));
 import { VirtuosoMockContext } from "react-virtuoso";
 import { useAgentsStore } from "../src/store/agents";
 import { useProjectsStore } from "../src/store/projects";
