@@ -50,13 +50,35 @@ export async function withServer<T>(
 			case "agent:abort":
 				await am.abort(event.sessionId!);
 				break;
-			case "agent:answer":
-				// askRegistry 直达 resolve（幂等，未知 toolCallId no-op）
-				askRegistry.resolve(event.sessionId!, event.toolCallId!, event.reply);
+			case "agent:answer": {
+				// askRegistry 直达 resolve（幂等）；未命中（stale ask）→ 400（同生产 WSServer 的 error reply）
+				const ok = askRegistry.resolve(event.sessionId!, event.toolCallId!, event.reply);
+				if (!ok) {
+					return Response.json(
+						{
+							code: "session.promptStale",
+							error: "该提问已失效（可能已取消或会话已切换），请重新发起",
+						},
+						{ status: 400 },
+					);
+				}
 				break;
-			case "agent:cancel-ask":
-				askRegistry.cancel(event.sessionId!, event.toolCallId!);
+			}
+			case "agent:cancel-ask": {
+				// 未命中（stale ask：取消必然是 no-op、也不会有 toolResult）→ 400，
+				// 前端据此本地关闭失效卡片
+				const ok = askRegistry.cancel(event.sessionId!, event.toolCallId!);
+				if (!ok) {
+					return Response.json(
+						{
+							code: "session.promptStale",
+							error: "该提问已失效（可能已被取消或会话已切换）",
+						},
+						{ status: 400 },
+					);
+				}
 				break;
+			}
 			case "steer:message":
 				try {
 					await am.steerMessage(event.sessionId!, event.text!);

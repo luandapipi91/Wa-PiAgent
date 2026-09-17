@@ -278,4 +278,87 @@ describe("AskFormCard", () => {
 		}) as HTMLButtonElement;
 		expect(submit.disabled).toBe(true);
 	});
+
+	// —— 失效取消：内核 registry 已无此 ask，取消请求是 no-op、也不会有 toolResult，
+	// 只能靠本地关闭把卡片从阻塞中拿出来 ——
+
+	it("stale 卡片点取消 → 直接本地关闭，不发 cancel-ask", () => {
+		let dismissed = false;
+		render(
+			<AskFormCard
+				sessionId="s1"
+				toolCallId="tc1"
+				params={params}
+				stale
+				onDismiss={() => (dismissed = true)}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+		expect(dismissed).toBe(true);
+		expect(sent).toHaveLength(0);
+	});
+
+	it("取消收到 400（后端说该提问已失效）→ 本地关闭卡片", async () => {
+		postImpl = () =>
+			Promise.reject(Object.assign(new Error("stale"), { status: 400 }));
+		let dismissed = false;
+		render(
+			<AskFormCard
+				sessionId="s1"
+				toolCallId="tc1"
+				params={params}
+				onDismiss={() => (dismissed = true)}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+		expect(sent[0].path).toContain("/api/sessions/s1/cancel-ask");
+		await new Promise((r) => setTimeout(r, 0));
+		expect(dismissed).toBe(true);
+	});
+
+	it("取消失败（非 400）→ 保留卡片并提示，按钮恢复可点", async () => {
+		postImpl = () =>
+			Promise.reject(Object.assign(new Error("boom"), { status: 500 }));
+		let dismissed = false;
+		render(
+			<AskFormCard
+				sessionId="s1"
+				toolCallId="tc1"
+				params={params}
+				onDismiss={() => (dismissed = true)}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(dismissed).toBe(false);
+		expect(screen.getByText("取消失败，请重试", { exact: false })).toBeTruthy();
+		expect(
+			(screen.getByRole("button", { name: "取消" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(false);
+	});
+
+	it("提交收到 400 后点取消 → 本地关闭（同一张卡片的兜底出口）", async () => {
+		postImpl = (path: string) =>
+			path.includes("/answer")
+				? Promise.reject(Object.assign(new Error("stale"), { status: 400 }))
+				: Promise.resolve({});
+		let dismissed = false;
+		render(
+			<AskFormCard
+				sessionId="s1"
+				toolCallId="tc1"
+				params={params}
+				onDismiss={() => (dismissed = true)}
+			/>,
+		);
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+		expect(dismissed).toBe(true);
+		// 已失效 → 不再向取消端点发无意义请求
+		expect(sent.filter((s) => s.path.includes("cancel-ask"))).toHaveLength(0);
+	});
 });

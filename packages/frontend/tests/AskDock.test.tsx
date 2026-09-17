@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, renderHook } from "@testing-library/react";
 import { useSessionStore } from "../src/store/session";
+import { useDismissedAskStore, useIsBlocked } from "../src/store/ask";
 import type { AskParams } from "@wa-pi/shared";
 
 // mock api-client：get 返回后端 pending 列表（double check 数据源）
@@ -75,10 +76,33 @@ function seedPendingAsk(sessionId: string, toolCalls: any[] = [askCall]) {
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
+/** 追加一条 toolResult（模拟内核对 ask 的应答/取消落盘） */
+function appendToolResult(sessionId: string, toolCallId: string) {
+	useSessionStore.setState((s) => ({
+		messagesBySession: {
+			...s.messagesBySession,
+			[sessionId]: [
+				...(s.messagesBySession[sessionId] ?? []),
+				{
+					message: {
+						role: "toolResult",
+						toolCallId,
+						toolName: "ask_user_question",
+						content: [{ type: "text", text: "用户取消了提问" }],
+						isError: false,
+						timestamp: 2,
+					},
+				},
+			],
+		},
+	}));
+}
+
 describe("AskDock double check", () => {
 	beforeEach(() => {
 		localStorage.clear();
 		useSessionStore.setState({ messagesBySession: {} });
+		useDismissedAskStore.setState({ ids: new Set<string>() });
 		pendingIds = [];
 		getCalls.length = 0;
 		flipAfterFirstCall = false;
@@ -147,10 +171,72 @@ describe("AskDock double check", () => {
 	});
 });
 
+describe("AskDock 失效卡片本地关闭", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		useSessionStore.setState({ messagesBySession: {} });
+		useDismissedAskStore.setState({ ids: new Set<string>() });
+		pendingIds = [];
+		getCalls.length = 0;
+		flipAfterFirstCall = false;
+	});
+
+	it("失效卡片点取消 → 卡片消失、输入不再被阻塞", async () => {
+		pendingIds = []; // 后端已无 tc1（已取消/重启残留）
+		seedPendingAsk("s1");
+		const { result } = renderHook(() => useIsBlocked("s1"));
+		render(<AskDock sessionId="s1" />);
+		await waitFor(
+			() =>
+				expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy(),
+			{ timeout: 3000 },
+		);
+		expect(result.current).toBe(true);
+
+		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
+		await waitFor(() => expect(result.current).toBe(false));
+	});
+
+	it("关闭标记在 toolResult 到达后回收（ask 真正从 pending 消失）", async () => {
+		pendingIds = [];
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await waitFor(
+			() =>
+				expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy(),
+			{ timeout: 3000 },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+		expect(useDismissedAskStore.getState().ids.has("tc1")).toBe(true);
+
+		// 内核对账/应答落盘 → ask 从 pending 派生中消失 → 关闭标记回收
+		act(() => appendToolResult("s1", "tc1"));
+		await waitFor(() =>
+			expect(useDismissedAskStore.getState().ids.has("tc1")).toBe(false),
+		);
+	});
+
+	it("折叠便签失效 → 显示关闭按钮，点击后便签消失", async () => {
+		localStorage.setItem("wa-pi:ask-dock-expanded", "0");
+		pendingIds = [];
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		const dismiss = await waitFor(
+			() => screen.getByTestId("ask-quick-dismiss"),
+			{ timeout: 3000 },
+		);
+		fireEvent.click(dismiss);
+		expect(screen.queryByTestId("ask-quick-bar")).toBeNull();
+	});
+});
+
 describe("AskDock 折叠便签 + 悬浮展开", () => {
 	beforeEach(() => {
 		localStorage.clear();
 		useSessionStore.setState({ messagesBySession: {} });
+		useDismissedAskStore.setState({ ids: new Set<string>() });
 		pendingIds = ["tc1"];
 		getCalls.length = 0;
 		flipAfterFirstCall = false;

@@ -512,6 +512,7 @@ const en = {
 		customAnswerPlaceholder: "Enter a custom answer…",
 		notesLabel: "Notes (optional)",
 		errorStale: "This question has expired. Please re-ask.",
+		errorCancel: "Cancel failed, please retry.",
 		errorSubmit: "Submit failed, please retry.",
 		submitting: "Submitting…",
 		submit: "Submit",

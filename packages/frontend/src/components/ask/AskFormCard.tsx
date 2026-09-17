@@ -19,6 +19,8 @@ interface Props {
 	initialSelected?: Record<number, Set<string>>;
 	/** 收起弹窗回便签态（仅 UI 折叠，不触发 cancel-ask）。 */
 	onCollapse?: () => void;
+	/** 本地关闭卡片（仅失效场景：内核已无此 ask，取消是 no-op 也不会再有 toolResult）。 */
+	onDismiss?: () => void;
 }
 
 interface QState {
@@ -38,6 +40,7 @@ export function AskFormCard({
 	stale = false,
 	initialSelected,
 	onCollapse,
+	onDismiss,
 }: Props) {
 	const [state, setState] = useState<Record<number, QState>>(() => {
 		const init: Record<number, QState> = {};
@@ -52,7 +55,10 @@ export function AskFormCard({
 		return init;
 	});
 	const [submitting, setSubmitting] = useState(false);
+	const [canceling, setCanceling] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// 提交收到 400 = 提问已失效（内核 registry 无此条目）→ 与 stale 同等对待：可本地关闭
+	const [staleError, setStaleError] = useState(false);
 	const { t } = useTranslation();
 
 	const patch = (qi: number, fn: (s: QState) => void) =>
@@ -124,17 +130,41 @@ export function AskFormCard({
 			// 失败必须恢复 UI，否则 submitting 永久为 true、按钮永远"提交中…"——卡死。
 			// stale 判断用结构化的 HTTP 400 状态（后端 ask 失效返回 400），
 			// 不依赖错误消息文案，避免 i18n 化后文案判断失效。
-			const stale = (err as { status?: number })?.status === 400;
+			const isStale = (err as { status?: number })?.status === 400;
 			setSubmitting(false);
-			setError(stale ? t("ask.errorStale") : t("ask.errorSubmit"));
+			setStaleError(isStale);
+			setError(isStale ? t("ask.errorStale") : t("ask.errorSubmit"));
 		}
 	};
 
-	const handleCancel = () => {
-		if (submitting) return;
-		void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/cancel-ask`, {
-			toolCallId,
-		});
+	// 取消 = 让这个提问不再阻塞用户。
+	// 失效提问（内核 registry 已无此条目）取消请求必然是 no-op、也不会再产生 toolResult，
+	// 卡片永远等不到卸载信号 → 直接本地关闭；正常提问走 cancel-ask，等 toolResult 到达卸载。
+	const handleCancel = async () => {
+		if (submitting || canceling) return;
+		// 已确认失效（stale prop 或提交收到 400）：取消请求必然是 no-op、也不会再有 toolResult，
+		// 直接本地关闭，否则卡片永久阻塞输入框
+		if (stale || staleError) {
+			onDismiss?.();
+			return;
+		}
+		setCanceling(true);
+		setError(null);
+		try {
+			await api.post(`/api/sessions/${encodeURIComponent(sessionId)}/cancel-ask`, {
+				toolCallId,
+			});
+			setCanceling(false);
+		} catch (err) {
+			setCanceling(false);
+			// 后端 400 = 提问已失效（内核 registry 无此条目）→ 同样本地关闭，
+			// 否则卡片再也等不到 toolResult，会永久阻塞输入框。
+			if ((err as { status?: number })?.status === 400) {
+				onDismiss?.();
+				return;
+			}
+			setError(t("ask.errorCancel"));
+		}
 	};
 
 	const agentEm = agentName ? AGENT_DEFS[agentName]?.emoji : undefined;
@@ -269,7 +299,7 @@ export function AskFormCard({
 				)}
 				<button
 					onClick={handleCancel}
-					disabled={submitting}
+					disabled={submitting || canceling}
 					className="text-[calc(12px*var(--font-scale))] px-3 py-1 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer disabled:opacity-50"
 				>
 					{t("common.cancel")}

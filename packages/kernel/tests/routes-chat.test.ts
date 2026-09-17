@@ -2,7 +2,8 @@
  * 对话控制域路由测试（阶段二·去 WS 化）
  *
  * 覆盖：abort / answer / cancel-ask / steer 简化版引导与立即执行。
- * 这七个 case 均为 fire-and-forget（handle() 不 reply）→ 200 {ok:true}。
+ * 未命中（stale ask）时 answer/cancel-ask reply error → 400 {code:"session.promptStale"}，
+ * 其余 case 为 fire-and-forget（handle() 不 reply）→ 200 {ok:true}。
  * answer/cancel-ask 经 askRegistry 验证真实行为；steer 失败时 case 内部捕获
  * 并 broadcast {type:"error"}（走 SSE 总线，HTTP 仍 200）。
  */
@@ -65,13 +66,21 @@ test("POST answer → 200 {ok:true}，askRegistry 以 cancelled:false 解决并�
   });
 });
 
-test("POST answer：未知 toolCallId 幂等 no-op → 200 {ok:true}", async () => {
+test("POST answer：未知 toolCallId（stale ask）→ 400 session.promptStale", async () => {
   await withServer(chatStub(), async (base) => {
     const res = await post(base, "/api/sessions/s1/answer", {
       toolCallId: "不存在", reply: { replies: [] },
     });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("session.promptStale");
+  });
+});
+
+test("POST cancel-ask：未知 toolCallId（stale ask）→ 400 session.promptStale", async () => {
+  await withServer(chatStub(), async (base) => {
+    const res = await post(base, "/api/sessions/s1/cancel-ask", { toolCallId: "不存在" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("session.promptStale");
   });
 });
 

@@ -495,6 +495,7 @@ const zh = {
 		customAnswerPlaceholder: "输入自定义答案…",
 		notesLabel: "备注(可选)",
 		errorStale: "该提问已失效，请重新发起",
+		errorCancel: "取消失败，请重试",
 		errorSubmit: "提交失败，请重试",
 		submitting: "提交中…",
 		submit: "提交",

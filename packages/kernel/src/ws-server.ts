@@ -1894,8 +1894,18 @@ export class WSServer {
 				break;
 			}
 			case "agent:cancel-ask": {
-				// ask_user_question 取消：直达 AskRegistry.cancel（幂等）
-				askRegistry.cancel(event.sessionId, event.toolCallId);
+				// ask_user_question 取消：直达 AskRegistry.cancel（幂等）。
+				// 未命中（stale ask：已取消/会话切换/重启残留）时 reply 错误——
+				// 失效 ask 取消是 no-op、也不会再产生 toolResult，前端必须靠 400 判定
+				// 该卡片不会再自行消失并本地关闭，否则点击取消无任何反馈、卡片永久阻塞输入框。
+				const ok = askRegistry.cancel(event.sessionId, event.toolCallId);
+				if (!ok) {
+					reply({
+						type: "error",
+						message: "该提问已失效（可能已被取消或会话已切换）",
+						code: "session.promptStale",
+					});
+				}
 				break;
 			}
 			case "steer:message": {

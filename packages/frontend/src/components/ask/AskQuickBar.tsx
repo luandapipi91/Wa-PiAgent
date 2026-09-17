@@ -11,6 +11,8 @@ interface Props {
 	onExpand: () => void;
 	/** 选中变化回调（父层收集，展开时传给 AskFormCard.initialSelected） */
 	onSelectedChange?: (sel: Record<number, Set<string>>) => void;
+	/** 本地关闭便签（失效场景：提交/取消都没意义，只能关掉） */
+	onDismiss?: () => void;
 }
 
 /** 单行便签（折叠态）：内嵌快捷选项 + 提交 icon。
@@ -23,11 +25,14 @@ export function AskQuickBar({
 	stale,
 	onExpand,
 	onSelectedChange,
+	onDismiss,
 }: Props) {
 	const { t } = useTranslation();
 	const [quickSel, setQuickSel] = useState<Record<number, Set<string>>>({});
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// 后端 400 = 提问已失效（内核 registry 无此条目）→ 与 stale 同等对待：可本地关闭
+	const [staleError, setStaleError] = useState(false);
 	// 选项是否溢出（需要左右按钮）；以及各方向是否可滚（边界置灰）
 	const [hasOverflow, setHasOverflow] = useState(false);
 	const [canLeft, setCanLeft] = useState(false);
@@ -59,6 +64,7 @@ export function AskQuickBar({
 		if (!reply) return;
 		setSubmitting(true);
 		setError(null);
+		setStaleError(false);
 		try {
 			await api.post(`/api/sessions/${encodeURIComponent(sessionId)}/answer`, {
 				toolCallId: ask.toolCallId,
@@ -68,6 +74,7 @@ export function AskQuickBar({
 		} catch (err) {
 			const staleErr = (err as { status?: number })?.status === 400;
 			setSubmitting(false);
+			setStaleError(staleErr);
 			setError(staleErr ? t("ask.errorStale") : t("ask.errorSubmit"));
 		}
 	};
@@ -137,6 +144,17 @@ export function AskQuickBar({
 				>
 					{stale ? t("ask.errorStale") : error}
 				</span>
+			)}
+			{(stale || staleError) && onDismiss && (
+				<button
+					onClick={onDismiss}
+					aria-label={t("common.close")}
+					title={t("common.close")}
+					className="text-secondary hover:text-primary text-[calc(12px*var(--font-scale))] px-1.5 py-0.5 bg-transparent border-0 cursor-pointer flex-shrink-0"
+					data-testid="ask-quick-dismiss"
+				>
+					✕
+				</button>
 			)}
 			{hasOverflow && (
 				<button

@@ -156,4 +156,29 @@ test.describe.serial("提问卡片失效判定", () => {
 		await page.getByRole("button", { name: /PostgreSQL/ }).click();
 		await expect(page.getByRole("button", { name: "提交" })).toBeDisabled();
 	});
+
+	test("失效卡片点「取消」→ 卡片关闭、输入框解锁（不再永久阻塞）", async ({ page }) => {
+		seedSession();
+		await injectAskMessage(page);
+		// 不拦截 /asks：后端确认无此 ask → 卡片进入失效态
+
+		await openSession(page);
+		await expect(
+			page.getByText("提问已失效", { exact: false }),
+		).toBeVisible({ timeout: 5_000 });
+
+		// 失效卡片阻塞输入（Composer 的 contenteditable 被关闭）
+		const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+		await expect(textbox).toHaveAttribute("contenteditable", "false");
+
+		// 点「取消」：失效卡片本地关闭（旧实现：取消是 no-op，卡片永久驻留、输入框永久锁死）
+		await page.getByRole("button", { name: "取消" }).click();
+		await expect(page.getByTestId(`ask-card-${TOOLCALL_ID}`)).toHaveCount(0);
+		await expect(textbox).toHaveAttribute("contenteditable", "true");
+
+		// 输入框真实可用（能输入文本）
+		await textbox.click();
+		await page.keyboard.type("取消后可以继续输入");
+		await expect(textbox).toHaveText(/取消后可以继续输入/);
+	});
 });

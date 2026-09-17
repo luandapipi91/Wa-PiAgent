@@ -149,6 +149,32 @@ describe("AskQuickBar", () => {
 		expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy();
 	});
 
+	it("stale 便签 → 显示关闭按钮，点击触发 onDismiss", () => {
+		let dismissed = false;
+		renderBar({ stale: true, onDismiss: () => (dismissed = true) });
+		fireEvent.click(screen.getByTestId("ask-quick-dismiss"));
+		expect(dismissed).toBe(true);
+	});
+
+	it("未失效且无错误 → 不显示关闭按钮", () => {
+		renderBar({ onDismiss: () => {} });
+		expect(screen.queryByTestId("ask-quick-dismiss")).toBeNull();
+	});
+
+	it("提交收到 400（后端说已失效）→ 显示失效提示且出现关闭按钮", async () => {
+		postImpl = () =>
+			Promise.reject(Object.assign(new Error("stale"), { status: 400 }));
+		let dismissed = false;
+		renderBar({ onDismiss: () => (dismissed = true) });
+		fireEvent.click(screen.getByText("高"));
+		fireEvent.click(screen.getByText("A"));
+		fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy();
+		fireEvent.click(screen.getByTestId("ask-quick-dismiss"));
+		expect(dismissed).toBe(true);
+	});
+
 	it("选项超出宽度 → 选项区横向滚动（overflow-x-auto + scrollWidth > clientWidth）", () => {
 		// 用大量选项构造超宽内容（超出 happy-dom 默认容器宽度）
 		const wideParams: AskParams = {

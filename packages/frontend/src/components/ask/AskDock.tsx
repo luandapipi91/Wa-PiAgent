@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { usePendingAsks } from "../../store/ask";
+import { useEffect, useMemo, useState } from "react";
+import { useDismissedAskStore, usePendingAsks } from "../../store/ask";
 import { api } from "../../api-client";
 import { AskFormCard } from "./AskFormCard";
 import { AskQuickBar } from "./AskQuickBar";
@@ -31,7 +31,22 @@ function saveExpanded(v: boolean): void {
 }
 
 export function AskDock({ sessionId }: { sessionId: string }) {
-	const asks = usePendingAsks(sessionId);
+	// pendingAsks 是消息派生的原始列表（prune 依据）；asks 是渲染用列表（已剔除用户本地关闭的）
+	const pendingAsks = usePendingAsks(sessionId);
+	const dismissedIds = useDismissedAskStore(s => s.ids);
+	const pruneDismissed = useDismissedAskStore(s => s.prune);
+	const dismissAsk = useDismissedAskStore(s => s.dismiss);
+	const asks = useMemo(
+		() =>
+			dismissedIds.size === 0
+				? pendingAsks
+				: pendingAsks.filter(a => !dismissedIds.has(a.toolCallId)),
+		[pendingAsks, dismissedIds],
+	);
+	// toolResult 到达（ask 从 pending 消失）后回收对应的关闭标记，避免集合无界增长
+	useEffect(() => {
+		pruneDismissed(pendingAsks.map(a => a.toolCallId));
+	}, [pendingAsks, pruneDismissed]);
 	const [staleIds, setStaleIds] = useState<Set<string>>(new Set());
 	const [expanded, setExpanded] = useState<boolean>(loadExpanded);
 	const [quickSel, setQuickSel] = useState<Record<number, Set<string>>>({});
@@ -106,6 +121,7 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 										a.toolCallId === asks[0].toolCallId ? quickSel : undefined
 									}
 									onCollapse={() => setExpandedPersist(false)}
+									onDismiss={() => dismissAsk(a.toolCallId)}
 								/>
 							</div>
 						))}
@@ -121,6 +137,7 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 					stale={staleIds.has(asks[0].toolCallId)}
 					onExpand={() => setExpandedPersist(true)}
 					onSelectedChange={setQuickSel}
+					onDismiss={() => dismissAsk(asks[0].toolCallId)}
 				/>
 			) : (
 				<div

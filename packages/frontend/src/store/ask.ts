@@ -1,5 +1,6 @@
 // ask_user_question 前端派生状态：从 messagesBySession 派生 pending 提问 + 有效的会话状态。
 import { useMemo } from "react";
+import { create } from "zustand";
 import { useSessionStore } from "./session";
 import type { AgentName, AskParams, AskReply, SessionMessage } from "@wa-pi/shared";
 
@@ -35,9 +36,50 @@ export function usePendingAsks(sessionId: string): PendingAsk[] {
   return useMemo(() => selectPendingAsks(messages), [messages]);
 }
 
-/** hook：某会话是否处于「等待用户回答」阻塞态。 */
+/** 用户本地关闭的提问 id（toolCallId 全局唯一，不按会话分组）。
+ *  失效提问（内核 registry 已无此条目）取消是 no-op、也不会再产生 toolResult，
+ *  卡片永远等不到消息流卸载信号；允许用户手动关闭，仅影响前端渲染与阻塞判定，不回写后端。 */
+interface DismissedAskStore {
+  ids: Set<string>;
+  dismiss: (toolCallId: string) => void;
+  /** 回收：只保留仍存在于 pending 列表里的 id（toolResult 到达后自动清理，避免集合无界增长） */
+  prune: (aliveIds: Iterable<string>) => void;
+}
+
+export const useDismissedAskStore = create<DismissedAskStore>((set) => ({
+  ids: new Set<string>(),
+  dismiss: (toolCallId) =>
+    set((s) => {
+      if (s.ids.has(toolCallId)) return s;
+      const next = new Set(s.ids);
+      next.add(toolCallId);
+      return { ids: next };
+    }),
+  prune: (aliveIds) =>
+    set((s) => {
+      if (s.ids.size === 0) return s;
+      const alive = new Set(aliveIds);
+      const next = new Set([...s.ids].filter((id) => alive.has(id)));
+      return next.size === s.ids.size ? s : { ids: next };
+    }),
+}));
+
+/** hook：某会话待回答的提问（已本地关闭的不计入）。 */
+export function useVisibleAsks(sessionId: string): PendingAsk[] {
+  const pending = usePendingAsks(sessionId);
+  const dismissed = useDismissedAskStore(s => s.ids);
+  return useMemo(
+    () =>
+      dismissed.size === 0
+        ? pending
+        : pending.filter(a => !dismissed.has(a.toolCallId)),
+    [pending, dismissed],
+  );
+}
+
+/** hook：某会话是否处于「等待用户回答」阻塞态（已本地关闭的提问不再阻塞输入）。 */
 export function useIsBlocked(sessionId: string): boolean {
-  return usePendingAsks(sessionId).length > 0;
+  return useVisibleAsks(sessionId).length > 0;
 }
 
 const EMPTY: SessionMessage[] = [];
