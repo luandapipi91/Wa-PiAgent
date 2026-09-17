@@ -115,6 +115,44 @@ test.describe("卡顿修复冒烟", () => {
 		await expect(body.locator("a").first()).toBeVisible();
 	});
 
+	test("会话切换首屏：进入长会话首帧即贴底（无顶部首屏→跳底）", async ({ page }) => {
+		test.setTimeout(30_000);
+		const sessionId = await enterSession(page, "切换贴底冒烟");
+		await waitHistoryReady(page, sessionId);
+		// 注入 60 条历史（构造长列表）并落定
+		await page.evaluate(async (sid) => {
+			const { useSessionStore } = await import("/src/store/session.ts");
+			useSessionStore.getState().setMessages(
+				sid,
+				Array.from({ length: 60 }, (_, i) => ({
+					agentName: undefined,
+					message: {
+						role: i % 2 ? "assistant" : "user",
+						content: `历史消息 ${i} —— 这是一段足够长的内容用于撑开列表高度`,
+						timestamp: i + 1,
+					},
+				})),
+			);
+		}, sessionId);
+		await page.waitForTimeout(300);
+		// 切走再切回（触发 MessageList 条件挂载路径）
+		await page.getByText(projectName).first().click();
+		await page.waitForTimeout(200);
+		await page.getByTestId(`session-${sessionId}`).click();
+
+		// 列表挂载后立即查（skeleton 500ms 最小展示先走完）：出现即应已贴底
+		const list = page.getByTestId("message-list");
+		await list.waitFor({ state: "visible", timeout: 5000 });
+		const pin = await list.evaluate((el) => {
+			return { scrollTop: el.scrollTop, max: el.scrollHeight - el.clientHeight };
+		});
+		// 首帧即贴底：scrollTop ≥ 90% 最大滚动距离（修复前首帧从 0 开始，再跳底）
+		expect(
+			pin!.scrollTop,
+			`首帧 scrollTop=${pin!.scrollTop} / max=${pin!.max}（应已贴底）`,
+		).toBeGreaterThanOrEqual(pin!.max * 0.9);
+	});
+
 	test("修复②③：工具循环（连续 message_end+touchSession）无秒级主线程长任务", async ({ page }) => {
 		test.setTimeout(30_000);
 		const sessionId = await enterSession(page, "工具循环冒烟");

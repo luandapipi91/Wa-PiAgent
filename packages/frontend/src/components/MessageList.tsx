@@ -470,6 +470,11 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	useLayoutEffect(() => {
 		if (listRows.length > 0 && didInitScrollRef.current !== sessionId) {
 			didInitScrollRef.current = sessionId;
+			// paint 前同步贴底：直接置 scrollTop（不等 virtuoso scrollToIndex 的异步
+			// 调度——那是「首屏（顶部）→跳底」闪烁的最后一块）。估算高度下先贴到估算
+			// 底部，测量收敛后仍在底部附近；随后 scrollToIndex 精确校正 + 200ms 收敛兜底。
+			const el = scrollerElRef.current;
+			if (el) el.scrollTop = el.scrollHeight;
 			// 虚拟化未测量完成时 scrollToIndex 可能抛错（happy-dom/首帧时序）：吞掉，
 			// 由下方 200ms 收敛 interval 兜底贴底。
 			try {

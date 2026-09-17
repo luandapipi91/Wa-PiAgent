@@ -91,4 +91,6 @@ test("历史就绪：列表挂载对齐 skeleton 撤除（无重叠），全量 
 	}, { timeout: 2000 });
 	expect(container.querySelector('[data-testid="history-loading-s1"]')).toBeNull();
 	expect(container.textContent).toContain("消息0");
+	// paint 前同步贴底（scrollTop 直设）是时序行为，happy-dom 无真实几何不可测，
+	// 由 lag-fix-smoke E2E 在真实 Chromium 断言（scrollTop 立即贴底）
 });
