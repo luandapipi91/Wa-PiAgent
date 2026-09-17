@@ -99,7 +99,7 @@ export const DEFAULT_MEMORY_POLICY_PROMPT =
 	"**主动记忆（不必等用户说「记住」）：**\n" +
 	"- 用户透露的身份、偏好、习惯、工具链、运行环境 → memory_add(target=user)\n" +
 	"- 对话中确认的技术选型、项目约定、架构决策、代码规范 → memory_add(target=memory)（指讨论中直接拍板的规范条目本身；凡经历了实测/排查/交付过程得出的选型结论或问题解决，按下方「任务收尾必写执行记录」记 execution）\n" +
-	"- 完成一项任务后 → memory_add(target=memory, kind=execution)（判定规则见下）\n" +
+	"- 完成一项任务后,回复用户前 → memory_add(target=memory, kind=execution)（判定规则见下）\n" +
 	"- **值得记**：对未来会话仍成立的稳定事实；**不值得记**：临时状态、能从句柄或代码里读到的内容\n\n" +
 	"**任务收尾必写执行记录（kind=execution）——先排除，再匹配：**\n\n" +
 	"**第一步·排除（命中任一条就不写执行记录）：**\n" +
@@ -148,8 +148,6 @@ export const DEFAULT_SELF_PROTECTION_PROMPT =
 export function composeSubagentPrompt(systemPrompt: string): string {
 	const trimmed = systemPrompt.trim();
 	return trimmed
-		? `${trimmed}\n\n${DEFAULT_SELF_PROTECTION_PROMPT}`
-		: DEFAULT_SELF_PROTECTION_PROMPT;
 }
 
 /** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet；正文中文，贴合中文用户请求、字符更省） */

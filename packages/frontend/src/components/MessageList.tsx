@@ -72,6 +72,10 @@ const EMPTY_FILE_CHANGES: import("@wa-pi/shared").FileChangeSnapshot[] = [];
 /** 会话新建中加载页窗口（ms）：发送 prompt 后超过该时长无回调则自动隐藏（兜底，防扩展命令无 agent turn 永久悬挂）。 */
 export const INITIALIZING_WINDOW_MS = 20_000;
 
+/** 切换会话骨架屏最短显示时长（ms）：缓存命中时拉取仅几毫秒，骨架一闪而过反而像闪烁；
+ *  补足最短时长保证每次切换都有可感知的过渡。列表挂载不等此值（贴底列表提前就绪，骨架到点让位）。 */
+export const SKELETON_MIN_DISPLAY_MS = 500;
+
 interface Props {
 	sessionId: string;
 	/** 只读回放（如任务执行详情）：隐藏「重新发送」等交互按钮 */
@@ -171,15 +175,42 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 		});
 	}
 
-	// 历史加载中且尚无消息（且未在流式）：显示居中 loading，避免切换会话时对话区空白。
-	// 与「会话新建中」互斥：pending 窗口内只显示一个 loading（新会话发送场景历史请求
-	// 会与 pending 同时满足，叠加成两个 spinner）。
+	// 历史加载中：显示居中骨架过渡（每次切换会话都走，含缓存命中；由 SKELETON_MIN_DISPLAY_MS
+	// 补足最短显示时长，避免一闪而过）。与「会话新建中」互斥：pending 窗口内只显示一个 loading
+	//（新会话发送场景历史请求会与 pending 同时满足，叠加成两个 loading）。
 	const showHistoryLoading =
 		!promptError &&
 		historyLoading &&
-		messages.length === 0 &&
 		!streaming &&
 		!showSessionInitializing;
+
+	// 骨架实际渲染状态：showHistoryLoading 立即显示；结束后补足最短显示时长再隐藏。
+	// 覆盖层消失时下方贴底列表已挂载就绪（Virtuoso 门控用 showHistoryLoading，不等最短时长）。
+	const [skeletonShown, setSkeletonShown] = useState(false);
+	const skeletonShownAtRef = useRef(0);
+	const skeletonHideTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	useEffect(() => {
+		if (showHistoryLoading) {
+			if (skeletonHideTimerRef.current) clearTimeout(skeletonHideTimerRef.current);
+			skeletonShownAtRef.current = Date.now();
+			setSkeletonShown(true);
+		} else if (skeletonShown) {
+			const remain = Math.max(
+				0,
+				SKELETON_MIN_DISPLAY_MS - (Date.now() - skeletonShownAtRef.current),
+			);
+			skeletonHideTimerRef.current = setTimeout(() => {
+				setSkeletonShown(false);
+				skeletonHideTimerRef.current = undefined;
+			}, remain);
+		}
+	}, [showHistoryLoading, skeletonShown]);
+	useEffect(
+		() => () => {
+			if (skeletonHideTimerRef.current) clearTimeout(skeletonHideTimerRef.current);
+		},
+		[],
+	);
 
 	// 「重新发送」：两种触发场景（回合已结束 status!==thinking 且无流式）：
 	//  1. 末条是失败的 assistant 回复（stopReason:error，如鉴权/配额 fatal 错误）
@@ -777,12 +808,17 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			onCopy={handleCopyWithTokens}
 		>
 			<TaskDoneFrog />
+			{/* 挂载对齐 skeleton 撤除时机：skeleton 有最小展示时长 500ms（防一闪而过），
+			    只看 showHistoryLoading 会出现「列表已挂载 + skeleton 未撤」的重叠 */}
+			{!skeletonShown && (
 			<Virtuoso
 				key={sessionId}
 				ref={virtuosoRef}
 				scrollerRef={attachScroller}
 				data-testid="message-list"
 				className="absolute inset-0 pt-4 pb-4 overflow-x-hidden"
+				// 会话切换首屏契约：Virtuoso 在历史就绪后才挂载（loading 期间不渲染列表），
+				// 挂载即带全量 data → 配合挂载后立即定位（layout effect），消除两段式闪烁。
 				data={listRows}
 				computeItemKey={(_i, vr) => vr.key}
 				increaseViewportBy={400}
@@ -824,22 +860,13 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 					);
 				}}
 			/>
+			)}
 			{showSessionInitializing && (
 				<div
 					className="absolute inset-0 flex items-center justify-center pointer-events-none"
 					data-testid={`session-initializing-${sessionId}`}
 				>
-					<div className="inline-flex items-center gap-2 text-tertiary text-[calc(13px*var(--font-scale))]">
-						<span
-							className="inline-block w-4 h-4 rounded-full"
-							style={{
-								border: "2px solid var(--accent-soft)",
-								borderTopColor: "var(--accent)",
-								animation: "spin 0.8s linear infinite",
-							}}
-						/>
-						{t("message.initializing")}
-					</div>
+					<SessionSkeleton label={t("message.initializing")} />
 				</div>
 			)}
 			{promptError && messages.length === 0 && !streaming && (
@@ -853,22 +880,12 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 					</div>
 				</div>
 			)}
-			{showHistoryLoading && (
+			{skeletonShown && (
 				<div
 					className="absolute inset-0 flex items-center justify-center"
 					data-testid={`history-loading-${sessionId}`}
 				>
-					<div className="inline-flex items-center gap-2 text-tertiary text-[calc(13px*var(--font-scale))]">
-						<span
-							className="inline-block w-4 h-4 rounded-full"
-							style={{
-								border: "2px solid var(--accent-soft)",
-								borderTopColor: "var(--accent)",
-								animation: "spin 0.8s linear infinite",
-							}}
-						/>
-						{t("message.loadSession")}
-					</div>
+					<SessionSkeleton label={t("message.loadSession")} />
 				</div>
 			)}
 			{/* 平时（非回复或用户翻阅历史）不在底部时，显示浮动「滚动到底部」按钮 */}
@@ -1084,6 +1101,33 @@ function formatTime(timestamp: number, yesterdayLabel: string): string {
 }
 
 /** 流式行：首字到达前（content 为空）渲染 loading 气泡；有内容后交给 MessageRow。 */
+/** 切换会话 / 新会话初始化的加载骨架：模拟对话节奏的占位条 + 状态文案（无 spinner） */
+function SessionSkeleton({ label }: { label: string }) {
+	const bars = [
+		{ w: "85%", align: "self-start" },
+		{ w: "60%", align: "self-start" },
+		{ w: "45%", align: "self-end" },
+		{ w: "75%", align: "self-start" },
+	];
+	return (
+		<div
+			className="flex flex-col items-center gap-4"
+			style={{ animation: "skeleton-in 0.28s ease-out both" }}
+		>
+			<div className="flex w-72 max-w-[80%] flex-col gap-2.5">
+				{bars.map((b, i) => (
+					<span
+						key={i}
+						className={`h-3 rounded-full bg-hairline animate-pulse ${b.align}`}
+						style={{ width: b.w, animationDelay: `${i * 0.12}s` }}
+					/>
+				))}
+			</div>
+			<div className="text-[calc(13px*var(--font-scale))] text-tertiary">{label}</div>
+		</div>
+	);
+}
+
 function StreamingRow({
 	streaming,
 	sessionId,
