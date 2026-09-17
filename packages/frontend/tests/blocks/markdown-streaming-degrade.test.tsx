@@ -75,6 +75,24 @@ test("停顿后内容继续增长：回到纯文本预览（计时被新内容�
 	expect(screen.getByTestId("text-block-plain")).toBeTruthy();
 });
 
+test("默认停顿阈值为 50ms：停顿后快速切回 markdown（用户感知优化）", async () => {
+	render(
+		<MarkdownBlock
+			text={md}
+			sessionId="s1"
+			mediaItems={collectMediaItems(md)}
+			isStreaming
+		/>,
+	);
+	// 未停顿：纯文本
+	expect(screen.getByTestId("text-block-plain")).toBeTruthy();
+	// 停阦 50ms（等待 120ms > 阈值）应已切换；旧默认 500ms 时仍为纯文本（红灯）
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 120));
+	});
+	expect(screen.getByTestId("text-block")).toBeTruthy();
+});
+
 test("非流式（历史消息/回复完成）：直接 markdown 渲染", () => {
 	render(
 		<MarkdownBlock

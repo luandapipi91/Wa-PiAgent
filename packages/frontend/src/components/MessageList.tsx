@@ -1445,7 +1445,7 @@ export const MessageRow = memo(function MessageRow({
 // 每帧全量重跑 ReactMarkdown/remarkGfm（超长回复的卡顿热点）。
 // 流式降级（卡顿修复，同 StreamingOutput 3.3 模式）：isStreaming 且未停顿
 // （useSettled）→ 纯文本预览，每帧只更新 text node，不跑 markdown 解析；
-// 停顿 500ms 或流式结束 → 完整 markdown。实测超长回复后期 remark 全量解析
+// 停顿 50ms 或流式结束 → 完整 markdown（阈值 50ms：500ms 时用户感知为「卡住不渲染」）。实测超长回复后期 remark 全量解析
 // 单帧可达数十至数百 ms，主线程被占满（点击无响应）即此。
 // 导出仅供测试（markdown-streaming-stability.test.tsx 锁「流式增长不重挂载」契约、
 // markdown-streaming-degrade.test.tsx 锁降级契约）。
@@ -1454,7 +1454,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 	sessionId,
 	mediaItems,
 	isStreaming,
-	idleMs = 500,
+	idleMs = 50,
 }: {
 	text: string;
 	sessionId: string;

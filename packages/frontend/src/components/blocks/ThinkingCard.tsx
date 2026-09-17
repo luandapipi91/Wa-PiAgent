@@ -12,11 +12,11 @@ import { Icon } from "../ui/Icon";
  *  memo：同消息内其他块流式更新时 props 不变，整块跳过（thinking 往往是回复中
  *  最长部分，Linkify 全文正则 split 不能被连坐重渲染）。
  *  流式降级：isStreaming 且未停顿（useSettled）→ 纯文本不跑 Linkify，
- *  停顿 500ms 或结束后恢复链接化（每帧 O(全文) 正则 split 的卡顿热点）。 */
+ *  停顿 50ms 或结束后恢复链接化（阈值 50ms：500ms 用户感知为卡顿；每帧 O(全文) 正则 split 的卡顿热点）。 */
 export const ThinkingCard = memo(function ThinkingCard({
   thinking,
   isStreaming,
-  idleMs = 500,
+  idleMs = 50,
 }: {
   thinking: string;
   isStreaming?: boolean;

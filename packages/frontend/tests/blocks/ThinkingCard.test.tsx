@@ -57,3 +57,14 @@ test("非流式（思考完成）：保持原有 Linkify 行为", () => {
 		screen.getByTestId("thinking-panel-body").querySelector("a"),
 	).toBeTruthy();
 });
+
+test("默认停顿阈值为 50ms：停顿后快速恢复 Linkify（用户感知优化）", async () => {
+	useUiPrefsStore.setState({ collapseProcessByDefault: false });
+	render(<ThinkingCard thinking="见 http://localhost:53213/ 链接" isStreaming />);
+	expect(screen.getByTestId("thinking-panel-body").querySelector("a")).toBeNull();
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 120));
+	});
+	// 旧默认 500ms 时此断言失败（红灯）；阈值 50ms 后通过
+	expect(screen.getByTestId("thinking-panel-body").querySelector("a")).toBeTruthy();
+});
