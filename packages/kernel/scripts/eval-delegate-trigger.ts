@@ -21,6 +21,26 @@
 // 注意：edit 类用例会让 agent 真实改动 cwd 下的文件。务必在隔离 worktree 中运行
 // （git worktree add .worktrees/eval-delegate HEAD && cd 后 bun install），
 // 不要在主工作区直接跑——主工作区可能有用户并行开发的未提交代码。
+//
+// ---- 评测扩充设计（2026-09 定稿）----
+// 背景：实测「随便改一个文件也调用了子代理」——小改动被过度委派。本扩充以量化误派为核心。
+// 新增类别（原 60 条用例只增不改；类别追加后 --category/--sample 天然支持）：
+//   edit-small   小改应自己做（错字/注释/单行文案/单文件局部改动）→ 期望不派，12 条
+//   edit-explore 需先探索的编辑（跨文件/需先审计现状）→ 期望派，6 条
+//   fleet        多个独立子任务并行决策 → 期望派（fleet/delegate 均算「派发」，
+//                具体用了哪个工具在结果里单独记录），6 条
+//   zh-casual    中文口语/模糊表述 → 按语义逐条标注期望，8 条
+//   hiagent      特色任务（定时任务/IM 推送/记忆操作）→ 按语义逐条标注期望，10 条
+// 期望标注：新增用例直接带 expect: "delegate" | "no-delegate"；原 60 条不改条目，
+//   由 expectFor(category) 派生：explore→delegate、simple→no-delegate、edit→无期望
+//   （视情况，只报派发率，不进混淆矩阵）。
+// 新增指标：
+//   1) 混淆矩阵：TP 应派已派 / FP 不应派误派 / TN 不应派未派 / FN 应派漏派；
+//      误派率 = FP/(FP+TN)、漏派率 = FN/(FN+TP)，按类别与整体汇报（多轮报 mean±std）
+//   2) 首次派发轮次：toolsCalled 序列中首次出现 delegate/fleet 的序号（1 起），
+//      仅对已派用例统计，报均值
+//   3) 单用例 token 开销：settle 后 getSessionStats().tokens.total（字段缺失降级为 0），
+//      报分类均值 + 「已派 vs 未派」均值对比（量化误派的额外成本）
 
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -52,12 +72,43 @@ import { ensureProviderExtensionRegistered } from "../src/provider-extension";
 import { ProviderStore } from "../src/provider-store";
 import { buildAdditionalExtensionPaths } from "../src/extensions";
 
-// ---- 用例集（60 条，针对 WaPi 自身代码库）----
+// ---- 用例集（原 60 条只增不改；扩充类别见文件头「评测扩充设计」）----
 // explore (30)：多步搜索/审计，应触发 delegate/fleet
 // edit (10)：小改动，视情况（可能需要先探索）
 // simple (20)：单次查找/问答，不应触发
-type Category = "explore" | "edit" | "simple";
-const CASES: Array<{ category: Category; prompt: string }> = [
+// edit-small (12)：小改应自己做，期望不派
+// edit-explore (6)：需先探索的编辑，期望派
+// fleet (6)：多独立子任务并行决策，期望派（fleet/delegate 均算派发）
+// zh-casual (8)：中文口语/模糊表述，逐条标注期望
+// hiagent (10)：特色任务（定时任务/IM 推送/记忆操作），逐条标注期望
+type Expectation = "delegate" | "no-delegate";
+type Category =
+  | "explore"
+  | "edit"
+  | "simple"
+  | "edit-small"
+  | "edit-explore"
+  | "fleet"
+  | "zh-casual"
+  | "hiagent";
+/** 类别展示顺序（--sample 按此序每类取样；汇总按此序输出） */
+const CATEGORY_ORDER: Category[] = [
+  "explore",
+  "edit",
+  "simple",
+  "edit-small",
+  "edit-explore",
+  "fleet",
+  "zh-casual",
+  "hiagent",
+];
+interface Case {
+  category: Category;
+  prompt: string;
+  /** 期望派发行为；原 60 条不带此字段，由 expectFor() 按类别派生 */
+  expect?: Expectation;
+}
+const CASES: Case[] = [
   // --- explore (30) ---
   {
     category: "explore",
@@ -306,6 +357,53 @@ const CASES: Array<{ category: Category; prompt: string }> = [
     category: "simple",
     prompt: "eval-delegate-trigger.ts 里 stub server 监听哪个地址和端口？",
   },
+  // --- edit-small (12)：小改应自己做，期望不派 ---
+  { category: "edit-small", expect: "no-delegate", prompt: "给 packages/shared/src/types.ts 的 DelegationHints 接口加一行注释，说明 whenToDelegate 字段的用途。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "把 packages/kernel/src/extensions.ts 文件头注释补一句「扩展路径按优先级排序」。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "packages/frontend/src/styles.css 顶部加一行注释「全局变量定义见 :root」。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "给 packages/kernel/src/pi-catalog.ts 文件头加一行注释说明这个文件的作用。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "把 packages/kernel/tests/helpers/http-api-kit.ts 头部注释里的「工具」改成「工具集」。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "packages/desktop/package.json 的 description 字段末尾补一个句号。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "给 bunfig.toml 顶部加一行注释「安装相关配置」。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "给 packages/frontend/src/i18n/locales/zh.ts 文件头加一行中文注释「中文翻译文件」。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "给 packages/kernel/src/wa-pi-bridge.extension.ts 的导出函数加一行 JSDoc「桥接工具入口」。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "把 README.md 第一行标题下面补一行空行。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "给 packages/kernel/src/delegate-tool.ts 里 makeFleetTool 函数加一行注释「并行派发入口」。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "tsconfig.base.json 顶部加一行注释「基础编译配置，各包继承」。" },
+  // --- edit-explore (6)：需先探索的编辑，期望派 ---
+  { category: "edit-explore", expect: "delegate", prompt: "给 delegate 和 fleet 两个工具的描述补充「何时选 fleet」的段落——先看现有描述结构再改。" },
+  { category: "edit-explore", expect: "delegate", prompt: "把前端所有卡片类组件的圆角统一从 8px 改成 12px，先找出所有涉及的文件。" },
+  { category: "edit-explore", expect: "delegate", prompt: "给 kernel 新增一个 GET /healthz 端点返回 ok，先了解现有路由注册方式再加。" },
+  { category: "edit-explore", expect: "delegate", prompt: "把 simple 类用例里引用的过时常量名全部更新为当前名称——先搜出所有引用点。" },
+  { category: "edit-explore", expect: "delegate", prompt: "给 ws-server 的消息分发加一层入参类型校验，先梳理分发链路再动手。" },
+  { category: "edit-explore", expect: "delegate", prompt: "统一 kernel 测试里创建临时目录的写法——先审计现有写法再统一修改。" },
+  // --- fleet (6)：多独立子任务并行决策，期望派 ---
+  { category: "fleet", expect: "delegate", prompt: "同时调查 packages/kernel、packages/frontend、packages/desktop 三处的错误处理风格，汇总成对比。" },
+  { category: "fleet", expect: "delegate", prompt: "两路并行：A 组审计 packages/kernel/tests 覆盖场景，B 组审计 scripts 目录脚本用途，各出一份清单。" },
+  { category: "fleet", expect: "delegate", prompt: "分别梳理 projects、ask、session 三个 store 的状态结构，汇总成对比表。" },
+  { category: "fleet", expect: "delegate", prompt: "同时整理 Windows 和 macOS 两套打包注意事项，合并成一份文档。" },
+  { category: "fleet", expect: "delegate", prompt: "对 en 和 zh 两份语言文件分别审计缺失的 key，汇总差异。" },
+  { category: "fleet", expect: "delegate", prompt: "对 packages/kernel 和 packages/shared 各做一次 TODO 清点，合并统计。" },
+  // --- zh-casual (8)：中文口语/模糊表述，逐条标注期望 ---
+  { category: "zh-casual", expect: "delegate", prompt: "帮我看看咱这项目里 WebSocket 心跳是怎么搞的？" },
+  { category: "zh-casual", expect: "no-delegate", prompt: "那个 providers.json 都配了些啥呀？念给我听听。" },
+  { category: "zh-casual", expect: "no-delegate", prompt: "随手把 AGENTS.md 里那个错别字改一下。" },
+  { category: "zh-casual", expect: "delegate", prompt: "有啥办法能让测试跑快点儿？调研一下给个方案。" },
+  { category: "zh-casual", expect: "no-delegate", prompt: "版本号现在是多少？" },
+  { category: "zh-casual", expect: "delegate", prompt: "把 e2e 那几个用例为啥 skip 了整理一下说说。" },
+  { category: "zh-casual", expect: "no-delegate", prompt: "顺手在 CHANGELOG 里补一条今天的记录。" },
+  { category: "zh-casual", expect: "delegate", prompt: "咱们的发版流程是啥样的？从头到尾给我捋一遍。" },
+  // --- hiagent (10)：特色任务（定时任务/IM 推送/记忆操作），逐条标注期望 ---
+  { category: "hiagent", expect: "no-delegate", prompt: "现在有哪些定时任务？分别什么 cron 表达式？" },
+  { category: "hiagent", expect: "delegate", prompt: "梳理定时任务体系：任务怎么注册、调度、落盘，把链路整理出来。" },
+  { category: "hiagent", expect: "delegate", prompt: "给 cron-task.ts 加一个 list --json 输出。" },
+  { category: "hiagent", expect: "no-delegate", prompt: "IM 推送支持哪些渠道？联系人 id 是什么格式？" },
+  { category: "hiagent", expect: "delegate", prompt: "调查记忆系统：写入、检索、分层各在哪个模块，怎么串起来的。" },
+  { category: "hiagent", expect: "no-delegate", prompt: "把「用户偏好深色主题」写入记忆。" },
+  { category: "hiagent", expect: "no-delegate", prompt: "查一下记忆库里有哪些关于部署的条目。" },
+  { category: "hiagent", expect: "no-delegate", prompt: "定时任务的日志在哪、怎么看？" },
+  { category: "hiagent", expect: "delegate", prompt: "对比 superpowers 技能链和内置 skills 目录的加载机制差异。" },
+  { category: "hiagent", expect: "no-delegate", prompt: "给 eval-memory-write.ts 的用法注释补充 --mem-root 示例。" },
 ];
 
 // ---- CLI 参数 ----
@@ -383,8 +481,8 @@ function selectCases(opts: CliOpts): typeof CASES {
     pool = pool.filter((c) => opts.categories!.includes(c.category));
   }
   if (opts.sample > 0) {
-    const picked: typeof CASES = [];
-    for (const cat of ["explore", "edit", "simple"] as const) {
+    const picked: Case[] = [];
+    for (const cat of CATEGORY_ORDER) {
       picked.push(
         ...pool.filter((c) => c.category === cat).slice(0, opts.sample),
       );
@@ -460,9 +558,15 @@ interface CaseResult {
   index: number;
   category: Category;
   prompt: string;
+  /** 期望派发行为（运行时由 expectFor 填入） */
+  expectation?: Expectation;
   calledDelegate: boolean;
   delegateCalls: Array<{ tool: string; agent?: string }>;
   toolsCalled: string[];
+  /** 首次派发轮次：toolsCalled 中首个 delegate/fleet 的序号（1 起）；未派为 null */
+  firstDelegateRound: number | null;
+  /** 单用例 token 开销（getSessionStats().tokens.total，字段缺失降级为 0） */
+  tokens: number;
   elapsedMs: number;
   error?: string;
 }
@@ -495,6 +599,8 @@ async function runOneCase(
     calledDelegate: false,
     delegateCalls: [],
     toolsCalled: [],
+    firstDelegateRound: null,
+    tokens: 0,
     elapsedMs: 0,
   };
   const sessionId = `eval-${randomUUID()}`;
@@ -553,6 +659,17 @@ async function runOneCase(
         ),
       ),
     ]);
+    // settle 后抓取会话统计：token 用量（旧版 pi 无 tokens 字段 → 降级为 0）
+    try {
+      const st = await client.getSessionStats();
+      const t = st?.tokens;
+      result.tokens =
+        typeof t?.total === "number"
+          ? t.total
+          : (t?.input ?? 0) + (t?.output ?? 0);
+    } catch {
+      result.tokens = 0;
+    }
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
     // 中止当前用例的 pi 会话；abort 失败（如进程已退出）不影响用例失败结果上报
@@ -587,8 +704,21 @@ async function runOneCase(
       }
     }
   }
+  // 首次派发轮次：toolsCalled 序列中首个 delegate/fleet 的序号（1 起）
+  const firstIdx = result.toolsCalled.findIndex(
+    (t) => t === "delegate" || t === "fleet",
+  );
+  result.firstDelegateRound = firstIdx >= 0 ? firstIdx + 1 : null;
   result.elapsedMs = Date.now() - startedAt;
   return result;
+}
+
+/** 用例期望派发：新增用例自带 expect；原 60 条按类别派生（edit 视情况 → 无期望） */
+function expectFor(c: Case): Expectation | null {
+  if (c.expect) return c.expect;
+  if (c.category === "explore") return "delegate";
+  if (c.category === "simple") return "no-delegate";
+  return null;
 }
 
 // ---- main ----
@@ -629,7 +759,12 @@ async function main() {
 
   if (opts.dryRun) {
     for (const [i, c] of cases.entries()) {
-      console.log(`[${i + 1}] ${c.category}: ${c.prompt.slice(0, 60)}`);
+      const exp = expectFor(c);
+      const label =
+        exp === "delegate" ? "派" : exp === "no-delegate" ? "不派" : "视情况";
+      console.log(
+        `[${i + 1}] ${c.category}（期望${label}）: ${c.prompt.slice(0, 60)}`,
+      );
     }
     return;
   }
@@ -682,14 +817,17 @@ async function main() {
             await ensureBridgeExtension();
           },
         });
+        r.expectation = expectFor(c);
         results.push(r);
         const tag = r.calledDelegate
-          ? `DELEGATE ✓ (${r.delegateCalls.map((d) => `${d.tool}:${d.agent ?? "?"}`).join(", ")})`
+          ? `DELEGATE ✓ (${r.delegateCalls.map((d) => `${d.tool}:${d.agent ?? "?"}`).join(", ")})${r.firstDelegateRound ? ` 首派轮次=${r.firstDelegateRound}` : ""}`
           : r.toolsCalled.length > 0
             ? r.toolsCalled.join(",")
             : "no-tools";
+        const tokTag =
+          r.tokens > 0 ? `tok=${(r.tokens / 1000).toFixed(1)}k` : "tok=?";
         process.stdout.write(
-          `→ ${tag} (${(r.elapsedMs / 1000).toFixed(1)}s)${r.error ? " ERR:" + r.error.slice(0, 50) : ""}\n`,
+          `→ ${tag} ${tokTag} (${(r.elapsedMs / 1000).toFixed(1)}s)${r.error ? " ERR:" + r.error.slice(0, 50) : ""}\n`,
         );
       }
       runs.push(results);
@@ -715,7 +853,7 @@ async function main() {
   };
 
   console.log("\n=== SUMMARY ===");
-  for (const cat of ["explore", "edit", "simple"] as const) {
+  for (const cat of CATEGORY_ORDER) {
     const perRun = runs
       .map((rs) => rate(rs, cat))
       .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -742,11 +880,101 @@ async function main() {
     const { mean } = stats(simpleRates);
     console.log(`Simple 误派率（应接近 0%）: mean ${mean.toFixed(1)}%`);
   }
+  const smallRates = runs.map((rs) => rate(rs, "edit-small")?.pct ?? 0);
+  if (runs.some((rs) => rate(rs, "edit-small") !== null)) {
+    const { mean } = stats(smallRates);
+    console.log(
+      `小改误派率 edit-small（应接近 0%，核心指标）: mean ${mean.toFixed(1)}%`,
+    );
+  }
   const allResults = runs.flat();
   console.log(`错误用例: ${allResults.filter((r) => r.error).length}`);
   console.log(
     `总耗时: ${(allResults.reduce((s, r) => s + r.elapsedMs, 0) / 1000).toFixed(1)}s`,
   );
+
+  // ---- 新增指标 1：混淆矩阵（只统计有期望的用例；原 edit 类视情况不参与）----
+  const confusionOf = (rs: CaseResult[]) => {
+    let tp = 0;
+    let fp = 0;
+    let tn = 0;
+    let fn = 0;
+    for (const r of rs) {
+      if (r.expectation === "delegate") {
+        if (r.calledDelegate) tp++;
+        else fn++;
+      } else if (r.expectation === "no-delegate") {
+        if (r.calledDelegate) fp++;
+        else tn++;
+      }
+    }
+    return { tp, fp, tn, fn };
+  };
+  const pctOf = (num: number, den: number) =>
+    den > 0 ? (num / den) * 100 : null;
+  console.log("\n--- 混淆矩阵（期望 vs 实际派发） ---");
+  for (const cat of CATEGORY_ORDER) {
+    const m = confusionOf(allResults.filter((r) => r.category === cat));
+    if (m.tp + m.fp + m.tn + m.fn === 0) continue;
+    const over = pctOf(m.fp, m.fp + m.tn);
+    const miss = pctOf(m.fn, m.fn + m.tp);
+    console.log(
+      `${cat}: 应派 ${m.tp + m.fn}（派 ${m.tp}/漏 ${m.fn}）  不应派 ${m.fp + m.tn}（误派 ${m.fp}/正确 ${m.tn}）  误派率 ${over === null ? "—" : `${over.toFixed(0)}%`}  漏派率 ${miss === null ? "—" : `${miss.toFixed(0)}%`}`,
+    );
+  }
+  {
+    // 整体误派率（多轮时报 mean±std）
+    const series = runs
+      .map((rs) => {
+        const m = confusionOf(
+          rs.filter((r) => r.expectation === "no-delegate"),
+        );
+        return pctOf(m.fp, m.fp + m.tn);
+      })
+      .filter((x): x is number => x !== null);
+    if (series.length > 0) {
+      const { mean, std } = stats(series);
+      const shown =
+        series.length > 1
+          ? `mean ${mean.toFixed(1)}% ± ${std.toFixed(1)}`
+          : `${series[0]!.toFixed(1)}%`;
+      console.log(`整体误派率（不应派用例中误派占比，应接近 0%）: ${shown}`);
+    }
+  }
+
+  // ---- 新增指标 2：首次派发轮次（已派用例中 toolsCalled 的首个 delegate/fleet 序号）----
+  const firstRounds = allResults
+    .filter((r) => r.calledDelegate && r.firstDelegateRound != null)
+    .map((r) => r.firstDelegateRound!);
+  if (firstRounds.length > 0) {
+    const m = stats(firstRounds);
+    console.log(
+      `首次派发轮次（已派 ${firstRounds.length} 例）: mean ${m.mean.toFixed(1)} / max ${Math.max(...firstRounds)}`,
+    );
+  }
+
+  // ---- 新增指标 3：单用例 token 开销（分类均值 + 已派 vs 未派对比）----
+  const tokMean = (rs: CaseResult[]) => {
+    const vals = rs.filter((r) => r.tokens > 0).map((r) => r.tokens);
+    return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+  };
+  {
+    const parts: string[] = [];
+    for (const cat of CATEGORY_ORDER) {
+      const m = tokMean(allResults.filter((r) => r.category === cat));
+      if (m !== null) parts.push(`${cat} ${(m / 1000).toFixed(1)}k`);
+    }
+    if (parts.length > 0) {
+      console.log(`单用例 token 均值: ${parts.join("  ")}`);
+      const del = tokMean(allResults.filter((r) => r.calledDelegate));
+      const notDel = tokMean(allResults.filter((r) => !r.calledDelegate));
+      if (del !== null && notDel !== null && notDel > 0) {
+        console.log(
+          `token 对比（量化误派额外成本）: 已派 ${(del / 1000).toFixed(1)}k vs 未派 ${(notDel / 1000).toFixed(1)}k（${(del / notDel).toFixed(1)}x）`,
+        );
+      }
+    }
+  }
 
   const outPath =
     opts.out ?? join(WA_PI_DIR, `eval-delegate-trigger-${Date.now()}.json`);
@@ -758,6 +986,12 @@ async function main() {
         thinking: opts.thinking,
         at: new Date().toISOString(),
         repeat: opts.repeat,
+        summary: {
+          confusion: confusionOf(allResults),
+          firstDelegateRoundMean: firstRounds.length
+            ? firstRounds.reduce((s, v) => s + v, 0) / firstRounds.length
+            : null,
+        },
         runs,
       },
       null,
