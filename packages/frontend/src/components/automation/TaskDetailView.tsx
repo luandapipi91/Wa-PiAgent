@@ -22,8 +22,9 @@ export function TaskDetailView() {
 	const {
 		tasks,
 		selectedTaskId,
-		records,
-		loadRecords,
+		recentRecords,
+		recentRecordsTaskId,
+		loadRecentRecords,
 		startEdit,
 		runTaskNow,
 		openRecordDetail,
@@ -32,8 +33,8 @@ export function TaskDetailView() {
 	const task = tasks.find((t) => t.id === selectedTaskId);
 
 	useEffect(() => {
-		if (selectedTaskId) loadRecords(selectedTaskId);
-	}, [selectedTaskId, loadRecords]);
+		if (selectedTaskId) loadRecentRecords(selectedTaskId);
+	}, [selectedTaskId, loadRecentRecords]);
 
 	if (!task) {
 		return (
@@ -55,7 +56,9 @@ export function TaskDetailView() {
 			: { label: ctId, valid: false };
 	};
 	const contactLabel = (ctId: string) => contactMeta(ctId).label;
-	const recentRecords = records.filter((r) => r.taskId === task.id).slice(0, 3);
+	// 仅展示与当前选中任务一致的尾读结果（防切换任务时的旧请求竞态回写）
+	const shownRecords =
+		recentRecordsTaskId === task.id ? recentRecords : [];
 	// 工作目录展示：未绑定或绑定默认工作区（__system__）都显示「默认工作区」
 	// （产品概念中工作区只有默认工作区与项目，不存在「默认」）
 	const projectLabel =
@@ -142,7 +145,7 @@ export function TaskDetailView() {
 			</div>
 
 			{/* 最近执行 */}
-			{recentRecords.length > 0 && (
+			{shownRecords.length > 0 && (
 				<div>
 					<div
 						className="text-[11px] mb-2"
@@ -150,7 +153,7 @@ export function TaskDetailView() {
 					>
 						最近执行
 					</div>
-					{recentRecords.map((r) => (
+					{shownRecords.map((r) => (
 						<RecordRow key={r.id} record={r} onOpenDetail={openRecordDetail} />
 					))}
 				</div>

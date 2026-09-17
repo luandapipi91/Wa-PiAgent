@@ -227,6 +227,104 @@ describe("logs", () => {
 	});
 });
 
+// 造一次执行：running + 终态两行，与 executeTask 写入模式一致
+async function runOnce(
+	store: ReturnType<typeof createFolderTaskStore>,
+	task: { id: string; name: string },
+	i: number,
+) {
+	const base = { id: `r${i}`, taskId: task.id, taskName: task.name, startedAt: i * 100 };
+	await store.appendRecord("pa", task.id, { ...base, status: "running" } as ExecutionRecord);
+	await store.appendRecord("pa", task.id, {
+		...base,
+		status: "success",
+		finishedAt: i * 100 + 50,
+		summary: `结果${i}`,
+	} as ExecutionRecord);
+}
+
+describe("执行记录尾读（taskId+limit）", () => {
+	test("多轮执行取最新 N 条，startedAt 倒序，同 id 取终态", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const t = await store.create({ ...DATA, prompt: "p", projectId: "pa" }, "pa");
+		for (let i = 1; i <= 3; i++) await runOnce(store, t, i);
+		const records = await store.listRecords({ taskId: t.id, limit: 2 });
+		expect(records.map((r) => r.id)).toEqual(["r3", "r2"]);
+		expect(records.every((r) => r.status === "success")).toBe(true); // 首遇即赢 = 终态
+		// limit 覆盖全文件：与全量读等价
+		expect((await store.listRecords({ taskId: t.id, limit: 10 })).map((r) => r.id)).toEqual([
+			"r3",
+			"r2",
+			"r1",
+		]);
+	});
+
+	test("损坏行跳过；文件不存在返回空", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const t = await store.create({ ...DATA, prompt: "p", projectId: "pa" }, "pa");
+		await runOnce(store, t, 1);
+		// 手工追加损坏行（agent 手写/被截断的半行）
+		writeFileSync(join(logsDirOf(), `${t.id}.log`), `这是被截断的半行 | {"broken\n`, { flag: "a" });
+		const records = await store.listRecords({ taskId: t.id, limit: 5 });
+		expect(records.map((r) => r.id)).toEqual(["r1"]);
+		expect(await store.listRecords({ taskId: "不存在", limit: 3 })).toEqual([]);
+	});
+
+	test("首窗口不足时扩读重试（最新一行超长）", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const t = await store.create({ ...DATA, prompt: "p", projectId: "pa" }, "pa");
+		// limit=1 首轮窗口 8KB；最新一条 summary 塞 500 中文字符（JSON 转义后远超 8KB）→ 首轮半行被丢弃，需扩读
+		const base = { id: "r-big", taskId: t.id, taskName: t.name, startedAt: 100 };
+		await store.appendRecord("pa", t.id, {
+			...base,
+			status: "success",
+			summary: "长".repeat(500),
+		} as ExecutionRecord);
+		const records = await store.listRecords({ taskId: t.id, limit: 1 });
+		expect(records.map((r) => r.id)).toEqual(["r-big"]);
+		expect(records[0].summary).toBe("长".repeat(500));
+	});
+});
+
+describe("latest 索引（appendRecord 同步维护 + listLatestRecords）", () => {
+	test("appendRecord 写 <taskId>.latest.json = 最后一条；聚合每任务最新一条", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const t1 = await store.create({ ...DATA, prompt: "p", projectId: "pa" }, "pa");
+		const t2 = await store.create({ ...DATA, name: "任务2", prompt: "p", projectId: "pa" }, "pa");
+		const latestFile = join(logsDirOf(), `${t1.id}.latest.json`);
+		await store.appendRecord("pa", t1.id, { id: "a1", taskId: t1.id, taskName: t1.name, status: "running", startedAt: 100 });
+		expect(JSON.parse(readFileSync(latestFile, "utf8"))).toMatchObject({ id: "a1", status: "running" });
+		await store.appendRecord("pa", t1.id, { id: "a1", taskId: t1.id, taskName: t1.name, status: "success", startedAt: 100, finishedAt: 150 });
+		await store.appendRecord("pa", t2.id, { id: "b1", taskId: t2.id, taskName: t2.name, status: "failed", startedAt: 200 });
+		expect(JSON.parse(readFileSync(latestFile, "utf8"))).toMatchObject({ id: "a1", status: "success" }); // 同 id 回写后索引跟随
+		const latest = await store.listLatestRecords();
+		expect(latest.map((r) => r.id)).toEqual(["b1", "a1"]); // startedAt 倒序
+	});
+
+	test("旧数据无索引 / 索引损坏：退化读日志尾 1 条，不抛错", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const t = await store.create({ ...DATA, prompt: "p", projectId: "pa" }, "pa");
+		await store.appendRecord("pa", t.id, { id: "x1", taskId: t.id, taskName: t.name, status: "success", startedAt: 100 });
+		rmSync(join(logsDirOf(), `${t.id}.latest.json`)); // 模拟旧数据：只有 .log 无索引
+		let latest = await store.listLatestRecords();
+		expect(latest.map((r) => r.id)).toEqual(["x1"]);
+		writeFileSync(join(logsDirOf(), `${t.id}.latest.json`), "{broken json", "utf8"); // 模拟索引损坏
+		latest = await store.listLatestRecords();
+		expect(latest.map((r) => r.id)).toEqual(["x1"]);
+	});
+});
+
+describe("since 时间过滤", () => {
+	test("只返回 startedAt >= since；taskId+since 组合不走尾读（正确性优先）", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const t = await store.create({ ...DATA, prompt: "p", projectId: "pa" }, "pa");
+		for (let i = 1; i <= 3; i++) await runOnce(store, t, i); // startedAt 100/200/300
+		const records = await store.listRecords({ taskId: t.id, since: 150, limit: 2 });
+		expect(records.map((r) => r.id)).toEqual(["r3", "r2"]);
+		expect((await store.listRecords({ since: 250 })).map((r) => r.id)).toEqual(["r3"]);
+	});
+});
+
 describe("自写哈希", () => {
 	test("store 写入的文件可通过 lastWrittenHash 识别（watcher 防循环用）", async () => {
 		const store = createFolderTaskStore({ projectsProvider: projects });

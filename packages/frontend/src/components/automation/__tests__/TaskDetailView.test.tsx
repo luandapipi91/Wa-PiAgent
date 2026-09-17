@@ -28,25 +28,27 @@ mock.module("../../../store/contacts", () => {
 
 const runTaskNowMock = mock();
 const startEditMock = mock();
-const loadRecordsMock = mock();
+const loadRecentRecordsMock = mock();
 const openRecordDetailMock = mock();
 
 // 可在用例中切换的共享假状态
 const schedulerState: {
 	tasks: any[];
-	records: any[];
+	recentRecords: any[];
+	recentRecordsTaskId: string | null;
 	selectedTaskId: string | null;
 	runTaskNow: typeof runTaskNowMock;
 	startEdit: typeof startEditMock;
-	loadRecords: typeof loadRecordsMock;
+	loadRecentRecords: typeof loadRecentRecordsMock;
 	openRecordDetail: typeof openRecordDetailMock;
 } = {
 	tasks: [],
-	records: [],
+	recentRecords: [],
+	recentRecordsTaskId: null,
 	selectedTaskId: null,
 	runTaskNow: runTaskNowMock,
 	startEdit: startEditMock,
-	loadRecords: loadRecordsMock,
+	loadRecentRecords: loadRecentRecordsMock,
 	openRecordDetail: openRecordDetailMock,
 };
 
@@ -57,10 +59,11 @@ mock.module("../../../store/scheduler", () => ({
 beforeEach(() => {
 	runTaskNowMock.mockReset();
 	startEditMock.mockReset();
-	loadRecordsMock.mockReset();
+	loadRecentRecordsMock.mockReset();
 	openRecordDetailMock.mockReset();
 	schedulerState.tasks = [];
-	schedulerState.records = [];
+	schedulerState.recentRecords = [];
+	schedulerState.recentRecordsTaskId = null;
 	schedulerState.selectedTaskId = null;
 	// toast store 是真实单例：清空上一用例残留（避免 3s 自动消失定时器干扰断言）
 	useToastStore.setState({ toasts: [] });
@@ -301,7 +304,8 @@ describe("TaskDetailView", () => {
 			},
 		];
 		schedulerState.selectedTaskId = "t1";
-		schedulerState.records = [
+		schedulerState.recentRecordsTaskId = "t1";
+		schedulerState.recentRecords = [
 			{
 				id: "r1",
 				taskId: "t1",
@@ -346,7 +350,8 @@ describe("TaskDetailView", () => {
 			},
 		];
 		schedulerState.selectedTaskId = "t1";
-		schedulerState.records = [
+		schedulerState.recentRecordsTaskId = "t1";
+		schedulerState.recentRecords = [
 			{
 				id: "r1",
 				taskId: "t1",
@@ -361,7 +366,7 @@ describe("TaskDetailView", () => {
 		expect(openRecordDetailMock).toHaveBeenCalledWith("r1", "detail");
 	});
 
-	test("选中任务变化时调用 loadRecords(taskId)", () => {
+	test("选中任务变化时调用 loadRecentRecords(taskId)", () => {
 		schedulerState.tasks = [
 			{
 				id: "t1",
@@ -373,6 +378,6 @@ describe("TaskDetailView", () => {
 		];
 		schedulerState.selectedTaskId = "t1";
 		render(<TaskDetailView />);
-		expect(loadRecordsMock).toHaveBeenCalledWith("t1");
+		expect(loadRecentRecordsMock).toHaveBeenCalledWith("t1");
 	});
 });

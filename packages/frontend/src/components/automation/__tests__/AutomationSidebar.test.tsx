@@ -18,7 +18,7 @@ const loadTasksMock = mock();
 const setViewMock = mock();
 const deleteTaskMock = mock(async () => {});
 const runTaskNowMock = mock(async () => {});
-const loadRecordsMock = mock(async () => {});
+const loadLatestByTaskMock = mock(async () => {});
 
 const baseTasks = () => [
 	{
@@ -48,29 +48,12 @@ mock.module("../../../store/scheduler", () => ({
 	useSchedulerStore: () => ({
 		tasks: baseTasks(),
 		taskErrors: [],
-		records: [
-			{
-				id: "r1",
-				taskId: "t1",
-				taskName: "每日报表",
-				status: "success",
-				startedAt: 3,
-			},
-			{
-				id: "r0",
-				taskId: "t1",
-				taskName: "每日报表",
-				status: "failed",
-				startedAt: 1,
-			},
-			{
-				id: "r2",
-				taskId: "t2",
-				taskName: "下载清理",
-				status: "failed",
-				startedAt: 2,
-			},
-		],
+		// 状态点数据源已改为每任务最新一条索引（?latest=1），不再全量 records：
+		// t1 最新为 success（旧 r0 failed 已被索引覆盖），t2 为 failed，t3 无记录
+		latestByTask: {
+			t1: { id: "r1", taskId: "t1", taskName: "每日报表", status: "success", startedAt: 3 },
+			t2: { id: "r2", taskId: "t2", taskName: "下载清理", status: "failed", startedAt: 2 },
+		},
 		selectedTaskId: "t1",
 		selectTask: selectTaskMock,
 		startCreate: startCreateMock,
@@ -79,7 +62,7 @@ mock.module("../../../store/scheduler", () => ({
 		setView: setViewMock,
 		deleteTask: deleteTaskMock,
 		runTaskNow: runTaskNowMock,
-		loadRecords: loadRecordsMock,
+		loadLatestByTask: loadLatestByTaskMock,
 	}),
 }));
 
@@ -91,7 +74,7 @@ beforeEach(() => {
 	setViewMock.mockReset();
 	deleteTaskMock.mockReset();
 	runTaskNowMock.mockReset();
-	loadRecordsMock.mockReset();
+	loadLatestByTaskMock.mockReset();
 	cleanup();
 });
 

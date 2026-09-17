@@ -16,7 +16,13 @@ interface SchedulerState {
 	tasks: ScheduledTask[];
 	// 定时任务文件在解析/校验时发现的配置错误（Task 5 REST 响应 errors 字段）
 	taskErrors: TaskFileError[];
+	/** 执行记录列表（执行记录页数据源；App SSE 刷新兜底对齐） */
 	records: ExecutionRecord[];
+	/** 任务详情页「最近执行」：仅当前选中任务的少量记录（?taskId=&limit= 尾读，不污染 records） */
+	recentRecords: ExecutionRecord[];
+	recentRecordsTaskId: string | null; // 防切任务竞态：仅当与选中任务一致时才渲染
+	/** 每任务最新一条执行记录（?latest=1 索引聚合；侧栏状态点数据源，免全量读日志） */
+	latestByTask: Record<string, ExecutionRecord>;
 	selectedTaskId: string | null;
 	view: AutoView;
 	editingTask: ScheduledTask | null; // null = 新建
@@ -25,7 +31,18 @@ interface SchedulerState {
 
 	// Actions
 	loadTasks: () => Promise<void>;
-	loadRecords: (taskId?: string) => Promise<void>;
+	/** 拉取执行记录列表。无参 = 全量（≤200，SSE 兜底用）；
+	 *  since/limit = 时间范围窗口（列表页初始加载/窗口前扩）；append = 合并去重而非替换 */
+	loadRecords: (opts?: {
+		taskId?: string;
+		since?: number;
+		limit?: number;
+		append?: boolean;
+	}) => Promise<void>;
+	/** 任务详情页最近 N 条（尾读），与 records 分开存避免覆盖列表数据 */
+	loadRecentRecords: (taskId: string, limit?: number) => Promise<void>;
+	/** 侧栏状态点：每任务最新一条（读后端 latest 索引，非全量日志解析） */
+	loadLatestByTask: () => Promise<void>;
 	createTask: (data: Partial<ScheduledTask>) => Promise<void>;
 	updateTask: (id: string, data: Partial<ScheduledTask>) => Promise<void>;
 	deleteTask: (id: string) => Promise<void>;
@@ -44,6 +61,9 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	tasks: [],
 	taskErrors: [],
 	records: [],
+	recentRecords: [],
+	recentRecordsTaskId: null,
+	latestByTask: {},
 	selectedTaskId: null,
 	view: "detail",
 	editingTask: null,
@@ -55,12 +75,37 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 		set({ tasks: res?.tasks ?? [], taskErrors: res?.errors ?? [] });
 	},
 
-	loadRecords: async (taskId) => {
-		const url = taskId
-			? `/api/execution-records?taskId=${encodeTaskId(taskId)}`
-			: "/api/execution-records";
-		const res = (await api.get(url)) as any;
-		set({ records: res?.records ?? [] });
+	loadRecords: async (opts) => {
+		// URLSearchParams 自带 query 编码（含中文与 & = # 等保留字符），勿先 encodeURIComponent 再塞入（会双重编码）
+		const p = new URLSearchParams();
+		if (opts?.taskId) p.set("taskId", opts.taskId);
+		if (opts?.since) p.set("since", String(opts.since));
+		if (opts?.limit) p.set("limit", String(opts.limit));
+		const qs = p.toString();
+		const res = (await api.get(`/api/execution-records${qs ? `?${qs}` : ""}`)) as any;
+		const incoming: ExecutionRecord[] = res?.records ?? [];
+		if (opts?.append) {
+			// 追加翻页：同 id 后写覆盖先写（与后端去重语义一致），按 startedAt 倒序合并
+			const byId = new Map(get().records.map((r) => [r.id, r] as const));
+			for (const r of incoming) byId.set(r.id, r);
+			set({ records: [...byId.values()].sort((a, b) => b.startedAt - a.startedAt) });
+		} else {
+			set({ records: incoming });
+		}
+	},
+
+	loadRecentRecords: async (taskId, limit = 3) => {
+		const res = (await api.get(
+			`/api/execution-records?taskId=${encodeTaskId(taskId)}&limit=${limit}`,
+		)) as any;
+		set({ recentRecords: res?.records ?? [], recentRecordsTaskId: taskId });
+	},
+
+	loadLatestByTask: async () => {
+		const res = (await api.get("/api/execution-records?latest=1")) as any;
+		const byTask: Record<string, ExecutionRecord> = {};
+		for (const r of (res?.records ?? []) as ExecutionRecord[]) byTask[r.taskId] = r;
+		set({ latestByTask: byTask });
 	},
 
 	createTask: async (data) => {

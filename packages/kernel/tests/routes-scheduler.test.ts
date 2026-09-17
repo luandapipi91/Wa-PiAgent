@@ -481,6 +481,32 @@ test("GET /api/execution-records 从 logs 聚合，响应结构与旧版一致",
 	});
 });
 
+test("GET /api/execution-records ?limit= ?since= ?latest=1（非法值忽略，limit 钳 200）", async () => {
+	const r1: ExecutionRecord = { id: "r1", taskId: "t1", taskName: "A", status: "success", startedAt: 100 };
+	const r2: ExecutionRecord = { id: "r2", taskId: "t1", taskName: "A", status: "failed", startedAt: 300 };
+	const r3: ExecutionRecord = { id: "r3", taskId: "t2", taskName: "B", status: "success", startedAt: 200 };
+	await store.appendRecord("pa", "t1", r1);
+	await store.appendRecord("pa", "t1", r2);
+	await store.appendRecord("pb", "t2", r3);
+
+	await withServer(async (base) => {
+		// limit=1：尾读最新 1 条
+		const { body: limited } = await json(base, "/api/execution-records?taskId=t1&limit=1");
+		expect(limited.records.map((r: ExecutionRecord) => r.id)).toEqual(["r2"]);
+		// since=150：排除 startedAt=100 的 r1
+		const { body: since } = await json(base, "/api/execution-records?since=150");
+		expect(since.records.map((r: ExecutionRecord) => r.id)).toEqual(["r2", "r3"]);
+		// latest=1：每任务最新一条，读索引不解析全量日志
+		const { body: latest } = await json(base, "/api/execution-records?latest=1");
+		expect(latest.records.map((r: ExecutionRecord) => r.id)).toEqual(["r2", "r3"]);
+		// 非法 limit/since 忽略；limit 超大钟到 200
+		const { body: bad } = await json(base, "/api/execution-records?limit=abc&since=xyz");
+		expect(bad.records).toHaveLength(3);
+		const { body: huge } = await json(base, "/api/execution-records?limit=9999");
+		expect(huge.records).toHaveLength(3);
+	});
+});
+
 // ── I2：POST/PUT 入口校验（坏任务不落盘，直接 400）──
 describe("POST/PUT 校验", () => {
 	const validTask = {

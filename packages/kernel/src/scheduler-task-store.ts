@@ -4,17 +4,21 @@
  * - tasks/<任务id>.md：任务文件（frontmatter + prompt 正文，含 projectId 归属），id = 文件名
  * - logs/<任务id>.log：执行日志（append-only；同 id 记录读取时去重取最新，
  *   running → 终态 的回写就是追加一条同 id 新行）
+ * - logs/<任务id>.latest.json：每任务最新一条记录的索引（appendRecord 同步维护，
+ *   供状态点等消费方免全量读日志；读取时缺失/损坏则退化为读日志尾）
  * - 所有写文件 tmp+rename 原子写；写入时记录内容哈希（lastWrittenHash），
  *   供 watcher 识别自身写入、避免热加载循环。
  */
 import {
 	mkdir,
+	open,
 	readFile,
 	readdir,
 	rename,
 	rm,
 	stat,
 	writeFile,
+	type FileHandle,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -91,6 +95,69 @@ async function atomicWrite(
 	writeHashes.set(file, hashOf(content));
 }
 
+/** 读文件尾部 maxBytes 字节并按行切分；起点落在行中间时丢弃首个不完整行。
+ *  返回 reachedStart 表示是否已覆盖到文件头（尾读去重不足 limit 时判断能否停止扩读）。 */
+async function readTailLines(
+	file: string,
+	maxBytes: number,
+): Promise<{ lines: string[]; reachedStart: boolean }> {
+	let fh: FileHandle;
+	try {
+		fh = await open(file, "r");
+	} catch {
+		return { lines: [], reachedStart: true }; // 文件不存在（任务从未执行过）视为空
+	}
+	try {
+		const { size } = await fh.stat();
+		if (size === 0) return { lines: [], reachedStart: true };
+		const start = Math.max(0, size - maxBytes);
+		const buf = Buffer.alloc(size - start);
+		await fh.read(buf, 0, buf.length, start);
+		let text = buf.toString("utf8");
+		if (start > 0) {
+			const nl = text.indexOf("\n");
+			if (nl < 0) return { lines: [], reachedStart: false }; // 整窗都在同一行内
+			text = text.slice(nl + 1); // 丢弃被截断的半行，只保留完整行
+		}
+		return {
+			lines: text.split("\n").filter((l) => l.trim() !== ""),
+			reachedStart: start === 0,
+		};
+	} finally {
+		await fh.close();
+	}
+}
+
+/** 从日志尾部读取最近 limit 条记录（去重后，startedAt 倒序）。
+ *  正确性依赖 append-only 性质：同一次执行的终态行恒在其 running 行之后追加
+	⇒ 尾读方向先遇到的是同 id 最新状态，「首次遇到即赢」等价于全量读的「后写覆盖先写」。
+ *  行不定长（实测 173B~1.5KB，超长 summary 可达 ~3KB），按估算窗口读，不足时扩读重试。 */
+async function listRecordsTail(
+	taskId: string,
+	limit: number,
+): Promise<ExecutionRecord[]> {
+	assertValidTaskId(taskId);
+	const file = join(logsDirOf(), `${taskId}.log`);
+	// 每次执行 2 行（running+终态），首否按 4KB/行给余量；最多扩读 2 次（×16 上限）防异常行分布
+	let windowBytes = Math.max(limit, 1) * 2 * 4096;
+	let result: ExecutionRecord[] = [];
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const { lines, reachedStart } = await readTailLines(file, windowBytes);
+		const byId = new Map<string, ExecutionRecord>();
+		for (let i = lines.length - 1; i >= 0; i--) {
+			const rec = parseLogLine(lines[i]);
+			if (!rec || byId.has(rec.id)) continue;
+			byId.set(rec.id, rec);
+			if (byId.size >= limit) break;
+		}
+		result = [...byId.values()].sort((a, b) => b.startedAt - a.startedAt);
+		// 凑够 limit 条，或已覆盖到文件头（全量也就这么多），无需再扩读
+		if (byId.size >= limit || reachedStart) break;
+		windowBytes *= 4;
+	}
+	return result;
+}
+
 export interface FolderTaskStore {
 	listAll(): Promise<{ tasks: ScheduledTask[]; errors: TaskFileError[] }>;
 	findById(
@@ -113,7 +180,14 @@ export interface FolderTaskStore {
 	listRecords(filter: {
 		taskId?: string;
 		status?: string;
+		/** 最多返回条数（≤200）。taskId+limit 且无 status/since 时走日志尾部读取，避免全量解析历史 */
+		limit?: number;
+		/** 只返回 startedAt >= since 的记录（执行记录列表按时间范围加载用） */
+		since?: number;
 	}): Promise<ExecutionRecord[]>;
+	/** 每任务最新一条执行记录（侧栏状态点用）：读 <taskId>.latest.json 索引，
+	 *  无索引（旧数据）时退化为读该任务日志尾 1 条，不触发全量日志解析 */
+	listLatestRecords(): Promise<ExecutionRecord[]>;
 	/** watcher 防自写循环：返回 store 最近一次写入该文件的内容哈希；非自写/未知 → null */
 	lastWrittenHash(file: string): string | null;
 }
@@ -317,9 +391,21 @@ export function createFolderTaskStore(deps: {
 			const line = formatLogLine(record);
 			const file = join(dir, `${taskId}.log`);
 			await writeFile(file, `${line}\n`, { flag: "a" }); // 追加不写哈希：log 不参与 watch
+			// 同步维护「每任务最新一条」索引（tmp+rename 原子写，logs/ 下不参与 watch 哈希）：
+			// appendRecord 是该任务记录的唯一写入口 ⇒ latest 恒等于日志最后一行，
+			// 侧栏状态点等消费方读这个小文件即可，无需全量解析历史日志
+			const tmp = `${file}.latest.json.tmp-${process.pid}-${tmpCounter++}`;
+			const latestFile = join(dir, `${taskId}.latest.json`);
+			await writeFile(tmp, JSON.stringify(record), "utf8");
+			await rename(tmp, latestFile);
 		},
 
 		async listRecords(filter) {
+			// 指定任务 + limit 且无 status/since 筛选时走尾部读取：最新记录恒在文件尾部，
+			// 无需全量解析历史日志（读放大随日志增长线性恶化，是长期运行卡顿的隐患）
+			if (filter.taskId && filter.limit && !filter.status && !filter.since) {
+				return listRecordsTail(filter.taskId, filter.limit);
+			}
 			const byId = new Map<string, ExecutionRecord>();
 			const dir = logsDirOf();
 			let entries: string[] = [];
@@ -341,9 +427,46 @@ export function createFolderTaskStore(deps: {
 				}
 			}
 			let records = [...byId.values()];
+			if (filter.since != null)
+				records = records.filter((r) => r.startedAt >= filter.since!);
 			if (filter.status)
 				records = records.filter((r) => r.status === filter.status);
-			return records.sort((a, b) => b.startedAt - a.startedAt).slice(0, 200);
+			return records
+				.sort((a, b) => b.startedAt - a.startedAt)
+				.slice(0, filter.limit ?? 200);
+		},
+
+		async listLatestRecords() {
+			const dir = logsDirOf();
+			let entries: string[] = [];
+			try {
+				entries = await readdir(dir);
+			} catch {
+				return [];
+			}
+			const records: ExecutionRecord[] = [];
+			for (const entry of entries) {
+				if (!entry.endsWith(".log")) continue;
+				const taskId = entry.slice(0, -4);
+				try {
+					const raw = await readFile(
+						join(dir, `${taskId}.latest.json`),
+						"utf8",
+					);
+					const rec = JSON.parse(raw) as ExecutionRecord;
+					if (
+						typeof rec?.id === "string" &&
+						typeof rec?.startedAt === "number"
+					) {
+						records.push(rec);
+						continue;
+					}
+				} catch {
+					// 无索引（旧数据）或索引损坏：退化为读该任务日志尾 1 条
+				}
+				records.push(...(await listRecordsTail(taskId, 1)));
+			}
+			return records.sort((a, b) => b.startedAt - a.startedAt);
 		},
 
 		lastWrittenHash(file) {

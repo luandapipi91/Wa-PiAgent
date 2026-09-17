@@ -164,8 +164,45 @@ describe("ExecutionRecords", () => {
 		expect(screen.getByText("已推送")).toBeTruthy();
 	});
 
-	test("挂载时调用 loadRecords 拉取全部记录", () => {
+	test("挂载时按时间窗口调用 loadRecords（since = 24h 前，limit 200）", () => {
+		const before = Date.now();
 		render(<ExecutionRecords />);
-		expect(loadRecordsMock).toHaveBeenCalledWith();
+		const call = loadRecordsMock.mock.calls[0]?.[0] as {
+			since: number;
+			limit: number;
+		};
+		expect(call.limit).toBe(200);
+		// since 应约等于 now - 24h（允许毫秒级误差）
+		expect(call.since).toBeGreaterThan(before - 86400000 - 5000);
+		expect(call.since).toBeLessThanOrEqual(before - 86400000 + 5000);
+	});
+
+	test("窗口内打满 200 条时显示「加载更早」，点击向前扩一个窗口重拉", () => {
+		const now = Date.now();
+		schedulerState.records = Array.from({ length: 200 }, (_, i) => ({
+			id: `r${i}`,
+			taskId: "t1",
+			taskName: "任务",
+			status: "success",
+			startedAt: now - i * 1000, // 全部落在 24h 窗口内
+		}));
+		render(<ExecutionRecords />);
+		expect(screen.getByTestId("execution-records-load-earlier")).toBeTruthy();
+		fireEvent.click(screen.getByTestId("execution-records-load-earlier"));
+		// 第二次调用：since 前扩到约 48h 前
+		const call = loadRecordsMock.mock.calls[1]?.[0] as {
+			since: number;
+			limit: number;
+		};
+		expect(call.since).toBeLessThanOrEqual(now - 2 * 86400000 + 5000);
+		expect(call.since).toBeGreaterThan(now - 2 * 86400000 - 5000);
+	});
+
+	test("窗口内未打满时不显示「加载更早」", () => {
+		schedulerState.records = [
+			{ id: "r1", taskId: "t1", taskName: "任务", status: "success", startedAt: Date.now() - 1000 },
+		];
+		render(<ExecutionRecords />);
+		expect(screen.queryByTestId("execution-records-load-earlier")).toBeNull();
 	});
 });

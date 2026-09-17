@@ -1,28 +1,59 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
+
+// 初始加载窗口：按天/周/月对应的时间跨度（毫秒）
+const PERIOD_MS = {
+	day: 86400000,
+	week: 604800000,
+	month: 2592000000,
+} as const;
+const PAGE_LIMIT = 200; // 与后端单次返回上限一致
 
 /**
  * 执行记录列表：顶部筛选栏（按天/周/月 + 任务筛选 + 状态筛选）+ 记录卡片。
- * 挂载时拉取全部执行记录，按选定条件过滤后渲染。
+ * 挂载/切换周期时按时间窗口增量拉取（不再默认全量拉历史）；任务/状态筛选本地过滤。
+ * 窗口内记录打满单次上限时显示「加载更早」，向前扩一个窗口重拉。
  */
 export function ExecutionRecords() {
 	const { tasks, records, loadRecords, openRecordDetail } = useSchedulerStore();
-	const [period, setPeriod] = useState<"day" | "week" | "month">("day");
+	const [period, setPeriod] = useState<keyof typeof PERIOD_MS>("day");
 	const [taskFilter, setTaskFilter] = useState("");
 	const [statusFilter, setStatusFilter] = useState("");
+	// 当前加载窗口起点（null = 未加载）；「加载更早」向前扩一个周期
+	const [windowStart, setWindowStart] = useState<number | null>(null);
+
+	const periodMs = PERIOD_MS[period];
+
+	const loadWindow = useCallback(
+		(start: number) => {
+			void loadRecords({ since: start, limit: PAGE_LIMIT });
+		},
+		[loadRecords],
+	);
 
 	useEffect(() => {
-		loadRecords();
-	}, [loadRecords]);
+		const start = Date.now() - periodMs;
+		setWindowStart(start);
+		loadWindow(start);
+	}, [period, periodMs, loadWindow]);
+
+	const loadEarlier = () => {
+		if (windowStart == null) return;
+		const start = windowStart - periodMs;
+		setWindowStart(start);
+		loadWindow(start);
+	};
+	// 窗口内打满单次上限 ⇒ 可能还有更早记录，展示「加载更早」
+	const canLoadEarlier =
+		windowStart != null &&
+		records.filter((r) => r.startedAt >= windowStart).length >= PAGE_LIMIT;
 
 	let filtered = records;
 	if (taskFilter) filtered = filtered.filter((r) => r.taskId === taskFilter);
 	if (statusFilter) filtered = filtered.filter((r) => r.status === statusFilter);
 
-	// 时间过滤
+	// 时间过滤：SSE 兑底刷新可能拉回窗口外数据，展示时仍按当前周期窗口裁剪
 	const now = Date.now();
-	const periodMs =
-		period === "day" ? 86400000 : period === "week" ? 604800000 : 2592000000;
 	filtered = filtered.filter((r) => now - r.startedAt < periodMs);
 
 	return (
@@ -169,6 +200,22 @@ export function ExecutionRecords() {
 						</div>
 					))}
 				</div>
+			)}
+
+			{/* 加载更早：窗口内打满单次上限时展示，向前扩一个周期窗口重拉 */}
+			{canLoadEarlier && filtered.length > 0 && (
+				<button
+					onClick={loadEarlier}
+					data-testid="execution-records-load-earlier"
+					className="w-full text-[10px] py-1.5 rounded border cursor-pointer"
+					style={{
+						background: "var(--surface-hover)",
+						borderColor: "var(--hairline)",
+						color: "var(--text-secondary)",
+					}}
+				>
+					加载更早记录
+				</button>
 			)}
 		</div>
 	);

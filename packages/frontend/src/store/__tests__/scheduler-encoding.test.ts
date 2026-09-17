@@ -42,9 +42,16 @@ test("runTaskNow 对含保留字符的 id 编码 path 段", async () => {
 });
 
 test("loadRecords 对含保留字符的 taskId 编码 query 参数", async () => {
-	await useSchedulerStore.getState().loadRecords("a&b=1#c");
+	await useSchedulerStore.getState().loadRecords({ taskId: "a&b=1#c" });
 	expect(getMock.mock.calls[0]?.[0]).toBe(
 		`/api/execution-records?taskId=${encodeURIComponent("a&b=1#c")}`,
+	);
+});
+
+test("loadRecentRecords 尾读路径：taskId 编码 + limit 参数", async () => {
+	await useSchedulerStore.getState().loadRecentRecords("a&b=1#c", 3);
+	expect(getMock.mock.calls[0]?.[0]).toBe(
+		`/api/execution-records?taskId=${encodeURIComponent("a&b=1#c")}&limit=3`,
 	);
 });
 

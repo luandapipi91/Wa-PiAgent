@@ -161,7 +161,8 @@ export function createSchedulerRoutes(
 			return json({ ok: true });
 		});
 
-		// GET /api/execution-records — 执行记录（支持 taskId/status 筛选，倒序，最多 200 条）
+		// GET /api/execution-records — 执行记录（支持 taskId/status 筛选，倒序，默认最多 200 条）
+		// 可选参数：limit=N（上限 200）、since=<ms 时间戳>、latest=1（每任务最新一条，读索引）
 		r.add("GET", "/api/execution-records", async (req) => {
 			let url: URL;
 			try {
@@ -169,9 +170,20 @@ export function createSchedulerRoutes(
 			} catch {
 				return new Response("Invalid URL", { status: 400 });
 			}
+			const params = url.searchParams;
+			if (params.get("latest") === "1") {
+				return json({ records: await store.listLatestRecords() });
+			}
+			const toInt = (v: string | null): number | undefined => {
+				if (v == null || v === "") return undefined;
+				const n = Number.parseInt(v, 10);
+				return Number.isFinite(n) && n > 0 ? n : undefined;
+			};
 			const records = await store.listRecords({
-				taskId: url.searchParams.get("taskId") ?? undefined,
-				status: url.searchParams.get("status") ?? undefined,
+				taskId: params.get("taskId") ?? undefined,
+				status: params.get("status") ?? undefined,
+				limit: Math.min(toInt(params.get("limit")) ?? 200, 200),
+				since: toInt(params.get("since")),
 			});
 			return json({ records });
 		});

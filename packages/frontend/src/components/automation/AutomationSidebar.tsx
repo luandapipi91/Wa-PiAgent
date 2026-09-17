@@ -26,13 +26,13 @@ export function AutomationSidebar() {
 	const {
 		tasks,
 		taskErrors,
-		records,
+		latestByTask,
 		selectedTaskId,
 		selectTask,
 		startCreate,
 		startFixError,
 		loadTasks,
-		loadRecords,
+		loadLatestByTask,
 		deleteTask,
 		runTaskNow,
 	} = useSchedulerStore();
@@ -43,26 +43,24 @@ export function AutomationSidebar() {
 	const menuRef = useRef<HTMLDivElement>(null);
 	useClampMenu(menuRef, taskMenu);
 
-	// 每任务最近一条执行记录（状态点 + 上次执行时间数据源；records 无序保证，取 startedAt 最大）
+	// 每任务最近一条执行记录（状态点 + 上次执行时间数据源）：读后端 latest 索引聚合，
+	// 免全量解析历史日志（原全量 records 拉取是长期运行卡顿源之一）
 	const lastRunByTask = useMemo(() => {
 		const latest = new Map<
 			string,
 			{ status: ExecutionStatus; startedAt: number }
 		>();
-		for (const r of records) {
-			const prev = latest.get(r.taskId);
-			if (!prev || r.startedAt > prev.startedAt) {
-				latest.set(r.taskId, { status: r.status, startedAt: r.startedAt });
-			}
+		for (const r of Object.values(latestByTask)) {
+			latest.set(r.taskId, { status: r.status, startedAt: r.startedAt });
 		}
 		return latest;
-	}, [records]);
+	}, [latestByTask]);
 
 	useEffect(() => {
 		void loadTasks();
-		// 状态点需要全量执行记录（不限任务）；loadRecords 无参 = 全部
-		void loadRecords();
-	}, [loadTasks, loadRecords]);
+		// 状态点数据源：每任务最新一条（?latest=1 读索引），不再全量拉执行记录
+		void loadLatestByTask();
+	}, [loadTasks, loadLatestByTask]);
 
 	// 菜单关闭：点任意处 / ESC（延迟注册，避免右键当次事件立即关闭）
 	useEffect(() => {
