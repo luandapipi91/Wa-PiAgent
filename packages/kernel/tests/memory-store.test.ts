@@ -263,15 +263,55 @@ test("archive 已归档 / 不存在的 id → memory.entryStale", async () => {
   );
 });
 
-test("archive 归档的项目条目在任意 list 的 archived 段可见（与旧全局 sidecar 等价）", async () => {
+test("archive 归档的项目条目在该项目 list 的 archived 段可见（不漏到其它项目/无项目上下文）", async () => {
   const store = makeStore("/repos/my-app");
   await store.add("project", "项目条目", "p1");
-  const id = (await store.list("p1")).memories[0].id;
+  const id = (await store.list("p1")).memories[0]!.id;
   await store.archive(id);
 
-  const { archived } = await store.list();
+  const { archived } = await store.list("p1");
   expect(archived.map((m) => m.text)).toEqual(["项目条目"]);
-  expect(archived[0].scope).toBe("project");
+  expect(archived[0]!.scope).toBe("project");
+  // 回归：无项目上下文（全局作用域）与未知项目都看不到别家的归档
+  expect((await store.list()).archived).toHaveLength(0);
+  expect((await store.list("nonexistent-id")).archived).toHaveLength(0);
+});
+
+test("list 归档段按项目过滤：全局归档 + 当前项目归档，不含其它项目（回归：归档 tab 切项目失效）", async () => {
+  const store = makeStore("/repos/my-app");
+  await store.add("global", "全局归档");
+  const gid = (await store.list()).memories[0]!.id;
+  await store.archive(gid);
+  // 其它项目的归档：mock ProjectStore 只解析 p1→my-app，别家项目只能 seed 落库
+  const dao = new MemoryDao(openMemoryDb(tmpDir));
+  const mine = dao.insert({
+    kind: "knowledge",
+    target: "memory",
+    scope: "project",
+    projectId: "my-app",
+    content: "本项目归档",
+    source: "test",
+  });
+  dao.archive(mine.id);
+  const other = dao.insert({
+    kind: "knowledge",
+    target: "memory",
+    scope: "project",
+    projectId: "other-app",
+    content: "别项目归档",
+    source: "test",
+  });
+  dao.archive(other.id);
+
+  // 项目作用域：全局归档 + 本项目归档，绝不含别家项目
+  const withProject = await store.list("p1");
+  expect(withProject.archived.map((a) => a.text).sort()).toEqual([
+    "全局归档",
+    "本项目归档",
+  ]);
+  // 无项目上下文：只有全局归档
+  const globalOnly = await store.list();
+  expect(globalOnly.archived.map((a) => a.text)).toEqual(["全局归档"]);
 });
 
 test("restore 让归档条目回到列表", async () => {

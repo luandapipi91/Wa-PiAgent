@@ -332,4 +332,36 @@ test.describe
       await page.getByTestId("memory-scope-option-project-e2e-proj-1").click();
       await expect(archivedCards).toHaveCount(0, { timeout: 5000 });
     });
+
+    test("归档 Tab 项目作用域：项目归档可见、切全局后隐藏（回归：归档段按项目过滤）", async ({
+      page,
+    }) => {
+      await openMemorySection(page);
+
+      // 项目作用域下归档项目记忆（项目作用域已保存列表只有项目种子条目）
+      await page.getByTestId("memory-scope-select").click();
+      await page
+        .getByTestId("memory-scope-option-project-e2e-proj-1")
+        .click();
+      await page.getByTestId("tab-已保存").click();
+      await expect(page.getByText("E2E 项目记忆条目")).toBeVisible({
+        timeout: 5000,
+      });
+      await page.locator('[data-testid="memory-archive"]').first().click();
+
+      // 归档 Tab：项目归档在该项目作用域下可见
+      await page.getByTestId("tab-归档").click();
+      await expect(page.getByText("E2E 项目记忆条目")).toBeVisible({
+        timeout: 5000,
+      });
+
+      // 切回全局作用域：项目归档不可见，前序用例归档的全局条目仍在
+      await page.getByTestId("memory-scope-select").click();
+      await page.getByTestId("memory-scope-option-global").click();
+      await expect(page.getByText("E2E 项目记忆条目")).toBeHidden({
+        timeout: 5000,
+      });
+      const cards = page.locator('[data-testid^="memory-card-"]');
+      await expect(cards.first()).toBeVisible({ timeout: 5000 });
+    });
   });

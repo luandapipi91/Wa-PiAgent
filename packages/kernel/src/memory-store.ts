@@ -86,10 +86,19 @@ export class MemoryStore {
           includeArchived: false,
         })
       : [];
-    // 归档段与旧 sidecar 等价：不按作用域/项目切分，一条全局归档列表
-    const archived = dao
-      .list({ includeArchived: true })
-      .filter((r) => r.archived === 1);
+    // 归档段：与 memories 段同口径（全局归档 + 当前项目归档），前端再按 memoryScope
+    // 二次过滤。曾返回全量归档（「与旧 sidecar 等价」）导致归档 tab 切项目不过滤，
+    // 且与检索链路（archivedOnly 已按项目下推）口径不一。
+    const archived = [
+      ...dao.list({ scope: "global", archivedOnly: true }),
+      ...(projectName
+        ? dao.list({
+            scope: "project",
+            projectId: projectName,
+            archivedOnly: true,
+          })
+        : []),
+    ];
 
     return {
       memories: [...globals, ...projects].map((r) => this.toEntry(r)),
