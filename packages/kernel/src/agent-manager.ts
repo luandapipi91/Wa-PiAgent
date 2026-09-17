@@ -53,7 +53,8 @@ import {
 	readFile,
 	stat,
 } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
+import { createInterface } from "node:readline";
 import {
 	buildAdditionalExtensionPaths,
 	mcpAdapterExtensionPath,
@@ -610,6 +611,16 @@ export class AgentManager {
 		const cwd = resolveSessionCwd(sessionEntity, project);
 		// 确保 cwd 存在（默认工作区可能尚未创建 workdir；普通项目 cwd 一般已存在）
 		await mkdir(cwd, { recursive: true });
+
+		// 自愈：pi 会话文件首行记录的 stored cwd 若已丢失（存量会话 sessionId 时间戳与
+		// createdAt 错位、workdir-cleaner 按 TTL 清理、手动删除等），resume 时 pi 非交互
+		// 模式直接 exit(1)（"Stored session working directory does not exist"），调用方
+		// 只会看到"pi rpc 进程不可用"。spawn 前按 stored cwd 重建目录，存量错位会话即可
+		// 恢复且历史上下文不丢。读不到 stored cwd 时维持原行为。
+		const storedCwd = await readStoredSessionCwd(sessionEntity.piSessionFile);
+		if (storedCwd && storedCwd !== cwd) {
+			await mkdir(storedCwd, { recursive: true }).catch(() => {});
+		}
 
 		// 读 agent 配置（系统提示词 / 工具 / 模型 / thinking level）
 		const config = this.opts.configStore
@@ -2425,4 +2436,31 @@ async function resolveEnabledSkills(
 	const { skills } = await skillManager.scan(extSkillPaths);
 
 	return skills;
+}
+
+/**
+ * 读取 pi 会话文件首行记录的工作目录（pi resume 时校验的就是它）。
+ * jsonl 可能很大，流式只读首行；文件不存在/解析失败/无 cwd 字段一律返回 null（不阻断 spawn）。
+ */
+export async function readStoredSessionCwd(
+	piSessionFile: string,
+): Promise<string | null> {
+	try {
+		const rl = createInterface({
+			input: createReadStream(piSessionFile, { encoding: "utf8" }),
+			crlfDelay: Infinity,
+		});
+		for await (const line of rl) {
+			rl.close();
+			try {
+				const cwd = (JSON.parse(line) as { cwd?: unknown }).cwd;
+				return typeof cwd === "string" && cwd ? cwd : null;
+			} catch {
+				return null;
+			}
+		}
+		return null;
+	} catch {
+		return null;
+	}
 }

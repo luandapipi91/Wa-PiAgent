@@ -1,4 +1,6 @@
 ## 2026-09-18
+- fix(kernel): spawn 前 stored cwd 自愈——存量 IM 会话 sessionId 内嵌时间戳与会话实体 createdAt 错位（旧版各取 Date.now() 相差秒级），pi jsonl 首行 stored cwd 指向的 workdir/<sessionId-ts> 被 workdir-cleaner 按 TTL 清理（引用集合只认 createdAt），resume 时 pi 非交互模式直接 exit(1)（"Stored session working directory does not exist"），IM 侧只看到「pi rpc 进程不可用」且无自愈。修复：_createSession 在 mkdir(推导 cwd) 后流式读 piSessionFile 首行 stored cwd（新增导出 readStoredSessionCwd，大文件只读首行、失败静默），目录缺失则重建，存量错位会话恢复且历史上下文不丢；未来任何原因导致的目录丢失同样自愈。测试：agent-manager-stored-cwd 新增 6 pass（readStoredSessionCwd 单测 5 例 + 错位会话 ensureStarted 自愈集成 1 例）
+
 - fix(shared+kernel): fleet 并发上限「文案 5 / 实际 6」脱节修复——FLEET_DESCRIPTION 硬编码「Concurrency limit is 5」而常量=6（2026-09-01 拍板），delegate-tool 的 replace 回填因搜索串写「6」与模板「5」不符静默失效，bridge 扩展直引原文同病，模型看到的上限一直停留 5；修复：FLEET_MAX_CONCURRENCY 常量落位 shared tool-schemas.ts、FLEET_DESCRIPTION 同文件插值生来即渲染（数值与文案同源），kernel 删失效 replace 按旧名重导出兼容，bridge 扩展经生成物自动继承零改动；防回归测试补「渲染描述含常量值 + 禁止 5 回潮」，shared 14 pass / kernel delegate-tool 45 pass。配套 fleet 评测用例 6→20（应并行 10/应逐个 6/不该派 4，非 fleet 96 条零改动）+ fleet 选择正确率指标；worktree 实测（deepseek-v4-flash）：fleet 派发 16/20 恰为应派集合、误派 0%、漏派 0%，选择正确率 88%（应并行 9/10、应逐个 5/6）对比基线 67%（4/6）显著改善；simple/edit-small 抽样误派 0%。注意：已安装桌面端需随下次打包更新才见到修复后文案。报告 ~/.wa-pi/eval-dt-fleet20.json
 
 ## 2026-09-17 — v0.4.3 发版（会话切换体验 + 流式性能 + 稳定性修复）
