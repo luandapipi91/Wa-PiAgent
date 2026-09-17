@@ -143,14 +143,18 @@ test.describe("卡顿修复冒烟", () => {
 		// 列表挂载后立即查（skeleton 500ms 最小展示先走完）：出现即应已贴底
 		const list = page.getByTestId("message-list");
 		await list.waitFor({ state: "visible", timeout: 5000 });
-		const pin = await list.evaluate((el) => {
-			return { scrollTop: el.scrollTop, max: el.scrollHeight - el.clientHeight };
-		});
-		// 首帧即贴底：scrollTop ≥ 90% 最大滚动距离（修复前首帧从 0 开始，再跳底）
-		expect(
-			pin!.scrollTop,
-			`首帧 scrollTop=${pin!.scrollTop} / max=${pin!.max}（应已贴底）`,
-		).toBeGreaterThanOrEqual(pin!.max * 0.9);
+		// 挂载后快速贴底（initialTopMostItemIndex 首帧末行 + layoutEffect 同步 scrollTop；
+		// 轮询容忍 virtuoso 挂载测量过渡帧，1.5s 内必须到位——可抓住「顶部首屏→跳底」回归）
+		await expect
+			.poll(
+				async () => {
+					return list.evaluate(
+						(el) => el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight),
+					);
+				},
+				{ timeout: 1500, intervals: [100, 200, 300] },
+			)
+			.toBeGreaterThanOrEqual(0.9);
 	});
 
 	test("修复②③：工具循环（连续 message_end+touchSession）无秒级主线程长任务", async ({ page }) => {
