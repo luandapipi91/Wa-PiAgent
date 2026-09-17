@@ -412,24 +412,22 @@ test("ensurePromptsConfig 全新机器首次写入含 schemaVersion + 最新静�
 	rmSync(f, { force: true });
 });
 
-// ===== 子代理自我保护注入 =====
+// ===== 子代理系统提示词组装 =====
+// 注：自我保护段曾在此错误注入（对子代理属错误约束），2026-09-16 起移除，
+// composeSubagentPrompt 回归纯组装语义：原样返回正文（trim）。
 
-test("composeSubagentPrompt: 保留原正文并追加自我保护段", () => {
+test("composeSubagentPrompt: 原样返回正文（不再追加自我保护段）", () => {
 	const out = composeSubagentPrompt("你是一个调研员");
-	expect(out.startsWith("你是一个调研员")).toBe(true);
-	expect(out).toContain("## 自身进程保护（必须遵守）");
-	expect(out).toContain("禁止 kill / taskkill / pkill / killall");
+	expect(out).toBe("你是一个调研员");
+	expect(out).not.toContain("自身进程保护");
 });
 
-test("composeSubagentPrompt: 空正文 → 仅返回自我保护段（无前导 \\n\\n）", () => {
-	const out = composeSubagentPrompt("");
-	expect(out).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
-	expect(out.startsWith("\n")).toBe(false);
+test("composeSubagentPrompt: 空正文 → 返回空串", () => {
+	expect(composeSubagentPrompt("")).toBe("");
 });
 
-test("composeSubagentPrompt: 全空白正文 → 同样仅返回自我保护段（trim 后判空）", () => {
-	const out = composeSubagentPrompt("   \n\t ");
-	expect(out).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
+test("composeSubagentPrompt: 全空白正文 → trim 后返回空串", () => {
+	expect(composeSubagentPrompt("   \n\t ")).toBe("");
 });
 
 test("savePromptSegments 写入 schemaVersion，loadPromptSegments 往返仅返回 segments", async () => {
