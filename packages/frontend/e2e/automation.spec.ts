@@ -3,7 +3,7 @@ import { E2E_WS_PORT, E2E_WA_PI_DIR } from "../playwright.config";
 import { saveProvider } from "./helpers";
 // Task 11：CLI 建任务 + 配置错误修复 的 E2E。用 Node 侧 child_process/fs 模拟
 // agent 经 CLI 写任务文件、直接写坏文件，需在 kernel 已分发资产后运行。
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -432,8 +432,22 @@ test.describe
 			await waitForCliAsset();
 
 			// 2. 模拟 agent：经 CLI 直接写任务文件（add 不依赖 kernel 在线）
-			execSync(
-				`bun "${CLI_ASSET}" add --name "E2E任务" --agent dev --schedule '{"type":"daily","time":"09:30"}' --prompt "E2E：请整理今日文件"`,
+			// execFileSync 参数数组直传不经 shell：cmd.exe 不识别单引号，
+			// 旧写法单引号包 JSON 在 Windows 下被原样传入导致 "--schedule 不是合法 JSON"
+			execFileSync(
+				process.execPath,
+				[
+					CLI_ASSET,
+					"add",
+					"--name",
+					"E2E任务",
+					"--agent",
+					"dev",
+					"--schedule",
+					JSON.stringify({ type: "daily", time: "09:30" }),
+					"--prompt",
+					"E2E：请整理今日文件",
+				],
 				{ cwd: PROJ_CWD },
 			);
 
