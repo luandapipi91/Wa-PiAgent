@@ -1,4 +1,5 @@
 ## 2026-09-17
+- fix(frontend): 流式渲染停顿降级改为节流（消除闪烁）——用户实测 plain↔markdown 交替闪烁、切换会话闪一下；MarkdownBlock/ThinkingCard/StreamingOutput 统一改 useThrottledValue 节流（50ms），流式中始终渲染 markdown、解析降为低频，结束/历史/会话切换零延迟。测试重写为节流语义（markdown-streaming-throttle 4 例等），全量 2471 pass + E2E 冒烟 3/3
 - test(e2e): 新增 lag-fix-smoke.spec.ts——卡顿三轮修复的真实浏览器冒烟验收（流式降级 50ms 切换/thinking Linkify 降级/工具循环 15 轮 longtask 观察），实测修复后工具循环负载长任务 0 个（修复前 trace 实测 300-593ms×13）
 - fix(frontend): 流式渲染两处收尾——①SessionView 拆字段 selector（title/projectId/primaryAgent/createdAt 各自订阅原始值）：trace 实测工具循环期间每个 message_end 的 touchSession 新 session 对象击穿 SessionView 整树（含无 memo 的 Composer/GitToolbar/AgentSwitcher 等，5.2s 长任务），对象引用变化不再击穿；子树残留渲染仅 Composer 自身整店订阅（修复 3 待做）。②流式降级停顿阈值 500ms→50ms（MarkdownBlock/ThinkingCard）：用户反馈 500ms 感知为「卡住不渲染」。测试：session-view-scope 2 例（Profiler 渲染计数 + 二次 touchSession 渲染数恒定契约）+ 默认阈值 2 例，全量 2471 pass，E2E session-history/app-flow/send-scroll 全绿
 
