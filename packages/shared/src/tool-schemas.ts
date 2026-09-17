@@ -57,12 +57,15 @@ export const MEM_SCOPE_DESC =
   "Omit for the default — 'global' for the user target, 'project' for the memory target.";
 
 export const MEM_ADD_DESC =
-  "Append a new entry to memory. Memory stores generalizable summaries that future sessions need — " +
-  "NOT a log of everything you did. Record only: user identity/preferences/habits, stable project conventions " +
-  "and decisions, environment facts, reusable lessons. " +
-  "Do NOT record one-off task details (which files you edited, what bug you fixed, command output, " +
-  "intermediate results), temporary state, or anything recoverable from the current conversation or code. " +
-  "When in doubt, do not record. " +
+  "Append a new entry to memory. Memory has two record types: " +
+  "'knowledge' entries are generalizable facts for future sessions (user identity/preferences/habits, stable project conventions " +
+  "and decisions, environment facts, reusable lessons — including decisions settled in discussion without an execution process); " +
+  "'execution' entries are a dated log of completed tasks — what was done, the result, and the key takeaway " +
+  "(including research/comparison/selection tasks that were actually carried out, and verified solutions adopted as standing practice). " +
+  "Do NOT record transient state, raw command output, file-by-file change lists, intermediate results and mid-task progress, " +
+  "unfinished work, or anything recoverable from the current conversation or code — summarize conclusions instead. " +
+  "When in doubt about a knowledge entry, do not record; " +
+  "but when a substantial task is completed, always write a concise execution entry and pass kind='execution' explicitly. " +
   "TARGETS: 'user' for who the user is; 'memory' for your own notes. " +
   "SCOPE: omit for the default — 'global' for the user target, 'project' for the memory target. " +
   "KIND: omit for automatic routing (user+global → profile, otherwise knowledge); " +
@@ -120,8 +123,11 @@ export const MemoryKindSchema = Type.Union(
   [Type.Literal("knowledge"), Type.Literal("execution")],
   {
     description:
-      "Entry class. 'knowledge' (default): durable facts, conventions, decisions — long-term retrievable. " +
-      "'execution': a dated record of what was done (task, result, timeline). Omit to route by target+scope.",
+      "Entry class. 'knowledge' (default): durable facts, conventions, decisions — long-term retrievable; " +
+      "also for decisions settled in discussion without an execution process. " +
+      "'execution': a dated record of a completed task (what was done, result, takeaway; includes research/comparison/selection tasks " +
+      "that were actually carried out, and verified solutions adopted as standing practice) — write one whenever a substantial task is completed, always passing kind='execution' explicitly. " +
+      "Omit to route by target+scope.",
   },
 );
 

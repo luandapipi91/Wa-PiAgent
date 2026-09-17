@@ -53,14 +53,22 @@ test("memory 工具描述可从 @wa-pi/shared 导入", async () => {
   expect(typeof MEM_READ_SNIPPET).toBe("string");
 });
 
-test("MEM_ADD_DESC 明确「通用总结类才记、琐事不记、不确定不记」的存储准则", async () => {
+test("MEM_ADD_DESC 明确「双类型记录、琐事不记、任务完成必写执行记录」的存储准则", async () => {
   const { MEM_ADD_DESC } = await import("@wa-pi/shared/tool-schemas");
-  // 记忆只存可跨会话复用的通用总结，不是操作日志
-  expect(MEM_ADD_DESC).toContain("generalizable summaries");
-  // 明确排除一次性任务细节（改了哪些文件/修了什么 bug/命令输出等）
-  expect(MEM_ADD_DESC).toContain("Do NOT record one-off task details");
-  // 不确定时不记
-  expect(MEM_ADD_DESC).toContain("When in doubt, do not record");
+  // 双类型定义：knowledge = 通用事实，execution = 已完成任务的流水记录
+  expect(MEM_ADD_DESC).toContain("generalizable facts");
+  expect(MEM_ADD_DESC).toContain(
+    "'execution' entries are a dated log of completed tasks",
+  );
+  // 明确排除临时状态/原始输出/文件清单/未完成工作（不再否定“修了什么 bug”——那是执行记录的典型内容）
+  expect(MEM_ADD_DESC).toContain("Do NOT record transient state");
+  expect(MEM_ADD_DESC).toContain("unfinished work");
+  expect(MEM_ADD_DESC).not.toContain("what bug you fixed");
+  // 不确定不记仅限定 knowledge；完成任务时必须写执行记录
+  expect(MEM_ADD_DESC).toContain(
+    "When in doubt about a knowledge entry, do not record",
+  );
+  expect(MEM_ADD_DESC).toContain("always write a concise execution entry");
   // target/scope 参数指引必须保留（agent 依赖）
   expect(MEM_ADD_DESC).toContain("TARGETS");
   expect(MEM_ADD_DESC).toContain("SCOPE");
