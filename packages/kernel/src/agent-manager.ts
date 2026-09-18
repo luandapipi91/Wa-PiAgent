@@ -126,7 +126,9 @@ import {
 	ensureImChannelSegment,
 	ensureImPushSegment,
 	ensureScheduledTasksSegment,
+	ensureSelfProtectionSegment,
 	buildScheduledTasksSystemPrompt,
+	buildSelfProtectionPrompt,
 	DEFAULT_PROMPT_SEGMENTS,
 	DEFAULT_MEMORY_POLICY_PROMPT,
 	COMPACT_MEMORY_POLICY_PROMPT,
@@ -322,6 +324,8 @@ export class AgentManager {
 		);
 		// im-push 段同样不落盘，运行时补回（im-channel 之后、memory-policy 之前）
 		this.promptSegments = ensureImPushSegment(this.promptSegments);
+		// self-protection 段同样不落盘，运行时补回（base 之后、delegate-mechanism 之前）
+		this.promptSegments = ensureSelfProtectionSegment(this.promptSegments);
 		// scheduled-tasks 段同样不落盘，运行时补回（memory-policy 之前、im-push 之后）
 		this.promptSegments = ensureScheduledTasksSegment(this.promptSegments);
 		return this.promptSegments;
@@ -1050,6 +1054,11 @@ export class AgentManager {
 				: GENERIC_IM_PUSH_PROMPT,
 			// 定时任务管理引导（含路径/CLI 指引）：由构造函数产出经 ctx 注入，不在渲染层写死
 			scheduledTasksContext: buildScheduledTasksSystemPrompt(),
+			// 自身进程保护：按实际启动的 bridge 端口生成（不写死 9778/9776）。
+			// bridgeBaseUrl 惰性取值——WS 端口在 AgentManager 构造后才确定，故此处实时调用。
+			selfProtectionContext: buildSelfProtectionPrompt(
+				this.opts.bridgeBaseUrl?.(),
+			),
 		});
 		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });

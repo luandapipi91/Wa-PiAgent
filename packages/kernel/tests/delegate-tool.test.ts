@@ -65,23 +65,23 @@ test("delegate: 透传 spawn 的失败结果（isError 原样带出）", async (
 	expect(res.content[0].text).toBe("子智能体执行失败");
 });
 
-test("buildDelegateRoster: XML 结构 + subagents 根标签", () => {
+test("buildDelegateRoster: 紧凑列表格式（一行一智能体，无 XML 标签）", () => {
 	const r = buildDelegateRoster([], {}, "/agents");
-	expect(r).toContain("<subagents>");
-	expect(r).toContain("</subagents>");
-	// 每个内置类型是一个 <agent> 块
-	expect(r).toContain("<name>Explore</name>");
-	expect(r).toContain("<name>Plan</name>");
-	expect(r).toContain("<name>general-purpose</name>");
+	expect(r).toContain("## Available Subagents");
+	expect(r).toContain("- Explore：");
+	expect(r).toContain("- Plan：");
+	expect(r).toContain("- general-purpose：");
+	expect(r).not.toContain("<subagents>");
+	expect(r).not.toContain("<agent>");
 });
 
-test("buildDelegateRoster: location 字段指向定义文件", () => {
+test("buildDelegateRoster: 不再输出定义文件路径（元数据瘦身）", () => {
 	const r = buildDelegateRoster([], {}, "/agents");
-	expect(r).toContain("<location>/agents/Explore.md</location>");
-	expect(r).toContain("<location>/agents/general-purpose.md</location>");
+	expect(r).not.toContain("<location>");
+	expect(r).not.toContain("/agents/Explore.md");
 });
 
-test("buildDelegateRoster: 内置类型 hints 用 XML 标签", () => {
+test("buildDelegateRoster: 内置类型 hints 内联在行内", () => {
 	const r = buildDelegateRoster(
 		[],
 		{
@@ -93,13 +93,14 @@ test("buildDelegateRoster: 内置类型 hints 用 XML 标签", () => {
 		},
 		"/agents",
 	);
-	expect(r).toContain("<name>Explore</name>");
-	expect(r).toContain("<whenToDelegate>跨多文件探索</whenToDelegate>");
-	expect(r).toContain("<whenNotTo>needle query</whenNotTo>");
-	expect(r).toContain("<benefit>省上下文</benefit>");
+	expect(r).toContain("- Explore：");
+	expect(r).toContain("何时派：跨多文件探索");
+	expect(r).toContain("不派：needle query");
+	expect(r).toContain("收益：省上下文");
+	expect(r).not.toContain("<whenToDelegate>");
 });
 
-test("buildDelegateRoster: 命名智能体与内置类型统一列表（结构一致）", () => {
+test("buildDelegateRoster: 命名智能体与内置类型统一列表（格式一致）", () => {
 	const r = buildDelegateRoster(
 		[
 			{
@@ -114,27 +115,20 @@ test("buildDelegateRoster: 命名智能体与内置类型统一列表（结构�
 		{},
 		"/agents",
 	);
-	// 命名智能体也是 <agent> 块，含 hints + location
-	expect(r).toContain("<name>代码审查</name>");
-	expect(r).toContain("<description>评审改动</description>");
-	expect(r).toContain("<whenToDelegate>代码需评审</whenToDelegate>");
-	expect(r).toContain("<benefit>结构化反馈</benefit>");
-	expect(r).toContain("<location>/agents/代码审查.md</location>");
+	expect(r).toContain("- 代码审查：评审改动；何时派：代码需评审；收益：结构化反馈");
 	// 内置类型也在（统一列表，不分类）
-	expect(r).toContain("<name>Explore</name>");
+	expect(r).toContain("- Explore：");
 });
 
-test("buildDelegateRoster: 无 hints 的命名智能体只给 name+description+location", () => {
+test("buildDelegateRoster: 无 hints 的命名智能体只给名称+简介", () => {
 	const r = buildDelegateRoster(
 		[{ name: "测试员", description: "写测试", delegationHints: undefined }],
 		{},
 		"/agents",
 	);
-	expect(r).toContain("<name>测试员</name>");
-	expect(r).toContain("<description>写测试</description>");
-	expect(r).toContain("<location>/agents/测试员.md</location>");
-	// 测试员块不应有 whenToDelegate 标签
-	expect(r).not.toContain("<whenToDelegate>");
+	expect(r).toContain("- 测试员：写测试");
+	// 无 hints 时不应出现委派提示字段
+	expect(r).not.toContain("何时派：");
 });
 
 test("makeDelegateTool 描述为纯功能说明（不含智能体列表/hints）", () => {

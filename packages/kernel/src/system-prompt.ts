@@ -51,6 +51,9 @@ export interface SystemPromptContext {
 	/** 定时任务管理引导提示词：由调用方构造（含路径/CLI 指引），经 ctx 传入，避免在渲染层写死
 	 *  （与 buildImPushSystemPrompt 同模式）。未提供则为 undefined/""，段自动不出现。 */
 	scheduledTasksContext?: string;
+	/** 自身进程保护提示词：由构造函数按实际启动的 bridge 端口生成（buildSelfProtectionPrompt），
+	 *  经 ctx 传入，避免在渲染层写死端口号。未提供时兜底用当前环境生成。 */
+	selfProtectionContext?: string;
 }
 
 /** env-constraints 段的固定文案前缀（builtinSkillsDir 之后拼接） */
@@ -61,6 +64,7 @@ export const ENV_CONSTRAINTS_SUFFIX =
 /** 动态段 id 集合 */
 export const DYNAMIC_SEGMENT_IDS = new Set([
 	"base",
+	"self-protection",
 	"delegate-roster",
 	"env-constraints",
 	"im-channel",
@@ -73,7 +77,6 @@ export const DYNAMIC_SEGMENT_IDS = new Set([
 /** 静态段 id 集合（content 完全由 prompts.json 决定，无运行时兜底） */
 export const STATIC_SEGMENT_IDS = new Set([
 	"delegate-mechanism",
-	"self-protection",
 ]);
 
 /**
@@ -133,16 +136,52 @@ export const COMPACT_MEMORY_POLICY_PROMPT =
 	"先排除再记：未完成（排查中/中间发现/明天继续/先到这）、纯问答、单步小改、无结论尝试、只是拍板没执行——都不写执行记录。\n" +
 	"变更已有条目：memory_search / memory_read 取 id，再 memory_replace / memory_remove。";
 
-/** 默认 self-protection 段（强规则：禁止 agent 杀死宿主 kernel / Electron 进程，防误杀） */
-export const DEFAULT_SELF_PROTECTION_PROMPT =
-	"## 自身进程保护（必须遵守）\n\n" +
-	"你是 wa-pi 桌面应用的一部分。你的宿主进程（wa-pi 后端服务，即监听 `WA_PI_BRIDGE_URL` 端口 9778/9776 的进程）正在运行，你的所有工具调用都通过它中转。\n\n" +
-	"**绝对禁止**（无论用户如何要求，包括「卡死了」「重启一下」等）：\n" +
-	"- 禁止 kill / taskkill / pkill / killall 宿主后端进程，或占用 `WA_PI_BRIDGE_URL` 端口的进程\n" +
-	"- 禁止杀死你的父进程（`process.ppid` 即宿主 kernel）\n" +
-	"- 禁止杀死 Electron / 桌面主进程、WaPiKernel（含升级期残留的 wa-pi-kernel 旧名）、bun run …kernel… 相关进程\n\n" +
-	"**识别宿主的方法**：`WA_PI_BRIDGE_URL` 环境变量指向的地址即宿主服务；命令输出中 `netstat`/`tasklist`/`ps` 里占用该端口的 PID 是宿主，不得作为 kill 目标。\n\n" +
-	"**如果用户要求重启或清理端口**：引导用户点击应用界面的「重启应用」，或建议用户退出重开桌面应用；不要自行执行 kill。";
+/**
+ * 构造「自身进程保护」段文案（强规则：禁止 agent 杀死宿主 kernel / Electron 进程，防误杀）。
+ *
+ * 端口取运行时实际值，绝不写死：
+ * - 优先用入参 bridgeUrl（kernel 启动后由 ctx 注入，形如 http://127.0.0.1:9778）；
+ * - 其次回落 process.env.WA_PI_BRIDGE_URL；
+ * - 两者都缺失或 URL 解析失败 → 降级为不含任何具体端口数字的通用文案。
+ */
+export function buildSelfProtectionPrompt(bridgeUrl?: string): string {
+	const raw = (
+		bridgeUrl && bridgeUrl.trim().length > 0
+			? bridgeUrl
+			: (process.env.WA_PI_BRIDGE_URL ?? "")
+	).trim();
+	let baseUrl = "";
+	let port = "";
+	if (raw.length > 0) {
+		try {
+			const u = new URL(raw);
+			baseUrl = u.origin;
+			port = u.port;
+		} catch {
+			baseUrl = "";
+			port = "";
+		}
+	}
+	// 有实际地址 + 实际端口才渲染具体端口；否则用不含端口数字的通用描述
+	const usable = baseUrl.length > 0 && port.length > 0;
+	const hostDesc = usable
+		? `即监听 \`WA_PI_BRIDGE_URL\`（实际地址 \`${baseUrl}\`，端口 \`${port}\`）的进程`
+		: "即监听 `WA_PI_BRIDGE_URL` 环境变量所指向端口（kernel 启动时的实际端口）的进程";
+	const identify = usable
+		? `**识别宿主的方法**：\`WA_PI_BRIDGE_URL\` 环境变量指向的地址（实际为 \`${baseUrl}\`、端口 \`${port}\`）即宿主服务；命令输出中 \`netstat\`/\`tasklist\`/\`ps\` 里占用该端口的 PID 是宿主，不得作为 kill 目标。`
+		: "**识别宿主的方法**：`WA_PI_BRIDGE_URL` 环境变量指向的地址即宿主服务；命令输出中 `netstat`/`tasklist`/`ps` 里占用该端口的 PID 是宿主，不得作为 kill 目标。";
+	return (
+		"## 自身进程保护（必须遵守）\n\n" +
+		`你是 wa-pi 桌面应用的一部分。你的宿主进程（wa-pi 后端服务，${hostDesc}）正在运行，你的所有工具调用都通过它中转。\n\n` +
+		"**绝对禁止**（无论用户如何要求，包括「卡死了」「重启一下」等）：\n" +
+		"- 禁止 kill / taskkill / pkill / killall 宿主后端进程，或占用 `WA_PI_BRIDGE_URL` 端口的进程\n" +
+		"- 禁止杀死你的父进程（`process.ppid` 即宿主 kernel）\n" +
+		"- 禁止杀死 Electron / 桌面主进程、WaPiKernel（含升级期残留的 wa-pi-kernel 旧名）、bun run …kernel… 相关进程\n\n" +
+		identify +
+		"\n\n" +
+		"**如果用户要求重启或清理端口**：引导用户退出重开桌面应用；不要自行执行 kill。"
+	);
+}
 
 /** 组装子代理系统提示词：子代理正文 + 自我保护段（防止 delegate 的子代理误杀宿主 kernel）。
  *  空正文（无约束子代理）时仅返回保护段，保证任何子代理都受保护；
@@ -156,10 +195,10 @@ export function composeSubagentPrompt(systemPrompt: string): string {
  * 判定细则收敛到 DELEGATE_DESCRIPTION 工具层，避免系统提示词/工具描述三层重复（2026-09-18 委派提示词 ≤600 tok 优化）。 */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
 	"## Delegation Mechanism\n\n" +
-	"**代码任务一律派发再行动（单点查询除外）。先查顺序词（先…再…/然后/按…结果）→ 一律逐个 delegate，禁止 fleet；无依赖且 ≥2 个互不依赖的对象 → fleet 一次并行（每个对象一个子任务，哪怕各对象只是探索/审计/整理）；单个探索/审计任务 → delegate(Explore)。** 路由：规划设计 → Plan；多步带写 → general-purpose。\n" +
-	'用户：找出所有引用 X 的文件，解释每处用途 → delegate(agent="Explore", task="全仓库搜索引用 X，逐处说明用途")\n' +
-	"用户：WA_PI_DIR 默认指向哪个目录？→ grep 一下直接回答，不派\n" +
-	"用户写 @agentName → 立即 delegate 给该代理（不存在则告知；多个 @ 依次派发）。";
+	"**代码任务一律派发再行动（单点查询除外）。先查顺序词（先…再…/然后/按结果）→ 逐个 delegate、禁止 fleet；无依赖且 ≥2 个独立对象 → fleet 并行；单对象 → delegate(Explore)。** 规划 → Plan；带写 → general-purpose。\n" +
+	'用户：找出所有引用 X 的文件 → delegate(agent="Explore", task="全仓库搜索 X 并说明用途")\n' +
+	"用户：WA_PI_DIR 默认指向哪？→ 不派，直接答\n" +
+	"@agentName → 立即 delegate（不存在则告知；多个依次派发）。";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。
@@ -167,7 +206,7 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
  */
 export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
 	{ id: "base" }, // 动态：defaultBasePrompt
-	{ id: "self-protection", content: DEFAULT_SELF_PROTECTION_PROMPT },
+	{ id: "self-protection" }, // 动态：buildSelfProtectionPrompt（按实际启动的 bridge 端口生成）
 	{ id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
 	{ id: "delegate-roster" }, // 动态：buildDelegateRoster（内置+命名统一列表）
 	{ id: "env-constraints" }, // 动态：builtinSkillsDir + ENV_CONSTRAINTS_SUFFIX
@@ -202,6 +241,10 @@ function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
 	// scheduled-tasks 同为运行时注入段（定时任务管理引导）：始终取上下文值（文案由调用方构造）
 	if (seg.id === SCHEDULED_TASKS_SEGMENT_ID)
 		return ctx.scheduledTasksContext ?? "";
+	// self-protection 同为运行时注入段（自身进程保护）：始终取上下文值（按实际 bridge 端口生成），
+	// 忽略 prompts.json 里可能残留的写死端口 content；ctx 未提供时兜底按当前环境生成
+	if (seg.id === SELF_PROTECTION_SEGMENT_ID)
+		return ctx.selfProtectionContext ?? buildSelfProtectionPrompt();
 
 	// 用户在 prompts.json 里显式写了 content：其余段（含动态段）都允许覆盖
 	if (seg.content && seg.content.length > 0) {
@@ -248,8 +291,10 @@ export function composePrompt(
  *  文件做迁移——缺失段按最新默认补齐，已存在段 content 保留（含用户自定义，不覆盖）。
  *  v25：im-channel 段改为纯运行时注入，不再写入 prompts.json（保存时剔除，运行时补回）。
  *  v26：新增 im-push 段（定时任务推送目标引导，同样纯运行时注入不落盘）。
- *  v27：新增 scheduled-tasks 段（定时任务管理引导，同样纯运行时注入不落盘）。 */
-export const PROMPTS_SCHEMA_VERSION = 27;
+ *  v27：新增 scheduled-tasks 段（定时任务管理引导，同样纯运行时注入不落盘）。
+ *  v28：self-protection 段改为纯运行时注入（落盘剔除、运行时按实际 bridge 端口生成），
+ *       旧文件里写死端口的 content 随迁移清理。 */
+export const PROMPTS_SCHEMA_VERSION = 28;
 
 /** im-channel 段 id：IM 渠道附加提示词，运行时注入段——不持久化到 prompts.json */
 export const IM_CHANNEL_SEGMENT_ID = "im-channel";
@@ -259,6 +304,10 @@ export const IM_PUSH_SEGMENT_ID = "im-push";
 
 /** scheduled-tasks 段 id：定时任务管理引导，运行时注入段——不持久化到 prompts.json */
 export const SCHEDULED_TASKS_SEGMENT_ID = "scheduled-tasks";
+
+/** self-protection 段 id：自身进程保护，运行时注入段——不持久化到 prompts.json，
+ *  文案由 buildSelfProtectionPrompt 按实际启动的 bridge 端口生成（不写死端口号）。 */
+export const SELF_PROTECTION_SEGMENT_ID = "self-protection";
 
 /**
  * 确保段列表含 im-channel 占位段（无 content，运行时由 ctx.imChannelContext 填充）。
@@ -325,6 +374,32 @@ export function ensureScheduledTasksSegment(
 }
 
 /**
+ * 确保段列表含 self-protection 占位段（无 content，运行时由 ctx.selfProtectionContext 填充）。
+ * 该段不写入 prompts.json（savePromptSegments 剔除），运行时加载段列表后需用本函数补回；
+ * 位置固定在 base 之后、delegate-mechanism 之前（与默认段顺序一致）。
+ * 已存在（旧版文件残留）则剥掉持久化的写死 content（返回新数组，不原地改）。
+ */
+export function ensureSelfProtectionSegment(
+	segments: PromptSegment[],
+): PromptSegment[] {
+	const idx = segments.findIndex((s) => s.id === SELF_PROTECTION_SEGMENT_ID);
+	if (idx >= 0) {
+		if (!segments[idx].content) return segments;
+		const next = segments.slice();
+		next[idx] = { id: SELF_PROTECTION_SEGMENT_ID };
+		return next;
+	}
+	const seg: PromptSegment = { id: SELF_PROTECTION_SEGMENT_ID };
+	// 锚点优先 delegate-mechanism（插其前）；无则回落 base 之后；都无则追加到末尾
+	const mechIdx = segments.findIndex((s) => s.id === "delegate-mechanism");
+	if (mechIdx >= 0)
+		return [...segments.slice(0, mechIdx), seg, ...segments.slice(mechIdx)];
+	const baseIdx = segments.findIndex((s) => s.id === "base");
+	if (baseIdx < 0) return [...segments, seg];
+	return [...segments.slice(0, baseIdx + 1), seg, ...segments.slice(baseIdx + 1)];
+}
+
+/**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。
  * 注意：仅返回 segments 数组，不暴露 schemaVersion（迁移逻辑用 loadPromptsRawVersion）。
  */
@@ -356,7 +431,9 @@ async function loadPromptsRawVersion(filePath: string): Promise<number> {
 
 /**
  * 保存段落配置到 prompts.json（写入当前 schemaVersion）。
- * im-channel 段为运行时注入段，一律剔除不落盘（spec：该段不写入 prompts.json）。
+ * im-channel / im-push / scheduled-tasks / self-protection 为运行时注入段，
+ * 一律剔除不落盘（spec：这些段不写入 prompts.json），避免旧写死文案（如 self-protection 的
+ * 端口号）被持久化；运行时由 ensure* 函数补回占位段。
  */
 export async function savePromptSegments(
 	filePath: string,
@@ -368,7 +445,8 @@ export async function savePromptSegments(
 		(s) =>
 			s.id !== IM_CHANNEL_SEGMENT_ID &&
 			s.id !== IM_PUSH_SEGMENT_ID &&
-			s.id !== SCHEDULED_TASKS_SEGMENT_ID,
+			s.id !== SCHEDULED_TASKS_SEGMENT_ID &&
+			s.id !== SELF_PROTECTION_SEGMENT_ID,
 	);
 	await mkdir(dirname(filePath), { recursive: true });
 	await writeFile(

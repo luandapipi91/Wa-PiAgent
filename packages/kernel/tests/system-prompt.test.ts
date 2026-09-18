@@ -8,7 +8,9 @@ import {
 	ensurePromptsConfig,
 	DEFAULT_PROMPT_SEGMENTS,
 	DEFAULT_DELEGATE_MECHANISM_PROMPT,
-	DEFAULT_SELF_PROTECTION_PROMPT,
+	buildSelfProtectionPrompt,
+	ensureSelfProtectionSegment,
+	SELF_PROTECTION_SEGMENT_ID,
 	composeSubagentPrompt,
 	WA_PI_DEFAULT_BASE_PROMPT,
 	DEFAULT_MEMORY_POLICY_PROMPT,
@@ -40,7 +42,7 @@ function tempFile() {
 test("composePrompt 默认段落全部出现", () => {
 	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
 	// 7 段都应出现（base / self-protection / delegate-mechanism / delegate-roster / env-constraints / memory-policy / memory-snapshot）
-	expect(result).toContain(DEFAULT_SELF_PROTECTION_PROMPT);
+	expect(result).toContain("自身进程保护（必须遵守）");
 	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
 	expect(result).toContain(DEFAULT_DELEGATE_MECHANISM_PROMPT);
 	expect(result).toContain("## Available Subagents");
@@ -52,7 +54,7 @@ test("composePrompt 默认段落全部出现", () => {
 test("composePrompt 默认段落顺序：base → self-protection → delegate-mechanism → roster → env → memory-policy → memory-snapshot", () => {
 	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
 	const basePos = result.indexOf(WA_PI_DEFAULT_BASE_PROMPT);
-	const selfProtPos = result.indexOf(DEFAULT_SELF_PROTECTION_PROMPT);
+	const selfProtPos = result.indexOf("自身进程保护（必须遵守）");
 	const mechanismPos = result.indexOf(DEFAULT_DELEGATE_MECHANISM_PROMPT);
 	const rosterPos = result.indexOf("## Available Subagents");
 	const envPos = result.indexOf("Built-in directory:");
@@ -134,15 +136,158 @@ test("composePrompt 静态段（delegate-mechanism）没写 content → 返回�
 	expect(result).toBe("");
 });
 
-test("composePrompt 静态段（self-protection）默认有 content → 默认提示词出现", () => {
+test("composePrompt self-protection 段：运行时注入默认文案（段标题 + 强约束都在）", () => {
 	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
 	expect(result).toContain("自身进程保护（必须遵守）");
 	expect(result).toContain("禁止 kill / taskkill / pkill / killall");
 });
 
-test("composePrompt 静态段（self-protection）没写 content → 返回空串（不出现）", () => {
-	const result = composePrompt([{ id: "self-protection" }], defaultCtx);
-	expect(result).toBe("");
+// ===== buildSelfProtectionPrompt：端口运行时生成，不写死 =====
+
+test("buildSelfProtectionPrompt(URL)：含实际 URL 与实际端口，不含写死端口 9778/9776", () => {
+	const out = buildSelfProtectionPrompt("http://127.0.0.1:9123");
+	expect(out).toContain("http://127.0.0.1:9123");
+	expect(out).toContain("9123");
+	expect(out).not.toContain("9778");
+	expect(out).not.toContain("9776");
+	// 原有全部约束语义保留
+	expect(out).toContain("禁止 kill / taskkill / pkill / killall");
+	expect(out).toContain("netstat");
+	expect(out).toContain("process.ppid");
+	expect(out).toContain("WaPiKernel");
+	expect(out).toContain("wa-pi-kernel");
+	// 重启引导文案改为「退出重开桌面应用」：splash 的「重启应用」按钮已被
+	// 「换端口启动」/「退出」替代（见 packages/desktop/tests/splash-html.test.ts），
+	// 旧文案会指向已不存在的入口
+	expect(out).toContain("退出重开桌面应用");
+	expect(out).not.toContain("「重启应用」");
+});
+
+test("buildSelfProtectionPrompt()：env 无 WA_PI_BRIDGE_URL 时不含 9778/9776；设置后含对应端口（用后恢复 env）", () => {
+	const saved = process.env.WA_PI_BRIDGE_URL;
+	try {
+		delete process.env.WA_PI_BRIDGE_URL;
+		const generic = buildSelfProtectionPrompt();
+		expect(generic).toContain("自身进程保护（必须遵守）");
+		expect(generic).not.toContain("9778");
+		expect(generic).not.toContain("9776");
+
+		process.env.WA_PI_BRIDGE_URL = "http://127.0.0.1:9333";
+		const fromEnv = buildSelfProtectionPrompt();
+		expect(fromEnv).toContain("http://127.0.0.1:9333");
+		expect(fromEnv).toContain("9333");
+		expect(fromEnv).not.toContain("9778");
+	} finally {
+		if (saved === undefined) delete process.env.WA_PI_BRIDGE_URL;
+		else process.env.WA_PI_BRIDGE_URL = saved;
+	}
+});
+
+test("buildSelfProtectionPrompt：入参优先于 env", () => {
+	const saved = process.env.WA_PI_BRIDGE_URL;
+	try {
+		process.env.WA_PI_BRIDGE_URL = "http://127.0.0.1:9111";
+		const out = buildSelfProtectionPrompt("http://127.0.0.1:9123");
+		expect(out).toContain("9123");
+		expect(out).not.toContain("9111");
+	} finally {
+		if (saved === undefined) delete process.env.WA_PI_BRIDGE_URL;
+		else process.env.WA_PI_BRIDGE_URL = saved;
+	}
+});
+
+test("buildSelfProtectionPrompt：URL 解析失败 → 降级通用文案（不含端口数字）", () => {
+	const out = buildSelfProtectionPrompt("not-a-url");
+	expect(out).toContain("自身进程保护（必须遵守）");
+	expect(out).not.toContain("9778");
+	expect(out).not.toContain("9776");
+});
+
+test("composePrompt self-protection：使用 ctx.selfProtectionContext（含实际端口）", () => {
+	const result = composePrompt([{ id: SELF_PROTECTION_SEGMENT_ID }], {
+		...defaultCtx,
+		selfProtectionContext: buildSelfProtectionPrompt("http://127.0.0.1:9123"),
+	});
+	expect(result).toContain("9123");
+	expect(result).not.toContain("9778");
+	expect(result).not.toContain("9776");
+});
+
+test("composePrompt self-protection：忽略 segment 残留 content，始终取 ctx 值", () => {
+	const result = composePrompt(
+		[
+			{
+				id: SELF_PROTECTION_SEGMENT_ID,
+				content: "STALE PROMPT 9778/9776",
+			},
+		],
+		{
+			...defaultCtx,
+			selfProtectionContext: buildSelfProtectionPrompt("http://127.0.0.1:9123"),
+		},
+	);
+	expect(result).toContain("9123");
+	expect(result).not.toContain("STALE PROMPT");
+	expect(result).not.toContain("9778");
+});
+
+// ===== ensureSelfProtectionSegment：运行时补回占位段 =====
+
+test("ensureSelfProtectionSegment：缺失时补回占位段，位置在 base 之后、delegate-mechanism 之前", () => {
+	const input: PromptSegment[] = [
+		{ id: "base", content: "B" },
+		{ id: "delegate-mechanism", content: "M" },
+		{ id: "memory-policy" },
+	];
+	const out = ensureSelfProtectionSegment(input);
+	const ids = out.map((s) => s.id);
+	expect(ids.indexOf("base")).toBeLessThan(ids.indexOf(SELF_PROTECTION_SEGMENT_ID));
+	expect(ids.indexOf(SELF_PROTECTION_SEGMENT_ID)).toBeLessThan(
+		ids.indexOf("delegate-mechanism"),
+	);
+	// 占位段无 content（运行时由 ctx 注入）
+	expect(
+		out.find((s) => s.id === SELF_PROTECTION_SEGMENT_ID)!.content,
+	).toBeUndefined();
+	// 缺失时返回新数组，不原地改
+	expect(out).not.toBe(input);
+});
+
+test("ensureSelfProtectionSegment：残留 content 剥离，且不原地修改原数组", () => {
+	const input: PromptSegment[] = [
+		{ id: "base" },
+		{ id: SELF_PROTECTION_SEGMENT_ID, content: "STALE 9778/9776" },
+		{ id: "delegate-mechanism" },
+	];
+	const out = ensureSelfProtectionSegment(input);
+	expect(
+		out.find((s) => s.id === SELF_PROTECTION_SEGMENT_ID)!.content,
+	).toBeUndefined();
+	// 原数组未被修改
+	expect(input[1].content).toBe("STALE 9778/9776");
+});
+
+test("ensureSelfProtectionSegment：已是占位段（无 content）则原样返回", () => {
+	const input: PromptSegment[] = [
+		{ id: "base" },
+		{ id: SELF_PROTECTION_SEGMENT_ID },
+	];
+	expect(ensureSelfProtectionSegment(input)).toBe(input);
+});
+
+// ===== savePromptSegments：self-protection 不落盘 =====
+
+test("savePromptSegments 剔除 self-protection 段（运行时注入不落盘）", async () => {
+	const f = tempFile();
+	await savePromptSegments(f, [
+		{ id: "base" },
+		{ id: SELF_PROTECTION_SEGMENT_ID, content: "STALE 9778" },
+		{ id: "delegate-mechanism", content: "M" },
+	]);
+	const loaded = await loadPromptSegments(f);
+	expect(loaded!.some((s) => s.id === SELF_PROTECTION_SEGMENT_ID)).toBe(false);
+	expect(readFileSync(f, "utf8")).not.toContain("9778");
+	rmSync(f, { force: true });
 });
 
 test("composePrompt 动态段写 content（env-constraints）→ 用户覆盖", () => {
@@ -265,11 +410,14 @@ test("ensurePromptsConfig 首次调用写入默认配置", async () => {
 	await ensurePromptsConfig(f);
 	expect(existsSync(f)).toBe(true);
 	const loaded = await loadPromptSegments(f);
-	// im-channel / im-push / scheduled-tasks 为运行时注入段，不落盘
+	// im-channel / im-push / scheduled-tasks / self-protection 为运行时注入段，不落盘
 	expect(loaded).toEqual(
 		DEFAULT_PROMPT_SEGMENTS.filter(
 			(s) =>
-				s.id !== "im-channel" && s.id !== "im-push" && s.id !== "scheduled-tasks",
+				s.id !== "im-channel" &&
+				s.id !== "im-push" &&
+				s.id !== "scheduled-tasks" &&
+				s.id !== "self-protection",
 		),
 	);
 	rmSync(f, { force: true });
@@ -320,10 +468,8 @@ test("ensurePromptsConfig 迁移旧格式文件（无 schemaVersion）→ 保留
 	expect(byId.has("delegate-roster")).toBe(true);
 	// 缺失段（memory-policy 等）追加最新默认
 	expect(byId.get("memory-policy")!.content ?? "").toBe(""); // 动态段，content 为空由运行时填充
-	// 缺失段（self-protection）追加最新默认静态段
-	expect(byId.get("self-protection")!.content).toBe(
-		DEFAULT_SELF_PROTECTION_PROMPT,
-	);
+	// self-protection 为运行时注入段，不落盘（迁移后由 ensureSelfProtectionSegment 在运行时补回）
+	expect(byId.has("self-protection")).toBe(false);
 	expect(byId.has("env-constraints")).toBe(true);
 	expect(byId.has("memory-snapshot")).toBe(true);
 	// 废弃 id 被丢弃
@@ -335,7 +481,7 @@ test("ensurePromptsConfig 迁移旧格式文件（无 schemaVersion）→ 保留
 	rmSync(f, { force: true });
 });
 
-test("ensurePromptsConfig 迁移 22→23：补 self-protection 段且保留 base/delegate-mechanism 用户 content", async () => {
+test("ensurePromptsConfig 迁移旧版：self-protection 不落盘（运行时注入）且保留 base/delegate-mechanism 用户 content", async () => {
 	const f = tempFile();
 	// 模拟 v22 磁盘文件：已有 base（用户自定义）+ delegate-mechanism（旧内容），无 self-protection 段
 	const v22Segments: PromptSegment[] = [
@@ -354,16 +500,37 @@ test("ensurePromptsConfig 迁移 22→23：补 self-protection 段且保留 base
 	const loaded = await loadPromptSegments(f);
 	expect(loaded).not.toBeNull();
 	const byId = new Map((loaded as PromptSegment[]).map((s) => [s.id, s]));
-	// 缺失的 self-protection 段以默认 content 补齐
-	expect(byId.get("self-protection")!.content).toBe(
-		DEFAULT_SELF_PROTECTION_PROMPT,
-	);
+	// self-protection 为运行时注入段，不写入磁盘
+	expect(byId.has("self-protection")).toBe(false);
 	// 已存在段用户 content 保留（不被默认覆盖）
 	expect(byId.get("base")!.content).toBe("MY CUSTOM BASE");
 	expect(byId.get("delegate-mechanism")!.content).toBe("OLD MECHANISM TEXT");
-	// 磁盘已升级到 23
+	// 磁盘已升级到最新 schemaVersion
 	const raw = JSON.parse(readFileSync(f, "utf8"));
 	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
+	rmSync(f, { force: true });
+});
+
+test("迁移回归：v27 文件里 self-protection 写死 9778/9776 → ensurePromptsConfig 后落盘不再含该段与 9778", async () => {
+	const f = tempFile();
+	const v27: PromptSegment[] = [
+		{ id: "base" },
+		{ id: "self-protection", content: "宿主端口 9778/9776" },
+		{ id: "delegate-mechanism", content: "M" },
+		{ id: "scheduled-tasks" },
+	];
+	writeFileSync(
+		f,
+		JSON.stringify({ schemaVersion: 27, segments: v27 }, null, 2),
+	);
+
+	await ensurePromptsConfig(f);
+
+	const diskText = readFileSync(f, "utf8");
+	expect(diskText).not.toContain("self-protection");
+	expect(diskText).not.toContain("9778");
+	const loaded = await loadPromptSegments(f);
+	expect(loaded!.some((s) => s.id === "self-protection")).toBe(false);
 	rmSync(f, { force: true });
 });
 
@@ -402,11 +569,14 @@ test("ensurePromptsConfig 全新机器首次写入含 schemaVersion + 最新静�
 	await ensurePromptsConfig(f);
 	const raw = JSON.parse(readFileSync(f, "utf8"));
 	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
-	// im-channel / im-push / scheduled-tasks 为运行时注入段，不落盘
+	// im-channel / im-push / scheduled-tasks / self-protection 为运行时注入段，不落盘
 	expect(raw.segments).toEqual(
 		DEFAULT_PROMPT_SEGMENTS.filter(
 			(s) =>
-				s.id !== "im-channel" && s.id !== "im-push" && s.id !== "scheduled-tasks",
+				s.id !== "im-channel" &&
+				s.id !== "im-push" &&
+				s.id !== "scheduled-tasks" &&
+				s.id !== "self-protection",
 		),
 	);
 	rmSync(f, { force: true });

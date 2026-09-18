@@ -90,8 +90,9 @@ export interface RosterEntry {
 }
 
 /**
- * 拼装可用子智能体总览段（注入系统提示词），XML 结构化标签格式。
- * 内置类型与命名智能体统一为一个列表，结构一致：名称+简介+hints+定义文件路径。
+ * 拼装可用子智能体总览段（注入系统提示词），紧凑列表格式（一行一智能体）。
+ * 内置类型与命名智能体统一为一个列表：名称 + 简介 + 可选 hints（何时派/不派/收益）。
+ * 2026-09-18 委派提示词 ≤600 tok 优化：舍弃 XML 标签与定义文件路径等元数据（占位大且不参与派发判定）。
  */
 export function buildDelegateRoster(
 	askTo: DelegateTarget[],
@@ -116,23 +117,18 @@ export function buildDelegateRoster(
 		});
 	}
 	if (entries.length === 0) return "";
-	const blocks = entries.map((e) => {
-		const lines = ["<agent>"];
-		lines.push(`  <name>${e.name}</name>`);
-		lines.push(`  <description>${e.description || "（无简介）"}</description>`);
-		if (agentsDir) lines.push(`  <location>${agentsDir}/${e.name}.md</location>`);
+	void agentsDir; // 紧凑格式不再输出定义文件路径（纯元数据）；参数保留以兼容调用方
+	const lines = entries.map((e) => {
+		let line = `- ${e.name}：${e.description || "（无简介）"}`;
 		const h = e.delegationHints;
-		if (h?.whenToDelegate)
-			lines.push(`  <whenToDelegate>${h.whenToDelegate}</whenToDelegate>`);
-		if (h?.whenNotTo) lines.push(`  <whenNotTo>${h.whenNotTo}</whenNotTo>`);
-		if (h?.benefit) lines.push(`  <benefit>${h.benefit}</benefit>`);
-		lines.push("</agent>");
-		return lines.join("\n");
+		if (h?.whenToDelegate) line += `；何时派：${h.whenToDelegate}`;
+		if (h?.whenNotTo) line += `；不派：${h.whenNotTo}`;
+		if (h?.benefit) line += `；收益：${h.benefit}`;
+		return line;
 	});
 	return (
-		"## Available Subagents\n\nInvoke via the delegate tool:\n<subagents>\n" +
-		blocks.join("\n") +
-		"\n</subagents>"
+		"## Available Subagents（delegate 的 agent 参数填下列名称）\n" +
+		lines.join("\n")
 	);
 }
 
