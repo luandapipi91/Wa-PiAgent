@@ -431,10 +431,9 @@ test("MAX_SUBAGENT_CONCURRENCY 为 6（控制内存：6 子代理 × ~300MB 约 
 test("makeFleetTool 渲染后的描述包含真实并发数（防文案/数值脱节回归）", () => {
 	const spawn = async () => ({ text: "", isError: false });
 	const fleet = makeFleetTool({ askTo: [], spawn });
-	expect(fleet.description).toContain(
-		`Concurrency limit is ${MAX_SUBAGENT_CONCURRENCY}`,
-	);
+	expect(fleet.description).toContain(`并发上限 ${MAX_SUBAGENT_CONCURRENCY}`);
 	expect(fleet.description).not.toContain("Concurrency limit is 5");
+	expect(fleet.description).not.toContain("Concurrency limit is 6");
 });
 
 // ---- onSpawnComplete 遥测回调 ----

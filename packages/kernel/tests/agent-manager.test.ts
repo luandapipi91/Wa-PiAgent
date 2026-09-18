@@ -2152,9 +2152,15 @@ test("WA_PI_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
 	// 委托规则在 delegate-mechanism 段（DEFAULT_DELEGATE_MECHANISM_PROMPT）
 	const { DEFAULT_DELEGATE_MECHANISM_PROMPT } = require("../src/system-prompt");
 	const fullDefault = `${WA_PI_DEFAULT_SYSTEM_PROMPT}\n\n${DEFAULT_DELEGATE_MECHANISM_PROMPT}`;
-	expect(fullDefault).toContain("@[agentName]");
+	// @ 语法两种写法都接受（2026-09-18 委派提示词精简后写作 @agentName，早期为 @[agentName]）
+	expect(fullDefault).toMatch(/@\[?agentName\]?/);
 	expect(fullDefault).toContain("delegate");
-	expect(fullDefault).toContain("Task Contract");
+	// Task Contract 小节已按「判定细则收敛到工具描述」的分层移入 DELEGATE_DESCRIPTION
+	//（写作「任务自含范围/输出格式/约束」），因此只要求模型可见面上仍有该约定，不锁具体位置与措辞。
+	const { DELEGATE_DESCRIPTION } = require("@wa-pi/shared/tool-schemas");
+	expect(`${fullDefault}\n${DELEGATE_DESCRIPTION}`).toMatch(
+		/Task Contract|任务自含范围/,
+	);
 });
 
 // ─── 队列：followUpList / steerMessage / abort ────────────────────────────

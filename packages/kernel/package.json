@@ -12,7 +12,8 @@
     "test": "bun ./scripts/test.ts",
     "typecheck": "tsc --noEmit",
     "eval:delegate": "bun run scripts/eval-delegate-trigger.ts",
-    "eval:memory": "bun run scripts/eval-memory-write.ts"
+    "eval:memory": "bun run scripts/eval-memory-write.ts",
+    "eval:memory-trigger": "bun run scripts/eval-memory-trigger.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.85.1",

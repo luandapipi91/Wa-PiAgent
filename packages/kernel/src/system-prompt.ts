@@ -94,7 +94,9 @@ export const WA_PI_DEFAULT_BASE_PROMPT =
 export const DEFAULT_MEMORY_POLICY_PROMPT =
 	"## Memory Policy\n\n" +
 	"对话中出现值得跨会话保留的信息时，**主动调用记忆工具写入**，不要只放在回复文本里。\n\n" +
-	"**先查再答：** 遇到可能存过的问题（项目约定、历史决策、以前做过的事），先调 memory_search 检索——" +
+	"**先查再答（在委派或读代码之前）：** 凡问「这个项目是什么 / 有哪些 / 怎么跑」的知识类、过程类问题——项目结构、依赖清单、接口与方法清单、" +
+	"项目约定、历史决策、上一轮改了什么、构建测试方式、环境与工具链事实、踩过的坑——**第一个工具调用就应该是 memory_search**，" +
+	"查完再决定要不要委派或读代码；只有单点定义查询（答案一行念完）才不必查。" +
 	"系统提示词里只展示了「近期」部分，L2 知识层与 L3 执行层**可检索但不注入**，不查就当作不存在。\n\n" +
 	"**主动记忆（不必等用户说「记住」）：**\n" +
 	"- 用户透露的身份、偏好、习惯、工具链、运行环境 → memory_add(target=user)\n" +
@@ -125,7 +127,7 @@ export const DEFAULT_MEMORY_POLICY_PROMPT =
 /** 默认 memory-policy 段（精简版，memoryPolicyStyle=compact）：与完整版同义，只压缩篇幅 */
 export const COMPACT_MEMORY_POLICY_PROMPT =
 	"## Memory Policy\n\n" +
-	"先查再答：涉及项目约定/历史决策先调 memory_search（L2/L3 不注入，不查等于不存在）。\n" +
+	"先查再答（在委派或读代码之前）：问「这个项目是什么 / 有哪些 / 怎么跑」这类知识类、过程类问题（结构/依赖/接口与方法清单/约定/历史决策/上一轮改动/构建测试/环境事实/踩过的坑），第一个调用就是 memory_search，查完再决定是否委派；单点定义查询（答案一行念完）不必查。L2/L3 不注入，不查等于不存在。\n" +
 	"值得跨会话保留的信息立即 memory_add：用户偏好/身份/环境 → target=user；讨论中直接拍板的项目决策/约定/规范 → target=memory（注意：经实测/排查/交付过程得出的选型结论和问题解决按任务完成记 execution）；" +
 	"任务完成（修复/交付/排查/实测调研/发版）时回复前必记 kind=execution（必须显式传）：做了什么+结果+结论，1-3 行；已验证可行才定下的方案即使表述为「以后都这样」也记 execution；刚完成时结论写进执行记录不拆 knowledge。" +
 	"先排除再记：未完成（排查中/中间发现/明天继续/先到这）、纯问答、单步小改、无结论尝试、只是拍板没执行——都不写执行记录。\n" +
@@ -150,29 +152,14 @@ export function composeSubagentPrompt(systemPrompt: string): string {
 	return trimmed
 }
 
-/** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet；正文中文，贴合中文用户请求、字符更省） */
+/** 默认 delegate-mechanism 段（委托机制入口规则：默认委托 + fleet 并级提及 + 路由 + @ 语法。
+ * 判定细则收敛到 DELEGATE_DESCRIPTION 工具层，避免系统提示词/工具描述三层重复（2026-09-18 委派提示词 ≤600 tok 优化）。 */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
 	"## Delegation Mechanism\n\n" +
-	"用 `delegate(agent, task)` 把工作交给 <subagents> 里的子代理。**默认委托：除单点定义查询外，代码问题一律先派 Explore 再行动。**\n" +
-	"路由：规划设计 → Plan；多步带写 → general-purpose；需要用户交互 → 不派。\n\n" +
-	"用户：找出所有引用 X 的文件，解释每处用途\n" +
-	'你：delegate(agent="Explore", task="搜索全仓库引用 X 的位置，逐处说明用途") ← 不要自己 grep\n' +
-	"用户：X.ts 注册了哪些工具？每个的 schema 和超时分别是多少\n" +
-	'你：delegate(agent="Explore", task="读 X.ts，逐条列出注册的工具及其 schema、超时") ← 单文件多属性枚举也派\n' +
-	"用户：调查 X.ts：Y 是怎么收集的，涉及哪些扩展源？\n" +
-	'你：delegate(agent="Explore", task="读 X.ts，梳理 Y 的收集链路与涉及源") ← 单文件原理梳理也派\n' +
-	"用户：调查 scripts/ 目录每个脚本的用途\n" +
-	'你：delegate(agent="Explore", task="调查 scripts/ 目录，逐个脚本说明用途与调用方")\n' +
-	"用户：WA_PI_DIR 默认指向哪个目录？\n" +
-	"你：grep 一下直接回答 ← 单点定义，不派\n" +
-	"用户：DEFAULT_AGENT_TOOLS 包含哪几个工具？\n" +
-	"你：grep 到定义直接念出来 ← 单点定义，不派\n\n" +
-	"### Task Contract\n" +
-	"子代理没有对话上下文：任务必须自含范围、输出格式、约束；表达意图而非转发原文。delegate 返回后直接采用其结果——不要自己重做。\n\n" +
-	"### @[agentName]\n" +
-	"用户写 @agentName → 立即 `delegate` 给该代理，不要自己回答。名字不存在 → 告知用户。多个 @ → 依次派发。\n\n" +
-	"### Fleet\n" +
-	"`fleet({tasks:[{agent,task},...]})`：独立任务并行（上限 6 个）；避免同文件冲突。";
+	"**代码任务一律派发再行动（单点查询除外）。先查顺序词（先…再…/然后/按…结果）→ 一律逐个 delegate，禁止 fleet；无依赖且 ≥2 个互不依赖的对象 → fleet 一次并行（每个对象一个子任务，哪怕各对象只是探索/审计/整理）；单个探索/审计任务 → delegate(Explore)。** 路由：规划设计 → Plan；多步带写 → general-purpose。\n" +
+	'用户：找出所有引用 X 的文件，解释每处用途 → delegate(agent="Explore", task="全仓库搜索引用 X，逐处说明用途")\n' +
+	"用户：WA_PI_DIR 默认指向哪个目录？→ grep 一下直接回答，不派\n" +
+	"用户写 @agentName → 立即 delegate 给该代理（不存在则告知；多个 @ 依次派发）。";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。

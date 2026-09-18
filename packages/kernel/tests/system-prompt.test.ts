@@ -458,6 +458,27 @@ test.each([
 test.each([
 	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
 	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])(
+	"%s 记忆策略：知识类/过程类提问须在委派或读代码之前先查记忆",
+	(_name, prompt) => {
+		// 2026-09-18 记忆触发优化：基线实测「项目结构/依赖/有哪些方法」被当成纯代码任务，
+		// 首个动作是 ls/find/delegate 而不查记忆 → 点名归类 + 首动作顺序两个要素都不能丢。
+		expect(prompt).toContain("在委派或读代码之前");
+		expect(prompt).toMatch(/第一个[\s\S]{0,24}?memory_search/);
+		// 反例也要在：单点定义查询不必查，否则 agent 会对任何问题都先查一遍
+		expect(prompt).toContain("单点定义查询");
+	},
+);
+
+test("DEFAULT 记忆策略点名知识类提问：项目结构 / 依赖清单 / 接口与方法清单", () => {
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("项目结构");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("依赖清单");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("接口与方法清单");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
 ])("%s 记忆策略：引导写入 kind=execution 执行流水", (_name, prompt) => {
 	expect(prompt).toContain("kind=execution");
 });

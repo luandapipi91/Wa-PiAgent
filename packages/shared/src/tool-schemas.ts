@@ -100,7 +100,13 @@ export const MEM_READ_SNIPPET =
 export const MEM_SEARCH_DESC =
   "Full-text (BM25) search across all memory layers, including entries NOT shown in the system prompt. " +
   "Use this before assuming you don't know something — L2 (project knowledge) and L3 (execution log) " +
-  "are searchable but not injected. Supports Chinese and English queries. " +
+  "are searchable but not injected. " +
+  "Call this FIRST — before delegating, grepping, or listing files — for knowledge/process questions: " +
+  "what this project's structure or dependencies are, which methods/interfaces/files exist, project conventions, " +
+  "past decisions, what changed last round, how to build/test, environment and toolchain facts, lessons already learned. " +
+  "Answers like these are usually recorded from earlier sessions, so not searching is the same as assuming they don't exist. " +
+  "Do NOT search for single-point lookups whose answer can be read in one line (a constant's value, a function signature, a config key). " +
+  "Supports Chinese and English queries. " +
   "Optionally narrow by time range with since/until (see timeField for which timestamp they filter on). " +
   "Returns id/title/snippet/score; use the id with memory_replace / memory_remove.";
 
@@ -183,21 +189,15 @@ export const MemorySearchParamsSchema = Type.Object({
 // =========================================================================
 
 export const DELEGATE_DESCRIPTION = [
-  "在隔离上下文中运行子智能体（subagent）并返回其结果；主代理阻塞等待其完成。",
+  "隔离上下文中运行子智能体并返回结果。",
   "",
-  "默认委托：答案散落在多处、需要搜索/遍历代码才能汇总的问题——列表/枚举/审计/调查/总结/原理/归类——",
-  "哪怕只涉及一个文件或目录，第一个工具调用就应该是 delegate，不要自己先 grep/read。",
-  "已给出路径也不是自己做的理由。",
-  "",
-  "改用 fleet：待办是多个互相独立的子任务，且每个任务的范围/输出格式/约束现在就能独立写全 → 一次 fleet 并行派发，" +
-  "不要连续 delegate 多次。反之后一个任务依赖前一个结果、或对同一处文件逐步推进 → 逐个 delegate。",
-  "",
-  "不要使用 delegate：",
-  "- 单点定义查询（常量值、函数签名、配置项），答案一行能念完——哪怕含几个名字——自己做。",
-  "  但要逐条列出/逐条解释多个条目（哪怕条目都在一个文件里）仍然是派发，不是单点查询。",
-  "- 需要与用户来回交互的任务。",
-  "",
-  "任务写法：自含范围、输出格式、约束；表达意图而非转发原文。返回后直接采用其结果，不要自己重做。",
+  "判定（默认委托）——先查顺序词，首调即派发：",
+  "- 例外：知识类/过程类提问（项目结构、依赖、接口与方法清单、项目约定、历史决策、上一轮改动、构建测试方式、环境事实、踩过的坑）→ 第一个调用是 memory_search，检索后再决定是否委派",
+  "- 先查顺序词：有 先…再…/然后/按…结果/取决于 → 一律逐个 delegate，禁止用 fleet（即使多对象）",
+  "- 无依赖且要对 ≥2 个互不依赖的对象分别做同样的事（两份文件/多个目录/两组并行……）→ 必须一次 fleet 并行（每个对象一个子任务），禁止合成一个 delegate；此后的「汇总/对比」由自己完成，不构成依赖",
+  "- 单个对象探索/审计/调查 → delegate（哪怕一个文件）",
+  "- 单点查询 → 不派；需交互 → 不派",
+  "任务自含范围/输出/约束；返回后直接采用结果，不要重做。",
 ].join("\n");
 
 export const DelegateParamsSchema = Type.Object({
@@ -218,27 +218,9 @@ export const DelegateParamsSchema = Type.Object({
 export const FLEET_MAX_CONCURRENCY = 6;
 
 export const FLEET_DESCRIPTION = [
-  "Run multiple subagents in parallel, each in its own isolated context, and return all results together.",
-  "The call blocks the main agent until every subagent finishes.",
-  "Each task's `agent` must be a name from the Available Subagents list.",
-  "",
-  "Choose fleet over sequential delegate calls when you can write out every task's scope, output format, and constraints",
-  "right now, with no task waiting on another task's result.",
-  "",
-  "Use fleet when multiple independent subtasks can run at once:",
-  "- Multi-keyword or multi-directory parallel exploration.",
-  "- Codebase-wide audit across unrelated modules.",
-  "- Multiple independent bugs or files investigated in parallel.",
-  "",
-  "Do NOT use fleet when:",
-  "- Tasks depend on each other (use sequential delegate calls instead).",
-  "- Tasks touch the same files or shared state (write-heavy parallel work causes conflicts).",
-  "- You only have one task (use delegate, not fleet).",
-  "",
-  "Guidelines:",
-  "- Keep tasks independent and self-contained (paths, context, expected output).",
-  `- Concurrency limit is ${FLEET_MAX_CONCURRENCY}; do not exceed it.`,
-  "- Decide how many subagents to spawn from the task shape; do not wait for the user to specify a count.",
+  "并行运行多个子智能体，完成后返回。",
+  "有依赖或涉同文件 → 改逐个 delegate。",
+  `并发上限 ${FLEET_MAX_CONCURRENCY}，超出排队。`,
 ].join("\n");
 
 export const FleetParamsSchema = Type.Object({

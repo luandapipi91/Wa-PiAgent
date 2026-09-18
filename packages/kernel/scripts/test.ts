@@ -107,6 +107,13 @@ for (const file of MOCK_LEAKY_TESTS) {
 	ok = run(["test", "--isolate", "--timeout=60000", file]) && ok;
 }
 
+// 5. 记忆检索触发评测的自检层（不调模型，秒级）
+//    --dry-run：断言 20 条用例的结构不变量（缺用例/被增删即红灯）
+//    --selftest：断言判定口径（先查后派/直接委派/超时/反例）、通过率统计与门禁阈值
+//    不带这两个参数的真评测（要起真实 pi 进程 + 消耗模型额度）不进本入口，保持独立命令 eval:memory-trigger 按需跑。
+ok = run(["run", "scripts/eval-memory-trigger.ts", "--dry-run"]) && ok;
+ok = run(["run", "scripts/eval-memory-trigger.ts", "--selftest"]) && ok;
+
 if (!ok) {
 	console.error("[test] 存在失败，测试 gate 未通过");
 	process.exit(1);

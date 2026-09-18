@@ -9,14 +9,18 @@ test("DELEGATE_DESCRIPTION 可从 @wa-pi/shared 导入且内容非空", async ()
   const { DELEGATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
   expect(typeof DELEGATE_DESCRIPTION).toBe("string");
   expect(DELEGATE_DESCRIPTION.length).toBeGreaterThan(100);
-  expect(DELEGATE_DESCRIPTION).toContain("subagent");
+  expect(DELEGATE_DESCRIPTION).toContain("子智能体");
   expect(DELEGATE_DESCRIPTION).toContain("delegate");
+  // fleet 并行与顺序派发两判据必须并存（fleet 选择正确率优化的关键）
+  expect(DELEGATE_DESCRIPTION).toContain("fleet 并行");
+  expect(DELEGATE_DESCRIPTION).toContain("逐个 delegate");
 });
 
 test("FLEET_DESCRIPTION 可从 @wa-pi/shared 导入", async () => {
   const { FLEET_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
   expect(typeof FLEET_DESCRIPTION).toBe("string");
-  expect(FLEET_DESCRIPTION).toContain("parallel");
+  expect(FLEET_DESCRIPTION).toContain("并行");
+  expect(FLEET_DESCRIPTION).toContain("逐个 delegate");
 });
 
 test("ASK_DESCRIPTION / ASK_PROMPT_GUIDELINES 可从 @wa-pi/shared 导入", async () => {
@@ -74,6 +78,37 @@ test("MEM_ADD_DESC 明确「双类型记录、琐事不记、任务完成必写�
   expect(MEM_ADD_DESC).toContain("SCOPE");
 });
 
+test("MEM_SEARCH_DESC 给出「先查记忆再行动」的判定细则（知识/过程类先查、单点查询不查）", async () => {
+  // 2026-09-18 记忆触发优化：把「什么时候该先查记忆」的判定细则收敛到工具描述层
+  // （系统提示词只留概述，避免三层重复）。内容被删/被弱化时本测试红灯。
+  const { MEM_SEARCH_DESC } = await import("@wa-pi/shared/tool-schemas");
+  // 首动作规则：在委派 / 搜索 / 列目录之前先查
+  expect(MEM_SEARCH_DESC).toContain("Call this FIRST");
+  expect(MEM_SEARCH_DESC).toContain(
+    "before delegating, grepping, or listing files",
+  );
+  // 知识类 / 过程类提问必须点名（否则「项目结构/依赖」又被当成纯代码任务）
+  expect(MEM_SEARCH_DESC).toContain("project conventions");
+  expect(MEM_SEARCH_DESC).toContain("how to build/test");
+  // 反例：单点定义查询不必查（防 agent 对任何问题都先查一遍）
+  expect(MEM_SEARCH_DESC).toContain("single-point lookups");
+});
+
+test("DELEGATE_DESCRIPTION 划出「知识类提问先查记忆」的例外边界", async () => {
+  // 委派规则的总则是「默认委托、首调即派发」，例外必须是**第一条判定**，
+  // 否则知识类提问会被总则吃掉（基线实测：结构/依赖/方法类提问首个动作是 ls/delegate）。
+  // 注意：断言只锁结构（例外是否为第一条判定）与自身文案，不锁总则/其余判定的措辞
+  //—— 那些文案会被其它任务重写，锁死它们只会让测试变成噪声。
+  const { DELEGATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
+  const bullets = DELEGATE_DESCRIPTION.split("\n").filter((l) =>
+    l.trimStart().startsWith("- "),
+  );
+  expect(bullets.length).toBeGreaterThan(0);
+  expect(bullets[0]).toContain("例外");
+  expect(bullets[0]).toContain("memory_search");
+  expect(bullets[0]).toContain("知识类");
+});
+
 test("DELEGATE_DESCRIPTION 与 existing delegate-tool.ts 输出一致", async () => {
   // 这个测试确保 tool-schemas.ts 的值和当前 delegate-tool.ts 的 delegateDescription() 完全一致
   const { DELEGATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
@@ -99,10 +134,9 @@ test("FLEET_DESCRIPTION 并发数与 FLEET_MAX_CONCURRENCY 同源（防模板/�
     "@wa-pi/shared/tool-schemas"
   );
   expect(FLEET_MAX_CONCURRENCY).toBe(6); // 数值 2026-09-01 用户拍板
-  expect(FLEET_DESCRIPTION).toContain(
-    `Concurrency limit is ${FLEET_MAX_CONCURRENCY}`,
-  );
+  expect(FLEET_DESCRIPTION).toContain(`并发上限 ${FLEET_MAX_CONCURRENCY}`);
   expect(FLEET_DESCRIPTION).not.toContain("Concurrency limit is 5");
+  expect(FLEET_DESCRIPTION).not.toContain("Concurrency limit is 6");
 });
 
 test("browser_* 工具描述可从 @wa-pi/shared 导入且非空", async () => {
