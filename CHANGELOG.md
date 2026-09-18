@@ -1,3 +1,7 @@
+## 2026-09-19
+
+- 修复(kernel+shared)：手动添加、内置目录未收录的思考模型（如 deepseek-v4-flash）被按非思考模型生成 → pi-ai 永不向 DeepSeek 端点发 thinking:disabled → 服务端默认思考与正文共享 max_tokens，压缩守卫摘要请求被思考吃满预算、正文为空（实测 100% 复现「压缩守卫：摘要为空」）。ProviderModel 新增用户显式 reasoning 字段（boolean 即显式意图，优先于内置目录，对齐 maxTokens/supportsVision「用户显式配置优先」哲学），生成器同步透传。
+
 ## 2026-09-18 — v0.4.8 发版（启动提速 + preview_open 工具 + 记忆检索优化）
 
 - 版本：0.4.7 → 0.4.8。

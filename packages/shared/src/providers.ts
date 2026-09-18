@@ -11,6 +11,9 @@ export interface ProviderModel {
  contextWindow: number; // 上下文窗口（tokens），默认 128000
  maxTokens: number; // 最大输出（tokens），默认 4096
  supportsVision?: boolean; // 是否支持视觉/图片输入
+ reasoning?: boolean; // 是否思考/推理模型。用户显式标记优先于内置目录——目录未收录的思考模型
+ // （如手动添加的 deepseek-v4-flash）必须标 true，否则 pi-ai 不会向 DeepSeek 端点发送
+ // thinking:disabled，服务端默认开启的思考会与正文共享并吃满 max_tokens 输出预算
 }
 
 /** 供应商（纯自定义） */

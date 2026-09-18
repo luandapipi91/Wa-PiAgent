@@ -57,6 +57,51 @@ test("generateProviderExtension 包含 registerProvider 调用", () => {
   expect(code).toContain('api: "openai-completions"');
 });
 
+test("generateProviderExtension：用户显式 reasoning 覆盖目录与默认（目录未收录的思考模型）", () => {
+  // 目录查不到的思考模型（如手动添加的 deepseek-v4-flash）旧逻辑静默落 reasoning:false，
+  // pi-ai 由此不给 DeepSeek 端点发 thinking:disabled → 服务端默认思考与正文共享
+  // max_tokens，压缩守卫摘要被思考吃满预算、正文为空（实测 100% 复现「摘要为空」）。
+  const providers = [
+    sampleProvider({
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000, reasoning: true },
+        { id: "deepseek-v4", contextWindow: 1000000, maxTokens: 384000 },
+      ],
+    }),
+  ];
+  const code = generateProviderExtension(providers, new Map());
+  // 显式 true 透传；未配置的模型仍落默认 false，且 true 在前（逐模型独立取值）
+  expect(code.indexOf("reasoning: true")).toBeGreaterThanOrEqual(0);
+  expect(code.indexOf("reasoning: true")).toBeLessThan(code.indexOf("reasoning: false"));
+});
+
+test("generateProviderExtension：用户显式 reasoning:false 优先于目录 reasoning:true", () => {
+  // 「用户显式配置优先」哲学（对齐 maxTokens/supportsVision）：boolean 即显式意图。
+  const providers = [
+    sampleProvider({
+      models: [{ id: "deepseek-chat", contextWindow: 64000, maxTokens: 4096, reasoning: false }],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "my-deepseek/deepseek-chat",
+      {
+        contextWindow: 64000,
+        maxTokens: 4096,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek Chat",
+        baseUrl: "https://api.deepseek.com/v1",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  expect(code).toContain("reasoning: false");
+  expect(code).not.toContain("reasoning: true");
+});
+
 test("generateProviderExtension：内置目录有 baseUrl 时优先用内置（纠正缺 /v1 的脏数据）", () => {
   // 模拟 opencode-go：provider.baseUrl 不带 /v1，但内置目录里该模型带 /v1
   const providers = [

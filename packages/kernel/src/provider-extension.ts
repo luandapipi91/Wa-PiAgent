@@ -220,7 +220,14 @@ export function generateProviderExtension(
 				.map((m) => {
 					const sdk = sdkModelMap.get(`${slug}/${m.id}`) ?? sdkModelMap.get(m.id);
 					const name = sdk?.name || m.id;
-					const reasoning = sdk?.reasoning ?? DEFAULT_SDK_MODEL.reasoning;
+					// reasoning：用户显式配置优先（boolean 即视为显式意图），目录值仅做缺省回退。
+					// 目录未收录的思考模型会静默落 false，pi-ai 由此不给 DeepSeek 端点发
+					// thinking:disabled——服务端默认开启的思考与正文共享 max_tokens，压缩守卫的
+					// 摘要请求被思考吃满预算、正文为空（实测 100% 复现「压缩守卫：摘要为空」）。
+					const reasoning =
+						typeof m.reasoning === "boolean"
+							? m.reasoning
+							: (sdk?.reasoning ?? DEFAULT_SDK_MODEL.reasoning);
 					// input 默认跟随 SDK 内置目录；但用户显式设置了 supportsVision 时以用户意图为准
 					// （增/删 image）。否则「模型 ID 不在目录里 + 用户勾了图片」会落 ["text"]，
 					// pi 引擎据此把图片降级为 (image omitted)——页面的「图片」开关需要真正生效。
