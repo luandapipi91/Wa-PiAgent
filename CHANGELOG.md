@@ -1,6 +1,7 @@
 ## 2026-09-19
 
 - 修复(kernel+shared)：手动添加、内置目录未收录的思考模型（如 deepseek-v4-flash）被按非思考模型生成 → pi-ai 永不向 DeepSeek 端点发 thinking:disabled → 服务端默认思考与正文共享 max_tokens，压缩守卫摘要请求被思考吃满预算、正文为空（实测 100% 复现「压缩守卫：摘要为空」）。ProviderModel 新增用户显式 reasoning 字段（boolean 即显式意图，优先于内置目录，对齐 maxTokens/supportsVision「用户显式配置优先」哲学），生成器同步透传。
+- 优化(shared)：委派判据对症补丁——数对象行明确「分别梳理/统计 N 个模块再汇总」也算多对象（须 fleet 并行）、单对象行明确「先读懂 X 再改」类改动也派发；同步精简例外行与头部措辞，委派相关四部分合计恰 600 tok ≤600（含 roster 89，eval-prompt-budget.ts 可复现）。fleet 20 评测 R21 达 16/16 满分；评测模型切换为用户配置的 OpenCode Go(星期六)/deepseek-v4.1-flash，下一轮起为新锚点。
 
 ## 2026-09-18 — v0.4.8 发版（启动提速 + preview_open 工具 + 记忆检索优化）
 
