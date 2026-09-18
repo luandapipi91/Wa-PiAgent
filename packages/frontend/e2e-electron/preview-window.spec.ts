@@ -433,6 +433,44 @@ test.describe
 				.toBe(false);
 		});
 
+		// 会话界面内嵌预览（分屏）里打开禁止嵌入的网址：走的是主窗口 webContents 的
+		// did-fail-load 接线（上一条走的是独立预览窗口那条）——同样是真实站点 + 真实降级
+		test("会话界面内嵌预览打开禁止嵌入的网址 → 自动改用应用内浏览器窗口", async () => {
+			test.setTimeout(90_000);
+			// 从浮动窗口切回会话界面内嵌分屏（浏览器预览与聊天并排）
+			const preview = await ensureFloatPreview();
+			await preview.getByTestId("browser-mode-split").click();
+			await expect(main.getByTestId("browser-panel")).toBeVisible({
+				timeout: 10_000,
+			});
+
+			const input = main.getByTestId("browser-input");
+			await input.fill("https://www.baidu.com/s?wd=%E9%BE%99%E8%99%BE");
+			await input.press("Enter");
+
+			// 提示去向 + 真窗口真正加载该页（顶级导航不受 frame-ancestors 约束）
+			await expect(
+				main.getByText(/blocks embedding|禁止被嵌入/),
+			).toBeVisible({ timeout: 20_000 });
+			await expect
+				.poll(
+					async () =>
+						await app.evaluate(({ webContents }) =>
+							webContents
+								.getAllWebContents()
+								.some((wc) => wc.getURL().includes("baidu.com/s?wd=")),
+						),
+					{ timeout: 40_000 },
+				)
+				.toBe(true);
+
+			// 内嵌预览无内容可显示：会话界面收起预览面板（主内容区恢复——本 E2E 未建会话，回新建页）
+			await expect(main.getByTestId("browser-panel")).toHaveCount(0, {
+				timeout: 15_000,
+			});
+			await expect(main.getByTestId("new-session-pane")).toBeVisible();
+		});
+
 		// 放在最后：打开的弹窗会遮住后续用例的点击，这里不再收尾
 		test("独立窗口内点「查看源码」：源码弹窗在**本窗口**渲染", async () => {
 			const preview = await ensureFloatPreview();
