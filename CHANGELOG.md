@@ -1,3 +1,11 @@
+## 2026-09-18 — v0.4.7 发版（Markdown 渲染全局统一 + 扩展弹窗修复）
+
+- 版本：0.4.6 → 0.4.7（2 提交）。
+- 优化：新增 components/blocks/Markdown.tsx（全仓唯一 markdown 入口），合并原 9 处内联 ReactMarkdown 渲染点。
+- 修复：原生扩展弹窗（select/confirm/input/editor）高度与渲染——长 prompt 放 title 且头部不限高导致选项卡被挤出屏幕。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：frontend（blocks/Markdown 及 9 处调用点、ExtensionDialog）。
+
 ## 2026-09-18 — v0.4.6 发版（新会话启动/侧栏空白修复 + TUI 弹窗鼠标修复）
 
 - 版本：0.4.5 → 0.4.6（3 提交）。
