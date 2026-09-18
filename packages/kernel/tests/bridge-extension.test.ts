@@ -652,3 +652,37 @@ describe("generateBridgeExtension 源码包含 4 个 browser_* registerTool", ()
 		}
 	});
 });
+
+// ── preview_open 工具注册（源码级 + loadTools 实际注册）──
+describe("generateBridgeExtension 含 preview_open registerTool", () => {
+	const src = generateBridgeExtension();
+
+	test("含 preview_open registerTool（PreviewOpenParamsSchema + DEFAULT_TIMEOUT_MS）", () => {
+		expect(src).toContain('name: "preview_open"');
+		expect(src).toContain("parameters: PreviewOpenParamsSchema");
+		const compact = src.replace(/\s+/g, "");
+		expect(compact).toContain(
+			`callBridge("preview_open",toolCallId,params,signal,DEFAULT_TIMEOUT_MS`,
+		);
+	});
+
+	test("从 ./tool-schemas.ts import PREVIEW_OPEN_DESCRIPTION 与 PreviewOpenParamsSchema", () => {
+		expect(src).toContain("PREVIEW_OPEN_DESCRIPTION");
+		expect(src).toContain("PreviewOpenParamsSchema");
+	});
+
+	test("preview_open 经 loadTools 实际注册（label/description/parameters/execute）", async () => {
+		const tools = await loadTools();
+		const tool = tools.find((t) => t.name === "preview_open");
+		expect(tool, "应注册 preview_open").toBeDefined();
+		expect(typeof tool.label).toBe("string");
+		expect(typeof tool.description).toBe("string");
+		// description 用 shared 的 PREVIEW_OPEN_DESCRIPTION（含「内置预览面板」引导，文案限 50 token 内）
+		expect(tool.description).toContain("内置预览面板");
+		expect(tool.parameters).toBeDefined();
+		expect(Object.keys(tool.parameters.properties ?? {})).toEqual(
+			expect.arrayContaining(["url", "path"]),
+		);
+		expect(typeof tool.execute).toBe("function");
+	});
+});

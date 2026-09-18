@@ -35,6 +35,7 @@ beforeEach(() => {
 	useBrowserStore.setState({
 		open: false,
 		path: null,
+		externalUrl: null,
 		sessionId: null,
 		mode: "split",
 		splitRatio: 0.5,
@@ -146,6 +147,166 @@ test("setBubblePos clamp 在视口内并持久化", () => {
 	expect(saved.y).toBe(p.y);
 });
 
+// ── 外部网址预览（agent 请求打开 / 地址栏输入网址）──
+// 语义与 openBrowser 对齐：open=true、minimized=false、写 bySession；与 path 互斥。
+
+test("externalUrl 初始为 null（默认空窗口）", () => {
+	expect(useBrowserStore.getState().externalUrl).toBeNull();
+});
+
+test("openExternal：打开外部网址，path 清空、写当前会话记忆", () => {
+	useBrowserStore.getState().openExternal("https://example.com/a", "A");
+	const s = useBrowserStore.getState();
+	expect(s.open).toBe(true);
+	expect(s.externalUrl).toBe("https://example.com/a");
+	expect(s.path).toBeNull();
+	expect(s.sessionId).toBe("A");
+	expect(s.minimized).toBe(false);
+	expect(s.bySession.A).toEqual({
+		open: true,
+		path: null,
+		url: "https://example.com/a",
+		minimized: false,
+	});
+});
+
+test("openExternal 重置 minimized（与 openBrowser 同语义）", () => {
+	useBrowserStore.getState().openExternal("https://example.com/a", "A");
+	useBrowserStore.getState().setMinimized(true);
+	useBrowserStore.getState().openExternal("https://example.com/b", "A");
+	expect(useBrowserStore.getState().minimized).toBe(false);
+});
+
+test("openBrowser 与 openExternal 互斥：后打开的清掉另一种内容", () => {
+	useBrowserStore.getState().openExternal("https://example.com", "A");
+	useBrowserStore.getState().openBrowser("/a/index.html", "A");
+	expect(useBrowserStore.getState().externalUrl).toBeNull();
+	expect(useBrowserStore.getState().path).toBe("/a/index.html");
+	expect(useBrowserStore.getState().bySession.A).toEqual({
+		open: true,
+		path: "/a/index.html",
+		url: null,
+		minimized: false,
+	});
+
+	useBrowserStore.getState().openExternal("https://example.com/2", "A");
+	expect(useBrowserStore.getState().path).toBeNull();
+	expect(useBrowserStore.getState().externalUrl).toBe("https://example.com/2");
+	expect(useBrowserStore.getState().bySession.A?.path).toBeNull();
+});
+
+test("setPath 清掉 externalUrl（本地/外部互斥，地址栏改看本地文件）", () => {
+	useBrowserStore.getState().openExternal("https://example.com", "A");
+	useBrowserStore.getState().setPath("/a/index.html");
+	expect(useBrowserStore.getState().path).toBe("/a/index.html");
+	expect(useBrowserStore.getState().externalUrl).toBeNull();
+	expect(useBrowserStore.getState().bySession.A?.url).toBeNull();
+});
+
+test("setExternalUrl：地址栏外部导航写回 store，清 path 并写入当前会话记忆", () => {
+	useBrowserStore.getState().openBrowser("/a/index.html", "A");
+	useBrowserStore.getState().setExternalUrl("https://example.com/x");
+	const s = useBrowserStore.getState();
+	expect(s.externalUrl).toBe("https://example.com/x");
+	expect(s.path).toBeNull();
+	// 不改变开关与归属会话（面板已打开，只是换了内容）
+	expect(s.open).toBe(true);
+	expect(s.sessionId).toBe("A");
+	expect(s.bySession.A).toEqual({
+		open: true,
+		path: null,
+		url: "https://example.com/x",
+		minimized: false,
+	});
+});
+
+test("closeBrowser：清空 externalUrl 与该会话记忆里的 url", () => {
+	useBrowserStore.getState().openExternal("https://example.com", "A");
+	useBrowserStore.getState().closeBrowser();
+	expect(useBrowserStore.getState().externalUrl).toBeNull();
+	expect(useBrowserStore.getState().bySession.A).toEqual({
+		open: false,
+		path: null,
+		url: null,
+		minimized: false,
+	});
+});
+
+test("会话记忆带 url：切走再切回恢复外部网址（不回落到 path）", () => {
+	useBrowserStore.getState().openExternal("https://example.com/x", "A");
+	useBrowserStore.getState().activateSession("B");
+	expect(useBrowserStore.getState().externalUrl).toBeNull();
+	expect(useBrowserStore.getState().path).toBeNull();
+
+	useBrowserStore.getState().activateSession("A");
+	expect(useBrowserStore.getState().open).toBe(true);
+	expect(useBrowserStore.getState().externalUrl).toBe("https://example.com/x");
+	expect(useBrowserStore.getState().path).toBeNull();
+});
+
+test("会话记忆互斥：A 看外部网址、B 看本地文件，来回切换各自恢复自己的内容", () => {
+	useBrowserStore.getState().openExternal("https://example.com/a", "A");
+	useBrowserStore.getState().openBrowser("/b/index.html", "B");
+
+	useBrowserStore.getState().activateSession("A");
+	expect(useBrowserStore.getState().externalUrl).toBe("https://example.com/a");
+	expect(useBrowserStore.getState().path).toBeNull();
+
+	useBrowserStore.getState().activateSession("B");
+	expect(useBrowserStore.getState().path).toBe("/b/index.html");
+	expect(useBrowserStore.getState().externalUrl).toBeNull();
+});
+
+test("setMinimized 保留记忆里的 url（只改 minimized，不丢内容）", () => {
+	useBrowserStore.getState().openExternal("https://example.com/x", "A");
+	useBrowserStore.getState().setMinimized(true);
+	useBrowserStore.getState().activateSession("B");
+	useBrowserStore.getState().activateSession("A");
+	expect(useBrowserStore.getState().externalUrl).toBe("https://example.com/x");
+	expect(useBrowserStore.getState().minimized).toBe(true);
+});
+
+test("rememberSessionPreview：只写目标会话记忆，不动当前显示", () => {
+	useBrowserStore.getState().openBrowser("/a/index.html", "A");
+	useBrowserStore.getState().rememberSessionPreview("B", {
+		url: "https://example.com/b",
+	});
+	const s = useBrowserStore.getState();
+	// 当前显示（A）原样不动
+	expect(s.sessionId).toBe("A");
+	expect(s.path).toBe("/a/index.html");
+	expect(s.externalUrl).toBeNull();
+	expect(s.open).toBe(true);
+	// B 只记入记忆，切回时恢复
+	expect(s.bySession.B).toEqual({
+		open: true,
+		path: null,
+		url: "https://example.com/b",
+		minimized: false,
+	});
+	useBrowserStore.getState().activateSession("B");
+	expect(useBrowserStore.getState().externalUrl).toBe("https://example.com/b");
+	expect(useBrowserStore.getState().path).toBeNull();
+});
+
+test("rememberSessionPreview：本地路径形态同样只写记忆", () => {
+	useBrowserStore.getState().rememberSessionPreview("B", {
+		path: "/b/index.html",
+	});
+	useBrowserStore.getState().activateSession("B");
+	expect(useBrowserStore.getState().path).toBe("/b/index.html");
+	expect(useBrowserStore.getState().externalUrl).toBeNull();
+});
+
+test("正在看外部网址（path=null）→ 文件修改不触发刷新", () => {
+	useBrowserStore.getState().openExternal("https://example.com", "s1");
+	const before = useBrowserStore.getState().refreshToken;
+	useBrowserStore.getState().maybeRefreshForFileChanges("s1", [
+		{ path: "/tmp/proj/index.html", before: null, after: "x" },
+	]);
+	expect(useBrowserStore.getState().refreshToken).toBe(before);
+});
+
 test("activateSession 记录当前会话预览、恢复目标会话预览", () => {
 	useBrowserStore.getState().openBrowser("/a/index.html", "A");
 	expect(useBrowserStore.getState().sessionId).toBe("A");
@@ -192,6 +353,14 @@ test("setPath / setMinimized 同步到当前会话记忆", () => {
 	useBrowserStore.getState().activateSession("A");
 	expect(useBrowserStore.getState().path).toBe("/a/v2.html");
 	expect(useBrowserStore.getState().minimized).toBe(true);
+});
+
+test("setExternalUrl 同步到当前会话记忆（模式切换/独立窗口切回后可恢复）", () => {
+	useBrowserStore.getState().openBrowser(undefined, "A");
+	useBrowserStore.getState().setExternalUrl("https://example.com/z");
+	useBrowserStore.getState().activateSession("B");
+	useBrowserStore.getState().activateSession("A");
+	expect(useBrowserStore.getState().externalUrl).toBe("https://example.com/z");
 });
 
 test("切到从未见过的会话默认空预览", () => {

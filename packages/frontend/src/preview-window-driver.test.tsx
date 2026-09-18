@@ -45,6 +45,7 @@ function resetStore() {
 	useBrowserStore.setState({
 		open: false,
 		path: null,
+		externalUrl: null,
 		sessionId: null,
 		mode: "split",
 		minimized: false,
@@ -75,11 +76,49 @@ test("浮动模式 + 预览打开 → 请求开窗（带 path/sessionId 与记�
 	expect(calls.opens).toEqual([
 		{
 			path: "/proj/index.html",
+			url: null,
 			sessionId: "s-1",
 			rect: { x: 200, y: 120, w: 900, h: 700 },
 		},
 	]);
 	expect(calls.cmds).toEqual([{ type: "restore" }]); // 未最小化 → 显示并聚焦
+});
+
+test("浮动模式 + 外部网址 → 请求开窗时带上 url（本地 path 置空）", () => {
+	useBrowserStore.setState({
+		open: true,
+		path: null,
+		externalUrl: "https://example.com/demo",
+		sessionId: "s-2",
+		mode: "float",
+	});
+	renderHook(() => usePreviewWindowDriver());
+	expect(calls.opens).toEqual([
+		{
+			path: null,
+			url: "https://example.com/demo",
+			sessionId: "s-2",
+			rect: null,
+		},
+	]);
+});
+
+test("浮动模式 + externalUrl 变化（agent 请求打开网址）→ 重新下发 open 同步内容", () => {
+	useBrowserStore.setState({ open: true, path: null, mode: "float" });
+	renderHook(() => usePreviewWindowDriver());
+	expect(calls.opens.length).toBe(1);
+
+	act(() => {
+		useBrowserStore
+			.getState()
+			.openExternal("https://example.com/later", "s-9");
+	});
+	expect(calls.opens.at(-1)).toEqual({
+		url: "https://example.com/later",
+		path: null,
+		sessionId: "s-9",
+		rect: null,
+	});
 });
 
 test("非浮动模式 → 不下发开窗，改为要求关窗（内嵌承载）", () => {
@@ -132,6 +171,7 @@ describe("独立窗口上报的事件翻译", () => {
 		expect(useBrowserStore.getState().bySession.A).toEqual({
 			open: false,
 			path: null,
+			url: null,
 			minimized: false,
 		});
 	});
@@ -154,6 +194,23 @@ describe("独立窗口上报的事件翻译", () => {
 		emit({ type: "path", path: "/new.html" });
 		expect(useBrowserStore.getState().path).toBe("/new.html");
 		expect(useBrowserStore.getState().bySession.A?.path).toBe("/new.html");
+	});
+
+	test("url → 同步主窗口的外部网址（独立窗口里换网址后切回内嵌能恢复同一内容）", () => {
+		useBrowserStore.setState({
+			open: true,
+			path: null,
+			sessionId: "A",
+			mode: "float",
+		});
+		renderHook(() => usePreviewWindowDriver());
+		emit({ type: "url", url: "https://example.com/from-preview" });
+		expect(useBrowserStore.getState().externalUrl).toBe(
+			"https://example.com/from-preview",
+		);
+		expect(useBrowserStore.getState().bySession.A?.url).toBe(
+			"https://example.com/from-preview",
+		);
 	});
 
 	test("rect → 持久化屏幕坐标（下次弹出回到原位）", () => {

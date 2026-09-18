@@ -188,6 +188,8 @@ export const DEFAULT_AGENT_TOOLS = [
 	"browser_evaluate",
 	"browser_screenshot",
 	"browser_close",
+	// preview_open：把网址/项目内 html 送到用户的内置预览面板（自定义工具，须显式放行）
+	"preview_open",
 	// mcp：pi-mcp-adapter 内置代理工具（未开启 directTools 的服务器统一入口）
 	"mcp",
 ];

@@ -925,6 +925,7 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			previewWindow.webContents.send("previewwin:event", {
 				type: "sync",
 				path: payload.path ?? null,
+				url: payload.url ?? null,
 				sessionId: payload.sessionId ?? null,
 			});
 			if (previewWindow.isVisible()) previewWindow.focus();
@@ -961,6 +962,9 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		const params = new URLSearchParams({ "wa-preview-win": "1" });
 		if (payload.path) params.set("path", String(payload.path));
 		if (payload.sessionId) params.set("sid", String(payload.sessionId));
+		// 外部网址预览（agent 请求打开网址 / 主窗口看的是网址）：键名与前端
+		// parsePreviewWindowParams 的 "url" 一一对应，URLSearchParams 自动编码
+		if (payload.url) params.set("url", String(payload.url));
 		win.loadURL(`http://127.0.0.1:${actualPort}/?${params.toString()}`);
 		// 位置/尺寸变化回报主窗口持久化（拖动中连续触发 → 防抖合并）
 		let rectTimer = null;
@@ -1010,6 +1014,9 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 				return;
 			case "path": // 独立窗口里换了预览文件：同步给主窗口（切回内嵌时恢复同一内容）
 				sendToMain({ type: "path", path: payload.path ?? null });
+				return;
+			case "url": // 独立窗口里换了外部网址：同理同步（与 path 互斥）
+				sendToMain({ type: "url", url: payload.url ?? null });
 				return;
 			case "open-settings": // 设置弹窗只在主窗口（数据/上下文都在那边）：转发并把主窗口带到前台
 				sendToMain({

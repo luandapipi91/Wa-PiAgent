@@ -190,6 +190,12 @@ export interface AgentManagerOpts {
 	/** 主聊天 list_contacts 全局执行器：调用时实时按 channelId 走 channelManager 拉取联系人列表。
 	 *  channelManager 构造晚于 AgentManager（循环依赖），由 index.ts 经 setListContactsExecutor 后绑定。 */
 	listContactsExecutor?: (channelId?: string) => Promise<string>;
+	/** preview_open 执行器：把 url/项目内 html 送到内置预览面板（broadcast preview:open）。
+	 *  server.broadcast（端口相关）晚于 AgentManager 就绪，由 index.ts 经 setPreviewOpenExecutor 后绑定。 */
+	previewOpenExecutor?: (
+		sessionId: string,
+		params: { url?: string; path?: string },
+	) => Promise<BridgeToolResult>;
 	// 测试注入 fake；生产不传 → 默认 new BrowserManager()。browser_* 工具的分派目标
 	browserManager?: BrowserManager;
 	// 测试注入 mock；生产留空 → 真实 RpcClient
@@ -333,6 +339,16 @@ export class AgentManager {
 		executor: (channelId?: string) => Promise<string>,
 	): void {
 		this.opts.listContactsExecutor = executor;
+	}
+
+	/** 后绑定 preview_open 执行器（server.broadcast 晚置，index.ts 启动后调用）。 */
+	setPreviewOpenExecutor(
+		executor: (
+			sessionId: string,
+			params: { url?: string; path?: string },
+		) => Promise<BridgeToolResult>,
+	): void {
+		this.opts.previewOpenExecutor = executor;
 	}
 
 	/**
@@ -947,6 +963,32 @@ export class AgentManager {
 						const error = err instanceof Error ? err.message : String(err);
 						return {
 							content: [{ type: "text", text: `获取联系人失败：${error}` }],
+							details: { error },
+						};
+					}
+				}
+				// preview_open：把网址/项目内 html 送到用户的内置预览面板（内核只广播事件，
+				// 展示形态由前端按 sessionId 决定）。执行器由 index.ts 后绑定（依赖 server.broadcast）。
+				if (tool === "preview_open") {
+					const execute = am.opts.previewOpenExecutor;
+					if (!execute) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "预览功能未就绪（kernel 未接线 preview 工具）",
+								},
+							],
+							details: { error: "preview unavailable" },
+						};
+					}
+					const p = params as { url?: string; path?: string };
+					try {
+						return await execute(sessionId, p);
+					} catch (err) {
+						const error = err instanceof Error ? err.message : String(err);
+						return {
+							content: [{ type: "text", text: `打开预览失败：${error}` }],
 							details: { error },
 						};
 					}

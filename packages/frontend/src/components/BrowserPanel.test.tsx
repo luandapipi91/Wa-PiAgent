@@ -17,7 +17,7 @@ mock.module("../../util/clipboard", () => ({
 import { BrowserPanel } from "./BrowserPanel";
 
 beforeEach(() => {
-  useBrowserStore.setState({ open: true, path: null, sessionId: null });
+  useBrowserStore.setState({ open: true, path: null, externalUrl: null, sessionId: null });
   useToastStore.setState({ toasts: [] });
   useSessionStore.setState({ filePreview: null });
   // 预置一个项目 cwd，让「项目内路径」校验真实生效（/a 落在项目内，项目外路径被拒）
@@ -55,6 +55,32 @@ test("输入 html 路径回车后渲染 iframe", () => {
   fireEvent.change(input, { target: { value: "/a/index.html" } });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
+});
+
+test("独立窗口（detached）里输入外部网址 → 上报主窗口同步 url 事件", () => {
+  const acts: any[] = [];
+  (window as any).waPiPreviewWin = {
+    act: (p: any) => acts.push(p),
+    open: async () => ({ ok: true }),
+    cmd: () => {},
+    setSize: () => {},
+    onEvent: () => () => {},
+  };
+  try {
+    render(<BrowserPanel detached />);
+    const input = screen.getByTestId("browser-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "https://example.com/demo" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // 本窗口自身渲染该网址
+    const iframe = screen.getByTestId(
+      "html-preview-iframe",
+    ) as HTMLIFrameElement;
+    expect(iframe.getAttribute("src")).toBe("https://example.com/demo");
+    // 上报主窗口：切回内嵌时恢复同一内容
+    expect(acts).toEqual([{ type: "url", url: "https://example.com/demo" }]);
+  } finally {
+    delete (window as any).waPiPreviewWin;
+  }
 });
 
 test("项目外 html 路径拒绝加载", () => {
@@ -357,4 +383,98 @@ test("外部 URL 显示中双击本地 html 切换到该文件", () => {
       screen.getByTestId("html-preview-iframe") as HTMLIFrameElement
     ).getAttribute("src"),
   ).toBe("/preview/%2Fa/index.html");
+});
+
+// ── store.externalUrl：外部预览内容的权威源 ──
+// 外部网址不再只活在面板局部 state：agent 请求打开（preview:open）、会话切换恢复、
+// 独立窗口同步都经 store.externalUrl 抵达面板，因此面板必须以它为渲染依据。
+
+test("store.externalUrl 存在时渲染外部 iframe（src = 网址）", () => {
+  useBrowserStore.setState({
+    open: true,
+    path: null,
+    externalUrl: "https://example.com/page",
+    sessionId: "s1",
+  });
+  render(<BrowserPanel />);
+  const iframe = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
+  expect(iframe.getAttribute("src")).toBe("https://example.com/page");
+  expect(screen.queryByTestId("browser-empty")).toBeNull();
+});
+
+test("地址栏输入网址 → 写回 store.externalUrl（清 path），供形态切换/独立窗口同步", () => {
+  useBrowserStore.setState({
+    open: true,
+    path: "/a/index.html",
+    externalUrl: null,
+    sessionId: "s1",
+  });
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "baidu.com" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(useBrowserStore.getState().externalUrl).toBe("https://baidu.com");
+  expect(useBrowserStore.getState().path).toBeNull();
+  expect(useBrowserStore.getState().bySession.s1?.url).toBe(
+    "https://baidu.com",
+  );
+});
+
+test("store.externalUrl 变化（agent / 会话切换）→ 面板切到外部；清空后回落本地", () => {
+  useBrowserStore.setState({
+    open: true,
+    path: "/a/index.html",
+    externalUrl: null,
+    sessionId: "s1",
+  });
+  render(<BrowserPanel />);
+  expect(
+    (
+      screen.getByTestId("html-preview-iframe") as HTMLIFrameElement
+    ).getAttribute("src"),
+  ).toBe("/preview/%2Fa/index.html");
+
+  act(() => {
+    useBrowserStore.getState().openExternal("https://example.com/agent", "s1");
+  });
+  expect(
+    (
+      screen.getByTestId("html-preview-iframe") as HTMLIFrameElement
+    ).getAttribute("src"),
+  ).toBe("https://example.com/agent");
+
+  // 再切回本地文件：面板必须离开外部分支
+  act(() => {
+    useBrowserStore.getState().openBrowser("/a/v2.html", "s1");
+  });
+  expect(
+    (
+      screen.getByTestId("html-preview-iframe") as HTMLIFrameElement
+    ).getAttribute("src"),
+  ).toBe("/preview/%2Fa/v2.html");
+});
+
+test("外部预览（store.externalUrl）时：代码/分享/元素选中禁用，复制与刷新可用", () => {
+  useBrowserStore.setState({
+    open: true,
+    path: null,
+    externalUrl: "https://example.com/page",
+    sessionId: "s1",
+  });
+  render(<BrowserPanel />);
+  expect(
+    (screen.getByTestId("browser-code") as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByTestId("browser-share") as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByTestId("browser-inspect") as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByTestId("browser-copy") as HTMLButtonElement).disabled,
+  ).toBe(false);
+  expect(
+    (screen.getByTestId("browser-refresh") as HTMLButtonElement).disabled,
+  ).toBe(false);
 });

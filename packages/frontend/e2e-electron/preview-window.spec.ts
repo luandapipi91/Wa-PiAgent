@@ -7,6 +7,7 @@ import {
 } from "@playwright/test";
 import { join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import {
 	ELECTRON_E2E_DIR,
 	ELECTRON_E2E_PORT,
@@ -114,6 +115,27 @@ async function ensureFloatPreview(): Promise<Page> {
 		await expect(preview.getByTestId("html-preview-iframe")).toBeVisible();
 	}
 	return preview;
+}
+
+/** 独立的本地目标站点（与前端不同源，模拟用户/agent 打开的 dev server 页面） */
+async function startTargetServer(): Promise<{
+	url: string;
+	close: () => Promise<void>;
+}> {
+	const html = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8" /><title>electron 目标页</title></head>
+<body><h1 id="electron-preview-target">electron 目标页已加载</h1></body></html>`;
+	const server = createServer((_req, res) => {
+		res.setHeader("content-type", "text/html; charset=utf-8");
+		res.end(html);
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	const addr = server.address();
+	const port = typeof addr === "object" && addr ? addr.port : 0;
+	return {
+		url: `http://127.0.0.1:${port}/`,
+		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+	};
 }
 
 test.beforeAll(async () => {
@@ -336,10 +358,49 @@ test.describe
 			expect(await main.getByTestId("new-session-pane").isVisible()).toBe(true);
 		});
 
+		test("独立窗口里输入网址 → 切回分屏后主窗口显示同一网址", async () => {
+			const preview = await ensureFloatPreview();
+			const target = await startTargetServer();
+			try {
+				const input = preview.getByTestId("browser-input");
+				await input.fill(target.url);
+				await input.press("Enter");
+				// 本窗口真实加载该网址
+				const frame = preview.frameLocator(
+					'[data-testid="html-preview-iframe"]',
+				);
+				await expect(frame.locator("#electron-preview-target")).toHaveText(
+					"electron 目标页已加载",
+					{ timeout: 15_000 },
+				);
+
+				// 切回主窗口内嵌：面板显示同一网址（独立窗口 → 主窗口的 url 同步）
+				await preview.getByTestId("browser-mode-split").click();
+				await expect(main.getByTestId("browser-panel")).toBeVisible({
+					timeout: 10_000,
+				});
+				await expect(main.getByTestId("browser-input")).toHaveValue(
+					target.url,
+					{ timeout: 10_000 },
+				);
+				const mainFrame = main.frameLocator(
+					'[data-testid="html-preview-iframe"]',
+				);
+				await expect(mainFrame.locator("#electron-preview-target")).toHaveText(
+					"electron 目标页已加载",
+					{ timeout: 15_000 },
+				);
+			} finally {
+				await target.close();
+			}
+		});
+
 		// 放在最后：打开的弹窗会遮住后续用例的点击，这里不再收尾
 		test("独立窗口内点「查看源码」：源码弹窗在**本窗口**渲染", async () => {
 			const preview = await ensureFloatPreview();
 			await preview.getByTestId("browser-code").click();
 			await expect(preview.getByTestId("file-preview-modal")).toBeVisible();
 		});
+
+		// 跨窗口网址同步（预置至最后：会切回分屏，改变后续用例的模式前提）
 	});

@@ -1492,7 +1492,20 @@ export type WSServerEvent =
 	| ScheduledTaskCompletedEvent
 	| ScheduledTaskErrorEvent
 	| GitChangedEvent
-	| ShareProgressEvent;
+	| ShareProgressEvent
+	| PreviewOpenEvent;
+
+/**
+ * agent 请求在内置 HTML 预览中打开内容（preview_open 工具触发，kernel → 前端广播）。
+ * 前端按 sessionId 决定：该会话正在前台 → 立即展示；否则记入该会话的预览记忆，切回时恢复。
+ */
+export interface PreviewOpenEvent {
+	type: "preview:open";
+	/** 预览归属会话 id（工具调用所在会话） */
+	sessionId: string;
+	/** 打开目标：外部网址（url）或项目内本地 html 文件（path），二选一 */
+	target: { kind: "url"; url: string } | { kind: "local"; path: string };
+}
 
 /** 分享上传/部署进度（kernel → 前端广播，SSE） */
 export interface ShareProgressEvent {

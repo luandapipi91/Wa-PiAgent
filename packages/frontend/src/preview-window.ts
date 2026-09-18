@@ -11,8 +11,10 @@
 export const PREVIEW_WIN_PARAM = "wa-preview-win";
 
 export interface PreviewWindowParams {
-	/** 预览的本地 html 绝对路径；null = 空窗口 */
+	/** 预览的本地 html 绝对路径；null = 无本地预览（空窗口或外部网址预览） */
 	path: string | null;
+	/** 外部网址；与 path 互斥（二选一，都为空 = 空窗口） */
+	url: string | null;
 	/** 预览归属会话 id（供代码预览 / 分享 / 元素 chip 使用） */
 	sessionId: string | null;
 }
@@ -36,16 +38,26 @@ export type PreviewWinEvent =
 	| { type: "open-settings"; section: string }
 	/** 独立窗口里换了预览文件：同步给主窗口（切回内嵌时恢复同一内容） */
 	| { type: "path"; path: string | null }
+	/** 独立窗口里换了外部网址：同步给主窗口（与 path 互斥，切回内嵌时恢复同一内容） */
+	| { type: "url"; url: string | null }
 	/** 窗口已关闭 */
 	| { type: "closed" }
-	/** 主窗口 → 独立窗口：同步当前预览内容（切会话/切文件时） */
-	| { type: "sync"; path: string | null; sessionId: string | null };
+	/** 主窗口 → 独立窗口：同步当前预览内容（切会话/切文件/切网址时）。
+	 *  url 优先：url 非空即外部预览，否则用 path（本地）；两者都为空 = 空窗口 */
+	| {
+			type: "sync";
+			path: string | null;
+			url: string | null;
+			sessionId: string | null;
+		};
 
 /** preload 暴露的 IPC 桥（desktop 下存在；浏览器 dev 下 undefined，调用处用可选链） */
 interface WaPiPreviewWinApi {
 	/** 主窗口：请求打开/聚焦独立预览窗口（幂等单例；已存在时同步最新内容） */
 	open(payload: {
 		path?: string | null;
+		/** 外部网址预览（与 path 互斥） */
+		url?: string | null;
 		sessionId?: string | null;
 		rect?: { x: number; y: number; w: number; h: number } | null;
 	}): Promise<{ ok: boolean; reason?: string }>;
@@ -75,6 +87,7 @@ export function parsePreviewWindowParams(search: string): PreviewWindowParams {
 	const p = new URLSearchParams(search);
 	return {
 		path: p.get("path") || null,
+		url: p.get("url") || null,
 		sessionId: p.get("sid") || null,
 	};
 }

@@ -194,7 +194,7 @@ describe("NewSessionPane", () => {
 			path: null,
 			sessionId: null,
 			bySession: {
-				[anchor]: { open: true, path: "/a/index.html", minimized: false },
+				[anchor]: { open: true, path: "/a/index.html", url: null, minimized: false },
 			},
 		});
 

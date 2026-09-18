@@ -238,10 +238,12 @@ function save(key: string, value: string): void {
 	);
 }
 
-/** 单个会话的预览记忆：是否打开 + 内容路径 + 是否最小化为气泡 */
+/** 单个会话的预览记忆：是否打开 + 内容（本地路径或外部网址，互斥）+ 是否最小化为气泡 */
 export interface SessionPreview {
 	open: boolean;
 	path: string | null;
+	/** 外部网址；与 path 互斥（两者都为空 = 空窗口） */
+	url: string | null;
 	minimized: boolean;
 }
 
@@ -249,13 +251,16 @@ export interface SessionPreview {
 const EMPTY_PREVIEW: SessionPreview = {
 	open: false,
 	path: null,
+	url: null,
 	minimized: false,
 };
 
 interface BrowserState {
 	open: boolean;
-	/** 当前预览的 html 绝对路径；null = 空窗口 */
+	/** 当前预览的 html 绝对路径；null = 非本地预览（空窗口或外部网址） */
 	path: string | null;
+	/** 当前预览的外部网址；null = 非外部预览。与 path 互斥（打开本地会清空它，反之亦然） */
+	externalUrl: string | null;
 	/** 来源会话 id（供「代码」预览 / 分享 / 元素 chip 落入使用），可能为 null */
 	sessionId: string | null;
 	/** 刷新令牌：变化即重挂 iframe（BrowserPanel 传给 HtmlPreview 作 key）。
@@ -274,6 +279,8 @@ interface BrowserState {
 	/** 会话级预览记忆：sessionId → 该会话的预览状态（切换会话时按会话各自记住/恢复） */
 	bySession: Record<string, SessionPreview>;
 	openBrowser: (path?: string, sessionId?: string) => void;
+	/** 打开外部网址（语义对齐 openBrowser：open=true、path=null、minimized=false、写 bySession） */
+	openExternal: (url: string, sessionId?: string) => void;
 	closeBrowser: () => void;
 	/** 切换会话：先把当前会话预览记入 bySession，再恢复目标会话的预览（默认空预览） */
 	activateSession: (sessionId: string | null) => void;
@@ -285,6 +292,15 @@ interface BrowserState {
 	setBubblePos: (pos: BubblePos) => void;
 	/** 同步当前预览路径（地址栏加载本地 html 时调用）：模式切换重挂面板后可从 store 恢复内容 */
 	setPath: (path: string | null) => void;
+	/** 同步当前预览的外部网址（地址栏输入网址时调用）：供形态切换 / 独立窗口同步恢复内容。
+	 *  不改变开关与最小化状态——调用方是已打开面板的地址栏导航 */
+	setExternalUrl: (url: string) => void;
+	/** 把内容只记入某个会话的预览记忆，不动当前显示（agent 在非前台会话请求打开预览时用）。
+	 *  切回该会话时由 activateSession 恢复 */
+	rememberSessionPreview: (
+		sessionId: string,
+		target: { path?: string | null; url?: string | null },
+	) => void;
 	/** 递增刷新令牌 → iframe 重挂重新加载（手动刷新按钮） */
 	bumpRefresh: () => void;
 	/** 任务完成上报的修改清单命中「当前会话正在预览的文件」时递增刷新令牌。
@@ -301,6 +317,7 @@ interface BrowserState {
 export const useBrowserStore = create<BrowserState>((set, get) => ({
 	open: false,
 	path: null,
+	externalUrl: null,
 	sessionId: null,
 	refreshToken: 0,
 	mode: loadMode(),
@@ -315,6 +332,8 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 		return set((state) => ({
 			open: true,
 			path: path ?? null,
+			// 本地/外部互斥：打开本地文件即清掉外部网址
+			externalUrl: null,
 			sessionId: sid,
 			minimized: false,
 			// 有归属会话时同步写入该会话的记忆
@@ -323,7 +342,24 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 					? state.bySession
 					: {
 							...state.bySession,
-							[sid]: { open: true, path: path ?? null, minimized: false },
+							[sid]: { open: true, path: path ?? null, url: null, minimized: false },
+						},
+		}));
+	},
+	openExternal: (url, sessionId) => {
+		const sid = sessionId ?? null;
+		return set((state) => ({
+			open: true,
+			path: null,
+			externalUrl: url,
+			sessionId: sid,
+			minimized: false,
+			bySession:
+				sid == null
+					? state.bySession
+					: {
+							...state.bySession,
+							[sid]: { open: true, path: null, url, minimized: false },
 						},
 		}));
 	},
@@ -333,6 +369,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 			return {
 				open: false,
 				path: null,
+				externalUrl: null,
 				sessionId: null,
 				minimized: false,
 				// 关闭即清空该会话的记忆，切回时不弹出
@@ -341,7 +378,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 						? state.bySession
 						: {
 								...state.bySession,
-								[sid]: { open: false, path: null, minimized: false },
+								[sid]: { open: false, path: null, url: null, minimized: false },
 							},
 			};
 		}),
@@ -356,6 +393,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 					[oldSid]: {
 						open: state.open,
 						path: state.path,
+						url: state.externalUrl,
 						minimized: state.minimized,
 					},
 				};
@@ -369,6 +407,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 				sessionId,
 				open: target.open,
 				path: target.path,
+				externalUrl: target.url,
 				minimized: target.minimized,
 			};
 		}),
@@ -410,10 +449,38 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 	setPath: (path) =>
 		set((state) => {
 			const sid = state.sessionId;
-			if (sid == null) return { path };
+			// 本地/外部互斥：改看本地文件即清掉外部网址
+			if (sid == null) return { path, externalUrl: null };
 			const cur = state.bySession[sid] ?? EMPTY_PREVIEW;
-			return { path, bySession: { ...state.bySession, [sid]: { ...cur, path } } };
+			return {
+				path,
+				externalUrl: null,
+				bySession: { ...state.bySession, [sid]: { ...cur, path, url: null } },
+			};
 		}),
+	setExternalUrl: (url) =>
+		set((state) => {
+			const sid = state.sessionId;
+			if (sid == null) return { externalUrl: url, path: null };
+			const cur = state.bySession[sid] ?? EMPTY_PREVIEW;
+			return {
+				externalUrl: url,
+				path: null,
+				bySession: { ...state.bySession, [sid]: { ...cur, path: null, url } },
+			};
+		}),
+	rememberSessionPreview: (sessionId, target) =>
+		set((state) => ({
+			bySession: {
+				...state.bySession,
+				[sessionId]: {
+					open: true,
+					path: target.path ?? null,
+					url: target.url ?? null,
+					minimized: false,
+				},
+			},
+		})),
 	setBubblePos: (pos) => {
 		const clamped = clampBubblePos(pos);
 		save(LS.bubble, JSON.stringify(clamped));

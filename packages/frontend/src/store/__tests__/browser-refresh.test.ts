@@ -46,7 +46,7 @@ test("预览未打开（open=false）→ 不刷新（即使 bySession 里残留�
 		path: null,
 		sessionId: "s1",
 		bySession: {
-			s1: { open: true, path: "/tmp/proj/index.html", minimized: false },
+			s1: { open: true, path: "/tmp/proj/index.html", url: null, minimized: false },
 		},
 	});
 	useBrowserStore

@@ -84,10 +84,16 @@ export function PreviewWindowRoot() {
 
 	useEffect(() => {
 		ensureDragStyles();
-		// 自举预览状态（独立窗口自己的 store 实例）
-		useBrowserStore
-			.getState()
-			.openBrowser(params.path ?? undefined, params.sessionId ?? undefined);
+		// 自举预览状态（独立窗口自己的 store 实例）：外部网址优先（与 store 的互斥口径一致）
+		if (params.url) {
+			useBrowserStore
+				.getState()
+				.openExternal(params.url, params.sessionId ?? undefined);
+		} else {
+			useBrowserStore
+				.getState()
+				.openBrowser(params.path ?? undefined, params.sessionId ?? undefined);
+		}
 		useBrowserStore.getState().setMode("float");
 		// 地址栏的路径校验（项目 cwd）与分享的项目名推导都依赖项目/会话列表
 		useProjectsStore.getState().load();
@@ -99,11 +105,17 @@ export function PreviewWindowRoot() {
 		const api = window.waPiPreviewWin;
 		if (!api) return;
 		return api.onEvent((e: PreviewWinEvent) => {
-			// 主窗口切会话/切文件：同步到本窗口的预览内容
+			// 主窗口切会话/切文件/切网址：同步到本窗口的预览内容（url 优先，否则回落 path）
 			if (e.type === "sync") {
-				useBrowserStore
-					.getState()
-					.openBrowser(e.path ?? undefined, e.sessionId ?? undefined);
+				if (e.url) {
+					useBrowserStore
+						.getState()
+						.openExternal(e.url, e.sessionId ?? undefined);
+				} else {
+					useBrowserStore
+						.getState()
+						.openBrowser(e.path ?? undefined, e.sessionId ?? undefined);
+				}
 			}
 		});
 	}, []);

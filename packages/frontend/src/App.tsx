@@ -54,6 +54,7 @@ import { hasPreviewBridge, useBrowserStore } from "./store/browser";
 import { BrowserPanel } from "./components/BrowserPanel";
 import { FloatPreview } from "./components/FloatPreview";
 import { usePreviewWindowDriver } from "./preview-window-driver";
+import { useAgentPreviewOpener } from "./agent-preview-opener";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -131,6 +132,9 @@ export function App() {
 	// 浮动预览的呈现是独立系统窗口（能移出主窗口、与主窗口并行显示）：
 	// 这里只驱动窗口开关/显隐，并把独立窗口上报的动作翻译成 store 变更
 	usePreviewWindowDriver();
+
+	// agent 请求打开预览（preview:open）：当前会话立即展示，非当前会话只记入该会话的预览记忆
+	useAgentPreviewOpener();
 
 	useEffect(() => {
 		connectEvents();

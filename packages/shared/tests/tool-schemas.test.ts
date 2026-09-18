@@ -242,3 +242,14 @@ test("BRIDGE_TOOL_NAMES 包含 4 个 browser 工具", async () => {
     expect(BRIDGE_TOOL_NAMES).toContain(name);
   }
 });
+
+test("PREVIEW_OPEN_DESCRIPTION 声明与 browser_* 自动化无关，且保持精简（≤60 字符）", async () => {
+  const { PREVIEW_OPEN_DESCRIPTION } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  // 区分语：模型不得把「把页面呈现给用户看」与无头自动化混用（防误调 browser_*）
+  expect(PREVIEW_OPEN_DESCRIPTION).toContain("browser_");
+  expect(PREVIEW_OPEN_DESCRIPTION).toMatch(/无关|不同|不是|非/);
+  // 用户拍板：工具提示词必须精简（≈50 token 约束，按字符数近似把关）
+  expect(PREVIEW_OPEN_DESCRIPTION.length).toBeLessThanOrEqual(60);
+});

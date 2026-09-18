@@ -27,6 +27,16 @@ type Current =
 	| { kind: "local"; path: string }
 	| { kind: "external"; url: string };
 
+/** store 的预览内容（本地路径 / 外部网址，互斥）→ 面板内部视图状态 */
+function fromPreviewState(
+	path: string | null,
+	externalUrl: string | null,
+): Current | null {
+	if (path) return { kind: "local", path };
+	if (externalUrl) return { kind: "external", url: externalUrl };
+	return null;
+}
+
 /** 预览元素高亮选择的开关状态（主应用本地保存；本地预览 iframe 为不透明源无法自存，故放主应用） */
 const INSPECT_KEY = "hiagent.preview.inspect";
 
@@ -42,14 +52,17 @@ interface Props {
 export function BrowserPanel({ detached = false }: Props = {}) {
 	// 逐字段 selector 订阅：整订阅会让 splitRatio/floatRect 拖拽期的每帧变化也触发本组件重渲染
 	const path = useBrowserStore((s) => s.path);
+	// 外部网址也是预览内容的权威源：agent 请求打开（preview:open）/ 会话切换恢复 /
+	// 独立窗口同步都经 store 抵达面板，因此不能只活在局部 state
+	const externalUrl = useBrowserStore((s) => s.externalUrl);
 	const sessionId = useBrowserStore((s) => s.sessionId);
 	const closeBrowser = useBrowserStore((s) => s.closeBrowser);
 	const mode = useBrowserStore((s) => s.mode);
 	const setMode = useBrowserStore((s) => s.setMode);
-	const [current, setCurrent] = useState<Current | null>(
-		path ? { kind: "local", path } : null,
+	const [current, setCurrent] = useState<Current | null>(() =>
+		fromPreviewState(path, externalUrl),
 	);
-	const [input, setInput] = useState(path ?? "");
+	const [input, setInput] = useState(path ?? externalUrl ?? "");
 	// 刷新令牌在 store：手动按钮与「任务完成修改清单命中预览文件」的自动刷新同源递增，
 	// 令牌变化 → HtmlPreview iframe key 变化 → 重挂重拉磁盘最新内容
 	const refreshToken = useBrowserStore((s) => s.refreshToken);
@@ -67,13 +80,13 @@ export function BrowserPanel({ detached = false }: Props = {}) {
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
 
-	// store.path 变化（切换会话恢复预览 / 外部 setPath）时同步内部 current 与地址栏输入；
-	// 否则面板挂载期间不会随 path 变化而更新，会话切换恢复时仍显示旧内容。
-	// 注意：外部 URL 导航只写 current 不写 store.path，故 path 不变时此 effect 不触发、不会覆盖外部视图。
+	// store 内容变化（切换会话恢复预览 / agent 请求打开 / 外部写回 / 独立窗口同步）时
+	// 同步内部 current 与地址栏输入；否则面板挂载期间不会随 store 变化而更新。
+	// path 与 externalUrl 互斥（store 保证），path 优先只是防御性口径。
 	useEffect(() => {
-		setCurrent(path ? { kind: "local", path } : null);
-		setInput(path ?? "");
-	}, [path]);
+		setCurrent(fromPreviewState(path, externalUrl));
+		setInput(path ?? externalUrl ?? "");
+	}, [path, externalUrl]);
 
 	const loadedPath = current?.kind === "local" ? current.path : null;
 
@@ -97,8 +110,12 @@ export function BrowserPanel({ detached = false }: Props = {}) {
 				} catch {
 					/* 解析失败走正常外部加载 */
 				}
-				setCurrent({ kind: "external", url: external });
 				setInput(p);
+				// 写回 store：形态切换（split/full/float）重挂面板、独立窗口同步都能恢复同一网址
+				useBrowserStore.getState().setExternalUrl(external);
+				// 独立窗口里换网址也要让主窗口知道：否则切回内嵌（并排/全屏）会停在旧内容
+				if (detached)
+					window.waPiPreviewWin?.act({ type: "url", url: external });
 				return;
 			}
 			// 相对 html 路径暂不支持（地址栏只接受绝对路径或网址）

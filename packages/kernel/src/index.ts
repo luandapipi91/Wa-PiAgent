@@ -43,6 +43,7 @@ import {
 	createImPushTool,
 	createListContactsTool,
 } from "./tools/robot-push";
+import { createPreviewOpenTool } from "./preview-tools";
 import type { ImPushInjection } from "./agent-manager";
 import { expandSkillTokens } from "./channels/skill-expand";
 import {
@@ -408,6 +409,20 @@ export async function startKernel(opts?: {
 	const listContactsTool = createListContactsTool({ channelManager });
 	agentManager.setListContactsExecutor((channelId?: string) =>
 		listContactsTool.execute({ channelId }),
+	);
+
+	// preview_open 执行器后绑定：把网址/项目内 html 广播到用户的内置预览面板（依赖 server.broadcast）。
+	// selfOrigins 惰性取值（kernel 端口 server.start() 后才确定），用于拒绝打开应用自身地址。
+	const previewOpenTool = createPreviewOpenTool({
+		projectStore,
+		selfOrigins: () => [
+			`http://127.0.0.1:${server.actualPort}`,
+			`http://localhost:${server.actualPort}`,
+		],
+		broadcast: (e) => broadcast(e),
+	});
+	agentManager.setPreviewOpenExecutor((sessionId, params) =>
+		previewOpenTool.execute(params, sessionId),
 	);
 
 	await server.start();

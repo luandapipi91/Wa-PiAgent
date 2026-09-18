@@ -360,6 +360,22 @@ export const BROWSER_CLOSE_DESCRIPTION =
 export const BrowserCloseParamsSchema = Type.Object({});
 
 // =========================================================================
+// preview_open 工具（把网址/本地 html 送到用户的内置 HTML 预览）
+// =========================================================================
+
+export const PREVIEW_OPEN_DESCRIPTION =
+  "把网址或项目内 html 送到用户的内置预览面板（与 browser_* 自动化无关）。url/path 二选一。";
+
+export const PreviewOpenParamsSchema = Type.Object({
+  url: Type.Optional(
+    Type.String({ description: "http/https 网址（如 http://example.com）" }),
+  ),
+  path: Type.Optional(
+    Type.String({ description: "项目内 .html/.htm 文件绝对路径" }),
+  ),
+});
+
+// =========================================================================
 // 所有宿主工具名列表
 // =========================================================================
 
@@ -376,6 +392,7 @@ export const BRIDGE_TOOL_NAMES = [
   "browser_evaluate",
   "browser_screenshot",
   "browser_close",
+  "preview_open",
 ] as const;
 
 export type BridgeToolName = (typeof BRIDGE_TOOL_NAMES)[number];

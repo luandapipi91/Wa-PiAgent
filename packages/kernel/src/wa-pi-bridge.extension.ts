@@ -42,6 +42,8 @@ import {
 	BrowserScreenshotParamsSchema,
 	BROWSER_CLOSE_DESCRIPTION,
 	BrowserCloseParamsSchema,
+	PREVIEW_OPEN_DESCRIPTION,
+	PreviewOpenParamsSchema,
 } from "./tool-schemas.ts";
 import {
 	applySizeLimit,
@@ -495,6 +497,24 @@ export default function (pi: ExtensionAPI) {
 				params,
 				signal,
 				BROWSER_OPERATION_TIMEOUT_MS,
+			);
+		},
+	});
+
+	// preview_open：把网址/项目内 html 送到用户的内置 HTML 预览面板（与 browser_* 无头
+	// 自动化不同，本工具把页面呈现在用户眼前）。注册形式与 browser_close 一致。
+	pi.registerTool({
+		name: "preview_open",
+		label: "Preview Open",
+		description: PREVIEW_OPEN_DESCRIPTION,
+		parameters: PreviewOpenParamsSchema,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"preview_open",
+				toolCallId,
+				params,
+				signal,
+				DEFAULT_TIMEOUT_MS,
 			);
 		},
 	});

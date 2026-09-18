@@ -18,6 +18,8 @@ export function usePreviewWindowDriver(): void {
 	const mode = useBrowserStore((s) => s.mode);
 	const minimized = useBrowserStore((s) => s.minimized);
 	const path = useBrowserStore((s) => s.path);
+	// 外部网址也是要同步给独立窗口的内容：本地/外部二选一由主进程 sync 消息传递
+	const externalUrl = useBrowserStore((s) => s.externalUrl);
 	const sessionId = useBrowserStore((s) => s.sessionId);
 
 	// 独立窗口 → 主窗口：动作翻译成 store 变更 / 插入事件
@@ -59,6 +61,10 @@ export function usePreviewWindowDriver(): void {
 					// 切回内嵌时才能恢复到同一内容，而不是停在空预览
 					store.setPath(e.path);
 					break;
+				case "url":
+					// 独立窗口里换了外部网址：同理同步（setExternalUrl 同时清 path，保持互斥）
+					if (e.url) store.setExternalUrl(e.url);
+					break;
 				case "closed":
 					// 兜底：窗口被关掉但仍自称处于浮动模式（如窗口被外部关闭）→ 收尾为关闭预览。
 					// 走正常路径（切模式/关闭预览）时 store 已经更新，这里不会重复动作。
@@ -79,13 +85,14 @@ export function usePreviewWindowDriver(): void {
 		if (open && mode === "float") {
 			void api.open({
 				path,
+				url: externalUrl,
 				sessionId,
 				rect: useBrowserStore.getState().detachedRect,
 			});
 		} else {
 			api.cmd({ type: "close" });
 		}
-	}, [open, mode, path, sessionId]);
+	}, [open, mode, path, externalUrl, sessionId]);
 
 	// 最小化/恢复：最小化时隐藏窗口（主窗口渲染气泡），恢复时显示并聚焦
 	useEffect(() => {
