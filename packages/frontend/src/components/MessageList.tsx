@@ -51,6 +51,9 @@ import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
 import { ToolGroupCard } from "./blocks/ToolCallCard";
 import { AnsiText } from "./ui/AnsiText";
+import { mediaKindOf } from "./blocks/file-path";
+import { resolveAbsolutePath } from "./blocks/FilePill";
+import { openFileOrPreview } from "../open-file-preview";
 import {
 	textToHtml,
 	ensureChipStyles,
@@ -63,6 +66,22 @@ import {
 	selectionToTokenText,
 	restoreKnownCommands,
 } from "../quick-invoke/tokens";
+
+/** 消息内附件 chip（「附件:文件名」）点击：图片/视频 → 媒体画廊，其余 → 文件预览。
+ *  与 FilePill 同一分发口径（openFileOrPreview 内部再分发 html → 浏览器面板）。
+ *  路径按项目 cwd 补全：chip 的 data-token 存路径原文（上传多在上传目录，为绝对路径）。 */
+function openAttachmentChip(rawPath: string, sessionId: string): void {
+	const abs = resolveAbsolutePath(rawPath, sessionId);
+	const kind = mediaKindOf(abs);
+	if (kind) {
+		const name = abs.split("/").pop() || abs;
+		useSessionStore
+			.getState()
+			.openMediaPreview([{ src: abs, kind, name }], 0, sessionId);
+		return;
+	}
+	openFileOrPreview(abs, sessionId);
+}
 
 const EMPTY: SessionMessage[] = [];
 const EMPTY_FILE_CHANGES: import("@wa-pi/shared").FileChangeSnapshot[] = [];
@@ -1328,6 +1347,17 @@ export const MessageRow = memo(function MessageRow({
 				);
 		const chipHtml = attachmentHtml || localChipHtml;
 		const displayHtml = chipHtml ? `${base} ${chipHtml}` : base;
+		// 附件 chip 是 innerHTML 注入的（React 不接管其事件），在气泡上做事件委托：
+		// 只有附件 chip（data-token 以 path: 开头）命中，正文文字 / 其他类型 chip 不触发。
+		const onClickBubble = (e: React.MouseEvent<HTMLDivElement>) => {
+			const chip = (e.target as HTMLElement | null)?.closest?.(
+				'[data-token^="path:"]',
+			) as HTMLElement | null;
+			if (!chip) return;
+			const token = chip.getAttribute("data-token") ?? "";
+			const p = token.slice("path:".length);
+			if (p) openAttachmentChip(p, sessionId);
+		};
 		return (
 			<div
 				className="flex flex-row-reverse gap-2.5 max-w-[90%] ml-auto min-w-0"
@@ -1338,8 +1368,9 @@ export const MessageRow = memo(function MessageRow({
 						{t("message.me")} · {formatTime(m.timestamp, t("common.yesterday"))}
 					</div>
 					<div
-						className="px-3.5 py-2.5 text-[calc(13.5px*var(--font-scale))] bg-surface text-primary border border-hairline [overflow-wrap:anywhere]"
+						className="px-3.5 py-2.5 text-[calc(13.5px*var(--font-scale))] bg-surface text-primary border border-hairline [overflow-wrap:anywhere] [&_.chip-attachment]:cursor-pointer"
 						style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}
+						onClick={onClickBubble}
 					>
 						{/* 抑制指令必须落在开标签属性区（而不是 children 区）：写在 children 里会被
 						    React 当成文本节点渲染，气泡顶部会多出一行抑制指令文本。

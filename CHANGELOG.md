@@ -5,6 +5,7 @@
 - 修复：原生扩展弹窗（select/confirm/input/editor）高度与渲染——长 prompt 放 title 且头部不限高导致选项卡被挤出屏幕。
 - 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
 - 影响范围：frontend（blocks/Markdown 及 9 处调用点、ExtensionDialog）。
+- fix(frontend): 用户消息气泡里的附件 chip（「附件:文件名」）现在可点击打开——此前 chip 是 innerHTML 注入的 span，发送后点了没反应；改为在气泡上做事件委托（只命中 data-token 以 `path:` 开头的附件 chip，正文文字与其他类型 chip 不触发），按 FilePill 同一口径分发：图片/视频 → 媒体画廊，其余 → 文件预览（html → 浏览器面板），路径按项目 cwd 补全，并给气泡内 chip 加 cursor:pointer 提示。覆盖「附件尾段」与「乐观占位本地附件引用」两条 chip 来源。测试：组件测 5 例（含「点正文不触发」反向断言）+ e2e 2 例（真实上传→发送→点击 chip→弹窗与内容可见）。
 
 ## 2026-09-18 — v0.4.6 发版（新会话启动/侧栏空白修复 + TUI 弹窗鼠标修复）
 
