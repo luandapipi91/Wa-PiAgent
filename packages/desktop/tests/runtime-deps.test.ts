@@ -1,6 +1,7 @@
-// runtime-deps.cjs 的 seed 同步逻辑测试（bun --compile 单二进制形态）。
-// seed = WaPiKernel(.exe) + package.json + bun.lock；不再有 kernel.js / bridge 文件 / patches。
-// 覆盖：seed 复制、patches 不再复制（patch 编译期已生效）、kernel.js 时代遗留文件清理。
+// runtime-deps.cjs 的 seed 同步与依赖判定逻辑测试（bun --compile 单二进制形态）。
+// seed = package.json + bun.lock（内核二进制不再进 runtime，见下）；不再有 kernel.js / bridge 文件 / patches。
+// 覆盖：seed 复制、patches 不再复制（patch 编译期已生效）、kernel.js 时代遗留清理、
+//      依赖指纹判定（app 版本变化但依赖未变不重装）。
 import { test, expect } from "bun:test";
 import {
   mkdtemp,
@@ -12,7 +13,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureRuntimeDeps, syncSeed } from "../src/util/runtime-deps.cjs";
+import {
+  ensureRuntimeDeps,
+  syncSeed,
+  computeDepsFingerprint,
+  parseInstallMarker,
+  shouldSkipInstall,
+} from "../src/util/runtime-deps.cjs";
 
 const noopLog = { info: () => {}, error: () => {} };
 const KERNEL_BIN =
@@ -26,18 +33,52 @@ async function makeTempDirs() {
   return { base, seedDir, runtimeDir };
 }
 
-test("syncSeed: 复制新形态 seed（WaPiKernel + package.json + bun.lock）到 runtime", async () => {
+test("syncSeed: 复制 package.json + bun.lock（install 与关于页内核版本需要它们）", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
-    await writeFile(join(seedDir, KERNEL_BIN), "binary");
+    await writeFile(join(seedDir, "package.json"), '{"version":"1.0.0"}');
+    await writeFile(join(seedDir, "bun.lock"), "{}");
+
+    await syncSeed(seedDir, runtimeDir, noopLog);
+
+    expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(
+      '{"version":"1.0.0"}',
+    );
+    expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe("{}");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("syncSeed: 不复制内核二进制（spawn 与 bin 链接都用随包 seed 路径，runtime 副本无人读）", async () => {
+  const { base, seedDir, runtimeDir } = await makeTempDirs();
+  try {
+    await writeFile(join(seedDir, KERNEL_BIN), "95MB-binary");
     await writeFile(join(seedDir, "package.json"), "{}");
     await writeFile(join(seedDir, "bun.lock"), "{}");
 
     await syncSeed(seedDir, runtimeDir, noopLog);
 
-    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe("binary");
-    expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe("{}");
-    expect(await readFile(join(runtimeDir, "bun.lock"), "utf8")).toBe("{}");
+    // 每次启动白拷 95MB 是启动卡顿的构成之一（写入 + 杀软扫描），且该副本无任何读取方
+    expect(await readdir(runtimeDir)).not.toContain(KERNEL_BIN);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("syncSeed: 清掉老版本留在 runtime 的内核二进制副本（回收 ~95MB）", async () => {
+  const { base, seedDir, runtimeDir } = await makeTempDirs();
+  try {
+    await writeFile(join(seedDir, "package.json"), "{}");
+    await writeFile(join(seedDir, "bun.lock"), "{}");
+    // 老版本 syncSeed 会把内核二进制拷进 runtime
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(join(runtimeDir, KERNEL_BIN), "old-copy");
+    await writeFile(join(runtimeDir, "node_modules"), "");
+
+    await syncSeed(seedDir, runtimeDir, noopLog);
+
+    expect(await readdir(runtimeDir)).not.toContain(KERNEL_BIN);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -61,12 +102,12 @@ test("syncSeed: seed 里的 patches 不再复制（patch 编译期已生效，�
   }
 });
 
-test("syncSeed: runtime 留有旧内核（历史动态更新结果）→ 被随包 seed 覆盖（回退为包内内核）", async () => {
+test("syncSeed: runtime 留有旧内核副本（历史动态更新结果）→ 清除（已无读取方，回收 ~95MB）", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
-    // seed 是随包的当前内核
+    // seed 是随包的当前内核清单
     await writeFile(join(seedDir, KERNEL_BIN), "seed-bundled");
-    await writeFile(join(seedDir, "package.json"), "{}");
+    await writeFile(join(seedDir, "package.json"), '{"version":"1.0.0"}');
     await writeFile(join(seedDir, "bun.lock"), "{}");
     // runtime 是历史动态更新过的内核 + 旧标记
     await mkdir(runtimeDir, { recursive: true });
@@ -75,58 +116,221 @@ test("syncSeed: runtime 留有旧内核（历史动态更新结果）→ 被随�
 
     await syncSeed(seedDir, runtimeDir, noopLog);
 
-    // 内核回退为随包版本，动态标记被清理
-    expect(await readFile(join(runtimeDir, KERNEL_BIN), "utf8")).toBe(
-      "seed-bundled",
-    );
+    // 内核一律以随包 seed 路径运行（spawn/bin 链接都用它），runtime 副本与动态标记一并清理
+    expect(await readdir(runtimeDir)).not.toContain(KERNEL_BIN);
     expect(await readdir(runtimeDir)).not.toContain(".kernel-version");
+    // 依赖清单仍随包同步（install 与关于页内核版本需要）
+    expect(await readFile(join(runtimeDir, "package.json"), "utf8")).toBe(
+      '{"version":"1.0.0"}',
+    );
   } finally {
     await rm(base, { recursive: true, force: true });
   }
 });
 
-test("ensureRuntimeDeps: .installed-version 与 app 版本一致 → 跳过 install（内核随包不参与判定）", async () => {
+// 依赖指纹：只认「依赖清单内容」，不认 app 版本号——升级不再白装。
+test("computeDepsFingerprint: 同内容同指纹；package.json 或 bun.lock 变化则指纹变", async () => {
+  const { base, seedDir } = await makeTempDirs();
+  try {
+    await writeFile(join(seedDir, "package.json"), '{"dependencies":{"a":"1"}}');
+    await writeFile(join(seedDir, "bun.lock"), "lock-v1");
+    const f1 = await computeDepsFingerprint(seedDir);
+    expect(await computeDepsFingerprint(seedDir)).toBe(f1);
+
+    await writeFile(join(seedDir, "package.json"), '{"dependencies":{"a":"2"}}');
+    const f2 = await computeDepsFingerprint(seedDir);
+    expect(f2).not.toBe(f1);
+
+    await writeFile(join(seedDir, "package.json"), '{"dependencies":{"a":"1"}}');
+    await writeFile(join(seedDir, "bun.lock"), "lock-v2");
+    expect(await computeDepsFingerprint(seedDir)).not.toBe(f1);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("computeDepsFingerprint: 清单文件缺失按空内容计入（不抛错，指纹仍稳定）", async () => {
+  const { base, seedDir } = await makeTempDirs();
+  try {
+    const f = await computeDepsFingerprint(seedDir);
+    expect(f).toMatch(/^[0-9a-f]{16}$/);
+    expect(await computeDepsFingerprint(seedDir)).toBe(f);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("parseInstallMarker: 新格式「版本\t指纹」；旧格式（纯版本号）指纹为空", () => {
+  expect(parseInstallMarker("1.2.3\tabc123")).toEqual({
+    version: "1.2.3",
+    fingerprint: "abc123",
+  });
+  expect(parseInstallMarker("1.2.3")).toEqual({ version: "1.2.3", fingerprint: "" });
+  expect(parseInstallMarker("")).toEqual({ version: "", fingerprint: "" });
+});
+
+test("shouldSkipInstall: 指纹一致（app 版本号已变）→ 跳过（升级不再白装依赖）", () => {
+  expect(
+    shouldSkipInstall({
+      nodeModulesExists: true,
+      markerText: "0.4.5\tabc123", // 装的时候是 0.4.5，现在是 0.4.7
+      fingerprint: "abc123",
+    }),
+  ).toBe(true);
+});
+
+test("shouldSkipInstall: 依赖清单指纹不一致 → 不跳过（依赖真变了必须重装）", () => {
+  expect(
+    shouldSkipInstall({
+      nodeModulesExists: true,
+      markerText: "0.4.5\tabc123",
+      fingerprint: "def456",
+    }),
+  ).toBe(false);
+});
+
+test("shouldSkipInstall: 旧格式标记（纯版本号）无指纹可比 → 不跳过（迁移一次）", () => {
+  expect(
+    shouldSkipInstall({
+      nodeModulesExists: true,
+      markerText: "0.4.5",
+      fingerprint: "abc123",
+    }),
+  ).toBe(false);
+});
+
+test("shouldSkipInstall: 无 node_modules / 空标记 → 不跳过", () => {
+  expect(
+    shouldSkipInstall({
+      nodeModulesExists: false,
+      markerText: "0.4.5\tabc123",
+      fingerprint: "abc123",
+    }),
+  ).toBe(false);
+  expect(
+    shouldSkipInstall({
+      nodeModulesExists: true,
+      markerText: "",
+      fingerprint: "abc123",
+    }),
+  ).toBe(false);
+});
+
+// 造一个「依赖已装好、标记为指定内容」的 runtime（install 注入为空实现，真装路径不在此测）
+async function makeRuntimeWithMarker(seedDir: string, runtimeDir: string, markerText: string) {
+  await writeFile(join(seedDir, "package.json"), '{"dependencies":{}}');
+  await writeFile(join(seedDir, "bun.lock"), "lock");
+  await mkdir(join(runtimeDir, "node_modules"), { recursive: true });
+  await writeFile(join(runtimeDir, ".installed-version"), markerText);
+  return computeDepsFingerprint(seedDir);
+}
+
+test("ensureRuntimeDeps: app 版本变了但依赖指纹一致 → 跳过 install（本次修复的核心）", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
-    // seed 三件套
-    await writeFile(join(seedDir, KERNEL_BIN), "binary");
-    await writeFile(join(seedDir, "package.json"), "{}");
-    await writeFile(join(seedDir, "bun.lock"), "{}");
-    // runtime 已有 node_modules + 装好的标记（按 app 版本）
-    await mkdir(join(runtimeDir, "node_modules"), { recursive: true });
-    await writeFile(join(runtimeDir, "package.json"), "{}");
-    await writeFile(join(runtimeDir, ".installed-version"), "1.0.0");
-    const logs: string[] = [];
-    const log = {
-      info: (...a: string[]) => logs.push(a.join(" ")),
-      error: () => {},
-    };
+    const fp = await makeRuntimeWithMarker(seedDir, runtimeDir, `0.4.5\tPLACEHOLDER`);
+    // 用真实指纹改写标记：模拟「0.4.5 时装好依赖，现在 app 已是 0.4.7」
+    await writeFile(join(runtimeDir, ".installed-version"), `0.4.5\t${fp}`);
 
+    const logs: string[] = [];
+    let installCalls = 0;
     const runDir = await ensureRuntimeDeps({
       isPackaged: true,
       seedDir,
       runtimeDir,
       kernelExe: join(runtimeDir, KERNEL_BIN),
-      version: "1.0.0", // app 版本 == 已装标记 → 跳过 install
-      log,
+      version: "0.4.7", // 版本号变了
+      log: { info: (m: string) => logs.push(m), error: () => {} },
       onStatus: () => {},
+      deps: {
+        runInstall: async () => {
+          installCalls++;
+        },
+      },
     });
 
     expect(runDir).toBe(runtimeDir);
-    expect(
-      logs.some((l) =>
-        l.includes("node_modules 已安装 v1.0.0，跳过 install"),
-      ),
-    ).toBe(true);
+    expect(installCalls).toBe(0);
+    expect(logs.some((l) => l.includes("跳过 install"))).toBe(true);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
 });
 
-test("syncSeed: 清理历史遗留文件（kernel.js 时代 + 已移除的动态内核标记）", async () => {
+test("ensureRuntimeDeps: 依赖指纹变化 → 真装，并把标记写成「版本\t新指纹」", async () => {
+  const { base, seedDir, runtimeDir } = await makeTempDirs();
+  try {
+    await makeRuntimeWithMarker(seedDir, runtimeDir, `0.4.7\tstale-old-fingerprint`);
+
+    const logs: string[] = [];
+    let installCalls = 0;
+    await ensureRuntimeDeps({
+      isPackaged: true,
+      seedDir,
+      runtimeDir,
+      kernelExe: join(runtimeDir, KERNEL_BIN),
+      version: "0.4.7",
+      log: { info: (m: string) => logs.push(m), error: () => {} },
+      onStatus: () => {},
+      deps: {
+        runInstall: async () => {
+          installCalls++;
+        },
+        verifyInstallFn: async () => {}, // 注入安装不做产物校验（真实校验另有测试覆盖）
+      },
+    });
+
+    expect(installCalls).toBeGreaterThan(0);
+    const fp = await computeDepsFingerprint(runtimeDir);
+    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe(
+      `0.4.7\t${fp}`,
+    );
+    expect(logs.some((l) => l.includes("需要安装依赖"))).toBe(true);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("ensureRuntimeDeps: 旧格式标记（纯版本号）→ 迁移重装一次，之后转为指纹标记", async () => {
+  const { base, seedDir, runtimeDir } = await makeTempDirs();
+  try {
+    await makeRuntimeWithMarker(seedDir, runtimeDir, `0.4.7`);
+
+    const logs: string[] = [];
+    let installCalls = 0;
+    await ensureRuntimeDeps({
+      isPackaged: true,
+      seedDir,
+      runtimeDir,
+      kernelExe: join(runtimeDir, KERNEL_BIN),
+      version: "0.4.7",
+      log: { info: (m: string) => logs.push(m), error: () => {} },
+      onStatus: () => {},
+      deps: {
+        runInstall: async () => {
+          installCalls++;
+        },
+        verifyInstallFn: async () => {},
+      },
+    });
+
+    expect(installCalls).toBeGreaterThan(0);
+    expect(logs.some((l) => l.includes("旧格式标记"))).toBe(true);
+    const fp = await computeDepsFingerprint(runtimeDir);
+    expect(await readFile(join(runtimeDir, ".installed-version"), "utf8")).toBe(
+      `0.4.7\t${fp}`,
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("syncSeed: 清理历史遗留文件（kernel.js 时代 + 已移除的动态内核标记 + 内核副本）", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
     await writeFile(join(seedDir, KERNEL_BIN), "binary");
+    await writeFile(join(seedDir, "package.json"), '{"version":"1.0.0"}');
+    await writeFile(join(seedDir, "bun.lock"), "lock");
     // 模拟老版本 runtime 目录的遗留
     await mkdir(runtimeDir, { recursive: true });
     await writeFile(join(runtimeDir, "kernel.js"), "// old bundle");
@@ -149,7 +353,9 @@ test("syncSeed: 清理历史遗留文件（kernel.js 时代 + 已移除的动态
     expect(files).not.toContain("file-snapshot.ts");
     expect(files).not.toContain("patches");
     expect(files).not.toContain(".kernel-version");
-    expect(files).toContain(KERNEL_BIN);
+    // 内核二进制不进 runtime（spawn/bin 链接用随包 seed 路径）；依赖清单仍然随包同步
+    expect(files).not.toContain(KERNEL_BIN);
+    expect(files).toContain("package.json");
   } finally {
     await rm(base, { recursive: true, force: true });
   }

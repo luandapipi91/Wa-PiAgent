@@ -5,6 +5,7 @@
 - 修复：原生扩展弹窗（select/confirm/input/editor）高度与渲染——长 prompt 放 title 且头部不限高导致选项卡被挤出屏幕。
 - 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
 - 影响范围：frontend（blocks/Markdown 及 9 处调用点、ExtensionDialog）。
+- fix(desktop): 打包版启动卡顿（Windows 实测止血）——① 每次启动不再把 ≈95MB 内核二进制拷进 WA_PI_DIR/runtime：自 da951491「移除内核独立打包与独立升级机制」后该副本已无任何读取方（spawn 与 bin 链接都用随包 seed 路径），并清理老用户 runtime 里的存量副本（回收 ~95MB）；② 依赖重装判定改按「依赖清单指纹」（package.json + bun.lock 内容哈希）而非 app 版本号——生产日志实测发版触发的那轮重装 bun 自报 “no changes”，白付一次 95MB 子进程启动（2.2~5.5s，冷网络还叠加 26s 下载）；③ 补启动时间线埋点：runtimeReadyStart/runtimeReadyDone/kernelSpawnStart/splashLoaded/splashFirstFrame。实测（打包版、隔离 WA_PI_DIR、三次冷启动）：升级路径 2185ms → 1530/1541ms，种子同步段 59~83ms → 24~26ms，依赖判定 864ms → 0ms。
 
 ## 2026-09-18 — v0.4.6 发版（新会话启动/侧栏空白修复 + TUI 弹窗鼠标修复）
 
