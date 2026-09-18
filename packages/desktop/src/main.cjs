@@ -14,7 +14,7 @@ const {
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
-const { spawnSync } = require("node:child_process");
+const { spawnSync, execFile } = require("node:child_process");
 const { createLogger } = require("./util/log.cjs");
 const { gpuSwitchesFor } = require("./util/gpu-switches.cjs");
 const { summarizeGpuStatus } = require("./util/gpu-status.cjs");
@@ -38,6 +38,7 @@ const {
 	registerProcess,
 	unregisterProcess,
 	sweepRegistry,
+	sweepRegistryAsync,
 } = require("./util/process-registry.cjs");
 const { attemptSelfHeal } = require("./util/startup-heal.cjs");
 const { switchPortAndRelaunch } = require("./util/port-switch.cjs");
@@ -105,6 +106,9 @@ const t = (k) => MSG[LOCALE][k] ?? MSG.zh[k];
 const registryOpts = {
 	fs,
 	spawnSync,
+	// 启动路径的异步清扫用 execFile（Windows 上 powershell 冷启 + 杀软挂钩实测 ~1s/次，
+	// spawnSync 会把主线程与启动页一起冻住）；退出/升级前的同步清扫仍用 spawnSync。
+	execFile,
 	now: () => Date.now(),
 	waPiDir: WA_PI_DIR,
 	log: (m) => log.info(m),
@@ -705,7 +709,11 @@ app.whenReady().then(async () => {
 	// 端口自愈的「换端口」路径绕开（遇占用不杀进程），故 dev 无需杀伐式清扫。
 	if (app.isPackaged) {
 		try {
-			const r = sweepRegistry(registryOpts);
+			// 启动路径用异步清扫（execFile）：同步版内部是 spawnSync("powershell")，
+			// Windows 上实测 1 条残留登记就冻住主线程 1061ms——启动页与进度条停摆。
+			// 语义与同步版一致（TTL 兵底 + 三重校验 + 失败保留登记）；退出/升级前
+			// 路径继续用同步版（同步监听器里必须同步杀完，见 cleanup 注释）。
+			const r = await sweepRegistryAsync(registryOpts);
 			if (
 				r.killed.length ||
 				r.deleted.length ||
@@ -1107,16 +1115,22 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 				)
 				.then(() => {
 					startup.mark("firstFrame");
+					// 先出帧再显窗：原实现在 did-finish-load 后立即 reveal，windowShown 早于
+					// firstFrame，用户先看到一个白窗/半渲染页面（跳平台问题：macOS 同样存在）。
+					// 显窗放在 summary 日志之前：否则 windowShown 落在日志之后，时间线里看不到它，
+					// 「windowShown 是否晚于 firstFrame」就无法从 [startup] 行自证。
+					revealMainWindow();
 					log.info(
 						`[startup] 主进程模块加载起点=+${BOOT_OFFSET_MS}ms ${startup.summary()}`,
 					);
 				})
-				.catch(() =>
+				.catch(() => {
 					log.info(
 						`[startup] 首帧探测失败 主进程模块加载起点=+${BOOT_OFFSET_MS}ms ${startup.summary()}`,
-					),
-				);
-			revealMainWindow();
+					);
+					// 探测失败也要显窗，不能把用户永远困在启动页
+					revealMainWindow();
+				});
 		});
 		// 主窗口渲染进程异常：卡死/崩溃/加载失败都要留痕（否则表现为「白窗口卡住」）
 		mainWindow.webContents.on("unresponsive", () =>

@@ -108,57 +108,98 @@ function parseLstart(s) {
 }
 
 /**
- * 校验②③原料（三态结果，区分「进程不存在」与「查询失败」，避免静默失效不可观测）：
- *   { ok: true, identity: { exe, createdAt } }     查询成功
- *   { ok: false, reason: "not-found" }             进程确实不存在（命令成功执行但无输出）
- *   { ok: false, reason: "error", detail }         查询失败（命令执行出错/非 0 退出码/输出或时间格式异常）
+ * 身份查询命令（同步/异步两条路径共用同一命令与参数，保证语义一致）
+ */
+function identityCommand(pid, platform) {
+  if (platform === "win32") {
+    // Windows：PowerShell 取 CreationDate（CIM DateTime，ISO 8601）与 ExecutablePath
+    const cmd =
+      `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | ` +
+      "Select-Object ProcessId,ExecutablePath,CreationDate | ConvertTo-Json -Compress";
+    return {
+      file: "powershell",
+      args: ["-NoProfile", "-Command", cmd],
+      spawnOpts: { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+    };
+  }
+  // mac/linux：ps 取 lstart（创建时间，本地时间）+ command（exe 取首 token）
+  return {
+    file: "ps",
+    args: ["-o", "lstart=,command=", "-p", String(pid)],
+    spawnOpts: { encoding: "utf8" },
+  };
+}
+
+/**
+ * 解释「命令执行结果」为三态身份结果（纯函数，同步 spawnSync / 异步 execFile 共用）。
+ *   { ok: true, identity: { exe, createdAt } } / { ok: false, reason: "not-found" } / { ok: false, reason: "error", detail }
  * 两者必须区分：not-found 是正常清理路径（删登记）；error 可能是工具/权限/格式问题，
  * 调用方应保留登记+记日志，避免「只删不杀 → 幽灵进程继续占 9778 且登记被删」的静默失效。
  */
+function interpretIdentityResult({ error, status, stdout }, platform) {
+  if (error)
+    return { ok: false, reason: "error", detail: `命令执行失败: ${error.message ?? error}` };
+  const out = String(stdout ?? "").trim();
+  if (platform === "win32") {
+    if (status !== 0)
+      return { ok: false, reason: "error", detail: `PowerShell 退出码 ${status}` };
+    if (!out || out === "null") return { ok: false, reason: "not-found" }; // 进程不存在 → CIM 无输出
+    let obj;
+    try {
+      obj = JSON.parse(out);
+    } catch (e) {
+      return { ok: false, reason: "error", detail: `输出非 JSON: ${e?.message ?? e}` };
+    }
+    if (!obj || obj.ProcessId == null) return { ok: false, reason: "not-found" }; // 空集合边缘情况
+    const createdAt = parseIsoMs(String(obj.CreationDate ?? ""));
+    if (createdAt === null)
+      return { ok: false, reason: "error", detail: "CreationDate 解析失败（格式不符）" };
+    return { ok: true, identity: { exe: String(obj.ExecutablePath ?? ""), createdAt } };
+  }
+  // 进程不存在时 ps 无输出（退出码 1）→ not-found
+  if (!out) return { ok: false, reason: "not-found" };
+  if (status !== 0) return { ok: false, reason: "error", detail: `ps 退出码 ${status}` };
+  const m = out.match(/^(\S+\s+\S+\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
+  if (!m) return { ok: false, reason: "error", detail: "ps 输出格式不符" };
+  const createdAt = parseLstart(m[1]);
+  if (createdAt === null)
+    return { ok: false, reason: "error", detail: "lstart 解析失败（格式不符）" };
+  return { ok: true, identity: { exe: m[2].split(/\s+/)[0], createdAt } };
+}
+
 function getProcessIdentity(pid, opts) {
   const platform = opts.platform ?? process.platform;
   try {
-    if (platform === "win32") {
-      // Windows：PowerShell 取 CreationDate（CIM DateTime，ISO 8601）与 ExecutablePath
-      const cmd =
-        `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | ` +
-        "Select-Object ProcessId,ExecutablePath,CreationDate | ConvertTo-Json -Compress";
-      const res = opts.spawnSync("powershell", ["-NoProfile", "-Command", cmd], {
-        encoding: "utf8",
-        maxBuffer: 16 * 1024 * 1024,
-      }) ?? {};
-      if (res.error) return { ok: false, reason: "error", detail: `命令执行失败: ${res.error.message ?? res.error}` };
-      if (res.status !== 0) return { ok: false, reason: "error", detail: `PowerShell 退出码 ${res.status}` };
-      const out = String(res.stdout ?? "").trim();
-      if (!out || out === "null") return { ok: false, reason: "not-found" }; // 进程不存在 → CIM 无输出
-      let obj;
-      try {
-        obj = JSON.parse(out);
-      } catch (e) {
-        return { ok: false, reason: "error", detail: `输出非 JSON: ${e?.message ?? e}` };
-      }
-      if (!obj || obj.ProcessId == null) return { ok: false, reason: "not-found" }; // 空集合边缘情况
-      const createdAt = parseIsoMs(String(obj.CreationDate ?? ""));
-      if (createdAt === null) return { ok: false, reason: "error", detail: "CreationDate 解析失败（格式不符）" };
-      return { ok: true, identity: { exe: String(obj.ExecutablePath ?? ""), createdAt } };
-    }
-    // mac/linux：ps 取 lstart（创建时间，本地时间）+ command（exe 取首 token）
-    const res = opts.spawnSync("ps", ["-o", "lstart=,command=", "-p", String(pid)], {
-      encoding: "utf8",
-    }) ?? {};
-    if (res.error) return { ok: false, reason: "error", detail: `命令执行失败: ${res.error.message ?? res.error}` };
-    const out = String(res.stdout ?? "").trim();
-    // 进程不存在时 ps 无输出（退出码 1）→ not-found
-    if (!out) return { ok: false, reason: "not-found" };
-    if (res.status !== 0) return { ok: false, reason: "error", detail: `ps 退出码 ${res.status}` };
-    const m = out.match(/^(\S+\s+\S+\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
-    if (!m) return { ok: false, reason: "error", detail: "ps 输出格式不符" };
-    const createdAt = parseLstart(m[1]);
-    if (createdAt === null) return { ok: false, reason: "error", detail: "lstart 解析失败（格式不符）" };
-    return { ok: true, identity: { exe: m[2].split(/\s+/)[0], createdAt } };
+    const { file, args, spawnOpts } = identityCommand(pid, platform);
+    const res = opts.spawnSync(file, args, spawnOpts) ?? {};
+    return interpretIdentityResult(res, platform);
   } catch (e) {
     return { ok: false, reason: "error", detail: `未预期异常: ${e?.message ?? e}` };
   }
+}
+
+/**
+ * 异步版身份查询（启动路径用）：语义与 getProcessIdentity 完全一致（同一命令、同一解释器），
+ * 区别只是用 execFile 而非 spawnSync——**不在主进程主线程上同步等命令行进程**。
+ * 为什么必须：Windows 上 powershell 冷启 + 杀软挂钩实测 ≈ 1s/次
+ * （2026-09-18 实测：1 条残留登记就让主线程阻塞 1061ms，启动页停在那不动），
+ * 且清扫逐条循环 → N 条残留就是 N × ~1s 的冻屏。
+ */
+function getProcessIdentityAsync(pid, opts) {
+  const platform = opts.platform ?? process.platform;
+  const execFileFn = opts.execFile ?? require("node:child_process").execFile;
+  const { file, args, spawnOpts } = identityCommand(pid, platform);
+  return new Promise((resolve) => {
+    try {
+      execFileFn(file, args, { ...spawnOpts, windowsHide: true }, (err, stdout) => {
+        // execFile 非 0 退出码会作为 err 抛回，同时带上 stdout：映射回同步版的 { status } 语义
+        const status = err ? (typeof err.code === "number" ? err.code : 1) : 0;
+        resolve(interpretIdentityResult({ error: err ?? null, status, stdout }, platform));
+      });
+    } catch (e) {
+      resolve({ ok: false, reason: "error", detail: `未预期异常: ${e?.message ?? e}` });
+    }
+  });
 }
 
 /** 校验②+③：创建时间一致（容差见 START_TIME_TOLERANCE_MS）且 exe 匹配我方特征 */
@@ -229,6 +270,41 @@ function killProcess(pid, opts) {
   } catch (e) {
     opts.log?.(`[registry] kill ${pid} 失败: ${e?.message ?? e}`);
     return false;
+  }
+}
+
+/** 异步版杀伐：Windows taskkill（异步 execFile，不阻塞事件循环）/ 其他 SIGKILL */
+function killProcessAsync(pid, opts) {
+  const platform = opts.platform ?? process.platform;
+  if (platform === "win32") {
+    const execFileFn = opts.execFile ?? require("node:child_process").execFile;
+    return new Promise((resolve) => {
+      try {
+        execFileFn(
+          "taskkill",
+          ["/PID", String(pid), "/T", "/F"],
+          { windowsHide: true },
+          (err) => {
+            if (err) {
+              opts.log?.(
+                `[registry] taskkill 失败: PID ${pid}（${err.code ?? err.message}）`,
+              );
+              resolve(false);
+            } else resolve(true);
+          },
+        );
+      } catch (e) {
+        opts.log?.(`[registry] taskkill 异常: ${e?.message ?? e}`);
+        resolve(false);
+      }
+    });
+  }
+  try {
+    (opts.kill ?? process.kill)(pid, "SIGKILL");
+    return Promise.resolve(true);
+  } catch (e) {
+    opts.log?.(`[registry] kill ${pid} 失败: ${e?.message ?? e}`);
+    return Promise.resolve(false);
   }
 }
 
@@ -314,14 +390,90 @@ function sweepRegistry(opts) {
   return result;
 }
 
+/**
+ * 异步版启动清扫（启动关键路径用）：逐条语义与 sweepRegistry 完全一致
+ * （TTL 兜底 + 三重校验 + 失败保留登记），只是身份查询与杀伐都走异步——
+ * 启动页在这段期间仍能刷新（同步版会把主线程冻住实测 1s/条）。
+ */
+async function killRegisteredProcessesAsync(opts) {
+  const result = { killed: [], deleted: [], skipped: [], errors: [] };
+  for (const entry of loadRegistry(opts)) {
+    // ① 进程已死 → 只删登记
+    if (!isProcessAlive(entry.pid, opts)) {
+      unregisterProcess(entry.pid, opts);
+      result.deleted.push(entry.pid);
+      continue;
+    }
+    // ②③ 原料：三态结果——区分「进程不存在」与「查询失败」
+    const q = await getProcessIdentityAsync(entry.pid, opts);
+    if (!q.ok) {
+      if (q.reason === "not-found") {
+        unregisterProcess(entry.pid, opts);
+        result.deleted.push(entry.pid);
+      } else {
+        opts.log?.(
+          `[registry] 身份查询失败 PID ${entry.pid}: ${q.detail ?? q.reason}（保留登记，下轮重试）`,
+        );
+        result.errors.push({ pid: entry.pid, reason: q.detail ?? q.reason });
+      }
+      continue;
+    }
+    // ②+③ 非我方（PID 复用 / exe 不符）→ 只删登记不动进程
+    if (!isOurs(entry, q.identity, opts)) {
+      unregisterProcess(entry.pid, opts);
+      result.skipped.push(entry.pid);
+      continue;
+    }
+    // 三重校验全过 → 杀：先连带清理 kernel 子孙，再杀 root
+    const procs = opts.scanProcesses?.() ?? [];
+    const descendants = collectDescendants([entry.pid], procs, opts.selfPid ?? process.pid);
+    for (const child of descendants) {
+      opts.log?.(`[registry] 连带清理 kernel 子孙 PID ${child.pid}（${summarizeCmd(child.cmd)}）`);
+      if (await killProcessAsync(child.pid, opts)) {
+        result.killed.push(child.pid);
+      } else {
+        result.skipped.push(child.pid);
+      }
+    }
+    if (await killProcessAsync(entry.pid, opts)) {
+      unregisterProcess(entry.pid, opts);
+      result.killed.push(entry.pid);
+    } else {
+      result.skipped.push(entry.pid);
+    }
+  }
+  return result;
+}
+
+async function sweepRegistryAsync(opts) {
+  const result = { killed: [], deleted: [], skipped: [], errors: [] };
+  const now = opts.now();
+  for (const entry of loadRegistry(opts)) {
+    // TTL 兜底：超期记录只删文件不碰进程（pid 可能早已换主）
+    if (now - entry.registeredAt > TTL_MS) {
+      unregisterProcess(entry.pid, opts);
+      result.deleted.push(entry.pid);
+    }
+  }
+  const r = await killRegisteredProcessesAsync(opts);
+  result.killed.push(...r.killed);
+  result.deleted.push(...r.deleted);
+  result.skipped.push(...r.skipped);
+  result.errors.push(...r.errors);
+  return result;
+}
+
 module.exports = {
   registerProcess,
   unregisterProcess,
   loadRegistry,
   isProcessAlive,
   getProcessIdentity,
+  getProcessIdentityAsync,
   isOurs,
   sweepRegistry,
+  sweepRegistryAsync,
   killRegisteredProcesses,
+  killRegisteredProcessesAsync,
   collectDescendants,
 };
