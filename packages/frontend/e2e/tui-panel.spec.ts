@@ -80,8 +80,24 @@ test.describe
 			return sessionId;
 		}
 
+		/** 起一个会话并让 pi 执行 /tui-demo-options（键盘型编号选项对话框） */
+		async function spawnSessionWithOptionsPanel(): Promise<string> {
+			const sessionId = "s-e2e-tui-opt-" + randomUUID().slice(0, 8);
+			await createSessionViaPrompt(projectId, {
+				agentName: "研发",
+				text: "/tui-demo-options",
+				model: MODEL,
+				sessionId,
+			});
+			return sessionId;
+		}
+
 		/** 打开页面 → 选项目 → 进会话，返回面板展开态定位器 */
-		async function openPanel(page: Page, sessionId: string) {
+		async function openPanel(
+			page: Page,
+			sessionId: string,
+			expects: string[] = ["alpha", "beta", "gamma"],
+		) {
 			await page.goto("/");
 			await page.waitForTimeout(500);
 			await page.getByText(projectName).first().click();
@@ -92,10 +108,12 @@ test.describe
 			const panel = page.getByTestId("tui-panel-expanded");
 			// 面板要等 pi 进程启动 + 扩展加载 + 帧流建立，给足超时
 			await expect(panel).toBeVisible({ timeout: 60_000 });
-			// 帧到达前先渲染的是空面板：等到三行内容都上屏再断言
-			await expect(panel).toContainText("alpha", { timeout: 20_000 });
-			await expect(panel).toContainText("beta");
-			await expect(panel).toContainText("gamma");
+			// 帧到达前先渲染的是空面板：等到内容上屏再断言
+			for (const [i, text] of expects.entries()) {
+				await expect(panel).toContainText(text, {
+					timeout: i === 0 ? 20_000 : undefined,
+				});
+			}
 			return panel;
 		}
 
@@ -119,6 +137,34 @@ test.describe
 			// 选择结果经 ctx.ui.notify 回显到聊天（扩展 UI 桥固有形态）
 			await expect(
 				page.locator('[data-testid^="custom-"]:has-text("tui-demo 选择：gamma")'),
+			).toBeVisible({ timeout: 20_000 });
+		});
+
+		/**
+		 * 鼠标 → 键盘回退：对话框只实现 handleInput（pi-goal-x 的问卷/提案确认就是这个形态），
+		 * 真终端里点它等于没反应。宿主在组件没消费鼠标时按帧文本推出等价的 ↑↓ + Enter。
+		 *
+		 * 帧特意做成 30+ 行（高于面板视口）：选项在底部，点击前浏览器会把该行滚进视口，
+		 * 因此这条同时压住 «帧行 = 可见行 + 滚动偏移» 的换算（少了它就会点中上面十几行的另一行）。
+		 */
+		test("键盘型对话框：点击选项行即选中并确认（鼠标→键盘回退）", async ({ page }) => {
+			const sessionId = await spawnSessionWithOptionsPanel();
+			const panel = await openPanel(page, sessionId, [
+				"1. Confirm — create this goal now",
+				"3. Cancel — discard this draft",
+			]);
+
+			// 点第 2 项：面板壳不处理点击，点的是帧文本行
+			await panel.getByText("2. Continue chatting — keep refining").click();
+
+			// 选项经 done 回传 → 面板关闭 → 结果经 ctx.ui.notify 回显到聊天
+			await expect(page.getByTestId("tui-panel-expanded")).toHaveCount(0, {
+				timeout: 20_000,
+			});
+			await expect(
+				page.locator(
+					'[data-testid^="custom-"]:has-text("tui-demo-options 选择：2 Continue chatting")',
+				),
 			).toBeVisible({ timeout: 20_000 });
 		});
 

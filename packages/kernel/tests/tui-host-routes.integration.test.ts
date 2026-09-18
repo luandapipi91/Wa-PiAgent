@@ -502,6 +502,21 @@ test("输入链路：无订阅者时入队 → 订阅后立即补发；已连接
 			cols: 100,
 			rows: 30,
 		});
+
+		// 4) 鼠标也走同一条通道（回归锁定）：面板的点击靠它到达插件，
+		//    点击回退（未实现 handleMouse 的对话框）只在 pi 侧生效，不另开接口
+		const click = "\u001b[<0;8;3M\u001b[<0;8;3m";
+		await jsonPost(base, "/api/extensions/tui-input", {
+			sessionId: "s1",
+			panelId: "p1",
+			type: "mouse",
+			data: click,
+		});
+		expect(JSON.parse(await lines.next())).toEqual({
+			type: "mouse",
+			panelId: "p1",
+			data: click,
+		});
 		await sub.body!.cancel().catch(() => {});
 	} finally {
 		await server.stop();

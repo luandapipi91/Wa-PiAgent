@@ -620,15 +620,10 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 			pressRef.current = null;
 			const el = bodyRef.current;
 			if (!el) return;
-			const box = el.getBoundingClientRect();
+			const { col, row } = cellAt(el, e.clientX, e.clientY);
 			post({
 				type: "mouse",
-				data: encodeMouse(
-					"up",
-					pressed.button,
-					axisIndex(e.clientX - box.left - BODY_PAD_X, cellRef.current),
-					axisIndex(e.clientY - box.top, CELL.height),
-				),
+				data: encodeMouse("up", pressed.button, col, row),
 			});
 		};
 		window.addEventListener("mouseup", onUp);
@@ -755,7 +750,10 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		const box = el.getBoundingClientRect();
 		return {
 			col: axisIndex(clientX - box.left - BODY_PAD_X, cellRef.current),
-			row: axisIndex(clientY - box.top, CELL.height),
+			// 行号是**帧行**（用户点的是画面上那一行，与面板滚到哪儿无关）：文本区只显示
+			// 整帧的一段，所以把 scrollTop 加回去。折算成 pi-tui 的终端视口行由宿主做
+			// （kernel 侧 tui-host/panel.ts → click.ts）——前端既拿不到、也不该猜那边的视口状态。
+			row: axisIndex(clientY - box.top + el.scrollTop, CELL.height),
 		};
 	};
 

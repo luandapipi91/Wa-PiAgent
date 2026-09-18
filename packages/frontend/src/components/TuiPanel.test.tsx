@@ -389,14 +389,50 @@ describe("TuiPanel 鼠标上报", () => {
 		const el = body();
 		fireEvent.mouseDown(el, {
 			clientX: atCol(5),
-			clientY: 2 * CELL.height,
+			clientY: 2.5 * CELL.height,
 			button: 0,
 		});
-		fireEvent.mouseUp(window, { clientX: atCol(5), clientY: 2 * CELL.height });
+		fireEvent.mouseUp(window, { clientX: atCol(5), clientY: 2.5 * CELL.height });
 
 		expect(tuiInputCalls("mouse").map((c) => c.body.data)).toEqual([
 			encodeMouse("down", 0, 6, 3),
 			encodeMouse("up", 0, 6, 3),
+		]);
+	});
+
+	/**
+	 * 行号是**帧行**：文本区只显示整帧的一段，所以要把 scrollTop 加回去。
+	 * 折算成 pi-tui 的终端视口行是宿主的事（kernel 侧 tui-host/panel.ts → click.ts）——
+	 * 实测浏览器里文本区高度不是格高的整数倍（348px ÷ 19.39px），可见首行只露半行，
+	 * 前端若按「可见行」上发就会与 kernel 的视口行差 1（表现为「点 2 中 3」）。
+	 */
+	test("文本区滚动后：行号 = 可见行 + scrollTop（帧行，折算交宿主）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		stubRects({ width: 720, height: 388 });
+		render(<TuiPanel sessionId="s1" />);
+		const el = body();
+		// happy-dom 无布局：scrollTop 直接钉死（可写，免得 mount 时的「自动贴底」写值抛错）
+		Object.defineProperty(el, "scrollTop", {
+			value: CELL.height * 3,
+			configurable: true,
+			writable: true,
+		});
+
+		// 行中线点击：整格边界上的浮点误差会差一行
+		fireEvent.mouseDown(el, {
+			clientX: atCol(5),
+			clientY: 2.5 * CELL.height,
+			button: 0,
+		});
+		fireEvent.mouseUp(window, {
+			clientX: atCol(5),
+			clientY: 2.5 * CELL.height,
+		});
+
+		// 可见第 3 行 + 已滚 3 行 = 帧第 6 行
+		expect(tuiInputCalls("mouse").map((c) => c.body.data)).toEqual([
+			encodeMouse("down", 0, 6, 6),
+			encodeMouse("up", 0, 6, 6),
 		]);
 	});
 
@@ -577,7 +613,7 @@ describe("TuiPanel 格宽实测", () => {
 		// 第 10 列：按实测 8px 是 12+9×8=84px（按常量 7.2px 会算成第 11 列）
 		fireEvent.mouseDown(body(), {
 			clientX: 12 + 9 * MEASURED,
-			clientY: 2 * CELL.height,
+			clientY: 2.5 * CELL.height,
 			button: 0,
 		});
 		expect(tuiInputCalls("mouse").at(-1)!.body.data).toBe(

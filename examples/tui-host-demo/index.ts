@@ -32,4 +32,50 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`tui-demo 选择：${String(picked)}`, "info");
 		},
 	});
+
+	/**
+	 * 键盘型编号选项对话框：与 pi-goal-x 的 goal-questionnaire（提案确认/问卷）同形——
+	 * 编号选项 + 底部「Enter select」提示，**只实现 render/invalidate/handleInput**。
+	 *
+	 * 它没有 handleMouse，所以真终端里鼠标点击只会落到 pi-tui 的文本选择；
+	 * 图形界面下由宿主（wa-pi-tui-host）把点击翻译成 ↑↓ + Enter（见
+	 * packages/kernel/src/tui-host/click.ts）。上下文特意写成 30 行：帧高于面板视口，
+	 * 断言 «滚到底后仍能点中选项行»（帧行 ≠ 可见行，行号必须带滚动偏移）。
+	 */
+	pi.registerCommand("tui-demo-options", {
+		description: "弹出键盘型编号选项面板（验证点击 → 键盘回退）",
+		handler: async (_args, ctx) => {
+			const items = [
+				"Confirm — create this goal now",
+				"Continue chatting — keep refining",
+				"Cancel — discard this draft",
+			];
+			const context = Array.from(
+				{ length: 30 },
+				(_, i) => ` context line ${i + 1}`,
+			);
+			let index = 0;
+			const picked = await ctx.ui.custom<string>(
+				(_tui, _theme, _keybindings, done) => ({
+					render: () => [
+						" Confirm Goal Draft",
+						...context,
+						"",
+						...items.map(
+							(it, i) => `${i === index ? "> " : "  "}${i + 1}. ${it}`,
+						),
+						"",
+						" ↑↓ navigate • Enter select • Esc cancel",
+					],
+					invalidate: () => {},
+					handleInput: (data: string) => {
+						if (data === "\u001b[B") index = Math.min(items.length - 1, index + 1);
+						else if (data === "\u001b[A") index = Math.max(0, index - 1);
+						else if (data === "\r") done(`${index + 1} ${items[index] ?? ""}`);
+					},
+				}),
+			);
+			ctx.ui.notify(`tui-demo-options 选择：${String(picked)}`, "info");
+		},
+	});
 }

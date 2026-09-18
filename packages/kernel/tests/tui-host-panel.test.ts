@@ -356,3 +356,157 @@ describe("createPanelHost", () => {
 		host.dispose();
 	});
 });
+
+describe("createPanelHost：点击回退（未实现 handleMouse 的键盘型对话框）", () => {
+	/**
+	 * 键盘型编号选项对话框：只实现 render / invalidate / handleInput
+	 * （与 pi-goal-x 的 goal-questionnaire 同形——它没有 handleMouse，
+	 * 真实终端里鼠标点击同样只会落在「文本选择」，用户看到的就是「按钮点不到」）。
+	 */
+	function makeKeyboardDialog(contextLines = 0) {
+		const keys: string[] = [];
+		const doneRef: { fn: ((v: string) => void) | null } = { fn: null };
+		const items = ["Confirm — create this goal now", "Continue chatting", "Cancel — discard this draft"];
+		let index = 0;
+		const component: ProbeComponent = {
+			render: () => [
+				" Confirm Goal Draft",
+				...Array.from({ length: contextLines }, (_, i) => ` context line ${i + 1}`),
+				"",
+				...items.map((it, i) => `${i === index ? "> " : "  "}${i + 1}. ${it}`),
+				"",
+				" ↑↓ navigate • Enter select • Esc cancel",
+			],
+			invalidate: () => {},
+			handleInput: (data: string) => {
+				keys.push(data);
+				if (data === "\u001b[B") index = Math.min(items.length - 1, index + 1);
+				else if (data === "\u001b[A") index = Math.max(0, index - 1);
+				else if (data === "\r") doneRef.fn?.(String(index + 1));
+			},
+		};
+		return { keys, doneRef, component };
+	}
+
+	/** 前端 lib/tui-keys.ts 的编码（SGR 鼠标，坐标 1-based） */
+	const mouse = (phase: "down" | "up", col: number, row: number) =>
+		`\u001b[<0;${col};${row}${phase === "up" ? "m" : "M"}`;
+
+	test("点击选项 2 → 选项被选中并确认（组件收到 ↓ + 回车）", async () => {
+		const dialog = makeKeyboardDialog();
+		const frames: TuiFrame[] = [];
+		const host = createPanelHost({
+			title: "probe",
+			cols: 40,
+			rows: 12,
+			factory: (_tui, _theme, _kb, done) => {
+				dialog.doneRef.fn = done as (v: string) => void;
+				return dialog.component;
+			},
+			theme: undefined as never,
+			keybindings: undefined as never,
+			onFrame: (f) => frames.push(f),
+		});
+		host.start();
+		const row = frames[0]!.lines.findIndex((l) => l.includes("2. Continue chatting"));
+		expect(row).toBeGreaterThan(0);
+		// 鼠标命中依赖 alt-screen 自己的布局树（`currentLayout`），而它是在
+		// TuiBase 那个节流的渲染循环里建的（process.nextTick + ≥16ms），
+		// 宿主直接调 tui.render() 并不建布局——先等它跑完再点，否则拿到 undefined 命中表
+		await new Promise((r) => setTimeout(r, 50));
+
+		host.inject(mouse("down", 8, row + 1));
+		host.inject(mouse("up", 8, row + 1));
+
+		expect(dialog.keys).toEqual(["\u001b[B", "\r"]);
+		await expect(host.result).resolves.toEqual({ status: "done", value: "2" });
+	});
+
+	/**
+	 * 生产几何：帧（37 行）高于终端视口（17 行），alt-screen 视口停在底部。
+	 * 前端发的是**帧行**（用户点的是画面上那一行），宿主必须先折算成终端视口行——
+	 * 少这一步就是「点 2 中 3」（浏览器侧客户端高度不是格高的整数倍，可见首行只有半行，
+	 * 两侧 floor 出来的行号天然差 1）。
+	 */
+	test("长帧（37 行 > 17 行视口）：点帧行也能命中该选项（帧行 → 视口行折算）", async () => {
+		const dialog = makeKeyboardDialog(30);
+		const frames: TuiFrame[] = [];
+		const host = createPanelHost({
+			title: "probe",
+			cols: 80,
+			rows: 17,
+			factory: (_tui, _theme, _kb, done) => {
+				dialog.doneRef.fn = done as (v: string) => void;
+				return dialog.component;
+			},
+			theme: undefined as never,
+			keybindings: undefined as never,
+			onFrame: (f) => frames.push(f),
+		});
+		host.start();
+		await new Promise((r) => setTimeout(r, 50));
+
+		const frameRow = frames[0]!.lines.findIndex((l) =>
+			l.includes("2. Continue chatting"),
+		);
+		expect(frameRow).toBe(33);
+
+		host.inject(mouse("down", 8, frameRow + 1));
+		host.inject(mouse("up", 8, frameRow + 1));
+
+		expect(dialog.keys).toEqual(["\u001b[B", "\r"]);
+		await expect(host.result).resolves.toEqual({ status: "done", value: "2" });
+	});
+
+	test("插件自带 handleMouse 时不接管（补充、不覆盖）", async () => {
+		const dialog = makeKeyboardDialog();
+		const own: string[] = [];
+		dialog.component.handleMouse = (event) => {
+			own.push(event.type);
+			return undefined;
+		};
+		const frames: TuiFrame[] = [];
+		const host = createPanelHost({
+			title: "probe",
+			cols: 40,
+			rows: 12,
+			factory: () => dialog.component,
+			theme: undefined as never,
+			keybindings: undefined as never,
+			onFrame: (f) => frames.push(f),
+		});
+		host.start();
+		const row = frames[0]!.lines.findIndex((l) =>
+			l.includes("2. Continue chatting"),
+		);
+		await new Promise((r) => setTimeout(r, 50));
+
+		host.inject(mouse("down", 8, row + 1));
+		host.inject(mouse("up", 8, row + 1));
+
+		// 事件到了插件手上（原样调用），宿主没有塞自己的键盘序列
+		expect(own).toContain("click");
+		expect(dialog.keys).toEqual([]);
+		host.dispose();
+	});
+
+	test("点击正文行不动选项、不发键", () => {
+		const dialog = makeKeyboardDialog();
+		const host = createPanelHost({
+			title: "probe",
+			cols: 40,
+			rows: 12,
+			factory: () => dialog.component,
+			theme: undefined as never,
+			keybindings: undefined as never,
+		});
+		host.start();
+		host.sample();
+
+		host.inject(mouse("down", 8, 1));
+		host.inject(mouse("up", 8, 1));
+
+		expect(dialog.keys).toEqual([]);
+		host.dispose();
+	});
+});

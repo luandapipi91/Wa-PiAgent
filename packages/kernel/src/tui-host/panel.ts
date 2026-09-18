@@ -10,6 +10,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { WaPiFakeTerminal } from "./terminal.ts";
 import { extractFrame, sameFrame, type TuiFrame } from "./frame.ts";
+import { resolveClickKeys, translateMouseRow } from "./click.ts";
 
 export type PanelResult<T> =
 	| { status: "done"; value: T }
@@ -67,6 +68,37 @@ const SAMPLE_INTERVAL_MS = 80;
 
 /** pi 的组件可以带 dispose，但 pi-tui 的 Component 契约里没有 */
 type DisposableComponent = Component & { dispose?: () => void };
+
+/**
+ * 给**没有**鼠标能力的组件补一个「点击 → 键盘」回退（规格 §4.8 的鼠标钩子的兜底面）。
+ *
+ * pi-tui 的鼠标分发只对实现了 `handleMouse` 的组件生效，自定义对话框
+ * （如 pi-goal-x 的问卷）只实现 `handleInput`——用户点选项行会落到 alt-screen
+ * 的文本选择逻辑，表现为「按钮点不到」。这里在组件未消费鼠标时按帧文本推断
+ * 等价的键盘序列（见 click.ts），推不出就什么都不做。
+ *
+ * 只补齐、不覆盖：插件自带 handleMouse 时原样保留（那才是它的原生语义）。
+ */
+function attachClickFallback(component: Component, terminal: WaPiFakeTerminal): void {
+	if (typeof component.handleMouse === "function") return;
+	component.handleMouse = (event) => {
+		// 只在真正的「点击」上动作：按下/松开要留给拖选（复制路径靠它）
+		if (event.type !== "click") return undefined;
+		let lines: string[];
+		try {
+			// 用组件自己的渲染行 + 事件的行内坐标定位：与屏幕偏移无关（浮窗/缩放都不会错行）
+			lines = component.render(terminal.columns);
+		} catch {
+			return undefined;
+		}
+		const keys = resolveClickKeys(lines, event.y);
+		if (!keys) return undefined;
+		// 逐键注入：假终端的 inject 是「一整个字符串交给 focusedComponent」，
+		// 拼成一串会让 pi-tui 的 matchesKey 一个键也解析不出来
+		for (const key of keys) terminal.inject(key);
+		return { handled: true };
+	};
+}
 
 /** 工厂可能同步返回组件，也可能返回 Promise<组件> */
 function isThenable(
@@ -144,6 +176,7 @@ export function createPanelHost<T>(opts: PanelHostOptions<T>): PanelHost<T> {
 	/** 挂载组件、启动 TUI 与定时采样 */
 	const mount = (c: Component) => {
 		component = c;
+		attachClickFallback(c, terminal);
 		tui.addChild(c);
 		// TuiBase 只把键盘输入交给 focusedComponent，不设焦点 inject 的按键就到不了组件
 		tui.setFocus(c);
@@ -235,7 +268,16 @@ export function createPanelHost<T>(opts: PanelHostOptions<T>): PanelHost<T> {
 		sample,
 		// 启动之前注入的按键会被假 Terminal 丢弃（TUI 尚未 start，onInput 回调还没注册）；
 		// 需要早注入的场景由调用方先 start()，这里不做缓存队列
-		inject: (data) => terminal.inject(data),
+		inject: (data) => {
+			// 鼠标是「帧行」座标（前端只知道自己显示的那一帧），pi-tui 要「终端视口行」：
+			// 在入端折算（见 click.ts），折算后落在视口外的点击丢掉，不挪到别的行上去
+			const viewport = translateMouseRow(
+				data,
+				lastFrame?.lines.length ?? terminal.rows,
+				terminal.rows,
+			);
+			if (viewport !== null) terminal.inject(viewport);
+		},
 		// 只更新假 Terminal 的尺寸，不在此处立即采样：这是对规格 §4.5「尺寸变化触发一次采样」的有意偏离——
 		// 定时器最多 80ms 内就会取到新宽度（用户不可感知），而立即采样会让拖动缩放时每个宽度变化都多渲染一次组件。
 		resize: (cols, rows) => terminal.resize(cols, rows),
