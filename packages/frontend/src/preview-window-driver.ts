@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useBrowserStore } from "./store/browser";
 import { useSettingsStore, type SettingsSection } from "./store/settings";
+import { useToastStore } from "./store/toast";
+import { useTranslation } from "./i18n/useTranslation";
 import type { PreviewWinEvent } from "./preview-window";
 
 /**
@@ -14,6 +16,7 @@ import type { PreviewWinEvent } from "./preview-window";
  * 抽成 hook 而非写在 App 内联 effect：App 体量大且依赖繁多，这里可独立单测。
  */
 export function usePreviewWindowDriver(): void {
+	const { t } = useTranslation();
 	const open = useBrowserStore((s) => s.open);
 	const mode = useBrowserStore((s) => s.mode);
 	const minimized = useBrowserStore((s) => s.minimized);
@@ -61,6 +64,16 @@ export function usePreviewWindowDriver(): void {
 					// 切回内嵌时才能恢复到同一内容，而不是停在空预览
 					store.setPath(e.path);
 					break;
+				case "blocked":
+					// 站点禁止被嵌入（X-Frame-Options / CSP frame-ancestors）：iframe 无从显示内容。
+					// 改用应用内浏览器窗口打开——真窗口做顶级导航，不受 frame-ancestors 约束；
+					// window.open 被主进程 setWindowOpenHandler 接管 → openInChildWindow
+					if (e.url) {
+						window.open(e.url, "_blank", "noopener");
+						store.closeBrowser();
+						useToastStore.getState().add(t("browser.blockedEmbed"), "success");
+					}
+					break;
 				case "url":
 					// 独立窗口里换了外部网址：同理同步（setExternalUrl 同时清 path，保持互斥）
 					if (e.url) store.setExternalUrl(e.url);
@@ -74,7 +87,7 @@ export function usePreviewWindowDriver(): void {
 					break;
 			}
 		});
-	}, []);
+	}, [t]);
 
 	// 窗口存在性：浮动模式 + 预览打开 → 开窗（主进程幂等，已存在则只同步内容）；
 	// 其它情况一律要求关窗（主进程无窗口时忽略）。restore token 只在开窗时读一次，

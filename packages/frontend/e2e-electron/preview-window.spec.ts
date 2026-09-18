@@ -395,6 +395,44 @@ test.describe
 			}
 		});
 
+		// 站点用 CSP frame-ancestors 拒绝被嵌入：预览无从显示，应自动改用应用内浏览器窗口
+		// （依赖真实网络访问 baidu.com；该站点对嵌入请求下发 frame-ancestors 白名单）
+		test("预览被站点拒绝嵌入 → 自动改用应用内浏览器窗口打开", async () => {
+			test.setTimeout(90_000);
+			const preview = await ensureFloatPreview();
+			const input = preview.getByTestId("browser-input");
+			await input.fill("https://www.baidu.com/s?wd=%E9%BE%99%E8%99%BE");
+			await input.press("Enter");
+
+			// 主窗口先给出去向提示（toast 3s 自动消失，须在等窗口之前断言）
+			// 文案随 UI 语言（E2E 未强制 locale，中文系统上为中文）
+			await expect(
+				main.getByText(/blocks embedding|禁止被嵌入/),
+			).toBeVisible({
+				timeout: 20_000,
+			});
+
+			// 新增一个真窗口承载该网址（顶级导航，不受 frame-ancestors 约束）
+			await expect
+				.poll(
+					async () =>
+						await app.evaluate(({ webContents }) =>
+							webContents
+								.getAllWebContents()
+								.some((wc) => wc.getURL().includes("baidu.com/s?wd=")),
+						),
+					{ timeout: 40_000 },
+				)
+				.toBe(true);
+
+			// iframe 预览无内容可显示：收场关闭独立预览窗口
+			await expect
+				.poll(async () => Boolean(await previewWindowState()), {
+					timeout: 15_000,
+				})
+				.toBe(false);
+		});
+
 		// 放在最后：打开的弹窗会遮住后续用例的点击，这里不再收尾
 		test("独立窗口内点「查看源码」：源码弹窗在**本窗口**渲染", async () => {
 			const preview = await ensureFloatPreview();

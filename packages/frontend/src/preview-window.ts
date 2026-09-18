@@ -36,6 +36,9 @@ export type PreviewWinEvent =
 	/** 独立窗口请求打开设置：设置弹窗是主窗口的单例（模型/技能/插件等数据都在那边加载），
 	 *  独立窗口只负责转发（典型来源：未配置分享 token 时分享弹窗自动跳「设置 → 分享」） */
 	| { type: "open-settings"; section: string }
+	/** 预览 iframe 被站点拒绝嵌入（X-Frame-Options / CSP frame-ancestors）：
+	 *  主进程经 did-fail-load(-27) 捕获后转告，渲染层改用内置浏览器窗口打开 */
+	| { type: "blocked"; url: string }
 	/** 独立窗口里换了预览文件：同步给主窗口（切回内嵌时恢复同一内容） */
 	| { type: "path"; path: string | null }
 	/** 独立窗口里换了外部网址：同步给主窗口（与 path 互斥，切回内嵌时恢复同一内容） */

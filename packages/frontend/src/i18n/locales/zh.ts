@@ -198,6 +198,7 @@ const zh = {
 		modeFloat: "浮动窗口",
 		minimize: "最小化为气泡",
 		restore: "恢复预览",
+		blockedEmbed: "该站点禁止被嵌入预览，已在应用内浏览器窗口打开",
 	},
 	tuiPanel: {
 		collapse: "收起",

@@ -208,6 +208,8 @@ const en = {
 		modeFloat: "Float window",
 		minimize: "Minimize to bubble",
 		restore: "Restore preview",
+		blockedEmbed:
+			"This site blocks embedding; opened in the in-app browser window",
 	},
 	tuiPanel: {
 		collapse: "Collapse",

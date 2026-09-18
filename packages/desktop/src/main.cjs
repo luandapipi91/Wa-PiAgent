@@ -140,6 +140,28 @@ let sidecar = null;
 let isQuitting = false;
 let isUpdating = false;
 let trayInstance = null;
+
+/**
+ * 预览 iframe 被站点拒绝嵌入（X-Frame-Options / CSP frame-ancestors）时，Chromium 在该子帧报
+ * net::ERR_BLOCKED_BY_RESPONSE（-27）。渲染层拿不到任何可用信号：跨源读不到 iframe 内容，
+ * 父文档也收不到 securitypolicyviolation（实测），故在主进程侧接管——转告主窗口，
+ * 由渲染层自动改用应用内外链子窗口（真窗口、顶级导航，不受 frame-ancestors 约束）打开。
+ * 定义在模块级：主窗口（分屏/全屏内嵌）与独立预览窗口（浮动）两处都要接线。
+ */
+const wirePreviewBlocked = (wc) => {
+	wc.on(
+		"did-fail-load",
+		(_event, errorCode, _desc, validatedURL, isMainFrame) => {
+			if (isMainFrame) return; // 主 frame 失败属导航问题，非「站点禁止被嵌入」
+			if (errorCode !== -27) return; // -27 = ERR_BLOCKED_BY_RESPONSE
+			if (!mainWindow || mainWindow.isDestroyed()) return;
+			mainWindow.webContents.send("previewwin:event", {
+				type: "blocked",
+				url: String(validatedURL || ""),
+			});
+		},
+	);
+};
 // kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见）。
 // 换端口启动时通过命令行参数 --wa-pi-port 传递新端口（Windows 上 app.relaunch 的 env 替换不可靠），
 // 但 Windows packaged 应用 app.relaunch 的 args 也可能丢失（Electron #33686）——临时文件兑底。
@@ -405,6 +427,8 @@ function createWindow() {
 		}
 		return { action: "deny" };
 	});
+	// 内嵌预览（分屏/全屏模式的 iframe 在主窗口内）被站点拒绝时，同样降级为外链子窗口
+	wirePreviewBlocked(mainWindow.webContents);
 	// 防御：无 target=_blank 的链接会在当前窗口导航，阻止主窗口被外部地址劫持；
 	// 非应用自身地址转应用内新窗口
 	mainWindow.webContents.on("will-navigate", (event, url) => {
@@ -959,6 +983,8 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			},
 		});
 		const win = previewWindow;
+		// 独立预览窗口内的 iframe 被站点拒绝嵌入时，同样转告主窗口降级为外链子窗口
+		wirePreviewBlocked(win.webContents);
 		const params = new URLSearchParams({ "wa-preview-win": "1" });
 		if (payload.path) params.set("path", String(payload.path));
 		if (payload.sessionId) params.set("sid", String(payload.sessionId));

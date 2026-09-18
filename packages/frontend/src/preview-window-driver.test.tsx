@@ -3,6 +3,7 @@ import { renderHook, act } from "@testing-library/react";
 import { usePreviewWindowDriver } from "./preview-window-driver";
 import { useBrowserStore } from "./store/browser";
 import { useSettingsStore } from "./store/settings";
+import { useToastStore } from "./store/toast";
 
 interface Calls {
 	opens: any[];
@@ -211,6 +212,45 @@ describe("独立窗口上报的事件翻译", () => {
 		expect(useBrowserStore.getState().bySession.A?.url).toBe(
 			"https://example.com/from-preview",
 		);
+	});
+
+	test("blocked → 站点禁止被嵌入（X-Frame-Options / CSP frame-ancestors）：改用内置浏览器窗口打开 + 关闭预览 + 提示", () => {
+		const opened: any[][] = [];
+		const origOpen = window.open;
+		(window as any).open = (...args: any[]) => {
+			opened.push(args);
+			return null;
+		};
+		useToastStore.setState({ toasts: [] });
+		useBrowserStore.setState({
+			open: true,
+			path: null,
+			externalUrl: "https://www.baidu.com/s?wd=x",
+			sessionId: "A",
+			mode: "float",
+		});
+		try {
+			renderHook(() => usePreviewWindowDriver());
+			emit({ type: "blocked", url: "https://www.baidu.com/s?wd=x" });
+
+			// 真浏览器窗口（非 iframe）承载，不受 frame-ancestors 约束：
+			// window.open 被主进程 setWindowOpenHandler 接管 → 应用内外链子窗口
+			expect(opened[0]?.[0]).toBe("https://www.baidu.com/s?wd=x");
+			expect(opened[0]?.[1]).toBe("_blank");
+			// 预览已无内容可显示：关闭面板并提示去向
+			expect(useBrowserStore.getState().open).toBe(false);
+			const toast = useToastStore.getState().toasts.at(-1);
+			expect(toast?.message).toContain("浏览器窗口");
+		} finally {
+			(window as any).open = origOpen;
+		}
+	});
+
+	test("blocked 但 url 缺失 → 不做任何动作（防坏帧误关预览）", () => {
+		useBrowserStore.setState({ open: true, path: "/a.html", mode: "float" });
+		renderHook(() => usePreviewWindowDriver());
+		emit({ type: "blocked", url: "" });
+		expect(useBrowserStore.getState().open).toBe(true);
 	});
 
 	test("rect → 持久化屏幕坐标（下次弹出回到原位）", () => {
