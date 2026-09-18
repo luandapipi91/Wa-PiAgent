@@ -15,7 +15,6 @@ function mockUpdaterApi() {
 		getInfo: vi.fn(async () => ({
 			appVersion: "0.1.0",
 			isDesktop: true,
-			kernelVersion: null,
 		})),
 		check: vi.fn(async () => ({ ok: true })),
 		download: vi.fn(async () => ({ ok: true })),
@@ -38,7 +37,6 @@ beforeEach(() => {
 		status: "idle",
 		appVersion: "0.1.0",
 		latestVersion: null,
-		kernelVersion: null,
 		releaseNotes: null,
 		progress: 0,
 		transferred: 0,
@@ -66,17 +64,6 @@ test("渲染官网外链（R2 公开渠道，新窗口打开）", () => {
 	expect(link.target).toBe("_blank");
 	expect(link.rel).toContain("noreferrer");
 	expect(link.textContent).toBe("官方网站");
-});
-
-test("渲染内核版本（kernelVersion；为 null 时兜底“—”）", () => {
-	useUpdaterStore.setState({ kernelVersion: "20260824-2" });
-	render(<AboutSection />);
-	expect(screen.getByText("内核版本 20260824-2")).toBeTruthy();
-
-	useUpdaterStore.setState({ kernelVersion: null });
-	cleanup();
-	render(<AboutSection />);
-	expect(screen.getByText("内核版本 —")).toBeTruthy();
 });
 
 test("idle 显示检查更新按钮，点击触发 check", () => {

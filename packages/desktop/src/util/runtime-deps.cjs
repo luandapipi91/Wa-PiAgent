@@ -18,7 +18,6 @@
 const { spawn } = require("node:child_process");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
-const { readLocalBuild } = require("./kernel-updater.cjs");
 
 // 语言来源：桌面主进程通过 onStatus 把进度文案透传给用户（desktop 无 react-i18next）。
 // 本模块在 bun 测试环境下无 electron，故延迟探测；非 Electron 环境回退 zh。
@@ -46,7 +45,7 @@ function detectDesktopLocale() {
 	}
 	return cachedLocale;
 }
-// t()：字典查询 + 可选参数插值（{{key}} 用法，与 kernel-updater 的 t 同构，仅多了插值）。
+// t()：字典查询 + 可选参数插值（{{key}} 用法）。
 const t = (k, params) => {
 	let s = MSG[detectDesktopLocale()][k] ?? MSG.zh[k];
 	if (params) {
@@ -63,13 +62,16 @@ const KERNEL_BIN =
 	process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
 const SEED_FILES = [KERNEL_BIN, "package.json", "bun.lock"];
 
-// kernel.js 时代（≤0.2.15）的 seed 遗留：老用户 runtime 目录升级时清理，避免与新形态混淆
+// seed 遗留：老用户 runtime 目录升级时清理，避免与新形态混淆。
+// kernel.js 属 kernel.js 时代（≤0.2.15）；.kernel-version 属已移除的「内核独立更新」
+// 机制（0.2.21~）残留标记——内核一律以随包 seed 为准，该标记不再有任何含义。
 const LEGACY_FILES = [
 	"kernel.js",
 	"tool-schemas.ts",
 	"wa-pi-bridge.extension.ts",
 	"file-snapshot.ts",
 	"patches",
+	".kernel-version",
 ];
 
 async function exists(p) {
@@ -82,61 +84,10 @@ async function exists(p) {
 }
 
 // 复制 seed 文件到 runtime 目录（升级时覆盖旧二进制 / package.json / bun.lock），
-// 并清理 kernel.js 时代的遗留文件。
-// 动态 kernel 存在（runtimeDir 有 .kernel-version）时，KERNEL_BIN 不回退覆盖——
-// 保留 kernel-updater 动态更新后的新二进制；package.json / bun.lock 仍随 seed 照常同步。
-async function syncSeed(seedDir, runtimeDir, log, opts = {}) {
+// 并清理历史遗留文件。内核一律以随包 seed 为准：升级 app 即升级内核。
+async function syncSeed(seedDir, runtimeDir, log) {
 	await fsp.mkdir(runtimeDir, { recursive: true });
-	// 判定「动态 kernel」：runtimeDir 已有 .kernel-version（被动态更新过）。
-	// opts.kernelBuild 可预先传入（避免重复读文件），否则从 runtimeDir 读 .kernel-version 得到，
-	// 读不到则为 null（首次/无动态标记 → 用 seed 覆盖 kernel）。
-	let kernelBuild = opts.kernelBuild;
-	if (kernelBuild == null) kernelBuild = await readLocalBuild(runtimeDir);
-	const isDynamicKernel = kernelBuild != null;
-	const readJsonOrNull = async (p) => {
-		try {
-			return JSON.parse(await fsp.readFile(p, "utf8"));
-		} catch {
-			return null;
-		}
-	};
-	// 依赖清单签名（键排序归一，防键序差异误判"清单变化"）
-	const depsSignature = (manifest) =>
-		Object.entries(manifest?.dependencies ?? {})
-			.map(([k, v]) => `${k}@${v}`)
-			.sort()
-			.join(",");
 	for (const f of SEED_FILES) {
-		// 动态 kernel（runtimeDir 有 .kernel-version）：KERNEL_BIN 不覆盖——
-		// 保留 kernel-updater 动态更新后的新二进制。
-		// package.json / bun.lock 例外：seed 依赖清单与 runtime 不一致时（app 升级
-		// 带来新 pi 版本），用 seed 覆盖并删 .installed-version，触发 ensureRuntimeDeps
-		// 重装升 pi；依赖一致则跳过（避免无谓重装）。
-		if (isDynamicKernel) {
-			if (f !== "package.json" && f !== "bun.lock") continue;
-			if (f === "package.json") {
-				const seedManifest = await readJsonOrNull(path.join(seedDir, f));
-				const runtimeManifest = await readJsonOrNull(path.join(runtimeDir, f));
-				if (
-					!seedManifest ||
-					!runtimeManifest ||
-					depsSignature(seedManifest) === depsSignature(runtimeManifest)
-				)
-					continue;
-				await fsp.copyFile(path.join(seedDir, f), path.join(runtimeDir, f));
-				// 删重装跳过标记：ensureRuntimeDeps 在 syncSeed 之后读 marker，
-				// 发现已删即触发 bun install 重装（升 pi）
-				await fsp
-					.rm(path.join(runtimeDir, ".installed-version"), {
-						force: true,
-					})
-					.catch(() => {});
-				log.info(
-					`[deps] 动态 kernel 场景 seed 依赖清单变化：已覆盖 package.json 并清除重装标记`,
-				);
-				continue;
-			}
-		}
 		const src = path.join(seedDir, f);
 		if (!(await exists(src))) continue;
 		await fsp.copyFile(src, path.join(runtimeDir, f));
@@ -288,36 +239,28 @@ async function ensureRuntimeDeps({
 	runtimeDir,
 	kernelExe,
 	version,
-	kernelBuild,
 	log,
 	onStatus,
 }) {
 	if (!isPackaged) return seedDir;
 
-	// 依赖重装判定改按 kernel build 号：kernelBuild 优先（来自 .kernel-version），
-	// 未传入时从 runtimeDir 读 .kernel-version 得到；读不到用 app version 兜底
-	// （兼容旧版首次 / 未被动态更新过）。
-	if (kernelBuild == null) kernelBuild = await readLocalBuild(runtimeDir);
-	const buildToUse = kernelBuild || version;
 	const marker = path.join(runtimeDir, ".installed-version");
 	const nmExists = await exists(path.join(runtimeDir, "node_modules"));
 
 	// 始终同步 seed 文件（编译产物可能同版本号重新构建，内容已变）
-	await syncSeed(seedDir, runtimeDir, log, { kernelBuild });
+	await syncSeed(seedDir, runtimeDir, log);
 
-	// syncSeed 在动态 kernel + seed 包清单变化时可能删除 .installed-version（触发重装）。
-	// 必须在 syncSeed 之后读 markerVer：否则本会话仍用删除前的旧值判定，跳过真正需要的重装。
 	const markerVer = nmExists
 		? await fsp.readFile(marker, "utf8").catch(() => "")
 		: "";
 
-	if (nmExists && markerVer === buildToUse) {
-		log.info(`[deps] node_modules 已安装 v${buildToUse}，跳过 install`);
+	if (nmExists && markerVer === version) {
+		log.info(`[deps] node_modules 已安装 v${version}，跳过 install`);
 		return runtimeDir;
 	}
 
 	log.info(
-		`[deps] 需要安装依赖 (version=${buildToUse}, installed=${markerVer || "无"})`,
+		`[deps] 需要安装依赖 (version=${version}, installed=${markerVer || "无"})`,
 	);
 
 	const registries = [
@@ -335,7 +278,7 @@ async function ensureRuntimeDeps({
 		cleanup: () => rmNodeModules(runtimeDir, log),
 		log,
 	});
-	await fsp.writeFile(marker, buildToUse, "utf8").catch(() => {});
+	await fsp.writeFile(marker, version, "utf8").catch(() => {});
 	log.info("[deps] ✅ 安装完成");
 	return runtimeDir;
 }

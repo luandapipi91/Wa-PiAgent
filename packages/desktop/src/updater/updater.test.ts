@@ -2,7 +2,6 @@ import { test, expect, describe } from "bun:test";
 import {
 	translateUpdaterEvent,
 	updaterPhases,
-	buildGetInfoPayload,
 	makeQuitAndInstallHandler,
 } from "./updater.cjs";
 
@@ -77,28 +76,6 @@ describe("updaterPhases", () => {
 			"downloaded",
 			"error",
 		]);
-	});
-});
-
-describe("buildGetInfoPayload", () => {
-	test("携带 kernelVersion 时原样返回", () => {
-		expect(
-			buildGetInfoPayload({
-				appVersion: "0.3.0",
-				isDesktop: true,
-				kernelVersion: "20260824-2",
-			}),
-		).toEqual({
-			appVersion: "0.3.0",
-			isDesktop: true,
-			kernelVersion: "20260824-2",
-		});
-	});
-
-	test("kernelVersion 缺省为 null（runtime 无 .kernel-version / dev 环境）", () => {
-		expect(
-			buildGetInfoPayload({ appVersion: "0.3.0", isDesktop: false }),
-		).toEqual({ appVersion: "0.3.0", isDesktop: false, kernelVersion: null });
 	});
 });
 

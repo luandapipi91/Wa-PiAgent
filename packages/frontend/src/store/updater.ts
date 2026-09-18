@@ -19,7 +19,6 @@ interface WaPiUpdaterApi {
 	getInfo(): Promise<{
 		appVersion: string;
 		isDesktop: boolean;
-		kernelVersion: string | null;
 	}>;
 	check(): Promise<unknown>;
 	download(): Promise<unknown>;
@@ -40,8 +39,6 @@ interface UpdaterState {
 	userTriggered: boolean;
 	appVersion: string;
 	latestVersion: string | null;
-	// 内核 build 号（runtime 的 .kernel-version，由 desktop 侧上报；为 null/缺失时 UI 显示 "—"）
-	kernelVersion: string | null;
 	releaseNotes: string | null;
 	progress: number;
 	transferred: number;
@@ -60,7 +57,6 @@ const initialState = {
 	// 浏览器版无 waPiUpdater，靠构建时注入的版本号兜底显示。
 	appVersion: BUILD_VERSION,
 	latestVersion: null,
-	kernelVersion: null,
 	releaseNotes: null,
 	progress: 0,
 	transferred: 0,
@@ -165,7 +161,6 @@ export function initUpdater() {
 		useUpdaterStore.setState({
 			appVersion: info.appVersion,
 			isDesktop: info.isDesktop,
-			kernelVersion: info.kernelVersion ?? null,
 		});
 	});
 	api.onEvent((payload) => {

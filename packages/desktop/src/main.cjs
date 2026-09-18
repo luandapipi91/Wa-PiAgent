@@ -49,7 +49,6 @@ const MSG = {
 		portOccupiedAutoSwitch: "检测到端口占用，自动换端口启动…",
 		portOccupiedAutoCleanup: "检测到端口占用，正在自动清理…",
 		detectingNode: "正在检测 Node.js…",
-		checkingKernelUpdate: "正在检查内核更新…",
 		preparingDeps: "正在准备依赖…",
 		downloadingDeps: "正在下载依赖…",
 		startingKernel: "正在启动内核…",
@@ -71,7 +70,6 @@ const MSG = {
 		portOccupiedAutoSwitch: "Port in use — switching to a free port…",
 		portOccupiedAutoCleanup: "Port in use — cleaning up automatically…",
 		detectingNode: "Checking for Node.js…",
-		checkingKernelUpdate: "Checking kernel update…",
 		preparingDeps: "Preparing dependencies…",
 		downloadingDeps: "Downloading dependencies…",
 		startingKernel: "Starting kernel…",
@@ -476,25 +474,6 @@ app.whenReady().then(async () => {
 		config: {
 			feedUrl: process.env.WA_PI_UPDATER_FEED_URL || undefined,
 		},
-		// 内核版本：读 kernel sidecar 清单 package.json 的 version（管控源=packages/kernel/package.json）。
-		// 优先读 runtime 的（动态更新后是新内核版本），fallback 捆绑的 seed（新装未更新）；
-		// WaPiKernel --version 输出的是内嵌 bun 版本、非内核版本，不能用于此。
-		// setupUpdater 调用早于下方 seedDir/runtimeDir 定义，只能传 lazy getter 延迟到 handler 触发时再读。
-		getKernelVersion: async () => {
-			const fsp = require("node:fs/promises");
-			const { join } = require("node:path");
-			for (const dir of [runtimeDir, seedDir]) {
-				try {
-					const pkg = JSON.parse(
-						await fsp.readFile(join(dir, "package.json"), "utf8"),
-					);
-					if (pkg.version) return pkg.version;
-				} catch {
-					/* 该目录无 package.json / 解析失败 → 尝试下一个 */
-				}
-			}
-			return null;
-		},
 		// 升级安装前优雅停 kernel：停 sidecar（同步阻塞杀进程树）→ 等端口真正释放 →
 		// 登记簿兜底清扫（清运行期 kernel 重启换 pid 等残留）→ 自删登记。
 		// sidecar 在下方 startSidecar 之后才赋值，这里必须用 getter 闭包读当前值，
@@ -780,32 +759,6 @@ app.whenReady().then(async () => {
 		}
 	}
 
-	// 2c-) kernel 动态更新检查（packaged 才做；失败降级继续）
-	// 启动同步拉取构建清单，发现新 build 则下载/校验/覆盖 WaPiKernel 并写入 .kernel-version。
-	// 失败/超时/清单不可用一律降级为 null，绝不阻断启动；kernelBuild 供 ensureRuntimeDeps 判定依赖重装。
-	let kernelBuild = null;
-	if (app.isPackaged) {
-		try {
-			const { syncKernel } = require("./util/kernel-updater.cjs");
-			setProgress(12, t("checkingKernelUpdate"));
-			// WA_PI_KERNEL_FEED_URL 仅供 E2E/测试指向本地 mock，生产默认走 OSS 公开读（kernel-latest.json）
-			const kRes = await syncKernel({
-				seedDir,
-				runtimeDir,
-				kernelExe,
-				feedUrl: process.env.WA_PI_KERNEL_FEED_URL || undefined,
-				version: app.getVersion(),
-				log,
-				onStatus: (t) => setProgress(12, t),
-			});
-			// kRes.status: updated | up-to-date | failed；仅真正更新时取 build 供重装判定
-			kernelBuild = kRes.status === "updated" ? kRes.build : null;
-		} catch (e) {
-			log.error("[kernel-updater] 检查失败，降级继续", e);
-			kernelBuild = null;
-		}
-	}
-
 	// 2c) 首启依赖检测/动态安装（packaged：WA_PI_DIR/runtime 下用阿里源装原生 addon 等）
 	let runDir = seedDir;
 	if (app.isPackaged) {
@@ -823,7 +776,6 @@ app.whenReady().then(async () => {
 				runtimeDir,
 				kernelExe,
 				version: app.getVersion(),
-				kernelBuild,
 				log,
 				onStatus: (t) => setProgress(ip, t),
 			});

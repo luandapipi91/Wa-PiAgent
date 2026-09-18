@@ -1,7 +1,7 @@
 // 共用 S3/R2 上传模块（Cloudflare R2，公开读）。
 //
-// 由 publish-oss.ts 与 publish-kernel.ts 复用，避免两处复制 ~150 行的
-// S3Client 创建 + 手动 multipart 分片上传逻辑（DRY）。
+// 供发布脚本（scripts/publish-oss.ts）使用：S3Client 创建 + 手动 multipart
+// 分片上传逻辑。
 //
 // 用法：
 //   ESM/TS：import { createS3Client, uploadLarge, uploadSmall, BUCKET, ENDPOINT } from "./s3-upload.cjs";

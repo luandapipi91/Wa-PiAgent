@@ -15,6 +15,8 @@
 
 - fix(shared+kernel): fleet 并发上限「文案 5 / 实际 6」脱节修复——FLEET_DESCRIPTION 硬编码「Concurrency limit is 5」而常量=6（2026-09-01 拍板），delegate-tool 的 replace 回填因搜索串写「6」与模板「5」不符静默失效，bridge 扩展直引原文同病，模型看到的上限一直停留 5；修复：FLEET_MAX_CONCURRENCY 常量落位 shared tool-schemas.ts、FLEET_DESCRIPTION 同文件插值生来即渲染（数值与文案同源），kernel 删失效 replace 按旧名重导出兼容，bridge 扩展经生成物自动继承零改动；防回归测试补「渲染描述含常量值 + 禁止 5 回潮」，shared 14 pass / kernel delegate-tool 45 pass。配套 fleet 评测用例 6→20（应并行 10/应逐个 6/不该派 4，非 fleet 96 条零改动）+ fleet 选择正确率指标；worktree 实测（deepseek-v4-flash）：fleet 派发 16/20 恰为应派集合、误派 0%、漏派 0%，选择正确率 88%（应并行 9/10、应逐个 5/6）对比基线 67%（4/6）显著改善；simple/edit-small 抽样误派 0%。注意：已安装桌面端需随下次打包更新才见到修复后文案。报告 ~/.wa-pi/eval-dt-fleet20.json
 
+- refactor(release+desktop+frontend): 移除内核独立打包/独立升级机制（v0.2.21 引入，实际未被单独使用）——删除 `scripts/publish-kernel.ts`(+test) 与 `kernel-updater.cjs`(+单测/集成测试)；`main.cjs` 启动不再拉内核清单（删 2c- 步骤与 getKernelVersion/checkingKernelUpdate 文案）；`runtime-deps.cjs` 依赖重装判定回归 app version、`syncSeed` 无条件以随包 seed 覆盖内核（已动态更新过的老用户下次启动回归包内内核）并把 `.kernel-version` 列入遗留清理；关于页移除「内核版本」行（同步清 store 字段 / i18n 中英文案 / IPC 载荷字段）。验证：desktop 205 测试、前端 2508 测试、双端 typecheck 均全绿，新增 E2E（关于页有版本行且无内核版本文案）。
+
 ## 2026-09-17 — v0.4.3 发版（会话切换体验 + 流式性能 + 稳定性修复）
 - fix(frontend): 会话切换 splash 模式——数据就绪列表立即挂载（骨架带 bg-surface 不透明背景覆盖其上），骨架撤除等 listRendered（rangeChanged 首次回调 = 列表首帧渲染完成；空列表/异常 2.5s 兜底）+ 最短展示时长；配合 initialTopMostItemIndex，撤骨架瞬间露出的是已贴底渲染完成的列表，消除「骨架撤→空帧→内容」闪烁。测试：session-switch-pin 新增先渲染后撤契约 + session-initializing 骨架最短展示适配
 
