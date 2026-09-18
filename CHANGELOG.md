@@ -1,3 +1,11 @@
+## 2026-09-18 — v0.4.6 发版（新会话启动/侧栏空白修复 + TUI 弹窗鼠标修复）
+
+- 版本：0.4.5 → 0.4.6（3 提交）。
+- 修复：新会话 agent 启动失败（tui-host/click.ts 漏出 TUI_HOST_EXTENSION_FILES/KERNEL_ASSET_FILES 清单）；侧栏一堆空白会话（孤儿回滚广播未过滤 placeholder 预热记录）；TUI 弹窗按钮点不到（未消费鼠标时回退键盘）。
+- 其他：移除 kernel 的 pi-agent-core 显式声明（理由已失效）。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：kernel（tui-host 部署清单/compile-binary 资产清单/agent-manager）、frontend。
+
 ## 2026-09-18 — v0.4.5 发版（定时任务执行态治理 + 内核通道移除）
 
 - 版本：0.4.4 → 0.4.5（4 提交）。
