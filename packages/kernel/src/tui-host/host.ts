@@ -106,7 +106,13 @@ export interface PanelBridge extends TuiHostPatchBridge {
 /** pi 的 custom 没有 title 字段，面板标题只能由宿主给一个固定值（规格 §5.1 的 title 字段） */
 const PANEL_TITLE = "扩展面板";
 const PANEL_COLS = 85;
-const PANEL_ROWS = 24;
+// 初始行数必须与前端 TuiPanel 展开态默认可视行数对齐：展开 380px 高 − 标题栏
+// ≈ 350px，按前端行高 CELL.height=19.4px 折算约 18 行，取 17 保守值（帧宁可比
+// 视口矮一行，不可高出一行被裁掉底部）。pi-goal-x 等外部组件的对话框在创建时
+// 按该行数做「保头保尾」行数钳制（maxDialogLines 一次算定、不随 resize 重算），
+// 基准写大了，长弹窗的选项区（帧尾）会被推出浮窗首屏——「Confirm Goal Draft
+// 看不到选项」的根因。用户拖大浮窗后前端 reportTuiSize 会 resize 到真实行数。
+const PANEL_ROWS = 17;
 const WIDGET_COLS = 80;
 const WIDGET_ROWS = 10;
 /** widget 的采样节奏，与 panel.ts 的 80ms 一致（采样是唯一的节流点，规格 §4.5） */

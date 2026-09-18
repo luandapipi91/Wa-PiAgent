@@ -249,7 +249,7 @@ describe("createPanelBridge", () => {
 			kind: "custom",
 			pending: 1,
 			cols: 85,
-			rows: 24,
+			rows: 17,
 		});
 
 		doneRef.fn?.("picked");

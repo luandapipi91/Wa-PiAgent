@@ -24,6 +24,7 @@ import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 } from "react";
+import { isScrolledAwayFromBottom } from "../lib/tui-follow";
 import type { ExtensionTuiSnapshotResult } from "@wa-pi/shared";
 import { useTuiPanelStore } from "../store/tui-panel";
 import { useTranslation } from "../i18n/useTranslation";
@@ -454,6 +455,20 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	// 鼠标上报的左键按下态：决定松开时要不要补一个 up（点击语义）
 	const pressRef = useRef<{ button: number } | null>(null);
 
+	// 用户是否主动滚离帧底部（onScroll 维护）：决定帧刷新时要不要自动贴底
+	const userScrolledAwayRef = useRef(false);
+
+	// 帧刷新自动贴底：帧尾是对话框的选项/确认区（决策面），正文一长选项就被推出
+	// 浮窗首屏（pi 侧行数钳制按创建时的终端行数算定，浮窗拖小后帧仍可能高于视口）。
+	// 用户未上滚时跟随帧尾保证选项始终可见；上滚阅读正文则不打扰，滚回底部附近
+	// 自动恢复跟随（isScrolledAwayFromBottom 判定）。
+	useEffect(() => {
+		if (userScrolledAwayRef.current) return;
+		const el = bodyRef.current;
+		if (!el) return;
+		el.scrollTop = el.scrollHeight;
+	}, [panel?.lines]);
+
 	/**
 	 * 输入上报统一出口：panelId 从 store 现取（帧流会持续重渲染，
 	 * 用渲染期快照会拿到旧 panelId）。失败静默——面板掉线不该弹错。
@@ -868,6 +883,16 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 					// 这里的 text-primary 只是**默认**文字色：帧里 ANSI 显式前景色由 AnsiText 内联样式覆盖
 					style={{ userSelect: "text" }}
 					onMouseDown={onBodyMouseDown}
+					onScroll={() => {
+						const el = bodyRef.current;
+						if (!el) return;
+						userScrolledAwayRef.current = isScrolledAwayFromBottom(
+							el.scrollTop,
+							el.clientHeight,
+							el.scrollHeight,
+							CELL.height,
+						);
+					}}
 					// 滚轮不再转发给插件，改为滚动本容器：插件视口的变化不会体现在整帧快照里，
 					// 转发等于「滚了没反应」；点击与拖拽仍照旧转发（插件的鼠标选择交互）。
 					onContextMenu={(e) => e.preventDefault()}
