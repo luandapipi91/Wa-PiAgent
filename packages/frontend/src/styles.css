@@ -363,9 +363,12 @@ input[type="range"]::-moz-range-thumb {
 /* 排版由 @tailwindcss/typography 提供（tailwind.config.js 已注册插件），
    .prose 类生效后 h1-h6/ul/ol/blockquote/table 有网页级排版。
    下面覆盖 typography 默认颜色变量，跟随应用主题（浅色/深色）：
-   - 作用域限 .prose-sm（文件预览器 + 聊天区），避免影响只读面板的 prose-invert（深色导出场景）
+   - 作用域：统一 markdown 组件的容器（.md-body，或历史写法 data-testid="text-block"）
+     + .prose-sm。**不依赖 testid**：弹窗/回收站这类传 testId=null 的容器也必须拿到主题变量，
+     否则 typography 的浅色默认色（--tw-prose-body 近黑）在暗色背景上就是看不见的字。
+     避免影响只读面板的 prose-invert（深色导出场景）
    下方兜底规则（换行/行高/段落间距）在 typography 之上继续生效。 */
-[data-testid="text-block"].prose-sm {
+:is([data-testid="text-block"], .md-body).prose-sm {
 	--tw-prose-body: var(--text-primary);
 	--tw-prose-headings: var(--text-primary);
 	--tw-prose-lead: var(--text-secondary);
@@ -387,23 +390,23 @@ input[type="range"]::-moz-range-thumb {
    长代码块和长 URL 会撑破消息气泡宽度。统一强制换行，不横向滚动：
    - 段落/链接/行内代码：长无空格串任意位置断行
    - 代码块 pre/code：也强制换行（pre-wrap），不撑破容器 */
-[data-testid="text-block"] {
+:is([data-testid="text-block"], .md-body) {
 	overflow-wrap: anywhere;
 	word-break: break-word;
 	line-height: 1.6;
 }
 /* 段落间距：typography 未覆盖到的场景（如 p 首段）保持段间空隙 */
-[data-testid="text-block"] p + p {
+:is([data-testid="text-block"], .md-body) p + p {
 	margin-top: 0.5em;
 }
-[data-testid="text-block"] pre,
-[data-testid="text-block"] pre code {
+:is([data-testid="text-block"], .md-body) pre,
+:is([data-testid="text-block"], .md-body) pre code {
 	white-space: pre-wrap; /* 代码块也换行，不横向滚动 */
 	overflow-wrap: anywhere;
 	word-break: break-all; /* 代码长串任意位置断行 */
 }
-[data-testid="text-block"] a,
-[data-testid="text-block"] code {
+:is([data-testid="text-block"], .md-body) a,
+:is([data-testid="text-block"], .md-body) code {
 	overflow-wrap: anywhere;
 }
 /* md 内嵌图片：
@@ -412,7 +415,7 @@ input[type="range"]::-moz-range-thumb {
    - margin 统一小值覆盖 typography 的 2em：typography 给 img 上下 margin 2em，且 :last-child
      会清掉最后一个的 margin-bottom，导致行内 inline-block 垂直对齐错位（badge 最后一项下移）
    - 约束最大宽度不撑破容器 */
-[data-testid="text-block"] img {
+:is([data-testid="text-block"], .md-body) img {
 	display: inline-block;
 	vertical-align: middle;
 	max-width: 100%;

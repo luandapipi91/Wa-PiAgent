@@ -43,6 +43,17 @@ test("className / testId 可覆盖（无 testid 时不留空属性）", () => {
 	expect(box).not.toBeNull();
 });
 
+test("容器永远带 md-body（styles.css 的 markdown 主题配色/换行挂在这个类上，不依赖 testid）", () => {
+	render(<Markdown text="**x**" sessionId="s1" testId={null} />);
+	const body = document.querySelector(".md-body");
+	expect(body).not.toBeNull();
+	// 自定义 className 与它并存（不是覆盖）
+	render(
+		<Markdown text="**y**" sessionId="s1" className="text-sm" testId={null} />,
+	);
+	expect(document.querySelector(".md-body.text-sm")).not.toBeNull();
+});
+
 test("interactive 默认 true：代码块走交互组件（mermaid → SVG）", async () => {
 	render(<Markdown text={MERMAID} sessionId="s1" />);
 	// mermaid 真实渲染是异步的（懒加载 lib），给足超时（与 markdown-mermaid.test 同口径）

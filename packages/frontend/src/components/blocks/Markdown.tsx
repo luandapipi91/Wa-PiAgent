@@ -89,9 +89,12 @@ export const Markdown = memo(function Markdown({
 	const displayText = useThrottledValue(text, streaming, throttleMs);
 	const body = transformText ? transformText(displayText) : displayText;
 
+	// md-body：styles.css 里 markdown 的主题配色/换行/段落间距都挂在这个类上（原先挂在
+	// data-testid="text-block" 上——弹窗、回收站这类传 testId=null 的容器因此拿不到主题变量，
+	// typography 的浅色默认色在暗色背景上就是「看不见的字」）
 	return (
 		<div
-			className={className}
+			className={`md-body ${className}`.trim()}
 			{...(testId ? { "data-testid": testId } : {})}
 		>
 			<ReactMarkdown
