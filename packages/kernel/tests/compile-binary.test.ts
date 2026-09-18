@@ -59,12 +59,13 @@ test("KERNEL_ASSET_FILES: 全部资产真实存在且包含 preview-inspect.js",
   // 读取，bun --compile 不会自动打包该引用，漏加则打包版元素选中/高亮失效——回归护栏）。
   const names = KERNEL_ASSET_FILES.map((f) => basename(f));
   expect(names).toContain("preview-inspect.js");
-  // tui-host 扩展六文件必须嵌入：入口 + 入口相对 import 的 tui-host/ 5 模块，
-  // 缺一即打包版部署不完整 → 图形面板挂起（tui-host-deploy.ts 从 assets/ 读取）。
+  // tui-host 扩展全部文件必须嵌入：入口 + 入口相对 import 的所有 tui-host/ 模块，
+  // 缺一即打包版部署不完整 → 图形面板挂起或扩展加载失败（tui-host-deploy.ts 从 assets/ 读取）。
   for (const name of [
     "wa-pi-tui-host.extension.ts",
     "terminal.ts",
     "frame.ts",
+    "click.ts",
     "panel.ts",
     "widget.ts",
     "host.ts",
@@ -79,7 +80,7 @@ test("KERNEL_ASSET_FILES: 全部资产真实存在且包含 preview-inspect.js",
   ]) {
     expect(names).toContain(name);
   }
-  expect(KERNEL_ASSET_FILES).toHaveLength(12);
+  expect(KERNEL_ASSET_FILES).toHaveLength(13);
   for (const f of KERNEL_ASSET_FILES) expect(existsSync(f)).toBe(true);
 });
 
@@ -110,6 +111,7 @@ test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名
     const expected = [
       "compaction-guard-core.ts",
       "compaction-guard.extension.ts",
+      "click.ts",
       "file-snapshot.ts",
       "frame.ts",
       "host.ts",

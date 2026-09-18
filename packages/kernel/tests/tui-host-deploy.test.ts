@@ -8,6 +8,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 } from "node:fs";
@@ -16,6 +17,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	deployTuiHostExtension,
+	TUI_HOST_EXTENSION_FILES,
 	TUI_HOST_EXTENSION_NAME,
 } from "../src/tui-host-deploy.ts";
 
@@ -50,6 +52,25 @@ describe("deployTuiHostExtension", () => {
 			TUI_HOST_EXTENSION_NAME,
 		);
 	});
+});
+
+// 清单漂移护栏：清单是手写的（bun --compile 下必须逐文件嵌入，无法整目录 cp），
+// 新增 tui-host 模块却忘了加进清单时，部署目录缺文件 → pi 加载扩展抛
+// "Cannot find module './xxx.ts'" → pi rpc 进程退出 → **所有**新会话 agent 启动失败。
+// 所以不能手写名单互相印证，直接以 src/tui-host/ 实际文件为准兜底。
+test("部署清单覆盖 src/tui-host/ 下全部模块（新增模块忘加清单即红）", async () => {
+	const srcDir = join(import.meta.dir, "..", "src", "tui-host");
+	const modules = readdirSync(srcDir).filter((f) => f.endsWith(".ts"));
+	expect(modules.length).toBeGreaterThan(0);
+	const listed = new Set(TUI_HOST_EXTENSION_FILES.map(([source]) => source));
+	for (const mod of modules) {
+		expect(listed).toContain(`tui-host/${mod}`);
+	}
+	// 只断言清单条目不够：真部署一次，确认每个模块都落到了目标目录
+	await deployTuiHostExtension(dir);
+	for (const mod of modules) {
+		expect(existsSync(join(dir, "tui-host", mod))).toBe(true);
+	}
 });
 
 // 部署的最终目的：pi 经 -e 加载 GENERATED_DIR/wa-pi-tui-host.ts 能跑起来。

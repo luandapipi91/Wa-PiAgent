@@ -32,7 +32,10 @@ function mergeSessions(
 ): SessionEntity[] {
 	// 防御性过滤：剥离软删除会话，确保当前列表只展示活跃会话。
 	// 后端 trash:list 单独返回回收站会话，主列表不应混入 deletedAt 项。
-	const active = sessions.filter((x) => !x.deletedAt);
+	// placeholder（「新开会话」预热时写入的空标题占位记录）同样不进侧栏：
+	// 后端 loadActive 已过滤，这里再兜一层——历史遗留的未过滤来源
+	// （如孤儿回滚广播）曾把占位当正常会话推送，渲染成一堆空白行。
+	const active = sessions.filter((x) => !x.deletedAt && !x.placeholder);
 	// 仅当 currentSessionId 指向但快照缺失，才把该会话合并回列表（防 SessionView 空白）。
 	const currentMissing =
 		s.currentSessionId &&

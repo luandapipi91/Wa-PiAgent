@@ -24,9 +24,11 @@ export const TUI_HOST_EXTENSION_NAME = "wa-pi-tui-host";
 
 /**
  * 部署清单：[源文件相对路径（相对 kernel/src）, 目标相对路径（相对 GENERATED_DIR）]。
- * 入口落为 wa-pi-tui-host.ts，tui-host/ 5 个模块保持子目录结构——
+ * 入口落为 wa-pi-tui-host.ts，tui-host/ 各模块保持子目录结构——
  * 入口的 `import ... from "./tui-host/host.ts"` 因此原样可解析。
- * 新增模块必须同时加进 scripts/compile-binary.ts 的 KERNEL_ASSET_FILES，否则打包版缺文件。
+ * 新增模块必须同时加进 scripts/compile-binary.ts 的 KERNEL_ASSET_FILES，否则打包版缺文件；
+ * 漏加本清单则 dev 下 GENERATED_DIR 缺文件 → pi 加载扩展报 "Cannot find module" → 新会话 agent 启动失败
+ * （tests/tui-host-deploy.test.ts 的目录护栏会报红）。
  */
 export const TUI_HOST_EXTENSION_FILES: ReadonlyArray<
 	readonly [source: string, target: string]
@@ -34,6 +36,7 @@ export const TUI_HOST_EXTENSION_FILES: ReadonlyArray<
 	["wa-pi-tui-host.extension.ts", `${TUI_HOST_EXTENSION_NAME}.ts`],
 	["tui-host/terminal.ts", "tui-host/terminal.ts"],
 	["tui-host/frame.ts", "tui-host/frame.ts"],
+	["tui-host/click.ts", "tui-host/click.ts"],
 	["tui-host/panel.ts", "tui-host/panel.ts"],
 	["tui-host/widget.ts", "tui-host/widget.ts"],
 	["tui-host/host.ts", "tui-host/host.ts"],

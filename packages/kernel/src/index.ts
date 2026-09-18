@@ -361,18 +361,12 @@ export async function startKernel(opts?: {
 				projectStore.touchSession(sessionId).catch(() => {});
 			}
 		},
-		// 孤儿会话回滚：删除记录后刷新前端会话列表（projects:list）
+		// 孤儿会话回滚：删除记录后刷新前端会话列表（projects:list）。
+		// 必须走 broadcastProjectsList（loadActive 过滤 soft-deleted / placeholder /
+		// scheduler），不能用 projectStore.load()——后者是全量读数，会把「新开会话」
+		// 预热时写入的空白占位记录一并广播，侧栏出现一堆空白行。
 		onSessionRollback: () => {
-			projectStore
-				.load()
-				.then((data) =>
-					broadcast({
-						type: "projects:list",
-						projects: data.projects,
-						sessions: data.sessions,
-					}),
-				)
-				.catch(() => {});
+			server.broadcastProjectsList().catch(() => {});
 		},
 		// 子代理进度广播出口：spawn 闭包 onProgress → onSubagentProgress → 节流合并 → SSE subagent:progress → 前端卡片
 		onSubagentProgress: (sessionId, toolCallId, event) => {

@@ -29,6 +29,7 @@ export const KERNEL_ASSET_FILES = [
 	join(KERNEL_SRC, "wa-pi-tui-host.extension.ts"),
 	join(KERNEL_SRC, "tui-host", "terminal.ts"),
 	join(KERNEL_SRC, "tui-host", "frame.ts"),
+	join(KERNEL_SRC, "tui-host", "click.ts"),
 	join(KERNEL_SRC, "tui-host", "panel.ts"),
 	join(KERNEL_SRC, "tui-host", "widget.ts"),
 	join(KERNEL_SRC, "tui-host", "host.ts"),
