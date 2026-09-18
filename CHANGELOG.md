@@ -6,6 +6,7 @@
 - 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
 - 影响范围：frontend（blocks/Markdown 及 9 处调用点、ExtensionDialog）。
 - fix(frontend): 用户消息气泡里的附件 chip（「附件:文件名」）现在可点击打开——此前 chip 是 innerHTML 注入的 span，发送后点了没反应；改为在气泡上做事件委托（只命中 data-token 以 `path:` 开头的附件 chip，正文文字与其他类型 chip 不触发），按 FilePill 同一口径分发：图片/视频 → 媒体画廊，其余 → 文件预览（html → 浏览器面板），路径按项目 cwd 补全，并给气泡内 chip 加 cursor:pointer 提示。覆盖「附件尾段」与「乐观占位本地附件引用」两条 chip 来源。测试：组件测 5 例（含「点正文不触发」反向断言）+ e2e 2 例（真实上传→发送→点击 chip→弹窗与内容可见）。
+- fix(desktop): 打包版启动卡顿（Windows 实测止血）——① 每次启动不再把 ≈95MB 内核二进制拷进 WA_PI_DIR/runtime：自 da951491「移除内核独立打包与独立升级机制」后该副本已无任何读取方（spawn 与 bin 链接都用随包 seed 路径），并清理老用户 runtime 里的存量副本（回收 ~95MB）；② 依赖重装判定改按「依赖清单指纹」（package.json + bun.lock 内容哈希）而非 app 版本号——生产日志实测发版触发的那轮重装 bun 自报 “no changes”，白付一次 95MB 子进程启动（2.2~5.5s，冷网络还叠加 26s 下载）；③ 补启动时间线埋点：runtimeReadyStart/runtimeReadyDone/kernelSpawnStart/splashLoaded/splashFirstFrame。实测（打包版、隔离 WA_PI_DIR、三次冷启动）：升级路径 2185ms → 1530/1541ms，种子同步段 59~83ms → 24~26ms，依赖判定 864ms → 0ms。
 
 ## 2026-09-18 — v0.4.6 发版（新会话启动/侧栏空白修复 + TUI 弹窗鼠标修复）
 

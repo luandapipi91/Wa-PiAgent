@@ -226,6 +226,17 @@ function createSplash() {
 		},
 	});
 	splashWindow.loadURL(buildSplashURL());
+	// 启动页自身的时间线：did-finish-load 只说明 HTML 解析完，用户真正看到的是首帧合成。
+	// 两者分开打点，才能区分「启动页加载慢」与「加载完了却不出帧」（GPU 合成退化的特征）。
+	splashWindow.webContents.once("did-finish-load", () => {
+		startup.mark("splashLoaded");
+		splashWindow?.webContents
+			?.executeJavaScript(
+				"new Promise(r=>requestAnimationFrame(()=>r(Math.round(performance.now()))))",
+			)
+			.then(() => startup.mark("splashFirstFrame"))
+			.catch(() => {});
+	});
 	// 启动页自身的诊断：卡住/白屏时至少有痕迹（此前完全静默）
 	splashWindow.webContents.on("unresponsive", () =>
 		log.error("[startup] 启动页渲染进程无响应（窗口卡死）"),
@@ -774,6 +785,9 @@ app.whenReady().then(async () => {
 	}
 	log.info(`kernel 端口固定为 ${actualPort}`);
 
+	// 阶段边界：进入「运行时准备」（node 检测 + 依赖安装 + bin 链接）之前
+	startup.mark("runtimeReadyStart");
+
 	// 2b+) 首启 Node.js 运行时检测/下载（packaged）。
 	// 打包版只捆绑 bun，但 MCP 服务器（npx -y <package>）等场景需要真实 node + npm。
 	// 无系统 node 时自动下载 node LTS（IP 检测选源：国内 npmmirror，国外 nodejs.org）。
@@ -871,6 +885,9 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			log.error("[runtime-bin] 创建符号链接失败", e);
 		}
 	}
+
+	// 阶段边界：「运行时准备」结束（node 检测 + 依赖安装 + bin 链接全部完成）
+	startup.mark("runtimeReadyDone");
 
 	// 2c++) 预览独立窗口（浮动模式的承载窗口）。
 	// 浮动预览不再是主窗口内的 DOM 浮层，而是真正的系统窗口（能移出主窗口、与主窗口并行显示）。
@@ -1042,6 +1059,9 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			height: Math.max(PREVIEW_MIN_H, h),
 		});
 	});
+
+	// 阶段边界：调用 startSidecar（spawn 内核 + 等端口就绪）之前
+	startup.mark("kernelSpawnStart");
 
 	// 2d) 启动内核（packaged 从 runtimeDir 跑；dev 从源码跑）
 	setProgress(85, t("startingKernel"));
