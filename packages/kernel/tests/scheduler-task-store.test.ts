@@ -404,3 +404,117 @@ test("非法 taskId → KernelError scheduler.invalidTaskId（appendRecord 路�
 		"scheduler.invalidTaskId",
 	);
 });
+
+// ---- 悬空 running 对账（应用重启/进程退出后残留的「执行中」自愈）----
+describe("markInterrupted", () => {
+	/** 造一条记录：appendRecord 是记录唯一写入口，running + 终态都经它落盘 */
+	const running: ExecutionRecord = {
+		id: "r-run",
+		taskId: "t-stale",
+		taskName: "卡住的任务",
+		status: "running",
+		startedAt: 1000,
+	};
+
+	test("把 running 残留改写为「已中断」：同 id 追加终态行 + latest 索引同步", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		await store.appendRecord("pa", "t-stale", running);
+
+		const interrupted = await store.markInterrupted("t-stale");
+		expect(interrupted).toHaveLength(1);
+		expect(interrupted[0]).toMatchObject({
+			id: "r-run",
+			status: "failed",
+			errorCode: "scheduler.taskInterrupted",
+		});
+		expect(interrupted[0].finishedAt).toBeNumber();
+		// 进程何时死掉无从得知：不写 durationMs，避免列表里显示「耗时 18 天」这种假数据
+		expect(interrupted[0].durationMs).toBeUndefined();
+
+		// 读取去重取最新：running 已被终态覆盖
+		const records = await store.listRecords({ taskId: "t-stale" });
+		expect(records).toHaveLength(1);
+		expect(records[0].status).toBe("failed");
+		// 侧栏状态点数据源（latest 索引）同步：不再显示「执行中」
+		const latest = await store.listLatestRecords();
+		expect(latest.find((r) => r.taskId === "t-stale")?.status).toBe("failed");
+	});
+
+	test("幂等：已是终态的记录不会被再改写；无参数对账全部任务", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		await store.appendRecord("pa", "t-stale", running);
+		await store.appendRecord("pa", "t-done", {
+			id: "r-done",
+			taskId: "t-done",
+			taskName: "已完成",
+			status: "success",
+			startedAt: 1000,
+			finishedAt: 2000,
+			durationMs: 1000,
+		});
+
+		// 全量对账：只收尾 running，成功的记录原样
+		const interrupted = await store.markInterrupted();
+		expect(interrupted.map((r) => r.taskId)).toEqual(["t-stale"]);
+		// 再次对账无事发生（幂等）
+		expect(await store.markInterrupted()).toEqual([]);
+
+		const done = await store.listRecords({ taskId: "t-done" });
+		expect(done).toHaveLength(1);
+		expect(done[0].status).toBe("success");
+		expect(done[0].finishedAt).toBe(2000);
+	});
+
+	test("同一任务有条悬空 running 时全部收尾（不只看最新一条）", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		// 模拟旧版并发执行留下的两条悬空 running（后一条 newer，终态行均丢失）
+		await store.appendRecord("pa", "t-stale", { ...running, id: "r-old" });
+		await store.appendRecord("pa", "t-stale", {
+			...running,
+			id: "r-new",
+			startedAt: 5000,
+		});
+		const interrupted = await store.markInterrupted("t-stale");
+		expect(interrupted.map((r) => r.id).sort()).toEqual(["r-new", "r-old"]);
+		expect(
+			(await store.listRecords({ taskId: "t-stale", status: "running" })).length,
+		).toBe(0);
+	});
+	test("startedBefore 下界：只收尾早于下界的残留（不误伤对账期间刚起的新执行）", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		const old = { ...running, id: "r-old", startedAt: 1000 };
+		const fresh = { ...running, id: "r-new", startedAt: 9000 };
+		await store.appendRecord("pa", "t-stale", old);
+		await store.appendRecord("pa", "t-stale", fresh);
+
+		const interrupted = await store.markInterrupted("t-stale", {
+			startedBefore: 5000,
+		});
+		expect(interrupted.map((r) => r.id)).toEqual(["r-old"]);
+		// 下界之后的记录保持 running（真正在跑的不能被对账误杀）
+		const stillRunning = await store.listRecords({
+			taskId: "t-stale",
+			status: "running",
+		});
+		expect(stillRunning.map((r) => r.id)).toEqual(["r-new"]);
+	});
+
+	test("单任务对账走尾读窗口：日志很长也能收到最新的悬空 running", async () => {
+		const store = createFolderTaskStore({ projectsProvider: projects });
+		// 先写 60 条历史终态（超过尾读窗口的条数），再把悬空 running 写在最后
+		for (let i = 0; i < 60; i++) {
+			await store.appendRecord("pa", "t-long", {
+				id: `r-${i}`,
+				taskId: "t-long",
+				taskName: "长日志任务",
+				status: i % 2 === 0 ? "success" : "failed",
+				startedAt: 1000 + i,
+				finishedAt: 2000 + i,
+				durationMs: 1,
+			});
+		}
+		await store.appendRecord("pa", "t-long", { ...running, id: "r-tail" });
+		const interrupted = await store.markInterrupted("t-long");
+		expect(interrupted.map((r) => r.id)).toEqual(["r-tail"]);
+	});
+});

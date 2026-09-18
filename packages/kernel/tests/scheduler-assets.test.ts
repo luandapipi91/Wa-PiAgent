@@ -55,6 +55,74 @@ describe("cron-task.ts CLI", () => {
 	delete CLI_ENV.WA_PI_SCHEDULER_PROJECT_ID;
 	delete CLI_ENV.WA_PI_IM_PUSH_TARGETS;
 
+	test("run：kernel 200 → 报告已触发；409（已有执行在跑）→ 明确报错不谎报", async () => {
+		await ensureScheduledTasksAssets(dir);
+		const cli = join(dir, "cron-task.ts");
+		// 必须异步 spawn：run 需要桩 kernel 响应，而 spawnSync 会阻塞测试进程事件循环 → 死锁
+		const runAsync = async (args: string[]) => {
+			const proc = Bun.spawn([process.execPath, cli, ...args], {
+				cwd: dir,
+				env: { ...CLI_ENV, WA_PI_DIR: dir },
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const [stdout, stderr] = await Promise.all([
+				new Response(proc.stdout).text(),
+				new Response(proc.stderr).text(),
+			]);
+			await proc.exited;
+			return { exitCode: proc.exitCode, stdout, stderr };
+		};
+		const added = await runAsync([
+			"add",
+			"--name",
+			"占用中",
+			"--agent",
+			"main",
+			"--schedule",
+			'{"type":"daily","time":"09:30"}',
+			"--prompt",
+			"x",
+		]);
+		expect(added.exitCode).toBe(0);
+
+		// 桩 kernel：状态码可切换（pid 用测试进程自身，CLI 探活通过）
+		let status = 200;
+		const server = Bun.serve({
+			port: 0,
+			fetch: () =>
+				new Response(
+					JSON.stringify(
+						status === 200
+							? { ok: true, record: { id: "r1", status: "running" } }
+							: {
+									error: "任务正在执行中",
+									failure: { code: "scheduler.taskAlreadyRunning" },
+								},
+					),
+					{ status, headers: { "Content-Type": "application/json" } },
+				),
+		});
+		// kernel.json 是 CLI 的 kernel 发现入口（WA_PI_DIR 由上面 env 指定）
+		writeFileSync(
+			join(dir, "kernel.json"),
+			JSON.stringify({ port: server.port, pid: process.pid }),
+		);
+		try {
+			const ok = await runAsync(["run", "占用中"]);
+			expect(ok.exitCode).toBe(0);
+			expect(ok.stdout).toContain("已触发任务");
+
+			// 已在执行中：kernel 返 409 → CLI 必须报错（旧实现只看 curl 退出码，谎报已触发）
+			status = 409;
+			const busy = await runAsync(["run", "占用中"]);
+			expect(busy.exitCode).toBe(1);
+			expect(busy.stderr).toContain("任务正在执行中，未重复触发");
+		} finally {
+			server.stop(true);
+		}
+	});
+
 	test("help / add / list / validate / test 全链路", async () => {
 		await ensureScheduledTasksAssets(dir);
 		const cli = join(dir, "cron-task.ts");

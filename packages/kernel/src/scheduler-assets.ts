@@ -25,7 +25,9 @@ import readmeSource from "../assets/scheduled-tasks/README.md" with {
 	type: "text",
 };
 
-export const SCHEDULER_ASSET_VERSION = 2;
+// v4：CLI 的 run 子命令识别 409/404（任务已在执行 / 任务不存在），
+// 不再把「未触发」报成已触发（见 assets/scheduled-tasks/cron-task.ts run 分支）
+export const SCHEDULER_ASSET_VERSION = 4;
 
 const STAMP_CLI = `// wa-pi-cron-task-asset v${SCHEDULER_ASSET_VERSION}`;
 const STAMP_README = `<!-- wa-pi-scheduled-tasks-assets v${SCHEDULER_ASSET_VERSION} -->`;

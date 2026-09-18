@@ -34,6 +34,42 @@ describe("ExecutionRecords", () => {
 		expect(screen.getByText("暂无执行记录")).toBeTruthy();
 	});
 
+	test("中断/取消记录：不显示假耗时，且已取消显示 ⊘ 灰色而非失败红叉", () => {
+		schedulerState.tasks = [{ id: "t1", name: "每日报表" }];
+		schedulerState.records = [
+			{
+				id: "r-int",
+				taskId: "t1",
+				taskName: "每日报表",
+				status: "failed",
+				errorCode: "scheduler.taskInterrupted",
+				error: "scheduler.taskInterrupted",
+				startedAt: Date.now() - 1000,
+				// 存量记录里的假耗时（老版本对账写入）
+				durationMs: 1_560_996_000,
+			},
+			{
+				id: "r-cancel",
+				taskId: "t1",
+				taskName: "每日报表",
+				status: "failed",
+				errorCode: "scheduler.taskCancelled",
+				error: "scheduler.taskCancelled",
+				startedAt: Date.now() - 2000,
+			},
+		];
+		render(<ExecutionRecords />);
+		const intRow =
+			screen.getByTestId("execution-record-row-r-int").textContent ?? "";
+		expect(intRow).not.toContain("耗时");
+		expect(intRow).toContain("任务已中断");
+		// 用户主动取消：灰色 ⊘（不是失败 ✕）
+		const cancelRow =
+			screen.getByTestId("execution-record-row-r-cancel").textContent ?? "";
+		expect(cancelRow).toContain("⊘");
+		expect(cancelRow).toContain("任务已取消");
+	});
+
 	test("渲染记录列表（taskName + 状态图标）", () => {
 		schedulerState.tasks = [{ id: "t1", name: "每日报表" }];
 		schedulerState.records = [

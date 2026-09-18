@@ -128,6 +128,10 @@ async function readTailLines(
 	}
 }
 
+/** 单任务悬空对账的尾读窗口：悬空 running 恒是「该任务最后一次执行的记录」，
+ *  多条残留只可能来自旧版并发执行，几十条窗口足够覆盖 */
+const RECONCILE_TAIL_LIMIT = 50;
+
 /** 从日志尾部读取最近 limit 条记录（去重后，startedAt 倒序）。
  *  正确性依赖 append-only 性质：同一次执行的终态行恒在其 running 行之后追加
 	⇒ 尾读方向先遇到的是同 id 最新状态，「首次遇到即赢」等价于全量读的「后写覆盖先写」。
@@ -188,6 +192,14 @@ export interface FolderTaskStore {
 	/** 每任务最新一条执行记录（侧栏状态点用）：读 <taskId>.latest.json 索引，
 	 *  无索引（旧数据）时退化为读该任务日志尾 1 条，不触发全量日志解析 */
 	listLatestRecords(): Promise<ExecutionRecord[]>;
+	/** 对账悬空执行：把残留在 running 的记录改写成「已中断」并同步 latest 索引，
+	 *  返回被改写的记录。传 taskId 只对账该任务（尾读窗口内），缺省对账全部任务（全量）。幂等。
+	 *  opts.startedBefore：只收尾 startedAt 早于该时刻的记录——避免把「对账期间刚起的新执行」
+	 *  误判成残留（并发时 cancelRun 与 runTaskNow 可交错）。 */
+	markInterrupted(
+		taskId?: string,
+		opts?: { startedBefore?: number },
+	): Promise<ExecutionRecord[]>;
 	/** watcher 防自写循环：返回 store 最近一次写入该文件的内容哈希；非自写/未知 → null */
 	lastWrittenHash(file: string): string | null;
 }
@@ -370,7 +382,7 @@ export function createFolderTaskStore(deps: {
 		return true;
 	}
 
-	return {
+	const store: FolderTaskStore = {
 		async listAll() {
 			return listGlobalTasks();
 		},
@@ -469,10 +481,46 @@ export function createFolderTaskStore(deps: {
 			return records.sort((a, b) => b.startedAt - a.startedAt);
 		},
 
+		/** 对账悬空执行：kernel 被 kill / 崩溃 / 关机时，running 记录的终态行来不及落盘，
+		 *  「执行中」会永久卡住（状态点、记录列表、详情页都按 running 渲染）。
+		 *  启动时全量对账一次，立即执行前对目标任务对账一次，把残留 running 收尾为 failed。
+		 *  幂等：只改写 running 态记录（同 id 追加一条终态行，读取去重即覆盖）。 */
+		async markInterrupted(taskId, opts) {
+			// 单任务对账走尾读窗口（悬空 running 恒在日志尾部）：markInterrupted 在
+			// 「每次立即执行/定时触发」的热路径上，全量解析历史日志会随日志增长线性恶化。
+			// 启动对账（无 taskId）只发生一次，用全量扫描兜住历史遗留。
+			const candidates = taskId
+				? await listRecordsTail(taskId, RECONCILE_TAIL_LIMIT)
+				: await store.listRecords({ status: "running" });
+			const before = opts?.startedBefore;
+			const interrupted: ExecutionRecord[] = [];
+			for (const rec of candidates) {
+				if (rec.status !== "running") continue;
+				if (before != null && rec.startedAt >= before) continue;
+				const fixed: ExecutionRecord = {
+					...rec,
+					status: "failed",
+					// 收尾时刻（进程何时退出无从得知，故不写 durationMs）
+					finishedAt: Date.now(),
+					// 文案由前端按 errorCode 查字典渲染（kernel 不拼中文）
+					error: "scheduler.taskInterrupted",
+					errorCode: "scheduler.taskInterrupted",
+				};
+				delete fixed.errorParams;
+				// 耗时不可知：running 的 startedAt 到「本次对账」之间可能隔着应用关闭的整段时间，
+				// 保留会显示成「耗时 18 天」这类假数据
+				delete fixed.durationMs;
+				await store.appendRecord("", rec.taskId, fixed);
+				interrupted.push(fixed);
+			}
+			return interrupted;
+		},
+
 		lastWrittenHash(file) {
 			return writeHashes.get(file) ?? null;
 		},
 	};
+	return store;
 }
 
 export { hashOf as taskContentHash };

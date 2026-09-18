@@ -18,7 +18,16 @@ const loadTasksMock = mock();
 const setViewMock = mock();
 const deleteTaskMock = mock(async () => {});
 const runTaskNowMock = mock(async () => {});
+const cancelTaskRunMock = mock(async () => ({ cancelled: true, reconciled: 0 }));
 const loadLatestByTaskMock = mock(async () => {});
+
+/** 可在用例中切换的共享假状态（latestByTask：状态点 + 执行中判定数据源） */
+const sidebarState = {
+	latestByTask: {
+		t1: { id: "r1", taskId: "t1", taskName: "每日报表", status: "success", startedAt: 3 },
+		t2: { id: "r2", taskId: "t2", taskName: "下载清理", status: "failed", startedAt: 2 },
+	} as Record<string, any>,
+};
 
 const baseTasks = () => [
 	{
@@ -50,10 +59,7 @@ mock.module("../../../store/scheduler", () => ({
 		taskErrors: [],
 		// 状态点数据源已改为每任务最新一条索引（?latest=1），不再全量 records：
 		// t1 最新为 success（旧 r0 failed 已被索引覆盖），t2 为 failed，t3 无记录
-		latestByTask: {
-			t1: { id: "r1", taskId: "t1", taskName: "每日报表", status: "success", startedAt: 3 },
-			t2: { id: "r2", taskId: "t2", taskName: "下载清理", status: "failed", startedAt: 2 },
-		},
+		latestByTask: sidebarState.latestByTask,
 		selectedTaskId: "t1",
 		selectTask: selectTaskMock,
 		startCreate: startCreateMock,
@@ -62,6 +68,7 @@ mock.module("../../../store/scheduler", () => ({
 		setView: setViewMock,
 		deleteTask: deleteTaskMock,
 		runTaskNow: runTaskNowMock,
+		cancelTaskRun: cancelTaskRunMock,
 		loadLatestByTask: loadLatestByTaskMock,
 	}),
 }));
@@ -74,7 +81,18 @@ beforeEach(() => {
 	setViewMock.mockReset();
 	deleteTaskMock.mockReset();
 	runTaskNowMock.mockReset();
+	// mockReset 会清掉实现：组件调用点在 .catch(...) 上，须保留返回 Promise 的实现
+	runTaskNowMock.mockImplementation(async () => {});
+	cancelTaskRunMock.mockReset();
+	cancelTaskRunMock.mockImplementation(async () => ({
+		cancelled: true,
+		reconciled: 0,
+	}));
 	loadLatestByTaskMock.mockReset();
+	sidebarState.latestByTask = {
+		t1: { id: "r1", taskId: "t1", taskName: "每日报表", status: "success", startedAt: 3 },
+		t2: { id: "r2", taskId: "t2", taskName: "下载清理", status: "failed", startedAt: 2 },
+	};
 	cleanup();
 });
 
@@ -177,6 +195,26 @@ describe("AutomationSidebar", () => {
 			await new Promise((r) => setTimeout(r, 10));
 		});
 		fireEvent.click(document.body);
+		expect(screen.queryByTestId("task-context-menu")).toBeNull();
+	});
+	test("执行中：菜单项变「取消执行」并调用 cancelTaskRun（不再触发 runTaskNow）", () => {
+		sidebarState.latestByTask = {
+			...sidebarState.latestByTask,
+			t1: {
+				id: "r-run",
+				taskId: "t1",
+				taskName: "每日报表",
+				status: "running",
+				startedAt: 4,
+			},
+		};
+		render(<AutomationSidebar />);
+		fireEvent.contextMenu(screen.getByText("每日报表"));
+		const item = screen.getByTestId("task-menu-run");
+		expect(item.textContent).toContain("取消执行");
+		fireEvent.click(item);
+		expect(cancelTaskRunMock).toHaveBeenCalledWith("t1");
+		expect(runTaskNowMock).not.toHaveBeenCalled();
 		expect(screen.queryByTestId("task-context-menu")).toBeNull();
 	});
 });

@@ -9,7 +9,7 @@
  */
 import type { RouteRegistrar } from "./types";
 import { readJsonBody } from "./types";
-import type { ScheduledTask } from "@wa-pi/shared";
+import type { ExecutionRecord, ScheduledTask } from "@wa-pi/shared";
 import { toKernelPayload } from "@wa-pi/shared";
 import { SYSTEM_PROJECT_ID, validateTaskData } from "@wa-pi/shared";
 import type { FolderTaskStore } from "../scheduler-task-store";
@@ -44,7 +44,10 @@ export function createSchedulerRoutes(
 	store: FolderTaskStore,
 	onTaskChanged: (task: ScheduledTask) => void,
 	onTaskDeleted: (taskId: string) => void,
-	onRunNow: (taskId: string) => Promise<void>,
+	onRunNow: (taskId: string) => Promise<{ record: ExecutionRecord }>,
+	onCancelRun: (
+		taskId: string,
+	) => Promise<{ cancelled: boolean; reconciled: number }>,
 ): RouteRegistrar {
 	return (r, _callApi) => {
 		// GET /api/scheduled-tasks — 任务列表（按 createdAt 倒序：新建任务排最前）
@@ -151,14 +154,44 @@ export function createSchedulerRoutes(
 			return json({ ok: true });
 		});
 
-		// POST /api/scheduled-tasks/:id/run — 立即执行（触发即返回）
-		// 不 await 执行链（最长 30 分钟）：Bun.serve idleTimeout 255s 会先掐断连接；
-		// 执行结果经 scheduled-task:completed SSE 广播，前端收到后刷新列表/记录。
+		// POST /api/scheduled-tasks/:id/run — 立即执行
+		// 响应前只等「running 记录落盘」这一段（毫秒级）：前端拿到 200 就能刷新出「执行中」；
+		// 真正执行（最长 30 分钟）在后台继续，结果经 scheduled-task:completed SSE 广播。
+		// 已有执行在跑 → 409 scheduler.taskAlreadyRunning（不允许重复执行）
 		r.add("POST", "/api/scheduled-tasks/:id/run", async (_req, params) => {
-			void onRunNow(params.id).catch((err) => {
-				console.error(`[scheduler] 立即执行任务 ${params.id} 失败:`, err);
-			});
-			return json({ ok: true });
+			try {
+				const { record } = await onRunNow(params.id);
+				return json({ ok: true, record });
+			} catch (err) {
+				const payload = toKernelPayload(err);
+				if (payload?.code === "scheduler.taskAlreadyRunning") {
+					return jsonError("任务正在执行中", 409, payload);
+				}
+				if (payload?.code === "scheduler.taskNotFound") {
+					return jsonError("任务不存在", 404, payload);
+				}
+				return jsonError(
+					err instanceof Error ? err.message : String(err),
+					500,
+					payload ?? undefined,
+				);
+			}
+		});
+
+		// POST /api/scheduled-tasks/:id/cancel — 取消执行中的任务
+		// 无在飞执行时退化为「对账悬空状态」：应用重启后卡住的「执行中」也能被清除
+		r.add("POST", "/api/scheduled-tasks/:id/cancel", async (_req, params) => {
+			try {
+				const result = await onCancelRun(params.id);
+				return json({ ok: true, ...result });
+			} catch (err) {
+				const payload = toKernelPayload(err);
+				return jsonError(
+					err instanceof Error ? err.message : String(err),
+					500,
+					payload ?? undefined,
+				);
+			}
 		});
 
 		// GET /api/execution-records — 执行记录（支持 taskId/status 筛选，倒序，默认最多 200 条）

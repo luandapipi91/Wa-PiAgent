@@ -466,7 +466,7 @@ test.describe
 				// 5. 执行记录落盘（运行态一起 appendRecord 写 logs/<id>.log；无真实模型时记录仍存在）
 				await findRecord(taskId);
 
-				// 6. 断言日志文件存在且非空（executeTask 启动时同步 append 了 running 态行）
+				// 6. 断言日志文件存在且非空（executeRun 启动前同步 append 了 running 态行）
 				const logPath = join(LOGS_DIR, `${taskId}.log`);
 				expect(existsSync(logPath), `执行日志未落盘: ${logPath}`).toBe(true);
 				expect(readFileSync(logPath, "utf8").trim().length).toBeGreaterThan(0);
@@ -537,3 +537,203 @@ test.describe
 			}
 		});
 	});
+
+// ===== 执行中状态治理：立即执行即时可见 / 执行中禁止重复执行 / 可取消 =====
+// 场景 8：点「立即执行」→ 详情页「最近执行」立即出现记录（不等用户手动刷新）
+// 场景 9：进程被杀留下的悬空「执行中」→ 立即执行被禁用 + 可点「取消执行」清掉卡住状态
+//          （真实在飞场景的取消走同一入口，kernel 侧 abort 链路由 kernel 单测覆盖）
+test.describe.serial("定时任务执行中状态与取消", () => {
+	test.beforeAll(async () => {
+		// 假 provider（幂等）：无 provider 时 App 首启会弹 onboarding 遮挡自动化面板
+		await saveProvider({
+			id: "e2e-automation-provider",
+			name: "E2E Automation",
+			slug: "e2e-automation",
+			baseUrl: "http://localhost:9999/v1",
+			apiKey: "sk-e2e",
+			api: "openai-completions",
+			models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+		});
+	});
+
+	test.beforeEach(async ({ page }) => {
+		test.setTimeout(90_000);
+		await page.goto("/", { timeout: 60_000 });
+		await page.getByTestId("sidebar-tab-automation").click();
+		await expect(page.getByTestId("automation-sidebar")).toBeVisible({
+			timeout: 10_000,
+		});
+	});
+
+	test("8 立即执行 → 「最近执行」立即出现记录", async ({ page }) => {
+		const name = `E2E立即执行-${Math.random().toString(36).slice(2, 8)}`;
+		const { task } = await api<{ task: any }>("POST", "/api/scheduled-tasks", {
+			name,
+			schedule: { type: "daily", time: "23:30" },
+			agentId: "dev",
+			prompt: "E2E：立即执行即时可见",
+		});
+		const taskId: string = task.id;
+		try {
+			const card = page.getByTestId(`automation-task-${taskId}`);
+			await expect(card).toBeVisible({ timeout: 10_000 });
+			await card.click();
+			await expect(page.getByTestId("task-detail-view")).toBeVisible();
+
+			// 点击前：无「最近执行」区块（无记录时不渲染）
+			await expect(
+				page.locator('[data-testid^="record-row-"]').first(),
+			).toBeHidden();
+
+			await page.getByTestId("task-run-now-btn").click();
+
+			// 关键断言：不刷新页面、不切视图，记录立即可见（kernel 先落盘 running 再响应 200）
+			await expect(
+				page.locator('[data-testid^="record-row-"]').first(),
+			).toBeVisible({ timeout: 10_000 });
+			await expect(page.getByText("最近执行")).toBeVisible();
+		} finally {
+			await deleteTaskQuietEncoded(taskId);
+			rmSync(join(LOGS_DIR, `${taskId}.log`), { force: true });
+			rmSync(join(LOGS_DIR, `${taskId}.latest.json`), { force: true });
+		}
+	});
+
+	test("9 悬空「执行中」（应用重启残留）→ 点立即执行：存量状态被收尾 + 新执行启动", async ({
+		page,
+	}) => {
+		const name = `E2E卡住-${Math.random().toString(36).slice(2, 8)}`;
+		const { task } = await api<{ task: any }>("POST", "/api/scheduled-tasks", {
+			name,
+			schedule: { type: "daily", time: "03:00" },
+			agentId: "dev",
+			prompt: "E2E：悬空执行中状态",
+		});
+		const taskId: string = task.id;
+		// 模拟「执行中应用被杀」：日志里有 running 记录、latest 索引指向它，且没有终态行
+		const stale = {
+			id: `stale-${taskId}`,
+			taskId,
+			taskName: name,
+			status: "running",
+			startedAt: Date.now() - 60_000,
+		};
+		mkdirSync(LOGS_DIR, { recursive: true });
+		writeFileSync(
+			join(LOGS_DIR, `${taskId}.log`),
+			`[2024-01-01 00:00:00] 执行中 | ${JSON.stringify(stale)}\n`,
+			"utf8",
+		);
+		writeFileSync(
+			join(LOGS_DIR, `${taskId}.latest.json`),
+			JSON.stringify(stale),
+			"utf8",
+		);
+
+		try {
+			await page.reload({ timeout: 60_000 });
+			await page.getByTestId("sidebar-tab-automation").click();
+			const card = page.getByTestId(`automation-task-${taskId}`);
+			await expect(card).toBeVisible({ timeout: 10_000 });
+			await card.click();
+
+			// 卡住状态可见：执行中标记 + 取消入口（按钮本身不禁用，服务端才是闸门）
+			await expect(page.getByTestId("task-running-chip")).toBeVisible({
+				timeout: 10_000,
+			});
+			await expect(page.getByTestId("task-cancel-run-btn")).toBeVisible();
+
+			// 点「立即执行」：服务端先对账（悬空 running → 已中断）再起本次执行
+			await page.getByTestId("task-run-now-btn").click();
+			await expect(page.getByTestId("toast-container")).toContainText(
+				"已触发执行",
+				{ timeout: 10_000 },
+			);
+
+			const { records } = await api<{ records: any[] }>(
+				"GET",
+				`/api/execution-records?taskId=${encodeURIComponent(taskId)}`,
+			);
+			const staleRec = records.find((r) => r.id === stale.id);
+			expect(staleRec?.status).toBe("failed");
+			expect(staleRec?.errorCode).toBe("scheduler.taskInterrupted");
+			// 新执行另起一条记录（存量状态被收尾后照常执行，不会被卡住状态挡住）
+			expect(records.some((r) => r.id !== stale.id)).toBe(true);
+			// 详情页「最近执行」两条并存（悬空记录收尾 + 新执行 running）
+			await expect(
+				page.locator('[data-testid^="record-row-"]'),
+			).toHaveCount(2, { timeout: 10_000 });
+		} finally {
+			await deleteTaskQuietEncoded(taskId);
+			rmSync(join(LOGS_DIR, `${taskId}.log`), { force: true });
+			rmSync(join(LOGS_DIR, `${taskId}.latest.json`), { force: true });
+		}
+	});
+
+	test("10 悬空「执行中」→ 点取消执行：状态自愈（取消入口消失、标记清除）", async ({
+		page,
+	}) => {
+		const name = `E2E卡住取消-${Math.random().toString(36).slice(2, 8)}`;
+		const { task } = await api<{ task: any }>("POST", "/api/scheduled-tasks", {
+			name,
+			schedule: { type: "daily", time: "03:30" },
+			agentId: "dev",
+			prompt: "E2E：悬空执行中状态（取消路径）",
+		});
+		const taskId: string = task.id;
+		const stale = {
+			id: `stale-${taskId}`,
+			taskId,
+			taskName: name,
+			status: "running",
+			startedAt: Date.now() - 30_000,
+		};
+		mkdirSync(LOGS_DIR, { recursive: true });
+		writeFileSync(
+			join(LOGS_DIR, `${taskId}.log`),
+			`[2024-01-01 00:00:00] 执行中 | ${JSON.stringify(stale)}\n`,
+			"utf8",
+		);
+		writeFileSync(
+			join(LOGS_DIR, `${taskId}.latest.json`),
+			JSON.stringify(stale),
+			"utf8",
+		);
+
+		try {
+			await page.reload({ timeout: 60_000 });
+			await page.getByTestId("sidebar-tab-automation").click();
+			const card = page.getByTestId(`automation-task-${taskId}`);
+			await expect(card).toBeVisible({ timeout: 10_000 });
+			await card.click();
+			await expect(page.getByTestId("task-cancel-run-btn")).toBeVisible({
+				timeout: 10_000,
+			});
+
+			await page.getByTestId("task-cancel-run-btn").click();
+			await expect(page.getByTestId("toast-container")).toContainText(
+				"已清理卡住的状态",
+				{ timeout: 10_000 },
+			);
+
+			// 状态自愈：执行中标记与取消入口消失
+			await expect(page.getByTestId("task-running-chip")).toBeHidden({
+				timeout: 10_000,
+			});
+			await expect(page.getByTestId("task-cancel-run-btn")).toBeHidden();
+
+			// 落盘记录已收敛为终态（前端状态点与记录列表同源）
+			const { records } = await api<{ records: any[] }>(
+				"GET",
+				`/api/execution-records?taskId=${encodeURIComponent(taskId)}`,
+			);
+			const rec = records.find((r) => r.id === stale.id);
+			expect(rec?.status).toBe("failed");
+			expect(rec?.errorCode).toBe("scheduler.taskInterrupted");
+		} finally {
+			await deleteTaskQuietEncoded(taskId);
+			rmSync(join(LOGS_DIR, `${taskId}.log`), { force: true });
+			rmSync(join(LOGS_DIR, `${taskId}.latest.json`), { force: true });
+		}
+	});
+});

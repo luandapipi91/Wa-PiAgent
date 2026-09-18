@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
+import { formatRecordError } from "../../util/kernel-error";
+import { recordShowsDuration, recordVisual } from "./record-visual";
 
 // 初始加载窗口：按天/周/月对应的时间跨度（毫秒）
 const PERIOD_MS = {
@@ -50,7 +52,14 @@ export function ExecutionRecords() {
 
 	let filtered = records;
 	if (taskFilter) filtered = filtered.filter((r) => r.taskId === taskFilter);
-	if (statusFilter) filtered = filtered.filter((r) => r.status === statusFilter);
+	if (statusFilter === "cancelled") {
+		// 用户主动取消落在 failed + errorCode=scheduler.taskCancelled：单列筛选项便于区分
+		filtered = filtered.filter(
+			(r) => r.errorCode === "scheduler.taskCancelled",
+		);
+	} else if (statusFilter) {
+		filtered = filtered.filter((r) => r.status === statusFilter);
+	}
 
 	// 时间过滤：SSE 兑底刷新可能拉回窗口外数据，展示时仍按当前周期窗口裁剪
 	const now = Date.now();
@@ -115,6 +124,7 @@ export function ExecutionRecords() {
 					<option value="success">成功</option>
 					<option value="failed">失败</option>
 					<option value="running">运行中</option>
+					<option value="cancelled">已取消</option>
 				</select>
 			</div>
 
@@ -145,21 +155,11 @@ export function ExecutionRecords() {
 							<div
 								className="w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0"
 								style={{
-									background:
-										r.status === "success"
-											? "rgba(34,197,94,0.1)"
-											: r.status === "failed"
-												? "rgba(239,68,68,0.1)"
-												: "rgba(59,130,246,0.1)",
-									color:
-										r.status === "success"
-											? "#4ade80"
-											: r.status === "failed"
-												? "#f87171"
-												: "#60a5fa",
+									background: recordVisual(r).bg,
+									color: recordVisual(r).color,
 								}}
 							>
-								{r.status === "success" ? "✓" : r.status === "failed" ? "✕" : "⟳"}
+								{recordVisual(r).icon}
 							</div>
 							<div className="flex-1">
 								<div className="text-xs" style={{ color: "var(--text-primary)" }}>
@@ -170,7 +170,9 @@ export function ExecutionRecords() {
 									style={{ color: "var(--text-tertiary)" }}
 								>
 									<span>{new Date(r.startedAt).toLocaleString("zh-CN")}</span>
-									{r.durationMs && <span>耗时 {(r.durationMs / 1000).toFixed(0)}s</span>}
+									{r.durationMs != null && recordShowsDuration(r) && (
+										<span>耗时 {(r.durationMs / 1000).toFixed(0)}s</span>
+									)}
 									{r.pushResults?.some((p) => p.success) && (
 										<span
 											className="px-1 rounded"
@@ -182,7 +184,9 @@ export function ExecutionRecords() {
 											已推送
 										</span>
 									)}
-									{r.error && <span style={{ color: "#f87171" }}>{r.error}</span>}
+									{r.error && (
+										<span style={{ color: "#f87171" }}>{formatRecordError(r)}</span>
+									)}
 								</div>
 							</div>
 							{/* 详情入口：与整行 onClick 同效，给习惯找按钮的用户 */}

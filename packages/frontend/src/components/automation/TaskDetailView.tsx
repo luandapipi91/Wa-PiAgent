@@ -1,7 +1,7 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
 import { useToastStore } from "../../store/toast";
-import { formatApiError } from "../../util/kernel-error";
+import { formatApiError, formatRecordError } from "../../util/kernel-error";
 import { useContactsStore } from "../../store/contacts";
 import {
 	SYSTEM_PROJECT_ID,
@@ -13,6 +13,7 @@ import {
 	toPromptHtml,
 	type ContactChipMeta,
 } from "./prompt-tokens";
+import { recordShowsDuration, recordVisual } from "./record-visual";
 
 /**
  * 任务详情视图：四宫格信息（计划/角色/联系人/目录）+ 任务指令高亮 + 最近执行记录。
@@ -24,13 +25,17 @@ export function TaskDetailView() {
 		selectedTaskId,
 		recentRecords,
 		recentRecordsTaskId,
+		latestByTask,
 		loadRecentRecords,
 		startEdit,
 		runTaskNow,
+		cancelTaskRun,
 		openRecordDetail,
 	} = useSchedulerStore();
 	const { contacts } = useContactsStore();
 	const task = tasks.find((t) => t.id === selectedTaskId);
+	// 点击到响应之间（running 记录未回来）的本地抑制：防抖双击触发第二次执行（服务端会 409）
+	const [runPending, setRunPending] = useState(false);
 
 	useEffect(() => {
 		if (selectedTaskId) loadRecentRecords(selectedTaskId);
@@ -66,37 +71,94 @@ export function TaskDetailView() {
 			? "默认工作区"
 			: task.projectId;
 
+	// 当前是否有在飞执行（服务端状态点数据源 ?latest=1）：执行中禁止再点「立即执行」
+	const running = latestByTask[task.id]?.status === "running";
+
+	// 立即执行：kernel 先落盘 running 记录再返 200 → store 刷完「最近执行」即时可见；
+	// 已在执行中时 kernel 返 409（scheduler.taskAlreadyRunning），按字典文案提示
+	const runNow = async () => {
+		setRunPending(true);
+		try {
+			await runTaskNow(task.id);
+			useToastStore.getState().add("已触发执行", "success");
+		} catch (e) {
+			// 错误按 code 字典渲染；无结构化信息时保留原兜底文案
+			useToastStore
+				.getState()
+				.add(
+					formatApiError(e) === (e as Error)?.message
+						? "触发执行失败，请稍后重试"
+						: formatApiError(e),
+					"error",
+				);
+		} finally {
+			setRunPending(false);
+		}
+	};
+
+	// 取消执行：中止本次运行的 agent 会话，记录收敛为「已取消」终态（SSE 回推刷新）
+	const cancelRun = async () => {
+		try {
+			const res = await cancelTaskRun(task.id);
+			useToastStore
+				.getState()
+				.add(
+					res.cancelled
+						? "已取消执行"
+						: res.reconciled > 0
+							? "任务未在执行中，已清理卡住的状态"
+							: "任务未在执行中",
+					"success",
+				);
+		} catch (e) {
+			useToastStore.getState().add(formatApiError(e), "error");
+		}
+	};
+
 	return (
 		<div data-testid="task-detail-view">
 			{/* 操作按钮 */}
 			<div className="flex justify-end gap-2 mb-4">
+				{/* 执行中不做前端硬禁用：服务端才是闸门（在飞 → 409；进程被杀留下的悬空
+				    「执行中」→ 先对账收尾再执行），前端误判卡死时按钮仍可用作自愈入口 */}
+				{running && (
+					<span
+						data-testid="task-running-chip"
+						className="text-[10px] px-2 py-1 rounded self-center"
+						style={{ background: "rgba(59,130,246,0.1)", color: "#60a5fa" }}
+					>
+						⟳ 执行中
+					</span>
+				)}
 				<button
-					onClick={async () => {
-						// 触发即返回（执行结果经 scheduled-task:completed SSE 刷新）
-						try {
-							await runTaskNow(task.id);
-							useToastStore.getState().add("已触发执行", "success");
-						} catch (e) {
-							// 错误按 code 字典渲染；无结构化信息时保留原兜底文案
-							useToastStore
-								.getState()
-								.add(
-									formatApiError(e) === (e as Error)?.message
-										? "触发执行失败，请稍后重试"
-										: formatApiError(e),
-									"error",
-								);
-						}
-					}}
-					className="text-[10px] px-2 py-1 rounded cursor-pointer border"
+					onClick={() => void runNow()}
+					disabled={runPending}
+					data-testid="task-run-now-btn"
+					className="text-[10px] px-2 py-1 rounded border"
 					style={{
 						background: "var(--surface-hover)",
 						borderColor: "var(--hairline)",
 						color: "var(--text-secondary)",
+						cursor: runPending ? "not-allowed" : "pointer",
+						opacity: runPending ? 0.5 : 1,
 					}}
 				>
 					▶ 立即执行
 				</button>
+				{running && (
+					<button
+						onClick={() => void cancelRun()}
+						data-testid="task-cancel-run-btn"
+						className="text-[10px] px-2 py-1 rounded cursor-pointer border"
+						style={{
+							background: "rgba(239,68,68,0.08)",
+							borderColor: "rgba(239,68,68,0.4)",
+							color: "#f87171",
+						}}
+					>
+						■ 取消执行
+					</button>
+				)}
 				<button
 					onClick={() => startEdit(task)}
 					className="text-[10px] px-2 py-1 rounded cursor-pointer border"
@@ -188,14 +250,8 @@ function RecordRow({
 	record: ExecutionRecord;
 	onOpenDetail: (recordId: string, from: "records" | "detail") => void;
 }) {
-	const icon =
-		record.status === "success" ? "✓" : record.status === "failed" ? "✕" : "⟳";
-	const color =
-		record.status === "success"
-			? "#4ade80"
-			: record.status === "failed"
-				? "#f87171"
-				: "#60a5fa";
+	// 已取消（errorCode=scheduler.taskCancelled）走灰色 ⊘，与真正的失败区分
+	const { icon, color } = recordVisual(record);
 	const open = () => onOpenDetail(record.id, "detail");
 	return (
 		<div
@@ -213,13 +269,16 @@ function RecordRow({
 					className="text-[10px] flex gap-2"
 					style={{ color: "var(--text-tertiary)" }}
 				>
-					{record.durationMs && (
-						<span>耗时 {(record.durationMs / 1000).toFixed(0)}s</span>
-					)}
+					{record.durationMs != null &&
+						recordShowsDuration(record) && (
+							<span>耗时 {(record.durationMs / 1000).toFixed(0)}s</span>
+						)}
 					{record.pushResults?.some((p) => p.success) && (
 						<span style={{ color: "#4ade80" }}>已推送</span>
 					)}
-					{record.error && <span style={{ color: "#f87171" }}>{record.error}</span>}
+					{record.error && (
+						<span style={{ color: "#f87171" }}>{formatRecordError(record)}</span>
+					)}
 				</div>
 			</div>
 			<button

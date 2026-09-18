@@ -1226,6 +1226,11 @@ const en = {
 		"scheduler.invalidTaskId": "Invalid task ID ({{taskId}})",
 		"scheduler.taskTimeout":
 			"Task timed out (over {{minutes}} minutes) and was aborted",
+		"scheduler.taskCancelled": "Task cancelled",
+		"scheduler.taskInterrupted": "Task interrupted",
+		"scheduler.taskAlreadyRunning":
+			"This task is already running. Wait for it to finish or cancel it first",
+		"scheduler.taskNotFound": "Task not found ({{taskId}})",
 	},
 };
 

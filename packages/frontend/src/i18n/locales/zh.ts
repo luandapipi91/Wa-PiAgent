@@ -1151,6 +1151,10 @@ const zh = {
 		"scheduler.noProvider": "无可用的模型供应商，请先在设置中配置至少一个供应商",
 		"scheduler.invalidTaskId": "任务 ID 非法（{{taskId}}）",
 		"scheduler.taskTimeout": "任务执行超时（超过 {{minutes}} 分钟），已自动中止",
+		"scheduler.taskCancelled": "任务已取消",
+		"scheduler.taskInterrupted": "任务已中断",
+		"scheduler.taskAlreadyRunning": "任务正在执行中，请等它结束或先取消再执行",
+		"scheduler.taskNotFound": "任务不存在（{{taskId}}）",
 	},
 };
 

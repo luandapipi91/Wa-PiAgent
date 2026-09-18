@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/scheduler";
+import { useToastStore } from "../../store/toast";
+import { formatApiError } from "../../util/kernel-error";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useClampMenu } from "../ProjectItem";
 import type {
@@ -35,6 +37,7 @@ export function AutomationSidebar() {
 		loadLatestByTask,
 		deleteTask,
 		runTaskNow,
+		cancelTaskRun,
 	} = useSchedulerStore();
 	// 右键上下文菜单（taskMenu 非空时 portal 渲染）
 	const [taskMenu, setTaskMenu] = useState<TaskMenuState | null>(null);
@@ -154,13 +157,36 @@ export function AutomationSidebar() {
 					>
 						<button
 							onClick={() => {
-								void runTaskNow(taskMenu.task.id);
+								// 执行中：同一菜单位换成「取消执行」，避免重复触发（服务端也会 409）
+								const running =
+									latestByTask[taskMenu.task.id]?.status === "running";
+								if (running) {
+									void cancelTaskRun(taskMenu.task.id).then(
+										(res) =>
+											useToastStore
+												.getState()
+												.add(
+													res.cancelled ? "已取消执行" : "任务未在执行中",
+													"success",
+												),
+										() =>
+											useToastStore
+												.getState()
+												.add("取消执行失败", "error"),
+										);
+								} else {
+									void runTaskNow(taskMenu.task.id).catch((e) =>
+										useToastStore.getState().add(formatApiError(e), "error"),
+									);
+								}
 								setTaskMenu(null);
 							}}
 							className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover text-xs"
 							data-testid="task-menu-run"
 						>
-							▶ 立即执行
+							{latestByTask[taskMenu.task.id]?.status === "running"
+								? "■ 取消执行"
+								: "▶ 立即执行"}
 						</button>
 						<button
 							onClick={() => {

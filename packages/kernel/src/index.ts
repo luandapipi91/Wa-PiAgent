@@ -465,7 +465,20 @@ export async function startKernel(opts?: {
 		loadTasks: async () => (await taskStore.listAll()).tasks,
 		dataDir: WA_PI_DIR,
 		broadcast: (event) => broadcast(event as WSServerEvent),
-		executeTask: async (task: ScheduledTask): Promise<ExecutionRecord> => {
+		// 悬空 running 对账：上次进程被杀/崩溃时终态行来不及落盘，「执行中」会永久卡住
+		markInterruptedRuns: async (taskId, opts) => {
+			const interrupted = await taskStore.markInterrupted(taskId, opts);
+			if (interrupted.length > 0) {
+				console.log(
+					`[kernel] 已收尾 ${interrupted.length} 条残留的「执行中」执行记录（执行进程已退出）`,
+				);
+				broadcast({ type: "scheduled-tasks:changed" } as WSServerEvent);
+			}
+			return interrupted;
+		},
+		abortSession: (sessionId) => agentManager.abort(sessionId),
+		// 阶段一：落盘 running 记录 + 广播（快返回；「立即执行」接口据此在响应前拿到该记录）
+		prepareRun: async (task): Promise<ExecutionRecord> => {
 			const record: ExecutionRecord = {
 				id: randomUUID(),
 				taskId: task.id,
@@ -482,7 +495,10 @@ export async function startKernel(opts?: {
 			broadcast({
 				type: "scheduled-tasks:changed",
 			} as WSServerEvent);
-
+			return record;
+		},
+		// 阶段二：执行链（长跑，后台进行；结束时把终态写回同 id 记录）
+		executeRun: async (task, record, ctx): Promise<ExecutionRecord> => {
 			const sessionId = `sched-${task.id}-${Date.now()}`;
 			const projectId = task.projectId ?? SYSTEM_PROJECT_ID;
 
@@ -504,6 +520,11 @@ export async function startKernel(opts?: {
 					source: "scheduler", // 执行会话独立于侧栏列表，只在执行记录里查看
 				});
 				record.sessionId = sessionId;
+				// 回填会话 id：取消执行时据此中止本次会话；已请求取消则不再拉起 agent
+				ctx.setSessionId(sessionId);
+				if (ctx.isCancelled()) {
+					throw new KernelError("scheduler.taskCancelled");
+				}
 
 				// 2. 解析 @im-push-to(ch_xxx,ct_xxx) 标记：非空时构造 im_push_to 工具注入该会话
 				// （pi 进程内 bridge 扩展经 env 注册工具，execute 经 /bridge/tool 回调到
@@ -554,6 +575,10 @@ export async function startKernel(opts?: {
 					const skills = await channelManager.loadSkillContents();
 					promptToSend = expandSkillTokens(promptToSend, skills);
 				}
+				// 取消检查点：等待期间被请求取消 → 让会话收敛（中止已由 scheduler 发出）
+				if (ctx.isCancelled()) {
+					throw new KernelError("scheduler.taskCancelled");
+				}
 				await agentManager.prompt(sessionId, promptToSend, { model });
 
 				// 6. 等待 agent 执行完成（轮询 isSessionBusy，agent_settled 后 busy=false）
@@ -561,12 +586,17 @@ export async function startKernel(opts?: {
 				const MAX_WAIT_MS = 30 * 60 * 1000; // 单次任务最长等待 30 分钟
 				const deadline = Date.now() + MAX_WAIT_MS;
 				while (agentManager.isSessionBusy(sessionId)) {
+					// 用户取消：跳出等待，由下方检查点收敛为「已取消」终态
+					if (ctx.isCancelled()) break;
 					if (Date.now() > deadline) {
 						await agentManager.abort(sessionId).catch(() => {});
 						// 经 record.error 展示在执行记录详情（ExecutionDetailView）
 						throw new KernelError("scheduler.taskTimeout", { minutes: 30 });
 					}
 					await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+				}
+				if (ctx.isCancelled()) {
+					throw new KernelError("scheduler.taskCancelled");
 				}
 
 				// 7. 收集最后一条 assistant 消息作为摘要
@@ -601,12 +631,20 @@ export async function startKernel(opts?: {
 				record.status = "failed";
 				record.finishedAt = Date.now();
 				record.durationMs = record.finishedAt - record.startedAt;
-				record.error = err instanceof Error ? err.message : String(err);
-				// 结构化错误随记录落盘：前端按 errorCode 查字典渲染
-				const payload = toKernelPayload(err);
-				if (payload) {
-					record.errorCode = payload.code;
-					record.errorParams = payload.params;
+				// 取消导致的失败（含 agent 因中止而报错的情况）：统一记为「已取消」，
+				// 避免把用户主动停止显示成执行故障
+				if (ctx.isCancelled()) {
+					record.error = "scheduler.taskCancelled";
+					record.errorCode = "scheduler.taskCancelled";
+					delete record.errorParams;
+				} else {
+					record.error = err instanceof Error ? err.message : String(err);
+					// 结构化错误随记录落盘：前端按 errorCode 查字典渲染
+					const payload = toKernelPayload(err);
+					if (payload) {
+						record.errorCode = payload.code;
+						record.errorParams = payload.params;
+					}
 				}
 			}
 
@@ -653,6 +691,14 @@ export async function startKernel(opts?: {
 	await watcher.start();
 	server.setSchedulerStore(taskStore);
 	server.setScheduler(scheduler);
+	// 上次进程退出时来不及写终态的 running 记录：启动即对账为「已中断」，
+	// 否则前端会永久显示「执行中」（状态点/记录列表/详情页都按 running 渲染）。
+	// 对账失败只告警：非核心步骤不得拖垮 kernel 启动
+	try {
+		await scheduler.reconcileStaleRuns();
+	} catch (err) {
+		console.warn("[kernel] 悬空执行状态对账失败（忽略，继续启动）:", err);
+	}
 	await scheduler.start();
 	console.log("[kernel] 定时任务调度器已启动");
 

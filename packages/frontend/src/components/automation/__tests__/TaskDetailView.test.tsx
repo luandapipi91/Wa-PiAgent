@@ -30,14 +30,17 @@ const runTaskNowMock = mock();
 const startEditMock = mock();
 const loadRecentRecordsMock = mock();
 const openRecordDetailMock = mock();
+const cancelTaskRunMock = mock();
 
 // 可在用例中切换的共享假状态
 const schedulerState: {
 	tasks: any[];
 	recentRecords: any[];
 	recentRecordsTaskId: string | null;
+	latestByTask: Record<string, any>;
 	selectedTaskId: string | null;
 	runTaskNow: typeof runTaskNowMock;
+	cancelTaskRun: typeof cancelTaskRunMock;
 	startEdit: typeof startEditMock;
 	loadRecentRecords: typeof loadRecentRecordsMock;
 	openRecordDetail: typeof openRecordDetailMock;
@@ -45,8 +48,11 @@ const schedulerState: {
 	tasks: [],
 	recentRecords: [],
 	recentRecordsTaskId: null,
+	// 在飞执行状态数据源（?latest=1）：有该任务的 running 记录时禁用「立即执行」
+	latestByTask: {},
 	selectedTaskId: null,
 	runTaskNow: runTaskNowMock,
+	cancelTaskRun: cancelTaskRunMock,
 	startEdit: startEditMock,
 	loadRecentRecords: loadRecentRecordsMock,
 	openRecordDetail: openRecordDetailMock,
@@ -61,9 +67,11 @@ beforeEach(() => {
 	startEditMock.mockReset();
 	loadRecentRecordsMock.mockReset();
 	openRecordDetailMock.mockReset();
+	cancelTaskRunMock.mockReset();
 	schedulerState.tasks = [];
 	schedulerState.recentRecords = [];
 	schedulerState.recentRecordsTaskId = null;
+	schedulerState.latestByTask = {};
 	schedulerState.selectedTaskId = null;
 	// toast store 是真实单例：清空上一用例残留（避免 3s 自动消失定时器干扰断言）
 	useToastStore.setState({ toasts: [] });
@@ -379,5 +387,243 @@ describe("TaskDetailView", () => {
 		schedulerState.selectedTaskId = "t1";
 		render(<TaskDetailView />);
 		expect(loadRecentRecordsMock).toHaveBeenCalledWith("t1");
+	});
+	// ===== 执行中状态与取消（本次改造新增）=====
+	// 设计取舍：执行中不做前端硬禁用——服务端才是闸门（在飞 → 409；悬空「执行中」→
+	// 先对账收尾再执行），前端状态误判时按钮仍可用作自愈入口。
+	test("执行中：展示「执行中」标记 + 「取消执行」入口，立即执行仍可点（服务端 409 兜底）", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.latestByTask = {
+			t1: {
+				id: "r-run",
+				taskId: "t1",
+				taskName: "任务",
+				status: "running",
+				startedAt: 1,
+			},
+		};
+		render(<TaskDetailView />);
+		expect(screen.getByTestId("task-running-chip").textContent).toContain("执行中");
+		expect(screen.getByTestId("task-cancel-run-btn")).toBeTruthy();
+		// 不禁用：卡住（应用重启残留）时点它由服务端对账后照常执行
+		expect(
+			(screen.getByTestId("task-run-now-btn") as HTMLButtonElement).disabled,
+		).toBe(false);
+	});
+
+	test("非执行中：不渲染「执行中」标记与取消按钮", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.latestByTask = {
+			t1: {
+				id: "r-ok",
+				taskId: "t1",
+				taskName: "任务",
+				status: "success",
+				startedAt: 1,
+			},
+		};
+		render(<TaskDetailView />);
+		expect(
+			(screen.getByTestId("task-run-now-btn") as HTMLButtonElement).disabled,
+		).toBe(false);
+		expect(screen.queryByTestId("task-running-chip")).toBeNull();
+		expect(screen.queryByTestId("task-cancel-run-btn")).toBeNull();
+	});
+
+	test("点击「取消执行」调用 cancelTaskRun(taskId) 并 toast 已取消执行", async () => {
+		cancelTaskRunMock.mockImplementation(async () => ({
+			cancelled: true,
+			reconciled: 0,
+		}));
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.latestByTask = {
+			t1: {
+				id: "r-run",
+				taskId: "t1",
+				taskName: "任务",
+				status: "running",
+				startedAt: 1,
+			},
+		};
+		render(<TaskDetailView />);
+		fireEvent.click(screen.getByTestId("task-cancel-run-btn"));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(cancelTaskRunMock).toHaveBeenCalledWith("t1");
+		expect(
+			useToastStore.getState().toasts.find((t) => t.message === "已取消执行")
+				?.type,
+		).toBe("success");
+	});
+
+	test("取消时无在飞执行（状态卡住）→ toast 提示已清理卡住的状态", async () => {
+		cancelTaskRunMock.mockImplementation(async () => ({
+			cancelled: false,
+			reconciled: 1,
+		}));
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.latestByTask = {
+			t1: {
+				id: "r-run",
+				taskId: "t1",
+				taskName: "任务",
+				status: "running",
+				startedAt: 1,
+			},
+		};
+		render(<TaskDetailView />);
+		fireEvent.click(screen.getByTestId("task-cancel-run-btn"));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(
+			useToastStore
+				.getState()
+				.toasts.find((t) => t.message === "任务未在执行中，已清理卡住的状态"),
+		).toBeTruthy();
+	});
+	test("最近执行：用户取消的记录显示「⊘ 已取消」而非失败红叉", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.recentRecordsTaskId = "t1";
+		schedulerState.recentRecords = [
+			{
+				id: "r-cancel",
+				taskId: "t1",
+				taskName: "任务",
+				status: "failed",
+				errorCode: "scheduler.taskCancelled",
+				error: "scheduler.taskCancelled",
+				startedAt: Date.now(),
+			},
+			{
+				id: "r-fail",
+				taskId: "t1",
+				taskName: "任务",
+				status: "failed",
+				error: "boom",
+				startedAt: Date.now() - 1000,
+			},
+		];
+		render(<TaskDetailView />);
+		// 已取消：灰色 ⊘ + 字典文案；真失败仍是 ✕（两种记录同屏可辨）
+		const cancelledRow =
+			screen.getByTestId("record-row-r-cancel").textContent ?? "";
+		expect(cancelledRow).toContain("⊘");
+		expect(cancelledRow).toContain("任务已取消");
+		// 括号里的补充说明不再展示（只留结论）
+		expect(cancelledRow).not.toContain("（");
+		expect(screen.getByTestId("record-row-r-fail").textContent).toContain("✕");
+	});
+
+	test("最近执行：中断记录不显示耗时（含存量已落盘的假耗时），普通失败仍显示", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.recentRecordsTaskId = "t1";
+		schedulerState.recentRecords = [
+			{
+				id: "r-int",
+				taskId: "t1",
+				taskName: "任务",
+				status: "failed",
+				errorCode: "scheduler.taskInterrupted",
+				error: "scheduler.taskInterrupted",
+				startedAt: Date.now(),
+				// 存量记录：老版本对账时把「对账时刻 - startedAt」写成了耗时（可达十几天）
+				durationMs: 1_560_996_000,
+			},
+			{
+				id: "r-fail",
+				taskId: "t1",
+				taskName: "任务",
+				status: "failed",
+				error: "boom",
+				startedAt: Date.now() - 1000,
+				durationMs: 3000,
+			},
+		];
+		render(<TaskDetailView />);
+		expect(screen.getByTestId("record-row-r-int").textContent).not.toContain(
+			"耗时",
+		);
+		expect(screen.getByTestId("record-row-r-fail").textContent).toContain("耗时");
+	});
+
+	test("最近执行：中断记录文案不带括号补充", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.recentRecordsTaskId = "t1";
+		schedulerState.recentRecords = [
+			{
+				id: "r-int",
+				taskId: "t1",
+				taskName: "任务",
+				status: "failed",
+				errorCode: "scheduler.taskInterrupted",
+				error: "scheduler.taskInterrupted",
+				startedAt: Date.now(),
+			},
+		];
+		render(<TaskDetailView />);
+		const row = screen.getByTestId("record-row-r-int").textContent ?? "";
+		expect(row).toContain("任务已中断");
+		expect(row).not.toContain("（");
 	});
 });

@@ -5,7 +5,7 @@
 #   - WA_PI_DIR 用 mktemp -d 隔离（不触碰真实 ~/.pi/agent 与宿主 9776/9778）
 #   - 端口用唯一值（默认从 9900 起，用 lsof 探测一个空闲端口）
 #   - 脚本结束经 trap 清理（kill kernel + rm -rf 临时目录）
-# 数据唯一来源：各项目 cwd 下 .wa-pi/scheduled-tasks/；默认工作区 __system__ → $WA_PI_DIR/workdir。
+# 数据唯一来源：全局目录 $WA_PI_DIR/scheduled-tasks/{tasks,logs}（任务定义 md + 执行日志）。
 set -euo pipefail
 
 # 从脚本位置推导 kernel 目录，保证从任意 cwd 都能跑
@@ -15,6 +15,7 @@ RESP="$(mktemp -d)"     # 响应体临时目录（trap 清理）
 WORK_DIR="$(mktemp -d)" # 隔离的 WA_PI_DIR
 KPID=""
 PORT=""
+HANGPID=""
 
 fail() {
   echo "❌ $1"
@@ -57,6 +58,12 @@ cleanup() {
     # 第二层：宽限期后仍存活（优雅退出被卡住）则强制 KILL 兜底。
     kill -0 "$KPID" 2>/dev/null && kill -KILL "$KPID" 2>/dev/null
   fi
+  # 挂起 provider（模拟「模型长时间不响应」）也要回收
+  if [ -n "$HANGPID" ] && kill -0 "$HANGPID" 2>/dev/null; then
+    kill -TERM "$HANGPID" 2>/dev/null
+    sleep 1
+    kill -0 "$HANGPID" 2>/dev/null && kill -KILL "$HANGPID" 2>/dev/null
+  fi
   [ -n "$WORK_DIR" ] && rm -rf "$WORK_DIR"
   [ -n "$RESP" ] && rm -rf "$RESP"
   exit $rc
@@ -85,7 +92,8 @@ done
 [ "$ready" = "1" ] || fail "kernel 就绪超时（40s），端口 $PORT"
 
 BASE="http://127.0.0.1:$PORT"
-TASKDIR="$WORK_DIR/workdir/.wa-pi/scheduled-tasks/tasks"
+TASKDIR="$WORK_DIR/scheduled-tasks/tasks"
+LOGDIR="$WORK_DIR/scheduled-tasks/logs"
 
 # 中文/保留字符 URL 编码（纯 shell，逐字节 %HH，不依赖 JS 运行时）
 urlencode() {
@@ -167,12 +175,58 @@ grep -q '"errors":\[\]' "$RESP/list5.json" || fail "PUT 修复后 errors 应清�
 grep -q "修复坏任务" "$RESP/list5.json" || fail "修复后的任务应在列表可见"
 echo "✅ 场景5 PUT 修复坏文件，errors 清空"
 
-# ===== 场景 6：POST run → 200（fire-and-forget，触发即返回，只断言 200）=====
+# ===== 场景 6：POST run → 200 + running 记录（响应即带记录：前端不必等 SSE 就能刷新「最近执行」）=====
 RUN_ID=$(urlencode "$TASK_A_ID")
 code=$(curl -s -o "$RESP/run.json" -w "%{http_code}" -X POST "$BASE/api/scheduled-tasks/$RUN_ID/run")
 [ "$code" = "200" ] || fail "run 应返回 200，实际 $code"
 grep -q '"ok":true' "$RESP/run.json" || fail "run 响应应含 ok:true"
-echo "✅ 场景6 run 返回 200"
+grep -q '"record":{"id":"' "$RESP/run.json" || fail "run 响应应带 running 记录"
+grep -q '"status":"running"' "$RESP/run.json" || fail "run 响应记录状态应为 running"
+# 不等不重试：紧接着查执行记录就已存在（服务端先把 running 落盘再响应）
+curl -s "$BASE/api/execution-records?taskId=$RUN_ID" >"$RESP/rec-immediate.json"
+grep -q '"status":"' "$RESP/rec-immediate.json" || fail "run 返回后应立即能查到执行记录"
+echo "✅ 场景6 run 返回 200 且响应带 running 记录（立即执行即时可见）"
+
+# ===== 场景 6b：真实在飞的「取消执行」=====
+# 用挂起 provider（接受连接但永不响应）把执行钉在 in-flight，验证：
+# 取消 → 中止会话 → 记录收敛为 failed + errorCode=scheduler.taskCancelled（不是 success）
+HANG_PORT="$(pick_port)" || fail "找不到挂起 provider 可用端口"
+HANG_PORT="$HANG_PORT" bun -e 'Bun.serve({ port: Number(process.env.HANG_PORT), fetch: () => new Promise(() => {}) })' >"$RESP/hang.log" 2>&1 &
+HANGPID=$!
+disown "$HANGPID" 2>/dev/null || true # 避免回收时打印 "Terminated" 噪声
+sleep 1
+kill -0 "$HANGPID" 2>/dev/null || fail "挂起 provider 未启动"
+curl -s -X POST "$BASE/api/providers" -H "Content-Type: application/json" \
+  -d '{"provider":{"id":"it-hang","name":"IT Hang","slug":"it-hang","baseUrl":"http://127.0.0.1:'"$HANG_PORT"'/v1","apiKey":"sk-it","api":"openai-completions","models":[{"id":"hang-model","contextWindow":128000,"maxTokens":4096}]}}' \
+  >"$RESP/provider.json"
+curl -s -X POST "$BASE/api/scheduled-tasks" -H "Content-Type: application/json" \
+  -d '{"name":"取消验证","schedule":{"type":"daily","time":"04:00"},"agentId":"dev","model":"it-hang/hang-model","prompt":"占位。"}' \
+  >"$RESP/create-cancel.json"
+CANCEL_ID=$(grep -o '"id":"[^"]*"' "$RESP/create-cancel.json" | head -1 | sed 's/"id":"//;s/"//')
+[ -n "$CANCEL_ID" ] || fail "创建取消验证任务失败"
+CANCEL_ENC=$(urlencode "$CANCEL_ID")
+code=$(curl -s -o "$RESP/run-cancel.json" -w "%{http_code}" -X POST "$BASE/api/scheduled-tasks/$CANCEL_ENC/run")
+[ "$code" = "200" ] || fail "run 应返回 200，实际 $code"
+CANCEL_REC=$(grep -o '"record":{"id":"[^"]*"' "$RESP/run-cancel.json" | sed 's/.*"id":"//;s/"//')
+[ -n "$CANCEL_REC" ] || fail "run 响应应带 running 记录"
+# 立刻取消（此时该执行必然在飞）
+code=$(curl -s -o "$RESP/cancel-inflight.json" -w "%{http_code}" -X POST "$BASE/api/scheduled-tasks/$CANCEL_ENC/cancel")
+[ "$code" = "200" ] || fail "cancel 应返回 200，实际 $code"
+grep -q '"cancelled":true' "$RESP/cancel-inflight.json" || fail "在飞执行取消应返回 cancelled:true（实际 $(cat "$RESP/cancel-inflight.json")）"
+# 记录收敛为「已取消」（cancelled 分支，不是 success）
+CANCEL_OK=0
+for _ in $(seq 1 40); do
+  sleep 1
+  curl -s "$BASE/api/execution-records?taskId=$CANCEL_ENC&limit=10" >"$RESP/cancel-rec.json"
+  if grep -q '"errorCode":"scheduler.taskCancelled"' "$RESP/cancel-rec.json"; then
+    CANCEL_OK=1
+    break
+  fi
+done
+[ "$CANCEL_OK" = "1" ] || fail "取消后记录应收敛为 scheduler.taskCancelled（实际 $(cat "$RESP/cancel-rec.json")）"
+grep -q '"status":"failed"' "$RESP/cancel-rec.json" || fail "取消后的记录状态应为 failed"
+curl -s -X DELETE "$BASE/api/scheduled-tasks/$CANCEL_ENC" >/dev/null
+echo "✅ 场景6b 在飞执行可取消（记录收敛为「已取消」终态）"
 
 # ===== 场景 7：执行记录（fire-and-forget 可能有竞态，短等待/重试）=====
 REC=""
@@ -187,6 +241,31 @@ done
 [ -n "$REC" ] || fail "run 后应产生至少一条带 status 的执行记录"
 grep -q "\"taskId\":\"$TASK_A_ID\"" "$RESP/rec.json" || fail "记录应归属 taskId=$TASK_A_ID"
 echo "✅ 场景7 执行记录存在且带 status"
+
+# ===== 场景 7b：悬空 running 对账（模拟应用重启残留的「执行中」）=====
+# 用独立任务造数据，避免与场景 6 的真在飞执行互相干扰：
+# 直接向该任务日志追加一条 running 记录（模拟进程被杀、终态行来不及落盘），
+# 再调 POST /cancel：无在飞执行 → 退化为对账，把残留状态收尾为「已中断」
+curl -s -X POST "$BASE/api/scheduled-tasks" -H "Content-Type: application/json" \
+  -d '{"name":"悬空对账","schedule":{"type":"daily","time":"03:00"},"agentId":"前端开发者","prompt":"占位。"}' \
+  >"$RESP/create-stale.json"
+STALE_ID=$(grep -o '"id":"[^"]*"' "$RESP/create-stale.json" | head -1 | sed 's/"id":"//;s/"//')
+[ -n "$STALE_ID" ] || fail "创建悬空对账任务失败"
+STALE_REC='{"id":"stale-rec-1","taskId":"'"$STALE_ID"'","taskName":"'"$STALE_ID"'","status":"running","startedAt":1700000000000}'
+printf '[2023-11-15 06:13:20] 执行中 | %s\n' "$STALE_REC" >>"$LOGDIR/$STALE_ID.log"
+curl -s "$BASE/api/execution-records?latest=1" >"$RESP/latest-before.json"
+grep -q '"id":"stale-rec-1"' "$RESP/latest-before.json" || fail "latest 索引应指向新写入的悬空 running"
+STALE_ENC=$(urlencode "$STALE_ID")
+code=$(curl -s -o "$RESP/cancel.json" -w "%{http_code}" -X POST "$BASE/api/scheduled-tasks/$STALE_ENC/cancel")
+[ "$code" = "200" ] || fail "cancel 应返回 200，实际 $code"
+grep -q '"cancelled":false' "$RESP/cancel.json" || fail "无在飞执行时 cancel 应返回 cancelled:false"
+grep -q '"reconciled":1' "$RESP/cancel.json" || fail "应报告清理了 1 条悬空执行记录"
+STALE_REC_ENC=$(urlencode "$STALE_ID")
+curl -s "$BASE/api/execution-records?taskId=$STALE_REC_ENC&limit=10" >"$RESP/after-cancel.json"
+grep -q '"id":"stale-rec-1"' "$RESP/after-cancel.json" || fail "对账后仍应保留该记录（改写为终态）"
+grep -q '"status":"failed"' "$RESP/after-cancel.json" || fail "悬空 running 应被收尾为 failed"
+grep -q '"errorCode":"scheduler.taskInterrupted"' "$RESP/after-cancel.json" || fail "收尾记录应带 scheduler.taskInterrupted"
+echo "✅ 场景7b 悬空「执行中」被对账为「已中断」"
 
 # ===== 场景 8：DELETE → 200，文件消失 =====
 DEL_ID=$(urlencode "外部巡检")

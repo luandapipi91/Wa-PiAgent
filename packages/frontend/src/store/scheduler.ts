@@ -12,6 +12,10 @@ type AutoView = "detail" | "edit" | "records" | "record-detail";
 // 凡拼进 path 段或 query 值必须先编码，否则会被后端当分隔符解析而误删/查错。
 const encodeTaskId = (id: string) => encodeURIComponent(id);
 
+// 刷新合流状态（模块级：store 单例，事件/点击共用同一轮刷新）
+let refreshInFlight: Promise<void> | null = null;
+let refreshQueued = false;
+
 interface SchedulerState {
 	tasks: ScheduledTask[];
 	// 定时任务文件在解析/校验时发现的配置错误（Task 5 REST 响应 errors 字段）
@@ -43,10 +47,16 @@ interface SchedulerState {
 	loadRecentRecords: (taskId: string, limit?: number) => Promise<void>;
 	/** 侧栏状态点：每任务最新一条（读后端 latest 索引，非全量日志解析） */
 	loadLatestByTask: () => Promise<void>;
+	/** SSE 事件/可见性恢复时的统一刷新：任务列表 + 执行记录 + 状态点 + 详情页「最近执行」 */
+	refreshFromEvents: () => Promise<void>;
 	createTask: (data: Partial<ScheduledTask>) => Promise<void>;
 	updateTask: (id: string, data: Partial<ScheduledTask>) => Promise<void>;
 	deleteTask: (id: string) => Promise<void>;
 	runTaskNow: (id: string) => Promise<void>;
+	/** 取消执行中任务（返回 kernel 的结果：无在飞执行时 reconciled 表示清掉几条悬空状态） */
+	cancelTaskRun: (
+		id: string,
+	) => Promise<{ cancelled: boolean; reconciled: number }>;
 	selectTask: (id: string | null) => void;
 	setView: (view: AutoView) => void;
 	startCreate: () => void;
@@ -108,6 +118,33 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 		set({ latestByTask: byTask });
 	},
 
+	refreshFromEvents: async () => {
+		// 合流：一轮刷新在飞时后续事件只记一次待刷（事件风暴/点击+SSE 双触发不打并发请求）
+		if (refreshInFlight) {
+			refreshQueued = true;
+			return refreshInFlight;
+		}
+		refreshInFlight = (async () => {
+			do {
+				refreshQueued = false;
+				const selected = get().selectedTaskId;
+				const jobs: Promise<unknown>[] = [
+					get().loadTasks(),
+					get().loadRecords(),
+					get().loadLatestByTask(),
+				];
+				// 「最近执行」不是 SSE 消费端（只在切任务时拉）：选中任务时跟着一起补刷；
+				// 未选中时不刷，避免把别的任务的数据写进 recentRecords
+				if (selected) jobs.push(get().loadRecentRecords(selected));
+				// 刷新是尽力而为的副作用：单个请求失败不能让调用方（如「立即执行」）误判为操作失败
+				await Promise.all(jobs.map((j) => j.catch(() => {})));
+			} while (refreshQueued);
+		})().finally(() => {
+			refreshInFlight = null;
+		});
+		return refreshInFlight;
+	},
+
 	createTask: async (data) => {
 		const res = (await api.post("/api/scheduled-tasks", data)) as any;
 		// 新建后选中新任务（列表按 createdAt 倒序也会排最前），避免用户误以为没创建成功
@@ -132,7 +169,22 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	},
 
 	runTaskNow: async (id) => {
+		// kernel 先落盘 running 记录再返回 200：响应回来即可刷新出「执行中」（不必等 SSE）；
+		// 已在执行中时 kernel 返 409（ApiError.failure=scheduler.taskAlreadyRunning），调用方按字典提示
 		await api.post(`/api/scheduled-tasks/${encodeTaskId(id)}/run`, {});
+		await get().refreshFromEvents();
+	},
+
+	cancelTaskRun: async (id) => {
+		const res = (await api.post(
+			`/api/scheduled-tasks/${encodeTaskId(id)}/cancel`,
+			{},
+		)) as { cancelled?: boolean; reconciled?: number } | undefined;
+		await get().refreshFromEvents();
+		return {
+			cancelled: res?.cancelled ?? false,
+			reconciled: res?.reconciled ?? 0,
+		};
 	},
 
 	// 再点同一张卡片取消选中；点不同卡片切换选中

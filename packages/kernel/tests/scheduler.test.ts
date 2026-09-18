@@ -8,6 +8,7 @@ import {
 	resolveTaskModel,
 	TaskScheduler,
 	type SchedulerDeps,
+	type RunContext,
 } from "../src/scheduler";
 import type {
 	ScheduledTask,
@@ -184,6 +185,15 @@ describe("resolveTaskModel", () => {
 	});
 });
 
+/** 轮询等待条件成立（替代固定 sleep，避免 CI 抖动） */
+async function waitUntil(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!cond()) {
+		if (Date.now() > deadline) throw new Error("waitUntil 超时");
+		await new Promise((r) => setTimeout(r, 5));
+	}
+}
+
 // ===== TaskScheduler 接线单测（桩 Bun.cron，无需真实计时）=====
 
 /** 构造一个 ScheduledTask，默认 enabled daily 09:30。 */
@@ -201,18 +211,26 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
 	};
 }
 
-/** 构造 SchedulerDeps，loadTasks 默认空列表，broadcast/executeTask 默认空实现。 */
+/** 构造 SchedulerDeps：默认「落盘 running → 立刻成功」的最小执行链，各回调可覆盖。 */
 function makeDeps(overrides: Partial<SchedulerDeps> = {}): SchedulerDeps {
 	return {
 		loadTasks: async () => [],
 		dataDir: "/tmp",
-		executeTask: async () => ({
+		prepareRun: async (task) => ({
 			id: "rec-1",
-			taskId: "t1",
-			taskName: "测试任务",
-			status: "success",
+			taskId: task.id,
+			taskName: task.name,
+			status: "running",
 			startedAt: 1,
 		}),
+		executeRun: async (_task, record) => ({
+			...record,
+			status: "success",
+			finishedAt: 2,
+			durationMs: 1,
+		}),
+		markInterruptedRuns: async () => [],
+		abortSession: async () => {},
 		broadcast: () => {},
 		...overrides,
 	};
@@ -271,28 +289,26 @@ describe("TaskScheduler", () => {
 		}
 	});
 
-	test("handler 触发 → 调用 executeTask 并广播 completed 事件", async () => {
+	test("handler 触发 → 调用执行链并广播 completed 事件", async () => {
 		const { cronCalls, restore } = stubCron();
 		const broadcasts: { type: string; [k: string]: unknown }[] = [];
-		const record: ExecutionRecord = {
-			id: "rec-1",
-			taskId: "t1",
-			taskName: "测试任务",
-			status: "success",
-			startedAt: 1,
-		};
-		const executeTask = mock(async () => record);
+		const executeRun = mock(
+			async (_task: ScheduledTask, record: ExecutionRecord) => ({
+				...record,
+				status: "success" as const,
+			}),
+		);
 		try {
 			const scheduler = new TaskScheduler(
 				makeDeps({
-					executeTask,
+					executeRun,
 					broadcast: (e) => void broadcasts.push(e),
 				}),
 			);
 			scheduler.scheduleTask(makeTask());
 			expect(cronCalls).toHaveLength(1);
 			await cronCalls[0].handler();
-			expect(executeTask).toHaveBeenCalledTimes(1);
+			expect(executeRun).toHaveBeenCalledTimes(1);
 			expect(broadcasts).toHaveLength(1);
 			expect(broadcasts[0]).toMatchObject({
 				type: "scheduled-task:completed",
@@ -308,13 +324,13 @@ describe("TaskScheduler", () => {
 	test("handler 执行抛错 → 广播 failed 事件（含 error 文案）", async () => {
 		const { cronCalls, restore } = stubCron();
 		const broadcasts: { type: string; [k: string]: unknown }[] = [];
-		const executeTask = mock(async () => {
+		const executeRun = mock(async () => {
 			throw new Error("boom");
 		});
 		try {
 			const scheduler = new TaskScheduler(
 				makeDeps({
-					executeTask,
+					executeRun,
 					broadcast: (e) => void broadcasts.push(e),
 				}),
 			);
@@ -473,5 +489,211 @@ describe("TaskScheduler", () => {
 		} finally {
 			restore();
 		}
+	});
+});
+
+// ===== 并发闸门 / 取消 / 悬空状态对账（本次改造新增）=====
+
+describe("TaskScheduler 执行闸门与取消", () => {
+	test("定时触发时已有执行在跑 → 跳过本次（不重复执行）", async () => {
+		const { cronCalls, restore } = stubCron();
+		let release!: () => void;
+		const gate = new Promise<void>((r) => {
+			release = r;
+		});
+		const executeRun = mock(async (_t: ScheduledTask, rec: ExecutionRecord) => {
+			await gate;
+			return { ...rec, status: "success" as const };
+		});
+		try {
+			const scheduler = new TaskScheduler(
+				makeDeps({ loadTasks: async () => [makeTask()], executeRun }),
+			);
+			scheduler.scheduleTask(makeTask());
+			const first = cronCalls[0].handler();
+			await new Promise((r) => setTimeout(r, 20)); // 让第一轮进入执行
+			await cronCalls[0].handler(); // 第二次触发：应被 inFlight 跳过
+			expect(executeRun).toHaveBeenCalledTimes(1);
+			release();
+			await first;
+		} finally {
+			restore();
+		}
+	});
+
+	test("runTaskNow: 任务不存在 → scheduler.taskNotFound", async () => {
+		const scheduler = new TaskScheduler(makeDeps());
+		expect(await errorCodeOf(scheduler.runTaskNow("missing"))).toBe(
+			"scheduler.taskNotFound",
+		);
+	});
+
+	test("runTaskNow: 返回 running 记录，后台跑完广播 completed", async () => {
+		const { restore } = stubCron();
+		const broadcasts: { type: string; [k: string]: unknown }[] = [];
+		const prepareRun = mock(makeDeps().prepareRun);
+		try {
+			const scheduler = new TaskScheduler(
+				makeDeps({
+					loadTasks: async () => [makeTask()],
+					prepareRun,
+					broadcast: (e) => void broadcasts.push(e),
+				}),
+			);
+			const record = await scheduler.runTaskNow("t1");
+			// 响应即带 running 记录：前端收到响应就能刷新出「执行中」
+			expect(record).toMatchObject({ status: "running", taskId: "t1" });
+			expect(prepareRun).toHaveBeenCalledTimes(1);
+			// 后台执行链：等它收敛后应广播 completed + 释放槽位
+			await waitUntil(() => !scheduler.isRunning("t1"));
+			expect(broadcasts).toHaveLength(1);
+			expect(broadcasts[0]).toMatchObject({
+				type: "scheduled-task:completed",
+				taskId: "t1",
+				status: "success",
+			});
+		} finally {
+			restore();
+		}
+	});
+
+	test("runTaskNow: 已在执行中 → scheduler.taskAlreadyRunning（不重复起执行）", async () => {
+		const { restore } = stubCron();
+		let release!: () => void;
+		const gate = new Promise<void>((r) => {
+			release = r;
+		});
+		const executeRun = mock(async (_t: ScheduledTask, rec: ExecutionRecord) => {
+			await gate;
+			return { ...rec, status: "success" as const };
+		});
+		try {
+			const scheduler = new TaskScheduler(
+				makeDeps({ loadTasks: async () => [makeTask()], executeRun }),
+			);
+			await scheduler.runTaskNow("t1");
+			expect(await errorCodeOf(scheduler.runTaskNow("t1"))).toBe(
+				"scheduler.taskAlreadyRunning",
+			);
+			expect(executeRun).toHaveBeenCalledTimes(1);
+			release();
+			await waitUntil(() => !scheduler.isRunning("t1"));
+		} finally {
+			restore();
+		}
+	});
+
+	test("runTaskNow: 执行前先对账该任务的悬空 running", async () => {
+		const { restore } = stubCron();
+		const markInterruptedRuns = mock(async () => []);
+		try {
+			const scheduler = new TaskScheduler(
+				makeDeps({ loadTasks: async () => [makeTask()], markInterruptedRuns }),
+			);
+			await scheduler.runTaskNow("t1");
+			await waitUntil(() => !scheduler.isRunning("t1"));
+			// 带 startedBefore 下界：只收尾早于本次占位时刻的残留，避免误伤刚起的新执行
+			expect(markInterruptedRuns).toHaveBeenCalledTimes(1);
+			const [tid, opts] = markInterruptedRuns.mock.calls[0] as unknown as [
+				string,
+				{ startedBefore?: number },
+			];
+			expect(tid).toBe("t1");
+			expect(typeof opts.startedBefore).toBe("number");
+		} finally {
+			restore();
+		}
+	});
+
+	test("cancelRun: 标记取消 + 中止会话 + 等执行链收敛，isCancelled 透传给执行链", async () => {
+		const { restore } = stubCron();
+		let seenCancel = false;
+		const abortSession = mock(async () => {});
+		const executeRun = mock(
+			async (_t: ScheduledTask, rec: ExecutionRecord, ctx: RunContext) => {
+				// 模拟执行中：等取消信号后收敛（真实实现是 abort 会话 → busy 结束）
+				await waitUntil(() => ctx.isCancelled());
+				seenCancel = true;
+				return { ...rec, status: "failed" as const };
+			},
+		);
+		try {
+			const scheduler = new TaskScheduler(
+				makeDeps({
+					loadTasks: async () => [makeTask()],
+					executeRun,
+					abortSession,
+				}),
+			);
+			await scheduler.runTaskNow("t1");
+			// 会话创建后由执行链回填 sessionId（此处手动模拟）
+			await waitUntil(() => scheduler.isRunning("t1"));
+			const ctx = (executeRun.mock.calls[0] as unknown[])[2] as RunContext;
+			ctx.setSessionId("sess-1");
+
+			const res = await scheduler.cancelRun("t1");
+			expect(res.cancelled).toBe(true);
+			expect(abortSession).toHaveBeenCalledWith("sess-1");
+			expect(seenCancel).toBe(true);
+			expect(scheduler.isRunning("t1")).toBe(false);
+		} finally {
+			restore();
+		}
+	});
+
+	test("prepareRun 抛错（落盘失败）→ 释放槽位，任务可再次执行", async () => {
+		const { restore } = stubCron();
+		let failOnce = true;
+		const base = makeDeps();
+		const prepareRun = mock(async (task: ScheduledTask) => {
+			if (failOnce) {
+				failOnce = false;
+				throw new Error("落盘失败");
+			}
+			return base.prepareRun(task, {} as RunContext);
+		});
+		try {
+			const scheduler = new TaskScheduler(
+				makeDeps({ loadTasks: async () => [makeTask()], prepareRun }),
+			);
+			await expect(scheduler.runTaskNow("t1")).rejects.toThrow("落盘失败");
+			// 槽位必须被释放，否则该任务将永远无法再执行
+			expect(scheduler.isRunning("t1")).toBe(false);
+			const record = await scheduler.runTaskNow("t1");
+			expect(record).toMatchObject({ status: "running" });
+			await waitUntil(() => !scheduler.isRunning("t1"));
+		} finally {
+			restore();
+		}
+	});
+
+	test("cancelRun: 无在飞执行 → 对账悬空状态并返回条数", async () => {
+		const { restore } = stubCron();
+		const markInterruptedRuns = mock(async () => [
+			{ id: "stale-1", taskId: "t1" } as ExecutionRecord,
+		]);
+		try {
+			const scheduler = new TaskScheduler(makeDeps({ markInterruptedRuns }));
+			const res = await scheduler.cancelRun("t1");
+			expect(res).toEqual({ cancelled: false, reconciled: 1 });
+			expect(markInterruptedRuns).toHaveBeenCalledTimes(1);
+			const [tid, opts] = markInterruptedRuns.mock.calls[0] as unknown as [
+				string,
+				{ startedBefore?: number },
+			];
+			expect(tid).toBe("t1");
+			expect(typeof opts.startedBefore).toBe("number");
+		} finally {
+			restore();
+		}
+	});
+
+	test("reconcileStaleRuns: 启动对账走全量（不带 taskId）", async () => {
+		const markInterruptedRuns = mock(async () => []);
+		const scheduler = new TaskScheduler(makeDeps({ markInterruptedRuns }));
+		await scheduler.reconcileStaleRuns();
+		// 全量对账：不传 taskId（无参调用）
+		expect(markInterruptedRuns).toHaveBeenCalledTimes(1);
+		expect(markInterruptedRuns.mock.calls[0]).toEqual([]);
 	});
 });

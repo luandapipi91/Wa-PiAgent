@@ -39,6 +39,24 @@ export function formatKernelError(p: KernelErrorLike): {
 }
 
 /**
+ * 执行记录的错误文案：有 errorCode 的记录走字典渲染（如 scheduler.taskCancelled /
+ * scheduler.taskInterrupted），老记录（无 code）原样展示 error。列表行与详情页共用。
+ */
+export function formatRecordError(record: {
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}): string {
+  if (!record.error) return "";
+  if (!record.errorCode) return record.error;
+  return formatKernelError({
+    code: record.errorCode,
+    params: record.errorParams,
+    message: record.error,
+  }).main;
+}
+
+/**
  * HTTP 层错误的一站式格式化：ApiError.failure 按 code 渲染；
  * 无 failure（老 kernel / 网络错误 / 非 Error 值）时原样展示。供 catch 处直接调用。
  *

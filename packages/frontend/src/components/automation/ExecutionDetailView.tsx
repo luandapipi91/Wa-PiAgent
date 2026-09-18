@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
 import { useSessionStore } from "../../store/session";
 import { api } from "../../api-client";
-import { formatKernelError } from "../../util/kernel-error";
+import { formatRecordError } from "../../util/kernel-error";
+import { recordShowsDuration, recordVisual } from "./record-visual";
 import { MessageList } from "../MessageList";
 
 /**
@@ -13,8 +14,12 @@ import { MessageList } from "../MessageList";
 export function ExecutionDetailView() {
 	const selectedRecordId = useSchedulerStore((s) => s.selectedRecordId);
 	const records = useSchedulerStore((s) => s.records);
+	const recentRecords = useSchedulerStore((s) => s.recentRecords);
 	const closeRecordDetail = useSchedulerStore((s) => s.closeRecordDetail);
-	const record = records.find((r) => r.id === selectedRecordId);
+	// 从详情页「最近执行」进来时，该记录可能尚未进入列表页的 records 窗口 → 回退到 recentRecords
+	const record =
+		records.find((r) => r.id === selectedRecordId) ??
+		recentRecords.find((r) => r.id === selectedRecordId);
 
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -56,14 +61,8 @@ export function ExecutionDetailView() {
 		);
 	}
 
-	const statusIcon =
-		record.status === "success" ? "✓" : record.status === "failed" ? "✕" : "⟳";
-	const statusColor =
-		record.status === "success"
-			? "#4ade80"
-			: record.status === "failed"
-				? "#f87171"
-				: "#60a5fa";
+	// 已取消（errorCode=scheduler.taskCancelled）走灰色 ⊘，与真正的失败区分
+	const { icon: statusIcon, color: statusColor } = recordVisual(record);
 
 	return (
 		<div data-testid="execution-detail-view" className="flex flex-col h-full">
@@ -96,7 +95,7 @@ export function ExecutionDetailView() {
 						{record.agentId && <span>🤖 {record.agentId}</span>}
 						{record.model && <span>🧠 {record.model}</span>}
 						<span>{new Date(record.startedAt).toLocaleString("zh-CN")}</span>
-						{record.durationMs && (
+						{record.durationMs != null && recordShowsDuration(record) && (
 							<span>耗时 {(record.durationMs / 1000).toFixed(0)}s</span>
 						)}
 					</div>
@@ -109,14 +108,9 @@ export function ExecutionDetailView() {
 					className="px-3 py-2 text-[11px] flex-shrink-0"
 					style={{ color: "#f87171", background: "rgba(239,68,68,0.06)" }}
 				>
-					{record.errorCode
-						? // code 化错误按字典渲染（如 scheduler.taskTimeout），老记录原样展示
-							formatKernelError({
-								code: record.errorCode,
-								params: record.errorParams,
-								message: record.error,
-							}).main
-						: record.error}
+					{/* code 化错误按字典渲染（如 scheduler.taskTimeout / scheduler.taskCancelled），
+					    老记录无 code 时原样展示 */}
+					{formatRecordError(record)}
 				</div>
 			)}
 

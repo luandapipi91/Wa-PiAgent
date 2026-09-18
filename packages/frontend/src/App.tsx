@@ -154,9 +154,8 @@ export function App() {
 			useExtensionsStore.getState().load();
 			useAgentsStore.getState().loadAll();
 			useSubagentsStore.getState().load();
-			// 定时任务：重连后刷新任务列表 + 执行记录
-			void useSchedulerStore.getState().loadTasks();
-			void useSchedulerStore.getState().loadRecords();
+			// 定时任务：重连后刷新任务列表 + 执行记录 + 状态点 + 详情页「最近执行」
+			void useSchedulerStore.getState().refreshFromEvents();
 			useContactsStore.getState().loadContacts();
 			const sid = useProjectsStore.getState().currentSessionId;
 			if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
@@ -343,14 +342,13 @@ export function App() {
 				case "channel-conversations:changed":
 					void useChannelsStore.getState().loadConversations();
 					break;
-				// 定时任务变更/执行记录追加：重新拉取任务列表 + 执行记录（running 态需即时展示）
-				// 窗口不可见时跳过：广播是常驻心跳（无变化也每 5s 一次），后台拉取纯属浪费；
-				// 恢复可见时由下方 visibilitychange 监听统一补拉一次
+				// 定时任务变更/执行记录追加：统一刷新（含「立即执行」落盘的 running 记录、
+				// 执行结束的终态、悬空状态对账），详情页「最近执行」也在其中
+				// 窗口不可见时跳过：恢复可见时由下方 visibilitychange 监听统一补拉
 				case "scheduled-tasks:changed":
 				case "scheduled-task:completed":
 					if (document.hidden) break;
-					void useSchedulerStore.getState().loadTasks();
-					void useSchedulerStore.getState().loadRecords();
+					void useSchedulerStore.getState().refreshFromEvents();
 					break;
 				// 调度注册失败（cron 非法等）：toast 提示 + 刷新任务列表
 				case "scheduled-task:error":
@@ -370,12 +368,11 @@ export function App() {
 		};
 	}, []); // 空依赖：onMessage 用 getState，不需重订阅
 
-	// 窗口从不可见恢复时，补拉被 hidden 跳过的数据（定时任务列表 + 执行记录）
+	// 窗口从不可见恢复时，补拉被 hidden 跳过的数据（定时任务列表 + 执行记录 + 状态点）
 	useEffect(() => {
 		const onVisibility = () => {
 			if (document.hidden) return;
-			void useSchedulerStore.getState().loadTasks();
-			void useSchedulerStore.getState().loadRecords();
+			void useSchedulerStore.getState().refreshFromEvents();
 		};
 		document.addEventListener("visibilitychange", onVisibility);
 		return () => document.removeEventListener("visibilitychange", onVisibility);

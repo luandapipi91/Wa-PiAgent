@@ -844,8 +844,15 @@ export class WSServer {
 				this.broadcast({ type: "scheduled-tasks:changed" });
 			},
 			async (taskId) => {
-				// 立即执行：委托 scheduler 执行并广播结果
-				await this.scheduler?.runTaskNow(taskId);
+				// 立即执行：委托 scheduler 执行（返回时 running 记录已落盘）
+				if (!this.scheduler) throw new Error("调度器尚未就绪");
+				const record = await this.scheduler.runTaskNow(taskId);
+				return { record };
+			},
+			async (taskId) => {
+				// 取消执行：无在飞执行时对账悬空状态（应用重启后卡住的「执行中」）
+				if (!this.scheduler) throw new Error("调度器尚未就绪");
+				return this.scheduler.cancelRun(taskId);
 			},
 		);
 		schedulerRoutes(this.router, callApi, ctx);

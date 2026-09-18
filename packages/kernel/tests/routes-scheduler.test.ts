@@ -27,6 +27,7 @@ import {
 } from "../src/scheduler-task-store";
 import {
 	SYSTEM_PROJECT_ID,
+	KernelError,
 	serializeTaskFile,
 	type ExecutionRecord,
 	type ScheduledTask,
@@ -67,7 +68,10 @@ async function withServer<T>(
 	opts?: {
 		onTaskChanged?: (t: ScheduledTask) => void;
 		onTaskDeleted?: (id: string) => void;
-		onRunNow?: (id: string) => Promise<void>;
+		onRunNow?: (id: string) => Promise<{ record: ExecutionRecord }>;
+		onCancelRun?: (
+			id: string,
+		) => Promise<{ cancelled: boolean; reconciled: number }>;
 	},
 ): Promise<T> {
 	const router = new HttpRouter();
@@ -75,7 +79,17 @@ async function withServer<T>(
 		store,
 		opts?.onTaskChanged ?? (() => {}),
 		opts?.onTaskDeleted ?? (() => {}),
-		opts?.onRunNow ?? (async () => {}),
+		opts?.onRunNow ??
+			(async (id) => ({
+				record: {
+					id: "rec-default",
+					taskId: id,
+					taskName: id,
+					status: "running",
+					startedAt: Date.now(),
+				},
+			})),
+		opts?.onCancelRun ?? (async () => ({ cancelled: true, reconciled: 0 })),
 	);
 	registrar(router, (async () => new Response()) as any, {} as any);
 
@@ -379,12 +393,10 @@ test("DELETE 触发 onTaskDeleted 回调", async () => {
 	);
 });
 
-// I1：run 端点触发即返回——onRunNow 挂起不阻塞响应（旧实现 await 执行链，
-// Bun.serve idleTimeout 255s 会先掐断连接）
-test("POST /:id/run 触发即返回：onRunNow 未完成时响应已返回", async () => {
-	let release: (() => void) | null = null;
+// I1：run 端点只等「running 记录落盘」这一段（毫秒级），不等最长 30 分钟的执行链：
+// 旧实现 await 整条执行链，Bun.serve idleTimeout 255s 会先掐断连接。
+test("POST /:id/run 返回 running 记录（不等执行链完成）", async () => {
 	let runId: string | null = null;
-	let hangPromise: Promise<void> = Promise.resolve();
 	await withServer(
 		async (base) => {
 			const { body: created } = await json(base, "/api/scheduled-tasks", {
@@ -397,25 +409,99 @@ test("POST /:id/run 触发即返回：onRunNow 未完成时响应已返回", asy
 					projectId: "pa",
 				}),
 			});
-			// onRunNow 挂起直到测试手动放行
-			hangPromise = new Promise<void>((resolve) => {
-				release = resolve;
-			});
 			const res = await fetch(
 				`${base}/api/scheduled-tasks/${encodeURIComponent(created.task.id)}/run`,
 				{ method: "POST" },
 			);
-			// 响应在 onRunNow 挂起期间已返回（触发即返回）
 			expect(res.status).toBe(200);
-			expect((await res.json()).ok).toBe(true);
+			const body = await res.json();
+			expect(body.ok).toBe(true);
+			// 响应体带 running 记录：前端拿到 200 就能刷新出「执行中」，不必等 SSE
+			expect(body.record).toMatchObject({
+				status: "running",
+				taskId: created.task.id,
+			});
 			expect(runId).toBe(created.task.id);
-			release?.();
-			await hangPromise;
 		},
 		{
 			onRunNow: async (id) => {
 				runId = id;
-				await hangPromise;
+				return {
+					record: {
+						id: "rec-1",
+						taskId: id,
+						taskName: "立即执行",
+						status: "running",
+						startedAt: 1,
+					},
+				};
+			},
+		},
+	);
+});
+
+// I2：已有执行在跑 → 409 + 结构化 failure（前端按 code 字典提示，不重复起执行）
+test("POST /:id/run 已在执行中 → 409 scheduler.taskAlreadyRunning", async () => {
+	await withServer(
+		async (base) => {
+			const res = await fetch(
+				`${base}/api/scheduled-tasks/${encodeURIComponent("t1")}/run`,
+				{ method: "POST" },
+			);
+			expect(res.status).toBe(409);
+			expect((await res.json()).failure?.code).toBe(
+				"scheduler.taskAlreadyRunning",
+			);
+		},
+		{
+			onRunNow: async () => {
+				throw new KernelError("scheduler.taskAlreadyRunning");
+			},
+		},
+	);
+});
+
+// I3：任务不存在 → 404 scheduler.taskNotFound（旧实现恒返 200，前端无法区分）
+test("POST /:id/run 任务不存在 → 404 scheduler.taskNotFound", async () => {
+	await withServer(
+		async (base) => {
+			const res = await fetch(
+				`${base}/api/scheduled-tasks/${encodeURIComponent("missing")}/run`,
+				{ method: "POST" },
+			);
+			expect(res.status).toBe(404);
+			expect((await res.json()).failure?.code).toBe("scheduler.taskNotFound");
+		},
+		{
+			onRunNow: async (id) => {
+				throw new KernelError("scheduler.taskNotFound", { taskId: id });
+			},
+		},
+	);
+});
+
+// I4：取消执行 → 转发 onCancelRun，回显 cancelled/reconciled
+//（无在飞执行时 reconciled 表示清掉了几条悬空 running）
+test("POST /:id/cancel 转发取消结果", async () => {
+	let cancelId: string | null = null;
+	await withServer(
+		async (base) => {
+			const res = await fetch(
+				`${base}/api/scheduled-tasks/${encodeURIComponent("t9")}/cancel`,
+				{ method: "POST" },
+			);
+			expect(res.status).toBe(200);
+			expect(await res.json()).toMatchObject({
+				ok: true,
+				cancelled: true,
+				reconciled: 0,
+			});
+			expect(cancelId).toBe("t9");
+		},
+		{
+			onCancelRun: async (id) => {
+				cancelId = id;
+				return { cancelled: true, reconciled: 0 };
 			},
 		},
 	);

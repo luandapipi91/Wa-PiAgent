@@ -1,4 +1,4 @@
-// wa-pi-cron-task-asset v3
+// wa-pi-cron-task-asset v4
 /**
  * wa-pi 定时任务 CLI（由 wa-pi kernel 自动分发到全局目录，请勿手工编辑——旧版会被自动覆盖升级）。
  *
@@ -477,14 +477,26 @@ function main(): void {
 			const base = kernelBaseUrl(); // 先确认 kernel 在线，再本地校验任务
 			const t = loadTask(id);
 			assertOwnProject(t, id); // 执行属操作：项目隔离，禁止运行其他项目任务
+			// 带 -w 取 HTTP 状态码：kernel 对「已有执行在跑」返 409（scheduler.taskAlreadyRunning）、
+			// 任务不存在返 404，不能让 agent 误以为已经触发（旧版只看 curl 退出码，恒报成功）
 			const res = Bun.spawnSync([
 				"curl",
 				"-s",
+				"-w",
+				"\n%{http_code}",
 				"-X",
 				"POST",
 				`${base}/api/scheduled-tasks/${encodeURIComponent(id)}/run`,
 			]);
 			if (res.exitCode !== 0) fail("触发请求失败（kernel 不可达？）");
+			const out = res.stdout.toString();
+			const nl = out.lastIndexOf("\n");
+			const code = nl >= 0 ? out.slice(nl + 1).trim() : "";
+			if (code === "409")
+				fail(
+					`任务正在执行中，未重复触发: ${id}（可在 wa-pi 应用里取消该次执行）`,
+				);
+			if (code !== "200") fail(`触发失败（HTTP ${code || "?"}）: ${out.slice(0, nl).trim()}`);
 			console.log(`已触发任务: ${id}（执行日志见 logs/${id}.log）`);
 			return;
 		}
