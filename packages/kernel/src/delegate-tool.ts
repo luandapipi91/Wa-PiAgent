@@ -127,7 +127,7 @@ export function buildDelegateRoster(
 		return line;
 	});
 	return (
-		"## Available Subagents（delegate 的 agent 参数填下列名称）\n" +
+		"## Available Subagents（agent 参数填下列名称）\n" +
 		lines.join("\n")
 	);
 }

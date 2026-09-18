@@ -197,7 +197,7 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
 	"## Delegation Mechanism\n\n" +
 	"**代码任务一律派发再行动（单点查询除外）。先查顺序词（先…再…/然后/按结果）→ 逐个 delegate、禁止 fleet；无依赖且 ≥2 个独立对象 → fleet 并行；单对象 → delegate(Explore)。** 规划 → Plan；带写 → general-purpose。\n" +
 	'用户：找出所有引用 X 的文件 → delegate(agent="Explore", task="全仓库搜索 X 并说明用途")\n' +
-	"用户：WA_PI_DIR 默认指向哪？→ 不派，直接答\n" +
+	"用户：WA_PI_DIR 指向哪？→ 不派，直接答\n" +
 	"@agentName → 立即 delegate（不存在则告知；多个依次派发）。";
 
 /**
