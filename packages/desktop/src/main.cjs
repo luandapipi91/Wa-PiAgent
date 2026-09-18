@@ -16,6 +16,19 @@ const os = require("node:os");
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const { createLogger } = require("./util/log.cjs");
+const { gpuSwitchesFor } = require("./util/gpu-switches.cjs");
+const { summarizeGpuStatus } = require("./util/gpu-status.cjs");
+const { createStartupTimeline } = require("./util/startup-timeline.cjs");
+
+// 启动时间线：定位「进程启动 → 主窗口首帧」各阶段耗时。
+// 以前这段（尤其是「内核就绪 → 首帧」）没有任何埋点，两个平台报的「启动页空白/
+// 进度条卡住/很久才出界面」因此无法定位。日志里搜 [startup] 即可看到全量时间线。
+const startup = createStartupTimeline();
+// Electron 进程创建 → 主进程模块开始执行的间隔（拿不到时记 0）
+const BOOT_OFFSET_MS =
+	typeof process.getCreationTime === "function" && process.getCreationTime()
+		? Date.now() - process.getCreationTime()
+		: 0;
 const {
 	isPortInUse,
 	killPortOccupants,
@@ -213,6 +226,13 @@ function createSplash() {
 		},
 	});
 	splashWindow.loadURL(buildSplashURL());
+	// 启动页自身的诊断：卡住/白屏时至少有痕迹（此前完全静默）
+	splashWindow.webContents.on("unresponsive", () =>
+		log.error("[startup] 启动页渲染进程无响应（窗口卡死）"),
+	);
+	splashWindow.webContents.on("render-process-gone", (_e, d) =>
+		log.error(`[startup] 启动页渲染进程退出: ${JSON.stringify(d)}`),
+	);
 	splashWindow.on("closed", () => {
 		splashWindow = null;
 	});
@@ -398,6 +418,7 @@ function revealMainWindow() {
 	if (mainWindow && !mainWindow.isDestroyed()) {
 		mainWindow.show();
 		mainWindow.focus();
+		startup.mark("windowShown");
 		if (process.platform === "darwin") app.dock.show();
 	}
 	if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
@@ -417,16 +438,24 @@ function activateApp() {
 }
 
 // GPU 硬件加速开关：必须在 app.whenReady 之前 appendSwitch 才生效。
-// 实测（ProcessExplorer / 任务管理器）：本机 WA PI Agent 全部进程 GPU 占用为 0，
-// 即 Electron 内置 Chromium 未启用 GPU 合成、完全走 CPU 软件渲染，导致滚动/交互相对于
-// 独立 Chrome 浏览器明显掉帧。本机为 NVIDIA dGPU + Intel iGPU 双显卡笔记本，Electron 43
-// 默认未正确激活硬件加速。以下 switches 强制启用 GPU 光栅化并指定 ANGLE(D3D11) 后端
-// （Win 上最稳定），并对齐浏览器的合成路径。
-app.commandLine.appendSwitch("enable-gpu-rasterization");
-app.commandLine.appendSwitch("enable-zero-copy");
-app.commandLine.appendSwitch("use-angle", "d3d11");
-app.commandLine.appendSwitch("ignore-gpu-blocklist");
+//
+// 2026-09-18 修正（原实现无条件加四个开关，在两个平台都把界面拖垮）：
+// ①这四个开关最初是为 Windows 双显卡笔记本（NVIDIA dGPU + Intel iGPU）加的——那里
+//    Electron 43 默认未启用硬件加速、进程 GPU 占用为 0，需要强制打开；
+// ②但其中 `use-angle=d3d11` 是 **Windows 专属** ANGLE 后端，在 macOS 上强制指定后
+//    Chromium 会把 GPU 整个关掉：实测 app.getGPUFeatureStatus() 从
+//    `gpu_compositing=enabled / gpuDevice.active=true` 退化为
+//    `gpu_compositing=disabled_software / gpuDevice.active=false`（软件渲染），
+//    同一启动页的 rAF 出帧率从 60fps 掉到 6~16fps；
+// ③表现就是用户报的「启动页长时间空白、进度条停在低位不动、很久才渲染出界面」。
+// 故按平台门控：只有 Windows 加（见 util/gpu-switches.cjs，含单测）。
+// 真实生效的 GPU 状态由下方 getGPUInfo 日志里的 [GPU] 行自证（⚠️ = 软件渲染）。
+for (const [switchName, switchValue] of gpuSwitchesFor(process.platform)) {
+	if (switchValue) app.commandLine.appendSwitch(switchName, switchValue);
+	else app.commandLine.appendSwitch(switchName);
+}
 app.whenReady().then(async () => {
+	startup.mark("ready");
 	// ready 后重算界面语言（ready 前 getLocale 返回空串，见顶部 LOCALE 注释）
 	LOCALE = app.getLocale().startsWith("zh") ? "zh" : "en";
 	// 「跟随系统」主题：同步系统主题到 themeSource（Windows 区分系统/应用主题），
@@ -434,16 +463,23 @@ app.whenReady().then(async () => {
 	syncThemeSource();
 	nativeTheme.on("updated", syncThemeSource);
 
-	// GPU 信息取证：记录实际 GPU 后端，便于确认合成是否走了硬件加速（vs 软件渲染）。
+	// GPU 信息取证：确认合成到底有没有走硬件加速（vs 软件渲染）。
+	// 注意 log.info 只接受一个参数（log.cjs 的 info: (m) => write(...)），
+	// 以前写成 log.info("GPU 信息:", JSON.stringify(...)) 导致第二个参数被丢弃、
+	// 日志一直是空的——只能用单字符串摘要（util/gpu-status.cjs）。
+	const logGpuInfo = (gpuDevice) => {
+		let feature = null;
+		try {
+			feature = app.getGPUFeatureStatus();
+		} catch {
+			/* 拿不到就记 unknown，不影响启动 */
+		}
+		log.info(`[GPU] ${summarizeGpuStatus(feature, gpuDevice)}`);
+	};
 	app
 		.getGPUInfo("complete")
-		.then((info) =>
-			log.info(
-				"GPU 信息:",
-				JSON.stringify(info?.gpuDevice ?? info?.auxAttributes ?? {}, null, 0),
-			),
-		)
-		.catch(() => {});
+		.then((info) => logGpuInfo(info?.gpuDevice))
+		.catch(() => logGpuInfo(undefined));
 	// 单实例：第二实例 → 激活既有窗口
 	const gotLock = app.requestSingleInstanceLock();
 	if (!gotLock) {
@@ -460,8 +496,10 @@ app.whenReady().then(async () => {
 
 	// 1) 启动页【立即】出现 + 主窗口隐藏创建（等内核就绪再渲染显示）
 	createSplash();
+	startup.mark("splashCreated");
 	setProgress(10, t("initializing"));
 	createWindow();
+	startup.mark("mainWindowCreated");
 
 	// 自动更新：系统设置 → 关于（Cloudflare R2 + electron-updater）
 	// WA_PI_UPDATER_FEED_URL 仅供 E2E/测试指向本地 mock，生产默认走 OSS 公开读
@@ -1022,6 +1060,7 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			log,
 			port: actualPort,
 		});
+		startup.mark("kernelReady");
 		// 登记 kernel 进程（createdAt 用 sidecar 返回的 spawn 时刻：进程真实创建时刻，
 		// 而非 startSidecar 等端口就绪后的时刻——启动耗时 >2s 时后者会让下轮清扫的
 		// isOurs 时间一致性校验误判 PID 复用，登记簿核心目标静默失效）
@@ -1038,9 +1077,40 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		setProgress(98, t("loadingInterface"));
 		// 内核页面渲染完成 → 关启动页、显示主窗口
 		mainWindow.webContents.once("did-finish-load", () => {
+			startup.mark("didFinishLoad");
 			setProgress(100, t("ready"));
+			// 首次出帧探测：能从渲染进程拿到一帧 rAF 回值，说明合成器确实在出帧
+			// （之前这一段完全无日志，是「启动很久才渲染出界面」的定位盲区）。
+			mainWindow.webContents
+				.executeJavaScript(
+					"new Promise(r=>requestAnimationFrame(()=>r(Math.round(performance.now()))))",
+				)
+				.then(() => {
+					startup.mark("firstFrame");
+					log.info(
+						`[startup] 主进程模块加载起点=+${BOOT_OFFSET_MS}ms ${startup.summary()}`,
+					);
+				})
+				.catch(() =>
+					log.info(
+						`[startup] 首帧探测失败 主进程模块加载起点=+${BOOT_OFFSET_MS}ms ${startup.summary()}`,
+					),
+				);
 			revealMainWindow();
 		});
+		// 主窗口渲染进程异常：卡死/崩溃/加载失败都要留痕（否则表现为「白窗口卡住」）
+		mainWindow.webContents.on("unresponsive", () =>
+			log.error("[startup] 主窗口渲染进程无响应（界面卡死）"),
+		);
+		mainWindow.webContents.on("render-process-gone", (_e, d) =>
+			log.error(`[startup] 主窗口渲染进程退出: ${JSON.stringify(d)}`),
+		);
+		mainWindow.webContents.on(
+			"did-fail-load",
+			(_e, code, desc, url) =>
+				log.error(`[startup] 主窗口页面加载失败 code=${code} ${desc} ${url}`),
+		);
+		startup.mark("loadURL");
 		mainWindow.loadURL(`http://127.0.0.1:${actualPort}`);
 	} catch (e) {
 		clearInterval(trickle);
