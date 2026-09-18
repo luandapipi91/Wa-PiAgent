@@ -1,7 +1,7 @@
-// 流式渲染节流契约（卡顿修复终版，替代「纯文本↔markdown 停顿降级」）：
-// 停顿降级（useSettled）用户实测闪烁——阈值下每条 delta 都可能触发 plain↔markdown
-// 交替；切换会话时流式行也先纯文本再格式化闪一下。
-// 终版：流式中始终渲染 markdown（不闪），解析节流 150ms（useThrottledValue），
+// 流式渲染节流契约（由 blocks/Markdown 统一提供）：
+// 历史上试过「纯文本↔markdown 停顿降级」（useSettled，已删）——用户实测闪烁：
+// 阈值下每条 delta 都可能触发 plain↔markdown 交替，切换会话也先纯文本再格式化。
+// 现行为：流式中始终渲染 markdown（不闪），解析节流（useThrottledValue），
 // 结束/历史消息立即完整渲染。
 import { test, expect } from "bun:test";
 import { render, screen, act } from "@testing-library/react";

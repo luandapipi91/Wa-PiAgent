@@ -1,10 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import { api, ApiError } from "../api-client";
+import { Markdown } from "./blocks/Markdown";
 import { Icon } from "./ui/Icon";
 import { useTrashStore } from "../store/trash";
 import { useTranslation } from "../i18n/useTranslation";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { AgentMessage } from "@wa-pi/shared";
 
 interface Props {
@@ -190,9 +189,12 @@ export function TrashMessageViewer({ sessionId, onBack, onClose }: Props) {
 												{msg.agentName}
 											</div>
 										)}
-										<div className="prose prose-sm max-w-none break-words [&_pre]:bg-black/5 [&_pre]:rounded [&_pre]:overflow-x-auto [&_code]:text-brand [&_code]:bg-brand/10 [&_code]:px-1 [&_code]:rounded">
-											<ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-										</div>
+										<Markdown
+											text={text}
+											interactive={false}
+											className="prose prose-sm max-w-none break-words [&_pre]:bg-black/5 [&_pre]:rounded [&_pre]:overflow-x-auto [&_code]:text-brand [&_code]:bg-brand/10 [&_code]:px-1 [&_code]:rounded"
+											testId={null}
+										/>
 									</div>
 								</div>
 							);

@@ -5,7 +5,8 @@
 - 其他：移除 kernel 的 pi-agent-core 显式声明（理由已失效）。
 - 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
 - 影响范围：kernel（tui-host 部署清单/compile-binary 资产清单/agent-manager）、frontend。
-
+- fix(frontend): 原生扩展弹窗（ExtensionDialog：pi 的 select/confirm/input/editor）高度与渲染修复——① pi 把长 prompt 放在 **title** 里且头部不限高，卡片被撑满后选项与取消按钮被挤出卡片（卡片 overflow-hidden，滚都滚不到）：尺寸改宽 60% / 高上限 80vh；标题区限高 40vh 自滚、正文区成为唯一滚动区（flex-1 min-h-0 overflow-y-auto）、选项/输入/编辑器/按钮区一律 shrink-0 不被压缩（flex 列默认 shrink:1 会先把按钮压成一条缝），选项多于视口时列表自滚。② 正文是**终端排版 + markdown 混排**：pi-goal-x 的 goal-draft.ts:34 给目标每一行加 `│   ` 前缀（把里面的 markdown 表格挡成纯文本）、分节线写成 `─── X ───`、任务区是 `┌─ TASKS ─┐` 方框，之前当纯文本塞进 div（markdown 单位换行还被并成空格，整段压成一坨）。新增 lib/ext-dialog-text.ts 归一化：去框线前缀/行尾框线、`─── X ───`/`=== X ===`/`┌─ X ─┐` → `### X`、纯装饰线丢弃（只认框线字符，不碰 ASCII `|`，正常 markdown 表格原样通过），title/message 再走与聊天同一套 markdown 管线并保行结构（whitespace-pre-wrap）。验证：归一化纯函数 7 例 + 组件测 38 例（含逐字复刻 pi-goal-x 输出形态：表格成真 <table>、四个小标题、框线字符零残留）、真实浏览器实测同形态文本（卡片 768×536、表格单元格正确、选项与取消全在视口内）；前端全量 2535 通过。
+- refactor(frontend): markdown 渲染全局统一——新增 `components/blocks/Markdown.tsx`（全仓库唯一 markdown 入口），把原先 9 处各自内联 ReactMarkdown 的渲染点（聊天正文 MarkdownBlock、子代理流 StreamingOutput、Fleet 降级分支、FileViewer md 预览、导出图片卡片、扩展弹窗、Ask 选项预览、回收站查看器，以及死代码 TextBlock）全部收敛为一个组件：包装类/组件映射覆盖（img/a）/插件（rehypeRaw）/urlTransform/媒体清单（数组或 getter）/文本前置整形（如 normalizeDialogText）/流式节流（streaming+throttleMs）/testid 全部参数化；`interactive=false` 供只读面板（Ask 预览、回收站）退化为纯 markdown，不引入文件 chip/图片画廊/mermaid/代码卡片。删除死代码 TextBlock.tsx（其唯一测试改用统一组件，断言代码块走 CodeBlockCard）；同步修正 StreamingOutput/DelegateCard/MessageList 里描述「停顿降级（useSettled）」的失效注释。刻意保留的差异（产品级，不是漏统一）：聊天区的媒体段落拆分（InlineVideo）、FileViewer 的块级虚拟滚动与 baseDir 相对路径、导出图片依赖 DOM testid 的静态排版。测试：新增统一组件契约 10 例（默认包装/testid 覆盖/interactive 开关/components 合并/transformText/urlTransform/rehypePlugins/节流/媒体清单 getter 引用稳定）；前端全量 2548 通过；e2e 回归通过（chat-blocks / chat-export / chat-media-preview / explorer 的 md 预览）；typecheck 通过。
 ## 2026-09-18 — v0.4.5 发版（定时任务执行态治理 + 内核通道移除）
 
 - 版本：0.4.4 → 0.4.5（4 提交）。

@@ -3,10 +3,8 @@
 // 不含思考/工具等过程卡片，不含聊天窗装饰。Tailwind 类与主题变量可用——
 // 节点渲染在真实文档中（屏外定位），html-to-image 负责内联计算样式与字体。
 import { useMemo } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useTranslation } from "../../i18n/useTranslation";
-import { createMarkdownComponents } from "./markdown-components";
+import { Markdown } from "./Markdown";
 import { mediaUrlTransform } from "./media-utils";
 import type { ExportTurn } from "../../util/export-chat-image";
 
@@ -23,7 +21,6 @@ function formatTime(ts: number): string {
 export function ExportImageCard({ turns }: Props) {
 	const { t } = useTranslation();
 	// "export" 是占位 sessionId：FilePill 等交互组件在图片里只是静态样式
-	const mdComponents = useMemo(() => createMarkdownComponents("export"), []);
 	return (
 		<div
 			data-testid="export-image-card"
@@ -58,13 +55,13 @@ export function ExportImageCard({ turns }: Props) {
 							data-testid="text-block"
 							style={{ lineHeight: 1.55 }}
 						>
-							<ReactMarkdown
-								remarkPlugins={[remarkGfm]}
-								components={mdComponents}
+							<Markdown
+								text={t.assistant}
+								sessionId="export"
 								urlTransform={mediaUrlTransform}
-							>
-								{t.assistant}
-							</ReactMarkdown>
+								className=""
+								testId={null}
+							/>
 						</div>
 					</div>
 				</div>

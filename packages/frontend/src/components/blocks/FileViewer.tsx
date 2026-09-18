@@ -4,12 +4,12 @@ import { Highlight, themes } from "prism-react-renderer";
 // 注册内置缺失的主流语言（bash/java/csharp/ruby/toml），side-effect：加载即注入内置 Prism
 import "./prism-extra-langs";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
-import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
 import { readFile, revealFile, openFileWithDefaultApp } from "../../fs-client";
 import { useTranslation } from "../../i18n/useTranslation";
-import { createMarkdownComponents } from "./markdown-components";
+import { Markdown } from "./Markdown";
+import { MarkdownLink } from "./markdown-components";
 import { joinBaseDir } from "./media-utils";
 import { ZoomableImage } from "./ZoomableImage";
 import { openInFileManagerLabel } from "../../util/platform";
@@ -178,10 +178,10 @@ const MarkdownPreview = memo(function MarkdownPreview({
 	sessionId: string;
 	baseDir: string;
 }) {
-	const mdComponents = useMemo(() => {
-		const base = createMarkdownComponents(sessionId);
+	// 只保留本处需要的覆盖项（img/a）：基础映射由统一组件提供。
+	// 覆盖 img 即天然关闭图片网格聚合（markdown-components 的 p 聚合按引用判定，契约见该文件）。
+	const overrides = useMemo<Components>(() => {
 		return {
-			...base,
 			// md 内嵌图片：相对路径解析为基于预览文件目录的本地文件；
 			// width/height 透传（README 里 <img width="96"> 的尺寸不能丢）
 			img: (props: any) => (
@@ -214,21 +214,17 @@ const MarkdownPreview = memo(function MarkdownPreview({
 						/>
 					);
 				}
-				const ExternalLink = base.a as any;
-				return <ExternalLink {...props} />;
+				return <MarkdownLink {...props} />;
 			},
 		};
 	}, [sessionId, baseDir]);
 	return (
-		<div className="prose prose-sm max-w-none" data-testid="text-block">
-			<ReactMarkdown
-				remarkPlugins={[remarkGfm]}
-				rehypePlugins={[rehypeRaw]}
-				components={mdComponents}
-			>
-				{content}
-			</ReactMarkdown>
-		</div>
+		<Markdown
+			text={content}
+			sessionId={sessionId}
+			rehypePlugins={[rehypeRaw]}
+			components={overrides}
+		/>
 	);
 });
 

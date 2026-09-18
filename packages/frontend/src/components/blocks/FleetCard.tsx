@@ -5,13 +5,11 @@ import type {
 	SubagentProgressEvent,
 	ToolStats,
 } from "@wa-pi/shared";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
-import { createMarkdownComponents } from "./markdown-components";
+import { Markdown } from "./Markdown";
 import { useSessionStore } from "../../store/session";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { useLiveElapsed } from "./useLiveElapsed";
@@ -256,10 +254,6 @@ export const FleetCard = memo(function FleetCard({
 	const formattedFull = full.replace(/【(.+?)】/g, "\n---\n**$1**  \n");
 	// 必须 useMemo 固定：内联组件对象每帧变新会让整棵子树 remount，其内 FilePill 反复跑
 	// statFile（chip↔文本三态闪 + 无谓请求）。与 MessageList / StreamingOutput 同款处理。
-	const mdComponents = useMemo(
-		() => createMarkdownComponents(sessionId),
-		[sessionId],
-	);
 
 	// 任务条目：优先按 tasks（编号与任务清单一致），tasks 为空时按 progress agents 兜底
 	const rows = (
@@ -343,9 +337,12 @@ export const FleetCard = memo(function FleetCard({
 						<Icon name="share" size={11} />
 						<span>{t("blocks.fleet.replyLabel")}</span>
 					</div>
-					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-						{formattedFull}
-					</ReactMarkdown>
+					<Markdown
+						text={formattedFull}
+						sessionId={sessionId}
+						className=""
+						testId={null}
+					/>
 				</div>
 			)}
 			{/* 每任务统计行（可独立展开看回复）：渲染在卡片底部，作为汇总尾行 */}

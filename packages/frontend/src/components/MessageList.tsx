@@ -28,8 +28,6 @@ import {
 	type ClipboardEvent,
 } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
 import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
@@ -41,6 +39,7 @@ import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
 import { FleetCard } from "./blocks/FleetCard";
 import { InlineVideo } from "./blocks/InlineVideo";
+import { Markdown } from "./blocks/Markdown";
 import { MarkdownImage } from "./blocks/MarkdownImage";
 import {
 	splitMediaParagraphs,
@@ -48,7 +47,6 @@ import {
 	mediaUrlTransform,
 	type MediaItem,
 } from "./blocks/media-utils";
-import { createMarkdownComponents } from "./blocks/markdown-components";
 import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
 import { ToolGroupCard } from "./blocks/ToolCallCard";
@@ -1524,13 +1522,9 @@ export const MessageRow = memo(function MessageRow({
 	);
 });
 
-// 单 text block 的 Markdown 渲染。memo：流式合并行中只有内容变化的 block（流式中的
-// 末块）重渲染，已定稿 block（text 字符串引用不变）整块跳过——避免合并行里定稿段落
-// 每帧全量重跑 ReactMarkdown/remarkGfm（超长回复的卡顿热点）。
-// 流式降级（卡顿修复，同 StreamingOutput 3.3 模式）：isStreaming 且未停顿
-// （useSettled）→ 纯文本预览，每帧只更新 text node，不跑 markdown 解析；
-// 停顿 50ms 或流式结束 → 完整 markdown（阈值 50ms：500ms 时用户感知为「卡住不渲染」）。实测超长回复后期 remark 全量解析
-// 单帧可达数十至数百 ms，主线程被占满（点击无响应）即此。
+// 单 text block 的 Markdown 渲染：渲染 + 流式节流都在统一组件 blocks/Markdown 里，
+// 这里只保留 memo 分片——流式合并行中只有内容变化的 block（流式中的末块）重渲染，
+// 已定稿 block（text 字符串引用不变）整块跳过，避免每帧全量重解析（超长回复的卡顿热点）。
 // 导出仅供测试（markdown-streaming-stability.test.tsx 锁「流式增长不重挂载」契约、
 // markdown-streaming-degrade.test.tsx 锁降级契约）。
 export const MarkdownBlock = memo(function MarkdownBlock({
@@ -1551,27 +1545,16 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 	// 整棵 markdown 树每帧 remount（chip/图片/视频闪烁的根因，契约见
 	// tests/blocks/markdown-streaming-stability.test.tsx）。画廊清单由渲染器在
 	// 点击时经 getter 读取最新值，功能不受影响。
-	const mediaItemsRef = useRef(mediaItems);
-	mediaItemsRef.current = mediaItems;
-	const mdComponents = useMemo(
-		() => createMarkdownComponents(sessionId, () => mediaItemsRef.current),
-		[sessionId],
-	);
-	// 流式渲染节流（终版，替代纯文本↔markdown 停顿降级——用户实测闪烁：阈值下每条
-	// delta 都可能触发 plain↔markdown 交替，切换会话也先纯文本再格式化闪一下）：
-	// 流式中始终渲染 markdown，解析经 useThrottledValue 节流（50ms），
-	// 消除闪烁的同时把逐帧全量解析降为低频；结束/历史消息零延迟同步。
-	const displayText = useThrottledValue(text, !!isStreaming, throttleMs);
+	// 统一 markdown 组件：节流、媒体清单中转、组件映射都在它内部（契约见其文件头）
 	return (
-		<div className="prose prose-sm max-w-none" data-testid="text-block">
-			<ReactMarkdown
-				remarkPlugins={[remarkGfm]}
-				components={mdComponents}
-				urlTransform={mediaUrlTransform}
-			>
-				{displayText}
-			</ReactMarkdown>
-		</div>
+		<Markdown
+			text={text}
+			sessionId={sessionId}
+			mediaItems={mediaItems}
+			streaming={!!isStreaming}
+			throttleMs={throttleMs}
+			urlTransform={mediaUrlTransform}
+		/>
 	);
 });
 
@@ -1579,7 +1562,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 // 整块围栏恰为单个媒体路径的渲染 InlineVideo/MarkdownImage，其余段落走 MarkdownBlock。
 // 流式期间未完整段落不匹配整段正则 → 自然按纯文本渲染，message_end 定稿后重算自动切换，无需额外状态。
 // mediaItems（画廊清单）useMemo([text]) 保持引用稳定，不破坏 MarkdownBlock 的 memo 跳过语义。
-// isStreaming 透传给 MarkdownBlock：流式中的末块走停顿降级（纯文本预览），见 MarkdownBlock 注释。
+// isStreaming 透传给 MarkdownBlock：流式末块走统一组件的解析节流（见 blocks/Markdown.tsx）。
 const TextContent = memo(function TextContent({
 	text,
 	sessionId,

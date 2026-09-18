@@ -140,7 +140,7 @@ export const DelegateCard = memo(function DelegateCard({
 						<Icon name="share" size={11} />
 						<span>{t("blocks.delegate.replyLabel")}</span>
 					</div>
-					{/* 执行中：纯文本预览（停顿 500ms 才切 markdown）；完成：完整 markdown */}
+					{/* 执行中：markdown 节流解析；完成：零延迟完整渲染（统一组件内部处理） */}
 					<StreamingOutput
 						text={replyText}
 						sessionId={sessionId}

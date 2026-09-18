@@ -11,7 +11,6 @@ import { Icon } from "../ui/Icon";
  *  开启「回复过程默认折叠」后，流式中也默认折叠（用户仍可手动展开）。
  *  memo：同消息内其他块流式更新时 props 不变，整块跳过（thinking 往往是回复中
  *  最长部分，Linkify 全文正则 split 不能被连坐重渲染）。
- *  流式降级：isStreaming 且未停顿（useSettled）→ 纯文本不跑 Linkify，
  *  流式中 Linkify 经 useThrottledValue 节流（始终链接化不闪烁，每帧 O(全文) 正则 split 降为低频）。 */
 export const ThinkingCard = memo(function ThinkingCard({
   thinking,

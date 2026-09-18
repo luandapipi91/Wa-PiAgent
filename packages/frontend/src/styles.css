@@ -363,7 +363,7 @@ input[type="range"]::-moz-range-thumb {
 /* 排版由 @tailwindcss/typography 提供（tailwind.config.js 已注册插件），
    .prose 类生效后 h1-h6/ul/ol/blockquote/table 有网页级排版。
    下面覆盖 typography 默认颜色变量，跟随应用主题（浅色/深色）：
-   - 作用域限 .prose-sm（文件预览器 + 聊天区），避免影响 TextBlock 的 prose-invert（深色导出场景）
+   - 作用域限 .prose-sm（文件预览器 + 聊天区），避免影响只读面板的 prose-invert（深色导出场景）
    下方兜底规则（换行/行高/段落间距）在 typography 之上继续生效。 */
 [data-testid="text-block"].prose-sm {
 	--tw-prose-body: var(--text-primary);

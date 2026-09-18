@@ -22,6 +22,47 @@ import type {
 
 type AnyCtx = ExtensionContext | ExtensionCommandContext;
 
+/**
+ * 长正文 select 的提示文本：**逐字复刻 pi-goal-x 的 buildDraftConfirmationText**
+ * （goal-draft.ts:34 的 formatPrefixedLines：空行整行丢掉、其余每行加 `│   ` 前缀；
+ * formatSection 输出 ["", "─── X ───", "", ...body]）。目标正文里带 markdown 表格，
+ * 用来验证「被前缀挡住 + 空行被丢掉」之后表格仍能渲染成真 <table>。
+ */
+function longDraftPrompt(): string {
+	const objective = [
+		"【目标概述】本次目标为「测试任务」综合功能演示项目，核心目的是对桌面助手的任务管理（todo）与目标管理（goal）两大工具链进行一次系统、完整、可追溯的端到端验证。",
+		"",
+		"【成功标准】",
+		"",
+		"| 阶段 | 产出 | 验证方式 |",
+		"| --- | --- | --- |",
+		"| 一 | 验证报告 | 报告文件存在且内容完整 |",
+		"| 二 | 执行记忆 | 归档记录可查、可回溯 |",
+		"",
+		"**边界范围**：仅限演示流程，不改生产代码。**硬性约束**：每一步都要可回看、可复现。",
+	];
+	// pi-goal-x formatPrefixedLines：空行丢掉，其余加 `│   ` 前缀
+	const prefixed = objective
+		.filter((l) => l.trim())
+		.map((l) => (l.trim().startsWith("│") ? l : `│   ${l}`));
+	// formatSection：前后各留一个空行
+	const section = (title: string, body: string[]) => ["", `─── ${title} ───`, "", ...body];
+	return [
+		"● Goal draft ready for confirmation.",
+		"",
+		"─── Draft Details ───",
+		"│   Mode: Normal goal",
+		"│   Auto-continue: yes",
+		...section("Original Topic", []),
+		...section("Proposed Goal", prefixed),
+		"",
+		"┌─ TASKS ──────────────────────────────┐",
+		"│ [ ] task-1：确认 goal 契约            │",
+		"│ [ ] task-2：执行任务流并记录状态流转  │",
+		"└──────────────────────────────────────┘",
+	].join("\n");
+}
+
 /** 一次触发全部四类 UI 请求。 */
 function fireAll(ctx: AnyCtx) {
 	ctx.ui.notify("ext-ui-bridge-demo: notify 测试消息", "info");
@@ -54,9 +95,9 @@ export default function (pi: ExtensionAPI) {
 
 	// 手动触发命令（需在「扩展 → 命令」里开启后才能用 /uidemo 调用）
 	pi.registerCommand("uidemo", {
-		description: "UI 桥接测试桩：/uidemo all|notify|status|widget|title|color|clear|select|confirm|input|editor|seteditor",
+		description: "UI 桥接测试桩：/uidemo all|notify|status|widget|title|color|clear|select|select-long|confirm|input|editor|seteditor",
 		getArgumentCompletions: (prefix) =>
-			["all", "notify", "status", "widget", "title", "color", "clear", "select", "confirm", "input", "editor", "seteditor"]
+			["all", "notify", "status", "widget", "title", "color", "clear", "select", "select-long", "confirm", "input", "editor", "seteditor"]
 				.filter((s) => s.startsWith(prefix))
 				.map((s) => ({ value: s, label: s })),
 		handler: async (args, ctx) => {
@@ -96,6 +137,17 @@ export default function (pi: ExtensionAPI) {
 					clearAll(ctx);
 					ctx.ui.notify("ext-ui-bridge-demo: 已清除 status/widget", "info");
 					break;
+				case "select-long": {
+					// 长正文 select：复刻 pi-goal-x 提案确认的正文体量（数十行），
+					// 验证「正文再长，选项与按钮也得留在视野内」。
+					const v = await ctx.ui.select(longDraftPrompt(), [
+						"1. Confirm — create this goal now (Recommended)",
+						"2. Continue chatting — keep refining",
+						"3. Cancel — discard this draft",
+					]);
+					ctx.ui.notify(`select-long 结果: ${String(v)}`, "info");
+					break;
+				}
 				case "select":
 					{
 						const v = await ctx.ui.select("demo select：选一个", ["甲", "乙", "丙"]);

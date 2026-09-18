@@ -1,7 +1,7 @@
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ThinkingPanel } from "../../src/components/blocks/ThinkingPanel";
-import { TextBlock } from "../../src/components/blocks/TextBlock";
+import { Markdown } from "../../src/components/blocks/Markdown";
 import { ToolCallPanel } from "../../src/components/blocks/ToolCallPanel";
 import { DelegateCard } from "../../src/components/blocks/DelegateCard";
 import { useUiPrefsStore } from "../../src/store/ui-prefs";
@@ -19,9 +19,10 @@ test("ThinkingPanel 默认折叠，点击展开", () => {
   expect(screen.getByText("我在想")).toBeTruthy();
 });
 
-test("TextBlock 渲染 markdown 代码块", () => {
-  render(<TextBlock text={"```js\nconst x = 1;\n```"} />);
-  expect(screen.getByText(/const x/)).toBeTruthy();
+test("Markdown 渲染代码块（原 TextBlock 死代码已并入统一组件）", () => {
+  render(<Markdown text={"```js\nconst x = 1;\n```"} sessionId="s1" />);
+  // 默认挂交互组件：代码块走 CodeBlockCard（纯文本形态由 interactive=false 覆盖）
+  expect(screen.getByTestId("code-block-card")).toBeTruthy();
 });
 
 test("ToolCallPanel 显示工具名和参数", () => {
