@@ -3,6 +3,14 @@
 - 修复(kernel)：删除运行中/冷启动中的会话未真正停止后台消耗——disposeSession 只强杀不先停止，而冷启动窗口 rpc-client.dispose() 对未就绪 proc 是 no-op，删除后 pi 进程照常起来跑完任务成孤儿；改为先复用 abort 完整语义（清队列+级联停子代理+client.abort RPC+超时强杀+合成 agent_end）再拆资源。新增 3 单测（busy 温和停止/冷启动防孤儿/abort 无响应不卡死），agent-manager 123 pass、idle-reap 4 pass、session-messages 7 pass 全绿。
 - 修复(kernel+shared)：手动添加、内置目录未收录的思考模型（如 deepseek-v4-flash）被按非思考模型生成 → pi-ai 永不向 DeepSeek 端点发 thinking:disabled → 服务端默认思考与正文共享 max_tokens，压缩守卫摘要请求被思考吃满预算、正文为空（实测 100% 复现「压缩守卫：摘要为空」）。ProviderModel 新增用户显式 reasoning 字段（boolean 即显式意图，优先于内置目录，对齐 maxTokens/supportsVision「用户显式配置优先」哲学），生成器同步透传。
 - 优化(shared)：委派判据对症补丁——数对象行明确「分别梳理/统计 N 个模块再汇总」也算多对象（须 fleet 并行）、单对象行明确「先读懂 X 再改」类改动也派发；同步精简例外行与头部措辞，委派相关四部分合计恰 600 tok ≤600（含 roster 89，eval-prompt-budget.ts 可复现）。fleet 20 评测 R21 达 16/16 满分；评测模型切换为用户配置的 OpenCode Go(星期六)/deepseek-v4.1-flash，下一轮起为新锚点。
+- 新增(kernel)：delegate/fleet 子代理中止/超时/异常路径保留部分进度——buildPartialProgressNote 组装工具统计+步骤清单（≤30 条折叠）+输出尾部（≤4000 字符）附加进返回 text，新增 interrupted 结构化标记随 details 与遥测透传（toolStats 正常完成也记录）；12 新用例。
+- 修复(kernel)：fleet 并行派发失败/中断不再连坐——子任务 spawn 异常原会让 Promise.all 整体抛错丢光已完成结果，改为转结构化失败结果；聚合 text 标题按失败/中断独立组合标记（如「失败·中断」）；fleet 混合结果/整体中止/排队不连坐 4 用例。
+- 新增(frontend)：delegate/fleet 卡片新增「已中断」第三终态视觉——琥珀 warning 色徽标+stop 图标+i18n（悬停提示「部分结果已保留」），fleet 支持子任务行级徽标；旧会话数据（无 details）渲染不变；9 组件用例。
+- 修复(kernel)：用户手动停止 delegate/fleet 时部分结果不再丢失——abort 瞬间写占位快照、子任务全部 settle 后写完整快照（subagent-results/<toolCallId>.json），pi 侧桥接扩展识别用户停止（显式区分空闲超时）轮询读取快照把部分进度文本与 interrupted details 拼入工具结果；正常完成零落盘；8 新用例。
+- 修复(frontend)：父 delegate/fleet 调用已终态但子任务行仍「运行中·秒数增长」——终态时仍 running 的行兜底归「已中断」（徽标+warning tint+秒数冻结），details.interrupted 精确标记优先；8 新用例，前端全量 2608 pass。
+- 修复(kernel)：用户停止时长任务快照晚到致回复退回旧错误文案（实证：final 快照比 pi 轮询窗口关闭晚 33ms）——abort 瞬间即用内存状态组装并写 phase="final" 快照（数百 ms 就绪，不等 settle），settle 后覆盖更新留档；tool_execution_end 收集工具产出内容（单条 800 字/总量 16KB 截断），部分进度新增「关键产出摘录」段；相关 5 测试文件 108 pass。
+- 修复(frontend)：被中断轮次的过渡文本被误置为「最终回复」外置到工具卡片之后（视觉上像消息顺序错乱，实证会话 JSONL 数据层完全有序）——外置条件收紧为「最后一段 text 之后无任何过程段」才外置，否则按原序内联渲染；正常回合行为不变；MessageList 相关 94 pass、前端全量 2611 pass。
+- 修复(frontend)：合成 agent_end（中止/压缩/扩展命令/删会话兜底广播）误置非当前会话未读圆点——未读置位条件增加 synthetic gate，真实完成提醒不变；store 测试 89 pass。
 
 ## 2026-09-18 — v0.4.8 发版（启动提速 + preview_open 工具 + 记忆检索优化）
 

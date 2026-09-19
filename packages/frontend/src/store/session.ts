@@ -1175,7 +1175,9 @@ export const useSessionStore = create<SessionState>((set) => {
 								[sessionId]: null,
 							},
 							retryBySession,
-							unreadBySession: away
+							// 合成 agent_end（abort/compact/扩展命令/删会话兑底广播）不含新回复，
+							// 不置未读；仅真实 agent_end 的 away 置位提醒。
+							unreadBySession: away && !syntheticEnd
 								? { ...s.unreadBySession, [sessionId]: true }
 								: s.unreadBySession,
 							streamingBySession: isPlaceholder

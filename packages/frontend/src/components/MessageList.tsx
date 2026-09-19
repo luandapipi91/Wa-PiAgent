@@ -1428,18 +1428,31 @@ export const MessageRow = memo(function MessageRow({
 	// 进行中的轮（status==="thinking" 的末行）即使已定稿也不折叠——长工具执行/后续
 	// text 流式仍在跑，折叠会藏住实时过程；必须等 agent_end（整轮结束）才折叠。
 	const canCollapse = hasProcessCard && !isStreaming && !isActiveTurnRow;
-	// 过程段 + 中间 text 段（除最后一段 text 外全部折叠进摘要行）；最后一段 text 是最终回复，保留在外
-	const processSegs = segments.filter((_, i) => i !== lastTextSegIdx);
-	const finalTextSeg =
-		lastTextSegIdx >= 0 ? segments[lastTextSegIdx] : undefined;
+	// 「最终回复」外置判定收紧：仅当最后一段 text 之后不存在任何过程段（thinking/toolCalls/
+	// delegate/fleet）时才外置；若其后还有过程段（如中断场景：过渡语文本后紧跟工具卡片），
+	// 该 text 只是过程间过渡语，并入 processSegs 按原序内联渲染（过程块内、工具卡片之前），
+	// 此时「最终回复」区无内容、不渲染。
+	const externalizeFinalText =
+		lastTextSegIdx >= 0 &&
+		!segments
+			.slice(lastTextSegIdx + 1)
+			.some((s) => s.kind !== "text");
+	// 过程段 + 中间 text 段（外置时除最后一段 text 外全部折叠进摘要行）；最后一段 text 是最终回复，保留在外
+	const processSegs = externalizeFinalText
+		? segments.filter((_, i) => i !== lastTextSegIdx)
+		: segments;
+	const finalTextSeg = externalizeFinalText
+		? segments[lastTextSegIdx]
+		: undefined;
 	// 步骤数只计过程段（thinking/toolCalls/delegate/fleet），中间 text 段不计
 	const processSteps = segments.filter((s) => s.kind !== "text").length;
 
 	// 单段渲染分发：thinking/toolCalls/delegate/fleet 为过程卡，text 为主回复气泡。
 	// 折叠分支与非折叠分支共用，保证两种模式渲染完全一致；key 由调用方传入
 	//（折叠分支过程段从 0 起、最终回复 text 段接续；非折叠分支用原 segments index，delegate/fleet
-	// 仍以 seg.call.id 为 key）。CopyButton 归属用引用比较 seg === segments[lastTextSegIdx]
-	//（即 finalTextSeg——折叠分支最终回复段 key 重排后 index 判断不再等价）。
+	// 仍以 seg.call.id 为 key）。CopyButton 归属用引用比较 seg === finalTextSeg
+	//（折叠分支最终回复段 key 重排后 index 判断不再等价；不外置时 finalTextSeg 为 undefined，
+	// 内联过渡语按普通文本段渲染、不挂复制/导出按钮）。
 	const renderSeg = (seg: Segment, key: number, segIsStreaming: boolean) => {
 		// 思考过程 — ProcessCard：每段独立成卡（不合并），区分 finalized vs streaming
 		if (seg.kind === "thinking") {
@@ -1502,7 +1515,7 @@ export const MessageRow = memo(function MessageRow({
 						/>
 					))}
 				</div>
-				{seg === segments[lastTextSegIdx] && !isStreaming && !isActiveTurnRow && (
+				{seg === finalTextSeg && !isStreaming && !isActiveTurnRow && (
 					<>
 						<div className="flex justify-end items-center">
 							<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />

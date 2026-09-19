@@ -791,6 +791,12 @@ export class AgentManager {
 		// spawn 闭包经 getCallSignal 取值叠加中止（bridge 流式断连 → 中止子代理）
 		let currentCallSignal: AbortSignal | undefined;
 
+		// 中止快照进度转发槽：delegate/fleet 工具实例在其后创建，届时回填
+		//（spawnFn onProgress 触发时喂给工具，供中止占位快照聚合 toolStats）
+		let toolProgressTap:
+			| ((toolCallId: string, event: SubagentProgressEvent) => void)
+			| undefined;
+
 		// 子进程扩展集：provider-extension（自定义 provider/apiKey，缺失会 No API key）
 		// + pi-mcp-adapter（MCP 工具须在子进程内注册，子代理才能看见/调用 MCP 工具）。
 		// 不带 wa-pi-bridge / pi-web-access：子代理无 WA_PI_BRIDGE_URL（bridge 工具
@@ -845,6 +851,7 @@ export class AgentManager {
 			onProgress: (toolCallId, event) => {
 				currentSubagentOnProgress?.(event);
 				this.opts.onSubagentProgress?.(sessionId, toolCallId, event);
+				toolProgressTap?.(toolCallId, event);
 			},
 		});
 
@@ -869,8 +876,19 @@ export class AgentManager {
 		const delegateTool = makeDelegateTool({
 			askTo: askToTargets,
 			spawn: spawnFn,
+			// 与 spawnFn 同源的调用级信号：abort 瞬间写中止占位快照（pi 侧轮询中转）
+			getCallSignal: () => currentCallSignal,
 		});
-		const fleetTool = makeFleetTool({ askTo: askToTargets, spawn: spawnFn });
+		const fleetTool = makeFleetTool({
+			askTo: askToTargets,
+			spawn: spawnFn,
+			getCallSignal: () => currentCallSignal,
+		});
+		// 回填进度转发：spawnFn onProgress → 工具进度采集（中止占位快照的 toolStats 来源）
+		toolProgressTap = (toolCallId, event) => {
+			delegateTool.notifyProgress(toolCallId, event);
+			fleetTool.notifyProgress(toolCallId, event);
+		};
 
 		// bridge 会话上下文：ask/memory 走默认工厂，delegate/fleet 接宿主实现；
 		// reviewEnabled=false 时记忆工具返回关闭提示（对齐迁移前「不注册记忆工具」的行为）

@@ -143,14 +143,22 @@ test("assistant 消息按 content block 渲染 thinking + text + toolCall", () =
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
-	// text block 立即可见（text 段保留在轮级摘要行外）
-	expect(screen.getByText("答案")).toBeTruthy();
+	// text 段之后仍有过程段（toolCall）→ 不外置为「最终回复」，并入轮级摘要行（未展开时不可见）
+	expect(screen.queryByText("答案")).toBeNull();
 	// 已定稿含过程段的行：过程段折叠到轮级摘要行，thinking 内容不可见
 	expect(screen.queryByText("我在想")).toBeNull();
-	// 先展开轮级摘要行，再展开 thinking 卡，可见思考内容
+	// 先展开轮级摘要行：text 按原序内联渲染在工具卡片之前，再展开 thinking 卡可见思考内容
 	fireEvent.click(screen.getByTestId("turn-summary"));
+	expect(screen.getByText("答案")).toBeTruthy();
 	fireEvent.click(screen.getByTestId("thinking-panel-header"));
 	expect(screen.getByText("我在想")).toBeTruthy();
+	// text 段渲染在工具卡片之前（不被外置到卡片之后）
+	expect(
+		screen
+			.getByText("答案")
+			.compareDocumentPosition(screen.getByTestId("toolcall-c1-header")) &
+			Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
 	// 单个 toolCall 直接渲染单卡（不成组），未完成时默认展开
 	expect(screen.queryByTestId("toolcall-group")).toBeNull();
 	expect(screen.getByTestId("toolcall-c1-header").textContent).toContain("read");

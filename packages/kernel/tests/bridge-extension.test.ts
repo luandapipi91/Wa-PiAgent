@@ -10,7 +10,14 @@
 // packages/kernel/src 下，同目录没有 tool-schemas.ts（该文件运行期才复制到 GENERATED_DIR）。
 
 import { test, expect, afterAll, describe } from "bun:test";
-import { writeFileSync, copyFileSync, rmSync } from "node:fs";
+import {
+	writeFileSync,
+	copyFileSync,
+	rmSync,
+	mkdirSync,
+	mkdtempSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { generateBridgeExtension } from "../src/bridge-extension";
@@ -686,3 +693,210 @@ describe("generateBridgeExtension 含 preview_open registerTool", () => {
 		expect(typeof tool.execute).toBe("function");
 	});
 });
+
+// ── 用户主动停止（修法 B）：abort 后经 kernel 快照文件中转部分结果 ──
+//
+// 用户点停止 → 本进程内 delegate/fleet 的 fetch 流被 cancel、final 帧永远到不了。
+// kernel 侧（修法 A）在 abort 瞬间写占位快照、子任务 settle 后写完整快照到
+// WA_PI_DIR/subagent-results/<toolCallId>.json；callBridge catch 分支轮询读取中转。
+// 非 abort 错误（bridge 空闲超时等）完全走原逻辑，不碰快照。
+
+// 缩短快照轮询间隔（500ms × 10 次 = 5s → 10ms × 10 次 ≈ 100ms），避免真实等待
+const shrinkSnapshotPoll = (src: string) =>
+	src.replace(
+		"const SNAPSHOT_POLL_INTERVAL_MS = 500;",
+		"const SNAPSHOT_POLL_INTERVAL_MS = 10;",
+	);
+
+/** 临时 WA_PI_DIR 沙箱：快照读写与真实用户目录隔离（try/finally 中 dispose） */
+function makeSnapshotSandbox(): { dir: string; dispose: () => void } {
+	const dir = mkdtempSync(join(tmpdir(), "wa-pi-piabort-"));
+	const saved = process.env.WA_PI_DIR;
+	process.env.WA_PI_DIR = dir;
+	return {
+		dir,
+		dispose: () => {
+			if (saved === undefined) delete process.env.WA_PI_DIR;
+			else process.env.WA_PI_DIR = saved;
+			rmSync(dir, { recursive: true, force: true });
+		},
+	};
+}
+
+/** 预写 kernel 侧中止快照（模拟修法 A 的 delegate/fleet execute 落盘） */
+function writeKernelSnapshot(
+	dir: string,
+	toolCallId: string,
+	payload: unknown,
+): void {
+	mkdirSync(join(dir, "subagent-results"), { recursive: true });
+	writeFileSync(
+		join(dir, "subagent-results", `${toolCallId}.json`),
+		JSON.stringify(payload),
+		"utf8",
+	);
+}
+
+/** 挂起的 NDJSON fetch mock：started 帧后停滞，abort 时以 abort reason 拒绝挂起的
+ * read()（模拟 bridge 流被 cancel，与真实 fetch 行为一致） */
+function mockHangingFetch(): () => void {
+	const orig = globalThis.fetch;
+	globalThis.fetch = (async (_url: any, init: any) => ({
+		ok: true,
+		status: 200,
+		headers: new Headers({ "content-type": "application/x-ndjson" }),
+		body: new ReadableStream<Uint8Array>({
+			start(c) {
+				c.enqueue(
+					new TextEncoder().encode(
+						JSON.stringify({
+							type: "started",
+							protocol: 1,
+							tool: "delegate",
+							toolCallId: "x",
+						}) + "\n",
+					),
+				);
+			},
+			pull() {
+				return new Promise((_resolve, reject) => {
+					init.signal.addEventListener(
+						"abort",
+						() => reject(init.signal.reason),
+						{ once: true },
+					);
+				});
+			},
+		}),
+		json: async () => ({}),
+	})) as any;
+	return () => {
+		globalThis.fetch = orig;
+	};
+}
+
+test("用户停止：abort 读到 final 快照 → 返回「已停止。」+ 部分进度文本与 interrupted details", async () => {
+	const sandbox = makeSnapshotSandbox();
+	writeKernelSnapshot(sandbox.dir, "tc_stop1", {
+		toolCallId: "tc_stop1",
+		tool: "delegate",
+		phase: "final",
+		text: "子智能体已被中止\n\n部分进度：工具调用 2 个（成功 1 / 失败 0 / 中断 1）。\n已完成步骤：bash ✅、read ⏸",
+		details: { interrupted: true },
+		savedAt: new Date().toISOString(),
+	});
+	const restore = mockHangingFetch();
+	injectBridgeEnv();
+
+	try {
+		const tools = await loadTools();
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		const ctrl = new AbortController();
+		const exec = delegateTool.execute(
+			"tc_stop1",
+			{ agent: "general-purpose", task: "hi" },
+			ctrl.signal,
+		);
+		setTimeout(() => ctrl.abort(), 30); // 模拟用户点停止
+		const res = await exec;
+		expect(res.content[0].text).toContain("已停止。");
+		expect(res.content[0].text).toContain("部分进度");
+		expect(res.details).toEqual({ interrupted: true });
+	} finally {
+		restore();
+		sandbox.dispose();
+	}
+});
+
+test("用户停止：只读到 partial 占位 → 返回「已停止。部分进度」+ 任务摘要一行式", async () => {
+	const sandbox = makeSnapshotSandbox();
+	writeKernelSnapshot(sandbox.dir, "tc_stop2", {
+		toolCallId: "tc_stop2",
+		tool: "fleet",
+		phase: "partial",
+		tasks: [
+			{ index: 0, agent: "general-purpose" },
+			{ index: 1, agent: "Explore" },
+		],
+		savedAt: new Date().toISOString(),
+	});
+	const restore = mockHangingFetch();
+	injectBridgeEnv();
+
+	try {
+		const tools = await loadTools(shrinkSnapshotPoll);
+		const fleetTool = tools.find((t) => t.name === "fleet");
+		const ctrl = new AbortController();
+		const exec = fleetTool.execute(
+			"tc_stop2",
+			{ tasks: [{ agent: "general-purpose", task: "a" }] },
+			ctrl.signal,
+		);
+		setTimeout(() => ctrl.abort(), 30);
+		const res = await exec;
+		expect(res.content[0].text).toContain("已停止。部分进度");
+		expect(res.content[0].text).toContain("#0 general-purpose");
+		expect(res.content[0].text).toContain("#1 Explore");
+		expect(res.details).toEqual({ interrupted: true });
+	} finally {
+		restore();
+		sandbox.dispose();
+	}
+});
+
+test("用户停止：轮询窗口内无快照 → 维持 abort 错误文案", async () => {
+	const sandbox = makeSnapshotSandbox(); // 空沙箱：不预写任何快照
+	const restore = mockHangingFetch();
+	injectBridgeEnv();
+
+	try {
+		const tools = await loadTools(shrinkSnapshotPoll);
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		const ctrl = new AbortController();
+		const exec = delegateTool.execute(
+			"tc_stop3",
+			{ agent: "general-purpose", task: "hi" },
+			ctrl.signal,
+		);
+		setTimeout(() => ctrl.abort(), 30);
+		const res = await exec;
+		expect(res.content[0].text).toContain("bridge 调用失败");
+		expect(res.content[0].text).not.toContain("已停止");
+	} finally {
+		restore();
+		sandbox.dispose();
+	}
+}, 10_000);
+
+test("空闲超时（非用户停止）：即使快照存在也走原逻辑，不碰快照", async () => {
+	const sandbox = makeSnapshotSandbox();
+	writeKernelSnapshot(sandbox.dir, "tc_idle1", {
+		toolCallId: "tc_idle1",
+		tool: "delegate",
+		phase: "final",
+		text: "子智能体已被中止",
+		details: { interrupted: true },
+		savedAt: new Date().toISOString(),
+	});
+	const restore = mockHangingFetch();
+	injectBridgeEnv();
+
+	try {
+		// 缩空闲阈值到 300ms + 缩轮询窗口：若实现误把空闲超时当用户停止，
+		// 会读到上面的 final 快照返回「已停止」，断言即失败
+		const tools = await loadTools((src) =>
+			shrinkTimeout(shrinkSnapshotPoll(src)),
+		);
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		const res = await delegateTool.execute(
+			"tc_idle1",
+			{ agent: "general-purpose", task: "hi" },
+			new AbortController().signal,
+		);
+		expect(res.content[0].text).toContain("空闲超时");
+		expect(res.content[0].text).not.toContain("已停止");
+	} finally {
+		restore();
+		sandbox.dispose();
+	}
+}, 10_000);

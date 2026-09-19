@@ -342,11 +342,13 @@ test("fleet: 聚合各子代理 toolStats 到 details.fleet（完成态持久化
 		],
 	});
 	expect(res.isError).toBe(false);
+	// 新契约：details 新增按序号的中断标记（无中断时全 false）
 	expect(res.details).toEqual({
 		fleet: {
 			"0": { total: 3, done: 2, error: 1, running: 0 },
 			"1": { total: 1, done: 1, error: 0, running: 0 },
 		},
+		interrupted: { "0": false, "1": false },
 	});
 });
 
@@ -732,6 +734,7 @@ test("fleet: 同名 agent 的 details.fleet 按任务序号 key（不互相覆�
 			"0": { total: 3, done: 2, error: 1, running: 0 },
 			"1": { total: 5, done: 5, error: 0, running: 0 },
 		},
+		interrupted: { "0": false, "1": false },
 	});
 });
 
@@ -870,4 +873,160 @@ test("delegate: 单任务路径 execute 调 spawn 只传 3 参（不传 taskInde
 	const tool = makeDelegateTool({ askTo, spawn });
 	await tool.execute("tc-single-del", { agent: "代码审查", task: "review" });
 	expect(spawn.mock.calls[0]).toHaveLength(3);
+});
+
+// ---- fleet 失败/中断结果保留 ----
+// 需求：任一子任务失败/中断时，所有子任务结果都必须保留在聚合 text 里且中断者有明确标记；
+// 整体中止（外部 signal）要等各子任务收尾完成再聚合；单任务失败/异常不连坐其他任务。
+
+// B1：fleet 3 任务（1 成功 / 1 失败 / 1 中断）→ 三者结果都进聚合 text，标记各自准确
+test("fleet: 成功/失败/中断混合——三者结果都保留，中断标「中断」失败标「失败」成功无标记", async () => {
+	const spawn = mock(
+		async (agent: string): Promise<any> => {
+			if (agent === "代码审查")
+				return { text: "评审通过，无问题", isError: false };
+			if (agent === "质量验收")
+				return { text: "断言失败：预期 3 实际 2", isError: true };
+			// 中断：text 已含 subagent-runner 中止路径生成的部分进度段
+			return {
+				text: "子智能体已被中止\n\n部分进度：工具调用 3 个（成功 1 / 失败 1 / 中断 1）",
+				isError: true,
+				interrupted: true,
+			};
+		},
+	);
+	const tool = makeFleetTool({ askTo, spawn });
+	const res = await tool.execute("tc-fleet-keep", {
+		tasks: [
+			{ agent: "代码审查", task: "review" },
+			{ agent: "质量验收", task: "test" },
+			{ agent: "Explore", task: "explore" },
+		],
+	});
+	expect(res.isError).toBe(true);
+	const text = res.content[0].text;
+	// 三者内容都在（含中断者的部分进度段）
+	expect(text).toContain("评审通过，无问题");
+	expect(text).toContain("断言失败：预期 3 实际 2");
+	expect(text).toContain("子智能体已被中止");
+	expect(text).toContain("部分进度：工具调用 3 个（成功 1 / 失败 1 / 中断 1）");
+	// 标题标记：成功者无标记、失败者「（失败）」、中断者「（失败·中断）」（真实中止路径
+	// isError 恒为 true，故标后者；纯 interrupted 字段由映射独立渲染为「（中断）」）
+	expect(text).toContain("【代码审查】\n评审通过，无问题");
+	expect(text).toContain("【质量验收】（失败）");
+	expect(text).toContain("【Explore】（失败·中断）");
+	expect(text).not.toContain("【代码审查】（");
+	// details.interrupted 只标中断者
+	expect(res.details?.interrupted).toEqual({
+		"0": false,
+		"1": false,
+		"2": true,
+	});
+});
+
+// B2：fleet 整体中止（外部 signal 级联）——等所有子任务收尾完成再聚合，结果一个不丢。
+// 桩 runner 对齐 subagent-runner 真实中止路径的返回形状（中止文案 + 部分进度段 + interrupted）；
+// signal 级联走 makeSpawnFn 的真实 AbortController 逻辑（getCallSignal 注入）。
+test("fleet: 整体中止——已完成子任务结果完整保留，被中止子任务带部分进度段", async () => {
+	const ctrl = new AbortController();
+	const fakeRunner = async (
+		_config: any,
+		task: string,
+		_cwd: string,
+		opts: any,
+	) => {
+		if (task === "快任务") {
+			return { text: "快任务完成", isError: false, elapsedMs: 1 };
+		}
+		// 卡任务：挂起直到 signal 中止（模拟卡死子代理），随后走中止收尾路径
+		await new Promise<void>((resolve) => {
+			if (opts?.signal?.aborted) return resolve();
+			opts?.signal?.addEventListener("abort", () => resolve(), { once: true });
+		});
+		return {
+			text: "子智能体已被中止\n\n部分进度：工具调用 1 个（成功 1 / 失败 0 / 中断 0）",
+			isError: true,
+			interrupted: true,
+			elapsedMs: 1,
+		};
+	};
+	const spawn = makeSpawnFn({
+		resolveConfig: async () => ({
+			name: "test-agent",
+			description: "test desc",
+			systemPrompt: "you are a test agent",
+			model: null,
+			thinking: null,
+			tools: [],
+			skills: [],
+		}),
+		cwd: "/tmp",
+		getCallSignal: () => ctrl.signal,
+		runSubagentAgent: fakeRunner as any,
+	});
+	const tool = makeFleetTool({ askTo, spawn });
+	const resultP = tool.execute("tc-fleet-abort", {
+		tasks: [
+			{ agent: "代码审查", task: "快任务" },
+			{ agent: "质量验收", task: "卡任务" },
+		],
+	});
+	// 等快任务完成、卡任务挂起，再模拟外部中止（bridge 断连/用户停止）
+	await new Promise((r) => setTimeout(r, 50));
+	ctrl.abort();
+	const res = await resultP; // 不得 reject：必须等收尾完成后正常聚合返回
+	const text = res.content[0].text;
+	expect(text).toContain("快任务完成"); // 已完成子任务完整保留
+	expect(text).toContain("子智能体已被中止"); // 被中止子任务收尾结果进聚合
+	expect(text).toContain("部分进度：工具调用 1 个（成功 1 / 失败 0 / 中断 0）");
+	expect(res.details?.interrupted).toEqual({ "0": false, "1": true });
+}, 10_000);
+
+// B3：先头任务失败不影响排队任务——8 任务超并发上限（6），末尾 2 个排队仍执行
+test("fleet: 先头任务失败不影响排队任务——超出并发上限的任务照常执行且结果全保留", async () => {
+	const executed: string[] = [];
+	const spawn = mock(
+		async (_agent: string, task: string): Promise<any> => {
+			executed.push(task);
+			if (task === "任务0") return { text: "任务0失败", isError: true };
+			return { text: `${task}完成`, isError: false };
+		},
+	);
+	const tool = makeFleetTool({ askTo, spawn });
+	const res = await tool.execute("tc-fleet-queue", {
+		tasks: Array.from({ length: 8 }, (_, i) => ({
+			agent: i === 0 ? "代码审查" : "质量验收",
+			task: `任务${i}`,
+		})),
+	});
+	// 全部 8 个任务都被执行（含排队中尚未启动的 6、7）
+	expect(executed).toHaveLength(8);
+	const text = res.content[0].text;
+	// 失败者与其余 7 个成功者的结果全部保留
+	expect(text).toContain("任务0失败");
+	for (let i = 1; i < 8; i++) expect(text).toContain(`任务${i}完成`);
+	expect(text).toContain("【代码审查】（失败）");
+});
+
+// B4：spawn 意外异常（reject）不连坐——异常转结构化失败，其余任务结果保留
+test("fleet: 单任务 spawn 抛异常不连坐——其余任务结果保留，异常任务标「失败·中断」", async () => {
+	const spawn = mock(
+		async (_agent: string, task: string): Promise<any> => {
+			if (task === "任务0") throw new Error("配置读取崩溃");
+			return { text: `${task}完成`, isError: false };
+		},
+	);
+	const tool = makeFleetTool({ askTo, spawn });
+	const res = await tool.execute("tc-fleet-throw", {
+		tasks: [
+			{ agent: "代码审查", task: "任务0" },
+			{ agent: "质量验收", task: "任务1" },
+		],
+	});
+	const text = res.content[0].text;
+	expect(text).toContain("任务1完成"); // 其余任务不受影响
+	expect(text).toContain("配置读取崩溃"); // 异常信息对主代理可见
+	expect(text).toContain("【代码审查】（失败·中断）"); // 异常属非正常终态
+	expect(res.details?.interrupted["0"]).toBe(true);
+	expect(res.isError).toBe(true);
 });

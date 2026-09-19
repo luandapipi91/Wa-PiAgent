@@ -11,6 +11,8 @@
 // 用法：makeSpawnFn 的 onSpawnComplete 回调每次 spawn 结束调 record()；
 // 会话销毁时读 records/summary 落盘（agent-manager._teardownSession）。
 
+import type { ToolStats } from "@wa-pi/shared";
+
 /** 一次派发完成后的原始输入（由 makeSpawnFn 构造） */
 export interface SpawnTelemetryInput {
 	agent: string;
@@ -18,6 +20,11 @@ export interface SpawnTelemetryInput {
 	isError: boolean;
 	returnText: string;
 	elapsedMs?: number;
+	/** 结构化中断标记：子代理被中止/超时/异常提前终止（未正常跑完）时 true；
+	 *  正常完成与模型终态失败不传（undefined → 记录 false）。isError 语义不变 */
+	interrupted?: boolean;
+	/** 子代理工具调用统计（total/done/error/running）；拿不到时为 undefined */
+	toolStats?: ToolStats;
 	/** 子代理会话 token 用量（pi get_session_stats）；拿不到时为 undefined */
 	childUsage?: {
 		tokens: {
@@ -53,6 +60,10 @@ export interface SpawnTelemetryRecord {
 	compressionRatio: number;
 	/** 返回值非空（衡量"这次派发有没有产出"） */
 	hasOutput: boolean;
+	/** 结构化中断标记：true = 非正常终态（中止/超时/异常提前终止）；正常完成与模型终态失败为 false */
+	interrupted: boolean;
+	/** 子代理工具调用统计（total/done/error/running）；采集不到时为 undefined */
+	toolStats?: ToolStats;
 }
 
 /** 会话级汇总（落盘 jsonl 的 summary 行） */
@@ -96,6 +107,9 @@ export function computeSpawnTelemetry(
 		compressionRatio:
 			childOutputTokens > 0 ? returnTokensEst / childOutputTokens : 1,
 		hasOutput: input.returnText.trim().length > 0,
+		// 非正常终态标记（缺省 false）与工具统计（正常完成路径同样携带）
+		interrupted: input.interrupted ?? false,
+		toolStats: input.toolStats,
 	};
 }
 

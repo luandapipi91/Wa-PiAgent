@@ -101,6 +101,48 @@ test("agent_end：非当前会话标记未读；当前会话不标记", () => {
 	expect(useSessionStore.getState().unreadBySession["s-cur"]).toBeFalsy();
 });
 
+// 合成 agent_end（synthetic:true，kernel 在 abort/compact/扩展命令/删除会话时兜底广播）
+// 不含任何新回复内容，不应把非当前会话标成未读；真实 agent_end 的 away 置位保持不变。
+test("agent_end：synthetic 合成事件不置未读，真实事件照常置未读", () => {
+	// 文件级 beforeEach 不重置 unreadBySession，显式清空以免前序用例的未读泄漏进来
+	useSessionStore.setState({ unreadBySession: {} });
+	useProjectsStore.setState({ currentSessionId: "s-cur" });
+	// ① 合成 + 非当前会话（away）→ 不置未读
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({
+				type: "agent_end",
+				messages: [],
+				willRetry: false,
+				synthetic: true,
+			} as any),
+		);
+	expect(useSessionStore.getState().unreadBySession["s1"]).toBeFalsy();
+	// ② 真实 + 非当前会话（away）→ 置未读（回归）
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s2",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	expect(useSessionStore.getState().unreadBySession["s2"]).toBe(true);
+	// ③ 合成 + 当前会话 → 不置未读（回归）
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s-cur",
+			envelope({
+				type: "agent_end",
+				messages: [],
+				willRetry: false,
+				synthetic: true,
+			} as any),
+		);
+	expect(useSessionStore.getState().unreadBySession["s-cur"]).toBeFalsy();
+});
+
 test("markUnread / markRead 维护 unreadBySession", () => {
 	useSessionStore.getState().markUnread("s1");
 	expect(useSessionStore.getState().unreadBySession["s1"]).toBe(true);

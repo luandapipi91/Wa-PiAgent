@@ -843,7 +843,8 @@ export interface SubagentProgressEvent {
 	agent: string;
 	status: "running" | "done" | "error";
 	output: string;
-	tools: Array<{ id: string; name: string; status: string }>;
+	// result 为工具产出留存文本（tool_execution_end 时截断留存），供部分进度「关键产出摘录」段使用
+	tools: Array<{ id: string; name: string; status: string; result?: string }>;
 	elapsedMs: number;
 	/** fleet 任务序号（0-based）；同名 agent 多任务靠它区分，避免按 agent 名做 key 时互相覆盖 */
 	taskIndex?: number;

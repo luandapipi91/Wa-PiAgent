@@ -8,6 +8,7 @@ import { useSessionStore } from "../../store/session";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { useLiveElapsed } from "./useLiveElapsed";
 import { StreamingOutput } from "./StreamingOutput";
+import { InterruptedBadge } from "./InterruptedBadge";
 
 interface Props {
 	sessionId: string;
@@ -46,10 +47,12 @@ export const DelegateCard = memo(function DelegateCard({
 	// 子代理进度：Task 8 为二级 map（[toolCallId][agent]），delegate 单 agent 取内层首项。
 	const agentMap = useSessionStore((s) => s.progressByToolCall[toolCall.id]);
 	const progress = agentMap ? Object.values(agentMap)[0] : undefined;
-	// 运行中计时：后端仅在事件时推送 elapsedMs，思考/长工具静默期本地推算，避免计时冻结
+	// 运行中计时：后端仅在事件时推送 elapsedMs，思考/长工具静默期本地推算，避免计时冻结；
+	// 父调用已终态（result 已返回）后强制停表——即使 progress 仍停在 running（用户停止时
+	// agent 级终态事件随断流丢失），useLiveElapsed 冻结在最后一次推送值。
 	const seconds = useLiveElapsed(
 		progress?.elapsedMs,
-		progress?.status === "running",
+		progress?.status === "running" && !result,
 	);
 
 	// 卡片展开态：null = 用户未手动操作（hasProgress 时默认展开、否则跟随 autoCollapse）；
@@ -73,6 +76,24 @@ export const DelegateCard = memo(function DelegateCard({
 		);
 
 	const failed = !!result?.isError;
+	// 中断标记（kernel 注入 details.interrupted）：中止/超时/异常等非正常终态，部分结果已保留。
+	// SAFETY: ToolResultMessage 类型面未声明 details，与 FleetCard 同款按运行时实际形状读取；
+	// 旧数据无该字段时 interrupted 恒为 false，渲染行为与现状完全一致。
+	const details = (
+		result as unknown as { details?: { interrupted?: boolean } } | undefined
+	)?.details;
+	// 兜底：父调用已终态但子代理进度仍停在 running（用户停止时 agent 级终态事件随断流
+	// 丢失）→ 强制归「已中断」。details.interrupted 精确标记优先，settled 进度不受影响。
+	const interrupted =
+		details?.interrupted === true ||
+		(!!result && progress?.status === "running");
+	// 摘要行状态文案：兜底中断（progress 仍停在 running）时显示「已中断」；
+	// details 精确标记且已 settle 时维持原终态文案（完成/出错）
+	const summaryStatus = progress
+		? interrupted && progress.status === "running"
+			? t("common.statusInterrupted")
+			: statusLabel(progress.status)
+		: "";
 	const full =
 		result?.content
 			.map((c: ToolResultMessage["content"][number]) =>
@@ -106,6 +127,9 @@ export const DelegateCard = memo(function DelegateCard({
 						<Spinner />
 						<span>{t("blocks.delegate.executingMeta")}</span>
 					</>
+				) : interrupted ? (
+					// 中断优先于失败展示（失败+中断时正文仍保留 danger 样式）
+					<InterruptedBadge />
 				) : failed ? (
 					<>
 						<Icon name="x" size={12} />
@@ -134,7 +158,9 @@ export const DelegateCard = memo(function DelegateCard({
 			{showReply && (
 				<div
 					data-testid="text-block"
-					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
+					className={`mt-2 pt-2 border-t border-hairline ${
+						failed ? "text-danger" : interrupted ? "text-warning" : ""
+					}`}
 				>
 					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
 						<Icon name="share" size={11} />
@@ -166,7 +192,7 @@ export const DelegateCard = memo(function DelegateCard({
 						>
 							<span>
 								{t("blocks.delegate.progressSummary", {
-									status: statusLabel(progress!.status),
+									status: summaryStatus,
 									seconds,
 									total: toolCounts.total,
 									done: toolCounts.done,
@@ -184,7 +210,7 @@ export const DelegateCard = memo(function DelegateCard({
 					) : (
 						<div className="text-[calc(11px*var(--font-scale))] text-tertiary py-1">
 							{t("blocks.delegate.progressSummary", {
-								status: statusLabel(progress!.status),
+								status: summaryStatus,
 								seconds,
 								total: toolCounts.total,
 								done: toolCounts.done,

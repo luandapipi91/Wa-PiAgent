@@ -22,6 +22,8 @@ const zh = {
 		statusRunning: "运行中",
 		statusDone: "完成",
 		statusError: "出错",
+		statusInterrupted: "已中断",
+		interruptedHint: "部分结果已保留",
 		testing: "测试中...",
 		scopeGlobal: "全局",
 		scopeProject: "项目",

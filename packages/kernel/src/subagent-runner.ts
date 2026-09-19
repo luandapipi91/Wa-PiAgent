@@ -54,11 +54,139 @@ export interface SubagentUsage {
 export interface SubagentRunResult {
 	text: string;
 	isError: boolean;
+	/** 结构化中断标记：子代理被中止/探活超时/settle 超时/异常提前终止（未正常跑完）时为 true；
+	 *  正常完成与模型终态失败（sawError）不标记（undefined）。isError 语义不变，
+	 *  前端据此区分「中断」与普通失败 */
+	interrupted?: boolean;
 	/** 子代理 token 用量；采集失败（如旧版 pi 不支持）时降级为 undefined */
 	usage?: SubagentUsage;
 	/** 子代理工具调用统计（与实时 progress 的 tools 分桶同源）；异常路径（如进程启动失败）时为 undefined */
 	toolStats?: ToolStats;
 	elapsedMs: number;
+}
+
+/** 部分进度段步骤条数上限：超过折叠为「等 N 项」 */
+const PARTIAL_STEPS_LIMIT = 30;
+/** 部分进度段输出片段字符上限（取尾部） */
+const PARTIAL_OUTPUT_LIMIT = 4000;
+/** 单条工具产出留存字符上限：超长截断（防单条巨结果撑爆进度帧与快照） */
+const TOOL_RESULT_LIMIT = 800;
+/** 工具产出留存总量字符上限：超限丢最旧；fleet 每个子任务独立适用（各自 tools 数组） */
+const TOOL_RESULTS_TOTAL_LIMIT = 16 * 1024;
+/** 部分进度「关键产出摘录」段条数上限 */
+const PARTIAL_EXCERPTS_LIMIT = 10;
+/** 单条摘录展示字符上限（首行截断） */
+const EXCERPT_LIMIT = 200;
+
+/**
+ * 组装「部分进度」段：子代理被中止/超时/异常提前终止时，把过程中已产生的工具调用
+ * 统计、产出摘录与输出尾部附在返回 text 里，让父模型看到子代理已完成的工作（而非全部丢弃）。
+ * tools 条目只有工具名（无目标描述），只列工具名、不臆造内容；result 为可选的产出
+ * 留存文本（tool_execution_end 时经 retainToolResult 截断留存），有则追加「关键产出摘录」段
+ * （仅 done 工具，最多 10 条）。
+ * 无任何可保留信息（无工具且无输出）时返回空串，调用方不附加段落。
+ */
+export function buildPartialProgressNote(
+	tools: ReadonlyArray<{ name: string; status: string; result?: string }>,
+	output: string,
+): string {
+	const done = tools.filter((t) => t.status === "done").length;
+	const error = tools.filter((t) => t.status === "error").length;
+	const running = tools.filter((t) => t.status === "running").length;
+	const lines: string[] = [];
+	if (tools.length > 0) {
+		lines.push(
+			`部分进度：工具调用 ${tools.length} 个（成功 ${done} / 失败 ${error} / 中断 ${running}）。`,
+		);
+		// 步骤列表：工具名 + 状态符号（✅ 成功 / ❌ 失败 / ⏸ 执行中被中断）；
+		// 最多 30 条，超出折叠为「等 N 项」
+		const marks: Record<string, string> = {
+			done: "✅",
+			error: "❌",
+			running: "⏸",
+		};
+		const steps = tools
+			.slice(0, PARTIAL_STEPS_LIMIT)
+			.map((t) => `${t.name} ${marks[t.status] ?? "⏸"}`)
+			.join("、");
+		const folded =
+			tools.length > PARTIAL_STEPS_LIMIT ? ` 等 ${tools.length} 项` : "";
+		lines.push(`已完成步骤：${steps}${folded}`);
+		// 关键产出摘录：已完成工具（done）的产出首行，最多 10 条——
+		// 让父模型看到「做出了什么」而不只是「做了几件」
+		const excerpts = tools
+			.filter((t) => t.status === "done" && t.result)
+			.slice(0, PARTIAL_EXCERPTS_LIMIT);
+		if (excerpts.length > 0) {
+			lines.push("关键产出摘录：");
+			for (const t of excerpts) {
+				lines.push(`- ${t.name}：${excerptFirstLine(t.result ?? "")}`);
+			}
+		}
+	}
+	const trimmed = output.trim();
+	if (trimmed) {
+		// 只取尾部：中断前的最后输出最有参考价值；超长时以「…」标记前文截断
+		const tail =
+			trimmed.length > PARTIAL_OUTPUT_LIMIT
+				? `…${trimmed.slice(-PARTIAL_OUTPUT_LIMIT)}`
+				: trimmed;
+		lines.push(`最后输出片段：${tail}`);
+	}
+	return lines.join("\n");
+}
+
+/** 摘录文本：取首行（trim 后），超长截断加省略号；首行为空（以换行开头）退化为截断全文 */
+function excerptFirstLine(text: string): string {
+	const trimmed = text.trim();
+	const first = trimmed.split("\n", 1)[0] || trimmed;
+	return first.length > EXCERPT_LIMIT
+		? `${first.slice(0, EXCERPT_LIMIT)}…`
+		: first;
+}
+
+/** 从工具结果提取文本：result 可能是字符串或含 content 数组的对象（content
+ *  条目取 {type:"text",text}，与 pi 工具结果形状对齐），取不到返回空串（跳过留存） */
+function extractToolResultText(result: unknown): string {
+	if (typeof result === "string") return result;
+	if (result && typeof result === "object") {
+		const content = (result as { content?: unknown }).content;
+		if (Array.isArray(content)) {
+			return content
+				.filter(
+					(c): c is { type: "text"; text: string } =>
+						!!c &&
+						typeof c === "object" &&
+						(c as { type?: unknown }).type === "text" &&
+						typeof (c as { text?: unknown }).text === "string",
+				)
+				.map((c) => c.text)
+				.join("\n");
+		}
+	}
+	return "";
+}
+
+/** 留存工具产出文本：写入条目 result（单条截断 TOOL_RESULT_LIMIT）并做总量控制
+ *  （超 TOOL_RESULTS_TOTAL_LIMIT 从最旧丢弃），独立导出便于测试两级截断 */
+export function retainToolResult(
+	list: Array<{ id: string; name: string; status: string; result?: string }>,
+	id: string,
+	text: string,
+): void {
+	const target = list.find((x) => x.id === id);
+	if (!target || !text) return;
+	target.result =
+		text.length > TOOL_RESULT_LIMIT ? text.slice(0, TOOL_RESULT_LIMIT) : text;
+	let total = 0;
+	for (const t of list) total += t.result?.length ?? 0;
+	for (const t of list) {
+		if (total <= TOOL_RESULTS_TOTAL_LIMIT) break;
+		if (t.result) {
+			total -= t.result.length;
+			delete t.result;
+		}
+	}
 }
 
 export interface SubagentRunOpts {
@@ -134,6 +262,22 @@ export async function runSubagentAgent(
 	const promptFile = join(tmpDir, `${config.name}-${randomUUID()}.md`);
 
 	let client: RpcClient | null = null;
+	// 进度状态累积（提升到 try 外：中止/探活超时/settle 超时/异常等非正常终态路径
+	// 也要用 tools/output 组装「部分进度」段，不再丢弃过程中产生的数据）；
+	// result 为工具产出留存文本（retainToolResult 截断留存）
+	const tools: Array<{
+		id: string;
+		name: string;
+		status: string;
+		result?: string;
+	}> = [];
+	let output = "";
+	const toolStats = (): ToolStats => ({
+		total: tools.length,
+		done: tools.filter((t) => t.status === "done").length,
+		error: tools.filter((t) => t.status === "error").length,
+		running: tools.filter((t) => t.status === "running").length,
+	});
 	try {
 		await mkdir(tmpDir, { recursive: true });
 		await writeFile(
@@ -142,16 +286,7 @@ export async function runSubagentAgent(
 			"utf8",
 		);
 
-		// 进度状态累积
-		const tools: Array<{ id: string; name: string; status: string }> = [];
-		let output = "";
 		let sawError = false;
-		const toolStats = (): ToolStats => ({
-			total: tools.length,
-			done: tools.filter((t) => t.status === "done").length,
-			error: tools.filter((t) => t.status === "error").length,
-			running: tools.filter((t) => t.status === "running").length,
-		});
 		const emit = (status: SubagentProgressEvent["status"]) => {
 			opts?.onProgress?.({
 				agent: config.name,
@@ -208,6 +343,13 @@ export async function runSubagentAgent(
 					touch();
 					const t = tools.find((x) => x.id === e.toolCallId);
 					if (t) t.status = e.isError ? "error" : "done";
+					// 留存工具产出文本（单条 800 / 总量 16KB 截断）：供部分进度
+					//「关键产出摘录」段与 abort 瞬间快照使用；取不到文本则跳过
+					retainToolResult(
+						tools,
+						e.toolCallId,
+						extractToolResultText(e.result),
+					);
 					emit("running");
 					break;
 				}
@@ -324,9 +466,12 @@ export async function runSubagentAgent(
 		}
 
 		if (opts?.signal?.aborted) {
+			// 非正常终态：附加部分进度段（无过程数据时 note 为空串，不附加）
+			const note = buildPartialProgressNote(tools, output);
 			return {
-				text: "子智能体已被中止",
+				text: note ? `子智能体已被中止\n\n${note}` : "子智能体已被中止",
 				isError: true,
+				interrupted: true,
 				toolStats: toolStats(),
 				elapsedMs: Date.now() - startedAt,
 			};
@@ -383,9 +528,17 @@ export async function runSubagentAgent(
 			elapsedMs,
 		};
 	} catch (err) {
+		// 探活超时 / settle 超时 / 进程提前退出等经 fail() 汇聚到这里：
+		// 同样属于非正常终态，附加部分进度段并标 interrupted（tools/output 已提升到 try 外可访问）
+		const message = err instanceof Error ? err.message : String(err);
+		const note = buildPartialProgressNote(tools, output);
 		return {
-			text: `子智能体执行失败: ${err instanceof Error ? err.message : String(err)}`,
+			text: note
+				? `子智能体执行失败: ${message}\n\n${note}`
+				: `子智能体执行失败: ${message}`,
 			isError: true,
+			interrupted: true,
+			toolStats: toolStats(),
 			elapsedMs: Date.now() - startedAt,
 		};
 	} finally {

@@ -10,12 +10,15 @@
 // result.isError 透传到 ToolResultMessage（仅 execute 抛异常才标 isError），
 // 错误信息经文本传达给 LLM——与原生 subagent 工具先例一致
 //（其所有错误路径均返回普通文本）。
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
 	DELEGATE_DESCRIPTION,
 	FLEET_DESCRIPTION,
 	FLEET_MAX_CONCURRENCY as MAX_SUBAGENT_CONCURRENCY,
 	DelegateParamsSchema,
 	FleetParamsSchema,
+	WA_PI_DIR,
 } from "@wa-pi/shared";
 import {
 	isSubagentType,
@@ -28,7 +31,10 @@ import type {
 	ToolStats,
 } from "@wa-pi/shared";
 import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
-import { runSubagentAgent as defaultRunSubagentAgent } from "./subagent-runner";
+import {
+	buildPartialProgressNote,
+	runSubagentAgent as defaultRunSubagentAgent,
+} from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
 /** fleet 并行派发并发上限——定义唯一来源在 @wa-pi/shared 的 tool-schemas.ts（FLEET_MAX_CONCURRENCY，
@@ -45,6 +51,9 @@ export interface DelegateTarget {
 export interface DelegateSpawnResult {
 	text: string;
 	isError: boolean;
+	/** 结构化中断标记：子代理被中止/超时/异常提前终止（未正常跑完）时为 true；
+	 *  正常完成与模型终态失败不标记。isError 语义不变，前端据此区分「中断」与普通失败 */
+	interrupted?: boolean;
 	/** 子代理 token 用量（pi get_session_stats 采集失败时为 undefined） */
 	usage?: SubagentUsage;
 	/** 子代理工具调用统计（与实时 progress 同源；异常路径为 undefined） */
@@ -183,21 +192,78 @@ function sumPiToolUsage(usages: Array<SubagentUsage | undefined>) {
 	return acc;
 }
 
+// ===== 中止快照（subagent-results 文件中转）=====
+//
+// 用户在父会话点停止 → pi 侧 bridge 流被 cancel，delegate/fleet 的 final 帧无人
+// 消费（流已死）。execute 在 abort 瞬间用内存进度组装 final 快照立即落盘（pi 侧
+// 轮询窗口仅 abort 后 5 秒，settle 收尾最长 ABORT_GRACE_MS=10s 必然错过窗口），
+// 全部子任务 settle 后再用最终状态覆盖写一次（信息更全，pi 已读过也不影响）。
+// 文件：WA_PI_DIR/subagent-results/<toolCallId>.json，pi 侧 catch 分支轮询读取后
+// 中转给父模型（见 wa-pi-bridge.extension.ts）。正常完成（无 abort）不落盘。
+
+/** 快照目录：调用时读 env（测试以临时目录隔离；生产等价 shared 的 WA_PI_DIR 常量） */
+function subagentResultsDir(): string {
+	return join(process.env.WA_PI_DIR || WA_PI_DIR, "subagent-results");
+}
+
+/** 进度事件的 tools 分桶 → ToolStats（与 subagent-runner 的 toolStats() 同源算法） */
+function toolStatsFromProgress(
+	tools: ReadonlyArray<{ name: string; status: string }>,
+): ToolStats {
+	return {
+		total: tools.length,
+		done: tools.filter((t) => t.status === "done").length,
+		error: tools.filter((t) => t.status === "error").length,
+		running: tools.filter((t) => t.status === "running").length,
+	};
+}
+
+/** 写中止快照 JSON。辅助中转通道：目录创建/写盘失败一律静默，不影响主流程 */
+async function writeAbortSnapshot(
+	toolCallId: string,
+	payload: unknown,
+): Promise<void> {
+	try {
+		const dir = subagentResultsDir();
+		await mkdir(dir, { recursive: true });
+		await writeFile(
+			join(dir, `${toolCallId}.json`),
+			JSON.stringify(payload),
+			"utf8",
+		);
+	} catch {
+		/* 静默失败：快照只是增强通道 */
+	}
+}
+
 export function makeDelegateTool(opts: {
 	askTo: DelegateTarget[];
 	spawn: DelegateSpawnFn;
+	/** 调用级信号槽（bridge 流式断连/用户停止时触发）：abort 瞬间写 final 快照。
+	 *  与 makeSpawnFn 的 getCallSignal 同源（agent-manager 的 currentCallSignal 槽）。 */
+	getCallSignal?: () => AbortSignal | undefined;
 }) {
+	// 中止即时快照的进度采集：key 为 toolCallId，值为该次派发各任务最近一条进度事件
+	//（execute 进入时登记、finally 清理；notifyProgress 由注册点在 spawnFn onProgress 转发）
+	const latestProgress = new Map<string, Map<number, SubagentProgressEvent>>();
 	return {
 		name: "delegate",
 		label: "Delegate",
 		description: DELEGATE_DESCRIPTION,
 		parameters: DelegateParamsSchema,
+		/** 进度采集入口（注册点转发 spawnFn onProgress）：供 abort 瞬间快照组装部分进度 */
+		notifyProgress(toolCallId: string, event: SubagentProgressEvent): void {
+			const byIndex = latestProgress.get(toolCallId);
+			if (!byIndex) return;
+			byIndex.set(event.taskIndex ?? 0, event);
+		},
 		async execute(
 			toolCallId: string,
 			args: { agent: string; task: string },
 		): Promise<{
 			content: Array<{ type: "text"; text: string }>;
-			details: undefined;
+			/** interrupted：子代理非正常终态（中止/超时/异常）标记，供前端区分「中断」与普通失败 */
+			details: { interrupted: boolean };
 			isError: boolean;
 			usage?: ReturnType<typeof toPiToolUsage>;
 		}> {
@@ -209,26 +275,72 @@ export function makeDelegateTool(opts: {
 							text: buildNotAllowedMessage(args.agent, opts.askTo),
 						},
 					],
-					details: undefined,
+					details: { interrupted: false },
 					isError: true,
 				};
 			}
 			// 内置 subagent 中文别名（如"通用子智能体"）归一化为英文 name（"general-purpose"），
 			// 让 spawn 闭包传给 subagent-runner 时能正确匹配 AgentDefinition
 			const spawnAgent = normalizeSubagentType(args.agent);
-			// 透传 toolCallId：前端 DelegateCard 靠它定位卡片，进度帧需关联到正确卡片
-			const { text, isError, usage } = await opts.spawn(
-				spawnAgent,
-				args.task,
-				toolCallId,
-			);
-			return {
-				content: [{ type: "text" as const, text }],
-				details: undefined,
-				isError,
-				// 子代理用量随 toolResult 上报：pi 官方 stats 原生计入累计（usage reported by tools）
-				usage: toPiToolUsage(usage),
+
+			// ── 中止快照：abort 瞬间用瞬时进度组装 final 立即落盘，settle 后覆盖 ──
+			const callSignal = opts.getCallSignal?.();
+			let aborted = callSignal?.aborted === true;
+			let pendingImmediate: Promise<void> | undefined;
+			latestProgress.set(toolCallId, new Map());
+			const writeImmediateFinal = () => {
+				aborted = true;
+				const ev = latestProgress.get(toolCallId)?.get(0);
+				// 用当时的内存状态组装中断文本（与 subagent-runner 中断路径同格式），
+				// pi 侧首次轮询（500ms 内）即可取走；无进度事件时只有一句中止说明
+				const note = ev ? buildPartialProgressNote(ev.tools, ev.output) : "";
+				pendingImmediate = writeAbortSnapshot(toolCallId, {
+					toolCallId,
+					tool: "delegate",
+					phase: "final",
+					text: note ? `子智能体已被中止\n\n${note}` : "子智能体已被中止",
+					details: { interrupted: true },
+					savedAt: new Date().toISOString(),
+				});
 			};
+			if (callSignal) {
+				if (callSignal.aborted) writeImmediateFinal();
+				else
+					callSignal.addEventListener("abort", writeImmediateFinal, {
+						once: true,
+					});
+			}
+			try {
+				// 透传 toolCallId：前端 DelegateCard 靠它定位卡片，进度帧需关联到正确卡片
+				const { text, isError, usage, interrupted } = await opts.spawn(
+					spawnAgent,
+					args.task,
+					toolCallId,
+				);
+				if (aborted) {
+					// 全部子任务 settle 后用最终状态覆盖写 final（信息更全，pi 已读过也不影响）；
+					// 先等 abort 瞬间的写盘完成，杜绝晚到的立即快照覆盖完整快照
+					await pendingImmediate;
+					await writeAbortSnapshot(toolCallId, {
+						toolCallId,
+						tool: "delegate",
+						phase: "final",
+						text,
+						details: { interrupted: interrupted === true },
+						savedAt: new Date().toISOString(),
+					});
+				}
+				return {
+					content: [{ type: "text" as const, text }],
+					details: { interrupted: interrupted === true },
+					isError,
+					// 子代理用量随 toolResult 上报：pi 官方 stats 原生计入累计（usage reported by tools）
+					usage: toPiToolUsage(usage),
+				};
+			} finally {
+				latestProgress.delete(toolCallId);
+				callSignal?.removeEventListener("abort", writeImmediateFinal);
+			}
 		},
 	};
 }
@@ -357,6 +469,9 @@ export function makeSpawnFn(opts: {
 				returnText: result.text,
 				elapsedMs: result.elapsedMs,
 				childUsage: result.usage,
+				// 非正常终态标记与工具统计透传遥测（正常完成也带 toolStats）
+				interrupted: result.interrupted,
+				toolStats: result.toolStats,
 			});
 			return result;
 		} finally {
@@ -390,7 +505,11 @@ async function runWithConcurrency<T>(
 export function makeFleetTool(opts: {
 	askTo: DelegateTarget[];
 	spawn: DelegateSpawnFn;
+	/** 调用级信号槽（bridge 流式断连/用户停止时触发）：abort 瞬间写 final 快照（同 delegate） */
+	getCallSignal?: () => AbortSignal | undefined;
 }) {
+	// 中止即时快照的进度采集（结构同 makeDelegateTool；fleet 按 taskIndex 分桶）
+	const latestProgress = new Map<string, Map<number, SubagentProgressEvent>>();
 	return {
 		name: "fleet",
 		label: "Fleet",
@@ -398,12 +517,24 @@ export function makeFleetTool(opts: {
 		// 其搜索串「6」与模板实际「5」不匹配而静默失效，描述一度停留在 5
 		description: FLEET_DESCRIPTION,
 		parameters: FleetParamsSchema,
+		/** 进度采集入口（注册点转发 spawnFn onProgress）：供 abort 瞬间快照组装部分进度 */
+		notifyProgress(toolCallId: string, event: SubagentProgressEvent): void {
+			const byIndex = latestProgress.get(toolCallId);
+			if (!byIndex) return;
+			byIndex.set(event.taskIndex ?? 0, event);
+		},
 		async execute(
 			toolCallId: string,
 			args: { tasks: Array<{ agent: string; task: string }> },
 		): Promise<{
 			content: Array<{ type: "text"; text: string }>;
-			details: { fleet: Record<string, ToolStats> } | undefined;
+			details:
+				| {
+						fleet: Record<string, ToolStats>;
+						/** 按任务序号（String(index)）的中断标记：子代理非正常终态（中止/超时/异常）为 true */
+						interrupted: Record<string, boolean>;
+				  }
+				| undefined;
 			isError: boolean;
 			usage?: ReturnType<typeof sumPiToolUsage>;
 		}> {
@@ -414,45 +545,135 @@ export function makeFleetTool(opts: {
 					isError: false,
 				};
 			}
-			const results = await runWithConcurrency(
-				args.tasks.map((t, index) => async () => {
-					if (!canInvoke(t.agent, opts.askTo)) {
-						return {
-							index,
-							agent: t.agent,
-							text: buildNotAllowedMessage(t.agent, opts.askTo),
-							isError: true,
-						};
-					}
-					// 内置 subagent 中文别名归一化（同 delegate 单任务路径）
-					const spawnAgent = normalizeSubagentType(t.agent);
-					// fleet 所有子任务共享同一个 fleet 工具调用的 toolCallId：
-					// 前端 FleetCard 靠它定位卡片，内部按 progress.taskIndex 区分各子任务
-					const { text, isError, toolStats, usage } = await opts.spawn(
-						spawnAgent,
-						t.task,
-						toolCallId,
-						index,
-					);
-					return { index, agent: t.agent, text, isError, toolStats, usage };
-				}),
-				MAX_SUBAGENT_CONCURRENCY,
-			);
-			// 按输入顺序聚合为单段文本；details 携带各子代理工具调用统计（刷新后仍可显示）
-			const lines = results.map(
-				(r) => `【${r.agent}】${r.isError ? "（失败）" : ""}\n${r.text}`,
-			);
-			const anyError = results.some((r) => r.isError);
-			const fleetStats: Record<string, ToolStats> = {};
-			for (const r of results)
-				if (r.toolStats) fleetStats[String(r.index)] = r.toolStats;
-			return {
-				content: [{ type: "text" as const, text: lines.join("\n\n") }],
-				details: { fleet: fleetStats },
-				isError: anyError,
-				// 各子代理用量聚合上报：pi 官方 stats 原生计入累计（usage reported by tools）
-				usage: sumPiToolUsage(results.map((r) => r.usage)),
+
+			// ── 中止快照：abort 瞬间用瞬时进度组装 final 立即落盘，settle 后覆盖 ──
+			const callSignal = opts.getCallSignal?.();
+			let aborted = callSignal?.aborted === true;
+			let pendingImmediate: Promise<void> | undefined;
+			latestProgress.set(toolCallId, new Map());
+			const writeImmediateFinal = () => {
+				aborted = true;
+				const byIndex = latestProgress.get(toolCallId);
+				// 每个子任务用其当时的 tools/output 瞬时快照组装（未 settle 同样处理，
+				// 标题统一「（中断）」）；settle 后的覆盖写会替换为真实终态标记
+				const lines = args.tasks.map((t, index) => {
+					const ev = byIndex?.get(index);
+					const note = ev ? buildPartialProgressNote(ev.tools, ev.output) : "";
+					const body = note
+						? `子智能体已被中止\n\n${note}`
+						: "子智能体已被中止";
+					return `【${t.agent}】（中断）\n${body}`;
+				});
+				// details 形状与 settle 后的完整快照一致：fleet 统计聚合自瞬时进度
+				//（无进度事件的任务省略），interrupted 全 true
+				const fleetStats: Record<string, ToolStats> = {};
+				for (let index = 0; index < args.tasks.length; index++) {
+					const ev = byIndex?.get(index);
+					if (ev) fleetStats[String(index)] = toolStatsFromProgress(ev.tools);
+				}
+				const interrupted: Record<string, boolean> = {};
+				for (let index = 0; index < args.tasks.length; index++) {
+					interrupted[String(index)] = true;
+				}
+				pendingImmediate = writeAbortSnapshot(toolCallId, {
+					toolCallId,
+					tool: "fleet",
+					phase: "final",
+					text: lines.join("\n\n"),
+					details: { fleet: fleetStats, interrupted },
+					savedAt: new Date().toISOString(),
+				});
 			};
+			if (callSignal) {
+				if (callSignal.aborted) writeImmediateFinal();
+				else
+					callSignal.addEventListener("abort", writeImmediateFinal, {
+						once: true,
+					});
+			}
+			try {
+				const results = await runWithConcurrency(
+					args.tasks.map((t, index) => async () => {
+						if (!canInvoke(t.agent, opts.askTo)) {
+							return {
+								index,
+								agent: t.agent,
+								text: buildNotAllowedMessage(t.agent, opts.askTo),
+								isError: true,
+							};
+						}
+						// 内置 subagent 中文别名归一化（同 delegate 单任务路径）
+						const spawnAgent = normalizeSubagentType(t.agent);
+						// fleet 所有子任务共享同一个 fleet 工具调用的 toolCallId：
+						// 前端 FleetCard 靠它定位卡片，内部按 progress.taskIndex 区分各子任务
+						try {
+							const { text, isError, toolStats, usage, interrupted } =
+								await opts.spawn(spawnAgent, t.task, toolCallId, index);
+							return {
+								index,
+								agent: t.agent,
+								text,
+								isError,
+								toolStats,
+								usage,
+								interrupted,
+							};
+						} catch (err) {
+							// 单任务意外异常不连坐：spawn 闭包内 try 块外的路径（resolveConfig /
+							// ensureExtension 等）抛错时转结构化失败（对齐 subagent-runner 异常路径
+							// 语义：isError + interrupted），其余任务继续执行、结果照常聚合不丢失
+							const message = err instanceof Error ? err.message : String(err);
+							return {
+								index,
+								agent: t.agent,
+								text: `子智能体执行异常: ${message}`,
+								isError: true,
+								interrupted: true,
+							};
+						}
+					}),
+					MAX_SUBAGENT_CONCURRENCY,
+				);
+				// 按输入顺序聚合为单段文本；details 携带各子代理工具调用统计（刷新后仍可显示）
+				// + 按任务序号的中断标记（前端区分「中断」与普通失败，兼容旧数据缺失）
+				// 标题标记同步区分失败/中断：两者都有标「失败·中断」，只其一时标单项
+				const lines = results.map((r) => {
+					const marks = [r.isError ? "失败" : "", r.interrupted ? "中断" : ""]
+						.filter(Boolean)
+						.join("·");
+					return `【${r.agent}】${marks ? `（${marks}）` : ""}\n${r.text}`;
+				});
+				const anyError = results.some((r) => r.isError);
+				const fleetStats: Record<string, ToolStats> = {};
+				const fleetInterrupted: Record<string, boolean> = {};
+				for (const r of results) {
+					if (r.toolStats) fleetStats[String(r.index)] = r.toolStats;
+					fleetInterrupted[String(r.index)] = r.interrupted === true;
+				}
+				if (aborted) {
+					// 全部子任务 settle 后用最终状态覆盖写 final（信息更全，pi 已读过也不影响）；
+					// 先等 abort 瞬间的写盘完成，杜绝晚到的立即快照覆盖完整快照
+					await pendingImmediate;
+					await writeAbortSnapshot(toolCallId, {
+						toolCallId,
+						tool: "fleet",
+						phase: "final",
+						text: lines.join("\n\n"),
+						details: { fleet: fleetStats, interrupted: fleetInterrupted },
+						savedAt: new Date().toISOString(),
+					});
+				}
+				return {
+					content: [{ type: "text" as const, text: lines.join("\n\n") }],
+					details: { fleet: fleetStats, interrupted: fleetInterrupted },
+					isError: anyError,
+					// 各子代理用量聚合上报：pi 官方 stats 原生计入累计（usage reported by tools）
+					usage: sumPiToolUsage(results.map((r) => r.usage)),
+				};
+			} finally {
+				latestProgress.delete(toolCallId);
+				callSignal?.removeEventListener("abort", writeImmediateFinal);
+			}
 		},
 	};
 }

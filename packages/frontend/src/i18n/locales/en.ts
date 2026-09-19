@@ -22,6 +22,8 @@ const en = {
 		statusRunning: "Running",
 		statusDone: "Done",
 		statusError: "Error",
+		statusInterrupted: "Interrupted",
+		interruptedHint: "Partial results preserved",
 		testing: "Testing...",
 		scopeGlobal: "Global",
 		scopeProject: "Project",

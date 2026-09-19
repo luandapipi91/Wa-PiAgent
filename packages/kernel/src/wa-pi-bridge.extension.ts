@@ -68,6 +68,9 @@ const DEFAULT_TIMEOUT_MS = 60_000; // 普通工具 60s
 const AGENT_END_REPORT_TIMEOUT_MS = 10_000; // agent_end 文件修改上报：本地请求，10s 足够
 const ASK_TIMEOUT_MS = 600_000; // ask 等用户回答，放宽到 10 分钟
 const DELEGATE_TIMEOUT_MS = 600_000; // delegate/fleet：10 分钟无任何帧才判死（流式后"无帧"才是真卡死）
+// 用户停止（delegate/fleet）：kernel 侧中止快照轮询——500ms × 最多 10 次 = 5 秒窗口
+const SNAPSHOT_POLL_INTERVAL_MS = 500;
+const SNAPSHOT_POLL_MAX_ATTEMPTS = 10;
 const BROWSER_NAVIGATE_TIMEOUT_MS = 150_000; // navigate 120s + 余量
 const BROWSER_OPERATION_TIMEOUT_MS = 90_000; // 其余操作 60s + 余量
 
@@ -92,6 +95,51 @@ function missingEnvError(): string | null {
 
 function failResult(text: string, error: string): BridgeToolResult {
 	return { content: [{ type: "text", text }], details: { error } };
+}
+
+/** delegate/fleet 中止快照路径（kernel 侧修法 A 落盘，本进程轮询读取）：
+ *  WA_PI_DIR/subagent-results/<toolCallId>.json。kernel spawn pi 时 env 必注入
+ *  PI_CODING_AGENT_DIR=WA_PI_DIR，双源兕底。 */
+function snapshotFilePath(toolCallId: string): string {
+	const dir = process.env.WA_PI_DIR || process.env.PI_CODING_AGENT_DIR || ".";
+	return resolve(dir, "subagent-results", `${toolCallId}.json`);
+}
+
+/** 判断是否「用户主动停止」类错误：工具 signal 已 abort（ctrl 级联中止）或错误名/消息
+ *  含 abort 标记。bridge 空闲超时（无帧判死）不是用户停止，显式排除、走原逻辑。 */
+function isUserAbortError(
+	err: unknown,
+	signal: AbortSignal | undefined,
+): boolean {
+	const msg = err instanceof Error ? err.message : String(err);
+	if (msg.includes("bridge 空闲超时")) return false;
+	if (signal?.aborted) return true;
+	const name = (err as any)?.name;
+	return (
+		(typeof name === "string" && name.includes("Abort")) || /abort/i.test(msg)
+	);
+}
+
+/** 轮询读 kernel 中止快照：读到 final 立即返回；partial 记下继续等（kernel settle
+ *  收尾后可能升级为 final）；窗口耗尽返回最后见到的 partial 或 null。读不到或
+ *  JSON 损坏继续轮询。 */
+async function pollAbortSnapshot(toolCallId: string): Promise<any | null> {
+	let partial: any = null;
+	for (let i = 0; i < SNAPSHOT_POLL_MAX_ATTEMPTS; i++) {
+		if (i > 0) {
+			await new Promise((r) => setTimeout(r, SNAPSHOT_POLL_INTERVAL_MS));
+		}
+		try {
+			const parsed = JSON.parse(
+				readFileSync(snapshotFilePath(toolCallId), "utf8"),
+			);
+			if (parsed?.phase === "final") return parsed;
+			if (parsed?.phase === "partial") partial = parsed;
+		} catch {
+			/* 未落盘或损坏：继续轮询 */
+		}
+	}
+	return partial;
 }
 
 /** 判断错误是否属于可重试的"连接断开"（区别于 token 错误、参数错误等永久失败）。 */
@@ -247,6 +295,36 @@ async function callBridge(
 				timeoutMs,
 				retryCount + 1,
 			);
+		}
+		// 用户主动停止（delegate/fleet）：bridge 流已被 cancel、final 帧到不了，
+		// 经 kernel 侧快照文件中转部分结果（修法 B）。空闲超时等非 abort 错误不走这里。
+		if (
+			(tool === "delegate" || tool === "fleet") &&
+			isUserAbortError(err, signal)
+		) {
+			const snap = await pollAbortSnapshot(toolCallId);
+			if (snap?.phase === "final") {
+				return {
+					content: [{ type: "text", text: `已停止。${snap.text ?? ""}` }],
+					details: snap.details,
+				};
+			}
+			if (snap?.phase === "partial") {
+				const tasks = Array.isArray(snap.tasks) ? snap.tasks : [];
+				const summary = tasks
+					.map((t: any) => `#${t.index ?? "?"} ${t.agent ?? "?"}`)
+					.join("、");
+				return {
+					content: [
+						{
+							type: "text",
+							text: `已停止。部分进度：${summary || "（无任务信息）"}`,
+						},
+					],
+					details: { interrupted: true },
+				};
+			}
+			// 窗口内没读到快照 → 落到下方维持现状 abort 文案
 		}
 		return failResult(`bridge 调用失败: ${msg}`, msg);
 	} finally {

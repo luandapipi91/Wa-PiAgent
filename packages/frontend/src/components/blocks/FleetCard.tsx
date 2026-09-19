@@ -14,6 +14,7 @@ import { useSessionStore } from "../../store/session";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { useLiveElapsed } from "./useLiveElapsed";
 import { StreamingOutput } from "./StreamingOutput";
+import { InterruptedBadge } from "./InterruptedBadge";
 
 interface Props {
 	sessionId: string;
@@ -88,13 +89,16 @@ function extractAgentReplies(
 
 /** 单个任务的统计行：`任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W`，可独立展开看该任务回复。
  *  抽成独立组件以承载 useLiveElapsed（Hooks 不能在循环里调用）。
- *  统计来源：实时 progress.tools 优先，完成态降级读 result.details 持久化统计（刷新后仍可用）。 */
+ *  统计来源：实时 progress.tools 优先，完成态降级读 result.details 持久化统计（刷新后仍可用）。
+ *  interrupted：该子任务非正常终态（details.interrupted 精确标记，或父终态后 progress 仍
+ *  running 的兜底——用户停止时终态事件随断流丢失），行头加「已中断」徽标、计时冻结。 */
 function FleetTaskItem({
 	index,
 	agent,
 	progress,
 	stats,
 	isCompleted,
+	interrupted,
 	replyText,
 	sessionId,
 }: {
@@ -103,8 +107,10 @@ function FleetTaskItem({
 	progress?: SubagentProgressEvent;
 	/** 持久化统计（result.details.fleet[agent]）；progress 缺失时兜底 */
 	stats?: ToolStats;
-	/** 是否完成态（result 已返回）；决定是否显示「已完成」前缀 */
+	/** 是否完成态（result 已返回）；决定「已完成」前缀，并让 running 行停表（兜底冻结） */
 	isCompleted: boolean;
+	/** 该子任务是否中断（details.interrupted 精确标记，或父终态后 progress 仍 running 的兜底） */
+	interrupted?: boolean;
 	replyText?: string;
 	sessionId: string;
 }) {
@@ -116,10 +122,20 @@ function FleetTaskItem({
 		if (status === "done") return t("common.statusDone");
 		return t("common.statusError");
 	};
+	// 计时：父调用已终态（isCompleted）后强制停表——即使该行 progress 仍停在 running
+	// （用户停止时 agent 级终态事件随断流丢失），useLiveElapsed 冻结在最后一次推送值。
 	const seconds = useLiveElapsed(
 		progress?.elapsedMs,
-		progress?.status === "running",
+		progress?.status === "running" && !isCompleted,
 	);
+	// 状态行文案：兜底中断（progress 仍停在 running）时显示「已中断」；
+	// details 精确标记且已 settle 的行维持原终态文案（已完成/出错）
+	const statusText =
+		interrupted && progress?.status === "running"
+			? t("common.statusInterrupted")
+			: progress
+				? statusLabel(progress.status)
+				: "";
 	const liveStats = progress ? countTools(progress.tools) : undefined;
 	const toolStats = liveStats ?? stats;
 	const hasProgress = !!progress;
@@ -154,6 +170,8 @@ function FleetTaskItem({
 					{t("blocks.fleet.taskPrefix", { index })}
 					{label}
 				</span>
+				{/* 中断徽标：紧跟任务行文案，琥珀警示色，与成功/失败区分 */}
+				{interrupted && <InterruptedBadge />}
 				<span className="ml-auto flex-shrink-0">
 					<Icon name={expanded ? "chevron-down" : "chevron-right"} size={10} />
 				</span>
@@ -173,7 +191,7 @@ function FleetTaskItem({
 					{hasProgress && (
 						<div className="text-[calc(11px*var(--font-scale))] text-tertiary mt-1">
 							<span className="font-semibold">{agent}</span> ·{" "}
-							{statusLabel(progress!.status)} · {seconds}s
+							{statusText} · {seconds}s
 						</div>
 					)}
 				</div>
@@ -243,10 +261,19 @@ export const FleetCard = memo(function FleetCard({
 	// 这里按运行时实际形状读取，取不到时自然退化为 undefined（下方 persistedStats 已有兑底）。
 	const fleetDetails = (
 		result as unknown as
-			| { details?: { fleet?: Record<string, ToolStats> } }
+			| {
+					details?: {
+						fleet?: Record<string, ToolStats>;
+						/** 按任务序号（String(index)）标记该子任务是否非正常终态；旧数据无此字段 */
+						interrupted?: Record<string, boolean>;
+					};
+			}
 			| undefined
 	)?.details;
 	const persistedStats = fleetDetails?.fleet;
+	// 子任务中断标记：按序号映射；老数据无该字段时全部为 undefined（渲染行为不变），
+	// 此时由下方 rows 映射里的「父终态 + progress 仍 running」兜底
+	const interruptedMap = fleetDetails?.interrupted;
 	// 按 agent 顺序切分各任务回复；null 表示无法可靠拆分（正文误含【】/老数据）→ 降级聚合显示
 	const agentNames = tasks.map((t) => t.agent);
 	const repliesByAgent = extractAgentReplies(full, agentNames);
@@ -273,6 +300,12 @@ export const FleetCard = memo(function FleetCard({
 		// 统计优先按任务序号取（同名 agent 不再互相覆盖）；
 		// 老数据 details.fleet 按名字 key 时降级按 agent 名取
 		stats: persistedStats?.[String(r.index - 1)] ?? persistedStats?.[r.agent],
+		// 中断标记：details.interrupted 精确标记优先；兜底——父调用已终态（result 已返回，
+		// 无论成功/失败/中止）但该行 progress 仍停在 running（用户停止时 agent 级终态事件
+		// 随断流丢失）→ 强制归「已中断」。settled（done/error）行不受兜底影响。
+		interrupted:
+			interruptedMap?.[String(r.index - 1)] === true ||
+			(!!result && r.progress?.status === "running"),
 		replyText: !result
 			? r.progress?.output
 			: canSplit
@@ -282,6 +315,8 @@ export const FleetCard = memo(function FleetCard({
 	const visibleRows = rows.filter(
 		(r) => r.progress || r.stats || (r.replyText != null && r.replyText !== ""),
 	);
+	// 卡片级中断：任一子任务非正常终态即在头部徽标提示（详情看子任务行）
+	const anyInterrupted = rows.some((r) => r.interrupted);
 
 	return (
 		<ProcessCard
@@ -294,6 +329,9 @@ export const FleetCard = memo(function FleetCard({
 						<Spinner />
 						<span>{t("blocks.fleet.metaRunning")}</span>
 					</>
+				) : anyInterrupted ? (
+					// 任一子任务中断即在头部提示（中断优先于失败；详情见子任务行徽标）
+					<InterruptedBadge />
 				) : failed ? (
 					<>
 						<Icon name="x" size={12} />
@@ -331,7 +369,9 @@ export const FleetCard = memo(function FleetCard({
 			{!canSplit && full !== "" && (
 				<div
 					data-testid="text-block"
-					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
+					className={`mt-2 pt-2 border-t border-hairline ${
+						failed ? "text-danger" : anyInterrupted ? "text-warning" : ""
+					}`}
 				>
 					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
 						<Icon name="share" size={11} />
@@ -359,6 +399,7 @@ export const FleetCard = memo(function FleetCard({
 							progress={r.progress}
 							stats={r.stats}
 							isCompleted={!!result}
+							interrupted={r.interrupted}
 							replyText={r.replyText}
 							sessionId={sessionId}
 						/>
