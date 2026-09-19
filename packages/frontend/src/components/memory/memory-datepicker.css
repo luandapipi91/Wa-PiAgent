@@ -1,0 +1,88 @@
+/*
+ * 记忆列表「日期范围」选择器样式。
+ * 来源：视觉 PoC（packages/frontend/src/poc-date.tsx 的 rdpDarkCSS 常量），
+ * 视觉/交互已获认可（双月并排 + 快捷片 + 底部预览 + 清除/确定），此处原样落地。
+ * react-day-picker v10 深色适配：全部用项目 CSS 变量覆盖 rdp 默认浅色样式。
+ */
+
+/* ★ 日期范围按钮（收起态） */
+.dp-btn {
+	display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 5px 11px;
+	border-radius: 999px; cursor: pointer; user-select: none; white-space: nowrap;
+	background: var(--surface); border: 1px solid var(--hairline); color: var(--text-secondary);
+}
+.dp-btn:hover { background: var(--surface-hover); }
+.dp-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.dp-btn .dp-clear {
+	display: none; align-items: center; justify-content: center;
+	width: 14px; height: 14px; border-radius: 50%;
+	background: var(--hairline-strong); color: var(--text-primary); font-size: 9px; line-height: 1;
+}
+.dp-btn.active:hover .dp-clear { display: flex; }
+
+/* ★ DayPicker 弹层（深色适配） */
+.dp-pop {
+	position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+	background: var(--surface-elevated); border: 1px solid var(--hairline-strong); border-radius: 12px;
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); padding: 12px 14px 10px; width: 508px;
+}
+.dp-quick { display: flex; gap: 6px; margin-bottom: 10px; }
+.dp-quick .q {
+	font-size: 10.5px; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+	background: var(--surface); border: 1px solid var(--hairline); color: var(--text-secondary);
+}
+.dp-quick .q:hover { border-color: var(--accent); color: var(--accent); }
+.dp-foot {
+	display: flex; align-items: center; justify-content: space-between;
+	margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hairline);
+}
+.dp-preview { font-size: 11px; color: var(--text-secondary); }
+.dp-foot-btns { display: flex; gap: 6px; }
+.dp-foot .f-btn {
+	font-size: 10.5px; padding: 4px 11px; border-radius: 6px; cursor: pointer;
+	background: transparent; border: 1px solid var(--hairline); color: var(--text-secondary);
+}
+.dp-foot .f-primary { background: var(--accent); border: none; color: var(--on-accent); font-weight: 600; }
+.dp-tip { font-size: 10px; color: var(--text-tertiary); margin-top: 6px; text-align: center; }
+
+/* react-day-picker 深色覆盖：rdp 默认浅色 → 项目深色变量 */
+.poc-dp .rdp-months { flex-direction: row; flex-wrap: nowrap; gap: 14px; }
+.poc-dp .rdp-root {
+	--rdp-accent-color: var(--on-accent);
+	--rdp-accent-background-color: var(--accent);
+	--rdp-day-height: 28px;
+	--rdp-day-width: 30px;
+	--rdp-day_button-height: 28px;
+	--rdp-day_button-width: 30px;
+	--rdp-day_button-border-radius: 7px;
+	--rdp-selected-border: none;
+	--rdp-selected-font: 600 11px inherit;
+	background: transparent;
+	color: var(--text-primary);
+	font-family: inherit;
+	font-size: 11px;
+}
+.poc-dp .rdp-month_caption { color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.poc-dp .rdp-chevron { fill: var(--text-secondary); }
+.poc-dp .rdp-weekday { color: var(--text-tertiary); font-size: 10px; }
+.poc-dp .rdp-day_button {
+	color: var(--text-primary);
+	border: none;
+}
+.poc-dp .rdp-day_button:hover { background: var(--surface-hover); }
+.poc-dp .rdp-outside { opacity: 0.35; }
+.poc-dp .rdp-selected .rdp-day_button { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.poc-dp .rdp-range_start, .poc-dp .rdp-range_end { background: transparent; }
+.poc-dp .rdp-range_start .rdp-day_button, .poc-dp .rdp-range_end .rdp-day_button {
+	background: var(--accent); color: var(--on-accent); font-weight: 600;
+	border-radius: 7px;
+}
+.poc-dp .rdp-range_middle { background: var(--accent-soft) !important; border-radius: 0; }
+.poc-dp .rdp-range_middle .rdp-day_button { background: transparent; color: var(--text-primary); font-weight: 400; }
+.poc-dp .rdp-today .rdp-day_button { color: var(--accent); font-weight: 600; }
+.poc-dp .rdp-selected.rdp-today .rdp-day_button { color: var(--on-accent); }
+.poc-dp .rdp-nav { gap: 4px; }
+.poc-dp .rdp-button_previous, .poc-dp .rdp-button_next {
+	width: 24px; height: 24px; border-radius: 6px;
+}
+.poc-dp .rdp-button_previous:hover, .poc-dp .rdp-button_next:hover { background: var(--surface-hover); }
