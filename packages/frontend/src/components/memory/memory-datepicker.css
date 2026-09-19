@@ -1,7 +1,8 @@
 /*
  * 记忆列表「日期范围」选择器样式。
- * 来源：视觉 PoC（packages/frontend/src/poc-date.tsx 的 rdpDarkCSS 常量），
- * 视觉/交互已获认可（双月并排 + 快捷片 + 底部预览 + 清除/确定），此处原样落地。
+ * 来源：视觉 PoC 的 rdpDarkCSS 常量，视觉/交互经用户 PoC 确认后原样落地
+ * （设计定稿见 docs/superpowers/plans/2026-09-19-memory-date-pagination.md：
+ * 双月并排 + 快捷片 + 底部预览 + 清除/确定）。
  * react-day-picker v10 深色适配：全部用项目 CSS 变量覆盖 rdp 默认浅色样式。
  */
 

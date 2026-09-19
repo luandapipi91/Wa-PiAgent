@@ -1,10 +1,12 @@
 // DatePickerButton — 记忆列表「日期范围」筛选（react-day-picker v10 封装）
-// 视觉/交互已经 PoC 确认（packages/frontend/src/poc-date.tsx，用户认可后落地）：
+// 视觉/交互经用户 PoC 确认后落地（设计定稿见
+// docs/superpowers/plans/2026-09-19-memory-date-pagination.md）：
 // 双月并排 + 快捷片 + 底部预览 + 清除/确定；深色适配走项目 CSS 变量。
 // 受控契约：from/to 由外部持有，本组件只在「确定/清除」时通过 onChange 上报。
 import { useEffect, useRef, useState } from "react";
 import { DayPicker, type DateRange } from "react-day-picker";
 import { zhCN } from "react-day-picker/locale";
+import { useTranslation } from "../../i18n/useTranslation";
 import "react-day-picker/style.css";
 import "./memory-datepicker.css";
 
@@ -20,6 +22,7 @@ interface Props {
 }
 
 export function DatePickerButton({ from, to, onChange }: Props) {
+	const { t } = useTranslation();
 	const [open, setOpen] = useState(false);
 	// 弹层内暂存：确定才回调（draft 用 Date 对象与 DayPicker 对接）
 	const [draft, setDraft] = useState<DateRange | undefined>();
@@ -45,8 +48,8 @@ export function DatePickerButton({ from, to, onChange }: Props) {
 		draft?.from && draft?.to
 			? `${fmtLocal(draft.from)} ~ ${fmtLocal(draft.to)}`
 			: draft?.from
-				? `${fmtLocal(draft.from)} ~ 选择结束日期`
-				: "选择起始日期";
+				? `${fmtLocal(draft.from)} ~ ${t("memory.datePickEnd")}`
+				: t("memory.datePickStart");
 
 	// 快捷片：直接把范围灌进 draft（底部预览可见，点确定生效）
 	function applyQuick(kind: string) {
@@ -69,13 +72,13 @@ export function DatePickerButton({ from, to, onChange }: Props) {
 				// 每次打开都从外部 props 重建 draft，外部状态变化不会残留旧 draft
 				onClick={() => { setOpen((v) => !v); setDraft(from && to ? { from: new Date(`${from}T00:00:00`), to: new Date(`${to}T23:59:59.999`) } : undefined); }}
 			>
-				📅 <span>{hasValue ? `${from} ~ ${to}` : "日期范围"}</span>
+				📅 <span>{hasValue ? `${from} ~ ${to}` : t("memory.dateRange")}</span>
 				<span style={{ color: "var(--text-tertiary)" }}>▾</span>
 				{hasValue && (
 					<span
 						className="dp-clear"
 						data-testid="memory-date-clear"
-						title="清除"
+						title={t("memory.dateClear")}
 						onClick={(e) => { e.stopPropagation(); onChange(null, null); setOpen(false); }}
 					>✕</span>
 				)}
@@ -83,10 +86,10 @@ export function DatePickerButton({ from, to, onChange }: Props) {
 			{open && (
 				<div className="dp-pop poc-dp" data-testid="memory-date-pop">
 					<div className="dp-quick">
-						<button type="button" className="q" onClick={() => applyQuick("today")}>今天</button>
-						<button type="button" className="q" onClick={() => applyQuick("7d")}>近 7 天</button>
-						<button type="button" className="q" onClick={() => applyQuick("30d")}>近 30 天</button>
-						<button type="button" className="q" onClick={() => applyQuick("month")}>本月</button>
+						<button type="button" className="q" onClick={() => applyQuick("today")}>{t("memory.quickToday")}</button>
+						<button type="button" className="q" onClick={() => applyQuick("7d")}>{t("memory.quick7d")}</button>
+						<button type="button" className="q" onClick={() => applyQuick("30d")}>{t("memory.quick30d")}</button>
+						<button type="button" className="q" onClick={() => applyQuick("month")}>{t("memory.quickMonth")}</button>
 					</div>
 					<DayPicker
 						mode="range"
@@ -101,21 +104,21 @@ export function DatePickerButton({ from, to, onChange }: Props) {
 						<span className="dp-preview">{previewText}</span>
 						<div className="dp-foot-btns">
 							{/* 路径一：弹层内清除按钮 */}
-							<button type="button" className="f-btn" onClick={() => { onChange(null, null); setOpen(false); }}>清除</button>
+							<button type="button" className="f-btn" onClick={() => { onChange(null, null); setOpen(false); }}>{t("memory.dateClear")}</button>
 							<button
 								type="button"
 								className="f-btn f-primary"
 								data-testid="memory-date-ok"
 								onClick={() => {
-									if (draft?.from && !draft.to) setDraft({ from: draft.from, to: draft.to }); // 单点=只看当天
+									// 单点=只看当天（to 缺省取 from）
 									const f = draft?.from, t = draft?.to ?? draft?.from;
 									onChange(f ? fmtLocal(f) : null, t ? fmtLocal(t) : null);
 									setOpen(false);
 								}}
-							>确定</button>
+							>{t("memory.dateOk")}</button>
 						</div>
 					</div>
-					<div className="dp-tip">点起点 → 点终点；ESC 或点击外部关闭</div>
+					<div className="dp-tip">{t("memory.datePickHint")}</div>
 				</div>
 			)}
 		</div>

@@ -470,8 +470,11 @@ const zh = {
 		quickMonth: "本月",
 		loadMoreHint: "加载中…",
 		listEnd: "已全部加载 {{count}} 条",
-		dateFilterEmptyTitle: "没有符合筛选条件的记忆",
-		dateFilterEmptyHint: "调整日期范围或清除筛选试试",
+		dateClear: "清除",
+		dateOk: "确定",
+		datePickStart: "选择起始日期",
+		datePickEnd: "选择结束日期",
+		datePickHint: "点起点 → 点终点；ESC 或点击外部关闭",
 	},
 	memoryCard: {
 		scopeGlobal: "○ 全局",

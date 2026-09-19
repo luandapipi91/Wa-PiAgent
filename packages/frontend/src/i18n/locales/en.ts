@@ -485,8 +485,11 @@ const en = {
 		quickMonth: "This month",
 		loadMoreHint: "Loading…",
 		listEnd: "All {{count}} entries loaded",
-		dateFilterEmptyTitle: "No memories match the filter",
-		dateFilterEmptyHint: "Try adjusting or clearing the date range",
+		dateClear: "Clear",
+		dateOk: "OK",
+		datePickStart: "Pick start date",
+		datePickEnd: "Pick end date",
+		datePickHint: "Click start, then end; ESC or click outside to close",
 	},
 	memoryCard: {
 		scopeGlobal: "○ Global",
