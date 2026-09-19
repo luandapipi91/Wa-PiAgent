@@ -334,7 +334,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     }
 
     const seq = ++searchFetchSeq;
-    set({ searching: true, searchParams: params });
+    // 与 loadPage 对 loadingMore 的复位对称：新检索接管时废弃在途翻页，防止 searchMore 守卫卡死
+    set({ searching: true, searchParams: params, searchLoadingMore: false });
     api
       .get(`/api/memories/search?${buildSearchQuery(params, 0)}`)
       .then((data: any) => {

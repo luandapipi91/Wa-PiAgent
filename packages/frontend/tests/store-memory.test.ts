@@ -264,6 +264,34 @@ test("search(): 请求失败不抛异常，searching 结束且 results 置 []", 
   expect(s.searchHasMore).toBe(false);
 });
 
+test("search(): 发起时复位 searchLoadingMore，防止在途翻页卡死新检索的滚动加载", () => {
+  // 模拟旧检索的 searchMore 在途（置 true）+ 旧 searchParams 非空
+  useMemoryStore.setState({
+    searchParams: {
+      query: "旧词",
+      scope: "global",
+      projectId: null,
+      kind: null,
+      archivedOnly: false,
+      dateFrom: null,
+      dateTo: null,
+    },
+    searchResults: [mkHit("hit-1")],
+    searchLoadingMore: true,
+  });
+  // 同步阶段断言：发起新检索的 set 里已复位（与 loadPage 对 loadingMore 的复位对称）
+  useMemoryStore.getState().search({
+    query: "新词",
+    scope: "global",
+    projectId: null,
+    kind: null,
+    archivedOnly: false,
+    dateFrom: null,
+    dateTo: null,
+  });
+  expect(useMemoryStore.getState().searchLoadingMore).toBe(false);
+});
+
 test("searchMore(): offset=已检索条数，去重追加并更新 searchHasMore", async () => {
   useMemoryStore.setState({
     searchParams: {
