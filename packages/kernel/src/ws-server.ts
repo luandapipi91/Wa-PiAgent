@@ -2840,6 +2840,24 @@ export class WSServer {
 				break;
 			}
 			// ===== 记忆管理 =====
+			case "memory:list:page": {
+				try {
+					const result = await this.opts.memoryStore.listPage({
+						scope: event.scope || "global",
+						projectId: event.projectId || undefined,
+						tab: event.tab,
+						kind: event.kind || undefined,
+						since: event.since,
+						until: event.until,
+						offset: event.offset,
+						limit: event.limit,
+					});
+					reply({ type: "memory:list:page", ...result });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
 			case "memory:list": {
 				try {
 					const result = await this.opts.memoryStore.list(event.projectId);
@@ -2903,7 +2921,7 @@ export class WSServer {
 				try {
 					// 空串参数归一为 undefined：路由层用 "" 表示「未传」，直接下传会让 DAO
 					// 按 scope='' / kind='' 过滤而一律零命中
-					const { results, totalMatched } = await this.opts.memoryStore.search({
+					const { results, totalMatched, hasMore } = await this.opts.memoryStore.search({
 						query: event.query,
 						scope: event.scope || undefined,
 						kind: event.kind || undefined,
@@ -2911,14 +2929,11 @@ export class WSServer {
 						limit: event.limit,
 						includeArchived: event.includeArchived,
 						archivedOnly: event.archivedOnly,
+						since: event.since,
+						until: event.until,
+						offset: event.offset,
 					});
-					reply({
-						type: "memory:search",
-						results,
-						totalMatched,
-						// 占位：任务 5 接入 store 的 hasMore 后替换
-						hasMore: false,
-					});
+					reply({ type: "memory:search", results, totalMatched, hasMore });
 				} catch (err) {
 					replyError(reply, err);
 				}

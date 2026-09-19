@@ -111,6 +111,84 @@ test("GET /api/memories/search 的 archivedOnly 参数映射为事件字段", as
 	expect((seen[0] as any).archivedOnly).toBe(false);
 });
 
+// ===== 分页分支（任务 5）：带正整数 limit 即 memory:list:page =====
+
+test("GET /api/memories?limit=50 走 memory:list:page 且参数透传", async () => {
+	const { r, seen } = makeRecordingRouter();
+	await r.handle(
+		new Request(
+			"http://x/api/memories?limit=50&scope=project&projectId=p1&tab=archived&kind=knowledge&since=1000&until=2000&offset=50",
+		),
+	);
+	expect(seen).toEqual([
+		{
+			type: "memory:list:page",
+			scope: "project",
+			projectId: "p1",
+			tab: "archived",
+			kind: "knowledge",
+			since: 1000,
+			until: 2000,
+			offset: 50,
+			limit: 50,
+		},
+	]);
+});
+
+test("GET /api/memories 无 limit 保持旧 memory:list 行为", async () => {
+	const { r, seen } = makeRecordingRouter();
+	await r.handle(new Request("http://x/api/memories?projectId=abc"));
+	expect(seen).toEqual([{ type: "memory:list", projectId: "abc" }]);
+});
+
+test("GET /api/memories limit 非法（0/负/非整数/abc）回落旧 memory:list", async () => {
+	const { r, seen } = makeRecordingRouter();
+	await r.handle(new Request("http://x/api/memories?limit=0"));
+	await r.handle(new Request("http://x/api/memories?limit=-2"));
+	await r.handle(new Request("http://x/api/memories?limit=2.5"));
+	await r.handle(new Request("http://x/api/memories?limit=abc"));
+	expect(seen.map((e) => (e as any).type)).toEqual([
+		"memory:list",
+		"memory:list",
+		"memory:list",
+		"memory:list",
+	]);
+});
+
+test("GET /api/memories 分页参数非法值回落（since=abc → undefined）", async () => {
+	const { r, seen } = makeRecordingRouter();
+	await r.handle(
+		new Request("http://x/api/memories?limit=50&since=abc&offset=-3"),
+	);
+	// 非法 since/offset 不进事件（undefined → 分发/store 层视为未设）；tab/scope 缺省
+	expect((seen[0] as any).since).toBeUndefined();
+	expect((seen[0] as any).offset).toBeUndefined();
+	expect((seen[0] as any).tab).toBe("active");
+	expect((seen[0] as any).scope).toBe("global");
+});
+
+test("GET /api/memories/search 透传 since/until/offset", async () => {
+	const { r, seen } = makeRecordingRouter();
+	await r.handle(
+		new Request(
+			"http://x/api/memories/search?q=hi&since=100&until=200&offset=10&limit=5",
+		),
+	);
+	expect((seen[0] as any).since).toBe(100);
+	expect((seen[0] as any).until).toBe(200);
+	expect((seen[0] as any).offset).toBe(10);
+	// 非法值回落 undefined：不污染时间窗与偏移
+	seen.length = 0;
+	await r.handle(
+		new Request(
+			"http://x/api/memories/search?q=hi&since=abc&until=-5&offset=1.5",
+		),
+	);
+	expect((seen[0] as any).since).toBeUndefined();
+	expect((seen[0] as any).until).toBeUndefined();
+	expect((seen[0] as any).offset).toBeUndefined();
+});
+
 test("既有记忆路由未被改动：list / purge 仍映射原事件", async () => {
 	const { r, seen } = makeRecordingRouter();
 	await r.handle(new Request("http://x/api/memories?projectId=p1"));
@@ -335,6 +413,27 @@ test("GET /api/memories/search：未传 scope 但 projectId 解析不到 → 400
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as any;
 		expect(body.code).toBe("project.notFound");
+	} finally {
+		await server.stop();
+	}
+});
+
+test("GET /api/memories?limit=2：走 memory:list:page 全链路，返回 entries/hasMore/counts", async () => {
+	const { server, port } = await startTestServer();
+	try {
+		for (const s of ["一", "二", "三"]) {
+			await seedViaApi(port, { scope: "global", text: `分页样本 ${s}` });
+		}
+
+		const res = await fetch(`http://127.0.0.1:${port}/api/memories?limit=2`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as any;
+		expect(body.type).toBe("memory:list:page");
+		expect(body.entries).toHaveLength(2);
+		// limit=2 < 总数 3：还有下一页
+		expect(body.hasMore).toBe(true);
+		// 徽标口径计数：不带 kind/时间窗的全量总数（active 与 archived 各自）
+		expect(body.counts).toEqual({ active: 3, archived: 0 });
 	} finally {
 		await server.stop();
 	}

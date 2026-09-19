@@ -5,14 +5,40 @@ import type { MemoryKind, MemoryScope } from "@wa-pi/shared";
 import type { RouteRegistrar, RouteContext } from "./types";
 import { readJsonBody } from "./types";
 
+/** since/until：毫秒时间戳；非法/非正数 → undefined */
+function toMsParam(raw: string | null): number | undefined {
+  const n = Number(raw ?? "");
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+/** offset：正整数；非法 → undefined（缺省 0 由 store 层兜底） */
+function toOffsetParam(raw: string | null): number | undefined {
+  const n = Number(raw ?? "");
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 export const registerMemoryRoutes: RouteRegistrar = (
   r,
   callApi,
   ctx: RouteContext,
 ) => {
-  // 列表：GET 无 body，projectId 走 query
+  // 列表：GET 无 body，projectId 走 query。带正整数 limit 即分页模式（memory:list:page）
   r.add("GET", "/api/memories", async (req) => {
     const q = new URL(req.url).searchParams;
+    const limit = Number(q.get("limit") ?? "");
+    if (Number.isInteger(limit) && limit > 0) {
+      return callApi({
+        type: "memory:list:page",
+        scope: (q.get("scope") || "global") as MemoryScope,
+        projectId: q.get("projectId") ?? undefined,
+        tab: q.get("tab") === "archived" ? "archived" : "active",
+        // MemoryListPageEvent.kind 不容空串：未传直接归一 undefined（分发层再兜底）
+        kind: (q.get("kind") || undefined) as MemoryKind | undefined,
+        since: toMsParam(q.get("since")),
+        until: toMsParam(q.get("until")),
+        offset: toOffsetParam(q.get("offset")),
+        limit,
+      });
+    }
     return callApi({
       type: "memory:list",
       projectId: q.get("projectId") ?? "",
@@ -84,6 +110,9 @@ export const registerMemoryRoutes: RouteRegistrar = (
       limit: Number.isInteger(limit) && limit > 0 ? limit : 10,
       includeArchived: q.get("includeArchived") === "true",
       archivedOnly: q.get("archivedOnly") === "true",
+      since: toMsParam(q.get("since")),
+      until: toMsParam(q.get("until")),
+      offset: toOffsetParam(q.get("offset")),
     });
   });
   r.add("GET", "/api/memories/config", async () =>
