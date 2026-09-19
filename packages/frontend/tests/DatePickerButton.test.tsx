@@ -1,10 +1,19 @@
 // DatePickerButton 组件测试：受控 props 契约（from/to 外部持有，onChange 上报）
 // bun:test + @testing-library/react；DayPicker 日期格的 aria-label 由 zhCN locale 生成
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterAll, jest } from "bun:test";
 import { render, fireEvent } from "@testing-library/react";
 import { DatePickerButton } from "../src/components/memory/DatePickerButton";
 
 describe("DatePickerButton", () => {
+	// 锚定系统时间到 2026-09：组件默认月取 new Date()，日期格 aria-label 含当月；不锚定则 2026-10 起用例必挂
+	// 注意：锚定日不能是 1 日/15 日（当天格子 label 会带 zhCN 的「今天，」前缀，破坏 ^前缀查找），
+	// 故选 9 月 8 日；Windows 下 Bun.setSystemTime 未实现，改用 bun:test 内建 jest 假时钟，语义等价
+	jest.useFakeTimers();
+	jest.setSystemTime(new Date("2026-09-08T00:00:00"));
+	afterAll(() => {
+		jest.useRealTimers(); // 还原真实时间，避免污染其他测试文件
+	});
+
 	test("点击按钮弹出日历，选择范围后确定回调 YYYY-MM-DD", () => {
 		let got: [string | null, string | null] = [null, null];
 		const { getByTestId } = render(
