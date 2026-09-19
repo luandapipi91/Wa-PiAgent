@@ -1,3 +1,11 @@
+## 2026-09-19 — v0.5.0 发版（委派判据优化 + 预览禁嵌降级 + 会话资源释放）
+
+- 版本：0.4.8 → 0.5.0。
+- 优化：委派提示词多轮精修（fleet/单派选择正确率 88%→100%，四部分 ≤600 tok）；预览遇 X-Frame-Options/CSP 禁嵌自动降级为应用内浏览器窗口。
+- 修复：删除会话先温和停止再拆资源；压缩守卫支持目录外思考模型 reasoning 标记；self-protection 提示词改运行时按实际 bridge 端口生成。
+- 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
+- 影响范围：kernel+shared（提示词/委派/压缩守卫）、desktop+frontend（预览降级）、kernel（会话删除）。
+
 ## 2026-09-19
 
 - 修复(kernel)：删除运行中/冷启动中的会话未真正停止后台消耗——disposeSession 只强杀不先停止，而冷启动窗口 rpc-client.dispose() 对未就绪 proc 是 no-op，删除后 pi 进程照常起来跑完任务成孤儿；改为先复用 abort 完整语义（清队列+级联停子代理+client.abort RPC+超时强杀+合成 agent_end）再拆资源。新增 3 单测（busy 温和停止/冷启动防孤儿/abort 无响应不卡死），agent-manager 123 pass、idle-reap 4 pass、session-messages 7 pass 全绿。
