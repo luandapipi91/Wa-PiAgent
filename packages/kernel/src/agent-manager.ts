@@ -2135,10 +2135,24 @@ export class AgentManager {
 		);
 	}
 
-	/** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
+	/** 清理单个会话：标记 disposed（防创建中被复用）+ 先温和停止再拆除资源 */
 	async disposeSession(sessionId: string): Promise<void> {
 		// 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
 		this.disposed.add(sessionId);
+		// 删除前先温和停止。直接强杀有两个洞：
+		// ① busy 会话被 SIGTERM 硬叔，pi 侧 agent loop 无机会收尾，
+		//    且不合成 agent_end → 其他端/视图永远卡在思考态；
+		// ② 冷启动窗口 proc 未就绪时 rpc-client.dispose() 开头的
+		//    `if (!proc || !isAlive()) return` 直接返回 → 进程照常起来
+		//    把排队任务跑完，成为 sessions Map 之外的孤儿继续消耗。
+		// 复用 abort 的完整语义（清队列 + 级联停子代理 + client.abort RPC +
+		// 超时强杀兕底 + 合成 agent_end）。abort 超时路径已自行 _teardownSession，
+		// 下方再调一次是幂等的（handle 已从 Map 移除时为 no-op）。
+		try {
+			await this.abort(sessionId);
+		} catch {
+			/* abort 失败不阻塞拆除：_teardownSession 兜底杀进程 */
+		}
 		this._teardownSession(sessionId);
 	}
 

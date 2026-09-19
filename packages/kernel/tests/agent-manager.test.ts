@@ -469,6 +469,61 @@ test("disposeSession 清理 client / bridge 上下文 / 系统提示词临时文
 	expect(existsSync(promptFile)).toBe(false);
 });
 
+test("disposeSession 对运行中（busy）会话先温和 abort 再拆除（删除≠强杀）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	// 模拟 agent 运行中：agent_start 后不 settled（busy=true）
+	fakes[0].emit({ type: "agent_start" });
+	expect(am.isSessionBusy(session.id)).toBe(true);
+
+	await am.disposeSession(session.id);
+
+	// 先温和停止：client.abort RPC 被调用（清队列 + 停 agent loop + 合成 agent_end）
+	expect(fakes[0].aborts).toBe(1);
+	// 随后照常拆除：进程 dispose、Map 清理
+	expect(fakes[0].alive).toBe(false);
+	expect((am as any).sessions.has(session.id)).toBe(false);
+});
+
+test("disposeSession 在冷启动窗口调用：启动完成后拆除且先收到 abort（防孤儿进程）", async () => {
+	const fakes: FakeSessionClient[] = [];
+	const { project, session, am } = await setup({
+		createClientFn: slowFactory(fakes, 80),
+	});
+	const startPromise = am.ensureStarted(project.id, "dev", session.id);
+	// handle 提前注册（client.start() 之前）→ 此刻即真实场景的「proc 未就绪」窗口：
+	// rpc-client.dispose() 对未就绪 proc 是 no-op，不先 abort 进程就会照常起来跑完任务成孤儿
+	await waitFor(() => (am as any).sessions.has(session.id));
+	await am.disposeSession(session.id);
+	// SESSION_DISPOSED 抛出属预期（dispose 与冷启动并发）
+	await startPromise.catch(() => {});
+
+	expect(fakes[0].aborts).toBe(1);
+	expect(fakes[0].alive).toBe(false);
+	expect((am as any).sessions.has(session.id)).toBe(false);
+});
+
+test("disposeSession：abort RPC 无响应时超时强杀兜底（删除不卡死 + 合成 agent_end）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({
+		abortTimeoutMs: 50,
+		events,
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].emit({ type: "agent_start" });
+	fakes[0].hangAbort = true; // 模拟 pi agent loop 卡死：abort RPC 永不响应
+
+	await am.disposeSession(session.id); // 应在超时后返回，不悬挂
+
+	expect(fakes[0].alive).toBe(false);
+	expect((am as any).sessions.has(session.id)).toBe(false);
+	// 超时强杀路径合成 message_end(error) + agent_end：其他端/视图退出思考态
+	const types = events
+		.filter((e) => e.sessionId === session.id)
+		.map((e) => e.e.type);
+	expect(types).toContain("agent_end");
+});
+
 // ─── prompt / 模型 / thinking ───────────────────────────────────────────────
 
 test("prompt — 未选择模型时抛错", async () => {
