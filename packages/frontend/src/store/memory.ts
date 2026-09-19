@@ -380,8 +380,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
           }
           const got = data.results ?? [];
           // 去重合并，与 loadMore 同型。
-          // 注意：内核 FTS 候选池硬上限 50，want 超过后服务端 hasMore 恒 false 且返回空页，
-          // 此处不特判（多发一次空请求无害）。
+          // 注意：内核候选池已随 want（offset+limit）按需扩大，hasMore 正常翻转；
+          // 已到底时多发一次空请求无害，故不特判。
           const seen = new Set(latest.map((r) => r.id));
           set({
             searchResults: [

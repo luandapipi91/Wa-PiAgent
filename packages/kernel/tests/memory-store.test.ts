@@ -695,6 +695,47 @@ test("search：since/until 过滤 + offset 翻页 + hasMore 口径", async () =>
   expect(r2.hasMore).toBe(false);
 });
 
+// ── 终审修复 1（Important）：检索翻页真实失效——dao.search 候选池按 want 扩大 ──
+// 真实链路（store.search → dao.search）：修复前候选池硬截 50，第二页 offset=50 在
+// 池内 slice(50) 恒为空，第 51 条起的命中永不可见。命中数 > 50 即复现。
+
+test("search 检索态滚动加载：FTS 路径候选池按 want 扩大，两页取全 80 条命中", async () => {
+  const store = makeStore();
+  const total = 80;
+  for (let i = 0; i < total; i++) await store.add("global", `翻页深挖 样本${i}`);
+
+  const page1 = await store.search({ query: "翻页深挖", limit: 50 });
+  expect(page1.results).toHaveLength(50);
+  expect(page1.hasMore).toBe(true);
+
+  const page2 = await store.search({ query: "翻页深挖", limit: 50, offset: 50 });
+  expect(page2.results).toHaveLength(30);
+  expect(page2.hasMore).toBe(false);
+
+  // 两页并集恰为全部命中且无重叠（只断言集合性质，不依赖具体排序）
+  const ids = new Set([...page1.results, ...page2.results].map((r) => r.id));
+  expect(ids.size).toBe(total);
+  expect(page1.totalMatched).toBe(total);
+});
+
+test("search 检索态滚动加载：substring 回退路径（单字查询）同样不受候选池 50 截断", async () => {
+  const store = makeStore();
+  const total = 60;
+  // 「幽」只嵌入汉字串中（写入侧 bigram 只存二元组，单字查询 FTS 零命中 → 走 LIKE 回退）
+  for (let i = 0; i < total; i++) await store.add("global", `谜样幽影样本${i}`);
+
+  const page1 = await store.search({ query: "幽", limit: 50 });
+  expect(page1.results).toHaveLength(50);
+  expect(page1.hasMore).toBe(true);
+
+  const page2 = await store.search({ query: "幽", limit: 50, offset: 50 });
+  expect(page2.results).toHaveLength(10);
+  expect(page2.hasMore).toBe(false);
+  expect(
+    new Set([...page1.results, ...page2.results].map((r) => r.id)).size,
+  ).toBe(total);
+});
+
 test("search：时间窗外全部排除时 totalMatched 为 0", async () => {
   const store = makeStore();
   await store.add("global", "年代久远检索样本");

@@ -355,6 +355,11 @@ export class MemoryDao {
    *
    * 打分：子串命中之间无强弱之分，bm25 分量统一取 1，仍叠加时间衰减与 kind 权重，
    * 与 FTS 路径的排序语义保持一致。
+   * 候选池：SQL 里至少取 CANDIDATE_LIMIT（50）条作护栏，但请求方（store 层检索态
+   * 滚动加载传 want=offset+limit）需要更多时按需扩大——否则第二页 slice(offset)
+   * 恒为空，第 51 条之后的命中永不可见。substring 回退路径同口径。
+   * 池内先按 updated_at DESC 排序再截断：LIMIT 是确定性前缀（最新的 N 条），
+   * 各页基准集一致，store 层 offset 切片才不重叠/不遗漏。
    */
   private searchBySubstring(
     rawQuery: string,
@@ -373,7 +378,7 @@ export class MemoryDao {
                  OR m.title LIKE ? ESCAPE '\\'
                  OR m.tags LIKE ? ESCAPE '\\') ${clause.extra}
           ORDER BY m.updated_at DESC
-          LIMIT ${CANDIDATE_LIMIT}`,
+          LIMIT ${Math.max(CANDIDATE_LIMIT, opts.limit ?? 0)}`,
       )
       .all(clause.like, clause.like, clause.like, ...clause.params) as RawRow[];
     if (rows.length === 0) return [];
@@ -455,7 +460,8 @@ export class MemoryDao {
            FROM memories_fts
            JOIN memories m ON m.id = memories_fts.memory_id
           WHERE memories_fts MATCH ? ${clause.extra}
-          LIMIT ${CANDIDATE_LIMIT}`,
+          ORDER BY m.updated_at DESC
+          LIMIT ${Math.max(CANDIDATE_LIMIT, opts.limit ?? 0)}`,
       )
       .all(clause.expr, ...clause.params) as Array<RawRow & { score: number }>;
 

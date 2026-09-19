@@ -362,8 +362,8 @@ test("search 命中后刷新 use_count 与 last_used_at", () => {
 
 test("countMatches 返回未截断的真实命中总数（不受 CANDIDATE_LIMIT 影响）", () => {
   for (let i = 0; i < 60; i++) add({ content: `发版记录第 ${i} 条` });
-  // 候选硬截断在 50，所以即便 limit 开到 100 也只能拿到 50 条
-  expect(dao.search("发版", { limit: 100 })).toHaveLength(50);
+  // 候选池随 want 按需扩大（≥50 护栏）：limit 开到 100 不再被截在 50，检索翻页可见全部命中
+  expect(dao.search("发版", { limit: 100 })).toHaveLength(60);
   expect(dao.countMatches("发版")).toBe(60);
 });
 
