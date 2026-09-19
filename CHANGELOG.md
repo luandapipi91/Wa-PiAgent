@@ -3,6 +3,7 @@
 - 版本：0.5.0 → 0.5.1（2 提交）。
 - 新增：delegate/fleet 中止/超时/异常路径保留部分进度（buildPartialProgressNote：工具统计+步骤清单+输出尾部）；卡片「已中断」第三终态（琥珀徽标/秒数冻结/子任务行级标记）。
 - 修复：fleet 失败/中断不再连坐丢结果；用户停止瞬间写 final 快照（修 33ms 晚到竞态）；中断轮次过渡文本不再误置为最终回复；合成 agent_end 不再误置未读圆点。
+- 修复(kernel+frontend)：非 git 仓库项目（如 hlk）控制台反复报 git/branches 400——branches/log 对 git.notRepo/git.unavailable 降级 200 空结果（与 status 降级语义对齐，corrupt 仓库等真实失败仍 400）；前端 refresh 改两段式先探测 status，非仓库不再请求 branches 且 status 不被 Promise.all 拖丢，GitGraphModal 非仓库不发 log 请求。
 - 验证：typecheck 全绿；四层回归全绿（隔离 worktree）。
 - 影响范围：kernel（子代理结果快照/中断路径）、frontend（DelegateCard/FleetCard/MessageList/store）。
 

@@ -49,18 +49,26 @@ export const useGitStore = create<GitState>((set, get) => {
 
 	return {
 		byProject: {},
-		// 拉取 status + branches；失败只记录 error，不抛出（工具栏按 error 弱化展示）
+		// 两段式：先取 status，非 git 仓库（isRepo:false）直接落空结果返回，
+		// 不再请求 branches——否则 branches 400 会把成功的 status 一并拖进 catch
+		// 丢弃，且每次挂载都反复报 400；是仓库才继续拉分支列表
 		refresh: async (projectId) => {
 			patch(projectId, { loading: true, error: null });
 			try {
-				const [status, branches] = await Promise.all([
-					api.get(
-						`/api/projects/${projectId}/git/status`,
-					) as Promise<GitStatusResult>,
-					api.get(
-						`/api/projects/${projectId}/git/branches`,
-					) as Promise<GitBranchesResult>,
-				]);
+				const status = (await api.get(
+					`/api/projects/${projectId}/git/status`,
+				)) as GitStatusResult;
+				if (!status.isRepo) {
+					patch(projectId, {
+						status,
+						branches: { current: "", branches: [] },
+						loading: false,
+					});
+					return;
+				}
+				const branches = (await api.get(
+					`/api/projects/${projectId}/git/branches`,
+				)) as GitBranchesResult;
 				patch(projectId, { status, branches, loading: false });
 			} catch (e) {
 				patch(projectId, {

@@ -93,7 +93,7 @@ export function createGitRoutes(
 			}
 		});
 
-		// GET /api/projects/:projectId/git/branches — 本地分支列表（非仓库 400）
+		// GET /api/projects/:projectId/git/branches — 本地分支列表（非仓库/git 不可用降级 200 空列表）
 		r.add(
 			"GET",
 			"/api/projects/:projectId/git/branches",
@@ -103,6 +103,14 @@ export function createGitRoutes(
 				try {
 					return Response.json(await gitBranches(resolved.cwd));
 				} catch (e) {
+					// 与 status 降级语义对齐：非 git 目录/未装 git 是常见用户环境而非错误。
+					// 返 400 会让前端 Promise.all 里成功的 status 一并被拖进 catch 丢弃，
+					// 且每次挂载都反复报 400；其余错误维持原 gitErrorResponse 逻辑
+					if (
+						e instanceof KernelError &&
+						(e.code === "git.notRepo" || e.code === "git.unavailable")
+					)
+						return Response.json({ current: "", branches: [] });
 					return gitErrorResponse(e);
 				}
 			},
@@ -116,6 +124,13 @@ export function createGitRoutes(
 			try {
 				return Response.json(await gitLog(resolved.cwd, limit));
 			} catch (e) {
+				// 与 status/branches 降级语义对齐（非 git 目录/未装 git 不算错误）；
+				// corrupt 等真实 git 失败仍走 gitErrorResponse 返 400
+				if (
+					e instanceof KernelError &&
+					(e.code === "git.notRepo" || e.code === "git.unavailable")
+				)
+					return Response.json({ commits: [] });
 				return gitErrorResponse(e);
 			}
 		});

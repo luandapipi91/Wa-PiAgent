@@ -5,7 +5,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { HttpRouter } from "../src/http-router";
@@ -147,16 +147,24 @@ d("git 不可用（未安装 git）降级", () => {
 		});
 	});
 
-	it("branches 返回 400 git.unavailable（不返回 500）", async () => {
+	it("branches 降级 200 空分支列表（与 status 降级对齐，不返 400/500）", async () => {
 		setupRouter([{ id: "p1", cwd: repoDir }]);
 		const res = await withoutGit(() =>
 			router.handle(
 				new Request("http://localhost/api/projects/p1/git/branches"),
 			),
 		);
-		expect(res?.status).toBe(400);
-		const body = (await res?.json()) as { failure?: { code?: string } };
-		expect(body.failure?.code).toBe("git.unavailable");
+		expect(res?.status).toBe(200);
+		expect(await res?.json()).toEqual({ current: "", branches: [] });
+	});
+
+	it("log 降级 200 空提交列表（与 status 降级对齐，不返 400/500）", async () => {
+		setupRouter([{ id: "p1", cwd: repoDir }]);
+		const res = await withoutGit(() =>
+			router.handle(new Request("http://localhost/api/projects/p1/git/log")),
+		);
+		expect(res?.status).toBe(200);
+		expect(await res?.json()).toEqual({ commits: [] });
 	});
 });
 
@@ -174,16 +182,15 @@ d("GET /api/projects/:projectId/git/branches", () => {
 		});
 	});
 
-	it("非 git 目录返回 400 git.notRepo", async () => {
+	it("非 git 目录降级 200 空分支列表（与 status 降级语义对齐）", async () => {
 		const plain = mkdtempSync(join(tmpdir(), "wa-pi-git-plain-"));
 		dirs.push(plain);
 		setupRouter([{ id: "p1", cwd: plain }]);
 		const res = await router.handle(
 			new Request("http://localhost/api/projects/p1/git/branches"),
 		);
-		expect(res?.status).toBe(400);
-		const body = (await res?.json()) as { failure?: { code?: string } };
-		expect(body.failure?.code).toBe("git.notRepo");
+		expect(res?.status).toBe(200);
+		expect(await res?.json()).toEqual({ current: "", branches: [] });
 	});
 });
 
@@ -200,6 +207,17 @@ d("GET /api/projects/:projectId/git/log", () => {
 		expect(body.commits.map((c) => c.subject)).toEqual(["第三次", "第二次"]);
 	});
 
+	it("非 git 目录降级 200 空提交列表（与 status 降级语义对齐）", async () => {
+		const plain = mkdtempSync(join(tmpdir(), "wa-pi-git-plain-"));
+		dirs.push(plain);
+		setupRouter([{ id: "p1", cwd: plain }]);
+		const res = await router.handle(
+			new Request("http://localhost/api/projects/p1/git/log"),
+		);
+		expect(res?.status).toBe(200);
+		expect(await res?.json()).toEqual({ commits: [] });
+	});
+
 	it("非法 limit 容错为默认值（不报错）", async () => {
 		setupRouter([{ id: "p1", cwd: repoDir }]);
 		const res = await router.handle(
@@ -208,6 +226,49 @@ d("GET /api/projects/:projectId/git/log", () => {
 		expect(res?.status).toBe(200);
 		const body = (await res?.json()) as { commits: unknown[] };
 		expect(body.commits.length).toBe(1);
+	});
+});
+
+d("corrupt 仓库（对象损坏）不误降级", () => {
+	/** 造一个 HEAD 完好但 parent 提交对象损坏的仓库：
+	 *  rev-parse --verify HEAD 通过（不走空仓库早退），git log 遍历 parent 失败 */
+	function corruptRepo(): string {
+		const dir = makeRepo();
+		commit(dir, "first");
+		commit(dir, "second");
+		const parent = git(["rev-parse", "master~1"], dir).trim();
+		const obj = join(
+			dir,
+			".git",
+			"objects",
+			parent.slice(0, 2),
+			parent.slice(2),
+		);
+		chmodSync(obj, 0o644); // 松散对象只读，先清掉再覆写（Windows 清只读位）
+		writeFileSync(obj, "junkjunkjunk");
+		return dir;
+	}
+
+	it("log 返回 400 git.logFailed（真实 git 失败不降级）", async () => {
+		const bad = corruptRepo();
+		dirs.push(bad);
+		setupRouter([{ id: "p1", cwd: bad }]);
+		const res = await router.handle(
+			new Request("http://localhost/api/projects/p1/git/log"),
+		);
+		expect(res?.status).toBe(400);
+		const body = (await res?.json()) as { failure?: { code?: string } };
+		expect(body.failure?.code).toBe("git.logFailed");
+	});
+
+	it("branches 不误伤：仍 200（git branch 不遍历对象）", async () => {
+		const bad = corruptRepo();
+		dirs.push(bad);
+		setupRouter([{ id: "p1", cwd: bad }]);
+		const res = await router.handle(
+			new Request("http://localhost/api/projects/p1/git/branches"),
+		);
+		expect(res?.status).toBe(200);
 	});
 });
 

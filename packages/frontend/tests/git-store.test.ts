@@ -46,6 +46,31 @@ test("refresh 拉取 status+branches 并按 projectId 缓存", async () => {
 	expect(getMock).toHaveBeenCalledWith("/api/projects/p1/git/branches");
 });
 
+test("非 git 项目 refresh 只发 status 一次，不再请求 branches", async () => {
+	getMock.mockImplementation((path: string) => {
+		if (path.endsWith("/git/status"))
+			return Promise.resolve({
+				isRepo: false,
+				branch: "",
+				dirty: false,
+				ahead: 0,
+				behind: 0,
+			});
+		return Promise.resolve({ current: "", branches: [] });
+	});
+	await useGitStore.getState().refresh("p1");
+	const entry = useGitStore.getState().byProject["p1"];
+	// status 正常落 store，不被 branches 拖丢；branches 置空、无 error
+	expect(entry.status?.isRepo).toBe(false);
+	expect(entry.branches).toEqual({ current: "", branches: [] });
+	expect(entry.loading).toBe(false);
+	expect(entry.error).toBeNull();
+	// 只发 status 一次，branches 不会被请求
+	expect(getMock).toHaveBeenCalledTimes(1);
+	expect(getMock).toHaveBeenCalledWith("/api/projects/p1/git/status");
+	expect(getMock).not.toHaveBeenCalledWith("/api/projects/p1/git/branches");
+});
+
 test("checkout 调 POST 切换分支并刷新缓存", async () => {
 	postMock.mockImplementation((path: string, body: unknown) => {
 		if (path.endsWith("/git/checkout")) {

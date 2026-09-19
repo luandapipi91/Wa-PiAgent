@@ -128,6 +128,8 @@ export function GitGraphModal({ projectId, onClose }: Props) {
 	const [limit, setLimit] = useState(PAGE_SIZE);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	// 订阅缓存状态：非 git 仓库时早退，不发 git/log 请求（与工具栏入口隐藏双保险）
+	const gitStatus = useGitStore((s) => s.byProject[projectId]?.status);
 
 	const load = useCallback(
 		async (n: number) => {
@@ -145,8 +147,13 @@ export function GitGraphModal({ projectId, onClose }: Props) {
 	);
 
 	useEffect(() => {
+		// 非 git 仓库：不发请求，直接落空态（展示「无提交」）
+		if (gitStatus && !gitStatus.isRepo) {
+			setLoading(false);
+			return;
+		}
 		void load(limit);
-	}, [load, limit]);
+	}, [load, limit, gitStatus]);
 
 	// 泳道布局按提交列表一次性计算（输入已是时间倒序）
 	const rows = useMemo(() => layoutGitLanes(commits), [commits]);
