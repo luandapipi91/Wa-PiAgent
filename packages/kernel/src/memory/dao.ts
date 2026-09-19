@@ -50,6 +50,8 @@ export interface ListOpts {
   archivedOnly?: boolean;
   /** 最多取多少行（快照 L1 用：只取预算够用的量，不把整个 scope 载入内存） */
   limit?: number;
+  /** 跳过前 N 行（分页偏移；仅与 limit 同用时切片有意义） */
+  offset?: number;
   /** 时间下界（含端点，毫秒时间戳）；undefined 即不设该边界 */
   since?: number;
   /** 时间上界（含端点，毫秒时间戳）；undefined 即不设该边界 */
@@ -241,8 +243,14 @@ export class MemoryDao {
       typeof opts.limit === "number" && opts.limit > 0
         ? ` LIMIT ${Math.floor(opts.limit)}`
         : "";
+    const offset =
+      typeof opts.offset === "number" && opts.offset > 0
+        ? ` OFFSET ${Math.floor(opts.offset)}`
+        : "";
     const rows = this.db
-      .query(`SELECT * FROM memories ${where} ORDER BY updated_at DESC${limit}`)
+      .query(
+        `SELECT * FROM memories ${where} ORDER BY updated_at DESC${limit}${offset}`,
+      )
       .all(...params) as RawRow[];
     return rows.map(toRow);
   }

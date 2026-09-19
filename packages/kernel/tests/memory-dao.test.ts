@@ -577,3 +577,34 @@ test("不传边界（undefined）时行为与改动前一致", () => {
   ).toHaveLength(1);
   expect(dao.list({}).some((r) => r.id === row.id)).toBe(true);
 });
+
+// =========================================================================
+// offset 分页 —— list 分页切片（列表分页的 DAO 层基础）
+// =========================================================================
+
+/** 造 5 条 updated_at = 1000..5000 的 global 条目，让 list 切片可预期 */
+function seedFiveGlobalRows(): string[] {
+  const ids: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    ids.push(add({ content: `offset 分页锚点 ${i}`, scope: "global", projectId: null }).id);
+  }
+  ids.forEach((id, i) => retimeRow(id, (i + 1) * 1000));
+  return ids;
+}
+
+test("list 支持 offset 分页（按 updated_at DESC 稳定切片）", () => {
+  seedFiveGlobalRows();
+  const rows = dao.list({ scope: "global", includeArchived: false, limit: 2, offset: 2 });
+  expect(rows).toHaveLength(2);
+  // 第 3、4 新的两条
+  expect(rows[0].updatedAt).toBe(3000);
+  expect(rows[1].updatedAt).toBe(2000);
+});
+
+test("list 的 since/until 与 limit/offset 组合生效", () => {
+  seedFiveGlobalRows();
+  const rows = dao.list({ scope: "global", includeArchived: false, since: 2000, until: 4000, limit: 10, offset: 0 });
+  expect(rows.map((r) => r.updatedAt)).toEqual([4000, 3000, 2000]);
+  const page2 = dao.list({ scope: "global", includeArchived: false, since: 2000, until: 4000, limit: 2, offset: 2 });
+  expect(page2.map((r) => r.updatedAt)).toEqual([2000]);
+});
