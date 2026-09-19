@@ -10,7 +10,9 @@ import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
 //    开启 /goal → / 菜单出现 /goal
 // 2. [需 pi 环境] 关闭 /goal → / 菜单消失 → 手动输入 /goal xxx 发送 → LLM 收到普通文本
 //    （断言无命令执行副作用：不出现 extension_notify 系统提示）
-// 3. extension_notify 系统消息 → 20s 后自动从聊天列表消失（纯前端 UI 行为，始终运行）
+// 3. extension_notify 系统消息 → 30s 后自动从聊天列表消失（纯前端 UI 行为，始终运行）
+//    30s 为现行设计：v0.1.20（fbc70e78）把「永久保留」改回「30s 自动消退」，
+//    与 tests/session-notify-auto-dismiss.test.ts 一致（本 spec 曾按最初的 20s 编写）。
 //
 // 约定：
 // - 场景 1/2 依赖真实 pi 进程 + 真实 npm 安装的插件（pi-goal）+ 真实 LLM；隔离 E2E 环境
@@ -185,9 +187,9 @@ test.describe.serial("插件命令级启停管理", () => {
 
   // ── 场景 3：纯前端 UI 行为，隔离 E2E 环境可验证，始终运行 ──
 
-  test("extension_notify 系统消息 20s 后自动从聊天列表消失", async ({ page }) => {
+  test("extension_notify 系统消息 30s 后自动从聊天列表消失", async ({ page }) => {
     test.setTimeout(60_000);
-    await enterSession(page, "extension_notify 测试");
+    const sessionId = await enterSession(page, "extension_notify 测试");
 
     const noticeText = "E2E 插件命令执行完成";
 
@@ -229,8 +231,8 @@ test.describe.serial("插件命令级启停管理", () => {
     const notice = page.getByText(new RegExp(`—— ${noticeText} ——`));
     await expect(notice).toBeVisible({ timeout: 5000 });
 
-    // 2. 20s 后自动消失（store 内 setTimeout(20_000) 按 timestamp 精确移除）
-    await page.waitForTimeout(20_500);
+    // 2. 30s 后自动消失（store 内 setTimeout(30_000) 按 timestamp 精确移除）
+    await page.waitForTimeout(31_000);
     await expect(notice).toHaveCount(0, { timeout: 5000 });
   });
 });
