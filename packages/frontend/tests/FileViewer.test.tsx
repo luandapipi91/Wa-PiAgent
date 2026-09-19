@@ -1,0 +1,758 @@
+// FileViewer 组件测试：文本高亮渲染、图片 data URI、unsupported、loading、error 态、关闭回调。
+// 头部分享按钮（ShareButton）依赖 share-client，整模块 mock（bun mock.module 路径须与组件 import 一致）。
+import { test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
+
+const shareSettingsMock = mock(async () => ({
+	hasToken: true,
+	channel: "edgeone",
+}));
+const shareUploadMock = mock(async () => ({}));
+
+mock.module("../src/share-client", () => ({
+	shareSettings: shareSettingsMock,
+	shareUpload: shareUploadMock,
+	saveShareSettings: async () => {},
+}));
+import {
+	render,
+	screen,
+	fireEvent,
+	waitFor,
+	cleanup,
+} from "@testing-library/react";
+import {
+	FileViewer,
+	computeChunkWindow,
+	computeBlockWindow,
+	splitMarkdownBlocks,
+} from "../src/components/blocks/FileViewer";
+import { _setFsTransport } from "../src/fs-client";
+import { makeFakeFsTransport } from "./fs-transport";
+import { useSessionStore } from "../src/store/session";
+import { useToastStore } from "../src/store/toast";
+
+// FilePill 走批量探测（/api/fs/stat-batch）：响应需按请求里的 paths 回显，否则客户端
+// 会把未回显的路径按“不存在”处理（chip 回退为纯文本）。statExists 可按用例覆盖。
+let statExists = true;
+const fake = makeFakeFsTransport((evt) => {
+	if (evt.type !== "fs:statBatch") return undefined;
+	const paths = (evt as { paths?: string[] }).paths ?? [];
+	return { results: paths.map((p) => ({ path: p, exists: statExists })) };
+});
+
+// 主流代码文件预览：语法着色断言（驱动 prism-extra-langs 注册 + guessLanguage 映射）
+test("主流代码文件渲染语法着色而非纯文本兜底（.sh/.kt/.cs/.toml）", async () => {
+	// token class 取各语言定义中稳定命中的规则：
+	// - bash: echo 是 builtin；- kotlin: class 是 keyword；
+	// - csharp: namespace 是 keyword；- toml: 表头 [sec] 是 class-name
+	const cases = [
+		{
+			path: "/work/demo/deploy.sh",
+			code: "#!/bin/bash\necho hello",
+			token: ".token.builtin",
+		},
+		{ path: "/work/demo/Main.kt", code: "class Main", token: ".token.keyword" },
+		{
+			path: "/work/demo/App.cs",
+			code: "namespace App;",
+			token: ".token.keyword",
+		},
+		{
+			path: "/work/demo/app.toml",
+			code: "[sec]\nk = 1",
+			token: ".token.class-name",
+		},
+	];
+	for (const c of cases) {
+		fake.setResponse("fs:readFile", {
+			content: btoa(c.code),
+			mimeType: "text/plain",
+		});
+		render(<FileViewer path={c.path} onClose={() => {}} />);
+		await waitFor(() =>
+			expect(screen.getByTestId("file-viewer").textContent).toContain(
+				c.code.split("\n")[0],
+			),
+		);
+		// 行号分支存在（代码高亮而非 md/图片/unsupported）
+		expect(
+			screen.getByTestId("file-viewer").querySelector("[data-line]"),
+		).not.toBeNull();
+		// 语法着色：命中该语言的稳定 token class（纯文本兕底不会有）
+		expect(
+			screen.getByTestId("file-viewer").querySelector(c.token),
+		).not.toBeNull();
+		cleanup();
+	}
+});
+
+beforeEach(() => {
+	_setFsTransport(fake.transport);
+	fake.calls.length = 0;
+	fake.sent.length = 0;
+	fake.responses.clear();
+	useToastStore.setState({ toasts: [] });
+});
+afterEach(() => cleanup());
+
+test("文本文件：加载后渲染 base64 解码内容 + 文件名", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("hello world"),
+		mimeType: "text/plain",
+	});
+	const onClose = () => {};
+	render(<FileViewer path="/work/demo/index.ts" onClose={onClose} />);
+
+	await waitFor(() =>
+		expect(screen.getByTestId("file-viewer").textContent).toContain(
+			"hello world",
+		),
+	);
+	expect(screen.getByTestId("file-viewer").textContent).toContain("index.ts");
+	// 非 md 路径必须走 Prism 行号分支：行号容器存在（防止未来误把非 md 也切到 md 分支）
+	expect(
+		screen.getByTestId("file-viewer").querySelector("[data-line]"),
+	).not.toBeNull();
+});
+
+test("图片文件：拼成 data URI 渲染到 <img>", async () => {
+	const b64 = "iVBORw0KGgo="; // 任意合法 base64 片段
+	fake.setResponse("fs:readFile", { content: b64, mimeType: "image/png" });
+	render(<FileViewer path="/work/demo/logo.png" onClose={() => {}} />);
+
+	await waitFor(() => expect(screen.getByTestId("image-viewer")).toBeTruthy());
+	const img = screen.getByAltText("logo.png") as HTMLImageElement;
+	expect(img.src).toBe(`data:image/png;base64,${b64}`);
+});
+
+test("unsupported 文件：显示不支持占位", async () => {
+	// fs-client.readFile 依赖 type === "fs:unsupported" 分支判定，必须带 type 字段
+	fake.setResponse("fs:readFile", {
+		type: "fs:unsupported",
+		reason: "不支持的文件类型: application/zip",
+	});
+	render(<FileViewer path="/work/demo/a.zip" onClose={() => {}} />);
+
+	await waitFor(() =>
+		expect(screen.getByTestId("fv-unsupported").textContent).toContain(
+			"不支持预览该文件",
+		),
+	);
+});
+
+test("unsupported 文件：显示在文件管理器中打开按钮，点击调用 revealFile", async () => {
+	fake.setResponse("fs:readFile", {
+		type: "fs:unsupported",
+		reason: "不支持的文件类型: application/zip",
+	});
+	render(<FileViewer path="/work/demo/a.zip" onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByTestId("fv-unsupported").textContent).toContain(
+			"不支持预览该文件",
+		),
+	);
+
+	// 按钮文案随平台变化（测试环境 happy-dom UA 含 Win → 在资源管理器中打开）；
+	// 用 testId 定位避免绑定具体平台文案
+	const btn = screen.getByTestId("fv-reveal");
+	// 空状态页操作按钮统一无边框幽灵风格（fv-empty-btn）
+	expect(btn.className).toContain("fv-empty-btn");
+	fireEvent.click(btn);
+
+	const call = fake.calls.find((c) => c.path === "/api/fs/reveal-file");
+	expect(call).toBeTruthy();
+	expect((call!.body as { path: string }).path).toBe("/work/demo/a.zip");
+});
+
+test("unsupported 文件：显示默认方式打开按钮，点击调用 openFileWithDefaultApp", async () => {
+	fake.setResponse("fs:readFile", {
+		type: "fs:unsupported",
+		reason: "不支持的文件类型: application/zip",
+	});
+	render(<FileViewer path="/work/demo/a.zip" onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByTestId("fv-unsupported").textContent).toContain(
+			"不支持预览该文件",
+		),
+	);
+
+	const btn = screen.getByTestId("fv-open-default");
+	expect(btn.className).toContain("fv-empty-btn");
+	fireEvent.click(btn);
+
+	const call = fake.calls.find(
+		(c) => c.path === "/api/fs/open-with-default-app",
+	);
+	expect(call).toBeTruthy();
+	expect((call!.body as { path: string }).path).toBe("/work/demo/a.zip");
+});
+
+test("读取失败：显示错误态 + 关闭按钮", async () => {
+	// 让 readFile 抛错：transport.post 返回空对象 → readFile 因 !res.content throw
+	fake.setResponse("fs:readFile", {});
+	render(<FileViewer path="/work/demo/x.txt" onClose={() => {}} />);
+
+	await waitFor(() =>
+		expect(screen.getByTestId("fv-error").textContent).toContain("无法读取文件"),
+	);
+});
+
+test("点击关闭按钮触发 onClose", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("x"),
+		mimeType: "text/plain",
+	});
+	let closed = false;
+	render(
+		<FileViewer
+			path="/work/demo/a.txt"
+			onClose={() => {
+				closed = true;
+			}}
+		/>,
+	);
+
+	await waitFor(() => expect(screen.getByTestId("file-viewer")).toBeTruthy());
+	fireEvent.click(screen.getByTitle("关闭"));
+	expect(closed).toBe(true);
+});
+
+// ===== md 预览渲染 =====
+
+const MD_SAMPLE = `# Preview Title
+
+| ColA | ColB |
+|------|------|
+| 1    | 2    |
+
+\`\`\`ts
+const x = 1;
+\`\`\`
+
+\`\`\`mermaid
+graph TD
+  A[Start] --> B[End]
+\`\`\`
+`;
+
+test("md 文件：渲染为 markdown（h1/table/pre），不出现 Prism 行号容器", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa(MD_SAMPLE),
+		mimeType: "text/markdown",
+	});
+	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
+
+	// md 现在按块渲染（块级虚拟滚动）→ 可能有多个 text-block；断言范围提到容器层，
+	// 内容断言与原用例等价（h1/table/pre 仍在这份渲染结果里）。
+	await waitFor(() =>
+		expect(screen.getAllByTestId("text-block").length).toBeGreaterThan(0),
+	);
+	const textBlock = screen.getByTestId("file-viewer");
+	expect(textBlock.querySelector("h1")?.textContent).toBe("Preview Title");
+	expect(textBlock.querySelector("table")).toBeTruthy();
+	expect(textBlock.querySelector("pre")).toBeTruthy();
+	// md 渲染不走 FileViewer 的 Prism 分支：不出现行号容器
+	expect(
+		screen.getByTestId("file-viewer").querySelector("[data-line]"),
+	).toBeNull();
+	// mermaid 代码块走 MermaidBlock 渲染（异步 debounce → mermaid.render）
+	// 实测 happy-dom 下 mermaid.render 的 promise 既不 resolve 也不 reject，组件停留在
+	// mermaid-loading 态（渲染链路本身正常，是测试环境限制）。故断言任一 mermaid 容器
+	// （loading/svg/error）出现，证明该代码块走了 MermaidBlock 分支即可。
+	await waitFor(
+		() => {
+			const fv = screen.getByTestId("file-viewer");
+			const mermaidEl = fv.querySelector(
+				"[data-testid='mermaid-loading'], [data-testid='mermaid-svg'], [data-testid='mermaid-error']",
+			);
+			expect(mermaidEl).not.toBeNull();
+		},
+		{ timeout: 5000 },
+	);
+});
+
+test("md 文件：内联路径复用聊天区渲染为文件胶囊", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("# T\n\n`docs/a.md`\n"),
+		mimeType: "text/markdown",
+	});
+	statExists = true;
+	render(
+		<FileViewer path="/work/demo/README.md" onClose={() => {}} sessionId="s1" />,
+	);
+
+	await waitFor(() => expect(screen.getByTestId("file-pill")).toBeTruthy());
+});
+
+// ===== md 原始 HTML 渲染（rehype-raw）=====
+
+const MD_WITH_HTML = `# HTML 渲染测试
+
+<div align="center">
+<img src="assets/pic.png" alt="测试图" width="96" />
+</div>
+
+段落 <br/> 换行
+`;
+
+test("md 文件：原始 HTML（div/img/br）渲染为真实标签，相对路径图片经 fs-client 读成 data URI", async () => {
+	const htmlFake = makeFakeFsTransport((evt) => {
+		if (evt.type === "fs:readFile") {
+			if (evt.path === "/work/demo/README.md") {
+				return {
+					content: Buffer.from(MD_WITH_HTML, "utf-8").toString("base64"),
+					mimeType: "text/markdown",
+				};
+			}
+			if (evt.path === "/work/demo/assets/pic.png") {
+				return { content: btoa("fake-png"), mimeType: "image/png" };
+			}
+		}
+		return undefined;
+	});
+	_setFsTransport(htmlFake.transport);
+	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
+
+	// 同上：md 按块渲染，断言范围提到容器层
+	await waitFor(() =>
+		expect(screen.getAllByTestId("text-block").length).toBeGreaterThan(0),
+	);
+	const tb = screen.getByTestId("file-viewer");
+	// div/br 渲染为真实标签（不再是转义文本）
+	expect(tb.querySelector("div[align='center']")).toBeTruthy();
+	expect(tb.querySelector("br")).toBeTruthy();
+	// 不应出现转义后的 HTML 文本
+	expect(tb.textContent).not.toContain("&lt;div");
+	// img 渲染且相对路径被解析成 data URI（经 fs-client 按文件目录读取）
+	await waitFor(() => {
+		const img = tb.querySelector("img");
+		expect(img).toBeTruthy();
+		expect(img?.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
+		expect(img?.getAttribute("alt")).toBe("测试图");
+		// width 透传：README 里 <img width="96"> 的尺寸不能丢
+		expect(img?.getAttribute("width")).toBe("96");
+	});
+	// 相对路径基于预览文件目录解析（/work/demo/ + assets/pic.png）
+	const readCall = htmlFake.calls.find(
+		(c) =>
+			c.type === "fs:readFile" &&
+			(c.body as any)?.path?.includes("assets/pic.png"),
+	);
+	expect(readCall).toBeTruthy();
+});
+
+// README 顶部真实写法：容器与内容之间有空行（块级虚拟滚动按空行切块时最容易踩的坑）
+const MD_CENTERED_README = `<div align="center">
+
+[English](./README.md) | **简体中文**
+
+<img src="assets/logo.png" alt="logo" width="96" />
+
+# WA PI Agent
+
+一句介绍
+
+</div>
+
+## 下一节
+
+正文
+`;
+
+test("md 文件：居中容器跨空行时 img 仍在其内（虚拟滚动不得拆散 HTML 容器）", async () => {
+	const htmlFake = makeFakeFsTransport((evt) => {
+		if (evt.type === "fs:readFile") {
+			if (evt.path === "/work/demo/README.md") {
+				return {
+					content: Buffer.from(MD_CENTERED_README, "utf-8").toString("base64"),
+					mimeType: "text/markdown",
+				};
+			}
+			if (evt.path === "/work/demo/assets/logo.png") {
+				return { content: btoa("fake-png"), mimeType: "image/png" };
+			}
+		}
+		return undefined;
+	});
+	_setFsTransport(htmlFake.transport);
+	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
+
+	await waitFor(() =>
+		expect(screen.getAllByTestId("text-block").length).toBeGreaterThan(0),
+	);
+	const tb = screen.getByTestId("file-viewer");
+
+	// 关键断言：居中容器的子孙里必须有 img 与标题，否则 align 无处可继承（logo 会左对齐）
+	const centered = tb.querySelector("div[align='center']");
+	expect(centered).toBeTruthy();
+	await waitFor(() => expect(centered?.querySelector("img")).toBeTruthy());
+	expect(centered?.querySelector("h1")?.textContent).toContain("WA PI Agent");
+});
+
+test("md 链接：相对路径点击在预览器内打开、外部链接 target=_blank", async () => {
+	fake.setResponse("fs:readFile", {
+		content: Buffer.from(
+			"[文档](./docs/intro.md)\n\n[外部](https://example.com)",
+			"utf-8",
+		).toString("base64"),
+		mimeType: "text/markdown",
+	});
+	const openSpy = spyOn(
+		useSessionStore.getState(),
+		"openFilePreview",
+	).mockImplementation(() => {});
+	render(
+		<FileViewer path="/work/demo/README.md" sessionId="s1" onClose={() => {}} />,
+	);
+
+	await waitFor(() => expect(screen.getByText("文档")).toBeTruthy());
+
+	// 相对路径链接：点击触发 openFilePreview（解析为基于预览文件目录的绝对路径）
+	fireEvent.click(screen.getByText("文档"));
+	expect(openSpy).toHaveBeenCalledWith("/work/demo/docs/intro.md", "s1");
+
+	// 外部链接：target=_blank（交给 setWindowOpenHandler 内置窗口打开）
+	const externalLink = screen.getByText("外部");
+	expect(externalLink.getAttribute("target")).toBe("_blank");
+
+	openSpy.mockRestore();
+});
+
+test("底部地址栏：代码预览点击复制按钮复制文件路径", async () => {
+	let copied = "";
+	Object.defineProperty(navigator, "clipboard", {
+		value: {
+			writeText: async (t: string) => {
+				copied = t;
+			},
+		},
+		configurable: true,
+	});
+	fake.setResponse("fs:readFile", {
+		content: btoa("hello"),
+		mimeType: "text/plain",
+	});
+	render(<FileViewer path="/work/demo/index.ts" onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByTestId("file-viewer").textContent).toContain("hello"),
+	);
+	fireEvent.click(screen.getByTestId("fv-copy-path"));
+	await waitFor(() => expect(copied).toBe("/work/demo/index.ts"));
+});
+
+test("底部地址栏：unsupported 预览也有复制路径按钮", async () => {
+	fake.setResponse("fs:readFile", {
+		type: "fs:unsupported",
+		reason: "不支持的文件类型: application/zip",
+	});
+	render(<FileViewer path="/work/demo/a.zip" onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByTestId("fv-unsupported").textContent).toContain(
+			"不支持预览该文件",
+		),
+	);
+	expect(screen.getByTestId("fv-copy-path")).toBeTruthy();
+});
+
+// ===== 头部分享按钮 =====
+
+test("md 预览头部：出现分享按钮 share-file-btn", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("# T\n"),
+		mimeType: "text/markdown",
+	});
+	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByTestId("text-block")).toBeTruthy());
+	expect(screen.getByTestId("share-file-btn")).toBeTruthy();
+});
+
+test("代码预览头部：出现分享按钮 share-file-btn", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("const a = 1;"),
+		mimeType: "text/plain",
+	});
+	render(<FileViewer path="/work/demo/index.ts" onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByTestId("file-viewer")).toBeTruthy());
+	expect(screen.getByTestId("share-file-btn")).toBeTruthy();
+});
+
+test("点击分享按钮：打开分享弹层（share-result-modal）", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("# T\n"),
+		mimeType: "text/markdown",
+	});
+	render(
+		<FileViewer path="/work/demo/README.md" onClose={() => {}} sessionId="s1" />,
+	);
+	await waitFor(() => expect(screen.getByTestId("text-block")).toBeTruthy());
+	fireEvent.click(screen.getByTestId("share-file-btn"));
+	await waitFor(() =>
+		expect(screen.getByTestId("share-result-modal")).toBeTruthy(),
+	);
+	// 弹层内展示待分享文件（README.md 文件名）
+	expect(screen.getByTestId("share-files")).toBeTruthy();
+});
+
+// ===== 大文件虚拟滚动（替代截断：内容完整、只渲染可视块）=====
+// 背景：kernel 只拦 >5MB，≤5MB 文本会整份送进渲染层；全量分词 + 每 token 一个 span
+// （5MB ≈ 190 万 token ≈ 200 万 DOM 节点）会冻结渲染进程。截断虽能救性能但影响浏览，
+// 因此改为块级虚拟滚动：按块只渲染可视区域（每块 200 行），滚动时窗口跟随。
+
+test("computeChunkWindow：顶部/中部/底部窗口与占位高度", () => {
+	const base = {
+		totalLines: 6000,
+		chunkLines: 200,
+		lineHeight: 18,
+		viewportHeight: 600,
+		overscanChunks: 1,
+	};
+	const top = computeChunkWindow({ ...base, scrollTop: 0 });
+	expect(top.firstChunk).toBe(0);
+	expect(top.topSpacer).toBe(0);
+	expect(top.lastChunk).toBeGreaterThanOrEqual(0);
+
+	const middle = computeChunkWindow({ ...base, scrollTop: 3600 * 5 });
+	expect(middle.firstChunk).toBe(4); // 5 - overscan
+	expect(middle.topSpacer).toBe(4 * 3600);
+
+	const bottom = computeChunkWindow({ ...base, scrollTop: 3600 * 29 });
+	expect(bottom.lastChunk).toBe(29);
+	expect(bottom.bottomSpacer).toBe(0);
+});
+
+test("大文件：不截断、无截断提示，只渲染可视块（内容仍可完整滚动浏览）", async () => {
+	const total = 6000;
+	const code = Array.from({ length: total }, (_, i) => `line ${i}`).join("\n");
+	fake.setResponse("fs:readFile", {
+		content: btoa(code),
+		mimeType: "text/plain",
+	});
+	const { container } = render(
+		<FileViewer path="/work/huge.log" onClose={() => {}} />,
+	);
+
+	await waitFor(() =>
+		expect(container.querySelectorAll("[data-line]").length).toBeGreaterThan(0),
+	);
+	// 不再截断：既没有截断提示，也没有"只显示前 N 行"的行为
+	expect(screen.queryByTestId("fv-truncated")).toBeNull();
+	// 只渲染可视窗口（远小于总行数），起点为第 1 行
+	const rendered = container.querySelectorAll("[data-line]").length;
+	expect(rendered).toBeLessThan(total / 4);
+	expect(container.querySelector("[data-line]")?.getAttribute("data-line")).toBe(
+		"1",
+	);
+});
+
+test("滚动到中部：虚拟窗口跟随，渲染对应区间的行号", async () => {
+	const total = 6000;
+	const code = Array.from({ length: total }, (_, i) => `line ${i}`).join("\n");
+	fake.setResponse("fs:readFile", {
+		content: btoa(code),
+		mimeType: "text/plain",
+	});
+	const { container } = render(
+		<FileViewer path="/work/huge.log" onClose={() => {}} />,
+	);
+	await waitFor(() =>
+		expect(container.querySelectorAll("[data-line]").length).toBeGreaterThan(0),
+	);
+
+	const body = screen.getByTestId("fv-body");
+	body.scrollTop = 3600 * 10; // 第 11 块起点
+	fireEvent.scroll(body);
+
+	await waitFor(() => {
+		const nums = [...container.querySelectorAll("[data-line]")].map((el) =>
+			Number(el.getAttribute("data-line")),
+		);
+		expect(nums.length).toBeGreaterThan(0);
+		// 视口已在中部：最早渲染的行号明显大于 1
+		expect(Math.min(...nums)).toBeGreaterThan(200);
+	});
+});
+
+test("小文件：不截断、不提示，行号从 1 开始", async () => {
+	const code = Array.from({ length: 120 }, (_, i) => `line ${i}`).join("\n");
+	fake.setResponse("fs:readFile", {
+		content: btoa(code),
+		mimeType: "text/plain",
+	});
+	const { container } = render(
+		<FileViewer path="/work/small.log" onClose={() => {}} />,
+	);
+
+	await waitFor(() =>
+		expect(container.querySelectorAll("[data-line]").length).toBeGreaterThan(0),
+	);
+	expect(screen.queryByTestId("fv-truncated")).toBeNull();
+});
+
+// ===== markdown 块级虚拟滚动 =====
+// markdown 走的是独立分支（ReactMarkdown 全量解析），代码分支的虚拟滚动覆盖不到它。
+// 这里按「markdown 顶层块」切分后同样只渲染可视块，保留排版的同时避免大 md 卡死。
+
+test("splitMarkdownBlocks：标题起新块、围栏代码块不被切开", () => {
+	const md = [
+		"# A",
+		"",
+		"段落 1",
+		"段落 1 续",
+		"",
+		"```ts",
+		"const a = 1;",
+		"",
+		"const b = 2;",
+		"```",
+		"",
+		"## B",
+		"",
+		"尾段",
+	].join("\n");
+	const blocks = splitMarkdownBlocks(md);
+
+	// 每块里的代码围栏必须成对（不能把 ``` 切开）
+	for (const b of blocks) {
+		expect((b.text.match(/```/g) ?? []).length % 2).toBe(0);
+	}
+	// 标题作为块起点
+	expect(blocks.some((b) => b.text.trimStart().startsWith("## B"))).toBe(true);
+	// 内容不丢
+	const rebuilt = blocks.map((b) => b.text).join("\n");
+	expect(rebuilt).toContain("const b = 2;");
+	expect(rebuilt).toContain("尾段");
+	expect(blocks.length).toBeGreaterThan(1);
+});
+
+test("splitMarkdownBlocks：无空行无标题的超长文本也会被切分（有行数上限）", () => {
+	const md = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n");
+	const blocks = splitMarkdownBlocks(md);
+	expect(blocks.length).toBeGreaterThan(1);
+	// 每块不超过上限（默认 200 行）
+	for (const b of blocks) {
+		expect(b.endLine - b.startLine + 1).toBeLessThanOrEqual(200);
+	}
+});
+
+test("splitMarkdownBlocks：未闭合的 HTML 容器块不被空行/标题切开（居中 div 不被拆散）", () => {
+	// README 顶部常见写法：<div align="center"> 内部有空行、有标题、有图片。
+	// 若按空行切块，开标签与 img/闭标签会分属不同块 → align 无处继承 → 居中 logo 变左对齐。
+	const md = [
+		'<div align="center">',
+		"",
+		"[English](./README.md) | **简体中文**",
+		"",
+		'<img src="logo.svg" alt="WA PI Agent" width="96" />',
+		"",
+		"# WA PI Agent",
+		"",
+		"描述文字",
+		"",
+		"</div>",
+		"",
+		"---",
+		"",
+		"## 下一节",
+	].join("\n");
+	const blocks = splitMarkdownBlocks(md);
+
+	const holder = blocks.filter((b) => b.text.includes('<div align="center">'));
+	expect(holder.length).toBe(1);
+	// 开标签、内容、闭标签必须在同一块内
+	expect(holder[0].text).toContain('src="logo.svg"');
+	expect(holder[0].text).toContain("# WA PI Agent");
+	expect(holder[0].text).toContain("</div>");
+	// 容器闭合后照常切分（后续章节不并入容器块）
+	expect(holder[0].text).not.toContain("## 下一节");
+	expect(holder[0].text).not.toContain("---");
+	expect(blocks.length).toBeGreaterThan(1);
+});
+
+test("splitMarkdownBlocks：围栏代码块里的 HTML 样例不参与容器配对", () => {
+	const md = [
+		"# A",
+		"",
+		"```html",
+		'<div align="center">',
+		"```",
+		"",
+		"段落",
+		"",
+		"## B",
+	].join("\n");
+	const blocks = splitMarkdownBlocks(md);
+
+	// 代码块里的 <div> 没有闭标签，不能把后文一直吞进同一块
+	expect(blocks.some((b) => b.text.trimStart().startsWith("## B"))).toBe(true);
+	expect(blocks.length).toBeGreaterThan(2);
+});
+
+test("splitMarkdownBlocks：未闭合的 HTML 容器仍受行数上限约束（兜底不失效）", () => {
+	const md = [
+		'<div align="center">',
+		...Array.from({ length: 500 }, (_, i) => `line ${i}`),
+	].join("\n");
+	const blocks = splitMarkdownBlocks(md);
+	expect(blocks.length).toBeGreaterThan(1);
+	for (const b of blocks) {
+		expect(b.endLine - b.startLine + 1).toBeLessThanOrEqual(200);
+	}
+});
+
+test("computeBlockWindow：按偏移量定位可见块与上下占位", () => {
+	const offsets = [0, 100, 200, 300, 400]; // 4 块，各 100px
+	const top = computeBlockWindow({
+		offsets,
+		scrollTop: 0,
+		viewportHeight: 100,
+		overscan: 0,
+	});
+	expect(top.first).toBe(0);
+	expect(top.topSpacer).toBe(0);
+	expect(top.bottomSpacer).toBe(300);
+
+	const mid = computeBlockWindow({
+		offsets,
+		scrollTop: 200,
+		viewportHeight: 100,
+		overscan: 0,
+	});
+	expect(mid.first).toBe(2);
+	expect(mid.topSpacer).toBe(200);
+	expect(mid.bottomSpacer).toBe(100);
+
+	const bottom = computeBlockWindow({
+		offsets,
+		scrollTop: 400,
+		viewportHeight: 100,
+		overscan: 0,
+	});
+	expect(bottom.bottomSpacer).toBe(0);
+});
+
+test("大 md 文件：块级虚拟滚动只渲染可视块、不截断", async () => {
+	const md = Array.from(
+		{ length: 800 },
+		(_, i) =>
+			`## Section ${i}\n\nParagraph number ${i} with a bit of longer text.`,
+	).join("\n\n");
+	fake.setResponse("fs:readFile", {
+		content: btoa(md),
+		mimeType: "text/markdown",
+	});
+	const { container } = render(
+		<FileViewer path="/work/huge.md" onClose={() => {}} />,
+	);
+
+	await waitFor(() =>
+		expect(
+			container.querySelectorAll('[data-testid="text-block"]').length,
+		).toBeGreaterThan(0),
+	);
+	expect(screen.queryByTestId("fv-truncated")).toBeNull();
+	// 只渲染可视块（远小于总块数）
+	const rendered = container.querySelectorAll(
+		'[data-testid="text-block"]',
+	).length;
+	expect(rendered).toBeLessThan(800 / 4);
+});

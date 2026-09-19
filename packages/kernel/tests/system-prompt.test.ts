@@ -1,0 +1,680 @@
+import { test, expect } from "bun:test";
+import { rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+	composePrompt,
+	loadPromptSegments,
+	savePromptSegments,
+	ensurePromptsConfig,
+	DEFAULT_PROMPT_SEGMENTS,
+	DEFAULT_DELEGATE_MECHANISM_PROMPT,
+	buildSelfProtectionPrompt,
+	ensureSelfProtectionSegment,
+	SELF_PROTECTION_SEGMENT_ID,
+	composeSubagentPrompt,
+	WA_PI_DEFAULT_BASE_PROMPT,
+	DEFAULT_MEMORY_POLICY_PROMPT,
+	COMPACT_MEMORY_POLICY_PROMPT,
+	ENV_CONSTRAINTS_SUFFIX,
+	PROMPTS_SCHEMA_VERSION,
+	type PromptSegment,
+} from "../src/system-prompt";
+import { buildDelegateRoster } from "../src/delegate-tool";
+
+const defaultCtx = {
+	defaultBasePrompt: WA_PI_DEFAULT_BASE_PROMPT,
+	delegateRoster:
+		"## Available Subagents\n\nInvoke via the delegate tool:\n- Explore: explore",
+	builtinSkillsDir: "/tmp/skills",
+	memorySnapshot: "## Memory Snapshot\n\nuser prefers typescript",
+	memoryPolicy: "## Memory Policy\n\n用户明确说「记住 X」时立即调用 memory_add",
+};
+
+function tempFile() {
+	return join(
+		import.meta.dir,
+		".tmp-prompts-" + Math.random().toString(36).slice(2) + ".json",
+	);
+}
+
+// ===== composePrompt：段落结构与顺序（不验证具体文案）=====
+
+test("composePrompt 默认段落全部出现", () => {
+	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
+	// 7 段都应出现（base / self-protection / delegate-mechanism / delegate-roster / env-constraints / memory-policy / memory-snapshot）
+	expect(result).toContain("自身进程保护（必须遵守）");
+	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
+	expect(result).toContain(DEFAULT_DELEGATE_MECHANISM_PROMPT);
+	expect(result).toContain("## Available Subagents");
+	expect(result).toContain("Built-in directory: /tmp/skills");
+	expect(result).toContain("## Memory Policy");
+	expect(result).toContain("## Memory Snapshot");
+});
+
+test("composePrompt 默认段落顺序：base → self-protection → delegate-mechanism → roster → env → memory-policy → memory-snapshot", () => {
+	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
+	const basePos = result.indexOf(WA_PI_DEFAULT_BASE_PROMPT);
+	const selfProtPos = result.indexOf("自身进程保护（必须遵守）");
+	const mechanismPos = result.indexOf(DEFAULT_DELEGATE_MECHANISM_PROMPT);
+	const rosterPos = result.indexOf("## Available Subagents");
+	const envPos = result.indexOf("Built-in directory:");
+	const policyPos = result.indexOf("## Memory Policy");
+	const memPos = result.indexOf("## Memory Snapshot");
+	expect(basePos).toBeLessThan(selfProtPos);
+	expect(selfProtPos).toBeLessThan(mechanismPos);
+	expect(mechanismPos).toBeLessThan(rosterPos);
+	expect(rosterPos).toBeLessThan(envPos);
+	expect(envPos).toBeLessThan(policyPos);
+	expect(policyPos).toBeLessThan(memPos);
+});
+
+test("composePrompt delegateRoster 空串 → delegate-roster 段不出现", () => {
+	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
+		...defaultCtx,
+		delegateRoster: "",
+	});
+	expect(result).not.toContain("## Available Subagents");
+	// 其它段仍在
+	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
+	expect(result).toContain("Built-in directory:");
+});
+
+test("composePrompt memorySnapshot 空 → memory-snapshot 段不出现", () => {
+	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
+		...defaultCtx,
+		memorySnapshot: "",
+	});
+	expect(result).not.toContain("## Memory Snapshot");
+	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
+});
+
+test("composePrompt memoryPolicy 空 → memory-policy 段不出现（memoryPolicyStyle=none）", () => {
+	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
+		...defaultCtx,
+		memoryPolicy: "",
+	});
+	expect(result).not.toContain("## Memory Policy");
+	expect(result).not.toContain("memory_add");
+	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
+});
+
+test("composePrompt env-constraints 始终拼接 builtinSkillsDir + 固定后缀", () => {
+	const result = composePrompt([{ id: "env-constraints" }], {
+		...defaultCtx,
+		builtinSkillsDir: "/custom/skills",
+	});
+	expect(result).toContain("Built-in directory: /custom/skills");
+	expect(result).toContain(ENV_CONSTRAINTS_SUFFIX);
+});
+
+test("composePrompt base 段写了 content → 覆盖 defaultBasePrompt", () => {
+	const customBase = "Custom base prompt";
+	const result = composePrompt(
+		[{ id: "base", content: customBase }],
+		defaultCtx,
+	);
+	expect(result).toBe(customBase);
+	expect(result).not.toContain(WA_PI_DEFAULT_BASE_PROMPT);
+});
+
+test("composePrompt base 段没写 content → 用 defaultBasePrompt", () => {
+	const result = composePrompt([{ id: "base" }], defaultCtx);
+	expect(result).toBe(WA_PI_DEFAULT_BASE_PROMPT);
+});
+
+test("composePrompt 静态段（delegate-mechanism）写了 content → 用用户内容", () => {
+	const custom = "## My Custom Mechanism";
+	const result = composePrompt(
+		[{ id: "delegate-mechanism", content: custom }],
+		defaultCtx,
+	);
+	expect(result).toBe(custom);
+});
+
+test("composePrompt 静态段（delegate-mechanism）没写 content → 返回空串（不出现）", () => {
+	const result = composePrompt([{ id: "delegate-mechanism" }], defaultCtx);
+	expect(result).toBe("");
+});
+
+test("composePrompt self-protection 段：运行时注入默认文案（段标题 + 强约束都在）", () => {
+	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
+	expect(result).toContain("自身进程保护（必须遵守）");
+	expect(result).toContain("禁止 kill / taskkill / pkill / killall");
+});
+
+// ===== buildSelfProtectionPrompt：端口运行时生成，不写死 =====
+
+test("buildSelfProtectionPrompt(URL)：含实际 URL 与实际端口，不含写死端口 9778/9776", () => {
+	const out = buildSelfProtectionPrompt("http://127.0.0.1:9123");
+	expect(out).toContain("http://127.0.0.1:9123");
+	expect(out).toContain("9123");
+	expect(out).not.toContain("9778");
+	expect(out).not.toContain("9776");
+	// 原有全部约束语义保留
+	expect(out).toContain("禁止 kill / taskkill / pkill / killall");
+	expect(out).toContain("netstat");
+	expect(out).toContain("process.ppid");
+	expect(out).toContain("WaPiKernel");
+	expect(out).toContain("wa-pi-kernel");
+	// 重启引导文案改为「退出重开桌面应用」：splash 的「重启应用」按钮已被
+	// 「换端口启动」/「退出」替代（见 packages/desktop/tests/splash-html.test.ts），
+	// 旧文案会指向已不存在的入口
+	expect(out).toContain("退出重开桌面应用");
+	expect(out).not.toContain("「重启应用」");
+});
+
+test("buildSelfProtectionPrompt()：env 无 WA_PI_BRIDGE_URL 时不含 9778/9776；设置后含对应端口（用后恢复 env）", () => {
+	const saved = process.env.WA_PI_BRIDGE_URL;
+	try {
+		delete process.env.WA_PI_BRIDGE_URL;
+		const generic = buildSelfProtectionPrompt();
+		expect(generic).toContain("自身进程保护（必须遵守）");
+		expect(generic).not.toContain("9778");
+		expect(generic).not.toContain("9776");
+
+		process.env.WA_PI_BRIDGE_URL = "http://127.0.0.1:9333";
+		const fromEnv = buildSelfProtectionPrompt();
+		expect(fromEnv).toContain("http://127.0.0.1:9333");
+		expect(fromEnv).toContain("9333");
+		expect(fromEnv).not.toContain("9778");
+	} finally {
+		if (saved === undefined) delete process.env.WA_PI_BRIDGE_URL;
+		else process.env.WA_PI_BRIDGE_URL = saved;
+	}
+});
+
+test("buildSelfProtectionPrompt：入参优先于 env", () => {
+	const saved = process.env.WA_PI_BRIDGE_URL;
+	try {
+		process.env.WA_PI_BRIDGE_URL = "http://127.0.0.1:9111";
+		const out = buildSelfProtectionPrompt("http://127.0.0.1:9123");
+		expect(out).toContain("9123");
+		expect(out).not.toContain("9111");
+	} finally {
+		if (saved === undefined) delete process.env.WA_PI_BRIDGE_URL;
+		else process.env.WA_PI_BRIDGE_URL = saved;
+	}
+});
+
+test("buildSelfProtectionPrompt：URL 解析失败 → 降级通用文案（不含端口数字）", () => {
+	const out = buildSelfProtectionPrompt("not-a-url");
+	expect(out).toContain("自身进程保护（必须遵守）");
+	expect(out).not.toContain("9778");
+	expect(out).not.toContain("9776");
+});
+
+test("composePrompt self-protection：使用 ctx.selfProtectionContext（含实际端口）", () => {
+	const result = composePrompt([{ id: SELF_PROTECTION_SEGMENT_ID }], {
+		...defaultCtx,
+		selfProtectionContext: buildSelfProtectionPrompt("http://127.0.0.1:9123"),
+	});
+	expect(result).toContain("9123");
+	expect(result).not.toContain("9778");
+	expect(result).not.toContain("9776");
+});
+
+test("composePrompt self-protection：忽略 segment 残留 content，始终取 ctx 值", () => {
+	const result = composePrompt(
+		[
+			{
+				id: SELF_PROTECTION_SEGMENT_ID,
+				content: "STALE PROMPT 9778/9776",
+			},
+		],
+		{
+			...defaultCtx,
+			selfProtectionContext: buildSelfProtectionPrompt("http://127.0.0.1:9123"),
+		},
+	);
+	expect(result).toContain("9123");
+	expect(result).not.toContain("STALE PROMPT");
+	expect(result).not.toContain("9778");
+});
+
+// ===== ensureSelfProtectionSegment：运行时补回占位段 =====
+
+test("ensureSelfProtectionSegment：缺失时补回占位段，位置在 base 之后、delegate-mechanism 之前", () => {
+	const input: PromptSegment[] = [
+		{ id: "base", content: "B" },
+		{ id: "delegate-mechanism", content: "M" },
+		{ id: "memory-policy" },
+	];
+	const out = ensureSelfProtectionSegment(input);
+	const ids = out.map((s) => s.id);
+	expect(ids.indexOf("base")).toBeLessThan(ids.indexOf(SELF_PROTECTION_SEGMENT_ID));
+	expect(ids.indexOf(SELF_PROTECTION_SEGMENT_ID)).toBeLessThan(
+		ids.indexOf("delegate-mechanism"),
+	);
+	// 占位段无 content（运行时由 ctx 注入）
+	expect(
+		out.find((s) => s.id === SELF_PROTECTION_SEGMENT_ID)!.content,
+	).toBeUndefined();
+	// 缺失时返回新数组，不原地改
+	expect(out).not.toBe(input);
+});
+
+test("ensureSelfProtectionSegment：残留 content 剥离，且不原地修改原数组", () => {
+	const input: PromptSegment[] = [
+		{ id: "base" },
+		{ id: SELF_PROTECTION_SEGMENT_ID, content: "STALE 9778/9776" },
+		{ id: "delegate-mechanism" },
+	];
+	const out = ensureSelfProtectionSegment(input);
+	expect(
+		out.find((s) => s.id === SELF_PROTECTION_SEGMENT_ID)!.content,
+	).toBeUndefined();
+	// 原数组未被修改
+	expect(input[1].content).toBe("STALE 9778/9776");
+});
+
+test("ensureSelfProtectionSegment：已是占位段（无 content）则原样返回", () => {
+	const input: PromptSegment[] = [
+		{ id: "base" },
+		{ id: SELF_PROTECTION_SEGMENT_ID },
+	];
+	expect(ensureSelfProtectionSegment(input)).toBe(input);
+});
+
+// ===== savePromptSegments：self-protection 不落盘 =====
+
+test("savePromptSegments 剔除 self-protection 段（运行时注入不落盘）", async () => {
+	const f = tempFile();
+	await savePromptSegments(f, [
+		{ id: "base" },
+		{ id: SELF_PROTECTION_SEGMENT_ID, content: "STALE 9778" },
+		{ id: "delegate-mechanism", content: "M" },
+	]);
+	const loaded = await loadPromptSegments(f);
+	expect(loaded!.some((s) => s.id === SELF_PROTECTION_SEGMENT_ID)).toBe(false);
+	expect(readFileSync(f, "utf8")).not.toContain("9778");
+	rmSync(f, { force: true });
+});
+
+test("composePrompt 动态段写 content（env-constraints）→ 用户覆盖", () => {
+	const customEnv = "Custom env constraints";
+	const result = composePrompt(
+		[{ id: "env-constraints", content: customEnv }],
+		defaultCtx,
+	);
+	expect(result).toBe(customEnv);
+	expect(result).not.toContain("Built-in directory:");
+});
+
+test("composePrompt 数组顺序 = 输出顺序（可任意调整）", () => {
+	const reordered = [{ id: "memory-snapshot" }, { id: "base" }];
+	const result = composePrompt(reordered, defaultCtx);
+	const memPos = result.indexOf("## Memory Snapshot");
+	const basePos = result.indexOf(WA_PI_DEFAULT_BASE_PROMPT);
+	expect(memPos).toBeLessThan(basePos);
+});
+
+test("composePrompt 段不在数组里 = 不启用", () => {
+	const result = composePrompt([{ id: "base" }], defaultCtx);
+	expect(result).toBe(WA_PI_DEFAULT_BASE_PROMPT);
+});
+
+test("composePrompt 未知 id 且无 content → 被过滤", () => {
+	const result = composePrompt(
+		[
+			{ id: "base" },
+			{ id: "custom-unknown" },
+			{ id: "another-unknown", content: "Has content" },
+		],
+		defaultCtx,
+	);
+	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
+	expect(result).toContain("Has content");
+});
+
+// ===== 集成测试：完整组装链路（buildDelegateRoster → composePrompt）=====
+
+test("集成：askTo 含命名智能体时，系统提示词的 roster 段含内置+命名", () => {
+	// 模拟真实链路：buildDelegateRoster 产出 roster 段 → 注入 composePrompt
+	const roster = buildDelegateRoster(
+		[
+			{
+				name: "代码审查",
+				description: "评审改动",
+				delegationHints: { whenToDelegate: "需评审", benefit: "反馈" },
+			},
+		],
+		{ Explore: { whenToDelegate: "跨多文件探索", benefit: "省上下文" } },
+	);
+	const prompt = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
+		...defaultCtx,
+		delegateRoster: roster,
+	});
+	// 内置类型出现
+	expect(prompt).toContain("Explore");
+	expect(prompt).toContain("Plan");
+	expect(prompt).toContain("general-purpose");
+	// 命名智能体出现且含 hints
+	expect(prompt).toContain("代码审查");
+	expect(prompt).toContain("需评审");
+	// delegate-mechanism 段仍在（@语法 + fleet）
+	expect(prompt).toContain("Delegation Mechanism");
+	expect(prompt).toContain("fleet");
+});
+
+test("集成：askTo 为空时，系统提示词的 roster 段只含内置类型", () => {
+	const roster = buildDelegateRoster([]);
+	const prompt = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
+		...defaultCtx,
+		delegateRoster: roster,
+	});
+	expect(prompt).toContain("Explore");
+	expect(prompt).toContain("Plan");
+	// delegate-roster 段标题在
+	expect(prompt).toContain("## Available Subagents");
+});
+
+// ===== 文件 I/O =====
+
+test("savePromptSegments + loadPromptSegments 往返", async () => {
+	const f = tempFile();
+	const segs = [
+		{ id: "base" },
+		{ id: "delegate-mechanism", content: "custom content" },
+	];
+	await savePromptSegments(f, segs);
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).toEqual(segs);
+	rmSync(f, { force: true });
+});
+
+test("loadPromptSegments 文件不存在 → 返回 null", async () => {
+	const loaded = await loadPromptSegments(
+		join(import.meta.dir, ".non-existent-" + Date.now() + ".json"),
+	);
+	expect(loaded).toBeNull();
+});
+
+test("loadPromptSegments 格式错误（无 segments 字段）→ 返回 null", async () => {
+	const f = tempFile();
+	writeFileSync(f, JSON.stringify({ wrongField: [] }));
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).toBeNull();
+	rmSync(f, { force: true });
+});
+
+test("loadPromptSegments JSON 解析失败 → 返回 null", async () => {
+	const f = tempFile();
+	writeFileSync(f, "{ invalid json");
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).toBeNull();
+	rmSync(f, { force: true });
+});
+
+test("ensurePromptsConfig 首次调用写入默认配置", async () => {
+	const f = tempFile();
+	await ensurePromptsConfig(f);
+	expect(existsSync(f)).toBe(true);
+	const loaded = await loadPromptSegments(f);
+	// im-channel / im-push / scheduled-tasks / self-protection 为运行时注入段，不落盘
+	expect(loaded).toEqual(
+		DEFAULT_PROMPT_SEGMENTS.filter(
+			(s) =>
+				s.id !== "im-channel" &&
+				s.id !== "im-push" &&
+				s.id !== "scheduled-tasks" &&
+				s.id !== "self-protection",
+		),
+	);
+	rmSync(f, { force: true });
+});
+
+test("ensurePromptsConfig 二次调用幂等（已存在不动）", async () => {
+	const f = tempFile();
+	const custom: PromptSegment[] = [{ id: "base", content: "custom" }];
+	await savePromptSegments(f, custom);
+	await ensurePromptsConfig(f);
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).toEqual(custom);
+	rmSync(f, { force: true });
+});
+
+test("ensurePromptsConfig 失败不抛错（不阻塞启动）", async () => {
+	const f = join(
+		import.meta.dir,
+		".non-existent-dir-" + Date.now(),
+		"prompts.json",
+	);
+	await expect(ensurePromptsConfig(f)).resolves.toBeUndefined();
+});
+
+// ===== schemaVersion 迁移 =====
+
+test("ensurePromptsConfig 迁移旧格式文件（无 schemaVersion）→ 保留已存在段自定义，追加缺失段", async () => {
+	const f = tempFile();
+	// 模拟旧版磁盘文件：含已废弃的 subagent-clarify 段 id
+	const legacySegments: PromptSegment[] = [
+		{ id: "base", content: "MY CUSTOM BASE" },
+		{ id: "delegate-mechanism", content: "OLD MECHANISM TEXT" }, // 已存在段，应保留用户自定义
+		{ id: "delegate-roster" }, // 动态段，保留原样
+		{ id: "subagent-clarify", content: "OBSOLETE" }, // 旧 id，不在新版段里 → 丢弃
+	];
+	writeFileSync(f, JSON.stringify({ segments: legacySegments }, null, 2));
+
+	await ensurePromptsConfig(f);
+
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).not.toBeNull();
+	const byId = new Map((loaded as PromptSegment[]).map((s) => [s.id, s]));
+
+	// 已存在段保留用户自定义（不被默认值覆盖）
+	expect(byId.get("delegate-mechanism")!.content).toBe("OLD MECHANISM TEXT");
+	// 动态段保留用户自定义
+	expect(byId.get("base")!.content).toBe("MY CUSTOM BASE");
+	expect(byId.has("delegate-roster")).toBe(true);
+	// 缺失段（memory-policy 等）追加最新默认
+	expect(byId.get("memory-policy")!.content ?? "").toBe(""); // 动态段，content 为空由运行时填充
+	// self-protection 为运行时注入段，不落盘（迁移后由 ensureSelfProtectionSegment 在运行时补回）
+	expect(byId.has("self-protection")).toBe(false);
+	expect(byId.has("env-constraints")).toBe(true);
+	expect(byId.has("memory-snapshot")).toBe(true);
+	// 废弃 id 被丢弃
+	expect(byId.has("subagent-clarify")).toBe(false);
+
+	// 磁盘文件已写入新 schemaVersion
+	const raw = JSON.parse(readFileSync(f, "utf8"));
+	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
+	rmSync(f, { force: true });
+});
+
+test("ensurePromptsConfig 迁移旧版：self-protection 不落盘（运行时注入）且保留 base/delegate-mechanism 用户 content", async () => {
+	const f = tempFile();
+	// 模拟 v22 磁盘文件：已有 base（用户自定义）+ delegate-mechanism（旧内容），无 self-protection 段
+	const v22Segments: PromptSegment[] = [
+		{ id: "base", content: "MY CUSTOM BASE" },
+		{ id: "delegate-mechanism", content: "OLD MECHANISM TEXT" },
+		{ id: "delegate-roster" },
+		{ id: "env-constraints" },
+	];
+	writeFileSync(
+		f,
+		JSON.stringify({ schemaVersion: 22, segments: v22Segments }, null, 2),
+	);
+
+	await ensurePromptsConfig(f);
+
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).not.toBeNull();
+	const byId = new Map((loaded as PromptSegment[]).map((s) => [s.id, s]));
+	// self-protection 为运行时注入段，不写入磁盘
+	expect(byId.has("self-protection")).toBe(false);
+	// 已存在段用户 content 保留（不被默认覆盖）
+	expect(byId.get("base")!.content).toBe("MY CUSTOM BASE");
+	expect(byId.get("delegate-mechanism")!.content).toBe("OLD MECHANISM TEXT");
+	// 磁盘已升级到最新 schemaVersion
+	const raw = JSON.parse(readFileSync(f, "utf8"));
+	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
+	rmSync(f, { force: true });
+});
+
+test("迁移回归：v27 文件里 self-protection 写死 9778/9776 → ensurePromptsConfig 后落盘不再含该段与 9778", async () => {
+	const f = tempFile();
+	const v27: PromptSegment[] = [
+		{ id: "base" },
+		{ id: "self-protection", content: "宿主端口 9778/9776" },
+		{ id: "delegate-mechanism", content: "M" },
+		{ id: "scheduled-tasks" },
+	];
+	writeFileSync(
+		f,
+		JSON.stringify({ schemaVersion: 27, segments: v27 }, null, 2),
+	);
+
+	await ensurePromptsConfig(f);
+
+	const diskText = readFileSync(f, "utf8");
+	expect(diskText).not.toContain("self-protection");
+	expect(diskText).not.toContain("9778");
+	const loaded = await loadPromptSegments(f);
+	expect(loaded!.some((s) => s.id === "self-protection")).toBe(false);
+	rmSync(f, { force: true });
+});
+
+test("ensurePromptsConfig 迁移后幂等（版本匹配不再重写）", async () => {
+	const f = tempFile();
+	const legacy: PromptSegment[] = [
+		{ id: "base", content: "KEEP ME" },
+		{ id: "delegate-mechanism", content: "OLD" },
+	];
+	writeFileSync(f, JSON.stringify({ segments: legacy }, null, 2));
+
+	await ensurePromptsConfig(f);
+	const afterFirst = await loadPromptSegments(f);
+	expect(afterFirst!.find((s) => s.id === "delegate-mechanism")!.content).toBe(
+		"OLD",
+	);
+
+	// 手动篡改静态段，验证第二次不再重写
+	const tampered = JSON.parse(readFileSync(f, "utf8"));
+	const mechIdx = tampered.segments.findIndex(
+		(s: PromptSegment) => s.id === "delegate-mechanism",
+	);
+	tampered.segments[mechIdx].content = "TAMPERED AFTER MIGRATION";
+	writeFileSync(f, JSON.stringify(tampered));
+
+	await ensurePromptsConfig(f);
+	const afterSecond = await loadPromptSegments(f);
+	expect(afterSecond!.find((s) => s.id === "delegate-mechanism")!.content).toBe(
+		"TAMPERED AFTER MIGRATION",
+	);
+	rmSync(f, { force: true });
+});
+
+test("ensurePromptsConfig 全新机器首次写入含 schemaVersion + 最新静态段", async () => {
+	const f = tempFile();
+	await ensurePromptsConfig(f);
+	const raw = JSON.parse(readFileSync(f, "utf8"));
+	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
+	// im-channel / im-push / scheduled-tasks / self-protection 为运行时注入段，不落盘
+	expect(raw.segments).toEqual(
+		DEFAULT_PROMPT_SEGMENTS.filter(
+			(s) =>
+				s.id !== "im-channel" &&
+				s.id !== "im-push" &&
+				s.id !== "scheduled-tasks" &&
+				s.id !== "self-protection",
+		),
+	);
+	rmSync(f, { force: true });
+});
+
+// ===== 子代理系统提示词组装 =====
+// 注：自我保护段曾在此错误注入（对子代理属错误约束），2026-09-16 起移除，
+// composeSubagentPrompt 回归纯组装语义：原样返回正文（trim）。
+
+test("composeSubagentPrompt: 原样返回正文（不再追加自我保护段）", () => {
+	const out = composeSubagentPrompt("你是一个调研员");
+	expect(out).toBe("你是一个调研员");
+	expect(out).not.toContain("自身进程保护");
+});
+
+test("composeSubagentPrompt: 空正文 → 返回空串", () => {
+	expect(composeSubagentPrompt("")).toBe("");
+});
+
+test("composeSubagentPrompt: 全空白正文 → trim 后返回空串", () => {
+	expect(composeSubagentPrompt("   \n\t ")).toBe("");
+});
+
+test("savePromptSegments 写入 schemaVersion，loadPromptSegments 往返仅返回 segments", async () => {
+	const f = tempFile();
+	const segs: PromptSegment[] = [
+		{ id: "base" },
+		{ id: "delegate-mechanism", content: "x" },
+	];
+	await savePromptSegments(f, segs);
+	const raw = JSON.parse(readFileSync(f, "utf8"));
+	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).toEqual(segs);
+	rmSync(f, { force: true });
+});
+
+// ===== 记忆策略段：检索优先与三层说明（SQLite 架构） =====
+
+/** 两个版本必须都覆盖的引导点：先查再答 / execution 流水 / 按 id 变更 */
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略：先查再答（L2/L3 可检索但不注入）", (_name, prompt) => {
+	expect(prompt).toContain("memory_search");
+	expect(prompt).toContain("不注入");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])(
+	"%s 记忆策略：知识类/过程类提问须在委派或读代码之前先查记忆",
+	(_name, prompt) => {
+		// 2026-09-18 记忆触发优化：基线实测「项目结构/依赖/有哪些方法」被当成纯代码任务，
+		// 首个动作是 ls/find/delegate 而不查记忆 → 点名归类 + 首动作顺序两个要素都不能丢。
+		expect(prompt).toContain("在委派或读代码之前");
+		expect(prompt).toMatch(/第一个[\s\S]{0,24}?memory_search/);
+		// 反例也要在：单点定义查询不必查，否则 agent 会对任何问题都先查一遍
+		expect(prompt).toContain("单点定义查询");
+	},
+);
+
+test("DEFAULT 记忆策略点名知识类提问：项目结构 / 依赖清单 / 接口与方法清单", () => {
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("项目结构");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("依赖清单");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("接口与方法清单");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略：引导写入 kind=execution 执行流水", (_name, prompt) => {
+	expect(prompt).toContain("kind=execution");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略：变更前先取 id，再按 id 精确变更", (_name, prompt) => {
+	expect(prompt).toMatch(/memory_search[\s\S]*memory_replace/);
+	expect(prompt).toContain("id");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])(
+	"%s 记忆策略不再宣称记忆落在 MEMORY.md / USER.md（DB 化后二者非真源）",
+	(_name, prompt) => {
+		expect(prompt).not.toContain("MEMORY.md");
+		expect(prompt).not.toContain("USER.md");
+	},
+);
+
+test("DEFAULT 记忆策略分层说明：profile / knowledge / execution 与 target 路由", () => {
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("kind=profile");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("kind=knowledge");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("target=user");
+	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("target=memory");
+});

@@ -1,0 +1,299 @@
+import { useEffect, useState, type CSSProperties } from "react";
+import { useMcpStore } from "../../store/mcp";
+import { useProjectsStore } from "../../store/projects";
+import { McpCard } from "./McpCard";
+import { McpEmpty } from "./McpEmpty";
+import { McpFormModal } from "./McpFormModal";
+import { McpToolsModal } from "./McpToolsModal";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { useTranslation } from "../../i18n/useTranslation";
+import type { McpServerConfig } from "@wa-pi/shared";
+
+export function McpPage() {
+  const { t } = useTranslation();
+  const {
+    servers,
+    serverStatuses,
+    toolCounts,
+    toolsCache,
+    loadingTools,
+    testingServers,
+    errors,
+    selectedProjectId,
+    searchQuery,
+    loading,
+    load,
+    save,
+    deleteServer,
+    testConnection,
+    listTools,
+    setSelectedProjectId,
+    setSearchQuery,
+  } = useMcpStore();
+
+  const projects = useProjectsStore((s) => s.projects);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingServer, setEditingServer] = useState<McpServerConfig | null>(
+    null,
+  );
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [showToolsFor, setShowToolsFor] = useState<string | null>(null);
+
+  // 加载列表
+  useEffect(() => {
+    load(selectedProjectId ?? undefined);
+  }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 搜索过滤
+  const filtered = servers.filter(
+    (s) =>
+      !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
+  const openAddForm = () => {
+    setEditingServer(null);
+    setFormOpen(true);
+  };
+  const openEditForm = (server: McpServerConfig) => {
+    setEditingServer(server);
+    setFormOpen(true);
+  };
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingServer(null);
+  };
+
+  const handleFormSave = (config: McpServerConfig, originalName?: string) => {
+    save(config, selectedProjectId ?? undefined, originalName);
+    closeForm();
+  };
+
+  const handleTest = (serverName: string) => {
+    testConnection(serverName, selectedProjectId ?? undefined);
+  };
+
+  const handleViewTools = (serverName: string) => {
+    // 先发起 WS 请求取最新工具列表（实时连接，不依赖缓存）
+    listTools(serverName, selectedProjectId ?? undefined);
+    setShowToolsFor(serverName);
+  };
+
+  const handleDelete = (serverName: string) => {
+    deleteServer(serverName, selectedProjectId ?? undefined);
+    setConfirmDelete(null);
+  };
+
+  return (
+    <div
+      className="flex-1 flex flex-col overflow-hidden"
+      data-testid="mcp-page"
+    >
+      {/* 标题栏 */}
+      <div
+        className="flex items-center px-5 py-3.5"
+        style={{
+          background: "var(--surface)",
+          borderBottom: "1px solid var(--hairline)",
+        }}
+      >
+        <h2 className="text-base font-extrabold text-primary m-0">
+          {t("mcp.pageTitle")}
+        </h2>
+      </div>
+
+      {/* 工具栏 */}
+      <div
+        className="flex items-center gap-2.5 px-5 py-2.5"
+        style={{
+          background: "var(--surface)",
+          borderBottom: "1px solid var(--hairline)",
+        }}
+      >
+        {/* 作用域下拉 */}
+        <ScopeDropdown
+          selectedProjectId={selectedProjectId}
+          projects={projects}
+          onSelect={(projectId) => setSelectedProjectId(projectId)}
+        />
+
+        {/* 搜索 */}
+        <input
+          className="flex-1 text-[calc(12px*var(--font-scale))] px-3 py-1.5 rounded-lg min-w-0"
+          style={{
+            background: "var(--canvas)",
+            border: "1px solid var(--hairline)",
+            color: "var(--text-primary)",
+          }}
+          placeholder={t("mcp.searchPlaceholder")}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          data-testid="mcp-search"
+        />
+
+        {/* 添加按钮：点击弹出模态表单 */}
+        <button
+          onClick={openAddForm}
+          className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
+          style={{ background: "var(--accent)", border: "none" }}
+          data-testid="mcp-add-button"
+        >
+          {t("mcp.addButton")}
+        </button>
+      </div>
+
+      {/* 列表内容 */}
+      <div className="flex-1 overflow-y-auto px-5 py-3.5">
+        {loading ? (
+          <div className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8">
+            {t("mcp.loading")}
+          </div>
+        ) : filtered.length === 0 ? (
+          <McpEmpty />
+        ) : (
+          filtered.map((s) => (
+            <McpCard
+              key={s.name}
+              config={s}
+              status={serverStatuses[s.name] ?? "disconnected"}
+              toolCount={toolCounts[s.name]}
+              testing={!!testingServers[s.name]}
+              error={errors[s.name]}
+              onTest={() => handleTest(s.name)}
+              onViewTools={() => handleViewTools(s.name)}
+              onEdit={() => openEditForm(s)}
+              onDelete={() => setConfirmDelete(s.name)}
+            />
+          ))
+        )}
+      </div>
+
+      {/* 新增/编辑表单 Modal */}
+      {formOpen && (
+        <McpFormModal
+          initial={editingServer ?? undefined}
+          onSave={handleFormSave}
+          onClose={closeForm}
+        />
+      )}
+
+      {/* 工具列表 Modal */}
+      {showToolsFor && (
+        <McpToolsModal
+          serverName={showToolsFor}
+          tools={toolsCache[showToolsFor] ?? []}
+          loading={!!loadingTools[showToolsFor]}
+          onClose={() => setShowToolsFor(null)}
+        />
+      )}
+
+      {/* 删除确认弹窗 */}
+      {confirmDelete && (
+        <ConfirmDialog
+          title={t("mcp.deleteTitle")}
+          message={t("mcp.deleteMessage", { name: confirmDelete })}
+          confirmText={t("common.delete")}
+          danger
+          onConfirm={() => handleDelete(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// —— 作用域下拉（复用 MemoryPage 的 MemoryScopeDropdown 模式）——
+
+function ScopeDropdown({
+  selectedProjectId,
+  projects,
+  onSelect,
+}: {
+  selectedProjectId: string | null;
+  projects: { id: string; name: string }[];
+  onSelect: (projectId: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const isGlobal = selectedProjectId === null;
+  const label = isGlobal
+    ? t("mcp.globalScope")
+    : (projects.find((p) => p.id === selectedProjectId)?.name ??
+      t("common.scopeProject"));
+
+  const itemStyle = (active: boolean): CSSProperties => ({
+    color: active ? "var(--accent)" : "var(--text-primary)",
+    background: active ? "var(--accent-soft)" : "transparent",
+  });
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 text-[calc(11.5px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--hairline)",
+          color: "var(--text-primary)",
+        }}
+        data-testid="mcp-scope-select"
+      >
+        {label}
+        <span className="text-[calc(9px*var(--font-scale))] opacity-70">▾</span>
+      </button>
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            data-testid="mcp-scope-backdrop"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className="absolute left-0 z-20 mt-1 py-1 rounded-md min-w-[148px] shadow-lg"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--hairline)",
+            }}
+            data-testid="mcp-scope-menu"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onSelect(null);
+                setOpen(false);
+              }}
+              className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5"
+              style={itemStyle(isGlobal)}
+              data-testid="mcp-scope-option-global"
+            >
+              {t("mcp.globalScope")}
+            </button>
+            {projects.length > 0 && (
+              <div
+                className="my-1"
+                style={{ borderTop: "1px solid var(--hairline)" }}
+              />
+            )}
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  onSelect(p.id);
+                  setOpen(false);
+                }}
+                className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5 truncate"
+                style={itemStyle(selectedProjectId === p.id)}
+                data-testid={`mcp-scope-option-project-${p.id}`}
+                title={p.name}
+              >
+                {t("mcp.projectOption", { name: p.name })}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

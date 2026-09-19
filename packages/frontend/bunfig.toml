@@ -1,0 +1,7 @@
+[test]
+preload = ["./tests/happydom-setup.ts"]
+# 排除 Playwright E2E 目录（e2e/*.spec.ts 用 @playwright/test，由 `bun run e2e`
+# 经 playwright test 运行），避免被 `bun test`(单元测试)误抓导致报错。
+# e2e-electron 同理：Electron E2E（playwright.electron.config.ts 驱动），由
+# `node node_modules/@playwright/test/cli.js test -c playwright.electron.config.ts` 运行。
+pathIgnorePatterns = ["**/e2e/**", "**/e2e-electron/**"]

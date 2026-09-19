@@ -1,0 +1,1025 @@
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+	SYSTEM_PROJECT_ID,
+	resolveSessionCwd,
+	type AgentStatus,
+	type ChannelConversationInfo,
+} from "@wa-pi/shared";
+import { useTranslation } from "../i18n/useTranslation";
+import { useProjectsStore } from "../store/projects";
+import { useSessionStore } from "../store/session";
+import { useBrowserStore } from "../store/browser";
+import { useIsBlocked } from "../store/ask";
+import { useExplorerStore } from "../store/explorer";
+import { SidebarResizer } from "./SidebarResizer";
+import { MessageList } from "./MessageList";
+import { Composer } from "./Composer";
+import { AskDock } from "./ask/AskDock";
+import { ExtensionDialog } from "./ExtensionDialog";
+import { AgentSwitcher } from "./AgentSwitcher";
+import ImSessionTitle from "./ImSessionTitle";
+import { ExplorerPanel } from "./ExplorerPanel";
+import { STATUS_COLORS } from "../theme/colors";
+import { AnsiText } from "./ui/AnsiText";
+import { expandedTextToHtml, ensureChipStyles } from "../quick-invoke/tokens";
+import { useSkillsStore } from "../store/skills";
+import { useCommandsStore } from "../store/commands";
+import { KERNEL_INTERCEPTED_COMMANDS } from "@wa-pi/shared";
+import { api } from "../api-client";
+import { fmtTok } from "../util/format";
+import { Icon } from "./ui/Icon";
+import { isHtmlPath } from "../preview-url";
+import { GitToolbar } from "./git/GitToolbar";
+import { useTuiPanelStore } from "../store/tui-panel";
+import { TuiPanel, reportWidgetCols } from "./TuiPanel";
+import {
+	clampDockOffset,
+	computeDockBounds,
+	loadDockOffset,
+	saveDockOffset,
+	type DockBounds,
+	type DockOffset,
+} from "../lib/widget-dock-position";
+
+interface Props {
+	sessionId: string;
+	/** 来源文案（IM 接入会话显示，拼到 header 状态行末尾，如「经『客服机器人』接入」） */
+	sourceLabel?: string;
+	/** IM 会话信息：存在则顶部标题改为可编辑通讯录名（ImSessionTitle），否则普通标题 */
+	imConv?: ChannelConversationInfo;
+}
+
+// agent 全局状态的 i18n key（header 直接展示给用户，不暴露英文枚举值）
+const AGENT_STATE_KEY: Record<AgentStatus, string> = {
+	idle: "session.stateIdle",
+	thinking: "session.stateThinking",
+	blocked: "session.stateBlocked",
+};
+
+// memo 包裹：浏览器预览拖拽期 App 顶层随 splitRatio/floatRect 每帧重渲染，
+// props 不变时跳过本组件（含 MessageList markdown）的 reconcile
+export const SessionView = memo(function SessionView({
+	sessionId,
+	sourceLabel,
+	imConv,
+}: Props) {
+	const { t } = useTranslation();
+	// 按字段订阅（trace 卡顿修复）：touchSession 每个 message_end 都新建 session 对象，
+	// 订阅整对象会让本组件（含 Composer/GitToolbar 等全部无 memo 的子树）整树连坐重渲染。
+	// 只订阅用到的原始值字段，对象引用变化即不再击穿。
+	const sessionTitle = useProjectsStore(
+		(s) => s.sessions.find((x) => x.id === sessionId)?.title,
+	);
+	const sessionProjectId = useProjectsStore(
+		(s) => s.sessions.find((x) => x.id === sessionId)?.projectId,
+	);
+	const sessionPrimaryAgent = useProjectsStore(
+		(s) => s.sessions.find((x) => x.id === sessionId)?.primaryAgent,
+	);
+	const sessionCreatedAt = useProjectsStore(
+		(s) => s.sessions.find((x) => x.id === sessionId)?.createdAt,
+	);
+	const project = useProjectsStore((s) =>
+		s.projects.find((p) => p.id === sessionProjectId),
+	);
+	const queue = useSessionStore((s) => s.queueBySession[sessionId]);
+	const status = useSessionStore((s) => s.statusBySession[sessionId] ?? "idle");
+	const historyLoading = useSessionStore(
+		(s) => s.historyLoadingBySession[sessionId] ?? false,
+	);
+	const isBlocked = useIsBlocked(sessionId);
+	const reloading = useSessionStore((s) => s.reloading);
+	const messages = useSessionStore((s) => s.messagesBySession[sessionId]);
+
+	// 思考起算时间（按会话独立，切会话不重置/不沿用）。每秒计时交给 <ThinkingTimer> 独立持有，
+	// 避免每秒 setElapsed 重渲染整个 SessionView（含 MessageList 的 markdown）造成计时卡顿。
+	const thinkingSince = useSessionStore(
+		(s) => s.thinkingSinceBySession[sessionId] ?? null,
+	);
+	// Token 计数
+	const tokenTotal = useSessionStore((s) => s.tokenTotals[sessionId]);
+	const lastUsage = useSessionStore((s) => s.lastUsageBySession[sessionId]);
+	// 当前上下文窗口占用（session:stats 官方口径，供进度条 + 「占用」数值；无本地估算）
+	const contextUsage = useSessionStore(
+		(s) => s.contextUsageBySession[sessionId],
+	);
+
+	useEffect(() => {
+		// 进入该会话即视为「已读」，清掉会话列表的 new 角标
+		useSessionStore.getState().markRead(sessionId);
+		// 标记历史加载中：响应到达前置 true，MessageList 在无消息时显示 loading
+		useSessionStore.getState().setHistoryLoading(sessionId, true);
+		void (async () => {
+			try {
+				const [statsRes, messagesRes] = await Promise.all([
+					api
+						.get(`/api/sessions/${encodeURIComponent(sessionId)}/stats`)
+						.catch(() => null),
+					api.get(`/api/sessions/${encodeURIComponent(sessionId)}/messages`),
+				]);
+				const res = messagesRes as {
+					messages: any[];
+					isActive: boolean;
+					thinkingSince: number | null;
+				};
+				useSessionStore.getState().setMessages(sessionId, res.messages);
+				useSessionStore
+					.getState()
+					.seedTokenTotal(sessionId, res.messages, (statsRes as any)?.stats);
+				// thinking 的设置由 isActive=true 驱动（打开正在跑的会话补设）；
+				// 清除由 SDK 事件（agent_end / failTurn / agent_settled）驱动。
+				// isActive=false 不在此干预——避免冷启动竞态（getCommands 先触发 ensureStarted
+				// 使 starting 有 sid 但 _promptLocks 未命中）误报 false 而清除乐观 thinking。
+				// 重连/重启的权威复位由 onReconnect 的 setActiveStatus 负责。
+				if (res.isActive) {
+					useSessionStore
+						.getState()
+						.setActiveStatus(sessionId, true, res.thinkingSince);
+				}
+			} finally {
+				useSessionStore.getState().setHistoryLoading(sessionId, false);
+			}
+		})();
+	}, [sessionId]);
+
+	// 下面的 hooks 必须在 early return 之前调用，否则 session 在/不在两次渲染
+	// 调用的 hooks 数量不一致，触发 "Rendered fewer hooks than expected"。
+	const isRunning = status === "thinking";
+	// 扩展 setStatus/setWidget 的订阅已下沉到 ExtStatusBar/ExtWidgetDock 子组件
+	// （trace 卡顿修复④）：extension_status 每条事件新建整表对象，此前 SessionView
+	// 订阅对象引用被逐条击穿（E2E 探针实测 20 条 → 整树渲染 20 次），下沉后只重渲染状态条本身。
+	// 扩展 TUI 面板展开态：键盘锁给面板，Composer 同步禁用（收起态恢复可用）
+	const tuiExpanded = useTuiPanelStore(
+		(s) => s.bySession[sessionId]?.mode === "expanded",
+	);
+	const [stopping, setStopping] = useState(false);
+	useEffect(() => {
+		if (!isRunning) setStopping(false);
+	}, [isRunning]);
+
+	// 右侧文件树面板：开关状态 + 宽度来自 explorer store
+	// 必须在 early return 之前调用，否则 session 在/不在两次渲染调用
+	// 的 hooks 数量不一致，触发 "Rendered fewer hooks than expected"（#300）。
+	const explorerOpen = useExplorerStore((s) => s.open);
+	const explorerWidth = useExplorerStore((s) => s.width);
+	// 队列面板 chip 渲染（同上：必须在 early return 之前）：/skill:x、#path 展开形态
+	// 还原 + textToHtml（同 MessageList 模式：稳定数组 selector + useMemo 成 Set，
+	// 避免每次渲染新 Set 触发无限重渲染）
+	const enabledSkills = useSkillsStore((s) => s.skills);
+	const knownSkills = useMemo(
+		() => new Set(enabledSkills.map((k) => k.name)),
+		[enabledSkills],
+	);
+	// 已知命令白名单：排队区 /cmd 展开形态还原为命令 chip（同 MessageList 模式）
+	const allCommands = useCommandsStore((s) => s.allCommands);
+	const knownCommands = useMemo(
+		() =>
+			new Set<string>([
+				...allCommands.map((c) => c.name),
+				...KERNEL_INTERCEPTED_COMMANDS,
+			]),
+		[allCommands],
+	);
+	ensureChipStyles();
+
+	if (
+		sessionTitle == null &&
+		sessionProjectId == null &&
+		sessionPrimaryAgent == null
+	)
+		return null;
+	// header 状态（圆点颜色与文案共用）：等待回复 blocked > 运行中 thinking > 空闲 idle
+	const headerStatus: AgentStatus = isBlocked ? "blocked" : status;
+	const steering = queue?.steering ?? [];
+	const followUp = queue?.followUp ?? [];
+	const hasQueue = steering.length > 0 || followUp.length > 0;
+
+	const handleStop = () => {
+		console.log(`[SessionView] handleStop sessionId=${sessionId}`);
+		setStopping(true);
+		void api.post(
+			`/api/agents/${encodeURIComponent(sessionProjectId ?? "")}/${encodeURIComponent(sessionId)}/abort`,
+			{ agentName: sessionPrimaryAgent ?? "" },
+		);
+	};
+	// 乐观更新：立即移动消息位置（去重防止与 kernel queue_update 叠加），后台发 API
+	const handlePromote = (text: string) => {
+		const idx = followUp.indexOf(text);
+		const remaining =
+			idx >= 0
+				? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)]
+				: [...followUp];
+		useSessionStore.setState((s) => {
+			const cur = s.queueBySession[sessionId]?.steering ?? [];
+			return {
+				queueBySession: {
+					...s.queueBySession,
+					[sessionId]: {
+						steering: cur.includes(text) ? cur : [...cur, text],
+						followUp: remaining,
+					},
+				},
+			};
+		});
+		void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer`, {
+			text,
+		});
+	};
+	const handleImmediate = (text: string) => {
+		const idx = followUp.indexOf(text);
+		const remaining =
+			idx >= 0
+				? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)]
+				: [...followUp];
+		useSessionStore.setState((s) => {
+			const cur = s.queueBySession[sessionId]?.steering ?? [];
+			return {
+				queueBySession: {
+					...s.queueBySession,
+					[sessionId]: {
+						steering: cur.includes(text) ? cur : [...cur, text],
+						followUp: remaining,
+					},
+				},
+			};
+		});
+		void api.post(
+			`/api/sessions/${encodeURIComponent(sessionId)}/steer/immediate`,
+			{ text },
+		);
+	};
+	// 清空全部排队（steering + followUp）：kernel clearQueue 调 pi 0.84.4 clear_queue RPC
+	// 清 pi 侧队列，同步清本地双队列后推 queue_update 对齐（ RPC 失败兑底仅清本地）
+	const handleClearQueue = () => {
+		useSessionStore.setState((s) => ({
+			queueBySession: {
+				...s.queueBySession,
+				[sessionId]: { steering: [], followUp: [] },
+			},
+		}));
+		void api.post(
+			`/api/sessions/${encodeURIComponent(sessionId)}/clear-queue`,
+			{},
+		);
+	};
+
+	// 文件树根目录：普通项目用 project.cwd，默认工作区会话用其专属临时目录 workdir/<createdAt>/
+	const workspaceDir =
+		sessionProjectId != null && sessionCreatedAt != null
+			? resolveSessionCwd(
+					{ projectId: sessionProjectId, createdAt: sessionCreatedAt },
+					{ cwd: project?.cwd ?? "" },
+				)
+			: "";
+
+	return (
+		<div className="flex-1 flex h-full" data-testid="session-view">
+			{/* 左侧主区：对话内容 */}
+			<div className="relative flex-1 flex flex-col overflow-hidden min-w-0">
+				{/* 顶部状态栏 */}
+				<header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
+					{/* flex-1 + min-w-0 + 高 shrink 权重：窄容器下标题 truncate 承担主要收缩，
+					 工具栏/胶囊只按需微缩（否则 flex 按 basis 均摊会把工具栏压到 0 导致按钮叠压） */}
+					<div className="flex-1 min-w-0 shrink-[5]">
+						<div className="flex items-center gap-2">
+							{/* 标题最多折叠两行，超出省略：窗口太窄时不再把顶部撑高 */}
+							{imConv ? (
+								<ImSessionTitle sessionTitle={sessionTitle ?? ""} imConv={imConv} />
+							) : (
+								<span className="text-[calc(14px*var(--font-scale))] font-bold text-primary leading-[1.5] line-clamp-2">
+									{sessionTitle}
+								</span>
+							)}
+						</div>
+						{/* 会话角色入口：固定为只读展示（图标+角色名），不提供切换/编辑；
+							IM 会话智能体由机器人配置锁定，均不暴露切换。
+							与项目目录、会话状态同放一行（标题下）靠右，不再挤占标题行 */}
+						<div className="flex items-center gap-2 text-[calc(11.5px*var(--font-scale))] text-tertiary mt-px">
+							<span
+								className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+								style={{ background: STATUS_COLORS[headerStatus] }}
+								data-testid="session-status-dot"
+							/>
+							<span className="min-w-0 truncate">
+								{/* 默认工作区会话：不暴露内部工作目录，显示友好文案；普通项目会话仍显示 cwd */}
+								{sessionProjectId === SYSTEM_PROJECT_ID
+									? t("session.defaultWorkspace")
+									: (project?.cwd ?? "")}{" "}
+								· {t(AGENT_STATE_KEY[headerStatus])}
+								{sourceLabel && ` · ${sourceLabel}`}
+							</span>
+							{!sourceLabel && <AgentSwitcher sessionId={sessionId} readOnly />}
+						</div>
+					</div>
+					{/* Git 工具栏：仅普通项目会话（默认工作区无 git 仓库语义） */}
+					{project && sessionProjectId !== SYSTEM_PROJECT_ID && (
+						<GitToolbar project={project} />
+					)}
+					{/* Token 胶囊标签组 */}
+					{lastUsage && (
+						<div
+							className="flex flex-wrap items-center gap-x-2 gap-y-2 min-w-0 max-w-full"
+							data-testid="token-capsules"
+						>
+							<span className="token-capsule">
+								{t("session.thisTurn", {
+									input: fmtTok(lastUsage.input),
+									output: fmtTok(lastUsage.output),
+								})}
+							</span>
+							{/* 占用 + 进度条胶囊（只认官方 contextUsage，无本地估算） */}
+							{contextUsage?.used != null &&
+								contextUsage.total > 0 &&
+								(() => {
+									const pct = Math.min(
+										(contextUsage.used / contextUsage.total) * 100,
+										100,
+									);
+									const w = Math.max(Math.round(pct), 2);
+									return (
+										<span className="token-capsule token-capsule--stack">
+											<span className="token-occupied" data-testid="token-occupied">
+												{t("session.occupied", {
+													used: fmtTok(contextUsage.used),
+												})}
+											</span>
+											<span className="token-progress" data-testid="token-progress">
+												<span className="token-progress-fill" style={{ width: `${w}%` }} />
+											</span>
+										</span>
+									);
+								})()}
+							{/* 累计胶囊：独立一列；有子代理消耗时第二行拆分主/子 */}
+							{tokenTotal && (
+								<span
+									className={`token-capsule token-capsule--total${tokenTotal.subagent ? " token-capsule--stack" : ""}`}
+									data-testid="token-total"
+								>
+									{t("session.total", { total: fmtTok(tokenTotal.total) })}
+									{tokenTotal.subagent ? (
+										<span className="token-split" data-testid="token-split">
+											{t("session.totalSplitMain", {
+												main: fmtTok(
+													tokenTotal.main ?? tokenTotal.total - tokenTotal.subagent,
+												),
+											})}{" "}
+											·{" "}
+											{t("session.totalSplitSub", {
+												sub: fmtTok(tokenTotal.subagent),
+											})}
+										</span>
+									) : null}
+								</span>
+							)}
+							{(lastUsage.cacheRead > 0 || lastUsage.cacheWrite > 0) &&
+								(() => {
+									const rate =
+										(lastUsage.cacheRead /
+											(lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite)) *
+										100;
+									const danger = rate < 90;
+									return (
+										<span
+											className={`token-capsule token-capsule--cache${danger ? " token-capsule--cache-danger" : ""}`}
+										>
+											{t("session.cache", { rate: Math.floor(rate * 10) / 10 })}
+										</span>
+									);
+								})()}
+						</div>
+					)}
+					{/* 文件树面板开关按钮 */}
+					<button
+						type="button"
+						className="fv-btn fv-btn--icon"
+						data-testid="btn-explorer"
+						data-active={explorerOpen ? "true" : "false"}
+						onClick={() => useExplorerStore.getState().toggle()}
+						title={t("session.projectFiles")}
+						style={
+							explorerOpen
+								? { color: "var(--accent)" }
+								: { color: "var(--text-tertiary)" }
+						}
+					>
+						{/* 图标基础尺寸 18px，跟随全局 --font-scale 缩放（与 SettingsButton/ProjectItem 同口径） */}
+						<Icon
+							name="folder"
+							size="1em"
+							className="text-[calc(18px*var(--font-scale))]"
+						/>
+					</button>
+					{/* 浏览器预览入口（打开空预览窗口） */}
+					<button
+						type="button"
+						className="fv-btn fv-btn--icon"
+						data-testid="btn-browser-preview"
+						onClick={() =>
+							useBrowserStore.getState().openBrowser(undefined, sessionId)
+						}
+						title={t("session.browserPreview")}
+						style={{ color: "var(--text-tertiary)" }}
+					>
+						<Icon
+							name="globe"
+							size="1em"
+							className="text-[calc(18px*var(--font-scale))]"
+						/>
+					</button>
+				</header>
+
+				{/* 队列面板：agent 运行中或有队列时显示 */}
+				{(isRunning || hasQueue) && (
+					<div
+						className="px-5 py-2.5 border-b border-hairline bg-surface-elevated"
+						data-testid="queue-panel"
+					>
+						{/* 状态栏：spinner + 计时 + 停止 + 清空 */}
+						{(isRunning || followUp.length > 0) && (
+							<div className="flex items-center mb-1">
+								{isRunning && (
+									<span className="flex items-center gap-2 text-[calc(12.5px*var(--font-scale))] text-secondary flex-1">
+										<span
+											className="inline-block w-3.5 h-3.5 rounded-full"
+											style={{
+												border: "2px solid var(--accent-soft)",
+												borderTopColor: "var(--accent)",
+												animation: "spin 0.8s linear infinite",
+											}}
+										/>
+										{t("session.stateThinking")} ·{" "}
+										<ThinkingTimer thinkingSince={thinkingSince} />s
+									</span>
+								)}
+								{!isRunning && <span className="flex-1" />}
+								<div className="flex items-center gap-2">
+									{isRunning && (
+										<button
+											onClick={handleStop}
+											disabled={historyLoading || stopping}
+											className={`px-2.5 py-0.5 rounded-pill text-[calc(11.5px*var(--font-scale))] font-semibold border-0 ${historyLoading || stopping ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
+											data-testid="btn-stop"
+										>
+											{stopping ? t("session.stopping") : t("session.stop")}
+										</button>
+									)}
+									{(steering.length > 0 || followUp.length > 0) && (
+										<button
+											onClick={handleClearQueue}
+											disabled={historyLoading}
+											className={`text-[calc(11.5px*var(--font-scale))] px-2 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
+											data-testid="btn-clear-queue"
+										>
+											{t("session.clear")}
+										</button>
+									)}
+								</div>
+							</div>
+						)}
+
+						<div
+							data-testid="queue-panel-content"
+							className="max-h-[30vh] overflow-y-auto"
+						>
+							{/* 引导中消息 */}
+							{steering.length > 0 && (
+								<div
+									className="mt-2 p-2.5 rounded-sm bg-warning-soft"
+									style={{ borderLeft: "3px solid var(--warning)" }}
+								>
+									<div className="flex items-center justify-between">
+										<span className="text-warning text-[calc(11.5px*var(--font-scale))] font-bold">
+											{t("session.steeringTitle")}
+										</span>
+									</div>
+									{steering.map((msg, i) => (
+										<div
+											key={i}
+											className="text-[calc(12px*var(--font-scale))] text-secondary mt-1 pl-2"
+										>
+											<span
+												// pi-lens-ignore: dangerously-set-inner-html, property_identifier —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
+												dangerouslySetInnerHTML={{
+													__html: expandedTextToHtml(msg, {
+														knownSkills,
+														knownCommands,
+														hideTrigger: true,
+													}),
+												}}
+											/>
+										</div>
+									))}
+								</div>
+							)}
+
+							{/* 排队消息列表 */}
+							{followUp.length > 0 && (
+								<div>
+									<div className="flex items-center justify-between mb-1">
+										<span className="text-tertiary text-[calc(11.5px*var(--font-scale))]">
+											{t("session.queueCount", { count: followUp.length })}
+										</span>
+									</div>
+									<div className="rounded-sm bg-surface border border-hairline">
+										{followUp.map((msg, i) => (
+											<div
+												key={i}
+												className={`flex items-center justify-between px-2.5 py-1.5 ${i < followUp.length - 1 ? "border-b border-hairline" : ""}`}
+											>
+												<span className="text-secondary truncate flex-1 text-[calc(12.5px*var(--font-scale))]">
+													<span
+														// pi-lens-ignore: dangerously-set-inner-html, property_identifier —— expandedTextToHtml 内部所有片段经 escapeHtml 全量转义，与 MessageList 历史消息同款渲染
+														dangerouslySetInnerHTML={{
+															__html: expandedTextToHtml(msg, {
+																knownSkills,
+																knownCommands,
+																hideTrigger: true,
+															}),
+														}}
+													/>
+												</span>
+												<div className="flex ml-2 gap-2">
+													<button
+														onClick={() => handlePromote(msg)}
+														disabled={historyLoading || steering.length > 0}
+														className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading || steering.length > 0 ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`}
+														data-testid="btn-promote"
+													>
+														{t("session.steeringBtn")}
+													</button>
+													{!isRunning && (
+														<button
+															onClick={() => handleImmediate(msg)}
+															disabled={historyLoading}
+															className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
+															data-testid="btn-immediate"
+														>
+															{t("session.immediateBtn")}
+														</button>
+													)}
+												</div>
+											</div>
+										))}
+									</div>
+								</div>
+							)}
+
+							{/* 提示 */}
+							{followUp.length > 0 && (
+								<div className="text-tertiary text-[calc(11.5px*var(--font-scale))] mt-1 inline-flex items-center gap-1">
+									<Icon name="lightbulb" size={12} />
+									<span>
+										{isRunning
+											? t("session.steerHintRunning")
+											: t("session.steerHintIdle")}
+									</span>
+								</div>
+							)}
+						</div>
+					</div>
+				)}
+
+				<MessageList sessionId={sessionId} />
+				<AskDock sessionId={sessionId} />
+				{/* 扩展 setWidget：展开块在 Composer 前占位；chip 队列悬浮贴 Composer 上沿。
+				    Composer 作为 children 传入，ExtWidgetDock 用 relative 层包住它，
+				    chip 队列 absolute bottom-full 紧贴 Composer 上沿（不依赖固定高度） */}
+				<ExtWidgetDock sessionId={sessionId}>
+					<Composer
+						sessionId={sessionId}
+						agentName={sessionPrimaryAgent ?? ""}
+						isRunning={status === "thinking"}
+						isNewSession={!messages || messages.length === 0}
+						disabled={isBlocked || reloading || tuiExpanded}
+					/>
+				</ExtWidgetDock>
+				{/* 扩展 setStatus：聊天列底部状态栏（右对齐，只占中间区域） */}
+				<ExtStatusBar sessionId={sessionId} />
+				{/* 扩展 TUI 面板（ctx.ui.custom）三态浮窗：挂在聊天列容器内 ⇒ absolute
+				    定位天然相对聊天列（挂件才贴在聊天区域右上角，且拖不出本列、不盖右侧面板）。
+				    放容器末尾：它是 absolute，不参与本列的 flex 排版 */}
+				<TuiPanel sessionId={sessionId} />
+				{/* 扩展 dialog 弹窗（select/confirm/input/editor）：Modal 内部 portal 到 body，
+				    挂载位置只决定条件渲染作用域——放在 SessionView 内 ⇒ 只在当前会话有
+				    pending 请求时渲染，与 ask 同款会话锁定 */}
+				<ExtensionDialog sessionId={sessionId} />
+			</div>
+			{/* 右侧文件树面板：开关由 explorer store 控制；双击文件弹窗预览 */}
+			{explorerOpen && (
+				<>
+					<SidebarResizer
+						side="right"
+						getWidth={() => useExplorerStore.getState().width}
+						onResize={(w) => useExplorerStore.getState().setWidth(w)}
+						testId="explorer-resizer"
+					/>
+					<aside
+						className="flex flex-col border-l border-hairline bg-surface"
+						style={{ width: explorerWidth, flexShrink: 0 }}
+						data-testid="explorer-aside"
+					>
+						<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline">
+							<span className="text-[calc(12px*var(--font-scale))] font-semibold text-primary flex-1">
+								{t("session.projectFiles")}
+							</span>
+							<button
+								className="fv-btn"
+								onClick={() => useExplorerStore.getState().toggle()}
+								title={t("session.collapsePanel")}
+							>
+								›
+							</button>
+						</div>
+						{/* 文件树占满面板，双击文件触发弹窗预览 */}
+						<div className="flex-1 overflow-auto">
+							<ExplorerPanel
+								workspaceDir={workspaceDir}
+								projectName={project?.name}
+								onOpenFile={(path) =>
+									isHtmlPath(path)
+										? useBrowserStore.getState().openBrowser(path, sessionId)
+										: useSessionStore.getState().openFilePreview(path, sessionId)
+								}
+							/>
+						</div>
+					</aside>
+				</>
+			)}
+		</div>
+	);
+});
+
+/**
+ * 独立的思考计时器：把「每秒 setElapsed」的重渲染隔离在本组件内，
+ * 不向上冒泡到 SessionView（进而避免连带重渲染 MessageList 的 markdown）造成计时卡顿。
+ * elapsed 始终按真实时间 thinkingSince 推算，切会话/重渲染均准确。
+ */
+function ThinkingTimer({ thinkingSince }: { thinkingSince: number | null }) {
+	const [elapsed, setElapsed] = useState(() =>
+		thinkingSince == null ? 0 : Math.floor((Date.now() - thinkingSince) / 1000),
+	);
+	useEffect(() => {
+		if (thinkingSince == null) {
+			setElapsed(0);
+			return;
+		}
+		const tick = () =>
+			setElapsed(Math.floor((Date.now() - thinkingSince) / 1000));
+		tick();
+		const timer = setInterval(tick, 1000);
+		return () => clearInterval(timer);
+	}, [thinkingSince]);
+	return <>{elapsed}</>;
+}
+
+type WidgetEntry = [string, { lines: string[]; placement?: string }];
+
+/** 拖动阈值（px）：位移超过该值才算拖动，否则视为点击（不影响 chip 展开） */
+const DRAG_THRESHOLD = 4;
+
+/**
+ * 扩展 setWidget 文本块容器：
+ * - 收起态：所有 widget（above/below 不分左右）排成单一队列，半透明悬浮贴 Composer 上沿且靠右，
+ *   不占文档流高度 → 不挤压聊天区/输入框；above 用 ↑(紫)、below 用 ↓(灰) 图标区分。
+ * - 展开态：点击窄条后在原位置（聊天区与 Composer 之间）插入展开块占位，显示完整内容。
+ * - 溢出：窄条数量超出宽度时，左右出现箭头按钮，点击平滑滚动一个窄条宽度。
+ * - 拖动：整条队列可鼠标/触控拖动（相对默认位置的 translate），夹紧在聊天列内且不遮输入框，
+ *   位置持久化到 localStorage（见 lib/widget-dock-position）。
+ */
+// 扩展 setStatus 状态条（trace 卡顿修复④）：自订阅 + memo，extension_status 每条
+// 事件只重渲染本条，不再击穿 SessionView 整树。selector 直接返回 store 内对象引用
+// （仅 extension_status set 时新建，Object.is 稳定）。
+export const ExtStatusBar = memo(function ExtStatusBar({ sessionId }: { sessionId: string }) {
+	// selector 返回 store 内对象引用（稳定）；Object.entries 在 useMemo 派生——
+	// 直接在 selector 里 entries 会使 getSnapshot 不稳定 → useSyncExternalStore 无限渲染
+	const statusMap = useSessionStore((s) => s.extStatusBySession[sessionId]);
+	const entries = useMemo(
+		() => (statusMap ? Object.entries(statusMap) : EMPTY_EXT_STATUS_ENTRIES),
+		[statusMap],
+	);
+	if (entries.length === 0) return null;
+	return (
+		<div
+			className="flex items-center justify-end gap-4 px-4 border-t border-hairline bg-surface-elevated text-[calc(11.5px*var(--font-scale))] text-secondary"
+			style={{ height: 26, flexShrink: 0 }}
+			data-testid="ext-status-bar"
+		>
+			{entries.map(([key, text]) => (
+				<span key={key} className="flex items-center gap-1.5 min-w-0">
+					<span
+						className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+						style={{ background: "var(--accent)" }}
+					/>
+					<span className="truncate">
+						<AnsiText text={text} />
+					</span>
+				</span>
+			))}
+		</div>
+	);
+});
+
+const EMPTY_EXT_STATUS_ENTRIES: [string, string][] = [];
+
+type WidgetEntryTuple = [string, { lines: string[]; placement: "aboveEditor" | "belowEditor" }];
+const EMPTY_WIDGET_ENTRIES: WidgetEntryTuple[] = [];
+
+export const ExtWidgetDock = memo(function ExtWidgetDock({
+	sessionId,
+	children,
+}: {
+	/** widget 宽度上报需要会话号（resize 走 /api/extensions/tui-input） */
+	sessionId: string;
+	children?: React.ReactNode;
+}) {
+	const { t } = useTranslation();
+	// 自订阅（trace 卡顿修复④）：widgets 由本组件订阅，SessionView 不再持有对象引用
+	const widgetMap = useSessionStore((s) => s.extWidgetBySession[sessionId]);
+	const widgets = useMemo(
+		() => (widgetMap ? Object.entries(widgetMap) : EMPTY_WIDGET_ENTRIES),
+		[widgetMap],
+	);
+	// expandedKey：当前展开的 widget key（null = 全部收起）
+	const [expandedKey, setExpandedKey] = useState<string | null>(null);
+	const trackRef = useRef<HTMLDivElement>(null);
+	const dockRef = useRef<HTMLDivElement>(null);
+	const [overflow, setOverflow] = useState({ left: false, right: false });
+	// 拖动位移（相对默认位置；默认定位不动，仅叠加 transform）
+	const [offset, setOffset] = useState<DockOffset>(() => loadDockOffset());
+	const [dragging, setDragging] = useState(false);
+	// chip 队列容器：既是拖动事件代理，也是指针捕获宿主
+	const chipQueueRef = useRef<HTMLDivElement>(null);
+	// 拖动中的临时状态（不入 state：pointermove 逐帧写入不需要额外渲染）
+	const dragRef = useRef<{
+		pointerId: number;
+		startX: number;
+		startY: number;
+		baseOffset: DockOffset;
+		bounds: DockBounds | null;
+		dragging: boolean;
+	} | null>(null);
+	// 已进入拖动 → 吞掉松手后浏览器补发的 click（否则会误触展开）
+	const suppressClickRef = useRef(false);
+	// widget key 列表（顺序变/增删都要重新上报）；用字符串做依赖避免每次渲染重跑
+	const widgetKeys = widgets.map(([key]) => key).join(",");
+
+	// 计算左右箭头是否显示（溢出 + 未到头）
+	const updateOverflow = () => {
+		const el = trackRef.current;
+		if (!el) return;
+		const hasOverflow = el.scrollWidth > el.clientWidth + 1;
+		setOverflow({
+			left: hasOverflow && el.scrollLeft > 1,
+			right: hasOverflow && el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
+		});
+	};
+
+	useEffect(() => {
+		updateOverflow();
+		const el = trackRef.current;
+		if (!el) return;
+		el.addEventListener("scroll", updateOverflow, { passive: true });
+		const ro = new ResizeObserver(updateOverflow);
+		ro.observe(el);
+		return () => {
+			el.removeEventListener("scroll", updateOverflow);
+			ro.disconnect();
+		};
+	}, [widgets.length]);
+
+	// 点击箭头滚动一个窄条宽度
+	const scrollByChip = (dir: "left" | "right") => {
+		const el = trackRef.current;
+		if (!el) return;
+		const chip = el.querySelector('[data-collapsed="true"]');
+		const step = chip ? (chip as HTMLElement).offsetWidth + 4 : 120;
+		el.scrollBy({ left: dir === "left" ? -step : step, behavior: "smooth" });
+	};
+
+	// 拖动边界：以 chip 条（track）默认矩形为活动对象，限制在聊天列内。
+	// 下沿放宽到聊天列底部：允许向下拖过输入框上沿（代价是可能盖住输入区，用户已确认）。
+	// 无实测布局（宽度 0）时返回 null → 不做夹紧。
+	const measureDockBounds = (baseOffset: DockOffset): DockBounds | null => {
+		const track = trackRef.current;
+		const anchor = dockRef.current;
+		const column = anchor?.parentElement;
+		if (!track || !anchor || !column) return null;
+		const t = track.getBoundingClientRect();
+		const c = column.getBoundingClientRect();
+		if (t.width === 0 || c.width === 0 || c.height === 0) return null;
+		// track 的当前矩形已含已应用的偏移，减回去得到「默认位置」矩形
+		return computeDockBounds(
+			{
+				left: t.left - baseOffset.x,
+				top: t.top - baseOffset.y,
+				right: t.right - baseOffset.x,
+				bottom: t.bottom - baseOffset.y,
+			},
+			{ left: c.left, top: c.top, right: c.right, bottom: c.bottom },
+		);
+	};
+
+	const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+		// 鼠标仅响应左键；触摸/笔不限
+		if (e.pointerType === "mouse" && e.button !== 0) return;
+		// 新一轮手势开始：清掉上一轮可能残留的 click 抑制标记
+		suppressClickRef.current = false;
+		dragRef.current = {
+			pointerId: e.pointerId,
+			startX: e.clientX,
+			startY: e.clientY,
+			baseOffset: offset,
+			bounds: null,
+			dragging: false,
+		};
+	};
+
+	const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+		const drag = dragRef.current;
+		if (!drag || drag.pointerId !== e.pointerId) return;
+		const dx = e.clientX - drag.startX;
+		const dy = e.clientY - drag.startY;
+		if (!drag.dragging) {
+			// 未越过阈值：不当作拖动，也不阻止 click
+			if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+			drag.dragging = true;
+			drag.bounds = measureDockBounds(drag.baseOffset);
+			setDragging(true);
+			// 指针捕获：拖出 chip 区域仍能收到 move/up（happy-dom 等无此 API 时容错）
+			try {
+				chipQueueRef.current?.setPointerCapture?.(e.pointerId);
+			} catch {
+				/* 不支持指针捕获时退化为容器内拖动 */
+			}
+		}
+		const next = { x: drag.baseOffset.x + dx, y: drag.baseOffset.y + dy };
+		setOffset(drag.bounds ? clampDockOffset(next, drag.bounds) : next);
+		e.preventDefault();
+	};
+
+	const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+		const drag = dragRef.current;
+		if (!drag || drag.pointerId !== e.pointerId) return;
+		dragRef.current = null;
+		if (!drag.dragging) return;
+		suppressClickRef.current = true;
+		setDragging(false);
+		saveDockOffset(offset);
+		try {
+			chipQueueRef.current?.releasePointerCapture?.(e.pointerId);
+		} catch {
+			/* 忽略：未捕获时释放会抛错 */
+		}
+	};
+
+	// 拖动过的这次手势：在捕获阶段吞掉 click，避免误展开 / 误触箭头
+	const onClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+		if (!suppressClickRef.current) return;
+		suppressClickRef.current = false;
+		e.stopPropagation();
+		e.preventDefault();
+	};
+
+	// widget 宽度上报：pi 的 setWidget 按终端列数排版，列数不对正文会错乱换行。
+	// 实测容器宽度 → 列数（与三态面板共用同一份 CELL 常量）；无布局（宽度 0）时不报。
+	useEffect(() => {
+		if (!widgetKeys) return;
+		const el = dockRef.current;
+		if (!el) return;
+		const report = () => {
+			const width = el.getBoundingClientRect().width;
+			for (const key of widgetKeys.split(",")) {
+				reportWidgetCols(sessionId, key, width);
+			}
+		};
+		report();
+		const ro = new ResizeObserver(report);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [sessionId, widgetKeys]);
+
+	const expanded = widgets.find(([key]) => key === expandedKey);
+
+	return (
+		<>
+			{/* 展开区：展开的 widget 占位（聊天区与 Composer 之间），收起时为空不占位 */}
+			{expanded && (
+				<div
+					className="mx-4 mb-2 flex-shrink-0 rounded-md border border-hairline/50 px-3 py-2"
+					data-testid={`ext-widget-${expanded[0]}`}
+					style={{
+						borderLeft: `3px solid ${
+							expanded[1].placement === "belowEditor"
+								? "var(--hairline-strong)"
+								: "var(--accent)"
+						}`,
+					}}
+				>
+					<div className="mb-1 flex items-center justify-between">
+						<span className="flex items-center gap-1.5">
+							<span className="font-mono text-[calc(12px*var(--font-scale))] font-semibold text-secondary">
+								{expanded[0]}
+							</span>
+						</span>
+						<button
+							type="button"
+							onClick={() => setExpandedKey(null)}
+							className="rounded px-1.5 py-0.5 text-[calc(11px*var(--font-scale))] text-tertiary transition-colors hover:bg-surface-hover"
+							data-testid={`ext-widget-collapse-${expanded[0]}`}
+						>
+							{t("session.widgetCollapse")}
+						</button>
+					</div>
+					<div className="whitespace-pre-wrap font-mono text-[calc(12px*var(--font-scale))] text-secondary">
+						<AnsiText text={expanded[1].lines.join("\n")} />
+					</div>
+				</div>
+			)}
+
+			{/* Composer wrapper：relative 让 chip 队列用 absolute bottom-full 紧贴其上沿；
+			    dockRef 同时是 widget 宽度上报的测量点（容器宽 = 终端列数换算源） */}
+			<div ref={dockRef} className="relative flex flex-col">
+				{children}
+				{/* 收起队列：半透明悬浮贴 Composer 上沿，单一队列，溢出时箭头滚动 */}
+				{widgets.filter(([key]) => key !== expandedKey).length > 0 && (
+					<div
+						ref={chipQueueRef}
+						data-testid="ext-widget-dock"
+						onPointerDown={onPointerDown}
+						onPointerMove={onPointerMove}
+						onPointerUp={endDrag}
+						onPointerCancel={endDrag}
+						onClickCapture={onClickCapture}
+						className="pointer-events-none absolute bottom-full left-0 right-0 z-20 flex items-end justify-end"
+						style={{
+							transform: `translate(${offset.x}px, ${offset.y}px)`,
+							// 祖先设 none：touch-action 按祖先后代取交集，可关掉 chip 上的原生平移手势
+							touchAction: "none",
+							userSelect: dragging ? "none" : undefined,
+						}}
+					>
+						{overflow.left && (
+							<button
+								type="button"
+								onClick={() => scrollByChip("left")}
+								className="pointer-events-auto flex h-6 w-[26px] flex-shrink-0 items-center justify-center rounded-md border border-hairline bg-surface text-secondary opacity-70 transition-opacity hover:opacity-100 hover:text-accent"
+								aria-label={t("session.scrollLeft")}
+							>
+								<Icon
+									name="chevron-right"
+									size={13}
+									style={{ transform: "rotate(180deg)" }}
+								/>
+							</button>
+						)}
+						<div
+							ref={trackRef}
+							className="flex min-w-0 max-w-full items-end gap-1 overflow-x-auto px-[5px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+						>
+							{widgets
+								.filter(([key]) => key !== expandedKey)
+								.map(([key, w]) => {
+									const isAbove = w.placement !== "belowEditor";
+									return (
+										<button
+											key={key}
+											type="button"
+											data-collapsed="true"
+											data-testid={`ext-widget-${key}`}
+											onClick={() => setExpandedKey(key)}
+											className="pointer-events-auto inline-flex max-w-[240px] flex-shrink-0 items-center gap-1.5 truncate rounded-md border border-hairline bg-surface px-2.5 py-[3px] font-mono text-[calc(11.5px*var(--font-scale))] text-secondary opacity-40 transition-opacity hover:opacity-85"
+											title={t("session.clickExpand", { key })}
+										>
+											<span
+												style={{
+													color: isAbove ? "var(--accent)" : "var(--hairline-strong)",
+												}}
+											>
+												<Icon name={isAbove ? "arrow-up" : "arrow-down"} size={11} />
+											</span>
+											<span className="truncate">
+												{key} · <AnsiText text={w.lines[0]} />
+												{w.lines.length > 1
+													? ` · ${t("session.widgetLines", { count: w.lines.length })}`
+													: ""}
+											</span>
+										</button>
+									);
+								})}
+						</div>
+						{overflow.right && (
+							<button
+								type="button"
+								onClick={() => scrollByChip("right")}
+								className="pointer-events-auto flex h-6 w-[26px] flex-shrink-0 items-center justify-center rounded-md border border-hairline bg-surface text-secondary opacity-70 transition-opacity hover:opacity-100 hover:text-accent"
+								aria-label={t("session.scrollRight")}
+							>
+								<Icon name="chevron-right" size={13} />
+							</button>
+						)}
+					</div>
+				)}
+			</div>
+		</>
+	);
+});
