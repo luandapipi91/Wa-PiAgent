@@ -31,6 +31,46 @@ async function openMemorySection(page: import("@playwright/test").Page) {
 
 test.describe
   .serial("记忆管理", () => {
+    // ── 日期范围筛选 + 滚动加载分页（spec：memory:list:page + DatePickerButton）────
+    // 注意：这两个用例必须放在 serial describe 最前——后序用例会编辑并归档预置条目一、
+    // 归档条目二与项目记忆，跑完后两个作用域的「已保存」列表均为空，
+    // 「预置记忆可见」「list-end 可见（需非空列表）」在末尾无法成立。
+    // 两个用例均只读 + 筛选（结束清除筛选恢复原状），不影响后续用例的前置状态。
+    test("日期范围筛选：本月范围可见预置记忆，清除后按钮恢复", async ({ page }) => {
+      await openMemorySection(page);
+      await expect(page.getByText("E2E 记忆条目一").first()).toBeVisible({
+        timeout: 5000,
+      });
+
+      // 打开日期范围 → 弹层内快捷片「本月」→ 确定
+      await page.getByTestId("memory-date-btn").click();
+      await page.getByTestId("memory-date-pop").getByText("本月").click();
+      await page.getByTestId("memory-date-ok").click();
+      // 本月创建的预置记忆仍可见（since/until 按更新时间下推服务端，日期窗变化重拉第一页）
+      await expect(page.getByTestId("memory-date-btn")).toContainText("~");
+      await expect(page.getByText("E2E 记忆条目一").first()).toBeVisible({
+        timeout: 5000,
+      });
+
+      // 清除按钮是 hover 才显示的 ✕（.dp-btn.active:hover .dp-clear）→ hover 后点击
+      await page.getByTestId("memory-date-btn").hover();
+      await page.getByTestId("memory-date-clear").click();
+      await expect(page.getByTestId("memory-date-btn")).toContainText("日期范围");
+      // 清除后列表恢复：预置记忆仍可见
+      await expect(page.getByText("E2E 记忆条目一").first()).toBeVisible({
+        timeout: 5000,
+      });
+    });
+
+    test("滚动加载：列表底部出现哨兵与已全部加载提示（数据量 < 页大小时）", async ({
+      page,
+    }) => {
+      await openMemorySection(page);
+      // 哨兵常驻（非检索态 + 非指令文件 Tab）；2 条 < 页大小 50 → 无下一页，直接「已全部加载」
+      await expect(page.getByTestId("memory-list-sentinel")).toBeVisible();
+      await expect(page.getByTestId("memory-list-end")).toBeVisible();
+    });
+
     test("进入记忆页，查看记忆列表", async ({ page }) => {
       await openMemorySection(page);
 
