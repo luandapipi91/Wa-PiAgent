@@ -5,7 +5,7 @@
 // 受控契约：from/to 由外部持有，本组件只在「确定/清除」时通过 onChange 上报。
 import { useEffect, useRef, useState } from "react";
 import { DayPicker, type DateRange } from "react-day-picker";
-import { zhCN } from "react-day-picker/locale";
+import { zhCN, enUS } from "react-day-picker/locale";
 import { useTranslation } from "../../i18n/useTranslation";
 import "react-day-picker/style.css";
 import "./memory-datepicker.css";
@@ -22,7 +22,7 @@ interface Props {
 }
 
 export function DatePickerButton({ from, to, onChange }: Props) {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const [open, setOpen] = useState(false);
 	// 弹层内暂存：确定才回调（draft 用 Date 对象与 DayPicker 对接）
 	const [draft, setDraft] = useState<DateRange | undefined>();
@@ -91,9 +91,10 @@ export function DatePickerButton({ from, to, onChange }: Props) {
 						<button type="button" className="q" onClick={() => applyQuick("30d")}>{t("memory.quick30d")}</button>
 						<button type="button" className="q" onClick={() => applyQuick("month")}>{t("memory.quickMonth")}</button>
 					</div>
+					{/* 日历框架文案（月名/星期/aria-label）随应用语言切换，避免英文界面下日历仍是中文 */}
 					<DayPicker
 						mode="range"
-						locale={zhCN}
+						locale={i18n.language === "en" ? enUS : zhCN}
 						numberOfMonths={2}
 						selected={draft}
 						onSelect={(r) => setDraft(r)}
