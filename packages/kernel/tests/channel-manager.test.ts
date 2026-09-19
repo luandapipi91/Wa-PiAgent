@@ -1030,3 +1030,49 @@ test("onSessionsArchived：批量清理映射（当前指针 + 历史归档）�
 	expect(raw.mappings[0].historySessionIds).toEqual(["im-d"]);
 	expect(broadcasted).toContain("channel-conversations:changed");
 });
+
+// 出错路径通知：入站处理中途抛错（如 model 无效）时，ensureSession/persist 已把新会话
+// 落盘进映射，但旧实现 catch 里直接 return 不给前端广播 → IM 会话列表停留在旧状态
+// （新会话不出现，用户以为没收到）；错误路径必须与成功路径一样通知刷新。
+test("出错路径也要广播：prompt 抛错时映射已落盘 → 必须广播 channel-conversations:changed", async () => {
+	await manager.create(channel);
+	// 模拟 model 解析失败：假 provider 下 agentManager.prompt 抛 Model not found
+	(manager as any).deps.agentManager.prompt = async () => {
+		throw new Error("Model not found");
+	};
+	broadcasted.length = 0;
+	adapter!.inject({ chatId: "u1", text: "你好" });
+	// 条件轮询等出站回复（固定 sleep 在负载下会 flaky）
+	const deadline = Date.now() + 2000;
+	while (adapter!.outbox.length === 0 && Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 10));
+	}
+	expect(adapter!.outbox.at(-1)!.text).toContain("处理出错");
+	expect(sessionsCreated).toHaveLength(1); // 会话已建立、映射已落盘
+	expect(broadcasted).toContain("channel-conversations:changed");
+});
+
+// 并发进站串行化：mappings.json 是「读 → 改 → 写」的读改写，且一个 mapping 就是一条 IM 会话。
+// 未串行时近同时到达的进站会互相覆盖 → 部分会话从 IM 列表消失（实机：同群 alice+bob
+// 各发一条，两条都回复了但列表只剩 bob）。用多路并发放大竞态窗口（2 路在快存储下偶发不漏）。
+test("并发进站串行化：同群多用户近同时发言 → 每条映射都落盘", async () => {
+	await manager.create(channel);
+	const channelId = (await manager.listWithStatus())[0].id;
+	const users = ["u0", "u1", "u2", "u3", "u4", "u5", "u6", "u7"];
+	// 背靠背注入（不 await）：模拟同群多用户消息同时到达
+	for (const u of users) {
+		manager.mockInbound(channelId, "roomA", `你好 ${u}`, {
+			fromUserId: u,
+			chatType: "group",
+		});
+	}
+	// 等每条都跑到 prompt（= 全部处理完；成功路径不产出出站回复，不能等 outbox）
+	const deadline = Date.now() + 8000;
+	while (prompted.length < users.length && Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 10));
+	}
+	expect(prompted.length).toBeGreaterThanOrEqual(users.length);
+	const raw = JSON.parse(await Bun.file(join(dir, "mappings.json")).text());
+	const keys = raw.mappings.map((m: any) => `${m.chatId}/${m.fromUserId}`);
+	for (const u of users) expect(keys).toContain(`roomA/${u}`);
+});

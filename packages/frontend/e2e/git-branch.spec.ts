@@ -2,7 +2,7 @@
 // 覆盖：GitToolbar 渲染、分支下拉搜索/切换、创建并检出新分支、Git 图谱提交行、无上游 pull 错误提示
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 import { createProject, createSessionViaPrompt, saveProvider } from "./helpers";
@@ -11,8 +11,48 @@ const REPO = join(E2E_WA_PI_DIR, "git-e2e-repo");
 const PROJECT_NAME = "GitE2E项目";
 const API = `http://127.0.0.1:${E2E_WS_PORT}`;
 
+/** 同步等待（execSync 期间不能用 await） */
+function sleepSync(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** 清掉残留的 `.git/index.lock`（仅本 spec 专属沙箱仓库使用） */
+function clearIndexLock(): void {
+	const lock = join(REPO, ".git", "index.lock");
+	try {
+		if (!statSync(lock).isFile()) return;
+	} catch {
+		return; // 锁已不存在
+	}
+	rmSync(lock, { force: true });
+}
+
+/**
+ * 执行 git（cwd = 本 spec 的沙箱仓库），对 `.git/index.lock` 冲突自愈。
+ *
+ * 背景（实测）：`git status --porcelain` 为刷新 stat 缓存会抢占 index.lock（git 的 optional
+ * lock，脚本场景官方建议加 --no-optional-locks）；kernel 端 gitStatus 正是这么调用的，
+ * 而 kernel 的 git 操作队列（git-service.ts 的 opQueue）只包了 checkout/建分支/pull，
+ * 只读 status 不在队列内。前端 GitToolbar 挂载、以及 git-watcher 监听到 .git/HEAD 变化后
+ * 的 git:changed → refresh 都会触发该 status。本 spec 的外部 git 写操作撞上就被 git 直接拒绝：
+ *   fatal: Unable to create '.../.git/index.lock': File exists
+ * 这里对冲突做退避重试；锁迟迟不消失（写锁进程被杀等遗留的残留锁）时强制清掉后重试。
+ */
 function git(args: string): string {
-	return execSync(`git ${args}`, { cwd: REPO, encoding: "utf-8" }).trim();
+	// 每轮重试前的退避等待（ms）；最后一轮附带强清 index.lock
+	const backoffMs = [200, 500, 1_000, 2_000];
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return execSync(`git ${args}`, { cwd: REPO, encoding: "utf-8" }).trim();
+		} catch (e) {
+			const err = e as { message?: string; stderr?: unknown };
+			const detail = `${err.message ?? ""}\n${err.stderr ?? ""}`;
+			if (attempt >= backoffMs.length || !detail.includes("index.lock"))
+				throw e;
+			sleepSync(backoffMs[attempt]);
+			if (attempt === backoffMs.length - 1) clearIndexLock();
+		}
+	}
 }
 
 /** 造仓库：3 个提交 + 一个既有分支 feat/e2e-existing */

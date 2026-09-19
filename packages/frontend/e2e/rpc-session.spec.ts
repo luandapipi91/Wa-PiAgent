@@ -52,15 +52,30 @@ test("RPC 全链路：建会话 → 发 prompt → 流式响应 + bash 工具执
   await page.getByTestId("composer-send").click();
   await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
 
-  // 5. 断言工具执行可见：工具调用组出现（✓=执行成功），展开后可见 bash 明细
-  const toolGroup = page.getByTestId("toolcall-group").first();
-  await expect(toolGroup).toBeVisible({ timeout: 120_000 });
-  await expect(toolGroup).toContainText("✓");
-  await toolGroup.click(); // 展开工具明细
-  await expect(toolGroup).toContainText("bash");
+  // 5. 断言工具执行可见：回合结束后本轮过程段（工具调用）折叠为轮级摘要行（turn-summary），
+  //    先展开摘要；单次工具调用渲染为单卡 toolcall-<id>（>1 个连续调用才归组 toolcall-group）
+  await expect(page.getByTestId("turn-summary")).toBeVisible({ timeout: 120_000 });
+  await page.getByTestId("turn-summary").click();
+  const toolCard = page.locator('[data-testid^="toolcall-"]').first();
+  await expect(toolCard).toBeVisible({ timeout: 60_000 });
+  // 展开工具明细 → 断言我们指定的命令可见（pi 的 shell 工具名随平台而异：Windows=powershell、POSIX=bash，
+  // 不断言工具名），且工具结果体含 echo 输出（证明执行成功且结果在前端可见）
+  await toolCard.locator('[data-testid$="-header"]').first().click();
+  await expect(toolCard).toContainText("echo e2e-rpc-ok");
+  await expect(
+    toolCard.locator('[data-testid$="-body"]').first(),
+  ).toContainText("e2e-rpc-ok");
 
-  // 6. 断言流式响应收到：assistant 文本气泡含 echo 输出内容
-  await expect(page.getByTestId("text-block").last()).toContainText("e2e-rpc-ok", { timeout: 120_000 });
+  // 6. 断言流式响应收到：assistant 回复文本含 echo 输出。模型会把回复拆成多个 markdown 块
+  //    （块级 text-block 一一对应，末块可能是补充说明），故按内容过滤定位承载输出的文本块，不取 .last()
+  await expect(
+    page
+      .locator('[data-testid^="msg-"]')
+      .last()
+      .getByTestId("text-block")
+      .filter({ hasText: "e2e-rpc-ok" })
+      .first(),
+  ).toBeVisible({ timeout: 120_000 });
 
   // 7. 留证截图（读完即删，AGENTS.md 截图清理规则）
   const shot = "test-results/rpc-session-e2e.png";

@@ -168,3 +168,43 @@ test("空清单 / 无会话 id → 不刷新", () => {
 		]);
 	expect(useBrowserStore.getState().refreshToken).toBe(0);
 });
+
+// ── Windows 分隔符混用回归（实机：文件树 joinPath 产出混合分隔符，bridge 上报原生反斜杠）──
+// 打开预览的 st.path 形如 `C:\proj/dist/index.html`（joinPath 只补 `/`，前半截保留 `\`）；
+// 修改清单里的 f.path 由 kernel `resolve()` 产出，Windows 下全反斜杠。二者裸字符串比较
+// （p === st.path / p.startsWith(dir)）永远不等 → 预览自动刷新在 Windows 上恒不触发。
+test("Windows 分隔符混用：预览路径含 `/` 而修改路径全反斜杠（同一文件）→ 命中刷新", () => {
+	useBrowserStore.setState({
+		open: true,
+		path: "C:\\Users\\co\\proj/dist/index.html",
+		sessionId: "s1",
+	});
+	useBrowserStore.getState().maybeRefreshForFileChanges("s1", [
+		{ path: "C:\\Users\\co\\proj\\dist\\index.html", before: "a", after: "b" },
+	]);
+	expect(useBrowserStore.getState().refreshToken).toBe(1);
+});
+
+test("Windows 分隔符混用：嵌套子页（全反斜杠）→ 命中刷新", () => {
+	useBrowserStore.setState({
+		open: true,
+		path: "C:\\Users\\co\\proj/dist/index.html",
+		sessionId: "s1",
+	});
+	useBrowserStore.getState().maybeRefreshForFileChanges("s1", [
+		{ path: "C:\\Users\\co\\proj\\dist\\child.html", before: "a", after: "b" },
+	]);
+	expect(useBrowserStore.getState().refreshToken).toBe(1);
+});
+
+test("无目录前缀的预览路径（无 `/`）不误命中任意 html", () => {
+	useBrowserStore.setState({
+		open: true,
+		path: "C:\\proj\\index.html",
+		sessionId: "s1",
+	});
+	useBrowserStore.getState().maybeRefreshForFileChanges("s1", [
+		{ path: "C:\\other\\unrelated.html", before: "a", after: "b" },
+	]);
+	expect(useBrowserStore.getState().refreshToken).toBe(0);
+});

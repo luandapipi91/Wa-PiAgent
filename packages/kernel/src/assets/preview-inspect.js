@@ -684,7 +684,10 @@
 		// 不用浏览器 dblclick 事件——快速连点时浏览器多击计数（第 3/5/7… 击不派发
 		// dblclick）会丢切换，表现为「快速双击没办法快速解锁/锁定」。
 		// capture：先于页面自身逻辑；浮窗内的点击交由按钮 handler 处理。
-		var lastClickTime = 0;
+		// 初值不能是 0：performance.now() 是「文档相对时钟」，预览文档创建后 400ms 内
+		// now-0<400 会把首次单击误判为「双击第二击」→ 单击即切换（快速双击净 0 次）。
+		// -Infinity = 明确「没有上一次点击」，与时钟基准无关。
+		var lastClickTime = -Infinity;
 		document.addEventListener(
 			"click",
 			(e) => {
@@ -705,7 +708,7 @@
 				var now = performance.now();
 				if (now - lastClickTime < 400) {
 					// 自判定双击：切换锁定/解锁
-					lastClickTime = 0;
+					lastClickTime = -Infinity; // 复位为「无上一次点击」（不能回置 0，见上）
 					if (pinned) {
 						// 已锁定：双击落在锁定框内 → 解锁（位置命中语义，见下）
 						pinned = false;
@@ -1000,7 +1003,9 @@
 			render();
 			broadcastLock();
 		});
-		var lastLockTap = 0;
+		// 初值不能是 0：performance.now() 是文档相对时钟，文档创建后 400ms 内的首次点锁头
+		// 会被 now-0<400 的节流吞掉（首次点击无效）。-Infinity = 明确「未点过」。
+		var lastLockTap = -Infinity;
 		btnLock.addEventListener("click", (e) => {
 			onBtn(e);
 			// 节流防连点：锁头是「单击切换」语义，用户习惯性快速连点两下会

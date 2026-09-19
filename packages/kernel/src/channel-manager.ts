@@ -109,6 +109,8 @@ export class ChannelManager {
 	/** 主动推送前等待渠道重连就绪的默认超时（ms） */
 	private static readonly DEFAULT_PUSH_CONNECT_TIMEOUT_MS = 60_000;
 	private factories: Partial<Record<ChannelType, AdapterFactory>>;
+	/** 进站串行链（按渠道）：进站处理是 mappings.json 的读改写，并发会互相覆盖（见 connectChannel） */
+	private inboundChains = new Map<string, Promise<void>>();
 
 	constructor(private deps: ChannelManagerDeps) {
 		this.factories = deps.adapterFactories ?? {};
@@ -655,10 +657,22 @@ export class ChannelManager {
 			this.notifyStatusWaiters(channel.id, status);
 			this.deps.broadcast({ type: "channels:changed" });
 		});
+		// 进站串行化：handleInbound 是「读 mappings.json → 改 → 写盘」的读改写，内部还有多个 await 点；
+		// 并发进站（同群两个用户近同时发言 / 用户连发）会互相覆盖 → 会话从 IM 列表消失
+		// （实测：同群 alice+bob 各发一条，两条都回复了、列表却只剩 bob）。按渠道串行，失败不阻断后续。
 		adapter.onMessage((msg) => {
-			void this.handleInbound(channel, adapter, msg).catch((e) =>
-				console.warn("[channel-manager] 进站处理失败:", e),
-			);
+			const prev = this.inboundChains.get(channel.id) ?? Promise.resolve();
+			const next = prev
+				.then(() => this.handleInbound(channel, adapter, msg))
+				.catch((e) => {
+					console.warn("[channel-manager] 进站处理失败:", e);
+				})
+				.finally(() => {
+					if (this.inboundChains.get(channel.id) === next) {
+						this.inboundChains.delete(channel.id);
+					}
+				});
+			this.inboundChains.set(channel.id, next);
 		});
 		await adapter.connect();
 	}
@@ -721,8 +735,13 @@ export class ChannelManager {
 			mappings.push(mapping);
 		}
 		const persist = () => saveChannelMappings(mappings, this.mappingsFile);
-		// 新建映射立即落盘：即使本轮处理出错（model/智能体解析失败），会话列表也能反映该 IM 对话
-		if (isNewMapping) await persist();
+		// 新建映射立即落盘：即使本轮处理出错（model/智能体解析失败），会话列表也能反映该 IM 对话。
+		// 落盘后立即广播：后续任何早退（无智能体/无模型/图片失败）都不会走到末尾广播，
+		// 不在这里发就会让前端 IM 列表停在旧状态（新会话不出现）。
+		if (isNewMapping) {
+			await persist();
+			this.deps.broadcast({ type: "channel-conversations:changed" });
+		}
 
 		// 指令拦截
 		if (msg.text?.trim().startsWith("/")) {
@@ -820,6 +839,9 @@ export class ChannelManager {
 				attachments: attachments.length ? attachments : undefined,
 			});
 		} catch (e) {
+			// 会话/映射可能已在 ensureSession + persist 阶段变更（新会话已落盘）→ 出错也必须通知
+			// 前端刷新 IM 列表，否则列表停在旧状态（新会话不出现，用户以为没收到）
+			this.deps.broadcast({ type: "channel-conversations:changed" });
 			await reply(`处理出错：${e instanceof Error ? e.message : String(e)}`);
 			return;
 		}

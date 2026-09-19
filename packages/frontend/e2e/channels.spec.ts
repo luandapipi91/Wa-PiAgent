@@ -351,8 +351,11 @@ test.describe
 				await expect(page.getByTestId("im-conv-list")).toBeVisible({
 					timeout: 5000,
 				});
+				// IM 列表同时列「当前会话 + 历史归档会话」（/new 或会话重建后旧会话仍在列表可删），
+				// 同一联系人可能出现多行 → 取首行：本用例断言的是「备注名已持久化」，任一行都满足
 				await page
 					.locator('button[data-testid^="im-conv-"]', { hasText: "李四" })
+					.first()
 					.click();
 				await expect(page.getByTestId("session-view")).toContainText("IM · 李四");
 			} finally {

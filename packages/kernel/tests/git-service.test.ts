@@ -324,4 +324,16 @@ d("互斥", () => {
 		expect((await gitStatus(dir)).branch).toBe("master");
 		expect((await gitBranches(dir)).branches).toContain("b3");
 	});
+
+	it("子进程带 GIT_OPTIONAL_LOCKS=0（只读 status 不抢占用户仓库 index.lock）", async () => {
+		// gitBin 注入 bun 自身，直接打印子进程环境变量（验证 runGit 的 env 透传）
+		const dir = mkdtempSync(join(tmpdir(), "wa-pi-git-env-"));
+		dirs.push(dir);
+		const r = await runGit(
+			dir,
+			["-e", "console.log(process.env.GIT_OPTIONAL_LOCKS ?? 'unset')"],
+			{ gitBin: process.execPath },
+		);
+		expect(r.stdout.trim()).toBe("0");
+	});
 });

@@ -66,8 +66,9 @@ test("删除会话后再新建发送 → 消息进入全新会话（草稿 id �
 	// 但 kernel prompt 路径的 existing 查找仍能找到（load 不过滤 deletedAt）
 	await api("DELETE", `/api/sessions/${first.id}`);
 
-	// 第二次：再点新建会话 → 发送不同内容
-	await page.getByTestId("new-session-btn").click();
+	// 第二次：再点新建会话（侧边栏改版后入口在「最近」次级分段的 ＋新建会话）
+	await page.getByTestId("session-scope-recent").click();
+	await page.getByTestId("recent-new-session").click();
 	await expect(pane).toBeVisible({ timeout: 10_000 });
 	await page.getByRole("textbox").fill("第二条消息");
 	await page.getByTestId("composer-send").click();

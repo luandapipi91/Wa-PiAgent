@@ -40,8 +40,10 @@ test("新建会话：文件树内容很高时输入框仍在视口内", async ({
 	const aside = page.getByTestId("new-session-explorer-aside");
 	await expect(aside).toBeVisible();
 
-	// 等文件列表真实加载完成（异步 fetch）：滚动发生在 aside 的内层容器
-	// （.flex-1.overflow-auto），不是 aside 本身（aside 被根行钳高，自身无滚动）
+	// 等文件列表真实加载完成（异步 fetch）：滚动发生在文件树自己的滚动容器里。
+	// 树已改为 react-virtuoso 虚拟滚动（提交 4dd20fc6）——真正承载滚动的是内部
+	// virtuoso scroller，不再是 .flex-1.overflow-auto 包装层（包装层自身
+	// scrollHeight==clientHeight）。改为取 aside 内溢出最大的后代，兼容具体虚拟化实现。
 	await expect(aside.locator(".ep-node").first()).toBeVisible({
 		timeout: 15_000,
 	});
@@ -49,23 +51,39 @@ test("新建会话：文件树内容很高时输入框仍在视口内", async ({
 		.poll(
 			async () =>
 				await page.evaluate(() => {
-					const el = document.querySelector<HTMLElement>(
-						"[data-testid='new-session-explorer-aside'] .flex-1.overflow-auto",
+					const asideEl = document.querySelector<HTMLElement>(
+						"[data-testid='new-session-explorer-aside']",
 					);
-					return el ? el.scrollHeight - el.clientHeight : -1;
+					if (!asideEl) return -1;
+					let max = -1;
+					for (const el of asideEl.querySelectorAll<HTMLElement>("*")) {
+						const over = el.scrollHeight - el.clientHeight;
+						if (over > max) max = over;
+					}
+					return max;
 				}),
 			{ timeout: 15_000 },
 		)
 		.toBeGreaterThan(100);
 
-	// 真实 flex 引擎下的布局指标（aside 内层滚动容器承载树内容滚动）
+	// 真实 flex 引擎下的布局指标（取树内容溢出最大的后代作为滚动容器指标）
 	const m = await page.evaluate(() => {
 		const paneEl = document.querySelector<HTMLElement>(
 			"[data-testid='new-session-pane']",
 		)!;
-		const asideEl = document.querySelector<HTMLElement>(
-			"[data-testid='new-session-explorer-aside'] .flex-1.overflow-auto",
+		const asideRoot = document.querySelector<HTMLElement>(
+			"[data-testid='new-session-explorer-aside']",
 		)!;
+		// virtuoso 虚拟滚动下的滚动容器不再固定为 .flex-1.overflow-auto：取溢出最大的后代
+		let asideEl = asideRoot;
+		let maxOver = -1;
+		for (const el of asideRoot.querySelectorAll<HTMLElement>("*")) {
+			const over = el.scrollHeight - el.clientHeight;
+			if (over > maxOver) {
+				maxOver = over;
+				asideEl = el;
+			}
+		}
 		const composer =
 			document.querySelector<HTMLElement>(
 				"[data-testid='new-session-scroll'] [contenteditable='true']",

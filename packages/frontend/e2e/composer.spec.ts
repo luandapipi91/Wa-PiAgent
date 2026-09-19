@@ -47,6 +47,13 @@ test.describe.serial("Composer 重构", () => {
     return testid?.replace("session-", "") ?? "";
   }
 
+  // 侧边栏改版（提交 2d8782bd）移除了独立「新建会话」按钮（原 testid new-session-btn），
+  // 入口迁到「最近」次级分段的「＋新建会话」（recent-new-session）。先切到「最近」再点该入口。
+  async function goNewSession(page: import("@playwright/test").Page) {
+    await page.getByTestId("session-scope-recent").click();
+    await page.getByTestId("recent-new-session").click();
+  }
+
   test("模型切换并发送消息", async ({ page }) => {
     await enterSession(page, "模型切换测试");
 
@@ -171,7 +178,7 @@ test.describe.serial("Composer 重构", () => {
     await textbox.fill("写了一半的草稿");
     await page.waitForTimeout(400); // 等防抖写回
 
-    await page.getByTestId("new-session-btn").click();
+    await goNewSession(page);
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
 
     await page.getByTestId(`session-${sidA}`).click();
@@ -199,7 +206,7 @@ test.describe.serial("Composer 重构", () => {
     await page.getByTestId("composer-send").click();
     await expect(textbox).toBeEmpty();
 
-    await page.getByTestId("new-session-btn").click();
+    await goNewSession(page);
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     await page.getByTestId(`session-${sidA}`).click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
@@ -214,7 +221,7 @@ test.describe.serial("Composer 重构", () => {
     await textbox.fill(""); // 手动清空 = 放弃草稿
     await page.waitForTimeout(400);
 
-    await page.getByTestId("new-session-btn").click();
+    await goNewSession(page);
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     await page.getByTestId(`session-${sidA}`).click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
@@ -223,19 +230,21 @@ test.describe.serial("Composer 重构", () => {
 
   test("草稿：新建页输入切走再回来恢复", async ({ page }) => {
     // 先建一个真实会话，用于"切走"
-    await enterSession(page, "草稿切走会话");
+    const sid = await enterSession(page, "草稿切走会话");
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
 
     // 回到新建页输入草稿
-    await page.getByTestId("new-session-btn").click();
+    await goNewSession(page);
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     await textbox.fill("新建页的草稿");
     await page.waitForTimeout(400);
 
     // 切到已有会话再切回新建页
-    await page.locator('aside [data-testid^="session-"]').first().click();
+    // （旧选择器 aside [data-testid^="session-"].first() 会先命中『项目|最近』分段控件 session-scope，
+    //  改按具体 sessionId 精确定位会话行）
+    await page.getByTestId(`session-${sid}`).click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
-    await page.getByTestId("new-session-btn").click();
+    await goNewSession(page);
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     await expect(textbox).toHaveText("新建页的草稿");
   });

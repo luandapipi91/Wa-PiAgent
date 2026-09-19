@@ -124,6 +124,16 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       // 通过 REST 把技能目录加到 kernel（POST 返回时重扫已完成，skill:changed 经 SSE 回推前端）
       await addSkillDir(skillDirRoot);
 
+      // 记录发送的 prompt 请求体（放行真实请求，同 resend-attachments.spec 模式）。
+      // 产品已把 /skill:name 在聊天窗/排队区一律渲染回技能 chip（与输入框视觉一致），
+      // DOM 里不再出现展开后的 /skill: 字面量，故直接核对出站请求体验证「发送时展开」。
+      const promptBodies: any[] = [];
+      await page.route("**/api/agents/**/prompt", async (route) => {
+        const raw = route.request().postData();
+        promptBodies.push(raw ? JSON.parse(raw) : {});
+        await route.continue();
+      });
+
       await enterSession(page, "发起技能会话");
 
       const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
@@ -148,8 +158,12 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       // 6. 点击发送
       await page.getByTestId("composer-send").click();
 
-      // 7. 验证发送的消息中 chip 展开为 /skill:e2e-qi-skill（expandTokens 的既定格式）
-      await expect(page.getByText("/skill:e2e-qi-skill").first()).toBeVisible({ timeout: 8000 });
+      // 7. 验证 chip 发送时展开为 /skill:e2e-qi-skill（expandTokens 的既定格式）
+      await expect
+        .poll(() =>
+          promptBodies.some((b) => (b.text ?? "").includes("/skill:e2e-qi-skill")),
+        )
+        .toBe(true);
       await expect(page.locator(`text=\\$\\[e2e-qi-skill\\]`)).toHaveCount(0);
     } finally {
       if (existsSync(skillDirRoot)) rmSync(skillDirRoot, { recursive: true, force: true });

@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { E2E_WS_PORT } from "../playwright.config";
 import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
 
 // 浏览器环境没有 Electron IPC 桥：注入 mock 桥，验宿（主窗口）侧的驱动逻辑。
@@ -78,8 +79,37 @@ test.describe
 			});
 		});
 
-		test.afterAll(() => {
-			rmSync(cwd, { recursive: true, force: true });
+		test.afterAll(async () => {
+			// Windows 文件锁：该项目下建过会话（最后一个用例），kernel 为它 spawn 的 pi 子进程以
+			// 项目 cwd 为工作目录（agent-manager.ensureStarted → RpcClient cwd = project.cwd）。
+			// 进程存活期间该目录被系统锁住，rmSync 直接 EBUSY（ERROR_SHARING_VIOLATION）——
+			// 实测删掉「建会话」那一步后同一 afterAll 正常通过，可确认锁来自会话进程。
+			// 处理：先删会话（session:delete → AgentManager.disposeSession 杀掉 pi 进程）释放句柄，
+			// 再带退避重试删目录（进程退出/句柄释放是异步的）——与 default-workspace.spec.ts
+			// 的 EBUSY 清理、global-teardown 的重试同款口径。
+			try {
+				const res = await fetch(`http://127.0.0.1:${E2E_WS_PORT}/api/projects`);
+				const data: any = await res.json();
+				for (const s of data.sessions ?? []) {
+					if (s.projectId !== projectId) continue;
+					await fetch(
+						`http://127.0.0.1:${E2E_WS_PORT}/api/sessions/${encodeURIComponent(s.id)}`,
+						{ method: "DELETE" },
+					).catch(() => {});
+				}
+			} catch {
+				// kernel 已不可达：跳过会话清理，直接走下面的重试删除
+			}
+			const deadline = Date.now() + 10_000;
+			for (;;) {
+				try {
+					rmSync(cwd, { recursive: true, force: true });
+					return;
+				} catch (e) {
+					if (Date.now() > deadline) throw e;
+					await new Promise((r) => setTimeout(r, 250));
+				}
+			}
 		});
 
 		// 进入 session 视图（与 composer.spec.ts 同款 helper）

@@ -1,8 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { existsSync, readdirSync, statSync, utimesSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createSessionViaPrompt } from "./helpers";
+import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
+import { createSessionViaPrompt, ensureProvider } from "./helpers";
+
+const API = `http://127.0.0.1:${E2E_WS_PORT}`;
 
 // 默认工作区 E2E：验证 UI 渲染 + 项目下拉默认选中 + 项目右键菜单差异
 //
@@ -15,6 +17,11 @@ import { createSessionViaPrompt } from "./helpers";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 test.describe.serial("默认工作区", () => {
+  // 冷内核（无 provider）首启会弹 onboarding 向导（modal-overlay）遮住侧栏点击，
+  // 须先补一个 provider；同 fleet-same-agent / skills 等 spec 的既有做法。
+  test.beforeAll(async () => {
+    await ensureProvider();
+  });
 
   test("侧栏渲染独立'默认'区 + 🏠 默认工作区", async ({ page }) => {
     await page.goto("/");
@@ -75,8 +82,24 @@ test.describe.serial("默认工作区", () => {
     const subDir = join(E2E_WA_PI_DIR, "workdir", String(session.createdAt));
     expect(existsSync(subDir)).toBe(true);
 
-    // 清理：删掉这个测试产生的子目录
-    rmSync(subDir, { recursive: true, force: true });
+    // 清理：删掉这个测试产生的子目录。
+    // 关键：默认工作区会话的 pi rpc 子进程以 workdir/<createdAt> 为 cwd 并被 kernel 保活，
+    // Windows 下进程存活期间其 cwd 目录不可删除（EBUSY；实测子进程退出后即可删）。
+    // 故先删会话（kernel session:delete → disposeSession 拆进程释放句柄），再轮询重试删目录；
+    // 仍删不掉也不致命：global-teardown 会把整个 E2E_WA_PI_DIR 删掉。
+    await fetch(`${API}/api/sessions/${session.id}`, { method: "DELETE" }).catch(
+      () => {},
+    );
+    const cleanupDeadline = Date.now() + 15_000;
+    while (existsSync(subDir)) {
+      try {
+        rmSync(subDir, { recursive: true, force: true });
+      } catch {
+        // pi 进程尚未退出（句柄未释放），等下一轮
+      }
+      if (!existsSync(subDir) || Date.now() > cleanupDeadline) break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
   });
 
   test("默认工作区会话删除后保留子目录 + 7 天后被清理", async ({ page }) => {

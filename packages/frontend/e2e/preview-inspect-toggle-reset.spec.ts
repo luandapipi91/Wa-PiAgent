@@ -23,6 +23,29 @@ test.describe
 			"preview-inspect",
 			"门店店长管理绩效.html",
 		);
+		// 自包含嵌套页：外层 PRD 壳 + <iframe id="protoFrame" srcdoc="…fixture…">。
+		// 原用例读用户私有路径 PRD-岗位的总业绩提成核算阶梯.html（本机不存在 → ENOENT），
+		// 改用仓库 fixture 作内层 srcdoc 内容，保留用例真正要验的结构：嵌套 srcdoc 子文档
+		// （inspect 由父页代注入）内的锁定/开关复位链路。
+		const NESTED_NAME = "nested-prd.html";
+		function buildNestedPrdPage(): string {
+			const inner = readFileSync(FIXTURE, "utf8")
+				.replace(/&/g, "&amp;")
+				.replace(/"/g, "&quot;");
+			return [
+				'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" />',
+				"<title>PRD × 原型 · 双栏预览</title>",
+				"<style>html,body{margin:0;height:100%;font:14px/1.6 system-ui,sans-serif}",
+				".wrap{display:flex;height:100%}.col{flex:1;padding:12px;overflow:auto}",
+				".proto{border-left:1px solid #ddd}iframe{width:100%;height:100%;border:0}</style>",
+				'</head><body><div class="wrap">',
+				'<div class="col"><h1>PRD × 原型 · 双栏预览</h1><p>嵌套 srcdoc 原型预览。</p></div>',
+				'<div class="col proto"><iframe id="protoFrame" srcdoc="',
+				inner,
+				'"></iframe></div>',
+				"</div></body></html>",
+			].join("");
+		}
 
 		test.beforeEach(async ({ page }) => {
 			await page.goto("/");
@@ -148,21 +171,22 @@ test.describe
 		}) => {
 			test.setTimeout(60_000);
 			await enterSession(page, "嵌套开关复现");
-			const prd =
-				"/Users/co/Documents/work/hlk/prd/hlk-2026Q3_0901_0915/PRD-岗位的总业绩提成核算阶梯.html";
-			// 拷进项目 cwd 再打开（kernel 预览限项目内文件）
-			const prdName = "PRD-岗位的总业绩提成核算阶梯.html";
-			writeFileSync(join(cwd, prdName), readFileSync(prd, "utf8"));
+			writeFileSync(join(cwd, NESTED_NAME), buildNestedPrdPage());
 			await page.getByTestId("btn-browser-preview").click();
 			await expect(page.getByTestId("browser-panel")).toBeVisible();
-			await page.getByTestId("browser-input").fill(`${cwd}/${prdName}`);
+			await page.getByTestId("browser-input").fill(`${cwd}/${NESTED_NAME}`);
 			await page.getByTestId("browser-input").press("Enter");
 			await expect(page.getByTestId("html-preview-iframe")).toBeVisible();
 			const outer = page.frameLocator('[data-testid="html-preview-iframe"]');
-			const inner = outer.frameLocator("#protoFrame");
-			await expect(inner.getByText("业绩提成表").first()).toBeVisible({
+			// 外层 PRD 壳已渲染（非空白页）
+			await expect(outer.getByText("PRD × 原型 · 双栏预览").first()).toBeVisible({
 				timeout: 8000,
 			});
+			const inner = outer.frameLocator("#protoFrame");
+			// 内层 srcdoc 原型：JS 渲染的阶梯表就绪
+			await expect(
+				inner.locator(".rl-range").filter({ hasText: "> 15 ~ 20w" }).first(),
+			).toBeVisible({ timeout: 8000 });
 			const innerTable = inner.locator("table").first();
 			await innerTable.scrollIntoViewIfNeeded();
 			// hover 内层元素 → 内层工具条出现
@@ -170,12 +194,20 @@ test.describe
 			await expect(inner.getByText("发送到聊天").first()).toBeVisible({
 				timeout: 5000,
 			});
-			// 点内层锁头锁定
+			// 点内层锁头锁定。注意 preview-inspect 锁头有 400ms 防连点节流
+			// （preview-inspect.js：`lastLockTap = 0` + `performance.now()` 是文档相对时钟），
+			// 内层 srcdoc 文档刚创建 400ms 内的首击会被吞（探针实测：首击落在文档 376ms 处 →
+			// 被 return，第 2 击 954ms 才生效）→ 与单层用例同款「点击落空」重试，
+			// 最终仍断言必须锁定成功。
 			const innerLock = inner
 				.locator('button[title="锁定当前元素"], button[title="解除高亮锁定"]')
 				.first();
-			await innerLock.click();
-			const it1 = await innerLock.getAttribute("title");
+			let it1 = await innerLock.getAttribute("title");
+			for (let i = 0; i < 3 && it1 !== "解除高亮锁定"; i++) {
+				await page.waitForTimeout(400);
+				await innerLock.click();
+				it1 = await innerLock.getAttribute("title");
+			}
 			expect(it1).toBe("解除高亮锁定");
 			// 开关关 → 开（真实 UI）
 			await page.getByTestId("browser-inspect").click();

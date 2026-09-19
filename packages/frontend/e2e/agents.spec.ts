@@ -128,10 +128,9 @@ test.describe
         await expect(page.getByTestId("cfg-name-input")).toHaveValue(UI_AGENT, {
           timeout: 10_000,
         });
-        await page
-          .getByTestId("agent-config")
-          .getByRole("button", { name: "关闭" })
-          .click();
+        // 编辑弹窗右上角 ✕（agent-config-close）带 aria-label「关闭」，与页脚文字「关闭」按钮同名，
+        // 用 role+name 会 strict 命中 2 个（Modal 87105067 起全量弹窗补右上角关闭按钮）→ 显式用 testid
+        await page.getByTestId("agent-config-close").click();
 
         // 新建契约是「宫格保持打开，编辑弹窗叠加」（App.tsx onCreated 不关列表），
         // 关闭编辑弹窗后宫格仍在，直接断言新卡片出现（不能再点 agent-collapsed，会被宫格 overlay 拦截）
@@ -146,10 +145,7 @@ test.describe
         await expect(page.getByTestId("cfg-name-input")).toHaveValue(A1, {
           timeout: 10_000,
         });
-        await page
-          .getByTestId("agent-config")
-          .getByRole("button", { name: "关闭" })
-          .click();
+        await page.getByTestId("agent-config-close").click();
       } finally {
         await deleteAgentQuiet(UI_AGENT);
       }
@@ -214,7 +210,7 @@ test.describe
         "data-on",
         "true",
       );
-      await cfg.getByRole("button", { name: "关闭" }).click();
+      await cfg.getByTestId("agent-config-close").click();
     });
 
     test("4 左键智能体 → 新建会话页预选 → 发消息 → pill 为该智能体", async ({

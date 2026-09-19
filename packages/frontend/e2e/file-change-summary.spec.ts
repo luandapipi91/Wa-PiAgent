@@ -2,7 +2,10 @@
 //
 // 验证目标（「文件修改清单」功能第 7 层 E2E）：
 // 创建会话 → 发 prompt 要求 edit 工具改文件 → 回复底部出现 file-change-summary
-// → 展开清单显示文件名 → 展开 diff 显示前后差异 → 点击文件名打开预览弹窗。
+// → 展开清单显示文件名 → 展开 diff 显示前后差异 → 点条目「预览」按钮打开预览弹窗。
+//
+// 注：打开预览走条目右侧独立的「预览」按钮，不是点文件名——17ccadb5 起点文件名
+// 改为展开/收起 diff（FileChangeSummary 的 path 按钮 onClick: canDiff 时只切 open）。
 //
 // 流程对齐项目 E2E 约定（AGENTS.md）与 rpc-session.spec.ts：
 // - 测试数据经 API 创建：provider 经 REST POST /api/providers 注入（apiKey 从本机
@@ -28,7 +31,7 @@ function readDeepseekKey(): string {
   return key;
 }
 
-test("文件修改清单：edit 改文件 → 回复底部渲染清单 → 展开 diff → 点击文件名开预览", async ({ page }) => {
+test("文件修改清单：edit 改文件 → 回复底部渲染清单 → 展开 diff → 点预览按钮开预览", async ({ page }) => {
   test.setTimeout(180_000);
 
   // 1. 测试数据：注入 deepseek provider（slug 派生为 deepseek）
@@ -71,8 +74,11 @@ test("文件修改清单：edit 改文件 → 回复底部渲染清单 → 展�
   await expect(diff).toBeVisible({ timeout: 30_000 });
   await expect(diff).toContainText("已更新");
 
-  // 8. 点击文件名 → 断言全局文件预览弹窗出现
-  await summary.getByText(/PREVIEW\.md/).first().click();
+  // 8. 点击条目右侧「预览」按钮 → 断言全局文件预览弹窗出现。
+  //    不能点文件名：canDiff 为真时点文件名只展开/收起 diff（17ccadb5 起的交互口径）。
+  //    按钮名用精确正则（按钮文案中/英随界面语言变化）；用子串 "Preview"
+  //    会误命中文件名按钮 C:\…\PREVIEW.md（Playwright 的 name 默认子串匹配）。
+  await summary.getByRole("button", { name: /^(预览|Preview)$/ }).click();
   await expect(page.getByTestId("file-preview-modal")).toBeVisible({ timeout: 10_000 });
 
   // 9. 留证截图（读完即删，AGENTS.md 截图清理规则）

@@ -46,6 +46,10 @@ export async function runGit(
 	const timeoutMs = opts.timeoutMs ?? GIT_TIMEOUT_MS;
 	const proc = Bun.spawn([git, ...args], {
 		cwd,
+		// GIT_OPTIONAL_LOCKS=0：禁止 git 为「可选」操作抢占 .git/index.lock。
+		// 只读的 status 也会刷新 index 并短暂占锁，撞上用户 IDE/终端的 git 操作就会报
+		// 「Unable to create index.lock: File exists」（实测并发检出可复现）；强制锁（add/checkout）不受影响。
+		env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } as Record<string, string>,
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let timedOut = false;

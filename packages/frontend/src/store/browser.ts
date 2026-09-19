@@ -24,6 +24,13 @@ const MIN_H = 240;
 /** 气泡边长（px），与 FloatBubble 渲染尺寸一致 */
 export const BUBBLE_SIZE = 44;
 
+/** 路径分隔符归一：Windows 下同一个文件可能以 `\` 或 `/` 出现——文件树 joinPath 只补 `/`
+ *  （前半截保留 `\\`）产出混合分隔符，而 kernel（node resolve）上报的修改路径是全反斜杠。
+ *  两处裸比较（相等 / 前缀）不归一就永远不命中 → 预览自动刷新在 Windows 上恒不触发。 */
+function normPath(p: string): string {
+	return p.replace(/\\/g, "/");
+}
+
 export interface BubblePos {
 	x: number;
 	y: number;
@@ -498,20 +505,24 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 	matchesFileChange: (files) => {
 		const st = get();
 		if (!st.path) return false;
-		const dir = st.path.slice(0, st.path.lastIndexOf("/") + 1); // 含尾斜杠的目录前缀
+		const target = normPath(st.path);
+		const dir = target.slice(0, target.lastIndexOf("/") + 1); // 含尾斜杠的目录前缀
 		return files.some((f) => {
 			const p = f?.path;
 			if (!p) return false;
+			const np = normPath(p);
 			// ① 精确命中：预览文件本身被改
-			if (p === st.path) return true;
+			if (np === target) return true;
 			// ② 嵌套子页：预览 A.html 内 <iframe src="./B.html"> 引用的 B.html 被改 ——
 			// 外层没变但渲染内容已过时。不解析 iframe 引用树（需 kernel 新接口），
 			// 近似为「预览文件同目录（含子目录）的本地 html」：刷新幂等（重挂重拉），
 			// 无关 html 多刷无害；精确性换零 kernel 改动。
+			// dir 为空（异常路径、无目录段）时不做前缀近似，避免误命中任意 html。
 			return (
-				(p.endsWith(".html") || p.endsWith(".htm")) &&
-				p.startsWith(dir) &&
-				p.length > dir.length
+				dir !== "" &&
+				(np.endsWith(".html") || np.endsWith(".htm")) &&
+				np.startsWith(dir) &&
+				np.length > dir.length
 			);
 		});
 	},

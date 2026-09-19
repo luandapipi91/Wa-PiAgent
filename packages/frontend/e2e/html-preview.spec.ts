@@ -97,8 +97,9 @@ test.describe
 			await openSession(page);
 			await openHtmlPreview(page);
 
-			// 主内容区被 BrowserPanel 互斥替换，会话视图卸载
-			await expect(page.getByTestId("session-view")).toHaveCount(0);
+			// 预览与聊天分屏并存：聊天侧始终挂载（App.tsx chatPaneStyle：full 仅 display:none，
+			// split 按比例收窄），故会话视图仍在可视区，不再被卸载
+			await expect(page.getByTestId("session-view")).toBeVisible();
 
 			// iframe 存在（html-preview-iframe），内容区渲染 index.html 的元素
 			const iframe = page.getByTestId("html-preview-iframe");
@@ -207,22 +208,27 @@ test.describe
 			).toBeVisible({ timeout: 5000 });
 		});
 
-		test("预览打开后点侧边栏会话 → 预览窗口自动关闭，回到会话视图", async ({
+		test("预览打开后点侧边栏其他会话 → 预览自动关闭，回到会话视图", async ({
 			page,
 		}) => {
 			test.setTimeout(60_000);
 			await openSession(page);
 			await openHtmlPreview(page);
 
-			// 预览窗口已打开、会话视图卸载
+			// 预览窗口已打开（split 默认：会话视图并存不卸载）
 			await expect(page.getByTestId("browser-panel")).toBeVisible({
 				timeout: 5000,
 			});
-			await expect(page.getByTestId("session-view")).toHaveCount(0);
+			await expect(page.getByTestId("session-view")).toBeVisible();
 
-			// 点侧边栏会话行 → 预览关闭、会话视图恢复
-			const sessionRow = page.locator("[data-testid^='session-']").first();
-			await sessionRow.click();
+			// 点侧边栏「另一个」会话行 → 预览关闭、会话视图恢复。
+			// 预览状态自 8b3fb13c 起按会话独立记忆（browser store bySession +
+			// activateSession：先记住当前会话预览、再恢复目标会话的）——点当前会话自身
+			// 会原样恢复其预览，故必须切到无预览的会话（原用例点 ".first()" 即当前会话）。
+			const otherId = await createSession();
+			const otherRow = page.getByTestId(`session-${otherId}`);
+			await expect(otherRow).toBeVisible({ timeout: 8000 });
+			await otherRow.click();
 			await expect(page.getByTestId("browser-panel")).toHaveCount(0);
 			await expect(page.getByTestId("session-view")).toBeVisible({
 				timeout: 5000,
