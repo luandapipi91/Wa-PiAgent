@@ -143,7 +143,9 @@ test.describe.serial("Composer 重构", () => {
           const store = tx.objectStore("sessions");
           const put = store.put({
             sessionId: sid,
-            model: "model-a",
+            // model 必须是合法引用（provider slug/model-id）：写裸 "model-a" 时 reload 后
+            // composer 解析不到可用模型 → 发送按钮永久禁用（canSend 要求 isModelAvailable）
+            model: "e2e-composer/model-a",
             thinking: "disabled",
             attachments: [{ kind: "snippet", name: "test-snippet", content: "console.log('e2e');" }],
             updatedAt: Date.now(),
