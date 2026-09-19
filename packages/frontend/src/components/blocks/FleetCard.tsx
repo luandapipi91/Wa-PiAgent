@@ -35,32 +35,47 @@ function countTools(tools: SubagentProgressEvent["tools"] | undefined) {
 }
 
 /** 从 fleet 聚合结果中按 【agent】 分隔符切分各 agent 的回复文本。
- *  聚合格式（kernel delegate-tool）：【agent1】（失败）\n内容\n\n【agent2】\n内容。
+ *  聚合格式（kernel delegate-tool）：【agent1】（失败）\n内容\n\n【agent2】\n内容；
+ *  「用户停止」场景桥接层会在聚合文本外拼「已停止。」前缀，剥离后同格式。
+ *  只有「行首（文本开头或换行后）且名称命中任务清单」的 【】 标记才算分段边界——
+ *  agent 正文自带的 【】 小标题（如 "## 【代理A·质数计算】任务结果"）不在行首/不在清单内，
+ *  仅作为正文内容保留、不参与切分（否则整卡降级为聚合显示、任务行只剩空的「回复：」）。
  *  返回与 agentNames 顺序一一对应的回复数组（同名 agent 按出现顺序对应同名任务）；
- *  段落数与任务数不匹配（正文误含【】、老数据无标记）时返回 null，调用方降级为聚合显示。
+ *  段落数与任务数不匹配（正文误含同类标记、老数据无标记）时返回 null，调用方降级为聚合显示。
  *  修复背景：旧实现用 Map<agent, text> 同名覆盖，同名 agent 任务时前一个任务的回复被
  *  后一个覆盖（串台/丢内容）。 */
 function extractAgentReplies(
 	full: string,
 	agentNames: string[],
 ): string[] | null {
+	// 任务清单为空：无从对号入座（异常参数/老数据），直接降级
+	if (agentNames.length === 0) return null;
+	// 「用户停止」场景：桥接层在聚合文本外拼「已停止。」前缀，先剥离让首个标记回到行首
+	const body = full.startsWith("已停止。")
+		? full.slice("已停止。".length)
+		: full;
 	const re = /【([^】]+)】/g;
+	const nameSet = new Set(agentNames);
 	let match: RegExpExecArray | null;
 	const segments: Array<{ agent: string; text: string }> = [];
 	let lastIndex = 0;
 	let currentAgent: string | null = null;
-	while ((match = re.exec(full)) !== null) {
+	while ((match = re.exec(body)) !== null) {
+		// 只认「行首 + 名称在任务清单内」的标记为分段边界；其余【】只当正文
+		const atLineStart =
+			match.index === 0 || body[match.index - 1] === "\n";
+		if (!atLineStart || !nameSet.has(match[1])) continue;
 		if (currentAgent !== null) {
 			segments.push({
 				agent: currentAgent,
-				text: full.slice(lastIndex, match.index),
+				text: body.slice(lastIndex, match.index),
 			});
 		}
 		currentAgent = match[1];
 		lastIndex = re.lastIndex;
 	}
 	if (currentAgent !== null) {
-		segments.push({ agent: currentAgent, text: full.slice(lastIndex) });
+		segments.push({ agent: currentAgent, text: body.slice(lastIndex) });
 	}
 	// 段落数必须与任务数一致：正文误含【】/老数据格式异常时切分不可靠，返回 null 降级
 	if (segments.length !== agentNames.length) return null;
@@ -140,20 +155,24 @@ function FleetTaskItem({
 	const toolStats = liveStats ?? stats;
 	const hasProgress = !!progress;
 	const showReply = replyText != null && replyText !== "";
-	const label = toolStats
+	// 行内可看的实质内容：逐任务回复 或 实时进度（状态行）。
+	// 降级聚合（无法拆分）时任务行可能两者都没有（回复已在卡片上方聚合显示）——
+	// 此时不承诺「点击查看回复」（标签去后缀、隐藏展开箭头），展开也不渲染空「回复：」块。
+	const expandable = showReply || hasProgress;
+	const statsParams = toolStats
+		? {
+				total: toolStats.total,
+				done: toolStats.done,
+				error: toolStats.error,
+				running: toolStats.running,
+			}
+		: null;
+	const label = statsParams
 		? isCompleted
-			? t("blocks.fleet.taskLabelCompletedWithStats", {
-					total: toolStats.total,
-					done: toolStats.done,
-					error: toolStats.error,
-					running: toolStats.running,
-				})
-			: t("blocks.fleet.taskLabelRunningWithStats", {
-					total: toolStats.total,
-					done: toolStats.done,
-					error: toolStats.error,
-					running: toolStats.running,
-				})
+			? showReply
+				? t("blocks.fleet.taskLabelCompletedWithStats", statsParams)
+				: t("blocks.fleet.taskLabelCompletedWithStatsNoReply", statsParams)
+			: t("blocks.fleet.taskLabelRunningWithStats", statsParams)
 		: showReply
 			? t("blocks.fleet.taskLabelCompletedNoStats")
 			: t("blocks.fleet.taskLabelRunning");
@@ -161,10 +180,16 @@ function FleetTaskItem({
 		<div className="min-w-0">
 			<button
 				type="button"
-				aria-label={expanded ? t("common.collapse") : t("common.expand")}
-				onClick={() => setExpanded((v) => !v)}
+				aria-label={
+					expandable
+						? expanded
+							? t("common.collapse")
+							: t("common.expand")
+						: undefined
+				}
+				onClick={expandable ? () => setExpanded((v) => !v) : undefined}
 				className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-secondary py-1 text-left"
-				style={{ cursor: "pointer" }}
+				style={{ cursor: expandable ? "pointer" : "default" }}
 			>
 				<span>
 					{t("blocks.fleet.taskPrefix", { index })}
@@ -172,21 +197,28 @@ function FleetTaskItem({
 				</span>
 				{/* 中断徽标：紧跟任务行文案，琥珀警示色，与成功/失败区分 */}
 				{interrupted && <InterruptedBadge />}
-				<span className="ml-auto flex-shrink-0">
-					<Icon name={expanded ? "chevron-down" : "chevron-right"} size={10} />
-				</span>
+				{expandable && (
+					<span className="ml-auto flex-shrink-0">
+						<Icon name={expanded ? "chevron-down" : "chevron-right"} size={10} />
+					</span>
+				)}
 			</button>
-			{expanded && (showReply || hasProgress || !!toolStats) && (
+			{expanded && expandable && (
 				<div className="mt-1 mb-1 pl-2 border-l border-hairline">
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
-						<Icon name="share" size={11} />
-						<span>{t("blocks.fleet.replyLabel")}</span>
-					</div>
-					<StreamingOutput
-						text={replyText ?? ""}
-						sessionId={sessionId}
-						streaming={!isCompleted}
-					/>
+					{/* 回复区仅在确有回复文本时渲染：降级态不再出现空的「回复：」块 */}
+					{showReply && (
+						<>
+							<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
+								<Icon name="share" size={11} />
+								<span>{t("blocks.fleet.replyLabel")}</span>
+							</div>
+							<StreamingOutput
+								text={replyText ?? ""}
+								sessionId={sessionId}
+								streaming={!isCompleted}
+							/>
+						</>
+					)}
 					{/* 状态行（agent · 状态 · 秒数）：渲染在回复之后，作为该子任务的尾部状态 */}
 					{hasProgress && (
 						<div className="text-[calc(11px*var(--font-scale))] text-tertiary mt-1">

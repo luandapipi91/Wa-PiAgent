@@ -248,6 +248,9 @@ const zh = {
 				"调用了 {{total}} 个工具 成功 {{done}} 失败 {{error}} 执行中 {{running}}",
 			taskLabelCompletedWithStats:
 				"已完成 调用了 {{total}} 个工具 成功 {{done}} 失败 {{error}} 执行中 {{running}} · 点击查看回复",
+			// 降级聚合（无逐任务回复可展开）时的完成态文案：不带「点击查看回复」后缀
+			taskLabelCompletedWithStatsNoReply:
+				"已完成 调用了 {{total}} 个工具 成功 {{done}} 失败 {{error}} 执行中 {{running}}",
 			taskLabelRunning: "运行中",
 			taskLabelCompletedNoStats: "已完成 · 点击查看回复",
 			delegatePrefix: "任务 {{index}}：委派",

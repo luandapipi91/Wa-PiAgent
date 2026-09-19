@@ -259,6 +259,9 @@ const en = {
 				"Called {{total}} tool(s) success {{done}} failed {{error}} running {{running}}",
 			taskLabelCompletedWithStats:
 				"Done. Called {{total}} tool(s) success {{done}} failed {{error}} running {{running}} · click to view reply",
+			// Completed label without the "click to view reply" suffix (degraded aggregate, no per-task reply)
+			taskLabelCompletedWithStatsNoReply:
+				"Done. Called {{total}} tool(s) success {{done}} failed {{error}} running {{running}}",
 			taskLabelRunning: "Running",
 			taskLabelCompletedNoStats: "Done · click to view reply",
 			delegatePrefix: "Task {{index}}: delegate",
