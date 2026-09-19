@@ -432,6 +432,20 @@ test("listPage：archived tab 返回带 archivedAt 的归档条目", async () =>
   expect(r.counts.active).toBe(2);
 });
 
+test("listPage：scope=project 解析为项目名后按项目过滤（全局/其它项目不混入）", async () => {
+  const store = makeStore("/repos/my-app");
+  await store.add("global", "全局记忆");
+  await store.add("project", "项目记忆", "p1");
+
+  const r = await store.listPage({ scope: "project", projectId: "p1", tab: "active", limit: 10 });
+  expect(r.entries).toHaveLength(1);
+  expect(r.entries[0].text).toBe("项目记忆");
+  // projectId 列存的是项目名（cwd basename），不是 UI 的 project id
+  expect(r.entries[0].projectId).toBe("my-app");
+  expect(r.counts.active).toBe(1);
+  expect(r.counts.archived).toBe(0);
+});
+
 test("listPage：scope=project 且 projectId 不可解析时返回空（对齐旧 list 宽松行为）", async () => {
   const store = makeStore();
   const r = await store.listPage({
