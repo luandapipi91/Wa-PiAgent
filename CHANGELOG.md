@@ -4,6 +4,7 @@
 - 修复：并行派发运行期子任务行显示不全（内核启动即发首帧 + 运行期渲染全部任务行）；fleet 回复拆分鲁棒性（正文【】小标题不再误判分段、降级态不渲染空「回复：」）；非 git 仓库 branches/log 降级 200 空结果（不再反复 400）；Windows 预览自动刷新（路径分隔符混合）；IM 进站错误路径/映射广播缺失；preview-inspect 哨兵初值改文档相对时钟（400ms 内单击误判双击）；git-service 注入 GIT_OPTIONAL_LOCKS=0（避 index.lock 冲突）；composer 草稿裸 model id 致重载后模型不可用。
 - 验证：typecheck 全绿；测试 gate 随打包双端跑通（隔离 worktree）。
 - 影响范围：kernel（子代理首帧进度/git 路由降级）、frontend（FleetCard/DelegateCard 拆分与渲染）。
+- chore(kernel): 委派机制提示词措辞统一（fleet 条件「独立对象」→「独立任务」、单对象→单任务），仅表述校准、语义不变。
 
 ## 2026-09-19 — v0.5.1 发版（委派中断保留部分进度 + 「已中断」终态）
 
