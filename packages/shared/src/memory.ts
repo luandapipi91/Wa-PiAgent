@@ -111,6 +111,12 @@ export interface MemorySearchEvent {
   includeArchived?: boolean;
   /** 只看归档条目；与 includeArchived 同时给出时以本字段为准 */
   archivedOnly?: boolean;
+  /** 时间下界（含端点，毫秒时间戳，按 updated_at 过滤） */
+  since?: number;
+  /** 时间上界（含端点，毫秒时间戳，按 updated_at 过滤） */
+  until?: number;
+  /** 分页偏移：跳过前 N 条命中（滚动加载用） */
+  offset?: number;
 }
 export interface MemoryConfigGetEvent {
   type: "memory:config:get";
@@ -141,6 +147,8 @@ export interface MemorySearchResultEvent {
   results: MemorySearchResult[];
   /** 真实命中总数（未截断）：可能大于 results.length（limit / 候选上限截断）。spec §5 */
   totalMatched: number;
+  /** 是否还有下一页（候选池拉满即视为可能有） */
+  hasMore: boolean;
 }
 export interface InstructionListResult {
   type: "instruction:list";
@@ -149,4 +157,35 @@ export interface InstructionListResult {
 export interface MemoryConfigEvent {
   type: "memory:config";
   config: MemoryConfig;
+}
+
+// ===== 记忆列表分页（UI 滚动加载）=====
+export interface MemoryListPageEvent {
+  type: "memory:list:page";
+  /** 列表作用域：global 全局段，project 项目段（与 UI 的 memoryScope 二选一直传） */
+  scope: MemoryScope;
+  /** scope=project 时必填（UI 侧项目 id，内核解析为项目名） */
+  projectId?: string;
+  /** 列表所在 Tab：active 已保存 / archived 归档 */
+  tab: "active" | "archived";
+  /** 层级筛选；缺省不筛 */
+  kind?: MemoryKind;
+  /** 时间下界（含端点，毫秒，按 updated_at）；缺省不设 */
+  since?: number;
+  /** 时间上界（含端点，毫秒，按 updated_at）；缺省不设 */
+  until?: number;
+  /** 分页偏移 */
+  offset?: number;
+  /** 每页条数（必填：带 limit 是分页模式的唯一入口标识） */
+  limit: number;
+}
+
+export interface MemoryListPageResult {
+  type: "memory:list:page";
+  /** 当前页条目（tab=archived 时条目带 archivedAt，为 ArchivedMemory） */
+  entries: MemoryEntry[];
+  /** 是否还有下一页 */
+  hasMore: boolean;
+  /** 徽标口径计数：不带 kind/时间窗的全量总数（active 与 archived 各自） */
+  counts: { active: number; archived: number };
 }

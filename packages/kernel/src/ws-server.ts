@@ -2912,7 +2912,13 @@ export class WSServer {
 						includeArchived: event.includeArchived,
 						archivedOnly: event.archivedOnly,
 					});
-					reply({ type: "memory:search", results, totalMatched });
+					reply({
+						type: "memory:search",
+						results,
+						totalMatched,
+						// 占位：任务 5 接入 store 的 hasMore 后替换
+						hasMore: false,
+					});
 				} catch (err) {
 					replyError(reply, err);
 				}

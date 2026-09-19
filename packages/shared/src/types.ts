@@ -49,6 +49,7 @@ import type {
 } from "./extensions";
 import type {
 	MemoryListEvent,
+	MemoryListPageEvent,
 	MemoryUpdateEvent,
 	MemoryArchiveEvent,
 	MemoryRestoreEvent,
@@ -59,6 +60,7 @@ import type {
 	MemoryConfigSetEvent,
 	MemorySearchEvent,
 	MemoryListResult,
+	MemoryListPageResult,
 	MemoryChangedEvent,
 	MemorySearchResultEvent,
 	InstructionListResult,
@@ -783,6 +785,7 @@ export type WSClientEvent =
 	| ExtensionTuiInputEvent
 	| ExtensionTuiSnapshotEvent
 	| MemoryListEvent
+	| MemoryListPageEvent
 	| MemoryUpdateEvent
 	| MemoryArchiveEvent
 	| MemoryRestoreEvent
@@ -1453,6 +1456,7 @@ export type WSServerEvent =
 	| ExtensionTuiInputResult
 	| ExtensionTuiSnapshotResult
 	| MemoryListResult
+	| MemoryListPageResult
 	| MemoryChangedEvent
 	| MemorySearchResultEvent
 	| McpListResult
