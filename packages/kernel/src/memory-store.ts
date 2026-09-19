@@ -47,6 +47,18 @@ export interface MemorySearchOpts {
   archivedOnly?: boolean;
 }
 
+/** 列表分页入参（UI 滚动加载）：scope 与 UI memoryScope 二选一直传 */
+export interface MemoryListPageOpts {
+  scope: MemoryScope;
+  projectId?: string;
+  tab: "active" | "archived";
+  kind?: MemoryKind;
+  since?: number;
+  until?: number;
+  offset?: number;
+  limit: number;
+}
+
 export class MemoryStore {
   constructor(private opts: MemoryStoreOpts) {}
 
@@ -106,6 +118,63 @@ export class MemoryStore {
         ...this.toEntry(r),
         archivedAt: new Date(r.archivedAt ?? 0).toISOString(),
       })),
+    };
+  }
+
+  /**
+   * 分页列表（UI 滚动加载）。
+   * - scope 与 UI 的 memoryScope 直接对应（global / project 单段查询），
+   *   等价于旧 list() 两段合并后前端 filter(m => m.scope === memoryScope) 的结果。
+   * - kind/since/until 只过滤 entries；counts 是徽标口径（不带 kind/时间窗的全量总数）。
+   * - hasMore：按 limit+1 多拉一条判断，避免额外 COUNT。
+   * - scope=project 且项目不可解析：返回空（对齐旧 list() 的宽松行为，UI 保证有效 id）。
+   */
+  async listPage(opts: MemoryListPageOpts): Promise<{
+    entries: MemoryEntry[];
+    hasMore: boolean;
+    counts: { active: number; archived: number };
+  }> {
+    const dao = this.dao();
+    const offset = Math.max(0, opts.offset ?? 0);
+    const want = offset + opts.limit;
+
+    let base: ListOpts;
+    if (opts.scope === "project") {
+      const projectName = opts.projectId
+        ? await this.getProjectName(opts.projectId)
+        : null;
+      if (!projectName) {
+        return { entries: [], hasMore: false, counts: { active: 0, archived: 0 } };
+      }
+      base = { scope: "project", projectId: projectName };
+    } else {
+      base = { scope: "global" };
+    }
+    if (opts.tab === "archived") base.archivedOnly = true;
+    else base.includeArchived = false;
+
+    const rows = dao.list({
+      ...base,
+      kind: opts.kind,
+      since: opts.since,
+      until: opts.until,
+      limit: want + 1,
+    });
+    const entries = rows.slice(offset, want).map((r) =>
+      opts.tab === "archived"
+        ? ({ ...this.toEntry(r), archivedAt: new Date(r.archivedAt ?? 0).toISOString() } as ArchivedMemory)
+        : this.toEntry(r),
+    );
+
+    const sumCounts = (o: ListOpts) =>
+      Object.values(dao.counts(o)).reduce((a, b) => a + b, 0);
+    return {
+      entries,
+      hasMore: rows.length > want,
+      counts: {
+        active: sumCounts({ ...base, includeArchived: false, archivedOnly: false }),
+        archived: sumCounts({ ...base, includeArchived: false, archivedOnly: true }),
+      },
     };
   }
 

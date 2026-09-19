@@ -19,6 +19,7 @@ import { MemoryDao } from "../src/memory/dao";
 import { closeAllMemoryDbs, openMemoryDb } from "../src/memory/db";
 import { KernelError } from "../src/kernel-error";
 import type { ProjectStore } from "../src/project-store";
+import type { ArchivedMemory } from "@wa-pi/shared";
 
 let tmpDir: string;
 
@@ -358,6 +359,89 @@ test("purge 不存在的 id → memory.archiveNotFound", async () => {
     () => makeStore().purge("00000000-0000-0000-0000-000000000000"),
     "memory.archiveNotFound",
   );
+});
+
+// ===== listPage =====
+
+test("listPage：active tab 按 updated_at DESC 分页且 hasMore 正确", async () => {
+  const store = makeStore();
+  // 预置：写入 5 条全局记忆
+  for (let i = 0; i < 5; i++) await store.add("global", `分页记忆 ${i}`);
+
+  const page1 = await store.listPage({ scope: "global", tab: "active", limit: 2 });
+  expect(page1.entries).toHaveLength(2);
+  expect(page1.hasMore).toBe(true);
+  expect(page1.counts.active).toBe(5);
+  expect(page1.counts.archived).toBe(0);
+
+  const page2 = await store.listPage({ scope: "global", tab: "active", limit: 2, offset: 2 });
+  expect(page2.entries).toHaveLength(2);
+  // 与 page1 条目不重叠
+  const ids = new Set([...page1.entries, ...page2.entries].map((e) => e.id));
+  expect(ids.size).toBe(4);
+  // 第 5 条还在后面：拉满 want 条 → 保守视为还有下一页
+  expect(page2.hasMore).toBe(true);
+
+  // 最后一页：拉不满 want 条 → hasMore=false，且不与前两页重叠
+  const page3 = await store.listPage({ scope: "global", tab: "active", limit: 2, offset: 4 });
+  expect(page3.entries).toHaveLength(1);
+  expect(page3.hasMore).toBe(false);
+  ids.add(page3.entries[0].id);
+  expect(ids.size).toBe(5);
+});
+
+test("listPage：kind 与时间窗只影响条目不影响徽标 counts", async () => {
+  const store = makeStore();
+  const dao = new MemoryDao(openMemoryDb(tmpDir));
+  await store.add("global", "知识条目");
+  seed([
+    { kind: "execution", scope: "global", content: "执行条目 A" },
+    { kind: "execution", scope: "global", content: "执行条目 B" },
+  ]);
+  // 一条 execution 推到 2 小时前（时间窗外）：kind/时间窗必须把它滤掉
+  const stale = dao.list({ scope: "global", includeArchived: false, kind: "execution" })[0];
+  dao.db.run("UPDATE memories SET updated_at = ? WHERE id = ?", [
+    Date.now() - 7_200_000,
+    stale.id,
+  ]);
+
+  const r = await store.listPage({
+    scope: "global",
+    tab: "active",
+    kind: "execution",
+    since: Date.now() - 60_000,
+    limit: 10,
+  });
+  expect(r.entries.every((e) => e.kind === "execution")).toBe(true);
+  expect(r.entries).toHaveLength(1); // 只剩窗内的那条 execution
+  // counts 不带 kind/时间窗：等于该 scope 全量
+  expect(r.counts.active).toBe(3);
+  expect(r.counts.archived).toBe(0);
+});
+
+test("listPage：archived tab 返回带 archivedAt 的归档条目", async () => {
+  const store = makeStore();
+  for (let i = 0; i < 3; i++) await store.add("global", `归档测试 ${i}`);
+  const { memories } = await store.list();
+  await store.archive(memories[0].id);
+
+  const r = await store.listPage({ scope: "global", tab: "archived", limit: 10 });
+  expect(r.entries).toHaveLength(1);
+  expect((r.entries[0] as ArchivedMemory).archivedAt).toBeTruthy();
+  expect(r.counts.archived).toBe(1);
+  expect(r.counts.active).toBe(2);
+});
+
+test("listPage：scope=project 且 projectId 不可解析时返回空（对齐旧 list 宽松行为）", async () => {
+  const store = makeStore();
+  const r = await store.listPage({
+    scope: "project",
+    projectId: "no-such-id",
+    tab: "active",
+    limit: 10,
+  });
+  expect(r.entries).toEqual([]);
+  expect(r.counts).toEqual({ active: 0, archived: 0 });
 });
 
 // ===== search =====
