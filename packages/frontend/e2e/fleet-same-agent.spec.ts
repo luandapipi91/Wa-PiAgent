@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt, setUiPrefs } from "./helpers";
 
 // E2E（Layer 4）：fleet 同名 agent 并行委托状态隔离
 //
@@ -40,6 +40,8 @@ test.describe
 			page: import("@playwright/test").Page,
 			text: string,
 		): Promise<string> {
+			// 中文界面断言 + 关掉「回复过程默认折叠」（默认偏好会让卡片体收起、任务行不可见）
+			await setUiPrefs(page, "zh", { collapseProcessByDefault: false });
 			await page.goto("/");
 			await page.waitForTimeout(500);
 			const sessionId = "s-e2e-fleetdup-" + randomUUID().slice(0, 8);
@@ -136,8 +138,8 @@ test.describe
 				timeout: 8000,
 			});
 
-			// 运行态 hasProgress=true 卡片默认展开，两个任务行统计各自独立：
-			// 任务 0 显示「调用了 2 个工具」，任务 1 显示「调用了 1 个工具」——不一模一样
+			// 运行态 hasProgress=true 且「回复过程默认折叠」已关 → 卡片默认展开：
+			// 两个任务行统计各自独立：任务 0「调用了 2 个工具」、任务 1「调用了 1 个工具」——不一模一样
 			await expect(page.getByText(/调用了 2 个工具/)).toBeVisible({
 				timeout: 5000,
 			});

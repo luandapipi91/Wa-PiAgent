@@ -87,20 +87,35 @@ export async function saveProvider(
   await api("POST", "/api/providers", { provider });
 }
 
-/** 预置 ui-prefs localStorage（语言/字体/导出轮数）。
+/** 预置 ui-prefs localStorage（语言/字体/导出轮数，可选覆盖其它偏好）。
  *  需要中文界面的 spec 必须用它显式预置——playwright headless 默认
  *  navigator.language=en-US，i18n 无持久化时按 navigator 判定，页面会是英文。
- *  与 language-switch.spec 的同名函数同构（抽到公共层复用）。 */
+ *  与 language-switch.spec 的同名函数同构（抽到公共层复用）。
+ *  extra：追加/覆盖其它偏好项，如 { collapseProcessByDefault: false }——
+ *  「回复过程默认折叠」是默认偏好，会让工具/委派卡片体默认收起（body 未渲染），
+ *  断言运行中卡片内容的 spec 需显式关掉。 */
 export async function setUiPrefs(
   page: import("@playwright/test").Page,
   language: "zh" | "en",
+  extra?: Record<string, unknown>,
 ) {
-  await page.addInitScript((lang) => {
-    localStorage.setItem(
-      "wa-pi-ui-prefs",
-      JSON.stringify({ state: { language: lang, fontSize: 16, exportTurns: 1 }, version: 0 }),
-    );
-  }, language);
+  await page.addInitScript(
+    ({ lang, extra }) => {
+      localStorage.setItem(
+        "wa-pi-ui-prefs",
+        JSON.stringify({
+          state: {
+            language: lang,
+            fontSize: 16,
+            exportTurns: 1,
+            ...(extra ?? {}),
+          },
+          version: 0,
+        }),
+      );
+    },
+    { lang: language, extra: extra ?? {} },
+  );
 }
 
 /** 确保至少存在一个 provider（无则补一个假 provider，返回是否为本函数新建）。

@@ -14,7 +14,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt, setUiPrefs } from "./helpers";
 
 const SESSION_ID = "s-e2e-virt-scroll-001";
 
@@ -224,6 +224,8 @@ test.describe("流式渲染性能优化验收", () => {
 		page: import("@playwright/test").Page,
 		text: string,
 	): Promise<string> {
+		// 关掉「回复过程默认折叠」（默认偏好会让卡片体收起，运行中预览/工具卡断言不可见）
+		await setUiPrefs(page, "en", { collapseProcessByDefault: false });
 		await page.goto("/");
 		await page.waitForTimeout(500);
 		const sessionId = "s-e2e-sp-" + randomUUID().slice(0, 8);
@@ -366,10 +368,11 @@ test.describe("流式渲染性能优化验收", () => {
 			});
 		}, sessionId);
 
-		// 运行中：纯文本预览（StreamingOutput streaming=true && !settled），markdown 源文原样、无 <strong>
-		const plain = page.getByTestId("streaming-output-plain");
-		await expect(plain).toBeVisible({ timeout: 5000 });
-		await expect(plain.locator("strong")).toHaveCount(0);
+		// 运行中：流式 markdown（v0.4.7 统一 Markdown 入口起，子代理流式输出也走 markdown + 解析节流；
+		// 旧的「停顿降级为纯文本预览」路径已移除——d93cc752「停顿降级改为节流（消除闪烁）」）
+		const running = page.getByTestId("streaming-output-md");
+		await expect(running).toBeVisible({ timeout: 5000 });
+		await expect(running).toContainText("加粗");
 
 		// 完成：注入 toolResult → DelegateCard 切换 result，streaming=false → 完整 markdown
 		await page.evaluate(async (sid) => {

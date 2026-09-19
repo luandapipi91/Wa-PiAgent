@@ -1,11 +1,18 @@
 import { test, expect } from "@playwright/test";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
-import { addSkillDir, createProject, removeSkillDir } from "./helpers";
+import { addSkillDir, createProject, removeSkillDir, ensureProvider, setUiPrefs } from "./helpers";
 
 test.describe.serial("技能管理", () => {
+  test.beforeAll(async () => {
+    // 无 provider 时首启会弹 onboarding 向导（modal-overlay 遮挡点击，冷内核单独跑必挂）
+    await ensureProvider();
+  });
 
   test("打开设置 → 技能菜单", async ({ page }) => {
+    // 断言中文界面（headless 默认 navigator=en-US 会渲染英文）
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     // 预置项目（复用 app-flow 模式）
     await createProject("e2e-skills", "/tmp/e2e-skills");
@@ -21,6 +28,7 @@ test.describe.serial("技能管理", () => {
   });
 
   test("展开技能目录 + 内置目录无删除按钮", async ({ page }) => {
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await createProject("e2e-skills", "/tmp/e2e-skills");
 
@@ -35,7 +43,8 @@ test.describe.serial("技能管理", () => {
 
   test("禁用技能 + 启用技能", async ({ page }) => {
     // 先通过 REST 添加一个带技能的目录，让技能列表有内容
-    const e2eSkillDir = join(process.env.HOME || "~", ".wa-pi-e2e-skills-test");
+    // homedir()：Windows 上无 HOME 环境变量（用 USERPROFILE），用字面量 "~" 会落成相对路径
+    const e2eSkillDir = join(homedir(), ".wa-pi-e2e-skills-test");
     if (!existsSync(e2eSkillDir)) {
       const skillDir = join(e2eSkillDir, "test-skill");
       mkdirSync(skillDir, { recursive: true });
@@ -43,6 +52,7 @@ test.describe.serial("技能管理", () => {
         `---\nname: test-skill\ndescription: 测试技能\n---\n# test-skill`);
     }
 
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await createProject("e2e-skills", "/tmp/e2e-skills");
     await addSkillDir(e2eSkillDir);
