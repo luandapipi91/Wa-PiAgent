@@ -45,6 +45,12 @@ export interface MemorySearchOpts {
   includeArchived?: boolean;
   /** 只看归档条目（归档 Tab 的服务端检索用） */
   archivedOnly?: boolean;
+  /** 时间下界（含端点，毫秒，按 updated_at 过滤） */
+  since?: number;
+  /** 时间上界（含端点，毫秒，按 updated_at 过滤） */
+  until?: number;
+  /** 分页偏移：跳过前 N 条命中 */
+  offset?: number;
 }
 
 /** 列表分页入参（UI 滚动加载）：scope 与 UI memoryScope 二选一直传 */
@@ -196,6 +202,7 @@ export class MemoryStore {
   async search(opts: MemorySearchOpts): Promise<{
     results: MemorySearchResult[];
     totalMatched: number;
+    hasMore: boolean;
   }> {
     const scope = opts.scope || undefined;
     const projectId = opts.projectId?.trim() || undefined;
@@ -216,11 +223,19 @@ export class MemoryStore {
       kind: opts.kind || undefined,
       includeArchived: opts.includeArchived === true,
       archivedOnly: opts.archivedOnly === true,
+      since: opts.since,
+      until: opts.until,
     };
 
     const dao = this.dao();
-    const results = dao
-      .search(opts.query, { ...filter, limit: opts.limit })
+    // offset 分页：一次拉 offset+limit 条再切片；候选池上限 CANDIDATE_LIMIT=50（dao 层），
+    // 拉满 want 条即视为可能还有下一页
+    const offset = Math.max(0, opts.offset ?? 0);
+    const limit = opts.limit ?? 10;
+    const want = offset + limit;
+    const hits = dao.search(opts.query, { ...filter, limit: want });
+    const results = hits
+      .slice(offset)
       .map((h) => ({
         id: h.id,
         title: h.title,
@@ -233,7 +248,7 @@ export class MemoryStore {
         archived: h.archived === 1,
       }));
 
-    return { results, totalMatched: dao.countMatches(opts.query, filter) };
+    return { results, totalMatched: dao.countMatches(opts.query, filter), hasMore: hits.length === want };
   }
 
   /**

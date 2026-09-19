@@ -522,10 +522,12 @@ test("search 空查询返回空结果", async () => {
   expect(await store.search({ query: "" })).toEqual({
     results: [],
     totalMatched: 0,
+    hasMore: false,
   });
   expect(await store.search({ query: "   " })).toEqual({
     results: [],
     totalMatched: 0,
+    hasMore: false,
   });
 });
 
@@ -647,6 +649,47 @@ test("search 显式 scope=project 仍限定到该项目（维持原语义）", a
   });
   expect(results.results.map((r) => r.projectId)).toEqual(["my-app"]);
   expect(results.totalMatched).toBe(1);
+});
+
+test("search：since/until 过滤 + offset 翻页 + hasMore 口径", async () => {
+  const store = makeStore();
+  const dao = new MemoryDao(openMemoryDb(tmpDir));
+  // 预置 3 条同词命中（内容一致让排序可预期），其中 1 条 updated_at 推到窗外
+  for (let i = 0; i < 3; i++) await store.add("global", "时间窗检索 目标条目");
+  const stale = dao.list({ scope: "global", includeArchived: false })[0];
+  dao.db.run("UPDATE memories SET updated_at = ? WHERE id = ?", [
+    Date.now() - 365 * 86_400_000,
+    stale.id,
+  ]);
+
+  // 窗内恰 2 条、limit=2：拉满 want 条 → 保守口径 hasMore=true（可能还有下一页）
+  const r1 = await store.search({
+    query: "时间窗检索",
+    limit: 2,
+    since: Date.now() - 86_400_000,
+    until: Date.now() + 86_400_000,
+  });
+  expect(r1.results).toHaveLength(2);
+  expect(r1.results.every((h) => h.id !== stale.id)).toBe(true);
+  expect(r1.hasMore).toBe(true);
+
+  // offset=2 翻页：全库 3 条命中 < want=4 → 未拉满 → hasMore=false，剩余 1 条不重叠
+  const r2 = await store.search({ query: "时间窗检索", limit: 2, offset: 2 });
+  expect(r2.results).toHaveLength(1);
+  expect(r2.results[0].id).not.toBe(r1.results[0].id);
+  expect(r2.results[0].id).toBe(stale.id);
+  expect(r2.hasMore).toBe(false);
+});
+
+test("search：时间窗外全部排除时 totalMatched 为 0", async () => {
+  const store = makeStore();
+  await store.add("global", "年代久远检索样本");
+  const r = await store.search({
+    query: "年代久远检索",
+    until: Date.now() - 86_400_000 * 365,
+  });
+  expect(r.totalMatched).toBe(0);
+  expect(r.results).toEqual([]);
 });
 
 // ===== listInstructions：AGENTS.md / CLAUDE.md =====
