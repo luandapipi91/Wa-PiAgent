@@ -608,3 +608,13 @@ test("list 的 since/until 与 limit/offset 组合生效", () => {
   const page2 = dao.list({ scope: "global", includeArchived: false, since: 2000, until: 4000, limit: 2, offset: 2 });
   expect(page2.map((r) => r.updatedAt)).toEqual([2000]);
 });
+
+test("list 只传 offset 不传 limit 时忽略 offset，不抛异常返回全量", () => {
+  seedFiveGlobalRows();
+  // SQLite 的 OFFSET 是 LIMIT 子句的组成部分，无 LIMIT 的 OFFSET 是语法错误；
+  // 此处应忽略 offset，返回与不带 offset 相同的全量结果
+  const rows = dao.list({ scope: "global", includeArchived: false, offset: 2 });
+  const baseline = dao.list({ scope: "global", includeArchived: false });
+  expect(rows).toHaveLength(5);
+  expect(rows.map((r) => r.updatedAt)).toEqual(baseline.map((r) => r.updatedAt));
+});

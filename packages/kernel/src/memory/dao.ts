@@ -243,8 +243,9 @@ export class MemoryDao {
       typeof opts.limit === "number" && opts.limit > 0
         ? ` LIMIT ${Math.floor(opts.limit)}`
         : "";
+    // OFFSET 必须依附 LIMIT 子句，无 limit 时忽略 offset（否则生成非法 SQL）
     const offset =
-      typeof opts.offset === "number" && opts.offset > 0
+      limit && typeof opts.offset === "number" && opts.offset > 0
         ? ` OFFSET ${Math.floor(opts.offset)}`
         : "";
     const rows = this.db
