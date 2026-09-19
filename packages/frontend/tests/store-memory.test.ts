@@ -536,3 +536,124 @@ test("setDateRange(): 写入与清空 dateFrom/dateTo", () => {
   expect(useMemoryStore.getState().dateFrom).toBeNull();
   expect(useMemoryStore.getState().dateTo).toBeNull();
 });
+
+// ---------- 竞态防护（任务 6 审查传导：请求序号防乱序/过期响应覆盖） ----------
+
+test("loadPage(): 慢的旧响应不覆盖新响应（序号防乱序）", async () => {
+  // 第一次 loadPage 挂起 → 第二次 loadPage（新参数）先回 → 旧响应后到必须被丢弃
+  let resolveFirst: (v: unknown) => void = () => {};
+  getMock.mockImplementationOnce(
+    () => new Promise((res) => { resolveFirst = res; }),
+  );
+  getMock.mockImplementationOnce(async () => ({
+    type: "memory:list:page",
+    entries: [mkEntry("new-1")],
+    hasMore: false,
+    counts: { active: 1, archived: 0 },
+  }));
+  useMemoryStore.getState().loadPage({ ...baseParams });
+  useMemoryStore.getState().loadPage({ ...baseParams, kind: "execution" });
+  await flush();
+
+  // 新响应已落地
+  expect(useMemoryStore.getState().pageEntries.map((e) => e.id)).toEqual(["new-1"]);
+
+  // 旧响应迟到：序号已过期，不得覆盖
+  resolveFirst({
+    type: "memory:list:page",
+    entries: [mkEntry("stale-1"), mkEntry("stale-2")],
+    hasMore: true,
+    counts: { active: 99, archived: 9 },
+  });
+  await flush();
+
+  const s = useMemoryStore.getState();
+  expect(s.pageEntries.map((e) => e.id)).toEqual(["new-1"]);
+  expect(s.pageCounts).toEqual({ active: 1, archived: 0 });
+});
+
+test("loadMore(): 迟到的翻页响应不覆盖新一轮 loadPage 结果", async () => {
+  useMemoryStore.setState({
+    lastPageParams: { ...baseParams },
+    pageEntries: [mkEntry("e1")],
+    pageHasMore: true,
+  });
+  let resolveMore: (v: unknown) => void = () => {};
+  getMock.mockImplementationOnce(
+    () => new Promise((res) => { resolveMore = res; }),
+  );
+  useMemoryStore.getState().loadMore();
+  expect(useMemoryStore.getState().loadingMore).toBe(true);
+
+  // 筛选变化 → loadPage 新一轮（立即返回，序号递增使在途翻页作废）
+  getMock.mockImplementationOnce(async () => ({
+    type: "memory:list:page",
+    entries: [mkEntry("fresh")],
+    hasMore: true,
+    counts: { active: 1, archived: 0 },
+  }));
+  useMemoryStore.getState().loadPage({ ...baseParams, kind: "profile" });
+  await flush();
+  expect(useMemoryStore.getState().pageEntries.map((e) => e.id)).toEqual(["fresh"]);
+
+  // 旧翻页响应迟到：不得用发起时的旧快照合并/追加
+  resolveMore({
+    type: "memory:list:page",
+    entries: [mkEntry("stale")],
+    hasMore: false,
+    counts: { active: 2, archived: 0 },
+  });
+  await flush();
+
+  const s = useMemoryStore.getState();
+  expect(s.pageEntries.map((e) => e.id)).toEqual(["fresh"]);
+  expect(s.pageHasMore).toBe(true);
+  expect(s.loadingMore).toBe(false);
+});
+
+test("loadMore(): 第一页在途（pageLoading）时不发请求", async () => {
+  useMemoryStore.setState({ lastPageParams: { ...baseParams }, pageHasMore: true });
+  getMock.mockImplementation(() => new Promise(() => {})); // 全部挂起
+  useMemoryStore.getState().loadPage({ ...baseParams });
+  useMemoryStore.getState().loadMore(); // pageLoading=true → 守卫挡住
+  await flush();
+  expect(getMock).toHaveBeenCalledTimes(1);
+});
+
+test("search(): 慢的旧检索响应不覆盖新检索（序号防乱序）", async () => {
+  const base = {
+    scope: "global" as const,
+    projectId: null,
+    kind: null,
+    archivedOnly: false,
+    dateFrom: null,
+    dateTo: null,
+  };
+  let resolveFirst: (v: unknown) => void = () => {};
+  getMock.mockImplementationOnce(
+    () => new Promise((res) => { resolveFirst = res; }),
+  );
+  getMock.mockImplementationOnce(async () => ({
+    type: "memory:search",
+    results: [mkHit("new-hit")],
+    totalMatched: 1,
+    hasMore: false,
+  }));
+  useMemoryStore.getState().search({ ...base, query: "第一轮" });
+  useMemoryStore.getState().search({ ...base, query: "第二轮" });
+  await flush();
+
+  expect(useMemoryStore.getState().searchResults?.map((r) => r.id)).toEqual(["new-hit"]);
+
+  resolveFirst({
+    type: "memory:search",
+    results: [mkHit("stale-hit")],
+    totalMatched: 99,
+    hasMore: true,
+  });
+  await flush();
+
+  const s = useMemoryStore.getState();
+  expect(s.searchResults?.map((r) => r.id)).toEqual(["new-hit"]);
+  expect(s.searchTotalMatched).toBe(1);
+});

@@ -1,18 +1,30 @@
 // MemoryPage.tsx — 记忆管理页主容器
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useMemoryStore } from "../../store/memory";
+import {
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type CSSProperties,
+} from "react";
+import { useMemoryStore, type MemoryPageParams } from "../../store/memory";
 import { useProjectsStore } from "../../store/projects";
 import { useTranslation } from "../../i18n/useTranslation";
 import { MemoryCard } from "./MemoryCard";
 import { InstructionItem } from "./InstructionItem";
 import { MemoryEmpty } from "./MemoryEmpty";
+import { DatePickerButton } from "./DatePickerButton";
 import { KIND_I18N_KEY, MEMORY_KINDS } from "./kind-label";
 
 export function MemoryPage() {
 	const { t } = useTranslation();
 	const {
-		memories,
-		archived,
+		pageEntries,
+		pageHasMore,
+		pageCounts,
+		pageLoading,
+		loadingMore,
+		dateFrom,
+		dateTo,
 		instructions,
 		config,
 		activeTab,
@@ -24,10 +36,11 @@ export function MemoryPage() {
 		searchResults,
 		searchTotalMatched,
 		searching,
+		searchHasMore,
+		searchLoadingMore,
 		searchParams,
 		load,
 		loadInstructions,
-		setMemories,
 		setInstructions,
 		setConfig,
 		update,
@@ -43,7 +56,11 @@ export function MemoryPage() {
 		setSelectedProjectId,
 		setSearchQuery,
 		search,
+		searchMore,
 		clearSearch,
+		loadPage,
+		loadMore,
+		setDateRange,
 	} = useMemoryStore();
 
 	const currentProjectId = useProjectsStore((s) => s.currentProjectId);
@@ -66,11 +83,10 @@ export function MemoryPage() {
 		}
 	}, [selectedProjectId, currentProjectId, setSelectedProjectId]);
 
-	// 记忆列表随查看项目重新加载；未选项目时用空 projectId（kernel 返回全局记忆），
-	// 保证「系统设置 > 记忆」在无项目上下文时仍能看到全局记忆。前端按 memoryScope 过滤。
+	// 挂载时拉一次记忆配置（开关状态）；列表改由下方 listParams effect 驱动 loadPage 分页拉取
 	useEffect(() => {
-		load(activeProjectId ?? "");
-	}, [load, activeProjectId]);
+		load();
+	}, [load]);
 
 	// 指令文件 Tab：进入该 Tab 或切换项目/作用域时加载。
 	// 即使 activeProjectId 为 null（无项目上下文），也调用 loadInstructions，
@@ -93,9 +109,11 @@ export function MemoryPage() {
 		searchParams.scope !== memoryScope ||
 		searchParams.projectId !== (activeProjectId ?? null) ||
 		searchParams.kind !== kindFilter ||
-		searchParams.archivedOnly !== (activeTab === "archived");
+		searchParams.archivedOnly !== (activeTab === "archived") ||
+		searchParams.dateFrom !== dateFrom ||
+		searchParams.dateTo !== dateTo;
 
-	// 搜索词/作用域/层/Tab 变化 → 防抖 250ms 后下推服务端 FTS+BM25 检索
+	// 搜索词/作用域/层/Tab/日期窗变化 → 防抖 250ms 后下推服务端 FTS+BM25 检索
 	useEffect(() => {
 		if (!searchQuery.trim()) {
 			clearSearch();
@@ -108,6 +126,8 @@ export function MemoryPage() {
 				projectId: activeProjectId ?? null,
 				kind: kindFilter,
 				archivedOnly: activeTab === "archived",
+				dateFrom,
+				dateTo,
 			});
 		}, 250);
 		return () => clearTimeout(timer);
@@ -117,29 +137,77 @@ export function MemoryPage() {
 		activeProjectId,
 		kindFilter,
 		activeTab,
+		dateFrom,
+		dateTo,
 		search,
 		clearSearch,
 	]);
 
-	// 非检索态的记忆列表：按作用域（全局/项目）与层级过滤（关键词过滤已交由服务端 FTS）
-	const filteredMemories = memories
-		.filter((m) => m.scope === memoryScope)
-		.filter((m) => kindFilter === null || m.kind === kindFilter);
+	// 非检索态列表参数：scope/tab/kind/日期窗全部下推服务端
+	const listParams = useMemo<MemoryPageParams>(
+		() => ({
+			scope: memoryScope,
+			projectId: activeProjectId ?? null,
+			tab: activeTab === "archived" ? "archived" : "active",
+			kind: kindFilter,
+			dateFrom,
+			dateTo,
+		}),
+		[memoryScope, activeProjectId, activeTab, kindFilter, dateFrom, dateTo],
+	);
 
-	// 归档列表：作用域与层级筛选均与已保存 tab 同口径（徽标计数不随临时筛选跳动）
-	const filteredArchived = archived
-		.filter((m) => m.scope === memoryScope)
-		.filter((m) => kindFilter === null || m.kind === kindFilter);
+	// 分页拉取：参数（作用域/Tab/层级/日期）变化即重拉第一页；指令文件 Tab 与检索态不拉
+	useEffect(() => {
+		if (activeTab === "instructions" || isSearchActive) return;
+		loadPage(listParams);
+	}, [activeTab, isSearchActive, listParams, loadPage]);
 
-	// 当前作用域下的记忆总数（tab 徽标用）：只随作用域变化，不随分类/搜索等临时筛选跳动
-	const scopeMemoriesCount = memories.filter(
-		(m) => m.scope === memoryScope,
-	).length;
+	// 滚动加载：哨兵进入视口（预加载余量 120px）且还有下一页时追加。
+	// loadingMore/pageEntries 变化时重挂 observer，保证连续翻页能继续触发
+	const sentinelRef = useRef<HTMLDivElement | null>(null);
+	useEffect(() => {
+		if (activeTab === "instructions" || isSearchActive || !pageHasMore) return;
+		const el = sentinelRef.current;
+		if (!el) return;
+		const ob = new IntersectionObserver(
+			(entries) => {
+				if (entries[0].isIntersecting) loadMore();
+			},
+			{ rootMargin: "120px" },
+		);
+		ob.observe(el);
+		return () => ob.disconnect();
+	}, [
+		activeTab,
+		isSearchActive,
+		pageHasMore,
+		loadingMore,
+		pageEntries.length,
+		loadMore,
+	]);
 
-	// 当前作用域下的归档总数（归档 tab 徽标用）：与 scopeMemoriesCount 同口径
-	const scopeArchivedCount = archived.filter(
-		(m) => m.scope === memoryScope,
-	).length;
+	// 检索态滚动加载：与列表哨兵同型（内核 FTS 候选池上限 50，翻到没有为止）
+	const searchSentinelRef = useRef<HTMLDivElement | null>(null);
+	useEffect(() => {
+		if (!isSearchActive || searchPending || !searchHasMore) return;
+		const el = searchSentinelRef.current;
+		if (!el) return;
+		const ob = new IntersectionObserver(
+			(entries) => {
+				if (entries[0].isIntersecting) searchMore();
+			},
+			{ rootMargin: "120px" },
+		);
+		ob.observe(el);
+		return () => ob.disconnect();
+	}, [
+		isSearchActive,
+		searchPending,
+		searchHasMore,
+		searchLoadingMore,
+		searchResults?.length,
+		searchMore,
+	]);
 
 	const filteredInstructions = instructions.filter(
 		(i) => scopeFilter === "all" || i.scope === scopeFilter,
@@ -185,6 +253,18 @@ export function MemoryPage() {
 							onPurge={() => purge(activeProjectId ?? "", hit.id)}
 						/>
 					))}
+					{/* 检索态滚动加载哨兵：searchHasMore 时滚到底部自动 searchMore 追加，
+					    「命中 N 条，显示前 M 条」的 N/M 随追加联动更新 */}
+					<div ref={searchSentinelRef} data-testid="memory-search-sentinel">
+						{searchLoadingMore && (
+							<div
+								className="text-center py-3 text-[calc(11px*var(--font-scale))] text-tertiary"
+								data-testid="memory-search-loading-more"
+							>
+								{t("memory.loadMoreHint")}
+							</div>
+						)}
+					</div>
 				</>
 			) : (
 				<MemoryEmpty type="search" />
@@ -255,13 +335,13 @@ export function MemoryPage() {
 					active={activeTab === "saved"}
 					onClick={() => setTab("saved")}
 					label={t("memory.tabSaved")}
-					count={scopeMemoriesCount}
+					count={pageCounts.active}
 				/>
 				<TabButton
 					active={activeTab === "archived"}
 					onClick={() => setTab("archived")}
 					label={t("memory.tabArchived")}
-					count={scopeArchivedCount}
+					count={pageCounts.archived}
 				/>
 				<TabButton
 					active={activeTab === "instructions"}
@@ -358,6 +438,12 @@ export function MemoryPage() {
 								/>
 							))}
 						</div>
+						{/* 日期范围筛选：from/to 持久在 store（listParams 一并下推服务端），确定/清除时 onChange 上报 */}
+						<DatePickerButton
+							from={dateFrom}
+							to={dateTo}
+							onChange={(f, t) => setDateRange(f, t)}
+						/>
 						{activeTab === "saved" && (
 							<button
 								onClick={() => setShowAddForm((v) => !v)}
@@ -436,13 +522,12 @@ export function MemoryPage() {
 
 			{/* 列表内容 */}
 			<div className="flex-1 overflow-y-auto px-5 py-3.5">
+				{/* 两个记忆 tab 共用同一分页数据源（tab 切换由 listParams 驱动重新拉取） */}
 				{activeTab === "saved" &&
 					(isSearchActive ? (
 						renderSearchResults()
-					) : filteredMemories.length === 0 ? (
-						<MemoryEmpty type="memory" />
 					) : (
-						filteredMemories.map((m) => (
+						pageEntries.map((m) => (
 							<MemoryCard
 								key={m.id}
 								entry={m}
@@ -454,10 +539,8 @@ export function MemoryPage() {
 				{activeTab === "archived" &&
 					(isSearchActive ? (
 						renderSearchResults()
-					) : filteredArchived.length === 0 ? (
-						<MemoryEmpty type="memory" />
 					) : (
-						filteredArchived.map((m) => (
+						pageEntries.map((m) => (
 							<MemoryCard
 								key={m.id}
 								entry={m}
@@ -475,6 +558,30 @@ export function MemoryPage() {
 							<InstructionItem key={inst.path} instruction={inst} />
 						))
 					))}
+				{/* 非检索态列表底部：滚动哨兵 + 加载中/已加载完/空态 三态 */}
+				{!isSearchActive && activeTab !== "instructions" && (
+					<div ref={sentinelRef} data-testid="memory-list-sentinel">
+						{loadingMore && (
+							<div
+								data-testid="memory-loading-more"
+								className="text-center py-3 text-[calc(11px*var(--font-scale))] text-tertiary"
+							>
+								{t("memory.loadMoreHint")}
+							</div>
+						)}
+						{!pageHasMore && pageEntries.length > 0 && (
+							<div
+								data-testid="memory-list-end"
+								className="text-center py-3 text-[calc(11px*var(--font-scale))] text-tertiary"
+							>
+								{t("memory.listEnd", { count: pageEntries.length })}
+							</div>
+						)}
+						{!pageLoading && pageEntries.length === 0 && (
+							<MemoryEmpty type="memory" />
+						)}
+					</div>
+				)}
 			</div>
 		</div>
 	);

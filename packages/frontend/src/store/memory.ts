@@ -35,6 +35,11 @@ export interface MemorySearchParams {
 
 const PAGE_SIZE = 50;
 
+// 请求序号器：loadPage/loadMore 共用列表通道、search/searchMore 共用检索通道。
+// 发起时 ++seq，响应回来时 seq 不匹配即丢弃——防慢的旧响应乱序覆盖新数据
+let listFetchSeq = 0;
+let searchFetchSeq = 0;
+
 /** 列表分页参数（组件组装下传，store 保存最近一次供 loadMore / 广播重拉复用） */
 export interface MemoryPageParams {
   scope: MemoryScope;
@@ -129,7 +134,8 @@ interface MemoryState {
   searchLoadingMore: boolean;
 
   // actions
-  load: (projectId: string) => void;
+  /** 拉取记忆配置（开关状态）；列表已由 loadPage 分页状态机驱动，不再走本入口 */
+  load: () => void;
   loadInstructions: (projectId: string) => void;
   setMemories: (data: MemoryListResult | MemoryChangedEvent) => void;
   setInstructions: (data: InstructionListResult) => void;
@@ -184,17 +190,9 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   searchHasMore: false,
   searchLoadingMore: false,
 
-  load: (projectId) => {
-    set({ loading: true });
-    api
-      .get(`/api/memories?projectId=${projectId}`)
-      .then((data: any) => {
-        if (data) get().setMemories(data);
-      })
-      .catch((err) => {
-        console.error("[memory] 加载记忆列表失败:", err);
-        set({ loading: false });
-      });
+  // 仅拉记忆配置；列表改由 loadPage 分页状态机驱动（含 kernel 广播降级重拉），
+  // 避免存在「调了 load() 等列表」的旧全量死路径
+  load: () => {
     api
       .get("/api/memories/config")
       .then((data: any) => {
@@ -223,10 +221,12 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   loadPage: (params) => {
-    set({ pageLoading: true, lastPageParams: params });
+    const seq = ++listFetchSeq; // 新一轮第一页使在途的翻页/旧第一页响应作废
+    set({ pageLoading: true, loadingMore: false, lastPageParams: params });
     api
       .get(`/api/memories?${buildPageQuery(params, 0, PAGE_SIZE)}`)
       .then((data: any) => {
+        if (seq !== listFetchSeq) return; // 过期响应：已有更新的请求接管，丢弃
         if (data?.type === "memory:list:page") {
           set({
             pageEntries: data.entries ?? [],
@@ -237,19 +237,26 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         } else set({ pageLoading: false });
       })
       .catch((err) => {
+        if (seq !== listFetchSeq) return;
         console.error("[memory] 分页加载失败:", err);
         set({ pageLoading: false });
       });
   },
 
   loadMore: () => {
-    const { lastPageParams, pageEntries, loadingMore, pageHasMore } = get();
-    if (!lastPageParams || loadingMore || !pageHasMore) return;
+    const { lastPageParams, loadingMore, pageLoading, pageHasMore } = get();
+    // pageLoading 在途时不追加：第一页尚未落地，此时 offset 基准不可信
+    if (!lastPageParams || loadingMore || pageLoading || !pageHasMore) return;
+    const seq = ++listFetchSeq; // 与 loadPage 共用序号：新一轮第一页会使在途翻页响应过期
     set({ loadingMore: true });
+    const offset = get().pageEntries.length;
     api
-      .get(`/api/memories?${buildPageQuery(lastPageParams, pageEntries.length, PAGE_SIZE)}`)
+      .get(`/api/memories?${buildPageQuery(lastPageParams, offset, PAGE_SIZE)}`)
       .then((data: any) => {
+        if (seq !== listFetchSeq) return; // 过期翻页：新一轮第一页已接管，丢弃
         if (data?.type === "memory:list:page") {
+          // 回调内重读最新 state 再合并，不用请求发出时的快照（并发下旧数据会覆盖新数据）
+          const { pageEntries } = get();
           const got = data.entries ?? [];
           // 去重合并（广播重拉与 loadMore 竞态时防重复）
           const seen = new Set(pageEntries.map((e) => e.id));
@@ -264,6 +271,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         } else set({ loadingMore: false });
       })
       .catch((err) => {
+        if (seq !== listFetchSeq) return;
         console.error("[memory] 加载更多失败:", err);
         set({ loadingMore: false });
       });
@@ -300,6 +308,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   setSearchQuery: (q) => set({ searchQuery: q }),
   search: (params) => {
     if (!params.query.trim()) {
+      ++searchFetchSeq; // 作废在途检索响应，防其迟到覆盖复位后的状态
       set({
         searchResults: null,
         searchTotalMatched: 0,
@@ -312,6 +321,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     }
     // scope=project 但没有项目 id：内核会 400 project.notFound，直接落空结果
     if (params.scope === "project" && !params.projectId) {
+      ++searchFetchSeq;
       set({
         searchResults: [],
         searchTotalMatched: 0,
@@ -323,10 +333,12 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       return;
     }
 
+    const seq = ++searchFetchSeq;
     set({ searching: true, searchParams: params });
     api
       .get(`/api/memories/search?${buildSearchQuery(params, 0)}`)
       .then((data: any) => {
+        if (seq !== searchFetchSeq) return; // 过期检索：新检索已接管，丢弃
         if (data?.type === "memory:search") {
           set({
             searchResults: data.results ?? [],
@@ -337,6 +349,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         }
       })
       .catch((err) => {
+        if (seq !== searchFetchSeq) return;
         console.error("[memory] 检索失败:", err);
         set({
           searching: false,
@@ -348,21 +361,30 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   searchMore: () => {
-    const { searchParams, searchResults, searchLoadingMore, searchHasMore } = get();
-    if (!searchParams || !searchResults || searchLoadingMore || !searchHasMore) return;
+    const { searchParams, searchResults, searchLoadingMore, searching, searchHasMore } = get();
+    // searching（第一页在途）时不追加：offset 基准尚未确定
+    if (!searchParams || !searchResults || searchLoadingMore || searching || !searchHasMore) return;
+    const seq = ++searchFetchSeq; // 与 search 共用序号：新检索会使在途翻页响应过期
     set({ searchLoadingMore: true });
     api
       .get(`/api/memories/search?${buildSearchQuery(searchParams, searchResults.length)}`)
       .then((data: any) => {
+        if (seq !== searchFetchSeq) return; // 过期翻页：新检索已接管，丢弃
         if (data?.type === "memory:search") {
+          // 回调内重读最新 state 再合并（同 loadMore）
+          const { searchResults: latest } = get();
+          if (!latest) {
+            set({ searchLoadingMore: false });
+            return;
+          }
           const got = data.results ?? [];
           // 去重合并，与 loadMore 同型。
           // 注意：内核 FTS 候选池硬上限 50，want 超过后服务端 hasMore 恒 false 且返回空页，
           // 此处不特判（多发一次空请求无害）。
-          const seen = new Set(searchResults.map((r) => r.id));
+          const seen = new Set(latest.map((r) => r.id));
           set({
             searchResults: [
-              ...searchResults,
+              ...latest,
               ...got.filter((r: MemorySearchResult) => !seen.has(r.id)),
             ],
             searchHasMore: !!data.hasMore,
@@ -371,12 +393,14 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         } else set({ searchLoadingMore: false });
       })
       .catch((err) => {
+        if (seq !== searchFetchSeq) return;
         console.error("[memory] 加载更多检索结果失败:", err);
         set({ searchLoadingMore: false });
       });
   },
 
-  clearSearch: () =>
+  clearSearch: () => {
+    ++searchFetchSeq; // 作废在途检索响应，防其迟到把复位后的检索态又置回
     set({
       searchResults: null,
       searchTotalMatched: 0,
@@ -384,5 +408,6 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       searchParams: null,
       searchHasMore: false,
       searchLoadingMore: false,
-    }),
+    });
+  },
 }));
