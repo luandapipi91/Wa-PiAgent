@@ -175,7 +175,9 @@ function FleetTaskItem({
 			: t("blocks.fleet.taskLabelRunningWithStats", statsParams)
 		: showReply
 			? t("blocks.fleet.taskLabelCompletedNoStats")
-			: t("blocks.fleet.taskLabelRunning");
+			: isCompleted
+				? t("blocks.fleet.taskLabelRunning")
+				: t("blocks.fleet.taskLabelQueued");
 	return (
 		<div className="min-w-0">
 			<button
@@ -344,8 +346,16 @@ export const FleetCard = memo(function FleetCard({
 				? repliesByAgent![r.index - 1]
 				: undefined,
 	}));
+	// 运行期：任务行全部渲染（含尚无进度帧的任务——显示「排队中」）。否则刚派发、
+	// 还没产生首个业务事件（因而没有进度帧）的任务行会整行消失，并行派发时看起来
+	// 「显示不全」，要等调用完成后由 details 统计补齐。
+	// 完成态：仍只渲染有统计/回复的行（老数据无 details 时不撑出空行）。
 	const visibleRows = rows.filter(
-		(r) => r.progress || r.stats || (r.replyText != null && r.replyText !== ""),
+		(r) =>
+			!result ||
+			r.progress ||
+			r.stats ||
+			(r.replyText != null && r.replyText !== ""),
 	);
 	// 卡片级中断：任一子任务非正常终态即在头部徽标提示（详情看子任务行）
 	const anyInterrupted = rows.some((r) => r.interrupted);

@@ -296,6 +296,10 @@ export async function runSubagentAgent(
 				elapsedMs: Date.now() - startedAt,
 			});
 		};
+		// 任务启动即发首帧（产出为空）：此前只在首个业务事件（工具/文本）才 emit，
+		// 并行派发（fleet）时前端要等各任务首个事件到达才渲染该任务行——
+		// 启动阶段（pi 进程拉起 + 模型首 token）能看到「任务行显示不全」。
+		emit("running");
 
 		// agent_settled 时兑现；进程提前退出 / 出错时 reject
 		let settle: () => void;

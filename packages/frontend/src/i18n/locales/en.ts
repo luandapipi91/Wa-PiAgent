@@ -263,6 +263,8 @@ const en = {
 			taskLabelCompletedWithStatsNoReply:
 				"Done. Called {{total}} tool(s) success {{done}} failed {{error}} running {{running}}",
 			taskLabelRunning: "Running",
+			// Task row with no progress frame yet (just dispatched / waiting on concurrency)
+			taskLabelQueued: "Queued",
 			taskLabelCompletedNoStats: "Done · click to view reply",
 			delegatePrefix: "Task {{index}}: delegate",
 			replyLabel: "Reply: ",

@@ -75,6 +75,9 @@ test("正常流程：回声文本 + isError=false + onProgress 收到 running/do
 		running: 0,
 	});
 	// fake-pi 有 message_update(text_delta) → 触发 running 进度事件；结束时发 done
+	// 首帧在任务启动时即发（产出为空）：前端据此立即渲染任务行，
+	// 不然并行派发启动阶段（等各任务首个业务事件）会「任务行显示不全」
+	expect(events[0]).toMatchObject({ status: "running", output: "", tools: [] });
 	expect(events.some((e) => e.status === "running")).toBe(true);
 	expect(events.at(-1)?.status).toBe("done");
 	expect(events.every((e) => e.agent === "research")).toBe(true);

@@ -653,3 +653,96 @@ test("FleetCard 降级聚合显示：统计行（fleet-progress）渲染在聚�
 	const rel = textBlock!.compareDocumentPosition(progress!);
 	expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
+
+// ── 运行期任务行完整性：并行派发（如 4 个委托）时「显示不全」回归 ──
+// 根因：任务行只在收到该任务的进度帧后才渲染，而子代理首个进度帧要等它产生第一个业务事件
+// （工具调用/文本）——并行派发启动阶段会有若干任务行整行消失，等调用完成后由 details
+// 统计补齐；修复后运行期渲染全部任务行，无帧的行显示「排队中」。
+test("FleetCard 运行期：尚无进度帧的任务行也渲染（显示「排队中」而非整行消失）", () => {
+	useSessionStore.setState({
+		progressByToolCall: {
+			"tc-allrows": {
+				"0": {
+					agent: "general-purpose",
+					taskIndex: 0,
+					status: "running",
+					output: "",
+					elapsedMs: 1000,
+					tools: [{ id: "t1", name: "read", status: "done" }],
+				},
+				"1": {
+					agent: "general-purpose",
+					taskIndex: 1,
+					status: "running",
+					output: "",
+					elapsedMs: 900,
+					tools: [],
+				},
+			},
+		},
+	});
+	const call = {
+		type: "toolCall" as const,
+		id: "tc-allrows",
+		name: "fleet",
+		arguments: {
+			tasks: [
+				{ agent: "general-purpose", task: "甲" },
+				{ agent: "general-purpose", task: "乙" },
+				{ agent: "Explore", task: "丙" },
+				{ agent: "Plan", task: "丁" },
+			],
+		},
+	};
+	render(<FleetCard sessionId="s1" toolCall={call} />);
+	// 4 行全渲染：有帧的行显示工具统计，无帧的行显示「排队中」
+	expect(
+		screen.getByText(/任务 1：调用了 1 个工具 成功 1 失败 0 执行中 0/),
+	).toBeTruthy();
+	expect(
+		screen.getByText(/任务 2：调用了 0 个工具 成功 0 失败 0 执行中 0/),
+	).toBeTruthy();
+	expect(screen.getByText(/任务 3：排队中/)).toBeTruthy();
+	expect(screen.getByText(/任务 4：排队中/)).toBeTruthy();
+	// 无帧的行没有任何可展开内容：不显示展开箭头（无 aria-label）
+	const body = screen.getByTestId("fleet-tc-allrows-body");
+	const row3 = Array.from(body.querySelectorAll("button")).find((b) =>
+		b.textContent?.includes("任务 3"),
+	);
+	expect(row3).toBeTruthy();
+	expect(row3!.getAttribute("aria-label")).toBeNull();
+});
+
+test("FleetCard 完成态：仍只渲染有统计/回复的任务行（不靠空行撑开卡片）", () => {
+	const doneResult = {
+		role: "toolResult" as const,
+		toolCallId: "tc-done-rows",
+		toolName: "fleet",
+		content: [{ type: "text" as const, text: "并行任务结束" }],
+		isError: false,
+		timestamp: 0,
+		details: {
+			fleet: {
+				"0": { total: 1, done: 1, error: 0, running: 0 },
+				// "1" 缺失（老数据/异常）：该行无统计也无回复 → 不渲染
+			},
+		},
+	};
+	const call = {
+		type: "toolCall" as const,
+		id: "tc-done-rows",
+		name: "fleet",
+		arguments: {
+			tasks: [
+				{ agent: "general-purpose", task: "甲" },
+				{ agent: "Explore", task: "乙" },
+			],
+		},
+	};
+	render(<FleetCard sessionId="s1" toolCall={call} result={doneResult} />);
+	fireEvent.click(screen.getByTestId("fleet-tc-done-rows-header"));
+	expect(
+		screen.getByText(/任务 1：已完成 调用了 1 个工具 成功 1 失败 0 执行中 0/),
+	).toBeTruthy();
+	expect(screen.queryByText(/任务 2：已完成/)).toBeNull();
+});

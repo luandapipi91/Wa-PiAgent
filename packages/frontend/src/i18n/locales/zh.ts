@@ -252,6 +252,8 @@ const zh = {
 			taskLabelCompletedWithStatsNoReply:
 				"已完成 调用了 {{total}} 个工具 成功 {{done}} 失败 {{error}} 执行中 {{running}}",
 			taskLabelRunning: "运行中",
+			// 运行期尚无进度帧的任务（刚派发/并发排队中）：明确「排队中」而非笼统「运行中」
+			taskLabelQueued: "排队中",
 			taskLabelCompletedNoStats: "已完成 · 点击查看回复",
 			delegatePrefix: "任务 {{index}}：委派",
 			replyLabel: "回复：",
