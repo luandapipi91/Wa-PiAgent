@@ -2,7 +2,7 @@
 // 卡顿修复冒烟测试（trace 实证三轮修复的真实浏览器验收）
 //
 // 背景：2026-09-17 三轮卡顿修复——
-//   ① MarkdownBlock/ThinkingCard/StreamingOutput 流式渲染节流（150ms，替代闪烁的停顿降级）
+//   ① MarkdownBlock/ThinkingCard/StreamingOutput 流式渲染节流（20ms，替代闪烁的停顿降级）
 //   ② 侧边栏渲染范围（ProjectList 字段 selector + SessionRow/ProjectItem memo
 //      + touchSession 无假引用变化）
 //   ③ SessionView 拆字段 selector（touchSession 新 session 对象不再击穿整树）
@@ -81,7 +81,7 @@ test.describe("卡顿修复冒烟", () => {
 		await expect(md).toBeVisible({ timeout: 3000 });
 		await expect(md.locator("strong").first()).toBeVisible();
 
-		// 内容增长：节流追上（150ms 窗口），无闪烁
+		// 内容增长：节流追上（20ms 窗口），无闪烁
 		await page.waitForTimeout(400);
 		await expect(page.getByTestId("text-block").first().getByText(/片段/).first()).toBeVisible();
 	});

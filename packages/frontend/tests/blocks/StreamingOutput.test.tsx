@@ -19,9 +19,7 @@ test("流式中内容增长：节流——窗口内 DOM 保持旧内容，窗口
 	const { rerender } = render(
 		<StreamingOutput text="第一段" sessionId="s1" streaming throttleMs={20} />,
 	);
-	await act(async () => {
-		await new Promise((r) => setTimeout(r, 40));
-	});
+	// 窗口内（挂载后立刻）变化：DOM 保持旧内容
 	rerender(<StreamingOutput text="第一段 第二段" sessionId="s1" streaming throttleMs={20} />);
 	expect(screen.queryByText("第二段")).toBeNull();
 	await act(async () => {

@@ -10,7 +10,7 @@ export const StreamingOutput = memo(function StreamingOutput({
   text,
   sessionId,
   streaming,
-  throttleMs = 50,
+  throttleMs = 20,
 }: {
   text: string;
   sessionId: string;

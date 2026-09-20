@@ -28,14 +28,12 @@ test("流式中：始终 Linkify（不闪烁），裸 URL 可点击", () => {
 	expect(a?.getAttribute("href")).toBe("http://localhost:53213/");
 });
 
-test("流式中内容增长：节流——变化后立即查看仍是旧内容，窗口后追上", async () => {
+test("流式中内容增长：节流——窗口内变化不立即重解析，窗口后追上", async () => {
 	const t1 = "先想 http://localhost:53213/";
 	const { rerender } = render(
 		<ThinkingCard thinking={t1} isStreaming throttleMs={20} />,
 	);
-	await act(async () => {
-		await new Promise((r) => setTimeout(r, 40));
-	});
+	// 窗口内（挂载后立刻）变化：DOM 保持旧内容
 	const t2 = `${t1} 再想 http://localhost:53214/`;
 	rerender(<ThinkingCard thinking={t2} isStreaming throttleMs={20} />);
 	// 节流窗口内：新链接尚未出现

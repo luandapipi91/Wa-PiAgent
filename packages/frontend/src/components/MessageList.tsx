@@ -1576,7 +1576,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 	sessionId,
 	mediaItems,
 	isStreaming,
-	throttleMs = 50,
+	throttleMs = 20,
 }: {
 	text: string;
 	sessionId: string;
@@ -1671,6 +1671,7 @@ type Segment =
 
 /**
  * 把 assistant content 切成渲染段，保持 SDK 事件到达的时间线顺序。
+ * 导出仅供测试（空正文块过滤契约：message-row-empty-thinking.test.tsx）。
  *
  * 规则：
  * - 连续同类型（thinking / text / 普通 toolCall）合并成一个段。
@@ -1680,7 +1681,7 @@ type Segment =
  * 例：text₁ → toolCall → text₂ → delegate → text₃ → fleet → text₄
  *   → [text₁][toolCalls][delegate][text₂][fleet][text₃][text₄]
  */
-function segmentBlocks(blocks: any[]): Segment[] {
+export function segmentBlocks(blocks: any[]): Segment[] {
 	const segs: Segment[] = [];
 	let cur: Segment | null = null;
 
@@ -1697,6 +1698,10 @@ function segmentBlocks(blocks: any[]): Segment[] {
 		// 历史 JSONL 也可能带 null 元素；for 循环不跳过空洞，必须跳过 undefined
 		if (!b) continue;
 		if (b.type === "thinking") {
+			// 空正文 thinking 块不入渲染流：pi 侧会产出带 thinkingSignature 但正文为空的
+			// thinking 块（实测近期会话占比 9~15%），照常入场会渲染成一张正文全空的
+			// 「思考过程」卡（用户报告「空的思考」）。规则与空 text 块一致。
+			if (!b.thinking?.trim()) continue;
 			// thinking 不合并：每段独立成卡，区分 finalized/streaming
 			push();
 			segs.push({ kind: "thinking", texts: [b.thinking], firstBlockIdx: idx });

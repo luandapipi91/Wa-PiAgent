@@ -63,7 +63,7 @@ export const Markdown = memo(function Markdown({
 	urlTransform,
 	transformText,
 	streaming = false,
-	throttleMs = 50,
+	throttleMs = 20,
 	className = "prose prose-sm max-w-none",
 	testId = "text-block",
 }: MarkdownProps) {

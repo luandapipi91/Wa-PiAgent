@@ -27,7 +27,7 @@ test("流式中：始终渲染 markdown（不闪，无纯文本交替）", () =>
 	).toBe("粗体");
 });
 
-test("流式中内容增长：解析节流——变化后立即查看仍是旧内容，节流窗口后追上", async () => {
+test("流式中内容增长：解析节流——窗口内变化不立即重解析，窗口后追上", async () => {
 	const md1 = "第一段内容";
 	const { rerender } = render(
 		<MarkdownBlock
@@ -38,10 +38,9 @@ test("流式中内容增长：解析节流——变化后立即查看仍是旧�
 			throttleMs={20}
 		/>,
 	);
-	await act(async () => {
-		await new Promise((r) => setTimeout(r, 40));
-	});
-	// delta 到达：text 变化，节流窗口内 DOM 保持旧内容（不逐帧重解析）
+	// delta 到达（距上次提交不足一个窗口）：DOM 保持旧内容（不逐帧重解析）。
+	// 注意时序：节流按「上次提交时刻 + 窗口」对齐，窗口外变化会立即提交——
+	// 因此这里必须在窗口内（挂载后立刻）触发变化。
 	const md2 = `${md1} **新增加粗**`;
 	rerender(
 		<MarkdownBlock
