@@ -42,8 +42,31 @@ test.describe
         timeout: 5000,
       });
 
+      // 工具栏布局（用户要求）：日期范围按钮在搜索框之后、层级筛选之前；层级筛选无「全部」chip
+      const [searchBox, dateBtnBox, kindBox] = await Promise.all([
+        page.getByTestId("memory-search").boundingBox(),
+        page.getByTestId("memory-date-btn").boundingBox(),
+        page.getByTestId("memory-kind-filter").boundingBox(),
+      ]);
+      expect(searchBox!.x).toBeLessThan(dateBtnBox!.x);
+      expect(dateBtnBox!.x).toBeLessThan(kindBox!.x);
+      await expect(page.getByTestId("memory-kind-filter").getByText("全部")).toHaveCount(0);
+
       // 打开日期范围 → 弹层内快捷片「本月」→ 确定
       await page.getByTestId("memory-date-btn").click();
+      // 弹层必须完整落在视口内（用户报「选择器超出边界」的回归防线：原先 absolute 挂在
+      // overflow:hidden 的 memory-page 内、left:0 铺 508px，向右/向下越界部分被裁）
+      const popBox = (await page.getByTestId("memory-date-pop").boundingBox())!;
+      const vp = page.viewportSize()!;
+      expect(popBox.x).toBeGreaterThanOrEqual(0);
+      expect(popBox.x + popBox.width).toBeLessThanOrEqual(vp.width + 1);
+      expect(popBox.y + popBox.height).toBeLessThanOrEqual(vp.height + 1);
+      // 弹层已 portal 到 body，脱离 memory-page 的 overflow:hidden 裁剪
+      expect(
+        await page
+          .getByTestId("memory-date-pop")
+          .evaluate((el) => el.parentElement === document.body),
+      ).toBe(true);
       await page.getByTestId("memory-date-pop").getByText("本月").click();
       await page.getByTestId("memory-date-ok").click();
       // 本月创建的预置记忆仍可见（since/until 按更新时间下推服务端，日期窗变化重拉第一页）

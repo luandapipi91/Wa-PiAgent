@@ -715,7 +715,31 @@ test("层筛选：执行层只显示执行条目", async () => {
   expect(screen.queryByText("画像条目")).toBeNull();
 });
 
-test("层筛选：点「执行」只剩执行层，再点「全部」恢复全部层", async () => {
+// 工具栏布局（用户要求）：日期范围选择器放在搜索框之后、层级 tab 之前；
+// 层级筛选移除「全部」chip——“全部”= 不筛选，仍可通过「再点一次已选中的层」取消回该状态，功能不减。
+test("工具栏：日期范围选择器位于搜索框与层级筛选之间，且不再渲染「全部」层级 chip", async () => {
+	savedEntries = KIND_FIXTURE;
+	render(<MemoryPage />);
+	await waitFor(() => {
+		expect(screen.getByText("画像条目")).toBeTruthy();
+	});
+
+	// 反向断言：「全部」chip 已移除（层级筛选只剩画像/知识/执行）
+	expect(screen.queryByRole("button", { name: "全部" })).toBeNull();
+
+	// 位置：搜索框 → 日期选择器 → 层级筛选（DOM 顺序）
+	const dateBtn = screen.getByTestId("memory-date-btn");
+	const search = screen.getByTestId("memory-search");
+	const kindFilter = screen.getByTestId("memory-kind-filter");
+	expect(
+		search.compareDocumentPosition(dateBtn) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	expect(
+		dateBtn.compareDocumentPosition(kindFilter) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+});
+
+test("层筛选：点「执行」只剩执行层，再点一次取消回全部层", async () => {
   savedEntries = KIND_FIXTURE;
   render(<MemoryPage />);
 
@@ -736,8 +760,8 @@ test("层筛选：点「执行」只剩执行层，再点「全部」恢复全�
   expect(screen.queryByText("知识条目")).toBeNull();
   expect(screen.queryByText("知识失败条目")).toBeNull();
 
-  // 点「全部」→ 恢复全部层
-  fireEvent.click(screen.getByRole("button", { name: "全部" }));
+  // 再点「执行」（取消）→ 恢复全部层（「全部」chip 已移除，靠点击已选层取消）
+  fireEvent.click(screen.getByRole("button", { name: "执行" }));
   await waitFor(() => {
     expect(screen.getByText("画像条目")).toBeTruthy();
   });

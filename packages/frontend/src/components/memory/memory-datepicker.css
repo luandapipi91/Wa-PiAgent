@@ -23,9 +23,13 @@
 
 /* ★ DayPicker 弹层（深色适配） */
 .dp-pop {
-	position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+	/* portal 到 body + fixed：逃逸 MemoryPage 根容器 overflow:hidden 的裁剪（同 AgentDropdown）。
+	 * left/top 由组件 useLayoutEffect 按锚点实测矩形写入，故此处不给定位值。 */
+	position: fixed; z-index: 50;
 	background: var(--surface-elevated); border: 1px solid var(--hairline-strong); border-radius: 12px;
 	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); padding: 12px 14px 10px; width: 508px;
+	/* 视口相对兜底：窄/矮窗口下不撑出屏幕，超出部分弹层内滚动 */
+	max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto;
 }
 .dp-quick { display: flex; gap: 6px; margin-bottom: 10px; }
 .dp-quick .q {

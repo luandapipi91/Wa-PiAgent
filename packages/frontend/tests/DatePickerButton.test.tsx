@@ -1,6 +1,6 @@
 // DatePickerButton 组件测试：受控 props 契约（from/to 外部持有，onChange 上报）
 // bun:test + @testing-library/react；DayPicker 日期格的 aria-label 由 DayPicker locale 生成
-import { describe, test, expect, beforeAll, afterAll, jest } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, afterEach, jest } from "bun:test";
 import { render, fireEvent } from "@testing-library/react";
 import i18next from "i18next";
 import { DatePickerButton } from "../src/components/memory/DatePickerButton";
@@ -73,5 +73,107 @@ describe("DatePickerButton", () => {
 		expect(grid.getAttribute("aria-label")).toBe("September 2026");
 		const sep1 = pop.querySelector('button[aria-label^="Tuesday, September 1st, 2026"]');
 		expect(sep1).toBeTruthy();
+	});
+});
+
+// 弹层边界（用户报「选择器超出边界」）：锚点在页面右上角时，弹层向右溢出被
+// MemoryPage 根容器的 overflow:hidden 裁掉，底部同样被截。修法对齐项目既有范式
+// （AgentDropdown）：portal 到 body 逃逸裁剪 + fixed 定位 + 右溢出左移 + 底部翻转。
+describe("DatePickerButton 弹层边界", () => {
+	const origW = window.innerWidth;
+	const origH = window.innerHeight;
+	const origBtnRect = HTMLButtonElement.prototype.getBoundingClientRect;
+	const origDivRect = HTMLDivElement.prototype.getBoundingClientRect;
+
+	afterEach(() => {
+		HTMLButtonElement.prototype.getBoundingClientRect = origBtnRect;
+		HTMLDivElement.prototype.getBoundingClientRect = origDivRect;
+		Object.defineProperty(window, "innerWidth", { value: origW, configurable: true });
+		Object.defineProperty(window, "innerHeight", { value: origH, configurable: true });
+	});
+
+	/** happy-dom 无布局引擎，getBoundingClientRect 恒为 0 → 按原型分别注入按钮(pill)与弹层(div)矩形 */
+	function setupGeom(o: {
+		vw: number;
+		vh: number;
+		pillLeft: number;
+		pillTop: number;
+		popW: number;
+		popH: number;
+	}) {
+		Object.defineProperty(window, "innerWidth", { value: o.vw, configurable: true });
+		Object.defineProperty(window, "innerHeight", { value: o.vh, configurable: true });
+		const rect = (left: number, top: number, width: number, height: number) =>
+			({
+				left,
+				top,
+				width,
+				height,
+				right: left + width,
+				bottom: top + height,
+				x: left,
+				y: top,
+				toJSON: () => ({}),
+			}) as DOMRect;
+		const pill = rect(o.pillLeft, o.pillTop, 100, 30);
+		const pop = rect(0, 0, o.popW, o.popH);
+		HTMLButtonElement.prototype.getBoundingClientRect = () => pill;
+		HTMLDivElement.prototype.getBoundingClientRect = () => pop;
+	}
+
+	test("弹层 portal 到 body，脱离 memory-page 的 overflow:hidden 裁剪", () => {
+		const { getByTestId } = render(
+			<DatePickerButton from={null} to={null} onChange={() => {}} />,
+		);
+		fireEvent.click(getByTestId("memory-date-btn"));
+		const pop = getByTestId("memory-date-pop");
+		expect(pop.parentElement).toBe(document.body);
+	});
+
+	test("空间充足时贴按钮左缘、向下展开 6px", () => {
+		setupGeom({ vw: 1600, vh: 1000, pillLeft: 100, pillTop: 100, popW: 508, popH: 400 });
+		const { getByTestId } = render(
+			<DatePickerButton from={null} to={null} onChange={() => {}} />,
+		);
+		fireEvent.click(getByTestId("memory-date-btn"));
+		const pop = getByTestId("memory-date-pop");
+		expect(pop.style.left).toBe("100px");
+		expect(pop.style.top).toBe("136px"); // pillTop 100 + 高 30 + 间距 6
+	});
+
+	test("右侧溢出时水平钳制进视口（不再超出窗口右边界）", () => {
+		// 视口 1024：pill 左缘 900、弹层宽 508 → 900+508=1408 > 1024-8，应左移
+		setupGeom({ vw: 1024, vh: 1000, pillLeft: 900, pillTop: 100, popW: 508, popH: 400 });
+		const { getByTestId } = render(
+			<DatePickerButton from={null} to={null} onChange={() => {}} />,
+		);
+		fireEvent.click(getByTestId("memory-date-btn"));
+		const pop = getByTestId("memory-date-pop");
+		expect(pop.style.left).toBe("508px"); // 1024 - 8 - 508
+		expect(parseInt(pop.style.left, 10) + 508).toBeLessThanOrEqual(1024 - 8);
+	});
+
+	test("底部空间不足时向上翻转（不再被下边界截断）", () => {
+		// 视口高 500：pill 下缘 130 + 6 + 高 400 = 536 > 500-8 → 翻到 pill 上方
+		setupGeom({ vw: 1600, vh: 500, pillLeft: 100, pillTop: 100, popW: 508, popH: 400 });
+		const { getByTestId } = render(
+			<DatePickerButton from={null} to={null} onChange={() => {}} />,
+		);
+		fireEvent.click(getByTestId("memory-date-btn"));
+		const pop = getByTestId("memory-date-pop");
+		// pillTop 100 - 高 400 - 间距 6 = -306 → 贴视口上缘 8
+		expect(pop.style.top).toBe("8px");
+	});
+
+	test("点击弹层内部不关闭（弹层 portal 出 wrapRef 子树后的回归防线）", () => {
+		const { getByTestId, queryByTestId } = render(
+			<DatePickerButton from={null} to={null} onChange={() => {}} />,
+		);
+		fireEvent.click(getByTestId("memory-date-btn"));
+		fireEvent.mouseDown(getByTestId("memory-date-pop"));
+		expect(queryByTestId("memory-date-pop")).toBeTruthy();
+		// 点击真正的组件外部仍要关闭
+		fireEvent.mouseDown(document.body);
+		expect(queryByTestId("memory-date-pop")).toBeNull();
 	});
 });

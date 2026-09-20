@@ -398,7 +398,7 @@ export function MemoryPage() {
 						</select>
 					</>
 				) : (
-					// 记忆筛选：作用域下拉（默认全局记忆，展开含「全局记忆」+ 项目列表）→ 搜索 → 层级 → 添加
+					// 记忆筛选：作用域下拉（默认全局记忆，展开含「全局记忆」+ 项目列表）→ 搜索 → 日期范围 → 层级 → 添加
 					<>
 						<MemoryScopeDropdown
 							memoryScope={memoryScope}
@@ -422,13 +422,14 @@ export function MemoryPage() {
 							onChange={(e) => setSearchQuery(e.target.value)}
 							data-testid="memory-search"
 						/>
-						{/* 层级筛选（L1 画像 / L2 知识 / L3 执行）：「全部」= 不筛；点已选中的层可取消 */}
+						{/* 日期范围筛选（放在搜索框之后、层级 tab 之前）：from/to 持久在 store（listParams 一并下推服务端），确定/清除时 onChange 上报 */}
+						<DatePickerButton
+							from={dateFrom}
+							to={dateTo}
+							onChange={(f, t) => setDateRange(f, t)}
+						/>
+						{/* 层级筛选（L1 画像 / L2 知识 / L3 执行）：无选中即全部，点已选中的层可取消回全部 */}
 						<div className="flex gap-1.5 shrink-0" data-testid="memory-kind-filter">
-							<FilterChip
-								active={kindFilter === null}
-								onClick={() => setKindFilter(null)}
-								label={t("memory.filterAll")}
-							/>
 							{MEMORY_KINDS.map((k) => (
 								<FilterChip
 									key={k}
@@ -438,12 +439,6 @@ export function MemoryPage() {
 								/>
 							))}
 						</div>
-						{/* 日期范围筛选：from/to 持久在 store（listParams 一并下推服务端），确定/清除时 onChange 上报 */}
-						<DatePickerButton
-							from={dateFrom}
-							to={dateTo}
-							onChange={(f, t) => setDateRange(f, t)}
-						/>
 						{activeTab === "saved" && (
 							<button
 								onClick={() => setShowAddForm((v) => !v)}
