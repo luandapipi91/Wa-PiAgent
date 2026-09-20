@@ -781,7 +781,7 @@ test("用户停止：abort 读到 final 快照 → 返回「已停止。」+ 部
 		toolCallId: "tc_stop1",
 		tool: "delegate",
 		phase: "final",
-		text: "子智能体已被中止\n\n部分进度：工具调用 2 个（成功 1 / 失败 0 / 中断 1）。\n已完成步骤：bash ✅、read ⏸",
+		text: "子智能体已被中止\n\n部分进度：工具调用 2 个（成功 1 / 失败 0 / 中断 1）。",
 		details: { interrupted: true },
 		savedAt: new Date().toISOString(),
 	});

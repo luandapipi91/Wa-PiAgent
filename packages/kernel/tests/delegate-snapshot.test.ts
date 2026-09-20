@@ -152,12 +152,13 @@ test("delegate 中止即时快照：用最近进度事件组装部分进度文�
 	expect(await waitFor(() => existsSync(file))).toBe(true);
 	const immediate = JSON.parse(readFileSync(file, "utf8"));
 	expect(immediate.phase).toBe("final");
-	// abort 瞬间用当时内存状态组装的部分进度文本（工具统计与状态符号）
+	// abort 瞬间用当时内存状态组装的部分进度文本（只报工具调用数量统计）
 	expect(immediate.text).toContain(
 		"部分进度：工具调用 2 个（成功 1 / 失败 0 / 中断 1）",
 	);
-	expect(immediate.text).toContain("bash ✅");
-	expect(immediate.text).toContain("read ⏸");
+	expect(immediate.text).not.toContain("已完成步骤");
+	expect(immediate.text).not.toContain("bash ✅");
+	expect(immediate.text).not.toContain("read ⏸");
 	await exec;
 });
 

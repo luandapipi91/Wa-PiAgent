@@ -1,7 +1,7 @@
 // aborted-tools-pi.ts — 测试用假 pi rpc 进程：prompt 后同步发 3 个工具事件
 //（1 成功 / 1 失败 / 1 停在执行中）+ 一段文本输出，然后永久静默（永不 settle）。
 // abort 命令只回 success、进程保持存活，模拟「卡在不可中断工具里」的子代理——
-// 用于测中止 / 探活超时后的部分进度保留（工具统计 + 步骤 + 输出片段）。
+// 用于测中止 / 探活超时后的部分进度保留（工具统计 + 摘录条目 + 输出片段）。
 
 let buffer = "";
 
@@ -27,7 +27,7 @@ function handle(cmd: any): void {
 				toolName: "bash",
 				isError: false,
 				// 工具产出留存（对象形状：含 content 数组，同 pi 工具结果）——
-				// 验证 result 提取 + 部分进度「关键产出摘录」段
+				// 验证 result 提取 + 部分进度摘录条目
 				result: {
 					content: [{ type: "text", text: "已定位到入口文件 src/main.ts" }],
 				},
