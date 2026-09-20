@@ -7,6 +7,7 @@
 - feat(scripts): 新增会话列表重建工具 scripts/rebuild-projects.ts（P0 事故善后）——projects.json 被全量覆盖成空库时，从 sessions/*.jsonl 反推会话（文件名即 id、cwd/时间取首行、标题取首条真人消息前 20 字并跳过 <skill> 注入块、智能体名取 session_info）与项目（按 cwd 归一，workdir→默认工作区，沿用现有 projects.json 的 id 避免会话挂到不存在的项目）；默认预演不写盘，--apply 才落盘且先备份，projects.json 解析失败即中止不静默覆盖。配 scripts/__tests__/rebuild-projects.test.ts（12 用例）。
 - 调整(kernel)：子智能体中断「部分进度」段精简——去掉逐条工具清单（「已完成步骤：find ✅…」及 30 条折叠文案）与工具产出摘录条目，只保留工具调用数量统计 + 输出片段（超 4000 字时取头 1000 + 尾 3000、中段省略，原为只取尾 4000）；随之清理产出留存链（retainToolResult / extractToolResultText / excerptFirstLine、4 个截断常量、进度事件 tools[].result 字段——已无消费方）与对应单测。TDD 先红后绿，kernel 全量测试与四包 typecheck 通过。
 - v0.5.3 发版：升版 0.5.2 → 0.5.3（含并发方在途的记忆面板日期选择器，已收编为 17974be6：单测 39 pass、typecheck 绿、e2e 加回归防线）；发布说明含记忆日期范围筛选、检索相关性修复、fleet 超限提示、中断进度精简。验证：测试 gate 随打包双端跑通（隔离 worktree）。
+- 修复(kernel)：测试 SSE 帧读取助手 `readSseFrame` 丢帧（gate 中 tui-host 集成用例负载下 60s 超时的真因）——解析缓冲原声明在**函数内部**，返回一帧即把同一 TCP chunk 内其余完整帧整段丢弃；负载下服务端连续两次广播（open+frame）被合并进同一 chunk，被丢的正好是用例在等的 `extension_tui_frame` 帧，之后只剩 5s 一次的心跳帧→空等至用例超时（实测复现：6 并发 3 失败，失败实例日志均命中「丢弃同 chunk 剩余帧」且丢的正是目标帧；通过实例每 chunk 恒为 1 帧）。修：缓冲与解码器改为按 reader 存状态（WeakMap）跳调用保留；并给 `reader.read` 加等待上限（默认 15s、可传 timeoutMs），把「真收不到帧」从静默挂死变为快速失败并报出已读帧数。TDD 先红后绿（`tests/sse-frame-reader.test.ts` 7 用例，红侧 3 失败）。验证：修复后同条件 6 并发 6 通过、另一种 8 并发+6 路 CPU 满载 8 通过、三个消费方 26 pass、kernel gate 全绿（0 fail）。
 
 ## 2026-09-19 — v0.5.2 发版（并行派发显示 + fleet 回复拆分 + 非 git 仓库降级）
 

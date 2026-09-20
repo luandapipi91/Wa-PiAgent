@@ -151,26 +151,73 @@ export async function openSse(base: string): Promise<ReadableStreamDefaultReader
 	return res.body.getReader();
 }
 
+/** SSE 帧读取的等待上限（默认）：本地帧应在毫秒级到达，这个上限只为「真收不到帧时快速失败并报出卡点」，
+ *  不参与正常路径。（观测：全链路集成用例正常 2s 内跑完，用例级超时 60s。） */
+const DEFAULT_SSE_FRAME_WAIT_MS = 15_000;
+
+/** 每个 reader 的解析状态：缓冲与解码器必须跨调用保留——同一个 TCP chunk 里可能含多帧
+ *  （负载下服务端连续广播会被合并进同一 chunk），返回一帧就把其余帧丢掉的话，调用方
+ *  会永久等不到后续帧（2026-09-20 定位的 kernel gate 60s 超时根因）。 */
+type SseReaderState = { buffer: string; decoder: TextDecoder };
+const sseReaderStates = new WeakMap<
+	ReadableStreamDefaultReader<Uint8Array>,
+	SseReaderState
+>();
+
+/** 带截止时间的 read：超时抛错，不再无限等待 */
+async function readChunkWithDeadline(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	timeoutMs: number,
+	readFrames: number,
+) {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			reader.read(),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(
+					() =>
+						reject(
+							new Error(
+								`SSE 帧读取超时（${timeoutMs}ms 内无新数据；此前已读到 ${readFrames} 帧）`,
+							),
+						),
+					timeoutMs,
+				);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
 /** SSE 帧结构：跳过注释帧（: ...），解析 data: <JSON>\n\n */
 export async function readSseFrame(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
+	opts: { timeoutMs?: number } = {},
 ): Promise<{ data: any }> {
-	const dec = new TextDecoder();
-	let buffer = "";
+	const timeoutMs = opts.timeoutMs ?? DEFAULT_SSE_FRAME_WAIT_MS;
+	let state = sseReaderStates.get(reader);
+	if (!state) {
+		state = { buffer: "", decoder: new TextDecoder() };
+		sseReaderStates.set(reader, state);
+	}
+	let readFrames = 0;
 	for (;;) {
-		const { value, done } = await reader.read();
-		if (done) throw new Error("SSE 流已关闭");
-		buffer += dec.decode(value, { stream: true });
-		// 按帧分隔符 \n\n 切分
+		// 先消费缓冲里的完整帧：上一次调用留下的帧在这里被取走（不再随函数返回被丢弃）
 		let idx: number;
-		while ((idx = buffer.indexOf("\n\n")) !== -1) {
-			const raw = buffer.slice(0, idx);
-			buffer = buffer.slice(idx + 2);
+		while ((idx = state.buffer.indexOf("\n\n")) !== -1) {
+			const raw = state.buffer.slice(0, idx);
+			state.buffer = state.buffer.slice(idx + 2);
 			// 跳过注释帧（: connected / : ping）
 			if (raw.trim().startsWith(":")) continue;
 			const line = raw.split("\n").find((l) => l.startsWith("data:"));
 			if (!line) continue;
+			readFrames++;
 			return { data: JSON.parse(line.slice(5).trim()) };
 		}
+		const { value, done } = await readChunkWithDeadline(reader, timeoutMs, readFrames);
+		if (done) throw new Error("SSE 流已关闭");
+		state.buffer += state.decoder.decode(value, { stream: true });
 	}
 }
