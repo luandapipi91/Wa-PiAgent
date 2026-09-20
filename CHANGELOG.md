@@ -6,6 +6,7 @@
 - 修复(memory)：检索打分全集归一化——bm25 min-max 池相关缩放导致第一页相关性塌方（强相关条目被时间新近弱相关挤出）与深翻页边界 ±1 漂移；候选池改为 FULL_SCAN_CAP=2000 全集物化（FTS+substring 双路径），实测三页 0 重复 0 遗漏、2000 命中排序仅 5.3ms。
 - feat(scripts): 新增会话列表重建工具 scripts/rebuild-projects.ts（P0 事故善后）——projects.json 被全量覆盖成空库时，从 sessions/*.jsonl 反推会话（文件名即 id、cwd/时间取首行、标题取首条真人消息前 20 字并跳过 <skill> 注入块、智能体名取 session_info）与项目（按 cwd 归一，workdir→默认工作区，沿用现有 projects.json 的 id 避免会话挂到不存在的项目）；默认预演不写盘，--apply 才落盘且先备份，projects.json 解析失败即中止不静默覆盖。配 scripts/__tests__/rebuild-projects.test.ts（12 用例）。
 - 调整(kernel)：子智能体中断「部分进度」段精简——去掉逐条工具清单（「已完成步骤：find ✅…」及 30 条折叠文案）与工具产出摘录条目，只保留工具调用数量统计 + 输出片段（超 4000 字时取头 1000 + 尾 3000、中段省略，原为只取尾 4000）；随之清理产出留存链（retainToolResult / extractToolResultText / excerptFirstLine、4 个截断常量、进度事件 tools[].result 字段——已无消费方）与对应单测。TDD 先红后绿，kernel 全量测试与四包 typecheck 通过。
+- v0.5.3 发版：升版 0.5.2 → 0.5.3（含并发方在途的记忆面板日期选择器，已收编为 17974be6：单测 39 pass、typecheck 绿、e2e 加回归防线）；发布说明含记忆日期范围筛选、检索相关性修复、fleet 超限提示、中断进度精简。验证：测试 gate 随打包双端跑通（隔离 worktree）。
 
 ## 2026-09-19 — v0.5.2 发版（并行派发显示 + fleet 回复拆分 + 非 git 仓库降级）
 
