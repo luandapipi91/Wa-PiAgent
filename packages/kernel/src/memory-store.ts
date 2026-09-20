@@ -228,7 +228,8 @@ export class MemoryStore {
     };
 
     const dao = this.dao();
-    // offset 分页：一次拉 offset+limit 条再切片；候选池上限 CANDIDATE_LIMIT=50（dao 层），
+    // offset 分页：一次拉 offset+limit 条再切片；dao 层打分全集物化上限 2000（bm25
+    // min/max 全局归一化，排序与翻页轮次无关），命中 ≤2000 时 hits=min(命中, want)，
     // 拉满 want 条即视为可能还有下一页
     const offset = Math.max(0, opts.offset ?? 0);
     const limit = opts.limit ?? 10;

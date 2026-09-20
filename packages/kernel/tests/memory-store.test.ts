@@ -695,11 +695,12 @@ test("search：since/until 过滤 + offset 翻页 + hasMore 口径", async () =>
   expect(r2.hasMore).toBe(false);
 });
 
-// ── 终审修复 1（Important）：检索翻页真实失效——dao.search 候选池按 want 扩大 ──
-// 真实链路（store.search → dao.search）：修复前候选池硬截 50，第二页 offset=50 在
-// 池内 slice(50) 恒为空，第 51 条起的命中永不可见。命中数 > 50 即复现。
+// ── 终审修复 1（Important，已被方案 D 取代）：检索翻页真实失效 ──────────
+// 历史：候选池硬截 50 时第二页 offset=50 恒为空；上一轮改为池随 want 扩大；
+// 现为打分全集物化（LIMIT 固定 FULL_SCAN_CAP=2000，bm25 min/max 全局归一化）。
+// 本用例保留为翻页回归：命中 ≤2000 时各页是同一全局序的连续切片。
 
-test("search 检索态滚动加载：FTS 路径候选池按 want 扩大，两页取全 80 条命中", async () => {
+test("search 检索态滚动加载：FTS 路径两页取全 80 条命中", async () => {
   const store = makeStore();
   const total = 80;
   for (let i = 0; i < total; i++) await store.add("global", `翻页深挖 样本${i}`);
@@ -718,7 +719,61 @@ test("search 检索态滚动加载：FTS 路径候选池按 want 扩大，两页
   expect(page1.totalMatched).toBe(total);
 });
 
-test("search 检索态滚动加载：substring 回退路径（单字查询）同样不受候选池 50 截断", async () => {
+// ── 方案 D：检索打分全集归一化 → 深翻页边界稳定 ───────────────────
+// 修复前池随 want 扩大，但 bm25 min/max 取自当前池：两轮归一化缩放不同 →
+// 同一条目两页排序翻转（重复被前端去重掩盖，被挤出的条目永久遗漏）。
+// 打分全集物化后各页是同一全局序的连续切片，不重不漏。
+
+test("search 检索态滚动加载：打分全集归一化后 190 条命中四页拉完不重不漏", async () => {
+  const store = makeStore();
+  const dao = new MemoryDao(openMemoryDb(tmpDir));
+  const total = 190;
+  const strongCount = 40;
+  const day = 86_400_000;
+  const now = Date.now();
+  // 混合语料（调研报告实验场景三的等价构造）：强相关旧条目 + 弱相关新近长文，
+  // 刻意让「池内归一化缩放」在两轮翻页间漂移
+  for (let i = 0; i < total; i++) {
+    await store.add(
+      "global",
+      i < strongCount
+        ? `部署方案定稿结论${i}：部署方案评审通过，部署方案全文归档`
+        : `周会纪要${i}：${"例行议程跟进事项记录，含进度与风险。".repeat(8)}其中一节提到部署方案。`,
+    );
+  }
+  // 强相关条目 updated_at 推旧（60~120 天），弱相关保持新近（0~39 天）
+  const rows = dao.list({ includeArchived: false });
+  expect(rows).toHaveLength(total);
+  rows.forEach((row, i) => {
+    const strong = row.content.includes("定稿结论");
+    const daysOld = strong ? 60 + (i % 61) : i % 40;
+    dao.db.run("UPDATE memories SET updated_at = ? WHERE id = ?", [
+      now - daysOld * day,
+      row.id,
+    ]);
+  });
+
+  // 四页翻页：50+50+50+40 拉完，hasMore 依次 true/true/true/false
+  const pages: Awaited<ReturnType<typeof store.search>>[] = [];
+  let offset = 0;
+  for (;;) {
+    const page = await store.search({ query: "部署方案", limit: 50, offset });
+    pages.push(page);
+    if (!page.hasMore) break;
+    offset += page.results.length;
+  }
+  expect(pages.map((p) => p.results.length)).toEqual([50, 50, 50, 40]);
+  expect(pages.map((p) => p.hasMore)).toEqual([true, true, true, false]);
+
+  // 不重不漏：id 互斥且并集 = 全部命中；与单次全量口径一致
+  const ids = pages.flatMap((p) => p.results.map((r) => r.id));
+  expect(new Set(ids).size).toBe(total);
+  expect(pages[0].totalMatched).toBe(total);
+  const allAtOnce = await store.search({ query: "部署方案", limit: total });
+  expect(new Set(allAtOnce.results.map((r) => r.id))).toEqual(new Set(ids));
+});
+
+test("search 检索态滚动加载：substring 回退路径（单字查询）同样不受打分全集物化上限影响", async () => {
   const store = makeStore();
   const total = 60;
   // 「幽」只嵌入汉字串中（写入侧 bigram 只存二元组，单字查询 FTS 零命中 → 走 LIKE 回退）

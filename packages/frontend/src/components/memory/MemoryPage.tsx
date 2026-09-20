@@ -186,7 +186,7 @@ export function MemoryPage() {
 		loadMore,
 	]);
 
-	// 检索态滚动加载：与列表哨兵同型（内核 FTS 候选池上限 50，翻到没有为止）
+	// 检索态滚动加载：与列表哨兵同型（内核打分全集物化上限 2000，翻到没有为止）
 	const searchSentinelRef = useRef<HTMLDivElement | null>(null);
 	useEffect(() => {
 		if (!isSearchActive || searchPending || !searchHasMore) return;

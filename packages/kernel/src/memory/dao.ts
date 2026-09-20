@@ -82,7 +82,13 @@ const KIND_BOOST: Record<MemoryKind, number> = {
 
 const TITLE_MAX = 60;
 const SNIPPET_RADIUS = 40;
-const CANDIDATE_LIMIT = 50;
+/**
+ * 打分全集物化上限：取池 LIMIT 固定为它（不再随请求方 limit 变化），
+ * bm25 的 min/max 归一化天然全局化，消除池相关排序漂移（第一页塌方 +
+ * 深翻页边界翻转）。超过此命中数的极端场景页边界仍有 ±1 出入，
+ * store 按 id 去重 + totalMatched 兜底。
+ */
+const FULL_SCAN_CAP = 2000;
 
 /** 从内容提取标题：首个非空行截断 */
 export function deriveTitle(content: string): string {
@@ -355,11 +361,10 @@ export class MemoryDao {
    *
    * 打分：子串命中之间无强弱之分，bm25 分量统一取 1，仍叠加时间衰减与 kind 权重，
    * 与 FTS 路径的排序语义保持一致。
-   * 候选池：SQL 里至少取 CANDIDATE_LIMIT（50）条作护栏，但请求方（store 层检索态
-   * 滚动加载传 want=offset+limit）需要更多时按需扩大——否则第二页 slice(offset)
-   * 恒为空，第 51 条之后的命中永不可见。substring 回退路径同口径。
-   * 池内先按 updated_at DESC 排序再截断：LIMIT 是确定性前缀（最新的 N 条），
-   * 各页基准集一致，store 层 offset 切片才不重叠/不遗漏。
+   * 打分全集：SQL 固定物化 FULL_SCAN_CAP（2000）条，不随请求方（store 层检索态
+   * 滚动加载传 want=offset+limit）变化——命中 ≤2000 时全集物化，各页切片
+   * 基准一致；先按 updated_at DESC 排序再截断，LIMIT 是确定性前缀（最新的 N 条），
+   * 超过上限的极端场景两页前缀包含，不产生跨页重复。
    */
   private searchBySubstring(
     rawQuery: string,
@@ -378,7 +383,7 @@ export class MemoryDao {
                  OR m.title LIKE ? ESCAPE '\\'
                  OR m.tags LIKE ? ESCAPE '\\') ${clause.extra}
           ORDER BY m.updated_at DESC
-          LIMIT ${Math.max(CANDIDATE_LIMIT, opts.limit ?? 0)}`,
+          LIMIT ${FULL_SCAN_CAP}`,
       )
       .all(clause.like, clause.like, clause.like, ...clause.params) as RawRow[];
     if (rows.length === 0) return [];
@@ -412,8 +417,8 @@ export class MemoryDao {
   /**
    * 与 search 同口径的真实命中总数。
    *
-   * 关键：**不**加 LIMIT —— 既不受调用方的 limit 影响，也不受检索候选
-   * 硬截断 CANDIDATE_LIMIT（50）影响。memory_search 的 totalMatched 用它，
+   * 关键：**不**加 LIMIT —— 既不受调用方的 limit 影响，也不受检索打分
+   * 全集物化上限 FULL_SCAN_CAP（2000）影响。memory_search 的 totalMatched 用它，
    * 从而回答「一共看到多少 / 还有多少没看到」而不是「这一页有几条」。
    */
   countMatches(rawQuery: string, opts: ListOpts = {}): number {
@@ -461,7 +466,7 @@ export class MemoryDao {
            JOIN memories m ON m.id = memories_fts.memory_id
           WHERE memories_fts MATCH ? ${clause.extra}
           ORDER BY m.updated_at DESC
-          LIMIT ${Math.max(CANDIDATE_LIMIT, opts.limit ?? 0)}`,
+          LIMIT ${FULL_SCAN_CAP}`,
       )
       .all(clause.expr, ...clause.params) as Array<RawRow & { score: number }>;
 
@@ -470,7 +475,8 @@ export class MemoryDao {
       return this.searchBySubstring(rawQuery, opts, w, halfLife, now);
     }
 
-    // bm25 返回负值（越小越相关）；同批次内 min-max 归一到 [0,1]
+    // bm25 返回负值（越小越相关）；打分全集内 min-max 归一到 [0,1]（取池 LIMIT 固定
+    // FULL_SCAN_CAP，命中 ≤2000 时即为全集统计，min/max 与翻页轮次无关）
     const scores = rows.map((r) => r.score);
     const min = Math.min(...scores);
     const max = Math.max(...scores);

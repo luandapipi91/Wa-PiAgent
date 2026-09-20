@@ -360,9 +360,10 @@ test("search 命中后刷新 use_count 与 last_used_at", () => {
 
 // ── 补充：countMatches（memory_search 的 totalMatched 真实口径）───────────
 
-test("countMatches 返回未截断的真实命中总数（不受 CANDIDATE_LIMIT 影响）", () => {
+test("countMatches 返回未截断的真实命中总数（不受打分全集物化上限影响）", () => {
   for (let i = 0; i < 60; i++) add({ content: `发版记录第 ${i} 条` });
-  // 候选池随 want 按需扩大（≥50 护栏）：limit 开到 100 不再被截在 50，检索翻页可见全部命中
+  // 打分全集物化（LIMIT 固定 FULL_SCAN_CAP=2000）：60 条命中 ≤2000 全物化，
+  // limit 开到 100 能看到全部命中；上一轮「池随 want 扩大」的中间态语义已废弃
   expect(dao.search("发版", { limit: 100 })).toHaveLength(60);
   expect(dao.countMatches("发版")).toBe(60);
 });
@@ -617,4 +618,46 @@ test("list 只传 offset 不传 limit 时忽略 offset，不抛异常返回全�
   const baseline = dao.list({ scope: "global", includeArchived: false });
   expect(rows).toHaveLength(5);
   expect(rows.map((r) => r.updatedAt)).toEqual(baseline.map((r) => r.updatedAt));
+});
+
+// =========================================================================
+// 检索打分全集归一化（方案 D）—— 修复第一页相关性塌方
+// 机理（调研报告 .superpowers/sdd/bm25-probe/bm25-probe-report.md）：修复前取池按
+// `updated_at DESC LIMIT max(50, want)`，强相关条目因 updated_at 旧被整体挡在池外，
+// 第一页全是「只含一节查询词的新近长文」——实验实测第一页强相关 0/40。
+// 打分全集物化（LIMIT 固定 FULL_SCAN_CAP）后 min/max 天然来自全部命中，
+// 「相关度优先于新近度」的排序语义恢复。
+// =========================================================================
+
+test("打分全集归一化：强相关旧条目不被新近弱相关挤出一页（第一页塌方修复）", () => {
+  const day = 86_400_000;
+  const now = Date.now();
+  const strongIds: string[] = [];
+  const weakIds: string[] = [];
+  // 40 条强相关：正文短、查询词多次出现（词频高），但 updated_at 推到 60~120 天前
+  for (let i = 0; i < 40; i++) {
+    strongIds.push(
+      add({ content: `部署方案定稿结论${i}：部署方案评审通过，部署方案全文归档` }).id,
+    );
+  }
+  // 80 条弱相关：长正文只在末尾含一次查询词（被稀释），updated_at 全部新近（0~39 天）
+  for (let i = 0; i < 80; i++) {
+    weakIds.push(
+      add({
+        content: `周会纪要${i}：${"例行议程跟进事项记录，含进度与风险。".repeat(8)}其中一节提到部署方案。`,
+      }).id,
+    );
+  }
+  const retime = (id: string, t: number) =>
+    dao.db.run("UPDATE memories SET updated_at = ? WHERE id = ?", [t, id]);
+  strongIds.forEach((id, i) => retime(id, now - (60 + (i % 61)) * day));
+  weakIds.forEach((id, i) => retime(id, now - (i % 40) * day));
+
+  const strongSet = new Set(strongIds);
+  // 修复前：取池 = updated_at 最新 50 条 = 全弱相关 → 第一页强相关 0/40（塌方）
+  // 修复后：min/max 全集归一化 → 前 40 名恰为全部强相关条目
+  const page1 = dao.search("部署方案", { limit: 50, now });
+  expect(page1).toHaveLength(50);
+  expect(page1.filter((h) => strongSet.has(h.id))).toHaveLength(40);
+  expect(page1.slice(0, 40).every((h) => strongSet.has(h.id))).toBe(true);
 });
