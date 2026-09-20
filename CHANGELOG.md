@@ -1,6 +1,6 @@
 ## 2026-09-20
 
-- v0.5.4 发版：升版 0.5.3 → 0.5.4（13 提交）。内容：pi 0.86.0 升级与兼容（token/成本口径对齐、压缩触发点 80% 与 auto-compact 双轨合一、system 条目过滤、缓存命中率整会话口径）；预览窗拖动移窗/拖拽调大小及尺寸位置记忆；流式「空的思考」修复（防抖误当节流）+ 节流窗口 50ms→20ms；测试 SSE 助手丢帧修复。验证：四包 typecheck + kernel 全量 gate（含 tui-host 集成用例）全绿；双端打包（内嵌 bun 1.4.2）。
+- v0.5.4 发版：升版 0.5.3 → 0.5.4（13 提交）。内容：pi 0.86.0 升级与兼容（token/成本口径对齐、压缩触发点 80% 与 auto-compact 双轨合一、system 条目过滤、缓存命中率整会话口径）；预览窗拖动移窗/拖拽调大小及尺寸位置记忆；流式「空的思考」修复（防抖误当节流）+ 节流窗口 50ms→20ms；测试 SSE 助手丢帧修复。验证：四包 typecheck + kernel 全量 gate（含 tui-host 集成用例）全绿；双端打包（内嵌 bun 1.4.2）。发布说明含「内核升级 · pi 0.86.0」栏（缓存预热/报错反馈/按模型压缩预算/启动更快/严格 schema 采样/内置剪贴板），来源 pi.dev/news。
 - chore(deps): pi-ai/pi-coding-agent/pi-tui 同步升级 0.86.0（真机冒烟通过：0.86 系统提示落盘、strict JSON-schema 采样下自建网关 write/read 工具正常、真实压缩后 compaction 条目含 pi 自动填充的 systemMessage 检查点（6 提示段+7 工具声明）、cache warming 因自建模型无 promptCache 寿命元数据未触发符合预期；pi 侧 contextWindow 为内置目录优先，providers.json 调小窗口不影响压缩阈值）。
 - fix(kernel): 会话解析对齐 pi 0.86 格式——computeSessionUsage 计入 usage 条目（cache_warm 等，对齐官方 token/成本口径）、readSessionHistory 过滤 role=system 条目（不进聊天历史不下发前端）、上下文估算补 role=system 分支（按 content+sections 计，压缩守卫不再低估）；锁定 usage 条目作叶子仍可回溯的回归。
 - feat(frontend): 缓存命中率改整会话累计口径（主代理+子代理+warming 用量合计，数据源 tokenTotals/session:stats 官方与降级两路同口径）；role=system 消息兜底防御（不入列、不渲染，防刷新前后不一致与空白行）；shared 补 SystemMessage 类型。
