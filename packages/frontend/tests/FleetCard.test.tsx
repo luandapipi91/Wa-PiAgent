@@ -829,3 +829,57 @@ test("FleetCard 单任务拒绝结果（isError=false，当前真实链路形态
 	expect(screen.queryByTestId("fleet-progress-f-single")).toBeNull();
 	expect(screen.getAllByText("回复：")).toHaveLength(1);
 });
+
+// ── fleet 超并发上限拒绝结果的消费形态 ──
+
+const tooManyRejectCall = {
+	type: "toolCall" as const,
+	id: "f-toomany",
+	name: "fleet",
+	arguments: {
+		tasks: Array.from({ length: 7 }, (_, i) => ({
+			agent: "质量验收",
+			task: `task${i}`,
+		})),
+	},
+};
+const TOO_MANY_REJECT_TEXT =
+	"错误：fleet 一次最多 6 个任务（当前 7 个）。请拆成多次 fleet 调用（每次不超过 6 个）。";
+
+test("FleetCard 超上限拒绝结果：不抛错、渲染引导文案、7 条参数回显行、无统计行/空回复块", () => {
+	expect(() =>
+		render(
+			<FleetCard
+				sessionId="s1"
+				toolCall={tooManyRejectCall}
+				result={{
+					role: "toolResult" as const,
+					toolCallId: "f-toomany",
+					toolName: "fleet",
+					content: [{ type: "text" as const, text: TOO_MANY_REJECT_TEXT }],
+					isError: true,
+					details: { error: "fleet_too_many_tasks" },
+					timestamp: 0,
+				}}
+			/>,
+		),
+	).not.toThrow();
+
+	// 头部：按参数里的 7 条任务渲染标题，走失败态分支
+	const header = screen.getByTestId("fleet-f-toomany-header");
+	expect(header.textContent).toContain("并行派发 7 个任务");
+	expect(header.textContent).toContain("失败");
+	fireEvent.click(header);
+	const body = screen.getByTestId("fleet-f-toomany-body");
+	// 引导文案渲染出来（拆不出逐任务回复 → 走降级聚合区）
+	expect(body.textContent).toContain("最多 6 个");
+	expect(body.textContent).toContain("拆成多次");
+	expect(body.textContent).not.toContain("delegate");
+	// 参数回显的 7 条任务清单都在（真实 params，不是伪造任务）
+	expect(body.textContent).toContain("委派【质量验收】task0");
+	expect(body.textContent).toContain("委派【质量验收】task6");
+	// 拒绝路径无任何子任务统计：不渲染任务统计行容器
+	expect(screen.queryByTestId("fleet-progress-f-toomany")).toBeNull();
+	// 「回复：」只有聚合区 1 处
+	expect(screen.getAllByText("回复：")).toHaveLength(1);
+});

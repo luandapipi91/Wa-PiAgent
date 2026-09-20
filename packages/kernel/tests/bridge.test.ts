@@ -38,7 +38,7 @@ import { createMemoryTools } from "../src/memory/tools";
 import { MemoryDao } from "../src/memory/dao";
 import { SCHEMA_SQL } from "../src/memory/schema";
 import { closeAllMemoryDbs, openMemoryDb } from "../src/memory/db";
-import { makeDelegateTool, makeFleetTool } from "../src/delegate-tool";
+import { makeDelegateTool, makeFleetTool, MAX_SUBAGENT_CONCURRENCY } from "../src/delegate-tool";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
@@ -809,6 +809,73 @@ test("/bridge/tool 流式分支：fleet 单任务被拒（无 progress 帧）仍
 		expect(spawnCalls).toBe(0);
 	} finally {
 		unregisterBridgeSession("s-fleet-reject");
+		await server.stop();
+	}
+});
+
+test("/bridge/tool 流式分支：fleet 超并发上限被拒（无 progress 帧）仍以 started→final 收尾，不挂住通道", async () => {
+	// 与单任务拒绝同一条链路，只是拒绝原因不同（任务数超过 FLEET_MAX_CONCURRENCY）：
+	// execute 前置校验立即返回，不 spawn、不产 progress 帧，流自行以 final 结束。
+	const { server, port } = await startTestServer();
+	try {
+		let spawnCalls = 0;
+		const fleetTool = makeFleetTool({
+			askTo: [],
+			spawn: async () => {
+				spawnCalls++;
+				return { text: "不应被调用", isError: false };
+			},
+		});
+		registerBridgeSession("s-fleet-over", {
+			cwd: "/tmp",
+			handleTool: (tool, tcId, params) => fleetTool.execute(tcId, params as any),
+		});
+		const res = await fetch(`http://127.0.0.1:${port}/bridge/tool`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				token: getBridgeToken(),
+				sessionId: "s-fleet-over",
+				toolCallId: "tc-fleet-over",
+				tool: "fleet",
+				params: {
+					tasks: Array.from(
+						{ length: MAX_SUBAGENT_CONCURRENCY + 1 },
+						(_, i) => ({ agent: "质量验收", task: `task${i}` }),
+					),
+				},
+			}),
+		});
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("application/x-ndjson");
+
+		// 流必须自行结束：读取加 8s 上限，超时即失败（正面证明「拒绝路径不卡流式通道」）
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const ndjson = await Promise.race([
+			res.text(),
+			new Promise<string>((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error("拒绝路径未在 8s 内结束流")),
+					8000,
+				);
+			}),
+		]).finally(() => clearTimeout(timer));
+		const frames = ndjson
+			.split("\n")
+			.filter((l) => l.trim().length > 0)
+			.map((l) => JSON.parse(l));
+
+		expect(frames.map((f) => f.type)).toEqual(["started", "final"]);
+		expect(frames[1].result.isError).toBe(true);
+		expect(frames[1].result.details).toEqual({ error: "fleet_too_many_tasks" });
+		const text = frames[1].result.content[0].text as string;
+		expect(text).toContain(`最多 ${MAX_SUBAGENT_CONCURRENCY} 个`);
+		expect(text).toContain("拆成多次");
+		expect(text).not.toContain("delegate");
+		// 拒绝发生在派发之前：没有任何子智能体被启动
+		expect(spawnCalls).toBe(0);
+	} finally {
+		unregisterBridgeSession("s-fleet-over");
 		await server.stop();
 	}
 });

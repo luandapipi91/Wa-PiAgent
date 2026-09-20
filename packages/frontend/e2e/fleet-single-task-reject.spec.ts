@@ -20,6 +20,10 @@ import {
 const REJECT_TEXT =
 	'错误：fleet 用于并行委派，至少需要 2 个任务（当前只有 1 个）。只委派单个任务时请改用 delegate 单任务工具，例如 delegate(agent="代码审查", task="评审改动")。';
 
+// 超并发上限拒绝文案（kernel 前置校验）
+const TOO_MANY_REJECT_TEXT =
+	"错误：fleet 一次最多 6 个任务（当前 7 个）。请拆成多次 fleet 调用（每次不超过 6 个）。";
+
 test.describe.serial("fleet 单任务拒绝结果的渲染", () => {
 	let projectId = "";
 	let projectName = "";
@@ -184,6 +188,48 @@ test.describe.serial("fleet 单任务拒绝结果的渲染", () => {
 		await expect(page.getByTestId(`fleet-progress-${toolCallId}`)).toHaveCount(
 			0,
 		);
+		await expect(page.getByText("回复：")).toHaveCount(1);
+	});
+
+	test("超并发上限拒绝结果：渲染引导文案 + 7 条参数回显行，无统计行/空回复块", async ({
+		page,
+	}) => {
+		test.setTimeout(30_000);
+		const sessionId = await enterSession(page, "fleet 超上限拒绝");
+		const toolCallId = "fleet-e2e-over-1";
+		await injectFleet(page, sessionId, {
+			toolCallId,
+			tasks: Array.from({ length: 7 }, (_, i) => ({
+				agent: "质量验收",
+				task: `task${i}`,
+			})),
+			text: TOO_MANY_REJECT_TEXT,
+			isError: true,
+			details: { error: "fleet_too_many_tasks" },
+		});
+
+		await expect(page.getByTestId(`fleet-${toolCallId}`)).toBeVisible({
+			timeout: 8000,
+		});
+		// 失败态（isError 被透传时的形态）
+		await expect(page.getByTestId(`fleet-${toolCallId}-header`)).toContainText(
+			"失败",
+		);
+		await page.getByTestId(`fleet-${toolCallId}-header`).click();
+
+		// 引导文案渲染出来（拆不出逐任务回复 → 走降级聚合区）
+		await expect(page.getByText(/最多 6 个任务/)).toBeVisible();
+		await expect(page.getByText(/拆成多次 fleet 调用/)).toBeVisible();
+		await expect(page.getByText(/delegate/)).toHaveCount(0);
+		// 参数回显的 7 条任务清单都在（真实 params，不是伪造任务行）
+		await expect(page.getByText(/委派【质量验收】/)).toHaveCount(7);
+		await expect(page.getByText(/委派【质量验收】task0/)).toHaveCount(1);
+		await expect(page.getByText(/委派【质量验收】task6/)).toHaveCount(1);
+		// 拒绝路径没有任何子任务统计行容器
+		await expect(page.getByTestId(`fleet-progress-${toolCallId}`)).toHaveCount(
+			0,
+		);
+		// 「回复：」只有聚合区 1 处：没有空回复块
 		await expect(page.getByText("回复：")).toHaveCount(1);
 	});
 });

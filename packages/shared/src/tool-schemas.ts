@@ -208,7 +208,7 @@ export const DelegateParamsSchema = Type.Object({
 // fleet
 // =========================================================================
 
-/** fleet 并行派发子任务的最大并发上限（超出部分排队等待）。
+/** fleet 单次调用的子任务数上限（超过即被内核前置校验拒绝，不排队）。
  * 数值依据：每个子代理 pi 进程约占 300MB，6 个 ≈ 1.8GB，可接受范围（用户拍板 2026-09-01）。
  * 文案与数值同源：FLEET_DESCRIPTION 用本常量插值——曾发生「模板硬编码 5 / kernel 常量 6」
  * 脱节，delegate-tool 的 replace 回填因搜索串不匹配而静默失效，模型看到的上限一直停留在 5。 */
@@ -217,7 +217,7 @@ export const FLEET_MAX_CONCURRENCY = 6;
 export const FLEET_DESCRIPTION = [
   "并行运行多个子智能体，完成后返回。",
   "有依赖或涉同文件 → 改逐个 delegate。",
-  `并发上限 ${FLEET_MAX_CONCURRENCY}，超出排队。`,
+  `并发上限 ${FLEET_MAX_CONCURRENCY}，超出会被拒绝（请拆成多次调用）。`,
 ].join("\n");
 
 export const FleetParamsSchema = Type.Object({
