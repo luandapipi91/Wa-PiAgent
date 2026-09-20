@@ -315,18 +315,20 @@ export const SessionView = memo(function SessionView({
 					{project && sessionProjectId !== SYSTEM_PROJECT_ID && (
 						<GitToolbar project={project} />
 					)}
-					{/* Token 胶囊标签组 */}
+					{/* Token 胶囊标签组（缓存胶囊改用 tokenTotals，故两者任一存在即渲染） */}
 					{lastUsage && (
 						<div
 							className="flex flex-wrap items-center gap-x-2 gap-y-2 min-w-0 max-w-full"
 							data-testid="token-capsules"
 						>
-							<span className="token-capsule">
-								{t("session.thisTurn", {
-									input: fmtTok(lastUsage.input),
-									output: fmtTok(lastUsage.output),
-								})}
-							</span>
+							{lastUsage && (
+								<span className="token-capsule">
+									{t("session.thisTurn", {
+										input: fmtTok(lastUsage.input),
+										output: fmtTok(lastUsage.output),
+									})}
+								</span>
+							)}
 							{/* 占用 + 进度条胶囊（只认官方 contextUsage，无本地估算） */}
 							{contextUsage?.used != null &&
 								contextUsage.total > 0 &&
@@ -371,12 +373,14 @@ export const SessionView = memo(function SessionView({
 									) : null}
 								</span>
 							)}
-							{(lastUsage.cacheRead > 0 || lastUsage.cacheWrite > 0) &&
+{/* 缓存胶囊：整会话累计口径（主代理+子代理+warming 用量），
+								数据源 tokenTotals（session:stats 的 tokens，官方/降级两路同口径） */}
+							{tokenTotal &&
+								tokenTotal.input + tokenTotal.cacheRead + tokenTotal.cacheWrite > 0 &&
 								(() => {
-									const rate =
-										(lastUsage.cacheRead /
-											(lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite)) *
-										100;
+									const denom =
+										tokenTotal.input + tokenTotal.cacheRead + tokenTotal.cacheWrite;
+									const rate = (tokenTotal.cacheRead / denom) * 100;
 									const danger = rate < 90;
 									return (
 										<span
