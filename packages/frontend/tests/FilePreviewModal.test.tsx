@@ -200,3 +200,123 @@ test("clear() 后 filePreview 重置为 null", () => {
   useSessionStore.getState().clear();
   expect(useSessionStore.getState().filePreview).toBeNull();
 });
+
+// 文件预览窗位置拖动：按住标题栏（顶部工具行）移动窗口，位置持久化到 localStorage，
+// 关闭重开保持上次位置（与尺寸持久化同款范式）。
+test("拖标题栏移动窗口：位置持久化，关闭重开保持上次位置", async () => {
+  localStorage.removeItem("hiagent.filePreview.pos");
+  fake.setResponse("fs:readFile", {
+    content: btoa("pos"),
+    mimeType: "text/plain",
+  });
+  useSessionStore.getState().openFilePreview("/pos.ts", "s1");
+  const { unmount } = render(<FilePreviewModal />);
+  // Modal 走 createPortal 渲染到 body，查询用 document；内容加载完才有标题栏把手
+  await waitFor(() =>
+    expect(screen.getByTestId("file-preview-modal").textContent).toContain(
+      "pos",
+    ),
+  );
+  const card = screen.getByTestId("file-preview-modal") as HTMLElement;
+  // happy-dom 无真实布局：覆写 getBoundingClientRect 模拟卡片位置尺寸（800×600 @ 96,54）
+  card.getBoundingClientRect = () =>
+    ({ left: 96, top: 54, width: 800, height: 600 }) as DOMRect;
+  const handle = document.querySelector(
+    "[data-modal-drag-handle]",
+  ) as HTMLElement;
+  expect(handle).toBeTruthy(); // FileViewer 头部必须标出拖动把手
+  fireEvent.mouseDown(handle, { clientX: 200, clientY: 100 });
+  fireEvent.mouseMove(window, { clientX: 260, clientY: 140 });
+  expect(card.style.left).toBe("156px");
+  expect(card.style.top).toBe("94px");
+  fireEvent.mouseUp(window);
+  expect(JSON.parse(localStorage.getItem("hiagent.filePreview.pos")!)).toEqual({
+    left: 156,
+    top: 94,
+  });
+
+  // 卸载重挂（等价于关闭后重新打开）：按记录位置定位
+  unmount();
+  render(<FilePreviewModal />);
+  const card2 = screen.getByTestId("file-preview-modal") as HTMLElement;
+  expect(card2.style.position).toBe("fixed");
+  expect(card2.style.left).toBe("156px");
+  expect(card2.style.top).toBe("94px");
+});
+
+test("内容区按下拖动不移动窗口（仅标题栏可拖）", async () => {
+  localStorage.removeItem("hiagent.filePreview.pos");
+  fake.setResponse("fs:readFile", {
+    content: btoa("body"),
+    mimeType: "text/plain",
+  });
+  useSessionStore.getState().openFilePreview("/body.ts", "s1");
+  render(<FilePreviewModal />);
+  await waitFor(() =>
+    expect(screen.getByTestId("file-preview-modal")).toBeTruthy(),
+  );
+  const card = screen.getByTestId("file-preview-modal") as HTMLElement;
+  card.getBoundingClientRect = () =>
+    ({ left: 96, top: 54, width: 800, height: 600 }) as DOMRect;
+  fireEvent.mouseDown(screen.getByTestId("file-viewer"), {
+    clientX: 200,
+    clientY: 300,
+  });
+  fireEvent.mouseMove(window, { clientX: 260, clientY: 340 });
+  expect(card.style.left).toBe("");
+  expect(card.style.position).toBe("relative");
+  expect(localStorage.getItem("hiagent.filePreview.pos")).toBeNull();
+});
+
+// 真实使用路径：FilePreviewModal 常驻挂载在 App 根（App.tsx:770），关闭预览只是
+// 组件 return null（Modal 卸载），组件本身不重挂——尺寸/位置必须在每次打开时重新读取，
+// 否则用户拖过的大小与位置在关闭重开后丢失。
+test("常驻挂载（不重挂组件）：关闭重开保持上次尺寸与位置", async () => {
+  localStorage.clear();
+  fake.setResponse("fs:readFile", {
+    content: btoa("keep-size-pos"),
+    mimeType: "text/plain",
+  });
+  render(<FilePreviewModal />);
+  useSessionStore.getState().openFilePreview("/keep-size-pos.ts", "s1");
+  await waitFor(() =>
+    expect(screen.getByTestId("file-preview-modal")).toBeTruthy(),
+  );
+  const card = screen.getByTestId("file-preview-modal") as HTMLElement;
+  card.getBoundingClientRect = () =>
+    ({ left: 100, top: 80, width: 400, height: 300 }) as DOMRect;
+
+  // 1) 拖右下角手柄：400×300 → 500×400
+  const resizeHandle = screen.getByTestId("modal-resize-handle");
+  fireEvent.mouseDown(resizeHandle, { clientX: 500, clientY: 380 });
+  fireEvent.mouseMove(window, { clientX: 600, clientY: 480 });
+  fireEvent.mouseUp(window);
+  expect(card.style.width).toBe("500px");
+  expect(card.style.height).toBe("400px");
+
+  // 2) 拖标题栏：位置 (100,80) → (150,110)（视口 1024×768，未触 clamp）
+  card.getBoundingClientRect = () =>
+    ({ left: 100, top: 80, width: 500, height: 400 }) as DOMRect;
+  const dragHandle = document.querySelector(
+    "[data-modal-drag-handle]",
+  ) as HTMLElement;
+  fireEvent.mouseDown(dragHandle, { clientX: 150, clientY: 100 });
+  fireEvent.mouseMove(window, { clientX: 200, clientY: 130 });
+  fireEvent.mouseUp(window);
+
+  // 3) 关闭（组件仍在树上，只是 return null）→ 重开
+  useSessionStore.getState().closeFilePreview();
+  await waitFor(() =>
+    expect(screen.queryByTestId("file-preview-modal")).toBeNull(),
+  );
+  useSessionStore.getState().openFilePreview("/keep-size-pos.ts", "s1");
+  await waitFor(() =>
+    expect(screen.getByTestId("file-preview-modal")).toBeTruthy(),
+  );
+
+  const reopened = screen.getByTestId("file-preview-modal") as HTMLElement;
+  expect(reopened.style.width).toBe("500px");
+  expect(reopened.style.height).toBe("400px");
+  expect(reopened.style.left).toBe("150px");
+  expect(reopened.style.top).toBe("110px");
+});

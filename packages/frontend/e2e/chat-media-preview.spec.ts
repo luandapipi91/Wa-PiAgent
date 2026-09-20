@@ -143,6 +143,52 @@ test("对话媒体：缩略图网格 + 内联视频 + 画廊切换 + 视频复�
 	await page.keyboard.press("Escape");
 	await expect(page.getByTestId("media-preview-modal")).toHaveCount(0);
 
+	// 6.5) 拖标题栏移动窗口（位置持久化）：向右下拖 → 位置变化，Esc 关闭重开保持
+	await grid.getByTestId("md-image-card").first().click();
+	const mediaModal = page.getByTestId("media-preview-modal");
+	await expect(mediaModal).toBeVisible();
+	const beforePos = (await mediaModal.boundingBox())!;
+	const mediaHandle = (await mediaModal
+		.locator("[data-modal-drag-handle]")
+		.first()
+		.boundingBox())!;
+	await page.mouse.move(mediaHandle.x + 60, mediaHandle.y + mediaHandle.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(
+		mediaHandle.x + 60 + 40,
+		mediaHandle.y + mediaHandle.height / 2 + 30,
+		{ steps: 5 },
+	);
+	await page.mouse.up();
+	const afterPos = (await mediaModal.boundingBox())!;
+	expect(afterPos.x).toBeGreaterThan(beforePos.x + 20);
+	expect(afterPos.y).toBeGreaterThan(beforePos.y + 10);
+	// 拖的是位置不是尺寸
+	expect(Math.abs(afterPos.width - beforePos.width)).toBeLessThan(2);
+
+	// 6.6) 拖右下角手柄改大小（尺寸持久化）
+	const mediaResize = page.getByTestId("modal-resize-handle");
+	const rb = (await mediaResize.boundingBox())!;
+	await page.mouse.move(rb.x + rb.width / 2, rb.y + rb.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(rb.x + rb.width / 2 - 40, rb.y + rb.height / 2 - 30, {
+		steps: 5,
+	});
+	await page.mouse.up();
+	const afterResize = (await mediaModal.boundingBox())!;
+	expect(afterResize.width).toBeLessThan(afterPos.width - 20);
+	expect(afterResize.height).toBeLessThan(afterPos.height - 10);
+
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("media-preview-modal")).toHaveCount(0);
+	await grid.getByTestId("md-image-card").first().click();
+	const reopened = (await page.getByTestId("media-preview-modal").boundingBox())!;
+	expect(Math.abs(reopened.x - afterResize.x)).toBeLessThan(2);
+	expect(Math.abs(reopened.y - afterResize.y)).toBeLessThan(2);
+	expect(Math.abs(reopened.width - afterResize.width)).toBeLessThan(2);
+	expect(Math.abs(reopened.height - afterResize.height)).toBeLessThan(2);
+	await page.keyboard.press("Escape");
+
 	// 7) 反引号路径芯片（行内 code 媒体路径）已渲染为图片卡片；点击 → 同一画廊定位到第 4 项
 	const cards = page.getByTestId("md-image-card");
 	await expect(cards).toHaveCount(3); // 网格 2 张 + 芯片场景 1 张

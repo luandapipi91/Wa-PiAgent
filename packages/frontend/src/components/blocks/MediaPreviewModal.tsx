@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { useSessionStore } from "../../store/session";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Modal } from "../ui/Modal";
+import { MODAL_SIZE_KEYS } from "../ui/modal-size";
+import { MODAL_POS_KEYS } from "../ui/modal-position";
 import { Icon } from "../ui/Icon";
 import { ZoomableImage } from "./ZoomableImage";
 import { resolveCopyPath, resolveMediaSrc } from "./media-utils";
@@ -15,7 +17,8 @@ import {
 /** 全局媒体预览弹窗（画廊）：常驻挂载在 App 根，从 session store 读 mediaPreview。
  *  左右箭头 + 键盘 ←/→ 循环切换（Esc 关闭由 Modal 自带）；底部缩略图条点击跳转；
  *  单媒体退化为纯预览（隐藏箭头/缩略图条/计数器）。图片用 ZoomableImage 缩放视口，
- *  视频全尺寸 <video controls autoplay>。点遮罩不关闭（与 FilePreviewModal 同款防误触）。 */
+ *  视频全尺寸 <video controls autoplay>。点遮罩不关闭（与 FilePreviewModal 同款防误触）。
+ *  按住标题栏可拖动窗口移动位置，右下角手柄可拖动调整大小；尺寸与位置均持久化，重开保持。 */
 export function MediaPreviewModal() {
 	const preview = useSessionStore((s) => s.mediaPreview);
 	const { t } = useTranslation();
@@ -65,11 +68,18 @@ export function MediaPreviewModal() {
 			onClose={close}
 			width="90vw"
 			height="85vh"
+			resizable
+			sizeStorageKey={MODAL_SIZE_KEYS.mediaPreview}
+			draggable
+			positionStorageKey={MODAL_POS_KEYS.mediaPreview}
 			data-testid="media-preview-modal"
 		>
 			<div className="flex flex-col h-full">
-				{/* 头部：文件名 · i/N 计数 · 复制 · 关闭 */}
-				<div className="flex items-center gap-2 px-3 py-2 border-b border-hairline bg-surface">
+				{/* 头部：文件名 · i/N 计数 · 复制 · 关闭（按住可拖动整个窗口） */}
+				<div
+					className="flex items-center gap-2 px-3 py-2 border-b border-hairline bg-surface"
+					data-modal-drag-handle=""
+				>
 					<span className="flex-1 truncate text-[calc(12px*var(--font-scale))] text-secondary inline-flex items-center gap-1.5">
 						<Icon name={item.kind === "image" ? "image" : "play"} size={13} />
 						{item.name}

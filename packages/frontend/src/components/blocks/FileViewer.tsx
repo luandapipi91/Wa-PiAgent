@@ -1,5 +1,6 @@
 // 文件预览器：移植自 cocode 的 file-viewer，适配 WaPi 的 fs-client（HTTP REST + base64）。
 // 支持：代码语法高亮(行号)、图片缩放/平移、大文件截断提示、选中复制为 @path:行号 引用。
+// 标题栏带 data-modal-drag-handle：预览窗（FilePreviewModal）按住标题栏可拖动整个窗口。
 import { Highlight, themes } from "prism-react-renderer";
 // 注册内置缺失的主流语言（bash/java/csharp/ruby/toml），side-effect：加载即注入内置 Prism
 import "./prism-extra-langs";
@@ -261,7 +262,7 @@ function ImageViewer({
 				src={src}
 				alt={alt}
 				renderToolbar={({ zoom, zoomIn, zoomOut }) => (
-					<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
+					<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface" data-modal-drag-handle="">
 						<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate inline-flex items-center gap-1">
 							<Icon name="image" size={13} /> {alt}
 						</span>
@@ -848,7 +849,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	if (isMarkdown && content !== null) {
 		return (
 			<div className="flex flex-col h-full" data-testid="file-viewer">
-				<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
+				<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface" data-modal-drag-handle="">
 					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
 						<Icon name="file" size={12} /> {fileName}
 					</span>
@@ -898,7 +899,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 
 	return (
 		<div className="flex flex-col h-full" data-testid="file-viewer">
-			<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
+			<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface" data-modal-drag-handle="">
 				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
 					<Icon name="file" size={12} /> {fileName}
 				</span>

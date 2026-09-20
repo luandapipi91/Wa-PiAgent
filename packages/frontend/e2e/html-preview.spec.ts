@@ -189,6 +189,62 @@ test.describe
 			await expect(modal).toHaveCount(0);
 		});
 
+		test("文件预览弹窗：拖标题栏移窗 + 拖手柄改大小，关闭重开尺寸与位置都保持", async ({
+			page,
+		}) => {
+			test.setTimeout(60_000);
+			await openSession(page);
+			await openHtmlPreview(page);
+
+			await page.getByTestId("browser-code").click();
+			const modal = page.getByTestId("file-preview-modal");
+			await expect(modal).toBeVisible({ timeout: 5000 });
+			// 等源码加载完：标题栏（拖动把手）随内容一起出现
+			await expect(modal).toContainText("HTML 预览 E2E", { timeout: 10_000 });
+
+			const initial = (await modal.boundingBox())!;
+
+			// 1) 按住标题栏空白处向右下拖 → 窗口整体移动（尺寸不变）
+			const handle = modal.locator("[data-modal-drag-handle]").first();
+			const hb = (await handle.boundingBox())!;
+			await page.mouse.move(hb.x + 60, hb.y + hb.height / 2);
+			await page.mouse.down();
+			await page.mouse.move(hb.x + 60 + 80, hb.y + hb.height / 2 + 40, {
+				steps: 5,
+			});
+			await page.mouse.up();
+			const moved = (await modal.boundingBox())!;
+			expect(moved.x).toBeGreaterThan(initial.x + 40);
+			expect(moved.y).toBeGreaterThan(initial.y + 20);
+			expect(Math.abs(moved.width - initial.width)).toBeLessThan(2);
+			expect(Math.abs(moved.height - initial.height)).toBeLessThan(2);
+
+			// 2) 拖右下角手柄放大 → 尺寸变化
+			const resizeHandle = page.getByTestId("modal-resize-handle");
+			const rb = (await resizeHandle.boundingBox())!;
+			await page.mouse.move(rb.x + rb.width / 2, rb.y + rb.height / 2);
+			await page.mouse.down();
+			await page.mouse.move(rb.x + rb.width / 2 + 60, rb.y + rb.height / 2 + 40, {
+				steps: 5,
+			});
+			await page.mouse.up();
+			const resized = (await modal.boundingBox())!;
+			expect(resized.width).toBeGreaterThan(moved.width + 20);
+			expect(resized.height).toBeGreaterThan(moved.height + 10);
+
+			// 3) 关闭后重开：尺寸与位置都按上次记录恢复（不再回默认 80vw×80vh + 居中）
+			await page.keyboard.press("Escape");
+			await expect(modal).toHaveCount(0);
+			await page.getByTestId("browser-code").click();
+			await expect(modal).toBeVisible({ timeout: 5000 });
+			const reopened = (await modal.boundingBox())!;
+			expect(Math.abs(reopened.x - resized.x)).toBeLessThan(2);
+			expect(Math.abs(reopened.y - resized.y)).toBeLessThan(2);
+			expect(Math.abs(reopened.width - resized.width)).toBeLessThan(2);
+			expect(Math.abs(reopened.height - resized.height)).toBeLessThan(2);
+			await page.keyboard.press("Escape");
+		});
+
 		test("预览窗口点分享按钮 → 分享弹窗出现（未配 token 则跳设置分享引导）", async ({
 			page,
 		}) => {
