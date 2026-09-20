@@ -1,5 +1,8 @@
 [test]
-preload = ["./tests/happydom-setup.ts"]
+# WA_PI_DIR 隔离必须随 preload 带上（cd frontend 跑时读不到根 bunfig）：
+# 引用 kernel 的 tests/setup.ts（清代理 env + WA_PI_DIR/PI_CODING_AGENT_DIR 隔离），
+# 防止前端测试链路里任何 shared 默认常量落到真实 ~/.pi/agent。
+preload = ["./tests/happydom-setup.ts", "../../packages/kernel/tests/setup.ts"]
 # 排除 Playwright E2E 目录（e2e/*.spec.ts 用 @playwright/test，由 `bun run e2e`
 # 经 playwright test 运行），避免被 `bun test`(单元测试)误抓导致报错。
 # e2e-electron 同理：Electron E2E（playwright.electron.config.ts 驱动），由

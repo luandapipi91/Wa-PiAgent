@@ -1,6 +1,13 @@
 [test]
 coverage = false
-# 不设 preload：kernel/desktop/shared 是纯逻辑测试，不需要 happy-dom DOM 环境。
+# ⚠️ preload 必须挂在根：WA_PI_DIR 隔离不能依赖 cwd。曾只在 packages/kernel/bunfig.toml
+# 挂 preload，从仓库根 / IDE 直接 bun test 时不加载 → shared 的 WA_PI_DIR 常量落到
+# 默认 ~/.pi/agent（生产）→ 测试与常驻生产 kernel 并发读写 projects.json（全量覆盖写）
+# → 会话列表被覆盖/清空（P0：正式应用会话列表「变空」回初始化态）。
+# 此处引用 kernel 的 setup.ts（只清代理 env + WA_PI_DIR/PI_CODING_AGENT_DIR 隔离，
+# 不含 happy-dom，对纯逻辑测试无副作用）。
+preload = ["./packages/kernel/tests/setup.ts"]
+# 不全局挂 happy-dom：kernel/desktop/shared 是纯逻辑测试，不需要 DOM 环境。
 # 前端测试有自己的 packages/frontend/bunfig.toml preload（happy-dom + CSS/IDB/WS mock），
 # 由根 package.json 的 test 脚本分两步跑（先非前端，再 cd frontend）触发。
 

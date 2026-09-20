@@ -1,6 +1,7 @@
 ## 2026-09-20
 
 - feat(kernel): fleet 并行委派加运行时校验——tasks 仅 1 个时拒绝执行、不启动任何子智能体，返回引导文本提示改用 delegate 单个委派（details.error=fleet_requires_multiple_tasks；schema 不加 minItems，走友好文案而非框架校验报错）。补四层测试：kernel 单测 / FleetCard 组件 / bridge 真实 HTTP NDJSON 流式（含不卡流断言）/ Playwright E2E。
+- fix(test-infra): 测试隔离 preload 提升到根 bunfig.toml，修复跑测试打生产会话列表的 P0——隔离 preload 原本只挂在 packages/kernel/bunfig.toml，从仓库根 / IDE 直接 bun test 时不加载 → shared 的 WA_PI_DIR 常量落到默认 ~/.pi/agent（生产）→ 测试与常驻生产 kernel 并发全量覆盖写 projects.json → 会话列表被覆盖/清空回初始化态（project-store 注释自证的「反复变空」事故链）。修复：根 + frontend bunfig 均挂 kernel tests/setup.ts（清代理 env + WA_PI_DIR/PI_CODING_AGENT_DIR 隔离到 mkdtemp 临时目录）；bun preload 相对 bunfig 文件目录解析，frontend 路径需含 packages/ 层级。验证：根跑隔离探针 pass（WA_PI_DIR=wa-pi-kernel-test-*）、kernel idle-reap 4 pass、frontend store 测试 2 pass、生产 projects.json 无测试残留。
 
 ## 2026-09-19 — v0.5.2 发版（并行派发显示 + fleet 回复拆分 + 非 git 仓库降级）
 
