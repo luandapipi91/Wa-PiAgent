@@ -2218,3 +2218,13 @@ test("echoUser：无任何已有 user 消息时正常追加（NewSessionPane 等
 	expect(userMsgs).toHaveLength(1);
 	expect((userMsgs[0].message as any).content).toBe("首次消息");
 });
+
+test("setMessages：role=system 条目不入列（pi 0.86+ 系统提示条目兜底）", () => {
+	useSessionStore.getState().setMessages("s-sys", [
+		{ message: { role: "system", content: "", sections: { preamble: "x" }, timestamp: 0 } },
+		{ message: { role: "user", content: "hi", timestamp: 1 } },
+		{ message: { role: "assistant", content: [{ type: "text", text: "yo" }], timestamp: 2 } },
+	] as any);
+	const list = useSessionStore.getState().messagesBySession["s-sys"] as any[];
+	expect(list.map((m) => m.message.role)).toEqual(["user", "assistant"]);
+});

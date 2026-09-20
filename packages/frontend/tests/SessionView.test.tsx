@@ -805,8 +805,8 @@ test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
 	expect(screen.getByText(/本轮: ↑3\.2K\/↓1\.1K/)).toBeTruthy();
 	// 累计 = total（含 cacheRead/cacheWrite）：6400+2100+1500+200 = 10200 → 10.2K
 	expect(screen.getByText(/累计 10\.2K/)).toBeTruthy();
-	// cacheRead/(input+cacheRead+cacheWrite) = 1500/(3200+1500+200) ≈ 30.61% → 30.6%
-	expect(screen.getByText(/缓存 30\.6%/)).toBeTruthy();
+	// 缓存 = 整会话累计口径：cacheRead/(input+cacheRead+cacheWrite) = 1500/(6400+1500+200) ≈ 18.52% → 18.5%
+	expect(screen.getByText(/缓存 18\.5%/)).toBeTruthy();
 });
 
 test("token 胶囊：缓存命中率 ≥99.95% 时向下取整显示 99.9%，不显示误导的 100%", () => {
@@ -814,6 +814,9 @@ test("token 胶囊：缓存命中率 ≥99.95% 时向下取整显示 99.9%，不
 		// 19990/(10+19990+0) = 99.95%——四舍五入会显示 100%，但实际并非 100%
 		lastUsageBySession: {
 			s1: { input: 10, output: 100, cacheRead: 19990, cacheWrite: 0 },
+		},
+		tokenTotals: {
+			s1: { input: 10, output: 100, cacheRead: 19990, cacheWrite: 0, total: 20100 },
 		},
 	});
 	useProjectsStore.setState({
@@ -1679,4 +1682,34 @@ test("扩展 widget chip 队列：拖动松手后的 click 被吞掉（不误展
 	expect(screen.getByTestId("ext-widget-pi-goal").textContent).not.toContain(
 		"进度 4/6",
 	);
+});
+
+test("token 胶囊：缓存命中率按整会话累计（主+子）计算，而非最近一条 assistant 的 lastUsage", () => {
+	useSessionStore.setState({
+		// lastUsage 故意给不同值：旧实现按它算 = 10/60 ≈ 16.7%
+		lastUsageBySession: {
+			s1: { input: 50, output: 0, cacheRead: 10, cacheWrite: 0 },
+		},
+		// 官方 stats（含子代理+warming）：200/(100+200+0) ≈ 66.67% → 66.6%
+		tokenTotals: {
+			s1: { input: 100, output: 0, cacheRead: 200, cacheWrite: 0, total: 300 },
+		},
+	});
+	useProjectsStore.setState({
+		sessions: [
+			{
+				id: "s1",
+				projectId: "p1",
+				primaryAgent: "dev",
+				title: "测试",
+				createdAt: 0,
+				lastActivity: 0,
+				piSessionFile: "/tmp/s1.jsonl",
+			},
+		],
+		projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
+	});
+	render(<SessionView sessionId="s1" />);
+	expect(screen.getByText(/缓存 66\.6%/)).toBeTruthy();
+	expect(screen.queryByText(/缓存 16\.7%/)).toBeNull();
 });

@@ -1,6 +1,7 @@
 import { ConfigStore } from "./config-store";
 import { ProjectStore } from "./project-store";
 import { ProviderStore } from "./provider-store";
+import { syncCompactionOverrides } from "./compaction-overrides";
 import { AgentManager } from "./agent-manager";
 import { WSServer } from "./ws-server";
 import { SkillManager } from "./skill-manager";
@@ -146,6 +147,8 @@ export async function startKernel(opts?: {
 	const configStore = new ConfigStore();
 	const projectStore = new ProjectStore();
 	const providerStore = new ProviderStore();
+	// 压缩预算同步（pi 0.86+ modelOverrides）：失败不影响启动；写在 pi 子进程 spawn 前以保证首个会话生效
+	await syncCompactionOverrides().catch(() => {});
 	const skillManager = new SkillManager(WA_PI_DIR);
 	const extensionManager = new ExtensionManager(WA_PI_DIR);
 	const memoryStore = new MemoryStore({ waPiDir: WA_PI_DIR, projectStore });

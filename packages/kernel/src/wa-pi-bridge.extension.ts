@@ -7,7 +7,11 @@
 // 工具文案与 Schema 来源于 @wa-pi/shared/tool-schemas.ts（复制到同目录下）。
 // 不再动态生成——文案统一来源，kernel 侧与 bridge 侧引用同一份定义。
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ToolCallEvent,
+	ToolExecutionEndEvent,
+} from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Type } from "typebox";
@@ -692,7 +696,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	pi.on("tool_call", (event: any) => {
+	pi.on("tool_call", (event: ToolCallEvent) => {
 		if (event.toolName !== "edit" && event.toolName !== "write") return;
 		const path = event.input?.path;
 		if (typeof path !== "string") return;
@@ -705,7 +709,7 @@ export default function (pi: ExtensionAPI) {
 		);
 	});
 
-	pi.on("tool_execution_end", (event: any) => {
+	pi.on("tool_execution_end", (event: ToolExecutionEndEvent) => {
 		if (event.toolName !== "edit" && event.toolName !== "write") return;
 		recordAfter(snapshots, toolCallIdToPath, event.toolCallId, readSnapshot);
 	});

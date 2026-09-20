@@ -104,6 +104,15 @@ export function estimateMessageTokens(message: any): number {
 			}
 			return Math.ceil(chars / CHARS_PER_TOKEN);
 		}
+		case "system": {
+			// pi 0.86+ 系统提示消息：正文在 sections（content 常为空串），漏算会低估压缩守卫的占用判定
+			let chars = contentChars(message.content);
+			const sections = (message.sections ?? {}) as Record<string, string>;
+			for (const v of Object.values(sections)) {
+				if (typeof v === "string") chars += charWeighted(v);
+			}
+			return Math.ceil(chars / CHARS_PER_TOKEN);
+		}
 		case "bashExecution":
 			return Math.ceil(
 				charWeighted(`${message.command ?? ""}${message.output ?? ""}`) /
