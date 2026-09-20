@@ -4,6 +4,7 @@
 - fix(test-infra): 测试隔离 preload 提升到根 bunfig.toml，修复跑测试打生产会话列表的 P0——隔离 preload 原本只挂在 packages/kernel/bunfig.toml，从仓库根 / IDE 直接 bun test 时不加载 → shared 的 WA_PI_DIR 常量落到默认 ~/.pi/agent（生产）→ 测试与常驻生产 kernel 并发全量覆盖写 projects.json → 会话列表被覆盖/清空回初始化态（project-store 注释自证的「反复变空」事故链）。修复：根 + frontend bunfig 均挂 kernel tests/setup.ts（清代理 env + WA_PI_DIR/PI_CODING_AGENT_DIR 隔离到 mkdtemp 临时目录）；bun preload 相对 bunfig 文件目录解析，frontend 路径需含 packages/ 层级。验证：根跑隔离探针 pass（WA_PI_DIR=wa-pi-kernel-test-*）、kernel idle-reap 4 pass、frontend store 测试 2 pass、生产 projects.json 无测试残留。
 - feat(kernel): fleet 补并发上限校验——tasks 超过 6 个时同样在派发前拒绝（不再排队等位），返回「拆成多次 fleet 调用」文案（details.error=fleet_too_many_tasks）；FLEET_DESCRIPTION「超出排队」→「超出会被拒绝」与行为对齐。测试：kernel 单测（超限拒绝 + 上限边界不误杀；原「8 任务排队」用例随行为变更改为上限内聚合）/ bridge 真实 HTTP NDJSON / FleetCard 组件 / Playwright E2E。
 - 修复(memory)：检索打分全集归一化——bm25 min-max 池相关缩放导致第一页相关性塌方（强相关条目被时间新近弱相关挤出）与深翻页边界 ±1 漂移；候选池改为 FULL_SCAN_CAP=2000 全集物化（FTS+substring 双路径），实测三页 0 重复 0 遗漏、2000 命中排序仅 5.3ms。
+- feat(scripts): 新增会话列表重建工具 scripts/rebuild-projects.ts（P0 事故善后）——projects.json 被全量覆盖成空库时，从 sessions/*.jsonl 反推会话（文件名即 id、cwd/时间取首行、标题取首条真人消息前 20 字并跳过 <skill> 注入块、智能体名取 session_info）与项目（按 cwd 归一，workdir→默认工作区，沿用现有 projects.json 的 id 避免会话挂到不存在的项目）；默认预演不写盘，--apply 才落盘且先备份，projects.json 解析失败即中止不静默覆盖。配 scripts/__tests__/rebuild-projects.test.ts（12 用例）。
 
 ## 2026-09-19 — v0.5.2 发版（并行派发显示 + fleet 回复拆分 + 非 git 仓库降级）
 
