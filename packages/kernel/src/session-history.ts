@@ -218,7 +218,11 @@ export async function readSessionHistory(
 		const msgs = visible
 			.filter(
 				(e): e is SessionLogEntry & { message: any; timestamp?: string } =>
-					e.type === "message" && e.message != null,
+					e.type === "message" &&
+					e.message != null &&
+					// pi 0.86+ 会把系统提示（sections+toolsAdded/Removed）持久化为 role:"system" 条目，
+					// 它不是对话内容：不进聊天历史、不下发前端（前端另有兜底防御）
+					e.message.role !== "system",
 			)
 			// 浅拷贝 + 附加行级落盘时刻（Pi 单块轮 assistant 消息在 prompt 时预创建，
 			// message.timestamp 不可靠 ≈ user 时刻；真实耗时在 jsonl 每行的落盘 timestamp）
