@@ -1,5 +1,11 @@
 ## 2026-09-20
 
+- chore(deps): pi-ai/pi-coding-agent/pi-tui 同步升级 0.86.0（真机冒烟通过：0.86 系统提示落盘、strict JSON-schema 采样下自建网关 write/read 工具正常、真实压缩后 compaction 条目含 pi 自动填充的 systemMessage 检查点（6 提示段+7 工具声明）、cache warming 因自建模型无 promptCache 寿命元数据未触发符合预期；pi 侧 contextWindow 为内置目录优先，providers.json 调小窗口不影响压缩阈值）。
+- fix(kernel): 会话解析对齐 pi 0.86 格式——computeSessionUsage 计入 usage 条目（cache_warm 等，对齐官方 token/成本口径）、readSessionHistory 过滤 role=system 条目（不进聊天历史不下发前端）、上下文估算补 role=system 分支（按 content+sections 计，压缩守卫不再低估）；锁定 usage 条目作叶子仍可回溯的回归。
+- feat(frontend): 缓存命中率改整会话累计口径（主代理+子代理+warming 用量合计，数据源 tokenTotals/session:stats 官方与降级两路同口径）；role=system 消息兜底防御（不入列、不渲染，防刷新前后不一致与空白行）；shared 补 SystemMessage 类型。
+- feat(kernel): 按 0.2×上下文窗口规则自动同步 compaction.modelOverrides（触发点 80%，与 auto-compact 双轨合一；只增改 providers.json 自建模型键、不写全局值、settings.json 缺失/坏 JSON 时 no-op；真机验证 1M 窗口模型写入 200000、窗口改 8000 时动态跟随 1600）。
+- refactor(kernel): bridge 扩展事件换用 pi 0.86 导出的公开类型（ToolCallEvent/ToolExecutionEndEvent）；compaction-guard-core 按「不依赖 pi 包」既有设计约束保持不变。
+
 - feat(kernel): fleet 并行委派加运行时校验——tasks 仅 1 个时拒绝执行、不启动任何子智能体，返回引导文本提示改用 delegate 单个委派（details.error=fleet_requires_multiple_tasks；schema 不加 minItems，走友好文案而非框架校验报错）。补四层测试：kernel 单测 / FleetCard 组件 / bridge 真实 HTTP NDJSON 流式（含不卡流断言）/ Playwright E2E。
 - fix(test-infra): 测试隔离 preload 提升到根 bunfig.toml，修复跑测试打生产会话列表的 P0——隔离 preload 原本只挂在 packages/kernel/bunfig.toml，从仓库根 / IDE 直接 bun test 时不加载 → shared 的 WA_PI_DIR 常量落到默认 ~/.pi/agent（生产）→ 测试与常驻生产 kernel 并发全量覆盖写 projects.json → 会话列表被覆盖/清空回初始化态（project-store 注释自证的「反复变空」事故链）。修复：根 + frontend bunfig 均挂 kernel tests/setup.ts（清代理 env + WA_PI_DIR/PI_CODING_AGENT_DIR 隔离到 mkdtemp 临时目录）；bun preload 相对 bunfig 文件目录解析，frontend 路径需含 packages/ 层级。验证：根跑隔离探针 pass（WA_PI_DIR=wa-pi-kernel-test-*）、kernel idle-reap 4 pass、frontend store 测试 2 pass、生产 projects.json 无测试残留。
 - feat(kernel): fleet 补并发上限校验——tasks 超过 6 个时同样在派发前拒绝（不再排队等位），返回「拆成多次 fleet 调用」文案（details.error=fleet_too_many_tasks）；FLEET_DESCRIPTION「超出排队」→「超出会被拒绝」与行为对齐。测试：kernel 单测（超限拒绝 + 上限边界不误杀；原「8 任务排队」用例随行为变更改为上限内聚合）/ bridge 真实 HTTP NDJSON / FleetCard 组件 / Playwright E2E。
