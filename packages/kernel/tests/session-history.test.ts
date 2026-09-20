@@ -808,3 +808,41 @@ test("轮级耗时：无 user 起点（只有 assistant）不注入", async () =
 	const history = (await readSessionHistory(file)) as any[];
 	expect(history[0].turnElapsedMs).toBeUndefined();
 });
+
+/** 构造 pi 0.86 起的 usage 条目（UsageEntry：kind 任意，如 cache_warm；对齐 session-manager.appendUsage） */
+function usageEntry(
+	id: string,
+	parentId: string | null,
+	kind: string,
+	usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number },
+	ts: number,
+): string {
+	return JSON.stringify({
+		type: "usage",
+		id,
+		parentId,
+		timestamp: new Date(ts).toISOString(),
+		kind,
+		provider: "p",
+		model: "m",
+		usage,
+	});
+}
+
+test("computeSessionUsage：usage 条目（cache_warm）计入主代理统计（对齐 pi 官方 totals）", async () => {
+	const file = join(dir, "s-usage-entry.jsonl");
+	writeFileSync(
+		file,
+		[
+			msg("m1", null, "user", "你好", 1),
+			msgUsage("m2", "m1", "assistant", "回复", 2, { input: 100, output: 10 }),
+			usageEntry("u1", "m2", "cache_warm", { input: 0, output: 1, cacheRead: 50000, cacheWrite: 0 }, 3),
+		].join("\n"),
+	);
+	const split = await computeSessionUsage(file);
+	// usage 条目归 main（cache_warm 非 toolResult 载体，不进 subagent）
+	expect(split.main.cacheRead).toBe(50000);
+	expect(split.main.input).toBe(100);
+	expect(split.main.output).toBe(11);
+	expect(split.subagent.total).toBe(0);
+});

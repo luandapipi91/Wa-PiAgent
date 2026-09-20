@@ -29,6 +29,9 @@ interface SessionLogEntry {
 	summary?: string;
 	/** compaction 节点：压缩前上下文 token 估算 */
 	tokensBefore?: number;
+	/** pi 0.86+ usage 条目：kind 任意（如 cache_warm），usage 计入会话总量 */
+	kind?: string;
+	usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
 }
 
 /**
@@ -309,6 +312,7 @@ export interface SessionUsageSplit {
  * （不做压缩过滤、不做分支过滤），口径对齐 pi RPC get_session_stats：
  * - assistant message.usage → main
  * - compaction / branch_summary 条目的 usage（摘要生成消耗）→ main
+ * - usage 条目（pi 0.86+，kind 任意如 cache_warm）→ main
  * - toolResult message.usage（工具内嵌 LLM 消耗，即 delegate/fleet 子代理）→ subagent
  *
  * usage 为 0 的条目（error 消息、pending 占位等）自然被跳过。
@@ -342,6 +346,12 @@ export async function computeSessionUsage(
 		if (!e || typeof e !== "object") continue;
 		// compaction / branch_summary 条目：摘要生成的 LLM 消耗计入主代理（对齐官方 totals）
 		if ((e.type === "compaction" || e.type === "branch_summary") && e.usage) {
+			sawAny = true;
+			add(main, e.usage);
+			continue;
+		}
+		// pi 0.86 起的 usage 条目（kind 任意，如 cache_warm）：官方计入 session totals → 归主代理
+		if (e.type === "usage" && e.usage) {
 			sawAny = true;
 			add(main, e.usage);
 			continue;
