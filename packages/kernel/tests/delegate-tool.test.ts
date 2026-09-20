@@ -344,6 +344,42 @@ test("fleet: 仅 1 个任务时拒绝执行，提示改用 delegate", async () =
 	expect(spawn).not.toHaveBeenCalled();
 });
 
+test("fleet: 超过并发上限时拒绝执行，提示拆成多次调用", async () => {
+	const spawn = mock(async () => ({ text: "ok", isError: false }));
+	const tool = makeFleetTool({ askTo, spawn });
+	const res = await tool.execute("tc-over", {
+		tasks: Array.from({ length: MAX_SUBAGENT_CONCURRENCY + 1 }, (_, i) => ({
+			agent: "质量验收",
+			task: `task${i}`,
+		})),
+	});
+	expect(res.isError).toBe(true);
+	// 文案要点：给出上限数值 + 引导拆成多次调用（拒绝而非排队）
+	expect(res.content[0].text).toContain(`最多 ${MAX_SUBAGENT_CONCURRENCY} 个`);
+	expect(res.content[0].text).toContain("拆成多次");
+	expect(res.content[0].text).not.toContain("delegate");
+	expect(res.details).toEqual({ error: "fleet_too_many_tasks" });
+	// 拒绝在派发前发生：不得启动任何子智能体
+	expect(spawn).not.toHaveBeenCalled();
+});
+
+test("fleet: 任务数正好等于并发上限时正常执行（边界不误杀）", async () => {
+	const spawn = mock(async (_agent: string, task: string) => ({
+		text: `${task}完成`,
+		isError: false,
+	}));
+	const tool = makeFleetTool({ askTo, spawn });
+	const res = await tool.execute("tc-boundary", {
+		tasks: Array.from({ length: MAX_SUBAGENT_CONCURRENCY }, (_, i) => ({
+			agent: "质量验收",
+			task: `task${i}`,
+		})),
+	});
+	expect(res.isError).toBe(false);
+	expect(spawn).toHaveBeenCalledTimes(MAX_SUBAGENT_CONCURRENCY);
+	expect(res.content[0].text).toContain(`task${MAX_SUBAGENT_CONCURRENCY - 1}完成`);
+});
+
 test("fleet: 聚合各子代理 toolStats 到 details.fleet（完成态持久化统计）", async () => {
 	const spawn = mock(async (agent: string) => ({
 		text: `[${agent}] done`,
@@ -1001,8 +1037,10 @@ test("fleet: 整体中止——已完成子任务结果完整保留，被中止�
 	expect(res.details?.interrupted).toEqual({ "0": false, "1": true });
 }, 10_000);
 
-// B3：先头任务失败不影响排队任务——8 任务超并发上限（6），末尾 2 个排队仍执行
-test("fleet: 先头任务失败不影响排队任务——超出并发上限的任务照常执行且结果全保留", async () => {
+// B3：先头任务失败不影响其余任务——6 个任务（= 并发上限）全部执行且结果全保留。
+// （旧版用 8 个任务验证「超限排队」；上限改为派发前拒绝后不再有排队分支，
+//  「超限拒绝」由上面的参数校验用例覆盖，此处只锁上限内的正常聚合）
+test("fleet: 先头任务失败不影响其余任务——上限内任务全部执行且结果全保留", async () => {
 	const executed: string[] = [];
 	const spawn = mock(
 		async (_agent: string, task: string): Promise<any> => {
@@ -1013,17 +1051,18 @@ test("fleet: 先头任务失败不影响排队任务——超出并发上限的�
 	);
 	const tool = makeFleetTool({ askTo, spawn });
 	const res = await tool.execute("tc-fleet-queue", {
-		tasks: Array.from({ length: 8 }, (_, i) => ({
+		tasks: Array.from({ length: MAX_SUBAGENT_CONCURRENCY }, (_, i) => ({
 			agent: i === 0 ? "代码审查" : "质量验收",
 			task: `任务${i}`,
 		})),
 	});
-	// 全部 8 个任务都被执行（含排队中尚未启动的 6、7）
-	expect(executed).toHaveLength(8);
+	// 全部 6 个任务都被执行
+	expect(executed).toHaveLength(MAX_SUBAGENT_CONCURRENCY);
 	const text = res.content[0].text;
-	// 失败者与其余 7 个成功者的结果全部保留
+	// 失败者与其余 5 个成功者的结果全部保留
 	expect(text).toContain("任务0失败");
-	for (let i = 1; i < 8; i++) expect(text).toContain(`任务${i}完成`);
+	for (let i = 1; i < MAX_SUBAGENT_CONCURRENCY; i++)
+		expect(text).toContain(`任务${i}完成`);
 	expect(text).toContain("【代码审查】（失败）");
 });
 

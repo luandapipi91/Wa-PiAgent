@@ -1,6 +1,7 @@
 ## 2026-09-20
 
 - feat(kernel): fleet 并行委派加运行时校验——tasks 仅 1 个时拒绝执行、不启动任何子智能体，返回引导文本提示改用 delegate 单个委派（details.error=fleet_requires_multiple_tasks；schema 不加 minItems，走友好文案而非框架校验报错）。补四层测试：kernel 单测 / FleetCard 组件 / bridge 真实 HTTP NDJSON 流式（含不卡流断言）/ Playwright E2E。
+- feat(kernel): fleet 补并发上限校验——tasks 超过 6 个时同样在派发前拒绝（不再排队等位），返回「拆成多次 fleet 调用」文案（details.error=fleet_too_many_tasks）；FLEET_DESCRIPTION「超出排队」→「超出会被拒绝」与行为对齐。测试：kernel 单测（超限拒绝 + 上限边界不误杀；原「8 任务排队」用例随行为变更改为上限内聚合）/ bridge 真实 HTTP NDJSON / FleetCard 组件 / Playwright E2E。
 
 ## 2026-09-19 — v0.5.2 发版（并行派发显示 + fleet 回复拆分 + 非 git 仓库降级）
 

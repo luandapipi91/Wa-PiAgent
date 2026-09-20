@@ -534,7 +534,7 @@ export function makeFleetTool(opts: {
 						/** 按任务序号（String(index)）的中断标记：子代理非正常终态（中止/超时/异常）为 true */
 						interrupted: Record<string, boolean>;
 				  }
-				/** 参数拒绝标记：任务数不足（仅 1 个）时给出，无 fleet 统计
+				/** 参数拒绝标记：任务数不合法（少于 2 个或超过上限）时给出，无 fleet 统计
 				 *  （显式声明缺失字段为 undefined，让调用侧访问 fleet/interrupted 不因联合变体报错） */
 				| { fleet?: undefined; interrupted?: undefined; error: string }
 				| undefined;
@@ -559,6 +559,19 @@ export function makeFleetTool(opts: {
 						},
 					],
 					details: { error: "fleet_requires_multiple_tasks" },
+					isError: true,
+				};
+			}
+			// 超过并发上限拒绝而非排队：排队会占住父代理的工具槽位且模型看不出「没并发」
+			if (args.tasks.length > MAX_SUBAGENT_CONCURRENCY) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `错误：fleet 一次最多 ${MAX_SUBAGENT_CONCURRENCY} 个任务（当前 ${args.tasks.length} 个）。请拆成多次 fleet 调用（每次不超过 ${MAX_SUBAGENT_CONCURRENCY} 个）。`,
+						},
+					],
+					details: { error: "fleet_too_many_tasks" },
 					isError: true,
 				};
 			}

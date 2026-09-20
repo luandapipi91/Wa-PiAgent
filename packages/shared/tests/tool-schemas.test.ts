@@ -135,6 +135,9 @@ test("FLEET_DESCRIPTION 并发数与 FLEET_MAX_CONCURRENCY 同源（防模板/�
   );
   expect(FLEET_MAX_CONCURRENCY).toBe(6); // 数值 2026-09-01 用户拍板
   expect(FLEET_DESCRIPTION).toContain(`并发上限 ${FLEET_MAX_CONCURRENCY}`);
+  // 上限语义：超出即拒绝（kernel 前置校验），不再「排队等位」——文案必须与行为一致，
+  // 否则模型会以为能一次提交超过上限的任务
+  expect(FLEET_DESCRIPTION).toContain("超出会被拒绝");
   expect(FLEET_DESCRIPTION).not.toContain("Concurrency limit is 5");
   expect(FLEET_DESCRIPTION).not.toContain("Concurrency limit is 6");
 });
