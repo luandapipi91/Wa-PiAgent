@@ -2881,3 +2881,26 @@ test("乐观占位消息带附件引用 → 立即显示附件 chip（不必等 
 	// 避免同一条消息在「乐观占位 → pi 回声」前后显示不同名字
 	expect(chip?.textContent).toBe("附件:plan.pptx");
 });
+
+test("role=system 消息不渲染任何行（兜底 kernel 过滤，pi 0.86 会话格式）", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "system", content: "", sections: { preamble: "x" }, timestamp: 1 }, agentName: "dev" },
+				{ message: { role: "user", content: "你好", timestamp: 2 }, agentName: "dev" },
+			],
+		},
+	});
+	const { container } = render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	// system 条目不得产出消息行（msg-<sid>-<ts>，system 的 timestamp=1）或任何文字气泡
+	expect(screen.queryByTestId("msg-s1-1")).toBeNull();
+	expect(screen.queryByTestId("msg-s1-2")).not.toBeNull();
+	expect(screen.queryByTestId("text-block")).toBeNull();
+	// 相邻 user 消息仍正常渲染
+	expect(screen.getByText("你好")).toBeTruthy();
+	void container;
+});

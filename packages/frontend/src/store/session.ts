@@ -376,9 +376,13 @@ export const useSessionStore = create<SessionState>((set) => {
 
 		setMessages: (sessionId, messages) =>
 			set((s) => {
+				// pi 0.86+ 的 role:"system" 条目（系统提示落盘）不是对话内容：kernel 已滤，这里兜底
+				const incoming = (messages as any[]).filter(
+					(m) => (m?.message as any)?.role !== "system",
+				);
 				const existing = s.messagesBySession[sessionId] ?? [];
 				const existingKeys = new Set(existing.map(msgKey));
-				const newFromHistory = messages.filter((m) => !existingKeys.has(msgKey(m)));
+				const newFromHistory = incoming.filter((m) => !existingKeys.has(msgKey(m)));
 				const all = [...existing, ...newFromHistory].sort(
 					(a: any, b: any) => a.message.timestamp - b.message.timestamp,
 				);

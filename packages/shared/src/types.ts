@@ -267,7 +267,18 @@ export interface CustomMessage {
 
 // 前三者用 role 字段区分；CustomMessage 没有 role，用顶层 type 区分
 export type RoleMessage = UserMessage | AssistantMessage | ToolResultMessage;
-export type AgentMessage = RoleMessage | CustomMessage;
+/** pi 0.86+ 会把系统提示（sections + toolsAdded/toolsRemoved）持久化为 role:"system" 条目；
+ *  不是对话内容：kernel 已过滤、前端兜底不渲染，类型上保留以便消费方识别。 */
+export interface SystemMessage {
+	role: "system";
+	content: string | Array<{ type: "text"; text: string }>;
+	/** 提示段落（正文实际所在处，pi 0.86+ 落盘形态） */
+	sections?: Record<string, string>;
+	toolsAdded?: Array<{ name: string; description?: string; parameters?: unknown }>;
+	toolsRemoved?: Array<{ name: string }>;
+	timestamp: number;
+}
+export type AgentMessage = RoleMessage | CustomMessage | SystemMessage;
 
 // 镜像 @earendil-works/pi-ai AssistantMessageEvent（流式增量事件）
 // 0.84 起 RPC/JSON 序列化（toJsonEvent）会剥离 partial 快照：message_update 只携带

@@ -1276,6 +1276,10 @@ export const MessageRow = memo(function MessageRow({
 	);
 
 	// custom 消息（如 agent_switch 分隔行 / pi-subagents 完成通知）：
+	// pi 0.86+ 系统提示条目兜底：kernel 已过滤，若仍到达则不渲染（避免落进 assistant 分支出空行）。
+	// 注意：须置于全部 hooks 之后（early return 不得跳过 hook）
+	if ((m as any).role === "system") return null;
+
 	// 兼容两种字段——前端构造用 type:"custom"，Pi SDK 内存消息用 role:"custom"。
 	if (
 		m.type === "custom" ||
