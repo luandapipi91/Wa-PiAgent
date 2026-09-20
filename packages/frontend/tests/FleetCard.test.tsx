@@ -746,3 +746,86 @@ test("FleetCard 完成态：仍只渲染有统计/回复的任务行（不靠空
 	).toBeTruthy();
 	expect(screen.queryByText(/任务 2：已完成/)).toBeNull();
 });
+
+// ── fleet 单任务拒绝结果（kernel 前置校验新增）的消费形态 ──
+// 形状：isError=true、content 仅一段引导文案、details={error:"fleet_requires_multiple_tasks"}、
+// tasks 只含 1 个 agent。FleetCard 按运行时可选方式读 details（fleetDetails?.fleet / ?.interrupted），
+// 本组用例把「不崩 + 渲染引导文案 + 失败态可见 + 不冒出空行/伪造任务行」钉成回归。
+
+const singleTaskRejectCall = {
+	type: "toolCall" as const,
+	id: "f-single",
+	name: "fleet",
+	arguments: { tasks: [{ agent: "代码审查", task: "评审改动" }] },
+};
+const SINGLE_TASK_REJECT_TEXT =
+	'错误：fleet 用于并行委派，至少需要 2 个任务（当前只有 1 个）。只委派单个任务时请改用 delegate 单任务工具，例如 delegate(agent="代码审查", task="评审改动")。';
+
+/** 单任务拒绝结果：isError 可切换——true 是「结果标记被透传」的形态；
+ *  false 是当前真实链路形态（pi SDK 成功路径恒 isError:false，不读 execute 返回的
+ *  result.isError，见 delegate-tool.ts 头注释）。 */
+function singleTaskRejectResult(isError: boolean) {
+	return {
+		role: "toolResult" as const,
+		toolCallId: "f-single",
+		toolName: "fleet",
+		content: [{ type: "text" as const, text: SINGLE_TASK_REJECT_TEXT }],
+		isError,
+		details: { error: "fleet_requires_multiple_tasks" },
+		timestamp: 0,
+	};
+}
+
+test("FleetCard 单任务拒绝结果（isError=true）：不抛错、渲染引导文案、显示失败态、无任务行/空回复块", () => {
+	expect(() =>
+		render(
+			<FleetCard
+				sessionId="s1"
+				toolCall={singleTaskRejectCall}
+				result={singleTaskRejectResult(true)}
+			/>,
+		),
+	).not.toThrow();
+
+	// 头部：按 tasks 数量渲染标题（1 个），走失败态分支（失败而非完成）
+	const header = screen.getByTestId("fleet-f-single-header");
+	expect(header.textContent).toContain("并行派发 1 个任务");
+	expect(header.textContent).toContain("失败");
+	expect(header.textContent).not.toContain("完成");
+
+	// 完成态默认折叠 → 展开看卡片体
+	fireEvent.click(header);
+	const body = screen.getByTestId("fleet-f-single-body");
+	// 引导文案渲染出来（拆不出逐任务回复 → 走降级聚合区）
+	expect(body.textContent).toContain("至少需要 2 个任务");
+	expect(body.textContent).toContain("delegate");
+	// 参数回显的任务清单行仍在（这是真实 params，不是伪造任务）
+	expect(body.textContent).toContain("委派【代码审查】评审改动");
+	// 拒绝路径无任何子任务统计/回复：不渲染任务统计行容器（不靠空行撑开卡片）
+	expect(screen.queryByTestId("fleet-progress-f-single")).toBeNull();
+	// 「回复：」只有聚合区 1 处，没有多出来的空回复块
+	expect(screen.getAllByText("回复：")).toHaveLength(1);
+});
+
+test("FleetCard 单任务拒绝结果（isError=false，当前真实链路形态）：引导文案照常渲染、无任务行；不出现失败态（现状锁）", () => {
+	// pi SDK 不把 execute 返回的 result.isError 透传到 ToolResultMessage（成功路径恒
+	// isError:false），因此真实会话里该结果的 isError 是 false。本用例锁住这一现状——
+	// 将来 SDK/宿主补上透传后，「不出现失败态」的断言需同步改期望。
+	expect(() =>
+		render(
+			<FleetCard
+				sessionId="s1"
+				toolCall={singleTaskRejectCall}
+				result={singleTaskRejectResult(false)}
+			/>,
+		),
+	).not.toThrow();
+
+	const header = screen.getByTestId("fleet-f-single-header");
+	expect(header.textContent).not.toContain("失败");
+	fireEvent.click(header);
+	const body = screen.getByTestId("fleet-f-single-body");
+	expect(body.textContent).toContain("至少需要 2 个任务");
+	expect(screen.queryByTestId("fleet-progress-f-single")).toBeNull();
+	expect(screen.getAllByText("回复：")).toHaveLength(1);
+});

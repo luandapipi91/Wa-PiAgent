@@ -735,6 +735,84 @@ test("handleBridgeStream 对 delegate 输出 started→progress→final NDJSON �
 	expect(parsed[2].result.content[0].text).toBe("子代理完成");
 });
 
+test("/bridge/tool 流式分支：fleet 单任务被拒（无 progress 帧）仍以 started→final 收尾，不挂住通道", async () => {
+	// 拒绝路径的完整链路：HTTP 路由 → handleBridgeStream → ctx.handleTool → fleet.execute。
+	// 单任务在 execute 前置校验里立即返回（不 spawn、不产 progress 帧），
+	// 流必须自行以 final 帧结束，不得挂住通道。
+	const { server, port } = await startTestServer();
+	try {
+		let spawnCalls = 0;
+		const fleetTool = makeFleetTool({
+			askTo: [],
+			spawn: async () => {
+				spawnCalls++;
+				return { text: "不应被调用", isError: false };
+			},
+		});
+		registerBridgeSession("s-fleet-reject", {
+			cwd: "/tmp",
+			handleTool: (tool, tcId, params) => fleetTool.execute(tcId, params as any),
+		});
+		const res = await fetch(`http://127.0.0.1:${port}/bridge/tool`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				token: getBridgeToken(),
+				sessionId: "s-fleet-reject",
+				toolCallId: "tc-fleet-reject",
+				tool: "fleet",
+				params: { tasks: [{ agent: "代码审查", task: "评审改动" }] },
+			}),
+		});
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("application/x-ndjson");
+
+		// 流必须自行结束：读取加 8s 上限，超时即失败（正面证明「拒绝路径不卡流式通道」）
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const ndjson = await Promise.race([
+			res.text(),
+			new Promise<string>((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error("拒绝路径未在 8s 内结束流")),
+					8000,
+				);
+			}),
+		]).finally(() => clearTimeout(timer));
+		const frames = ndjson
+			.split("\n")
+			.filter((l) => l.trim().length > 0)
+			.map((l) => JSON.parse(l));
+
+		// 立即返回：没有 progress/ping 帧，序列就是 started→final
+		expect(frames.map((f) => f.type)).toEqual(["started", "final"]);
+		expect(frames[0]).toMatchObject({
+			type: "started",
+			protocol: 1,
+			tool: "fleet",
+			toolCallId: "tc-fleet-reject",
+		});
+		// final 帧的 ok 恒为 true（协议层「流正常结束」标记）；业务失败经 result.isError 表达
+		expect(frames[1]).toMatchObject({
+			type: "final",
+			tool: "fleet",
+			toolCallId: "tc-fleet-reject",
+			ok: true,
+		});
+		expect(frames[1].result.isError).toBe(true);
+		expect(frames[1].result.details).toEqual({
+			error: "fleet_requires_multiple_tasks",
+		});
+		const text = frames[1].result.content[0].text as string;
+		expect(text).toContain("至少需要 2 个任务");
+		expect(text).toContain("delegate");
+		// 拒绝发生在派发之前：没有任何子智能体被启动
+		expect(spawnCalls).toBe(0);
+	} finally {
+		unregisterBridgeSession("s-fleet-reject");
+		await server.stop();
+	}
+});
+
 test("handleBridgeStream 对 memory_add 返回 null（非流式工具走旧路径）", async () => {
 	const token = getBridgeToken();
 	const sessionId = "stream-test-sid2";

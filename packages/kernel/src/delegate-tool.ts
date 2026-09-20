@@ -534,6 +534,9 @@ export function makeFleetTool(opts: {
 						/** 按任务序号（String(index)）的中断标记：子代理非正常终态（中止/超时/异常）为 true */
 						interrupted: Record<string, boolean>;
 				  }
+				/** 参数拒绝标记：任务数不足（仅 1 个）时给出，无 fleet 统计
+				 *  （显式声明缺失字段为 undefined，让调用侧访问 fleet/interrupted 不因联合变体报错） */
+				| { fleet?: undefined; interrupted?: undefined; error: string }
 				| undefined;
 			isError: boolean;
 			usage?: ReturnType<typeof sumPiToolUsage>;
@@ -543,6 +546,20 @@ export function makeFleetTool(opts: {
 					content: [{ type: "text" as const, text: "无任务" }],
 					details: undefined,
 					isError: false,
+				};
+			}
+			// 单任务不属于并行委派：拒绝执行并引导改用 delegate，而不是跑一个无并行收益的
+			// 「fleet」。不抛异常，与文件既有约定一致（错误经文本传达给 LLM）
+			if (args.tasks.length === 1) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: '错误：fleet 用于并行委派，至少需要 2 个任务（当前只有 1 个）。只委派单个任务时请改用 delegate 单任务工具，例如 delegate(agent="代码审查", task="评审改动")。',
+						},
+					],
+					details: { error: "fleet_requires_multiple_tasks" },
+					isError: true,
 				};
 			}
 

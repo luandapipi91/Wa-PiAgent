@@ -309,8 +309,12 @@ test("fleet: 单个任务失败不影响其他任务，聚合标记 isError", as
 test("fleet: 越权 agent 跳过 spawn，单项返回错误文本", async () => {
 	const spawn = mock(async () => ({ text: "ok", isError: false }));
 	const tool = makeFleetTool({ askTo, spawn });
+	// 两个任务：单任务 fleet 已被 execute 前置拒绝，走不到 allowlist 分支
 	const res = await tool.execute("tc6", {
-		tasks: [{ agent: "陌生人", task: "x" }],
+		tasks: [
+			{ agent: "陌生人", task: "x" },
+			{ agent: "陌生人2", task: "y" },
+		],
 	});
 	expect(res.isError).toBe(true);
 	expect(res.content[0].text).toContain("不在可调起列表");
@@ -323,6 +327,21 @@ test("fleet: 空任务数组返回提示文本", async () => {
 	const res = await tool.execute("tc7", { tasks: [] });
 	expect(res.isError).toBe(false);
 	expect(res.content[0].text).toContain("无任务");
+});
+
+test("fleet: 仅 1 个任务时拒绝执行，提示改用 delegate", async () => {
+	const spawn = mock(async () => ({ text: "ok", isError: false }));
+	const tool = makeFleetTool({ askTo, spawn });
+	const res = await tool.execute("tc8", {
+		tasks: [{ agent: "代码审查", task: "review" }],
+	});
+	expect(res.isError).toBe(true);
+	// 文案要点：并行委派需 2 个以上任务 + 指向 delegate 单任务委派
+	expect(res.content[0].text).toContain("delegate");
+	expect(res.content[0].text).toContain("2");
+	expect(res.details).toEqual({ error: "fleet_requires_multiple_tasks" });
+	// 拒绝在派发前发生：不得启动任何子智能体
+	expect(spawn).not.toHaveBeenCalled();
 });
 
 test("fleet: 聚合各子代理 toolStats 到 details.fleet（完成态持久化统计）", async () => {
@@ -1027,6 +1046,6 @@ test("fleet: 单任务 spawn 抛异常不连坐——其余任务结果保留，
 	expect(text).toContain("任务1完成"); // 其余任务不受影响
 	expect(text).toContain("配置读取崩溃"); // 异常信息对主代理可见
 	expect(text).toContain("【代码审查】（失败·中断）"); // 异常属非正常终态
-	expect(res.details?.interrupted["0"]).toBe(true);
+	expect(res.details?.interrupted?.["0"]).toBe(true);
 	expect(res.isError).toBe(true);
 });
