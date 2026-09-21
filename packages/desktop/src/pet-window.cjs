@@ -185,9 +185,13 @@ function setupPetWindow(deps = {}) {
 		const win = petWin;
 		petWin = null;
 		try {
-			win.destroy();
+			// 走正常关闭流程（close），不用 destroy：destroy 是强制销毁、不触发关闭流程，
+			// 系统可见性变化事件会在对象已释放之后才被 Electron 内部钩子处理 → 主进程抛
+			// “Object has been destroyed”（BrowserWindow.visibilityChanged）并整应用退出。
+			// 仓库既有窗口（预览窗口）同样只用 hide / close。
+			win.close();
 		} catch (e) {
-			log?.error?.("[pet] 销毁宠物窗口失败", e);
+			log?.error?.("[pet] 关闭宠物窗口失败", e);
 		}
 	};
 

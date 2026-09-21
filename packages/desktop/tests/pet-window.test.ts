@@ -143,9 +143,16 @@ function makeHarness() {
 			this.shown += 1;
 			calls.push(["show", true]);
 		}
+		isVisible() {
+			return true;
+		}
 		destroy() {
 			this.destroyed = true;
 			calls.push(["destroy", true]);
+		}
+		close() {
+			this.destroyed = true;
+			calls.push(["close", true]);
 		}
 		setPosition(x: number, y: number) {
 			calls.push(["setPosition", { x, y }]);
@@ -440,5 +447,44 @@ test("Linux 下不传 forward（平台不支持该参数）", () => {
 		expect(calls[1]).toEqual({ flag: false, opts: undefined });
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("销毁宠物窗口走正常关闭流程（close），不用强制 destroy", () => {
+	// destroy() 的语义是「强制销毁、不触发关闭流程」，会让系统可见性变化事件在对象
+	// 已释放后才被 Electron 内部钩子处理 → 主进程抛 "Object has been destroyed"（visibilityChanged）。
+	const h = makeHarness();
+	try {
+		h.pet.setEnabled(true);
+		h.pet.setEnabled(false);
+		expect(h.calls.some((c) => c[0] === "close")).toBe(true);
+		expect(h.calls.some((c) => c[0] === "destroy")).toBe(false);
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("右键「关闭桌面宠物」同样走 close，并回执主窗口", () => {
+	const h = makeHarness();
+	try {
+		h.pet.setEnabled(true);
+		h.listeners.get("pet:close")!(petSender(h));
+		expect(h.calls.some((c) => c[0] === "close")).toBe(true);
+		expect(h.calls.some((c) => c[0] === "destroy")).toBe(false);
+		expect(h.closed).toHaveLength(1);
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("退出清理同样走 close（不强制销毁）", () => {
+	const h = makeHarness();
+	try {
+		h.pet.setEnabled(true);
+		h.pet.dispose();
+		expect(h.calls.some((c) => c[0] === "close")).toBe(true);
+		expect(h.calls.some((c) => c[0] === "destroy")).toBe(false);
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
 	}
 });
