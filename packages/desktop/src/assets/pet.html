@@ -661,6 +661,9 @@ function tickCore() {
         }
         st.prev_cx = cx_;
       }
+      // 菜单展开期间不做任何自发动作（含溜达与打盹）：用户正在调整大小/选项，
+      // 宠物乱动会干扰操作。菜单收起后调度自然恢复（计时器仍在走）。
+      if (!menuWinOpen) {
       // 困了
       if (st.awake_t > st.sleep_after) {
         Object.assign(st, { state: "sleepy", ticks: 0, dur: 45 });
@@ -679,6 +682,7 @@ function tickCore() {
           st.next_special_t = st.total + randi(SPECIAL_EVERY[0], SPECIAL_EVERY[1]);
           dispatch(a);
         }
+      }
       }
       break;
     }

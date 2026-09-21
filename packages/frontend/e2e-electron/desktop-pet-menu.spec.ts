@@ -211,6 +211,36 @@ test.describe.serial("宠物右键菜单", () => {
 		expect(probe.closed).toBe("none");
 	});
 
+	test("菜单展开期间宠物不做任何自发动作（含溜达）", async () => {
+		const pet = await findPetWindow();
+		const probe = (await pet.evaluate(`
+			(() => {
+				st.wander = true;
+				st.state = "idle";
+				// 把两个调度器都推到「立刻该触发」
+				st.next_hop_t = 0;
+				st.next_special_t = 0;
+				showMainMenu(60, 60);
+				const states = new Set();
+				const xs = [];
+				for (let i = 0; i < 200; i++) {
+					menuAwayTicks = 0;   // 模拟「光标一直在菜单内」，避免触发自动收起
+					tick();
+					states.add(st.state);
+					xs.push(st.fx);
+				}
+				hideMenus();
+				return { states: [...states], moved: Math.max(...xs) - Math.min(...xs) };
+			})()
+		`)) as { states: string[]; moved: number };
+
+		// 菜单展开期间不得进入蹦跶/睡觉等动作态
+		expect(probe.states).not.toContain("hop");
+		expect(probe.states).not.toContain("sleepy");
+		// 位置不动（没溜达）
+		expect(probe.moved).toBeLessThan(2);
+	});
+
 	test("拖大小滑条时菜单不被截断（主菜单与二级菜单都完整落在窗口内）", async () => {
 		const pet = await findPetWindow();
 		const probe = (await pet.evaluate(`
