@@ -1,12 +1,11 @@
 // FileChangeSummary 组件测试：空清单不渲染、清单折叠行展开显示文件条目、
-// 修改条目点击文件名展开 diff（ReactDiffViewer）、每项分享按钮。
+// 点击文件路径打开预览（修改态也一样）、diff 展开/收起由「展开」按钮负责、分享按钮。
 //
 // 注：简报提供的测试代码导入自 "vitest"，但本仓前端测试统一用 bun:test
 // （package.json 的 test 脚本为 `bun test --isolate`，无 vitest 依赖）；且
 // 组件清单折叠行默认折叠（open=false），文件条目需先展开清单行才渲染。
-// 修改态：点击文件名展开 diff；新增/过大/失败态：点击文件名打开预览。
 // 分享弹层（ShareResultModal）挂载时会调用 shareSettings，整模块 mock 隔离。
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, test, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 mock.module("../../share-client", () => ({
@@ -16,7 +15,14 @@ mock.module("../../share-client", () => ({
 }));
 
 import { FileChangeSummary } from "./FileChangeSummary";
+import { useSessionStore } from "../../store/session";
+import { useBrowserStore } from "../../store/browser";
 import type { FileChangeSnapshot } from "@wa-pi/shared";
+
+beforeEach(() => {
+  useSessionStore.setState({ filePreview: null, mediaPreview: null });
+  useBrowserStore.setState({ open: false, path: null, sessionId: null });
+});
 
 const modified: FileChangeSnapshot = {
   path: "/a.ts",
@@ -62,18 +68,43 @@ describe("FileChangeSummary", () => {
     expect(screen.getByText("/b.ts")).toBeTruthy();
   });
 
-  test("点击修改条目展开 diff", () => {
+  test("点击文件路径打开预览（修改态不再展开 diff）", () => {
     render(<FileChangeSummary sessionId="s1" files={[modified]} />);
     // 展开清单折叠行
     fireEvent.click(
       screen.getByTestId("file-change-summary").querySelector("button")!,
     );
-    // 默认折叠，diff 未挂载
-    expect(document.querySelector("[data-testid='diff-/a.ts']")).toBeNull();
-    // 点击文件名展开 diff（修改态）
+    // 点击路径文本 → 打开文件预览（.ts 走内置文件预览器）
     fireEvent.click(screen.getByText("/a.ts"));
-    // 展开后渲染 diff 容器（ReactDiffViewer）
+    expect(useSessionStore.getState().filePreview).toMatchObject({
+      path: "/a.ts",
+      sessionId: "s1",
+    });
+    // 路径点击不再承担展开：diff 仍处于收起状态
+    expect(document.querySelector("[data-testid='diff-/a.ts']")).toBeNull();
+  });
+
+  test("diff 展开/收起由「展开」按钮负责", () => {
+    render(<FileChangeSummary sessionId="s1" files={[modified]} />);
+    const summary = screen.getByTestId("file-change-summary");
+    fireEvent.click(summary.querySelector("button")!);
+    // 条目「展开」按钮（清单标题行此时 aria-expanded=true，不会误选）
+    fireEvent.click(summary.querySelector("button[aria-expanded='false']")!);
     expect(document.querySelector("[data-testid='diff-/a.ts']")).toBeTruthy();
+    fireEvent.click(summary.querySelector("button[aria-expanded='true']")!);
+    expect(document.querySelector("[data-testid='diff-/a.ts']")).toBeNull();
+  });
+
+  test("不可 diff 的条目（新增）点击路径同样打开预览", () => {
+    render(<FileChangeSummary sessionId="s1" files={[added]} />);
+    fireEvent.click(
+      screen.getByTestId("file-change-summary").querySelector("button")!,
+    );
+    fireEvent.click(screen.getByText("/b.ts"));
+    expect(useSessionStore.getState().filePreview).toMatchObject({
+      path: "/b.ts",
+      sessionId: "s1",
+    });
   });
 
   test("正常文件项（修改/新增）显示分享按钮，error/oversized 不显示", () => {

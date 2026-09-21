@@ -74,10 +74,16 @@ test("文件修改清单：edit 改文件 → 回复底部渲染清单 → 展�
   await expect(diff).toBeVisible({ timeout: 30_000 });
   await expect(diff).toContainText("已更新");
 
-  // 8. 点击条目右侧「预览」按钮 → 断言全局文件预览弹窗出现。
-  //    不能点文件名：canDiff 为真时点文件名只展开/收起 diff（17ccadb5 起的交互口径）。
-  //    按钮名用精确正则（按钮文案中/英随界面语言变化）；用子串 "Preview"
-  //    会误命中文件名按钮 C:\…\PREVIEW.md（Playwright 的 name 默认子串匹配）。
+  // 8. 点击文件名（路径文本）→ 打开预览（与右侧「预览」按钮同一入口）。
+  //    点路径不再展开/收起 diff（展开改由右侧「展开」按钮负责，见第 7 步）；
+  //    文件名用完整路径文本锚定结尾匹配，避免误命中「预览」按钮
+  await summary.getByRole("button", { name: /PREVIEW\.md$/ }).click();
+  await expect(page.getByTestId("file-preview-modal")).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("file-preview-modal")).toHaveCount(0);
+
+  // 8.5 右侧「预览」按钮仍是同一入口。按钮名用精确正则（按钮文案中/英随界面语言变化）；
+  //    用子串 "Preview" 会误命中文件名按钮 C:\…\PREVIEW.md。
   await summary.getByRole("button", { name: /^(预览|Preview)$/ }).click();
   await expect(page.getByTestId("file-preview-modal")).toBeVisible({ timeout: 10_000 });
 

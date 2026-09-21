@@ -78,10 +78,7 @@ function FileChangeItem({
         <button
           type="button"
           className="font-mono text-[12px] text-accent hover:underline text-left"
-          onClick={() => {
-            if (canDiff) setOpen((v) => !v);
-            else openFileOrPreview(abs, sessionId);
-          }}
+          onClick={() => openFileOrPreview(abs, sessionId)}
         >
           {file.path}
         </button>
