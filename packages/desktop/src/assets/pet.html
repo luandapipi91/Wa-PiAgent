@@ -391,18 +391,15 @@ function toIdle() {
 /* ---------------- 行为触发（公式照抄 py） ---------------- */
 function startHop(tx = null, intent = null) {
   refreshScreens();
+  // 归属屏 = 宠物当前所在的屏幕（用户拖到哪块屏就归哪块）。
+  // 自发动作（溜达/蹦跃）只能在归属屏内活动——只有用户拖动才允许换屏。
+  const home = screenAt(st.fx);
   if (tx === null) {
-    if (Math.random() < 0.2 && screens.length > 1) {
-      const geo = pick(screens);
-      tx = randi(geo.l + 90, geo.r - 90);
-    } else {
-      const dist = randi(180, 460) * (Math.random() < 0.5 ? -1 : 1);
-      tx = st.fx + dist;
-    }
+    const dist = randi(180, 460) * (Math.random() < 0.5 ? -1 : 1);
+    tx = st.fx + dist;
   }
-  const x1 = clamp(tx, virt.l + 90, virt.r - 90);
-  const geo = screenAt(Math.round(x1));
-  const y1 = randi(Math.max(geo.t + 100, geo.b - 340), geo.b - 40);
+  const x1 = clamp(tx, home.l + 90, home.r - 90);
+  const y1 = randi(Math.max(home.t + 100, home.b - 340), home.b - 40);
   const dist = Math.hypot(x1 - st.fx, y1 - st.fy);
   const air = Math.round(clamp(dist / 28, 13, 60));
   Object.assign(st, { x0: st.fx, y0: st.fy, x1, y1, air,
@@ -1304,7 +1301,9 @@ document.addEventListener("mousedown", e => {
 function applyScale(k) {
   K = clamp(k, 0.5, 2.0);
   applyGeometry();
-  st.fx = clamp(st.fx, virt.l + 90, virt.r - 90);
+  // 位置 clamp 不能跨屏：按宠物当前所在的那块屏幕（用户拖到哪块就归哪块）收尾
+  const homeK = screenAt(st.fx);
+  st.fx = clamp(st.fx, homeK.l + 90, homeK.r - 90);
   const range = frogFyRange();
   st.fy = clamp(st.fy, range.min, range.max);
   // 窗口尺寸固定、且窗口中心与青蛙中心重合（winPosFor 是常量偏移）：

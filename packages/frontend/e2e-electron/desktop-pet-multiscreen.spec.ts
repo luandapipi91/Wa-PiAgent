@@ -118,14 +118,17 @@ test.describe.serial("多屏下的光标坐标与窗口位移", () => {
 		const pet = await findPetWindow();
 		const out = (await pet.evaluate(`
 			(() => {
-				const saved = { virt: { ...virt }, fx: st.fx, fy: st.fy, k: K };
+				const saved = { virt: { ...virt }, screens, fx: st.fx, fy: st.fy, k: K };
 				// 模拟「副屏在主屏左侧」：虚拟桌面从 -1920 开始，宠物停在左侧屏内
+				// （screens 也要一起造：归属屏由 screens 决定，只改 virt 会让 screenAt() 找不到那块屏）
 				virt = { l: -1920, t: 0, r: 1920, b: 1080 };
+				screens = [{ l: -1920, t: 0, r: 0, b: 1080 }, { l: 0, t: 0, r: 1920, b: 1080 }];
 				st.fx = -1500; st.fy = 900;
 				applyScale(1.1);
 				const result = { fx: st.fx, fy: st.fy };
 				// 还原真实环境（缩放回原值并复位窗口）
 				virt = saved.virt;
+				screens = saved.screens;
 				st.fx = saved.fx; st.fy = saved.fy;
 				applyScale(saved.k);
 				return result;

@@ -125,15 +125,20 @@ test("main.cjs：为已销毁窗口的系统事件竞态装了窄范围兜底（
 	expect(src).toContain("process.exit(1)");
 });
 
-test("pet.html：多屏偏移不漏算（首启位置与缩放 clamp 都带 virt 边界）", () => {
+test("pet.html：多屏偏移不漏算（首启位置带 virt 边界；动作/缩放不跨屏）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
 	// 首次启动（无历史位置）落虚拟桌面右下角：必须直接用 virt.r / virt.b。
 	// 用「虚拟桌面宽度 - 230」在 virt.l/virt.t 非 0（副屏在左侧/上方）时会落到屏幕外。
 	// fy 现在是「青蛙中心」语义，故要再减掉中心相对脚底的偏移。
 	expect(html).toContain("st.fx = virt.r - 230; st.fy = virt.b - 60 - FROG_CENTER_DY * K;");
 	expect(html).not.toContain("st.fx = sw - 230");
-	// 位置 clamp 走 frogFyRange()（按宠物半高、带 virt.t/virt.b 偏移）
-	expect(html).toContain("st.fx = clamp(st.fx, virt.l + 90, virt.r - 90);");
+	// 缩放后的位置 clamp 按「宠物当前所在的那块屏」（归属屏）——自发动作与缩放都不跨屏
+	expect(html).toContain("const homeK = screenAt(st.fx);");
+	expect(html).toContain("st.fx = clamp(st.fx, homeK.l + 90, homeK.r - 90);");
+	// 自发动作（溜达/蹦跶）同样只在归属屏内：不再随机挑屏、不按 virt 落点
+	expect(html).toContain("const home = screenAt(st.fx);");
+	expect(html).toContain("const x1 = clamp(tx, home.l + 90, home.r - 90);");
+	expect(html).not.toContain("pick(screens)");
 	expect(html).toContain("function frogFyRange() {");
 	expect(html).toContain("min: virt.t + Math.round(80 * K),");
 	expect(html).toContain("max: virt.b - Math.round(54 * K),");
