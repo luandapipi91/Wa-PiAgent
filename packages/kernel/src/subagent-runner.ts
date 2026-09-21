@@ -133,8 +133,10 @@ export const ABORT_GRACE_MS = 10_000;
 /** RPC 命令 / settle 兜底默认超时：子代理委托整体硬上限，默认 2 小时（用户拍板 2026-08-31，由 60 分钟增长：长任务单代理实测可跑 39-50 分钟，60 分钟余量不足）。 */
 export const COMMAND_TIMEOUT_MS = 2 * 60 * 60_000;
 
-/** 无进展探活默认超时：子代理进程存活但 10 分钟无任何业务事件判定卡死。 */
-export const LIVENESS_IDLE_MS = 10 * 60_000;
+/** 无进展探活默认超时（非工具执行窗口）：子代理进程存活但 5 分钟无任何业务事件判定卡死
+ *  （模型调用静默/无流式输出——等不到首 token 或流中断基本已挂死，10 分钟白等太久）。
+ *  工具执行中放宽 3 倍至 15 分钟：静默长命令不做满 5 分钟即死。 */
+export const LIVENESS_IDLE_MS = 5 * 60_000;
 
 /**
  * thinking → pi CLI thinking level 映射。
@@ -224,16 +226,22 @@ export async function runSubagentAgent(
 		// （unhandled rejection）。挂空 catch 兜底；await settled 处仍能拿到原 rejection。
 		settled.catch(() => {});
 
-		// 无进展探活（防卡死）：任何业务事件刷新计时，超过 idleTimeoutMs 无事件判死。
-		// 无工具执行豁免：tool_execution_update（长工具流式输出）/ message_update /
-		// thinking_delta 都是进展，会刷新计时；完全静默（含等工具返回）超时判死。
+		// 无进展探活（防卡死）：任何业务事件刷新计时，超过窗口无事件判死。
+		// 工具执行中（start→end 之间）窗口放宽 3 倍（生产 5min→15min）：输出重定向/
+		// 无流式输出的长编译、测试、数据回放完全可能 5 分钟零事件，基础窗口会误杀
+		// （2026-09-21 生产事故：98 分钟任务、347 次工具调用毁于长命令误杀）。
+		// 非工具窗口收紧到 5 分钟：模型调用静默（等不到首 token/流中断）基本已挂死，
+		// 无需白等 10 分钟。放宽窗口内仍无事件基本已挂死，防卡死语义保留；正常长工具
+		// 持续发 tool_execution_update 流式输出刷新计时，不受影响。
 		const idleTimeoutMs = opts?.idleTimeoutMs ?? LIVENESS_IDLE_MS;
+		let toolRunning = false;
 		let livenessTimer: ReturnType<typeof setTimeout> | undefined;
 		const armLiveness = () => {
 			if (livenessTimer) clearTimeout(livenessTimer);
+			const windowMs = toolRunning ? idleTimeoutMs * 3 : idleTimeoutMs;
 			livenessTimer = setTimeout(() => {
-				fail(new Error(`子智能体无进展超时 (${idleTimeoutMs}ms)`));
-			}, idleTimeoutMs);
+				fail(new Error(`子智能体无进展超时 (${windowMs}ms)`));
+			}, windowMs);
 		};
 		const touch = () => {
 			if (Number.isFinite(idleTimeoutMs)) armLiveness();
@@ -246,6 +254,7 @@ export async function runSubagentAgent(
 					touch();
 					break;
 				case "tool_execution_start":
+					toolRunning = true; // 进入工具执行：探活窗口放宽 3 倍（静默长命令保护）
 					touch();
 					tools.push({ id: e.toolCallId, name: e.toolName, status: "running" });
 					emit("running");
@@ -256,6 +265,7 @@ export async function runSubagentAgent(
 					touch();
 					break;
 				case "tool_execution_end": {
+					toolRunning = false; // 工具结束：探活窗口回退基础值
 					touch();
 					const t = tools.find((x) => x.id === e.toolCallId);
 					if (t) t.status = e.isError ? "error" : "done";
