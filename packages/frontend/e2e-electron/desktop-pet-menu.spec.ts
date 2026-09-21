@@ -146,4 +146,46 @@ test.describe.serial("宠物右键菜单", () => {
 		expect(restored![0]).toBe(260);
 		expect(restored![1]).toBe(258);
 	});
+
+	test("拖动大小滑条时菜单在屏幕上保持原位（不跟着窗口跑）", async () => {
+		const pet = await findPetWindow();
+		await pet.evaluate(`(() => { st.wander = false; })()`);
+		await new Promise((r) => setTimeout(r, 300));
+
+		const pt = (await pet.evaluate(`
+			(() => {
+				const isShape = (el) => el && el.namespaceURI === "http://www.w3.org/2000/svg" && el.tagName.toLowerCase() !== "svg";
+				for (let y = 8; y < innerHeight; y += 4)
+					for (let x = 8; x < innerWidth; x += 4)
+						if (isShape(document.elementFromPoint(x, y))) return { x, y };
+				return null;
+			})()
+		`)) as { x: number; y: number } | null;
+		expect(pt).toBeTruthy();
+		await pet.mouse.click(pt!.x, pt!.y, { button: "right" });
+		await new Promise((r) => setTimeout(r, 400));
+
+		// 菜单在**屏幕**上的位置 = 窗口位置 + 菜单相对窗口的位置
+		const menuScreenPos = `(() => {
+			const r = menuRoot.getBoundingClientRect();
+			return { x: winX + r.left, y: winY + r.top };
+		})()`;
+		const before = (await pet.evaluate(menuScreenPos)) as { x: number; y: number };
+
+		// 等效拖动滑条：滑条 input 就是连续调 applyScale
+		await pet.evaluate(`(() => { applyScale(1.6); })()`);
+		await new Promise((r) => setTimeout(r, 600));
+		const mid = (await pet.evaluate(menuScreenPos)) as { x: number; y: number };
+		expect(Math.abs(mid.x - before.x)).toBeLessThan(12);
+		expect(Math.abs(mid.y - before.y)).toBeLessThan(12);
+
+		await pet.evaluate(`(() => { applyScale(0.8); })()`);
+		await new Promise((r) => setTimeout(r, 600));
+		const after = (await pet.evaluate(menuScreenPos)) as { x: number; y: number };
+		expect(Math.abs(after.x - before.x)).toBeLessThan(12);
+		expect(Math.abs(after.y - before.y)).toBeLessThan(12);
+
+		// 收尾：还原缩放并关菜单（不影响后续用例）
+		await pet.evaluate(`(() => { applyScale(1); hideMenus(); })()`);
+	});
 });

@@ -1221,6 +1221,21 @@ function layoutSubMenu(top) {
   menuInter.style.maxHeight = Math.max(120, realH - 14) + "px";
   menuInter.style.overflowY = "auto";
 }
+
+/** 把窗口位移反向补偿到已展开的菜单上：菜单在窗口内平移相应距离，屏幕上看起来原地不动。
+ *  缩放（或其它导致窗口移位的操作）时调用，避免菜单跟着窗口跑。 */
+function shiftOpenMenus(dx, dy) {
+  if (!dx && !dy) return;
+  const W = Math.max(window.innerWidth, MENU_WIN_W);
+  const H = Math.max(window.innerHeight, MENU_WIN_H);
+  for (const el of [menuRoot, menuInter]) {
+    if (!el || getComputedStyle(el).display === "none") continue;
+    const l = parseFloat(el.style.left) || 0;
+    const t = parseFloat(el.style.top) || 0;
+    el.style.left = Math.max(4, Math.min(l - dx, W - 40)) + "px";
+    el.style.top = Math.max(4, Math.min(t - dy, H - 40)) + "px";
+  }
+}
 menuRoot.addEventListener("mouseleave", e => {
   if (!menuRoot.contains(e.relatedTarget) && !menuInter.contains(e.relatedTarget))
     setTimeout(() => { if (!menuInter.matches(":hover")) menuInter.style.display = "none"; }, 120);
@@ -1233,6 +1248,7 @@ document.addEventListener("mousedown", e => {
 });
 
 function applyScale(k) {
+  const prevWinX = winX, prevWinY = winY;
   K = clamp(k, 0.5, 2.0);
   applyGeometry();
   // 缩放后位置 clamp 必须带 virt.l / virt.t 偏移：副屏在左侧/上方时 virt 起点为负，
@@ -1240,6 +1256,10 @@ function applyScale(k) {
   st.fx = clamp(st.fx, virt.l + 90, virt.r - 90);
   st.fy = clamp(st.fy, virt.t + 60, virt.b - 12);
   setWinPos(Math.round(st.fx - AX), Math.round(st.fy - AY));
+  // 菜单开着时：为保持宠物脚底不位移，窗口左上角会随缩放改变（整个窗口在屏幕上平移），
+  // 菜单是相对窗口定位的，于是会跟着窗口一起跑（拖大小滑条时看着就是「菜单位置在变」）。
+  // 这里把窗口位移反向补到菜单上，让它在屏幕上保持原地。
+  if (menuWinOpen) shiftOpenMenus(winX - prevWinX, winY - prevWinY);
   saveConfig();
 }
 sizeRange.addEventListener("input", () => {

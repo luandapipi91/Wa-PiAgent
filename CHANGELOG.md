@@ -3,6 +3,7 @@
 - fix(kernel): 定时任务执行会话排除 ask_user_question 工具——无人值守场景 agent 调 ask 后无用户应答会挂起至 30 分钟轮询超时；ensureStarted 新增 excludeTools 参数（黑名单并入 + 白名单模式从白名单剔除，im_push_to 不可被剔除），executeRun 启动会话时固定排除 ask_user_question；agent-session 按激活名单过滤工具池，--exclude-tools 对扩展注册工具同样生效（pi 0.86.1 _buildRuntime includeAllExtensionTools+activeToolNames 机制取证）。agent-manager 单测两用例先红后绿（黑名单并入 + 白名单剔除）。
 ## 2026-09-21
 
+- fix(desktop): 拖大小滑条时「菜单位置在变」——缩放为保持宠物脚底不位移会重算窗口左上角（窗口在屏幕上整体平移），而菜单是相对窗口定位的 px 值，于是跟着窗口跑（实测偏移 78px）。现由 applyScale 在菜单展开时把窗口位移反向补偿到菜单上（shiftOpenMenus，带窗口边界 clamp），菜单在屏幕上保持原地。测试：菜单 E2E 新增 1 例（连续 1.6× / 0.8× 缩放后菜单屏幕坐标偏移 <12px；修复前 78px 必红）。
 - feat(desktop): 桌宠窗口改为置顶（alwaysOnTop: true，macOS 默认 floating 层级）——切到其它应用后点击它们时宠物不再被遮挡；交付说明原写的「保持普通窗口层级」按用户要求改掉。测试：desktop 单测窗口参数断言与 Electron E2E 的 alwaysOnTop 断言同步改为 true（改前必红）。
 - feat(desktop): 对话完成后的宠物动作改为「动作池随机」——互动二级菜单移除「任务完成」手动入口（不再作为可选项出现），对话完成时从 9 个动作（庆祝/跳一下/呱一声/唱一首/开心跳/鼓腮/吐舌头/好奇凑近/左顾右盼）中随机挑一个必定播放。测试：新增 Electron E2E 3 例（菜单不再含「任务完成」项、60 次调用动作态出现多种且每次都有动作、真实链路转发后必定做动作；修复前必红）+ 既有「必冒泡任务完成」用例改写为新语义。
 - fix(desktop): 主进程未捕获异常兜底——“Object has been destroyed / BrowserWindow.visibilityChanged”是 Electron 在窗口对象已释放之后才处理 macOS 可见性/遮挡通知的自身竞态，未捕获异常会让主进程弹出原生错误框（A JavaScript error occurred in the main process）；现对该类做窄兜底（记日志后忽略，其它未捕获异常仍记录堆栈并退出），并把宠物窗口销毁改为「先 hide 再 close」以降低竞态概率（上一轮已把 destroy 换成 close）。测试：desktop 契约 1 例 + Electron E2E 1 例（注入该错误后应用仍存活；断言兜底监听器存在——不存在时直接失败、不注入，避免弹出原生错误框干扰桌面）。
