@@ -9,6 +9,7 @@ import { useProvidersStore } from "../../store/providers";
 import { useSkillsStore } from "../../store/skills";
 import { useCommandsStore } from "../../store/commands";
 import { useAgentsStore } from "../../store/agents";
+import { useToastStore } from "../../store/toast";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
@@ -94,6 +95,7 @@ export function ComposerInput({
 	} = useComposerHeight();
 	const [pendingUploads, setPendingUploads] = useState(0);
 	const [uploadError, setUploadError] = useState<string | null>(null);
+	const addToast = useToastStore((s) => s.add);
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [sendImOpen, setSendImOpen] = useState(false);
 	const uploading = pendingUploads > 0;
@@ -548,9 +550,82 @@ export function ComposerInput({
 		}
 	};
 
+	// 拖入的文件夹：与文件树选择器 handlePick 同款——走 /api/fs/copy 路径引用
+	// （kernel 对目录直接回源路径，不上传内容），生成 folder 附件 chip。
+	const addFolderRefs = async (dirs: { path: string; name: string }[]) => {
+		if (!projectId || dirs.length === 0) return;
+		setPendingUploads((n) => n + dirs.length);
+		for (const dir of dirs) {
+			try {
+				const { path } = await copyToUploads(projectId, dir.path, sessionId);
+				addAttachment({
+					kind: "folder",
+					name: dir.name,
+					path,
+					size: 0,
+				} as AttachmentDraft);
+			} catch (err) {
+				setUploadError(
+					err instanceof Error
+						? err.message
+						: t("composer.addAttachmentFailed"),
+				);
+			} finally {
+				setPendingUploads((n) => n - 1);
+			}
+		}
+	};
+
 	const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
 		e.preventDefault();
-		void uploadFiles(e.dataTransfer.files);
+		const dt = e.dataTransfer;
+		// DataTransferItemList 只在 drop 事件的同步阶段有效（await 后读会得到空列表），
+		// 故此处同步取完「目录路径 + 待上传文件」再交给异步流程。
+		const dirs: { path: string; name: string }[] = [];
+		const files: File[] = [];
+		const pathErrors: string[] = [];
+		const items = dt?.items;
+		if (items && items.length > 0) {
+			const getPathForFile = window.waPiApp?.getPathForFile;
+			for (const item of Array.from(items)) {
+				if (item.kind !== "file") continue;
+				const entry =
+					typeof item.webkitGetAsEntry === "function"
+						? (item.webkitGetAsEntry() as FileSystemDirectoryEntry | null)
+						: null;
+				const file = item.getAsFile();
+				// 目录不能走内容上传：目录型 File 读不出内容，fetch 序列化 multipart
+				// 请求体时会 reject TypeError: Failed to fetch（无 code，UI 原样展示英文）。
+				if (entry?.isDirectory) {
+					// 浏览器（无 Electron 桥）拿不到真实路径，目录无法走路径引用：
+					// 用 toast 弹窗提示「不支持操作」，不暴露「无法获取文件路径」这类内部细节
+					if (!getPathForFile) {
+						addToast(t("composer.folderUnsupported"));
+						continue;
+					}
+					try {
+						if (!file) throw new Error("no-path");
+						dirs.push({
+							path: getPathForFile(file),
+							name: entry.name || file.name,
+						});
+					} catch {
+						pathErrors.push(
+							t("composer.getPathFailed", { name: entry.name }),
+						);
+					}
+				} else if (file) {
+					files.push(file);
+				}
+			}
+		} else if (dt?.files) {
+			// 无 items（含浏览器/测试兜底）：沿用按文件列表处理的既有行为
+			files.push(...Array.from(dt.files));
+		}
+		void addFolderRefs(dirs);
+		void uploadFiles(files);
+		// 放在 uploadFiles 之后设置：uploadFiles 前段会 setUploadError(null) 清空提示
+		if (pathErrors.length > 0) setUploadError(pathErrors.join("；"));
 	};
 
 	const removeAttachment = (idx: number) => {

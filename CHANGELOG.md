@@ -1,5 +1,6 @@
 ## 2026-09-21
 
+- fix(frontend): 拖拽到聊天输入框两处修复——① 从系统拖入**文件夹**不再报 `Failed to fetch`：drop 时按 `webkitGetAsEntry().isDirectory` 识别目录，经 `waPiApp.getPathForFile` 取绝对路径后走 `/api/fs/copy` 路径引用（kernel 对目录直接回源路径、不上传内容），生成 folder 附件 chip，与文件树选择器同款；原先目录型 File 的 size≈0 被当普通文件上传，fetch 序列化 multipart 请求体时 reject 原生 `TypeError: Failed to fetch`（无 code → 原样透传英文文案）。② 文件树拖拽到输入框的 chip token 改回**绝对路径** `#[绝对路径]`（原实现相对化到 workspaceDir，依赖会话 cwd 才能解析），文件与文件夹一视同仁；手输 # 面板仍为相对路径。③ 浏览器（无 Electron 桥）拖入文件夹时用 toast 弹窗提示「不支持操作」（新增 i18n key composer.folderUnsupported），不再暴露「无法获取文件路径: xxx」，也不占用输入框下方内联错误位。测试：ComposerInput 组件用例 2 例 + ExplorerPanel drag-chip 契约测试改绝对路径并补文件夹例（均先红后绿）+ E2E 新增 drag-to-composer.spec 4 例（真鼠标指针链拖文件/文件夹断言 data-token 绝对路径、合成 drop 拖系统目录断言附件 chip 且无 Failed to fetch、纯浏览器拖目录断言 toast「不支持操作」）+ explorer.spec 拖拽用例断言改绝对路径；前端全量 pass、四包 typecheck 绿。
 - chore(deps): pi-ai/pi-coding-agent/pi-tui 升 0.86.1（修复版：z.ai「Prompt too long」识别为上下文溢出、Cerebras strict schema 400、剪贴板 OSC 52 回退、/bug 换行与误提示、Meta Muse provider、CLI 编译缓存加速启动；无 breaking）。pi-ai/pi-coding-agent 显式 ^0.86.1、pi-tui 精确 0.86.1，打包侧 build-kernel-sidecar 从 kernel deps 单一来源派生，新安装包即用 0.86.1。
 ## 2026-09-21
 

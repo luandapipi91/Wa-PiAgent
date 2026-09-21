@@ -207,7 +207,7 @@ test.describe
 			).not.toHaveCount(0);
 		});
 
-		test("文件树拖拽文件到输入框 → 统一 #[相对路径] chip → 发送后聊天窗 chip 渲染", async ({
+		test("文件树拖拽文件到输入框 → 绝对路径 chip → 发送后聊天窗 chip 渲染", async ({
 			page,
 		}) => {
 			test.setTimeout(60_000);
@@ -247,12 +247,15 @@ test.describe
 			);
 			await page.mouse.up();
 
-			// 输入框 chip：data-token 为统一格式（相对 workspaceDir，无 path: 锚，与手输 # 一致）
+			// 输入框 chip：data-token 为绝对路径（不依赖会话 cwd 即可解析，无 path: 锚）
 			const chip = composer.locator(".chip-file").first();
 			await expect(chip).toBeVisible({ timeout: 5000 });
-			await expect(chip).toHaveAttribute("data-token", "#[AGENTS.md]");
+			await expect(chip).toHaveAttribute(
+				"data-token",
+				`#[${join(E2E_WA_PI_DIR, "e2e-project", "AGENTS.md")}]`,
+			);
 
-			// 发送 → 聊天窗用户消息（乐观插入）里 #path:AGENTS.md 还原渲染为 chip
+			// 发送 → 聊天窗用户消息（乐观插入）里 #path:绝对路径 还原渲染为 chip
 			await page.getByTestId("composer-send").click();
 			const userChip = page.locator('[data-testid^="msg-"] .chip-file').first();
 			await expect(userChip).toBeVisible({ timeout: 10_000 });

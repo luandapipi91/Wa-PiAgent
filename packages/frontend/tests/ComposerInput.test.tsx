@@ -25,6 +25,7 @@ import { useProjectsStore } from "../src/store/projects";
 import { useSkillsStore } from "../src/store/skills";
 import { useCommandsStore } from "../src/store/commands";
 import { useAgentsStore } from "../src/store/agents";
+import { useToastStore } from "../src/store/toast";
 
 const apiCalls: { method: string; path: string; body?: any }[] = [];
 
@@ -36,6 +37,11 @@ mock.module("../src/api-client", () => ({
 		},
 		post: (path: string, body?: any) => {
 			apiCalls.push({ method: "post", path, body });
+			// 目录路径引用：/api/fs/copy 对目录直接回源路径（与 kernel fs.ts 行为一致）
+			if (path === "/api/fs/copy") {
+				const source = (body as { source?: string } | undefined)?.source ?? "";
+				return Promise.resolve({ type: "fs:copy", path: source });
+			}
 			return Promise.resolve({});
 		},
 		put: (path: string, body?: any) => {
@@ -336,6 +342,90 @@ test("uploads dropped file into composer", async () => {
 	await waitFor(() => expect(setAttachments).toHaveBeenCalled());
 	const attachments = setAttachments.mock.calls[0][0]([]);
 	expect(attachments[0]).toMatchObject({ kind: "image", name: "dropped.png" });
+});
+
+test("拖入文件夹：走 /api/fs/copy 路径引用生成 folder 附件，不再当普通文件上传", async () => {
+	// 目录型 File 拿不到内容，若走 uploadFile 会让 fetch 序列化 multipart 请求体时
+	// reject TypeError: Failed to fetch（无 code，UI 原样展示英文）
+	const setAttachments = mock() as any;
+	const dirPath = "/Users/co/Documents/work/Wa-Pi/some-dir";
+	(window as any).waPiApp = { getPathForFile: () => dirPath };
+	try {
+		renderComposer({ setAttachments });
+
+		const composer = screen.getByTestId("composer-input").firstChild!;
+		const dirFile = new File([], "some-dir");
+		fireEvent.drop(composer, {
+			dataTransfer: {
+				files: [],
+				items: [
+					{
+						kind: "file",
+						getAsFile: () => dirFile,
+						webkitGetAsEntry: () => ({
+							isDirectory: true,
+							name: "some-dir",
+						}),
+					},
+				],
+			},
+		});
+
+		await waitFor(() =>
+			expect(apiCalls.some((c) => c.path === "/api/fs/copy")).toBe(true),
+		);
+		const copyCall = apiCalls.find((c) => c.path === "/api/fs/copy")!;
+		expect(copyCall.body).toMatchObject({ projectId: "p1", source: dirPath });
+		// 关键：目录绝不被当普通文件上传
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(screen.queryByText("Failed to fetch")).toBeNull();
+
+		await waitFor(() => expect(setAttachments).toHaveBeenCalled());
+		const attachments = setAttachments.mock.calls[0][0]([]);
+		expect(attachments).toHaveLength(1);
+		expect(attachments[0]).toMatchObject({
+			kind: "folder",
+			name: "some-dir",
+			path: dirPath,
+		});
+	} finally {
+		(window as any).waPiApp = undefined;
+	}
+});
+
+test("浏览器环境拖入文件夹：以 toast 提示不支持操作，不出现「无法获取文件路径」", async () => {
+	// 无 waPiApp（浏览器）：拿不到真实路径，目录无法走路径引用
+	const setAttachments = mock() as any;
+	(window as any).waPiApp = undefined;
+	useToastStore.setState({ toasts: [] });
+	renderComposer({ setAttachments });
+
+	const composer = screen.getByTestId("composer-input").firstChild!;
+	fireEvent.drop(composer, {
+		dataTransfer: {
+			files: [],
+			items: [
+				{
+					kind: "file",
+					getAsFile: () => new File([], "some-dir"),
+					webkitGetAsEntry: () => ({
+						isDirectory: true,
+						name: "some-dir",
+					}),
+				},
+			],
+		},
+	});
+
+	// 走 toast 弹窗，而非输入框下方的内联错误文案
+	await waitFor(() =>
+		expect(useToastStore.getState().toasts[0]?.message).toBe("不支持操作"),
+	);
+	expect(useToastStore.getState().toasts[0]?.type).toBe("error");
+	expect(screen.queryByText("不支持操作")).toBeNull();
+	expect(screen.queryByText(/无法获取文件路径/)).toBeNull();
+	expect(fetchMock).not.toHaveBeenCalled();
+	expect(setAttachments).not.toHaveBeenCalled();
 });
 
 test("plain text paste is not intercepted", async () => {

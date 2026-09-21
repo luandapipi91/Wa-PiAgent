@@ -79,6 +79,7 @@ const en = {
 		addAttachmentFailed: "Failed to add attachment",
 		uploadFailed: "Upload failed",
 		getPathFailed: "Cannot get file path: {{name}}",
+		folderUnsupported: "Unsupported operation",
 		oversized: "Attachment exceeds {{max}}MB limit: {{names}}",
 	},
 	sendIm: {

@@ -76,6 +76,7 @@ const zh = {
 		addAttachmentFailed: "添加附件失败",
 		uploadFailed: "上传失败",
 		getPathFailed: "无法获取文件路径: {{name}}",
+		folderUnsupported: "不支持操作",
 		oversized: "附件超过 {{max}}MB 上限: {{names}}",
 	},
 	sendIm: {
