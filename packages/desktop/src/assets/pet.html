@@ -266,13 +266,19 @@ function setWinPos(x, y) {
  * 且穿透状态下收不到 mousemove，穿透判定必须用宿主坐标（屏幕坐标）。 */
 let gp = { x: -9999, y: -9999 };
 let hostGp = null;
-window.addEventListener("mousemove", e => { gp = { x: e.pageX, y: e.pageY }; }, { passive: true });
+// 光标坐标只允许一个来源。Electron 下由宿主轮询给屏幕坐标（拖动、眼神跟随、凑脸判定的
+// 唯一依据）；页面自身的 mousemove 给的是窗口局部坐标——两者混写会让 pointerdown 记下的
+// 坐标与 pointermove 读到的坐标不同源，dx 变成数千像素，一点就把窗口 clamp 到虚拟桌面
+// 边缘（多屏下表现为「宠物跑到另一块屏、原地不见了」）。
 if (host && host.getCursorPos) {
   setInterval(() => {
     Promise.resolve(host.getCursorPos()).then(p => {
       if (p && isFinite(p.x)) { gp = { x: p.x, y: p.y }; hostGp = { x: p.x, y: p.y }; }
     }).catch(() => {});
   }, 40);
+} else {
+  // 浏览器预览模式：窗口即虚拟屏，局部坐标就是屏幕坐标
+  window.addEventListener("mousemove", e => { gp = { x: e.pageX, y: e.pageY }; }, { passive: true });
 }
 
 /* ---------------- 点击穿透（宿主透明窗口） ----------------
@@ -1166,8 +1172,10 @@ document.addEventListener("mousedown", e => {
 function applyScale(k) {
   K = clamp(k, 0.5, 2.0);
   applyGeometry();
-  st.fx = clamp(st.fx, 90, virt.r - 90);
-  st.fy = clamp(st.fy, 60, virt.b - 12);
+  // 缩放后位置 clamp 必须带 virt.l / virt.t 偏移：副屏在左侧/上方时 virt 起点为负，
+  // 只从 90/60 起算会把宠物从副屏拽回主屏左边缘（多屏跳屏）。
+  st.fx = clamp(st.fx, virt.l + 90, virt.r - 90);
+  st.fy = clamp(st.fy, virt.t + 60, virt.b - 12);
   setWinPos(Math.round(st.fx - AX), Math.round(st.fy - AY));
   saveConfig();
 }
@@ -1213,13 +1221,14 @@ function tip(html, ms = 9000) {
   refreshScreens();
   // 初始位置：优先用上次记住的位置（clamp 回当前虚拟屏内），否则主屏右下角
   // （py: 锚点 fx=SW-230, fy=SH-60，窗口=锚点-AX/AY）
-  const sw = virt.r - virt.l, sh = virt.b - virt.t;
   const savedPos = cfg && cfg.pos;
   if (savedPos && isFinite(savedPos.x) && isFinite(savedPos.y)) {
     st.fx = clamp(savedPos.x, virt.l + 90, virt.r - 90);
     st.fy = clamp(savedPos.y, virt.t + 60, virt.b - 12);
   } else {
-    st.fx = sw - 230; st.fy = sh - 60;
+    // 虚拟桌面右下角：直接用 virt.r / virt.b，不能用「宽度 - 230」——
+    // virt.l/virt.t 非 0（副屏在左/上）时那个差值会落到屏幕外
+    st.fx = virt.r - 230; st.fy = virt.b - 60;
   }
   setWinPos(Math.round(st.fx - AX), Math.round(st.fy - AY));
   lastSavedPos = { x: Math.round(st.fx), y: Math.round(st.fy) };
