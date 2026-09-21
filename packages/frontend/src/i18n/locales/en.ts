@@ -1012,6 +1012,7 @@ const en = {
 			agentDefaultLabel: "System default (first in list)",
 			agentMissingWarn:
 				"⚠️ The linked agent has been deleted; falling back to the system default agent.",
+			modelRequired: "Please select a model",
 			modelLabel: "Model",
 			promptLabel: "Extra system prompt",
 			promptHint:

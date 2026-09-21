@@ -977,6 +977,7 @@ const zh = {
 			agentPlaceholder: "系统默认（列表第一项）",
 			agentDefaultLabel: "系统默认（列表第一项）",
 			agentMissingWarn: "⚠️ 原智能体已删除，当前降级使用系统默认智能体",
+			modelRequired: "请选择模型",
 			modelLabel: "模型",
 			promptLabel: "额外系统提示词",
 			promptHint: "追加拼接到系统提示词中，位于记忆内容之前。输入 $ 可引用技能。",

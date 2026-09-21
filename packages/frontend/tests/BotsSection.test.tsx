@@ -73,7 +73,59 @@ test("空列表渲染 + 新建按钮打开渠道选择弹层", () => {
 	expect(screen.getByTestId("channel-chip-feishu").getAttribute("data-disabled")).toBe("true");
 });
 
-test("选择企微后填写表单并保存 → POST 正确载荷", async () => {
+test("新建机器人：选渠道后模型默认选中第一个可用模型（必选，无空选项）", () => {
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "pid1", name: "DeepSeek", baseUrl: "https://x", apiKey: "k",
+				api: "openai-completions",
+				models: [
+					{ id: "m-a", name: "M A", contextWindow: 1000, maxTokens: 100 },
+					{ id: "m-b", name: "M B", contextWindow: 1000, maxTokens: 100 },
+				],
+			},
+		],
+	} as any);
+	render(<BotsSection />);
+	fireEvent.click(screen.getByTestId("bots-new-btn"));
+	fireEvent.click(screen.getByTestId("channel-chip-wecom"));
+	const select = screen.getByTestId("bot-model-select") as HTMLSelectElement;
+	expect(select.querySelector('option[value=""]')).toBeNull();
+	expect(select.value).toBe(select.options[0].value);
+});
+
+test("新建机器人：providers 为空无法选模型时保存被拦截并提示（模型必选校验）", () => {
+	// 显式清空 providers（前面用例可能 seed 过，store 状态按文件顺序泄漏）：
+	// 模型下拉为空 → 保存必须被拦截，不发 POST
+	useProvidersStore.setState({ providers: [] });
+	render(<BotsSection />);
+	fireEvent.click(screen.getByTestId("bots-new-btn"));
+	fireEvent.click(screen.getByTestId("channel-chip-wecom"));
+	fireEvent.change(screen.getByTestId("bot-name-input"), { target: { value: "客服机器人" } });
+	fireEvent.change(screen.getByTestId("bot-botid-input"), { target: { value: "ww123" } });
+	fireEvent.change(screen.getByTestId("bot-secret-input"), { target: { value: "sec456" } });
+	const before = apiCalls.length;
+	fireEvent.click(screen.getByTestId("bot-save-btn"));
+	expect(apiCalls.length).toBe(before); // 未发请求
+	const { useToastStore } = require("../src/store/toast");
+	expect(
+		useToastStore.getState().toasts.some((t: any) => /模型/.test(t.message ?? "")),
+	).toBe(true);
+});
+
+test("选择企微后填写表单并保存 → POST 正确载荷（含默认选中的第一个模型）", async () => {
+	// 模型必选：预置 provider，新建即默认选中第一个模型并随载荷提交
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "pid1", name: "DeepSeek", baseUrl: "https://x", apiKey: "k",
+				api: "openai-completions",
+				models: [
+					{ id: "m-a", name: "M A", contextWindow: 1000, maxTokens: 100 },
+				],
+			},
+		],
+	} as any);
 	render(<BotsSection />);
 	fireEvent.click(screen.getByTestId("bots-new-btn"));
 	fireEvent.click(screen.getByTestId("channel-chip-wecom"));
@@ -91,6 +143,7 @@ test("选择企微后填写表单并保存 → POST 正确载荷", async () => {
 		credentials: { botId: "ww123", secret: "sec456" },
 		replyGranularity: "standard",
 		enabled: true,
+		model: "deepseek/m-a",
 	});
 });
 

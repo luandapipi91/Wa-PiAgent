@@ -33,14 +33,15 @@ const STATUS_TEXT_KEY: Record<string, string> = {
 };
 
 /** 新建草稿的默认值 */
-function emptyDraft(type: ChannelType): ChannelInput {
+function emptyDraft(type: ChannelType, defaultModel: string | null): ChannelInput {
 	return {
 		type,
 		name: "",
 		enabled: true,
 		credentials: { botId: "", secret: "" },
 		agentName: "",
-		model: null,
+		// 模型必选：新建即默认第一个可用模型（providers 为空时为 null，保存被校验拦截）
+		model: defaultModel,
 		extraSystemPrompt: "",
 		replyGranularity: "standard",
 		defaultProjectId: SYSTEM_PROJECT_ID,
@@ -102,6 +103,11 @@ export function BotsSection() {
 
 	const handleSave = async () => {
 		if (!draft) return;
+		// 模型必选校验：providers 为空等导致无模型可选时拦截提交（不允许跟随默认）
+		if (!draft.model) {
+			useToastStore.getState().add(t("settings.bot.modelRequired"), "error");
+			return;
+		}
 		try {
 			if (selectedId) {
 				// secret 留空 = 不修改（kernel 侧 merge）
@@ -449,7 +455,7 @@ export function BotsSection() {
 					onSelect={(type) => {
 						setShowNew(false);
 						setSelectedId(null);
-						setDraft(emptyDraft(type));
+						setDraft(emptyDraft(type, modelOptions[0]?.value ?? null));
 					}}
 				/>
 			)}
