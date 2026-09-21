@@ -63,3 +63,24 @@ test("切换桌面宠物开关：写 store + localStorage + 同步主进程，�
 	expect(JSON.parse(raw!).state.desktopPet).toBe(false);
 	expect(calls).toContainEqual(["setEnabled", false]);
 });
+
+test("浏览器启动（无 Electron 桥）：外观不渲染「桌面宠物」开关，其余设置项照常", async () => {
+	// 浏览器模式没有 waPiPet 桥，桌宠建不了窗——该设置项不该出现（同「开机自启」的条件渲染范式）
+	delete (window as any).waPiPet;
+	const { AppearanceSection } = await import(
+		"../src/components/settings/AppearanceSection"
+	);
+	render(<AppearanceSection />);
+	expect(screen.queryByTestId("desktop-pet-toggle")).toBeNull();
+	// 只隐藏桌宠这一项：任务完成动画与回复过程折叠仍在
+	expect(screen.getByTestId("frog-task-done-toggle")).toBeTruthy();
+	expect(screen.getByTestId("collapse-process-toggle")).toBeTruthy();
+});
+
+test("Electron 启动（有 waPiPet 桥）：外观渲染「桌面宠物」开关", async () => {
+	const { AppearanceSection } = await import(
+		"../src/components/settings/AppearanceSection"
+	);
+	render(<AppearanceSection />);
+	expect(screen.getByTestId("desktop-pet-toggle")).toBeTruthy();
+});
