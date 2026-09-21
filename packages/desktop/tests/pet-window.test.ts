@@ -146,6 +146,9 @@ function makeHarness() {
 		isVisible() {
 			return true;
 		}
+		hide() {
+			calls.push(["hide", true]);
+		}
 		destroy() {
 			this.destroyed = true;
 			calls.push(["destroy", true]);
@@ -459,6 +462,11 @@ test("销毁宠物窗口走正常关闭流程（close），不用强制 destroy"
 		h.pet.setEnabled(false);
 		expect(h.calls.some((c) => c[0] === "close")).toBe(true);
 		expect(h.calls.some((c) => c[0] === "destroy")).toBe(false);
+		// 先 hide 再 close（降低与系统可见性/遮挡通知的竞态）
+		const hideIdx = h.calls.findIndex((c) => c[0] === "hide");
+		const closeIdx = h.calls.findIndex((c) => c[0] === "close");
+		expect(hideIdx).toBeGreaterThanOrEqual(0);
+		expect(hideIdx).toBeLessThan(closeIdx);
 	} finally {
 		rmSync(h.dir, { recursive: true, force: true });
 	}

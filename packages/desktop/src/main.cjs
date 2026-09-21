@@ -1277,3 +1277,21 @@ app.on("activate", () => {
 
 process.on("SIGINT", () => app.quit());
 process.on("SIGTERM", () => app.quit());
+
+// 已销毁窗口的系统事件竞态兑底。
+// Electron 内部在窗口对象释放之后才处理 macOS 的可见性/遮挡通知时，会抛
+// “Object has been destroyed”（堆栈在 BrowserWindow.visibilityChanged / BrowserWindow.emit），
+// 这是 Electron 自身的竞态，从窗口侧无法完全消除；而未捕获异常会让主进程弹原生错误框
+// （“A JavaScript error occurred in the main process”）。这里只对这一类做窄兑底：记日志后忽略；
+// 其余未捕获异常保留原有行为（记录堆栈后退出），不把真问题藏起来。
+process.on("uncaughtException", (err) => {
+	const msg = String((err && err.message) || err || "");
+	if (msg.includes("Object has been destroyed")) {
+		log.error(
+			`[pet] 忽略已销毁窗口的系统事件竞态（Electron 内部，不影响功能）：${msg}`,
+		);
+		return;
+	}
+	log.error(`未捕获异常：${(err && err.stack) || msg}`);
+	process.exit(1);
+});

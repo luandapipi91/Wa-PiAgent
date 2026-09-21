@@ -185,9 +185,16 @@ function setupPetWindow(deps = {}) {
 		const win = petWin;
 		petWin = null;
 		try {
+			// 先 hide 再 close：hide 让「窗口可见性变化」在对象仍存活时先处理完，
+			// 降低销毁瞬间与系统可见性/遮挡通知（macOS 异步到达）的竞态。
+			if (typeof win.isVisible === "function" && win.isVisible()) win.hide();
+		} catch {
+			/* hide 失败不影响后续 close */
+		}
+		try {
 			// 走正常关闭流程（close），不用 destroy：destroy 是强制销毁、不触发关闭流程，
 			// 系统可见性变化事件会在对象已释放之后才被 Electron 内部钩子处理 → 主进程抛
-			// “Object has been destroyed”（BrowserWindow.visibilityChanged）并整应用退出。
+			// “Object has been destroyed”（BrowserWindow.visibilityChanged）。
 			// 仓库既有窗口（预览窗口）同样只用 hide / close。
 			win.close();
 		} catch (e) {

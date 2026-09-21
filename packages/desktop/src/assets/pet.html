@@ -174,6 +174,8 @@ const f2 = v => (Math.round(v * 100) / 100).toString();
 
 /* ---------------- 几何（随缩放系数变化） ---------------- */
 let K = 1.0, WIN_W = BASE_W, WIN_H = BASE_H, AX = BASE_AX, AY = 246, S = BASE_S;
+// 菜单展开期间窗口会被临时放大（见后文菜单段）：此期间缩放逻辑不得覆盖窗口尺寸
+let menuWinOpen = false;
 const winEl = document.getElementById("win");
 const sceneEl = document.getElementById("scene");
 
@@ -188,6 +190,9 @@ function applyGeometry() {
   sceneEl.setAttribute("viewBox", `0 0 ${WIN_W} ${WIN_H}`);
   sceneEl.setAttribute("width", WIN_W);
   sceneEl.setAttribute("height", WIN_H);
+  // 窗口内容尺寸必须跟随缩放（嵌入说明的约定）：否则放大后 #win 比窗口大、宠物被裁，
+  // 而且右键菜单会改用错的窗口高度算可用空间（放大后菜单被压成一条）。
+  if (!menuWinOpen && host && host.setWindowSize) host.setWindowSize(WIN_W, WIN_H);
 }
 
 /* ---------------- 配置持久化（scale / wander / pos） ---------------- */
@@ -1157,8 +1162,7 @@ function hideMenus() {
 /* 菜单展开用的临时窗口尺寸：宠物窗口只有 260×258，而二级菜单固定展开在主菜单右侧
  * （left = 主菜单右缘 − 2、宽 150+），260 宽时右半截直接被窗口裁掉——
  * 肉眼就是「右键互动菜单出不来」。 */
-const MENU_WIN_W = 560, MENU_WIN_H = 520;
-let menuWinOpen = false;
+const MENU_WIN_W = 560, MENU_WIN_H = 660;
 function setMenuWinSize(open) {
   if (!host || !host.setWindowSize) return;
   menuWinOpen = open;
@@ -1183,14 +1187,32 @@ document.getElementById("miInter").addEventListener("mouseenter", () => {
   const r = menuRoot.getBoundingClientRect();
   menuInter.style.display = "block";
   menuInter.style.left = (r.right - 2) + "px";
-  menuInter.style.top = r.top + "px";
-  // 余量 30：菜单自身的 padding(5px×2)+border(2px×2) 会加在 maxHeight 之外，
-  // 只减 10 会让二级菜单底边比窗口高多出几个像素而被裁。
-  // 窗口高同样取「放大后的目标值」：hover 可能发生在 setContentSize 生效之前。
-  const H = Math.max(window.innerHeight, MENU_WIN_H);
-  menuInter.style.maxHeight = Math.max(120, H - r.top - 30) + "px";
-  menuInter.style.overflowY = "auto";
+  layoutSubMenu(r.top);
 });
+
+/** 二级菜单布局：默认与主菜单顶部对齐；下方空间不足时整体上移，保证它尽量完整可见。
+ *  不能只按「剩余高度」设 maxHeight：放大到 200% 后鼠标能在更高的窗口里点得很靠下，
+ *  那样二级菜单会被压成一条——用户看到的就是「菜单缩小了」。 */
+/** 二级菜单布局：默认展开在主菜单右侧、与主菜单顶部对齐；右侧或下方空间不足时
+ *  翻到左侧 / 整体上移（与原生菜单一致），保证菜单尽量完整可见。
+ *  不能只按「剩余高度/宽度」裁剪：放大到 200% 后鼠标能在更大的窗口里点得很靠右/靠下，
+ *  那样二级菜单会被压成一条或被裁掉一半——用户看到的就是「菜单缩小了」。 */
+function layoutSubMenu(top) {
+  const H = Math.max(window.innerHeight, MENU_WIN_H);
+  const W = Math.max(window.innerWidth, MENU_WIN_W);
+  const m = menuRoot.getBoundingClientRect();
+  menuInter.style.maxHeight = "none";
+  const need = menuInter.scrollHeight + 14;   // 自身 padding(5×2) + border(2×2)
+  const realH = Math.min(need, H - 16);
+  const subW = menuInter.scrollWidth + 10;
+  // 优先向右展开；右侧放不下就翻到主菜单左侧
+  let left = m.right - 2;
+  if (left + subW > W - 4) left = Math.max(4, m.left - subW + 2);
+  menuInter.style.left = left + "px";
+  menuInter.style.top = Math.max(8, Math.min(top, H - realH - 8)) + "px";
+  menuInter.style.maxHeight = Math.max(120, realH - 14) + "px";
+  menuInter.style.overflowY = "auto";
+}
 menuRoot.addEventListener("mouseleave", e => {
   if (!menuRoot.contains(e.relatedTarget) && !menuInter.contains(e.relatedTarget))
     setTimeout(() => { if (!menuInter.matches(":hover")) menuInter.style.display = "none"; }, 120);

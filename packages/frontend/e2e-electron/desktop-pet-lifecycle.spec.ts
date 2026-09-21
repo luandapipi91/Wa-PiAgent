@@ -119,6 +119,31 @@ test.describe.serial("宠物窗口销毁路径", () => {
 		expect(abnormal()).toEqual([]);
 	});
 
+	test("主进程对「已销毁窗口的系统事件竞态」有窄兜底：注入该错误不会带走应用", async () => {
+		const listeners = await app.evaluate(() =>
+			process.listenerCount("uncaughtException"),
+		);
+		// 先断言兜底存在：不存在时直接失败返回，不往下注入——否在会弹出 Electron 的原生
+		// 错误框（"A JavaScript error occurred in the main process"）干扰桌面（已经发生过一次）。
+		expect(listeners).toBeGreaterThan(0);
+
+		// 注入 Electron 那类错误（与观察到的 visibilityChanged 堆栈同类）
+		await app.evaluate(() => {
+			process.emit(
+				"uncaughtException",
+				new TypeError("Object has been destroyed"),
+			);
+		});
+		await new Promise((r) => setTimeout(r, 500));
+
+		// 应用仍存活：主进程还能响应、窗口都还在
+		const windows = await app.evaluate(({ BrowserWindow }) =>
+			BrowserWindow.getAllWindows().length,
+		);
+		expect(windows).toBeGreaterThan(0);
+		expect(abnormal()).toEqual([]);
+	});
+
 	test("应用退出（销毁存量可见窗口）不产生主进程未捕获异常", async () => {
 		// 先确保有一个正在显示的宠物窗口
 		await main.evaluate(() => window.waPiPet?.setEnabled(true));

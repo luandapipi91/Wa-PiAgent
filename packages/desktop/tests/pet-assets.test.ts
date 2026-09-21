@@ -115,6 +115,16 @@ test("preload.cjs：主窗口侧暴露 waPiPet 桥（setEnabled / celebrate / on
 	expect(preload).toContain('"petwin:event"');
 });
 
+test("main.cjs：为已销毁窗口的系统事件竞态装了窄范围兜底（不让它带走主进程）", () => {
+	const src = readFileSync(join(SRC, "main.cjs"), "utf8");
+	// Electron 内部在窗口释放后处理可见性/遮挡通知时会抛 Object has been destroyed，
+	// 属于 Electron 自身竞态；未捕获异常会直接带走主进程，故对它做窄范围兑底。
+	expect(src).toContain('process.on("uncaughtException"');
+	expect(src).toContain("Object has been destroyed");
+	// 其它未捕获异常保持原有行为（记录后退出），不把真问题藏起来
+	expect(src).toContain("process.exit(1)");
+});
+
 test("pet.html：多屏偏移不漏算（首启位置与缩放 clamp 都带 virt 边界）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
 	// 首次启动（无历史位置）落虚拟桌面右下角：必须直接用 virt.r / virt.b。
