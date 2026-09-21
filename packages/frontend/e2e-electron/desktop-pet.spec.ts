@@ -96,14 +96,14 @@ test.afterAll(async () => {
 });
 
 test.describe.serial("桌面宠物由透明独立窗口承载", () => {
-	test("默认开启：宠物窗口存在、260×258、无边框、非置顶、背景透明", async () => {
+	test("默认开启：宠物窗口存在、560×660（固定尺寸）、无边框、置顶、背景透明", async () => {
 		const pet = await findPetWindow();
 		await expect
 			.poll(async () => (await petState())?.visible, { timeout: 20_000 })
 			.toBe(true);
 		const state = (await petState())!;
-		expect(state.bounds.width).toBe(260);
-		expect(state.bounds.height).toBe(258);
+		expect(state.bounds.width).toBe(560);
+		expect(state.bounds.height).toBe(660);
 		// 无边框：内容区高度 == 窗口高度
 		expect(state.content.height).toBe(state.bounds.height);
 		// 置顶：切换到其它应用后仍浮在其窗口之上（需求变更，原为普通窗口层级）
@@ -163,13 +163,14 @@ test.describe.serial("桌面宠物由透明独立窗口承载", () => {
 		// 注意用字符串形式 evaluate：virt/st/AX 等是页面脚本的顶层词法变量，TS 回调里无法直接引用。
 		const target = (await pet.evaluate(`
 			(() => {
-				const x = Math.max(virt.l + 120, 120);
-				const y = Math.max(virt.t + 120, 160);
-				// 把窗口放到 (x, y)：fy 是「青蛙中心」，由窗口位置反推要加回中心偏移
-				st.fx = x + AX; st.fy = y + AY - 54 * K;
-				setWinPos(x, y);
+				// 锚点 = 青蛙中心 = 窗口中心：把中心放到 (cx, cy)，窗口左上角由 winPosFor 推出
+				const cx = Math.max(virt.l + 280, 280);
+				const cy = Math.max(virt.t + 330, 400);
+				st.fx = cx; st.fy = cy;
+				const p = winPosFor(cx, cy);
+				setWinPos(p.x, p.y);
 				finishDrag();// 拖动收尾 → 保存位置
-				return { x, y, fx: Math.round(st.fx), fy: Math.round(st.fy) };
+				return { x: p.x, y: p.y, fx: Math.round(st.fx), fy: Math.round(st.fy) };
 			})()
 		`)) as { x: number; y: number; fx: number; fy: number };
 		await expect
@@ -264,7 +265,18 @@ test.describe.serial("桌面宠物由透明独立窗口承载", () => {
 
 	test("右键菜单「关闭」：窗口销毁且设置开关自动置关", async () => {
 		const pet = await findPetWindow();
-		await pet.mouse.click(130, 100, { button: "right" });
+		// 在青蛙本体上右键（窗口固定 560×660，坐标不能硬编码）
+		const pt = (await pet.evaluate(`
+			(() => {
+				const isShape = (el) => el && el.namespaceURI === "http://www.w3.org/2000/svg" && el.tagName.toLowerCase() !== "svg";
+				for (let y = 8; y < innerHeight; y += 6)
+					for (let x = 8; x < innerWidth; x += 6)
+						if (isShape(document.elementFromPoint(x, y))) return { x, y };
+				return null;
+			})()
+		`)) as { x: number; y: number } | null;
+		expect(pt).toBeTruthy();
+		await pet.mouse.click(pt!.x, pt!.y, { button: "right" });
 		await pet.locator("#miClose").click();
 		await expect
 			.poll(async () => Boolean(await petState()), { timeout: 15_000 })

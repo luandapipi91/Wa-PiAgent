@@ -76,19 +76,15 @@ test.afterAll(async () => {
 });
 
 test.describe.serial("缩放与右键菜单尺寸", () => {
-	test("滑条放大到 200%：窗口内容尺寸同步为 520×516，缩回 100% 回到 260×258", async () => {
+	test("宠物窗口尺寸恒定（560×660）：缩放只改窗口内部，不再改窗口几何", async () => {
 		const pet = await findPetWindow();
-		await pet.evaluate(`(() => { applyScale(2); })()`);
-		await expect
-			.poll(async () => (await petContentSize())?.[0], { timeout: 15_000 })
-			.toBe(520);
-		expect((await petContentSize())![1]).toBe(516);
-
-		await pet.evaluate(`(() => { applyScale(1); })()`);
-		await expect
-			.poll(async () => (await petContentSize())?.[0], { timeout: 15_000 })
-			.toBe(260);
-		expect((await petContentSize())![1]).toBe(258);
+		// 初始就是固定尺寸
+		expect(await petContentSize()).toEqual([560, 660]);
+		for (const k of [2, 0.5, 1]) {
+			await pet.evaluate(`(() => { applyScale(${k}); })()`);
+			await new Promise((r) => setTimeout(r, 300));
+			expect(await petContentSize()).toEqual([560, 660]);
+		}
 	});
 
 	test("200% 缩放下在宠物下部右键：二级菜单仍完整可用（不被压成一条）", async () => {
@@ -99,15 +95,14 @@ test.describe.serial("缩放与右键菜单尺寸", () => {
 			(() => {
 				st.wander = false;
 				applyScale(2);
-				setMenuWinSize(true);
-				// 模拟在放大后宠物的下半身右键（y=500 在放大后的窗口里已很深）
+				// 模拟在放大后宠物的下半身右键（y=500 在固定尺寸窗口里已很深）
 				placeMenu(60, 500);
 				menuInter.style.display = "block";
 				layoutSubMenu(500);
 				const m = menuRoot.getBoundingClientRect();
 				const s = menuInter.getBoundingClientRect();
-				const W = Math.max(innerWidth, MENU_WIN_W);
-				const H = Math.max(innerHeight, MENU_WIN_H);
+				const W = Math.max(innerWidth, WIN_MAX_W);
+				const H = Math.max(innerHeight, WIN_MAX_H);
 				return {
 					win: { w: W, h: H },
 					menu: { t: m.top, b: m.bottom },
@@ -134,8 +129,7 @@ test.describe.serial("缩放与右键菜单尺寸", () => {
 		const probe = (await pet.evaluate(`
 			(() => {
 				st.wander = false;
-				// 青蛙视觉中心（屏幕坐标）= 窗口位置 + 窗口内的中心偏移（AX, AY - 54K）
-				const center = () => ({ x: winX + AX, y: winY + AY - 54 * K });
+				const center = () => ({ x: winX + WIN_MAX_W / 2, y: winY + WIN_MAX_H / 2 });
 				const first = center();
 				const steps = [];
 				for (const k of [1.3, 1.7, 2.0, 0.8, 1.0]) {
@@ -176,5 +170,59 @@ test.describe.serial("缩放与右键菜单尺寸", () => {
 
 		expect(probe.opened).toEqual(probe.before);
 		expect(probe.closed).toEqual(probe.before);
+	});
+
+	test("缩放过程中菜单在屏幕上完全不动（窗口几何恒定）", async () => {
+		const pet = await findPetWindow();
+		const probe = (await pet.evaluate(`
+			(() => {
+				st.wander = false;
+				showMainMenu(60, 60);
+				menuInter.style.display = "block";
+				layoutSubMenu(60);
+				const snap = () => {
+					const m = menuRoot.getBoundingClientRect();
+					const s = menuInter.getBoundingClientRect();
+					return {
+						winX, winY,
+						menu: { l: m.left, r: m.right, t: m.top, b: m.bottom },
+						sub: { l: s.left, r: s.right, t: s.top, b: s.bottom },
+					};
+				};
+				const first = snap();
+				const steps = [];
+				for (const k of [1.3, 1.7, 2.0, 0.7, 1.0]) {
+					menuAwayTicks = 0;   // 保持菜单展开
+					applyScale(k);
+					steps.push(snap());
+				}
+				hideMenus();
+				return { first, steps };
+			})()
+		`)) as {
+			first: {
+				winX: number;
+				winY: number;
+				menu: { l: number; r: number; t: number; b: number };
+				sub: { l: number; r: number; t: number; b: number };
+			};
+			steps: Array<{
+				winX: number;
+				winY: number;
+				menu: { l: number; r: number; t: number; b: number };
+				sub: { l: number; r: number; t: number; b: number };
+			}>;
+		};
+
+		for (const s of probe.steps) {
+			// 窗口位置不变
+			expect(s.winX).toBe(probe.first.winX);
+			expect(s.winY).toBe(probe.first.winY);
+			// 主菜单与二级菜单的窗口内位置都不变
+			expect(Math.abs(s.menu.l - probe.first.menu.l)).toBeLessThan(2);
+			expect(Math.abs(s.menu.t - probe.first.menu.t)).toBeLessThan(2);
+			expect(Math.abs(s.sub.l - probe.first.sub.l)).toBeLessThan(2);
+			expect(Math.abs(s.sub.t - probe.first.sub.t)).toBeLessThan(2);
+		}
 	});
 });

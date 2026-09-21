@@ -4,9 +4,13 @@
 const path = require("node:path");
 const fs = require("node:fs");
 
-/** 宠物窗口基准尺寸（与 pet.html 的 BASE_W / BASE_H 一致） */
+/** 宠物窗口基准尺寸（页面的 #win 在 100% 缩放下的尺寸） */
 const PET_BASE_W = 260;
 const PET_BASE_H = 258;
+/** 宠物窗口的固定尺寸：取「最大缩放下的宠物」与「两级菜单所需」的较大者。
+ *  窗口几何恒定后，缩放只改窗口内部，菜单 / 锚点 / 穿透都不再受缩放影响。 */
+const PET_WIN_W = 560;
+const PET_WIN_H = 660;
 /** 配置写盘节流：页面溜达时会持续移动窗口，按调用频率直写会高频落盘 */
 const CONFIG_WRITE_MS = 1000;
 
@@ -139,10 +143,10 @@ function setupPetWindow(deps = {}) {
 			/* 拿不到就用兜底矩形 */
 		}
 		return {
-			x: Math.round(area.x + area.width - PET_BASE_W - 20),
-			y: Math.round(area.y + area.height - PET_BASE_H - 60),
-			width: PET_BASE_W,
-			height: PET_BASE_H,
+			x: Math.round(area.x + area.width - PET_WIN_W - 20),
+			y: Math.round(area.y + area.height - PET_WIN_H - 60),
+			width: PET_WIN_W,
+			height: PET_WIN_H,
 		};
 	};
 
@@ -325,4 +329,6 @@ module.exports = {
 	setupPetWindow,
 	PET_BASE_W,
 	PET_BASE_H,
+	PET_WIN_W,
+	PET_WIN_H,
 };

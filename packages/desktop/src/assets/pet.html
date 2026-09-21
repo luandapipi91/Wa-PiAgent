@@ -173,6 +173,8 @@ const f2 = v => (Math.round(v * 100) / 100).toString();
 
 /* ---------------- 几何（随缩放系数变化） ---------------- */
 let K = 1.0, WIN_W = BASE_W, WIN_H = BASE_H, AX = BASE_AX, AY = 246, S = BASE_S;
+// 窗口尺寸是固定的（见 WIN_MAX_W/H）：#win 在窗口内居中，缩放时中心点不动
+let WIN_OFF_X = 0, WIN_OFF_Y = 0;
 // 菜单展开期间窗口会被临时放大（见后文菜单段）：此期间缩放逻辑不得覆盖窗口尺寸
 let menuWinOpen = false;
 const winEl = document.getElementById("win");
@@ -181,17 +183,21 @@ const sceneEl = document.getElementById("scene");
 function applyGeometry(skipWindow) {
   WIN_W = Math.round(BASE_W * K);
   WIN_H = Math.round(BASE_H * K);
-  AX = Math.round(BASE_AX * K);
-  AY = WIN_H - 12;
+  AX = Math.round(WIN_W / 2);
+  // 青蛙视觉中心落在 #win 的垂直中心（#win 又居中于窗口）→ 缩放时中心点不动
+  AY = Math.round(WIN_H / 2 + FROG_CENTER_DY * K);
   S = BASE_S * K;
   winEl.style.width = WIN_W + "px";
   winEl.style.height = WIN_H + "px";
+  // #win 在固定尺寸的窗口里居中：缩放时宠物中心留在窗口中心（窗口位置恒定 → 屏幕上也不动）
+  WIN_OFF_X = Math.round((WIN_MAX_W - WIN_W) / 2);
+  WIN_OFF_Y = Math.round((WIN_MAX_H - WIN_H) / 2);
+  winEl.style.left = WIN_OFF_X + "px";
+  winEl.style.top = WIN_OFF_Y + "px";
   sceneEl.setAttribute("viewBox", `0 0 ${WIN_W} ${WIN_H}`);
   sceneEl.setAttribute("width", WIN_W);
   sceneEl.setAttribute("height", WIN_H);
-  // 窗口内容尺寸必须跟随缩放（嵌入说明的约定）：否则放大后 #win 比窗口大、宠物被裁。
-  // skipWindow：调用方（applyScale）会连同位置一起原子下发，这里不要再单独设尺寸。
-  if (!skipWindow && !menuWinOpen && host && host.setWindowSize) host.setWindowSize(WIN_W, WIN_H);
+  // 窗口尺寸恒定（方案：固定尺寸 + 窗口内部缩放），这里不再下发任何窗口尺寸
 }
 
 /* ---------------- 配置持久化（scale / wander / pos） ---------------- */
@@ -277,15 +283,17 @@ function setWinPos(x, y) {
  * st.fy 的语义是「青蛙中心的屏幕 y」（不再是从前的脚底），
  * 这样缩放时中心点在屏幕上保持不动（脚底对齐会让中心随体型上下漂）。 */
 const FROG_CENTER_DY = 54;
-/** 由锚点（fx = 水平中心、fy = 青蛙中心）反推窗口左上角 */
+/** 由锚点（fx = 水平中心、fy = 青蛙中心）反推窗口左上角：
+ *  窗口中心与青蛙中心重合，故偏移是常量（与缩放无关）——这也是缩放不碰窗口几何的根源。 */
 function winPosFor(fx, fy) {
-  return { x: Math.round(fx - AX), y: Math.round(fy - AY + FROG_CENTER_DY * K) };
+  return { x: Math.round(fx - WIN_MAX_W / 2), y: Math.round(fy - WIN_MAX_H / 2) };
 }
-/** 青蛙中心在屏幕上的纵向可取范围（宠物不出屏） */
+/** 青蛙中心在屏幕上的纵向可取范围（宠物本体不出屏） */
 function frogFyRange() {
+  // 按「头顶不出屏上边、脚底不出屏下边」算：头顶约在中心上方 80K、脚底在下方 54K
   return {
-    min: virt.t + Math.round(AY - FROG_CENTER_DY * K),
-    max: virt.b - Math.round(FROG_CENTER_DY * K),
+    min: virt.t + Math.round(80 * K),
+    max: virt.b - Math.round(54 * K),
   };
 }
 
@@ -641,7 +649,7 @@ function tickCore() {
       // 挠痒痒
       if (st.tickle_cd > 0) st.tickle_cd -= 1;
       if (st.tickle_cd === 0) {
-        const cx_ = gp.x - winX, cy_ = gp.y - winY;
+        const cx_ = gp.x - winX - WIN_OFF_X, cy_ = gp.y - winY - WIN_OFF_Y;
         if (Math.abs(cx_ - AX) < 58 * K && (AY - 80 * K) < cy_ && cy_ < (AY - 8 * K)) {
           let dir_ = 0;
           const pc = st.prev_cx === null ? cx_ : st.prev_cx;
@@ -1152,10 +1160,10 @@ winEl.addEventListener("pointermove", e => {
     st.dgx = 0; st.dgy = 0;
   }
   if (st.moved && st.state === "drag") {
-    const fx = clamp(wx0 + dx + AX, virt.l + 90, virt.r - 90);
-    // fy 是「青蛙中心」：由窗口位置反推需加上中心相对脚底的偏移
+    const fx = clamp(wx0 + dx + WIN_MAX_W / 2, virt.l + 90, virt.r - 90);
+    // fy 是「青蛙中心」：窗口中心与它重合，故直接用窗口半高反推
     const range = frogFyRange();
-    const fy = clamp(wy0 + dy + AY - FROG_CENTER_DY * K, range.min, range.max);
+    const fy = clamp(wy0 + dy + WIN_MAX_H / 2, range.min, range.max);
     st.fx = fx; st.fy = fy;
     const p = winPosFor(fx, fy);
     setWinPos(p.x, p.y);
@@ -1193,8 +1201,7 @@ function hideMenus() {
   menuRoot.style.display = "none";
   menuInter.style.display = "none";
   document.getElementById("miInter").classList.remove("open");
-  // 菜单关掉就把窗口收回宠物尺寸（放大/收回只改尺寸，左上角锚点不动，宠物不会位移）
-  if (menuWinOpen) setMenuWinSize(false);
+  menuWinOpen = false;
   menuAwayTicks = 0;
 }
 
@@ -1210,28 +1217,18 @@ function checkMenuDismiss() {
   if (++menuAwayTicks >= 30) { menuAwayTicks = 0; hideMenus(); }   // 30 帧 ≈ 1.2s（留足移向菜单项的余量）
 }
 
-/* 菜单展开用的临时窗口尺寸：宠物窗口只有 260×258，而二级菜单固定展开在主菜单右侧
- * （left = 主菜单右缘 − 2、宽 150+），260 宽时右半截直接被窗口裁掉——
- * 肉眼就是「右键互动菜单出不来」。 */
-const MENU_WIN_W = 560, MENU_WIN_H = 660;
-function setMenuWinSize(open) {
-  if (!host || !host.setWindowSize) return;
-  menuWinOpen = open;
-  host.setWindowSize(open ? MENU_WIN_W : WIN_W, open ? MENU_WIN_H : WIN_H);
-}
+/* 宠物窗口的固定尺寸（与主进程 PET_WIN_W/H 一致）：窗口几何恒定后，缩放只改窗口内部，
+ * 菜单、锚点、穿透都不再受缩放影响（也不必再为放菜单而临时放大窗口）。 */
+const WIN_MAX_W = 560, WIN_MAX_H = 660;
 function placeMenu(x, y) {
-  // 窗口尺寸是 IPC 给宿主的，生效晚于本次布局；但下一步就是它，所以边界直接用
-  // 放大后的目标尺寸算——避免「先按 260×258 定位、放大后再挪一次」那段竞态
-  //（菜单会先被挤在左上角，鼠标已 hover 到旧位置）。
-  const W = Math.max(window.innerWidth, MENU_WIN_W);
-  const H = Math.max(window.innerHeight, MENU_WIN_H);
-  menuRoot.style.left = Math.min(x, W - 170) + "px";
-  menuRoot.style.top = Math.min(y, H - 90) + "px";
+  // 窗口尺寸恒定，直接用固定边界
+  menuRoot.style.left = Math.min(x, WIN_MAX_W - 170) + "px";
+  menuRoot.style.top = Math.min(y, WIN_MAX_H - 90) + "px";
   menuInter.style.display = "none";
 }
 function showMainMenu(x, y) {
   menuRoot.style.display = "block";
-  if (!menuWinOpen) setMenuWinSize(true);
+  menuWinOpen = true;
   placeMenu(x, y);
 }
 document.getElementById("miInter").addEventListener("mouseenter", () => {
@@ -1249,8 +1246,7 @@ document.getElementById("miInter").addEventListener("mouseenter", () => {
  *  不能只按「剩余高度/宽度」裁剪：放大到 200% 后鼠标能在更大的窗口里点得很靠右/靠下，
  *  那样二级菜单会被压成一条或被裁掉一半——用户看到的就是「菜单缩小了」。 */
 function layoutSubMenu(top) {
-  const H = Math.max(window.innerHeight, MENU_WIN_H);
-  const W = Math.max(window.innerWidth, MENU_WIN_W);
+  const H = WIN_MAX_H, W = WIN_MAX_W;   // 窗口尺寸恒定
   const m = menuRoot.getBoundingClientRect();
   menuInter.style.maxHeight = "none";
   const need = menuInter.scrollHeight + 14;   // 自身 padding(5×2) + border(2×2)
@@ -1265,23 +1261,8 @@ function layoutSubMenu(top) {
   menuInter.style.overflowY = "auto";
 }
 
-/** 把窗口位移反向补偿到已展开的菜单上：菜单在窗口内平移相应距离，屏幕上看起来原地不动。
- *  缩放（或其它导致窗口移位的操作）时调用，避免菜单跟着窗口跑。 */
-function shiftOpenMenus(dx, dy) {
-  if (!dx && !dy) return;
-  const W = Math.max(window.innerWidth, MENU_WIN_W);
-  const H = Math.max(window.innerHeight, MENU_WIN_H);
-  for (const el of [menuRoot, menuInter]) {
-    if (!el || getComputedStyle(el).display === "none") continue;
-    const l = parseFloat(el.style.left) || 0;
-    const t = parseFloat(el.style.top) || 0;
-    // 按菜单自身宽高 clamp：只留固定余量（如 W-40）会在补偿后把菜单推出窗口右/下边界，
-    // 拖着大小滑条时表现为「菜单被截断」。
-    const w = el.offsetWidth, h = el.offsetHeight;
-    el.style.left = Math.max(4, Math.min(l - dx, Math.max(4, W - w - 4))) + "px";
-    el.style.top = Math.max(4, Math.min(t - dy, Math.max(4, H - h - 4))) + "px";
-  }
-}
+/* 原「把窗口位移反向补偿到菜单上」的 shiftOpenMenus 已移除：
+ * 窗口尺寸固定、位置也不随缩放变化，菜单无需任何补偿。 */
 menuRoot.addEventListener("mouseleave", e => {
   if (!menuRoot.contains(e.relatedTarget) && !menuInter.contains(e.relatedTarget))
     setTimeout(() => { if (!menuInter.matches(":hover")) menuInter.style.display = "none"; }, 120);
@@ -1294,20 +1275,15 @@ document.addEventListener("mousedown", e => {
 });
 
 function applyScale(k) {
-  const prevWinX = winX, prevWinY = winY;
   K = clamp(k, 0.5, 2.0);
-  applyGeometry(true);   // 只改 DOM 几何：窗口尺寸与位置在下面一次原子下发
+  applyGeometry();
   st.fx = clamp(st.fx, virt.l + 90, virt.r - 90);
-  {
-    const range = frogFyRange();
-    st.fy = clamp(st.fy, range.min, range.max);
-  }
+  const range = frogFyRange();
+  st.fy = clamp(st.fy, range.min, range.max);
+  // 窗口尺寸固定、且窗口中心与青蛙中心重合（winPosFor 是常量偏移）：
+  // 缩放不动窗口几何，菜单自然也纹丝不动。
   const p = winPosFor(st.fx, st.fy);
-  // 菜单展开时窗口要保持「菜单尺寸」，不能缩回宠物尺寸（否则菜单被截断）
-  if (menuWinOpen) setWinBounds(p.x, p.y, MENU_WIN_W, MENU_WIN_H);
-  else setWinBounds(p.x, p.y, WIN_W, WIN_H);
-  // 菜单开着时：窗口左上角会随缩放改变，把位移反向补到菜单上，让它在屏幕上保持原地。
-  if (menuWinOpen) shiftOpenMenus(p.x - prevWinX, p.y - prevWinY);
+  setWinPos(p.x, p.y);
   saveConfig();
 }
 sizeRange.addEventListener("input", () => {

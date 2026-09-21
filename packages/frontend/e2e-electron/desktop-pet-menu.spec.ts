@@ -85,8 +85,8 @@ test.describe.serial("宠物右键菜单", () => {
 				layoutSubMenu(parseFloat(menuRoot.style.top) || 60);
 				const m = menuRoot.getBoundingClientRect();
 				const s = menuInter.getBoundingClientRect();
-				const W = Math.max(innerWidth, MENU_WIN_W);
-				const H = Math.max(innerHeight, MENU_WIN_H);
+				const W = Math.max(innerWidth, WIN_MAX_W);
+				const H = Math.max(innerHeight, WIN_MAX_H);
 				const out = {
 					win: { w: W, h: H },
 					menu: { l: m.left, t: m.top, r: m.right, b: m.bottom },
@@ -110,20 +110,15 @@ test.describe.serial("宠物右键菜单", () => {
 		expect(layout.sub.h).toBeGreaterThan(120);
 	});
 
-	test("菜单展开时窗口放大，关闭后恢复宠物窗口尺寸", async () => {
+	test("窗口尺寸恒定：菜单开合不再改变窗口尺寸", async () => {
 		const pet = await findPetWindow();
-		// 自包含：先同步展开菜单（窗口应放大到能容纳两级菜单）
+		expect(await petContentSize()).toEqual([560, 660]);
 		await pet.evaluate(`(() => { showMainMenu(60, 60); })()`);
-		await expect
-			.poll(async () => (await petContentSize())?.[0], { timeout: 15_000 })
-			.toBe(560);
-
-		// 再同步收起：窗口恢复宠物尺寸
+		await new Promise((r) => setTimeout(r, 300));
+		expect(await petContentSize()).toEqual([560, 660]);
 		await pet.evaluate(`(() => { hideMenus(); })()`);
-		await expect
-			.poll(async () => (await petContentSize())?.[0], { timeout: 15_000 })
-			.toBe(260);
-		expect((await petContentSize())![1]).toBe(258);
+		await new Promise((r) => setTimeout(r, 300));
+		expect(await petContentSize()).toEqual([560, 660]);
 	});
 
 	test("拖动大小滑条时菜单在屏幕上保持原位（不跟着窗口跑）", async () => {
@@ -256,8 +251,8 @@ test.describe.serial("宠物右键菜单", () => {
 					const s = menuInter.getBoundingClientRect();
 					out.push({
 						k,
-						W: Math.max(innerWidth, MENU_WIN_W),
-						H: Math.max(innerHeight, MENU_WIN_H),
+						W: Math.max(innerWidth, WIN_MAX_W),
+						H: Math.max(innerHeight, WIN_MAX_H),
 						menu: { l: m.left, r: m.right, t: m.top, b: m.bottom },
 						sub: { l: s.left, r: s.right, t: s.top, b: s.bottom },
 					});

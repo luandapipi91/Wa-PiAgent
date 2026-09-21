@@ -260,8 +260,9 @@ test("setEnabled(true)：按约定参数建窗并加载 pet.html、首帧后显�
 		expect(options.skipTaskbar).toBe(true);
 		expect(options.hasShadow).toBe(false);
 		expect(options.useContentSize).toBe(true);
-		expect(options.width).toBe(260);
-		expect(options.height).toBe(258);
+		// 窗口尺寸固定（按最大缩放 + 菜单需求预留）：缩放只改窗口内部，不再动窗口几何
+		expect(options.width).toBe(560);
+		expect(options.height).toBe(660);
 		// 置顶（需求变更）：点击其它应用后不得被遮挡。
 		// 交付说明原写的是「不设 alwaysOnTop、保持普通窗口层级」，现按用户要求改为浮在其它窗口之上。
 		expect(options.alwaysOnTop).toBe(true);
