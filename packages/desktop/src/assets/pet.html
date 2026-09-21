@@ -1220,10 +1220,29 @@ function checkMenuDismiss() {
 /* 宠物窗口的固定尺寸（与主进程 PET_WIN_W/H 一致）：窗口几何恒定后，缩放只改窗口内部，
  * 菜单、锚点、穿透都不再受缩放影响（也不必再为放菜单而临时放大窗口）。 */
 const WIN_MAX_W = 560, WIN_MAX_H = 660;
+/** 屏幕（虚拟桌面）范围换算到窗口内坐标。
+ *  窗口可能与屏幕错开（宠物贴屏幕边缘时，窗口有一大半在屏幕外），
+ *  菜单只能在窗口里渲染，所以必须同时约束在「屏幕内」与「窗口内」。 */
+function screenRectInWindow() {
+  return { l: virt.l - winX, t: virt.t - winY, r: virt.r - winX, b: virt.b - winY };
+}
+/** 菜单在窗口内的可用区间（既要看得见，又不能超出窗口） */
+function menuRoom(w, h) {
+  const sr = screenRectInWindow();
+  const minL = Math.max(4, sr.l + 4);
+  const minT = Math.max(4, sr.t + 4);
+  return {
+    minL,
+    maxL: Math.max(minL, Math.min(WIN_MAX_W - w - 4, sr.r - w - 4)),
+    minT,
+    maxT: Math.max(minT, Math.min(WIN_MAX_H - h - 4, sr.b - h - 4)),
+  };
+}
 function placeMenu(x, y) {
-  // 窗口尺寸恒定，直接用固定边界
-  menuRoot.style.left = Math.min(x, WIN_MAX_W - 170) + "px";
-  menuRoot.style.top = Math.min(y, WIN_MAX_H - 90) + "px";
+  // 窗口尺寸恒定，但窗口位置不固定：菜单位置要 clamp 到「屏幕 ∩ 窗口」里，否则会跑到屏幕外
+  const room = menuRoom(menuRoot.offsetWidth || 168, menuRoot.offsetHeight || 92);
+  menuRoot.style.left = clamp(x, room.minL, room.maxL) + "px";
+  menuRoot.style.top = clamp(y, room.minT, room.maxT) + "px";
   menuInter.style.display = "none";
 }
 function showMainMenu(x, y) {
@@ -1246,17 +1265,25 @@ document.getElementById("miInter").addEventListener("mouseenter", () => {
  *  不能只按「剩余高度/宽度」裁剪：放大到 200% 后鼠标能在更大的窗口里点得很靠右/靠下，
  *  那样二级菜单会被压成一条或被裁掉一半——用户看到的就是「菜单缩小了」。 */
 function layoutSubMenu(top) {
-  const H = WIN_MAX_H, W = WIN_MAX_W;   // 窗口尺寸恒定
+  const sr = screenRectInWindow();
   const m = menuRoot.getBoundingClientRect();
   menuInter.style.maxHeight = "none";
   const need = menuInter.scrollHeight + 14;   // 自身 padding(5×2) + border(2×2)
-  const realH = Math.min(need, H - 16);
   const subW = menuInter.scrollWidth + 10;
-  // 优先向右展开；右侧放不下就翻到主菜单左侧
+  // 垂直：菜单高最多到「屏幕底 / 窗口底」中更靠上的那个
+  const maxT = Math.max(8, Math.min(WIN_MAX_H - 8, sr.b - 8));
+  const realH = Math.min(need, Math.max(120, maxT - 8));
+  // 水平：按「屏幕内」的可用宽度决定方向。不能按窗口宽度(560)判断——
+  // 主菜单在窗口中部时窗口右侧还剩两百多像素，但屏幕右侧可能已经没了；
+  // 反之宠物贴屏幕右缘时窗口右半截在屏幕外，按窗口算会在屏幕外展开。
+  const rightRoom = sr.r - 4 - (m.right - 2);
+  const leftRoom = (m.left - 2) - (sr.l + 4);
   let left = m.right - 2;
-  if (left + subW > W - 4) left = Math.max(4, m.left - subW + 2);
-  menuInter.style.left = left + "px";
-  menuInter.style.top = Math.max(8, Math.min(top, H - realH - 8)) + "px";
+  if (rightRoom < subW && leftRoom > rightRoom) left = m.left - subW + 2;
+  const minL = Math.max(4, sr.l + 4);
+  const maxL = Math.max(minL, Math.min(WIN_MAX_W - subW - 4, sr.r - subW - 4));
+  menuInter.style.left = clamp(left, minL, maxL) + "px";
+  menuInter.style.top = clamp(top, 8, Math.max(8, maxT - realH)) + "px";
   menuInter.style.maxHeight = Math.max(120, realH - 14) + "px";
   menuInter.style.overflowY = "auto";
 }
