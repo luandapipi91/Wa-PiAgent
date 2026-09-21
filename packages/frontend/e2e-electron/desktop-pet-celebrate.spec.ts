@@ -71,32 +71,26 @@ test.afterAll(async () => {
 test.describe.serial("对话完成后的宠物动作", () => {
 	test("互动菜单里不再有「任务完成」项", async () => {
 		const pet = await findPetWindow();
-		await pet.evaluate(`(() => { st.wander = false; })()`);
-		await new Promise((r) => setTimeout(r, 400));
-
-		// 在青蛙本体上右键打开菜单（不硬编码坐标）
-		const pt = (await pet.evaluate(`
+		// 同步打开菜单并读出菜单项清单：E2E 的合成鼠标不移动系统光标，异步会撞上
+		// 「光标离开菜单自动收起」导致菜单不可见。
+		const menu = (await pet.evaluate(`
 			(() => {
-				const isShape = (el) => el && el.namespaceURI === "http://www.w3.org/2000/svg" && el.tagName.toLowerCase() !== "svg";
-				for (let y = 8; y < innerHeight; y += 4)
-					for (let x = 8; x < innerWidth; x += 4)
-						if (isShape(document.elementFromPoint(x, y))) return { x, y };
-				return null;
+				showMainMenu(60, 60);
+				const items = [...document.querySelectorAll("#menuInter .mi")].map((el) => ({
+					act: el.dataset.act || null,
+					text: el.textContent,
+				}));
+				hideMenus();
+				return items;
 			})()
-		`)) as { x: number; y: number } | null;
-		expect(pt).toBeTruthy();
-		await pet.mouse.click(pt!.x, pt!.y, { button: "right" });
-		await pet.locator("#miInter").hover();
-		await new Promise((r) => setTimeout(r, 300));
+		`)) as Array<{ act: string | null; text: string }>;
 
+		const acts = menu.map((i) => i.act);
 		// 菜单里不得再有「任务完成」这一项（也不得出现在任何菜单文案里）
-		await expect(
-			pet.locator('#menuInter .mi[data-act="celebrate"]'),
-		).toHaveCount(0);
-		await expect(pet.locator("#menuInter")).not.toContainText("任务完成");
+		expect(acts).not.toContain("celebrate");
+		expect(menu.some((i) => i.text.includes("任务完成"))).toBe(false);
 		// 其它动作项仍在（只移除了这一项）
-		await expect(pet.locator('#menuInter .mi[data-act="hop"]')).toHaveCount(1);
-		await pet.evaluate(`(() => { hideMenus(); })()`);
+		expect(acts).toContain("hop");
 	});
 
 	test("对话完成：一定动，且动作在多个之间随机（不是固定庆祝）", async () => {

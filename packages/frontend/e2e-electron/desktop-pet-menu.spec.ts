@@ -76,75 +76,54 @@ test.afterAll(async () => {
 test.describe.serial("宠物右键菜单", () => {
 	test("右键青蛙：主菜单出现，且主菜单与二级「互动」菜单都完整落在窗口内", async () => {
 		const pet = await findPetWindow();
-		// 关掉溜达，避免测试期间窗口被溜达挪走
-		await pet.evaluate(`(() => { st.wander = false; })()`);
-		await new Promise((r) => setTimeout(r, 300));
-
-		// 找青蛙本体上的点（不硬编码坐标：青蛙位置受缩放/呼吸/位移影响）
-		const pt = (await pet.evaluate(`
+		// 同步打开菜单并展开二级菜单：E2E 的合成鼠标不会移动系统光标，异步流程会撞上
+		// 「光标离开菜单区自动收起」（真实用户右键时光标就在菜单上，不会遇到）。
+		const layout = (await pet.evaluate(`
 			(() => {
-				const isShape = (el) => el && el.namespaceURI === "http://www.w3.org/2000/svg" && el.tagName.toLowerCase() !== "svg";
-				for (let y = 8; y < innerHeight; y += 4)
-					for (let x = 8; x < innerWidth; x += 4) {
-						const el = document.elementFromPoint(x, y);
-						if (isShape(el)) return { x, y, tag: el.tagName };
-					}
-				return null;
-			})()
-		`)) as { x: number; y: number; tag: string } | null;
-		expect(pt).toBeTruthy();
-
-		await pet.mouse.click(pt!.x, pt!.y, { button: "right" });
-
-		const menu = await pet.evaluate(`
-			(() => {
-				const r = menuRoot.getBoundingClientRect();
-				return {
-					display: getComputedStyle(menuRoot).display,
-					rect: { l: r.left, t: r.top, r: r.right, b: r.bottom },
-					win: { w: innerWidth, h: innerHeight },
+				showMainMenu(60, 60);
+				menuInter.style.display = "block";
+				layoutSubMenu(parseFloat(menuRoot.style.top) || 60);
+				const m = menuRoot.getBoundingClientRect();
+				const s = menuInter.getBoundingClientRect();
+				const W = Math.max(innerWidth, MENU_WIN_W);
+				const H = Math.max(innerHeight, MENU_WIN_H);
+				const out = {
+					win: { w: W, h: H },
+					menu: { l: m.left, t: m.top, r: m.right, b: m.bottom },
+					sub: { l: s.left, r: s.right, b: s.bottom, h: s.height },
 				};
+				hideMenus();
+				return out;
 			})()
-		`);
-		expect(menu.display).not.toBe("none");
-		expect(menu.rect.r).toBeLessThanOrEqual(menu.win.w);
-		expect(menu.rect.b).toBeLessThanOrEqual(menu.win.h);
+		`)) as {
+			win: { w: number; h: number };
+			menu: { l: number; t: number; r: number; b: number };
+			sub: { l: number; r: number; b: number; h: number };
+		};
 
-		// 悬停「互动」→ 二级菜单展开，必须完整落在窗口内（修复前右边界远超窗口宽）
-		await pet.locator("#miInter").hover();
-		await new Promise((r) => setTimeout(r, 200));
-		const sub = await pet.evaluate(`
-			(() => {
-				const r = menuInter.getBoundingClientRect();
-				return {
-					display: getComputedStyle(menuInter).display,
-					rect: { l: r.left, t: r.top, r: r.right, b: r.bottom, h: r.height },
-					win: { w: innerWidth, h: innerHeight },
-				};
-			})()
-		`);
-		expect(sub.display).toBe("block");
-		expect(sub.rect.r).toBeLessThanOrEqual(sub.win.w);
-		expect(sub.rect.b).toBeLessThanOrEqual(sub.win.h);
+		expect(layout.menu.r).toBeLessThanOrEqual(layout.win.w);
+		expect(layout.menu.b).toBeLessThanOrEqual(layout.win.h);
+		// 二级菜单必须完整落在窗口内（修复前右边界远超窗口宽，被裁掉）
+		expect(layout.sub.r).toBeLessThanOrEqual(layout.win.w);
+		expect(layout.sub.b).toBeLessThanOrEqual(layout.win.h);
 		// 二级菜单要有实际可读高度（不是被 maxHeight 压成几十像素）
-		expect(sub.rect.h).toBeGreaterThan(120);
+		expect(layout.sub.h).toBeGreaterThan(120);
 	});
 
 	test("菜单展开时窗口放大，关闭后恢复宠物窗口尺寸", async () => {
 		const pet = await findPetWindow();
-		const openSize = await petContentSize();
-		expect(openSize![0]).toBeGreaterThan(260);
+		// 自包含：先同步展开菜单（窗口应放大到能容纳两级菜单）
+		await pet.evaluate(`(() => { showMainMenu(60, 60); })()`);
+		await expect
+			.poll(async () => (await petContentSize())?.[0], { timeout: 15_000 })
+			.toBe(560);
 
-		// 点菜单外部关闭（菜单展开期间不穿透，点击能到达页面）
-		await pet.mouse.click(openSize![0] - 8, openSize![1] - 8);
-		await new Promise((r) => setTimeout(r, 500));
-		const closed = await pet.evaluate(
-			`(() => ({ display: getComputedStyle(menuRoot).display }))()`,
-		);
-		expect(closed.display).toBe("none");
-		const restored = await petContentSize();
-		expect(restored![0]).toBe(260);
-		expect(restored![1]).toBe(258);
+		// 再同步收起：窗口恢复宠物尺寸
+		await pet.evaluate(`(() => { hideMenus(); })()`);
+		await expect
+			.poll(async () => (await petContentSize())?.[0], { timeout: 15_000 })
+			.toBe(260);
+		expect((await petContentSize())![1]).toBe(258);
 	});
 
 	test("拖动大小滑条时菜单在屏幕上保持原位（不跟着窗口跑）", async () => {
@@ -165,27 +144,70 @@ test.describe.serial("宠物右键菜单", () => {
 		await pet.mouse.click(pt!.x, pt!.y, { button: "right" });
 		await new Promise((r) => setTimeout(r, 400));
 
-		// 菜单在**屏幕**上的位置 = 窗口位置 + 菜单相对窗口的位置
-		const menuScreenPos = `(() => {
-			const r = menuRoot.getBoundingClientRect();
-			return { x: winX + r.left, y: winY + r.top };
-		})()`;
-		const before = (await pet.evaluate(menuScreenPos)) as { x: number; y: number };
+		// 菜单在**屏幕**上的位置 = 窗口位置 + 菜单相对窗口的位置。
+		// 同步执行（不跨帧）：E2E 的合成鼠标不会移动系统光标，异步等待会触发
+		// 「光标离开菜单区自动收起」，那属于测试环境错位、不是真实用户场景。
+		const shifted = (await pet.evaluate(`
+			(() => {
+				const pos = () => { const r = menuRoot.getBoundingClientRect(); return { x: winX + r.left, y: winY + r.top }; };
+				const before = pos();
+				const out = [];
+				for (const k of [1.6, 0.8, 1.0]) { applyScale(k); out.push(pos()); }
+				return { before, out };
+			})()
+		`)) as {
+			before: { x: number; y: number };
+			out: Array<{ x: number; y: number }>;
+		};
+		for (const p of shifted.out) {
+			expect(Math.abs(p.x - shifted.before.x)).toBeLessThan(12);
+			expect(Math.abs(p.y - shifted.before.y)).toBeLessThan(12);
+		}
 
-		// 等效拖动滑条：滑条 input 就是连续调 applyScale
-		await pet.evaluate(`(() => { applyScale(1.6); })()`);
-		await new Promise((r) => setTimeout(r, 600));
-		const mid = (await pet.evaluate(menuScreenPos)) as { x: number; y: number };
-		expect(Math.abs(mid.x - before.x)).toBeLessThan(12);
-		expect(Math.abs(mid.y - before.y)).toBeLessThan(12);
+		// 收尾：关菜单（不影响后续用例）
+		await pet.evaluate(`(() => { hideMenus(); })()`);
+	});
 
-		await pet.evaluate(`(() => { applyScale(0.8); })()`);
-		await new Promise((r) => setTimeout(r, 600));
-		const after = (await pet.evaluate(menuScreenPos)) as { x: number; y: number };
-		expect(Math.abs(after.x - before.x)).toBeLessThan(12);
-		expect(Math.abs(after.y - before.y)).toBeLessThan(12);
+	test("点菜单外部：那里保持穿透（点击直接落到桌面）+ 菜单随后自动收起", async () => {
+		const pet = await findPetWindow();
+		await pet.evaluate(`(() => { st.wander = false; })()`);
+		await new Promise((r) => setTimeout(r, 300));
 
-		// 收尾：还原缩放并关菜单（不影响后续用例）
-		await pet.evaluate(`(() => { applyScale(1); hideMenus(); })()`);
+		// 全程同步执行：E2E 的合成鼠标不移动系统光标，异步等待会撞上「光标离开菜单
+		// 自动收起」（真实用户右键时光标就在菜单上，不会遇到）。
+		const probe = (await pet.evaluate(`
+			(() => {
+				showMainMenu(innerWidth / 2, 60);   // 等效右键打开（同步）
+				const out = { openBefore: getComputedStyle(menuRoot).display };
+				// 1) 菜单外（窗口左下角透明区）→ 穿透：点它会直接落到桌面
+				hostGp = { x: winX + 12, y: winY + innerHeight - 12 };
+				clickThrough = false;
+				checkClickThrough();
+				out.outsidePierces = clickThrough;
+				// 2) 菜单内 → 不穿透（否则点不到菜单项）
+				const r = menuRoot.getBoundingClientRect();
+				hostGp = { x: winX + r.left + r.width / 2, y: winY + r.top + r.height / 2 };
+				clickThrough = true;
+				checkClickThrough();
+				out.insideHolds = clickThrough;
+				// 3) 光标离开菜单区持续约 1.2 秒（30 帧）→ 菜单自动收起
+				for (let i = 0; i < 40; i++) {
+					hostGp = { x: winX + 12, y: winY + innerHeight - 12 };
+					checkMenuDismiss();
+				}
+				out.closed = getComputedStyle(menuRoot).display;
+				return out;
+			})()
+		`)) as {
+			openBefore: string;
+			outsidePierces: boolean;
+			insideHolds: boolean;
+			closed: string;
+		};
+
+		expect(probe.openBefore).toBe("block");
+		expect(probe.outsidePierces).toBe(true);
+		expect(probe.insideHolds).toBe(false);
+		expect(probe.closed).toBe("none");
 	});
 });

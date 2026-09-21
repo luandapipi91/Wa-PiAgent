@@ -93,50 +93,39 @@ test.describe.serial("缩放与右键菜单尺寸", () => {
 
 	test("200% 缩放下在宠物下部右键：二级菜单仍完整可用（不被压成一条）", async () => {
 		const pet = await findPetWindow();
-		await pet.evaluate(`(() => { st.wander = false; applyScale(2); })()`);
-		// 等窗口尺寸同步生效
-		await expect
-			.poll(async () => (await petContentSize())?.[0], { timeout: 15_000 })
-			.toBe(520);
-		await new Promise((r) => setTimeout(r, 500));
-
-		// 找青蛙本体上最靠下的可命中点：模拟用户在放大后的宠物下半身右键
-		const pt = (await pet.evaluate(`
+		// 同步执行：E2E 的合成鼠标不移动系统光标，异步会撞上「光标离开菜单自动收起」，
+		// 且窗口尺寸是 IPC 异步生效的；这里直接同步走菜单布局代码。
+		const layout = (await pet.evaluate(`
 			(() => {
-				const isShape = (el) => el && el.namespaceURI === "http://www.w3.org/2000/svg" && el.tagName.toLowerCase() !== "svg";
-				let last = null;
-				for (let y = 8; y < innerHeight; y += 4)
-					for (let x = 8; x < innerWidth; x += 4) {
-						const el = document.elementFromPoint(x, y);
-						if (isShape(el)) { last = { x, y }; }
-					}
-				return last;
-			})()
-		`)) as { x: number; y: number } | null;
-		expect(pt).toBeTruthy();
-
-		await pet.mouse.click(pt!.x, pt!.y, { button: "right" });
-		await new Promise((r) => setTimeout(r, 400));
-		await pet.locator("#miInter").hover();
-		await new Promise((r) => setTimeout(r, 300));
-
-		const layout = await pet.evaluate(`
-			(() => {
+				st.wander = false;
+				applyScale(2);
+				setMenuWinSize(true);
+				// 模拟在放大后宠物的下半身右键（y=500 在放大后的窗口里已很深）
+				placeMenu(60, 500);
+				menuInter.style.display = "block";
+				layoutSubMenu(500);
 				const m = menuRoot.getBoundingClientRect();
 				const s = menuInter.getBoundingClientRect();
+				const W = Math.max(innerWidth, MENU_WIN_W);
+				const H = Math.max(innerHeight, MENU_WIN_H);
 				return {
-					win: { w: innerWidth, h: innerHeight },
+					win: { w: W, h: H },
 					menu: { t: m.top, b: m.bottom },
 					sub: { t: s.top, r: s.right, b: s.bottom, h: s.height },
 				};
 			})()
-		`);
+		`)) as {
+			win: { w: number; h: number };
+			menu: { t: number; b: number };
+			sub: { t: number; r: number; b: number; h: number };
+		};
+
 		// 二级菜单要有可用高度（修复前在下方右键时只剩 ~90px）
 		expect(layout.sub.h).toBeGreaterThan(400);
 		expect(layout.sub.r).toBeLessThanOrEqual(layout.win.w);
 		expect(layout.sub.b).toBeLessThanOrEqual(layout.win.h);
 
-		// 收尾：还原缩放，避免影响后续用例
-		await pet.evaluate(`(() => { applyScale(1); hideMenus(); })()`);
+		// 收尾：关菜单并还原缩放
+		await pet.evaluate(`(() => { hideMenus(); applyScale(1); })()`);
 	});
 });

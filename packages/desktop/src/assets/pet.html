@@ -294,19 +294,16 @@ let clickThrough = false;
 function hitTest(mx, my) {
   const el = document.elementFromPoint(mx, my);
   if (!el) return false;                                        // 窗口外 → 透明
-  if (menuRoot.contains(el) || menuInter.contains(el)) return true;  // 菜单开着必须可点
+  const inMenu = menuRoot.contains(el) || menuInter.contains(el);
+  // 菜单展开期间：只有菜单矩形本身算「可点」，其余（含为放菜单临时放大出来的透明区）
+  // 一律穿透——这样「点菜单外」的那一下会直接落到桌面/其它应用，不用点两次。
+  if (menuWinOpen) return inMenu;
+  if (inMenu) return true;
   // SVG 图形元素（ellipse/circle/path/text）= 青蛙本体或气泡；<svg> 根不算
   return el.namespaceURI === "http://www.w3.org/2000/svg" && el.tagName.toLowerCase() !== "svg";
 }
 function checkClickThrough() {
-  if (!host || !host.setClickThrough) return;
-  // 菜单展开期间整体可点（含窗口为放菜单临时放大出来的透明区）：
-  // 否则点菜单外部会穿到桌面，页面的「点别处关菜单」收不到 mousedown，菜单关不掉。
-  if (menuWinOpen) {
-    if (clickThrough) { clickThrough = false; host.setClickThrough(false); }
-    return;
-  }
-  if (!hostGp) return;
+  if (!host || !host.setClickThrough || !hostGp) return;
   const inside = hitTest(hostGp.x - winX, hostGp.y - winY);
   const next = !inside;
   if (next === clickThrough) return;   // 只在状态变化时发 IPC
@@ -922,6 +919,7 @@ function tickCore() {
   render();
   savePosIfMoved();
   checkClickThrough();
+  checkMenuDismiss();
 }
 
 /* ---------------- 位置同步（窗口跟随锚点） ---------------- */
@@ -1165,6 +1163,19 @@ function hideMenus() {
   document.getElementById("miInter").classList.remove("open");
   // 菜单关掉就把窗口收回宠物尺寸（放大/收回只改尺寸，左上角锚点不动，宠物不会位移）
   if (menuWinOpen) setMenuWinSize(false);
+  menuAwayTicks = 0;
+}
+
+/* 菜单收起：光标离开菜单区域持续约 1.2 秒（30 帧）就收起。菜单展开期间窗口不再整块
+ * 拦截鼠标（「点菜单外」的点击会穿到桌面），所以菜单靠这条规则自己收起，用户不必再点一次。 */
+let menuAwayTicks = 0;
+function checkMenuDismiss() {
+  if (!menuWinOpen) { menuAwayTicks = 0; return; }
+  if (!hostGp) return;
+  const el = document.elementFromPoint(hostGp.x - winX, hostGp.y - winY);
+  const inMenu = Boolean(el) && (menuRoot.contains(el) || menuInter.contains(el));
+  if (inMenu) { menuAwayTicks = 0; return; }
+  if (++menuAwayTicks >= 30) { menuAwayTicks = 0; hideMenus(); }   // 30 帧 ≈ 1.2s（留足移向菜单项的余量）
 }
 
 /* 菜单展开用的临时窗口尺寸：宠物窗口只有 260×258，而二级菜单固定展开在主菜单右侧
