@@ -158,7 +158,9 @@ function setupPetWindow(deps = {}) {
 			hasShadow: false, // 透明窗口必须去掉窗口投影
 			useContentSize: true, // 尺寸=内容尺寸，配合页面的缩放换算
 			show: false, // 等页面加载完再显示，避免空白帧
-			// 不设置 alwaysOnTop：保持普通窗口层级
+			// 置顶（需求变更）：点击其它应用后不被遮挡。macOS 默认 floating 层级，
+			// 高于普通应用窗口、不抢焦点；交付说明原写的「普通窗口层级」已按用户要求改掉。
+			alwaysOnTop: true,
 			webPreferences: {
 				nodeIntegration: false,
 				contextIsolation: true,

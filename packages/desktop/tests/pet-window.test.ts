@@ -258,8 +258,9 @@ test("setEnabled(true)：按约定参数建窗并加载 pet.html、首帧后显�
 		expect(options.useContentSize).toBe(true);
 		expect(options.width).toBe(260);
 		expect(options.height).toBe(258);
-		// 普通窗口层级：不得置顶
-		expect(options.alwaysOnTop).toBeUndefined();
+		// 置顶（需求变更）：点击其它应用后不得被遮挡。
+		// 交付说明原写的是「不设 alwaysOnTop、保持普通窗口层级」，现按用户要求改为浮在其它窗口之上。
+		expect(options.alwaysOnTop).toBe(true);
 		expect(options.webPreferences.preload).toContain(PET_PRELOAD_TAIL);
 		expect(options.webPreferences.contextIsolation).toBe(true);
 		expect(options.webPreferences.nodeIntegration).toBe(false);

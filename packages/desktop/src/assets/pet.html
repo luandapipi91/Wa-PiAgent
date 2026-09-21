@@ -12,7 +12,7 @@
       Electron main:
         new BrowserWindow({ transparent: true, frame: false, resizable: false,
           skipTaskbar: true, hasShadow: false, useContentSize: true,
-          webPreferences: { preload } })   // 不设 alwaysOnTop => 不置顶
+          webPreferences: { preload } })   // 置顶（alwaysOnTop: true）=> 点击其它应用后不被遮挡
       preload 按文件底部注释挂 window.guaguaHost（全部接口可选，
       缺失时自动进入浏览器预览降级模式：页面即虚拟屏幕）
 -->
@@ -114,7 +114,6 @@
     <span class="pct" id="sizePct">100%</span>
   </div>
   <div class="sep"></div>
-  <div class="mi" data-act="celebrate">任务完成</div>
   <div class="mi" data-act="hop">跳一下</div>
   <div class="mi" data-act="croak">呱一声！</div>
   <div class="mi" data-act="hunt">喂虫子</div>
@@ -428,6 +427,15 @@ function startSleep() {
 function startCelebrate() {
   Object.assign(st, { state: "celebrate", ticks: 0, dur: 72 });
   say("呱呱呱 任务完成！", 70);
+}
+/* 对话完成后的动作池：每次从中随机挑一个（「任务完成」的庆祝只是其中之一）。
+ * 互动菜单里不再单独提供该动作的入口，它只作为对话完成的随机反应出现。 */
+const CELEBRATE_POOL = ["celebrate", "hop", "croak", "sing", "happy", "puff", "blep", "curious", "look"];
+function startRandomCelebrate() {
+  const act = pick(CELEBRATE_POOL);
+  if (act === "hop") hopNow();
+  else if (act === "happy") startHappy();
+  else dispatch(act);
 }
 function hopNow() { if (st.state !== "drag") startHop(); }
 function toggleWander() {
@@ -1293,8 +1301,8 @@ function tip(html, ms = 9000) {
   sizePct.textContent = Math.round(K * 100) + "%";
   sizeRange.style.setProperty("--fill", ((K * 100 - 50) / 150 * 100) + "%");
   setInterval(tick, TICK);
-  // 任务完成：主窗口经宿主转发 → 青蛙跳一段庆祝
-  if (host && host.onCelebrate) host.onCelebrate(() => startCelebrate());
+  // 对话完成：主窗口经宿主转发 → 从动作池里随机挑一个
+  if (host && host.onCelebrate) host.onCelebrate(() => startRandomCelebrate());
   if (!host) {
     tip("🐸 浏览器预览模式（页面即虚拟屏幕）<br>左键点一下=开心跳 · 按住拖动=拎起来甩 · 光标凑脸=吓一跳 · 在肚皮上来回蹭=挠痒痒 · 右键=菜单", 12000);
   }
@@ -1324,7 +1332,7 @@ function tip(html, ms = 9000) {
  *     width: 260, height: 258,
  *     transparent: true, frame: false, resizable: false,
  *     skipTaskbar: true, hasShadow: false, useContentSize: true,
- *     // 注意：不设置 alwaysOnTop —— 按用户要求保持普通层级
+ *     // 注意：置顶（alwaysOnTop: true，macOS 默认 floating 层级）——点击其它应用后不被遮挡
  *     webPreferences: { preload: path.join(__dirname, "pet-preload.cjs"),
  *                       contextIsolation: true, nodeIntegration: false },
  *   });

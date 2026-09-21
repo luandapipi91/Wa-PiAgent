@@ -106,8 +106,8 @@ test.describe.serial("桌面宠物由透明独立窗口承载", () => {
 		expect(state.bounds.height).toBe(258);
 		// 无边框：内容区高度 == 窗口高度
 		expect(state.content.height).toBe(state.bounds.height);
-		// 普通窗口层级（不置顶）
-		expect(state.alwaysOnTop).toBe(false);
+		// 置顶：切换到其它应用后仍浮在其窗口之上（需求变更，原为普通窗口层级）
+		expect(state.alwaysOnTop).toBe(true);
 		// 页面在透明宿主模式下确实去掉了不透明背景
 		expect(
 			await pet.evaluate(() =>
@@ -141,16 +141,16 @@ test.describe.serial("桌面宠物由透明独立窗口承载", () => {
 		await main.getByTestId("settings-close").click();
 	});
 
-	test("任务完成：主窗口转发庆祝 → 宠物跳到 celebrate 并冒泡「任务完成」", async () => {
+	test("对话完成：主窗口转发 → 宠物随机做一个动作（不再固定为庆祝）", async () => {
 		const pet = await findPetWindow();
+		await pet.evaluate(`(() => { st.state = "idle"; st.bubble_text = null; })()`);
 		await main.evaluate(() => window.waPiPet?.celebrate());
+		// 动作是随机的（庆祝只是池中之一）：只断言「确实动了」，不断言具体哪一个
 		await expect
 			.poll(
 				async () =>
-					pet.evaluate(() =>
-						(document.getElementById("scene")?.textContent ?? "").includes(
-							"任务完成",
-						),
+					pet.evaluate(
+						`(() => st.state !== "idle" || (st.bubble_text ?? "") !== "")()`,
 					),
 				{ timeout: 15_000 },
 			)
