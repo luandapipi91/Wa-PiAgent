@@ -45,6 +45,9 @@ export type PreviewWinEvent =
 	| { type: "url"; url: string | null }
 	/** 窗口已关闭 */
 	| { type: "closed" }
+	/** 主窗口 → 独立窗口：预览文件被改动（主窗口刷新令牌已递增），独立窗口应 bump 自己的
+	 *  刷新令牌重挂 iframe。此前浮动模式下该信号无人转发，外部窗口永不自动刷新 */
+	| { type: "refresh" }
 	/** 主窗口 → 独立窗口：同步当前预览内容（切会话/切文件/切网址时）。
 	 *  url 优先：url 非空即外部预览，否则用 path（本地）；两者都为空 = 空窗口 */
 	| {
@@ -64,8 +67,9 @@ interface WaPiPreviewWinApi {
 		sessionId?: string | null;
 		rect?: { x: number; y: number; w: number; h: number } | null;
 	}): Promise<{ ok: boolean; reason?: string }>;
-	/** 主窗口：窗口指令（close=关闭并保持关闭；hide/restore=最小化与恢复） */
-	cmd(payload: { type: "close" | "hide" | "restore" }): void;
+	/** 主窗口：窗口指令（close=关闭并保持关闭；hide/restore=最小化与恢复；
+	 *  refresh=预览文件已改动，通知独立窗口重挂 iframe） */
+	cmd(payload: { type: "close" | "hide" | "restore" | "refresh" }): void;
 	/** 独立窗口：上报动作（ready / minimize / close / mode / element） */
 	act(payload: { type: string; [key: string]: unknown }): void;
 	/** 独立窗口：右下角缩放手柄提交内容尺寸 */

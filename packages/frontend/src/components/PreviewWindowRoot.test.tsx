@@ -5,7 +5,7 @@
 // - sync：带 url 优先用 url，否则回落到 path
 // BrowserPanel 子树在这里被 mock 掉：本组件的职责是 store 接线，面板渲染另由 BrowserPanel 测试锁定。
 import { beforeEach, afterEach, expect, mock, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 
 mock.module("./BrowserPanel", () => ({
 	BrowserPanel: () => null,
@@ -123,4 +123,12 @@ test("sync 的 url 为 null → 回落本地 path（从网址切回本地文件�
 	const s = useBrowserStore.getState();
 	expect(s.path).toBe("/proj/back.html");
 	expect(s.externalUrl).toBeNull();
+});
+
+test("收到主窗口转发的 refresh 事件 → 本窗口刷新令牌递增（iframe 重挂实现自动刷新）", async () => {
+	render(<PreviewWindowRoot />);
+	await waitFor(() => expect(listeners.length).toBeGreaterThan(0));
+	const before = useBrowserStore.getState().refreshToken;
+	act(() => emitSync({ type: "refresh" } as any));
+	expect(useBrowserStore.getState().refreshToken).toBe(before + 1);
 });

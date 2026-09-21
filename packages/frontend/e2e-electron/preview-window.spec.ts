@@ -480,3 +480,45 @@ test.describe
 
 		// 跨窗口网址同步（预置至最后：会切回分屏，改变后续用例的模式前提）
 	});
+
+
+test("浮动模式：预览文件被改动后独立窗口自动刷新（refresh 指令贯穿主进程转发）", async () => {
+	test.setTimeout(60_000);
+	const preview = await ensureFloatPreview();
+	// 前序用例可能改过预览内容：地址栏强制重新加载 HTML_PATH，保证起点是 hello
+	await preview.getByTestId("browser-input").fill(HTML_PATH);
+	await preview.getByTestId("browser-input").press("Enter");
+	await expect(preview.getByTestId("html-preview-iframe")).toBeVisible();
+	let frame = await preview
+		.getByTestId("html-preview-iframe")
+		.elementHandle()
+		.then((h) => h.contentFrame());
+	expect(frame).toBeTruthy();
+	await expect(frame!.locator("#card")).toContainText("hello", { timeout: 15_000 });
+
+	// 模拟 agent 改文件（磁盘内容变化）
+	writeFileSync(
+		HTML_PATH,
+		[
+			"<!DOCTYPE html>",
+			"<html>",
+			"<head><title>e2e electron</title></head>",
+			"<body>",
+			'<div id="card">',
+			"  <p>world v2</p>",
+			"</div>",
+			"</body>",
+			"</html>",
+		].join("\n"),
+	);
+
+	await main.evaluate(() => window.waPiPreviewWin?.cmd({ type: "refresh" }));
+
+	// 独立窗口 iframe 重挂（refreshToken 作 key，元素是新建的）后拉到磁盘新内容
+	//（若 refresh 未被转发/消费，iframe 不重挂，仍停留在 hello）
+	frame = await preview
+		.getByTestId("html-preview-iframe")
+		.elementHandle()
+		.then((h) => h.contentFrame());
+	await expect(frame!.locator("#card")).toContainText("world v2", { timeout: 15_000 });
+});

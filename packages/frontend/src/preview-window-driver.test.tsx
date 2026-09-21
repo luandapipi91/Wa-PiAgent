@@ -307,3 +307,31 @@ test("无 IPC 桥（浏览器 dev）时静默不崩", () => {
 	useBrowserStore.setState({ open: true, path: "/a.html", mode: "float" });
 	expect(() => renderHook(() => usePreviewWindowDriver())).not.toThrow();
 });
+
+test("浮动模式下 refreshToken 递增 → 转发 refresh 指令给独立窗口（文件改动自动刷新）", () => {
+	useBrowserStore.setState({
+		open: true,
+		mode: "float",
+		path: "/p/index.html",
+		sessionId: "s1",
+		refreshToken: 0,
+	});
+	renderHook(() => usePreviewWindowDriver());
+	calls.cmds.length = 0; // 开窗/隐藏指令已发，清掉只看后续
+	act(() => useBrowserStore.setState({ refreshToken: 1 }));
+	expect(calls.cmds).toContainEqual({ type: "refresh" });
+});
+
+test("split（内嵌）模式 refreshToken 变化不转发 refresh（主窗口自己消费令牌）", () => {
+	useBrowserStore.setState({
+		open: true,
+		mode: "split",
+		path: "/p/index.html",
+		sessionId: "s1",
+		refreshToken: 0,
+	});
+	renderHook(() => usePreviewWindowDriver());
+	calls.cmds.length = 0;
+	act(() => useBrowserStore.setState({ refreshToken: 1 }));
+	expect(calls.cmds).not.toContainEqual({ type: "refresh" });
+});

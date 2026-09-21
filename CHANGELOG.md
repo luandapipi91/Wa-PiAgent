@@ -1,5 +1,8 @@
 ## 2026-09-21
 
+- fix(frontend+desktop): HTML 预览弹出为外部悬浮窗口后文件改动不再自动刷新——刷新信号（file_changes 命中 → 主窗口 store 刷新令牌递增）止步于主窗口，浮动模式下预览 iframe 挂在独立窗口（独立 store 实例），令牌变化从未转发。修：PreviewWinEvent 增 {type:"refresh"}，usePreviewWindowDriver 在浮动模式且令牌变化时经 previewwin:cmd 转发（首挂不发、split/full 主窗口自消费），主进程转告独立窗口，PreviewWindowRoot 收到后 bump 本地令牌重挂 iframe。验证：driver/Root 组件单测先红后绿 + Electron E2E 真实双窗口用例（改文件 → cmd refresh → 独立窗口 iframe 重挂拉到新内容，12 例全过）。
+## 2026-09-21
+
 - fix(frontend): 媒体画廊同一张图重复出现——collectMediaItems 去重键从 src 字符串改为「解析后绝对路径+kind」（agent 回复里同一张图常以绝对路径与相对文件名并存，如 `/w/123/image2.png` 与 `image2.png`，旧比较不去重 → 画廊同图两次）；collectMediaItems 增加 sessionId 参数（唯一调用方 MessageList 传入）。TDD 先红后绿：media-utils 单测（同文件双写法去重 + 不同文件/同写法不回归）+ e2e 缩略图断言 3→2（真实浏览器 naturalWidth 全 >0）。
 ## 2026-09-21
 

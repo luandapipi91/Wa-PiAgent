@@ -1078,6 +1078,9 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 				previewWindow.show();
 				previewWindow.focus();
 				return;
+			case "refresh": // 预览文件改动：转告独立窗口重挂预览 iframe
+					previewWindow.webContents.send("previewwin:event", { type: "refresh" });
+				return;
 			default:
 				return;
 		}

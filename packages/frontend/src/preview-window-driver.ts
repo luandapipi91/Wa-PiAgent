@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useBrowserStore } from "./store/browser";
 import { useSettingsStore, type SettingsSection } from "./store/settings";
 import { useToastStore } from "./store/toast";
@@ -24,6 +24,7 @@ export function usePreviewWindowDriver(): void {
 	// 外部网址也是要同步给独立窗口的内容：本地/外部二选一由主进程 sync 消息传递
 	const externalUrl = useBrowserStore((s) => s.externalUrl);
 	const sessionId = useBrowserStore((s) => s.sessionId);
+	const refreshToken = useBrowserStore((s) => s.refreshToken);
 
 	// 独立窗口 → 主窗口：动作翻译成 store 变更 / 插入事件
 	useEffect(() => {
@@ -106,6 +107,19 @@ export function usePreviewWindowDriver(): void {
 			api.cmd({ type: "close" });
 		}
 	}, [open, mode, path, externalUrl, sessionId]);
+
+	// 预览文件改动（file_changes 命中）→ 主窗口刷新令牌递增：浮动模式下内嵌面板不在本窗口，
+	// 把刷新转发给独立窗口（它 bump 自己的令牌重挂 iframe）。首挂不发（令牌为初始值时窗口
+	// 尚由开窗 effect 建立，iframe 本身就是新挂的）；split/full 模式主窗口自消费，不转发。
+	const prevRefreshRef = useRef(refreshToken);
+	useEffect(() => {
+		const api = window.waPiPreviewWin;
+		if (!api) return;
+		if (prevRefreshRef.current === refreshToken) return;
+		prevRefreshRef.current = refreshToken;
+		if (!(open && mode === "float")) return;
+		api.cmd({ type: "refresh" });
+	}, [refreshToken, open, mode]);
 
 	// 最小化/恢复：最小化时隐藏窗口（主窗口渲染气泡），恢复时显示并聚焦
 	useEffect(() => {

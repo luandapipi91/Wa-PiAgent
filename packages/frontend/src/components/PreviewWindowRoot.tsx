@@ -106,6 +106,11 @@ export function PreviewWindowRoot() {
 		if (!api) return;
 		return api.onEvent((e: PreviewWinEvent) => {
 			// 主窗口切会话/切文件/切网址：同步到本窗口的预览内容（url 优先，否则回落 path）
+			if (e.type === "refresh") {
+				// 主窗口侧刷新令牌递增（预览文件被改动）：本窗口 bump 自己的令牌重挂 iframe
+				useBrowserStore.getState().bumpRefresh();
+				return;
+			}
 			if (e.type === "sync") {
 				if (e.url) {
 					useBrowserStore
