@@ -71,22 +71,23 @@ test("媒体画廊缩略图：混合相对/绝对路径的默认工作区会话�
 	// 选中会话
 	await page.getByText("缩略图破图回归").first().click();
 	// 绝对路径 code 渲染为图片卡片（md-image-card），相对路径保持行内 code；
-	// 用户点卡片「放大」→ 画廊 items=collectMediaItems(整块文本)=3 项（绝对+两个相对）
+	// 用户点卡片「放大」→ 画廊 items=collectMediaItems(整块文本)：绝对与相对写法指向
+	// 同一物理文件（image2.png）按解析后路径去重 → 2 项（image2.png + image.png）
 	await expect(page.getByTestId("md-image-card")).toHaveCount(1, { timeout: 15_000 });
 	await page.getByTestId("md-image-zoom").click();
 	await expect(page.getByTestId("media-thumbs")).toBeVisible();
 	const thumbs = page.locator('[data-testid="media-thumbs"] img');
-	await expect(thumbs).toHaveCount(3);
+	await expect(thumbs).toHaveCount(2);
 	// 全部缩略图真实加载成功（无破图：naturalWidth > 0）
 	await page.waitForFunction(
 		() => {
 			const imgs = document.querySelectorAll('[data-testid="media-thumbs"] img');
-			return imgs.length === 3 && Array.from(imgs).every((i) => (i as HTMLImageElement).naturalWidth > 0);
+			return imgs.length === 2 && Array.from(imgs).every((i) => (i as HTMLImageElement).naturalWidth > 0);
 		},
 		{ timeout: 15_000 },
 	);
 	const widths = await thumbs.evaluateAll((els) =>
 		els.map((e) => (e as HTMLImageElement).naturalWidth),
 	);
-	expect(widths).toEqual([1, 1, 1]);
+	expect(widths).toEqual([1, 1]);
 });

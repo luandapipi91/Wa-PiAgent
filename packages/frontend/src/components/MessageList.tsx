@@ -1621,7 +1621,10 @@ const TextContent = memo(function TextContent({
 	isStreaming?: boolean;
 }) {
 	const parts = useMemo(() => splitMediaParagraphs(text), [text]);
-	const mediaItems = useMemo(() => collectMediaItems(text), [text]);
+	const mediaItems = useMemo(
+			() => collectMediaItems(text, sessionId),
+			[text, sessionId],
+		);
 	if (parts.length === 1 && parts[0].kind === "markdown") {
 		return (
 			<MarkdownBlock

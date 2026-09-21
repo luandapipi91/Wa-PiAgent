@@ -1,5 +1,8 @@
 ## 2026-09-21
 
+- fix(frontend): 媒体画廊同一张图重复出现——collectMediaItems 去重键从 src 字符串改为「解析后绝对路径+kind」（agent 回复里同一张图常以绝对路径与相对文件名并存，如 `/w/123/image2.png` 与 `image2.png`，旧比较不去重 → 画廊同图两次）；collectMediaItems 增加 sessionId 参数（唯一调用方 MessageList 传入）。TDD 先红后绿：media-utils 单测（同文件双写法去重 + 不同文件/同写法不回归）+ e2e 缩略图断言 3→2（真实浏览器 naturalWidth 全 >0）。
+## 2026-09-21
+
 - fix(frontend): 画廊缩略图破图——默认工作区会话的真实工作目录是 workdir/<createdAt> 子目录，而 FilePill.resolveSessionCwd 只返回项目 cwd（父目录），agent 回复里的相对路径（如 image.png）被拼到父目录 → /file 404 → MediaPreviewModal 缩略图破图（绝对路径项不受影响故主图正常）。修：FilePill 改为复用 shared 的 resolveSessionCwd（与 SessionView 文件树同源推导）。TDD 先红后绿：组件单测（默认工作区拼子目录 + 普通项目不回归）+ Playwright E2E（真实浏览器混合相对/绝对路径画廊 3 缩略图 naturalWidth 全 >0，还原旧实现即红）；顺带修复 playwright-core utilsBundle.js 一处二进制损坏（单行字节错乱致 e2e 全挂）。
 ## 2026-09-20
 

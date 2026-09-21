@@ -124,13 +124,22 @@ const INLINE_MEDIA_RE =
  *  同一文件以多种形式重复出现（如 ![]() 与反引号路径并列）时按 src+kind 去重，保留首次出现。
  *  src 统一归一为正斜杠：模型在 Windows 上常写反斜杠路径，画廊定位比较（it.src === src）
  *  与 parseFilePath 的正斜杠口径才能对上。 */
-export function collectMediaItems(text: string): MediaItem[] {
+export function collectMediaItems(
+	text: string,
+	sessionId?: string,
+): MediaItem[] {
 	const items: MediaItem[] = [];
+	// 去重键：解析后的绝对路径（+kind）。同一张图常以绝对路径与相对文件名并存
+	// （如 `/w/123/image2.png` 与 `image2.png`），按 src 字符串比较会漏重 → 画廊同图重复
+	const keys: string[] = [];
 	const push = (item: MediaItem) => {
 		const src = item.src.replace(/\\/g, "/");
-		if (!items.some((it) => it.src === src && it.kind === item.kind)) {
-			items.push({ ...item, src });
-		}
+		const key = sessionId
+			? `${resolveAbsolutePath(src, sessionId)}\u0000${item.kind}`
+			: `${src}\u0000${item.kind}`;
+		if (keys.includes(key)) return;
+		keys.push(key);
+		items.push({ ...item, src });
 	};
 	for (const part of splitMediaParagraphs(text)) {
 		if (part.kind === "video" || part.kind === "image") {
