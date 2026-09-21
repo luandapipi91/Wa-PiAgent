@@ -4,6 +4,8 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { Modal } from "../ui/Modal";
 import { MODAL_SIZE_KEYS } from "../ui/modal-size";
 import { MODAL_POS_KEYS } from "../ui/modal-position";
+import { ThumbStrip } from "./ThumbStrip";
+import { useDirGallery } from "./useDirGallery";
 import { Icon } from "../ui/Icon";
 import { ZoomableImage } from "./ZoomableImage";
 import { resolveCopyPath, resolveMediaSrc } from "./media-utils";
@@ -23,6 +25,8 @@ export function MediaPreviewModal() {
 	const preview = useSessionStore((s) => s.mediaPreview);
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
+	// 同目录画廊：打开时按当前文件所在目录重建 items（图片 + 视频，名称自然序）
+	useDirGallery();
 	const index = preview?.index ?? 0;
 	const count = preview?.items.length ?? 0;
 
@@ -142,37 +146,16 @@ export function MediaPreviewModal() {
 						</>
 					)}
 				</div>
-				{/* 底部缩略图条：仅多媒体时显示，点击跳转 */}
+				{/* 底部缩略图条：仅多媒体时显示，点击跳转（同目录可能有上千项，条内虚拟滚动） */}
 				{count > 1 && (
-					<div
-						className="flex items-center gap-1.5 px-3 py-2 border-t border-hairline bg-surface overflow-x-auto"
-						data-testid="media-thumbs"
-					>
-						{preview.items.map((it, i) => (
-							<button
-								key={i}
-								type="button"
-								onClick={() =>
-									useSessionStore.getState().setMediaPreviewIndex(i)
-								}
-								className={`shrink-0 w-12 h-12 rounded border overflow-hidden flex items-center justify-center bg-canvas text-tertiary ${
-									i === index ? "border-accent" : "border-hairline"
-								}`}
-								title={it.name}
-							>
-								{it.kind === "image" ? (
-									<img
-										src={resolveMediaSrc(it.src, preview.sessionId)}
-										alt={it.name}
-										loading="lazy"
-										className="w-full h-full object-cover"
-									/>
-								) : (
-									<Icon name="play" size={16} />
-								)}
-							</button>
-						))}
-					</div>
+					<ThumbStrip
+						items={preview.items}
+						index={index}
+						sessionId={preview.sessionId}
+						onSelect={(i) => {
+							useSessionStore.getState().setMediaPreviewIndex(i);
+						}}
+					/>
 				)}
 			</div>
 		</Modal>

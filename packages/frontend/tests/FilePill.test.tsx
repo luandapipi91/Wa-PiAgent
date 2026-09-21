@@ -222,7 +222,7 @@ test("图片扩展名芯片点击 → 打开媒体画廊（mediaPreview），不
 	);
 	fireEvent.click(screen.getByTestId("file-pill"));
 	// 无 mediaItems 时以单媒体清单打开
-	expect(useSessionStore.getState().mediaPreview).toEqual({
+	expect(useSessionStore.getState().mediaPreview).toMatchObject({
 		items: [{ src: "out/logo-blue.png", kind: "image", name: "logo-blue.png" }],
 		index: 0,
 		sessionId: "s1",
@@ -242,7 +242,7 @@ test("视频芯片点击 → 按传入的 mediaItems 清单定位画廊起点（
 		expect(screen.getByTestId("file-pill").textContent).toContain("clip.mp4"),
 	);
 	fireEvent.click(screen.getByTestId("file-pill"));
-	expect(useSessionStore.getState().mediaPreview).toEqual({
+	expect(useSessionStore.getState().mediaPreview).toMatchObject({
 		items,
 		index: 1,
 		sessionId: "s1",

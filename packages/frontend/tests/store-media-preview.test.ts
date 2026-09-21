@@ -12,13 +12,38 @@ beforeEach(() => {
 	useSessionStore.setState({ mediaPreview: null });
 });
 
-test("openMediaPreview：写入 items/index/sessionId", () => {
+test("openMediaPreview：写入 items/index/sessionId（并带本次打开序号 openId）", () => {
 	useSessionStore.getState().openMediaPreview(ITEMS, 1, "s1");
-	expect(useSessionStore.getState().mediaPreview).toEqual({
-		items: ITEMS,
-		index: 1,
-		sessionId: "s1",
-	});
+	const st = useSessionStore.getState().mediaPreview!;
+	expect(st).toMatchObject({ items: ITEMS, index: 1, sessionId: "s1" });
+	expect(typeof st.openId).toBe("number");
+});
+
+test("openMediaPreview：每次打开 openId 递增（同目录画廊据此判断是否需重新加载）", () => {
+	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
+	const a = useSessionStore.getState().mediaPreview!.openId;
+	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
+	const b = useSessionStore.getState().mediaPreview!.openId;
+	expect(b).toBeGreaterThan(a);
+});
+
+test("setMediaPreviewItems：替换 items 与 index，openId 不变（不触发重复加载）", () => {
+	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
+	const openId = useSessionStore.getState().mediaPreview!.openId;
+	const next: MediaItem[] = [{ src: "/d/a.png", kind: "image", name: "a.png" }];
+	useSessionStore.getState().setMediaPreviewItems(next, 0);
+	const st = useSessionStore.getState().mediaPreview!;
+	expect(st.items).toBe(next);
+	expect(st.index).toBe(0);
+	expect(st.openId).toBe(openId);
+});
+
+test("setMediaPreviewItems：弹窗未打开时空操作；index 越界回落到 0", () => {
+	useSessionStore.getState().setMediaPreviewItems(ITEMS, 0);
+	expect(useSessionStore.getState().mediaPreview).toBeNull();
+	useSessionStore.getState().openMediaPreview(ITEMS, 2, "s1");
+	useSessionStore.getState().setMediaPreviewItems([ITEMS[0]], 5);
+	expect(useSessionStore.getState().mediaPreview!.index).toBe(0);
 });
 
 test("openMediaPreview：空 items 不打开", () => {

@@ -1,10 +1,9 @@
 ## 2026-09-21
 
 - fix(frontend+desktop): HTML 预览弹出为外部悬浮窗口后文件改动不再自动刷新——刷新信号（file_changes 命中 → 主窗口 store 刷新令牌递增）止步于主窗口，浮动模式下预览 iframe 挂在独立窗口（独立 store 实例），令牌变化从未转发。修：PreviewWinEvent 增 {type:"refresh"}，usePreviewWindowDriver 在浮动模式且令牌变化时经 previewwin:cmd 转发（首挂不发、split/full 主窗口自消费），主进程转告独立窗口，PreviewWindowRoot 收到后 bump 本地令牌重挂 iframe。验证：driver/Root 组件单测先红后绿 + Electron E2E 真实双窗口用例（改文件 → cmd refresh → 独立窗口 iframe 重挂拉到新内容，12 例全过）。
-## 2026-09-21
+- feat(frontend): 媒体画廊改为「同目录」——打开图片/视频时缩略图条不再用会话里扫到的媒体集合，改列当前文件所在目录下的图片与视频（名称自然序、当前项自动定位），缩略图条窗口化渲染（只渲染可见区间，上千张的目录也能直接打开）；无法确定可列目录时（远程 URL、粘贴的图、目录在项目工作区之外、目录内无媒体）回退为只显示当前这一张。实现：新增 dir-gallery（路径推导/工作区判断/目录项→媒体清单/当前项定位）、ThumbStrip（虚拟滚动）、useDirGallery（打开时加载；store 加 openId 区分「打开」与「切换项」、加 setMediaPreviewItems 回写）。测试：纯函数单测、ThumbStrip 窗口化组件测试、MediaPreviewModal 同目录与回退用例、store openId 用例、E2E（gallery 子目录：缩略图条 4 项 + 目录内切换与复制路径）。
 
 - fix(frontend): 媒体画廊同一张图重复出现——collectMediaItems 去重键从 src 字符串改为「解析后绝对路径+kind」（agent 回复里同一张图常以绝对路径与相对文件名并存，如 `/w/123/image2.png` 与 `image2.png`，旧比较不去重 → 画廊同图两次）；collectMediaItems 增加 sessionId 参数（唯一调用方 MessageList 传入）。TDD 先红后绿：media-utils 单测（同文件双写法去重 + 不同文件/同写法不回归）+ e2e 缩略图断言 3→2（真实浏览器 naturalWidth 全 >0）。
-## 2026-09-21
 
 - fix(frontend): 画廊缩略图破图——默认工作区会话的真实工作目录是 workdir/<createdAt> 子目录，而 FilePill.resolveSessionCwd 只返回项目 cwd（父目录），agent 回复里的相对路径（如 image.png）被拼到父目录 → /file 404 → MediaPreviewModal 缩略图破图（绝对路径项不受影响故主图正常）。修：FilePill 改为复用 shared 的 resolveSessionCwd（与 SessionView 文件树同源推导）。TDD 先红后绿：组件单测（默认工作区拼子目录 + 普通项目不回归）+ Playwright E2E（真实浏览器混合相对/绝对路径画廊 3 缩略图 naturalWidth 全 >0，还原旧实现即红）；顺带修复 playwright-core utilsBundle.js 一处二进制损坏（单行字节错乱致 e2e 全挂）。
 ## 2026-09-20

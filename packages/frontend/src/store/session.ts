@@ -23,6 +23,9 @@ import { triggerTaskDoneFrog } from "../util/frog";
 import { useUiPrefsStore } from "./ui-prefs";
 import type { MediaItem } from "../components/blocks/media-utils";
 
+/** 媒体预览打开序号（模块级自增）：同目录画廊据此判断“是否本次打开需重新拉目录” */
+let mediaOpenSeq = 0;
+
 interface SessionState {
 	// 已定稿消息：渲染主列表来源
 	messagesBySession: Record<string, SessionMessage[]>;
@@ -188,12 +191,20 @@ interface SessionState {
 	// 全局媒体预览弹窗（画廊）：由 MarkdownImage / InlineVideo 触发，渲染在 App 根的
 	// MediaPreviewModal（常驻挂载点）。与 filePreview 同理放 store——宿主消息行在
 	// 流式结束/折叠/卸载时销毁，预览窗不被连带关闭；只有用户手动关闭才消失。
-	mediaPreview: { items: MediaItem[]; index: number; sessionId: string } | null;
+	mediaPreview: {
+		items: MediaItem[];
+		index: number;
+		sessionId: string;
+		/** 本次打开的序号：同目录画廊只在“打开”时重新拉目录，切换项/回写 items 都不变 */
+		openId: number;
+	} | null;
 	openMediaPreview: (
 		items: MediaItem[],
 		index: number,
 		sessionId: string,
 	) => void;
+	/** 同目录画廊加载完成时回写清单与当前项（openId 保持不变） */
+	setMediaPreviewItems: (items: MediaItem[], index: number) => void;
 	closeMediaPreview: () => void;
 	setMediaPreviewIndex: (index: number) => void;
 	/** 重载中（/reload 命令执行期间禁用发送） */
@@ -844,9 +855,26 @@ export const useSessionStore = create<SessionState>((set) => {
 		},
 
 		// 打开媒体画廊：items 为该文本块内全部媒体（collectMediaItems 收集），index 为起始项。
+		// 打开后由 useDirGallery 按当前文件所在目录重建清单（同目录画廊）。
 		openMediaPreview: (items, index, sessionId) => {
 			if (items.length === 0) return;
-			set({ mediaPreview: { items, index, sessionId } });
+			set({
+				mediaPreview: { items, index, sessionId, openId: ++mediaOpenSeq },
+			});
+		},
+		// 同目录画廊回写：items 换成目录内媒体、index 定位到当前项；openId 不变，避免再次触发加载
+		setMediaPreviewItems: (items, index) => {
+			set((s) =>
+				s.mediaPreview
+					? {
+							mediaPreview: {
+								...s.mediaPreview,
+								items,
+								index: index >= 0 && index < items.length ? index : 0,
+							},
+						}
+					: {},
+			);
 		},
 		closeMediaPreview: () => {
 			set((s) => (s.mediaPreview ? { mediaPreview: null } : {}));

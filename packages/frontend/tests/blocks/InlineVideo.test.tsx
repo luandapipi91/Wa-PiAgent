@@ -45,7 +45,7 @@ test("点击放大按钮打开画廊（视频项）", () => {
 		/>,
 	);
 	fireEvent.click(screen.getByTestId("inline-video-zoom"));
-	expect(useSessionStore.getState().mediaPreview).toEqual({
+	expect(useSessionStore.getState().mediaPreview).toMatchObject({
 		items: ITEMS,
 		index: 0,
 		sessionId: "s1",

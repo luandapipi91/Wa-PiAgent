@@ -2,6 +2,9 @@ import { test, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:te
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { MediaPreviewModal } from "../../src/components/blocks/MediaPreviewModal";
 import { useSessionStore } from "../../src/store/session";
+import { useProjectsStore } from "../../src/store/projects";
+import { _clearFsQueryCache, _setFsTransport } from "../../src/fs-client";
+import { makeFakeFsTransport } from "../fs-transport";
 import type { MediaItem } from "../../src/components/blocks/media-utils";
 
 const ITEMS: MediaItem[] = [
@@ -9,6 +12,30 @@ const ITEMS: MediaItem[] = [
 	{ src: "https://x.com/b.png", kind: "image", name: "b.png" },
 	{ src: "/home/me/proj/v.mp4", kind: "video", name: "v.mp4" },
 ];
+
+// 同目录画廊：项目工作区 /work/demo 下的媒体（图片 + 视频），文件名自然序（shot-2 在 shot-10 前）
+const DIR = "/work/demo";
+const DIR_ENTRIES = [
+	{ name: "shot-a.png", isDir: false },
+	{ name: "shot-10.png", isDir: false },
+	{ name: "clip.mp4", isDir: false },
+	{ name: "shot-2.png", isDir: false },
+	{ name: "sub", isDir: true },
+	{ name: "notes.txt", isDir: false },
+];
+
+const fake = makeFakeFsTransport((evt) => {
+	if (evt.type === "fs:listDir") {
+		const path = (evt as { path?: string }).path ?? "";
+		const dirs: Record<string, { name: string; isDir: boolean }[]> = {
+			[DIR]: DIR_ENTRIES,
+			[`${DIR}/solo`]: [{ name: "only.png", isDir: false }],
+			[`${DIR}/empty`]: [{ name: "notes.txt", isDir: false }],
+		};
+		return { entries: dirs[path] ?? [] };
+	}
+	return undefined;
+});
 
 // happy-dom 在 about:blank 下无法解析相对 URL（/file?path=...），同 Task 5/6 测试处理：
 // 临时把页面 URL 设为 http://localhost/。
@@ -19,67 +46,165 @@ beforeEach(() => {
 	useSessionStore.setState({ mediaPreview: null });
 	// 位置记录跨用例残留会让下一个用例的弹窗叠在旧位置上，逐例清干净
 	localStorage.clear();
+	useProjectsStore.setState({
+		projects: [{ id: "p1", name: "demo", cwd: DIR } as any],
+		sessions: [{ id: "s1", projectId: "p1" } as any],
+	});
+	_setFsTransport(fake.transport);
+	_clearFsQueryCache();
+	fake.calls.length = 0;
+	fake.sent.length = 0;
 });
-afterEach(() => cleanup());
+afterEach(() => {
+	cleanup();
+	_setFsTransport(null);
+});
 
 test("无 mediaPreview 时渲染 null", () => {
 	const { container } = render(<MediaPreviewModal />);
 	expect(container.firstChild).toBeNull();
 });
 
-test("多图画廊：计数器 + 右箭头切换", () => {
-	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
+// ─── 同目录画廊（打开后按当前文件所在目录重建 items） ───
+
+test("同目录画廊：打开相对路径图片 → 列出同目录图片与视频（自然序），当前项定位正确", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "shot-10.png", kind: "image", name: "shot-10.png" }], 0, "s1");
 	render(<MediaPreviewModal />);
-	expect(screen.getByTestId("media-counter").textContent).toBe("1 / 3");
-	fireEvent.click(screen.getByTestId("media-next"));
-	expect(screen.getByTestId("media-counter").textContent).toBe("2 / 3");
+	// 目录项：clip.mp4, shot-2.png, shot-10.png, shot-a.png（notes.txt 与目录被过滤）
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("3 / 4"),
+	);
+	const names = screen
+		.getAllByTestId("media-thumb")
+		.map((el) => el.getAttribute("title"));
+	expect(names).toEqual(["clip.mp4", "shot-2.png", "shot-10.png", "shot-a.png"]);
+	// 只列了同目录：请求打到当前文件所在目录
+	expect(
+		fake.calls.filter((c) => c.type === "fs:listDir").map((c) => c.body),
+	).toEqual([{ path: DIR, showHidden: undefined }]);
 });
 
-test("键盘 ←/→ 切换（循环）", () => {
-	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
+test("同目录画廊：右箭头在同一目录内循环切换", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "shot-a.png", kind: "image", name: "shot-a.png" }], 0, "s1");
 	render(<MediaPreviewModal />);
-	fireEvent.keyDown(window, { key: "ArrowLeft" }); // 循环到最后一张
-	expect(screen.getByTestId("media-counter").textContent).toBe("3 / 3");
-	fireEvent.keyDown(window, { key: "ArrowRight" }); // 循环回第一张
-	expect(screen.getByTestId("media-counter").textContent).toBe("1 / 3");
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("4 / 4"),
+	);
+	fireEvent.click(screen.getByTestId("media-next")); // 循环回第一项
+	expect(screen.getByTestId("media-counter").textContent).toBe("1 / 4");
 });
 
-test("图片项渲染 ZoomableImage，切到视频项渲染 <video autoplay>", () => {
-	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
+test("同目录画廊：键盘 ←/→ 在同一目录内循环", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "shot-10.png", kind: "image", name: "shot-10.png" }], 0, "s1");
 	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("3 / 4"),
+	);
+	fireEvent.keyDown(window, { key: "ArrowLeft" });
+	expect(screen.getByTestId("media-counter").textContent).toBe("2 / 4");
+	fireEvent.keyDown(window, { key: "ArrowLeft" });
+	fireEvent.keyDown(window, { key: "ArrowLeft" }); // 循环到最后一个
+	expect(screen.getByTestId("media-counter").textContent).toBe("4 / 4");
+	fireEvent.keyDown(window, { key: "ArrowRight" });
+	expect(screen.getByTestId("media-counter").textContent).toBe("1 / 4");
+});
+
+test("同目录画廊：切到视频项渲染 <video autoplay>（本地路径走 /file）", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "shot-a.png", kind: "image", name: "shot-a.png" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("4 / 4"),
+	);
 	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
-	fireEvent.click(screen.getByTestId("media-next"));
-	fireEvent.click(screen.getByTestId("media-next"));
+	// 点第一张缩略图 → clip.mp4
+	fireEvent.click(screen.getAllByTestId("media-thumb")[0]);
 	const video = screen.getByTestId("media-video");
 	expect(video.hasAttribute("autoplay")).toBe(true);
-	// 本地视频 src 走 /file
 	expect(video.getAttribute("src")).toBe(
-		"/file?path=" + encodeURIComponent("/home/me/proj/v.mp4"),
+		"/file?path=" + encodeURIComponent(DIR + "/clip.mp4"),
 	);
 });
 
-test("底部缩略图条点击跳转", () => {
-	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
-	render(<MediaPreviewModal />);
-	const thumbs = screen.getByTestId("media-thumbs").querySelectorAll("button");
-	expect(thumbs.length).toBe(3);
-	fireEvent.click(thumbs[2]);
-	expect(screen.getByTestId("media-counter").textContent).toBe("3 / 3");
-});
-
-test("单媒体退化：隐藏箭头/缩略图条/计数器", () => {
+test("同目录画廊：缩略图条点击跳转到对应项", async () => {
 	useSessionStore
 		.getState()
-		.openMediaPreview([ITEMS[0]], 0, "s1");
+		.openMediaPreview([{ src: "shot-a.png", kind: "image", name: "shot-a.png" }], 0, "s1");
 	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("4 / 4"),
+	);
+	fireEvent.click(screen.getAllByTestId("media-thumb")[2]);
+	expect(screen.getByTestId("media-counter").textContent).toBe("3 / 4");
+});
+
+test("同目录画廊：目录里只有一个媒体 → 单张退化（无箭头/缩略图条/计数器）", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "solo/only.png", kind: "image", name: "only.png" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(fake.calls.some((c) => c.type === "fs:listDir")).toBe(true),
+	);
+	await waitFor(() =>
+		expect(screen.queryByTestId("media-thumbs")).toBeNull(),
+	);
 	expect(screen.queryByTestId("media-prev")).toBeNull();
 	expect(screen.queryByTestId("media-next")).toBeNull();
+	expect(screen.queryByTestId("media-counter")).toBeNull();
+	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
+});
+
+// ─── 回退：没有可列目录时只显当前一张 ───
+
+test("回退：远程 URL 图片无同目录 → 只显当前一张，且不发 listDir", async () => {
+	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(useSessionStore.getState().mediaPreview!.items.length).toBe(1),
+	);
+	expect(fake.calls.some((c) => c.type === "fs:listDir")).toBe(false);
 	expect(screen.queryByTestId("media-thumbs")).toBeNull();
 	expect(screen.queryByTestId("media-counter")).toBeNull();
 	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
 });
 
-test("ESC 关闭：弹窗消失且 store 清空", () => {
+test("回退：目录不在项目工作区内 → 只显当前一张，且不发 listDir", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "/outside/a.png", kind: "image", name: "a.png" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(useSessionStore.getState().mediaPreview!.items.length).toBe(1),
+	);
+	expect(fake.calls.some((c) => c.type === "fs:listDir")).toBe(false);
+	expect(screen.queryByTestId("media-thumbs")).toBeNull();
+	// 仍能渲染当前这张（/file 会由内核白名单决定，前端不做裁剪）
+	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
+});
+
+test("回退：目录里没有媒体 → 保留当前这一张（不出现空画廊）", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "empty/a.png", kind: "image", name: "a.png" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(fake.calls.some((c) => c.type === "fs:listDir")).toBe(true),
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("zoomable-image")).toBeTruthy(),
+	);
+	expect(useSessionStore.getState().mediaPreview!.items.length).toBe(1);
+});
+
+test("ESC 关闭：弹窗消失且 store 清空", async () => {
 	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
 	render(<MediaPreviewModal />);
 	fireEvent.keyDown(window, { key: "Escape" });
@@ -87,9 +212,9 @@ test("ESC 关闭：弹窗消失且 store 清空", () => {
 	expect(useSessionStore.getState().mediaPreview).toBeNull();
 });
 
-// 图片预览窗位置拖动：按住标题栏（文件名行）移动窗口，位置持久化，关闭重开保持。
+// ─── 窗口拖动 / 尺寸（与画廊数据源无关） ───
+
 test("拖标题栏移动窗口：位置持久化，关闭重开保持上次位置", () => {
-	localStorage.removeItem("hiagent.mediaPreview.pos");
 	useSessionStore.getState().openMediaPreview(ITEMS, 0, "s1");
 	const { unmount } = render(<MediaPreviewModal />);
 	const card = screen.getByTestId("media-preview-modal") as HTMLElement;

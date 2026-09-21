@@ -57,7 +57,7 @@ test("点击卡片打开画廊：store mediaPreview 指向该图", () => {
 	const text = "![cat](https://x.com/cat.png)";
 	renderMd(text);
 	fireEvent.click(screen.getByTestId("md-image-card"));
-	expect(useSessionStore.getState().mediaPreview).toEqual({
+	expect(useSessionStore.getState().mediaPreview).toMatchObject({
 		items: [{ src: "https://x.com/cat.png", kind: "image", name: "cat" }],
 		index: 0,
 		sessionId: "s1",
