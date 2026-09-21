@@ -5,13 +5,14 @@
 //   旧的 markdown（amaster § 分隔文件）与归档 sidecar JSON 已由一次性迁移导入 DB，
 //   本服务不再触碰这两类文件。
 // - entry id 即 DAO 的 uuid（不透明字符串）；update/archive/restore/purge 直接按 id 走 DAO。
-// - projectId 是 UI 侧项目 id，查库前经 ProjectStore → cwd → projectNameFromCwd 解析为项目名
-//   （DB 的 project_id 列存的是项目名，与历史 projects-memory/<basename> 约定一致）。
+// - projectId 是 UI 侧项目 id，查库前经 ProjectStore → cwd → 项目登记 id（resolveProjectKey）解析；
+//   DB 的 memories.project_id 列存的是登记 id（memory_projects.id）。
 // - 指令文件仅扫描 AGENTS.md / CLAUDE.md（全局 + 项目 cwd）；记忆配置开关读写
 //   hermes-memory-config.json。两者与记忆存储无关，逻辑原样保留。
 
 import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
+import { SYSTEM_PROJECT_CWD } from "@wa-pi/shared";
 import type {
   MemoryEntry,
   ArchivedMemory,
@@ -25,7 +26,7 @@ import { KernelError } from "./kernel-error";
 import type { ProjectStore } from "./project-store";
 import { openMemoryDb } from "./memory/db";
 import { MemoryDao, type ListOpts, type MemoryRow } from "./memory/dao";
-import { projectNameFromCwd } from "./memory/paths";
+import { resolveProjectKey } from "./memory/projects";
 
 const HERMES_CONFIG_FILE = "hermes-memory-config.json";
 
@@ -413,9 +414,12 @@ export class MemoryStore {
     return projects.find((p) => p.id === projectId)?.cwd ?? null;
   }
 
-  /** projectId（UI id）→ 项目名（DB project_id 列 / 历史目录名）；查不到返回 null */
+  /** projectId（UI id）→ 项目登记 id（memories.project_id 存的就是它）；查不到返回 null */
   private async getProjectName(projectId: string): Promise<string | null> {
     const cwd = await this.getProjectCwd(projectId);
-    return cwd ? projectNameFromCwd(cwd) : null;
+    if (!cwd) return null;
+    return resolveProjectKey(this.dao().db, cwd, {
+      defaultWorkspaceDir: SYSTEM_PROJECT_CWD,
+    });
   }
 }

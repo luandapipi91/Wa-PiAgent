@@ -3,7 +3,8 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema";
+import { SCHEMA_SQL } from "./schema";
+import { migrateMemoryDb } from "./migrations";
 
 // 连接缓存：同一进程内同一路径复用连接，避免反复打开 WAL 库与重放建表 SQL。
 const cache = new Map<string, Database>();
@@ -23,10 +24,9 @@ export function openMemoryDb(waPiDir: string): Database {
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA busy_timeout = 5000");
   db.run(SCHEMA_SQL);
-  db.run(
-    "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    [SCHEMA_VERSION],
-  );
+  // 结构迁移（内含写 schema_version）：必须在建表后、任何读取前执行，
+  // 且不能先写版本号——否则存量库的旧版本号会被覆盖、迁移被跳过。
+  migrateMemoryDb(db);
   cache.set(path, db);
   return db;
 }

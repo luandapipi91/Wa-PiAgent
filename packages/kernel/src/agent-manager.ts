@@ -63,7 +63,7 @@ import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
 import { Database } from "bun:sqlite";
 import { MemoryDao } from "./memory/dao";
 import { openMemoryDb } from "./memory/db";
-import { projectNameFromCwd } from "./memory/paths";
+import { resolveProjectKey } from "./memory/projects";
 import type { MemoryToolContext } from "./memory/tools";
 import {
 	renderSnapshot,
@@ -2460,8 +2460,10 @@ async function buildMemorySnapshot(
 	if (globalSnap) parts.push(globalSnap);
 	const projectSnap = renderSnapshot(dao, {
 		scope: "project",
-		// 项目标识取 cwd basename（与 DB project_id 列一致）
-		projectId: projectNameFromCwd(projectCwd),
+		// 项目身份走登记表（稳定 id）：移动/改名可接回，默认工作区所有会话共用一份记忆
+		projectId: resolveProjectKey(dao.db, projectCwd, {
+			defaultWorkspaceDir: SYSTEM_PROJECT_CWD,
+		}),
 		windowDays: DEFAULT_WINDOW_DAYS,
 		budget: DEFAULT_SNAPSHOT_BUDGET,
 	});
@@ -2480,9 +2482,12 @@ export function tryOpenMemoryCtx(
 	cwd: string,
 ): MemoryToolContext | null {
 	try {
+		const dao = new MemoryDao(openMemoryDb(waPiDir));
 		return {
-			dao: new MemoryDao(openMemoryDb(waPiDir)),
-			projectId: projectNameFromCwd(cwd),
+			dao,
+			projectId: resolveProjectKey(dao.db, cwd, {
+				defaultWorkspaceDir: SYSTEM_PROJECT_CWD,
+			}),
 		};
 	} catch (err) {
 		console.error("[kernel] 记忆库不可用，本次会话的记忆功能已降级:", err);

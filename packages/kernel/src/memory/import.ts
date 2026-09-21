@@ -12,6 +12,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { MemoryDao, MemoryKind } from "./dao";
+import { ensureProjectByLabel } from "./projects";
 
 const DELIMITER = "\n§\n";
 const IMPORTED_SUFFIX = ".imported";
@@ -118,11 +119,12 @@ async function importProjectsMemory(
     // 同一项目下的两个文件、以及各项目之间都独立容错：一个坏文件不妨碍其余导入
     const memoryPath = join(dir, "MEMORY.md");
     const userPath = join(dir, "USER.md");
+    // 项目目录名 → 登记 id（迁移 v2 后 memories.project_id 存的是登记 id；直接用目录名会成孤儿）
     await importSafely(memoryPath, () =>
-      importFile(dao, memoryPath, "project", name, "memory"),
+      importFile(dao, memoryPath, "project", ensureProjectByLabel(dao.db, name), "memory"),
     );
     await importSafely(userPath, () =>
-      importFile(dao, userPath, "project", name, "user"),
+      importFile(dao, userPath, "project", ensureProjectByLabel(dao.db, name), "user"),
     );
   }
 }
@@ -141,7 +143,11 @@ async function importArchive(dao: MemoryDao, waPiDir: string): Promise<void> {
         if (!e.text?.trim()) continue;
         const target: LegacyTarget = e.category === "user" ? "user" : "memory";
         const scope: LegacyScope = e.scope === "project" ? "project" : "global";
-        const projectId = scope === "project" ? projectIdFromSidecar(e) : null;
+        // 旧 sidecar 存的是项目名（目录名）→ 换成登记 id
+        const legacyName = scope === "project" ? projectIdFromSidecar(e) : null;
+        const projectId = legacyName
+          ? ensureProjectByLabel(dao.db, legacyName)
+          : null;
         if (scope === "project" && !projectId) {
           // 不能静默产出 project_id 为空的项目条目：它不属于任何项目，
           // 恢复后会从所有按项目切分的视图里消失，故必须留日志。

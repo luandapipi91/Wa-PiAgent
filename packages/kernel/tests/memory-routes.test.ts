@@ -13,7 +13,8 @@ import type { WSClientEvent } from "@wa-pi/shared";
 import { HttpRouter } from "../src/http-router";
 import { registerMemoryRoutes } from "../src/routes/memory";
 import { MemoryStore } from "../src/memory-store";
-import { closeAllMemoryDbs } from "../src/memory/db";
+import { closeAllMemoryDbs, openMemoryDb } from "../src/memory/db";
+import { listMemoryProjects } from "../src/memory/projects";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
@@ -335,7 +336,11 @@ test("GET /api/memories/search：UI projectId 解析为项目名后过滤", asyn
 		const body = (await res.json()) as any;
 		expect(body.results).toHaveLength(1);
 		expect(body.results[0].scope).toBe("project");
-		expect(body.results[0].projectId).toBe("my-app");
+		// v2：返回的是项目登记 id（不是 cwd basename），登记项的 label 才是项目名
+		const project = listMemoryProjects(openMemoryDb(tmpDir)).find(
+			(p) => p.id === body.results[0].projectId,
+		);
+		expect(project?.label).toBe("my-app");
 	} finally {
 		await server.stop();
 	}

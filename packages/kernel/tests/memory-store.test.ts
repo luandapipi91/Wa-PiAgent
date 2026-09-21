@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryStore } from "../src/memory-store";
 import { MemoryDao } from "../src/memory/dao";
+import { ensureProjectByLabel, listMemoryProjects } from "../src/memory/projects";
 import { closeAllMemoryDbs, openMemoryDb } from "../src/memory/db";
 import { KernelError } from "../src/kernel-error";
 import type { ProjectStore } from "../src/project-store";
@@ -33,6 +34,19 @@ afterEach(() => {
   closeAllMemoryDbs();
   rmSync(tmpDir, { recursive: true, force: true });
 });
+
+/** 项目登记 id（v2 起 memories.project_id 存的就是它）；label 即项目名（旧 basename） */
+function projectKey(label: string): string {
+  const dao = new MemoryDao(openMemoryDb(tmpDir));
+  return ensureProjectByLabel(dao.db, label);
+}
+
+/** 某条记忆归属的项目名（经登记表反查），用于替代旧断言里的字面量 basename */
+function projectLabelOf(projectId: string | null | undefined): string | undefined {
+  if (!projectId) return undefined;
+  const dao = new MemoryDao(openMemoryDb(tmpDir));
+  return listMemoryProjects(dao.db).find((p) => p.id === projectId)?.label;
+}
 
 /** mock ProjectStore：p1 → cwd，用于 projectId（UI id）到项目名的解析 */
 function mockProjectStore(cwd: string): ProjectStore {
@@ -141,7 +155,7 @@ test("list 合并全局与当前项目；不传 projectId 只返回全局", asyn
   ]);
   const projectEntry = withProject.memories.find((m) => m.scope === "project")!;
   // projectId 列存的是项目名（cwd basename），不是 UI 的 project id
-  expect(projectEntry.projectId).toBe("my-app");
+  expect(projectLabelOf(projectEntry.projectId)).toBe("my-app");
 
   const globalOnly = await store.list();
   expect(globalOnly.memories.every((m) => m.scope === "global")).toBe(true);
@@ -289,7 +303,7 @@ test("list 归档段按项目过滤：全局归档 + 当前项目归档，不含
     kind: "knowledge",
     target: "memory",
     scope: "project",
-    projectId: "my-app",
+    projectId: projectKey("my-app"),
     content: "本项目归档",
     source: "test",
   });
@@ -298,7 +312,7 @@ test("list 归档段按项目过滤：全局归档 + 当前项目归档，不含
     kind: "knowledge",
     target: "memory",
     scope: "project",
-    projectId: "other-app",
+    projectId: projectKey("other-app"),
     content: "别项目归档",
     source: "test",
   });
@@ -441,7 +455,7 @@ test("listPage：scope=project 解析为项目名后按项目过滤（全局/其
   expect(r.entries).toHaveLength(1);
   expect(r.entries[0].text).toBe("项目记忆");
   // projectId 列存的是项目名（cwd basename），不是 UI 的 project id
-  expect(r.entries[0].projectId).toBe("my-app");
+  expect(projectLabelOf(r.entries[0].projectId)).toBe("my-app");
   expect(r.counts.active).toBe(1);
   expect(r.counts.archived).toBe(0);
 });
@@ -496,7 +510,7 @@ test("search 支持 scope / kind 过滤", async () => {
     projectId: "p1",
   });
   expect(projectOnly.results).toHaveLength(1);
-  expect(projectOnly.results[0].projectId).toBe("my-app");
+  expect(projectLabelOf(projectOnly.results[0].projectId)).toBe("my-app");
 
   const execution = await store.search({ query: "sqlite", kind: "execution" });
   expect(execution.results).toHaveLength(1);
@@ -651,7 +665,7 @@ test("search 显式 scope=project 仍限定到该项目（维持原语义）", a
   seed([
     {
       scope: "project",
-      projectId: "other-app",
+      projectId: projectKey("other-app"),
       content: "限定语义 zebra 别项目",
     },
   ]);
@@ -661,7 +675,7 @@ test("search 显式 scope=project 仍限定到该项目（维持原语义）", a
     scope: "project",
     projectId: "p1",
   });
-  expect(results.results.map((r) => r.projectId)).toEqual(["my-app"]);
+  expect(results.results.map((r) => projectLabelOf(r.projectId))).toEqual(["my-app"]);
   expect(results.totalMatched).toBe(1);
 });
 

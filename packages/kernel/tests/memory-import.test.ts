@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { SCHEMA_SQL } from "../src/memory/schema";
 import { MemoryDao } from "../src/memory/dao";
 import { importLegacyMemories } from "../src/memory/import";
+import { listMemoryProjects } from "../src/memory/projects";
 
 let dir: string;
 let dao: MemoryDao;
@@ -52,11 +53,14 @@ test("导入 global MEMORY.md 与 USER.md，kind/target/scope 正确", async () 
   ]);
 });
 
-test("项目记忆按目录名落入 project scope", async () => {
+test("项目记忆按目录名落入 project scope（归属登记 id，label 保留目录名）", async () => {
   writeLegacy("projects-memory/Wa-Pi/MEMORY.md", ["项目约定 C"], Date.now());
   await importLegacyMemories(dir, dao);
   const row = dao.list({ scope: "project" })[0];
-  expect(row.projectId).toBe("Wa-Pi");
+  // v2：project_id 存登记 id（不再是目录名本身），登记项的 label 才是目录名
+  const project = listMemoryProjects(dao.db).find((p) => p.id === row.projectId);
+  expect(project?.label).toBe("Wa-Pi");
+  expect(row.projectId).not.toBe("Wa-Pi");
 });
 
 test("文件内顺序决定时间戳：顶部条目最新", async () => {
@@ -236,7 +240,8 @@ test("项目归档条目导入后 projectId 正确，且「恢复」后仍留在
   await importLegacyMemories(dir, dao);
 
   const row = rowsByContent().get(text)!;
-  expect([row.scope, row.projectId, row.archived]).toEqual([
+  const project = listMemoryProjects(dao.db).find((p) => p.id === row.projectId);
+  expect([row.scope, project?.label, row.archived]).toEqual([
     "project",
     "Wa-Pi",
     1,
@@ -246,11 +251,11 @@ test("项目归档条目导入后 projectId 正确，且「恢复」后仍留在
   // （project_id 丢了的话这里就找不到 → 条目从所有按项目切分的视图消失）
   expect(dao.restore(row.id)).toBe(true);
   expect(
-    dao.list({ scope: "project", projectId: "Wa-Pi" }).map((r) => r.id),
+    dao.list({ scope: "project", projectId: row.projectId! }).map((r) => r.id),
   ).toEqual([row.id]);
-  expect(dao.counts({ scope: "project", projectId: "Wa-Pi" }).knowledge).toBe(
-    1,
-  );
+  expect(
+    dao.counts({ scope: "project", projectId: row.projectId! }).knowledge,
+  ).toBe(1);
 });
 
 test("sourceFile 缺失时回退 id 前缀解析项目名；Windows 反斜杠同样识别", async () => {
@@ -275,8 +280,12 @@ test("sourceFile 缺失时回退 id 前缀解析项目名；Windows 反斜杠同
   await importLegacyMemories(dir, dao);
 
   const rows = rowsByContent();
-  expect(rows.get("只有 id 的归档 Q")!.projectId).toBe("OnlyId");
-  expect(rows.get("反斜杠路径的归档 R")!.projectId).toBe("BsProj");
+  const labelOf = (content: string) => {
+    const id = rows.get(content)!.projectId!;
+    return listMemoryProjects(dao.db).find((p) => p.id === id)?.label;
+  };
+  expect(labelOf("只有 id 的归档 Q")).toBe("OnlyId");
+  expect(labelOf("反斜杠路径的归档 R")).toBe("BsProj");
 });
 
 test("user + global 的归档条目导入后 kind 为 profile（与 markdown 分支同规则）", async () => {
