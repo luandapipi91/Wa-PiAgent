@@ -1,5 +1,6 @@
 - feat(frontend): 定时任务与机器人设置移除模型「跟随默认」选项，模型必选——TaskEditForm/BotsSection 删除空选项、新建默认选中第一个可用模型、编辑 model=null 的存量自动归一为第一个模型且保存载荷不再出现 null、providers 为空无法指定时禁用保存；旁路旧测试改写为新语义，新增 media/BotsSection/TaskEditForm 回归用例（先红后绿）。
 - feat(frontend): 新建机器人对话框选完渠道后的设置表单同样强制模型必选——emptyDraft 默认选中第一个可用模型（不再 model:null 跟随智能体）、保存前校验模型为空则 toast「请选择模型」并拦截提交；既有新建保存用例对齐新行为（载荷含 model）。
+- fix(kernel): 定时任务执行会话排除 ask_user_question 工具——无人值守场景 agent 调 ask 后无用户应答会挂起至 30 分钟轮询超时；ensureStarted 新增 excludeTools 参数（黑名单并入 + 白名单模式从白名单剔除，im_push_to 不可被剔除），executeRun 启动会话时固定排除 ask_user_question；agent-session 按激活名单过滤工具池，--exclude-tools 对扩展注册工具同样生效（pi 0.86.1 _buildRuntime includeAllExtensionTools+activeToolNames 机制取证）。agent-manager 单测两用例先红后绿（黑名单并入 + 白名单剔除）。
 ## 2026-09-21
 
 - v0.5.6 发版：升版 0.5.5 → 0.5.6（2 提交：pi 0.86.1 依赖升级 + 收编并发方在途的「拖拽到输入框」修复 70ed984e）。内容：拖拽文件改绝对路径引用、系统拖入文件夹走 /api/fs/copy 路径引用（不再 Failed to fetch）、浏览器环境明确提示；附 e2e/drag-to-composer.spec.ts 四场景。收编前已验证：ComposerInput/ExplorerPanel.drag-chip 单测 53 pass、四包 typecheck 绿。验证：kernel 全量回归 + 双端打包 gate 全绿。

@@ -564,12 +564,16 @@ export async function startKernel(opts?: {
 					};
 				}
 
-				// 3. 启动 agent 进程（imPush 非空时注入推送工具）
+				// 3. 启动 agent 进程（imPush 非空时注入推送工具）。
+				// 定时任务无人值守：排除 ask_user_question——无用户应答会让任务挂起直至超时
 				await agentManager.ensureStarted(
 					projectId,
 					task.agentId as any,
 					sessionId,
-					imPush ? { imPush } : undefined,
+					{
+						...(imPush ? { imPush } : {}),
+						excludeTools: ["ask_user_question"],
+					},
 				);
 
 				// 4. 解析任务模型：task.model 优先，缺省回退到第一个 provider 的第一个模型

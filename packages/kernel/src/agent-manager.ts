@@ -364,7 +364,12 @@ export class AgentManager {
 		projectId: string,
 		agentName: AgentName,
 		sessionId: string,
-		opts?: { imChannelContext?: string; imPush?: ImPushInjection },
+		opts?: {
+			imChannelContext?: string;
+			imPush?: ImPushInjection;
+			/** 强制排除的工具（如定时任务排除 ask_user_question——无人值守会话无应答会挂起） */
+			excludeTools?: string[];
+		},
 	): Promise<SessionHandle> {
 		// 命中缓存：进程已崩溃则拆除重建；agentName 不一致也拆除（新会话页 getCommands
 		// 兜底已用默认 agent 启动进程，用户切换后发送若复用会把消息交给旧 agent）；
@@ -397,6 +402,7 @@ export class AgentManager {
 			sessionId,
 			opts?.imChannelContext,
 			opts?.imPush,
+			opts?.excludeTools,
 		);
 		this.starting.set(sessionId, promise);
 		try {
@@ -606,6 +612,7 @@ export class AgentManager {
 		sessionId: string,
 		imChannelContext?: string,
 		imPush?: ImPushInjection,
+		excludeTools?: string[],
 	): Promise<SessionHandle> {
 		// 启动时写入内置 subagent 的 .md 定义文件（~/.pi/agent/agents/*.md），已存在不覆盖
 		const agentsDir = join(WA_PI_DIR, "agents");
@@ -1111,6 +1118,17 @@ export class AgentManager {
 					],
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
+		// 调用方强制排除（定时任务等无人值守会话排除 ask 类交互工具——无应答会挂起任务）：
+		// 黑名单并入；白名单模式下从白名单剔除（im_push_to 不可被剔除）
+		const forcedExclude = excludeTools ?? [];
+		if (forcedExclude.length > 0) {
+			if (toolArgs.tools) {
+				toolArgs.tools = toolArgs.tools.filter((t) => !forcedExclude.includes(t));
+			}
+			toolArgs.excludeTools = [
+				...new Set([...(toolArgs.excludeTools ?? []), ...forcedExclude]),
+			];
+		}
 
 		// 注册 bridge 上下文（pi 进程内 wa-pi-bridge 扩展回调用）
 		registerBridgeSession(sessionId, bridgeCtx);

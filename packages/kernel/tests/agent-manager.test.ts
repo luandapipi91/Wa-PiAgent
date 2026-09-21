@@ -2836,3 +2836,37 @@ test("abort 成功返回后广播 agent_end（前端退出思考态兜底）", a
 	const abortEnd = received.find((r) => r.e?.type === "agent_end")!;
 	expect((abortEnd.e as { synthetic?: boolean }).synthetic).toBe(true);
 });
+
+test("ensureStarted 传入 excludeTools 时并入 --exclude-tools（定时任务排除 ask）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id, {
+		excludeTools: ["ask_user_question"],
+	});
+	const args = fakes[0].opts.args ?? [];
+	const excluded = argValues(args, "--exclude-tools").flatMap((v) =>
+		v.split(","),
+	);
+	expect(excluded).toContain("subagent"); // 既有排除不回归
+	expect(excluded).toContain("ask_user_question");
+});
+
+test("受限白名单 agent + excludeTools：白名单剔除该工具并进黑名单（无人值守强制排除）", async () => {
+	const configStore = {
+		getAgent: mock(async () => ({
+			displayName: "dev",
+			tools: ["read", "ask_user_question"],
+		})),
+	} as any;
+	const { project, session, am, fakes } = await setup({ configStore });
+	await am.ensureStarted(project.id, "dev", session.id, {
+		excludeTools: ["ask_user_question"],
+	});
+	const args = fakes[0].opts.args ?? [];
+	const tools = argValues(args, "--tools").flatMap((v) => v.split(","));
+	expect(tools).toContain("read");
+	expect(tools).not.toContain("ask_user_question");
+	const excluded = argValues(args, "--exclude-tools").flatMap((v) =>
+		v.split(","),
+	);
+	expect(excluded).toContain("ask_user_question");
+});
