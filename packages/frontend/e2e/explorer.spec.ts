@@ -1,7 +1,17 @@
 // 文件树 + 文件预览 E2E：进入项目会话→点文件树按钮→面板展开→文件树渲染→双击预览
 // 依赖 global-setup 预置的 e2e-project（cwd=<WA_PI_DIR>/e2e-project，含 AGENTS.md）
 import { test, expect } from "@playwright/test";
+import { copyFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { E2E_WA_PI_DIR } from "../playwright.config";
 import { createSessionViaPrompt, saveProvider } from "./helpers";
+
+// 图片预览用例素材：同目录 3 张图（画廊按同目录建清单，缩略图条应恰为 3 项）
+const PIC_DIR = join(E2E_WA_PI_DIR, "e2e-project", "explorer-pics");
+mkdirSync(PIC_DIR, { recursive: true });
+for (const name of ["pic-a.png", "pic-b.png", "pic-c.png"]) {
+	copyFileSync("e2e/fixtures/px-red.png", join(PIC_DIR, name));
+}
 
 // 通过 REST 创建一个 e2e-project 会话并返回 id（与 default-workspace.spec 同款，绕过真实 LLM）
 async function createSession(): Promise<string> {
@@ -246,5 +256,57 @@ test.describe
 			await page.getByTestId("composer-send").click();
 			const userChip = page.locator('[data-testid^="msg-"] .chip-file').first();
 			await expect(userChip).toBeVisible({ timeout: 10_000 });
+		});
+
+		test("双击图片：打开媒体画廊（同目录缩略图条 + 当前项定位）", async ({
+			page,
+		}) => {
+			test.setTimeout(60_000);
+			await page.goto("/");
+			await page.waitForTimeout(2000);
+
+			const sessionId = await createSession();
+			await page.getByText("E2E项目").first().click();
+			await page.getByTestId(`session-${sessionId}`).click();
+			await expect(page.getByTestId("session-view")).toBeVisible({
+				timeout: 8000,
+			});
+
+			await page.getByTestId("btn-explorer").click();
+			await expect(page.getByTestId("explorer-aside")).toBeVisible({
+				timeout: 5000,
+			});
+			const panel = page.locator('[data-testid="explorer-panel"]');
+			// 单击目录行展开，再双击目录内的图片
+			await panel.getByText("explorer-pics").click();
+			const picB = panel.getByText("pic-b.png");
+			await expect(picB).toBeVisible({ timeout: 5000 });
+			await picB.dblclick();
+
+			// 打开的是媒体画廊（与聊天里点图同一个窗），不是文件预览窗
+			await expect(page.getByTestId("media-preview-modal")).toBeVisible({
+				timeout: 5000,
+			});
+			await expect(page.getByTestId("file-preview-modal")).toHaveCount(0);
+			// 同目录 3 张图：缩略图条 3 项，当前项定位到 pic-b（自然序 pic-a, pic-b, pic-c）
+			await expect(page.getByTestId("media-thumb")).toHaveCount(3);
+			await expect(page.getByTestId("media-counter")).toHaveText("2 / 3");
+			// 缩略图真实加载成功（同目录清单里的项都能渲染）
+			await page.waitForFunction(
+				() => {
+					const imgs = document.querySelectorAll(
+						'[data-testid="media-thumbs"] img',
+					);
+					return (
+						imgs.length === 3 &&
+						Array.from(imgs).every(
+							(i) => (i as HTMLImageElement).naturalWidth > 0,
+						)
+					);
+				},
+				{ timeout: 15_000 },
+			);
+			await page.keyboard.press("Escape");
+			await expect(page.getByTestId("media-preview-modal")).toHaveCount(0);
 		});
 	});

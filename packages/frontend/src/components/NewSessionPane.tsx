@@ -21,7 +21,7 @@ import { GitToolbar } from "./git/GitToolbar";
 import { SidebarResizer } from "./SidebarResizer";
 import { Icon } from "./ui/Icon";
 import { useBrowserStore } from "../store/browser";
-import { isHtmlPath } from "../preview-url";
+import { openFileOrPreview } from "../open-file-preview";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
@@ -459,11 +459,7 @@ export function NewSessionPane({
 								<ExplorerPanel
 									workspaceDir={workspaceDir}
 									projectName={projects.find((p) => p.id === projectId)?.name}
-									onOpenFile={(path) =>
-										isHtmlPath(path)
-											? useBrowserStore.getState().openBrowser(path, sessionId)
-											: useSessionStore.getState().openFilePreview(path, sessionId)
-									}
+									onOpenFile={(path) => openFileOrPreview(path, sessionId)}
 								/>
 							) : (
 								<div className="ep-empty">

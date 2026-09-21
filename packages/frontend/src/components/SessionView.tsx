@@ -28,7 +28,7 @@ import { KERNEL_INTERCEPTED_COMMANDS } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
-import { isHtmlPath } from "../preview-url";
+import { openFileOrPreview } from "../open-file-preview";
 import { GitToolbar } from "./git/GitToolbar";
 import { useTuiPanelStore } from "../store/tui-panel";
 import { TuiPanel, reportWidgetCols } from "./TuiPanel";
@@ -639,11 +639,7 @@ export const SessionView = memo(function SessionView({
 							<ExplorerPanel
 								workspaceDir={workspaceDir}
 								projectName={project?.name}
-								onOpenFile={(path) =>
-									isHtmlPath(path)
-										? useBrowserStore.getState().openBrowser(path, sessionId)
-										: useSessionStore.getState().openFilePreview(path, sessionId)
-								}
+								onOpenFile={(path) => openFileOrPreview(path, sessionId)}
 							/>
 						</div>
 					</aside>
