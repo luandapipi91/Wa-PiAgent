@@ -295,7 +295,14 @@ function hitTest(mx, my) {
   return el.namespaceURI === "http://www.w3.org/2000/svg" && el.tagName.toLowerCase() !== "svg";
 }
 function checkClickThrough() {
-  if (!host || !host.setClickThrough || !hostGp) return;
+  if (!host || !host.setClickThrough) return;
+  // 菜单展开期间整体可点（含窗口为放菜单临时放大出来的透明区）：
+  // 否则点菜单外部会穿到桌面，页面的「点别处关菜单」收不到 mousedown，菜单关不掉。
+  if (menuWinOpen) {
+    if (clickThrough) { clickThrough = false; host.setClickThrough(false); }
+    return;
+  }
+  if (!hostGp) return;
   const inside = hitTest(hostGp.x - winX, hostGp.y - winY);
   const next = !inside;
   if (next === clickThrough) return;   // 只在状态变化时发 IPC
@@ -1143,19 +1150,45 @@ function hideMenus() {
   menuRoot.style.display = "none";
   menuInter.style.display = "none";
   document.getElementById("miInter").classList.remove("open");
+  // 菜单关掉就把窗口收回宠物尺寸（放大/收回只改尺寸，左上角锚点不动，宠物不会位移）
+  if (menuWinOpen) setMenuWinSize(false);
+}
+
+/* 菜单展开用的临时窗口尺寸：宠物窗口只有 260×258，而二级菜单固定展开在主菜单右侧
+ * （left = 主菜单右缘 − 2、宽 150+），260 宽时右半截直接被窗口裁掉——
+ * 肉眼就是「右键互动菜单出不来」。 */
+const MENU_WIN_W = 560, MENU_WIN_H = 520;
+let menuWinOpen = false;
+function setMenuWinSize(open) {
+  if (!host || !host.setWindowSize) return;
+  menuWinOpen = open;
+  host.setWindowSize(open ? MENU_WIN_W : WIN_W, open ? MENU_WIN_H : WIN_H);
+}
+function placeMenu(x, y) {
+  // 窗口尺寸是 IPC 给宿主的，生效晚于本次布局；但下一步就是它，所以边界直接用
+  // 放大后的目标尺寸算——避免「先按 260×258 定位、放大后再挪一次」那段竞态
+  //（菜单会先被挤在左上角，鼠标已 hover 到旧位置）。
+  const W = Math.max(window.innerWidth, MENU_WIN_W);
+  const H = Math.max(window.innerHeight, MENU_WIN_H);
+  menuRoot.style.left = Math.min(x, W - 170) + "px";
+  menuRoot.style.top = Math.min(y, H - 90) + "px";
+  menuInter.style.display = "none";
 }
 function showMainMenu(x, y) {
   menuRoot.style.display = "block";
-  menuRoot.style.left = Math.min(x, window.innerWidth - 170) + "px";
-  menuRoot.style.top = Math.min(y, window.innerHeight - 90) + "px";
-  menuInter.style.display = "none";
+  if (!menuWinOpen) setMenuWinSize(true);
+  placeMenu(x, y);
 }
 document.getElementById("miInter").addEventListener("mouseenter", () => {
   const r = menuRoot.getBoundingClientRect();
   menuInter.style.display = "block";
   menuInter.style.left = (r.right - 2) + "px";
   menuInter.style.top = r.top + "px";
-  menuInter.style.maxHeight = Math.min(430, window.innerHeight - r.top - 10) + "px";
+  // 余量 30：菜单自身的 padding(5px×2)+border(2px×2) 会加在 maxHeight 之外，
+  // 只减 10 会让二级菜单底边比窗口高多出几个像素而被裁。
+  // 窗口高同样取「放大后的目标值」：hover 可能发生在 setContentSize 生效之前。
+  const H = Math.max(window.innerHeight, MENU_WIN_H);
+  menuInter.style.maxHeight = Math.max(120, H - r.top - 30) + "px";
   menuInter.style.overflowY = "auto";
 });
 menuRoot.addEventListener("mouseleave", e => {
