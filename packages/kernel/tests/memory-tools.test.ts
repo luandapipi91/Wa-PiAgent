@@ -76,10 +76,112 @@ test("空内容与注入内容被拒", async () => {
   expect(blocked.error).toContain("prompt_injection");
 });
 
-test("memory_search 命中并返回 id/title/snippet/score", async () => {
-  await call("memory_add", {
+// ── 规则：全局记忆只允许画像（profile），知识 / 执行只能落在项目 ──
+
+test("memory_add：显式 scope=global + kind=execution / knowledge 被拒且不落库", async () => {
+  const exec = await call("memory_add", {
     target: "memory",
     scope: "global",
+    kind: "execution",
+    content: "全局执行流水",
+  });
+  expect(exec.success).toBe(false);
+  expect(exec.error).toContain("全局");
+
+  const know = await call("memory_add", {
+    target: "user",
+    scope: "global",
+    kind: "knowledge",
+    content: "全局知识",
+  });
+  expect(know.success).toBe(false);
+  expect(know.error).toContain("全局");
+
+  expect(ctx.dao.list({ includeArchived: true })).toHaveLength(0);
+});
+
+test("memory_add：target=memory + scope=global（未传 kind，会路由成 knowledge）同样被拒", async () => {
+  const r = await call("memory_add", {
+    target: "memory",
+    scope: "global",
+    content: "全局笔记",
+  });
+  expect(r.success).toBe(false);
+  expect(ctx.dao.list({ includeArchived: true })).toHaveLength(0);
+});
+
+// ── 其余记忆工具的 scope×kind 检查（回归锁定）：这些工具只能读 / 改 / 删已有条目，
+// 不会产生新的 (scope, kind) 组合，故无需额外规则校验；下面用例把「不会改出违规、
+// 也不会越界改到全局层」钉住。
+
+test("memory_replace 不改动条目的 scope 与 kind（全局画像仍是全局画像）", async () => {
+  const g = await call("memory_add", { target: "user", content: "偏好 v1" });
+  const r = await call("memory_replace", { id: g.id, newContent: "偏好 v2" });
+  expect(r.success).toBe(true);
+  const row = ctx.dao.getById(g.id)!;
+  expect([row.scope, row.kind]).toEqual(["global", "profile"]);
+});
+
+test("memory_replace 的 oldText 路径不越出 target 对应范围（memory 默认只匹配当前项目）", async () => {
+  await call("memory_add", { target: "user", content: "同名关键词 alpha" });
+  const p = await call("memory_add", { target: "memory", content: "同名关键词 alpha" });
+  const r = await call("memory_replace", {
+    target: "memory",
+    oldText: "alpha",
+    newContent: "改后 alpha",
+  });
+  expect(r.success).toBe(true);
+  expect(ctx.dao.getById(p.id)!.content).toContain("改后");
+  // 全局画像未被误改（否则等于项目上下文的变更越界写到全局层）
+  const rows = ctx.dao.list({ scope: "global", includeArchived: true });
+  expect(rows).toHaveLength(1);
+  expect(rows[0].content).toBe("同名关键词 alpha");
+});
+
+test("memory_remove 只删目标条目，不动其它条目的 scope 与 kind", async () => {
+  await call("memory_add", { target: "user", content: "画像待删" });
+  const p = await call("memory_add", { target: "memory", content: "项目待删" });
+  expect((await call("memory_remove", { id: p.id })).success).toBe(true);
+  const rows = ctx.dao.list({ includeArchived: true });
+  expect(rows).toHaveLength(1);
+  expect([rows[0].scope, rows[0].kind]).toEqual(["global", "profile"]);
+});
+
+test("memory_read / memory_search 只读：不产生任何条目", async () => {
+  await call("memory_read", {});
+  await call("memory_search", { query: "任意" });
+  expect(ctx.dao.list({ includeArchived: true })).toHaveLength(0);
+});
+
+test("memory_add：全局画像与项目三类（含项目画像）照常写入", async () => {
+  const profile = await call("memory_add", { target: "user", content: "用户偏好" });
+  expect(profile.success).toBe(true);
+  expect([profile.kind, profile.scope]).toEqual(["profile", "global"]);
+
+  const know = await call("memory_add", { target: "memory", content: "项目知识" });
+  expect(know.success).toBe(true);
+  expect([know.kind, know.scope]).toEqual(["knowledge", "project"]);
+
+  const exec = await call("memory_add", {
+    target: "memory",
+    kind: "execution",
+    content: "项目执行流水",
+  });
+  expect(exec.success).toBe(true);
+  expect([exec.kind, exec.scope]).toEqual(["execution", "project"]);
+
+  const projProfile = await call("memory_add", {
+    target: "user",
+    scope: "project",
+    content: "项目内画像",
+  });
+  expect(projProfile.success).toBe(true);
+});
+
+test("memory_search 命中并返回 id/title/snippet/score", async () => {
+  // 默认落在项目范围（全局只允许画像，知识不能写 global）
+  await call("memory_add", {
+    target: "memory",
     content: "发版必须禁用 osxkeychain",
   });
   const res = await call("memory_search", { query: "osxkeychain" });
@@ -362,8 +464,9 @@ test("无项目上下文时未传 scope 只返回全局条目（不返回任何�
 });
 
 test("未传 scope 的 read/search 在无项目上下文下仍可用（只见全局），全局变更不受影响", async () => {
+  // 全局条目只能是画像（global + profile）——这是无项目上下文时唯一可见的一类
   await call("memory_add", {
-    target: "memory",
+    target: "user",
     scope: "global",
     content: "全局笔记 zebrascope",
   });
@@ -374,8 +477,9 @@ test("未传 scope 的 read/search 在无项目上下文下仍可用（只见全
   expect(
     (await call("memory_search", { query: "zebrascope" })).results,
   ).toHaveLength(1);
+  // 关注与画像无关：变更走 target 默认 scope（user → global）
   const replace = await call("memory_replace", {
-    target: "memory",
+    target: "user",
     scope: "global",
     oldText: "zebrascope",
     newContent: "改过了 zebrascope",
@@ -551,14 +655,14 @@ test("同一条污染数据：快照与检索两条通道都不含原载荷（�
 
 test("memory_add 对 title 做与 content 同规则的注入校验（写入侧不再是单向门）", async () => {
   const res = await call("memory_add", {
-    target: "memory",
+    target: "user",
     scope: "global",
     content: "完全正常的正文",
     title: PAYLOAD,
   });
   expect(res.success).toBe(false);
   expect(res.error).toContain("prompt_injection");
-  expect(ctx.dao.counts().knowledge).toBe(0);
+  expect(ctx.dao.counts()).toEqual({ profile: 0, knowledge: 0, execution: 0 });
 });
 
 test("memory_read 的条目 title 与 content 同样被净化", async () => {

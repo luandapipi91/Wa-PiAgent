@@ -225,12 +225,12 @@ test("记忆卡片带层标签：全局 4 条按 kind 渲染 画像/知识/执�
 
 // —— 归档 tab 类型筛选回归：归档列表的 kind 筛选下推服务端 ——
 test("归档 tab：类型筛选生效——点「画像」只剩画像条目", async () => {
-	// 归档数据：画像 / 执行 / 知识 各一条（全 global，避免作用域干扰断言）
+	// 归档数据：画像 / 执行 / 知识 各一条（全 project——全局作用域已不提供 kind 筛选 chip）
 	archivedEntries = [
 		{
 			...makeEntry(
 				"a0000000-0000-4000-8000-000000000001",
-				"global",
+				"project",
 				"归档画像",
 				"profile",
 			),
@@ -239,7 +239,7 @@ test("归档 tab：类型筛选生效——点「画像」只剩画像条目", a
 		{
 			...makeEntry(
 				"a0000000-0000-4000-8000-000000000002",
-				"global",
+				"project",
 				"归档执行",
 				"execution",
 			),
@@ -248,7 +248,7 @@ test("归档 tab：类型筛选生效——点「画像」只剩画像条目", a
 		{
 			...makeEntry(
 				"a0000000-0000-4000-8000-000000000003",
-				"global",
+				"project",
 				"归档知识",
 				"knowledge",
 			),
@@ -256,6 +256,8 @@ test("归档 tab：类型筛选生效——点「画像」只剩画像条目", a
 		},
 	];
 
+	// 项目作用域才有 kind 筛选 chip（全局只允许画像）
+	useMemoryStore.setState({ memoryScope: "project" });
 	render(<MemoryPage />);
 	await screen.findByTestId("memory-page");
 
@@ -352,14 +354,16 @@ test("归档 tab：列表与徽标按作用域过滤——全局作用域下不�
 	expect(screen.getByTestId("tab-归档").textContent).toContain("1");
 });
 
-test("层筛选：全局作用域下点「执行」只剩执行层，徽标仍按作用域计数", async () => {
+test("层筛选：项目作用域下点「执行」只剩执行层，徽标仍按作用域计数", async () => {
+	// 全局作用域不提供 kind 筛选 chip（全局只允许画像），层筛选在项目作用下验证
+	useMemoryStore.setState({ memoryScope: "project" });
 	render(<MemoryPage />);
 	await screen.findByTestId("memory-page");
 	await waitFor(() => {
-		expect(useMemoryStore.getState().pageEntries.length).toBe(4);
+		expect(useMemoryStore.getState().pageEntries.length).toBe(5);
 	});
 
-	// 全局 g2 被造为 execution 层
+	// 项目 p1 被造为 execution 层
 	fireEvent.click(screen.getByRole("button", { name: "执行" }));
 
 	await waitFor(() => {
@@ -367,10 +371,49 @@ test("层筛选：全局作用域下点「执行」只剩执行层，徽标仍�
 			document.querySelectorAll('[data-testid^="memory-card-"]').length,
 		).toBe(1);
 	});
-	expect(screen.getByText("全局记忆 2")).toBeTruthy();
+	expect(screen.getByText("项目记忆 1")).toBeTruthy();
+	expect(screen.queryByText("项目记忆 2")).toBeNull();
 	expect(screen.queryByText("全局记忆 1")).toBeNull();
-	expect(screen.queryByText("项目记忆 1")).toBeNull();
 
-	// tab 徽标口径不随 kind 筛选跳动：counts.active 恒为当前作用域全量 4
-	expect(screen.getByTestId("tab-已保存").textContent).toContain("4");
+	// tab 徽标口径不随 kind 筛选跳动：counts.active 恒为当前作用域全量 5
+	expect(screen.getByTestId("tab-已保存").textContent).toContain("5");
+});
+
+// ── 规则：全局记忆只允许画像 → 全局作用域下不展示 kind 筛选 chip ──
+// （知识与执行只能落在项目范围，全局视图里该筛选无意义；且切到全局时必须清掉
+//  残留的 kind，否则列表/检索会被过滤成空。）
+
+test("全局作用域不渲染 kind 筛选 chip，项目作用域照常渲染", async () => {
+	useMemoryStore.setState({ memoryScope: "global", kindFilter: null });
+	const first = render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	expect(screen.queryByTestId("memory-kind-filter")).toBeNull();
+	first.unmount();
+
+	useMemoryStore.setState({ memoryScope: "project", kindFilter: null });
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	expect(screen.getByTestId("memory-kind-filter")).toBeTruthy();
+});
+
+test("从项目切回全局：kindFilter 归零，列表请求不再带 kind", async () => {
+	useMemoryStore.setState({ memoryScope: "project", kindFilter: "execution" });
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	await waitFor(() => {
+		expect(
+			getMock.mock.calls.some((c) => String(c[0]).includes("kind=execution")),
+		).toBe(true);
+	});
+
+	fireEvent.click(screen.getByTestId("memory-scope-select"));
+	fireEvent.click(screen.getByTestId("memory-scope-option-global"));
+
+	await waitFor(() => {
+		expect(useMemoryStore.getState().kindFilter).toBeNull();
+	});
+	const listUrls = getMock.mock.calls
+		.map((c) => String(c[0]))
+		.filter((u) => u.includes("/api/memories?"));
+	expect(listUrls[listUrls.length - 1]).not.toContain("kind=");
 });

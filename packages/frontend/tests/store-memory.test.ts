@@ -685,3 +685,16 @@ test("search(): 慢的旧检索响应不覆盖新检索（序号防乱序）", a
   expect(s.searchResults?.map((r) => r.id)).toEqual(["new-hit"]);
   expect(s.searchTotalMatched).toBe(1);
 });
+
+// ── 规则：全局记忆只允许画像 → 切到 global 时清掉 kind 筛选 ──
+// （全局视图不再提供 kind chip，且残留的 knowledge/execution 会把列表与检索过滤成空。）
+
+test("setMemoryScope 切到 global 清空 kindFilter，切到 project 保留用户选择", () => {
+  useMemoryStore.getState().setKindFilter("execution");
+  useMemoryStore.getState().setMemoryScope("global");
+  expect(useMemoryStore.getState().kindFilter).toBeNull();
+
+  useMemoryStore.getState().setKindFilter("execution");
+  useMemoryStore.getState().setMemoryScope("project");
+  expect(useMemoryStore.getState().kindFilter).toBe("execution");
+});

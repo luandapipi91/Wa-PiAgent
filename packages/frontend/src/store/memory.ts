@@ -303,7 +303,13 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   setTab: (tab) => set({ activeTab: tab }),
   setScopeFilter: (f) => set({ scopeFilter: f }),
   setKindFilter: (k) => set({ kindFilter: k }),
-  setMemoryScope: (s) => set({ memoryScope: s }),
+  setMemoryScope: (s) =>
+    set((st) => ({
+      memoryScope: s,
+      // 全局记忆只允许画像：切到全局时清掉 kind 筛选，否则列表/检索会被残留的
+      // knowledge/execution 过滤成空（全局视图也不再展示 kind chip）
+      kindFilter: s === "global" ? null : st.kindFilter,
+    })),
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   search: (params) => {

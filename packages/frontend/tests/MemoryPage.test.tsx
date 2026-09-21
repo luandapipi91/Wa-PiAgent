@@ -211,6 +211,8 @@ test("搜索框触发服务端检索：渲染 snippet 与命中数，清空后�
 });
 
 test("层筛选下推服务端：检索态点「执行」后请求带 kind=execution", async () => {
+  // 全局作用域不提供 kind 筛选 chip（全局只允许画像），层筛选在项目作用下验证
+  useMemoryStore.setState({ memoryScope: "project" });
   render(<MemoryPage />);
   const input = screen.getByTestId("memory-search") as HTMLInputElement;
   fireEvent.change(input, { target: { value: "pnpm" } });
@@ -615,32 +617,34 @@ test("Bug2: currentProjectId 和 selectedProjectId 均为 null 时，指令文�
 // —— 层标签 / 层筛选（任务 14：SQLite 三层记忆的前端适配） ——
 // 新数据模型下条目自带 kind（profile 画像 / knowledge 知识 / execution 执行），
 // 面板需能按层筛选；fixture 用 uuid 形式 id，与 DB 一致。
+// 注：fixture 全部用 project 作用域 —— 全局记忆只允许画像（global 视图已不提供 kind
+// 筛选 chip），知识/执行只可能落在项目，故层筛选在项目作用域下验证。
 const KIND_FIXTURE: MemoryEntry[] = [
   {
     id: "aaaaaaaa-0000-4000-8000-000000000001",
     text: "画像条目",
-    scope: "global",
+    scope: "project",
     kind: "profile",
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
     id: "aaaaaaaa-0000-4000-8000-000000000002",
     text: "知识条目",
-    scope: "global",
+    scope: "project",
     kind: "knowledge",
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
     id: "aaaaaaaa-0000-4000-8000-000000000003",
     text: "执行失败条目",
-    scope: "global",
+    scope: "project",
     kind: "execution",
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
     id: "aaaaaaaa-0000-4000-8000-000000000005",
     text: "知识失败条目",
-    scope: "global",
+    scope: "project",
     kind: "knowledge",
     createdAt: "2026-01-01T00:00:00.000Z",
   },
@@ -648,8 +652,9 @@ const KIND_FIXTURE: MemoryEntry[] = [
 
 test("层筛选 — 点击「知识」只显示 knowledge 层，再点一次取消筛选", async () => {
   savedEntries = KIND_FIXTURE;
+  useMemoryStore.setState({ memoryScope: "project" });
   render(<MemoryPage />);
-  // 未筛选时四条都可见（scope=global 下推，kind 不筛），且卡片带层标签
+  // 未筛选时四条都可见（scope=project 下推，kind 不筛），且卡片带层标签
   await waitFor(() => {
     expect(screen.getByText("画像条目")).toBeTruthy();
   });
@@ -682,6 +687,7 @@ test("层筛选 — 点击「知识」只显示 knowledge 层，再点一次取�
 
 test("层筛选 — 无命中时显示空态", async () => {
   savedEntries = [KIND_FIXTURE[1]]; // 只有 knowledge
+  useMemoryStore.setState({ memoryScope: "project" });
   render(<MemoryPage />);
   fireEvent.click(screen.getByRole("button", { name: "执行" }));
   // kind=execution 下推 → 服务端空页 → 空态
@@ -697,11 +703,12 @@ test("层筛选：执行层只显示执行条目", async () => {
     {
       id: "aaaaaaaa-0000-4000-8000-000000000004",
       text: "执行成功条目",
-      scope: "global",
+      scope: "project",
       kind: "execution",
       createdAt: "2026-01-01T00:00:00.000Z",
     },
   ];
+  useMemoryStore.setState({ memoryScope: "project" });
   render(<MemoryPage />);
 
   fireEvent.click(screen.getByRole("button", { name: "执行" }));
@@ -719,6 +726,7 @@ test("层筛选：执行层只显示执行条目", async () => {
 // 层级筛选移除「全部」chip——“全部”= 不筛选，仍可通过「再点一次已选中的层」取消回该状态，功能不减。
 test("工具栏：日期范围选择器位于搜索框与层级筛选之间，且不再渲染「全部」层级 chip", async () => {
 	savedEntries = KIND_FIXTURE;
+	useMemoryStore.setState({ memoryScope: "project" });
 	render(<MemoryPage />);
 	await waitFor(() => {
 		expect(screen.getByText("画像条目")).toBeTruthy();
@@ -741,6 +749,7 @@ test("工具栏：日期范围选择器位于搜索框与层级筛选之间，�
 
 test("层筛选：点「执行」只剩执行层，再点一次取消回全部层", async () => {
   savedEntries = KIND_FIXTURE;
+  useMemoryStore.setState({ memoryScope: "project" });
   render(<MemoryPage />);
 
   // 未筛选：四条都可见

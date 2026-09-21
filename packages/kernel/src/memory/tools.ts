@@ -74,6 +74,24 @@ export function resolveKind(
   return target === "user" && scope === "global" ? "profile" : "knowledge";
 }
 
+/**
+ * (scope, kind) 组合规则校验：全局记忆只允许画像（profile），知识 / 执行记录
+ * 只能落在项目范围。返回错误文案；组合合法时返回 null。
+ *
+ * 规则理由：全局层是跳项目共享的用户画像与偏好；知识与执行流水带项目上下文
+ * （项目约定、交付记录），落到全局会污染所有项目。
+ * 只拦新写入——历史遗留的 global + 非 profile 条目不在校验范围内。
+ */
+export function checkScopeKind(
+  scope: MemoryScope,
+  kind: MemoryKind,
+): string | null {
+  if (scope === "global" && kind !== "profile") {
+    return '全局记忆只允许画像（profile），知识 / 执行记录请写入项目范围（scope="project"）';
+  }
+  return null;
+}
+
 export type ProjectIdCheck =
   | { ok: true; projectId: string | null }
   | { ok: false; error: string };
@@ -334,6 +352,9 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
           str(params.target) === "user" ? "user" : "memory";
         const scope = resolveScope(target, params.scope);
         const kind = resolveKind(target, scope, params.kind);
+        // 规则：全局只允许画像（知识 / 执行只能落项目）——先于内容校验拦截
+        const ruleError = checkScopeKind(scope, kind);
+        if (ruleError) return jsonResult({ success: false, error: ruleError });
         const content = str(params.content);
         if (!content.trim())
           return jsonResult({

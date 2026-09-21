@@ -428,17 +428,20 @@ export function MemoryPage() {
 							to={dateTo}
 							onChange={(f, t) => setDateRange(f, t)}
 						/>
-						{/* 层级筛选（L1 画像 / L2 知识 / L3 执行）：无选中即全部，点已选中的层可取消回全部 */}
-						<div className="flex gap-1.5 shrink-0" data-testid="memory-kind-filter">
-							{MEMORY_KINDS.map((k) => (
-								<FilterChip
-									key={k}
-									active={kindFilter === k}
-									onClick={() => setKindFilter(kindFilter === k ? null : k)}
-									label={t(KIND_I18N_KEY[k])}
-								/>
-							))}
-						</div>
+						{/* 层级筛选（L1 画像 / L2 知识 / L3 执行）：无选中即全部，点已选中的层可取消回全部。
+						    全局作用域不渲染：全局记忆只允许画像，切到全局时 store 已把 kindFilter 归零 */}
+						{memoryScope !== "global" && (
+							<div className="flex gap-1.5 shrink-0" data-testid="memory-kind-filter">
+								{MEMORY_KINDS.map((k) => (
+									<FilterChip
+										key={k}
+										active={kindFilter === k}
+										onClick={() => setKindFilter(kindFilter === k ? null : k)}
+										label={t(KIND_I18N_KEY[k])}
+									/>
+								))}
+							</div>
+						)}
 						{activeTab === "saved" && (
 							<button
 								onClick={() => setShowAddForm((v) => !v)}

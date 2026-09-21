@@ -42,15 +42,15 @@ test.describe
         timeout: 5000,
       });
 
-      // 工具栏布局（用户要求）：日期范围按钮在搜索框之后、层级筛选之前；层级筛选无「全部」chip
-      const [searchBox, dateBtnBox, kindBox] = await Promise.all([
+      // 工具栏布局（用户要求）：日期范围按钮在搜索框之后；全局作用域不渲染层级筛选
+      // （全局只允许画像 → kind chip 仅在项目作用域提供；「不再渲染『全部』chip」与
+      //  kind 区位于日期按钮之后的位置断言，统一放在项目作用域的层筛选用例里）
+      const [searchBox, dateBtnBox] = await Promise.all([
         page.getByTestId("memory-search").boundingBox(),
         page.getByTestId("memory-date-btn").boundingBox(),
-        page.getByTestId("memory-kind-filter").boundingBox(),
       ]);
       expect(searchBox!.x).toBeLessThan(dateBtnBox!.x);
-      expect(dateBtnBox!.x).toBeLessThan(kindBox!.x);
-      await expect(page.getByTestId("memory-kind-filter").getByText("全部")).toHaveCount(0);
+      await expect(page.getByTestId("memory-kind-filter")).toHaveCount(0);
 
       // 打开日期范围 → 弹层内快捷片「本月」→ 确定
       await page.getByTestId("memory-date-btn").click();
@@ -330,10 +330,27 @@ test.describe
       ).toBeVisible();
     });
 
-    test("层筛选下推服务端：检索态点「知识」后请求带 kind=knowledge", async ({
+    test("层筛选下推服务端：项目作用域点「知识」后请求带 kind=knowledge", async ({
       page,
     }) => {
       await openMemorySection(page);
+
+      // 全局作用域不提供层筛选 chip（全局只允许画像）→ 切到项目作用域
+      await page.getByTestId("memory-scope-select").click();
+      await page
+        .getByTestId("memory-scope-option-project-e2e-proj-1")
+        .click();
+      await expect(page.getByTestId("memory-kind-filter")).toBeVisible();
+
+      // 层级筛选位于日期按钮之后，且不含「全部」chip
+      const [dateBox, kindBox] = await Promise.all([
+        page.getByTestId("memory-date-btn").boundingBox(),
+        page.getByTestId("memory-kind-filter").boundingBox(),
+      ]);
+      expect(dateBox!.x).toBeLessThan(kindBox!.x);
+      await expect(
+        page.getByTestId("memory-kind-filter").getByText("全部"),
+      ).toHaveCount(0);
 
       const first = page.waitForRequest((r) =>
         r.url().includes("/api/memories/search"),
@@ -352,6 +369,11 @@ test.describe
         .getByRole("button", { name: "知识", exact: true })
         .click();
       await withKind;
+
+      // 恢复全局作用域：后续用例以「进入即全局」为前提
+      await page.getByTestId("memory-search").fill("");
+      await page.getByTestId("memory-scope-select").click();
+      await page.getByTestId("memory-scope-option-global").click();
     });
 
     test("归档 Tab 检索：请求带 archivedOnly=true，命中卡片带「已归档」徽标", async ({
