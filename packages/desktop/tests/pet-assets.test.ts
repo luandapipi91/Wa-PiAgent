@@ -45,3 +45,34 @@ test("pet-preload.cjs：屏幕信息与配置必须同步读取（sendSync + ret
 	expect(preload).toContain('ipcRenderer.sendSync("pet:screens")');
 	expect(preload).toContain('ipcRenderer.sendSync("pet:load-config")');
 });
+
+test("pet.html：交付件已就位且增补点齐全（穿透判定 / 位置记忆 / 庆祝回调）", () => {
+	const htmlPath = join(SRC, "assets", "pet.html");
+	expect(existsSync(htmlPath)).toBe(true);
+	const html = readFileSync(htmlPath, "utf8");
+
+	// 交付件原样保留的基座
+	expect(html).toContain("BASE_W = 260");
+	expect(html).toContain("function startCelebrate()");
+	expect(html).toContain("body.transparent-host");
+
+	// 增补 1：点击穿透（独立宿主光标 + 命中判定 + 宿主接口调用）
+	expect(html).toContain("hostGp");
+	expect(html).toContain("function hitTest(");
+	expect(html).toContain("function checkClickThrough(");
+	expect(html).toContain("host.setClickThrough(");
+
+	// 增补 2：位置记忆（保存带 pos、启动读取 pos 并 clamp）
+	expect(html).toContain("pos: { x: Math.round(st.fx), y: Math.round(st.fy) }");
+	expect(html).toContain("cfg.pos");
+	expect(html).toContain("function savePosIfMoved(");
+
+	// 增补 3：庆祝回调注册
+	expect(html).toContain("host.onCelebrate(");
+});
+
+test("pet.html：透明宿主下页面背景透明（嵌入说明的硬要求）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	expect(html).toContain("body.transparent-host { background: transparent; }");
+	expect(html).toContain('document.body.classList.add("transparent-host")');
+});

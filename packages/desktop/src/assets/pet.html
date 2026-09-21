@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>呱呱 · wa-pi 桌面宠物（HTML 版）</title>
+<!--
+  呱呱 · 桌面宠物小青蛙 v6 HTML/JS 版
+  - 从 guagua.py (PySide6 v6) 1:1 移植：25 状态机 / 双轨自发调度 / 全部交互
+  - 渲染：参数化 SVG，逻辑帧(40ms)与渲染帧分离，每帧全量重建场景字符串
+  - 宿主：透明 BrowserWindow 直接 loadFile 本文件即可
+      Electron main:
+        new BrowserWindow({ transparent: true, frame: false, resizable: false,
+          skipTaskbar: true, hasShadow: false, useContentSize: true,
+          webPreferences: { preload } })   // 不设 alwaysOnTop => 不置顶
+      preload 按文件底部注释挂 window.guaguaHost（全部接口可选，
+      缺失时自动进入浏览器预览降级模式：页面即虚拟屏幕）
+-->
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden;
+    background: linear-gradient(160deg, #dcefe0 0%, #cfe7d8 45%, #bfdcc8 100%);
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  }
+  /* Electron 透明窗口下页面背景必须透明 */
+  body.transparent-host { background: transparent; }
+
+  /* ---- 宠物窗口容器（浏览器预览模式下可拖动） ---- */
+  #win {
+    position: absolute; left: 60px; top: 80px;
+    width: 260px; height: 258px;
+    user-select: none; -webkit-user-select: none;
+    touch-action: none;
+    cursor: default;
+    /* 预览模式给一圈极淡的边界提示，嵌入模式(透明宿主)下不可见 */
+    outline: 0px dashed rgba(74, 122, 58, 0);
+  }
+  body.preview #win { outline-width: 1px; outline-color: rgba(74, 122, 58, .18); }
+  #scene { display: block; width: 100%; height: 100%; overflow: visible; }
+
+  /* ---- 预览模式提示胶囊 ---- */
+  #tip {
+    position: fixed; left: 12px; bottom: 12px; z-index: 50;
+    background: rgba(255,255,255,.92); border: 1px solid #4a7a3a;
+    border-radius: 10px; padding: 8px 14px; font-size: 12px; color: #2f4a2a;
+    box-shadow: 0 2px 10px rgba(47,74,42,.18);
+    transition: opacity .6s; max-width: 46ch; line-height: 1.6;
+  }
+  #tip.gone { opacity: 0; pointer-events: none; }
+  body.transparent-host #tip { display: none; }
+
+  /* ---- 右键菜单（青蛙皮肤，照抄 MENU_QSS） ---- */
+  .gmenu {
+    position: fixed; z-index: 100; display: none;
+    background: #ffffff; border: 2px solid #4a7a3a; border-radius: 10px;
+    padding: 5px 4px; box-shadow: 0 6px 18px rgba(47,74,42,.25);
+    min-width: 150px;
+  }
+  .gmenu .mi {
+    padding: 6px 26px 6px 14px; margin: 2px 4px; border-radius: 6px;
+    color: #2f4a2a; font-size: 12px; cursor: default; white-space: nowrap;
+  }
+  .gmenu .mi:hover, .gmenu .mi.open {
+    background: #d8f3c1; color: #245c2a;
+  }
+  .gmenu .mi:active { background: #b9e39b; }
+  .gmenu .sep { height: 1px; background: #dcead0; margin: 4px 10px; }
+  .gmenu .sub {
+    position: absolute; display: none;
+    background: #ffffff; border: 2px solid #4a7a3a; border-radius: 10px;
+    padding: 5px 4px; box-shadow: 0 6px 18px rgba(47,74,42,.25);
+  }
+  /* 大小滑条行 */
+  .sizerow {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px 6px 8px; margin: 2px 4px;
+  }
+  .sizerow .lab { color: #4a7a3a; font-size: 11px; white-space: nowrap; }
+  .sizerow .lab.big { font-size: 14px; }
+  .sizerow input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 120px; height: 5px; border-radius: 2px;
+    background: linear-gradient(to right, #a8d38b var(--fill,28%), #dcead0 var(--fill,28%));
+    outline: none;
+  }
+  .sizerow input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 7px; background: #4a7a3a;
+    cursor: pointer;
+  }
+  .sizerow .pct { color: #2f4a2a; font-weight: bold; font-size: 12px; min-width: 34px; text-align: right; }
+</style>
+</head>
+<body>
+<div id="win"><svg id="scene" xmlns="http://www.w3.org/2000/svg"></svg></div>
+<div id="tip"></div>
+
+<!-- 主菜单 -->
+<div class="gmenu" id="menuRoot">
+  <div class="mi" id="miInter">互动 ▸</div>
+  <div class="sep"></div>
+  <div class="mi" id="miClose">关闭桌面宠物</div>
+</div>
+<!-- 互动二级菜单 -->
+<div class="gmenu sub" id="menuInter">
+  <div class="sizerow">
+    <span class="lab">🐸</span>
+    <input type="range" id="sizeRange" min="50" max="200" step="1" value="100">
+    <span class="lab big">🐸🐸🐸</span>
+    <span class="pct" id="sizePct">100%</span>
+  </div>
+  <div class="sep"></div>
+  <div class="mi" data-act="celebrate">任务完成</div>
+  <div class="mi" data-act="hop">跳一下</div>
+  <div class="mi" data-act="croak">呱一声！</div>
+  <div class="mi" data-act="hunt">喂虫子</div>
+  <div class="mi" data-act="sing">唱一首</div>
+  <div class="sep"></div>
+  <div class="mi" data-act="yawn">打哈欠</div>
+  <div class="mi" data-act="look">左顾右盼</div>
+  <div class="mi" data-act="puff">鼓腮啵~</div>
+  <div class="mi" data-act="blep">吐舌头</div>
+  <div class="mi" data-act="blow">吹泡泡</div>
+  <div class="mi" data-act="sneeze">打喷嚏</div>
+  <div class="mi" data-act="curious">好奇凑近你</div>
+  <div class="mi" data-act="sleep">睡觉</div>
+  <div class="sep"></div>
+  <div class="mi" data-act="wander" id="miWander">溜达：开</div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+ * 呱呱 HTML/JS 版 —— 从 guagua.py v6 (PySide6) 1:1 移植
+ * 时间基准：TICK=40ms（25fps），所有时长以"帧"为单位，与 py 完全一致
+ * 坐标约定：
+ *   winX/winY   宿主窗口左上角（屏幕坐标）
+ *   fx/fy       青蛙脚底锚点（屏幕坐标）= winX+AX / winY+AY
+ *   场景 SVG    viewBox = 窗口尺寸(260k × 258k)，窗口内坐标 1:1 像素
+ *   gp          全局光标（屏幕坐标）
+ * ===================================================================== */
+
+/* ---------------- 宿主接口（Electron preload 注入，全部可选） ---------------- */
+const host = window.guaguaHost || null;
+if (host) document.body.classList.add("transparent-host");
+else document.body.classList.add("preview");
+
+/* ---------------- 常量（与 guagua.py v6 对齐） ---------------- */
+const TICK = 40;
+const BASE_W = 260, BASE_H = 258, BASE_AX = 130, BASE_S = 0.9;
+const SING_COOLDOWN = 1500, HUNT_COOLDOWN = 1250;
+const CURIOUS_COOLDOWN = 2250, YAWN_COOLDOWN = 4500;
+const GAZE_IDLE_TICKS = 100;
+const SLEEP_AFTER = [1750, 2750], SLEEP_DUR = [375, 750];
+const HUNT_MISS_RATE = 0.3;
+const HOP_EVERY = [300, 1000], SPECIAL_EVERY = [1000, 2250];
+const SPECIALS = [["croak",12],["yawn",5],["look",10],["puff",8],["blep",8],
+                  ["blow",6],["sneeze",5],["sing",6],["hunt",8],["curious",6]];
+
+/* ---------------- 小工具 ---------------- */
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const rand  = (a, b) => a + Math.random() * (b - a);
+const randi = (a, b) => Math.floor(rand(a, b + 1));   // py: random.randint 含端点
+const pick  = arr => arr[Math.floor(Math.random() * arr.length)];
+const f1 = v => (Math.round(v * 10) / 10).toString();
+const f2 = v => (Math.round(v * 100) / 100).toString();
+
+/* ---------------- 几何（随缩放系数变化） ---------------- */
+let K = 1.0, WIN_W = BASE_W, WIN_H = BASE_H, AX = BASE_AX, AY = 246, S = BASE_S;
+const winEl = document.getElementById("win");
+const sceneEl = document.getElementById("scene");
+
+function applyGeometry() {
+  WIN_W = Math.round(BASE_W * K);
+  WIN_H = Math.round(BASE_H * K);
+  AX = Math.round(BASE_AX * K);
+  AY = WIN_H - 12;
+  S = BASE_S * K;
+  winEl.style.width = WIN_W + "px";
+  winEl.style.height = WIN_H + "px";
+  sceneEl.setAttribute("viewBox", `0 0 ${WIN_W} ${WIN_H}`);
+  sceneEl.setAttribute("width", WIN_W);
+  sceneEl.setAttribute("height", WIN_H);
+}
+
+/* ---------------- 配置持久化（scale / wander / pos） ---------------- */
+let cfgSaveTimer = null;
+let lastSavedPos = null;
+function saveConfig() {
+  lastSavedPos = { x: Math.round(st.fx), y: Math.round(st.fy) };
+  const cfg = {
+    scale: Math.round(K * 1000) / 1000,
+    wander: st.wander,
+    // 位置记忆：存脚底锚点（屏幕坐标），缩放后宠物仍停在同一点
+    pos: { x: Math.round(st.fx), y: Math.round(st.fy) },
+  };
+  if (host && host.saveConfig) { host.saveConfig(cfg); return; }
+  clearTimeout(cfgSaveTimer);
+  cfgSaveTimer = setTimeout(() => {
+    try { localStorage.setItem("guagua_cfg", JSON.stringify(cfg)); } catch (e) {}
+  }, 400);
+}
+function loadConfig() {
+  let cfg = {};
+  if (host && host.loadConfig) { try { cfg = host.loadConfig() || {}; } catch (e) {} }
+  else { try { cfg = JSON.parse(localStorage.getItem("guagua_cfg") || "{}"); } catch (e) {} }
+  K = clamp(parseFloat(cfg.scale) || 1.0, 0.5, 2.0);
+  applyGeometry();
+  return cfg;
+}
+/* 溜达/缩放后位置变了就记一次（1s 比对一次、位移超 4px 才算；宿主侧还会再节流写盘） */
+let posCheckTick = 0;
+function savePosIfMoved() {
+  if (++posCheckTick < 25) return;
+  posCheckTick = 0;
+  const x = Math.round(st.fx), y = Math.round(st.fy);
+  if (lastSavedPos && Math.abs(lastSavedPos.x - x) < 4 && Math.abs(lastSavedPos.y - y) < 4) return;
+  saveConfig();
+}
+
+/* ---------------- 屏幕信息（虚拟桌面） ----------------
+ * 浏览器模式：视口即虚拟屏；Electron 模式：宿主提供，周期刷新 */
+let virt = { l: 0, t: 0, r: 1920, b: 1040 };
+let screens = [virt];
+function refreshScreens() {
+  if (host && host.getScreenInfo) {
+    try {
+      const si = host.getScreenInfo();
+      if (si && si.virt) {
+        virt = si.virt; screens = si.screens && si.screens.length ? si.screens : [virt];
+        return;
+      }
+    } catch (e) {}
+  }
+  virt = { l: 0, t: 0, r: window.innerWidth, b: window.innerHeight };
+  screens = [virt];
+}
+function screenAt(x) {
+  for (const g of screens) if (x >= g.l && x <= g.r) return g;
+  let best = screens[0], bd = 1e9;
+  for (const g of screens) {
+    const d = Math.min(Math.abs(x - g.l), Math.abs(x - g.r));
+    if (d < bd) { bd = d; best = g; }
+  }
+  return best;
+}
+
+/* ---------------- 窗口位置（唯一真源，拖拽/蹦跶共用） ---------------- */
+let winX = 60, winY = 80;
+function setWinPos(x, y) {
+  winX = x; winY = y;
+  if (host && host.moveWindow) host.moveWindow(Math.round(x), Math.round(y));
+  else { winEl.style.left = Math.round(x) + "px"; winEl.style.top = Math.round(y) + "px"; }
+}
+
+/* ---------------- 光标（屏幕坐标） ----------------
+ * 浏览器：mousemove 维护；Electron：宿主 getCursorPos 轮询 + mousemove 兜底。
+ * hostGp 额外保留一份「宿主轮询值」：页面自身的 mousemove 给的是局部坐标，
+ * 且穿透状态下收不到 mousemove，穿透判定必须用宿主坐标（屏幕坐标）。 */
+let gp = { x: -9999, y: -9999 };
+let hostGp = null;
+window.addEventListener("mousemove", e => { gp = { x: e.pageX, y: e.pageY }; }, { passive: true });
+if (host && host.getCursorPos) {
+  setInterval(() => {
+    Promise.resolve(host.getCursorPos()).then(p => {
+      if (p && isFinite(p.x)) { gp = { x: p.x, y: p.y }; hostGp = { x: p.x, y: p.y }; }
+    }).catch(() => {});
+  }, 40);
+}
+
+/* ---------------- 点击穿透（宿主透明窗口） ----------------
+ * 整窗是矩形，只有青蛙本体、气泡、右键菜单需要收鼠标：
+ * 命中 SVG 图形元素 = 收鼠标；命中 <svg> 根 / body = 透明区 = 穿透（点到下方桌面）。
+ * 判定用宿主光标（穿透态下页面收不到 mousemove），局部坐标 = 宿主光标 - 窗口左上角。
+ * 每帧 render() 全量重建 SVG，拿不到稳定的元素引用 → 用当帧 elementFromPoint。 */
+let clickThrough = false;
+function hitTest(mx, my) {
+  const el = document.elementFromPoint(mx, my);
+  if (!el) return false;                                        // 窗口外 → 透明
+  if (menuRoot.contains(el) || menuInter.contains(el)) return true;  // 菜单开着必须可点
+  // SVG 图形元素（ellipse/circle/path/text）= 青蛙本体或气泡；<svg> 根不算
+  return el.namespaceURI === "http://www.w3.org/2000/svg" && el.tagName.toLowerCase() !== "svg";
+}
+function checkClickThrough() {
+  if (!host || !host.setClickThrough || !hostGp) return;
+  const inside = hitTest(hostGp.x - winX, hostGp.y - winY);
+  const next = !inside;
+  if (next === clickThrough) return;   // 只在状态变化时发 IPC
+  clickThrough = next;
+  host.setClickThrough(next);
+}
+
+/* ---------------- 状态（1:1 对应 py 的 st 字典） ---------------- */
+const st = {
+  state: "idle", ticks: 0, dur: 60,
+  fx: 0, fy: 0,                 // 启动时初始化
+  x0: 0, y0: 0, x1: 0, y1: 0, jh: 70,
+  hop_intent: null,
+  facing: 1, sw: 1, sh: 1, bob: 0, jx: 0, ck: 1,
+  eyes: "open", mouth: "smile",
+  blink_in: 60, blink_left: 0,
+  bubble_text: null, bubble_left: 0,
+  hearts: [], notes: [], drops: [],
+  bub: null,
+  wander: true,
+  grab: null, moved: false,
+  pogx: 2, pogy: 2, startle_cd: 0,
+  mouse_idle_t: 0, last_gp: null,
+  dgx: 0, dgy: 0,
+  total: 0, last_sing: -99999, last_hunt: -99999,
+  last_curious: -99999, last_yawn: -99999,
+  last_events: [], hunt_miss: false,
+  awake_t: 0, sleep_after: 0, sleep_t: 0, sleep_dur: 0,
+  fly: null, tongue: null,
+  swing: 0, last_wx: null, shake: 0, will_dizzy: false,
+  tickle_e: 0, prev_cx: null, prev_dir: 0, tickle_cd: 0,
+  next_hop_t: 350, next_special_t: 1250, air: 13,
+};
+
+function say(text, left) { st.bubble_text = text; st.bubble_left = left; }
+
+function markAwake() {
+  st.awake_t = 0;
+  st.sleep_after = randi(SLEEP_AFTER[0], SLEEP_AFTER[1]);
+  st.next_hop_t = Math.max(st.next_hop_t, st.total + 200);
+  st.next_special_t = Math.max(st.next_special_t, st.total + 600);
+}
+function ensureAwake() {
+  if (["sleepy", "sleep", "wake"].includes(st.state)) toIdle();
+  markAwake();
+}
+function toIdle() {
+  Object.assign(st, { state: "idle", ticks: 0, dur: randi(60, 170),
+                      dgx: 0, dgy: 0, jx: 0, ck: 1, bub: null });
+}
+
+/* ---------------- 行为触发（公式照抄 py） ---------------- */
+function startHop(tx = null, intent = null) {
+  refreshScreens();
+  if (tx === null) {
+    if (Math.random() < 0.2 && screens.length > 1) {
+      const geo = pick(screens);
+      tx = randi(geo.l + 90, geo.r - 90);
+    } else {
+      const dist = randi(180, 460) * (Math.random() < 0.5 ? -1 : 1);
+      tx = st.fx + dist;
+    }
+  }
+  const x1 = clamp(tx, virt.l + 90, virt.r - 90);
+  const geo = screenAt(Math.round(x1));
+  const y1 = randi(Math.max(geo.t + 100, geo.b - 340), geo.b - 40);
+  const dist = Math.hypot(x1 - st.fx, y1 - st.fy);
+  const air = Math.round(clamp(dist / 28, 13, 60));
+  Object.assign(st, { x0: st.fx, y0: st.fy, x1, y1, air,
+    jh: randi(55, 90) * (1 + Math.min(dist / 2000, 0.8)),
+    facing: x1 >= st.fx ? 1 : -1,
+    state: "hop", ticks: 0, hop_intent: intent });
+}
+function startCroak() {
+  Object.assign(st, { state: "croak", ticks: 0, dur: 34,
+    bubble_text: pick(["呱呱！", "呱~呱~", "呱呱呱!!"]), bubble_left: 32 });
+}
+function startHappy() {
+  Object.assign(st, { state: "happy", ticks: 0, dur: 18,
+    facing: Math.random() < 0.5 ? -1 : 1 });
+}
+function startSing() {
+  Object.assign(st, { state: "sing", ticks: 0, dur: 60, last_sing: st.total,
+    bubble_text: "呱呱~♪ 呱呱~♫", bubble_left: 50 });
+}
+function startHunt() {
+  if (st.fly !== null) return;
+  st.fly = { x: rand(30, WIN_W - 30), y: rand(24, AY - 30),
+             tx: rand(30, WIN_W - 30), ty: rand(24, AY - 30), wt: 0, flee: false };
+  st.hunt_miss = Math.random() < HUNT_MISS_RATE;
+  Object.assign(st, { state: "hunt_watch", ticks: 0, dur: randi(50, 90), last_hunt: st.total });
+}
+function startYawn() {
+  Object.assign(st, { state: "yawn", ticks: 0, dur: 42, last_yawn: st.total });
+  say("哈~呜——", 40);
+}
+function startLook() {
+  Object.assign(st, { state: "look", ticks: 0, dur: 55 });
+  if (Math.random() < 0.4) say("嗯？", 25);
+}
+function startPuff() { Object.assign(st, { state: "puff", ticks: 0, dur: 46 }); }
+function startBlep() { Object.assign(st, { state: "blep", ticks: 0, dur: 50 }); }
+function startBlow() {
+  Object.assign(st, { state: "blow", ticks: 0, dur: 56 });
+  st.bub = { t: 0, x: AX + 1.0 * K, y: AY - 60.0 * K };
+}
+function startSneeze() { Object.assign(st, { state: "sneeze", ticks: 0, dur: 35 }); }
+function startCurious() {
+  st.last_curious = st.total;
+  startHop(gp.x, "curious");
+}
+function startSleep() {
+  if (st.state === "hop" || st.state === "drag") return;
+  Object.assign(st, { state: "sleep", ticks: 0, sleep_t: 0,
+    sleep_dur: randi(SLEEP_DUR[0], SLEEP_DUR[1]) });
+  say("Z z z", 80);
+}
+function startCelebrate() {
+  Object.assign(st, { state: "celebrate", ticks: 0, dur: 72 });
+  say("呱呱呱 任务完成！", 70);
+}
+function hopNow() { if (st.state !== "drag") startHop(); }
+function toggleWander() {
+  st.wander = !st.wander;
+  document.getElementById("miWander").textContent = "溜达：" + (st.wander ? "开" : "关");
+  saveConfig();
+}
+function spawnHeart() {
+  st.hearts.push({
+    x: AX + rand(-45, 45) * K,
+    y: AY - 120 * K + rand(-10, 10) * K,
+    vy: -1.4 - Math.random() * 0.8,
+    life: 24, size: pick([13, 16, 19]), ch: "♥", col: "#ff5f7a",
+  });
+}
+function dispatch(a) {
+  const m = { croak: startCroak, sing: startSing, hunt: startHunt,
+              yawn: startYawn, look: startLook, puff: startPuff,
+              blep: startBlep, blow: startBlow, celebrate: startCelebrate,
+              sneeze: startSneeze, curious: startCurious };
+  (m[a] || (() => {}))();
+}
+
+/* ---------------- 特殊动作抽取（防重复 + 独立冷却） ---------------- */
+function pickSpecial() {
+  const recent = new Set(st.last_events);
+  const cands = [];
+  for (const [a, w] of SPECIALS) {
+    if (recent.has(a)) continue;
+    if (a === "sing" && st.total - st.last_sing < SING_COOLDOWN) continue;
+    if (a === "hunt" && (st.total - st.last_hunt < HUNT_COOLDOWN || st.fly !== null)) continue;
+    if (a === "curious" && (st.total - st.last_curious < CURIOUS_COOLDOWN || !st.wander)) continue;
+    if (a === "yawn" && st.total - st.last_yawn < YAWN_COOLDOWN) continue;
+    cands.push([a, w]);
+  }
+  if (!cands.length) return null;
+  let r = Math.random() * cands.reduce((s, c) => s + c[1], 0);
+  for (const [a, w] of cands) { r -= w; if (r <= 0) return a; }
+  return cands[cands.length - 1][0];
+}
+
+/* ---------------- 睡眠 ---------------- */
+function wakeUp(startled) {
+  if (["sleepy", "sleep"].includes(st.state)) {
+    const nx = AX + st.dgx + st.jx + 6 * K;
+    const ny = AY + st.bob + st.dgy - 73 * K;
+    for (let i = 0; i < 5; i++) {
+      const a = rand(0, 6.283), sp = rand(1.2, 2.6) * K;
+      st.drops.push({ x: nx, y: ny, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 16 });
+    }
+  }
+  markAwake();
+  st.sleep_t = 0;
+  if (startled) {
+    Object.assign(st, { state: "startle", ticks: 0, dur: 18,
+      dgx: gp.x <= st.fx ? 10 * K : -10 * K, dgy: 4 * K,
+      bubble_text: "吓醒啦！！", bubble_left: 30 });
+  } else {
+    Object.assign(st, { state: "wake", ticks: 0, dur: 40,
+      bubble_text: "哈~睡饱啦", bubble_left: 35 });
+  }
+}
+
+/* ---------------- 猎物 ---------------- */
+function updateFly() {
+  const f = st.fly;
+  if (f === null || f.flee) return;
+  f.wt -= 1;
+  const dx = f.tx - f.x, dy = f.ty - f.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 8 || f.wt <= 0) {
+    f.tx = rand(30, WIN_W - 30); f.ty = rand(24, AY - 30);
+    f.wt = randi(12, 28);
+  } else {
+    f.x += dx / d * 2.2 + rand(-0.8, 0.8);
+    f.y += dy / d * 2.2 + rand(-0.8, 0.8);
+  }
+}
+
+/* ---------------- 目光跟随 ---------------- */
+function updateGaze(eyes) {
+  if (eyes !== "open" && eyes !== "wide") return;
+  const ox = st.fx, oy = st.fy - 113 * K;
+  let tgx = null, tgy = null;
+  if (st.fly !== null && (st.state === "hunt_watch" || st.state === "tongue")) {
+    const sxp = st.fx - AX + st.fly.x;
+    const syp = st.fy - AY + st.fly.y;
+    const dxm = sxp - ox, dym = syp - oy, d = Math.hypot(dxm, dym);
+    if (d > 0.001) {
+      const m = Math.min(10, d * 0.35 / Math.max(K, 0.5));
+      tgx = dxm / d * m; tgy = dym / d * m;
+    }
+  } else if (st.state === "watchyou") {
+    const dxm = gp.x - ox, dym = gp.y - oy, d = Math.hypot(dxm, dym);
+    if (d > 0.001) { tgx = dxm / d * 10; tgy = dym / d * 10; }
+  } else if (st.state === "look") {
+    tgx = 9 * Math.sin(st.ticks * 0.22);
+    tgy = 2 + 1.5 * Math.sin(st.ticks * 0.13);
+  } else if (st.state === "blep") {
+    tgx = st.facing; tgy = 6;
+  }
+  if (tgx === null) {
+    if (st.mouse_idle_t >= GAZE_IDLE_TICKS) { tgx = 0; tgy = 2; }
+    else {
+      const dxm = gp.x - ox, dym = gp.y - oy, d = Math.hypot(dxm, dym);
+      const kk = clamp((d - 140 * K) / (260 * K), 0, 1);
+      const ux = d > 0.001 ? dxm / d : 0, uy = d > 0.001 ? dym / d : 0;
+      tgx = ux * 10 * kk;
+      tgy = 2 * (1 - kk) + uy * 10 * kk;
+    }
+  }
+  st.pogx += (tgx - st.pogx) * 0.35;
+  st.pogy += (tgy - st.pogy) * 0.35;
+}
+
+/* =====================================================================
+ * 状态机 _tick —— 25 个状态分支，公式与 py 逐行对齐
+ * ===================================================================== */
+function tick() {
+  try { tickCore(); } catch (e) { console.error("[guagua]", e); }
+}
+
+function tickCore() {
+  st.total += 1;
+  st.ticks += 1;
+  if (st.bubble_left > 0) st.bubble_left -= 1;
+
+  // 粒子步进
+  for (const h of st.hearts) { h.y += h.vy; h.life -= 1; }
+  st.hearts = st.hearts.filter(h => h.life > 0);
+  for (const n of st.notes) { n.x += n.vx; n.y += n.vy; n.life -= 1; }
+  st.notes = st.notes.filter(n => n.life > 0);
+  for (const d of st.drops) { d.x += d.vx; d.y += d.vy; d.vy += 0.12; d.life -= 1; }
+  st.drops = st.drops.filter(d => d.life > 0);
+
+  // 鼠标静止检测
+  if (st.last_gp === null || Math.hypot(gp.x - st.last_gp[0], gp.y - st.last_gp[1]) > 2) st.mouse_idle_t = 0;
+  else st.mouse_idle_t += 1;
+  st.last_gp = [gp.x, gp.y];
+
+  let eyes = "open", mouth = "smile";
+  let sw = 1, sh = 1, bob = 0, jx = 0, ck = 1;
+
+  // 拎起摆动 / 甩晕能量（vx=窗口水平速度）
+  const vx = st.last_wx === null ? 0 : winX - st.last_wx;
+  st.last_wx = winX;
+  if (st.state === "drag") {
+    const tgt = clamp(-vx * 1.4, -38, 38);
+    st.swing += (tgt - st.swing) * 0.25;
+    if (Math.abs(vx) > 22) st.shake += 1;
+    else st.shake = Math.max(0, st.shake - 1);
+    if (st.shake > 10) st.will_dizzy = true;
+  } else {
+    st.swing += (0 - st.swing) * 0.2;
+  }
+  const swing = st.swing;
+
+  switch (st.state) {
+
+    case "idle": {
+      st.awake_t += 1;
+      bob = Math.sin(st.ticks * 0.22) * 2 * K;
+      if (st.blink_left > 0) { st.blink_left -= 1; eyes = "closed"; }
+      else {
+        st.blink_in -= 1;
+        if (st.blink_in <= 0) { st.blink_left = 4; st.blink_in = randi(50, 130); }
+      }
+      // 凑脸 → 吓一跳
+      if (st.startle_cd > 0) st.startle_cd -= 1;
+      else {
+        const ddx = st.fx - gp.x, ddy = (st.fy - 95 * K) - gp.y;
+        const d = Math.hypot(ddx, ddy);
+        if (d < 55 * K) {
+          const dd = d > 0.5 ? d : 1;
+          markAwake();
+          Object.assign(st, { state: "startle", ticks: 0, dur: 18,
+            dgx: ddx / dd * 10 * K, dgy: ddy / dd * 5 * K,
+            bubble_text: "！？", bubble_left: 16, startle_cd: 220 });
+        }
+      }
+      // 挠痒痒
+      if (st.tickle_cd > 0) st.tickle_cd -= 1;
+      if (st.tickle_cd === 0) {
+        const cx_ = gp.x - winX, cy_ = gp.y - winY;
+        if (Math.abs(cx_ - AX) < 58 * K && (AY - 80 * K) < cy_ && cy_ < (AY - 8 * K)) {
+          let dir_ = 0;
+          const pc = st.prev_cx === null ? cx_ : st.prev_cx;
+          if (cx_ - pc > 2) dir_ = 1;
+          else if (pc - cx_ > 2) dir_ = -1;
+          if (dir_ !== 0 && st.prev_dir !== 0 && dir_ !== st.prev_dir) st.tickle_e += 2;
+          else st.tickle_e = Math.max(0, st.tickle_e - 0.4);
+          st.prev_dir = dir_;
+          if (st.tickle_e >= 6) {
+            st.tickle_e = 0; st.tickle_cd = 150;
+            markAwake();
+            Object.assign(st, { state: "laugh", ticks: 0, dur: 30 });
+            say("哈哈哈哈~", 26);
+          }
+        } else {
+          st.tickle_e = Math.max(0, st.tickle_e - 0.4);
+        }
+        st.prev_cx = cx_;
+      }
+      // 困了
+      if (st.awake_t > st.sleep_after) {
+        Object.assign(st, { state: "sleepy", ticks: 0, dur: 45 });
+        say("呼...困了...", 45);
+      }
+      // 双轨自发调度
+      else if (st.total >= st.next_hop_t) {
+        if (st.wander) { startHop(); st.next_hop_t = st.total + randi(HOP_EVERY[0], HOP_EVERY[1]); }
+        else st.next_hop_t = st.total + 250;
+      }
+      else if (st.total >= st.next_special_t) {
+        const a = pickSpecial();
+        if (a === null) st.next_special_t = st.total + 300;
+        else {
+          st.last_events = [a, ...st.last_events].slice(0, 3);
+          st.next_special_t = st.total + randi(SPECIAL_EVERY[0], SPECIAL_EVERY[1]);
+          dispatch(a);
+        }
+      }
+      break;
+    }
+
+    case "hop": {
+      const t_ = st.ticks, air = Math.max(st.air, 1);
+      if (t_ <= 5) { sw = 1.12; sh = 0.84; st.fx = st.x0; st.fy = st.y0; }
+      else if (t_ <= 5 + air) {
+        const tt = (t_ - 5) / air;
+        st.fx = st.x0 + (st.x1 - st.x0) * tt;
+        st.fy = st.y0 + (st.y1 - st.y0) * tt - st.jh * Math.sin(Math.PI * tt);
+        sw = 0.94; sh = 1.08;
+      }
+      else if (t_ <= 5 + air + 5) { sw = 1.10; sh = 0.87; st.fx = st.x1; st.fy = st.y1; }
+      else {
+        st.fx = st.x1; st.fy = st.y1;
+        const intent = st.hop_intent;
+        st.hop_intent = null;
+        if (intent === "curious") {
+          Object.assign(st, { state: "watchyou", ticks: 0, dur: 100 });
+          say(pick(["你在干嘛呀~", "给我看看！", "盯——"]), 60);
+        } else toIdle();
+      }
+      break;
+    }
+
+    case "happy": {
+      const t_ = st.ticks;
+      if (t_ <= 12) {
+        const tt = t_ / 12;
+        bob = -48 * K * Math.sin(Math.PI * tt);
+        if (t_ === 2 || t_ === 5 || t_ === 8) spawnHeart();
+        eyes = "happy"; mouth = "big"; sw = 0.98; sh = 1.02;
+      } else if (t_ <= 17) { sw = 1.08; sh = 0.90; }
+      else toIdle();
+      break;
+    }
+
+    case "croak": {
+      const k_ = Math.min(st.ticks / st.dur, 1);
+      sw = 1 + 0.07 * Math.sin(Math.PI * k_);
+      sh = 1 + 0.03 * Math.sin(Math.PI * k_);
+      mouth = "o";
+      if (st.ticks >= st.dur) toIdle();
+      break;
+    }
+
+    case "drag": eyes = "wide"; mouth = "o"; sw = 0.97; sh = 1.05; break;
+
+    case "land": sw = 1.10; sh = 0.86; if (st.ticks >= st.dur) toIdle(); break;
+
+    case "startle": {
+      eyes = "wide"; mouth = "o"; sw = 1.06; sh = 0.93;
+      st.dgx *= 0.82; st.dgy *= 0.82;
+      if (st.ticks >= st.dur) { st.dgx = 0; st.dgy = 0; toIdle(); }
+      break;
+    }
+
+    case "dizzy": {
+      const t_ = st.ticks;
+      eyes = "dizzy"; mouth = "wavy";
+      jx = 3.5 * K * Math.sin(t_ * 0.5) * (1 - t_ / st.dur);
+      if (t_ >= st.dur) toIdle();
+      break;
+    }
+
+    case "laugh": {
+      eyes = "happy"; mouth = "big";
+      jx = rand(-2.5, 2.5) * K;
+      if (st.ticks === 8 || st.ticks === 16) spawnHeart();
+      if (st.ticks >= st.dur) toIdle();
+      break;
+    }
+
+    case "sing": {
+      const t_ = st.ticks;
+      mouth = Math.floor(t_ / 6) % 2 === 0 ? "o" : "smile";
+      jx = 4 * K * Math.sin(t_ * 0.35);
+      if (t_ % 8 === 0 && t_ > 2) {
+        st.notes.push({ x: AX + rand(-20, 20) * K, y: AY - 148 * K,
+          vx: rand(-0.5, 0.5), vy: -1.1, life: 34, size: pick([13, 16, 19]),
+          ch: pick(["♪", "♫", "♩"]),
+          col: pick(["#ffb340", "#ff8a5c", "#7ccb5e"]) });
+      }
+      if (t_ >= st.dur) toIdle();
+      break;
+    }
+
+    case "hunt_watch": {
+      sw = 1.02;
+      updateFly();
+      if (st.ticks >= st.dur && st.fly !== null) {
+        const f = st.fly;
+        const ty = f.y - (st.hunt_miss ? 45 * K : 0);
+        st.tongue = { phase: "out", t: 0, tx: f.x, ty };
+        Object.assign(st, { state: "tongue", ticks: 0 });
+      } else if (st.fly === null) toIdle();
+      break;
+    }
+
+    case "tongue": {
+      eyes = "wide"; mouth = "o";
+      const t = st.tongue;
+      if (t === null) toIdle();
+      else {
+        t.t += 1 / 6;
+        if (t.phase === "out" && t.t >= 1) {
+          t.phase = "back"; t.t = 0;
+          if (st.hunt_miss && st.fly !== null) st.fly.flee = true;
+        } else if (t.phase === "back" && t.t >= 1) {
+          st.fly = null; st.tongue = null;
+          if (st.hunt_miss) {
+            st.hunt_miss = false;
+            Object.assign(st, { state: "puzzled", ticks: 0, dur: 25 });
+            say("呱？", 22);
+          } else {
+            Object.assign(st, { state: "gulp", ticks: 0, dur: 12 });
+            say("呱好吃~", 55);
+          }
+        }
+      }
+      break;
+    }
+
+    case "puzzled": mouth = "wavy"; if (st.ticks >= st.dur) toIdle(); break;
+
+    case "gulp":
+      mouth = "big";
+      sh = 1 + 0.05 * Math.sin(Math.PI * Math.min(st.ticks / 12, 1));
+      if (st.ticks >= st.dur) toIdle();
+      break;
+
+    case "yawn": {
+      const t_ = st.ticks;
+      mouth = "yawn"; eyes = "closed";
+      const k_ = Math.min(t_ / st.dur, 1);
+      sw = 1 + 0.05 * Math.sin(Math.PI * k_);
+      sh = 1 + 0.03 * Math.sin(Math.PI * k_);
+      if (t_ >= st.dur) toIdle();
+      break;
+    }
+
+    case "look":
+      eyes = "open";
+      if (st.ticks === 27) st.facing *= -1;
+      if (st.ticks >= st.dur) toIdle();
+      break;
+
+    case "puff": {
+      const t_ = st.ticks;
+      mouth = "o";
+      if (t_ <= 32) ck = 1 + 1.3 * (t_ / 32);
+      else {
+        if (t_ === 33) say("啵！", 14);
+        ck = Math.max(0.95, 2.3 - (t_ - 32) * 0.45);
+        bob = -6 * K * Math.sin((t_ - 32) / 14 * Math.PI);
+      }
+      if (t_ >= st.dur) toIdle();
+      break;
+    }
+
+    case "blep": eyes = "open"; if (st.ticks >= st.dur) toIdle(); break;
+
+    case "blow": {
+      mouth = "o"; ck = 1.12;
+      const b = st.bub;
+      if (b !== null) {
+        b.t += 1;
+        b.y -= 0.25 * K;
+        if (b.t >= 40) {
+          for (let i = 0; i < 6; i++) {
+            const a2 = rand(0, 6.283), sp = rand(1.5, 3) * K;
+            st.drops.push({ x: b.x, y: b.y, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, life: 18 });
+          }
+          say("啪！", 14);
+          st.bub = null;
+        }
+      }
+      if (st.ticks >= st.dur) toIdle();
+      break;
+    }
+
+    case "sneeze": {
+      const t_ = st.ticks;
+      mouth = "o";
+      if (t_ < 18) {
+        eyes = "closed";
+        sw = 1.06 + 0.02 * Math.sin(t_ * 0.9);
+        jx = -1.2 * K * Math.sin(t_ * 0.9);
+      } else {
+        if (t_ === 18) {
+          say("阿嚏！！", 20);
+          for (let i = 0; i < 5; i++) {
+            st.drops.push({ x: AX, y: AY - 65 * K, vx: rand(-3, 3) * K,
+                            vy: rand(-4, -1.5) * K, life: 16 });
+          }
+        }
+        if (t_ <= 26) { eyes = "closed"; bob = -22 * K * Math.sin((t_ - 18) / 8 * Math.PI); }
+        else eyes = "happy";
+      }
+      if (t_ >= st.dur) toIdle();
+      break;
+    }
+
+    case "watchyou":
+      eyes = "open";
+      st.facing = gp.x >= st.fx ? 1 : -1;
+      if (st.ticks >= st.dur) startHop();   // 看够了就走
+      break;
+
+    case "sleepy":
+      eyes = "closed";
+      bob = Math.sin(st.total * 0.10) * 1.2 * K;
+      if (st.ticks >= st.dur) {
+        Object.assign(st, { state: "sleep", ticks: 0, sleep_t: 0,
+          sleep_dur: randi(SLEEP_DUR[0], SLEEP_DUR[1]) });
+        say("Z z z", 80);
+      }
+      break;
+
+    case "sleep": {
+      st.sleep_t += 1;
+      eyes = "closed";
+      bob = Math.sin(st.total * 0.06) * 1.2 * K;
+      if (st.sleep_t % 90 === 0) say("Z z z", 80);
+      const near = Math.abs(gp.x - st.fx) < 80 * K &&
+                   (st.fy - 170 * K) < gp.y && gp.y < (st.fy + 15 * K);
+      if (near) wakeUp(true);
+      else if (st.sleep_t >= st.sleep_dur) wakeUp(false);
+      break;
+    }
+
+    case "wake": mouth = "big"; sw = 0.98; sh = 1.04; if (st.ticks >= st.dur) toIdle(); break;
+
+    case "celebrate": {
+      const t_ = st.ticks;
+      eyes = "happy"; mouth = "big";
+      jx = 11 * K * Math.sin(t_ * 0.42);
+      if (t_ < st.dur - 18) {
+        bob = -16 * K * Math.abs(Math.sin(t_ * 0.5));
+        if (t_ % 6 === 2) {
+          spawnHeart();
+          st.notes.push({ x: AX + rand(-30, 30) * K, y: AY - 130 * K,
+            vx: rand(-0.6, 0.6), vy: -1.2, life: 30, size: pick([13, 16, 19]),
+            ch: pick(["♪", "♫"]), col: "#ffb340" });
+        }
+      } else {
+        const tt = (t_ - (st.dur - 18)) / 18;
+        bob = -46 * K * Math.sin(Math.PI * Math.min(tt, 1));
+        if (t_ === st.dur - 18) for (let i = 0; i < 3; i++) spawnHeart();
+      }
+      if (t_ >= st.dur) { say("", 0); toIdle(); }
+      break;
+    }
+
+    default: toIdle();   // 未知状态兜底
+  }
+
+  st.eyes = eyes; st.mouth = mouth;
+  st.sw = sw; st.sh = sh; st.bob = bob; st.jx = jx; st.ck = ck;
+  updateGaze(eyes);
+  applyPos();
+  render();
+  savePosIfMoved();
+  checkClickThrough();
+}
+
+/* ---------------- 位置同步（窗口跟随锚点） ---------------- */
+function applyPos() {
+  const wx = Math.round(st.fx - AX), wy = Math.round(st.fy - AY);
+  if (winX !== wx || winY !== wy) setWinPos(wx, wy);
+}
+
+/* =====================================================================
+ * 渲染 —— 参数化 SVG，绘制顺序与 py paintEvent 一致：
+ * frog → tongue → fly → bub → snore → bubble → notes → hearts → drops → stars
+ * ===================================================================== */
+const ctx2d = document.createElement("canvas").getContext("2d");
+function textWidth(text, px) {
+  ctx2d.font = `bold ${px}px "Microsoft YaHei UI", "Microsoft YaHei", sans-serif`;
+  return ctx2d.measureText(text).width;
+}
+const FONT = `font-family="Microsoft YaHei UI, Microsoft YaHei, sans-serif"`;
+
+function frogSvg() {
+  // 身体部件（SVG_TMPL）—— 200×200 坐标系
+  let eyes = "";
+  for (const ex of [70, 130]) {
+    eyes += `<circle cx="${ex}" cy="64" r="22" fill="#ffffff" stroke="#4a7a3a" stroke-width="3"/>`;
+    if (st.eyes === "open") {
+      const px = ex + st.pogx, py = 64 + st.pogy;
+      eyes += `<circle cx="${f2(px)}" cy="${f2(py)}" r="9" fill="#333333"/>`
+            + `<circle cx="${f2(px + 1)}" cy="${f2(60 + st.pogy)}" r="3" fill="#ffffff"/>`;
+    } else if (st.eyes === "wide") {
+      const px = ex + st.pogx, py = 64 + st.pogy;
+      eyes += `<circle cx="${f2(px)}" cy="${f2(py)}" r="12" fill="#333333"/>`
+            + `<circle cx="${f2(px + 3)}" cy="${f2(60 + st.pogy)}" r="4" fill="#ffffff"/>`;
+    } else if (st.eyes === "closed") {
+      eyes += `<path d="M${ex - 13} 67 Q${ex} 74 ${ex + 13} 67" stroke="#4a7a3a" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+    } else if (st.eyes === "happy") {
+      eyes += `<path d="M${ex - 13} 73 Q${ex} 57 ${ex + 13} 73" stroke="#4a7a3a" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+    } else { // dizzy
+      eyes += `<path d="M${ex - 8} 56 L${ex + 8} 72 M${ex + 8} 56 L${ex - 8} 72" stroke="#333333" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+    }
+  }
+  let mouth;
+  if (st.mouth === "smile")
+    mouth = `<path d="M82 116 Q100 132 118 116" stroke="#4a7a3a" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+  else if (st.mouth === "big") mouth = `<path d="M82 117 Q100 137 118 117 Z" fill="#3f6d33"/>`;
+  else if (st.mouth === "wavy")
+    mouth = `<path d="M88 119 Q94 115 100 119 Q106 123 112 119" stroke="#4a7a3a" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+  else if (st.mouth === "yawn") mouth = `<ellipse cx="100" cy="124" rx="12" ry="15" fill="#3f6d33"/>`;
+  else mouth = `<ellipse cx="100" cy="122" rx="7" ry="9" fill="#3f6d33"/>`;
+
+  const sa = f1(-20 + swing() * 0.5), sb = f1(20 + swing() * 0.5);
+  const swg = f1(swing());
+  const body =
+    `<ellipse cx="100" cy="188" rx="76" ry="10" fill="#0a1d13" opacity="0.5"/>`
+    + `<ellipse cx="100" cy="182" rx="72" ry="13" fill="#2f6b45"/>`
+    + `<ellipse cx="100" cy="181" rx="60" ry="8" fill="#3c7d55"/>`
+    + `<ellipse cx="100" cy="130" rx="62" ry="55" fill="#7ccb5e"/>`
+    + `<ellipse cx="100" cy="150" rx="42" ry="32" fill="#d8f3c1"/>`
+    + eyes + mouth
+    + `<ellipse cx="56" cy="110" rx="${f1(11 * st.ck)}" ry="${f1(8 * st.ck)}" fill="#f4a8b0" opacity=".65"/>`
+    + `<ellipse cx="144" cy="110" rx="${f1(11 * st.ck)}" ry="${f1(8 * st.ck)}" fill="#f4a8b0" opacity=".65"/>`
+    + `<ellipse cx="62" cy="180" rx="20" ry="12" fill="#5aab41" transform="rotate(${sa} 62 180)"/>`
+    + `<ellipse cx="138" cy="180" rx="20" ry="12" fill="#5aab41" transform="rotate(${sb} 138 180)"/>`
+    + `<ellipse cx="72" cy="192" rx="24" ry="9" fill="#5aab41" transform="rotate(${swg} 72 192)"/>`
+    + `<ellipse cx="128" cy="192" rx="24" ry="9" fill="#5aab41" transform="rotate(${swg} 128 192)"/>`;
+
+  // 变换管线（py paintEvent）：translate(AX+dgx+jx, AY+bob+dgy-72k) → scale(S·sw, S·sh) → svg 中心对齐
+  const tx = AX + st.dgx + st.jx;
+  const ty = AY + st.bob + st.dgy - 72 * K;
+  return `<g transform="translate(${f2(tx)} ${f2(ty)}) scale(${f2(S * st.sw)} ${f2(S * st.sh)}) translate(-100 -110)">${body}</g>`;
+}
+
+// py 里 swing 取的是成员变量，这里等价读取
+function swing() { return st.swing; }
+
+function fxSvg() {
+  let s = "";
+  // 舌头（blep / tongue）
+  if (st.state === "blep") {
+    const mx = AX + st.dgx + st.jx, my = AY + st.bob - 60 * K;
+    const txp = mx + 5 * K, typ = my + 20 * K;
+    s += `<line x1="${f2(mx)}" y1="${f2(my)}" x2="${f2(txp)}" y2="${f2(typ)}" stroke="#ff8fa8" stroke-width="${6 * K}" stroke-linecap="round"/>`
+       + `<circle cx="${f2(txp)}" cy="${f2(typ)}" r="${5 * K}" fill="#ff7a9c"/>`;
+  } else if (st.tongue) {
+    const t = st.tongue;
+    const mx = AX + st.dgx + st.jx, my = AY + st.bob + st.dgy - 65 * K;
+    const tx0 = t.tx, ty0 = t.ty;
+    let tt = Math.min(t.t, 1);
+    if (t.phase === "back") tt = 1 - tt;
+    const tipx = mx + (tx0 - mx) * tt, tipy = my + (ty0 - my) * tt;
+    s += `<line x1="${f2(mx)}" y1="${f2(my)}" x2="${f2(tipx)}" y2="${f2(tipy)}" stroke="#ff8fa8" stroke-width="${6 * K}" stroke-linecap="round"/>`
+       + `<circle cx="${f2(tipx)}" cy="${f2(tipy)}" r="${5 * K}" fill="#ff7a9c"/>`;
+  }
+  // 苍蝇
+  if (st.fly) {
+    const f = st.fly;
+    let x = f.x, y = f.y;
+    if (st.tongue && !f.flee) {
+      const t = st.tongue;
+      const mx = AX + st.dgx + st.jx, my = AY + st.bob + st.dgy - 65 * K;
+      let tt = Math.min(t.t, 1);
+      if (t.phase === "back") tt = 1 - tt;
+      x = mx + (t.tx - mx) * tt; y = my + (t.ty - my) * tt;
+    }
+    const up = st.total % 2 === 0;
+    const wy = y - 7 * K - (up ? 1 * K : 0);
+    s += `<ellipse cx="${f2(x - 4 * K)}" cy="${f2(wy)}" rx="${f2(3.2 * K)}" ry="${f2(5.2 * K)}" fill="rgb(210,230,255)" opacity=".63"/>`
+       + `<ellipse cx="${f2(x + 4 * K)}" cy="${f2(wy)}" rx="${f2(3.2 * K)}" ry="${f2(5.2 * K)}" fill="rgb(210,230,255)" opacity=".63"/>`
+       + `<ellipse cx="${f2(x)}" cy="${f2(y)}" rx="${f2(4.5 * K)}" ry="${f2(3.4 * K)}" fill="#3a3a3a"/>`
+       + `<ellipse cx="${f2(x + 4.5 * K)}" cy="${f2(y - 1 * K)}" rx="${f2(2.4 * K)}" ry="${f2(2.4 * K)}" fill="#3a3a3a"/>`;
+  }
+  // 吹泡泡
+  if (st.bub) {
+    const b = st.bub;
+    const rr = (3 + 19 * Math.min(b.t / 40, 1)) * K;
+    s += `<circle cx="${f2(b.x)}" cy="${f2(b.y)}" r="${f2(rr)}" fill="rgb(190,227,255)" fill-opacity=".2" stroke="#8ec9ff" stroke-width="2"/>`
+       + `<circle cx="${f2(b.x - rr * 0.35)}" cy="${f2(b.y - rr * 0.35)}" r="${f2(rr * 0.22)}" fill="rgba(255,255,255,.5)"/>`;
+  }
+  // 鼾泡（sleepy/sleep）
+  if (st.state === "sleepy" || st.state === "sleep") {
+    const breath = Math.sin(st.total * (st.state === "sleepy" ? 0.10 : 0.06));
+    const rr = (5 + 4 * (breath * 0.5 + 0.5)) * K;
+    const nx = AX + st.dgx + st.jx + 6 * K;
+    const ny = AY + st.bob + st.dgy - 73 * K;
+    s += `<circle cx="${f2(nx)}" cy="${f2(ny)}" r="${f2(rr)}" fill="rgb(190,227,255)" fill-opacity=".27" stroke="#8ec9ff" stroke-width="2"/>`
+       + `<circle cx="${f2(nx - rr * 0.3)}" cy="${f2(ny - rr * 0.3)}" r="${f2(rr * 0.25)}" fill="rgba(255,255,255,.55)"/>`;
+  }
+  // 对话气泡
+  if (st.bubble_left > 0 && st.bubble_text) {
+    const px = Math.max(10.67, 14.67 * K);
+    const tw = textWidth(st.bubble_text, px);
+    const bx = AX + st.facing * 8 * K, by = 40 * K;
+    const x0 = bx - tw / 2 - 12 * K, y0 = by - 17 * K;
+    const x1 = bx + tw / 2 + 12 * K, y1 = by + 17 * K;
+    s += `<rect x="${f2(x0)}" y="${f2(y0)}" width="${f2(x1 - x0)}" height="${f2(y1 - y0)}" rx="${8 * K}" ry="${8 * K}" fill="#ffffff" stroke="#8a8a8a" stroke-width="1"/>`
+       + `<path d="M${f2(AX - 8 * K)} ${f2(y1 - 2)} L${f2(AX)} ${f2(y1 + 12 * K)} L${f2(AX + 8 * K)} ${f2(y1 - 2)}" fill="#ffffff" stroke="#8a8a8a" stroke-width="1" stroke-linejoin="round"/>`
+       + `<text x="${f2(bx)}" y="${f2(by + px * 0.36)}" text-anchor="middle" ${FONT} font-size="${f2(px)}" font-weight="bold" fill="#333333">${st.bubble_text}</text>`;
+  }
+  // 音符
+  for (const n of st.notes) {
+    const px = Math.max(10.67, n.size * K * 1.333);
+    s += `<text x="${f2(n.x)}" y="${f2(n.y)}" ${FONT} font-size="${f2(px)}" fill="${n.life > 8 ? n.col : "#ffd9a0"}">${n.ch}</text>`;
+  }
+  // 爱心
+  for (const h of st.hearts) {
+    const px = Math.max(10.67, h.size * K * 1.333);
+    s += `<text x="${f2(h.x)}" y="${f2(h.y)}" ${FONT} font-size="${f2(px)}" fill="${h.life > 8 ? h.col : "#ffb3c0"}">${h.ch}</text>`;
+  }
+  // 水珠
+  for (const d of st.drops) {
+    s += `<circle cx="${f2(d.x)}" cy="${f2(d.y)}" r="${f2(2.6 * K)}" fill="rgb(150,205,255)" opacity=".78"/>`;
+  }
+  // 晕星星
+  if (st.state === "dizzy") {
+    let stars = "";
+    for (let i = 0; i < 3; i++) {
+      const ang = st.total * 0.12 + i * 2.094;
+      const cx = AX + 48 * K * Math.cos(ang);
+      const cy = (AY - 140 * K) + 12 * K * Math.sin(ang);
+      let d = "";
+      for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 4;
+        const rr = (k % 2 === 0 ? 7 : 2.8) * K;
+        const px2 = cx + rr * Math.cos(a), py2 = cy + rr * Math.sin(a);
+        d += (k === 0 ? "M" : "L") + f2(px2) + " " + f2(py2) + " ";
+      }
+      stars += `<path d="${d}Z" fill="#ffce54"/>`;
+    }
+    s += stars;
+  }
+  return s;
+}
+
+function render() {
+  sceneEl.innerHTML = frogSvg() + fxSvg();
+}
+
+/* =====================================================================
+ * 交互 —— press/move/release 与 py 鼠标事件逐行对齐（统一 pointer 事件）
+ * ===================================================================== */
+winEl.addEventListener("pointerdown", e => {
+  if (e.button === 2) return;            // 右键交给 contextmenu
+  hideMenus();
+  markAwake();
+  if (st.state === "sleep" || st.state === "sleepy") { wakeUp(true); return; }
+  if (e.button === 0) {
+    st.grab = [gp.x, gp.y, winX, winY];
+    st.moved = false;
+    winEl.setPointerCapture(e.pointerId);
+  }
+});
+
+winEl.addEventListener("pointermove", e => {
+  if (!st.grab) return;
+  const [gx, gy, wx0, wy0] = st.grab;
+  const dx = gp.x - gx, dy = gp.y - gy;
+  if (!st.moved && Math.abs(dx) + Math.abs(dy) > 6) {
+    st.moved = true;
+    st.state = "drag";
+    st.ticks = 0;
+    st.fly = null; st.tongue = null; st.bub = null; st.hop_intent = null;
+    st.dgx = 0; st.dgy = 0;
+  }
+  if (st.moved && st.state === "drag") {
+    const fx = clamp(wx0 + dx + AX, virt.l + 90, virt.r - 90);
+    const fy = clamp(wy0 + dy + AY, virt.t + 60, virt.b - 12);
+    st.fx = fx; st.fy = fy;
+    setWinPos(Math.round(fx - AX), Math.round(fy - AY));
+  }
+});
+
+winEl.addEventListener("pointerup", e => {
+  if (e.button !== 0) return;
+  if (st.state === "drag") finishDrag();
+  else if (st.grab && !st.moved && ["idle", "croak", "land", "startle"].includes(st.state)) startHappy();
+  st.grab = null;
+});
+
+function finishDrag() {
+  if (st.will_dizzy) Object.assign(st, { state: "dizzy", ticks: 0, dur: 40, shake: 0, will_dizzy: false });
+  else Object.assign(st, { state: "land", ticks: 0, dur: 5 });
+  markAwake();
+  saveConfig();   // 拖到哪记到哪：下次启动回到这个位置
+}
+
+winEl.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  showMainMenu(e.clientX, e.clientY);
+});
+
+/* =====================================================================
+ * 右键菜单（青蛙皮肤 HTML 实现）
+ * ===================================================================== */
+const menuRoot = document.getElementById("menuRoot");
+const menuInter = document.getElementById("menuInter");
+const sizeRange = document.getElementById("sizeRange");
+const sizePct = document.getElementById("sizePct");
+
+function hideMenus() {
+  menuRoot.style.display = "none";
+  menuInter.style.display = "none";
+  document.getElementById("miInter").classList.remove("open");
+}
+function showMainMenu(x, y) {
+  menuRoot.style.display = "block";
+  menuRoot.style.left = Math.min(x, window.innerWidth - 170) + "px";
+  menuRoot.style.top = Math.min(y, window.innerHeight - 90) + "px";
+  menuInter.style.display = "none";
+}
+document.getElementById("miInter").addEventListener("mouseenter", () => {
+  const r = menuRoot.getBoundingClientRect();
+  menuInter.style.display = "block";
+  menuInter.style.left = (r.right - 2) + "px";
+  menuInter.style.top = r.top + "px";
+  menuInter.style.maxHeight = Math.min(430, window.innerHeight - r.top - 10) + "px";
+  menuInter.style.overflowY = "auto";
+});
+menuRoot.addEventListener("mouseleave", e => {
+  if (!menuRoot.contains(e.relatedTarget) && !menuInter.contains(e.relatedTarget))
+    setTimeout(() => { if (!menuInter.matches(":hover")) menuInter.style.display = "none"; }, 120);
+});
+menuInter.addEventListener("mouseleave", e => {
+  if (!menuRoot.contains(e.relatedTarget)) menuInter.style.display = "none";
+});
+document.addEventListener("mousedown", e => {
+  if (!menuRoot.contains(e.target) && !menuInter.contains(e.target)) hideMenus();
+});
+
+function applyScale(k) {
+  K = clamp(k, 0.5, 2.0);
+  applyGeometry();
+  st.fx = clamp(st.fx, 90, virt.r - 90);
+  st.fy = clamp(st.fy, 60, virt.b - 12);
+  setWinPos(Math.round(st.fx - AX), Math.round(st.fy - AY));
+  saveConfig();
+}
+sizeRange.addEventListener("input", () => {
+  const v = parseInt(sizeRange.value, 10);
+  sizePct.textContent = v + "%";
+  sizeRange.style.setProperty("--fill", ((v - 50) / 150 * 100) + "%");
+  applyScale(v / 100);
+});
+
+// 二级菜单动作
+menuInter.querySelectorAll(".mi[data-act]").forEach(el => {
+  el.addEventListener("click", () => {
+    ensureAwake();
+    const a = el.dataset.act;
+    if (a === "hop") hopNow();
+    else if (a === "wander") toggleWander();
+    else dispatch(a);
+    hideMenus();
+  });
+});
+document.getElementById("miClose").addEventListener("click", () => {
+  hideMenus();
+  if (host && host.close) host.close();
+  else { winEl.style.display = "none"; tip("呱呱已关闭（浏览器预览：刷新页面可唤回）", 0); }
+});
+
+/* ---------------- 预览提示 ---------------- */
+const tipEl = document.getElementById("tip");
+let tipTimer = null;
+function tip(html, ms = 9000) {
+  tipEl.innerHTML = html;
+  tipEl.classList.remove("gone");
+  clearTimeout(tipTimer);
+  if (ms > 0) tipTimer = setTimeout(() => tipEl.classList.add("gone"), ms);
+}
+
+/* ---------------- 启动 ---------------- */
+(function boot() {
+  const cfg = loadConfig();
+  st.wander = cfg.wander !== false;
+  document.getElementById("miWander").textContent = "溜达：" + (st.wander ? "开" : "关");
+  refreshScreens();
+  // 初始位置：优先用上次记住的位置（clamp 回当前虚拟屏内），否则主屏右下角
+  // （py: 锚点 fx=SW-230, fy=SH-60，窗口=锚点-AX/AY）
+  const sw = virt.r - virt.l, sh = virt.b - virt.t;
+  const savedPos = cfg && cfg.pos;
+  if (savedPos && isFinite(savedPos.x) && isFinite(savedPos.y)) {
+    st.fx = clamp(savedPos.x, virt.l + 90, virt.r - 90);
+    st.fy = clamp(savedPos.y, virt.t + 60, virt.b - 12);
+  } else {
+    st.fx = sw - 230; st.fy = sh - 60;
+  }
+  setWinPos(Math.round(st.fx - AX), Math.round(st.fy - AY));
+  lastSavedPos = { x: Math.round(st.fx), y: Math.round(st.fy) };
+  st.sleep_after = randi(SLEEP_AFTER[0], SLEEP_AFTER[1]);
+  st.sleep_dur = randi(SLEEP_DUR[0], SLEEP_DUR[1]);
+  sizeRange.value = Math.round(K * 100);
+  sizePct.textContent = Math.round(K * 100) + "%";
+  sizeRange.style.setProperty("--fill", ((K * 100 - 50) / 150 * 100) + "%");
+  setInterval(tick, TICK);
+  // 任务完成：主窗口经宿主转发 → 青蛙跳一段庆祝
+  if (host && host.onCelebrate) host.onCelebrate(() => startCelebrate());
+  if (!host) {
+    tip("🐸 浏览器预览模式（页面即虚拟屏幕）<br>左键点一下=开心跳 · 按住拖动=拎起来甩 · 光标凑脸=吓一跳 · 在肚皮上来回蹭=挠痒痒 · 右键=菜单", 12000);
+  }
+  render();
+})();
+
+/* =====================================================================
+ * 【给同事的嵌入说明】Electron preload（pet-preload.cjs）参考：
+ *
+ *   const { contextBridge, ipcRenderer, screen } = require("electron");
+ *   contextBridge.exposeInMainWorld("guaguaHost", {
+ *     moveWindow: (x, y) => ipcRenderer.send("pet:move", x, y),
+ *     setWindowSize: (w, h) => ipcRenderer.send("pet:size", w, h),
+ *     getCursorPos: () => ipcRenderer.invoke("pet:cursor"),
+ *     // 屏幕信息与配置必须 sendSync：页面是同步读取，invoke 的 Promise 会被当成无效数据降级
+ *     getScreenInfo: () => ipcRenderer.sendSync("pet:screens"),
+ *     saveConfig: cfg => ipcRenderer.send("pet:save-config", cfg),  // { scale, wander, pos }
+ *     loadConfig: () => ipcRenderer.sendSync("pet:load-config"),
+ *     setClickThrough: flag => ipcRenderer.send("pet:click-through", flag === true),
+ *     close: () => ipcRenderer.send("pet:close"),
+ *     onCelebrate: cb => ipcRenderer.on("petwin:celebrate", () => cb()),
+ *   });
+ * （上述接口的实际实现见 src/pet-preload.cjs）
+ *
+ * 主进程（main.cjs）参考：
+ *   const petWin = new BrowserWindow({
+ *     width: 260, height: 258,
+ *     transparent: true, frame: false, resizable: false,
+ *     skipTaskbar: true, hasShadow: false, useContentSize: true,
+ *     // 注意：不设置 alwaysOnTop —— 按用户要求保持普通层级
+ *     webPreferences: { preload: path.join(__dirname, "pet-preload.cjs"),
+ *                       contextIsolation: true, nodeIntegration: false },
+ *   });
+ *   petWin.loadFile(path.join(__dirname, "assets", "guagua_v6html.html"));
+ *   // 拖拽：ipcMain.on("pet:move", (e, x, y) => petWin.setPosition(x, y));
+ *   // 缩放：ipcMain.on("pet:size", (e, w, h) => petWin.setContentSize(w, h));
+ *   // 光标：ipcMain.handle("pet:cursor", () => screen.getCursorScreenPoint());
+ *   // 屏幕：ipcMain.handle("pet:screens", () => ({
+ *   //   virt: screen.getPrimaryDisplay().bounds 之外用 virtualBounds（见下）,
+ *   //   screens: screen.getAllDisplays().map(d => d.workArea) }));
+ *   //   virt 建议用各 display bounds 的并集（等价 Qt virtualGeometry）
+ *   // 配置：读写 guagua_config.json（与 PySide6 版同格式 {scale, wander}）
+ * ===================================================================== */
+</script>
+</body>
+</html>
