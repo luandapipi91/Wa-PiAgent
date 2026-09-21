@@ -53,8 +53,9 @@ export const MEM_TARGET_DESC =
   "'memory' for your own notes.";
 
 export const MEM_SCOPE_DESC =
-  "Where this entry lives: 'global' (cross-project) or 'project' (current project only). " +
-  "Omit for the default — 'global' for the user target, 'project' for the memory target.";
+  "Which scope to write to / search in: 'global' (cross-project) or 'project' (current project only). " +
+  "Omit for the default — writes: 'global' for the user target, 'project' for the memory target; " +
+  "reads (memory_search / memory_read): global entries plus the current project's entries — other projects' entries are never returned.";
 
 export const MEM_ADD_DESC =
   "Append a new entry to memory. Memory has two record types: " +
@@ -92,13 +93,16 @@ export const MEM_REMOVE_SNIPPET =
 
 export const MEM_READ_DESC =
   "Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
-  "SCOPE defaults like memory_add.";
+  "SCOPE: omit to read the global entries plus the current project's entries — other projects' entries are never returned; " +
+  "'global' / 'project' narrow it explicitly. (Writing defaults like memory_add.)";
 
 export const MEM_READ_SNIPPET =
   "Read the current contents of a memory store (user profile or your notes).";
 
 export const MEM_SEARCH_DESC =
-  "Full-text (BM25) search across all memory layers, including entries NOT shown in the system prompt. " +
+  "Full-text (BM25) search over memory entries, including ones NOT shown in the system prompt. " +
+  "SCOPE: omit to search the global entries plus the current project's entries — other projects' entries are never returned; " +
+  "'global' / 'project' narrow it explicitly. " +
   "Use this before assuming you don't know something — L2 (project knowledge) and L3 (execution log) " +
   "are searchable but not injected. " +
   "Call this FIRST — before delegating, grepping, or listing files — for knowledge/process questions: " +

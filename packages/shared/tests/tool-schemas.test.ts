@@ -94,6 +94,17 @@ test("MEM_SEARCH_DESC 给出「先查记忆再行动」的判定细则（知识/
   expect(MEM_SEARCH_DESC).toContain("single-point lookups");
 });
 
+test("MEM_SEARCH_DESC / MEM_READ_DESC 声明未传 scope 的检索范围（全局+当前项目，不跨项目）", async () => {
+  // 2026-09-20 项目隔离：读侧未传 scope 不再跨项目，描述必须同步声明
+  // （否则 agent 会误以为能看到其它项目的记忆，或反过来不敢检索）。
+  const { MEM_SEARCH_DESC, MEM_READ_DESC, MEM_SCOPE_DESC } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  for (const desc of [MEM_SEARCH_DESC, MEM_READ_DESC, MEM_SCOPE_DESC]) {
+    expect(desc).toContain("other projects' entries are never returned");
+  }
+});
+
 test("DELEGATE_DESCRIPTION 划出「知识类提问先查记忆」的例外边界", async () => {
   // 委派规则的总则是「默认委托、首调即派发」，例外必须是**第一条判定**，
   // 否则知识类提问会被总则吃掉（基线实测：结构/依赖/方法类提问首个动作是 ls/delegate）。

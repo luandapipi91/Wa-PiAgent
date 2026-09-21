@@ -419,6 +419,59 @@ test("default ctx：memory_add 后 memory_read 能读回", async () => {
 	expect(out.content[0].text).toContain("bridge 记忆条目");
 });
 
+test("default ctx：未传 scope 的检索限定全局+当前项目，别项目条目不可见", async () => {
+	const memoryCtx = makeMemoryCtx(); // projectId = "my-app"
+	// 别项目的历史条目：不经工具、直接经 DAO 写入（模拟另一个项目/历史数据）
+	memoryCtx.dao.insert({
+		kind: "knowledge",
+		target: "memory",
+		scope: "project",
+		projectId: "other-app",
+		content: "别项目备忘 zebrabridge",
+		source: "agent",
+	});
+	const ctx = makeDefaultBridgeContext({
+		sessionId: "s1",
+		cwd: tmpDir,
+		memoryCtx,
+	});
+	const signal = new AbortController().signal;
+	await ctx.handleTool(
+		"memory_add",
+		"tc1",
+		{ target: "memory", content: "本项目备忘 zebrabridge" },
+		signal,
+	);
+	await ctx.handleTool(
+		"memory_add",
+		"tc2",
+		{ target: "user", content: "全局画像 zebrabridge" },
+		signal,
+	);
+
+	// 真实 bridge 链路：未传 scope → 本项目条目与全局条目可见，别项目条目不可见
+	const out = await ctx.handleTool(
+		"memory_search",
+		"tc3",
+		{ query: "zebrabridge" },
+		signal,
+	);
+	const text = out.content[0].text;
+	expect(text).toContain("本项目备忘");
+	expect(text).toContain("全局画像");
+	expect(text).not.toContain("别项目备忘");
+
+	// memory_read 同理（列条目也不得跨项目）
+	const read = await ctx.handleTool(
+		"memory_read",
+		"tc4",
+		{ target: "memory" },
+		signal,
+	);
+	expect(read.content[0].text).toContain("本项目备忘");
+	expect(read.content[0].text).not.toContain("别项目备忘");
+});
+
 test("default ctx：delegate/fleet 返回 not_wired 桩", async () => {
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",

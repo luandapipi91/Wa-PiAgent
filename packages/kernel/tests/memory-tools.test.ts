@@ -330,7 +330,38 @@ test("显式 scope=project 时按 oldText 与按 id 的变更同样被拒", asyn
   expect(ctx.dao.list({ includeArchived: true })).toHaveLength(2);
 });
 
-test("未传 scope 的 read/search/全局变更仍可跨域（不因缺项目上下文被误拒）", async () => {
+test("未传 scope 的检索（search/read）限定为全局+当前项目，别项目条目不可见", async () => {
+  await seedTwoProjects(); // P1 / P2 各一条项目记忆，结束时 ctx.projectId = "P2"
+  await call("memory_add", { target: "user", content: "全局画像 gscope" });
+  ctx = { ...ctx, projectId: "P1" };
+  tools = createMemoryTools(ctx);
+
+  // search：只剩本项目的项目条目（别项目命中被排除），计数与结果同口径
+  const search = await call("memory_search", { query: "项目备忘" });
+  expect(search.results.map((r: any) => r.projectId)).toEqual(["P1"]);
+  expect(search.totalMatched).toBe(1);
+
+  // read：全局条目仍可见（不算跨项目），别项目条目不可见
+  const read = await call("memory_read", {});
+  const contents = read.entries.map((e: any) => e.content);
+  expect(contents).toContain("P1 项目备忘");
+  expect(contents).toContain("全局画像 gscope");
+  expect(contents).not.toContain("P2 项目备忘");
+});
+
+test("无项目上下文时未传 scope 只返回全局条目（不返回任何项目条目）", async () => {
+  await seedTwoProjects();
+  await call("memory_add", { target: "user", content: "全局画像 noctx" });
+  ctx = { ...ctx, projectId: null };
+  tools = createMemoryTools(ctx);
+
+  const search = await call("memory_search", { query: "项目备忘" });
+  expect(search.results).toHaveLength(0);
+  const read = await call("memory_read", {});
+  expect(read.entries.map((e: any) => e.content)).toEqual(["全局画像 noctx"]);
+});
+
+test("未传 scope 的 read/search 在无项目上下文下仍可用（只见全局），全局变更不受影响", async () => {
   await call("memory_add", {
     target: "memory",
     scope: "global",
@@ -353,20 +384,21 @@ test("未传 scope 的 read/search/全局变更仍可跨域（不因缺项目上
 });
 
 // ── 以下五条为控制者指派的缺口修复（任务 11 补丁）：id 路径的项目归属校验 ──
-// 生产链路：不传 scope 的 memory_search 是跨域检索，会返回别项目条目的 id；
-// 若 id 路径不校验归属，memory_replace / memory_remove 就能改掉/删掉别项目的记忆。
+// 生产链路：未传 scope 的检索已在项目会话里限定为「全局+当前项目」，
+// 别项目条目的 id 无从经检索获得；但归属防线仍必须成立——任何来源的
+// 别项目 id 都不能被 memory_replace / memory_remove 改动。
 
-test("id 路径归属校验：跨项目 search 拿到的 id 不能改/删该项目条目", async () => {
+test("id 路径归属校验：别项目的条目 id 不能改/删（检索也已看不到它）", async () => {
   await seedTwoProjects(); // 结束时 ctx.projectId = "P2"
   const p2 = ctx.dao.list({ projectId: "P2" })[0];
   ctx = { ...ctx, projectId: "P1" };
   tools = createMemoryTools(ctx);
 
-  // 链路第一步：不传 scope 的检索确实能拿到别项目条目的 id（规格允许跨域只读）
+  // 链路第一步：未传 scope 的检索不再返回别项目条目的 id
   const search = await call("memory_search", { query: "P2 项目备忘" });
-  expect(search.results.map((r: any) => r.id)).toContain(p2.id);
+  expect(search.results.map((r: any) => r.id)).not.toContain(p2.id);
 
-  // 链路第二步：拿这个 id 去改 / 删 —— 必须被拒
+  // 链路第二步：拿别项目 id 去改 / 删（模拟 id 来自历史/UI 等其它来源）——必须被拒
   const replace = await call("memory_replace", {
     id: p2.id,
     newContent: "被篡改",

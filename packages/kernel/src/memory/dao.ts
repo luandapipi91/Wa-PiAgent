@@ -44,6 +44,12 @@ export interface InsertInput {
 export interface ListOpts {
   scope?: MemoryScope;
   projectId?: string | null;
+  /**
+   * 项目会话的默认检索范围收窄：仅在未指定 scope 时生效，把结果限制为
+   * 「全局条目 + 该项目的项目条目」，不返回其它项目的条目。
+   * null/undefined = 不加此限制（内部 / UI 的显式列举）。
+   */
+  projectScope?: string | null;
   kind?: MemoryKind;
   includeArchived?: boolean;
   /** 只看归档；与 includeArchived 互斥、本字段优先 */
@@ -514,6 +520,11 @@ export class MemoryDao {
     if (opts.scope) {
       clauses.push("scope = ?");
       params.push(opts.scope);
+    } else if (opts.projectScope) {
+      // 项目会话的默认检索范围：全局条目 + 本项目条目（不含其它项目）。
+      // 与上一分支互斥——显式 scope 优先，收窄只在「未指定 scope」时生效。
+      clauses.push("(scope = 'global' OR (scope = 'project' AND project_id = ?))");
+      params.push(opts.projectScope);
     }
     // undefined / null / 空串都不加条件（空串不是合法的 projectId）
     if (opts.projectId) {

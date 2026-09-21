@@ -6,6 +6,8 @@
 // - 未传 scope 时按 target 路由（user → global，memory → project）
 // - 显式要求 project 范围时必须先过 requireProjectId 校验（缺 projectId 即拒绝，
 //   不得降级为「不加项目过滤」而跨项目读改删）
+// - 读侧（search / read）未传 scope 时按会话项目上下文收窄范围：全局 + 当前项目，
+//   不跨项目（详见 resolveDefaultReadScope）
 // - 写入前做注入防护校验；返回错误对象而不抛异常（与旧行为一致）
 import { Type } from "typebox";
 import {
@@ -83,8 +85,8 @@ export type ProjectIdCheck =
  * 绝不能把缺失的 projectId 降级成「不加项目过滤」—— buildFilter 对 null 的
  * 语义是「不加条件」，降级即等于跨所有项目读改删。
  * - scope === "project"：必须有非空 ctx.projectId，否则 ok:false
- * - scope === "global" / 未传 scope：合法，projectId 为 null（不按项目过滤）
- *   （未传 scope 的 read/search 是跨域检索，规格允许）
+ * - scope === "global" / 未传 scope：合法，projectId 为 null
+ *   （未传 scope 的读侧范围收窄见 resolveDefaultReadScope，不再跨项目）
  *
  * 返回值用判别式联合而非简报建议的 `string | null`：null 无法区分「合法但无项目」
  * 与「非法」，调用方只要漏写一次额外判断就会静默重现 fail-open。
@@ -100,12 +102,38 @@ export function requireProjectId(
   return { ok: true, projectId: ctx.projectId };
 }
 
+/** 读侧（search / read）未传 scope 时的实际检索范围 */
+export interface ReadScopeResolution {
+  /** 传入 DAO 的 scope 过滤（undefined = 不走 scope 相等条件） */
+  scope: MemoryScope | undefined;
+  /** 传入 DAO 的默认范围收窄（全局 + 该项目；null = 不限制） */
+  projectScope: string | null;
+}
+
+/**
+ * 未指定 scope 时的默认检索范围——**项目会话下强制不跨项目**。
+ *
+ * 历史语义是「未传 scope = 跨域（全局 + 所有项目）」，导致在项目 A 里检索能命中
+ * 项目 B 的记忆。现改为：
+ * - 有项目上下文：全局条目 + 当前项目条目（projectScope = ctx.projectId）
+ * - 无项目上下文：只全局条目（scope = "global"）——无项目可限定，则一条项目条目都不返回
+ * 显式传 scope 时原样透传（global / project 各自的既有语义不变）。
+ */
+export function resolveDefaultReadScope(
+  scope: MemoryScope | undefined,
+  ctx: MemoryToolContext,
+): ReadScopeResolution {
+  if (scope) return { scope, projectScope: null };
+  if (ctx.projectId) return { scope: undefined, projectScope: ctx.projectId };
+  return { scope: "global", projectScope: null };
+}
+
 /**
  * 条目归属校验（id 变更路径的唯一入口）。
  *
- * 按 id 定位时，声明什么 scope 由**行自身**决定，不能信调用方：不传 scope 的
- * memory_search 是跨域检索（规格允许，会返回别项目条目的 id），若这里不校验
- * 归属，就能借 memory_search 拿到的 id 改掉/删掉**别的项目**的记忆。
+ * 按 id 定位时，声明什么 scope 由**行自身**决定，不能信调用方：即使检索侧已收窄
+ * （不传 scope 的 search/read 只返回全局 + 当前项目），id 仍可能来自历史数据 / UI /
+ * 调用方自述，若这里不校验归属，就能借别项目条目的 id 改掉/删掉**别的项目**的记忆。
  * - 行 scope === "project"：先过 requireProjectId（缺上下文即拒绝），
  *   再要求 row.projectId 与 ctx.projectId **严格相等**（大小写不同即不同项目，
  *   与 DAO 的 `project_id = ?` 精确匹配口径一致；row.projectId 为 NULL 的迁移
@@ -363,6 +391,8 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         if (!check.ok)
           return jsonResult({ success: false, error: check.error });
 
+        // 未传 scope 时按会话项目上下文收窄：全局 + 当前项目（不再跨项目）
+        const readScope = resolveDefaultReadScope(scope, ctx);
         const query = str(params.query);
         const kind =
           params.kind === "execution" || params.kind === "knowledge"
@@ -370,7 +400,8 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
             : undefined;
         // search 与 countMatches 必须拿到同一份过滤条件，否则 totalMatched 与 results 口径不一
         const filter: ListOpts = {
-          scope,
+          scope: readScope.scope,
+          projectScope: readScope.projectScope,
           projectId: check.projectId ?? undefined,
           kind,
           includeArchived: params.includeArchived === true,
@@ -421,6 +452,13 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         if (!check.ok)
           return jsonResult({ success: false, error: check.error });
         const projectId = check.projectId ?? undefined;
+        // 未传 scope 时按会话项目上下文收窄：全局 + 当前项目（不再列出别项目条目）
+        const readScope = resolveDefaultReadScope(scope, ctx);
+        const listOpts: ListOpts = {
+          scope: readScope.scope,
+          projectScope: readScope.projectScope,
+          projectId,
+        };
 
         const target =
           str(params.target) === "user"
@@ -435,12 +473,12 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         const limit = typeof params.limit === "number" ? params.limit : 50;
 
         const rows = ctx.dao
-          .list({ scope, projectId, kind })
+          .list({ ...listOpts, kind })
           .filter((r) => !target || r.target === target)
           .slice(0, limit);
         return jsonResult({
           entries: rows.map(toEntryJson),
-          counts: ctx.dao.counts({ scope, projectId }),
+          counts: ctx.dao.counts(listOpts),
         });
       },
     },
