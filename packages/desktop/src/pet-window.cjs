@@ -95,4 +95,201 @@ function createConfigStore(filePath, options = {}) {
 	return { read, set, flush };
 }
 
-module.exports = { collectScreens, createConfigStore, PET_BASE_W, PET_BASE_H };
+/**
+ * 装配宠物窗口：建窗/销窗、IPC 契约、配置持久化。
+ * 依赖注入便于单测；所有 IPC 均校验 event.sender（主窗口请求与宠物窗口请求分开校验）。
+ * 返回 { setEnabled, celebrate, flush, dispose, getWindow, isOpen }。
+ */
+function setupPetWindow({
+	BrowserWindow,
+	ipcMain,
+	screen,
+	log,
+	configFile,
+	getMainWindow,
+	onPetClosed,
+	platform = process.platform,
+} = {}) {
+	let petWin = null;
+	const config = createConfigStore(configFile);
+	const petPreload = path.join(__dirname, "pet-preload.cjs");
+	const petHtml = path.join(__dirname, "assets", "pet.html");
+
+	const isPetSender = (event) =>
+		Boolean(petWin) &&
+		!petWin.isDestroyed() &&
+		event.sender === petWin.webContents;
+
+	const isMainSender = (event) => {
+		const main = typeof getMainWindow === "function" ? getMainWindow() : null;
+		return (
+			Boolean(main) && !main.isDestroyed?.() && event.sender === main.webContents
+		);
+	};
+
+	/** 无历史位置时的默认摆放：主屏右下角（宠物页面 boot 后会按记忆位置自行校正） */
+	const defaultBounds = () => {
+		let area = { x: 0, y: 0, width: 1920, height: 1080 };
+		try {
+			area = screen.getPrimaryDisplay().workArea;
+		} catch {
+			/* 拿不到就用兜底矩形 */
+		}
+		return {
+			x: Math.round(area.x + area.width - PET_BASE_W - 20),
+			y: Math.round(area.y + area.height - PET_BASE_H - 60),
+			width: PET_BASE_W,
+			height: PET_BASE_H,
+		};
+	};
+
+	const create = () => {
+		if (petWin && !petWin.isDestroyed()) return petWin;
+		const bounds = defaultBounds();
+		petWin = new BrowserWindow({
+			...bounds,
+			transparent: true, // 逐像素透明（配合页面 body.transparent-host）
+			frame: false, // 无边框
+			resizable: false,
+			skipTaskbar: true, // 不占任务栏
+			hasShadow: false, // 透明窗口必须去掉窗口投影
+			useContentSize: true, // 尺寸=内容尺寸，配合页面的缩放换算
+			show: false, // 等页面加载完再显示，避免空白帧
+			// 不设置 alwaysOnTop：保持普通窗口层级
+			webPreferences: {
+				nodeIntegration: false,
+				contextIsolation: true,
+				sandbox: false, // preload 需要 require('electron')
+				preload: petPreload,
+			},
+		});
+		const win = petWin;
+		win.webContents.once("did-finish-load", () => {
+			if (win && !win.isDestroyed()) win.show();
+		});
+		win.on("closed", () => {
+			if (petWin === win) petWin = null;
+		});
+		win.loadFile(petHtml);
+		return petWin;
+	};
+
+	const destroy = () => {
+		if (!petWin || petWin.isDestroyed()) {
+			petWin = null;
+			return;
+		}
+		const win = petWin;
+		petWin = null;
+		try {
+			win.destroy();
+		} catch (e) {
+			log?.error?.("[pet] 销毁宠物窗口失败", e);
+		}
+	};
+
+	/** 透明区域穿透：forward 让穿透态仍能收到 mousemove（macOS/Windows 支持，Linux 忽略） */
+	const applyClickThrough = (flag) => {
+		if (!petWin || petWin.isDestroyed()) return;
+		try {
+			if (flag) {
+				if (platform === "linux") petWin.setIgnoreMouseEvents(true);
+				else petWin.setIgnoreMouseEvents(true, { forward: true });
+			} else {
+				petWin.setIgnoreMouseEvents(false);
+			}
+		} catch (e) {
+			log?.error?.("[pet] 切换点击穿透失败", e);
+		}
+	};
+
+	// ---- IPC：主窗口 → 主进程 ----
+	ipcMain.on("petwin:set-enabled", (event, enabled) => {
+		if (!isMainSender(event)) return;
+		if (enabled === true) create();
+		else destroy();
+	});
+
+	ipcMain.on("petwin:celebrate", (event) => {
+		if (!isMainSender(event)) return;
+		if (!petWin || petWin.isDestroyed()) return;
+		petWin.webContents.send("petwin:celebrate");
+	});
+
+	// ---- IPC：宠物窗口 → 主进程 ----
+	ipcMain.on("pet:move", (event, x, y) => {
+		if (!isPetSender(event)) return;
+		const nx = Math.round(Number(x));
+		const ny = Math.round(Number(y));
+		if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+		petWin.setPosition(nx, ny);
+	});
+
+	ipcMain.on("pet:size", (event, w, h) => {
+		if (!isPetSender(event)) return;
+		const nw = Math.round(Number(w));
+		const nh = Math.round(Number(h));
+		if (!Number.isFinite(nw) || !Number.isFinite(nh)) return;
+		petWin.setContentSize(Math.max(1, nw), Math.max(1, nh));
+	});
+
+	ipcMain.on("pet:click-through", (event, flag) => {
+		if (!isPetSender(event)) return;
+		applyClickThrough(flag === true);
+	});
+
+	ipcMain.handle("pet:cursor", () => {
+		const p = screen.getCursorScreenPoint();
+		return { x: Math.round(p.x), y: Math.round(p.y) };
+	});
+
+	// 页面用 sendSync 同步读取：必须用 ipcMain.on + event.returnValue
+	ipcMain.on("pet:screens", (event) => {
+		if (!isPetSender(event)) return;
+		event.returnValue = collectScreens(screen.getAllDisplays());
+	});
+
+	ipcMain.on("pet:save-config", (event, cfg) => {
+		if (!isPetSender(event)) return;
+		config.set(cfg);
+	});
+
+	ipcMain.on("pet:load-config", (event) => {
+		if (!isPetSender(event)) return;
+		event.returnValue = config.read();
+	});
+
+	ipcMain.on("pet:close", (event) => {
+		if (!isPetSender(event)) return;
+		destroy();
+		// 用户主动关闭 → 回执主窗口把设置开关置关（避免「设置了开、宠物却不在」的不一致）
+		if (typeof onPetClosed === "function") onPetClosed();
+	});
+
+	return {
+		setEnabled: (enabled) => {
+			if (enabled) create();
+			else destroy();
+		},
+		celebrate: () => {
+			if (!petWin || petWin.isDestroyed()) return false;
+			petWin.webContents.send("petwin:celebrate");
+			return true;
+		},
+		flush: () => config.flush(),
+		dispose: () => {
+			config.flush();
+			destroy();
+		},
+		getWindow: () => petWin,
+		isOpen: () => Boolean(petWin) && !petWin.isDestroyed(),
+	};
+}
+
+module.exports = {
+	collectScreens,
+	createConfigStore,
+	setupPetWindow,
+	PET_BASE_W,
+	PET_BASE_H,
+};
