@@ -1,3 +1,6 @@
+## 2026-09-21
+
+- fix(frontend): 画廊缩略图破图——默认工作区会话的真实工作目录是 workdir/<createdAt> 子目录，而 FilePill.resolveSessionCwd 只返回项目 cwd（父目录），agent 回复里的相对路径（如 image.png）被拼到父目录 → /file 404 → MediaPreviewModal 缩略图破图（绝对路径项不受影响故主图正常）。修：FilePill 改为复用 shared 的 resolveSessionCwd（与 SessionView 文件树同源推导）。TDD 先红后绿：组件单测（默认工作区拼子目录 + 普通项目不回归）+ Playwright E2E（真实浏览器混合相对/绝对路径画廊 3 缩略图 naturalWidth 全 >0，还原旧实现即红）；顺带修复 playwright-core utilsBundle.js 一处二进制损坏（单行字节错乱致 e2e 全挂）。
 ## 2026-09-20
 
 - v0.5.4 发版：升版 0.5.3 → 0.5.4（13 提交）。内容：pi 0.86.0 升级与兼容（token/成本口径对齐、压缩触发点 80% 与 auto-compact 双轨合一、system 条目过滤、缓存命中率整会话口径）；预览窗拖动移窗/拖拽调大小及尺寸位置记忆；流式「空的思考」修复（防抖误当节流）+ 节流窗口 50ms→20ms；测试 SSE 助手丢帧修复。验证：四包 typecheck + kernel 全量 gate（含 tui-host 集成用例）全绿；双端打包（内嵌 bun 1.4.2）。发布说明含「内核升级 · pi 0.86.0」栏（缓存预热/按模型压缩预算/启动更快/严格 schema 采样/内置剪贴板），来源 pi.dev/news；pi 0.86.0 的 `/bug` 报错反馈未入栏——**本应用无该功能入口**（用户指正后移除）。

@@ -6,13 +6,22 @@ import { mediaKindOf, parseFilePath } from "./file-path";
 import type { MediaItem } from "./media-utils";
 import { statFilesBatched } from "../../fs-client";
 import { openFileOrPreview } from "../../open-file-preview";
+import { resolveSessionCwd as resolveSessionCwdPure } from "@wa-pi/shared";
 
-/** 从会话找到项目 cwd（相对路径据此拼绝对路径）。ProjectEntity 的路径字段为 cwd */
+/** 从会话找相对路径的拼接基准（与 SessionView 文件树同源 shared 推导）：
+ *  普通项目 = project.cwd；默认工作区会话 = workdir/<createdAt> 会话子目录。
+ *  此前漏掉子目录推导，agent 回复里的相对路径（如 image.png）会被拼到父目录 → /file 404 → 画廊缩略图破图。 */
 export function resolveSessionCwd(sessionId: string): string | null {
   const { sessions, projects } = useProjectsStore.getState();
   const s = sessions.find((x) => x.id === sessionId);
   const p = projects.find((x) => x.id === s?.projectId);
-  return p?.cwd ?? null;
+  if (!s || !p) return null;
+  return (
+    resolveSessionCwdPure(
+      { projectId: s.projectId, createdAt: s.createdAt },
+      { cwd: p.cwd },
+    ) || null
+  );
 }
 
 /** 正斜杠归一化：把反斜杠全部转为正斜杠，合并连续斜杠 */

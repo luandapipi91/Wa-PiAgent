@@ -282,3 +282,45 @@ test("同一 tick 挂载的多个 chip 合并为一个 stat-batch 请求", async
 	const body = batchCalls[0].body as { paths: string[] };
 	expect(body.paths.length).toBe(3);
 });
+
+test("resolveAbsolutePath：默认工作区会话的相对路径拼 workdir/<createdAt> 会话子目录（画廊缩略图破图根因）", () => {
+	useProjectsStore.setState({
+		projects: [
+			{ id: "__system__", name: "默认工作区", cwd: "/Users/co/.pi/agent/workdir", createdAt: 0 },
+		],
+		sessions: [
+			{
+				id: "s-sys-1",
+				projectId: "__system__",
+				primaryAgent: "dev",
+				title: "t",
+				createdAt: 1789872144129,
+				lastActivity: 0,
+				piSessionFile: "",
+			},
+		],
+	});
+	// agent 回复里的相对路径 image.png 实际在会话子目录 workdir/<createdAt>/ 下，
+	// 拼项目 cwd（父目录）会指向不存在的文件 → /file 404 → 画廊缩略图破图
+	expect(resolveAbsolutePath("image.png", "s-sys-1")).toBe(
+		"/Users/co/.pi/agent/workdir/1789872144129/image.png",
+	);
+});
+
+test("resolveAbsolutePath：普通项目会话仍拼项目 cwd（不回归）", () => {
+	useProjectsStore.setState({
+		projects: [{ id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 }],
+		sessions: [
+			{
+				id: "s-p1",
+				projectId: "p1",
+				primaryAgent: "dev",
+				title: "t",
+				createdAt: 111,
+				lastActivity: 0,
+				piSessionFile: "",
+			},
+		],
+	});
+	expect(resolveAbsolutePath("out/logo.png", "s-p1")).toBe("/work/wa-pi/out/logo.png");
+});
