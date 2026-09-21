@@ -73,8 +73,16 @@ test("pet.html：交付件已就位且增补点齐全（穿透判定 / 位置记
 
 test("pet.html：透明宿主下页面背景透明（嵌入说明的硬要求）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
-	expect(html).toContain("body.transparent-host { background: transparent; }");
+	// html 与 body 都必须清背景（只清 body 会让 html 的渐变当不透明底画出来）
+	expect(html).toContain(
+		"html.transparent-host, body.transparent-host { background: transparent; }",
+	);
 	expect(html).toContain('document.body.classList.add("transparent-host")');
+	expect(html).toContain(
+		'document.documentElement.classList.add("transparent-host")',
+	);
+	// 嵌入模式：#win 铺满窗口（预览模式的 60/80 偏移不得带入）
+	expect(html).toContain("body.transparent-host #win { left: 0; top: 0; }");
 });
 
 test("main.cjs：装配宠物窗口（screen 解构、setupPetWindow、退出清理）", () => {

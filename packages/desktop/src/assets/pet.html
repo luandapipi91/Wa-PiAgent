@@ -23,8 +23,11 @@
     background: linear-gradient(160deg, #dcefe0 0%, #cfe7d8 45%, #bfdcc8 100%);
     font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   }
-  /* Electron 透明窗口下页面背景必须透明 */
-  body.transparent-host { background: transparent; }
+  /* Electron 透明窗口下页面背景必须透明：
+     html 与 body 都声明了渐变，只清 body 会让 html 的渐变继续可见（窗口就不透明了） */
+  html.transparent-host, body.transparent-host { background: transparent; }
+  /* 嵌入模式：整窗就是宠物本体，#win 必须铺满窗口（预览模式的 left/top 偏移只用于模拟屏幕落点） */
+  body.transparent-host #win { left: 0; top: 0; }
 
   /* ---- 宠物窗口容器（浏览器预览模式下可拖动） ---- */
   #win {
@@ -143,8 +146,11 @@
 
 /* ---------------- 宿主接口（Electron preload 注入，全部可选） ---------------- */
 const host = window.guaguaHost || null;
-if (host) document.body.classList.add("transparent-host");
-else document.body.classList.add("preview");
+if (host) {
+  document.body.classList.add("transparent-host");
+  // html 也加：否则 html 上的渐变会当不透明底画出来，窗口就不透明了
+  document.documentElement.classList.add("transparent-host");
+} else document.body.classList.add("preview");
 
 /* ---------------- 常量（与 guagua.py v6 对齐） ---------------- */
 const TICK = 40;
