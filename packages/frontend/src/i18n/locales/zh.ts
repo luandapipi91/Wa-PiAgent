@@ -846,6 +846,11 @@ const zh = {
 			},
 			taskDoneFrog: "任务完成动画",
 			taskDoneFrogDesc: "任务完成时，一只青蛙从聊天区角落蹦出。",
+			desktopPet: {
+				label: "桌面宠物",
+				desc:
+					"在桌面上显示一只小青蛙：任务完成时会跳一段庆祝，可拖动、可右键调大小（50%-200%）。",
+			},
 		},
 		diagnostics: {
 			title: "扩展错误（最近 {{count}} 条）",

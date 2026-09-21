@@ -92,6 +92,8 @@ export function AppearanceSection() {
 	);
 	const frogTaskDone = useUiPrefsStore((s) => s.frogTaskDone);
 	const setFrogTaskDone = useUiPrefsStore((s) => s.setFrogTaskDone);
+	const desktopPet = useUiPrefsStore((s) => s.desktopPet);
+	const setDesktopPet = useUiPrefsStore((s) => s.setDesktopPet);
 	const { t } = useTranslation();
 
 	return (
@@ -242,6 +244,22 @@ export function AppearanceSection() {
 					on={frogTaskDone}
 					onToggle={() => setFrogTaskDone(!frogTaskDone)}
 					testId="frog-task-done-toggle"
+				/>
+			</div>
+			{/* 桌面宠物（即时生效：关闭即销毁宠物窗口） */}
+			<div className="flex items-center justify-between gap-4">
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.appearance.desktopPet.label")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.desktopPet.desc")}
+					</span>
+				</div>
+				<ToggleSwitch
+					on={desktopPet}
+					onToggle={() => setDesktopPet(!desktopPet)}
+					testId="desktop-pet-toggle"
 				/>
 			</div>
 		</div>

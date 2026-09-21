@@ -877,6 +877,11 @@ const en = {
 			taskDoneFrog: "Frog animation",
 			taskDoneFrogDesc:
 				"A frog hops out from a corner of the chat area when a task finishes.",
+			desktopPet: {
+				label: "Desktop pet",
+				desc:
+					"Show a little frog on your desktop: it celebrates when a task finishes, and can be dragged or resized (50%-200%) from its right-click menu.",
+			},
 		},
 		diagnostics: {
 			title: "Extension errors ({{count}} most recent)",
