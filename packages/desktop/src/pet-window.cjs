@@ -100,16 +100,19 @@ function createConfigStore(filePath, options = {}) {
  * 依赖注入便于单测；所有 IPC 均校验 event.sender（主窗口请求与宠物窗口请求分开校验）。
  * 返回 { setEnabled, celebrate, flush, dispose, getWindow, isOpen }。
  */
-function setupPetWindow({
-	BrowserWindow,
-	ipcMain,
-	screen,
-	log,
-	configFile,
-	getMainWindow,
-	onPetClosed,
-	platform = process.platform,
-} = {}) {
+function setupPetWindow(deps = {}) {
+	// 解构放在函数体内而不是参数表：参数表里带默认值（platform = ...）会让 tsc 推断出参数对象类型，
+	// 测试里传 mock 依赖会被多余属性检查拦下（报 “不存在于类型 { platform?: Platform }”）。
+	const {
+		BrowserWindow,
+		ipcMain,
+		screen,
+		log,
+		configFile,
+		getMainWindow,
+		onPetClosed,
+	} = deps;
+	const platform = deps.platform || process.platform;
 	let petWin = null;
 	const config = createConfigStore(configFile);
 	const petPreload = path.join(__dirname, "pet-preload.cjs");
