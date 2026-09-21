@@ -41,6 +41,7 @@ const { useChannelsStore } = await import("../src/store/channels");
 const { useAgentsStore } = await import("../src/store/agents");
 const { useToastStore } = await import("../src/store/toast");
 const { useProjectsStore } = await import("../src/store/projects");
+const { useProvidersStore } = await import("../src/store/providers");
 
 beforeEach(() => {
 	apiCalls.length = 0;
@@ -124,6 +125,36 @@ function seedBot() {
 		],
 	});
 }
+
+test("机器人模型：编辑 model=null 的存量时无「跟随智能体」空选项，归一为第一个模型并随保存提交", async () => {
+	seedBot();
+	// 预置 provider（模型选项来源）：slug 由 name 解析，两个模型
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "pid1", name: "DeepSeek", baseUrl: "https://x", apiKey: "k",
+				api: "openai-completions",
+				models: [
+					{ id: "m-a", name: "M A", contextWindow: 1000, maxTokens: 100 },
+					{ id: "m-b", name: "M B", contextWindow: 1000, maxTokens: 100 },
+				],
+			},
+		],
+	} as any);
+	render(<BotsSection />);
+	fireEvent.click(screen.getByTestId("bot-card-ch_1"));
+	const select = screen.getByTestId("bot-model-select") as HTMLSelectElement;
+	// 空选项（跟随智能体）已移除，且存量 null 被归一为第一个模型
+	expect(select.querySelector('option[value=""]')).toBeNull();
+	expect(select.value).toBe(select.options[0].value);
+	// 不改动模型直接保存：载荷携带归一后的模型（不再是 null）
+	fireEvent.click(screen.getByTestId("bot-save-btn"));
+	const { waitFor } = await import("@testing-library/react");
+	await waitFor(() => expect(apiCalls.some((c) => c.method === "PUT")).toBe(true));
+	const put = apiCalls.find((c) => c.method === "PUT")!;
+	expect(put.body.channel.model).toBe(select.value);
+	expect(put.body.channel.model).not.toBeNull();
+});
 
 test("回复粒度：可切换为 minimal 并保存 → 载荷携带 replyGranularity=minimal", async () => {
 	seedBot();

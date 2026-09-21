@@ -445,14 +445,14 @@ describe("TaskEditForm", () => {
 		expect(select.value).toBe("__system__");
 	});
 
-	test("渲染模型下拉：默认「跟随默认」（空值）", () => {
+	test("渲染模型下拉：无「跟随默认」空选项，默认选中第一个可用模型（模型必填）", () => {
 		render(<TaskEditForm />);
 		const select = screen.getByTestId("task-model-select") as HTMLSelectElement;
 		expect(select).toBeTruthy();
-		expect(select.value).toBe("");
-		// 含「跟随默认」首项 + 具体模型项
-		expect(select.options.length).toBe(2);
-		expect(select.options[0].text).toBe("跟随默认");
+		expect(select.querySelector('option[value=""]')).toBeNull();
+		// 首个 option 即第一个具体模型并被选中
+		expect(select.options[0].text).not.toBe("跟随默认");
+		expect(select.value).toBe(select.options[0].value);
 	});
 
 	test("新建模式：选择模型后保存 → payload 带 model", () => {
@@ -472,7 +472,7 @@ describe("TaskEditForm", () => {
 		);
 	});
 
-	test("新建模式：不选模型 → payload model 为 null（跟随默认）", () => {
+	test("新建模式：不动模型下拉 → payload model 为归一后的第一个模型（非 null）", () => {
 		render(<TaskEditForm />);
 		fireEvent.change(screen.getByTestId("task-name-input"), {
 			target: { value: "任务" },
@@ -481,8 +481,12 @@ describe("TaskEditForm", () => {
 		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
 		setPrompt("执行");
 		fireEvent.click(screen.getByTestId("task-save-btn"));
+		const select = screen.getByTestId("task-model-select") as HTMLSelectElement;
 		expect(createTaskMock).toHaveBeenCalledWith(
-			expect.objectContaining({ model: null }),
+			expect.objectContaining({ model: select.value }),
+		);
+		expect(createTaskMock).toHaveBeenCalledWith(
+			expect.not.objectContaining({ model: null }),
 		);
 	});
 

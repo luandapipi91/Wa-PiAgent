@@ -67,7 +67,7 @@ export function BotsSection() {
 		void useProjectsStore.getState().load();
 	}, []);
 
-	// 模型选项（与 ModelSelector 同源：providerSlug/modelId），首项「跟随智能体」
+	// 模型选项（与 ModelSelector 同源：providerSlug/modelId），必须指定——已移除「跟随智能体」空选项
 	const modelOptions = (() => {
 		const slugs: string[] = [];
 		return providers.flatMap((p) => {
@@ -91,7 +91,8 @@ export function BotsSection() {
 			enabled: b.enabled,
 			credentials: { botId: b.credentials.botId, secret: "" },
 			agentName: b.agentName,
-			model: b.model,
+			// 存量 model=null（跟随智能体）归一为第一个可用模型：模型必填，不再允许空
+			model: b.model ?? modelOptions[0]?.value ?? null,
 			extraSystemPrompt: b.extraSystemPrompt,
 			replyGranularity: b.replyGranularity,
 			defaultProjectId: b.defaultProjectId ?? SYSTEM_PROJECT_ID,
@@ -318,11 +319,10 @@ export function BotsSection() {
 							</span>
 							<select
 								value={draft.model ?? ""}
-								onChange={(e) => setDraft({ ...draft, model: e.target.value || null })}
+								onChange={(e) => setDraft({ ...draft, model: e.target.value })}
 								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
 								data-testid="bot-model-select"
 							>
-								<option value="">{t("settings.bot.modelFollowAgent")}</option>
 								{modelOptions.map((m) => (
 									<option key={m.value} value={m.value}>
 										{m.label}

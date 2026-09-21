@@ -1013,7 +1013,6 @@ const en = {
 			agentMissingWarn:
 				"⚠️ The linked agent has been deleted; falling back to the system default agent.",
 			modelLabel: "Model",
-			modelFollowAgent: "Follow agent",
 			promptLabel: "Extra system prompt",
 			promptHint:
 				"Appended to the system prompt, before memory content. Type $ to reference a skill.",

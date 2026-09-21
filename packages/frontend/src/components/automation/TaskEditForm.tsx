@@ -99,8 +99,8 @@ export function TaskEditForm() {
 			agentId,
 			prompt,
 			projectId: projectId || undefined,
-			// 空（跟随默认）显式传 null，让后端能清空已设置的 model
-			model: model || null,
+			// 模型必填（UI 已移除「跟随默认」空选项，model 恒非空）
+			model,
 		};
 		try {
 			if (editingTask) {
@@ -142,10 +142,11 @@ export function TaskEditForm() {
 		name &&
 			agentId &&
 			prompt &&
+			model &&
 			(scheduleType !== "custom" || cronExpression.trim() !== "") &&
 			validIntervalHours,
 	);
-	// 模型选项（providerSlug/modelId），首项「跟随默认」空值；与 BotsSection 同源
+	// 模型选项（providerSlug/modelId），必须指定——已移除「跟随默认」空选项；与 BotsSection 同源
 	const modelOptions = (() => {
 		const slugs: string[] = [];
 		return providers.flatMap((p) => {
@@ -157,6 +158,11 @@ export function TaskEditForm() {
 			}));
 		});
 	})();
+	// 模型必填兜底：新建（初始空）或编辑 model=null 的存量任务时，自动选中第一个可用模型。
+	// providers 尚未加载（选项为空）时保持空——此时保存按钮由 canSave 的 model 条件禁用。
+	useEffect(() => {
+		if (!model && modelOptions.length > 0) setModel(modelOptions[0].value);
+	}, [model, modelOptions]);
 	const inputStyle: React.CSSProperties = {
 		background: "var(--surface-hover)",
 		borderColor: "var(--hairline)",
@@ -397,7 +403,7 @@ export function TaskEditForm() {
 				</select>
 			</div>
 
-			{/* 使用的模型（可选，跟随默认） */}
+			{/* 使用的模型（必选；「跟随默认」已移除） */}
 			<div className="mb-3.5">
 				<label
 					className="text-[11px] block mb-1.5"
@@ -412,7 +418,6 @@ export function TaskEditForm() {
 					style={inputStyle}
 					data-testid="task-model-select"
 				>
-					<option value="">跟随默认</option>
 					{modelOptions.map((m) => (
 						<option key={m.value} value={m.value}>
 							{m.label}
