@@ -20,6 +20,7 @@ import { StreamingBatcher } from "./streaming-batcher";
 import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
 import { triggerTaskDoneFrog } from "../util/frog";
+import { celebrateDesktopPet } from "../util/desktop-pet";
 import { useUiPrefsStore } from "./ui-prefs";
 import type { MediaItem } from "../components/blocks/media-utils";
 
@@ -1184,6 +1185,9 @@ export const useSessionStore = create<SessionState>((set) => {
 							triggerTaskDoneFrog(sessionId);
 						}
 					}
+					// 桌面宠物庆祝：真实完成（非重试中间态、非合成）就跳一段，
+					// 覆盖全部会话（含 IM 渠道与定时任务）——与提示音/青蛙动画的取舍相互独立。
+					if (!syntheticEnd) celebrateDesktopPet();
 					const away = sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
 					streamingBatcher.drop(sessionId);

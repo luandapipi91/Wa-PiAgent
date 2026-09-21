@@ -32,6 +32,8 @@ import { formatKernelError } from "./util/kernel-error";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
 import { initUpdater } from "./store/updater";
+import { useUiPrefsStore } from "./store/ui-prefs";
+import { onDesktopPetEvent } from "./util/desktop-pet";
 import {
 	onMessage,
 	connectEvents,
@@ -147,6 +149,12 @@ export function App() {
 		useContactsStore.getState().loadContacts();
 		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
 		initUpdater();
+		// 桌面宠物窗口关闭回执（宠物右键菜单「关闭」）：设置开关同步置关，避免状态不一致
+		const offPetClosed = onDesktopPetEvent((payload) => {
+			if (payload?.type === "closed") {
+				useUiPrefsStore.getState().setDesktopPet(false);
+			}
+		});
 		const offReconnect = onReconnect(() => {
 			// SSE 断线重连后刷新快照对齐状态。
 			// kernel 可能经历崩溃重启（见 kernel-sidecar auto-respawn），重连后需把
@@ -369,6 +377,7 @@ export function App() {
 		return () => {
 			off();
 			offReconnect();
+			offPetClosed();
 		};
 	}, []); // 空依赖：onMessage 用 getState，不需重订阅
 
