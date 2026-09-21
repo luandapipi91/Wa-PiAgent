@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AppLanguage } from "../i18n/detect";
 import { changeLanguage } from "../i18n";
+import { setDesktopPetEnabled } from "../util/desktop-pet";
 
 /** 界面主题模式 */
 export type ThemeMode = "system" | "light" | "dark";
@@ -59,6 +60,9 @@ interface UiPrefsState {
 	 *  默认 true；用户仍可手动展开单个卡片。 */
 	collapseProcessByDefault: boolean;
 	setCollapseProcessByDefault: (v: boolean) => void;
+	/** 桌面宠物开关（默认 true）：关闭即销毁宠物窗口，即时生效。 */
+	desktopPet: boolean;
+	setDesktopPet: (v: boolean) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
@@ -90,6 +94,9 @@ export const THEME_COLOR_DEFAULT: ThemeColor = "green";
 
 /** 回复过程默认折叠：agent 回复过程中工具调用 / 思维链默认不展开（折叠）。 */
 export const COLLAPSE_PROCESS_DEFAULT = true;
+
+/** 桌面宠物默认值：默认开启（安装后桌面上就有呱呱）。 */
+export const DESKTOP_PET_DEFAULT = true;
 
 const STORAGE_KEY = "wa-pi-ui-prefs";
 
@@ -184,6 +191,12 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			setDefaultAgent: (name) => set({ defaultAgent: name }),
 			collapseProcessByDefault: COLLAPSE_PROCESS_DEFAULT,
 			setCollapseProcessByDefault: (v) => set({ collapseProcessByDefault: v }),
+			desktopPet: DESKTOP_PET_DEFAULT,
+			setDesktopPet: (v) => {
+				set({ desktopPet: v });
+				// 建窗/销窗在主进程：设置一旦变化立即同步（浏览器环境为 no-op）
+				setDesktopPetEnabled(v);
+			},
 		}),
 		{
 			name: STORAGE_KEY,
@@ -195,6 +208,12 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 				if (state.themeMode) applyThemeMode(state.themeMode);
 				if (state.themeColor) applyThemeColor(state.themeColor);
 				if (state.language) void changeLanguage(state.language);
+				// 桌面宠物：旧数据缺字段时取默认值（默认开），启动即同步主进程建窗
+				if (state.desktopPet === undefined) {
+					setDesktopPetEnabled(DESKTOP_PET_DEFAULT);
+				} else {
+					setDesktopPetEnabled(state.desktopPet);
+				}
 			},
 		},
 	),
