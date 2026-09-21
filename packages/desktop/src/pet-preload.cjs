@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("guaguaHost", {
 	moveWindow: (x, y) => ipcRenderer.send("pet:move", x, y),
 	// 缩放：右键菜单滑条 50%~200% → 窗口内容尺寸
 	setWindowSize: (w, h) => ipcRenderer.send("pet:size", w, h),
+	// 位置与尺寸一次下发（原子）：缩放时用它，避免两次 IPC 之间的中间态造成抖动
+	setWindowBounds: (x, y, w, h) => ipcRenderer.send("pet:bounds", x, y, w, h),
 	// 屏幕光标（屏幕坐标，40ms 轮询）：眼神跟随、凑脸惊吓、穿透判定
 	getCursorPos: () => ipcRenderer.invoke("pet:cursor"),
 	// 页面同步读取：必须 sendSync（invoke 返回 Promise，页面会当成无效数据降级）

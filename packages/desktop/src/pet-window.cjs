@@ -249,6 +249,23 @@ function setupPetWindow(deps = {}) {
 		petWin.setContentSize(Math.max(1, nw), Math.max(1, nh));
 	});
 
+	// 位置与尺寸一次下发（原子）：拆成 pet:move + pet:size 两次 IPC 时，窗口会出现
+	// 「位置已变、尺寸未变」的中间态，拖动缩放滑条时表现为宠物在屏幕上乱跳。
+	ipcMain.on("pet:bounds", (event, x, y, w, h) => {
+		if (!isPetSender(event)) return;
+		const nx = Math.round(Number(x));
+		const ny = Math.round(Number(y));
+		const nw = Math.round(Number(w));
+		const nh = Math.round(Number(h));
+		if (![nx, ny, nw, nh].every((v) => Number.isFinite(v))) return;
+		petWin.setBounds({
+			x: nx,
+			y: ny,
+			width: Math.max(1, nw),
+			height: Math.max(1, nh),
+		});
+	});
+
 	ipcMain.on("pet:click-through", (event, flag) => {
 		if (!isPetSender(event)) return;
 		applyClickThrough(flag === true);

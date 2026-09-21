@@ -210,4 +210,49 @@ test.describe.serial("宠物右键菜单", () => {
 		expect(probe.insideHolds).toBe(false);
 		expect(probe.closed).toBe("none");
 	});
+
+	test("拖大小滑条时菜单不被截断（主菜单与二级菜单都完整落在窗口内）", async () => {
+		const pet = await findPetWindow();
+		const probe = (await pet.evaluate(`
+			(() => {
+				st.wander = false;
+				showMainMenu(60, 60);
+				menuInter.style.display = "block";
+				layoutSubMenu(60);
+				const out = [];
+				for (const k of [1.2, 1.5, 1.8, 2.0, 1.0]) {
+					applyScale(k);
+					const m = menuRoot.getBoundingClientRect();
+					const s = menuInter.getBoundingClientRect();
+					out.push({
+						k,
+						W: Math.max(innerWidth, MENU_WIN_W),
+						H: Math.max(innerHeight, MENU_WIN_H),
+						menu: { l: m.left, r: m.right, t: m.top, b: m.bottom },
+						sub: { l: s.left, r: s.right, t: s.top, b: s.bottom },
+					});
+				}
+				hideMenus();
+				applyScale(1);
+				return out;
+			})()
+		`)) as Array<{
+			k: number;
+			W: number;
+			H: number;
+			menu: { l: number; r: number; t: number; b: number };
+			sub: { l: number; r: number; t: number; b: number };
+		}>;
+
+		for (const s of probe) {
+			expect(s.menu.l).toBeGreaterThanOrEqual(0);
+			expect(s.menu.t).toBeGreaterThanOrEqual(0);
+			expect(s.menu.r).toBeLessThanOrEqual(s.W);
+			expect(s.menu.b).toBeLessThanOrEqual(s.H);
+			expect(s.sub.l).toBeGreaterThanOrEqual(0);
+			expect(s.sub.t).toBeGreaterThanOrEqual(0);
+			expect(s.sub.r).toBeLessThanOrEqual(s.W);
+			expect(s.sub.b).toBeLessThanOrEqual(s.H);
+		}
+	});
 });

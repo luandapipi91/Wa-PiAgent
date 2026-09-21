@@ -163,6 +163,9 @@ function makeHarness() {
 		setContentSize(w: number, h: number) {
 			calls.push(["setContentSize", { w, h }]);
 		}
+		setBounds(b: { x: number; y: number; width: number; height: number }) {
+			calls.push(["setBounds", b]);
+		}
 		setIgnoreMouseEvents(flag: boolean, opts?: any) {
 			calls.push(["setIgnoreMouseEvents", { flag, opts }]);
 		}
@@ -228,6 +231,7 @@ test("注册全部宠物 IPC 频道（on 与 handle 各就各位）", () => {
 	try {
 		expect([...h.listeners.keys()].sort()).toEqual(
 			[
+				"pet:bounds",
 				"pet:click-through",
 				"pet:close",
 				"pet:load-config",
@@ -390,6 +394,29 @@ test("pet:click-through 映射到 setIgnoreMouseEvents（macOS/Win 带 forward�
 			flag: false,
 			opts: undefined,
 		});
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("pet:bounds：位置与尺寸一次原子下发（避免缩放时「先动位置再改尺寸」的抖动）", () => {
+	const h = makeHarness();
+	try {
+		h.pet.setEnabled(true);
+		const sender = petSender(h);
+		h.listeners.get("pet:bounds")!(sender, 120, 340, 390, 387);
+		expect(h.calls.find((c) => c[0] === "setBounds")![1]).toEqual({
+			x: 120,
+			y: 340,
+			width: 390,
+			height: 387,
+		});
+		// 只接受宠物窗口的请求
+		h.listeners.get("pet:bounds")!(h.mainSender, 1, 2, 3, 4);
+		expect(h.calls.filter((c) => c[0] === "setBounds")).toHaveLength(1);
+		// 非数字入参忽略
+		h.listeners.get("pet:bounds")!(sender, "a", null, Number.NaN, 5);
+		expect(h.calls.filter((c) => c[0] === "setBounds")).toHaveLength(1);
 	} finally {
 		rmSync(h.dir, { recursive: true, force: true });
 	}

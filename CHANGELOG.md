@@ -3,6 +3,7 @@
 - fix(kernel): 定时任务执行会话排除 ask_user_question 工具——无人值守场景 agent 调 ask 后无用户应答会挂起至 30 分钟轮询超时；ensureStarted 新增 excludeTools 参数（黑名单并入 + 白名单模式从白名单剔除，im_push_to 不可被剔除），executeRun 启动会话时固定排除 ask_user_question；agent-session 按激活名单过滤工具池，--exclude-tools 对扩展注册工具同样生效（pi 0.86.1 _buildRuntime includeAllExtensionTools+activeToolNames 机制取证）。agent-manager 单测两用例先红后绿（黑名单并入 + 白名单剔除）。
 ## 2026-09-21
 
+- fix(desktop): 拖大小滑条时「菜单被截断」与「青蛙乱跳」——① 菜单被截断：缩放时把窗口位移反向补到菜单上的 clamp 只留了固定余量（W-40），未按菜单自身宽高算，补偿后菜单被推出窗口右/下边界；改为按 offsetWidth/offsetHeight clamp。② 青蛙乱跳：applyScale 先改 DOM 几何（同步）、再用 pet:move + pet:size 两次 IPC 改窗口（异步），中间态里宠物已按新锚点绘制而窗口还没挪到位 → 逐帧跳动；新增 pet:bounds（主进程 setBounds）把位置与尺寸一次原子下发，applyGeometry 增 skipWindow 参数避免重复设尺寸，菜单展开时原子下发用菜单尺寸（不再缩回宠物尺寸）。测试：desktop 单测新增 pet:bounds 契约（含非宠物窗口与非法入参），菜单 E2E 新增 1 例（连拖 1.2×/1.5×/1.8×/2.0×/1.0× 后主菜单与二级菜单都完整落在窗口内；修复前右边界 567>560 必红）。
 - fix(desktop): 右键菜单「点菜单外」的那一下现在直接生效——原先菜单展开期间整窗不拦截鼠标，点击被窗口吃掉（点桌面要点两次、点窗口外又关不掉菜单）。现把「不拦截」收窄到菜单矩形本身（菜单展开时 hitTest 只认菜单区域，其余——含为放菜单而放大的透明区——一律穿透），菜单改由「光标离开菜单区约 1.2 秒」自动收起。测试：菜单 E2E 新增 1 例（菜单外判定穿透、菜单内不穿透、光标离开后自动收起；修复前必红），并把三处依赖合成鼠标的菜单断言（menu / scale-menu / celebrate）改为同步执行——E2E 合成鼠标不移动系统光标，异步会误触自动收起。
 - fix(desktop): 拖大小滑条时「菜单位置在变」——缩放为保持宠物脚底不位移会重算窗口左上角（窗口在屏幕上整体平移），而菜单是相对窗口定位的 px 值，于是跟着窗口跑（实测偏移 78px）。现由 applyScale 在菜单展开时把窗口位移反向补偿到菜单上（shiftOpenMenus，带窗口边界 clamp），菜单在屏幕上保持原地。测试：菜单 E2E 新增 1 例（连续 1.6× / 0.8× 缩放后菜单屏幕坐标偏移 <12px；修复前 78px 必红）。
 - feat(desktop): 桌宠窗口改为置顶（alwaysOnTop: true，macOS 默认 floating 层级）——切到其它应用后点击它们时宠物不再被遮挡；交付说明原写的「保持普通窗口层级」按用户要求改掉。测试：desktop 单测窗口参数断言与 Electron E2E 的 alwaysOnTop 断言同步改为 true（改前必红）。

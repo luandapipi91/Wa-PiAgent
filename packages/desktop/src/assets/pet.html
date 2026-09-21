@@ -178,7 +178,7 @@ let menuWinOpen = false;
 const winEl = document.getElementById("win");
 const sceneEl = document.getElementById("scene");
 
-function applyGeometry() {
+function applyGeometry(skipWindow) {
   WIN_W = Math.round(BASE_W * K);
   WIN_H = Math.round(BASE_H * K);
   AX = Math.round(BASE_AX * K);
@@ -189,9 +189,9 @@ function applyGeometry() {
   sceneEl.setAttribute("viewBox", `0 0 ${WIN_W} ${WIN_H}`);
   sceneEl.setAttribute("width", WIN_W);
   sceneEl.setAttribute("height", WIN_H);
-  // 窗口内容尺寸必须跟随缩放（嵌入说明的约定）：否则放大后 #win 比窗口大、宠物被裁，
-  // 而且右键菜单会改用错的窗口高度算可用空间（放大后菜单被压成一条）。
-  if (!menuWinOpen && host && host.setWindowSize) host.setWindowSize(WIN_W, WIN_H);
+  // 窗口内容尺寸必须跟随缩放（嵌入说明的约定）：否则放大后 #win 比窗口大、宠物被裁。
+  // skipWindow：调用方（applyScale）会连同位置一起原子下发，这里不要再单独设尺寸。
+  if (!skipWindow && !menuWinOpen && host && host.setWindowSize) host.setWindowSize(WIN_W, WIN_H);
 }
 
 /* ---------------- 配置持久化（scale / wander / pos） ---------------- */
@@ -258,6 +258,15 @@ function screenAt(x) {
 
 /* ---------------- 窗口位置（唯一真源，拖拽/蹦跶共用） ---------------- */
 let winX = 60, winY = 80;
+/* 位置 + 尺寸一次下发：拆成 moveWindow + setWindowSize 两次 IPC 时，中间态会让
+ * 宠物在屏幕上跳（DOM 已按新锚点绘制、窗口还没挪到位）。 */
+function setWinBounds(x, y, w, h) {
+  winX = Math.round(x); winY = Math.round(y);
+  if (host && host.setWindowBounds) { host.setWindowBounds(winX, winY, Math.round(w), Math.round(h)); return; }
+  // 降级（缺少该接口的宿主）：退回先移动位置
+  if (host && host.moveWindow) host.moveWindow(winX, winY);
+  else { winEl.style.left = winX + "px"; winEl.style.top = winY + "px"; }
+}
 function setWinPos(x, y) {
   winX = x; winY = y;
   if (host && host.moveWindow) host.moveWindow(Math.round(x), Math.round(y));
@@ -1243,8 +1252,11 @@ function shiftOpenMenus(dx, dy) {
     if (!el || getComputedStyle(el).display === "none") continue;
     const l = parseFloat(el.style.left) || 0;
     const t = parseFloat(el.style.top) || 0;
-    el.style.left = Math.max(4, Math.min(l - dx, W - 40)) + "px";
-    el.style.top = Math.max(4, Math.min(t - dy, H - 40)) + "px";
+    // 按菜单自身宽高 clamp：只留固定余量（如 W-40）会在补偿后把菜单推出窗口右/下边界，
+    // 拖着大小滑条时表现为「菜单被截断」。
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.left = Math.max(4, Math.min(l - dx, Math.max(4, W - w - 4))) + "px";
+    el.style.top = Math.max(4, Math.min(t - dy, Math.max(4, H - h - 4))) + "px";
   }
 }
 menuRoot.addEventListener("mouseleave", e => {
@@ -1261,16 +1273,17 @@ document.addEventListener("mousedown", e => {
 function applyScale(k) {
   const prevWinX = winX, prevWinY = winY;
   K = clamp(k, 0.5, 2.0);
-  applyGeometry();
+  applyGeometry(true);   // 只改 DOM 几何：窗口尺寸与位置在下面一次原子下发
   // 缩放后位置 clamp 必须带 virt.l / virt.t 偏移：副屏在左侧/上方时 virt 起点为负，
   // 只从 90/60 起算会把宠物从副屏拽回主屏左边缘（多屏跳屏）。
   st.fx = clamp(st.fx, virt.l + 90, virt.r - 90);
   st.fy = clamp(st.fy, virt.t + 60, virt.b - 12);
-  setWinPos(Math.round(st.fx - AX), Math.round(st.fy - AY));
-  // 菜单开着时：为保持宠物脚底不位移，窗口左上角会随缩放改变（整个窗口在屏幕上平移），
-  // 菜单是相对窗口定位的，于是会跟着窗口一起跑（拖大小滑条时看着就是「菜单位置在变」）。
-  // 这里把窗口位移反向补到菜单上，让它在屏幕上保持原地。
-  if (menuWinOpen) shiftOpenMenus(winX - prevWinX, winY - prevWinY);
+  const nx = Math.round(st.fx - AX), ny = Math.round(st.fy - AY);
+  // 菜单展开时窗口要保持「菜单尺寸」，不能缩回宠物尺寸（否则菜单被截断）
+  if (menuWinOpen) setWinBounds(nx, ny, MENU_WIN_W, MENU_WIN_H);
+  else setWinBounds(nx, ny, WIN_W, WIN_H);
+  // 菜单开着时：窗口左上角会随缩放改变，把位移反向补到菜单上，让它在屏幕上保持原地。
+  if (menuWinOpen) shiftOpenMenus(nx - prevWinX, ny - prevWinY);
   saveConfig();
 }
 sizeRange.addEventListener("input", () => {
