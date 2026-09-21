@@ -10,6 +10,7 @@ const {
 	nativeTheme,
 	dialog,
 	shell,
+	screen,
 } = require("electron");
 const path = require("node:path");
 const os = require("node:os");
@@ -136,6 +137,8 @@ let splashWindow = null;
 let mainWindow = null;
 // 预览独立窗口（浮动模式的承载窗口）：单例，主窗口收起时同步隐藏
 let previewWindow = null;
+// 桌面宠物窗口（呱呱）：透明无边框单例，由「外观 → 桌面宠物」开关控制；主窗口收起时不跟随隐藏
+let petWindow = null;
 let sidecar = null;
 let isQuitting = false;
 let isUpdating = false;
@@ -660,6 +663,24 @@ app.whenReady().then(async () => {
 	// 原生文件对话框与 shell 定位（附件选文件 / 技能目录 / 打开技能文件夹）
 	const { setupNativeDialogs } = require("./util/native-dialogs.cjs");
 	setupNativeDialogs({ dialog, shell, ipcMain, BrowserWindow });
+
+	// 桌面宠物窗口：外观 → 「桌面宠物」开关（默认开）经 waPiPet 桥同步到这里建窗/销窗。
+	// 实现全在 src/pet-window.cjs（依赖注入便于单测）；配置与 PySide6 版同格式、共用一份 json。
+	const { setupPetWindow } = require("./pet-window.cjs");
+	petWindow = setupPetWindow({
+		BrowserWindow,
+		ipcMain,
+		screen,
+		log,
+		configFile: path.join(app.getPath("userData"), "guagua_config.json"),
+		getMainWindow: () => mainWindow,
+		// 宠物右键菜单「关闭」→ 主窗口把设置开关同步置关（避免设置显示开启却看不到宠物）
+		onPetClosed: () => {
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send("petwin:event", { type: "closed" });
+			}
+		},
+	});
 
 	// 托盘 + 菜单
 	const { startTray } = require("./tray.cjs");
@@ -1203,6 +1224,12 @@ async function cleanup() {
 	try {
 		if (sidecar) sidecar.stop();
 	} catch {}
+	try {
+		// 宠物窗口：先把位置/缩放落盘，再销毁窗口（透明窗口不随主窗口销毁自动回收）
+		if (petWindow) petWindow.dispose();
+	} catch (e) {
+		log.error("[pet] 退出清理失败", e);
+	}
 	// best-effort 自删：进程退出时清掉登记，避免残留（即使自删失败，下次启动清扫也会兜底）
 	try {
 		if (sidecar) unregisterProcess(sidecar.pid, registryOpts);

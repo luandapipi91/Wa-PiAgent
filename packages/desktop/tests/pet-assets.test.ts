@@ -76,3 +76,33 @@ test("pet.html：透明宿主下页面背景透明（嵌入说明的硬要求）
 	expect(html).toContain("body.transparent-host { background: transparent; }");
 	expect(html).toContain('document.body.classList.add("transparent-host")');
 });
+
+test("main.cjs：装配宠物窗口（screen 解构、setupPetWindow、退出清理）", () => {
+	const src = readFileSync(join(SRC, "main.cjs"), "utf8");
+	// require("electron") 解构里必须有 screen（宠物窗口要读显示器与光标）
+	expect(src).toMatch(/require\("electron"\)[\s\S]*?\bscreen,/);
+	// 装配点：配置文件落在 userData，关窗回执发给主窗口
+	expect(src).toContain('require("./pet-window.cjs")');
+	expect(src).toContain("setupPetWindow({");
+	expect(src).toContain('"guagua_config.json"');
+	expect(src).toContain('mainWindow.webContents.send("petwin:event"');
+	// 退出清理：flush 位置/缩放并销毁窗口
+	expect(src).toContain("petWindow.dispose()");
+	// 主窗口隐藏到托盘时不得隐藏宠物窗口（宠物常驻桌面）
+	const closeBlock = src.slice(
+		src.indexOf('mainWindow.on("close"'),
+		src.indexOf('mainWindow.on("closed"'),
+	);
+	expect(closeBlock).not.toContain("petWindow");
+});
+
+test("preload.cjs：主窗口侧暴露 waPiPet 桥（setEnabled / celebrate / onEvent）", () => {
+	const preload = read("preload.cjs");
+	expect(preload).toContain('exposeInMainWorld("waPiPet"');
+	for (const member of ["setEnabled:", "celebrate:", "onEvent:"]) {
+		expect(preload).toContain(member);
+	}
+	expect(preload).toContain('"petwin:set-enabled"');
+	expect(preload).toContain('"petwin:celebrate"');
+	expect(preload).toContain('"petwin:event"');
+});

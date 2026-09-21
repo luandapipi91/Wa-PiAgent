@@ -85,3 +85,15 @@ contextBridge.exposeInMainWorld("waPiUpdater", {
 		return () => ipcRenderer.removeListener("updater:event", listener);
 	},
 });
+
+// 桌面宠物桥（主窗口侧）：开关同步 + 任务完成庆祝转发 + 宠物窗口关闭回执。
+// 宠物窗口自身用 src/pet-preload.cjs（暴露页面约定的 window.guaguaHost）。
+contextBridge.exposeInMainWorld("waPiPet", {
+	setEnabled: (enabled) => ipcRenderer.send("petwin:set-enabled", enabled === true),
+	celebrate: () => ipcRenderer.send("petwin:celebrate"),
+	onEvent: (callback) => {
+		const listener = (_event, payload) => callback(payload);
+		ipcRenderer.on("petwin:event", listener);
+		return () => ipcRenderer.removeListener("petwin:event", listener);
+	},
+});
