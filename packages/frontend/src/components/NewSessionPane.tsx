@@ -164,7 +164,12 @@ export function NewSessionPane({
 	const setAttachments = (
 		next: AttachmentDraft[] | ((prev: AttachmentDraft[]) => AttachmentDraft[]),
 	) => {
-		const resolved = typeof next === "function" ? next(attachments) : next;
+		// prev 必须基于 store 现读值：一次选/粘贴多个文件时上传是串行 await，
+		// 每个文件回来都追加一项；用渲染期快照当 prev 会让同一批次互相覆盖（只剩最后一个）。
+		// 与已有会话的 Composer.tsx 同口径。
+		const current =
+			useComposerPrefsStore.getState().bySession[sessionId]?.attachments ?? [];
+		const resolved = typeof next === "function" ? next(current) : next;
 		useComposerPrefsStore
 			.getState()
 			.setSessionPrefs(sessionId, { attachments: resolved });

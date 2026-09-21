@@ -1000,4 +1000,42 @@ describe("NewSessionPane", () => {
 			expect(textbox.textContent).toBe("");
 		});
 	});
+
+	it("多文件附件：一次选多个文件时全部追加进附件列表（不得被渲染快照覆盖）", async () => {
+		render(<NewSessionPane />);
+		const fileInput = screen
+			.getByTestId("composer-input")
+			.querySelector("input[type=file]")!;
+		const files = ["a.txt", "b.txt", "c.txt"].map(
+			(n) => new File([n], n, { type: "text/plain" }),
+		);
+		fireEvent.change(fileInput, { target: { files } });
+
+		await waitFor(() => {
+			const names = Object.values(useComposerPrefsStore.getState().bySession)
+				.flatMap((p) => p.attachments ?? [])
+				.map((a) => a.name);
+			expect(names).toEqual(["a.txt", "b.txt", "c.txt"]);
+		});
+	});
+
+	it("粘贴多个文件：同样全部进附件列表", async () => {
+		render(<NewSessionPane />);
+		const editable = screen
+			.getByTestId("composer-input")
+			.querySelector("[contenteditable]")!;
+		const files = ["x.txt", "y.txt"].map(
+			(n) => new File([n], n, { type: "text/plain" }),
+		);
+		fireEvent.paste(editable, {
+			clipboardData: { files, getData: () => "" },
+		});
+
+		await waitFor(() => {
+			const names = Object.values(useComposerPrefsStore.getState().bySession)
+				.flatMap((p) => p.attachments ?? [])
+				.map((a) => a.name);
+			expect(names).toEqual(["x.txt", "y.txt"]);
+		});
+	});
 });

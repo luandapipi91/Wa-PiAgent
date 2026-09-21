@@ -123,6 +123,36 @@ test.describe.serial("Composer 重构", () => {
     }
   });
 
+  // 回归：新会话页一次选/粘贴多个文件时，附件必须全部进列表（历史上只生效最后一个——
+  // 新会话的 setAttachments 用渲染期快照当 prev，串行上传的多次追加互相覆盖）。
+  test("新会话页：粘贴多个文件全部成为附件", async ({ page }) => {
+    await goNewSession(page);
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+
+    // 真实浏览器里派发带 3 个文件的 paste（DataTransfer 构造，不依赖系统剪贴板权限）；
+    // 文件选择框 input 无 multiple，多文件只能走粘贴路径
+    await page
+      .locator('[data-testid="composer-input"] [contenteditable]')
+      .evaluate((el) => {
+        const dt = new DataTransfer();
+        for (const name of ["multi-a.txt", "multi-b.txt", "multi-c.txt"]) {
+          dt.items.add(new File([`内容 ${name}`], name, { type: "text/plain" }));
+        }
+        el.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData: dt,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+
+    const list = page.getByTestId("attachment-list");
+    await expect(list).toContainText("multi-a.txt", { timeout: 15_000 });
+    await expect(list).toContainText("multi-b.txt");
+    await expect(list).toContainText("multi-c.txt");
+  });
+
   test("片段附件发送流程", async ({ page }) => {
     const sessionId = await enterSession(page, "片段附件测试");
 
