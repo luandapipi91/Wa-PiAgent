@@ -128,4 +128,53 @@ test.describe.serial("缩放与右键菜单尺寸", () => {
 		// 收尾：关菜单并还原缩放
 		await pet.evaluate(`(() => { hideMenus(); applyScale(1); })()`);
 	});
+
+	test("缩放时青蛙视觉中心在屏幕上不动（按中心对齐而非脚底对齐）", async () => {
+		const pet = await findPetWindow();
+		const probe = (await pet.evaluate(`
+			(() => {
+				st.wander = false;
+				// 青蛙视觉中心（屏幕坐标）= 窗口位置 + 窗口内的中心偏移（AX, AY - 54K）
+				const center = () => ({ x: winX + AX, y: winY + AY - 54 * K });
+				const first = center();
+				const steps = [];
+				for (const k of [1.3, 1.7, 2.0, 0.8, 1.0]) {
+					applyScale(k);
+					const c = center();
+					steps.push({ k, dx: c.x - first.x, dy: c.y - first.y });
+				}
+				return { first, steps };
+			})()
+		`)) as {
+			first: { x: number; y: number };
+			steps: Array<{ k: number; dx: number; dy: number }>;
+		};
+
+		for (const s of probe.steps) {
+			expect(Math.abs(s.dx)).toBeLessThan(3);
+			expect(Math.abs(s.dy)).toBeLessThan(3);
+		}
+	});
+
+	test("菜单展开/收起期间窗口位置与锚点都不变（只改尺寸）", async () => {
+		const pet = await findPetWindow();
+		const probe = (await pet.evaluate(`
+			(() => {
+				const snap = () => ({ x: winX, y: winY, fx: st.fx, fy: st.fy });
+				const before = snap();
+				showMainMenu(60, 60);
+				const opened = snap();
+				hideMenus();
+				const closed = snap();
+				return { before, opened, closed };
+			})()
+		`)) as {
+			before: { x: number; y: number; fx: number; fy: number };
+			opened: { x: number; y: number; fx: number; fy: number };
+			closed: { x: number; y: number; fx: number; fy: number };
+		};
+
+		expect(probe.opened).toEqual(probe.before);
+		expect(probe.closed).toEqual(probe.before);
+	});
 });

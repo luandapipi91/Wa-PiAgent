@@ -165,7 +165,8 @@ test.describe.serial("桌面宠物由透明独立窗口承载", () => {
 			(() => {
 				const x = Math.max(virt.l + 120, 120);
 				const y = Math.max(virt.t + 120, 160);
-				st.fx = x + AX; st.fy = y + AY;
+				// 把窗口放到 (x, y)：fy 是「青蛙中心」，由窗口位置反推要加回中心偏移
+				st.fx = x + AX; st.fy = y + AY - 54 * K;
 				setWinPos(x, y);
 				finishDrag();// 拖动收尾 → 保存位置
 				return { x, y, fx: Math.round(st.fx), fy: Math.round(st.fy) };

@@ -129,9 +129,12 @@ test("pet.html：多屏偏移不漏算（首启位置与缩放 clamp 都带 virt
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
 	// 首次启动（无历史位置）落虚拟桌面右下角：必须直接用 virt.r / virt.b。
 	// 用「虚拟桌面宽度 - 230」在 virt.l/virt.t 非 0（副屏在左侧/上方）时会落到屏幕外。
-	expect(html).toContain("st.fx = virt.r - 230; st.fy = virt.b - 60;");
+	// fy 现在是「青蛙中心」语义，故要再减掉中心相对脚底的偏移。
+	expect(html).toContain("st.fx = virt.r - 230; st.fy = virt.b - 60 - FROG_CENTER_DY * K;");
 	expect(html).not.toContain("st.fx = sw - 230");
-	// 缩放 clamp 同样要带 virt.l / virt.t 偏移，否则会把宠物抓回主屏左边缘
+	// 位置 clamp 走 frogFyRange()（带 virt.t/virt.b 偏移与中心偏移）
 	expect(html).toContain("st.fx = clamp(st.fx, virt.l + 90, virt.r - 90);");
-	expect(html).toContain("st.fy = clamp(st.fy, virt.t + 60, virt.b - 12);");
+	expect(html).toContain("function frogFyRange() {");
+	expect(html).toContain("min: virt.t + Math.round(AY - FROG_CENTER_DY * K),");
+	expect(html).toContain("max: virt.b - Math.round(FROG_CENTER_DY * K),");
 });

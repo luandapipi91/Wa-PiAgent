@@ -273,6 +273,22 @@ function setWinPos(x, y) {
   else { winEl.style.left = Math.round(x) + "px"; winEl.style.top = Math.round(y) + "px"; }
 }
 
+/* 青蛙中心相对脚底的纵向偏移系数：窗口内脚底锚点在 AY、身体视觉中心在 AY - 54K。
+ * st.fy 的语义是「青蛙中心的屏幕 y」（不再是从前的脚底），
+ * 这样缩放时中心点在屏幕上保持不动（脚底对齐会让中心随体型上下漂）。 */
+const FROG_CENTER_DY = 54;
+/** 由锚点（fx = 水平中心、fy = 青蛙中心）反推窗口左上角 */
+function winPosFor(fx, fy) {
+  return { x: Math.round(fx - AX), y: Math.round(fy - AY + FROG_CENTER_DY * K) };
+}
+/** 青蛙中心在屏幕上的纵向可取范围（宠物不出屏） */
+function frogFyRange() {
+  return {
+    min: virt.t + Math.round(AY - FROG_CENTER_DY * K),
+    max: virt.b - Math.round(FROG_CENTER_DY * K),
+  };
+}
+
 /* ---------------- 光标（屏幕坐标） ----------------
  * 浏览器：mousemove 维护；Electron：宿主 getCursorPos 轮询 + mousemove 兜底。
  * hostGp 额外保留一份「宿主轮询值」：页面自身的 mousemove 给的是局部坐标，
@@ -933,8 +949,8 @@ function tickCore() {
 
 /* ---------------- 位置同步（窗口跟随锚点） ---------------- */
 function applyPos() {
-  const wx = Math.round(st.fx - AX), wy = Math.round(st.fy - AY);
-  if (winX !== wx || winY !== wy) setWinPos(wx, wy);
+  const p = winPosFor(st.fx, st.fy);
+  if (winX !== p.x || winY !== p.y) setWinPos(p.x, p.y);
 }
 
 /* =====================================================================
@@ -1133,9 +1149,12 @@ winEl.addEventListener("pointermove", e => {
   }
   if (st.moved && st.state === "drag") {
     const fx = clamp(wx0 + dx + AX, virt.l + 90, virt.r - 90);
-    const fy = clamp(wy0 + dy + AY, virt.t + 60, virt.b - 12);
+    // fy 是「青蛙中心」：由窗口位置反推需加上中心相对脚底的偏移
+    const range = frogFyRange();
+    const fy = clamp(wy0 + dy + AY - FROG_CENTER_DY * K, range.min, range.max);
     st.fx = fx; st.fy = fy;
-    setWinPos(Math.round(fx - AX), Math.round(fy - AY));
+    const p = winPosFor(fx, fy);
+    setWinPos(p.x, p.y);
   }
 });
 
@@ -1274,16 +1293,17 @@ function applyScale(k) {
   const prevWinX = winX, prevWinY = winY;
   K = clamp(k, 0.5, 2.0);
   applyGeometry(true);   // 只改 DOM 几何：窗口尺寸与位置在下面一次原子下发
-  // 缩放后位置 clamp 必须带 virt.l / virt.t 偏移：副屏在左侧/上方时 virt 起点为负，
-  // 只从 90/60 起算会把宠物从副屏拽回主屏左边缘（多屏跳屏）。
   st.fx = clamp(st.fx, virt.l + 90, virt.r - 90);
-  st.fy = clamp(st.fy, virt.t + 60, virt.b - 12);
-  const nx = Math.round(st.fx - AX), ny = Math.round(st.fy - AY);
+  {
+    const range = frogFyRange();
+    st.fy = clamp(st.fy, range.min, range.max);
+  }
+  const p = winPosFor(st.fx, st.fy);
   // 菜单展开时窗口要保持「菜单尺寸」，不能缩回宠物尺寸（否则菜单被截断）
-  if (menuWinOpen) setWinBounds(nx, ny, MENU_WIN_W, MENU_WIN_H);
-  else setWinBounds(nx, ny, WIN_W, WIN_H);
+  if (menuWinOpen) setWinBounds(p.x, p.y, MENU_WIN_W, MENU_WIN_H);
+  else setWinBounds(p.x, p.y, WIN_W, WIN_H);
   // 菜单开着时：窗口左上角会随缩放改变，把位移反向补到菜单上，让它在屏幕上保持原地。
-  if (menuWinOpen) shiftOpenMenus(nx - prevWinX, ny - prevWinY);
+  if (menuWinOpen) shiftOpenMenus(p.x - prevWinX, p.y - prevWinY);
   saveConfig();
 }
 sizeRange.addEventListener("input", () => {
@@ -1329,15 +1349,23 @@ function tip(html, ms = 9000) {
   // 初始位置：优先用上次记住的位置（clamp 回当前虚拟屏内），否则主屏右下角
   // （py: 锚点 fx=SW-230, fy=SH-60，窗口=锚点-AX/AY）
   const savedPos = cfg && cfg.pos;
+  const anchor = {
+    minFy: virt.t + Math.round(AY - FROG_CENTER_DY * K),
+    maxFy: virt.b - Math.round(FROG_CENTER_DY * K),
+  };
   if (savedPos && isFinite(savedPos.x) && isFinite(savedPos.y)) {
     st.fx = clamp(savedPos.x, virt.l + 90, virt.r - 90);
-    st.fy = clamp(savedPos.y, virt.t + 60, virt.b - 12);
+    st.fy = clamp(savedPos.y, anchor.minFy, anchor.maxFy);
   } else {
     // 虚拟桌面右下角：直接用 virt.r / virt.b，不能用「宽度 - 230」——
-    // virt.l/virt.t 非 0（副屏在左/上）时那个差值会落到屏幕外
-    st.fx = virt.r - 230; st.fy = virt.b - 60;
+    // virt.l/virt.t 非 0（副屏在左/上）时那个差值会落到屏幕外。
+    // 脚底距屏幕底 60px（fy 存的是中心，故减去中心偏移）。
+    st.fx = virt.r - 230; st.fy = virt.b - 60 - FROG_CENTER_DY * K;
   }
-  setWinPos(Math.round(st.fx - AX), Math.round(st.fy - AY));
+  {
+    const p0 = winPosFor(st.fx, st.fy);
+    setWinPos(p0.x, p0.y);
+  }
   lastSavedPos = { x: Math.round(st.fx), y: Math.round(st.fy) };
   st.sleep_after = randi(SLEEP_AFTER[0], SLEEP_AFTER[1]);
   st.sleep_dur = randi(SLEEP_DUR[0], SLEEP_DUR[1]);
