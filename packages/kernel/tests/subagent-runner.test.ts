@@ -17,7 +17,7 @@ import type { SubagentProgressEvent } from "@wa-pi/shared";
 // cache-bust：绕过 overrides 测试的 mock.module，加载真实 subagent-runner
 const REAL_RUNNER_SPEC = "../src/subagent-runner.ts?real=1";
 type RunnerModule = typeof import("../src/subagent-runner");
-const { runSubagentAgent, COMMAND_TIMEOUT_MS } = (await import(
+const { runSubagentAgent, COMMAND_TIMEOUT_MS, LIVENESS_IDLE_MS } = (await import(
 	REAL_RUNNER_SPEC
 )) as RunnerModule;
 
@@ -25,6 +25,13 @@ const { runSubagentAgent, COMMAND_TIMEOUT_MS } = (await import(
 // （用户拍板 2026-08-31：单个子代理委派上限由 60 分钟增长到 2 小时，长任务 fleet 不再被 1h 误杀）
 test("默认委派超时 COMMAND_TIMEOUT_MS 为 2 小时", () => {
 	expect(COMMAND_TIMEOUT_MS).toBe(2 * 60 * 60_000);
+});
+
+// 默认无进展探活基础窗口（非工具执行，模型静默）应为 5 分钟（2026-09-21 收紧：
+// 模型调用等不到首 token/流中断基本已挂死，10 分钟白等太久）；工具执行中放宽 3 倍至 15 分钟
+// （静默长命令保护，见「工具执行中静默按 3 倍窗口判死」用例）
+test("默认探活基础窗口 LIVENESS_IDLE_MS 为 5 分钟（工具执行中放宽 3 倍至 15 分钟）", () => {
+	expect(LIVENESS_IDLE_MS).toBe(5 * 60_000);
 });
 
 const FAKE_PI = join(import.meta.dir, "fixtures", "fake-pi.ts");
@@ -265,29 +272,33 @@ test("无进展探活：无任何业务事件超过 idleTimeoutMs 判死返回 i
 	expect(Date.now() - startedAt).toBeLessThan(10_000); // 远早于 60s settle 兑底
 }, 10_000);
 
-// 工具执行中静默（tool_execution_start 后无任何事件，如 MCP HTTP 等待）→ 无进展，
-// 同样按 idleTimeoutMs 判死——不再有「工具执行中豁免」无限续命。
-// 正常长工具（bash 等）会持续发 tool_execution_update 流式输出刷新计时，不会误杀；
-// 完全静默的工具要么在等（超过 idle 仍无任何事件本身可疑），要么已卡死，判死合理。
+// 工具执行中静默（tool_execution_start 后无任何事件，如输出重定向的长编译/MCP 等待）→
+// 不再按基础窗口判死，放宽 3 倍（生产 10min→30min）：静默长命令完全可能 10 分钟零事件，
+// 基础窗口会误杀（2026-09-21 生产事故：98 分钟任务、347 次工具调用毁于最后一次长命令）。
+// 仍保留判死：放宽窗口内无任何事件基本已挂死，防卡死语义不变；
+// 正常长工具持续发 tool_execution_update 流式输出刷新计时，不受影响。
 const TOOL_EXEC_PI = join(import.meta.dir, "fixtures", "tool-exec-pi.ts");
-test("工具执行中静默同样按 idleTimeoutMs 判死（不再豁免）", async () => {
+test("工具执行中静默按 3 倍窗口判死（放宽误杀窗口，保留防卡死）", async () => {
 	const resultP = runSubagentAgent(baseConfig(), "任务", "/tmp", {
 		cliPath: TOOL_EXEC_PI,
 		runtime: RUNTIME,
 		commandTimeoutMs: 60_000, // settle 超时故意拉长：验证探活先触发
-		idleTimeoutMs: 400,
+		idleTimeoutMs: 400, // 工具执行中窗口 = 400 × 3 = 1200ms
 	});
 	// 先挂返回监听（必须在 await 之前，否则 resolve 后注册回调丢失首帧）
 	let returned = false;
 	void resultP.then(() => {
 		returned = true;
 	});
-	// 等待远超 idleTimeoutMs（400ms）：工具执行中静默也应判死
-	await new Promise((r) => setTimeout(r, 1_000));
-	expect(returned).toBe(true); // 已判死返回（不再豁免）
+	// 基础窗口（400ms）已过、3 倍窗口（1200ms）未到：放宽生效，不判死
+	await new Promise((r) => setTimeout(r, 700));
+	expect(returned).toBe(false);
+	// 超过 3 倍窗口：仍判死（防卡死语义保留）
+	await new Promise((r) => setTimeout(r, 1_800));
+	expect(returned).toBe(true);
 	const result = await resultP;
 	expect(result.isError).toBe(true);
-	expect(result.text).toContain("无进展");
+	expect(result.text).toContain("无进展超时 (1200ms)");
 }, 10_000);
 
 // 工具执行中持续流式输出（tool_execution_update，如 bash 逐行输出）→ 有进展，不得判死。

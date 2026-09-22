@@ -110,18 +110,26 @@ function snapshotFilePath(toolCallId: string): string {
 }
 
 /** 判断是否「用户主动停止」类错误：工具 signal 已 abort（ctrl 级联中止）或错误名/消息
- *  含 abort 标记。bridge 空闲超时（无帧判死）不是用户停止，显式排除、走原逻辑。 */
+ *  含 abort 标记。bridge 空闲超时不是用户停止，由 isIdleTimeoutError 单独识别。 */
 function isUserAbortError(
 	err: unknown,
 	signal: AbortSignal | undefined,
 ): boolean {
 	const msg = err instanceof Error ? err.message : String(err);
-	if (msg.includes("bridge 空闲超时")) return false;
 	if (signal?.aborted) return true;
 	const name = (err as any)?.name;
 	return (
 		(typeof name === "string" && name.includes("Abort")) || /abort/i.test(msg)
 	);
+}
+
+/** bridge 空闲超时（600s 无帧判死）：链路假死或双看门狗叠加时触发。pi 断连会被
+ *  kernel 感知并级联中止子代理、在 abort 瞬间落盘快照——与用户停止同走快照回收
+ *  通道，否则部分进度全部丢失（2026-09-21 生产事故：98 分钟任务、347 次工具
+ *  调用的部分进度躺在快照里无人读取）。 */
+function isIdleTimeoutError(err: unknown): boolean {
+	const msg = err instanceof Error ? err.message : String(err);
+	return msg.includes("bridge 空闲超时");
 }
 
 /** 轮询读 kernel 中止快照：读到 final 立即返回；partial 记下继续等（kernel settle
@@ -300,16 +308,23 @@ async function callBridge(
 				retryCount + 1,
 			);
 		}
-		// 用户主动停止（delegate/fleet）：bridge 流已被 cancel、final 帧到不了，
-		// 经 kernel 侧快照文件中转部分结果（修法 B）。空闲超时等非 abort 错误不走这里。
+		// 用户主动停止或 bridge 空闲超时：bridge 流已死、final 帧到不了，
+		// 经 kernel 侧快照文件中转部分结果（修法 B）。空闲超时时 pi 断连已触发
+		// kernel 级联中止并在 abort 瞬间落盘快照（writeImmediateFinal），轮询窗口足够。
+		const idleTimeout = isIdleTimeoutError(err);
 		if (
 			(tool === "delegate" || tool === "fleet") &&
-			isUserAbortError(err, signal)
+			(isUserAbortError(err, signal) || idleTimeout)
 		) {
 			const snap = await pollAbortSnapshot(toolCallId);
+			// 文案区分「已停止」（用户意图）与「空闲超时」（链路/看门狗判死），
+			// 父模型据此决定续派还是收尾
+			const prefix = idleTimeout
+				? "bridge 空闲超时，已回收部分进度。"
+				: "已停止。";
 			if (snap?.phase === "final") {
 				return {
-					content: [{ type: "text", text: `已停止。${snap.text ?? ""}` }],
+					content: [{ type: "text", text: `${prefix}${snap.text ?? ""}` }],
 					details: snap.details,
 				};
 			}
@@ -322,13 +337,13 @@ async function callBridge(
 					content: [
 						{
 							type: "text",
-							text: `已停止。部分进度：${summary || "（无任务信息）"}`,
+							text: `${prefix}部分进度：${summary || "（无任务信息）"}`,
 						},
 					],
 					details: { interrupted: true },
 				};
 			}
-			// 窗口内没读到快照 → 落到下方维持现状 abort 文案
+			// 窗口内没读到快照 → 落到下方维持现状错误文案
 		}
 		return failResult(`bridge 调用失败: ${msg}`, msg);
 	} finally {
