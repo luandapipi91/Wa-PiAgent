@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld("guaguaHost", {
 	loadConfig: () => ipcRenderer.sendSync("pet:load-config"),
 	// 透明区域点击穿透（光标不在青蛙上时让点击落到桌面）
 	setClickThrough: (flag) => ipcRenderer.send("pet:click-through", flag === true),
+	// 点击宠物：主窗口若已收起（收起时连 Dock 图标都隐藏了），把它唤回来
+	showMain: () => ipcRenderer.send("pet:show-main"),
 	// 右键菜单「关闭」：销毁窗口并由主进程回执主窗口把设置开关置关
 	close: () => ipcRenderer.send("pet:close"),
 	// 任务完成：主窗口转发庆祝指令

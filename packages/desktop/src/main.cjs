@@ -681,6 +681,10 @@ app.whenReady().then(async () => {
 				mainWindow.webContents.send("petwin:event", { type: "closed" });
 			}
 		},
+		// 点击宠物唤回主窗口：复用统一的激活逻辑（restore + show + focus + dock.show）
+		onShowMain: () => {
+			if (!isQuitting) activateApp();
+		},
 	});
 
 	// 托盘 + 菜单

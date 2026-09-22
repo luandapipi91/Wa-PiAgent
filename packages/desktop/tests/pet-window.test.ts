@@ -238,6 +238,7 @@ test("注册全部宠物 IPC 频道（on 与 handle 各就各位）", () => {
 				"pet:move",
 				"pet:save-config",
 				"pet:screens",
+				"pet:show-main",
 				"pet:size",
 				"petwin:celebrate",
 				"petwin:set-enabled",
@@ -258,6 +259,8 @@ test("setEnabled(true)：按约定参数建窗并加载 pet.html、首帧后显�
 		expect(options.frame).toBe(false);
 		expect(options.resizable).toBe(false);
 		expect(options.skipTaskbar).toBe(true);
+		// 不出现在系统窗口列表 / 不抢焦点：panel 是 NSPanel，不参与普通窗口枚举
+		expect(options.type).toBe("panel");
 		// 不设 focusable:false —— 它在 macOS 上有让窗口不显示的风险；
 		// 「不可关闭」改由 close 事件拦截实现（见 pet-window.cjs）。
 		expect(options.focusable).toBeUndefined();

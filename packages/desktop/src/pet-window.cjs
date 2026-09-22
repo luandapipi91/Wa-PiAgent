@@ -116,6 +116,7 @@ function setupPetWindow(deps = {}) {
 		configFile,
 		getMainWindow,
 		onPetClosed,
+		onShowMain,
 	} = deps;
 	const platform = deps.platform || process.platform;
 	let petWin = null;
@@ -167,7 +168,10 @@ function setupPetWindow(deps = {}) {
 			transparent: true, // 逐像素透明（配合页面 body.transparent-host）
 			frame: false, // 无边框
 			resizable: false,
-			skipTaskbar: true, // 不占任务栏
+			// 不出现在系统的窗口列表里（macOS 的「窗口」菜单 / Dock 右键列表）：
+			// panel 是 NSPanel，不参与系统的普通窗口枚举，顺带也不抢焦点、不进 Cmd+Tab。
+			type: "panel",
+			skipTaskbar: true, // 不占任务栏（Windows / Linux）
 			hasShadow: false, // 透明窗口必须去掉窗口投影
 			useContentSize: true, // 尺寸=内容尺寸，配合页面的缩放换算
 			show: false, // 等页面加载完再显示，避免空白帧
@@ -182,6 +186,8 @@ function setupPetWindow(deps = {}) {
 			},
 		});
 		const win = petWin;
+		// 双保险：显式声明不从「窗口」菜单里列出（panel 已不参与枚举，这里再声明一次）。
+		win.excludedFromShownWindowsMenu = true;
 		win.webContents.once("did-finish-load", () => {
 			if (win && !win.isDestroyed()) win.show();
 		});
@@ -239,6 +245,15 @@ function setupPetWindow(deps = {}) {
 	};
 
 	// ---- IPC：主窗口 → 主进程 ----
+	// 点击宠物 → 唤回主窗口：主窗口收起时连 Dock 图标都被隐藏，
+	// 那时宠物是唯一还看得见的入口。仅当主窗口确实不可见时才动作，已开着就不打扰。
+	ipcMain.on("pet:show-main", (event) => {
+		if (!isPetSender(event)) return;
+		const main = typeof getMainWindow === "function" ? getMainWindow() : null;
+		if (!main || main.isDestroyed() || main.isVisible()) return;
+		if (typeof onShowMain === "function") onShowMain();
+	});
+
 	ipcMain.on("petwin:set-enabled", (event, enabled) => {
 		if (!isMainSender(event)) return;
 		if (enabled === true) create();

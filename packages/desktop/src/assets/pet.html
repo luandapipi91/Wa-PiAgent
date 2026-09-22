@@ -1188,7 +1188,12 @@ winEl.addEventListener("pointermove", e => {
 winEl.addEventListener("pointerup", e => {
   if (e.button !== 0) return;
   if (st.state === "drag") finishDrag();
-  else if (st.grab && !st.moved && ["idle", "croak", "land", "startle"].includes(st.state)) startHappy();
+  else if (st.grab && !st.moved) {
+    // 点一下宠物：顺手把收起的主窗口唤回来（宿主会先判断主窗口是不是真的关着，
+    // 已开着就不会打扰）。主窗口收起时连 Dock 图标都隐藏，宠物是唯一入口。
+    if (host && host.showMain) host.showMain();
+    if (["idle", "croak", "land", "startle"].includes(st.state)) startHappy();
+  }
   st.grab = null;
 });
 
