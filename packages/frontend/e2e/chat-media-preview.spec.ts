@@ -212,3 +212,83 @@ test("对话媒体：缩略图网格 + 内联视频 + 画廊切换 + 视频复�
 
 	// 数据清理：E2E WA_PI_DIR 由 globalSetup 下轮整体清空重建；本用例不产截图文件
 });
+
+// 画廊顶部栏缩放控件（第四层）：真实浏览器点击/键盘 → 图片 transform 真实缩放
+test("对话媒体：画廊图片缩放控件（− % + 与键盘 +/−/0，视频项不显示）", async ({
+	page,
+}) => {
+	test.setTimeout(120_000);
+	await saveProvider({
+		id: "e2e-media-provider",
+		name: "E2E Media",
+		slug: "e2e-media",
+		baseUrl: "http://localhost:9999/v1",
+		apiKey: "sk-e2e",
+		api: "openai-completions",
+		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+	});
+	seedSession();
+	await injectMediaMessage(page);
+
+	await page.goto("/");
+	const row = page.getByTestId(`session-${SESSION_ID}`);
+	await expect(row).toBeVisible({ timeout: 10_000 });
+	await row.click();
+	await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
+
+	// 打开画廊：第 1 张图 → 同目录清单定位到 2/4（shot-a，图片项）
+	const grid = page.getByTestId("md-image-grid");
+	await expect(grid).toBeVisible({ timeout: 10_000 });
+	await grid.getByTestId("md-image-card").first().click();
+	await expect(page.getByTestId("media-preview-modal")).toBeVisible();
+	await expect(page.getByTestId("media-counter")).toHaveText("2 / 4");
+
+	// 控件位置：顶部栏内顺序 = 计数 → 缩小 → 百分比 → 放大 → 复制
+	const order = await page
+		.locator("[data-modal-drag-handle] [data-testid]")
+		.evaluateAll((els) =>
+			els.map((el) => (el as HTMLElement).dataset.testid ?? ""),
+		);
+	expect(order).toEqual([
+		"media-counter",
+		"media-zoom-out",
+		"media-zoom-percent",
+		"media-zoom-in",
+		"media-copy",
+	]);
+
+	const percent = page.getByTestId("media-zoom-percent");
+	const img = page.getByTestId("zoomable-image").locator("img");
+	await expect(percent).toHaveText("100%");
+	await expect(img).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+
+	// 按钮放大 → 125%：图片真实放大（computed transform 生效，不只是文字变）
+	await page.getByTestId("media-zoom-in").click();
+	await expect(percent).toHaveText("125%");
+	await expect(img).toHaveCSS("transform", "matrix(1.25, 0, 0, 1.25, 0, 0)");
+	await page.getByTestId("media-zoom-out").click();
+	await expect(percent).toHaveText("100%");
+
+	// 键盘：= 放大、- 缩小、0 重置（= 即美式键盘 + 的主键位）
+	await page.keyboard.press("=");
+	await expect(percent).toHaveText("125%");
+	await page.keyboard.press("-");
+	await expect(percent).toHaveText("100%");
+	await page.keyboard.press("=");
+	await page.keyboard.press("=");
+	await expect(percent).toHaveText("156%");
+	await page.keyboard.press("0");
+	await expect(percent).toHaveText("100%");
+	await expect(img).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+
+	// 视频项（← 到 1/4 clip.mp4）：缩放控件与百分比都不渲染，复制/关闭仍在
+	await page.getByTestId("media-prev").click();
+	await expect(page.getByTestId("media-video")).toBeVisible();
+	await expect(page.getByTestId("media-zoom-out")).toHaveCount(0);
+	await expect(page.getByTestId("media-zoom-in")).toHaveCount(0);
+	await expect(percent).toHaveCount(0);
+	await expect(page.getByTestId("media-copy")).toBeVisible();
+
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("media-preview-modal")).toHaveCount(0);
+});

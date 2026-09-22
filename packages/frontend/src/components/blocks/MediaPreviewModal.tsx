@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSessionStore } from "../../store/session";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Modal } from "../ui/Modal";
@@ -7,7 +7,7 @@ import { MODAL_POS_KEYS } from "../ui/modal-position";
 import { ThumbStrip } from "./ThumbStrip";
 import { useDirGallery } from "./useDirGallery";
 import { Icon } from "../ui/Icon";
-import { ZoomableImage } from "./ZoomableImage";
+import { ZoomableImage, type ZoomControls } from "./ZoomableImage";
 import { resolveCopyPath, resolveMediaSrc } from "./media-utils";
 import { useToastStore } from "../../store/toast";
 import {
@@ -19,6 +19,7 @@ import {
 /** 全局媒体预览弹窗（画廊）：常驻挂载在 App 根，从 session store 读 mediaPreview。
  *  左右箭头 + 键盘 ←/→ 循环切换（Esc 关闭由 Modal 自带）；底部缩略图条点击跳转；
  *  单媒体退化为纯预览（隐藏箭头/缩略图条/计数器）。图片用 ZoomableImage 缩放视口，
+ *  图片顶部栏（计数之后）提供 − % + 缩放控件与键盘 +/−/0（视频项不显示）；
  *  视频全尺寸 <video controls autoplay>。点遮罩不关闭（与 FilePreviewModal 同款防误触）。
  *  按住标题栏可拖动窗口移动位置，右下角手柄可拖动调整大小；尺寸与位置均持久化，重开保持。 */
 export function MediaPreviewModal() {
@@ -29,6 +30,11 @@ export function MediaPreviewModal() {
 	useDirGallery();
 	const index = preview?.index ?? 0;
 	const count = preview?.items.length ?? 0;
+	// 缩放命令与百分比：zoom 状态在 ZoomableImage 内部，命令经 ref 下发、百分比经回调上报
+	const zoomRef = useRef<ZoomControls | null>(null);
+	const [zoom, setZoom] = useState(1);
+	// 当前项是否图片：缩放控件与 +/−/0 快捷键仅对图片生效（视频无需缩放）
+	const isImage = preview?.items[index]?.kind === "image";
 
 	// 键盘 ←/→ 循环切换（仅多媒体时绑定）
 	useEffect(() => {
@@ -45,6 +51,21 @@ export function MediaPreviewModal() {
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
 	}, [preview, index, count]);
+
+	// 键盘 + / − / 0：放大、缩小、重置（仅图片项；与 ←/→ 翻页、Esc 关闭并存）
+	useEffect(() => {
+		if (!isImage) return;
+		const onKey = (e: KeyboardEvent) => {
+			// 美式键盘上 “+” 需 Shift，主键位是 “=”，同样视为放大
+			if (e.key === "+" || e.key === "=") zoomRef.current?.zoomIn();
+			else if (e.key === "-") zoomRef.current?.zoomOut();
+			else if (e.key === "0") zoomRef.current?.reset();
+			else return;
+			e.preventDefault();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [isImage]);
 
 	if (!preview) return null;
 	const close = () => useSessionStore.getState().closeMediaPreview();
@@ -93,6 +114,33 @@ export function MediaPreviewModal() {
 							</span>
 						)}
 					</span>
+					{/* 缩放控件：计数之后、复制按钮之前，仅图片项（− % +） */}
+					{isImage && (
+						<>
+							<button
+								className="fv-btn"
+								onClick={() => zoomRef.current?.zoomOut()}
+								title={t("blocks.fileViewer.zoomOut")}
+								data-testid="media-zoom-out"
+							>
+								<Icon name="minus" size={12} />
+							</button>
+							<span
+								className="text-[calc(11px*var(--font-scale))] text-tertiary w-10 text-center"
+								data-testid="media-zoom-percent"
+							>
+								{Math.round(zoom * 100)}%
+							</span>
+							<button
+								className="fv-btn"
+								onClick={() => zoomRef.current?.zoomIn()}
+								title={t("blocks.fileViewer.zoomIn")}
+								data-testid="media-zoom-in"
+							>
+								<Icon name="plus" size={12} />
+							</button>
+						</>
+					)}
 					<button
 						className="fv-btn"
 						onClick={copy}
@@ -112,7 +160,13 @@ export function MediaPreviewModal() {
 				{/* 主体：图片缩放视口 / 视频全尺寸播放；key=index 切换时重置缩放与播放状态 */}
 				<div className="flex-1 relative min-h-0 flex">
 					{item.kind === "image" ? (
-						<ZoomableImage key={index} src={src} alt={item.name} />
+						<ZoomableImage
+							key={index}
+							src={src}
+							alt={item.name}
+							controlsRef={zoomRef}
+							onZoomChange={setZoom}
+						/>
 					) : (
 						<div className="flex-1 bg-black flex items-center justify-center p-2.5">
 							<video

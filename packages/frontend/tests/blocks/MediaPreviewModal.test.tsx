@@ -325,3 +325,108 @@ test("常驻挂载：拖手柄改大小，关闭重开保持尺寸（与位置�
 	expect(reopened.style.width).toBe("600px");
 	expect(reopened.style.height).toBe("500px");
 });
+
+// ─── 顶部栏缩放控件（− 100% + ，仅图片项） ───
+
+/** 顶部栏（拖动把手）内 [data-testid] 元素的文档顺序，用于断言控件位置 */
+function topbarTestIds(): string[] {
+	const topbar = document.querySelector("[data-modal-drag-handle]");
+	if (!topbar) throw new Error("顶部栏未渲染");
+	return Array.from(topbar.querySelectorAll("[data-testid]")).map(
+		(el) => (el as HTMLElement).dataset.testid ?? "",
+	);
+}
+
+test("图片项：顶部栏在计数之后渲染 − 100% + 缩放控件", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "shot-10.png", kind: "image", name: "shot-10.png" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("3 / 4"),
+	);
+	// 顺序：计数 → 缩小 → 百分比 → 放大 → 复制（关闭按钮无 testid）
+	expect(topbarTestIds()).toEqual([
+		"media-counter",
+		"media-zoom-out",
+		"media-zoom-percent",
+		"media-zoom-in",
+		"media-copy",
+	]);
+	expect(screen.getByTestId("media-zoom-percent").textContent).toBe("100%");
+});
+
+test("图片项：点击放大/缩小，百分比与图片 scale 同步变化", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "shot-10.png", kind: "image", name: "shot-10.png" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("3 / 4"),
+	);
+	const img = () =>
+		screen.getByTestId("zoomable-image").querySelector("img") as HTMLImageElement;
+	const percent = () => screen.getByTestId("media-zoom-percent").textContent;
+
+	fireEvent.click(screen.getByTestId("media-zoom-in"));
+	expect(percent()).toBe("125%");
+	expect(img().style.transform).toContain("scale(1.25)");
+
+	fireEvent.click(screen.getByTestId("media-zoom-out"));
+	expect(percent()).toBe("100%");
+	fireEvent.click(screen.getByTestId("media-zoom-out"));
+	expect(percent()).toBe("80%");
+	expect(img().style.transform).toContain("scale(0.8)");
+});
+
+test("图片项：键盘 + / - / 0 缩放与重置", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "shot-10.png", kind: "image", name: "shot-10.png" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("3 / 4"),
+	);
+	const percent = () => screen.getByTestId("media-zoom-percent").textContent;
+
+	fireEvent.keyDown(window, { key: "+" });
+	expect(percent()).toBe("125%");
+	fireEvent.keyDown(window, { key: "+" });
+	expect(percent()).toBe("156%"); // 1.25² = 1.5625
+	fireEvent.keyDown(window, { key: "-" });
+	expect(percent()).toBe("125%");
+	fireEvent.keyDown(window, { key: "0" });
+	expect(percent()).toBe("100%");
+	// 美式键盘上 + 需 Shift，主键位是 "="（同样视为放大）
+	fireEvent.keyDown(window, { key: "=" });
+	expect(percent()).toBe("125%");
+	// 键盘缩放不影响 ←/→ 翻页
+	fireEvent.keyDown(window, { key: "ArrowRight" });
+	expect(screen.getByTestId("media-counter").textContent).toBe("4 / 4");
+});
+
+test("视频项：不渲染缩放控件（复制与关闭仍在）", async () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "clip.mp4", kind: "video", name: "clip.mp4" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	await waitFor(() =>
+		expect(screen.getByTestId("media-counter").textContent).toBe("1 / 4"),
+	);
+	expect(screen.getByTestId("media-video")).toBeTruthy();
+	expect(screen.queryByTestId("media-zoom-out")).toBeNull();
+	expect(screen.queryByTestId("media-zoom-percent")).toBeNull();
+	expect(screen.queryByTestId("media-zoom-in")).toBeNull();
+	expect(screen.getByTestId("media-copy")).toBeTruthy();
+});
+
+test("单张图片（无同目录画廊）也渲染缩放控件", () => {
+	useSessionStore
+		.getState()
+		.openMediaPreview([{ src: "https://x.com/a.png", kind: "image", name: "a.png" }], 0, "s1");
+	render(<MediaPreviewModal />);
+	expect(screen.queryByTestId("media-counter")).toBeNull(); // count=1 无计数
+	expect(screen.getByTestId("media-zoom-percent").textContent).toBe("100%");
+	fireEvent.click(screen.getByTestId("media-zoom-in"));
+	expect(screen.getByTestId("media-zoom-percent").textContent).toBe("125%");
+});

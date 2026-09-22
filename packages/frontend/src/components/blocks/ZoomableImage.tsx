@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+	useCallback,
+	useEffect,
+	useImperativeHandle,
+	useRef,
+	useState,
+	type ReactNode,
+	type Ref,
+} from "react";
 
 export type ZoomControls = {
 	zoom: number;
@@ -7,17 +15,28 @@ export type ZoomControls = {
 	reset: () => void;
 };
 
+/** 缩放范围夹取（0.1x ~ 20x）；纯函数，提到模块级供命令回调用 */
+const clampZoom = (z: number) => Math.max(0.1, Math.min(20, z));
+
 /** 可缩放图片视口：滚轮缩放 + 拖拽平移 + 双击重置。
  *  从 FileViewer 的 ImageViewer 抽取，供 FileViewer 与 MediaPreviewModal 共用；
- *  缩放状态内部管理，工具栏由调用方经 renderToolbar 注入（FileViewer 需要缩放按钮与百分比）。 */
+ *  缩放状态内部管理，工具栏可由调用方经 renderToolbar 注入（FileViewer 需要缩放按钮与百分比），
+ *  或经 controlsRef 拿到缩放命令、由 onZoomChange 订阅百分比（MediaPreviewModal 的控件
+ *  在浮层顶部栏，位于组件外部）。 */
 export function ZoomableImage({
 	src,
 	alt,
 	renderToolbar,
+	controlsRef,
+	onZoomChange,
 }: {
 	src: string;
 	alt: string;
 	renderToolbar?: (c: ZoomControls) => ReactNode;
+	/** 对外暴露缩放命令（控件渲染在组件外部时使用） */
+	controlsRef?: Ref<ZoomControls>;
+	/** 缩放值变化回调（供外部展示百分比） */
+	onZoomChange?: (zoom: number) => void;
 }) {
 	const [zoom, setZoom] = useState(1);
 	const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -25,11 +44,22 @@ export function ZoomableImage({
 	const dragRef = useRef({ startX: 0, startY: 0, panX: 0, panY: 0 });
 	const bodyRef = useRef<HTMLDivElement>(null);
 
-	const clampZoom = (z: number) => Math.max(0.1, Math.min(20, z));
-	const reset = () => {
+	const reset = useCallback(() => {
 		setZoom(1);
 		setPan({ x: 0, y: 0 });
-	};
+	}, []);
+	const zoomIn = useCallback(() => setZoom((z) => clampZoom(z * 1.25)), []);
+	const zoomOut = useCallback(() => setZoom((z) => clampZoom(z / 1.25)), []);
+
+	useImperativeHandle(
+		controlsRef,
+		() => ({ zoom, zoomIn, zoomOut, reset }),
+		[zoom, zoomIn, zoomOut, reset],
+	);
+
+	useEffect(() => {
+		onZoomChange?.(zoom);
+	}, [zoom, onZoomChange]);
 
 	// 滚轮缩放（手动绑定，关闭 passive 以便 preventDefault）
 	useEffect(() => {
@@ -77,12 +107,7 @@ export function ZoomableImage({
 
 	return (
 		<div className="flex flex-col h-full w-full" data-testid="zoomable-image">
-			{renderToolbar?.({
-				zoom,
-				zoomIn: () => setZoom((z) => clampZoom(z * 1.25)),
-				zoomOut: () => setZoom((z) => clampZoom(z / 1.25)),
-				reset,
-			})}
+			{renderToolbar?.({ zoom, zoomIn, zoomOut, reset })}
 			<div
 				ref={bodyRef}
 				className="flex-1 overflow-hidden relative bg-canvas flex items-center justify-center p-2.5"
