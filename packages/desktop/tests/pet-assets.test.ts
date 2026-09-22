@@ -138,6 +138,15 @@ test("main.cjs：为已销毁窗口的系统事件竞态装了窄范围兜底（
 	expect(src).toContain("process.exit(1)");
 });
 
+test("pet.html：窗口被系统顶回时用 #win 偏移补偿（顶部才贴得到）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// macOS 不允许窗口高于菜单栏，实际 top 会停在菜单栏下方；差额必须补到 #win 偏移上，
+	// 否则青蛙中心最靠上只能到「窗口被顶回的位置 + 窗口半高」，永远贴不到屏顶。
+	expect(html).toContain("if (realWinX === null || realWinY === null) return;");
+	expect(html).toContain("const minOffY = -(AY - Math.round(FROG_CENTER_DY * K));");
+	expect(html).toContain("offY = Math.round(clamp(rangeY / 2 - (realWinY - p.y), minOffY, rangeY));");
+});
+
 test("pet.html：青蛙能到达屏幕四角（横向留白不再是 90px）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
 	// 横向留白抽成常量且足够小，使青蛙能贴到屏幕左右边缘（四个角）

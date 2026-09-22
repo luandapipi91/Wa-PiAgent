@@ -94,6 +94,29 @@ test.describe.serial("青蛙可移动到屏幕四角", () => {
 		expect(r.fy - r.homeT).toBeLessThanOrEqual(120);
 	});
 
+	test("青蛙能贴到屏幕顶部（窗口被系统顶回时，用 #win 偏移补偿）", async () => {
+		const pet = await findPetWindow();
+		// 锚点设到纵向上限（最高），走正常路径下发窗口位置
+		await pet.evaluate(`(() => { st.wander = false; st.state = "idle"; st.fy = frogFyRange().min; })()`);
+		await new Promise((r) => setTimeout(r, 900));
+		const r = JSON.parse(
+			(await pet.evaluate(`
+				(() => {
+					// 光圈实际停在屏幕上的纵坐标 = 窗口实际 top + #win 在窗口内的偏移 + 青蛙中心相对 #win 顶部的距离
+					const centerY = (realWinY ?? winY) + WIN_OFF_Y + (AY - Math.round(FROG_CENTER_DY * K));
+					return JSON.stringify({
+						目标: Math.round(st.fy),
+						实际中心Y: Math.round(centerY),
+						窗口top: Math.round(realWinY ?? winY),
+						winOffY: WIN_OFF_Y,
+					});
+				})()
+			`)) as string,
+		) as { 目标: number; 实际中心Y: number; 窗口top: number; winOffY: number };
+		// 窗口被系统顶回了（top 明显大于期望），但 #win 偏移补偿后，青蛙中心应贴在目标位置附近
+		expect(Math.abs(r.实际中心Y - r.目标)).toBeLessThanOrEqual(20);
+	});
+
 	test("溜达落点也能落到屏幕左右边缘附近（不再恒在 90px 以内）", async () => {
 		const pet = await findPetWindow();
 		// 直接把青蛙摆到紧贴左缘处，验证它不会被「拉回」到 90px

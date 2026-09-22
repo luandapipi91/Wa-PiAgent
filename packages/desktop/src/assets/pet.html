@@ -1002,6 +1002,22 @@ function tickCore() {
 function applyPos() {
   const p = winPosFor(st.fx, st.fy);
   if (winX !== p.x || winY !== p.y) setWinPos(p.x, p.y);
+  // 窗口可能被系统顶回屏内（macOS 不允许窗口高于菜单栏，实际 top 会停在菜单栏下方）：
+  // 把「期望位置 − 宿主实际位置」的差额反向补到 #win 的窗口内偏移上——
+  // 青蛙在屏幕上的位置因此不变，而窗口始终待在屏内，顶部也就贴得到了。
+  if (realWinX === null || realWinY === null) return;
+  const rangeX = WIN_MAX_W - WIN_W;
+  const rangeY = WIN_MAX_H - WIN_H;
+  // 下界允许为负：窗口被系统顶回时，#win 需要向上溢出窗口（裁掉的是 #win 上部的空白，
+  // 青蛙本体仍完整可见）；最多溢出到「青蛙中心刚好贴住窗口上沿」。
+  const minOffY = -(AY - Math.round(FROG_CENTER_DY * K));
+  const offX = Math.round(clamp(rangeX / 2 - (realWinX - p.x), 0, rangeX));
+  const offY = Math.round(clamp(rangeY / 2 - (realWinY - p.y), minOffY, rangeY));
+  if (offX !== WIN_OFF_X || offY !== WIN_OFF_Y) {
+    WIN_OFF_X = offX; WIN_OFF_Y = offY;
+    winEl.style.left = offX + "px";
+    winEl.style.top = offY + "px";
+  }
 }
 
 /* =====================================================================
