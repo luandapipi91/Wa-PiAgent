@@ -308,7 +308,23 @@ function setupPetWindow(deps = {}) {
 
 	ipcMain.handle("pet:cursor", () => {
 		const p = screen.getCursorScreenPoint();
-		return { x: Math.round(p.x), y: Math.round(p.y) };
+		// 顺带回报窗口的「实际」位置：窗口移动是异步的（setBounds 生效有延迟），
+		// 页面自算的位置会短暂落后于实际，穿透判定用它就会误判成「光标不在青蛙上」
+		// → 开启穿透 → 点不到（用户报告：刚打开时点一会儿才点得到，从功能第一版就存在）。
+		let bounds = null;
+		if (petWin && !petWin.isDestroyed()) {
+			try {
+				bounds = petWin.getBounds();
+			} catch {
+				bounds = null;
+			}
+		}
+		return {
+			x: Math.round(p.x),
+			y: Math.round(p.y),
+			winX: bounds ? Math.round(bounds.x) : null,
+			winY: bounds ? Math.round(bounds.y) : null,
+		};
 	});
 
 	// 页面用 sendSync 同步读取：必须用 ipcMain.on + event.returnValue

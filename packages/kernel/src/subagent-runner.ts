@@ -115,12 +115,13 @@ export interface SubagentRunOpts {
 	runtime?: string;
 	/** RPC 命令超时毫秒数，默认 2 小时（7200000，用户拍板 2026-08-31 由 60 分钟增长）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
 	commandTimeoutMs?: number;
-	/** 无进展探活超时毫秒数，默认 10 分钟（600000）。进程存活但无任何业务事件
+	/** 无进展探活超时毫秒数（非工具执行窗口），默认 2 分钟（120000）。进程存活但无任何业务事件
 	 *  （message_update / tool_execution_* / agent_start|end / thinking_delta）
-	 *  超过该时长判定卡死。工具执行中同样不豁免：正常长工具（bash 等）会持续发
-	 *  tool_execution_update 流式输出刷新计时；完全静默（含等工具返回）超时判死——
-	 *  没有任何进展的静默本身就是卡死信号。设为 Infinity 关闭探活。 */
+	 *  超过该时长判定卡死。设为 Infinity 关闭探活。 */
 	idleTimeoutMs?: number;
+	/** 工具执行中的无进展探活超时毫秒数，默认 20 分钟（1200000）——工具 start→end 之间
+	 *  零事件（静默长命令）不在基础窗口内判死；工具结束回退 idleTimeoutMs。 */
+	toolIdleTimeoutMs?: number;
 	/** abort 宽限期毫秒数（测试覆盖用）：收到中止信号后等子代理响应 abort RPC 的时长，
 	 *  到期强制返回并由 finally dispose 强杀进程。默认 10000 */
 	abortGraceMs?: number;
@@ -133,10 +134,15 @@ export const ABORT_GRACE_MS = 10_000;
 /** RPC 命令 / settle 兜底默认超时：子代理委托整体硬上限，默认 2 小时（用户拍板 2026-08-31，由 60 分钟增长：长任务单代理实测可跑 39-50 分钟，60 分钟余量不足）。 */
 export const COMMAND_TIMEOUT_MS = 2 * 60 * 60_000;
 
-/** 无进展探活默认超时（非工具执行窗口）：子代理进程存活但 5 分钟无任何业务事件判定卡死
- *  （模型调用静默/无流式输出——等不到首 token 或流中断基本已挂死，10 分钟白等太久）。
- *  工具执行中放宽 3 倍至 15 分钟：静默长命令不做满 5 分钟即死。 */
-export const LIVENESS_IDLE_MS = 5 * 60_000;
+/** 无进展探活默认超时（非工具执行窗口）：子代理进程存活但 2 分钟无任何业务事件判定卡死
+ *  （模型调用静默/无流式输出——等不到首 token 或流中断基本已挂死，不必白等）。
+ *  工具执行中改用独立窗口 LIVENESS_TOOL_IDLE_MS（默认 20 分钟）。 */
+export const LIVENESS_IDLE_MS = 2 * 60_000;
+
+/** 无进展探活默认超时（工具执行中窗口）：工具已启动但零事件（输出重定向/无流式输出的
+ *  长编译、测试、数据回放）可能持续十几分钟，基础窗口会误杀；放宽到 20 分钟保护，
+ *  窗口内仍零事件则判死（防卡死语义不变）。 */
+export const LIVENESS_TOOL_IDLE_MS = 20 * 60_000;
 
 /**
  * thinking → pi CLI thinking level 映射。
@@ -227,18 +233,19 @@ export async function runSubagentAgent(
 		settled.catch(() => {});
 
 		// 无进展探活（防卡死）：任何业务事件刷新计时，超过窗口无事件判死。
-		// 工具执行中（start→end 之间）窗口放宽 3 倍（生产 5min→15min）：输出重定向/
-		// 无流式输出的长编译、测试、数据回放完全可能 5 分钟零事件，基础窗口会误杀
+		// 工具执行中（start→end 之间）用独立窗口 toolIdleTimeoutMs（默认 20 分钟）：输出重定向/
+		// 无流式输出的长编译、测试、数据回放可能十几分钟零事件，基础窗口会误杀
 		// （2026-09-21 生产事故：98 分钟任务、347 次工具调用毁于长命令误杀）。
-		// 非工具窗口收紧到 5 分钟：模型调用静默（等不到首 token/流中断）基本已挂死，
-		// 无需白等 10 分钟。放宽窗口内仍无事件基本已挂死，防卡死语义保留；正常长工具
+		// 非工具窗口 2 分钟（用户拍板 2026-09-20）：模型调用静默（等不到首 token/流中断）
+		// 基本已挂死，无需白等。窗口内仍无事件基本已挂死，防卡死语义保留；正常长工具
 		// 持续发 tool_execution_update 流式输出刷新计时，不受影响。
 		const idleTimeoutMs = opts?.idleTimeoutMs ?? LIVENESS_IDLE_MS;
+		const toolIdleTimeoutMs = opts?.toolIdleTimeoutMs ?? LIVENESS_TOOL_IDLE_MS;
 		let toolRunning = false;
 		let livenessTimer: ReturnType<typeof setTimeout> | undefined;
 		const armLiveness = () => {
 			if (livenessTimer) clearTimeout(livenessTimer);
-			const windowMs = toolRunning ? idleTimeoutMs * 3 : idleTimeoutMs;
+			const windowMs = toolRunning ? toolIdleTimeoutMs : idleTimeoutMs;
 			livenessTimer = setTimeout(() => {
 				fail(new Error(`子智能体无进展超时 (${windowMs}ms)`));
 			}, windowMs);
@@ -254,7 +261,7 @@ export async function runSubagentAgent(
 					touch();
 					break;
 				case "tool_execution_start":
-					toolRunning = true; // 进入工具执行：探活窗口放宽 3 倍（静默长命令保护）
+					toolRunning = true; // 进入工具执行：切到工具窗口（默认 20 分钟，静默长命令保护）
 					touch();
 					tools.push({ id: e.toolCallId, name: e.toolName, status: "running" });
 					emit("running");

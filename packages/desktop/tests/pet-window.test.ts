@@ -358,10 +358,16 @@ test("pet:screens / pet:load-config 同步回填 returnValue（页面用 sendSyn
 	}
 });
 
-test("pet:cursor 返回屏幕光标坐标", () => {
+test("pet:cursor 返回屏幕光标坐标 + 窗口实际位置（穿透判定不能靠本地估算）", () => {
 	const h = makeHarness();
 	try {
-		expect(h.handlers.get("pet:cursor")!()).toEqual({ x: 777, y: 888 });
+		const p = h.handlers.get("pet:cursor")!();
+		expect(p).toMatchObject({ x: 777, y: 888 });
+		// 必须带上窗口实际位置：窗口移动是异步的，页面自算的位置会短暂落后于实际，
+		// 用它做穿透判定会误判成「光标不在青蛙上」→ 开启穿透 → 点不到
+		//（用户报告：刚打开时点一会儿才点得到，从功能第一版就存在）。
+		expect(p).toHaveProperty("winX");
+		expect(p).toHaveProperty("winY");
 	} finally {
 		rmSync(h.dir, { recursive: true, force: true });
 	}

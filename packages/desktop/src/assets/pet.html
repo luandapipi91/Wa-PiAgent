@@ -302,6 +302,9 @@ function frogFyRange() {
  * 且穿透状态下收不到 mousemove，穿透判定必须用宿主坐标（屏幕坐标）。 */
 let gp = { x: -9999, y: -9999 };
 let hostGp = null;
+// 宿主回报的「实际」窗口位置：只给穿透判定用。不能覆盖 winX/winY——
+// 那两个是页面自己的定位基准（拖动、applyPos 都依赖），每 40ms 覆盖会干扰定位。
+let realWinX = null, realWinY = null;
 // 光标坐标只允许一个来源。Electron 下由宿主轮询给屏幕坐标（拖动、眼神跟随、凑脸判定的
 // 唯一依据）；页面自身的 mousemove 给的是窗口局部坐标——两者混写会让 pointerdown 记下的
 // 坐标与 pointermove 读到的坐标不同源，dx 变成数千像素，一点就把窗口 clamp 到虚拟桌面
@@ -309,7 +312,14 @@ let hostGp = null;
 if (host && host.getCursorPos) {
   setInterval(() => {
     Promise.resolve(host.getCursorPos()).then(p => {
-      if (p && isFinite(p.x)) { gp = { x: p.x, y: p.y }; hostGp = { x: p.x, y: p.y }; }
+      if (p && isFinite(p.x)) {
+        gp = { x: p.x, y: p.y }; hostGp = { x: p.x, y: p.y };
+        // 只记到 realWinX/realWinY（供穿透判定）：不能覆盖 winX/winY，
+        // 否则会干扰页面自身的定位与拖动基准。
+        if (isFinite(p.winX) && isFinite(p.winY)) {
+          realWinX = Math.round(p.winX); realWinY = Math.round(p.winY);
+        }
+      }
     }).catch(() => {});
   }, 40);
 } else {
@@ -336,7 +346,12 @@ function hitTest(mx, my) {
 }
 function checkClickThrough() {
   if (!host || !host.setClickThrough || !hostGp) return;
-  const inside = hitTest(hostGp.x - winX, hostGp.y - winY);
+  // 用宿主回报的「实际」窗口位置做判定：窗口移动是异步的（setBounds 生效有延迟），
+  // 页面自算的 winX/winY 会短暂落后于实际，用它换算会把「光标明明在青蛙上」判成不在
+  // → 开穿透 → 点不到（刚打开那几秒尤其明显）。拿不到实际值时才退回本地值。
+  const bx = realWinX === null ? winX : realWinX;
+  const by = realWinY === null ? winY : realWinY;
+  const inside = hitTest(hostGp.x - bx, hostGp.y - by);
   const next = !inside;
   if (next === clickThrough) return;   // 只在状态变化时发 IPC
   clickThrough = next;

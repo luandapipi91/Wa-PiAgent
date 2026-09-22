@@ -201,7 +201,8 @@ test("探活超时路径：text 附带部分进度段且 interrupted=true", asyn
 		cliPath: ABORTED_TOOLS_PI,
 		runtime: RUNTIME,
 		commandTimeoutMs: 60_000, // settle 超时拉长：验证探活先触发
-		idleTimeoutMs: 500,
+		idleTimeoutMs: 500, // fixture 的 write 停在工具执行中，走工具窗口（独立于基础窗口）
+		toolIdleTimeoutMs: 500,
 	});
 	expect(result.isError).toBe(true);
 	expect(result.interrupted).toBe(true);
