@@ -125,6 +125,18 @@ test("main.cjs：为已销毁窗口的系统事件竞态装了窄范围兜底（
 	expect(src).toContain("process.exit(1)");
 });
 
+test("pet.html：动作列表之间不再有分隔线（两类动作已合并）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 第一个动作项到最后一个动作项之间不得再有分隔线
+	const a = html.indexOf('data-act="hop"');
+	const b = html.indexOf('data-act="yawn"');
+	expect(a).toBeGreaterThan(0);
+	expect(b).toBeGreaterThan(a);
+	const between = html.slice(a, b);
+	expect(between).toContain('data-act="sing"'); // 四项完成动作都在，只是不再分组
+	expect(between).not.toContain('class="sep"');
+});
+
 test("pet.html：完成动作与互动动作共用全部动作（不再区分）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
 	// 动作池由二级菜单的动作项派生 → 菜单增减动作时两边天然一致

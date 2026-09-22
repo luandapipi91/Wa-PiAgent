@@ -73,19 +73,23 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		const pet = await findPetWindow();
 		// 同步打开菜单并读出菜单项清单：E2E 的合成鼠标不移动系统光标，异步会撞上
 		// 「光标离开菜单自动收起」导致菜单不可见。
-		const menu = (await pet.evaluate(`
+		const probe = (await pet.evaluate(`
 			(() => {
 				showMainMenu(60, 60);
 				const items = [...document.querySelectorAll("#menuInter .mi")].map((el) => ({
 					act: el.dataset.act || null,
 					text: el.textContent,
 				}));
+				const seps = document.querySelectorAll("#menuInter .sep").length;
 				hideMenus();
-				return items;
+				return { items, seps };
 			})()
-		`)) as Array<{ act: string | null; text: string }>;
+		`)) as { items: Array<{ act: string | null; text: string }>; seps: number };
+		const menu = probe.items;
 
 		const acts = menu.map((i) => i.act);
+		// 分隔线只保留「缩放滑条↔动作」「动作↔溜达开关」两处：动作之间不再分组
+		expect(probe.seps).toBe(2);
 		// 不再区分「完成动作」与「互动动作」：菜单里保留全部动作项
 		for (const a of [
 			"hop", "croak", "hunt", "sing", "yawn", "look",
