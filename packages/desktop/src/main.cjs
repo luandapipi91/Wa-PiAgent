@@ -683,7 +683,15 @@ app.whenReady().then(async () => {
 		},
 		// 点击宠物唤回主窗口：复用统一的激活逻辑（restore + show + focus + dock.show）
 		onShowMain: () => {
-			if (!isQuitting) activateApp();
+			if (isQuitting) return;
+			activateApp();
+			// 宠物窗口是 panel（NSPanel），它的点击不会激活本应用：只 show() + focus()
+			// 时应用仍在后台，主窗口会被其它应用盖住（用户报告：唤回后不置顶）。
+			// 这里强制激活应用，再把主窗口提为 key window。
+			if (process.platform === "darwin" && app && typeof app.focus === "function") {
+				app.focus({ steal: true });
+				if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus();
+			}
 		},
 	});
 

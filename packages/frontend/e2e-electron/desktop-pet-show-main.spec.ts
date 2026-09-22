@@ -68,6 +68,16 @@ async function mainWinVisible(): Promise<boolean | null> {
 	});
 }
 
+/** 主窗口是否处于焦点（被提到最前） */
+async function mainWinFocused(): Promise<boolean> {
+	return app.evaluate(({ BrowserWindow }) => {
+		const w = BrowserWindow.getAllWindows().find(
+			(x) => !x.isDestroyed() && (x.webContents.getURL() || "").startsWith("http"),
+		);
+		return w ? w.isFocused() : false;
+	});
+}
+
 /** 收起主窗口（与点关闭按钮同一条路径） */
 async function hideMain(): Promise<boolean> {
 	return app.evaluate(({ BrowserWindow }) => {
@@ -89,6 +99,9 @@ test.describe.serial("点击宠物唤回主窗口", () => {
 		// 真实鼠标点击宠物体（窗口 560×660，#win 居中，中心即宠物本体）
 		await pet.mouse.click(280, 330);
 		await expect.poll(() => mainWinVisible(), { timeout: 10_000 }).toBe(true);
+		// 唤回后必须被提到最前：panel 窗口的点击不激活应用，不做强制激活时
+		// 应用仍在后台，窗口会被其它应用盖住。
+		await expect.poll(() => mainWinFocused(), { timeout: 10_000 }).toBe(true);
 	});
 
 	test("主窗口本来开着：点击宠物只是逗它，不会出问题", async () => {
