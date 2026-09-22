@@ -1,10 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentName, AskParams, AskReply } from "@wa-pi/shared";
 import { AGENT_DEFS } from "@wa-pi/shared";
 import { api } from "../../api-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Markdown } from "../blocks/Markdown";
 import { MarkdownLink } from "../blocks/markdown-components";
+
+/** 单次 answer/cancel-ask 请求超时；超时即视为本次尝试失败。 */
+const SUBMIT_TIMEOUT_MS = 2_000;
+/** 最多尝试次数（首次 + 2 次重试）。 */
+const MAX_SUBMIT_ATTEMPTS = 3;
 
 interface Props {
 	sessionId: string;
@@ -59,6 +64,62 @@ export function AskFormCard({
 	const [staleError, setStaleError] = useState(false);
 	const { t } = useTranslation();
 
+	const mountedRef = useRef(true);
+	const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const resultResolveRef = useRef<((o: "timeout" | "unmounted") => void) | null>(
+		null,
+	);
+
+	// 卸载清理：卡片被父层卸载（toolResult 到达＝真成功）后，必须清掉挂起的计时器并唤醒
+	// 正在等待结果的提交循环，否则回调会在已卸载组件上 setState、await 永久悬挂。
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+			if (resultTimerRef.current !== null) {
+				clearTimeout(resultTimerRef.current);
+				resultTimerRef.current = null;
+			}
+			resultResolveRef.current?.("unmounted");
+			resultResolveRef.current = null;
+		};
+	}, []);
+
+	// 等待「结果」：toolResult 到达会让父层卸载卡片＝真成功；否则超时＝本次尝试失败。
+	const waitForResult = (ms: number) =>
+		new Promise<"timeout" | "unmounted">((resolve) => {
+			resultResolveRef.current = resolve;
+			resultTimerRef.current = setTimeout(() => {
+				resultTimerRef.current = null;
+				resultResolveRef.current = null;
+				resolve("timeout");
+			}, ms);
+		});
+
+	// 本地关闭卡片；onDismiss 缺失时兜底恢复 UI（绝不允许 submitting 永久为 true）。
+	const dismissLocally = () => {
+		if (onDismiss) {
+			onDismiss();
+			return;
+		}
+		setSubmitting(false);
+		setError(t("ask.errorSubmit"));
+	};
+
+	// 重试耗尽的收尾：尽力通知后端取消（400/超时/网络错误全吞掉），再本地关闭。
+	const cancelAndDismiss = async () => {
+		try {
+			await api.post(
+				`/api/sessions/${encodeURIComponent(sessionId)}/cancel-ask`,
+				{ toolCallId },
+				SUBMIT_TIMEOUT_MS,
+			);
+		} catch {
+			// 兜底取消是 best-effort：失败无关紧要，交给本地关闭兜底
+		}
+		dismissLocally();
+	};
+
 	const patch = (qi: number, fn: (s: QState) => void) =>
 		setState((prev) => {
 			const cur = prev[qi];
@@ -102,6 +163,9 @@ export function AskFormCard({
 			: s.selected.size > 0;
 	});
 
+	// 提交 = 最多 3 次尝试的状态机，覆盖两种卡死：① 请求本身挂住不返回；
+	// ② 已返回 200 但 toolResult 永不到达（条目已被消费/连接断开残留）。
+	// 重试期间 submitting 保持 true（按钮一直是「提交中…」）；组件卸载即收手。
 	const handleSubmit = async () => {
 		if (!allAnswered || submitting || stale) return;
 		setSubmitting(true);
@@ -118,20 +182,52 @@ export function AskFormCard({
 				};
 			}),
 		};
-		try {
-			await api.post(`/api/sessions/${encodeURIComponent(sessionId)}/answer`, {
-				toolCallId,
-				reply,
-			});
-			// 提交成功：卡片保持 pending 直到 toolResult 到达使 pendingAsks 移除它（由父层卸载）
-		} catch (err) {
-			// 失败必须恢复 UI，否则 submitting 永久为 true、按钮永远"提交中…"——卡死。
-			// stale 判断用结构化的 HTTP 400 状态（后端 ask 失效返回 400），
-			// 不依赖错误消息文案，避免 i18n 化后文案判断失效。
-			const isStale = (err as { status?: number })?.status === 400;
-			setSubmitting(false);
-			setStaleError(isStale);
-			setError(isStale ? t("ask.errorStale") : t("ask.errorSubmit"));
+
+		for (let attempt = 0; attempt < MAX_SUBMIT_ATTEMPTS; attempt++) {
+			// 卸载后立即收手：父层已因 toolResult 卸载卡片＝真成功，不再发请求/不再 setState
+			if (!mountedRef.current) return;
+
+			let posted = false;
+			try {
+				await api.post(
+					`/api/sessions/${encodeURIComponent(sessionId)}/answer`,
+					{ toolCallId, reply },
+					SUBMIT_TIMEOUT_MS,
+				);
+				posted = true;
+			} catch (err) {
+				// stale 判断用结构化的 HTTP 400 状态（后端 ask 失效返回 400），
+				// 不依赖错误消息文案，避免 i18n 化后文案判断失效。
+				const isStale = (err as { status?: number })?.status === 400;
+				if (isStale) {
+					if (attempt === 0) {
+						// 首次即 400 = 真失效（内核 registry 无此条目）：沿用既有失效态，不重试
+						setSubmitting(false);
+						setStaleError(true);
+						setError(t("ask.errorStale"));
+						return;
+					}
+					// 重试时才 400 = 上一次尝试其实已提交成功、提问已被消费 → 本地关闭收尾
+					dismissLocally();
+					return;
+				}
+				// 超时/网络/5xx：本次尝试失败，落到下方按重试额度决定
+			}
+
+			if (posted) {
+				// 请求期间被卸载（父层已收尾）→ 立即收手，不再启动等待结果的计时器
+				if (!mountedRef.current) return;
+				// 200 只代表请求送达，不代表用户看到结果：要等 toolResult 让父层卸载卡片。
+				// 2s 仍挂载说明结果不会来了（条目已被消费/连接断开残留）→ 记为本次失败、进入重试。
+				const outcome = await waitForResult(SUBMIT_TIMEOUT_MS);
+				if (outcome === "unmounted" || !mountedRef.current) return;
+			}
+
+			// 本次尝试失败：还有额度就重试，耗尽则自动取消（cancel-ask + 本地关闭）
+			if (attempt === MAX_SUBMIT_ATTEMPTS - 1) {
+				await cancelAndDismiss();
+				return;
+			}
 		}
 	};
 

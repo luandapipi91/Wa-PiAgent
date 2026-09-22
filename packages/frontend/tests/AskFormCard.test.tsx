@@ -1,18 +1,19 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, mock, beforeEach, afterEach, vi } from "bun:test";
+import { useState } from "react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import type { AskParams } from "@wa-pi/shared";
 
 const sent: any[] = [];
 // 测试钩子：可注入 post 失败/响应，模拟网络异常或 stale ask（400）
-let postImpl: (path: string, body?: any) => Promise<any> = () =>
+let postImpl: (path: string, body?: any, timeoutMs?: number) => Promise<any> = () =>
 	Promise.resolve({});
 
 mock.module("../src/api-client", () => ({
 	api: {
 		get: () => Promise.resolve({}),
-		post: (path: string, body?: any) => {
-			sent.push({ path, body });
-			return postImpl(path, body);
+		post: (path: string, body?: any, timeoutMs?: number) => {
+			sent.push({ path, body, timeoutMs });
+			return postImpl(path, body, timeoutMs);
 		},
 		put: () => Promise.resolve({}),
 		del: () => Promise.resolve({}),
@@ -28,6 +29,13 @@ mock.module("../src/api-client", () => ({
 }));
 
 import { AskFormCard } from "../src/components/ask/AskFormCard";
+
+// 组件卸载必须清理挂起的计时器（否则提交循环在已卸载组件上继续重试/发请求）。
+// 每个用例结束显式 unmount + 还原真实计时器，避免 fake timers 泄漏到其它用例。
+afterEach(() => {
+	cleanup();
+	vi.useRealTimers();
+});
 
 const params: AskParams = {
 	questions: [
@@ -360,5 +368,177 @@ describe("AskFormCard", () => {
 		expect(dismissed).toBe(true);
 		// 已失效 → 不再向取消端点发无意义请求
 		expect(sent.filter((s) => s.path.includes("cancel-ask"))).toHaveLength(0);
+	});
+});
+
+// —— 提交超时重试的状态机 ——
+// 覆盖两种卡死成因：① 提交请求本身挂住不返回；② 请求已返回 200 但 toolResult 永不到达。
+// 用 fake timers 控制「等待结果」的 2s 计时，无需真实等待。
+
+const timeoutErr = () => {
+	const e = new Error("timeout");
+	e.name = "TimeoutError";
+	return e;
+};
+const stale400 = () => Object.assign(new Error("stale"), { status: 400 });
+
+const answerCalls = () => sent.filter((s) => s.path.includes("/answer"));
+const cancelCalls = () => sent.filter((s) => s.path.includes("cancel-ask"));
+
+// 可控卸载的 harness：hideCard 由测试调用，模拟「父层因 toolResult 卸载卡片」（真成功）。
+// 卡片自身的 onDismiss 也会隐藏它，模拟本地关闭收尾。
+let hideCard: () => void = () => {};
+function Harness({ onDismiss }: { onDismiss?: () => void }) {
+	const [visible, setVisible] = useState(true);
+	hideCard = () => setVisible(false);
+	return visible ? (
+		<AskFormCard
+			sessionId="s1"
+			toolCallId="tc1"
+			params={params}
+			onDismiss={() => {
+				onDismiss?.();
+				setVisible(false);
+			}}
+		/>
+	) : null;
+}
+
+describe("AskFormCard 提交超时重试 / 重试耗尽自动取消", () => {
+	beforeEach(() => {
+		sent.length = 0;
+		vi.useFakeTimers();
+	});
+
+	it("首次超时 → 自动重试；重试 200 且卡片随即卸载 → 只发 2 次、不取消", async () => {
+		let n = 0;
+		postImpl = () => {
+			n++;
+			return n === 1 ? Promise.reject(timeoutErr()) : Promise.resolve({});
+		};
+		render(<Harness />);
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		});
+		expect(answerCalls()).toHaveLength(2);
+		// 单次请求超时（第 3 参）必须是 2s
+		expect(answerCalls()[0].timeoutMs).toBe(2000);
+
+		// 2s 内父层卸载卡片（= toolResult 到达，真成功）→ 收尾，不再取消
+		await act(async () => {
+			hideCard();
+		});
+		expect(answerCalls()).toHaveLength(2);
+		expect(cancelCalls()).toHaveLength(0);
+	});
+
+	it("三次尝试全部超时 → 自动 cancel-ask 一次并本地关闭卡片", async () => {
+		postImpl = () => Promise.reject(timeoutErr());
+		let dismissed = false;
+		render(
+			<Harness
+				onDismiss={() => {
+					dismissed = true;
+				}}
+			/>,
+		);
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		});
+		expect(answerCalls()).toHaveLength(3);
+		expect(cancelCalls()).toHaveLength(1);
+		expect(dismissed).toBe(true);
+		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
+	});
+
+	it("首次 200 但 2s 内未卸载 → 重试；重试 400 → 本地关闭且不再有第 3 次", async () => {
+		let n = 0;
+		postImpl = (path: string) => {
+			if (path.includes("cancel-ask")) return Promise.resolve({});
+			n++;
+			return n === 1 ? Promise.resolve({}) : Promise.reject(stale400());
+		};
+		let dismissed = false;
+		render(
+			<Harness
+				onDismiss={() => {
+					dismissed = true;
+				}}
+			/>,
+		);
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		});
+		expect(answerCalls()).toHaveLength(1);
+
+		// 等待结果 2s 到期 → 触发重试。先卡边界：1999ms 尚未到期，不该重试
+		await act(async () => {
+			vi.advanceTimersByTime(1999);
+		});
+		expect(answerCalls()).toHaveLength(1);
+		// 再多走 1ms 恰好到期 → 触发第 2 次尝试
+		await act(async () => {
+			vi.advanceTimersByTime(1);
+		});
+		expect(answerCalls()).toHaveLength(2);
+		expect(dismissed).toBe(true);
+		expect(cancelCalls()).toHaveLength(0);
+	});
+
+	it("首次 400（真 stale）→ 不重试、只发一次，显示失效文案", async () => {
+		postImpl = () => Promise.reject(stale400());
+		render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		});
+		expect(answerCalls()).toHaveLength(1);
+		expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy();
+	});
+
+	it("首次 200 且卡片立即卸载 → 只发一次、不取消", async () => {
+		postImpl = () => Promise.resolve({});
+		render(<Harness />);
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		});
+		expect(answerCalls()).toHaveLength(1);
+		await act(async () => {
+			hideCard();
+		});
+		expect(answerCalls()).toHaveLength(1);
+		expect(cancelCalls()).toHaveLength(0);
+	});
+
+	it("请求进行中卸载 → 返回 200 后不再启动计时器/不重试（并行保护）", async () => {
+		let resolvePost: (v: unknown) => void = () => {};
+		postImpl = () =>
+			new Promise((r) => {
+				resolvePost = r;
+			});
+		render(<Harness />);
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		});
+		expect(answerCalls()).toHaveLength(1);
+
+		// 请求挂起期间父层卸载（如切换会话）
+		await act(async () => {
+			hideCard();
+		});
+		// 之后请求才成功返回 200 → 不该再进入等待/重试
+		await act(async () => {
+			resolvePost({});
+		});
+		await act(async () => {
+			vi.advanceTimersByTime(2000);
+		});
+		expect(answerCalls()).toHaveLength(1);
+		expect(cancelCalls()).toHaveLength(0);
 	});
 });
