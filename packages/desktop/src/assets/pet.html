@@ -1221,7 +1221,10 @@ const WIN_MAX_W = 560, WIN_MAX_H = 660;
  *  窗口可能与屏幕错开（宠物贴屏幕边缘时，窗口有一大半在屏幕外），
  *  菜单只能在窗口里渲染，所以必须同时约束在「屏幕内」与「窗口内」。 */
 function screenRectInWindow() {
-  return { l: virt.l - winX, t: virt.t - winY, r: virt.r - winX, b: virt.b - winY };
+  // 菜单不能越到别的屏幕：用「归属屏」（宠物当前所在的那块屏，与自发动作同一套归属），
+  // 而不是虚拟桌面并集 virt——否则第一块屏右侧的菜单会一路 clamp 到最右那块屏的边缘。
+  const home = screenAt(st.fx);
+  return { l: home.l - winX, t: home.t - winY, r: home.r - winX, b: home.b - winY };
 }
 /** 菜单在窗口内的可用区间（既要看得见，又不能超出窗口） */
 function menuRoom(w, h) {

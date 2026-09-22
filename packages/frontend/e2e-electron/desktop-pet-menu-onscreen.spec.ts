@@ -134,4 +134,43 @@ test.describe.serial("右键菜单不超出屏幕", () => {
 		expect(left.winX + 560).toBeGreaterThan(left.virt.r - 4);
 		expect(left.sub.r).toBeLessThanOrEqual(left.menu.l + 4);
 	});
+
+	test("多屏：菜单不越出宠物所在的那块屏（在第一块屏右侧右键，不会跑到第二块屏）", async () => {
+		const pet = await findPetWindow();
+		const res = (await pet.evaluate(`
+			(() => {
+				// 造两块屏：左屏 0..1440、右屏 1440..2880（不依赖真实多屏环境）
+				// startHop 等会 refreshScreens()，同步块内先把它停掉
+				refreshScreens = () => {};
+				const A = { l: 0, t: 0, r: 1440, b: 900 };
+				const B = { l: 1440, t: 0, r: 2880, b: 900 };
+				screens = [A, B];
+				virt = { l: 0, t: 0, r: 2880, b: 900 };
+				st.wander = false;
+				// 宠物停在左屏靠右处
+				st.fx = 1300; st.fy = 450;
+				const p = winPosFor(st.fx, st.fy);
+				setWinPos(p.x, p.y);
+				// 在窗口内靠右的位置右键（修复前会把菜单 clamp 到 virt.r，即右屏右缘）
+				showMainMenu(420, 300);
+				menuInter.style.display = "block";
+				layoutSubMenu(300);
+				const box = (el) => {
+					const r = el.getBoundingClientRect();
+					return { l: r.left, t: r.top, r: r.right, b: r.bottom };
+				};
+				const out = { home: A, winX, winY, menu: box(menuRoot), sub: box(menuInter) };
+				hideMenus();
+				return out;
+			})()
+		`)) as { home: Box; winX: number; winY: number; menu: Box; sub: Box };
+
+		for (const b of [res.menu, res.sub]) {
+			const s = { l: b.l + res.winX, r: b.r + res.winX, t: b.t + res.winY, b: b.b + res.winY };
+			expect(s.l).toBeGreaterThanOrEqual(res.home.l - 1);
+			expect(s.r).toBeLessThanOrEqual(res.home.r + 1); // 关键：不越到第二块屏
+			expect(s.t).toBeGreaterThanOrEqual(res.home.t - 1);
+			expect(s.b).toBeLessThanOrEqual(res.home.b + 1);
+		}
+	});
 });
