@@ -135,6 +135,34 @@ test.describe.serial("右键菜单不超出屏幕", () => {
 		expect(left.sub.r).toBeLessThanOrEqual(left.menu.l + 4);
 	});
 
+	test("窗口被系统顶回时（青蛙在屏顶），菜单的屏幕换算仍用实际窗口位置", async () => {
+		const pet = await findPetWindow();
+		// 把锚点设到纵向上限：窗口会被系统顶回（期望 top 为负、实际停在菜单栏下方）
+		await pet.evaluate(`(() => { st.wander = false; st.state = "idle"; st.fy = frogFyRange().min; })()`);
+		await sleep(900);
+		const r = JSON.parse(
+			(await pet.evaluate(`
+				(() => {
+					const home = screenAt(st.fx);
+					const sr = screenRectInWindow();
+					const bx = realWinX === null ? winX : realWinX;
+					const by = realWinY === null ? winY : realWinY;
+					// 菜单在窗口内定位，因此屏幕矩形必须由「实际」窗口位置换算；
+					// 用页面自算的期望位置（winX/winY）会在窗口被顶回时整体偏移。
+					return JSON.stringify({
+						srT: Math.round(sr.t), 期望T: Math.round(home.t - by),
+						srR: Math.round(sr.r), 期望R: Math.round(home.r - bx),
+						页面winY: Math.round(winY), 实际realWinY: realWinY === null ? null : Math.round(realWinY),
+					});
+				})()
+			`)) as string,
+		) as { srT: number; 期望T: number; srR: number; 期望R: number; 页面winY: number; 实际realWinY: number | null };
+		// 窗口确实被顶回了（期望与实际差很大），否则这条用例就失去意义
+		expect(Math.abs(r.页面winY - (r.实际realWinY ?? r.页面winY))).toBeGreaterThan(50);
+		expect(Math.abs(r.srT - r.期望T)).toBeLessThanOrEqual(2);
+		expect(Math.abs(r.srR - r.期望R)).toBeLessThanOrEqual(2);
+	});
+
 	test("多屏：菜单不越出宠物所在的那块屏（在第一块屏右侧右键，不会跑到第二块屏）", async () => {
 		const pet = await findPetWindow();
 		const res = (await pet.evaluate(`

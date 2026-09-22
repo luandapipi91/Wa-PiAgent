@@ -1290,7 +1290,11 @@ function screenRectInWindow() {
   // 菜单不能越到别的屏幕：用「归属屏」（宠物当前所在的那块屏，与自发动作同一套归属），
   // 而不是虚拟桌面并集 virt——否则第一块屏右侧的菜单会一路 clamp 到最右那块屏的边缘。
   const home = screenAt(st.fx);
-  return { l: home.l - winX, t: home.t - winY, r: home.r - winX, b: home.b - winY };
+  // 换算用「宿主回报的实际窗口位置」：窗口可能被系统顶回屏内（macOS 不让高于菜单栏），
+  // 页面自算的 winX/winY 是期望值，用它换算会把菜单整体摆偏（顶回多少就偏多少）。
+  const bx = realWinX === null ? winX : realWinX;
+  const by = realWinY === null ? winY : realWinY;
+  return { l: home.l - bx, t: home.t - by, r: home.r - bx, b: home.b - by };
 }
 /** 菜单在窗口内的可用区间（既要看得见，又不能超出窗口） */
 function menuRoom(w, h) {
