@@ -60,6 +60,19 @@ test("pet.html：交付件已就位且增补点齐全（穿透判定 / 位置记
 	expect(html).toContain("hostGp");
 	expect(html).toContain("function hitTest(");
 	expect(html).toContain("function checkClickThrough(");
+	// 抓取/拖动期间绝不切穿透：快拖时窗口 setBounds 异步有延迟，光标会瞬间冲出窗口/
+	// 落到透明区，此时若开启穿透，Windows 会解除指针捕获并停发 pointermove/pointerup
+	//（抟脱离鼠标、体积松散也收不到，st.grab 残留，光标移回蛙体又「吸」着走）。
+	// 守卫必须在命中测试之前：grab 存续期间保持非穿透即可保证事件不断流，
+	// 松手后下一帧恢复正常判定。
+	{
+		const i = html.indexOf("function checkClickThrough(");
+		const body = html.slice(i, html.indexOf("\n}", i));
+		const guard = body.indexOf("if (st.grab) return;");
+		const hit = body.indexOf("hitTest(");
+		expect(guard).toBeGreaterThan(0);
+		expect(hit).toBeGreaterThan(guard);
+	}
 	expect(html).toContain("host.setClickThrough(");
 
 	// 增补 2：位置记忆（保存带 pos、启动读取 pos 并 clamp）

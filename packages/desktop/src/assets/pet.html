@@ -346,6 +346,12 @@ function hitTest(mx, my) {
 }
 function checkClickThrough() {
   if (!host || !host.setClickThrough || !hostGp) return;
+  // 抓取期间绝不切穿透：快拖时窗口 setBounds 异步有延迟，光标会瞬间冲出窗口/
+  // 落到透明区，此时若开启穿透，Windows 会解除指针捕获并停发 pointermove/
+  // pointerup——抟脱离鼠标、体积松散也收不到（st.grab 残留，光标移回蛙体
+  // 又「吸」着走）。pointerdown 只可能发生在非穿透态，故 grab 存续期间保持
+  // 非穿透即可保证事件不断流；松手后下一帧恢复正常判定。
+  if (st.grab) return;
   // 用宿主回报的「实际」窗口位置做判定：窗口移动是异步的（setBounds 生效有延迟），
   // 页面自算的 winX/winY 会短暂落后于实际，用它换算会把「光标明明在青蛙上」判成不在
   // → 开穿透 → 点不到（刚打开那几秒尤其明显）。拿不到实际值时才退回本地值。
