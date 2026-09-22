@@ -2098,6 +2098,34 @@ test("进程意外退出 → 合成 message_end 错误事件 + 下次 ensureStar
 	expect(fakes[1].started).toBe(true);
 });
 
+test("进程意外退出 → 合成 extension_error 事件（崩溃现场进系统设置-诊断列表）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect(fakes).toHaveLength(1);
+
+	fakes[0].simulateCrash(3);
+
+	// 合成诊断事件：前端既有管线（toast + 诊断列表）零改造接收。
+	// event 形如 "crash(code=3)"；extensionPath 恒为 "agent-crash"
+	// （前端 extensionNameFromPath 取 basename → 诊断列表展示 "agent-crash"）。
+	const diagEvent = events.find((x) => x.e.type === "extension_error");
+	expect(diagEvent).toBeDefined();
+	expect(diagEvent!.sessionId).toBe(session.id);
+	const e = diagEvent!.e as {
+		extensionPath: string;
+		event: string;
+		error: string;
+	};
+	expect(e.extensionPath).toBe("agent-crash");
+	expect(e.event).toContain("crash");
+	expect(e.event).toContain("code=3");
+	// agentName 必在 error 文本（stderr 为空时 fallback 文案也带）；测试 fake 的
+	// getStderrTail 可选链兼容——无 stderr 内容时走 "现场已落盘" 分支
+	expect(e.error).toContain("dev");
+});
+
 // ─── 孤儿会话回滚（getCommands 兜底创建的 session 无消息文件，进程退出时删除记录）──
 
 test("孤儿会话（piSessionFile 不存在）进程退出 → 用户创建的会话不误删（仅占位记录可清理）", async () => {

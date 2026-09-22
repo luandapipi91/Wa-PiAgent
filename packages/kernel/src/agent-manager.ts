@@ -1437,6 +1437,20 @@ export class AgentManager {
 				timestamp: Date.now(),
 			},
 		});
+		// 崩溃同步进诊断列表（系统设置 > 诊断）：进程已死，pi 侧 extension_error 发不出
+		// 来，kernel 合成一条复用前端既有管线（toast + 诊断留痕，前端零改造）。pi 0.87
+		// 起崩溃诊断会在 stderr 点名可疑扩展——stderr 尾部（panic 原文/扩展提示）作为
+		// error 正文，截断尾部 800 字符防刷屏；空 stderr 走落盘提示分支。
+		const stderrLines: string[] = handle.client.getStderrTail?.() ?? [];
+		const stderrText = stderrLines.join("\n").trim().slice(-800);
+		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+			type: "extension_error",
+			extensionPath: "agent-crash",
+			event: `crash(code=${code}${signal ? ` signal=${signal}` : ""})`,
+			error: stderrText
+				? `${handle.meta.agentName} 进程崩溃，stderr 尾部：\n${stderrText}`
+				: `${handle.meta.agentName} 进程崩溃，现场已落盘 logs/agent-crash.log`,
+		});
 	}
 
 	/** pi 扩展 dialog 请求（select/confirm/input/editor）：注册 pending + 广播给前端，阻塞等应答 */
