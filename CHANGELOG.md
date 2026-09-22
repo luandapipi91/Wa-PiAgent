@@ -8,6 +8,8 @@
 
 - fix(kernel): 浏览器自动化工具的 UA 去掉 headless 痕迹（用户要求「模拟 PC 打开」）—— browser_navigate 首次创建视图时先 about:blank 建立 CDP 会话、读出引擎真实 UA，把 HeadlessChrome 换成 Chrome 后经 CDP `Emulation.setUserAgentOverride` 应用：平台段与版本号随运行机器（无硬编码），对后续导航的请求头与页内 navigator.userAgent 同时生效（实测 `--headless=new` 去除不掉该痕迹）。幂等（同视图一次，并发共享同一次），引擎不支持 cdp 或覆盖失败时静默跳过、不阻断导航。测试：browser-manager 单测新增 11 例（先红后绿：幂等/并发/无 cdp 跳过/失败兜底/视图级隔离）+ Layer 3 真实引擎用例（本地 server 断言请求头与 navigator 均无 Headless、平台段随机器、覆盖对二次导航持续生效）；四包 typecheck + kernel 全量回归绿。
 
+- fix(kernel): 浏览器自动化工具关闭 Chrome 自动化标志（防反爬拦截）—— 默认视图工厂 argv 增 `--disable-blink-features=AutomationControlled`，使 `navigator.webdriver=false`。实测 epub.cnipa.gov.cn 的反爬同时卡 UA 与 webdriver（仅桌面 UA 仍回空页、两者齐备才放行）；本项落地后经真实工具链路验证 CNIPA 详情页/高级查询、百度搜索页均正常返回。测试：browser-manager 单测更新/新增 2 例（先红后绿，锁定该 argv）+ Layer 3 真实引擎新增 `navigator.webdriver === false` 用例（引擎探测视图改用默认工厂，令 Chrome 进程级 argv 与生产一致）；四包 typecheck + kernel 全量回归绿。
+
 ## 2026-09-21
 
 - fix(desktop): 抓取（拖动）期间不切换点击穿透—— 快拖时窗口 setBounds 异步有延迟，光标会瞬间冲出窗口落到透明区；此时若开启穿透，Windows 会解除指针捕获并停发 pointermove/pointerup，导致甩脱离鼠标、体积松垮也收不到（st.grab 残留，光标移回蛙体又「吸」着走）。修法：checkClickThrough 在命中测试之前加 `if (st.grab) return;`——pointerdown 只可能发生在非穿透态，grab 存续期间保持非穿透即可保证事件不断流，松手后下一帧恢复正常判定。测试：pet-assets 契约（守卫存在且位于 hitTest 之前，先红后绿）。全套桌宠 E2E 33 例 + desktop 275 例 + 四包 typecheck 全绿。

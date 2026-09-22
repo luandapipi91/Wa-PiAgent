@@ -14,7 +14,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BrowserManager } from "../src/browser-manager";
+import { BrowserManager, makeDefaultViewFactory } from "../src/browser-manager";
 import { handleBrowserTool } from "../src/browser-tools";
 
 // 本地静态页：data: URL（避免端口冲突）。点击 #btn 会改 document.title。
@@ -24,7 +24,10 @@ const TEST_URL = "data:text/html," + encodeURIComponent(TEST_HTML);
 /** 探测真实引擎可用性：构造 + 导航 + evaluate + 关闭，任何一步失败即不可用 */
 async function probeEngineAvailable(): Promise<boolean> {
   try {
-    const view = new Bun.WebView({ width: 160, height: 120, backend: "chrome" });
+    // 用默认工厂构造：与生产同一套 backend 参数（--mute-audio + 关 AutomationControlled）。
+    // 该视图是本测试进程的第一个 WebView —— Chrome 进程级 argv 由它决定，
+    // 因此后续所有 Layer 3 视图都共享这套参数（也是 webdriver=false 断言能成立的前提）。
+    const view = makeDefaultViewFactory()({ width: 160, height: 120 });
     try {
       await view.navigate(TEST_URL);
       const h1 = await view.evaluate(`document.querySelector("h1")?.textContent`);
@@ -265,6 +268,29 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
     } finally {
       manager.dispose();
       server.stop(true);
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
+  testReal("真实引擎：关闭 AutomationControlled 后 navigator.webdriver 为 false（自动化标志不外露）", async () => {
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(manager, sessionId("wd"), "browser_navigate", { url: TEST_URL });
+      const r = await handleBrowserTool(manager, sessionId("wd"), "browser_evaluate", {
+        action: "eval",
+        script: "navigator.webdriver",
+      });
+      const parsed = JSON.parse(r.content[0].text) as { ok: boolean; result: unknown };
+      expect(parsed.ok).toBe(true);
+      // 实测：epub.cnipa.gov.cn 等站对 webdriver=true 直接回空页
+      expect(parsed.result).toBe(false);
+    } finally {
+      manager.dispose();
       rmSync(screenshotDir, { recursive: true, force: true });
     }
   });

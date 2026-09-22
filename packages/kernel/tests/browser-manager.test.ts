@@ -129,7 +129,7 @@ describe("BrowserManager", () => {
     expect(manager.get("s1")).toBeUndefined();
     manager.dispose();
   });
-  test("默认视图工厂：Chrome 后端带 --mute-audio（页面媒体不自动出声）", () => {
+  test("默认视图工厂：Chrome 后端带 --mute-audio（页面媒体不自动出声）+ 关 AutomationControlled", () => {
     // 注入假 WebView 构造器捕获参数（避免拉起真实 Chrome）
     const captured: Array<Record<string, unknown>> = [];
     const FakeCtor = class {
@@ -145,9 +145,28 @@ describe("BrowserManager", () => {
     expect(captured[0]).toMatchObject({
       width: 800,
       height: 600,
-      backend: { type: "chrome", argv: ["--mute-audio"] },
+      backend: {
+        type: "chrome",
+        argv: ["--mute-audio", "--disable-blink-features=AutomationControlled"],
+      },
     });
     (view as unknown as { close(): void }).close();
+  });
+
+  test("默认视图工厂：argv 关闭 AutomationControlled（防 navigator.webdriver 外露被反爬识别）", () => {
+    // 实测：epub.cnipa.gov.cn 对 headless UA + webdriver=true 直接回空页，
+    // 关掉 AutomationControlled（webdriver=false）后才放行 —— 锁死该参数防回归
+    const captured: Array<Record<string, unknown>> = [];
+    const FakeCtor = class {
+      constructor(opts: Record<string, unknown>) {
+        captured.push(opts);
+      }
+      close() {}
+    };
+    const factory = makeDefaultViewFactory(FakeCtor as never);
+    factory({ width: 800, height: 600 });
+    const backend = captured[0].backend as { argv?: string[] };
+    expect(backend.argv).toContain("--disable-blink-features=AutomationControlled");
   });
 
   test("默认视图工厂：缺少 --mute-audio 会失败（防回归静音参数）", () => {

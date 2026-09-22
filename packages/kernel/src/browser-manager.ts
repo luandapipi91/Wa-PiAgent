@@ -87,7 +87,13 @@ export function makeDefaultViewFactory(
   return (o) =>
     new WebViewCtor({
       ...o,
-      backend: { type: "chrome", argv: ["--mute-audio"] },
+      // --disable-blink-features=AutomationControlled：Chrome 自动化启动时
+      // navigator.webdriver 为 true，反爬站（如实测的 epub.cnipa.gov.cn）据此
+      // 直接回空页；关掉该特征后 webdriver=false，与桌面 UA 伪装配套才放行。
+      backend: {
+        type: "chrome",
+        argv: ["--mute-audio", "--disable-blink-features=AutomationControlled"],
+      },
     }) as unknown as WebViewLike;
 }
 
