@@ -243,6 +243,35 @@ test("generateProviderExtension：透传内置目录 thinkingLevelMap（回归�
   expect(codeNoMap).not.toContain("thinkingLevelMap");
 });
 
+test("generateProviderExtension：为每个模型注入 inputLimits（用户配置优先，缺省全局默认）", () => {
+  // pi 0.87 per-model 图片输入限制：兜底 kernel 入口压缩未覆盖的链路（pi read 读图、
+  // 工具结果截图等直接进历史）。缺省 profile 数值对齐 agent-manager 入口压缩：
+  // 4K 宽 + 4.5MB base64（≈3.375MB 原始，Anthropic 5MB base64 限制留余量）。
+  const providers = [
+    sampleProvider({
+      models: [
+        { id: "m-default", contextWindow: 128000, maxTokens: 4096 },
+        {
+          id: "m-custom",
+          contextWindow: 128000,
+          maxTokens: 4096,
+          inputLimits: { images: { resize: { maxWidth: 1024, maxBytes: 1_000_000 } } },
+        },
+      ],
+    }),
+  ];
+  const code = generateProviderExtension(providers, new Map());
+  // 缺省模型落全局默认 profile（JSON.stringify 数字无空格，子串断言稳定）
+  expect(code).toContain('"maxWidth":4096');
+  expect(code).toContain('"maxBytes":4500000');
+  expect(code).toContain('"jpegQuality":85');
+  // 用户显式配置优先，不被默认覆盖
+  expect(code).toContain('"maxWidth":1024');
+  expect(code).toContain('"maxBytes":1000000');
+  // 生成器版本 bump 到 5（stale 判定据此强制重生成）
+  expect(code).toContain("generator-version: 5");
+});
+
 test("generateProviderExtension：anthropic-messages provider 不采用其他 api 分节的目录 baseUrl", () => {
   // 回归：opencode-go 的 deepseek-v4-flash 在内置目录里只挂在 openai-completions 分节
   // （baseUrl 带 /v1），provider 配的是 anthropic-messages——Anthropic SDK 会自己拼

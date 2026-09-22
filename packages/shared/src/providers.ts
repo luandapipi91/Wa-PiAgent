@@ -5,6 +5,24 @@ import type { ProviderTestFailure } from "./kernel-errors";
 /** API 格式（对齐 Pi 的 api 字段子集） */
 export type ProviderApi = "openai-completions" | "anthropic-messages";
 
+/** 图片缩放参数（与 pi-ai ModelImageResizeOptions 同构；maxBytes 为 base64 编码后字节） */
+export interface ProviderImageResize {
+ maxWidth?: number;
+ maxHeight?: number;
+ maxBytes?: number;
+ jpegQuality?: number;
+}
+
+/** 按模型图片输入限制（与 pi-ai ModelInputLimits 同构） */
+export interface ProviderInputLimits {
+ images?: {
+  resize?: ProviderImageResize;
+  maxPerMessage?: number;
+  maxPerRequest?: number;
+ };
+ maxRequestBytes?: number;
+}
+
 /** 单个模型 */
 export interface ProviderModel {
  id: string; // 模型 ID，如 "deepseek-chat"
@@ -14,6 +32,12 @@ export interface ProviderModel {
  reasoning?: boolean; // 是否思考/推理模型。用户显式标记优先于内置目录——目录未收录的思考模型
  // （如手动添加的 deepseek-v4-flash）必须标 true，否则 pi-ai 不会向 DeepSeek 端点发送
  // thinking:disabled，服务端默认开启的思考会与正文共享并吃满 max_tokens 输出预算
+ /**
+  * 按模型图片输入限制（生成 registerProvider 时透传 pi Model.inputLimits）。
+  * 缺省由 kernel 生成器补全局默认 profile（4K 宽 / 4.5MB base64）。高级场景
+  * （某网关限制更严）手编 providers.json 配置；前端设置页暂无编辑入口。
+  */
+ inputLimits?: ProviderInputLimits;
 }
 
 /** 供应商（纯自定义） */

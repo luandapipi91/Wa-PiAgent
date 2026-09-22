@@ -97,8 +97,24 @@ function lookupSdkModel(
  * 历史：1 = 无版本标记的旧生成器；2 = maxTokens 改为用户显式配置优先。
  * 3 = 透传内置目录模型 compat（OpenCode Go 网关要求 assistant 消息回传 reasoning_content）。
  * 4 = 透传内置目录模型 thinkingLevelMap（回归：glm-5.3-flash 始终思考模型丢失 off:null
- *     声明 → pi 侧钳制失效 → “关闭思考”原样发智谱 → 400 1210“不支持关闭思考”）。 */
-export const EXTENSION_GENERATOR_VERSION = 4;
+ *     声明 → pi 侧钳制失效 → “关闭思考”原样发智谱 → 400 1210“不支持关闭思考”）。
+ * 5 = 为每个模型注入 inputLimits 图片输入限制（pi 0.87）：兜底 kernel 入口压缩未覆盖
+ *     的图片链路（pi read 读图/工具结果截图直接进历史），用户 providers.json 显式
+ *     配置（ProviderModel.inputLimits）优先。 */
+export const EXTENSION_GENERATOR_VERSION = 5;
+
+/** 全局默认图片输入限制（透传 pi Model.inputLimits）：缩放发生在图片进入会话历史
+ *  之前（pi 0.87 cache-safe 语义——历史里存的就是缩过的，后续轮次缓存前缀稳定），
+ *  兜底 kernel 入口压缩（agent-manager compressImageToSize，仅覆盖用户发图）未覆盖
+ *  的链路：pi 内置 read 读图、工具结果图片（browser 截图等）。数值对齐入口压缩：
+ *  4K 宽（视觉模型 ~1024px 处理，发 4K 无增益）+ 4.5MB base64（≈3.375MB 原始，
+ *  Anthropic 5MB base64 上限留余量；入口压缩产出的 webp ≤3MB 原始 ≈ 4MB base64，
+ *  不会被此兜底误伤）。 */
+const DEFAULT_INPUT_LIMITS = {
+	images: {
+		resize: { maxWidth: 4096, maxHeight: 4096, maxBytes: 4_500_000, jpegQuality: 85 },
+	},
+};
 
 function modelToInfo(m: CatalogModel): SdkModelInfo {
 	return {
@@ -263,6 +279,10 @@ export function generateProviderExtension(
 					// detectCompat 仅对 deepseek 官方端点自动开启，自定义供应商漏配会
 					// 在多轮对话 400）。自建网关（生效 baseUrl 与目录不同）时 developer
 					// role 修正叠加其上——目录 compat 未必适用用户自己的端点。
+					// inputLimits：用户显式配置优先（per-model 差异化，如某网关限 2MB），
+					// 缺省落全局默认——生成物恒带该字段，pi 引擎在图片进历史前统一缩放。
+					const inputLimits = m.inputLimits ?? DEFAULT_INPUT_LIMITS;
+					const inputLimitsCode = `\n        inputLimits: ${JSON.stringify(inputLimits)},`;
 					const compat = {
 						...sdk?.compat,
 						...(customEndpoint && reasoning ? { supportsDeveloperRole: false } : {}),
@@ -284,7 +304,7 @@ export function generateProviderExtension(
         input: ${JSON.stringify(input)},
         cost: ${JSON.stringify(cost)},
         contextWindow: ${contextWindow},
-        maxTokens: ${maxTokens},${mapCode}${compatCode}
+        maxTokens: ${maxTokens},${inputLimitsCode}${mapCode}${compatCode}
       }`;
 				})
 				.join(",\n");
