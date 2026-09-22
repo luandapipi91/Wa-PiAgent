@@ -198,8 +198,9 @@ function makeHarness() {
 		getCursorScreenPoint: () => ({ x: 777, y: 888 }),
 	};
 
-	const mainWindow = { webContents: { id: "main" } };
+	const mainWindow = { webContents: { id: "main" }, isDestroyed: () => false, isVisible: () => true };
 	const closed: any[] = [];
+	const shown: any[] = [];
 	const pet = setupPetWindow({
 		BrowserWindow,
 		ipcMain,
@@ -208,6 +209,7 @@ function makeHarness() {
 		configFile,
 		getMainWindow: () => mainWindow,
 		onPetClosed: () => closed.push("closed"),
+		onShowMain: () => shown.push("showMain"),
 	});
 	return {
 		pet,
@@ -216,6 +218,7 @@ function makeHarness() {
 		calls,
 		created,
 		closed,
+		shown,
 		configFile,
 		dir,
 		mainSender: { sender: mainWindow.webContents },
@@ -381,6 +384,19 @@ test("pet:save-config 落盘（flush 后文件内容一致）", () => {
 		});
 	} finally {
 		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("pet:show-main：主窗口可见但被遮挡时也要提到最前（不因 isVisible 直接跳过）", () => {
+	const h = makeHarness();
+	try {
+		h.pet.setEnabled(true);
+		// harness 的主窗口 isVisible() 为 true——旧实现会在这里 return，于是「被其它应用
+		// 盖住」的情况下点击宠物完全没反应（用户报告的「没有用」）。
+		h.listeners.get("pet:show-main")!(petSender(h), undefined);
+		expect(h.shown).toContain("showMain");
+	} finally {
+		h.pet.dispose();
 	}
 });
 

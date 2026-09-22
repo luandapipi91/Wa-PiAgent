@@ -245,12 +245,13 @@ function setupPetWindow(deps = {}) {
 	};
 
 	// ---- IPC：主窗口 → 主进程 ----
-	// 点击宠物 → 唤回主窗口：主窗口收起时连 Dock 图标都被隐藏，
-	// 那时宠物是唯一还看得见的入口。仅当主窗口确实不可见时才动作，已开着就不打扰。
+	// 点击宠物 → 把主窗口提到最前：主窗口收起时连 Dock 图标都被隐藏，那时宠物是
+	// 唯一入口；而窗口开着但被其它应用盖住时，同样需要置顶——所以不能以
+	// 「窗口已可见」作为跳过条件（用户报告：那样点了完全没反应）。
 	ipcMain.on("pet:show-main", (event) => {
 		if (!isPetSender(event)) return;
 		const main = typeof getMainWindow === "function" ? getMainWindow() : null;
-		if (!main || main.isDestroyed() || main.isVisible()) return;
+		if (!main || main.isDestroyed()) return;
 		if (typeof onShowMain === "function") onShowMain();
 	});
 
