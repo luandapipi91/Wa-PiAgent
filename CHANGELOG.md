@@ -1,5 +1,6 @@
 ## 2026-09-22
 
+- chore(deps): pi-ai/pi-coding-agent/pi-tui 升 0.87.0（pi-ai/pi-coding-agent ^0.87.0、pi-tui 精确 0.87.0，打包单一来源派生不变）。五条 breaking change 逐一核实项目零直接命中：shouldStopAfterTurn 无引用、SessionEntry 无 exhaustive 消费（tui-host-registry 同名接口为本地定义）、agent.state.messages 无直接赋值、TurnEndEvent/ExtensionRunner.emit 无导入调用（kernel 内 .emit( 全为测试 fixture 注入 RPC 事件）、无 agent_settled/turn_end/context 扩展 handler；自有扩展注册事件（session_before_compact / session_start / session_shutdown / tool_call / tool_execution_end / agent_end）0.87 未变更。kernel typecheck 一次通过 + 全仓 typecheck 绿；kernel 全量回归与升级前基线对比 2 个差异用例（browser-real-engine webdriver / scheduler markInterrupted 尾读窗口）单跑全绿=全量跑测试间污染，非升级引入；真实 pi 0.87 RPC 加载 bridge 扩展不崩 + tui-host 集成 24/24 冒烟全绿。
 - v0.6.4 发版：升版 0.6.3 → 0.6.4（2 提交：bfea2761 浏览器工具 UA 去 headless + eb76a094 关闭 Chrome 自动化标志）。对外文案（用户指定）：「内置浏览器自动化工具访问优化」。验证：browser 域测试 24 pass；四包 typecheck + kernel 全量回归 + 双端打包 gate。
 - v0.6.3 发版准备（打包供本地测试，尚未发布）：升版 0.6.2 → 0.6.3（1 提交——拖动桌宠期间不切点击穿透，保住 Windows 指针捕获不断流）。
 - v0.6.2 发版：升版 0.6.1 → 0.6.2（4 提交）。内容：图片预览顶部栏加缩放控件（− / 100% / +，键盘 +/−/0，仅图片项）；点宠物唤回主窗口强制置顶（去 isVisible 守卫 + app.focus steal，修被遮挡时不置前）；子代理无进展看门狗窗口改为「非工具执行 2 分钟 / 工具执行中 20 分钟」。验证：四包 typecheck + kernel 全量回归 + 双端打包 gate。
