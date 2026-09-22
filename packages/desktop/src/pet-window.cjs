@@ -112,6 +112,7 @@ function setupPetWindow(deps = {}) {
 		ipcMain,
 		screen,
 		log,
+		app,
 		configFile,
 		getMainWindow,
 		onPetClosed,
@@ -150,8 +151,16 @@ function setupPetWindow(deps = {}) {
 		};
 	};
 
+	// 只有内部通道（菜单「关闭桌面宠物」/ 设置开关）才允许真正关闭，
+	// 其它任何关闭请求（cmd+w、窗口菜单、系统）一律拦下。
+	let allowClose = false;
+	// 应用退出必须放行：否则退出流程会被 close 拦截卡住，整个应用退不掉。
+	if (app && typeof app.on === "function") {
+		app.on("before-quit", () => { allowClose = true; });
+	}
 	const create = () => {
 		if (petWin && !petWin.isDestroyed()) return petWin;
+		allowClose = false;
 		const bounds = defaultBounds();
 		petWin = new BrowserWindow({
 			...bounds,
@@ -176,6 +185,11 @@ function setupPetWindow(deps = {}) {
 		win.webContents.once("did-finish-load", () => {
 			if (win && !win.isDestroyed()) win.show();
 		});
+		// 拦下系统关闭（cmd+w / 窗口菜单 / 系统）：只有内部 destroy() 设置的
+		// allowClose 才放行，否则宠物会被意外关掉且难以恢复。
+		win.on("close", (e) => {
+			if (!allowClose) e.preventDefault();
+		});
 		win.on("closed", () => {
 			if (petWin === win) petWin = null;
 		});
@@ -190,6 +204,7 @@ function setupPetWindow(deps = {}) {
 		}
 		const win = petWin;
 		petWin = null;
+		allowClose = true; // 内部销毁：放行随后的 close
 		try {
 			// 先 hide 再 close：hide 让「窗口可见性变化」在对象仍存活时先处理完，
 			// 降低销毁瞬间与系统可见性/遮挡通知（macOS 异步到达）的竞态。

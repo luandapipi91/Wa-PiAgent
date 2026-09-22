@@ -258,6 +258,9 @@ test("setEnabled(true)：按约定参数建窗并加载 pet.html、首帧后显�
 		expect(options.frame).toBe(false);
 		expect(options.resizable).toBe(false);
 		expect(options.skipTaskbar).toBe(true);
+		// 不设 focusable:false —— 它在 macOS 上有让窗口不显示的风险；
+		// 「不可关闭」改由 close 事件拦截实现（见 pet-window.cjs）。
+		expect(options.focusable).toBeUndefined();
 		expect(options.hasShadow).toBe(false);
 		expect(options.useContentSize).toBe(true);
 		// 窗口尺寸固定（按最大缩放 + 菜单需求预留）：缩放只改窗口内部，不再动窗口几何

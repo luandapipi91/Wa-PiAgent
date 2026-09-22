@@ -672,6 +672,7 @@ app.whenReady().then(async () => {
 		ipcMain,
 		screen,
 		log,
+		app,
 		configFile: path.join(app.getPath("userData"), "guagua_config.json"),
 		getMainWindow: () => mainWindow,
 		// 宠物右键菜单「关闭」→ 主窗口把设置开关同步置关（避免设置显示开启却看不到宠物）
