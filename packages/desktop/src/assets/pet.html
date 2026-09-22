@@ -114,6 +114,11 @@
     <span class="pct" id="sizePct">100%</span>
   </div>
   <div class="sep"></div>
+  <div class="mi" data-act="hop">跳一下</div>
+  <div class="mi" data-act="croak">呱一声！</div>
+  <div class="mi" data-act="hunt">喂虫子</div>
+  <div class="mi" data-act="sing">唱一首</div>
+  <div class="sep"></div>
   <div class="mi" data-act="yawn">打哈欠</div>
   <div class="mi" data-act="look">左顾右盼</div>
   <div class="mi" data-act="puff">鼓腮啵~</div>
@@ -450,15 +455,33 @@ function startCelebrate() {
   Object.assign(st, { state: "celebrate", ticks: 0, dur: 72 });
   say("呱呱呱 任务完成！", 70);
 }
-/* 对话完成后的动作池：每次从中随机挑一个（「任务完成」的庆祝只是其中之一）。
- * 互动菜单里不再单独提供该动作的入口，它只作为对话完成的随机反应出现。 */
-// 任务完成后的随机动作池：只有这四个（跳一下 / 呱一声！/ 喂虫子 / 唱一首）。
-// 这四项同时**不再**作为右键互动菜单的入口——完成动作只从「对话完成」这条通道出现。
-const CELEBRATE_POOL = ["hop", "croak", "hunt", "sing"];
+/* 动作表：互动动作与「对话完成」的随机动作不区分了——
+ * 池子直接由二级菜单的动作项派生，执行也走菜单点击那条路径，
+ * 菜单里增删动作时两边自动保持一致（wander 是开关，不算动作）。 */
+function actionPool() {
+  return [...document.querySelectorAll("#menuInter .mi[data-act]")]
+    .map(el => el.dataset.act)
+    .filter(a => a !== "wander");
+}
+/** 动作执行入口：菜单点击与「对话完成」的随机动作共用同一条路径 */
+function runAction(a) {
+  if (a === "hop") hopNow();
+  else if (a === "sleep") startSleep();
+  else dispatch(a);
+}
+/** 该动作此刻能否真的执行：
+ *  「喂虫子」已有虫在飞、与「睡觉」在跳/拖动时都是空操作，不滤掉的话
+ *  抽到它就等于「任务完成」毫无反应。 */
+function canRunAction(a) {
+  if (a === "hunt") return st.fly === null;
+  if (a === "hop") return st.state !== "drag";
+  if (a === "sleep") return st.state !== "hop" && st.state !== "drag";
+  return true;
+}
 function startRandomCelebrate() {
-  const act = pick(CELEBRATE_POOL);
-  if (act === "hop") hopNow();
-  else dispatch(act);
+  const pool = actionPool().filter(canRunAction);
+  if (!pool.length) return;
+  runAction(pick(pool));
 }
 function hopNow() { if (st.state !== "drag") startHop(); }
 function toggleWander() {
@@ -1323,9 +1346,8 @@ menuInter.querySelectorAll(".mi[data-act]").forEach(el => {
   el.addEventListener("click", () => {
     ensureAwake();
     const a = el.dataset.act;
-    if (a === "hop") hopNow();
-    else if (a === "wander") toggleWander();
-    else dispatch(a);
+    if (a === "wander") toggleWander();
+    else runAction(a);
     hideMenus();
   });
 });

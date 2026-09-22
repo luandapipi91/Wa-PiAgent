@@ -86,44 +86,47 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		`)) as Array<{ act: string | null; text: string }>;
 
 		const acts = menu.map((i) => i.act);
-		// 菜单里不得再有「任务完成」这一项（也不得出现在任何菜单文案里）
-		expect(acts).not.toContain("celebrate");
-		expect(menu.some((i) => i.text.includes("任务完成"))).toBe(false);
-		// 四个「完成动作」也从互动菜单移除：跳一下 / 呱一声！/ 喂虫子 / 唱一首
-		for (const a of ["hop", "croak", "hunt", "sing"]) expect(acts).not.toContain(a);
-		// 其它动作项仍在
-		for (const a of ["yawn", "look", "puff", "blep", "blow", "sneeze", "curious", "sleep", "wander"])
+		// 不再区分「完成动作」与「互动动作」：菜单里保留全部动作项
+		for (const a of [
+			"hop", "croak", "hunt", "sing", "yawn", "look",
+			"puff", "blep", "blow", "sneeze", "curious", "sleep", "wander",
+		])
 			expect(acts).toContain(a);
+		// 「任务完成」仍是完成时的随机反应，不作为菜单文案出现
+		expect(menu.some((i) => i.text.includes("任务完成"))).toBe(false);
 	});
 
 	test("对话完成：一定动，且动作在多个之间随机（不是固定庆祝）", async () => {
 		const pet = await findPetWindow();
-		// 反复走「对话完成」的入口，收集实际进入的状态
-		const seen = (await pet.evaluate(`
+		// 反复走「对话完成」的入口，收集实际进入的状态 + 当前动作池
+		const probe = (await pet.evaluate(`
 			(() => {
 				const out = {};
+				const pool = actionPool();
 				for (let i = 0; i < 60; i++) {
 					st.state = "idle";
-					st.fly = null;   // 清掉在飞的虫子：「喂虫子」有前置条件，不然会被跳过
+					st.fly = null;   // 清掉在飞的虫子：「喂虫子」有前置条件
+					st.wander = true;
 					startRandomCelebrate();
 					out[st.state] = (out[st.state] || 0) + 1;
 				}
-				return out;
+				return { seen: out, pool };
 			})()
-		`)) as Record<string, number>;
+		`)) as { seen: Record<string, number>; pool: string[] };
 
-		const actions = Object.keys(seen);
-		// 一定动：每次调用都进了某个动作态（不只停在 idle）
-		const movedCount = Object.entries(seen)
+		const actions = Object.keys(probe.seen).filter((a) => a !== "idle");
+		// 一定动：每次调用都进了某个动作态（不再有静默跳过）
+		const movedCount = Object.entries(probe.seen)
 			.filter(([k]) => k !== "idle")
 			.reduce((s, [, v]) => s + v, 0);
 		expect(movedCount).toBe(60);
 		// 动作随机：60 次里出现多种动作
-		expect(actions.filter((a) => a !== "idle").length).toBeGreaterThan(1);
-		// 只限四个完成动作：跳一下 / 呱一声！/ 喂虫子 / 唱一首
-		// （喂虫子进入的状态名是 hunt_watch）
-		const CELEBRATE_FOUR = ["hop", "croak", "sing", "hunt_watch"];
-		expect(actions.filter((a) => a !== "idle").every((a) => CELEBRATE_FOUR.includes(a))).toBe(true);
+		expect(actions.length).toBeGreaterThan(3);
+		// 不再区分完成动作与互动动作：池子就是菜单里的全部动作项（wander 是开关，不算动作）
+		expect(probe.pool.length).toBe(12);
+		expect(probe.pool).not.toContain("wander");
+		expect(probe.pool).toContain("hop");
+		expect(probe.pool).toContain("sleep");
 	});
 
 	test("真实链路：主窗口转发庆祝 → 宠物确实做了动作（气泡或动作态）", async () => {

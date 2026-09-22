@@ -125,13 +125,18 @@ test("main.cjs：为已销毁窗口的系统事件竞态装了窄范围兜底（
 	expect(src).toContain("process.exit(1)");
 });
 
-test("pet.html：任务完成动作只有四个（跳一下/呱一声/喂虫子/唱一首），且不在互动菜单里", () => {
+test("pet.html：完成动作与互动动作共用全部动作（不再区分）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
-	expect(html).toContain('const CELEBRATE_POOL = ["hop", "croak", "hunt", "sing"];');
-	// 这四个不得再作为菜单项
+	// 动作池由二级菜单的动作项派生 → 菜单增减动作时两边天然一致
+	expect(html).toContain("function actionPool()");
+	expect(html).toContain('document.querySelectorAll("#menuInter .mi[data-act]")');
+	expect(html).toContain('a !== "wander"');
+	// 完成动作走与菜单点击相同的执行入口
+	expect(html).toContain("function runAction(a)");
+	expect(html).not.toContain("CELEBRATE_POOL");
+	// 四个原「完成专属」动作恢复为菜单项
 	for (const a of ["hop", "croak", "hunt", "sing"])
-		expect(html).not.toContain(`data-act="${a}"`);
-	// 其它动作项保留
+		expect(html).toContain(`data-act="${a}"`);
 	expect(html).toContain('data-act="yawn"');
 	expect(html).toContain('data-act="wander"');
 });
