@@ -115,8 +115,8 @@ test.describe.serial("缩放与右键菜单尺寸", () => {
 			sub: { t: number; r: number; b: number; h: number };
 		};
 
-		// 二级菜单要有可用高度（修复前在下方右键时只剩 ~90px）
-		expect(layout.sub.h).toBeGreaterThan(400);
+		// 二级菜单要有可用高度（修复前在下方右键时只剩 ~90px；菜单现有 9 项、自然高度约 344px）
+		expect(layout.sub.h).toBeGreaterThan(300);
 		expect(layout.sub.r).toBeLessThanOrEqual(layout.win.w);
 		expect(layout.sub.b).toBeLessThanOrEqual(layout.win.h);
 

@@ -114,11 +114,6 @@
     <span class="pct" id="sizePct">100%</span>
   </div>
   <div class="sep"></div>
-  <div class="mi" data-act="hop">跳一下</div>
-  <div class="mi" data-act="croak">呱一声！</div>
-  <div class="mi" data-act="hunt">喂虫子</div>
-  <div class="mi" data-act="sing">唱一首</div>
-  <div class="sep"></div>
   <div class="mi" data-act="yawn">打哈欠</div>
   <div class="mi" data-act="look">左顾右盼</div>
   <div class="mi" data-act="puff">鼓腮啵~</div>
@@ -457,11 +452,12 @@ function startCelebrate() {
 }
 /* 对话完成后的动作池：每次从中随机挑一个（「任务完成」的庆祝只是其中之一）。
  * 互动菜单里不再单独提供该动作的入口，它只作为对话完成的随机反应出现。 */
-const CELEBRATE_POOL = ["celebrate", "hop", "croak", "sing", "happy", "puff", "blep", "curious", "look"];
+// 任务完成后的随机动作池：只有这四个（跳一下 / 呱一声！/ 喂虫子 / 唱一首）。
+// 这四项同时**不再**作为右键互动菜单的入口——完成动作只从「对话完成」这条通道出现。
+const CELEBRATE_POOL = ["hop", "croak", "hunt", "sing"];
 function startRandomCelebrate() {
   const act = pick(CELEBRATE_POOL);
   if (act === "hop") hopNow();
-  else if (act === "happy") startHappy();
   else dispatch(act);
 }
 function hopNow() { if (st.state !== "drag") startHop(); }

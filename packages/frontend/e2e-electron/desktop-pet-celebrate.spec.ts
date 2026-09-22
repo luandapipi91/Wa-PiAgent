@@ -89,8 +89,11 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		// 菜单里不得再有「任务完成」这一项（也不得出现在任何菜单文案里）
 		expect(acts).not.toContain("celebrate");
 		expect(menu.some((i) => i.text.includes("任务完成"))).toBe(false);
-		// 其它动作项仍在（只移除了这一项）
-		expect(acts).toContain("hop");
+		// 四个「完成动作」也从互动菜单移除：跳一下 / 呱一声！/ 喂虫子 / 唱一首
+		for (const a of ["hop", "croak", "hunt", "sing"]) expect(acts).not.toContain(a);
+		// 其它动作项仍在
+		for (const a of ["yawn", "look", "puff", "blep", "blow", "sneeze", "curious", "sleep", "wander"])
+			expect(acts).toContain(a);
 	});
 
 	test("对话完成：一定动，且动作在多个之间随机（不是固定庆祝）", async () => {
@@ -101,6 +104,7 @@ test.describe.serial("对话完成后的宠物动作", () => {
 				const out = {};
 				for (let i = 0; i < 60; i++) {
 					st.state = "idle";
+					st.fly = null;   // 清掉在飞的虫子：「喂虫子」有前置条件，不然会被跳过
 					startRandomCelebrate();
 					out[st.state] = (out[st.state] || 0) + 1;
 				}
@@ -116,6 +120,10 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		expect(movedCount).toBe(60);
 		// 动作随机：60 次里出现多种动作
 		expect(actions.filter((a) => a !== "idle").length).toBeGreaterThan(1);
+		// 只限四个完成动作：跳一下 / 呱一声！/ 喂虫子 / 唱一首
+		// （喂虫子进入的状态名是 hunt_watch）
+		const CELEBRATE_FOUR = ["hop", "croak", "sing", "hunt_watch"];
+		expect(actions.filter((a) => a !== "idle").every((a) => CELEBRATE_FOUR.includes(a))).toBe(true);
 	});
 
 	test("真实链路：主窗口转发庆祝 → 宠物确实做了动作（气泡或动作态）", async () => {

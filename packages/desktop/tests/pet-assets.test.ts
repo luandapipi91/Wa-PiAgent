@@ -125,6 +125,17 @@ test("main.cjs：为已销毁窗口的系统事件竞态装了窄范围兜底（
 	expect(src).toContain("process.exit(1)");
 });
 
+test("pet.html：任务完成动作只有四个（跳一下/呱一声/喂虫子/唱一首），且不在互动菜单里", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	expect(html).toContain('const CELEBRATE_POOL = ["hop", "croak", "hunt", "sing"];');
+	// 这四个不得再作为菜单项
+	for (const a of ["hop", "croak", "hunt", "sing"])
+		expect(html).not.toContain(`data-act="${a}"`);
+	// 其它动作项保留
+	expect(html).toContain('data-act="yawn"');
+	expect(html).toContain('data-act="wander"');
+});
+
 test("pet.html：多屏偏移不漏算（首启位置带 virt 边界；动作/缩放不跨屏）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
 	// 首次启动（无历史位置）落虚拟桌面右下角：必须直接用 virt.r / virt.b。
