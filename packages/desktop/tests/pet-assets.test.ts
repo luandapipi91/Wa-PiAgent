@@ -138,6 +138,21 @@ test("main.cjs：为已销毁窗口的系统事件竞态装了窄范围兜底（
 	expect(src).toContain("process.exit(1)");
 });
 
+test("pet.html：青蛙能到达屏幕四角（横向留白不再是 90px）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 横向留白抽成常量且足够小，使青蛙能贴到屏幕左右边缘（四个角）
+	const m = html.match(/const PET_EDGE_MARGIN = (\d+)/);
+	expect(m).not.toBeNull();
+	expect(Number(m![1])).toBeLessThanOrEqual(20);
+	// 四处位置 clamp（溜达落点 / 拖动 / 缩放后收敛 / 启动恢复）都要用它，且旧的 90 留白不得残留
+	expect([...html.matchAll(/PET_EDGE_MARGIN/g)].length).toBeGreaterThanOrEqual(5);
+	expect(html).not.toContain("virt.l + 90");
+	expect(html).not.toContain("home.l + 90");
+	// 溜达落点的纵向也要能到上下边（按头顶/脚底贴边算），不再是「上留 100、下留 40」
+	expect(html).not.toContain("home.t + 100");
+	expect(html).toContain("Math.round(home.t + 80 * K)");
+});
+
 test("pet.html：动作列表之间不再有分隔线（两类动作已合并）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
 	// 第一个动作项到最后一个动作项之间不得再有分隔线
@@ -175,10 +190,10 @@ test("pet.html：多屏偏移不漏算（首启位置带 virt 边界；动作/�
 	expect(html).not.toContain("st.fx = sw - 230");
 	// 缩放后的位置 clamp 按「宠物当前所在的那块屏」（归属屏）——自发动作与缩放都不跨屏
 	expect(html).toContain("const homeK = screenAt(st.fx);");
-	expect(html).toContain("st.fx = clamp(st.fx, homeK.l + 90, homeK.r - 90);");
+	expect(html).toContain("st.fx = clamp(st.fx, homeK.l + PET_EDGE_MARGIN, homeK.r - PET_EDGE_MARGIN);");
 	// 自发动作（溜达/蹦跶）同样只在归属屏内：不再随机挑屏、不按 virt 落点
 	expect(html).toContain("const home = screenAt(st.fx);");
-	expect(html).toContain("const x1 = clamp(tx, home.l + 90, home.r - 90);");
+	expect(html).toContain("const x1 = clamp(tx, home.l + PET_EDGE_MARGIN, home.r - PET_EDGE_MARGIN);");
 	expect(html).not.toContain("pick(screens)");
 	expect(html).toContain("function frogFyRange() {");
 	expect(html).toContain("min: virt.t + Math.round(80 * K),");

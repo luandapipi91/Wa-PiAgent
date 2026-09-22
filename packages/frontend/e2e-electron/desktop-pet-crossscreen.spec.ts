@@ -73,14 +73,14 @@ test.describe.serial("自发动作不跨屏", () => {
 				st.fx = 1340; st.fy = 450;
 				for (let i = 0; i < 80; i++) {
 					startHop();
-					if (st.x1 < A.l + 90 || st.x1 > A.r - 90) bad.push([i, Math.round(st.x1)]);
+					if (st.x1 < A.l + PET_EDGE_MARGIN || st.x1 > A.r - PET_EDGE_MARGIN) bad.push([i, Math.round(st.x1)]);
 				}
 				// 用户把它拖到 B 屏后，归属屏变成 B：后续动作都留在 B 内
 				st.fx = 2100; st.fy = 450;
 				let inB = 0;
 				for (let i = 0; i < 80; i++) {
 					startHop();
-					if (st.x1 < B.l + 90 || st.x1 > B.r - 90) bad.push(["B", i, Math.round(st.x1)]);
+					if (st.x1 < B.l + PET_EDGE_MARGIN || st.x1 > B.r - PET_EDGE_MARGIN) bad.push(["B", i, Math.round(st.x1)]);
 					else inB++;
 				}
 				return { bad, inB };

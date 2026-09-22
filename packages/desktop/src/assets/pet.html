@@ -418,8 +418,11 @@ function startHop(tx = null, intent = null) {
     const dist = randi(180, 460) * (Math.random() < 0.5 ? -1 : 1);
     tx = st.fx + dist;
   }
-  const x1 = clamp(tx, home.l + 90, home.r - 90);
-  const y1 = randi(Math.max(home.t + 100, home.b - 340), home.b - 40);
+  const x1 = clamp(tx, home.l + PET_EDGE_MARGIN, home.r - PET_EDGE_MARGIN);
+  // 落点纵向也要能到上下边：按「头顶不出屏顶、脚底不出屏底」算（原先上留 100 / 下留 40）
+  const yLo = Math.round(home.t + 80 * K);
+  const yHi = Math.round(home.b - 54 * K);
+  const y1 = randi(Math.max(yLo, Math.min(yLo, yHi)), Math.max(yLo, yHi));
   const dist = Math.hypot(x1 - st.fx, y1 - st.fy);
   const air = Math.round(clamp(dist / 28, 13, 60));
   Object.assign(st, { x0: st.fx, y0: st.fy, x1, y1, air,
@@ -1196,7 +1199,7 @@ winEl.addEventListener("pointermove", e => {
     st.dgx = 0; st.dgy = 0;
   }
   if (st.moved && st.state === "drag") {
-    const fx = clamp(wx0 + dx + WIN_MAX_W / 2, virt.l + 90, virt.r - 90);
+    const fx = clamp(wx0 + dx + WIN_MAX_W / 2, virt.l + PET_EDGE_MARGIN, virt.r - PET_EDGE_MARGIN);
     // fy 是「青蛙中心」：窗口中心与它重合，故直接用窗口半高反推
     const range = frogFyRange();
     const fy = clamp(wy0 + dy + WIN_MAX_H / 2, range.min, range.max);
@@ -1261,6 +1264,9 @@ function checkMenuDismiss() {
 /* 宠物窗口的固定尺寸（与主进程 PET_WIN_W/H 一致）：窗口几何恒定后，缩放只改窗口内部，
  * 菜单、锚点、穿透都不再受缩放影响（也不必再为放菜单而临时放大窗口）。 */
 const WIN_MAX_W = 560, WIN_MAX_H = 660;
+/** 青蛙可贴到的屏幕边缘留白：只留一点点，让它能移动到屏幕的四个角
+ *  （原先横向一律留 90px，导致永远到不了左右边缘）。 */
+const PET_EDGE_MARGIN = 12;
 /** 屏幕（虚拟桌面）范围换算到窗口内坐标。
  *  窗口可能与屏幕错开（宠物贴屏幕边缘时，窗口有一大半在屏幕外），
  *  菜单只能在窗口里渲染，所以必须同时约束在「屏幕内」与「窗口内」。 */
@@ -1350,7 +1356,7 @@ function applyScale(k) {
   applyGeometry();
   // 位置 clamp 不能跨屏：按宠物当前所在的那块屏幕（用户拖到哪块就归哪块）收尾
   const homeK = screenAt(st.fx);
-  st.fx = clamp(st.fx, homeK.l + 90, homeK.r - 90);
+  st.fx = clamp(st.fx, homeK.l + PET_EDGE_MARGIN, homeK.r - PET_EDGE_MARGIN);
   const range = frogFyRange();
   st.fy = clamp(st.fy, range.min, range.max);
   // 窗口尺寸固定、且窗口中心与青蛙中心重合（winPosFor 是常量偏移）：
@@ -1406,7 +1412,7 @@ function tip(html, ms = 9000) {
     maxFy: virt.b - Math.round(FROG_CENTER_DY * K),
   };
   if (savedPos && isFinite(savedPos.x) && isFinite(savedPos.y)) {
-    st.fx = clamp(savedPos.x, virt.l + 90, virt.r - 90);
+    st.fx = clamp(savedPos.x, virt.l + PET_EDGE_MARGIN, virt.r - PET_EDGE_MARGIN);
     st.fy = clamp(savedPos.y, anchor.minFy, anchor.maxFy);
   } else {
     // 虚拟桌面右下角：直接用 virt.r / virt.b，不能用「宽度 - 230」——
