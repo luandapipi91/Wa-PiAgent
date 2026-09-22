@@ -212,4 +212,60 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
       rmSync(screenshotDir, { recursive: true, force: true });
     }
   });
+
+  testReal("真实引擎：UA 为同机桌面 Chrome（服务端请求头与页内 navigator 均无 HeadlessChrome）", async () => {
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
+    // 本地 server 记录收到的 UA 头：验证伪装对真实网络请求（而非仅页面内 JS）生效
+    const seen: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        seen.push(req.headers.get("user-agent") ?? "");
+        return new Response("<h1>ua</h1>", {
+          headers: { "content-type": "text/html" },
+        });
+      },
+    });
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      const url = `http://127.0.0.1:${server.port}/`;
+      const nav = await handleBrowserTool(manager, sessionId("ua"), "browser_navigate", { url });
+      const navParsed = JSON.parse(nav.content[0].text) as { ok: boolean; url: string };
+      expect(navParsed.ok).toBe(true);
+      expect(navParsed.url).toContain(`127.0.0.1:${server.port}`);
+
+      const ev = await handleBrowserTool(manager, sessionId("ua"), "browser_evaluate", {
+        action: "eval",
+        script: "navigator.userAgent",
+      });
+      const ua = (JSON.parse(ev.content[0].text) as { result: string }).result;
+
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.join("\n")).not.toContain("Headless"); // 服务端视角无 headless 痕迹
+      expect(ua).not.toContain("Headless"); // 页面内视角同样
+      expect(ua).toBe(seen[0]); // 首个目标请求头与 navigator.userAgent 一致
+      expect(ua).toContain("AppleWebKit/537.36 (KHTML, like Gecko) Chrome/");
+      expect(ua).toContain("Safari/537.36");
+      // 平台段随实时机器（不硬编码成别家平台）
+      if (process.platform === "darwin") expect(ua).toContain("Macintosh; Intel Mac OS X");
+      if (process.platform === "win32") expect(ua).toContain("Windows NT");
+      if (process.platform === "linux") expect(ua).toContain("X11; Linux");
+
+      // 覆盖对后续导航持续生效（第二次导航仍是桌面 UA）
+      const before = seen.length;
+      await handleBrowserTool(manager, sessionId("ua"), "browser_navigate", {
+        url: `${url}?again=1`,
+      });
+      expect(seen.length).toBeGreaterThan(before);
+      expect(seen[seen.length - 1]).not.toContain("Headless");
+    } finally {
+      manager.dispose();
+      server.stop(true);
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
 });

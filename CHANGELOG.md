@@ -6,6 +6,8 @@
 - fix(frontend): ask 提问卡片提交不再永久卡在「提交中…」——`AskFormCard` 提交改为最多 3 次尝试（首次 + 2 次重试）、单次超时 2s：既覆盖提交请求本身挂住不返回，也覆盖请求已返回 200 但 toolResult 永不到达（条目已被消费/连接断开残留，父层永不卸载卡片）——200 后等 2s 仍未卸载即记为本次失败进入重试；重试时才收到 400 说明上次其实已提交成功（提问已被消费）→ 本地关闭卡片；3 次耗尽自动取消（best-effort 调 cancel-ask + 本地关闭，`onDismiss` 缺失时兜底恢复按钮）。首次即 400 仍沿用既有失效态、不重试；重试期间按钮文案与输入区行为不变。测试：AskFormCard 组件测试新增 6 例（先红后绿，其中 3 例在旧实现上确认失败）+ 新增 `e2e/ask-submit-timeout.spec.ts`（page.route 让 /answer 永久不响应，实测 3×2s 后自动 cancel-ask 并关闭卡片，用时 8.8s）；既有 AskDock / e2e ask-stale / kernel answer+cancel-ask 路由用例全绿。
 - v0.6.0 发版：升版 0.5.6 → 0.6.0（34 提交）。内容：桌宠大改造（多屏归属屏边界/菜单不越屏与不被截断、窗口固定 560×660 + 窗口内部缩放、置顶、菜单期间暂停自发动作、点菜单外直接生效、任务完成动作收敛为四个并从互动菜单移除）；定时任务/机器人模型改必选（移除「跟随默认」）+ 定时任务排除 ask_user_question；子智能体中断部分进度不丢（看门狗误杀双修）。验证：四包 typecheck + kernel 全量回归 + 双端打包 gate。**发布说明按用户要求收敛**：桌宠只写「新增桌面宠物」一句（其余宠物细节不面向用户展示，技术细节仅留在本条 CHANGELOG）。
 
+- fix(kernel): 浏览器自动化工具的 UA 去掉 headless 痕迹（用户要求「模拟 PC 打开」）—— browser_navigate 首次创建视图时先 about:blank 建立 CDP 会话、读出引擎真实 UA，把 HeadlessChrome 换成 Chrome 后经 CDP `Emulation.setUserAgentOverride` 应用：平台段与版本号随运行机器（无硬编码），对后续导航的请求头与页内 navigator.userAgent 同时生效（实测 `--headless=new` 去除不掉该痕迹）。幂等（同视图一次，并发共享同一次），引擎不支持 cdp 或覆盖失败时静默跳过、不阻断导航。测试：browser-manager 单测新增 11 例（先红后绿：幂等/并发/无 cdp 跳过/失败兜底/视图级隔离）+ Layer 3 真实引擎用例（本地 server 断言请求头与 navigator 均无 Headless、平台段随机器、覆盖对二次导航持续生效）；四包 typecheck + kernel 全量回归绿。
+
 ## 2026-09-21
 
 - fix(desktop): 抓取（拖动）期间不切换点击穿透—— 快拖时窗口 setBounds 异步有延迟，光标会瞬间冲出窗口落到透明区；此时若开启穿透，Windows 会解除指针捕获并停发 pointermove/pointerup，导致甩脱离鼠标、体积松垮也收不到（st.grab 残留，光标移回蛙体又「吸」着走）。修法：checkClickThrough 在命中测试之前加 `if (st.grab) return;`——pointerdown 只可能发生在非穿透态，grab 存续期间保持非穿透即可保证事件不断流，松手后下一帧恢复正常判定。测试：pet-assets 契约（守卫存在且位于 hitTest 之前，先红后绿）。全套桌宠 E2E 33 例 + desktop 275 例 + 四包 typecheck 全绿。

@@ -25,6 +25,11 @@ export interface WebViewLike {
   press(key: string, opts?: unknown): Promise<void>;
   scroll(dx: number, dy: number): Promise<void>;
   scrollTo(selector: string, opts?: unknown): Promise<void>;
+  /**
+   * 发送原始 CDP 命令（仅 Chrome 后端支持，需先 navigate 建立会话）。
+   * fake/旧引擎可省略——省略时依赖 CDP 的增强（如桌面 UA 伪装）自动跳过。
+   */
+  cdp?(method: string, params?: Record<string, unknown>): Promise<unknown>;
   screenshot(opts?: {
     format?: string;
     quality?: number;
@@ -38,6 +43,8 @@ export interface BrowserViewState {
   sessionId: string;
   createdAt: number;
   lastUsedAt: number;
+  /** 桌面 UA 伪装（幂等）的进行中 Promise；undefined 表示尚未开始 */
+  userAgentReady?: Promise<void>;
 }
 
 export interface BrowserManagerOptions {
@@ -53,6 +60,14 @@ export interface BrowserManagerOptions {
 
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
+
+/**
+ * 把引擎真实 UA 里的 HeadlessChrome 换成 Chrome —— 平台段、版本号等其余部分
+ * 原样保留，因此伪装后的 UA 与运行机器的真实桌面 Chrome 一致（不硬编码）。
+ */
+export function toDesktopUserAgent(ua: string): string {
+  return ua.replace(/HeadlessChrome/g, "Chrome");
+}
 
 /**
  * 默认视图工厂：真实 Bun.WebView，Chrome 后端。
@@ -136,6 +151,36 @@ export class BrowserManager {
     };
     this.views.set(sessionId, state);
     return state;
+  }
+
+  /**
+   * 首次导航前把 headless UA 伪装成同机桌面 Chrome。
+   *
+   * Chrome 后端 headless 模式下引擎 UA 带 `HeadlessChrome/…`（实测即使
+   * `--headless=new` 也不去除），站点会据此识别为机器人。做法：先 about:blank
+   * 建立 CDP 会话，读出引擎自己报的 UA，去掉 HeadlessChrome 后经
+   * `Emulation.setUserAgentOverride` 应用 —— 平台段/版本号随运行机器，无硬编码；
+   * 覆盖对该标签页后续导航（含请求头）持续生效。
+   *
+   * 幂等（同视图只做一次，并发共享同一次），引擎不支持 cdp 或应用失败时静默
+   * 跳过：伪装是增强，不阻断导航。
+   */
+  async prepareUserAgent(state: BrowserViewState): Promise<void> {
+    if (!state.userAgentReady) {
+      state.userAgentReady = this.applyDesktopUserAgent(state).catch(() => {});
+    }
+    await state.userAgentReady;
+  }
+
+  private async applyDesktopUserAgent(state: BrowserViewState): Promise<void> {
+    const { view } = state;
+    if (typeof view.cdp !== "function") return;
+    await view.navigate("about:blank"); // cdp 需先有导航建立会话
+    const ua = await view.evaluate("navigator.userAgent");
+    if (typeof ua !== "string" || !ua.includes("HeadlessChrome")) return;
+    await view.cdp("Emulation.setUserAgentOverride", {
+      userAgent: toDesktopUserAgent(ua),
+    });
   }
 
   /** 销毁会话视图（幂等） */

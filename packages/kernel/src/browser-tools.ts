@@ -145,6 +145,8 @@ async function navigateTool(
       width: num(p.width),
       height: num(p.height),
     });
+    // headless UA → 同机桌面 Chrome UA（首次导航前；失败静默跳过不阻断导航）
+    await manager.prepareUserAgent?.(state);
     await runViewOp(() => state.view.navigate(url), timeoutMs, "页面加载");
     const result = {
       ok: true,

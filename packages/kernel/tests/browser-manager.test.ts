@@ -6,8 +6,13 @@ import { join } from "node:path";
 import {
   BrowserManager,
   makeDefaultViewFactory,
+  toDesktopUserAgent,
   type WebViewLike,
 } from "../src/browser-manager";
+
+/** 引擎（headless）默认 UA 样例：平台段为实时机器，仅 Chrome 名带 Headless 前缀 */
+const HEADLESS_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36";
 
 /** fake WebView：记录调用、可配置 navigate 结果 */
 function makeFakeView(): WebViewLike & {
@@ -159,5 +164,164 @@ describe("BrowserManager", () => {
     const backend = captured[0].backend as { type: string; argv?: string[] };
     expect(backend.type).toBe("chrome");
     expect(backend.argv).toContain("--mute-audio");
+  });
+});
+
+describe("toDesktopUserAgent", () => {
+  test("HeadlessChrome 换成 Chrome，平台段与版本号原样保留", () => {
+    const desktop = toDesktopUserAgent(HEADLESS_UA);
+    expect(desktop).not.toContain("Headless");
+    expect(desktop).toContain(
+      "Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+    );
+  });
+
+  test("多处出现全部替换；已非 headless 的 UA 不变", () => {
+    expect(toDesktopUserAgent("HeadlessChrome/1 HeadlessChrome/2")).toBe(
+      "Chrome/1 Chrome/2",
+    );
+    const normal =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36";
+    expect(toDesktopUserAgent(normal)).toBe(normal);
+  });
+});
+
+/** fake WebView（带 CDP 记录 + 可配置 UA）：用于 UA 伪装测试 */
+function makeCdpFakeView(opts: { ua?: string; mutesCdp?: boolean } = {}): WebViewLike & {
+  navigated: string[];
+  cdpCalls: Array<{ method: string; params?: Record<string, unknown> }>;
+} {
+  const navigated: string[] = [];
+  const cdpCalls: Array<{ method: string; params?: Record<string, unknown> }> =
+    [];
+  return {
+    url: "about:blank",
+    title: "",
+    loading: false,
+    navigated,
+    cdpCalls,
+    async navigate(url: string) {
+      navigated.push(url);
+    },
+    async evaluate(script: string) {
+      return script === "navigator.userAgent" ? (opts.ua ?? HEADLESS_UA) : undefined;
+    },
+    async cdp(method: string, params?: Record<string, unknown>) {
+      if (opts.mutesCdp) throw new Error("cdp 不可用");
+      cdpCalls.push({ method, params });
+      return {};
+    },
+    async click() {},
+    async type() {},
+    async press() {},
+    async scroll() {},
+    async scrollTo() {},
+    async screenshot() {
+      return new Blob(["png"]);
+    },
+    close() {},
+  };
+}
+
+describe("BrowserManager.prepareUserAgent", () => {
+  test("把引擎 headless UA 伪装成同机桌面 Chrome UA（申请 CDP 覆盖）", async () => {
+    const view = makeCdpFakeView();
+    const manager = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-mgr-")),
+      viewFactory: () => view,
+    });
+    const state = await manager.getOrCreate("s1");
+    await manager.prepareUserAgent(state);
+
+    expect(view.navigated).toEqual(["about:blank"]); // 覆盖前先建立 CDP 会话
+    expect(view.cdpCalls).toHaveLength(1);
+    expect(view.cdpCalls[0].method).toBe("Emulation.setUserAgentOverride");
+    const ua = view.cdpCalls[0].params?.userAgent as string;
+    expect(ua).not.toContain("Headless");
+    expect(ua).toBe(toDesktopUserAgent(HEADLESS_UA));
+    expect(ua).toContain("Macintosh; Intel Mac OS X 10_15_7"); // 平台段随实时机器
+    manager.dispose();
+  });
+
+  test("幂等：同视图只伪装一次（不重复预热导航/覆盖）", async () => {
+    const view = makeCdpFakeView();
+    const manager = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-mgr-")),
+      viewFactory: () => view,
+    });
+    const state = await manager.getOrCreate("s1");
+    await manager.prepareUserAgent(state);
+    await manager.prepareUserAgent(state);
+    expect(view.navigated).toEqual(["about:blank"]);
+    expect(view.cdpCalls).toHaveLength(1);
+    manager.dispose();
+  });
+
+  test("并发调用共享同一次伪装（不重复覆盖）", async () => {
+    const view = makeCdpFakeView();
+    const manager = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-mgr-")),
+      viewFactory: () => view,
+    });
+    const state = await manager.getOrCreate("s1");
+    await Promise.all([
+      manager.prepareUserAgent(state),
+      manager.prepareUserAgent(state),
+    ]);
+    expect(view.navigated).toEqual(["about:blank"]);
+    expect(view.cdpCalls).toHaveLength(1);
+    manager.dispose();
+  });
+
+  test("引擎不支持 cdp（fake/旧视图）：静默跳过，不产生额外导航", async () => {
+    const view = makeFakeView();
+    const manager = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-mgr-")),
+      viewFactory: () => view,
+    });
+    const state = await manager.getOrCreate("s1");
+    await expect(manager.prepareUserAgent(state)).resolves.toBeUndefined();
+    expect(view.navigated).toEqual([]);
+    manager.dispose();
+  });
+
+  test("CDP 覆盖失败：静默吞掉，不阻断后续导航", async () => {
+    const view = makeCdpFakeView({ mutesCdp: true });
+    const manager = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-mgr-")),
+      viewFactory: () => view,
+    });
+    const state = await manager.getOrCreate("s1");
+    await expect(manager.prepareUserAgent(state)).resolves.toBeUndefined();
+    await state.view.navigate("http://example.com");
+    expect(view.navigated).toContain("http://example.com");
+    manager.dispose();
+  });
+
+  test("引擎已是桌面 UA（无 Headless）：不申请覆盖", async () => {
+    const view = makeCdpFakeView({ ua: toDesktopUserAgent(HEADLESS_UA) });
+    const manager = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-mgr-")),
+      viewFactory: () => view,
+    });
+    const state = await manager.getOrCreate("s1");
+    await manager.prepareUserAgent(state);
+    expect(view.cdpCalls).toHaveLength(0);
+    manager.dispose();
+  });
+
+  test("新会话各自伪装（视图级隔离）", async () => {
+    const views = [makeCdpFakeView(), makeCdpFakeView()];
+    const manager = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-mgr-")),
+      viewFactory: () => views.shift() as WebViewLike,
+    });
+    const s1 = await manager.getOrCreate("s1");
+    const s2 = await manager.getOrCreate("s2");
+    await manager.prepareUserAgent(s1);
+    await manager.prepareUserAgent(s2);
+    expect((s1.view as unknown as { cdpCalls: unknown[] }).cdpCalls).toHaveLength(1);
+    expect((s2.view as unknown as { cdpCalls: unknown[] }).cdpCalls).toHaveLength(1);
+    manager.dispose();
   });
 });
