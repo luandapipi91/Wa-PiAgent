@@ -168,7 +168,10 @@ export function TrashMessageViewer({ sessionId, onBack, onClose }: Props) {
 				) : (
 					<div className="flex flex-col gap-4 max-w-3xl mx-auto">
 						{messages.map((msg, i) => {
-							if (msg.role === "compactionSummary") return null;
+							// 只渲染对话正文：归档查看不展示工具调用/结果（工具原始输出是纯文本，
+							// 进 markdown 会被输出里的 "-" 行当成 setext 标题渲染成大字号），
+							// 也不展示 system / custom / compactionSummary 等非对话消息。
+							if (msg.role !== "user" && msg.role !== "assistant") return null;
 							const isUser = msg.role === "user";
 							const text = extractText(msg.content);
 							if (!text.trim()) return null;

@@ -1,5 +1,6 @@
 ## 2026-09-23
 
+- fix(frontend): 归档区会话查看器不再把工具结果当助手正文渲染——旧实现只按 `role === "user"` 二分，`role:"toolResult"` 的消息落进助手气泡，且 `extractText` 把工具输出（`{type:"text"}` 块）当正文取出后交给 `<Markdown>`，工具输出里的 `-` 独立行触发 markdown setext 标题、整段变 `<h2>` 大字（用户报告「归档查看聊天记录乱七八糟」）。现只渲染 user/assistant 消息，工具调用与结果、system / custom / compactionSummary 一律不显示。测试：`tests/TrashMessageViewer-tool-messages.test.tsx` 新增 2 例（先红后绿）+ 新增 `e2e/trash-viewer-render.spec.ts`（真实浏览器打开归档会话，断言工具输出不出现、弹窗内无 h1-h3；在旧实现上确认失败）。
 - fix(desktop): 桌宠窗口的移动/缩放/几何三个 IPC 不再因坐标越界把主进程打挂（用户报告「莫名其妙闪退」）—— 根因：pet:move / pet:size / pet:bounds 的 handler 只有 `Math.round(Number())` + `Number.isFinite()`，挡不住 1e21 / 2147483648 这类「有限但超出 int32」的值，交给原生 `BrowserWindow.setPosition` / `setContentSize` / `setBounds` 会抛 `Error processing argument at index N, conversion failure from`，冒泡到 main.cjs 顶层 uncaughtException 即 `process.exit(1)`（9-22 11:54 index 0、9-23 10:27 index 1 两次现场均在 pet:move 该行；因绕过 before-quit 清理，重启时必现「端口 9778 被占用」）。现三个 handler 统一走抽出的 `toInt32Coord()`（越界返回 null，丢弃该帧坐标）并给原生调用加 try/catch 兜底。测试：pet-window.test.ts 新增 6 例（先红后绿：三个 handler 各覆盖「越界丢弃 + int32 端内照常下发」与「原生抛错不冒泡」）；真实 Electron 集成对照——未修复版对 1e21 / 2147483648 / -1e21 / 1e300 逐字复现生产异常，修复版零异常、合法几何生效、进程存活；desktop 全量 281 例绿。
 
 ## 2026-09-22
