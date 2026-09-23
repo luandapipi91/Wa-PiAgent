@@ -25,6 +25,7 @@ import {
 	computeChunkWindow,
 	computeBlockWindow,
 	splitMarkdownBlocks,
+	splitVisualLines,
 } from "../src/components/blocks/FileViewer";
 import { _setFsTransport } from "../src/fs-client";
 import { makeFakeFsTransport } from "./fs-transport";
@@ -755,4 +756,48 @@ test("大 md 文件：块级虚拟滚动只渲染可视块、不截断", async (
 		'[data-testid="text-block"]',
 	).length;
 	expect(rendered).toBeLessThan(800 / 4);
+});
+
+// ===== 单行大文件（导出型 JSON 的常见形态）：按行虚拟滚动必须对超长行同样生效 =====
+// 现场：打开 4.4MB 单行 JSON 预览 → 主窗口渲染进程无响应（desktop.log 2026-09-23
+// 11:57:56 与 11:58:34「主窗口渲染进程无响应（界面卡死）」）。根因：块级虚拟滚动按
+// 「行」分块，单行文件只有 1 行 → 唯一一块就是整份文本（实测 4.4MB 单行 ≈ 107 万
+// token ≈ 107 万个 <span>），逐 token 渲染把主线程占满。
+
+test("splitVisualLines：超长行折成 ≤200 字符的显示行，内容完整、行号沿用源行", () => {
+	const long = "a".repeat(450);
+	const lines = splitVisualLines(long);
+	expect(lines.map((l) => l.text.length)).toEqual([200, 200, 50]);
+	expect(lines.map((l) => l.text).join("")).toBe(long); // 折行不是截断
+	expect(lines.map((l) => l.lineNumber)).toEqual([1, 1, 1]);
+	expect(lines.map((l) => l.continued)).toEqual([false, true, true]);
+});
+
+test("splitVisualLines：普通多行内容一行一项（既有行为不变）", () => {
+	const lines = splitVisualLines("a\nb\nc");
+	expect(lines.map((l) => l.text)).toEqual(["a", "b", "c"]);
+	expect(lines.map((l) => l.lineNumber)).toEqual([1, 2, 3]);
+	expect(lines.some((l) => l.continued)).toBe(false);
+});
+
+test("单行大文件预览：长行折分为多个显示行，不把整行塞给高亮组件", async () => {
+	const singleLine = `[${"1".repeat(1000)}]`; // 1002 字符单行
+	fake.setResponse("fs:readFile", {
+		content: btoa(singleLine),
+		mimeType: "text/plain",
+	});
+	const { container } = render(
+		<FileViewer path="/work/all_items.json" onClose={() => {}} />,
+	);
+	// 1002 字符 → 200×5 + 2 → 6 条显示行（旧实现只有 1 条：整行 1002 字符进 Prism）
+	await waitFor(() =>
+		expect(container.querySelectorAll("[data-line]").length).toBeGreaterThan(1),
+	);
+	expect(container.querySelectorAll("[data-line]").length).toBe(6);
+	// data-line 仍是源行号（复制引用 @path:行号 不受折行影响）
+	expect(
+		[...container.querySelectorAll("[data-line]")].map((el) =>
+			el.getAttribute("data-line"),
+		),
+	).toEqual(["1", "1", "1", "1", "1", "1"]);
 });

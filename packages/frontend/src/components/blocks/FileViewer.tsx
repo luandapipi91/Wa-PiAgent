@@ -342,6 +342,50 @@ const PathBar = memo(function PathBar({ path }: { path: string }) {
 const VIRTUAL_CHUNK_LINES = 200;
 const DEFAULT_LINE_HEIGHT = 18;
 
+/** 单条显示行的字符上限。
+ *
+ *  块级虚拟滚动按「行」分块（VIRTUAL_CHUNK_LINES），行本身必须有字符上界：导出的
+ *  JSON 往往是**单行**的几 MB 文本，只有 1 行 → 唯一一块就是整份文件（实测 4.4MB
+ *  单行 ≈ 107 万 token ≈ 107 万个 <span>），逐 token 渲染会把渲染进程主线程占满，
+ *  表现为「打开预览就卡死」（desktop.log 2026-09-23 11:57:56 / 11:58:34 两条主窗口
+ *  渲染进程无响应）。折成 ≤200 字符的显示行后，单块上限 = 200 行 × 200 字符 ≈ 4 万
+ *  字符，且内容是折行而非截断，全文仍可滚动浏览。 */
+export const MAX_VISUAL_LINE_CHARS = 200;
+
+/** 一条「显示行」：源行本身，或源行被折行后的其中一段 */
+export interface VisualLine {
+	text: string;
+	/** 源文件行号（1 起）：同一条源行的各段共用同一行号，复制引用不受折行影响 */
+	lineNumber: number;
+	/** 是否为同一条源行的续段（续段不重复显示行号数字） */
+	continued: boolean;
+}
+
+/** 把整份文本切成「显示行」：先按 \n 切，再把超过 maxChars 的源行折成多段。 */
+export function splitVisualLines(
+	text: string,
+	maxChars = MAX_VISUAL_LINE_CHARS,
+): VisualLine[] {
+	const out: VisualLine[] = [];
+	const srcLines = text.split("\n");
+	for (let i = 0; i < srcLines.length; i++) {
+		const src = srcLines[i];
+		const lineNumber = i + 1;
+		if (src.length <= maxChars) {
+			out.push({ text: src, lineNumber, continued: false });
+			continue;
+		}
+		for (let off = 0; off < src.length; off += maxChars) {
+			out.push({
+				text: src.slice(off, off + maxChars),
+				lineNumber,
+				continued: off > 0,
+			});
+		}
+	}
+	return out;
+}
+
 /** markdown 单块的最大行数：超过就强制切分（兜底，避免一个巨大块把渲染卡住） */
 const MD_BLOCK_MAX_LINES = 200;
 
@@ -674,9 +718,9 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 
 	const displayPath = resolvedPath ?? path;
 
-	// 虚拟滚动：按块切分全文，只把可视块交给高亮组件（必须放在组件体，JSX 要用）
-	const allLines = useMemo(
-		() => (content === null ? [] : content.split("\n")),
+	// 虚拟滚动：按块切分显示行（超长行先折行，见 splitVisualLines），只把可视块交给高亮组件
+	const visualLines = useMemo(
+		() => (content === null ? [] : splitVisualLines(content)),
 		[content],
 	);
 	const [scrollTop, setScrollTop] = useState(0);
@@ -704,7 +748,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 		scrollTop,
 		// 首帧/无测量环境（如测试）拿不到真实高度时用兜底值，保证首屏可渲染
 		viewportHeight: viewportHeight > 0 ? viewportHeight : 600,
-		totalLines: allLines.length,
+		totalLines: visualLines.length,
 		chunkLines: VIRTUAL_CHUNK_LINES,
 		lineHeight,
 	});
@@ -932,9 +976,11 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				<div style={{ height: chunkWindow.topSpacer }} />
 				{visibleChunks.map((ci) => {
 					const start = ci * VIRTUAL_CHUNK_LINES;
-					const chunkCode = allLines
-						.slice(start, start + VIRTUAL_CHUNK_LINES)
-						.join("\n");
+					const chunkLines = visualLines.slice(
+						start,
+						start + VIRTUAL_CHUNK_LINES,
+					);
+					const chunkCode = chunkLines.map((l) => l.text).join("\n");
 					return (
 						<Highlight
 							key={ci}
@@ -946,7 +992,10 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 								<pre className="text-[calc(12px*var(--font-scale))] font-mono m-0">
 									<code>
 										{tokens.map((line, i) => {
-											const lineNo = start + i + 1;
+											const vl = chunkLines[i];
+											const lineNo = vl ? vl.lineNumber : start + i + 1;
+											// 折行的续段沿用源行号（data-line 不变），只是不再重复显示数字
+											const showLineNo = !vl || !vl.continued;
 											return (
 												<div
 													{...getLineProps({ line, key: i })}
@@ -958,7 +1007,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 														className="table-cell pr-3 text-right text-tertiary select-none"
 														style={{ opacity: 0.6 }}
 													>
-														{lineNo}
+														{showLineNo ? lineNo : ""}
 													</span>
 													<span className="table-cell whitespace-pre">
 														{line.map((token, tKey) => (
