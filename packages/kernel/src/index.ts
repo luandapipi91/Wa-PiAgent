@@ -15,7 +15,6 @@ import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureBridgeExtension } from "./bridge-extension";
 import { deployTuiHostExtension } from "./tui-host-deploy";
-import { deployCompactionGuardExtension } from "./compaction-guard-deploy";
 import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
@@ -184,10 +183,6 @@ export async function startKernel(opts?: {
 
 	// 启动时部署宿主扩展（幂等）：RPC 模式下 pi 子进程经它接管 ctx.ui.custom，渲染图形面板
 	await deployTuiHostExtension();
-
-	// 启动时部署压缩守卫扩展（幂等）：接管 pi 的摘要生成，避免长会话摘要被输出上限截断后
-	// 压缩永久失败、每轮重试刷屏（pi issue #8371/#8196）
-	await deployCompactionGuardExtension();
 
 	// 迁移旧版 agent 数据（含 name 字段、文件名用内部 name）到 displayName 作 id（幂等）
 	const nameMapping = await configStore.migrateNameToDisplayName();

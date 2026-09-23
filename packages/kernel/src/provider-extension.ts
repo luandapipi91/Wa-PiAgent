@@ -238,8 +238,8 @@ export function generateProviderExtension(
 					const name = sdk?.name || m.id;
 					// reasoning：用户显式配置优先（boolean 即视为显式意图），目录值仅做缺省回退。
 					// 目录未收录的思考模型会静默落 false，pi-ai 由此不给 DeepSeek 端点发
-					// thinking:disabled——服务端默认开启的思考与正文共享 max_tokens，压缩守卫的
-					// 摘要请求被思考吃满预算、正文为空（实测 100% 复现「压缩守卫：摘要为空」）。
+					// thinking:disabled——服务端默认开启的思考与正文共享 max_tokens，压缩摘要
+					// 请求会被思考吃满预算、正文为空（实测 100% 复现「摘要为空」）。
 					const reasoning =
 						typeof m.reasoning === "boolean"
 							? m.reasoning

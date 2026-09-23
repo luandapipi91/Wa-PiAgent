@@ -30,11 +30,9 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
   const tuiHostExt = join(GENERATED_DIR, "wa-pi-tui-host.ts");
   expect(paths.includes(tuiHostExt)).toBe(existsSync(tuiHostExt));
 
-  // compaction-guard 同样按需追加（压缩守卫：接管摘要生成，compaction-guard-deploy.ts 部署）
+  // compression-guard 扩展已移除（压缩彻底依托 pi 内置机制）——不得再出现在追加清单里
   const compactionGuardExt = join(GENERATED_DIR, "compaction-guard.ts");
-  expect(paths.includes(compactionGuardExt)).toBe(
-    existsSync(compactionGuardExt),
-  );
+  expect(paths).not.toContain(compactionGuardExt);
 });
 
 test("内置扩展清单：不含已移除的 pi-open-agents / 不含 pi-intercom", async () => {

@@ -14,8 +14,6 @@ const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
  * - bridge 扩展三文件：bridge-extension.ts 从 assets/ 读取后部署到 GENERATED_DIR；
  * - tui-host 扩展六文件：tui-host-deploy.ts 从 assets/ 读取后部署到 GENERATED_DIR
  *   （入口 + 入口相对 import 的 tui-host/ 5 模块，缺一即面板静默不可用）；
- * - compaction-guard 扩展两文件：compaction-guard-deploy.ts 同样从 assets/ 读取后部署
- *   （入口 + 入口相对 import 的纯逻辑模块，缺一即压缩守卫失效、长会话可能反复压缩失败）；
  * - preview-inspect.js：ws-server.ts 的 /preview-inspect.js 路由经
  *   new URL("./assets/preview-inspect.js", import.meta.url) 读取，注入本地 html 预览提供元素选中。
  * 关键：bun --compile 不会自动打包 new URL(...) 引用的文件（Bun.file(new URL(...)) 会 ENOENT），
@@ -33,8 +31,6 @@ export const KERNEL_ASSET_FILES = [
 	join(KERNEL_SRC, "tui-host", "panel.ts"),
 	join(KERNEL_SRC, "tui-host", "widget.ts"),
 	join(KERNEL_SRC, "tui-host", "host.ts"),
-	join(KERNEL_SRC, "compaction-guard.extension.ts"),
-	join(KERNEL_SRC, "compaction-guard-core.ts"),
 ];
 
 /** 必须 external 的包：原生 .node 依赖无法内联进虚拟 FS，运行时从磁盘 node_modules 加载 */

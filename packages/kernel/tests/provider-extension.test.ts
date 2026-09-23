@@ -60,7 +60,7 @@ test("generateProviderExtension 包含 registerProvider 调用", () => {
 test("generateProviderExtension：用户显式 reasoning 覆盖目录与默认（目录未收录的思考模型）", () => {
   // 目录查不到的思考模型（如手动添加的 deepseek-v4-flash）旧逻辑静默落 reasoning:false，
   // pi-ai 由此不给 DeepSeek 端点发 thinking:disabled → 服务端默认思考与正文共享
-  // max_tokens，压缩守卫摘要被思考吃满预算、正文为空（实测 100% 复现「摘要为空」）。
+  // max_tokens，压缩摘要被思考吃满预算、正文为空（实测 100% 复现「摘要为空」）。
   const providers = [
     sampleProvider({
       models: [
