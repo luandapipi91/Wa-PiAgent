@@ -1,3 +1,7 @@
+## 2026-09-23
+
+- fix(desktop): 桌宠窗口的移动/缩放/几何三个 IPC 不再因坐标越界把主进程打挂（用户报告「莫名其妙闪退」）—— 根因：pet:move / pet:size / pet:bounds 的 handler 只有 `Math.round(Number())` + `Number.isFinite()`，挡不住 1e21 / 2147483648 这类「有限但超出 int32」的值，交给原生 `BrowserWindow.setPosition` / `setContentSize` / `setBounds` 会抛 `Error processing argument at index N, conversion failure from`，冒泡到 main.cjs 顶层 uncaughtException 即 `process.exit(1)`（9-22 11:54 index 0、9-23 10:27 index 1 两次现场均在 pet:move 该行；因绕过 before-quit 清理，重启时必现「端口 9778 被占用」）。现三个 handler 统一走抽出的 `toInt32Coord()`（越界返回 null，丢弃该帧坐标）并给原生调用加 try/catch 兜底。测试：pet-window.test.ts 新增 6 例（先红后绿：三个 handler 各覆盖「越界丢弃 + int32 端内照常下发」与「原生抛错不冒泡」）；真实 Electron 集成对照——未修复版对 1e21 / 2147483648 / -1e21 / 1e300 逐字复现生产异常，修复版零异常、合法几何生效、进程存活；desktop 全量 281 例绿。
+
 ## 2026-09-22
 
 - v0.6.5 发版准备：升版 0.6.4 → 0.6.5（3 提交：pi 0.87 依赖升级 7b4d7e7a + 图片输入限制 79c4b7bd + 崩溃进诊断 deb55815）。内容：①provider 生成器为每个模型注入 inputLimits 图片输入限制（缺省全局默认 4K/4.5MB base64 对齐入口压缩，providers.json 显式配置优先，EXTENSION_GENERATOR_VERSION bump 5），兜底 kernel 入口压缩未覆盖的 read 读图/工具截图链路（pi 0.87 cache-safe 缩放）；②agent 崩溃分支合成 extension_error 复用前端 toast+诊断管线（stderr 尾部 800 字符留痕，前端零改造）。验证：provider-extension 生成物断言 + agent-manager crash 事件断言（均先红后绿）、kernel 全量回归与基线一致（47 fail 均为存量污染，差异 proxy 域单跑全绿）、四包 typecheck 绿、前端诊断组件+store 92 例回归绿。其他电脑升级路径：runtime-deps 依赖指纹（package.json+bun.lock）随新包变化，首启动强制重装依赖自动落地 pi 0.87。

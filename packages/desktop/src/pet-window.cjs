@@ -46,6 +46,22 @@ function collectScreens(displays) {
 	return { virt, screens: works };
 }
 
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+
+/**
+ * 窗口坐标只接受 int32 范围内的整数。
+ * Number.isFinite 挡不住 1e21 / 2147483648 这类「有限但越界」的值，把它们交给原生
+ * setPosition 会抛「Error processing argument at index N, conversion failure from」，
+ * 该异常冒泡到主进程顶层 uncaughtException 就是 process.exit(1)（2026-09-23 桌宠移动
+ * 时主进程闪退的现场）。越界返回 null，由调用方丢弃这一帧坐标。
+ */
+const toInt32Coord = (v) => {
+	const n = Math.round(Number(v));
+	if (!Number.isFinite(n) || n < INT32_MIN || n > INT32_MAX) return null;
+	return n;
+};
+
 /**
  * 宠物配置存储（guagua_config.json，格式 { scale, wander, pos:{x,y} }，与 PySide6 版共用格式）。
  * set 合并白名单字段后按 delayMs 节流落盘；flush 立即落盘（退出前调用）。
@@ -270,35 +286,49 @@ function setupPetWindow(deps = {}) {
 	// ---- IPC：宠物窗口 → 主进程 ----
 	ipcMain.on("pet:move", (event, x, y) => {
 		if (!isPetSender(event)) return;
-		const nx = Math.round(Number(x));
-		const ny = Math.round(Number(y));
-		if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
-		petWin.setPosition(nx, ny);
+		const nx = toInt32Coord(x);
+		const ny = toInt32Coord(y);
+		if (nx === null || ny === null) return;
+		// 原生调用兜底：窗口可能刚被销毁、或参数被底层拒绝——异常一旦冒到顶层
+		// uncaughtException 就是整个应用 process.exit(1)，不能让它出去。
+		try {
+			petWin.setPosition(nx, ny);
+		} catch (e) {
+			log?.error?.("[pet] 移动宠物窗口失败", e);
+		}
 	});
 
 	ipcMain.on("pet:size", (event, w, h) => {
 		if (!isPetSender(event)) return;
-		const nw = Math.round(Number(w));
-		const nh = Math.round(Number(h));
-		if (!Number.isFinite(nw) || !Number.isFinite(nh)) return;
-		petWin.setContentSize(Math.max(1, nw), Math.max(1, nh));
+		const nw = toInt32Coord(w);
+		const nh = toInt32Coord(h);
+		if (nw === null || nh === null) return;
+		try {
+			petWin.setContentSize(Math.max(1, nw), Math.max(1, nh));
+		} catch (e) {
+			log?.error?.("[pet] 缩放宠物窗口失败", e);
+		}
 	});
 
 	// 位置与尺寸一次下发（原子）：拆成 pet:move + pet:size 两次 IPC 时，窗口会出现
 	// 「位置已变、尺寸未变」的中间态，拖动缩放滑条时表现为宠物在屏幕上乱跳。
 	ipcMain.on("pet:bounds", (event, x, y, w, h) => {
 		if (!isPetSender(event)) return;
-		const nx = Math.round(Number(x));
-		const ny = Math.round(Number(y));
-		const nw = Math.round(Number(w));
-		const nh = Math.round(Number(h));
-		if (![nx, ny, nw, nh].every((v) => Number.isFinite(v))) return;
-		petWin.setBounds({
-			x: nx,
-			y: ny,
-			width: Math.max(1, nw),
-			height: Math.max(1, nh),
-		});
+		const nx = toInt32Coord(x);
+		const ny = toInt32Coord(y);
+		const nw = toInt32Coord(w);
+		const nh = toInt32Coord(h);
+		if (nx === null || ny === null || nw === null || nh === null) return;
+		try {
+			petWin.setBounds({
+				x: nx,
+				y: ny,
+				width: Math.max(1, nw),
+				height: Math.max(1, nh),
+			});
+		} catch (e) {
+			log?.error?.("[pet] 设置宠物窗口几何失败", e);
+		}
 	});
 
 	ipcMain.on("pet:click-through", (event, flag) => {

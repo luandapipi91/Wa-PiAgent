@@ -115,7 +115,10 @@ import { setupPetWindow } from "../src/pet-window.cjs";
 const PET_HTML_TAIL = join("assets", "pet.html");
 const PET_PRELOAD_TAIL = "pet-preload.cjs";
 
-function makeHarness() {
+type Throwing = "setPosition" | "setContentSize" | "setBounds";
+
+function makeHarness(opts: { throws?: Throwing[] } = {}) {
+	const throws = new Set<Throwing>(opts.throws ?? []);
 	const handlers = new Map<string, (...args: any[]) => any>();
 	const listeners = new Map<string, (...args: any[]) => any>();
 	const calls: Array<[string, any]> = [];
@@ -158,12 +161,28 @@ function makeHarness() {
 			calls.push(["close", true]);
 		}
 		setPosition(x: number, y: number) {
+			if (throws.has("setPosition")) {
+				// 与 Electron 原生绑定拒绝非法参数时的报错逐字一致（实测 electron 43）
+				throw new TypeError(
+					"Error processing argument at index 1, conversion failure from ",
+				);
+			}
 			calls.push(["setPosition", { x, y }]);
 		}
 		setContentSize(w: number, h: number) {
+			if (throws.has("setContentSize")) {
+				throw new TypeError(
+					"Error processing argument at index 1, conversion failure from ",
+				);
+			}
 			calls.push(["setContentSize", { w, h }]);
 		}
 		setBounds(b: { x: number; y: number; width: number; height: number }) {
+			if (throws.has("setBounds")) {
+				throw new TypeError(
+					"Error processing argument at index 0, conversion failure from ",
+				);
+			}
 			calls.push(["setBounds", b]);
 		}
 		setIgnoreMouseEvents(flag: boolean, opts?: any) {
@@ -334,6 +353,101 @@ test("pet:move / pet:size 只接受宠物窗口，并透传为 setPosition / set
 		// 非数字入参忽略
 		h.listeners.get("pet:move")!(sender, "abc", null);
 		expect(h.calls.filter((c) => c[0] === "setPosition")).toHaveLength(1);
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("pet:move：只下发 int32 范围内的坐标（越界丢弃、边界内照常）", () => {
+	const h = makeHarness();
+	try {
+		h.pet.setEnabled(true);
+		const sender = petSender(h);
+		// Number.isFinite(1e21) 与 Number.isFinite(2147483648) 都是 true，但原生
+		// setPosition 只接受 int32，交给它就会抛
+		// 「Error processing argument at index N, conversion failure from」并冒泡到
+		// 顶层 uncaughtException → process.exit(1)（2026-09-23 的闪退现场）。
+		h.listeners.get("pet:move")!(sender, 1e21, 100);
+		h.listeners.get("pet:move")!(sender, 100, 2147483648);
+		h.listeners.get("pet:move")!(sender, -1e21, -2147483649);
+		expect(h.calls.filter((c) => c[0] === "setPosition")).toHaveLength(0);
+		// int32 两端仍要照常下发，别把合法的大坐标一起拦掉
+		h.listeners.get("pet:move")!(sender, 2147483647, -2147483648);
+		expect(
+			h.calls.filter((c) => c[0] === "setPosition").map((c) => c[1]),
+		).toEqual([{ x: 2147483647, y: -2147483648 }]);
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("pet:move：原生 setPosition 抛错时不冒泡（冒到顶层就是 process.exit(1) 闪退）", () => {
+	const h = makeHarness({ throws: ["setPosition"] });
+	try {
+		h.pet.setEnabled(true);
+		expect(() =>
+			h.listeners.get("pet:move")!(petSender(h), 10, 20),
+		).not.toThrow();
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("pet:size：尺寸超出 int32 范围时不下发（与 pet:move 同形的越界风险）", () => {
+	const h = makeHarness();
+	try {
+		h.pet.setEnabled(true);
+		const sender = petSender(h);
+		h.listeners.get("pet:size")!(sender, 1e21, 100);
+		h.listeners.get("pet:size")!(sender, 100, 2147483648);
+		expect(h.calls.filter((c) => c[0] === "setContentSize")).toHaveLength(0);
+		// 合法尺寸仍要照常下发
+		h.listeners.get("pet:size")!(sender, 390, 387);
+		expect(
+			h.calls.filter((c) => c[0] === "setContentSize").map((c) => c[1]),
+		).toEqual([{ w: 390, h: 387 }]);
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("pet:size：原生 setContentSize 抛错时不冒泡", () => {
+	const h = makeHarness({ throws: ["setContentSize"] });
+	try {
+		h.pet.setEnabled(true);
+		expect(() =>
+			h.listeners.get("pet:size")!(petSender(h), 390, 387),
+		).not.toThrow();
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("pet:bounds：任一几何值超出 int32 范围时不下发", () => {
+	const h = makeHarness();
+	try {
+		h.pet.setEnabled(true);
+		const sender = petSender(h);
+		h.listeners.get("pet:bounds")!(sender, 1e21, 340, 390, 387);
+		h.listeners.get("pet:bounds")!(sender, 120, 340, 390, 2147483648);
+		expect(h.calls.filter((c) => c[0] === "setBounds")).toHaveLength(0);
+		// 合法几何仍要照常下发
+		h.listeners.get("pet:bounds")!(sender, 120, 340, 390, 387);
+		expect(h.calls.filter((c) => c[0] === "setBounds").map((c) => c[1])).toEqual([
+			{ x: 120, y: 340, width: 390, height: 387 },
+		]);
+	} finally {
+		rmSync(h.dir, { recursive: true, force: true });
+	}
+});
+
+test("pet:bounds：原生 setBounds 抛错时不冒泡", () => {
+	const h = makeHarness({ throws: ["setBounds"] });
+	try {
+		h.pet.setEnabled(true);
+		expect(() =>
+			h.listeners.get("pet:bounds")!(petSender(h), 120, 340, 390, 387),
+		).not.toThrow();
 	} finally {
 		rmSync(h.dir, { recursive: true, force: true });
 	}
