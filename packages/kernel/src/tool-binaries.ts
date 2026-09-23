@@ -30,7 +30,14 @@ export type ToolName = "rg" | "fd";
 export const MIN_BINARY_BYTES = 1_000_000;
 /** 压缩包的最小体积（fd 的 tar.gz 仅数百 KB） */
 const MIN_ARCHIVE_BYTES = 64_000;
-const DOWNLOAD_TIMEOUT_MS = 120_000;
+/** 单源超时：官方源在无代理时可能长挂起，缩短以便尽快让位给镜像 */
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+/** 国内 GitHub 代理前缀（直连不通时依次回退），仅用于拼接官方 release 路径 */
+export const GITHUB_PROXY_PREFIXES = [
+	"https://gh-proxy.com/",
+	"https://ghfast.top/",
+	"https://ghproxy.net/",
+];
 
 /** 资产来源，与 pi tools-manager 的 TOOLS 表对齐；版本固定以便复现 */
 const TOOL_SPECS: Record<ToolName, { version: string; repo: string; tagPrefix: string }> = {
@@ -84,6 +91,14 @@ export function toolAssetForPlatform(
 	};
 }
 
+/** 下载源列表：官方源优先，其后为国内代理镜像（同一路径拼接） */
+export function toolDownloadUrls(asset: ToolAsset): string[] {
+	return [
+		asset.downloadUrl,
+		...GITHUB_PROXY_PREFIXES.map((prefix) => `${prefix}${asset.downloadUrl}`),
+	];
+}
+
 function isUsableBinary(path: string): boolean {
 	try {
 		return existsSync(path) && statSync(path).size >= MIN_BINARY_BYTES;
@@ -135,10 +150,30 @@ function findBinary(rootDir: string, binaryName: string): string | null {
 	return null;
 }
 
-async function downloadArchive(
-	url: string,
-	fetchImpl: typeof fetch,
-): Promise<string> {
+function hostOf(url: string): string {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return url.slice(0, 40);
+	}
+}
+
+/** 依次尝试每个下载源，全部失败才抛错（错误信息只留 host + 原因，避免冗长 URL 刷屏） */
+async function downloadArchive(urls: string[], fetchImpl: typeof fetch): Promise<string> {
+	const failures: string[] = [];
+	for (const url of urls) {
+		try {
+			return await downloadSingle(url, fetchImpl);
+		} catch (error) {
+			failures.push(
+				`${hostOf(url)}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+	throw new Error(`全部 ${urls.length} 个下载源均失败 → ${failures.join("；")}`);
+}
+
+async function downloadSingle(url: string, fetchImpl: typeof fetch): Promise<string> {
 	const response = await fetchImpl(url, {
 		redirect: "follow",
 		signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
@@ -205,7 +240,7 @@ export async function ensureToolBinaries(
 		let archivePath: string | null = null;
 		let extractDir: string | null = null;
 		try {
-			archivePath = await downloadArchive(asset.downloadUrl, fetchImpl);
+			archivePath = await downloadArchive(toolDownloadUrls(asset), fetchImpl);
 			extractDir = mkdtempSync(join(tmpdir(), `wa-pi-${tool}-extract-`));
 			extract(archivePath, extractDir, asset.asset);
 

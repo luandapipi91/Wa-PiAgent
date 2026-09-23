@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
 	ensureToolBinaries,
 	toolAssetForPlatform,
+	toolDownloadUrls,
 	MIN_BINARY_BYTES,
 } from "../src/tool-binaries";
 
@@ -147,5 +148,96 @@ describe("ensureToolBinaries", () => {
 		});
 		expect(fetchCalls).toBe(0);
 		expect([...result.skipped].sort()).toEqual(["fd", "rg"]);
+	});
+});
+
+describe("国内镜像回退", () => {
+	test("toolDownloadUrls：官方源在前，其后为国内代理镜像", () => {
+		const asset = toolAssetForPlatform("rg", "darwin", "x64");
+		expect(asset).not.toBeNull();
+		const urls = toolDownloadUrls(asset!);
+		expect(urls[0]).toBe(asset!.downloadUrl);
+		expect(urls.length).toBeGreaterThan(1);
+		for (const url of urls.slice(1)) {
+			expect(url.startsWith("https://")).toBe(true);
+			expect(url.endsWith(asset!.downloadUrl)).toBe(true);
+		}
+	});
+
+	test("官方源不通时回退到镜像并下载成功", async () => {
+		const binDir = join(makeTmpDir(), "bin");
+		const requested: string[] = [];
+		const result = await ensureToolBinaries({
+			binDir,
+			platform: "darwin",
+			arch: "x64",
+			fetchImpl: (async (url: string) => {
+				const target = String(url);
+				requested.push(target);
+				if (target.startsWith("https://github.com/")) {
+					throw new Error("官方源不通");
+				}
+				return new Response(new Uint8Array(MIN_BINARY_BYTES + 1), { status: 200 });
+			}) as unknown as typeof fetch,
+			extract: (_archivePath, destDir, assetBase) => {
+				mkdirSync(join(destDir, assetBase), { recursive: true });
+				writeFileSync(join(destDir, assetBase, "rg"), Buffer.alloc(MIN_BINARY_BYTES + 1));
+				writeFileSync(join(destDir, assetBase, "fd"), Buffer.alloc(MIN_BINARY_BYTES + 1));
+			},
+		});
+		expect([...result.installed].sort()).toEqual(["fd", "rg"]);
+		expect(result.failed).toEqual([]);
+		// 两个工具各先试一次官方源，失败后才走镜像
+		expect(requested.filter((u) => u.startsWith("https://github.com/")).length).toBe(2);
+		expect(requested.some((u) => u.includes("gh-proxy.com"))).toBe(true);
+	});
+
+	test("镜像源内容过小（错误页）时继续尝试下一个源", async () => {
+		const binDir = join(makeTmpDir(), "bin");
+		mkdirSync(binDir, { recursive: true });
+		// fd 已就绪 → 跳过，聚焦 rg 的多源回退
+		writeFileSync(join(binDir, "fd"), Buffer.alloc(MIN_BINARY_BYTES + 1));
+		const asset = toolAssetForPlatform("rg", "darwin", "x64")!;
+		const urls = toolDownloadUrls(asset);
+		const requested: string[] = [];
+		const result = await ensureToolBinaries({
+			binDir,
+			platform: "darwin",
+			arch: "x64",
+			fetchImpl: (async (url: string) => {
+				const target = String(url);
+				requested.push(target);
+				// 只有最后一个源返回真实内容，其余返回过小响应（模拟镜像错误页）
+				if (target === urls[urls.length - 1]) {
+					return new Response(new Uint8Array(MIN_BINARY_BYTES + 1), { status: 200 });
+				}
+				return new Response("<html>not found</html>", { status: 200 });
+			}) as unknown as typeof fetch,
+			extract: (_archivePath, destDir, assetBase) => {
+				mkdirSync(join(destDir, assetBase), { recursive: true });
+				writeFileSync(join(destDir, assetBase, "rg"), Buffer.alloc(MIN_BINARY_BYTES + 1));
+			},
+		});
+		expect(result.installed).toEqual(["rg"]);
+		expect(requested.length).toBe(urls.length);
+		expect(requested[requested.length - 1]).toBe(urls[urls.length - 1]);
+	});
+
+	test("全部源都不通时记 failed，且每个工具试满所有源", async () => {
+		const binDir = join(makeTmpDir(), "bin");
+		const sourceCount = toolDownloadUrls(toolAssetForPlatform("rg", "darwin", "x64")!).length;
+		let calls = 0;
+		const result = await ensureToolBinaries({
+			binDir,
+			platform: "darwin",
+			arch: "x64",
+			fetchImpl: (async () => {
+				calls += 1;
+				throw new Error("network down");
+			}) as unknown as typeof fetch,
+			extract: () => {},
+		});
+		expect([...result.failed].sort()).toEqual(["fd", "rg"]);
+		expect(calls).toBe(sourceCount * 2);
 	});
 });
