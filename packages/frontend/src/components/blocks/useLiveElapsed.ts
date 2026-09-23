@@ -3,34 +3,38 @@ import { useEffect, useState } from "react";
 /**
  * 实时展示子代理运行耗时（秒）。
  *
- * 计时来源：首次收到有效 elapsedMs 时，按「elapsedMs 是后端发出时刻已耗时长」反推
- * 出子代理在本机时钟上的开始时刻 startAt；此后 running 期间只用 Date.now() - startAt
- * 本地推算——与 SSE 推送节奏完全解耦，秒数天然连续、不回跳、静默期不冻结。
- * 完成（done/error）时冻结为后端终值 elapsedMs，与后端记录一致。
+ * 计时来源（按优先级）：
+ * 1. startedAtMs（进度事件携带的绝对起点，epoch ms）——直接采用，零推算。
+ *    静默期（长工具执行中）只剩最后一次推送的相对 elapsedMs，卡片重挂载（切会话
+ *    回来）后若按过期相对值重推起点，计时会回跳（2026-09-23「运行中 · 153s」
+ *    案例：实际已跑 26 分钟仍显示 153s）。绝对起点存在 store 的事件里，重挂载
+ *    不丢，秒数天然连续。
+ * 2. startedAtMs 缺失（旧数据）→ 首次收到有效 elapsedMs 时按「elapsedMs 是后端
+ *    发出时刻已耗时长」反推出本地开始时刻，只推一次后锁死（旧行为兜底）。
  *
- * 为什么不用推送值直接驱动显示：
- * 1. 后端只在事件到达时推送 elapsedMs（工具开始/结束、text_delta），子代理 LLM 思考
- *    阶段或长工具静默执行期间没有事件，直接渲染推送值会冻结。
- * 2. 推送值是后端发出时刻的耗时，经 SSE 到达前端已滞后；若用它覆盖显示会把本地已
- *    推算的秒数拉回、回跳。startAt 只推导一次后锁死，后续任何推送（哪怕滞后/回跳）
- *    都不再影响显示。
+ * running 期间每秒用 Date.now() - startAt 本地推算——与 SSE 推送节奏完全解耦，
+ * 秒数连续、不回跳、静默期不冻结。
+ * 完成（done/error）时冻结为后端终值 elapsedMs，与后端记录一致。
  */
 export function useLiveElapsed(
 	elapsedMs: number | undefined,
 	running: boolean,
+	startedAtMs?: number,
 ): number {
 	const [display, setDisplay] = useState(() => elapsedMs ?? 0);
-	const [startAt, setStartAt] = useState<number | null>(null);
+	// 旧行为兜底：仅在无绝对起点时推导本地起点（锁死一次，后续推送不再更新）
+	const [derivedStartAt, setDerivedStartAt] = useState<number | null>(null);
 
-	// 首次收到有效 elapsedMs 时推导本地开始时刻（只推一次，之后锁死；
-	// 后续推送值不再更新 startAt，保证秒数单调递增、不回跳）。
 	useEffect(() => {
-		if (elapsedMs == null || startAt != null) return;
-		setStartAt(Date.now() - elapsedMs);
-	}, [elapsedMs, startAt]);
+		if (startedAtMs != null || derivedStartAt != null || elapsedMs == null)
+			return;
+		setDerivedStartAt(Date.now() - elapsedMs);
+	}, [elapsedMs, startedAtMs, derivedStartAt]);
 
-	// running 期间每秒用 Date.now() - startAt 推算；startAt 锁死后定时器不随推送重建，
-	// 高频进度推送下本地推算仍稳定每秒 tick。
+	// 有效起点：绝对起点优先，兜底取推导值
+	const startAt = startedAtMs ?? derivedStartAt;
+
+	// running 期间每秒本地推算；起点稳定后定时器不随推送重建，高频进度推送下仍稳定 tick。
 	useEffect(() => {
 		if (!running || startAt == null) return;
 		const tick = () => setDisplay(Date.now() - startAt);

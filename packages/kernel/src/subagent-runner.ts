@@ -222,6 +222,8 @@ export async function runSubagentAgent(
 				output,
 				tools: tools.map((t) => ({ ...t })),
 				elapsedMs: Date.now() - startedAt,
+				// 绝对起点：前端计时据此推算，卡片重挂载后不再吃过期的相对 elapsedMs
+				startedAtMs: startedAt,
 			});
 		};
 		// 任务启动即发首帧（产出为空）：此前只在首个业务事件（工具/文本）才 emit，

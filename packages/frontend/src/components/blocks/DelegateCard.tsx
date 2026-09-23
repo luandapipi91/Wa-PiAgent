@@ -53,6 +53,7 @@ export const DelegateCard = memo(function DelegateCard({
 	const seconds = useLiveElapsed(
 		progress?.elapsedMs,
 		progress?.status === "running" && !result,
+		progress?.startedAtMs,
 	);
 
 	// 卡片展开态：null = 用户未手动操作（hasProgress 时默认展开、否则跟随 autoCollapse）；

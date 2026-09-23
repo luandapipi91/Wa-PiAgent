@@ -859,6 +859,10 @@ export interface SubagentProgressEvent {
 	output: string;
 	tools: Array<{ id: string; name: string; status: string }>;
 	elapsedMs: number;
+	/** 子代理启动时刻（epoch ms，绝对时间）。前端计时用绝对起点：静默期（长工具）
+	 *  只剩最后一次推送的相对 elapsedMs，卡片重挂载后若按过期相对值重推起点，
+	 *  计时会回跳（2026-09-23 「运行中 · 153s」案例）。缺省时前端退回旧行为。 */
+	startedAtMs?: number;
 	/** fleet 任务序号（0-based）；同名 agent 多任务靠它区分，避免按 agent 名做 key 时互相覆盖 */
 	taskIndex?: number;
 }

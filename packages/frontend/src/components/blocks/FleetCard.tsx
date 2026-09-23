@@ -142,6 +142,7 @@ function FleetTaskItem({
 	const seconds = useLiveElapsed(
 		progress?.elapsedMs,
 		progress?.status === "running" && !isCompleted,
+		progress?.startedAtMs,
 	);
 	// 状态行文案：兜底中断（progress 仍停在 running）时显示「已中断」；
 	// details 精确标记且已 settle 的行维持原终态文案（已完成/出错）

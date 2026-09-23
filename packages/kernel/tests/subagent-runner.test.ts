@@ -96,6 +96,29 @@ test("正常流程：回声文本 + isError=false + onProgress 收到 running/do
 	expect(events.every((e) => e.agent === "research")).toBe(true);
 });
 
+// 回归（2026-09-23「运行中 · 153s」）：进度事件必须携带绝对起点 startedAtMs。
+// 静默期（长工具）只剩最后一次推送的相对 elapsedMs，前端卡片重挂载后若按过期
+// 相对值重推起点，计时会回跳（实际 26 分钟仍显示 153s）。绝对起点随事件下发后
+// 前端用 store 里的事件即可恢复正确起点；所有事件必须同源（同一个 startedAt）。
+test("进度事件携带绝对起点 startedAtMs 且全部同源", async () => {
+	const events: SubagentProgressEvent[] = [];
+	const before = Date.now();
+	await runSubagentAgent(baseConfig(), "测试任务", "/tmp", {
+		cliPath: FAKE_PI,
+		runtime: RUNTIME,
+		onProgress: (e) => events.push(e),
+	});
+	expect(events.length).toBeGreaterThan(0);
+	for (const e of events) {
+		expect(typeof e.startedAtMs).toBe("number");
+		// 起点必须在「发起前 → 现在」区间内（它就是 runner 的 startedAt）
+		expect(e.startedAtMs!).toBeGreaterThanOrEqual(before);
+		expect(e.startedAtMs!).toBeLessThanOrEqual(Date.now());
+	}
+	// 全部事件同源：同一子代理的 startedAt 唯一
+	expect(new Set(events.map((e) => e.startedAtMs)).size).toBe(1);
+});
+
 test("config 映射为 CLI 参数：--model/--thinking(max→xhigh)/--tools/--no-session/--name", async () => {
 	const dumpFile = join(
 		"/tmp",

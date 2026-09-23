@@ -623,3 +623,26 @@ test("有进度时：状态摘要行渲染在卡片底部（回复区之后）",
 	const rel = reply!.compareDocumentPosition(progress!);
 	expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
+
+test("回归：进度带 startedAtMs（绝对起点）→ 计时按绝对起点显示，不吃过期 elapsedMs", () => {
+	// 场景还原（2026-09-23）：子代理静默期（长工具执行中）最后一次推送停在 elapsedMs=153s，
+	// 用户切会话回来（卡片重挂载）时实际已运行 ~26.6 分钟，摘要行必须显示 ~1599s 而非 153s。
+	const staleEvent: SubagentProgressEvent = {
+		agent: "general-purpose",
+		status: "running",
+		output: "",
+		tools: [
+			{ id: "a", name: "bash", status: "done" },
+			{ id: "b", name: "bash", status: "running" },
+		],
+		elapsedMs: 153_000,
+		startedAtMs: Date.now() - 1_599_000,
+	};
+	useSessionStore.setState({
+		progressByToolCall: { tlive: { "0": staleEvent } },
+	});
+	render(<DelegateCard sessionId="s1" toolCall={{ ...call, id: "tlive" }} />);
+	const text = screen.getByTestId("delegate-progress-tlive").textContent ?? "";
+	expect(text).toMatch(/运行中 · 159[5-9]s|运行中 · 160[0-3]s/);
+	expect(text).not.toContain("· 153s");
+});
