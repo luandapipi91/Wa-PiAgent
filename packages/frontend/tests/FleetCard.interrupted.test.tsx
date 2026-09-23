@@ -245,6 +245,72 @@ test("details 与兑底并存：true 行精确标记徽标，false+settled 行�
 	).toBeNull();
 });
 
+// 2026-09-23 误标回归：行 progress 停在 running 但 details.interrupted 明确为 false，
+// 不能用「进度没走到终态」推翻后端结论。
+test("details.interrupted=false 为权威：该行进度停在 running 也不标「已中断」（按结果定性为完成）", () => {
+	useSessionStore.setState({ progressByToolCall: stopProgress });
+	const preciseFalseResult = {
+		...baseResult,
+		details: {
+			fleet: {
+				"0": { total: 1, done: 1, error: 0, running: 0 },
+				"1": { total: 1, done: 1, error: 0, running: 0 },
+			},
+			interrupted: { "0": false, "1": false },
+		},
+	};
+	render(
+		<FleetCard sessionId="s1" toolCall={stopCall} result={preciseFalseResult} />,
+	);
+	const header = screen.getByTestId("fleet-fstop-header");
+	expect(
+		header.querySelectorAll('[data-testid="interrupted-badge"]').length,
+	).toBe(0);
+	const body = screen.getByTestId("fleet-fstop-body");
+	expect(
+		findRowBtn(body, "任务 1").querySelectorAll(
+			'[data-testid="interrupted-badge"]',
+		).length,
+	).toBe(0);
+	// 行状态按结果定性（已完成），不再显示「运行中」/「已中断」
+	fireEvent.click(findRowBtn(body, "任务 1"));
+	expect(body.textContent).toContain("general-purpose · 完成 · 33s");
+});
+
+// P0-1 修复后，中止路径会补发终态帧（status=error）；行仍须按 details.interrupted
+// 显示「已中断」，不能被 error 的「出错」文案覆盖。
+test("中断：details.interrupted=true 且行进度已落终态（error）→ 行仍显示「已中断」", () => {
+	useSessionStore.setState({
+		progressByToolCall: {
+			fstop: {
+				"0": { ...stopProgress.fstop["0"], status: "error" },
+				"1": stopProgress.fstop["1"],
+			},
+		},
+	});
+	const preciseTrueResult = {
+		...baseResult,
+		details: {
+			fleet: {
+				"0": { total: 1, done: 1, error: 0, running: 0 },
+				"1": { total: 1, done: 1, error: 0, running: 0 },
+			},
+			interrupted: { "0": true, "1": false },
+		},
+	};
+	render(
+		<FleetCard sessionId="s1" toolCall={stopCall} result={preciseTrueResult} />,
+	);
+	const body = screen.getByTestId("fleet-fstop-body");
+	expect(
+		findRowBtn(body, "任务 1").querySelectorAll(
+			'[data-testid="interrupted-badge"]',
+		).length,
+	).toBe(1);
+	fireEvent.click(findRowBtn(body, "任务 1"));
+	expect(body.textContent).toContain("general-purpose · 已中断 · 33s");
+});
+
 test("回归：父调用终态且各行均已 settle（正常完成路径）→ 无兑底误伤，渲染与改动前一致", () => {
 	useSessionStore.setState({
 		progressByToolCall: {

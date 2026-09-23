@@ -83,17 +83,28 @@ export const DelegateCard = memo(function DelegateCard({
 	const details = (
 		result as unknown as { details?: { interrupted?: boolean } } | undefined
 	)?.details;
-	// 兜底：父调用已终态但子代理进度仍停在 running（用户停止时 agent 级终态事件随断流
-	// 丢失）→ 强制归「已中断」。details.interrupted 精确标记优先，settled 进度不受影响。
+	// 终态判定以 kernel 落盘的 details.interrupted 为权威：result 已到即终态，不得用
+	// 「进度仍停在 running」推翻后端明确给出的结论（终态帧丢失会把已完成的委派误标为
+	// 「已中断」——2026-09-23 事故）。仅当后端完全没给该字段（2026-09-19 之前的旧会话数据）
+	// 时才沿用停表兜底；settled 进度不受影响。
 	const interrupted =
 		details?.interrupted === true ||
-		(!!result && progress?.status === "running");
-	// 摘要行状态文案：兜底中断（progress 仍停在 running）时显示「已中断」；
-	// details 精确标记且已 settle 时维持原终态文案（完成/出错）
+		(details?.interrupted === undefined &&
+			!!result &&
+			progress?.status === "running");
+	// 摘要行状态文案：中断（details 精确标记 / 旧数据兜底）显示「已中断」；
+	// 其余按结果定性——result 已到即终态，进度停在 running 只是终态帧未送达，
+	// 按成功/失败折算，避免已结束的卡片继续显示「运行中」。
+	const settledStatus =
+		result && progress?.status === "running"
+			? failed
+				? "error"
+				: "done"
+			: (progress?.status ?? "running"); // 仅无 progress 时触达，不参与渲染
 	const summaryStatus = progress
-		? interrupted && progress.status === "running"
+		? interrupted
 			? t("common.statusInterrupted")
-			: statusLabel(progress.status)
+			: statusLabel(settledStatus)
 		: "";
 	const full =
 		result?.content

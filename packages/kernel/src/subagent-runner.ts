@@ -206,6 +206,21 @@ export async function runSubagentAgent(
 		error: tools.filter((t) => t.status === "error").length,
 		running: tools.filter((t) => t.status === "running").length,
 	});
+	// 最近一次推送的进度状态：非正常终态路径（中止/模型报错/异常）收尾时据此补发终态帧。
+	// 与 tools/output 同理提升到 try 外——这些路径的收尾发生在 catch/finally。
+	let lastProgressStatus: SubagentProgressEvent["status"] | undefined;
+	const emit = (status: SubagentProgressEvent["status"]) => {
+		lastProgressStatus = status;
+		opts?.onProgress?.({
+			agent: config.name,
+			status,
+			output,
+			tools: tools.map((t) => ({ ...t })),
+			elapsedMs: Date.now() - startedAt,
+			// 绝对起点：前端计时据此推算，卡片重挂载后不再吃过期的相对 elapsedMs
+			startedAtMs: startedAt,
+		});
+	};
 	try {
 		await mkdir(tmpDir, { recursive: true });
 		await writeFile(
@@ -215,17 +230,6 @@ export async function runSubagentAgent(
 		);
 
 		let sawError = false;
-		const emit = (status: SubagentProgressEvent["status"]) => {
-			opts?.onProgress?.({
-				agent: config.name,
-				status,
-				output,
-				tools: tools.map((t) => ({ ...t })),
-				elapsedMs: Date.now() - startedAt,
-				// 绝对起点：前端计时据此推算，卡片重挂载后不再吃过期的相对 elapsedMs
-				startedAtMs: startedAt,
-			});
-		};
 		// 任务启动即发首帧（产出为空）：此前只在首个业务事件（工具/文本）才 emit，
 		// 并行派发（fleet）时前端要等各任务首个事件到达才渲染该任务行——
 		// 启动阶段（pi 进程拉起 + 模型首 token）能看到「任务行显示不全」。
@@ -491,6 +495,13 @@ export async function runSubagentAgent(
 			elapsedMs: Date.now() - startedAt,
 		};
 	} finally {
+		// 兜底终态帧：中止 / 模型报错 / 异常三条返回路径此前一帧终态都不发，
+		// 前端 store 里的进度会永久停在 running，卡片兜底逻辑遂把「已完成」误判为
+		// 「已中断」（2026-09-23 事故：79.6 分钟任务跑完却显示已中断）。
+		// 成功路径已 emit("done")，此处空转；其余路径统一以终态收尾。
+		if (lastProgressStatus !== "done" && lastProgressStatus !== "error") {
+			emit("error");
+		}
 		if (client) {
 			// 防止 dispose 的正常 kill 触发 onExit 的 fail（settled 已兑现则无影响，防御性处理）
 			const c = client;

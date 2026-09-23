@@ -124,7 +124,8 @@ function FleetTaskItem({
 	stats?: ToolStats;
 	/** 是否完成态（result 已返回）；决定「已完成」前缀，并让 running 行停表（兜底冻结） */
 	isCompleted: boolean;
-	/** 该子任务是否中断（details.interrupted 精确标记，或父终态后 progress 仍 running 的兜底） */
+	/** 该子任务是否中断（details.interrupted 精确标记；仅旧数据缺失该字段时才按
+	 *  父终态后 progress 仍 running 兜底） */
 	interrupted?: boolean;
 	replyText?: string;
 	sessionId: string;
@@ -144,14 +145,17 @@ function FleetTaskItem({
 		progress?.status === "running" && !isCompleted,
 		progress?.startedAtMs,
 	);
-	// 状态行文案：兜底中断（progress 仍停在 running）时显示「已中断」；
-	// details 精确标记且已 settle 的行维持原终态文案（已完成/出错）
-	const statusText =
-		interrupted && progress?.status === "running"
-			? t("common.statusInterrupted")
-			: progress
-				? statusLabel(progress.status)
-				: "";
+	// 状态行文案：中断（details 精确标记 / 旧数据兜底）显示「已中断」；其余按结果定性
+	// ——父调用已终态时 running 只是终态帧未送达，按「完成」折算，不显示「运行中」。
+	const statusText = interrupted
+		? t("common.statusInterrupted")
+		: progress
+			? statusLabel(
+					isCompleted && progress.status === "running"
+						? "done"
+						: progress.status,
+				)
+			: "";
 	const liveStats = progress ? countTools(progress.tools) : undefined;
 	const toolStats = liveStats ?? stats;
 	const hasProgress = !!progress;
@@ -335,12 +339,14 @@ export const FleetCard = memo(function FleetCard({
 		// 统计优先按任务序号取（同名 agent 不再互相覆盖）；
 		// 老数据 details.fleet 按名字 key 时降级按 agent 名取
 		stats: persistedStats?.[String(r.index - 1)] ?? persistedStats?.[r.agent],
-		// 中断标记：details.interrupted 精确标记优先；兜底——父调用已终态（result 已返回，
-		// 无论成功/失败/中止）但该行 progress 仍停在 running（用户停止时 agent 级终态事件
-		// 随断流丢失）→ 强制归「已中断」。settled（done/error）行不受兜底影响。
+		// 中断标记：details.interrupted 精确标记优先（权威）；仅当后端完全没给该任务的
+		// 标记（旧会话数据）时才沿用「停在 running」兜底——终态帧丢失不得推翻后端明确
+		// 给出的结论（2026-09-23 事故：已完成的行被误标「已中断」）；settled 行不受影响。
 		interrupted:
 			interruptedMap?.[String(r.index - 1)] === true ||
-			(!!result && r.progress?.status === "running"),
+			(interruptedMap?.[String(r.index - 1)] === undefined &&
+				!!result &&
+				r.progress?.status === "running"),
 		replyText: !result
 			? r.progress?.output
 			: canSplit

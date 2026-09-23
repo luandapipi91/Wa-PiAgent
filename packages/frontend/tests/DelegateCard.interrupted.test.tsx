@@ -148,7 +148,10 @@ test("兜底（details 缺失）：父调用终态但进度仍 running → meta 
 	}
 });
 
-test("兜底与 details 并存：interrupted=false 但进度停在 running → 仍兜底标记（running 是硬事实）", () => {
+// 2026-09-23 误标回归：kernel 已落盘 details.interrupted=false（任务真的跑完了），
+// 只因终态进度帧未送达（store 停在 running）就把卡片标成「已中断」。
+// 权威来源是工具结果，不能用「进度没走到终态」推翻后端明确给出的结论。
+test("details.interrupted=false 为权威：进度停在 running 也不标「已中断」（按结果定性为完成）", () => {
 	useSessionStore.setState({
 		progressByToolCall: { tfalse: { "0": stopProgressEvent } },
 	});
@@ -165,9 +168,40 @@ test("兜底与 details 并存：interrupted=false 但进度停在 running → �
 	);
 	const header = screen.getByTestId("delegate-tfalse-header");
 	expect(
-		header.querySelector('[data-testid="interrupted-badge"]'),
-	).toBeTruthy();
-	expect(screen.getByTestId("delegate-progress-tfalse").textContent).toContain(
+		header.querySelectorAll('[data-testid="interrupted-badge"]').length,
+	).toBe(0);
+	expect(header.textContent).toContain("完成");
+	// 摘要行按结果定性（完成），不再显示「运行中」也不显示「已中断」
+	const summary = screen.getByTestId("delegate-progress-tfalse");
+	expect(summary.textContent).toContain("子智能体 · 完成 · 33s");
+	expect(summary.textContent).not.toContain("已中断");
+});
+
+// P0-1 修复后，中止/失败路径会补发终态帧（status=error）；此时摘要行仍须按
+// details.interrupted 显示「已中断」，不能被 error 的「出错」文案覆盖。
+test("中断：details.interrupted=true 且进度已落终态（error）→ 徽标与摘要行仍为「已中断」", () => {
+	useSessionStore.setState({
+		progressByToolCall: {
+			terr: { "0": { ...stopProgressEvent, status: "error" } },
+		},
+	});
+	render(
+		<DelegateCard
+			sessionId="s1"
+			toolCall={{ ...call, id: "terr" }}
+			result={{
+				...result,
+				toolCallId: "terr",
+				isError: true,
+				details: { interrupted: true },
+			}}
+		/>,
+	);
+	const header = screen.getByTestId("delegate-terr-header");
+	expect(
+		header.querySelectorAll('[data-testid="interrupted-badge"]').length,
+	).toBe(1);
+	expect(screen.getByTestId("delegate-progress-terr").textContent).toContain(
 		"已中断",
 	);
 });
