@@ -22,7 +22,7 @@ process.env.https_proxy = "";
 // 修复：preload 里强制把 WA_PI_DIR 指到临时目录（本进程内先于一切 import 生效），
 // 测试读写的都是隔离数据；spawn 的子进程继承该 env，同样隔离。
 // 可用 WA_PI_TEST_DIR 固定测试目录（默认每次 mkdtemp 自动创建）。
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -43,4 +43,12 @@ for (const sub of [
 	".generated",
 ]) {
 	mkdirSync(join(TEST_WA_PI_DIR, sub), { recursive: true });
+}
+
+// 预置占位 rg/fd：startKernel 会把内置工具所需二进制预置到 WA_PI_DIR/bin
+// （见 src/tool-binaries.ts），体积达标即视为已存在。测试环境上面已清空代理 env
+// （直连），若任其触发真实下载会静默超时，白白拖慢每个启动 kernel 的测试。
+mkdirSync(join(TEST_WA_PI_DIR, "bin"), { recursive: true });
+for (const binary of ["rg", "fd"]) {
+	writeFileSync(join(TEST_WA_PI_DIR, "bin", binary), Buffer.alloc(1_048_576));
 }

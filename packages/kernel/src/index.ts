@@ -19,6 +19,7 @@ import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
 import { ensureSubagentOverrides } from "./subagent-store";
+import { ensureToolBinaries } from "./tool-binaries";
 import {
 	loadTrashSettings,
 	ensureHttpIdleTimeout,
@@ -214,6 +215,16 @@ export async function startKernel(opts?: {
 
 	// 应用已保存的系统代理（useSystemProxy + httpProxy）到进程环境变量
 	await applySystemProxy();
+
+	// 预置 pi 内置工具（grep→rg / find→fd）所需二进制到 WA_PI_DIR/bin：pi 恒以
+	// --offline spawn，其 ensureTool 在离线时跳过下载；而 getToolPath 先查该目录
+	// 且早于离线门控，故由 kernel 提前预置。不阻塞启动，失败仅告警、下次重试。
+	void ensureToolBinaries({
+		log: (level, message) =>
+			(level === "warn" ? console.warn : console.log)(`[tool-binaries] ${message}`),
+	}).catch((e) => {
+		console.warn("[tool-binaries] 预置失败:", e);
+	});
 
 	// 启动时确保 prompts.json 配置存在（幂等），用户可手动编辑调整段落顺序/内容
 	await ensurePromptsConfig(PROMPTS_FILE);
