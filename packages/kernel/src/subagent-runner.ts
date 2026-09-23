@@ -115,13 +115,13 @@ export interface SubagentRunOpts {
 	runtime?: string;
 	/** RPC 命令超时毫秒数，默认 2 小时（7200000，用户拍板 2026-08-31 由 60 分钟增长）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
 	commandTimeoutMs?: number;
-	/** 无进展探活超时毫秒数（非工具执行窗口），默认 2 分钟（120000）。进程存活但无任何业务事件
-	 *  （message_update / tool_execution_* / agent_start|end / thinking_delta）
-	 *  超过该时长判定卡死。设为 Infinity 关闭探活。 */
-	idleTimeoutMs?: number;
-	/** 工具执行中的无进展探活超时毫秒数，默认 20 分钟（1200000）——工具 start→end 之间
-	 *  零事件（静默长命令）不在基础窗口内判死；工具结束回退 idleTimeoutMs。 */
-	toolIdleTimeoutMs?: number;
+	/** 事件兜底窗口毫秒数（默认 30 分钟）：距上一次 RPC 事件超过该时长判死。
+	 *  不区分是否工具执行中——长静默工具卡死靠它检出（成功探活不续命）。设为 Infinity 关闭。 */
+	livenessFallbackMs?: number;
+	/** get_state 探活间隔毫秒数（默认 5000）：收到 RPC 事件后开始，同时只允许一个在途。 */
+	probeIntervalMs?: number;
+	/** 单次探活等待上限毫秒数（默认 30000）；超时或命令报错即判死（单次判定）。 */
+	probeTimeoutMs?: number;
 	/** abort 宽限期毫秒数（测试覆盖用）：收到中止信号后等子代理响应 abort RPC 的时长，
 	 *  到期强制返回并由 finally dispose 强杀进程。默认 10000 */
 	abortGraceMs?: number;
@@ -134,15 +134,23 @@ export const ABORT_GRACE_MS = 10_000;
 /** RPC 命令 / settle 兜底默认超时：子代理委托整体硬上限，默认 2 小时（用户拍板 2026-08-31，由 60 分钟增长：长任务单代理实测可跑 39-50 分钟，60 分钟余量不足）。 */
 export const COMMAND_TIMEOUT_MS = 2 * 60 * 60_000;
 
-/** 无进展探活默认超时（非工具执行窗口）：子代理进程存活但 2 分钟无任何业务事件判定卡死
- *  （模型调用静默/无流式输出——等不到首 token 或流中断基本已挂死，不必白等）。
- *  工具执行中改用独立窗口 LIVENESS_TOOL_IDLE_MS（默认 20 分钟）。 */
-export const LIVENESS_IDLE_MS = 2 * 60_000;
+/** 事件兜底窗口（默认 30 分钟）：距上一次 RPC 事件超过该时长判死。
+ *  2026-09-23 改版：不再按「是否工具执行中」分两档窗口——pi 的工具执行期没有心跳（零输出命令
+ *  期间零事件，实测 sleep 20 期间事件计数为 0），旧的两档窗口反而把正常的长静默命令误杀
+ *  （2026-09-21 生产事故：98 分钟任务、347 次工具调用毁于最后一次长命令）。
+ *  现由它负责「事件是否完全静止」，工具僵死（pi 还活着但不推进）由它检出，
+ *  因此成功探活不刷新它。 */
+export const LIVENESS_FALLBACK_MS = 30 * 60_000;
 
-/** 无进展探活默认超时（工具执行中窗口）：工具已启动但零事件（输出重定向/无流式输出的
- *  长编译、测试、数据回放）可能持续十几分钟，基础窗口会误杀；放宽到 20 分钟保护，
- *  窗口内仍零事件则判死（防卡死语义不变）。 */
-export const LIVENESS_TOOL_IDLE_MS = 20 * 60_000;
+/** get_state 探活间隔（默认 5 秒）：收到 RPC 事件后开始。
+ *  依据：pi 的 stdin 是逐行 fire-and-forget 分派（rpc-mode.js），工具执行是异步子进程，
+ *  实测工具执行期间 get_state 往返中位 1ms（0 失败 / 68 次），不回包即进程或通道已僵死。 */
+export const PROBE_INTERVAL_MS = 5_000;
+
+/** 单次探活等待上限（默认 30 秒）。取值容忍「短暂挂起」：实测探活尖峰最大 1.9s（命令刚发起
+ *  瞬间）、3.75s（pi 启动/扩展加载期），都远在 30 秒内；由连续 3 次失败判死，单次放宽不会
+ *  拖慢真僵死的检出（3 次失败 ≈ 90 秒内）。 */
+export const PROBE_TIMEOUT_MS = 30_000;
 
 /**
  * thinking → pi CLI thinking level 映射。
@@ -232,26 +240,44 @@ export async function runSubagentAgent(
 		// （unhandled rejection）。挂空 catch 兜底；await settled 处仍能拿到原 rejection。
 		settled.catch(() => {});
 
-		// 无进展探活（防卡死）：任何业务事件刷新计时，超过窗口无事件判死。
-		// 工具执行中（start→end 之间）用独立窗口 toolIdleTimeoutMs（默认 20 分钟）：输出重定向/
-		// 无流式输出的长编译、测试、数据回放可能十几分钟零事件，基础窗口会误杀
-		// （2026-09-21 生产事故：98 分钟任务、347 次工具调用毁于长命令误杀）。
-		// 非工具窗口 2 分钟（用户拍板 2026-09-20）：模型调用静默（等不到首 token/流中断）
-		// 基本已挂死，无需白等。窗口内仍无事件基本已挂死，防卡死语义保留；正常长工具
-		// 持续发 tool_execution_update 流式输出刷新计时，不受影响。
-		const idleTimeoutMs = opts?.idleTimeoutMs ?? LIVENESS_IDLE_MS;
-		const toolIdleTimeoutMs = opts?.toolIdleTimeoutMs ?? LIVENESS_TOOL_IDLE_MS;
-		let toolRunning = false;
-		let livenessTimer: ReturnType<typeof setTimeout> | undefined;
-		const armLiveness = () => {
-			if (livenessTimer) clearTimeout(livenessTimer);
-			const windowMs = toolRunning ? toolIdleTimeoutMs : idleTimeoutMs;
-			livenessTimer = setTimeout(() => {
-				fail(new Error(`子智能体无进展超时 (${windowMs}ms)`));
-			}, windowMs);
+		// 探活（2026-09-23 改版，两把互补的尺）：
+		//   1) 事件兜底：任何 RPC 事件都把 30 分钟计时重新装满，超时判死（不区分工具执行中）。
+		//   2) get_state 探活：子代理启动后立即开始（不等 RPC 事件），每 probeIntervalMs 发一次
+		//      （同时只允许一个在途）；单次等待上限 probeTimeoutMs（默认 30 秒，容忍短暂挂起），
+		//      超时或命令报错即判死强杀（单次判定，不做连续计数）。
+		const fallbackMs = opts?.livenessFallbackMs ?? LIVENESS_FALLBACK_MS;
+		const probeIntervalMs = opts?.probeIntervalMs ?? PROBE_INTERVAL_MS;
+		const probeTimeoutMs = opts?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+		let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+		const armFallback = () => {
+			if (!Number.isFinite(fallbackMs)) return;
+			if (fallbackTimer) clearTimeout(fallbackTimer);
+			fallbackTimer = setTimeout(() => {
+				fail(new Error(`子智能体无进展超时 (${fallbackMs}ms)`));
+			}, fallbackMs);
 		};
-		const touch = () => {
-			if (Number.isFinite(idleTimeoutMs)) armLiveness();
+		let probeTimer: ReturnType<typeof setInterval> | undefined;
+		let probeInFlight = false;
+		const probeOnce = async () => {
+			const c = client;
+			if (probeInFlight || !c) return; // 同时只允许一个在途探活
+			probeInFlight = true;
+			try {
+				await c.command({ type: "get_state", timeoutMs: probeTimeoutMs });
+			} catch {
+				// 单次失败即判死：探活无响应/报错说明 pi 进程或协议通道已不可用
+				fail(
+					new Error(
+						`子智能体探活失败：get_state 在 ${probeTimeoutMs}ms 内未正常回包`,
+					),
+				);
+			} finally {
+				probeInFlight = false;
+			}
+		};
+		const startProbe = () => {
+			if (probeTimer || !Number.isFinite(probeIntervalMs)) return;
+			probeTimer = setInterval(() => void probeOnce(), probeIntervalMs);
 		};
 
 		const onEvent = (e: RpcEvent) => {
@@ -262,12 +288,10 @@ export async function runSubagentAgent(
 			// 统一交给 switch 之后的 touch()，不再逐个列 case。
 			switch (e.type) {
 				case "tool_execution_start":
-					toolRunning = true; // 进入工具执行：切到工具窗口（默认 20 分钟，静默长命令保护）
 					tools.push({ id: e.toolCallId, name: e.toolName, status: "running" });
 					emit("running");
 					break;
 				case "tool_execution_end": {
-					toolRunning = false; // 工具结束：探活窗口回退基础值
 					const t = tools.find((x) => x.id === e.toolCallId);
 					if (t) t.status = e.isError ? "error" : "done";
 					emit("running");
@@ -291,15 +315,8 @@ export async function runSubagentAgent(
 					settle();
 					break;
 			}
-			// 所有事件都算「有进展」→ 统一刷新探活。不逐个事件维护清单：RpcEvent 是开放类型
-			// （rpc-client.ts 里 type: string），漏 case 编译器不报错，而漏掉任一类的后果都是
-			// 正常流程被误杀——压缩期间只有 compaction_start / summarization_retry_* 会到达
-			// （摘要调用走 streamFunction，全程不发会话事件）、回合间隙只有 turn_start /
-			// turn_end、首 token 之前只有 message_start / auto_retry_*。
-			// 必须放在 switch 之后：tool_execution_end 需要先把 toolRunning 置回 false，
-			// 窗口才会由工具窗口回落到基础窗口（见 subagent-runner.test.ts 的回落用例）。
-			// 真挂死的表现是「零事件」（见 hang-pi 用例），不经此处。
-			touch();
+			// 任何事件都算「有进展」→ 重新装满事件兜底计时（探活已在子代理启动后立即开始）。
+			armFallback();
 		};
 
 		client = new RpcClient({
@@ -328,6 +345,9 @@ export async function runSubagentAgent(
 			},
 		});
 		await client.start();
+		// 探活自子代理启动后立即开始（用户拍板：不等 RPC 事件）。启动期的长响应不会误判——
+		// 单次上限 30 秒，且要连续 3 次失败才判死。
+		startProbe();
 
 		// 中止信号：abort 命令 + 随后进程销毁在 finally 统一处理
 		const onAbort = () => {
@@ -356,10 +376,10 @@ export async function runSubagentAgent(
 					}),
 				);
 			}
-			if (Number.isFinite(idleTimeoutMs)) {
+			if (Number.isFinite(fallbackMs)) {
 				racers.push(
 					new Promise<never>(() => {
-						armLiveness(); // fire 时内部用 fail() 判死（含工具执行中豁免重置）
+						armFallback(); // 首次装填；此后每个事件都会重新装满
 					}),
 				);
 			}
@@ -385,7 +405,8 @@ export async function runSubagentAgent(
 				// settle 先兑现时清理两个计时器，防长期高频派发累积挂起计时器
 				if (settleTimer !== undefined) clearTimeout(settleTimer);
 				if (graceTimer !== undefined) clearTimeout(graceTimer);
-				if (livenessTimer !== undefined) clearTimeout(livenessTimer);
+				if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
+				if (probeTimer !== undefined) clearInterval(probeTimer);
 			}
 		} finally {
 			opts?.signal?.removeEventListener("abort", onAbort);
