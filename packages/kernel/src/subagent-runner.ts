@@ -255,32 +255,25 @@ export async function runSubagentAgent(
 		};
 
 		const onEvent = (e: RpcEvent) => {
+			// switch 里只留需要额外副作用的事件；其余事件（turn_start / turn_end、message_start、
+			// queue_update、compaction_start / compaction_end、entry_appended、session_info_changed、
+			// thinking_level_changed、auto_retry_start / auto_retry_end、summarization_retry_*、
+			// bash_execution_update，以及 kernel 合成的 extension_*）只需刷新探活，
+			// 统一交给 switch 之后的 touch()，不再逐个列 case。
 			switch (e.type) {
-				case "agent_start":
-				case "agent_end":
-					touch();
-					break;
 				case "tool_execution_start":
 					toolRunning = true; // 进入工具执行：切到工具窗口（默认 20 分钟，静默长命令保护）
-					touch();
 					tools.push({ id: e.toolCallId, name: e.toolName, status: "running" });
 					emit("running");
 					break;
-				case "tool_execution_update":
-					// 长运行工具的 partialResult 流式输出（如 bash 逐行到达）= 有进展，
-					// 刷新探活计时；工具仍在执行中（status 不变 running，无需额外 emit）。
-					touch();
-					break;
 				case "tool_execution_end": {
 					toolRunning = false; // 工具结束：探活窗口回退基础值
-					touch();
 					const t = tools.find((x) => x.id === e.toolCallId);
 					if (t) t.status = e.isError ? "error" : "done";
 					emit("running");
 					break;
 				}
 				case "message_update": {
-					touch();
 					const delta = e.assistantMessageEvent;
 					if (delta?.type === "text_delta" && typeof delta.delta === "string") {
 						output += delta.delta;
@@ -289,17 +282,24 @@ export async function runSubagentAgent(
 					break;
 				}
 				case "message_end": {
-					touch();
 					const msg = e.message;
 					if (msg?.role === "assistant" && msg?.stopReason === "error")
 						sawError = true;
 					break;
 				}
 				case "agent_settled":
-					touch();
 					settle();
 					break;
 			}
+			// 所有事件都算「有进展」→ 统一刷新探活。不逐个事件维护清单：RpcEvent 是开放类型
+			// （rpc-client.ts 里 type: string），漏 case 编译器不报错，而漏掉任一类的后果都是
+			// 正常流程被误杀——压缩期间只有 compaction_start / summarization_retry_* 会到达
+			// （摘要调用走 streamFunction，全程不发会话事件）、回合间隙只有 turn_start /
+			// turn_end、首 token 之前只有 message_start / auto_retry_*。
+			// 必须放在 switch 之后：tool_execution_end 需要先把 toolRunning 置回 false，
+			// 窗口才会由工具窗口回落到基础窗口（见 subagent-runner.test.ts 的回落用例）。
+			// 真挂死的表现是「零事件」（见 hang-pi 用例），不经此处。
+			touch();
 		};
 
 		client = new RpcClient({

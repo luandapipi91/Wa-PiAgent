@@ -46,6 +46,7 @@ const RUNTIME = process.execPath;
 const tmpPaths: string[] = [];
 afterEach(() => {
 	delete process.env.ARGV_DUMP_FILE;
+	delete process.env.FAKE_EVENT_TYPE;
 	for (const f of tmpPaths.splice(0)) {
 		try {
 			rmSync(f, { force: true });
@@ -336,4 +337,89 @@ test("工具执行中持续流式输出（tool_execution_update）→ 不算卡�
 	const result = await resultP;
 	expect(result.isError).toBe(true);
 	expect(result.text).toContain("中止");
+}, 10_000);
+
+// ===== 官方事件全集都必须刷新探活计时（防漏：漏一类事件就会在真实场景里误杀）=====
+// pi 的 rpc 模式把会话事件流全量转发到 stdout（AgentSessionEvent 共 22 类），而 kernel 侧
+// 的 RpcEvent 是开放类型（rpc-client.ts:45，type: string + 索引签名）→ switch 漏 case 没有
+// 任何编译期提示。漏掉的后果（按 pi 源码逐个核对过的事件时序）：
+//   - 压缩期间：摘要调用走 agent.streamFunction 并在内部消费完流，全程不发会话事件，
+//     唯一会到达的是 compaction_start / summarization_retry_*（默认重试下静默 8~12 分钟）；
+//   - 回合间隙：turn_end →（可能压缩）→ turn_start，压缩静默夹在中间；
+//   - 首 token 之前：message_start 之后到第一个 delta 之间没有任何事件。
+// 这些若不算「有进展」，默认 2 分钟窗口会把正常子代理判死（误杀）。
+const LIVENESS_TOUCH_EVENTS = [
+	// pi AgentSessionEvent 全量（agent_settled 除外：它本身会正常结束子代理）
+	"agent_start",
+	"agent_end",
+	"turn_start",
+	"turn_end",
+	"message_start",
+	"message_update",
+	"message_end",
+	"tool_execution_start",
+	"tool_execution_update",
+	"tool_execution_end",
+	"queue_update",
+	"compaction_start",
+	"compaction_end",
+	"entry_appended",
+	"session_info_changed",
+	"thinking_level_changed",
+	"auto_retry_start",
+	"auto_retry_end",
+	"summarization_retry_scheduled",
+	"summarization_retry_attempt_start",
+	"summarization_retry_finished",
+	"bash_execution_update",
+	// kernel 由 extension_ui_request 合成的 5 类（rpc-client.ts:500-537）
+	"extension_notify",
+	"extension_status",
+	"extension_widget",
+	"extension_title",
+	"extension_editor_text",
+] as const;
+
+const EVENT_STREAM_PI = join(import.meta.dir, "fixtures", "event-stream-pi.ts");
+
+test("官方事件全量：任一类型持续到达都刷新探活（不漏一类，防误杀）", async () => {
+	for (const type of LIVENESS_TOUCH_EVENTS) {
+		process.env.FAKE_EVENT_TYPE = type;
+		const ctrl = new AbortController();
+		const resultP = runSubagentAgent(baseConfig(), "任务", "/tmp", {
+			cliPath: EVENT_STREAM_PI,
+			runtime: RUNTIME,
+			commandTimeoutMs: 60_000,
+			idleTimeoutMs: 120, // fixture 每 50ms 发一个事件：只有刷新计时才活得过该窗口
+			toolIdleTimeoutMs: 120, // 工具窗口同样收紧，避免宽工具窗口掩盖缺失的刷新
+			abortGraceMs: 150,
+			signal: ctrl.signal,
+		});
+		// 先挂返回监听（必须在 await 之前）：判死会立刻 resolve，晚注册就丢首帧
+		let returned: string | null = null;
+		void resultP.then((r) => {
+			returned = r.text;
+		});
+		await new Promise((r) => setTimeout(r, 350));
+		expect(returned, `事件 ${type} 未刷新探活（被误判无进展）`).toBeNull();
+		ctrl.abort();
+		const result = await resultP;
+		expect(result.text).toContain("中止");
+	}
+	delete process.env.FAKE_EVENT_TYPE;
+}, 60_000);
+
+// 工具结束后窗口回落：tool_execution_end 必须先复位 toolRunning、再刷新计时，
+// 否则窗口会停在工具窗口（默认 20 分钟）上，工具跑完后的静默挂死迟迟不判。
+const TOOL_END_IDLE_PI = join(import.meta.dir, "fixtures", "tool-end-idle-pi.ts");
+test("工具结束后探活窗口回落到基础窗口（复位 toolRunning 后才刷新计时）", async () => {
+	const result = await runSubagentAgent(baseConfig(), "任务", "/tmp", {
+		cliPath: TOOL_END_IDLE_PI,
+		runtime: RUNTIME,
+		commandTimeoutMs: 60_000, // settle 超时拉长：验证由探活先判死
+		idleTimeoutMs: 300, // 基础窗口 300ms
+		toolIdleTimeoutMs: 5_000, // 工具窗口 5s：若窗口没回落，300ms 内不会判死
+	});
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("无进展超时 (300ms)");
 }, 10_000);
