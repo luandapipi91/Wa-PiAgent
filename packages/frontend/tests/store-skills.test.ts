@@ -179,15 +179,23 @@ test("filterSkillsByScope：全局范围剔除项目技能", () => {
   expect(filterSkillsByScope(all, "global").map((s) => s.name)).toEqual(["g"]);
 });
 
-test("filterSkillsByScope：项目范围 = 该项目技能 + 全局技能，同名时项目那条生效", () => {
+test("filterSkillsByScope：项目范围只返回该项目技能（内置 / 插件 / 他项目技能都不出现）", () => {
   const all = [
-    { name: "dup", description: "全局版", path: "/b/dup", source: { type: "builtin" as const } },
-    { name: "dup", description: "项目版", path: "/p/dup", source: { type: "project" as const, projectId: "p1" } },
-    { name: "other", description: "", path: "/o", source: { type: "project" as const, projectId: "p2" } },
+    { name: "g", description: "内置版", path: "/b/g", source: { type: "builtin" as const } },
+    { name: "e", description: "插件版", path: "/x/e", source: { type: "extension" as const, name: "pack" } },
+    { name: "mine", description: "本项目版", path: "/p/mine", source: { type: "project" as const, projectId: "p1" } },
+    { name: "other", description: "他项目版", path: "/o", source: { type: "project" as const, projectId: "p2" } },
   ];
   const out = filterSkillsByScope(all, "project", "p1");
-  expect(out.map((s) => `${s.name}:${s.description}`)).toEqual(["dup:项目版"]);
-  expect(out.some((s) => s.source?.projectId === "p2")).toBe(false);
+  expect(out.map((s) => `${s.name}:${s.description}`)).toEqual(["mine:本项目版"]);
+});
+
+test("filterSkillsByScope：该项目没有技能时项目范围返回空列表", () => {
+  const all = [
+    { name: "g", description: "内置版", path: "/b/g", source: { type: "builtin" as const } },
+    { name: "other", description: "他项目版", path: "/o", source: { type: "project" as const, projectId: "p2" } },
+  ];
+  expect(filterSkillsByScope(all, "project", "p1")).toEqual([]);
 });
 
 test("filterSkillsByScope：全部范围隐藏被遮蔽的同名条目，保留未遮蔽项", () => {

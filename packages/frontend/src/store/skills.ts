@@ -15,7 +15,7 @@ export type SkillScope = "all" | "global" | "project";
  * 按范围过滤技能。
  * - all：隐藏被遮蔽的同名条目（同名以项目版本呈现）
  * - global：内置与扩展来源，被遮蔽者也保留（可在该范围单独开关）
- * - project：该项目技能 + 全局技能，同名时项目那条生效
+ * - project：只保留该项目自己的技能（内置 / 插件 / 他项目技能都不列出）
  */
 export function filterSkillsByScope(
   skills: SkillInfo[],
@@ -24,16 +24,9 @@ export function filterSkillsByScope(
 ): SkillInfo[] {
   if (scope === "all") return skills.filter((s) => !s.shadowed);
   if (scope === "global") return skills.filter((s) => s.source?.type !== "project");
-  const mine = skills.filter(
+  return skills.filter(
     (s) => s.source?.type === "project" && s.source.projectId === projectId,
   );
-  const mineNames = new Set(mine.map((s) => s.name));
-  return [
-    ...mine,
-    ...skills.filter(
-      (s) => s.source?.type !== "project" && !mineNames.has(s.name),
-    ),
-  ];
 }
 
 /**

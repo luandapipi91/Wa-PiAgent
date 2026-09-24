@@ -96,7 +96,10 @@ export function SkillSection() {
 		<div className="flex flex-col gap-3 p-4 overflow-auto">
 			{/* 技能目录（上方，默认展开）：只读展示路径与范围，仅保留「打开文件夹」 */}
 			<div className="flex flex-col gap-1">
-				<div className="flex items-center justify-between">
+				<div
+					className="flex items-center justify-between"
+					data-testid="skill-dir-header"
+				>
 					<button
 						onClick={() => setDirExpanded(!dirExpanded)}
 						className="flex items-center gap-2 text-sm text-primary text-left"
@@ -109,6 +112,13 @@ export function SkillSection() {
 						<span>{dirExpanded ? "▾" : "▸"}</span>
 					</button>
 					<div className="flex items-center gap-1">
+						{/* 范围筛选与刷新同行（范围选择器在刷新按钮左侧），搜索框独立在下一行 */}
+						<SkillScopeDropdown
+							scope={skillScope}
+							selectedProjectId={selectedProjectId}
+							projects={projects}
+							onSelect={setSkillScope}
+						/>
 						<button
 							onClick={() => load()}
 							className="p-1 text-secondary hover:text-primary"
@@ -182,14 +192,8 @@ export function SkillSection() {
 				)}
 			</div>
 
-			{/* 工具栏：范围筛选（全部 / 全局技能 / 各项目）+ 搜索框 */}
+			{/* 工具栏：搜索框（范围筛选已移到上面的技能目录行） */}
 			<div className="flex flex-col gap-2">
-				<SkillScopeDropdown
-					scope={skillScope}
-					selectedProjectId={selectedProjectId}
-					projects={projects}
-					onSelect={setSkillScope}
-				/>
 				<input
 					type="text"
 					value={search}

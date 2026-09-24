@@ -227,7 +227,7 @@ test("范围下拉默认全部，切到项目后展示该项目技能与来源�
   expect(screen.getByText("项目技能 · Wa-Pi 1 项")).toBeTruthy();
 });
 
-test("切到项目范围后只展示该项目技能与全局技能", () => {
+test("切到项目范围后只展示该项目技能", () => {
   useSkillsStore.setState({
     allSkills: [
       { name: "g-skill", description: "", path: "/b/g", source: { type: "builtin" } },
@@ -251,8 +251,26 @@ test("切到项目范围后只展示该项目技能与全局技能", () => {
   expect(useSkillsStore.getState().skillScope).toBe("project");
   expect(useSkillsStore.getState().selectedProjectId).toBe("p1");
   expect(screen.getByText("p-skill")).toBeTruthy();
-  expect(screen.getByText("g-skill")).toBeTruthy();
+  // 项目范围只留该项目技能：全局技能与他项目技能都不出现
+  expect(screen.queryByText("g-skill")).toBeNull();
   expect(screen.queryByText("other-skill")).toBeNull();
+  expect(screen.queryByText(/全局技能/)).toBeNull();
+});
+
+test("范围选择器位于技能目录行内，且 DOM 顺序早于刷新按钮", () => {
+  useSkillsStore.setState({ allSkills: [] });
+  render(<SkillSection />);
+  const header = screen.getByTestId("skill-dir-header");
+  const scope = screen.getByTestId("skill-scope-select");
+  const refresh = screen.getByTestId("skill-refresh-btn");
+  expect(header.contains(scope)).toBe(true);
+  expect(header.contains(refresh)).toBe(true);
+  const order = Array.from(
+    header.querySelectorAll(
+      '[data-testid="skill-scope-select"],[data-testid="skill-refresh-btn"]',
+    ),
+  ).map((el) => el.getAttribute("data-testid"));
+  expect(order).toEqual(["skill-scope-select", "skill-refresh-btn"]);
 });
 
 test("扩展来源标签为 Plugin skill（包名）", () => {

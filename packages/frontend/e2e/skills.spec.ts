@@ -70,6 +70,35 @@ test.describe.serial("技能管理", () => {
     // 清理：移除注入的技能
     await removeSkillDir("test-skill");
   });
+
+  test("范围选择器与刷新按钮同一行，且范围选择器在刷新按钮左侧", async ({ page }) => {
+    await setUiPrefs(page, "zh");
+    await page.goto("/");
+    await createProject("e2e-skills", "/tmp/e2e-skills");
+
+    await page.goto("/");
+    await page.getByTestId("settings-btn").click();
+    await page.getByText("技能", { exact: true }).click();
+
+    // 两者都属于「技能目录」行容器
+    const header = page.getByTestId("skill-dir-header");
+    await expect(header).toBeVisible();
+    const scope = header.getByTestId("skill-scope-select");
+    const refresh = header.getByTestId("skill-refresh-btn");
+    await expect(scope).toBeVisible();
+    await expect(refresh).toBeVisible();
+
+    const scopeBox = await scope.boundingBox();
+    const refreshBox = await refresh.boundingBox();
+    expect(scopeBox).toBeTruthy();
+    expect(refreshBox).toBeTruthy();
+    // 同一行：纵向中心基本一致
+    const scopeMid = scopeBox!.y + scopeBox!.height / 2;
+    const refreshMid = refreshBox!.y + refreshBox!.height / 2;
+    expect(Math.abs(scopeMid - refreshMid)).toBeLessThanOrEqual(6);
+    // 范围选择器在刷新按钮左侧
+    expect(scopeBox!.x + scopeBox!.width).toBeLessThanOrEqual(refreshBox!.x + 1);
+  });
 });
 
 // 技能范围筛选：项目级技能（<project.cwd>/.pi/skills）的可见性与来源标签。
@@ -78,6 +107,7 @@ test.describe.serial("技能范围：项目级技能", () => {
   const PROJ_A_CWD = join(E2E_WA_PI_DIR, "e2e-scope-proj-a");
   const PROJ_B_CWD = join(E2E_WA_PI_DIR, "e2e-scope-proj-b");
   const SKILL_NAME = "e2e-scope-skill";
+  const BUILTIN_NAME = "e2e-scope-builtin"; // 内置对照面：项目范围下不应出现
   const SKILL_DIR = join(PROJ_A_CWD, ".pi", "skills", SKILL_NAME);
 
   test.beforeAll(async () => {
@@ -96,23 +126,36 @@ test.describe.serial("技能范围：项目级技能", () => {
     rmSync(join(PROJ_B_CWD, ".pi"), { recursive: true, force: true });
   });
 
-  test("切到项目范围后项目技能出现且标签正确，切到无该目录的项目则消失", async ({ page }) => {
+  test("切到项目范围后只显示该项目技能（内置技能不出现），切到无该目录的项目则消失", async ({ page }) => {
     const projA = await createProject("e2e-scope-A", PROJ_A_CWD);
     const projB = await createProject("e2e-scope-B", PROJ_B_CWD);
     await setUiPrefs(page, "zh");
-    await page.goto("/");
-    await page.getByTestId("settings-btn").click();
-    await page.getByText("技能", { exact: true }).click();
+    // 注入一个内置技能作为对照：新语义下项目范围不再带出内置 / 插件技能
+    await addSkillDir(BUILTIN_NAME, "内置对照技能");
+    try {
+      await page.goto("/");
+      await page.getByTestId("settings-btn").click();
+      await page.getByText("技能", { exact: true }).click();
 
-    await page.getByTestId("skill-scope-select").click();
-    await page.getByTestId(`skill-scope-option-project-${projA.id}`).click();
-    const row = page.getByTestId(`skill-row-${SKILL_NAME}`);
-    await expect(row).toBeVisible({ timeout: 5000 });
-    await expect(row.getByText(`项目 skill（e2e-scope-A）`)).toBeVisible();
+      // 「全部」范围下内置对照技能可见
+      await expect(page.getByTestId(`skill-row-${BUILTIN_NAME}`)).toBeVisible({
+        timeout: 5000,
+      });
 
-    await page.getByTestId("skill-scope-select").click();
-    await page.getByTestId(`skill-scope-option-project-${projB.id}`).click();
-    await expect(page.getByTestId(`skill-row-${SKILL_NAME}`)).toHaveCount(0);
+      await page.getByTestId("skill-scope-select").click();
+      await page.getByTestId(`skill-scope-option-project-${projA.id}`).click();
+      const row = page.getByTestId(`skill-row-${SKILL_NAME}`);
+      await expect(row).toBeVisible({ timeout: 5000 });
+      await expect(row.getByText(`项目 skill（e2e-scope-A）`)).toBeVisible();
+      // 项目范围只留该项目技能：内置对照技能不得出现
+      await expect(page.getByTestId(`skill-row-${BUILTIN_NAME}`)).toHaveCount(0);
+
+      await page.getByTestId("skill-scope-select").click();
+      await page.getByTestId(`skill-scope-option-project-${projB.id}`).click();
+      await expect(page.getByTestId(`skill-row-${SKILL_NAME}`)).toHaveCount(0);
+    } finally {
+      await removeSkillDir(BUILTIN_NAME).catch(() => {});
+    }
   });
 
   test("同名时项目那条生效，全部范围只显示一行", async ({ page }) => {
