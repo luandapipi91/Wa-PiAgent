@@ -910,6 +910,13 @@ const en = {
 			retry: "Retry",
 			updateFailed: "Update failed",
 			updateHistory: "Update History",
+			github: "GitHub",
+			versionsCount: "{{count}} versions",
+			itemCount: "{{count}} items",
+			expandAll: "Show all {{count}} items",
+			collapse: "Collapse",
+			updatesBetween: "{{versions}} versions · {{items}} changes",
+			viewAll: "View all",
 		},
 		provider: {
 			add: "+ Add provider",

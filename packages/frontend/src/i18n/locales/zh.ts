@@ -878,6 +878,13 @@ const zh = {
 			retry: "重试",
 			updateFailed: "更新失败",
 			updateHistory: "更新历史",
+			github: "GitHub",
+			versionsCount: "{{count}} 个版本",
+			itemCount: "{{count}} 项",
+			expandAll: "展开全部 {{count}} 项",
+			collapse: "收起",
+			updatesBetween: "跨 {{versions}} 个版本 · 共 {{items}} 项变更",
+			viewAll: "查看全部",
 		},
 		provider: {
 			add: "+ 添加供应商",
