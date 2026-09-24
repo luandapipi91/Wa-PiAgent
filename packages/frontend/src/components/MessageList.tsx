@@ -930,7 +930,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			)}
 			{skeletonShown && (
 				<div
-					className="absolute inset-0 flex items-center justify-center bg-surface"
+					className="absolute inset-0 flex items-center justify-center bg-canvas"
 					data-testid={`history-loading-${sessionId}`}
 				>
 					<SessionSkeleton label={t("message.loadSession")} />

@@ -218,6 +218,29 @@ test("切换已缓存会话（有消息）也显示骨架过渡（不再要求 m
 	expect(screen.getByTestId("history-loading-s1")).toBeTruthy();
 });
 
+test("加载层底色与消息区背景一致（bg-canvas），骨架条保留可见占位色", () => {
+	useSessionStore.setState({
+		messagesBySession: { s1: [] },
+		historyLoadingBySession: { s1: true },
+		streamingBySession: {},
+		statusBySession: { s1: "idle" },
+	} as any);
+	const { container } = render(<MessageList sessionId="s1" />);
+	const overlay = container.querySelector(
+		'[data-testid="history-loading-s1"]',
+	)!;
+	// 加载层底色须与应用/消息区背景一致（canvas），不得用更亮的 surface 灰
+	expect(overlay.className).toContain("bg-canvas");
+	expect(overlay.className).not.toContain("bg-surface");
+	const bars = Array.from(overlay.querySelectorAll("span"));
+	expect(bars.length).toBe(4);
+	for (const bar of bars) {
+		// 骨架条保留可见的占位色，不得与底色同色（否则骨架屏形同被删）
+		expect(bar.className).toContain("bg-hairline");
+		expect(bar.className).not.toContain("bg-surface");
+	}
+});
+
 test("骨架最短显示时长：历史就绪后不立即消失，补足 SKELETON_MIN_DISPLAY_MS 再隐藏", async () => {
 	useSessionStore.setState({
 		messagesBySession: { s1: [] },
