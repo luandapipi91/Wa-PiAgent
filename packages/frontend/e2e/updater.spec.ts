@@ -72,7 +72,19 @@ test.describe("关于页签更新流程（mock waPiUpdater）", () => {
 			await page.getByTestId("check-update-btn").click();
 		}
 		await expect(downloadBtn).toBeVisible();
-		await expect(page.getByText(/0\.2\.0/)).toBeVisible();
+		// 作用域限定到状态条：分栏左列会渲染大量「v0.2.x」版本号，裸 getByText 在严格模式下会命中多处
+		await expect(
+			page.getByTestId("updater-status").getByText(/0\.2\.0/),
+		).toBeVisible();
+
+		// 更新历史：左右分栏 + 点版本切换详情
+		const list = page.getByTestId("version-history-list");
+		const detail = page.getByTestId("version-history-detail");
+		await expect(list).toBeVisible();
+		await expect(detail).toBeVisible();
+		const secondVersion = await list.locator("button").nth(1).innerText();
+		await list.locator("button").nth(1).click();
+		await expect(detail).toContainText(secondVersion.split("\n")[0]);
 
 		// 立即更新 → 进度条 → 就绪
 		await page.getByTestId("download-update-btn").click();
