@@ -8,9 +8,11 @@
 
 **pi coding agent 的桌面 GUI 客户端 —— 强大的 AI 编程引擎，值得一个同样好用的桌面界面。**
 
+**为 pi 编写的 TUI 插件无需修改，直接可用** —— 状态栏、Widget、对话框、通知等 UI 原语以 GUI 原生组件呈现。
+
 一条命令都不用记：会话、模型、MCP、技能、记忆，全部点点鼠标搞定。
 
-图形化会话管理 · 多智能体协作 · IM 机器人渠道 · MCP 生态 · 桌面与浏览器双端 · macOS / Windows / Linux · 中文 / English 双语界面
+图形化会话管理 · 多智能体协作 · TUI 插件兼容 · IM 机器人渠道 · MCP 生态 · 桌面与浏览器双端 · macOS / Windows / Linux · 中文 / English 双语界面
 
 ![Runtime](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)
 ![Language](https://img.shields.io/badge/Language-TypeScript-3178c6?logo=typescript&logoColor=fff)
@@ -36,7 +38,7 @@
 
 ## 这是什么
 
-WA PI Agent 是 [pi](https://github.com/earendil-works) coding agent 的**桌面 GUI 客户端**，也是一层建立在其上的框架。pi 是一个强大的 AI 编程智能体，但原生只有命令行界面——配置靠手改 JSON、多会话难管理、MCP 报错只有一堆堆栈。WA PI Agent 为它套上完整的桌面应用（Electron）与浏览器客户端，把引擎的每一项能力都变成看得见、点得着的界面操作。
+WA PI Agent 是 [pi](https://github.com/earendil-works) coding agent 的**桌面 GUI 客户端**，也是一层建立在其上的框架。pi 是一个强大的 AI 编程智能体，但原生只有命令行界面——配置靠手改 JSON、多会话难管理、MCP 报错只有一堆堆栈。WA PI Agent 为它套上完整的桌面应用（Electron）与浏览器客户端，把引擎的每一项能力都变成看得见、点得着的界面操作。**TUI 插件兼容**：为 pi 编写的扩展无需修改即可运行——状态栏、Widget、对话框、通知不再渲染成终端字符，而是以 GUI 原生组件呈现。
 
 **每个会话都是一个独立的 pi 子进程**，拥有自己的工作目录、工具链和上下文，互不干扰。引擎升级（pi 更新）与界面升级（本框架更新）彼此解耦——pi 出新能力，框架自动承接。
 
@@ -75,6 +77,7 @@ bun run pack:all     # 全平台
 | MCP 报错只看原始堆栈 | 连接状态可视化 + 可读的错误诊断 |
 | 单智能体单会话 | 多智能体团队，支持任务委托与并发 |
 | 技能/插件靠目录约定 | 图形化启用/禁用、安装与管理 |
+| 扩展在终端 TUI 里渲染 | 同一批 TUI 插件无需修改，以 GUI 原生组件呈现 |
 | 只在终端里用 | 桌面应用 + 浏览器 + IM 机器人多渠道触达 |
 
 ## 核心特性
@@ -233,6 +236,9 @@ bun run typecheck      # 类型检查
 
 **pi coding agent 有桌面应用吗？**
 有。WA PI Agent 就是 pi coding agent 的桌面 GUI 客户端，以 Electron 应用形式运行在 macOS、Windows 和 Linux 上，同一套界面也可以在浏览器里使用。
+
+**我已有的 pi 插件还能用吗？**
+能。WA PI Agent 兼容 TUI 插件：为 pi CLI 编写的扩展无需修改即可运行——状态栏、Widget、对话框、通知以 GUI 原生组件呈现，插件贡献的 slash 命令还可逐项查看与开关。
 
 **用桌面应用需要先装 Bun 吗？**
 不需要。打包版把内核作为 sidecar 一起分发，无需预装任何运行时，并内置自动更新。

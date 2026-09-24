@@ -8,9 +8,11 @@
 
 **A desktop GUI client for the [pi](https://github.com/earendil-works) coding agent — a powerful AI coding engine deserves an equally capable desktop interface.**
 
+**TUI plugins written for pi run unchanged** — status bars, widgets, dialogs and notifications are rendered as native GUI components.
+
 Not a single command to memorize: sessions, models, MCP, skills, and memory — all point-and-click.
 
-Visual session management · Multi-agent collaboration · IM bot channels · MCP ecosystem · Desktop & browser · macOS / Windows / Linux · 中文 / English UI
+Visual session management · Multi-agent collaboration · TUI plugin compatible · IM bot channels · MCP ecosystem · Desktop & browser · macOS / Windows / Linux · 中文 / English UI
 
 ![Runtime](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)
 ![Language](https://img.shields.io/badge/Language-TypeScript-3178c6?logo=typescript&logoColor=fff)
@@ -36,7 +38,7 @@ Visual session management · Multi-agent collaboration · IM bot channels · MCP
 
 ## What is this
 
-WA PI Agent is a **desktop GUI client for the [pi](https://github.com/earendil-works) coding agent**, and a framework on top of it. pi is a powerful AI coding agent, but it ships with a CLI only — configuration means hand-editing JSON, juggling multiple sessions is painful, and MCP failures surface as raw stack traces. WA PI Agent wraps it in a complete desktop app (Electron) and a browser client, turning every engine capability into something you can see and click.
+WA PI Agent is a **desktop GUI client for the [pi](https://github.com/earendil-works) coding agent**, and a framework on top of it. pi is a powerful AI coding agent, but it ships with a CLI only — configuration means hand-editing JSON, juggling multiple sessions is painful, and MCP failures surface as raw stack traces. WA PI Agent wraps it in a complete desktop app (Electron) and a browser client, turning every engine capability into something you can see and click. **TUI plugin compatible**: extensions written for pi run unchanged — their status bars, widgets, dialogs and notifications render as native GUI components instead of terminal cells.
 
 **Every session is an independent pi subprocess** with its own working directory, toolchain, and context — no interference. Engine upgrades (pi updates) and interface upgrades (this framework) are decoupled: when pi ships new capabilities, the framework picks them up automatically.
 
@@ -75,6 +77,7 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 | Raw stack traces for MCP errors | Visual connection status + human-readable diagnostics |
 | One agent, one session | Multi-agent team with task delegation and concurrency |
 | Skills/plugins via directory conventions | Graphical enable/disable, install & management |
+| Extensions render inside the terminal TUI | The same TUI plugins run unchanged, rendered as native GUI components |
 | Terminal only | Desktop app + browser + IM bots |
 
 ## Key features
@@ -234,6 +237,9 @@ bun run typecheck      # Type checking
 
 **Is there a desktop app for the pi coding agent?**
 Yes — WA PI Agent is a desktop GUI client for the pi coding agent. It runs as an Electron app on macOS, Windows and Linux, and the same interface is available in the browser.
+
+**Do my existing pi plugins still work?**
+Yes. WA PI Agent is TUI plugin compatible: extensions written for the pi CLI run unchanged — status bars, widgets, dialogs and notifications are rendered as native GUI components, and the slash commands a plugin contributes can be inspected and toggled one by one.
 
 **Do I need to install Bun before using the desktop app?**
 No. The packaged desktop build carries the kernel as a sidecar, so nothing has to be pre-installed, and the app updates itself.
