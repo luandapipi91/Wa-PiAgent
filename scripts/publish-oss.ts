@@ -2,6 +2,7 @@
 // 用法：R2_ACCESS_KEY_ID=<id> R2_SECRET_ACCESS_KEY=<secret> bun run scripts/publish-oss.ts <version> [--no-proxy]
 // 产物结构（R2 bucket）：
 //   releases/latest.yml                      # 版本清单（固定路径，覆盖式）
+//   releases/version-history.json           # 完整版本历史（内核代拉，旧版本用户也能看到中间版本更新内容）
 //   releases/WaPi-Setup-<version>.exe        # 安装包
 //   releases/WaPi-Setup-<version>.exe.blockmap
 // releaseNotes：electron-builder 26 不支持 releaseNotesFile，故这里上传前把
@@ -56,12 +57,21 @@ export function listArtifacts(releaseDir: string, version: string): Artifact[] {
 }
 
 /**
+ * 版本历史文件：不在 release 目录里，单独作为一项产物上传，
+ * 供内核 GET /api/version-history 代拉（旧版安装包也能看到中间版本更新内容）。
+ */
+export function historyArtifact(historyFile: string): Artifact {
+	return { path: historyFile, key: `${PREFIX}/version-history.json` };
+}
+
+/**
  * 上传顺序：安装包/blockmap（大文件，耗时）在前，latest*.yml 清单最后覆盖。
  * 背景：0.2.16/0.2.17 发版都踩过「清单先传 → exe 上传失败/中断 → 线上清单悬空指向
  * 不存在的安装包，用户更新失败」。清单是版本入口，必须最后更新保证原子性。
  */
 export function orderArtifactsForUpload(artifacts: Artifact[]): Artifact[] {
-	const isManifest = (a: Artifact) => a.key.endsWith(".yml");
+	const isManifest = (a: Artifact) =>
+		a.key.endsWith(".yml") || a.key.endsWith("version-history.json");
 	const installers = artifacts.filter((a) => !isManifest(a));
 	const manifests = artifacts.filter(isManifest);
 	return [...installers, ...manifests];
@@ -229,7 +239,11 @@ if (import.meta.main) {
 	}
 
 	async function main() {
-		const artifacts = listArtifacts(releaseDir, version);
+		// 版本历史作为清单类产物，跟 latest*.yml 一起最后上传
+		const artifacts = [
+			...listArtifacts(releaseDir, version),
+			historyArtifact(historyFile),
+		];
 		if (artifacts.length === 0) {
 			console.error(`release 目录未找到版本 ${version} 的产物：${releaseDir}`);
 			process.exit(1);

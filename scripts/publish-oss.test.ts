@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listArtifacts, injectReleaseNotes } from "./publish-oss";
+import { listArtifacts, injectReleaseNotes, historyArtifact, orderArtifactsForUpload } from "./publish-oss";
 
 describe("listArtifacts", () => {
 	const dir = mkdtempSync(join(tmpdir(), "r2-artifacts-"));
@@ -34,6 +34,29 @@ describe("listArtifacts", () => {
 			"releases/WaPi-Setup-1.2.3.zip",
 			"releases/WaPi-Setup-1.2.3.zip.blockmap",
 			"releases/latest-mac.yml",
+			"releases/latest.yml",
+		]);
+	});
+});
+
+describe("版本历史上传（内核代拉的数据源）", () => {
+	it("historyArtifact 指向 releases/version-history.json", () => {
+		const a = historyArtifact("/tmp/history.json");
+		expect(a).toEqual({
+			path: "/tmp/history.json",
+			key: "releases/version-history.json",
+		});
+	});
+
+	it("排序把 version-history.json 与 latest*.yml 一起放最后（清单类）", () => {
+		const ordered = orderArtifactsForUpload([
+			historyArtifact("/tmp/history.json"),
+			{ path: "/tmp/latest.yml", key: "releases/latest.yml" },
+			{ path: "/tmp/a.exe", key: "releases/WaPi-Setup-1.2.3.exe" },
+		]);
+		expect(ordered.map((a) => a.key)).toEqual([
+			"releases/WaPi-Setup-1.2.3.exe",
+			"releases/version-history.json",
 			"releases/latest.yml",
 		]);
 	});
@@ -81,8 +104,6 @@ describe("injectReleaseNotes", () => {
 });
 
 // —— 上传顺序：安装包/blockmap 在前，latest*.yml 清单最后覆盖（防线上悬空）——
-import { orderArtifactsForUpload } from "./publish-oss";
-
 describe("orderArtifactsForUpload", () => {
 	it("安装包/blockmap 排在清单之前", () => {
 		const artifacts = [
