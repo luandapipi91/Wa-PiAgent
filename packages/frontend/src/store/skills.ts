@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import type {
   SkillInfo,
   SkillSource,
@@ -7,27 +8,6 @@ import type {
   SkillChangedEvent,
 } from "@wa-pi/shared";
 import { api } from "../api-client";
-
-/** 技能页范围筛选：全部 / 仅全局技能 / 指定项目 */
-export type SkillScope = "all" | "global" | "project";
-
-/**
- * 按范围过滤技能。
- * - all：隐藏被遮蔽的同名条目（同名以项目版本呈现）
- * - global：内置与扩展来源，被遮蔽者也保留（可在该范围单独开关）
- * - project：只保留该项目自己的技能（内置 / 插件 / 他项目技能都不列出）
- */
-export function filterSkillsByScope(
-  skills: SkillInfo[],
-  scope: SkillScope,
-  projectId?: string | null,
-): SkillInfo[] {
-  if (scope === "all") return skills.filter((s) => !s.shadowed);
-  if (scope === "global") return skills.filter((s) => s.source?.type !== "project");
-  return skills.filter(
-    (s) => s.source?.type === "project" && s.source.projectId === projectId,
-  );
-}
 
 /**
  * 具名派生选择器：某个项目下实际可用的技能集合。
@@ -71,12 +51,12 @@ interface SkillsState {
   disabledSkills: string[]; // 被禁用的技能名
   builtinDir: string; // 内置目录路径
   loading: boolean;
-  skillScope: SkillScope; // 范围筛选（默认全部）
-  selectedProjectId: string | null; // scope === "project" 时的目标项目
+  /** 技能页当前选中的项目（默认工作区 = SYSTEM_PROJECT_ID）；切换只做本地筛选，不发请求 */
+  selectedProjectId: string;
   load: () => void;
   setAll: (data: SkillListResult | SkillChangedEvent) => void;
   toggleSkill: (skillName: string) => void;
-  setSkillScope: (scope: SkillScope, projectId?: string) => void;
+  setSelectedProject: (projectId: string) => void;
 }
 
 export const useSkillsStore = create<SkillsState>((set, get) => ({
@@ -86,8 +66,7 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
   disabledSkills: [],
   builtinDir: "",
   loading: false,
-  skillScope: "all",
-  selectedProjectId: null,
+  selectedProjectId: SYSTEM_PROJECT_ID,
   load: () => {
     api
       .get("/api/skills")
@@ -113,8 +92,7 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
       builtinDir: data.builtinDir,
       loading: false,
     }),
-  setSkillScope: (scope, projectId) =>
-    set({ skillScope: scope, selectedProjectId: projectId ?? null }),
+  setSelectedProject: (projectId) => set({ selectedProjectId: projectId }),
   toggleSkill: (skillName) => {
     // 乐观更新：立即切换本地 disabledSkills，SSE 事件回来后 setAll 覆盖矫正
     const isDisabled = get().disabledSkills.includes(skillName);

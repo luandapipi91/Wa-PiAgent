@@ -1,5 +1,6 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME } from "@wa-pi/shared";
 import { SkillSection } from "../src/components/settings/SkillSection";
 import { useSkillsStore } from "../src/store/skills";
 import { useProjectsStore } from "../src/store/projects";
@@ -23,20 +24,31 @@ const originalActions = {
 };
 const originalProjects = useProjectsStore.getState().projects;
 
+const SYSTEM_DIR = "/Users/co/.pi/agent/workdir/.pi/skills";
+const GLOBAL_DIR = "/Users/co/.pi/agent/skills";
+const HLK_CWD = "/Users/co/Documents/work/hlk";
+
 beforeEach(() => {
-  // 项目列表与记忆页同源：技能页的项目分组依赖 useProjectsStore
+  // 项目列表与记忆页同源：技能页的项目分组与选择器依赖 useProjectsStore
   useProjectsStore.setState({
-    projects: [{ id: "p1", name: "Wa-Pi", cwd: "/tmp/Wa-Pi", createdAt: 0 }],
+    projects: [
+      {
+        id: SYSTEM_PROJECT_ID,
+        name: SYSTEM_PROJECT_NAME,
+        cwd: "/Users/co/.pi/agent/workdir",
+        createdAt: 0,
+      },
+      { id: "p1", name: "Wa-Pi", cwd: "/tmp/Wa-Pi", createdAt: 0 },
+    ],
   });
   useSkillsStore.setState({
     skills: [],
     allSkills: [],
     dirs: [],
     disabledSkills: [],
-    builtinDir: "/home/.pi/agent/skills",
+    builtinDir: GLOBAL_DIR,
     loading: false,
-    skillScope: "all",
-    selectedProjectId: null,
+    selectedProjectId: SYSTEM_PROJECT_ID,
     toggleSkill: originalActions.toggleSkill,
     load: originalActions.load,
   });
@@ -48,48 +60,54 @@ afterEach(() => {
 
 // ===== 目录区（只读）=====
 
-test("技能目录默认展开，展开时标题不显示内置目录路径", () => {
+test("技能目录默认折叠，且折叠态只显示所选项目自己的技能目录路径", () => {
   useSkillsStore.setState({
     dirs: [
-      { path: "/home/.pi/agent/skills", type: "builtin" },
-      { path: "/home/.claude/skills", type: "extension", name: "claude" },
+      {
+        path: SYSTEM_DIR,
+        type: "project",
+        projectId: SYSTEM_PROJECT_ID,
+        projectName: SYSTEM_PROJECT_NAME,
+      },
+      { path: GLOBAL_DIR, type: "builtin" },
     ],
-    builtinDir: "/home/.pi/agent/skills",
+    builtinDir: GLOBAL_DIR,
     allSkills: [],
   });
   render(<SkillSection />);
   const toggleBtn = screen.getByTestId("skill-dir-toggle");
   expect(toggleBtn.textContent).toContain("技能目录");
-  expect(toggleBtn.textContent).not.toContain("/home/.pi/agent/skills");
+  // 折叠态显示所选项目自己的目录路径，而非内置目录
+  expect(toggleBtn.textContent).toContain(SYSTEM_DIR);
+  expect(toggleBtn.textContent).not.toContain(GLOBAL_DIR);
+  // 默认折叠：目录列表未渲染
+  expect(screen.queryByTestId(`skill-dir-open-${GLOBAL_DIR}`)).toBeNull();
 });
 
-test("折叠技能目录后，标题才显示内置目录路径", () => {
+test("展开技能目录后，标题不再显示目录路径", () => {
   useSkillsStore.setState({
-    dirs: [{ path: "/home/.pi/agent/skills", type: "builtin" }],
-    builtinDir: "/home/.pi/agent/skills",
+    dirs: [{ path: GLOBAL_DIR, type: "builtin" }],
+    builtinDir: GLOBAL_DIR,
     allSkills: [],
   });
   render(<SkillSection />);
   fireEvent.click(screen.getByTestId("skill-dir-toggle"));
   const toggleBtn = screen.getByTestId("skill-dir-toggle");
-  expect(toggleBtn.textContent).toContain("/home/.pi/agent/skills");
+  expect(toggleBtn.textContent).toContain("技能目录");
+  expect(toggleBtn.textContent).not.toContain(GLOBAL_DIR);
 });
 
 test("技能页不再有添加目录按钮", () => {
-  useSkillsStore.setState({
-    dirs: [],
-    builtinDir: "/home/.pi/agent/skills",
-    allSkills: [],
-  });
+  useSkillsStore.setState({ dirs: [], builtinDir: GLOBAL_DIR, allSkills: [] });
   render(<SkillSection />);
   expect(screen.queryByTestId("skill-add-dir-btn")).toBeNull();
 });
 
 test("技能页不再有任何目录删除按钮", () => {
   useSkillsStore.setState({
-    builtinDir: "/home/.pi/agent/skills",
+    builtinDir: GLOBAL_DIR,
     dirs: [
-      { path: "/home/.pi/agent/skills", type: "builtin" },
+      { path: GLOBAL_DIR, type: "builtin" },
       {
         path: "/Users/co/work/Wa-Pi/.pi/skills",
         type: "project",
@@ -100,7 +118,7 @@ test("技能页不再有任何目录删除按钮", () => {
     allSkills: [],
   });
   render(<SkillSection />);
-  expect(screen.queryByTestId("skill-dir-remove-/home/.pi/agent/skills")).toBeNull();
+  expect(screen.queryByTestId(`skill-dir-remove-${GLOBAL_DIR}`)).toBeNull();
   expect(document.querySelector('[data-testid^="skill-dir-remove-"]')).toBeNull();
 });
 
@@ -128,17 +146,87 @@ test("刷新按钮为 icon 按钮，与技能目录标题同行且右对齐", ()
   expect(headerRow.contains(refreshBtn)).toBe(true);
 });
 
-test("默认展开显示目录列表", () => {
+test("展开后按 该项目 / 全局 / 插件 顺序显示目录，且不含其它项目目录", () => {
   useSkillsStore.setState({
+    selectedProjectId: "hlk",
     dirs: [
-      { path: "/home/.pi/agent/skills", type: "builtin" },
-      { path: "/home/.claude/skills", type: "extension", name: "claude" },
+      {
+        path: `${HLK_CWD}/.pi/skills`,
+        type: "project",
+        projectId: "hlk",
+        projectName: "hlk",
+      },
+      {
+        path: "/tmp/other/.pi/skills",
+        type: "project",
+        projectId: "other",
+        projectName: "其它项目",
+      },
+      { path: GLOBAL_DIR, type: "builtin" },
+      {
+        path: "/Users/co/.pi/agent/npm/node_modules/superpowers-zh/skills",
+        type: "extension",
+        name: "superpowers-zh",
+      },
     ],
-    builtinDir: "/home/.pi/agent/skills",
     allSkills: [],
   });
   render(<SkillSection />);
-  expect(screen.getByText("/home/.claude/skills")).toBeTruthy();
+  fireEvent.click(screen.getByTestId("skill-dir-toggle"));
+  // 顺序：该项目目录 → 全局目录 → 插件目录
+  const order = Array.from(
+    document.querySelectorAll('[data-testid^="skill-dir-open-"]'),
+  ).map((el) => el.getAttribute("data-testid"));
+  expect(order).toEqual([
+    `skill-dir-open-${HLK_CWD}/.pi/skills`,
+    `skill-dir-open-${GLOBAL_DIR}`,
+    "skill-dir-open-/Users/co/.pi/agent/npm/node_modules/superpowers-zh/skills",
+  ]);
+  // 其它项目的目录被过滤掉
+  expect(screen.queryByText("/tmp/other/.pi/skills")).toBeNull();
+});
+
+test("切换到某项目后，折叠态显示该项目的技能目录路径", () => {
+  useProjectsStore.setState({
+    projects: [
+      {
+        id: SYSTEM_PROJECT_ID,
+        name: SYSTEM_PROJECT_NAME,
+        cwd: "/Users/co/.pi/agent/workdir",
+        createdAt: 0,
+      },
+      { id: "hlk", name: "hlk", cwd: HLK_CWD, createdAt: 0 },
+    ],
+  });
+  useSkillsStore.setState({
+    selectedProjectId: SYSTEM_PROJECT_ID,
+    dirs: [
+      {
+        path: SYSTEM_DIR,
+        type: "project",
+        projectId: SYSTEM_PROJECT_ID,
+        projectName: SYSTEM_PROJECT_NAME,
+      },
+      {
+        path: `${HLK_CWD}/.pi/skills`,
+        type: "project",
+        projectId: "hlk",
+        projectName: "hlk",
+      },
+      { path: GLOBAL_DIR, type: "builtin" },
+    ],
+    allSkills: [],
+  });
+  render(<SkillSection />);
+  expect(screen.getByTestId("skill-dir-toggle").textContent).toContain(SYSTEM_DIR);
+
+  fireEvent.click(screen.getByTestId("skill-scope-select"));
+  fireEvent.click(screen.getByTestId("skill-scope-option-project-hlk"));
+
+  expect(useSkillsStore.getState().selectedProjectId).toBe("hlk");
+  expect(screen.getByTestId("skill-dir-toggle").textContent).toContain(
+    `${HLK_CWD}/.pi/skills`,
+  );
 });
 
 // ===== 搜索过滤测试 =====
@@ -204,30 +292,72 @@ test("无任何技能时显示空态", () => {
   expect(screen.getByText("暂无技能")).toBeTruthy();
 });
 
-// ===== 范围筛选 =====
+// ===== 选中项目（选择器 + 技能列表）=====
 
-test("范围下拉默认全部，切到项目后展示该项目技能与来源标签", () => {
+test("选择器只列默认工作区与各项目，不含「全部」和「全局技能」", () => {
+  useSkillsStore.setState({ allSkills: [] });
+  render(<SkillSection />);
+  // 触发按钮显示当前选中项（默认工作区）
+  expect(screen.getByTestId("skill-scope-select").textContent).toContain(
+    `📁 ${SYSTEM_PROJECT_NAME}`,
+  );
+
+  fireEvent.click(screen.getByTestId("skill-scope-select"));
+  const menu = screen.getByTestId("skill-scope-menu");
+  // 只有「默认工作区 + 各项目」两项，且默认工作区排在最前
+  const order = Array.from(
+    menu.querySelectorAll('[data-testid^="skill-scope-option-project-"]'),
+  ).map((el) => el.getAttribute("data-testid"));
+  expect(order).toEqual([
+    `skill-scope-option-project-${SYSTEM_PROJECT_ID}`,
+    "skill-scope-option-project-p1",
+  ]);
+  expect(menu.textContent).not.toContain("全部");
+  expect(menu.textContent).not.toContain("全局技能");
+  // 旧选项不再存在
+  expect(screen.queryByTestId("skill-scope-option-all")).toBeNull();
+  expect(screen.queryByTestId("skill-scope-option-global")).toBeNull();
+});
+
+test("选中默认工作区时列出全局与 Plugin 技能，排除其它项目的项目技能", () => {
   useSkillsStore.setState({
-    skillScope: "all",
-    selectedProjectId: null,
+    selectedProjectId: SYSTEM_PROJECT_ID,
     allSkills: [
       { name: "g-skill", description: "", path: "/b/g", source: { type: "builtin" } },
       {
-        name: "p-skill",
+        name: "e-skill",
         description: "",
-        path: "/p/p",
+        path: "/x/e",
+        source: { type: "extension", name: "pack" },
+      },
+      {
+        name: "sys-skill",
+        description: "",
+        path: "/s/s",
+        source: {
+          type: "project",
+          projectId: SYSTEM_PROJECT_ID,
+          projectName: SYSTEM_PROJECT_NAME,
+        },
+      },
+      {
+        name: "other-skill",
+        description: "",
+        path: "/o/o",
         source: { type: "project", projectId: "p1", projectName: "Wa-Pi" },
       },
     ],
   });
   render(<SkillSection />);
-  expect(screen.getByTestId("skill-scope-select").textContent).toContain("全部");
-  expect(screen.getByText("全局 skill")).toBeTruthy();
-  expect(screen.getByText("项目 skill（Wa-Pi）")).toBeTruthy();
-  expect(screen.getByText("项目技能 · Wa-Pi 1 项")).toBeTruthy();
+  expect(screen.getByTestId("skill-row-g-skill")).toBeTruthy();
+  expect(screen.getByTestId("skill-row-e-skill")).toBeTruthy();
+  expect(screen.getByTestId("skill-row-sys-skill")).toBeTruthy();
+  expect(screen.queryByTestId("skill-row-other-skill")).toBeNull();
+  expect(screen.getByText("全局技能 1 项")).toBeTruthy();
+  expect(screen.getByText("Plugin 技能 1 项")).toBeTruthy();
 });
 
-test("切到项目范围后只展示该项目技能", () => {
+test("切到某项目后展示该项目技能，同时带出全局与 Plugin 技能（他项目技能不出现）", () => {
   useSkillsStore.setState({
     allSkills: [
       { name: "g-skill", description: "", path: "/b/g", source: { type: "builtin" } },
@@ -248,13 +378,14 @@ test("切到项目范围后只展示该项目技能", () => {
   render(<SkillSection />);
   fireEvent.click(screen.getByTestId("skill-scope-select"));
   fireEvent.click(screen.getByTestId("skill-scope-option-project-p1"));
-  expect(useSkillsStore.getState().skillScope).toBe("project");
+
   expect(useSkillsStore.getState().selectedProjectId).toBe("p1");
   expect(screen.getByText("p-skill")).toBeTruthy();
-  // 项目范围只留该项目技能：全局技能与他项目技能都不出现
-  expect(screen.queryByText("g-skill")).toBeNull();
+  expect(screen.getByText("项目 skill（Wa-Pi）")).toBeTruthy();
+  expect(screen.getByText("项目技能 · Wa-Pi 1 项")).toBeTruthy();
+  // 全局技能带出，他项目技能不出现
+  expect(screen.getByText("g-skill")).toBeTruthy();
   expect(screen.queryByText("other-skill")).toBeNull();
-  expect(screen.queryByText(/全局技能/)).toBeNull();
 });
 
 test("范围选择器位于技能目录行内，且 DOM 顺序早于刷新按钮", () => {
@@ -290,7 +421,7 @@ test("范围下拉菜单经 portal 挂到页面最外层，选中选项后从 do
   expect(document.querySelector('[data-testid="skill-scope-backdrop"]')).toBeTruthy();
 
   // 选中一个选项后菜单从 document 移除
-  fireEvent.click(screen.getByTestId("skill-scope-option-all"));
+  fireEvent.click(screen.getByTestId(`skill-scope-option-project-p1`));
   expect(document.querySelector('[data-testid="skill-scope-menu"]')).toBeNull();
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
 });
@@ -327,16 +458,19 @@ test("被禁用的技能仍显示并标注「禁用」", () => {
   expect(screen.getByTestId("skill-switch-g-skill").getAttribute("data-on")).toBe("false");
 });
 
-test("同名被遮蔽的内置条目在全部范围隐藏、在全局范围显示", () => {
+test("同名被遮蔽的内置条目只显示所选项目的版本", () => {
   useSkillsStore.setState({
-    skillScope: "all",
+    selectedProjectId: "p1",
     allSkills: [
       { name: "dup", description: "项目版", path: "/p/dup", source: { type: "project", projectId: "p1", projectName: "Wa-Pi" } },
       { name: "dup", description: "内置版", path: "/b/dup", source: { type: "builtin" }, shadowed: true },
     ],
   });
   render(<SkillSection />);
-  expect(screen.getAllByTestId("skill-row-dup").length).toBe(1);
+  const rows = screen.getAllByTestId("skill-row-dup");
+  expect(rows.length).toBe(1);
+  expect(rows[0].textContent).toContain("项目 skill（Wa-Pi）");
+  expect(screen.queryByText("全局 skill")).toBeNull();
 });
 
 // ===== 技能行交互 =====
@@ -446,6 +580,7 @@ test("extension 类型技能单独分组并显示插件名标签", () => {
 
 test("project 类型技能按项目分组并显示项目名标签", () => {
   useSkillsStore.setState({
+    selectedProjectId: "p1",
     allSkills: [
       {
         name: "p-skill",
@@ -493,7 +628,7 @@ test("多个 source 类型混合分组正确", () => {
       source: { type: "project", projectId: "p1", projectName: "Wa-Pi" },
     },
   ];
-  useSkillsStore.setState({ allSkills: skills });
+  useSkillsStore.setState({ selectedProjectId: "p1", allSkills: skills });
   render(<SkillSection />);
   expect(screen.getByText("全局技能 2 项")).toBeTruthy();
   expect(screen.getByText("Plugin 技能 2 项")).toBeTruthy();

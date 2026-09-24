@@ -951,8 +951,6 @@ const en = {
 			openDir: "Open folder",
 			refresh: "Refresh skills",
 			searchPlaceholder: "Search skill name...",
-			scopeAll: "All",
-			scopeGlobal: "🌐 Global skills",
 			scopeProjectOption: "📁 {{name}}",
 			empty: "No skills yet",
 			noMatch: "No matching skills",

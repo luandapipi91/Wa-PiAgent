@@ -919,8 +919,6 @@ const zh = {
 			openDir: "打开文件夹",
 			refresh: "刷新技能",
 			searchPlaceholder: "搜索技能名称...",
-			scopeAll: "全部",
-			scopeGlobal: "🌐 全局技能",
 			scopeProjectOption: "📁 {{name}}",
 			empty: "暂无技能",
 			noMatch: "无匹配的技能",

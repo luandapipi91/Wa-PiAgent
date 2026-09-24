@@ -27,7 +27,7 @@ test.describe.serial("技能管理", () => {
     await expect(page.getByTestId("skill-search-input")).toBeVisible();
   });
 
-  test("展开技能目录：目录区标签为 [全局] 且无删除按钮", async ({ page }) => {
+  test("技能目录默认折叠，展开后显示目录行且无删除按钮", async ({ page }) => {
     await setUiPrefs(page, "zh");
     await page.goto("/");
     await createProject("e2e-skills", "/tmp/e2e-skills");
@@ -36,8 +36,10 @@ test.describe.serial("技能管理", () => {
     await page.getByTestId("settings-btn").click();
     await page.getByText("技能", { exact: true }).click(); // exact：避免命中侧栏会话标题（如「发起技能会话」）
 
-    // 技能目录现默认展开（点 toggle 反而会折叠），直接断言：
-    // 内置目录行存在且范围标签为 [全局]（改造后由原 [内置] 更名），目录区不再有删除按钮
+    // 技能目录现默认折叠：不点 toggle 时目录列表不渲染
+    await expect(page.locator('[data-testid^="skill-dir-open-"]')).toHaveCount(0);
+    await page.getByTestId("skill-dir-toggle").click();
+    // 展开后内置目录行存在且范围标签为 [全局]（改造后由原 [内置] 更名），目录区不再有删除按钮
     await expect(page.getByText("[全局]")).toBeVisible({ timeout: 5000 });
     await expect(page.locator('[data-testid^="skill-dir-remove-"]')).toHaveCount(0);
   });
@@ -126,39 +128,40 @@ test.describe.serial("技能范围：项目级技能", () => {
     rmSync(join(PROJ_B_CWD, ".pi"), { recursive: true, force: true });
   });
 
-  test("切到项目范围后只显示该项目技能（内置技能不出现），切到无该目录的项目则消失", async ({ page }) => {
+  test("切到某项目后列出该项目技能 + 全局技能；切到无该目录的项目则该项目技能消失", async ({ page }) => {
     const projA = await createProject("e2e-scope-A", PROJ_A_CWD);
     const projB = await createProject("e2e-scope-B", PROJ_B_CWD);
     await setUiPrefs(page, "zh");
-    // 注入一个内置技能作为对照：新语义下项目范围不再带出内置 / 插件技能
+    // 注入一个内置技能作为「全局来源始终可见」的对照面（新口径下选中项目会带出全局技能）
     await addSkillDir(BUILTIN_NAME, "内置对照技能");
     try {
       await page.goto("/");
       await page.getByTestId("settings-btn").click();
       await page.getByText("技能", { exact: true }).click();
 
-      // 「全部」范围下内置对照技能可见
-      await expect(page.getByTestId(`skill-row-${BUILTIN_NAME}`)).toBeVisible({
-        timeout: 5000,
-      });
-
       await page.getByTestId("skill-scope-select").click();
       await page.getByTestId(`skill-scope-option-project-${projA.id}`).click();
       const row = page.getByTestId(`skill-row-${SKILL_NAME}`);
       await expect(row).toBeVisible({ timeout: 5000 });
       await expect(row.getByText(`项目 skill（e2e-scope-A）`)).toBeVisible();
-      // 项目范围只留该项目技能：内置对照技能不得出现
-      await expect(page.getByTestId(`skill-row-${BUILTIN_NAME}`)).toHaveCount(0);
+      // 选中项目下全局（内置）技能一并带出
+      await expect(page.getByTestId(`skill-row-${BUILTIN_NAME}`)).toBeVisible({
+        timeout: 5000,
+      });
 
       await page.getByTestId("skill-scope-select").click();
       await page.getByTestId(`skill-scope-option-project-${projB.id}`).click();
+      // 切到无该目录的项目：该项目技能消失，全局技能仍在
       await expect(page.getByTestId(`skill-row-${SKILL_NAME}`)).toHaveCount(0);
+      await expect(page.getByTestId(`skill-row-${BUILTIN_NAME}`)).toBeVisible({
+        timeout: 5000,
+      });
     } finally {
       await removeSkillDir(BUILTIN_NAME).catch(() => {});
     }
   });
 
-  test("同名时项目那条生效，全部范围只显示一行", async ({ page }) => {
+  test("同名时项目那条生效，选中该项目只显示一行", async ({ page }) => {
     const projA = await createProject("e2e-scope-A", PROJ_A_CWD);
     await setUiPrefs(page, "zh");
     await addSkillDir(SKILL_NAME, "内置同名版本");
@@ -172,8 +175,9 @@ test.describe.serial("技能范围：项目级技能", () => {
       await page.goto("/");
       await page.getByTestId("settings-btn").click();
       await page.getByText("技能", { exact: true }).click();
+      // 选中项目 A：同名以项目版本呈现，被遮蔽的内置版本不再列出
       await page.getByTestId("skill-scope-select").click();
-      await page.getByTestId("skill-scope-option-all").click();
+      await page.getByTestId(`skill-scope-option-project-${projA.id}`).click();
       const rows = page.getByTestId(`skill-row-${SKILL_NAME}`);
       await expect(rows).toHaveCount(1);
       await expect(rows.getByText(`项目 skill（e2e-scope-A）`)).toBeVisible();
@@ -316,9 +320,35 @@ test.describe.serial("技能范围选择器菜单：挂到页面最外层且完�
     // ⑤ 不是技能页滚动容器的子节点：portal 到 body 直下
     expect(await menu.evaluate((el) => el.parentElement === document.body)).toBe(true);
 
-    // 选中选项后菜单移除（关闭行为不变）
-    await page.getByTestId("skill-scope-option-all").click();
+    // 选中默认工作区（SYSTEM_PROJECT_ID = __system__）后菜单移除（关闭行为不变）
+    await page.getByTestId("skill-scope-option-project-__system__").click();
     await expect(menu).toHaveCount(0);
+  });
+
+  test("选择器只列默认工作区与各项目，不含「全部」「全局技能」", async ({ page }) => {
+    await openSkillsPage(page);
+    await page.getByTestId("skill-scope-select").click();
+    const menu = page.getByTestId("skill-scope-menu");
+    await expect(menu).toBeVisible();
+    // 默认工作区在最前，菜单里不再有旧的「全部 / 🌐 全局技能」两项
+    await expect(
+      page.getByTestId("skill-scope-option-project-__system__"),
+    ).toBeVisible();
+    await expect(menu.getByText("全部", { exact: true })).toHaveCount(0);
+    await expect(menu.getByText("🌐 全局技能")).toHaveCount(0);
+  });
+
+  test("技能目录默认折叠：折叠态只显示所选项目自己的技能目录路径", async ({ page }) => {
+    await openSkillsPage(page);
+    // 显式选中默认工作区（当前会话可能属于其它项目，避免依赖自动选中）
+    await page.getByTestId("skill-scope-select").click();
+    await page.getByTestId("skill-scope-option-project-__system__").click();
+    // 折叠态：标题显示默认工作区的技能目录（<WA_PI_DIR>/workdir/.pi/skills）
+    await expect(page.getByTestId("skill-dir-toggle")).toContainText(
+      join(E2E_WA_PI_DIR, "workdir", ".pi", "skills"),
+    );
+    // 目录列表未渲染（默认折叠）
+    await expect(page.locator('[data-testid^="skill-dir-open-"]')).toHaveCount(0);
   });
 
   test("短视口下菜单仍完整在视口内（向上翻转 / 夹取生效）", async ({ page }) => {

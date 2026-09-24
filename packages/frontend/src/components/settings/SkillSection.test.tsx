@@ -1,6 +1,7 @@
 // SkillSection 只读目录区测试：
-// 1. 目录项展示路径 + 范围标签（[全局] / [项目名] / [插件包名]）
+// 1. 目录区默认折叠，展开后目录项展示路径 + 范围标签（[全局] / [项目名] / [插件包名]）
 // 2. 点击目录项的「打开文件夹」按钮调用 shell 定位（waPiApp.showItemInFolder）
+// 3. 展开态只列「所选项目自己的目录 + 全局/插件目录」，其它项目目录不出现
 import { test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SkillSection } from "./SkillSection";
@@ -35,6 +36,7 @@ function seedStore() {
 		disabledSkills: [],
 		builtinDir: "/builtin",
 		loading: false,
+		selectedProjectId: "p1",
 	});
 }
 
@@ -49,8 +51,10 @@ afterEach(() => {
 	useProjectsStore.setState({ projects: originalProjects });
 });
 
-test("目录项显示路径与范围标签", () => {
+test("展开后目录项显示路径与范围标签", () => {
 	render(<SkillSection />);
+	// 目录区默认折叠，先展开
+	fireEvent.click(screen.getByTestId("skill-dir-toggle"));
 	expect(screen.getByText("/Users/co/work/Wa-Pi/.pi/skills")).toBeTruthy();
 	expect(screen.getByText("/ext/pack/skills")).toBeTruthy();
 	expect(screen.getByText("[全局]")).toBeTruthy();
@@ -60,17 +64,17 @@ test("目录项显示路径与范围标签", () => {
 
 test("点击目录项的「打开文件夹」在系统文件管理器定位该目录", () => {
 	render(<SkillSection />);
+	fireEvent.click(screen.getByTestId("skill-dir-toggle"));
 	const btn = screen.getByTestId("skill-dir-open-/Users/co/work/Wa-Pi/.pi/skills");
 	fireEvent.click(btn);
 	expect(showItemInFolder).toHaveBeenCalledWith("/Users/co/work/Wa-Pi/.pi/skills");
 });
 
-test("项目范围只渲染该项目技能行（全局 / 插件 / 他项目技能行都不出现）", () => {
+test("选中项目后列出该项目技能 + 全局/插件技能，他项目技能不出现", () => {
 	useProjectsStore.setState({
 		projects: [{ id: "p1", name: "Wa-Pi", cwd: "/tmp/Wa-Pi", createdAt: 0 }],
 	});
 	useSkillsStore.setState({
-		skillScope: "project",
 		selectedProjectId: "p1",
 		allSkills: [
 			{ name: "g-skill", description: "", path: "/b/g", source: { type: "builtin" } },
@@ -96,8 +100,8 @@ test("项目范围只渲染该项目技能行（全局 / 插件 / 他项目技�
 	});
 	render(<SkillSection />);
 	expect(screen.getByTestId("skill-row-p-skill")).toBeTruthy();
-	expect(screen.queryByTestId("skill-row-g-skill")).toBeNull();
-	expect(screen.queryByTestId("skill-row-e-skill")).toBeNull();
+	expect(screen.getByTestId("skill-row-g-skill")).toBeTruthy();
+	expect(screen.getByTestId("skill-row-e-skill")).toBeTruthy();
 	expect(screen.queryByTestId("skill-row-other-skill")).toBeNull();
 });
 

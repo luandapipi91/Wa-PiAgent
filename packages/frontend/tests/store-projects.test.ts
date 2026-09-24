@@ -1,4 +1,5 @@
 import { test, expect, beforeEach, mock } from "bun:test";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import { useProjectsStore } from "../src/store/projects";
 import { useSkillsStore } from "../src/store/skills";
 
@@ -311,20 +312,19 @@ test("load() 快照滞后时不挤掉乐观新建的当前会话（SSE 重连/�
   expect(useProjectsStore.getState().currentSessionId).toBe("s-new");
 });
 
-test("selectProject 同步技能范围到该项目（本地重算，不发请求）", () => {
-  // 记录完整入参元组：只记 projectId 无法发现 scope 写错（仍是 "all"）的回归
-  const calls: { scope: string; projectId: string | undefined }[] = [];
-  const orig = useSkillsStore.getState().setSkillScope;
+test("selectProject 同步技能选中项目到该项目（本地重算，不发请求）", () => {
+  // 记录完整入参：只记 projectId 无法发现"没传"或"传错"的回归
+  const calls: (string | undefined)[] = [];
+  const orig = useSkillsStore.getState().setSelectedProject;
   useSkillsStore.setState({
-    setSkillScope: (scope, projectId) => calls.push({ scope, projectId }),
+    setSelectedProject: (projectId) => calls.push(projectId),
   });
   useProjectsStore.getState().selectProject("proj-1");
-  // 范围必须切到 "project" 并指向目标项目，而非仅透传 id 却仍停留在 "all"
-  expect(calls).toEqual([{ scope: "project", projectId: "proj-1" }]);
-  useSkillsStore.setState({ setSkillScope: orig });
+  expect(calls).toEqual(["proj-1"]);
+  useSkillsStore.setState({ setSelectedProject: orig });
 });
 
-test("selectSession 同步技能范围到该会话所属项目", () => {
+test("selectSession 同步技能选中项目到该会话所属项目", () => {
   useProjectsStore.setState({
     sessions: [
       {
@@ -338,13 +338,20 @@ test("selectSession 同步技能范围到该会话所属项目", () => {
       },
     ] as any,
   });
-  // 同上：记录 (scope, projectId) 元组，确保会话切换也把范围切到其所属项目
-  const calls: { scope: string; projectId: string | undefined }[] = [];
-  const orig = useSkillsStore.getState().setSkillScope;
+  // 同上：记录 projectId 入参，确保会话切换也把选中项目切到其所属项目
+  const calls: (string | undefined)[] = [];
+  const orig = useSkillsStore.getState().setSelectedProject;
   useSkillsStore.setState({
-    setSkillScope: (scope, projectId) => calls.push({ scope, projectId }),
+    setSelectedProject: (projectId) => calls.push(projectId),
   });
   useProjectsStore.getState().selectSession("s1");
-  expect(calls).toEqual([{ scope: "project", projectId: "proj-9" }]);
-  useSkillsStore.setState({ setSkillScope: orig });
+  expect(calls).toEqual(["proj-9"]);
+  useSkillsStore.setState({ setSelectedProject: orig });
+});
+
+test("selectSession 无匹配会话时不动技能选中项目（保持默认工作区）", () => {
+  useSkillsStore.setState({ selectedProjectId: SYSTEM_PROJECT_ID });
+  useProjectsStore.setState({ sessions: [] });
+  useProjectsStore.getState().selectSession("不存在");
+  expect(useSkillsStore.getState().selectedProjectId).toBe(SYSTEM_PROJECT_ID);
 });

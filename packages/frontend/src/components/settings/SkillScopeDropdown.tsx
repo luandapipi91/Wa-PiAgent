@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
-import { type SkillScope } from "../../store/skills";
 
 /** 菜单与按钮的间距、距视口边缘的留白、菜单最大高度（与旧 max-h-80 一致） */
 const MENU_GAP = 4;
@@ -10,31 +10,29 @@ const MENU_MAX_H = 320;
 /** 菜单最小宽度，与 class 里的 min-w-[148px] 保持一致 */
 const MENU_MIN_W = 148;
 
-/** 范围筛选下拉：全部 / 🌐 全局技能 / 📁 各项目（样式与交互对照记忆页的 MemoryScopeDropdown） */
+/** 选中项目下拉：默认工作区在最前，其后按项目顺序列出各项目（样式与交互对照记忆页的 MemoryScopeDropdown） */
 export function SkillScopeDropdown({
-	scope,
 	selectedProjectId,
 	projects,
 	onSelect,
 }: {
-	scope: SkillScope;
-	selectedProjectId: string | null;
+	selectedProjectId: string;
 	projects: { id: string; name: string }[];
-	onSelect: (scope: SkillScope, projectId?: string) => void;
+	onSelect: (projectId: string) => void;
 }) {
 	const { t } = useTranslation();
 	const [open, setOpen] = useState(false);
 	const btnRef = useRef<HTMLButtonElement | null>(null);
 	const menuRef = useRef<HTMLDivElement | null>(null);
+	// 选项：默认工作区排最前，其后按项目顺序；默认工作区不在项目列表时也保留该项
+	const systemProject = projects.find((p) => p.id === SYSTEM_PROJECT_ID);
+	const options = systemProject
+		? [systemProject, ...projects.filter((p) => p.id !== SYSTEM_PROJECT_ID)]
+		: [{ id: SYSTEM_PROJECT_ID, name: SYSTEM_PROJECT_NAME }, ...projects];
 	const current = projects.find((p) => p.id === selectedProjectId);
-	const label =
-		scope === "all"
-			? t("settings.skill.scopeAll")
-			: scope === "global"
-				? t("settings.skill.scopeGlobal")
-				: current
-					? t("settings.skill.scopeProjectOption", { name: current.name })
-					: t("settings.skill.scopeAll");
+	const label = t("settings.skill.scopeProjectOption", {
+		name: current?.name ?? SYSTEM_PROJECT_NAME,
+	});
 
 	const itemStyle = (active: boolean): CSSProperties => ({
 		color: active ? "var(--accent)" : "var(--text-primary)",
@@ -146,43 +144,16 @@ export function SkillScopeDropdown({
 							className="fixed py-1 rounded-md min-w-[148px] overflow-y-auto shadow-lg"
 							data-testid="skill-scope-menu"
 						>
-							<button
-								type="button"
-								onClick={() => {
-									onSelect("all");
-									setOpen(false);
-								}}
-								className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5"
-								style={itemStyle(scope === "all")}
-								data-testid="skill-scope-option-all"
-							>
-								{t("settings.skill.scopeAll")}
-							</button>
-							<button
-								type="button"
-								onClick={() => {
-									onSelect("global");
-									setOpen(false);
-								}}
-								className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5"
-								style={itemStyle(scope === "global")}
-								data-testid="skill-scope-option-global"
-							>
-								{t("settings.skill.scopeGlobal")}
-							</button>
-							{projects.length > 0 && (
-								<div className="my-1" style={{ borderTop: "1px solid var(--hairline)" }} />
-							)}
-							{projects.map((p) => (
+							{options.map((p) => (
 								<button
 									key={p.id}
 									type="button"
 									onClick={() => {
-										onSelect("project", p.id);
+										onSelect(p.id);
 										setOpen(false);
 									}}
 									className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5 truncate"
-									style={itemStyle(scope === "project" && selectedProjectId === p.id)}
+									style={itemStyle(selectedProjectId === p.id)}
 									data-testid={`skill-scope-option-project-${p.id}`}
 									title={p.name}
 								>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
-import { filterSkillsByScope, useSkillsStore } from "../../store/skills";
+import { selectAvailableSkillsForProject, useSkillsStore } from "../../store/skills";
 import { useProjectsStore } from "../../store/projects";
 import { SkillScopeDropdown } from "./SkillScopeDropdown";
 import type { SkillInfo, SkillSourceType } from "@wa-pi/shared";
@@ -10,17 +10,15 @@ export function SkillSection() {
 		allSkills,
 		dirs,
 		disabledSkills,
-		builtinDir,
-		skillScope,
 		selectedProjectId,
 		toggleSkill,
-		setSkillScope,
+		setSelectedProject,
 		load,
 	} = useSkillsStore();
 	// 项目列表与记忆页同源，避免在技能 store 内重复存储
 	const projects = useProjectsStore((s) => s.projects);
 	const { t } = useTranslation();
-	const [dirExpanded, setDirExpanded] = useState(true);
+	const [dirExpanded, setDirExpanded] = useState(false);
 	const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
 	const [search, setSearch] = useState("");
 
@@ -55,12 +53,27 @@ export function SkillSection() {
 		});
 	};
 
-	// 范围过滤（消费 allSkills：被禁用技能仍列出并标注「禁用」）→ 再按名称搜索
+	// 选中项目下实际可用的技能（自己的 + 全局 + 插件，排除它项目）→ 再按名称搜索
 	const keyword = search.trim().toLowerCase();
-	const scoped = filterSkillsByScope(allSkills, skillScope, selectedProjectId);
+	const scoped = selectAvailableSkillsForProject(allSkills, selectedProjectId);
 	const filteredSkills = keyword
 		? scoped.filter((s) => s.name.toLowerCase().includes(keyword))
 		: scoped;
+
+	// 展开态的目录列表：所选项目自己的 project 目录 + 所有非 project 目录（全局 / 插件），
+	// 过滤掉其它项目的 project 目录；顺序固定为 该项目 → 全局 → 插件
+	const visibleDirs = dirs.filter(
+		(d) => d.type !== "project" || d.projectId === selectedProjectId,
+	);
+	const orderedDirs = [
+		...visibleDirs.filter((d) => d.type === "project"),
+		...visibleDirs.filter((d) => d.type !== "project"),
+	];
+	// 折叠态标题：只显示所选项目自己的技能目录路径
+	const selectedDirPath =
+		dirs.find(
+			(d) => d.type === "project" && d.projectId === selectedProjectId,
+		)?.path ?? "";
 
 	// 分组：全局技能 / 各项目技能（仅显示有内容者）/ Plugin 技能
 	const globalSkills = filteredSkills.filter(
@@ -94,7 +107,7 @@ export function SkillSection() {
 
 	return (
 		<div className="flex flex-col gap-3 p-4 overflow-auto">
-			{/* 技能目录（上方，默认展开）：只读展示路径与范围，仅保留「打开文件夹」 */}
+			{/* 技能目录（上方，默认折叠）：只读展示路径与范围，仅保留「打开文件夹」 */}
 			<div className="flex flex-col gap-1">
 				<div
 					className="flex items-center justify-between"
@@ -107,17 +120,16 @@ export function SkillSection() {
 					>
 						<span>
 							{t("settings.skill.dirTitle")}
-							{!dirExpanded ? `：${builtinDir}` : ""}
+							{!dirExpanded && selectedDirPath ? `：${selectedDirPath}` : ""}
 						</span>
 						<span>{dirExpanded ? "▾" : "▸"}</span>
 					</button>
 					<div className="flex items-center gap-1">
-						{/* 范围筛选与刷新同行（范围选择器在刷新按钮左侧），搜索框独立在下一行 */}
+						{/* 选择项目与刷新同行（选择器在刷新按钮左侧），搜索框独立在下一行 */}
 						<SkillScopeDropdown
-							scope={skillScope}
 							selectedProjectId={selectedProjectId}
 							projects={projects}
-							onSelect={setSkillScope}
+							onSelect={setSelectedProject}
 						/>
 						<button
 							onClick={() => load()}
@@ -148,7 +160,7 @@ export function SkillSection() {
 
 				{dirExpanded && (
 					<div className="flex flex-col gap-1 pl-4">
-						{dirs.map((d) => (
+						{orderedDirs.map((d) => (
 							<div
 								key={d.path}
 								className="flex items-center justify-between py-1 gap-2"

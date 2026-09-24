@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import type { SkillInfo } from "@wa-pi/shared";
 import {
-  filterSkillsByScope,
   selectAvailableSkillsForProject,
   skillKeyOf,
 } from "../src/store/skills";
@@ -73,6 +73,30 @@ function skill(
   };
 }
 
+// ---- 选中项目（技能页筛选维度）----
+
+test("默认选中为默认工作区（没有当前会话时的回退）", async () => {
+  // 用独立模块实例断言 store 初值：同进程其它用例的 setState 会污染共享的 store 单例。
+  // specifier 运行时拼接（bun 支持 query 破模块缓存），同时避开 TS 对字面量模块的解析。
+  const spec = "../src/store/skills";
+  const fresh = (await import(`${spec}?fresh-default`)) as typeof import("../src/store/skills");
+  expect(fresh.useSkillsStore.getState().selectedProjectId).toBe(
+    SYSTEM_PROJECT_ID,
+  );
+});
+
+test("setSelectedProject 只改本地状态，不发请求", async () => {
+  const { getMock, postMock } = mockApi();
+  const { useSkillsStore } = await import("../src/store/skills");
+  useSkillsStore.setState({ selectedProjectId: SYSTEM_PROJECT_ID });
+
+  useSkillsStore.getState().setSelectedProject("p1");
+
+  expect(useSkillsStore.getState().selectedProjectId).toBe("p1");
+  expect(getMock).not.toHaveBeenCalled();
+  expect(postMock).not.toHaveBeenCalled();
+});
+
 // ---- 具名派生选择器：某项目下实际可用的技能集合 ----
 
 test("selectAvailableSkillsForProject：同名被遮蔽的条目被排除（项目版本生效）", () => {
@@ -104,6 +128,18 @@ test("selectAvailableSkillsForProject：内置与扩展技能保留", () => {
     "p1",
   ).map((s) => s.name);
   expect(out).toEqual(["builtin-a", "ext-a"]);
+});
+
+test("selectAvailableSkillsForProject：该项目没有自己的技能时仍返回内置与扩展", () => {
+  const out = selectAvailableSkillsForProject(
+    [
+      skill("g", { type: "builtin" }),
+      skill("e", { type: "extension", name: "pack" }),
+      skill("other", { type: "project", projectId: "p2", projectName: "项目B" }),
+    ],
+    "p1",
+  ).map((s) => s.name);
+  expect(out).toEqual(["g", "e"]);
 });
 
 test("selectAvailableSkillsForProject：本项目技能即便被他项目同名遮蔽也保留（该项目内项目版本仍生效）", () => {
@@ -156,60 +192,4 @@ test("setAll 更新本地状态", async () => {
   ]);
 });
 
-test("setSkillScope 切换范围与目标项目", async () => {
-  mockApi();
-  const { useSkillsStore } = await import("../src/store/skills");
-  useSkillsStore.setState({ skillScope: "all", selectedProjectId: null });
 
-  useSkillsStore.getState().setSkillScope("project", "p1");
-  expect(useSkillsStore.getState().skillScope).toBe("project");
-  expect(useSkillsStore.getState().selectedProjectId).toBe("p1");
-
-  // 不传 projectId 时清空目标项目（切回全局/全部范围）
-  useSkillsStore.getState().setSkillScope("global");
-  expect(useSkillsStore.getState().skillScope).toBe("global");
-  expect(useSkillsStore.getState().selectedProjectId).toBeNull();
-});
-
-test("filterSkillsByScope：全局范围剔除项目技能", () => {
-  const all = [
-    { name: "g", description: "", path: "/b/g", source: { type: "builtin" as const } },
-    { name: "p", description: "", path: "/p/p", source: { type: "project" as const, projectId: "p1" } },
-  ];
-  expect(filterSkillsByScope(all, "global").map((s) => s.name)).toEqual(["g"]);
-});
-
-test("filterSkillsByScope：项目范围只返回该项目技能（内置 / 插件 / 他项目技能都不出现）", () => {
-  const all = [
-    { name: "g", description: "内置版", path: "/b/g", source: { type: "builtin" as const } },
-    { name: "e", description: "插件版", path: "/x/e", source: { type: "extension" as const, name: "pack" } },
-    { name: "mine", description: "本项目版", path: "/p/mine", source: { type: "project" as const, projectId: "p1" } },
-    { name: "other", description: "他项目版", path: "/o", source: { type: "project" as const, projectId: "p2" } },
-  ];
-  const out = filterSkillsByScope(all, "project", "p1");
-  expect(out.map((s) => `${s.name}:${s.description}`)).toEqual(["mine:本项目版"]);
-});
-
-test("filterSkillsByScope：该项目没有技能时项目范围返回空列表", () => {
-  const all = [
-    { name: "g", description: "内置版", path: "/b/g", source: { type: "builtin" as const } },
-    { name: "other", description: "他项目版", path: "/o", source: { type: "project" as const, projectId: "p2" } },
-  ];
-  expect(filterSkillsByScope(all, "project", "p1")).toEqual([]);
-});
-
-test("filterSkillsByScope：全部范围隐藏被遮蔽的同名条目，保留未遮蔽项", () => {
-  const all = [
-    { name: "dup", description: "项目版", path: "/p/dup", source: { type: "project" as const, projectId: "p1" } },
-    { name: "dup", description: "内置版", path: "/b/dup", source: { type: "builtin" as const }, shadowed: true },
-    { name: "keep", description: "", path: "/b/keep", source: { type: "builtin" as const } },
-  ];
-  expect(filterSkillsByScope(all, "all").map((s) => s.description)).toEqual(["项目版", ""]);
-});
-
-test("filterSkillsByScope：全局范围保留被遮蔽的内置条目（可按范围管理）", () => {
-  const all = [
-    { name: "dup", description: "内置版", path: "/b/dup", source: { type: "builtin" as const }, shadowed: true },
-  ];
-  expect(filterSkillsByScope(all, "global").map((s) => s.description)).toEqual(["内置版"]);
-});

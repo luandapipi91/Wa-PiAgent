@@ -118,8 +118,8 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
 		}),
 	selectProject: (id) => {
 		set({ currentProjectId: id });
-		// 项目切换 → 技能范围跟随重算（技能数据已全量在本地，不发请求）
-		useSkillsStore.getState().setSkillScope("project", id);
+		// 项目切换 → 技能页选中项目跟随（技能数据已全量在本地，不发请求）
+		useSkillsStore.getState().setSelectedProject(id);
 	},
 	selectSession: (id) => {
 		// 仅切换当前选中会话，不更新 lastActivity：点击查看不再视为活跃，
@@ -131,8 +131,8 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
 				? { currentSessionId: id, currentProjectId: target.projectId }
 				: { currentSessionId: id },
 		);
-		// 会话切换 → 技能范围跟随其所属项目（本地重算，无网络请求）
-		if (target) useSkillsStore.getState().setSkillScope("project", target.projectId);
+		// 会话切换 → 技能页选中项目跟随其所属项目（本地重算，无网络请求）
+		if (target) useSkillsStore.getState().setSelectedProject(target.projectId);
 	},
 	setCurrentSessionId: (id) => set({ currentSessionId: id }),
 	touchSession: (id) =>
