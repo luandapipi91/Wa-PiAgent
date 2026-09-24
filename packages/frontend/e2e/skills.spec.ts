@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { addSkillDir, createProject, removeSkillDir, ensureProvider, setUiPrefs } from "./helpers";
+import { addSkillDir, createProject, getBuiltinSkill, removeSkillDir, ensureProvider, setUiPrefs } from "./helpers";
 
 test.describe.serial("技能管理", () => {
   test.beforeAll(async () => {
@@ -120,6 +120,12 @@ test.describe.serial("技能范围：项目级技能", () => {
     await setUiPrefs(page, "zh");
     await addSkillDir(SKILL_NAME, "内置同名版本");
     try {
+      // 先显式确认前提：内置同名条目已进入 allSkills（addSkillDir 的等待已收紧到 builtin
+      // 来源，这里再直查一次做独立证据）；否则「项目那条生效」的优先级断言会失去对照面
+      expect(
+        await getBuiltinSkill(SKILL_NAME),
+        `内置来源的 ${SKILL_NAME} 应已进入 allSkills`,
+      ).toBeTruthy();
       await page.goto("/");
       await page.getByTestId("settings-btn").click();
       await page.getByText("技能", { exact: true }).click();

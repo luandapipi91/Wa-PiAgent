@@ -192,7 +192,21 @@ export async function saveAgentConfig(
 /** E2E 隔离的内置技能目录（kernel SkillManager.builtinDir = <WA_PI_DIR>/skills） */
 export const E2E_BUILTIN_SKILLS_DIR = join(E2E_WA_PI_DIR, "skills");
 
-/** 轮询 GET /api/skills（该请求会触发 kernel 同步重扫）直到满足条件 */
+/** 读取 allSkills（GET /api/skills 会触发 kernel 同步重扫，含被遮蔽者与其它项目的同名技能） */
+export async function listAllSkills(): Promise<any[]> {
+  const data = await api("GET", "/api/skills");
+  return (data?.allSkills ?? []) as any[];
+}
+
+/** 取「内置来源（source.type === "builtin"）」的该名字技能，没有则 undefined。
+ *  必须带来源维度：allSkills 含所有项目的同名技能（被遮蔽者也保留），
+ *  只按 name 匹配时，存在同名项目技能就会让匹配恒为真 → 等待永不收敛。 */
+export async function getBuiltinSkill(name: string): Promise<any | undefined> {
+  const all = await listAllSkills();
+  return all.find((s) => s?.name === name && s?.source?.type === "builtin");
+}
+
+/** 轮询 GET /api/skills（该请求会触发 kernel 同步重扫）直到「内置来源」的该名字技能出现/消失 */
 async function waitForSkill(
   name: string,
   present: boolean,
@@ -200,17 +214,18 @@ async function waitForSkill(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const data = await api("GET", "/api/skills");
-    const has = !!(data?.allSkills ?? []).some((s: any) => s.name === name);
+    const has = !!(await getBuiltinSkill(name));
     if (has === present) return;
     if (Date.now() > deadline) {
-      throw new Error(`等待技能 ${name} ${present ? "出现" : "消失"} 超时`);
+      throw new Error(
+        `等待内置技能 ${name} ${present ? "出现" : "消失"} 超时（只按 builtin 来源判定）`,
+      );
     }
     await new Promise((r) => setTimeout(r, 200));
   }
 }
 
-/** 注入内置技能（写 <WA_PI_DIR>/skills/<name>/SKILL.md 并等待 kernel 扫到），返回技能名 */
+/** 注入内置技能（写 <WA_PI_DIR>/skills/<name>/SKILL.md 并等 kernel 扫到「内置来源」条目），返回技能名 */
 export async function addSkillDir(
   name: string,
   description = "E2E 测试技能",
@@ -226,7 +241,7 @@ export async function addSkillDir(
   return name;
 }
 
-/** 移除内置技能并等待 kernel 扫不到 */
+/** 移除内置技能并等 kernel 扫不到「内置来源」条目（其它项目的同名技能不影响判定） */
 export async function removeSkillDir(name: string): Promise<void> {
   rmSync(join(E2E_BUILTIN_SKILLS_DIR, name), { recursive: true, force: true });
   await waitForSkill(name, false);
