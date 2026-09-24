@@ -1076,6 +1076,8 @@ export class AgentManager {
 			defaultBasePrompt,
 			delegateRoster,
 			builtinSkillsDir: BUILTIN_SKILLS_DIR,
+			// 项目级技能目录（<project.cwd>/.pi/skills）：无 cwd 时为 undefined → 该行不出现
+			projectSkillsDir,
 			// 记忆写入策略引导：按 memoryPolicyStyle 注入（full 完整版 / compact 精简版 / none 不注入）。
 			// 这是 agent「主动写记忆」的核心引导——缺失时 agent 只回复文本、从不调用 memory_add。
 			memoryPolicy:

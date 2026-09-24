@@ -107,6 +107,32 @@ test("composePrompt env-constraints 始终拼接 builtinSkillsDir + 固定后缀
 	expect(result).toContain(ENV_CONSTRAINTS_SUFFIX);
 });
 
+test("composePrompt env-constraints：有 projectSkillsDir → 内置目录 + 项目技能目录两行，且在内置之后、固定后缀之前", () => {
+	const result = composePrompt([{ id: "env-constraints" }], {
+		...defaultCtx,
+		builtinSkillsDir: "/builtin/skills",
+		projectSkillsDir: "/proj/.pi/skills",
+	});
+	expect(result).toContain("Built-in directory: /builtin/skills");
+	expect(result).toContain("Project skill directory: /proj/.pi/skills");
+	const builtinPos = result.indexOf("Built-in directory:");
+	const projectPos = result.indexOf("Project skill directory:");
+	const suffixPos = result.indexOf("Never use internal terminology");
+	expect(builtinPos).toBeLessThan(projectPos);
+	expect(projectPos).toBeLessThan(suffixPos);
+});
+
+test("composePrompt env-constraints：无 projectSkillsDir → 不出现项目技能目录行（向后兼容）", () => {
+	const result = composePrompt([{ id: "env-constraints" }], {
+		...defaultCtx,
+		builtinSkillsDir: "/builtin/skills",
+	});
+	expect(result).not.toContain("Project skill directory");
+	expect(result).toBe(
+		`Built-in directory: /builtin/skills${ENV_CONSTRAINTS_SUFFIX}`,
+	);
+});
+
 test("composePrompt base 段写了 content → 覆盖 defaultBasePrompt", () => {
 	const customBase = "Custom base prompt";
 	const result = composePrompt(
