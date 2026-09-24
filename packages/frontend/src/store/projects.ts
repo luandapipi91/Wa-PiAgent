@@ -4,6 +4,7 @@ import type { ProjectEntity, SessionEntity } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { basename } from "../pick-directory";
 import { useToastStore } from "./toast";
+import { useSkillsStore } from "./skills";
 
 interface ProjectsState {
 	projects: ProjectEntity[];
@@ -115,19 +116,24 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
 			// 不应抢占当前视图打扰用户；调用方需要选中时显式调 selectSession（NewSessionPane 已如此）。
 			return { sessions: [...s.sessions, sess] };
 		}),
-	selectProject: (id) => set({ currentProjectId: id }),
-	selectSession: (id) =>
-		set((s) => {
-			// 仅切换当前选中会话，不更新 lastActivity：点击查看不再视为活跃，
-			// 只有发送消息（agent:prompt）或收到回复（message_end）才刷新 lastActivity
-			// （驱动会话列表排序、时间显示、topAgentsByRecency）。
-			const target = s.sessions.find((x) => x.id === id);
-			if (!target) return { currentSessionId: id };
-			return {
-				currentSessionId: id,
-				currentProjectId: target.projectId,
-			};
-		}),
+	selectProject: (id) => {
+		set({ currentProjectId: id });
+		// 项目切换 → 技能范围跟随重算（技能数据已全量在本地，不发请求）
+		useSkillsStore.getState().setSkillScope("project", id);
+	},
+	selectSession: (id) => {
+		// 仅切换当前选中会话，不更新 lastActivity：点击查看不再视为活跃，
+		// 只有发送消息（agent:prompt）或收到回复（message_end）才刷新 lastActivity
+		// （驱动会话列表排序、时间显示、topAgentsByRecency）。
+		const target = useProjectsStore.getState().sessions.find((x) => x.id === id);
+		set(
+			target
+				? { currentSessionId: id, currentProjectId: target.projectId }
+				: { currentSessionId: id },
+		);
+		// 会话切换 → 技能范围跟随其所属项目（本地重算，无网络请求）
+		if (target) useSkillsStore.getState().setSkillScope("project", target.projectId);
+	},
 	setCurrentSessionId: (id) => set({ currentSessionId: id }),
 	touchSession: (id) =>
 		set((s) => {

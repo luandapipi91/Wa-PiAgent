@@ -1,5 +1,6 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { useProjectsStore } from "../src/store/projects";
+import { useSkillsStore } from "../src/store/skills";
 
 const postMock = mock();
 const getMock = mock();
@@ -308,4 +309,39 @@ test("load() 快照滞后时不挤掉乐观新建的当前会话（SSE 重连/�
   const sessions = useProjectsStore.getState().sessions;
   expect(sessions.some((x) => x.id === "s-new")).toBe(true);
   expect(useProjectsStore.getState().currentSessionId).toBe("s-new");
+});
+
+test("selectProject 同步技能范围到该项目（本地重算，不发请求）", () => {
+  const calls: (string | undefined)[] = [];
+  const orig = useSkillsStore.getState().setSkillScope;
+  useSkillsStore.setState({
+    setSkillScope: (scope, projectId) => calls.push(projectId),
+  });
+  useProjectsStore.getState().selectProject("proj-1");
+  expect(calls).toEqual(["proj-1"]);
+  useSkillsStore.setState({ setSkillScope: orig });
+});
+
+test("selectSession 同步技能范围到该会话所属项目", () => {
+  useProjectsStore.setState({
+    sessions: [
+      {
+        id: "s1",
+        projectId: "proj-9",
+        primaryAgent: "pi",
+        title: "t",
+        createdAt: 1,
+        lastActivity: 1,
+        piSessionFile: "f",
+      },
+    ] as any,
+  });
+  const calls: (string | undefined)[] = [];
+  const orig = useSkillsStore.getState().setSkillScope;
+  useSkillsStore.setState({
+    setSkillScope: (scope, projectId) => calls.push(projectId),
+  });
+  useProjectsStore.getState().selectSession("s1");
+  expect(calls).toEqual(["proj-9"]);
+  useSkillsStore.setState({ setSkillScope: orig });
 });
