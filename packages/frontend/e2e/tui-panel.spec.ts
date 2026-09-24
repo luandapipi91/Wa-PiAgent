@@ -80,12 +80,39 @@ test.describe
 			return sessionId;
 		}
 
+		/**
+		 * 起一个会话并让 pi 执行 /tui-demo-echo（回显型面板：输入逐条回显，回车结束）。
+		 * 用于验证「输入法上屏的中文真的进了假终端并被插件消费、渲染到帧上」。
+		 */
+		async function spawnSessionWithEchoPanel(): Promise<string> {
+			const sessionId = "s-e2e-tui-echo-" + randomUUID().slice(0, 8);
+			await createSessionViaPrompt(projectId, {
+				agentName: "研发",
+				text: "/tui-demo-echo",
+				model: MODEL,
+				sessionId,
+			});
+			return sessionId;
+		}
+
 		/** 起一个会话并让 pi 执行 /tui-demo-options（键盘型编号选项对话框） */
 		async function spawnSessionWithOptionsPanel(): Promise<string> {
 			const sessionId = "s-e2e-tui-opt-" + randomUUID().slice(0, 8);
 			await createSessionViaPrompt(projectId, {
 				agentName: "研发",
 				text: "/tui-demo-options",
+				model: MODEL,
+				sessionId,
+			});
+			return sessionId;
+		}
+
+		/** 起一个会话并让 pi 执行 /tui-demo-input（真实输入框桩） */
+		async function spawnSessionWithInputPanel(): Promise<string> {
+			const sessionId = "s-e2e-tui-in-" + randomUUID().slice(0, 8);
+			await createSessionViaPrompt(projectId, {
+				agentName: "研发",
+				text: "/tui-demo-input",
 				model: MODEL,
 				sessionId,
 			});
@@ -197,6 +224,166 @@ test.describe
 				timeout: 10_000,
 			});
 			await expect(page.getByTestId("tui-panel-expanded")).toContainText("gamma");
+		});
+
+		/**
+		 * 输入法（IME）中文上屏的真实浏览器验证（第四层）。
+		 *
+		 * 链路：展开态面板的隐藏 textarea（data-testid=tui-panel-ime）是 IME 落点；
+		 * 输入法在它上面组词 → compositionend → TuiPanel 取上屏文本整串 POST
+		 * 「/api/extensions/tui-input({type:'key',data:'你好'})」→ kernel 写假终端 → pi-tui 组件
+		 * handleInput 收到整串 → 回显面板把「你好」渲染成帧行。
+		 *
+		 * 用 CDP 在真实 Chromium 里走一遍真实 IME 事件序列（compositionstart →
+		 * compositionupdate → compositionend；探针已确认 insertText 会补发 compositionend
+		 * 且 textarea.value 落定为上屏文本），所以这是「真浏览器 + 真 DOM 事件链路」，
+		 * 不是页面里手搓事件。
+		 */
+		test("IME 中文上屏：真实输入法事件 → 假终端 → 帧回显", async ({ page }) => {
+			const sessionId = await spawnSessionWithEchoPanel();
+
+			// (c) 先挂请求采集：断言页面确实发出了携带中文的 POST /api/extensions/tui-input
+			const tuiPosts: Array<Record<string, unknown>> = [];
+			page.on("request", (req) => {
+				if (
+					req.method() === "POST" &&
+					req.url().includes("/api/extensions/tui-input")
+				) {
+					try {
+						tuiPosts.push(JSON.parse(req.postData() ?? "{}"));
+					} catch {
+						/* 本接口请求体必为 JSON，解析失败则忽略 */
+					}
+				}
+			});
+
+			const panel = await openPanel(page, sessionId, ["Echo Panel"]);
+
+			// IME 落点（隐藏 textarea）必须聚焦，输入法才会在它上面组词
+			const ime = page.getByTestId("tui-panel-ime");
+			await expect(ime).toBeAttached();
+			await ime.focus();
+
+			// 真实输入法链路：CDP 让 Chromium 在聚焦元素上组词并提交「你好」
+			const cdp = await page.context().newCDPSession(page);
+			await cdp.send("Input.imeSetComposition", {
+				text: "ni hao",
+				selectionStart: 6,
+				selectionEnd: 6,
+			});
+			// insertText 提交组词：Chromium 补发 compositionend，textarea.value 落定为上屏文本
+			await cdp.send("Input.insertText", { text: "你好" });
+
+			// (a) 帧里出现中文：上屏文本真的经假终端被插件消费并渲染到帧上
+			await expect(panel).toContainText("你好", { timeout: 10_000 });
+			// 反向断言：组词中间态（拼音串）不得进假终端——组词期按键一个都不许转发
+			await expect(panel).not.toContainText("ni hao");
+
+			// (b) 落点被清空、无残值（残留会跟着下一次按键被重复发送）
+			await expect(ime).toHaveValue("");
+
+			// (c) 页面发出了携带中文的 type:key POST（POST 体里的 data 含「你好」）
+			await expect
+				.poll(
+					() =>
+						tuiPosts.some(
+							(p) => p.type === "key" && String(p.data).includes("你好"),
+						),
+					{ timeout: 5_000 },
+				)
+				.toBe(true);
+		});
+
+		/**
+		 * 真实输入框桩（/tui-demo-input）：不是「按键回显」，而是一个可编辑的单行输入框。
+		 * 验的是真实编辑语义下的输入法：组词拼音不进值、选词后整串落进值、
+		 * 光标跟随（候选框贴输入位置）、退格可编辑。
+		 */
+		test("真实输入框桩：IME 中文上屏进值、光标跟随、退格可编辑", async ({ page }) => {
+			const sessionId = await spawnSessionWithInputPanel();
+			const panel = await openPanel(page, sessionId, ["Input Demo"]);
+			const ime = page.getByTestId("tui-panel-ime");
+			await expect(ime).toBeAttached();
+
+			// 输入框桩在光标处发 CURSOR_MARKER → 帧光标非空 → 落点/候选框跟着光标
+			await expect(page.getByTestId("tui-panel-cursor")).toBeAttached();
+
+			const cdp = await page.context().newCDPSession(page);
+			await cdp.send("Input.imeSetComposition", {
+				text: "ni hao",
+				selectionStart: 6,
+				selectionEnd: 6,
+			});
+			await cdp.send("Input.insertText", { text: "你好" });
+
+			// 中文进了输入框的值（真实编辑语义），而不是逐键回显；落点无残值
+			await expect(panel).toContainText("输入：你好", { timeout: 10_000 });
+			await expect(panel).not.toContainText("ni hao");
+			await expect(ime).toHaveValue("");
+
+			// 退格键可编辑：删掉最后一个字
+			await page.keyboard.press("Backspace");
+			await expect(panel).toContainText("输入：你", { timeout: 5_000 });
+		});
+
+		/**
+		 * 鼠标点一下面板（mousedown 不 preventDefault，为保住原生拖选）会让浏览器把焦点
+		 * 默认给「最近的聚焦祖先」——容器 div（tabindex=0），而不是 IME 落点。
+		 * 容器不可编辑 → 输入法不再启动。
+		 */
+		test("IME 落点常驻焦点：点击面板正文后再组词，中文仍能上屏", async ({ page }) => {
+			const sessionId = await spawnSessionWithEchoPanel();
+			const panel = await openPanel(page, sessionId, ["Echo Panel"]);
+			const ime = page.getByTestId("tui-panel-ime");
+			const cdp = await page.context().newCDPSession(page);
+			const compose = async (pinyin: string, text: string) => {
+				await cdp.send("Input.imeSetComposition", {
+					text: pinyin,
+					selectionStart: pinyin.length,
+					selectionEnd: pinyin.length,
+				});
+				await cdp.send("Input.insertText", { text });
+			};
+
+			// 首次组词：面板打开后的自动聚焦路径
+			await compose("ni hao", "你好");
+			await expect(panel).toContainText("你好", { timeout: 10_000 });
+
+			// 点一下正文：焦点必须仍在可编辑的落点上（否则浏览器不启动输入法）
+			await page.getByTestId("tui-panel-body").click();
+			await expect(ime).toBeFocused();
+
+			// 再次组词：仍能上屏
+			await compose("shi jie", "世界");
+			await expect(panel).toContainText("世界", { timeout: 10_000 });
+		});
+
+		/**
+		 * 守住既有契约（规格 §7.5）：面板帧是 DOM 文本，复制走「原生拖选 + Cmd+C」。
+		 * IME 落点不能把这条路径打断。
+		 */
+		test("面板正文仍可原生拖选（IME 落点不打断文本选择）", async ({ page }) => {
+			const sessionId = await spawnSessionWithEchoPanel();
+			const panel = await openPanel(page, sessionId, ["Echo Panel"]);
+			const line = panel.locator("div.whitespace-pre").first();
+			const box = await line.boundingBox();
+			expect(box).not.toBeNull();
+			await page.mouse.move(box!.x + 20, box!.y + box!.height / 2);
+			await page.mouse.down();
+			await page.mouse.move(box!.x + 140, box!.y + box!.height / 2, {
+				steps: 8,
+			});
+			await page.mouse.up();
+			const probe = await page.evaluate(() => ({
+				sel: window.getSelection()?.toString() ?? "",
+				active:
+					(document.activeElement as HTMLElement)?.getAttribute?.(
+						"data-testid",
+					) ?? document.activeElement?.tagName,
+			}));
+			expect(probe.sel.length).toBeGreaterThan(0);
+			// 拖选期间不能把焦点抢回落点：抢了浏览器会清掉刚建立的文档选区（真浏览器实测）
+			expect(probe.active).not.toBe("tui-panel-ime");
 		});
 
 		test("收起态下输入框恢复可用", async ({ page }) => {

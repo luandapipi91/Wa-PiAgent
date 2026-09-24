@@ -29,7 +29,7 @@ import type { ExtensionTuiSnapshotResult } from "@wa-pi/shared";
 import { useTuiPanelStore } from "../store/tui-panel";
 import { useTranslation } from "../i18n/useTranslation";
 import { api } from "../api-client";
-import { encodeKey, encodeMouse, encodePaste } from "../lib/tui-keys";
+import { encodeKey, encodeMouse, encodePaste, isComposingKey } from "../lib/tui-keys";
 import { AnsiText } from "./ui/AnsiText";
 
 /** 展开态默认尺寸（px），与规格 §7.1 一致 */
@@ -379,6 +379,14 @@ function FrameLine({ text, cellWidth }: { text: string; cellWidth?: number }) {
 	);
 }
 
+/**
+ * 文档里当前是否存在非空文本选区。
+ * 面板的复制路径就是「拖选 + Cmd+C」（规格 §7.5），拖选结束时必须据此决定焦点归属。
+ */
+function hasTextSelection(): boolean {
+	return (window.getSelection()?.toString().length ?? 0) > 0;
+}
+
 /** 像素偏移 → 终端 1-based 下标；非有限值兜底为 1（不让 NaN 变成序列） */
 function axisIndex(offset: number, cell: number): number {
 	if (!Number.isFinite(offset)) return 1;
@@ -407,6 +415,13 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	const boxRef = useRef<HTMLDivElement | null>(null);
 	const bodyRef = useRef<HTMLDivElement | null>(null);
 	const probeRef = useRef<HTMLSpanElement | null>(null);
+	/**
+	 * IME 落点：面板是自绘终端（不可编辑的 div），拼音要在面板里可用就必须有一个真实
+	 * 可编辑元素承接焦点与组词。组词期间的原生值由输入法写在这里，上屏后清空。
+	 */
+	const imeRef = useRef<HTMLTextAreaElement | null>(null);
+	/** 本次组词在上面的原生值里的起点下标：compositionend 后按它切出要上屏的文本 */
+	const compStartRef = useRef(0);
 	/**
 	 * 实测格宽：ref 供一切「像素 ↔ 列」换算同步读取（尺寸上报、鼠标命中、光标），
 	 * state 只用于触发重渲染（渲染期要用它画光标方块与全角格宽）。两者必须同时更新。
@@ -507,13 +522,16 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	}, [sessionId]);
 
 	/**
-	 * 把键盘焦点收回面板容器。
+	 * 把键盘焦点收回面板。
 	 * mousedown 的 preventDefault 会吃掉浏览器「把焦点给可聚焦祖先」的默认动作，
 	 * 不显式还回来，用户点过别处（Composer/侧栏）再点回面板时焦点回不来，
 	 * 而 Composer 已 disabled——面板看着是活的却在静默丢键。
+	 *
+	 * 优先落在 IME 落点上（而不是容器）：焦点在不可编辑元素上时浏览器不启动输入法，
+	 * 拼音根本进不来；收起态没有落点时退回容器。
 	 */
 	const focusPanel = useCallback(() => {
-		boxRef.current?.focus({ preventScroll: true });
+		(imeRef.current ?? boxRef.current)?.focus({ preventScroll: true });
 	}, []);
 
 	/**
@@ -582,9 +600,9 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 	// 展开态：接管键盘焦点 + 按文本区（不含标题栏）实际宽高上报终端列行
 	useEffect(() => {
 		if (panel?.mode !== "expanded" || !sessionId) return;
-		boxRef.current?.focus();
+		focusPanel();
 		reportPanelSize();
-	}, [panel?.mode, panel?.panelId, sessionId, reportPanelSize]);
+	}, [panel?.mode, panel?.panelId, sessionId, reportPanelSize, focusPanel]);
 
 	/**
 	 * 实测一格宽度（规格 §7.2 的「用等宽字体保证全角占两格」需要以真实度量为基准）。
@@ -618,6 +636,14 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 			const pressed = pressRef.current;
 			if (!pressed) return;
 			pressRef.current = null;
+			// 松开时按「有没有拖出文本选区」决定焦点归谁：
+			// - 有选区（用户刚拖选准备复制）→ 不动焦点。mousedown 不 preventDefault 时浏览器会把
+			//   焦点默认给容器（tabindex=0），而容器不可编辑不影响文档选区；此时若把焦点抢回落点，
+			//   浏览器会清掉刚建立的文档选区（真浏览器实测），复制路径就断了。
+			// - 无选区（单击）→ 把焦点收回落点。不收回的话焦点停在容器上，而容器不可编辑，
+			//   浏览器不启动输入法——真浏览器实测「点一下面板正文，之后的拼音连 compositionstart
+			//   都不再触发」，面板看着活着却在静默丢键。
+			if (!hasTextSelection()) focusPanel();
 			const el = bodyRef.current;
 			if (!el) return;
 			const { col, row } = cellAt(el, e.clientX, e.clientY);
@@ -628,7 +654,7 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		};
 		window.addEventListener("mouseup", onUp);
 		return () => window.removeEventListener("mouseup", onUp);
-	}, [post]);
+	}, [post, focusPanel]);
 
 	// === 浮窗拖动 / 缩放（与 FloatBubble 同套路：直接改 DOM，mouseup 提交一次）===
 
@@ -778,7 +804,57 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 		post({ type: "mouse", data: encodeMouse("down", e.button, col, row) });
 	};
 
+	/**
+	 * IME 组词开始：记下组词在落点原生值里的起点。
+	 * 组词中间态由输入法写进落点，这里不读它——多数浏览器在 composition 事件之后才更新值。
+	 */
+	const onCompositionStart = () => {
+		compStartRef.current = imeRef.current?.value.length ?? 0;
+	};
+
+	/**
+	 * IME 组词更新：把落点的可视区滚到组词文本末尾。
+	 * 落点是从帧光标到右缘的一条（宽度随光标位置变），行尾起笔时长拼音串会超出可视宽，
+	 * 不滚动就只能看到开头几个字符。
+	 */
+	const onCompositionUpdate = () => {
+		const el = imeRef.current;
+		if (!el) return;
+		el.scrollLeft = el.scrollWidth;
+	};
+
+	/**
+	 * IME 组词结束：把本次上屏的文本整串转发给假终端，并清空落点。
+	 *
+	 * 不取事件里的 data：Chromium 上 compositionend.data 不可靠（xterm 同样绕开它），
+	 * 所以推迟一拍再读落点的原生值——compositionend 之后浏览器才把最终字符写进去。
+	 * 上屏后立刻清空：残值会跟着下一次按键被重复发送。
+	 */
+	const onCompositionEnd = () => {
+		const start = compStartRef.current;
+		compStartRef.current = 0;
+		window.setTimeout(() => {
+			const el = imeRef.current;
+			if (!el) return;
+			const text = el.value.slice(start);
+			el.value = "";
+			if (!text) return;
+			// 整串注入：假终端与 pi-tui 的 Editor/Input 都按「一次插入整串文本」处理（CJK 占 2 列宽）
+			post({ type: "key", data: text });
+		}, 0);
+	};
+
 	const onKeyDown = (e: ReactKeyboardEvent) => {
+		// IME 组词中（拼音选词）：按键归输入法——转发会让拼音字母逐字进 TUI，
+		// 拦截则会打断组词（候选词上不了屏）
+		if (
+			isComposingKey({
+				isComposing: e.nativeEvent.isComposing,
+				keyCode: e.keyCode,
+			})
+		) {
+			return;
+		}
 		// encodeKey 返回 null = 该键放行给浏览器（Cmd 组合、不认识的功能键）
 		const seq = encodeKey(e);
 		if (seq === null) return;
@@ -809,6 +885,13 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 
 	// 展开态：右上角浮窗（可拖拽移动、右下拉大拉小、键盘与鼠标锁给面板）
 	if (panel.mode === "expanded") {
+		/*
+		 * IME 落点的锚点：优先帧光标（输入法候选框要贴着真实输入位置——
+		 * pi-tui 组件在光标处发 CURSOR_MARKER，kernel 抽成帧光标推下来）。
+		 * 面板没有光标时退到末行：首行通常是标题/表头，落点压在上面既挡内容又离输入位置最远。
+		 */
+		const imeRow = panel.cursor?.row ?? Math.max(0, panel.lines.length - 1);
+		const imeCol = panel.cursor?.col ?? 0;
 		return (
 			<div
 				ref={boxRef}
@@ -926,6 +1009,34 @@ export function TuiPanel({ sessionId }: { sessionId: string | null }) {
 							}}
 						/>
 					)}
+					{/*
+					 * IME 落点：必须是真实可编辑元素，输入法才会启动组词（焦点在容器 div 上时拼音进不来）。
+					 * - pointer-events-none：不拦鼠标，面板的拖选 + Cmd+C 复制（规格 §7.5）不受影响；
+					 * - 定位到帧光标处：输入法候选框跟随焦点元素，位置随光标走；
+					 * - 组词中的拼音就显示在这里（同字体同字号），上屏后由 onCompositionEnd 清空。
+					 */}
+					<textarea
+						ref={imeRef}
+						data-testid="tui-panel-ime"
+						defaultValue=""
+						autoComplete="off"
+						autoCorrect="off"
+						autoCapitalize="off"
+						spellCheck={false}
+						wrap="off"
+						onCompositionStart={onCompositionStart}
+						onCompositionUpdate={onCompositionUpdate}
+						onCompositionEnd={onCompositionEnd}
+						className="pointer-events-none absolute resize-none overflow-hidden border-0 bg-transparent p-0 font-mono text-[12px] text-primary caret-transparent outline-none"
+						style={{
+							left: BODY_PAD_X + imeCol * cellWidth,
+							top: imeRow * CELL.height,
+							right: 0,
+							height: CELL.height,
+							lineHeight: `${CELL.height}px`,
+							whiteSpace: "pre",
+						}}
+					/>
 				</div>
 				{/* 右下角缩放手柄（nwse-resize） */}
 				<div

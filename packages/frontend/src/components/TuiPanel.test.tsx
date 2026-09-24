@@ -341,10 +341,11 @@ describe("TuiPanel 三态切换", () => {
 		});
 	});
 
-	test("展开态自动接管键盘焦点", () => {
+	test("展开态自动接管键盘焦点（落在 IME 落点上，输入法才会启动）", () => {
 		useTuiPanelStore.getState().open("s1", META);
 		render(<TuiPanel sessionId="s1" />);
-		expect(document.activeElement).toBe(screen.getByTestId("tui-panel-expanded"));
+		// 焦点必须给可编辑元素：焦点在 div 上时浏览器不会启动输入法，拼音进不来
+		expect(document.activeElement).toBe(screen.getByTestId("tui-panel-ime"));
 	});
 
 	test("不认识的功能键与 Cmd 组合放行（不发序列）", () => {
@@ -374,6 +375,93 @@ describe("TuiPanel 三态切换", () => {
 		expect(tuiInputCalls("cancel")).toHaveLength(1);
 		// 组件不自行关闭：生命周期归 kernel（规格 §5）
 		expect(useTuiPanelStore.getState().bySession.s1).toBeDefined();
+	});
+});
+
+describe("TuiPanel 输入法（IME）", () => {
+	// 面板是自绘终端（div + DOM 文本），容器本身不可编辑——拼音要在面板里可用，
+	// 必须有一个真实 textarea 作输入法落点，并把组词结果桥回假终端。
+
+	test("展开态提供 IME 落点：可编辑 textarea，且不拦截鼠标（保住原生拖选复制）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		const ime = screen.queryByTestId("tui-panel-ime");
+		expect(ime).not.toBeNull();
+		expect(ime!.tagName).toBe("TEXTAREA");
+		// 鼠标事件必须穿透：面板的复制路径是浏览器原生选择 + Cmd+C（规格 §7.5）
+		// （happy-dom 没有 CSS 计算，按仓库口径断言语义类名）
+		expect(ime!.className).toContain("pointer-events-none");
+	});
+
+	test("无帧光标时 IME 落点退到末行（首行是标题，压上去会扁内容）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		useTuiPanelStore
+			.getState()
+			.setFrame("s1", "p1", ["标题行", "内容行", "末行"], null);
+		render(<TuiPanel sessionId="s1" />);
+		const ime = screen.queryByTestId("tui-panel-ime");
+		expect(ime).not.toBeNull();
+		expect((ime as HTMLTextAreaElement).style.top).toBe(`${2 * CELL.height}px`);
+	});
+
+	test("组词中的按键不转发给假终端（拼音字母不得逐字进入）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		// isComposing 与 keyCode 229 是同一语义的两条入口（后者兼容不置 isComposing 的引擎）
+		fireEvent.keyDown(body(), { key: "n", isComposing: true });
+		fireEvent.keyDown(body(), { key: "i", keyCode: 229 });
+		expect(tuiInputCalls("key")).toHaveLength(0);
+	});
+
+	test("组词中的按键不拦截默认行为（拦截会打断输入法组词）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		// fireEvent 返回 defaultPrevented 的取反：true = 未被拦截
+		expect(fireEvent.keyDown(body(), { key: "n", isComposing: true })).toBe(true);
+		expect(fireEvent.keyDown(body(), { key: "i", keyCode: 229 })).toBe(true);
+	});
+
+	test("非组词期的普通字符照旧逐键转发（组词守卫不影响正常输入）", () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		fireEvent.keyDown(body(), { key: "a", isComposing: false });
+		expect(tuiInputCalls("key").at(-1)!.body.data).toBe("a");
+	});
+
+	test("组词上屏：整串文本经 tui-input 转发，并清空落点（残值不得重复发送）", async () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		const ime = screen.queryByTestId("tui-panel-ime");
+		expect(ime).not.toBeNull();
+		const ta = ime as HTMLTextAreaElement;
+		fireEvent.compositionStart(ta);
+		// 组词期间的原生值由输入法维护（happy-dom 不跑真实 IME，这里模拟最终落字）
+		ta.value = "你好";
+		fireEvent.compositionEnd(ta);
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(tuiInputCalls("key").at(-1)!.body).toEqual({
+			sessionId: "s1",
+			panelId: "p1",
+			type: "key",
+			data: "你好",
+		});
+		expect(ta.value).toBe("");
+	});
+
+	test("组词结束但没落字（候选被取消）不发空序列", async () => {
+		useTuiPanelStore.getState().open("s1", META);
+		render(<TuiPanel sessionId="s1" />);
+		const ime = screen.queryByTestId("tui-panel-ime");
+		expect(ime).not.toBeNull();
+		const ta = ime as HTMLTextAreaElement;
+		fireEvent.compositionStart(ta);
+		fireEvent.compositionEnd(ta);
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(tuiInputCalls("key")).toHaveLength(0);
 	});
 });
 
@@ -492,8 +580,9 @@ describe("TuiPanel 鼠标上报", () => {
 			fireEvent.mouseDown(el, { button: 0, clientX: atCol(1), clientY: 0 }),
 		).toBe(true);
 		expect(el.style.userSelect).toBe("text");
-		// 焦点仍要收回面板：Composer 已 disabled，焦点留在外面会静默丢键
-		expect(document.activeElement).toBe(screen.getByTestId("tui-panel-expanded"));
+		// 焦点仍要收回面板（落在 IME 落点上：输入法需要真实可编辑元素）：
+		// Composer 已 disabled，焦点留在外面会静默丢键
+		expect(document.activeElement).toBe(screen.getByTestId("tui-panel-ime"));
 	});
 
 	test("未按下时移动不产生任何鼠标上报", () => {
@@ -769,7 +858,8 @@ describe("TuiPanel 窗口拖动与缩放", () => {
 });
 
 describe("TuiPanel 焦点归属", () => {
-	const expanded = () => screen.getByTestId("tui-panel-expanded");
+	/** 面板的键盘入口是 IME 落点（可编辑元素），不再是不可编辑的容器 */
+	const imeTarget = () => screen.getByTestId("tui-panel-ime");
 
 	/** 造一个面板外的可聚焦元素并聚焦它，模拟「用户点过 Composer / 侧栏」 */
 	function focusOutside() {
@@ -789,7 +879,7 @@ describe("TuiPanel 焦点归属", () => {
 		render(<TuiPanel sessionId="s1" />);
 		const outside = focusOutside();
 		fireEvent.mouseDown(body(), { button: 0 });
-		expect(document.activeElement).toBe(expanded());
+		expect(document.activeElement).toBe(imeTarget());
 		outside.remove();
 	});
 
@@ -801,7 +891,7 @@ describe("TuiPanel 焦点归属", () => {
 			clientX: 500,
 			clientY: 300,
 		});
-		expect(document.activeElement).toBe(expanded());
+		expect(document.activeElement).toBe(imeTarget());
 		outside.remove();
 	});
 
@@ -810,7 +900,7 @@ describe("TuiPanel 焦点归属", () => {
 		render(<TuiPanel sessionId="s1" />);
 		const outside = focusOutside();
 		fireEvent.mouseDown(screen.getByTitle("取消该交互"));
-		expect(document.activeElement).not.toBe(expanded());
+		expect(document.activeElement).not.toBe(imeTarget());
 		outside.remove();
 	});
 });

@@ -84,6 +84,20 @@ export function encodeKey(e: KeyLike): string | null {
 	return null;
 }
 
+/**
+ * IME 组词中的按键判定：组词期的按键归输入法，既不编码转发、也不拦截默认行为。
+ *
+ * 转发会让拼音字母逐字进 TUI（假终端不能区分组词中间态与真实按键），拦截则会打断组词、
+ * 候选词上不了屏。`isComposing` 由调用方传 `nativeEvent.isComposing`；`keyCode === 229`
+ * 是不置该标志的引擎上的兜底口径（与消息输入框 ComposerInput 的判定一致）。
+ */
+export function isComposingKey(e: {
+	isComposing?: boolean;
+	keyCode?: number;
+}): boolean {
+	return e.isComposing === true || e.keyCode === 229;
+}
+
 /** 鼠标按键 → SGR 鼠标序列（左 0 / 中 1 / 右 2；坐标 1-based） */
 export function encodeMouse(
 	phase: "down" | "up" | "drag",

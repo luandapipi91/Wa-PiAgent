@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { encodeKey, encodeMouse, encodePaste, encodeWheel } from "./tui-keys";
+import {
+	encodeKey,
+	encodeMouse,
+	encodePaste,
+	encodeWheel,
+	isComposingKey,
+} from "./tui-keys";
 
 const base = { ctrlKey: false, altKey: false, metaKey: false, shiftKey: false };
 
@@ -95,5 +101,21 @@ describe("鼠标与粘贴", () => {
 
 	test("粘贴用 bracketed paste 包裹", () => {
 		expect(encodePaste("hello")).toBe("\u001b[200~hello\u001b[201~");
+	});
+});
+
+describe("isComposingKey（IME 组词判定）", () => {
+	test("isComposing=true → 组词中（按键归输入法）", () => {
+		expect(isComposingKey({ isComposing: true })).toBe(true);
+	});
+
+	test("keyCode 229 兜底：不置 isComposing 的引擎同样判为组词中", () => {
+		expect(isComposingKey({ keyCode: 229 })).toBe(true);
+	});
+
+	test("非组词态：普通按键不是组词中（isComposing=false / 其它 keyCode / 无字段）", () => {
+		expect(isComposingKey({ isComposing: false })).toBe(false);
+		expect(isComposingKey({ keyCode: 13 })).toBe(false);
+		expect(isComposingKey({})).toBe(false);
 	});
 });
