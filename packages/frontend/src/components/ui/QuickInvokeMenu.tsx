@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { SkillSource } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
+import { skillKeyOf } from "../../store/skills";
 import { AgentMenuItem } from "./AgentMenuItem";
 
 export interface MenuItem {
@@ -37,6 +38,8 @@ export function QuickInvokeMenu({
 }: Props) {
     const highlightedElRef = useRef<HTMLElement | null>(null);
     const { t } = useTranslation();
+    /** 列表 key：同名技能可能来自不同来源（项目同名遮蔽内置），需带来源维度避免重复 key */
+    const itemKey = (item: MenuItem): string => skillKeyOf(item.source, item.id);
     /** 来源标签文本 */
     const sourceLabel = (source?: SkillSource): string | null => {
         if (!source) return null;
@@ -44,7 +47,9 @@ export function QuickInvokeMenu({
             case "builtin":
                 return t("ui.quickInvokeMenu.sourceBuiltin");
             case "project":
-                return t("ui.quickInvokeMenu.sourceProject");
+                return source.projectName
+                    ? t("ui.quickInvokeMenu.sourceProjectName", { name: source.projectName })
+                    : t("ui.quickInvokeMenu.sourceProject");
             case "extension":
                 return source.name ?? t("ui.quickInvokeMenu.sourceExtension");
             default:
@@ -75,7 +80,7 @@ export function QuickInvokeMenu({
                 <div className="flex flex-col gap-0.5">
                     {items.map((item, i) => (
                         <AgentMenuItem
-                            key={item.id}
+                            key={itemKey(item)}
                             name={item.name}
                             description={item.description}
                             avatar={item.avatar}
@@ -100,7 +105,7 @@ export function QuickInvokeMenu({
                 <ul className="flex flex-col gap-0.5">
                     {items.map((item, i) => (
                         <li
-                            key={item.id}
+                            key={itemKey(item)}
                             ref={
                                 i === highlightedIndex
                                     ? (highlightedElRef as any)

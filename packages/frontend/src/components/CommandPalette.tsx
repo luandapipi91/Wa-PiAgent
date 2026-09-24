@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSkillsStore } from "../store/skills";
+import { selectAvailableSkillsForProject, skillKeyOf, useSkillsStore } from "../store/skills";
+import { useProjectsStore } from "../store/projects";
 import { useSettingsStore } from "../store/settings";
 import { useAgentsStore } from "../store/agents";
 import { useTranslation } from "../i18n/useTranslation";
@@ -40,6 +41,12 @@ export function CommandPalette({ open, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const skills = useSkillsStore(s => s.allSkills ?? []);
+  // 当前项目下实际可用的技能（排除他项目技能与同名被遮蔽者）
+  const currentProjectId = useProjectsStore(s => s.currentProjectId);
+  const availableSkills = useMemo(
+    () => selectAvailableSkillsForProject(skills, currentProjectId),
+    [skills, currentProjectId],
+  );
   const agents = useAgentsStore(s => s.list ?? []);
 
   // 构建命令项
@@ -64,15 +71,15 @@ export function CommandPalette({ open, onClose }: Props) {
 
   // 构建技能项
   const skillItems = useMemo<PaletteItem[]>(() =>
-    skills.map(s => ({
-      id: `skill-${s.name}`,
+    availableSkills.map(s => ({
+      id: `skill-${skillKeyOf(s.source, s.name)}`,
       group: t("commandPalette.groupSkills"),
       title: s.name,
       hint: s.description,
       keywords: [s.name, s.description],
       run: () => { onClose(); /* 将技能名写入剪贴板，方便用户在输入框中用 $[技能名] 引用 */ },
     })),
-  [skills, onClose, t]);
+  [availableSkills, onClose, t]);
 
   // 合并所有项：命令在前，技能在后
   const allItems = useMemo(() => [...commandItems, ...skillItems], [commandItems, skillItems]);

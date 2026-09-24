@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   SkillInfo,
+  SkillSource,
   SkillDir,
   SkillListResult,
   SkillChangedEvent,
@@ -33,6 +34,40 @@ export function filterSkillsByScope(
       (s) => s.source?.type !== "project" && !mineNames.has(s.name),
     ),
   ];
+}
+
+/**
+ * 具名派生选择器：某个项目下实际可用的技能集合。
+ * 供 ComposerInput（$ 快捷菜单）/ CommandPalette / AgentConfig（技能白名单）共用，
+ * 保证候选与「该会话 spawn 时真正传给 pi 的技能」一致：
+ * - 排除被遮蔽（shadowed）的同名条目——同名以生效的那条呈现（项目版本优先）
+ * - 排除其它项目的 project 来源技能（会话 spawn 只传本项目目录 + 内置 + 扩展）
+ * - 保留 builtin / extension 来源
+ * 本项目技能即便因它项目同名被标记 shadowed 也保留（本项目目录在 pi 侧排最前，本项目版本仍生效）。
+ */
+export function selectAvailableSkillsForProject(
+  allSkills: SkillInfo[],
+  projectId?: string | null,
+): SkillInfo[] {
+  const mine = allSkills.filter(
+    (s) => s.source?.type === "project" && s.source.projectId === projectId,
+  );
+  const mineNames = new Set(mine.map((s) => s.name));
+  return [
+    ...mine,
+    ...allSkills.filter(
+      (s) =>
+        s.source?.type !== "project" && !s.shadowed && !mineNames.has(s.name),
+    ),
+  ];
+}
+
+/**
+ * 列表 key / 面板项 id 的去重后缀：同名技能可能来自不同来源（项目同名遮蔽内置），
+ * 只按技能名做 React key 会重复，须带来源维度。
+ */
+export function skillKeyOf(source: SkillSource | undefined, name: string): string {
+  return `${source?.type ?? "builtin"}-${name}`;
 }
 
 // 技能管理 store — 通过 REST 与 kernel 通信

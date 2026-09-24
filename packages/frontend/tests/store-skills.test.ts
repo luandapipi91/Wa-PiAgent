@@ -1,5 +1,10 @@
 import { test, expect, mock } from "bun:test";
-import { filterSkillsByScope } from "../src/store/skills";
+import type { SkillInfo } from "@wa-pi/shared";
+import {
+  filterSkillsByScope,
+  selectAvailableSkillsForProject,
+  skillKeyOf,
+} from "../src/store/skills";
 
 // 每个测试独立 mock api-client，避免真实发起 HTTP 请求
 function mockApi() {
@@ -51,6 +56,78 @@ test("toggleSkill 启用已禁用的技能", async () => {
     name: "pdf-tools",
     enabled: true,
   });
+});
+
+/** 构造技能条目（默认内置来源） */
+function skill(
+  name: string,
+  source?: SkillInfo["source"],
+  shadowed?: boolean,
+): SkillInfo {
+  return {
+    name,
+    description: `${name} 描述`,
+    path: `/skills/${name}`,
+    source,
+    shadowed,
+  };
+}
+
+// ---- 具名派生选择器：某项目下实际可用的技能集合 ----
+
+test("selectAvailableSkillsForProject：同名被遮蔽的条目被排除（项目版本生效）", () => {
+  const out = selectAvailableSkillsForProject(
+    [
+      skill("dup", { type: "project", projectId: "p1", projectName: "项目A" }),
+      skill("dup", { type: "builtin" }, true),
+    ],
+    "p1",
+  );
+  expect(out).toHaveLength(1);
+  expect(out[0].source?.type).toBe("project");
+});
+
+test("selectAvailableSkillsForProject：他项目的技能被排除", () => {
+  const out = selectAvailableSkillsForProject(
+    [
+      skill("mine", { type: "project", projectId: "p1", projectName: "项目A" }),
+      skill("theirs", { type: "project", projectId: "p2", projectName: "项目B" }),
+    ],
+    "p1",
+  ).map((s) => s.name);
+  expect(out).toEqual(["mine"]);
+});
+
+test("selectAvailableSkillsForProject：内置与扩展技能保留", () => {
+  const out = selectAvailableSkillsForProject(
+    [skill("builtin-a", { type: "builtin" }), skill("ext-a", { type: "extension", name: "pack" })],
+    "p1",
+  ).map((s) => s.name);
+  expect(out).toEqual(["builtin-a", "ext-a"]);
+});
+
+test("selectAvailableSkillsForProject：本项目技能即便被他项目同名遮蔽也保留（该项目内项目版本仍生效）", () => {
+  const out = selectAvailableSkillsForProject(
+    [
+      skill("dup", { type: "project", projectId: "p2", projectName: "项目B" }),
+      skill("dup", { type: "project", projectId: "p1", projectName: "项目A" }, true),
+      skill("dup", { type: "builtin" }, true),
+    ],
+    "p1",
+  );
+  expect(out).toHaveLength(1);
+  expect(out[0].source?.projectId).toBe("p1");
+});
+
+test("skillKeyOf：同名不同来源得到不同 key（消除重复 key）", () => {
+  expect(skillKeyOf({ type: "builtin" }, "dup")).toBe("builtin-dup");
+  expect(skillKeyOf({ type: "project", projectId: "p1" }, "dup")).toBe(
+    "project-dup",
+  );
+  expect(skillKeyOf({ type: "extension", name: "pack" }, "dup")).toBe(
+    "extension-dup",
+  );
+  expect(skillKeyOf(undefined, "dup")).toBe("builtin-dup");
 });
 
 test("setAll 更新本地状态", async () => {

@@ -35,6 +35,26 @@ test("渲染技能列表含来源标签", () => {
   expect(screen.getByText("ext-pkg")).toBeDefined(); // extension 来源标签
 });
 
+test("项目来源标签带项目名（与技能页固定文案一致）", () => {
+  render(
+    <QuickInvokeMenu
+      type="skill"
+      items={[
+        {
+          id: "dup",
+          name: "dup",
+          description: "项目版本",
+          source: { type: "project", projectId: "p1", projectName: "项目A" },
+        },
+      ]}
+      highlightedIndex={0}
+      onSelect={mock()}
+      onHover={mock()}
+    />,
+  );
+  expect(screen.getByText("项目 skill（项目A）")).toBeDefined();
+});
+
 test("高亮第一项", () => {
   render(<QuickInvokeMenu type="file" items={fileItems} highlightedIndex={0} onSelect={mock()} onHover={mock()} />);
   const firstItem = screen.getByTestId("quick-invoke-item-0");

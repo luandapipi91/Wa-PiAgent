@@ -356,6 +356,7 @@ const en = {
 		quickInvokeMenu: {
 			sourceBuiltin: "Built-in",
 			sourceProject: "Project",
+			sourceProjectName: "Project skill ({{name}})",
 			sourceUser: "User",
 			sourceExtension: "Extension",
 			emptyDefault: "No matching results",

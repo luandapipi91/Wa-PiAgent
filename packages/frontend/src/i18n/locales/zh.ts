@@ -345,6 +345,7 @@ const zh = {
 		quickInvokeMenu: {
 			sourceBuiltin: "内置",
 			sourceProject: "项目",
+			sourceProjectName: "项目 skill（{{name}}）",
 			sourceUser: "用户",
 			sourceExtension: "扩展",
 			emptyDefault: "无匹配结果",
