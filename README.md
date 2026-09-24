@@ -6,11 +6,11 @@
 
 # WA PI Agent
 
-**A GUI framework for the pi agent — a powerful AI coding engine deserves an equally capable desktop interface.**
+**A desktop GUI client for the [pi](https://github.com/earendil-works) coding agent — a powerful AI coding engine deserves an equally capable desktop interface.**
 
 Not a single command to memorize: sessions, models, MCP, skills, and memory — all point-and-click.
 
-Visual session management · Multi-agent collaboration · IM bot channels · MCP ecosystem · Desktop & browser · 中文 / English UI
+Visual session management · Multi-agent collaboration · IM bot channels · MCP ecosystem · Desktop & browser · macOS / Windows / Linux · 中文 / English UI
 
 ![Runtime](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)
 ![Language](https://img.shields.io/badge/Language-TypeScript-3178c6?logo=typescript&logoColor=fff)
@@ -18,6 +18,10 @@ Visual session management · Multi-agent collaboration · IM bot channels · MCP
 ![Desktop](https://img.shields.io/badge/Desktop-Electron-47848f?logo=electron&logoColor=fff)
 ![Agent Engine](https://img.shields.io/badge/Agent_Engine-pi-5B5BD6)
 ![i18n](https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)
+![Release](https://img.shields.io/github/v/release/luandapipi91/Wa-PiAgent?label=release&color=2ea44f)
+![License](https://img.shields.io/badge/License-MIT-blue)
+![Platform](https://img.shields.io/badge/Platform-macOS_%7C_Windows_%7C_Linux-lightgrey)
+![Downloads](https://img.shields.io/github/downloads/luandapipi91/Wa-PiAgent/total?label=downloads)
 
 🌍 [Website](https://www.wapiagent.top/index.html) · [⬇ Download](https://github.com/luandapipi91/Wa-PiAgent/releases/latest)
 
@@ -32,7 +36,7 @@ Visual session management · Multi-agent collaboration · IM bot channels · MCP
 
 ## What is this
 
-WA PI Agent is a **graphical desktop framework** for the [pi](https://github.com/earendil-works) agent engine. pi is a powerful AI coding agent engine, but it ships with a CLI only — configuration means hand-editing JSON, juggling multiple sessions is painful, and MCP failures surface as raw stack traces. WA PI Agent wraps it in a complete GUI, turning every engine capability into something you can see and click.
+WA PI Agent is a **desktop GUI client for the [pi](https://github.com/earendil-works) coding agent**, and a framework on top of it. pi is a powerful AI coding agent, but it ships with a CLI only — configuration means hand-editing JSON, juggling multiple sessions is painful, and MCP failures surface as raw stack traces. WA PI Agent wraps it in a complete desktop app (Electron) and a browser client, turning every engine capability into something you can see and click.
 
 **Every session is an independent pi subprocess** with its own working directory, toolchain, and context — no interference. Engine upgrades (pi updates) and interface upgrades (this framework) are decoupled: when pi ships new capabilities, the framework picks them up automatically.
 
@@ -41,8 +45,8 @@ On top of that, the framework offers **multi-agent collaboration**: instead of o
 ## Up and running in three minutes
 
 ```bash
-git clone <repo-url>
-cd wa-pi
+git clone https://github.com/luandapipi91/Wa-PiAgent.git
+cd Wa-PiAgent
 bun install
 bun run dev
 ```
@@ -51,7 +55,7 @@ The only prerequisite is [Bun](https://bun.sh) ≥ 1.4. Once started, your brows
 
 macOS users can also double-click `start.command` in the repo root; Windows users double-click `start.bat`.
 
-**Prefer a desktop app?** The kernel ships as a sidecar — no runtime to pre-install — with built-in auto-update:
+**Prefer a desktop app?** Download the installer for macOS, Windows or Linux from the [Releases page](https://github.com/luandapipi91/Wa-PiAgent/releases/latest), or build it yourself — the kernel ships as a sidecar, so there is no runtime to pre-install, and the app updates itself:
 
 ```bash
 bun run pack:mac     # macOS
@@ -222,6 +226,23 @@ bun run typecheck      # Type checking
 - [ ] **Connectors** — a ready-to-use connector marketplace on top of MCP: more IM platforms, more SaaS services, configure and go
 - [ ] **Artifact sharing** — one-click export and sharing of conversations, analysis reports, and generated images, so AI output flows to where your team needs it
 - [ ] **Diff monitoring** — watch what you care about: automatic detection of changes in files, pages, and data sources, with real-time alerts that can be handed straight to an agent
+
+## FAQ
+
+**What is pi?**
+[pi](https://github.com/earendil-works) is a command-line AI coding agent. It runs one session per process, with its own working directory, toolchain, extensions, and MCP connections.
+
+**Is there a desktop app for the pi coding agent?**
+Yes — WA PI Agent is a desktop GUI client for the pi coding agent. It runs as an Electron app on macOS, Windows and Linux, and the same interface is available in the browser.
+
+**Do I need to install Bun before using the desktop app?**
+No. The packaged desktop build carries the kernel as a sidecar, so nothing has to be pre-installed, and the app updates itself.
+
+**Where is my data stored?**
+In your local `~/.pi/agent` directory. Nothing is uploaded to any server.
+
+**Is it free?**
+Yes. WA PI Agent is released under the [MIT License](./LICENSE).
 
 ## Contributing
 

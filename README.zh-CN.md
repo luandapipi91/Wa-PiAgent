@@ -6,11 +6,11 @@
 
 # WA PI Agent
 
-**pi agent 的 GUI 框架——强大的 AI 编程引擎，值得一个同样好用的桌面界面。**
+**pi coding agent 的桌面 GUI 客户端 —— 强大的 AI 编程引擎，值得一个同样好用的桌面界面。**
 
 一条命令都不用记：会话、模型、MCP、技能、记忆，全部点点鼠标搞定。
 
-图形化会话管理 · 多智能体协作 · IM 机器人渠道 · MCP 生态 · 桌面与浏览器双端 · 中文 / English 双语界面
+图形化会话管理 · 多智能体协作 · IM 机器人渠道 · MCP 生态 · 桌面与浏览器双端 · macOS / Windows / Linux · 中文 / English 双语界面
 
 ![Runtime](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)
 ![Language](https://img.shields.io/badge/Language-TypeScript-3178c6?logo=typescript&logoColor=fff)
@@ -18,6 +18,10 @@
 ![Desktop](https://img.shields.io/badge/Desktop-Electron-47848f?logo=electron&logoColor=fff)
 ![Agent Engine](https://img.shields.io/badge/Agent_Engine-pi-5B5BD6)
 ![i18n](https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)
+![Release](https://img.shields.io/github/v/release/luandapipi91/Wa-PiAgent?label=release&color=2ea44f)
+![License](https://img.shields.io/badge/License-MIT-blue)
+![Platform](https://img.shields.io/badge/Platform-macOS_%7C_Windows_%7C_Linux-lightgrey)
+![Downloads](https://img.shields.io/github/downloads/luandapipi91/Wa-PiAgent/total?label=downloads)
 
 🌍 [官网](https://www.wapiagent.top/index.html) · [⬇ 下载最新版](https://github.com/luandapipi91/Wa-PiAgent/releases/latest)
 
@@ -32,7 +36,7 @@
 
 ## 这是什么
 
-WA PI Agent 是 [pi](https://github.com/earendil-works) agent 引擎的**图形化桌面框架**。pi 是一个强大的 AI 编程智能体引擎，但原生只有命令行界面——配置靠手改 JSON、多会话难管理、MCP 报错只有一堆堆栈。WA PI Agent 为它套上一层完整的 GUI，把引擎的每一项能力都变成看得见、点得着的界面操作。
+WA PI Agent 是 [pi](https://github.com/earendil-works) coding agent 的**桌面 GUI 客户端**，也是一层建立在其上的框架。pi 是一个强大的 AI 编程智能体，但原生只有命令行界面——配置靠手改 JSON、多会话难管理、MCP 报错只有一堆堆栈。WA PI Agent 为它套上完整的桌面应用（Electron）与浏览器客户端，把引擎的每一项能力都变成看得见、点得着的界面操作。
 
 **每个会话都是一个独立的 pi 子进程**，拥有自己的工作目录、工具链和上下文，互不干扰。引擎升级（pi 更新）与界面升级（本框架更新）彼此解耦——pi 出新能力，框架自动承接。
 
@@ -41,8 +45,8 @@ WA PI Agent 是 [pi](https://github.com/earendil-works) agent 引擎的**图形�
 ## 三分钟上手
 
 ```bash
-git clone <仓库地址>
-cd wa-pi
+git clone https://github.com/luandapipi91/Wa-PiAgent.git
+cd Wa-PiAgent
 bun install
 bun run dev
 ```
@@ -51,7 +55,7 @@ bun run dev
 
 macOS 用户也可以直接双击根目录的 `start.command`，Windows 用户双击 `start.bat`。
 
-**不想要浏览器？打包成桌面应用**，内核作为 sidecar 随应用分发，无需预装任何运行时，还内置自动更新：
+**不想要浏览器？** 直接从 [Releases 页面](https://github.com/luandapipi91/Wa-PiAgent/releases/latest) 下载 macOS / Windows / Linux 安装包，也可以自己打包——内核作为 sidecar 随应用分发，无需预装任何运行时，还内置自动更新：
 
 ```bash
 bun run pack:mac     # macOS
@@ -221,6 +225,23 @@ bun run typecheck      # 类型检查
 - [ ] **连接器**——在 MCP 之上提供开箱即用的连接器市场：更多 IM 平台、更多 SaaS 服务，配置即用，不再从零搭集成
 - [ ] **产物分享**——会话记录、分析报告、生成图片等产物一键导出与分享，让 AI 的产出流动到团队需要的地方
 - [ ] **差异监控**——盯住你在意的东西：文件、页面、数据源的变化自动检测，差异实时告警并可直接转交智能体处理
+
+## 常见问题
+
+**pi 是什么？**
+[pi](https://github.com/earendil-works) 是一个命令行 AI 编程智能体，每个会话跑在独立进程里，拥有自己的工作目录、工具链、扩展与 MCP 连接。
+
+**pi coding agent 有桌面应用吗？**
+有。WA PI Agent 就是 pi coding agent 的桌面 GUI 客户端，以 Electron 应用形式运行在 macOS、Windows 和 Linux 上，同一套界面也可以在浏览器里使用。
+
+**用桌面应用需要先装 Bun 吗？**
+不需要。打包版把内核作为 sidecar 一起分发，无需预装任何运行时，并内置自动更新。
+
+**数据存在哪里？**
+本地 `~/.pi/agent` 目录，不上传任何服务器。
+
+**收费吗？**
+不收费。WA PI Agent 以 [MIT 许可证](./LICENSE) 开源发布。
 
 ## 贡献
 
