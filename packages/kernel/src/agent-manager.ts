@@ -95,6 +95,7 @@ import { askRegistry } from "./ask-registry";
 import { BrowserManager } from "./browser-manager";
 import { handleBrowserTool } from "./browser-tools";
 import type { SkillManager } from "./skill-manager";
+import { projectSkillsDirOf } from "./skill-sources";
 import type { ExtensionManager } from "./extension-manager";
 import type { McpStore } from "./mcp-store";
 import { resolveMcpDirectToolNames } from "./mcp-connector";
@@ -654,12 +655,15 @@ export class AgentManager {
 			? await this.opts.configStore.getAgent(agentName)
 			: null;
 
-		// 解析启用 skill 的目录路径，传给 pi 的 --skill 参数。
+		// 解析启用 skill 的路径，传给 pi 的 --skill 参数（项目目录在前，同名时项目技能生效）。
+		// 注意用 project.cwd（项目维度）而非 cwd（会话 cwd，默认工作区会带 <createdAt> 子目录）。
+		const projectSkillsDir = projectSkillsDirOf(project.cwd);
 		// 先按全局启用状态扫描，再按 agent 配置的 skills 白名单过滤（空数组 = 全量）。
 		// skillsAllOff=true 表示显式全不选：不传任何技能路径。
 		const enabledSkills = await resolveEnabledSkills(
 			this.opts.skillManager,
 			this.opts.extensionManager,
+			projectSkillsDir,
 		);
 		const additionalSkillPaths = (
 			config?.skillsAllOff
@@ -838,10 +842,11 @@ export class AgentManager {
 					}
 				: undefined,
 			resolveSkillPaths: async (skillNames) => {
-				// 从全局启用的技能中按名称解析路径
+				// 从全局启用的技能中按名称解析路径（项目级目录在前，同名项目级优先）
 				const enabled = await resolveEnabledSkills(
 					this.opts.skillManager,
 					this.opts.extensionManager,
+					projectSkillsDir,
 				);
 				return enabled
 					.filter((s) => skillNames.includes(s.name))
@@ -2537,23 +2542,30 @@ function unavailableMemoryCtx(): MemoryToolContext {
 }
 
 /**
- * 解析所有已启用的技能（含内置、userDirs、扩展包）。
- * Pi SDK 默认扫描已关闭（--no-skills），所以必须显式传入所有要加载的技能路径。
- * skillManager 为空（测试场景）时返回空数组。
+ * 解析所有已启用的技能（项目级目录 → 内置 → 扩展包）。
+ * pi 的默认技能发现已关闭（--no-skills），必须显式传入全部技能路径。
+ * 项目目录排在数组最前，故 --skill 顺序为项目在前，pi 侧同名时项目技能胜出。
+ *
+ * @param projectSkillsDir 该会话所属项目的技能目录（<project.cwd>/.pi/skills）
  */
 async function resolveEnabledSkills(
 	skillManager: SkillManager | undefined,
 	extensionManager?: ExtensionManager,
+	projectSkillsDir?: string,
 ): Promise<SkillInfo[]> {
 	if (!skillManager) return [];
 
-	// 获取扩展技能路径（可能为空）
 	const extSkillPaths = extensionManager
 		? await extensionManager.getEnabledExtensionSkillPaths()
 		: [];
 
-	// scan 已按 builtin → userDirs → ext 顺序去重并过滤 disabledSkills
-	const { skills } = await skillManager.scan(extSkillPaths);
+	const projects = projectSkillsDir
+		? [{ id: "", name: "", dir: projectSkillsDir }]
+		: [];
+	const { skills } = await skillManager.scan({
+		projects,
+		extensionSkillPaths: extSkillPaths,
+	});
 
 	return skills;
 }

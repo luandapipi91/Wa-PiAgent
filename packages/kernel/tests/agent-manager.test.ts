@@ -120,6 +120,8 @@ interface SetupOpts {
 	/** abort RPC 无响应的兜底超时（ms），透传 AgentManagerOpts.abortTimeoutMs */
 	abortTimeoutMs?: number;
 	agentName?: string;
+	/** 测试项目 cwd（默认 "/tmp"）；技能用例传入临时目录，以控制项目技能目录 <cwd>/.pi/skills */
+	projectCwd?: string;
 }
 
 /** 造测试项目 + 会话实体 + 注入 fake client 的 AgentManager */
@@ -127,7 +129,7 @@ async function setup(opts: SetupOpts = {}) {
 	const projectStore = newProjectStore();
 	const project = await projectStore.createProject({
 		name: "测试",
-		cwd: "/tmp",
+		cwd: opts.projectCwd ?? "/tmp",
 	});
 	const agentName = opts.agentName ?? "dev";
 	const session = await projectStore.createSession({
@@ -1998,37 +2000,43 @@ function createSkillAt(dir: string, name: string, desc: string) {
 test("ensureStarted 把启用 skill 路径作为 --skill 传给 pi", async () => {
 	const skillRoot = tmpSkillRoot();
 	tmpPaths.push(skillRoot);
-	const userDir = join(skillRoot, "user-skills");
-	mkdirSync(userDir, { recursive: true });
-	createSkillAt(userDir, "my-skill", "测试技能");
+	const projectSkills = join(skillRoot, ".pi", "skills");
+	createSkillAt(projectSkills, "my-skill", "测试技能");
 	const skillManager = new SkillManager(skillRoot);
-	await skillManager.addDir(userDir);
 
-	const { project, session, am, fakes } = await setup({ skillManager });
+	const { project, session, am, fakes } = await setup({
+		skillManager,
+		projectCwd: skillRoot,
+	});
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	const skills = argValues(fakes[0].opts.args ?? [], "--skill");
-	expect(skills).toContain(join(userDir, "my-skill"));
+	expect(skills).toContain(join(projectSkills, "my-skill"));
 });
 
 test("--skill 包含 builtin 来源的 skill（因为已禁用 Pi 默认扫描，必须由 WaPi 显式传入）", async () => {
 	const skillRoot = tmpSkillRoot();
 	tmpPaths.push(skillRoot);
 	createSkillAt(join(skillRoot, "skills"), "builtin-skill", "内置"); // builtin
-	const userDir = join(skillRoot, "user-skills");
-	mkdirSync(userDir, { recursive: true });
-	createSkillAt(userDir, "user-skill", "用户");
+	const projectSkills = join(skillRoot, ".pi", "skills");
+	createSkillAt(projectSkills, "proj-skill", "项目");
 	const skillManager = new SkillManager(skillRoot);
-	await skillManager.addDir(userDir);
 
-	const { project, session, am, fakes } = await setup({ skillManager });
+	const { project, session, am, fakes } = await setup({
+		skillManager,
+		projectCwd: skillRoot,
+	});
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	const args = fakes[0].opts.args ?? [];
 	expect(args).toContain("--no-skills");
 	const skills = argValues(args, "--skill");
-	expect(skills).toContain(join(userDir, "user-skill"));
+	expect(skills).toContain(join(projectSkills, "proj-skill"));
 	expect(skills).toContain(join(join(skillRoot, "skills"), "builtin-skill"));
+	// --skill 顺序：项目目录在前（pi 侧同名先到先得，顺序错会让列表与运行时不一致）
+	expect(skills.indexOf(join(projectSkills, "proj-skill"))).toBeLessThan(
+		skills.indexOf(join(skillRoot, "skills", "builtin-skill")),
+	);
 });
 
 test("skillManager 为空时仍传 --no-skills 但不传 --skill", async () => {
@@ -2043,11 +2051,9 @@ test("skillManager 为空时仍传 --no-skills 但不传 --skill", async () => {
 test("skillsAllOff=true 时不传任何 --skill（显式全不选，仍传 --no-skills）", async () => {
 	const skillRoot = tmpSkillRoot();
 	tmpPaths.push(skillRoot);
-	const userDir = join(skillRoot, "user-skills");
-	mkdirSync(userDir, { recursive: true });
-	createSkillAt(userDir, "my-skill", "测试技能");
+	const projectSkills = join(skillRoot, ".pi", "skills");
+	createSkillAt(projectSkills, "my-skill", "测试技能");
 	const skillManager = new SkillManager(skillRoot);
-	await skillManager.addDir(userDir);
 
 	const configStore = {
 		getAgent: mock(async () => ({
@@ -2060,6 +2066,7 @@ test("skillsAllOff=true 时不传任何 --skill（显式全不选，仍传 --no-
 	const { project, session, am, fakes } = await setup({
 		skillManager,
 		configStore,
+		projectCwd: skillRoot,
 	});
 	await am.ensureStarted(project.id, "dev", session.id);
 
@@ -2423,11 +2430,9 @@ test("agent skills 白名单：只传 config.skills 指定的技能路径给 pi"
 	tmpPaths.push(skillRoot);
 	createSkillAt(join(skillRoot, "skills"), "skill-a", "A");
 	createSkillAt(join(skillRoot, "skills"), "skill-b", "B");
-	const userDir = join(skillRoot, "user-skills");
-	mkdirSync(userDir, { recursive: true });
-	createSkillAt(userDir, "skill-c", "C");
+	const projectSkills = join(skillRoot, ".pi", "skills");
+	createSkillAt(projectSkills, "skill-c", "C");
 	const skillManager = new SkillManager(skillRoot);
-	await skillManager.addDir(userDir);
 
 	// agent 配置只允许 skill-a 和 skill-c
 	const configStore = {
@@ -2441,6 +2446,7 @@ test("agent skills 白名单：只传 config.skills 指定的技能路径给 pi"
 	const { project, session, am, fakes } = await setup({
 		skillManager,
 		configStore,
+		projectCwd: skillRoot,
 	});
 	await am.ensureStarted(project.id, "pm", session.id);
 
