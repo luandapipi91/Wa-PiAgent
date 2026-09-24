@@ -14,6 +14,7 @@
 - feat(frontend): 系统设置「关于」页重做——Hero 由竖排居中改为横排（logo 56px + 名称/版本/官网/GitHub + 检查更新按钮），更新状态独立成窄卡（仅在新版本/下载/安装/出错时出现），更新历史改为左右分栏（左列 172px 版本列表、右列该版本详情），单版本条目超 4 项折叠为「展开全部 N 项」，全页只剩一层滚动（去掉原 `max-h-[400px]` 嵌套滚动容器）；关于页新增 GitHub 仓库链接（https://github.com/luandapipi91/Wa-PiAgent）；更新历史最多展示最近 100 个版本。
 - feat(frontend,kernel): 旧版本用户现在能看到「安装版 → 线上最新版」之间所有版本的更新内容——新增内核只读接口 `GET /api/version-history`（事件 `version-history:get`），由内核代拉 `https://oss.wapiagent.top/releases/version-history.json`（8 秒超时、6 小时进程内缓存、失败返回旧缓存或空数组且不报错），前端新增 `store/version-history` 合并「打包内置 JSON + localStorage 缓存 + 线上数据」三源并按版本倒序截断 100 条；状态条按区间算出「跨 N 个版本 · 共 M 项变更」，点「查看全部」原地展开各版本内容，区间为空时退回显示 latest.yml 的 releaseNotes。
 - chore(release): 发版脚本把 `version-history.json` 一并上传到 R2 `releases/`（自动上传与无凭证手动清单共用同一产物集合 `releaseArtifacts`）。
+- fix(frontend,kernel): 关于页终审两项 Important 修复——① kernel `version-history-route.integration.test.ts` 原会用例真发外网请求（本机实测 ~1-2.5s）且 `source` 只做 `["remote","unavailable"]` 含糊断言：现改为 server.start() 前用注入 `fetchImpl` 预热内核模块缓存（同进程共享模块实例），断言升级为 `source === "remote"` + `history toEqual`，用例自包含、不发网（3 次运行 ~0.5s）；② 前端 `VersionTimeline` 详情列加 `key={current.version}`：切换左列版本时节点重新挂载，滚动位置归零（此前在长条目里下滚后切版本会看到新版本中段），展开态与版本严格一一对应。测试：前端 `VersionTimeline` 新增 1 例先红后绿（6 pass）；集成测临时改注入值可复现红（判别力已验证）。
 
 ## 2026-09-23
 
