@@ -210,26 +210,45 @@ export function AgentConfig({ agentName, onClose }: Props) {
 					</button>
 				))}
 			</nav>
+			{/* 滚动容器只负责滚动，不再挂 pointer-events-none：
+			    挂在滚动容器上会让内部内容命中穿透到 Modal 包装层（非滚动容器的后代），
+			    滚轮事件到不了滚动容器 → 只读面板的列表滚不动。只读的 pointer-events-none
+			    下移到内层内容包装（滚动条与滚轮仍归滚动容器） */}
 			<div
-				className={`px-5 py-4 flex-1 min-h-0 overflow-y-auto ${isBuiltin ? "pointer-events-none [&_select]:pointer-events-auto" : ""}`}
+				className="px-5 py-4 flex-1 min-h-0 overflow-y-auto"
 				data-testid="config-tab-content"
 			>
-				{!draft && (
-					<p className="text-sm text-tertiary">{t("agentConfig.loading")}</p>
-				)}
-				{/* 内置 subagent：所有字段只读，onChange 用 noop 防止编辑 */}
-				{draft && tab === "basic" && (
-					<BasicTab draft={draft} onChange={handleChange} />
-				)}
-				{draft && tab === "tools" && (
-					<ToolsTab draft={draft} onChange={handleChange} tools={tools} />
-				)}
-				{draft && tab === "skills" && (
-					<SkillsTab draft={draft} onChange={handleChange} />
-				)}
-				{draft && tab === "partners" && (
-					<PartnersTab draft={draft} onChange={handleChange} selfName={agentName} />
-				)}
+				<div
+					data-testid="config-tab-inner"
+					className={
+						isBuiltin
+							? "pointer-events-none [&_select]:pointer-events-auto"
+							: undefined
+					}
+				>
+					{!draft && (
+						<p className="text-sm text-tertiary">
+							{t("agentConfig.loading")}
+						</p>
+					)}
+					{/* 内置 subagent：所有字段只读，onChange 用 noop 防止编辑 */}
+					{draft && tab === "basic" && (
+						<BasicTab draft={draft} onChange={handleChange} />
+					)}
+					{draft && tab === "tools" && (
+						<ToolsTab draft={draft} onChange={handleChange} tools={tools} />
+					)}
+					{draft && tab === "skills" && (
+						<SkillsTab draft={draft} onChange={handleChange} />
+					)}
+					{draft && tab === "partners" && (
+						<PartnersTab
+							draft={draft}
+							onChange={handleChange}
+							selfName={agentName}
+						/>
+					)}
+				</div>
 			</div>
 			<footer className="flex justify-end gap-2 px-5 py-3 border-t border-hairline">
 				{isBuiltin && (
@@ -575,7 +594,7 @@ function SkillsTab({ draft, onChange }: TabProps) {
 						className="flex items-center gap-2 py-1 cursor-pointer justify-between"
 						style={{ opacity: globallyDisabled ? 0.5 : 1 }}
 					>
-						<span className="flex items-center gap-2 min-w-0">
+						<span className="flex items-center gap-2 min-w-0 flex-1">
 							<span
 								data-testid={`skill-name-${s.name}`}
 								className="text-sm text-primary whitespace-nowrap shrink-0"
@@ -625,11 +644,13 @@ function SkillDescBubble({
 		return () => document.removeEventListener("click", onDocClick);
 	}, [open]);
 	if (!description) return null;
+	// flex-1 min-w-0：占满技能名与开关之间的剩余宽度并允许收缩；
+	// 描述需为块级容器，truncate（overflow/text-overflow）在 inline 元素上不生效
 	return (
-		<span className="relative min-w-0">
+		<span className="relative min-w-0 flex-1">
 			<span
 				data-testid={`skill-desc-${name}`}
-				className="text-[calc(11px*var(--font-scale))] text-tertiary truncate cursor-pointer hover:text-secondary"
+				className="block text-[calc(11px*var(--font-scale))] text-tertiary truncate cursor-pointer hover:text-secondary"
 				onClick={(e) => {
 					e.stopPropagation();
 					setOpen((v) => !v);

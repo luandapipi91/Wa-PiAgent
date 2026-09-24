@@ -314,6 +314,28 @@ describe("AgentConfig 4 tab", () => {
 		expect(lastSaved("dev").config.skills).toEqual(["pdf"]);
 	});
 
+	test("技能 tab：描述为块级容器且外层可伸缩（truncate 生效前提）", () => {
+		// 回归锁：描述文本原先渲染在 inline <span> 上，overflow/text-overflow 对
+		// non-replaced inline 元素不生效 → 超长描述按 nowrap 全宽铺开，撑出内容区横向滚动条
+		// （视觉结果由 e2e/agent-config-skill-row-overflow.spec.ts 断言）。
+		// happy-dom 无布局引擎，这里只锁住让 truncate 生效的类名组合。
+		useSkillsStore.setState({
+			allSkills: [{ name: "pdf", description: "超长描述".repeat(50), path: "/p/pdf" }],
+		});
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-skills"));
+		const desc = screen.getByTestId("skill-desc-pdf");
+		expect(desc.className).toContain("truncate");
+		expect(desc.className).toContain("block");
+		// 外层容器必须 flex-1 + min-w-0：占满剩余宽度且允许收缩到比内容更窄
+		const wrap = desc.parentElement!;
+		expect(wrap.className).toContain("flex-1");
+		expect(wrap.className).toContain("min-w-0");
+		expect(screen.getByTestId("skill-row-pdf").firstElementChild!.className).toContain(
+			"flex-1",
+		);
+	});
+
 	test("新角色：默认 tools/skills 为空数组 → 所有开关应默认 ON", () => {
 		// 不传 config override，使用 cfg() 默认值（tools:[], skills:[]）
 		renderConfig("新角色");
@@ -629,9 +651,13 @@ describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
 		});
 		render(<AgentConfig agentName="Explore" onClose={() => {}} />);
 		const content = screen.getByTestId("config-tab-content");
-		// 父级 pointer-events-none 禁用全部非 select 控件，仅 model/thinking 的 select 恢复可点
-		expect(content.className).toContain("pointer-events-none");
-		expect(content.className).toContain("[&_select]:pointer-events-auto");
+		// 只读的 pointer-events-none 必须挂在内层内容上：挂到滚动容器上会让内部内容命中穿透，
+		// 滚轮事件到不了滚动容器 → 只读面板列表滚不动（e2e/builtin-panel-scroll.spec.ts 覆盖）
+		expect(content.className).not.toContain("pointer-events-none");
+		const inner = screen.getByTestId("config-tab-inner");
+		// 内层 pointer-events-none 禁用全部非 select 控件，仅 model/thinking 的 select 恢复可点
+		expect(inner.className).toContain("pointer-events-none");
+		expect(inner.className).toContain("[&_select]:pointer-events-auto");
 	});
 
 	test("内置 subagent 打开时也会拉取系统工具列表（工具 tab 不显示加载中）", () => {
