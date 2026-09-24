@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listArtifacts, injectReleaseNotes, historyArtifact, orderArtifactsForUpload } from "./publish-oss";
+import { listArtifacts, injectReleaseNotes, historyArtifact, orderArtifactsForUpload, releaseArtifacts } from "./publish-oss";
 
 describe("listArtifacts", () => {
 	const dir = mkdtempSync(join(tmpdir(), "r2-artifacts-"));
@@ -46,6 +46,24 @@ describe("版本历史上传（内核代拉的数据源）", () => {
 			path: "/tmp/history.json",
 			key: "releases/version-history.json",
 		});
+	});
+
+	it("releaseArtifacts：清单同时含发布目录产物与 version-history.json", () => {
+		const dir = mkdtempSync(join(tmpdir(), "r2-release-artifacts-"));
+		try {
+			writeFileSync(join(dir, "latest.yml"), "a");
+			writeFileSync(join(dir, "WaPi-Setup-1.2.3.exe"), "a");
+			const history = join(dir, "history.json");
+			writeFileSync(history, "[]");
+			const keys = releaseArtifacts(dir, "1.2.3", history).map((a) => a.key).sort();
+			expect(keys).toEqual([
+				"releases/WaPi-Setup-1.2.3.exe",
+				"releases/latest.yml",
+				"releases/version-history.json",
+			]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("排序把 version-history.json 与 latest*.yml 一起放最后（清单类）", () => {

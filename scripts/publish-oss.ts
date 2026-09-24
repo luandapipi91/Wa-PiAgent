@@ -65,6 +65,18 @@ export function historyArtifact(historyFile: string): Artifact {
 }
 
 /**
+ * 一次发布要投递的全部产物：release 目录里的安装包/清单 + 版本历史文件。
+ * main()（自动上传）与无凭证时的手动上传指引共用，避免两条路径的清单漂移。
+ */
+export function releaseArtifacts(
+	releaseDir: string,
+	version: string,
+	historyFile: string,
+): Artifact[] {
+	return [...listArtifacts(releaseDir, version), historyArtifact(historyFile)];
+}
+
+/**
  * 上传顺序：安装包/blockmap（大文件，耗时）在前，latest*.yml 清单最后覆盖。
  * 背景：0.2.16/0.2.17 发版都踩过「清单先传 → exe 上传失败/中断 → 线上清单悬空指向
  * 不存在的安装包，用户更新失败」。清单是版本入口，必须最后更新保证原子性。
@@ -226,7 +238,7 @@ if (import.meta.main) {
 
 	// 无 AK/SK：打印手动上传指引
 	if (!ak || !sk) {
-		const artifacts = listArtifacts(releaseDir, version);
+		const artifacts = releaseArtifacts(releaseDir, version, historyFile);
 		console.log(
 			"未提供 R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY，以下产物需要手动上传到 Cloudflare R2：",
 		);
@@ -240,10 +252,7 @@ if (import.meta.main) {
 
 	async function main() {
 		// 版本历史作为清单类产物，跟 latest*.yml 一起最后上传
-		const artifacts = [
-			...listArtifacts(releaseDir, version),
-			historyArtifact(historyFile),
-		];
+		const artifacts = releaseArtifacts(releaseDir, version, historyFile);
 		if (artifacts.length === 0) {
 			console.error(`release 目录未找到版本 ${version} 的产物：${releaseDir}`);
 			process.exit(1);
