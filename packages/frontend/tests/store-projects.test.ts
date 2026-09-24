@@ -312,13 +312,15 @@ test("load() 快照滞后时不挤掉乐观新建的当前会话（SSE 重连/�
 });
 
 test("selectProject 同步技能范围到该项目（本地重算，不发请求）", () => {
-  const calls: (string | undefined)[] = [];
+  // 记录完整入参元组：只记 projectId 无法发现 scope 写错（仍是 "all"）的回归
+  const calls: { scope: string; projectId: string | undefined }[] = [];
   const orig = useSkillsStore.getState().setSkillScope;
   useSkillsStore.setState({
-    setSkillScope: (scope, projectId) => calls.push(projectId),
+    setSkillScope: (scope, projectId) => calls.push({ scope, projectId }),
   });
   useProjectsStore.getState().selectProject("proj-1");
-  expect(calls).toEqual(["proj-1"]);
+  // 范围必须切到 "project" 并指向目标项目，而非仅透传 id 却仍停留在 "all"
+  expect(calls).toEqual([{ scope: "project", projectId: "proj-1" }]);
   useSkillsStore.setState({ setSkillScope: orig });
 });
 
@@ -336,12 +338,13 @@ test("selectSession 同步技能范围到该会话所属项目", () => {
       },
     ] as any,
   });
-  const calls: (string | undefined)[] = [];
+  // 同上：记录 (scope, projectId) 元组，确保会话切换也把范围切到其所属项目
+  const calls: { scope: string; projectId: string | undefined }[] = [];
   const orig = useSkillsStore.getState().setSkillScope;
   useSkillsStore.setState({
-    setSkillScope: (scope, projectId) => calls.push(projectId),
+    setSkillScope: (scope, projectId) => calls.push({ scope, projectId }),
   });
   useProjectsStore.getState().selectSession("s1");
-  expect(calls).toEqual(["proj-9"]);
+  expect(calls).toEqual([{ scope: "project", projectId: "proj-9" }]);
   useSkillsStore.setState({ setSkillScope: orig });
 });
