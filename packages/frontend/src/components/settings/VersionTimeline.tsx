@@ -1,118 +1,123 @@
 import { useState } from "react";
-import versionHistory from "../../data/version-history.json";
+import { useTranslation } from "../../i18n/useTranslation";
+import { Icon } from "../ui/Icon";
+import { useVersionHistoryStore } from "../../store/version-history";
+import {
+	MAX_VERSION_ENTRIES,
+	countItems,
+	type VersionEntry,
+} from "../../util/version-history";
+import { VersionEntryBody } from "./VersionEntryBody";
 
-interface VersionEntry {
-	version: string;
-	date: string;
-	// 各版本 sections 键分布不一（新增/优化/修复/改进组合不同），JSON 推断缺键为
-	// undefined，断言 Record<string, string[]> 时 TS 2325 不重叠——放宽允许 undefined。
-	sections: Record<string, string[] | undefined>;
-}
+/** 详情区折叠前展示的条目数（跨分类累计） */
+const COLLAPSED_ITEMS = 4;
 
-const DEFAULT_MAX_ENTRIES = 100;
-
-/** 分类标签颜色映射 */
-const SECTION_COLORS: Record<string, string> = {
-	新增: "var(--success)",
-	改进: "var(--accent)",
-	修复: "var(--warning)",
-};
-
-/** 版本更新历史时间线：垂直排列，最新版本默认展开，旧版本点击展开。 */
+/**
+ * 更新历史：左右分栏。左列是版本列表（版本号 + 日期 + 条目数，最新版带点），
+ * 右列是选中版本的更新内容；条目超过 4 项时先折叠，标题行右侧「展开全部 N 项」。
+ * 数据来自 useVersionHistoryStore（内置 + 缓存 + 线上合并，最多 100 条）。
+ */
 export function VersionTimeline({
-	maxEntries = DEFAULT_MAX_ENTRIES,
+	maxEntries = MAX_VERSION_ENTRIES,
 }: {
 	maxEntries?: number;
 }) {
-	const entries = (versionHistory as VersionEntry[]).slice(0, maxEntries);
-	const [expanded, setExpanded] = useState<Set<string>>(
-		() => new Set([entries[0]?.version]),
-	);
+	const entries = useVersionHistoryStore((s) => s.entries).slice(0, maxEntries);
+	const { t } = useTranslation();
+	const [picked, setPicked] = useState<string | null>(null);
+	const [expanded, setExpanded] = useState(false);
 
-	const toggle = (version: string) => {
-		setExpanded((prev) => {
-			const next = new Set(prev);
-			if (next.has(version)) next.delete(version);
-			else next.add(version);
-			return next;
-		});
+	const current: VersionEntry | null =
+		entries.find((e) => e.version === picked) ?? entries[0] ?? null;
+
+	const pick = (version: string) => {
+		setPicked(version);
+		setExpanded(false);
 	};
 
 	return (
-		<div data-testid="version-timeline" className="w-full">
-			{entries.map((entry, i) => {
-				const isOpen = expanded.has(entry.version);
-				const isLast = i === entries.length - 1;
-				return (
-					<div key={entry.version} className="flex gap-3">
-						{/* 时间线轨道：节点圆点 + 竖线 */}
-						<div className="flex flex-col items-center">
-							<button
-								type="button"
-								data-testid={`toggle-${entry.version}`}
-								onClick={() => toggle(entry.version)}
-								className="w-3 h-3 rounded-full border-2 cursor-pointer mt-1 shrink-0 transition-colors"
-								style={{
-									background: isOpen ? "var(--accent)" : "transparent",
-									borderColor: isOpen
-										? "var(--accent)"
-										: "var(--hairline-strong)",
-								}}
-								aria-label={`v${entry.version}`}
-							/>
-							{!isLast && (
-								<div
-									className="w-px flex-1 min-h-[20px]"
-									style={{ background: "var(--hairline)" }}
-								/>
-							)}
-						</div>
-						{/* 版本内容 */}
-						<div className="flex-1 pb-4 min-w-0">
-							<button
-								type="button"
-								onClick={() => toggle(entry.version)}
-								className="flex items-center gap-2 cursor-pointer text-left"
+		<div
+			data-testid="version-timeline"
+			className="flex-1 min-h-0 flex border-t border-hairline"
+		>
+			<div
+				data-testid="version-history-list"
+				className="w-[172px] shrink-0 overflow-y-auto py-2 pr-2"
+			>
+				{entries.map((entry, i) => {
+					const active = current?.version === entry.version;
+					return (
+						<button
+							key={entry.version}
+							type="button"
+							data-testid={`toggle-${entry.version}`}
+							onClick={() => pick(entry.version)}
+							className="block w-full text-left cursor-pointer border-l-2 rounded-r-sm py-1.5 pl-2.5 pr-2 transition-colors"
+							style={{
+								borderLeftColor: active ? "var(--brand)" : "transparent",
+								background: active ? "var(--accent-soft)" : "transparent",
+							}}
+						>
+							<div
+								className="flex items-center gap-1.5 text-[13px] font-medium leading-tight"
+								style={active ? { color: "var(--brand)" } : undefined}
 							>
-								<span className="text-sm font-semibold text-primary">
+								{i === 0 && (
+									<span
+										className="w-[5px] h-[5px] rounded-full shrink-0"
+										style={{ background: "var(--brand)" }}
+									/>
+								)}
+								<span className={active ? "" : "text-primary"}>
 									v{entry.version}
 								</span>
-								<span className="text-xs text-tertiary">{entry.date}</span>
+							</div>
+							<div className="flex justify-between gap-2 mt-0.5 text-[11px] text-tertiary">
+								<span>{entry.date}</span>
+								<span>{t("settings.about.itemCount", { count: countItems(entry) })}</span>
+							</div>
+						</button>
+					);
+				})}
+			</div>
+
+			{current && (
+				<div
+					data-testid="version-history-detail"
+					className="flex-1 min-w-0 overflow-y-auto py-3 pl-4 pr-1.5"
+				>
+					<div className="flex items-baseline gap-2.5 mb-3">
+						<span className="text-[15px] font-semibold text-primary">
+							v{current.version}
+						</span>
+						<span className="text-xs text-tertiary">{current.date}</span>
+						{countItems(current) > COLLAPSED_ITEMS ? (
+							<button
+								type="button"
+								data-testid="expand-all"
+								onClick={() => setExpanded((v) => !v)}
+								className="ml-auto inline-flex items-center gap-1 cursor-pointer bg-transparent border-0 p-0 text-xs"
+								style={{ color: "var(--brand)" }}
+							>
+								{expanded
+									? t("settings.about.collapse")
+									: t("settings.about.expandAll", {
+											count: countItems(current),
+										})}
+								<Icon name={expanded ? "chevron-up" : "chevron-down"} size={12} />
 							</button>
-							{isOpen && (
-								<div className="mt-1.5 space-y-2">
-									{Object.entries(entry.sections).map(([category, items]) =>
-										items ? (
-											<div key={category}>
-												<div
-													className="text-[11px] font-medium mb-0.5"
-													style={{
-														color:
-															SECTION_COLORS[category] ?? "var(--text-secondary)",
-													}}
-												>
-													{category}
-												</div>
-												<ul className="space-y-0.5">
-													{items.map((item, j) => (
-														<li
-															key={j}
-															className="text-xs text-secondary flex gap-1.5 leading-relaxed"
-															>
-														<span className="text-tertiary shrink-0">•</span>
-														<span>{item}</span>
-													</li>
-												))}
-												</ul>
-											</div>
-										) : null
-									)}
-								</div>
-							)}
-						</div>
+						) : (
+							<span className="ml-auto text-[11px] text-tertiary">
+								{t("settings.about.itemCount", { count: countItems(current) })}
+							</span>
+						)}
 					</div>
-				);
-			})}
+					<VersionEntryBody
+						entry={current}
+						visibleLimit={expanded ? "all" : COLLAPSED_ITEMS}
+					/>
+				</div>
+			)}
 		</div>
 	);
 }
