@@ -567,6 +567,50 @@ test("订阅流断开后输入回到排队（扩展重连补发，按键不丢�
 	}
 });
 
+// 中文整串注入（第三层 API 集成验证）：前端一次 POST 的整串中文必须整体到达 pi 侧输入通道，
+// 不能在 kernel 或协议层被拆成逐字符/逐字节——拆成多帧会把一次输入变成多次独立插入，
+// 破坏 IME/粘贴语义（pi-tui 的 Input/Editor 按整串插入，见 tests/tui-host-ime-text.test.ts）。
+// 这里用扩展进程实际跑的那份客户端（host.ts 的 connectInputChannel）收事件，与生产同源。
+test("输入链路：中文整串不被拆分（POST tui-input → pi 输入通道收到整串）", async () => {
+	const { server, base } = await start();
+	const inputEvents: TuiHostInputEvent[] = [];
+	const inputs = connectInputChannel({
+		bridgeUrl: base,
+		token: getBridgeToken(),
+		sessionId: "s1",
+		onEvent: (e) => inputEvents.push(e),
+		retryMs: 20,
+		log: () => {},
+	});
+	const waitFor = async (pred: () => boolean, ms = 3000) => {
+		const deadline = Date.now() + ms;
+		while (!pred() && Date.now() < deadline) await Bun.sleep(20);
+	};
+	try {
+		inputs.start();
+		// 订阅流一建立 kernel 就写首行 ping：收到即表示通道就绪
+		await waitFor(() => inputEvents.length > 0);
+		expect(inputEvents.map((e) => e.type)).toEqual(["ping"]);
+
+		const res = await jsonPost(base, "/api/extensions/tui-input", {
+			sessionId: "s1",
+			panelId: "p1",
+			type: "key",
+			data: "你好世界",
+		});
+		expect(res.status).toBe(200);
+
+		await waitFor(() => inputEvents.some((e) => e.type === "key"));
+		const keys = inputEvents.filter((e) => e.type === "key");
+		// 恰好一个事件：整串一次投递，而不是四个汉字四帧
+		expect(keys).toHaveLength(1);
+		expect(keys[0]).toEqual({ type: "key", panelId: "p1", data: "你好世界" });
+	} finally {
+		inputs.stop();
+		await server.stop();
+	}
+});
+
 // 两个方向都用扩展进程实际跑的那份客户端代码（host.ts）：这是本任务最关键的一条
 // 端到端证据——首行鉴权、帧行格式、输入行格式、心跳容错在两侧代码间真的对得上。
 test("真实扩展客户端（host.ts）↔ kernel：帧上行、输入下行全链路对齐", async () => {
