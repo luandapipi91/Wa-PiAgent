@@ -139,3 +139,60 @@ test.describe.serial("技能范围：项目级技能", () => {
     }
   });
 });
+
+// $ 快捷菜单（聊天输入框）的技能候选按「当前项目实际可用的技能」派生：
+// 他项目技能不得出现（否则选中插入的 /skill:X 在该会话 spawn 时未传给 pi，静默不生效）。
+test.describe.serial("技能范围：$ 快捷菜单按当前项目过滤", () => {
+  const PROJ_A_CWD = join(E2E_WA_PI_DIR, "e2e-menu-proj-a");
+  const PROJ_B_CWD = join(E2E_WA_PI_DIR, "e2e-menu-proj-b");
+  const A_SKILL = "e2e-menu-a-skill";
+  const B_SKILL = "e2e-menu-b-skill";
+
+  /** 在项目根写一个项目技能：<cwd>/.pi/skills/<name>/SKILL.md */
+  function writeProjectSkill(cwd: string, name: string, description: string): void {
+    const dir = join(cwd, ".pi", "skills", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}`,
+      "utf8",
+    );
+  }
+
+  test.beforeAll(async () => {
+    await ensureProvider();
+    writeProjectSkill(PROJ_A_CWD, A_SKILL, "项目 A 的技能");
+    writeProjectSkill(PROJ_B_CWD, B_SKILL, "项目 B 的技能");
+  });
+
+  test.afterAll(() => {
+    rmSync(join(PROJ_A_CWD, ".pi"), { recursive: true, force: true });
+    rmSync(join(PROJ_B_CWD, ".pi"), { recursive: true, force: true });
+  });
+
+  test("选中项目 B 后 $ 菜单只列项目 B 的技能，来源标签带项目名", async ({ page }) => {
+    // 两个项目都要注册（否则「项目 A 技能被排除」的断言无对照面）
+    await createProject("e2e-menu-A", PROJ_A_CWD);
+    const projB = await createProject("e2e-menu-B", PROJ_B_CWD);
+    await setUiPrefs(page, "zh");
+    await page.goto("/");
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({
+      timeout: 5000,
+    });
+    await page.getByTestId("project-select").selectOption(projB.id);
+
+    const textbox = page.locator(
+      '[data-testid="composer-input"] [role="textbox"]',
+    );
+    await textbox.click();
+    await page.keyboard.type("$", { delay: 5 });
+
+    const menu = page.getByTestId("quick-invoke-menu");
+    await expect(menu).toBeVisible({ timeout: 5000 });
+    // 本项目技能在列，且来源标签为「项目 skill（项目名）」口径
+    await expect(menu).toContainText(B_SKILL, { timeout: 8000 });
+    await expect(menu).toContainText("项目 skill（e2e-menu-B）");
+    // 他项目技能不得出现
+    await expect(menu).not.toContainText(A_SKILL);
+  });
+});

@@ -806,8 +806,9 @@ test("输入 $ 触发技能面板", () => {
 	expect(screen.getByText("brainstorming")).toBeDefined();
 });
 
-test("$ 技能面板排除他项目技能、同名遮蔽只留一条（当前项目视角）", () => {
-	useProjectsStore.setState({ currentProjectId: "p1" });
+test("$ 技能面板排除他项目技能、同名遮蔽只留一条（会话所属项目视角）", () => {
+	// store 当前项目故意设为 p2：会话所属项目（projectId prop = p1）应优先
+	useProjectsStore.setState({ currentProjectId: "p2" });
 	useSkillsStore.setState({
 		allSkills: [
 			{

@@ -115,11 +115,14 @@ export function ComposerInput({
 	const cancelSearchRef = useRef<(() => void) | null>(null);
 
 	const allSkills = useSkillsStore((s) => s.allSkills);
-	// 当前项目下实际可用的技能（排除他项目技能与同名被遮蔽者，与会话实际传给 pi 的技能一致）
+	// 当前会话所属项目的实际可用技能（排除他项目技能与同名被遮蔽者，与会话实际传给 pi 的技能一致）。
+	// 优先用 projectId prop（会话/新会话面板选中的项目——新会话面板的项目选择是局部 state，
+	// 不写回 store），仅在未传时回退 store 的当前项目。
 	const currentProjectId = useProjectsStore((s) => s.currentProjectId);
+	const effectiveProjectId = projectId ?? currentProjectId;
 	const availableSkills = useMemo(
-		() => selectAvailableSkillsForProject(allSkills, currentProjectId),
-		[allSkills, currentProjectId],
+		() => selectAvailableSkillsForProject(allSkills, effectiveProjectId),
+		[allSkills, effectiveProjectId],
 	);
 	const allAgents = useAgentsStore((s) => s.list);
 	// pi 运行时 slash 命令（插件贡献 / prompt 模板；skill 类已在 store 过滤）
