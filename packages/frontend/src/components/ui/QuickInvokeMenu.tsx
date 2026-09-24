@@ -45,8 +45,6 @@ export function QuickInvokeMenu({
                 return t("ui.quickInvokeMenu.sourceBuiltin");
             case "project":
                 return t("ui.quickInvokeMenu.sourceProject");
-            case "user":
-                return t("ui.quickInvokeMenu.sourceUser");
             case "extension":
                 return source.name ?? t("ui.quickInvokeMenu.sourceExtension");
             default:
