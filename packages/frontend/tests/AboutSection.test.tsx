@@ -1,7 +1,9 @@
 import { beforeEach, afterEach, test, expect, vi } from "bun:test";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { AboutSection } from "../src/components/settings/AboutSection";
 import { useUpdaterStore, initUpdater } from "../src/store/updater";
+import { useVersionHistoryStore } from "../src/store/version-history";
+import versionHistory from "../src/data/version-history.json";
 
 /**
  * AboutSection 组件测试（Task 9）。
@@ -44,6 +46,12 @@ beforeEach(() => {
 		error: null,
 		isDesktop: true,
 	});
+	localStorage.clear();
+	useVersionHistoryStore.setState({
+		entries: versionHistory as any,
+		source: "bundled",
+		loaded: false,
+	});
 });
 afterEach(() => {
 	cleanup();
@@ -66,6 +74,15 @@ test("渲染官网外链（R2 公开渠道，新窗口打开）", () => {
 	expect(link.textContent).toBe("官方网站");
 });
 
+test("渲染 GitHub 外链（新窗口打开）", () => {
+	render(<AboutSection />);
+	const link = screen.getByTestId("about-github-link") as HTMLAnchorElement;
+	expect(link.href).toBe("https://github.com/luandapipi91/Wa-PiAgent");
+	expect(link.target).toBe("_blank");
+	expect(link.rel).toContain("noreferrer");
+	expect(link.textContent).toBe("GitHub");
+});
+
 test("idle 显示检查更新按钮，点击触发 check", () => {
 	const api = (window as any).waPiUpdater;
 	render(<AboutSection />);
@@ -74,6 +91,7 @@ test("idle 显示检查更新按钮，点击触发 check", () => {
 });
 
 test("available 显示新版本与 release notes", () => {
+	useVersionHistoryStore.setState({ entries: [] });
 	(window as any).waPiUpdater._emit({
 		phase: "available",
 		version: "0.2.0",
@@ -116,4 +134,37 @@ test("非桌面环境（isDesktop=false）隐藏更新按钮", () => {
 	useUpdaterStore.setState({ isDesktop: false });
 	render(<AboutSection />);
 	expect(screen.queryByText("检查更新")).toBeNull();
+});
+
+test("更新历史为左右分栏（列表 + 详情）", () => {
+	render(<AboutSection />);
+	expect(screen.getByTestId("version-history-list")).toBeTruthy();
+	expect(screen.getByTestId("version-history-detail")).toBeTruthy();
+});
+
+test("available 时展示跨版本区间摘要，点查看全部展开各版本内容", () => {
+	// 构造区间：安装版 0.1.0，最新版 0.2.0，历史里 0.2.0 与 0.1.21 均落在区间内
+	useVersionHistoryStore.setState({
+		entries: [
+			{ version: "0.2.0", date: "2026-02-01", sections: { 修复: ["区间条目甲"] } },
+			{ version: "0.1.21", date: "2026-01-05", sections: { 修复: ["区间条目乙"] } },
+			{ version: "0.1.0", date: "2026-01-01", sections: { 修复: ["旧条目"] } },
+		],
+	});
+	(window as any).waPiUpdater._emit({
+		phase: "available",
+		version: "0.2.0",
+		releaseNotes: "修复：文件预览持久化",
+	});
+	render(<AboutSection />);
+	expect(screen.getByText(/跨 2 个版本/)).toBeTruthy();
+	// 断言限定在区间区块内：分栏右栏默认展示 entries[0]（也是 0.2.0）的正文，
+	// 全局查文本会把右栏的「区间条目甲」误当成本区块已展开。
+	expect(screen.queryByTestId("pending-versions")).toBeNull();
+	fireEvent.click(screen.getByTestId("toggle-pending-versions"));
+	const pending = within(screen.getByTestId("pending-versions"));
+	expect(pending.getByText("区间条目甲")).toBeTruthy();
+	expect(pending.getByText("区间条目乙")).toBeTruthy();
+	// 负向断言用 queryByText：getByText 找不到元素时直接抛错，永远不可能为 null
+	expect(screen.queryByText("旧条目")).toBeNull();
 });

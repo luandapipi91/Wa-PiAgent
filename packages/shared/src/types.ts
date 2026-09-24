@@ -743,6 +743,27 @@ export interface ContactsEnsureResult {
 	contact: ContactEntity;
 }
 
+// ===== 版本历史（内核代拉线上 version-history.json，前端同源读取） =====
+
+/** 单个版本的更新内容（与前端内置 version-history.json 同构） */
+export interface VersionHistoryEntry {
+	version: string;
+	date: string;
+	sections: Record<string, string[]>;
+}
+
+/** 前端 → kernel：取线上完整版本历史 */
+export interface VersionHistoryGetEvent {
+	type: "version-history:get";
+}
+
+/** kernel → 前端：完整版本历史（拉取失败时 history 为空数组，source 标为 unavailable） */
+export interface VersionHistoryResult {
+	type: "version-history:get";
+	history: VersionHistoryEntry[];
+	source: "remote" | "unavailable";
+}
+
 export type WSClientEvent =
 	| PromptEvent
 	| AbortEvent
@@ -835,7 +856,8 @@ export type WSClientEvent =
 	| TrashListRequest
 	| TrashRestoreEvent
 	| TrashDeleteEvent
-	| TrashEmptyEvent;
+	| TrashEmptyEvent
+	| VersionHistoryGetEvent;
 
 // kernel → 前端
 /** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
@@ -1508,7 +1530,8 @@ export type WSServerEvent =
 	| ScheduledTaskErrorEvent
 	| GitChangedEvent
 	| ShareProgressEvent
-	| PreviewOpenEvent;
+	| PreviewOpenEvent
+	| VersionHistoryResult;
 
 /**
  * agent 请求在内置 HTML 预览中打开内容（preview_open 工具触发，kernel → 前端广播）。
