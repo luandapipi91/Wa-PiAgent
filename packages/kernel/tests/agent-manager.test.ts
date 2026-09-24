@@ -1720,9 +1720,9 @@ test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 
 	const prompt = readSysprompt(session.id);
 	expect(prompt).toContain("You are an expert coding assistant"); // base 段默认兜底
 	expect(prompt).toContain("## Available Subagents"); // delegate-roster 段（内置类型始终列出）
-	expect(prompt).toContain(`Built-in directory: ${BUILTIN_SKILLS_DIR}`); // env-constraints 段
+	expect(prompt).toContain(`<builtin>${BUILTIN_SKILLS_DIR}</builtin>`); // env-constraints 段
 	// 项目技能目录行紧随内置目录（项目会话 cwd = /tmp）
-	expect(prompt).toContain("Project skill directory: /tmp/.pi/skills");
+	expect(prompt).toContain("<project>/tmp/.pi/skills</project>");
 	expect(prompt).toMatch(/internal terminology/i);
 });
 
@@ -1731,9 +1731,9 @@ test("系统提示词 env 约束段：默认工作区（系统项目 cwd）的�
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	const prompt = readSysprompt(session.id);
-	expect(prompt).toContain(`Built-in directory: ${BUILTIN_SKILLS_DIR}`);
+	expect(prompt).toContain(`<builtin>${BUILTIN_SKILLS_DIR}</builtin>`);
 	expect(prompt).toContain(
-		`Project skill directory: ${SYSTEM_PROJECT_CWD}/.pi/skills`,
+		`<project>${SYSTEM_PROJECT_CWD}/.pi/skills</project>`,
 	);
 });
 

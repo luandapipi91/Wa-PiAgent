@@ -46,7 +46,8 @@ test("composePrompt 默认段落全部出现", () => {
 	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
 	expect(result).toContain(DEFAULT_DELEGATE_MECHANISM_PROMPT);
 	expect(result).toContain("## Available Subagents");
-	expect(result).toContain("Built-in directory: /tmp/skills");
+	expect(result).toContain("<skill_directories>");
+	expect(result).toContain("  <builtin>/tmp/skills</builtin>");
 	expect(result).toContain("## Memory Policy");
 	expect(result).toContain("## Memory Snapshot");
 });
@@ -57,7 +58,7 @@ test("composePrompt 默认段落顺序：base → self-protection → delegate-m
 	const selfProtPos = result.indexOf("自身进程保护（必须遵守）");
 	const mechanismPos = result.indexOf(DEFAULT_DELEGATE_MECHANISM_PROMPT);
 	const rosterPos = result.indexOf("## Available Subagents");
-	const envPos = result.indexOf("Built-in directory:");
+	const envPos = result.indexOf("<skill_directories>");
 	const policyPos = result.indexOf("## Memory Policy");
 	const memPos = result.indexOf("## Memory Snapshot");
 	expect(basePos).toBeLessThan(selfProtPos);
@@ -76,7 +77,7 @@ test("composePrompt delegateRoster 空串 → delegate-roster 段不出现", () 
 	expect(result).not.toContain("## Available Subagents");
 	// 其它段仍在
 	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
-	expect(result).toContain("Built-in directory:");
+	expect(result).toContain("<skill_directories>");
 });
 
 test("composePrompt memorySnapshot 空 → memory-snapshot 段不出现", () => {
@@ -98,38 +99,50 @@ test("composePrompt memoryPolicy 空 → memory-policy 段不出现（memoryPoli
 	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
 });
 
-test("composePrompt env-constraints 始终拼接 builtinSkillsDir + 固定后缀", () => {
+test("composePrompt env-constraints 始终注入 skill_directories 块（含 builtin）+ 固定后缀", () => {
 	const result = composePrompt([{ id: "env-constraints" }], {
 		...defaultCtx,
 		builtinSkillsDir: "/custom/skills",
 	});
-	expect(result).toContain("Built-in directory: /custom/skills");
+	expect(result).toContain("<skill_directories>");
+	expect(result).toContain("  <builtin>/custom/skills</builtin>");
+	expect(result).toContain("</skill_directories>");
 	expect(result).toContain(ENV_CONSTRAINTS_SUFFIX);
 });
 
-test("composePrompt env-constraints：有 projectSkillsDir → 内置目录 + 项目技能目录两行，且在内置之后、固定后缀之前", () => {
+test("composePrompt env-constraints：有 projectSkillsDir → builtin 与 project 各占一行，顺序为 builtin → project → 固定后缀", () => {
 	const result = composePrompt([{ id: "env-constraints" }], {
 		...defaultCtx,
 		builtinSkillsDir: "/builtin/skills",
 		projectSkillsDir: "/proj/.pi/skills",
 	});
-	expect(result).toContain("Built-in directory: /builtin/skills");
-	expect(result).toContain("Project skill directory: /proj/.pi/skills");
-	const builtinPos = result.indexOf("Built-in directory:");
-	const projectPos = result.indexOf("Project skill directory:");
+	// 逐字校验 XML 块（标签名、两空格缩进、元素独占一行）
+	expect(result).toBe(
+		"<skill_directories>\n" +
+			"  <builtin>/builtin/skills</builtin>\n" +
+			"  <project>/proj/.pi/skills</project>\n" +
+			"</skill_directories>" +
+			ENV_CONSTRAINTS_SUFFIX,
+	);
+	const builtinPos = result.indexOf("  <builtin>");
+	const projectPos = result.indexOf("  <project>");
 	const suffixPos = result.indexOf("Never use internal terminology");
 	expect(builtinPos).toBeLessThan(projectPos);
 	expect(projectPos).toBeLessThan(suffixPos);
 });
 
-test("composePrompt env-constraints：无 projectSkillsDir → 不出现项目技能目录行（向后兼容）", () => {
+test("composePrompt env-constraints：无 projectSkillsDir → 块内只有 builtin，不出现 project 元素", () => {
 	const result = composePrompt([{ id: "env-constraints" }], {
 		...defaultCtx,
 		builtinSkillsDir: "/builtin/skills",
 	});
-	expect(result).not.toContain("Project skill directory");
+	expect(result).toContain("  <builtin>/builtin/skills</builtin>");
+	expect(result).not.toContain("<project>");
 	expect(result).toBe(
-		`Built-in directory: /builtin/skills${ENV_CONSTRAINTS_SUFFIX}`,
+		"<skill_directories>\n" +
+			"  <builtin>/builtin/skills</builtin>\n" +
+			"</skill_directories>" +
+			ENV_CONSTRAINTS_SUFFIX,
 	);
 });
 
@@ -323,7 +336,7 @@ test("composePrompt 动态段写 content（env-constraints）→ 用户覆盖", 
 		defaultCtx,
 	);
 	expect(result).toBe(customEnv);
-	expect(result).not.toContain("Built-in directory:");
+	expect(result).not.toContain("<skill_directories>");
 });
 
 test("composePrompt 数组顺序 = 输出顺序（可任意调整）", () => {
