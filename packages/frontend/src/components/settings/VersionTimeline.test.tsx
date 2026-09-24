@@ -68,6 +68,15 @@ test("条目数不超过 4 的版本不出现展开按钮", () => {
 	expect(within(timeline).queryByTestId("expand-all")).toBeNull();
 });
 
+test("切换版本时详情列重新挂载（滚动位置归零）", () => {
+	const { container } = render(<VersionTimeline />);
+	const timeline = within(container).getByTestId("version-timeline");
+	const before = within(timeline).getByTestId("version-history-detail");
+	fireEvent.click(within(timeline).getByTestId(`toggle-${entries[1].version}`));
+	const after = within(timeline).getByTestId("version-history-detail");
+	expect(after).not.toBe(before);
+});
+
 test("maxEntries 截断：超出部分不渲染", () => {
 	const latest = entries[0];
 	const second = entries[1];

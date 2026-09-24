@@ -83,6 +83,7 @@ export function VersionTimeline({
 
 			{current && (
 				<div
+					key={current.version}
 					data-testid="version-history-detail"
 					className="flex-1 min-w-0 overflow-y-auto py-3 pl-4 pr-1.5"
 				>

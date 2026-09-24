@@ -3,8 +3,9 @@
  * 不起完整 kernel、不快照 WA_PI_DIR，故无需登记进 scripts/test.ts 的 INTEGRATION_TESTS
  * （与 memory-routes.test.ts 同款做法）。
  *
- * 不注入 fetch：线上可达性取决于运行环境，两种 source 都算通过——只断言
- * 「接口存在、200、字段结构合法」，测试不依赖外网。
+ * 不注入 fetchImpl 给服务端，改为在 server.start() 之前用 fetchImpl 预热内核模块缓存
+ * （同一进程内 WSServer 与测试文件共享同一模块实例，故缓存对服务端可见）：预热后接口
+ * 命中缓存、不发网请求，source 可确定断言为 remote，测试自包含、不依赖外网。
  */
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -17,10 +18,16 @@ import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
 import { MemoryStore } from "../src/memory-store";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
+import {
+	getRemoteVersionHistory,
+	__resetVersionHistoryCacheForTest,
+} from "../src/version-history";
 
 let tmpDir: string;
 
 beforeEach(() => {
+	// 每个用例前清缓存，保证确定性（不依赖上一用例的残留缓存）
+	__resetVersionHistoryCacheForTest();
 	tmpDir = mkdtempSync(join(tmpdir(), "version-history-route-"));
 });
 afterEach(() => {
@@ -49,6 +56,20 @@ test("GET /api/version-history 返回结构合法的历史", async () => {
 		port: 0,
 	};
 	const server = new WSServer(opts);
+	// 起服务之前预热内核模块缓存：服务端 getRemoteVersionHistory() 直接命中缓存，不发网请求
+	await getRemoteVersionHistory({
+		fetchImpl: (async () =>
+			new Response(
+				JSON.stringify([
+					{
+						version: "0.6.10",
+						date: "2026-09-24",
+						sections: { 修复: ["预热条目"] },
+					},
+				]),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			)) as unknown as typeof fetch,
+	});
 	await server.start();
 	try {
 		const res = await fetch(
@@ -61,8 +82,14 @@ test("GET /api/version-history 返回结构合法的历史", async () => {
 			source: string;
 		};
 		expect(body.type).toBe("version-history:get");
-		expect(Array.isArray(body.history)).toBe(true);
-		expect(["remote", "unavailable"]).toContain(body.source);
+		expect(body.source).toBe("remote");
+		expect(body.history).toEqual([
+			{
+				version: "0.6.10",
+				date: "2026-09-24",
+				sections: { 修复: ["预热条目"] },
+			},
+		]);
 	} finally {
 		await server.stop();
 	}
