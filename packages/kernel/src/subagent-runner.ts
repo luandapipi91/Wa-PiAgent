@@ -271,12 +271,9 @@ export async function runSubagentAgent(
 			try {
 				await c.command({ type: "get_state", timeoutMs: probeTimeoutMs });
 			} catch {
-				// 单次失败即判死：探活无响应/报错说明 pi 进程或协议通道已不可用
-				fail(
-					new Error(
-						`子智能体探活失败：get_state 在 ${probeTimeoutMs}ms 内未正常回包`,
-					),
-				);
+				// 单次失败即判死：探活无响应/报错说明 pi 进程或协议通道已不可用。
+				// 对外文案只说「执行过程中中断」，不暴露探活 / get_state / 毫秒数等内部细节。
+				fail(new Error("子智能体执行过程中中断"));
 			} finally {
 				probeInFlight = false;
 			}

@@ -348,7 +348,10 @@ test("探活失败：get_state 报错 → 判死（强杀）", async () => {
 		probeIntervalMs: 150,
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toContain("探活失败");
+	// 对外文案只报「执行过程中中断」：探活 / get_state / 毫秒数等内部细节不进结果文本
+	expect(result.text).toBe("子智能体执行失败: 子智能体执行过程中中断");
+	expect(result.text).not.toContain("探活");
+	expect(result.text).not.toContain("get_state");
 	expect(Date.now() - startedAt).toBeLessThan(10_000);
 }, 10_000);
 
@@ -365,7 +368,7 @@ test("探活单次失败即判死：首次 get_state 报错就强杀（不累计
 		probeTimeoutMs: 100,
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toContain("探活失败");
+	expect(result.text).toBe("子智能体执行失败: 子智能体执行过程中中断");
 	expect(Date.now() - startedAt).toBeLessThan(5_000);
 }, 10_000);
 
@@ -382,7 +385,7 @@ test("探活超时：不回 get_state 单次到期 → 判死（强杀）", asyn
 		probeTimeoutMs: 200,
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toContain("探活失败");
+	expect(result.text).toBe("子智能体执行失败: 子智能体执行过程中中断");
 	expect(Date.now() - startedAt).toBeLessThan(10_000);
 }, 10_000);
 
@@ -398,7 +401,7 @@ test("探活自启动即生效：pi 不发任何事件也会被探活检出 → 
 		probeTimeoutMs: 100,
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toContain("探活失败");
+	expect(result.text).toBe("子智能体执行失败: 子智能体执行过程中中断");
 }, 10_000);
 
 // 事件兜底：距上次事件超过窗口 → 判死。hang-pi 发 agent_start 后永久静默但正常回 get_state
