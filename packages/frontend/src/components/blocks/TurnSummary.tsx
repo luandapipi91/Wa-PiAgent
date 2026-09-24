@@ -2,24 +2,47 @@ import { useRef, useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
 import { togglePreservingViewport } from "./toggleViewport";
 
-/** 时长格式化：<60s → "45 秒"；>=60s → "2 分 15 秒"。
- *  secLabel/minLabel 可选，用于本地化单位（默认中文，保持导出函数的测试兼容）。 */
+/** 时长格式化：<60s → "45 秒"；<1h → "2 分 15 秒"；
+ *  <1d → "3 小时 20 分 5 秒"；≥1d → "2 天 3 小时 20 分 5 秒"。
+ *  labels 可选，用于本地化单位（默认中文，保持导出函数的测试兼容）。 */
 export function formatElapsed(
 	ms: number,
 	labels?: {
 		seconds?: (sec: number) => string;
 		minutesSeconds?: (min: number, sec: number) => string;
+		hoursMinutesSeconds?: (hour: number, min: number, sec: number) => string;
+		daysHoursMinutesSeconds?: (
+			day: number,
+			hour: number,
+			min: number,
+			sec: number,
+		) => string;
 	},
 ): string {
 	const totalSec = Math.max(0, Math.floor(ms / 1000));
 	if (totalSec < 60) {
 		return labels?.seconds ? labels.seconds(totalSec) : `${totalSec} 秒`;
 	}
-	const min = Math.floor(totalSec / 60);
 	const sec = totalSec % 60;
-	return labels?.minutesSeconds
-		? labels.minutesSeconds(min, sec)
-		: `${min} 分 ${sec} 秒`;
+	const totalMin = Math.floor(totalSec / 60);
+	if (totalMin < 60) {
+		return labels?.minutesSeconds
+			? labels.minutesSeconds(totalMin, sec)
+			: `${totalMin} 分 ${sec} 秒`;
+	}
+	const min = totalMin % 60;
+	const totalHour = Math.floor(totalMin / 60);
+	if (totalHour < 24) {
+		return labels?.hoursMinutesSeconds
+			? labels.hoursMinutesSeconds(totalHour, min, sec)
+			: `${totalHour} 小时 ${min} 分 ${sec} 秒`;
+	}
+	// 超长任务（goal 连续跑）：再往上换算成天，避免出现「几千分钟」这种没法读的量
+	const hour = totalHour % 24;
+	const day = Math.floor(totalHour / 24);
+	return labels?.daysHoursMinutesSeconds
+		? labels.daysHoursMinutesSeconds(day, hour, min, sec)
+		: `${day} 天 ${hour} 小时 ${min} 分 ${sec} 秒`;
 }
 
 /**
@@ -64,7 +87,20 @@ export function TurnSummary({
 									seconds: (s) => t("blocks.turnSummary.seconds", { sec: s }),
 									minutesSeconds: (m, s) =>
 										t("blocks.turnSummary.minutesSeconds", { min: m, sec: s }),
-								}),
+									hoursMinutesSeconds: (h, m, s) =>
+									t("blocks.turnSummary.hoursMinutesSeconds", {
+										hour: h,
+										min: m,
+										sec: s,
+									}),
+								daysHoursMinutesSeconds: (d, h, m, s) =>
+									t("blocks.turnSummary.daysHoursMinutesSeconds", {
+										day: d,
+										hour: h,
+										min: m,
+										sec: s,
+									}),
+							}),
 								steps,
 							})}
 				</span>

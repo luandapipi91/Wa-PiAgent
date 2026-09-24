@@ -227,6 +227,8 @@ const en = {
 			processOnly: "This turn process · {{steps}} steps",
 			seconds: "{{sec}}s",
 			minutesSeconds: "{{min}}m {{sec}}s",
+			hoursMinutesSeconds: "{{hour}}h {{min}}m {{sec}}s",
+			daysHoursMinutesSeconds: "{{day}}d {{hour}}h {{min}}m {{sec}}s",
 		},
 		fileChanges: {
 			title: "File changes · {{count}}",

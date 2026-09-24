@@ -119,6 +119,8 @@ interface SetupOpts {
 	createClientFn?: (opts: RpcClientOpts) => RpcClient;
 	/** abort RPC 无响应的兜底超时（ms），透传 AgentManagerOpts.abortTimeoutMs */
 	abortTimeoutMs?: number;
+	/** 续跑窗口（ms）：上一次结算后多久内开始的无 user 轮算作同一次任务的续跑（透传 AgentManagerOpts.turnResumeWindowMs） */
+	turnResumeWindowMs?: number;
 	agentName?: string;
 }
 
@@ -149,6 +151,9 @@ async function setup(opts: SetupOpts = {}) {
 		...(opts.abortTimeoutMs === undefined
 			? {}
 			: { abortTimeoutMs: opts.abortTimeoutMs }),
+		...(opts.turnResumeWindowMs === undefined
+			? {}
+			: { turnResumeWindowMs: opts.turnResumeWindowMs }),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
@@ -1198,9 +1203,12 @@ test("handle.messages 无 user 时不附加 elapsedMs", async () => {
 	expect(ae?.e.elapsedMs).toBeUndefined();
 });
 
-test("agent_end 结算后重置 turnUserAt：下一无 user 轮不附加跨轮耗时", async () => {
+test("agent_end 后超出续跑窗口的无 user 轮不附加跨轮耗时（窗口=0）", async () => {
 	const received: CapturedEvent[] = [];
-	const { project, session, am, fakes } = await setup({ events: received });
+	const { project, session, am, fakes } = await setup({
+		events: received,
+		turnResumeWindowMs: 0,
+	});
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	// 第一轮：user → assistant → agent_end（成功，附加 elapsedMs）
@@ -1234,8 +1242,9 @@ test("agent_end 结算后重置 turnUserAt：下一无 user 轮不附加跨轮�
 		],
 	});
 
-	// 第二轮：只有 assistant（无 user）→ agent_end。若 turnUserAt 未在结算后重置，
-	// 会拿第一轮的旧值算出跨轮时长——不应附加。
+	// 第二轮：无 user 的新轮（agent_start 表明是新一轮），但续跑窗口为 0 → 丢弃上一轮起点，
+	// 不拿第一轮的旧值算出跨轮时长。
+	fakes[0].emit({ type: "agent_start" });
 	fakes[0].emit({
 		type: "message_end",
 		message: {
@@ -1262,6 +1271,77 @@ test("agent_end 结算后重置 turnUserAt：下一无 user 轮不附加跨轮�
 	expect(ends).toHaveLength(2);
 	expect(typeof ends[0].e.elapsedMs).toBe("number"); // 第一轮正常附加
 	expect(ends[1].e.elapsedMs).toBeUndefined(); // 第二轮不附加跨轮时长
+});
+
+test("goal 自动续跑：无 user 的续跑段结算后，elapsedMs 覆盖任务全程", async () => {
+	const received: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events: received });
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 第一段：user 落盘 → 回答 → agent_end（真实流逝约 50ms）
+	fakes[0].emit({
+		type: "message_end",
+		message: {
+			role: "user",
+			content: [{ type: "text", text: "目标" }],
+			timestamp: 1000,
+		},
+	});
+	await new Promise((r) => setTimeout(r, 50));
+	fakes[0].emit({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "第一段" }],
+			timestamp: 2000,
+			stopReason: "end_turn",
+		},
+	});
+	fakes[0].emit({
+		type: "agent_end",
+		willRetry: false,
+		messages: [
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "第一段" }],
+				timestamp: 2000,
+				stopReason: "end_turn",
+			},
+		],
+	});
+
+	// 续跑段：goal 用 custom 消息触发下一段（没有新的 user 落盘），间隔在续跑窗口内 → 起点接上
+	fakes[0].emit({ type: "agent_start" });
+	await new Promise((r) => setTimeout(r, 50));
+	fakes[0].emit({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "第二段" }],
+			timestamp: 3000,
+			stopReason: "end_turn",
+		},
+	});
+	fakes[0].emit({
+		type: "agent_end",
+		willRetry: false,
+		messages: [
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "第二段" }],
+				timestamp: 3000,
+				stopReason: "end_turn",
+			},
+		],
+	});
+
+	const ends = received.filter((x) => x.e.type === "agent_end");
+	expect(ends).toHaveLength(2);
+	const first = ends[0].e.elapsedMs as number;
+	const second = ends[1].e.elapsedMs as number;
+	// 第二段要覆盖任务全程（≈ 两段共 100ms），而不是只剩最后一段的 ~50ms
+	expect(first).toBeGreaterThanOrEqual(40);
+	expect(second).toBeGreaterThanOrEqual(first + 40);
 });
 
 test("getMessages 在 session 不存在时返回空数组", async () => {

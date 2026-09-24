@@ -205,6 +205,8 @@ export interface AgentManagerOpts {
 	// abort RPC 无响应的兜底超时（ms）：超时强杀 pi 进程，保证「停止」一定生效。
 	// 默认 5000；测试注入小值。
 	abortTimeoutMs?: number;
+	/** 续跑窗口（ms），覆盖 TURN_RESUME_WINDOW_MS（测试注入 0 表示任何无 user 的新轮都不接上一轮起点） */
+	turnResumeWindowMs?: number;
 	// 记忆配置读取（reviewEnabled 自动学习开关 / memoryPolicyStyle 注入提示开关）。
 	// 可空：测试场景不传视为全开（与历史行为一致）；生产注入 MemoryStore。
 	memoryStore?: { getConfig(): Promise<MemoryConfig> };
@@ -236,8 +238,11 @@ interface SessionHandle {
 	busy: boolean;
 	/** agent_start 的时间戳（ms），用于前端恢复思考计时 */
 	thinkingSince: number | null;
-	/** 本轮 user 消息落盘时刻（kernel 收到 user message_end 的 Date.now()，≈ jsonl 行级落盘） */
+	/** 本轮 user 消息落盘时刻（kernel 收到 user message_end 的 Date.now()，≈ jsonl 行级落盘）
+	 *  起点保留到下一次 user 落盘或续跑窗口过期：goal 的自动续跑段要累加进同一轮 */
 	turnUserAt: number | null;
+	/** 上一次 agent_end 结算时刻（ms）：用于判断下一次无 user 的 agent_start 是否在续跑窗口内 */
+	turnEndedAt: number | null;
 	/** 历史消息快照（创建时经 get_messages 拉取 + message_end 增量追加） */
 	messages: any[];
 	/** 排队消息列表（agent_settled 时逐条 drain） */
@@ -283,6 +288,15 @@ interface SessionHandle {
 
 /** abort RPC 无响应的默认兜底超时（ms）：pi agent loop 卡死时强杀进程，保证停止生效 */
 const ABORT_RPC_TIMEOUT_MS = 5_000;
+
+/**
+ * 续跑窗口（ms）：上一次结算后多久内开始的无 user 轮算作「同一次任务的续跑」。
+ *
+ * goal 类长任务由扩展用 custom 消息自动续跑（多次 agent_start/agent_end，中间没有新的 user
+ * 落盘）。起点在窗口内就接上，整轮耗时覆盖任务全程；超过窗口的无 user 轮视为无关的新轮，
+ * 丢弃旧起点（不把中间空闲算进时长）。
+ */
+const TURN_RESUME_WINDOW_MS = 5 * 60_000;
 
 export class AgentManager {
 	// sessionId → SessionHandle（核心数据结构，一个 WaPi 会话对应一个 pi rpc 子进程）
@@ -1148,6 +1162,7 @@ export class AgentManager {
 			busy: false,
 			thinkingSince: null,
 			turnUserAt: null,
+			turnEndedAt: null,
 			messages: [],
 			followUpList: [],
 			steerList: [],
@@ -1263,6 +1278,16 @@ export class AgentManager {
 			case "agent_start":
 				handle.busy = true;
 				handle.thinkingSince = Date.now();
+				// 续跑窗口：无新 user 的下一段（goal 自动续跑）在一次结算后紧接着开始 → 起点接上，
+				// 整轮耗时继续覆盖任务全程；间隔超过窗口才丢弃起点（不把中间空闲算进时长）。
+				if (
+					handle.turnUserAt != null &&
+					handle.turnEndedAt != null &&
+					Date.now() - handle.turnEndedAt >=
+						(this.opts.turnResumeWindowMs ?? TURN_RESUME_WINDOW_MS)
+				) {
+					handle.turnUserAt = null;
+				}
 				// 新一轮开始说明网络可能已恢复：清除 transient degraded 标记，
 				// 避免上一轮 transient 错误后 netDegraded 永久卡死 drain（原来只能靠用户重发清除）。
 				if (handle.netDegraded) handle.netDegraded = false;
@@ -1274,7 +1299,10 @@ export class AgentManager {
 				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
 				// 不能用 message.timestamp——Pi 单块轮 assistant 消息对象在 prompt 时预创建，
 				// message.timestamp ≈ user 时刻，算出的时长≈0；真实耗时看落盘时刻。
-				if ((event.message as any)?.role === "user") handle.turnUserAt = Date.now();
+				if ((event.message as any)?.role === "user") {
+					handle.turnUserAt = Date.now();
+					handle.turnEndedAt = null;
+				}
 				// agent 回复完成视为活跃（与磁盘 touchSession 同步），刷新空闲回收计时
 				handle.lastActiveAt = Date.now();
 				break;
@@ -1293,8 +1321,9 @@ export class AgentManager {
 				) {
 					(event as any).elapsedMs = Date.now() - handle.turnUserAt;
 				}
-				// 结算后重置起点，避免下一无 user 轮（如 steer 触发）误用上一轮旧值算跨轮时长
-				handle.turnUserAt = null;
+				// 结算后只记时刻，不重置起点：goal 的自动续跑段（无新 user）要接着累加，
+				// 下一次 agent_start 靠 turnEndedAt 判断是否还在续跑窗口内。
+				handle.turnEndedAt = Date.now();
 				break;
 			}
 			case "agent_settled":

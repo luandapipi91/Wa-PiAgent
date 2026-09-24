@@ -216,6 +216,8 @@ const zh = {
 			processOnly: "本轮过程 · {{steps}} 个步骤",
 			seconds: "{{sec}} 秒",
 			minutesSeconds: "{{min}} 分 {{sec}} 秒",
+			hoursMinutesSeconds: "{{hour}} 小时 {{min}} 分 {{sec}} 秒",
+			daysHoursMinutesSeconds: "{{day}} 天 {{hour}} 小时 {{min}} 分 {{sec}} 秒",
 		},
 		fileChanges: {
 			title: "文件修改 · {{count}} 个",
