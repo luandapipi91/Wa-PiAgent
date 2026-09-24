@@ -90,13 +90,16 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
   toggleSkill: (skillName) => {
     // 乐观更新：立即切换本地 disabledSkills，SSE 事件回来后 setAll 覆盖矫正
     const isDisabled = get().disabledSkills.includes(skillName);
+    // REST 的 enabled 是「期望的新状态」，路由会取反成 WS 的 disabled
+    // （当前已禁用 → 期望启用 true；当前已启用 → 期望禁用 false）
+    const nextEnabled = isDisabled;
     set((s) => ({
       disabledSkills: isDisabled
         ? s.disabledSkills.filter((n) => n !== skillName)
         : [...s.disabledSkills, skillName],
     }));
     api
-      .post("/api/skills/toggle", { name: skillName, enabled: !isDisabled })
+      .post("/api/skills/toggle", { name: skillName, enabled: nextEnabled })
       .catch((err) => {
         // 请求失败时回退乐观更新
         console.error("[skills] toggle 请求失败，回退:", err);

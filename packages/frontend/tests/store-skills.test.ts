@@ -30,9 +30,10 @@ test("toggleSkill 禁用技能", async () => {
     builtinDir: "", loading: false,
   });
   useSkillsStore.getState().toggleSkill("brave-search");
+  // REST 的 enabled 是期望新状态：当前启用 → 期望禁用
   expect(postMock).toHaveBeenCalledWith("/api/skills/toggle", {
     name: "brave-search",
-    enabled: true,
+    enabled: false,
   });
 });
 
@@ -45,9 +46,10 @@ test("toggleSkill 启用已禁用的技能", async () => {
     builtinDir: "", loading: false,
   });
   useSkillsStore.getState().toggleSkill("pdf-tools");
+  // REST 的 enabled 是期望新状态：当前禁用 → 期望启用
   expect(postMock).toHaveBeenCalledWith("/api/skills/toggle", {
     name: "pdf-tools",
-    enabled: false,
+    enabled: true,
   });
 });
 
