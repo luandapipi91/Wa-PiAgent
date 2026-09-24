@@ -15,8 +15,6 @@ import type {
 import type {
 	SkillListEvent,
 	SkillToggleEvent,
-	SkillDirAddEvent,
-	SkillDirRemoveEvent,
 	SkillListResult,
 	SkillChangedEvent,
 } from "./skills";
@@ -782,8 +780,6 @@ export type WSClientEvent =
 	| ModelPresetsRequest
 	| SkillListEvent
 	| SkillToggleEvent
-	| SkillDirAddEvent
-	| SkillDirRemoveEvent
 	| ExtensionListEvent
 	| ExtensionToggleEvent
 	| ExtensionInstallEvent

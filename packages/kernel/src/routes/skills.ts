@@ -23,14 +23,4 @@ export const registerSkillRoutes: RouteRegistrar = (r, callApi, ctx) => {
       disabled: !b.enabled,
     });
   });
-
-  r.add("POST", "/api/skills/dirs", async (req) => {
-    const b = await readJsonBody(req);
-    return callApi({ type: "skillDir:add", path: b.path });
-  });
-
-  r.add("DELETE", "/api/skills/dirs", async (req) => {
-    const b = await readJsonBody(req);
-    return callApi({ type: "skillDir:remove", path: b.path });
-  });
 };

@@ -127,8 +127,6 @@ beforeEach(() => {
 		load: mock(),
 		setAll: mock(),
 		toggleSkill: mock(),
-		addDir: mock(),
-		removeDir: mock(),
 	});
 	useAgentsStore.setState({ list: [], configs: {} });
 	useCommandsStore.setState({ commands: [], loading: false });
@@ -806,6 +804,59 @@ test("输入 $ 触发技能面板", () => {
 	});
 	renderComposer({ text: "用 $brain" });
 	expect(screen.getByText("brainstorming")).toBeDefined();
+});
+
+test("$ 技能面板排除他项目技能、同名遮蔽只留一条（会话所属项目视角）", () => {
+	// store 当前项目故意设为 p2：会话所属项目（projectId prop = p1）应优先
+	useProjectsStore.setState({ currentProjectId: "p2" });
+	useSkillsStore.setState({
+		allSkills: [
+			{
+				name: "mine-skill",
+				description: "本项目技能",
+				path: "/p1/.pi/skills/mine-skill",
+				source: { type: "project", projectId: "p1", projectName: "p1" },
+			},
+			{
+				name: "other-skill",
+				description: "他项目技能",
+				path: "/p2/.pi/skills/other-skill",
+				source: { type: "project", projectId: "p2", projectName: "p2" },
+			},
+			{
+				name: "dup-skill",
+				description: "内置版本",
+				path: "/builtin/dup-skill",
+				source: { type: "builtin" },
+				shadowed: true,
+			},
+			{
+				name: "dup-skill",
+				description: "项目版本",
+				path: "/p1/.pi/skills/dup-skill",
+				source: { type: "project", projectId: "p1", projectName: "p1" },
+			},
+			{
+				name: "builtin-skill",
+				description: "内置技能",
+				path: "/builtin/builtin-skill",
+				source: { type: "builtin" },
+			},
+		],
+		skills: [],
+		dirs: [],
+		disabledSkills: [],
+		builtinDir: "",
+	});
+	renderComposer({ text: "$" });
+	// 本项目技能保留，他项目技能不列出
+	expect(screen.getByText("mine-skill")).toBeDefined();
+	expect(screen.queryByText("other-skill")).toBeNull();
+	// 同名只列一条（保留项目版本，被遮蔽的内置版本不重复）
+	expect(screen.getAllByText("dup-skill")).toHaveLength(1);
+	expect(screen.getByText("项目版本")).toBeDefined();
+	// 内置技能保留（其来源标签仍为「内置」）
+	expect(screen.getByText("builtin-skill")).toBeDefined();
 });
 
 test("输入全角 ￥（U+FFE5）触发技能面板（Windows 中文输入法场景）", () => {

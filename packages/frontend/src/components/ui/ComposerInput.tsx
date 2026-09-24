@@ -6,7 +6,10 @@ import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { formatKernelError } from "../../util/kernel-error";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
-import { useSkillsStore } from "../../store/skills";
+import {
+	selectAvailableSkillsForProject,
+	useSkillsStore,
+} from "../../store/skills";
 import { useCommandsStore } from "../../store/commands";
 import { useAgentsStore } from "../../store/agents";
 import { useToastStore } from "../../store/toast";
@@ -112,6 +115,15 @@ export function ComposerInput({
 	const cancelSearchRef = useRef<(() => void) | null>(null);
 
 	const allSkills = useSkillsStore((s) => s.allSkills);
+	// 当前会话所属项目的实际可用技能（排除他项目技能与同名被遮蔽者，与会话实际传给 pi 的技能一致）。
+	// 优先用 projectId prop（会话/新会话面板选中的项目——新会话面板的项目选择是局部 state，
+	// 不写回 store），仅在未传时回退 store 的当前项目。
+	const currentProjectId = useProjectsStore((s) => s.currentProjectId);
+	const effectiveProjectId = projectId ?? currentProjectId;
+	const availableSkills = useMemo(
+		() => selectAvailableSkillsForProject(allSkills, effectiveProjectId),
+		[allSkills, effectiveProjectId],
+	);
 	const allAgents = useAgentsStore((s) => s.list);
 	// pi 运行时 slash 命令（插件贡献 / prompt 模板；skill 类已在 store 过滤）
 	const piCommands = useCommandsStore((s) => s.commands);
@@ -241,14 +253,14 @@ export function ComposerInput({
 	// $ 技能列表过滤
 	const skillItems: MenuItem[] = useMemo(() => {
 		if (triggerType !== "skill") return [];
-		const filtered = filterItems(allSkills, trigger!.query);
+		const filtered = filterItems(availableSkills, trigger!.query);
 		return filtered.map((s) => ({
 			id: s.name,
 			name: s.name,
 			description: s.description,
 			source: s.source,
 		}));
-	}, [triggerType, trigger, allSkills]);
+	}, [triggerType, trigger, availableSkills]);
 
 	// / 命令菜单：前端 handler 命令 + pi 框架命令 + pi 动态命令(插件/prompt) + 技能
 	const commandItems: MenuItem[] = useMemo(() => {
@@ -343,7 +355,7 @@ export function ComposerInput({
 						: { type: "builtin" as const, name: "pi" },
 		}));
 		// 技能列表（支持 / 触发技能引用）
-		const filteredSkills = filterItems(allSkills, q);
+		const filteredSkills = filterItems(availableSkills, q);
 		const skillEntries: MenuItem[] = filteredSkills.map((s) => ({
 			id: s.name,
 			name: s.name,
@@ -358,7 +370,7 @@ export function ComposerInput({
 			? filterItems([...frameworkItems, ...dynamicItems], q)
 			: [...frameworkItems, ...dynamicItems];
 		return [...filteredCommands, ...filteredPi, ...skillEntries];
-	}, [triggerType, trigger, allSkills, piCommands, isRunning, isNewSession, t]);
+	}, [triggerType, trigger, availableSkills, piCommands, isRunning, isNewSession, t]);
 
 	// 当前面板列表项
 	const menuItems =

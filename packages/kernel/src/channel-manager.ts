@@ -43,6 +43,7 @@ import {
 import type { ChannelAdapter, InboundMessage } from "./channels/types";
 import { MockAdapter } from "./channels/mock-adapter";
 import { expandSkillTokens } from "./channels/skill-expand";
+import { projectSkillsDirOf } from "./skill-sources";
 import type { AgentManager } from "./agent-manager";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
@@ -65,7 +66,9 @@ export interface ChannelManagerDeps {
 	tmpDir?: string;
 	/** 技能管理器（结构子集）：用于展开渠道提示词里的 $[技能名] token；缺省不展开 */
 	skillManager?: {
-		scan(): Promise<{ skills: { name: string; path: string }[] }>;
+		scan(options?: {
+			projects?: { id: string; name: string; dir: string }[];
+		}): Promise<{ skills: { name: string; path: string }[] }>;
 	};
 	/** 主动推送前等待渠道重连就绪的超时（ms）；缺省 60s（覆盖 SDK 最坏 30s 退避 + 认证握手）。测试注入小值 */
 	pushConnectTimeoutMs?: number;
@@ -775,8 +778,11 @@ export class ChannelManager {
 		}
 
 		// 渠道附加提示词中含 $ 才扫描技能（避免每条消息都 scan）；进站早期加载，供 ensureStarted 使用
+		// 技能按该 IM 会话当前项目派生项目技能目录（与前端候选、会话 spawn 同一口径）
 		const skills = channel.extraSystemPrompt?.includes("$")
-			? await this.loadSkillContents()
+			? await this.loadSkillContents(
+					await this.projectCwdOf(mapping.currentProjectId),
+				)
 			: [];
 
 		// 智能体解析（每次入站实时解析：删除立即可感知，兜底列表第一项）
@@ -852,15 +858,28 @@ export class ChannelManager {
 		this.deps.broadcast({ type: "channel-conversations:changed" });
 	}
 
+	/** 取项目根目录（cwd）：项目技能目录按项目维度派生（<cwd>/.pi/skills）；项目已删除时返回 undefined */
+	private async projectCwdOf(projectId: string): Promise<string | undefined> {
+		const { projects } = await this.deps.projectStore.load();
+		return projects.find((p) => p.id === projectId)?.cwd;
+	}
+
 	/** 读取全部已启用技能的 name + SKILL.md 内容（读失败的技能跳过，不阻塞入站） */
 	/** 扫描技能目录并读取 SKILL.md 内容（渠道附加提示词 $[技能名] 展开 +
-	 *  定时任务执行链路复用：executeTask 里 $[技能名] 任意位置展开） */
-	public async loadSkillContents(): Promise<
+	 *  定时任务执行链路复用：executeTask 里 $[技能名] 任意位置展开）。
+	 *  @param projectCwd 该链路所属项目的根目录（据此派生单个项目技能目录）；缺省仅内置 + 扩展。
+	 *  不无脑传全部项目：展开按 name 匹配，全量传入会让「同名优先」判定与会话实际加载不一致。 */
+	public async loadSkillContents(
+		projectCwd?: string,
+	): Promise<
 		{ name: string; content: string; location: string }[]
 	> {
 		if (!this.deps.skillManager) return [];
+		const projectDir = projectSkillsDirOf(projectCwd);
 		const { skills } = await this.deps.skillManager
-			.scan()
+			.scan({
+				projects: projectDir ? [{ id: "", name: "", dir: projectDir }] : [],
+			})
 			.catch(() => ({ skills: [] as { name: string; path: string }[] }));
 		const result: { name: string; content: string; location: string }[] = [];
 		for (const s of skills) {

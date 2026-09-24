@@ -2,6 +2,7 @@ import { test, expect, beforeEach, afterEach, describe } from "bun:test";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { CommandPalette } from "../src/components/CommandPalette";
 import { useSkillsStore } from "../src/store/skills";
+import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";
 
 beforeEach(() => {
@@ -124,6 +125,52 @@ describe("CommandPalette", () => {
     const overlay = screen.getByTestId("command-palette-overlay");
     fireEvent.click(overlay);
     expect(closed).toBe(true);
+  });
+
+  test("当前项目的技能集合：他项目技能不列出、同名遮蔽只留一行", () => {
+    useProjectsStore.setState({ currentProjectId: "pA" });
+    useSkillsStore.setState({
+      allSkills: [
+        {
+          name: "dup-skill",
+          description: "项目版本",
+          path: "/a/.pi/skills/dup-skill",
+          source: { type: "project", projectId: "pA", projectName: "项目A" },
+        },
+        {
+          name: "dup-skill",
+          description: "内置版本",
+          path: "/builtin/dup-skill",
+          source: { type: "builtin" },
+          shadowed: true,
+        },
+        {
+          name: "other-proj-skill",
+          description: "他项目技能",
+          path: "/b/.pi/skills/other-proj-skill",
+          source: { type: "project", projectId: "pB", projectName: "项目B" },
+        },
+        {
+          name: "shared-builtin",
+          description: "内置技能",
+          path: "/builtin/shared-builtin",
+          source: { type: "builtin" },
+        },
+      ],
+      disabledSkills: [],
+    });
+    try {
+      render(<CommandPalette open={true} onClose={() => {}} />);
+      // 同名只留项目版本那一条（被遮蔽的内置版本不重复列出）
+      expect(screen.getAllByText("dup-skill")).toHaveLength(1);
+      expect(screen.getByText("项目版本")).toBeTruthy();
+      // 他项目技能不在当前项目的可用集合内
+      expect(screen.queryByText("other-proj-skill")).toBeNull();
+      // 内置技能保留
+      expect(screen.getByText("shared-builtin")).toBeTruthy();
+    } finally {
+      useProjectsStore.setState({ currentProjectId: null });
+    }
   });
 
   test("命令分组显示快捷操作", () => {

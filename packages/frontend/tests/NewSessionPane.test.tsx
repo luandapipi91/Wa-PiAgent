@@ -156,8 +156,6 @@ describe("NewSessionPane", () => {
 			load: () => {},
 			setAll: () => {},
 			toggleSkill: () => {},
-			addDir: () => {},
-			removeDir: () => {},
 		});
 	});
 

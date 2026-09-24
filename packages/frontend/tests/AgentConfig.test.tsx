@@ -11,6 +11,7 @@ import type { AgentConfig as AgentConfigType } from "@wa-pi/shared";
 import { AgentConfig } from "../src/components/AgentConfig";
 import { useAgentsStore } from "../src/store/agents";
 import { useSkillsStore } from "../src/store/skills";
+import { useProjectsStore } from "../src/store/projects";
 import { useProvidersStore } from "../src/store/providers";
 import { useSubagentsStore } from "../src/store/subagents";
 
@@ -425,6 +426,45 @@ describe("AgentConfig 4 tab", () => {
 		// web 未被全局禁用，正常显示
 		const webRow = screen.getByTestId("skill-row-web");
 		expect(webRow.style.opacity).toBe("1");
+	});
+
+	test("技能 tab：同名项目技能遮蔽内置时只渲染一行，且不列出他项目技能", () => {
+		useProjectsStore.setState({ currentProjectId: "pA" });
+		useSkillsStore.setState({
+			allSkills: [
+				{
+					name: "dup-skill",
+					description: "项目版本",
+					path: "/a/.pi/skills/dup-skill",
+					source: { type: "project", projectId: "pA", projectName: "项目A" },
+				},
+				{
+					name: "dup-skill",
+					description: "内置版本",
+					path: "/builtin/dup-skill",
+					source: { type: "builtin" },
+					shadowed: true,
+				},
+				{
+					name: "other-proj-skill",
+					description: "他项目技能",
+					path: "/b/.pi/skills/other-proj-skill",
+					source: { type: "project", projectId: "pB", projectName: "项目B" },
+				},
+			],
+			disabledSkills: [],
+		});
+		try {
+			renderConfig();
+			fireEvent.click(screen.getByTestId("tab-skills"));
+			// 同名只渲染一行（被遮蔽的内置版本不再重复一行，也不再触发 React 重复 key）
+			expect(screen.getAllByTestId("skill-row-dup-skill")).toHaveLength(1);
+			expect(screen.getByTestId("skill-switch-dup-skill")).toBeTruthy();
+			// 他项目技能不在当前项目的可用集合内
+			expect(screen.queryByTestId("skill-row-other-proj-skill")).toBeNull();
+		} finally {
+			useProjectsStore.setState({ currentProjectId: null });
+		}
 	});
 
 	test("技能 tab：全部勾选开关默认 ON（skills 空数组、非 allOff）", () => {

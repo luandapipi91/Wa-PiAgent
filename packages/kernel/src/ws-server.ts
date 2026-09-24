@@ -89,6 +89,7 @@ import { registerFsRoutes } from "./routes/fs";
 import { registerAgentRoutes } from "./routes/agents";
 import { registerProviderRoutes } from "./routes/providers";
 import { registerSkillRoutes } from "./routes/skills";
+import { collectProjectSkillSources } from "./skill-sources";
 import { registerExtensionRoutes } from "./routes/extensions";
 import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
@@ -1291,12 +1292,17 @@ export class WSServer {
 		await this.opts.agentManager.disposeAll();
 	}
 
-	/** 获取扩展技能路径并调用 skillManager.scan，避免每处重复获取 */
+	/** 获取扩展技能路径 + 项目技能来源并调用 skillManager.scan，避免每处重复获取 */
 	private async scanSkillsWithExtensions() {
 		const extPaths = this.opts.extensionManager
 			? await this.opts.extensionManager.getEnabledExtensionSkillPaths()
 			: [];
-		return this.opts.skillManager.scan(extPaths);
+		// 项目技能来源（项目维度，与当前会话无关）：<project.cwd>/.pi/skills
+		const { projects } = await this.opts.projectStore.loadActive();
+		return this.opts.skillManager.scan({
+			projects: collectProjectSkillSources(projects),
+			extensionSkillPaths: extPaths,
+		});
 	}
 
 	private async handle(
@@ -2596,28 +2602,6 @@ export class WSServer {
 				this.opts.agentManager.markSkillsDirty();
 				const result = await this.scanSkillsWithExtensions();
 				this.broadcast({ type: "skill:changed", ...result });
-				break;
-			}
-			case "skillDir:add": {
-				try {
-					await this.opts.skillManager.addDir(event.path);
-					this.opts.agentManager.markSkillsDirty();
-					const result = await this.scanSkillsWithExtensions();
-					this.broadcast({ type: "skill:changed", ...result });
-				} catch (err) {
-					replyError(reply, err);
-				}
-				break;
-			}
-			case "skillDir:remove": {
-				try {
-					await this.opts.skillManager.removeDir(event.path);
-					this.opts.agentManager.markSkillsDirty();
-					const result = await this.scanSkillsWithExtensions();
-					this.broadcast({ type: "skill:changed", ...result });
-				} catch (err) {
-					replyError(reply, err);
-				}
 				break;
 			}
 			case "extension:list": {

@@ -6,7 +6,9 @@
 // - 写操作成功返回 200 {ok:true} 或末个 reply JSON；{type:"error"} reply → 400 {error}
 // - 旧 WS 的广播应答（project:created / provider:changed / skill:changed 等）在 REST 下
 //   走 SSE 总线，HTTP 响应不携带 → 需要结果对象时轮询对应的 GET 列表端点
-import { E2E_WS_PORT } from "../playwright.config";
+import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -187,14 +189,62 @@ export async function saveAgentConfig(
   });
 }
 
-/** 添加技能目录（旧 WS skillDir:add + 等 skill:changed：POST 返回时重扫已完成） */
-export async function addSkillDir(path: string): Promise<void> {
-  await api("POST", "/api/skills/dirs", { path });
+/** E2E 隔离的内置技能目录（kernel SkillManager.builtinDir = <WA_PI_DIR>/skills） */
+export const E2E_BUILTIN_SKILLS_DIR = join(E2E_WA_PI_DIR, "skills");
+
+/** 读取 allSkills（GET /api/skills 会触发 kernel 同步重扫，含被遮蔽者与其它项目的同名技能） */
+export async function listAllSkills(): Promise<any[]> {
+  const data = await api("GET", "/api/skills");
+  return (data?.allSkills ?? []) as any[];
 }
 
-/** 移除技能目录（旧 WS skillDir:remove） */
-export async function removeSkillDir(path: string): Promise<void> {
-  await api("DELETE", "/api/skills/dirs", { path });
+/** 取「内置来源（source.type === "builtin"）」的该名字技能，没有则 undefined。
+ *  必须带来源维度：allSkills 含所有项目的同名技能（被遮蔽者也保留），
+ *  只按 name 匹配时，存在同名项目技能就会让匹配恒为真 → 等待永不收敛。 */
+export async function getBuiltinSkill(name: string): Promise<any | undefined> {
+  const all = await listAllSkills();
+  return all.find((s) => s?.name === name && s?.source?.type === "builtin");
+}
+
+/** 轮询 GET /api/skills（该请求会触发 kernel 同步重扫）直到「内置来源」的该名字技能出现/消失 */
+async function waitForSkill(
+  name: string,
+  present: boolean,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const has = !!(await getBuiltinSkill(name));
+    if (has === present) return;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `等待内置技能 ${name} ${present ? "出现" : "消失"} 超时（只按 builtin 来源判定）`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+/** 注入内置技能（写 <WA_PI_DIR>/skills/<name>/SKILL.md 并等 kernel 扫到「内置来源」条目），返回技能名 */
+export async function addSkillDir(
+  name: string,
+  description = "E2E 测试技能",
+): Promise<string> {
+  const dir = join(E2E_BUILTIN_SKILLS_DIR, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "SKILL.md"),
+    `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}`,
+    "utf8",
+  );
+  await waitForSkill(name, true);
+  return name;
+}
+
+/** 移除内置技能并等 kernel 扫不到「内置来源」条目（其它项目的同名技能不影响判定） */
+export async function removeSkillDir(name: string): Promise<void> {
+  rmSync(join(E2E_BUILTIN_SKILLS_DIR, name), { recursive: true, force: true });
+  await waitForSkill(name, false);
 }
 
 /**

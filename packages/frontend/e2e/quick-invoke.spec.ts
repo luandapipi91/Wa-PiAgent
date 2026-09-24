@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, mkdirSync, existsSync, rmSync, unlinkSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { addSkillDir, createProject, saveProvider } from "./helpers";
+import { addSkillDir, createProject, removeSkillDir, saveProvider } from "./helpers";
 
 // Task 8: Quick Invoke 聊天栏快速调用 E2E 测试
 //
@@ -14,7 +14,7 @@ import { addSkillDir, createProject, saveProvider } from "./helpers";
 //
 // 约定：
 // - 复用 composer.spec.ts 的 beforeEach 隔离项目模式（REST 建项目 + 预置 provider）
-// - 技能通过 globalSetup 注入的内置技能或 addSkillDir 动态添加的测试技能驱动
+// - 技能由 addSkillDir 写入 E2E 隔离的内置技能目录（<WA_PI_DIR>/skills）驱动
 // - 输入框为 contenteditable div，selector 使用 [role="textbox']
 // - 文件搜索依赖 projectCwd 下的真实文件 —— 测试在项目 cwd 下预置文件
 // - 截图清理：所有测试产生的临时文件 / 目录在 finally / afterAll 中删除
@@ -110,20 +110,10 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
   });
 
   test("输入 $ 选技能 → chip 显示 → 发送时展开", async ({ page }) => {
-    // 预置一个技能目录 + 测试技能（skillDir:add 触发 kernel 重扫，skill:changed 回推）
-    const skillDirRoot = join(process.env.HOME || "/tmp", `.wa-pi-e2e-quick-invoke-skills-${randomUUID().slice(0, 8)}`);
-    const skillPkgDir = join(skillDirRoot, "e2e-qi-skill");
-    mkdirSync(skillPkgDir, { recursive: true });
-    writeFileSync(
-      join(skillPkgDir, "SKILL.md"),
-      "---\nname: e2e-qi-skill\ndescription: E2E Quick Invoke 测试技能\n---\n# e2e-qi-skill\n测试用",
-      "utf8",
-    );
+    // 预置测试技能（直接写入 E2E 隔离的内置技能目录，kernel 重扫后经 SSE 回推前端）
+    await addSkillDir("e2e-qi-skill", "E2E Quick Invoke 测试技能");
 
     try {
-      // 通过 REST 把技能目录加到 kernel（POST 返回时重扫已完成，skill:changed 经 SSE 回推前端）
-      await addSkillDir(skillDirRoot);
-
       // 记录发送的 prompt 请求体（放行真实请求，同 resend-attachments.spec 模式）。
       // 产品已把 /skill:name 在聊天窗/排队区一律渲染回技能 chip（与输入框视觉一致），
       // DOM 里不再出现展开后的 /skill: 字面量，故直接核对出站请求体验证「发送时展开」。
@@ -166,7 +156,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
         .toBe(true);
       await expect(page.locator(`text=\\$\\[e2e-qi-skill\\]`)).toHaveCount(0);
     } finally {
-      if (existsSync(skillDirRoot)) rmSync(skillDirRoot, { recursive: true, force: true });
+      await removeSkillDir("e2e-qi-skill").catch(() => {});
     }
   });
 
@@ -188,18 +178,10 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
   });
 
   test("输入全角 ￥（U+FFE5）触发技能面板", async ({ page }) => {
-    // 预置技能（与 $ 用例相同的 setup：REST addSkillDir + SSE 回推）
-    const skillDirRoot = join(process.env.HOME || "/tmp", `.wa-pi-e2e-quick-invoke-skills-${randomUUID().slice(0, 8)}`);
-    const skillPkgDir = join(skillDirRoot, "e2e-qi-skill");
-    mkdirSync(skillPkgDir, { recursive: true });
-    writeFileSync(
-      join(skillPkgDir, "SKILL.md"),
-      "---\nname: e2e-qi-skill\ndescription: E2E Quick Invoke 测试技能\n---\n# e2e-qi-skill\n测试用",
-      "utf8",
-    );
+    // 预置技能（与 $ 用例相同的 setup：写入隔离的内置技能目录）
+    await addSkillDir("e2e-qi-skill", "E2E Quick Invoke 测试技能");
 
     try {
-      await addSkillDir(skillDirRoot);
       await enterSession(page, "发起技能会话");
 
       const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
@@ -215,27 +197,17 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       await page.keyboard.type("e2e-qi", { delay: 10 });
       await expect(page.getByTestId("quick-invoke-menu")).toContainText("e2e-qi-skill", { timeout: 8000 });
     } finally {
-      if (existsSync(skillDirRoot)) rmSync(skillDirRoot, { recursive: true, force: true });
+      await removeSkillDir("e2e-qi-skill").catch(() => {});
     }
   });
 
   test("Esc 关闭面板保留触发符文本", async ({ page }) => {
     // 预置技能。注意：Esc 拦截的前提是 menuItems.length > 0（见 ComposerInput handleKeyDown），
-    // 所以过滤词必须命中真实存在的技能——E2E 隔离环境无内置技能（brainstorming 等不在
-    // 隔离 WA_PI_DIR 里），只能用这里动态添加的 e2e-esc-skill。
-    const skillDirRoot = join(process.env.HOME || "/tmp", `.wa-pi-e2e-quick-invoke-esc-${randomUUID().slice(0, 8)}`);
-    const skillPkgDir = join(skillDirRoot, "e2e-esc-skill");
-    mkdirSync(skillPkgDir, { recursive: true });
-    writeFileSync(
-      join(skillPkgDir, "SKILL.md"),
-      "---\nname: e2e-esc-skill\ndescription: Esc 测试\n---\n# e2e-esc-skill",
-      "utf8",
-    );
+    // 所以过滤词必须命中真实存在的技能（隔离环境的内置目录只有 global-setup 预置的「E2E技能」，
+    // 与 e2e-esc 不匹配），只能用这里注入的 e2e-esc-skill。
+    await addSkillDir("e2e-esc-skill", "Esc 测试");
 
     try {
-      // POST 返回时重扫已完成，skill:changed 经 SSE 回推前端，无 setTimeout 竞态
-      await addSkillDir(skillDirRoot);
-
       await enterSession(page, "Esc 测试会话");
 
       const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
@@ -256,7 +228,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       // 输入框保留 $e2e-esc 文本
       await expect(textbox).toContainText("$e2e-esc");
     } finally {
-      if (existsSync(skillDirRoot)) rmSync(skillDirRoot, { recursive: true, force: true });
+      await removeSkillDir("e2e-esc-skill").catch(() => {});
     }
   });
 

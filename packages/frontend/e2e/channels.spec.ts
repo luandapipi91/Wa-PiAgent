@@ -1,8 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { addSkillDir, saveProvider } from "./helpers";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { addSkillDir, removeSkillDir, saveProvider } from "./helpers";
 
 const KERNEL = `http://127.0.0.1:${process.env.WA_PI_E2E_WS_PORT ?? 9776}`;
 
@@ -66,14 +63,8 @@ test.describe
 		test("设置页表单交互：智能体搜索下拉 / $技能弹层不截断 / 保存失败 toast 居中", async ({
 			page,
 		}) => {
-			// 预置技能目录：E2E 用隔离 WA_PI_DIR，内置技能目录初始为空，$ 弹层将无数据
-			const e2eSkillDir = join(tmpdir(), "wa-pi-e2e-channels-skill");
-			mkdirSync(join(e2eSkillDir, "e2e-channel-skill"), { recursive: true });
-			writeFileSync(
-				join(e2eSkillDir, "e2e-channel-skill", "SKILL.md"),
-				`---\nname: e2e-channel-skill\ndescription: 渠道测试技能\n---\n# e2e-channel-skill`,
-			);
-			await addSkillDir(e2eSkillDir);
+			// 预置技能：直接写入 E2E 隔离的内置技能目录（技能目录增删接口已下线），$ 弹层才有数据
+			await addSkillDir("e2e-channel-skill", "渠道测试技能");
 
 			await page.goto("/");
 			await page.getByTestId("settings-btn").click();
@@ -439,9 +430,6 @@ test.describe
 
 		test.afterAll(async ({ request }) => {
 			if (channelId) await request.delete(`${KERNEL}/api/channels/${channelId}`);
-			rmSync(join(tmpdir(), "wa-pi-e2e-channels-skill"), {
-				recursive: true,
-				force: true,
-			});
+			await removeSkillDir("e2e-channel-skill").catch(() => {});
 		});
 	});

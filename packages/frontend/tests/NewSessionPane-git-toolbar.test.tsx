@@ -119,8 +119,6 @@ beforeEach(() => {
 		load: () => {},
 		setAll: () => {},
 		toggleSkill: () => {},
-		addDir: () => {},
-		removeDir: () => {},
 	});
 });
 

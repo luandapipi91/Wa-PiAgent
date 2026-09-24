@@ -3,7 +3,12 @@ import type { AgentConfig, AgentName, AgentToolItem } from "@wa-pi/shared";
 import { agentDefOf, resolveProviderSlug, isSubagentType } from "@wa-pi/shared";
 import { useTranslation } from "../i18n/useTranslation";
 import { useAgentsStore } from "../store/agents";
-import { useSkillsStore } from "../store/skills";
+import {
+	selectAvailableSkillsForProject,
+	skillKeyOf,
+	useSkillsStore,
+} from "../store/skills";
+import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useSubagentsStore } from "../store/subagents";
 import { api } from "../api-client";
@@ -499,7 +504,14 @@ function SkillsTab({ draft, onChange }: TabProps) {
 	const { t } = useTranslation();
 	const allSkills = useSkillsStore((s) => s.allSkills);
 	const disabledSkills = useSkillsStore((s) => s.disabledSkills);
-	const all = allSkills.map((s) => s.name);
+	// 当前项目下实际可用的技能（排除他项目技能与同名被遮蔽者）：
+	// 白名单按技能名匹配，只有这里列出的技能在该项目会话里才真能被 pi 加载
+	const currentProjectId = useProjectsStore((s) => s.currentProjectId);
+	const availableSkills = useMemo(
+		() => selectAvailableSkillsForProject(allSkills, currentProjectId),
+		[allSkills, currentProjectId],
+	);
+	const all = availableSkills.map((s) => s.name);
 	// 防御：draft.skills 可能因磁盘残留为非数组，统一规范化为 []
 	const skills: string[] = Array.isArray(draft.skills) ? draft.skills : [];
 	// 显式全不选：skillsAllOff=true 时不加载任何技能；与 skills:[] 的"继承全部"区分
@@ -537,7 +549,7 @@ function SkillsTab({ draft, onChange }: TabProps) {
 			onChange({ ...draft, skills: next, skillsAllOff: undefined });
 		}
 	};
-	if (allSkills.length === 0)
+	if (availableSkills.length === 0)
 		return (
 			<p className="text-sm text-tertiary">{t("agentConfig.skillsEmpty")}</p>
 		);
@@ -554,11 +566,11 @@ function SkillsTab({ draft, onChange }: TabProps) {
 					testId="skill-select-all"
 				/>
 			</div>
-			{allSkills.map((s) => {
+			{availableSkills.map((s) => {
 				const globallyDisabled = disabledSkills.includes(s.name);
 				return (
 					<label
-						key={s.name}
+						key={skillKeyOf(s.source, s.name)}
 						data-testid={`skill-row-${s.name}`}
 						className="flex items-center gap-2 py-1 cursor-pointer justify-between"
 						style={{ opacity: globallyDisabled ? 0.5 : 1 }}

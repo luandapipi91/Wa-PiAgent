@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
 import {
@@ -372,36 +372,24 @@ test.describe
 test.describe
   .serial("技能 tab：全部勾选开关与描述气泡", () => {
     const SK_AGENT = "e2e-skill-agent";
-    // 测试技能目录（含一个长描述技能用于气泡验证）
-    const e2eSkillDir = join(E2E_WA_PI_DIR, "e2e-skill-tab-skills");
+    // 长描述技能（用于气泡验证）
     const longDesc =
       "这是一段很长的技能描述用于验证超长省略与点击气泡显示完整内容的功能，需要足够长才能触发省略号".repeat(
         2,
       );
 
     test.beforeAll(async () => {
-      // 注入测试技能目录
-      const skillDir = join(e2eSkillDir, "e2e-skill-long");
-      mkdirSync(skillDir, { recursive: true });
-      writeFileSync(
-        join(skillDir, "SKILL.md"),
-        `---\nname: e2e-skill-long\ndescription: ${longDesc}\n---\n# e2e-skill-long`,
-      );
-      const skillDir2 = join(e2eSkillDir, "e2e-skill-short");
-      mkdirSync(skillDir2, { recursive: true });
-      writeFileSync(
-        join(skillDir2, "SKILL.md"),
-        `---\nname: e2e-skill-short\ndescription: 短技能\n---\n# e2e-skill-short`,
-      );
-      await addSkillDir(e2eSkillDir);
+      // 注入两个内置技能（直接写入 E2E 隔离的技能目录，kernel 扫描后可见）
+      await addSkillDir("e2e-skill-long", longDesc);
+      await addSkillDir("e2e-skill-short", "短技能");
       // 宫格入口（agent-collapsed）随时可点、无需凑数；预置目标智能体即可
       await createAgent(SK_AGENT);
     });
 
     test.afterAll(async () => {
-      // 清理测试技能目录与智能体
-      await removeSkillDir(e2eSkillDir).catch(() => {});
-      rmSync(e2eSkillDir, { recursive: true, force: true });
+      // 清理注入的技能与智能体
+      await removeSkillDir("e2e-skill-long").catch(() => {});
+      await removeSkillDir("e2e-skill-short").catch(() => {});
       await deleteAgentQuiet(SK_AGENT);
     });
 

@@ -594,7 +594,10 @@ export async function startKernel(opts?: {
 				// $[技能名] 可在任意位置，复用渠道提示词的展开逻辑（未知技能保留原文）。
 				let promptToSend = task.prompt;
 				if (promptToSend.includes("$")) {
-					const skills = await channelManager.loadSkillContents();
+					// 技能按任务所属项目派生（与会话 spawn / 渠道提示词同一口径）
+					const { projects } = await projectStore.load();
+					const projectCwd = projects.find((p) => p.id === projectId)?.cwd;
+					const skills = await channelManager.loadSkillContents(projectCwd);
 					promptToSend = expandSkillTokens(promptToSend, skills);
 				}
 				// 取消检查点：等待期间被请求取消 → 让会话收敛（中止已由 scheduler 发出）
