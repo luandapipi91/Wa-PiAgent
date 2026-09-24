@@ -6,7 +6,9 @@
 // - 写操作成功返回 200 {ok:true} 或末个 reply JSON；{type:"error"} reply → 400 {error}
 // - 旧 WS 的广播应答（project:created / provider:changed / skill:changed 等）在 REST 下
 //   走 SSE 总线，HTTP 响应不携带 → 需要结果对象时轮询对应的 GET 列表端点
-import { E2E_WS_PORT } from "../playwright.config";
+import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -187,14 +189,47 @@ export async function saveAgentConfig(
   });
 }
 
-/** 添加技能目录（旧 WS skillDir:add + 等 skill:changed：POST 返回时重扫已完成） */
-export async function addSkillDir(path: string): Promise<void> {
-  await api("POST", "/api/skills/dirs", { path });
+/** E2E 隔离的内置技能目录（kernel SkillManager.builtinDir = <WA_PI_DIR>/skills） */
+export const E2E_BUILTIN_SKILLS_DIR = join(E2E_WA_PI_DIR, "skills");
+
+/** 轮询 GET /api/skills（该请求会触发 kernel 同步重扫）直到满足条件 */
+async function waitForSkill(
+  name: string,
+  present: boolean,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const data = await api("GET", "/api/skills");
+    const has = !!(data?.allSkills ?? []).some((s: any) => s.name === name);
+    if (has === present) return;
+    if (Date.now() > deadline) {
+      throw new Error(`等待技能 ${name} ${present ? "出现" : "消失"} 超时`);
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
-/** 移除技能目录（旧 WS skillDir:remove） */
-export async function removeSkillDir(path: string): Promise<void> {
-  await api("DELETE", "/api/skills/dirs", { path });
+/** 注入内置技能（写 <WA_PI_DIR>/skills/<name>/SKILL.md 并等待 kernel 扫到），返回技能名 */
+export async function addSkillDir(
+  name: string,
+  description = "E2E 测试技能",
+): Promise<string> {
+  const dir = join(E2E_BUILTIN_SKILLS_DIR, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "SKILL.md"),
+    `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}`,
+    "utf8",
+  );
+  await waitForSkill(name, true);
+  return name;
+}
+
+/** 移除内置技能并等待 kernel 扫不到 */
+export async function removeSkillDir(name: string): Promise<void> {
+  rmSync(join(E2E_BUILTIN_SKILLS_DIR, name), { recursive: true, force: true });
+  await waitForSkill(name, false);
 }
 
 /**
