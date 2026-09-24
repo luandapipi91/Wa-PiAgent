@@ -273,6 +273,37 @@ test("范围选择器位于技能目录行内，且 DOM 顺序早于刷新按钮
   expect(order).toEqual(["skill-scope-select", "skill-refresh-btn"]);
 });
 
+test("范围下拉菜单经 portal 挂到页面最外层，选中选项后从 document 移除", () => {
+  useSkillsStore.setState({ allSkills: [] });
+  const { container } = render(<SkillSection />);
+  const trigger = screen.getByTestId("skill-scope-select");
+  // 触发按钮标记展开态
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+  fireEvent.click(trigger);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+  // 菜单与遮罩都不在 render 容器内（说明已 portal 到页面最外层），但存在于 document
+  expect(container.querySelector('[data-testid="skill-scope-menu"]')).toBeNull();
+  expect(container.querySelector('[data-testid="skill-scope-backdrop"]')).toBeNull();
+  expect(document.querySelector('[data-testid="skill-scope-menu"]')).toBeTruthy();
+  expect(document.querySelector('[data-testid="skill-scope-backdrop"]')).toBeTruthy();
+
+  // 选中一个选项后菜单从 document 移除
+  fireEvent.click(screen.getByTestId("skill-scope-option-all"));
+  expect(document.querySelector('[data-testid="skill-scope-menu"]')).toBeNull();
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("按 Escape 关闭范围下拉菜单", () => {
+  useSkillsStore.setState({ allSkills: [] });
+  render(<SkillSection />);
+  fireEvent.click(screen.getByTestId("skill-scope-select"));
+  expect(document.querySelector('[data-testid="skill-scope-menu"]')).toBeTruthy();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.querySelector('[data-testid="skill-scope-menu"]')).toBeNull();
+});
+
 test("扩展来源标签为 Plugin skill（包名）", () => {
   useSkillsStore.setState({
     allSkills: [

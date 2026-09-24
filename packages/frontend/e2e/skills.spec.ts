@@ -239,3 +239,106 @@ test.describe.serial("技能范围：$ 快捷菜单按当前项目过滤", () =>
     await expect(menu).not.toContainText(A_SKILL);
   });
 });
+
+// 范围选择器菜单：改经 createPortal 挂到 body + fixed 定位，修「被 SkillSection 滚动容器
+// 裁切（只露上半截）」与「把容器撑出滚动条」两个缺陷。
+test.describe.serial("技能范围选择器菜单：挂到页面最外层且完整可见", () => {
+  test.beforeAll(async () => {
+    await ensureProvider();
+  });
+
+  /** 打开设置 → 技能页（中文界面，与上面用例同款前置） */
+  async function openSkillsPage(page: import("@playwright/test").Page) {
+    await setUiPrefs(page, "zh");
+    await page.goto("/");
+    await createProject("e2e-skills", "/tmp/e2e-skills");
+    await page.goto("/");
+    await page.getByTestId("settings-btn").click();
+    await expect(page.getByTestId("settings-modal")).toBeVisible();
+    await page.getByText("技能", { exact: true }).click();
+    await expect(page.getByTestId("skill-scope-select")).toBeVisible();
+  }
+
+  /** 技能页滚动容器（SkillSection 根 div，无 testid）：离触发按钮最近的可滚动祖先的溢出量 */
+  async function scrollHostOverflow(page: import("@playwright/test").Page) {
+    return page.evaluate(() => {
+      const btn = document.querySelector('[data-testid="skill-scope-select"]');
+      if (!btn) return null;
+      let el: HTMLElement | null = btn.parentElement;
+      while (el) {
+        const cs = getComputedStyle(el);
+        if (
+          !["visible", "clip"].includes(cs.overflowX) ||
+          !["visible", "clip"].includes(cs.overflowY)
+        )
+          break;
+        el = el.parentElement;
+      }
+      if (!el) return null;
+      return { x: el.scrollWidth - el.clientWidth, y: el.scrollHeight - el.clientHeight };
+    });
+  }
+
+  test("菜单完整落在视口内、贴按钮下方、父节点是 body（不撑出横向滚动条）", async ({ page }) => {
+    await openSkillsPage(page);
+    const scope = page.getByTestId("skill-scope-select");
+    const buttonBox = (await scope.boundingBox())!;
+    // 打开前：技能页滚动容器无横向溢出（对照面）
+    expect((await scrollHostOverflow(page))!.x).toBeLessThanOrEqual(1);
+
+    await scope.click();
+    const menu = page.getByTestId("skill-scope-menu");
+    await expect(menu).toBeVisible();
+    const menuBox = (await menu.boundingBox())!;
+    const vp = page.viewportSize()!;
+    // ① 完整落在视口内
+    expect(menuBox.x).toBeGreaterThanOrEqual(0);
+    expect(menuBox.y).toBeGreaterThanOrEqual(0);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(vp.width + 1);
+    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(vp.height + 1);
+    // ② 贴按钮下方（视口空间足够，不翻转）
+    expect(menuBox.y).toBeGreaterThanOrEqual(buttonBox.y + buttonBox.height - 2);
+    // ③ 菜单在最上层：中心点命中菜单自身（未被设置弹窗 / 遮罩遮挡）
+    expect(
+      await menu.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!hit && el.contains(hit);
+      }),
+    ).toBe(true);
+    // ④ 打开后技能页滚动容器与设置弹窗内容区都不被撑出横向滚动条
+    expect((await scrollHostOverflow(page))!.x).toBeLessThanOrEqual(1);
+    expect(
+      await page
+        .getByTestId("settings-modal")
+        .evaluate((el) => el.scrollWidth - el.clientWidth),
+    ).toBeLessThanOrEqual(1);
+    // ⑤ 不是技能页滚动容器的子节点：portal 到 body 直下
+    expect(await menu.evaluate((el) => el.parentElement === document.body)).toBe(true);
+
+    // 选中选项后菜单移除（关闭行为不变）
+    await page.getByTestId("skill-scope-option-all").click();
+    await expect(menu).toHaveCount(0);
+  });
+
+  test("短视口下菜单仍完整在视口内（向上翻转 / 夹取生效）", async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 420 });
+    await openSkillsPage(page);
+    const scope = page.getByTestId("skill-scope-select");
+    const buttonBox = (await scope.boundingBox())!;
+
+    await scope.click();
+    const menu = page.getByTestId("skill-scope-menu");
+    await expect(menu).toBeVisible();
+    const menuBox = (await menu.boundingBox())!;
+    const vp = page.viewportSize()!;
+    expect(menuBox.x).toBeGreaterThanOrEqual(0);
+    expect(menuBox.y).toBeGreaterThanOrEqual(0);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(vp.width + 1);
+    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(vp.height + 1);
+    // 不压按钮：要么在按钮下方，要么翻转到按钮上方（二者必居其一）
+    const belowOk = menuBox.y >= buttonBox.y + buttonBox.height - 2;
+    const aboveOk = menuBox.y + menuBox.height <= buttonBox.y + 2;
+    expect(belowOk || aboveOk).toBe(true);
+  });
+});

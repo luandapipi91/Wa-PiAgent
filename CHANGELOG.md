@@ -1,5 +1,7 @@
 ## 2026-09-24
 
+- fix(frontend): 技能页范围选择器菜单改挂到页面最外层（`createPortal` 到 body + `fixed` 定位：按触发按钮矩形贴下方、空间不足向上翻转、左右越界夹取、maxHeight 取可用空间与 320px 较小值），修菜单被 SkillSection 滚动容器裁切（只露上半截）与把容器撑出滚动条（实测横向溢出 53px → 0）。影响：前端设置技能页范围筛选。
+
 - fix(frontend): 技能页「项目」范围改为只显示该项目技能（内置 / 插件 / 他项目技能不再混入，无技能即空列表），范围选择器从搜索行移到「技能目录：…」同一行、位于刷新按钮左侧（该行新增 `data-testid="skill-dir-header"`）。影响：前端技能页筛选语义与目录行布局。
 - feat(skills): 技能来源新增项目级 `<cwd>/.pi/skills`（同名项目优先、被遮蔽者标记 shadowed），技能页支持全部 / 全局 / 项目范围筛选与「全局 / 项目（项目名）/ Plugin（包名）」来源标签，移除手动增删技能目录入口与接口，修复技能开关 REST 载荷方向、E2E 改为注入内置技能。影响：kernel 技能来源与前端技能页。
 - fix(skills): 项目级范围支持合并前收口（全分支终审发现）——①frontend：`$` 快捷菜单 / 命令面板 / 智能体技能白名单仍把 `allSkills` 当「唯一可用的技能全集」消费，改用新增具名派生选择器 `selectAvailableSkillsForProject`（非 shadowed、排除他项目 project 来源、保留内置/扩展，同名项目版本优先）与会话所属项目（`projectId` prop 优先、缺省回退 store 当前项目——新会话面板的项目选择是局部 state，不写回 store），修「项目 A 会话敲 `$` 列出项目 B 技能、选中插入 `/skill:X` 却在会话 spawn 时未传给 pi 而静默不生效」与「项目技能遮蔽内置时渲染两行同名项 + React 重复 key」，列表 key 改带来源维度（`skillKeyOf`），QuickInvokeMenu 项目来源标签改「项目 skill（项目名）」口径；②kernel：`loadSkillContents(projectCwd?)` 接入项目技能来源（渠道取 `mapping.currentProjectId`、定时任务取任务所属项目，只传单个项目），修渠道附加提示词与定时任务 `$[技能名]` 展开看不到项目技能；③补护栏用例（项目技能同名受全局 disabledSkills 约束、settings.json 历史 userSkillDirs 写盘保真，均已 kill test 验证可失败）+ README 中英双版「打开项目会加载该项目 `<项目根>/.pi/skills` 下的技能」说明。测试：前端受影响 15 文件 308 pass / 2 skip / 0 fail（含新增选择器与 key 单测 5 例、4 个消费方组件用例）、kernel 受影响 16 文件 188 pass / 0 fail（含新增 `channel-manager-skill-contents.test.ts` 3 例）、E2E `skills.spec.ts` 6 passed（新增「`$` 菜单按当前项目过滤」1 例）、两包 typecheck 绿；Important 1/2 用例均先红后绿。影响：前端技能候选来源、kernel 渠道/定时任务技能展开。
