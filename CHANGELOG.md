@@ -1,3 +1,7 @@
+## 2026-09-24
+
+- docs(repo): GitHub 检索推广优化——修复仓库 About 描述（该字段此前存的是 topics 校验报错文本，导致英文品类关键词检索基本失效：`pi agent gui` 仅排 56、`pi coding agent desktop` 未进前 100、`pi coding agent client` 在 87 条结果中完全不命中），改为品类句 `A desktop GUI client for the pi agent (pi coding agent). …`；Homepage 由空补为官网 `https://www.wapiagent.top/index.html`；Topics 由 5 个扩到 20 个（新增 pi-coding-agent / pi-desktop / ai-coding-agent / ai-coding-assistant / desktop-client / developer-tools / llm / mcp / multi-agent / agent-framework 等）。README.md 与 README.zh-CN.md（前序提交 29583648）：tagline 与首段改为品类句、新增 Release / License / Platform / Downloads 徽章、克隆地址由占位符改为真实 URL、新增 FAQ 章节；新增社交预览图素材 `docs/assets/social-preview.png`（1280×640，REST API 无上传接口，需在仓库设置手工上传，步骤见下）。复测（认证搜索 API，best match，同库同词前后对照）：3 个关键词全部命中，排名由 `56 / 不命中 / 不命中` 变为 `62 / 76 / 19`（结果集 160 / 245 / 88 条），其中 `pi coding agent client` 已接近首页（第 19）；描述长度做了一轮对照实验（221→243→156 字符），156 字符版本三个关键词排名均最优。验证：API 读回元数据 9 项全部通过 + 三关键词 before/after 排名对照 + 双远端（Gitee / GitHub）main 与本地同一 commit。本次未改任何代码，无行为变更，四层测试不适用。
+
 ## 2026-09-23
 
 - v0.6.10 发版：升版 0.6.9 → 0.6.10（1 提交 ec5a3aab：子智能体终态帧所有路径必发 + 卡片终态判定以 details 为权威，修复「已完成却显示已中断」）。验证：typecheck 四包 + kernel 全量回归 + 双端打包 gate（官方 Electron 源）。
