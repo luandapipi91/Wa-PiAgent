@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+import versionHistory from "../data/version-history.json";
 import { HISTORY_CACHE_KEY, type VersionEntry } from "../util/version-history";
 
 const remote: VersionEntry[] = [
@@ -21,7 +22,11 @@ const { useVersionHistoryStore } = await import("./version-history");
 beforeEach(() => {
 	localStorage.clear();
 	getImpl = async () => ({ history: remote });
-	useVersionHistoryStore.setState({ loaded: false });
+	useVersionHistoryStore.setState({
+		entries: versionHistory as never,
+		source: "bundled",
+		loaded: false,
+	});
 });
 
 test("load 成功后合并线上数据并写缓存", async () => {

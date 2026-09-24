@@ -28,13 +28,14 @@ export const useVersionHistoryStore = create<VersionHistoryState>((set) => ({
 	source: "bundled",
 	loaded: false,
 	load: async () => {
-		// 1) 先用上次落盘的线上数据暖场（离线/内核未就绪时也能看到较新的历史）；
-		//    每次都按「内置 + 缓存」重置一次，保证 source 如实反映当前数据出处
+		// 1) 先用上次落盘的线上数据暖场（离线/内核未就绪时也能看到较新的历史）
 		const cached = readHistoryCache();
-		set({
-			entries: mergeVersionHistory([BUNDLED, cached]),
-			source: cached.length ? "cache" : "bundled",
-		});
+		if (cached.length) {
+			set({
+				entries: mergeVersionHistory([BUNDLED, cached]),
+				source: "cache",
+			});
+		}
 		// 2) 再拉线上（内核代拉，见 kernel/src/version-history.ts）；失败静默保留现有数据
 		try {
 			const data = (await api.get("/api/version-history")) as {
