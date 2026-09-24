@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SkillManager } from "../src/skill-manager";
 
@@ -95,6 +95,17 @@ test("同名技能项目优先，内置被标记 shadowed", async () => {
   );
   expect(shadowedBuiltin?.shadowed).toBe(true);
   expect(result.skills.some((s) => s.source?.type === "builtin")).toBe(false);
+
+  // 守护：项目技能同名同样受全局 disabledSkills 约束（禁用后生效列表不含该名，
+  // 但 allSkills 仍保留两条：项目版本 + 被遮蔽的内置版本）
+  await mgr.toggleSkill("dup-skill", true);
+  const afterDisable = await mgr.scan({
+    projects: [{ id: "p1", name: "项目A", dir: projSkills }],
+  });
+  expect(afterDisable.skills.some((s) => s.name === "dup-skill")).toBe(false);
+  expect(
+    afterDisable.allSkills.filter((s) => s.name === "dup-skill"),
+  ).toHaveLength(2);
 });
 
 test("scan 顺序为 项目 → 内置 → 扩展，dirs 带范围信息", async () => {
@@ -139,6 +150,25 @@ test("settings.json 的 userSkillDirs 不再生效（遗留字段被忽略）", 
 
   expect(result.allSkills.some((s) => s.name === "legacy-skill")).toBe(false);
   expect(result.dirs.some((d) => d.path === legacyDir)).toBe(false);
+});
+
+test("toggleSkill 写盘后保留历史 userSkillDirs 旧值（兼容承诺）", async () => {
+  const legacyDir = join(dir, "legacy-user-skills");
+  mkdirSync(legacyDir, { recursive: true });
+  writeFileSync(
+    join(dir, "settings.json"),
+    JSON.stringify({ userSkillDirs: [legacyDir], disabledSkills: [] }),
+  );
+
+  const mgr = new SkillManager(dir);
+  await mgr.toggleSkill("brave-search", true);
+
+  // 写盘只更新 disabledSkills，文件中已有的旧字段原样保留（不做迁移、不主动删除）
+  const written = JSON.parse(
+    readFileSync(join(dir, "settings.json"), "utf8"),
+  );
+  expect(written.userSkillDirs).toEqual([legacyDir]);
+  expect(written.disabledSkills).toEqual(["brave-search"]);
 });
 
 test("扩展来源技能仍带包名，且不因项目来源改变", async () => {

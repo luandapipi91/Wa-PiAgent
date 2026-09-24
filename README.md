@@ -139,7 +139,7 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 ### 🧠 Models / Skills / Memory
 
 - **Model management**: custom OpenAI-compatible / Anthropic providers, multi-model mounting, connection tests
-- **Skill system**: a directory is a skill; pluggable enable/disable
+- **Skill system**: a directory is a skill; pluggable enable/disable. Opening a project also loads the skills under that project's `<project root>/.pi/skills`
 - **Memory system**: global and project-level memory, letting agents accumulate experience across sessions
 
 <div align="center">
