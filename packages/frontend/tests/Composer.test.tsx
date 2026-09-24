@@ -122,8 +122,6 @@ describe("Composer", () => {
       load: () => {},
       setAll: () => {},
       toggleSkill: () => {},
-      addDir: () => {},
-      removeDir: () => {},
     });
   });
 

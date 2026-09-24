@@ -127,8 +127,6 @@ beforeEach(() => {
 		load: mock(),
 		setAll: mock(),
 		toggleSkill: mock(),
-		addDir: mock(),
-		removeDir: mock(),
 	});
 	useAgentsStore.setState({ list: [], configs: {} });
 	useCommandsStore.setState({ commands: [], loading: false });
