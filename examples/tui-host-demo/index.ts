@@ -34,6 +34,37 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	/**
+	 * 回显型面板：把每次 handleInput 收到的 data 原样追加成一行帧，回车结束。
+	 *
+	 * 用途：验证「输入真的送到面板并被插件消费」——尤其是输入法上屏的中文整串，
+	 * 上屏后应作为一条 data 进来、并在帧上原样可见（E2E 断言帧里出现该中文）。
+	 */
+	pi.registerCommand("tui-demo-echo", {
+		description: "回显型面板测试桩（输入逐条回显，回车结束）",
+		handler: async (_args, ctx) => {
+			const received: string[] = [];
+			const picked = await ctx.ui.custom<string>(
+				(_tui, _theme, _keybindings, done) => ({
+					render: () => [
+						" Echo Panel（输入回显；回车结束）",
+						"",
+						...received.map((d) => `echo: ${d}`),
+					],
+					invalidate: () => {},
+					handleInput: (data: string) => {
+						if (data === "\r") {
+							done("echo-done");
+							return;
+						}
+						received.push(data);
+					},
+				}),
+			);
+			ctx.ui.notify(`tui-demo-echo 结束：${String(picked)}`, "info");
+		},
+	});
+
+	/**
 	 * 键盘型编号选项对话框：与 pi-goal-x 的 goal-questionnaire（提案确认/问卷）同形——
 	 * 编号选项 + 底部「Enter select」提示，**只实现 render/invalidate/handleInput**。
 	 *
@@ -76,6 +107,88 @@ export default function (pi: ExtensionAPI) {
 				}),
 			);
 			ctx.ui.notify(`tui-demo-options 选择：${String(picked)}`, "info");
+		},
+	});
+
+	/**
+	 * 真实输入框桩：一个可编辑的单行输入框（不是「按键回显」）。
+	 *
+	 * 用于验证输入法在真实编辑语义下是否正常：组词中的拼音不得进入输入框的值、
+	 * 选词后整串落进值、退格/左右键能编辑、**光标跟随**（候选框贴真实输入位置）。
+	 *
+	 * 光标：在渲染行里插入 pi-tui 的 CURSOR_MARKER（APC 序列 `ESC _ pi:c BEL`），
+	 * TUI 把它抽成帧光标（kernel 侧见 packages/kernel/src/tui-host/frame.ts），
+	 * 图形界面下前端据此把 IME 落点与候选框定位到真实输入位置。
+	 * 这里硬编码该常量，免得桩在运行期依赖 node_modules（本桩只用 import type）。
+	 */
+	pi.registerCommand("tui-demo-input", {
+		description: "真实输入框桩（编辑 / 退格 / ←→ / Enter 提交）",
+		handler: async (_args, ctx) => {
+			const CURSOR_MARKER = "\u001b_pi:c\u0007";
+			const seg = new Intl.Segmenter("zh", { granularity: "grapheme" });
+			const split = (s: string) => [...seg.segment(s)].map((g) => g.segment);
+			let value = "";
+			let cursor = 0; // 光标在 value 里的 grapheme 下标
+			const picked = await ctx.ui.custom<string>(
+				(_tui, _theme, _keybindings, done) => ({
+					render: () => {
+						const gs = split(value);
+						return [
+							" Input Demo（真实输入框：←→ 移光标 / 退格 / Enter 提交 / Esc 取消）",
+							"",
+							` 输入：${gs.slice(0, cursor).join("")}${CURSOR_MARKER}${gs.slice(cursor).join("")}`,
+							"",
+							" 打中文：组词中的拼音不进入输入框，选词后整串落进值（中文占 2 列）",
+						];
+					},
+					invalidate: () => {},
+					handleInput: (data: string) => {
+						if (data === "\u001b") {
+							done("");
+							return;
+						}
+						if (data === "\r") {
+							done(value);
+							return;
+						}
+						if (data === "\u007f") {
+							if (cursor > 0) {
+								const gs = split(value);
+								gs.splice(cursor - 1, 1);
+								value = gs.join("");
+								cursor -= 1;
+							}
+							return;
+						}
+						if (data === "\u001b[D") {
+							cursor = Math.max(0, cursor - 1);
+							return;
+						}
+						if (data === "\u001b[C") {
+							cursor = Math.min(split(value).length, cursor + 1);
+							return;
+						}
+						if (data === "\u001b[H") {
+							cursor = 0;
+							return;
+						}
+						if (data === "\u001b[F") {
+							cursor = split(value).length;
+							return;
+						}
+						// 未识别的转义序列与控制字符（Tab 等）不进值
+						if (data.includes("\u001b")) return;
+						if ([...data].some((c) => c.charCodeAt(0) < 32)) return;
+						// 其余整串插到光标处：IME 上屏的中文、粘贴的文本都走这里
+						const ins = split(data);
+						const gs = split(value);
+						gs.splice(cursor, 0, ...ins);
+						value = gs.join("");
+						cursor += ins.length;
+					},
+				}),
+			);
+			ctx.ui.notify(`tui-demo-input 提交：${String(picked) || "（空）"}`, "info");
 		},
 	});
 }
