@@ -254,7 +254,10 @@ test("卡死超时：pi 永不 settle 时按 commandTimeoutMs 超时返回 isErr
 		commandTimeoutMs: 1500, // 1.5s 超时（hang-pi 永不 settle）
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toContain("超时");
+	// 对外文案（用户指定）：不暴露内部毫秒数与内部机制名，直接告知「超过时限已自动终止」
+	expect(result.text).toContain(
+		"子智能体执行失败: 子智能体超过2小时时限，已自动终止。",
+	);
 }, 10000); // 测试自身 10s 兜底（验证不永久阻塞）
 
 test("abort 短路：子代理不响应 abort 时按 abortGraceMs 强制返回，不等 settle 超时", async () => {

@@ -373,7 +373,9 @@ export async function runSubagentAgent(
 				racers.push(
 					new Promise<never>((_, reject) => {
 						settleTimer = setTimeout(
-							() => reject(new Error(`子智能体 settle 超时 (${settleTimeoutMs}ms)`)),
+							// 对外文案（用户指定）：只说「超过时限已自动终止」，不暴露内部毫秒数与机制名。
+							// 口径固定为产品硬上限 2 小时（COMMAND_TIMEOUT_MS）；若调整该常量，此处文案需同步。
+							() => reject(new Error("子智能体超过2小时时限，已自动终止。")),
 							settleTimeoutMs,
 						);
 					}),
