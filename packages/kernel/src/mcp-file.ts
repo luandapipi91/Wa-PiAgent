@@ -65,8 +65,14 @@ export class McpFile {
       cfg.mcpServers[name] ??
       (originalName ? cfg.mcpServers[originalName] : undefined) ??
       {};
+    // 显式 undefined 视为「表单未填」，不得覆盖旧值：否则 toolExposure / enabled / timeout
+    // 会被写成 undefined、被 JSON.stringify 丢弃 —— 写盘成功（ok: true）却把字段静默丢掉（F15 的同类伤害）。
+    // 清空某字段应走 delete 语义，而不是靠 undefined。
+    const patch = Object.fromEntries(
+      Object.entries(rest).filter(([, v]) => v !== undefined),
+    );
     // 关键：以旧条目为基底合并，未知字段得以保留
-    cfg.mcpServers[name] = { ...previous, ...rest, name: undefined } as RawServer;
+    cfg.mcpServers[name] = { ...previous, ...patch } as RawServer;
     delete (cfg.mcpServers[name] as { name?: unknown }).name;
     if (originalName && originalName !== name) delete cfg.mcpServers[originalName];
     await this.write(path, cfg);
@@ -94,10 +100,33 @@ export class McpFile {
 
   private async read(path: string): Promise<RawFile> {
     try {
-      const parsed = JSON.parse(await readFile(path, "utf8")) as RawFile;
-      return { ...parsed, mcpServers: parsed.mcpServers ?? {} };
+      const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+      // 形状守卫：不是对象（字面 null / 数组 / 字符串…）一律按解析失败报错，
+      // 不能泄漏原生 TypeError（那会绕过 KernelError 错误码契约）。
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new KernelError(
+          "mcp.configParseFailed",
+          undefined,
+          `根不是对象: ${path}`,
+        );
+      }
+      const raw = (parsed as RawFile).mcpServers;
+      // 值域不是 map（如 "abc" / 0）视为配置损坏：报错而非静默清空，
+      // 否则 list() 会谎报「没有服务器」，save() 更会把新服务器写丢。
+      if (raw !== undefined && raw !== null && typeof raw !== "object") {
+        throw new KernelError(
+          "mcp.configParseFailed",
+          undefined,
+          `mcpServers 不是对象: ${path}`,
+        );
+      }
+      // 数组是「手工清空列表」的自然写法：无法表达具名服务器，视为空 map。
+      const mcpServers =
+        raw && !Array.isArray(raw) ? (raw as Record<string, RawServer>) : {};
+      return { ...(parsed as RawFile), mcpServers };
     } catch (e: unknown) {
       if ((e as { code?: string }).code === "ENOENT") return { mcpServers: {} };
+      if (e instanceof KernelError) throw e;
       throw new KernelError(
         "mcp.configParseFailed",
         undefined,

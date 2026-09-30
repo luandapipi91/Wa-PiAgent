@@ -98,6 +98,52 @@ describe("McpFile", () => {
 		expect(await off.getAutoEnableCodemode()).toBe(false);
 	});
 
+	test("保存载荷里的显式 undefined 视为未填，不得抹掉盘上已保留的字段", async () => {
+		const { file, globalPath } = await setup({
+			mcpServers: {
+				keep: { command: "x", toolExposure: { t: "hidden" }, enabled: false, timeout: 45 },
+			},
+		});
+		// 任务 8 的路由按表单组装载荷：未填写的字段会是 undefined
+		await file.save({
+			name: "keep",
+			command: "y",
+			timeout: undefined,
+			enabled: undefined,
+			toolExposure: undefined,
+			exposure: undefined,
+		});
+		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		expect(raw.mcpServers.keep.command).toBe("y");
+		expect(raw.mcpServers.keep.toolExposure).toEqual({ t: "hidden" });
+		expect(raw.mcpServers.keep.enabled).toBe(false);
+		expect(raw.mcpServers.keep.timeout).toBe(45);
+	});
+
+	test("mcpServers 为数组（用户手工清空列表）时 save 仍把服务器写进文件", async () => {
+		const { file, globalPath } = await setup({ mcpServers: [] });
+		const result = await file.save({ name: "added", command: "x" });
+		expect(result).toEqual({ ok: true });
+		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		expect(Array.isArray(raw.mcpServers)).toBe(false);
+		expect(raw.mcpServers.added).toEqual({ command: "x" });
+	});
+
+	test("根不是对象或 mcpServers 不是 map → 抛 mcp.configParseFailed，不泄漏裸 TypeError", async () => {
+		const readCode = async (file: McpFile): Promise<string | undefined> => {
+			try {
+				await file.list();
+				return undefined;
+			} catch (e: unknown) {
+				return (e as { code?: string }).code;
+			}
+		};
+		for (const broken of [null, [], { mcpServers: "abc" }, { mcpServers: 0 }]) {
+			const { file } = await setup(broken);
+			expect(await readCode(file)).toBe("mcp.configParseFailed");
+		}
+	});
+
 	test("projectMcpPath / hasProjectMcpFile 指向项目级 <cwd>/.pi/mcp.json", async () => {
 		const { file } = await setup({ mcpServers: {} });
 		const projectCwd = join(dir, "proj");
