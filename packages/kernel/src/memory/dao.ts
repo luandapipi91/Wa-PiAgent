@@ -6,6 +6,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { bigram } from "./bigram";
+import { embedFingerprint } from "./embedder";
 import { buildMatchExpr } from "./query";
 
 export type MemoryKind = "profile" | "knowledge" | "execution";
@@ -28,6 +29,10 @@ export interface MemoryRow {
   useCount: number;
   archived: number;
   archivedAt: number | null;
+  /** 语义向量（Float32 原始字节）；未索引为 null */
+  embedding?: Uint8Array | null;
+  /** 向量对应的模型指纹；与 embedFingerprint() 不一致即视为待重新索引 */
+  embedMeta?: string | null;
 }
 
 export interface InsertInput {
@@ -137,6 +142,8 @@ interface RawRow {
   use_count: number;
   archived: number;
   archived_at: number | null;
+  embedding?: Uint8Array | null;
+  embed_meta?: string | null;
 }
 
 function toRow(r: RawRow): MemoryRow {
@@ -156,6 +163,8 @@ function toRow(r: RawRow): MemoryRow {
     useCount: r.use_count,
     archived: r.archived,
     archivedAt: r.archived_at,
+    embedding: r.embedding ?? null,
+    embedMeta: r.embed_meta ?? null,
   };
 }
 
@@ -215,6 +224,8 @@ export class MemoryDao {
     );
     if (res.changes === 0) return false;
     this.syncFts(this.getById(id)!);
+    // 内容变化 → 向量失效。置 NULL 而不是删除列值，让后台任务按 listUnindexed 重算。
+    this.db.run("UPDATE memories SET embedding = NULL, embed_meta = NULL WHERE id = ?", [id]);
     return true;
   }
 
@@ -223,6 +234,31 @@ export class MemoryDao {
     if (res.changes === 0) return false;
     this.db.run("DELETE FROM memories_fts WHERE memory_id = ?", [id]);
     return true;
+  }
+
+  /** 当前生效的模型指纹（写入 embed_meta） */
+  embedFingerprint(): string {
+    return embedFingerprint();
+  }
+
+  /** 待索引条目：未归档且（无向量 或 指纹不匹配）。按 updated_at 升序，老条目优先。 */
+  listUnindexed(limit: number): MemoryRow[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM memories
+          WHERE archived = 0
+            AND (embedding IS NULL OR embed_meta IS NULL OR embed_meta <> ?)
+          ORDER BY updated_at ASC
+          LIMIT ?`,
+      )
+      .all(embedFingerprint(), limit) as RawRow[];
+    return rows.map(toRow);
+  }
+
+  /** 写入向量与指纹；返回是否命中了一行 */
+  setEmbedding(id: string, vec: Uint8Array, meta: string): boolean {
+    const res = this.db.run("UPDATE memories SET embedding = ?, embed_meta = ? WHERE id = ?", [vec, meta, id]);
+    return res.changes > 0;
   }
 
   archive(id: string): boolean {
