@@ -95,6 +95,7 @@ import type { SkillManager } from "./skill-manager";
 import { projectSkillsDirOf } from "./skill-sources";
 import type { ExtensionManager } from "./extension-manager";
 import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "./mcp-admin";
+import { hasProjectMcpFile } from "./mcp-file";
 import { mcpToolNamesOf } from "./mcp-tool-names";
 import {
 	registerBridgeSession,
@@ -182,8 +183,10 @@ export interface AgentManagerOpts {
 	// mcpAdmin 可注入：测试注入 fake，避免单测真的 spawn `pi mcp list`；缺省自建真实实例。
 	mcpAdmin?: Pick<McpAdmin, "list" | "invalidate">;
 	/** 按 cwd 解析 MCP 状态读取者（测试注入；同时传 mcpAdmin 时以 mcpAdmin 为准）。
-	 *  生产不传：按会话/项目 cwd 各建一个实例——pi 的项目级 MCP 配置是 `<cwd>/.pi/mcp.json`
-	 *  （F11/F12），cwd 传错就永远枚举不到项目级 server，其工具名进不了白名单。 */
+	 *  生产不传：有 `.pi/mcp.json` 的 cwd 各建一个实例——pi 的项目级 MCP 配置就是该文件
+	 *  （F11/F12），cwd 传错就永远枚举不到项目级 server，其工具名进不了白名单；
+	 *  无该文件的 cwd（含默认工作区每会话唯一的 `<workdir>/<createdAt>`）复用全局实例，
+	 *  不在会话创建路径上多 spawn 一次 `pi mcp list`。 */
 	mcpAdminFor?: (cwd: string) => Pick<McpAdmin, "list" | "invalidate">;
 	/** MCP 工具清单延时刷新的延迟（ms）：缺省 {@link MCP_TOOL_REFRESH_DELAY_MS}；测试注入小值 */
 	mcpToolRefreshDelayMs?: number;
@@ -331,8 +334,9 @@ export class AgentManager {
 	// 会话级浏览器视图池：browser_* 工具的执行后端（可注入 fake，生产默认实例化）
 	readonly browserManager: BrowserManager;
 	// MCP 状态读取者（规格 §7）：只 shell out `pi mcp list --json`，不自建连接。
-	// 按 cwd 缓存：项目级 MCP 配置随 cwd 生效（F11/F12），不同项目必须各用各的实例。
-	// mcpAdmin 是「无 cwd 上下文」时的默认实例（全局作用域，listGlobalTools 与任务 8 的失效入口）。
+	// 按 cwd 缓存**有 `.pi/mcp.json` 的**项目实例（项目级 MCP 配置随 cwd 生效，F11/F12）；
+	// 其余 cwd 复用 mcpAdmin——它同时是「无 cwd 上下文」的默认实例（全局作用域，
+	// listGlobalTools 与任务 8 的失效入口）。
 	readonly mcpAdmin: Pick<McpAdmin, "list" | "invalidate">;
 	private readonly mcpAdmins = new Map<
 		string,
@@ -345,7 +349,24 @@ export class AgentManager {
 		// 测试可注入 fake manager；生产默认创建真实 BrowserManager（延迟到首次工具调用才真正启动 WebView）
 		this.browserManager = opts.browserManager ?? new BrowserManager();
 		// 默认实例用全局作用域（数据目录）的 cwd；带项目上下文的枚举走 _mcpAdminFor(会话 cwd)
-		this.mcpAdmin = this._mcpAdminFor(WA_PI_DIR);
+		this.mcpAdmin =
+			opts.mcpAdmin ??
+			opts.mcpAdminFor?.(WA_PI_DIR) ??
+			this._createMcpAdmin(WA_PI_DIR);
+		this.mcpAdmins.set(WA_PI_DIR, this.mcpAdmin);
+	}
+
+	/** 新建一个按 cwd 生效的真实 McpAdmin（`pi mcp list` 子进程的 cwd = 项目级配置的作用域） */
+	private _createMcpAdmin(
+		cwd: string,
+	): Pick<McpAdmin, "list" | "invalidate"> {
+		return new McpAdmin({
+			runtime: resolvePiRuntime(),
+			cliPath: resolvePiCliPath(),
+			agentDir: WA_PI_DIR,
+			cwd,
+			timeoutMs: DEFAULT_LIST_TIMEOUT_MS,
+		});
 	}
 
 	/**
@@ -353,20 +374,24 @@ export class AgentManager {
 	 *
 	 * cwd 就是 `pi mcp list` 子进程的工作目录：pi 用 process.cwd() 去找 `<cwd>/.pi/mcp.json`
 	 * （受信项目才读，F11/F12），所以项目级 server 只有按项目 cwd 枚举才看得见。
+	 *
+	 * cwd 下**没有** `.pi/mcp.json` 时直接复用全局实例：那种 cwd 的项目作用域枚举与全局
+	 * 等价（pi 找不到项目配置，系统项目又禁止受信，任务 4），而枚举会真 spawn `pi mcp list`
+	 * （缺省 30s 上限），且它就落在会话创建路径上。默认工作区（系统项目）的会话 cwd 是
+	 * `<workdir>/<createdAt>`——每会话唯一，给它们各建实例等于每开一个会话多一次冷枚举，
+	 * 缓存也永不命中（实测一次正常调用约 2.1s，卡住的 server 要到 30s 上限）。
+	 *
+	 * 注入顺序与生产决策同序（`mcpAdmin` → 项目文件判定 → `mcpAdminFor`），所以注入面测到
+	 * 的就是真实决策：`mcpAdminFor` 只对有 `.pi/mcp.json` 的 cwd 生效。
 	 */
 	private _mcpAdminFor(cwd: string): Pick<McpAdmin, "list" | "invalidate"> {
 		const cached = this.mcpAdmins.get(cwd);
 		if (cached) return cached;
-		const admin =
-			this.opts.mcpAdmin ??
-			this.opts.mcpAdminFor?.(cwd) ??
-			new McpAdmin({
-				runtime: resolvePiRuntime(),
-				cliPath: resolvePiCliPath(),
-				agentDir: WA_PI_DIR,
-				cwd,
-				timeoutMs: DEFAULT_LIST_TIMEOUT_MS,
-			});
+		// 固定 fake：所有 cwd 共用（既有注入面的语义不变）
+		if (this.opts.mcpAdmin) return this.opts.mcpAdmin;
+		// 无项目级配置 → 与全局等价，复用全局实例（不缓存该 cwd，避免长跑 kernel 无界增长）
+		if (!hasProjectMcpFile(cwd)) return this.mcpAdmin;
+		const admin = this.opts.mcpAdminFor?.(cwd) ?? this._createMcpAdmin(cwd);
 		this.mcpAdmins.set(cwd, admin);
 		return admin;
 	}
@@ -559,10 +584,10 @@ export class AgentManager {
 	 * `cwd` 是枚举作用域：`pi mcp list` 在自己的工作目录里找 `<cwd>/.pi/mcp.json`，
 	 * 用会话/项目 cwd 才能带上受信项目的服务器（F11/F12）；不传则用全局作用域。
 	 *
-	 * 命名与过滤由 {@link mcpToolNamesOf} 负责：复刻 pi 的 sanitize / 超长 hash 变体 / 撞名，
-	 * 且只保留 `state === "connected" && exposure === "direct"` 的工具——其余曝光档（codemode /
-	 * codemode-deferred / deferred / hidden）不声明给模型，需经 codemode / tool_search 到达，
-	 * 故不进白名单（规格 §6）；连不上/需登录的服务器工具名未知。
+	 * 命名由 {@link mcpToolNamesOf} 负责：复刻 pi 的 sanitize / 超长 hash 变体 / 撞名，输出
+	 * **所有已连服务器**的工具名，并为非 direct 曝光一并放行入口工具（`codemode` /
+	 * `tool_search`，规格 §6）——否则 codemode（pi 的缺省曝光）配置下这些工具谁都调不到。
+	 * 连不上/需登录的服务器工具名未知，不输出。
 	 *
 	 * McpAdmin 自带缓存，故本方法不额外缓存；F10 的失效由 {@link _scheduleMcpToolRefresh} 负责。
 	 */

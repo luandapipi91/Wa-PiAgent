@@ -67,14 +67,84 @@ describe("createMcpToolName：与 pi 的命名规则一致（F4）", () => {
 });
 
 describe("mcpToolNamesOf：枚举 pi 会注册出的工具名", () => {
-  test("只枚举已连上且 exposure=direct 的服务器工具（命名 mcp__<server>__<tool>）", () => {
+  test("已连服务器的工具名全部枚举，不按 exposure 过滤（命名 mcp__<server>__<tool>）", () => {
     const names = mcpToolNamesOf([
-      report({ name: "codemode_srv", exposure: "codemode", tools: ["get_profile"] }),
-      report({ name: "failed_srv", state: "failed", tools: [] }),
-      report({ name: "off_srv", enabled: false, state: "disabled", tools: ["nope"] }),
       report({ name: "dbx", tools: ["query", "list"] }),
+      report({ name: "codemode_srv", exposure: "codemode", tools: ["get_profile"] }),
+      report({ name: "deferred_srv", exposure: "deferred", tools: ["search_docs"] }),
+      report({
+        name: "codemode_deferred_srv",
+        exposure: "codemode-deferred",
+        tools: ["ghost"],
+      }),
     ]);
-    expect(names).toEqual(["mcp__dbx__query", "mcp__dbx__list"]);
+    for (const name of [
+      "mcp__dbx__query",
+      "mcp__dbx__list",
+      "mcp__codemode_srv__get_profile",
+      "mcp__deferred_srv__search_docs",
+      "mcp__codemode_deferred_srv__ghost",
+    ]) {
+      expect(names).toContain(name);
+    }
+  });
+
+  test("exposure 缺省（pi 报 codemode）的 server：工具名进清单，且一并放行 codemode 入口", () => {
+    // pi 的 report.exposure = config.exposure ?? "codemode"（dist/extensions/mcp/cli.js 的 list）：
+    // 未写 exposure 的 server 就是这一档；白名单里没有 codemode 时它的工具一个都调不到
+    const names = mcpToolNamesOf([
+      report({ name: "new_srv", exposure: "codemode", tools: ["get_profile"] }),
+    ]);
+    expect(names).toContain("mcp__new_srv__get_profile");
+    expect(names).toContain("codemode");
+  });
+
+  test("codemode-deferred：入口同为 codemode（pi 对这两档都激活 codemode）", () => {
+    const names = mcpToolNamesOf([
+      report({ name: "s", exposure: "codemode-deferred", tools: ["t"] }),
+    ]);
+    expect(names).toContain("mcp__s__t");
+    expect(names).toContain("codemode");
+    expect(names).not.toContain("tool_search");
+  });
+
+  test("deferred：工具名进清单，且一并放行 tool_search 入口", () => {
+    const names = mcpToolNamesOf([
+      report({ name: "s", exposure: "deferred", tools: ["search_docs"] }),
+    ]);
+    expect(names).toContain("mcp__s__search_docs");
+    expect(names).toContain("tool_search");
+    expect(names).not.toContain("codemode");
+  });
+
+  test("全是 direct 时不白给入口工具", () => {
+    expect(mcpToolNamesOf([report({ name: "dbx", tools: ["query"] })])).toEqual([
+      "mcp__dbx__query",
+    ]);
+  });
+
+  test("hidden 无入口：工具名仍列出（多列无害），但不放行任何入口工具", () => {
+    const names = mcpToolNamesOf([
+      report({ name: "s", exposure: "hidden", tools: ["t"] }),
+    ]);
+    expect(names).toContain("mcp__s__t");
+    expect(names).not.toContain("codemode");
+    expect(names).not.toContain("tool_search");
+  });
+
+  test("未连上 / 已停用的服务器：工具名与入口工具都不放行（pi 连不上就没注册）", () => {
+    const names = mcpToolNamesOf([
+      report({ name: "failed_srv", state: "failed", exposure: "codemode", tools: ["x"] }),
+      report({
+        name: "off_srv",
+        enabled: false,
+        state: "disabled",
+        exposure: "codemode",
+        tools: ["nope"],
+      }),
+      report({ name: "auth_srv", state: "needs-auth", exposure: "deferred", tools: ["y"] }),
+    ]);
+    expect(names).toEqual([]);
   });
 
   test("含非法字符的工具名：按 pi 的 sanitize 规则进清单", () => {

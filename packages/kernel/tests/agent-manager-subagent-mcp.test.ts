@@ -3,8 +3,9 @@
 //   1. 子进程的 pi 自行加载内置 MCP 扩展（builtin:mcp，默认加载）：MCP 工具在子进程内
 //      注册，不随主会话继承，故 spawn 的 -e 扩展集不得再注入已移除的 pi-mcp-adapter；
 //   2. 工具白名单并入 mcp-admin 实时枚举出的 MCP 工具名（`mcp__<server>__<tool>`，规格
-//      F4；只有 exposure=direct 的服务器工具「可声明」——旧的 "mcp" 聚合工具随 adapter
-//      一起退场，codemode/deferred 工具经 codemode/tool_search 到达，不进白名单）。
+//      F4），以及非 direct 工具的入口工具（`codemode` / `tool_search`，规格 §6）——旧
+//      "mcp" 聚合工具随 adapter 一起退场，而 codemode（pi 缺省曝光）配置的工具必须同时
+//      有入口才可达，否则子代理静默失去全部 MCP 工具。
 //
 // 触发链路（与 agent-manager-subagent-overrides.test.ts 相同）：
 //   getBridgeSession(sessionId).handleTool("delegate", ...)
@@ -28,7 +29,7 @@ import {
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR, GENERATED_DIR } from "@wa-pi/shared";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -45,7 +46,7 @@ mock.module("../src/subagent-runner", () => ({
   ),
 }));
 
-/** mcp-admin 枚举结果：只有 connected + exposure=direct 的工具有资格进白名单 */
+/** mcp-admin 枚举结果：已连服务器的工具名都进白名单，非 direct 的另有入口工具 */
 const MCP_SERVERS: McpServerReport[] = [
   {
     name: "dbx",
@@ -56,13 +57,21 @@ const MCP_SERVERS: McpServerReport[] = [
     tools: ["query", "list"],
   },
   {
-    // 非 direct 曝光：工具经 codemode 到达，不并入白名单（规格 §6）
+    // pi 缺省曝光（未写 exposure 的 server）：工具名 + codemode 入口都要进白名单
     name: "ologs",
     scope: "global",
     enabled: true,
     exposure: "codemode",
     state: "connected",
     tools: ["get_profile"],
+  },
+  {
+    name: "docs",
+    scope: "global",
+    enabled: true,
+    exposure: "deferred",
+    state: "connected",
+    tools: ["search_docs"],
   },
   {
     // 未连上：工具名未知，不并入白名单
@@ -87,7 +96,8 @@ afterEach(async () => {
   for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
   for (const f of tmpFiles.splice(0)) {
     try {
-      rmSync(f, { force: true });
+      // recursive：本文件也会造临时**目录**（带 .pi/mcp.json 的项目 cwd）
+      rmSync(f, { force: true, recursive: true });
     } catch {
       /* 临时文件清理失败可忽略 */
     }
@@ -156,7 +166,7 @@ async function delegateTo(sessionId: string, agent: string) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test("内置只读子代理（Explore）：白名单并入枚举出的 mcp__srv__tool，不含旧的 mcp 聚合名，-e 不含 pi-mcp-adapter", async () => {
+test("内置只读子代理（Explore）：白名单并入枚举出的 mcp__srv__tool 与非 direct 入口工具，不含旧的 mcp 聚合名，-e 不含 pi-mcp-adapter", async () => {
   const session = await setupManager({
     getAgent: mock(async () => ({
       displayName: "dev",
@@ -169,7 +179,7 @@ test("内置只读子代理（Explore）：白名单并入枚举出的 mcp__srv_
   expect(capturedConfigs.length).toBeGreaterThan(0);
   const explore = capturedConfigs.find((c: any) => c.name === "Explore");
   expect(explore).toBeDefined();
-  // 5 个只读基础工具 ∪ 枚举出的 MCP 工具名（direct 服务器的每个工具一个名字）
+  // 5 个只读基础工具 ∪ 枚举出的全部 MCP 工具名 ∪ 非 direct 工具的入口工具
   for (const t of [
     "read",
     "bash",
@@ -178,13 +188,17 @@ test("内置只读子代理（Explore）：白名单并入枚举出的 mcp__srv_
     "ls",
     "mcp__dbx__query",
     "mcp__dbx__list",
+    // pi 缺省曝光（codemode）的工具：名字与入口都得在，否则子代理静默失去它（规格 §6）
+    "mcp__ologs__get_profile",
+    "codemode",
+    "mcp__docs__search_docs",
+    "tool_search",
   ]) {
     expect(explore.tools).toContain(t);
   }
   // 旧聚合名已随 adapter 退场：不再放行
   expect(explore.tools).not.toContain("mcp");
-  // 非 direct 曝光（codemode）与未连上的服务器，工具名都不进白名单
-  expect(explore.tools).not.toContain("mcp__ologs__get_profile");
+  // 未连上的服务器：工具名不进白名单
   expect(explore.tools.some((t: string) => t.startsWith("mcp__flaky__"))).toBe(
     false,
   );
@@ -223,6 +237,10 @@ test("内置只读子代理：MCP 枚举失败（list 抛错）不阻断 delegat
 
 test("内置只读子代理（Explore）：按会话/项目 cwd 枚举，受信项目 .pi/mcp.json 的工具可进白名单", async () => {
   const projectCwd = mkdtempSync(join(tmpdir(), "wa-pi-mcp-subagent-proj-"));
+  tmpFiles.push(projectCwd);
+  // 盘上有 <cwd>/.pi/mcp.json 才会走项目实例（无该文件时复用全局实例，不进这条路径）
+  mkdirSync(join(projectCwd, ".pi"), { recursive: true });
+  writeFileSync(join(projectCwd, ".pi", "mcp.json"), JSON.stringify({ mcpServers: {} }));
   const projectAdmin = makeFakeMcpAdmin([
     {
       name: "proj",
