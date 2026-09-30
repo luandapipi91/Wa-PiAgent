@@ -25,6 +25,7 @@ import {
 	ensureHttpIdleTimeout,
 	applySystemProxy,
 	ensureDefaultTools,
+	ensureBuiltinExtensionDisables,
 } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle, SubagentProgressThrottle } from "./event-throttle";
@@ -114,6 +115,15 @@ export async function startKernel(opts?: {
 	if (defaultToolsOutcome !== "kept") {
 		console.log(
 			"[tools] 默认内置工具清单已写入 settings.json.defaultTools（新 pi 会话生效）",
+		);
+	}
+	// 内置 llama.cpp 扩展禁用（settings.json.extensions）：pi 内置扩展会在加载时把
+	// llama.cpp 注册成 provider，污染 wa-pi 的 provider 列表；用 `-builtin:llama.cpp`
+	// 覆盖模式禁用。保留用户已有 extensions 条目，缺失才追加，幂等。
+	const builtinExtensionOutcome = await ensureBuiltinExtensionDisables();
+	if (builtinExtensionOutcome !== "kept") {
+		console.log(
+			"[extensions] 已禁用内置 llama.cpp 扩展（新 pi 会话生效）",
 		);
 	}
 	// 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到

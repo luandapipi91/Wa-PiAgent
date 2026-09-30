@@ -754,3 +754,47 @@ export async function ensureDefaultTools(
 	}
 	return "kept";
 }
+
+/**
+ * 要禁用的 pi 内置扩展（settings.json.extensions 的 `-` 覆盖模式）。
+ * 背景：pi 内置 llama.cpp 扩展在加载时无条件 registerProvider(provider.id = "llama.cpp")
+ * （pi-coding-agent dist/extensions/llama/index.js），会把一个本地推理 provider 注入
+ * wa-pi 的 provider 列表（wa-pi 只放行用户配置的 provider）。pi 侧语义：内置扩展默认
+ * 启用，`settings.extensions` 里的 `-builtin:<name>` 是精确强制排除（package-manager 的
+ * isEnabledByOverrides），故这是唯一可用的关闭方式。
+ */
+export const BUILTIN_EXTENSION_DISABLES = ["-builtin:llama.cpp"] as const;
+
+/**
+ * 把内置扩展禁用项并入用户已有的 extensions 清单：保留用户原有条目（含顺序），
+ * 仅在缺失时追加，避免覆盖/去重掉用户自定义扩展。非字符串脏数据丢弃。
+ */
+export function withBuiltinExtensionDisables(existing: unknown): string[] {
+	const list = Array.isArray(existing)
+		? existing.filter((v): v is string => typeof v === "string")
+		: [];
+	const out = [...list];
+	for (const entry of BUILTIN_EXTENSION_DISABLES) {
+		if (!out.includes(entry)) out.push(entry);
+	}
+	return out;
+}
+
+/**
+ * 启动守卫：确保 settings.json.extensions 含内置扩展禁用项（幂等，保留用户其他字段）。
+ * - 缺失 → 追加后写回（written）
+ * - 已含全部禁用项且条目全是字符串 → 不动（kept）
+ */
+export async function ensureBuiltinExtensionDisables(
+	file: string = SETTINGS_FILE,
+): Promise<"written" | "kept"> {
+	const settings = await readSettingsJson(file);
+	const existing = settings.extensions;
+	const next = withBuiltinExtensionDisables(existing);
+	if (Array.isArray(existing) && stringListEquals(existing, next)) {
+		return "kept";
+	}
+	settings.extensions = next;
+	await writeSettingsJson(file, settings);
+	return "written";
+}
