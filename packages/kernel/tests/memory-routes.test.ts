@@ -190,6 +190,29 @@ test("GET /api/memories/search 透传 since/until/offset", async () => {
 	expect((seen[0] as any).offset).toBeUndefined();
 });
 
+test("PUT /api/memories/config 白名单透传 semanticEnabled", async () => {
+	const { r, seen } = makeRecordingRouter();
+	await r.handle(
+		new Request("http://x/api/memories/config", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				reviewEnabled: false,
+				memoryPolicyStyle: "compact",
+				semanticEnabled: false,
+			}),
+		}),
+	);
+	expect(seen).toEqual([
+		{
+			type: "memory:config:set",
+			reviewEnabled: false,
+			memoryPolicyStyle: "compact",
+			semanticEnabled: false,
+		},
+	]);
+});
+
 test("既有记忆路由未被改动：list / purge 仍映射原事件", async () => {
 	const { r, seen } = makeRecordingRouter();
 	await r.handle(new Request("http://x/api/memories?projectId=p1"));
@@ -439,6 +462,28 @@ test("GET /api/memories?limit=2：走 memory:list:page 全链路，返回 entrie
 		expect(body.hasMore).toBe(true);
 		// 徽标口径计数：不带 kind/时间窗的全量总数（active 与 archived 各自）
 		expect(body.counts).toEqual({ active: 3, archived: 0 });
+	} finally {
+		await server.stop();
+	}
+});
+
+test("PUT /api/memories/config：semanticEnabled 经分发层落盘，GET 读回", async () => {
+	const { server, port } = await startTestServer();
+	try {
+		const put = await fetch(`http://127.0.0.1:${port}/api/memories/config`, {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ semanticEnabled: false }),
+		});
+		expect(put.status).toBe(200);
+
+		const res = await fetch(`http://127.0.0.1:${port}/api/memories/config`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as any;
+		expect(body.type).toBe("memory:config");
+		// 真实落盘到 hermes-memory-config.json；未提及的字段用默认值补齐
+		expect(body.config.semanticEnabled).toBe(false);
+		expect(body.config.reviewEnabled).toBe(true);
 	} finally {
 		await server.stop();
 	}

@@ -855,6 +855,9 @@ test.skipIf(modelUnavailable)(
     // score 量纲：融合分数已按首位归一到 (0, 1]（RRF 原值 ≈0.0163，直接外泄会与词法
     // 通道的 0–1 加权和撞车）。把 hybrid-search 里的归一化去掉，此处立刻变红。
     expect(res.results[0].score).toBe(1);
+    // totalMatched 口径：语义独有命中时纯词法 countMatches 为 0，若原样回灌给模型，
+    // 会出现「results 有 1 条而 totalMatched: 0」的自相矛盾。口径收敛为「不小于返回条数」。
+    expect(res.totalMatched).toBeGreaterThanOrEqual(res.results.length);
     db.close();
   },
 );

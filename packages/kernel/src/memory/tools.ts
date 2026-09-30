@@ -455,8 +455,14 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
             score: Number(h.score.toFixed(4)),
             archived: h.archived === 1,
           })),
-          // 真实命中总数（与 results 同过滤条件，但不受 limit / CANDIDATE_LIMIT 截断）
-          totalMatched: ctx.dao.countMatches(query, filter),
+          // 真实命中总数（与 results 同过滤条件，但不受 limit / CANDIDATE_LIMIT 截断）。
+          // 语义独有命中时纯词法的 countMatches 会低于本次返回条数（语义候选不是词法命中），
+          // 直接回灌会出现「results 有 N 条而 totalMatched: 0」的自相矛盾；故取口径下限：
+          // 至少不小于返回条数。
+          totalMatched: Math.max(
+            ctx.dao.countMatches(query, filter),
+            hits.length,
+          ),
         });
       },
     },

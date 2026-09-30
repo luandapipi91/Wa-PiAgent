@@ -27,6 +27,9 @@ import { extUiRegistry } from "../src/ext-ui-registry";
 import { SkillManager } from "../src/skill-manager";
 import { MemoryDao } from "../src/memory/dao";
 import { openMemoryDb } from "../src/memory/db";
+import { MemoryStore } from "../src/memory-store";
+import { embedQuery } from "../src/memory/embedder";
+import { indexPendingMemories } from "../src/memory/vector-index";
 import {
 	WA_PI_DIR,
 	BUILTIN_SKILLS_DIR,
@@ -1980,6 +1983,95 @@ test("默认（不传 memoryStore）记忆工具可用", async () => {
 	);
 	expect(result.content[0].text).not.toContain("记忆功能已关闭");
 });
+
+// ─── 记忆语义开关：hermes-memory-config.json → 宿主上下文 → memory_search ──────
+//
+// 证明「写进配置文件的开关真的被宿主消费」。只断言 getConfig 读得对（memory-store.test.ts
+// 已覆盖）不够——开关这半边交付物是「工具上下文拿到 false 后走纯词法」。
+// 语料与查询刻意无共同 bigram：词法通道对该查询恒 0 命中，故「1 条」只可能来自语义
+// 通道、「0 条」只可能是开关把语义通道关掉了——两种取值都有判别力（不会盲绿）。
+//
+// 模型可用性门：语义通道产出候选依赖本地 embedding 模型（同 memory-tools.test.ts）。
+const semanticModelUnavailable = (await embedQuery("语义开关端到端探测")) === null;
+if (semanticModelUnavailable) {
+	console.warn(
+		"[agent-manager.test] 跳过语义开关端到端用例：embedding 模型不可用（模型加载失败 / 离线）。",
+	);
+}
+
+/** 经宿主 bridge 上下文调 memory_search 并解析回传 JSON（走完 配置→ctx→工具 全链路） */
+async function bridgeMemorySearch(
+	sessionId: string,
+	params: Record<string, unknown>,
+): Promise<{ results: Array<{ snippet: string; score: number }>; totalMatched: number }> {
+	const ctx = getBridgeSession(sessionId)!;
+	const raw = (await ctx.handleTool(
+		"memory_search",
+		"tc1",
+		params,
+		new AbortController().signal,
+	)) as { content: Array<{ text: string }> };
+	return JSON.parse(raw.content[0].text);
+}
+
+test.skipIf(semanticModelUnavailable)(
+	"语义开关端到端：配置文件 semanticEnabled=false 后 memory_search 只走词法",
+	async () => {
+		const configFile = join(WA_PI_DIR, "hermes-memory-config.json");
+		const store = new MemoryStore({
+			waPiDir: WA_PI_DIR,
+			projectStore: newProjectStore(),
+		});
+		// 语料：与查询语义相关、但无共同 bigram 的全局画像（词法通道搜不到）
+		const dao = new MemoryDao(openMemoryDb(WA_PI_DIR));
+		const row = dao.insert({
+			kind: "profile",
+			target: "user",
+			scope: "global",
+			projectId: null,
+			content: "发版流程需要先跑单元测试和四层测试",
+			source: "test",
+		});
+		// 回填向量并刷新量化索引（indexPendingMemories 内部在写入后刷新）
+		await indexPendingMemories(dao);
+		try {
+			const { project, session, am, fakes } = await setup({
+				memoryStore: store,
+			});
+			await am.ensureStarted(project.id, "dev", session.id);
+			const params = {
+				query: "上线前要做什么质量检查",
+				scope: "global",
+				limit: 3,
+			};
+
+			// ① 配置未写该字段（默认启用）→ 语义通道召回到那条无共同关键词的记忆
+			const on = await bridgeMemorySearch(session.id, params);
+			expect(on.results).toHaveLength(1);
+			expect(on.results[0].snippet).toContain("发版流程需要先跑单元测试");
+
+			// ② 把 false 写进真实配置文件，再走既有刷新路径（markAllDirty → 下次
+			// ensureStarted 重建）：FakeSessionClient 未注册 __!wa_pi_reload，走整进程重建，
+			// _createSession 会重新 getConfig 并重建喂给记忆工具的 ctx。
+			await store.setConfig({ semanticEnabled: false });
+			expect((await store.getConfig()).semanticEnabled).toBe(false); // 文件确实写进去了
+			am.markAllDirty();
+			await am.ensureStarted(project.id, "dev", session.id);
+			expect(fakes).toHaveLength(2); // 旧 ctx 已被替换（不重建则下面的断言会看到 1 条）
+
+			// ③ 重建后的 ctx 只走词法 → 该查询零命中（语义通道被开关关掉）
+			const off = await bridgeMemorySearch(session.id, params);
+			expect(off.results).toHaveLength(0);
+		} finally {
+			try {
+				dao.remove(row.id);
+			} catch {
+				// 尽力清理，失败静默
+			}
+			rmSync(configFile, { force: true });
+		}
+	},
+);
 
 // ─── 中断清理（askRegistry.cancelAll）接线 ──────────────────────────────────
 

@@ -127,6 +127,8 @@ export interface MemoryConfigSetEvent {
   type: "memory:config:set";
   reviewEnabled?: boolean;
   memoryPolicyStyle?: "full" | "compact" | "none";
+  /** 是否启用本地语义检索（缺省 true；false 时 memory_search 只走词法） */
+  semanticEnabled?: boolean;
 }
 
 // kernel → 前端
