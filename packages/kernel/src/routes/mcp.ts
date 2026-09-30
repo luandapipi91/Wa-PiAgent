@@ -8,7 +8,7 @@
  * reply（非 error 类型），HTTP 状态仍为 200，由 body.success 区分。
  */
 import { join } from "node:path";
-import { WA_PI_DIR, toKernelPayload } from "@wa-pi/shared";
+import { WA_PI_DIR, SYSTEM_PROJECT_ID, KernelError, toKernelPayload } from "@wa-pi/shared";
 import type { ProjectStore } from "../project-store";
 import { resolveCwdForFsRequest } from "../ws-server";
 import { McpTrustStore } from "../mcp-trust";
@@ -36,6 +36,18 @@ export async function setProjectMcpScope(opts: {
   /** trust.json 路径（缺省 <WA_PI_DIR>/trust.json；测试注入 tmpdir 用） */
   trustFile?: string;
 }): Promise<void> {
+  // 默认工作区没有任何工作区语义，直接拒绝（与 git 域对 __system__ 同一策略）。
+  // 必须挡在任何落盘之前：它的 cwd 是 <WA_PI_DIR>/workdir，一旦写 true，查表做祖先继承
+  // 会连同该目录下每个会话的 <createdAt>/ 子目录、以及将来所有落在 workdir 下的工作目录
+  // 一并受信（受信是持久化的安全决定，一次误触不该把共享数据目录整棵子树标成「可自动读
+  // `.pi/mcp.json` 并起 MCP 服务器」）。
+  if (opts.projectId === SYSTEM_PROJECT_ID) {
+    throw new KernelError(
+      "mcp.systemProject",
+      undefined,
+      "默认工作区不支持项目级 MCP 作用域开关",
+    );
+  }
   // 项目 id → cwd 一律走既有解析（不自行拼路径）：项目不存在 / cwd 缺失都会抛 KernelError
   const cwd = await resolveCwdForFsRequest(opts.projectStore, opts.projectId);
   // 关闭时写 false 而不是删键：删键会退回上层继承，可能意外继承父目录的受信决定

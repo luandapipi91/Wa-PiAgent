@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { HttpRouter } from "../src/http-router";
 import { registerMcpRoutes } from "../src/routes/mcp";
 import { trustKeyFor } from "../src/mcp-trust";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 const ORIG_WA_PI_DIR = process.env.WA_PI_DIR;
 
@@ -30,7 +31,7 @@ let router: HttpRouter;
 
 const PROJECT_ID = "proj-1";
 
-function setupRouter(projectCwd: string | null) {
+function setupRouter(projectCwd: string | null, projectId = PROJECT_ID) {
   const router = new HttpRouter();
   registerMcpRoutes(
     router,
@@ -41,7 +42,7 @@ function setupRouter(projectCwd: string | null) {
           projects:
             projectCwd === null
               ? []
-              : [{ id: PROJECT_ID, name: "测试项目", cwd: projectCwd, createdAt: 0 }],
+              : [{ id: projectId, name: "测试项目", cwd: projectCwd, createdAt: 0 }],
           sessions: [],
         }),
       } as never,
@@ -141,5 +142,45 @@ describe("POST /api/mcp/project-scope", () => {
     expect(res?.status).toBe(404);
     expect((await res?.json()).failure.code).toBe("project.notFound");
     expect(existsSync(trustFile)).toBe(false);
+  });
+});
+
+// 默认工作区的 cwd 是 <WA_PI_DIR>/workdir，且查表做祖先继承：一旦写 true 会连同该目录下
+// 每个会话的 <createdAt>/ 子目录、以及将来所有落在 workdir 下的工作目录一并受信。与 git 域
+// 对 __system__ 显式 400（「无工作区语义」）同一策略。
+describe("POST /api/mcp/project-scope（默认工作区）", () => {
+  let workdir: string;
+
+  beforeEach(async () => {
+    workdir = join(root, "workdir");
+    await mkdir(workdir, { recursive: true });
+    router = setupRouter(workdir, SYSTEM_PROJECT_ID);
+  });
+
+  test("开启 → 400，且不落盘 trust.json、不触发迁移", async () => {
+    // 放一个旧配置：若误触迁移就会出现在 <workdir>/.pi/mcp.json
+    await writeFile(
+      join(workdir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { legacy: { command: "node" } } }),
+      "utf8",
+    );
+
+    const res = await post({ projectId: SYSTEM_PROJECT_ID, enabled: true });
+
+    expect(res?.status).toBe(400);
+    expect((await res?.json()).failure.code).toBe("mcp.systemProject");
+    expect(existsSync(trustFile)).toBe(false);
+    expect(existsSync(join(workdir, ".pi"))).toBe(false);
+  });
+
+  test("关闭 → 400，且已有 trust.json 一个字节不改", async () => {
+    const before = JSON.stringify({ [await trustKeyFor(workdir)]: true });
+    await writeFile(trustFile, before, "utf8");
+
+    const res = await post({ projectId: SYSTEM_PROJECT_ID, enabled: false });
+
+    expect(res?.status).toBe(400);
+    expect((await res?.json()).failure.code).toBe("mcp.systemProject");
+    expect(await readFile(trustFile, "utf8")).toBe(before);
   });
 });

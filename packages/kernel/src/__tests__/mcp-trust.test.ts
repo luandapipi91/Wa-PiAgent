@@ -44,6 +44,21 @@ describe("McpTrustStore", () => {
     expect(await store.get(parent)).toBe(true);
   });
 
+  test("同进程并发 set() 不丢决定、不互踩临时文件（端点每次请求都新建实例）", async () => {
+    const dir = await tempDir();
+    const path = join(dir, "trust.json");
+    const projects = ["p1", "p2", "p3", "p4"];
+    for (const name of projects) await mkdir(join(dir, name), { recursive: true });
+    // 等价于两次 HTTP 请求各自 new McpTrustStore(<同一个 trust.json>)：不同实例、并发写同一份文件
+    await Promise.all(
+      projects.map((name) => new McpTrustStore(path).set(join(dir, name), true)),
+    );
+    const raw = JSON.parse(await readFile(path, "utf8"));
+    for (const name of projects) {
+      expect(raw[await trustKeyFor(join(dir, name))]).toBe(true);
+    }
+  });
+
   test("文件不存在时写入并保持其它键", async () => {
     const dir = await tempDir();
     const path = join(dir, "trust.json");
