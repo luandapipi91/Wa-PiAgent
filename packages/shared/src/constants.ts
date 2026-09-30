@@ -190,21 +190,21 @@ export const DEFAULT_AGENT_TOOLS = [
 	"browser_close",
 	// preview_open：把网址/项目内 html 送到用户的内置预览面板（自定义工具，须显式放行）
 	"preview_open",
-	// mcp：pi-mcp-adapter 内置代理工具（未开启 directTools 的服务器统一入口）
-	"mcp",
 ];
 
 /**
- * 合并工具 allowlist：baseTools + harvestedTools（MCP direct 工具名）。
+ * 合并工具 allowlist：baseTools + harvestedTools（MCP 工具名）。
  *
  * pi 不给宿主提供「查询会话已注册工具」的接口（RPC 无列工具命令、package.json 无
  * tools 声明字段），第三方扩展运行时注册的工具名无法被 wa-pi 采集。因此工具 allowlist
- * 只合并两源：agent 显式配置的 baseTools，以及 kernel 侧按 mcp.json 计算出的 MCP direct
- * 工具名（harvestedTools）。扩展工具的放行靠默认 agent 的排除式路径（excludeTools）——
- * 凡是 pi 进程加载扩展后注册的工具，默认 agent（不配 tools 白名单）一律放行。
+ * 只合并两源：agent 显式配置的 baseTools，以及 kernel 侧由 mcp-admin 实时枚举出的
+ * pi 内置 MCP 注册工具名（harvestedTools，形如 `mcp__<server>__<tool>`，规格 F4）。
+ * 枚举是异步的（F10：会话启动约 2s 后才注册），见 agent-manager 的延时刷新。
+ * 扩展工具的放行靠默认 agent 的排除式路径（excludeTools）——凡是 pi 进程加载扩展后
+ * 注册的工具，默认 agent（不配 tools 白名单）一律放行。
  *
  * @param baseTools 基础工具列表（agent 配置的 tools）
- * @param harvestedTools 动态发现的工具名（MCP direct tools，由 kernel 按启用态计算）
+ * @param harvestedTools 动态发现的工具名（mcp-admin 枚举的 MCP 工具名）
  */
 export function resolveAgentTools(
 	baseTools: string[],

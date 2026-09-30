@@ -21,6 +21,11 @@ import {
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
+import {
+	makeFakeMcpAdmin,
+	type FakeMcpAdmin,
+} from "./helpers/fake-mcp-admin";
+import type { McpServerReport } from "../src/mcp-admin";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { extUiRegistry } from "../src/ext-ui-registry";
@@ -125,6 +130,10 @@ interface SetupOpts {
 	agentName?: string;
 	/** 测试项目 cwd（默认 "/tmp"）；技能用例传入临时目录，以控制项目技能目录 <cwd>/.pi/skills */
 	projectCwd?: string;
+	/** 注入 fake mcpAdmin（默认空枚举）：避免单测真的 spawn `pi mcp list` */
+	mcpAdmin?: FakeMcpAdmin;
+	/** MCP 工具清单延时刷新的延迟（ms）：透传 AgentManagerOpts（默认 3000，测试注入小值） */
+	mcpToolRefreshDelayMs?: number;
 }
 
 /** 造测试项目 + 会话实体 + 注入 fake client 的 AgentManager */
@@ -157,6 +166,11 @@ async function setup(opts: SetupOpts = {}) {
 		...(opts.turnResumeWindowMs === undefined
 			? {}
 			: { turnResumeWindowMs: opts.turnResumeWindowMs }),
+		// 默认注入空枚举的 fake mcpAdmin：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: opts.mcpAdmin ?? makeFakeMcpAdmin(),
+		...(opts.mcpToolRefreshDelayMs === undefined
+			? {}
+			: { mcpToolRefreshDelayMs: opts.mcpToolRefreshDelayMs }),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
@@ -305,6 +319,7 @@ test("ensureStarted 创建失败时清理 starting 锁并允许重试", async ()
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(recoveryFakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		mcpAdmin: makeFakeMcpAdmin(),
 	});
 	managers.push(recovery);
 	await recovery.ensureStarted(project.id, "dev", session.id);
@@ -1711,6 +1726,142 @@ test("listGlobalTools 含 4 个 browser_* 工具（source='内置'，供 ToolsTa
 	}
 });
 
+// ─── MCP 工具放行（规格 F4/F7/F10）─────────────────────────────────────────
+
+/** 典型三态：已连的 direct 服务器 / 已连的 codemode 服务器 / 未连上的 direct 服务器 */
+const MCP_SERVERS: McpServerReport[] = [
+	{
+		name: "dbx",
+		scope: "global",
+		enabled: true,
+		exposure: "direct",
+		state: "connected",
+		tools: ["query", "list"],
+	},
+	{
+		name: "ologs",
+		scope: "global",
+		enabled: true,
+		exposure: "codemode",
+		state: "connected",
+		tools: ["get_profile"],
+	},
+	{
+		name: "off",
+		scope: "global",
+		enabled: false,
+		exposure: "direct",
+		state: "disabled",
+		tools: ["nope"],
+	},
+	{
+		name: "flaky",
+		scope: "global",
+		enabled: true,
+		exposure: "direct",
+		state: "failed",
+		tools: [],
+	},
+];
+
+test("listGlobalTools 含 mcp-admin 枚举出的 mcp__<server>__<tool>（source='MCP'）", async () => {
+	const { am } = await setup({ mcpAdmin: makeFakeMcpAdmin([...MCP_SERVERS]) });
+	const tools = await am.listGlobalTools();
+
+	// 只有已连 + exposure=direct 的服务器产工具名（命名恒为 mcp__<server>__<tool>，F4）
+	expect(tools.find((t) => t.name === "mcp__dbx__query")?.source).toBe("MCP");
+	expect(tools.find((t) => t.name === "mcp__dbx__list")?.source).toBe("MCP");
+	const names = tools.map((t) => t.name);
+	// 非 direct 曝光（codemode）/ 未连上 / 已停用的服务器不进清单（规格 §6）
+	expect(names).not.toContain("mcp__ologs__get_profile");
+	expect(names).not.toContain("mcp__flaky__");
+	expect(names).not.toContain("mcp__off__nope");
+	// 旧聚合名已随 adapter 退场
+	expect(names).not.toContain("mcp");
+});
+
+test("受限 agent 的 --tools 白名单并入枚举出的 MCP 工具名（F4/F7）", async () => {
+	const configStore = {
+		getAgent: mock(async () => ({ displayName: "dev", tools: ["read"] })),
+	} as any;
+	const { project, session, am, fakes } = await setup({
+		configStore,
+		mcpAdmin: makeFakeMcpAdmin([...MCP_SERVERS]),
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const args = fakes[0].opts.args ?? [];
+	const tools = argValues(args, "--tools").flatMap((v) => v.split(","));
+	// 基础白名单 + 枚举出的 MCP 工具名都在
+	expect(tools).toContain("read");
+	expect(tools).toContain("mcp__dbx__query");
+	expect(tools).toContain("mcp__dbx__list");
+	// 不再放行 adapter 时代的聚合名
+	expect(tools).not.toContain("mcp");
+	expect(tools).not.toContain("mcp__ologs__get_profile");
+});
+
+test("MCP 枚举失败（list 抛错）不阻断会话启动：白名单退回基础工具", async () => {
+	const broken = makeFakeMcpAdmin();
+	broken.list = async () => {
+		throw new Error("pi 起不来");
+	};
+	const configStore = {
+		getAgent: mock(async () => ({ displayName: "dev", tools: ["read"] })),
+	} as any;
+	const { project, session, am, fakes } = await setup({
+		configStore,
+		mcpAdmin: broken,
+	});
+	// 不抛错：会话照常启动
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const args = fakes[0].opts.args ?? [];
+	const tools = argValues(args, "--tools").flatMap((v) => v.split(","));
+	expect(tools).toContain("read");
+	expect(tools.some((t) => t.startsWith("mcp__"))).toBe(false);
+});
+
+test("工具清单延时刷新（F10）：会话启动后失效缓存并重算，后续枚举拿到新工具名", async () => {
+	const mcpAdmin = makeFakeMcpAdmin([]);
+	const { project, session, am } = await setup({
+		mcpAdmin,
+		mcpToolRefreshDelayMs: 20,
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 刷新前：清单里没有 MCP 工具
+	const before = (await am.listGlobalTools()).map((t) => t.name);
+	expect(before).not.toContain("mcp__dbx__query");
+	const callsBeforeRefresh = mcpAdmin.listCalls;
+
+	// 模拟 pi 内置 MCP 在会话启动后才异步注册完成
+	mcpAdmin.servers = [MCP_SERVERS[0]];
+	await new Promise((r) => setTimeout(r, 60));
+
+	// 延时刷新真的跑了：缓存被失效且**重算了一次**（不是等到下次调用才惰性失效）
+	expect(mcpAdmin.invalidateCalls).toBe(1);
+	expect(mcpAdmin.listCalls).toBe(callsBeforeRefresh + 1);
+	const after = (await am.listGlobalTools()).map((t) => t.name);
+	expect(after).toContain("mcp__dbx__query");
+});
+
+test("disposeAll 清掉延时刷新定时器：销毁后不再失效/枚举（不泄漏 spawn）", async () => {
+	const mcpAdmin = makeFakeMcpAdmin([]);
+	const { project, session, am } = await setup({
+		mcpAdmin,
+		mcpToolRefreshDelayMs: 30,
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	await am.disposeAll();
+	const callsAtDispose = mcpAdmin.listCalls;
+	await new Promise((r) => setTimeout(r, 80));
+
+	expect(mcpAdmin.invalidateCalls).toBe(0);
+	expect(mcpAdmin.listCalls).toBe(callsAtDispose);
+});
+
 // ─── 系统提示词（读 sysprompts/<id>.md 断言组合结果） ───────────────────────
 
 test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 约束段", async () => {
@@ -2251,6 +2402,8 @@ test("孤儿会话（piSessionFile 不存在）进程退出 → 用户创建的�
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 		onSessionRollback: (sid) => rollbacks.push(sid),
 	});
 	managers.push(am);
@@ -2290,6 +2443,8 @@ test("正常会话（piSessionFile 存在）进程崩溃退出 → 不删除 ses
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 		onSessionRollback: (sid) => rollbacks.push(sid),
 	});
 	managers.push(am);

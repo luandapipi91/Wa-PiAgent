@@ -22,6 +22,7 @@ import {
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
+import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { rmSync } from "node:fs";
@@ -112,6 +113,8 @@ test("delegate：handleTool 的 onProgress 被转发 + onSubagentProgress 携带
 			broadcasted.push({ sessionId: sid, toolCallId: tcId, event }),
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 	});
 	managers.push(am);
 	await am.ensureStarted(project.id, "dev", sessionId);
@@ -177,6 +180,8 @@ test("fleet：并发多子代理共享同一 onProgress + toolCallId，槽位期
 			broadcasted.push({ sessionId: sid, toolCallId: tcId, event }),
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 	});
 	managers.push(am);
 	await am.ensureStarted(project.id, "dev", sessionId);
@@ -244,6 +249,8 @@ test("fleet：同名 agent 多任务各带不同 taskIndex 透传到广播（集
 			broadcasted.push({ sessionId: sid, toolCallId: tcId, event }),
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 	});
 	managers.push(am);
 	await am.ensureStarted(project.id, "dev", sessionId);
@@ -305,6 +312,8 @@ test("handleTool 未传 onProgress 时 onSubagentProgress 仍被触发（槽位�
 			broadcasted.push({ sessionId: sid, toolCallId: tcId, event }),
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 	});
 	managers.push(am);
 	await am.ensureStarted(project.id, "dev", sessionId);

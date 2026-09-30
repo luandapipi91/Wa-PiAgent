@@ -361,7 +361,8 @@ export async function startKernel(opts?: {
 		skillManager,
 		extensionManager,
 		memoryStore,
-		mcpStore,
+		// MCP 工具枚举已改由 AgentManager 自建的 McpAdmin 实时读取（pi 内置 MCP），
+		// 不再需要 mcpStore 注入（该 store 仍由 MCP 域路由使用，见 server 构造）。
 		// bridge 回调地址惰性取值：WS 端口在 server.start() 后才确定（AgentManager 构造在前）
 		bridgeBaseUrl: () => `http://127.0.0.1:${server.actualPort}`,
 		onEvent: (sessionId, projectId, agentName, event) => {

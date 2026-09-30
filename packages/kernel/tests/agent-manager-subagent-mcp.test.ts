@@ -2,8 +2,9 @@
 // 验证 delegate 派发的子代理进程能拿到 MCP 工具——两个必要条件：
 //   1. 子进程的 pi 自行加载内置 MCP 扩展（builtin:mcp，默认加载）：MCP 工具在子进程内
 //      注册，不随主会话继承，故 spawn 的 -e 扩展集不得再注入已移除的 pi-mcp-adapter；
-//   2. 工具白名单并入 MCP direct 工具名（内置只读类型另放行 "mcp" 聚合工具，
-//      覆盖 directTools=false 走聚合模式的 mcp.json 配置）。
+//   2. 工具白名单并入 mcp-admin 实时枚举出的 MCP 工具名（`mcp__<server>__<tool>`，规格
+//      F4；只有 exposure=direct 的服务器工具「可声明」——旧的 "mcp" 聚合工具随 adapter
+//      一起退场，codemode/deferred 工具经 codemode/tool_search 到达，不进白名单）。
 //
 // 触发链路（与 agent-manager-subagent-overrides.test.ts 相同）：
 //   getBridgeSession(sessionId).handleTool("delegate", ...)
@@ -11,11 +12,15 @@
 //   → runSubagentAgent(config, task, cwd, opts)   （此处 mock 捕获 config + opts.extensionPaths）
 //
 // mock 策略：subagent-runner 必须 mock（捕获参数接缝，不真正 spawn）；
-// mcp-connector 必须 mock（resolveMcpDirectToolNames 会真实连接 MCP 服务器列工具）。
+// MCP 枚举注入 fake mcpAdmin（真实 McpAdmin 会 spawn `pi mcp list` 真连服务器，测试不连网）。
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
-import { McpStore } from "../src/mcp-store";
+import type { McpServerReport } from "../src/mcp-admin";
+import {
+  makeFakeMcpAdmin,
+  type FakeMcpAdmin,
+} from "./helpers/fake-mcp-admin";
 import {
   type FakeSessionClient,
   fakeClientFactory,
@@ -23,7 +28,7 @@ import {
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR, GENERATED_DIR } from "@wa-pi/shared";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -40,22 +45,37 @@ mock.module("../src/subagent-runner", () => ({
   ),
 }));
 
-// MCP direct 工具名固定返回（真实实现会连接 MCP 服务器，测试不连网）
-mock.module("../src/mcp-connector", () => ({
-  testConnection: mock(async () => ({
-    ok: false,
-    latencyMs: 0,
-    error: "mocked",
-  })),
-  listTools: mock(async () => []),
-  resolveMcpDirectToolNames: mock(async () => [
-    "dbx_project_list",
-    "dbx_artifact_get",
-  ]),
-}));
+/** mcp-admin 枚举结果：只有 connected + exposure=direct 的工具有资格进白名单 */
+const MCP_SERVERS: McpServerReport[] = [
+  {
+    name: "dbx",
+    scope: "global",
+    enabled: true,
+    exposure: "direct",
+    state: "connected",
+    tools: ["query", "list"],
+  },
+  {
+    // 非 direct 曝光：工具经 codemode 到达，不并入白名单（规格 §6）
+    name: "ologs",
+    scope: "global",
+    enabled: true,
+    exposure: "codemode",
+    state: "connected",
+    tools: ["get_profile"],
+  },
+  {
+    // 未连上：工具名未知，不并入白名单
+    name: "flaky",
+    scope: "global",
+    enabled: true,
+    exposure: "direct",
+    state: "failed",
+    tools: [],
+  },
+];
 
 const tmpFiles: string[] = [];
-const tmpDirs: string[] = [];
 const managers: AgentManager[] = [];
 
 beforeEach(() => {
@@ -72,13 +92,6 @@ afterEach(async () => {
       /* 临时文件清理失败可忽略 */
     }
   }
-  for (const d of tmpDirs.splice(0)) {
-    try {
-      rmSync(d, { recursive: true, force: true });
-    } catch {
-      /* 临时目录清理失败可忽略 */
-    }
-  }
 });
 
 function newProjectStore() {
@@ -90,7 +103,10 @@ function newProjectStore() {
   return new ProjectStore(tmpFile);
 }
 
-async function setupManager(configStore: any) {
+async function setupManager(
+  configStore: any,
+  mcpAdmin: FakeMcpAdmin = makeFakeMcpAdmin([...MCP_SERVERS]),
+) {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({
     name: "测试",
@@ -101,9 +117,6 @@ async function setupManager(configStore: any) {
     primaryAgent: "dev",
     title: "测试",
   });
-  const waPiDir = mkdtempSync(join(tmpdir(), "wa-pi-mcp-store-"));
-  tmpDirs.push(waPiDir);
-  const mcpStore = new McpStore({ waPiDir, projectStore });
 
   const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
@@ -112,7 +125,7 @@ async function setupManager(configStore: any) {
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
-    mcpStore,
+    mcpAdmin,
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -141,7 +154,7 @@ async function delegateTo(sessionId: string, agent: string) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test("内置只读子代理（Explore）：白名单并入 MCP direct 工具名与 mcp 聚合工具，-e 不含 pi-mcp-adapter", async () => {
+test("内置只读子代理（Explore）：白名单并入枚举出的 mcp__srv__tool，不含旧的 mcp 聚合名，-e 不含 pi-mcp-adapter", async () => {
   const session = await setupManager({
     getAgent: mock(async () => ({
       displayName: "dev",
@@ -154,19 +167,25 @@ test("内置只读子代理（Explore）：白名单并入 MCP direct 工具名�
   expect(capturedConfigs.length).toBeGreaterThan(0);
   const explore = capturedConfigs.find((c: any) => c.name === "Explore");
   expect(explore).toBeDefined();
-  // 5 个只读基础工具 ∪ MCP direct 工具名 ∪ mcp 聚合工具
+  // 5 个只读基础工具 ∪ 枚举出的 MCP 工具名（direct 服务器的每个工具一个名字）
   for (const t of [
     "read",
     "bash",
     "grep",
     "find",
     "ls",
-    "dbx_project_list",
-    "dbx_artifact_get",
-    "mcp",
+    "mcp__dbx__query",
+    "mcp__dbx__list",
   ]) {
     expect(explore.tools).toContain(t);
   }
+  // 旧聚合名已随 adapter 退场：不再放行
+  expect(explore.tools).not.toContain("mcp");
+  // 非 direct 曝光（codemode）与未连上的服务器，工具名都不进白名单
+  expect(explore.tools).not.toContain("mcp__ologs__get_profile");
+  expect(explore.tools.some((t: string) => t.startsWith("mcp__flaky__"))).toBe(
+    false,
+  );
   // -e 扩展集不得再注入 pi-mcp-adapter（MCP 由子进程内的 pi 内置扩展自行加载）
   const extPaths: string[] = capturedSpawnOpts[0]?.extensionPaths ?? [];
   expect(extPaths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
@@ -176,6 +195,28 @@ test("内置只读子代理（Explore）：白名单并入 MCP direct 工具名�
   if (existsSync(providerExt)) {
     expect(extPaths).toContain(providerExt);
   }
+});
+
+test("内置只读子代理：MCP 枚举失败（list 抛错）不阻断 delegate，白名单退回 5 个基础工具", async () => {
+  const broken = makeFakeMcpAdmin();
+  broken.list = async () => {
+    throw new Error("pi 起不来");
+  };
+  const session = await setupManager(
+    {
+      getAgent: mock(async () => ({
+        displayName: "dev",
+        partners: { askTo: [] },
+      })),
+    } as any,
+    broken,
+  );
+
+  await delegateTo(session.id, "Explore");
+
+  const explore = capturedConfigs.find((c: any) => c.name === "Explore");
+  expect(explore).toBeDefined();
+  expect(explore.tools).toEqual(["read", "bash", "grep", "find", "ls"]);
 });
 
 test("内置非只读子代理（general-purpose）：tools 保持空数组（不传 --tools 全量放行），-e 不含 pi-mcp-adapter", async () => {
@@ -191,7 +232,7 @@ test("内置非只读子代理（general-purpose）：tools 保持空数组（�
   const gp = capturedConfigs.find((c: any) => c.name === "general-purpose");
   expect(gp).toBeDefined();
   // 空数组 = subagent-runner 不传 --tools，pi 全量放行进程内已注册工具
-  //（含 pi 内置 MCP 扩展注册的 MCP direct + mcp），无需白名单合并
+  //（含 pi 内置 MCP 扩展注册的 mcp__<server>__<tool>），无需白名单合并
   expect(gp.tools).toEqual([]);
   const extPaths: string[] = capturedSpawnOpts[0]?.extensionPaths ?? [];
   expect(extPaths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
@@ -212,7 +253,7 @@ test("命名智能体：严格按勾选的 tools 放行（原始设计：勾选�
 
   const named = capturedConfigs.find((c: any) => c.name === "研究员");
   expect(named).toBeDefined();
-  // 原始设计：命名智能体按「智能体设置-工具」勾选集透传，不自动并入 MCP direct
-  // 工具名（需要 MCP 工具可显式勾选，或不勾选走全放行）
+  // 原始设计：命名智能体按「智能体设置-工具」勾选集透传，不自动并入 MCP 工具名
+  //（需要 MCP 工具可显式勾选，或不勾选走全放行）
   expect(named.tools).toEqual(["read", "grep"]);
 });

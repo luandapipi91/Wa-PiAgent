@@ -10,7 +10,7 @@
 //   工具 execute 回调 kernel /bridge/tool（bridge-registry.ts 注册的 ctx 执行）。
 // - 系统提示词组合（composePrompt）结果写入临时文件，经 --system-prompt <file> 传入。
 // - 工具放行：默认排除式（-xt subagent）；agent 配置显式 tools 时用 --tools 白名单
-//   （config.tools ∪ MCP direct 工具名）。
+//   （config.tools ∪ mcp-admin 枚举出的 pi 内置 MCP 工具名 mcp__<server>__<tool>）。
 //
 // 依赖注入：
 // - createClientFn 可选参数，缺省时用真实 RpcClient（测试注入假 client）
@@ -94,8 +94,7 @@ import { handleBrowserTool } from "./browser-tools";
 import type { SkillManager } from "./skill-manager";
 import { projectSkillsDirOf } from "./skill-sources";
 import type { ExtensionManager } from "./extension-manager";
-import type { McpStore } from "./mcp-store";
-import { resolveMcpDirectToolNames } from "./mcp-connector";
+import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "./mcp-admin";
 import {
 	registerBridgeSession,
 	unregisterBridgeSession,
@@ -179,8 +178,10 @@ export interface AgentManagerOpts {
 	skillManager?: SkillManager;
 	// extensionManager 可空：用于按已启用动态插件决定 -e 扩展路径与工具放行
 	extensionManager?: ExtensionManager;
-	// mcpStore 可空：受限 agent 的 --tools 白名单需要 MCP direct 工具名（kernel 侧计算）
-	mcpStore?: McpStore;
+	// mcpAdmin 可注入：测试注入 fake，避免单测真的 spawn `pi mcp list`；缺省自建真实实例。
+	mcpAdmin?: Pick<McpAdmin, "list" | "invalidate">;
+	/** MCP 工具清单延时刷新的延迟（ms）：缺省 {@link MCP_TOOL_REFRESH_DELAY_MS}；测试注入小值 */
+	mcpToolRefreshDelayMs?: number;
 	// 惰性取 bridge 回调地址（kernel WS 端口在 AgentManager 构造后才确定）
 	bridgeBaseUrl?: () => string;
 	/** 主聊天 im_push_to 全局执行器：调用时实时按联系人 id 走 channelManager 全局长连接推送。
@@ -288,6 +289,16 @@ interface SessionHandle {
 const ABORT_RPC_TIMEOUT_MS = 5_000;
 
 /**
+ * MCP 工具清单延时刷新的延迟（ms）。
+ *
+ * pi 内置 MCP 扩展在会话启动后才**异步**注册工具（规格 F10：POC 实测约 t+2s），
+ * 启动瞬间枚举会得到空清单——而这份空结果会被 McpAdmin 的缓存固定住（`pi mcp list`
+ * 会真连每台 server，很贵，不允许每次调用重跑）。故会话启动后延迟失效缓存并重算一次，
+ * 让后续消费者（UI 工具列表、下一个会话的 --tools 白名单）拿到已注册的工具名。
+ */
+const MCP_TOOL_REFRESH_DELAY_MS = 3_000;
+
+/**
  * 续跑窗口（ms）：上一次结算后多久内开始的无 user 轮算作「同一次任务的续跑」。
  *
  * goal 类长任务由扩展用 custom 消息自动续跑（多次 agent_start/agent_end，中间没有新的 user
@@ -314,10 +325,25 @@ export class AgentManager {
 	private promptSegments: PromptSegment[] | null = null;
 	// 会话级浏览器视图池：browser_* 工具的执行后端（可注入 fake，生产默认实例化）
 	readonly browserManager: BrowserManager;
+	// MCP 状态读取者（规格 §7）：只 shell out `pi mcp list --json`，不自建连接
+	readonly mcpAdmin: Pick<McpAdmin, "list" | "invalidate">;
+	// MCP 工具清单延时刷新定时器（F10）：实例级单例，避免多会话并发启动重复 spawn
+	private mcpToolRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(private opts: AgentManagerOpts) {
 		// 测试可注入 fake manager；生产默认创建真实 BrowserManager（延迟到首次工具调用才真正启动 WebView）
 		this.browserManager = opts.browserManager ?? new BrowserManager();
+		this.mcpAdmin =
+			opts.mcpAdmin ??
+			new McpAdmin({
+				runtime: resolvePiRuntime(),
+				cliPath: resolvePiCliPath(),
+				agentDir: WA_PI_DIR,
+				// 全局作用域枚举：cwd 同用数据目录（全局配置就是 <WA_PI_DIR>/mcp.json）。
+				// 项目级 <cwd>/.pi/mcp.json 的服务器需按项目 cwd 枚举，属任务 8 的 MCP 页范围。
+				cwd: WA_PI_DIR,
+				timeoutMs: DEFAULT_LIST_TIMEOUT_MS,
+			});
 	}
 
 	/**
@@ -502,31 +528,60 @@ export class AgentManager {
 		}
 	}
 
-	/** 计算 MCP direct 工具名（受限 agent 白名单与 listGlobalTools 用）；无 mcpStore 时返回空 */
-	private async getMcpDirectToolNames(): Promise<string[]> {
-		if (!this.opts.mcpStore) return [];
+	/**
+	 * 枚举 pi 内置 MCP 注册出的工具名（受限 agent 白名单与 listGlobalTools 用）。
+	 *
+	 * 命名恒为 `mcp__<server>__<tool>`（规格 F4）。只有 exposure 为 `direct` 的工具是
+	 * 「可声明」的：其余曝光档（codemode / codemode-deferred / deferred / hidden）
+	 * 不声明给模型，需经 codemode / tool_search 到达，故不进白名单（规格 §6）。
+	 * 只取 state === "connected"：连不上/需登录的服务器工具名未知（enabled:false 的
+	 * 服务器 state 为 disabled，同样被滤掉）。
+	 *
+	 * McpAdmin 自带缓存，故本方法不额外缓存；F10 的失效由 {@link _scheduleMcpToolRefresh} 负责。
+	 */
+	private async getMcpToolNames(): Promise<string[]> {
 		try {
-			const [servers, settings] = await Promise.all([
-				this.opts.mcpStore.list(),
-				this.opts.mcpStore.getGlobalSettings(),
-			]);
-			return await resolveMcpDirectToolNames(servers, settings);
+			const { servers } = await this.mcpAdmin.list();
+			return servers
+				.filter((s) => s.state === "connected" && s.exposure === "direct")
+				.flatMap((s) => s.tools.map((t) => `mcp__${s.name}__${t}`));
 		} catch (err) {
-			console.error("[kernel] MCP direct 工具名计算失败，跳过:", err);
+			// 枚举失败（pi 跑不起来 / spawn 异常）不得阻断会话启动：退回空清单，
+			// 与迁移前 "MCP 全连不上不阻断会话" 的既有策略一致（规格 §8）。
+			console.error("[kernel] MCP 工具名枚举失败，跳过:", err);
 			return [];
 		}
 	}
 
-	/** 全局工具清单：内置（DEFAULT_AGENT_TOOLS）+ MCP direct + 动态插件登记，供详情弹窗勾选。
+	/**
+	 * 会话启动后延迟刷新 MCP 工具清单（F10）：失效 McpAdmin 缓存并重算一次。
+	 *
+	 * 为什么需要：会话启动瞬间 MCP 工具还没注册（约 t+2s 才出现），此时枚举得到的
+	 * 空清单会被缓存固定，导致后续 UI 工具列表与白名单永久漏掉 MCP 工具。
+	 *
+	 * 实例级单例：多会话并发启动只刷一次（`pi mcp list` 会真连每台 server）。
+	 * 定时器在 disposeAll 里清除；会话销毁不需要单独清（清单是实例级缓存，不属于会话）。
+	 */
+	private _scheduleMcpToolRefresh(): void {
+		if (this.mcpToolRefreshTimer) return;
+		this.mcpToolRefreshTimer = setTimeout(() => {
+			this.mcpToolRefreshTimer = null;
+			this.mcpAdmin.invalidate();
+			// 重算一次把结果重新入缓存（下一次 listGlobalTools / 受限会话直接命中）
+			void this.getMcpToolNames();
+		}, this.opts.mcpToolRefreshDelayMs ?? MCP_TOOL_REFRESH_DELAY_MS);
+	}
+
+	/** 全局工具清单：内置（DEFAULT_AGENT_TOOLS）+ MCP 工具 + 动态插件登记，供详情弹窗勾选。
 	 *  剔除 subagent（宿主不允许直接暴露，关系网调起走 delegate）。
-	 *  source 值：内置 → "内置"，MCP direct → "MCP"。 */
+	 *  source 值：内置 → "内置"，MCP 工具 → "MCP"。 */
 	async listGlobalTools(): Promise<{ name: string; source: string }[]> {
 		const items = DEFAULT_AGENT_TOOLS.filter((t) => t !== "subagent").map(
 			(name) => ({ name, source: "内置" }),
 		);
 		const seen = new Set(items.map((i) => i.name));
-		// MCP direct 工具（kernel 侧按 mcp.json 计算，命名与 pi-mcp-adapter 一致）
-		for (const t of await this.getMcpDirectToolNames()) {
+		// MCP 工具：mcp-admin 实时枚举（命名与 pi 内置 MCP 一致，规格 F4）
+		for (const t of await this.getMcpToolNames()) {
 			if (!seen.has(t)) {
 				seen.add(t);
 				items.push({ name: t, source: "MCP" });
@@ -745,16 +800,14 @@ export class AgentManager {
 							override?.thinking ??
 							this.sessions.get(sessionId)?.currentThinking ??
 							null,
-						// 内置只读类型白名单并入 MCP direct 工具名 + mcp 聚合工具：子代理是
-						// 独立 pi 进程，MCP 工具由随 spawn 加载的 pi-mcp-adapter 注册（见
-						// spawnFn extensionPaths），白名单不放行则加载了也看不见。与主会话
-						// restricted 路径（resolveAgentTools 合并 direct 名）镜像；另放行
-						// "mcp" 聚合工具，覆盖 directTools=false（走聚合模式）的 mcp.json
-						// 配置——否则该配置下子代理依然看不到任何 MCP 工具。
+						// 内置只读类型白名单并入 MCP 工具名：子代理是独立 pi 进程，MCP 工具由
+						// 子进程内的 pi 内置扩展（builtin:mcp，默认加载）自行注册，注册出的
+						// 名字恒为 mcp__<server>__<tool>（规格 F4）；白名单不放行则加载了也看不见。
+						// 与主会话 restricted 路径（resolveAgentTools 合并同一枚举结果）镜像。
 						tools: builtin.readOnly
 							? resolveAgentTools(
-									["read", "bash", "grep", "find", "ls", "mcp"],
-									await this.getMcpDirectToolNames(),
+									["read", "bash", "grep", "find", "ls"],
+									await this.getMcpToolNames(),
 								)
 							: [],
 						skills: [],
@@ -1117,9 +1170,10 @@ export class AgentManager {
 
 		// 工具放行策略：
 		// - 默认（agent 未显式配置 tools）：排除式——不传 --tools，仅 -xt subagent；
-		//   内置 7 工具 + 扩展工具 + MCP direct 工具全部可用（扩展工具靠 pi 进程加载扩展后
-		//   运行时注册，wa-pi 不感知其工具名但默认全部放行）。
-		// - 显式配置 tools：白名单——config.tools ∪ MCP direct 工具名。
+		//   内置 7 工具 + 扩展工具 + 内置 MCP 工具全部可用（扩展工具/ MCP 工具靠 pi 进程
+		//   加载扩展后运行时注册，wa-pi 不感知其全部工具名但默认全部放行）。
+		// - 显式配置 tools：白名单——config.tools ∪ mcp-admin 枚举的 MCP 工具名
+		//   （mcp__<server>__<tool>，规格 F4）。
 		// 动态扩展走 pi 官方 packages 机制（settings.json packages + ~/.pi/agent/npm/），
 		// 不再经 -e；-e 只传内置（PKG_EXTENSIONS）+ provider-extension + wa-pi-bridge + wa-pi-tui-host。
 		const extensionPaths = buildAdditionalExtensionPaths();
@@ -1131,7 +1185,7 @@ export class AgentManager {
 						// 受限 agent 白名单无条件并入 im_push_to：工具始终注册（bridge 扩展），
 						// 不并入会被白名单挡掉（主聊天 @im-push-to 标记会话同样需要推送能力）
 						"im_push_to",
-						...resolveAgentTools(config!.tools!, await this.getMcpDirectToolNames()),
+						...resolveAgentTools(config!.tools!, await this.getMcpToolNames()),
 					],
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
@@ -1233,6 +1287,10 @@ export class AgentManager {
 			this._teardownSession(sessionId);
 			throw err;
 		}
+
+		// MCP 工具在会话启动后才异步注册（F10）：启动后延迟刷新一次工具清单，
+		// 避免把启动瞬间的空枚举结果固化进 McpAdmin 缓存（见 _scheduleMcpToolRefresh）
+		this._scheduleMcpToolRefresh();
 
 		// _createSession 期间收到的 abort 请求：client 已注册，立即执行
 		if (this.pendingAborts.has(sessionId)) {
@@ -2240,6 +2298,11 @@ export class AgentManager {
 
 	/** 清理所有会话（进程退出 / 测试 teardown 用） */
 	async disposeAll(): Promise<void> {
+		// MCP 工具清单延时刷新定时器：进程退出后不能再 spawn `pi mcp list`
+		if (this.mcpToolRefreshTimer) {
+			clearTimeout(this.mcpToolRefreshTimer);
+			this.mcpToolRefreshTimer = null;
+		}
 		// 复制 keys 避免 disposeSession 修改 Map 时迭代异常
 		for (const id of [...this.sessions.keys()]) {
 			await this.disposeSession(id);

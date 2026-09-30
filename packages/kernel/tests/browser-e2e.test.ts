@@ -46,6 +46,7 @@ import {
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
+import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 import { WA_PI_DIR } from "@wa-pi/shared";
 
 const BROWSER_TOOLS = [
@@ -190,6 +191,8 @@ testReal(
 			configStore,
 			onEvent: () => {},
 			createClientFn: fakeClientFactory(fakes),
+			// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+			mcpAdmin: makeFakeMcpAdmin(),
 		});
 		managers.push(am);
 
@@ -353,6 +356,8 @@ async function startWhitelistedAgent(tools: string[]) {
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 	});
 	managers.push(am);
 	await am.ensureStarted(project.id, "dev", session.id);

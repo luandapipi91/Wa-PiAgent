@@ -13,6 +13,7 @@ import {
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
+import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 import { WA_PI_DIR } from "@wa-pi/shared";
 
 // 第三层集成测试：HTTP REST + SSE（替代原 WS）+ FakeSessionClient（假 pi rpc client）
@@ -40,6 +41,8 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 	});
 
 	const server = new WSServer({
@@ -168,6 +171,8 @@ test("[第三层] 预热占位会话不进侧栏，首发消息转正后出现",
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
 		browserManager: NOOP_BROWSER_MANAGER,
+		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+		mcpAdmin: makeFakeMcpAdmin(),
 	});
 
 	const server = new WSServer({
