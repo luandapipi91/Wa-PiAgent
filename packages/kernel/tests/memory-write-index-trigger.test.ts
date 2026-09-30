@@ -19,8 +19,8 @@ import { createMemoryTools, type MemoryToolContext } from "../src/memory/tools";
 import { loadVectorExtension, initVectorColumn } from "../src/memory/vector-ext";
 import {
   flushScheduledIndexForTest,
-  indexRunsForTest,
   resetIndexSchedulerForTest,
+  scheduleFiresForTest,
   setIndexDebounceMsForTest,
 } from "../src/memory/vector-index";
 import {
@@ -100,17 +100,18 @@ test("memory_add 成功返回时还没有向量，且此时尚未触发回填（
   // 写入已落库（工具如实返回），但向量的补齐被推迟到 debounce 之后
   expect(dao.getById(res.id)).not.toBeNull();
   expect(dao.listUnindexed(10).map((r) => r.id)).toContain(res.id);
-  expect(indexRunsForTest()).toBe(0);
+  expect(scheduleFiresForTest()).toBe(0);
 });
 
-test("连续写入被 debounce 合并成一次回填（不叠加重复工作）", async () => {
+test("连续写入不各起一个定时器：debounce 只到期一次（不叠加重复工作）", async () => {
   setIndexDebounceMsForTest(25);
   await call("memory_add", { target: "memory", content: "合并用例甲" });
   await call("memory_add", { target: "memory", content: "合并用例乙" });
   await call("memory_add", { target: "memory", content: "合并用例丙" });
   await new Promise((r) => setTimeout(r, 150)); // 远超 3 个 debounce 周期
-  // 每次都单独起一个定时器 → 本断言变成 3（红）；合并成一个 → 1
-  expect(indexRunsForTest()).toBe(1);
+  // 去掉 scheduleIndexPendingMemories 里的 `if (timer) return`（每次写入各起一个定时器）
+  // → 本断言收到 3，红；合并成一个待触发任务 → 1。
+  expect(scheduleFiresForTest()).toBe(1);
 });
 
 test.skipIf(modelUnavailable)(
@@ -196,5 +197,5 @@ test("semanticEnabled=false 时不调度回填（开关关闭不做无谓工作�
   setIndexDebounceMsForTest(25);
   await call("memory_add", { target: "memory", content: "开关关闭用例" });
   await new Promise((r) => setTimeout(r, 60));
-  expect(indexRunsForTest()).toBe(0);
+  expect(scheduleFiresForTest()).toBe(0);
 });

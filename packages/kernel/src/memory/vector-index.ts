@@ -43,7 +43,7 @@ let debounceMs = DEFAULT_INDEX_DEBOUNCE_MS;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let scheduledDao: MemoryDao | null = null;
 let lastRun: Promise<unknown> | null = null;
-let runs = 0;
+let fires = 0;
 
 export interface IndexOptions {
   /** 每批编码条数（实测 batch=8 时约 4.8 ms/条） */
@@ -80,11 +80,14 @@ export function scheduleIndexPendingMemories(dao: MemoryDao): void {
 }
 
 function fireScheduledIndex(): void {
+  // 计数在取 dao 之前：本计数记录的是「debounce 定时器到期次数」，
+  // 它是「连续写入是否被合并成一轮」的唯一可观察量 —— 定时器叠了多个时，
+  // 除第一个以外都会因 `scheduledDao` 已被消费而空跑，只看真实轮数无法发现叠定时器。
+  fires++;
   timer = null;
   const dao = scheduledDao;
   scheduledDao = null;
   if (!dao) return;
-  runs++;
   lastRun = indexPendingMemories(dao).catch((err) => {
     console.error("[memory-semantic] 写入后增量回填失败（本条记忆暂不可语义检索）：", err);
   });
@@ -101,13 +104,13 @@ export function resetIndexSchedulerForTest(): void {
   timer = null;
   scheduledDao = null;
   lastRun = null;
-  runs = 0;
+  fires = 0;
   debounceMs = DEFAULT_INDEX_DEBOUNCE_MS;
 }
 
-/** 测试用：本进程已触发的**调度回填**轮数（用于钉住 debounce 合并） */
-export function indexRunsForTest(): number {
-  return runs;
+/** 测试用：本进程 debounce 定时器到期的次数（用于钉住「连续写入被合并，不叠加定时器」） */
+export function scheduleFiresForTest(): number {
+  return fires;
 }
 
 /** 测试用：立刻触发待执行的一轮回填并等它结束（不真等 debounce 到期） */

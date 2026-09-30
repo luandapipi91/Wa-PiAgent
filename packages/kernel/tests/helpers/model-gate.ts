@@ -18,7 +18,7 @@
 //（见 tests/memory-model-gate.test.ts）。
 import { test } from "bun:test";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { EMBED_MODEL, embedQuery, resetEmbedderForTest } from "../../src/memory/embedder";
 
 export type ModelGateStatus = "available" | "noSource" | "broken";
@@ -111,19 +111,36 @@ async function detectModelSource(): Promise<{
   const rawEnv = process.env.WA_PI_MODEL_DIR;
   const envDir = rawEnv && rawEnv.trim() ? rawEnv : null;
 
-  // 本机缓存 = transformers 默认 cacheDir 下的该模型目录（与 embedder 的加载路径同源），
-  // 不硬编码布局；transformers 不可导入时不视为「有缓存来源」。
-  let cacheDir: string | null = null;
+  // 本机缓存 = transformers 包目录下的默认 `.cache/<model>`（与 embedder 的默认加载路径同源）。
+  // **刻意不用 `env.cacheDir`**：门要能发现「加载路径被改坏」（cacheDir / localModelPath /
+  // 目录名被改错），若用被测代码正在读的那个值来判定「有没有来源」，一旦它被改错，门就会
+  // 跟着改口说「没来源」→ 又变回静默 skip，等于门被被测代码指挥。故以包内默认位置为准，
+  // 另有配置过的 cacheDir 时一并算作来源（两个都查）。
+  const candidates = new Set<string>();
+  const def = defaultCacheModelDir();
+  if (def) candidates.add(def);
   try {
     const { env } = await import("@huggingface/transformers");
-    const cacheRoot = env.cacheDir; // 库类型里可为 null（未配置缓存目录时不视为来源）
-    const candidate = cacheRoot ? join(cacheRoot, EMBED_MODEL) : null;
-    if (candidate && existsSync(candidate)) cacheDir = candidate;
+    if (env.cacheDir) candidates.add(join(env.cacheDir, EMBED_MODEL));
   } catch {
-    /* 不算有来源：由 envDir / noSource 分支决定 */
+    /* transformers 不可导入时不视为「有缓存来源」：由 envDir / noSource 分支决定 */
   }
 
-  return { envDir, cacheDir };
+  const hit = [...candidates].find((p) => existsSync(p));
+  return { envDir, cacheDir: hit ?? null };
+}
+
+/** transformers 包内默认缓存位置（`<pkg>/.cache/<model>`）；解析不到时返回 null */
+function defaultCacheModelDir(): string | null {
+  try {
+    const pkg = Bun.resolveSync(
+      "@huggingface/transformers/package.json",
+      import.meta.dir,
+    );
+    return join(dirname(pkg), ".cache", EMBED_MODEL);
+  } catch {
+    return null;
+  }
 }
 
 /** broken 时注册一条必定失败的用例：把「静默 skip」变成「显式判红」并给出原因 */
