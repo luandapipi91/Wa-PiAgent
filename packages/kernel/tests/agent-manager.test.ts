@@ -1721,8 +1721,8 @@ test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 
 	expect(prompt).toContain("You are an expert coding assistant"); // base 段默认兜底
 	expect(prompt).toContain("## Available Subagents"); // delegate-roster 段（内置类型始终列出）
 	expect(prompt).toContain(`<builtin>${BUILTIN_SKILLS_DIR}</builtin>`); // env-constraints 段
-	// 项目技能目录行紧随内置目录（项目会话 cwd = /tmp）
-	expect(prompt).toContain("<project>/tmp/.pi/skills</project>");
+	// 项目技能目录行紧随内置目录（项目会话 cwd = /tmp，用 join 构造期望以兼容本机分隔符）
+	expect(prompt).toContain(`<project>${join("/tmp", ".pi", "skills")}</project>`);
 	expect(prompt).toMatch(/internal terminology/i);
 });
 
@@ -1733,7 +1733,7 @@ test("系统提示词 env 约束段：默认工作区（系统项目 cwd）的�
 	const prompt = readSysprompt(session.id);
 	expect(prompt).toContain(`<builtin>${BUILTIN_SKILLS_DIR}</builtin>`);
 	expect(prompt).toContain(
-		`<project>${SYSTEM_PROJECT_CWD}/.pi/skills</project>`,
+		`<project>${join(SYSTEM_PROJECT_CWD, ".pi", "skills")}</project>`,
 	);
 });
 

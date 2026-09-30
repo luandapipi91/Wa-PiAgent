@@ -113,7 +113,11 @@ describe("ensureToolBinaries", () => {
 		expect([...result.installed].sort()).toEqual(["fd", "rg"]);
 		expect(existsSync(join(binDir, "rg"))).toBe(true);
 		expect(existsSync(join(binDir, "fd"))).toBe(true);
-		expect(statSync(join(binDir, "rg")).mode & 0o111).toBeGreaterThan(0);
+		// Windows 无 POSIX 可执行位（chmod 只影响只读位，statSync.mode 恒无 0o111）：
+		// 该断言仅在 POSIX 主机上有意义，Windows 下以二进制已落盘（上方 existsSync）为准
+		if (process.platform !== "win32") {
+			expect(statSync(join(binDir, "rg")).mode & 0o111).toBeGreaterThan(0);
+		}
 		expect(fetchedUrls.length).toBe(2);
 		for (const url of fetchedUrls) expect(url).toContain("github.com/");
 	});
