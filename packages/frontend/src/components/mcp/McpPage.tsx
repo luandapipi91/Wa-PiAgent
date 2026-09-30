@@ -23,6 +23,7 @@ export function McpPage() {
     stale,
     note,
     selectedProjectId,
+    projectScopeEnabled,
     searchQuery,
     loading,
     load,
@@ -31,6 +32,7 @@ export function McpPage() {
     testConnection,
     listTools,
     setProjectMcpScope,
+    loadProjectScope,
     setSelectedProjectId,
     setSearchQuery,
   } = useMcpStore();
@@ -48,6 +50,14 @@ export function McpPage() {
   // 加载列表
   useEffect(() => {
     load(selectedProjectId ?? undefined);
+  }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 项目级开关的初值来自 trust.json 的**真值回读**（不靠 pi 的 note 反推：项目还没有
+  // .pi/mcp.json 时没有 note，靠 note 会把「未设置」显示成「已开」，而受信是安全决定）。
+  // 默认工作区没有项目级作用域（kernel 写侧 400），不读。
+  useEffect(() => {
+    if (!selectedProjectId || selectedProjectId === SYSTEM_PROJECT_ID) return;
+    void loadProjectScope(selectedProjectId);
   }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 搜索过滤
@@ -136,11 +146,8 @@ export function McpPage() {
           projects={projects}
           onSelect={(projectId) => setSelectedProjectId(projectId)}
           projectScope={{
-            // 初值只能从列表回包的 note 推断：pi 仅在「项目未受信 + 项目内有 .pi/mcp.json」时
-            // 输出该提示，而 kernel 未提供 trust 的回读端点（任务 4 登记）。故项目尚无
-            // .pi/mcp.json 时开关可能显示为已开而 trust.json 里其实没有条目（此时开关无实际
-            // 效果：没有项目配置可加载，点一下也只是写 false，无害）。
-            on: !note,
+            // 真值：true/false 来自 trust.json；null = 未设置（跟随上层，UI 不显示「已开」）
+            value: projectScopeEnabled,
             disabled: isSystemProject,
             pending: scopePending,
             onToggle: handleProjectScopeToggle,
@@ -292,7 +299,8 @@ function ScopeDropdown({
   onSelect: (projectId: string | null) => void;
   /** 项目级 MCP 作用域开关（选中具体项目时出现；默认工作区置灰） */
   projectScope: {
-    on: boolean;
+    /** trust.json 的真值：null = 未显式设置（跟随上层） */
+    value: boolean | null;
     disabled: boolean;
     pending: boolean;
     onToggle: (enabled: boolean) => void;
@@ -301,6 +309,8 @@ function ScopeDropdown({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const isGlobal = selectedProjectId === null;
+  const scopeOn = projectScope.value === true;
+  const scopeUnset = projectScope.value === null;
 
   const label = isGlobal
     ? t("mcp.globalScope")
@@ -395,32 +405,45 @@ function ScopeDropdown({
                   }
                 >
                   <span
-                    className="text-[calc(11.5px*var(--font-scale))]"
+                    className="flex flex-col"
                     style={{
                       color: projectScope.disabled
                         ? "var(--text-tertiary)"
                         : "var(--text-primary)",
                     }}
                   >
-                    {t("mcp.projectScope")}
+                    <span className="text-[calc(11.5px*var(--font-scale))]">
+                      {t("mcp.projectScope")}
+                    </span>
+                    {/* 未设置（跟随上层）不是「已开」：安全决定不得与事实不符 */}
+                    {scopeUnset && (
+                      <span
+                        className="text-[calc(9.5px*var(--font-scale))]"
+                        style={{ color: "var(--text-tertiary)" }}
+                        data-testid="mcp-project-scope-unset"
+                      >
+                        {t("mcp.projectScopeUnset")}
+                      </span>
+                    )}
                   </span>
                   <button
                     type="button"
                     role="switch"
-                    aria-checked={projectScope.on}
+                    aria-checked={scopeOn}
                     disabled={projectScope.disabled || projectScope.pending}
                     data-testid="mcp-project-scope-switch"
-                    data-on={projectScope.on ? "true" : "false"}
+                    data-on={scopeOn ? "true" : "false"}
+                    data-unset={scopeUnset ? "true" : "false"}
                     onClick={(e) => {
                       e.stopPropagation();
-                      projectScope.onToggle(!projectScope.on);
+                      projectScope.onToggle(!scopeOn);
                     }}
                     className="relative shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{
                       width: 38,
                       height: 22,
                       borderRadius: 9999,
-                      background: projectScope.on
+                      background: scopeOn
                         ? "var(--brand)"
                         : "var(--hairline-strong)",
                       transition: "background 0.2s",
@@ -431,8 +454,8 @@ function ScopeDropdown({
                       style={{
                         width: 18,
                         height: 18,
-                        left: projectScope.on ? undefined : 2,
-                        right: projectScope.on ? 2 : undefined,
+                        left: scopeOn ? undefined : 2,
+                        right: scopeOn ? 2 : undefined,
                         boxShadow: "0 1px 2px rgba(0,0,0,.1)",
                       }}
                     />

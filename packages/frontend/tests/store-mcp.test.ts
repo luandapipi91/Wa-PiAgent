@@ -43,6 +43,7 @@ beforeEach(() => {
     selectedProjectId: null,
     searchQuery: "",
     loading: false,
+    projectScopeEnabled: null,
     serverStatuses: {},
     toolCounts: {},
     toolsCache: {},
@@ -337,4 +338,75 @@ test("setSearchQuery / setSelectedProjectId 更新本地状态", () => {
 
   useMcpStore.getState().setSelectedProjectId(null);
   expect(useMcpStore.getState().selectedProjectId).toBeNull();
+});
+
+// ===== 项目级开关的真值回读（缺口①：不能靠 pi 的 note 反推）=====
+
+test("loadProjectScope 回读 trust.json 的真值：true / false 原样、null 表示未设置", async () => {
+  useMcpStore.setState({ selectedProjectId: "p1" });
+
+  getImpl = () => Promise.resolve({ enabled: true });
+  await useMcpStore.getState().loadProjectScope("p1");
+  expect(calls[0]).toEqual({
+    method: "GET",
+    path: "/api/mcp/project-scope?projectId=p1",
+  });
+  expect(useMcpStore.getState().projectScopeEnabled).toBe(true);
+
+  getImpl = () => Promise.resolve({ enabled: false });
+  await useMcpStore.getState().loadProjectScope("p1");
+  expect(useMcpStore.getState().projectScopeEnabled).toBe(false);
+
+  // 未显式设置（kernel 回 null）→ 保留 null，前端显示「未设置 / 跟随上层」
+  getImpl = () => Promise.resolve({ enabled: null });
+  await useMcpStore.getState().loadProjectScope("p1");
+  expect(useMcpStore.getState().projectScopeEnabled).toBeNull();
+});
+
+test("loadProjectScope 读失败（网络 / 500）不谎报「已开」：归为「未设置」", async () => {
+  useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: true });
+  getImpl = () => Promise.reject(new Error("boom"));
+  await useMcpStore.getState().loadProjectScope("p1");
+  // 读不到真值 → 归 null（安全侧：不把受信显示成已开）
+  expect(useMcpStore.getState().projectScopeEnabled).toBeNull();
+});
+
+test("loadProjectScope 的晚到回包不覆盖已切走的项目", async () => {
+  let resolveGet: (v: unknown) => void = () => {};
+  getImpl = () =>
+    new Promise((resolve) => {
+      resolveGet = resolve;
+    });
+  useMcpStore.setState({ selectedProjectId: "p1" });
+  const pending = useMcpStore.getState().loadProjectScope("p1");
+  // 响应回来前用户切到另一个项目
+  useMcpStore.getState().setSelectedProjectId("p2");
+  resolveGet({ enabled: true });
+  await pending;
+  expect(useMcpStore.getState().projectScopeEnabled).toBeNull();
+});
+
+test("setSelectedProjectId 切换时清空真值：不把上一个项目的开关态显示给新项目", () => {
+  useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: true });
+  useMcpStore.getState().setSelectedProjectId("p2");
+  expect(useMcpStore.getState().projectScopeEnabled).toBeNull();
+});
+
+test("setProjectMcpScope 成功后就地更新真值（不等下一次回读）", async () => {
+  useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: false });
+  await useMcpStore.getState().setProjectMcpScope("p1", true);
+  expect(useMcpStore.getState().projectScopeEnabled).toBe(true);
+});
+
+test("setProjectMcpScope 失败（400）时真值保持不变，只提示", async () => {
+  useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: false });
+  postImpl = () =>
+    Promise.reject(
+      Object.assign(new Error("默认工作区不支持项目级 MCP 作用域开关"), {
+        failure: { code: "mcp.systemProject" },
+      }),
+    );
+  await useMcpStore.getState().setProjectMcpScope("p1", true);
+  expect(useMcpStore.getState().projectScopeEnabled).toBe(false);
+  expect(useToastStore.getState().toasts).toHaveLength(1);
 });

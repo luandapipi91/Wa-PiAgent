@@ -1,7 +1,8 @@
 // McpFile：MCP 配置的唯一写入者。
 // 两条核心不变量：
-//   1. 保存时以**旧条目为基底**合并 —— 同文件内的未知字段（其他工具写入的键）必须原样保留。
-//      历史 bug（F15）：旧实现整条替换 server 条目，用户/其他工具写的字段被静默抹掉。
+//   1. 保存时**未知字段**（其他工具写入的键）必须原样保留，而**已知 schema 键**是**替换语义** ——
+//      payload 里缺席（含显式 undefined）即从条目删除该键，用户才清得掉 toolExposure / env / headers。
+//      历史 bug（F15）：旧实现整条替换 server 条目，未知字段被静默抹掉。
 //   2. 校验失败必须返回字段级错误且**不写盘**。
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -30,20 +31,60 @@ describe("McpFile", () => {
 			mcpServers: {
 				keep: {
 					command: "x",
+					extraUnknown: 1,
+					"x-other-tool": { enabled: true },
+				},
+			},
+		});
+		await file.save({
+			name: "keep",
+			command: "y",
+			args: ["--v"],
+			timeout: 45,
+			enabled: false,
+			exposure: "hidden",
+			toolExposure: { t: "direct" },
+		});
+		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		// 未知键（含嵌套对象）原样保留
+		expect(raw.mcpServers.keep.extraUnknown).toBe(1);
+		expect(raw.mcpServers.keep["x-other-tool"]).toEqual({ enabled: true });
+		// 已知键按 payload 替换
+		expect(raw.mcpServers.keep).toMatchObject({
+			command: "y",
+			args: ["--v"],
+			timeout: 45,
+			enabled: false,
+			exposure: "hidden",
+			toolExposure: { t: "direct" },
+		});
+	});
+
+	test("已知 schema 键是替换语义：payload 里缺席即从条目删除（清空 toolExposure/env 才删得掉）", async () => {
+		const { file, globalPath } = await setup({
+			mcpServers: {
+				keep: {
+					command: "x",
 					toolExposure: { t: "hidden" },
-					enabled: false,
+					env: { A: "1" },
+					headers: { B: "2" },
 					timeout: 45,
+					enabled: false,
+					exposure: "codemode",
+					cwd: "/tmp/somewhere",
 					extraUnknown: 1,
 				},
 			},
 		});
-		await file.save({ name: "keep", command: "y", args: ["--v"] });
+		// 表单清空这些字段后提交的正是这样一份「完整配置」：只有 name + command
+		await file.save({ name: "keep", command: "y" });
 		const raw = JSON.parse(await readFile(globalPath, "utf8"));
-		expect(raw.mcpServers.keep.toolExposure).toEqual({ t: "hidden" });
-		expect(raw.mcpServers.keep.enabled).toBe(false);
-		expect(raw.mcpServers.keep.timeout).toBe(45);
-		expect(raw.mcpServers.keep.extraUnknown).toBe(1);
+		expect(Object.keys(raw.mcpServers.keep).sort()).toEqual([
+			"command",
+			"extraUnknown",
+		]);
 		expect(raw.mcpServers.keep.command).toBe("y");
+		expect(raw.mcpServers.keep.name).toBeUndefined(); // 名字由 map 键表达，不写进条目
 	});
 
 	test("列表按作用域隔离", async () => {
@@ -98,13 +139,13 @@ describe("McpFile", () => {
 		expect(await off.getAutoEnableCodemode()).toBe(false);
 	});
 
-	test("保存载荷里的显式 undefined 视为未填，不得抹掉盘上已保留的字段", async () => {
+	test("显式 undefined 与缺席同义：同样删除该已知键", async () => {
 		const { file, globalPath } = await setup({
 			mcpServers: {
 				keep: { command: "x", toolExposure: { t: "hidden" }, enabled: false, timeout: 45 },
 			},
 		});
-		// 任务 8 的路由按表单组装载荷：未填写的字段会是 undefined
+		// 表单留空 / 删行后组装出的载荷：字段在、值为 undefined —— 与「缺席」同义
 		await file.save({
 			name: "keep",
 			command: "y",
@@ -114,10 +155,8 @@ describe("McpFile", () => {
 			exposure: undefined,
 		});
 		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		expect(Object.keys(raw.mcpServers.keep)).toEqual(["command"]);
 		expect(raw.mcpServers.keep.command).toBe("y");
-		expect(raw.mcpServers.keep.toolExposure).toEqual({ t: "hidden" });
-		expect(raw.mcpServers.keep.enabled).toBe(false);
-		expect(raw.mcpServers.keep.timeout).toBe(45);
 	});
 
 	test("mcpServers 为数组（用户手工清空列表）时 save 仍把服务器写进文件", async () => {

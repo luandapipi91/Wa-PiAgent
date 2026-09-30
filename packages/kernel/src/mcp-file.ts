@@ -4,10 +4,15 @@
 //   - 全局：<WA_PI_DIR>/mcp.json
 //   - 项目：<project.cwd>/.pi/mcp.json（由 projectPathFor 回调解析，规格 F11）
 //
-// 两条铁律：
-//   1. 保留未知字段 —— server 条目以**旧条目为基底**合并，其他工具/用户写的键不得被抹掉
-//      （旧实现整条替换条目，历史 bug F15）。
-//   2. 校验失败不写盘 —— validateMcpServer 报错则直接返回，文件保持原样。
+// 三条铁律：
+//   1. 保留未知字段 —— schema 之外的键（其他工具/用户写的）在 server 条目上原样保留，
+//      整体替换条目是历史 bug（F15）。
+//   2. 已知 schema 键是**替换语义** —— payload 里缺席（含显式 undefined）即从条目删除该键：
+//      否则用户清空 toolExposure / env / headers 后保存，盘上旧键仍在，永远删不掉（控制者裁决的缺口②）。
+//   3. 校验失败不写盘 —— validateMcpServer 报错则直接返回，文件保持原样。
+//
+// 契约（{@link McpFile.save}）：**调用方必须传完整配置**——它代表该 server 的目标状态，
+// 缺席的已知键会被删除。只传改动字段的「补丁式」调用会把其他已知键一并删掉。
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -24,6 +29,32 @@ interface RawFile {
   mcpServers: Record<string, RawServer>;
   autoEnableCodemode?: boolean;
   [key: string]: unknown;
+}
+
+/**
+ * 已知 schema 键（= `McpServerConfig` 除 `name`，`name` 由 map 的键表达、不写进条目）。
+ *
+ * 用 `Record<KnownServerKey, true>` 而非数组：多键/少键都会在编译期报错，
+ * `@wa-pi/shared` 的 schema 一变这里就必须跟上（否则新字段会被当成「未知键」永久保留、删不掉）。
+ */
+type KnownServerKey = Exclude<keyof McpServerConfig, "name">;
+const KNOWN_SERVER_KEYS: Record<KnownServerKey, true> = {
+  type: true,
+  command: true,
+  args: true,
+  env: true,
+  cwd: true,
+  url: true,
+  headers: true,
+  timeout: true,
+  enabled: true,
+  exposure: true,
+  toolExposure: true,
+};
+
+/** 既不是 schema 键也不是 name（name 不落条目）→ 是「未知键」，换语义下也不得动它 */
+function isUnknownKey(key: string): boolean {
+  return key !== "name" && !Object.hasOwn(KNOWN_SERVER_KEYS, key);
 }
 
 /**
@@ -76,7 +107,20 @@ export class McpFile {
     return cfg.autoEnableCodemode !== false;
   }
 
-  /** 保存（新增或替换）。unknown 字段原样保留；校验失败不写盘。 */
+  /**
+   * 保存（新增或替换条目）。
+   *
+   * 语义：
+   *   - **未知键**（schema 之外的键）原样保留，payload 里带来的未知键也照写（F15 的核心保护）；
+   *   - **已知 schema 键**替换：payload 里有值（含 `undefined` 以外的任何值）即写入，
+   *     缺席或显式 `undefined` 即从条目删除 —— 显式 `undefined` 与缺席同义，
+   *     这是「清空即删除」的唯一途径（见文件头铁律 2）。
+   *
+   * **契约：调用方必须传完整配置**（该 server 的目标状态），缺席的已知键会被删除；
+   * 只传改动字段的补丁式调用会连带删掉其他已知键。
+   *
+   * 校验失败不写盘，返回字段级错误。
+   */
   async save(
     input: McpServerConfig,
     projectId?: string,
@@ -95,15 +139,21 @@ export class McpFile {
         cfg.mcpServers[name] ??
         (originalName ? cfg.mcpServers[originalName] : undefined) ??
         {};
-      // 显式 undefined 视为「表单未填」，不得覆盖旧值：否则 toolExposure / enabled / timeout
-      // 会被写成 undefined、被 JSON.stringify 丢弃 —— 写盘成功（ok: true）却把字段静默丢掉（F15 的同类伤害）。
-      // 清空某字段应走 delete 语义，而不是靠 undefined。
-      const patch = Object.fromEntries(
-        Object.entries(rest).filter(([, v]) => v !== undefined),
-      );
-      // 关键：以旧条目为基底合并，未知字段得以保留
-      cfg.mcpServers[name] = { ...previous, ...patch } as RawServer;
-      delete (cfg.mcpServers[name] as { name?: unknown }).name;
+      const payload = rest as Record<string, unknown>;
+      // 以旧条目为基底：保留未知键（F15）；已知键在下面的循环里被逐个「写入或删除」
+      const entry: RawServer = {};
+      for (const [key, value] of Object.entries(previous)) {
+        if (isUnknownKey(key)) entry[key] = value;
+      }
+      for (const [key, value] of Object.entries(payload)) {
+        if (value !== undefined && isUnknownKey(key)) entry[key] = value;
+      }
+      // 已知键：payload 缺席（含显式 undefined）即删除 —— 用户才能清空 toolExposure / env / headers
+      for (const key of Object.keys(KNOWN_SERVER_KEYS) as KnownServerKey[]) {
+        const value = payload[key];
+        if (value !== undefined) entry[key] = value;
+      }
+      cfg.mcpServers[name] = entry;
       if (originalName && originalName !== name)
         delete cfg.mcpServers[originalName];
       await this.write(path, cfg);

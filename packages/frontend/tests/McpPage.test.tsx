@@ -5,15 +5,20 @@ import { McpPage } from "../src/components/mcp/McpPage";
 import { useMcpStore } from "../src/store/mcp";
 import { useProjectsStore } from "../src/store/projects";
 
-// 页面里唯一会发请求的是「保存配置」（列表 load 在各用例里被 stub）。
+// 页面里唯一会发请求的是「保存配置」与「项目级开关真值回读」。
 // mock 掉 api-client：既避免 happy-dom 对相对 URL 抛 NotSupportedError，
-// 也能让「400 字段级错误绑到表单」这条链路被测到。
+// 也能让「400 字段级错误绑到表单」与「开关真值回读端点」这两条链路被测到。
 let postImpl: (path: string, body?: unknown) => Promise<unknown> = () =>
   Promise.resolve({ ok: true });
+/** 记录 GET 路径：用于断言开关真值回读打的是哪个端点 */
+const getCalls: string[] = [];
 
 mock.module("../src/api-client", () => ({
   api: {
-    get: () => Promise.resolve(null),
+    get: (path: string) => {
+      getCalls.push(path);
+      return Promise.resolve(null);
+    },
     post: (path: string, body?: unknown) => postImpl(path, body),
     put: () => Promise.resolve({}),
     del: () => Promise.resolve({}),
@@ -22,6 +27,7 @@ mock.module("../src/api-client", () => ({
 
 beforeEach(() => {
   postImpl = () => Promise.resolve({ ok: true });
+  getCalls.length = 0;
   useMcpStore.setState({
     servers: [],
     stale: false,
@@ -29,6 +35,7 @@ beforeEach(() => {
     selectedProjectId: null,
     searchQuery: "",
     loading: false,
+    projectScopeEnabled: null,
     serverStatuses: {},
     toolCounts: {},
     toolsCache: {},
@@ -217,13 +224,85 @@ test("默认工作区（__system__）的项目级 MCP 开关置灰", () => {
   ).toContain("默认工作区");
 });
 
-test("选中普通项目时项目级 MCP 开关可用", () => {
-  useMcpStore.setState({ selectedProjectId: "p1" });
+test("选中普通项目时项目级 MCP 开关可用，初值来自 trust.json 真值（已开）", () => {
+  useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: true });
   render(<McpPage />);
   fireEvent.click(screen.getByTestId("mcp-scope-select"));
   const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
   expect(sw.disabled).toBe(false);
   expect(sw.getAttribute("data-on")).toBe("true");
+  expect(sw.getAttribute("data-unset")).toBe("false");
+  expect(screen.queryByTestId("mcp-project-scope-unset")).toBeNull();
+});
+
+test("真值为未设置（null）时开关显示「未设置 / 跟随上层」，不谎报「已开」（缺口①回归）", () => {
+  // pi 的 note（项目未受信）**不再**被当成开关初值：note 出现时 trust.json 里可能一条都没有
+  useMcpStore.setState({
+    selectedProjectId: "p1",
+    projectScopeEnabled: null,
+    note: "…/.pi/mcp.json is ignored because the project is not trusted.",
+  });
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+  const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
+  expect(sw.getAttribute("data-on")).toBe("false");
+  expect(sw.getAttribute("data-unset")).toBe("true");
+  expect(
+    screen.getByTestId("mcp-project-scope-unset").textContent,
+  ).toContain("未设置");
+});
+
+test("真值为显式关闭（false）时是「关」而不是「未设置」", () => {
+  useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: false });
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+  const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
+  expect(sw.getAttribute("data-on")).toBe("false");
+  expect(sw.getAttribute("data-unset")).toBe("false");
+  expect(screen.queryByTestId("mcp-project-scope-unset")).toBeNull();
+});
+
+test("选中具体项目时回读开关真值；全局 / 默认工作区不回读", async () => {
+  useMcpStore.setState({ selectedProjectId: "p1" });
+  render(<McpPage />);
+  await waitFor(() =>
+    expect(getCalls).toContain("/api/mcp/project-scope?projectId=p1"),
+  );
+
+  getCalls.length = 0;
+  // 默认工作区没有项目级作用域（kernel 写侧 400），不回读
+  await act(async () => {
+    useMcpStore.setState({ selectedProjectId: SYSTEM_PROJECT_ID });
+  });
+  expect(getCalls).toEqual([]);
+});
+
+test("点击开关保存成功后就地更新真值（不再靠 note 推断）且 POST body 不变", async () => {
+  const posts: unknown[] = [];
+  postImpl = (path: string, body?: unknown) => {
+    posts.push({ path, body });
+    return Promise.resolve({ ok: true, enabled: true });
+  };
+  useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: false });
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("mcp-project-scope-switch"));
+  });
+
+  expect(posts).toEqual([
+    {
+      path: "/api/mcp/project-scope",
+      body: { projectId: "p1", enabled: true },
+    },
+  ]);
+  expect(useMcpStore.getState().projectScopeEnabled).toBe(true);
+  expect(
+    (screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement).getAttribute(
+      "data-on",
+    ),
+  ).toBe("true");
 });
 
 test("选中全局作用域时不显示项目级 MCP 开关（它是项目维度的）", () => {

@@ -386,6 +386,7 @@ const zh = {
 		globalScope: "🌐 全局",
 		projectOption: "📁 {{name}}",
 		projectScope: "项目级 MCP",
+		projectScopeUnset: "未设置（跟随上层）",
 		projectScopeHint:
 			"开启后该项目会被标记为受信任，pi 才会加载项目内的 .pi/mcp.json（需要重启会话生效）",
 		statusStale:

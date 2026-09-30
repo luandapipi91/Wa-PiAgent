@@ -76,6 +76,31 @@ export async function setProjectMcpScope(opts: {
 }
 
 /**
+ * 回读项目级 MCP 作用域开关（对应端点 GET /api/mcp/project-scope / 缺口①）。
+ *
+ * 前端开关的初值必须来自事实，不能由 pi 的 note 反推：pi 只在「项目未受信 **且** 项目里
+ * 已有 .pi/mcp.json」时才输出 note，而项目还没有配置文件时根本没有 note——靠 note 反推会把
+ * 「未设置」显示成「已开」（此时 trust.json 里没条目，开关也无任何实际效果）。受信是安全决定，
+ * UI 显示与事实不符不可接受。
+ *
+ * 返回值 = `McpTrustStore.get(cwd)`，支持祖先继承：显式设置过 → true/false；自己和祖先都没有
+ * 条目 → `null`（前端显示「未设置 / 跟随上层」）。
+ *
+ * 只读：不改 trust.json、不触发迁移、不做 `__system__` 守卫（守卫挡的是落盘；读只是把那个目录
+ * 的真实受信态原样报出来，且前端在默认工作区不显示开关）。
+ */
+export async function getProjectMcpScope(opts: {
+  projectStore: ProjectStore;
+  projectId: string;
+  /** trust.json 路径（缺省 <WA_PI_DIR>/trust.json；测试注入 tmpdir 用） */
+  trustFile?: string;
+}): Promise<boolean | null> {
+  // 项目 id → cwd 一律走既有解析（与写侧同一个函数，不自行拼路径）：项目不存在会抛 KernelError
+  const cwd = await resolveCwdForFsRequest(opts.projectStore, opts.projectId);
+  return await new McpTrustStore(opts.trustFile ?? trustFilePath()).get(cwd);
+}
+
+/**
  * MCP 域的外部依赖（ws-server 注入；缺一不可）。
  *
  * 为什么走工厂而不是往共享的 RouteContext 里塞字段：本域需要 5 个外部能力
@@ -344,6 +369,22 @@ export function createMcpRoutes(deps: McpRouteDeps): RouteRegistrar {
         return mcpErrorResponse(e);
       }
       return Response.json({ ok: true, projectId: b.projectId, enabled: b.enabled });
+    });
+
+    // ---- 回读项目级开关：真值来自 trust.json（缺口①）----
+    // 只读端点，不做 __system__ 守卫（写侧的 400 挡的是落盘；读只是把该目录的真实受信态报出来）。
+    r.add("GET", "/api/mcp/project-scope", async (req) => {
+      const projectId = new URL(req.url).searchParams.get("projectId");
+      if (!projectId) return paramErrorResponse("缺少 projectId", "projectId");
+      try {
+        const enabled = await getProjectMcpScope({
+          projectStore: ctx.projectStore,
+          projectId,
+        });
+        return Response.json({ enabled });
+      } catch (e) {
+        return mcpErrorResponse(e);
+      }
     });
 
     // ---- 服务器清单：盘上配置 + pi 报的运行时状态（规格 §7）----

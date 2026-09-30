@@ -560,7 +560,14 @@ describe("SSE 链路（真实 WSServer）", () => {
     });
     server = new WSServer({
       mcpFile: sseFile,
-      projectStore: {} as never,
+      // 项目级开关端点要解析 projectId → cwd：给一条真实项目（cwd = sseDir），
+      // 其余项目/会话读法本文件用不到
+      projectStore: {
+        load: async () => ({
+          projects: [{ id: "sse-proj", name: "SSE 项目", cwd: sseDir, createdAt: 0 }],
+          sessions: [],
+        }),
+      } as never,
       agentManager: {
         disposeAll: async () => {},
         onEvent: () => {},
@@ -661,5 +668,27 @@ describe("SSE 链路（真实 WSServer）", () => {
     const body = (await res.json()) as { servers: McpServerConfig[] };
     expect(body.servers.map((s) => s.name)).toEqual(["echo"]);
     expect((body.servers[0] as any).state).toBe("connected");
+  });
+
+  test("GET / POST /api/mcp/project-scope 走真实路由：真值来自 trust.json（缺口①）", async () => {
+    const readScope = async () =>
+      (await (
+        await fetch(`${base}/api/mcp/project-scope?projectId=sse-proj`)
+      ).json()) as { enabled: boolean | null };
+    const postScope = (enabled: boolean) =>
+      fetch(`${base}/api/mcp/project-scope`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: "sse-proj", enabled }),
+      });
+
+    // 未设置（trust.json 里无条目）→ null，而不是乐观地报「已开」
+    expect(await readScope()).toEqual({ enabled: null });
+
+    expect((await postScope(true)).status).toBe(200);
+    expect(await readScope()).toEqual({ enabled: true });
+
+    expect((await postScope(false)).status).toBe(200);
+    expect(await readScope()).toEqual({ enabled: false });
   });
 });

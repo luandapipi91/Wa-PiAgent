@@ -1,12 +1,15 @@
 /**
- * 项目级 MCP 作用域开关端点（POST /api/mcp/project-scope）
+ * 项目级 MCP 作用域开关端点（POST / GET /api/mcp/project-scope）
  *
  * 关键行为（规格 F11/F12/F13）：
  *   1. 开启 → <WA_PI_DIR>/trust.json 里以 **realpath(project.cwd) 原样** 为键写 true
  *      （pi 只在项目受信时才读 <cwd>/.pi/mcp.json，键写错即静默失效），
  *      并顺带把旧 .mcp.json 迁移到 <cwd>/.pi/mcp.json；
  *   2. 关闭 → 同一个键写 false，**不删键**（删键会退回上层继承，可能意外继承父目录的受信决定）；
- *   3. projectId 缺失 / enabled 非布尔 → 400；项目不存在 → 404。
+ *   3. GET 回读真值：显式设置过 → true/false；自己和祖先都没条目 → `null`（前端显示
+ *      「未设置 / 跟随上层」）。前端不能靠 pi 的 note 反推：项目还没有 .pi/mcp.json 时
+ *      会把「未设置」显示成「已开」，而受信是安全决定；
+ *   4. projectId 缺失 / enabled 非布尔 → 400；项目不存在 → 404。
  *
  * 隔离：WA_PI_DIR 在 beforeAll 指向临时目录，绝不触碰真实 ~/.pi/agent/trust.json。
  */
@@ -14,7 +17,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { existsSync, mkdtempSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { HttpRouter } from "../src/http-router";
 import { createMcpRoutes } from "../src/routes/mcp";
 import { trustKeyFor } from "../src/mcp-trust";
@@ -67,6 +70,13 @@ function post(body: unknown): Promise<Response | null> {
       body: JSON.stringify(body),
     }),
   );
+}
+
+function get(projectId?: string): Promise<Response | null> {
+  const url = projectId
+    ? `http://localhost/api/mcp/project-scope?projectId=${encodeURIComponent(projectId)}`
+    : "http://localhost/api/mcp/project-scope";
+  return router.handle(new Request(url));
 }
 
 beforeAll(() => {
@@ -150,6 +160,49 @@ describe("POST /api/mcp/project-scope", () => {
     expect(res?.status).toBe(404);
     expect((await res?.json()).failure.code).toBe("project.notFound");
     expect(existsSync(trustFile)).toBe(false);
+  });
+});
+
+// GET 是写侧开关的**真值回读**：前端开关的初值必须来自事实（trust.json），不能由 pi 的 note 反推。
+// pi 只在「项目未受信 **且** 项目里已有 .pi/mcp.json」时才输出 note，靠 note 反推会把「没设过」
+// 显示成「已开」——而受信是安全决定，UI 显示与事实不符不可接受（控制者裁决的缺口①）。
+describe("GET /api/mcp/project-scope", () => {
+  test("未显式设置 → enabled: null，且不凭空创建 trust.json", async () => {
+    const res = await get(PROJECT_ID);
+    expect(res?.status).toBe(200);
+    expect(await res?.json()).toEqual({ enabled: null });
+    expect(existsSync(trustFile)).toBe(false);
+  });
+
+  test("开启后回读 true、关闭后回读 false（与写侧同一份 trust.json）", async () => {
+    await post({ projectId: PROJECT_ID, enabled: true });
+    expect(await (await get(PROJECT_ID))?.json()).toEqual({ enabled: true });
+
+    await post({ projectId: PROJECT_ID, enabled: false });
+    expect(await (await get(PROJECT_ID))?.json()).toEqual({ enabled: false });
+  });
+
+  test("祖先受信时项目自身无条目 → 继承祖先的真值（与 pi 的查表语义一致）", async () => {
+    // 只为父目录写一条受信决定；项目 cwd 自身没有条目
+    const parentKey = await trustKeyFor(dirname(cwd));
+    await writeFile(trustFile, JSON.stringify({ [parentKey]: true }), "utf8");
+
+    const res = await get(PROJECT_ID);
+    expect(res?.status).toBe(200);
+    expect(await res?.json()).toEqual({ enabled: true });
+  });
+
+  test("缺少 projectId → 400 参数校验错误", async () => {
+    const res = await get();
+    expect(res?.status).toBe(400);
+    expect((await res?.json()).failure.code).toBe("common.missingParam");
+  });
+
+  test("项目不存在 → 404 project.notFound", async () => {
+    router = setupRouter(null);
+    const res = await get("ghost");
+    expect(res?.status).toBe(404);
+    expect((await res?.json()).failure.code).toBe("project.notFound");
   });
 });
 

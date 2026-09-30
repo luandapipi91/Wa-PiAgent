@@ -167,6 +167,15 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
   const errorOf = (field: string): string | undefined =>
     fieldErrors.find((e) => e.field === field)?.message;
 
+  /**
+   * 组装提交载荷。
+   *
+   * **契约（kernel `McpFile.save`）：调用方必须传完整配置** —— payload 里缺席的已知键会被从
+   * 盘上删除。所以「留空 / 删行」就是「清空该字段」的意思：删掉最后一条 toolExposure 后
+   * 该键就从盘上消失（环境变量、请求头、cwd、timeout 同理）。
+   * 传输类型是二选一：切到 HTTP 后 stdio 侧字段（command/args/env）不再出现在载荷里 →
+   * 被删除（schema 上二者互斥，原本的单侧残留字段也应清掉）。
+   */
   const buildConfig = (): McpServerConfig => {
     const config: McpServerConfig = { name: name.trim(), type };
     if (type === "stdio") {
@@ -187,6 +196,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
     // 留空 = 不设超时（schema 不允许 0/负数：清空即不写该字段）
     const timeoutValue = timeoutText.trim();
     if (timeoutValue) config.timeout = Number(timeoutValue);
+    // enabled / exposure 是常设字段（表单总有一个值）；toolExposure 为空则缺席 → 盘上该键被删除
     config.enabled = enabled;
     config.exposure = exposure;
     config.toolExposure = rowsToRecord(toolExposureRows);

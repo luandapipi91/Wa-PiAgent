@@ -62,6 +62,12 @@ interface McpState {
   /** pi 的顶层提示（如「项目未受信任」），供 UI 解释配置为何不生效 */
   note?: string;
   selectedProjectId: string | null;
+  /**
+   * 项目级 MCP 开关的**真值**（`GET /api/mcp/project-scope`）：
+   * `true` / `false` = trust.json 里显式设置过；`null` = 未设置（跟随上层）。
+   * 不能由 pi 的 note 反推——项目还没有 `.pi/mcp.json` 时没有 note，会把「未设置」显示成「已开」。
+   */
+  projectScopeEnabled: boolean | null;
   searchQuery: string;
   loading: boolean;
   /** 各服务器**本次会话内测试**得出的状态（客户端内存，不持久化） */
@@ -99,6 +105,8 @@ interface McpState {
   listTools(serverName: string, projectId?: string): void;
   /** 项目级 MCP 作用域开关（写 trust.json；`__system__` 会被 kernel 以 400 拒绝） */
   setProjectMcpScope(projectId: string, enabled: boolean): Promise<void>;
+  /** 回读项目级开关真值（trust.json），供开关显示初值；晚到的回包不覆盖已切走的项目 */
+  loadProjectScope(projectId: string): Promise<void>;
   setSelectedProjectId(id: string | null): void;
   setSearchQuery(q: string): void;
 }
@@ -108,6 +116,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   stale: false,
   note: undefined,
   selectedProjectId: null,
+  projectScopeEnabled: null,
   searchQuery: "",
   loading: false,
   serverStatuses: {},
@@ -237,9 +246,31 @@ export const useMcpStore = create<McpState>((set, get) => ({
       useToastStore.getState().add(formatApiError(e), "error");
       return;
     }
+    // 写入成功后开关真值就地更新（POST 回包的 enabled 即确定值，不必再回读一次）。
+    // 切走项目时忽略：这个结果属于源项目，不能污染新选中项目的开关
+    if (get().selectedProjectId === projectId) set({ projectScopeEnabled: enabled });
     // 受信状态变了 → 该作用域的清单要重读（pi 才会去读 .pi/mcp.json）
     get().load(get().selectedProjectId ?? undefined);
   },
-  setSelectedProjectId: (id) => set({ selectedProjectId: id }),
+  loadProjectScope: (projectId) =>
+    api
+      .get(`/api/mcp/project-scope?projectId=${encodeURIComponent(projectId)}`)
+      .then((data: any) => {
+        // 响应回来时用户可能已切走：晚到的真值不得覆盖新项目的开关
+        if (get().selectedProjectId !== projectId) return;
+        set({
+          // null / 缺字段 都表示「未显式设置（跟随上层）」
+          projectScopeEnabled:
+            typeof data?.enabled === "boolean" ? data.enabled : null,
+        });
+      })
+      .catch(() => {
+        if (get().selectedProjectId !== projectId) return;
+        // 读不到真值不谎报「已开」（受信是安全决定）→ 按「未设置」显示
+        set({ projectScopeEnabled: null });
+      }),
+  setSelectedProjectId: (id) =>
+    // 同时清掉真值：上一个项目的开关态不得被当成新项目的状态显示
+    set({ selectedProjectId: id, projectScopeEnabled: null }),
   setSearchQuery: (q) => set({ searchQuery: q }),
 }));
