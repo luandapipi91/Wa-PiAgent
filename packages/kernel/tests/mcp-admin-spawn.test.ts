@@ -7,7 +7,7 @@
 //      空配置退 0，而"某台 server 起不来"时**退 1 但 stdout 仍是合法 JSON**，
 //      后者正是 commandFailed 只认解析结果的依据。
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +15,9 @@ import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "../src/mcp-admin.ts";
 import { resolvePiCliPath, resolvePiRuntime } from "../src/rpc-client.ts";
 
 const FAKE_PI = join(import.meta.dir, "fixtures", "fake-mcp-list-pi.ts");
+
+/** pi 的配置目录名（<cwd>/.pi/mcp.json 就是项目级配置） */
+const CONFIG_DIR_NAME = ".pi";
 
 afterEach(() => {
   delete process.env.MCP_ADMIN_TEST_MODE;
@@ -195,6 +198,57 @@ describe("McpAdmin 缓存与失败回退（假 pi）", () => {
 });
 
 describe("McpAdmin 真实 spawn（真 pi，F14）", () => {
+  test("项目作用域随 cwd 生效：未受信项目的 .pi/mcp.json 被忽略，受信后带上（F11/F12/F13）", async () => {
+    // 白名单只取 direct+connected，但 "能不能看到项目级 server" 完全看 spawn 的 cwd：
+    // pi 用 process.cwd() 去找 <cwd>/.pi/mcp.json。本用例用真 pi 锁住这条链。
+    const agentDir = await mkdtemp(join(tmpdir(), "admin-proj-"));
+    const projectCwd = await mkdtemp(join(tmpdir(), "admin-proj-cwd-"));
+    await writeFile(
+      join(agentDir, "mcp.json"),
+      JSON.stringify({
+        mcpServers: { global_srv: { command: "definitely-not-a-real-binary-xyz" } },
+      }),
+      "utf8",
+    );
+    await mkdir(join(projectCwd, CONFIG_DIR_NAME), { recursive: true });
+    await writeFile(
+      join(projectCwd, CONFIG_DIR_NAME, "mcp.json"),
+      JSON.stringify({
+        mcpServers: { proj_srv: { command: "definitely-not-a-real-binary-xyz" } },
+      }),
+      "utf8",
+    );
+    const admin = new McpAdmin({
+      runtime: resolvePiRuntime(),
+      cliPath: resolvePiCliPath(),
+      agentDir,
+      cwd: projectCwd,
+      timeoutMs: 30_000,
+    });
+
+    // 未受信：项目配置被静默忽略，只有全局 server，且带 note（唯一的信号，F12）
+    const untrusted = await admin.list();
+    expect(untrusted.commandFailed).toBe(false);
+    expect(untrusted.servers.map((s) => s.name)).toEqual(["global_srv"]);
+    expect(untrusted.note).toContain("not trusted");
+
+    // 受信（键 = realpath 原样，与 pi 的 ProjectTrustStore 一致）：项目 server 出现
+    await writeFile(
+      join(agentDir, "trust.json"),
+      JSON.stringify({ [realpathSync(projectCwd)]: true }),
+      "utf8",
+    );
+    const trusted = await admin.list(true);
+    expect(trusted.commandFailed).toBe(false);
+    expect(trusted.servers.map((s) => s.name).sort()).toEqual([
+      "global_srv",
+      "proj_srv",
+    ]);
+    expect(trusted.servers.find((s) => s.name === "proj_srv")?.scope).toBe(
+      "project",
+    );
+  });
+
   test("空配置下返回空列表且命令成功", async () => {
     const admin = await realAdmin({ mcpServers: {} });
     const res = await admin.list();

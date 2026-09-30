@@ -45,12 +45,14 @@ import {
 	readFileSync,
 	rmSync,
 	mkdirSync,
+	mkdtempSync,
 	writeFileSync,
 	openSync,
 	ftruncateSync,
 	closeSync,
 } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { errorCodeOf } from "./helpers/kernel-error-code";
 
 const MODEL = "anthropic/test-model";
@@ -132,6 +134,8 @@ interface SetupOpts {
 	projectCwd?: string;
 	/** 注入 fake mcpAdmin（默认空枚举）：避免单测真的 spawn `pi mcp list` */
 	mcpAdmin?: FakeMcpAdmin;
+	/** 注入按 cwd 解析的 fake mcpAdmin（项目作用域用例：不同 cwd 拿到不同枚举结果） */
+	mcpAdminFor?: (cwd: string) => FakeMcpAdmin;
 	/** MCP 工具清单延时刷新的延迟（ms）：透传 AgentManagerOpts（默认 3000，测试注入小值） */
 	mcpToolRefreshDelayMs?: number;
 }
@@ -167,7 +171,9 @@ async function setup(opts: SetupOpts = {}) {
 			? {}
 			: { turnResumeWindowMs: opts.turnResumeWindowMs }),
 		// 默认注入空枚举的 fake mcpAdmin：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
-		mcpAdmin: opts.mcpAdmin ?? makeFakeMcpAdmin(),
+		...(opts.mcpAdminFor
+			? { mcpAdminFor: opts.mcpAdminFor }
+			: { mcpAdmin: opts.mcpAdmin ?? makeFakeMcpAdmin() }),
 		...(opts.mcpToolRefreshDelayMs === undefined
 			? {}
 			: { mcpToolRefreshDelayMs: opts.mcpToolRefreshDelayMs }),
@@ -1860,6 +1866,56 @@ test("disposeAll 清掉延时刷新定时器：销毁后不再失效/枚举（�
 
 	expect(mcpAdmin.invalidateCalls).toBe(0);
 	expect(mcpAdmin.listCalls).toBe(callsAtDispose);
+});
+
+test("项目作用域（F11/F12）：受限 agent 用会话/项目 cwd 枚举，受信项目 .pi/mcp.json 的工具可进白名单", async () => {
+	// pi 的项目级 MCP 配置是 <cwd>/.pi/mcp.json，cwd 传错就永远枚举不到项目级 server——
+	// 后果是白名单里没有它的工具名，pi 静默不放行。
+	const projectCwd = mkdtempSync(join(tmpdir(), "wa-pi-am-mcp-proj-"));
+	const projectAdmin = makeFakeMcpAdmin([
+		{
+			name: "proj",
+			scope: "project",
+			enabled: true,
+			exposure: "direct",
+			state: "connected",
+			tools: ["proj_tool"],
+		},
+	]);
+	const globalAdmin = makeFakeMcpAdmin([
+		{
+			name: "global",
+			scope: "global",
+			enabled: true,
+			exposure: "direct",
+			state: "connected",
+			tools: ["global_tool"],
+		},
+	]);
+	const seenCwds: string[] = [];
+	const configStore = {
+		getAgent: mock(async () => ({ displayName: "dev", tools: ["read"] })),
+	} as any;
+	const { project, session, am, fakes } = await setup({
+		projectCwd,
+		configStore,
+		// 本用例只关心启动时的枚举，不让延时刷新插一脚
+		mcpToolRefreshDelayMs: 60_000,
+		mcpAdminFor: (cwd) => {
+			seenCwds.push(cwd);
+			return cwd === projectCwd ? projectAdmin : globalAdmin;
+		},
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 用的就是本次会话的 cwd（普通项目 = project.cwd）
+	expect(seenCwds).toContain(projectCwd);
+	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
+		v.split(","),
+	);
+	expect(tools).toContain("mcp__proj__proj_tool");
+	// 不是拿全局作用域那份枚举凑数
+	expect(tools).not.toContain("mcp__global__global_tool");
 });
 
 // ─── 系统提示词（读 sysprompts/<id>.md 断言组合结果） ───────────────────────

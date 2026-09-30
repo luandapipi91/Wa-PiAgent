@@ -28,7 +28,7 @@ import {
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR, GENERATED_DIR } from "@wa-pi/shared";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -106,11 +106,12 @@ function newProjectStore() {
 async function setupManager(
   configStore: any,
   mcpAdmin: FakeMcpAdmin = makeFakeMcpAdmin([...MCP_SERVERS]),
+  overrides: { cwd?: string; mcpAdminFor?: (cwd: string) => FakeMcpAdmin } = {},
 ) {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({
     name: "测试",
-    cwd: "/tmp",
+    cwd: overrides.cwd ?? "/tmp",
   });
   const session = await projectStore.createSession({
     projectId: project.id,
@@ -125,7 +126,8 @@ async function setupManager(
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
-    mcpAdmin,
+    // 项目作用域用例：按 cwd 拿不同枚举结果；其余用例用固定 fake
+    ...(overrides.mcpAdminFor ? { mcpAdminFor: overrides.mcpAdminFor } : { mcpAdmin }),
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -217,6 +219,45 @@ test("内置只读子代理：MCP 枚举失败（list 抛错）不阻断 delegat
   const explore = capturedConfigs.find((c: any) => c.name === "Explore");
   expect(explore).toBeDefined();
   expect(explore.tools).toEqual(["read", "bash", "grep", "find", "ls"]);
+});
+
+test("内置只读子代理（Explore）：按会话/项目 cwd 枚举，受信项目 .pi/mcp.json 的工具可进白名单", async () => {
+  const projectCwd = mkdtempSync(join(tmpdir(), "wa-pi-mcp-subagent-proj-"));
+  const projectAdmin = makeFakeMcpAdmin([
+    {
+      name: "proj",
+      scope: "project",
+      enabled: true,
+      exposure: "direct",
+      state: "connected",
+      tools: ["proj_tool"],
+    },
+  ]);
+  const seenCwds: string[] = [];
+  const session = await setupManager(
+    {
+      getAgent: mock(async () => ({
+        displayName: "dev",
+        partners: { askTo: [] },
+      })),
+    } as any,
+    makeFakeMcpAdmin(),
+    {
+      cwd: projectCwd,
+      mcpAdminFor: (cwd) => {
+        seenCwds.push(cwd);
+        return projectAdmin;
+      },
+    },
+  );
+
+  await delegateTo(session.id, "Explore");
+
+  // 子代理是独立 pi 进程，项目级配置随 cwd 生效：必须用会话/项目 cwd 枚举才拿得到
+  expect(seenCwds).toContain(projectCwd);
+  const explore = capturedConfigs.find((c: any) => c.name === "Explore");
+  expect(explore).toBeDefined();
+  expect(explore.tools).toContain("mcp__proj__proj_tool");
 });
 
 test("内置非只读子代理（general-purpose）：tools 保持空数组（不传 --tools 全量放行），-e 不含 pi-mcp-adapter", async () => {

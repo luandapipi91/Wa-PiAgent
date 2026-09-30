@@ -95,6 +95,7 @@ import type { SkillManager } from "./skill-manager";
 import { projectSkillsDirOf } from "./skill-sources";
 import type { ExtensionManager } from "./extension-manager";
 import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "./mcp-admin";
+import { mcpToolNamesOf } from "./mcp-tool-names";
 import {
 	registerBridgeSession,
 	unregisterBridgeSession,
@@ -180,6 +181,10 @@ export interface AgentManagerOpts {
 	extensionManager?: ExtensionManager;
 	// mcpAdmin 可注入：测试注入 fake，避免单测真的 spawn `pi mcp list`；缺省自建真实实例。
 	mcpAdmin?: Pick<McpAdmin, "list" | "invalidate">;
+	/** 按 cwd 解析 MCP 状态读取者（测试注入；同时传 mcpAdmin 时以 mcpAdmin 为准）。
+	 *  生产不传：按会话/项目 cwd 各建一个实例——pi 的项目级 MCP 配置是 `<cwd>/.pi/mcp.json`
+	 *  （F11/F12），cwd 传错就永远枚举不到项目级 server，其工具名进不了白名单。 */
+	mcpAdminFor?: (cwd: string) => Pick<McpAdmin, "list" | "invalidate">;
 	/** MCP 工具清单延时刷新的延迟（ms）：缺省 {@link MCP_TOOL_REFRESH_DELAY_MS}；测试注入小值 */
 	mcpToolRefreshDelayMs?: number;
 	// 惰性取 bridge 回调地址（kernel WS 端口在 AgentManager 构造后才确定）
@@ -325,25 +330,45 @@ export class AgentManager {
 	private promptSegments: PromptSegment[] | null = null;
 	// 会话级浏览器视图池：browser_* 工具的执行后端（可注入 fake，生产默认实例化）
 	readonly browserManager: BrowserManager;
-	// MCP 状态读取者（规格 §7）：只 shell out `pi mcp list --json`，不自建连接
+	// MCP 状态读取者（规格 §7）：只 shell out `pi mcp list --json`，不自建连接。
+	// 按 cwd 缓存：项目级 MCP 配置随 cwd 生效（F11/F12），不同项目必须各用各的实例。
+	// mcpAdmin 是「无 cwd 上下文」时的默认实例（全局作用域，listGlobalTools 与任务 8 的失效入口）。
 	readonly mcpAdmin: Pick<McpAdmin, "list" | "invalidate">;
+	private readonly mcpAdmins = new Map<
+		string,
+		Pick<McpAdmin, "list" | "invalidate">
+	>();
 	// MCP 工具清单延时刷新定时器（F10）：实例级单例，避免多会话并发启动重复 spawn
 	private mcpToolRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(private opts: AgentManagerOpts) {
 		// 测试可注入 fake manager；生产默认创建真实 BrowserManager（延迟到首次工具调用才真正启动 WebView）
 		this.browserManager = opts.browserManager ?? new BrowserManager();
-		this.mcpAdmin =
-			opts.mcpAdmin ??
+		// 默认实例用全局作用域（数据目录）的 cwd；带项目上下文的枚举走 _mcpAdminFor(会话 cwd)
+		this.mcpAdmin = this._mcpAdminFor(WA_PI_DIR);
+	}
+
+	/**
+	 * 按 cwd 解析 MCP 状态读取者（同一 cwd 复用同一实例，带自己的缓存）。
+	 *
+	 * cwd 就是 `pi mcp list` 子进程的工作目录：pi 用 process.cwd() 去找 `<cwd>/.pi/mcp.json`
+	 * （受信项目才读，F11/F12），所以项目级 server 只有按项目 cwd 枚举才看得见。
+	 */
+	private _mcpAdminFor(cwd: string): Pick<McpAdmin, "list" | "invalidate"> {
+		const cached = this.mcpAdmins.get(cwd);
+		if (cached) return cached;
+		const admin =
+			this.opts.mcpAdmin ??
+			this.opts.mcpAdminFor?.(cwd) ??
 			new McpAdmin({
 				runtime: resolvePiRuntime(),
 				cliPath: resolvePiCliPath(),
 				agentDir: WA_PI_DIR,
-				// 全局作用域枚举：cwd 同用数据目录（全局配置就是 <WA_PI_DIR>/mcp.json）。
-				// 项目级 <cwd>/.pi/mcp.json 的服务器需按项目 cwd 枚举，属任务 8 的 MCP 页范围。
-				cwd: WA_PI_DIR,
+				cwd,
 				timeoutMs: DEFAULT_LIST_TIMEOUT_MS,
 			});
+		this.mcpAdmins.set(cwd, admin);
+		return admin;
 	}
 
 	/**
@@ -531,20 +556,20 @@ export class AgentManager {
 	/**
 	 * 枚举 pi 内置 MCP 注册出的工具名（受限 agent 白名单与 listGlobalTools 用）。
 	 *
-	 * 命名恒为 `mcp__<server>__<tool>`（规格 F4）。只有 exposure 为 `direct` 的工具是
-	 * 「可声明」的：其余曝光档（codemode / codemode-deferred / deferred / hidden）
-	 * 不声明给模型，需经 codemode / tool_search 到达，故不进白名单（规格 §6）。
-	 * 只取 state === "connected"：连不上/需登录的服务器工具名未知（enabled:false 的
-	 * 服务器 state 为 disabled，同样被滤掉）。
+	 * `cwd` 是枚举作用域：`pi mcp list` 在自己的工作目录里找 `<cwd>/.pi/mcp.json`，
+	 * 用会话/项目 cwd 才能带上受信项目的服务器（F11/F12）；不传则用全局作用域。
+	 *
+	 * 命名与过滤由 {@link mcpToolNamesOf} 负责：复刻 pi 的 sanitize / 超长 hash 变体 / 撞名，
+	 * 且只保留 `state === "connected" && exposure === "direct"` 的工具——其余曝光档（codemode /
+	 * codemode-deferred / deferred / hidden）不声明给模型，需经 codemode / tool_search 到达，
+	 * 故不进白名单（规格 §6）；连不上/需登录的服务器工具名未知。
 	 *
 	 * McpAdmin 自带缓存，故本方法不额外缓存；F10 的失效由 {@link _scheduleMcpToolRefresh} 负责。
 	 */
-	private async getMcpToolNames(): Promise<string[]> {
+	private async getMcpToolNames(cwd: string = WA_PI_DIR): Promise<string[]> {
 		try {
-			const { servers } = await this.mcpAdmin.list();
-			return servers
-				.filter((s) => s.state === "connected" && s.exposure === "direct")
-				.flatMap((s) => s.tools.map((t) => `mcp__${s.name}__${t}`));
+			const { servers } = await this._mcpAdminFor(cwd).list();
+			return mcpToolNamesOf(servers);
 		} catch (err) {
 			// 枚举失败（pi 跑不起来 / spawn 异常）不得阻断会话启动：退回空清单，
 			// 与迁移前 "MCP 全连不上不阻断会话" 的既有策略一致（规格 §8）。
@@ -554,19 +579,21 @@ export class AgentManager {
 	}
 
 	/**
-	 * 会话启动后延迟刷新 MCP 工具清单（F10）：失效 McpAdmin 缓存并重算一次。
+	 * 会话启动后延迟刷新 MCP 工具清单（F10）：失效各作用域的 McpAdmin 缓存并预热全局实例。
 	 *
 	 * 为什么需要：会话启动瞬间 MCP 工具还没注册（约 t+2s 才出现），此时枚举得到的
 	 * 空清单会被缓存固定，导致后续 UI 工具列表与白名单永久漏掉 MCP 工具。
 	 *
 	 * 实例级单例：多会话并发启动只刷一次（`pi mcp list` 会真连每台 server）。
+	 * 失效覆盖已建的全部 cwd 实例（各自持一份缓存）；只预热全局那份，项目作用域的实例
+	 * 下次被枚举时缓存已空，会自然重跑（不必在这里为每个项目各跑一次）。
 	 * 定时器在 disposeAll 里清除；会话销毁不需要单独清（清单是实例级缓存，不属于会话）。
 	 */
 	private _scheduleMcpToolRefresh(): void {
 		if (this.mcpToolRefreshTimer) return;
 		this.mcpToolRefreshTimer = setTimeout(() => {
 			this.mcpToolRefreshTimer = null;
-			this.mcpAdmin.invalidate();
+			for (const admin of this.mcpAdmins.values()) admin.invalidate();
 			// 重算一次把结果重新入缓存（下一次 listGlobalTools / 受限会话直接命中）
 			void this.getMcpToolNames();
 		}, this.opts.mcpToolRefreshDelayMs ?? MCP_TOOL_REFRESH_DELAY_MS);
@@ -580,7 +607,8 @@ export class AgentManager {
 			(name) => ({ name, source: "内置" }),
 		);
 		const seen = new Set(items.map((i) => i.name));
-		// MCP 工具：mcp-admin 实时枚举（命名与 pi 内置 MCP 一致，规格 F4）
+		// MCP 工具：mcp-admin 实时枚举（命名复刻 pi 内置 MCP，规格 F4）。
+		// 无项目上下文（宿主全局工具清单）→ 全局作用域枚举。
 		for (const t of await this.getMcpToolNames()) {
 			if (!seen.has(t)) {
 				seen.add(t);
@@ -807,7 +835,7 @@ export class AgentManager {
 						tools: builtin.readOnly
 							? resolveAgentTools(
 									["read", "bash", "grep", "find", "ls"],
-									await this.getMcpToolNames(),
+									await this.getMcpToolNames(cwd),
 								)
 							: [],
 						skills: [],
@@ -1185,7 +1213,7 @@ export class AgentManager {
 						// 受限 agent 白名单无条件并入 im_push_to：工具始终注册（bridge 扩展），
 						// 不并入会被白名单挡掉（主聊天 @im-push-to 标记会话同样需要推送能力）
 						"im_push_to",
-						...resolveAgentTools(config!.tools!, await this.getMcpToolNames()),
+						...resolveAgentTools(config!.tools!, await this.getMcpToolNames(cwd)),
 					],
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
