@@ -26,6 +26,33 @@ interface RawFile {
   [key: string]: unknown;
 }
 
+/**
+ * 同进程内按目标文件路径串行化「读-改-写」。
+ *
+ * 队列挂在模块上、按路径分桶，而不是挂在实例上：REST 写端点（`routes/mcp.ts`）每次请求都
+ * 可能走 `new McpFile(...)`，且调用方（测试/迁移/其它工具）本就会自建实例——实例级队列
+ * 串不住并发写。不串行化时两个并发写会读到同一份基底（后写者覆盖前写者的改动，即丢更新），
+ * 并且互踩同一个临时文件：先完成者的 `rename` 已把 `<path>.<pid>.tmp` 移走，后者的 `rename`
+ * 抛 ENOENT。做法与 `mcp-trust.ts` 的 `serializeByPath` 一致（任务 4 在那边裁决修掉的同一
+ * 类 bug，任务 8 把 REST 写接口接到本模块后该路径即变为可达）。
+ */
+const writeQueues = new Map<string, Promise<void>>();
+
+function serializeByPath<T>(path: string, task: () => Promise<T>): Promise<T> {
+  const previous = writeQueues.get(path) ?? Promise.resolve();
+  // 前一个任务失败不能阻断后一个（第二个参数是同一个 task，兼作拒绝处理）；队列里只存已咽掉异常的版本
+  const next = previous.then(task, task);
+  const settled: Promise<void> = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  writeQueues.set(path, settled);
+  void settled.then(() => {
+    if (writeQueues.get(path) === settled) writeQueues.delete(path);
+  });
+  return next;
+}
+
 export interface McpFileOpts {
   /** <WA_PI_DIR>/mcp.json */
   globalPath: string;
@@ -59,34 +86,42 @@ export class McpFile {
     if (errors.length > 0) return { ok: false, errors };
 
     const path = await this.resolvePath(projectId);
-    const cfg = await this.read(path);
-    const { name, ...rest } = input;
-    const previous =
-      cfg.mcpServers[name] ??
-      (originalName ? cfg.mcpServers[originalName] : undefined) ??
-      {};
-    // 显式 undefined 视为「表单未填」，不得覆盖旧值：否则 toolExposure / enabled / timeout
-    // 会被写成 undefined、被 JSON.stringify 丢弃 —— 写盘成功（ok: true）却把字段静默丢掉（F15 的同类伤害）。
-    // 清空某字段应走 delete 语义，而不是靠 undefined。
-    const patch = Object.fromEntries(
-      Object.entries(rest).filter(([, v]) => v !== undefined),
-    );
-    // 关键：以旧条目为基底合并，未知字段得以保留
-    cfg.mcpServers[name] = { ...previous, ...patch } as RawServer;
-    delete (cfg.mcpServers[name] as { name?: unknown }).name;
-    if (originalName && originalName !== name) delete cfg.mcpServers[originalName];
-    await this.write(path, cfg);
-    return { ok: true };
+    // 读-改-写整体串行化：并发 save（含不同实例、不同 server）必须依次读同一份基底再写，
+    // 否则后写者会覆盖前写者的改动（前端是 fire-and-forget，连点保存/删除即可触发）
+    return await serializeByPath(path, async () => {
+      const cfg = await this.read(path);
+      const { name, ...rest } = input;
+      const previous =
+        cfg.mcpServers[name] ??
+        (originalName ? cfg.mcpServers[originalName] : undefined) ??
+        {};
+      // 显式 undefined 视为「表单未填」，不得覆盖旧值：否则 toolExposure / enabled / timeout
+      // 会被写成 undefined、被 JSON.stringify 丢弃 —— 写盘成功（ok: true）却把字段静默丢掉（F15 的同类伤害）。
+      // 清空某字段应走 delete 语义，而不是靠 undefined。
+      const patch = Object.fromEntries(
+        Object.entries(rest).filter(([, v]) => v !== undefined),
+      );
+      // 关键：以旧条目为基底合并，未知字段得以保留
+      cfg.mcpServers[name] = { ...previous, ...patch } as RawServer;
+      delete (cfg.mcpServers[name] as { name?: unknown }).name;
+      if (originalName && originalName !== name)
+        delete cfg.mcpServers[originalName];
+      await this.write(path, cfg);
+      return { ok: true } as const;
+    });
   }
 
   async delete(serverName: string, projectId?: string): Promise<void> {
     const path = await this.resolvePath(projectId);
-    const cfg = await this.read(path);
-    if (!cfg.mcpServers[serverName]) {
-      throw new KernelError("mcp.serverNotFound", { name: serverName });
-    }
-    delete cfg.mcpServers[serverName];
-    await this.write(path, cfg);
+    // 与 save 对称：delete 也是读-改-写，必须与并发写串行化（否则会复活刚被删掉的 server）
+    await serializeByPath(path, async () => {
+      const cfg = await this.read(path);
+      if (!cfg.mcpServers[serverName]) {
+        throw new KernelError("mcp.serverNotFound", { name: serverName });
+      }
+      delete cfg.mcpServers[serverName];
+      await this.write(path, cfg);
+    });
   }
 
   /** 供测试与迁移使用 */
@@ -135,7 +170,11 @@ export class McpFile {
     }
   }
 
-  /** 原子替换：先写临时文件再 rename，避免半写 */
+  /**
+   * 原子替换：先写临时文件再 rename，避免半写。
+   * 同一路径不并发：save / delete 的读-改-写由 {@link serializeByPath} 串行化，
+   * 故 `${path}.${process.pid}.tmp` 这个 pid 级临时名不会被两个写者互相搬走（ENOENT）。
+   */
   private async write(path: string, cfg: RawFile): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     const tmp = `${path}.${process.pid}.tmp`;

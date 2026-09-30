@@ -153,3 +153,37 @@ describe("McpFile", () => {
 		expect(hasProjectMcpFile(projectCwd)).toBe(true);
 	});
 });
+
+// 任务 8 把 REST 写接口接到本模块后，同进程并发写成为可达路径（前端 store 是 fire-and-forget，
+// 连点保存/删除即产生并发写）。端点与既有调用面每次请求都可能 new 一个 McpFile，故串行化
+// 必须挂在**模块级**、按目标路径分桶（实例级队列串不住不同实例）。
+// 不串行化的后果：两个写者读到同一份基底（丢更新），且互踩同一个 `<path>.<pid>.tmp`
+// （先完成者的 rename 把临时文件移走，后者的 rename 抛 ENOENT）。
+describe("McpFile 同进程并发写（读-改-写串行化）", () => {
+	test("并发 save 两个不同 server（不同实例）→ 两者都在盘上", async () => {
+		dir = await mkdtemp(join(tmpdir(), "mcpfile-conc-"));
+		const globalPath = join(dir, "mcp.json");
+		const newFile = () =>
+			new McpFile({ globalPath, projectPathFor: async () => globalPath });
+
+		await Promise.all([
+			newFile().save({ name: "srv-a", command: "node" }),
+			newFile().save({ name: "srv-b", command: "node" }),
+		]);
+
+		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		expect(Object.keys(raw.mcpServers).sort()).toEqual(["srv-a", "srv-b"]);
+	});
+
+	test("并发 delete 两个不同 server（不同实例）→ 两个都从盘上消失", async () => {
+		const { file, globalPath } = await setup({
+			mcpServers: { a: { command: "x" }, b: { command: "y" } },
+		});
+		const other = new McpFile({ globalPath, projectPathFor: async () => globalPath });
+
+		await Promise.all([file.delete("a"), other.delete("b")]);
+
+		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		expect(Object.keys(raw.mcpServers)).toEqual([]);
+	});
+});

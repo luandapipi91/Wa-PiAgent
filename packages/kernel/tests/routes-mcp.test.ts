@@ -95,7 +95,12 @@ beforeEach(() => {
   globalPath = join(dir, "mcp.json");
   file = new McpFile({
     globalPath,
-    projectPathFor: async () => join(dir, ".pi", "mcp.json"),
+    // 与生产同构：项目的 <cwd>/.pi/mcp.json 由 projectId → cwd 解析而来（生产走
+    // resolveCwdForFsRequest），幽灵项目在**写盘路径**上就抛 project.notFound。
+    // 若这里忽略 projectId（旧假件），404 就只能从状态读取路径冒出来——而状态读取已移到
+    // 后台任务里、回包不再依赖它（见「不占回包路径」用例），那样测的就不是生产契约了。
+    projectPathFor: async (projectId) =>
+      join(await cwdForProject(projectId), ".pi", "mcp.json"),
   });
   broadcasts = [];
   invalidations = 0;
@@ -145,6 +150,31 @@ function del(router: HttpRouter, path: string): Promise<Response | null> {
   return router.handle(
     new Request(`http://localhost${path}`, { method: "DELETE" }),
   );
+}
+
+/** 保存/删除的回包不含广播（广播在后台任务里）：轮询等服务端把它推出来 */
+async function waitFor(fn: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!fn()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor 超时");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+/**
+ * 在 timeoutMs 内必须拿到响应，否则失败。
+ * 用于断言「回包不依赖状态读取」：假 admin 的 list 永不返回时，超时就说明回包被它挂住了。
+ */
+async function within<T>(p: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`响应未在 ${timeoutMs}ms 内返回（回包被状态读取挂住了）`)),
+        timeoutMs,
+      ),
+    ),
+  ]);
 }
 
 async function writeGlobal(cfg: unknown): Promise<void> {
@@ -301,6 +331,8 @@ describe("POST /api/mcp（新增 / 编辑）", () => {
     });
     // 缓存失效必须在广播之前：广播里的 servers 才是写盘后的新状态
     expect(invalidations).toBe(1);
+    // 广播不占回包路径（后台任务）：等它推出来再断言内容
+    await waitFor(() => broadcasts.length >= 1);
     expect(broadcasts).toHaveLength(1);
     expect(broadcasts[0]).toMatchObject({
       type: "mcp:changed",
@@ -345,10 +377,52 @@ describe("DELETE /api/mcp/:serverName", () => {
     expect(await res!.json()).toEqual({ ok: true });
     expect(Object.keys((await readGlobal()).mcpServers)).toEqual(["keep"]);
     expect(invalidations).toBe(1);
+    await waitFor(() => broadcasts.length >= 1);
     expect(broadcasts[0]).toMatchObject({
       type: "mcp:changed",
       servers: [{ name: "keep" }],
     });
+  });
+});
+
+describe("save / delete：状态读取（冷 pi mcp list，上限 30s）不占回包路径", () => {
+  /** list() 永不返回的 admin：模拟盘上有一台卡死的 server */
+  function hangingAdmin() {
+    let listCalls = 0;
+    return {
+      listCalls: () => listCalls,
+      list: () => {
+        listCalls++;
+        return new Promise<never>(() => {});
+      },
+      invalidate: () => {},
+    };
+  }
+
+  test("save：状态读取永不返回时仍立即回 200，且配置已落盘、缓存已失效", async () => {
+    const router = makeRouter(hangingAdmin() as never);
+
+    const res = await within(
+      post(router, "/api/mcp", { config: { name: "echo", command: "node" } }),
+      1000,
+    );
+    expect(res?.status).toBe(200);
+    expect(await res!.json()).toEqual({ ok: true });
+    expect((await readGlobal()).mcpServers.echo).toEqual({ command: "node" });
+    expect(invalidations).toBe(1);
+  });
+
+  test("delete：状态读取永不返回时仍立即回 200，且盘上已删除", async () => {
+    await writeGlobal({
+      mcpServers: { echo: { command: "node" }, keep: { command: "node" } },
+    });
+    const router = makeRouter(hangingAdmin() as never);
+
+    const res = await within(del(router, "/api/mcp/echo"), 1000);
+    expect(res?.status).toBe(200);
+    expect(await res!.json()).toEqual({ ok: true });
+    expect(Object.keys((await readGlobal()).mcpServers)).toEqual(["keep"]);
+    expect(invalidations).toBe(1);
   });
 });
 

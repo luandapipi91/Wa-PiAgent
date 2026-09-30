@@ -8,7 +8,8 @@
  * 旧实现（mcp-store.ts 的读写 + mcp-connector.ts 的自建连接）已无消费者，随本任务删除。
  *
  * projectId 一律从 query 取（可选，缺省为全局作用域）；serverName 在路径参数或 body 中。
- * save / delete 成功后经 SSE 广播 mcp:changed（并失效状态缓存）；
+ * save / delete 成功后先同步失效状态缓存，再经 SSE 广播 mcp:changed（广播在后台任务里，
+ * 不占回包路径，见 handlers 内的 broadcastChanged）；
  * test / listTools 的结果只走 SSE（mcp:testResult / mcp:tools）——前端 fire-and-forget
  * 丢弃 HTTP 响应体，故成功时一律 200 {ok:true}，失败也在 SSE 事件里表达。
  */
@@ -209,6 +210,32 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
     throw new KernelError("mcp.serverNotFound", { name: serverName });
   }
 
+  /**
+   * 写盘成功后广播一份带状态的清单。
+   *
+   * **不占回包路径**：`listWithState` 要读状态层，而冷缓存时那是一次真 spawn `pi mcp list`
+   * （`McpAdmin` 的上限 `DEFAULT_LIST_TIMEOUT_MS = 30s`）。前端 `api-client` 的默认请求超时
+   * 同为 30s、`store/mcp.ts` 又是 fire-and-forget ——只要盘上有一台卡死的 server，
+   * 「保存 / 删除」就会在前端表现成失败（写盘其实已经成功）。故立即回包，广播放进后台任务。
+   *
+   * 后台任务的异常必须咽掉：调用方已拿到 200，此时冒出的 rejection 只会污染进程
+   * （未处理拒绝告警，且可能误伤无关用例）；广播失败只影响 GUI 本次刷新，
+   * 用户下次进面板仍会重新拉清单。
+   */
+  function broadcastChanged(projectId?: string): void {
+    void (async () => {
+      try {
+        deps.broadcast({
+          type: "mcp:changed",
+          projectId,
+          servers: (await listWithState(projectId)).servers,
+        });
+      } catch {
+        // 同上：写盘已成功、回包已发出，广播失败不该升级为未处理拒绝
+      }
+    })();
+  }
+
   return {
     list: (projectId) => listWithState(projectId),
 
@@ -224,25 +251,18 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
       }
       const res = await deps.mcpFile.save(config, projectId, originalName);
       if (!res.ok) return res;
-      // 盘上文件已变 → 先失效所有按 cwd 的状态缓存（否则 GUI 的改动要等下次会话启动才可见），
-      // 再广播一份带状态的清单：不 force 时 list() 因缓存被清空只重跑一次 `pi mcp list`
+      // 盘上文件已变 → 先**同步**失效所有按 cwd 的状态缓存（否则 GUI 的改动要等下次会话启动才可见），
+      // 再在后台广播带状态的清单：不 force 时 list() 因缓存被清空只重跑一次 `pi mcp list`
       deps.invalidateCaches();
-      deps.broadcast({
-        type: "mcp:changed",
-        projectId,
-        servers: (await listWithState(projectId)).servers,
-      });
+      broadcastChanged(projectId);
       return { ok: true };
     },
 
     async remove({ projectId, serverName }) {
       await deps.mcpFile.delete(serverName, projectId);
+      // 与 save 同序：失效在回包之前（同步），广播在后台
       deps.invalidateCaches();
-      deps.broadcast({
-        type: "mcp:changed",
-        projectId,
-        servers: (await listWithState(projectId)).servers,
-      });
+      broadcastChanged(projectId);
     },
 
     async test({ projectId, serverName }) {

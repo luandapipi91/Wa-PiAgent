@@ -1978,6 +1978,47 @@ test("枚举作用域（F11）：cwd 无 .pi/mcp.json 时复用全局实例，�
 	expect(tools).toContain("mcp__dbx__query");
 });
 
+// ─── MCP 缓存失效（任务 8 裁决 2：含全局那份与所有按 cwd 的实例）─────────────
+
+test("invalidateMcpCaches 失效全局实例与每一个按 cwd 实例（全局那份也登记在 mcpAdmins 里）", async () => {
+	// 「全局实例也登记在 mcpAdmins」是隐式约定：漏掉它，全局作用域的 GUI 配置改动就要等到
+	// 下次会话启动的延时刷新才进工具清单（Task 7 修过的同类回归）。本用例把它钉成显式契约。
+	const projA = mkdtempSync(join(tmpdir(), "wa-pi-am-mcp-inv-a-"));
+	const projB = mkdtempSync(join(tmpdir(), "wa-pi-am-mcp-inv-b-"));
+	tmpPaths.push(projA, projB);
+	for (const cwd of [projA, projB]) {
+		// 盘上有 <cwd>/.pi/mcp.json 才会建出项目实例（无该文件时复用全局实例）
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "mcp.json"), JSON.stringify({ mcpServers: {} }));
+	}
+	const byCwd = new Map<string, FakeMcpAdmin>();
+	const { am } = await setup({
+		projectCwd: projA,
+		mcpToolRefreshDelayMs: 60_000,
+		mcpAdminFor: (cwd) => {
+			const fake = makeFakeMcpAdmin();
+			byCwd.set(cwd, fake);
+			return fake;
+		},
+	});
+	// 构造时就把全局（WA_PI_DIR）那份登记进 mcpAdmins
+	expect([...byCwd.keys()]).toEqual([WA_PI_DIR]);
+
+	// 两个不同 cwd 的项目实例
+	const adminA = am.mcpAdminForCwd(projA);
+	am.mcpAdminForCwd(projB);
+	// 同一 cwd 复用同一实例（缓存命中，不重复建）
+	expect(am.mcpAdminForCwd(projA)).toBe(adminA);
+	expect(byCwd.size).toBe(3);
+
+	am.invalidateMcpCaches();
+
+	// 三个实例各失效一次（含 WA_PI_DIR 的全局那份）——少一个就会把它的缓存留在旧配置上
+	expect(byCwd.get(WA_PI_DIR)!.invalidateCalls).toBe(1);
+	expect(byCwd.get(projA)!.invalidateCalls).toBe(1);
+	expect(byCwd.get(projB)!.invalidateCalls).toBe(1);
+});
+
 // ─── 系统提示词（读 sysprompts/<id>.md 断言组合结果） ───────────────────────
 
 test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 约束段", async () => {

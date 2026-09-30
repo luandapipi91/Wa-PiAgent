@@ -337,6 +337,11 @@ export class AgentManager {
 	// 按 cwd 缓存**有 `.pi/mcp.json` 的**项目实例（项目级 MCP 配置随 cwd 生效，F11/F12）；
 	// 其余 cwd 复用 mcpAdmin——它同时是「无 cwd 上下文」的默认实例（全局作用域，
 	// listGlobalTools 与任务 8 的失效入口）。
+	// 不变量：构造时就把它登记进 mcpAdmins（见构造函数），`invalidateMcpCaches()` 正是在
+	// 遍历 mcpAdmins 时把全局这份一并失效——这是**隐式约定**，改动时不得把全局实例挪出
+	// 该 map，否则全局作用域的 GUI 配置改动会等到下次会话启动才进工具清单（Task 7 修过的
+	// 同类回归：全局实例不在 map 里 → 缓存永不失效）。由 agent-manager.test.ts 的
+	// 「invalidateMcpCaches 失效全局实例与所有按 cwd 实例」用例锁定。
 	readonly mcpAdmin: Pick<McpAdmin, "list" | "invalidate">;
 	private readonly mcpAdmins = new Map<
 		string,
@@ -400,6 +405,8 @@ export class AgentManager {
 	 * 按 cwd 取 MCP 状态读取者（REST 的 mcp 域与工具枚举共用同一批实例与缓存）。
 	 * REST 的 mcp:list / mcp:test / mcp:listTools 与白名单枚举看的是同一份
 	 * `pi mcp list` 结果，共用缓存才不会一次 GUI 刷新触发多次冷枚举。
+	 *
+	 * 实例登记在 mcpAdmins，故 {@link invalidateMcpCaches} 能覆盖到它们（含全局那份）。
 	 */
 	mcpAdminForCwd(cwd: string): Pick<McpAdmin, "list" | "invalidate"> {
 		return this._mcpAdminFor(cwd);
@@ -411,6 +418,13 @@ export class AgentManager {
 	 * 必要性：`pi mcp list` 的缓存按 cwd 分实例（见 {@link _mcpAdminFor}），而 GUI 改配置
 	 * （mcp:save / mcp:delete）只改盘上文件——不失效就只剩下次会话启动的延时刷新能进新工具清单，
 	 * GUI 里刚加/删的 server 在「智能体设置-工具」里看不到变化。
+	 *
+	 * 覆盖面（显式契约）：遍历 mcpAdmins，因此失效的是【全局那份 + 每一个已建出的按 cwd 实例】。
+	 * 全局那份能用上这一步，靠的是构造函数把它也写进 mcpAdmins（mcpAdmins 与 mcpAdmin 共享
+	 * 同一个实例）；`_mcpAdminFor` 对无 `.pi/mcp.json` 的 cwd 也复用该实例，故不存在漏网的 cwd。
+	 * 改动此处（例如改成只失效 `this.mcpAdmin`、或不再缓存按 cwd 实例）必须有测试同步，
+	 * 现有守卫：agent-manager.test.ts 断言三个实例（含 `WA_PI_DIR` 的全局那份）的 invalidate
+	 * 各被调一次。
 	 */
 	invalidateMcpCaches(): void {
 		for (const admin of this.mcpAdmins.values()) admin.invalidate();

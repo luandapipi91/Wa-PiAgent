@@ -3254,5 +3254,5 @@ export class WSServer {
 		} catch (err) {
 			console.error(`[ws-server] 引导后自动补全标题失败 ${sessionId}:`, err);
 		}
-		}
+	}
 }
