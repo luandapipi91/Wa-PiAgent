@@ -2,7 +2,7 @@ import { test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { SCHEMA_SQL } from "../src/memory/schema";
 import { MemoryDao } from "../src/memory/dao";
-import { loadVectorExtension, initVectorColumn } from "../src/memory/vector-ext";
+import { loadVectorExtension, initVectorColumn, quantizedScan } from "../src/memory/vector-ext";
 import { indexPendingMemories } from "../src/memory/vector-index";
 import { embedQuery } from "../src/memory/embedder";
 
@@ -89,6 +89,23 @@ test("归档条目不参与索引", () => {
   const a = add("待归档");
   dao.archive(a.id);
   expect(dao.listUnindexed(10)).toHaveLength(0);
+});
+
+// 跨任务缺口守护（任务 6 裁定 1）：回填只写 embedding 列，量化 shadow table 不会自动更新，
+// 而 quantizedScan 查的正是量化 shadow table —— 生产路径若不在本轮写入后刷新量化索引，
+// 新写入的记忆在重启前**永远搜不到**（语义通道静默返回空结果）。
+// 本例刻意**不**手动调 refreshQuantizedIndex：只依赖 indexPendingMemories 自己刷新，
+// 因此把生产路径里的刷新去掉即变红。
+test.skipIf(modelUnavailable)("回填后生产路径自动刷新量化索引，语义通道能命中", async () => {
+  const target = add("发版流程需要先跑单元测试和四层测试");
+  add("今天中午吃什么");
+  const res = await indexPendingMemories(dao, { batchSize: 8 });
+  expect(res.indexed).toBe(2);
+  const qv = await embedQuery("上线前要做什么质量检查");
+  expect(qv).not.toBeNull();
+  // 仅靠回填后的一次刷新，无需重启 / 无需调用方干预即可扫到刚写入的向量
+  const hits = quantizedScan(db, qv!, 10);
+  expect(hits.map((h) => h.id)).toContain(target.id);
 });
 
 // 词法热路径（search / searchBySubstring）显式投影、不物化 2KB 向量。

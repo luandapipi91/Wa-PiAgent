@@ -661,3 +661,39 @@ test("打分全集归一化：强相关旧条目不被新近弱相关挤出一�
   expect(page1.filter((h) => strongSet.has(h.id))).toHaveLength(40);
   expect(page1.slice(0, 40).every((h) => strongSet.has(h.id))).toBe(true);
 });
+
+// --- 任务 6：融合检索用到的三个 DAO 辅助方法 -------------------------------
+
+test("getByIds 保持入参顺序、忽略缺失 id", () => {
+  const a = add({ content: "甲" });
+  const b = add({ content: "乙" });
+  expect(dao.getByIds([b.id, a.id]).map((r) => r.id)).toEqual([b.id, a.id]);
+  expect(dao.getByIds([])).toEqual([]);
+  // 语义通道给出的 id 可能已被删除：跳过而不是返回空洞，且不影响其余顺序
+  expect(dao.getByIds([a.id, "不存在的-id"]).map((r) => r.id)).toEqual([a.id]);
+});
+
+test("matchesScope 复用 buildFilter 的 scope 语义", () => {
+  const mine = add({ content: "本项目条目" });
+  const other = add({ content: "其它项目条目", projectId: "other-repo" });
+  const global = add({ content: "全局条目", scope: "global", projectId: null });
+  const narrow = { projectScope: "Wa-Pi" };
+  expect(dao.matchesScope(mine.id, narrow)).toBe(true);
+  expect(dao.matchesScope(global.id, narrow)).toBe(true);
+  expect(dao.matchesScope(other.id, narrow)).toBe(false);
+  // 归档条目默认不参与检索 → 收窄范围同样不认（否则语义通道会捞出归档内容）
+  dao.archive(mine.id);
+  expect(dao.matchesScope(mine.id, narrow)).toBe(false);
+  // 显式 scope 优先于 projectScope 收窄；两者都不传 = 不过滤
+  expect(dao.matchesScope(other.id, { scope: "project", projectId: "other-repo" })).toBe(true);
+  expect(dao.matchesScope(other.id, {})).toBe(true);
+});
+
+test("snippetFor 复用 makeSnippet：围绕命中 token 摘片段", () => {
+  const filler = "无关内容".repeat(30);
+  const row = add({ content: `${filler}南京大学镜像${filler}` });
+  const snippet = dao.snippetFor(row, "南京大学镜像");
+  expect(snippet).toContain("南京大学镜像");
+  expect(snippet.length).toBeLessThan(row.content.length);
+  expect(row.content).toContain(snippet);
+});

@@ -219,6 +219,41 @@ export class MemoryDao {
     return r ? toRow(r) : null;
   }
 
+  /**
+   * 按 id 批量取行（保持传入顺序）。
+   *
+   * 供融合检索补位：语义通道只给出 id 列表（量化扫描只返回 id + distance），
+   * 需要在一次查询里把这些行取回来，而不是逐条 getById。
+   * 返回顺序与入参一致：调用方（RRF 融合后的名次）依赖稳定顺序。
+   */
+  getByIds(ids: string[]): MemoryRow[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db
+      .query(`SELECT * FROM memories WHERE id IN (${placeholders})`)
+      .all(...ids) as RawRow[];
+    const map = new Map(rows.map((r) => [r.id, toRow(r)]));
+    return ids
+      .map((id) => map.get(id))
+      .filter((r): r is MemoryRow => !!r);
+  }
+
+  /** 单行是否落在本次检索的 scope 收窄范围内（复用 buildFilter 的语义，不另起一套规则） */
+  matchesScope(id: string, opts: ListOpts): boolean {
+    const { where, params } = this.buildFilter(opts);
+    const row = this.db
+      .query(
+        `SELECT 1 AS ok FROM memories ${where}${where ? " AND " : "WHERE "}id = ?`,
+      )
+      .get(...params, id) as { ok: number } | null;
+    return !!row;
+  }
+
+  /** 供融合后补位用的片段生成 */
+  snippetFor(row: MemoryRow, rawQuery: string): string {
+    return makeSnippet(row.content, rawQuery);
+  }
+
   /** 按内容子串查找（memory_replace/remove 无 id 时的兼容路径） */
   findBySubstring(text: string, opts: ListOpts = {}): MemoryRow[] {
     const trimmed = text.trim();

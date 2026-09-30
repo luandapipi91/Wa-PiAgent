@@ -6,10 +6,11 @@
 // - 可被并发调用：用 running 标记合并，重复调用直接返回同一 Promise。
 // - 推理异常必须在本层兜住：本函数是后台调用，没有上层 catch，抛出去会变成
 //   未捕获的 promise rejection；而失败通常是确定性的，重试同一批只会原地空转。
-// - 本层只负责写 embedding 列。量化索引（refreshQuantizedIndex）是 O(N) 全表
-//   重量化 + 全量 preload，刷新时机由调用方决定，不在每次写入后触发。
+// - 本层只写 embedding 列，但**本轮真的写入过向量时**必须刷新一次量化索引
+//   （见下面 finish() 的说明）——否则新写入的记忆在重启前永远搜不到。
 import type { MemoryDao } from "./dao";
 import { embedDocuments, embedFingerprint, isEmbedderReady } from "./embedder";
+import { refreshQuantizedIndex } from "./vector-ext";
 
 export interface IndexResult {
   indexed: number;
@@ -42,6 +43,21 @@ async function runIndex(dao: MemoryDao, opts: IndexOptions): Promise<IndexResult
   let indexed = 0;
   let failed = 0;
 
+  /**
+   * 本轮结束的统一出口：只要本轮真的写入了向量，就在返回前刷新一次量化索引。
+   *
+   * 为什么必须刷：`quantizedScan` 查的是扩展的量化 shadow table，而回填只写
+   * `embedding` 列 —— 不刷则新写入的记忆在**重启前永远搜不到**（语义通道静默返回空，
+   * 实测报 “Quantization table not found … Ensure that vector_quantize() has been called”）。
+   * 为什么在这里刷而不是每次写入后刷：`vector_quantize` 是 O(N) 全量重建
+   * （实测 10 万条约 1.6s + preload 0.1s），批量回填后一次是合理成本，
+   * 逐条刷新会把后台任务变成持续 CPU 占用。
+   */
+  const finish = (done: number, bad: number, skipped: boolean): IndexResult => {
+    if (done > 0) refreshQuantizedIndex(dao.db);
+    return { indexed: done, failed: bad, skipped };
+  };
+
   // 终止性：每轮要么 break，要么让 indexed + failed 至少 +1（逐条计数），
   // 因此即便模型不可用、编码结果为空数组也不会空转成死循环。
   while (indexed + failed < maxItems) {
@@ -55,11 +71,11 @@ async function runIndex(dao: MemoryDao, opts: IndexOptions): Promise<IndexResult
       // 推理期抛错（原生绑定异常等）：后台任务无上层捕获，必须在此兜住，
       // 绝不能让它变成未捕获的 promise rejection。结束本轮并返回已完成的计数。
       console.error("[memory-semantic] 批量编码失败，本轮索引提前结束：", err);
-      return { indexed, failed, skipped: true };
+      return finish(indexed, failed, true);
     }
     if (vecs.length === 0) {
       // 模型不可用：本轮无法推进，直接结束（避免死循环）
-      if (!isEmbedderReady()) return { indexed, failed, skipped: true };
+      if (!isEmbedderReady()) return finish(indexed, failed, true);
       // 模型可用却整批编不出向量：待索引集合没有任何变化，若 continue 会一遍遍
       // 重取同一批、原地空转，故同样结束本轮（本轮终止，不留悬空循环）。
       failed += pending.length;
@@ -80,5 +96,5 @@ async function runIndex(dao: MemoryDao, opts: IndexOptions): Promise<IndexResult
     await new Promise((r) => setTimeout(r, 0));
   }
 
-  return { indexed, failed, skipped: false };
+  return finish(indexed, failed, false);
 }
