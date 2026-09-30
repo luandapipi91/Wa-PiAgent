@@ -229,9 +229,12 @@ test("移动文件夹（末段名不变、旧路径已不存在）→ 新路径�
       path: string;
     }>
   ).map((r) => r.path);
-  const lower = paths.map((p) => p.toLowerCase());
-  expect(lower).toContain(oldDir.toLowerCase());
-  expect(lower).toContain(newDir.toLowerCase());
+  // 分隔符归一：入库 path 由代码统一为 `/`，而 oldDir/newDir 来自 path.join（Windows 下是 `\`），
+  // 直接比较会在 Windows 上误判为「不包含」。
+  const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  const stored = paths.map(norm);
+  expect(stored).toContain(norm(oldDir));
+  expect(stored).toContain(norm(newDir));
   // 记忆仍挂在同一项目下
   expect(
     (db.query("SELECT COUNT(*) AS n FROM memories WHERE project_id = ?").get(idAfter!) as {
@@ -285,8 +288,9 @@ test("默认工作区：workdir/<时间戳> 归一到 workdir，所有会话共�
 
   expect(k1).toBe(k2);
   expect(projectRows()).toHaveLength(1);
-  // path 列按平台归一（darwin 下小写），断言不区分大小写
-  expect((projectRows()[0].path ?? "").toLowerCase()).toBe(workdir.toLowerCase());
+  // path 列按平台归一（darwin 下小写、分隔符统一为 `/`），断言既忽略大小写也忽略分隔符
+  const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  expect(norm(projectRows()[0].path ?? "")).toBe(norm(workdir));
 });
 
 test("普通项目的子目录不会被误当作默认工作区", () => {
