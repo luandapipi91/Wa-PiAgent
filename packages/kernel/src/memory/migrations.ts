@@ -112,6 +112,38 @@ function migrateToV3(db: Database): void {
   } catch (err) {
     console.error("[memory-migrate] v3 迁移前备份失败（继续迁移）:", err);
   }
-  db.run("PRAGMA page_size = 16384");
-  db.run("VACUUM");
+
+  // page_size 只在 VACUUM 时生效，而 WAL 下 VACUUM 不会改变页大小，
+  // 必须先临时切出 WAL（生产库在 openMemoryDb 里已被设成 WAL），VACUUM 后再切回。
+  // 任何一步失败都只降级记日志：记忆库必须仍能打开，只是页大小保持原值。
+  const wasWal = journalMode(db) === "wal";
+  try {
+    const mode = (
+      db.query("PRAGMA journal_mode = DELETE").get() as { journal_mode: string }
+    ).journal_mode;
+    if (mode === "wal") throw new Error(`journal_mode 未能切出 WAL（仍为 ${mode}）`);
+    db.run("PRAGMA page_size = 16384");
+    db.run("VACUUM");
+  } catch (err) {
+    console.error("[memory-migrate] v3 page_size 提升失败（页大小保持原值，记忆库仍可用）:", err);
+  } finally {
+    // 切回 WAL 必须执行，否则生产库会退回 DELETE 日志模式
+    if (wasWal) {
+      try {
+        db.run("PRAGMA journal_mode = WAL");
+      } catch (err) {
+        console.error("[memory-migrate] v3 迁移后切回 WAL 失败:", err);
+      }
+    }
+  }
+}
+
+/** 当前日志模式；查询失败时返回空串（交由调用方按「非 WAL」处理） */
+function journalMode(db: Database): string {
+  try {
+    return (db.query("PRAGMA journal_mode").get() as { journal_mode: string })
+      .journal_mode;
+  } catch {
+    return "";
+  }
 }
