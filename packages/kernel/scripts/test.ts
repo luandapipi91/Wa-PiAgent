@@ -19,6 +19,9 @@ const INTEGRATION_TESTS = [
 	"tests/memory-migration-wiring.test.ts",
 	// 启动回填接线：启动完整 kernel 后断言未索引记忆被后台补齐向量（同属 WA_PI_DIR 快照类）
 	"tests/memory-backfill-wiring.test.ts",
+	// 启动回填离线接线：模型加载被挂住时启动不失败、词法可用，且回填不阻塞启动
+	//（同样会启动完整 kernel，并且会刻意挂住模型下载 → 必须独占进程）
+	"tests/memory-backfill-offline.test.ts",
 	// 记忆库打不开（memories.db 被造成目录）时仍要能启动：同样会启动完整 kernel
 	"tests/memory-db-open-failure.integration.test.ts",
 	// tui-host 端点集成（真实 WSServer + 流式 NDJSON），并行负载下 30s 超时，串行 2s 即过

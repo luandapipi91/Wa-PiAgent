@@ -1,8 +1,13 @@
 // 启动回填接线：验证 startKernel 启动时真的会把未索引的记忆补齐
 //（`indexPendingMemories` 本身由 memory-vector-index.test.ts / memory-semantic-e2e.test.ts
-// 覆盖，这里只验证「接线」与「不阻塞启动」）。
+// 覆盖，这里只验证「接线」）。
 // 因此必须真跑 startKernel：启动前在 WA_PI_DIR 的库里放未索引条目（embedding IS NULL，
 // 模拟存量库升级到 v3 后的状态），启动后轮询断言 embedding 已落库。
+//
+// 「回填不阻塞启动」与「离线/无模型下启动不失败」**不在本文件断言**，因为它们只有
+// 在回填被拖慢时才可判定（模型可用时回填会在 startKernel 尾部就跑完，实测本机冷加载
+// 模型 414ms、尾耗时 403ms，await 与 void 表现完全一致），故另开
+// tests/memory-backfill-offline.test.ts 用「挂起的模型下载」来判定。
 //
 // 必须在任何 kernel/shared 代码 import 之前设置 WA_PI_DIR：
 // packages/shared/src/constants.ts 在模块加载时读 env，故用动态 import() 延后加载。
@@ -116,7 +121,7 @@ function embeddedCount(): number {
 }
 
 test.skipIf(modelUnavailable)(
-  "存量库的未索引记忆在启动后被后台回填（不阻塞启动）",
+  "存量库的未索引记忆在启动后被后台回填（接线）",
   async () => {
   // 前置不变量：回填前确实一条向量都没有（否则本用例证明不了任何事）
   expect(embeddedCount()).toBe(0);
@@ -127,7 +132,8 @@ test.skipIf(modelUnavailable)(
 
   const started = await startKernel({ port: await getFreePort() });
   stopHandle = started.stop;
-  // 启动本身不被回填阻塞：startKernel 正常返回即证明（回填是 void 后台任务）
+  // startKernel 正常返回、后台回填随后才写入（“不阻塞”的真断言在 memory-backfill-offline.test.ts：
+  // 这里回填往往在 startKernel 尾部就跑完了，断言不了阻塞与否）
   expect(typeof started.stop).toBe("function");
 
   // 后台回填是异步的：轮询等待 embedding 落库（首次模型加载约 1-3s，留足余量）

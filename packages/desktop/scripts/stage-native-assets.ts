@@ -5,21 +5,29 @@
 // 为什么需要这一层：
 // 1) 模型必须随包内置。asar 内是只读的，transformers 的默认 cacheDir 落在包内 → 每次启动都联网
 //    重下 23MB（还依赖镜像可用）。内置后用 WA_PI_MODEL_DIR 指向它，完全离线（见 embedder.ts）。
-// 2) 原生依赖**不能内联进 bun 编译产物**：
+// 2) 这些包的 **JS 被内联进编译产物，原生资产只能从磁盘加载**：
 //    - onnxruntime-node 用运行时拼出的相对路径 require ../bin/napi-v6/<plt>/<arch>/onnxruntime_binding.node，
 //      内联后该路径落在虚拟 FS 内，原生绑定永远加载不到；
 //    - @huggingface/transformers 顶层静态 import sharp，sharp 再按 exports 子路径
 //      require('@img/sharp-<plt>-<arch>/sharp.node')，内联后该子路径解析失败 → 整个 transformers
 //      加载失败 → 语义检索全线禁用（实测）；
 //    - @sqliteai/sqlite-vector 需要平台分包里的 vector.dll/*.so/*.dylib。
-//    故这些包在 kernel 编译时标为 --external（见 kernel/scripts/compile-binary.ts），运行时由磁盘解析。
-// 3) bun 编译产物的运行时解析有两个实测约束（与普通 Node 不同，务必对照本文件写法）：
-//    - **解析根是 cwd/node_modules 与 NODE_PATH**，不是可执行文件所在目录（实测把 node_modules 放在
-//      exe 旁边解析不到）。宿主以 WA_PI_DIR/runtime 为 cwd 启动 kernel，故资产落在
-//      resources/native/node_modules，由 kernel-sidecar.cjs 注入 NODE_PATH 指向它。
+//    注意：这里**不是**靠 --external 解决的——kernel/scripts/compile-binary.ts 的
+//    EXTERNAL_PACKAGES 只有 ["@napi-rs/keyring"]（本组包一个都没有）；而且实测 --external 在编译
+//    产物里形同不可用（bun 只在虚拟根 B:/~BUN/root/ 下解析被 external 的包，cwd/node_modules 与
+//    NODE_PATH 都不生效），把这组包标 external 会让产物直接启动崩溃。真实机制见 3) 与 4)。
+// 3) bun 编译产物的运行时解析约束（与普通 Node 不同，务必对照本文件写法）：
+//    - **解析根是 cwd/node_modules**（不是可执行文件所在目录，实测把 node_modules 放在 exe 旁边
+//      解析不到）。宿主以 WA_PI_DIR/runtime 为 cwd 启动 kernel，故资产落在
+//      resources/native/node_modules，运行时由 **main.cjs 的 linkNativeAssets** 逐个链接进
+//      WA_PI_DIR/runtime/node_modules（见 src/util/runtime-deps.cjs）。本文件只负责把资产按平台摆到
+//      resources/native 下。
+//      NODE_PATH 不可依赖：它对**包内** require 不生效（实测探针里 require.resolve 命中、真跑
+//      kernel 时不命中），全仓库没有一处给它赋值——不要照着旧注释去接 NODE_PATH。
 //    - fallback 解析**只认包根下的 index.js/index.cjs/index.mjs**，不读 package.json 的 main
 //      （实测 main 指向 dist/ 的包解析失败）→ ensureRootEntry() 给这类包补一个根级入口。
-//    另：解析走 realpath → 资产必须是**真实目录**（不能只给 symlink/junction），否则包内相对解析链断裂。
+//    另：解析走 realpath → 链接所指向的 **resources/native/node_modules 必须是真实目录**，否则包内
+//    相对解析链会断。
 // 4) 交叉打包（Mac 上打 Windows 包）时 npm 装的平台分包是**构建机平台**的，不会自动切换：
 //    spec §4 要求按 --target 显式准备，这里对缺失的目标平台分包直接报错退出（宁失败不带病出包）。
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -83,6 +91,44 @@ export function vectorBinaryName(ortPlatform: string): string {
 	if (ortPlatform === "win32") return "vector.dll";
 	if (ortPlatform === "linux") return "vector.so";
 	return "vector.dylib";
+}
+
+/**
+ * 模型完整性护栏：目录里至少得有一个 .onnx 权重。
+ * 下载中断 / 缓存半截时目录本身仍在（existsSync 为真），但模型加载不出来 → 会静默产出
+ * 「语义检索永久不可用」的安装包，而本文件的存在意义正是避免带病出包。
+ */
+export function countOnnxFiles(dir: string): number {
+	if (!existsSync(dir)) return 0;
+	let n = 0;
+	const walk = (d: string) => {
+		for (const e of readdirSync(d, { withFileTypes: true })) {
+			const abs = join(d, e.name);
+			if (e.isDirectory()) walk(abs);
+			else if (e.name.endsWith(".onnx")) n++;
+		}
+	};
+	walk(dir);
+	return n;
+}
+
+/**
+ * ORT 原生绑定护栏：keep 过滤之后 bin/ 下必须还留着 .node 绑定。
+ * 过滤条件依赖 bin/napi-v6/<plat>/<arch>/ 这个**版本化目录名**，onnxruntime-node 升级改目录名
+ * （napi-v6 → napi-v7…）时过滤命中数会变 0，不拦就会产出一个没有原生绑定的安装包。
+ * 参数是 keep 之后保留的相对路径清单——判据与过滤条件本身无关，能独立捕获回归。
+ */
+export function assertOrtBindingKept(keptRels: string[]): void {
+	const bindings = keptRels.filter(
+		(r) => r.startsWith("bin/") && r.endsWith(".node"),
+	);
+	if (bindings.length === 0) {
+		throw new Error(
+			`[native] onnxruntime-node 的 keep 过滤没有匹配到任何 bin/ 下的 .node 绑定` +
+				`（bin/ 命中 ${keptRels.filter((r) => r.startsWith("bin/")).length} 个文件）→ 会产出语义检索不可用的安装包。\n` +
+				`  多半是 onnxruntime-node 的 bin/napi-v6/<plat>/<arch>/ 目录名或绑定文件名变了，请核对本文件的 keep 条件。`,
+		);
+	}
 }
 
 /** 用 Node 解析规则定位包的真实目录（不依赖 bun 的 node_modules/.bun 布局细节） */
@@ -155,15 +201,16 @@ export async function ensureRootEntry(
 	return stub;
 }
 
-/** 递归复制目录，keep 收到相对包根的 POSIX 风格相对路径。
+/** 递归复制目录，keep 收到相对包根的 POSIX 风格相对路径；返回**被保留文件的相对路径清单**
+ *  （调用方据此做完整性护栏：命中 0 即过滤条件已失效）。
  *  注：keep **只对文件生效**——目录一律递归（否则 keep("dist/index.cjs")=true 也会因为
  *  keep("dist")=false 而整棵子目录被丢，实测踩过）。 */
 async function copyTree(
 	fromDir: string,
 	toDir: string,
 	keep: (rel: string) => boolean,
-): Promise<number> {
-	let count = 0;
+): Promise<string[]> {
+	const kept: string[] = [];
 	const walk = async (dir: string) => {
 		for (const entry of readdirSync(dir, { withFileTypes: true })) {
 			const abs = join(dir, entry.name);
@@ -173,19 +220,21 @@ async function copyTree(
 				await walk(abs);
 			} else if (keep(rel)) {
 				await cp(abs, join(toDir, rel));
-				count++;
+				kept.push(rel);
 			}
 		}
 	};
 	await mkdir(toDir, { recursive: true });
 	await walk(fromDir);
-	return count;
+	return kept;
 }
 
 interface StagedPackage {
 	name: string;
 	files: number;
 	entry: string | null;
+	/** keep 之后保留的相对路径清单（护栏用） */
+	kept: string[];
 }
 
 /** 单个包：按保留清单复制到 <nativeRoot>/node_modules/<name>，必要时补根级入口 */
@@ -196,13 +245,9 @@ async function stagePackage(opts: {
 	keep?: (rel: string) => boolean;
 }): Promise<StagedPackage> {
 	const toDir = join(opts.nativeRoot, "node_modules", opts.name);
-	const files = await copyTree(
-		opts.fromDir,
-		toDir,
-		opts.keep ?? (() => true),
-	);
+	const kept = await copyTree(opts.fromDir, toDir, opts.keep ?? (() => true));
 	const entry = await ensureRootEntry(toDir, await entryOf(opts.fromDir));
-	return { name: opts.name, files, entry };
+	return { name: opts.name, files: kept.length, entry, kept };
 }
 
 /** 目录体积（字节；用于打包日志的体积对照，spec §5 预算 ≈58MB/平台） */
@@ -242,6 +287,13 @@ export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 				`  可配 WA_PI_HF_ENDPOINT 走镜像）把模型落到上述目录，再执行打包。`,
 		);
 	}
+	// 目录在 ≠ 模型完整：下载中断会留下半截缓存，缺 ONNX 权重等于没有语义检索
+	if (countOnnxFiles(modelSrc) === 0) {
+		throw new Error(
+			`[native] 模型目录里没有 ONNX 权重（下载中断 / 缓存半截）：${modelSrc}\n` +
+				`  这会产出「语义检索永久不可用」的安装包，直接终止打包。`,
+		);
+	}
 	await rm(join(RES, "models"), { recursive: true, force: true });
 	const modelFiles = await copyTree(
 		modelSrc,
@@ -258,22 +310,23 @@ export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 	const ortDir = resolvePackageDir("onnxruntime-node", transformersDir);
 	const ortBinPrefix = `bin/napi-v6/${spec.ortPlatform}/${spec.ortArch}/`;
 	const dmlOnly = ["DirectML.dll", "dxcompiler.dll", "dxil.dll"];
-	staged.push(
-		await stagePackage({
-			fromDir: ortDir,
-			nativeRoot,
-			name: "onnxruntime-node",
-			keep: (rel) =>
-				rel === "package.json" ||
-				rel === "README.md" ||
-				rel.startsWith("dist/") ||
-				(rel.startsWith(ortBinPrefix) &&
-					!(
-						spec.ortPlatform === "win32" &&
-						dmlOnly.includes(rel.slice(ortBinPrefix.length))
-					)),
-		}),
-	);
+	const ortStaged = await stagePackage({
+		fromDir: ortDir,
+		nativeRoot,
+		name: "onnxruntime-node",
+		keep: (rel) =>
+			rel === "package.json" ||
+			rel === "README.md" ||
+			rel.startsWith("dist/") ||
+			(rel.startsWith(ortBinPrefix) &&
+				!(
+					spec.ortPlatform === "win32" &&
+					dmlOnly.includes(rel.slice(ortBinPrefix.length))
+				)),
+	});
+	// 护栏：目录名/布局变化时 keep 会命中 0，不拦就会静默发出无原生绑定的包
+	assertOrtBindingKept(ortStaged.kept);
+	staged.push(ortStaged);
 	staged.push(
 		await stagePackage({
 			fromDir: resolvePackageDir("onnxruntime-common", ortDir),
@@ -363,7 +416,7 @@ export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 		((await dirSize(join(RES, "models"))) + (await dirSize(nativeRoot))) /
 		(1024 * 1024);
 	console.log(
-		`[native] 目标 ${target}（${spec.ortPlatform}/${spec.ortArch}）：模型 ${modelFiles} 个文件 + ` +
+		`[native] 目标 ${target}（${spec.ortPlatform}/${spec.ortArch}）：模型 ${modelFiles.length} 个文件 + ` +
 			staged
 				.map((s) => `${s.name}${s.entry ? `(+${s.entry})` : ""}`)
 				.join(" / ") +

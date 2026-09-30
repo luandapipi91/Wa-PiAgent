@@ -171,8 +171,14 @@ export async function startKernel(opts?: {
 	// 启动后异步回填未索引的记忆（存量库升级到 v3 后、或上次退出前没来得及索引的条目）。
 	// 不阻塞服务启动：整个任务 `void` 掉，只在真写入过向量时打一条完成日志；失败（模型不可用 /
 	// 扩展加载失败 / 原生二进制或模型资产缺失）只告警——语义检索静默降级，绝不能因此让 kernel 起不来。
-	// 三个模块都走**动态 import**：把它们挪出启动关键路径，且模块解析失败也只落到本 catch
-	//（打包裁剪 / externalize 场景；静态 import 会在模块加载期抛错、绕过全部降级设计）。
+	// vector-ext / vector-index 走**动态 import**：把这两个模块挪出启动关键路径（回填的真入口），
+	// 且这两个模块自身解析失败（打包裁剪等）也只落到本 catch。
+	// ⚠️ 事实：本文件顶部**静态 import `./memory/db`**，而 db.ts 静态 import `./vector-ext`，
+	//    vector-ext 顶层又静态 import @sqliteai/sqlite-vector —— 这条静态边依然在启动关键路径上，
+	//    本段动态 import 并不能把 vector-ext 从启动期剥离。今天不会因此抛错，是因为该主包是**纯
+	//    JS**（导入期不加载原生库）且被内联进产物；真正碰原生的一步是运行时
+	//    require('@sqliteai/sqlite-vector-<platform>')，它落在 loadVectorExtension 的 try/catch 内，
+	//    失败只降级。若将来把原生依赖改成 --external 或裁剪掉主包，需重新评估这条静态边。
 	void (async () => {
 		try {
 			const { initVectorColumn } = await import("./memory/vector-ext");

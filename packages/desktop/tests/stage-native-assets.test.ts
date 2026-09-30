@@ -1,16 +1,19 @@
 // stage-native-assets（模型 + 原生依赖按目标平台准备）的纯逻辑与打包配置校验。
 //
 // 真正的 staging 需要 23MB 模型缓存与平台分包在场（且会写 60MB 到 resources/），不适合放进
-// 单元测试；这里覆盖三件「错了会静默发布出坏包」的事：
+// 单元测试；这里覆盖四件「错了会静默发布出坏包」的事：
 //   ① 目标平台标识（交叉打包必须显式切换平台二进制，写错就带病出包）；
 //   ② bun 编译产物 fallback 解析只认包根 index.* 的兼容层（少了它运行时 Cannot find module）；
-//   ③ electron-builder 的 extraResources 映射（漏了 native/models 就等于没把资产发出去）。
+//   ③ electron-builder 的 extraResources 映射（漏了 native/models 就等于没把资产发出去）；
+//   ④ 完整性护栏：ORT 原生绑定与模型权重缺失时必须抛错（否则会静默发出语义检索不可用的包）。
 import { describe, test, expect } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+	assertOrtBindingKept,
+	countOnnxFiles,
 	dirSize,
 	ensureRootEntry,
 	nativeTargetSpec,
@@ -101,6 +104,50 @@ describe("ensureRootEntry", () => {
 		await writeFile(join(dir, "index.js"), "// 原有入口", "utf8");
 		expect(await ensureRootEntry(dir, "dist/index.js")).toBe(null);
 		expect(await readFile(join(dir, "index.js"), "utf8")).toBe("// 原有入口");
+	});
+});
+
+describe("完整性护栏：ORT 原生绑定与模型权重缺失时必须抛错", () => {
+	test("ORT：keep 之后 bin/ 下有 .node 绑定则通过；命中 0 个即抛错", () => {
+		// 正常形态（win32 平台目录：绑定 + onnxruntime.dll 被保留，DirectML 三件套被过滤）
+		expect(() =>
+			assertOrtBindingKept([
+				"package.json",
+				"dist/index.js",
+				"bin/napi-v6/win32/x64/onnxruntime.dll",
+				"bin/napi-v6/win32/x64/onnxruntime_binding.node",
+			]),
+		).not.toThrow();
+
+		// 回归 1：onnxruntime-node 升版后目录名变了（napi-v6 → napi-v7），过滤命中 0 个 bin/ 文件
+		expect(() =>
+			assertOrtBindingKept(["package.json", "dist/index.js"]),
+		).toThrow(/onnxruntime-node 的 keep 过滤没有匹配到/);
+
+		// 回归 2：平台过滤写错，只留下了 DirectML 三件套、绑定文件被丢
+		expect(() =>
+			assertOrtBindingKept([
+				"bin/napi-v6/win32/x64/DirectML.dll",
+				"bin/napi-v6/win32/x64/dxcompiler.dll",
+				"bin/napi-v6/win32/x64/dxil.dll",
+			]),
+		).toThrow();
+	});
+
+	test("模型：目录存在但没有 .onnx 权重（下载中断/半截缓存）→ 计数为 0", async () => {
+		const empty = join(TMP, "model-empty");
+		await mkdir(empty, { recursive: true });
+		await writeFile(join(empty, "config.json"), "{}", "utf8");
+		expect(countOnnxFiles(empty)).toBe(0);
+
+		const ok = join(TMP, "model-ok");
+		await mkdir(join(ok, "onnx"), { recursive: true });
+		await writeFile(join(ok, "config.json"), "{}", "utf8");
+		await writeFile(join(ok, "onnx", "model_quantized.onnx"), Buffer.alloc(4));
+		expect(countOnnxFiles(ok)).toBe(1);
+
+		// 目录不存在同样算 0（两处护栏都靠这个数决定是否终止打包）
+		expect(countOnnxFiles(join(TMP, "model-missing"))).toBe(0);
 	});
 });
 
