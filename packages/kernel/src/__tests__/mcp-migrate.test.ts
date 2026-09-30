@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { migrateProjectMcpFile, migrateServerEntry } from "../mcp-migrate.ts";
+import { migrateGlobalMcpFile, migrateProjectMcpFile, migrateServerEntry } from "../mcp-migrate.ts";
 
 let dir = "";
 
@@ -25,6 +25,18 @@ async function setupProject(legacy: unknown, raw = false): Promise<string> {
 		raw ? String(legacy) : JSON.stringify(legacy, null, 2),
 	);
 	return dir;
+}
+
+/** 造一个含全局 <waPiDir>/mcp.json 的数据目录 */
+async function setupGlobal(cfg: unknown): Promise<string> {
+	dir = await mkdtemp(join(tmpdir(), "mcpmigrateglobal-"));
+	await writeFile(join(dir, "mcp.json"), JSON.stringify(cfg, null, 2));
+	return dir;
+}
+
+/** 读回全局文件 */
+async function readGlobal(waPiDir: string): Promise<Record<string, any>> {
+	return JSON.parse(await readFile(join(waPiDir, "mcp.json"), "utf8"));
 }
 
 describe("adapter → 内置 schema 映射（规格 §4.2）", () => {
@@ -195,5 +207,142 @@ describe("项目级文件迁移（规格 §8）", () => {
 		const res = await migrateProjectMcpFile(cwd);
 		expect(res.migrated).toBe(0);
 		expect(existsSync(join(cwd, ".pi"))).toBe(false);
+	});
+});
+
+describe("全局 mcp.json 加法迁移（共享文件：只补写、不破坏性改写）", () => {
+	test("settings.directTools=true → 每个 server 补出 exposure direct，旧字段与 settings 全保留", async () => {
+		const waPiDir = await setupGlobal({
+			settings: { directTools: true, toolPrefix: "p" },
+			mcpServers: {
+				a: { command: "x", lifecycle: "lazy", requestTimeoutMs: 2500 },
+				b: { url: "https://x/mcp" },
+			},
+			autoEnableCodemode: false,
+			unknownTop: { keep: 1 },
+		});
+		const res = await migrateGlobalMcpFile(waPiDir);
+
+		expect(res.migrated).toBe(2);
+		expect(res.backup).toBeDefined();
+		const written = await readGlobal(waPiDir);
+		expect(written.mcpServers.a.exposure).toBe("direct");
+		expect(written.mcpServers.b.exposure).toBe("direct");
+		// 加法映射：adapter 时代的旧字段一个都不删（任务 6 前 adapter 仍读它们）
+		expect(written.mcpServers.a.lifecycle).toBe("lazy");
+		expect(written.mcpServers.a.requestTimeoutMs).toBe(2500);
+		expect(written.mcpServers.a.timeout).toBe(3);
+		// settings 段与未知顶层字段原样保留
+		expect(written.settings).toEqual({ directTools: true, toolPrefix: "p" });
+		expect(written.unknownTop).toEqual({ keep: 1 });
+		expect(written.autoEnableCodemode).toBe(false);
+	});
+
+	test("settings.directTools 名单 → 逐 server 展开为 exposure codemode + 逐工具 direct", async () => {
+		const waPiDir = await setupGlobal({
+			settings: { directTools: ["a", "b"] },
+			mcpServers: { s: { command: "x" } },
+		});
+		await migrateGlobalMcpFile(waPiDir);
+
+		const written = await readGlobal(waPiDir);
+		expect(written.mcpServers.s.exposure).toBe("codemode");
+		expect(written.mcpServers.s.toolExposure).toEqual({ a: "direct", b: "direct" });
+		expect(written.settings.directTools).toEqual(["a", "b"]);
+	});
+
+	test("server/tool 限定名：前缀等于当前服务器才生效（取 / 之后），前缀不符则丢弃", async () => {
+		const waPiDir = await setupGlobal({
+			settings: { directTools: ["s1/t1", "s2/t2", "plain"] },
+			mcpServers: { s1: { command: "x" }, s2: { command: "y" } },
+		});
+		await migrateGlobalMcpFile(waPiDir);
+
+		const written = await readGlobal(waPiDir);
+		expect(written.mcpServers.s1.toolExposure).toEqual({ t1: "direct", plain: "direct" });
+		expect(written.mcpServers.s2.toolExposure).toEqual({ t2: "direct", plain: "direct" });
+		// 前缀不是本服务器的条目被丢弃（不得把 s2/t2 挂到 s1 上）
+		expect(written.mcpServers.s1.toolExposure).not.toHaveProperty("t2");
+		expect(written.mcpServers.s2.toolExposure).not.toHaveProperty("t1");
+	});
+
+	test("仅带 requestTimeoutMs 的全局条目：补 timeout（并按规格默认 direct），旧字段保留", async () => {
+		const waPiDir = await setupGlobal({
+			mcpServers: { a: { command: "x", requestTimeoutMs: 1500 } },
+		});
+		await migrateGlobalMcpFile(waPiDir);
+
+		const written = await readGlobal(waPiDir);
+		expect(written.mcpServers.a.timeout).toBe(2);
+		expect(written.mcpServers.a.exposure).toBe("direct");
+		expect(written.mcpServers.a.requestTimeoutMs).toBe(1500);
+	});
+
+	test("备份 mcp.json.bak-<ts> 内容是迁移前的原文，原文件为合法 JSON 且无残留临时文件", async () => {
+		const waPiDir = await setupGlobal({
+			settings: { directTools: false },
+			mcpServers: { a: { command: "x", directTools: true } },
+		});
+		const before = await readFile(join(waPiDir, "mcp.json"), "utf8");
+		await migrateGlobalMcpFile(waPiDir);
+
+		const files = await readdir(waPiDir);
+		const backups = files.filter((f) => f.startsWith("mcp.json.bak-"));
+		expect(backups).toHaveLength(1);
+		expect(await readFile(join(waPiDir, backups[0]!), "utf8")).toBe(before);
+		expect(files.some((f) => f.endsWith(".tmp"))).toBe(false);
+		await readGlobal(waPiDir); // 原文件仍是合法 JSON
+		// 条目自身配置优先于 settings 缺省值
+		expect((await readGlobal(waPiDir)).mcpServers.a.exposure).toBe("direct");
+	});
+
+	test("没有 settings 段也没有旧字段时不动盘：不写文件、不产生备份", async () => {
+		const waPiDir = await setupGlobal({
+			mcpServers: { a: { command: "x", args: ["--y"], enabled: false } },
+		});
+		const before = await readFile(join(waPiDir, "mcp.json"), "utf8");
+		const res = await migrateGlobalMcpFile(waPiDir);
+
+		expect(res.migrated).toBe(0);
+		expect(res.backup).toBeUndefined();
+		expect(await readFile(join(waPiDir, "mcp.json"), "utf8")).toBe(before);
+		expect(await readdir(waPiDir)).toEqual(["mcp.json"]);
+	});
+
+	test("没有全局 mcp.json 时不创建任何文件", async () => {
+		dir = await mkdtemp(join(tmpdir(), "mcpmigrateglobal-"));
+		const res = await migrateGlobalMcpFile(dir);
+
+		expect(res.migrated).toBe(0);
+		expect(res.backup).toBeUndefined();
+		expect(await readdir(dir)).toEqual([]);
+	});
+
+	test("全局文件损坏时绝不半写：原文件原样、无备份", async () => {
+		const waPiDir = await setupGlobal({ mcpServers: { a: { command: "x", directTools: true } } });
+		await writeFile(join(waPiDir, "mcp.json"), "{ 这不是 JSON");
+		const res = await migrateGlobalMcpFile(waPiDir);
+
+		expect(res.migrated).toBe(0);
+		expect(await readFile(join(waPiDir, "mcp.json"), "utf8")).toBe("{ 这不是 JSON");
+		expect(await readdir(waPiDir)).toEqual(["mcp.json"]);
+	});
+
+	test("全局迁移幂等：第二次调用不写盘、不再产生备份", async () => {
+		const waPiDir = await setupGlobal({
+			settings: { directTools: true },
+			mcpServers: { a: { command: "x" } },
+		});
+		const first = await migrateGlobalMcpFile(waPiDir);
+		const afterFirst = await readFile(join(waPiDir, "mcp.json"), "utf8");
+
+		const second = await migrateGlobalMcpFile(waPiDir);
+		expect(first.migrated).toBe(1);
+		expect(second.migrated).toBe(0);
+		expect(second.backup).toBeUndefined();
+		expect(await readFile(join(waPiDir, "mcp.json"), "utf8")).toBe(afterFirst);
+		expect(
+			(await readdir(waPiDir)).filter((f) => f.startsWith("mcp.json.bak-")),
+		).toHaveLength(1);
 	});
 });

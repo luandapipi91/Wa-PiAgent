@@ -11,7 +11,7 @@ import { MemoryDao } from "./memory/dao";
 import { openMemoryDb } from "./memory/db";
 import { importLegacyMemories } from "./memory/import";
 import { McpStore } from "./mcp-store";
-import { migrateProjectMcpFile } from "./mcp-migrate";
+import { migrateGlobalMcpFile, migrateProjectMcpFile } from "./mcp-migrate";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureBridgeExtension } from "./bridge-extension";
@@ -244,6 +244,19 @@ export async function startKernel(opts?: {
 		}
 	} catch (err) {
 		console.warn("[mcp] 读取项目列表失败，跳过 MCP 配置迁移:", err);
+	}
+
+	// 全局 <WA_PI_DIR>/mcp.json 的 adapter 字段一次性**加法**迁移（幂等）。
+	// 全局文件是 pi-mcp-adapter 与 pi 共读的共享文件，任务 6 移除 adapter 之前必须保持旧字段可读，
+	// 故只补写 exposure / toolExposure / timeout，保留旧字段、settings 段与未知顶层字段，
+	// 并留一份 mcp.json.bak-<ts>；没有旧字段可映射时不落盘、不产生备份。
+	try {
+		const res = await migrateGlobalMcpFile(WA_PI_DIR);
+		if (res.migrated > 0) {
+			console.log(`[mcp] 已迁移全局 mcp.json 的 ${res.migrated} 个 MCP 服务器配置`);
+		}
+	} catch (err) {
+		console.warn("[mcp] 迁移全局 mcp.json 失败（不影响启动）:", err);
 	}
 
 	await ensureWebSearchConfig(WA_PI_DIR);
