@@ -11,6 +11,7 @@ import { MemoryDao } from "./memory/dao";
 import { openMemoryDb } from "./memory/db";
 import { importLegacyMemories } from "./memory/import";
 import { McpStore } from "./mcp-store";
+import { migrateProjectMcpFile } from "./mcp-migrate";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureBridgeExtension } from "./bridge-extension";
@@ -217,6 +218,33 @@ export async function startKernel(opts?: {
 	// 启动时 seed 默认工作区虚拟项目（幂等）+ 确保 workdir 根目录存在
 	await ensureSystemProject(projectStore);
 	console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
+
+	// pi-mcp-adapter 时代旧配置一次性迁移（幂等）：每个项目的 <cwd>/.mcp.json →
+	// <cwd>/.pi/mcp.json，旧文件保留（adapter 仍读它）+ 额外备份 .mcp.json.bak-<ts>。
+	// 没有旧文件的目录一律不动盘（migrateProjectMcpFile 内部提前返回，不创建 .pi/），
+	// 否则会在用户仓库里凭空造出 .pi/ 而让该项目变成「需要受信」的项目。
+	// 迁移任何异常都只告警，不得阻断 kernel 启动。
+	try {
+		const { projects } = await projectStore.load();
+		for (const project of projects) {
+			if (!project.cwd) continue;
+			try {
+				const res = await migrateProjectMcpFile(project.cwd);
+				if (res.migrated > 0) {
+					console.log(
+						`[mcp] 已迁移项目 ${project.id} 的 ${res.migrated} 个 MCP 服务器配置到 .pi/mcp.json`,
+					);
+				}
+			} catch (err) {
+				console.warn(
+					`[mcp] 迁移项目 ${project.id} 的 .mcp.json 失败（不影响启动）:`,
+					err,
+				);
+			}
+		}
+	} catch (err) {
+		console.warn("[mcp] 读取项目列表失败，跳过 MCP 配置迁移:", err);
+	}
 
 	await ensureWebSearchConfig(WA_PI_DIR);
 
