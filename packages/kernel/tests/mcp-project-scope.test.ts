@@ -1,0 +1,145 @@
+/**
+ * 项目级 MCP 作用域开关端点（POST /api/mcp/project-scope）
+ *
+ * 关键行为（规格 F11/F12/F13）：
+ *   1. 开启 → <WA_PI_DIR>/trust.json 里以 **realpath(project.cwd) 原样** 为键写 true
+ *      （pi 只在项目受信时才读 <cwd>/.pi/mcp.json，键写错即静默失效），
+ *      并顺带把旧 .mcp.json 迁移到 <cwd>/.pi/mcp.json；
+ *   2. 关闭 → 同一个键写 false，**不删键**（删键会退回上层继承，可能意外继承父目录的受信决定）；
+ *   3. projectId 缺失 / enabled 非布尔 → 400；项目不存在 → 404。
+ *
+ * 隔离：WA_PI_DIR 在 beforeAll 指向临时目录，绝不触碰真实 ~/.pi/agent/trust.json。
+ */
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { HttpRouter } from "../src/http-router";
+import { registerMcpRoutes } from "../src/routes/mcp";
+import { trustKeyFor } from "../src/mcp-trust";
+
+const ORIG_WA_PI_DIR = process.env.WA_PI_DIR;
+
+let root: string;
+/** 受信决定落盘处：默认 <WA_PI_DIR>/trust.json */
+let trustFile: string;
+/** 项目工作目录（每个用例一个干净的） */
+let cwd: string;
+let router: HttpRouter;
+
+const PROJECT_ID = "proj-1";
+
+function setupRouter(projectCwd: string | null) {
+  const router = new HttpRouter();
+  registerMcpRoutes(
+    router,
+    (async () => Response.json({ ok: true })) as never,
+    {
+      projectStore: {
+        load: async () => ({
+          projects:
+            projectCwd === null
+              ? []
+              : [{ id: PROJECT_ID, name: "测试项目", cwd: projectCwd, createdAt: 0 }],
+          sessions: [],
+        }),
+      } as never,
+    },
+  );
+  return router;
+}
+
+function post(body: unknown): Promise<Response | null> {
+  return router.handle(
+    new Request("http://localhost/api/mcp/project-scope", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+beforeAll(() => {
+  root = mkdtempSync(join(tmpdir(), "wa-pi-mcp-scope-"));
+  process.env.WA_PI_DIR = root;
+  trustFile = join(root, "trust.json");
+});
+
+afterAll(async () => {
+  process.env.WA_PI_DIR = ORIG_WA_PI_DIR ?? "";
+  await rm(root, { recursive: true, force: true }).catch(() => {});
+});
+
+beforeEach(async () => {
+  await rm(trustFile, { force: true }).catch(() => {});
+  cwd = mkdtempSync(join(tmpdir(), "wa-pi-mcp-scope-proj-"));
+  router = setupRouter(cwd);
+});
+
+async function readTrust(): Promise<Record<string, boolean>> {
+  return JSON.parse(await readFile(trustFile, "utf8"));
+}
+
+describe("POST /api/mcp/project-scope", () => {
+  test("开启项目作用域 → 以 realpath(cwd) 原样为键写 true，并触发旧配置迁移", async () => {
+    // 旧文件存在 → 迁移应当被触发（migrateProjectMcpFile 只在有 .mcp.json 时才写盘）
+    await writeFile(
+      join(cwd, ".mcp.json"),
+      JSON.stringify({ mcpServers: { legacy: { command: "node", directTools: ["t"] } } }),
+      "utf8",
+    );
+
+    const res = await post({ projectId: PROJECT_ID, enabled: true });
+    expect(res?.status).toBe(200);
+    expect(await res?.json()).toEqual({ ok: true, projectId: PROJECT_ID, enabled: true });
+
+    // 键必须是 realpath 结果原样（大小写/分隔符/尾分隔符都错不得）
+    expect(await readTrust()).toEqual({ [await trustKeyFor(cwd)]: true });
+
+    // 迁移已跑：<cwd>/.pi/mcp.json 出现且字段已映射
+    const migrated = JSON.parse(await readFile(join(cwd, ".pi", "mcp.json"), "utf8"));
+    expect(migrated.mcpServers.legacy.exposure).toBe("codemode");
+    expect(migrated.mcpServers.legacy.toolExposure).toEqual({ t: "direct" });
+  });
+
+  test("关闭项目作用域 → 同一个键写 false（不删键，避免退回上层继承）", async () => {
+    await post({ projectId: PROJECT_ID, enabled: true });
+
+    const res = await post({ projectId: PROJECT_ID, enabled: false });
+    expect(res?.status).toBe(200);
+    expect(await res?.json()).toEqual({ ok: true, projectId: PROJECT_ID, enabled: false });
+
+    const raw = await readTrust();
+    const key = await trustKeyFor(cwd);
+    expect(Object.hasOwn(raw, key)).toBe(true); // 键仍在
+    expect(raw[key]).toBe(false);
+  });
+
+  test("关闭时不写盘 .pi/：没有旧配置的项目一路保持干净", async () => {
+    await post({ projectId: PROJECT_ID, enabled: false });
+    expect(existsSync(join(cwd, ".pi"))).toBe(false);
+    expect(await readTrust()).toEqual({ [await trustKeyFor(cwd)]: false });
+  });
+
+  test("缺少 projectId → 400 参数校验错误", async () => {
+    const res = await post({ enabled: true });
+    expect(res?.status).toBe(400);
+    expect((await res?.json()).failure.code).toBe("common.missingParam");
+  });
+
+  test("enabled 非布尔 → 400（false 是合法值，不能用真值判断）", async () => {
+    const res = await post({ projectId: PROJECT_ID, enabled: "true" });
+    expect(res?.status).toBe(400);
+    expect((await res?.json()).failure.code).toBe("common.missingParam");
+    expect(existsSync(trustFile)).toBe(false); // 校验失败不得落盘
+  });
+
+  test("项目不存在 → 404 project.notFound", async () => {
+    router = setupRouter(null);
+    const res = await post({ projectId: "ghost", enabled: true });
+    expect(res?.status).toBe(404);
+    expect((await res?.json()).failure.code).toBe("project.notFound");
+    expect(existsSync(trustFile)).toBe(false);
+  });
+});

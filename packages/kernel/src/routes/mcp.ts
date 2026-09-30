@@ -7,10 +7,77 @@
  * 故成功时响应 200 {ok:true}；mcp:test 的失败也走 mcp:testResult
  * reply（非 error 类型），HTTP 状态仍为 200，由 body.success 区分。
  */
+import { join } from "node:path";
+import { WA_PI_DIR, toKernelPayload } from "@wa-pi/shared";
+import type { ProjectStore } from "../project-store";
+import { resolveCwdForFsRequest } from "../ws-server";
+import { McpTrustStore } from "../mcp-trust";
+import { migrateProjectMcpFile } from "../mcp-migrate";
 import type { RouteContext, RouteRegistrar } from "./types";
-import { readJsonBody } from "./types";
+import { readJsonBody, paramErrorResponse } from "./types";
+
+/** pi 的 ProjectTrustStore(agentDir) 读的同一个文件：<WA_PI_DIR>/trust.json（F12/F13） */
+function trustFilePath(): string {
+  return join(process.env.WA_PI_DIR || WA_PI_DIR, "trust.json");
+}
+
+/**
+ * 项目级 MCP 作用域开关的处理函数（对应端点 mcp:set-project-scope，规格 §5）。
+ *
+ * 为什么把「受信」落成 trust.json 而不是走扩展的 project_trust 事件：
+ * 子代理是独立 pi 进程、不加载 bridge 扩展，只有 trust.json 对它们同样生效（F12）。
+ *
+ * 独立导出：本文件的其余路由会在任务 8（MCP 域整体重写）中被替换，**本函数必须保留**。
+ */
+export async function setProjectMcpScope(opts: {
+  projectStore: ProjectStore;
+  projectId: string;
+  enabled: boolean;
+  /** trust.json 路径（缺省 <WA_PI_DIR>/trust.json；测试注入 tmpdir 用） */
+  trustFile?: string;
+}): Promise<void> {
+  // 项目 id → cwd 一律走既有解析（不自行拼路径）：项目不存在 / cwd 缺失都会抛 KernelError
+  const cwd = await resolveCwdForFsRequest(opts.projectStore, opts.projectId);
+  // 关闭时写 false 而不是删键：删键会退回上层继承，可能意外继承父目录的受信决定
+  await new McpTrustStore(opts.trustFile ?? trustFilePath()).set(cwd, opts.enabled);
+  // 仅开启时迁移：关闭状态 pi 不读 <cwd>/.pi/mcp.json，迁移无意义且会凭空造出 .pi/ 目录
+  if (opts.enabled) await migrateProjectMcpFile(cwd);
+}
 
 export const registerMcpRoutes: RouteRegistrar = (r, callApi, ctx) => {
+  // ---- 项目级 MCP 作用域开关（规格 §5 / F11-F13）----
+  // 不经 WS 事件表（callApi）：这是 HTTP 原生的新端点。任务 8 重写 MCP 域时
+  // **必须原样保留**本段（含上方的 setProjectMcpScope）。
+  r.add("POST", "/api/mcp/project-scope", async (req) => {
+    const b = await readJsonBody(req);
+    if (typeof b.projectId !== "string" || !b.projectId) {
+      return paramErrorResponse("缺少 projectId", "projectId");
+    }
+    // 必须显式判布尔：false 是合法值，真值判断会把「关闭」当成未传
+    if (typeof b.enabled !== "boolean") {
+      return paramErrorResponse("enabled 必须是布尔值", "enabled");
+    }
+    try {
+      await setProjectMcpScope({
+        projectStore: ctx.projectStore,
+        projectId: b.projectId,
+        enabled: b.enabled,
+      });
+    } catch (e) {
+      // project.notFound → 404，其余（含 project.cwdMissing）→ 400：与 git 域同一约定
+      const failure = toKernelPayload(e);
+      const status = failure?.code === "project.notFound" ? 404 : 400;
+      return Response.json(
+        {
+          error: e instanceof Error ? e.message : String(e),
+          ...(failure ? { failure } : {}),
+        },
+        { status },
+      );
+    }
+    return Response.json({ ok: true, projectId: b.projectId, enabled: b.enabled });
+  });
+
   r.add("GET", "/api/mcp", async (req) => {
     const projectId =
       new URL(req.url).searchParams.get("projectId") ?? undefined;
