@@ -6,6 +6,10 @@ import { loadVectorExtension, initVectorColumn, refreshQuantizedIndex } from "..
 import { indexPendingMemories } from "../src/memory/vector-index";
 import { fuseRrf, normalizeScores, RRF_K, searchHybrid } from "../src/memory/hybrid-search";
 import { embedQuery, embedQueryCallsForTest, resetEmbedderForTest } from "../src/memory/embedder";
+import {
+  probeModelAvailability,
+  registerModelGateFailure,
+} from "./helpers/model-gate";
 
 // ---------------------------------------------------------------------------
 // 模型可用性门（只挂在「断言依赖语义通道真的返回结果」的用例上）
@@ -23,20 +27,20 @@ import { embedQuery, embedQueryCallsForTest, resetEmbedderForTest } from "../src
 //
 // 离线 / 无外网时模型加载必然失败，`embedQuery` 返回 null —— 这是「环境不具备条件」，
 // 不是被测代码的错。故在文件顶部探测一次（会触发模型加载，注意：模块顶层 await
-// 不受 bun 单测超时约束），仅供那一例判定是否 skip：
-//   - 模型可用   → 该例照常执行；
-//   - 模型不可用 → 该例 skip（不是 fail）并打印原因，不把「网络问题」伪装成「断言不符」。
+// 不受 bun 单测超时约束），三态判定（见 tests/helpers/model-gate.ts）：
+//   - available → 带门的该例照常执行；
+//   - noSource  → 带门的该例 skip（不是 fail）并打印原因，不把「网络问题」伪装成「断言不符」；
+//   - broken    → 声明了模型来源却仍加载失败 → **判红**（真实故障，不是环境不具备）。
 // 约定与 memory-embedder.test.ts / memory-vector-index.test.ts 一致。
 // ---------------------------------------------------------------------------
-const modelUnavailable = (await embedQuery("可用性探测")) === null;
+const gate = await probeModelAvailability();
+registerModelGateFailure(gate, "memory-hybrid-search.test");
+const modelUnavailable = gate.status !== "available";
 
 if (modelUnavailable) {
   console.warn(
-    "[memory-hybrid-search.test] 跳过依赖模型的用例：embedding 模型不可用。\n" +
-      "  原因：模型加载失败（离线 / 无法访问 hf-mirror.com / 未随包内置模型）。\n" +
-      "  不依赖模型的用例（RRF 纯函数 / 词法命中 / 扩展降级 / scope 收窄 / 扩展未就绪探针 / embedQuery 返回 null）仍照常执行。\n" +
-      "  请在有网络的机器上重跑，或设置 WA_PI_MODEL_DIR 指向本地模型目录、\n" +
-      "  WA_PI_HF_ENDPOINT 指向可用镜像。",
+    `[memory-hybrid-search.test] ${gate.detail}\n` +
+      "  不依赖模型的用例（RRF 纯函数 / 词法命中 / 扩展降级 / scope 收窄 / 扩展未就绪探针 / embedQuery 返回 null）仍照常执行。",
   );
 }
 

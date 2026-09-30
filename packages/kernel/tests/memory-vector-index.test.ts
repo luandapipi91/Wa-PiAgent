@@ -5,6 +5,10 @@ import { MemoryDao } from "../src/memory/dao";
 import { loadVectorExtension, initVectorColumn, quantizedScan } from "../src/memory/vector-ext";
 import { indexPendingMemories } from "../src/memory/vector-index";
 import { embedQuery } from "../src/memory/embedder";
+import {
+  probeModelAvailability,
+  registerModelGateFailure,
+} from "./helpers/model-gate";
 
 // ---------------------------------------------------------------------------
 // 模型可用性门（只挂在真正调用模型的用例上）
@@ -18,20 +22,20 @@ import { embedQuery } from "../src/memory/embedder";
 //
 // 离线 / 无外网时模型加载必然失败，`embedQuery` 返回 null —— 这是「环境不具备条件」，
 // 不是被测代码的错。故在文件顶部探测一次（会触发模型加载，注意：模块顶层 await
-// 不受 bun 单测超时约束），仅供那一例判定是否 skip：
-//   - 模型可用   → 该例照常执行；
-//   - 模型不可用 → 该例 skip（不是 fail）并打印原因，不把「网络问题」伪装成「断言不符」。
-// 约定与 memory-embedder.test.ts 一致。
+// 不受 bun 单测超时约束），三态判定（见 tests/helpers/model-gate.ts）：
+//   - available → 该例照常执行；
+//   - noSource  → 该例 skip（不是 fail）并打印原因，不把「网络问题」伪装成「断言不符」；
+//   - broken    → 声明了模型来源却仍加载失败 → **判红**（真实故障，不是环境不具备）。
+// 约定与 memory-embedder.test.ts / memory-hybrid-search.test.ts 一致。
 // ---------------------------------------------------------------------------
-const modelUnavailable = (await embedQuery("可用性探测")) === null;
+const gate = await probeModelAvailability();
+registerModelGateFailure(gate, "memory-vector-index.test");
+const modelUnavailable = gate.status !== "available";
 
 if (modelUnavailable) {
   console.warn(
-    "[memory-vector-index.test] 跳过依赖模型的用例：embedding 模型不可用。\n" +
-      "  原因：模型加载失败（离线 / 无法访问 hf-mirror.com / 未随包内置模型）。\n" +
-      "  不依赖模型的用例仍照常执行 —— 只有「回填」一例会 skip。\n" +
-      "  请在有网络的机器上重跑，或设置 WA_PI_MODEL_DIR 指向本地模型目录、\n" +
-      "  WA_PI_HF_ENDPOINT 指向可用镜像。",
+    `[memory-vector-index.test] ${gate.detail}\n` +
+      "  不依赖模型的用例仍照常执行 —— 只有「回填」与「回填后刷量化索引」两例会 skip。",
   );
 }
 

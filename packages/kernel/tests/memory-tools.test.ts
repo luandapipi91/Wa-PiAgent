@@ -14,7 +14,10 @@ import {
   refreshQuantizedIndex,
 } from "../src/memory/vector-ext";
 import { indexPendingMemories } from "../src/memory/vector-index";
-import { embedQuery } from "../src/memory/embedder";
+import {
+  probeModelAvailability,
+  registerModelGateFailure,
+} from "./helpers/model-gate";
 
 let ctx: MemoryToolContext;
 let tools: ReturnType<typeof createMemoryTools>;
@@ -784,19 +787,19 @@ test("memory_search 的 timeField=created 按创建时间过滤", async () => {
 //   - 用例 1 断言「无共同关键词也能命中」——只有语义通道能产出这条结果；
 //   - 用例 2 断言「关掉开关后 0 条」——若语义通道本来就空（离线），
 //     hybrid 路径与词法路径结果相同，断言恒真（盲绿），开关形同虚设。
-// 故两条都挂门：模型不可用时 skip（不是 fail）并打印原因，
-// 把「环境不具备条件」与「断言不符」区分开。
+// 故两条都挂门：三态判定（见 tests/helpers/model-gate.ts）——noSource 时 skip（不是 fail）
+// 并打印原因，把「环境不具备条件」与「断言不符」区分开；broken（声明了模型来源却仍加载失败）
+// 则**判红**：不再把「embedder 加载路径被改坏」伪装成 skip。
 // 约定与 memory-embedder.test.ts / memory-vector-index.test.ts / memory-hybrid-search.test.ts 一致。
 // ---------------------------------------------------------------------------
-const modelUnavailable = (await embedQuery("可用性探测")) === null;
+const gate = await probeModelAvailability();
+registerModelGateFailure(gate, "memory-tools.test");
+const modelUnavailable = gate.status !== "available";
 
 if (modelUnavailable) {
   console.warn(
-    "[memory-tools.test] 跳过依赖模型的用例：embedding 模型不可用。\n" +
-      "  原因：模型加载失败（离线 / 无法访问 hf-mirror.com / 未随包内置模型）。\n" +
-      "  不依赖模型的用例（工具行为 / 权限校验 / 净化 / 时间过滤）仍照常执行。\n" +
-      "  请在有网络的机器上重跑，或设置 WA_PI_MODEL_DIR 指向本地模型目录、\n" +
-      "  WA_PI_HF_ENDPOINT 指向可用镜像。",
+    `[memory-tools.test] ${gate.detail}\n` +
+      "  不依赖模型的用例（工具行为 / 权限校验 / 净化 / 时间过滤）仍照常执行。",
   );
 }
 

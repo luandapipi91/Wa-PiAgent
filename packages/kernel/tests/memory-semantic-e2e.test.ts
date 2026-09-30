@@ -27,23 +27,26 @@ import {
 } from "../src/memory/vector-ext";
 import { indexPendingMemories } from "../src/memory/vector-index";
 import { searchHybrid } from "../src/memory/hybrid-search";
-import { embedQuery } from "../src/memory/embedder";
+import {
+  probeModelAvailability,
+  registerModelGateFailure,
+} from "./helpers/model-gate";
 
 // ---------------------------------------------------------------------------
 // 模型可用性门（只挂在断言「语义通道真的召回」的用例上）
-// 离线 / 无外网时模型加载必然失败，`embedQuery` 返回 null —— 这是「环境不具备条件」，
-// 不是被测代码的错：skip 并打印原因，不把网络问题伪装成断言不符。
-// 约定与 memory-embedder / memory-vector-index / memory-hybrid-search 一致。
+// 三态（见 tests/helpers/model-gate.ts）：noSource（离线 / 无网 CI）→ skip 并打印原因，
+// 不把网络问题伪装成断言不符；broken（声明了模型来源却仍加载失败）→ **判红**。
+// 约定与 memory-embedder / memory-vector-index / memory-hybrid-search / memory-tools 一致。
 // 提示：`WA_PI_MODEL_DIR` 指向本地模型目录即可离线跑（打包版即靠它用内置模型）。
 // ---------------------------------------------------------------------------
-const modelUnavailable = (await embedQuery("可用性探测")) === null;
+const gate = await probeModelAvailability();
+registerModelGateFailure(gate, "memory-semantic-e2e.test");
+const modelUnavailable = gate.status !== "available";
 
 if (modelUnavailable) {
   console.warn(
-    "[memory-semantic-e2e.test] 跳过依赖模型的用例：embedding 模型不可用。\n" +
-      "  原因：模型加载失败（离线 / 无法访问 hf-mirror.com / 未随包内置模型）。\n" +
-      "  不依赖模型的用例（写入 → 词法命中）仍照常执行。\n" +
-      "  请在有网络的机器上重跑，或设置 WA_PI_MODEL_DIR 指向本地模型目录。",
+    `[memory-semantic-e2e.test] ${gate.detail}\n` +
+      "  不依赖模型的用例（写入 → 词法命中）仍照常执行。",
   );
 }
 

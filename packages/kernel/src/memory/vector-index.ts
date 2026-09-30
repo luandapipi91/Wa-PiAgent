@@ -1,5 +1,11 @@
 // 后台增量索引：把 listUnindexed 的条目批量编码并写回。
 //
+// 两个调用点：
+// - 启动回填（src/index.ts，存量库首次升级到 v3 之后）；
+// - 写入后的增量回填（scheduleIndexPendingMemories，由 memory_add / memory_replace 成功后的
+//   debounce 触发）—— kernel 是长驻 sidecar，只靠启动回填会让「刚记下的记忆同一进程内
+//   语义搜不到」。
+//
 // 设计要点：
 // - 分批 + 每批之间让出事件循环，避免长时间占用 CPU 影响交互。
 // - 单条失败只跳过该条（其 embedding 保持 NULL，下轮重试），不中断整批。
@@ -10,7 +16,7 @@
 //   （见下面 finish() 的说明）——否则新写入的记忆在重启前永远搜不到。
 import type { MemoryDao } from "./dao";
 import { embedDocuments, embedFingerprint, isEmbedderReady } from "./embedder";
-import { refreshQuantizedIndex } from "./vector-ext";
+import { isVectorReady, refreshQuantizedIndex } from "./vector-ext";
 
 export interface IndexResult {
   indexed: number;
@@ -19,6 +25,25 @@ export interface IndexResult {
 }
 
 let running: Promise<IndexResult> | null = null;
+
+/**
+ * 写入后增量回填的 debounce 间隔（毫秒，生产默认值）。
+ *
+ * 为什么需要这一层：kernel 是长驻 sidecar（一次启动、异常才重启），而 `insert()` 不写向量、
+ * `updateContent()` 把向量置 NULL —— 若只在启动时回填，用户在会话里刚记下的记忆在同一进程内
+ * 的语义通道（`memory_search`）就搜不到（只剩词面命中），被改写的条目还会从语义候选里消失。
+ *
+ * 为什么要 debounce 而不是每条写完就回填：`indexPendingMemories` 末尾会 `refreshQuantizedIndex`，
+ * 而 `vector_quantize` 是 O(N) 全量重建（实测 10 万条约 1.6s）——逐条触发会把后台任务变成
+ * 持续 CPU 占用。合并连续写入后一轮处理，代价可接受。
+ */
+export const DEFAULT_INDEX_DEBOUNCE_MS = 1500;
+
+let debounceMs = DEFAULT_INDEX_DEBOUNCE_MS;
+let timer: ReturnType<typeof setTimeout> | null = null;
+let scheduledDao: MemoryDao | null = null;
+let lastRun: Promise<unknown> | null = null;
+let runs = 0;
 
 export interface IndexOptions {
   /** 每批编码条数（实测 batch=8 时约 4.8 ms/条） */
@@ -34,6 +59,64 @@ export async function indexPendingMemories(dao: MemoryDao, opts: IndexOptions = 
     running = null;
   });
   return running;
+}
+
+/**
+ * 写入成功后的增量回填触发（fire-and-forget，**绝不阻塞写入**）。
+ *
+ * - 连续写入按 `debounceMs` 合并成一轮：已有待触发的定时器时只更新目标 dao，不再新起一轮
+ *   （与 `indexPendingMemories` 内部的 `running` 合并机制配合，不叠加重复工作）。
+ * - 失败只记 `[memory-semantic]` 日志：本函数是后台调用，DB 层异常会外溢为 rejected promise，
+ *   不在此兜住就会出现未捕获的 promise rejection。
+ * - 语义通道不可用（扩展未就绪）时直接返回：此时回填没有任何读者，纯属无谓工作。
+ */
+export function scheduleIndexPendingMemories(dao: MemoryDao): void {
+  if (!isVectorReady(dao.db)) return;
+  scheduledDao = dao;
+  if (timer) return; // 已有待触发的一轮 → 合并
+  timer = setTimeout(fireScheduledIndex, debounceMs);
+  // 后台任务不该拖住进程退出（打包版 sidecar 退出、测试进程收尾都靠它）
+  timer.unref?.();
+}
+
+function fireScheduledIndex(): void {
+  timer = null;
+  const dao = scheduledDao;
+  scheduledDao = null;
+  if (!dao) return;
+  runs++;
+  lastRun = indexPendingMemories(dao).catch((err) => {
+    console.error("[memory-semantic] 写入后增量回填失败（本条记忆暂不可语义检索）：", err);
+  });
+}
+
+/** 测试用：覆盖 debounce 间隔（生产默认为 DEFAULT_INDEX_DEBOUNCE_MS），使用例不必真等 */
+export function setIndexDebounceMsForTest(ms: number): void {
+  debounceMs = ms;
+}
+
+/** 测试用：清掉待触发的定时器与调度状态、归零计数并恢复默认 debounce */
+export function resetIndexSchedulerForTest(): void {
+  if (timer) clearTimeout(timer);
+  timer = null;
+  scheduledDao = null;
+  lastRun = null;
+  runs = 0;
+  debounceMs = DEFAULT_INDEX_DEBOUNCE_MS;
+}
+
+/** 测试用：本进程已触发的**调度回填**轮数（用于钉住 debounce 合并） */
+export function indexRunsForTest(): number {
+  return runs;
+}
+
+/** 测试用：立刻触发待执行的一轮回填并等它结束（不真等 debounce 到期） */
+export async function flushScheduledIndexForTest(): Promise<void> {
+  if (timer) {
+    clearTimeout(timer);
+    fireScheduledIndex();
+  }
+  await lastRun;
 }
 
 async function runIndex(dao: MemoryDao, opts: IndexOptions): Promise<IndexResult> {

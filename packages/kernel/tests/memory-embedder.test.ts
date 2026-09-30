@@ -6,30 +6,29 @@ import {
   embedFingerprint,
   resetEmbedderForTest,
 } from "../src/memory/embedder";
+import {
+  probeModelAvailability,
+  registerModelGateFailure,
+} from "./helpers/model-gate";
 
 // ---------------------------------------------------------------------------
-// 模型可用性门（本文件所有用例的统一前置）
+// 模型可用性门（三态，见 tests/helpers/model-gate.ts）
 //
 // 本文件断言的是真实模型的真实行为（真实向量维度、真实语义相似度），因此必须先成功
-// 加载 bge-small-zh-v1.5（首次运行需下载约 23MB）。离线 / 新克隆 / 无外网的 CI 上
-// 加载必然失败，`embedQuery` 会返回 null —— 这是「环境不具备条件」，不是被测代码的错。
-// 故在文件顶部探测一次（会触发模型加载，注意：模块顶层 await 不受 bun 单测超时约束）：
-//   - 模型可用   → 5 个用例照常执行，断言强度与联网时逐字一致；
-//   - 模型不可用 → 全部用例 skip（不是 fail）并打印原因，使离线环境下的全量测试保持
-//     自足，且不会把「网络问题」伪装成「断言不符」。
-// 约定：后续任何依赖模型 / 外网的测试文件，复用同一模式
-// （顶部一次性探测 + `test.skipIf` + 不可用时打印清晰原因）。
+// 加载 bge-small-zh-v1.5（首次运行需下载约 23MB）。门在文件顶部探测一次（会触发模型加载，
+// 注意：模块顶层 await 不受 bun 单测超时约束）：
+//   - available → 前 3 例照常执行，断言强度与联网时逐字一致；
+//   - noSource  → 真没模型来源（离线 / 新克隆 / 无外网 CI）→ 前 3 例 skip 并打印原因；
+//   - broken    → 声明了来源（WA_PI_MODEL_DIR / 本机缓存）却加载失败 → **判红**：不再把
+//                 「embedder 加载路径被改坏」伪装成 skip（这正是本门存在的意义）。
+// 后 2 例（指纹纯函数、failNextLoad 降级路径）本身不调模型、离线可跑，**不挂门**。
 // ---------------------------------------------------------------------------
-const modelProbe = await embedQuery("可用性探测");
-const modelUnavailable = modelProbe === null;
+const gate = await probeModelAvailability();
+registerModelGateFailure(gate, "memory-embedder.test");
+const modelUnavailable = gate.status !== "available";
 
 if (modelUnavailable) {
-  console.warn(
-    "[memory-embedder.test] 跳过本文件全部用例：embedding 模型不可用。\n" +
-      "  原因：模型加载失败（离线 / 无法访问 hf-mirror.com / 未随包内置模型）。\n" +
-      "  这不是断言失败，也不是被测代码的缺陷 —— 请在有网络的机器上重跑，\n" +
-      "  或设置 WA_PI_MODEL_DIR 指向本地模型目录、WA_PI_HF_ENDPOINT 指向可用镜像。",
-  );
+  console.warn(`[memory-embedder.test] ${gate.detail}`);
 }
 
 test.skipIf(modelUnavailable)("embedDocuments 返回 512 维 Float32 字节且长度与输入一致", async () => {
@@ -61,13 +60,16 @@ test.skipIf(modelUnavailable)("embedQuery 输出与 embedDocuments 同维，且�
   expect(await embedQuery("   ")).toBeNull();
 });
 
-test.skipIf(modelUnavailable)("指纹稳定且随模型/维度变化", () => {
+// 指纹是纯字符串拼接，不调模型：离线也必须跑（挂门会让这条契约在无网 CI 上零断言）。
+test("指纹稳定且随模型/维度变化", () => {
   const f = embedFingerprint();
   expect(f).toContain(EMBED_DIM.toString());
   expect(f).toBe(embedFingerprint());
 });
 
-test.skipIf(modelUnavailable)("模型不可用时返回 null 而不抛错", async () => {
+// 降级路径（failNextLoad 强制加载失败）本身就不依赖真模型：离线也必须跑 ——
+// 它断言的正是「模型不可用时 embedQuery 返回 null 而不抛错」。
+test("模型不可用时返回 null 而不抛错", async () => {
   resetEmbedderForTest({ failNextLoad: true });
   expect(await embedQuery("任意文本")).toBeNull();
 });

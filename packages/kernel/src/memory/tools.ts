@@ -36,6 +36,7 @@ import type {
 } from "./dao";
 import { firstThreatMessage } from "./threat-patterns";
 import { searchHybrid } from "./hybrid-search";
+import { scheduleIndexPendingMemories } from "./vector-index";
 
 export interface ToolDefinition {
   name: string;
@@ -327,6 +328,19 @@ function resolveTargets(
 }
 
 export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
+  /**
+   * 写入成功后的增量语义回填触发（fire-and-forget）。
+   *
+   * 不加这一层的话：`insert()` 不写向量、`updateContent()` 把向量置 NULL，而回填原先只在
+   * kernel 启动时跑一次 —— kernel 是长驻 sidecar，于是会话里刚记下的 / 刚改写的记忆在同一
+   * 进程内被 `memory_search` 的语义通道漏掉（只剩词面命中），正是规格 §1 要解决的核心场景。
+   * 语义开关关闭时不做无谓工作；失败由调度层自己记日志，绝不影响写入结果。
+   */
+  const scheduleBackfill = () => {
+    if (ctx.semanticEnabled === false) return;
+    scheduleIndexPendingMemories(ctx.dao);
+  };
+
   return [
     {
       name: "memory_add",
@@ -391,6 +405,8 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
           title: title || undefined,
           tags,
         });
+        // 写入已落库（不阻塞）：向量补齐交给 debounce 后的后台回填
+        scheduleBackfill();
         return jsonResult({
           success: true,
           id: row.id,
@@ -554,6 +570,8 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         const threat = firstThreatMessage(newContent, "strict");
         if (threat) return jsonResult({ success: false, error: threat });
         const ok = ctx.dao.updateContent(resolved.rows[0].id, newContent);
+        // 改写会把向量置 NULL（向量已失效）→ 必须重新回填，否则该条目永久退出语义候选
+        if (ok) scheduleBackfill();
         return jsonResult({ success: ok, id: resolved.rows[0].id });
       },
     },

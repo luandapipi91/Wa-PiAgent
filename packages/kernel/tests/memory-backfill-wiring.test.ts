@@ -37,7 +37,11 @@ process.env.WA_PI_DIR = TMP_ROOT;
 const { startKernel } = await import("../src/index");
 const { openMemoryDb } = await import("../src/memory/db");
 const { MemoryDao } = await import("../src/memory/dao");
-const { embedQuery } = await import("../src/memory/embedder");
+// 与上面的 kernel 模块同为动态 import：helper 会 import embedder，而本文件必须
+// 在任何 kernel/shared 代码之前设好 WA_PI_DIR（constants.ts 在模块加载时读 env）。
+const { probeModelAvailability, registerModelGateFailure } = await import(
+  "./helpers/model-gate"
+);
 
 /** 取空闲端口，避免与运行中的 wa-pi（9776）冲突 */
 function getFreePort(): Promise<number> {
@@ -58,16 +62,14 @@ function getFreePort(): Promise<number> {
   });
 }
 
-// 模型可用性门：本用例核心断言就是「启动回填把 embedding 写进去了」，没有模型不可能成立。
-// 门只加在这一条上（同文件其余断言不依赖模型）。
-const modelUnavailable = (await embedQuery("可用性探测")) === null;
+// 模型可用性门（三态，见 tests/helpers/model-gate.ts）：本用例核心断言就是「启动回填把
+// embedding 写进去了」，没有模型不可能成立。门只加在这一条上（同文件其余断言不依赖模型）。
+const gate = await probeModelAvailability();
+registerModelGateFailure(gate, "memory-backfill-wiring.test");
+const modelUnavailable = gate.status !== "available";
 
 if (modelUnavailable) {
-  console.warn(
-    "[memory-backfill-wiring.test] 跳过依赖模型的用例：embedding 模型不可用。\n" +
-      "  原因：模型加载失败（离线 / 无法访问 hf-mirror.com / 未随包内置模型）。\n" +
-      "  请在有网络的机器上重跑，或设置 WA_PI_MODEL_DIR 指向本地模型目录。",
-  );
+  console.warn(`[memory-backfill-wiring.test] ${gate.detail}`);
 }
 
 // 启动前造好存量库：两条未索引记忆（embedding IS NULL）
