@@ -4,6 +4,13 @@
 // 登记 id 稳定且唯一，同一个项目可挂多条路径（改名/移动后新路径并入原项目）。
 export const SCHEMA_VERSION = "2";
 
+/**
+ * 嵌入向量维度。
+ * 单一来源：embedder 与 vector-ext 都从这里导入，避免两处硬编码各自漂移
+ * （两个模块保持互不依赖，只共同依赖本文件）。
+ */
+export const EMBED_DIM = 512;
+
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS memories (
   id           TEXT PRIMARY KEY,
