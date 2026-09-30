@@ -1,10 +1,15 @@
-import type { McpServerConfig, McpServerStatus } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
+import type { McpServerEntry } from "../../store/mcp";
+import { exposureDescKey, exposureLabelKey } from "./exposure";
 
 interface Props {
-  config: McpServerConfig;
-  status: McpServerStatus;
-  /** 连接测试成功时返回的工具数（展示「已连接 · N 工具」） */
+  config: McpServerEntry;
+  /**
+   * 生效状态：pi 报的**原始** state 串（connected / failed / needs-auth / disabled / …）。
+   * 缺省 = 状态未知（pi 没报过、或清单 stale）。
+   */
+  state?: string;
+  /** 工具数（已连上时展示「已连接 · N 工具」） */
   toolCount?: number;
   testing?: boolean;
   error?: string;
@@ -14,25 +19,64 @@ interface Props {
   onDelete: () => void;
 }
 
-const STATUS_CONFIG: Record<
-  McpServerStatus,
-  { icon: string; labelKey: string; color: string }
-> = {
+interface Badge {
+  icon: string;
+  labelKey: string;
+  color: string;
+  /** 语义色调：供 UI/测试区分「错误」与「中性」（disabled 必须是 neutral） */
+  tone: "success" | "error" | "warning" | "neutral";
+}
+
+/**
+ * pi 原始 state → 徽标。
+ *
+ * 关键语义（规格 §7）：
+ *   - `disabled` 是「用户主动停用」，不能用错误样式（也不是「未连接」）
+ *   - `needs-auth` 是「需要登录」，提示而已（登录入口归任务 10）
+ *   - 未知 / 缺省（含 stale 清单）显示「状态未知」，不硬套一个连接态
+ */
+const STATE_BADGES: Record<string, Badge> = {
   connected: {
     icon: "🟢",
     labelKey: "mcpCard.connected",
     color: "var(--success)",
+    tone: "success",
   },
-  error: { icon: "🔴", labelKey: "mcpCard.error", color: "var(--danger)" },
-  disconnected: {
+  failed: {
     icon: "🔴",
-    labelKey: "mcpCard.disconnected",
+    labelKey: "mcpCard.failed",
+    color: "var(--danger)",
+    tone: "error",
+  },
+  "needs-auth": {
+    icon: "🟡",
+    labelKey: "mcpCard.needsAuth",
+    color: "var(--warning)",
+    tone: "warning",
+  },
+  disabled: {
+    icon: "⚪",
+    labelKey: "mcpCard.disabled",
     color: "var(--text-tertiary)",
+    tone: "neutral",
   },
 };
 
+const UNKNOWN_BADGE: Badge = {
+  icon: "⚪",
+  labelKey: "mcpCard.unknown",
+  color: "var(--text-tertiary)",
+  tone: "neutral",
+};
+
+/** 状态串 → 徽标（未知串一律「状态未知」） */
+export function stateBadge(state?: string): Badge {
+  if (!state) return UNKNOWN_BADGE;
+  return STATE_BADGES[state] ?? UNKNOWN_BADGE;
+}
+
 /** 生成服务器配置的描述文本 */
-function configSummary(config: McpServerConfig, emptyLabel: string): string {
+function configSummary(config: McpServerEntry, emptyLabel: string): string {
   if (config.command) {
     const args = config.args?.join(" ") ?? "";
     return [config.command, args].filter(Boolean).join(" ");
@@ -43,7 +87,7 @@ function configSummary(config: McpServerConfig, emptyLabel: string): string {
 
 export function McpCard({
   config,
-  status,
+  state,
   toolCount,
   testing,
   error,
@@ -53,13 +97,18 @@ export function McpCard({
   onDelete,
 }: Props) {
   const { t } = useTranslation();
-  const cfg = testing
-    ? { icon: "⏳", labelKey: "mcpCard.testing", color: "var(--accent)" }
-    : (STATUS_CONFIG[status] ?? STATUS_CONFIG.disconnected);
-  const st = { icon: cfg.icon, color: cfg.color, label: t(cfg.labelKey) };
+  const badge = stateBadge(state);
+  const st = testing
+    ? {
+        icon: "⏳",
+        color: "var(--accent)",
+        tone: "warning" as const,
+        label: t("mcpCard.testing"),
+      }
+    : { ...badge, label: t(badge.labelKey) };
 
   const label =
-    !testing && status === "connected" && toolCount != null
+    !testing && state === "connected" && toolCount != null
       ? t("mcpCard.connectedWithTools", { count: toolCount })
       : st.label;
 
@@ -81,9 +130,23 @@ export function McpCard({
         <span
           className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full font-medium"
           style={{ background: st.color + "20", color: st.color }}
+          data-testid={`mcp-state-${config.name}`}
+          data-tone={st.tone}
+          data-state={state}
+          title={state}
         >
           {st.icon} {label}
         </span>
+        {config.exposure && (
+          <span
+            className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
+            style={{ background: "var(--hairline)", color: "var(--text-tertiary)" }}
+            data-testid={`mcp-exposure-${config.name}`}
+            title={t(exposureDescKey(config.exposure))}
+          >
+            {t(exposureLabelKey(config.exposure))}
+          </span>
+        )}
       </div>
 
       {/* 描述行 */}
@@ -91,15 +154,34 @@ export function McpCard({
         {configSummary(config, t("mcpCard.summaryEmpty"))}
       </p>
 
-      {/* 错误信息：danger 样式（红字+红底）已承担错误信号，文本不加 ⚠ 前缀 */}
-      {error && !testing && (
+      {/* 需登录：提示待办（登录/登出入口归任务 10） */}
+      {!testing && state === "needs-auth" && (
         <p
           className="text-[calc(11px*var(--font-scale))] mb-2 px-2 py-1 rounded"
+          style={{ color: "var(--warning)", background: "var(--warning-soft)" }}
+          data-testid={`mcp-needs-auth-${config.name}`}
+        >
+          {t("mcpCard.needsAuthHint")}
+        </p>
+      )}
+
+      {/* 错误信息：折叠展示（长错误不撑开卡片）；danger 样式已承担错误信号，文本不加 ⚠ 前缀 */}
+      {error && !testing && (
+        <details
+          className="mb-2 px-2 py-1 rounded"
           style={{ color: "var(--danger)", background: "var(--danger-soft)" }}
           data-testid={`mcp-error-${config.name}`}
         >
-          {error}
-        </p>
+          <summary className="text-[calc(11px*var(--font-scale))] cursor-pointer">
+            {t("mcpCard.errorDetail")}
+          </summary>
+          <p
+            className="text-[calc(11px*var(--font-scale))] whitespace-pre-wrap break-all"
+            data-testid={`mcp-error-body-${config.name}`}
+          >
+            {error}
+          </p>
+        </details>
       )}
 
       {/* 操作按钮 */}

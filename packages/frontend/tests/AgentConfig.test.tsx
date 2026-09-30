@@ -257,6 +257,32 @@ describe("AgentConfig 4 tab", () => {
 		expect(screen.getByText("MCP")).toBeTruthy();
 	});
 
+	test("工具 tab：MCP 入口工具（codemode/tool_search）单独标注、不给开关", async () => {
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-tools"));
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "read", source: "内置" },
+				{ name: "mcp__dbx__query", source: "MCP" },
+				{ name: "codemode", source: "MCP" },
+				{ name: "tool_search", source: "MCP" },
+			],
+		});
+		// 普通工具照旧有开关
+		expect(
+			(await screen.findByTestId("tool-switch-read")).getAttribute("data-on"),
+		).toBe("true");
+		// 入口工具单独成区：kernel 无论勾没勾都会并进白名单，给开关反而是误导
+		expect(screen.getByTestId("mcp-entry-tool-codemode")).toBeTruthy();
+		expect(screen.getByTestId("mcp-entry-tool-tool_search")).toBeTruthy();
+		expect(screen.queryByTestId("tool-switch-codemode")).toBeNull();
+		expect(screen.queryByTestId("tool-switch-tool_search")).toBeNull();
+		expect(screen.getByTestId("mcp-entry-tools").textContent).toContain(
+			"自动放行",
+		);
+	});
+
 	test("工具 tab：4 个 browser_* 开关渲染且默认勾选，点掉 browser_navigate 后保存为显式白名单", async () => {
 		renderConfig();
 		fireEvent.click(screen.getByTestId("tab-tools"));

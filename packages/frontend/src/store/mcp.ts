@@ -1,25 +1,70 @@
 import { create } from "zustand";
 import i18n from "../i18n";
 import type {
+  McpFieldError,
   McpServerConfig,
   McpServerStatus,
   McpToolSummary,
 } from "@wa-pi/shared";
 import type {
-  McpListResult,
   McpChangedEvent,
+  McpListResult,
   McpTestResult,
   McpToolsResult,
 } from "@wa-pi/shared";
 import { api } from "../api-client";
-import { formatKernelError } from "../util/kernel-error";
+import { formatApiError, formatKernelError } from "../util/kernel-error";
+import { useToastStore } from "./toast";
+
+/**
+ * `GET /api/mcp` 的清单条目 = 盘上配置 + pi 报的运行时状态
+ * （对齐 kernel `routes/mcp.ts` 的 `McpServerEntry`）。
+ */
+export interface McpServerEntry extends McpServerConfig {
+  /** pi 报的作用域（global / project）；未被 pi 识别时缺省 */
+  scope?: string;
+  /**
+   * pi 报的**原始** state 串：connected / failed / needs-auth / disabled / 其它
+   * —— **不是** shared 里的三值联合 `McpServerStatus`（后者只用于本会话内的测试结果）。
+   * 缺省 = pi 没报（未连上 / 未受信 / 状态读不到）→ UI 显示「状态未知」。
+   */
+  state?: string;
+  /** pi 报的工具名清单（只有名字） */
+  tools?: string[];
+  error?: string;
+}
+
+/** `GET /api/mcp` 回包（对齐 kernel 的 `McpListPayload`） */
+export interface McpListPayload {
+  servers: McpServerEntry[];
+  errors?: string[];
+  commandFailed?: boolean;
+  hasProblems?: boolean;
+  /** 状态读取层无法刷新、用的是上一条缓存（规格 §8）→ UI 必须显示「状态未知」 */
+  stale?: boolean;
+  /** pi 的顶层提示（项目未受信任时配置被忽略的唯一信号） */
+  note?: string;
+}
+
+/** 保存结果：字段级错误交给表单逐项绑定到输入框 */
+export interface McpSaveResult {
+  ok: boolean;
+  /** 4xx 的字段级校验错误（kernel `errors[]`） */
+  errors?: McpFieldError[];
+  /** 非字段级的整体提示（如 mcp.originalServerNotFound） */
+  message?: string;
+}
 
 interface McpState {
-  servers: McpServerConfig[];
+  servers: McpServerEntry[];
+  /** 本次清单是否 stale（状态读不到、用的是上一条缓存）→ 全页显示「状态未知」 */
+  stale: boolean;
+  /** pi 的顶层提示（如「项目未受信任」），供 UI 解释配置为何不生效 */
+  note?: string;
   selectedProjectId: string | null;
   searchQuery: string;
   loading: boolean;
-  /** 各服务器运行时状态（客户端内存，不持久化） */
+  /** 各服务器**本次会话内测试**得出的状态（客户端内存，不持久化） */
   serverStatuses: Record<string, McpServerStatus>;
   /** 连接测试成功时的工具数（供卡片展示「已连接 · N 工具」） */
   toolCounts: Record<string, number>;
@@ -27,34 +72,41 @@ interface McpState {
   toolsCache: Record<string, McpToolSummary[]>;
   /** 正在加载工具列表的服务器集合（查看工具时的 loading 过渡） */
   loadingTools: Record<string, boolean>;
-  /** 正在测试/授权的服务器集合（支持并行测试多个，如切换作用域后的批量自动测试） */
+  /** 正在测试的服务器集合 */
   testingServers: Record<string, boolean>;
   /** 各服务器最近一次错误信息（测试失败时填充） */
   errors: Record<string, string>;
-  /** 已自动测试过连接的作用域（selectedProjectId），用于「切换项目后自动测一次」的去重：
-   *  同一作用域的后续列表刷新（如 mcp:changed）不重复自动测试；undefined = 尚未测过任何作用域 */
-  autoTestedProject: string | null | undefined;
 
   load(projectId?: string): void;
-  setServers(data: McpListResult | McpChangedEvent): void;
+  /**
+   * 装载清单。`scope` 为该清单所属作用域（`null` = 全局）：
+   * 与当前选中作用域不符的清单直接丢弃——否则项目级改动会覆盖全局视图
+   * （登记在案的既有缺陷，任务 9 修）。
+   */
+  setServers(
+    data: McpListPayload | McpChangedEvent | McpListResult,
+    scope?: string | null,
+  ): void;
   setTestResult(data: McpTestResult): void;
   setToolsResult(data: McpToolsResult): void;
   save(
     config: McpServerConfig,
     projectId?: string,
     originalName?: string,
-  ): void;
-  deleteServer(serverName: string, projectId?: string): void;
+  ): Promise<McpSaveResult>;
+  deleteServer(serverName: string, projectId?: string): Promise<void>;
   testConnection(serverName: string, projectId?: string): void;
-  /** 对当前 servers 列表逐个发起连接测试（用于切换项目作用域后的批量自动测试） */
-  testAllServers(projectId?: string): void;
   listTools(serverName: string, projectId?: string): void;
+  /** 项目级 MCP 作用域开关（写 trust.json；`__system__` 会被 kernel 以 400 拒绝） */
+  setProjectMcpScope(projectId: string, enabled: boolean): Promise<void>;
   setSelectedProjectId(id: string | null): void;
   setSearchQuery(q: string): void;
 }
 
 export const useMcpStore = create<McpState>((set, get) => ({
   servers: [],
+  stale: false,
+  note: undefined,
   selectedProjectId: null,
   searchQuery: "",
   loading: false,
@@ -64,37 +116,38 @@ export const useMcpStore = create<McpState>((set, get) => ({
   loadingTools: {},
   testingServers: {},
   errors: {},
-  autoTestedProject: undefined,
 
   load: (projectId) => {
-    set((s) => ({
-      loading: true,
-      selectedProjectId: projectId ?? s.selectedProjectId,
-    }));
-    const url = projectId
-      ? `/api/mcp?projectId=${encodeURIComponent(projectId)}`
-      : "/api/mcp";
+    // 未显式传作用域时沿用当前选中（与既有语义一致）；请求 URL 与过滤用的 scope 必须是同一个值
+    const scope =
+      projectId !== undefined ? projectId : (get().selectedProjectId ?? null);
+    set({ loading: true, selectedProjectId: scope });
+    const url = scope ? `/api/mcp?projectId=${encodeURIComponent(scope)}` : "/api/mcp";
     api
       .get(url)
       .then((data: any) => {
-        if (data) get().setServers(data);
+        // 响应回来时用户可能已切到别的作用域：晚到的清单不得覆盖新视图
+        if (!data || (get().selectedProjectId ?? null) !== scope) return;
+        get().setServers(data, scope);
       })
       .catch(() => set({ loading: false }));
   },
-  setServers: (data) => {
+  setServers: (data, scope) => {
     const s = get();
-    // 切换到新作用域（或首次加载）后，服务器列表到达即自动测一次连接。
-    // 同一作用域的后续刷新（mcp:changed）selectedProjectId === autoTestedProject，不重复测。
-    const shouldAutoTest =
-      data.servers.length > 0 && s.selectedProjectId !== s.autoTestedProject;
+    // 作用域过滤：事件自带 projectId（REST 清单则由调用方给 scope），无 projectId 视为全局
+    const owner =
+      scope !== undefined
+        ? scope
+        : ((data as { projectId?: string }).projectId ?? null);
+    if (owner !== (s.selectedProjectId ?? null)) return;
+    const payload = data as McpListPayload;
     set({
-      servers: data.servers,
+      servers: payload.servers ?? [],
+      // 状态读不到时（stale）不把可能过期的连接态当成最新
+      stale: payload.stale === true,
+      note: payload.note,
       loading: false,
-      autoTestedProject: shouldAutoTest
-        ? s.selectedProjectId
-        : s.autoTestedProject,
     });
-    if (shouldAutoTest) get().testAllServers(s.selectedProjectId ?? undefined);
   },
   setTestResult: (data) =>
     set((s) => {
@@ -110,7 +163,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
             ? {
                 ...s.errors,
                 [data.serverName]: data.code
-                  ? // code 化错误：按字典渲染（如 mcp.invalidUrl），老文案兑底
+                  ? // code 化错误：按字典渲染，老文案兜底
                     formatKernelError({
                       code: data.code,
                       params: data.params,
@@ -132,14 +185,32 @@ export const useMcpStore = create<McpState>((set, get) => ({
       toolsCache: { ...s.toolsCache, [data.serverName]: data.tools ?? [] },
       loadingTools: { ...s.loadingTools, [data.serverName]: false },
     })),
-  save: (config, projectId, originalName) =>
-    void api.post("/api/mcp", { projectId, config, originalName }),
-  deleteServer: (serverName, projectId) =>
-    void api.del(
-      projectId
-        ? `/api/mcp/${encodeURIComponent(serverName)}?projectId=${encodeURIComponent(projectId)}`
-        : `/api/mcp/${encodeURIComponent(serverName)}`,
-    ),
+  save: async (config, projectId, originalName) => {
+    try {
+      await api.post("/api/mcp", { projectId, config, originalName });
+      return { ok: true };
+    } catch (e) {
+      // 字段级错误（kernel 的 { error, errors[] }）交给表单逐项绑到输入框；
+      // 用鸭子类型取 errors（不 instanceof ApiError：组件测试常 mock api-client 模块）
+      const errors = (e as { errors?: McpFieldError[] } | null)?.errors;
+      if (Array.isArray(errors) && errors.length > 0) {
+        return { ok: false, errors };
+      }
+      return { ok: false, message: formatApiError(e) };
+    }
+  },
+  deleteServer: async (serverName, projectId) => {
+    try {
+      await api.del(
+        projectId
+          ? `/api/mcp/${encodeURIComponent(serverName)}?projectId=${encodeURIComponent(projectId)}`
+          : `/api/mcp/${encodeURIComponent(serverName)}`,
+      );
+    } catch (e) {
+      // 删除失败不能静默（配置还在盘上，界面刷新后仍在）
+      useToastStore.getState().add(formatApiError(e), "error");
+    }
+  },
   testConnection: (serverName, projectId) => {
     set((s) => {
       const nextErrors = { ...s.errors };
@@ -151,18 +222,6 @@ export const useMcpStore = create<McpState>((set, get) => ({
     });
     void api.post("/api/mcp/test", { serverName, projectId });
   },
-  testAllServers: (projectId) => {
-    const s = get();
-    if (s.servers.length === 0) return;
-    set((st) => {
-      const nextTesting = { ...st.testingServers };
-      for (const srv of st.servers) nextTesting[srv.name] = true;
-      return { testingServers: nextTesting };
-    });
-    for (const srv of s.servers) {
-      void api.post("/api/mcp/test", { serverName: srv.name, projectId });
-    }
-  },
   listTools: (serverName, projectId) => {
     set((s) => ({ loadingTools: { ...s.loadingTools, [serverName]: true } }));
     void api.get(
@@ -170,6 +229,16 @@ export const useMcpStore = create<McpState>((set, get) => ({
         ? `/api/mcp/${encodeURIComponent(serverName)}/tools?projectId=${encodeURIComponent(projectId)}`
         : `/api/mcp/${encodeURIComponent(serverName)}/tools`,
     );
+  },
+  setProjectMcpScope: async (projectId, enabled) => {
+    try {
+      await api.post("/api/mcp/project-scope", { projectId, enabled });
+    } catch (e) {
+      useToastStore.getState().add(formatApiError(e), "error");
+      return;
+    }
+    // 受信状态变了 → 该作用域的清单要重读（pi 才会去读 .pi/mcp.json）
+    get().load(get().selectedProjectId ?? undefined);
   },
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),

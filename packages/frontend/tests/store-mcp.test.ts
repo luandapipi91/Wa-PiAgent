@@ -1,21 +1,45 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { useMcpStore } from "../src/store/mcp";
+import { useToastStore } from "../src/store/toast";
 
-// store 的 load/testConnection 等会触发 api.get/post（真实 fetch），
+// store 的 load/save/... 会触发 api.get/post/del（真实 fetch），
 // happy-dom 在 about:blank 下对相对 URL 抛 NotSupportedError。mock 掉 api-client，
-// 返回空数据，让 store 的 .then/.catch 正常走，断言聚焦于 state 变更。
+// 用可编程的假实现：既让 .then/.catch 正常走，也能断言「打了哪个端点、带了什么 body」。
+type Call = { method: string; path: string; body?: unknown };
+const calls: Call[] = [];
+let getImpl: (path: string) => Promise<unknown> = () => Promise.resolve(null);
+let postImpl: (path: string, body?: unknown) => Promise<unknown> = () =>
+  Promise.resolve({});
+let delImpl: (path: string) => Promise<unknown> = () => Promise.resolve({});
+
 mock.module("../src/api-client", () => ({
   api: {
-    get: () => Promise.resolve(null),
-    post: () => Promise.resolve({}),
+    get: (path: string) => {
+      calls.push({ method: "GET", path });
+      return getImpl(path);
+    },
+    post: (path: string, body?: unknown) => {
+      calls.push({ method: "POST", path, body });
+      return postImpl(path, body);
+    },
     put: () => Promise.resolve({}),
-    del: () => Promise.resolve({}),
+    del: (path: string) => {
+      calls.push({ method: "DELETE", path });
+      return delImpl(path);
+    },
   },
 }));
 
 beforeEach(() => {
+  calls.length = 0;
+  getImpl = () => Promise.resolve(null);
+  postImpl = () => Promise.resolve({});
+  delImpl = () => Promise.resolve({});
+  useToastStore.setState({ toasts: [] });
   useMcpStore.setState({
     servers: [],
+    stale: false,
+    note: undefined,
     selectedProjectId: null,
     searchQuery: "",
     loading: false,
@@ -24,37 +48,43 @@ beforeEach(() => {
     toolsCache: {},
     loadingTools: {},
     testingServers: {},
-    autoTestedProject: undefined,
     errors: {},
   });
 });
 
-test("load 发起 mcp:list 请求", () => {
+test("load 发起列表请求并置 loading", () => {
   useMcpStore.getState().load();
   expect(useMcpStore.getState().loading).toBe(true);
+  expect(calls).toEqual([{ method: "GET", path: "/api/mcp" }]);
 });
 
-test("load 带 projectId 更新 selectedProjectId", () => {
+test("load 带 projectId 时更新 selectedProjectId 并带上查询参数", () => {
   useMcpStore.getState().load("p1");
   expect(useMcpStore.getState().selectedProjectId).toBe("p1");
-  expect(useMcpStore.getState().loading).toBe(true);
+  expect(calls[0].path).toBe("/api/mcp?projectId=p1");
 });
 
-test("setServers 更新 servers 并清除 loading", () => {
+test("setServers 装载清单、stale 与 note 并清除 loading", () => {
   useMcpStore.getState().load();
   useMcpStore.getState().setServers({
-    type: "mcp:list",
-    servers: [{ name: "test", command: "echo" }],
+    servers: [{ name: "test", command: "echo", state: "connected" }],
+    stale: true,
+    note: "project not trusted",
   });
-  expect(useMcpStore.getState().servers).toEqual([
-    { name: "test", command: "echo" },
+  const s = useMcpStore.getState();
+  expect(s.servers).toEqual([
+    { name: "test", command: "echo", state: "connected" },
   ]);
-  expect(useMcpStore.getState().loading).toBe(false);
+  expect(s.stale).toBe(true);
+  expect(s.note).toBe("project not trusted");
+  expect(s.loading).toBe(false);
 });
 
-test("setServers 也处理 mcp:changed 事件", () => {
+test("setServers 直接消费内核回推的 mcp:changed 事件", () => {
+  useMcpStore.setState({ selectedProjectId: "p1" });
   useMcpStore.getState().setServers({
     type: "mcp:changed",
+    projectId: "p1",
     servers: [{ name: "changed-svr", url: "http://localhost:3845/mcp" }],
   });
   expect(useMcpStore.getState().servers).toEqual([
@@ -62,27 +92,65 @@ test("setServers 也处理 mcp:changed 事件", () => {
   ]);
 });
 
-test("setTestResult 成功更新状态为 connected", () => {
-  useMcpStore.getState().setTestResult({
-    type: "mcp:testResult",
-    serverName: "test",
-    success: true,
+// ===== 作用域过滤（登记在案的既有缺陷：项目级改动会覆盖全局视图）=====
+
+test("非当前作用域的清单被丢弃（项目级广播不覆盖全局视图）", () => {
+  useMcpStore.setState({
+    selectedProjectId: null,
+    servers: [{ name: "global-svr", command: "echo" }],
   });
-  expect(useMcpStore.getState().serverStatuses["test"]).toBe("connected");
+  useMcpStore.getState().setServers({
+    type: "mcp:changed",
+    projectId: "p1",
+    servers: [{ name: "project-svr", command: "echo" }],
+  });
+  // 全局视图不变
+  expect(useMcpStore.getState().servers).toEqual([
+    { name: "global-svr", command: "echo" },
+  ]);
 });
 
-test("setTestResult 失败更新状态为 error", () => {
-  useMcpStore.getState().setTestResult({
-    type: "mcp:testResult",
-    serverName: "test",
-    success: false,
-    error: "连接失败",
+test("全局清单不覆盖项目视图，当前作用域的清单照常装载", () => {
+  useMcpStore.setState({
+    selectedProjectId: "p1",
+    servers: [{ name: "project-svr", command: "echo" }],
   });
-  expect(useMcpStore.getState().serverStatuses["test"]).toBe("error");
+  useMcpStore.getState().setServers({
+    type: "mcp:changed",
+    projectId: undefined,
+    servers: [{ name: "global-svr", command: "echo" }],
+  });
+  expect(useMcpStore.getState().servers).toEqual([
+    { name: "project-svr", command: "echo" },
+  ]);
+
+  useMcpStore.getState().setServers(
+    { servers: [{ name: "project-svr-2", command: "echo" }] },
+    "p1",
+  );
+  expect(useMcpStore.getState().servers).toEqual([
+    { name: "project-svr-2", command: "echo" },
+  ]);
 });
 
-test("setTestResult 携带 status 时优先用 status，并记录 toolCount", () => {
-  // connected + toolCount
+test("load 的晚到响应不覆盖已切走的作用域", async () => {
+  let resolveGet: (v: unknown) => void = () => {};
+  getImpl = () =>
+    new Promise((resolve) => {
+      resolveGet = resolve;
+    });
+  useMcpStore.getState().load("p1");
+  // 响应回来前用户切到全局
+  useMcpStore.getState().setSelectedProjectId(null);
+  resolveGet({ servers: [{ name: "late", command: "echo" }] });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(useMcpStore.getState().servers).toEqual([]);
+});
+
+// ===== 测试结果 / 工具列表 =====
+
+test("setTestResult 成功更新状态为 connected 并记 toolCount", () => {
   useMcpStore.getState().setTestResult({
     type: "mcp:testResult",
     serverName: "ok-svr",
@@ -94,144 +162,179 @@ test("setTestResult 携带 status 时优先用 status，并记录 toolCount", ()
   expect(useMcpStore.getState().toolCounts["ok-svr"]).toBe(5);
 });
 
-test("setToolsResult 更新 tools cache", () => {
-  useMcpStore.getState().setToolsResult({
-    type: "mcp:tools",
-    serverName: "test",
-    tools: [{ name: "tool_a", description: "A tool" }],
+test("setTestResult 失败（带 code）按字典渲染错误并清 testing 标记", () => {
+  useMcpStore.getState().testConnection("dbx");
+  expect(useMcpStore.getState().testingServers["dbx"]).toBe(true);
+  useMcpStore.getState().setTestResult({
+    type: "mcp:testResult",
+    serverName: "dbx",
+    success: false,
+    status: "error",
+    code: "mcp.serverNotFound",
+    params: { name: "dbx" },
+    error: "MCP server dbx not found",
   });
-  expect(useMcpStore.getState().toolsCache["test"]).toEqual([
-    { name: "tool_a", description: "A tool" },
-  ]);
+  expect(useMcpStore.getState().testingServers["dbx"]).toBeUndefined();
+  expect(useMcpStore.getState().serverStatuses["dbx"]).toBe("error");
+  // 字典渲染后的中文文案，不露出 code 原文
+  expect(useMcpStore.getState().errors["dbx"]).toContain("dbx");
+  expect(useMcpStore.getState().errors["dbx"]).not.toContain("mcp.serverNotFound");
 });
 
-test("listTools 标记 loadingTools 为加载中", () => {
-  useMcpStore.getState().listTools("dbx", "p1");
-  expect(useMcpStore.getState().loadingTools["dbx"]).toBe(true);
+test("testConnection 清掉上一次错误", () => {
+  useMcpStore.setState({ errors: { dbx: "上次失败" } });
+  useMcpStore.getState().testConnection("dbx", "p1");
+  expect(useMcpStore.getState().testingServers["dbx"]).toBe(true);
+  expect(useMcpStore.getState().errors["dbx"]).toBeUndefined();
+  expect(calls[0]).toEqual({
+    method: "POST",
+    path: "/api/mcp/test",
+    body: { serverName: "dbx", projectId: "p1" },
+  });
 });
 
-test("setToolsResult 清除 loadingTools 并缓存工具", () => {
+test("setToolsResult 清 loading 并缓存工具", () => {
   useMcpStore.getState().listTools("dbx", "p1");
   expect(useMcpStore.getState().loadingTools["dbx"]).toBe(true);
   useMcpStore.getState().setToolsResult({
     type: "mcp:tools",
     serverName: "dbx",
-    tools: [{ name: "tool_a", description: "A tool" }],
+    tools: [{ name: "tool_a" }],
   });
   expect(useMcpStore.getState().loadingTools["dbx"]).toBe(false);
-  expect(useMcpStore.getState().toolsCache["dbx"]).toEqual([
-    { name: "tool_a", description: "A tool" },
+  expect(useMcpStore.getState().toolsCache["dbx"]).toEqual([{ name: "tool_a" }]);
+  expect(calls[0].path).toBe("/api/mcp/dbx/tools?projectId=p1");
+});
+
+test("装载清单不再逐台自动测试（状态直接来自列表回包，避免 N 次 pi mcp list）", () => {
+  useMcpStore.getState().setServers({
+    servers: [
+      { name: "alpha", command: "echo", state: "connected" },
+      { name: "beta", command: "echo", state: "failed" },
+    ],
+  });
+  expect(useMcpStore.getState().testingServers).toEqual({});
+  expect(calls).toEqual([]);
+});
+
+// ===== 保存 / 删除 =====
+
+test("save 成功返回 ok:true 并带 projectId 与 originalName", async () => {
+  const result = await useMcpStore
+    .getState()
+    .save({ name: "new", command: "npx" }, "p1", "old");
+  expect(result).toEqual({ ok: true });
+  expect(calls[0]).toEqual({
+    method: "POST",
+    path: "/api/mcp",
+    body: {
+      projectId: "p1",
+      config: { name: "new", command: "npx" },
+      originalName: "old",
+    },
+  });
+});
+
+test("save 的 400 字段级 errors 透传给调用方（供表单绑字段）", async () => {
+  postImpl = () =>
+    Promise.reject(
+      Object.assign(new Error("服务器名非法"), {
+        errors: [{ field: "name", message: "只允许字母、数字、下划线与连字符" }],
+      }),
+    );
+  const result = await useMcpStore
+    .getState()
+    .save({ name: "bad name!", command: "npx" });
+  expect(result.ok).toBe(false);
+  expect(result.errors).toEqual([
+    { field: "name", message: "只允许字母、数字、下划线与连字符" },
   ]);
 });
 
-test("setSearchQuery 更新搜索查询", () => {
-  useMcpStore.setState({
-    servers: [
-      { name: "chrome-devtools", command: "npx" },
-      { name: "figma", url: "http://localhost:3845/mcp" },
-      { name: "linear", command: "npx" },
-    ],
-  });
-  useMcpStore.getState().setSearchQuery("figma");
-  expect(useMcpStore.getState().searchQuery).toBe("figma");
+test("save 的其它错误走 code 字典渲染的整体文案", async () => {
+  postImpl = () =>
+    Promise.reject(
+      Object.assign(new Error("mcp.originalServerNotFound"), {
+        failure: {
+          code: "mcp.originalServerNotFound",
+          params: { name: "old" },
+        },
+      }),
+    );
+  const result = await useMcpStore
+    .getState()
+    .save({ name: "new", command: "npx" }, undefined, "old");
+  expect(result.ok).toBe(false);
+  expect(result.errors).toBeUndefined();
+  expect(result.message).toContain("old");
+  expect(result.message).not.toContain("mcp.originalServerNotFound");
 });
 
-test("setSelectedProjectId 更新项目选择", () => {
+test("deleteServer 打 DELETE 端点（带作用域）且不本地删除（由回推刷新）", async () => {
+  useMcpStore.setState({
+    servers: [{ name: "to-delete", command: "echo" }],
+  });
+  await useMcpStore.getState().deleteServer("to-delete", "p1");
+  expect(useMcpStore.getState().servers).toHaveLength(1);
+  expect(calls[0]).toEqual({
+    method: "DELETE",
+    path: "/api/mcp/to-delete?projectId=p1",
+  });
+});
+
+test("deleteServer 失败不静默（弹错误提示）", async () => {
+  delImpl = () =>
+    Promise.reject(
+      Object.assign(new Error("MCP 服务器 x 不存在"), {
+        failure: { code: "mcp.serverNotFound", params: { name: "x" } },
+      }),
+    );
+  await useMcpStore.getState().deleteServer("x");
+  const toasts = useToastStore.getState().toasts;
+  expect(toasts).toHaveLength(1);
+  expect(toasts[0].type).toBe("error");
+});
+
+// ===== 项目级作用域开关 =====
+
+test("setProjectMcpScope 写 trust.json 端点并重读当前作用域清单", async () => {
+  useMcpStore.setState({ selectedProjectId: "p1" });
+  await useMcpStore.getState().setProjectMcpScope("p1", true);
+  expect(calls[0]).toEqual({
+    method: "POST",
+    path: "/api/mcp/project-scope",
+    body: { projectId: "p1", enabled: true },
+  });
+  expect(calls[1]).toEqual({ method: "GET", path: "/api/mcp?projectId=p1" });
+});
+
+test("setProjectMcpScope 关闭时传 enabled:false（不被真值判断吞掉）", async () => {
+  useMcpStore.setState({ selectedProjectId: "p1" });
+  await useMcpStore.getState().setProjectMcpScope("p1", false);
+  expect(calls[0].body).toEqual({ projectId: "p1", enabled: false });
+});
+
+test("setProjectMcpScope 被拒（__system__ → 400）时提示且不重读清单", async () => {
+  postImpl = () =>
+    Promise.reject(
+      Object.assign(new Error("默认工作区不支持项目级 MCP 作用域开关"), {
+        failure: { code: "mcp.systemProject" },
+      }),
+    );
+  await useMcpStore.getState().setProjectMcpScope("__system__", true);
+  expect(useToastStore.getState().toasts).toHaveLength(1);
+  expect(calls.filter((c) => c.method === "GET")).toEqual([]);
+});
+
+// ===== 搜索 / 作用域选择 =====
+
+test("setSearchQuery / setSelectedProjectId 更新本地状态", () => {
+  useMcpStore.getState().setSearchQuery("figma");
+  expect(useMcpStore.getState().searchQuery).toBe("figma");
+
   useMcpStore.getState().setSelectedProjectId("p2");
   expect(useMcpStore.getState().selectedProjectId).toBe("p2");
 
   useMcpStore.getState().setSelectedProjectId(null);
   expect(useMcpStore.getState().selectedProjectId).toBeNull();
-});
-
-test("deleteServer 发起 mcp:delete WS 请求且不修改本地 state", () => {
-  useMcpStore.setState({
-    servers: [{ name: "to-delete", command: "echo" }],
-  });
-  useMcpStore.getState().deleteServer("to-delete", "p1");
-  // deleteServer 只发送 WS 消息，不本地删除 — 由 mcp:changed 回推驱动
-  expect(useMcpStore.getState().servers).toHaveLength(1);
-});
-
-test("testConnection 标记 testingServers 并清除旧错误", () => {
-  useMcpStore.setState({ errors: { dbx: "上次失败" } });
-  useMcpStore.getState().testConnection("dbx");
-  expect(useMcpStore.getState().testingServers["dbx"]).toBe(true);
-  expect(useMcpStore.getState().errors["dbx"]).toBeUndefined();
-});
-
-test("setTestResult 成功时清除 testingServers 标记", () => {
-  useMcpStore.getState().testConnection("dbx");
-  expect(useMcpStore.getState().testingServers["dbx"]).toBe(true);
-  useMcpStore.getState().setTestResult({
-    type: "mcp:testResult",
-    serverName: "dbx",
-    success: true,
-  });
-  expect(useMcpStore.getState().testingServers["dbx"]).toBeUndefined();
-  expect(useMcpStore.getState().serverStatuses["dbx"]).toBe("connected");
-});
-
-test("setTestResult 失败时清除 testingServers 标记并记录错误信息", () => {
-  useMcpStore.getState().testConnection("dbx");
-  useMcpStore.getState().setTestResult({
-    type: "mcp:testResult",
-    serverName: "dbx",
-    success: false,
-    error: "pi-mcp-adapter 未安装",
-  });
-  expect(useMcpStore.getState().testingServers["dbx"]).toBeUndefined();
-  expect(useMcpStore.getState().serverStatuses["dbx"]).toBe("error");
-  expect(useMcpStore.getState().errors["dbx"]).toBe("pi-mcp-adapter 未安装");
-});
-
-// ===== 自动连接测试：切换项目作用域后自动对每个服务器发起连接测试 =====
-// 以可观测的 store 状态断言（每个服务器进入 testingServers + autoTestedProject 记账），
-// 而非 WS send spy——后者在全量套件共享进程时受模块/全局解析影响不稳定。
-
-test("切换到新项目作用域后 setServers 自动对每个服务器发起连接测试", () => {
-  useMcpStore.setState({ selectedProjectId: "p1", autoTestedProject: "p1" });
-  // 切到 p2：load 设 selectedProjectId=p2，随后内核回推 mcp:list → setServers
-  useMcpStore.getState().load("p2");
-  useMcpStore.getState().setServers({
-    type: "mcp:list",
-    servers: [
-      { name: "alpha", command: "echo" },
-      { name: "beta", command: "echo" },
-    ],
-  });
-
-  // 每个服务器都进入测试中状态（这正是 McpCard 渲染「测试中...」所读的状态）
-  expect(useMcpStore.getState().testingServers).toEqual({
-    alpha: true,
-    beta: true,
-  });
-  // 记录已对该作用域自动测过
-  expect(useMcpStore.getState().autoTestedProject).toBe("p2");
-});
-
-test("同一项目作用域重复刷新（如 mcp:changed）不重复自动测试", () => {
-  useMcpStore.setState({
-    selectedProjectId: "p1",
-    autoTestedProject: "p1",
-    testingServers: {},
-  });
-  useMcpStore.getState().setServers({
-    type: "mcp:changed",
-    servers: [{ name: "alpha", command: "echo" }],
-  });
-  // 作用域未变 → 不触发自动测试，testingServers 保持空、autoTestedProject 不变
-  expect(useMcpStore.getState().testingServers).toEqual({});
-  expect(useMcpStore.getState().autoTestedProject).toBe("p1");
-});
-
-test("作用域无服务器时不发起自动测试", () => {
-  useMcpStore.setState({
-    selectedProjectId: "p1",
-    autoTestedProject: undefined,
-    testingServers: {},
-  });
-  useMcpStore.getState().setServers({ type: "mcp:list", servers: [] });
-  expect(useMcpStore.getState().testingServers).toEqual({});
-  expect(useMcpStore.getState().autoTestedProject).toBeUndefined();
 });

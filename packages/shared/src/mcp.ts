@@ -1,4 +1,8 @@
 // ===== MCP 服务器配置管理类型定义 =====
+//
+// pi-mcp-adapter 时代字段（lifecycle / idleTimeout / requestTimeoutMs / directTools /
+// excludeTools / exposeResources / debug）随 adapter 移除（任务 8 移除最后一个消费者）：
+// 迁移读取它们走 `mcp-migrate.ts` 的原始对象（`Record<string, unknown>`），不再需要类型声明。
 
 /** 工具暴露方式（规格 §8） */
 export type McpExposure =
@@ -27,22 +31,6 @@ export interface McpServerConfig {
   exposure?: McpExposure;
   /** 按工具名覆盖暴露方式 */
   toolExposure?: Record<string, McpExposure>;
-
-  // ===== 以下为 pi-mcp-adapter 时代的字段（任务 8 移除）=====
-  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
-  lifecycle?: "lazy" | "eager" | "keep-alive";
-  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
-  idleTimeout?: number;
-  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
-  requestTimeoutMs?: number;
-  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
-  directTools?: boolean | string[];
-  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
-  excludeTools?: string[];
-  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
-  exposeResources?: boolean;
-  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
-  debug?: boolean;
 }
 
 /** 配置作用域 */

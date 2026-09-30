@@ -59,3 +59,38 @@ test("无结构化错误时 failure 为 undefined（行为不变）", async () =
 		expect((e as ApiError).message).toBe("boom");
 	}
 });
+
+// MCP 保存（`POST /api/mcp`）的 400 回包带字段级 `errors[]`：ApiError 必须一并携带，
+// 否则表单无法把提示绑到对应输入框（只能弹一个总错误）。
+test("400 带字段级 errors 时 ApiError 携带 errors", async () => {
+	globalThis.fetch = (async () =>
+		new Response(
+			JSON.stringify({
+				error: "只允许字母、数字、下划线与连字符",
+				errors: [{ field: "name", message: "只允许字母、数字、下划线与连字符" }],
+			}),
+			{ status: 400 },
+		)) as any;
+	try {
+		await api.post("/api/mcp", { config: { name: "bad name!" } });
+		expect.unreachable();
+	} catch (e) {
+		expect((e as ApiError).errors).toEqual([
+			{ field: "name", message: "只允许字母、数字、下划线与连字符" },
+		]);
+		// 无 failure 时仍可读 message（顶层 error）
+		expect((e as ApiError).failure).toBeUndefined();
+		expect((e as ApiError).message).toContain("只允许字母");
+	}
+});
+
+test("无 errors 字段时 ApiError.errors 为 undefined", async () => {
+	globalThis.fetch = (async () =>
+		new Response(JSON.stringify({ error: "boom" }), { status: 400 })) as any;
+	try {
+		await api.post("/api/mcp", {});
+		expect.unreachable();
+	} catch (e) {
+		expect((e as ApiError).errors).toBeUndefined();
+	}
+});

@@ -1,20 +1,42 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import { McpPage } from "../src/components/mcp/McpPage";
 import { useMcpStore } from "../src/store/mcp";
 import { useProjectsStore } from "../src/store/projects";
 
+// 页面里唯一会发请求的是「保存配置」（列表 load 在各用例里被 stub）。
+// mock 掉 api-client：既避免 happy-dom 对相对 URL 抛 NotSupportedError，
+// 也能让「400 字段级错误绑到表单」这条链路被测到。
+let postImpl: (path: string, body?: unknown) => Promise<unknown> = () =>
+  Promise.resolve({ ok: true });
+
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve(null),
+    post: (path: string, body?: unknown) => postImpl(path, body),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+}));
+
 beforeEach(() => {
+  postImpl = () => Promise.resolve({ ok: true });
   useMcpStore.setState({
     servers: [],
+    stale: false,
+    note: undefined,
     selectedProjectId: null,
     searchQuery: "",
     loading: false,
     serverStatuses: {},
+    toolCounts: {},
     toolsCache: {},
-    // 组件 mount 时 useEffect 会调用 load()，它内部会 set loading:true 并发送 WS。
-    // mock WS 不响应 → loading 永远为 true → 列表一直显示"加载中..."。
-    // 测试里我们不关心真实 WS 交互，stub 掉以避免 loading 阻塞渲染。
+    loadingTools: {},
+    testingServers: {},
+    errors: {},
+    // 组件 mount 时 useEffect 会调用 load()，它内部会置 loading:true 并发请求。
+    // 测试里不关心真实加载链路，stub 掉以避免 loading 阻塞渲染。
     load: () => {},
   });
   useProjectsStore.setState({
@@ -81,6 +103,10 @@ test("点击 + 手动添加 在模态弹窗中打开空表单", () => {
   expect((screen.getByTestId("mcp-form-name") as HTMLInputElement).value).toBe(
     "",
   );
+  // 新 server 默认「直接可用」（规格 §4.2 产品决策）
+  expect(
+    (screen.getByTestId("mcp-form-exposure") as HTMLSelectElement).value,
+  ).toBe("direct");
 });
 
 test("点击编辑在模态弹窗中打开表单并预填服务器配置", () => {
@@ -110,5 +136,130 @@ test("编辑/新增未打开时页面不渲染表单（不再是内联常驻）"
     servers: [{ name: "dbx", command: "dbx-mcp-server" }],
   });
   render(<McpPage />);
+  expect(screen.queryByTestId("mcp-form-modal")).toBeNull();
+});
+
+// ===== state 渲染（pi 原始串）=====
+
+test("disabled 的 server 卡片显示「已停用」，不是错误样式", () => {
+  useMcpStore.setState({
+    servers: [{ name: "off-svr", command: "echo", state: "disabled" }],
+  });
+  render(<McpPage />);
+  const badge = screen.getByTestId("mcp-state-off-svr");
+  expect(badge.textContent).toContain("已停用");
+  expect(badge.getAttribute("data-tone")).toBe("neutral");
+});
+
+test("needs-auth 的 server 提示需登录", () => {
+  useMcpStore.setState({
+    servers: [{ name: "auth-svr", url: "https://x/mcp", state: "needs-auth" }],
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-state-auth-svr").textContent).toContain("需登录");
+  expect(screen.getByTestId("mcp-needs-auth-auth-svr").textContent).toContain(
+    "需要登录",
+  );
+});
+
+test("pi 未报状态的 server 显示「状态未知」", () => {
+  useMcpStore.setState({
+    servers: [{ name: "unknown-svr", command: "echo" }],
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-state-unknown-svr").textContent).toContain(
+    "状态未知",
+  );
+});
+
+// ===== stale / note =====
+
+test("清单 stale 时显示「状态未知」横幅，且卡片不把旧状态当最新", () => {
+  useMcpStore.setState({
+    stale: true,
+    servers: [{ name: "dbx", command: "echo", state: "connected" }],
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-stale-banner").textContent).toContain(
+    "状态未知",
+  );
+  expect(screen.getByTestId("mcp-state-dbx").textContent).toContain("状态未知");
+});
+
+test("项目未受信（pi 的 note）时提示配置未被加载", () => {
+  useMcpStore.setState({
+    note: "…/.pi/mcp.json is ignored because the project is not trusted.",
+    servers: [{ name: "dbx", command: "echo" }],
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-note-banner").textContent).toContain(
+    ".pi/mcp.json",
+  );
+});
+
+// ===== 项目级 MCP 作用域开关 =====
+
+test("默认工作区（__system__）的项目级 MCP 开关置灰", () => {
+  useProjectsStore.setState({
+    projects: [
+      { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/workdir", createdAt: 0 },
+      { id: "p1", name: "测试项目", cwd: "/tmp/test", createdAt: 1 },
+    ],
+    currentProjectId: SYSTEM_PROJECT_ID,
+  } as any);
+  useMcpStore.setState({ selectedProjectId: SYSTEM_PROJECT_ID });
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+  const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
+  expect(sw.disabled).toBe(true);
+  expect(
+    screen.getByTestId("mcp-project-scope-row").getAttribute("title"),
+  ).toContain("默认工作区");
+});
+
+test("选中普通项目时项目级 MCP 开关可用", () => {
+  useMcpStore.setState({ selectedProjectId: "p1" });
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+  const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
+  expect(sw.disabled).toBe(false);
+  expect(sw.getAttribute("data-on")).toBe("true");
+});
+
+test("选中全局作用域时不显示项目级 MCP 开关（它是项目维度的）", () => {
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+  expect(screen.queryByTestId("mcp-project-scope-switch")).toBeNull();
+});
+
+// ===== 保存：400 字段级错误留在表单里 =====
+
+test("保存被 400 拒绝时错误绑到字段且弹窗不关闭", async () => {
+  postImpl = () =>
+    Promise.reject(
+      Object.assign(new Error("服务器名非法"), {
+        errors: [{ field: "name", message: "只允许字母、数字、下划线与连字符" }],
+      }),
+    );
+  useMcpStore.setState({
+    servers: [{ name: "dbx", command: "dbx-mcp-server" }],
+  });
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-edit-dbx"));
+  fireEvent.click(screen.getByTestId("mcp-form-save"));
+  expect(await screen.findByTestId("mcp-form-error-name")).toBeTruthy();
+  expect(screen.getByTestId("mcp-form-modal")).toBeTruthy();
+});
+
+test("保存成功才关闭弹窗", async () => {
+  useMcpStore.setState({
+    servers: [{ name: "dbx", command: "dbx-mcp-server" }],
+  });
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-edit-dbx"));
+  // 保存是异步的（等 POST 回来才关闭）：用 act 把 pending 的 Promise 链一起刷完
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("mcp-form-save"));
+  });
   expect(screen.queryByTestId("mcp-form-modal")).toBeNull();
 });
