@@ -14,7 +14,6 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 | @earendil-works/pi-coding-agent | ^0.86.1 | MIT | Mario Zechner |
 | @modelcontextprotocol/sdk | ^1.30.0 | MIT | Copyright (c) 2024 Anthropic, PBC |
 | @wecom/aibot-node-sdk | ^1.0.7 | MIT | 未声明 |
-| pi-mcp-adapter | ^2.27.0 | MIT | Copyright (c) 2026 Nico Bailon |
 | pi-web-access | ^0.24.2 | MIT | Copyright (c) 2025 Nico Bailon |
 | typebox | ^1.3.11 | MIT | Copyright (c) 2017-2026 Haydn Paterson |
 

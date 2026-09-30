@@ -25,7 +25,6 @@ const RUNTIME_DEPENDENCIES: Record<string, string> = {
 		kernelPkg.dependencies["@earendil-works/pi-coding-agent"],
 	"@napi-rs/keyring": kernelPkg.dependencies["@napi-rs/keyring"],
 	"pi-web-access": kernelPkg.dependencies["pi-web-access"],
-	"pi-mcp-adapter": kernelPkg.dependencies["pi-mcp-adapter"],
 };
 
 function fail(msg: string): never {

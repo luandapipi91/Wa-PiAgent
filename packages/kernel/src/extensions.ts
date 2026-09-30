@@ -122,8 +122,10 @@ function resolveLocalExtensionEntry(dir: string): string {
  * 注：pi-open-agents 已于 2026-08-04 移除——子代理执行为 wa-pi 自实现
  * （subagent-runner 直接 spawn pi RPC 子进程），其进程内能力（原生 subagent
  * 工具被 allowlist 屏蔽、/agent 命令、banner）均无消费，仅残留误报 banner。
+ * pi-mcp-adapter 已于 MCP 内置化迁移中移除——MCP 能力改由 pi 内置扩展
+ * （builtin:mcp，默认加载）提供，无需再经 -e 注入第三方 adapter。
  */
-const PKG_EXTENSIONS = ["pi-web-access", "pi-mcp-adapter"] as const;
+const PKG_EXTENSIONS = ["pi-web-access"] as const;
 
 /**
  * 读取 npm 包 package.json 的 pi.extensions 声明。
@@ -156,23 +158,8 @@ function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
 }
 
 /**
- * pi-mcp-adapter 扩展入口路径；解析失败（包未安装等）返回 null。
- * 供子代理 spawn 使用：子代理是独立 pi 进程，MCP 工具须由 adapter 在子进程内
- * 注册，不随主会话继承。与 buildAdditionalExtensionPaths 的区别：只取 MCP
- * adapter 一项，不带入 wa-pi-bridge（子代理无 WA_PI_BRIDGE_URL，bridge 注册的
- * 宿主回调工具全是坏的）与 pi-web-access（子代理工具面保持最小）。
- */
-export function mcpAdapterExtensionPath(): string | null {
- try {
-  return resolveExtensionEntryFile("pi-mcp-adapter");
- } catch {
-  return null;
- }
-}
-
-/**
  * 构造传给 pi 进程 -e 参数的扩展入口（仅内置 + wa-pi 自生成）。
- * 含 PKG_EXTENSIONS（pi-web-access/pi-mcp-adapter 等 wa-pi 内置依赖）、
+ * 含 PKG_EXTENSIONS（pi-web-access 等 wa-pi 内置依赖）、
  * provider-extension（providers.json → GENERATED_DIR）、
  * wa-pi-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）、
  * wa-pi-tui-host（图形界面下的 TUI 宿主，见 tui-host-deploy.ts）。

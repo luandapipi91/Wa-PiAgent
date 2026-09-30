@@ -55,10 +55,7 @@ import {
 } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
-import {
-	buildAdditionalExtensionPaths,
-	mcpAdapterExtensionPath,
-} from "./extensions";
+import { buildAdditionalExtensionPaths } from "./extensions";
 import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
 import { Database } from "bun:sqlite";
 import { MemoryDao } from "./memory/dao";
@@ -822,16 +819,15 @@ export class AgentManager {
 			| ((toolCallId: string, event: SubagentProgressEvent) => void)
 			| undefined;
 
-		// 子进程扩展集：provider-extension（自定义 provider/apiKey，缺失会 No API key）
-		// + pi-mcp-adapter（MCP 工具须在子进程内注册，子代理才能看见/调用 MCP 工具）。
+		// 子进程扩展集：provider-extension（自定义 provider/apiKey，缺失会 No API key）。
+		// MCP 工具由 pi 内置扩展（builtin:mcp，默认加载）在子进程内自行注册，不随主
+		// 会话继承，故无需再注入扩展入口。
 		// 不带 wa-pi-bridge / pi-web-access：子代理无 WA_PI_BRIDGE_URL（bridge 工具
 		// 全依赖宿主回调），工具面保持最小。
-		const mcpAdapterPath = mcpAdapterExtensionPath();
 		const spawnFn = makeSpawnFn({
 			resolveConfig: resolveSpawnConfig,
 			extensionPaths: [
 				...(existsSync(providerExtPath) ? [providerExtPath] : []),
-				...(mcpAdapterPath ? [mcpAdapterPath] : []),
 			],
 			// 派发前自愈：extension 文件可能与 providers.json 不同步（空壳/过时/手动改坏），
 			// 导致子进程报 "No API key found"。按需重生，保证子进程加载到含所需 provider 的 extension。

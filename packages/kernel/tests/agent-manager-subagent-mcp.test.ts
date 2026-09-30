@@ -1,7 +1,7 @@
 // 子代理 MCP 工具可见性测试：
 // 验证 delegate 派发的子代理进程能拿到 MCP 工具——两个必要条件：
-//   1. spawn 的 -e 扩展集包含 pi-mcp-adapter（MCP 工具由 adapter 在子进程内注册，
-//      子代理是独立 pi 进程，不随主会话继承）；
+//   1. 子进程的 pi 自行加载内置 MCP 扩展（builtin:mcp，默认加载）：MCP 工具在子进程内
+//      注册，不随主会话继承，故 spawn 的 -e 扩展集不得再注入已移除的 pi-mcp-adapter；
 //   2. 工具白名单并入 MCP direct 工具名（内置只读类型另放行 "mcp" 聚合工具，
 //      覆盖 directTools=false 走聚合模式的 mcp.json 配置）。
 //
@@ -16,7 +16,6 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { McpStore } from "../src/mcp-store";
-import { mcpAdapterExtensionPath } from "../src/extensions";
 import {
   type FakeSessionClient,
   fakeClientFactory,
@@ -142,14 +141,7 @@ async function delegateTo(sessionId: string, agent: string) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test("mcpAdapterExtensionPath: 解析到已安装的 pi-mcp-adapter 入口且文件存在", () => {
-  const p = mcpAdapterExtensionPath();
-  expect(p).not.toBeNull();
-  expect(existsSync(p!)).toBe(true);
-  expect(p!).toContain("pi-mcp-adapter");
-});
-
-test("内置只读子代理（Explore）：白名单并入 MCP direct 工具名与 mcp 聚合工具，-e 含 pi-mcp-adapter", async () => {
+test("内置只读子代理（Explore）：白名单并入 MCP direct 工具名与 mcp 聚合工具，-e 不含 pi-mcp-adapter", async () => {
   const session = await setupManager({
     getAgent: mock(async () => ({
       displayName: "dev",
@@ -175,11 +167,9 @@ test("内置只读子代理（Explore）：白名单并入 MCP direct 工具名�
   ]) {
     expect(explore.tools).toContain(t);
   }
-  // -e 扩展集包含 pi-mcp-adapter 入口（MCP 工具在子进程内注册的前提）
-  const adapterPath = mcpAdapterExtensionPath();
-  expect(adapterPath).not.toBeNull();
+  // -e 扩展集不得再注入 pi-mcp-adapter（MCP 由子进程内的 pi 内置扩展自行加载）
   const extPaths: string[] = capturedSpawnOpts[0]?.extensionPaths ?? [];
-  expect(extPaths).toContain(adapterPath!);
+  expect(extPaths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
   // provider-extension 仍在（--model 依赖它解析自定义 provider）；测试环境可能未
   // 生成该文件（首启才生成），存在时才断言透传
   const providerExt = join(GENERATED_DIR, "provider-extension.ts");
@@ -188,7 +178,7 @@ test("内置只读子代理（Explore）：白名单并入 MCP direct 工具名�
   }
 });
 
-test("内置非只读子代理（general-purpose）：tools 保持空数组（不传 --tools 全量放行），-e 含 pi-mcp-adapter", async () => {
+test("内置非只读子代理（general-purpose）：tools 保持空数组（不传 --tools 全量放行），-e 不含 pi-mcp-adapter", async () => {
   const session = await setupManager({
     getAgent: mock(async () => ({
       displayName: "dev",
@@ -201,11 +191,10 @@ test("内置非只读子代理（general-purpose）：tools 保持空数组（�
   const gp = capturedConfigs.find((c: any) => c.name === "general-purpose");
   expect(gp).toBeDefined();
   // 空数组 = subagent-runner 不传 --tools，pi 全量放行进程内已注册工具
-  //（含 adapter 注册的 MCP direct + mcp），无需白名单合并
+  //（含 pi 内置 MCP 扩展注册的 MCP direct + mcp），无需白名单合并
   expect(gp.tools).toEqual([]);
-  const adapterPath = mcpAdapterExtensionPath();
   const extPaths: string[] = capturedSpawnOpts[0]?.extensionPaths ?? [];
-  expect(extPaths).toContain(adapterPath!);
+  expect(extPaths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
 });
 
 test("命名智能体：严格按勾选的 tools 放行（原始设计：勾选即放行，不自动并 MCP 工具名）", async () => {
