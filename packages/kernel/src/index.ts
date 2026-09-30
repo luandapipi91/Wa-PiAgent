@@ -219,8 +219,9 @@ export async function startKernel(opts?: {
 	await ensureSystemProject(projectStore);
 	console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
 
-	// pi-mcp-adapter 时代旧配置一次性迁移（幂等）：每个项目的 <cwd>/.mcp.json →
-	// <cwd>/.pi/mcp.json，旧文件保留（adapter 仍读它）+ 额外备份 .mcp.json.bak-<ts>。
+	// pi-mcp-adapter 时代旧配置一次性迁移（一过性：目标已存在的条目跳过、无变化不落盘）：
+	// 每个项目的 <cwd>/.mcp.json → <cwd>/.pi/mcp.json，旧文件保留（adapter 仍读它）
+	// + 额外备份 .mcp.json.bak（固定名，不随启动次数累积）。
 	// 没有旧文件的目录一律不动盘（migrateProjectMcpFile 内部提前返回，不创建 .pi/），
 	// 否则会在用户仓库里凭空造出 .pi/ 而让该项目变成「需要受信」的项目。
 	// 迁移任何异常都只告警，不得阻断 kernel 启动。
@@ -246,10 +247,10 @@ export async function startKernel(opts?: {
 		console.warn("[mcp] 读取项目列表失败，跳过 MCP 配置迁移:", err);
 	}
 
-	// 全局 <WA_PI_DIR>/mcp.json 的 adapter 字段一次性**加法**迁移（幂等）。
+	// 全局 <WA_PI_DIR>/mcp.json 的 adapter 字段一次性**加法**迁移（一过性：只补缺失字段）。
 	// 全局文件是 pi-mcp-adapter 与 pi 共读的共享文件，任务 6 移除 adapter 之前必须保持旧字段可读，
 	// 故只补写 exposure / toolExposure / timeout，保留旧字段、settings 段与未知顶层字段，
-	// 并留一份 mcp.json.bak-<ts>；没有旧字段可映射时不落盘、不产生备份。
+	// 并留一份 mcp.json.bak（固定名）；无字段可补时不落盘、不产生备份。
 	try {
 		const res = await migrateGlobalMcpFile(WA_PI_DIR);
 		if (res.migrated > 0) {

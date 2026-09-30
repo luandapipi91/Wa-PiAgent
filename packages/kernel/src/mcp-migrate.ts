@@ -7,10 +7,11 @@
 //
 // 三条铁律：
 //   1. 旧文件保留 —— adapter 仍在读 <cwd>/.mcp.json，删除会造成中间态回归；
-//      仅额外留一份 .mcp.json.bak-<ts> 供回退（全局同理，备份迁移前原文）。
+//      仅额外留一份备份供回退（固定名 .mcp.json.bak / 全局 mcp.json.bak，已存在则不覆盖）。
 //   2. 失败绝不半写 —— 旧文件不存在/解析失败时不碰新文件（连 .pi 目录都不创建），
 //      否则会在用户仓库里凭空造出 .pi/（该项目随即变成「需要受信」的项目）。
-//   3. 幂等 —— 重复调用产出同一份新文件内容（全局：无新字段可补时不落盘、不产生多余备份）。
+//   3. 一过性（幂等）—— 迁移只在首次真正生效：目标里已存在的条目跳过、内置字段只补缺失，
+//      无变化时不落盘、不覆写用户在目标文件上的编辑、不产生第二个备份。
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -106,7 +107,7 @@ function resolveQualifiedNames(value: unknown, serverName: string): unknown {
 
 /**
  * 全局单条服务器的**加法映射**：复用 migrateServerEntry 的映射结果，但只把新字段
- * （timeout / exposure / toolExposure）盖到原条目上，旧字段一个不删。
+ * （timeout / exposure / toolExposure）**补到缺失处**，旧字段一个不删。
  * 没有任何旧字段时原样返回——不凭空补默认值，避免每次启动重写文件、刷备份。
  */
 function migrateGlobalServerEntry(
@@ -125,9 +126,11 @@ function migrateGlobalServerEntry(
 
 	const out: RawObj = { ...entry };
 	for (const key of ADDED_KEYS) {
+		// 只补缺失：内置字段一旦已存在（用户在新 schema 上编辑过）就不再按旧字段重算，
+		// 否则旧字段被刻意保留 ⇒ 每次启动都会把 exposure 静默回退、并因出现差异再刷一次备份
+		if (out[key] !== undefined) continue;
 		const value = mapped[key];
-		if (value === undefined) delete out[key];
-		else out[key] = value;
+		if (value !== undefined) out[key] = value;
 	}
 	return out;
 }
@@ -135,8 +138,9 @@ function migrateGlobalServerEntry(
 /**
  * 一次性迁移：<WA_PI_DIR>/mcp.json 的 adapter 字段 → 内置字段（**加法映射**，规格 §4.2）。
  * 全局文件是 pi-mcp-adapter 与 pi 共读的共享文件，任务 6 移除 adapter 之前必须保持旧字段可读，
- * 故只补写、不破坏性改写：`settings` 段与未知顶层字段原样保留，另留一份 mcp.json.bak-<ts>。
- * 没有任何旧字段可映射时不落盘（不凭空产生备份文件）。
+ * 故只补写、不破坏性改写：`settings` 段与未知顶层字段原样保留，另留一份 mcp.json.bak
+ * （固定名，已存在则不覆盖，故不随启动次数累积）。
+ * 没有任何旧字段可映射、或内置字段都已存在时不落盘（不凭空产生备份文件）。
  */
 export async function migrateGlobalMcpFile(
 	waPiDir: string,
@@ -179,15 +183,21 @@ export async function migrateGlobalMcpFile(
 	await writeFile(tmp, JSON.stringify(merged, null, 2), "utf8");
 	await rename(tmp, globalPath);
 
-	// 备份迁移前的原文（此刻盘上已是新内容，故用先读到的文本写备份）
-	const backup = `${globalPath}.bak-${Date.now()}`;
-	await writeFile(backup, originalText, "utf8");
+	// 备份迁移前的原文（此刻盘上已是新内容，故用先读到的文本写备份）；固定名，不累积
+	const backup = `${globalPath}.bak`;
+	if (!existsSync(backup)) await writeFile(backup, originalText, "utf8");
 	return { migrated, backup };
 }
 
 /**
  * 一次性迁移：<cwd>/.mcp.json → <cwd>/.pi/mcp.json。
- * 旧文件保留并额外备份为 .mcp.json.bak-<ts>；任何失败都不写新文件（规格 §8）。
+ *
+ * 一过性（幂等）语义：
+ *   - 目标里**已存在的同名条目一律跳过** —— 绝不用旧配置覆掉用户在新 schema 上的编辑；
+ *   - 没有任何条目需要迁移（含全部跳过）→ 直接返回，不落盘、不产生备份；
+ *   - 将要写入的内容与盘上文本相同 → 同样视作 no-op，不落盘、不产生备份。
+ * 旧文件保留，另行备份为固定名 .mcp.json.bak（已存在则不覆盖），故备份数量恒为 1。
+ * 任何失败都不写新文件（规格 §8）。
  */
 export async function migrateProjectMcpFile(
 	projectCwd: string,
@@ -213,38 +223,49 @@ export async function migrateProjectMcpFile(
 	}
 
 	const servers = legacy.mcpServers;
-	if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
-		return { migrated: 0 };
-	}
-	const globalDefaultDirect = legacy.settings?.directTools;
-	const migrated: Record<string, unknown> = {};
-	for (const [name, entry] of Object.entries(servers)) {
-		if (!entry || typeof entry !== "object") continue;
-		const base =
-			globalDefaultDirect === undefined
-				? entry
-				: { directTools: globalDefaultDirect, ...entry };
-		migrated[name] = migrateServerEntry(base);
-	}
-	// 没有可迁移的条目就不写盘：不新建 .pi/，也不重排既有文件
-	if (Object.keys(migrated).length === 0) return { migrated: 0 };
+	if (!isRawObj(servers)) return { migrated: 0 };
 
 	// 目标文件损坏时 JSON.parse 抛错 → 迁移整体放弃（不覆盖用户既有数据），由调用方兜底
-	const existing = existsSync(targetPath)
-		? JSON.parse(await readFile(targetPath, "utf8"))
-		: { mcpServers: {} };
+	const targetExists = existsSync(targetPath);
+	const existingText = targetExists ? await readFile(targetPath, "utf8") : "";
+	const existing: RawObj = targetExists ? JSON.parse(existingText) : { mcpServers: {} };
+	const existingServers = (existing.mcpServers ?? {}) as RawObj;
+
+	const globalDefaultDirect = legacy.settings?.directTools;
+	const migratedServers: RawObj = {};
+	for (const [name, entry] of Object.entries(servers)) {
+		if (!isRawObj(entry)) continue;
+		// 一过性：目标里已有同名条目 → 跳过，保留用户在 .pi/mcp.json 上的编辑
+		if (existingServers[name] !== undefined) continue;
+		// settings.directTools 作缺省、条目自身优先；`server/tool` 限定名与全局路径同规则
+		const effective =
+			entry.directTools !== undefined ? entry.directTools : globalDefaultDirect;
+		migratedServers[name] = migrateServerEntry({
+			...entry,
+			directTools: resolveQualifiedNames(effective, name),
+		});
+	}
+	const migratedCount = Object.keys(migratedServers).length;
+	// 没有可迁移的条目就不写盘：不新建 .pi/，也不重排既有文件，更不产生备份
+	if (migratedCount === 0) return { migrated: 0 };
+
 	const merged = {
 		...existing,
-		mcpServers: { ...(existing.mcpServers ?? {}), ...migrated },
+		mcpServers: { ...existingServers, ...migratedServers },
 	};
+	const nextText = JSON.stringify(merged, null, 2);
+	// 内容无变化同样是 no-op：不落盘、不产生备份（旧文件被刻意保留 ⇒ 每次启动都会重算）
+	if (targetExists && nextText === existingText) return { migrated: 0 };
+
 	await mkdir(dirname(targetPath), { recursive: true });
 	// 原子替换（同 mcp-file.ts）：先写临时文件再 rename，避免中途失败留下半截 JSON——
 	// 那会让下次迁移因目标解析失败而永久中止（旧文件还在，但已无人能自动修复）
 	const tmp = `${targetPath}.${process.pid}.tmp`;
-	await writeFile(tmp, JSON.stringify(merged, null, 2), "utf8");
+	await writeFile(tmp, nextText, "utf8");
 	await rename(tmp, targetPath);
 
-	const backup = `${legacyPath}.bak-${Date.now()}`;
-	await copyFile(legacyPath, backup);
-	return { migrated: Object.keys(migrated).length, backup };
+	// 备份旧文件原文：固定名 + 已存在则不覆盖 ⇒ 不会在用户仓库里按启动次数累积 .mcp.json.bak-*
+	const backup = `${legacyPath}.bak`;
+	if (!existsSync(backup)) await copyFile(legacyPath, backup);
+	return { migrated: migratedCount, backup };
 }

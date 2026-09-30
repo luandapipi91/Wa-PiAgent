@@ -116,12 +116,12 @@ describe("项目级文件迁移（规格 §8）", () => {
 		expect(JSON.parse(legacyRaw).mcpServers.a.directTools).toEqual(["t1"]);
 		// 备份存在且与旧文件同内容
 		const files = await readdir(cwd);
-		const backups = files.filter((f) => f.startsWith(".mcp.json.bak-"));
+		const backups = files.filter((f) => f.startsWith(".mcp.json.bak"));
 		expect(backups).toHaveLength(1);
 		expect(await readFile(join(cwd, backups[0]!), "utf8")).toBe(legacyRaw);
 	});
 
-	test("迁移幂等：连续两次调用，第二次新文件内容不变", async () => {
+	test("一过性：连续两次调用，第二次 migrated 为 0、目标文本不变、备份恰 1 个", async () => {
 		const cwd = await setupProject({
 			mcpServers: {
 				a: { command: "x", directTools: true },
@@ -131,14 +131,48 @@ describe("项目级文件迁移（规格 §8）", () => {
 		const target = join(cwd, ".pi", "mcp.json");
 		const first = await migrateProjectMcpFile(cwd);
 		const afterFirst = await readFile(target, "utf8");
+		expect(first.migrated).toBe(2);
+		const backups = () =>
+			readdir(cwd).then((files) => files.filter((f) => f.startsWith(".mcp.json.bak")));
+		expect(await backups()).toHaveLength(1);
 
 		const second = await migrateProjectMcpFile(cwd);
-		expect(second.migrated).toBe(first.migrated);
+		expect(second.migrated).toBe(0);
+		expect(second.backup).toBeUndefined();
 		expect(await readFile(target, "utf8")).toBe(afterFirst);
+		// 备份不随启动次数累积（固定名 + 已存在不覆盖）
+		expect(await backups()).toHaveLength(1);
 	});
 
-	test("迁移合并进已有 .pi/mcp.json：其他服务器与顶层字段不动，同名条目按旧配置覆盖", async () => {
-		const cwd = await setupProject({ mcpServers: { a: { command: "legacy" } } });
+	test("一过性：迁移后用户改 .pi/mcp.json 的内置字段，再迁移不被旧配置覆盖", async () => {
+		const cwd = await setupProject({
+			mcpServers: { a: { command: "x", directTools: true, requestTimeoutMs: 5000 } },
+		});
+		const target = join(cwd, ".pi", "mcp.json");
+		await migrateProjectMcpFile(cwd);
+
+		// 用户按新 schema 编辑内置字段
+		const edited = JSON.parse(await readFile(target, "utf8"));
+		edited.mcpServers.a.exposure = "codemode";
+		edited.mcpServers.a.enabled = false;
+		edited.mcpServers.a.timeout = 42;
+		await writeFile(target, JSON.stringify(edited, null, 2), "utf8");
+
+		const res = await migrateProjectMcpFile(cwd);
+		expect(res.migrated).toBe(0);
+		const written = JSON.parse(await readFile(target, "utf8"));
+		expect(written.mcpServers.a.exposure).toBe("codemode");
+		expect(written.mcpServers.a.enabled).toBe(false);
+		expect(written.mcpServers.a.timeout).toBe(42);
+		expect(
+			(await readdir(cwd)).filter((f) => f.startsWith(".mcp.json.bak")),
+		).toHaveLength(1);
+	});
+
+	test("迁移合并进已有 .pi/mcp.json：其他服务器与顶层字段不动，同名条目按用户现有配置保留", async () => {
+		const cwd = await setupProject({
+			mcpServers: { a: { command: "legacy" }, c: { command: "new" } },
+		});
 		await mkdir(join(cwd, ".pi"), { recursive: true });
 		await writeFile(
 			join(cwd, ".pi", "mcp.json"),
@@ -151,13 +185,47 @@ describe("项目级文件迁移（规格 §8）", () => {
 				2,
 			),
 		);
-		await migrateProjectMcpFile(cwd);
+		const res = await migrateProjectMcpFile(cwd);
 		const written = JSON.parse(
 			await readFile(join(cwd, ".pi", "mcp.json"), "utf8"),
 		);
 		expect(written.mcpServers.keep).toEqual({ command: "k" });
-		expect(written.mcpServers.a.command).toBe("legacy");
+		// 同名条目跳过：旧配置不得覆盖用户在 .pi/mcp.json 上的编辑
+		expect(written.mcpServers.a.command).toBe("old");
+		// 目标里没有的条目照常补进来
+		expect(written.mcpServers.c.command).toBe("new");
 		expect(written.autoEnableCodemode).toBe(false);
+		expect(res.migrated).toBe(1);
+	});
+
+	test("项目级 directTools 的 server/tool 限定名：取本服务器前缀，产出不含限定名键", async () => {
+		const cwd = await setupProject({
+			mcpServers: {
+				s1: { command: "x", directTools: ["s1/t1", "s2/t2", "plain"] },
+				s2: { command: "y", directTools: ["s2/t2"] },
+			},
+		});
+		await migrateProjectMcpFile(cwd);
+		const written = JSON.parse(
+			await readFile(join(cwd, ".pi", "mcp.json"), "utf8"),
+		);
+		expect(written.mcpServers.s1.toolExposure).toEqual({ t1: "direct", plain: "direct" });
+		expect(written.mcpServers.s2.toolExposure).toEqual({ t2: "direct" });
+		expect(Object.keys(written.mcpServers.s1.toolExposure)).not.toContain("s1/t1");
+		expect(Object.keys(written.mcpServers.s2.toolExposure)).not.toContain("s2/t2");
+	});
+
+	test("项目级文件级 settings.directTools 的限定名：只落到前缀匹配的服务器", async () => {
+		const cwd = await setupProject({
+			settings: { directTools: ["s1/t1"] },
+			mcpServers: { s1: { command: "x" }, s2: { command: "y" } },
+		});
+		await migrateProjectMcpFile(cwd);
+		const written = JSON.parse(
+			await readFile(join(cwd, ".pi", "mcp.json"), "utf8"),
+		);
+		expect(written.mcpServers.s1.toolExposure).toEqual({ t1: "direct" });
+		expect(written.mcpServers.s2.toolExposure).toBeUndefined();
 	});
 
 	test("迁移：文件级 settings.directTools 作为缺省值，条目自身配置优先", async () => {
@@ -278,7 +346,7 @@ describe("全局 mcp.json 加法迁移（共享文件：只补写、不破坏性
 		expect(written.mcpServers.a.requestTimeoutMs).toBe(1500);
 	});
 
-	test("备份 mcp.json.bak-<ts> 内容是迁移前的原文，原文件为合法 JSON 且无残留临时文件", async () => {
+	test("备份 mcp.json.bak 内容是迁移前的原文，原文件为合法 JSON 且无残留临时文件", async () => {
 		const waPiDir = await setupGlobal({
 			settings: { directTools: false },
 			mcpServers: { a: { command: "x", directTools: true } },
@@ -287,7 +355,7 @@ describe("全局 mcp.json 加法迁移（共享文件：只补写、不破坏性
 		await migrateGlobalMcpFile(waPiDir);
 
 		const files = await readdir(waPiDir);
-		const backups = files.filter((f) => f.startsWith("mcp.json.bak-"));
+		const backups = files.filter((f) => f.startsWith("mcp.json.bak"));
 		expect(backups).toHaveLength(1);
 		expect(await readFile(join(waPiDir, backups[0]!), "utf8")).toBe(before);
 		expect(files.some((f) => f.endsWith(".tmp"))).toBe(false);
@@ -342,7 +410,33 @@ describe("全局 mcp.json 加法迁移（共享文件：只补写、不破坏性
 		expect(second.backup).toBeUndefined();
 		expect(await readFile(join(waPiDir, "mcp.json"), "utf8")).toBe(afterFirst);
 		expect(
-			(await readdir(waPiDir)).filter((f) => f.startsWith("mcp.json.bak-")),
+			(await readdir(waPiDir)).filter((f) => f.startsWith("mcp.json.bak")),
+		).toHaveLength(1);
+	});
+
+	test("全局一过性：用户改内置字段后再迁移不被旧字段回退、不新增备份", async () => {
+		const waPiDir = await setupGlobal({
+			settings: { directTools: true },
+			mcpServers: { a: { command: "x", requestTimeoutMs: 5000 } },
+		});
+		await migrateGlobalMcpFile(waPiDir);
+
+		// 用户按新 schema 编辑内置字段（旧字段 directTools / requestTimeoutMs 仍在）
+		const edited = await readGlobal(waPiDir);
+		edited.mcpServers.a.exposure = "codemode";
+		edited.mcpServers.a.enabled = false;
+		edited.mcpServers.a.timeout = 42;
+		await writeFile(join(waPiDir, "mcp.json"), JSON.stringify(edited, null, 2), "utf8");
+
+		const res = await migrateGlobalMcpFile(waPiDir);
+		expect(res.migrated).toBe(0);
+		expect(res.backup).toBeUndefined();
+		const written = await readGlobal(waPiDir);
+		expect(written.mcpServers.a.exposure).toBe("codemode");
+		expect(written.mcpServers.a.enabled).toBe(false);
+		expect(written.mcpServers.a.timeout).toBe(42);
+		expect(
+			(await readdir(waPiDir)).filter((f) => f.startsWith("mcp.json.bak")),
 		).toHaveLength(1);
 	});
 });

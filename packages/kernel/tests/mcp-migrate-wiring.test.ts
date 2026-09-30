@@ -123,7 +123,7 @@ test("startKernel 启动即迁移项目旧 .mcp.json，且不给干净项目凭�
 	// 2. 旧文件一字不动（adapter 仍读它）+ 存在备份
 	expect(await readFile(join(LEGACY_CWD, ".mcp.json"), "utf8")).toBe(LEGACY_TEXT);
 	expect(
-		(await readdir(LEGACY_CWD)).filter((f) => f.startsWith(".mcp.json.bak-")),
+		(await readdir(LEGACY_CWD)).filter((f) => f.startsWith(".mcp.json.bak")),
 	).toHaveLength(1);
 
 	// 3. 干净项目：不得出现 .pi/（连目录都不创建）
