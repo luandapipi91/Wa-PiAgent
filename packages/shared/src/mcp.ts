@@ -1,21 +1,92 @@
 // ===== MCP 服务器配置管理类型定义 =====
 
+/** 工具暴露方式（规格 §8） */
+export type McpExposure =
+  | "codemode"
+  | "codemode-deferred"
+  | "deferred"
+  | "direct"
+  | "hidden";
+
 /** MCP 服务器配置（兼容 .mcp.json 格式） */
 export interface McpServerConfig {
   name: string;
+  /** 传输类型；缺省时按 command / url 推断 */
+  type?: "stdio" | "http" | "streamable-http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+  /** 超时（秒），必须是正数 */
+  timeout?: number;
+  /** 是否启用；缺省为启用 */
+  enabled?: boolean;
+  /** 该服务器所有工具的默认暴露方式 */
+  exposure?: McpExposure;
+  /** 按工具名覆盖暴露方式 */
+  toolExposure?: Record<string, McpExposure>;
+
+  // ===== 以下为 pi-mcp-adapter 时代的字段（任务 8 移除）=====
+  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
   lifecycle?: "lazy" | "eager" | "keep-alive";
+  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
   idleTimeout?: number;
+  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
   requestTimeoutMs?: number;
+  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
   directTools?: boolean | string[];
+  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
   excludeTools?: string[];
+  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
   exposeResources?: boolean;
+  /** @deprecated pi-mcp-adapter 时代的字段，任务 8 移除 */
   debug?: boolean;
+}
+
+/** 配置作用域 */
+export interface McpScope {
+  /** 缺省为全局 */
+  projectId?: string;
+}
+
+/** 字段级校验错误（field 供表单定位，message 供展示） */
+export interface McpFieldError {
+  field: string;
+  message: string;
+}
+
+/** 服务器名允许的字符集 */
+const SERVER_NAME_RE = /^[A-Za-z0-9_-]+$/;
+
+/** 校验单个服务器配置；返回字段级错误（空数组表示合法）。规格 §8 */
+export function validateMcpServer(input: McpServerConfig): McpFieldError[] {
+  const errors: McpFieldError[] = [];
+  if (!SERVER_NAME_RE.test(input.name ?? "")) {
+    errors.push({ field: "name", message: "只允许字母、数字、下划线与连字符" });
+  }
+  const hasCommand = typeof input.command === "string" && input.command.length > 0;
+  const hasUrl = typeof input.url === "string" && input.url.length > 0;
+  if (hasCommand === hasUrl) {
+    errors.push({
+      field: hasCommand ? "url" : "command",
+      message: "必须且只能提供 command 或 url 之一",
+    });
+  }
+  if (input.type && input.type !== "stdio" && !hasUrl) {
+    errors.push({ field: "type", message: `${input.type} 需要 url` });
+  }
+  if (input.type === "stdio" && !hasCommand) {
+    errors.push({ field: "command", message: "stdio 需要 command" });
+  }
+  if (
+    input.timeout !== undefined &&
+    (!Number.isFinite(input.timeout) || input.timeout <= 0)
+  ) {
+    errors.push({ field: "timeout", message: "必须是正数（秒）" });
+  }
+  return errors;
 }
 
 /** 工具参数摘要 */
