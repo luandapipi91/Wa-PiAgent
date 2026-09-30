@@ -57,7 +57,6 @@ test("GET /api/skills 返回项目技能来源（<project.cwd>/.pi/skills）", a
       getEnabledExtensionSkillPaths: async () => [],
     } as any,
     memoryStore: null as any,
-    mcpStore: null as any,
     agentManager: {
       markSkillsDirty: () => {},
       markAllDirty: () => {},

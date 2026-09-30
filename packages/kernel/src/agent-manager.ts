@@ -397,6 +397,26 @@ export class AgentManager {
 	}
 
 	/**
+	 * 按 cwd 取 MCP 状态读取者（REST 的 mcp 域与工具枚举共用同一批实例与缓存）。
+	 * REST 的 mcp:list / mcp:test / mcp:listTools 与白名单枚举看的是同一份
+	 * `pi mcp list` 结果，共用缓存才不会一次 GUI 刷新触发多次冷枚举。
+	 */
+	mcpAdminForCwd(cwd: string): Pick<McpAdmin, "list" | "invalidate"> {
+		return this._mcpAdminFor(cwd);
+	}
+
+	/**
+	 * 失效**所有**按 cwd 的 McpAdmin 缓存。
+	 *
+	 * 必要性：`pi mcp list` 的缓存按 cwd 分实例（见 {@link _mcpAdminFor}），而 GUI 改配置
+	 * （mcp:save / mcp:delete）只改盘上文件——不失效就只剩下次会话启动的延时刷新能进新工具清单，
+	 * GUI 里刚加/删的 server 在「智能体设置-工具」里看不到变化。
+	 */
+	invalidateMcpCaches(): void {
+		for (const admin of this.mcpAdmins.values()) admin.invalidate();
+	}
+
+	/**
 	 * 加载系统提示词段落配置（启动后首次调用时读 PROMPTS_FILE，之后用缓存）。
 	 * 读失败或格式错误时降级用代码内置默认配置，绝不抛错（保证 agent 创建不被提示词文件阻塞）。
 	 */

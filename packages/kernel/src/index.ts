@@ -10,7 +10,6 @@ import { MemoryStore } from "./memory-store";
 import { MemoryDao } from "./memory/dao";
 import { openMemoryDb } from "./memory/db";
 import { importLegacyMemories } from "./memory/import";
-import { McpStore } from "./mcp-store";
 import { migrateGlobalMcpFile, migrateProjectMcpFile } from "./mcp-migrate";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
@@ -163,7 +162,6 @@ export async function startKernel(opts?: {
 	const skillManager = new SkillManager(WA_PI_DIR);
 	const extensionManager = new ExtensionManager(WA_PI_DIR);
 	const memoryStore = new MemoryStore({ waPiDir: WA_PI_DIR, projectStore });
-	const mcpStore = new McpStore({ waPiDir: WA_PI_DIR, projectStore });
 
 	// 存量记忆一次性迁移（markdown/归档 sidecar → SQLite）：放在初始化之后、接受会话之前，
 	// 让首个会话就能检索到历史记忆。幂等——源文件重命名为 .imported 后不再重复导入。
@@ -324,7 +322,6 @@ export async function startKernel(opts?: {
 		skillManager,
 		extensionManager,
 		memoryStore,
-		mcpStore,
 		dataDir: WA_PI_DIR,
 		agentManager: null as any, // 占位，下面赋值
 		channelManager: null, // Task 8 注入真实 ChannelManager 实例
@@ -362,7 +359,7 @@ export async function startKernel(opts?: {
 		extensionManager,
 		memoryStore,
 		// MCP 工具枚举已改由 AgentManager 自建的 McpAdmin 实时读取（pi 内置 MCP），
-		// 不再需要 mcpStore 注入（该 store 仍由 MCP 域路由使用，见 server 构造）。
+		// 注入面也是 AgentManager 自己持有的那个（任务 8 删除了旧的 mcpStore）。
 		// bridge 回调地址惰性取值：WS 端口在 server.start() 后才确定（AgentManager 构造在前）
 		bridgeBaseUrl: () => `http://127.0.0.1:${server.actualPort}`,
 		onEvent: (sessionId, projectId, agentName, event) => {

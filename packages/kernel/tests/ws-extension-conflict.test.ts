@@ -143,7 +143,6 @@ async function setup() {
     skillManager,
     extensionManager,
     memoryStore: null as any,
-    mcpStore: null as any,
     channelManager: null,
     agentManager: {
       markAllDirty: () => {},

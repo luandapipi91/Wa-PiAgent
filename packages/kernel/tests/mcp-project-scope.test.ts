@@ -16,7 +16,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HttpRouter } from "../src/http-router";
-import { registerMcpRoutes } from "../src/routes/mcp";
+import { createMcpRoutes } from "../src/routes/mcp";
 import { trustKeyFor } from "../src/mcp-trust";
 import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
@@ -33,7 +33,15 @@ const PROJECT_ID = "proj-1";
 
 function setupRouter(projectCwd: string | null, projectId = PROJECT_ID) {
   const router = new HttpRouter();
-  registerMcpRoutes(
+  // 本文件只测项目级开关端点，它不碰配置读写/状态读取/广播：给一组空桩即可
+  // （任务 8 之后的注册器是工厂：MCP 域依赖从构造参数注入，不再走 RouteContext）。
+  createMcpRoutes({
+    mcpFile: {} as never,
+    cwdForProject: async () => "",
+    adminForCwd: (() => ({})) as never,
+    invalidateCaches: () => {},
+    broadcast: () => {},
+  })(
     router,
     (async () => Response.json({ ok: true })) as never,
     {

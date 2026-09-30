@@ -39,7 +39,6 @@ async function setup() {
 		skillManager: new SkillManager(join(cfgDir, "skills")),
 		extensionManager: null as any,
 		memoryStore: null as any,
-		mcpStore: null as any,
 		channelManager: null,
 		agentManager: { markAllDirty: () => {}, disposeAll: async () => {} } as any,
 		port: 0,

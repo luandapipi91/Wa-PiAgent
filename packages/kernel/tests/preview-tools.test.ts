@@ -487,7 +487,6 @@ describe("preview_open 端到端（真实 HTTP → AgentManager → SSE）", () 
 				skillManager: new SkillManager(join(dir, "skills")),
 				extensionManager: new ExtensionManager(join(dir, "data")),
 				memoryStore: null as any,
-				mcpStore: null as any,
 				dataDir: dir,
 				agentManager: am,
 				channelManager: null,

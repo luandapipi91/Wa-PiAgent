@@ -502,7 +502,6 @@ async function startTestServer(extraOpts: Partial<WSServerOpts> = {}) {
 		skillManager: new SkillManager(rand()),
 		extensionManager: new ExtensionManager(dataDir),
 		memoryStore: null as any,
-		mcpStore: null as any,
 		dataDir,
 		agentManager: { disposeAll: async () => {} } as any,
 		channelManager: null,

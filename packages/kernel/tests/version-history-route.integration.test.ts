@@ -49,7 +49,6 @@ test("GET /api/version-history 返回结构合法的历史", async () => {
 			waPiDir: tmpDir,
 			projectStore: new ProjectStore(projectFile),
 		}),
-		mcpStore: null as any,
 		dataDir,
 		agentManager: { disposeAll: async () => {}, markAllDirty: () => {} } as any,
 		channelManager: null,

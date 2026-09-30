@@ -59,7 +59,6 @@ async function setup() {
 		skillManager,
 		extensionManager: new ExtensionManager(join(projFile, "..")),
 		memoryStore: null as any,
-		mcpStore: null as any,
 		agentManager,
 		channelManager: null,
 		port: 0,

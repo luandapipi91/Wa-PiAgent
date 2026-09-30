@@ -49,7 +49,6 @@ async function start(extraOpts: Partial<WSServerOpts> = {}) {
 		skillManager: new SkillManager(rand()),
 		extensionManager: new ExtensionManager(rand()),
 		memoryStore: null as any,
-		mcpStore: null as any,
 		dataDir: rand(),
 		agentManager: {
 			disposeAll: async () => {},

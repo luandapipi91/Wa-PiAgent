@@ -203,7 +203,6 @@ testReal(
 			skillManager: new SkillManager(join(tmpDir, "skills")),
 			extensionManager: new ExtensionManager(dataDir),
 			memoryStore: null as any,
-			mcpStore: null as any,
 			dataDir,
 			agentManager: am,
 			channelManager: null,
