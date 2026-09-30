@@ -352,8 +352,121 @@ async function ensureRuntimeDeps({
 	return runtimeDir;
 }
 
+/**
+ * 原生依赖链接：把随包分发的 <resources>/native/node_modules/* 逐个链接进 runtime 的 node_modules。
+ *
+ * 为什么必须链接（而不是只用 NODE_PATH，或认为放在安装包目录就够）：
+ *   bun --compile 产物的运行时解析根是 **cwd/node_modules**——实测把 node_modules 放在可执行文件
+ *   同目录解析不到，NODE_PATH 对包内 require 也不可靠；而 kernel 的 cwd 正是 WA_PI_DIR/runtime。
+ * 为什么用 junction / 符号链接（不拷贝）：省 ≈60MB 磁盘与首启写入（杀软实时扫描），
+ *   且链接始终跟随当前安装包——升级 app 后原生库自动跟着换，不存在陈旧副本。
+ * 只管理自己链接的条目：路径已存在且不是链接（链接）→ 跳过并告警，绝不删别人的东西。
+ * 失败只告警：原生依赖不可用时 kernel 自行降级（纯词法检索），不得阻断启动。
+ */
+async function linkNativeAssets(nativeNodeModulesDir, runtimeDir, log) {
+	const result = { linked: 0, skipped: 0, failed: 0 };
+	if (!nativeNodeModulesDir || !(await exists(nativeNodeModulesDir))) {
+		if (log)
+			log.info(
+				`[deps] 未找到原生依赖目录（${nativeNodeModulesDir || "未提供"}），跳过链接；语义检索将降级为词法检索`,
+			);
+		return result;
+	}
+
+	const linkOne = async (srcDir, relPath) => {
+		const linkPath = path.join(runtimeDir, "node_modules", relPath);
+		// 路径比较前先 realpath 规范化：Windows 下 tmp/安装目录常带 8.3 短名
+		// （C:\Users\ADMINI~1\…）或大小写差异，直接用字面量比会把「已经指对了」误判成别的目标，
+		// 导致每次启动都重建链接。
+		const norm = (p) => {
+			const abs = path.resolve(p);
+			return process.platform === "win32" ? abs.toLowerCase() : abs;
+		};
+		let state = "missing"; // missing | same | other-link | not-link
+		try {
+			const st = await fsp.lstat(linkPath);
+			if (st.isSymbolicLink()) {
+				const [cur, want] = await Promise.all([
+					fsp.realpath(linkPath).catch(() => null),
+					fsp.realpath(srcDir).catch(() => srcDir),
+				]);
+				state = cur && norm(cur) === norm(want) ? "same" : "other-link";
+			} else {
+				state = "not-link";
+			}
+		} catch {
+			/* 不存在 */
+		}
+		if (state === "same") {
+			result.skipped++;
+			return;
+		}
+		if (state === "not-link") {
+			result.skipped++;
+			if (log)
+				log.info(`[deps] ${relPath} 已存在且不是链接，跳过（不动非本模块创建的条目）`);
+			return;
+		}
+		try {
+			await fsp.mkdir(path.dirname(linkPath), { recursive: true });
+			if (state === "other-link") {
+				// 旧链接（安装包换过目录）→ 重建
+				await fsp.rm(linkPath, { force: true }).catch(async () => {
+					await fsp.rm(linkPath, { recursive: true, force: true });
+				});
+			}
+			// Windows 用 junction（无需管理员权限）；POSIX 用目录符号链接
+			await fsp.symlink(
+				srcDir,
+				linkPath,
+				process.platform === "win32" ? "junction" : "dir",
+			);
+			result.linked++;
+		} catch (e) {
+			result.failed++;
+			if (log) log.error(`[deps] 链接原生依赖 ${relPath} 失败: ${e.message}`);
+		}
+	};
+
+	let entries = [];
+	try {
+		entries = await fsp.readdir(nativeNodeModulesDir, { withFileTypes: true });
+	} catch (e) {
+		if (log) log.error(`[deps] 读取原生依赖目录失败: ${e.message}`);
+		return result;
+	}
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		if (!entry.name.startsWith("@")) {
+			await linkOne(path.join(nativeNodeModulesDir, entry.name), entry.name);
+			continue;
+		}
+		// 作用域包（@img/sharp-win32-x64 等）：逐个子包链接
+		const scopeDir = path.join(nativeNodeModulesDir, entry.name);
+		let subs = [];
+		try {
+			subs = await fsp.readdir(scopeDir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const sub of subs) {
+			if (!sub.isDirectory()) continue;
+			await linkOne(
+				path.join(scopeDir, sub.name),
+				path.join(entry.name, sub.name),
+			);
+		}
+	}
+	if (log)
+		log.info(
+			`[deps] 原生依赖链接完成: linked=${result.linked} skipped=${result.skipped} failed=${result.failed}`,
+		);
+	return result;
+}
+
 module.exports = {
 	ensureRuntimeDeps,
+	linkNativeAssets,
 	syncSeed,
 	verifyInstall,
 	installWithRetry,

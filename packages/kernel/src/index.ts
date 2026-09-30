@@ -168,6 +168,24 @@ export async function startKernel(opts?: {
 		console.error("[kernel] 记忆迁移失败（不影响启动）:", err);
 	});
 
+	// 启动后异步回填未索引的记忆（存量库升级到 v3 后、或上次退出前没来得及索引的条目）。
+	// 不阻塞服务启动：整个任务 `void` 掉，只在真写入过向量时打一条完成日志；失败（模型不可用 /
+	// 扩展加载失败 / 原生二进制或模型资产缺失）只告警——语义检索静默降级，绝不能因此让 kernel 起不来。
+	// 三个模块都走**动态 import**：把它们挪出启动关键路径，且模块解析失败也只落到本 catch
+	//（打包裁剪 / externalize 场景；静态 import 会在模块加载期抛错、绕过全部降级设计）。
+	void (async () => {
+		try {
+			const { initVectorColumn } = await import("./memory/vector-ext");
+			const { indexPendingMemories } = await import("./memory/vector-index");
+			const db = openMemoryDb(WA_PI_DIR);
+			initVectorColumn(db);
+			const res = await indexPendingMemories(new MemoryDao(db));
+			if (res.indexed > 0) console.log(`[memory-semantic] 回填完成：${res.indexed} 条`);
+		} catch (err) {
+			console.error("[memory-semantic] 启动回填失败（不影响服务）:", err);
+		}
+	})();
+
 	// 启动时对齐扩展 pin（幂等）：依赖树被盘外重解析（repair 删 lock 后 bun install、
 	// 装/卸其它包时的 bun add）会把 node_modules 顶到新版本而 settings 的 pin 未变，
 	// pi 在 --offline 下遇到「pin ≠ 实装」会整包跳过该扩展（静默不加载、界面无报错）。

@@ -5,6 +5,7 @@
 // 守护策略：无限自动重启（固定间隔 2s）+ 端口健康探活（5s 间隔，连续 3 次失败强杀重启）。
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
+const fs = require("node:fs");
 const { appendFile, mkdir } = require("node:fs/promises");
 const {
   waitForPort,
@@ -55,6 +56,9 @@ async function startSidecar({
   devKernelExe = undefined,
   log,
   port,
+  // 记忆语义检索的模型目录（可选）：存在时注入 WA_PI_MODEL_DIR，让 transformers 走随包内置模型
+  // 并禁用联网（asar 内只读，默认 cacheDir 不可写 → 不注入就每次启动联网重下 23MB）。
+  modelDir = undefined,
   deps = {},
 }) {
   // 依赖注入（测试用，可选）：默认全走真实实现，生产行为不变。
@@ -105,9 +109,21 @@ async function startSidecar({
   // BUN_BE_BUN=1；kernel 内部 startKernel 的 ensureBunBeBunEnv() 会为 pi RPC / bun add / MCP
   // 子进程写入。
   const { BUN_BE_BUN: _bunBeBun, ...kernelEnv } = process.env;
+  // 记忆语义检索的资产入口（目录不存在就不注入，保持现状行为）：
+  //   WA_PI_MODEL_DIR：模型随包内置时指向 <resources>/models → transformers 走本地模型、禁联网
+  //     （asar 内只读，默认 cacheDir 不可写会导致每次启动重下 23MB）。
+  const nativeAssets = {};
+  if (modelDir && fs.existsSync(modelDir)) {
+    nativeAssets.WA_PI_MODEL_DIR = modelDir;
+  }
   const spawnOpts = {
     cwd: kernelDir,
-    env: { ...kernelEnv, WA_PI_WEB_DIR: webDir, WA_PI_WS_PORT: String(wsPort) },
+    env: {
+      ...kernelEnv,
+      ...nativeAssets,
+      WA_PI_WEB_DIR: webDir,
+      WA_PI_WS_PORT: String(wsPort),
+    },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     shell: !useCompiled && isWin,
