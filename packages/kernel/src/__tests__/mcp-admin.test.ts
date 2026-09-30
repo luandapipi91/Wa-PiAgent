@@ -81,6 +81,37 @@ describe("parseMcpListOutput（规格 F14）", () => {
     );
     expect(out.hasProblems).toBe(false);
   });
+
+  test("被停用的 server（state=disabled）不算异常（F14：pi 此时退 0）", () => {
+    // 真实 pi 形态（0.99.1 实测，真 pi 用例见 tests/mcp-admin-spawn.test.ts）：
+    // enabled:false 的 server 照常出现在 servers[] 里但 state 恒为 "disabled"，pi 退出码 0。
+    const out = parseMcpListOutput(
+      JSON.stringify({
+        servers: [
+          { name: "a", scope: "global", enabled: true, exposure: "direct", state: "connected", tools: [] },
+          { name: "off", scope: "global", enabled: false, exposure: "codemode", state: "disabled", tools: [] },
+        ],
+        errors: [],
+      }),
+      { exitCode: 0 },
+    );
+    expect(out.hasProblems).toBe(false);
+  });
+
+  test("顶层 note（项目未被信任）原样透传（F12/F13）", () => {
+    const note =
+      "C:\\proj\\.pi\\mcp.json is ignored because the project is not trusted. Start wa-pi in the project to trust it.";
+    const out = parseMcpListOutput(
+      JSON.stringify({ servers: [], errors: [], note }),
+      { exitCode: 0 },
+    );
+    expect(out.note).toBe(note);
+
+    // 没有 note 时不编造
+    expect(
+      parseMcpListOutput(JSON.stringify({ servers: [], errors: [] }), { exitCode: 0 }).note,
+    ).toBeUndefined();
+  });
 });
 
 describe("McpAdmin.isSignedIn（F19）", () => {

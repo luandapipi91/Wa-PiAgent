@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { McpAdmin } from "../src/mcp-admin.ts";
+import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "../src/mcp-admin.ts";
 import { resolvePiCliPath, resolvePiRuntime } from "../src/rpc-client.ts";
 
 const FAKE_PI = join(import.meta.dir, "fixtures", "fake-mcp-list-pi.ts");
@@ -103,6 +103,37 @@ describe("McpAdmin 缓存与失败回退（假 pi）", () => {
     expect(res.stale).toBe(false);
   });
 
+  test("首次失败进缓存：回读时标 stale，不再谎报新鲜（且失败没被固化）", async () => {
+    const { admin, activityFile } = await fakeAdmin();
+    process.env.MCP_ADMIN_TEST_MODE = "garbage";
+    // 第一次真的跑过 → 这份失败是新鲜的
+    const first = await admin.list();
+    expect(first.commandFailed).toBe(true);
+    expect(first.servers).toEqual([]);
+    expect(first.stale).toBe(false);
+    const spawns = activityLength(activityFile);
+
+    // 非 force：缓存短路，本次根本没跑 → 旧失败必须标 stale，否则调用方分不清新旧
+    const second = await admin.list();
+    expect(second.commandFailed).toBe(true);
+    expect(second.servers).toEqual([]);
+    expect(second.stale).toBe(true);
+    expect(activityLength(activityFile)).toBe(spawns); // 确实没再 spawn
+
+    // force 重试仍失败：没有新鲜数据，依旧 stale
+    const third = await admin.list(true);
+    expect(third.commandFailed).toBe(true);
+    expect(third.stale).toBe(true);
+    expect(activityLength(activityFile)).toBeGreaterThan(spawns);
+
+    // 恢复后拿得到新鲜数据：失败缓存不会把状态永久固化
+    process.env.MCP_ADMIN_TEST_MODE = "ok";
+    const fourth = await admin.list(true);
+    expect(fourth.commandFailed).toBe(false);
+    expect(fourth.stale).toBe(false);
+    expect(fourth.servers.map((s) => s.name)).toEqual(["srv"]);
+  });
+
   test("输出不可解析但有缓存：回退上一条缓存并标 stale（规格 §8）", async () => {
     const { admin, activityFile } = await fakeAdmin();
     process.env.MCP_ADMIN_TEST_MODE = "ok";
@@ -147,6 +178,20 @@ describe("McpAdmin 缓存与失败回退（假 pi）", () => {
     expect(res.servers.map((s) => s.name)).toEqual(["srv"]);
     await expectStopped(activityFile);
   });
+
+  test("漏传 timeoutMs：缺省上限生效，卡住的 pi 仍被截断（不会无限等待）", async () => {
+    const { admin, activityFile } = await fakeAdmin(); // 不传 timeoutMs
+    process.env.MCP_ADMIN_TEST_MODE = "hang";
+    const startedAt = Date.now();
+    const res = await admin.list();
+    const elapsed = Date.now() - startedAt;
+    expect(res.commandFailed).toBe(true);
+    expect(res.servers).toEqual([]);
+    expect(res.stale).toBe(false);
+    // 等到的是缺省上限（不是立即返回、也不是无限等）
+    expect(elapsed).toBeGreaterThanOrEqual(DEFAULT_LIST_TIMEOUT_MS - 500);
+    await expectStopped(activityFile); // kill 真的生效
+  }, DEFAULT_LIST_TIMEOUT_MS + 15_000);
 });
 
 describe("McpAdmin 真实 spawn（真 pi，F14）", () => {
@@ -171,5 +216,19 @@ describe("McpAdmin 真实 spawn（真 pi，F14）", () => {
     expect(res.servers[0].state).toBe("failed");
     expect(res.servers[0].tools).toEqual([]);
     expect(res.servers[0].error).toBeTruthy();
+  });
+
+  test("server 被停用：pi 输出 state=disabled 且退 0 → 不算异常（F14）", async () => {
+    const admin = await realAdmin({
+      mcpServers: {
+        off: { command: "definitely-not-a-real-binary-xyz", enabled: false },
+      },
+    });
+    const res = await admin.list();
+    expect(res.commandFailed).toBe(false);
+    expect(res.hasProblems).toBe(false); // 用户刚关掉一台 server，pi 自己认为没问题
+    expect(res.servers).toHaveLength(1);
+    expect(res.servers[0].enabled).toBe(false);
+    expect(res.servers[0].state).toBe("disabled");
   });
 });

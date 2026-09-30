@@ -4,26 +4,36 @@
 // 盘上配置的写入归 mcp-file.ts、受信归 mcp-trust.ts：这里是只读面。
 import type { McpExposure } from "@wa-pi/shared";
 
-/** 单台服务器的运行时状态（`pi mcp list --json` 的 servers[] 条目） */
-export interface McpServerStatus {
+/**
+ * 单台服务器的运行时报告（`pi mcp list --json` 的 servers[] 条目）。
+ *
+ * 命名跟 pi 内部一致（`report`）：**不要**与 `@wa-pi/shared` 的 `McpServerStatus`
+ * （WS 事件里的运行时字符串联合 `"disconnected"|"connected"|"error"`）混为一谈，
+ * 两者同名不同物。
+ */
+export interface McpServerReport {
   name: string;
   scope: string;
   source?: string;
   enabled: boolean;
   exposure: McpExposure;
   transport?: string;
+  /** pi 已知取值：connected / failed / needs-auth / disabled（另有其它字符串） */
   state: "connected" | "failed" | string;
   tools: string[];
   error?: string;
 }
 
 export interface McpListResult {
-  servers: McpServerStatus[];
+  /** 条目；`commandFailed:true` 时恒为空 */
+  servers: McpServerReport[];
   errors: string[];
   /** 命令本身没跑起来/输出不可解析 */
   commandFailed: boolean;
-  /** 有 server 处于异常态 */
+  /** 有**启用中**的 server 处于异常态（F14：pi 的退出码 1 就映射到这里） */
   hasProblems: boolean;
+  /** 项目未被信任时 pi 的提示（F12/F13）——项目配置被静默忽略的唯一信号 */
+  note?: string;
   raw?: string;
 }
 
@@ -43,17 +53,21 @@ export function parseMcpListOutput(
   const jsonStart = text.indexOf("{");
   try {
     const parsed = JSON.parse(jsonStart >= 0 ? text.slice(jsonStart) : text) as {
-      servers?: McpServerStatus[];
+      servers?: McpServerReport[];
       errors?: string[];
+      note?: string;
     };
     const servers = Array.isArray(parsed.servers) ? parsed.servers : [];
     return {
       servers,
       errors: Array.isArray(parsed.errors) ? parsed.errors : [],
       commandFailed: false,
+      // 只在**启用中**的 server 上判异常：pi 对 enabled:false 的 server 照常输出一条
+      // `state:"disabled"` 并退 0，用户刚关掉一台 server 不该被报成异常（F14 的退出码映射）。
       hasProblems:
-        servers.some((s) => s.state !== "connected") ||
+        servers.some((s) => s.enabled !== false && s.state !== "connected") ||
         (parsed.errors?.length ?? 0) > 0,
+      note: parsed.note,
       raw: text,
     };
   } catch {
@@ -67,6 +81,9 @@ export function parseMcpListOutput(
   }
 }
 
+/** `pi mcp list` 的缺省等待上限（毫秒）：一个卡住的 server 不该把 GUI 的 MCP 页永久挂住 */
+export const DEFAULT_LIST_TIMEOUT_MS = 30_000;
+
 export interface McpAdminOpts {
   /** pi 可执行体与 CLI 路径（与 rpc-client 同一解析） */
   runtime: string;
@@ -74,9 +91,9 @@ export interface McpAdminOpts {
   agentDir: string;
   cwd: string;
   /**
-   * `pi mcp list` 的等待上限。缺省不设超时（照 pi 自己的节奏等）。
-   * 接线方**必须**传：list 会真的去连每台 server，缺少上限时一个卡住的 server
-   * 就能把调用方（GUI 的 MCP 页）永远挂住。
+   * `pi mcp list` 的等待上限，缺省 {@link DEFAULT_LIST_TIMEOUT_MS}。
+   * list 会真的去连每台 server，没有上限时一个卡住的 server 就能把调用方
+   * （GUI 的 MCP 页）永远挂住。
    */
   timeoutMs?: number;
 }
@@ -86,8 +103,21 @@ export class McpAdmin {
 
   constructor(private opts: McpAdminOpts) {}
 
+  /**
+   * 读一次状态。
+   *
+   * `stale` 只在 `commandFailed:false` 时有意义：`true` 表示「这份 servers 不是本次跑出来的」，
+   * 即命令失败（超时/输出不可解析）后回退的旧缓存。不变式：`commandFailed:true` 时 `servers` 恒为空，
+   * 此时 `stale:true` 只说明这份失败连一次重跑都没有（直接命中了失败缓存）。
+   *
+   * 失败结果同样进缓存（`pi mcp list` 会挨个连 server，很贵，失败不该被每次轮询重试），
+   * 但缓存命中且缓存本身是失败时必须回 `stale:true`，否则调用方分不清「刚真跑过并失败」与「这是旧失败」。
+   */
   async list(force = false): Promise<McpListResult & { stale: boolean }> {
-    if (!force && this.cache) return { ...this.cache, stale: false };
+    // 命中失败缓存 → 本次根本没跑，标 stale，别谎报新鲜
+    if (!force && this.cache) {
+      return { ...this.cache, stale: this.cache.commandFailed };
+    }
     const result = await this.runList();
     // 规格 §8：命令失败/输出不可解析 → 回退上一条缓存并标 stale（UI 显示「状态未知」），不抛错。
     // 无缓存时把失败也记进缓存：`pi mcp list` 会真的去连每台 server（可能十几秒），
@@ -116,8 +146,8 @@ export class McpAdmin {
 
   /**
    * shell out 一次 `pi mcp list --json`。
-   * 到 timeoutMs 仍未退出则 kill 子进程并按「命令失败」返回（规格 §8 的失败分支），
-   * 由 list() 决定是否回退到缓存 —— 调用方永远不会被卡住的 pi 挂住。
+   * 到 timeoutMs（缺省 {@link DEFAULT_LIST_TIMEOUT_MS}）仍未退出则 kill 子进程并按「命令失败」返回
+   * （规格 §8 的失败分支），由 list() 决定是否回退到缓存 —— 调用方永远不会被卡住的 pi 挂住。
    */
   private async runList(): Promise<McpListResult> {
     const proc = Bun.spawn(
@@ -126,21 +156,17 @@ export class McpAdmin {
         cwd: this.opts.cwd,
         env: { ...process.env, PI_CODING_AGENT_DIR: this.opts.agentDir },
         stdout: "pipe",
-        stderr: "pipe",
+        // stdout 按 UTF-8 解码（规格 §7）。stderr 直接丢弃：失败原因走 stdout 的 errors[]/error
+        // （真 pi 实测，见 tests/mcp-admin-spawn.test.ts）；若留着 "pipe" 不读，任一台 server
+        // 刷满 stderr 管道就会把 pi 阻塞在写 stderr 上，只能等超时。
+        stderr: "ignore",
       },
     );
-    // stdout 按 UTF-8 解码（规格 §7）。stderr 收进管道但不读：正常路径 pi 不写 stderr；
-    // 若有 server 狂刷 stderr 把管道写满，也只是走到下面的超时分支，不会挂死调用方。
     const done = Promise.all([new Response(proc.stdout).text(), proc.exited]).then(
       ([stdout, exitCode]) => ({ stdout, exitCode }),
     );
 
-    const timeoutMs = this.opts.timeoutMs;
-    if (!(typeof timeoutMs === "number" && timeoutMs > 0)) {
-      const { stdout, exitCode } = await done;
-      return parseMcpListOutput(stdout, { exitCode });
-    }
-
+    const timeoutMs = this.opts.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const raced = await Promise.race([
