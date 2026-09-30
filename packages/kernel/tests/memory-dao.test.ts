@@ -673,6 +673,24 @@ test("getByIds 保持入参顺序、忽略缺失 id", () => {
   expect(dao.getByIds([a.id, "不存在的-id"]).map((r) => r.id)).toEqual([a.id]);
 });
 
+// 重要 1 护栏：getByIds 必须显式投影、不物化向量。
+// 语义通道一次最多传 SCAN_K = 200 个 id，`SELECT *` 会当场读入 200 × ~2KB ≈ 400KB BLOB
+// （词法路径已因同类开销改用 LEXICAL_COLUMNS）。回归方式：改回 `SELECT *`，本例变红。
+test("getByIds 不物化向量：命中行的 embedding 为 null", () => {
+  const a = add({ content: "已索引的条目" });
+  // 造一个「已索引」条目（2KB 向量已落库）
+  dao.db.run("UPDATE memories SET embedding = ?, embed_meta = ? WHERE id = ?", [
+    new Uint8Array(512 * 4),
+    dao.embedFingerprint(),
+    a.id,
+  ]);
+  expect(dao.getById(a.id)!.embedding).toBeInstanceOf(Uint8Array);
+  const rows = dao.getByIds([a.id]);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.embedding ?? null).toBeNull();
+  expect(rows[0]!.embedMeta ?? null).toBeNull();
+});
+
 test("matchesScope 复用 buildFilter 的 scope 语义", () => {
   const mine = add({ content: "本项目条目" });
   const other = add({ content: "其它项目条目", projectId: "other-repo" });

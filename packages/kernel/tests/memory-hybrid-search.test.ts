@@ -5,20 +5,21 @@ import { MemoryDao } from "../src/memory/dao";
 import { loadVectorExtension, initVectorColumn, refreshQuantizedIndex } from "../src/memory/vector-ext";
 import { indexPendingMemories } from "../src/memory/vector-index";
 import { fuseRrf, searchHybrid } from "../src/memory/hybrid-search";
-import { embedQuery, resetEmbedderForTest } from "../src/memory/embedder";
+import { embedQuery, embedQueryCallsForTest, resetEmbedderForTest } from "../src/memory/embedder";
 
 // ---------------------------------------------------------------------------
 // 模型可用性门（只挂在「断言依赖语义通道真的返回结果」的用例上）
 //
-// 5 个用例里只有「语义通道能召回无共同关键词的条目」一例的断言依赖语义通道真的产出
-// 候选（该查询与库中任何条目都无共同 bigram，词法通道必然为空），故**只有它**挂
-// `skipIf(modelUnavailable)`。其余 4 例：
+// 本文件里只有「断言依赖语义通道真的产出候选」的用例才挂 `skipIf(modelUnavailable)`。
+// 其余用例：
 //   - 用例 1 是纯函数（fuseRrf，不碰模型、不碰库）；
 //   - 用例 3 断言「词法精确命中仍在结果里」，语义通道可用与否都成立；
 //   - 用例 4 断言「语义通道不可用时静默降级」，本身就是降级路径；
 //   - 用例 5 断言 scope 收窄契约（不返回其它项目条目），两种模式下都成立。
+// 「语义通道中途抛错」与「语义侧回读抛错」两例必须先有查询向量才能走到被替换的那一步，
+// 离线无法构造，故同样挂门。
 // 给它们加门会让这几条离线可跑的断言（尤其降级契约）在离线 / 无网 CI 上归零 —— 这正是
-// 任务 5 审查裁定要避免的「离线覆盖损失」。因此门只挂在真正依赖模型的那一例上。
+// 任务 5 审查裁定要避免的「离线覆盖损失」。因此门只挂在真正依赖模型的用例上。
 //
 // 离线 / 无外网时模型加载必然失败，`embedQuery` 返回 null —— 这是「环境不具备条件」，
 // 不是被测代码的错。故在文件顶部探测一次（会触发模型加载，注意：模块顶层 await
@@ -33,7 +34,7 @@ if (modelUnavailable) {
   console.warn(
     "[memory-hybrid-search.test] 跳过依赖模型的用例：embedding 模型不可用。\n" +
       "  原因：模型加载失败（离线 / 无法访问 hf-mirror.com / 未随包内置模型）。\n" +
-      "  不依赖模型的 4 例（RRF 纯函数 / 词法命中 / 降级契约 / scope 收窄）仍照常执行。\n" +
+      "  不依赖模型的用例（RRF 纯函数 / 词法命中 / 扩展降级 / scope 收窄 / 扩展未就绪探针 / embedQuery 返回 null）仍照常执行。\n" +
       "  请在有网络的机器上重跑，或设置 WA_PI_MODEL_DIR 指向本地模型目录、\n" +
       "  WA_PI_HF_ENDPOINT 指向可用镜像。",
   );
@@ -87,11 +88,50 @@ test("fuseRrf 按名次融合并对只出现在单路的条目降权", () => {
 test.skipIf(modelUnavailable)("语义通道能召回无共同关键词的条目", async () => {
   const hits = await searchHybrid(dao, "上线前要做什么质量检查", { projectScope: "Wa-Pi", limit: 3 });
   expect(hits[0].content).toContain("发版流程需要先跑单元测试");
+  // 该查询词法零命中 → 命中的全是「语义独有」。它们与词法命中同属 HybridSearchHit：
+  // embedding 必须统一为 null（getByIds 显式投影、不物化向量）。
+  // 回归方式：getByIds 改回 `SELECT *`，此处立刻变红。
+  expect(hits[0].embedding ?? null).toBeNull();
+  expect(hits.every((h) => (h.embedding ?? null) === null)).toBe(true);
 });
 
 test("词法精确查询仍能命中（不被语义通道淹没）", async () => {
-  const hits = await searchHybrid(dao, "南京大学镜像", { projectScope: "Wa-Pi", limit: 3 });
-  expect(hits.map((h) => h.content).join("\n")).toContain("南京大学镜像");
+  // 语料条数必须 > limit：否则无论融合怎么排，返回集都必然含全部语料，断言恒真
+  //（这正是本用例此前的盲区——3 条语料 + limit 3 等于什么也没验证）。
+  // 此处 beforeEach 的 3 条 + 新增 5 条会被语义通道召回的条目 = 8 条，limit 收紧到 3，
+  // 让这 3 个名额变成真正被争夺的资源。
+  for (let i = 0; i < 5; i++) {
+    dao.insert({
+      kind: "knowledge",
+      target: "memory",
+      scope: "project",
+      projectId: "Wa-Pi",
+      content: `无关条目 ${i}：依赖源换成国内高校站点以提速`,
+      source: "agent",
+    });
+  }
+  await indexPendingMemories(dao);
+  refreshQuantizedIndex(db);
+
+  // 精确命中这条刻意「刚写入、回填还没跟上」→ 没有 embedding，而语义扫描
+  // （WHERE embedding IS NOT NULL）扫不到它，所以它只能由词法通道贡献。
+  // 这样断言才可被证伪：把词法通道从融合里丢掉、或只保留语义候选，它必然从结果里消失。
+  // 反之，若让它也进语义库，实测它同时是语义 top-1（正文字面含查询词）——
+  // 丢掉词法通道也不会掉出结果，断言对最该防的回归反而免疫（假守护）。
+  const exact = dao.insert({
+    kind: "knowledge",
+    target: "memory",
+    scope: "project",
+    projectId: "Wa-Pi",
+    content: "本周杂记：修了三个 bug，顺手整理了灰度发布回滚预案，然后开会补文档",
+    source: "agent",
+  });
+
+  const hits = await searchHybrid(dao, "灰度发布回滚预案", { projectScope: "Wa-Pi", limit: 3 });
+  expect(hits.length).toBeLessThanOrEqual(3);
+  const hit = hits.find((h) => h.id === exact.id);
+  expect(hit).toBeDefined();
+  expect(hit!.channels).toContain("lexical");
 });
 
 test("语义通道不可用时静默降级为纯词法结果", async () => {
@@ -149,6 +189,62 @@ test.skipIf(modelUnavailable)("语义通道中途抛错时静默降级为纯词�
   expect(hits.map((h) => h.id)).toEqual(expected.map((h) => h.id));
   expect(hits.every((h) => h.channels.join() === "lexical")).toBe(true);
   expect(logged.some((l) => l.includes("[memory-semantic]"))).toBe(true);
+});
+
+// 重要 2 护栏：扫描之后的语义侧 DB 读（回读 / 融合阶段）必须在同一个兜底之下。
+// getByIds 抛错即模拟「库被占用 / 损坏，或 SCAN_K 调大到撞上 SQLite 的
+// `too many SQL variables`」——守住「绝不让 memory_search 失败」。
+// 回归方式：把 getByIds 移出 try（回到「catch 只包 embedQuery + quantizedScan」的旧结构），
+// 本用例会直接 reject，红。
+test.skipIf(modelUnavailable)("语义侧回读（getByIds）抛错时静默降级为纯词法结果", async () => {
+  const expected = dao.search("南京大学镜像", { projectScope: "Wa-Pi", limit: 3 });
+  const broken = new MemoryDao(db);
+  broken.getByIds = () => {
+    throw new Error("too many SQL variables");
+  };
+  const logged: string[] = [];
+  const realError = console.error;
+  console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+  let hits: Awaited<ReturnType<typeof searchHybrid>>;
+  try {
+    hits = await searchHybrid(broken, "南京大学镜像", { projectScope: "Wa-Pi", limit: 3 });
+  } finally {
+    console.error = realError;
+  }
+  expect(hits.map((h) => h.id)).toEqual(expected.map((h) => h.id));
+  expect(hits.every((h) => h.channels.join() === "lexical")).toBe(true);
+  expect(logged.some((l) => l.includes("[memory-semantic]"))).toBe(true);
+});
+
+// 次要 4 护栏：扩展未就绪时必须**根本不进入语义分支**，而不是「进了但被 quantizedScan
+// 内部的同样检查挡成空」。后者即使把最外层的 `if (isVectorReady(...))` 整个删掉也照样
+// 全绿（因为 quantizedScan 自带同样判断，两处行为对返回值不可区分）——是盲区。
+// 探针：embedQuery 的调用计数。删掉外层判断后 embedQuery 必被调用，计数 +1 → 红。
+// 用 failNextLoad 让被删后的错误路径不去碰真实模型，护栏本身对离线 / 在线都成立。
+test("扩展未就绪时不进入语义分支：embedQuery 未被调用", async () => {
+  const fresh = new Database(":memory:");
+  fresh.run(SCHEMA_SQL);
+  // 刻意不 loadVectorExtension / initVectorColumn → isVectorReady(fresh) === false
+  const freshDao = new MemoryDao(fresh);
+  freshDao.insert({
+    kind: "knowledge",
+    target: "memory",
+    scope: "project",
+    projectId: "Wa-Pi",
+    content: "南京大学镜像",
+    source: "agent",
+  });
+  resetEmbedderForTest({ failNextLoad: true });
+  try {
+    const before = embedQueryCallsForTest();
+    const hits = await searchHybrid(freshDao, "南京大学镜像", { projectScope: "Wa-Pi", limit: 3 });
+    expect(embedQueryCallsForTest()).toBe(before);
+    expect(hits.map((h) => h.content).join("\n")).toContain("南京大学镜像");
+    expect(hits.every((h) => h.channels.join() === "lexical")).toBe(true);
+  } finally {
+    resetEmbedderForTest();
+  }
+  fresh.close();
 });
 
 // 降级契约的第二条分支：模型不可用 → embedQuery 返回 null —— 不是 skip，而是必须退回纯词法。

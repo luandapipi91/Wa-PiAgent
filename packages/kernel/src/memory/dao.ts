@@ -225,12 +225,19 @@ export class MemoryDao {
    * 供融合检索补位：语义通道只给出 id 列表（量化扫描只返回 id + distance），
    * 需要在一次查询里把这些行取回来，而不是逐条 getById。
    * 返回顺序与入参一致：调用方（RRF 融合后的名次）依赖稳定顺序。
+   *
+   * 列投影复用词法路径的 LEXICAL_COLUMNS（**不含 embedding / embed_meta**）：
+   * 与 getById 不同，本方法一次最多要处理 SCAN_K = 200 个 id，`SELECT *` 会当场物化
+   * 200 × ~2KB ≈ 400KB 向量 BLOB，而融合只用行本身、不用向量。顺带消除「同一返回
+   * 类型两种形态」——语义独有命中不再带非 null 的 embedding（词法命中本就没有）。
    */
   getByIds(ids: string[]): MemoryRow[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => "?").join(",");
     const rows = this.db
-      .query(`SELECT * FROM memories WHERE id IN (${placeholders})`)
+      .query(
+        `SELECT ${LEXICAL_COLUMNS} FROM memories m WHERE m.id IN (${placeholders})`,
+      )
       .all(...ids) as RawRow[];
     const map = new Map(rows.map((r) => [r.id, toRow(r)]));
     return ids

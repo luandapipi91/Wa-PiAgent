@@ -21,6 +21,7 @@ let pipe: FeatureExtractionPipeline | null = null;
 let state: LoadState = { status: "idle" };
 let loadPromise: Promise<FeatureExtractionPipeline | null> | null = null;
 let failNextLoad = false;
+let queryCalls = 0;
 
 /** 测试用：重置单例状态 */
 export function resetEmbedderForTest(opts: { failNextLoad?: boolean } = {}): void {
@@ -28,6 +29,16 @@ export function resetEmbedderForTest(opts: { failNextLoad?: boolean } = {}): voi
   state = { status: "idle" };
   loadPromise = null;
   failNextLoad = opts.failNextLoad ?? false;
+  queryCalls = 0;
+}
+
+/**
+ * 测试用探针：embedQuery 被调用的次数（含空输入 / 模型不可用的早退）。
+ * 用途是钉住「调用方不该在条件不成立时去取查询向量」这类护栏——只看返回值无法区分
+ * 「没调用」与「调用了但被内部守卫挡成 null」，两者对外表现完全相同。
+ */
+export function embedQueryCallsForTest(): number {
+  return queryCalls;
 }
 
 /** 模型 + 精度 + 维度指纹；写入 embed_meta，指纹变化即视为「未索引」 */
@@ -94,6 +105,7 @@ export async function embedDocuments(texts: string[]): Promise<Uint8Array[]> {
 
 /** 编码查询（带指令前缀）。空输入或模型不可用时返回 null。 */
 export async function embedQuery(text: string): Promise<Uint8Array | null> {
+  queryCalls++;
   const trimmed = text.trim();
   if (!trimmed) return null;
   const p = await getPipeline();

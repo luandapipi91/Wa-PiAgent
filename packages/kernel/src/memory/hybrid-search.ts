@@ -3,8 +3,8 @@
 // 为什么用 RRF 而不是加权求和：BM25 分数与向量距离量纲完全不同，
 // 加权求和需要针对语料调参；RRF 只看名次（rank），无需归一化、对分数尺度免疫。
 //
-// 降级策略：任何一步（扩展不可用 / 模型不可用 / 查询向量为空 / 编码或扫描抛错）
-// 都退回纯词法结果，绝不因语义通道故障让 memory_search 失败。
+// 降级策略：任何一步（扩展不可用 / 模型不可用 / 查询向量为空 / 编码或扫描抛错 /
+// 语义侧回读或融合抛错）都退回纯词法结果，绝不因语义通道故障让 memory_search 失败。
 import type { MemoryDao, SearchHit, SearchOpts } from "./dao";
 import { embedQuery } from "./embedder";
 import { isVectorReady, quantizedScan } from "./vector-ext";
@@ -55,12 +55,18 @@ export async function searchHybrid(
 ): Promise<HybridSearchHit[]> {
   const limit = opts.limit ?? 10;
   const lexical = dao.search(rawQuery, { ...opts, limit: CHANNEL_TOP_N }) as SearchHit[];
+  const lexicalOnly = (): HybridSearchHit[] =>
+    lexical.slice(0, limit).map((h) => ({ ...h, channels: ["lexical"] }));
 
-  let semanticIds: string[] = [];
-  if (isVectorReady(dao.db)) {
-    // 查询侧编码可能抛错（推理期原生绑定异常等，embedder 的加载期 catch 覆盖不到）。
-    // 语义通道的任何故障都不得让 memory_search 失败 → 统一退回纯词法结果。
-    try {
+  // 语义侧装配——取查询向量 → 量化扫描 → scope 过滤 → 按 id 回读 → RRF 融合——
+  // 整体收在同一个兜底之下。只包住 embedQuery + quantizedScan 是不够的：回读
+  // (getByIds) 与融合发生在扫描之后，同样会抛（库被占用 / 损坏，或将来 SCAN_K
+  // 调大到撞上 SQLite 的 `too many SQL variables`）。任何一步抛错都退回纯词法，
+  // 绝不让 memory_search 失败。
+  try {
+    let semanticIds: string[] = [];
+    if (isVectorReady(dao.db)) {
+      // 查询侧编码可能抛错（推理期原生绑定异常等，embedder 的加载期 catch 覆盖不到）。
       const qv = await embedQuery(rawQuery);
       if (qv) {
         // 扫描宽度 SCAN_K 远大于最终返回条数：过滤发生在扫描之后，
@@ -69,38 +75,36 @@ export async function searchHybrid(
           .filter((hit) => dao.matchesScope(hit.id, opts))
           .map((hit) => hit.id);
       }
-    } catch (err) {
-      console.error("[memory-semantic] 查询侧语义通道失败（本次降级为词法检索）：", err);
-      semanticIds = [];
     }
-  }
 
-  if (semanticIds.length === 0) {
-    return lexical.slice(0, limit).map((h) => ({ ...h, channels: ["lexical"] }));
-  }
+    if (semanticIds.length === 0) return lexicalOnly();
 
-  const semanticRows = dao.getByIds(semanticIds);
-  const fused = fuseRrf<{ id: string }>(
-    [lexical.map((h) => ({ id: h.id })), semanticIds.map((id) => ({ id }))],
-    (x) => x.id,
-  );
+    const semanticRows = dao.getByIds(semanticIds);
+    const fused = fuseRrf<{ id: string }>(
+      [lexical.map((h) => ({ id: h.id })), semanticIds.map((id) => ({ id }))],
+      (x) => x.id,
+    );
 
-  const byId = new Map<string, SearchHit>();
-  for (const h of lexical) byId.set(h.id, h);
-  for (const r of semanticRows) {
-    if (!byId.has(r.id)) {
-      byId.set(r.id, { ...r, score: 0, snippet: dao.snippetFor(r, rawQuery) });
+    const byId = new Map<string, SearchHit>();
+    for (const h of lexical) byId.set(h.id, h);
+    for (const r of semanticRows) {
+      if (!byId.has(r.id)) {
+        byId.set(r.id, { ...r, score: 0, snippet: dao.snippetFor(r, rawQuery) });
+      }
     }
-  }
 
-  return fused
-    .filter((f) => byId.has(f.item.id))
-    .slice(0, limit)
-    .map((f) => {
-      const row = byId.get(f.item.id)!;
-      const channels: Array<"lexical" | "semantic"> = [];
-      if (lexical.some((h) => h.id === f.item.id)) channels.push("lexical");
-      if (semanticIds.includes(f.item.id)) channels.push("semantic");
-      return { ...row, score: f.score, channels };
-    });
+    return fused
+      .filter((f) => byId.has(f.item.id))
+      .slice(0, limit)
+      .map((f) => {
+        const row = byId.get(f.item.id)!;
+        const channels: Array<"lexical" | "semantic"> = [];
+        if (lexical.some((h) => h.id === f.item.id)) channels.push("lexical");
+        if (semanticIds.includes(f.item.id)) channels.push("semantic");
+        return { ...row, score: f.score, channels };
+      });
+  } catch (err) {
+    console.error("[memory-semantic] 语义通道失败（本次降级为词法检索）：", err);
+    return lexicalOnly();
+  }
 }
