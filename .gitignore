@@ -77,3 +77,6 @@ bun.lock
 
 # pi 运行时数据（goal ledger 等，不入库）
 .pi/
+
+# 隔离工作树（superpowers 实现流程用，不入库）
+.worktrees/
