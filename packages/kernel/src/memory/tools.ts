@@ -35,6 +35,7 @@ import type {
   MemoryTarget,
 } from "./dao";
 import { firstThreatMessage } from "./threat-patterns";
+import { searchHybrid } from "./hybrid-search";
 
 export interface ToolDefinition {
   name: string;
@@ -54,6 +55,8 @@ export interface MemoryToolContext {
   dao: MemoryDao;
   /** 项目标识（cwd basename）；无项目上下文时为 null */
   projectId: string | null;
+  /** 语义通道开关（来自 hermes-memory-config.json）；false 时只走词法 */
+  semanticEnabled?: boolean;
 }
 
 export function resolveScope(
@@ -430,10 +433,16 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
           until: parseTimeBound(params.until, true),
           timeField: params.timeField === "created" ? "created" : "updated",
         };
-        const hits = ctx.dao.search(query, {
+        const opts = {
           ...filter,
           limit: typeof params.limit === "number" ? params.limit : 10,
-        });
+        };
+        // 未显式关闭（undefined）时走混合检索（默认启用）；searchHybrid 自己保证
+        // 「扩展未就绪 / 模型不可用 / 语义侧任何异常」都退回纯词法结果，绝不抛错。
+        const hits =
+          ctx.semanticEnabled === false
+            ? ctx.dao.search(query, opts)
+            : await searchHybrid(ctx.dao, query, opts);
         return jsonResult({
           results: hits.map((h) => ({
             id: h.id,

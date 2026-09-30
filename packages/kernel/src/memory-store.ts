@@ -380,9 +380,14 @@ export class MemoryStore {
       return {
         reviewEnabled: data.reviewEnabled ?? true,
         memoryPolicyStyle: data.memoryPolicyStyle ?? "full",
+        semanticEnabled: data.semanticEnabled ?? true,
       };
     } catch {
-      return { reviewEnabled: true, memoryPolicyStyle: "full" };
+      return {
+        reviewEnabled: true,
+        memoryPolicyStyle: "full",
+        semanticEnabled: true,
+      };
     }
   }
 
@@ -390,6 +395,7 @@ export class MemoryStore {
   async setConfig(opts: {
     reviewEnabled?: boolean;
     memoryPolicyStyle?: "full" | "compact" | "none";
+    semanticEnabled?: boolean;
   }): Promise<void> {
     const configPath = join(this.opts.waPiDir, HERMES_CONFIG_FILE);
     let existing: Record<string, unknown> = {};
@@ -402,6 +408,8 @@ export class MemoryStore {
       existing.reviewEnabled = opts.reviewEnabled;
     if (opts.memoryPolicyStyle !== undefined)
       existing.memoryPolicyStyle = opts.memoryPolicyStyle;
+    if (opts.semanticEnabled !== undefined)
+      existing.semanticEnabled = opts.semanticEnabled;
     await mkdir(this.opts.waPiDir, { recursive: true });
     await writeFile(configPath, JSON.stringify(existing, null, 2), "utf8");
   }

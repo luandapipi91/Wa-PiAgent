@@ -45,6 +45,22 @@ export interface HybridSearchHit extends SearchHit {
 }
 
 /**
+ * 把融合分数按首位归一到 (0, 1]，使最相关条目为 1。入参必须已按 score 降序
+ * （fuseRrf 保证）。
+ *
+ * 为什么必须归一化：RRF 分值只表达「名次」，量级很小且随命中通道数变化
+ * （单通道首位 1/(K+1)≈0.0164，双通道首位 2/(K+1)≈0.0328），而 `memory_search`
+ * 把 score 原样吐给展示 / 阈值 / 评测侧 —— 这些消费方是按旧 `dao.search` 的
+ * 「0–1 加权和」量纲写的。不归一化，同一字段在接线前后是两套数字
+ * （阈值恒不过、展示恒为 0）。
+ */
+export function normalizeScores<T extends { score: number }>(hits: T[]): T[] {
+  const top = hits.length > 0 ? hits[0].score : 0;
+  if (!(top > 0)) return hits; // 空集 / 非正首位分数（理论不可达）：原样返回，不产生 NaN
+  return hits.map((h) => ({ ...h, score: h.score / top }));
+}
+
+/**
  * 混合检索入口。签名是 async 的（需要 await 查询向量），
  * 但 memory_search 工具侧的同步契约不变——工具层改为 await 本函数。
  */
@@ -93,16 +109,18 @@ export async function searchHybrid(
       }
     }
 
-    return fused
-      .filter((f) => byId.has(f.item.id))
-      .slice(0, limit)
-      .map((f) => {
-        const row = byId.get(f.item.id)!;
-        const channels: Array<"lexical" | "semantic"> = [];
-        if (lexical.some((h) => h.id === f.item.id)) channels.push("lexical");
-        if (semanticIds.includes(f.item.id)) channels.push("semantic");
-        return { ...row, score: f.score, channels };
-      });
+    return normalizeScores(
+      fused
+        .filter((f) => byId.has(f.item.id))
+        .slice(0, limit)
+        .map((f) => {
+          const row = byId.get(f.item.id)!;
+          const channels: Array<"lexical" | "semantic"> = [];
+          if (lexical.some((h) => h.id === f.item.id)) channels.push("lexical");
+          if (semanticIds.includes(f.item.id)) channels.push("semantic");
+          return { ...row, score: f.score, channels };
+        }),
+    );
   } catch (err) {
     console.error("[memory-semantic] 语义通道失败（本次降级为词法检索）：", err);
     return lexicalOnly();

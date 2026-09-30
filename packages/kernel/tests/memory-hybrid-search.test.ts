@@ -4,7 +4,7 @@ import { SCHEMA_SQL } from "../src/memory/schema";
 import { MemoryDao } from "../src/memory/dao";
 import { loadVectorExtension, initVectorColumn, refreshQuantizedIndex } from "../src/memory/vector-ext";
 import { indexPendingMemories } from "../src/memory/vector-index";
-import { fuseRrf, searchHybrid } from "../src/memory/hybrid-search";
+import { fuseRrf, normalizeScores, RRF_K, searchHybrid } from "../src/memory/hybrid-search";
 import { embedQuery, embedQueryCallsForTest, resetEmbedderForTest } from "../src/memory/embedder";
 
 // ---------------------------------------------------------------------------
@@ -85,9 +85,31 @@ test("fuseRrf 按名次融合并对只出现在单路的条目降权", () => {
   expect(byId["b"]).toBeGreaterThan(byId["c"]);
 });
 
+// 任务 7 裁定：RRF 融合分数量级（单通道上限 1/(K+1)≈0.0164、双通道 2/(K+1)≈0.0328）
+// 必须归一到词法通道的「0–1 加权和」量纲，否则 memory_search 的 score 字段在接线前后
+// 是两套完全不同的数字（任何读 score 的展示 / 阈值 / 评测逻辑都会失真）。
+// 本用例是离线可跑的纯函数契约；「归一化真的被 searchHybrid 调用」由下一条
+// 「语义通道能召回…」用例里的 score 断言守住（把 searchHybrid 里的调用删掉，它变红）。
+test("normalizeScores 把融合分数归一到 (0, 1]：首位为 1、其余按比例（空集 / 零分不产生 NaN）", () => {
+  const normalized = normalizeScores([
+    { score: 2 / (RRF_K + 1) },
+    { score: 1 / (RRF_K + 1) },
+  ]);
+  expect(normalized[0].score).toBe(1);
+  expect(normalized[1].score).toBeCloseTo(0.5, 10);
+  expect(normalized.every((h) => h.score > 0 && h.score <= 1)).toBe(true);
+  // 边界：空集原样返回；首位为 0（理论不可达）不得除成 NaN
+  expect(normalizeScores([])).toEqual([]);
+  expect(normalizeScores([{ score: 0 }])).toEqual([{ score: 0 }]);
+});
+
 test.skipIf(modelUnavailable)("语义通道能召回无共同关键词的条目", async () => {
   const hits = await searchHybrid(dao, "上线前要做什么质量检查", { projectScope: "Wa-Pi", limit: 3 });
   expect(hits[0].content).toContain("发版流程需要先跑单元测试");
+  // score 量纲与词法通道对齐：首位（最相关）归一为 1，不再是 RRF 的 ≈0.0164。
+  // 回归方式：把 searchHybrid 末尾的 normalizeScores 去掉（直接返回 f.score），此处变红。
+  expect(hits[0].score).toBe(1);
+  expect(hits.every((h) => h.score > 0 && h.score <= 1)).toBe(true);
   // 该查询词法零命中 → 命中的全是「语义独有」。它们与词法命中同属 HybridSearchHit：
   // embedding 必须统一为 null（getByIds 显式投影、不物化向量）。
   // 回归方式：getByIds 改回 `SELECT *`，此处立刻变红。

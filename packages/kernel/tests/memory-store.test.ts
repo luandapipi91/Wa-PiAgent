@@ -964,17 +964,20 @@ test("getConfig 文件不存在时返回默认值", async () => {
   const config = await makeStore().getConfig();
   expect(config.reviewEnabled).toBe(true);
   expect(config.memoryPolicyStyle).toBe("full");
+  // 语义检索默认启用（与 reviewEnabled 同构）；模型 / 扩展不可用时由检索层自行降级
+  expect(config.semanticEnabled).toBe(true);
 });
 
 test("getConfig 读取已有配置文件", async () => {
   writeFileSync(
     join(tmpDir, HERMES_CONFIG_FILE),
-    JSON.stringify({ reviewEnabled: false, memoryPolicyStyle: "compact" }),
+    JSON.stringify({ reviewEnabled: false, memoryPolicyStyle: "compact", semanticEnabled: false }),
     "utf8",
   );
   const config = await makeStore().getConfig();
   expect(config.reviewEnabled).toBe(false);
   expect(config.memoryPolicyStyle).toBe("compact");
+  expect(config.semanticEnabled).toBe(false);
 });
 
 test("getConfig 配置文件缺失字段时用默认值补齐", async () => {
@@ -986,14 +989,20 @@ test("getConfig 配置文件缺失字段时用默认值补齐", async () => {
   const config = await makeStore().getConfig();
   expect(config.reviewEnabled).toBe(false);
   expect(config.memoryPolicyStyle).toBe("full");
+  expect(config.semanticEnabled).toBe(true);
 });
 
 test("setConfig 写入后 getConfig 读回新值", async () => {
   const store = makeStore();
-  await store.setConfig({ reviewEnabled: false, memoryPolicyStyle: "none" });
+  await store.setConfig({
+    reviewEnabled: false,
+    memoryPolicyStyle: "none",
+    semanticEnabled: false,
+  });
   const config = await store.getConfig();
   expect(config.reviewEnabled).toBe(false);
   expect(config.memoryPolicyStyle).toBe("none");
+  expect(config.semanticEnabled).toBe(false);
 });
 
 test("setConfig 保留已有配置项不覆盖", async () => {
