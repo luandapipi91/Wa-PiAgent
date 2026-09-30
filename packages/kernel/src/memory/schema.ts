@@ -2,7 +2,9 @@
 // 单库统管 global + project：用 scope / project_id 区分，取代原先的多目录树。
 // v2：project_id 存「项目登记 id」（memory_projects.id），不再直接存 cwd basename ——
 // 登记 id 稳定且唯一，同一个项目可挂多条路径（改名/移动后新路径并入原项目）。
-export const SCHEMA_VERSION = "2";
+// v3：新增 embedding / embed_meta 两列，供本地语义检索使用（见 specs/2026-09-30-memory-semantic-search.md）。
+//     embed_meta 存模型指纹（model:dtype:dim），指纹不匹配即视为「未索引」，由后台任务回填。
+export const SCHEMA_VERSION = "3";
 
 /**
  * 嵌入向量维度。
@@ -27,7 +29,9 @@ CREATE TABLE IF NOT EXISTS memories (
   last_used_at INTEGER,
   use_count    INTEGER NOT NULL DEFAULT 0,
   archived     INTEGER NOT NULL DEFAULT 0,
-  archived_at  INTEGER
+  archived_at  INTEGER,
+  embedding    BLOB,
+  embed_meta   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mem_layer  ON memories(archived, scope, project_id, kind, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mem_recent ON memories(archived, updated_at DESC);
