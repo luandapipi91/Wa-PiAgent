@@ -101,6 +101,19 @@ const SNIPPET_RADIUS = 40;
  */
 const FULL_SCAN_CAP = 2000;
 
+/**
+ * 词法路径的列投影（**不含 embedding**）。
+ *
+ * 词法打分（bm25 / LIKE 子串）完全不需要 2KB 向量，而打分全集物化上限
+ * FULL_SCAN_CAP = 2000 —— 用 `SELECT m.*` 会让每次词法检索最多多读、多分配
+ * 约 2000 × 2KB ≈ 4MB BLOB。search 与 searchBySubstring 的 FROM/JOIN 都写了
+ * `memories m`，故列名统一带 `m.` 前缀。toRow() 对缺席列按 null 处理，
+ * 因此显式投影不改变返回结构（embedding / embedMeta 仍为字段，值为 null）。
+ */
+const LEXICAL_COLUMNS =
+  "m.id, m.kind, m.target, m.scope, m.project_id, m.content, m.title, m.tags, " +
+  "m.source, m.created_at, m.updated_at, m.last_used_at, m.use_count, m.archived, m.archived_at";
+
 /** 从内容提取标题：首个非空行截断 */
 export function deriveTitle(content: string): string {
   const firstLine = content.split(/\r?\n/).find((l) => l.trim()) ?? content;
@@ -419,7 +432,7 @@ export class MemoryDao {
     if (!clause) return [];
     const rows = this.db
       .query(
-        `SELECT m.*
+        `SELECT ${LEXICAL_COLUMNS}
            FROM memories m
           WHERE (m.content LIKE ? ESCAPE '\\'
                  OR m.title LIKE ? ESCAPE '\\'
@@ -503,7 +516,7 @@ export class MemoryDao {
 
     const rows = this.db
       .query(
-        `SELECT m.*, bm25(memories_fts) AS score
+        `SELECT ${LEXICAL_COLUMNS}, bm25(memories_fts) AS score
            FROM memories_fts
            JOIN memories m ON m.id = memories_fts.memory_id
           WHERE memories_fts MATCH ? ${clause.extra}

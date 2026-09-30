@@ -41,6 +41,9 @@ const LOAD_SENSITIVE_TESTS = [
 const MOCK_LEAKY_TESTS = [
 	"tests/fs-open-env.test.ts",
 	"tests/npm-package-service.test.ts",
+	// mock.module 替换 ../src/memory/embedder（守护 vector-index 的异常兜底与终止性），
+	// 同样无恢复 API → 主批排除、单独进程补跑。
+	"tests/memory-vector-index-guards.test.ts",
 ];
 
 function run(args: string[]): boolean {
