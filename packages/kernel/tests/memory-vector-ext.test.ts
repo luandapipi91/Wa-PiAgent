@@ -45,7 +45,7 @@ test("initVectorColumn 在已有 memories 表上成功", () => {
   expect(isVectorReady(db)).toBe(true);
 });
 
-test("写入 embedding 后可被量化扫描命中", async () => {
+test("写入 embedding 后可被量化扫描命中", () => {
   loadVectorExtension(db);
   initVectorColumn(db);
   const vec = new Uint8Array(new Float32Array(512).fill(0.1).buffer);
@@ -67,15 +67,20 @@ test("未初始化时 isVectorReady 为 false，且扫描返回空而不抛错",
   fresh.close();
 });
 
-// db.ts 接线后 refreshQuantizedIndex 会在各种启动场景被调用：空库 / 无向量数据的库上
-// 扩展的 preload 会报「Ensure that vector_quantize() has been called」——必须捕获后降级，
-// 不能把异常抛给调用方（openMemoryDb 一旦抛错，整个记忆功能都不可用）。
-test("空库上 refreshQuantizedIndex 不抛错，异常走降级日志", () => {
+// 空索引不是失败：全新库（没有任何向量数据）上 refreshQuantizedIndex 直接成功返回且不报错。
+// 扩展的 preload 在这时会抛「Ensure that vector_quantize() has been called」，但它属于
+// 「无数据、无事可做」，不能固化成失败契约（否则全新安装的用户每次启动都会看到 error 日志）。
+// 断言方式：既断言返回 true，也用捕获 console.error 断言没有产生任何 [memory-semantic] 日志。
+test("空库上 refreshQuantizedIndex 返回 true 且不产生 error 日志", () => {
   const empty = new Database(":memory:");
   empty.run(SCHEMA_SQL);
-  const { value, logged } = captureConsoleError(() => refreshQuantizedIndex(empty));
-  expect(value).toBe(false);
-  expect(logged).toContain("[memory-semantic]");
+  const first = captureConsoleError(() => refreshQuantizedIndex(empty));
+  expect(first.value).toBe(true);
+  expect(first.logged).not.toContain("[memory-semantic]");
+  // 重复调用仍为幂等成功（空库语义下不再是失败）
+  const again = captureConsoleError(() => refreshQuantizedIndex(empty));
+  expect(again.value).toBe(true);
+  expect(again.logged).not.toContain("[memory-semantic]");
   empty.close();
 });
 

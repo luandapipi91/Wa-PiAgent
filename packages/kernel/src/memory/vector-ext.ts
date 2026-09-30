@@ -60,10 +60,22 @@ export function isVectorReady(db: Database): boolean {
   return initialized.has(db);
 }
 
-/** 重建量化索引并预热到内存（幂等；量化数据会覆盖写入 shadow table，不累积） */
+/**
+ * 重建量化索引并预热到内存（幂等；量化数据会覆盖写入 shadow table，不累积）。
+ *
+ * 「空索引」不是失败：库里没有任何向量数据时（全新库的正常状态）扩展的
+ * vector_quantize_preload 会抛错（实测 "Ensure that vector_quantize() has been called"），
+ * 若一并当成故障就会让全新安装的用户每次启动都看到一条 error 级假报错。
+ * 因此先用一条廉价查询判断有无待量化数据：无 → 无事可做，直接成功返回。
+ */
 export function refreshQuantizedIndex(db: Database): boolean {
   if (!initVectorColumn(db)) return false;
   try {
+    const { n } = db
+      .query(`SELECT COUNT(*) AS n FROM ${EMBED_TABLE} WHERE ${EMBED_COLUMN} IS NOT NULL`)
+      .get() as { n: number };
+    // 没有向量数据：不调用 quantize/preload，也不算失败
+    if (n === 0) return true;
     db.run(`SELECT vector_quantize('${EMBED_TABLE}', '${EMBED_COLUMN}')`);
     db.run(`SELECT vector_quantize_preload('${EMBED_TABLE}', '${EMBED_COLUMN}')`);
     return true;
