@@ -38,6 +38,7 @@ import { createMemoryTools } from "../src/memory/tools";
 import { MemoryDao } from "../src/memory/dao";
 import { SCHEMA_SQL } from "../src/memory/schema";
 import { closeAllMemoryDbs, openMemoryDb } from "../src/memory/db";
+import { resetIndexSchedulerForTest } from "../src/memory/vector-index";
 import { makeDelegateTool, makeFleetTool, MAX_SUBAGENT_CONCURRENCY } from "../src/delegate-tool";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
@@ -91,6 +92,10 @@ beforeEach(() => {
 afterEach(async () => {
 	unregisterBridgeSession("s1");
 	unregisterBridgeSession("s-bridge");
+	// memory_add / memory_replace 成功后会 debounce 触发一轮增量语义回填（见 vector-index）：
+	// 本文件用完就把连接与临时目录拆了，待触发的定时器必须在拆之前取消，
+	// 否则几百毫秒后会对着已关闭的库跑后台任务并打一条误导性的 [memory-semantic] 失败日志。
+	resetIndexSchedulerForTest();
 	closeAllMemoryDbs(); // makeMemoryCtx 用 tmpDir 下的 memories.db，连接缓存需随目录一起清
 	rmSync(tmpDir, { recursive: true, force: true });
 	for (const f of tmpFiles.splice(0)) rmSync(f, { force: true });
