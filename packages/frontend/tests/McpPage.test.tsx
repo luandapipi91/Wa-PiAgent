@@ -273,15 +273,14 @@ test("选中普通项目时项目级 MCP 开关可用，初值来自 trust.json 
   const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
   expect(sw.disabled).toBe(false);
   expect(sw.getAttribute("data-on")).toBe("true");
-  expect(sw.getAttribute("data-unset")).toBe("false");
-  expect(screen.queryByTestId("mcp-project-scope-unset")).toBeNull();
+  expect(sw.getAttribute("data-unset")).toBe("false"); // 显式 true ≠ 未设置
   // 非置灰分支的 title 必须是 projectScopeHint（两分支写反要能红）
   expect(
     screen.getByTestId("mcp-project-scope-row").getAttribute("title"),
   ).toContain("标记为受信任");
 });
 
-test("真值为未设置（null）时开关显示「未设置 / 跟随上层」，不谎报「已开」（缺口①回归）", () => {
+test("真值为未设置（null）时不谎报「已开」：data-unset 标记未设置、说明挂在 tooltip（缺口①回归）", () => {
   // pi 的 note（项目未受信）**不再**被当成开关初值：note 出现时 trust.json 里可能一条都没有
   useMcpStore.setState({
     selectedProjectId: "p1",
@@ -292,9 +291,11 @@ test("真值为未设置（null）时开关显示「未设置 / 跟随上层」�
   const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
   expect(sw.getAttribute("data-on")).toBe("false");
   expect(sw.getAttribute("data-unset")).toBe("true");
+  // 顶栏小字已去掉（用户要求）：「未设置」这件事由开关的 data-unset 承载，
+  // 入口说明挪到 row 的 title（与「已开」同一分支文案，可区分于置灰分支）
   expect(
-    screen.getByTestId("mcp-project-scope-unset").textContent,
-  ).toContain("未设置");
+    screen.getByTestId("mcp-project-scope-row").getAttribute("title"),
+  ).toContain("标记为受信任");
 });
 
 test("真值为显式关闭（false）时是「关」而不是「未设置」", () => {
@@ -302,8 +303,7 @@ test("真值为显式关闭（false）时是「关」而不是「未设置」", 
   render(<McpPage />);
   const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
   expect(sw.getAttribute("data-on")).toBe("false");
-  expect(sw.getAttribute("data-unset")).toBe("false");
-  expect(screen.queryByTestId("mcp-project-scope-unset")).toBeNull();
+  expect(sw.getAttribute("data-unset")).toBe("false"); // 显式关闭 ≠ 未设置
 });
 
 test("选中具体项目时回读开关真值；全局 / 默认工作区不回读", async () => {

@@ -400,7 +400,6 @@ const en = {
 		globalScope: "🌐 Global",
 		projectOption: "📁 {{name}}",
 		projectScope: "Project-level MCP",
-		projectScopeUnset: "Not set (follows parent)",
 		projectScopeHint:
 			"Marks this project as trusted so pi loads its .pi/mcp.json (takes effect after the session restarts)",
 		statusStale:

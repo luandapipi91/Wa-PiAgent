@@ -425,12 +425,10 @@ function ProjectScopeToggle({
 
   return (
     <div
-      // py-0.5（而非 py-1）：22px 开关 + 4px 内边距 + 2px 边框 = 28px，不再成为顶栏里最高的子项，
-      // 避免从全局切到项目作用域时这条工具栏被撑高
+      // py-0.5（而非 py-1）：22px 开关 + 上下内边距 = 26px，低于顶栏里 32px 的搜索框，
+      // 故它不会成为决定顶栏高度的子项（避免从全局切到项目作用域时这条工具栏被撑高）
       className="flex items-center gap-2 shrink-0 px-2.5 py-0.5 rounded-md"
       style={{
-        background: "var(--surface)",
-        border: "1px solid var(--hairline)",
         color: disabled ? "var(--text-tertiary)" : "var(--text-primary)",
       }}
       data-testid="mcp-project-scope-row"
@@ -439,16 +437,6 @@ function ProjectScopeToggle({
       <span className="text-[calc(11.5px*var(--font-scale))] whitespace-nowrap">
         {t("mcp.projectScope")}
       </span>
-      {/* 未设置（跟随上层）不是「已开」：安全决定不得与事实不符 */}
-      {scopeUnset && (
-        <span
-          className="text-[calc(9.5px*var(--font-scale))] whitespace-nowrap"
-          style={{ color: "var(--text-tertiary)" }}
-          data-testid="mcp-project-scope-unset"
-        >
-          {t("mcp.projectScopeUnset")}
-        </span>
-      )}
       <button
         type="button"
         role="switch"
