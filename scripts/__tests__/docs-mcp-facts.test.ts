@@ -47,14 +47,16 @@ describe("MCP 配置路径：全局 ~/.pi/agent/mcp.json + 项目级 <项目>/.p
 		expect(readmeZh).toContain("/.pi/mcp.json");
 	});
 
-	test("反向：不得残留迁移前的项目级路径 .mcp.json（无 .pi 前缀）", () => {
+	test("反向：不得残留迁移前的项目级路径 .mcp.json", () => {
 		for (const [name, doc] of [
 			["README.md", readmeEn],
 			["README.zh-CN.md", readmeZh],
 			["website/index.html", siteZh],
 			["website/index.en.html", siteEn],
 		] as const) {
-			expect(doc, name).not.toMatch(/(?<!\.pi)\/\.mcp\.json/);
+			// 朴素子串断言：历史上真实的旧写法是「项目级 .mcp.json」（无斜杠前缀），
+			// 带斜杠前缀的正则反而抓不到那次回归（见复审 Minor①）
+			expect(doc, name).not.toContain(".mcp.json");
 		}
 	});
 });
@@ -95,10 +97,10 @@ describe("发布说明（RELEASE_NOTES）口径", () => {
 		expect(notes).not.toMatch(/OAuth\s*登录与登出可在应用内完成/);
 	});
 
-	test("暴露方式列全 5 档且沿用 UI 标签", () => {
-		for (const label of ["直接可用", "脚本调用", "脚本调用（按需加载）", "按需加载", "不暴露"]) {
-			expect(notes).toContain(label);
-		}
+	test("暴露方式列全 5 档且沿用 UI 标签（逐字枚举串，缺任一档即红）", () => {
+		// 逐字照抄 RELEASE_NOTES 的枚举串；不可拆成单标签断言——
+		// 「脚本调用」「按需加载」是「脚本调用（按需加载）」的子串，拆开会退化成恒真（见复审 Minor②）
+		expect(notes).toContain("直接可用 / 脚本调用 / 脚本调用（按需加载）/ 按需加载 / 不暴露");
 	});
 
 	test("本分支自产自修的三条并成一句稳定性修复", () => {
