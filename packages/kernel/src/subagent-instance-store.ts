@@ -7,7 +7,7 @@
 //
 // 安全：agentId 与 parentSessionId 都参与路径拼接，两者都必须先过白名单校验，
 // 否则接口入参可造成路径穿越（规格 §4「路径安全」）。
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { WA_PI_DIR as WA_PI_DIR_CONST } from "@wa-pi/shared";
@@ -90,6 +90,38 @@ export async function readMeta(
 		return JSON.parse(raw) as SubagentMeta;
 	} catch {
 		return null;
+	}
+}
+
+/**
+ * 删除某个父会话的全部子代理转录（父会话被永久删除时级联调用，规格 §10）。
+ * - 目录不存在：静默成功（rm 的 force 幂等）
+ * - 非法 sessionId：抛错拒绝。校验**在 try 之外**——它是调用方 bug / 脏数据，必须可见，
+ *   并且绝不能带着 "../" 之类的入参继续 rm（那就是路径穿越删目录）
+ * - fs 失败：只告警不抛 —— 清理是辅助操作，不得阻断父会话的删除流程
+ */
+export async function cleanupSubagentDir(parentSessionId: string): Promise<void> {
+	const dir = subagentDir(parentSessionId);
+	try {
+		await rm(dir, { recursive: true, force: true });
+	} catch (e) {
+		console.warn(`[subagent] 清理子代理转录目录失败（忽略）: ${dir}`, e);
+	}
+}
+
+/**
+ * 批量清理：逐个独立兜错 —— 单个 id 非法（历史脏数据）或 fs 失败都不影响其它 id，
+ * 也不向调用方抛错（永久删除会话的主流程不能被清理拖垮）。
+ */
+export async function cleanupSubagentDirs(
+	parentSessionIds: Iterable<string>,
+): Promise<void> {
+	for (const id of parentSessionIds) {
+		try {
+			await cleanupSubagentDir(id);
+		} catch (e) {
+			console.warn(`[subagent] 跳过非法会话 id 的子代理清理: ${id}`, e);
+		}
 	}
 }
 

@@ -1,5 +1,5 @@
 import { ConfigStore } from "./config-store";
-import { ProjectStore } from "./project-store";
+import { createCascadingProjectStore } from "./subagent-cascade-store";
 import { ProviderStore } from "./provider-store";
 import { syncCompactionOverrides } from "./compaction-overrides";
 import { AgentManager } from "./agent-manager";
@@ -145,7 +145,9 @@ export async function startKernel(opts?: {
 	await mkdir(`${WA_PI_DIR}/sessions`, { recursive: true });
 
 	const configStore = new ConfigStore();
-	const projectStore = new ProjectStore();
+	// 永久删除会话时级联清理其子代理转录目录（规格 §10；软删除不清理）。
+	// 这是生产环境唯一的 store 构造点，装饰器挂在这里即覆盖全部永久删除入口。
+	const projectStore = createCascadingProjectStore();
 	const providerStore = new ProviderStore();
 	// 压缩预算同步（pi 0.86+ modelOverrides）：失败不影响启动；写在 pi 子进程 spawn 前以保证首个会话生效
 	await syncCompactionOverrides().catch(() => {});
