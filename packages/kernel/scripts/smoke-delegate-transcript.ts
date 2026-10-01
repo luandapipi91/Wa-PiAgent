@@ -144,6 +144,10 @@ async function main() {
 	console.log("\n返回文本:\n", text.slice(0, 400));
 	console.log("\nagentId:", agentId, "\ntranscript:", transcript);
 	console.log("\ndetails:", JSON.stringify(details, null, 2).slice(0, 600));
+	console.log(
+		"\ndetails.subagents[0].jsonlPath:",
+		details?.subagents?.[0]?.jsonlPath ?? "（无）",
+	);
 
 	// ── 转录文件与块统计 ──
 	let fileOk = false;
@@ -201,6 +205,12 @@ async function main() {
 				[
 					"③ details.subagents[0].status === completed",
 					details?.subagents?.[0]?.status === "completed",
+				],
+				[
+					"⑥ details.subagents[0].jsonlPath 与 <transcript> 一致且文件存在（前端门控的数据源）",
+					details?.subagents?.[0]?.jsonlPath !== "" &&
+						details?.subagents?.[0]?.jsonlPath === transcript &&
+						fileOk,
 				],
 				[
 					"④ meta 终态 + agentId 一致 + usage.total > 0",

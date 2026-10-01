@@ -113,21 +113,6 @@ function extractAgentReplies(
 	return out as string[];
 }
 
-/** 从新 delegate 的 XML 返回块里取各子代理的转录路径（`<agent_id>` → 紧随其后的 `<transcript>`）。
- *  路径为空串表示**本次没落盘**（转录目录或 meta 准备失败时后端降级：agentId 照常给出、
- *  `<transcript>` 留空），这种行点「查看全部内容」必然 404，故必须与 agentId 一起做门控。
- *  子代理正文已被后端 XML 转义（`<` → `&lt;`），正文里的 `<transcript>` 字面串不会成为标记。 */
-function transcriptPathsFromContent(full: string): Map<string, string> {
-	const out = new Map<string, string>();
-	const re = /<agent_id>([^<]*)<\/agent_id>[\s\S]*?<transcript>([^<]*)<\/transcript>/g;
-	let m: RegExpExecArray | null;
-	while ((m = re.exec(full)) !== null) {
-		// 同一 agentId 重复出现（异常数据）时保留首次，保持与后端返回顺序一致
-		if (!out.has(m[1])) out.set(m[1], m[2]);
-	}
-	return out;
-}
-
 /** 单个任务的统计行：`任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W`，可独立展开看该任务回复。
  *  抽成独立组件以承载 useLiveElapsed（Hooks 不能在循环里调用）。
  *  统计来源：新数据优先 details.subagents[].toolStats（持久化、权威），旧 fleet 实时 progress 优先、
@@ -416,8 +401,9 @@ export const DelegateCard = memo(function DelegateCard({
 	const repliesByAgent = extractAgentReplies(full, agentNames);
 	const canSplit = repliesByAgent !== null;
 	const formattedFull = full.replace(/【(.+?)】/g, "\n---\n**$1**  \n");
-	// 新数据的转录路径：XML 返回块里的 <transcript>（空串 = 本次没落盘）
-	const transcriptPaths = subagentCount > 0 ? transcriptPathsFromContent(full) : undefined;
+	// 新数据的转录路径：直接取 details.subagents[].jsonlPath（前端唯一数据来源，**不解析返回文本**）——
+	// 那是给模型看的 XML，格式一改正则就静默失效（门控失效的后果恰好是给一个必然 404 的入口）；
+	// 且跨块正则会在某块缺标签时错配，行 A 的按钮打开 B 的转录。空串 = 本次没落盘。
 	const subagentsByIndex = new Map<number, SubagentDetails["subagents"][number]>();
 	for (const s of subagents ?? []) subagentsByIndex.set(s.taskIndex, s);
 
@@ -453,8 +439,7 @@ export const DelegateCard = memo(function DelegateCard({
 							!!result &&
 							r.progress?.status === "running");
 				// 门控：agentId 与转录路径**都**非空才给「查看全部内容」——越权行 agentId 为空、
-				// 转录目录/meta 准备失败的行 <transcript> 为空，这两种行点了必然 404
-				const transcriptPath = sa ? (transcriptPaths?.get(sa.agentId) ?? "") : "";
+				// 转录目录/meta 准备失败的行 jsonlPath 为空，这两种行点了必然 404
 				return {
 					...r,
 					stats,
@@ -469,7 +454,7 @@ export const DelegateCard = memo(function DelegateCard({
 								? repliesByAgent![r.index - 1]
 								: undefined,
 					viewAgentId:
-						sa && sa.agentId !== "" && transcriptPath !== ""
+						sa && sa.agentId !== "" && sa.jsonlPath !== ""
 							? sa.agentId
 							: undefined,
 				};

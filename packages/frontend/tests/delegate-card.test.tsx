@@ -9,11 +9,13 @@ import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 // 统一委托卡片（FleetCard 已并入 DelegateCard）的三种数据形状 + 「查看全部内容」门控。
 // 形状判定完全按运行时 details：
-//  - 新数据：details.subagents（数组）+ XML 返回块里的 <transcript> 路径；
+//  - 新数据：details.subagents（数组），转录路径取 details.subagents[].jsonlPath；
 //  - 旧 delegate：只有布尔 details.interrupted（那时没落盘，无转录可看）；
 //  - 旧 fleet：details.fleet（按序号统计）+ 聚合文本按 【agent】 切分。
-// 门控：agentId 与转录路径**都**非空才渲染按钮——越权行 agentId 为空、转录目录/meta 准备
-// 失败的行 <transcript> 为空，这两类行点了必然 404。
+// 门控：agentId 与 jsonlPath **都**非空才渲染按钮——越权行 agentId 为空、转录目录/meta 准备
+// 失败的行 jsonlPath 为空，这两类行点了必然 404。
+// 回归保护：新数据的返回文本**刻意不含** <agent_id>/<transcript> XML——若前端又去解析返回
+// 文本（模型可见的契约面），这些用例的按钮会直接消失而失败。
 
 beforeEach(() => {
 	useSessionStore.setState({ progressByToolCall: {}, transcript: null });
@@ -21,39 +23,25 @@ beforeEach(() => {
 	useUiPrefsStore.setState({ collapseProcessByDefault: false });
 });
 
-/** 新数据返回块的 XML 文本（kernel delegate-tool 的真实格式，逐字段同行紧凑排版） */
-function subagentXml(opts: {
-	index?: number;
-	agentId?: string;
-	transcript?: string;
-	result?: string;
-}): string {
-	const {
-		index = 0,
-		agentId = "a3f8c1d0a",
-		transcript = "/abs/subagents/s1/a3f8c1d0a.jsonl",
-		result = "结论 X",
-	} = opts;
-	return (
-		`<subagent><index>${index}</index><agent_id>${agentId}</agent_id>` +
-		`<type>Explore</type><status>completed</status><elapsed>1.2s</elapsed>` +
-		`<tokens>1.0k</tokens><resumed>false</resumed>` +
-		`<transcript>${transcript}</transcript><result>\n${result}\n</result></subagent>`
-	);
-}
-
+/** 新数据返回块：转录路径只在 details.subagents[].jsonlPath（前端唯一数据来源）。
+ *  返回文本刻意用非 XML 的普通句子——证明前端不再解析模型可见文本。 */
 function newShapeResult(opts: {
 	agentId?: string;
-	transcript?: string;
-	xml?: string;
+	jsonlPath?: string;
 	interrupted?: boolean;
+	text?: string;
 } = {}) {
-	const { agentId = "a3f8c1d0a", transcript, xml } = opts;
+	const {
+		agentId = "a3f8c1d0a",
+		jsonlPath: path = "/abs/subagents/s1/a3f8c1d0a.jsonl",
+	} = opts;
 	return {
 		role: "toolResult" as const,
 		toolCallId: "call_1",
 		toolName: "delegate",
-		content: [{ type: "text" as const, text: xml ?? subagentXml({ agentId, transcript }) }],
+		content: [
+			{ type: "text" as const, text: opts.text ?? "结论 X（模型可见文本，非前端数据源）" },
+		],
 		isError: false,
 		timestamp: 0,
 		details: {
@@ -61,6 +49,7 @@ function newShapeResult(opts: {
 				{
 					taskIndex: 0,
 					agentId,
+					jsonlPath: path,
 					agent: "Explore",
 					subagentType: "Explore",
 					resumed: false,
@@ -102,15 +91,12 @@ test("新数据（details.subagents）：渲染任务行 + 「查看全部内容
 	});
 });
 
-test("门控①：越权行（agentId 为空且 <transcript> 为空）→ 无「查看全部内容」按钮", () => {
+test("门控①：越权行（agentId 与 jsonlPath 都为空）→ 无「查看全部内容」按钮", () => {
 	render(
 		<DelegateCard
 			sessionId="s1"
 			toolCall={newCall}
-			result={newShapeResult({
-				agentId: "",
-				xml: subagentXml({ agentId: "", transcript: "", result: "错误：无委派权限" }),
-			})}
+			result={newShapeResult({ agentId: "", jsonlPath: "" })}
 		/>,
 	);
 	fireEvent.click(screen.getByTestId("delegate-call_1-header"));
@@ -119,12 +105,12 @@ test("门控①：越权行（agentId 为空且 <transcript> 为空）→ 无「
 	expect(screen.queryByRole("button", { name: /查看全部内容/ })).toBeNull();
 });
 
-test("门控②：agentId 非空但 <transcript> 为空（转录目录/meta 准备失败）→ 无按钮", () => {
+test("门控②：agentId 非空但 jsonlPath 为空（转录目录/meta 准备失败）→ 无按钮", () => {
 	render(
 		<DelegateCard
 			sessionId="s1"
 			toolCall={newCall}
-			result={newShapeResult({ agentId: "a3f8c1d0a", transcript: "" })}
+			result={newShapeResult({ agentId: "a3f8c1d0a", jsonlPath: "" })}
 		/>,
 	);
 	fireEvent.click(screen.getByTestId("delegate-call_1-header"));

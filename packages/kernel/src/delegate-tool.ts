@@ -774,6 +774,9 @@ export function makeDelegateTool(opts: {
 					subagents: results.map((r) => ({
 						taskIndex: r.index,
 						agentId: r.agentId,
+						// 与返回块 <transcript> 同源（r.jsonlPath 正是喂给 XML 的那份）：
+						// 前端唯一数据来源，不再解析模型可见的 XML 文本
+						jsonlPath: r.jsonlPath,
 						agent: r.agent,
 						subagentType: r.subagentType,
 						resumed: r.resumed,

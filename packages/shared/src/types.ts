@@ -917,6 +917,9 @@ export interface SubagentDetails {
 	subagents: Array<{
 		taskIndex: number;
 		agentId: string;
+		/** 转录 jsonl 的绝对路径；空串 = 本次没落盘（越权、转录目录/meta 准备失败）。
+		 *  前端据此做「查看全部内容」门控——空路径必然 404；**不要**从返回文本解析。 */
+		jsonlPath: string;
 		agent: string;
 		subagentType: string;
 		resumed: boolean;

@@ -84,6 +84,8 @@ test("delegate: 合法调起透传结果", async () => {
 			{
 				taskIndex: 0,
 				agentId,
+				// 与返回块 <transcript> 同源：前端据此做入口门控，不解析文本
+				jsonlPath: jsonlPath(SID, agentId),
 				agent: "代码审查",
 				subagentType: "代码审查",
 				resumed: false,

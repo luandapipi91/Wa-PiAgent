@@ -179,6 +179,8 @@ describe("execute：身份、落盘与返回块", () => {
 		expect(details.subagents[0]).toMatchObject({
 			taskIndex: 0,
 			agentId,
+			// 与返回块 <transcript> 同源（双通道一致，前端不再解析文本）
+			jsonlPath: transcript,
 			agent: "代码审查",
 			subagentType: "代码审查",
 			resumed: false,
@@ -349,6 +351,8 @@ describe("execute：身份、落盘与返回块", () => {
 		// 无实例 = 无 meta 目录（该会话 id 只在本用例使用）
 		expect(existsSync(subagentDir(SID))).toBe(false);
 		expect((res.details as SubagentDetails).subagents[0]!.agentId).toBe("");
+		// 越权行没落盘：details.jsonlPath 同样为空（前端门控只看这两字段）
+		expect((res.details as SubagentDetails).subagents[0]!.jsonlPath).toBe("");
 	});
 
 	test("非法父会话 id：jsonlPath 抛错不阻断派发，<transcript> 给空串（不宣告不存在路径）", async () => {
@@ -376,6 +380,8 @@ describe("execute：身份、落盘与返回块", () => {
 			expect(res.isError).toBe(false);
 			expect(transcriptOf(res.content[0].text, 0)).toBe("");
 			expect(res.content[0].text).toContain("<transcript></transcript>");
+			// details 通道同步降级：jsonlPath 空串（agentId 仍给出，前端靠后者也拿不到入口）
+			expect((res.details as SubagentDetails).subagents[0]!.jsonlPath).toBe("");
 			// 派发不受阻：spawn 仍被调用，只是拿到空路径（走 --no-session）
 			expect(spawn).toHaveBeenCalledTimes(1);
 			expect(seen[0]).toBe("");
@@ -414,6 +420,8 @@ describe("execute：身份、落盘与返回块", () => {
 			});
 			expect(res.isError).toBe(false);
 			expect(transcriptOf(res.content[0].text, 0)).toBe("");
+			// 前端门控的关镀条款：agentId 有、jsonlPath 空 → 不给入口
+			expect((res.details as SubagentDetails).subagents[0]!.jsonlPath).toBe("");
 			expect(spawn).toHaveBeenCalledTimes(1);
 			expect(seen[0]).toBe("");
 			expect(warn).toHaveBeenCalled();
