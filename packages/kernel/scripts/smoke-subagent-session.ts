@@ -21,7 +21,6 @@ import { runSubagentAgent } from "../src/subagent-runner";
 import { ProviderStore } from "../src/provider-store";
 import { ensureProviderExtensionRegistered } from "../src/provider-extension";
 import { readBuiltinAgentPrompt } from "../src/subagent-info";
-import { mcpAdapterExtensionPath } from "../src/extensions";
 
 const POC_DIR = "E:/workspace/Wa-Pi/.superpowers/poc";
 const SESSION_FILE = join(POC_DIR, "a0000001.jsonl");
@@ -68,10 +67,10 @@ async function main() {
 		skillsAllOff: true,
 	};
 	const providerExt = join(GENERATED_DIR, "provider-extension.ts");
-	const mcp = mcpAdapterExtensionPath();
+	// 与生产 spawn 同构（agent-manager）：子进程只带 provider-extension；
+	// MCP 由 pi 内置扩展（builtin:mcp，默认加载）在子进程内自行注册，不再注入第三方 adapter。
 	const extensionPaths = [
 		...(existsSync(providerExt) ? [providerExt] : []),
-		...(mcp ? [mcp] : []),
 	];
 	console.log(`model=${config.model}  extensions=${extensionPaths.length}`);
 
