@@ -1,7 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createSessionViaPrompt, ensureProvider } from "./helpers";
+import {
+  createAgent,
+  createSessionViaPrompt,
+  deleteAgentQuiet,
+  ensureProvider,
+  getAgentConfig,
+} from "./helpers";
 
 // 内置 MCP 端到端（迁移分支任务 13/14）。
 //
@@ -13,7 +19,8 @@ import { createSessionViaPrompt, ensureProvider } from "./helpers";
 //      e2e/fixtures/poc-mcp-server.mjs，真 initialize/tools/list/tools/call）→ kernel 的
 //      McpAdmin 真跑 `pi mcp list --json` 去连它 → `GET /api/mcp` 报 state=connected + tools；
 //      GUI 卡片显示「已连接 · N 工具」；工具弹窗列出 echo/ping；agent 配置工具页可勾选
-//      mcp__e2e__echo（枚举自 pi 已连服务器）；REST DELETE 后卡片消失。
+//      mcp__e2e__echo（枚举自 pi 已连服务器）——并在一次性智能体上真实点击该开关 + 经 REST
+//      回读盘上配置，证明勾选真的落盘而不只是开关画在屏幕上；REST DELETE 后卡片消失。
 //
 //   ② 嵌套卡片半边：`window.__PI_E2E_EVENT__` 注入**与真实形状一致**的
 //      `tool_execution_start/update/end`（toolCallId = "<父id>/1"、parentToolCallId = "<父id>"，
@@ -185,6 +192,55 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
       timeout: 15_000,
     });
     await page.getByTestId("agent-config-close").click();
+
+    // 「可勾选」不止是可见：真实点一下并把盘上配置回读出来。用一次性智能体（默认 tools=[]
+    // → 工具页显示为全量勾选），不动预置的「研发」——kernel 按 displayName 落文件，对「研发」
+    // 保存会写出 研发.md，与预置 dev.md 的 displayName 重名，污染后续 spec 的智能体列表。
+    const agent = "e2e-mcp-tool-agent";
+    await createAgent(agent);
+    try {
+      await page.goto("/");
+      await page.getByTestId("agent-collapsed").click();
+      await expect(page.getByTestId(`gallery-card-${agent}`)).toBeVisible({
+        timeout: 10_000,
+      });
+      await page.getByTestId(`gallery-card-${agent}`).click({ button: "right" });
+      await page.getByTestId("gallery-ctx-edit").click();
+      await expect(page.getByTestId("agent-config")).toBeVisible({
+        timeout: 10_000,
+      });
+      await page.getByTestId("tab-tools").click();
+
+      const sw = page.getByTestId("tool-switch-mcp__e2e__echo");
+      await expect(sw).toBeVisible({ timeout: 15_000 });
+      // 新智能体的 tools=[]（kernel 语义 = 全量默认），故该开关初值为开
+      await expect(sw).toHaveAttribute("data-on", "true");
+
+      // 点一下 → 勾选态真的变（关掉）→ 保存：应写成显式工具白名单
+      await sw.click();
+      await expect(sw).toHaveAttribute("data-on", "false");
+      await page.getByTestId("cfg-save").click();
+      await expect(page.getByTestId("agent-config")).toHaveCount(0, {
+        timeout: 10_000,
+      });
+
+      // 回读盘上的配置（PUT 是 fire-and-forget，故轮询等落盘）：tools 由默认空数组变成
+      // 显式白名单，且该工具确实不在其中——证明改写的是「工具页的勾选态」而不是别的值
+      await expect
+        .poll(
+          async () => {
+            const cfg = await getAgentConfig(agent);
+            return Array.isArray(cfg?.tools) ? cfg.tools.length : 0;
+          },
+          { timeout: 15_000 },
+        )
+        .toBeGreaterThan(0);
+      const saved: string[] = (await getAgentConfig(agent))?.tools ?? [];
+      expect(saved).not.toContain("mcp__e2e__echo");
+      expect(saved).toContain("read");
+    } finally {
+      await deleteAgentQuiet(agent);
+    }
   });
 
   test("嵌套工具卡：注入 tool_execution_* 事件 → 内层子卡挂到父卡下（T11 实时链路）", async ({

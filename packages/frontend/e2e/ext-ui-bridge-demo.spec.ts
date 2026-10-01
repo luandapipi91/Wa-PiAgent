@@ -225,8 +225,10 @@ test.describe
 
       // 等一小段时间让潜在的回显/命令副作用落地，再断言无用户气泡
       await page.waitForTimeout(3000);
-      // 非平凡性证据：pi 的 transcript 里根本没有这条 user 消息（/mcp 被 pi 当命令拦截执行，
-      // 不写 transcript）。所以 UI 也不该显示这条用户消息——否则用户会以为模型收到了它。
+      // 前提核验（**不是**本回归的判别证据）：pi 确实把 `/mcp` 当命令拦截执行、不写 transcript，
+      // 所以这里核验 transcript 里没有这条 user 消息。注意它在修前修后同样成立——假气泡只来自
+      // 前端乐观插入 + kernel 的 session:echo_user，与 pi 的 transcript 无关，因此它判不出本次
+      // 回归；真正有判别力的是下面那条 exact 匹配的气泡断言（报告 §3.6 的红跑反证）。
       const msgs: any = await apiGet(
         `/api/sessions/${encodeURIComponent(sessionId)}/messages`,
       );
