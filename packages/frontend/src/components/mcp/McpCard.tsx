@@ -101,6 +101,14 @@ function configSummary(config: McpServerEntry, emptyLabel: string): string {
 /** 登录等待秒数的输入框初值（秒级；与 kernel 的 DEFAULT_LOGIN_TIMEOUT_SEC 一致） */
 const DEFAULT_TIMEOUT_SEC = "300";
 
+/**
+ * 登录等待秒数的上限（秒，与 kernel 的 MAX_LOGIN_TIMEOUT_SEC 一致）。
+ *
+ * 超大值的毫秒数会溢出 32 位整数、被运行时截断成 1ms（= pi 刚起就被杀），所以输入框给 max，
+ * 提交前再 clamp 一次（max 只是原生提示，手打字/粘贴可以绕过）。
+ */
+const MAX_TIMEOUT_SEC = 3600;
+
 export function McpCard({
   config,
   state,
@@ -141,9 +149,11 @@ export function McpCard({
   const loginPending = loginState?.pending === true;
 
   const handleLogin = () => {
-    // 输入框被清空 / 写成非正数时不编值：交给 kernel 用它自己的缺省上限
+    // 输入框被清空 / 写成非正数时不编值：交给 kernel 用它自己的缺省上限；
+    // 超过上限就按上限来（否则 REST 会 400，用户只会看到一个「参数非法」）
     const n = Number(timeoutSec);
-    onLogin(Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined);
+    if (!Number.isFinite(n) || n <= 0) return onLogin(undefined);
+    onLogin(Math.min(Math.floor(n), MAX_TIMEOUT_SEC));
   };
 
   return (
@@ -281,6 +291,9 @@ export function McpCard({
       <div className="flex gap-1.5 flex-wrap items-center">
         {canLogin && (
           <input
+            type="number"
+            min={1}
+            max={MAX_TIMEOUT_SEC}
             className="w-14 text-[calc(11px*var(--font-scale))] px-1.5 py-1 rounded-md"
             style={{
               background: "var(--canvas)",

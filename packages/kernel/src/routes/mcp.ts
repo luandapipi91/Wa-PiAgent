@@ -37,6 +37,7 @@ import { McpTrustStore } from "../mcp-trust";
 import { migrateProjectMcpFile } from "../mcp-migrate";
 import {
   DEFAULT_LOGIN_TIMEOUT_SEC,
+  MAX_LOGIN_TIMEOUT_SEC,
   McpLoginRunner,
   extractAuthorizationUrl,
   lastNonEmptyLine,
@@ -593,6 +594,16 @@ export function createMcpRoutes(deps: McpRouteDeps): RouteRegistrar {
         timeoutSec <= 0
       ) {
         return paramErrorResponse("timeoutSec 必须是正数（秒）", "timeoutSec");
+      }
+      // 上限不能省：超过 MAX_LOGIN_TIMEOUT_SEC 的秒数会让 (timeoutSec + 宽限) * 1000 溢出 2^31−1，
+      // setTimeout 把延时截断成 1ms → pi 刚 spawn 就被 SIGTERM，用户却只看到「pi 没有输出原因」
+      // 这种误诊我们自己的错的文案；另一端还会把 pi 与它的回调监听挂上十几天。直接 400 说清楚，
+      // 不静默改小用户要的时长（前端输入框也有 max，正常走不到这里）。
+      if (timeoutSec > MAX_LOGIN_TIMEOUT_SEC) {
+        return paramErrorResponse(
+          `timeoutSec 不能超过 ${MAX_LOGIN_TIMEOUT_SEC} 秒`,
+          "timeoutSec",
+        );
       }
       let cwd: string;
       try {

@@ -22,10 +22,13 @@ import type { McpListResult } from "../src/mcp-admin";
 import { McpAdmin, normalizeMcpAuthKey } from "../src/mcp-admin";
 import { McpFile } from "../src/mcp-file";
 import {
+  LOGIN_KILL_GRACE_SEC,
+  MAX_LOGIN_TIMEOUT_SEC,
   McpLoginRunner,
   extractAuthorizationUrl,
   lastNonEmptyLine,
 } from "../src/mcp-login";
+import type { McpLoginProcess } from "../src/mcp-login";
 import { createMcpRoutes } from "../src/routes/mcp";
 import type { WSServerEvent } from "@wa-pi/shared";
 
@@ -124,6 +127,41 @@ async function expectStopped(file: string): Promise<void> {
   expect(activityLength(file)).toBe(first);
 }
 
+/**
+ * 「在硬上限内收场」的断言：超过 ms 仍未兼现就判失败。
+ *
+ * 必须自带超时：被断言的正是「上一次会永不返回」的行为——直接 await 的话，红跑会挂成死等，
+ * 而不是把缺口变红。
+ */
+function bounded<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${what}（超过 ${ms}ms）`)), ms),
+    ),
+  ]);
+}
+
+/**
+ * 假子进程：stdout / stderr 立刻 EOF（= pi 关掉了输出），但 `exited` 永不兼现（= pi 不退出）。
+ * 返回 `signals`：记录收到的终止信号（`undefined` = SIGTERM）。
+ */
+function closingStdoutProcess(): { proc: McpLoginProcess; signals: string[] } {
+  const signals: string[] = [];
+  const closed = () => new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+  const proc: McpLoginProcess = {
+    stdout: closed(),
+    stderr: closed(),
+    exited: new Promise<number>(() => {}),
+    exitCode: null,
+    kill: (signal) => {
+      // 不带信号 = SIGTERM（Bun 的语义），记成名字才好断言
+      signals.push(signal ?? "SIGTERM");
+    },
+  };
+  return { proc, signals };
+}
+
 describe("extractAuthorizationUrl（F20：非 TTY 下 URL 打到 stdout）", () => {
   test("从 stdout 提取授权 URL", () => {
     const out = `Sign in to MCP server "remote" in your browser:\nhttp://127.0.0.1:59998/authorize?client_id=x\n`;
@@ -145,6 +183,14 @@ describe("extractAuthorizationUrl（F20：非 TTY 下 URL 打到 stdout）", () 
         `Sign in to MCP server "srv" in your browser:\n`,
       ),
     ).toBe(null);
+  });
+});
+
+describe("登录超时的上界（防止 setTimeout 溢出）", () => {
+  test("上限 + 宽限的毫秒数不过 2^31−1：溢出会被运行时截断成 1ms（= 刚 spawn 就秒杀 pi）", () => {
+    expect((MAX_LOGIN_TIMEOUT_SEC + LOGIN_KILL_GRACE_SEC) * 1000).toBeLessThanOrEqual(
+      2 ** 31 - 1,
+    );
   });
 });
 
@@ -266,6 +312,42 @@ describe("McpLoginRunner（真子进程 + 假 pi）", () => {
     await expectStopped(activityFile); // kill 真的生效
   });
 
+  test("pi 关掉 stdout 却不退出：宽限 kill（SIGTERM→SIGKILL）后按失败收场，不无界等退出", async () => {
+    // 为什么用假子进程而不是真假 pi：Bun 的子进程会自己攥着 stdout 管道直到退出（实测
+    // process.stdout.end() / closeSync(1) 都不产生父进程侧的 EOF），所以真子进程造不出
+    // 「stdout 已关但进程还活着」——而这正是宽限 kill 唯一需要生效的场景。被测的仍然是真的
+    // McpLoginRunner.run：读循环、截止时间、kill 与收场全是真的。
+    const { proc, signals } = closingStdoutProcess();
+    let invalidations = 0;
+    const runner = new McpLoginRunner(
+      {
+        invalidate: () => {
+          invalidations++;
+        },
+      },
+      {
+        runtime: "-",
+        cliPath: "-",
+        agentDir: tmpdir(),
+        cwd: tmpdir(),
+        killGraceSec: 0.2,
+        spawnImpl: () => proc,
+      },
+    );
+
+    const res = await bounded(
+      runner.run({ server: "srv", timeoutSec: 0.2, onLine: () => {} }),
+      4000,
+      "登录没有在硬上限内收场",
+    );
+
+    expect(res.ok).toBe(false);
+    expect(res.url).toBe(null);
+    expect(invalidations).toBe(1); // 失败也失效缓存：登录态可能已经变了
+    // 两道防线都发过：不带信号 = SIGTERM（礼貌），SIGKILL 是「连 SIGTERM 都不理」时的兜底
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
   test("logout 成功：argv 正确、凭据条目被删、缓存失效", async () => {
     useMode("ok");
     const { runner, admin, argvs, invalidations } = await makeRunner();
@@ -355,7 +437,7 @@ describe("POST /api/mcp/login（长任务：受理与结果分离）", () => {
     };
   }
 
-  function makeRouter(opts: { killGraceSec?: number; admin?: unknown } = {}) {
+  function makeRouter(opts: { killGraceSec?: number; admin?: unknown; spawnImpl?: () => McpLoginProcess } = {}) {
     const router = new HttpRouter();
     const file = new McpFile({
       globalPath: join(dir, "mcp.json"),
@@ -378,6 +460,8 @@ describe("POST /api/mcp/login（长任务：受理与结果分离）", () => {
         ...(opts.killGraceSec !== undefined
           ? { killGraceSec: opts.killGraceSec }
           : {}),
+        // 同上：注入假子进程（只给「stdout 已关但进程不退出」那条形态用）
+        ...(opts.spawnImpl !== undefined ? { spawnImpl: opts.spawnImpl } : {}),
       },
     })(router, (async () => Response.json({})) as never, {
       projectStore: {
@@ -500,6 +584,66 @@ describe("POST /api/mcp/login（长任务：受理与结果分离）", () => {
     // 没有任何输出 → 兜底文案，而不是把空串当错误显示
     const err = broadcasts.find((e: any) => (e as any).phase === "error") as any;
     expect(err.error).toBe("登录未完成（pi 没有输出原因）");
+  });
+
+  test("pi 关掉 stdout 却不退出：登录仍以 error 终态收场并失效缓存（不永远停在「等待授权」）", async () => {
+    const { proc } = closingStdoutProcess();
+    const router = makeRouter({ spawnImpl: () => proc, killGraceSec: 0.2 });
+
+    const res = await postLogin(router, { serverName: "srv", timeoutSec: 1 });
+    expect(res?.status).toBe(200);
+
+    // 修复前：读循环一结束就清掉 kill 定时器，随后的 await proc.exited 没有上界
+    // → 这里永远等不到任何终端事件（前端也就永远停在「等待授权」）
+    await waitFor(() => broadcasts.some((e: any) => e.phase === "error"), 5000);
+    const err = broadcasts.find((e: any) => (e as any).phase === "error") as any;
+    expect(err.type).toBe("mcp:login");
+    expect(err.error).toBe("登录未完成（pi 没有输出原因）");
+    // 终端事件之前先失效缓存：下一次 mcp:changed 带的必须是最新登录态
+    expect(invalidations).toBe(1);
+    await waitFor(() => broadcasts.some((e: any) => e.type === "mcp:changed"));
+  });
+
+  test("timeoutSec 超过上限 → 400 且不 spawn（超大值会让定时器溢出，把 pi 1ms 秒杀）", async () => {
+    useMode("ok");
+    const argvFile = join(dir, "argv.log");
+    process.env.MCP_LOGIN_ARGV_FILE = argvFile;
+    const router = makeRouter();
+
+    for (const timeoutSec of [MAX_LOGIN_TIMEOUT_SEC + 1, 1e9, Number.MAX_SAFE_INTEGER]) {
+      const res = await postLogin(router, { serverName: "srv", timeoutSec });
+      expect(res?.status).toBe(400);
+      expect((await res!.json()).failure.code).toBe("common.missingParam");
+    }
+    // 关键证据：pi 一次都没被起过。超大毫秒数会被运行时截断成 1ms，子进程刚 spawn 就被 SIGTERM，
+    // 而前端只会看到「登录未完成（pi 没有输出原因）」这种误诊我们自己的错的文案。
+    await Bun.sleep(200);
+    expect(readArgvs(argvFile)).toEqual([]);
+    expect(broadcasts).toEqual([]);
+    expect(invalidations).toBe(0);
+  });
+
+  test("timeoutSec 取到上限仍受理，且转给 pi 的 --timeout 就是上限本身（不静默改小）", async () => {
+    useMode("ok");
+    const argvFile = join(dir, "argv.log");
+    process.env.MCP_LOGIN_ARGV_FILE = argvFile;
+    const router = makeRouter();
+
+    const res = await postLogin(router, {
+      serverName: "srv",
+      timeoutSec: MAX_LOGIN_TIMEOUT_SEC,
+    });
+
+    expect(res?.status).toBe(200);
+    await waitFor(() => readArgvs(argvFile).length === 1);
+    expect(readArgvs(argvFile)[0].argv).toEqual([
+      "mcp",
+      "login",
+      "srv",
+      "--timeout",
+      String(MAX_LOGIN_TIMEOUT_SEC),
+    ]);
+    await waitFor(() => broadcasts.some((e: any) => e.phase === "ok"));
   });
 });
 

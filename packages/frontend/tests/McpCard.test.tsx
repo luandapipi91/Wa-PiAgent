@@ -279,6 +279,19 @@ test("超时输入被清空 / 写成非正数 → onLogin 不带秒数（交给 
   expect(onLogin.mock.calls).toEqual([[undefined], [undefined]]);
 });
 
+test("超时输入写成超大值 → 按上限提交（溢出会 1ms 秒杀 pi，REST 也会 400）", () => {
+  const onLogin = mock();
+  renderHttpCard({ signedIn: false, onLogin });
+  const input = screen.getByTestId("mcp-login-timeout-test") as HTMLInputElement;
+  // 输入框必须声明上界（原生提示），否则用户能直接输入 1e9
+  expect(input.type).toBe("number");
+  expect(input.max).toBe("3600");
+  // 手打字 / 粘贴能绕过 max → 提交前再 clamp 一次
+  fireEvent.change(input, { target: { value: "1000000000" } });
+  fireEvent.click(screen.getByTestId("mcp-login-test"));
+  expect(onLogin.mock.calls).toEqual([[3600]]);
+});
+
 test("点登出 → onLogout 被调用", () => {
   const onLogout = mock();
   renderHttpCard({ signedIn: true, onLogout });
