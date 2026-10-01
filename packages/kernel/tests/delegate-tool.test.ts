@@ -338,8 +338,25 @@ test("delegate: 空任务数组被拒（tasks 需 1..上限）", async () => {
 	expect(spawn).not.toHaveBeenCalled();
 });
 
-// 注：旧 fleet 的「仅 1 个任务时拒绝执行」用例已删除 —— 合并后单任务即合法
-// （tasks 长度 1），由上面的「合法调起透传结果」用例覆盖。
+test("delegate: tasks 缺失/非数组按 0 项拒绝（不抛 TypeError，错误经文本传达）", async () => {
+	const spawn = mock(async () => ({ text: "ok", isError: false }));
+	const tool = makeDelegateTool({ askTo, spawn });
+	// 入参来自模型/外部：tasks 缺失时不得抛异常（否则经 bridge catch 变成不可读文本）
+	const missing = await tool.execute("tc-missing", {} as { tasks: [] });
+	expect(missing.isError).toBe(true);
+	expect(missing.content[0].text).toContain(
+		`tasks 需要 1..${MAX_SUBAGENT_CONCURRENCY} 项（当前 0 项）`,
+	);
+	expect(missing.details).toEqual({ error: "delegate_task_count_invalid" });
+	// 非数组（如旧双工具形状的字符串入参）同样按 0 项拒绝
+	const notArray = await tool.execute("tc-not-array", {
+		tasks: "delegate",
+	} as unknown as { tasks: [] });
+	expect(notArray.isError).toBe(true);
+	expect(notArray.details).toEqual({ error: "delegate_task_count_invalid" });
+	// 拒绝在派发前发生：不得启动任何子智能体
+	expect(spawn).not.toHaveBeenCalled();
+});
 
 test("delegate: 超过并发上限时拒绝执行（拒绝而非排队）", async () => {
 	const spawn = mock(async () => ({ text: "ok", isError: false }));

@@ -273,17 +273,17 @@ export function makeDelegateTool(opts: {
 			isError: boolean;
 			usage?: ReturnType<typeof sumPiToolUsage>;
 		}> {
-			// 任务数不合法（0 项 / 超上限）拒绝而非排队：排队会占住父代理的工具槽位且模型
-			// 看不出「没并发」。不抛异常，与文件既有约定一致（错误经文本传达给 LLM）
-			if (
-				args.tasks.length === 0 ||
-				args.tasks.length > MAX_SUBAGENT_CONCURRENCY
-			) {
+			// 任务数不合法（缺失/非数组/0 项/超上限）拒绝而非排队：排队会占住父代理的工具槽位且模型
+			// 看不出「没并发」。不抛异常，与文件既有约定一致（错误经文本传达给 LLM）；
+			// 入参来自模型/外部，tasks 缺失或非数组按 0 项处理，避免 args.tasks.length 抛 TypeError
+			//（经 bridge catch 变成「Cannot read properties of undefined」这类不可读文本）
+			const taskCount = Array.isArray(args.tasks) ? args.tasks.length : 0;
+			if (taskCount === 0 || taskCount > MAX_SUBAGENT_CONCURRENCY) {
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `错误：tasks 需要 1..${MAX_SUBAGENT_CONCURRENCY} 项（当前 ${args.tasks.length} 项）。`,
+							text: `错误：tasks 需要 1..${MAX_SUBAGENT_CONCURRENCY} 项（当前 ${taskCount} 项）。`,
 						},
 					],
 					details: { error: "delegate_task_count_invalid" },
