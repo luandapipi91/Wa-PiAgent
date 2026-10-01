@@ -2812,8 +2812,15 @@ export class WSServer {
 				// 活跃 pi 进程实时拉取命令（无活跃进程返回空数组，不创建孤儿进程）。
 				// enabled 已由 AgentManager._fetchCommands 统一合并（对齐 session:commands 路径），
 				// 这里不再二次合并，直接透传，避免双份合并逻辑漂移。
+				//
+				// 唯一的展示层过滤：pi 内置扩展命令（builtinExtension，/mcp、/llama）没有归属包、
+				// 没有开关，不属于「附加命令」页。它们**不能**在 AgentManager 层被剔除——同一条
+				// 清单还要供 session:commands 路径判定「pi 会不会拦截这条命令」（回显抑制），
+				// 剔除会让聊天窗凭空多出一条并不存在的用户消息（见 tui-command-filter 文件头）。
 				try {
-					const commands = await this.opts.agentManager.getCommands("");
+					const commands = (
+						await this.opts.agentManager.getCommands("")
+					).filter((c) => c.builtinExtension !== true);
 					reply({ type: "extension:commands:list", commands });
 				} catch (err) {
 					replyError(reply, err);

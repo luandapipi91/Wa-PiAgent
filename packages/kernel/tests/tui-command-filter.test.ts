@@ -88,8 +88,8 @@ const demoEntry = fileURLToPath(
 	new URL("../../../examples/ext-ui-bridge-demo/index.ts", import.meta.url),
 );
 
-describe("内置命令过滤（规格 F21/F22）", () => {
-	test("sourceInfo.path 以 builtin: 开头的命令被剔除", () => {
+describe("内置扩展命令：**保留并打标**（不剔除，展示层自己过滤）", () => {
+	test("sourceInfo.path 以 builtin: 开头的命令被标记 builtinExtension，且仍是 extension 来源", () => {
 		const out = attachPackageName([
 			{
 				name: "mcp",
@@ -108,10 +108,17 @@ describe("内置命令过滤（规格 F21/F22）", () => {
 				sourceInfo: { path: "builtin:llama.cpp", source: "builtin" },
 			},
 		]);
-		expect(out).toHaveLength(0);
+		// 必须保留：pi 会**拦截执行**它们（不产生 user 消息），剔除会让「这条命令会不会被 pi
+		// 拦截」的判定失去依据，于是聊天窗凭空多出一条并不存在的用户消息（回归：/mcp 气泡）。
+		expect(out.map((c) => c.name)).toEqual(["mcp", "llama"]);
+		expect(out.map((c) => c.builtinExtension)).toEqual([true, true]);
+		// 回显抑制按 source === "extension" 判定，标记不得改动来源
+		expect(out.every((c) => c.source === "extension")).toBe(true);
+		// 内置命令无归属包 → 不进「附加命令」弹窗（该弹窗按 packageName 过滤）
+		expect(out.every((c) => c.packageName === undefined)).toBe(true);
 	});
 
-	test("真实文件路径的扩展命令仍被保留并附包名（不误伤）", () => {
+	test("真实文件路径的扩展命令仍被保留并附包名（不误伤，且不带 builtinExtension）", () => {
 		const out = attachPackageName([
 			{
 				name: "uidemo",
@@ -124,9 +131,10 @@ describe("内置命令过滤（规格 F21/F22）", () => {
 		expect(out.map((c) => c.name)).toEqual(["uidemo", "goal"]);
 		expect(out[0].packageName).toBe("ext-ui-bridge-demo");
 		expect(out[1].packageName).toBe("goal-ext");
+		expect(out.every((c) => c.builtinExtension !== true)).toBe(true);
 	});
 
-	test("混合清单：仅剔除内置命令，prompt/skill/无 sourceInfo 的 extension 命令不受影响", () => {
+	test("混合清单：仅内置命令打标，prompt/skill/无 sourceInfo 的 extension 命令不受影响", () => {
 		const out = attachPackageName([
 			cmd("mcp", "extension", "builtin:mcp"),
 			cmd("llama", "extension", "builtin:llama.cpp"),
@@ -136,12 +144,18 @@ describe("内置命令过滤（规格 F21/F22）", () => {
 			{ name: "__!wa_pi_reload", source: "extension" },
 		]);
 		expect(out.map((c) => c.name)).toEqual([
+			"mcp",
+			"llama",
 			"goal",
 			"review",
 			"skill:x",
 			"__!wa_pi_reload",
 		]);
-		expect(out[0].packageName).toBe("goal-ext");
+		expect(out.filter((c) => c.builtinExtension === true).map((c) => c.name)).toEqual([
+			"mcp",
+			"llama",
+		]);
+		expect(out[2].packageName).toBe("goal-ext");
 	});
 
 	test("wa-pi-bridge 不再包含针对 /mcp 的 custom() 兜底补丁", () => {

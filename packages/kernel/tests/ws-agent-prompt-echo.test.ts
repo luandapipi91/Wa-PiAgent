@@ -6,6 +6,7 @@
 // 未注册 slash / prompt / skill 来源命令会展开为用户消息发给 LLM，仍回显。
 import { test, expect } from "bun:test";
 import { WSServer } from "../src/ws-server";
+import { attachPackageName, type RawCommandInfo } from "../src/tui-command-filter";
 
 interface Harness {
 	commands: any[];
@@ -92,6 +93,29 @@ test("未注册 slash 文本：照常回显（会作为普通消息发给 LLM）
 	const body = await res.json();
 	expect(body.type).toBe("session:echo_user");
 	expect(body.text).toBe("/not-a-command");
+});
+
+// 回归（任务 13）：pi 内置扩展命令（sourceInfo.path = "builtin:mcp"，如 /mcp）在 RPC 下
+// **同样被 pi 拦截执行**（实测：pi 打印自己的输出、transcript 为空），故不能回显用户气泡。
+// 命令清单必须经真实的 attachPackageName 后仍能识别它是 extension 命令——
+// 曾经把这类命令从清单里剔除，导致本判定失去依据、聊天窗凭空多出一条 "/mcp" 用户消息。
+test("内置扩展命令 /mcp（builtin:mcp）：经真实过滤后仍不回显 echo_user", async () => {
+	const filtered = attachPackageName([
+		{
+			name: "mcp",
+			description: "Manage MCP servers",
+			source: "extension",
+			sourceInfo: { path: "builtin:mcp", source: "builtin" },
+		},
+	] as RawCommandInfo[]);
+	const h = makeHarness(filtered);
+	const server = makeServer(h);
+	const res = await server.callApi({ ...PROMPT, text: "/mcp" } as any);
+	const body = await res.json();
+	expect(body.type).not.toBe("session:echo_user");
+	// 命令仍原样交给 pi 分发（由 pi 拦截执行）
+	expect(h.promptCalls).toHaveLength(1);
+	expect(h.promptCalls[0][1]).toBe("/mcp");
 });
 
 test("prompt 来源命令：照常回显（展开为用户消息发给 LLM）", async () => {

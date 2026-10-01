@@ -179,7 +179,7 @@ test.describe
       await expect(page.getByText("/uidemo notify")).toHaveCount(0);
     });
 
-    test("内置插件命令（/mcp，pi-mcp-adapter）同样不出现用户消息气泡", async ({
+    test("内置 pi 命令（/mcp）：不在「附加命令」清单里，发送后也不出现用户消息气泡", async ({
       page,
     }) => {
       const sessionId = await spawnSession();
@@ -194,8 +194,24 @@ test.describe
         .getByTestId("model-selector")
         .selectOption({ label: "E2E UIDemo/model-a" });
 
-      // 确认 /mcp 已在命令清单（内置 PKG_EXTENSIONS 加载，source=extension）
-      await pollCommand("mcp");
+      // 命令清单就绪的**确定性**前置：等本会话 pi 进程里真实存在的扩展命令出现
+      //（uidemo 由 beforeAll 安装的本地扩展贡献）。这里不能用 pollCommand("mcp") 等：
+      // 内置命令现在**预期不在清单里**，轮询必然超时；而本 describe 是 serial，
+      // 一次超时会静默跳过后面 3 条用例（dialog 子协议 / notify ANSI / setStatus+setWidget）。
+      await pollCommand("uidemo");
+      // pi 内置扩展命令（/mcp、被禁用的 llama.cpp）不进「附加命令」清单：
+      // kernel 的 tui-command-filter 给它们打 builtinExtension 标记，展示端点与前端 / 菜单
+      // 各自过滤；但条目本身必须保留在 session:commands 里——回显抑制靠它判定
+      //「pi 会不会拦截这条命令」，剔除会让聊天窗凭空多出一条并不存在的用户消息。
+      const list: any = await apiGet("/api/extensions/commands");
+      const names: string[] = (list?.commands ?? []).map((c: any) => c.name);
+      expect(
+        names,
+        `命令清单不该含内置命令: ${JSON.stringify(names)}`,
+      ).not.toContain("mcp");
+      expect(names).not.toContain("llama");
+      // 清单确实有内容，否则上面的 not.toContain 会平凡成立（空清单也能通过）
+      expect(names).toContain("uidemo");
 
       const textbox = page.locator(
         '[data-testid="composer-input"] [role="textbox"]',
@@ -204,10 +220,32 @@ test.describe
       await textbox.fill("/mcp");
       await page.keyboard.press("Escape");
       await page.getByTestId("composer-send").click();
+      // 发送确实发生了（发送后输入框清空）——否则下面的「无气泡」会平凡成立
+      await expect(textbox).toHaveText("");
 
       // 等一小段时间让潜在的回显/命令副作用落地，再断言无用户气泡
       await page.waitForTimeout(3000);
-      await expect(page.getByText("/mcp")).toHaveCount(0);
+      // 非平凡性证据：pi 的 transcript 里根本没有这条 user 消息（/mcp 被 pi 当命令拦截执行，
+      // 不写 transcript）。所以 UI 也不该显示这条用户消息——否则用户会以为模型收到了它。
+      const msgs: any = await apiGet(
+        `/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+      );
+      const userTexts: string[] = (msgs?.messages ?? [])
+        .filter((m: any) => m.role === "user")
+        .map((m: any) =>
+          (m.content ?? [])
+            .filter((b: any) => b.type === "text")
+            .map((b: any) => b.text)
+            .join(""),
+        );
+      expect(
+        userTexts,
+        `pi transcript 不该有 /mcp 用户消息: ${JSON.stringify(userTexts)}`,
+      ).not.toContain("/mcp");
+      // 用户气泡断言用 exact：pi 对 /mcp 的输出里带 `…\.pi/mcp.json` 路径，子串匹配会被它误命中
+      //（旧实现写 pollCommand("mcp") 时 pi-mcp-adapter 的输出没有这个路径）。exact 匹配的
+      // 恰好是用户气泡内层 <p> 的文本——假气泡（乐观插入而 pi 并未收到）会精确命中 "/mcp"。
+      await expect(page.getByText("/mcp", { exact: true })).toHaveCount(0);
     });
 
     test("扩展 dialog 子协议：/uidemo select 弹窗应答后 notify 回显结果", async ({

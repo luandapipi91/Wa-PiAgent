@@ -108,10 +108,15 @@ interface McpState {
    * 装载清单。`scope` 为该清单所属作用域（`null` = 全局）：
    * 与当前选中作用域不符的清单直接丢弃——否则项目级改动会覆盖全局视图
    * （登记在案的既有缺陷，任务 9 修）。
+   *
+   * `sourceSeq` 为**来源序号**（内部参数）：`load` 传入请求发出时取的号，事件路径省略
+   * （到达时取号，必然大于任何在飞请求的号）。序号更小的来源一律丢弃——否则先发出、
+   * 后到达的 `GET /api/mcp` 响应（改动前读到的清单）会覆盖之后到达的 `mcp:changed` 广播。
    */
   setServers(
     data: McpListPayload | McpChangedEvent | McpListResult,
     scope?: string | null,
+    sourceSeq?: number,
   ): void;
   setTestResult(data: McpTestResult): void;
   setToolsResult(data: McpToolsResult): void;
@@ -140,6 +145,19 @@ interface McpState {
   setSearchQuery(q: string): void;
 }
 
+/**
+ * 清单来源的单调序号（模块级，不进 store state：只用于丢弃过期来源，不该引起额外重渲染）。
+ *
+ * `GET /api/mcp` 是冷路径——内核要真 spawn `pi mcp list`（本机实测 6~7s），而写操作后的
+ * `mcp:changed` 广播在写盘后立刻发出。同一次改动里**先发出的请求可能后到达**：把这份
+ * 「改动前读到的清单」当最新写入 store，用户刚添加的服务器就从界面上消失，而且没有任何
+ * 后续刷新把它带回来（`onReconnect` 也不刷新 MCP）。故每次请求发出 / 每帧事件到达都取一个
+ * 更大的号，只有比「已应用的来源」更大的来源才允许写入。
+ */
+let listSourceSeq = 0;
+/** 已应用的清单来源序号（见 {@link listSourceSeq}）：序号更小的来源一律丢弃 */
+let appliedListSeq = 0;
+
 export const useMcpStore = create<McpState>((set, get) => ({
   servers: [],
   stale: false,
@@ -162,16 +180,25 @@ export const useMcpStore = create<McpState>((set, get) => ({
       projectId !== undefined ? projectId : (get().selectedProjectId ?? null);
     set({ loading: true, selectedProjectId: scope });
     const url = scope ? `/api/mcp?projectId=${encodeURIComponent(scope)}` : "/api/mcp";
+    // 请求发出时取号：这期间到达的 `mcp:changed` 广播比本响应更新，靠这个号把过期响应挡在 store 外
+    const seq = ++listSourceSeq;
     api
       .get(url)
       .then((data: any) => {
+        // 本请求发出之后已有更新的清单来源写入过 → 这份是过期数据，丢弃（不能回退视图）
+        if (seq <= appliedListSeq) return;
         // 响应回来时用户可能已切到别的作用域：晚到的清单不得覆盖新视图
         if (!data || (get().selectedProjectId ?? null) !== scope) return;
-        get().setServers(data, scope);
+        get().setServers(data, scope, seq);
       })
       .catch(() => set({ loading: false }));
   },
-  setServers: (data, scope) => {
+  setServers: (data, scope, sourceSeq) => {
+    // 来源序号：REST 清单由 load 给（请求发出时的号），事件在到达时取号
+    const seq = sourceSeq ?? ++listSourceSeq;
+    // 已有更新的来源写入过 → 这份是过期数据。**必须先于作用域守卫**：作用域不符的来源
+    // 不推进 appliedListSeq，否则会把本作用域仍在飞的清单请求一并判死、列表永远刷不出来。
+    if (seq <= appliedListSeq) return;
     const s = get();
     // 作用域过滤：事件自带 projectId（REST 清单则由调用方给 scope），无 projectId 视为全局
     const owner =
@@ -179,6 +206,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
         ? scope
         : ((data as { projectId?: string }).projectId ?? null);
     if (owner !== (s.selectedProjectId ?? null)) return;
+    appliedListSeq = seq;
     const payload = data as McpListPayload;
     // 元信息（stale/note）的来源分两类，缺字段的含义不同：
     //   · REST 清单回包（无 type，由 kernel 的 listWithState 产出）**恒带**完整元信息
