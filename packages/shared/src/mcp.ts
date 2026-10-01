@@ -1,21 +1,80 @@
 // ===== MCP 服务器配置管理类型定义 =====
+//
+// pi-mcp-adapter 时代字段（lifecycle / idleTimeout / requestTimeoutMs / directTools /
+// excludeTools / exposeResources / debug）随 adapter 移除（任务 8 移除最后一个消费者）：
+// 迁移读取它们走 `mcp-migrate.ts` 的原始对象（`Record<string, unknown>`），不再需要类型声明。
+
+/** 工具暴露方式（规格 §8） */
+export type McpExposure =
+  | "codemode"
+  | "codemode-deferred"
+  | "deferred"
+  | "direct"
+  | "hidden";
 
 /** MCP 服务器配置（兼容 .mcp.json 格式） */
 export interface McpServerConfig {
   name: string;
+  /** 传输类型；缺省时按 command / url 推断 */
+  type?: "stdio" | "http" | "streamable-http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
-  lifecycle?: "lazy" | "eager" | "keep-alive";
-  idleTimeout?: number;
-  requestTimeoutMs?: number;
-  directTools?: boolean | string[];
-  excludeTools?: string[];
-  exposeResources?: boolean;
-  debug?: boolean;
+  /** 超时（秒），必须是正数 */
+  timeout?: number;
+  /** 是否启用；缺省为启用 */
+  enabled?: boolean;
+  /** 该服务器所有工具的默认暴露方式 */
+  exposure?: McpExposure;
+  /** 按工具名覆盖暴露方式 */
+  toolExposure?: Record<string, McpExposure>;
+}
+
+/** 配置作用域 */
+export interface McpScope {
+  /** 缺省为全局 */
+  projectId?: string;
+}
+
+/** 字段级校验错误（field 供表单定位，message 供展示） */
+export interface McpFieldError {
+  field: string;
+  message: string;
+}
+
+/** 服务器名允许的字符集 */
+const SERVER_NAME_RE = /^[A-Za-z0-9_-]+$/;
+
+/** 校验单个服务器配置；返回字段级错误（空数组表示合法）。规格 §8 */
+export function validateMcpServer(input: McpServerConfig): McpFieldError[] {
+  const errors: McpFieldError[] = [];
+  if (!SERVER_NAME_RE.test(input.name ?? "")) {
+    errors.push({ field: "name", message: "只允许字母、数字、下划线与连字符" });
+  }
+  const hasCommand = typeof input.command === "string" && input.command.length > 0;
+  const hasUrl = typeof input.url === "string" && input.url.length > 0;
+  if (hasCommand === hasUrl) {
+    errors.push({
+      field: hasCommand ? "url" : "command",
+      message: "必须且只能提供 command 或 url 之一",
+    });
+  }
+  if (input.type && input.type !== "stdio" && !hasUrl) {
+    errors.push({ field: "type", message: `${input.type} 需要 url` });
+  }
+  if (input.type === "stdio" && !hasCommand) {
+    errors.push({ field: "command", message: "stdio 需要 command" });
+  }
+  if (
+    input.timeout !== undefined &&
+    (!Number.isFinite(input.timeout) || input.timeout <= 0)
+  ) {
+    errors.push({ field: "timeout", message: "必须是正数（秒）" });
+  }
+  return errors;
 }
 
 /** 工具参数摘要 */
@@ -75,6 +134,19 @@ export interface McpChangedEvent {
   type: "mcp:changed";
   projectId?: string;
   servers: McpServerConfig[];
+  // 与 `GET /api/mcp` 的清单元信息同形（kernel 的 broadcastChanged 逐字段拷贝）：
+  // 前端据此显示「状态未知」（stale）与「项目未受信、配置被忽略」（note），
+  // 去掉它们会让一次保存的广播抹掉这两处说明。可缺省是为了兼容不带元信息的生产者。
+  /** pi / 写入层的错误列表 */
+  errors?: string[];
+  /** 命令本身没跑起来 / 输出不可解析 */
+  commandFailed?: boolean;
+  /** 有启用中的 server 处于异常态 */
+  hasProblems?: boolean;
+  /** 状态读取层无法刷新、用的是上一条缓存 → UI 必须显示「状态未知」 */
+  stale?: boolean;
+  /** pi 的顶层提示（项目未受信任时配置被忽略的唯一信号） */
+  note?: string;
 }
 export interface McpTestResult {
   type: "mcp:testResult";
@@ -98,5 +170,27 @@ export interface McpToolsResult {
   /** 成功时的工具列表（与 error 互斥） */
   tools?: McpToolSummary[];
   /** listTools 失败时填充（与 tools 互斥） */
+  error?: string;
+}
+/**
+ * OAuth 登录进度（规格 F20）：`POST /api/mcp/login` 只有「已受理」一个回包，
+ * 授权 URL 与最终结果都在这条事件里回流。
+ */
+export interface McpLoginEvent {
+  type: "mcp:login";
+  serverName: string;
+  /** 作用域（与 mcp:changed 同一语义）：前端据此丢弃不属于当前视图的登录进度 */
+  projectId?: string;
+  /**
+   * running = pi 的进度行（尚未拿到 URL）；
+   * authorizationUrl = 授权 URL 已就绪；
+   * ok = 登录成功（凭据已落盘）；error = 失败/超时/不支持 OAuth。
+   */
+  phase: "running" | "authorizationUrl" | "ok" | "error";
+  /** phase=authorizationUrl 时的授权 URL（pi 已经自己打开过浏览器，前端只展示） */
+  url?: string;
+  /** phase=running 时的原始输出行（已剥 ANSI） */
+  line?: string;
+  /** phase=error 时失败文案（pi 的末行输出，如随超时一起打的 cancelled） */
   error?: string;
 }

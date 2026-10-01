@@ -229,7 +229,6 @@ async function startTestServer() {
 			waPiDir: tmpDir,
 			projectStore: new ProjectStore(projectFile),
 		}),
-		mcpStore: null as any,
 		dataDir,
 		agentManager: { disposeAll: async () => {}, markAllDirty: () => {} } as any,
 		channelManager: null,

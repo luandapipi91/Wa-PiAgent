@@ -53,7 +53,6 @@ beforeAll(async () => {
 		providerStore: {} as any,
 		skillManager: {} as any,
 		memoryStore: {} as any,
-		mcpStore: {} as any,
 		channelManager: null,
 		port: 0, // 随机端口
 	});
@@ -121,6 +120,23 @@ test("GET /api/extensions/commands 透传 agentManager 已合并的开关状态�
 		},
 		{ name: "review", description: "代码审查模板", source: "prompt" },
 	]);
+});
+
+test("GET /api/extensions/commands 过滤 pi 内置扩展命令（builtinExtension）—— 插件命令页只列插件贡献的命令", async () => {
+	// pi 内置扩展命令（/mcp、/llama）没有归属包、没有开关，不属于「附加命令」页；
+	// 它们由 tui-command-filter 打上 builtinExtension 标记（**不从清单里剔除**，
+	// 否则 session:commands 路径的「pi 会不会拦截」判定会失去依据）：该标记的隐藏
+	// 只发生在本展示端点与前端 / 菜单的展示层过滤里。
+	getCommandsSpy.mockImplementation(async () => [
+		{ name: "uidemo", source: "extension", packageName: "ext-ui-bridge-demo", enabled: true },
+		{ name: "mcp", description: "Manage MCP servers", source: "extension", builtinExtension: true },
+		{ name: "llama", source: "extension", builtinExtension: true },
+	]);
+
+	const res = await fetch(`${base}/api/extensions/commands`);
+	expect(res.status).toBe(200);
+	const body = await res.json();
+	expect(body.commands.map((c: any) => c.name)).toEqual(["uidemo"]);
 });
 
 test("POST /api/extensions/commands/toggle 成功 → 调 setCommandToggle", async () => {

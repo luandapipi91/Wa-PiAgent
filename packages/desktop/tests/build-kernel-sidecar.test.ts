@@ -8,7 +8,7 @@ test("buildRuntimeManifest: 精简清单——仅磁盘必需依赖，无 patche
   const m = buildRuntimeManifest() as any;
   expect(m.name).toBe("wa-pi-kernel-sidecar");
   expect(m.private).toBe(true);
-  // patch 编译期已生效（pi-mcp-adapter 内联进 exe），磁盘副本供 -e 扩展加载，无需 patch
+  // patch 编译期已生效（内联进 exe），磁盘副本供 -e 扩展加载，无需 patch
   expect(m.patchedDependencies).toBeUndefined();
   // pi-coding-agent：pi RPC 子进程入口 cli.js 必须在磁盘（子进程读不到父进程虚拟 FS）
   expect(m.dependencies["@earendil-works/pi-coding-agent"]).toBeString();
@@ -16,10 +16,9 @@ test("buildRuntimeManifest: 精简清单——仅磁盘必需依赖，无 patche
   expect(m.dependencies["@napi-rs/keyring"]).toBeString();
   // 内置扩展（PKG_EXTENSIONS）：pi 子进程经 -e 从磁盘加载 index.ts，必须落盘
   // （Task 6 集成测试审计确认：缺失时 agent:prompt 报 Cannot find module '<pkg>'）
+  // pi-mcp-adapter 已随 MCP 内置化迁移移除，不得再回到清单里
   // 版本与 kernel package.json 单一来源一致（升级依赖时本测试自动跟随，不硬编码版本串）
-  expect(m.dependencies["pi-mcp-adapter"]).toBe(
-    kernelPkg.dependencies["pi-mcp-adapter"],
-  );
+  expect(m.dependencies["pi-mcp-adapter"]).toBeUndefined();
   expect(m.dependencies["pi-web-access"]).toBe(
     kernelPkg.dependencies["pi-web-access"],
   );

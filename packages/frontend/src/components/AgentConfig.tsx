@@ -470,7 +470,14 @@ function ToolsTab({
 	tools,
 }: TabProps & { tools: AgentToolItem[] }) {
 	const { t } = useTranslation();
-	const all = tools.map((tl) => tl.name);
+	// MCP 入口工具（pi 的 ensureDiscoveryActive）：非「直接可用」的 MCP 工具必须靠它到达。
+	// kernel 无论用户勾没勾都会把它并进白名单（resolveAgentTools 无条件合并枚举结果），
+	// 所以这里只展示、不给开关——避免“勾了 codemode 却仍然调不到工具”的误导（T7 复审登记）。
+	const isMcpEntryTool = (name: string) =>
+		name === "codemode" || name === "tool_search";
+	const selectable = tools.filter((tl) => !isMcpEntryTool(tl.name));
+	const entryTools = tools.filter((tl) => isMcpEntryTool(tl.name));
+	const all = selectable.map((tl) => tl.name);
 	// 防御：draft.tools 可能因磁盘残留/API 兼容性为非数组，统一规范化为 []
 	const dtools: string[] = Array.isArray(draft.tools) ? draft.tools : [];
 	// 空数组 = 全量默认（kernel 语义）：展示态全部勾选，取消勾选即转为显式列表
@@ -491,7 +498,7 @@ function ToolsTab({
 			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
 				{t("agentConfig.toolsHint")}
 			</p>
-			{tools.map((tl) => (
+			{selectable.map((tl) => (
 				<label
 					key={tl.name}
 					className="flex items-center gap-2 py-1 cursor-pointer justify-between"
@@ -515,6 +522,39 @@ function ToolsTab({
 					/>
 				</label>
 			))}
+
+			{/* MCP 入口工具：不能单独关掉（kernel 强制放行），需明确标注而不是给个没用的开关 */}
+			{entryTools.length > 0 && (
+				<div
+					className="mt-3 pt-3"
+					style={{ borderTop: "1px solid var(--hairline)" }}
+					data-testid="mcp-entry-tools"
+				>
+					<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
+						{t("agentConfig.mcpEntryHint")}
+					</p>
+					{entryTools.map((tl) => (
+						<div
+							key={tl.name}
+							className="flex items-center gap-2 py-1 justify-between"
+							data-testid={`mcp-entry-tool-${tl.name}`}
+						>
+							<span className="flex items-center gap-2">
+								<span className="text-sm text-tertiary">{tl.name}</span>
+								<span
+									className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
+									style={{
+										background: "var(--hairline)",
+										color: "var(--text-tertiary)",
+									}}
+								>
+									{tl.source}
+								</span>
+							</span>
+						</div>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }

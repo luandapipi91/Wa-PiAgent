@@ -75,6 +75,7 @@ import type {
 	McpChangedEvent,
 	McpTestResult,
 	McpToolsResult,
+	McpLoginEvent,
 } from "./mcp";
 import type { SessionCommandsRequest, SessionCommandsResult } from "./commands";
 
@@ -226,6 +227,31 @@ export interface AssistantMessage {
 	};
 }
 
+/** 嵌套调用（如 codemode 脚本经 ctx.executeTool() 发起的调用）的单条记录。
+ *  镜像 pi-ai `NestedToolCallRecord`：**不含结果内容**，只有 id/name/arguments/status。 */
+export interface NestedToolCallRecord {
+	/** 形如 `<父 toolCallId>/N`（pi 的 NestedCallRecorder 逐条编号） */
+	id: string;
+	name: string;
+	/** 超出体积上限时被省略，此时用 argumentsBytes 表示其大小 */
+	arguments?: Record<string, unknown>;
+	argumentsBytes?: number;
+	/** unfinished = 调用方工具结束时该调用还没跑完（会出现在已结束的历史会话里） */
+	status: "ok" | "error" | "unfinished";
+	durationMs?: number;
+	/** 失败文本（已截断） */
+	error?: string;
+}
+
+/** pi 落在父工具结果消息上的嵌套调用记录 = `NestedCallRecorder.snapshot()` 的返回值。
+ *  ⚠️ 形状是**对象**而不是数组：`{ calls, complete }`（`agent-session.js` 的
+ *  `message.nestedCalls = summary.calls` 写的就是这个对象）。 */
+export interface NestedToolCalls {
+	calls: NestedToolCallRecord[];
+	/** calls 被丢弃、arguments 被省略、或有调用未结束时为 false */
+	complete: boolean;
+}
+
 export interface ToolResultMessage {
 	role: "toolResult";
 	toolCallId: string;
@@ -237,6 +263,9 @@ export interface ToolResultMessage {
 	 *  由 kernel 工具 execute 返回，经 pi SDK 原样持久化到会话 JSONL；
 	 *  旧会话无此字段，前端需兼容 undefined。 */
 	details?: unknown;
+	/** 该工具调用的内层调用记录（内层调用不进 transcript，历史会话里这是唯一来源）。
+	 *  旧会话无此字段，前端需兼容 undefined。 */
+	nestedCalls?: NestedToolCalls;
 }
 
 /** 子代理工具调用统计（总数/成功/失败/执行中），与 SubagentProgressEvent.tools 同源分桶 */
@@ -1308,6 +1337,9 @@ export type SDKEvent =
 			toolCallId: string;
 			toolName: string;
 			args: any;
+			/** 另一工具（如 codemode 脚本）经 ctx.executeTool() 发起的嵌套调用才有：
+			 *  此时 toolCallId 形如 `<父id>/<n>`，且该调用不进 transcript（不产生消息）。 */
+			parentToolCallId?: string;
 	  }
 	| {
 			type: "tool_execution_update";
@@ -1315,6 +1347,8 @@ export type SDKEvent =
 			toolName: string;
 			args: any;
 			partialResult: any;
+			/** 见 tool_execution_start.parentToolCallId */
+			parentToolCallId?: string;
 	  }
 	| {
 			type: "tool_execution_end";
@@ -1322,6 +1356,8 @@ export type SDKEvent =
 			toolName: string;
 			result: any;
 			isError: boolean;
+			/** 见 tool_execution_start.parentToolCallId */
+			parentToolCallId?: string;
 	  }
 	| {
 			type: "queue_update";
@@ -1495,6 +1531,7 @@ export type WSServerEvent =
 	| McpChangedEvent
 	| McpTestResult
 	| McpToolsResult
+	| McpLoginEvent
 	| InstructionListResult
 	| MemoryConfigEvent
 	| FSHomeResult

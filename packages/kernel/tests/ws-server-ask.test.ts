@@ -13,7 +13,6 @@ function makeStubServer(): WSServer {
 		skillManager: {},
 		extensionManager: {},
 		memoryStore: {},
-		mcpStore: {},
 		agentManager: {},
 	} as any);
 }

@@ -5,7 +5,7 @@
  * 非 2xx 统一抛错，错误消息优先取 body.error。
  */
 
-import type { KernelErrorPayload } from "@wa-pi/shared";
+import type { KernelErrorPayload, McpFieldError } from "@wa-pi/shared";
 
 const API_BASE = "/api";
 
@@ -13,10 +13,18 @@ export class ApiError extends Error {
 	status: number;
 	/** kernel 结构化错误（code 由前端字典渲染）；无结构化信息时 undefined */
 	failure?: KernelErrorPayload;
-	constructor(message: string, status: number, failure?: KernelErrorPayload) {
+	/** 字段级校验错误（`POST /api/mcp` 的 400 回包 `errors[]`）：表单据此把提示绑到对应输入框 */
+	errors?: McpFieldError[];
+	constructor(
+		message: string,
+		status: number,
+		failure?: KernelErrorPayload,
+		errors?: McpFieldError[],
+	) {
 		super(message);
 		this.status = status;
 		this.failure = failure;
+		this.errors = errors;
 		this.name = "ApiError";
 	}
 }
@@ -53,7 +61,11 @@ async function request(
 			(data?.code
 				? { code: data.code, params: data.params, detail: data.detail }
 				: undefined);
-		throw new ApiError(message, res.status, failure);
+		// 字段级校验错误（MCP 保存的 400）：与 failure 并存，形状 { field, message }[]
+		const errors: McpFieldError[] | undefined = Array.isArray(data?.errors)
+			? data.errors
+			: undefined;
+		throw new ApiError(message, res.status, failure, errors);
 	}
 	return data;
 }

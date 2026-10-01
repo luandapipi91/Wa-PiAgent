@@ -141,6 +141,8 @@ const en = {
 		hintsBenefitPlaceholder:
 			"Benefits of delegating to this agent, e.g.: keep repeated grep exploration noise out of the main context",
 		toolsHint: "All checked = full default; unchecking saves an explicit list",
+		mcpEntryHint:
+			"MCP entry tools: required to reach MCP tools that are not exposed directly; always allowed together with MCP tools",
 		skillsSelectAll: "Select all",
 		skillsGlobalDisabled: "Disabled globally",
 		skillsEmpty: "No skills yet. Add a skill directory in settings.",
@@ -397,6 +399,14 @@ const en = {
 		deleteMessage: "Delete MCP server {{name}}?",
 		globalScope: "🌐 Global",
 		projectOption: "📁 {{name}}",
+		projectScope: "Project-level MCP",
+		projectScopeUnset: "Not set (follows parent)",
+		projectScopeHint:
+			"Marks this project as trusted so pi loads its .pi/mcp.json (takes effect after the session restarts)",
+		statusStale:
+			"Status unknown: cannot read MCP status; showing the previous result, which may be stale",
+		untrustedNote:
+			"This project's .pi/mcp.json is ignored because the project is not trusted. Enable “Project-level MCP” in the scope menu.",
 	},
 	mcpForm: {
 		nameLabel: "Name",
@@ -418,43 +428,83 @@ const en = {
 		authLabel: "Authorization",
 		authPlaceholder:
 			"Bearer your-token (entering only the token auto-adds Bearer)",
-		lifecycleLabel: "Lifecycle",
-		lifecycleLazy: "lazy — connect on demand",
-		lifecycleEager: "eager — connect on start",
-		lifecycleKeepAlive: "keep-alive — stay connected",
-		timeoutLabel: "Timeout (ms)",
-		timeoutPlaceholder: "30000",
+		headersLabel: "Other headers",
+		headerKeyPlaceholder: "X-API-Key",
+		headerValuePlaceholder: "value",
+		headerRemoveTitle: "Remove this header",
+		headerAdd: "+ Add header",
+		cwdLabel: "Working directory (cwd)",
+		cwdPlaceholder: "Optional; project directory by default",
+		exposureLabel: "Tool exposure",
+		exposureDirect: "Direct",
+		exposureDirectDesc:
+			"Tools are declared to the model and can be called at any time",
+		exposureCodemode: "Script only",
+		exposureCodemodeDesc:
+			"Tools can only be called from code; the model writes a script first",
+		exposureCodemodeDeferred: "Script only (lazy)",
+		exposureCodemodeDeferredDesc:
+			"Same as script only, but the tool list loads on demand to save context",
+		exposureDeferred: "Load on demand",
+		exposureDeferredDesc:
+			"The model searches for these tools only when it needs them",
+		exposureHidden: "Hidden",
+		exposureHiddenDesc:
+			"The server connects and registers tools, but the model cannot see or call them",
+		exposureHint:
+			"With many tools, prefer “Script only” so they do not take up context at once.",
+		toolExposureLabel: "Per-tool exposure",
+		toolExposureNamePlaceholder: "tool name",
+		toolExposureAdd: "+ Override one tool",
+		toolExposureRemoveTitle: "Remove this override",
+		timeoutLabel: "Timeout (seconds)",
+		timeoutPlaceholder: "30",
+		enabledLabel: "Enable this server",
 		cancel: "Cancel",
 		save: "Save",
+		saving: "Saving...",
 		editTitle: "Edit {{name}}",
 		addTitle: "Add MCP server",
 	},
 	mcpCard: {
 		connected: "Connected",
-		error: "Connection error",
-		disconnected: "Disconnected",
+		failed: "Connection failed",
+		needsAuth: "Sign-in required",
+		needsAuthHint: "This server needs a sign-in before use (complete the OAuth sign-in in your browser)",
+		disabled: "Disabled",
+		unknown: "Status unknown",
 		summaryEmpty: "Not configured",
 		testing: "Testing...",
 		connectedWithTools: "Connected · {{count}} tools",
+		errorDetail: "Error details",
 		testButton: "Test connection",
 		viewToolsButton: "View tools",
 		editButton: "Edit",
 		deleteButton: "Delete",
+		loginButton: "Sign in",
+		logoutButton: "Sign out",
+		loginTimeoutHint: "Seconds to wait for authorization (pi cancels the sign-in on timeout)",
+		loginWaiting: "Waiting for browser authorization…",
+		loginUrlHint: "If the browser did not open, copy the link below and open it manually:",
+		loginCopyLink: "Copy link",
+		loginFailed: "Sign-in failed",
 	},
 	mcpTools: {
 		title: "🔧 {{name}} tools",
 		searchPlaceholder: "🔍 Search tools...",
 		loading: "Loading tools...",
-		emptyCache: "No tool cache available. Run a connection test first.",
+		namesOnly:
+			"Names only: pi reports tool names without descriptions or parameters.",
+		emptyCache:
+			"Cannot read the tool list right now (server offline, sign-in required, or no tools).",
 		noMatch: "No matching tools",
 		paramsTitle: "Parameters",
-		noParams: "No parameters",
 		totalCount: "{{count}} tool(s)",
 	},
 	mcpEmpty: {
 		title: "No MCP servers",
 		hint1: 'Click "+ Add manually" above to configure an MCP server.',
-		hint2: "Config is written to the .mcp.json file of the current scope.",
+		hint2: "Config is written to the .pi/mcp.json file of the current scope.",
 	},
 	memory: {
 		pageTitle: "🧠 Memory",
@@ -1169,6 +1219,8 @@ const en = {
 		"mcp.originalServerNotFound":
 			"Original server {{name}} does not exist; cannot rename",
 		"mcp.configParseFailed": "Failed to parse the MCP config file",
+		"mcp.systemProject":
+			"The default workspace does not support the project-level MCP scope switch",
 		"memory.entryStale":
 			"Entry does not exist or has been modified. Refresh the list",
 		"memory.archiveNotFound": "Archived entry not found",
@@ -1253,9 +1305,6 @@ const en = {
 			"Dependency repair failed. Check network or registry settings",
 		"npm.repairVerifyFailed":
 			"Dependencies still missing after repair ({{names}}). Try again",
-		"mcp.invalidUrl": "Invalid URL for MCP server {{name}}",
-		"mcp.missingCommandOrUrl":
-			"MCP server {{name}} is missing a command or url configuration",
 		"scheduler.noProvider":
 			"No model provider available. Configure at least one provider in settings first",
 		"scheduler.invalidTaskId": "Invalid task ID ({{taskId}})",

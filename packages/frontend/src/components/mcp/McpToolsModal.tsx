@@ -34,6 +34,13 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
           onChange={e => setSearch(e.target.value)}
           data-testid="mcp-tools-search"
         />
+        {/* pi mcp list --json 只给工具名（无描述/参数）：说明清楚，不把「未知」渲染成「无」 */}
+        <p
+          className="text-[calc(10.5px*var(--font-scale))] text-tertiary mt-1.5"
+          data-testid="mcp-tools-names-only"
+        >
+          {t("mcpTools.namesOnly")}
+        </p>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         {loading && tools.length === 0 ? (
@@ -60,8 +67,9 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
                 {tool.description && (
                   <div className="text-[calc(11.5px*var(--font-scale))] text-secondary mb-2">{tool.description}</div>
                 )}
-                <div className="text-[calc(10.5px*var(--font-scale))]" style={{ color: "var(--text-tertiary)" }}>
-                  {tool.parameters && tool.parameters.length > 0 ? (
+                {/* 参数摘要只在真有数据时渲染：现状拿不到参数，不能显示「无参数」冒充已知 */}
+                {tool.parameters && tool.parameters.length > 0 && (
+                  <div className="text-[calc(10.5px*var(--font-scale))]" style={{ color: "var(--text-tertiary)" }}>
                     <div className="p-2 rounded" style={{ background: "var(--surface-elevated)" }}>
                       <div className="font-semibold mb-1">{t("mcpTools.paramsTitle")}</div>
                       {tool.parameters.map(p => (
@@ -74,10 +82,8 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div className="p-2 rounded" style={{ background: "var(--surface-elevated)" }}>{t("mcpTools.noParams")}</div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             ))}
             <div className="text-[calc(11px*var(--font-scale))] text-tertiary text-center pt-2">

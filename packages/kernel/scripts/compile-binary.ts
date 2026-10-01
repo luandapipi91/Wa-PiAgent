@@ -1,5 +1,5 @@
 // kernel 单二进制编译：bun build --compile 把 desktop-server.ts 连同全部依赖
-// （含已 patch 的 pi-mcp-adapter）内联进原生可执行文件；--asset 把 bridge/tui-host 扩展等
+// 内联进原生可执行文件；--asset 把 bridge/tui-host 扩展等
 // 运行时资产嵌入到产物 import.meta.dir/assets/（bridge-extension.ts / tui-host-deploy.ts 运行时读取）。
 // 只有原生 .node 依赖（@napi-rs/keyring）external——无法内联进虚拟 FS。
 import { spawnSync } from "node:child_process";

@@ -1,8 +1,6 @@
 import type {
 	WSClientEvent,
 	WSServerEvent,
-	McpServerStatus,
-	McpToolSummary,
 	TokenUsageSummary,
 } from "@wa-pi/shared";
 import {
@@ -22,7 +20,10 @@ import type { ProviderStore } from "./provider-store";
 import type { SkillManager } from "./skill-manager";
 import type { ExtensionManager } from "./extension-manager";
 import type { MemoryStore } from "./memory-store";
-import type { McpStore } from "./mcp-store";
+import { McpFile, projectMcpPath } from "./mcp-file";
+import { createMcpHandlers, createMcpRoutes } from "./routes/mcp";
+import type { McpHandlers } from "./routes/mcp";
+import { resolvePiCliPath, resolvePiRuntime } from "./rpc-client";
 import { testProviderConnection } from "./provider-test";
 import {
 	loadRetrySettings,
@@ -35,7 +36,6 @@ import {
 	ensureProviderExtensionRegistered,
 	resolveProviderBaseUrl,
 } from "./provider-extension";
-import { testConnection, listTools } from "./mcp-connector";
 import { getAllCatalogModels, getProviderDisplayName } from "./pi-catalog";
 import {
 	readdir,
@@ -94,7 +94,6 @@ import { registerSkillRoutes } from "./routes/skills";
 import { collectProjectSkillSources } from "./skill-sources";
 import { registerExtensionRoutes } from "./routes/extensions";
 import { registerMemoryRoutes } from "./routes/memory";
-import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
 import { createShareRoutes } from "./routes/share";
@@ -546,7 +545,12 @@ export interface WSServerOpts {
 	skillManager: SkillManager;
 	extensionManager: ExtensionManager;
 	memoryStore: MemoryStore;
-	mcpStore: McpStore;
+	/**
+	 * MCP 配置读写（唯一写入者，规格 §7/F15）。缺省按 <WA_PI_DIR>/mcp.json + 项目的
+	 * <cwd>/.pi/mcp.json 自建（测试可注入 tmpdir 实例）。
+	 * 运行状态不走这里：那是 AgentManager 持有的按 cwd McpAdmin（全域唯一读取者）。
+	 */
+	mcpFile?: McpFile;
 	agentManager: AgentManager;
 	/** IM 渠道机器人管理器（Task 8 注入真实实例；测试/未启用时为 null，相关 case 走降级路径） */
 	channelManager: import("./channel-manager").ChannelManager | null;
@@ -666,6 +670,11 @@ export class WSServer {
 	private _promptLocks = new Map<string, Promise<void>>();
 	private _abortVersions = new Map<string, number>();
 	private _pendingAbortOnStart = new Set<string>(); // abort 时 agent 未启动则标记，agent_start 时执行 // abort 时递增，旧链 handler 版本不匹配则跳过
+	/**
+	 * MCP 域业务处理器（rest 与 ws 两条入口共用一份实现，避免逻辑漂移）。
+	 * 在 {@link registerRoutes} 里装配：它依赖已注入的 opts.mcpFile / agentManager。
+	 */
+	private mcpHandlers!: McpHandlers;
 
 	constructor(private opts: WSServerOpts) {
 		// tui-host registry 是模块级单例（agent-manager 的会话销毁路径也要用它），
@@ -785,7 +794,38 @@ export class WSServer {
 		registerSkillRoutes(this.router, callApi, ctx);
 		registerExtensionRoutes(this.router, callApi, ctx);
 		registerMemoryRoutes(this.router, callApi, ctx);
-		registerMcpRoutes(this.router, callApi, ctx);
+		// MCP 域：数据来源是 McpFile（配置，唯一写入者）+ AgentManager 按 cwd 持有的 McpAdmin
+		// （状态，唯一读取者，规格 §7）。两套入口（REST/WS）共用同一份 handlers，不各自实现一遍。
+		const mcpFile =
+			this.opts.mcpFile ??
+			new McpFile({
+				globalPath: join(WA_PI_DIR, "mcp.json"),
+				projectPathFor: async (projectId) =>
+					projectMcpPath(
+						await resolveCwdForFsRequest(this.opts.projectStore, projectId),
+					),
+			});
+		const mcpDeps = {
+			mcpFile,
+			// 无 projectId = 全局作用域，cwd 用数据目录（`pi mcp list` 的全局配置就在那里）
+			cwdForProject: (projectId?: string) =>
+				projectId
+					? resolveCwdForFsRequest(this.opts.projectStore, projectId)
+					: Promise.resolve(WA_PI_DIR),
+			adminForCwd: (cwd: string) => this.opts.agentManager.mcpAdminForCwd(cwd),
+			invalidateCaches: () => this.opts.agentManager.invalidateMcpCaches(),
+			broadcast: (e: WSServerEvent) => this.broadcast(e),
+			// 登录 / 登出子进程：与 McpAdmin、会话进程同源地解析 runtime/cliPath（不另起一套）；
+			// agentDir = WA_PI_DIR，与 pi 自己的 PI_CODING_AGENT_DIR 一致——凭据 mcp-auth.json
+			// 就在那里，登录态（F19）与登出的删除都得看同一个目录。
+			piSpawn: {
+				runtime: resolvePiRuntime(),
+				cliPath: resolvePiCliPath(),
+				agentDir: WA_PI_DIR,
+			},
+		};
+		this.mcpHandlers = createMcpHandlers(mcpDeps);
+		createMcpRoutes(mcpDeps)(this.router, callApi, ctx);
 		registerSettingsRoutes(this.router, callApi, ctx);
 		registerChannelRoutes(this.router, callApi, ctx);
 		registerContactRoutes(this.router, callApi, ctx);
@@ -2772,8 +2812,15 @@ export class WSServer {
 				// 活跃 pi 进程实时拉取命令（无活跃进程返回空数组，不创建孤儿进程）。
 				// enabled 已由 AgentManager._fetchCommands 统一合并（对齐 session:commands 路径），
 				// 这里不再二次合并，直接透传，避免双份合并逻辑漂移。
+				//
+				// 唯一的展示层过滤：pi 内置扩展命令（builtinExtension，/mcp、/llama）没有归属包、
+				// 没有开关，不属于「附加命令」页。它们**不能**在 AgentManager 层被剔除——同一条
+				// 清单还要供 session:commands 路径判定「pi 会不会拦截这条命令」（回显抑制），
+				// 剔除会让聊天窗凭空多出一条并不存在的用户消息（见 tui-command-filter 文件头）。
 				try {
-					const commands = await this.opts.agentManager.getCommands("");
+					const commands = (
+						await this.opts.agentManager.getCommands("")
+					).filter((c) => c.builtinExtension !== true);
 					reply({ type: "extension:commands:list", commands });
 				} catch (err) {
 					replyError(reply, err);
@@ -2969,11 +3016,17 @@ export class WSServer {
 				}
 				break;
 			}
-			// ===== MCP 连接器 =====
+			// ===== MCP 域（rest 与 ws 共用路由层的 handlers，规格 §7） =====
+			// 数据来源：盘上配置走 McpFile（唯一写入者），运行状态走按 cwd 的 McpAdmin
+			// （`pi mcp list --json`，唯一读取者）。旧 McpStore / mcp-connector 已删除。
 			case "mcp:list": {
 				try {
-					const servers = await this.opts.mcpStore.list(event.projectId);
-					reply({ type: "mcp:list", projectId: event.projectId, servers });
+					const payload = await this.mcpHandlers.list(event.projectId);
+					reply({
+						type: "mcp:list",
+						projectId: event.projectId,
+						servers: payload.servers,
+					});
 				} catch (err) {
 					replyError(reply, err);
 				}
@@ -2981,17 +3034,19 @@ export class WSServer {
 			}
 			case "mcp:save": {
 				try {
-					await this.opts.mcpStore.save(
-						event.config,
-						event.projectId,
-						event.originalName,
-					);
-					const servers = await this.opts.mcpStore.list(event.projectId);
-					this.broadcast({
-						type: "mcp:changed",
+					const res = await this.mcpHandlers.save({
 						projectId: event.projectId,
-						servers,
+						config: event.config,
+						originalName: event.originalName,
 					});
+					// 校验失败不是异常（字段级错误只有 REST 面能承载：ErrorEvent 无 errors 字段），
+					// WS 面退化为「首条字段错误」的纯文案（无 code → 前端原样展示）。
+					// mcp:changed 由 handler 在写盘成功后自行广播，此处不重复。
+					if (!res.ok) {
+						throw new Error(
+							res.errors.map((e) => `${e.field}: ${e.message}`).join("；"),
+						);
+					}
 				} catch (err) {
 					replyError(reply, err);
 				}
@@ -2999,12 +3054,9 @@ export class WSServer {
 			}
 			case "mcp:delete": {
 				try {
-					await this.opts.mcpStore.delete(event.serverName, event.projectId);
-					const servers = await this.opts.mcpStore.list(event.projectId);
-					this.broadcast({
-						type: "mcp:changed",
+					await this.mcpHandlers.remove({
+						serverName: event.serverName,
 						projectId: event.projectId,
-						servers,
 					});
 				} catch (err) {
 					replyError(reply, err);
@@ -3012,75 +3064,20 @@ export class WSServer {
 				break;
 			}
 			case "mcp:test": {
-				// mcp:testResult 只走 SSE 广播（不 reply）：前端用 fire-and-forget 丢弃 HTTP 响应体，
-				// 仅靠 SSE 事件翻转 testingServers。reply 会被 callApi 当作 HTTP 响应体返回，前端读不到。
-				const emitTestResult = (payload: {
-					success: boolean;
-					status: McpServerStatus;
-					toolCount?: number;
-					error?: string;
-					code?: string;
-					params?: Record<string, string | number>;
-					detail?: string;
-				}) => {
-					this.broadcast({
-						type: "mcp:testResult",
-						serverName: event.serverName,
-						success: payload.success,
-						status: payload.status,
-						toolCount: payload.toolCount,
-						error: payload.error,
-						code: payload.code,
-						params: payload.params,
-						detail: payload.detail,
-					});
-				};
-				try {
-					const config = await this.opts.mcpStore.getServer(
-						event.serverName,
-						event.projectId,
-					);
-					const cwd = await this.resolveProjectCwd(event.projectId);
-					const outcome = await testConnection(config, cwd);
-					emitTestResult({
-						success: outcome.status === "connected",
-						status: outcome.status,
-						toolCount: outcome.toolCount,
-						error: outcome.error,
-						code: outcome.code,
-						params: outcome.params,
-						detail: outcome.detail,
-					});
-				} catch (err) {
-					emitTestResult({
-						success: false,
-						status: "error",
-						error: (err as Error).message,
-					});
-				}
+				// mcp:testResult 只走 SSE 广播（handler 内 broadcast）：前端用 fire-and-forget
+				// 丢弃 HTTP 响应体，仅靠 SSE 事件翻转 testingServers。失败也在事件里表达，不抛。
+				await this.mcpHandlers.test({
+					serverName: event.serverName,
+					projectId: event.projectId,
+				});
 				break;
 			}
 			case "mcp:listTools": {
 				// 与 mcp:test 同理：mcp:tools 只走 SSE 广播，不 reply。
-				// 前端 listTools 用 fire-and-forget 丢弃 HTTP 响应体，仅靠 SSE 事件填充 toolsCache。
-				const emitToolsResult = (tools: McpToolSummary[] | { error: string }) => {
-					this.broadcast({
-						type: "mcp:tools",
-						serverName: event.serverName,
-						...(Array.isArray(tools) ? { tools } : tools),
-					});
-				};
-				try {
-					const config = await this.opts.mcpStore.getServer(
-						event.serverName,
-						event.projectId,
-					);
-					const cwd = await this.resolveProjectCwd(event.projectId);
-					const tools = await listTools(config, cwd);
-					emitToolsResult(tools);
-				} catch (err) {
-					emitToolsResult({ error: (err as Error).message });
-				}
+				await this.mcpHandlers.listTools({
+					serverName: event.serverName,
+					projectId: event.projectId,
+				});
 				break;
 			}
 			// ---------- IM 渠道机器人域（Task 7） ----------
@@ -3273,14 +3270,5 @@ export class WSServer {
 		} catch (err) {
 			console.error(`[ws-server] 引导后自动补全标题失败 ${sessionId}:`, err);
 		}
-	}
-
-	/** 解析项目工作目录；无 projectId（全局作用域）返回 undefined */
-	private async resolveProjectCwd(
-		projectId?: string,
-	): Promise<string | undefined> {
-		if (!projectId) return undefined;
-		const { projects } = await this.opts.projectStore.load();
-		return projects.find((p) => p.id === projectId)?.cwd;
 	}
 }

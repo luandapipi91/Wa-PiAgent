@@ -126,7 +126,6 @@ async function withComposerServer<T>(
     skillManager,
     extensionManager: new ExtensionManager(dataDir),
     memoryStore: null as any,
-    mcpStore: null as any,
     dataDir,
     agentManager,
     channelManager: null,

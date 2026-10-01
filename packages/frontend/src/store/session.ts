@@ -23,6 +23,7 @@ import { triggerTaskDoneFrog } from "../util/frog";
 import { celebrateDesktopPet } from "../util/desktop-pet";
 import { useUiPrefsStore } from "./ui-prefs";
 import type { MediaItem } from "../components/blocks/media-utils";
+import type { ToolCallView } from "../components/blocks/ToolCallNested";
 
 /** 媒体预览打开序号（模块级自增）：同目录画廊据此判断“是否本次打开需重新拉目录” */
 let mediaOpenSeq = 0;
@@ -116,6 +117,11 @@ interface SessionState {
 	// toolCallId → 所属 sessionId：供 MessageList 按会话过滤「本会话是否有 running 子代理」
 	// （progressByToolCall 本身不区分 session，多会话并存时避免串扰滚动/状态）。
 	progressSessionByToolCall: Record<string, string>;
+	// 嵌套工具调用（F18）：sessionId → 父 toolCallId → 内层调用列表。
+	// codemode 等工具经 ctx.executeTool() 发起的调用不进 transcript，只以 tool_execution_*
+	// 事件（带 parentToolCallId）到达；按父 id 收集，供工具卡把内层调用挂到父卡下渲染。
+	// 平铺调用（无 parentToolCallId）不进此表——它们的卡片仍由消息内容驱动，行为不变。
+	nestedCallsBySession: Record<string, Record<string, ToolCallView[]>>;
 	/** 每轮对话结束后的文件修改清单（按 sessionId 分组） */
 	fileChangesBySession: Record<
 		string,
@@ -255,6 +261,43 @@ function msgKey(m: SessionMessage): string {
 	return `${inner.role ?? "custom"}-${inner.timestamp}`;
 }
 
+/** 把一条 tool_execution_* 事件（带 parentToolCallId）合并进嵌套调用表：
+ *  start 建条目、update 刷新、end 落结果与终态；同一 toolCallId 只保留一条（保到达顺序）。
+ *  子调用先 end 而父卡仍在跑是常态（父卡是否渲染与它无关，只按父 id 挂载）——
+ *  故不依赖父调用的任何状态，随时可落。 */
+function mergeNestedCall(
+	bySession: SessionState["nestedCallsBySession"],
+	sessionId: string,
+	event: any,
+): SessionState["nestedCallsBySession"] {
+	const parentId = String(event.parentToolCallId);
+	const toolCallId = String(event.toolCallId ?? "");
+	const parentMap = bySession[sessionId] ?? {};
+	const list = parentMap[parentId] ?? [];
+	const idx = list.findIndex((c) => c.toolCallId === toolCallId);
+	const prev = idx >= 0 ? list[idx] : undefined;
+	const next: ToolCallView = {
+		...prev,
+		toolCallId,
+		toolName: String(event.toolName ?? prev?.toolName ?? ""),
+		args: event.args ?? prev?.args,
+		parentToolCallId: parentId,
+		status:
+			event.type === "tool_execution_end"
+				? event.isError
+					? "error"
+					: "ok"
+				: (prev?.status ?? "running"),
+	};
+	if (event.type === "tool_execution_end") next.result = event.result;
+	const nextList = idx >= 0 ? [...list] : [...list, next];
+	if (idx >= 0) nextList[idx] = next;
+	return {
+		...bySession,
+		[sessionId]: { ...parentMap, [parentId]: nextList },
+	};
+}
+
 /**
  * 从 session:stats 响应构造 tokenTotals / contextUsageBySession 的 state patch。
  * 官方口径唯一入口：seedTokenTotal 与 refreshSessionStats 共用，前端不做本地累加。
@@ -338,6 +381,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		editorTextInjection: {},
 		progressByToolCall: {},
 		progressSessionByToolCall: {},
+		nestedCallsBySession: {},
 		fileChangesBySession: {},
 		filePreview: null,
 		mediaPreview: null,
@@ -619,6 +663,7 @@ export const useSessionStore = create<SessionState>((set) => {
 					editorTextInjection: prune(s.editorTextInjection),
 					progressByToolCall: nextProg,
 					progressSessionByToolCall: nextProgSess,
+					nestedCallsBySession: prune(s.nestedCallsBySession),
 					fileChangesBySession: prune(s.fileChangesBySession),
 				};
 			});
@@ -646,6 +691,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				contextUsageBySession: {},
 				progressByToolCall: {},
 				progressSessionByToolCall: {},
+				nestedCallsBySession: {},
 				fileChangesBySession: {},
 				editorTextInjection: {},
 				filePreview: null,
@@ -1552,9 +1598,6 @@ export const useSessionStore = create<SessionState>((set) => {
 						event: event.event,
 						error: event.error,
 					});
-					// custom() 不支持的错误已通过 extension_notify 居中提示（30s），
-					// 跳过重复 toast。[custom-unsupported] 标记由 wa-pi-bridge 扩展生成。
-					if (event.error?.includes("[custom-unsupported]")) break;
 					useToastStore.getState().add(
 						i18n.t("message.extensionError", {
 							ext: extension,
@@ -1662,7 +1705,25 @@ export const useSessionStore = create<SessionState>((set) => {
 					useBrowserStore.getState().maybeRefreshForFileChanges(sessionId, files);
 					break;
 				}
-				// tool_execution_* 等其他透传事件：渲染层不消费
+				// 嵌套工具调用（F18）：codemode 等工具经 ctx.executeTool() 发起的调用不进 transcript，
+				// 只以 tool_execution_* 事件到达（带 parentToolCallId，id 形如 <父id>/N）。
+				// 按父 toolCallId 收集，供工具卡把内层调用挂到父卡下渲染；
+				// 平铺调用（无该字段）不进此表，渲染仍由消息内容驱动（行为不变）。
+				case "tool_execution_start":
+				case "tool_execution_update":
+				case "tool_execution_end": {
+					const parentId = event.parentToolCallId;
+					if (typeof parentId !== "string" || !parentId) break;
+					set((s) => ({
+						nestedCallsBySession: mergeNestedCall(
+							s.nestedCallsBySession,
+							sessionId,
+							event,
+						),
+					}));
+					break;
+				}
+				// 其余透传事件：渲染层不消费
 				default:
 					break;
 			}

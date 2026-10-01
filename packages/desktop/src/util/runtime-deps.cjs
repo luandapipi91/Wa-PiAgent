@@ -1,7 +1,7 @@
 // 首启动态安装 kernel 运行时依赖（bun --compile 单二进制形态）。
-// 背景：编译产物内联了全部 JS 依赖，只有 4 个包必须在磁盘 node_modules：
+// 背景：编译产物内联了全部 JS 依赖，只有 3 个包必须在磁盘 node_modules：
 //   ① 原生 .node（@napi-rs/keyring，--external）；② pi RPC 子进程入口（pi-coding-agent/dist/cli.js）；
-//   ③ 内置扩展（pi-web-access、pi-mcp-adapter）。
+//   ③ 内置扩展（pi-web-access）。
 // .app 内 Resources/kernel 只读，不能就地 install，故：
 //   seed  （.app 只读）：package.json + bun.lock（内核二进制不进 runtime——见 SEED_FILES 注释）
 //   runtime（WA_PI_DIR/runtime 可写，默认 ~/.pi/agent/runtime）：复制 seed → 编译产物以
@@ -21,7 +21,7 @@
 // ② 安装后 verifyInstall 校验顶层依赖真实存在，失败则清理 node_modules 重装（installWithRetry）；
 // ③ 全部失败不写标记 → 下次启动自动重试（门禁）。
 // patch 不需要复制：patch 编译期已生效（--compile 内联的是已 patch 源码），
-// 运行时磁盘 node_modules 无 pi-mcp-adapter。
+// 运行时磁盘 node_modules 仅含清单内依赖。
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fsp = require("node:fs/promises");

@@ -364,7 +364,7 @@ test("工具忘传 timeoutMs 时默认 60s 空闲兜底（timeout:false 后不�
 	}
 });
 
-test("session_start 在 RPC 模式将 custom() 替换为同步抛出（解除 custom 挂起）", async () => {
+test("session_start 不再注册 custom() 兜底补丁（内置命令已由 pi 内置扩展/tui-host 接管）", async () => {
 	const file = join(
 		import.meta.dir,
 		`.tmp-bridge-session-${Math.random().toString(36).slice(2)}.ts`,
@@ -399,65 +399,15 @@ test("session_start 在 RPC 模式将 custom() 替换为同步抛出（解除 cu
 		},
 	});
 
-	// session_start handler 已注册
-	expect(handlers["session_start"]).toBeDefined();
-	expect(handlers["session_start"].length).toBe(1);
-	const onSessionStart = handlers["session_start"][0];
+	// session_start 兜底钩子（notify + 同步 throw，针对 pi-mcp-adapter 的 /mcp）已整段移除：
+	// 内置 /mcp 在 RPC 下只发 notify 不走 custom()；走 custom() 的面板由
+	// wa-pi-tui-host 的 patchUiForTuiHost 接管（见 tui-host-patch.test.ts）。
+	expect(handlers["session_start"]).toBeUndefined();
 
-	// ── RPC 模式：custom() 被替换为先 notify 再同步抛出 ──
-	const notifyCalls: { message: string; type: string }[] = [];
-	const rpcUi: any = {
-		custom: () => undefined,
-		notify: (message: string, type: string) =>
-			notifyCalls.push({ message, type }),
-	};
-	onSessionStart(
-		{ type: "session_start", reason: "startup" },
-		{ mode: "rpc", ui: rpcUi },
-	);
-	// 调用 custom() 应先 notify 再 throw
-	expect(() => rpcUi.custom(() => {}, {})).toThrow("不支持");
-	expect(notifyCalls.length).toBe(1);
-	expect(notifyCalls[0].message).toContain("不支持");
-	expect(notifyCalls[0].type).toBe("warning");
-
-	// 关键验证：在 Promise executor 内同步抛出 → Promise reject（而非永久 pending）
-	// 这正是 openMcpPanel 的 `await new Promise(resolve => ctx.ui.custom(factory))` 模式
-	await expect(
-		new Promise<void>((_resolve) => {
-			rpcUi.custom(() => {});
-		}),
-	).rejects.toThrow("不支持");
-
-	// 模拟 _tryExecuteExtensionCommand 的 try-catch：throw 被外层正常捕获
-	let caught: Error | null = null;
-	try {
-		await new Promise<void>((resolve) => {
-			rpcUi.custom(() => {}); // 模拟扩展命令 handler 调用 custom
-			resolve(); // 不会到达
-		});
-	} catch (e) {
-		caught = e as Error;
-	}
-	expect(caught).not.toBeNull();
-	expect(caught!.message).toContain("不支持");
-
-	// ── TUI 模式：custom() 不被修改 ──
-	const tuiUi: any = { custom: () => undefined };
-	onSessionStart(
-		{ type: "session_start", reason: "startup" },
-		{ mode: "tui", ui: tuiUi },
-	);
-	expect(tuiUi.custom()).toBeUndefined(); // 未被 patch
-
-	// ── 边界：ui 无 custom 方法时不报错 ──
-	const noCustomUi: any = {};
-	expect(() =>
-		onSessionStart(
-			{ type: "session_start", reason: "startup" },
-			{ mode: "rpc", ui: noCustomUi },
-		),
-	).not.toThrow();
+	// 其余事件钩子不受删除影响（文件快照采集链路）
+	expect(handlers["tool_call"]?.length).toBe(1);
+	expect(handlers["tool_execution_end"]?.length).toBe(1);
+	expect(handlers["agent_end"]?.length).toBe(1);
 });
 
 test("ask execute：bridge socket 断开后自动重试并成功", async () => {

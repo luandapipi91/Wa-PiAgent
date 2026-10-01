@@ -200,7 +200,6 @@ async function setup(
 		skillManager,
 		extensionManager: extManager,
 		memoryStore: null as any,
-		mcpStore: null as any,
 		channelManager: null,
 		agentManager,
 		port: 0,

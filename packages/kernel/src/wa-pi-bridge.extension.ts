@@ -682,24 +682,18 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ── RPC 模式 TUI 面板降级（custom() 挂根治）──
-	//
-	// 问题：ctx.ui.custom() 在 RPC 模式原生实现返回 undefined 且不调用 factory 回调。
-	// 依赖全屏面板的扩展命令（如 pi-mcp-adapter 的 /mcp → openMcpPanel）在
-	// `await new Promise(resolve => ctx.ui.custom(factory))` 中永久挂起——pi 既不回
-	// response 也不发事件，wa-pi 无限等待。这是所有用 custom() 的插件共性问题，
-	// 非个例。
-	//
-	// 解法：session_start（bindExtensions 已设好共享 uiContext 之后触发）时，将
-	// uiContext.custom() 替换为先 notify 再同步抛出。效果链：
-	//   1. ui.notify(msg, "warning") → extension_notify 事件
-	//      → 前端聊天窗口中间居中显示，30s 后自动消失（session.ts 已对接）
-	//   2. throw → handler throws → _tryExecuteExtensionCommand catch
-	//      → extension_error 事件 → 前端 toast 补充提示
-	//   3. preflightResult(true) 正常触发 → prompt 成功返回（无挂起）
-	//
-	// 零超时、零白名单、对所有插件通用。session_start 在每次 bindExtensions
-	// （启动 / new_session / switch_session / reload）后都触发，patch 自动重应用。
+	// ── RPC 下 ctx.ui.custom() 的兜底去向（2026-09-30 MCP 迁移后的事实）──
+	// 本文件自 2026-09-30 起**不再**为 ui.custom() 提供 notify+throw 兜底
+	// （原实现会把 ui.custom 改写成 notify + 抛「custom() 不支持」错误）。
+	// 现在 RPC 下 custom() 的唯一接管者是 wa-pi-tui-host 的 patchUiForTuiHost
+	// （tui-host/host.ts），而它在 WA_PI_BRIDGE_URL/TOKEN/SESSION_ID 任一为空时
+	// 直接 return 不接管（wa-pi-tui-host.extension.ts:25，子代理/无宿主环境）。
+	// 那种环境下：pi 的 RPC 实现 custom() 不调 factory 直接 resolve(undefined)
+	// 且 agent-session 的 `await command.handler(...)` 没有超时，插件里常见的
+	// `await new Promise(r => ctx.ui.custom(factory))` 会**永久挂起**（命令一直停在
+	// 「思考中」），而不是像删除前那样 notify + 报错。
+	// ⇒ 新增任何可能跑在 tui-host 缺席环境下的 RPC 路径，必须先确认 tui-host 已加载。
+
 	// ===== 文件修改清单：采集本轮 edit/write 的文件前后快照 =====
 	const snapshots = new Map<string, FileSnapshotRecord>();
 	const toolCallIdToPath = new Map<string, string>();
@@ -752,24 +746,5 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			/* 上报失败静默：不影响对话主流程 */
 		}
-	});
-
-	pi.on("session_start", (_event, ctx) => {
-		if (ctx.mode !== "rpc") return;
-		const ui = ctx.ui as
-			| (typeof ctx.ui & { __waPiTuiHost?: boolean })
-			| undefined;
-		if (!ui || typeof ui.custom !== "function") return;
-		// 已被 wa-pi-tui-host 接管：它提供真正的面板渲染，兜底必须让位，
-		// 否则两个 session_start 钩子的先后顺序会决定哪个生效（前者会被后者覆盖）。
-		if (ui.__waPiTuiHost === true) return;
-		const msg = "此命令需要终端全屏面板（TUI），在当前图形界面模式下不支持";
-		// 先 notify（前端 extension_notify 已对接：聊天窗口中间居中显示，30s 自动消失），
-		// 再同步 throw 解除 Promise 挂起。throw 带 [custom-unsupported] 标记：
-		// 前端 extension_error 处理识别此标记后跳过 toast（notify 已提示，不重复）。
-		ui.custom = function custom() {
-			ui.notify(msg, "warning");
-			throw new Error(`[custom-unsupported] ${msg}`);
-		};
 	});
 }

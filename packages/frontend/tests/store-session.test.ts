@@ -544,6 +544,27 @@ test("extension_error：写入诊断列表 + error toast", async () => {
 	expect(toasts[0].message).toContain("ENOENT");
 });
 
+// wa-pi-bridge 的 custom() notify+throw 兜底已删除（2026-09-30），该标记不再有生产者，
+// 前端也不再为它跳过 toast：断言这个特殊分支确实没了，防止被重新引入。
+test("extension_error：error 含 [custom-unsupported] 时也照常 toast", async () => {
+	const { useDiagnosticsStore } = await import("../src/store/diagnostics");
+	const { useToastStore } = await import("../src/store/toast");
+	useDiagnosticsStore.setState({ entries: [] });
+	useToastStore.setState({ toasts: [] });
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "extension_error",
+			extensionPath: "/Users/x/.wa-pi/extensions/pi-lens.ts",
+			event: "session_start",
+			error: "Error: [custom-unsupported] custom() is not available",
+		}),
+	);
+	expect(useDiagnosticsStore.getState().entries).toHaveLength(1);
+	expect(useToastStore.getState().toasts).toHaveLength(1);
+	expect(useToastStore.getState().toasts[0].type).toBe("error");
+});
+
 test("extension_status：按 key 维护状态条目，空文案清除", () => {
 	useSessionStore.getState().handleSDKEvent(
 		"s1",

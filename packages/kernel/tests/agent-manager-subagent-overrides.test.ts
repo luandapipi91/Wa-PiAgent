@@ -20,6 +20,7 @@ import {
   fakeClientFactory,
 } from "./fixtures/fake-session-client";
 import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
+import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -108,6 +109,8 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
+    // MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+    mcpAdmin: makeFakeMcpAdmin(),
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -177,6 +180,8 @@ test("内置 subagent override model 无效时降级为 null（不传 --model）
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
+    // MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+    mcpAdmin: makeFakeMcpAdmin(),
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -243,6 +248,8 @@ test("子智能体跟随主模型：无 override 时用主会话 currentModel", 
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
+    // MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+    mcpAdmin: makeFakeMcpAdmin(),
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -307,6 +314,8 @@ test("只读内置子智能体（Explore/Plan）spawn 配置 tools 为只读白�
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
     browserManager: NOOP_BROWSER_MANAGER,
+    // MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
+    mcpAdmin: makeFakeMcpAdmin(),
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
@@ -326,9 +335,9 @@ test("只读内置子智能体（Explore/Plan）spawn 配置 tools 为只读白�
 
     const cfg = capturedConfigs.find((c: any) => c.name === agent);
     expect(cfg).toBeDefined();
-    // 只读白名单 + mcp 聚合工具（子代理加载 pi-mcp-adapter 后的聚合入口；
-    // 本测试无 mcpStore，direct 工具名为空）
-    expect(cfg.tools).toEqual(["read", "bash", "grep", "find", "ls", "mcp"]);
+    // 只读基础白名单（本测试注入的 fake mcpAdmin 未报告任何已连服务器 → 无 MCP 工具名并入；
+    // 旧的 "mcp" 聚合名随 adapter 退场，不再放行）
+    expect(cfg.tools).toEqual(["read", "bash", "grep", "find", "ls"]);
     for (const t of cfg.tools ?? []) {
       expect(t).not.toMatch(/^browser_/);
     }

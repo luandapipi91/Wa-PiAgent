@@ -9,13 +9,13 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
 
   // npm 包入口必须存在且解析到实际 .ts 文件
   const webAccess = paths.find((p) => p.includes("pi-web-access"));
-  const mcpAdapter = paths.find((p) => p.includes("pi-mcp-adapter"));
   expect(webAccess).toBeTruthy();
-  expect(mcpAdapter).toBeTruthy();
-  for (const p of [webAccess, mcpAdapter]) {
-    expect(p!.endsWith(".ts")).toBe(true);
-    expect(existsSync(p!)).toBe(true);
-  }
+  expect(webAccess!.endsWith(".ts")).toBe(true);
+  expect(existsSync(webAccess!)).toBe(true);
+
+  // pi-mcp-adapter 已随 MCP 内置化迁移移除：MCP 由 pi 内置扩展（builtin:mcp）提供，
+  // 不得再出现在 -e 注入清单里（也不得因残留依赖被静默带回）
+  expect(paths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
 
   // provider-extension 由 GENERATED_DIR 按需追加（文件存在时才加入）。
   // 用存在性等同断言而非创建文件，避免与 provider-extension.test.ts 并发写同一文件产生 flaky。
@@ -35,8 +35,9 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
   expect(paths).not.toContain(compactionGuardExt);
 });
 
-test("内置扩展清单：不含已移除的 pi-open-agents / 不含 pi-intercom", async () => {
+test("内置扩展清单：不含 pi-mcp-adapter / 不含已移除的 pi-open-agents / 不含 pi-intercom", async () => {
   const paths = buildAdditionalExtensionPaths();
+  expect(paths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
   expect(paths.some((p) => p.includes("pi-open-agents"))).toBe(false);
   expect(paths.some((p) => p.includes("pi-intercom"))).toBe(false);
 });

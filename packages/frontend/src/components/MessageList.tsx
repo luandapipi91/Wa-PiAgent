@@ -49,7 +49,7 @@ import {
 } from "./blocks/media-utils";
 import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
-import { ToolGroupCard } from "./blocks/ToolCallCard";
+import { ToolCallsSegment } from "./blocks/ToolCallNested";
 import { AnsiText } from "./ui/AnsiText";
 import { mediaKindOf } from "./blocks/file-path";
 import { resolveAbsolutePath } from "./blocks/FilePill";
@@ -1468,11 +1468,13 @@ export const MessageRow = memo(function MessageRow({
 				/>
 			);
 		}
-		// 工具调用 — ProcessCard：>1 个连续调用归成组卡，单工具直接单卡
+		// 工具调用 — ProcessCard：>1 个连续调用归成组卡，单工具直接单卡；
+		// 经 ctx.executeTool() 发起的嵌套调用（codemode → MCP）挂到父卡下（ToolCallsSegment）
 		if (seg.kind === "toolCalls") {
 			return (
-				<ToolGroupCard
+				<ToolCallsSegment
 					key={key}
+					sessionId={sessionId}
 					toolCalls={seg.calls}
 					results={row.toolResults}
 					isStreaming={segIsStreaming}

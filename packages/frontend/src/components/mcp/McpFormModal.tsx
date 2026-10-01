@@ -1,11 +1,16 @@
 import type { McpServerConfig } from "@wa-pi/shared";
+import type { McpSaveResult } from "../../store/mcp";
 import { Modal } from "../ui/Modal";
 import { McpForm } from "./McpForm";
 import { useTranslation } from "../../i18n/useTranslation";
 
 interface Props {
   initial?: McpServerConfig;
-  onSave: (config: McpServerConfig, originalName?: string) => void;
+  /** 保存（发 POST /api/mcp）：返回结果交给表单绑字段级错误；成功时由调用方关闭弹窗 */
+  onSave: (
+    config: McpServerConfig,
+    originalName?: string,
+  ) => Promise<McpSaveResult>;
   onClose: () => void;
 }
 

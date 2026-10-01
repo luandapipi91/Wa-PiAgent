@@ -17,6 +17,16 @@ export interface CommandInfo {
   // 新增（仅 extension 来源填充）：
   packageName?: string;    // 插件包名（裸包名，如 @narumitw/pi-goal，对应 waPiCommandToggles key）
   enabled?: boolean;       // 命令开关状态（缺省 false）
+  /**
+   * pi **内置扩展**命令（`sourceInfo.path` 是合成路径 `builtin:<name>`，如 /mcp、/llama）。
+   *
+   * 与普通扩展命令的区别**只在展示层**：pi 同样会拦截执行它（不产生 user 消息），
+   * 但 Wa-Pi 里没有对应 UI（/mcp 有独立的 MCP 管理页），列在 `/` 菜单里只会误导用户。
+   * 所以 kernel 保留条目并打标，由展示层自行过滤；「这条命令会不会被 pi 拦截」的判定
+   * （回显抑制）必须基于全量清单——把它们剔除会让该判定失去依据，聊天窗凭空多出一条
+   * 并不存在的用户消息。
+   */
+  builtinExtension?: boolean;
 }
 
 // ===== WS 协议事件（命令查询）=====

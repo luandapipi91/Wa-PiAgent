@@ -4,6 +4,7 @@ import { api } from "../api-client";
 
 // slash 命令 store — 从 pi 运行时拉取当前会话可用的命令（插件贡献 / prompt 模板）
 // 注意：skill 类命令在 commands 中过滤掉（技能走 $ 菜单，避免与 / 菜单重复展示）
+// pi 内置扩展命令（builtinExtension，如 /mcp）同理只从 commands 里消失，allCommands 保留
 interface CommandsState {
   commands: CommandInfo[];        // 已过滤：skill 移除、extension 仅保留已开启（/ 菜单展示用）
   allCommands: CommandInfo[];     // 未过滤全量（含已关闭开关的扩展命令；发送时判定「是否会被 pi 拦截执行」用）
@@ -29,8 +30,12 @@ export const useCommandsStore = create<CommandsState>((set) => ({
           (c) => !c.name.startsWith("__!"),
         );
         set({
-          // / 菜单过滤：skill 走 $ 菜单不展示；extension 插件命令只显示已开启（enabled === true）
+          // / 菜单过滤：skill 走 $ 菜单不展示；extension 插件命令只显示已开启（enabled === true）；
+          // pi 内置扩展命令（builtinExtension，如 /mcp）在 Wa-Pi 里没有对应 UI（有独立 MCP 管理页），
+          // 同样不展示——但它必须留在 allCommands 里：pi 会拦截执行它（不产生 user 消息），
+          // Composer 的乐观插入／回显抑制靠 allCommands 判定，剔除会让聊天窗多出一条假用户消息
           commands: all.filter((c) => {
+            if (c.builtinExtension === true) return false;            // 内置扩展命令有专属管理页
             if (c.source === "skill") return false;                    // 技能走 $ 菜单
             if (c.source === "extension") return c.enabled === true;   // 插件命令只显示已开启
             return true;                                                // prompt/builtin 不受影响

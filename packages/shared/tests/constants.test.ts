@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import {
 	DEFAULT_AGENT_TOOLS,
 	resolveAgentTools,
@@ -62,28 +62,20 @@ test("DEFAULT_AGENT_TOOLS 不再包含 pi-lens 专属工具", () => {
 	}
 });
 
-// ---- resolveAgentTools：baseTools + harvestedTools（MCP direct 工具名）合并 ----
+// ---- resolveAgentTools：baseTools + harvestedTools（mcp-admin 枚举的 MCP 工具名）合并 ----
 
-test("resolveAgentTools: 注入 harvested（MCP direct）工具名（保留 base 顺序）", () => {
+test("resolveAgentTools: 注入 harvested（MCP 工具名，保留 base 顺序）", () => {
 	const result = resolveAgentTools(
 		["read", "edit"],
-		["mcp_playwright_browser_navigate", "mcp_playwright_browser_click"],
+		["mcp__dbx__query", "mcp__dbx__list"],
 	);
-	expect(result).toEqual([
-		"read",
-		"edit",
-		"mcp_playwright_browser_navigate",
-		"mcp_playwright_browser_click",
-	]);
+	expect(result).toEqual(["read", "edit", "mcp__dbx__query", "mcp__dbx__list"]);
 });
 
 test("resolveAgentTools: harvested 与 base 重复时去重", () => {
-	const result = resolveAgentTools(
-		["read", "bash"],
-		["read", "mcp_playwright_browser_navigate"],
-	);
+	const result = resolveAgentTools(["read", "bash"], ["read", "mcp__dbx__query"]);
 	// read 已在 base，去重；只并入新工具
-	expect(result).toEqual(["read", "bash", "mcp_playwright_browser_navigate"]);
+	expect(result).toEqual(["read", "bash", "mcp__dbx__query"]);
 });
 
 test("resolveAgentTools: harvested 默认空（仅传 base）", () => {
@@ -106,6 +98,22 @@ test("resolveAgentTools: 扩展原生 subagent 工具被剔除；delegate 放行
 	expect(out).not.toContain("subagent");
 	expect(out).toContain("delegate");
 	expect(out).toContain("some_ext_tool");
+});
+
+// ---- MCP 工具放行（规格 F4/F7；adapter 时代已结束）----
+
+describe("MCP 工具放行（规格 F4/F7）", () => {
+	test("默认白名单不再包含 adapter 的聚合名 mcp", () => {
+		expect(DEFAULT_AGENT_TOOLS).not.toContain("mcp");
+	});
+
+	test("实时枚举出的 mcp__srv__tool 可并入白名单", () => {
+		const merged = resolveAgentTools(
+			["read"],
+			["mcp__dbx__query", "mcp__dbx__list"],
+		);
+		expect(merged).toEqual(["read", "mcp__dbx__query", "mcp__dbx__list"]);
+	});
 });
 
 // ---- 默认工作区（虚拟系统项目）常量 ----

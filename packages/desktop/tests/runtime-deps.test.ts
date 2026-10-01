@@ -84,13 +84,13 @@ test("syncSeed: 清掉老版本留在 runtime 的内核二进制副本（回收 
   }
 });
 
-test("syncSeed: seed 里的 patches 不再复制（patch 编译期已生效，运行时磁盘无 pi-mcp-adapter）", async () => {
+test("syncSeed: seed 里的 patches 不再复制（patch 编译期已生效，运行时磁盘无 patches 目录）", async () => {
   const { base, seedDir, runtimeDir } = await makeTempDirs();
   try {
     await writeFile(join(seedDir, KERNEL_BIN), "binary");
     await mkdir(join(seedDir, "patches"), { recursive: true });
     await writeFile(
-      join(seedDir, "patches", "pi-mcp-adapter@2.17.0.patch"),
+      join(seedDir, "patches", "some-dep@1.0.0.patch"),
       "diff --git",
     );
 
@@ -340,7 +340,7 @@ test("syncSeed: 清理历史遗留文件（kernel.js 时代 + 已移除的动态
     await writeFile(join(runtimeDir, "file-snapshot.ts"), "// old");
     await mkdir(join(runtimeDir, "patches"), { recursive: true });
     await writeFile(
-      join(runtimeDir, "patches", "pi-mcp-adapter@2.17.0.patch"),
+      join(runtimeDir, "patches", "some-dep@1.0.0.patch"),
       "old",
     );
 

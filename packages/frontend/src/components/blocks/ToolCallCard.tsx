@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
@@ -348,29 +348,46 @@ export function ToolCallCard({
 	);
 }
 
+/** 单个调用的渲染出口：默认渲染平铺 ToolCallCard（含结果）。
+ *  嵌套调用的调用方（ToolCallsSegment）传自定义实现，把内层子卡挂到父卡下；
+ *  分组/计数/折叠逻辑与出口无关，传与不传行为一致。 */
+export type ToolCallRenderer = (toolCall: any) => ReactNode;
+
 /** 工具调用分组：>1 个连续调用归成一张组卡；单工具直接渲染单卡 */
 export function ToolGroupCard({
 	toolCalls,
 	results,
 	isStreaming,
+	renderItem,
 }: {
 	toolCalls: any[];
 	results: Map<string, ToolResultMessage>;
 	isStreaming?: boolean;
+	renderItem?: ToolCallRenderer;
 }) {
+	const render = renderItem ?? defaultRenderer(results, isStreaming);
 	if (toolCalls.length === 1) {
-		return (
-			<ToolCallCard
-				toolCall={toolCalls[0]}
-				result={results.get(toolCalls[0].id)}
-				isStreaming={isStreaming}
-			/>
-		);
+		return <>{render(toolCalls[0])}</>;
 	}
 	return (
 		<ToolGroupCardInner
 			toolCalls={toolCalls}
 			results={results}
+			isStreaming={isStreaming}
+			renderItem={renderItem}
+		/>
+	);
+}
+
+/** 默认渲染：平铺单卡（与改造前的 JSX 逐字一致） */
+function defaultRenderer(
+	results: Map<string, ToolResultMessage>,
+	isStreaming?: boolean,
+): ToolCallRenderer {
+	return (toolCall) => (
+		<ToolCallCard
+			toolCall={toolCall}
+			result={results.get(toolCall.id)}
 			isStreaming={isStreaming}
 		/>
 	);
@@ -380,11 +397,14 @@ function ToolGroupCardInner({
 	toolCalls,
 	results,
 	isStreaming,
+	renderItem,
 }: {
 	toolCalls: any[];
 	results: Map<string, ToolResultMessage>;
 	isStreaming?: boolean;
+	renderItem?: ToolCallRenderer;
 }) {
+	const render = renderItem ?? defaultRenderer(results, isStreaming);
 	const total = toolCalls.length;
 	const doneCount = toolCalls.filter((tc: any) => results.has(tc.id)).length;
 	const successCount = toolCalls.filter((tc: any) => {
@@ -455,12 +475,7 @@ function ToolGroupCardInner({
 		>
 			<div className="space-y-1.5">
 				{toolCalls.map((tc: any) => (
-					<ToolCallCard
-						key={tc.id}
-						toolCall={tc}
-						result={results.get(tc.id)}
-						isStreaming={isStreaming}
-					/>
+					<Fragment key={tc.id}>{render(tc)}</Fragment>
 				))}
 			</div>
 		</ProcessCard>

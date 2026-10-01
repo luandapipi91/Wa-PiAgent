@@ -1,6 +1,6 @@
 // 组装 resources/kernel/(WaPiKernel 单二进制 + package.json + bun.lock) + resources/web/(前端 dist)。
-// kernel 用 bun --compile 编译成原生可执行文件（内含 bun runtime + 内核代码 + 已 patch 的
-// pi-mcp-adapter），不再下载 bun、不再有 kernel.js/bridge 文件/patches 复制。
+// kernel 用 bun --compile 编译成原生可执行文件（内含 bun runtime + 内核代码），
+// 不再下载 bun、不再有 kernel.js/bridge 文件/patches 复制。
 // 首启由 runtime-deps.cjs 用 BUN_BE_BUN=1（编译产物充当 bun CLI）动态安装磁盘依赖。
 import { spawnSync } from "node:child_process";
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -36,7 +36,7 @@ function run(bin: string, args: string[], cwd = ROOT) {
  *   ① 原生 .node 依赖（@napi-rs/keyring——无法内联进虚拟 FS，编译时 --external）；
  *   ② 需作为独立子进程入口的包（@earendil-works/pi-coding-agent——pi RPC 子进程
  *      执行其 dist/cli.js，子进程读不到父进程的虚拟 FS）；
- *   ③ 内置 Pi 扩展（PKG_EXTENSIONS：pi-web-access / pi-mcp-adapter——kernel 经 -e
+ *   ③ 内置 Pi 扩展（PKG_EXTENSIONS：pi-web-access——kernel 经 -e
  *      把其入口 index.ts 传给 pi 子进程，子进程必须能从磁盘读到该包）。
  * 其余全部内联进编译产物（jiti 在虚拟 FS 内解析，规避 2026-07-12 external 失败根因）。
  * 无 patchedDependencies：patch 编译期已生效（--compile 内联的是已 patch 源码；
@@ -53,7 +53,6 @@ export const kernelRuntimeDependencies = (kernelPkg: {
 	"@napi-rs/keyring": kernelPkg.dependencies["@napi-rs/keyring"],
 	// 内置扩展（PKG_EXTENSIONS）：pi 子进程经 -e 从磁盘加载其 index.ts，必须落盘
 	"pi-web-access": kernelPkg.dependencies["pi-web-access"],
-	"pi-mcp-adapter": kernelPkg.dependencies["pi-mcp-adapter"],
 });
 
 /** 运行时 package.json（纯函数，便于测试断言） */

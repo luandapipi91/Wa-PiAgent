@@ -132,16 +132,20 @@ test.describe.serial("插件操作后当前会话立即生效", () => {
 		await expect(page.getByTestId("ext-status-bar")).toHaveCount(0);
 		await expect(page.getByTestId("ext-title-bar")).toHaveCount(0);
 		// / 菜单不再有 uidemo（commands store 已随 extension:changed 刷新）。
-		// 正向断言内置命令 mcp 仍在，防止「菜单整体为空」造成假通过。
+		// 正向控制：菜单仍渲染真实条目（前端 handler 内置命令恒在列），防止「菜单整体为空」
+		// 让下面的 not.toContainText 平凡成立；用条目本身而不是某条命令的文案，避免绑定界面语言。
 		// 先清空残留 "/"：fill 相同值不触发 input 事件，菜单不会打开
 		await textbox.fill("");
 		await textbox.pressSequentially("/", { delay: 5 });
 		await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({
 			timeout: 5000,
 		});
-		await expect(page.getByTestId("quick-invoke-menu")).toContainText("mcp", {
+		await expect(page.getByTestId("quick-invoke-item-0")).toBeVisible({
 			timeout: REBUILD,
 		});
+		// 迁移验收点：pi 内置扩展命令 /mcp 已从用户可见的 / 菜单里隐藏（打标不剔除 + 展示层过滤）；
+		// 改前 store 只按 skill/extension-enabled 过滤，/mcp 会出现在这里。
+		await expect(page.getByTestId("quick-invoke-menu")).not.toContainText("mcp");
 		await expect(page.getByTestId("quick-invoke-menu")).not.toContainText(
 			"uidemo",
 		);
