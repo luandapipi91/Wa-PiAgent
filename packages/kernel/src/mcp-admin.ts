@@ -5,6 +5,47 @@
 import type { McpExposure } from "@wa-pi/shared";
 
 /**
+ * server URL → pi 存在 mcp-auth.json 里的键。
+ *
+ * pi 用 `String(new URL(url))` 规范化后当键：主机名小写、默认端口省略、无路径 URL 补尾斜杠。
+ * 拿配置里原样的字符串去查就会漏判（`https://Host:443` 与盘上的 `https://host/` 不是一个键），
+ * 而登录 UI 的「已登录 / 未登录」完全靠这个判断。
+ *
+ * 非 URL（含 `undefined`/空串/任意非 URL 文本）→ null：调用方一律按「未登录」处理。
+ */
+export function normalizeMcpAuthKey(url: string): string | null {
+  try {
+    return String(new URL(url));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读 `<agentDir>/mcp-auth.json` 的键集合（规范化后）。
+ *
+ * 一次性读整份文件供多处比对（列表里每台 HTTP server 都要问一次登录态，逐台重读文件没必要）。
+ * 文件缺失 / 非 JSON / 不是「URL → 凭据」的 map → 空集合（不抛错，F19）；
+ * 用 `Object.keys` 而不是 `in`，避免把原型链上的键（`toString` 等）当成凭据。
+ */
+export async function readMcpAuthKeys(agentDir: string): Promise<Set<string>> {
+  const keys = new Set<string>();
+  let raw: unknown;
+  try {
+    raw = await Bun.file(`${agentDir}/mcp-auth.json`).json();
+  } catch {
+    return keys; // 文件不存在 / 损坏
+  }
+  // 数组也是 object：它不可能是键值表，按「形状非法」处理
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return keys;
+  for (const k of Object.keys(raw)) {
+    const normalized = normalizeMcpAuthKey(k);
+    if (normalized) keys.add(normalized);
+  }
+  return keys;
+}
+
+/**
  * 单台服务器的运行时报告（`pi mcp list --json` 的 servers[] 条目）。
  *
  * 命名跟 pi 内部一致（`report`）：**不要**与 `@wa-pi/shared` 的 `McpServerStatus`
@@ -129,15 +170,9 @@ export class McpAdmin {
 
   /** 登录态：mcp-auth.json 是否含该 server URL 的条目（F19） */
   async isSignedIn(serverUrl: string): Promise<boolean> {
-    try {
-      const raw = await Bun.file(`${this.opts.agentDir}/mcp-auth.json`).json();
-      // 文件缺失/损坏 → false（不抛错）；用 hasOwn 而非 in，避免命中原型链上的键
-      return Boolean(
-        raw && typeof raw === "object" && Object.hasOwn(raw, serverUrl),
-      );
-    } catch {
-      return false;
-    }
+    const key = normalizeMcpAuthKey(serverUrl);
+    if (!key) return false; // 不是 URL（`toString` 之类的原型链键也在这一步被挡掉）
+    return (await readMcpAuthKeys(this.opts.agentDir)).has(key);
   }
 
   invalidate(): void {

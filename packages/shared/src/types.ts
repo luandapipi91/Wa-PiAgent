@@ -75,6 +75,7 @@ import type {
 	McpChangedEvent,
 	McpTestResult,
 	McpToolsResult,
+	McpLoginEvent,
 } from "./mcp";
 import type { SessionCommandsRequest, SessionCommandsResult } from "./commands";
 
@@ -1495,6 +1496,7 @@ export type WSServerEvent =
 	| McpChangedEvent
 	| McpTestResult
 	| McpToolsResult
+	| McpLoginEvent
 	| InstructionListResult
 	| MemoryConfigEvent
 	| FSHomeResult

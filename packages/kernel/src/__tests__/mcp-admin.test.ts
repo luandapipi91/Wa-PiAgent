@@ -156,4 +156,29 @@ describe("McpAdmin.isSignedIn（F19）", () => {
     await writeFile(join(dir, "mcp-auth.json"), JSON.stringify({}), "utf8");
     expect(await adminFor(dir).isSignedIn("toString")).toBe(false);
   });
+
+  test("按 pi 的规范化键比对：盘上 https://host/ ←→ 传入 https://host（F19 回归）", async () => {
+    // pi 存的是 String(new URL(url))：主机名小写、默认端口省略、无路径 URL 补尾斜杠。
+    // 拿配置里原样的字符串去查会漏判成「未登录」→ 登录按钮重复出现 / 登出按钮消失。
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, "mcp-auth.json"),
+      JSON.stringify({ "https://host/": { tokens: {} } }),
+      "utf8",
+    );
+    const admin = adminFor(dir);
+    expect(await admin.isSignedIn("https://host")).toBe(true);
+    expect(await admin.isSignedIn("https://HOST:443")).toBe(true);
+    expect(await admin.isSignedIn("https://host/other")).toBe(false);
+  });
+
+  test("盘上的键未规范化（手工编辑）也能匹配：两边都过一遍规范化", async () => {
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, "mcp-auth.json"),
+      JSON.stringify({ "https://HOST": { tokens: {} } }),
+      "utf8",
+    );
+    expect(await adminFor(dir).isSignedIn("https://host/")).toBe(true);
+  });
 });

@@ -23,6 +23,7 @@ import type { MemoryStore } from "./memory-store";
 import { McpFile, projectMcpPath } from "./mcp-file";
 import { createMcpHandlers, createMcpRoutes } from "./routes/mcp";
 import type { McpHandlers } from "./routes/mcp";
+import { resolvePiCliPath, resolvePiRuntime } from "./rpc-client";
 import { testProviderConnection } from "./provider-test";
 import {
 	loadRetrySettings,
@@ -814,6 +815,14 @@ export class WSServer {
 			adminForCwd: (cwd: string) => this.opts.agentManager.mcpAdminForCwd(cwd),
 			invalidateCaches: () => this.opts.agentManager.invalidateMcpCaches(),
 			broadcast: (e: WSServerEvent) => this.broadcast(e),
+			// 登录 / 登出子进程：与 McpAdmin、会话进程同源地解析 runtime/cliPath（不另起一套）；
+			// agentDir = WA_PI_DIR，与 pi 自己的 PI_CODING_AGENT_DIR 一致——凭据 mcp-auth.json
+			// 就在那里，登录态（F19）与登出的删除都得看同一个目录。
+			piSpawn: {
+				runtime: resolvePiRuntime(),
+				cliPath: resolvePiCliPath(),
+				agentDir: WA_PI_DIR,
+			},
 		};
 		this.mcpHandlers = createMcpHandlers(mcpDeps);
 		createMcpRoutes(mcpDeps)(this.router, callApi, ctx);

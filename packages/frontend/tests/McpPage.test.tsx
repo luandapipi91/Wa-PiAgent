@@ -42,6 +42,7 @@ beforeEach(() => {
     loadingTools: {},
     testingServers: {},
     errors: {},
+    loginStates: {},
     // 组件 mount 时 useEffect 会调用 load()，它内部会置 loading:true 并发请求。
     // 测试里不关心真实加载链路，stub 掉以避免 loading 阻塞渲染。
     load: () => {},
@@ -383,4 +384,72 @@ test("保存成功才关闭弹窗", async () => {
     fireEvent.click(screen.getByTestId("mcp-form-save"));
   });
   expect(screen.queryByTestId("mcp-form-modal")).toBeNull();
+});
+
+// ===== OAuth 登录 / 登出（规格 F19/F20）=====
+
+test("HTTP 且未登录的 server 显示登录按钮；点它按当前作用域 POST /api/mcp/login", async () => {
+  const posts: unknown[] = [];
+  postImpl = (path: string, body?: unknown) => {
+    posts.push({ path, body });
+    return Promise.resolve({ ok: true });
+  };
+  useMcpStore.setState({
+    selectedProjectId: "p1",
+    servers: [
+      { name: "remote", url: "https://host/mcp", state: "needs-auth", signedIn: false },
+      { name: "local", command: "echo", state: "connected" },
+    ],
+  });
+  render(<McpPage />);
+
+  // stdio 服务器没有 OAuth：不给登录入口
+  expect(screen.getByTestId("mcp-login-remote")).toBeTruthy();
+  expect(screen.queryByTestId("mcp-login-local")).toBeNull();
+  expect(screen.queryByTestId("mcp-logout-remote")).toBeNull();
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("mcp-login-remote"));
+  });
+  expect(posts).toEqual([
+    {
+      path: "/api/mcp/login",
+      body: { serverName: "remote", timeoutSec: 300, projectId: "p1" },
+    },
+  ]);
+});
+
+test("已登录的 HTTP server 显示登出按钮；点它 POST /api/mcp/logout", async () => {
+  const posts: unknown[] = [];
+  postImpl = (path: string, body?: unknown) => {
+    posts.push({ path, body });
+    return Promise.resolve({ ok: true });
+  };
+  useMcpStore.setState({
+    servers: [{ name: "remote", url: "https://host/mcp", signedIn: true }],
+  });
+  render(<McpPage />);
+
+  expect(screen.getByTestId("mcp-logout-remote")).toBeTruthy();
+  expect(screen.queryByTestId("mcp-login-remote")).toBeNull();
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("mcp-logout-remote"));
+  });
+  expect(posts).toEqual([
+    { path: "/api/mcp/logout", body: { serverName: "remote", projectId: undefined } },
+  ]);
+});
+
+test("登录进行中：卡片显示授权 URL（pi 已自己打开浏览器，这里只展示）", () => {
+  useMcpStore.setState({
+    servers: [{ name: "remote", url: "https://host/mcp", signedIn: false }],
+    loginStates: {
+      remote: { pending: true, url: "http://127.0.0.1:59998/authorize?client_id=x" },
+    },
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-login-url-remote").textContent).toBe(
+    "http://127.0.0.1:59998/authorize?client_id=x",
+  );
 });

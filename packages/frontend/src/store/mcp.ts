@@ -9,6 +9,7 @@ import type {
 import type {
   McpChangedEvent,
   McpListResult,
+  McpLoginEvent,
   McpTestResult,
   McpToolsResult,
 } from "@wa-pi/shared";
@@ -31,6 +32,23 @@ export interface McpServerEntry extends McpServerConfig {
   state?: string;
   /** pi 报的工具名清单（只有名字） */
   tools?: string[];
+  error?: string;
+  /**
+   * 是否已登录（凭据在 kernel 的 `<agent-dir>/mcp-auth.json`，F19）。
+   * 只对 HTTP server 下发（stdio 没有 OAuth）→ 缺省 = 「不知道」，卡片既不显示登录也不显示登出。
+   */
+  signedIn?: boolean;
+}
+
+/** 单台服务器本次会话内的登录流程状态（作者内存，不持久化） */
+export interface McpLoginState {
+  /** 正在等 pi / 等用户在浏览器里授权 */
+  pending: boolean;
+  /** pi 打到 stdout 的授权 URL（拿到后展示 + 可复制） */
+  url?: string;
+  /** pi 最新的进度行（如 “Sign in to MCP server … in your browser:”） */
+  progress?: string;
+  /** 失败/超时文案（pi 的末行输出） */
   error?: string;
 }
 
@@ -82,6 +100,8 @@ interface McpState {
   testingServers: Record<string, boolean>;
   /** 各服务器最近一次错误信息（测试失败时填充） */
   errors: Record<string, string>;
+  /** 各服务器登录流程的状态（本会话内；按 serverName 键控） */
+  loginStates: Record<string, McpLoginState>;
 
   load(projectId?: string): void;
   /**
@@ -103,6 +123,15 @@ interface McpState {
   deleteServer(serverName: string, projectId?: string): Promise<void>;
   testConnection(serverName: string, projectId?: string): void;
   listTools(serverName: string, projectId?: string): void;
+  /**
+   * 发起 OAuth 登录（`POST /api/mcp/login`）：HTTP 只是受理，授权 URL 与结果经 SSE
+   * 的 `mcp:login` 回流（登录要等用户在浏览器里授权，不能押在请求上）。
+   */
+  login(serverName: string, timeoutSec?: number, projectId?: string): void;
+  /** 登出（`POST /api/mcp/logout`）：kernel 同步等 `pi mcp logout` 跑完，失败弹 toast */
+  logout(serverName: string, projectId?: string): Promise<void>;
+  /** 处理 `mcp:login` 事件（登录进度 / 授权 URL / 成功 / 失败） */
+  setLoginEvent(data: McpLoginEvent): void;
   /** 项目级 MCP 作用域开关（写 trust.json；`__system__` 会被 kernel 以 400 拒绝） */
   setProjectMcpScope(projectId: string, enabled: boolean): Promise<void>;
   /** 回读项目级开关真值（trust.json），供开关显示初值；晚到的回包不覆盖已切走的项目 */
@@ -125,6 +154,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   loadingTools: {},
   testingServers: {},
   errors: {},
+  loginStates: {},
 
   load: (projectId) => {
     // 未显式传作用域时沿用当前选中（与既有语义一致）；请求 URL 与过滤用的 scope 必须是同一个值
@@ -248,6 +278,77 @@ export const useMcpStore = create<McpState>((set, get) => ({
         : `/api/mcp/${encodeURIComponent(serverName)}/tools`,
     );
   },
+  login: (serverName, timeoutSec, projectId) => {
+    const scope =
+      projectId !== undefined ? projectId : (get().selectedProjectId ?? null);
+    // 本视图立刻进入「等待授权」：这不是乐观假设，而是事实——POST 一发出去 pi 就开始走
+    // OAuth 流程了（pi 会自己打开浏览器）。没这一步，用户点完按钮会以为没反应。
+    set((s) => ({
+      loginStates: { ...s.loginStates, [serverName]: { pending: true } },
+    }));
+    api
+      .post("/api/mcp/login", {
+        serverName,
+        timeoutSec,
+        projectId: scope ?? undefined,
+      })
+      .catch((e) => {
+        // 受理就失败了（400 参数非法 / 404 项目不存在）→ 不会再有 SSE 事件，
+        // 必须就地报错，否则卡片永远停在「等待授权」
+        set((s) => ({
+          loginStates: {
+            ...s.loginStates,
+            [serverName]: { pending: false, error: formatApiError(e) },
+          },
+        }));
+      });
+  },
+  logout: async (serverName, projectId) => {
+    try {
+      await api.post("/api/mcp/logout", {
+        serverName,
+        projectId: projectId ?? undefined,
+      });
+    } catch (e) {
+      // 失败原因（pi 报「服务器不存在」等）只有这一条通道；成功则靠 kernel 广播的
+      // mcp:changed 刷新登录态与清单（不必在这里手动改 signedIn）
+      useToastStore.getState().add(formatApiError(e), "error");
+    }
+  },
+  setLoginEvent: (data) => {
+    // 作用域不符的进度不属于本视图：同名 server 在另一作用域的登录过程不得污染当前列表
+    if ((data.projectId ?? null) !== (get().selectedProjectId ?? null)) return;
+    set((s) => {
+      const prev: McpLoginState = s.loginStates[data.serverName] ?? {
+        pending: true,
+      };
+      const next = { ...s.loginStates };
+      if (data.phase === "ok") {
+        // 清掉本次流程状态：卡片回到「已登录」形态，由随后的 mcp:changed 把 signedIn 带回来
+        delete next[data.serverName];
+      } else if (data.phase === "error") {
+        next[data.serverName] = {
+          pending: false,
+          error: data.error ?? i18n.t("mcpCard.loginFailed"),
+        };
+      } else if (data.phase === "authorizationUrl") {
+        next[data.serverName] = {
+          ...prev,
+          pending: true,
+          error: undefined,
+          url: data.url,
+        };
+      } else {
+        next[data.serverName] = {
+          ...prev,
+          pending: true,
+          error: undefined,
+          progress: data.line ?? prev.progress,
+        };
+      }
+      return { loginStates: next };
+    });
+  },
   setProjectMcpScope: async (projectId, enabled) => {
     try {
       await api.post("/api/mcp/project-scope", { projectId, enabled });
@@ -290,6 +391,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
       toolCounts: {},
       errors: {},
       toolsCache: {},
+      // 登录进度同理：它属于切走前的作用域（卡片上可能还挂着 pi 的授权 URL）
+      loginStates: {},
     }),
   setSearchQuery: (q) => set({ searchQuery: q }),
 }));

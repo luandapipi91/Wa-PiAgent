@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
-import type { McpServerEntry } from "../../store/mcp";
+import type { McpLoginState, McpServerEntry } from "../../store/mcp";
+import { copyToClipboard } from "../../util/clipboard";
 import { exposureDescKey, exposureLabelKey } from "./exposure";
 
 interface Props {
@@ -13,10 +15,21 @@ interface Props {
   toolCount?: number;
   testing?: boolean;
   error?: string;
+  /**
+   * 是否已登录（kernel 读 mcp-auth.json 得来，F19）。
+   * 缺省 = 未知（非 HTTP server / 旧回包）：那时既不显示「登录」也不显示「登出」
+   * ——登录态是事实，不能靠猜。
+   */
+  signedIn?: boolean;
+  /** 本次会话内的登录流程状态（等待授权 / 授权 URL / 失败文案） */
+  loginState?: McpLoginState;
   onTest: () => void;
   onViewTools: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** 发起登录；timeoutSec 缺省 = 交给 kernel 用自己的缺省值 */
+  onLogin: (timeoutSec?: number) => void;
+  onLogout: () => void;
 }
 
 interface Badge {
@@ -85,18 +98,26 @@ function configSummary(config: McpServerEntry, emptyLabel: string): string {
   return emptyLabel;
 }
 
+/** 登录等待秒数的输入框初值（秒级；与 kernel 的 DEFAULT_LOGIN_TIMEOUT_SEC 一致） */
+const DEFAULT_TIMEOUT_SEC = "300";
+
 export function McpCard({
   config,
   state,
   toolCount,
   testing,
   error,
+  signedIn,
+  loginState,
   onTest,
   onViewTools,
   onEdit,
   onDelete,
+  onLogin,
+  onLogout,
 }: Props) {
   const { t } = useTranslation();
+  const [timeoutSec, setTimeoutSec] = useState(DEFAULT_TIMEOUT_SEC);
   const badge = stateBadge(state);
   const st = testing
     ? {
@@ -111,6 +132,19 @@ export function McpCard({
     !testing && state === "connected" && toolCount != null
       ? t("mcpCard.connectedWithTools", { count: toolCount })
       : st.label;
+
+  // 登录 / 登出只对 HTTP server 出现：stdio 没有 OAuth（pi 直接报 does not use OAuth），
+  // 给按钮等于提供一个必然失败的入口。signedIn 未知（undefined）时两边都不显示。
+  const isHttp = !!config.url;
+  const canLogin = isHttp && signedIn === false;
+  const canLogout = isHttp && signedIn === true;
+  const loginPending = loginState?.pending === true;
+
+  const handleLogin = () => {
+    // 输入框被清空 / 写成非正数时不编值：交给 kernel 用它自己的缺省上限
+    const n = Number(timeoutSec);
+    onLogin(Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined);
+  };
 
   return (
     <div
@@ -154,7 +188,7 @@ export function McpCard({
         {configSummary(config, t("mcpCard.summaryEmpty"))}
       </p>
 
-      {/* 需登录：提示待办（登录/登出入口归任务 10） */}
+      {/* 需登录：提示待办 */}
       {!testing && state === "needs-auth" && (
         <p
           className="text-[calc(11px*var(--font-scale))] mb-2 px-2 py-1 rounded"
@@ -163,6 +197,65 @@ export function McpCard({
         >
           {t("mcpCard.needsAuthHint")}
         </p>
+      )}
+
+      {/* 登录流程：等待授权 / 授权 URL / 失败。
+          URL 只展示 + 可复制，**不自动打开**：pi 自己会打开一次系统浏览器且无法抑制
+          （规格 §11），前端再自动打开必然是两个标签页。 */}
+      {isHttp && loginState && (loginState.pending || loginState.error) && (
+        <div
+          className="mb-2 px-2 py-1 rounded text-[calc(11px*var(--font-scale))]"
+          style={
+            loginState.error
+              ? { color: "var(--danger)", background: "var(--danger-soft)" }
+              : { color: "var(--text-secondary)", background: "var(--accent-soft)" }
+          }
+          data-testid={`mcp-login-state-${config.name}`}
+        >
+          {loginState.error ? (
+            <p
+              className="whitespace-pre-wrap break-all m-0"
+              data-testid={`mcp-login-error-${config.name}`}
+            >
+              {loginState.error}
+            </p>
+          ) : (
+            <>
+              <p
+                className="m-0"
+                data-testid={`mcp-login-waiting-${config.name}`}
+              >
+                ⏳ {t("mcpCard.loginWaiting")}
+              </p>
+              {loginState.progress && (
+                <p
+                  className="m-0 mt-1 opacity-80 break-all"
+                  data-testid={`mcp-login-progress-${config.name}`}
+                >
+                  {loginState.progress}
+                </p>
+              )}
+              {loginState.url && (
+                <div className="mt-1">
+                  <span className="opacity-80">{t("mcpCard.loginUrlHint")}</span>
+                  <p
+                    className="m-0 break-all select-all"
+                    style={{ color: "var(--accent)" }}
+                    data-testid={`mcp-login-url-${config.name}`}
+                  >
+                    {loginState.url}
+                  </p>
+                  <CardBtn
+                    onClick={() => void copyToClipboard(loginState.url!)}
+                    testId={`mcp-login-copy-${config.name}`}
+                    label={t("mcpCard.loginCopyLink")}
+                    accent
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       {/* 错误信息：折叠展示（长错误不撑开卡片）；danger 样式已承担错误信号，文本不加 ⚠ 前缀 */}
@@ -185,7 +278,40 @@ export function McpCard({
       )}
 
       {/* 操作按钮 */}
-      <div className="flex gap-1.5 flex-wrap">
+      <div className="flex gap-1.5 flex-wrap items-center">
+        {canLogin && (
+          <input
+            className="w-14 text-[calc(11px*var(--font-scale))] px-1.5 py-1 rounded-md"
+            style={{
+              background: "var(--canvas)",
+              border: "1px solid var(--hairline)",
+              color: "var(--text-primary)",
+            }}
+            value={timeoutSec}
+            onChange={(e) => setTimeoutSec(e.target.value)}
+            disabled={loginPending}
+            title={t("mcpCard.loginTimeoutHint")}
+            aria-label={t("mcpCard.loginTimeoutHint")}
+            data-testid={`mcp-login-timeout-${config.name}`}
+          />
+        )}
+        {canLogin && (
+          <CardBtn
+            onClick={handleLogin}
+            testId={`mcp-login-${config.name}`}
+            label={t("mcpCard.loginButton")}
+            accent
+            disabled={loginPending}
+          />
+        )}
+        {canLogout && (
+          <CardBtn
+            onClick={onLogout}
+            testId={`mcp-logout-${config.name}`}
+            label={t("mcpCard.logoutButton")}
+            disabled={testing}
+          />
+        )}
         <CardBtn
           onClick={onTest}
           testId={`mcp-test-${config.name}`}

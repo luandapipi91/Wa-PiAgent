@@ -122,6 +122,9 @@ function makeRouter(admin: ReturnType<typeof makeAdmin>) {
       invalidations++;
     },
     broadcast: (e) => broadcasts.push(e),
+    // 本文件的用例不跑登录/登出；只需满足依赖形状。agentDir 指向 tmpdir：
+    // 列表里的 signedIn（F19）读的是它下面的 mcp-auth.json，不存在即「未登录」。
+    piSpawn: { runtime: process.execPath, cliPath: "unused-cli.js", agentDir: dir },
   })(router, (async () => Response.json({})) as never, {
     projectStore: { load: async () => ({ projects: [], sessions: [] }) } as never,
   });

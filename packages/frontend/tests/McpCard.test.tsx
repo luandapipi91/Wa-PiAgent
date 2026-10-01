@@ -17,6 +17,8 @@ test("渲染 server 名称、描述行", () => {
       onViewTools={mock()}
       onEdit={mock()}
       onDelete={mock()}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   expect(screen.getByText(/test-server/)).toBeTruthy();
@@ -33,6 +35,8 @@ test("connected 状态渲染连接测试按钮与工具数", () => {
       onViewTools={mock()}
       onEdit={mock()}
       onDelete={mock()}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   expect(screen.getByText("连接测试")).toBeTruthy();
@@ -51,6 +55,8 @@ test("failed 状态是错误色调，错误信息折叠展示（默认收起）"
       onViewTools={noop}
       onEdit={noop}
       onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   const badge = screen.getByTestId("mcp-state-test");
@@ -73,6 +79,8 @@ test("disabled（用户主动停用）不是错误样式，文案是「已停用
       onViewTools={noop}
       onEdit={noop}
       onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   const badge = screen.getByTestId("mcp-state-test");
@@ -92,6 +100,8 @@ test("needs-auth 显示需登录提示与提示文案", () => {
       onViewTools={noop}
       onEdit={noop}
       onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   const badge = screen.getByTestId("mcp-state-test");
@@ -110,6 +120,8 @@ test("state 缺省或未知串 → 状态未知（不硬套连接态）", () => 
       onViewTools={noop}
       onEdit={noop}
       onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   expect(screen.getByTestId("mcp-state-unknown-state").textContent).toContain(
@@ -124,6 +136,8 @@ test("state 缺省或未知串 → 状态未知（不硬套连接态）", () => 
       onViewTools={noop}
       onEdit={noop}
       onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   const badge = screen.getByTestId("mcp-state-weird-state");
@@ -140,6 +154,8 @@ test("展示暴露方式标签（title 为一句说明）", () => {
       onViewTools={noop}
       onEdit={noop}
       onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   const tag = screen.getByTestId("mcp-exposure-test");
@@ -167,6 +183,8 @@ test("按钮点击触发对应回调", () => {
       onViewTools={mock()}
       onEdit={onEdit}
       onDelete={onDelete}
+      onLogin={noop}
+      onLogout={noop}
     />,
   );
   const card = screen.getByTestId("mcp-card-test");
@@ -174,4 +192,135 @@ test("按钮点击触发对应回调", () => {
   expect(onEdit).toHaveBeenCalledTimes(1);
   fireEvent.click(within(card).getByText("删除"));
   expect(onDelete).toHaveBeenCalledTimes(1);
+});
+
+// ===== OAuth 登录 / 登出（规格 F19/F20）=====
+//
+// 关键语义：登录按钮只对「HTTP 且**确认未登录**」的 server 出现。pi 自己会打开一次
+// 系统浏览器（无法抑制）→ 卡片只展示 + 可复制授权 URL，不自动再打开一次。
+
+const AUTH_URL = "http://127.0.0.1:59998/authorize?client_id=x";
+
+/** 造一个 HTTP server 的卡片（登录相关用例的基底） */
+function renderHttpCard(props: Record<string, unknown> = {}) {
+  return render(
+    <McpCard
+      config={{ name: "test", url: "https://host/mcp" }}
+      state="needs-auth"
+      onTest={noop}
+      onViewTools={noop}
+      onEdit={noop}
+      onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
+      {...(props as any)}
+    />,
+  );
+}
+
+test("HTTP 且未登录（signedIn=false）→ 显示登录按钮与超时输入，不显示登出", () => {
+  renderHttpCard({ signedIn: false });
+  expect(screen.getByTestId("mcp-login-test")).toBeTruthy();
+  expect((screen.getByTestId("mcp-login-timeout-test") as HTMLInputElement).value).toBe(
+    "300",
+  );
+  expect(screen.queryByTestId("mcp-logout-test")).toBeNull();
+});
+
+test("HTTP 且已登录（signedIn=true）→ 显示登出按钮，不显示登录", () => {
+  renderHttpCard({ signedIn: true });
+  expect(screen.getByTestId("mcp-logout-test")).toBeTruthy();
+  expect(screen.queryByTestId("mcp-login-test")).toBeNull();
+  expect(screen.queryByTestId("mcp-login-timeout-test")).toBeNull();
+});
+
+test("stdio（无 url）→ 不显示登录也不显示登出（pi 会报 does not use OAuth）", () => {
+  render(
+    <McpCard
+      config={{ name: "test", command: "echo" }}
+      state="needs-auth"
+      signedIn={false}
+      onTest={noop}
+      onViewTools={noop}
+      onEdit={noop}
+      onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
+    />,
+  );
+  expect(screen.queryByTestId("mcp-login-test")).toBeNull();
+  expect(screen.queryByTestId("mcp-logout-test")).toBeNull();
+});
+
+test("登录态未知（signedIn 缺省）→ 两边都不显示，不靠猜", () => {
+  renderHttpCard();
+  expect(screen.queryByTestId("mcp-login-test")).toBeNull();
+  expect(screen.queryByTestId("mcp-logout-test")).toBeNull();
+});
+
+test("点登录 → onLogin 收到输入框里的秒数；超时输入可改", () => {
+  const onLogin = mock();
+  renderHttpCard({ signedIn: false, onLogin });
+  fireEvent.change(screen.getByTestId("mcp-login-timeout-test"), {
+    target: { value: "60" },
+  });
+  fireEvent.click(screen.getByTestId("mcp-login-test"));
+  expect(onLogin).toHaveBeenCalledWith(60);
+});
+
+test("超时输入被清空 / 写成非正数 → onLogin 不带秒数（交给 kernel 的缺省值）", () => {
+  const onLogin = mock();
+  renderHttpCard({ signedIn: false, onLogin });
+  const input = screen.getByTestId("mcp-login-timeout-test");
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.click(screen.getByTestId("mcp-login-test"));
+  fireEvent.change(input, { target: { value: "0" } });
+  fireEvent.click(screen.getByTestId("mcp-login-test"));
+  expect(onLogin.mock.calls).toEqual([[undefined], [undefined]]);
+});
+
+test("点登出 → onLogout 被调用", () => {
+  const onLogout = mock();
+  renderHttpCard({ signedIn: true, onLogout });
+  fireEvent.click(screen.getByTestId("mcp-logout-test"));
+  expect(onLogout).toHaveBeenCalledTimes(1);
+});
+
+test("登录中：显示等待授权、进度行与授权 URL，可复制；登录按钮置灰", () => {
+  const writeText = mock();
+  (window as any).waPiClipboard = { writeText, writeImage: mock() };
+  renderHttpCard({
+    signedIn: false,
+    loginState: {
+      pending: true,
+      progress: 'Sign in to MCP server "test" in your browser:',
+      url: AUTH_URL,
+    },
+  });
+
+  expect(screen.getByTestId("mcp-login-waiting-test").textContent).toContain(
+    "等待浏览器授权",
+  );
+  expect(screen.getByTestId("mcp-login-progress-test").textContent).toContain(
+    "Sign in to MCP server",
+  );
+  expect(screen.getByTestId("mcp-login-url-test").textContent).toBe(AUTH_URL);
+  expect((screen.getByTestId("mcp-login-test") as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+
+  fireEvent.click(screen.getByTestId("mcp-login-copy-test"));
+  expect(writeText).toHaveBeenCalledWith(AUTH_URL);
+  delete (window as any).waPiClipboard;
+});
+
+test("登录失败：显示错误文案（不再显示「等待授权」）", () => {
+  renderHttpCard({
+    signedIn: false,
+    loginState: { pending: false, error: "cancelled or not completed within 3 seconds" },
+  });
+  expect(screen.getByTestId("mcp-login-error-test").textContent).toBe(
+    "cancelled or not completed within 3 seconds",
+  );
+  expect(screen.queryByTestId("mcp-login-waiting-test")).toBeNull();
 });

@@ -348,6 +348,10 @@ export function App() {
 				case "mcp:tools":
 					useMcpStore.getState().setToolsResult(e as any);
 					break;
+				// 登录进度 / 授权 URL / 结果：POST 只表示「已受理」，真正的回流全在这条事件上
+				case "mcp:login":
+					useMcpStore.getState().setLoginEvent(e as any);
+					break;
 				case "channels:changed":
 					void useChannelsStore.getState().loadBots();
 					break;

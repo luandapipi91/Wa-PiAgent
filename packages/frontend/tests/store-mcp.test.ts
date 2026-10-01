@@ -50,6 +50,7 @@ beforeEach(() => {
     loadingTools: {},
     testingServers: {},
     errors: {},
+    loginStates: {},
   });
 });
 
@@ -473,4 +474,132 @@ test("setProjectMcpScope 失败（400）时真值保持不变，只提示", asyn
   await useMcpStore.getState().setProjectMcpScope("p1", true);
   expect(useMcpStore.getState().projectScopeEnabled).toBe(false);
   expect(useToastStore.getState().toasts).toHaveLength(1);
+});
+
+// ===== OAuth 登录 / 登出（规格 F19/F20）=====
+
+/** 取某 server 的登录流程状态 */
+function loginState(name = "test") {
+  return useMcpStore.getState().loginStates[name];
+}
+
+test("login 立即进入「等待授权」并 POST /api/mcp/login（带作用域与超时秒数）", () => {
+  useMcpStore.setState({ selectedProjectId: "p1" });
+  useMcpStore.getState().login("srv", 60, "p1");
+
+  expect(loginState("srv")).toEqual({ pending: true });
+  expect(calls).toEqual([
+    { method: "POST", path: "/api/mcp/login", body: { serverName: "srv", timeoutSec: 60, projectId: "p1" } },
+  ]);
+});
+
+test("login 未传作用域时沿用当前选中：全局作用域不带 projectId 字段", () => {
+  useMcpStore.setState({ selectedProjectId: null });
+  useMcpStore.getState().login("srv");
+  expect(calls[0].body).toEqual({ serverName: "srv", timeoutSec: undefined, projectId: undefined });
+});
+
+test("login 受理失败（400/404）就地报错：不能永远停在「等待授权」", async () => {
+  postImpl = () =>
+    Promise.reject(
+      Object.assign(new Error("项目不存在"), { failure: { code: "project.notFound" } }),
+    );
+  useMcpStore.getState().login("srv");
+  await new Promise((r) => setTimeout(r, 0));
+
+  const st = loginState("srv");
+  expect(st.pending).toBe(false);
+  expect(st.error).toBeTruthy();
+});
+
+test("setLoginEvent：running 记进度、authorizationUrl 给 URL、ok 清掉流程状态", () => {
+  useMcpStore.setState({ selectedProjectId: null });
+  useMcpStore.getState().login("srv");
+
+  useMcpStore.getState().setLoginEvent({
+    type: "mcp:login",
+    serverName: "srv",
+    phase: "running",
+    line: 'Sign in to MCP server "srv" in your browser:',
+  });
+  expect(loginState("srv").progress).toContain("Sign in to MCP server");
+  expect(loginState("srv").pending).toBe(true);
+
+  useMcpStore.getState().setLoginEvent({
+    type: "mcp:login",
+    serverName: "srv",
+    phase: "authorizationUrl",
+    url: "http://127.0.0.1:1/authorize",
+  });
+  const withUrl = loginState("srv");
+  expect(withUrl.url).toBe("http://127.0.0.1:1/authorize");
+  expect(withUrl.progress).toContain("Sign in to MCP server"); // 进度不被抹掉
+  expect(withUrl.pending).toBe(true);
+
+  useMcpStore.getState().setLoginEvent({ type: "mcp:login", serverName: "srv", phase: "ok" });
+  expect(loginState("srv")).toBeUndefined();
+});
+
+test("setLoginEvent：error 带 pi 的文案；无文案时用字典兑底", () => {
+  useMcpStore.setState({ selectedProjectId: null });
+  useMcpStore.getState().login("srv");
+  useMcpStore.getState().setLoginEvent({
+    type: "mcp:login",
+    serverName: "srv",
+    phase: "error",
+    error: "cancelled or not completed within 300 seconds",
+  });
+  expect(loginState("srv")).toEqual({
+    pending: false,
+    error: "cancelled or not completed within 300 seconds",
+  });
+
+  useMcpStore.getState().setLoginEvent({
+    type: "mcp:login",
+    serverName: "other",
+    phase: "error",
+  });
+  expect(loginState("other").error).toBeTruthy();
+});
+
+test("setLoginEvent 按作用域过滤：另一作用域的登录进度不污染当前视图", () => {
+  useMcpStore.setState({ selectedProjectId: "p1" });
+  useMcpStore.getState().setLoginEvent({
+    type: "mcp:login",
+    serverName: "srv",
+    phase: "authorizationUrl",
+    url: "http://127.0.0.1:1/authorize",
+  });
+  expect(loginState("srv")).toBeUndefined();
+
+  useMcpStore.getState().setLoginEvent({
+    type: "mcp:login",
+    serverName: "srv",
+    projectId: "p1",
+    phase: "authorizationUrl",
+    url: "http://127.0.0.1:1/authorize",
+  });
+  expect(loginState("srv").url).toBe("http://127.0.0.1:1/authorize");
+});
+
+test("logout POST /api/mcp/logout（带作用域），失败弹 toast", async () => {
+  await useMcpStore.getState().logout("srv", "p1");
+  expect(calls).toEqual([
+    { method: "POST", path: "/api/mcp/logout", body: { serverName: "srv", projectId: "p1" } },
+  ]);
+  expect(useToastStore.getState().toasts).toHaveLength(0);
+
+  postImpl = () =>
+    Promise.reject(Object.assign(new Error("服务器不存在"), { failure: undefined }));
+  await useMcpStore.getState().logout("ghost");
+  expect(useToastStore.getState().toasts).toHaveLength(1);
+});
+
+test("切换作用域清空登录流程状态：不把上一条授权 URL 留在新作用域", () => {
+  useMcpStore.setState({
+    selectedProjectId: null,
+    loginStates: { srv: { pending: true, url: "http://127.0.0.1:1/authorize" } },
+  });
+  useMcpStore.getState().setSelectedProjectId("p1");
+  expect(useMcpStore.getState().loginStates).toEqual({});
 });

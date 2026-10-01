@@ -44,6 +44,8 @@ function setupRouter(projectCwd: string | null, projectId = PROJECT_ID) {
     adminForCwd: (() => ({})) as never,
     invalidateCaches: () => {},
     broadcast: () => {},
+    // 本文件只测项目级开关端点，它不碰登录/登出／凭据：给一组占位参数即可
+    piSpawn: { runtime: "unused-runtime", cliPath: "unused-cli.js", agentDir: "" },
   })(
     router,
     (async () => Response.json({ ok: true })) as never,

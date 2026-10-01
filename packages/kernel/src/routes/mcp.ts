@@ -12,6 +12,9 @@
  * 不占回包路径，见 handlers 内的 broadcastChanged）；
  * test / listTools 的结果只走 SSE（mcp:testResult / mcp:tools）——前端 fire-and-forget
  * 丢弃 HTTP 响应体，故成功时一律 200 {ok:true}，失败也在 SSE 事件里表达。
+ * OAuth 登录（F20）同一模式：`POST /api/mcp/login` 只表示「已受理」，授权 URL 与结果
+ * 经 SSE 的 mcp:login 回流（等待用户授权是分钟级的，卡在回包路径上会撞前端的请求超时）；
+ * 登出相反：它只改本地凭据文件，同步等完再回包，失败直接当 400 文案给出。
  */
 import { join } from "node:path";
 import {
@@ -27,10 +30,18 @@ import type {
   WSServerEvent,
 } from "@wa-pi/shared";
 import type { McpAdmin, McpServerReport } from "../mcp-admin";
+import { normalizeMcpAuthKey, readMcpAuthKeys } from "../mcp-admin";
 import type { McpFile } from "../mcp-file";
 import type { ProjectStore } from "../project-store";
 import { McpTrustStore } from "../mcp-trust";
 import { migrateProjectMcpFile } from "../mcp-migrate";
+import {
+  DEFAULT_LOGIN_TIMEOUT_SEC,
+  McpLoginRunner,
+  extractAuthorizationUrl,
+  lastNonEmptyLine,
+} from "../mcp-login";
+import type { LoginRunResult } from "../mcp-login";
 import { resolveCwdForFsRequest } from "../ws-server";
 import type { RouteContext, RouteRegistrar } from "./types";
 import { readJsonBody, paramErrorResponse } from "./types";
@@ -116,8 +127,16 @@ export interface McpRouteDeps {
   adminForCwd: (cwd: string) => Pick<McpAdmin, "list" | "invalidate">;
   /** 写操作后失效**所有**按 cwd 的状态缓存（见 AgentManager.invalidateMcpCaches） */
   invalidateCaches: () => void;
-  /** SSE 广播出口（mcp:changed / mcp:testResult / mcp:tools） */
+  /** SSE 广播出口（mcp:changed / mcp:testResult / mcp:tools / mcp:login） */
   broadcast: (e: WSServerEvent) => void;
+  /**
+   * 登录 / 登出子进程的参数（规格 F20）。
+   *
+   * runtime/cliPath 与 rpc-client 同一解析（不得另起一套）；agentDir 同时是
+   * `pi mcp login` 的 `PI_CODING_AGENT_DIR` 与凭据文件 `<agentDir>/mcp-auth.json` 的位置
+   * ——登录态（F19）就是读它，两处必须是同一个目录。
+   */
+  piSpawn: { runtime: string; cliPath: string; agentDir: string };
 }
 
 /** 列表条目：盘上配置 + pi 报的运行时状态（同名字段以 pi 为准） */
@@ -128,6 +147,12 @@ export interface McpServerEntry extends McpServerConfig {
   state?: string;
   tools?: string[];
   error?: string;
+  /**
+   * 是否已登录（F19）：`<agentDir>/mcp-auth.json` 里有该 server URL 的条目。
+   * 只对 HTTP server 赋值（stdio 没有 OAuth，pi 会直接报 does not use OAuth）
+   * ——它是登录/登出按钮的唯一依据：pi 的 `state` 分不清「需要登录」与「凭据在但连不上」。
+   */
+  signedIn?: boolean;
 }
 
 /** GET /api/mcp 的响应体：配置清单 + 状态读取层的元信息（规格 §8 的 stale 语义） */
@@ -153,7 +178,33 @@ export interface McpHandlers {
   test(input: { projectId?: string; serverName: string }): Promise<void>;
   /** 结果经 SSE 广播（mcp:tools），不抛错 */
   listTools(input: { projectId?: string; serverName: string }): Promise<void>;
+  /**
+   * 发起 OAuth 登录（规格 F20）：授权 URL 与结果只走 SSE（mcp:login），不抛错。
+   *
+   * `cwd` 由调用方给定：路由必须在回包（200 已受理）**之前**就解析好 cwd
+   * ——项目不存在这类错误一旦放到长任务里，就没有 HTTP 通道可以表达了。
+   */
+  login(input: {
+    projectId?: string;
+    serverName: string;
+    timeoutSec: number;
+    cwd: string;
+  }): Promise<void>;
+  /**
+   * 登出：同步等 `pi mcp logout` 删掉凭据（只改本地文件、秒级），失败抛错由路由映射成 400。
+   * 与 login 不同，它没有「等待用户」的阶段，走 HTTP 回包比走 SSE 直接。
+   */
+  logout(input: { projectId?: string; serverName: string }): Promise<void>;
 }
+
+/**
+ * 登录 / 登出在最坏情况下（pi 没有任何输出）的兑底文案。
+ *
+ * pi 会把真正的原因（超时 cancelled / 不支持 OAuth / 连不上）打在末尾，
+ * 只有它一个字都没打时才用这两句。
+ */
+const LOGIN_UNFINISHED_TEXT = "登录未完成（pi 没有输出原因）";
+const LOGOUT_UNFINISHED_TEXT = "登出失败（pi 没有输出原因）";
 
 /** `pi mcp list` 的 state → 前端 McpServerStatus（规格 §7：测试/列工具取其 state） */
 function toServerStatus(state: string | undefined): McpServerStatus {
@@ -200,12 +251,22 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
     force = false,
   ): Promise<McpListPayload> {
     const configs = await deps.mcpFile.list(projectId);
+    // 登录态是客户端凭据文件里的事实（F19），与作用域无关：一次读回来供下面逐台比对
+    const signedInKeys = await readMcpAuthKeys(deps.piSpawn.agentDir);
     const res = await (await adminOf(projectId)).list(force);
     const byName = new Map(res.servers.map((r) => [r.name, r]));
     const servers: McpServerEntry[] = configs.map((c) => {
       const report = byName.get(c.name);
       // 展开而非挑字段：pi 的 report 形状可能随版本增字段（规格 F14），少一列不该丢信息
-      return report ? { ...c, ...report } : { ...c };
+      const entry: McpServerEntry = report ? { ...c, ...report } : { ...c };
+      // 登录态只对 HTTP server 赋値：stdio 没有 OAuth（pi 会直接报 does not use OAuth），
+      // 给它一个 false 只会让前端误以为「可以在 GUI 里登录」。
+      // 比对必须走与 pi 同一个规范化（F19）：盘上的键是 String(new URL(url))。
+      if (entry.url) {
+        const key = normalizeMcpAuthKey(entry.url);
+        if (key) entry.signedIn = signedInKeys.has(key);
+      }
+      return entry;
     });
     // 逐字段拷贝而非 `...res`：list() 的返回值带 `raw`（pi 的完整 stdout），
     // 那是排查用的旁路数据，不该随 GUI 的列表响应外泄。
@@ -341,6 +402,63 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
         emit({ error: err instanceof Error ? err.message : String(err) });
       }
     },
+
+    async login({ projectId, serverName, timeoutSec, cwd }) {
+      const emit = (
+        phase: "running" | "authorizationUrl" | "ok" | "error",
+        extra: { url?: string; line?: string; error?: string } = {},
+      ) => {
+        deps.broadcast({ type: "mcp:login", serverName, projectId, phase, ...extra });
+      };
+      // 先发一条 running：POST 只是「已受理」，前端靠它立刻进入「等待授权」而不用等 pi 开口
+      emit("running");
+      const runner = new McpLoginRunner(deps.adminForCwd(cwd), {
+        ...deps.piSpawn,
+        cwd,
+      });
+      let res: LoginRunResult;
+      try {
+        res = await runner.run({
+          server: serverName,
+          timeoutSec,
+          // 逐行转发 pi 的 stdout（规格 F20）：带 URL 的那行单独成一条
+          // authorizationUrl 事件（前端要让用户点/复制它），其余行只是进度文本
+          onLine: (line) => {
+            const url = extractAuthorizationUrl(line);
+            if (url) emit("authorizationUrl", { url });
+            else emit("running", { line });
+          },
+        });
+      } catch (err) {
+        // runner 本身不抛错（spawn 失败也走返回值）；这里挡的是意外异常，不能让它变成未处理拒绝
+        emit("error", { error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      // 凭据落盘了（或已确认没落盘）→ 状态与工具清单都可能变：先**同步**失效所有缓存
+      // （否则 UI 要等下次会话启动），再在后台广播带登录态的清单（与 save / remove 同序）
+      deps.invalidateCaches();
+      broadcastChanged(projectId);
+      if (res.ok) emit("ok");
+      else emit("error", { error: lastNonEmptyLine(res.output) || LOGIN_UNFINISHED_TEXT });
+    },
+
+    async logout({ projectId, serverName }) {
+      // cwd 在回包路径上解析：项目不存在要直接 404，而不是拖到子进程里失败
+      const cwd = await deps.cwdForProject(projectId);
+      const runner = new McpLoginRunner(deps.adminForCwd(cwd), {
+        ...deps.piSpawn,
+        cwd,
+      });
+      const res = await runner.logout(serverName);
+      if (!res.ok) {
+        // 失败原因（服务器不存在 / pi 报错）原样交给前端：字典里没有对应 code，
+        // 兑底文案就是用户唯一的信息
+        throw new Error(lastNonEmptyLine(res.output) || LOGOUT_UNFINISHED_TEXT);
+      }
+      // 凭据没了 → 该 server 的 state 会从 connected 退回 needs-auth，工具清单也跟着变
+      deps.invalidateCaches();
+      broadcastChanged(projectId);
+    },
   };
 }
 
@@ -449,6 +567,60 @@ export function createMcpRoutes(deps: McpRouteDeps): RouteRegistrar {
       const projectId =
         new URL(req.url).searchParams.get("projectId") ?? undefined;
       await handlers.listTools({ serverName: p.serverName, projectId });
+      return Response.json({ ok: true });
+    });
+
+    // ---- OAuth 登录 / 登出（规格 F19/F20）----
+    //
+    // login 是**长任务**（要等用户在浏览器里走完授权，缺省上限 300s）：HTTP 只能在受理阶段
+    // 表态，与 test / listTools 同一约定——立即 200 {ok:true}，授权 URL 与结果经 SSE
+    // （mcp:login）回流。这也避开了 api-client 的 30s 请求超时。
+    //
+    // 正因为回包之后没有 HTTP 通道，**能在回包前判定的错误必须现在就判**：serverName 缺失 /
+    // timeoutSec 非法 → 400，项目不存在（cwd 解析失败）→ 404。否则用户只能看到一个
+    // 「已受理」然后永远等下去。
+    r.add("POST", "/api/mcp/login", async (req) => {
+      const b = await readJsonBody(req);
+      if (typeof b.serverName !== "string" || !b.serverName) {
+        return paramErrorResponse("缺少 serverName", "serverName");
+      }
+      const timeoutSec =
+        b.timeoutSec === undefined ? DEFAULT_LOGIN_TIMEOUT_SEC : b.timeoutSec;
+      // 必须显式判数字：0 / 负数 / NaN / 字符串都不是合法的等待时长（pi 的 --timeout 收秒数）
+      if (
+        typeof timeoutSec !== "number" ||
+        !Number.isFinite(timeoutSec) ||
+        timeoutSec <= 0
+      ) {
+        return paramErrorResponse("timeoutSec 必须是正数（秒）", "timeoutSec");
+      }
+      let cwd: string;
+      try {
+        cwd = await deps.cwdForProject(b.projectId);
+      } catch (e) {
+        return mcpErrorResponse(e);
+      }
+      void handlers.login({
+        serverName: b.serverName,
+        projectId: b.projectId,
+        timeoutSec,
+        cwd,
+      });
+      return Response.json({ ok: true });
+    });
+
+    // logout 只改本地凭据文件（秒级），同步等它跑完再回包：失败原因（服务器不存在等）
+    // 能直接当 400 文案给出去，比再走一条 SSE 错误事件简单。
+    r.add("POST", "/api/mcp/logout", async (req) => {
+      const b = await readJsonBody(req);
+      if (typeof b.serverName !== "string" || !b.serverName) {
+        return paramErrorResponse("缺少 serverName", "serverName");
+      }
+      try {
+        await handlers.logout({ serverName: b.serverName, projectId: b.projectId });
+      } catch (e) {
+        return mcpErrorResponse(e);
+      }
       return Response.json({ ok: true });
     });
   };

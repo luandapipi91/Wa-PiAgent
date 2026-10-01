@@ -20,6 +20,7 @@ export function McpPage() {
     loadingTools,
     testingServers,
     errors,
+    loginStates,
     stale,
     note,
     selectedProjectId,
@@ -31,6 +32,8 @@ export function McpPage() {
     deleteServer,
     testConnection,
     listTools,
+    login,
+    logout,
     setProjectMcpScope,
     loadProjectScope,
     setSelectedProjectId,
@@ -91,6 +94,14 @@ export function McpPage() {
 
   const handleTest = (serverName: string) => {
     testConnection(serverName, selectedProjectId ?? undefined);
+  };
+
+  const handleLogin = (serverName: string, timeoutSec?: number) => {
+    login(serverName, timeoutSec, selectedProjectId ?? undefined);
+  };
+
+  const handleLogout = (serverName: string) => {
+    void logout(serverName, selectedProjectId ?? undefined);
   };
 
   const handleViewTools = (serverName: string) => {
@@ -221,10 +232,14 @@ export function McpPage() {
                 error={
                   errors[s.name] ?? (state === "failed" ? s.error : undefined)
                 }
+                signedIn={s.signedIn}
+                loginState={loginStates[s.name]}
                 onTest={() => handleTest(s.name)}
                 onViewTools={() => handleViewTools(s.name)}
                 onEdit={() => openEditForm(s)}
                 onDelete={() => setConfirmDelete(s.name)}
+                onLogin={(timeoutSec) => handleLogin(s.name, timeoutSec)}
+                onLogout={() => handleLogout(s.name)}
               />
             );
           })

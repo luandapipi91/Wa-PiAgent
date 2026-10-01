@@ -172,3 +172,25 @@ export interface McpToolsResult {
   /** listTools 失败时填充（与 tools 互斥） */
   error?: string;
 }
+/**
+ * OAuth 登录进度（规格 F20）：`POST /api/mcp/login` 只有「已受理」一个回包，
+ * 授权 URL 与最终结果都在这条事件里回流。
+ */
+export interface McpLoginEvent {
+  type: "mcp:login";
+  serverName: string;
+  /** 作用域（与 mcp:changed 同一语义）：前端据此丢弃不属于当前视图的登录进度 */
+  projectId?: string;
+  /**
+   * running = pi 的进度行（尚未拿到 URL）；
+   * authorizationUrl = 授权 URL 已就绪；
+   * ok = 登录成功（凭据已落盘）；error = 失败/超时/不支持 OAuth。
+   */
+  phase: "running" | "authorizationUrl" | "ok" | "error";
+  /** phase=authorizationUrl 时的授权 URL（pi 已经自己打开过浏览器，前端只展示） */
+  url?: string;
+  /** phase=running 时的原始输出行（已剥 ANSI） */
+  line?: string;
+  /** phase=error 时失败文案（pi 的末行输出，如随超时一起打的 cancelled） */
+  error?: string;
+}
