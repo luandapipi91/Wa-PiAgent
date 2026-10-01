@@ -10,7 +10,7 @@
 //   ⑥ 失败即非零退出（可挂进任务收尾检查）
 //
 // 用法：bun run packages/kernel/scripts/smoke-subagent-session.ts
-// 产物：.superpowers/poc/（本地临时，不入库）；
+// 产物：<仓库>/.superpowers/smoke/subagent-session/（本地临时，.superpowers/ 已入库忽略）；
 //       越界写入的检查在脚本外部做（对比 ~/.pi/agent 的 sessions/、projects.json、telemetry）。
 import { existsSync } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
@@ -23,7 +23,16 @@ import { ensureProviderExtensionRegistered } from "../src/provider-extension";
 import { readBuiltinAgentPrompt } from "../src/subagent-info";
 import { mcpAdapterExtensionPath } from "../src/extensions";
 
-const POC_DIR = "E:/workspace/Wa-Pi/.superpowers/poc";
+// 相对本 checkout 定位（而非写死绝对路径）：在 worktree 里跑也不会落到主工作区
+const POC_DIR = join(
+	import.meta.dir,
+	"..",
+	"..",
+	"..",
+	".superpowers",
+	"smoke",
+	"subagent-session",
+);
 const SESSION_FILE = join(POC_DIR, "a0000001.jsonl");
 const MEMO = "7391";
 
@@ -50,6 +59,7 @@ function blockStats(raw: string) {
 
 async function main() {
 	await mkdir(POC_DIR, { recursive: true });
+	console.log(`产物目录（隔离）: ${POC_DIR}`);
 
 	// ── provider 同步 + 子代理 config（等价内置 Explore）──
 	const store = new ProviderStore();

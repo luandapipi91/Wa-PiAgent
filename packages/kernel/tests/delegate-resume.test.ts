@@ -233,12 +233,18 @@ describe("resume 分支", () => {
 			...baseMeta,
 			agentId: "a00000009",
 			status: "completed",
+			// 上一轮的真实审计数据：本轮异常收尾不得继承（否则 usage/toolStats 张冠李戴）
+			usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, total: 120 },
+			toolStats: { total: 3, done: 3, error: 0, running: 0 },
+			elapsedMs: 9876,
 		} as never);
 		const r = await makeDelegateTool({
 			askTo: [],
 			sessionId: SID,
 			// 抛异常：模拟 spawn 闭包内 try 块外路径（resolveConfig / ensureExtension 等）失败
+			//（先耗 50ms 再抛：让「真实耗时 vs 编造的 0」可区分）
 			spawn: async () => {
+				await new Promise((r) => setTimeout(r, 50));
 				throw new Error("spawn 内部炸了");
 			},
 		} as never).execute("c1", {
@@ -251,6 +257,11 @@ describe("resume 分支", () => {
 		const m = await readMeta(SID, "a00000009");
 		expect(m?.status).toBe("interrupted");
 		expect(m?.resumeCount).toBe(1);
+		// 上一轮的 usage/toolStats 不得继承；elapsedMs 是本轮真实耗时（不再写编造的 0）
+		expect(m?.usage).toBeUndefined();
+		expect(m?.toolStats).toBeUndefined();
+		expect(typeof m?.elapsedMs).toBe("number");
+		expect(m!.elapsedMs!).toBeGreaterThanOrEqual(40); // ≥ 实际流逝的 50ms（宽松下限）
 	});
 
 	test("resume spawn 异常不连坐：同批其它任务结果照常返回", async () => {

@@ -552,6 +552,8 @@ export function makeDelegateTool(opts: {
 							const jsonl = jsonlPath(parentSessionId, t.resume);
 							await selfHealStoredCwd(jsonl);
 							const resumeCount = meta.resumeCount + 1;
+							// 本轮真实起点：异常收尾时算 elapsedMs（不编造 0）
+							const startedAt = Date.now();
 							try {
 								// meta 写盘走 safeWriteMeta（与新建路径同约定）：写失败仅告警，不把整个工具调用带崩
 								await safeWriteMeta({
@@ -596,12 +598,16 @@ export function makeDelegateTool(opts: {
 								// 结构化失败文本，其余任务继续执行、结果照常聚合不丢失。
 								// meta 同步收尾为 interrupted：否则永久停在 running（此后 resume 全被误拒）
 								const message = err instanceof Error ? err.message : String(err);
+								const elapsedMs = Date.now() - startedAt;
+								// 显式清掉 usage/toolStats：...meta 还带着**上一轮**的值，不能当本轮审计真源
 								await safeWriteMeta({
 									...meta,
 									status: "interrupted",
 									updatedAt: Date.now(),
 									resumeCount,
-									elapsedMs: 0,
+									usage: undefined,
+									toolStats: undefined,
+									elapsedMs,
 								});
 								return {
 									index,
@@ -615,7 +621,7 @@ export function makeDelegateTool(opts: {
 									toolStats: undefined,
 									usage: undefined,
 									interrupted: true,
-									elapsedMs: 0,
+									elapsedMs,
 								};
 							}
 						}
@@ -728,11 +734,13 @@ export function makeDelegateTool(opts: {
 							// 语义：isError + interrupted），其余任务继续执行、结果照常聚合不丢失。
 							// meta 同步收尾为 interrupted：否则永久停在 running（resume 误拒、列表误报运行中）
 							const message = err instanceof Error ? err.message : String(err);
+							// 真实耗时（now 为 spawn 前建的起点）；usage/toolStats 不继承（metaBase 本就不带）
+							const elapsedMs = Date.now() - now;
 							await safeWriteMeta({
 								...metaBase,
 								status: "interrupted",
 								updatedAt: Date.now(),
-								elapsedMs: 0,
+								elapsedMs,
 							});
 							return {
 								index,
@@ -746,7 +754,7 @@ export function makeDelegateTool(opts: {
 								toolStats: undefined,
 								usage: undefined,
 								interrupted: true,
-								elapsedMs: 0,
+								elapsedMs,
 							};
 						}
 					}),

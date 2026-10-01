@@ -317,7 +317,11 @@ describe("execute：身份、落盘与返回块", () => {
 	test("spawn 抛异常：meta 不留 running（收尾为 interrupted），其余任务不受影响", async () => {
 		const SID = "s-transcript-throw";
 		const spawn = mock(async (_agent: string, task: string): Promise<any> => {
-			if (task === "崩") throw new Error("配置读取崩溃");
+			if (task === "崩") {
+				// 先耗 50ms 再抛：让「真实耗时 vs 编造的 0」可区分
+				await new Promise((r) => setTimeout(r, 50));
+				throw new Error("配置读取崩溃");
+			}
 			return { text: "ok", isError: false, elapsedMs: 1 };
 		});
 		const tool = makeDelegateTool({ askTo, spawn, sessionId: SID });
@@ -329,7 +333,12 @@ describe("execute：身份、落盘与返回块", () => {
 		});
 		const text = res.content[0].text;
 		expect(text).toContain("配置读取崩溃");
-		expect((await readMeta(SID, agentIdOf(text, 0)))?.status).toBe("interrupted");
+		const crashMeta = await readMeta(SID, agentIdOf(text, 0));
+		expect(crashMeta?.status).toBe("interrupted");
+		// 异常收尾的 elapsedMs 为真实耗时（不再写编造的 0），且不凭空带出 toolStats
+		expect(typeof crashMeta?.elapsedMs).toBe("number");
+		expect(crashMeta!.elapsedMs!).toBeGreaterThanOrEqual(40); // ≥ 实际流逝的 50ms（宽松下限）
+		expect(crashMeta?.toolStats).toBeUndefined();
 		expect((await readMeta(SID, agentIdOf(text, 1)))?.status).toBe("completed");
 		expect(res.isError).toBe(true);
 	});

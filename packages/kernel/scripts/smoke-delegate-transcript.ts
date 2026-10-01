@@ -22,8 +22,9 @@
 //   bun run packages/kernel/scripts/smoke-delegate-transcript.ts --resume a1b2c3d4e \
 //     --task "我给你的那个四位数是多少？只回数字。" --expect 7391 --min-lines 5
 //
-// 注意：真实调用模型（约 30-60 秒、消耗少量 token），并写入正式 WA_PI_DIR 的
-//       subagents/s-smoke/（父会话 id 固定 s-smoke，便于识别与清理）。
+// 注意：真实调用模型（约 30-60 秒、消耗少量 token）。产物**不落真实 WA_PI_DIR**：
+//       仅本进程把 process.env.WA_PI_DIR 指向 <仓库>/.superpowers/smoke/delegate-transcript/，
+//       转录与 meta 落在该目录的 subagents/<SID>/ 下（跑完可整目录删除，不入库）。
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -38,8 +39,19 @@ import { readMeta, jsonlPath } from "../src/subagent-instance-store";
 import { readBuiltinAgentPrompt } from "../src/subagent-info";
 import type { WaPiSpawnConfig } from "../src/subagent-runner";
 
-/** 冒烟用的父会话 id：落盘目录固定为 <WA_PI_DIR>/subagents/s-smoke/ */
+/** 冒烟用的父会话 id：落盘目录固定为 <SMOKE_DIR>/subagents/s-smoke/ */
 const SID = "s-smoke";
+
+/** 隔离的产物目录（.superpowers/ 已在 .gitignore 里，不污染真实 WA_PI_DIR，也不入库） */
+const SMOKE_DIR = join(
+	import.meta.dir,
+	"..",
+	"..",
+	"..",
+	".superpowers",
+	"smoke",
+	"delegate-transcript",
+);
 
 /** 首轮默认任务（要求真调工具，才能让转录里三类块齐全） */
 const DEFAULT_TASK =
@@ -71,6 +83,11 @@ function blockStats(raw: string) {
 }
 
 async function main() {
+	// 隔离产物：subagent-instance-store 与 delegate-tool 的快照目录都是**调用时**读
+	// process.env.WA_PI_DIR（不在真实目录留孤儿）；shared 的 WA_PI_DIR 常量在模块加载时已
+	// 固定，因此 agents/prompts/providers 仍指向真实配置，只有本次冒烟的落盘被改道。
+	process.env.WA_PI_DIR = SMOKE_DIR;
+
 	// ── provider-extension 同步（与 agent-manager 的 ensureExtension 同路径）──
 	const store = new ProviderStore();
 	await ensureProviderExtensionRegistered(store);
@@ -119,7 +136,7 @@ async function main() {
 	const expectText = argOf("--expect");
 	const minLines = Number(argOf("--min-lines") ?? "0");
 	console.log(
-		`model=${model}  WA_PI_DIR=${WA_PI_DIR}  mode=${resumeMode ? `resume ${resumeId}` : "首轮"}`,
+		`model=${model}  WA_PI_DIR=${WA_PI_DIR}  smokeDir=${SMOKE_DIR}  mode=${resumeMode ? `resume ${resumeId}` : "首轮"}`,
 	);
 
 	const t0 = Date.now();
