@@ -48,6 +48,7 @@ import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 import { CommandPalette } from "./components/CommandPalette";
 import { FilePreviewModal } from "./components/blocks/FilePreviewModal";
 import { MediaPreviewModal } from "./components/blocks/MediaPreviewModal";
+import { SubagentTranscriptModal } from "./components/blocks/SubagentTranscriptModal";
 import { AnsiText } from "./components/ui/AnsiText";
 import { useTrashStore } from "./store/trash";
 import { useSchedulerStore } from "./store/scheduler";
@@ -778,6 +779,11 @@ export function App() {
 			{browserOpen && browserMode === "float" && <FloatPreview />}
 			<FilePreviewModal />
 			<MediaPreviewModal />
+			{/* 子代理转录弹窗（单例）：目标实例由委托卡写 store；常驻挂载，卡片卸载不连带关闭 */}
+			<SubagentTranscriptModal
+				open={useSessionStore((s) => s.transcript)}
+				onClose={() => useSessionStore.getState().closeTranscript()}
+			/>
 			{/* 扩展 dialog 弹窗（select/confirm/input/editor）已移到 SessionView 内挂载：
 			    按 sessionId 过滤 + 只在当前会话视图渲染，与 ask 同款会话锁定，
 			    其它会话的 pending 不再盖住整个窗口 */}

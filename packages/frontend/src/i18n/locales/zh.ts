@@ -279,6 +279,10 @@ const zh = {
 			viewTranscript: "查看全部内容",
 			transcriptMissing: "此委托早于转录功能上线，没有可查看的转录",
 			toolCount: "{{n}} 个工具",
+			stepCount: "{{n}} 步",
+			usageInput: "输入 {{v}}",
+			usageOutput: "输出 {{v}}",
+			usageCacheRead: "缓存读 {{v}}",
 			copyAll: "复制全文",
 			filter: {
 				all: "全部",

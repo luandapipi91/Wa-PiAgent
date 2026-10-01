@@ -8,6 +8,7 @@ export interface ModalPos {
 export const MODAL_POS_KEYS = {
 	filePreview: "hiagent.filePreview.pos",
 	mediaPreview: "hiagent.mediaPreview.pos",
+	transcript: "hiagent.subagentTranscript.pos",
 } as const;
 
 /** 位置 clamp：窗口整体留在视口内（卡片比视口大时贴左上角） */

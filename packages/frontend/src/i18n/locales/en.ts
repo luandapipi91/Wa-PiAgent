@@ -291,6 +291,10 @@ const en = {
 			transcriptMissing:
 				"This delegation predates transcripts — nothing to view",
 			toolCount: "{{n}} tool(s)",
+			stepCount: "{{n}} step(s)",
+			usageInput: "In {{v}}",
+			usageOutput: "Out {{v}}",
+			usageCacheRead: "Cache read {{v}}",
 			copyAll: "Copy all",
 			filter: {
 				all: "All",

@@ -12,6 +12,7 @@ export const MIN_MODAL_H = 240;
 export const MODAL_SIZE_KEYS = {
 	filePreview: "hiagent.filePreview.size",
 	mediaPreview: "hiagent.mediaPreview.size",
+	transcript: "hiagent.subagentTranscript.size",
 } as const;
 
 /** 尺寸 clamp：不小于最小值、不大于视口（窗口变小后重开不会溢出） */
