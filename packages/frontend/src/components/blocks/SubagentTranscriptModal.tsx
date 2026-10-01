@@ -218,14 +218,16 @@ function TranscriptDialog({
 		() => segments.filter((s) => filter === "all" || s.kind === filter),
 		[segments, filter],
 	);
-	// 同一次委托（toolCallId 相同）的实例，按 fleet 序号排序
+	// 同一次委托（toolCallId 相同）的实例，按 fleet 序号排序。
+	// 分组依据必须是**会话级列表**而非详情响应：详情一开始 setData(null)、目标实例 404 时 data 长期为 null，
+	// 绑详情会让左栏在每次切换的加载窗口内被卸载（闪烁），且目标 jsonl 缺失时左栏永久消失（只能关掉弹窗重开）。
 	const siblings = useMemo(() => {
-		const tc = data?.meta.toolCallId;
+		const tc = group.find((g) => g.agentId === agentId)?.toolCallId;
 		if (!tc) return [];
 		return group
 			.filter((s) => s.toolCallId === tc)
 			.sort((a, b) => (a.taskIndex ?? 0) - (b.taskIndex ?? 0));
-	}, [group, data]);
+	}, [group, agentId]);
 
 	const meta = data?.meta;
 	const toolCount = segments.filter((s) => s.kind === "tool").length;

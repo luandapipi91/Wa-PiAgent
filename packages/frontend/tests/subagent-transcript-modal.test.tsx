@@ -86,9 +86,11 @@ function jsonRes({ status = 200, body = {} }: StubResponse) {
 	} as unknown as Response;
 }
 
-/** 装 fetch：详情路由返回 detail，列表路由返回 list；deferDetail 时详情永远 pending（测加载态） */
+/** 装 fetch：详情路由返回 detail，列表路由返回 list；deferDetail 时详情永远 pending（测加载态）；
+ *  detailByAgent 按 agentId 覆盖单个实例的详情响应（目标实例 404、兄弟实例仍可用） */
 function stubFetch(opts: {
 	detail?: StubResponse;
+	detailByAgent?: Record<string, StubResponse>;
 	list?: StubResponse;
 	deferDetail?: boolean;
 }) {
@@ -97,6 +99,8 @@ function stubFetch(opts: {
 		const u = String(url);
 		fetchUrls.push(u);
 		if (/\/subagents\/[^/]+$/.test(u)) {
+			const override = opts.detailByAgent?.[u.slice(u.lastIndexOf("/") + 1)];
+			if (override) return Promise.resolve(jsonRes(override));
 			if (opts.deferDetail) return new Promise<Response>(() => {});
 			return Promise.resolve(jsonRes(opts.detail ?? { body: { meta: META, messages: MESSAGES } }));
 		}
@@ -306,6 +310,59 @@ test("左侧实例列表：同一次委托 ≥2 个实例时出现，点击切�
 	await waitFor(() =>
 		expect(fetchUrls.some((u) => u.includes("/subagents/ab9c0483e"))).toBe(true),
 	);
+});
+
+// 回归：左栏可见性原先绑在详情响应上（data?.meta.toolCallId），详情加载窗口内/404 后左栏被卸载。
+// 修复后左栏由会话级列表（group）+ 当前 agentId 推导，与详情请求状态解耦。
+
+const SIBLING = {
+	...META,
+	agentId: "ab9c0483e",
+	subagentType: "Plan",
+	taskIndex: 1,
+};
+
+test("左侧实例列表：详情仍在加载时左栏保持可见（不随详情请求卸载）", async () => {
+	stubFetch({
+		deferDetail: true,
+		list: { body: { subagents: [META, SIBLING] } },
+	});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(screen.getByTestId("transcript-siblings")).toBeTruthy());
+	// 时间线仍是加载态，但左栏已经可用
+	expect(screen.getByTestId("transcript-loading")).toBeTruthy();
+	expect(document.querySelectorAll('[data-testid^="transcript-sibling-"]')).toHaveLength(2);
+	expect(screen.getByTestId(`transcript-sibling-${SIBLING.agentId}`)).toBeTruthy();
+});
+
+test("左侧实例列表：目标实例 404（jsonl 缺失）时空态出现但左栏仍在，可切到兄弟实例", async () => {
+	stubFetch({
+		list: { body: { subagents: [META, SIBLING] } },
+		detailByAgent: {
+			[AGENT_ID]: { status: 404 },
+			[SIBLING.agentId]: { body: { meta: SIBLING, messages: MESSAGES } },
+		},
+	});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	// 目标实例 404：空态与左栏同时在场（此前左栏被一并卸载，用户只能关掉弹窗重开）
+	await waitFor(() => expect(screen.getByTestId("transcript-missing")).toBeTruthy());
+	expect(screen.getByTestId("transcript-siblings")).toBeTruthy();
+
+	fireEvent.click(screen.getByTestId(`transcript-sibling-${SIBLING.agentId}`));
+	await waitFor(() => expect(blockCount("text")).toBe(1));
+	expect(screen.queryByTestId("transcript-missing")).toBeNull();
+	// 切换后左栏仍在
+	expect(screen.getByTestId("transcript-siblings")).toBeTruthy();
 });
 
 test("弹窗形态：80vw × 80vh、可拖拽标题栏 + 可缩放，尺寸与位置按记录恢复", async () => {
