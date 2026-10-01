@@ -96,7 +96,7 @@ export async function setProjectMcpScope(opts: {
  * UI 显示与事实不符不可接受。
  *
  * 返回值 = `McpTrustStore.get(cwd)`，支持祖先继承：显式设置过 → true/false；自己和祖先都没有
- * 条目 → `null`（前端显示「未设置 / 跟随上层」）。
+ * 条目 → `null`（前端以 `data-unset="true"` 标记未设置，界面上不显示文案）。
  *
  * 只读：不改 trust.json、不触发迁移、不做 `__system__` 守卫（守卫挡的是落盘；读只是把那个目录
  * 的真实受信态原样报出来，且前端在默认工作区不显示开关）。

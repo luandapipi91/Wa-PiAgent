@@ -6,8 +6,8 @@
  *      （pi 只在项目受信时才读 <cwd>/.pi/mcp.json，键写错即静默失效），
  *      并顺带把旧 .mcp.json 迁移到 <cwd>/.pi/mcp.json；
  *   2. 关闭 → 同一个键写 false，**不删键**（删键会退回上层继承，可能意外继承父目录的受信决定）；
- *   3. GET 回读真值：显式设置过 → true/false；自己和祖先都没条目 → `null`（前端显示
- *      「未设置 / 跟随上层」）。前端不能靠 pi 的 note 反推：项目还没有 .pi/mcp.json 时
+ *   3. GET 回读真值：显式设置过 → true/false；自己和祖先都没条目 → `null`（前端以
+ *      `data-unset="true"` 标记未设置，界面上不显示文案）。前端不能靠 pi 的 note 反推：项目还没有 .pi/mcp.json 时
  *      会把「未设置」显示成「已开」，而受信是安全决定；
  *   4. projectId 缺失 / enabled 非布尔 → 400；项目不存在 → 404。
  *

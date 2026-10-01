@@ -249,7 +249,7 @@ test("切换作用域后卡片不再显示另一作用域的同名测试结果�
 
 // ===== 项目级 MCP 作用域开关 =====
 
-test("默认工作区（__system__）的项目级 MCP 开关置灰", () => {
+test("默认工作区（__system__）不渲染项目级 MCP 开关（它本就无法开启）", () => {
   useProjectsStore.setState({
     projects: [
       { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/workdir", createdAt: 0 },
@@ -259,12 +259,9 @@ test("默认工作区（__system__）的项目级 MCP 开关置灰", () => {
   } as any);
   useMcpStore.setState({ selectedProjectId: SYSTEM_PROJECT_ID });
   render(<McpPage />);
-  // 开关在顶栏（不依赖打开作用域下拉）
-  const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
-  expect(sw.disabled).toBe(true);
-  expect(
-    screen.getByTestId("mcp-project-scope-row").getAttribute("title"),
-  ).toContain("默认工作区");
+  // 默认工作区没有项目语义，kernel 写侧直接 400 → 开关点不动，就不该画出来误导
+  expect(screen.queryByTestId("mcp-project-scope-switch")).toBeNull();
+  expect(screen.queryByTestId("mcp-project-scope-row")).toBeNull();
 });
 
 test("选中普通项目时项目级 MCP 开关可用，初值来自 trust.json 真值（已开）", () => {

@@ -405,7 +405,7 @@ const en = {
 		statusStale:
 			"Status unknown: cannot read MCP status; showing the previous result, which may be stale",
 		untrustedNote:
-			"This project's .pi/mcp.json is ignored because the project is not trusted. Enable “Project-level MCP” in the scope menu.",
+			"This project's .pi/mcp.json is ignored because the project is not trusted. Turn on the “Project-level MCP” switch in the toolbar to trust this project (restart the session for it to take effect).",
 	},
 	mcpForm: {
 		nameLabel: "Name",

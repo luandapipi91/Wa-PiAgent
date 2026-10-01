@@ -405,7 +405,7 @@ test("loadProjectScope 回读 trust.json 的真值：true / false 原样、null 
   await useMcpStore.getState().loadProjectScope("p1");
   expect(useMcpStore.getState().projectScopeEnabled).toBe(false);
 
-  // 未显式设置（kernel 回 null）→ 保留 null，前端显示「未设置 / 跟随上层」
+  // 未显式设置（kernel 回 null）→ 保留 null（前端以 data-unset="true" 标记，界面上不显示文案）
   getImpl = () => Promise.resolve({ enabled: null });
   await useMcpStore.getState().loadProjectScope("p1");
   expect(useMcpStore.getState().projectScopeEnabled).toBeNull();

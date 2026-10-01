@@ -391,7 +391,7 @@ const zh = {
 		statusStale:
 			"状态未知：无法读取 MCP 状态，下方显示的是上一次的结果，可能已过期",
 		untrustedNote:
-			"该项目的 .pi/mcp.json 未被加载（项目未受信任），可在作用域下拉里开启「项目级 MCP」",
+			"该项目的 .pi/mcp.json 未被加载（项目未受信任），可打开顶栏的「项目级 MCP」开关授权该项目（需重启会话生效）",
 	},
 	mcpForm: {
 		nameLabel: "名称",

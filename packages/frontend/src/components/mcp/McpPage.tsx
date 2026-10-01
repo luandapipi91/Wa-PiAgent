@@ -172,12 +172,13 @@ export function McpPage() {
           data-testid="mcp-search"
         />
 
-        {/* 项目级 MCP 作用域开关：项目维度的设置，只跟随作用域出现，不塞进下拉菜单 */}
-        {selectedProjectId !== null && (
+        {/* 项目级 MCP 作用域开关：项目维度的设置，只跟随作用域出现，不塞进下拉菜单。
+            默认工作区（__system__）没有项目语义、开启也无意义（kernel 写侧直接 400），故不渲染
+            —— 画一个点不动的开关只会误导。 */}
+        {selectedProjectId !== null && !isSystemProject && (
           <ProjectScopeToggle
             // 真值：true/false 来自 trust.json；null = 未设置（跟随上层，UI 不显示「已开」）
             value={projectScopeEnabled}
-            disabled={isSystemProject}
             pending={scopePending}
             onToggle={handleProjectScopeToggle}
           />
@@ -405,17 +406,17 @@ function ScopeDropdown({
 /**
  * 项目级 MCP 作用域开关（项目维度，不在作用域下拉菜单里）。
  *
- * 由调用方控制可见性：仅选中具体项目时渲染（全局作用域不渲染），默认工作区置灰。
+ * 由调用方控制可见性：仅选中具体项目时渲染；全局作用域与默认工作区都不渲染
+ * （默认工作区的 kernel 写侧直接拒绝，画一个点不动的开关只会误导）。
  */
 function ProjectScopeToggle({
   value,
-  disabled,
   pending,
   onToggle,
 }: {
   /** trust.json 的真值：null = 未显式设置（跟随上层） */
   value: boolean | null;
-  disabled: boolean;
+  /** 写请求在飞：此时开关不可点 */
   pending: boolean;
   onToggle: (enabled: boolean) => void;
 }) {
@@ -425,14 +426,12 @@ function ProjectScopeToggle({
 
   return (
     <div
-      // py-0.5（而非 py-1）：22px 开关 + 上下内边距 = 26px，低于顶栏里 32px 的搜索框，
+      // py-0.5（而非 py-1）：22px 开关 + 上下内边距 = 26px，低于顶栏里最高的搜索框，
       // 故它不会成为决定顶栏高度的子项（避免从全局切到项目作用域时这条工具栏被撑高）
       className="flex items-center gap-2 shrink-0 px-2.5 py-0.5 rounded-md"
-      style={{
-        color: disabled ? "var(--text-tertiary)" : "var(--text-primary)",
-      }}
+      style={{ color: "var(--text-primary)" }}
       data-testid="mcp-project-scope-row"
-      title={disabled ? t("kernelMsg.mcp.systemProject") : t("mcp.projectScopeHint")}
+      title={t("mcp.projectScopeHint")}
     >
       <span className="text-[calc(11.5px*var(--font-scale))] whitespace-nowrap">
         {t("mcp.projectScope")}
@@ -443,7 +442,7 @@ function ProjectScopeToggle({
         // 按钮内容为空（只有内部滑块 span），row 的 title 不构成它的可访问名称 → 显式给 aria-label
         aria-label={t("mcp.projectScope")}
         aria-checked={scopeOn}
-        disabled={disabled || pending}
+        disabled={pending}
         data-testid="mcp-project-scope-switch"
         data-on={scopeOn ? "true" : "false"}
         data-unset={scopeUnset ? "true" : "false"}
