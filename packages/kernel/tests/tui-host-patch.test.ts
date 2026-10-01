@@ -187,7 +187,7 @@ describe("patchUiForTuiHost", () => {
 			ui.custom(() => ({ render: () => [] }), undefined, undefined),
 		).resolves.toBe("新");
 		expect(seen).toEqual(["新"]);
-		// 布尔标记保留：wa-pi-bridge 的兜底靠它让位
+		// 布尔标记保留：它是 patchUiForTuiHost 对外的「已接管」标记（幂等判定只认 bridge 实例）
 		expect(asUi.__waPiTuiHost).toBe(true);
 	});
 });

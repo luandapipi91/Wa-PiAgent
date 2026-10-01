@@ -3,7 +3,7 @@
 // 覆盖任务 9 审查的关键项 K1：pi 的 reload 先发 session_shutdown，再用**同一个 uiContext
 // 对象**发 session_start（agent-session.js:2052-2075）。此时扩展必须换新 bridge 并重新接管
 // ui，否则 ui.custom 仍指向已 disposeAll（不可逆）的旧 bridge → 所有 custom() 静默返回
-// undefined、无帧无报错，而 wa-pi-bridge 的 notify+throw 兜底又因 __waPiTuiHost 继续让位。
+// undefined、无帧无报错（wa-pi-bridge 自 2026-09-30 起提供不了第二条会报错的路径）。
 //
 // 手法：mock globalThis.fetch 充当 kernel（/frames 读流式 NDJSON 且连接结束才响应，
 // /subscribe 返回可推送的输入流），注入 WA_PI_BRIDGE_* 后加载真实扩展入口。

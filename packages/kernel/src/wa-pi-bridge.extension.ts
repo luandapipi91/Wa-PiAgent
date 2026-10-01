@@ -682,6 +682,18 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// ── RPC 下 ctx.ui.custom() 的兜底去向（2026-09-30 MCP 迁移后的事实）──
+	// 本文件自 2026-09-30 起**不再**为 ui.custom() 提供 notify+throw 兜底
+	// （原实现会把 ui.custom 改写成 notify + 抛「custom() 不支持」错误）。
+	// 现在 RPC 下 custom() 的唯一接管者是 wa-pi-tui-host 的 patchUiForTuiHost
+	// （tui-host/host.ts），而它在 WA_PI_BRIDGE_URL/TOKEN/SESSION_ID 任一为空时
+	// 直接 return 不接管（wa-pi-tui-host.extension.ts:25，子代理/无宿主环境）。
+	// 那种环境下：pi 的 RPC 实现 custom() 不调 factory 直接 resolve(undefined)
+	// 且 agent-session 的 `await command.handler(...)` 没有超时，插件里常见的
+	// `await new Promise(r => ctx.ui.custom(factory))` 会**永久挂起**（命令一直停在
+	// 「思考中」），而不是像删除前那样 notify + 报错。
+	// ⇒ 新增任何可能跑在 tui-host 缺席环境下的 RPC 路径，必须先确认 tui-host 已加载。
+
 	// ===== 文件修改清单：采集本轮 edit/write 的文件前后快照 =====
 	const snapshots = new Map<string, FileSnapshotRecord>();
 	const toolCallIdToPath = new Map<string, string>();

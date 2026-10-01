@@ -403,9 +403,11 @@ export function createPanelBridge(opts: PanelBridgeOptions): PanelBridge {
  * 避免多次 session_start 反复包裹；换了 bridge 就必须重新 patch。
  * 这一点不能只看 ui 上的布尔标记：pi 的 reload 会先发 session_shutdown（扩展据此把
  * bridge 完全丢弃）再用**同一个 uiContext 对象**发 session_start，若只认布尔标记，
- * 新 bridge 会被挡下，ui.custom 仍指向已废弃的旧 bridge（它只会静默 resolve(undefined)），
- * 同时 `__waPiTuiHost` 又让 wa-pi-bridge 的 notify+throw 兜底继续让位——两条路一起失效。
- * 布尔标记 `__waPiTuiHost` 保留：它同时供 wa-pi-bridge 的兜底让位使用。
+ * 新 bridge 会被挡下，ui.custom 仍指向已废弃的旧 bridge——它只会静默 resolve(undefined)，
+ * 插件以为面板开了、实际无帧无报错（wa-pi-bridge 自 2026-09-30 起已不再提供 custom()
+ * 的 notify+throw 兜底，不存在第二条会喊出失败的路径）。
+ * 布尔标记 `__waPiTuiHost` 保留：它是本函数对外的「已接管」标记，供宿主侧/测试识别；
+ * 幂等判定本身只认 `__waPiTuiHostBridge`（见上），不依赖它。
  */
 export function patchUiForTuiHost(
 	ui: Record<string, unknown>,
