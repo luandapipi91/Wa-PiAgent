@@ -259,7 +259,7 @@ test("默认工作区（__system__）的项目级 MCP 开关置灰", () => {
   } as any);
   useMcpStore.setState({ selectedProjectId: SYSTEM_PROJECT_ID });
   render(<McpPage />);
-  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+  // 开关在顶栏（不依赖打开作用域下拉）
   const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
   expect(sw.disabled).toBe(true);
   expect(
@@ -270,7 +270,6 @@ test("默认工作区（__system__）的项目级 MCP 开关置灰", () => {
 test("选中普通项目时项目级 MCP 开关可用，初值来自 trust.json 真值（已开）", () => {
   useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: true });
   render(<McpPage />);
-  fireEvent.click(screen.getByTestId("mcp-scope-select"));
   const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
   expect(sw.disabled).toBe(false);
   expect(sw.getAttribute("data-on")).toBe("true");
@@ -286,7 +285,6 @@ test("真值为未设置（null）时开关显示「未设置 / 跟随上层」�
     note: "…/.pi/mcp.json is ignored because the project is not trusted.",
   });
   render(<McpPage />);
-  fireEvent.click(screen.getByTestId("mcp-scope-select"));
   const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
   expect(sw.getAttribute("data-on")).toBe("false");
   expect(sw.getAttribute("data-unset")).toBe("true");
@@ -298,7 +296,6 @@ test("真值为未设置（null）时开关显示「未设置 / 跟随上层」�
 test("真值为显式关闭（false）时是「关」而不是「未设置」", () => {
   useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: false });
   render(<McpPage />);
-  fireEvent.click(screen.getByTestId("mcp-scope-select"));
   const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
   expect(sw.getAttribute("data-on")).toBe("false");
   expect(sw.getAttribute("data-unset")).toBe("false");
@@ -328,7 +325,6 @@ test("点击开关保存成功后就地更新真值（不再靠 note 推断）�
   };
   useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: false });
   render(<McpPage />);
-  fireEvent.click(screen.getByTestId("mcp-scope-select"));
 
   await act(async () => {
     fireEvent.click(screen.getByTestId("mcp-project-scope-switch"));
@@ -350,8 +346,34 @@ test("点击开关保存成功后就地更新真值（不再靠 note 推断）�
 
 test("选中全局作用域时不显示项目级 MCP 开关（它是项目维度的）", () => {
   render(<McpPage />);
-  fireEvent.click(screen.getByTestId("mcp-scope-select"));
   expect(screen.queryByTestId("mcp-project-scope-switch")).toBeNull();
+});
+
+test("项目级开关在顶栏、无需打开作用域下拉即可操作，且位于「+ 手动添加」左侧（防止被挪回下拉菜单）", async () => {
+  useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: false });
+  render(<McpPage />);
+
+  // 护栏 1：不点 mcp-scope-select（下拉保持关闭）就能拿到并操作开关
+  expect(screen.queryByTestId("mcp-scope-menu")).toBeNull();
+  const sw = screen.getByTestId("mcp-project-scope-switch") as HTMLButtonElement;
+  await act(async () => {
+    fireEvent.click(sw);
+  });
+  expect(useMcpStore.getState().projectScopeEnabled).toBe(true);
+
+  // 护栏 2：开关在顶栏容器内（within 找不到会抛错），且 DOM 顺序在添加按钮之前
+  const toolbar = screen.getByTestId("mcp-add-button").parentElement as HTMLElement;
+  const order = [
+    "mcp-scope-select",
+    "mcp-search",
+    "mcp-project-scope-switch",
+    "mcp-add-button",
+  ].map((id) => within(toolbar).getByTestId(id));
+  const precedes = (a: Element, b: Element) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  expect(precedes(order[0], order[1])).toBe(true);
+  expect(precedes(order[1], order[2])).toBe(true);
+  expect(precedes(order[2], order[3])).toBe(true);
 });
 
 // ===== 保存：400 字段级错误留在表单里 =====

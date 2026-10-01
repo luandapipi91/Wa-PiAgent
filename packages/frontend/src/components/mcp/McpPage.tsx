@@ -156,13 +156,6 @@ export function McpPage() {
           selectedProjectId={selectedProjectId}
           projects={projects}
           onSelect={(projectId) => setSelectedProjectId(projectId)}
-          projectScope={{
-            // 真值：true/false 来自 trust.json；null = 未设置（跟随上层，UI 不显示「已开」）
-            value: projectScopeEnabled,
-            disabled: isSystemProject,
-            pending: scopePending,
-            onToggle: handleProjectScopeToggle,
-          }}
         />
 
         {/* 搜索 */}
@@ -178,6 +171,17 @@ export function McpPage() {
           onChange={(e) => setSearchQuery(e.target.value)}
           data-testid="mcp-search"
         />
+
+        {/* 项目级 MCP 作用域开关：项目维度的设置，只跟随作用域出现，不塞进下拉菜单 */}
+        {selectedProjectId !== null && (
+          <ProjectScopeToggle
+            // 真值：true/false 来自 trust.json；null = 未设置（跟随上层，UI 不显示「已开」）
+            value={projectScopeEnabled}
+            disabled={isSystemProject}
+            pending={scopePending}
+            onToggle={handleProjectScopeToggle}
+          />
+        )}
 
         {/* 添加按钮：点击弹出模态表单 */}
         <button
@@ -307,25 +311,14 @@ function ScopeDropdown({
   selectedProjectId,
   projects,
   onSelect,
-  projectScope,
 }: {
   selectedProjectId: string | null;
   projects: { id: string; name: string }[];
   onSelect: (projectId: string | null) => void;
-  /** 项目级 MCP 作用域开关（选中具体项目时出现；默认工作区置灰） */
-  projectScope: {
-    /** trust.json 的真值：null = 未显式设置（跟随上层） */
-    value: boolean | null;
-    disabled: boolean;
-    pending: boolean;
-    onToggle: (enabled: boolean) => void;
-  };
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const isGlobal = selectedProjectId === null;
-  const scopeOn = projectScope.value === true;
-  const scopeUnset = projectScope.value === null;
 
   const label = isGlobal
     ? t("mcp.globalScope")
@@ -402,85 +395,91 @@ function ScopeDropdown({
                 {t("mcp.projectOption", { name: p.name })}
               </button>
             ))}
-
-            {/* 项目级 MCP 作用域开关：选中具体项目时才出现 */}
-            {selectedProjectId !== null && (
-              <>
-                <div
-                  className="my-1"
-                  style={{ borderTop: "1px solid var(--hairline)" }}
-                />
-                <div
-                  className="flex items-center justify-between gap-3 px-3 py-1.5"
-                  data-testid="mcp-project-scope-row"
-                  title={
-                    projectScope.disabled
-                      ? t("kernelMsg.mcp.systemProject")
-                      : t("mcp.projectScopeHint")
-                  }
-                >
-                  <span
-                    className="flex flex-col"
-                    style={{
-                      color: projectScope.disabled
-                        ? "var(--text-tertiary)"
-                        : "var(--text-primary)",
-                    }}
-                  >
-                    <span className="text-[calc(11.5px*var(--font-scale))]">
-                      {t("mcp.projectScope")}
-                    </span>
-                    {/* 未设置（跟随上层）不是「已开」：安全决定不得与事实不符 */}
-                    {scopeUnset && (
-                      <span
-                        className="text-[calc(9.5px*var(--font-scale))]"
-                        style={{ color: "var(--text-tertiary)" }}
-                        data-testid="mcp-project-scope-unset"
-                      >
-                        {t("mcp.projectScopeUnset")}
-                      </span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={scopeOn}
-                    disabled={projectScope.disabled || projectScope.pending}
-                    data-testid="mcp-project-scope-switch"
-                    data-on={scopeOn ? "true" : "false"}
-                    data-unset={scopeUnset ? "true" : "false"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      projectScope.onToggle(!scopeOn);
-                    }}
-                    className="relative shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{
-                      width: 38,
-                      height: 22,
-                      borderRadius: 9999,
-                      background: scopeOn
-                        ? "var(--brand)"
-                        : "var(--hairline-strong)",
-                      transition: "background 0.2s",
-                    }}
-                  >
-                    <span
-                      className="absolute top-0.5 rounded-full bg-white transition-all"
-                      style={{
-                        width: 18,
-                        height: 18,
-                        left: scopeOn ? undefined : 2,
-                        right: scopeOn ? 2 : undefined,
-                        boxShadow: "0 1px 2px rgba(0,0,0,.1)",
-                      }}
-                    />
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * 项目级 MCP 作用域开关（项目维度，不在作用域下拉菜单里）。
+ *
+ * 由调用方控制可见性：仅选中具体项目时渲染（全局作用域不渲染），默认工作区置灰。
+ */
+function ProjectScopeToggle({
+  value,
+  disabled,
+  pending,
+  onToggle,
+}: {
+  /** trust.json 的真值：null = 未显式设置（跟随上层） */
+  value: boolean | null;
+  disabled: boolean;
+  pending: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const scopeOn = value === true;
+  const scopeUnset = value === null;
+
+  return (
+    <div
+      className="flex items-center gap-2 shrink-0 px-2.5 py-1 rounded-md"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--hairline)",
+        color: disabled ? "var(--text-tertiary)" : "var(--text-primary)",
+      }}
+      data-testid="mcp-project-scope-row"
+      title={disabled ? t("kernelMsg.mcp.systemProject") : t("mcp.projectScopeHint")}
+    >
+      <span className="text-[calc(11.5px*var(--font-scale))] whitespace-nowrap">
+        {t("mcp.projectScope")}
+      </span>
+      {/* 未设置（跟随上层）不是「已开」：安全决定不得与事实不符 */}
+      {scopeUnset && (
+        <span
+          className="text-[calc(9.5px*var(--font-scale))] whitespace-nowrap"
+          style={{ color: "var(--text-tertiary)" }}
+          data-testid="mcp-project-scope-unset"
+        >
+          {t("mcp.projectScopeUnset")}
+        </span>
+      )}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={scopeOn}
+        disabled={disabled || pending}
+        data-testid="mcp-project-scope-switch"
+        data-on={scopeOn ? "true" : "false"}
+        data-unset={scopeUnset ? "true" : "false"}
+        onClick={(e) => {
+          // 顶栏目前没有父级点击处理器（下拉菜单的外点关闭只在菜单里），保留以免日后冒泡误触
+          e.stopPropagation();
+          onToggle(!scopeOn);
+        }}
+        className="relative shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{
+          width: 38,
+          height: 22,
+          borderRadius: 9999,
+          background: scopeOn ? "var(--brand)" : "var(--hairline-strong)",
+          transition: "background 0.2s",
+        }}
+      >
+        <span
+          className="absolute top-0.5 rounded-full bg-white transition-all"
+          style={{
+            width: 18,
+            height: 18,
+            left: scopeOn ? undefined : 2,
+            right: scopeOn ? 2 : undefined,
+            boxShadow: "0 1px 2px rgba(0,0,0,.1)",
+          }}
+        />
+      </button>
     </div>
   );
 }

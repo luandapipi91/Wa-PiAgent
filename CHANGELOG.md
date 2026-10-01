@@ -1,3 +1,6 @@
+## 2026-10-01
+- fix(mcp-ui): 项目级 MCP 作用域开关从作用域下拉菜单移到顶栏「+ 手动添加」左侧（抽成同文件组件 `ProjectScopeToggle`，`ScopeDropdown` 的 `projectScope` prop 与菜单内分隔线一并删除）；可见性规则不变（仅选中具体项目时渲染、全局不渲染、默认工作区置灰），testid/title/`data-on`/`data-unset`/未设置小字等语义一个未变；测试去掉 6 处「先打开下拉再看开关」的多余步骤，新增 1 条护栏用例（不打开下拉即可操作 + DOM 顺序在添加按钮之前）。frontend 2957 pass / 2 skip / 0 fail、四包 typecheck 绿、`mcp-connector.spec.ts` e2e 9 passed。
+
 ## 2026-09-30
 - test(kernel),chore(repo): 修复 Windows 下 4 个跨平台误报与主检出依赖缺失。① 路径分隔符：`skill-sources.test.ts` 两处断言写死 `/` 而 `path.join` 在 Windows 产出 `\`；`memory-projects.test.ts` 两处期望 tmpdir 的 `\` 而代码把入库 path 统一归一为 `/` —— 两处均改为断言前归一化分隔符再比较（macOS/Linux 行为不变，仅消除平台误报）。② 主检出 `node_modules/@wa-pi` 目录缺失导致 `@wa-pi/shared` 无法解析，使所有依赖它的集成测试加载即失败（虚假 133 fail / 15 个失败批次）；`bun install` 重建 workspace 链接后全部转绿。基线：kernel 434 pass/133 fail → **2129 pass/3 fail**（`2125+7=2132` 与既有基线总数吻合），typecheck 绿；剩余 3 项为 2 个批次污染（单独跑 `system-prompt.test.ts` 57 pass/0 fail）+ 1 个需联网下载的工具二进制用例，均与业务代码无关。
 - refactor(mcp): pi 升级至 0.99.1 并移除 pi-mcp-adapter，MCP 改用内置实现；配置迁移到 .pi/mcp.json 并新增项目受信、exposure 分级、图形化 OAuth 登录与嵌套工具卡
