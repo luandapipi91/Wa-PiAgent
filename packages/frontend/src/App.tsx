@@ -220,8 +220,8 @@ export function App() {
 				case "session:activated":
 					void useSessionStore.getState().refreshSessionStats(e.sessionId);
 					break;
-				// subagent:progress：子代理（delegate/fleet）执行进度，按 toolCallId→agent 写入 store，
-				// 供 DelegateCard/FleetCard 实时渲染。结构与 bridge 流式帧对齐。
+				// subagent:progress：子代理（delegate / 历史 fleet）执行进度，按 toolCallId→agent 写入 store，
+				// 供统一后的 DelegateCard（历史 fleet 卡片已并入）实时渲染。结构与 bridge 流式帧对齐。
 				case "subagent:progress":
 					useSessionStore
 						.getState()

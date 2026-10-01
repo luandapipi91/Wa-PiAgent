@@ -1,7 +1,9 @@
+// 旧 fleet 数据形状（details.fleet + 聚合文本按 【agent】 切分）在统一委托卡片里的渲染契约。
+// 说明：FleetCard 已并入 DelegateCard（历史 fleet 记录也走统一卡片），本文件保留原文件名。
 import { test, expect, beforeEach, vi } from "bun:test";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { SessionMessage } from "@wa-pi/shared";
-import { FleetCard } from "../src/components/blocks/FleetCard";
+import { DelegateCard } from "../src/components/blocks/DelegateCard";
 import { MessageList } from "../src/components/MessageList";
 import { VirtuosoMockContext } from "react-virtuoso";
 import { useSessionStore } from "../src/store/session";
@@ -60,23 +62,23 @@ function assistantMsg(
 	};
 }
 
-test("FleetCard 完成（非流式）：默认折叠，头部显示「并行派发 N 个任务」，且 data-muted=true", () => {
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
+test("DelegateCard 完成（非流式）：默认折叠，头部显示「并行派发 N 个任务」，且 data-muted=true", () => {
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
 	const header = screen.getByTestId("fleet-f1-header");
 	expect(header.textContent).toContain("并行派发 2 个任务");
 	expect(screen.queryByTestId("fleet-f1-body")).toBeNull();
 	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBe("true");
 });
 
-test("FleetCard 执行中（无 result、非流式，如 block 已定稿但工具未返回）：默认展开且不透明", () => {
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} />);
+test("DelegateCard 执行中（无 result、非流式，如 block 已定稿但工具未返回）：默认展开且不透明", () => {
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} />);
 	// 并行派发还在执行中，卡片应展开（body 可见）且不弱化
 	expect(screen.getByTestId("fleet-f1-body")).toBeTruthy();
 	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBeNull();
 });
 
-test("FleetCard 流式中（isStreaming + 无 result）：默认展开、不透明、meta 含「执行中」", () => {
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} isStreaming />);
+test("DelegateCard 流式中（isStreaming + 无 result）：默认展开、不透明、meta 含「执行中」", () => {
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} isStreaming />);
 	expect(screen.getByTestId("fleet-f1-body")).toBeTruthy();
 	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBeNull();
 	const header = screen.getByTestId("fleet-f1-header");
@@ -88,26 +90,26 @@ test("FleetCard 流式中（isStreaming + 无 result）：默认展开、不透�
 	expect(body.textContent).toContain("重构 UI");
 });
 
-test("FleetCard 失败（result.isError）：meta 含「失败」", () => {
+test("DelegateCard 失败（result.isError）：meta 含「失败」", () => {
 	const errResult = {
 		...fleetResult,
 		isError: true,
 		content: [{ type: "text" as const, text: "并行任务部分失败" }],
 	};
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={errResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={errResult} />);
 	const header = screen.getByTestId("fleet-f1-header");
 	expect(header.textContent).toContain("失败");
 	expect(header.textContent).not.toContain("完成");
 });
 
-test("FleetCard 展开后结果经 ReactMarkdown 渲染", () => {
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
+test("DelegateCard 展开后结果经 ReactMarkdown 渲染", () => {
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	const body = screen.getByTestId("fleet-f1-body");
 	expect(body.textContent).toContain("并行任务完成");
 });
 
-test("MessageList 中 fleet 工具调用渲染为 FleetCard（非 ToolCallCard）", () => {
+test("MessageList 中 fleet 工具调用渲染为 DelegateCard（非 ToolCallCard）", () => {
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [
@@ -253,7 +255,7 @@ test("fleet 与 delegate 混合：各自独立成卡，互不干扰", () => {
 // ── Task 10：按 agent 分组展示多个子代理进度（默认折叠摘要，展开看每 agent 详情）──
 // fleet 与 delegate 的关键差异：fleet 一个 toolCallId 下多个 agent，
 // store 的 progressByToolCall[tcId] 是 Record<agent, SubagentProgressEvent>，
-// FleetCard 直接消费整个 map（不取 [0]），按 agent 分组展示。
+// DelegateCard 直接消费整个 map（不取 [0]），按 agent 分组展示。
 
 /** 设置某 toolCallId 下的多个子代理进度（fleet 多 agent 场景） */
 function setFleetProgress(
@@ -276,14 +278,14 @@ function setFleetProgress(
 	useSessionStore.setState({ progressByToolCall: { [toolCallId]: map } });
 }
 
-test("FleetCard 按 agent 展示进度：每任务一行统计（任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W）", () => {
+test("DelegateCard 按 agent 展示进度：每任务一行统计（任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W）", () => {
 	setFleetProgress("tc-fleet", {
 		"agent-a": { status: "running", output: "a", tools: [], elapsedMs: 1000 },
 		"agent-b": { status: "done", output: "b", tools: [], elapsedMs: 2000 },
 		"agent-c": { status: "error", output: "c", tools: [], elapsedMs: 3000 },
 	});
 	render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={
 				{
@@ -305,7 +307,7 @@ test("FleetCard 按 agent 展示进度：每任务一行统计（任务 N：调�
 	expect(screen.queryByText(/运行中/)).toBeNull();
 });
 
-test("FleetCard 有进度时：统计行含工具计数，点开任务行显示该任务回复", () => {
+test("DelegateCard 有进度时：统计行含工具计数，点开任务行显示该任务回复", () => {
 	setFleetProgress("tc-exp", {
 		代码审查: {
 			status: "running",
@@ -324,7 +326,7 @@ test("FleetCard 有进度时：统计行含工具计数，点开任务行显示�
 		},
 	});
 	render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={
 				{
@@ -356,15 +358,15 @@ test("FleetCard 有进度时：统计行含工具计数，点开任务行显示�
 	expect(screen.queryByText(/Edit/)).toBeNull();
 });
 
-test("FleetCard 任务清单格式：任务 N：委派【agent】task", () => {
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
+test("DelegateCard 任务清单格式：任务 N：委派【agent】task", () => {
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	const body = screen.getByTestId("fleet-f1-body");
 	expect(body.textContent).toContain("任务 1：委派【代码审查】review diff");
 	expect(body.textContent).toContain("任务 2：委派【前端开发】重构 UI");
 });
 
-test("FleetCard 完成态按 agent 拆分：每任务点开显示各自回复（无 progress 时统计行显示已完成）", () => {
+test("DelegateCard 完成态按 agent 拆分：每任务点开显示各自回复（无 progress 时统计行显示已完成）", () => {
 	useSessionStore.setState({ progressByToolCall: {} });
 	const splitResult = {
 		...fleetResult,
@@ -375,7 +377,7 @@ test("FleetCard 完成态按 agent 拆分：每任务点开显示各自回复（
 			},
 		],
 	};
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={splitResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	// 无 progress：统计行显示「已完成 · 点击查看回复」
 	expect(screen.getByText(/任务 1：已完成 · 点击查看回复/)).toBeTruthy();
@@ -391,7 +393,7 @@ test("FleetCard 完成态按 agent 拆分：每任务点开显示各自回复（
 	expect(screen.getByText(/UI 已重构/)).toBeTruthy();
 });
 
-test("FleetCard 完成态读 result.details 持久化统计：无 progress 也显示工具计数", () => {
+test("DelegateCard 完成态读 result.details 持久化统计：无 progress 也显示工具计数", () => {
 	useSessionStore.setState({ progressByToolCall: {} });
 	const splitResult = {
 		...fleetResult,
@@ -408,7 +410,7 @@ test("FleetCard 完成态读 result.details 持久化统计：无 progress 也�
 			},
 		},
 	};
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={splitResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	// 无 progress 但有持久化统计：完成态统计行显示「已完成 调用了 X 个工具 …」
 	expect(
@@ -423,10 +425,10 @@ test("FleetCard 完成态读 result.details 持久化统计：无 progress 也�
 	).toBeTruthy();
 });
 
-test("FleetCard 无进度时不渲染子智能体摘要（保持原有行为）", () => {
+test("DelegateCard 无进度时不渲染子智能体摘要（保持原有行为）", () => {
 	useSessionStore.setState({ progressByToolCall: {} });
 	render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={
 				{
@@ -442,7 +444,7 @@ test("FleetCard 无进度时不渲染子智能体摘要（保持原有行为）"
 	expect(screen.queryByRole("button", { name: /展开|▶/ })).toBeNull();
 });
 
-test("FleetCard 运行中子代理在无事件推送期间：本地推算计时持续递增（静默期不冻结）", () => {
+test("DelegateCard 运行中子代理在无事件推送期间：本地推算计时持续递增（静默期不冻结）", () => {
 	vi.useFakeTimers();
 	const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
 	try {
@@ -455,7 +457,7 @@ test("FleetCard 运行中子代理在无事件推送期间：本地推算计时�
 			},
 		});
 		render(
-			<FleetCard
+			<DelegateCard
 				sessionId="s1"
 				toolCall={
 					{
@@ -483,7 +485,7 @@ test("FleetCard 运行中子代理在无事件推送期间：本地推算计时�
 	}
 });
 
-test("FleetCard 有进度时：头部点击折叠/展开整张卡片（子任务展开不锁死卡片）", () => {
+test("DelegateCard 有进度时：头部点击折叠/展开整张卡片（子任务展开不锁死卡片）", () => {
 	setFleetProgress("tc-fold", {
 		"agent-a": {
 			status: "running",
@@ -493,7 +495,7 @@ test("FleetCard 有进度时：头部点击折叠/展开整张卡片（子任务
 		},
 	});
 	render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={
 				{
@@ -515,7 +517,7 @@ test("FleetCard 有进度时：头部点击折叠/展开整张卡片（子任务
 	expect(screen.getByTestId("fleet-tc-fold-body")).toBeTruthy();
 });
 
-test("FleetCard 子任务详情展开后可单独收起（不受卡片折叠状态影响）", () => {
+test("DelegateCard 子任务详情展开后可单独收起（不受卡片折叠状态影响）", () => {
 	setFleetProgress("tc-item", {
 		"agent-a": {
 			status: "done",
@@ -525,7 +527,7 @@ test("FleetCard 子任务详情展开后可单独收起（不受卡片折叠状�
 		},
 	});
 	render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={
 				{
@@ -546,10 +548,10 @@ test("FleetCard 子任务详情展开后可单独收起（不受卡片折叠状�
 	expect(screen.queryByText(/回复内容/)).toBeNull();
 });
 
-test("FleetCard 执行中 progress 陆续到达不自动重新打开已折叠的卡片", () => {
+test("DelegateCard 执行中 progress 陆续到达不自动重新打开已折叠的卡片", () => {
 	// 初始无 progress：执行中卡片默认展开（任务清单可见）
 	render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={
 				{
@@ -577,7 +579,7 @@ test("FleetCard 执行中 progress 陆续到达不自动重新打开已折叠的
 	expect(screen.queryByTestId("fleet-tc-keepfold-body")).toBeNull();
 });
 
-test("FleetCard 子任务展开：状态行（agent·状态·秒数）渲染在回复之后（详情底部）", () => {
+test("DelegateCard 子任务展开：状态行（agent·状态·秒数）渲染在回复之后（详情底部）", () => {
 	setFleetProgress("tc-st-order", {
 		代码审查: {
 			status: "running",
@@ -587,7 +589,7 @@ test("FleetCard 子任务展开：状态行（agent·状态·秒数）渲染在�
 		},
 	});
 	const { container } = render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={
 				{
@@ -610,7 +612,7 @@ test("FleetCard 子任务展开：状态行（agent·状态·秒数）渲染在�
 	expect(statusPos).toBeGreaterThan(replyPos);
 });
 
-test("FleetCard 降级聚合显示：统计行（fleet-progress）渲染在聚合回复区之后（卡片底部）", () => {
+test("DelegateCard 降级聚合显示：统计行（fleet-progress）渲染在聚合回复区之后（卡片底部）", () => {
 	setFleetProgress("tc-old-order", {
 		代码审查: {
 			status: "done",
@@ -620,7 +622,7 @@ test("FleetCard 降级聚合显示：统计行（fleet-progress）渲染在聚�
 		},
 	});
 	const { container } = render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={
 				{
@@ -658,7 +660,7 @@ test("FleetCard 降级聚合显示：统计行（fleet-progress）渲染在聚�
 // 根因：任务行只在收到该任务的进度帧后才渲染，而子代理首个进度帧要等它产生第一个业务事件
 // （工具调用/文本）——并行派发启动阶段会有若干任务行整行消失，等调用完成后由 details
 // 统计补齐；修复后运行期渲染全部任务行，无帧的行显示「排队中」。
-test("FleetCard 运行期：尚无进度帧的任务行也渲染（显示「排队中」而非整行消失）", () => {
+test("DelegateCard 运行期：尚无进度帧的任务行也渲染（显示「排队中」而非整行消失）", () => {
 	useSessionStore.setState({
 		progressByToolCall: {
 			"tc-allrows": {
@@ -694,7 +696,7 @@ test("FleetCard 运行期：尚无进度帧的任务行也渲染（显示「排�
 			],
 		},
 	};
-	render(<FleetCard sessionId="s1" toolCall={call} />);
+	render(<DelegateCard sessionId="s1" toolCall={call} />);
 	// 4 行全渲染：有帧的行显示工具统计，无帧的行显示「排队中」
 	expect(
 		screen.getByText(/任务 1：调用了 1 个工具 成功 1 失败 0 执行中 0/),
@@ -713,7 +715,7 @@ test("FleetCard 运行期：尚无进度帧的任务行也渲染（显示「排�
 	expect(row3!.getAttribute("aria-label")).toBeNull();
 });
 
-test("FleetCard 完成态：仍只渲染有统计/回复的任务行（不靠空行撑开卡片）", () => {
+test("DelegateCard 完成态：仍只渲染有统计/回复的任务行（不靠空行撑开卡片）", () => {
 	const doneResult = {
 		role: "toolResult" as const,
 		toolCallId: "tc-done-rows",
@@ -739,7 +741,7 @@ test("FleetCard 完成态：仍只渲染有统计/回复的任务行（不靠空
 			],
 		},
 	};
-	render(<FleetCard sessionId="s1" toolCall={call} result={doneResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={call} result={doneResult} />);
 	fireEvent.click(screen.getByTestId("fleet-tc-done-rows-header"));
 	expect(
 		screen.getByText(/任务 1：已完成 调用了 1 个工具 成功 1 失败 0 执行中 0/),
@@ -749,7 +751,7 @@ test("FleetCard 完成态：仍只渲染有统计/回复的任务行（不靠空
 
 // ── fleet 单任务拒绝结果（kernel 前置校验新增）的消费形态 ──
 // 形状：isError=true、content 仅一段引导文案、details={error:"fleet_requires_multiple_tasks"}、
-// tasks 只含 1 个 agent。FleetCard 按运行时可选方式读 details（fleetDetails?.fleet / ?.interrupted），
+// tasks 只含 1 个 agent。DelegateCard 按运行时可选方式读 details（fleetDetails?.fleet / ?.interrupted），
 // 本组用例把「不崩 + 渲染引导文案 + 失败态可见 + 不冒出空行/伪造任务行」钉成回归。
 
 const singleTaskRejectCall = {
@@ -776,10 +778,10 @@ function singleTaskRejectResult(isError: boolean) {
 	};
 }
 
-test("FleetCard 单任务拒绝结果（isError=true）：不抛错、渲染引导文案、显示失败态、无任务行/空回复块", () => {
+test("DelegateCard 单任务拒绝结果（isError=true）：不抛错、渲染引导文案、显示失败态、无任务行/空回复块", () => {
 	expect(() =>
 		render(
-			<FleetCard
+			<DelegateCard
 				sessionId="s1"
 				toolCall={singleTaskRejectCall}
 				result={singleTaskRejectResult(true)}
@@ -807,13 +809,13 @@ test("FleetCard 单任务拒绝结果（isError=true）：不抛错、渲染引�
 	expect(screen.getAllByText("回复：")).toHaveLength(1);
 });
 
-test("FleetCard 单任务拒绝结果（isError=false，当前真实链路形态）：引导文案照常渲染、无任务行；不出现失败态（现状锁）", () => {
+test("DelegateCard 单任务拒绝结果（isError=false，当前真实链路形态）：引导文案照常渲染、无任务行；不出现失败态（现状锁）", () => {
 	// pi SDK 不把 execute 返回的 result.isError 透传到 ToolResultMessage（成功路径恒
 	// isError:false），因此真实会话里该结果的 isError 是 false。本用例锁住这一现状——
 	// 将来 SDK/宿主补上透传后，「不出现失败态」的断言需同步改期望。
 	expect(() =>
 		render(
-			<FleetCard
+			<DelegateCard
 				sessionId="s1"
 				toolCall={singleTaskRejectCall}
 				result={singleTaskRejectResult(false)}
@@ -846,10 +848,10 @@ const tooManyRejectCall = {
 const TOO_MANY_REJECT_TEXT =
 	"错误：fleet 一次最多 6 个任务（当前 7 个）。请拆成多次 fleet 调用（每次不超过 6 个）。";
 
-test("FleetCard 超上限拒绝结果：不抛错、渲染引导文案、7 条参数回显行、无统计行/空回复块", () => {
+test("DelegateCard 超上限拒绝结果：不抛错、渲染引导文案、7 条参数回显行、无统计行/空回复块", () => {
 	expect(() =>
 		render(
-			<FleetCard
+			<DelegateCard
 				sessionId="s1"
 				toolCall={tooManyRejectCall}
 				result={{

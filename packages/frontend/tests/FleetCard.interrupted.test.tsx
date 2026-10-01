@@ -1,7 +1,9 @@
+// 旧 fleet 数据的中断标记（details.interrupted 按序号 Record）在统一委托卡片里的渲染契约。
+// 说明：FleetCard 已并入 DelegateCard，本文件保留原文件名。
 import { test, expect, beforeEach, vi } from "bun:test";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { SubagentProgressEvent } from "@wa-pi/shared";
-import { FleetCard } from "../src/components/blocks/FleetCard";
+import { DelegateCard } from "../src/components/blocks/DelegateCard";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
@@ -51,7 +53,7 @@ test("子任务中断（details.interrupted 按序号映射）：meta 与中断�
 		details: { fleet: fleetStats, interrupted: { "0": true, "1": false } },
 	};
 	render(
-		<FleetCard sessionId="s1" toolCall={fleetCall} result={interruptedResult} />,
+		<DelegateCard sessionId="s1" toolCall={fleetCall} result={interruptedResult} />,
 	);
 	// 头部 meta 有中断徽标
 	const header = screen.getByTestId("fleet-f1-header");
@@ -83,7 +85,7 @@ test("全部子任务中断：meta 1 个 + 每行各 1 个徽标", () => {
 		details: { fleet: fleetStats, interrupted: { "0": true, "1": true } },
 	};
 	render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={fleetCall}
 			result={allInterruptedResult}
@@ -102,7 +104,7 @@ test("全部子任务中断：meta 1 个 + 每行各 1 个徽标", () => {
 
 test("旧数据（details 只有 fleet 统计、无 interrupted 字段）：无中断徽标，meta 显示「完成」，不报错", () => {
 	const oldResult = { ...baseResult, details: { fleet: fleetStats } };
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={oldResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={oldResult} />);
 	const header = screen.getByTestId("fleet-f1-header");
 	expect(screen.queryByTestId("interrupted-badge")).toBeNull();
 	expect(header.textContent).toContain("完成");
@@ -113,7 +115,7 @@ test("旧数据（details 只有 fleet 统计、无 interrupted 字段）：无�
 });
 
 test("details 整体缺失（更老的数据）：无中断徽标、meta「完成」、不报错", () => {
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={baseResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={baseResult} />);
 	const header = screen.getByTestId("fleet-f1-header");
 	expect(screen.queryByTestId("interrupted-badge")).toBeNull();
 	expect(header.textContent).toContain("完成");
@@ -166,7 +168,7 @@ function findRowBtn(body: HTMLElement, label: string): HTMLButtonElement {
 
 test("兑底（details 缺失）：父调用终态但行 progress 仍 running → 行强制「已中断」，settled 行不受影响", () => {
 	useSessionStore.setState({ progressByToolCall: stopProgress });
-	render(<FleetCard sessionId="s1" toolCall={stopCall} result={baseResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={stopCall} result={baseResult} />);
 	// 头部 meta：兑底命中 → 中断徽标（中断优先于完成/失败展示）
 	const header = screen.getByTestId("fleet-fstop-header");
 	expect(
@@ -196,7 +198,7 @@ test("兑底冻结计时：父调用终态后秒数停在最后已知值，本�
 	try {
 		useSessionStore.setState({ progressByToolCall: stopProgress });
 		render(
-			<FleetCard sessionId="s1" toolCall={stopCall} result={baseResult} />,
+			<DelegateCard sessionId="s1" toolCall={stopCall} result={baseResult} />,
 		);
 		// 有 progress 时卡片默认已展开，直接取 body
 		const body = screen.getByTestId("fleet-fstop-body");
@@ -229,7 +231,7 @@ test("details 与兑底并存：true 行精确标记徽标，false+settled 行�
 		},
 	};
 	render(
-		<FleetCard sessionId="s1" toolCall={stopCall} result={preciseResult} />,
+		<DelegateCard sessionId="s1" toolCall={stopCall} result={preciseResult} />,
 	);
 	// 有 progress 时卡片默认已展开，直接取 body
 	const body = screen.getByTestId("fleet-fstop-body");
@@ -260,7 +262,7 @@ test("details.interrupted=false 为权威：该行进度停在 running 也不标
 		},
 	};
 	render(
-		<FleetCard sessionId="s1" toolCall={stopCall} result={preciseFalseResult} />,
+		<DelegateCard sessionId="s1" toolCall={stopCall} result={preciseFalseResult} />,
 	);
 	const header = screen.getByTestId("fleet-fstop-header");
 	expect(
@@ -299,7 +301,7 @@ test("中断：details.interrupted=true 且行进度已落终态（error）→ �
 		},
 	};
 	render(
-		<FleetCard sessionId="s1" toolCall={stopCall} result={preciseTrueResult} />,
+		<DelegateCard sessionId="s1" toolCall={stopCall} result={preciseTrueResult} />,
 	);
 	const body = screen.getByTestId("fleet-fstop-body");
 	expect(
@@ -333,7 +335,7 @@ test("回归：父调用终态且各行均已 settle（正常完成路径）→ 
 		},
 	});
 	render(
-		<FleetCard
+		<DelegateCard
 			sessionId="s1"
 			toolCall={{ ...stopCall, id: "fok" }}
 			result={baseResult}

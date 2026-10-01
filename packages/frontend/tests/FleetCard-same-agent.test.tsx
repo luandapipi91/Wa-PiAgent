@@ -1,6 +1,8 @@
+// 同名 agent 多任务在统一委托卡片里的行/回复配对契约（不得串台）。
+// 说明：FleetCard 已并入 DelegateCard，本文件保留原文件名。
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { FleetCard } from "../src/components/blocks/FleetCard";
+import { DelegateCard } from "../src/components/blocks/DelegateCard";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
@@ -45,7 +47,7 @@ const dupResult = {
 };
 
 test("同名 agent 任务：展开任务 1 应显示任务 1 的回复（A 页面完成），不得显示任务 2 的", () => {
-	render(<FleetCard sessionId="s1" toolCall={dupCall} result={dupResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={dupCall} result={dupResult} />);
 	fireEvent.click(screen.getByTestId("fleet-fdup-header"));
 
 	const rows = screen.getAllByRole("button", { name: /展开|▶/ });
@@ -59,7 +61,7 @@ test("同名 agent 任务：展开任务 1 应显示任务 1 的回复（A 页�
 });
 
 test("同名 agent 任务：展开任务 2 应显示任务 2 的回复（B 页面完成）", () => {
-	render(<FleetCard sessionId="s1" toolCall={dupCall} result={dupResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={dupCall} result={dupResult} />);
 	fireEvent.click(screen.getByTestId("fleet-fdup-header"));
 
 	const rows = screen.getAllByRole("button", { name: /展开|▶/ });
@@ -94,7 +96,7 @@ test("不同 agent 任务：各任务展开显示各自回复（回归保护）"
 		isError: false,
 		timestamp: 0,
 	};
-	render(<FleetCard sessionId="s1" toolCall={call} result={result} />);
+	render(<DelegateCard sessionId="s1" toolCall={call} result={result} />);
 	fireEvent.click(screen.getByTestId("fleet-fdiff-header"));
 
 	const rows = screen.getAllByRole("button", { name: /展开|▶/ });
@@ -151,7 +153,7 @@ test("同名 agent 任务：运行态各任务行显示各自独立工具统计�
 			],
 		},
 	};
-	render(<FleetCard sessionId="s1" toolCall={call} />);
+	render(<DelegateCard sessionId="s1" toolCall={call} />);
 	// 运行态 hasProgress=true，卡片默认已展开（无需点 header）
 	expect(screen.getByText(/调用了 2 个工具/)).toBeTruthy();
 	expect(screen.getByText(/调用了 1 个工具/)).toBeTruthy();
@@ -189,7 +191,7 @@ test("同名 agent 完成态：details.fleet 按序号 key，各任务显示各�
 			},
 		},
 	} as any;
-	render(<FleetCard sessionId="s1" toolCall={call} result={result} />);
+	render(<DelegateCard sessionId="s1" toolCall={call} result={result} />);
 	fireEvent.click(screen.getByTestId("fleet-fdone-header"));
 	// 完成态 label：已完成 调用了 X 个工具…。任务 0=3，任务 1=5，不同
 	expect(screen.getByText(/调用了 3 个工具/)).toBeTruthy();
@@ -227,7 +229,7 @@ test("老数据 details.fleet 按名字 key 时降级（不崩溃，回复不串
 		},
 	} as any;
 	// 不应崩溃
-	render(<FleetCard sessionId="s1" toolCall={call} result={result} />);
+	render(<DelegateCard sessionId="s1" toolCall={call} result={result} />);
 	fireEvent.click(screen.getByTestId("fleet-fold-header"));
 	// 回复仍正确拆分：展开任务 1 看到 A done（不串台）
 	const rows = screen.getAllByRole("button", { name: /展开|▶/ });

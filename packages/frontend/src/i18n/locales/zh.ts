@@ -271,6 +271,21 @@ const zh = {
 			progressSummary:
 				"子智能体 · {{status}} · {{seconds}}s · 共 {{total}} 个工具 · 成功 {{done}} · 失败 {{error}} · 执行中 {{running}}",
 			replyLabel: "回复：",
+			// 新数据（details.subagents）任务行的工具统计（行首拼持久化终态，如「已完成 …」）
+			taskStats:
+				"调用了 {{total}} 个工具 成功 {{done}} 失败 {{error}} 执行中 {{running}}",
+			// 子代理转录弹窗（任务 10）：入口按钮 / 标题 / 空态 / 底部统计 / 筛选
+			transcriptTitle: "委托转录",
+			viewTranscript: "查看全部内容",
+			transcriptMissing: "此委托早于转录功能上线，没有可查看的转录",
+			toolCount: "{{n}} 个工具",
+			copyAll: "复制全文",
+			filter: {
+				all: "全部",
+				thinking: "思考",
+				tool: "工具",
+				text: "正文",
+			},
 		},
 		mermaid: {
 			renderError: "Mermaid 渲染失败：{{error}}",

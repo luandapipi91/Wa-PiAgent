@@ -3,7 +3,6 @@ import { render, screen, act } from "@testing-library/react";
 import { ToolCallCard } from "../src/components/blocks/ToolCallCard";
 import { ThinkingCard } from "../src/components/blocks/ThinkingCard";
 import { DelegateCard } from "../src/components/blocks/DelegateCard";
-import { FleetCard } from "../src/components/blocks/FleetCard";
 import { useUiPrefsStore } from "../src/store/ui-prefs";
 import { COLLAPSE_PROCESS_DEFAULT } from "../src/store/ui-prefs";
 import { useSessionStore } from "../src/store/session";
@@ -82,7 +81,7 @@ describe("回复过程默认折叠开关（开启 = 工具调用/思维链默认
 	});
 
 	test("开关开启：fleet 并行派发卡片（有实时进度）默认折叠（body 不渲染）", () => {
-		render(<FleetCard sessionId="s1" toolCall={fleetCall} isStreaming />);
+		render(<DelegateCard sessionId="s1" toolCall={fleetCall} isStreaming />);
 		act(() => {
 			useSessionStore.getState().handleSubagentProgress("s1", "f1", {
 				agent: "代码审查",
@@ -113,7 +112,7 @@ describe("回复过程默认折叠开关（开启 = 工具调用/思维链默认
 
 	test("开关关闭（展开基线）：fleet 有进度时默认展开（回归防护）", () => {
 		useUiPrefsStore.setState({ collapseProcessByDefault: false });
-		render(<FleetCard sessionId="s1" toolCall={fleetCall} isStreaming />);
+		render(<DelegateCard sessionId="s1" toolCall={fleetCall} isStreaming />);
 		act(() => {
 			useSessionStore.getState().handleSubagentProgress("s1", "f1", {
 				agent: "代码审查",
