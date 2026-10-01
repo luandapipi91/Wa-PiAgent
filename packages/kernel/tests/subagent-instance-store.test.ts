@@ -15,12 +15,18 @@ import {
 } from "../src/subagent-instance-store";
 
 let dir: string;
+/**
+ * 模块加载期快照：全局 preload（packages/kernel/tests/setup.ts）已把 WA_PI_DIR 指到隔离临时目录，
+ * 测试结束必须**恢复原值**而不是 delete —— delete 会清掉 preload 的隔离，让后续测试读到正式 ~/.pi/agent
+ * （仓库既有惯例：另外 4 个碰 WA_PI_DIR 的测试都是快照→恢复）。
+ */
+const ORIGINAL_WA_PI_DIR = process.env.WA_PI_DIR;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "sa-store-"));
 	process.env.WA_PI_DIR = dir;
 });
 afterEach(async () => {
-	delete process.env.WA_PI_DIR;
+	process.env.WA_PI_DIR = ORIGINAL_WA_PI_DIR;
 	await rm(dir, { recursive: true, force: true });
 });
 
