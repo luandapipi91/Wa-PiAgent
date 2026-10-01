@@ -14,7 +14,7 @@
 // 错误信息经文本传达给 LLM——与原生 subagent 工具先例一致
 //（其所有错误路径均返回普通文本）。
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
 	DELEGATE_DESCRIPTION,
 	DELEGATE_MAX_TASKS as MAX_SUBAGENT_CONCURRENCY,
@@ -200,9 +200,19 @@ export function formatTokensShort(n?: number): string {
 }
 
 /**
+ * XML 转义动态内容：`&` 必须**最先**处理（否则 `<` 先变 `&lt;` 再被 `&`→`&amp;`
+ * 二次转义成 `&amp;lt;`）。`>` 不转义（XML 中裸 `>` 合法，最小干预）。
+ * 只用于子代理正文与 `<type>`/`<status>` 等取值，绝不动渲染模板本身的结构字符。
+ */
+function escapeXml(s: string): string {
+	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+
+/**
  * 渲染单个子代理结果块（规格 §7 定稿：XML、标签同行紧凑排版、全字段保留）。
  * `<agent_id>` 与 `<transcript>` 都是独立子元素（后者为绝对路径，主 agent 自行 read/grep）；
- * `<result>` 包裹正文并以换行分隔，防止正文里的尖括号与结构混淆。
+ * `<result>` 包裹正文并以换行分隔——正文是任意文本（报告常含代码与标签字面串），
+ * 必须做 XML 转义，否则正文里的 `</result>`/`</subagent>` 会提前闭合结构、破坏多块拼接。
  * 未建实例的任务（如越权项）agentId / jsonlPath 为空串，模型据此知道没转录可查。
  */
 export function renderSubagentBlock(r: {
@@ -218,23 +228,36 @@ export function renderSubagentBlock(r: {
 }): string {
 	return (
 		`<subagent><index>${r.taskIndex}</index><agent_id>${r.agentId}</agent_id>` +
-		`<type>${r.subagentType}</type><status>${r.status}</status>` +
+		`<type>${escapeXml(r.subagentType)}</type><status>${escapeXml(r.status)}</status>` +
 		`<elapsed>${formatElapsedShort(r.elapsedMs ?? 0)}</elapsed>` +
 		`<tokens>${formatTokensShort(r.totalTokens)}</tokens>` +
 		`<resumed>${r.resumed}</resumed>` +
-		`<transcript>${r.jsonlPath}</transcript><result>\n${r.text}\n</result></subagent>`
+		`<transcript>${r.jsonlPath}</transcript><result>\n${escapeXml(r.text)}\n</result></subagent>`
 	);
 }
 
+/** 错误对象转可读文本（console.warn 用）；非 Error 一律 String() */
+function errorMessage(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
 /**
- * 写实例 meta：目录创建/写盘失败一律静默——meta 只是审计与 resume 的辅助通道，
- * 不得影响派发主流程（与中止快照 writeAbortSnapshot 同约定）。
+ * 写实例 meta：写盘失败不阻断派发主流程（meta 只是审计与 resume 的辅助通道，
+ * 与中止快照 writeAbortSnapshot 同约定），但**留一次 console.warn**——「错误经文本
+ * 传达」不等于连日志都不该有，静默失败会让「pi 拿到指向不存在文件的 --session」
+ * 「resume 误拒」等故障无从排查。
+ * 返回是否落盘成功：调用方据此决定是否仍宣告 <transcript>（写不进同一目录 =
+ * 转录文件大概率也不存在，宣告它会骗模型去 read 一个 404）。
  */
-async function safeWriteMeta(meta: SubagentMeta): Promise<void> {
+async function safeWriteMeta(meta: SubagentMeta): Promise<boolean> {
 	try {
 		await writeMeta(meta);
-	} catch {
-		/* 静默失败：meta 不是派发的必要条件 */
+		return true;
+	} catch (err) {
+		console.warn(
+			`[delegate] 子代理 meta 写入失败（agentId=${meta.agentId}，status=${meta.status}）：${errorMessage(err)}`,
+		);
+		return false;
 	}
 }
 
@@ -438,9 +461,26 @@ export function makeDelegateTool(opts: {
 						let jsonl = "";
 						try {
 							jsonl = jsonlPath(parentSessionId, agentId);
-						} catch {
+						} catch (err) {
 							// 父会话 id 非法（理论上不会：构造处传真实会话 id）→ 退化为不落盘
 							//（spawn 收到空路径时走 --no-session），不阻断派发
+							console.warn(
+								`[delegate] 子代理转录路径不可用，本次不落盘（agentId=${agentId}）：${errorMessage(err)}`,
+							);
+						}
+						// spawn 前显式建转录目录，与 meta 写入**解耦**：此前该目录的唯一创建者是
+						// writeMeta 内部的 mkdir，失败被 safeWriteMeta 静默吞掉 → pi 收到指向不存在
+						// 目录的 --session、返回块却宣告完整 <transcript>，模型 read 一个 404。
+						// 这里失败不阻断派发，但降级为不落盘（jsonl 置空 → <transcript> 给空串）
+						if (jsonl) {
+							try {
+								await mkdir(dirname(jsonl), { recursive: true });
+							} catch (err) {
+								console.warn(
+									`[delegate] 子代理转录目录创建失败，本次不落盘（agentId=${agentId}）：${errorMessage(err)}`,
+								);
+								jsonl = "";
+							}
 						}
 						const now = Date.now();
 						// 身份/任务等不变字段：spawn 前后两次写 meta 共用
@@ -457,11 +497,13 @@ export function makeDelegateTool(opts: {
 						};
 						// spawn 前先落 running：中断/崩溃时 meta 不停在"不存在"，
 						// 且 resume（任务 6）据此拒绝并发续写同一份 jsonl
-						await safeWriteMeta({
+						const metaPersisted = await safeWriteMeta({
 							...metaBase,
 							status: "running",
 							updatedAt: now,
 						});
+						// meta 准备失败 = 该目录不可用 → 不宣告 <transcript>（避免模型 read 404）
+						if (!metaPersisted) jsonl = "";
 						// 所有子任务共享同一个 delegate 工具调用的 toolCallId：前端卡片靠它定位，
 						// 内部按 progress.taskIndex 区分各子任务
 						try {

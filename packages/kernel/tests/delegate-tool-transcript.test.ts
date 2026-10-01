@@ -8,7 +8,7 @@
 //    <WA_PI_DIR>/subagents/<父会话 id>/<agentId>.jsonl 路径 → 结束后写终态 meta；
 //    返回块与 details.subagents[] 双通道一致（文本给主 agent，details 给前端）；
 // 4. makeSpawnFn：sessionFile 透传到 runSubagentAgent，进度事件带 agentId。
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import type { SubagentDetails } from "@wa-pi/shared";
 import {
 	formatElapsedShort,
@@ -19,7 +19,9 @@ import {
 } from "../src/delegate-tool";
 import { jsonlPath, readMeta, subagentDir } from "../src/subagent-instance-store";
 import type { SubagentMeta } from "../src/subagent-instance-store";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const askTo = [
 	{ name: "代码审查", description: "评审改动" },
@@ -106,6 +108,29 @@ describe("XML 块渲染（规格 §7 定稿形状）", () => {
 				"<transcript></transcript><result>\n错误：不在可调起列表中\n</result></subagent>",
 		);
 		expect(s.endsWith("</subagent>")).toBe(true);
+	});
+
+	test("<result> 正文与 <type> 做 XML 转义（正文含代码/标签字面串也不破坏结构）", () => {
+		// 子代理正文是任意文本，报告常引用 <subagent> / </result> 等标签字面串；
+		// 不转义会提前闭合结构，破环多项单换行拼接（主 agent 与按标记切分的消费方读错）
+		const s = renderSubagentBlock({
+			taskIndex: 0,
+			agentId: "a3f8c1d0a",
+			subagentType: "a<b&c",
+			status: "completed",
+			resumed: false,
+			jsonlPath: "",
+			text: "引用 </result> 与 <subagent> 标签 & 使用 a && b",
+		});
+		// 先转 & 再转 <：不出现二次转义（&lt; 不得变成 &amp;lt;）；`>` 按约定不转义
+		expect(s).toContain(
+			"<result>\n引用 &lt;/result> 与 &lt;subagent> 标签 &amp; 使用 a &amp;&amp; b\n</result>",
+		);
+		// 动态取值同理（越权项会把请求名原样塞进 <type>）
+		expect(s).toContain("<type>a&lt;b&amp;c</type>");
+		// 结构字符不被转义：块仍以 </subagent> 收尾，正文里的 </result> 未提前闭合
+		expect(s.endsWith("</subagent>")).toBe(true);
+		expect(s.split("</result>")).toHaveLength(2);
 	});
 });
 
@@ -324,6 +349,80 @@ describe("execute：身份、落盘与返回块", () => {
 		// 无实例 = 无 meta 目录（该会话 id 只在本用例使用）
 		expect(existsSync(subagentDir(SID))).toBe(false);
 		expect((res.details as SubagentDetails).subagents[0]!.agentId).toBe("");
+	});
+
+	test("非法父会话 id：jsonlPath 抛错不阻断派发，<transcript> 给空串（不宣告不存在路径）", async () => {
+		// 既有防线：jsonlPath（assertSessionId）对非法父会话 id 抛错——此前无测试覆盖。
+		// 契约：不抛异常、不阻断 spawn、<transcript> 为空（降级为不落盘），且有告警（不静默）
+		const warn = spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const seen: Array<string | undefined> = [];
+			const spawn = mock(
+				async (
+					_agent: string,
+					_task: string,
+					_tc: string,
+					_index?: number,
+					sessionFile?: string,
+				) => {
+					seen.push(sessionFile);
+					return { text: "ok", isError: false, elapsedMs: 1 };
+				},
+			);
+			const tool = makeDelegateTool({ askTo, spawn, sessionId: "bad/../id" });
+			const res = await tool.execute("tc-bad-sid", {
+				tasks: [{ agent: "代码审查", task: "x" }],
+			});
+			expect(res.isError).toBe(false);
+			expect(transcriptOf(res.content[0].text, 0)).toBe("");
+			expect(res.content[0].text).toContain("<transcript></transcript>");
+			// 派发不受阻：spawn 仍被调用，只是拿到空路径（走 --no-session）
+			expect(spawn).toHaveBeenCalledTimes(1);
+			expect(seen[0]).toBe("");
+			expect(warn).toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	test("转录目录创建失败：不阻断派发，<transcript> 给空串并有告警", async () => {
+		// 让 WA_PI_DIR 指向一个「文件」→ mkdir(dirname(jsonl)) 必然失败（ENOTDIR），
+		// 验证 spawn 前显式建目录失败时降级为不落盘（而非宣告一条不存在的 <transcript>）
+		const rootTmp = mkdtempSync(join(tmpdir(), "wa-pi-delegate-mkdirfail-"));
+		const notADir = join(rootTmp, "not-a-dir");
+		writeFileSync(notADir, "x");
+		const prevDir = process.env.WA_PI_DIR;
+		process.env.WA_PI_DIR = notADir;
+		const warn = spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const seen: Array<string | undefined> = [];
+			const spawn = mock(
+				async (
+					_agent: string,
+					_task: string,
+					_tc: string,
+					_index?: number,
+					sessionFile?: string,
+				) => {
+					seen.push(sessionFile);
+					return { text: "ok", isError: false };
+				},
+			);
+			const tool = makeDelegateTool({ askTo, spawn, sessionId: "s-transcript-mkdir-fail" });
+			const res = await tool.execute("tc-mkdir-fail", {
+				tasks: [{ agent: "代码审查", task: "x" }],
+			});
+			expect(res.isError).toBe(false);
+			expect(transcriptOf(res.content[0].text, 0)).toBe("");
+			expect(spawn).toHaveBeenCalledTimes(1);
+			expect(seen[0]).toBe("");
+			expect(warn).toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
+			if (prevDir === undefined) delete process.env.WA_PI_DIR;
+			else process.env.WA_PI_DIR = prevDir;
+			rmSync(rootTmp, { recursive: true, force: true });
+		}
 	});
 });
 
