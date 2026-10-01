@@ -480,7 +480,8 @@ test("delegate 的描述包含任务数区间与并发上限（防文案/数值�
 	const spawn = async () => ({ text: "", isError: false });
 	const tool = makeDelegateTool({ askTo: [], spawn });
 	expect(tool.description).toContain(`1..${MAX_SUBAGENT_CONCURRENCY}`);
-	expect(tool.description).toContain(`上限 ${MAX_SUBAGENT_CONCURRENCY}`);
+	// 合并后文案以「1..6 项…超出拒绝不排队」表达上限语义（不再写作「上限 6」）
+	expect(tool.description).toContain("超出拒绝不排队");
 });
 
 // ---- onSpawnComplete 遥测回调 ----

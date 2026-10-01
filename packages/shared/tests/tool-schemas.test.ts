@@ -19,7 +19,8 @@ test("DELEGATE_DESCRIPTION 说明 tasks 数组契约（项数 / agent / 并行 /
     "@wa-pi/shared/tool-schemas"
   );
   expect(DELEGATE_DESCRIPTION).toContain(`1..${DELEGATE_MAX_TASKS}`);
-  expect(DELEGATE_DESCRIPTION).toContain(`上限 ${DELEGATE_MAX_TASKS}`);
+  // 合并后文案以「1..6 项…超出拒绝不排队」表达上限语义（不再写作「上限 6」）
+  expect(DELEGATE_DESCRIPTION).toContain("超出拒绝不排队");
   expect(DELEGATE_DESCRIPTION).toContain("tasks");
   expect(DELEGATE_DESCRIPTION).toContain("agent");
   expect(DELEGATE_DESCRIPTION).toContain("并行");
@@ -109,9 +110,21 @@ test("MEM_SEARCH_DESC / MEM_READ_DESC 声明未传 scope 的检索范围（全�
   }
 });
 
-// 注：原「DELEGATE_DESCRIPTION 划出『知识类提问先查记忆』的例外边界」用例已删除 ——
-// delegate 工具描述改为纯入参契约说明（tasks / agent / 并行 / resume），
-// 派发判定规则不再写进工具描述。
+test("DELEGATE_DESCRIPTION 划出「知识类提问先查记忆」的例外边界", async () => {
+  // 委派规则的总则是「默认委托、首调即派发」，例外必须是**第一条判定**，
+  // 否则知识类提问会被总则吃掉（基线实测：结构/依赖/方法类提问首个动作是 ls/delegate）。
+  // 注意：断言只锁结构（例外是否为第一条判定）与自身文案，不锁总则/其余判定的措辞
+  //—— 那些文案会被其它任务重写，锁死它们只会让测试变成噪声。
+  const { DELEGATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
+  const bullets = DELEGATE_DESCRIPTION.split("\n").filter((l) =>
+    l.trimStart().startsWith("- "),
+  );
+  expect(bullets.length).toBeGreaterThan(0);
+  expect(bullets[0]).toContain("例外");
+  expect(bullets[0]).toContain("memory_search");
+  // 合并后文案写作「知识/过程类问题」，仍须点名知识类（防被总则吃掉）
+  expect(bullets[0]).toContain("知识");
+});
 
 test("DELEGATE_DESCRIPTION 与 existing delegate-tool.ts 输出一致", async () => {
   // 这个测试确保 tool-schemas.ts 的值和当前 delegate-tool.ts 的 delegateDescription() 完全一致
