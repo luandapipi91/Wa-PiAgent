@@ -26,7 +26,8 @@ beforeEach(async () => {
 	process.env.WA_PI_DIR = dir;
 });
 afterEach(async () => {
-	process.env.WA_PI_DIR = ORIGINAL_WA_PI_DIR;
+	if (ORIGINAL_WA_PI_DIR === undefined) delete process.env.WA_PI_DIR;
+	else process.env.WA_PI_DIR = ORIGINAL_WA_PI_DIR;
 	await rm(dir, { recursive: true, force: true });
 });
 
