@@ -110,6 +110,8 @@ export interface SubagentRunOpts {
 	skillPaths?: string[];
 	/** 随子进程加载的扩展文件（-e），如 pi-web-access / provider-extension；空 = 不传 */
 	extensionPaths?: string[];
+	/** 子代理会话文件路径（pi --session）：传了就落盘（转录留档 + 可 resume）；未传回退 --no-session */
+	sessionFile?: string;
 	/** 测试覆盖：pi CLI 入口 / 运行时 */
 	cliPath?: string;
 	runtime?: string;
@@ -171,6 +173,34 @@ function mapThinking(thinking: ThinkingLevel | null): string | undefined {
 		: thinking === "max"
 			? "xhigh"
 			: thinking; // minimal／medium／high 直接透传
+}
+
+/**
+ * 构造子代理 pi 进程的参数（从 runSubagentAgent 内联调用处抽出，便于单测断言落盘开关）。
+ * 落盘语义：传了 sessionFile → --session <path>（转录落盘、可 resume）；
+ * 未传 → 回退 --no-session（防御式；正常调用路径由 delegate-tool 必传）。
+ */
+export function buildSubagentPiArgs(input: {
+	sessionFile?: string;
+	config: Pick<WaPiSpawnConfig, "name" | "tools" | "model" | "thinking">;
+	extensionPaths?: string[];
+	skillPaths?: string[];
+	systemPromptFile?: string;
+}): string[] {
+	return buildPiArgs({
+		...(input.sessionFile
+			? { sessionFile: input.sessionFile }
+			: { noSession: true }),
+		systemPromptFile: input.systemPromptFile,
+		extensionPaths: input.extensionPaths,
+		skillPaths: input.skillPaths,
+		noSkills: true, // 子代理不自动发现技能，只加载显式传入的 --skill 路径
+		offline: true,
+		tools: input.config.tools.length > 0 ? input.config.tools : undefined,
+		thinking: mapThinking(input.config.thinking),
+		model: input.config.model ?? undefined,
+		name: input.config.name,
+	});
 }
 
 /**
@@ -325,17 +355,12 @@ export async function runSubagentAgent(
 		client = new RpcClient({
 			cliPath: opts?.cliPath ?? resolvePiCliPath(),
 			runtime: opts?.runtime ?? resolvePiRuntime(),
-			args: buildPiArgs({
-				noSession: true,
+			args: buildSubagentPiArgs({
+				sessionFile: opts?.sessionFile,
+				config,
 				systemPromptFile: promptFile ?? undefined,
 				extensionPaths: opts?.extensionPaths,
 				skillPaths: opts?.skillPaths,
-				noSkills: true, // 子代理不自动发现技能，只加载显式传入的 --skill 路径
-				offline: true,
-				tools: config.tools.length > 0 ? config.tools : undefined,
-				thinking: mapThinking(config.thinking),
-				model: config.model ?? undefined,
-				name: config.name,
 			}),
 			cwd,
 			env: { PI_CODING_AGENT_DIR: WA_PI_DIR },
