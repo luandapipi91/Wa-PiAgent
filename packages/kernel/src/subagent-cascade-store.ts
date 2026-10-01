@@ -47,11 +47,26 @@ class CascadingProjectStore extends ProjectStore {
 	/**
 	 * 从快照里筛出「确实已被物理移除」的 id：删除后重新读一次库，仍在库里的（例如这期间
 	 * 被用户恢复出回收站）不清理——否则会删掉一个活着的会话的转录。
+	 *
+	 * 回读用 **strict 读**（loadStrict）而非容错读 load()：load() 的 catch-empty 在瞬时
+	 * 读/解析失败时返回空库 → alive 为空集 → 这里会把快照里**所有** id 都判成已删而批量删目录，
+	 * 但这些会话可能还躺在回收站里可恢复（fail-open）。故读取失败时返回 null（=「不知道」），
+	 * 调用方据此跳过清理：宁漏勿错。
 	 */
+	protected async aliveSessionIdsStrict(): Promise<Set<string> | null> {
+		try {
+			const { sessions } = await this.loadStrict();
+			return new Set(sessions.map((s) => s.id));
+		} catch {
+			return null;
+		}
+	}
+
+	/** 回读失败 → 返回空数组（不清理），绝不因空快照而误删。 */
 	private async goneAmong(ids: string[]): Promise<string[]> {
 		if (ids.length === 0) return [];
-		const { sessions } = await this.load();
-		const alive = new Set(sessions.map((s) => s.id));
+		const alive = await this.aliveSessionIdsStrict();
+		if (alive === null) return []; // 读取失败 → 不清理
 		return ids.filter((id) => !alive.has(id));
 	}
 }

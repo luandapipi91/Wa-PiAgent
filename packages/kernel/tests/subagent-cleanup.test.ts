@@ -95,15 +95,27 @@ describe("cleanupSubagentDir", () => {
 		await expect(cleanupSubagentDir("../../evil")).rejects.toThrow();
 		expect(await exists(escapee)).toBe(true);
 	});
+
+	test('拒绝 "."（归一化后就是 subagents/ 根）且不误删根目录与其它会话', async () => {
+		// 回归："." 能钻过白名单正则与 ".." 检查，join(root, ".") === root，
+		// 若漏校验就会 rm 掉整个 subagents/（全部会话的转录）
+		const rootDir = join(dir, "subagents");
+		const other = await seedSubagentDir("s-other");
+		await expect(cleanupSubagentDir(".")).rejects.toThrow();
+		expect(await exists(rootDir)).toBe(true); // 根目录仍在
+		expect(await exists(other)).toBe(true); // 其它会话的转录未被殃及
+	});
 });
 
 describe("cleanupSubagentDirs", () => {
 	test("批量清理：单个 id 非法/不存在不影响其它 id，且不向调用方抛错", async () => {
 		const a = await seedSubagentDir("s-aaaa");
 		const b = await seedSubagentDir("s-bbbb");
-		await cleanupSubagentDirs(["s-aaaa", "../evil", "s-不存在", "s-bbbb"]);
+		await cleanupSubagentDirs(["s-aaaa", "../evil", ".", "s-不存在", "s-bbbb"]);
 		expect(await exists(a)).toBe(false);
 		expect(await exists(b)).toBe(false);
+		// "." 混进批量列表也不能把 subagents/ 根删掉
+		expect(await exists(join(dir, "subagents"))).toBe(true);
 	});
 });
 
@@ -200,7 +212,8 @@ describe("级联清理：只在父会话被永久删除时", () => {
 		const trash = await seedSubagentDir("s-trash");
 		const back = await seedSubagentDir("s-back");
 		const store = createCascadingProjectStore(file);
-		// 模拟并发窗口：清空回收站的同一瞬间，「s-back」被恢复/重建，仍然在库里
+		// 模拟并发窗口：清空回收站的同一瞬间，「s-back」被恢复/重建，仍然在库里。
+		// ① 删除前快照（trashedIds 走容错读 load）里能看到 s-back；
 		const origLoad = store.load.bind(store);
 		store.load = async () => {
 			const data = await origLoad();
@@ -210,11 +223,42 @@ describe("级联清理：只在父会话被永久删除时", () => {
 			} as any);
 			return data;
 		};
+		// ② 删除后回读（strict）里 s-back 仍在库 → 视为「还活着」，其目录必须保留。
+		(store as any).aliveSessionIdsStrict = async () => new Set(["s-back"]);
 
 		await store.emptyTrash();
 
 		expect(await exists(back)).toBe(true); // 还活着 → 目录必须保留
 		expect(await exists(trash)).toBe(false); // 真被物理移除 → 目录清掉
+	});
+
+	test("回读失败（读取抛错/返回空=不知道）时不清理：目录全部保留", async () => {
+		const file = join(dir, "projects.json");
+		await seedProjects(file, [
+			{ id: "s-t1", deletedAt: Date.now() - DAY_MS },
+			{ id: "s-t2", deletedAt: Date.now() - 2 * DAY_MS },
+		]);
+		const t1 = await seedSubagentDir("s-t1");
+		const t2 = await seedSubagentDir("s-t2");
+		const store = createCascadingProjectStore(file);
+		// 回读瞬时失败 → 「不知道哪些真的被物理移除」
+		(store as any).aliveSessionIdsStrict = async () => null;
+
+		await store.emptyTrash(); // 删除本身成功（走 loadStrict 真实读）
+
+		// 宁漏勿错：不知道 → 一个目录都不清（会话可能还躺在回收站里可恢复）
+		expect(await exists(t1)).toBe(true);
+		expect(await exists(t2)).toBe(true);
+	});
+
+	test("aliveSessionIdsStrict：strict 读抛错时返回 null（不把读失败当成空库）", async () => {
+		const file = join(dir, "projects.json");
+		await seedProjects(file, [{ id: "s-x" }]);
+		const store = createCascadingProjectStore(file);
+		(store as any).loadStrict = async () => {
+			throw new Error("read boom");
+		};
+		expect(await (store as any).aliveSessionIdsStrict()).toBeNull();
 	});
 
 	test("真实入口：trash:delete / trash:empty 两个 WS 事件也级联清理", async () => {

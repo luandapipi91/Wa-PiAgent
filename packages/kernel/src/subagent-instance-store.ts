@@ -9,7 +9,7 @@
 // 否则接口入参可造成路径穿越（规格 §4「路径安全」）。
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { WA_PI_DIR as WA_PI_DIR_CONST } from "@wa-pi/shared";
 
 export type SubagentStatus = "running" | "completed" | "failed" | "interrupted";
@@ -60,7 +60,9 @@ export function assertAgentId(id: string): void {
 }
 
 function assertSessionId(id: string): void {
-	if (!SESSION_ID_RE.test(id) || id.includes("..")) {
+	// 纯点形式（"." / ".." / "..."）能钻过白名单正则，且 "." 还能绕过下面的 ".." 检查：
+	// join(root, ".") 归一化后**就是 root 本身**，会让 cleanupSubagentDir 删掉整个 subagents/ 根目录。
+	if (!SESSION_ID_RE.test(id) || /^\.+$/.test(id) || id.includes("..")) {
 		throw new Error(`非法的会话 id：${id}`);
 	}
 }
@@ -101,7 +103,15 @@ export async function readMeta(
  * - fs 失败：只告警不抛 —— 清理是辅助操作，不得阻断父会话的删除流程
  */
 export async function cleanupSubagentDir(parentSessionId: string): Promise<void> {
-	const dir = subagentDir(parentSessionId);
+	assertSessionId(parentSessionId);
+	// 前缀断言（第二道防线，不依赖 SESSION_ID_RE 的完备性）：归一化后必须**严格位于**
+	// <root>/ 之下。只删 root 的子目录，绝不会是 root 本身或 root 之外——将来若放宽 id 规则
+	// （例如允许新的字符集），这里仍由结构保证「只删 <root>/<sessionId>/」。
+	const rootAbs = resolve(root());
+	const dir = resolve(rootAbs, parentSessionId);
+	if (!dir.startsWith(rootAbs + sep)) {
+		throw new Error(`非法的会话 id：${parentSessionId}`);
+	}
 	try {
 		await rm(dir, { recursive: true, force: true });
 	} catch (e) {
