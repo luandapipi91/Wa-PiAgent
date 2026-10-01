@@ -8,13 +8,18 @@
 // - 每个子任务派发前生成 agentId，并把 pi 的 --session 指向
 //   <WA_PI_DIR>/subagents/<父会话 id>/<agentId>.jsonl（完整转录落盘，见 subagent-instance-store.ts）；
 //   派发前/后各写一次 meta（running → 终态）。返回 XML 块（规格 §7）带 agentId 与转录路径。
+// - resume 分支（规格 §6）：tasks[].resume 填上次返回的 <agent_id> 时续聊同一实例——
+//   类型以 meta.subagentType 为准、复用同一份 jsonl（不新建）、resumeCount 递增；
+//   权限在首次派发时已校验，故续聊不再过 askTo。
 //
 // 错误语义：execute 返回值带 isError 标记。SDK 层（pi-agent-core）目前不把
 // result.isError 透传到 ToolResultMessage（仅 execute 抛异常才标 isError），
 // 错误信息经文本传达给 LLM——与原生 subagent 工具先例一致
 //（其所有错误路径均返回普通文本）。
+import { createReadStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import {
 	DELEGATE_DESCRIPTION,
 	DELEGATE_MAX_TASKS as MAX_SUBAGENT_CONCURRENCY,
@@ -34,8 +39,10 @@ import type {
 } from "@wa-pi/shared";
 import type { SubagentMeta } from "./subagent-instance-store";
 import {
+	assertAgentId,
 	jsonlPath,
 	newAgentId,
+	readMeta,
 	writeMeta,
 } from "./subagent-instance-store";
 import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
@@ -242,6 +249,30 @@ function errorMessage(err: unknown): string {
 }
 
 /**
+ * pi 用已有 jsonl resume 时要求首行记录的 cwd 目录存在，否则非交互模式 exit(1)
+ *（"Stored session working directory does not exist"）。这里复用主会话同款自愈思路
+ *（agent-manager.readStoredSessionCwd）：读回首行 cwd 并补建目录。
+ */
+async function selfHealStoredCwd(jsonlFile: string): Promise<void> {
+	try {
+		const rl = createInterface({
+			input: createReadStream(jsonlFile, { encoding: "utf8" }),
+			crlfDelay: Infinity,
+		});
+		for await (const line of rl) {
+			rl.close();
+			const cwd = (JSON.parse(line) as { cwd?: string }).cwd;
+			if (typeof cwd === "string" && cwd) {
+				await mkdir(cwd, { recursive: true }).catch(() => {});
+			}
+			return;
+		}
+	} catch {
+		/* 文件不存在或坏行：交给 pi 按新会话处理 */
+	}
+}
+
+/**
  * 写实例 meta：写盘失败不阻断派发主流程（meta 只是审计与 resume 的辅助通道，
  * 与中止快照 writeAbortSnapshot 同约定），但**留一次 console.warn**——「错误经文本
  * 传达」不等于连日志都不该有，静默失败会让「pi 拿到指向不存在文件的 --session」
@@ -389,6 +420,9 @@ export function makeDelegateTool(opts: {
 			}
 
 			// ── 中止快照：abort 瞬间用瞬时进度组装 final 立即落盘，settle 后覆盖 ──
+			// resume 去重：同一次工具调用里两个任务续同一个实例会并发写同一份 jsonl
+			// （历史互相覆盖），显式拒绝而不是排队
+			const seenResume = new Set<string>();
 			const callSignal = opts.getCallSignal?.();
 			let aborted = callSignal?.aborted === true;
 			let pendingImmediate: Promise<void> | undefined;
@@ -436,6 +470,121 @@ export function makeDelegateTool(opts: {
 			try {
 				const results = await runWithConcurrency(
 					args.tasks.map((t, index) => async () => {
+						// ── resume 分支（规格 §6）──
+						// 校验顺序：agentId 格式 → meta 存在 → status !== running → 同一子句内重复
+						// resume 拒绝 → 类型以 meta.subagentType 为准 → 复用该实例的 jsonl。
+						// 续聊不再做 askTo 越权校验：权限在首次派发时已校验过。
+						if (t.resume) {
+							try {
+								assertAgentId(t.resume);
+							} catch {
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: "",
+									subagentType: t.agent,
+									text: `错误：非法 agent_id「${t.resume}」`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: undefined,
+									elapsedMs: 0,
+								};
+							}
+							if (seenResume.has(t.resume)) {
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: "",
+									subagentType: t.agent,
+									text: `错误：同一次调用里不能有两个任务续同一个子代理（${t.resume}）`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: undefined,
+									elapsedMs: 0,
+								};
+							}
+							seenResume.add(t.resume);
+							const meta = await readMeta(parentSessionId, t.resume);
+							if (!meta) {
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: "",
+									subagentType: t.agent,
+									text: `错误：子代理实例不存在（${t.resume}）`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: undefined,
+									elapsedMs: 0,
+								};
+							}
+							if (meta.status === "running") {
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: "",
+									subagentType: meta.subagentType,
+									text: `错误：子代理 ${t.resume} 正在运行，不能并发续聊`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: undefined,
+									elapsedMs: 0,
+								};
+							}
+							// 类型以 meta 为准；jsonl 复用（t.task 由 pi 作为新一轮用户消息追加进同一份历史）
+							const spawnAgent = meta.subagentType;
+							const jsonl = jsonlPath(parentSessionId, t.resume);
+							await selfHealStoredCwd(jsonl);
+							await writeMeta({
+								...meta,
+								status: "running",
+								updatedAt: Date.now(),
+								resumeCount: meta.resumeCount + 1,
+							});
+							const out = await opts.spawn(
+								spawnAgent,
+								t.task,
+								toolCallId,
+								index,
+								jsonl,
+							);
+							await writeMeta({
+								...meta,
+								status: out.interrupted
+									? "interrupted"
+									: out.isError
+										? "failed"
+										: "completed",
+								updatedAt: Date.now(),
+								resumeCount: meta.resumeCount + 1,
+								usage: out.usage?.tokens
+									? { ...out.usage.tokens, costTotal: out.usage.costTotal }
+									: undefined,
+								elapsedMs: out.elapsedMs,
+								toolStats: out.toolStats,
+							});
+							return {
+								index,
+								agent: t.agent,
+								agentId: t.resume,
+								jsonlPath: jsonl,
+								subagentType: spawnAgent,
+								resumed: true,
+								...out,
+							};
+						}
 						if (!canInvoke(t.agent, opts.askTo)) {
 							// 越权调起：不建实例（无 meta、无转录），返回块的 agent_id / transcript 留空；
 							// <type> 用请求名（未归一化——没进过 spawn）
@@ -447,6 +596,7 @@ export function makeDelegateTool(opts: {
 								subagentType: t.agent,
 								text: buildNotAllowedMessage(t.agent, opts.askTo),
 								isError: true,
+								resumed: false,
 								toolStats: undefined,
 								usage: undefined,
 								interrupted: undefined,
@@ -532,6 +682,7 @@ export function makeDelegateTool(opts: {
 								subagentType: spawnAgent,
 								text,
 								isError,
+								resumed: false,
 								toolStats,
 								usage,
 								interrupted,
@@ -557,6 +708,7 @@ export function makeDelegateTool(opts: {
 								subagentType: spawnAgent,
 								text: `子智能体执行异常: ${message}`,
 								isError: true,
+								resumed: false,
 								toolStats: undefined,
 								usage: undefined,
 								interrupted: true,
@@ -579,7 +731,7 @@ export function makeDelegateTool(opts: {
 								: "completed",
 						elapsedMs: r.elapsedMs,
 						totalTokens: r.usage?.tokens.total,
-						resumed: false,
+						resumed: r.resumed,
 						jsonlPath: r.jsonlPath,
 						text: r.text,
 					}),
@@ -590,7 +742,7 @@ export function makeDelegateTool(opts: {
 						agentId: r.agentId,
 						agent: r.agent,
 						subagentType: r.subagentType,
-						resumed: false,
+						resumed: r.resumed,
 						status: r.interrupted
 							? "interrupted"
 							: r.isError
