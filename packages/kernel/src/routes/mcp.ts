@@ -238,6 +238,11 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
   /**
    * 写盘成功后广播一份带状态的清单。
    *
+   * 广播的是**完整清单载荷**（含 `stale` / `note` / `errors`），与 `GET /api/mcp` 同形：
+   * 前端靠这些元信息决定「状态未知」与「项目未受信」两处说明，丢了它们会让一次保存
+   * 就把「配置为什么没生效」的解释抹掉（且把缓存里的连接态当成最新）。
+   * 不为此多跑一次冷 `pi mcp list`：`listWithState` 本就会把这些字段一起取回来。
+   *
    * **不占回包路径**：`listWithState` 要读状态层，而冷缓存时那是一次真 spawn `pi mcp list`
    * （`McpAdmin` 的上限 `DEFAULT_LIST_TIMEOUT_MS = 30s`）。前端 `api-client` 的默认请求超时
    * 同为 30s、`store/mcp.ts` 又是 fire-and-forget ——只要盘上有一台卡死的 server，
@@ -250,11 +255,8 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
   function broadcastChanged(projectId?: string): void {
     void (async () => {
       try {
-        deps.broadcast({
-          type: "mcp:changed",
-          projectId,
-          servers: (await listWithState(projectId)).servers,
-        });
+        const payload = await listWithState(projectId);
+        deps.broadcast({ type: "mcp:changed", projectId, ...payload });
       } catch {
         // 同上：写盘已成功、回包已发出，广播失败不该升级为未处理拒绝
       }

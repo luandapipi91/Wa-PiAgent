@@ -340,6 +340,34 @@ describe("POST /api/mcp（新增 / 编辑）", () => {
     });
   });
 
+  test("广播带完整清单元信息（stale/note/errors）：事件不是「无元信息的裸清单」", async () => {
+    // 与 GET /api/mcp 同形：前端 store 靠它们决定「状态未知」与「项目未受信」两处说明
+    const router = makeRouter(
+      makeAdmin(
+        listResult([report("echo", { tools: ["echo"] })], {
+          stale: true,
+          errors: ["warn: 读状态超时"],
+          note: "…/.pi/mcp.json is ignored because the project is not trusted.",
+        }),
+      ),
+    );
+
+    const res = await post(router, "/api/mcp", {
+      config: { name: "echo", command: "node" },
+    });
+    expect(res?.status).toBe(200);
+
+    await waitFor(() => broadcasts.length >= 1);
+    expect(broadcasts[0]).toMatchObject({
+      type: "mcp:changed",
+      stale: true,
+      errors: ["warn: 读状态超时"],
+      note: "…/.pi/mcp.json is ignored because the project is not trusted.",
+      commandFailed: false,
+      hasProblems: false,
+    });
+  });
+
   test("项目不存在 → 404（不把 project.notFound 吞成 400）", async () => {
     cwdForProject = async () => {
       const { KernelError } = await import("@wa-pi/shared");

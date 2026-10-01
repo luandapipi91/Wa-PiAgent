@@ -134,6 +134,19 @@ export interface McpChangedEvent {
   type: "mcp:changed";
   projectId?: string;
   servers: McpServerConfig[];
+  // 与 `GET /api/mcp` 的清单元信息同形（kernel 的 broadcastChanged 逐字段拷贝）：
+  // 前端据此显示「状态未知」（stale）与「项目未受信、配置被忽略」（note），
+  // 去掉它们会让一次保存的广播抹掉这两处说明。可缺省是为了兼容不带元信息的生产者。
+  /** pi / 写入层的错误列表 */
+  errors?: string[];
+  /** 命令本身没跑起来 / 输出不可解析 */
+  commandFailed?: boolean;
+  /** 有启用中的 server 处于异常态 */
+  hasProblems?: boolean;
+  /** 状态读取层无法刷新、用的是上一条缓存 → UI 必须显示「状态未知」 */
+  stale?: boolean;
+  /** pi 的顶层提示（项目未受信任时配置被忽略的唯一信号） */
+  note?: string;
 }
 export interface McpTestResult {
   type: "mcp:testResult";

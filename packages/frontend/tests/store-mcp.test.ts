@@ -93,6 +93,53 @@ test("setServers 直接消费内核回推的 mcp:changed 事件", () => {
   ]);
 });
 
+// ===== 元信息的来源区分（REST 回包恒带完整元信息；事件可缺字段）=====
+
+test("mcp:changed 事件不带 stale/note 时不清零既有元信息", () => {
+  useMcpStore.setState({
+    selectedProjectId: "p1",
+    stale: true,
+    note: "…/.pi/mcp.json is ignored because the project is not trusted.",
+  });
+  useMcpStore.getState().setServers({
+    type: "mcp:changed",
+    projectId: "p1",
+    servers: [{ name: "dbx", command: "echo" }],
+  });
+  const s = useMcpStore.getState();
+  // 广播丢弃元信息时，前端不得把「状态未知」与「项目未受信」的说明抹掉
+  expect(s.stale).toBe(true);
+  expect(s.note).toBe(
+    "…/.pi/mcp.json is ignored because the project is not trusted.",
+  );
+});
+
+test("mcp:changed 事件带 stale/note 时照常改写（不能只保旧值）", () => {
+  useMcpStore.setState({ selectedProjectId: "p1", stale: false, note: undefined });
+  useMcpStore.getState().setServers({
+    type: "mcp:changed",
+    projectId: "p1",
+    servers: [{ name: "dbx", command: "echo" }],
+    stale: true,
+    note: "项目未受信任",
+  });
+  const s = useMcpStore.getState();
+  expect(s.stale).toBe(true);
+  expect(s.note).toBe("项目未受信任");
+});
+
+test("REST 清单回包缺 note 时清零：项目受信后横幅必须消失", () => {
+  useMcpStore.setState({
+    selectedProjectId: "p1",
+    stale: true,
+    note: "项目未受信任",
+  });
+  useMcpStore.getState().setServers({ servers: [], stale: false }, "p1");
+  const s = useMcpStore.getState();
+  expect(s.note).toBeUndefined();
+  expect(s.stale).toBe(false);
+});
+
 // ===== 作用域过滤（登记在案的既有缺陷：项目级改动会覆盖全局视图）=====
 
 test("非当前作用域的清单被丢弃（项目级广播不覆盖全局视图）", () => {
@@ -390,6 +437,23 @@ test("setSelectedProjectId 切换时清空真值：不把上一个项目的开�
   useMcpStore.setState({ selectedProjectId: "p1", projectScopeEnabled: true });
   useMcpStore.getState().setSelectedProjectId("p2");
   expect(useMcpStore.getState().projectScopeEnabled).toBeNull();
+});
+
+test("切换作用域清空本会话的测试结果：同名 server 不继承另一作用域的状态与工具数", () => {
+  useMcpStore.setState({
+    selectedProjectId: null,
+    serverStatuses: { dbx: "connected" },
+    toolCounts: { dbx: 7 },
+    errors: { dbx: "全局作用域里的失败原因" },
+    toolsCache: { dbx: [{ name: "global_tool" }] },
+  });
+  useMcpStore.getState().setSelectedProjectId("p1");
+  const s = useMcpStore.getState();
+  // 这些表按 serverName 键控、没有作用域前缀：不清空就会把全局那台 dbx 的结果显示在项目里
+  expect(s.serverStatuses).toEqual({});
+  expect(s.toolCounts).toEqual({});
+  expect(s.errors).toEqual({});
+  expect(s.toolsCache).toEqual({});
 });
 
 test("setProjectMcpScope 成功后就地更新真值（不等下一次回读）", async () => {

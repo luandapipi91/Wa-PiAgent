@@ -204,6 +204,48 @@ test("项目未受信（pi 的 note）时提示配置未被加载", () => {
   );
 });
 
+test("收到不带 note 的 mcp:changed 广播后说明横幅仍在（保存不会抹掉「配置被忽略」的解释）", () => {
+  useMcpStore.setState({
+    selectedProjectId: "p1",
+    note: "…/.pi/mcp.json is ignored because the project is not trusted.",
+    servers: [{ name: "dbx", command: "echo" }],
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-note-banner")).toBeTruthy();
+
+  // 保存 / 删除后的广播
+  act(() => {
+    useMcpStore.getState().setServers({
+      type: "mcp:changed",
+      projectId: "p1",
+      servers: [{ name: "dbx", command: "echo" }],
+    });
+  });
+  expect(screen.getByTestId("mcp-note-banner")).toBeTruthy();
+});
+
+test("切换作用域后卡片不再显示另一作用域的同名测试结果（而是 pi 报的 state）", () => {
+  useMcpStore.setState({
+    selectedProjectId: null,
+    servers: [{ name: "dbx", command: "echo" }],
+    serverStatuses: { dbx: "connected" },
+    toolCounts: { dbx: 7 },
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-state-dbx").textContent).toContain("已连接");
+
+  // 切到项目 p1：项目里那台同名 dbx 实际是 failed
+  act(() => {
+    useMcpStore.getState().setSelectedProjectId("p1");
+    useMcpStore.setState({
+      servers: [{ name: "dbx", command: "echo", state: "failed" }],
+    });
+  });
+  const badge = screen.getByTestId("mcp-state-dbx");
+  expect(badge.textContent).toContain("连接失败");
+  expect(badge.textContent).not.toContain("7 工具");
+});
+
 // ===== 项目级 MCP 作用域开关 =====
 
 test("默认工作区（__system__）的项目级 MCP 开关置灰", () => {

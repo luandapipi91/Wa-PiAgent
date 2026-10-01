@@ -150,11 +150,20 @@ export const useMcpStore = create<McpState>((set, get) => ({
         : ((data as { projectId?: string }).projectId ?? null);
     if (owner !== (s.selectedProjectId ?? null)) return;
     const payload = data as McpListPayload;
+    // 元信息（stale/note）的来源分两类，缺字段的含义不同：
+    //   · REST 清单回包（无 type，由 kernel 的 listWithState 产出）**恒带**完整元信息
+    //     → 缺 note 就是「没有 note」（项目转为受信后横幅必须跟着消失）；
+    //   · 事件（mcp:changed / mcp:list）历史上不带元信息 → 只在字段确实出现时才改写、
+    //     否则保留旧值：清零 note 会让「项目未受信、配置被忽略」的说明在用户保存/删除后
+    //     凭空消失（而 pi 仍忽略该项目配置），清零 stale 会把缓存里的连接态当成最新显示。
+    const has = (k: "stale" | "note") =>
+      typeof (payload as { type?: unknown }).type !== "string" ||
+      Object.prototype.hasOwnProperty.call(payload, k);
     set({
       servers: payload.servers ?? [],
       // 状态读不到时（stale）不把可能过期的连接态当成最新
-      stale: payload.stale === true,
-      note: payload.note,
+      stale: has("stale") ? payload.stale === true : s.stale,
+      note: has("note") ? payload.note : s.note,
       loading: false,
     });
   },
@@ -270,7 +279,17 @@ export const useMcpStore = create<McpState>((set, get) => ({
         set({ projectScopeEnabled: null });
       }),
   setSelectedProjectId: (id) =>
-    // 同时清掉真值：上一个项目的开关态不得被当成新项目的状态显示
-    set({ selectedProjectId: id, projectScopeEnabled: null }),
+    set({
+      selectedProjectId: id,
+      // 上一个项目的开关态不得被当成新项目的状态显示
+      projectScopeEnabled: null,
+      // 本会话的测试结果 / 工具缓存都按 serverName 键控、没有作用域前缀：
+      // 不清掉的话，另一作用域的同名 server 会把自己的连接态与工具数「继承」给新作用域
+      // （切作用域不再逐台自动重测，这些陈旧值会一直留到用户手动重测）
+      serverStatuses: {},
+      toolCounts: {},
+      errors: {},
+      toolsCache: {},
+    }),
   setSearchQuery: (q) => set({ searchQuery: q }),
 }));
