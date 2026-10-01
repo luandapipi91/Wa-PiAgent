@@ -117,8 +117,8 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 
 ### 🔌 MCP connectors
 
-- Manage [Model Context Protocol](https://modelcontextprotocol.io) servers graphically: stdio / HTTP transports, global and project-level configuration
-- **Connection testing + live tool listing**, with a built-in OAuth authorization flow
+- Manage [Model Context Protocol](https://modelcontextprotocol.io) servers graphically: stdio / HTTP transports, global and project-level configuration (project-level config takes effect once you grant that project trust in the app)
+- **Connection testing + live tool listing**; MCP servers that require OAuth can be signed in to in the app
 - Failures come with **human-readable diagnostics** instead of raw stack traces
 
 <div align="center">
@@ -192,7 +192,6 @@ graph LR
 │   ├── frontend/    # React frontend (shared by browser and Electron)
 │   ├── desktop/     # Electron shell, auto-update and packaging scripts
 │   └── shared/      # Types and constants shared by frontend and backend
-├── patches/         # bun patches for upstream deps (pi / pi-mcp-adapter)
 └── scripts/         # dev startup orchestration, OSS publishing
 ```
 
@@ -207,14 +206,13 @@ bun run typecheck      # Type checking
 - `dev:desktop` 默认使用 `packages/kernel/dist/WaPiKernel(.exe)` 编译产物（与生产同形态）；产物缺失时回退解释运行并打警告日志。构建产物：`bun run --filter @wa-pi/kernel build`。
 - Runtime environment variables: `WA_PI_WS_PORT` (kernel port, default 9776), `WA_PI_WEB_PORT` (frontend port, default 5180), `WA_PI_PREVIEW_PORT` (preview port, default 9777), `WA_PI_DIR` (data directory, default `~/.pi/agent`)
 - Frontend E2E tests live in `packages/frontend`: `bun run e2e` (Playwright)
-- Customizations to upstream deps (pi, pi-mcp-adapter) are managed as [bun patches](https://bun.sh/docs/install/patch) in `patches/`, applied automatically by `bun install`
 
 ## Roadmap
 
 **Already shipped:**
 
 - [x] Multi-agent sessions and delegation (delegate / fleet)
-- [x] Graphical MCP management (with OAuth and error diagnostics)
+- [x] Graphical MCP management (with OAuth sign-in and error diagnostics)
 - [x] Skills / plugins / memory systems
 - [x] Hot-reloaded plugins: dynamic install / uninstall / upgrade, no restart
 - [x] pi RPC event transparency: retry / compaction / summarization progress, extension status & widget visualization

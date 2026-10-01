@@ -117,8 +117,8 @@ bun run pack:all     # 全平台
 
 ### 🔌 MCP 连接器
 
-- 图形化管理 [Model Context Protocol](https://modelcontextprotocol.io) 服务器：stdio / HTTP 两种传输，全局与项目两级配置
-- **连接测试 + 工具清单实时查看**，OAuth 授权流程内置支持
+- 图形化管理 [Model Context Protocol](https://modelcontextprotocol.io) 服务器：stdio / HTTP 两种传输，全局与项目两级配置（项目级配置需先在应用内授权该项目才会生效）
+- **连接测试 + 工具清单实时查看**，需要 OAuth 的服务器可直接在应用内登录授权
 - 连接失败给出**可读的错误诊断**（而非原始报错堆栈）
 
 <div align="center">
@@ -192,7 +192,6 @@ graph LR
 │   ├── frontend/    # React 前端（浏览器与 Electron 共用）
 │   ├── desktop/     # Electron 壳、自动更新与打包脚本
 │   └── shared/      # 前后端共享类型与常量
-├── patches/         # 对上游依赖的 bun patch（pi / pi-mcp-adapter）
 └── scripts/         # dev 启动编排、OSS 发布
 ```
 
@@ -206,14 +205,13 @@ bun run typecheck      # 类型检查
 
 - 运行时可调环境变量：`WA_PI_WS_PORT`（内核端口，默认 9776）、`WA_PI_WEB_PORT`（前端端口，默认 5180）、`WA_PI_PREVIEW_PORT`（预览端口，默认 9777）、`WA_PI_DIR`（数据目录，默认 `~/.pi/agent`）
 - 前端 E2E 测试在 `packages/frontend` 内：`bun run e2e`（Playwright）
-- 对上游依赖（pi、pi-mcp-adapter）的定制修改通过 `patches/` 目录的 [bun patch](https://bun.sh/docs/install/patch) 管理，`bun install` 自动应用
 
 ## 路线图
 
 **已经交付：**
 
 - [x] 多智能体会话与委托（delegate / fleet）
-- [x] MCP 图形化管理（含 OAuth 与错误诊断）
+- [x] MCP 图形化管理（含 OAuth 登录与错误诊断）
 - [x] 技能 / 插件 / 记忆系统
 - [x] 插件热加载：动态安装 / 卸载 / 升级，无需重启
 - [x] pi RPC 事件透明化：重试 / 压缩 / 摘要进度、扩展状态与 Widget 可视化
