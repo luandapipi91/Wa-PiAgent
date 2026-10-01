@@ -167,7 +167,7 @@ export interface AgentManagerOpts {
 		agentName: AgentName,
 		e: AgentManagerEvent,
 	) => void;
-	/** 子代理进度广播出口（index.ts 接到 server.broadcast → SSE → 前端 DelegateCard/FleetCard）。
+	/** 子代理进度广播出口（index.ts 接到 server.broadcast → SSE → 前端 DelegateCard）。
 	 *  由流式 bridge 的 onProgress 帧触发，携带 sessionId 与本次工具调用的 toolCallId。 */
 	onSubagentProgress?: (
 		sessionId: string,

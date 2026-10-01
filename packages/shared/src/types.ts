@@ -933,7 +933,7 @@ export interface SubagentDetails {
 	interrupted: boolean;
 }
 
-/** SSE 事件：子代理进度（前端按 sessionId + toolCallId 路由到 DelegateCard/FleetCard） */
+/** SSE 事件：子代理进度（前端按 sessionId + toolCallId 路由到 DelegateCard） */
 export interface SubagentProgressServerEvent {
 	type: "subagent:progress";
 	sessionId: string;

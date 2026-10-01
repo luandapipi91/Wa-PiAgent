@@ -9,7 +9,7 @@ import { createProject, saveProvider, createSessionViaPrompt, setUiPrefs } from 
 //
 // 本 spec 不依赖真实 LLM：用 createSessionViaPrompt 建会话壳，再通过浏览器侧
 // store 注入 fleet toolCall + progress 事件（与 plugin-command-toggles.spec.ts 同款），
-// 在真实 Chromium 里断言 FleetCard 各任务行显示各自独立的工具统计。
+// 在真实 Chromium 里断言 DelegateCard（统一卡片）各任务行显示各自独立的工具统计。
 //
 // 截图清理：本 spec 不落盘任何截图/临时文件。
 
@@ -133,7 +133,7 @@ test.describe
 				{ sessionId },
 			);
 
-			// FleetCard 卡片可见
+			// 委托卡片可见
 			await expect(page.getByTestId("fleet-fleet-e2e-dup-1")).toBeVisible({
 				timeout: 8000,
 			});
