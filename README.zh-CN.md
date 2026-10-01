@@ -117,8 +117,8 @@ bun run pack:all     # 全平台
 
 ### 🔌 MCP 连接器
 
-- 图形化管理 [Model Context Protocol](https://modelcontextprotocol.io) 服务器：stdio / HTTP 两种传输，全局与项目两级配置（项目级配置需先在应用内授权该项目才会生效）
-- **连接测试 + 工具清单实时查看**，需要 OAuth 的服务器可直接在应用内登录授权
+- 图形化管理 [Model Context Protocol](https://modelcontextprotocol.io) 服务器：stdio / HTTP 两种传输，全局与项目两级配置（全局 `~/.pi/agent/mcp.json`，项目级 `<项目>/.pi/mcp.json`；项目级配置需先在应用内授权该项目，**并重启会话后**才会生效）
+- **连接测试 + 工具清单实时查看**，需要 OAuth 的服务器可直接在应用内发起登录
 - 连接失败给出**可读的错误诊断**（而非原始报错堆栈）
 
 <div align="center">

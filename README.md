@@ -117,8 +117,8 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 
 ### 🔌 MCP connectors
 
-- Manage [Model Context Protocol](https://modelcontextprotocol.io) servers graphically: stdio / HTTP transports, global and project-level configuration (project-level config takes effect once you grant that project trust in the app)
-- **Connection testing + live tool listing**; MCP servers that require OAuth can be signed in to in the app
+- Manage [Model Context Protocol](https://modelcontextprotocol.io) servers graphically: stdio / HTTP transports, global and project-level configuration (global `~/.pi/agent/mcp.json`, project-level `<project>/.pi/mcp.json`; project-level config takes effect once you grant that project trust in the app and restart the session)
+- **Connection testing + live tool listing**; MCP servers that require OAuth can be signed in to from the app
 - Failures come with **human-readable diagnostics** instead of raw stack traces
 
 <div align="center">
