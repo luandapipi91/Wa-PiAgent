@@ -901,6 +901,8 @@ export class AgentManager {
 		const delegateTool = makeDelegateTool({
 			askTo: askToTargets,
 			spawn: spawnFn,
+			// 父会话 id：子代理转录落盘到 <WA_PI_DIR>/subagents/<本会话 id>/<agentId>.jsonl
+			sessionId,
 			// 与 spawnFn 同源的调用级信号：abort 瞬间写中止占位快照（pi 侧轮询中转）
 			getCallSignal: () => currentCallSignal,
 		});

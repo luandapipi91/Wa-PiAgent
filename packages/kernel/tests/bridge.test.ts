@@ -208,7 +208,11 @@ test("契约：扩展工具的 name/description/schema 与现有实现一致", a
 
 	// delegate
 	const spawn = async () => ({ text: "", isError: false });
-	const delegateReal = makeDelegateTool({ askTo: [], spawn });
+	const delegateReal = makeDelegateTool({
+		askTo: [],
+		spawn,
+		sessionId: "s-bridge-schema",
+	});
 	const delegateBridge = bridgeTools.find((t) => t.name === "delegate");
 	expect(delegateBridge.label).toBe(delegateReal.label);
 	expect(delegateBridge.description).toBe(delegateReal.description);
@@ -792,6 +796,7 @@ test("/bridge/tool 流式分支：delegate 空 tasks 被拒（无 progress 帧�
 				spawnCalls++;
 				return { text: "不应被调用", isError: false };
 			},
+			sessionId: "s-delegate-reject",
 		});
 		registerBridgeSession("s-delegate-reject", {
 			cwd: "/tmp",
@@ -870,6 +875,7 @@ test("/bridge/tool 流式分支：delegate 超并发上限被拒（无 progress 
 				spawnCalls++;
 				return { text: "不应被调用", isError: false };
 			},
+			sessionId: "s-delegate-over",
 		});
 		registerBridgeSession("s-delegate-over", {
 			cwd: "/tmp",

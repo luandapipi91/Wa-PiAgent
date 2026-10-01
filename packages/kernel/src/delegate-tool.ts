@@ -5,13 +5,16 @@
 // - 越权调起返回错误文本，不触碰 service。
 // - 合法调起经 spawn 闭包执行：wa-pi 自实现的 subagent-runner
 //   （kernel 直接 spawn 一次性 pi RPC 子进程，见 subagent-runner.ts）。
+// - 每个子任务派发前生成 agentId，并把 pi 的 --session 指向
+//   <WA_PI_DIR>/subagents/<父会话 id>/<agentId>.jsonl（完整转录落盘，见 subagent-instance-store.ts）；
+//   派发前/后各写一次 meta（running → 终态）。返回 XML 块（规格 §7）带 agentId 与转录路径。
 //
 // 错误语义：execute 返回值带 isError 标记。SDK 层（pi-agent-core）目前不把
 // result.isError 透传到 ToolResultMessage（仅 execute 抛异常才标 isError），
 // 错误信息经文本传达给 LLM——与原生 subagent 工具先例一致
 //（其所有错误路径均返回普通文本）。
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
 	DELEGATE_DESCRIPTION,
 	DELEGATE_MAX_TASKS as MAX_SUBAGENT_CONCURRENCY,
@@ -25,9 +28,16 @@ import {
 } from "@wa-pi/shared";
 import type {
 	DelegationHints,
+	SubagentDetails,
 	SubagentProgressEvent,
 	ToolStats,
 } from "@wa-pi/shared";
+import type { SubagentMeta } from "./subagent-instance-store";
+import {
+	jsonlPath,
+	newAgentId,
+	writeMeta,
+} from "./subagent-instance-store";
 import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
 import {
 	buildPartialProgressNote,
@@ -61,12 +71,16 @@ export interface DelegateSpawnResult {
 
 // 第三个参数 toolCallId 用于把子代理执行进度帧关联到前端对应的 DelegateCard
 // （前端按 toolCallId 定位卡片）。多任务时所有子任务共享同一次工具调用的 toolCallId。
+// 第五个参数 sessionFile：子代理转录落盘路径（pi --session），由 execute 按 agentId 算出后透传；
+// 不传则回退 --no-session（不落盘），故为可选（紧跟同样可选的 taskIndex 之后）。
 export type DelegateSpawnFn = (
 	agent: string,
 	task: string,
 	toolCallId: string,
 	/** 任务序号（0-based）；execute 传入，spawn 闭包据此注入 onProgress 事件 */
 	taskIndex?: number,
+	/** 子代理转录落盘路径（pi --session <path>）；空/缺省时不落盘 */
+	sessionFile?: string,
 ) => Promise<DelegateSpawnResult>;
 
 /**
@@ -167,6 +181,63 @@ function toPiToolUsage(u?: SubagentUsage) {
 	};
 }
 
+// ===== 返回块渲染（规格 §7 定稿）=====
+
+/** 3_600_000 → "60m0s"；95_000 → "1m35s"；32_000 → "32s" */
+export function formatElapsedShort(ms: number): string {
+	const total = Math.max(0, Math.round(ms / 1000));
+	if (total < 60) return `${total}s`;
+	const m = Math.floor(total / 60);
+	const s = total % 60;
+	return `${m}m${s}s`;
+}
+
+/** 8_100 → "8.1k"；950 → "950"；undefined → "?" */
+export function formatTokensShort(n?: number): string {
+	if (n == null) return "?";
+	if (n < 1000) return String(n);
+	return `${(n / 1000).toFixed(1)}k`;
+}
+
+/**
+ * 渲染单个子代理结果块（规格 §7 定稿：XML、标签同行紧凑排版、全字段保留）。
+ * `<agent_id>` 与 `<transcript>` 都是独立子元素（后者为绝对路径，主 agent 自行 read/grep）；
+ * `<result>` 包裹正文并以换行分隔，防止正文里的尖括号与结构混淆。
+ * 未建实例的任务（如越权项）agentId / jsonlPath 为空串，模型据此知道没转录可查。
+ */
+export function renderSubagentBlock(r: {
+	taskIndex: number;
+	agentId: string;
+	subagentType: string;
+	status: "completed" | "failed" | "interrupted";
+	elapsedMs?: number;
+	totalTokens?: number;
+	resumed: boolean;
+	jsonlPath: string;
+	text: string;
+}): string {
+	return (
+		`<subagent><index>${r.taskIndex}</index><agent_id>${r.agentId}</agent_id>` +
+		`<type>${r.subagentType}</type><status>${r.status}</status>` +
+		`<elapsed>${formatElapsedShort(r.elapsedMs ?? 0)}</elapsed>` +
+		`<tokens>${formatTokensShort(r.totalTokens)}</tokens>` +
+		`<resumed>${r.resumed}</resumed>` +
+		`<transcript>${r.jsonlPath}</transcript><result>\n${r.text}\n</result></subagent>`
+	);
+}
+
+/**
+ * 写实例 meta：目录创建/写盘失败一律静默——meta 只是审计与 resume 的辅助通道，
+ * 不得影响派发主流程（与中止快照 writeAbortSnapshot 同约定）。
+ */
+async function safeWriteMeta(meta: SubagentMeta): Promise<void> {
+	try {
+		await writeMeta(meta);
+	} catch {
+		/* 静默失败：meta 不是派发的必要条件 */
+	}
+}
+
 /** 多子代理用量聚合：tokens 逐项相加，cost.total 相加；无任何用量返回 undefined */
 function sumPiToolUsage(usages: Array<SubagentUsage | undefined>) {
 	const shaped = usages.map(toPiToolUsage).filter((x) => x != null);
@@ -237,10 +308,13 @@ async function writeAbortSnapshot(
 export function makeDelegateTool(opts: {
 	askTo: DelegateTarget[];
 	spawn: DelegateSpawnFn;
+	/** 父会话 id：子代理实例目录（<WA_PI_DIR>/subagents/<父会话 id>/）的定位依据 */
+	sessionId: string;
 	/** 调用级信号槽（bridge 流式断连/用户停止时触发）：abort 瞬间写 final 快照。
 	 *  与 makeSpawnFn 的 getCallSignal 同源（agent-manager 的 currentCallSignal 槽）。 */
 	getCallSignal?: () => AbortSignal | undefined;
 }) {
+	const parentSessionId = opts.sessionId;
 	// 中止即时快照的进度采集：key 为 toolCallId，值为该次派发各任务最近一条进度事件
 	//（execute 进入时登记、finally 清理；notifyProgress 由注册点在 spawnFn onProgress 转发）
 	const latestProgress = new Map<string, Map<number, SubagentProgressEvent>>();
@@ -261,14 +335,14 @@ export function makeDelegateTool(opts: {
 		): Promise<{
 			content: Array<{ type: "text"; text: string }>;
 			details:
+				| SubagentDetails
+				/** 参数拒绝标记：任务数不合法（0 项或超过上限）时给出，无子代理明细
+				 *  （显式声明缺失字段为 undefined，让调用侧访问 subagents/interrupted 不因联合变体报错） */
 				| {
-						fleet: Record<string, ToolStats>;
-						/** 按任务序号（String(index)）的中断标记：子代理非正常终态（中止/超时/异常）为 true */
-						interrupted: Record<string, boolean>;
+						subagents?: undefined;
+						interrupted?: undefined;
+						error: string;
 				  }
-				/** 参数拒绝标记：任务数不合法（0 项或超过上限）时给出，无 fleet 统计
-				 *  （显式声明缺失字段为 undefined，让调用侧访问 fleet/interrupted 不因联合变体报错） */
-				| { fleet?: undefined; interrupted?: undefined; error: string }
 				| undefined;
 			isError: boolean;
 			usage?: ReturnType<typeof sumPiToolUsage>;
@@ -340,64 +414,170 @@ export function makeDelegateTool(opts: {
 				const results = await runWithConcurrency(
 					args.tasks.map((t, index) => async () => {
 						if (!canInvoke(t.agent, opts.askTo)) {
+							// 越权调起：不建实例（无 meta、无转录），返回块的 agent_id / transcript 留空；
+							// <type> 用请求名（未归一化——没进过 spawn）
 							return {
 								index,
 								agent: t.agent,
+								agentId: "",
+								jsonlPath: "",
+								subagentType: t.agent,
 								text: buildNotAllowedMessage(t.agent, opts.askTo),
 								isError: true,
+								toolStats: undefined,
+								usage: undefined,
+								interrupted: undefined,
+								elapsedMs: undefined,
 							};
 						}
 						// 内置 subagent 中文别名（如"通用子智能体"）归一化为英文 name（"general-purpose"），
 						// 让 spawn 闭包传给 subagent-runner 时能正确匹配 AgentDefinition
 						const spawnAgent = normalizeSubagentType(t.agent);
+						// 实例身份与转录路径在 spawn 前生成：pi 以 --session <路径> 直写这份 jsonl
+						const agentId = newAgentId();
+						let jsonl = "";
+						try {
+							jsonl = jsonlPath(parentSessionId, agentId);
+						} catch {
+							// 父会话 id 非法（理论上不会：构造处传真实会话 id）→ 退化为不落盘
+							//（spawn 收到空路径时走 --no-session），不阻断派发
+						}
+						const now = Date.now();
+						// 身份/任务等不变字段：spawn 前后两次写 meta 共用
+						const metaBase = {
+							agentId,
+							parentSessionId,
+							toolCallId,
+							taskIndex: index,
+							subagentType: spawnAgent,
+							requestedAgent: t.agent,
+							task: t.task,
+							createdAt: now,
+							resumeCount: 0,
+						};
+						// spawn 前先落 running：中断/崩溃时 meta 不停在"不存在"，
+						// 且 resume（任务 6）据此拒绝并发续写同一份 jsonl
+						await safeWriteMeta({
+							...metaBase,
+							status: "running",
+							updatedAt: now,
+						});
 						// 所有子任务共享同一个 delegate 工具调用的 toolCallId：前端卡片靠它定位，
 						// 内部按 progress.taskIndex 区分各子任务
 						try {
-							const { text, isError, toolStats, usage, interrupted } =
-								await opts.spawn(spawnAgent, t.task, toolCallId, index);
+							const { text, isError, toolStats, usage, interrupted, elapsedMs } =
+								await opts.spawn(spawnAgent, t.task, toolCallId, index, jsonl);
+							// 终态落盘：usage 用扁平形状（SubagentUsageShape），拆包后审计/列表直接读
+							await safeWriteMeta({
+								...metaBase,
+								status: interrupted
+									? "interrupted"
+									: isError
+										? "failed"
+										: "completed",
+								updatedAt: Date.now(),
+								usage: usage?.tokens
+									? { ...usage.tokens, costTotal: usage.costTotal }
+									: undefined,
+								elapsedMs,
+								toolStats,
+							});
 							return {
 								index,
 								agent: t.agent,
+								agentId,
+								jsonlPath: jsonl,
+								subagentType: spawnAgent,
 								text,
 								isError,
 								toolStats,
 								usage,
 								interrupted,
+								elapsedMs,
 							};
 						} catch (err) {
 							// 单任务意外异常不连坐：spawn 闭包内 try 块外的路径（resolveConfig /
 							// ensureExtension 等）抛错时转结构化失败（对齐 subagent-runner 异常路径
-							// 语义：isError + interrupted），其余任务继续执行、结果照常聚合不丢失
+							// 语义：isError + interrupted），其余任务继续执行、结果照常聚合不丢失。
+							// meta 同步收尾为 interrupted：否则永久停在 running（resume 误拒、列表误报运行中）
 							const message = err instanceof Error ? err.message : String(err);
+							await safeWriteMeta({
+								...metaBase,
+								status: "interrupted",
+								updatedAt: Date.now(),
+								elapsedMs: 0,
+							});
 							return {
 								index,
 								agent: t.agent,
+								agentId,
+								jsonlPath: jsonl,
+								subagentType: spawnAgent,
 								text: `子智能体执行异常: ${message}`,
 								isError: true,
+								toolStats: undefined,
+								usage: undefined,
 								interrupted: true,
+								elapsedMs: 0,
 							};
 						}
 					}),
 					MAX_SUBAGENT_CONCURRENCY,
 				);
-				// 聚合：文本沿用旧格式（【agent】标题），details 沿用 fleet 形状 —— 本任务只做等价重构，
-				// 返回格式与语义变更留到任务 5（这样现有测试就是本任务的安全网）
-				// 标题标记同步区分失败/中断：两者都有标「失败·中断」，只其一时标单项
-				const lines = results.map((r) => {
-					const marks = [r.isError ? "失败" : "", r.interrupted ? "中断" : ""]
-						.filter(Boolean)
-						.join("·");
-					return `【${r.agent}】${marks ? `（${marks}）` : ""}\n${r.text}`;
-				});
-				const fleetStats: Record<string, ToolStats> = {};
-				const fleetInterrupted: Record<string, boolean> = {};
-				for (const r of results) {
-					if (r.toolStats) fleetStats[String(r.index)] = r.toolStats;
-					fleetInterrupted[String(r.index)] = r.interrupted === true;
-				}
+				// ── 返回块：XML、标签同行、多项之间单换行（规格 §7）──
+				const blocks = results.map((r) =>
+					renderSubagentBlock({
+						taskIndex: r.index,
+						agentId: r.agentId,
+						subagentType: r.subagentType,
+						status: r.interrupted
+							? "interrupted"
+							: r.isError
+								? "failed"
+								: "completed",
+						elapsedMs: r.elapsedMs,
+						totalTokens: r.usage?.tokens.total,
+						resumed: false,
+						jsonlPath: r.jsonlPath,
+						text: r.text,
+					}),
+				);
+				const details: SubagentDetails = {
+					subagents: results.map((r) => ({
+						taskIndex: r.index,
+						agentId: r.agentId,
+						agent: r.agent,
+						subagentType: r.subagentType,
+						resumed: false,
+						status: r.interrupted
+							? "interrupted"
+							: r.isError
+								? "failed"
+								: "completed",
+						elapsedMs: r.elapsedMs,
+						usage: r.usage,
+						toolStats: r.toolStats,
+						interrupted: r.interrupted === true,
+					})),
+					interrupted: results.some((r) => r.interrupted === true),
+				};
 				if (aborted) {
 					// settle 后用最终状态覆盖写 final；先等 abort 瞬间的写盘完成
 					await pendingImmediate;
+					// 快照（subagent-results/）本次不动（规格 §10）：它的 text/details 沿用旧
+					// 【agent】+ fleet 形状，前端按旧数据兼容路径渲染（与新返回块并存）
+					const lines = results.map((r) => {
+						const marks = [r.isError ? "失败" : "", r.interrupted ? "中断" : ""]
+							.filter(Boolean)
+							.join("·");
+						return `【${r.agent}】${marks ? `（${marks}）` : ""}\n${r.text}`;
+					});
+					const fleetStats: Record<string, ToolStats> = {};
+					const fleetInterrupted: Record<string, boolean> = {};
+					for (const r of results) {
+						if (r.toolStats) fleetStats[String(r.index)] = r.toolStats;
+						fleetInterrupted[String(r.index)] = r.interrupted === true;
+					}
 					await writeAbortSnapshot(toolCallId, {
 						toolCallId,
 						tool: "delegate",
@@ -408,8 +588,8 @@ export function makeDelegateTool(opts: {
 					});
 				}
 				return {
-					content: [{ type: "text" as const, text: lines.join("\n\n") }],
-					details: { fleet: fleetStats, interrupted: fleetInterrupted },
+					content: [{ type: "text" as const, text: blocks.join("\n") }],
+					details,
 					isError: results.some((r) => r.isError),
 					// 各子代理用量聚合上报：pi 官方 stats 原生计入累计（usage reported by tools）
 					usage: sumPiToolUsage(results.map((r) => r.usage)),
@@ -479,10 +659,16 @@ export function makeSpawnFn(opts: {
 		task: string,
 		toolCallId: string,
 		taskIndex?: number,
+		sessionFile?: string,
 	) => {
 		const config = await opts.resolveConfig(agent);
 		if (!config) {
-			const result = { text: `智能体「${agent}」配置未找到`, isError: true };
+			// elapsedMs: 0 而非缺省：返回块要渲染 <elapsed>，0 明确表达「没跑」
+			const result = {
+				text: `智能体「${agent}」配置未找到`,
+				isError: true,
+				elapsedMs: 0,
+			};
 			opts.onSpawnComplete?.({
 				agent,
 				task,
@@ -525,14 +711,22 @@ export function makeSpawnFn(opts: {
 					once: true,
 				});
 		}
+		// 实例 id：转录路径由 delegate-tool 按 <agentId>.jsonl 命名，这里从文件名反解，
+		// 供进度事件携带（前端把运行中的进度关联到具体子代理实例，规格 §9.1）。
+		// 空路径（未要求落盘）时缺省，事件不带 agentId。
+		const agentId = sessionFile ? basename(sessionFile, ".jsonl") : undefined;
 		try {
 			const result = await runSubagent(config, task, opts.cwd, {
 				signal: controller.signal,
 				// 把外层 onProgress(toolCallId, event) 包一层：runSubagentAgent 内部仍以
-				// (event) => void 调用，这里注入闭包捕获的 toolCallId，实现进度帧关联卡片
+				// (event) => void 调用，这里注入闭包捕获的 toolCallId + agentId，
+				// 实现进度帧关联卡片与实例
 				onProgress: opts.onProgress
-					? (event) => opts.onProgress!(toolCallId, { ...event, taskIndex })
+					? (event) =>
+							opts.onProgress!(toolCallId, { ...event, taskIndex, agentId })
 					: undefined,
+				// 转录落盘：pi --session <路径>（未传则 runSubagent 回退 --no-session）
+				sessionFile,
 				skillPaths,
 				extensionPaths: opts.extensionPaths,
 				cliPath: opts.runnerOpts?.cliPath,

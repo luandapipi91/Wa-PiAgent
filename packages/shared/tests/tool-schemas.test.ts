@@ -133,7 +133,11 @@ test("DELEGATE_DESCRIPTION 与 existing delegate-tool.ts 输出一致", async ()
   // 从 kernel 侧 delegate-tool 动态获取当前值（绕过 import 缓存，确保读到真实实现）
   const { makeDelegateTool } = await import("../../kernel/src/delegate-tool");
   const spawn = async () => ({ text: "", isError: false });
-  const delegateReal = makeDelegateTool({ askTo: [], spawn });
+  const delegateReal = makeDelegateTool({
+    askTo: [],
+    spawn,
+    sessionId: "s-tool-schemas",
+  });
 
   expect(DELEGATE_DESCRIPTION).toBe(delegateReal.description);
 });

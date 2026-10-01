@@ -129,7 +129,11 @@ async function delegateTo(sessionId: string, agent: string) {
     { tasks: [{ agent, task: "hi" }] },
     new AbortController().signal,
   );
-  expect(result.content[0].text).toBe(`【${agent}】\nok`);
+  // 返回块为 XML（agent_id 随机）：断言结构字段与正文（spawn 未报错）
+  expect(result.content[0].text).toContain(
+    `<type>${agent}</type><status>completed</status>`,
+  );
+  expect(result.content[0].text).toContain("<result>\nok\n</result>");
   // 清理本次会话的系统提示词临时文件
   try {
     rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${sessionId}.md`), {

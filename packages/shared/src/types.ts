@@ -873,6 +873,9 @@ export interface SubagentListResult {
 /** 子代理执行过程事件（由 subagent-runner 采集，经 onProgress 透传） */
 export interface SubagentProgressEvent {
 	agent: string;
+	/** 子代理实例 id（a + 8 位 hex）；新建实例在 spawn 前生成。
+	 *  前端据此把运行中的进度关联到具体子代理实例（规格 §9.1）。 */
+	agentId?: string;
 	status: "running" | "done" | "error";
 	output: string;
 	tools: Array<{ id: string; name: string; status: string }>;
@@ -908,6 +911,24 @@ export type BridgeStreamFrame =
 			};
 			error?: string;
 	  };
+
+/** delegate 工具返回 details 的稳定形状（前端唯一数据来源，不解析 XML 文本） */
+export interface SubagentDetails {
+	subagents: Array<{
+		taskIndex: number;
+		agentId: string;
+		agent: string;
+		subagentType: string;
+		resumed: boolean;
+		status: "completed" | "failed" | "interrupted";
+		elapsedMs?: number;
+		usage?: unknown;
+		toolStats?: ToolStats;
+		interrupted: boolean;
+	}>;
+	/** 任一子任务中断 */
+	interrupted: boolean;
+}
 
 /** SSE 事件：子代理进度（前端按 sessionId + toolCallId 路由到 DelegateCard/FleetCard） */
 export interface SubagentProgressServerEvent {
