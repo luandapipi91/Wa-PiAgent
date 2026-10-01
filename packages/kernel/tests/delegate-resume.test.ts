@@ -95,6 +95,17 @@ describe("resume 分支", () => {
 		expect(spawned.length).toBe(0);
 	});
 
+	test("非法 agentId 格式 → agent_id 降级为空串（不回显原始值、不破坏 XML）", async () => {
+		// 原始 resume 值可能含 < & 等字符：原样塞进 <agent_id> 会破坏 XML 结构，
+		// 且把非法 id 当实例句柄回显会误导模型复用 → 该分支必须置空（同越权项降级形状）
+		const r = await tool().execute("c1", {
+			tasks: [{ agent: "Explore", task: "x", resume: "<x>&</x>" }],
+		});
+		expect(r.isError).toBe(true);
+		expect(r.content[0].text).toContain("<agent_id></agent_id>");
+		expect(r.content[0].text).not.toContain("<x>");
+	});
+
 	test("同一次调用内两个 task 续同一实例 → 拒绝", async () => {
 		await writeMeta({
 			...baseMeta,
@@ -215,6 +226,54 @@ describe("resume 分支", () => {
 		const m = await readMeta(SID, "a00000007");
 		expect(m?.status).toBe("failed");
 		expect(m?.resumeCount).toBe(1);
+	});
+
+	test("resume 时 spawn 抛异常 → execute 不 reject、返回 isError 文本、meta 落 interrupted", async () => {
+		await writeMeta({
+			...baseMeta,
+			agentId: "a00000009",
+			status: "completed",
+		} as never);
+		const r = await makeDelegateTool({
+			askTo: [],
+			sessionId: SID,
+			// 抛异常：模拟 spawn 闭包内 try 块外路径（resolveConfig / ensureExtension 等）失败
+			spawn: async () => {
+				throw new Error("spawn 内部炸了");
+			},
+		} as never).execute("c1", {
+			tasks: [{ agent: "Explore", task: "接着干", resume: "a00000009" }],
+		});
+		expect(r.isError).toBe(true);
+		expect(r.content[0].text).toContain("spawn 内部炸了");
+		expect(r.content[0].text).toContain("<status>interrupted</status>");
+		// meta 收尾为 interrupted：否则永久停在 running → 该实例此后每次 resume 都被误拒
+		const m = await readMeta(SID, "a00000009");
+		expect(m?.status).toBe("interrupted");
+		expect(m?.resumeCount).toBe(1);
+	});
+
+	test("resume spawn 异常不连坐：同批其它任务结果照常返回", async () => {
+		await writeMeta({
+			...baseMeta,
+			agentId: "a0000000a",
+			status: "completed",
+		} as never);
+		const r = await makeDelegateTool({
+			askTo: [],
+			sessionId: SID,
+			spawn: async (_agent: string, task: string) => {
+				if (task === "boom") throw new Error("续聊炸了");
+				return { text: "兄弟任务正常", isError: false, elapsedMs: 5 };
+			},
+		} as never).execute("c1", {
+			tasks: [
+				{ agent: "Explore", task: "boom", resume: "a0000000a" },
+				{ agent: "Explore", task: "fine" },
+			],
+		});
+		expect(r.content[0].text).toContain("续聊炸了");
+		expect(r.content[0].text).toContain("兄弟任务正常");
 	});
 
 	test("resume 前按 jsonl 首行 cwd 补建目录（pi resume 校验目录存在）", async () => {

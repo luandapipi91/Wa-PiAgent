@@ -481,7 +481,8 @@ export function makeDelegateTool(opts: {
 								return {
 									index,
 									agent: t.agent,
-									agentId: t.resume,
+									// 非法 id 不当作实例句柄回显（原始串可能含 < & 破坏 XML，也误导模型复用）→ 置空降级
+									agentId: "",
 									jsonlPath: "",
 									subagentType: t.agent,
 									text: `错误：非法 agent_id「${t.resume}」`,
@@ -493,6 +494,9 @@ export function makeDelegateTool(opts: {
 									elapsedMs: 0,
 								};
 							}
+							// 去重必须**同步**且先于任何 await：runWithConcurrency 下若把 check+add 挪到
+							// readMeta 之后，两个 thunk 会在该 await 处让出、双双漏检 → 并发写同一份 jsonl。
+							// （并发硬约束，勿按字面顺序挪动）
 							if (seenResume.has(t.resume)) {
 								return {
 									index,
@@ -547,43 +551,73 @@ export function makeDelegateTool(opts: {
 							const spawnAgent = meta.subagentType;
 							const jsonl = jsonlPath(parentSessionId, t.resume);
 							await selfHealStoredCwd(jsonl);
-							await writeMeta({
-								...meta,
-								status: "running",
-								updatedAt: Date.now(),
-								resumeCount: meta.resumeCount + 1,
-							});
-							const out = await opts.spawn(
-								spawnAgent,
-								t.task,
-								toolCallId,
-								index,
-								jsonl,
-							);
-							await writeMeta({
-								...meta,
-								status: out.interrupted
-									? "interrupted"
-									: out.isError
-										? "failed"
-										: "completed",
-								updatedAt: Date.now(),
-								resumeCount: meta.resumeCount + 1,
-								usage: out.usage?.tokens
-									? { ...out.usage.tokens, costTotal: out.usage.costTotal }
-									: undefined,
-								elapsedMs: out.elapsedMs,
-								toolStats: out.toolStats,
-							});
-							return {
-								index,
-								agent: t.agent,
-								agentId: t.resume,
-								jsonlPath: jsonl,
-								subagentType: spawnAgent,
-								resumed: true,
-								...out,
-							};
+							const resumeCount = meta.resumeCount + 1;
+							try {
+								// meta 写盘走 safeWriteMeta（与新建路径同约定）：写失败仅告警，不把整个工具调用带崩
+								await safeWriteMeta({
+									...meta,
+									status: "running",
+									updatedAt: Date.now(),
+									resumeCount,
+								});
+								const out = await opts.spawn(
+									spawnAgent,
+									t.task,
+									toolCallId,
+									index,
+									jsonl,
+								);
+								await safeWriteMeta({
+									...meta,
+									status: out.interrupted
+										? "interrupted"
+										: out.isError
+											? "failed"
+											: "completed",
+									updatedAt: Date.now(),
+									resumeCount,
+									usage: out.usage?.tokens
+										? { ...out.usage.tokens, costTotal: out.usage.costTotal }
+										: undefined,
+									elapsedMs: out.elapsedMs,
+									toolStats: out.toolStats,
+								});
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: jsonl,
+									subagentType: spawnAgent,
+									resumed: true,
+									...out,
+								};
+							} catch (err) {
+								// 单任务异常不连坐（同新建路径 :695-712）：spawn 闭包内 try 块外路径抛错时转
+								// 结构化失败文本，其余任务继续执行、结果照常聚合不丢失。
+								// meta 同步收尾为 interrupted：否则永久停在 running（此后 resume 全被误拒）
+								const message = err instanceof Error ? err.message : String(err);
+								await safeWriteMeta({
+									...meta,
+									status: "interrupted",
+									updatedAt: Date.now(),
+									resumeCount,
+									elapsedMs: 0,
+								});
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: jsonl,
+									subagentType: spawnAgent,
+									text: `子智能体执行异常: ${message}`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: true,
+									elapsedMs: 0,
+								};
+							}
 						}
 						if (!canInvoke(t.agent, opts.askTo)) {
 							// 越权调起：不建实例（无 meta、无转录），返回块的 agent_id / transcript 留空；
