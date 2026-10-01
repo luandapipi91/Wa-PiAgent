@@ -1309,6 +1309,9 @@ export type SDKEvent =
 			toolCallId: string;
 			toolName: string;
 			args: any;
+			/** 另一工具（如 codemode 脚本）经 ctx.executeTool() 发起的嵌套调用才有：
+			 *  此时 toolCallId 形如 `<父id>/<n>`，且该调用不进 transcript（不产生消息）。 */
+			parentToolCallId?: string;
 	  }
 	| {
 			type: "tool_execution_update";
@@ -1316,6 +1319,8 @@ export type SDKEvent =
 			toolName: string;
 			args: any;
 			partialResult: any;
+			/** 见 tool_execution_start.parentToolCallId */
+			parentToolCallId?: string;
 	  }
 	| {
 			type: "tool_execution_end";
@@ -1323,6 +1328,8 @@ export type SDKEvent =
 			toolName: string;
 			result: any;
 			isError: boolean;
+			/** 见 tool_execution_start.parentToolCallId */
+			parentToolCallId?: string;
 	  }
 	| {
 			type: "queue_update";
