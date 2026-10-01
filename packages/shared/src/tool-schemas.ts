@@ -193,45 +193,30 @@ export const MemorySearchParamsSchema = Type.Object({
 // =========================================================================
 
 export const DELEGATE_DESCRIPTION = [
-  "隔离上下文中运行子智能体。默认委托，首个调用即派发：",
-  "- 例外（仅提问，不含改代码/写文件）：知识类/过程类问题（项目结构、依赖、约定、历史决策、构建测试方式、环境事实、踩过的坑）→ 先 memory_search 再定",
-  "- 先查顺序词（先…再…/然后/按…结果/取决于）→ 一律逐个 delegate，禁止 fleet（即使多对象）",
-  "- 否则数对象：≥2 个互不依赖的对象分别做同样的事（两份文件/多目录/两组并行……）→ 必须一次 fleet 并行（每对象一个子任务），禁止合成一个 delegate；「汇总/对比」自己做不算依赖（「分别梳理/统计 N 个模块再汇总」也算）",
-  "- 单对象探索/审计/调查，或需先读懂结构的改动/新增函数（含多文件改动、「先读懂 X 再改」）→ delegate（哪怕一个文件）；纯注释/文案类一行小改自己做；单点查询/需交互 → 不派",
-  "任务自含范围/输出/约束。",
+  "把任务委托给子智能体执行。",
+  "- tasks：1..6 项，每项 { agent, task }；一次只委托一个任务时也写成单元素数组。",
+  "- agent：填 Available Subagents 清单里的名称。",
+  "- 多个任务会并行执行（上限 6），结果按输入顺序返回。",
+  "- resume：填上次返回里的 <agent_id>，可让同一子智能体接着之前的工作继续（保留其上下文）。",
 ].join("\n");
+
+/** 单次委托的任务数上限（并发上限与参数上限同源，避免数值与文案脱节） */
+export const DELEGATE_MAX_TASKS = 6;
 
 export const DelegateParamsSchema = Type.Object({
-  agent: Type.String({
-    description: "可调起列表中的子智能体(subagent)名称",
-  }),
-  task: Type.String({ description: "交给子智能体的任务描述" }),
-});
-
-// =========================================================================
-// fleet
-// =========================================================================
-
-/** fleet 单次调用的子任务数上限（超过即被内核前置校验拒绝，不排队）。
- * 数值依据：每个子代理 pi 进程约占 300MB，6 个 ≈ 1.8GB，可接受范围（用户拍板 2026-09-01）。
- * 文案与数值同源：FLEET_DESCRIPTION 用本常量插值——曾发生「模板硬编码 5 / kernel 常量 6」
- * 脱节，delegate-tool 的 replace 回填因搜索串不匹配而静默失效，模型看到的上限一直停留在 5。 */
-export const FLEET_MAX_CONCURRENCY = 6;
-
-export const FLEET_DESCRIPTION = [
-  "并行运行多个子智能体，完成后返回。",
-  "有依赖或涉同文件 → 改逐个 delegate。",
-  `并发上限 ${FLEET_MAX_CONCURRENCY}，超出会被拒绝（请拆成多次调用）。`,
-].join("\n");
-
-export const FleetParamsSchema = Type.Object({
   tasks: Type.Array(
     Type.Object({
-      agent: Type.String({ description: "可调起列表中的智能体名称" }),
-      task: Type.String({
-        description: "交给该智能体的任务描述（按任务合约范式组织）",
+      agent: Type.String({
+        description: "子智能体名称（见 Available Subagents 清单）",
       }),
+      task: Type.String({ description: "交给该子智能体的任务描述" }),
+      resume: Type.Optional(
+        Type.String({
+          description: "要续聊的子代理 agent_id（来自上次返回的 <agent_id>）",
+        }),
+      ),
     }),
+    { minItems: 1, maxItems: DELEGATE_MAX_TASKS },
   ),
 });
 
@@ -388,7 +373,6 @@ export const BRIDGE_TOOL_NAMES = [
   "memory_read",
   "memory_search",
   "delegate",
-  "fleet",
   "browser_navigate",
   "browser_evaluate",
   "browser_screenshot",

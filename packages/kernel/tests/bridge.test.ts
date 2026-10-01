@@ -38,7 +38,7 @@ import { createMemoryTools } from "../src/memory/tools";
 import { MemoryDao } from "../src/memory/dao";
 import { SCHEMA_SQL } from "../src/memory/schema";
 import { closeAllMemoryDbs, openMemoryDb } from "../src/memory/db";
-import { makeDelegateTool, makeFleetTool, MAX_SUBAGENT_CONCURRENCY } from "../src/delegate-tool";
+import { makeDelegateTool, MAX_SUBAGENT_CONCURRENCY } from "../src/delegate-tool";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
@@ -56,7 +56,6 @@ const ALL_BRIDGE_TOOLS = [
 	"memory_read",
 	"memory_search",
 	"delegate",
-	"fleet",
 	"browser_navigate",
 	"browser_evaluate",
 	"browser_screenshot",
@@ -155,7 +154,7 @@ function makeMemoryCtx() {
 
 // ---- ensureBridgeExtension ----
 
-test("ensureBridgeExtension 生成文件存在且包含全部 15 个工具名，幂等覆盖", async () => {
+test("ensureBridgeExtension 生成文件存在且包含全部 14 个工具名，幂等覆盖", async () => {
 	const p1 = await ensureBridgeExtension();
 	expect(p1).toBe(BRIDGE_EXTENSION_PATH);
 	expect(existsSync(p1)).toBe(true);
@@ -207,7 +206,7 @@ test("契约：扩展工具的 name/description/schema 与现有实现一致", a
 		);
 	}
 
-	// delegate / fleet
+	// delegate
 	const spawn = async () => ({ text: "", isError: false });
 	const delegateReal = makeDelegateTool({ askTo: [], spawn });
 	const delegateBridge = bridgeTools.find((t) => t.name === "delegate");
@@ -215,14 +214,6 @@ test("契约：扩展工具的 name/description/schema 与现有实现一致", a
 	expect(delegateBridge.description).toBe(delegateReal.description);
 	expect(JSON.parse(JSON.stringify(delegateBridge.parameters))).toEqual(
 		JSON.parse(JSON.stringify(delegateReal.parameters)),
-	);
-
-	const fleetReal = makeFleetTool({ askTo: [], spawn });
-	const fleetBridge = bridgeTools.find((t) => t.name === "fleet");
-	expect(fleetBridge.label).toBe(fleetReal.label);
-	expect(fleetBridge.description).toBe(fleetReal.description);
-	expect(JSON.parse(JSON.stringify(fleetBridge.parameters))).toEqual(
-		JSON.parse(JSON.stringify(fleetReal.parameters)),
 	);
 
 	// im_push_to：始终注册（不依赖 WA_PI_IM_PUSH_TARGETS env）——label/description/参数 schema 契约
@@ -679,7 +670,7 @@ test("扩展 execute：缺 env 报 missing_env；配好 env 后经 ws-server 全
 	const noEnvTools = await loadBridgeTools();
 	const miss = await noEnvTools
 		.find((t: any) => t.name === "delegate")
-		.execute("tc1", { agent: "a", task: "b" }, undefined);
+		.execute("tc1", { tasks: [{ agent: "a", task: "b" }] }, undefined);
 	expect(miss.details.error).toBe("missing_env");
 	expect(miss.content[0].text).toContain("只在 wa-pi 宿主下可用");
 
@@ -716,7 +707,7 @@ test("扩展 execute：缺 env 报 missing_env；配好 env 后经 ws-server 全
 		const delegateTool = tools.find((t: any) => t.name === "delegate");
 		const stub = await delegateTool.execute(
 			"tc2",
-			{ agent: "a", task: "b" },
+			{ tasks: [{ agent: "a", task: "b" }] },
 			undefined,
 		);
 		expect(stub.details.error).toBe("not_wired");
@@ -754,7 +745,7 @@ test("handleBridgeStream 对 delegate 输出 started→progress→final NDJSON �
 				sessionId,
 				toolCallId,
 				tool: "delegate",
-				params: { agent: "general-purpose", task: "hi" },
+				params: { tasks: [{ agent: "general-purpose", task: "hi" }] },
 			},
 			(frame) => frames.push(frame),
 		);
@@ -788,33 +779,33 @@ test("handleBridgeStream 对 delegate 输出 started→progress→final NDJSON �
 	expect(parsed[2].result.content[0].text).toBe("子代理完成");
 });
 
-test("/bridge/tool 流式分支：fleet 单任务被拒（无 progress 帧）仍以 started→final 收尾，不挂住通道", async () => {
-	// 拒绝路径的完整链路：HTTP 路由 → handleBridgeStream → ctx.handleTool → fleet.execute。
-	// 单任务在 execute 前置校验里立即返回（不 spawn、不产 progress 帧），
+test("/bridge/tool 流式分支：delegate 空 tasks 被拒（无 progress 帧）仍以 started→final 收尾，不挂住通道", async () => {
+	// 拒绝路径的完整链路：HTTP 路由 → handleBridgeStream → ctx.handleTool → delegate.execute。
+	// 任务数不合法（0 项）在 execute 前置校验里立即返回（不 spawn、不产 progress 帧），
 	// 流必须自行以 final 帧结束，不得挂住通道。
 	const { server, port } = await startTestServer();
 	try {
 		let spawnCalls = 0;
-		const fleetTool = makeFleetTool({
+		const delegateTool = makeDelegateTool({
 			askTo: [],
 			spawn: async () => {
 				spawnCalls++;
 				return { text: "不应被调用", isError: false };
 			},
 		});
-		registerBridgeSession("s-fleet-reject", {
+		registerBridgeSession("s-delegate-reject", {
 			cwd: "/tmp",
-			handleTool: (tool, tcId, params) => fleetTool.execute(tcId, params as any),
+			handleTool: (tool, tcId, params) => delegateTool.execute(tcId, params as any),
 		});
 		const res = await fetch(`http://127.0.0.1:${port}/bridge/tool`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
 				token: getBridgeToken(),
-				sessionId: "s-fleet-reject",
-				toolCallId: "tc-fleet-reject",
-				tool: "fleet",
-				params: { tasks: [{ agent: "代码审查", task: "评审改动" }] },
+				sessionId: "s-delegate-reject",
+				toolCallId: "tc-delegate-reject",
+				tool: "delegate",
+				params: { tasks: [] },
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -841,56 +832,57 @@ test("/bridge/tool 流式分支：fleet 单任务被拒（无 progress 帧）仍
 		expect(frames[0]).toMatchObject({
 			type: "started",
 			protocol: 1,
-			tool: "fleet",
-			toolCallId: "tc-fleet-reject",
+			tool: "delegate",
+			toolCallId: "tc-delegate-reject",
 		});
 		// final 帧的 ok 恒为 true（协议层「流正常结束」标记）；业务失败经 result.isError 表达
 		expect(frames[1]).toMatchObject({
 			type: "final",
-			tool: "fleet",
-			toolCallId: "tc-fleet-reject",
+			tool: "delegate",
+			toolCallId: "tc-delegate-reject",
 			ok: true,
 		});
 		expect(frames[1].result.isError).toBe(true);
 		expect(frames[1].result.details).toEqual({
-			error: "fleet_requires_multiple_tasks",
+			error: "delegate_task_count_invalid",
 		});
 		const text = frames[1].result.content[0].text as string;
-		expect(text).toContain("至少需要 2 个任务");
-		expect(text).toContain("delegate");
+		expect(text).toContain(
+			`tasks 需要 1..${MAX_SUBAGENT_CONCURRENCY} 项（当前 0 项）`,
+		);
 		// 拒绝发生在派发之前：没有任何子智能体被启动
 		expect(spawnCalls).toBe(0);
 	} finally {
-		unregisterBridgeSession("s-fleet-reject");
+		unregisterBridgeSession("s-delegate-reject");
 		await server.stop();
 	}
 });
 
-test("/bridge/tool 流式分支：fleet 超并发上限被拒（无 progress 帧）仍以 started→final 收尾，不挂住通道", async () => {
-	// 与单任务拒绝同一条链路，只是拒绝原因不同（任务数超过 FLEET_MAX_CONCURRENCY）：
+test("/bridge/tool 流式分支：delegate 超并发上限被拒（无 progress 帧）仍以 started→final 收尾，不挂住通道", async () => {
+	// 与空 tasks 拒绝同一条链路，只是拒绝原因不同（任务数超过上限）：
 	// execute 前置校验立即返回，不 spawn、不产 progress 帧，流自行以 final 结束。
 	const { server, port } = await startTestServer();
 	try {
 		let spawnCalls = 0;
-		const fleetTool = makeFleetTool({
+		const delegateTool = makeDelegateTool({
 			askTo: [],
 			spawn: async () => {
 				spawnCalls++;
 				return { text: "不应被调用", isError: false };
 			},
 		});
-		registerBridgeSession("s-fleet-over", {
+		registerBridgeSession("s-delegate-over", {
 			cwd: "/tmp",
-			handleTool: (tool, tcId, params) => fleetTool.execute(tcId, params as any),
+			handleTool: (tool, tcId, params) => delegateTool.execute(tcId, params as any),
 		});
 		const res = await fetch(`http://127.0.0.1:${port}/bridge/tool`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
 				token: getBridgeToken(),
-				sessionId: "s-fleet-over",
-				toolCallId: "tc-fleet-over",
-				tool: "fleet",
+				sessionId: "s-delegate-over",
+				toolCallId: "tc-delegate-over",
+				tool: "delegate",
 				params: {
 					tasks: Array.from(
 						{ length: MAX_SUBAGENT_CONCURRENCY + 1 },
@@ -920,15 +912,17 @@ test("/bridge/tool 流式分支：fleet 超并发上限被拒（无 progress 帧
 
 		expect(frames.map((f) => f.type)).toEqual(["started", "final"]);
 		expect(frames[1].result.isError).toBe(true);
-		expect(frames[1].result.details).toEqual({ error: "fleet_too_many_tasks" });
+		expect(frames[1].result.details).toEqual({
+			error: "delegate_task_count_invalid",
+		});
 		const text = frames[1].result.content[0].text as string;
-		expect(text).toContain(`最多 ${MAX_SUBAGENT_CONCURRENCY} 个`);
-		expect(text).toContain("拆成多次");
-		expect(text).not.toContain("delegate");
+		expect(text).toContain(
+			`tasks 需要 1..${MAX_SUBAGENT_CONCURRENCY} 项（当前 ${MAX_SUBAGENT_CONCURRENCY + 1} 项）`,
+		);
 		// 拒绝发生在派发之前：没有任何子智能体被启动
 		expect(spawnCalls).toBe(0);
 	} finally {
-		unregisterBridgeSession("s-fleet-over");
+		unregisterBridgeSession("s-delegate-over");
 		await server.stop();
 	}
 });
@@ -976,7 +970,7 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 				sessionId,
 				toolCallId,
 				tool: "delegate",
-				params: { agent: "a", task: "b" },
+				params: { tasks: [{ agent: "a", task: "b" }] },
 			},
 			(frame) => frames.push(frame),
 			{ heartbeatMs: 50 },
@@ -998,7 +992,7 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 
 // ── C1：im_push_to 始终注册（Task 2 变更：不再依赖 WA_PI_IM_PUSH_TARGETS env）──
 
-test("im_push_to：未设 env 也注册（15 工具，普通会话工具面板可用）", async () => {
+test("im_push_to：未设 env 也注册（14 工具，普通会话工具面板可用）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	delete process.env.WA_PI_IM_PUSH_TARGETS;
 	try {
@@ -1012,12 +1006,12 @@ test("im_push_to：未设 env 也注册（15 工具，普通会话工具面板�
 	}
 });
 
-test("im_push_to：始终注册（共 15 个工具），description 为通用引导（不含联系人列表）", async () => {
+test("im_push_to：始终注册（共 14 个工具），description 为通用引导（不含联系人列表）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools).toHaveLength(15);
+		expect(tools).toHaveLength(14);
 		const imPush = tools.find((t: any) => t.name === "im_push_to");
 		expect(imPush).toBeTruthy();
 		// env 仅作诊断用途，不再写入 description（联系人由消息标记自描述）

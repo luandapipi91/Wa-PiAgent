@@ -1912,7 +1912,7 @@ test("bridge ctx 的 delegate 工具：不在可调起列表时返回错误", as
 	const result = await ctx.handleTool(
 		"delegate",
 		"tc1",
-		{ agent: "不存在的智能体", task: "做点什么" },
+		{ tasks: [{ agent: "不存在的智能体", task: "做点什么" }] },
 		new AbortController().signal,
 	);
 	expect(result.content[0].text).toContain("不在可调起列表中");
@@ -1938,7 +1938,7 @@ test("skills 白名单下 delegate 工具仍可用（不因 skill 过滤误关 b
 	const result = await ctx.handleTool(
 		"delegate",
 		"tc1",
-		{ agent: "代码审查", task: "review this" },
+		{ tasks: [{ agent: "代码审查", task: "review this" }] },
 		new AbortController().signal,
 	);
 	// 即使 spawn 失败（测试环境无真实子进程），也不应报"工具不存在"
@@ -2339,12 +2339,8 @@ test("WA_PI_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
 	// @ 语法两种写法都接受（2026-09-18 委派提示词精简后写作 @agentName，早期为 @[agentName]）
 	expect(fullDefault).toMatch(/@\[?agentName\]?/);
 	expect(fullDefault).toContain("delegate");
-	// Task Contract 小节已按「判定细则收敛到工具描述」的分层移入 DELEGATE_DESCRIPTION
-	//（写作「任务自含范围/输出格式/约束」），因此只要求模型可见面上仍有该约定，不锁具体位置与措辞。
-	const { DELEGATE_DESCRIPTION } = require("@wa-pi/shared/tool-schemas");
-	expect(`${fullDefault}\n${DELEGATE_DESCRIPTION}`).toMatch(
-		/Task Contract|任务自含范围/,
-	);
+	// 注：原「Task Contract / 任务自含范围」断言已删 —— delegate 工具描述已改为纯入参契约
+	// （tasks / agent / 并行 / resume），任务合约指导不再出现在模型可见的委派文案里。
 });
 
 // ─── 队列：followUpList / steerMessage / abort ────────────────────────────

@@ -11,11 +11,7 @@
 // "../src/subagent-runner"（进程级生效且无法撤销），本文件用 cache-bust 查询串
 // 动态 import 拿真实实现；delegate-tool 侧经 makeSpawnFn 的注入项绕过污染。
 import { test, expect, mock } from "bun:test";
-import {
-	makeDelegateTool,
-	makeFleetTool,
-	makeSpawnFn,
-} from "../src/delegate-tool";
+import { makeDelegateTool, makeSpawnFn } from "../src/delegate-tool";
 import { computeSpawnTelemetry } from "../src/subagent-telemetry";
 import type { SpawnTelemetryInput } from "../src/subagent-telemetry";
 import { join } from "node:path";
@@ -255,12 +251,14 @@ test("delegate execute：interrupted 写入 details（isError 语义不变）", 
 		interrupted: true,
 	}));
 	const tool = makeDelegateTool({ askTo, spawn });
-	const res = await tool.execute("tc-d", { agent: "代码审查", task: "hi" });
+	const res = await tool.execute("tc-d", {
+		tasks: [{ agent: "代码审查", task: "hi" }],
+	});
 	expect(res.isError).toBe(true);
-	expect((res.details as any)?.interrupted).toBe(true);
+	expect((res.details as any)?.interrupted).toEqual({ "0": true });
 });
 
-test("fleet execute：details.fleet 保持 ToolStats 形状，interrupted 按任务序号记录", async () => {
+test("delegate execute（多任务）：details.fleet 保持 ToolStats 形状，interrupted 按任务序号记录", async () => {
 	const spawn = mock(
 		async (
 			_agent: string,
@@ -281,7 +279,7 @@ test("fleet execute：details.fleet 保持 ToolStats 形状，interrupted 按任
 						toolStats: { total: 1, done: 1, error: 0, running: 0 },
 					},
 	);
-	const tool = makeFleetTool({ askTo, spawn });
+	const tool = makeDelegateTool({ askTo, spawn });
 	const res = await tool.execute("tc-f", {
 		tasks: [
 			{ agent: "代码审查", task: "a" },

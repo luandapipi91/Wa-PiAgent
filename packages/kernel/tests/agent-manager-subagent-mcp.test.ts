@@ -126,10 +126,10 @@ async function delegateTo(sessionId: string, agent: string) {
   const result = await ctx!.handleTool(
     "delegate",
     `tc-${agent}`,
-    { agent, task: "hi" },
+    { tasks: [{ agent, task: "hi" }] },
     new AbortController().signal,
   );
-  expect(result.content[0].text).toBe("ok");
+  expect(result.content[0].text).toBe(`【${agent}】\nok`);
   // 清理本次会话的系统提示词临时文件
   try {
     rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${sessionId}.md`), {

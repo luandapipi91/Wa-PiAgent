@@ -118,12 +118,12 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
   const result = await ctx!.handleTool(
     "delegate",
     "tc-plan",
-    { agent: "Plan", task: "设计个方案" },
+    { tasks: [{ agent: "Plan", task: "设计个方案" }] },
     new AbortController().signal,
   );
 
-  // spawn 不应报错
-  expect(result.content[0].text).toBe("ok");
+  // spawn 不应报错（聚合文本沿旧格式：逐任务【agent】标题）
+  expect(result.content[0].text).toBe("【Plan】\nok");
 
   // 验证 capturedConfigs 中包含 override 的 model/thinking
   expect(capturedConfigs.length).toBeGreaterThan(0);
@@ -186,12 +186,12 @@ test("内置 subagent override model 无效时降级为 null（不传 --model）
   const result = await ctx!.handleTool(
     "delegate",
     "tc-explore",
-    { agent: "Explore", task: "搜索代码" },
+    { tasks: [{ agent: "Explore", task: "搜索代码" }] },
     new AbortController().signal,
   );
 
   // spawn 不应因模型无效而报错
-  expect(result.content[0].text).toBe("ok");
+  expect(result.content[0].text).toBe("【Explore】\nok");
 
   // 验证 capturedConfigs 中 model 为 null（无效模型被降级）
   expect(capturedConfigs.length).toBeGreaterThan(0);
@@ -255,10 +255,10 @@ test("子智能体跟随主模型：无 override 时用主会话 currentModel", 
   const result = await ctx!.handleTool(
     "delegate",
     "tc-plan2",
-    { agent: "Plan", task: "设计个方案" },
+    { tasks: [{ agent: "Plan", task: "设计个方案" }] },
     new AbortController().signal,
   );
-  expect(result.content[0].text).toBe("ok");
+  expect(result.content[0].text).toBe("【Plan】\nok");
 
   const planConfig = capturedConfigs.find((c: any) => c.name === "Plan");
   expect(planConfig).toBeDefined();
@@ -319,10 +319,10 @@ test("只读内置子智能体（Explore/Plan）spawn 配置 tools 为只读白�
     const result = await ctx!.handleTool(
       "delegate",
       `tc-${agent}-ro`,
-      { agent, task: "搜索代码" },
+      { tasks: [{ agent, task: "搜索代码" }] },
       new AbortController().signal,
     );
-    expect(result.content[0].text).toBe("ok");
+    expect(result.content[0].text).toBe(`【${agent}】\nok`);
 
     const cfg = capturedConfigs.find((c: any) => c.name === agent);
     expect(cfg).toBeDefined();

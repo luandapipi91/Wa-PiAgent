@@ -6,7 +6,7 @@
 // - 引导消息走 pi 原生 steer()（turn_end 后自动投递）。
 // - 排队消息存 WaPi 本地 followUpList，agent_settled 时逐条 drain。
 //   pi RPC 的 queue_update 事件直接透传给前端，kernel 不合成。
-// - 宿主工具（ask/memory/delegate/fleet）经 wa-pi-bridge 扩展注册到 pi 进程，
+// - 宿主工具（ask/memory/delegate）经 wa-pi-bridge 扩展注册到 pi 进程，
 //   工具 execute 回调 kernel /bridge/tool（bridge-registry.ts 注册的 ctx 执行）。
 // - 系统提示词组合（composePrompt）结果写入临时文件，经 --system-prompt <file> 传入。
 // - 工具放行：默认排除式（-xt subagent）；agent 配置显式 tools 时用 --tools 白名单
@@ -73,7 +73,6 @@ import {
 import { reconcileDanglingAsks } from "./ask-tool";
 import {
 	makeDelegateTool,
-	makeFleetTool,
 	buildDelegateRoster,
 	makeSpawnFn,
 } from "./delegate-tool";
@@ -262,7 +261,7 @@ interface SessionHandle {
 	disposed: boolean;
 	/** 子代理派发遥测收集器（会话销毁时 flush 到 subagent-telemetry.jsonl） */
 	subagentTelemetry: SubagentTelemetry;
-	/** 在跑子代理的中止控制器登记表（delegate/fleet 每次派发创建一个，完成移除）：
+	/** 在跑子代理的中止控制器登记表（delegate 每次派发创建一个，完成移除）：
 	 *  abort()/_teardownSession 级联触发，让子代理进程随主会话一起停止 */
 	subagentAborts: Set<AbortController>;
 	/** 主会话当前模型（"provider/modelId"）：子智能体「跟随主模型」时透传给 spawn --model */
@@ -700,7 +699,7 @@ export class AgentManager {
 						return "";
 					});
 
-		// 关系网调起：delegate/fleet 工具的可用名单与 roster（与迁移前一致，内置 subagent 类型始终可调用）
+		// 关系网调起：delegate 工具的可用名单与 roster（与迁移前一致，内置 subagent 类型始终可调用）
 		const askToNames = config?.partners?.askTo ?? [];
 		const askToConfigs = (
 			await Promise.all(askToNames.map((n) => this.opts.configStore!.getAgent(n)))
@@ -805,7 +804,7 @@ export class AgentManager {
 		// 但 bridgeCtx.handleTool 是每次工具调用时才执行。handleTool 接到的 onProgress 是「本次调用」的，
 		// 无法直接传给已绑定的 spawn 闭包。解法：handleTool 调用前把 onProgress 写入本槽位，
 		// spawn 闭包的 onProgress 从槽位取最新值；finally 清空避免泄漏到下次调用。
-		// fleet 在同一 handleTool await 内并发多个子代理，它们共享同一 onProgress（fleet 调用的 toolCallId），
+		// 多任务在同一 handleTool await 内并发多个子代理，它们共享同一 onProgress（同一次 delegate 调用的 toolCallId），
 		// 槽位在整个 handleTool 调用期间稳定，天然不串。
 		// 注意：槽位签名是 (event) => void（对齐 bridge-registry 的 onProgress），
 		// emit 闭包自身已绑定 toolCallId（handleBridgeStream 里捕获），无需再传。
@@ -816,7 +815,7 @@ export class AgentManager {
 		// spawn 闭包经 getCallSignal 取值叠加中止（bridge 流式断连 → 中止子代理）
 		let currentCallSignal: AbortSignal | undefined;
 
-		// 中止快照进度转发槽：delegate/fleet 工具实例在其后创建，届时回填
+		// 中止快照进度转发槽：delegate 工具实例在其后创建，届时回填
 		//（spawnFn onProgress 触发时喂给工具，供中止占位快照聚合 toolStats）
 		let toolProgressTap:
 			| ((toolCallId: string, event: SubagentProgressEvent) => void)
@@ -898,25 +897,19 @@ export class AgentManager {
 			agentsDir,
 		);
 
-		// delegate/fleet 工具实例（execute 由 bridge ctx 调用；schema 在 wa-pi-bridge 扩展里）
+		// delegate 工具实例（execute 由 bridge ctx 调用；schema 在 wa-pi-bridge 扩展里）
 		const delegateTool = makeDelegateTool({
 			askTo: askToTargets,
 			spawn: spawnFn,
 			// 与 spawnFn 同源的调用级信号：abort 瞬间写中止占位快照（pi 侧轮询中转）
 			getCallSignal: () => currentCallSignal,
 		});
-		const fleetTool = makeFleetTool({
-			askTo: askToTargets,
-			spawn: spawnFn,
-			getCallSignal: () => currentCallSignal,
-		});
 		// 回填进度转发：spawnFn onProgress → 工具进度采集（中止占位快照的 toolStats 来源）
 		toolProgressTap = (toolCallId, event) => {
 			delegateTool.notifyProgress(toolCallId, event);
-			fleetTool.notifyProgress(toolCallId, event);
 		};
 
-		// bridge 会话上下文：ask/memory 走默认工厂，delegate/fleet 接宿主实现；
+		// bridge 会话上下文：ask/memory 走默认工厂，delegate 接宿主实现；
 		// reviewEnabled=false 时记忆工具返回关闭提示（对齐迁移前「不注册记忆工具」的行为）
 		const memoryEnabled = memConfig?.reviewEnabled !== false;
 		// 记忆库打开失败（磁盘/权限/损坏）只降级记忆功能，不阻断会话创建
@@ -936,25 +929,21 @@ export class AgentManager {
 				params,
 				signal,
 				// 子代理进度回调（流式 bridge 经 handleBridgeStream 注入）：
-				// delegate/fleet 执行期间由 spawn 闭包的 onProgress 触发，回写 NDJSON progress 帧。
+				// delegate 执行期间由 spawn 闭包的 onProgress 触发，回写 NDJSON progress 帧。
 				onProgress,
 			): Promise<BridgeToolResult> {
-				// delegate/fleet：把本次调用的 onProgress 写入会话级槽位，spawn 闭包从槽位取最新值；
+				// delegate：把本次调用的 onProgress 写入会话级槽位，spawn 闭包从槽位取最新值；
 				// finally 清空避免泄漏到下次工具调用（如 ask/memory 不需要进度）。
-				// fleet 在此 await 内并发多个子代理，共享同一 onProgress + toolCallId，槽位稳定不串。
-				if (tool === "delegate" || tool === "fleet") {
+				// 多任务在此 await 内并发多个子代理，共享同一 onProgress + toolCallId，槽位稳定不串。
+				if (tool === "delegate") {
 					currentSubagentOnProgress = onProgress;
 					currentCallSignal = signal;
 					try {
-						if (tool === "delegate") {
-							return await delegateTool.execute(
-								toolCallId,
-								params as { agent: string; task: string },
-							);
-						}
-						return await fleetTool.execute(
+						return await delegateTool.execute(
 							toolCallId,
-							params as { tasks: Array<{ agent: string; task: string }> },
+							params as {
+								tasks: Array<{ agent: string; task: string; resume?: string }>;
+							},
 						);
 					} finally {
 						currentSubagentOnProgress = undefined;
@@ -1851,7 +1840,7 @@ export class AgentManager {
 		handle.steerList = [];
 		handle.followUpList = [];
 		this._emitLocalQueueUpdate(sessionId, handle);
-		// 级联中止在跑的子代理进程（delegate/fleet 派发时登记）：
+		// 级联中止在跑的子代理进程（delegate 派发时登记）：
 		// 不中止的话主会话停了子代理仍跑到完成，成孤儿且结果无人消费。
 		for (const c of handle.subagentAborts) c.abort();
 		handle.subagentAborts.clear();

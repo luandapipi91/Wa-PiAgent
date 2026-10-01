@@ -1,6 +1,6 @@
 // delegate-snapshot.test.ts — 用户主动停止时的中止快照落盘测试（kernel 侧修法 A）
 //
-// 背景：用户在父会话点停止 → pi 侧 bridge 流被 cancel，delegate/fleet 的 final 帧
+// 背景：用户在父会话点停止 → pi 侧 bridge 流被 cancel，delegate 的 final 帧
 // 无人消费（流已死）。修法 A：execute 在 abort 瞬间用内存进度组装 final 快照立即
 // 落盘（pi 侧轮询窗口仅 abort 后 5 秒且只认 final，settle 收尾最长 10s 必然错过
 // 窗口）、全部子任务 settle 后再用最终状态覆盖写同一文件
@@ -8,7 +8,7 @@
 // 父模型（修法 B，见 bridge-extension.test.ts）。
 //
 // 覆盖：
-// 1. delegate / fleet 中止：abort 瞬间快照立即为 final 且可读（不等 settle）、
+// 1. delegate 中止：abort 瞬间快照立即为 final 且可读（不等 settle）、
 //    settle 后最终状态覆盖更新；
 // 2. abort 瞬间文本由最近进度事件组装（无进度事件则只有中止说明）；
 // 3. 正常完成（无 abort）不落盘。
@@ -26,7 +26,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeDelegateTool, makeFleetTool } from "../src/delegate-tool";
+import { makeDelegateTool } from "../src/delegate-tool";
 
 const tmpRoot = mkdtempSync(join(tmpdir(), "wa-pi-snapshot-"));
 const ORIGINAL_WA_PI_DIR = process.env.WA_PI_DIR;
@@ -99,7 +99,9 @@ test("delegate 中止：abort 瞬间快照立即为 final（不等 settle），s
 		getCallSignal: () => ctrl.signal,
 	});
 
-	const exec = tool.execute("snap-d1", { agent: "代码审查", task: "任务" });
+	const exec = tool.execute("snap-d1", {
+		tasks: [{ agent: "代码审查", task: "任务" }],
+	});
 	// 模拟用户在父会话点停止（bridge-registry 触发调用级信号）
 	setTimeout(() => ctrl.abort(), 15);
 
@@ -112,18 +114,19 @@ test("delegate 中止：abort 瞬间快照立即为 final（不等 settle），s
 		tool: "delegate",
 		phase: "final",
 	});
-	// 无进度事件：只有一句中止说明，但 text 可读、details 可消费
+	// 无进度事件：逐任务「（中断）」标题 + 一句中止说明，text 可读、details 可消费
+	expect(immediate.text).toContain("【代码审查】（中断）");
 	expect(immediate.text).toContain("子智能体已被中止");
-	expect(immediate.details).toEqual({ interrupted: true });
+	expect(immediate.details).toEqual({ fleet: {}, interrupted: { "0": true } });
 
 	// execute 返回（全部子任务 settle）后：最终状态覆盖同一文件（信息更全）
 	const res = await exec;
-	expect(res.details).toEqual({ interrupted: true });
+	expect(res.details).toEqual({ fleet: {}, interrupted: { "0": true } });
 	const final = JSON.parse(readFileSync(file, "utf8"));
 	expect(final.phase).toBe("final");
 	expect(final.tool).toBe("delegate");
 	expect(final.text).toContain("部分进度");
-	expect(final.details).toEqual({ interrupted: true });
+	expect(final.details).toEqual({ fleet: {}, interrupted: { "0": true } });
 });
 
 test("delegate 中止即时快照：用最近进度事件组装部分进度文本", async () => {
@@ -134,7 +137,9 @@ test("delegate 中止即时快照：用最近进度事件组装部分进度文�
 		getCallSignal: () => ctrl.signal,
 	});
 
-	const exec = tool.execute("snap-d2", { agent: "代码审查", task: "任务" });
+	const exec = tool.execute("snap-d2", {
+		tasks: [{ agent: "代码审查", task: "任务" }],
+	});
 	// 注册点经 notifyProgress 转发进度：工具 1 成功、工具 2 执行中
 	(tool as any).notifyProgress?.("snap-d2", {
 		agent: "代码审查",
@@ -162,9 +167,9 @@ test("delegate 中止即时快照：用最近进度事件组装部分进度文�
 	await exec;
 });
 
-test("fleet 中止：abort 瞬间 final 逐任务（中断）标题，settle 后覆盖为完整文本", async () => {
+test("多任务中止：abort 瞬间 final 逐任务（中断）标题，settle 后覆盖为完整文本", async () => {
 	const ctrl = new AbortController();
-	const tool = makeFleetTool({
+	const tool = makeDelegateTool({
 		askTo,
 		spawn: abortAwareSpawn(ctrl, "子智能体已被中止"),
 		getCallSignal: () => ctrl.signal,
@@ -182,7 +187,7 @@ test("fleet 中止：abort 瞬间 final 逐任务（中断）标题，settle 后
 	expect(await waitFor(() => existsSync(file))).toBe(true);
 	const immediate = JSON.parse(readFileSync(file, "utf8"));
 	expect(immediate.phase).toBe("final");
-	expect(immediate.tool).toBe("fleet");
+	expect(immediate.tool).toBe("delegate");
 	// abort 瞬间：每个子任务用瞬时状态组装，标题统一「（中断）」
 	expect(immediate.text).toContain("【代码审查】（中断）");
 	expect(immediate.text).toContain("【质量验收】（中断）");
@@ -212,8 +217,10 @@ test("正常完成（无 abort）不写快照文件", async () => {
 	const resultsDir = join(tmpRoot, "subagent-results");
 	const listDir = () => (existsSync(resultsDir) ? readdirSync(resultsDir).sort() : []);
 	const before = listDir();
-	const res = await tool.execute("snap-ok", { agent: "代码审查", task: "任务" });
-	expect(res.details).toEqual({ interrupted: false });
+	const res = await tool.execute("snap-ok", {
+		tasks: [{ agent: "代码审查", task: "任务" }],
+	});
+	expect(res.details).toEqual({ fleet: {}, interrupted: { "0": false } });
 	expect(existsSync(snapshotPath("snap-ok"))).toBe(false);
 	expect(listDir()).toEqual(before);
 });
