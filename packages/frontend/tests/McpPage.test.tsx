@@ -275,6 +275,10 @@ test("选中普通项目时项目级 MCP 开关可用，初值来自 trust.json 
   expect(sw.getAttribute("data-on")).toBe("true");
   expect(sw.getAttribute("data-unset")).toBe("false");
   expect(screen.queryByTestId("mcp-project-scope-unset")).toBeNull();
+  // 非置灰分支的 title 必须是 projectScopeHint（两分支写反要能红）
+  expect(
+    screen.getByTestId("mcp-project-scope-row").getAttribute("title"),
+  ).toContain("标记为受信任");
 });
 
 test("真值为未设置（null）时开关显示「未设置 / 跟随上层」，不谎报「已开」（缺口①回归）", () => {
@@ -347,6 +351,11 @@ test("点击开关保存成功后就地更新真值（不再靠 note 推断）�
 test("选中全局作用域时不显示项目级 MCP 开关（它是项目维度的）", () => {
   render(<McpPage />);
   expect(screen.queryByTestId("mcp-project-scope-switch")).toBeNull();
+
+  // 打开菜单后依然没有开关：覆盖「菜单里藏一份开关、并顺手去掉可见性守卫」这种回归
+  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+  expect(screen.getByTestId("mcp-scope-menu")).toBeTruthy();
+  expect(screen.queryByTestId("mcp-project-scope-switch")).toBeNull();
 });
 
 test("项目级开关在顶栏、无需打开作用域下拉即可操作，且位于「+ 手动添加」左侧（防止被挪回下拉菜单）", async () => {
@@ -374,6 +383,14 @@ test("项目级开关在顶栏、无需打开作用域下拉即可操作，且�
   expect(precedes(order[0], order[1])).toBe(true);
   expect(precedes(order[1], order[2])).toBe(true);
   expect(precedes(order[2], order[3])).toBe(true);
+
+  // 护栏 3：菜单里不得出现开关副本（打开菜单后菜单内无开关）
+  fireEvent.click(screen.getByTestId("mcp-scope-select"));
+  expect(
+    within(screen.getByTestId("mcp-scope-menu")).queryByTestId(
+      "mcp-project-scope-switch",
+    ),
+  ).toBeNull();
 });
 
 // ===== 保存：400 字段级错误留在表单里 =====

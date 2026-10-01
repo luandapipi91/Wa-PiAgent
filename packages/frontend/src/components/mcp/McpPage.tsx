@@ -425,7 +425,9 @@ function ProjectScopeToggle({
 
   return (
     <div
-      className="flex items-center gap-2 shrink-0 px-2.5 py-1 rounded-md"
+      // py-0.5（而非 py-1）：22px 开关 + 4px 内边距 + 2px 边框 = 28px，不再成为顶栏里最高的子项，
+      // 避免从全局切到项目作用域时这条工具栏被撑高
+      className="flex items-center gap-2 shrink-0 px-2.5 py-0.5 rounded-md"
       style={{
         background: "var(--surface)",
         border: "1px solid var(--hairline)",
@@ -450,6 +452,8 @@ function ProjectScopeToggle({
       <button
         type="button"
         role="switch"
+        // 按钮内容为空（只有内部滑块 span），row 的 title 不构成它的可访问名称 → 显式给 aria-label
+        aria-label={t("mcp.projectScope")}
         aria-checked={scopeOn}
         disabled={disabled || pending}
         data-testid="mcp-project-scope-switch"
