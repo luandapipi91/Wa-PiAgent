@@ -113,28 +113,46 @@ describe("groupToolCalls", () => {
 });
 
 describe("persistedNestedCalls（历史会话：父工具结果的 nestedCalls 记录）", () => {
-	test("解析 id/name/arguments/status，status=error 标红", () => {
-		const views = persistedNestedCalls({
-			nestedCalls: [
-				{ id: "call_00_abc/1", name: "mcp__poc__echo", arguments: { text: "hi" }, status: "ok", durationMs: 5 },
-				{ id: "call_00_abc/2", name: "mcp__poc__fail", status: "error", error: "boom" },
-				{ id: "call_00_abc/3", name: "mcp__poc__slow", status: "unfinished" },
-			],
-		});
+	// 真实形状 = pi `NestedCallRecorder.snapshot()` 的返回值（见 pi-ai 的 NestedToolCalls）：
+	// **对象** `{ calls, complete }`，不是数组；agent-session 把整个对象写到 tool result 上。
+	// 字段名也按 snapshot：`id` / `name` / `arguments`（对象）/ `status`(ok|error|unfinished)。
+	const snapshot = {
+		calls: [
+			{ id: "call_00_abc/1", name: "mcp__poc__echo", arguments: { text: "hi" }, status: "ok" as const, durationMs: 5 },
+			{ id: "call_00_abc/2", name: "mcp__poc__fail", status: "error" as const, error: "boom" },
+			{ id: "call_00_abc/3", name: "mcp__poc__slow", status: "unfinished" as const },
+		],
+		complete: false,
+	};
+
+	test("按真实形状 {calls, complete} 解析 id/name/arguments/status", () => {
+		const views = persistedNestedCalls({ nestedCalls: snapshot });
 		expect(views.map((v) => v.toolCallId)).toEqual([
 			"call_00_abc/1",
 			"call_00_abc/2",
 			"call_00_abc/3",
 		]);
+		expect(views.map((v) => v.toolName)).toEqual([
+			"mcp__poc__echo",
+			"mcp__poc__fail",
+			"mcp__poc__slow",
+		]);
+		// arguments 是持久化记录里的对象（区别于 codemode details.calls 的 JSON 字符串）
+		expect(views[0].args).toEqual({ text: "hi" });
 		expect(views[0].status).toBe("ok");
 		expect(views[1].status).toBe("error");
-		expect(views[2].status).toBe("running");
+		// unfinished = 调用方工具结束时该调用还没跑完：中性终态，不得显示成「进行中」
+		expect(views[2].status).toBe("unfinished");
 	});
 
 	test("无记录 / 畸形记录不抛错，返回空表", () => {
 		expect(persistedNestedCalls(undefined)).toEqual([]);
 		expect(persistedNestedCalls({})).toEqual([]);
-		expect(persistedNestedCalls({ nestedCalls: [null, 1, { name: "no-id" }] })).toEqual([]);
+		// 会话文件可能被手改/损坏：类型只是编译期约束，运行时容错必须保留
+		const corrupt = {
+			nestedCalls: { calls: [null, 1, { name: "no-id" }], complete: false },
+		} as unknown as Pick<ToolResultMessage, "nestedCalls">;
+		expect(persistedNestedCalls(corrupt)).toEqual([]);
 	});
 });
 
@@ -219,6 +237,27 @@ describe("ToolCallNested", () => {
 		);
 		expect(screen.getByTestId("toolcall-nested-item-call_00_abc/1").getAttribute("data-status")).toBe("error");
 		expect(screen.getByTestId("toolcall-nested-item-call_00_abc/2").getAttribute("data-status")).toBe("running");
+	});
+
+	test("历史遗留的 unfinished 是中性终态：不打转圈（历史会话里它早已结束）", () => {
+		render(
+			<ToolCallNested
+				group={{
+					parent: outer,
+					children: [
+						{ toolCallId: "call_00_abc/1", toolName: "mcp__poc__slow", args: {}, status: "unfinished", parentToolCallId: "call_00_abc" },
+						{ toolCallId: "call_00_abc/2", toolName: "mcp__poc__live", args: {}, status: "running", parentToolCallId: "call_00_abc" },
+					],
+				}}
+			/>,
+		);
+		const stale = screen.getByTestId("toolcall-nested-item-call_00_abc/1");
+		expect(stale.getAttribute("data-status")).toBe("unfinished");
+		expect(stale.querySelector('[style*="spin"]')).toBeNull();
+		// 对照组：真正进行中的调用仍有转圈
+		expect(
+			screen.getByTestId("toolcall-nested-item-call_00_abc/2").querySelector('[style*="spin"]'),
+		).not.toBeNull();
 	});
 });
 
@@ -420,6 +459,58 @@ describe("ToolCallsSegment：平铺调用不回归", () => {
 	});
 });
 
+describe("ToolCallsSegment：历史会话嵌套（仅持久化记录，无实时事件）", () => {
+	// 重开旧会话时的唯一来源：内层调用不进 transcript，store 的实时表也是空的
+	const codemodeResult: ToolResultMessage = {
+		role: "toolResult",
+		toolCallId: "call_00_abc",
+		toolName: "codemode",
+		content: [{ type: "text", text: "Script completed" }],
+		isError: false,
+		timestamp: 0,
+		nestedCalls: {
+			calls: [
+				{ id: "call_00_abc/1", name: "mcp__poc__echo", arguments: { text: "hi" }, status: "ok" },
+				{ id: "call_00_abc/2", name: "mcp__poc__slow", status: "unfinished" },
+			],
+			complete: false,
+		},
+	};
+
+	test("真实形状 {calls, complete} → 渲染出子卡（含参数摘要）", () => {
+		render(
+			<ToolCallsSegment
+				sessionId="s1"
+				toolCalls={[
+					{ type: "toolCall" as const, id: "call_00_abc", name: "codemode", arguments: outer.args },
+				]}
+				results={new Map([["call_00_abc", codemodeResult]])}
+			/>,
+		);
+		const child = screen.getByTestId("toolcall-nested-item-call_00_abc/1");
+		expect(child.textContent).toContain("mcp__poc__echo");
+		expect(child.textContent).toContain('"hi"');
+		expect(child.getAttribute("data-status")).toBe("ok");
+		// 不再出现平级的第二张卡片
+		expect(screen.queryByTestId("toolcall-call_00_abc/1")).toBeNull();
+	});
+
+	test("记录里的 unfinished → 中性终态，不打转圈", () => {
+		render(
+			<ToolCallsSegment
+				sessionId="s1"
+				toolCalls={[
+					{ type: "toolCall" as const, id: "call_00_abc", name: "codemode", arguments: outer.args },
+				]}
+				results={new Map([["call_00_abc", codemodeResult]])}
+			/>,
+		);
+		const stale = screen.getByTestId("toolcall-nested-item-call_00_abc/2");
+		expect(stale.getAttribute("data-status")).toBe("unfinished");
+		expect(stale.querySelector('[style*="spin"]')).toBeNull();
+	});
+});
+
 // ── MessageList 端到端（组件层）：事件流 → 聊天区嵌套卡片 ──
 
 function assistantMsg(timestamp: number, content: any[]): SessionMessage {
@@ -536,7 +627,7 @@ describe("MessageList：codemode → MCP 嵌套卡", () => {
 		expect(screen.queryByTestId("toolcall-nested-call_flat")).toBeNull();
 	});
 
-	test("历史会话：父工具结果的 nestedCalls 记录也渲染为子卡", () => {
+	test("历史会话：父工具结果的 nestedCalls 记录（真实形状 {calls, complete}）渲染为子卡", () => {
 		useSessionStore.setState({
 			messagesBySession: {
 				s1: [
@@ -549,10 +640,14 @@ describe("MessageList：codemode → MCP 嵌套卡", () => {
 						},
 					]),
 					toolResultMsg({
-						nestedCalls: [
-							{ id: "call_00_abc/1", name: "mcp__poc__echo", arguments: { text: "hi" }, status: "ok" },
-						],
-					} as any),
+						// pi 落盘的真实形状：对象 { calls, complete }（不是数组）
+						nestedCalls: {
+							calls: [
+								{ id: "call_00_abc/1", name: "mcp__poc__echo", arguments: { text: "hi" }, status: "ok" },
+							],
+							complete: true,
+						},
+					}),
 				],
 			},
 		});

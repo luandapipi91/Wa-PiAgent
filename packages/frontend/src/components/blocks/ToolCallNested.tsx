@@ -21,8 +21,9 @@ export interface ToolCallView {
 	args?: unknown;
 	result?: ToolCallResultView;
 	parentToolCallId?: string;
-	/** 终态：实时来自 tool_execution_end；历史来自 nestedCalls.status；缺省=running（执行中） */
-	status?: "running" | "ok" | "error";
+	/** 终态：实时来自 tool_execution_end；历史来自 nestedCalls.status；缺省=running（执行中）。
+	 *  `unfinished` = 调用方工具结束时该调用还没跑完（只出现在历史记录里，是中性终态）。 */
+	status?: "running" | "ok" | "error" | "unfinished";
 }
 
 /** 工具结果在视图中需要的最小形状（内容块 + 结构化 details，供结果文本/diff 统计渲染） */
@@ -62,22 +63,25 @@ export function groupToolCalls(calls: ToolCallView[]): ToolCallGroup[] {
 }
 
 /** 父工具结果里持久化的嵌套调用记录（pi nested-tool-calls：`<父id>/N` + name/arguments/status）。
- *  历史消息只有这份记录、没有结果内容；实时链路以事件流数据为准（优先）。形状不符的条目直接丢弃
- *  ——记录来自会话文件，畸形数据不能拖垮整行渲染。 */
-export function persistedNestedCalls(result: unknown): ToolCallView[] {
-	const records = (result as { nestedCalls?: unknown } | undefined)?.nestedCalls;
+ *  历史消息只有这份记录、没有结果内容；实时链路以事件流数据为准（优先）。
+ *  ⚠️ 形状是 **`{ calls, complete }` 对象**（pi `NestedCallRecorder.snapshot()` 原样落盘，
+ *  见 shared 的 `NestedToolCalls`）——按数组解析会恒为空表，历史会话就一张子卡都没有。
+ *  形状不符的条目直接丢弃——记录来自会话文件，畸形数据不能拖垮整行渲染。 */
+export function persistedNestedCalls(
+	result: Pick<ToolResultMessage, "nestedCalls"> | undefined,
+): ToolCallView[] {
+	const records = result?.nestedCalls?.calls;
 	if (!Array.isArray(records)) return [];
 	const views: ToolCallView[] = [];
 	for (const rec of records) {
 		if (!rec || typeof rec !== "object") continue;
-		const r = rec as Record<string, unknown>;
-		if (typeof r.id !== "string" || typeof r.name !== "string") continue;
+		if (typeof rec.id !== "string" || typeof rec.name !== "string") continue;
 		views.push({
-			toolCallId: r.id,
-			toolName: r.name,
-			args: r.arguments,
-			status:
-				r.status === "error" ? "error" : r.status === "unfinished" ? "running" : "ok",
+			toolCallId: rec.id,
+			toolName: rec.name,
+			args: rec.arguments,
+			// unfinished 是中性终态，不能当 running（历史会话里它早已结束，转圈是误报）
+			status: rec.status === "error" ? "error" : rec.status === "unfinished" ? "unfinished" : "ok",
 		});
 	}
 	return views;
@@ -120,9 +124,17 @@ const NestedToolCallCard = memo(function NestedToolCallCard({
 			? "text-danger"
 			: status === "running"
 				? "text-accent"
-				: "text-success";
-	const icon: "x" | "wrench" | "check" =
-		status === "error" ? "x" : status === "running" ? "wrench" : "check";
+				: status === "unfinished"
+					? "text-tertiary"
+					: "text-success";
+	const icon: "x" | "wrench" | "check" | "circle" =
+		status === "error"
+			? "x"
+			: status === "running"
+				? "wrench"
+				: status === "unfinished"
+					? "circle"
+					: "check";
 	return (
 		<div
 			data-testid={`toolcall-nested-item-${view.toolCallId}`}
