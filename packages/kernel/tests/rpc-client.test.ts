@@ -55,6 +55,10 @@ describe("resolvePiRuntime", () => {
 	});
 
 	test("非 win32：Bun.which 命中的 bun 仍被使用", () => {
+		// 必须显式固定平台：win32 下 resolvePiRuntime 走「跳过 PATH 上的 bun」分支直接返回
+		// process.execPath，与下面的 which 期望天然不符（本机 PATH 上的 bun 是桌面端放的 shim，
+		// execPath 却是打包内核 WaPiKernel.exe）→ Windows 上恒红、且测的是错误的分支。
+		Object.defineProperty(process, "platform", { value: "darwin" });
 		const which = (globalThis as any).Bun?.which;
 		if (typeof which !== "function") return; // 非 bun 运行时，无可断言
 		const found = which("bun");

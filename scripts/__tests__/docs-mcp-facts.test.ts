@@ -7,7 +7,7 @@
  *   ② 项目级配置的前置条件：先在应用内授权该项目，**并重启会话后**才生效
  *      （与 i18n `mcpForm.projectScopeHint` 同口径：pi 只在 session_start 读配置）
  *   ③ 旧实现 `pi-mcp-adapter` 在对外文案里不得残留
- * 另附发布说明（RELEASE_NOTES）三条口径断言：OAuth 在浏览器完成授权、暴露方式 5 档、稳定性修复并句。
+ * 另附发布说明（RELEASE_NOTES）两条口径断言：OAuth 在浏览器完成授权、暴露方式 5 档。
  *
  * 先红后绿：本测试先于文案修复落盘，首跑必须为红。
  */
@@ -103,8 +103,9 @@ describe("发布说明（RELEASE_NOTES）口径", () => {
 		expect(notes).toContain("直接可用 / 脚本调用 / 脚本调用（按需加载）/ 按需加载 / 不暴露");
 	});
 
-	test("本分支自产自修的三条并成一句稳定性修复", () => {
-		expect(notes).toContain("内置 MCP 实现的稳定性修复");
+	test("不得把开发期内产生又修复的问题写成用户可见的「修复」", () => {
+		// 那条「稳定性修复」的正向断言已随 v0.7.0 发布说明移除：本轮问题均在两次发版之间产生并修复，
+		// 用户从未遇到，不属对外内容（用户口径）。反向断言保留：内部缺陷说法不得出现在发布说明里。
 		expect(notes).not.toContain("无法保存");
 		expect(notes).not.toContain("刷新竞态");
 		expect(notes).not.toContain("用户消息");
