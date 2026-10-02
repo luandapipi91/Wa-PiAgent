@@ -737,14 +737,6 @@ export function makeDelegateTool(opts: {
 								jsonl = "";
 							}
 						}
-						// 登记实例身份（spawn 前，jsonl 已定型）：中止瞬间快照据此给出真实的
-						// <agent_id>/<transcript>。jsonl 已被上面降级为空的任务留空——不伪造路径。
-						taskInstances.get(toolCallId)?.set(index, {
-							agentId,
-							jsonlPath: jsonl,
-							subagentType: spawnAgent,
-							resumed: false,
-						});
 						const now = Date.now();
 						// 身份/任务等不变字段：spawn 前后两次写 meta 共用
 						const metaBase = {
@@ -767,6 +759,16 @@ export function makeDelegateTool(opts: {
 						});
 						// meta 准备失败 = 该目录不可用 → 不宣告 <transcript>（避免模型 read 404）
 						if (!metaPersisted) jsonl = "";
+						// 登记实例身份（jsonl 已最终定型，仍在 spawn 前）：中止瞬间快照据此给出真实的
+						// <agent_id>/<transcript>。必须放在上面 jsonl 降级判断**之后**——否则 meta 写盘
+						// 失败时返回块已降级为空、即时快照却仍宣告非空路径，前端门控放行 → 用户点
+						// 「查看全部内容」拿到 404。降级为空的任务留空，不伪造路径。
+						taskInstances.get(toolCallId)?.set(index, {
+							agentId,
+							jsonlPath: jsonl,
+							subagentType: spawnAgent,
+							resumed: false,
+						});
 						// 所有子任务共享同一个 delegate 工具调用的 toolCallId：前端卡片靠它定位，
 						// 内部按 progress.taskIndex 区分各子任务
 						try {

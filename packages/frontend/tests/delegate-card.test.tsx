@@ -29,11 +29,13 @@ function newShapeResult(opts: {
 	agentId?: string;
 	jsonlPath?: string;
 	interrupted?: boolean;
+	status?: "completed" | "failed" | "interrupted";
 	text?: string;
 } = {}) {
 	const {
 		agentId = "a3f8c1d0a",
 		jsonlPath: path = "/abs/subagents/s1/a3f8c1d0a.jsonl",
+		status = "completed",
 	} = opts;
 	return {
 		role: "toolResult" as const,
@@ -53,7 +55,7 @@ function newShapeResult(opts: {
 					agent: "Explore",
 					subagentType: "Explore",
 					resumed: false,
-					status: "completed",
+					status,
 					toolStats: { total: 2, done: 2, error: 0, running: 0 },
 					interrupted: opts.interrupted ?? false,
 				},
@@ -116,6 +118,28 @@ test("门控②：agentId 非空但 jsonlPath 为空（转录目录/meta 准备�
 	fireEvent.click(screen.getByTestId("delegate-call_1-header"));
 	expect(screen.getByText("查 X")).toBeTruthy();
 	expect(screen.queryByRole("button", { name: /查看全部内容/ })).toBeNull();
+});
+
+test("中断态（status=interrupted）且 agentId/jsonlPath 双非空 → 仍渲染「查看全部内容」并可打开转录", () => {
+	// 用户报告的缺陷：中断卡片没有查看入口。门控只认「有没有可查的转录」两个字段，
+	// 与终态无关——中断实例的 jsonl 同样已落盘；若将来有人给按钮加「仅完成态」条件，本用例会红。
+	render(
+		<DelegateCard
+			sessionId="s1"
+			toolCall={newCall}
+			result={newShapeResult({ interrupted: true, status: "interrupted" })}
+		/>,
+	);
+	// 终态默认折叠 → 展开后才看得到任务行与入口
+	fireEvent.click(screen.getByTestId("delegate-call_1-header"));
+	expect(screen.getByText("查 X")).toBeTruthy();
+	const btn = screen.getByRole("button", { name: /查看全部内容/ });
+	expect(btn.getAttribute("aria-label")).toBe("查看全部内容 Explore");
+	fireEvent.click(btn);
+	expect(useSessionStore.getState().transcript).toEqual({
+		sessionId: "s1",
+		agentId: "a3f8c1d0a",
+	});
 });
 
 test("旧 delegate 数据（无 subagents）：不出现查看按钮，回复照旧渲染", () => {

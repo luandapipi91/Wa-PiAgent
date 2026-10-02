@@ -16,7 +16,8 @@
 // 快照目录在调用时读取 process.env.WA_PI_DIR（非模块加载期），beforeAll 指向临时
 // 目录实现测试隔离，afterAll 恢复原值并清理。
 
-import { test, expect, beforeAll, afterAll } from "bun:test";
+import { test, expect, beforeAll, afterAll, spyOn } from "bun:test";
+import type { SubagentDetails } from "@wa-pi/shared";
 import {
 	existsSync,
 	mkdtempSync,
@@ -28,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeDelegateTool } from "../src/delegate-tool";
 import { jsonlPath } from "../src/subagent-instance-store";
+import * as subagentStore from "../src/subagent-instance-store";
 
 const tmpRoot = mkdtempSync(join(tmpdir(), "wa-pi-snapshot-"));
 const ORIGINAL_WA_PI_DIR = process.env.WA_PI_DIR;
@@ -343,4 +345,48 @@ test("中止先于派发：未生成 agentId 的任务在快照里留空降级�
 	expect(immediate.text).toContain("<agent_id></agent_id>");
 	expect(immediate.text).toContain("<transcript></transcript>");
 	await exec;
+});
+
+// 回归（审查发现 1）：meta 写盘失败时 jsonl 必须已经降级为空**再登记实例**——否则返回块
+// 已给空串（正确），即时快照（bridge 读走、落进会话、前端实际渲染的那一份）却仍宣告非空
+// jsonlPath → 前端双非空门控放行 → 用户点「查看全部内容」拿到 404。
+// 构造：mkdir 照常成功（目录可建），只让 writeMeta 抛错——精确命中「jsonl 被 meta 降级」这条路径。
+test("meta 写盘失败：即时快照里该任务的 jsonlPath 降级为空（不宣告必然 404 的转录）", async () => {
+	const ctrl = new AbortController();
+	const warn = spyOn(console, "warn").mockImplementation(() => {});
+	// writeMeta 是模块命名空间上的函数：delegate-tool 调用时按属性取值，spy 生效（用后必须还原）
+	const writeSpy = spyOn(subagentStore, "writeMeta").mockRejectedValue(
+		new Error("磁盘满"),
+	);
+	try {
+		const tool = makeDelegateTool({
+			askTo: askTo,
+			// settle 延迟 200ms：留出窗口读到 abort 瞬间的即时快照（而非覆盖后的终态）
+			spawn: abortAwareSpawn(ctrl, "子智能体已被中止", 200),
+			sessionId: SID,
+			getCallSignal: () => ctrl.signal,
+		});
+
+		const exec = tool.execute("snap-metafail", {
+			tasks: [{ agent: "代码审查", task: "任务" }],
+		});
+		setTimeout(() => ctrl.abort(), 15);
+
+		const file = snapshotPath("snap-metafail");
+		expect(await waitFor(() => existsSync(file))).toBe(true);
+		const immediate = JSON.parse(readFileSync(file, "utf8"));
+		const sa = immediate.details.subagents[0];
+		expect(sa.status).toBe("interrupted");
+		// 身份真实生成（不是早退路径），但路径必须为空：前端门控据此不给入口
+		expect(sa.agentId).toMatch(/^a[0-9a-f]{8}$/);
+		expect(sa.jsonlPath).toBe("");
+		expect(immediate.text).toContain("<transcript></transcript>");
+
+		// settle 后的返回块与即时快照同源：两处都不宣告不存在的转录
+		const res = await exec;
+		expect((res.details as SubagentDetails).subagents[0]!.jsonlPath).toBe("");
+	} finally {
+		writeSpy.mockRestore();
+		warn.mockRestore();
+	}
 });
