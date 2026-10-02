@@ -3,14 +3,21 @@
 // 背景：RPC 迁移后 kernel 不再 import @earendil-works/pi-coding-agent 的
 // AuthStorage/ModelRegistry，但 model:presets 端点与 provider-extension 生成
 // 仍需要 pi 内置模型的元数据（contextWindow / maxTokens / reasoning / cost 等）。
-// 这里改为读取 pi-ai 包内的 providers/all.js 数据目录：
-// 经 createRequire 定位包根，再按绝对路径动态 import（该文件不在 package.json
-// exports 里，直接按 specifier import 会被拒）。
+//
+// 数据来源：pi-ai 包内自带的 **JSON 数据**（`dist/providers/data/.manifest.json` +
+// 每家一个 `<provider>.json`），**不执行任何 JS 模块**。
+//
+// 为什么不再走「动态 import providers/all.js 再向它问数据」：打包产物（bun --compile）
+// 里那条路会在启动关键路径上**挂住不返回**——startKernel → await ensureProviderExtensionRegistered
+// → getAllCatalogModels → loadCatalog 卡住后，启动 promise 永不 settle、事件循环排空，
+// 进程以 code 0 静默退出，应用永远到不了就绪（源码/dev 形态不复现，只有打包版会中招）。
+// JSON 数据与那批模块里的模型表同源，实测读出来的目录与执行模块得到的**逐项一致**
+// （42 provider / 1532 chat 模型，含 cost/contextWindow 全部字段），且快得多（约 20ms vs 最坏 1.7s）。
 // 注意：这只是只读模型元数据目录，不是 agent 引擎 API；agent 驱动一律走 rpc-client。
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { readModelsStore } from "./model-catalog-refresh";
 
@@ -38,41 +45,111 @@ export interface CatalogModel {
   thinkingLevelMap?: Record<string, string | null>;
 }
 
-/** providers/all.js 的导出形状（只声明用到的部分） */
-interface CatalogModule {
-  getBuiltinProviders(): string[];
-  getBuiltinModels(provider: string): CatalogModel[];
-  builtinProviders(): Array<{ id: string; name?: string; baseUrl?: string }>;
-  /**
-   * 内置目录数据的生成时间（`data/.manifest.json` 的 generatedAt，毫秒）。
-   * 用于「远程目录只比内置新时才生效」的判定（与 pi 的 localGeneratedAt 同义）；
-   * 旧版 pi-ai 可能没导出，故为可选。
-   */
-  getBuiltinModelDataGeneratedAt?(): number | undefined;
+/** 目录数据（一次性读取并缓存；字段与 pi-ai 的模型表同构） */
+interface CatalogData {
+  /** 全部内置 provider id（= data 目录下的文件名，排序稳定即为 manifest 的键序） */
+  providers: string[];
+  /** provider id → 该家的 chat 类模型 */
+  modelsByProvider: Map<string, CatalogModel[]>;
+  /** 内置目录数据的生成时间（`data/.manifest.json` 的 generatedAt，毫秒）；缺失为 undefined */
+  generatedAt?: number;
 }
 
-let catalogPromise: Promise<CatalogModule> | null = null;
+let catalogData: CatalogData | null = null;
 
-/** 加载目录模块（进程内缓存一次；解析失败直接抛错，由调用方决定降级策略） */
-function loadCatalog(): Promise<CatalogModule> {
-  if (!catalogPromise) {
-    // bun --compile 产物内 import.meta.url 指向虚拟 FS，createRequire 解析不到磁盘
-    // node_modules；与 resolvePiCliPath 同款回退：运行时 kernel 进程 cwd = runtimeDir
-    // （pi-ai 随 pi-coding-agent 传递安装落盘），回退从 cwd 解析。
-    let req: NodeRequire;
-    try {
-      req = createRequire(import.meta.url);
-      req.resolve("@earendil-works/pi-ai/package.json");
-    } catch {
-      req = createRequire(join(process.cwd(), "package.json"));
-    }
-    const pkgJsonPath = req.resolve("@earendil-works/pi-ai/package.json");
-    const allJs = join(dirname(pkgJsonPath), "dist", "providers", "all.js");
-    catalogPromise = import(
-      pathToFileURL(allJs).href
-    ) as Promise<CatalogModule>;
+/** 定位 pi-ai 包根目录 */
+function piAiPackageDir(): string {
+  // bun --compile 产物内 import.meta.url 指向虚拟 FS，createRequire 解析不到磁盘
+  // node_modules；与 resolvePiCliPath 同款回退：运行时 kernel 进程 cwd = runtimeDir
+  // （packaged 下 app 传的就是它，pi-ai 随 pi-coding-agent 传递安装落盘）。
+  let req = createRequire(import.meta.url);
+  try {
+    req.resolve("@earendil-works/pi-ai/package.json");
+  } catch {
+    req = createRequire(join(process.cwd(), "package.json"));
   }
-  return catalogPromise;
+  return dirname(req.resolve("@earendil-works/pi-ai/package.json"));
+}
+
+/**
+ * 读取目录数据（纯文件读 + JSON.parse，进程内缓存一次）。
+ *
+ * 只取 `type === "chat"` 的条目：与替换前 `all.js` 的 `getBuiltinModels` 口径一致
+ * （实测那批模块的 chat 条目正是 1532 条，classifier 15 / image 57 不在其中）。
+ * 数据缺失或形状非法时直接抛错，由调用方决定降级策略（与旧实现一致）。
+ */
+function loadCatalog(): CatalogData {
+  if (catalogData) return catalogData;
+  const dataDir = join(piAiPackageDir(), "dist", "providers", "data");
+  const manifest = JSON.parse(
+    readFileSync(join(dataDir, ".manifest.json"), "utf8"),
+  ) as { generatedAt?: string; files?: Record<string, string> };
+  const files = Object.keys(manifest.files ?? {});
+  if (files.length === 0) {
+    throw new Error(
+      `pi-ai 模型目录数据缺失: ${join(dataDir, ".manifest.json")} 无 files 字段`,
+    );
+  }
+  const providers: string[] = [];
+  const modelsByProvider = new Map<string, CatalogModel[]>();
+  for (const file of files) {
+    const providerId = file.replace(/\.json$/, "");
+    const groups = JSON.parse(
+      readFileSync(join(dataDir, file), "utf8"),
+    ) as Record<string, Record<string, CatalogModel & { type?: string }>>;
+    const models: CatalogModel[] = [];
+    for (const api of Object.keys(groups)) {
+      for (const key of Object.keys(groups[api])) {
+        const model = groups[api][key];
+        if (!model || typeof model !== "object") continue;
+        if ((model.type ?? "chat") !== "chat") continue;
+        models.push(model);
+      }
+    }
+    providers.push(providerId);
+    modelsByProvider.set(providerId, models);
+  }
+  const generatedAt = manifest.generatedAt
+    ? Date.parse(manifest.generatedAt)
+    : undefined;
+  catalogData = {
+    providers,
+    modelsByProvider,
+    generatedAt: Number.isFinite(generatedAt) ? generatedAt : undefined,
+  };
+  return catalogData;
+}
+
+/**
+ * provider 显示名（如 "deepseek" → "DeepSeek"）。
+ *
+ * JSON 数据里只有模型表、没有 provider 级元数据，显示名写在各家模块文件里，这里
+ * **按文本提取**而不执行模块——执行正是打包产物会挂住的那条路。pi-ai 1.0.0 里只有两种写法：
+ *   · 常见：`createProvider({ id: "deepseek", name: "DeepSeek", … })`
+ *   · 工厂（radius）：`const name = options.name ?? "Radius";`
+ * 都匹配不到就回退 slug，与旧行为（`?? providerKey`）一致。
+ */
+function providerDisplayName(providerKey: string): string {
+  try {
+    const file = join(
+      piAiPackageDir(),
+      "dist",
+      "providers",
+      `${providerKey}.js`,
+    );
+    const text = readFileSync(file, "utf8");
+    const patterns = [
+      /\bname:\s*"((?:[^"\\]|\\.)*)"/,
+      /const\s+name\s*=[^;]*?\?\?\s*"((?:[^"\\]|\\.)*)"/,
+    ];
+    for (const re of patterns) {
+      const m = re.exec(text);
+      if (m) return m[1].replace(/\\(.)/g, "$1");
+    }
+  } catch {
+    /* 文件不存在/读失败：回退 slug */
+  }
+  return providerKey;
 }
 
 /**
@@ -105,11 +182,10 @@ function catalogKey(model: {
  * 读不到文件、形状非法、某条模型不合法——全部静默跳过，绝不抛错。
  */
 async function loadOverlayModels(
-  catalog: CatalogModule,
+  localGeneratedAt: number | undefined,
   agentDir: string,
 ): Promise<CatalogModel[]> {
   const store = await readModelsStore(agentDir);
-  const localGeneratedAt = catalog.getBuiltinModelDataGeneratedAt?.();
   const out: CatalogModel[] = [];
   for (const [providerId, entry] of Object.entries(store)) {
     if (localGeneratedAt !== undefined && entry.lastModified <= localGeneratedAt) {
@@ -131,8 +207,7 @@ async function loadOverlayModels(
  * 显示过期的价格与上下文长度——而预设列表本来就是让人挑还没配的服务用的。
  */
 export async function getBuiltinProviderIds(): Promise<string[]> {
-  const catalog = await loadCatalog();
-  return catalog.getBuiltinProviders();
+  return loadCatalog().providers;
 }
 
 /**
@@ -144,11 +219,11 @@ export async function getBuiltinProviderIds(): Promise<string[]> {
 export async function getAllCatalogModels(
   agentDir: string = WA_PI_DIR,
 ): Promise<CatalogModel[]> {
-  const catalog = await loadCatalog();
-  const base = catalog
-    .getBuiltinProviders()
-    .flatMap((p) => catalog.getBuiltinModels(p));
-  const overlay = await loadOverlayModels(catalog, agentDir);
+  const catalog = loadCatalog();
+  const base = catalog.providers.flatMap(
+    (p) => catalog.modelsByProvider.get(p) ?? [],
+  );
+  const overlay = await loadOverlayModels(catalog.generatedAt, agentDir);
   if (overlay.length === 0) return base;
   // 覆盖 + 追加，**不删除**：
   //   · 同键的内置条目就地换成远程值（下游 lookupSdkModel 用 find 取第一条命中，拿到的就是新值）；
@@ -177,9 +252,7 @@ export async function getAllCatalogModels(
 export async function getProviderDisplayName(
   providerKey: string,
 ): Promise<string> {
-  const catalog = await loadCatalog();
-  const hit = catalog.builtinProviders().find((p) => p.id === providerKey);
-  return hit?.name ?? providerKey;
+  return providerDisplayName(providerKey);
 }
 
 /**

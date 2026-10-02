@@ -104,6 +104,14 @@ export async function startKernel(opts?: {
 	// 这里作为最终守卫；dev.ts 另有快速失败提示。打包 sidecar 固定 1.4.0 理论不触发。
 	assertBunVersionOrExit();
 
+	// 启动期心跳：编译产物（bun --compile）下，启动阶段的 await 存在「事件循环被判定为空
+	// → 进程提前以 code 0 退出」的竞态：某些异步完成（文件读、模块加载等）不被登记为
+	// 待处理 handle，若此刻又没有别的 handle，Bun 就直接正常退出。表现见本轮 P0：打包版内核
+	// 只打印一行 defaultTools 就静默退出、应用永远不就绪；而**源码/dev 形态不复现**
+	// （故单测/typecheck/E2E 全绿也照样出坏包）。用 1s 心跳兜住整个启动过程，
+	// HTTP 监听后立即清掉——不留常驻 handle，不影响空闲功耗与退出语义。
+	const startupKeepAlive = setInterval(() => {}, 1000);
+
 	// 编译产物形态下子进程（pi RPC / bun add / MCP 服务器）的运行时仍是编译产物，
 	// 需 BUN_BE_BUN=1 才充当 bun CLI；此处写入 process.env 供所有子进程继承。
 	ensureBunBeBunEnv();
@@ -470,6 +478,8 @@ export async function startKernel(opts?: {
 
 	await server.start();
 	console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);
+	// 启动阶段已过（HTTP 已监听，此后有真实 handle 撑着），撤掉启动期心跳
+	clearInterval(startupKeepAlive);
 
 	// 子代理残留状态自愈：meta 的 running → 终态只发生在 delegate-tool 的 settle（spawn 返回后），
 	// 上次进程被强杀 / 整体退出时没人收尾 → meta 停在 running，那个实例再也 resume 不了

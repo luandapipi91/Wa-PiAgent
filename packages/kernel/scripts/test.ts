@@ -21,6 +21,9 @@ const INTEGRATION_TESTS = [
 	"tests/memory-db-open-failure.integration.test.ts",
 	// tui-host 端点集成（真实 WSServer + 流式 NDJSON），并行负载下 30s 超时，串行 2s 即过
 	"tests/tui-host-routes.integration.test.ts",
+	// 打包形态冒烟：真编译内核二进制 + 真启动等端口就绪。源码/dev 形态不复现的
+	// 「编译产物启动即静默退出」只能靠它拦住（本轮 P0 就是这么漏出去的）
+	"tests/kernel-compiled-boot.integration.test.ts",
 ];
 
 /** 负载敏感测试：依赖真实文件系统事件（fs.watch/FSEvents），--parallel 多 worker

@@ -91,16 +91,19 @@ export function stageAssetDir(): string {
 }
 
 /** 编译 kernel 单二进制到 outfile。用 process.execPath（真实 bun，≥1.4.0）避免 .cmd shim 问题。
- * target 传 win/linux 时用 --target 交叉编译（bun ≥1.4 支持，首次会下载目标平台 runtime）。 */
+ * target 传 win/linux 时用 --target 交叉编译（bun ≥1.4 支持，首次会下载目标平台 runtime）。
+ * bunPath 可注入：PATH 首位可能是桌面端放的 bun shim（execPath 是打包内核自己，
+ * 拿它编译会报 SectionExists），调用方（如打包链/打包态冒烟测试）可传真 bun 路径。 */
 export function compileKernelBinary(
 	outfile: string,
 	target?: "win" | "linux" | "darwin",
+	bunPath: string = process.execPath,
 ): void {
 	const assetDir = stageAssetDir();
 	try {
 		const args = buildCompileArgs(outfile, assetDir, target);
 		console.log(`[compile] $ bun ${args.join(" ")}`);
-		const r = spawnSync(process.execPath, args, { stdio: "inherit" });
+		const r = spawnSync(bunPath, args, { stdio: "inherit" });
 		if (r.status !== 0)
 			throw new Error(`bun build --compile 失败 (exit=${r.status})`);
 		console.log(`[compile] ✅ ${outfile}`);
