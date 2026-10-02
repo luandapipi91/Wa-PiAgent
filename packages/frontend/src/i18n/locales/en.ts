@@ -284,6 +284,26 @@ const en = {
 			progressSummary:
 				"subagent · {{status}} · {{seconds}}s · {{total}} tool(s) · success {{done}} · failed {{error}} · running {{running}}",
 			replyLabel: "Reply: ",
+			// Tool stats for a new-data (details.subagents) task row (status word is prefixed)
+			taskStats:
+				"Called {{total}} tool(s) success {{done}} failed {{error}} running {{running}}",
+			// Subagent transcript modal (task 10): entry button / title / empty state / footer / filters
+			transcriptTitle: "Delegate transcript",
+			viewTranscript: "View full content",
+			transcriptMissing:
+				"This delegation predates transcripts — nothing to view",
+			toolCount: "{{n}} tool(s)",
+			stepCount: "{{n}} step(s)",
+			usageInput: "In {{v}}",
+			usageOutput: "Out {{v}}",
+			usageCacheRead: "Cache read {{v}}",
+			copyAll: "Copy all",
+			filter: {
+				all: "All",
+				thinking: "Thinking",
+				tool: "Tools",
+				text: "Text",
+			},
 		},
 		mermaid: {
 			renderError: "Mermaid render failed: {{error}}",

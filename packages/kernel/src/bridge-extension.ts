@@ -3,7 +3,8 @@
 // RPC 模式下 pi 以子进程运行，SDK 的 customTools 机制不存在。
 // 替代方案：kernel 把静态扩展文件 wa-pi-bridge.extension.ts 连同依赖的
 // tool-schemas.ts（来自 @wa-pi/shared）复制到 GENERATED_DIR，
-// pi 经 -e 加载并注册 7 个宿主工具（ask_user_question / memory_* / delegate / fleet）。
+// pi 经 -e 加载并注册宿主工具（ask_user_question / memory_* / delegate / browser_* /
+// preview_open / im_push_to / list_contacts）。
 // 工具 execute 在 pi 进程内经 HTTP 回调 kernel 的 /bridge/tool 端点。
 //
 // 与旧版差异：不再动态生成 TypeScript 代码（generateBridgeExtension），

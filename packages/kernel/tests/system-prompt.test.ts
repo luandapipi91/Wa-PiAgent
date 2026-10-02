@@ -390,9 +390,9 @@ test("集成：askTo 含命名智能体时，系统提示词的 roster 段含内
 	// 命名智能体出现且含 hints
 	expect(prompt).toContain("代码审查");
 	expect(prompt).toContain("需评审");
-	// delegate-mechanism 段仍在（@语法 + fleet）
+	// delegate-mechanism 段仍在（@语法 + 单工具串行/并行路由）
 	expect(prompt).toContain("Delegation Mechanism");
-	expect(prompt).toContain("fleet");
+	expect(prompt).toContain("@agentName");
 });
 
 test("集成：askTo 为空时，系统提示词的 roster 段只含内置类型", () => {

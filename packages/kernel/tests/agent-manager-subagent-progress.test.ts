@@ -10,7 +10,7 @@
 // 本文件覆盖三点：
 // 1. handleTool 的 onProgress 参数被 spawn 闭包正确转发（槽位透传）
 // 2. onSubagentProgress 被触发且携带正确 sessionId / toolCallId / event
-// 3. fleet 并发多子代理共享同一 onProgress + toolCallId（槽位在 handleTool await 期间稳定）
+// 3. 多任务并发子代理共享同一 onProgress + toolCallId（槽位在 handleTool await 期间稳定）
 //
 // mock 策略：mock.module("../src/subagent-runner") 进程级生效，捕获 runSubagentAgent
 // 收到的 onProgress 并立即触发一次进度帧（不真正 spawn 子进程）。
@@ -125,7 +125,7 @@ test("delegate：handleTool 的 onProgress 被转发 + onSubagentProgress 携带
 	await ctx!.handleTool(
 		"delegate",
 		toolCallId,
-		{ agent: "Plan", task: "设计个方案" },
+		{ tasks: [{ agent: "Plan", task: "设计个方案" }] },
 		new AbortController().signal,
 		handleOnProgress,
 	);
@@ -149,7 +149,7 @@ test("delegate：handleTool 的 onProgress 被转发 + onSubagentProgress 携带
 	cleanupPromptFile(sessionId);
 });
 
-test("fleet：并发多子代理共享同一 onProgress + toolCallId，槽位期间稳定不串", async () => {
+test("delegate：并发多子代理共享同一 onProgress + toolCallId，槽位期间稳定不串", async () => {
 	const projectStore = newProjectStore();
 	const project = await projectStore.createProject({
 		name: "测试",
@@ -161,7 +161,7 @@ test("fleet：并发多子代理共享同一 onProgress + toolCallId，槽位期
 		title: "测试",
 	});
 	const sessionId = session.id;
-	const fleetToolCallId = "tc-fleet-001";
+	const delegateToolCallId = "tc-delegate-001";
 
 	const forwardedToHandle: any[] = [];
 	const handleOnProgress = (event: any) => forwardedToHandle.push(event);
@@ -187,10 +187,10 @@ test("fleet：并发多子代理共享同一 onProgress + toolCallId，槽位期
 	await am.ensureStarted(project.id, "dev", sessionId);
 
 	const ctx = getBridgeSession(sessionId);
-	// fleet 派发 3 个内置类型子任务，共享同一个 fleet 工具调用的 toolCallId
+	// delegate 派发 3 个内置类型子任务，共享同一个工具调用的 toolCallId
 	await ctx!.handleTool(
-		"fleet",
-		fleetToolCallId,
+		"delegate",
+		delegateToolCallId,
 		{
 			tasks: [
 				{ agent: "Explore", task: "搜 A" },
@@ -204,14 +204,14 @@ test("fleet：并发多子代理共享同一 onProgress + toolCallId，槽位期
 
 	// 3 个子代理各触发一次 running 帧：handleTool 的 onProgress 应被转发 3 次
 	expect(forwardedToHandle.length).toBe(3);
-	// onSubagentProgress 同样 3 次，全部带 fleet 的 toolCallId + 会话 sessionId（不串到别的 toolCallId）
+	// onSubagentProgress 同样 3 次，全部带本次调用的 toolCallId + 会话 sessionId（不串到别的 toolCallId）
 	expect(broadcasted.length).toBe(3);
-	expect(broadcasted.every((b) => b.toolCallId === fleetToolCallId)).toBe(true);
+	expect(broadcasted.every((b) => b.toolCallId === delegateToolCallId)).toBe(true);
 	expect(broadcasted.every((b) => b.sessionId === sessionId)).toBe(true);
-	// 3 个子代理名应分别出现在广播事件里（fleet 内部按 agent 区分）
+	// 3 个子代理名应分别出现在广播事件里（execute 内部按 agent 区分）
 	const agents = broadcasted.map((b) => b.event.agent).sort();
 	expect(agents).toEqual(["Explore", "Plan", "general-purpose"].sort());
-	// taskIndex 端到端透传：3 个子任务各带不同 taskIndex（0/1/2），前端 FleetCard 据此区分同名任务
+	// taskIndex 端到端透传：3 个子任务各带不同 taskIndex（0/1/2），前端据此区分同名任务
 	const indices = broadcasted
 		.map((b) => b.event.taskIndex)
 		.sort((a, b) => a - b);
@@ -220,9 +220,9 @@ test("fleet：并发多子代理共享同一 onProgress + toolCallId，槽位期
 	cleanupPromptFile(sessionId);
 });
 
-test("fleet：同名 agent 多任务各带不同 taskIndex 透传到广播（集成层忠实复现）", async () => {
+test("delegate：同名 agent 多任务各带不同 taskIndex 透传到广播（集成层忠实复现）", async () => {
 	// 复现根因场景：LLM 把多个任务派给同一智能体（同名 agent），
-	// 验证 taskIndex 经 fleet execute → spawn 闭包 → agent-manager → 广播全链路透传
+	// 验证 taskIndex 经 delegate execute → spawn 闭包 → agent-manager → 广播全链路透传
 	const projectStore = newProjectStore();
 	const project = await projectStore.createProject({
 		name: "测试",
@@ -258,7 +258,7 @@ test("fleet：同名 agent 多任务各带不同 taskIndex 透传到广播（集
 	const ctx = getBridgeSession(sessionId);
 	// 同名 agent 派发 2 个任务
 	await ctx!.handleTool(
-		"fleet",
+		"delegate",
 		"tc-fleet-dup",
 		{
 			tasks: [
@@ -323,7 +323,7 @@ test("handleTool 未传 onProgress 时 onSubagentProgress 仍被触发（槽位�
 	await ctx!.handleTool(
 		"delegate",
 		"tc-no-prog",
-		{ agent: "Plan", task: "设计" },
+		{ tasks: [{ agent: "Plan", task: "设计" }] },
 		new AbortController().signal,
 	);
 

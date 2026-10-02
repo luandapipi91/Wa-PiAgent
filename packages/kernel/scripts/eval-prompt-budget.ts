@@ -3,8 +3,7 @@
 //
 // 测量范围（与 goal ②一致）：
 //   ① DELEGATE_DESCRIPTION（delegate 工具描述）
-//   ② FLEET_DESCRIPTION（fleet 工具描述）
-//   ③ 系统提示词中委派描述部分 = delegate-mechanism 段 + delegate-roster 注入段（## Available Subagents）
+//   ② 系统提示词中委派描述部分 = delegate-mechanism 段 + delegate-roster 注入段（## Available Subagents）
 //
 // 口径：CJK 字符（含中文标点/全角）≈1 token，其余 4 字符 ≈1 token。
 //
@@ -18,10 +17,7 @@
 
 import { join } from "node:path";
 import { PROMPTS_FILE, WA_PI_DIR } from "@wa-pi/shared";
-import {
-	DELEGATE_DESCRIPTION,
-	FLEET_DESCRIPTION,
-} from "@wa-pi/shared/tool-schemas";
+import { DELEGATE_DESCRIPTION } from "@wa-pi/shared/tool-schemas";
 import {
 	ensurePromptsConfig,
 	loadPromptSegments,
@@ -54,11 +50,10 @@ const roster = buildDelegateRoster([], {}, join(WA_PI_DIR, "agents"));
 
 const parts = {
 	delegate: estTokens(DELEGATE_DESCRIPTION),
-	fleet: estTokens(FLEET_DESCRIPTION),
 	mechanism: estTokens(mechanism),
 	roster: estTokens(roster),
 };
-const total = parts.delegate + parts.fleet + parts.mechanism + parts.roster;
+const total = parts.delegate + parts.mechanism + parts.roster;
 
 if (jsonOut) {
 	console.log(
@@ -70,7 +65,6 @@ if (jsonOut) {
 				ok: total <= budget,
 				chars: {
 					delegate: DELEGATE_DESCRIPTION.length,
-					fleet: FLEET_DESCRIPTION.length,
 					mechanism: mechanism.length,
 					roster: roster.length,
 				},
@@ -82,7 +76,6 @@ if (jsonOut) {
 } else {
 	console.log("=== 委派相关提示词 token 预算（口径：CJK≈1、其余 4 字符≈1）===");
 	console.log(`DELEGATE_DESCRIPTION : ${parts.delegate} tok`);
-	console.log(`FLEET_DESCRIPTION    : ${parts.fleet} tok`);
 	console.log(`系统·delegate-mechanism: ${parts.mechanism} tok`);
 	console.log(`系统·delegate-roster   : ${parts.roster} tok`);
 	console.log(`合计                  : ${total} tok（预算 ${budget}）`);

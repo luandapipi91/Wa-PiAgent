@@ -133,7 +133,7 @@ test("delegate execute 读取 NDJSON 流并组装最终结果", async () => {
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		const res = await delegateTool.execute(
 			"tc1",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			new AbortController().signal,
 		);
 		expect(res.content[0].text).toBe("子代理结果");
@@ -158,7 +158,7 @@ test("流中断（无 final）退化为错误结果", async () => {
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		const res = await delegateTool.execute(
 			"tc2",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			new AbortController().signal,
 		);
 		expect(res.details?.error).toBe("stream_interrupted");
@@ -196,7 +196,7 @@ test("fetch init 携带 timeout:false（禁用 Bun 原生 300s 硬超时）", as
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		await delegateTool.execute(
 			"tc3",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			new AbortController().signal,
 		);
 		// Bun 专属选项：false = 关闭原生 300s 硬超时（否则 delegate 超 5 分钟必死）
@@ -270,7 +270,7 @@ test("持续有帧超过空闲阈值仍成功（收到帧即刷新空闲超时�
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		const res = await delegateTool.execute(
 			"tc4",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			new AbortController().signal,
 		);
 		expect(res.content[0].text).toBe("长跑完成");
@@ -317,7 +317,7 @@ test("无任何帧超过空闲阈值 → 报空闲超时", async () => {
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		const res = await delegateTool.execute(
 			"tc5",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			new AbortController().signal,
 		);
 		expect(res.content[0].text).toContain("空闲超时");
@@ -748,7 +748,7 @@ test("用户停止：abort 读到 final 快照 → 返回「已停止。」+ 部
 		const ctrl = new AbortController();
 		const exec = delegateTool.execute(
 			"tc_stop1",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			ctrl.signal,
 		);
 		setTimeout(() => ctrl.abort(), 30); // 模拟用户点停止
@@ -766,7 +766,7 @@ test("用户停止：只读到 partial 占位 → 返回「已停止。部分进
 	const sandbox = makeSnapshotSandbox();
 	writeKernelSnapshot(sandbox.dir, "tc_stop2", {
 		toolCallId: "tc_stop2",
-		tool: "fleet",
+		tool: "delegate",
 		phase: "partial",
 		tasks: [
 			{ index: 0, agent: "general-purpose" },
@@ -779,9 +779,9 @@ test("用户停止：只读到 partial 占位 → 返回「已停止。部分进
 
 	try {
 		const tools = await loadTools(shrinkSnapshotPoll);
-		const fleetTool = tools.find((t) => t.name === "fleet");
+		const delegateTool = tools.find((t) => t.name === "delegate");
 		const ctrl = new AbortController();
-		const exec = fleetTool.execute(
+		const exec = delegateTool.execute(
 			"tc_stop2",
 			{ tasks: [{ agent: "general-purpose", task: "a" }] },
 			ctrl.signal,
@@ -809,7 +809,7 @@ test("用户停止：轮询窗口内无快照 → 维持 abort 错误文案", as
 		const ctrl = new AbortController();
 		const exec = delegateTool.execute(
 			"tc_stop3",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			ctrl.signal,
 		);
 		setTimeout(() => ctrl.abort(), 30);
@@ -843,7 +843,7 @@ test("空闲超时（非用户停止）：读快照回收部分进度，文案�
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		const res = await delegateTool.execute(
 			"tc_idle1",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			new AbortController().signal,
 		);
 		// kernel liveness 判死先于 pi 空闲超时（快照已落盘）→ 回收部分进度而非丢弃
@@ -869,7 +869,7 @@ test("空闲超时：窗口内无快照（kernel 侧子代理仍在跑）→ 维
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		const res = await delegateTool.execute(
 			"tc_idle2",
-			{ agent: "general-purpose", task: "hi" },
+			{ tasks: [{ agent: "general-purpose", task: "hi" }] },
 			new AbortController().signal,
 		);
 		expect(res.content[0].text).toContain("bridge 调用失败");

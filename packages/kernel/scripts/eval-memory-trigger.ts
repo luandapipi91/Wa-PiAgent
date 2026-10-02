@@ -4,7 +4,7 @@
 // 目标：量化 agent 在「知识类 / 过程类提问」下是否**先查记忆（memory_search）再行动**。
 //   - 正例（expect="memory"）：问题属于项目结构/依赖/接口/历史决策/约定/变更/构建/踩坑
 //     ——答案可能已存在记忆里且不在已注入快照中 ⇒ 应当先 memory_search 检索。
-//     通过条件：调用过 memory_search，且**首次检索发生在任何 delegate/fleet 委派之前**。
+//     通过条件：调用过 memory_search，且**首次检索发生在任何 delegate 委派之前**。
 //   - 反例（expect="no-memory"）：单点事实查询（常量值/文件位置/脚本命令）或常识问答
 //     ——直接读代码或直接回答即可，检索记忆属多余动作。通过条件：全程未调 memory_search。
 //
@@ -16,7 +16,7 @@
 // - 工具面：默认排除式（不传 --tools，仅 -xt subagent）+ 全套扩展（provider-extension + wa-pi-bridge）
 // - memory_* 工具由 wa-pi-bridge 扩展注册、经 HTTP 回调 bridge；本脚本内置 stub bridge 直接复用
 //   kernel 的 memory/tools（createMemoryTools + MemoryDao）在隔离 memRoot 上真实应答
-//   ——不污染真实记忆；delegate/fleet 只记录调用不真 spawn（压成本）。
+//   ——不污染真实记忆；delegate 只记录调用不真 spawn（压成本）。
 //
 // cwd 隔离（硬约束）：被测 pi 进程的 cwd 默认指向 .worktrees/eval-memory-trigger（不存在则
 //   用 git worktree add --detach 创建）；**绝不静默回退到主工作区**（agent 可能真的改文件）。
@@ -32,7 +32,7 @@
 // 判定口径（casePassed）：
 //   · toolsCalled 按调用先后顺序收集（pi 事件 tool_execution_start 为主序 + bridge stub 增量补漏）。
 //   · memorySearchIdx = 首次出现 memory_search 的下标（无则 -1）；
-//     delegateIdx = 首次出现 delegate / fleet 的下标（无则 -1）。
+//     delegateIdx = 首次出现 delegate 的下标（无则 -1）。
 //   · expect="memory"：pass ⇔ memorySearchIdx >= 0 且（delegateIdx < 0 或 memorySearchIdx < delegateIdx）。
 //     即「查过记忆，且查记忆早于任何委派」；直接委派、或先派后查、或全程不查 → 失败。
 //   · expect="no-memory"：pass ⇔ memorySearchIdx < 0（一次都没查才通过）。
@@ -58,13 +58,13 @@
 // B. 本仓库可复用资产
 //   1) eval-memory-write.ts：casePassed（:853）/ computeStats（:905）/ gateFails（:922）/
 //      runSelftest（:928）——「逐条判定 + 通过率 + 硬门禁 + --selftest 不调模型」骨架，本脚本仿此
-//   2) eval-delegate-trigger.ts：stub bridge 只记录 delegate/fleet 不真 spawn、工具调用收集、
+//   2) eval-delegate-trigger.ts：stub bridge 只记录 delegate 不真 spawn、工具调用收集、
 //      首派轮次与混淆矩阵——本脚本的「工具序列判定」沿用同一机制
 //   3) tool-schemas.ts 的分层设计：判定细则收敛到工具描述（DELEGATE_DESCRIPTION），
 //      系统提示词只留入口级概述——本次文案改动遵守同一分层，不新增第三处重复
 // C. 本次落点与不做的事
 //   · 落点：MEM_SEARCH_DESC（判定细则）+ DELEGATE_DESCRIPTION（例外边界）+ Memory Policy 段（概述）
-//   · 不做：不改记忆存储与检索算法；不改 delegate/fleet 核心路由；文案达标即不加运行时预取机制
+//   · 不做：不改记忆存储与检索算法；不改 delegate 核心路由；文案达标即不加运行时预取机制
 
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -197,7 +197,7 @@ const CASES: Case[] = [
 	},
 	{
 		category: "pinpoint",
-		prompt: "FLEET_MAX_CONCURRENCY 的值是多少？",
+		prompt: "MAX_SUBAGENT_CONCURRENCY 的值是多少？",
 		expect: "no-memory",
 	},
 	{
@@ -347,7 +347,7 @@ function selectCases(opts: CliOpts): Case[] {
 	return pool.slice(0, Math.max(0, Math.min(opts.limit, pool.length)));
 }
 
-// ---- stub bridge server：memory_* 走真实记忆工具集（隔离 memRoot），delegate/fleet 只记录 ----
+// ---- stub bridge server：memory_* 走真实记忆工具集（隔离 memRoot），delegate 只记录 ----
 interface StubCall {
 	tool: string;
 	params: unknown;
@@ -413,14 +413,14 @@ function startStubBridge(cwd: string, memRoot: string): Promise<StubBridge> {
 			}
 			const tool = String(msg.tool ?? "");
 			calls.push({ tool, params: msg.params, at: new Date().toISOString() });
-			// memory_* 真实应答（隔离库）；delegate/fleet 只记录不真 spawn；其余直接 ok
+			// memory_* 真实应答（隔离库）；delegate 只记录不真 spawn；其余直接 ok
 			Promise.resolve(
 				tool.startsWith("memory_")
 					? handleMemoryTool(tool, msg.params ?? {}, memRoot, cwd)
 					: {
 							ok: true,
 							text:
-								tool === "delegate" || tool === "fleet"
+								tool === "delegate"
 									? "（评测桩：子代理已完成任务，结果略）"
 									: "（评测桩：ok）",
 						},
@@ -474,9 +474,9 @@ interface CaseResult {
 	bridgeTools: string[];
 	/** 首次 memory_search 的下标（无则 -1） */
 	memorySearchIdx: number;
-	/** 首次 delegate / fleet 的下标（无则 -1） */
+	/** 首次 delegate 的下标（无则 -1） */
 	delegateIdx: number;
-	/** 首次委派轮次：toolsCalled 中首个 delegate/fleet 的序号（1 起）；未派为 null */
+	/** 首次委派轮次：toolsCalled 中首个 delegate 的序号（1 起）；未派为 null */
 	firstDelegateRound: number | null;
 	/** assistant 轮次数（agent_end 事件数） */
 	rounds: number;
@@ -622,7 +622,7 @@ async function runOneCase(
 		if (!result.toolsCalled.includes(t)) result.toolsCalled.push(t);
 	}
 	result.memorySearchIdx = firstIndexOf(result.toolsCalled, ["memory_search"]);
-	result.delegateIdx = firstIndexOf(result.toolsCalled, ["delegate", "fleet"]);
+	result.delegateIdx = firstIndexOf(result.toolsCalled, ["delegate"]);
 	result.firstDelegateRound =
 		result.delegateIdx >= 0 ? result.delegateIdx + 1 : null;
 	result.elapsedMs = Date.now() - startedAt;
@@ -688,7 +688,7 @@ interface EvalStats {
 	negRate: number;
 	/** 混淆矩阵（本次要治的核心症状单列） */
 	confusion: {
-		/** 该查却直接委派（未查记忆就先 delegate/fleet）——核心症状 */
+		/** 该查却直接委派（未查记忆就先 delegate）——核心症状 */
 		missThenDelegate: number;
 		/** 该查却没查（也没委派） */
 		missNoLookup: number;
@@ -783,7 +783,7 @@ function runSelftest(): boolean {
 	});
 	// ②b 先派后查 → 失败
 	const delegateThenSearch = mk({
-		toolsCalled: ["fleet", "memory_search"],
+		toolsCalled: ["delegate", "memory_search"],
 		memorySearchIdx: 1,
 		delegateIdx: 0,
 	});
@@ -1170,7 +1170,7 @@ async function main() {
 
 	console.log("\n--- 混淆矩阵（本次核心症状单列） ---");
 	console.log(
-		`该查却直接委派（未查记忆就先 delegate/fleet）: ${stats.confusion.missThenDelegate} 条  ← 核心症状`,
+		`该查却直接委派（未查记忆就先 delegate）: ${stats.confusion.missThenDelegate} 条  ← 核心症状`,
 	);
 	console.log(`该查却没查（也没委派）: ${stats.confusion.missNoLookup} 条`);
 	console.log(`先派后查（查了但排在委派之后）: ${stats.confusion.delegateBeforeSearch} 条`);

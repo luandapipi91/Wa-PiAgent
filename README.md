@@ -101,7 +101,7 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 - **9 built-in expert roles** (senior project manager, product manager, frontend/backend developers, test analyst, code reviewer, data analyst, UX designer, meeting minutes) — ready out of the box
 - **Custom agents**: prompt, tool whitelist, skills, model, and reasoning effort all independently configurable
 - **Assign with @**: type `@` in the chat box to summon the agent panel and put a specific role on the job; use the "relationship web" so agents collaborate proactively or on demand
-- **Task delegation**: agents can invoke sub-agents via `delegate` / `fleet` (three built-in types: general-purpose / Explore / Plan) — complex tasks are split, run concurrently, and aggregated automatically
+- **Task delegation**: agents can invoke sub-agents via `delegate` (its `tasks` array dispatches 1–6 sub-tasks in a single call; three built-in types: general-purpose / Explore / Plan) — complex tasks are split, run concurrently, and aggregated automatically
 
 ### 💬 IM bot channels
 
@@ -211,7 +211,7 @@ bun run typecheck      # Type checking
 
 **Already shipped:**
 
-- [x] Multi-agent sessions and delegation (delegate / fleet)
+- [x] Multi-agent sessions and delegation (delegate)
 - [x] Graphical MCP management (with OAuth sign-in and error diagnostics)
 - [x] Skills / plugins / memory systems
 - [x] Hot-reloaded plugins: dynamic install / uninstall / upgrade, no restart

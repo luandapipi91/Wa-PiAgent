@@ -118,7 +118,7 @@ test("handleBridgeStream 透传 opts.signal：abort 后 delegate 执行收到中
 			sessionId: "s1",
 			toolCallId: "tc1",
 			tool: "delegate",
-			params: { agent: "Explore", task: "x" },
+			params: { tasks: [{ agent: "Explore", task: "x" }] },
 		},
 		(line) => frames.push(line),
 		{ signal: ctrl.signal, heartbeatMs: 50 },

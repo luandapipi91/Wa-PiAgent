@@ -51,8 +51,10 @@ export class ProjectStore {
 	 * load() 的 catch-empty 只适用于纯只读展示；若写路径拿到空快照后写回，
 	 * 会把整个 store 清空（projects.json 反复「变空」事故的根因）。
 	 * 文件不存在（ENOENT，首次启动）仍是合法空库。
+	 * protected：仅供装饰子类（subagent-cascade-store）在「会导致 fs 破坏性操作」的回读路径上复用
+	 * 严格读语义（load 的 catch-empty 会把瞬时读失败当成空库，用于此处会误判为全部已删）。
 	 */
-	private async loadStrict(): Promise<ProjectsFile> {
+	protected async loadStrict(): Promise<ProjectsFile> {
 		try {
 			const raw = await readFile(this.filePath, "utf8");
 			const data = JSON.parse(raw) as ProjectsFile;

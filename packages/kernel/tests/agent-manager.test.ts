@@ -2220,7 +2220,7 @@ test("bridge ctx 的 delegate 工具：不在可调起列表时返回错误", as
 	const result = await ctx.handleTool(
 		"delegate",
 		"tc1",
-		{ agent: "不存在的智能体", task: "做点什么" },
+		{ tasks: [{ agent: "不存在的智能体", task: "做点什么" }] },
 		new AbortController().signal,
 	);
 	expect(result.content[0].text).toContain("不在可调起列表中");
@@ -2246,7 +2246,7 @@ test("skills 白名单下 delegate 工具仍可用（不因 skill 过滤误关 b
 	const result = await ctx.handleTool(
 		"delegate",
 		"tc1",
-		{ agent: "代码审查", task: "review this" },
+		{ tasks: [{ agent: "代码审查", task: "review this" }] },
 		new AbortController().signal,
 	);
 	// 即使 spawn 失败（测试环境无真实子进程），也不应报"工具不存在"

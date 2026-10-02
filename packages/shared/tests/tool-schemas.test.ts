@@ -5,22 +5,27 @@
 import { test, expect } from "bun:test";
 
 test("DELEGATE_DESCRIPTION 可从 @wa-pi/shared 导入且内容非空", async () => {
-  // 当前 tool-schemas.ts 还不存在 —— 预期 import 失败，测试红灯
   const { DELEGATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
   expect(typeof DELEGATE_DESCRIPTION).toBe("string");
   expect(DELEGATE_DESCRIPTION.length).toBeGreaterThan(100);
   expect(DELEGATE_DESCRIPTION).toContain("子智能体");
-  expect(DELEGATE_DESCRIPTION).toContain("delegate");
-  // fleet 并行与顺序派发两判据必须并存（fleet 选择正确率优化的关键）
-  expect(DELEGATE_DESCRIPTION).toContain("fleet 并行");
-  expect(DELEGATE_DESCRIPTION).toContain("逐个 delegate");
+  expect(DELEGATE_DESCRIPTION).toContain("委托");
 });
 
-test("FLEET_DESCRIPTION 可从 @wa-pi/shared 导入", async () => {
-  const { FLEET_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
-  expect(typeof FLEET_DESCRIPTION).toBe("string");
-  expect(FLEET_DESCRIPTION).toContain("并行");
-  expect(FLEET_DESCRIPTION).toContain("逐个 delegate");
+test("DELEGATE_DESCRIPTION 说明 tasks 数组契约（项数 / agent / 并行 / resume）", async () => {
+  // delegate + fleet 合并为单一 tasks 数组工具后，工具描述必须把新入参形状
+  // 说清楚，否则模型会继续按旧的 {agent, task} 形状调用。
+  const { DELEGATE_DESCRIPTION, DELEGATE_MAX_TASKS } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  expect(DELEGATE_DESCRIPTION).toContain(`1..${DELEGATE_MAX_TASKS}`);
+  // 合并后文案以「1..6 项…超出拒绝不排队」表达上限语义（不再写作「上限 6」）
+  expect(DELEGATE_DESCRIPTION).toContain("超出拒绝不排队");
+  expect(DELEGATE_DESCRIPTION).toContain("tasks");
+  expect(DELEGATE_DESCRIPTION).toContain("agent");
+  expect(DELEGATE_DESCRIPTION).toContain("并行");
+  expect(DELEGATE_DESCRIPTION).toContain("resume");
+  expect(DELEGATE_DESCRIPTION).toContain("<agent_id>");
 });
 
 test("ASK_DESCRIPTION / ASK_PROMPT_GUIDELINES 可从 @wa-pi/shared 导入", async () => {
@@ -117,7 +122,8 @@ test("DELEGATE_DESCRIPTION 划出「知识类提问先查记忆」的例外边�
   expect(bullets.length).toBeGreaterThan(0);
   expect(bullets[0]).toContain("例外");
   expect(bullets[0]).toContain("memory_search");
-  expect(bullets[0]).toContain("知识类");
+  // 合并后文案写作「知识/过程类问题」，仍须点名知识类（防被总则吃掉）
+  expect(bullets[0]).toContain("知识");
 });
 
 test("DELEGATE_DESCRIPTION 与 existing delegate-tool.ts 输出一致", async () => {
@@ -125,32 +131,32 @@ test("DELEGATE_DESCRIPTION 与 existing delegate-tool.ts 输出一致", async ()
   const { DELEGATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
 
   // 从 kernel 侧 delegate-tool 动态获取当前值（绕过 import 缓存，确保读到真实实现）
-  const { makeDelegateTool, makeFleetTool } = await import(
-    "../../kernel/src/delegate-tool"
-  );
+  const { makeDelegateTool } = await import("../../kernel/src/delegate-tool");
   const spawn = async () => ({ text: "", isError: false });
-  const delegateReal = makeDelegateTool({ askTo: [], spawn });
-  const fleetReal = makeFleetTool({ askTo: [], spawn });
+  const delegateReal = makeDelegateTool({
+    askTo: [],
+    spawn,
+    sessionId: "s-tool-schemas",
+  });
 
   expect(DELEGATE_DESCRIPTION).toBe(delegateReal.description);
-
-  const { FLEET_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
-  expect(FLEET_DESCRIPTION).toBe(fleetReal.description);
 });
 
-test("FLEET_DESCRIPTION 并发数与 FLEET_MAX_CONCURRENCY 同源（防模板/常量脱节回归）", async () => {
-  // 真实事故：模板硬编码 5、kernel 常量 6，delegate-tool 的 replace 因搜索串不匹配
-  // 而静默失效，模型看到的上限一直停留在 5。本测试锁定「文案与数值同源」。
-  const { FLEET_DESCRIPTION, FLEET_MAX_CONCURRENCY } = await import(
+test("DelegateParamsSchema：tasks 数组 1..DELEGATE_MAX_TASKS，每项 agent/task 必填、resume 可选", async () => {
+  const { DelegateParamsSchema, DELEGATE_MAX_TASKS } = await import(
     "@wa-pi/shared/tool-schemas"
   );
-  expect(FLEET_MAX_CONCURRENCY).toBe(6); // 数值 2026-09-01 用户拍板
-  expect(FLEET_DESCRIPTION).toContain(`并发上限 ${FLEET_MAX_CONCURRENCY}`);
-  // 上限语义：超出即拒绝（kernel 前置校验），不再「排队等位」——文案必须与行为一致，
-  // 否则模型会以为能一次提交超过上限的任务
-  expect(FLEET_DESCRIPTION).toContain("超出会被拒绝");
-  expect(FLEET_DESCRIPTION).not.toContain("Concurrency limit is 5");
-  expect(FLEET_DESCRIPTION).not.toContain("Concurrency limit is 6");
+  // 数值 2026-09-01 用户拍板：6 子代理 × ~300MB 约 1.8GB，可接受
+  expect(DELEGATE_MAX_TASKS).toBe(6);
+  const tasks = (DelegateParamsSchema.properties as any).tasks;
+  expect(tasks.type).toBe("array");
+  expect(tasks.minItems).toBe(1);
+  expect(tasks.maxItems).toBe(DELEGATE_MAX_TASKS);
+  // 每项 schema：agent/task 必填，resume 可选（本次只声明，任务 6 才接线）
+  expect(tasks.items.required).toEqual(["agent", "task"]);
+  expect(tasks.items.properties.resume).toBeDefined();
+  // 顶层 required 只剩 tasks（旧的 agent/task 顶层参数已删除）
+  expect(DelegateParamsSchema.required).toEqual(["tasks"]);
 });
 
 test("browser_* 工具描述可从 @wa-pi/shared 导入且非空", async () => {

@@ -1,6 +1,8 @@
+// 旧 fleet 聚合文本拆分（extractAgentReplies）在同名/多段边界下的鲁棒性契约。
+// 说明：FleetCard 已并入 DelegateCard，本文件保留原文件名。
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { FleetCard } from "../src/components/blocks/FleetCard";
+import { DelegateCard } from "../src/components/blocks/DelegateCard";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
@@ -60,7 +62,7 @@ test("拆分鲁棒性：正文自带的【】小标题不参与切分，各任�
 			},
 		],
 	};
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={splitResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	// 拆分成功：不渲染聚合回复块（回复按任务行展开）
 	expect(screen.queryByTestId("text-block")).toBeNull();
@@ -83,7 +85,7 @@ test("拆分鲁棒性：「已停止。」前缀不阻碍拆分（用户停止�
 			},
 		],
 	};
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={stoppedResult} />);
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={stoppedResult} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	expect(screen.queryByTestId("text-block")).toBeNull();
 	const rows = screen.getAllByRole("button", { name: /展开|▶/ });
@@ -103,7 +105,7 @@ test("降级聚合（无法拆分）：任务行不显示「点击查看回复�
 			},
 		},
 	};
-	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={degraded} />);
+	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={degraded} />);
 	fireEvent.click(screen.getByTestId("fleet-f1-header"));
 	// 聚合回复区（正式回复）仍可见
 	expect(screen.getByTestId("text-block")).toBeTruthy();

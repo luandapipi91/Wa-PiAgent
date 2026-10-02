@@ -37,7 +37,6 @@ import { DelegateCard } from "./blocks/DelegateCard";
 import { useThrottledValue } from "./blocks/useThrottledValue";
 import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
-import { FleetCard } from "./blocks/FleetCard";
 import { InlineVideo } from "./blocks/InlineVideo";
 import { Markdown } from "./blocks/Markdown";
 import { MarkdownImage } from "./blocks/MarkdownImage";
@@ -1493,10 +1492,10 @@ export const MessageRow = memo(function MessageRow({
 				/>
 			);
 		}
-		// 并行派发 — 内联卡片（FleetCard 展示多个子任务）
+		// 并行派发（历史 fleet 记录）— 同样由统一后的 DelegateCard 内联渲染（按序号配对 tasks）
 		if (seg.kind === "fleet") {
 			return (
-				<FleetCard
+				<DelegateCard
 					key={seg.call.id}
 					sessionId={sessionId}
 					toolCall={seg.call}

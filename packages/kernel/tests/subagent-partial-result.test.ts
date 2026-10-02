@@ -11,11 +11,7 @@
 // "../src/subagent-runner"（进程级生效且无法撤销），本文件用 cache-bust 查询串
 // 动态 import 拿真实实现；delegate-tool 侧经 makeSpawnFn 的注入项绕过污染。
 import { test, expect, mock } from "bun:test";
-import {
-	makeDelegateTool,
-	makeFleetTool,
-	makeSpawnFn,
-} from "../src/delegate-tool";
+import { makeDelegateTool, makeSpawnFn } from "../src/delegate-tool";
 import { computeSpawnTelemetry } from "../src/subagent-telemetry";
 import type { SpawnTelemetryInput } from "../src/subagent-telemetry";
 import { join } from "node:path";
@@ -39,6 +35,9 @@ const askTo = [
 	{ name: "代码审查", description: "评审改动" },
 	{ name: "质量验收", description: "测试与验收" },
 ];
+
+/** 父会话 id（子代理实例目录按父会话隔离；本文件只验证返回形状，不读 meta） */
+const SID = "s-partial-result";
 
 function baseConfig() {
 	return {
@@ -254,13 +253,19 @@ test("delegate execute：interrupted 写入 details（isError 语义不变）", 
 		isError: true,
 		interrupted: true,
 	}));
-	const tool = makeDelegateTool({ askTo, spawn });
-	const res = await tool.execute("tc-d", { agent: "代码审查", task: "hi" });
+	const tool = makeDelegateTool({ askTo, spawn, sessionId: SID });
+	const res = await tool.execute("tc-d", {
+		tasks: [{ agent: "代码审查", task: "hi" }],
+	});
 	expect(res.isError).toBe(true);
-	expect((res.details as any)?.interrupted).toBe(true);
+	// 新形状：整条 interrupted 为布尔，且逐条 records 各自的中断标记
+	expect(res.details).toMatchObject({
+		subagents: [{ taskIndex: 0, agent: "代码审查", interrupted: true, status: "interrupted" }],
+		interrupted: true,
+	});
 });
 
-test("fleet execute：details.fleet 保持 ToolStats 形状，interrupted 按任务序号记录", async () => {
+test("delegate execute（多任务）：details.subagents 逐条带 ToolStats，interrupted 逐任务记录", async () => {
 	const spawn = mock(
 		async (
 			_agent: string,
@@ -281,20 +286,29 @@ test("fleet execute：details.fleet 保持 ToolStats 形状，interrupted 按任
 						toolStats: { total: 1, done: 1, error: 0, running: 0 },
 					},
 	);
-	const tool = makeFleetTool({ askTo, spawn });
+	const tool = makeDelegateTool({ askTo, spawn, sessionId: SID });
 	const res = await tool.execute("tc-f", {
 		tasks: [
 			{ agent: "代码审查", task: "a" },
 			{ agent: "质量验收", task: "b" },
 		],
 	});
-	const details = res.details as any;
-	// 现有 fleet 统计形状不变（前端兼容）
-	expect(details.fleet["0"]).toEqual({ total: 3, done: 1, error: 1, running: 1 });
-	expect(details.fleet["1"]).toEqual({ total: 1, done: 1, error: 0, running: 0 });
-	// 新增：按任务序号的中断标记
-	expect(details.interrupted["0"]).toBe(true);
-	expect(details.interrupted["1"]).toBe(false);
+	// 逐条带自己的 toolStats（按任务序号，不互相覆盖）
+	expect(res.details).toMatchObject({
+		subagents: [
+			{
+				taskIndex: 0,
+				interrupted: true,
+				toolStats: { total: 3, done: 1, error: 1, running: 1 },
+			},
+			{
+				taskIndex: 1,
+				interrupted: false,
+				toolStats: { total: 1, done: 1, error: 0, running: 0 },
+			},
+		],
+		interrupted: true,
+	});
 });
 
 test("computeSpawnTelemetry：记录 interrupted 与 toolStats（中断派发）", () => {

@@ -214,6 +214,12 @@ interface SessionState {
 	setMediaPreviewItems: (items: MediaItem[], index: number) => void;
 	closeMediaPreview: () => void;
 	setMediaPreviewIndex: (index: number) => void;
+	// 全局子代理转录弹窗（单例）：由委托卡「查看全部内容」写入目标实例，渲染在 App 根的
+	// SubagentTranscriptModal（常驻挂载点）。与 filePreview / mediaPreview 同理放 store——
+	// 委托卡随流式结束 / 轮级折叠 / 卸载时弹窗不被连带关闭，只有用户手动关闭才消失。
+	transcript: { sessionId: string; agentId: string } | null;
+	openTranscript: (target: { sessionId: string; agentId: string }) => void;
+	closeTranscript: () => void;
 	/** 重载中（/reload 命令执行期间禁用发送） */
 	reloading: boolean;
 	setReloading: (v: boolean) => void;
@@ -385,6 +391,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		fileChangesBySession: {},
 		filePreview: null,
 		mediaPreview: null,
+		transcript: null,
 
 		seedTokenTotal: (sessionId, messages, stats) => {
 			// lastUsage（供「本轮」胶囊）取可见消息中最后一条真实 usage
@@ -925,6 +932,19 @@ export const useSessionStore = create<SessionState>((set) => {
 		},
 		closeMediaPreview: () => {
 			set((s) => (s.mediaPreview ? { mediaPreview: null } : {}));
+		},
+		// 打开子代理转录弹窗：目标实例由委托卡给（sessionId + agentId）。幂等：同一实例重复
+		// 打开不产生状态变更（与 openFilePreview 同口径）；弹窗内部按 open 变化按需拉取。
+		openTranscript: (target) => {
+			set((s) =>
+				s.transcript?.sessionId === target.sessionId &&
+				s.transcript?.agentId === target.agentId
+					? {}
+					: { transcript: { ...target } },
+			);
+		},
+		closeTranscript: () => {
+			set((s) => (s.transcript ? { transcript: null } : {}));
 		},
 		// 画廊切换：越界/相同值不产生状态变更（与 openFilePreview 幂等口径一致）
 		setMediaPreviewIndex: (index) => {

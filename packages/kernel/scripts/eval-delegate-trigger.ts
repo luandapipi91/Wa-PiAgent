@@ -1,15 +1,15 @@
 #!/usr/bin/env bun
-// eval-delegate-trigger.ts — delegate/fleet 派发触发率评测
+// eval-delegate-trigger.ts — delegate 派发触发率评测
 //
 // 仿 cocode-master/scripts/eval-task-trigger.mts：用分类提示集实测主 agent
-// 在"该派/视情况/不该派"场景下调用 delegate/fleet 的触发率。
+// 在"该派/视情况/不该派"场景下调用 delegate 的触发率。
 //
 // 与生产一致的部分（保证测的就是线上行为）：
 // - 系统提示词：composePrompt(prompts.json segments, { defaultBasePrompt, delegateRoster, builtinSkillsDir })
 // - 工具面：默认排除式（不传 --tools，仅 -xt subagent）+ 全套扩展（web-access + provider-extension + wa-pi-bridge）
 //
 // 与生产不同的部分（压成本）：
-// - bridge 的 /bridge/tool 由本脚本内置 stub server 应答：delegate/fleet 只记录调用并立即
+// - bridge 的 /bridge/tool 由本脚本内置 stub server 应答：delegate 只记录调用并立即
 //   返回固定文本，不真 spawn 子代理——每个用例的成本 ≈ 主 agent 一次任务的开销。
 //
 // 用法：
@@ -27,10 +27,10 @@
 // 新增类别（原 60 条用例只增不改；类别追加后 --category/--sample 天然支持）：
 //   edit-small   小改应自己做（错字/注释/单行文案/单文件局部改动）→ 期望不派，12 条
 //   edit-explore 需先探索的编辑（跨文件/需先审计现状）→ 期望派，6 条
-//   fleet        串并行派发决策，20 条三类期望（2026-09-18 二期扩充，原 6 条
-//                全部为应并行并补 expectTool 标注）：应一次 fleet 并行
-//                （expectTool=fleet，10 条）/ 应逐个 delegate（expectTool=delegate，
-//                6 条）/ 不该派（no-delegate，4 条）
+//   parallel     多任务并行派发决策，20 条三类期望（2026-09-18 二期扩充，原 6 条
+//                全部为应并行并补 expectTool 标注；2026-10-01 随 fleet 并入单工具
+//                改名 parallel）：应一次 delegate 带多项（expectTool=parallel，10 条）
+//                / 应逐个 delegate（expectTool=sequential，6 条）/ 不该派（no-delegate，4 条）
 //   zh-casual    中文口语/模糊表述 → 按语义逐条标注期望，8 条
 //   hiagent      特色任务（定时任务/IM 推送/记忆操作）→ 按语义逐条标注期望，10 条
 // 期望标注：新增用例直接带 expect: "delegate" | "no-delegate"；原 60 条不改条目，
@@ -39,14 +39,15 @@
 // 新增指标：
 //   1) 混淆矩阵：TP 应派已派 / FP 不应派误派 / TN 不应派未派 / FN 应派漏派；
 //      误派率 = FP/(FP+TN)、漏派率 = FN/(FN+TP)，按类别与整体汇报（多轮报 mean±std）
-//   2) 首次派发轮次：toolsCalled 序列中首次出现 delegate/fleet 的序号（1 起），
+//   2) 首次派发轮次：toolsCalled 序列中首次出现 delegate 的序号（1 起），
 //      仅对已派用例统计，报均值
 //   3) 单用例 token 开销：settle 后 getSessionStats().tokens.total（字段缺失降级为 0），
 //      报分类均值 + 「已派 vs 未派」均值对比（量化误派的额外成本）
-//   4) fleet 选择正确率（二期 2026-09-18）：期望已派用例的工具选择——
-//      expectTool=fleet 的用例，调用中出现 fleet 即选对；expectTool=delegate 的用例，
-//      调用了 delegate 且全程未用 fleet 才算选对（误用 fleet 单独计数）；
-//      合计正确率 = (应 fleet 选中数 + 应顺序选对数) / (应 fleet + 应顺序 总数)
+//   4) 并行/串行选择正确率（二期 2026-09-18；2026-10-01 随 fleet 并入单一 delegate
+//      改写为调用形态口径）：期望已派用例的调用形态——expectTool=parallel 的用例，
+//      某次 delegate 调用 tasks ≥2（一次带多项）即选对；expectTool=sequential 的用例，
+//      调用了 delegate 且每次只带 1 项才算选对（误并成一次单独计数）；
+//      合计正确率 = (应并行选中数 + 应串行选对数) / (应并行 + 应串行 总数)
 
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -79,12 +80,12 @@ import { ProviderStore } from "../src/provider-store";
 import { buildAdditionalExtensionPaths } from "../src/extensions";
 
 // ---- 用例集（原 60 条只增不改；扩充类别见文件头「评测扩充设计」）----
-// explore (30)：多步搜索/审计，应触发 delegate/fleet
+// explore (30)：多步搜索/审计，应触发 delegate
 // edit (10)：小改动，视情况（可能需要先探索）
 // simple (20)：单次查找/问答，不应触发
 // edit-small (12)：小改应自己做，期望不派
 // edit-explore (6)：需先探索的编辑，期望派
-// fleet (6)：多独立子任务并行决策，期望派（fleet/delegate 均算派发）
+// parallel (20)：多任务并行决策，期望派
 // zh-casual (8)：中文口语/模糊表述，逐条标注期望
 // hiagent (10)：特色任务（定时任务/IM 推送/记忆操作），逐条标注期望
 type Expectation = "delegate" | "no-delegate";
@@ -94,7 +95,7 @@ type Category =
   | "simple"
   | "edit-small"
   | "edit-explore"
-  | "fleet"
+  | "parallel"
   | "zh-casual"
   | "hiagent";
 /** 类别展示顺序（--sample 按此序每类取样；汇总按此序输出） */
@@ -104,7 +105,7 @@ const CATEGORY_ORDER: Category[] = [
   "simple",
   "edit-small",
   "edit-explore",
-  "fleet",
+  "parallel",
   "zh-casual",
   "hiagent",
 ];
@@ -113,8 +114,8 @@ interface Case {
   prompt: string;
   /** 期望派发行为；原 60 条不带此字段，由 expectFor() 按类别派生 */
   expect?: Expectation;
-  /** 期望使用的工具（仅 expect="delegate" 时有意义）：fleet=应一次并行派发，delegate=应逐个派发 */
-  expectTool?: "fleet" | "delegate";
+  /** 期望的调用形态（仅 expect="delegate" 时有意义）：parallel=应一次 delegate 带多项，sequential=应逐个派发 */
+  expectTool?: "parallel" | "sequential";
 }
 const CASES: Case[] = [
   // --- explore (30) ---
@@ -334,7 +335,7 @@ const CASES: Case[] = [
     prompt:
       "packages/shared/src/constants.ts 里 SUBAGENT_TYPES 有哪几个内置类型？",
   },
-  { category: "simple", prompt: "fleet 工具的并发上限是多少？" },
+  { category: "simple", prompt: "delegate 一次最多能并行派发几个子任务？" },
   {
     category: "simple",
     prompt:
@@ -376,39 +377,39 @@ const CASES: Case[] = [
   { category: "edit-small", expect: "no-delegate", prompt: "给 packages/frontend/src/i18n/locales/zh.ts 文件头加一行中文注释「中文翻译文件」。" },
   { category: "edit-small", expect: "no-delegate", prompt: "给 packages/kernel/src/wa-pi-bridge.extension.ts 的导出函数加一行 JSDoc「桥接工具入口」。" },
   { category: "edit-small", expect: "no-delegate", prompt: "把 README.md 第一行标题下面补一行空行。" },
-  { category: "edit-small", expect: "no-delegate", prompt: "给 packages/kernel/src/delegate-tool.ts 里 makeFleetTool 函数加一行注释「并行派发入口」。" },
+  { category: "edit-small", expect: "no-delegate", prompt: "给 packages/kernel/src/delegate-tool.ts 里 runWithConcurrency 函数加一行注释「并行派发入口」。" },
   { category: "edit-small", expect: "no-delegate", prompt: "tsconfig.base.json 顶部加一行注释「基础编译配置，各包继承」。" },
   // --- edit-explore (6)：需先探索的编辑，期望派 ---
-  { category: "edit-explore", expect: "delegate", prompt: "给 delegate 和 fleet 两个工具的描述补充「何时选 fleet」的段落——先看现有描述结构再改。" },
+  { category: "edit-explore", expect: "delegate", prompt: "给 delegate 工具的描述补充「何时一次带多项、何时分多次派」的段落——先看现有描述结构再改。" },
   { category: "edit-explore", expect: "delegate", prompt: "把前端所有卡片类组件的圆角统一从 8px 改成 12px，先找出所有涉及的文件。" },
   { category: "edit-explore", expect: "delegate", prompt: "给 kernel 新增一个 GET /healthz 端点返回 ok，先了解现有路由注册方式再加。" },
   { category: "edit-explore", expect: "delegate", prompt: "把 simple 类用例里引用的过时常量名全部更新为当前名称——先搜出所有引用点。" },
   { category: "edit-explore", expect: "delegate", prompt: "给 ws-server 的消息分发加一层入参类型校验，先梳理分发链路再动手。" },
   { category: "edit-explore", expect: "delegate", prompt: "统一 kernel 测试里创建临时目录的写法——先审计现有写法再统一修改。" },
-  // --- fleet (20)：串并行派发决策，三类期望（二期 2026-09-18 扩充） ---
-  // 应一次 fleet 并行（expectTool=fleet，10 条：原 6 + 新 4）——任务相互独立且范围可立刻写全
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "同时调查 packages/kernel、packages/frontend、packages/desktop 三处的错误处理风格，汇总成对比。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "两路并行：A 组审计 packages/kernel/tests 覆盖场景，B 组审计 scripts 目录脚本用途，各出一份清单。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "分别梳理 projects、ask、session 三个 store 的状态结构，汇总成对比表。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "同时整理 Windows 和 macOS 两套打包注意事项，合并成一份文档。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "对 en 和 zh 两份语言文件分别审计缺失的 key，汇总差异。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "对 packages/kernel 和 packages/shared 各做一次 TODO 清点，合并统计。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "同时对 packages/shared 和 packages/kernel 各出一份导出常量清单，汇总成对比。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "三路并行：分别统计 en/zh 语言文件的 key 数、全仓库 TODO 数、测试文件数，汇总成一张表。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "一组调查 patches/ 下每个补丁的用途，另一组调查 scripts/ 下每个脚本的用途，同时进行各出一份清单。" },
-  { category: "fleet", expect: "delegate", expectTool: "fleet", prompt: "对 packages/frontend 和 packages/desktop 同时做依赖清点（直接依赖数与最重的三个包），汇总对比。" },
-  // 应逐个 delegate（expectTool=delegate，6 条）——后一步依赖前一步结果，或对同一处文件逐步推进
-  { category: "fleet", expect: "delegate", expectTool: "delegate", prompt: "先审计 packages/kernel/src/routes 的端点命名风格，然后照这个风格新增一个 GET /version 端点。" },
-  { category: "fleet", expect: "delegate", expectTool: "delegate", prompt: "给 delegate-tool.ts 加一个结果聚合的帮助函数，并让 fleet 工具用它——先读懂现有结构再动手。" },
-  { category: "fleet", expect: "delegate", expectTool: "delegate", prompt: "统计评测脚本里各 category 的用例数量，然后给数量最少的类别补 2 条用例。" },
-  { category: "fleet", expect: "delegate", expectTool: "delegate", prompt: "把 ws-server.ts 的消息分发链路梳理成文档，写到 docs/architecture.md——先梳理再写。" },
-  { category: "fleet", expect: "delegate", expectTool: "delegate", prompt: "重构 runWithConcurrency：先读懂实现，加 onProgress 回调，再更新调用点——三步有先后依赖。" },
-  { category: "fleet", expect: "delegate", expectTool: "delegate", prompt: "审计 i18n 缺失 key，然后按审计结果补齐 zh 翻译——补什么取决于审计发现了什么。" },
-  // 不该派（no-delegate，4 条）——查询/观点类，自己直接答
-  { category: "fleet", expect: "no-delegate", prompt: "fleet 的并发上限是多少？" },
-  { category: "fleet", expect: "no-delegate", prompt: "把 packages/shared/src/tool-schemas.ts 里 FLEET_MAX_CONCURRENCY 的值念一下。" },
-  { category: "fleet", expect: "no-delegate", prompt: "fleet 工具的参数 schema 有哪几个字段？" },
-  { category: "fleet", expect: "no-delegate", prompt: "fleet 和 delegate 在本项目里分别什么意思？一句话说说。" },
+  // --- parallel (20)：多任务并行派发决策，三类期望（2026-09-18 二期扩充） ---
+  // 应一次 delegate 带多项（expectTool=parallel，10 条：原 6 + 新 4）——任务相互独立且范围可立刻写全
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "同时调查 packages/kernel、packages/frontend、packages/desktop 三处的错误处理风格，汇总成对比。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "两路并行：A 组审计 packages/kernel/tests 覆盖场景，B 组审计 scripts 目录脚本用途，各出一份清单。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "分别梳理 projects、ask、session 三个 store 的状态结构，汇总成对比表。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "同时整理 Windows 和 macOS 两套打包注意事项，合并成一份文档。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "对 en 和 zh 两份语言文件分别审计缺失的 key，汇总差异。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "对 packages/kernel 和 packages/shared 各做一次 TODO 清点，合并统计。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "同时对 packages/shared 和 packages/kernel 各出一份导出常量清单，汇总成对比。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "三路并行：分别统计 en/zh 语言文件的 key 数、全仓库 TODO 数、测试文件数，汇总成一张表。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "一组调查 patches/ 下每个补丁的用途，另一组调查 scripts/ 下每个脚本的用途，同时进行各出一份清单。" },
+  { category: "parallel", expect: "delegate", expectTool: "parallel", prompt: "对 packages/frontend 和 packages/desktop 同时做依赖清点（直接依赖数与最重的三个包），汇总对比。" },
+  // 应逐个 delegate（expectTool=sequential，6 条）——后一步依赖前一步结果，或对同一处文件逐步推进
+  { category: "parallel", expect: "delegate", expectTool: "sequential", prompt: "先审计 packages/kernel/src/routes 的端点命名风格，然后照这个风格新增一个 GET /version 端点。" },
+  { category: "parallel", expect: "delegate", expectTool: "sequential", prompt: "给 delegate-tool.ts 加一个结果聚合的帮助函数，并让多任务并行路径用它——先读懂现有结构再动手。" },
+  { category: "parallel", expect: "delegate", expectTool: "sequential", prompt: "统计评测脚本里各 category 的用例数量，然后给数量最少的类别补 2 条用例。" },
+  { category: "parallel", expect: "delegate", expectTool: "sequential", prompt: "把 ws-server.ts 的消息分发链路梳理成文档，写到 docs/architecture.md——先梳理再写。" },
+  { category: "parallel", expect: "delegate", expectTool: "sequential", prompt: "重构 runWithConcurrency：先读懂实现，加 onProgress 回调，再更新调用点——三步有先后依赖。" },
+  { category: "parallel", expect: "delegate", expectTool: "sequential", prompt: "审计 i18n 缺失 key，然后按审计结果补齐 zh 翻译——补什么取决于审计发现了什么。" },
+  // 不该派（no-delegate，4 条）——工具自身的参数/定义类单点查询，一次答完
+  { category: "parallel", expect: "no-delegate", prompt: "delegate 一次最多能带几个任务？" },
+  { category: "parallel", expect: "no-delegate", prompt: "把 packages/kernel/src/delegate-tool.ts 里 MAX_SUBAGENT_CONCURRENCY 的值念一下。" },
+  { category: "parallel", expect: "no-delegate", prompt: "delegate 工具的参数 schema 有哪几个字段？" },
+  { category: "parallel", expect: "no-delegate", prompt: "delegate 的 tasks 里 agent 和 task 分别是什么意思？一句话说说。" },
   // --- zh-casual (8)：中文口语/模糊表述，逐条标注期望 ---
   { category: "zh-casual", expect: "delegate", prompt: "帮我看看咱这项目里 WebSocket 心跳是怎么搞的？" },
   { category: "zh-casual", expect: "no-delegate", prompt: "那个 providers.json 都配了些啥呀？念给我听听。" },
@@ -517,7 +518,7 @@ function selectCases(opts: CliOpts): typeof CASES {
   return pool.slice(0, Math.max(0, Math.min(opts.limit, pool.length)));
 }
 
-// ---- stub bridge server：记录 delegate/fleet 调用并立即应答，不真跑子代理 ----
+// ---- stub bridge server：记录 delegate 调用并立即应答，不真跑子代理 ----
 interface StubCall {
   tool: string;
   params: unknown;
@@ -555,7 +556,7 @@ function startStubBridge(): Promise<{
       const tool = String(msg.tool ?? "");
       calls.push({ tool, params: msg.params, at: new Date().toISOString() });
       const text =
-        tool === "delegate" || tool === "fleet"
+        tool === "delegate"
           ? "（评测桩：子代理已完成任务，结果略）"
           : tool === "ask_user_question"
             ? "（评测桩：用户已取消提问）"
@@ -585,12 +586,12 @@ interface CaseResult {
   prompt: string;
   /** 期望派发行为（运行时由 expectFor 填入） */
   expectation?: Expectation;
-  /** 期望工具选择（运行时由用例定义填入，仅 delegate 期望用例携带） */
-  expectTool?: "fleet" | "delegate";
+  /** 期望的调用形态（运行时由用例定义填入，仅 delegate 期望用例携带） */
+  expectTool?: "parallel" | "sequential";
   calledDelegate: boolean;
-  delegateCalls: Array<{ tool: string; agent?: string }>;
+  delegateCalls: Array<{ tool: string; agent?: string; tasks?: number }>;
   toolsCalled: string[];
-  /** 首次派发轮次：toolsCalled 中首个 delegate/fleet 的序号（1 起）；未派为 null */
+  /** 首次派发轮次：toolsCalled 中首个 delegate 的序号（1 起）；未派为 null */
   firstDelegateRound: number | null;
   /** 单用例 token 开销（getSessionStats().tokens.total，字段缺失降级为 0） */
   tokens: number;
@@ -716,25 +717,24 @@ async function runOneCase(
     return runOneCase(index, category, prompt, ctx, attempt + 1);
   }
 
-  // 从 stub 增量里提取本用例的 delegate/fleet 调用
+  // 从 stub 增量里提取本用例的 delegate 调用（tasks 项数 = 调用形态：≥2 即一次带多项）
   for (const call of ctx.stubCalls.slice(stubMark)) {
-    if (call.tool === "delegate" || call.tool === "fleet") {
+    if (call.tool === "delegate") {
       result.calledDelegate = true;
       const params = call.params as any;
-      if (call.tool === "delegate") {
-        result.delegateCalls.push({ tool: "delegate", agent: params?.agent });
-      } else {
-        const agents = Array.isArray(params?.tasks)
-          ? params.tasks.map((t: any) => t?.agent).join("+")
-          : undefined;
-        result.delegateCalls.push({ tool: "fleet", agent: agents });
-      }
+      const tasks: any[] = Array.isArray(params?.tasks) ? params.tasks : [];
+      result.delegateCalls.push({
+        tool: "delegate",
+        agent: tasks
+          .map((t: any) => t?.agent)
+          .filter(Boolean)
+          .join("+") || undefined,
+        tasks: tasks.length,
+      });
     }
   }
-  // 首次派发轮次：toolsCalled 序列中首个 delegate/fleet 的序号（1 起）
-  const firstIdx = result.toolsCalled.findIndex(
-    (t) => t === "delegate" || t === "fleet",
-  );
+  // 首次派发轮次：toolsCalled 序列中首个 delegate 的序号（1 起）
+  const firstIdx = result.toolsCalled.findIndex((t) => t === "delegate");
   result.firstDelegateRound = firstIdx >= 0 ? firstIdx + 1 : null;
   result.elapsedMs = Date.now() - startedAt;
   return result;
@@ -848,7 +848,7 @@ async function main() {
         r.expectTool = c.expectTool;
         results.push(r);
         const tag = r.calledDelegate
-          ? `DELEGATE ✓ (${r.delegateCalls.map((d) => `${d.tool}:${d.agent ?? "?"}`).join(", ")})${r.firstDelegateRound ? ` 首派轮次=${r.firstDelegateRound}` : ""}`
+          ? `DELEGATE ✓ (${r.delegateCalls.map((d) => `${d.tool}:${d.agent ?? "?"}(${d.tasks ?? 1} 项)`).join(", ")})${r.firstDelegateRound ? ` 首派轮次=${r.firstDelegateRound}` : ""}`
           : r.toolsCalled.length > 0
             ? r.toolsCalled.join(",")
             : "no-tools";
@@ -888,7 +888,7 @@ async function main() {
     if (perRun.length === 0) continue;
     if (perRun.length === 1) {
       console.log(
-        `${cat}: ${perRun[0]!.n}/${perRun[0]!.total} 触发 delegate/fleet (${perRun[0]!.pct.toFixed(0)}%)`,
+        `${cat}: ${perRun[0]!.n}/${perRun[0]!.total} 触发 delegate (${perRun[0]!.pct.toFixed(0)}%)`,
       );
     } else {
       const { mean, std } = stats(perRun.map((x) => x.pct));
@@ -970,39 +970,39 @@ async function main() {
     }
   }
 
-  // ---- fleet 选择正确率（期望已派用例的工具选择，口径见文件头「新增指标 4」）----
-  const usedFleet = (r: CaseResult) =>
-    r.delegateCalls.some((c) => c.tool === "fleet");
-  const expectFleetCases = allResults.filter(
-    (r) => r.expectation === "delegate" && r.expectTool === "fleet",
+  // ---- 并行/串行选择正确率（期望已派用例的调用形态，口径见文件头「新增指标 4」）----
+  const usedParallel = (r: CaseResult) =>
+    r.delegateCalls.some((c) => (c.tasks ?? 1) > 1);
+  const expectParallelCases = allResults.filter(
+    (r) => r.expectation === "delegate" && r.expectTool === "parallel",
   );
   const expectSeqCases = allResults.filter(
-    (r) => r.expectation === "delegate" && r.expectTool === "delegate",
+    (r) => r.expectation === "delegate" && r.expectTool === "sequential",
   );
-  const fleetHit = expectFleetCases.filter(usedFleet).length;
+  const parallelHit = expectParallelCases.filter(usedParallel).length;
   const seqHit = expectSeqCases.filter(
-    (r) => !usedFleet(r) && r.calledDelegate,
+    (r) => !usedParallel(r) && r.calledDelegate,
   ).length;
-  const seqMisusedFleet = expectSeqCases.filter(usedFleet).length;
-  if (expectFleetCases.length > 0 || expectSeqCases.length > 0) {
-    console.log("\n--- fleet 选择正确率（期望已派用例的工具选择） ---");
-    if (expectFleetCases.length > 0) {
+  const seqMisusedParallel = expectSeqCases.filter(usedParallel).length;
+  if (expectParallelCases.length > 0 || expectSeqCases.length > 0) {
+    console.log("\n--- 并行/串行选择正确率（期望已派用例的调用形态） ---");
+    if (expectParallelCases.length > 0) {
       console.log(
-        `应 fleet 并行: ${fleetHit}/${expectFleetCases.length} 选中 fleet (${((fleetHit / expectFleetCases.length) * 100).toFixed(0)}%)`,
+        `应一次 delegate 带多项（并行）: ${parallelHit}/${expectParallelCases.length} 选中并行 (${((parallelHit / expectParallelCases.length) * 100).toFixed(0)}%)`,
       );
     }
     if (expectSeqCases.length > 0) {
       console.log(
-        `应逐个 delegate: ${seqHit}/${expectSeqCases.length} 顺序派发（误用 fleet ${seqMisusedFleet} 条，${((seqHit / expectSeqCases.length) * 100).toFixed(0)}%）`,
+        `应逐个 delegate（串行）: ${seqHit}/${expectSeqCases.length} 顺序派发（误并成一次 ${seqMisusedParallel} 条，${((seqHit / expectSeqCases.length) * 100).toFixed(0)}%）`,
       );
     }
-    const choiceTotal = expectFleetCases.length + expectSeqCases.length;
+    const choiceTotal = expectParallelCases.length + expectSeqCases.length;
     console.log(
-      `fleet 选择正确率合计: ${fleetHit + seqHit}/${choiceTotal} (${(((fleetHit + seqHit) / choiceTotal) * 100).toFixed(0)}%)`,
+      `并行/串行选择正确率合计: ${parallelHit + seqHit}/${choiceTotal} (${(((parallelHit + seqHit) / choiceTotal) * 100).toFixed(0)}%)`,
     );
   }
 
-  // ---- 新增指标 2：首次派发轮次（已派用例中 toolsCalled 的首个 delegate/fleet 序号）----
+  // ---- 新增指标 2：首次派发轮次（已派用例中 toolsCalled 的首个 delegate 序号）----
   const firstRounds = allResults
     .filter((r) => r.calledDelegate && r.firstDelegateRound != null)
     .map((r) => r.firstDelegateRound!);
@@ -1051,12 +1051,12 @@ async function main() {
           firstDelegateRoundMean: firstRounds.length
             ? firstRounds.reduce((s, v) => s + v, 0) / firstRounds.length
             : null,
-          fleetChoice: {
-            expectFleet: expectFleetCases.length,
-            fleetHit,
+          parallelChoice: {
+            expectParallel: expectParallelCases.length,
+            parallelHit,
             expectSeq: expectSeqCases.length,
             seqHit,
-            seqMisusedFleet,
+            seqMisusedParallel,
           },
         },
         runs,

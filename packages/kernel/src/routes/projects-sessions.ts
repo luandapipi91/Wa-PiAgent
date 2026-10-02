@@ -1,9 +1,59 @@
 /**
  * 项目 / 会话域路由（阶段二·去 WS 化）
  */
+import { readdir } from "node:fs/promises";
 import type { RouteRegistrar } from "./types";
 import { readJsonBody } from "./types";
 import { readSessionHistory } from "../session-history";
+import {
+	assertAgentId,
+	readMeta,
+	jsonlPath,
+	subagentDir,
+} from "../subagent-instance-store";
+
+/**
+ * 子代理转录只读读取（规格 §8）：不走 AgentManager，直接 readSessionHistory 解析 jsonl
+ *（与回收站只读先例同款）。
+ *
+ * 校验顺序硬约束（Ruling 9）：先 assertAgentId → 400，再 readMeta → 404。
+ * 反了会让 400 退化成 404（readMeta 内部把非法 id 静默吞成 null）。
+ * 入参永不接受裸路径：目录由 sessionId 定位，agentId 必须过 assertAgentId 后才拼文件名。
+ */
+export async function handleSubagentMessages(
+	sessionId: string,
+	agentId: string,
+): Promise<Response> {
+	try {
+		assertAgentId(agentId);
+	} catch {
+		return Response.json({ error: "invalid_agent_id" }, { status: 400 });
+	}
+	const meta = await readMeta(sessionId, agentId);
+	if (!meta) return Response.json({ error: "subagent_not_found" }, { status: 404 });
+	try {
+		const history = await readSessionHistory(jsonlPath(sessionId, agentId));
+		return Response.json({ meta, messages: history.map((m) => ({ message: m })) });
+	} catch {
+		return Response.json({ error: "transcript_not_found" }, { status: 404 });
+	}
+}
+
+/** 会话内子代理实例列表（备用入口） */
+export async function handleSubagentList(sessionId: string): Promise<Response> {
+	try {
+		const files = await readdir(subagentDir(sessionId));
+		const ids = files
+			.filter((f) => f.endsWith(".meta.json"))
+			.map((f) => f.replace(".meta.json", ""));
+		const metas = (await Promise.all(ids.map((id) => readMeta(sessionId, id)))).filter(
+			Boolean,
+		);
+		return Response.json({ subagents: metas });
+	} catch {
+		return Response.json({ subagents: [] });
+	}
+}
 
 export const registerProjectSessionRoutes: RouteRegistrar = (
 	r,
@@ -79,6 +129,13 @@ export const registerProjectSessionRoutes: RouteRegistrar = (
 			agentName: url.searchParams.get("agentName") || undefined,
 		});
 	});
+	// ===== 子代理转录（只读，直接读 jsonl，不激活 pi 进程）=====
+	r.add("GET", "/api/sessions/:sessionId/subagents/:agentId", async (_req, p) =>
+		handleSubagentMessages(p.sessionId, p.agentId),
+	);
+	r.add("GET", "/api/sessions/:sessionId/subagents", async (_req, p) =>
+		handleSubagentList(p.sessionId),
+	);
 	// ===== 回收站（软删除会话）HTTP 路由 =====
 	r.add("GET", "/api/trash/sessions", async (req) => {
 		const url = new URL(req.url, "http://localhost");

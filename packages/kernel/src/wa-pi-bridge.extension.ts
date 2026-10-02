@@ -36,8 +36,6 @@ import {
 	MemorySearchParamsSchema,
 	DELEGATE_DESCRIPTION,
 	DelegateParamsSchema,
-	FLEET_DESCRIPTION,
-	FleetParamsSchema,
 	BROWSER_NAVIGATE_DESCRIPTION,
 	BrowserNavigateParamsSchema,
 	BROWSER_EVALUATE_DESCRIPTION,
@@ -71,8 +69,8 @@ const BRIDGE_SESSION_ID = process.env.WA_PI_SESSION_ID;
 const DEFAULT_TIMEOUT_MS = 60_000; // 普通工具 60s
 const AGENT_END_REPORT_TIMEOUT_MS = 10_000; // agent_end 文件修改上报：本地请求，10s 足够
 const ASK_TIMEOUT_MS = 600_000; // ask 等用户回答，放宽到 10 分钟
-const DELEGATE_TIMEOUT_MS = 600_000; // delegate/fleet：10 分钟无任何帧才判死（流式后"无帧"才是真卡死）
-// 用户停止（delegate/fleet）：kernel 侧中止快照轮询——500ms × 最多 10 次 = 5 秒窗口
+const DELEGATE_TIMEOUT_MS = 600_000; // delegate：10 分钟无任何帧才判死（流式后"无帧"才是真卡死）
+// 用户停止（delegate）：kernel 侧中止快照轮询——500ms × 最多 10 次 = 5 秒窗口
 const SNAPSHOT_POLL_INTERVAL_MS = 500;
 const SNAPSHOT_POLL_MAX_ATTEMPTS = 10;
 const BROWSER_NAVIGATE_TIMEOUT_MS = 150_000; // navigate 120s + 余量
@@ -101,7 +99,7 @@ function failResult(text: string, error: string): BridgeToolResult {
 	return { content: [{ type: "text", text }], details: { error } };
 }
 
-/** delegate/fleet 中止快照路径（kernel 侧修法 A 落盘，本进程轮询读取）：
+/** delegate 中止快照路径（kernel 侧修法 A 落盘，本进程轮询读取）：
  *  WA_PI_DIR/subagent-results/<toolCallId>.json。kernel spawn pi 时 env 必注入
  *  PI_CODING_AGENT_DIR=WA_PI_DIR，双源兕底。 */
 function snapshotFilePath(toolCallId: string): string {
@@ -215,7 +213,7 @@ async function callBridge(
 			timeout: false,
 		};
 		const res = await fetch(`${BRIDGE_URL}/bridge/tool`, init);
-		// 流式协议：delegate/fleet 返回 NDJSON，逐帧解析 started/progress/ping/final。
+		// 流式协议：delegate 返回 NDJSON，逐帧解析 started/progress/ping/final。
 		// started/progress/ping 帧仅证明存活（刷新空闲超时），进度已由 kernel SSE 直推前端，
 		// 这里只关心 final 帧来组装结果。
 		const isStream = (res.headers.get("content-type") ?? "").includes("x-ndjson");
@@ -254,7 +252,7 @@ async function callBridge(
 					return {
 						content: finalFrame.result.content,
 						details: finalFrame.result.details,
-						// 子代理用量（delegate/fleet）：透传给 pi，官方 stats 原生计入累计
+						// 子代理用量（delegate）：透传给 pi，官方 stats 原生计入累计
 						usage: finalFrame.result.usage,
 					};
 				}
@@ -313,7 +311,7 @@ async function callBridge(
 		// kernel 级联中止并在 abort 瞬间落盘快照（writeImmediateFinal），轮询窗口足够。
 		const idleTimeout = isIdleTimeoutError(err);
 		if (
-			(tool === "delegate" || tool === "fleet") &&
+			tool === "delegate" &&
 			(isUserAbortError(err, signal) || idleTimeout)
 		) {
 			const snap = await pollAbortSnapshot(toolCallId);
@@ -521,16 +519,6 @@ export default function (pi: ExtensionAPI) {
 				signal,
 				DELEGATE_TIMEOUT_MS,
 			);
-		},
-	});
-
-	pi.registerTool({
-		name: "fleet",
-		label: "Fleet",
-		description: FLEET_DESCRIPTION,
-		parameters: FleetParamsSchema,
-		async execute(toolCallId, params, signal) {
-			return callBridge("fleet", toolCallId, params, signal, DELEGATE_TIMEOUT_MS);
 		},
 	});
 

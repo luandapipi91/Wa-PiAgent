@@ -1,23 +1,29 @@
 // delegate 关系网调起工具。
 //
-// LLM 经 delegate(agent, task) 调起 askTo 内的智能体：
+// LLM 经 delegate(tasks:[{agent, task}]) 调起 askTo 内的智能体：
 // - allowlist 在宿主侧强制（扩展原生 subagent 工具不进 allowlist，见 constants.resolveAgentTools）。
 // - 越权调起返回错误文本，不触碰 service。
 // - 合法调起经 spawn 闭包执行：wa-pi 自实现的 subagent-runner
 //   （kernel 直接 spawn 一次性 pi RPC 子进程，见 subagent-runner.ts）。
+// - 每个子任务派发前生成 agentId，并把 pi 的 --session 指向
+//   <WA_PI_DIR>/subagents/<父会话 id>/<agentId>.jsonl（完整转录落盘，见 subagent-instance-store.ts）；
+//   派发前/后各写一次 meta（running → 终态）。返回 XML 块（规格 §7）带 agentId 与转录路径。
+// - resume 分支（规格 §6）：tasks[].resume 填上次返回的 <agent_id> 时续聊同一实例——
+//   类型以 meta.subagentType 为准、复用同一份 jsonl（不新建）、resumeCount 递增；
+//   权限在首次派发时已校验，故续聊不再过 askTo。
 //
 // 错误语义：execute 返回值带 isError 标记。SDK 层（pi-agent-core）目前不把
 // result.isError 透传到 ToolResultMessage（仅 execute 抛异常才标 isError），
 // 错误信息经文本传达给 LLM——与原生 subagent 工具先例一致
 //（其所有错误路径均返回普通文本）。
+import { createReadStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import {
 	DELEGATE_DESCRIPTION,
-	FLEET_DESCRIPTION,
-	FLEET_MAX_CONCURRENCY as MAX_SUBAGENT_CONCURRENCY,
+	DELEGATE_MAX_TASKS as MAX_SUBAGENT_CONCURRENCY,
 	DelegateParamsSchema,
-	FleetParamsSchema,
 	WA_PI_DIR,
 } from "@wa-pi/shared";
 import {
@@ -27,9 +33,18 @@ import {
 } from "@wa-pi/shared";
 import type {
 	DelegationHints,
+	SubagentDetails,
 	SubagentProgressEvent,
 	ToolStats,
 } from "@wa-pi/shared";
+import type { SubagentMeta } from "./subagent-instance-store";
+import {
+	assertAgentId,
+	jsonlPath,
+	newAgentId,
+	readMeta,
+	writeMeta,
+} from "./subagent-instance-store";
 import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
 import {
 	buildPartialProgressNote,
@@ -37,8 +52,8 @@ import {
 } from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
-/** fleet 并行派发并发上限——定义唯一来源在 @wa-pi/shared 的 tool-schemas.ts（FLEET_MAX_CONCURRENCY，
- * 与 FLEET_DESCRIPTION 文案同文件插值，杜绝数值与文案脱节），此处按旧名重导出兼容既有引用。 */
+/** 单次委托的并发/任务数上限——定义唯一来源在 @wa-pi/shared 的 tool-schemas.ts（DELEGATE_MAX_TASKS），
+ * 此处按旧名重导出兼容既有引用。 */
 export { MAX_SUBAGENT_CONCURRENCY };
 
 export interface DelegateTarget {
@@ -62,13 +77,17 @@ export interface DelegateSpawnResult {
 }
 
 // 第三个参数 toolCallId 用于把子代理执行进度帧关联到前端对应的 DelegateCard
-// （前端按 toolCallId 定位卡片）。fleet 下所有子任务共享同一个 fleet 工具调用的 toolCallId。
+// （前端按 toolCallId 定位卡片）。多任务时所有子任务共享同一次工具调用的 toolCallId。
+// 第五个参数 sessionFile：子代理转录落盘路径（pi --session），由 execute 按 agentId 算出后透传；
+// 不传则回退 --no-session（不落盘），故为可选（紧跟同样可选的 taskIndex 之后）。
 export type DelegateSpawnFn = (
 	agent: string,
 	task: string,
 	toolCallId: string,
-	/** fleet 任务序号（0-based）；fleet execute 传入，spawn 闭包据此注入 onProgress 事件 */
+	/** 任务序号（0-based）；execute 传入，spawn 闭包据此注入 onProgress 事件 */
 	taskIndex?: number,
+	/** 子代理转录落盘路径（pi --session <path>）；空/缺省时不落盘 */
+	sessionFile?: string,
 ) => Promise<DelegateSpawnResult>;
 
 /**
@@ -169,7 +188,111 @@ function toPiToolUsage(u?: SubagentUsage) {
 	};
 }
 
-/** 多子代理用量聚合（fleet）：tokens 逐项相加，cost.total 相加；无任何用量返回 undefined */
+// ===== 返回块渲染（规格 §7 定稿）=====
+
+/** 3_600_000 → "60m0s"；95_000 → "1m35s"；32_000 → "32s" */
+export function formatElapsedShort(ms: number): string {
+	const total = Math.max(0, Math.round(ms / 1000));
+	if (total < 60) return `${total}s`;
+	const m = Math.floor(total / 60);
+	const s = total % 60;
+	return `${m}m${s}s`;
+}
+
+/** 8_100 → "8.1k"；950 → "950"；undefined → "?" */
+export function formatTokensShort(n?: number): string {
+	if (n == null) return "?";
+	if (n < 1000) return String(n);
+	return `${(n / 1000).toFixed(1)}k`;
+}
+
+/**
+ * XML 转义动态内容：`&` 必须**最先**处理（否则 `<` 先变 `&lt;` 再被 `&`→`&amp;`
+ * 二次转义成 `&amp;lt;`）。`>` 不转义（XML 中裸 `>` 合法，最小干预）。
+ * 只用于子代理正文与 `<type>`/`<status>` 等取值，绝不动渲染模板本身的结构字符。
+ */
+function escapeXml(s: string): string {
+	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+
+/**
+ * 渲染单个子代理结果块（规格 §7 定稿：XML、标签同行紧凑排版、全字段保留）。
+ * `<agent_id>` 与 `<transcript>` 都是独立子元素（后者为绝对路径，主 agent 自行 read/grep）；
+ * `<result>` 包裹正文并以换行分隔——正文是任意文本（报告常含代码与标签字面串），
+ * 必须做 XML 转义，否则正文里的 `</result>`/`</subagent>` 会提前闭合结构、破坏多块拼接。
+ * 未建实例的任务（如越权项）agentId / jsonlPath 为空串，模型据此知道没转录可查。
+ */
+export function renderSubagentBlock(r: {
+	taskIndex: number;
+	agentId: string;
+	subagentType: string;
+	status: "completed" | "failed" | "interrupted";
+	elapsedMs?: number;
+	totalTokens?: number;
+	resumed: boolean;
+	jsonlPath: string;
+	text: string;
+}): string {
+	return (
+		`<subagent><index>${r.taskIndex}</index><agent_id>${r.agentId}</agent_id>` +
+		`<type>${escapeXml(r.subagentType)}</type><status>${escapeXml(r.status)}</status>` +
+		`<elapsed>${formatElapsedShort(r.elapsedMs ?? 0)}</elapsed>` +
+		`<tokens>${formatTokensShort(r.totalTokens)}</tokens>` +
+		`<resumed>${r.resumed}</resumed>` +
+		`<transcript>${r.jsonlPath}</transcript><result>\n${escapeXml(r.text)}\n</result></subagent>`
+	);
+}
+
+/** 错误对象转可读文本（console.warn 用）；非 Error 一律 String() */
+function errorMessage(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * pi 用已有 jsonl resume 时要求首行记录的 cwd 目录存在，否则非交互模式 exit(1)
+ *（"Stored session working directory does not exist"）。这里复用主会话同款自愈思路
+ *（agent-manager.readStoredSessionCwd）：读回首行 cwd 并补建目录。
+ */
+async function selfHealStoredCwd(jsonlFile: string): Promise<void> {
+	try {
+		const rl = createInterface({
+			input: createReadStream(jsonlFile, { encoding: "utf8" }),
+			crlfDelay: Infinity,
+		});
+		for await (const line of rl) {
+			rl.close();
+			const cwd = (JSON.parse(line) as { cwd?: string }).cwd;
+			if (typeof cwd === "string" && cwd) {
+				await mkdir(cwd, { recursive: true }).catch(() => {});
+			}
+			return;
+		}
+	} catch {
+		/* 文件不存在或坏行：交给 pi 按新会话处理 */
+	}
+}
+
+/**
+ * 写实例 meta：写盘失败不阻断派发主流程（meta 只是审计与 resume 的辅助通道，
+ * 与中止快照 writeAbortSnapshot 同约定），但**留一次 console.warn**——「错误经文本
+ * 传达」不等于连日志都不该有，静默失败会让「pi 拿到指向不存在文件的 --session」
+ * 「resume 误拒」等故障无从排查。
+ * 返回是否落盘成功：调用方据此决定是否仍宣告 <transcript>（写不进同一目录 =
+ * 转录文件大概率也不存在，宣告它会骗模型去 read 一个 404）。
+ */
+async function safeWriteMeta(meta: SubagentMeta): Promise<boolean> {
+	try {
+		await writeMeta(meta);
+		return true;
+	} catch (err) {
+		console.warn(
+			`[delegate] 子代理 meta 写入失败（agentId=${meta.agentId}，status=${meta.status}）：${errorMessage(err)}`,
+		);
+		return false;
+	}
+}
+
+/** 多子代理用量聚合：tokens 逐项相加，cost.total 相加；无任何用量返回 undefined */
 function sumPiToolUsage(usages: Array<SubagentUsage | undefined>) {
 	const shaped = usages.map(toPiToolUsage).filter((x) => x != null);
 	if (shaped.length === 0) return undefined;
@@ -194,7 +317,7 @@ function sumPiToolUsage(usages: Array<SubagentUsage | undefined>) {
 
 // ===== 中止快照（subagent-results 文件中转）=====
 //
-// 用户在父会话点停止 → pi 侧 bridge 流被 cancel，delegate/fleet 的 final 帧无人
+// 用户在父会话点停止 → pi 侧 bridge 流被 cancel，delegate 的 final 帧无人
 // 消费（流已死）。execute 在 abort 瞬间用内存进度组装 final 快照立即落盘（pi 侧
 // 轮询窗口仅 abort 后 5 秒，settle 收尾最长 ABORT_GRACE_MS=10s 必然错过窗口），
 // 全部子任务 settle 后再用最终状态覆盖写一次（信息更全，pi 已读过也不影响）。
@@ -239,10 +362,13 @@ async function writeAbortSnapshot(
 export function makeDelegateTool(opts: {
 	askTo: DelegateTarget[];
 	spawn: DelegateSpawnFn;
+	/** 父会话 id：子代理实例目录（<WA_PI_DIR>/subagents/<父会话 id>/）的定位依据 */
+	sessionId: string;
 	/** 调用级信号槽（bridge 流式断连/用户停止时触发）：abort 瞬间写 final 快照。
 	 *  与 makeSpawnFn 的 getCallSignal 同源（agent-manager 的 currentCallSignal 槽）。 */
 	getCallSignal?: () => AbortSignal | undefined;
 }) {
+	const parentSessionId = opts.sessionId;
 	// 中止即时快照的进度采集：key 为 toolCallId，值为该次派发各任务最近一条进度事件
 	//（execute 进入时登记、finally 清理；notifyProgress 由注册点在 spawnFn onProgress 转发）
 	const latestProgress = new Map<string, Map<number, SubagentProgressEvent>>();
@@ -259,47 +385,78 @@ export function makeDelegateTool(opts: {
 		},
 		async execute(
 			toolCallId: string,
-			args: { agent: string; task: string },
+			args: { tasks: Array<{ agent: string; task: string; resume?: string }> },
 		): Promise<{
 			content: Array<{ type: "text"; text: string }>;
-			/** interrupted：子代理非正常终态（中止/超时/异常）标记，供前端区分「中断」与普通失败 */
-			details: { interrupted: boolean };
+			details:
+				| SubagentDetails
+				/** 参数拒绝标记：任务数不合法（0 项或超过上限）时给出，无子代理明细
+				 *  （显式声明缺失字段为 undefined，让调用侧访问 subagents/interrupted 不因联合变体报错） */
+				| {
+						subagents?: undefined;
+						interrupted?: undefined;
+						error: string;
+				  }
+				| undefined;
 			isError: boolean;
-			usage?: ReturnType<typeof toPiToolUsage>;
+			usage?: ReturnType<typeof sumPiToolUsage>;
 		}> {
-			if (!canInvoke(args.agent, opts.askTo)) {
+			// 任务数不合法（缺失/非数组/0 项/超上限）拒绝而非排队：排队会占住父代理的工具槽位且模型
+			// 看不出「没并发」。不抛异常，与文件既有约定一致（错误经文本传达给 LLM）；
+			// 入参来自模型/外部，tasks 缺失或非数组按 0 项处理，避免 args.tasks.length 抛 TypeError
+			//（经 bridge catch 变成「Cannot read properties of undefined」这类不可读文本）
+			const taskCount = Array.isArray(args.tasks) ? args.tasks.length : 0;
+			if (taskCount === 0 || taskCount > MAX_SUBAGENT_CONCURRENCY) {
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: buildNotAllowedMessage(args.agent, opts.askTo),
+							text: `错误：tasks 需要 1..${MAX_SUBAGENT_CONCURRENCY} 项（当前 ${taskCount} 项）。`,
 						},
 					],
-					details: { interrupted: false },
+					details: { error: "delegate_task_count_invalid" },
 					isError: true,
 				};
 			}
-			// 内置 subagent 中文别名（如"通用子智能体"）归一化为英文 name（"general-purpose"），
-			// 让 spawn 闭包传给 subagent-runner 时能正确匹配 AgentDefinition
-			const spawnAgent = normalizeSubagentType(args.agent);
 
 			// ── 中止快照：abort 瞬间用瞬时进度组装 final 立即落盘，settle 后覆盖 ──
+			// resume 去重：同一次工具调用里两个任务续同一个实例会并发写同一份 jsonl
+			// （历史互相覆盖），显式拒绝而不是排队
+			const seenResume = new Set<string>();
 			const callSignal = opts.getCallSignal?.();
 			let aborted = callSignal?.aborted === true;
 			let pendingImmediate: Promise<void> | undefined;
 			latestProgress.set(toolCallId, new Map());
 			const writeImmediateFinal = () => {
 				aborted = true;
-				const ev = latestProgress.get(toolCallId)?.get(0);
-				// 用当时的内存状态组装中断文本（与 subagent-runner 中断路径同格式），
-				// pi 侧首次轮询（500ms 内）即可取走；无进度事件时只有一句中止说明
-				const note = ev ? buildPartialProgressNote(ev.tools, ev.output) : "";
+				const byIndex = latestProgress.get(toolCallId);
+				// 每个子任务用其当时的 tools/output 瞬时快照组装（未 settle 同样处理，
+				// 标题统一「（中断）」）；settle 后的覆盖写会替换为真实终态标记
+				const lines = args.tasks.map((t, index) => {
+					const ev = byIndex?.get(index);
+					const note = ev ? buildPartialProgressNote(ev.tools, ev.output) : "";
+					const body = note
+						? `子智能体已被中止\n\n${note}`
+						: "子智能体已被中止";
+					return `【${t.agent}】（中断）\n${body}`;
+				});
+				// details 形状与 settle 后的完整快照一致：fleet 统计聚合自瞬时进度
+				//（无进度事件的任务省略），interrupted 全 true
+				const fleetStats: Record<string, ToolStats> = {};
+				for (let index = 0; index < args.tasks.length; index++) {
+					const ev = byIndex?.get(index);
+					if (ev) fleetStats[String(index)] = toolStatsFromProgress(ev.tools);
+				}
+				const interrupted: Record<string, boolean> = {};
+				for (let index = 0; index < args.tasks.length; index++) {
+					interrupted[String(index)] = true;
+				}
 				pendingImmediate = writeAbortSnapshot(toolCallId, {
 					toolCallId,
 					tool: "delegate",
 					phase: "final",
-					text: note ? `子智能体已被中止\n\n${note}` : "子智能体已被中止",
-					details: { interrupted: true },
+					text: lines.join("\n\n"),
+					details: { fleet: fleetStats, interrupted },
 					savedAt: new Date().toISOString(),
 				});
 			};
@@ -311,31 +468,370 @@ export function makeDelegateTool(opts: {
 					});
 			}
 			try {
-				// 透传 toolCallId：前端 DelegateCard 靠它定位卡片，进度帧需关联到正确卡片
-				const { text, isError, usage, interrupted } = await opts.spawn(
-					spawnAgent,
-					args.task,
-					toolCallId,
+				const results = await runWithConcurrency(
+					args.tasks.map((t, index) => async () => {
+						// ── resume 分支（规格 §6）──
+						// 校验顺序：agentId 格式 → meta 存在 → status !== running → 同一子句内重复
+						// resume 拒绝 → 类型以 meta.subagentType 为准 → 复用该实例的 jsonl。
+						// 续聊不再做 askTo 越权校验：权限在首次派发时已校验过。
+						if (t.resume) {
+							try {
+								assertAgentId(t.resume);
+							} catch {
+								return {
+									index,
+									agent: t.agent,
+									// 非法 id 不当作实例句柄回显（原始串可能含 < & 破坏 XML，也误导模型复用）→ 置空降级
+									agentId: "",
+									jsonlPath: "",
+									subagentType: t.agent,
+									text: `错误：非法 agent_id「${t.resume}」`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: undefined,
+									elapsedMs: 0,
+								};
+							}
+							// 去重必须**同步**且先于任何 await：runWithConcurrency 下若把 check+add 挪到
+							// readMeta 之后，两个 thunk 会在该 await 处让出、双双漏检 → 并发写同一份 jsonl。
+							// （并发硬约束，勿按字面顺序挪动）
+							if (seenResume.has(t.resume)) {
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: "",
+									subagentType: t.agent,
+									text: `错误：同一次调用里不能有两个任务续同一个子代理（${t.resume}）`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: undefined,
+									elapsedMs: 0,
+								};
+							}
+							seenResume.add(t.resume);
+							const meta = await readMeta(parentSessionId, t.resume);
+							if (!meta) {
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: "",
+									subagentType: t.agent,
+									text: `错误：子代理实例不存在（${t.resume}）`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: undefined,
+									elapsedMs: 0,
+								};
+							}
+							if (meta.status === "running") {
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: "",
+									subagentType: meta.subagentType,
+									text: `错误：子代理 ${t.resume} 正在运行，不能并发续聊`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: undefined,
+									elapsedMs: 0,
+								};
+							}
+							// 类型以 meta 为准；jsonl 复用（t.task 由 pi 作为新一轮用户消息追加进同一份历史）
+							const spawnAgent = meta.subagentType;
+							const jsonl = jsonlPath(parentSessionId, t.resume);
+							await selfHealStoredCwd(jsonl);
+							const resumeCount = meta.resumeCount + 1;
+							// 本轮真实起点：异常收尾时算 elapsedMs（不编造 0）
+							const startedAt = Date.now();
+							try {
+								// meta 写盘走 safeWriteMeta（与新建路径同约定）：写失败仅告警，不把整个工具调用带崩
+								await safeWriteMeta({
+									...meta,
+									status: "running",
+									updatedAt: Date.now(),
+									resumeCount,
+								});
+								const out = await opts.spawn(
+									spawnAgent,
+									t.task,
+									toolCallId,
+									index,
+									jsonl,
+								);
+								await safeWriteMeta({
+									...meta,
+									status: out.interrupted
+										? "interrupted"
+										: out.isError
+											? "failed"
+											: "completed",
+									updatedAt: Date.now(),
+									resumeCount,
+									usage: out.usage?.tokens
+										? { ...out.usage.tokens, costTotal: out.usage.costTotal }
+										: undefined,
+									elapsedMs: out.elapsedMs,
+									toolStats: out.toolStats,
+								});
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: jsonl,
+									subagentType: spawnAgent,
+									resumed: true,
+									...out,
+								};
+							} catch (err) {
+								// 单任务异常不连坐（同新建路径 :695-712）：spawn 闭包内 try 块外路径抛错时转
+								// 结构化失败文本，其余任务继续执行、结果照常聚合不丢失。
+								// meta 同步收尾为 interrupted：否则永久停在 running（此后 resume 全被误拒）
+								const message = err instanceof Error ? err.message : String(err);
+								const elapsedMs = Date.now() - startedAt;
+								// 显式清掉 usage/toolStats：...meta 还带着**上一轮**的值，不能当本轮审计真源
+								await safeWriteMeta({
+									...meta,
+									status: "interrupted",
+									updatedAt: Date.now(),
+									resumeCount,
+									usage: undefined,
+									toolStats: undefined,
+									elapsedMs,
+								});
+								return {
+									index,
+									agent: t.agent,
+									agentId: t.resume,
+									jsonlPath: jsonl,
+									subagentType: spawnAgent,
+									text: `子智能体执行异常: ${message}`,
+									isError: true,
+									resumed: false,
+									toolStats: undefined,
+									usage: undefined,
+									interrupted: true,
+									elapsedMs,
+								};
+							}
+						}
+						if (!canInvoke(t.agent, opts.askTo)) {
+							// 越权调起：不建实例（无 meta、无转录），返回块的 agent_id / transcript 留空；
+							// <type> 用请求名（未归一化——没进过 spawn）
+							return {
+								index,
+								agent: t.agent,
+								agentId: "",
+								jsonlPath: "",
+								subagentType: t.agent,
+								text: buildNotAllowedMessage(t.agent, opts.askTo),
+								isError: true,
+								resumed: false,
+								toolStats: undefined,
+								usage: undefined,
+								interrupted: undefined,
+								elapsedMs: undefined,
+							};
+						}
+						// 内置 subagent 中文别名（如"通用子智能体"）归一化为英文 name（"general-purpose"），
+						// 让 spawn 闭包传给 subagent-runner 时能正确匹配 AgentDefinition
+						const spawnAgent = normalizeSubagentType(t.agent);
+						// 实例身份与转录路径在 spawn 前生成：pi 以 --session <路径> 直写这份 jsonl
+						const agentId = newAgentId();
+						let jsonl = "";
+						try {
+							jsonl = jsonlPath(parentSessionId, agentId);
+						} catch (err) {
+							// 父会话 id 非法（理论上不会：构造处传真实会话 id）→ 退化为不落盘
+							//（spawn 收到空路径时走 --no-session），不阻断派发
+							console.warn(
+								`[delegate] 子代理转录路径不可用，本次不落盘（agentId=${agentId}）：${errorMessage(err)}`,
+							);
+						}
+						// spawn 前显式建转录目录，与 meta 写入**解耦**：此前该目录的唯一创建者是
+						// writeMeta 内部的 mkdir，失败被 safeWriteMeta 静默吞掉 → pi 收到指向不存在
+						// 目录的 --session、返回块却宣告完整 <transcript>，模型 read 一个 404。
+						// 这里失败不阻断派发，但降级为不落盘（jsonl 置空 → <transcript> 给空串）
+						if (jsonl) {
+							try {
+								await mkdir(dirname(jsonl), { recursive: true });
+							} catch (err) {
+								console.warn(
+									`[delegate] 子代理转录目录创建失败，本次不落盘（agentId=${agentId}）：${errorMessage(err)}`,
+								);
+								jsonl = "";
+							}
+						}
+						const now = Date.now();
+						// 身份/任务等不变字段：spawn 前后两次写 meta 共用
+						const metaBase = {
+							agentId,
+							parentSessionId,
+							toolCallId,
+							taskIndex: index,
+							subagentType: spawnAgent,
+							requestedAgent: t.agent,
+							task: t.task,
+							createdAt: now,
+							resumeCount: 0,
+						};
+						// spawn 前先落 running：中断/崩溃时 meta 不停在"不存在"，
+						// 且 resume（任务 6）据此拒绝并发续写同一份 jsonl
+						const metaPersisted = await safeWriteMeta({
+							...metaBase,
+							status: "running",
+							updatedAt: now,
+						});
+						// meta 准备失败 = 该目录不可用 → 不宣告 <transcript>（避免模型 read 404）
+						if (!metaPersisted) jsonl = "";
+						// 所有子任务共享同一个 delegate 工具调用的 toolCallId：前端卡片靠它定位，
+						// 内部按 progress.taskIndex 区分各子任务
+						try {
+							const { text, isError, toolStats, usage, interrupted, elapsedMs } =
+								await opts.spawn(spawnAgent, t.task, toolCallId, index, jsonl);
+							// 终态落盘：usage 用扁平形状（SubagentUsageShape），拆包后审计/列表直接读
+							await safeWriteMeta({
+								...metaBase,
+								status: interrupted
+									? "interrupted"
+									: isError
+										? "failed"
+										: "completed",
+								updatedAt: Date.now(),
+								usage: usage?.tokens
+									? { ...usage.tokens, costTotal: usage.costTotal }
+									: undefined,
+								elapsedMs,
+								toolStats,
+							});
+							return {
+								index,
+								agent: t.agent,
+								agentId,
+								jsonlPath: jsonl,
+								subagentType: spawnAgent,
+								text,
+								isError,
+								resumed: false,
+								toolStats,
+								usage,
+								interrupted,
+								elapsedMs,
+							};
+						} catch (err) {
+							// 单任务意外异常不连坐：spawn 闭包内 try 块外的路径（resolveConfig /
+							// ensureExtension 等）抛错时转结构化失败（对齐 subagent-runner 异常路径
+							// 语义：isError + interrupted），其余任务继续执行、结果照常聚合不丢失。
+							// meta 同步收尾为 interrupted：否则永久停在 running（resume 误拒、列表误报运行中）
+							const message = err instanceof Error ? err.message : String(err);
+							// 真实耗时（now 为 spawn 前建的起点）；usage/toolStats 不继承（metaBase 本就不带）
+							const elapsedMs = Date.now() - now;
+							await safeWriteMeta({
+								...metaBase,
+								status: "interrupted",
+								updatedAt: Date.now(),
+								elapsedMs,
+							});
+							return {
+								index,
+								agent: t.agent,
+								agentId,
+								jsonlPath: jsonl,
+								subagentType: spawnAgent,
+								text: `子智能体执行异常: ${message}`,
+								isError: true,
+								resumed: false,
+								toolStats: undefined,
+								usage: undefined,
+								interrupted: true,
+								elapsedMs,
+							};
+						}
+					}),
+					MAX_SUBAGENT_CONCURRENCY,
 				);
+				// ── 返回块：XML、标签同行、多项之间单换行（规格 §7）──
+				const blocks = results.map((r) =>
+					renderSubagentBlock({
+						taskIndex: r.index,
+						agentId: r.agentId,
+						subagentType: r.subagentType,
+						status: r.interrupted
+							? "interrupted"
+							: r.isError
+								? "failed"
+								: "completed",
+						elapsedMs: r.elapsedMs,
+						totalTokens: r.usage?.tokens.total,
+						resumed: r.resumed,
+						jsonlPath: r.jsonlPath,
+						text: r.text,
+					}),
+				);
+				const details: SubagentDetails = {
+					subagents: results.map((r) => ({
+						taskIndex: r.index,
+						agentId: r.agentId,
+						// 与返回块 <transcript> 同源（r.jsonlPath 正是喂给 XML 的那份）：
+						// 前端唯一数据来源，不再解析模型可见的 XML 文本
+						jsonlPath: r.jsonlPath,
+						agent: r.agent,
+						subagentType: r.subagentType,
+						resumed: r.resumed,
+						status: r.interrupted
+							? "interrupted"
+							: r.isError
+								? "failed"
+								: "completed",
+						elapsedMs: r.elapsedMs,
+						usage: r.usage,
+						toolStats: r.toolStats,
+						interrupted: r.interrupted === true,
+					})),
+					interrupted: results.some((r) => r.interrupted === true),
+				};
 				if (aborted) {
-					// 全部子任务 settle 后用最终状态覆盖写 final（信息更全，pi 已读过也不影响）；
-					// 先等 abort 瞬间的写盘完成，杜绝晚到的立即快照覆盖完整快照
+					// settle 后用最终状态覆盖写 final；先等 abort 瞬间的写盘完成
 					await pendingImmediate;
+					// 快照（subagent-results/）本次不动（规格 §10）：它的 text/details 沿用旧
+					// 【agent】+ fleet 形状，前端按旧数据兼容路径渲染（与新返回块并存）
+					const lines = results.map((r) => {
+						const marks = [r.isError ? "失败" : "", r.interrupted ? "中断" : ""]
+							.filter(Boolean)
+							.join("·");
+						return `【${r.agent}】${marks ? `（${marks}）` : ""}\n${r.text}`;
+					});
+					const fleetStats: Record<string, ToolStats> = {};
+					const fleetInterrupted: Record<string, boolean> = {};
+					for (const r of results) {
+						if (r.toolStats) fleetStats[String(r.index)] = r.toolStats;
+						fleetInterrupted[String(r.index)] = r.interrupted === true;
+					}
 					await writeAbortSnapshot(toolCallId, {
 						toolCallId,
 						tool: "delegate",
 						phase: "final",
-						text,
-						details: { interrupted: interrupted === true },
+						text: lines.join("\n\n"),
+						details: { fleet: fleetStats, interrupted: fleetInterrupted },
 						savedAt: new Date().toISOString(),
 					});
 				}
 				return {
-					content: [{ type: "text" as const, text }],
-					details: { interrupted: interrupted === true },
-					isError,
-					// 子代理用量随 toolResult 上报：pi 官方 stats 原生计入累计（usage reported by tools）
-					usage: toPiToolUsage(usage),
+					content: [{ type: "text" as const, text: blocks.join("\n") }],
+					details,
+					isError: results.some((r) => r.isError),
+					// 各子代理用量聚合上报：pi 官方 stats 原生计入累计（usage reported by tools）
+					usage: sumPiToolUsage(results.map((r) => r.usage)),
 				};
 			} finally {
 				latestProgress.delete(toolCallId);
@@ -396,16 +892,22 @@ export function makeSpawnFn(opts: {
 	runSubagentAgent?: typeof defaultRunSubagentAgent;
 }): DelegateSpawnFn {
 	const runSubagent = opts.runSubagentAgent ?? defaultRunSubagentAgent;
-	// 闭包接受 toolCallId（来自 delegate/fleet execute 透传），用于把 onProgress 关联到正确卡片
+	// 闭包接受 toolCallId（来自 delegate execute 透传），用于把 onProgress 关联到正确卡片
 	return async (
 		agent: string,
 		task: string,
 		toolCallId: string,
 		taskIndex?: number,
+		sessionFile?: string,
 	) => {
 		const config = await opts.resolveConfig(agent);
 		if (!config) {
-			const result = { text: `智能体「${agent}」配置未找到`, isError: true };
+			// elapsedMs: 0 而非缺省：返回块要渲染 <elapsed>，0 明确表达「没跑」
+			const result = {
+				text: `智能体「${agent}」配置未找到`,
+				isError: true,
+				elapsedMs: 0,
+			};
 			opts.onSpawnComplete?.({
 				agent,
 				task,
@@ -448,14 +950,22 @@ export function makeSpawnFn(opts: {
 					once: true,
 				});
 		}
+		// 实例 id：转录路径由 delegate-tool 按 <agentId>.jsonl 命名，这里从文件名反解，
+		// 供进度事件携带（前端把运行中的进度关联到具体子代理实例，规格 §9.1）。
+		// 空路径（未要求落盘）时缺省，事件不带 agentId。
+		const agentId = sessionFile ? basename(sessionFile, ".jsonl") : undefined;
 		try {
 			const result = await runSubagent(config, task, opts.cwd, {
 				signal: controller.signal,
 				// 把外层 onProgress(toolCallId, event) 包一层：runSubagentAgent 内部仍以
-				// (event) => void 调用，这里注入闭包捕获的 toolCallId，实现进度帧关联卡片
+				// (event) => void 调用，这里注入闭包捕获的 toolCallId + agentId，
+				// 实现进度帧关联卡片与实例
 				onProgress: opts.onProgress
-					? (event) => opts.onProgress!(toolCallId, { ...event, taskIndex })
+					? (event) =>
+							opts.onProgress!(toolCallId, { ...event, taskIndex, agentId })
 					: undefined,
+				// 转录落盘：pi --session <路径>（未传则 runSubagent 回退 --no-session）
+				sessionFile,
 				skillPaths,
 				extensionPaths: opts.extensionPaths,
 				cliPath: opts.runnerOpts?.cliPath,
@@ -499,211 +1009,4 @@ async function runWithConcurrency<T>(
 	);
 	await Promise.all(workers);
 	return results;
-}
-
-/** 构造 fleet 工具：并行派发多个 delegate 任务，按输入顺序聚合结果 */
-export function makeFleetTool(opts: {
-	askTo: DelegateTarget[];
-	spawn: DelegateSpawnFn;
-	/** 调用级信号槽（bridge 流式断连/用户停止时触发）：abort 瞬间写 final 快照（同 delegate） */
-	getCallSignal?: () => AbortSignal | undefined;
-}) {
-	// 中止即时快照的进度采集（结构同 makeDelegateTool；fleet 按 taskIndex 分桶）
-	const latestProgress = new Map<string, Map<number, SubagentProgressEvent>>();
-	return {
-		name: "fleet",
-		label: "Fleet",
-		// 文案在 shared 侧即按 FLEET_MAX_CONCURRENCY 插值完成；原 replace 回填已删——
-		// 其搜索串「6」与模板实际「5」不匹配而静默失效，描述一度停留在 5
-		description: FLEET_DESCRIPTION,
-		parameters: FleetParamsSchema,
-		/** 进度采集入口（注册点转发 spawnFn onProgress）：供 abort 瞬间快照组装部分进度 */
-		notifyProgress(toolCallId: string, event: SubagentProgressEvent): void {
-			const byIndex = latestProgress.get(toolCallId);
-			if (!byIndex) return;
-			byIndex.set(event.taskIndex ?? 0, event);
-		},
-		async execute(
-			toolCallId: string,
-			args: { tasks: Array<{ agent: string; task: string }> },
-		): Promise<{
-			content: Array<{ type: "text"; text: string }>;
-			details:
-				| {
-						fleet: Record<string, ToolStats>;
-						/** 按任务序号（String(index)）的中断标记：子代理非正常终态（中止/超时/异常）为 true */
-						interrupted: Record<string, boolean>;
-				  }
-				/** 参数拒绝标记：任务数不合法（少于 2 个或超过上限）时给出，无 fleet 统计
-				 *  （显式声明缺失字段为 undefined，让调用侧访问 fleet/interrupted 不因联合变体报错） */
-				| { fleet?: undefined; interrupted?: undefined; error: string }
-				| undefined;
-			isError: boolean;
-			usage?: ReturnType<typeof sumPiToolUsage>;
-		}> {
-			if (args.tasks.length === 0) {
-				return {
-					content: [{ type: "text" as const, text: "无任务" }],
-					details: undefined,
-					isError: false,
-				};
-			}
-			// 单任务不属于并行委派：拒绝执行并引导改用 delegate，而不是跑一个无并行收益的
-			// 「fleet」。不抛异常，与文件既有约定一致（错误经文本传达给 LLM）
-			if (args.tasks.length === 1) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: '错误：fleet 用于并行委派，至少需要 2 个任务（当前只有 1 个）。只委派单个任务时请改用 delegate 单任务工具，例如 delegate(agent="代码审查", task="评审改动")。',
-						},
-					],
-					details: { error: "fleet_requires_multiple_tasks" },
-					isError: true,
-				};
-			}
-			// 超过并发上限拒绝而非排队：排队会占住父代理的工具槽位且模型看不出「没并发」
-			if (args.tasks.length > MAX_SUBAGENT_CONCURRENCY) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `错误：fleet 一次最多 ${MAX_SUBAGENT_CONCURRENCY} 个任务（当前 ${args.tasks.length} 个）。请拆成多次 fleet 调用（每次不超过 ${MAX_SUBAGENT_CONCURRENCY} 个）。`,
-						},
-					],
-					details: { error: "fleet_too_many_tasks" },
-					isError: true,
-				};
-			}
-
-			// ── 中止快照：abort 瞬间用瞬时进度组装 final 立即落盘，settle 后覆盖 ──
-			const callSignal = opts.getCallSignal?.();
-			let aborted = callSignal?.aborted === true;
-			let pendingImmediate: Promise<void> | undefined;
-			latestProgress.set(toolCallId, new Map());
-			const writeImmediateFinal = () => {
-				aborted = true;
-				const byIndex = latestProgress.get(toolCallId);
-				// 每个子任务用其当时的 tools/output 瞬时快照组装（未 settle 同样处理，
-				// 标题统一「（中断）」）；settle 后的覆盖写会替换为真实终态标记
-				const lines = args.tasks.map((t, index) => {
-					const ev = byIndex?.get(index);
-					const note = ev ? buildPartialProgressNote(ev.tools, ev.output) : "";
-					const body = note
-						? `子智能体已被中止\n\n${note}`
-						: "子智能体已被中止";
-					return `【${t.agent}】（中断）\n${body}`;
-				});
-				// details 形状与 settle 后的完整快照一致：fleet 统计聚合自瞬时进度
-				//（无进度事件的任务省略），interrupted 全 true
-				const fleetStats: Record<string, ToolStats> = {};
-				for (let index = 0; index < args.tasks.length; index++) {
-					const ev = byIndex?.get(index);
-					if (ev) fleetStats[String(index)] = toolStatsFromProgress(ev.tools);
-				}
-				const interrupted: Record<string, boolean> = {};
-				for (let index = 0; index < args.tasks.length; index++) {
-					interrupted[String(index)] = true;
-				}
-				pendingImmediate = writeAbortSnapshot(toolCallId, {
-					toolCallId,
-					tool: "fleet",
-					phase: "final",
-					text: lines.join("\n\n"),
-					details: { fleet: fleetStats, interrupted },
-					savedAt: new Date().toISOString(),
-				});
-			};
-			if (callSignal) {
-				if (callSignal.aborted) writeImmediateFinal();
-				else
-					callSignal.addEventListener("abort", writeImmediateFinal, {
-						once: true,
-					});
-			}
-			try {
-				const results = await runWithConcurrency(
-					args.tasks.map((t, index) => async () => {
-						if (!canInvoke(t.agent, opts.askTo)) {
-							return {
-								index,
-								agent: t.agent,
-								text: buildNotAllowedMessage(t.agent, opts.askTo),
-								isError: true,
-							};
-						}
-						// 内置 subagent 中文别名归一化（同 delegate 单任务路径）
-						const spawnAgent = normalizeSubagentType(t.agent);
-						// fleet 所有子任务共享同一个 fleet 工具调用的 toolCallId：
-						// 前端 FleetCard 靠它定位卡片，内部按 progress.taskIndex 区分各子任务
-						try {
-							const { text, isError, toolStats, usage, interrupted } =
-								await opts.spawn(spawnAgent, t.task, toolCallId, index);
-							return {
-								index,
-								agent: t.agent,
-								text,
-								isError,
-								toolStats,
-								usage,
-								interrupted,
-							};
-						} catch (err) {
-							// 单任务意外异常不连坐：spawn 闭包内 try 块外的路径（resolveConfig /
-							// ensureExtension 等）抛错时转结构化失败（对齐 subagent-runner 异常路径
-							// 语义：isError + interrupted），其余任务继续执行、结果照常聚合不丢失
-							const message = err instanceof Error ? err.message : String(err);
-							return {
-								index,
-								agent: t.agent,
-								text: `子智能体执行异常: ${message}`,
-								isError: true,
-								interrupted: true,
-							};
-						}
-					}),
-					MAX_SUBAGENT_CONCURRENCY,
-				);
-				// 按输入顺序聚合为单段文本；details 携带各子代理工具调用统计（刷新后仍可显示）
-				// + 按任务序号的中断标记（前端区分「中断」与普通失败，兼容旧数据缺失）
-				// 标题标记同步区分失败/中断：两者都有标「失败·中断」，只其一时标单项
-				const lines = results.map((r) => {
-					const marks = [r.isError ? "失败" : "", r.interrupted ? "中断" : ""]
-						.filter(Boolean)
-						.join("·");
-					return `【${r.agent}】${marks ? `（${marks}）` : ""}\n${r.text}`;
-				});
-				const anyError = results.some((r) => r.isError);
-				const fleetStats: Record<string, ToolStats> = {};
-				const fleetInterrupted: Record<string, boolean> = {};
-				for (const r of results) {
-					if (r.toolStats) fleetStats[String(r.index)] = r.toolStats;
-					fleetInterrupted[String(r.index)] = r.interrupted === true;
-				}
-				if (aborted) {
-					// 全部子任务 settle 后用最终状态覆盖写 final（信息更全，pi 已读过也不影响）；
-					// 先等 abort 瞬间的写盘完成，杜绝晚到的立即快照覆盖完整快照
-					await pendingImmediate;
-					await writeAbortSnapshot(toolCallId, {
-						toolCallId,
-						tool: "fleet",
-						phase: "final",
-						text: lines.join("\n\n"),
-						details: { fleet: fleetStats, interrupted: fleetInterrupted },
-						savedAt: new Date().toISOString(),
-					});
-				}
-				return {
-					content: [{ type: "text" as const, text: lines.join("\n\n") }],
-					details: { fleet: fleetStats, interrupted: fleetInterrupted },
-					isError: anyError,
-					// 各子代理用量聚合上报：pi 官方 stats 原生计入累计（usage reported by tools）
-					usage: sumPiToolUsage(results.map((r) => r.usage)),
-				};
-			} finally {
-				latestProgress.delete(toolCallId);
-				callSignal?.removeEventListener("abort", writeImmediateFinal);
-			}
-		},
-	};
 }
