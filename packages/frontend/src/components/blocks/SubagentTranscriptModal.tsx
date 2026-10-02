@@ -49,8 +49,9 @@ export interface TranscriptMeta {
 	};
 }
 
-/** 时间线可渲染段：思考 / 工具（配对后带结果）/ 正文 */
+/** 时间线可渲染段：任务（user 消息）/ 思考 / 工具（配对后带结果）/ 正文 */
 export type TranscriptSegment =
+	| { kind: "task"; text: string }
 	| { kind: "thinking"; text: string }
 	| { kind: "text"; text: string }
 	| { kind: "tool"; toolCall: ToolCall; toolResult?: ToolResultMessage };
@@ -58,8 +59,22 @@ export type TranscriptSegment =
 /** 视图筛选：全部 / 思考 / 工具 / 正文（纯前端过滤，不触发请求） */
 export type TranscriptFilter = "all" | "thinking" | "tool" | "text";
 
+/** 取 user 消息的文本：content 可能是 string 或 [{type:"text",text}] 数组 */
+function userText(content: unknown): string {
+	if (typeof content === "string") return content.trim();
+	if (!Array.isArray(content)) return "";
+	return (content as Array<Record<string, unknown>>)
+		.filter((b) => b?.type === "text" && typeof b.text === "string")
+		.map((b) => b.text as string)
+		.join("\n")
+		.trim();
+}
+
 /**
  * 把会话消息数组拍平成可渲染段；toolCall 与 toolResult 按 toolCallId 配对。
+ * - **user 消息渲染为 task 段**（规格 §6）：resume 时每轮任务都作为新一轮 user 消息追加进
+ *   同一份历史，不渲染就看不到续聊那轮下发了什么（用户实测：「第二次发出去的任务，没有写在
+ *   正文里面，只能看到第一次下发的」）。
  * - 简单任务的模型可能**完全没有 thinking 块**（R5）：思考段缺失不影响工具/正文成段。
  * - 空/纯空白块跳过，避免渲染空气泡。
  * - 找不到配对 toolCall 的 toolResult 直接忽略（没有可挂靠的卡片）。
@@ -72,7 +87,10 @@ export function buildTranscriptSegments(
 	for (const m of messages) {
 		const msg = m?.message as { role?: string; content?: unknown } | undefined;
 		if (!msg) continue;
-		if (msg.role === "assistant" && Array.isArray(msg.content)) {
+		if (msg.role === "user") {
+			const text = userText(msg.content);
+			if (text) out.push({ kind: "task", text });
+		} else if (msg.role === "assistant" && Array.isArray(msg.content)) {
 			for (const block of msg.content as Array<Record<string, unknown>>) {
 				if (
 					block?.type === "thinking" &&
@@ -109,7 +127,9 @@ export function buildTranscriptSegments(
 export function segmentsToPlainText(segments: TranscriptSegment[]): string {
 	const parts: string[] = [];
 	for (const s of segments) {
-		if (s.kind === "thinking") {
+		if (s.kind === "task") {
+			parts.push(`[任务]\n${s.text}`);
+		} else if (s.kind === "thinking") {
 			parts.push(`[思考]\n${s.text}`);
 		} else if (s.kind === "text") {
 			parts.push(s.text);
@@ -268,6 +288,9 @@ function TranscriptDialog({
 		() => segments.filter((s) => filter === "all" || s.kind === filter),
 		[segments, filter],
 	);
+	// 历史里已经有 task 段（每轮任务都作为 user 消息落在 jsonl）时，顶部不再重复挂 meta.task；
+	// 仅当 jsonl 里没有 user 消息（异常/旧数据）时用它兜底。判定用未过滤的 segments。
+	const hasTaskSegment = segments.some((s) => s.kind === "task");
 	// 同一次委托（toolCallId 相同）的实例，按 fleet 序号排序。
 	// 分组依据必须是**会话级列表**而非详情响应：详情一开始 setData(null)、目标实例 404 时 data 长期为 null，
 	// 绑详情会让左栏在每次切换的加载窗口内被卸载（闪烁），且目标 jsonl 缺失时左栏永久消失（只能关掉弹窗重开）。
@@ -427,7 +450,9 @@ function TranscriptDialog({
 							)}
 							{state === "ok" && (
 								<>
-									{meta?.task && (
+									{/* meta.task 是实例的**首轮**任务快照（规格 §5：供审计）；每轮任务已由 user 消息
+									    在时间线里成 task 段，故仅在历史里没有 task 段时才用它兜底显示 */}
+									{!hasTaskSegment && meta?.task && (
 										<div
 											data-transcript-block="task"
 											className="mb-3 rounded-lg border border-hairline bg-surface px-2.5 py-1.5"
@@ -447,6 +472,16 @@ function TranscriptDialog({
 											data-transcript-block={s.kind}
 											className="mb-3"
 										>
+											{s.kind === "task" && (
+												<div className="rounded-lg border border-hairline bg-surface px-2.5 py-1.5">
+													<div className="text-[calc(11px*var(--font-scale))] text-tertiary font-semibold">
+														{t("blocks.delegate.taskLabel")}
+													</div>
+													<div className="text-secondary whitespace-pre-wrap break-words">
+														{s.text}
+													</div>
+												</div>
+											)}
 											{s.kind === "thinking" && <ThinkingCard thinking={s.text} />}
 											{s.kind === "tool" && (
 												<ToolCallCard toolCall={s.toolCall} result={s.toolResult} />

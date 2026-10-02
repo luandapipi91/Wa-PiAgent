@@ -191,6 +191,66 @@ test("segmentsToPlainText：思考 / 工具（含参数与结果）/ 正文都�
 
 // ── 组件 ──
 
+test("buildTranscriptSegments：user 消息（resume 的每轮任务）渲染为 task 段", () => {
+	// 规格 §6：resume 时 task 参数作为新一轮用户消息追加进同一份历史。
+	// 此前只处理 assistant / toolResult → 续聊那轮的任务在弹窗里完全不可见
+	// （用户实测：「第二次发出去的任务，没有写在正文里面，只能看到第一次下发的」）。
+	const segs = buildTranscriptSegments([
+		{
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "第一轮任务" }],
+			},
+		} as never,
+		{
+			message: { role: "assistant", content: [{ type: "text", text: "第一轮结论" }] },
+		} as never,
+		{
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "第二轮任务（续聊）" }],
+			},
+		} as never,
+		{
+			message: { role: "assistant", content: [{ type: "text", text: "第二轮结论" }] },
+		} as never,
+	]);
+	expect(segs.map((s) => s.kind)).toEqual(["task", "text", "task", "text"]);
+	expect((segs[0] as { text: string }).text).toBe("第一轮任务");
+	expect((segs[2] as { text: string }).text).toBe("第二轮任务（续聊）");
+});
+
+test("buildTranscriptSegments：user 的字符串型 content 也能成段，空文本跳过", () => {
+	const segs = buildTranscriptSegments([
+		{ message: { role: "user", content: "裸字符串任务" } } as never,
+		{ message: { role: "user", content: "   " } } as never,
+	]);
+	expect(segs.map((s) => s.kind)).toEqual(["task"]);
+	expect((segs[0] as { text: string }).text).toBe("裸字符串任务");
+});
+
+test("续聊：两轮任务都出现在时间线（不再只看得到第一次下发的）", async () => {
+	const multi = [
+		{ message: { role: "user", content: [{ type: "text", text: "第一轮任务" }] } } as never,
+		{ message: { role: "assistant", content: [{ type: "text", text: "第一轮结论" }] } } as never,
+		{ message: { role: "user", content: [{ type: "text", text: "第二轮任务（续聊）" }] } } as never,
+		{ message: { role: "assistant", content: [{ type: "text", text: "第二轮结论" }] } } as never,
+	];
+	stubFetch({ detail: { body: { meta: META, messages: multi } } });
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(screen.getByText("第二轮任务（续聊）")).toBeTruthy());
+	expect(screen.getByText("第一轮任务")).toBeTruthy();
+	const kinds = [...document.querySelectorAll("[data-transcript-block]")].map((el) =>
+		el.getAttribute("data-transcript-block"),
+	);
+	expect(kinds).toEqual(["task", "text", "task", "text"]);
+});
+
 test("open 为 null 时不挂载弹窗、不发请求（按需加载）", () => {
 	stubFetch({});
 	const { container } = render(
