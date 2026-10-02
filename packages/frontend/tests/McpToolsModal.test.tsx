@@ -26,7 +26,7 @@ test("有工具时显示工具列表（即使 loading）", () => {
   expect(screen.getByText("query")).toBeTruthy();
 });
 
-test("只展示工具名：说明文案出现，且不显示骗人的「无参数」", () => {
+test("参数未知时什么都不渲染：不写「无参数」「参数」（pi mcp list --json 只给名字）", () => {
   render(
     <McpToolsModal
       serverName="dbx"
@@ -35,9 +35,9 @@ test("只展示工具名：说明文案出现，且不显示骗人的「无参�
       onClose={() => {}}
     />,
   );
-  expect(screen.getByTestId("mcp-tools-names-only").textContent).toContain(
-    "只展示工具名",
-  );
+  // 正向控制：工具名照常渲染（否则下面两条「不存在」可能只是因为什么都没渲染）
+  expect(screen.getByText("query")).toBeTruthy();
+  expect(screen.getByText("list")).toBeTruthy();
   // pi mcp list --json 只给名字：参数未知时必须什么都不渲染，不能写「无参数」
   expect(screen.queryByText("无参数")).toBeNull();
   expect(screen.queryByText("参数")).toBeNull();

@@ -492,8 +492,6 @@ const en = {
 		title: "🔧 {{name}} tools",
 		searchPlaceholder: "🔍 Search tools...",
 		loading: "Loading tools...",
-		namesOnly:
-			"Names only: pi reports tool names without descriptions or parameters.",
 		emptyCache:
 			"Cannot read the tool list right now (server offline, sign-in required, or no tools).",
 		noMatch: "No matching tools",

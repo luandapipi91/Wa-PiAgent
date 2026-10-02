@@ -472,7 +472,6 @@ const zh = {
 		title: "🔧 {{name}} 工具列表",
 		searchPlaceholder: "🔍 搜索工具...",
 		loading: "工具加载中...",
-		namesOnly: "只展示工具名：当前 pi 只提供工具名，不含描述与参数。",
 		emptyCache:
 			"暂时读不到工具列表（服务器未连接、需要登录，或确实没有工具）。",
 		noMatch: "没有匹配的工具",

@@ -162,8 +162,8 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
     await expect(modal).toBeVisible({ timeout: 20_000 });
     await expect(modal).toContainText("echo", { timeout: 20_000 });
     await expect(modal).toContainText("ping");
-    // 只展示工具名（pi 的 list 不给描述/参数）：如实说明，不虚构字段
-    await expect(page.getByTestId("mcp-tools-names-only")).toBeVisible();
+    // 工具名照常渲染；pi 的 list 不给描述/参数，故不渲染参数（也不写「无参数」）
+    await expect(modal).not.toContainText("无参数");
 
     await modal.getByText("✕").click();
     await expect(modal).not.toBeVisible();

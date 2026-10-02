@@ -34,13 +34,6 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
           onChange={e => setSearch(e.target.value)}
           data-testid="mcp-tools-search"
         />
-        {/* pi mcp list --json 只给工具名（无描述/参数）：说明清楚，不把「未知」渲染成「无」 */}
-        <p
-          className="text-[calc(10.5px*var(--font-scale))] text-tertiary mt-1.5"
-          data-testid="mcp-tools-names-only"
-        >
-          {t("mcpTools.namesOnly")}
-        </p>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         {loading && tools.length === 0 ? (
