@@ -24,6 +24,7 @@ import { Icon } from "../ui/Icon";
 import { fmtTok } from "../../util/format";
 import { copyToClipboard } from "../../util/clipboard";
 import { useToastStore } from "../../store/toast";
+import { useSessionStore } from "../../store/session";
 
 /** 转录接口返回的 meta（kernel SubagentMeta 的可渲染子集；未用到的字段不声明） */
 export interface TranscriptMeta {
@@ -128,6 +129,20 @@ export function segmentsToPlainText(segments: TranscriptSegment[]): string {
  *  「弹窗查看子代理委托，也需要根据实时进度更新」）。导出仅为测试可控。 */
 export const TRANSCRIPT_POLL_MS = 2000;
 
+/** 该 agentId 当前是否仍在运行（从 store 实时读，不走组件闭包）。
+ *  用途：区分两种「详情取不到」——实例还在跑 = 转录尚未落盘（该等），不在跑 = 真的没有转录。
+ *  用 getState() 而非 selector：轮询回调是 effect 首次建立的闭包，selector 值不进去，
+ *  读实时值才能在「刚跑完 / 刚落盘」的边界上判对。 */
+function isInstanceRunning(agentId: string): boolean {
+	const map = useSessionStore.getState().progressByToolCall;
+	for (const byIndex of Object.values(map)) {
+		for (const ev of Object.values(byIndex)) {
+			if (ev.agentId === agentId) return ev.status === "running";
+		}
+	}
+	return false;
+}
+
 /** 耗时紧凑格式：<60s 用秒，否则 m 分 s 秒 */
 function formatElapsed(ms: number): string {
 	const total = Math.max(0, Math.round(ms / 1000));
@@ -205,9 +220,19 @@ function TranscriptDialog({
 					}
 				})
 				.catch(() => {
-					// 404（meta/jsonl 不存在）与 400 都落到空态：此委托没有可查看的转录。
-					// 失败即停：轮询期间目标被删 / 服务抖动时不能用重试打服务。
-					if (!cancelled) setState("missing");
+					if (cancelled) return;
+					// 详情取不到（404/400）：两种情形要分开处理——
+					// ① 实例**还在跑**：jsonl/meta 尚未落盘（用户实测：子代理刚 spawn 时点进去
+					//    会误报「此委托早于转录功能上线」且不再刷新）→ 保持 loading，继续按间隔
+					//    重试，落盘后自动加载出内容；
+					// ② 实例不在跑：真的没有可看的转录（老数据 / 无效 id）→ 落空态并停拉。
+					// 每次重试都重判（不在跑之后不会再无限试）。
+					if (isInstanceRunning(agentId)) {
+						setState("loading");
+						timer = setTimeout(load, TRANSCRIPT_POLL_MS);
+					} else {
+						setState("missing");
+					}
 				});
 		};
 		load();
@@ -380,9 +405,20 @@ function TranscriptDialog({
 							className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[calc(12px*var(--font-scale))]"
 						>
 							{state === "loading" && (
-								<p data-testid="transcript-loading" className="text-tertiary">
-									{t("common.loading")}
-								</p>
+								/* 骨架屏：实例可能刚 spawn、转录尚未落盘，等落盘后会自行加载出内容 */
+								<div
+									data-testid="transcript-loading"
+									aria-busy="true"
+									className="space-y-2"
+								>
+									{[0, 1, 2, 3].map((i) => (
+										<div
+											key={i}
+											className="h-9 rounded-lg bg-surface-hover animate-pulse"
+											style={{ width: `${94 - i * 14}%` }}
+										/>
+									))}
+								</div>
 							)}
 							{state === "missing" && (
 								<p data-testid="transcript-missing" className="text-tertiary">

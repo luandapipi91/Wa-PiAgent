@@ -15,6 +15,7 @@ import {
 	buildTranscriptSegments,
 	segmentsToPlainText,
 } from "../src/components/blocks/SubagentTranscriptModal";
+import { useSessionStore } from "../src/store/session";
 import { MODAL_POS_KEYS } from "../src/components/ui/modal-position";
 import { MODAL_SIZE_KEYS } from "../src/components/ui/modal-size";
 
@@ -127,6 +128,8 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	globalThis.fetch = originalFetch;
+	// 清掉本文件用例写入的进度事件（「实例是否在跑」的判定读它，残留会串到后面的 404 用例）
+	useSessionStore.setState({ progressByToolCall: {} });
 });
 
 // ── 纯函数：把消息拍平成可渲染段 ──
@@ -477,6 +480,66 @@ test("实时更新：子代理仍在 running → 弹窗按间隔重新拉取，�
 	// 跨过一个轮询周期（TRANSCRIPT_POLL_MS = 2000）后自动重拉 → 工具与正文出现
 	await waitFor(() => expect(blockCount("tool")).toBe(1), { timeout: 8000 });
 	expect(detailCallCount()).toBeGreaterThanOrEqual(2);
+});
+
+test("实例刚启动（404 但该实例仍在跑）→ 显示 loading 骨架而非「没有转录」，落盘后自动加载", async () => {
+	// 用户实测：子代理刚 spawn、jsonl 还没落盘时点进去会显示「此委托早于转录功能上线」且不再刷新。
+	// 需要区分两种 404：实例还在跑（该等） vs 真的没有（老数据）。信号来自 store 里的进度事件。
+	useSessionStore.setState({
+		progressByToolCall: {
+			"tc-live": {
+				"0": {
+					agent: "Explore",
+					agentId: AGENT_ID,
+					status: "running",
+					output: "",
+					tools: [],
+					elapsedMs: 0,
+				},
+			},
+		},
+	});
+	let round = 0;
+	fetchUrls = [];
+	globalThis.fetch = mock((url: unknown) => {
+		const u = String(url);
+		fetchUrls.push(u);
+		if (/\/subagents\/[^/]+$/.test(u)) {
+			round += 1;
+			// 第 1 次：还没落盘；第 2 次起：已落盘
+			if (round === 1) return Promise.resolve(jsonRes({ status: 404 }));
+			return Promise.resolve(jsonRes({ body: { meta: META, messages: MESSAGES } }));
+		}
+		return Promise.resolve(jsonRes({ body: { subagents: [META] } }));
+	}) as unknown as typeof fetch;
+
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	// 首次 404：实例在跑 → 仍是 loading，不得报「没有转录」
+	await waitFor(() => expect(screen.getByTestId("transcript-loading")).toBeTruthy());
+	expect(screen.queryByTestId("transcript-missing")).toBeNull();
+	// 自动重试后拿到内容（用户要求「启动好之后自动加载内容」）
+	await waitFor(() => expect(blockCount("thinking")).toBe(1), { timeout: 9000 });
+	expect(screen.queryByTestId("transcript-missing")).toBeNull();
+});
+
+test("真缺失（404 且该实例不在跑）→ 仍显示「此委托早于转录功能上线」", async () => {
+	useSessionStore.setState({ progressByToolCall: {} });
+	stubFetch({ detail: { status: 404 } });
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("transcript-missing")).toBeTruthy(),
+	);
+	expect(screen.queryByTestId("transcript-loading")).toBeNull();
 });
 
 test("实时更新：子代理已终态（completed）→ 拉一次后不再轮询", async () => {
