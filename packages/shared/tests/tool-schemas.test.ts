@@ -110,20 +110,13 @@ test("MEM_SEARCH_DESC / MEM_READ_DESC 声明未传 scope 的检索范围（全�
   }
 });
 
-test("DELEGATE_DESCRIPTION 划出「知识类提问先查记忆」的例外边界", async () => {
-  // 委派规则的总则是「默认委托、首调即派发」，例外必须是**第一条判定**，
-  // 否则知识类提问会被总则吃掉（基线实测：结构/依赖/方法类提问首个动作是 ls/delegate）。
-  // 注意：断言只锁结构（例外是否为第一条判定）与自身文案，不锁总则/其余判定的措辞
-  //—— 那些文案会被其它任务重写，锁死它们只会让测试变成噪声。
+test("DELEGATE_DESCRIPTION 给出「不派」的判据（防误派回归）", async () => {
+  // 2026-10-02：删掉「知识类提问先查记忆」例外与「一律派发」总则——
+  // 委派段不再提 memory_search（记忆引导归 memory-policy 段），判据改为「要不要翻」。
   const { DELEGATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
-  const bullets = DELEGATE_DESCRIPTION.split("\n").filter((l) =>
-    l.trimStart().startsWith("- "),
-  );
-  expect(bullets.length).toBeGreaterThan(0);
-  expect(bullets[0]).toContain("例外");
-  expect(bullets[0]).toContain("memory_search");
-  // 合并后文案写作「知识/过程类问题」，仍须点名知识类（防被总则吃掉）
-  expect(bullets[0]).toContain("知识");
+  expect(DELEGATE_DESCRIPTION).toContain("不需要翻的自己做");
+  expect(DELEGATE_DESCRIPTION).not.toContain("一律派发");
+  expect(DELEGATE_DESCRIPTION).not.toContain("memory_search");
 });
 
 test("DELEGATE_DESCRIPTION 与 existing delegate-tool.ts 输出一致", async () => {

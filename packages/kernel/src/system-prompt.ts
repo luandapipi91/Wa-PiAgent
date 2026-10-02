@@ -194,13 +194,14 @@ export function composeSubagentPrompt(systemPrompt: string): string {
 	return trimmed
 }
 
-/** 默认 delegate-mechanism 段（委托机制入口规则：默认委托 + 串行/并行单工具路由 + @ 语法。
- * 判定细则收敛到 DELEGATE_DESCRIPTION 工具层，避免系统提示词/工具描述三层重复（2026-09-18 委派提示词 ≤600 tok 优化）。 */
+/** 默认 delegate-mechanism 段（委托机制入口：只留调用语法 + 示例 + @ 语法）。
+ * 2026-10-02：去掉「代码任务一律派发再行动」总则——总则写作一律派发会吃掉小活
+ * （eval-delegate-trigger 的 simple/edit-small 类别期望不派）。判据/派几项/任务写法全部收敛到
+ * DELEGATE_DESCRIPTION 工具层（维持分层，不新增第三处重复），四部分合计 ≤600 tok 预算。 */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
 	"## Delegation Mechanism\n\n" +
-	"**代码任务一律派发再行动（单点查询除外）。先查顺序词（先…再…/然后/按结果）→ 有依赖，拆成多次 delegate、每次只放 1 项；无依赖且 ≥2 个独立任务 → 一次 delegate 放多项并行；单任务 → delegate(tasks=[{agent, task}])。**\n" +
+	"派不派、怎么派看 `delegate` 工具描述；这里只记语法：一次 `delegate(tasks=[{ agent, task }, …])`，1..6 项，超出拒绝不排队。\n" +
 	'用户：找出所有引用 X 的文件 → delegate(tasks=[{agent:"Explore", task:"全仓库搜索 X 并说明用途"}])\n' +
-	"用户：WA_PI_DIR 指向哪？→ 不派，直接答\n" +
 	"@agentName → 立即 delegate（不存在则告知；多个依次派发）。";
 
 /**

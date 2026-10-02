@@ -69,6 +69,14 @@ test("composePrompt 默认段落顺序：base → self-protection → delegate-m
 	expect(policyPos).toBeLessThan(memPos);
 });
 
+test("delegate-mechanism 段只留语法、判据指向工具描述（防「一律派发」总则回归）", () => {
+	// 2026-10-02：总则「代码任务一律派发再行动」会吃掉小活（simple/edit-small 期望不派），已删；
+	// 段里只留调用与 @ 语法，判据/派几项/任务写法由 DELEGATE_DESCRIPTION 承载。
+	expect(DEFAULT_DELEGATE_MECHANISM_PROMPT).toContain("看 `delegate` 工具描述");
+	expect(DEFAULT_DELEGATE_MECHANISM_PROMPT).not.toContain("一律派发");
+	expect(DEFAULT_DELEGATE_MECHANISM_PROMPT).toContain("@agentName");
+});
+
 test("composePrompt delegateRoster 空串 → delegate-roster 段不出现", () => {
 	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
 		...defaultCtx,
