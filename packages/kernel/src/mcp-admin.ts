@@ -22,6 +22,32 @@ export function normalizeMcpAuthKey(url: string): string | null {
 }
 
 /**
+ * 该 server 是否可能走 OAuth（决定要不要给它下发登录态、前端要不要画登录按钮）。
+ *
+ * 判据与 pi 逐条对齐（pi 的 `dist/extensions/mcp/runtime.js`：
+ * “HTTP servers authenticate with OAuth unless the config supplies an `Authorization`
+ * header or `auth`”）：
+ *   - 没有 url（stdio）→ 不可能；
+ *   - headers 里有 `authorization`（**大小写不敏感**，HTTP 头名本就如此）→ 固定凭据，不是 OAuth；
+ *   - 带 `auth` 配置 → 走 `/login` provider 的 token，也不是 OAuth。
+ *
+ * 不满足时**不下发** `signedIn`（而不是下发 false）：前端把 `undefined` 当“未知”而两边按钮
+ * 都不画；给它 false 会画出一个必然失败的「登录」入口——pi 的 login 会直接拒绝：
+ * “does not use OAuth. Only HTTP servers without an Authorization header do.”
+ */
+export function canUseOAuth(config: {
+  url?: string;
+  headers?: Record<string, string>;
+  auth?: unknown;
+}): boolean {
+  if (!config.url) return false;
+  if (config.auth !== undefined) return false;
+  return !Object.keys(config.headers ?? {}).some(
+    (header) => header.toLowerCase() === "authorization",
+  );
+}
+
+/**
  * 读 `<agentDir>/mcp-auth.json` 的键集合（规范化后）。
  *
  * 一次性读整份文件供多处比对（列表里每台 HTTP server 都要问一次登录态，逐台重读文件没必要）。

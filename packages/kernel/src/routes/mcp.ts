@@ -30,7 +30,7 @@ import type {
   WSServerEvent,
 } from "@wa-pi/shared";
 import type { McpAdmin, McpServerReport } from "../mcp-admin";
-import { normalizeMcpAuthKey, readMcpAuthKeys } from "../mcp-admin";
+import { canUseOAuth, normalizeMcpAuthKey, readMcpAuthKeys } from "../mcp-admin";
 import type { McpFile } from "../mcp-file";
 import type { ProjectStore } from "../project-store";
 import { McpTrustStore } from "../mcp-trust";
@@ -257,11 +257,12 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
       const report = byName.get(c.name);
       // 展开而非挑字段：pi 的 report 形状可能随版本增字段（规格 F14），少一列不该丢信息
       const entry: McpServerEntry = report ? { ...c, ...report } : { ...c };
-      // 登录态只对 HTTP server 赋値：stdio 没有 OAuth（pi 会直接报 does not use OAuth），
-      // 给它一个 false 只会让前端误以为「可以在 GUI 里登录」。
+      // 登录态只对「可能走 OAuth」的 server 赋値：stdio 没有 OAuth；带静态 Authorization 头
+      // （大小写不敏感）或 auth 配置的 HTTP server 走固定凭据，pi 的 login 会直接拒绝。
+      // 给它们 false 只会让前端误以为「可以在 GUI 里登录」；判据与 pi 一致见 canUseOAuth。
       // 比对必须走与 pi 同一个规范化（F19）：盘上的键是 String(new URL(url))。
-      if (entry.url) {
-        const key = normalizeMcpAuthKey(entry.url);
+      if (canUseOAuth(entry)) {
+        const key = normalizeMcpAuthKey(entry.url!);
         if (key) entry.signedIn = signedInKeys.has(key);
       }
       return entry;

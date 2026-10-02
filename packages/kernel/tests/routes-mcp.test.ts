@@ -220,6 +220,50 @@ describe("GET /api/mcp", () => {
     expect(body.hasProblems).toBe(false);
   });
 
+  test("登录态只对可能走 OAuth 的 server 下发（带 Authorization 头 / auth 的一律不给）", async () => {
+    await writeGlobal({
+      mcpServers: {
+        plainHttp: { url: "https://host" },
+        staticHeader: {
+          url: "https://host2",
+          headers: { Authorization: "Bearer x" },
+        },
+        lowerCaseHeader: {
+          url: "https://host3",
+          headers: { authorization: "Bearer y" },
+        },
+        providerAuth: { url: "https://host4", auth: { provider: "openai" } },
+        stdioSrv: { command: "node", args: ["x.js"] },
+      },
+    });
+    const router = makeRouter(
+      makeAdmin(
+        listResult([
+          report("plainHttp"),
+          report("staticHeader"),
+          report("lowerCaseHeader"),
+          report("providerAuth"),
+          report("stdioSrv"),
+        ]),
+      ),
+    );
+
+    const res = await get(router, "/api/mcp");
+    const body = await res!.json();
+    const byName = Object.fromEntries(
+      body.servers.map((s: { name: string }) => [s.name, s]),
+    );
+    // 不带 Authorization 头的 HTTP：可能走 OAuth → 未登录下发 false（前端据此画登录按钮）
+    expect(byName.plainHttp.signedIn).toBe(false);
+    // 带静态 Authorization 头（大小写不敏感）或 auth：pi 的 login 会直接拒绝
+    // （"does not use OAuth. Only HTTP servers without an Authorization header do."）
+    // → 不下发 signedIn（前端把 undefined 当未知，两边按钮都不画）
+    expect("signedIn" in byName.staticHeader).toBe(false);
+    expect("signedIn" in byName.lowerCaseHeader).toBe(false);
+    expect("signedIn" in byName.providerAuth).toBe(false);
+    expect("signedIn" in byName.stdioSrv).toBe(false);
+  });
+
   test("stale / hasProblems / note 原样透传，且不外泄 pi 的原始 stdout（raw）", async () => {
     await writeGlobal({ mcpServers: {} });
     const router = makeRouter(
