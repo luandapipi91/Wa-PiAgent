@@ -10,6 +10,7 @@ import { MemoryStore } from "./memory-store";
 import { MemoryDao } from "./memory/dao";
 import { openMemoryDb } from "./memory/db";
 import { importLegacyMemories } from "./memory/import";
+import { migrateGlobalMcpFile } from "./mcp-migrate";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureBridgeExtension } from "./bridge-extension";
@@ -204,6 +205,20 @@ export async function startKernel(opts?: {
 	// 启动时 seed 默认工作区虚拟项目（幂等）+ 确保 workdir 根目录存在
 	await ensureSystemProject(projectStore);
 	console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
+
+	// 全局 <WA_PI_DIR>/mcp.json 的 adapter 字段一次性**加法**合并（幂等：只补缺失字段）。
+	// 全局文件是旧 adapter 与 pi 共读的共享文件，故只补写 exposure / toolExposure / timeout，
+	// 保留旧字段、settings 段与未知顶层字段，并留一份 mcp.json.bak（固定名）；
+	// 无字段可补时不落盘、不产生备份。项目级那份**不在这里跑**：它由用户在界面上
+	// 开启「项目级 MCP」时触发（见 routes/mcp.ts 的 setProjectMcpScope）。
+	try {
+		const res = await migrateGlobalMcpFile(WA_PI_DIR);
+		if (res.migrated > 0) {
+			console.log(`[mcp] 已迁移全局 mcp.json 的 ${res.migrated} 个 MCP 服务器配置`);
+		}
+	} catch (err) {
+		console.warn("[mcp] 迁移全局 mcp.json 失败（不影响启动）:", err);
+	}
 
 	await ensureWebSearchConfig(WA_PI_DIR);
 

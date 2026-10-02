@@ -3,7 +3,8 @@
  *
  * 关键行为（规格 F11/F12/F13）：
  *   1. 开启 → <WA_PI_DIR>/trust.json 里以 **realpath(project.cwd) 原样** 为键写 true
- *      （pi 只在项目受信时才读 <cwd>/.pi/mcp.json，键写错即静默失效）；
+ *      （pi 只在项目受信时才读 <cwd>/.pi/mcp.json，键写错即静默失效），
+ *      并顺带把旧 .mcp.json 迁移到 <cwd>/.pi/mcp.json；
  *   2. 关闭 → 同一个键写 false，**不删键**（删键会退回上层继承，可能意外继承父目录的受信决定）；
  *   3. GET 回读真值：显式设置过 → true/false；自己和祖先都没条目 → `null`（前端以
  *      `data-unset="true"` 标记未设置，界面上不显示文案）。前端不能靠 pi 的 note 反推：项目还没有 .pi/mcp.json 时
@@ -102,13 +103,25 @@ async function readTrust(): Promise<Record<string, boolean>> {
 }
 
 describe("POST /api/mcp/project-scope", () => {
-  test("开启项目作用域 → 以 realpath(cwd) 原样为键写 true", async () => {
+  test("开启项目作用域 → 以 realpath(cwd) 原样为键写 true，并触发旧配置迁移", async () => {
+    // 旧文件存在 → 迁移应当被触发（migrateProjectMcpFile 只在有 .mcp.json 时才写盘）
+    await writeFile(
+      join(cwd, ".mcp.json"),
+      JSON.stringify({ mcpServers: { legacy: { command: "node", directTools: ["t"] } } }),
+      "utf8",
+    );
+
     const res = await post({ projectId: PROJECT_ID, enabled: true });
     expect(res?.status).toBe(200);
     expect(await res?.json()).toEqual({ ok: true, projectId: PROJECT_ID, enabled: true });
 
     // 键必须是 realpath 结果原样（大小写/分隔符/尾分隔符都错不得）
     expect(await readTrust()).toEqual({ [await trustKeyFor(cwd)]: true });
+
+    // 迁移已跑：<cwd>/.pi/mcp.json 出现且字段已映射
+    const migrated = JSON.parse(await readFile(join(cwd, ".pi", "mcp.json"), "utf8"));
+    expect(migrated.mcpServers.legacy.exposure).toBe("codemode");
+    expect(migrated.mcpServers.legacy.toolExposure).toEqual({ t: "direct" });
   });
 
   test("关闭项目作用域 → 同一个键写 false（不删键，避免退回上层继承）", async () => {
@@ -207,7 +220,14 @@ describe("POST /api/mcp/project-scope（默认工作区）", () => {
     router = setupRouter(workdir, SYSTEM_PROJECT_ID);
   });
 
-  test("开启 → 400，且不落盘 trust.json", async () => {
+  test("开启 → 400，且不落盘 trust.json、不触发迁移", async () => {
+    // 放一个旧配置：若误触迁移就会出现在 <workdir>/.pi/mcp.json
+    await writeFile(
+      join(workdir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { legacy: { command: "node" } } }),
+      "utf8",
+    );
+
     const res = await post({ projectId: SYSTEM_PROJECT_ID, enabled: true });
 
     expect(res?.status).toBe(400);

@@ -34,6 +34,7 @@ import { canUseOAuth, normalizeMcpAuthKey, readMcpAuthKeys } from "../mcp-admin"
 import type { McpFile } from "../mcp-file";
 import type { ProjectStore } from "../project-store";
 import { McpTrustStore } from "../mcp-trust";
+import { migrateProjectMcpFile } from "../mcp-migrate";
 import {
   DEFAULT_LOGIN_TIMEOUT_SEC,
   MAX_LOGIN_TIMEOUT_SEC,
@@ -82,6 +83,9 @@ export async function setProjectMcpScope(opts: {
   const cwd = await resolveCwdForFsRequest(opts.projectStore, opts.projectId);
   // 关闭时写 false 而不是删键：删键会退回上层继承，可能意外继承父目录的受信决定
   await new McpTrustStore(opts.trustFile ?? trustFilePath()).set(cwd, opts.enabled);
+  // 开启时把旧 <cwd>/.mcp.json 合并进 <cwd>/.pi/mcp.json（幂等：目标已有同名条目一律跳过，
+  // 无条目可迁就不落盘）。关闭时不迁移：pi 本来就不读项目配置，迁移只会凭空造出 .pi/ 目录。
+  if (opts.enabled) await migrateProjectMcpFile(cwd);
 }
 
 /**
