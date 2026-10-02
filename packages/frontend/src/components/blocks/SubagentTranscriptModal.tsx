@@ -9,7 +9,7 @@
 //   toolCallId 配对（配对逻辑抽成纯函数 buildTranscriptSegments，单独单测）。
 // - **筛选纯前端**：全部 / 思考 / 工具 / 正文只过滤已拉到的段，绝不重新请求。
 // - 位置与尺寸记忆沿用 ui/Modal 的持久化键（对齐 FilePreviewModal）。
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionMessage, ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { api } from "../../api-client";
 import { useTranslation } from "../../i18n/useTranslation";
@@ -210,6 +210,15 @@ function TranscriptDialog({
 	const [state, setState] = useState<"loading" | "ok" | "missing">("loading");
 	const [filter, setFilter] = useState<TranscriptFilter>("all");
 	const [group, setGroup] = useState<TranscriptMeta[]>([]);
+	// 时间线滚动：打开 / 刷新时贴底（长转录默认看最新），但用户往上翻后不再把他拽回去。
+	// 贴底标志只在滚动事件里更新，刷新时只读它——否则每次内容变化都要重测一次位置。
+	const timelineRef = useRef<HTMLDivElement | null>(null);
+	const stickToBottomRef = useRef(true);
+
+	// 切换实例（含关掉重开）→ 重置为贴底：用户打开的是另一个子代理，要看它的最新内容
+	useEffect(() => {
+		stickToBottomRef.current = true;
+	}, [agentId]);
 
 	// 转录本体：打开时拉一次；切换实例（agentId 变化）重拉；子代理仍在运行则按 ~2s 轮询跟进
 	// （「查看执行过程」要看到实时进度）。筛选不算依赖 → 切筛选不请求。
@@ -288,6 +297,14 @@ function TranscriptDialog({
 		() => segments.filter((s) => filter === "all" || s.kind === filter),
 		[segments, filter],
 	);
+
+	// 内容变化（首次加载完成 / 轮询刷新 / 切筛选）后：仍处于贴底状态就滚到最底。
+	// 首次进入时 data 从 null → 对象，这个 effect 正好把长转录直接定位到最新内容。
+	useEffect(() => {
+		const el = timelineRef.current;
+		if (!el || !stickToBottomRef.current) return;
+		el.scrollTop = el.scrollHeight;
+	}, [data, filter]);
 	// 历史里已经有 task 段（每轮任务都作为 user 消息落在 jsonl）时，顶部不再重复挂 meta.task；
 	// 仅当 jsonl 里没有 user 消息（异常/旧数据）时用它兜底。判定用未过滤的 segments。
 	const hasTaskSegment = segments.some((s) => s.kind === "task");
@@ -424,6 +441,14 @@ function TranscriptDialog({
 
 						{/* 时间线：任务 → 思考 → 工具 → 正文 */}
 						<div
+							ref={timelineRef}
+							onScroll={() => {
+								const el = timelineRef.current;
+								if (!el) return;
+								// 距底 40px 内视为贴底（给滚动惯性 / 亚像素留余量）
+								stickToBottomRef.current =
+									el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+							}}
 							data-testid="transcript-timeline"
 							className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[calc(12px*var(--font-scale))]"
 						>

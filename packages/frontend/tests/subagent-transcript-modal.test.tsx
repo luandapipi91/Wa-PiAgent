@@ -130,7 +130,23 @@ afterEach(() => {
 	globalThis.fetch = originalFetch;
 	// 清掉本文件用例写入的进度事件（「实例是否在跑」的判定读它，残留会串到后面的 404 用例）
 	useSessionStore.setState({ progressByToolCall: {} });
+	// 还原布局尺寸 mock（详见文件末尾「滚动到底部」用例）
+	delete (Element.prototype as unknown as Record<string, unknown>).scrollHeight;
+	delete (Element.prototype as unknown as Record<string, unknown>).clientHeight;
 });
+
+/** happy-dom 不做真实布局：把 scrollHeight / clientHeight 固定成可用值，
+ *  这样 scrollTop = scrollHeight 这个动作才能被断言（否则两边恒为 0，断言没判别力）。 */
+function mockLayout(scrollHeight = 1000, clientHeight = 300) {
+	Object.defineProperty(Element.prototype, "scrollHeight", {
+		configurable: true,
+		get: () => scrollHeight,
+	});
+	Object.defineProperty(Element.prototype, "clientHeight", {
+		configurable: true,
+		get: () => clientHeight,
+	});
+}
 
 // ── 纯函数：把消息拍平成可渲染段 ──
 
@@ -249,6 +265,62 @@ test("续聊：两轮任务都出现在时间线（不再只看得到第一次�
 		el.getAttribute("data-transcript-block"),
 	);
 	expect(kinds).toEqual(["task", "text", "task", "text"]);
+});
+
+test("打开弹窗时时间线滚到底部（长转录 / 运行中看重最新内容）", async () => {
+	mockLayout(1000, 300);
+	stubFetch({});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	const timeline = await screen.findByTestId("transcript-timeline");
+	await waitFor(() => expect(timeline.scrollTop).toBe(1000));
+});
+
+test("实时刷新时跟随到底；但用户往上翻后不再把他拽回底部", async () => {
+	mockLayout(1000, 300);
+	let round = 0;
+	fetchUrls = [];
+	globalThis.fetch = mock((url: unknown) => {
+		const u = String(url);
+		fetchUrls.push(u);
+		if (/\/subagents\/[^/]+$/.test(u)) {
+			round += 1;
+			return Promise.resolve(
+				jsonRes({
+					body: {
+						meta: { ...META, status: "running" },
+						messages: round === 1 ? [MESSAGES[0]] : MESSAGES,
+					},
+				}),
+			);
+		}
+		return Promise.resolve(jsonRes({ body: { subagents: [META] } }));
+	}) as unknown as typeof fetch;
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	const timeline = await screen.findByTestId("transcript-timeline");
+	// 打开后贴底
+	await waitFor(() => expect(timeline.scrollTop).toBe(1000));
+
+	// 用户往上翻（距底超过阈值）→ 后续刷新不得再强制拉到底
+	timeline.scrollTop = 100;
+	fireEvent.scroll(timeline);
+	timeline.scrollTop = 100; // 主动模拟被冲掉后的位置
+	await waitFor(() => expect(blockCount("tool")).toBe(1), { timeout: 8000 });
+	expect(timeline.scrollTop).toBe(100);
+
+	// 滚回底部 → 恢复跟随
+	timeline.scrollTop = 1000;
+	fireEvent.scroll(timeline);
+	expect(timeline.scrollTop).toBe(1000);
 });
 
 test("open 为 null 时不挂载弹窗、不发请求（按需加载）", () => {
