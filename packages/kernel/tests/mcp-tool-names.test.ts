@@ -1,8 +1,9 @@
 // MCP 工具名复刻测试（规格 F4/F7）。
 //
 // 白名单是**精确匹配**：名字与 pi 实际注册的工具名不一致时，pi 找不到该工具却不报错
-// （静默失效）。pi 的名字不是朴素拼接：非法字符替换为 `_`、超 64 字符或与其它 MCP 工具
-// 撞名时退化为 `截断前缀_<sha256(server\0tool) 前 8 位>`。本文件逐条锁住这些规则——
+// （静默失效）。pi 的名字不是朴素拼接：非 `[A-Za-z0-9_]` 字符替换为 `_`（**`-` 也算**，
+// 0.99.2 起与 Codex 对齐）、超 64 字符或与其它 MCP 工具撞名时退化为
+// `截断前缀_<sha256(server\0tool) 前 8 位>`。本文件逐条锁住这些规则——
 // 期望值由 pi 源码公式独立算出（不 import 生产实现），故实现漂移会被抓住。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -12,9 +13,14 @@ import { createMcpToolName, mcpToolNamesOf } from "../src/mcp-tool-names.ts";
 /** pi 的工具名上限：64 个 [A-Za-z0-9_-] 字符 */
 const MAX = 64;
 
-/** pi 源码公式（dist/extensions/mcp/tools.js:28-52）的独立实现，用作期望值 */
+/**
+ * pi 源码公式（`dist/extensions/mcp/tools.js:28-52`）的独立实现，用作期望值。
+ *
+ * sanitize 的字符集是 `[A-Za-z0-9_]`——**`-` 也算非法字符**（pi 0.99.2 起与 Codex 对齐）。
+ * 这个正则必须与生产实现分开维护：两边一起写错就拓不到漂移。
+ */
 function piFormula(server: string, tool: string): { plain: string; hashed: string } {
-  const plain = `mcp__${server}__${tool}`.replace(/[^A-Za-z0-9_-]/g, "_");
+  const plain = `mcp__${server}__${tool}`.replace(/[^A-Za-z0-9_]/g, "_");
   const hash = createHash("sha256").update(`${server}\0${tool}`).digest("hex").slice(0, 8);
   return { plain, hashed: `${plain.slice(0, MAX - hash.length - 1)}_${hash}` };
 }
@@ -41,6 +47,20 @@ describe("createMcpToolName：与 pi 的命名规则一致（F4）", () => {
     const { plain, hashed } = piFormula("我的 服务", "查 询");
     expect(createMcpToolName("我的 服务", "查 询")).toBe(plain);
     expect(createMcpToolName("我的 服务", "查 询")).not.toBe(hashed);
+  });
+
+  test("含 `-` 的 server / 工具名：`-` 也换成 `_`（pi 0.99.2 起与 Codex 对齐）", () => {
+    // 这是最容易静默失效的一类：`mcp__chrome-devtools__take-screenshot` 实际注册成
+    // `mcp__chrome_devtools__take_screenshot`，白名单里写前者时 pi 不报错、直接不注册该工具。
+    expect(createMcpToolName("chrome-devtools", "take-screenshot")).toBe(
+      "mcp__chrome_devtools__take_screenshot",
+    );
+    expect(createMcpToolName("wa-pi-stdio-script-only", "echo")).toBe(
+      "mcp__wa_pi_stdio_script_only__echo",
+    );
+    expect(createMcpToolName("chrome-devtools", "take-screenshot")).toBe(
+      piFormula("chrome-devtools", "take-screenshot").plain,
+    );
   });
 
   test("恰好 64 字符：原样注册（不截断、不加 hash）", () => {
@@ -150,6 +170,24 @@ describe("mcpToolNamesOf：枚举 pi 会注册出的工具名", () => {
   test("含非法字符的工具名：按 pi 的 sanitize 规则进清单", () => {
     const names = mcpToolNamesOf([report({ name: "my srv", tools: ["a.b c"] })]);
     expect(names).toEqual(["mcp__my_srv__a_b_c"]);
+  });
+
+  test("含 `-` 的服务器：清单里是 `_` 形态（写错就静默失效）", () => {
+    const names = mcpToolNamesOf([
+      report({ name: "chrome-devtools", tools: ["take-screenshot"] }),
+    ]);
+    expect(names).toEqual(["mcp__chrome_devtools__take_screenshot"]);
+  });
+
+  test("`-` 与 `_` 的工具名 sanitize 后撞名（a-b 与 a_b）：同样都放行", () => {
+    const names = mcpToolNamesOf([report({ name: "dbx", tools: ["a-b", "a_b"] })]);
+    expect(new Set(names)).toEqual(
+      new Set([
+        piFormula("dbx", "a-b").plain,
+        piFormula("dbx", "a-b").hashed,
+        piFormula("dbx", "a_b").hashed,
+      ]),
+    );
   });
 
   test("超长（>64）工具名：清单里是 hash 变体，与 pi 公式逐字一致", () => {

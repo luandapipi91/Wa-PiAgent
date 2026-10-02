@@ -5,13 +5,17 @@
 import type { McpExposure } from "@wa-pi/shared";
 
 /**
- * server URL → pi 存在 mcp-auth.json 里的键。
+ * server URL → pi 存在 mcp-auth.json 里的**旧**键（legacy 键）。
  *
  * pi 用 `String(new URL(url))` 规范化后当键：主机名小写、默认端口省略、无路径 URL 补尾斜杠。
  * 拿配置里原样的字符串去查就会漏判（`https://Host:443` 与盘上的 `https://host/` 不是一个键），
  * 而登录 UI 的「已登录 / 未登录」完全靠这个判断。
  *
  * 非 URL（含 `undefined`/空串/任意非 URL 文本）→ null：调用方一律按「未登录」处理。
+ *
+ * pi 1.0.0 起的键多了命名空间前缀（见 {@link mcpAuthKey}），但这个规范化仍要保留：
+ * pi 的迁移是**惰性**的（只在真正加载某台 server 时才把旧键搬成新键），
+ * 盘上随时可能还有只有旧键的 server。
  */
 export function normalizeMcpAuthKey(url: string): string | null {
   try {
@@ -19,6 +23,48 @@ export function normalizeMcpAuthKey(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * pi 的 MCP 命名空间：`mcp__<server 名，`-` 换成 `_`>`。
+ *
+ * 复刻自 pi-coding-agent 1.0.0 `dist/core/mcp-servers.js` 的 `mcpNamespace`（0.99.2 同式）。
+ * 只换 `-`：server 名本身已被 pi 的 `^[A-Za-z0-9_-]+$` 限死，没有其它非法字符需要处理。
+ */
+export function mcpNamespace(server: string): string {
+  return `mcp__${server.replace(/-/g, "_")}`;
+}
+
+/**
+ * pi 1.0.0 起的 mcp-auth.json 键：`<命名空间>|<规范化 URL>`
+ * （`dist/extensions/mcp/oauth.js` 的 `storeKeys`）。
+ *
+ * 键里带上 server 名是为了让「同一个 URL 的两台 server」能各存各的凭据。
+ * URL 不是合法 URL → null。
+ */
+export function mcpAuthKey(serverName: string, serverUrl: string): string | null {
+  const canonical = normalizeMcpAuthKey(serverUrl);
+  return canonical === null ? null : `${mcpNamespace(serverName)}|${canonical}`;
+}
+
+/**
+ * 某台 server 在凭据键集合里是否有登录凭据（F19）。
+ *
+ * 认两种键：1.0.0 起的 {@link mcpAuthKey}，以及迁移前的纯规范化 URL。两种都要认——
+ * pi 只在加载某台 server 时才把旧键搬成新键，只认新键会把「已登录但尚未被加载过」误判成未登录，
+ * 只认旧键则会在迁移后全部判错。
+ *
+ * 返回 `null` 表示 serverUrl 不是合法 URL、无从判断：调用方应保留「未知」而不是当作未登录
+ * （前端对 `undefined` 与 `false` 的渲染不同，前者两个按钮都不画）。
+ */
+export function mcpAuthKeysOf(
+  keys: ReadonlySet<string>,
+  serverName: string,
+  serverUrl: string,
+): boolean | null {
+  const canonical = normalizeMcpAuthKey(serverUrl);
+  if (canonical === null) return null;
+  return keys.has(`${mcpNamespace(serverName)}|${canonical}`) || keys.has(canonical);
 }
 
 /**
@@ -51,8 +97,11 @@ export function canUseOAuth(config: {
  * 读 `<agentDir>/mcp-auth.json` 的键集合（规范化后）。
  *
  * 一次性读整份文件供多处比对（列表里每台 HTTP server 都要问一次登录态，逐台重读文件没必要）。
- * 文件缺失 / 非 JSON / 不是「URL → 凭据」的 map → 空集合（不抛错，F19）；
+ * 文件缺失 / 非 JSON / 不是「键 → 凭据」的 map → 空集合（不抛错，F19）；
  * 用 `Object.keys` 而不是 `in`，避免把原型链上的键（`toString` 等）当成凭据。
+ *
+ * 收集两种键形（见 {@link mcpAuthKeysOf}）：1.0.0 起的 `<命名空间>|<URL>` 原样收，
+ * 迁移前的纯 URL 键收其规范化形态。两者无法识别的（如 `toString`）丢弃。
  */
 export async function readMcpAuthKeys(agentDir: string): Promise<Set<string>> {
   const keys = new Set<string>();
@@ -65,6 +114,12 @@ export async function readMcpAuthKeys(agentDir: string): Promise<Set<string>> {
   // 数组也是 object：它不可能是键值表，按「形状非法」处理
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return keys;
   for (const k of Object.keys(raw)) {
+    // 新键 `<命名空间>|<URL>`：`|` 只会出现在分隔处（URL 里的 `|` 会被 URL 编码）
+    const sep = k.indexOf("|");
+    if (sep > 0 && normalizeMcpAuthKey(k.slice(sep + 1))) {
+      keys.add(k);
+      continue;
+    }
     const normalized = normalizeMcpAuthKey(k);
     if (normalized) keys.add(normalized);
   }
@@ -194,11 +249,15 @@ export class McpAdmin {
     return { ...result, stale: false };
   }
 
-  /** 登录态：mcp-auth.json 是否含该 server URL 的条目（F19） */
-  async isSignedIn(serverUrl: string): Promise<boolean> {
-    const key = normalizeMcpAuthKey(serverUrl);
-    if (!key) return false; // 不是 URL（`toString` 之类的原型链键也在这一步被挡掉）
-    return (await readMcpAuthKeys(this.opts.agentDir)).has(key);
+  /**
+   * 登录态：mcp-auth.json 是否含该 server（名 + URL）的凭据（F19）。
+   *
+   * 需要 server **名**：pi 1.0.0 起的键带命名空间（`mcp__<name>|<url>`），
+   * 只按 URL 查会一律判成未登录（见 {@link mcpAuthKeysOf}）。
+   */
+  async isSignedIn(serverName: string, serverUrl: string): Promise<boolean> {
+    const keys = await readMcpAuthKeys(this.opts.agentDir);
+    return mcpAuthKeysOf(keys, serverName, serverUrl) === true;
   }
 
   invalidate(): void {

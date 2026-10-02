@@ -83,7 +83,7 @@ describe("parseMcpListOutput（规格 F14）", () => {
   });
 
   test("被停用的 server（state=disabled）不算异常（F14：pi 此时退 0）", () => {
-    // 真实 pi 形态（0.99.1 实测，真 pi 用例见 tests/mcp-admin-spawn.test.ts）：
+    // 真实 pi 形态（真 pi 用例见 tests/mcp-admin-spawn.test.ts；0.99.1 与 1.0.0 实测同形）：
     // enabled:false 的 server 照常出现在 servers[] 里但 state 恒为 "disabled"，pi 退出码 0。
     const out = parseMcpListOutput(
       JSON.stringify({
@@ -133,28 +133,85 @@ describe("McpAdmin.isSignedIn（F19）", () => {
       "utf8",
     );
     const admin = adminFor(dir);
-    expect(await admin.isSignedIn("https://mcp.example.com/sse")).toBe(true);
-    expect(await admin.isSignedIn("https://other.example.com/sse")).toBe(false);
+    expect(await admin.isSignedIn("srv", "https://mcp.example.com/sse")).toBe(true);
+    expect(await admin.isSignedIn("srv", "https://other.example.com/sse")).toBe(false);
   });
 
   test("文件不存在 → false（不抛错）", async () => {
     const dir = await tempDir();
-    expect(await adminFor(dir).isSignedIn("https://mcp.example.com/sse")).toBe(false);
+    expect(await adminFor(dir).isSignedIn("srv", "https://mcp.example.com/sse")).toBe(false);
   });
 
   test("文件损坏 / 形状非法 → false（不抛错）", async () => {
     const dir = await tempDir();
     await writeFile(join(dir, "mcp-auth.json"), "{ not json", "utf8");
-    expect(await adminFor(dir).isSignedIn("https://mcp.example.com/sse")).toBe(false);
-    // 合法 JSON 但不是「URL → 凭据」的 map
+    expect(await adminFor(dir).isSignedIn("srv", "https://mcp.example.com/sse")).toBe(false);
+    // 合法 JSON 但不是「键 → 凭据」的 map
     await writeFile(join(dir, "mcp-auth.json"), JSON.stringify(["nope"]), "utf8");
-    expect(await adminFor(dir).isSignedIn("https://mcp.example.com/sse")).toBe(false);
+    expect(await adminFor(dir).isSignedIn("srv", "https://mcp.example.com/sse")).toBe(false);
   });
 
   test("同名于原型链的键不算命中", async () => {
     const dir = await tempDir();
+    await writeFile(
+      join(dir, "mcp-auth.json"),
+      JSON.stringify({ toString: { tokens: {} }, "mcp__srv|toString": { tokens: {} } }),
+      "utf8",
+    );
+    expect(await adminFor(dir).isSignedIn("srv", "https://mcp.example.com/sse")).toBe(false);
+  });
+
+  test("server URL 不是合法 URL → false（无从判断，按未登录处理）", async () => {
+    const dir = await tempDir();
     await writeFile(join(dir, "mcp-auth.json"), JSON.stringify({}), "utf8");
-    expect(await adminFor(dir).isSignedIn("toString")).toBe(false);
+    expect(await adminFor(dir).isSignedIn("srv", "toString")).toBe(false);
+    expect(await adminFor(dir).isSignedIn("srv", "")).toBe(false);
+  });
+
+  test("pi 1.0.0 的新键 `<命名空间>|<URL>` 能认出来（F19）", async () => {
+    // 1.0.0 起 pi 把键换成 `mcp__<server 名，- 换 _>|<String(new URL(url))>`：
+    // 只按 URL 查会一律判成未登录 → 登录成功后界面仍显示「未登录」。
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, "mcp-auth.json"),
+      JSON.stringify({ "mcp__my_srv|https://mcp.example.com/sse": { tokens: {} } }),
+      "utf8",
+    );
+    const admin = adminFor(dir);
+    expect(await admin.isSignedIn("my_srv", "https://mcp.example.com/sse")).toBe(true);
+    // URL 未规范化（主机名大小写 / 默认端口）也要能对上
+    expect(await admin.isSignedIn("my_srv", "https://MCP.example.com:443/sse")).toBe(true);
+    // 同 URL 的另一台 server 不算命中：命名空间进了键，就是为了各存各的凭据
+    expect(await admin.isSignedIn("other_srv", "https://mcp.example.com/sse")).toBe(false);
+  });
+
+  test("server 名里的 `-` 按 pi 的命名空间规则换成 `_`", async () => {
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, "mcp-auth.json"),
+      JSON.stringify({ "mcp__chrome_devtools|https://mcp.example.com/sse": { tokens: {} } }),
+      "utf8",
+    );
+    expect(
+      await adminFor(dir).isSignedIn("chrome-devtools", "https://mcp.example.com/sse"),
+    ).toBe(true);
+  });
+
+  test("迁移期新旧键并存：任一种在盘上就算已登录", async () => {
+    // pi 的迁移是惰性的（只在加载某台 server 时才把旧键搬成新键），
+    // 盘上随时可能是「新旧并存」或「只有旧键」——两种都不能判成未登录。
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, "mcp-auth.json"),
+      JSON.stringify({
+        "https://mcp.example.com/sse": { tokens: {} },
+        "mcp__another_srv|https://another.example.com/sse": { tokens: {} },
+      }),
+      "utf8",
+    );
+    const admin = adminFor(dir);
+    expect(await admin.isSignedIn("srv", "https://mcp.example.com/sse")).toBe(true);
+    expect(await admin.isSignedIn("another_srv", "https://another.example.com/sse")).toBe(true);
   });
 
   test("按 pi 的规范化键比对：盘上 https://host/ ←→ 传入 https://host（F19 回归）", async () => {
@@ -167,9 +224,9 @@ describe("McpAdmin.isSignedIn（F19）", () => {
       "utf8",
     );
     const admin = adminFor(dir);
-    expect(await admin.isSignedIn("https://host")).toBe(true);
-    expect(await admin.isSignedIn("https://HOST:443")).toBe(true);
-    expect(await admin.isSignedIn("https://host/other")).toBe(false);
+    expect(await admin.isSignedIn("srv", "https://host")).toBe(true);
+    expect(await admin.isSignedIn("srv", "https://HOST:443")).toBe(true);
+    expect(await admin.isSignedIn("srv", "https://host/other")).toBe(false);
   });
 
   test("盘上的键未规范化（手工编辑）也能匹配：两边都过一遍规范化", async () => {
@@ -179,6 +236,6 @@ describe("McpAdmin.isSignedIn（F19）", () => {
       JSON.stringify({ "https://HOST": { tokens: {} } }),
       "utf8",
     );
-    expect(await adminFor(dir).isSignedIn("https://host/")).toBe(true);
+    expect(await adminFor(dir).isSignedIn("srv", "https://host/")).toBe(true);
   });
 });

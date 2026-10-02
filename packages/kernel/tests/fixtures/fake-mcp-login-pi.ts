@@ -7,8 +7,9 @@
 // 另外两件事：
 //   · 把 argv 与 PI_CODING_AGENT_DIR 追加进 `MCP_LOGIN_ARGV_FILE`——锁住「传的是哪条命令、
 //     环境变量里给的是哪个凭据目录」；
-//   · ok 模式真的往 `<agent-dir>/mcp-auth.json` 写一条**规范化键**（`String(new URL(url))`，
-//     与 pi 一致，F19）的凭据——让「登录后 signedIn 变 true」这条链在假件上也能跑通。
+//   · ok 模式真的往 `<agent-dir>/mcp-auth.json` 写一条**与环境一致的键**
+//     （pi 1.0.0 起是 `mcp__<server 名，- 换 _>|<String(new URL(url))>`，F19）的凭据
+//     ——让「登录后 signedIn 变 true」这条链在假件上也能跑通。
 //   · hang 模式用 `MCP_LOGIN_ACTIVITY_FILE` 持续留痕：测试以「kill 后文件不再增长」作为
 //     子进程真被杀掉的证据。
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
@@ -45,7 +46,25 @@ function tick(): void {
 }
 tick();
 
-/** 按 pi 的做法写凭据：键是 `String(new URL(url))` 规范化后的 server URL */
+/** 本次 `pi mcp login|logout <server>` 里的 server 名（argv = `mcp login <name> …`） */
+const serverName = process.argv[4] ?? "srv";
+
+/** pi 的 MCP 命名空间：`mcp__<server 名，- 换 _>`（1.0.0 `dist/core/mcp-servers.js`） */
+function mcpNamespace(name: string): string {
+  return `mcp__${name.replace(/-/g, "_")}`;
+}
+
+/** 迁移前的键：纯 `String(new URL(url))` */
+function legacyAuthKey(): string {
+  return String(new URL(serverUrl));
+}
+
+/** 按 pi 1.0.0 的做法拼键：`<命名空间>|<规范化 URL>`（`dist/extensions/mcp/oauth.js` 的 storeKeys） */
+function authKey(): string {
+  return `${mcpNamespace(serverName)}|${legacyAuthKey()}`;
+}
+
+/** 按 pi 的做法写凭据 */
 function writeAuthEntry(): void {
   if (!agentDir) return;
   const file = join(agentDir, "mcp-auth.json");
@@ -55,7 +74,7 @@ function writeAuthEntry(): void {
   } catch {
     current = {};
   }
-  current[String(new URL(serverUrl))] = { tokens: { access_token: "fake-token" } };
+  current[authKey()] = { tokens: { access_token: "fake-token" } };
   writeFileSync(file, JSON.stringify(current), "utf8");
 }
 
@@ -68,8 +87,10 @@ function removeAuthEntry(): boolean {
   } catch {
     return false;
   }
-  const key = String(new URL(serverUrl));
-  if (!(key in current)) return false;
+  // pi 1.0.0 的 remove()：优先删新键，新键不在时回退删迁移前的纯 URL 键
+  const legacy = legacyAuthKey();
+  const key = authKey() in current ? authKey() : legacy in current ? legacy : undefined;
+  if (key === undefined) return false;
   delete current[key];
   writeFileSync(file, JSON.stringify(current), "utf8");
   return true;

@@ -30,7 +30,7 @@ import type {
   WSServerEvent,
 } from "@wa-pi/shared";
 import type { McpAdmin, McpServerReport } from "../mcp-admin";
-import { canUseOAuth, normalizeMcpAuthKey, readMcpAuthKeys } from "../mcp-admin";
+import { canUseOAuth, mcpAuthKeysOf, readMcpAuthKeys } from "../mcp-admin";
 import type { McpFile } from "../mcp-file";
 import type { ProjectStore } from "../project-store";
 import { McpTrustStore } from "../mcp-trust";
@@ -150,7 +150,7 @@ export interface McpServerEntry extends McpServerConfig {
   tools?: string[];
   error?: string;
   /**
-   * 是否已登录（F19）：`<agentDir>/mcp-auth.json` 里有该 server URL 的条目。
+   * 是否已登录（F19）：`<agentDir>/mcp-auth.json` 里有该 server（名 + URL）的凭据条目。
    * 只对 HTTP server 赋值（stdio 没有 OAuth，pi 会直接报 does not use OAuth）
    * ——它是登录/登出按钮的唯一依据：pi 的 `state` 分不清「需要登录」与「凭据在但连不上」。
    */
@@ -264,10 +264,11 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
       // 登录态只对「可能走 OAuth」的 server 赋値：stdio 没有 OAuth；带静态 Authorization 头
       // （大小写不敏感）或 auth 配置的 HTTP server 走固定凭据，pi 的 login 会直接拒绝。
       // 给它们 false 只会让前端误以为「可以在 GUI 里登录」；判据与 pi 一致见 canUseOAuth。
-      // 比对必须走与 pi 同一个规范化（F19）：盘上的键是 String(new URL(url))。
+      // 比对必须走与 pi 同一套键（F19）：1.0.0 起是 `mcp__<server>|<规范化 URL>`，
+      // 迁移前是纯规范化 URL —— 两种都认，见 mcpAuthKeysOf。
       if (canUseOAuth(entry)) {
-        const key = normalizeMcpAuthKey(entry.url!);
-        if (key) entry.signedIn = signedInKeys.has(key);
+        const signedIn = mcpAuthKeysOf(signedInKeys, entry.name, entry.url!);
+        if (signedIn !== null) entry.signedIn = signedIn;
       }
       return entry;
     });

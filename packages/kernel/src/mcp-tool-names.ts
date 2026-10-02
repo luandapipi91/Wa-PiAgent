@@ -5,9 +5,13 @@
 // 注册名不是朴素拼接：非法字符会替换成 `_`，超过 64 字符或与其它 MCP 工具撞名时退化为
 // `截断前缀_<sha256(server\0tool) 前 8 位>`。
 //
-// 复刻来源：pi-coding-agent 0.99.1
+// 复刻来源：pi-coding-agent 1.0.0
 //   - dist/extensions/mcp/tools.js 的 createMcpToolName（sanitize + 截断/hash 公式）
 //   - dist/extensions/mcp/index.js 的 registerTools（toolOwners / current 撞名去重表）
+//
+// 复刻时务必对着当前 pin 的 pi 版本核 sanitize 的字符集：0.99.2 起 `-` 也被换成 `_`
+// （`/[^A-Za-z0-9_]/g`），0.99.1 及更早是保留 `-` 的 `/[^A-Za-z0-9_-]/g`。这条差异
+// **不会报错**——名字对不上时 pi 只是不注册该工具、白名单里的名字被静默忽略。
 import { createHash } from "node:crypto";
 import type { McpExposure } from "@wa-pi/shared";
 import type { McpServerReport } from "./mcp-admin";
@@ -15,9 +19,14 @@ import type { McpServerReport } from "./mcp-admin";
 /** Provider 工具名的长度上限（64 个 `[A-Za-z0-9_-]` 字符，与 pi 同值） */
 export const MAX_TOOL_NAME_LENGTH = 64;
 
-/** 简式名：`mcp__<server>__<tool>` 的非法字符替换为 `_`（未计长度/撞名退化） */
+/**
+ * 简式名：`mcp__<server>__<tool>` 的非 `[A-Za-z0-9_]` 字符替换为 `_`（未计长度/撞名退化）。
+ *
+ * `-` **也要换**（pi 0.99.2 起与 Codex 对齐）：`mcp__chrome-devtools__x` 实际注册成
+ * `mcp__chrome_devtools__x`，保留 `-` 会让白名单静默失配。
+ */
 function sanitizedMcpToolName(server: string, tool: string): string {
-  return `mcp__${server}__${tool}`.replace(/[^A-Za-z0-9_-]/g, "_");
+  return `mcp__${server}__${tool}`.replace(/[^A-Za-z0-9_]/g, "_");
 }
 
 /** 退化名：`简式名.slice(0, 55)_<sha256(server\0tool) 前 8 位>`（长度恒为 64） */

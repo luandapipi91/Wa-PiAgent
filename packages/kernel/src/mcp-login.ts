@@ -3,7 +3,8 @@
 // 为什么 shell out 而不在 kernel 里自己实现 OAuth：pi 内置的 MCP 扩展已经把整条链做完了
 // （POST /mcp 得 401 → 读 WWW-Authenticate 的 resource_metadata → 元数据发现 → 动态客户端
 // 注册 → PKCE → 把授权 URL 打到 stdout → 本机 127.0.0.1:<随机端口>/callback 收授权码），
-// 凭据也由它写进 `<agent-dir>/mcp-auth.json`（键 = 规范化后的 server URL，F19）。
+// 凭据也由它写进 `<agent-dir>/mcp-auth.json`（pi 1.0.0 起的键 = `mcp__<server>|<规范化 URL>`，
+// 迁移前是纯规范化 URL；两种键的识别见 mcp-admin 的 mcpAuthKeysOf，F19）。
 // GUI 的职责只有三件：发起、把 pi 打到 stdout 的授权 URL 转给前端、结束后刷新状态。
 //
 // pi 的两个实测行为决定了这里的形态（POC，规格 §11）：

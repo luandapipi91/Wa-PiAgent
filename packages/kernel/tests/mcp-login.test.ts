@@ -3,7 +3,7 @@
  *
  * 三层证据：
  *   1. 纯函数：`extractAuthorizationUrl`（pi 把授权 URL 打到 stdout，F20）与 `lastNonEmptyLine`
- *      （失败原因在末行）、`normalizeMcpAuthKey`（盘上的键是 `String(new URL(url))`）；
+ *      （失败原因在末行）、`normalizeMcpAuthKey`（旧键是 `String(new URL(url))`）；
  *   2. 真子进程：`McpLoginRunner` 用假 pi（tests/fixtures/fake-mcp-login-pi.ts）覆盖逐行转发、
  *      argv/环境变量、超时 kill、stderr 捕获、logout 成功/失败——这些分支 mock 不出来；
  *   3. 路由：`POST /api/mcp/login` 立即受理（长任务不押在回包上）+ 经 SSE 回流 URL/结果，
@@ -80,7 +80,7 @@ async function makeRunner(
       invalidations++;
       real.invalidate();
     },
-    isSignedIn: (url: string) => real.isSignedIn(url),
+    isSignedIn: (name: string, url: string) => real.isSignedIn(name, url),
   };
   const runner = new McpLoginRunner(admin, {
     runtime: process.execPath,
@@ -252,8 +252,8 @@ describe("McpLoginRunner（真子进程 + 假 pi）", () => {
     await runner.run({ server: "srv", timeoutSec: 3, onLine: () => {} });
 
     expect(invalidations()).toBe(1);
-    // 假 pi 按 pi 的真实做法写的是规范化键
-    expect(await admin.isSignedIn(AUTH_URL)).toBe(true);
+    // 假 pi 按 pi 1.0.0 的真实做法写的是 `<命名空间>|<规范化 URL>` 键
+    expect(await admin.isSignedIn("srv", AUTH_URL)).toBe(true);
   });
 
   test("超时（pi 退 1 并报 cancelled）：ok:false 但仍把 URL 交出来", async () => {
@@ -352,14 +352,14 @@ describe("McpLoginRunner（真子进程 + 假 pi）", () => {
     useMode("ok");
     const { runner, admin, argvs, invalidations } = await makeRunner();
     await runner.run({ server: "srv", timeoutSec: 3, onLine: () => {} });
-    expect(await admin.isSignedIn(AUTH_URL)).toBe(true);
+    expect(await admin.isSignedIn("srv", AUTH_URL)).toBe(true);
 
     useMode("logout-ok");
     const res = await runner.logout("srv");
 
     expect(res.ok).toBe(true);
     expect(argvs().at(-1)?.argv).toEqual(["mcp", "logout", "srv"]);
-    expect(await admin.isSignedIn(AUTH_URL)).toBe(false);
+    expect(await admin.isSignedIn("srv", AUTH_URL)).toBe(false);
     expect(invalidations()).toBe(2);
   });
 
@@ -711,10 +711,10 @@ describe("POST /api/mcp/logout", () => {
 
   test("成功：200 {ok:true}、凭据条目被删、失效缓存并广播 mcp:changed", async () => {
     useMode("logout-ok");
-    // 盘上先有一条规范化键的凭据（pi 的形态）
+    // 盘上先有一条与 pi 1.0.0 同形的凭据（键带命名空间）
     await writeFile(
       join(agentDir, "mcp-auth.json"),
-      JSON.stringify({ [normalizeMcpAuthKey(AUTH_URL)!]: { tokens: {} } }),
+      JSON.stringify({ [`mcp__srv|${normalizeMcpAuthKey(AUTH_URL)!}`]: { tokens: {} } }),
       "utf8",
     );
     const router = makeRouter();
