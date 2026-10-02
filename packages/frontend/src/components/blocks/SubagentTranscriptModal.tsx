@@ -11,7 +11,7 @@
 // - 位置与尺寸记忆沿用 ui/Modal 的持久化键（对齐 FilePreviewModal）。
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionMessage, ToolCall, ToolResultMessage } from "@wa-pi/shared";
-import { api } from "../../api-client";
+import { api, ApiError } from "../../api-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Modal } from "../ui/Modal";
 import { MODAL_POS_KEYS } from "../ui/modal-position";
@@ -207,7 +207,7 @@ function TranscriptDialog({
 		meta: TranscriptMeta;
 		messages: SessionMessage[];
 	} | null>(null);
-	const [state, setState] = useState<"loading" | "ok" | "missing">("loading");
+	const [state, setState] = useState<"loading" | "ok" | "missing" | "error">("loading");
 	const [filter, setFilter] = useState<TranscriptFilter>("all");
 	const [group, setGroup] = useState<TranscriptMeta[]>([]);
 	// 时间线滚动：打开 / 刷新时贴底（长转录默认看最新），但用户往上翻后不再把他拽回去。
@@ -248,19 +248,28 @@ function TranscriptDialog({
 						timer = setTimeout(load, TRANSCRIPT_POLL_MS);
 					}
 				})
-				.catch(() => {
+				.catch((err: unknown) => {
 					if (cancelled) return;
-					// 详情取不到（404/400）：两种情形要分开处理——
-					// ① 实例**还在跑**：jsonl/meta 尚未落盘（用户实测：子代理刚 spawn 时点进去
-					//    会误报「此委托早于转录功能上线」且不再刷新）→ 保持 loading，继续按间隔
-					//    重试，落盘后自动加载出内容；
-					// ② 实例不在跑：真的没有可看的转录（老数据 / 无效 id）→ 落空态并停拉。
-					// 每次重试都重判（不在跑之后不会再无限试）。
-					if (isInstanceRunning(agentId)) {
-						setState("loading");
-						timer = setTimeout(load, TRANSCRIPT_POLL_MS);
+					const status = err instanceof ApiError ? err.status : 0;
+					if (status >= 400 && status < 500) {
+						// 4xx（404：meta/jsonl 不存在；400：参数错）才是「没有这份转录」。
+						// 其中两种情形要分开——
+						// ① 实例**还在跑**：jsonl/meta 尚未落盘（用户实测：子代理刚 spawn 时点进去
+						//    会误报「此委托早于转录功能上线」且不再刷新）→ 保持 loading，继续按间隔
+						//    重试，落盘后自动加载出内容；
+						// ② 实例不在跑：真的没有可看的转录（老数据 / 无效 id）→ 落空态并停拉。
+						if (isInstanceRunning(agentId)) {
+							setState("loading");
+							timer = setTimeout(load, TRANSCRIPT_POLL_MS);
+						} else {
+							setState("missing");
+						}
 					} else {
-						setState("missing");
+						// 5xx / 网络异常：是「暂时取不到」，不是「没有这份转录」——用同一句话会把
+						// 用户引向错误结论（以为转录不存在，实际只是服务抖了）。给「加载失败」
+						// 并继续重试，服务恢复后自行加载出内容。
+						setState("error");
+						timer = setTimeout(load, TRANSCRIPT_POLL_MS);
 					}
 				});
 		};
@@ -471,6 +480,11 @@ function TranscriptDialog({
 							{state === "missing" && (
 								<p data-testid="transcript-missing" className="text-tertiary">
 									{t("blocks.delegate.transcriptMissing")}
+								</p>
+							)}
+							{state === "error" && (
+								<p data-testid="transcript-error" className="text-tertiary">
+									{t("blocks.delegate.transcriptLoadFailed")}
 								</p>
 							)}
 							{state === "ok" && (

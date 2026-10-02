@@ -292,6 +292,7 @@ const en = {
 			transcriptTitle: "Delegate transcript",
 			transcriptMissing:
 				"This delegation predates transcripts — nothing to view",
+			transcriptLoadFailed: "Failed to load the transcript — retrying…",
 			toolCount: "{{n}} tool(s)",
 			stepCount: "{{n}} step(s)",
 			usageInput: "In {{v}}",

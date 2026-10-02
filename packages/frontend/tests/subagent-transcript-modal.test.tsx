@@ -323,6 +323,38 @@ test("实时刷新时跟随到底；但用户往上翻后不再把他拽回底�
 	expect(timeline.scrollTop).toBe(1000);
 });
 
+test("服务端 5xx / 网络异常 → 显示「加载失败」而不是「此委托早于转录功能上线」", async () => {
+	// 404 是「没有这份转录」，5xx / 断网是「暂时取不到」—— 同一句话会把用户引向错误结论
+	//（以为转录不存在，实际只是服务抖了）。
+	stubFetch({ detail: { status: 500 } });
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(screen.getByTestId("transcript-error")).toBeTruthy());
+	expect(screen.queryByTestId("transcript-missing")).toBeNull();
+});
+
+test("网络异常（fetch reject）→ 同样显示「加载失败」，不是空态文案", async () => {
+	fetchUrls = [];
+	globalThis.fetch = mock((url: unknown) => {
+		const u = String(url);
+		fetchUrls.push(u);
+		if (/\/subagents\/[^/]+$/.test(u)) return Promise.reject(new Error("network down"));
+		return Promise.resolve(jsonRes({ body: { subagents: [META] } }));
+	}) as unknown as typeof fetch;
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(screen.getByTestId("transcript-error")).toBeTruthy());
+	expect(screen.queryByTestId("transcript-missing")).toBeNull();
+});
+
 test("open 为 null 时不挂载弹窗、不发请求（按需加载）", () => {
 	stubFetch({});
 	const { container } = render(

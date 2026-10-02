@@ -280,6 +280,7 @@ const zh = {
 			// （2026-10-02 移除 viewTranscript：入口不再是文字按钮，改为点击任务行）
 			transcriptTitle: "委托转录",
 			transcriptMissing: "此委托早于转录功能上线，没有可查看的转录",
+			transcriptLoadFailed: "转录加载失败，正在重试…",
 			toolCount: "{{n}} 个工具",
 			stepCount: "{{n}} 步",
 			usageInput: "输入 {{v}}",
