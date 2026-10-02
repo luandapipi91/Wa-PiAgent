@@ -1,6 +1,6 @@
 // packages/kernel/tests/subagent-instance-store.test.ts
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +10,7 @@ import {
 	newAgentId,
 	readMeta,
 	subagentDir,
+	sweepOrphanRunning,
 	writeMeta,
 	type SubagentMeta,
 } from "../src/subagent-instance-store";
@@ -32,6 +33,87 @@ afterEach(async () => {
 });
 
 const SID = "s-5112adb4-2c89-4833-a071-128e8061e65d";
+
+describe("sweepOrphanRunning（残留 running 自愈）", () => {
+	const SID_A = "s-aaaa";
+	const SID_B = "s-bbbb";
+
+	function mkMeta(
+		over: Partial<SubagentMeta> & { agentId: string; parentSessionId: string },
+	): SubagentMeta {
+		return {
+			toolCallId: "c1",
+			taskIndex: null,
+			subagentType: "Explore",
+			requestedAgent: "Explore",
+			task: "任务",
+			status: "running",
+			createdAt: 1,
+			updatedAt: 1,
+			resumeCount: 0,
+			...over,
+		} as SubagentMeta;
+	}
+
+	test("残留的 running → interrupted；终态与身份字段不动（跨多个父会话目录）", async () => {
+		// 背景：kernel / 桌面应用整体退出或被强杀时没人收尾（settle 只在 spawn 返回后执行），
+		// meta 会永远停在 running —— 于是该实例再也 resume 不了（被「正在运行」拒掉）。
+		await writeMeta(
+			mkMeta({
+				agentId: "a0000000a",
+				parentSessionId: SID_A,
+				status: "running",
+				task: "第一轮",
+				resumeCount: 2,
+			}),
+		);
+		await writeMeta(
+			mkMeta({ agentId: "a0000000b", parentSessionId: SID_A, status: "completed" }),
+		);
+		await writeMeta(
+			mkMeta({ agentId: "a0000000c", parentSessionId: SID_B, status: "running" }),
+		);
+
+		const n = await sweepOrphanRunning("kernel-startup");
+		expect(n).toBe(2);
+
+		const a = await readMeta(SID_A, "a0000000a");
+		expect(a?.status).toBe("interrupted");
+		expect(a?.updatedAt).toBeGreaterThan(1); // 修正时打新时间
+		// 只改状态与时间：身份 / 统计字段原样保留
+		expect(a?.task).toBe("第一轮");
+		expect(a?.resumeCount).toBe(2);
+		expect((await readMeta(SID_A, "a0000000b"))?.status).toBe("completed");
+		expect((await readMeta(SID_B, "a0000000c"))?.status).toBe("interrupted");
+	});
+
+	test("幂等：再扫一次不再计数（已无 running）", async () => {
+		await writeMeta(mkMeta({ agentId: "a0000000d", parentSessionId: SID_A }));
+		expect(await sweepOrphanRunning("t")).toBe(1);
+		expect(await sweepOrphanRunning("t")).toBe(0);
+	});
+
+	test("root 不存在 → 返回 0 且不抛错（启动早期调用）", async () => {
+		expect(await sweepOrphanRunning("kernel-startup")).toBe(0);
+	});
+
+	test("坏 meta / 非法目录名 / 非 meta 文件 → 跳过且不抛错", async () => {
+		await mkdir(subagentDir(SID_A), { recursive: true });
+		// 坏 JSON（写到 meta 路径）
+		await writeFile(metaPath(SID_A, "a0000000e"), "{oops", "utf8");
+		// 非法目录名（空格不在会话 id 白名单内）—— 必须跳过而不是把整个 sweep 带崩
+		await mkdir(join(dir, "subagents", "bad dir"), { recursive: true });
+		await writeFile(
+			join(dir, "subagents", "bad dir", "a0000000f.meta.json"),
+			JSON.stringify(mkMeta({ agentId: "a0000000f", parentSessionId: "bad dir" })),
+			"utf8",
+		);
+		// 非 meta 的游离文件
+		await writeFile(join(dir, "subagents", "loose.txt"), "x", "utf8");
+
+		expect(await sweepOrphanRunning("t")).toBe(0);
+	});
+});
 
 describe("newAgentId", () => {
 	test("形如 a + 8 位小写 hex，且两次不重样", () => {

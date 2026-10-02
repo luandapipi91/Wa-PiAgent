@@ -7,7 +7,7 @@
 //
 // 安全：agentId 与 parentSessionId 都参与路径拼接，两者都必须先过白名单校验，
 // 否则接口入参可造成路径穿越（规格 §4「路径安全」）。
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { join, resolve, sep } from "node:path";
 import { WA_PI_DIR as WA_PI_DIR_CONST } from "@wa-pi/shared";
@@ -143,4 +143,61 @@ export async function writeMeta(meta: SubagentMeta): Promise<void> {
 	const tmp = `${target}.tmp`;
 	await writeFile(tmp, JSON.stringify(meta, null, 2), "utf8");
 	await rename(tmp, target);
+}
+
+/**
+ * 把「残留的 running 实例」修正为 interrupted（kernel 启动与优雅退出时各扫一次）。
+ *
+ * **为什么需要**：meta 的 running → 终态只发生在 delegate-tool 的 settle（`spawn` 返回之后）。
+ * kernel / 桌面应用整体退出或被强杀时没有任何代码路径收尾，meta 会永远停在 running：
+ * 弹窗永远显示「运行中」、卡片状态错，而且该实例**再也 resume 不了**
+ * （会被「正在运行，不能并发续聊」拒掉，而用户无法让它停下来）。
+ *
+ * **为什么安全**：running 的语义是「本 kernel 正在跑这个实例」。子代理是 kernel 的子进程，
+ * kernel 重新启动后不可能存在活着的子代理，所以把残留 running 判为中断是准确的。
+ * （唯一反例是两个 kernel 共用同一 `WA_PI_DIR` 且同时运行，属非常规用法。）
+ * 子进程本身不必在这里回收：kernel 退出时 stdin 关闭，pi 有 EOF 兜底会自行退出。
+ *
+ * **容错**：root 不存在、坏 JSON、非法目录名、非 meta 文件一律跳过，整体不抛错——
+ * 它挂在启动 / 退出流程上，不能拖垮主流程。返回被修正的实例数。
+ */
+export async function sweepOrphanRunning(reason: string): Promise<number> {
+	let sessions: string[];
+	try {
+		const entries = await readdir(root(), { withFileTypes: true });
+		sessions = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+	} catch {
+		return 0; // root 还不存在（首次启动）等：无事可做
+	}
+	let fixed = 0;
+	for (const sessionId of sessions) {
+		let files: string[];
+		try {
+			files = await readdir(subagentDir(sessionId));
+		} catch {
+			continue; // 非法目录名（assertSessionId 抛错）或读不到：跳过
+		}
+		for (const file of files) {
+			if (!file.endsWith(".meta.json")) continue;
+			const agentId = file.slice(0, -".meta.json".length);
+			// readMeta 内部会过 assertAgentId 与 JSON.parse，任一失败都返回 null → 跳过
+			const meta = await readMeta(sessionId, agentId);
+			if (!meta || meta.status !== "running") continue;
+			try {
+				await writeMeta({ ...meta, status: "interrupted", updatedAt: Date.now() });
+				fixed += 1;
+			} catch (e) {
+				console.warn(
+					`[subagent] 修正残留 running 失败（忽略）: ${sessionId}/${agentId}`,
+					e,
+				);
+			}
+		}
+	}
+	if (fixed > 0) {
+		console.warn(
+			`[subagent] ${reason}：${fixed} 个实例的进程未正常收尾，已把 running 修正为 interrupted`,
+		);
+	}
+	return fixed;
 }

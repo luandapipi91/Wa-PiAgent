@@ -19,6 +19,7 @@ import { ensureBridgeExtension } from "./bridge-extension";
 import { deployTuiHostExtension } from "./tui-host-deploy";
 import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
+import { sweepOrphanRunning } from "./subagent-instance-store";
 import { ensurePromptsConfig } from "./system-prompt";
 import { ensureSubagentOverrides } from "./subagent-store";
 import { ensureToolBinaries } from "./tool-binaries";
@@ -470,6 +471,17 @@ export async function startKernel(opts?: {
 	await server.start();
 	console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);
 
+	// 子代理残留状态自愈：meta 的 running → 终态只发生在 delegate-tool 的 settle（spawn 返回后），
+	// 上次进程被强杀 / 整体退出时没人收尾 → meta 停在 running，那个实例再也 resume 不了
+	// （被「正在运行，不能并发续聊」拒掉）。子代理是 kernel 的子进程，重启后不可能还活着，
+	// 故残留 running 一律按中断修正。挂在启动早期：必须在任何新子代理派发之前完成。
+	try {
+		const fixed = await sweepOrphanRunning("kernel 启动");
+		if (fixed > 0) console.log(`[kernel] 已修正 ${fixed} 个残留的子代理运行状态`);
+	} catch (e) {
+		console.warn("[kernel] 子代理残留状态修正失败（忽略）:", e);
+	}
+
 	// kernel 信息文件：CLI 据此发现运行中的 kernel（端口/pid/启动时间）
 	// 原子写（tmp+rename）：kernel.json 是 CLI 发现 kernel 的读入口，避免中断留下半个文件
 	await atomicWrite(
@@ -835,6 +847,8 @@ export async function startKernel(opts?: {
 		// 先断渠道长连接（避免关闭期收到新进站再触发 agent 调用），再回收 pi 子进程
 		await channelManager.stop().catch(() => {});
 		await agentManager.disposeAll().catch(() => {});
+		// 子代理已全部回收：把仍标记 running 的实例修正为 interrupted（下次启动还有一道兜底）
+		await sweepOrphanRunning("kernel 退出").catch(() => {});
 		await server.stop().catch(() => {});
 		await crashLogger.flush().catch(() => {}); // 确保崩溃日志落盘
 		process.exit(0);
