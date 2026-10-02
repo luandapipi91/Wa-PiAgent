@@ -12,7 +12,8 @@ import { openMemoryDb } from "./memory/db";
 import { importLegacyMemories } from "./memory/import";
 import { migrateGlobalMcpFile } from "./mcp-migrate";
 import { migrateLegacySessions } from "./migrate";
-import { ensureProviderExtensionRegistered } from "./provider-extension";
+import { ensureProviderExtensionRegistered, slugifyProviders } from "./provider-extension";
+import { refreshCatalogAndRegenerate } from "./model-catalog-refresh";
 import { ensureBridgeExtension } from "./bridge-extension";
 import { deployTuiHostExtension } from "./tui-host-deploy";
 import { ensureSystemProject } from "./ensure-system-project";
@@ -178,6 +179,25 @@ export async function startKernel(opts?: {
 
 	// 启动时把已有 providers 注册成 Pi extension（幂等）
 	await ensureProviderExtensionRegistered(providerStore);
+
+	// 后台拉一次 pi.dev 的模型目录（**不 await**）：拉到新数据就重生成 provider-extension，
+	// 让模型的价格/上下文长度跟上远端。pi 自己在 --offline 下不发这个请求，但**会读**
+	// 我们落盘的结果，所以这一拉对 pi 子进程也生效。拉不到/超时/写盘失败均静默降级。
+	void (async () => {
+		try {
+			const providers = await providerStore.load();
+			await refreshCatalogAndRegenerate(
+				slugifyProviders(providers).map((s) => s.slug),
+				{
+					agentDir: WA_PI_DIR,
+					regenerate: () => ensureProviderExtensionRegistered(providerStore),
+				},
+			);
+		} catch (err) {
+			// 兜住 providerStore.load() 的意外；目录刷新本身不抛错
+			console.error("[catalog] 后台刷新模型目录失败（不影响使用）:", err);
+		}
+	})();
 
 	// 启动时生成 bridge 扩展（幂等）：RPC 模式下 pi 子进程经它注册宿主工具并回调 /bridge/tool
 	await ensureBridgeExtension();
