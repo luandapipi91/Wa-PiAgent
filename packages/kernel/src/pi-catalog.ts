@@ -124,6 +124,18 @@ async function loadOverlayModels(
 }
 
 /**
+ * 全部内置 provider 的 id（拉取远程目录时用它枚举「要拉哪些家」）。
+ *
+ * 为什么是全量：pi 官方对**每一个**内置 provider 都刷新（每个 provider 各自包一层
+ * withRemoteCatalog）。只拉用户已配置的那几家，会让「还没配的服务」在预设列表里继续
+ * 显示过期的价格与上下文长度——而预设列表本来就是让人挑还没配的服务用的。
+ */
+export async function getBuiltinProviderIds(): Promise<string[]> {
+  const catalog = await loadCatalog();
+  return catalog.getBuiltinProviders();
+}
+
+/**
  * 全部内置模型的扁平列表（所有 provider），并叠加已落盘的远程目录。
  *
  * agentDir 可注入（测试用临时目录）；缺省 = WA_PI_DIR，与 pi 的 `getAgentDir()` 同源
