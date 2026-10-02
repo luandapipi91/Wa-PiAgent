@@ -24,10 +24,25 @@
 
 /** pi 的目录服务地址（与上游同值） */
 export const DEFAULT_CATALOG_BASE_URL = "https://pi.dev";
-/** 单次目录请求的超时（与上游同值：4 秒） */
-export const CATALOG_ATTEMPT_TIMEOUT_MS = 4_000;
-/** 一次刷新里同时在飞的请求数上限（只拉用户实际用到的 provider，通常 1~3 个） */
+/**
+ * 单次目录请求的超时。
+ *
+ * 用 30s（而非上游的 4s）：目录服务对少数几家的响应会慢到 4s 以上（实测 ant-ling /
+ * kimi-coding / qwen-token-plan 会偶发超时），而跳过一家就意味着它这一轮拿不到新数据、
+ * 下次启动还得再来一遍。这是**后台**任务，长一点不影响任何使用。
+ * 代价：若多家同时慢，本轮总耗时会拉长（不阻塞启动，用户无感）。
+ */
+export const CATALOG_ATTEMPT_TIMEOUT_MS = 30_000;
+/** 一次刷新里同时在飞的请求数上限（全量 42 家时，靠它把总时长压在几秒级） */
 export const CATALOG_MAX_CONCURRENCY = 4;
+/**
+ * 每处理多少家就主动让出一次事件循环。
+ *
+ * 全量刷新要连续解析、比较几十份 JSON（openrouter 一家就 463 个模型），这些是**同步**
+ * CPU 操作：不让出的话，它们会占住 kernel 的事件循环，把同机正在处理的 HTTP/WS 请求
+ * （包括前端轮询与 pi 子进程的控制帧）挡在后面。
+ */
+export const CATALOG_YIELD_EVERY = 2;
 /** 要请求的模型类型（上游按此参数返回全量分片，而非只有 chat 的旧分片） */
 export const CATALOG_MODEL_TYPES = ["chat", "image", "classifier"];
 
@@ -238,6 +253,23 @@ export interface RefreshResult {
 	changed: boolean;
 }
 
+/** 条目是否算「有更新」。 */
+function isCatalogEntryNew(
+	prev: CatalogStoreEntry | undefined,
+	next: CatalogStoreEntry,
+): boolean {
+	if (!prev) return true;
+	// 主判据用上游自己给的元信息（etag / lastModified）：目录最大可达 1.4MB，
+	// 每次都比对整份内容会白白占住事件循环。
+	if (prev.etag !== undefined && next.etag !== undefined) {
+		return prev.etag !== next.etag || prev.lastModified !== next.lastModified;
+	}
+	if (prev.lastModified !== next.lastModified) return true;
+	if (prev.models.length !== next.models.length) return true;
+	// 元信息缺失或恰好相同时才退回内容比对（服务端不更新 Last-Modified 的少数情形）
+	return JSON.stringify(next.models) !== JSON.stringify(prev.models);
+}
+
 /**
  * 后台刷新一批 provider 的目录，把结果合并进 models-store.json。
  *
@@ -274,6 +306,7 @@ export async function refreshModelCatalog(
 
 		// 限并发：目录请求是后台任务，不该一次打出几十个连接抢占带宽
 		let cursor = 0;
+		let processed = 0;
 		const worker = async (): Promise<void> => {
 			while (cursor < ids.length) {
 				const id = ids[cursor++];
@@ -285,21 +318,19 @@ export async function refreshModelCatalog(
 					fetchImpl: opts.fetchImpl,
 					signalImpl: opts.signalImpl,
 				});
+				processed++;
 				if (outcome.kind === "error") {
 					result.failed.push(id);
-					continue;
+				} else {
+					const next = outcome.entry;
+					store[id] = next;
+					if (isCatalogEntryNew(prev, next)) {
+						result.updated.push(id);
+						changed = true;
+					}
 				}
-				const next = outcome.entry;
-				// 只有目录内容或上游修改时间真的变了才认作「更新」
-				const isNew =
-					!prev ||
-					next.lastModified !== prev.lastModified ||
-					JSON.stringify(next.models) !== JSON.stringify(prev.models);
-				store[id] = next;
-				if (isNew) {
-					result.updated.push(id);
-					changed = true;
-				}
+				// 周期性让出事件循环：解析与比较是同步 CPU，连着做会把 kernel 卡住
+				if (processed % CATALOG_YIELD_EVERY === 0) await Bun.sleep(0);
 			}
 		};
 		const workers = Array.from(
@@ -309,6 +340,9 @@ export async function refreshModelCatalog(
 		await Promise.all(workers);
 
 		if (changed) {
+			// 写盘前再让出一次：1.4MB 的 JSON.stringify 也要占一小段 CPU，
+			// 让已经在排队的请求先跑完，别让用户感知到这一下
+			await Bun.sleep(0);
 			result.changed = await writeModelsStore(opts.agentDir, store);
 		}
 		return result;
