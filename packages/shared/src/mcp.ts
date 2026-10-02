@@ -1,8 +1,7 @@
 // ===== MCP 服务器配置管理类型定义 =====
 //
 // pi-mcp-adapter 时代字段（lifecycle / idleTimeout / requestTimeoutMs / directTools /
-// excludeTools / exposeResources / debug）随 adapter 移除（任务 8 移除最后一个消费者）：
-// 迁移读取它们走 `mcp-migrate.ts` 的原始对象（`Record<string, unknown>`），不再需要类型声明。
+// excludeTools / exposeResources / debug）随 adapter 一起移除，不再保留任何声明。
 
 /** 工具暴露方式（规格 §8） */
 export type McpExposure =

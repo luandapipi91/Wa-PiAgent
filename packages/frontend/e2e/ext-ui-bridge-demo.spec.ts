@@ -199,7 +199,7 @@ test.describe
       // 内置命令现在**预期不在清单里**，轮询必然超时；而本 describe 是 serial，
       // 一次超时会静默跳过后面 3 条用例（dialog 子协议 / notify ANSI / setStatus+setWidget）。
       await pollCommand("uidemo");
-      // pi 内置扩展命令（/mcp、被禁用的 llama.cpp）不进「附加命令」清单：
+      // pi 内置扩展命令（/mcp、/llama）不进「附加命令」清单（它们没有归属包）：
       // kernel 的 tui-command-filter 给它们打 builtinExtension 标记，展示端点与前端 / 菜单
       // 各自过滤；但条目本身必须保留在 session:commands 里——回显抑制靠它判定
       //「pi 会不会拦截这条命令」，剔除会让聊天窗凭空多出一条并不存在的用户消息。

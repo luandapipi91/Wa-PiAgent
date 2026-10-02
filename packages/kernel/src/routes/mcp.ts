@@ -34,7 +34,6 @@ import { normalizeMcpAuthKey, readMcpAuthKeys } from "../mcp-admin";
 import type { McpFile } from "../mcp-file";
 import type { ProjectStore } from "../project-store";
 import { McpTrustStore } from "../mcp-trust";
-import { migrateProjectMcpFile } from "../mcp-migrate";
 import {
   DEFAULT_LOGIN_TIMEOUT_SEC,
   MAX_LOGIN_TIMEOUT_SEC,
@@ -83,8 +82,6 @@ export async function setProjectMcpScope(opts: {
   const cwd = await resolveCwdForFsRequest(opts.projectStore, opts.projectId);
   // 关闭时写 false 而不是删键：删键会退回上层继承，可能意外继承父目录的受信决定
   await new McpTrustStore(opts.trustFile ?? trustFilePath()).set(cwd, opts.enabled);
-  // 仅开启时迁移：关闭状态 pi 不读 <cwd>/.pi/mcp.json，迁移无意义且会凭空造出 .pi/ 目录
-  if (opts.enabled) await migrateProjectMcpFile(cwd);
 }
 
 /**
@@ -98,7 +95,7 @@ export async function setProjectMcpScope(opts: {
  * 返回值 = `McpTrustStore.get(cwd)`，支持祖先继承：显式设置过 → true/false；自己和祖先都没有
  * 条目 → `null`（前端以 `data-unset="true"` 标记未设置，界面上不显示文案）。
  *
- * 只读：不改 trust.json、不触发迁移、不做 `__system__` 守卫（守卫挡的是落盘；读只是把那个目录
+ * 只读：不改 trust.json、不做 `__system__` 守卫（守卫挡的是落盘；读只是把那个目录
  * 的真实受信态原样报出来，且前端在默认工作区不显示开关）。
  */
 export async function getProjectMcpScope(opts: {

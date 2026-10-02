@@ -3,7 +3,7 @@
 // 三块职责：
 // 1. 与 kernel 的帧出口（createFrameSink）：面板帧经此流向 kernel 的
 //    /bridge/tui-host/frames 长连接（规格 §5.1）；
-// 2. RPC 模式下接管 ctx.ui 的 custom / setWidget / onTerminalInput（规格 §4.3/4.4/4.6）；
+// 2. 接管 ctx.ui 的 custom / setWidget / onTerminalInput（规格 §4.3/4.4/4.6），不分 rpc / tui；
 // 3. 面板桥（createPanelBridge）：把接管的调用落到真实面板/widget 宿主上，
 //    并把 kernel 推来的输入事件按 panelId 路由回宿主（规格 §4.7）。
 //

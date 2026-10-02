@@ -10,7 +10,6 @@ import { MemoryStore } from "./memory-store";
 import { MemoryDao } from "./memory/dao";
 import { openMemoryDb } from "./memory/db";
 import { importLegacyMemories } from "./memory/import";
-import { migrateGlobalMcpFile, migrateProjectMcpFile } from "./mcp-migrate";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureBridgeExtension } from "./bridge-extension";
@@ -25,7 +24,6 @@ import {
 	ensureHttpIdleTimeout,
 	applySystemProxy,
 	ensureDefaultTools,
-	ensureBuiltinExtensionDisables,
 } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle, SubagentProgressThrottle } from "./event-throttle";
@@ -117,19 +115,9 @@ export async function startKernel(opts?: {
 			"[tools] 默认内置工具清单已写入 settings.json.defaultTools（新 pi 会话生效）",
 		);
 	}
-	// 内置 llama.cpp 扩展禁用（settings.json.extensions）：pi 内置扩展会在加载时把
-	// llama.cpp 注册成 provider，污染 wa-pi 的 provider 列表；用 `-builtin:llama.cpp`
-	// 覆盖模式禁用。保留用户已有 extensions 条目，缺失才追加，幂等。
-	const builtinExtensionOutcome = await ensureBuiltinExtensionDisables();
-	if (builtinExtensionOutcome !== "kept") {
-		console.log(
-			"[extensions] 已禁用内置 llama.cpp 扩展（新 pi 会话生效）",
-		);
-	}
-	// 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到
-	// ~/.pi/agent 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由
-	// AgentManager 在 spawn 时逐个注入（PI_CODING_AGENT_DIR=WA_PI_DIR），
-	// 这里保留进程级设置供 kernel 内部的 pi 扩展包代码使用。
+	// 让 kernel 内部用到的 pi 扩展包代码在本进程内解析到 ~/.pi/agent 作为 agent 目录；
+	// RPC 模式下 pi 子进程的环境变量由 AgentManager 在 spawn 时逐个注入
+	// （PI_CODING_AGENT_DIR=WA_PI_DIR）。
 	process.env.PI_CODING_AGENT_DIR = WA_PI_DIR;
 
 	// 启用 pi 0.84.2+ 的实验性严格 JSON-schema 约束采样
@@ -216,47 +204,6 @@ export async function startKernel(opts?: {
 	// 启动时 seed 默认工作区虚拟项目（幂等）+ 确保 workdir 根目录存在
 	await ensureSystemProject(projectStore);
 	console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
-
-	// pi-mcp-adapter 时代旧配置一次性迁移（一过性：目标已存在的条目跳过、无变化不落盘）：
-	// 每个项目的 <cwd>/.mcp.json → <cwd>/.pi/mcp.json，旧文件保留（adapter 仍读它）
-	// + 额外备份 .mcp.json.bak（固定名，不随启动次数累积）。
-	// 没有旧文件的目录一律不动盘（migrateProjectMcpFile 内部提前返回，不创建 .pi/），
-	// 否则会在用户仓库里凭空造出 .pi/ 而让该项目变成「需要受信」的项目。
-	// 迁移任何异常都只告警，不得阻断 kernel 启动。
-	try {
-		const { projects } = await projectStore.load();
-		for (const project of projects) {
-			if (!project.cwd) continue;
-			try {
-				const res = await migrateProjectMcpFile(project.cwd);
-				if (res.migrated > 0) {
-					console.log(
-						`[mcp] 已迁移项目 ${project.id} 的 ${res.migrated} 个 MCP 服务器配置到 .pi/mcp.json`,
-					);
-				}
-			} catch (err) {
-				console.warn(
-					`[mcp] 迁移项目 ${project.id} 的 .mcp.json 失败（不影响启动）:`,
-					err,
-				);
-			}
-		}
-	} catch (err) {
-		console.warn("[mcp] 读取项目列表失败，跳过 MCP 配置迁移:", err);
-	}
-
-	// 全局 <WA_PI_DIR>/mcp.json 的 adapter 字段一次性**加法**迁移（一过性：只补缺失字段）。
-	// 全局文件是 pi-mcp-adapter 与 pi 共读的共享文件，任务 6 移除 adapter 之前必须保持旧字段可读，
-	// 故只补写 exposure / toolExposure / timeout，保留旧字段、settings 段与未知顶层字段，
-	// 并留一份 mcp.json.bak（固定名）；无字段可补时不落盘、不产生备份。
-	try {
-		const res = await migrateGlobalMcpFile(WA_PI_DIR);
-		if (res.migrated > 0) {
-			console.log(`[mcp] 已迁移全局 mcp.json 的 ${res.migrated} 个 MCP 服务器配置`);
-		}
-	} catch (err) {
-		console.warn("[mcp] 迁移全局 mcp.json 失败（不影响启动）:", err);
-	}
 
 	await ensureWebSearchConfig(WA_PI_DIR);
 

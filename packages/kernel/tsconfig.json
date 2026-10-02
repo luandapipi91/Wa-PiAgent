@@ -3,7 +3,7 @@
   "compilerOptions": {
     "outDir": "./dist",
     // tsc 仅用于类型检查（构建走 bun build）；开启 allowImportingTsExtensions
-    // 以允许深导入 pi-mcp-adapter 的 TypeScript 源文件（该包只发布 .ts 源码）。
+    // 以允许带 .ts 后缀的相对导入（如 wa-pi-tui-host.extension.ts 导入 ./tui-host/host.ts）。
     "noEmit": true,
     "allowImportingTsExtensions": true
   },

@@ -1,7 +1,8 @@
 // wa-pi-tui-host.extension.ts —— WaPi 图形界面下的扩展 TUI 宿主（规格 §4）
 //
-// RPC 模式下接管 ctx.ui.custom / setWidget / onTerminalInput：把 pi-tui 面板渲染成
+// 接管 ctx.ui.custom / setWidget / onTerminalInput：把 pi-tui 面板渲染成
 // 整帧文本行经 kernel 送给图形界面，并把前端输入按 panelId 路由回面板。
+// 不再按 ctx.mode 区分 rpc / tui：两者都接管（图形界面与终端共用同一套面板通道）。
 // 本文件由 deployTuiHostExtension() 连同 tui-host/ 目录复制到 GENERATED_DIR，
 // 经 -e 注入 pi 进程（与 wa-pi-bridge 并行）。
 import type {
@@ -42,7 +43,6 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
-		if (ctx.mode !== "rpc") return;
 		// SAFETY: ctx.ui 运行时就是 pi 的 ExtensionUIContext（具名方法集合），断言成 Record 只为写
 		// patchUiForTuiHost 的形参类型；后者只重写 custom/setWidget/onTerminalInput 这几个它在
 		// 运行期确实拥有的成员，不按任意键取值，所以这个断言丢的是成员类型信息而非真实约束。
@@ -50,7 +50,6 @@ export default function (pi: ExtensionAPI): void {
 		if (!ui || typeof ui.custom !== "function") return;
 		// 能力上报（规格 §4.2）：images:null 让依赖图片的组件走自身的文本占位降级，
 		// trueColor / hyperlinks 对应前端 AnsiText 的 truecolor 与 OSC 8 链接解析。
-		// 只在 rpc（图形界面）模式覆盖，别动真实终端下的自动探测结果。
 		setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 		// 两个流都跟着会话起停：session_shutdown（quit/new/fork/resume/reload）是扩展唯一
 		// 的收尾时机，不停掉就会留下空转的重连定时器（start 可重入，不会建第二条连接）。
