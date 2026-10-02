@@ -121,6 +121,10 @@ export function segmentsToPlainText(segments: TranscriptSegment[]): string {
 	return parts.join("\n\n");
 }
 
+/** 子代理运行中，弹窗按此间隔重新拉取转录，跟到最新已落盘内容（2026-10-02 需求：
+ *  「弹窗查看子代理委托，也需要根据实时进度更新」）。导出仅为测试可控。 */
+export const TRANSCRIPT_POLL_MS = 2000;
+
 /** 耗时紧凑格式：<60s 用秒，否则 m 分 s 秒 */
 function formatElapsed(ms: number): string {
 	const total = Math.max(0, Math.round(ms / 1000));
@@ -169,26 +173,44 @@ function TranscriptDialog({
 	const [filter, setFilter] = useState<TranscriptFilter>("all");
 	const [group, setGroup] = useState<TranscriptMeta[]>([]);
 
-	// 转录本体：打开时拉一次；切换实例（agentId 变化）重拉。筛选不算依赖 → 切筛选不请求。
+	// 转录本体：打开时拉一次；切换实例（agentId 变化）重拉；子代理仍在运行则按 ~2s 轮询跟进
+	// （「查看执行过程」要看到实时进度）。筛选不算依赖 → 切筛选不请求。
+	// 轮询停止条件：meta.status 不再是 running（完成/失败/中断）、请求失败（404/网络异常——
+	// 不再无限重试打服务）、组件卸载或切实例（cancelled）。
+	// 轮询重拉时**不**回到 loading 态、不清 data：时间线不能每 2 秒闪一次空白。
 	useEffect(() => {
 		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
 		setState("loading");
 		setData(null);
-		api
-			.get(
-				`/api/sessions/${encodeURIComponent(sessionId)}/subagents/${encodeURIComponent(agentId)}`,
-			)
-			.then((body) => {
-				if (cancelled) return;
-				setData(body as { meta: TranscriptMeta; messages: SessionMessage[] });
-				setState("ok");
-			})
-			.catch(() => {
-				// 404（meta/jsonl 不存在）与 400 都落到空态：此委托没有可查看的转录
-				if (!cancelled) setState("missing");
-			});
+		const load = () => {
+			api
+				.get(
+					`/api/sessions/${encodeURIComponent(sessionId)}/subagents/${encodeURIComponent(agentId)}`,
+				)
+				.then((body) => {
+					if (cancelled) return;
+					const payload = body as {
+						meta: TranscriptMeta;
+						messages: SessionMessage[];
+					};
+					setData(payload);
+					setState("ok");
+					// 仍在跑 → 继续跟进；终态即停（此后 jsonl 不再增长，再拉只是白耗）
+					if (payload?.meta?.status === "running") {
+						timer = setTimeout(load, TRANSCRIPT_POLL_MS);
+					}
+				})
+				.catch(() => {
+					// 404（meta/jsonl 不存在）与 400 都落到空态：此委托没有可查看的转录。
+					// 失败即停：轮询期间目标被删 / 服务抖动时不能用重试打服务。
+					if (!cancelled) setState("missing");
+				});
+		};
+		load();
 		return () => {
 			cancelled = true;
+			if (timer !== undefined) clearTimeout(timer);
 		};
 	}, [sessionId, agentId]);
 

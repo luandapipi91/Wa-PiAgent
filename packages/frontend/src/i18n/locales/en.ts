@@ -287,9 +287,9 @@ const en = {
 			// Tool stats for a new-data (details.subagents) task row (status word is prefixed)
 			taskStats:
 				"Called {{total}} tool(s) success {{done}} failed {{error}} running {{running}}",
-			// Subagent transcript modal (task 10): entry button / title / empty state / footer / filters
+			// Subagent transcript modal (task 10): title / empty state / footer / filters
+			// (2026-10-02 removed viewTranscript: entry is now clicking the task row)
 			transcriptTitle: "Delegate transcript",
-			viewTranscript: "View full content",
 			transcriptMissing:
 				"This delegation predates transcripts — nothing to view",
 			toolCount: "{{n}} tool(s)",

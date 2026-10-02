@@ -113,11 +113,12 @@ function extractAgentReplies(
 	return out as string[];
 }
 
-/** 单个任务的统计行：`任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W`，可独立展开看该任务回复。
+/** 单个任务的统计行：`任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W`。
  *  抽成独立组件以承载 useLiveElapsed（Hooks 不能在循环里调用）。
  *  统计来源：新数据优先 details.subagents[].toolStats（持久化、权威），旧 fleet 实时 progress 优先、
  *  完成态降级读 details.fleet；interrupted 同理按「新数据按行字段，旧数据按序号 Record + 兜底」取值。
- *  新数据且门控通过（agentId 与转录路径都非空）的行额外渲染「查看全部内容」按钮。 */
+ *  交互（2026-10-02 改）：**整行点击即打开转录弹窗**（新数据、有可查实例时）——卡片上不再就地
+ *  展开回复，执行中 / 被中断 / 已完成三种情形行为一致；旧数据（没落盘、弹窗看不到）退回原地展开看回复。 */
 function DelegateTaskRow({
 	index,
 	agent,
@@ -128,7 +129,7 @@ function DelegateTaskRow({
 	detailStatus,
 	replyText,
 	sessionId,
-	viewAgentId,
+	transcriptAgentId,
 	onViewTranscript,
 }: {
 	index: number;
@@ -144,8 +145,8 @@ function DelegateTaskRow({
 	detailStatus?: SubagentDetails["subagents"][number]["status"];
 	replyText?: string;
 	sessionId: string;
-	/** 非空 = 该行可查看转录（新数据且门控通过）；渲染「查看全部内容」按钮 */
-	viewAgentId?: string;
+	/** 非空 = 该行有可查看的转录实例：整行可点，点击打开转录弹窗 */
+	transcriptAgentId?: string;
 	onViewTranscript?: (agentId: string) => void;
 }) {
 	const [expanded, setExpanded] = useState(false);
@@ -186,10 +187,12 @@ function DelegateTaskRow({
 	const toolStats = detailStatus ? (stats ?? liveStats) : (liveStats ?? stats);
 	const hasProgress = !!progress;
 	const showReply = replyText != null && replyText !== "";
+	// 有可查实例 → 整行点击打开转录弹窗（卡片不再就地展开回复）；旧数据没落盘 → 退回原地展开看回复。
+	const openable = !!transcriptAgentId && !!onViewTranscript;
 	// 行内可看的实质内容：逐任务回复 或 实时进度（状态行）。
 	// 降级聚合（无法拆分）时任务行可能两者都没有（回复已在卡片上方聚合显示）——
 	// 此时不承诺「点击查看回复」（标签去后缀、隐藏展开箭头），展开也不渲染空「回复：」块。
-	const expandable = showReply || hasProgress;
+	const expandable = !openable && (showReply || hasProgress);
 	const statsParams = toolStats
 		? {
 				total: toolStats.total,
@@ -228,15 +231,23 @@ function DelegateTaskRow({
 				<button
 					type="button"
 					aria-label={
-						expandable
-							? expanded
-								? t("common.collapse")
-								: t("common.expand")
-							: undefined
+						openable
+							? `${t("blocks.delegate.transcriptTitle")} ${agent}`
+							: expandable
+								? expanded
+									? t("common.collapse")
+									: t("common.expand")
+								: undefined
 					}
-					onClick={expandable ? () => setExpanded((v) => !v) : undefined}
+					onClick={
+						openable
+							? () => onViewTranscript?.(transcriptAgentId!)
+							: expandable
+								? () => setExpanded((v) => !v)
+								: undefined
+					}
 					className="flex-1 min-w-0 flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-secondary py-1 text-left"
-					style={{ cursor: expandable ? "pointer" : "default" }}
+					style={{ cursor: openable || expandable ? "pointer" : "default" }}
 				>
 					<span>
 						{t("blocks.fleet.taskPrefix", { index })}
@@ -245,24 +256,17 @@ function DelegateTaskRow({
 					{/* 中断徽标：紧跟任务行文案，琥珀警示色，与成功/失败区分。
 					    新数据的行首状态词已是「已中断」，不重复挂徽标 */}
 					{interrupted && !detailStatus && <InterruptedBadge />}
-					{expandable && (
+					{/* 行尾箭头：可查看转录（点整行开弹窗）用 chevron-right 提示可点；
+					    旧数据的就地展开沿用展开/折叠双向箭头 */}
+					{(openable || expandable) && (
 						<span className="ml-auto flex-shrink-0">
-							<Icon name={expanded ? "chevron-down" : "chevron-right"} size={10} />
+							<Icon
+								name={expandable && expanded ? "chevron-down" : "chevron-right"}
+								size={10}
+							/>
 						</span>
 					)}
 				</button>
-				{/* 「查看全部内容」：仅新数据且门控通过的行渲染（旧数据没落盘，按钮只会 404） */}
-				{viewAgentId && onViewTranscript && (
-					<button
-						type="button"
-						aria-label={`${t("blocks.delegate.viewTranscript")} ${agent}`}
-						onClick={() => onViewTranscript(viewAgentId)}
-						className="flex-shrink-0 text-[calc(11px*var(--font-scale))] text-accent py-1 hover:underline"
-						style={{ cursor: "pointer" }}
-					>
-						{t("blocks.delegate.viewTranscript")}
-					</button>
-				)}
 			</div>
 			{expanded && expandable && (
 				<div className="mt-1 mb-1 pl-2 border-l border-hairline">
@@ -294,7 +298,7 @@ function DelegateTaskRow({
 }
 
 /** 统一委托卡片。三种数据形状共用一张卡（FleetCard 已并入，历史 fleet 记录也走这里）：
- *  - 新数据（`details.subagents`）：每任务一行的持久化状态/统计 + 「查看全部内容」（门控通过时）；
+ *  - 新数据（`details.subagents`）：每任务一行的持久化状态/统计，**整行点击打开转录弹窗**；
  *  - 旧 delegate（只有布尔 `interrupted`）：单任务渲染 + 回复折叠（无查看按钮，那时没落盘）；
  *  - 旧 fleet（`details.fleet`）：按序号配对 tasks 的行 + 从聚合文本按 【agent】 切分回复（无查看按钮）。
  *  有实时进度（progress）时：始终显示一行/多行摘要（状态/耗时/工具数），展开看实时 output 与结果。 */
@@ -311,7 +315,7 @@ export const DelegateCard = memo(function DelegateCard({
 	};
 	const tasks = Array.isArray(args.tasks) ? args.tasks : [];
 	const { t } = useTranslation();
-	// 「查看全部内容」：只把目标实例写进 store（弹窗常驻 App 根，卡片卸载/折叠不会连带关闭）
+	// 打开转录弹窗：只把目标实例写进 store（弹窗常驻 App 根，卡片卸载/折叠不会连带关闭）
 	const openTranscript = useSessionStore((s) => s.openTranscript);
 	const collapseProcessByDefault = useUiPrefsStore(
 		(s) => s.collapseProcessByDefault,
@@ -438,8 +442,16 @@ export const DelegateCard = memo(function DelegateCard({
 						(interruptedMap?.[String(r.index - 1)] === undefined &&
 							!!result &&
 							r.progress?.status === "running");
-				// 门控：agentId 与转录路径**都**非空才给「查看全部内容」——越权行 agentId 为空、
-				// 转录目录/meta 准备失败的行 jsonlPath 为空，这两种行点了必然 404
+				// 可查看的实例 id（整行点击打开弹窗）：
+				//  - 新数据（details 已到）：agentId 与转录路径**都**非空才给入口——越权行 agentId 为空、
+				//    转录目录/meta 准备失败的行 jsonlPath 为空，这两种点了必然 404；
+				//  - 执行中（details 还没到）：用进度事件里的 agentId 兜底，转录拉到多少显示多少；
+				//  - 旧数据：两者都没有 → undefined，退回原地展开看回复。
+				const transcriptAgentId = sa
+					? sa.agentId !== "" && sa.jsonlPath !== ""
+						? sa.agentId
+						: undefined
+					: r.progress?.agentId || undefined;
 				return {
 					...r,
 					stats,
@@ -453,10 +465,7 @@ export const DelegateCard = memo(function DelegateCard({
 							: canSplit
 								? repliesByAgent![r.index - 1]
 								: undefined,
-					viewAgentId:
-						sa && sa.agentId !== "" && sa.jsonlPath !== ""
-							? sa.agentId
-							: undefined,
+					transcriptAgentId,
 				};
 			});
 	// 运行期：任务行全部渲染（含尚无进度帧的任务——显示「排队中」）。否则刚派发、
@@ -613,7 +622,7 @@ export const DelegateCard = memo(function DelegateCard({
 										detailStatus={r.detailStatus}
 										replyText={r.replyText}
 										sessionId={sessionId}
-										viewAgentId={r.viewAgentId}
+										transcriptAgentId={r.transcriptAgentId}
 										onViewTranscript={(agentId) =>
 											openTranscript({ sessionId, agentId })
 										}

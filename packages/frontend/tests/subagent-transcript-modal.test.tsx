@@ -444,3 +444,63 @@ test("任务正文渲染在时间线顶部（任务 → 思考 → 工具 → �
 	).map((el) => el.getAttribute("data-transcript-block"));
 	expect(blocks).toEqual(["task", "thinking", "tool", "text"]);
 });
+
+// ── 实时更新（2026-10-02）：子代理运行中时弹窗按间隔跟进最新已落盘内容 ──
+
+test("实时更新：子代理仍在 running → 弹窗按间隔重新拉取，时间线跟着增长", async () => {
+	let round = 0;
+	fetchUrls = [];
+	globalThis.fetch = mock((url: unknown) => {
+		const u = String(url);
+		fetchUrls.push(u);
+		if (/\/subagents\/[^/]+$/.test(u)) {
+			round += 1;
+			// 第 1 次只拉到思考段；第 2 次起内容增长（模拟子代理边跑边落盘）
+			const messages = round === 1 ? [MESSAGES[0]] : MESSAGES;
+			return Promise.resolve(
+				jsonRes({ body: { meta: { ...META, status: "running" }, messages } }),
+			);
+		}
+		return Promise.resolve(jsonRes({ body: { subagents: [META] } }));
+	}) as unknown as typeof fetch;
+
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(blockCount("thinking")).toBe(1));
+	// 跨过一个轮询周期（TRANSCRIPT_POLL_MS = 2000）后自动重拉 → 工具与正文出现
+	await waitFor(() => expect(blockCount("tool")).toBe(1), { timeout: 8000 });
+	expect(detailCallCount()).toBeGreaterThanOrEqual(2);
+});
+
+test("实时更新：子代理已终态（completed）→ 拉一次后不再轮询", async () => {
+	stubFetch({}); // META.status = completed
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(detailCallCount()).toBe(1));
+	// 跨过一个轮询间隔仍只有那一次（终态后 jsonl 不再增长，再拉只是白耗）
+	await new Promise((r) => setTimeout(r, 2600));
+	expect(detailCallCount()).toBe(1);
+});
+
+test("实时更新：详情请求失败（404）→ 落空态且不再重试", async () => {
+	stubFetch({ detail: { status: 404 } });
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("transcript-missing")).toBeTruthy(),
+	);
+	await new Promise((r) => setTimeout(r, 2600));
+	expect(detailCallCount()).toBe(1);
+});

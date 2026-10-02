@@ -276,9 +276,9 @@ const zh = {
 			// 新数据（details.subagents）任务行的工具统计（行首拼持久化终态，如「已完成 …」）
 			taskStats:
 				"调用了 {{total}} 个工具 成功 {{done}} 失败 {{error}} 执行中 {{running}}",
-			// 子代理转录弹窗（任务 10）：入口按钮 / 标题 / 空态 / 底部统计 / 筛选
+			// 子代理转录弹窗（任务 10）：标题 / 空态 / 底部统计 / 筛选
+			// （2026-10-02 移除 viewTranscript：入口不再是文字按钮，改为点击任务行）
 			transcriptTitle: "委托转录",
-			viewTranscript: "查看全部内容",
 			transcriptMissing: "此委托早于转录功能上线，没有可查看的转录",
 			toolCount: "{{n}} 个工具",
 			stepCount: "{{n}} 步",
