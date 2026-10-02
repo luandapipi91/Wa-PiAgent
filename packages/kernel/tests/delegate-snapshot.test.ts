@@ -27,6 +27,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeDelegateTool } from "../src/delegate-tool";
+import { jsonlPath } from "../src/subagent-instance-store";
 
 const tmpRoot = mkdtempSync(join(tmpdir(), "wa-pi-snapshot-"));
 const ORIGINAL_WA_PI_DIR = process.env.WA_PI_DIR;
@@ -118,15 +119,37 @@ test("delegate 中止：abort 瞬间快照立即为 final（不等 settle），s
 		tool: "delegate",
 		phase: "final",
 	});
-	// 无进度事件：逐任务「（中断）」标题 + 一句中止说明，text 可读、details 可消费
-	expect(immediate.text).toContain("【代码审查】（中断）");
+	// 新形状（与正常完成同一套 XML）：status=interrupted，正文保留中止说明；
+	// details.subagents[] 带**非空** agentId/jsonlPath（spawn 前已生成），
+	// 前端据此渲染「查看全部内容」，主 agent 据此 resume。
+	expect(immediate.text).toContain(
+		"<type>代码审查</type><status>interrupted</status>",
+	);
 	expect(immediate.text).toContain("子智能体已被中止");
-	expect(immediate.details).toEqual({ fleet: {}, interrupted: { "0": true } });
+	const immediateSa = immediate.details.subagents[0];
+	expect(immediateSa).toMatchObject({
+		taskIndex: 0,
+		agent: "代码审查",
+		subagentType: "代码审查",
+		status: "interrupted",
+		interrupted: true,
+		resumed: false,
+	});
+	// 中断返回文本可被解析出 <agent_id>（主 agent resume 被中断实例的前提）
+	const immediateAgentId = /<index>0<\/index><agent_id>(a[0-9a-f]{8})<\/agent_id>/.exec(
+		immediate.text,
+	)?.[1];
+	expect(immediateAgentId).toBeTruthy();
+	expect(immediateSa.agentId).toBe(immediateAgentId);
+	expect(immediateSa.jsonlPath).toBe(jsonlPath(SID, immediateAgentId!));
+	expect(immediate.text).toContain(
+		`<transcript>${immediateSa.jsonlPath}</transcript>`,
+	);
+	expect(immediate.details.interrupted).toBe(true);
 
 	// execute 返回（全部子任务 settle）后：最终状态覆盖同一文件（信息更全）
 	const res = await exec;
-	// 工具返回值走新形状（details.subagents）；快照文件本身仍保留旧 fleet 形状（规格 §10：
-	// 中止快照机制本次不动，前端按旧数据兼容路径渲染）
+	// 工具返回值走新形状（details.subagents）
 	expect(res.details).toMatchObject({
 		subagents: [
 			{
@@ -142,7 +165,9 @@ test("delegate 中止：abort 瞬间快照立即为 final（不等 settle），s
 	expect(final.phase).toBe("final");
 	expect(final.tool).toBe("delegate");
 	expect(final.text).toContain("部分进度");
-	expect(final.details).toEqual({ fleet: {}, interrupted: { "0": true } });
+	// 覆盖写与 execute 返回值逐字一致（中断返回 = 正常完成的同一套 XML + details）
+	expect(final.text).toBe(res.content[0].text);
+	expect(final.details).toEqual(res.details);
 });
 
 test("delegate 中止即时快照：用最近进度事件组装部分进度文本", async () => {
@@ -174,10 +199,18 @@ test("delegate 中止即时快照：用最近进度事件组装部分进度文�
 	expect(await waitFor(() => existsSync(file))).toBe(true);
 	const immediate = JSON.parse(readFileSync(file, "utf8"));
 	expect(immediate.phase).toBe("final");
-	// abort 瞬间用当时内存状态组装的部分进度文本（只报工具调用数量统计）
+	// abort 瞬间用当时内存状态组装的部分进度文本（只报工具调用数量统计）；
+	// 正文已 XML 转义后包在 <result> 里，断言只看内容本身
 	expect(immediate.text).toContain(
 		"部分进度：工具调用 2 个（成功 1 / 失败 0 / 中断 1）",
 	);
+	// 瞬时进度里的 toolStats 同步进新形状 details.subagents[]（前端行统计的数据源）
+	expect(immediate.details.subagents[0].toolStats).toEqual({
+		total: 2,
+		done: 1,
+		error: 0,
+		running: 1,
+	});
 	expect(immediate.text).not.toContain("已完成步骤");
 	expect(immediate.text).not.toContain("bash ✅");
 	expect(immediate.text).not.toContain("read ⏸");
@@ -206,23 +239,33 @@ test("多任务中止：abort 瞬间 final 逐任务（中断）标题，settle 
 	const immediate = JSON.parse(readFileSync(file, "utf8"));
 	expect(immediate.phase).toBe("final");
 	expect(immediate.tool).toBe("delegate");
-	// abort 瞬间：每个子任务用瞬时状态组装，标题统一「（中断）」
-	expect(immediate.text).toContain("【代码审查】（中断）");
-	expect(immediate.text).toContain("【质量验收】（中断）");
-	expect(immediate.details).toEqual({
-		fleet: {},
-		interrupted: { "0": true, "1": true },
-	});
+	// abort 瞬间：每个子任务都用新形状 XML（status=interrupted），逐行独立
+	expect(immediate.text).toContain(
+		"<type>代码审查</type><status>interrupted</status>",
+	);
+	expect(immediate.text).toContain(
+		"<type>质量验收</type><status>interrupted</status>",
+	);
+	expect(immediate.details.interrupted).toBe(true);
+	expect(
+		immediate.details.subagents.map(
+			(s: { taskIndex: number; status: string; interrupted: boolean }) => [
+				s.taskIndex,
+				s.status,
+				s.interrupted,
+			],
+		),
+	).toEqual([
+		[0, "interrupted", true],
+		[1, "interrupted", true],
+	]);
 
-	await exec;
+	const res = await exec;
 	const final = JSON.parse(readFileSync(file, "utf8"));
 	expect(final.phase).toBe("final");
-	expect(final.text).toContain("【代码审查】");
-	expect(final.text).toContain("【质量验收】");
-	expect(final.details).toEqual({
-		fleet: {},
-		interrupted: { "0": true, "1": true },
-	});
+	// 覆盖写与返回值逐字一致（两行都是同一套 XML，且都带各自的 agentId）
+	expect(final.text).toBe(res.content[0].text);
+	expect(final.details).toEqual(res.details);
 });
 
 test("正常完成（无 abort）不写快照文件", async () => {
@@ -253,4 +296,51 @@ test("正常完成（无 abort）不写快照文件", async () => {
 	});
 	expect(existsSync(snapshotPath("snap-ok"))).toBe(false);
 	expect(listDir()).toEqual(before);
+});
+
+// 边界（要求 6）：任务在生成 agentId 之前就被中断（abort 先于派发 / 越权早退 / 配置解析失败）
+// → 该行按空 agentId/空 transcript 的降级形状处理，**绝不伪造 id**（前端双非空门控自然不给入口）。
+// 构造即已中止：此刻两个 thunk 都还没跑到 id 生成点，即时快照里两行的实例信息必然为空。
+test("中止先于派发：未生成 agentId 的任务在快照里留空降级（不伪造）", async () => {
+	const ctrl = new AbortController();
+	ctrl.abort();
+	const tool = makeDelegateTool({
+		askTo,
+		// settle 延迟 200ms：留出窗口读到 abort 瞬间的即时快照（空 id）而非覆盖后的终态
+		spawn: () =>
+			new Promise<any>((resolve) =>
+				setTimeout(
+					() =>
+						resolve({
+							text: "子智能体已被中止",
+							isError: true,
+							interrupted: true,
+						}),
+					200,
+				),
+			),
+		sessionId: SID,
+		getCallSignal: () => ctrl.signal,
+	});
+
+	const exec = tool.execute("snap-early", {
+		tasks: [
+			{ agent: "代码审查", task: "a" },
+			{ agent: "质量验收", task: "b" },
+		],
+	});
+	const file = snapshotPath("snap-early");
+	expect(await waitFor(() => existsSync(file))).toBe(true);
+	const immediate = JSON.parse(readFileSync(file, "utf8"));
+	expect(immediate.phase).toBe("final");
+	// 字段齐全但身份为空串：形状与新返回块一致，只是没有可查的转录
+	expect(immediate.details.subagents).toHaveLength(2);
+	for (const sa of immediate.details.subagents) {
+		expect(sa).toMatchObject({ status: "interrupted", interrupted: true });
+		expect(sa.agentId).toBe("");
+		expect(sa.jsonlPath).toBe("");
+	}
+	expect(immediate.text).toContain("<agent_id></agent_id>");
+	expect(immediate.text).toContain("<transcript></transcript>");
+	await exec;
 });

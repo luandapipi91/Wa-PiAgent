@@ -32,7 +32,6 @@ import { join } from "node:path";
 import type { SubagentDetails } from "@wa-pi/shared";
 import { GENERATED_DIR, SUBAGENT_TYPES, WA_PI_DIR } from "@wa-pi/shared";
 import { makeDelegateTool, makeSpawnFn } from "../src/delegate-tool";
-import { mcpAdapterExtensionPath } from "../src/extensions";
 import { ensureProviderExtensionRegistered } from "../src/provider-extension";
 import { ProviderStore } from "../src/provider-store";
 import { readMeta, jsonlPath } from "../src/subagent-instance-store";
@@ -94,7 +93,6 @@ async function main() {
 	const providers = (await store.load()) as any[];
 	const p = providers[0]!;
 	const providerExt = join(GENERATED_DIR, "provider-extension.ts");
-	const mcp = mcpAdapterExtensionPath();
 
 	// ── 内置 Explore 配置（等价 agent-manager 的 resolveSpawnConfig 内置分支）──
 	const builtin = SUBAGENT_TYPES.find((t) => t.name === "Explore")!;
@@ -119,10 +117,10 @@ async function main() {
 	const spawn = makeSpawnFn({
 		resolveConfig,
 		cwd: process.cwd(),
-		extensionPaths: [
-			...(existsSync(providerExt) ? [providerExt] : []),
-			...(mcp ? [mcp] : []),
-		],
+		// 与生产 spawn 同构（agent-manager）：子进程只带 provider-extension；
+		// MCP 由 pi 内置扩展（builtin:mcp，默认加载）在子进程内自行注册，
+		// 不再注入第三方 adapter（mcpAdapterExtensionPath 已随 MCP 内置化迁移删除）。
+		extensionPaths: [...(existsSync(providerExt) ? [providerExt] : [])],
 	});
 	const tool = makeDelegateTool({ askTo: [], sessionId: SID, spawn });
 

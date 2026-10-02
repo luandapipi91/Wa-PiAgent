@@ -62,6 +62,14 @@ export interface DelegateTarget {
 	delegationHints?: DelegationHints;
 }
 
+/** 中止即时快照用：某次派发里单个子任务在 spawn 前已确定的实例身份 */
+interface DelegatedInstance {
+	agentId: string;
+	jsonlPath: string;
+	subagentType: string;
+	resumed: boolean;
+}
+
 /** spawn 闭包返回值：text 给 LLM，isError 标记失败（服务未就绪/调起异常/子智能体失败/超时/中止） */
 export interface DelegateSpawnResult {
 	text: string;
@@ -372,6 +380,12 @@ export function makeDelegateTool(opts: {
 	// 中止即时快照的进度采集：key 为 toolCallId，值为该次派发各任务最近一条进度事件
 	//（execute 进入时登记、finally 清理；notifyProgress 由注册点在 spawnFn onProgress 转发）
 	const latestProgress = new Map<string, Map<number, SubagentProgressEvent>>();
+	// 中止即时快照的实例身份采集：key 为 toolCallId，值为该次派发各任务在 **spawn 前**登记的
+	// 实例信息（agentId / jsonlPath / subagentType / resumed）。中止瞬间据此渲染返回块与
+	// details 的 <agent_id>/<transcript>——让被中断实例可「查看全部内容」且可被主 agent resume。
+	// **只登记已真实生成的 id**：越权/配置解析失败等早退路径未走到生成点，此处自然没有条目，
+	// 渲染时留空降级（前端按 agentId + jsonlPath 双非空门控），绝不伪造。
+	const taskInstances = new Map<string, Map<number, DelegatedInstance>>();
 	return {
 		name: "delegate",
 		label: "Delegate",
@@ -427,38 +441,81 @@ export function makeDelegateTool(opts: {
 			let aborted = callSignal?.aborted === true;
 			let pendingImmediate: Promise<void> | undefined;
 			latestProgress.set(toolCallId, new Map());
-			const writeImmediateFinal = () => {
-				aborted = true;
-				const byIndex = latestProgress.get(toolCallId);
-				// 每个子任务用其当时的 tools/output 瞬时快照组装（未 settle 同样处理，
-				// 标题统一「（中断）」）；settle 后的覆盖写会替换为真实终态标记
-				const lines = args.tasks.map((t, index) => {
+			taskInstances.set(toolCallId, new Map());
+			// 中止即时快照：与正常完成**同一套 XML + details.subagents 形状**（规格 §7），
+			// 唯一区别是 status 全为 interrupted。此前这里回传旧 【agent】+ fleet 形状，
+			// 导致前端拿不到 agentId/jsonlPath 而不渲染「查看全部内容」、主 agent 也拿不到
+			// <agent_id> 无法 resume（用户实测报告：中断卡片没有入口、只能整批重派）。
+			const buildAbortSnapshotPayload = (
+				tasks: ReadonlyArray<{ agent: string }>,
+				byIndex: Map<number, SubagentProgressEvent> | undefined,
+				instances: Map<number, DelegatedInstance> | undefined,
+			) => {
+				// 每个子任务用其当时的 tools/output 瞬时快照组装正文（未 settle 同样处理）；
+				// 「部分进度」说明是中断场景最有价值的信息，必须保留在 <result> 正文里。
+				const subagents = tasks.map((t, index) => {
 					const ev = byIndex?.get(index);
+					const inst = instances?.get(index);
 					const note = ev ? buildPartialProgressNote(ev.tools, ev.output) : "";
 					const body = note
 						? `子智能体已被中止\n\n${note}`
 						: "子智能体已被中止";
-					return `【${t.agent}】（中断）\n${body}`;
+					// 实例未登记（未走到 id 生成点）→ agentId/jsonlPath 留空降级，不伪造
+					const agentId = inst?.agentId ?? "";
+					const jsonlPath = inst?.jsonlPath ?? "";
+					const subagentType =
+						inst?.subagentType ?? normalizeSubagentType(t.agent);
+					return {
+						block: renderSubagentBlock({
+							taskIndex: index,
+							agentId,
+							subagentType,
+							status: "interrupted" as const,
+							elapsedMs: ev?.elapsedMs,
+							// 中止瞬间拿不到 token 用量（settle 后才有）→ 渲染为 "?"
+							totalTokens: undefined,
+							resumed: inst?.resumed ?? false,
+							jsonlPath,
+							text: body,
+						}),
+						detail: {
+							taskIndex: index,
+							agentId,
+							jsonlPath,
+							agent: t.agent,
+							subagentType,
+							resumed: inst?.resumed ?? false,
+							status: "interrupted" as const,
+							elapsedMs: ev?.elapsedMs,
+							usage: undefined,
+							toolStats: ev ? toolStatsFromProgress(ev.tools) : undefined,
+							interrupted: true,
+						},
+					};
 				});
-				// details 形状与 settle 后的完整快照一致：fleet 统计聚合自瞬时进度
-				//（无进度事件的任务省略），interrupted 全 true
-				const fleetStats: Record<string, ToolStats> = {};
-				for (let index = 0; index < args.tasks.length; index++) {
-					const ev = byIndex?.get(index);
-					if (ev) fleetStats[String(index)] = toolStatsFromProgress(ev.tools);
-				}
-				const interrupted: Record<string, boolean> = {};
-				for (let index = 0; index < args.tasks.length; index++) {
-					interrupted[String(index)] = true;
-				}
-				pendingImmediate = writeAbortSnapshot(toolCallId, {
+				const details: SubagentDetails = {
+					subagents: subagents.map((s) => s.detail),
+					interrupted: true,
+				};
+				return {
 					toolCallId,
 					tool: "delegate",
 					phase: "final",
-					text: lines.join("\n\n"),
-					details: { fleet: fleetStats, interrupted },
+					text: subagents.map((s) => s.block).join("\n"),
+					details,
 					savedAt: new Date().toISOString(),
-				});
+				};
+			};
+			const writeImmediateFinal = () => {
+				aborted = true;
+				pendingImmediate = writeAbortSnapshot(
+					toolCallId,
+					buildAbortSnapshotPayload(
+						args.tasks,
+						latestProgress.get(toolCallId),
+						taskInstances.get(toolCallId),
+					),
+				);
 			};
 			if (callSignal) {
 				if (callSignal.aborted) writeImmediateFinal();
@@ -551,6 +608,14 @@ export function makeDelegateTool(opts: {
 							const spawnAgent = meta.subagentType;
 							const jsonl = jsonlPath(parentSessionId, t.resume);
 							await selfHealStoredCwd(jsonl);
+							// 登记实例身份：中止瞬间快照据此给出真实的 <agent_id>/<transcript>
+							//（续聊实例的 id 即 t.resume，复用同一份 jsonl）
+							taskInstances.get(toolCallId)?.set(index, {
+								agentId: t.resume,
+								jsonlPath: jsonl,
+								subagentType: spawnAgent,
+								resumed: true,
+							});
 							const resumeCount = meta.resumeCount + 1;
 							// 本轮真实起点：异常收尾时算 elapsedMs（不编造 0）
 							const startedAt = Date.now();
@@ -672,6 +737,14 @@ export function makeDelegateTool(opts: {
 								jsonl = "";
 							}
 						}
+						// 登记实例身份（spawn 前，jsonl 已定型）：中止瞬间快照据此给出真实的
+						// <agent_id>/<transcript>。jsonl 已被上面降级为空的任务留空——不伪造路径。
+						taskInstances.get(toolCallId)?.set(index, {
+							agentId,
+							jsonlPath: jsonl,
+							subagentType: spawnAgent,
+							resumed: false,
+						});
 						const now = Date.now();
 						// 身份/任务等不变字段：spawn 前后两次写 meta 共用
 						const metaBase = {
@@ -801,28 +874,17 @@ export function makeDelegateTool(opts: {
 					interrupted: results.some((r) => r.interrupted === true),
 				};
 				if (aborted) {
-					// settle 后用最终状态覆盖写 final；先等 abort 瞬间的写盘完成
+					// settle 后用最终状态覆盖写 final；先等 abort 瞬间的写盘完成。
+					// 快照的 text/details 直接复用下面的 `blocks`/`details`——与「父模型正常收到
+					// 的返回值」**逐字一致**（同一套 XML + details.subagents 形状），中断与完成
+					// 一视同仁：前端照常拿到「查看全部内容」入口，主 agent 照常拿到 <agent_id>。
 					await pendingImmediate;
-					// 快照（subagent-results/）本次不动（规格 §10）：它的 text/details 沿用旧
-					// 【agent】+ fleet 形状，前端按旧数据兼容路径渲染（与新返回块并存）
-					const lines = results.map((r) => {
-						const marks = [r.isError ? "失败" : "", r.interrupted ? "中断" : ""]
-							.filter(Boolean)
-							.join("·");
-						return `【${r.agent}】${marks ? `（${marks}）` : ""}\n${r.text}`;
-					});
-					const fleetStats: Record<string, ToolStats> = {};
-					const fleetInterrupted: Record<string, boolean> = {};
-					for (const r of results) {
-						if (r.toolStats) fleetStats[String(r.index)] = r.toolStats;
-						fleetInterrupted[String(r.index)] = r.interrupted === true;
-					}
 					await writeAbortSnapshot(toolCallId, {
 						toolCallId,
 						tool: "delegate",
 						phase: "final",
-						text: lines.join("\n\n"),
-						details: { fleet: fleetStats, interrupted: fleetInterrupted },
+						text: blocks.join("\n"),
+						details,
 						savedAt: new Date().toISOString(),
 					});
 				}
@@ -835,6 +897,7 @@ export function makeDelegateTool(opts: {
 				};
 			} finally {
 				latestProgress.delete(toolCallId);
+				taskInstances.delete(toolCallId);
 				callSignal?.removeEventListener("abort", writeImmediateFinal);
 			}
 		},
