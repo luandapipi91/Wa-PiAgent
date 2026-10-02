@@ -19,6 +19,7 @@ import { MODAL_SIZE_KEYS } from "../ui/modal-size";
 import { ThinkingCard } from "./ThinkingCard";
 import { ToolCallCard } from "./ToolCallCard";
 import { Markdown } from "./Markdown";
+import { useLiveElapsed } from "./useLiveElapsed";
 import { Icon } from "../ui/Icon";
 import { fmtTok } from "../../util/format";
 import { copyToClipboard } from "../../util/clipboard";
@@ -29,6 +30,8 @@ export interface TranscriptMeta {
 	agentId: string;
 	subagentType: string;
 	status: "running" | "completed" | "failed" | "interrupted";
+	/** 实例创建时刻（epoch ms；spawn 前生成）。运行期 `elapsedMs` 还没落盘，靠它本地推算耗时 */
+	createdAt?: number;
 	/** 同一次委托（delegate 调用）的公共 id：同 toolCallId 的实例构成左侧列表 */
 	toolCallId?: string;
 	/** fleet 内序号；单委托为 null */
@@ -252,6 +255,14 @@ function TranscriptDialog({
 	}, [group, agentId]);
 
 	const meta = data?.meta;
+	// 耗时：运行期必须本地推算——`meta.elapsedMs` 只在 settle 时写盘，运行中恒为 0
+	//（2026-10-02 用户实测：子代理跑着、弹窗内容在实时涨，标题栏却一直「运行中 · 0s」）。
+	// 起点取 createdAt（绝对时刻，重拉 / 重挂载都不丢，秒数连续不回跳）；终态由 hook 冻结为后端终值。
+	const elapsedSeconds = useLiveElapsed(
+		meta?.elapsedMs,
+		meta?.status === "running",
+		meta?.createdAt,
+	);
 	const toolCount = segments.filter((s) => s.kind === "tool").length;
 	const stepCount = (data?.messages ?? []).filter(
 		(m) => (m?.message as { role?: string } | undefined)?.role === "assistant",
@@ -304,7 +315,7 @@ function TranscriptDialog({
 					>
 						{meta ? `${meta.subagentType} · ${agentId} · ${statusLabel(meta.status)}` : agentId}
 						{meta
-							? ` · ${formatElapsed(meta.elapsedMs ?? 0)}${
+							? ` · ${formatElapsed(elapsedSeconds * 1000)}${
 									usage?.total != null ? ` · ${fmtTok(usage.total)}` : ""
 								}`
 							: ""}

@@ -415,11 +415,14 @@ test("标题栏展示实例身份与终态用量，底部展示工具数 / 步�
 		/>,
 	);
 	await waitFor(() => expect(screen.getByTestId("transcript-meta")).toBeTruthy());
+	// 耗时由 useLiveElapsed 的 effect 写入（不是直读 meta），需等 effect flush
+	await waitFor(() =>
+		expect(screen.getByTestId("transcript-meta").textContent ?? "").toContain("32s"),
+	);
 	const meta = screen.getByTestId("transcript-meta").textContent ?? "";
 	expect(meta).toContain("Explore");
 	expect(meta).toContain(AGENT_ID);
 	expect(meta).toContain("完成");
-	expect(meta).toContain("32s");
 
 	const footer = screen.getByTestId("transcript-footer").textContent ?? "";
 	expect(footer).toContain("1 个工具"); // 1 个工具段
@@ -503,4 +506,36 @@ test("实时更新：详情请求失败（404）→ 落空态且不再重试", a
 	);
 	await new Promise((r) => setTimeout(r, 2600));
 	expect(detailCallCount()).toBe(1);
+});
+
+test("运行中：标题栏耗时按本地时间递增（meta.elapsedMs 只在终态写盘，运行期恒 0）", async () => {
+	// 实际现象：子代理跑着，弹窗内容在实时涨，但标题栏一直「运行中 · 0s」——
+	// 因为 elapsedMs 是 settle 时才落盘的字段。起点改用 meta.createdAt（spawn 前生成）本地推算。
+	const created = Date.now() - 5000;
+	stubFetch({
+		detail: {
+			body: {
+				meta: { ...META, status: "running", elapsedMs: 0, createdAt: created },
+				messages: MESSAGES,
+			},
+		},
+	});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(screen.getByTestId("transcript-meta")).toBeTruthy());
+	// 不得显示 0s：起点取自 createdAt，立即应是 ≈5s（同样等 effect flush）
+	await waitFor(() =>
+		expect(screen.getByTestId("transcript-meta").textContent ?? "").toMatch(/· [456]s/),
+	);
+	const t1 = screen.getByTestId("transcript-meta").textContent ?? "";
+	expect(t1).toContain("运行中");
+	// 秒数在往前走（不是冻结的持久化值）
+	await new Promise((r) => setTimeout(r, 2400));
+	const t2 = screen.getByTestId("transcript-meta").textContent ?? "";
+	expect(t2).not.toBe(t1);
+	expect(t2).toMatch(/· [67]s/);
 });
