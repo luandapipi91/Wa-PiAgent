@@ -179,7 +179,7 @@ test("中止路径：text 附带部分进度段（统计 + 输出片段）且 in
 	// 结构化中断标记
 	expect(result.interrupted).toBe(true);
 	// 部分进度段：原因 + 统计 + 输出片段（无摘录条目）
-	expect(result.text).toContain("子智能体已被中止");
+	expect(result.text).toContain("子智能体执行中断：子智能体已被中止");
 	expect(result.text).toContain("部分进度：工具调用 3 个（成功 1 / 失败 1 / 中断 1）");
 	// 步骤列表与摘录条目均已移除，只有统计行
 	expect(result.text).not.toContain("已完成步骤");
@@ -204,7 +204,7 @@ test("探活超时路径：text 附带部分进度段且 interrupted=true", asyn
 	});
 	expect(result.isError).toBe(true);
 	expect(result.interrupted).toBe(true);
-	expect(result.text).toContain("无进展");
+	expect(result.text).toContain("子智能体执行中断：执行超过30分钟时限，已自动终止");
 	expect(result.text).toContain("部分进度：工具调用 3 个（成功 1 / 失败 1 / 中断 1）");
 	expect(result.text).toContain("最后输出片段");
 }, 10_000);

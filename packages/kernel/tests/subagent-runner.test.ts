@@ -25,10 +25,10 @@ const {
 	PROBE_TIMEOUT_MS,
 } = (await import(REAL_RUNNER_SPEC)) as RunnerModule;
 
-// 默认委派整体硬上限（RPC 命令超时 + settle 兕底共用）应为 2 小时
-// （用户拍板 2026-08-31：单个子代理委派上限由 60 分钟增长到 2 小时，长任务 fleet 不再被 1h 误杀）
-test("默认委派超时 COMMAND_TIMEOUT_MS 为 2 小时", () => {
-	expect(COMMAND_TIMEOUT_MS).toBe(2 * 60 * 60_000);
+// 默认委派整体硬上限（RPC 命令超时 + settle 兕底共用）应为 30 分钟
+// （用户拍板 2026-10-03：由 2 小时收紧到 30 分钟——卡死的委派不再白等两小时）
+test("默认委派超时 COMMAND_TIMEOUT_MS 为 30 分钟", () => {
+	expect(COMMAND_TIMEOUT_MS).toBe(30 * 60_000);
 });
 
 // 默认无进展探活窗口：非工具执行（模型静默）2 分钟（用户拍板 2026-09-20，由 5 分钟收紧：
@@ -254,10 +254,8 @@ test("卡死超时：pi 永不 settle 时按 commandTimeoutMs 超时返回 isErr
 		commandTimeoutMs: 1500, // 1.5s 超时（hang-pi 永不 settle）
 	});
 	expect(result.isError).toBe(true);
-	// 对外文案（用户指定）：不暴露内部毫秒数与内部机制名，直接告知「超过时限已自动终止」
-	expect(result.text).toContain(
-		"子智能体执行失败: 子智能体超过2小时时限，已自动终止。",
-	);
+	// 对外文案（用户指定 2026-10-03）：统一「子智能体执行中断：」前缀 + 不暴露内部毫秒数与机制名
+	expect(result.text).toContain("子智能体执行中断：执行超过30分钟时限，已自动终止");
 }, 10000); // 测试自身 10s 兜底（验证不永久阻塞）
 
 test("abort 短路：子代理不响应 abort 时按 abortGraceMs 强制返回，不等 settle 超时", async () => {
@@ -313,6 +311,8 @@ const PROBE_FAIL_ONCE_PI = join(
 	"fixtures",
 	"probe-fail-once-pi.ts",
 );
+// 进程提前退出（prompt 响应后立刻非 0 码退出、永不 settle）——锁「子智能体进程异常退出」文案
+const EXIT_EARLY_PI = join(import.meta.dir, "fixtures", "exit-early-pi.ts");
 
 // 工具执行中零输出长静默（如输出重定向的长编译）+ 探活正常 → 不判死。
 // 旧实现会在这里按 2 分钟/20 分钟窗口误杀，正是本次要修掉的误杀。
@@ -352,7 +352,7 @@ test("探活失败：get_state 报错 → 判死（强杀）", async () => {
 	});
 	expect(result.isError).toBe(true);
 	// 对外文案只报「执行过程中中断」：探活 / get_state / 毫秒数等内部细节不进结果文本
-	expect(result.text).toBe("子智能体执行失败: 子智能体执行过程中中断");
+	expect(result.text).toBe("子智能体执行中断：子智能体执行过程中中断");
 	expect(result.text).not.toContain("探活");
 	expect(result.text).not.toContain("get_state");
 	expect(Date.now() - startedAt).toBeLessThan(10_000);
@@ -371,7 +371,7 @@ test("探活单次失败即判死：首次 get_state 报错就强杀（不累计
 		probeTimeoutMs: 100,
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toBe("子智能体执行失败: 子智能体执行过程中中断");
+	expect(result.text).toBe("子智能体执行中断：子智能体执行过程中中断");
 	expect(Date.now() - startedAt).toBeLessThan(5_000);
 }, 10_000);
 
@@ -388,7 +388,7 @@ test("探活超时：不回 get_state 单次到期 → 判死（强杀）", asyn
 		probeTimeoutMs: 200,
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toBe("子智能体执行失败: 子智能体执行过程中中断");
+	expect(result.text).toBe("子智能体执行中断：子智能体执行过程中中断");
 	expect(Date.now() - startedAt).toBeLessThan(10_000);
 }, 10_000);
 
@@ -404,11 +404,13 @@ test("探活自启动即生效：pi 不发任何事件也会被探活检出 → 
 		probeTimeoutMs: 100,
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toBe("子智能体执行失败: 子智能体执行过程中中断");
+	expect(result.text).toBe("子智能体执行中断：子智能体执行过程中中断");
 }, 10_000);
 
 // 事件兜底：距上次事件超过窗口 → 判死。hang-pi 发 agent_start 后永久静默但正常回 get_state
 // → 探活一直成功，仍必须判死（工具僵死靠兜底检出，成功探活不续命）。
+// 文案（用户指定 2026-10-03）：与硬超时共用同一句——两者默认窗口都是 30 分钟、对用户是同一件事；
+// 故此处窗口虽然被测试压到 400ms，对外文案仍是产品口径的「30 分钟」（与硬超时文案同款解耦）。
 test("事件兜底：距上次事件超过窗口 → 判死（探活成功也不续命）", async () => {
 	const startedAt = Date.now();
 	const result = await runSubagentAgent(baseConfig(), "任务", "/tmp", {
@@ -419,8 +421,24 @@ test("事件兜底：距上次事件超过窗口 → 判死（探活成功也不
 		probeIntervalMs: 100,
 	});
 	expect(result.isError).toBe(true);
-	expect(result.text).toContain("无进展超时 (400ms)");
+	expect(result.text).toBe("子智能体执行中断：执行超过30分钟时限，已自动终止");
 	expect(Date.now() - startedAt).toBeLessThan(10_000);
+}, 10_000);
+
+// 进程提前退出（崩溃 / 被杀）：prompt 后立刻非 0 码退出，永不发 agent_settled。
+// 对外文案只说「进程异常退出」，退出码不进结果文本（排障线索落 kernel 日志）。
+test("进程提前退出：按异常退出文案收尾且不暴露退出码", async () => {
+	const result = await runSubagentAgent(baseConfig(), "任务", "/tmp", {
+		cliPath: EXIT_EARLY_PI,
+		runtime: RUNTIME,
+		commandTimeoutMs: 60_000, // settle 超时拉长：验证走的是 onExit 而不是超时
+		livenessFallbackMs: 60_000,
+	});
+	expect(result.isError).toBe(true);
+	expect(result.interrupted).toBe(true);
+	expect(result.text).toBe("子智能体执行中断：子智能体进程异常退出");
+	// 退出码不再进对外文案
+	expect(result.text).not.toContain("code=");
 }, 10_000);
 
 // 事件持续到达（tool_execution_update 流式输出）→ 不断刷新兜底，不判死。

@@ -47,6 +47,7 @@ import {
 } from "./subagent-instance-store";
 import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
 import {
+	ABORT_TEXT,
 	buildPartialProgressNote,
 	runSubagentAgent as defaultRunSubagentAgent,
 } from "./subagent-runner";
@@ -457,9 +458,8 @@ export function makeDelegateTool(opts: {
 					const ev = byIndex?.get(index);
 					const inst = instances?.get(index);
 					const note = ev ? buildPartialProgressNote(ev.tools, ev.output) : "";
-					const body = note
-						? `子智能体已被中止\n\n${note}`
-						: "子智能体已被中止";
+					// 与 subagent-runner 中止路径共用同一常量：快照正文必须与父模型收到的返回值逐字一致
+					const body = note ? `${ABORT_TEXT}\n\n${note}` : ABORT_TEXT;
 					// 实例未登记（未走到 id 生成点）→ agentId/jsonlPath 留空降级，不伪造
 					const agentId = inst?.agentId ?? "";
 					const jsonlPath = inst?.jsonlPath ?? "";

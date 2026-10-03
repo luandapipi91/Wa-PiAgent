@@ -127,7 +127,7 @@ test("delegate 中止：abort 瞬间快照立即为 final（不等 settle），s
 	expect(immediate.text).toContain(
 		"<type>代码审查</type><status>interrupted</status>",
 	);
-	expect(immediate.text).toContain("子智能体已被中止");
+	expect(immediate.text).toContain("子智能体执行中断：子智能体已被中止");
 	const immediateSa = immediate.details.subagents[0];
 	expect(immediateSa).toMatchObject({
 		taskIndex: 0,

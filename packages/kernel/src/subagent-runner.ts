@@ -65,6 +65,10 @@ export interface SubagentRunResult {
 	elapsedMs: number;
 }
 
+/** 中止（用户停止 / 上级中止）路径的对外正文开头。delegate-tool 的 abort 即时快照也用同一句，
+ *  两处必须逐字一致（快照正文与父模型收到的返回值保持一致是既有硬约束，见 delegate-tool 注释）。 */
+export const ABORT_TEXT = "子智能体执行中断：子智能体已被中止";
+
 /** 部分进度段输出片段：超限时保留的头部字符数 */
 const PARTIAL_OUTPUT_HEAD_LIMIT = 1000;
 /** 部分进度段输出片段：超限时保留的尾部字符数 */
@@ -115,7 +119,7 @@ export interface SubagentRunOpts {
 	/** 测试覆盖：pi CLI 入口 / 运行时 */
 	cliPath?: string;
 	runtime?: string;
-	/** RPC 命令超时毫秒数，默认 2 小时（7200000，用户拍板 2026-08-31 由 60 分钟增长）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
+	/** RPC 命令超时毫秒数，默认 30 分钟（1800000，用户拍板 2026-10-03 由 2 小时收紧）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
 	commandTimeoutMs?: number;
 	/** 事件兜底窗口毫秒数（默认 30 分钟）：距上一次 RPC 事件超过该时长判死。
 	 *  不区分是否工具执行中——长静默工具卡死靠它检出（成功探活不续命）。设为 Infinity 关闭。 */
@@ -133,8 +137,8 @@ export interface SubagentRunOpts {
  *  到期不再等待 settle，走 finally dispose 强杀（防用户停止后子代理后台再活满 settle 超时） */
 export const ABORT_GRACE_MS = 10_000;
 
-/** RPC 命令 / settle 兜底默认超时：子代理委托整体硬上限，默认 2 小时（用户拍板 2026-08-31，由 60 分钟增长：长任务单代理实测可跑 39-50 分钟，60 分钟余量不足）。 */
-export const COMMAND_TIMEOUT_MS = 2 * 60 * 60_000;
+/** RPC 命令 / settle 兜底默认超时：子代理委托整体硬上限，默认 30 分钟（用户拍板 2026-10-03，由 2 小时收紧：卡死的委派不再白等两小时）。 */
+export const COMMAND_TIMEOUT_MS = 30 * 60_000;
 
 /** 事件兜底窗口（默认 30 分钟）：距上一次 RPC 事件超过该时长判死。
  *  2026-09-23 改版：不再按「是否工具执行中」分两档窗口——pi 的工具执行期没有心跳（零输出命令
@@ -289,7 +293,7 @@ export async function runSubagentAgent(
 			if (!Number.isFinite(fallbackMs)) return;
 			if (fallbackTimer) clearTimeout(fallbackTimer);
 			fallbackTimer = setTimeout(() => {
-				fail(new Error(`子智能体无进展超时 (${fallbackMs}ms)`));
+				fail(new Error("执行超过30分钟时限，已自动终止"));
 			}, fallbackMs);
 		};
 		let probeTimer: ReturnType<typeof setInterval> | undefined;
@@ -369,7 +373,9 @@ export async function runSubagentAgent(
 			onExit: (code) => {
 				// agent_settled 前退出视为失败（settled 后 dispose 的正常退出不走这里：
 				// dispose 前先移除监听，见下方 finally）
-				fail(new Error(`子智能体进程提前退出 (code=${code})`));
+				// 对外文案不暴露退出码（用户要求只说「进程异常退出」），排障线索落在日志里
+				console.warn(`[subagent] 子智能体进程异常退出 (code=${code})`);
+				fail(new Error("子智能体进程异常退出"));
 			},
 		});
 		await client.start();
@@ -398,9 +404,12 @@ export async function runSubagentAgent(
 				racers.push(
 					new Promise<never>((_, reject) => {
 						settleTimer = setTimeout(
-							// 对外文案（用户指定）：只说「超过时限已自动终止」，不暴露内部毫秒数与机制名。
-							// 口径固定为产品硬上限 2 小时（COMMAND_TIMEOUT_MS）；若调整该常量，此处文案需同步。
-							() => reject(new Error("子智能体超过2小时时限，已自动终止。")),
+							// 对外文案（用户指定 2026-10-03）：统一「子智能体执行中断：」前缀（由 catch 拼接），
+							// 只说「超时限已自动终止」，不暴露内部毫秒数与机制名。
+							// 口径固定为产品硬上限 30 分钟（COMMAND_TIMEOUT_MS）；若调整该常量，此处文案需同步。
+							// 与事件兜底窗口（LIVENESS_FALLBACK_MS，默认也是 30 分钟）共用同一句对外文案：
+							// 两者对用户是同一件事（就是没跑完），不必区分是哪把尺子判的。
+							() => reject(new Error("执行超过30分钟时限，已自动终止")),
 							settleTimeoutMs,
 						);
 					}),
@@ -416,7 +425,7 @@ export async function runSubagentAgent(
 			// abort 短路：子代理可能卡在不可中断的工具里收不到 abort RPC，若仍等
 			// settle 超时（默认 60 分钟），用户点停止后子代理进程在后台继续存活烧配额。
 			// 宽限 abortGraceMs 等子代理响应 abort，到期 resolve —— 走下方
-			// signal.aborted 分支返回「子智能体已被中止」，finally dispose 强杀进程。
+			// signal.aborted 分支返回「子智能体执行中断：子智能体已被中止」，finally dispose 强杀进程。
 			if (opts?.signal) {
 				const sig = opts.signal;
 				racers.push(
@@ -446,7 +455,7 @@ export async function runSubagentAgent(
 			// 非正常终态：附加部分进度段（无过程数据时 note 为空串，不附加）
 			const note = buildPartialProgressNote(tools, output);
 			return {
-				text: note ? `子智能体已被中止\n\n${note}` : "子智能体已被中止",
+				text: note ? `${ABORT_TEXT}\n\n${note}` : ABORT_TEXT,
 				isError: true,
 				interrupted: true,
 				toolStats: toolStats(),
@@ -511,8 +520,8 @@ export async function runSubagentAgent(
 		const note = buildPartialProgressNote(tools, output);
 		return {
 			text: note
-				? `子智能体执行失败: ${message}\n\n${note}`
-				: `子智能体执行失败: ${message}`,
+				? `子智能体执行中断：${message}\n\n${note}`
+				: `子智能体执行中断：${message}`,
 			isError: true,
 			interrupted: true,
 			toolStats: toolStats(),
