@@ -7,9 +7,9 @@
 // - **不复用 MessageList**（它强绑定 session store、无 messages 入参）：这里用轻量渲染器 ——
 //   Markdown(interactive=false) + ThinkingCard + ToolCallCard，toolCall ↔ toolResult 自行按
 //   toolCallId 配对（配对逻辑抽成纯函数 buildTranscriptSegments，单独单测）。
-// - **筛选纯前端**：全部 / 思考 / 工具 / 正文只过滤已拉到的段，绝不重新请求。
+// - **筛选纯前端**：全部 / 正文 / 思考 / 工具只过滤已拉到的段，绝不重新请求。
 // - 位置与尺寸记忆沿用 ui/Modal 的持久化键（对齐 FilePreviewModal）。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionMessage, ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { api, ApiError } from "../../api-client";
 import { useTranslation } from "../../i18n/useTranslation";
@@ -56,7 +56,9 @@ export type TranscriptSegment =
 	| { kind: "text"; text: string }
 	| { kind: "tool"; toolCall: ToolCall; toolResult?: ToolResultMessage };
 
-/** 视图筛选：全部 / 思考 / 工具 / 正文（纯前端过滤，不触发请求） */
+/** 视图筛选：全部 / 正文 / 思考 / 工具（纯前端过滤，不触发请求）。
+ *  「正文」= 下发给子代理的任务 + 模型正文（任务段的 kind 是 "task"，与 filter 值不同名，
+ *  谓词见下方 visible），否则切到「正文」时任务会整个消失。 */
 export type TranscriptFilter = "all" | "thinking" | "tool" | "text";
 
 /** 取 user 消息的文本：content 可能是 string 或 [{type:"text",text}] 数组 */
@@ -208,17 +210,14 @@ function TranscriptDialog({
 		messages: SessionMessage[];
 	} | null>(null);
 	const [state, setState] = useState<"loading" | "ok" | "missing" | "error">("loading");
-	const [filter, setFilter] = useState<TranscriptFilter>("all");
+	// 默认筛选：正文（用户要求「点开默认显示正文 tab」——任务是下发的输入、正文是要读的结果，
+	// 思考与工具是过程细节，需要时再切过去）。
+	const [filter, setFilter] = useState<TranscriptFilter>("text");
 	const [group, setGroup] = useState<TranscriptMeta[]>([]);
-	// 时间线滚动：打开 / 刷新时贴底（长转录默认看最新），但用户往上翻后不再把他拽回去。
-	// 贴底标志只在滚动事件里更新，刷新时只读它——否则每次内容变化都要重测一次位置。
+	// 时间线滚动：**不自动贴底**（用户要求：打开 / 刷新都别动位置），只在不在底部时
+	// 右下角悬浮一个「滚动到底部」按钮，看不看最新由用户自己决定。
 	const timelineRef = useRef<HTMLDivElement | null>(null);
-	const stickToBottomRef = useRef(true);
-
-	// 切换实例（含关掉重开）→ 重置为贴底：用户打开的是另一个子代理，要看它的最新内容
-	useEffect(() => {
-		stickToBottomRef.current = true;
-	}, [agentId]);
+	const [atBottom, setAtBottom] = useState(true);
 
 	// 转录本体：打开时拉一次；切换实例（agentId 变化）重拉；子代理仍在运行则按 ~2s 轮询跟进
 	// （「查看执行过程」要看到实时进度）。筛选不算依赖 → 切筛选不请求。
@@ -303,17 +302,38 @@ function TranscriptDialog({
 		[data],
 	);
 	const visible = useMemo(
-		() => segments.filter((s) => filter === "all" || s.kind === filter),
+		() =>
+			segments.filter(
+				(s) =>
+					filter === "all" ||
+					s.kind === filter ||
+					// 「正文」把任务段一并纳入：任务是用户真正下发的内容，切到正文时不该看不见
+					(filter === "text" && s.kind === "task"),
+			),
 		[segments, filter],
 	);
 
-	// 内容变化（首次加载完成 / 轮询刷新 / 切筛选）后：仍处于贴底状态就滚到最底。
-	// 首次进入时 data 从 null → 对象，这个 effect 正好把长转录直接定位到最新内容。
-	useEffect(() => {
+	// 是否贴底：距底 40px 内视为贴底（给滚动惯性 / 亚像素留余量）；内容不足一屏时差值 ≤ 0，
+	// 同样算贴底 → 不显示按钮。实测值直接写 state，不额外存 ref。
+	const measureBottom = useCallback(() => {
 		const el = timelineRef.current;
-		if (!el || !stickToBottomRef.current) return;
+		if (!el) return;
+		setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+	}, []);
+
+	const scrollToBottom = () => {
+		const el = timelineRef.current;
+		if (!el) return;
 		el.scrollTop = el.scrollHeight;
-	}, [data, filter]);
+		measureBottom();
+	};
+
+	// 内容变化（首次加载完成 / 轮询刷新 / 切筛选）后重测：高度变了，按钮该出现就出现、
+	// 该消失就消失——但绝不改用户当前的滚动位置。
+	useEffect(() => {
+		measureBottom();
+	}, [data, filter, measureBottom]);
+
 	// 历史里已经有 task 段（每轮任务都作为 user 消息落在 jsonl）时，顶部不再重复挂 meta.task；
 	// 仅当 jsonl 里没有 user 消息（异常/旧数据）时用它兜底。判定用未过滤的 segments。
 	const hasTaskSegment = segments.some((s) => s.kind === "task");
@@ -429,10 +449,10 @@ function TranscriptDialog({
 						</div>
 					)}
 
-					<div className="flex min-w-0 flex-1 flex-col">
+					<div className="relative flex min-w-0 flex-1 flex-col">
 						{/* 视图筛选：纯前端过滤（不发请求） */}
 						<div className="flex justify-center gap-1 border-b border-hairline px-3 py-1.5 text-[calc(11px*var(--font-scale))]">
-							{(["all", "thinking", "tool", "text"] as const).map((f) => (
+							{(["all", "text", "thinking", "tool"] as const).map((f) => (
 								<button
 									key={f}
 									data-testid={`transcript-filter-${f}`}
@@ -448,16 +468,10 @@ function TranscriptDialog({
 							))}
 						</div>
 
-						{/* 时间线：任务 → 思考 → 工具 → 正文 */}
+						{/* 时间线：任务 → 思考 → 工具 → 正文。不自动跟随滚动，偏了由右下角按钮代劳 */}
 						<div
 							ref={timelineRef}
-							onScroll={() => {
-								const el = timelineRef.current;
-								if (!el) return;
-								// 距底 40px 内视为贴底（给滚动惯性 / 亚像素留余量）
-								stickToBottomRef.current =
-									el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-							}}
+							onScroll={measureBottom}
 							data-testid="transcript-timeline"
 							className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-[calc(12px*var(--font-scale))]"
 						>
@@ -533,6 +547,20 @@ function TranscriptDialog({
 								</>
 							)}
 						</div>
+
+						{/* 不自动跟随的补偿：不在底部时右下角悬浮「滚动到底部」图标按钮（用户要求：移除自动贴底） */}
+						{!atBottom && (
+							<button
+								type="button"
+								onClick={scrollToBottom}
+								data-testid="transcript-scroll-bottom"
+								aria-label={t("message.scrollToBottom")}
+								title={t("message.scrollToBottom")}
+								className="bg-surface border-hairline text-secondary hover:text-primary absolute right-3 bottom-10 z-10 flex h-9 w-9 items-center justify-center rounded-full border shadow-md transition-colors"
+							>
+								<Icon name="arrow-down" size={14} />
+							</button>
+						)}
 
 						{/* 底部用量：工具数 · 步数 · 输入 / 输出 / 缓存读 + 复制全文 */}
 						<div

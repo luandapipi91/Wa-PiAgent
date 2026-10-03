@@ -16,6 +16,8 @@ import {
 	segmentsToPlainText,
 } from "../src/components/blocks/SubagentTranscriptModal";
 import { useSessionStore } from "../src/store/session";
+import zh from "../src/i18n/locales/zh";
+import en from "../src/i18n/locales/en";
 import { MODAL_POS_KEYS } from "../src/components/ui/modal-position";
 import { MODAL_SIZE_KEYS } from "../src/components/ui/modal-size";
 
@@ -115,8 +117,13 @@ function detailCallCount(): number {
 }
 
 /** 时间线段计数（弹窗经 portal 渲染到 body，必须用 document 查） */
-function blockCount(kind: "thinking" | "tool" | "text"): number {
+function blockCount(kind: "task" | "thinking" | "tool" | "text"): number {
 	return document.querySelectorAll(`[data-block="${kind}"]`).length;
+}
+
+/** meta.task 兜底卡片计数：仅历史里没有 user 消息时渲染，因此只带 data-transcript-block */
+function metaTaskFallbackCount(): number {
+	return document.querySelectorAll('[data-transcript-block="task"]:not([data-block])').length;
 }
 
 const originalFetch = globalThis.fetch;
@@ -130,22 +137,28 @@ afterEach(() => {
 	globalThis.fetch = originalFetch;
 	// 清掉本文件用例写入的进度事件（「实例是否在跑」的判定读它，残留会串到后面的 404 用例）
 	useSessionStore.setState({ progressByToolCall: {} });
-	// 还原布局尺寸 mock（详见文件末尾「滚动到底部」用例）
-	delete (Element.prototype as unknown as Record<string, unknown>).scrollHeight;
-	delete (Element.prototype as unknown as Record<string, unknown>).clientHeight;
+	// 还原布局尺寸 mock（详见 mockLayout）
+	for (const proto of [Element.prototype, HTMLElement.prototype]) {
+		delete (proto as unknown as Record<string, unknown>).scrollHeight;
+		delete (proto as unknown as Record<string, unknown>).clientHeight;
+	}
 });
 
 /** happy-dom 不做真实布局：把 scrollHeight / clientHeight 固定成可用值，
- *  这样 scrollTop = scrollHeight 这个动作才能被断言（否则两边恒为 0，断言没判别力）。 */
+ *  这样「内容超一屏 / 不足一屏」这类滚底判定才能被断言（否则两边恒为 0，断言没判别力）。
+ *  必须同时定义在 HTMLElement.prototype：happy-dom 在该层自带了这两个访问器，
+ *  只写在 Element.prototype 上会被屏蔽（实测 clientHeight 仍读 0，曾让「不足一屏」用例假失败）。 */
 function mockLayout(scrollHeight = 1000, clientHeight = 300) {
-	Object.defineProperty(Element.prototype, "scrollHeight", {
-		configurable: true,
-		get: () => scrollHeight,
-	});
-	Object.defineProperty(Element.prototype, "clientHeight", {
-		configurable: true,
-		get: () => clientHeight,
-	});
+	for (const proto of [Element.prototype, HTMLElement.prototype]) {
+		Object.defineProperty(proto, "scrollHeight", {
+			configurable: true,
+			get: () => scrollHeight,
+		});
+		Object.defineProperty(proto, "clientHeight", {
+			configurable: true,
+			get: () => clientHeight,
+		});
+	}
 }
 
 // ── 纯函数：把消息拍平成可渲染段 ──
@@ -267,7 +280,7 @@ test("续聊：两轮任务都出现在时间线（不再只看得到第一次�
 	expect(kinds).toEqual(["task", "text", "task", "text"]);
 });
 
-test("打开弹窗时时间线滚到底部（长转录 / 运行中看重最新内容）", async () => {
+test("打开弹窗不再自动滚到底；点「滚动到底部」按钮才到底（用户要求：移除自动贴底）", async () => {
 	mockLayout(1000, 300);
 	stubFetch({});
 	render(
@@ -277,10 +290,39 @@ test("打开弹窗时时间线滚到底部（长转录 / 运行中看重最新�
 		/>,
 	);
 	const timeline = await screen.findByTestId("transcript-timeline");
-	await waitFor(() => expect(timeline.scrollTop).toBe(1000));
+	await waitFor(() => expect(blockCount("text")).toBe(1));
+	// 打开后停在顶部：不再把用户拽到最新内容（长转录也由用户自己决定看不看最新）
+	expect(timeline.scrollTop).toBe(0);
+
+	// 内容超出一屏且不在底部 → 悬浮按钮出现（用户要求：图标按钮，不是文字）
+	const btn = await screen.findByTestId("transcript-scroll-bottom");
+	// 内部必须是 svg 图标；同时守住 i18n 键名（曾误写成 common.scrollToBottom → tooltip 直接显示原始 key）
+	expect(btn.querySelector("svg")).toBeTruthy();
+	expect(zh.message.scrollToBottom).toBeTruthy();
+	expect(en.message.scrollToBottom).toBeTruthy();
+
+	// 点击后到底，且已到底时按钮自行隐藏
+	fireEvent.click(btn);
+	expect(timeline.scrollTop).toBe(1000);
+	await waitFor(() =>
+		expect(screen.queryByTestId("transcript-scroll-bottom")).toBeNull(),
+	);
 });
 
-test("实时刷新时跟随到底；但用户往上翻后不再把他拽回底部", async () => {
+test("内容不足一屏（无滚动）时不显示「滚动到底部」按钮", async () => {
+	mockLayout(300, 300);
+	stubFetch({});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(blockCount("text")).toBe(1));
+	expect(screen.queryByTestId("transcript-scroll-bottom")).toBeNull();
+});
+
+test("运行中刷新不再自动跟随：用户位置不动，按钮按需出现", async () => {
 	mockLayout(1000, 300);
 	let round = 0;
 	fetchUrls = [];
@@ -307,20 +349,23 @@ test("实时刷新时跟随到底；但用户往上翻后不再把他拽回底�
 		/>,
 	);
 	const timeline = await screen.findByTestId("transcript-timeline");
-	// 打开后贴底
-	await waitFor(() => expect(timeline.scrollTop).toBe(1000));
+	// 默认「正文」：第一轮只有思考块（没有任何可见正文），等第二轮的正文到达
+	await waitFor(() => expect(blockCount("text")).toBe(1), { timeout: 8000 });
 
-	// 用户往上翻（距底超过阈值）→ 后续刷新不得再强制拉到底
+	// 用户往上翻 → 跨过一个轮询周期（meta 仍 running，弹窗会继续重拉）位置必须原地不动
 	timeline.scrollTop = 100;
 	fireEvent.scroll(timeline);
-	timeline.scrollTop = 100; // 主动模拟被冲掉后的位置
-	await waitFor(() => expect(blockCount("tool")).toBe(1), { timeout: 8000 });
+	await waitFor(() => expect(screen.getByTestId("transcript-scroll-bottom")).toBeTruthy());
+	await new Promise((r) => setTimeout(r, 2600));
 	expect(timeline.scrollTop).toBe(100);
+	expect(detailCallCount()).toBeGreaterThanOrEqual(2);
 
-	// 滚回底部 → 恢复跟随
+	// 用户自己滚到底 → 按钮消失（状态由滚动位置决定，不靠自动跟随）
 	timeline.scrollTop = 1000;
 	fireEvent.scroll(timeline);
-	expect(timeline.scrollTop).toBe(1000);
+	await waitFor(() =>
+		expect(screen.queryByTestId("transcript-scroll-bottom")).toBeNull(),
+	);
 });
 
 test("服务端 5xx / 网络异常 → 显示「加载失败」而不是「此委托早于转录功能上线」", async () => {
@@ -386,6 +431,8 @@ test("成功：思考 / 工具（含结果）/ 正文三类都在，展开后可
 	);
 	// 弹窗经 createPortal 渲染到 document.body，不在 render container 里
 	await waitFor(() => expect(blockCount("text")).toBe(1));
+	// 默认是「正文」筛选：本用例要验证三类块齐全，先切到「全部」
+	fireEvent.click(screen.getByTestId("transcript-filter-all"));
 	expect(blockCount("thinking")).toBe(1);
 	expect(blockCount("tool")).toBe(1);
 	// 正文直接可见
@@ -423,7 +470,8 @@ test("筛选：只做前端过滤，且不重新请求", async () => {
 			onClose={() => {}}
 		/>,
 	);
-	await waitFor(() => expect(blockCount("thinking")).toBe(1));
+	// 默认「正文」：开屏只有正文与任务
+	await waitFor(() => expect(blockCount("text")).toBe(1));
 	expect(detailCallCount()).toBe(1);
 
 	fireEvent.click(screen.getByTestId("transcript-filter-thinking"));
@@ -439,6 +487,112 @@ test("筛选：只做前端过滤，且不重新请求", async () => {
 	expect(blockCount("thinking") + blockCount("tool") + blockCount("text")).toBe(3);
 	// 关键断言：筛选切换没有产生任何新请求
 	expect(detailCallCount()).toBe(1);
+});
+
+test("筛选条顺序：全部 → 正文 → 思考 → 工具", async () => {
+	stubFetch({});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(blockCount("text")).toBe(1));
+	// 2026-10-02 需求：正文排到思考 / 工具之前（正文是要读的内容，思考与工具属过程细节）
+	const tabs = Array.from(
+		document.querySelectorAll('[data-testid^="transcript-filter-"]'),
+	).map((el) => el.getAttribute("data-testid")?.replace("transcript-filter-", ""));
+	expect(tabs).toEqual(["all", "text", "thinking", "tool"]);
+});
+
+test("点开弹窗默认选中「正文」：只显示任务与正文，思考 / 工具隐藏", async () => {
+	stubFetch({});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(blockCount("text")).toBe(1));
+	// 默认就是「正文」：思考 / 工具不该入眼（用户要求：点开直接看内容）
+	expect(blockCount("thinking")).toBe(0);
+	expect(blockCount("tool")).toBe(0);
+	// 任务（MESSAGES 无 user 消息 → meta.task 兜底卡片）也在「正文」里
+	expect(screen.getByText("列出 packages 目录并说明每个包")).toBeTruthy();
+
+	// 切到「全部」三类都出来：只是默认值变了，筛选本身照旧
+	fireEvent.click(screen.getByTestId("transcript-filter-all"));
+	expect(blockCount("thinking")).toBe(1);
+	expect(blockCount("tool")).toBe(1);
+});
+
+test("正文筛选：任务（下发内容）与正文一起显示，思考 / 工具隐藏", async () => {
+	// 2026-10-02 需求：点「正文」时也要看得到下发给子代理的任务。
+	// 此前 task 段只在「全部」里出现，切到「正文」任务就消失（用户实测反馈）。
+	const msgs = [
+		{ message: { role: "user", content: [{ type: "text", text: "第一轮任务" }] } } as never,
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "thinking", thinking: "先看目录结构" }],
+			},
+		} as never,
+		{
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "t1", name: "grep", arguments: { pattern: "foo" } },
+				],
+			},
+		} as never,
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "结论：可以这样做" }],
+			},
+		} as never,
+	];
+	stubFetch({ detail: { body: { meta: META, messages: msgs } } });
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(blockCount("task")).toBe(1));
+
+	fireEvent.click(screen.getByTestId("transcript-filter-text"));
+	expect(blockCount("task")).toBe(1);
+	expect(blockCount("text")).toBe(1);
+	expect(blockCount("thinking")).toBe(0);
+	expect(blockCount("tool")).toBe(0);
+	// 任务段仍是「任务：」卡片（与「全部」里同一样式），内容可读
+	expect(screen.getByText("第一轮任务")).toBeTruthy();
+	expect(detailCallCount()).toBe(1);
+
+	// 思考 / 工具筛选只留自己那一类，不夹带任务
+	fireEvent.click(screen.getByTestId("transcript-filter-thinking"));
+	expect(blockCount("task")).toBe(0);
+	expect(blockCount("thinking")).toBe(1);
+	fireEvent.click(screen.getByTestId("transcript-filter-tool"));
+	expect(blockCount("task")).toBe(0);
+	expect(blockCount("tool")).toBe(1);
+});
+
+test("正文筛选：历史无 user 消息时，meta.task 兜底卡片同样显示", async () => {
+	// MESSAGES 里没有 user 消息 → 任务靠 meta.task 兜底渲染；「正文」下不能把它漏掉
+	stubFetch({});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(metaTaskFallbackCount()).toBe(1));
+	fireEvent.click(screen.getByTestId("transcript-filter-text"));
+	expect(metaTaskFallbackCount()).toBe(1);
+	expect(screen.getByText("列出 packages 目录并说明每个包")).toBeTruthy();
+	expect(blockCount("text")).toBe(1);
 });
 
 test("左侧实例列表：同一次委托只有 1 个实例时隐藏", async () => {
@@ -609,6 +763,8 @@ test("任务正文渲染在时间线顶部（任务 → 思考 → 工具 → �
 		/>,
 	);
 	await waitFor(() => expect(blockCount("text")).toBe(1));
+	// 默认「正文」只看得到任务与正文，要验证完整时间线得先切「全部」
+	fireEvent.click(screen.getByTestId("transcript-filter-all"));
 	const blocks = Array.from(
 		document.querySelectorAll("[data-transcript-block]"),
 	).map((el) => el.getAttribute("data-transcript-block"));
@@ -640,9 +796,9 @@ test("实时更新：子代理仍在 running → 弹窗按间隔重新拉取，�
 			onClose={() => {}}
 		/>,
 	);
-	await waitFor(() => expect(blockCount("thinking")).toBe(1));
-	// 跨过一个轮询周期（TRANSCRIPT_POLL_MS = 2000）后自动重拉 → 工具与正文出现
-	await waitFor(() => expect(blockCount("tool")).toBe(1), { timeout: 8000 });
+	// 默认「正文」：第一轮只有思考块 → 没有任何可见块；跨过一个轮询周期
+	//（TRANSCRIPT_POLL_MS = 2000）后自动重拉，第二轮的正文出现
+	await waitFor(() => expect(blockCount("text")).toBe(1), { timeout: 8000 });
 	expect(detailCallCount()).toBeGreaterThanOrEqual(2);
 });
 
@@ -687,7 +843,7 @@ test("实例刚启动（404 但该实例仍在跑）→ 显示 loading 骨架而
 	await waitFor(() => expect(screen.getByTestId("transcript-loading")).toBeTruthy());
 	expect(screen.queryByTestId("transcript-missing")).toBeNull();
 	// 自动重试后拿到内容（用户要求「启动好之后自动加载内容」）
-	await waitFor(() => expect(blockCount("thinking")).toBe(1), { timeout: 9000 });
+	await waitFor(() => expect(blockCount("text")).toBe(1), { timeout: 9000 });
 	expect(screen.queryByTestId("transcript-missing")).toBeNull();
 });
 

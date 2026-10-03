@@ -473,19 +473,42 @@ test.describe.serial("子代理转录 E2E（真实模型）", () => {
 		await expect(viewBtn).toBeVisible({ timeout: 60_000 });
 		await viewBtn.click();
 
-		// 5) 弹窗内三类块都在（真实转录）
+		// 5) 弹窗默认停在「正文」：只看到任务 / 正文，思考与工具不入眼（用户要求）
 		const modal = page.getByTestId("subagent-transcript-modal");
 		await expect(modal).toBeVisible({ timeout: 15_000 });
+		await expect(modal.locator('[data-block="text"]').first()).toBeVisible({ timeout: 30_000 });
+		await expect(modal.locator('[data-block="thinking"]')).toHaveCount(0);
+		await expect(modal.locator('[data-block="tool"]')).toHaveCount(0);
+
+		// 5.1) 切到「全部」→ 三类块齐全（真实转录）
+		await modal.getByTestId("transcript-filter-all").click();
 		await expect(modal.locator('[data-block="thinking"]').first()).toBeVisible({ timeout: 30_000 });
 		await expect(modal.locator('[data-block="tool"]').first()).toBeVisible({ timeout: 30_000 });
-		await expect(modal.locator('[data-block="text"]').first()).toBeVisible({ timeout: 30_000 });
 
-		// 6) 筛选切换（纯前端过滤：工具块消失、思考块仍在）
+		// 6) 筛选条顺序：全部 / 正文 / 思考 / 工具（正文排在过程细节之前）
+		await expect(modal.locator('[data-testid^="transcript-filter-"]')).toHaveText([
+			"全部",
+			"正文",
+			"思考",
+			"工具",
+		]);
+
+		// 6.1) 筛选切换（纯前端过滤：工具块消失、思考块仍在）
 		await modal.getByTestId("transcript-filter-thinking").click();
 		await expect(modal.locator('[data-block="tool"]')).toHaveCount(0);
 		await expect(modal.locator('[data-block="thinking"]').first()).toBeVisible();
 		await modal.getByTestId("transcript-filter-all").click();
 		await expect(modal.locator('[data-block="tool"]').first()).toBeVisible();
+
+		// 6.2) 「正文」= 下发给子代理的任务 + 模型正文：切到正文后任务内容不能消失，
+		//      思考 / 工具全部隐藏（2026-10-02 需求，此前 task 段只在「全部」里出现）
+		await modal.getByTestId("transcript-filter-text").click();
+		await expect(modal.locator('[data-transcript-block="task"]').first()).toBeVisible();
+		await expect(modal.locator('[data-block="text"]').first()).toBeVisible();
+		await expect(modal.locator('[data-block="thinking"]')).toHaveCount(0);
+		await expect(modal.locator('[data-block="tool"]')).toHaveCount(0);
+		await modal.getByTestId("transcript-filter-all").click();
+		await expect(modal.locator('[data-block="thinking"]').first()).toBeVisible();
 
 		// 7) 关闭
 		await page.keyboard.press("Escape");
