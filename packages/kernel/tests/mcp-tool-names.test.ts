@@ -5,10 +5,18 @@
 // 0.99.2 起与 Codex 对齐）、超 64 字符或与其它 MCP 工具撞名时退化为
 // `截断前缀_<sha256(server\0tool) 前 8 位>`。本文件逐条锁住这些规则——
 // 期望值由 pi 源码公式独立算出（不 import 生产实现），故实现漂移会被抓住。
+//
+// pi 1.0.4 起 `--tools` 白名单支持 `*` 通配（含 `mcp__` 条目才过滤 MCP 工具），
+// 受限 agent 白名单改用服务器粒度通配（`mcpServerPatternsOf`，见文件末尾 describe）；
+// 精确名枚举（`mcpToolNamesOf`）仍服务于 UI 工具清单（真实注册名展示）。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import type { McpServerReport } from "../src/mcp-admin.ts";
-import { createMcpToolName, mcpToolNamesOf } from "../src/mcp-tool-names.ts";
+import {
+  createMcpToolName,
+  mcpServerPatternsOf,
+  mcpToolNamesOf,
+} from "../src/mcp-tool-names.ts";
 
 /** pi 的工具名上限：64 个 [A-Za-z0-9_-] 字符 */
 const MAX = 64;
@@ -238,5 +246,121 @@ describe("mcpToolNamesOf：枚举 pi 会注册出的工具名", () => {
       report({ name: "dbx", tools: ["q"] }),
     ]);
     expect(names).toEqual(["mcp__dbx__q"]);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// mcpServerPatternsOf：受限 agent 白名单用的服务器粒度通配（pi 1.0.4 语义）。
+//
+// pi 1.0.4 起 `--tools` 含任何 `mcp__` 前缀条目即进入 MCP 硬过滤，条目按
+// 精确名（Set）或 `*` 通配（正则）匹配注册名。服务器粒度通配 `mcp__<server>__*`
+// 的优势：前缀恒定 → 天然覆盖超长/撞名的 hash 退化名（前缀不变），枚举竞态
+// （工具清单未就绪）也不再漏放行。POC 实测（pi 1.0.4，direct 曝光）：
+//   - `mcp__poc-mcp-server__*`（未 sanitize）→ 不匹配（注册名是 `poc_mcp_server`）
+//   - `mcp__poc_mcp_server__*` → echo+ping 全部 declare
+//   - `mcp__poc_mcp_server__echo` → 只有 echo declare
+//   - `--tools read`（无 mcp__ 条目）→ MCP 工具不 declare
+//   - `--no-mcp --tools read` → 同上
+// -----------------------------------------------------------------------------
+
+/** 模式期望值的独立实现：与 pi 的 sanitize 规则一致（0.99.2 起 `-` 也替换） */
+function patternFor(server: string): string {
+  return `mcp__${server.replace(/[^A-Za-z0-9_]/g, "_")}__*`;
+}
+
+describe("mcpServerPatternsOf：白名单用的服务器粒度通配（pi 1.0.4）", () => {
+  test("connected 服务器输出 mcp__<server>__* 模式，direct 曝光无入口工具", () => {
+    expect(
+      mcpServerPatternsOf([report({ name: "dbx", tools: ["query", "list"] })]),
+    ).toEqual(["mcp__dbx__*"]);
+  });
+
+  test("server 名含 `-`：模式必须用 sanitize 后的名字（POC：原名匹配不到）", () => {
+    const patterns = mcpServerPatternsOf([
+      report({ name: "chrome-devtools", tools: ["take-screenshot"] }),
+    ]);
+    expect(patterns).toEqual([patternFor("chrome-devtools")]);
+    expect(patterns[0]).toBe("mcp__chrome_devtools__*");
+    expect(patterns[0]).not.toContain("chrome-devtools");
+  });
+
+  test("server 名含空格 / 中文 / 点：同样 sanitize 为 `_`", () => {
+    const patterns = mcpServerPatternsOf([
+      report({ name: "my srv.x", tools: [] }),
+      report({ name: "我的服务", tools: [] }),
+    ]);
+    expect(patterns).toEqual([patternFor("my srv.x"), patternFor("我的服务")]);
+  });
+
+  test("未连上 / 已停用 / 需登录的服务器：不输出模式也不输出入口（与枚举口径一致）", () => {
+    const patterns = mcpServerPatternsOf([
+      report({ name: "failed_srv", state: "failed", exposure: "codemode" }),
+      report({
+        name: "off_srv",
+        enabled: false,
+        state: "disabled",
+        exposure: "codemode",
+      }),
+      report({ name: "auth_srv", state: "needs-auth", exposure: "deferred" }),
+    ]);
+    expect(patterns).toEqual([]);
+  });
+
+  test("codemode 曝光：模式 + codemode 入口殿后", () => {
+    expect(
+      mcpServerPatternsOf([
+        report({ name: "new_srv", exposure: "codemode", tools: ["get_profile"] }),
+      ]),
+    ).toEqual(["mcp__new_srv__*", "codemode"]);
+  });
+
+  test("codemode-deferred：入口同为 codemode（pi 对这两档都激活 codemode）", () => {
+    expect(
+      mcpServerPatternsOf([
+        report({ name: "s", exposure: "codemode-deferred", tools: ["t"] }),
+      ]),
+    ).toEqual(["mcp__s__*", "codemode"]);
+  });
+
+  test("deferred 曝光：模式 + tool_search 入口殿后", () => {
+    expect(
+      mcpServerPatternsOf([
+        report({ name: "s", exposure: "deferred", tools: ["search_docs"] }),
+      ]),
+    ).toEqual(["mcp__s__*", "tool_search"]);
+  });
+
+  test("hidden 曝光：模式多列无害，但不放行任何入口工具", () => {
+    expect(
+      mcpServerPatternsOf([report({ name: "s", exposure: "hidden", tools: ["t"] })]),
+    ).toEqual(["mcp__s__*"]);
+  });
+
+  test("多台非 direct 服务器共享同一入口：入口去重只出一个", () => {
+    const patterns = mcpServerPatternsOf([
+      report({ name: "a", exposure: "codemode", tools: ["t1"] }),
+      report({ name: "b", exposure: "codemode", tools: ["t2"] }),
+      report({ name: "c", exposure: "deferred", tools: ["t3"] }),
+    ]);
+    expect(patterns).toEqual([
+      "mcp__a__*",
+      "mcp__b__*",
+      "mcp__c__*",
+      "codemode",
+      "tool_search",
+    ]);
+  });
+
+  test("同一服务器重复上报：模式只产出一条", () => {
+    expect(
+      mcpServerPatternsOf([
+        report({ name: "dbx", tools: ["q"] }),
+        report({ name: "dbx", tools: ["q"] }),
+      ]),
+    ).toEqual(["mcp__dbx__*"]);
+  });
+
+  test("空报告：空数组", () => {
+    expect(mcpServerPatternsOf([])).toEqual([]);
   });
 });

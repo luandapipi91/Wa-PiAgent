@@ -1,11 +1,17 @@
-// pi 内置 MCP 扩展的工具命名复刻（规格 F4）。
+// pi 内置 MCP 扩展的工具名处理（规格 F4）。
 //
-// 为什么必须复刻：受限 agent 的 `--tools` 是**精确白名单**。名字与 pi 实际注册出的工具名
-// 不一致时，pi 找不到该工具却**不报错**——那个 MCP 工具对该 agent 静默不可用。而 pi 的
+// 两套输出，两种用途（pi 1.0.4 起 `--tools` 支持 `mcp__` 前缀条目 + `*` 通配）：
+//   - mcpServerPatternsOf：受限 agent 白名单用——服务器粒度通配模式
+//     `mcp__<server>__*` + 非 direct 入口工具。模式前缀恒定，天然覆盖超长/撞名的
+//     hash 退化名，也不受枚举竞态影响（白名单的 POC 实测依据见其 JSDoc）。
+//   - mcpToolNamesOf：UI 工具清单（listGlobalTools）用——逐工具枚举真实
+//     注册名，供用户在智能体设置里查看。
+//
+// 名字与 pi 实际注册出的不一致时，pi 找不到该工具却**不报错**——静默失效。而 pi 的
 // 注册名不是朴素拼接：非法字符会替换成 `_`，超过 64 字符或与其它 MCP 工具撞名时退化为
 // `截断前缀_<sha256(server\0tool) 前 8 位>`。
 //
-// 复刻来源：pi-coding-agent 1.0.0
+// 复刻来源：pi-coding-agent 1.0.0（sanitize 规则 1.0.4 未变，POC 已复核）
 //   - dist/extensions/mcp/tools.js 的 createMcpToolName（sanitize + 截断/hash 公式）
 //   - dist/extensions/mcp/index.js 的 registerTools（toolOwners / current 撞名去重表）
 //
@@ -72,7 +78,42 @@ const EXPOSURE_ENTRY_TOOL: Partial<Record<McpExposure, string>> = {
 };
 
 /**
- * 枚举 pi 内置 MCP 扩展会注册出的工具名（受限 agent 白名单 / 工具清单用）。
+ * 枚举受限 agent 白名单用的**服务器粒度通配模式**（pi 1.0.4 语义，POC 实测）。
+ *
+ * pi 1.0.4 起 `--tools` 含任何 `mcp__` 前缀条目即进入 MCP 硬过滤，条目按精确名（Set）
+ * 或 `*` 通配（正则）匹配注册名。逐工具精确名枚举（{@link mcpToolNamesOf}）在 1.0.4 下
+ * 不再必要：通配模式 `mcp__<server>__*` 前缀恒定，天然覆盖超长/撞名的 hash 退化名，
+ * 也不再受「工具清单枚举竞态」影响（服务器连上后注册什么就放行什么）。
+ *
+ * 模式里的 server 名必须先 sanitize（POC 实测：`mcp__poc-mcp-server__*` 匹配不到
+ * 注册名 `mcp__poc_mcp_server__*`，且静默无报错）。
+ *
+ * 输出顺序：各 connected 服务器的模式（去重）在前，非 direct 曝光的入口工具
+ * （`codemode` / `tool_search`，见 {@link EXPOSURE_ENTRY_TOOL}）去重后殿后。
+ * 未连上 / 已停用 / 需登录的服务器不输出（与 {@link mcpToolNamesOf} 口径一致）；
+ * `hidden` 的模式多列无害（pi 匹配到也不 declare），保持输出以简化口径。
+ */
+export function mcpServerPatternsOf(reports: McpServerReport[]): string[] {
+  const patterns: string[] = [];
+  const entryTools: string[] = [];
+  for (const report of reports) {
+    if (report.state !== "connected") continue;
+    const pattern = `mcp__${sanitizeServerName(report.name)}__*`;
+    if (!patterns.includes(pattern)) patterns.push(pattern);
+    const entry = EXPOSURE_ENTRY_TOOL[report.exposure];
+    if (entry !== undefined && !entryTools.includes(entry)) entryTools.push(entry);
+  }
+  return [...patterns, ...entryTools];
+}
+
+/** server 名的 sanitize：与 pi 注册名一致（非 `[A-Za-z0-9_]` 一律替换为 `_`） */
+function sanitizeServerName(server: string): string {
+  return server.replace(/[^A-Za-z0-9_]/g, "_");
+}
+
+/**
+ * 枚举 pi 内置 MCP 扩展会注册出的工具名（**UI 工具清单用**，展示真实注册名；
+ * 受限 agent 白名单用 {@link mcpServerPatternsOf} 的通配模式，不用本函数）。
  *
  * 输出**所有已连服务器**的工具名，不按 exposure 过滤：pi 对一切已连服务器的工具都先
  * `assignName` 注册（exposure 只决定注册后怎么被模型看见），而 `--tools` 白名单决定

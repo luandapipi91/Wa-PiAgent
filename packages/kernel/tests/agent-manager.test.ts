@@ -1803,7 +1803,7 @@ test("listGlobalTools 含 mcp-admin 枚举出的全部 MCP 工具名与入口工
 	expect(names).not.toContain("mcp");
 });
 
-test("受限 agent 的 --tools 白名单并入枚举出的 MCP 工具名与入口工具（F4/F7）", async () => {
+test("受限 agent 的 --tools 白名单并入 MCP 服务器通配模式与入口工具（F4/F7，pi 1.0.4）", async () => {
 	const configStore = {
 		getAgent: mock(async () => ({ displayName: "dev", tools: ["read"] })),
 	} as any;
@@ -1815,16 +1815,17 @@ test("受限 agent 的 --tools 白名单并入枚举出的 MCP 工具名与入�
 
 	const args = fakes[0].opts.args ?? [];
 	const tools = argValues(args, "--tools").flatMap((v) => v.split(","));
-	// 基础白名单 + 枚举出的 MCP 工具名都在
+	// 基础白名单 + 服务器粒度通配模式都在（模式前缀覆盖退化名，不受枚举竞态影响）
 	expect(tools).toContain("read");
-	expect(tools).toContain("mcp__dbx__query");
-	expect(tools).toContain("mcp__dbx__list");
-	// pi 缺省曝光 codemode（未写 exposure 的 server）与 deferred 的工具：名字与各自的入口工具
-	// 都必须在白名单里——pi 对未列名的工具完全不注册，缺一个就是静默不可用（规格 §6）
-	expect(tools).toContain("mcp__ologs__get_profile");
+	expect(tools).toContain("mcp__dbx__*");
+	// pi 缺省曝光 codemode（未写 exposure 的 server）与 deferred 的服务器：模式与各自的入口工具
+	// 都必须在白名单里——缺入口就是静默不可用（规格 §6）
+	expect(tools).toContain("mcp__ologs__*");
 	expect(tools).toContain("codemode");
-	expect(tools).toContain("mcp__docs__search");
+	expect(tools).toContain("mcp__docs__*");
 	expect(tools).toContain("tool_search");
+	// 白名单用模式而非逐工具精确名（pi 1.0.4 的 --tools 按 mcp__ 条目过滤）
+	expect(tools).not.toContain("mcp__dbx__query");
 	// 不再放行 adapter 时代的聚合名
 	expect(tools).not.toContain("mcp");
 });
@@ -1942,9 +1943,9 @@ test("项目作用域（F11/F12）：受限 agent 用会话/项目 cwd 枚举，
 	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
 		v.split(","),
 	);
-	expect(tools).toContain("mcp__proj__proj_tool");
+	expect(tools).toContain("mcp__proj__*");
 	// 不是拿全局作用域那份枚举凑数
-	expect(tools).not.toContain("mcp__global__global_tool");
+	expect(tools).not.toContain("mcp__global__*");
 });
 
 test("枚举作用域（F11）：cwd 无 .pi/mcp.json 时复用全局实例，不再为每个会话 cwd 各建一个 McpAdmin", async () => {
@@ -1975,7 +1976,7 @@ test("枚举作用域（F11）：cwd 无 .pi/mcp.json 时复用全局实例，�
 	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
 		v.split(","),
 	);
-	expect(tools).toContain("mcp__dbx__query");
+	expect(tools).toContain("mcp__dbx__*");
 });
 
 // ─── MCP 缓存失效（任务 8 裁决 2：含全局那份与所有按 cwd 的实例）─────────────

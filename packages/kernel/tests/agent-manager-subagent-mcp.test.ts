@@ -170,7 +170,7 @@ async function delegateTo(sessionId: string, agent: string) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test("内置只读子代理（Explore）：白名单并入枚举出的 mcp__srv__tool 与非 direct 入口工具，不含旧的 mcp 聚合名，-e 不含 pi-mcp-adapter", async () => {
+test("内置只读子代理（Explore）：白名单并入服务器粒度通配模式与非 direct 入口工具，不含旧的 mcp 聚合名，-e 不含 pi-mcp-adapter", async () => {
   const session = await setupManager({
     getAgent: mock(async () => ({
       displayName: "dev",
@@ -183,23 +183,26 @@ test("内置只读子代理（Explore）：白名单并入枚举出的 mcp__srv_
   expect(capturedConfigs.length).toBeGreaterThan(0);
   const explore = capturedConfigs.find((c: any) => c.name === "Explore");
   expect(explore).toBeDefined();
-  // 5 个只读基础工具 ∪ 枚举出的全部 MCP 工具名 ∪ 非 direct 工具的入口工具
+  // 5 个只读基础工具 ∪ 服务器粒度通配模式（pi 1.0.4 语义）∪ 非 direct 工具的入口工具。
+  // 模式前缀恒定，天然覆盖 hash 退化名，也不再受枚举竞态（工具清单未就绪）影响。
   for (const t of [
     "read",
     "bash",
     "grep",
     "find",
     "ls",
-    "mcp__dbx__query",
-    "mcp__dbx__list",
-    // pi 缺省曝光（codemode）的工具：名字与入口都得在，否则子代理静默失去它（规格 §6）
-    "mcp__ologs__get_profile",
+    "mcp__dbx__*",
+    // pi 缺省曝光（codemode）的服务器：模式与入口都得在，否则子代理静默失去它（规格 §6）
+    "mcp__ologs__*",
     "codemode",
-    "mcp__docs__search_docs",
+    "mcp__docs__*",
     "tool_search",
   ]) {
     expect(explore.tools).toContain(t);
   }
+  // 白名单用模式而非逐工具精确名（pi 1.0.4 的 --tools 按 mcp__ 条目过滤，通配覆盖退化名）
+  expect(explore.tools).not.toContain("mcp__dbx__query");
+  expect(explore.tools).not.toContain("mcp__dbx__list");
   // 旧聚合名已随 adapter 退场：不再放行
   expect(explore.tools).not.toContain("mcp");
   // 未连上的服务器：工具名不进白名单
@@ -279,7 +282,7 @@ test("内置只读子代理（Explore）：按会话/项目 cwd 枚举，受信�
   expect(seenCwds).toContain(projectCwd);
   const explore = capturedConfigs.find((c: any) => c.name === "Explore");
   expect(explore).toBeDefined();
-  expect(explore.tools).toContain("mcp__proj__proj_tool");
+  expect(explore.tools).toContain("mcp__proj__*");
 });
 
 test("内置非只读子代理（general-purpose）：tools 保持空数组（不传 --tools 全量放行），-e 不含 pi-mcp-adapter", async () => {

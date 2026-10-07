@@ -95,7 +95,7 @@ import { projectSkillsDirOf } from "./skill-sources";
 import type { ExtensionManager } from "./extension-manager";
 import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "./mcp-admin";
 import { hasProjectMcpFile } from "./mcp-file";
-import { mcpToolNamesOf } from "./mcp-tool-names";
+import { mcpServerPatternsOf, mcpToolNamesOf } from "./mcp-tool-names";
 import {
 	registerBridgeSession,
 	unregisterBridgeSession,
@@ -612,7 +612,7 @@ export class AgentManager {
 	}
 
 	/**
-	 * 枚举 pi 内置 MCP 注册出的工具名（受限 agent 白名单与 listGlobalTools 用）。
+	 * 枚举 pi 内置 MCP 注册出的工具名（listGlobalTools 的 UI 清单用，展示真实注册名）。
 	 *
 	 * `cwd` 是枚举作用域：`pi mcp list` 在自己的工作目录里找 `<cwd>/.pi/mcp.json`，
 	 * 用会话/项目 cwd 才能带上受信项目的服务器（F11/F12）；不传则用全局作用域。
@@ -621,6 +621,10 @@ export class AgentManager {
 	 * **所有已连服务器**的工具名，并为非 direct 曝光一并放行入口工具（`codemode` /
 	 * `tool_search`，规格 §6）——否则 codemode（pi 的缺省曝光）配置下这些工具谁都调不到。
 	 * 连不上/需登录的服务器工具名未知，不输出。
+	 *
+	 * **白名单组装不用本方法**：pi 1.0.4 起 `--tools` 支持 `mcp__<server>__*` 通配
+	 * （POC 实测），受限 agent 的白名单改用 {@link getMcpToolPatterns} 的服务器粒度模式，
+	 * 不受枚举竞态影响。本方法仅供 UI 展示（勾选清单需要真实注册名）。
 	 *
 	 * McpAdmin 自带缓存，故本方法不额外缓存；F10 的失效由 {@link _scheduleMcpToolRefresh} 负责。
 	 */
@@ -632,6 +636,27 @@ export class AgentManager {
 			// 枚举失败（pi 跑不起来 / spawn 异常）不得阻断会话启动：退回空清单，
 			// 与迁移前 "MCP 全连不上不阻断会话" 的既有策略一致（规格 §8）。
 			console.error("[kernel] MCP 工具名枚举失败，跳过:", err);
+			return [];
+		}
+	}
+
+	/**
+	 * 受限 agent 白名单用的 MCP 放行集：服务器粒度通配模式 + 非 direct 入口工具。
+	 *
+	 * pi 1.0.4 起 `--tools` 含任何 `mcp__` 前缀条目即进入 MCP 硬过滤，条目支持 `*`
+	 * 通配（POC 实测：`mcp__poc_mcp_server__*` 放行整台服务器，含 hash 退化名；
+	 * 未 sanitize 的 `mcp__poc-mcp-server__*` 静默不匹配）。与逐工具精确名相比，
+	 * 模式不受「枚举竞态时工具清单未就绪」影响（服务器连上后注册什么就放行什么）。
+	 *
+	 * `cwd` 语义与 {@link getMcpToolNames} 相同（受信项目的服务器也要能放行，F11/F12）；
+	 * 枚举失败同样退空数组不阻断会话启动。
+	 */
+	private async getMcpToolPatterns(cwd: string = WA_PI_DIR): Promise<string[]> {
+		try {
+			const { servers } = await this._mcpAdminFor(cwd).list();
+			return mcpServerPatternsOf(servers);
+		} catch (err) {
+			console.error("[kernel] MCP 通配模式枚举失败，跳过:", err);
 			return [];
 		}
 	}
@@ -886,14 +911,15 @@ export class AgentManager {
 							override?.thinking ??
 							this.sessions.get(sessionId)?.currentThinking ??
 							null,
-						// 内置只读类型白名单并入 MCP 工具名：子代理是独立 pi 进程，MCP 工具由
+						// 内置只读类型白名单并入 MCP 服务器通配模式：子代理是独立 pi 进程，MCP 工具由
 						// 子进程内的 pi 内置扩展（builtin:mcp，默认加载）自行注册，注册出的
 						// 名字恒为 mcp__<server>__<tool>（规格 F4）；白名单不放行则加载了也看不见。
-						// 与主会话 restricted 路径（resolveAgentTools 合并同一枚举结果）镜像。
+						// pi 1.0.4 起 --tools 支持 mcp__<server>__* 通配（模式前缀覆盖退化名，
+						// POC 实测），与主会话 restricted 路径镜像。
 						tools: builtin.readOnly
 							? resolveAgentTools(
 									["read", "bash", "grep", "find", "ls"],
-									await this.getMcpToolNames(cwd),
+									await this.getMcpToolPatterns(cwd),
 								)
 							: [],
 						skills: [],
@@ -1263,7 +1289,10 @@ export class AgentManager {
 						// 受限 agent 白名单无条件并入 im_push_to：工具始终注册（bridge 扩展），
 						// 不并入会被白名单挡掉（主聊天 @im-push-to 标记会话同样需要推送能力）
 						"im_push_to",
-						...resolveAgentTools(config!.tools!, await this.getMcpToolNames(cwd)),
+						...resolveAgentTools(
+							config!.tools!,
+							await this.getMcpToolPatterns(cwd),
+						),
 					],
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
