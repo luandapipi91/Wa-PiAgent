@@ -4,6 +4,7 @@ import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
 import { Linkify } from "./linkify";
+import { McpResultView } from "./McpResultView";
 import { useTranslation } from "../../i18n/useTranslation";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { Icon } from "../ui/Icon";
@@ -334,13 +335,19 @@ export function ToolCallCard({
 				<div
 					className={`mt-1 pt-1 border-t border-hairline ${failed ? "text-danger" : "text-success"}`}
 				>
-					{result.content.map(
-						(c: any, i: number) =>
-							c?.type === "text" && (
-								<div key={i}>
-									<Linkify text={c.text} />
-								</div>
-							),
+					{toolCall.name.startsWith("mcp__") ? (
+						// MCP 结果（多为大 JSON）：结构化渲染（截断横幅 / 语法高亮 / 限高 / 复制），
+						// 不走裸 Linkify 平铺。失败态的 danger 色由 McpResultView 自身承载。
+						<McpResultView result={result} failed={failed} />
+					) : (
+						result.content.map(
+							(c: any, i: number) =>
+								c?.type === "text" && (
+									<div key={i}>
+										<Linkify text={c.text} />
+									</div>
+								),
+						)
 					)}
 				</div>
 			)}
