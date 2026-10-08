@@ -343,6 +343,10 @@ const en = {
 		},
 		toolCall: {
 			editNumber: "Edit {{index}}",
+			codemode: {
+				script: "Script ({{lines}} lines)",
+				console: "Console output",
+			},
 			contentChange: "Content change",
 			oldText: "Old",
 			newText: "New",

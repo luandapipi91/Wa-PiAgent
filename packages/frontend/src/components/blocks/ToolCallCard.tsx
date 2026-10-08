@@ -5,6 +5,7 @@ import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
 import { Linkify } from "./linkify";
 import { McpResultView } from "./McpResultView";
+import { CodemodeScriptView, CodemodeResultView } from "./CodemodeView";
 import { useTranslation } from "../../i18n/useTranslation";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { Icon } from "../ui/Icon";
@@ -251,6 +252,20 @@ function toolCallTitle(toolCall: ToolCall, askLabel: string): ReactNode {
 			</span>
 		);
 	}
+	if (toolCall.name === "codemode") {
+		const code =
+			typeof toolCall.arguments.code === "string"
+				? toolCall.arguments.code
+				: "";
+		return (
+			<span className="font-mono">
+				codemode{" "}
+				<span className="text-tertiary">
+					({code === "" ? 0 : code.split("\n").length}L)
+				</span>
+			</span>
+		);
+	}
 	return (
 		<span className="font-mono">
 			{name}{" "}
@@ -326,7 +341,15 @@ export function ToolCallCard({
 			muted={!!result}
 			testId={`toolcall-${toolCall.id}`}
 		>
-			{toolCall.name === "edit" ? (
+			{toolCall.name === "codemode" ? (
+				<CodemodeScriptView
+					code={
+						typeof toolCall.arguments.code === "string"
+							? toolCall.arguments.code
+							: ""
+						}
+				/>
+			) : toolCall.name === "edit" ? (
 				<EditArgsView args={toolCall.arguments} />
 			) : (
 				<PrettyArgsView args={toolCall.arguments} />
@@ -339,6 +362,9 @@ export function ToolCallCard({
 						// MCP 结果（多为大 JSON）：结构化渲染（截断横幅 / 语法高亮 / 限高 / 复制），
 						// 不走裸 Linkify 平铺。失败态的 danger 色由 McpResultView 自身承载。
 						<McpResultView result={result} failed={failed} />
+					) : toolCall.name === "codemode" ? (
+						// codemode：脚本输出协议解析（==> text N/M <== 分隔 / console 块 / 图片）
+						<CodemodeResultView result={result} failed={failed} />
 					) : (
 						result.content.map(
 							(c: any, i: number) =>

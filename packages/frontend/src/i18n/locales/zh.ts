@@ -331,6 +331,10 @@ const zh = {
 		},
 		toolCall: {
 			editNumber: "编辑 {{index}}",
+			codemode: {
+				script: "脚本（{{lines}} 行）",
+				console: "控制台输出",
+			},
 			contentChange: "内容变更",
 			oldText: "旧",
 			newText: "新",
