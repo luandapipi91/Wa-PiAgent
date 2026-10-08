@@ -140,6 +140,8 @@ async function loadBridgeTools(env?: Record<string, string>) {
 		// bridge 扩展注册的内部命令（__!wa_pi_reload 热重载）——测试桩不收集命令
 		registerCommand: () => {},
 		on: () => {},
+		getAllTools: () => [],
+		getToolDefinition: () => undefined,
 	});
 	return tools;
 }

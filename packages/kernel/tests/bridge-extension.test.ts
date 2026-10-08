@@ -59,8 +59,60 @@ async function loadTools(transform?: (src: string) => string): Promise<any[]> {
 		registerTool: (def: any) => tools.push(def),
 		registerCommand: () => {},
 		on: () => {},
+		getAllTools: () => [],
+		getToolDefinition: () => undefined,
 	});
 	return tools;
+}
+
+/** 完整形态：预置 getAllTools 样例，收集豁免重注册与 session_start handler。
+ *  返回的 tools 是全部 registerTool 调用（bridge 自身 14 工具 + 豁免重注册混在一起，
+ *  用名字区分）。 */
+async function loadExtensionWithPi(
+	allTools: { name: string; exposure: string; def: any }[],
+): Promise<{
+	tools: any[];
+	sessionStartHandlers: (() => void)[];
+}> {
+	const file = join(
+		import.meta.dir,
+		`.tmp-bridge-ext-${Math.random().toString(36).slice(2)}.ts`,
+	);
+	const schemasFile = join(import.meta.dir, "tool-schemas.ts");
+	copyFileSync(
+		join(import.meta.dir, "..", "..", "shared", "src", "tool-schemas.ts"),
+		schemasFile,
+	);
+	tmpFiles.push(schemasFile);
+	const snapshotFile = join(import.meta.dir, "file-snapshot.ts");
+	copyFileSync(
+		join(import.meta.dir, "..", "src", "file-snapshot.ts"),
+		snapshotFile,
+	);
+	tmpFiles.push(snapshotFile);
+	writeFileSync(file, generateBridgeExtension(), "utf8");
+	tmpFiles.push(file);
+	const mod = await import(pathToFileURL(file).href);
+	const tools: any[] = [];
+	const sessionStartHandlers: (() => void)[] = [];
+	const defs = new Map(allTools.map((t) => [t.name, t.def]));
+	mod.default({
+		registerTool: (def: any) => {
+			defs.set(def.name, def); // 引擎语义：同名注册覆盖 definition
+			tools.push(def);
+		},
+		registerCommand: () => {},
+		on: (event: string, handler: () => void) => {
+			if (event === "session_start") sessionStartHandlers.push(handler);
+		},
+		getAllTools: () =>
+			allTools.map((t) => ({
+				name: t.name,
+				exposure: defs.get(t.name)?.exposure ?? t.exposure,
+			})),
+		getToolDefinition: (name: string) => defs.get(name),
+	});
+	return { tools, sessionStartHandlers };
 }
 
 /** 构造一个 NDJSON ReadableStream。 */
@@ -397,12 +449,14 @@ test("session_start 不再注册 custom() 兜底补丁（内置命令已由 pi �
 		on: (event: string, handler: (...args: any[]) => any) => {
 			(handlers[event] ??= []).push(handler);
 		},
+		getAllTools: () => [],
+		getToolDefinition: () => undefined,
 	});
 
-	// session_start 兜底钩子（notify + 同步 throw，针对 pi-mcp-adapter 的 /mcp）已整段移除：
-	// 内置 /mcp 在 RPC 下只发 notify 不走 custom()；走 custom() 的面板由
-	// wa-pi-tui-host 的 patchUiForTuiHost 接管（见 tui-host-patch.test.ts）。
-	expect(handlers["session_start"]).toBeUndefined();
+	// session_start 钩子现状：旧版 pi-mcp-adapter 的 custom() 兜底补丁已整段移除
+	// （内置 /mcp 在 RPC 下只发 notify；custom() 面板由 wa-pi-tui-host 接管，
+	// 见 tui-host-patch.test.ts）；现在注册的是 Codemode only 档的全局豁免兜底
+	// （晚加载的 packages 工具在会话启动时补 model-only），由豁免用例组锁定。
 
 	// 其余事件钩子不受删除影响（文件快照采集链路）
 	expect(handlers["tool_call"]?.length).toBe(1);
@@ -899,5 +953,46 @@ describe("bridge 工具 exposure", () => {
 		expect(names.has("list_contacts")).toBe(true);
 		const ask = tools.find((t) => t.name === "ask_user_question");
 		expect(ask.exposure).toBe("model-only");
+	});
+});
+
+// —— Codemode only 档全局豁免：除内置系统级工具外默认豁免 ——
+
+describe("only 档全局豁免", () => {
+	const fakeExecute = async () => "ok";
+
+	test("session_start：direct 第三方工具重注册 model-only（定义原样保留）；内置/MCP/已豁免跳过", async () => {
+		const { tools, sessionStartHandlers } = await loadExtensionWithPi([
+			{ name: "web_search", exposure: "direct", def: { name: "web_search", exposure: "direct", execute: fakeExecute, parameters: { type: "object" } } },
+			{ name: "read", exposure: "direct", def: { name: "read", exposure: "direct", execute: fakeExecute, parameters: { type: "object" } } },
+			{ name: "mcp__srv__x", exposure: "codemode", def: { name: "mcp__srv__x", exposure: "codemode", execute: fakeExecute, parameters: { type: "object" } } },
+			{ name: "ask_user_question", exposure: "model-only", def: { name: "ask_user_question", exposure: "model-only", execute: fakeExecute, parameters: { type: "object" } } },
+		]);
+		// 豁免在 session_start（运行期）触发——加载期 runtime 未初始化不可调 action
+		expect(sessionStartHandlers.length).toBeGreaterThan(0);
+		for (const handler of sessionStartHandlers) handler();
+		const byName = new Map(tools.map((t) => [t.name, t]));
+		// web_search：重注册为 model-only，execute 原样保留
+		const ws = byName.get("web_search");
+		expect(ws).toBeTruthy();
+		expect(ws.exposure).toBe("model-only");
+		expect(ws.execute).toBe(fakeExecute);
+		// read（内置系统级）/ mcp__（MCP 曝光归 mcp.json）不重注册
+		expect(byName.has("read")).toBe(false);
+		expect(byName.has("mcp__srv__x")).toBe(false);
+		// ask_user_question 只注册一次（已豁免不重复）
+		expect(tools.filter((t) => t.name === "ask_user_question").length).toBe(1);
+	});
+
+	test("session_start 兜底：晚注册的 direct 工具在会话启动时补豁免", async () => {
+		const { tools, sessionStartHandlers } = await loadExtensionWithPi([
+			{ name: "web_search", exposure: "direct", def: { name: "web_search", exposure: "direct", execute: fakeExecute, parameters: { type: "object" } } },
+		]);
+		// 豁免在 session_start（运行期）触发——加载期不遍历（runtime action 禁用）
+		expect(tools.filter((t) => t.name === "web_search")).toHaveLength(0);
+		expect(sessionStartHandlers.length).toBeGreaterThan(0);
+		for (const handler of sessionStartHandlers) handler();
+		// 补豁免且幂等：已 model-only 的不重复注册
+		expect(tools.filter((t) => t.name === "web_search")).toHaveLength(1);
 	});
 });
