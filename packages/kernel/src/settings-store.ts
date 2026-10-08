@@ -24,6 +24,7 @@ import type {
 	TrashSettings,
 	ProxySettings,
 	KernelLanguage,
+	CodemodeLevel,
 } from "@wa-pi/shared";
 
 /** 与 pi settings-manager 的默认值对齐（未配置时的回退） */
@@ -51,6 +52,9 @@ interface SettingsJson {
 	trash?: Partial<TrashSettings>;
 	share?: Partial<ShareSettings>;
 	language?: KernelLanguage;
+	codemodeLevel?: CodemodeLevel;
+	// pi 引擎键：codemode 扩展启动时自读（mode: "only" = 其他工具不再直接声明）
+	codemode?: { mode?: "on" | "only"; inlineBudget?: number };
 	httpIdleTimeoutMs?: number;
 	useSystemProxy?: boolean;
 	httpProxy?: string;
@@ -254,6 +258,51 @@ export async function saveLanguage(
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
 	return language;
+}
+
+// ===== Codemode 三档（系统设置 > 通用）=====
+/** 档位白名单：off=关闭 / compat=兼容（默认）/ full=完全（只走脚本） */
+export const CODEMODE_LEVELS = ["off", "compat", "full"] as const;
+
+/**
+ * 读取 codemode 档位（settings.json.codemodeLevel）。
+ * 未配置或磁盘脏值回落默认档 compat（兼容：codemode 可用，其他工具照常直接调用）。
+ */
+export async function loadCodemodeLevel(
+	file: string = SETTINGS_FILE,
+): Promise<CodemodeLevel> {
+	const raw = await readSettingsJson(file);
+	return (CODEMODE_LEVELS as readonly string[]).includes(
+		raw.codemodeLevel as string,
+	)
+		? (raw.codemodeLevel as CodemodeLevel)
+		: "compat";
+}
+
+/**
+ * 保存 codemode 档位（read-modify-write，保留其他字段），并联动 pi 引擎键：
+ * full → 写 codemode: { mode: "only" }（pi codemode 扩展启动时自读，dist/extensions/codemode/index.js）；
+ * compat/off → 删除 codemode 键（"on" 为引擎默认；off 时 codemode 工具不启用，键无意义）。
+ * @throws Error 白名单外档位（message 直接回给前端）
+ */
+export async function saveCodemodeLevel(
+	level: CodemodeLevel,
+	file: string = SETTINGS_FILE,
+): Promise<CodemodeLevel> {
+	if (!(CODEMODE_LEVELS as readonly string[]).includes(level)) {
+		throw new Error(
+			`非法 codemode 档位 "${String(level)}"（可选：${CODEMODE_LEVELS.join(" / ")}）`,
+		);
+	}
+	const settings = await readSettingsJson(file);
+	settings.codemodeLevel = level;
+	if (level === "full") {
+		settings.codemode = { ...settings.codemode, mode: "only" };
+	} else {
+		delete settings.codemode;
+	}
+	await writeSettingsJson(file, settings);
+	return level;
 }
 
 /** 系统代理默认值（未配置时：关闭 + 空代理 = 直连） */
