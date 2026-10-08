@@ -1391,6 +1391,13 @@ export type SDKEvent =
 			followUp: readonly string[];
 	  }
 	| {
+			// kernel 合成（任务 2/5）：消息已落 pending WAL 等进程就绪重投时广播，
+			// 前端队列面板渲染「待投递」三态（texts 为待投递条目文本）
+			type: "pending_update";
+			count: number;
+			texts: readonly string[];
+	  }
+	| {
 			type: "compaction_start";
 			reason: "manual" | "threshold" | "overflow";
 	  }

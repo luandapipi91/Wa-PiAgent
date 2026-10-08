@@ -104,6 +104,7 @@ const en = {
 		configReloaded: "Config reloaded",
 		reloadFailed: "Reload failed: {{error}}",
 		projectNotFound: "Current project not found",
+		sessionNotFound: "Session not found in list (unknown project); send blocked",
 		chooseModelFirst: "Please select a model first",
 		imSourceSingle: 'via "{{channel}}"',
 		imSourceGroup: 'via "{{channel}}" · group {{chatId}} · {{from}}',
@@ -183,6 +184,7 @@ const en = {
 		stopping: "Stopping…",
 		clear: "Clear",
 		steeringTitle: "Steering",
+		pendingTitle: "Pending (auto-send when ready)",
 		steeringBtn: "Steer",
 		immediateBtn: "Now",
 		queueCount: "{{count}} queued",
@@ -637,6 +639,7 @@ const en = {
 	},
 	newSession: {
 		title: "Start a new session",
+		ownershipTag: "Will belong to project: {{project}}",
 		subtitle: "Pick a project directory and a role, then type to send",
 		noProjectOption: "(no project, create one first)",
 		placeholder: "Message {{agent}}...",

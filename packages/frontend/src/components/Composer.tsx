@@ -7,6 +7,7 @@ import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { useCommandsStore } from "../store/commands";
 import { useSessionStore } from "../store/session";
+import { useToastStore } from "../store/toast";
 import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 import { useTranslation } from "../i18n/useTranslation";
@@ -122,6 +123,13 @@ export function Composer({
   const providers = useProvidersStore((s) => s.providers);
 
   const doSend = (targetAgent: AgentName, expandedText: string) => {
+    // 归属硬校验（任务组二 B2）：会话不在列表 = 归属未知（切换竞态/快照滞后），
+    // 禁止回落全局项目发送——pid 带错会让 kernel 按错误项目建会话/定位进程
+    //（「会话 2 操作会话 1 工作目录」的前端根因之一）。宁可不发，不可发错。
+    if (!session) {
+      useToastStore.getState().add(t("app.sessionNotFound"), "error");
+      return;
+    }
     sendingRef.current = true;
     // 已注册扩展命令（如 /uidemo、内置插件的 /goal）：pi 拦截直接执行 handler、不产生
     // user 回声，跳过乐观插入——否则聊天窗会多出一条并不存在的用户消息
@@ -259,7 +267,26 @@ export function Composer({
         text: expandedText,
         attachments: attachments.length > 0 ? attachments : undefined,
       })
-      .catch((err) => console.error("[composer] 引导发送失败:", err));
+      .catch((err) => {
+        console.error("[composer] 引导发送失败:", err);
+        // 回滚乐观入队的引导条目（2026-10-08 任务 2：失败必须回执）：kernel 未收到，
+        // 条目留在面板会永远悬着误导用户「引导已发出」
+        useSessionStore.setState((s) => {
+          const cur = s.queueBySession[sessionId];
+          if (!cur) return {};
+          return {
+            queueBySession: {
+              ...s.queueBySession,
+              [sessionId]: {
+                steering: (cur.steering ?? []).filter((t) => t !== expandedText),
+                followUp: cur.followUp ?? [],
+              },
+            },
+          };
+        });
+        // 失败回执：提示区可见，用户可重新发送（复用 toast 既有通道）
+        useToastStore.getState().add(t("composerExtra.steerFailed"), "error");
+      });
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;

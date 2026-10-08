@@ -518,13 +518,15 @@ export function App() {
 				useToastStore.getState().add(t("app.noOpenSession"), "error");
 				return;
 			}
-			const { sessions, currentProjectId } = useProjectsStore.getState();
+			const { sessions } = useProjectsStore.getState();
 			const session = sessions.find((s) => s.id === sid);
-			const pid = session?.projectId ?? currentProjectId ?? "";
-			if (!pid) {
-				useToastStore.getState().add(t("app.projectNotFound"), "error");
+			// 归属硬校验（任务组二 B2）：会话不在列表 = 归属未知，禁止回落全局项目
+			// 发送（pid 带错 = 会话 2 操作会话 1 目录的前端根因之一）。宁可不发，不可发错。
+			if (!session || !session.projectId) {
+				useToastStore.getState().add(t("app.sessionNotFound"), "error");
 				return;
 			}
+			const pid = session.projectId;
 			const prefs = useComposerPrefsStore.getState().bySession[sid] ?? {
 				model: useComposerPrefsStore.getState().defaults.model,
 				thinking: useComposerPrefsStore.getState().defaults.thinking,

@@ -403,6 +403,18 @@ export function NewSessionPane({
 						onPick={(name) => setAgentName(name)}
 					/>
 				</div>
+				{/* 归属显式化（任务组二 B1）：发送前归属项目常驻可见，实时跟随下拉——
+				 默认值静默跟随全局是「会话 2 归错项目」的头号根因，归属错了要看得见 */}
+				<div
+					className="w-full max-w-2xl mb-4 text-[calc(12px*var(--font-scale))] text-tertiary"
+					data-testid="new-session-project-tag"
+				>
+					{t("newSession.ownershipTag", {
+						project:
+							projects.find((p) => p.id === projectId)?.name ??
+							t("newSession.noProjectOption"),
+					})}
+				</div>
 				<ComposerInput
 					text={text}
 					setText={handleTextChange}

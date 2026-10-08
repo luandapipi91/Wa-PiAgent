@@ -98,6 +98,7 @@ const zh = {
 		configReloaded: "配置已重载",
 		reloadFailed: "重载失败: {{error}}",
 		projectNotFound: "找不到当前项目",
+		sessionNotFound: "会话不在列表中（归属未知），已停止发送",
 		chooseModelFirst: "请先选择模型",
 		imSourceSingle: "经「{{channel}}」接入",
 		imSourceGroup: "经「{{channel}}」接入 · 群{{chatId}} · {{from}}",
@@ -175,6 +176,7 @@ const zh = {
 		stopping: "停止中…",
 		clear: "清空",
 		steeringTitle: "引导中",
+		pendingTitle: "待投递（就绪后自动发送）",
 		steeringBtn: "引导",
 		immediateBtn: "立即",
 		queueCount: "排队 {{count}} 条",
@@ -613,6 +615,7 @@ const zh = {
 	},
 	newSession: {
 		title: "开始新会话",
+		ownershipTag: "将归属项目：{{project}}",
 		subtitle: "选好项目目录和角色，直接打字发送",
 		noProjectOption: "（无项目，请先新建）",
 		placeholder: "给{{agent}}发消息...",

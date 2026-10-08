@@ -56,6 +56,9 @@ interface SessionState {
 		string,
 		{ steering: readonly string[]; followUp: readonly string[] }
 	>;
+	// 待投递消息（来自 kernel pending_update）：已落 WAL 等进程就绪重投，尚未进内存队列。
+	// 对账：queue_update 含该文本（已入队）或 message_end 用户消息落盘（已投出）时移除。
+	pendingBySession: Record<string, readonly string[]>;
 	// 会话级 token 累计：按 sessionId 存储全量累计（含缓存读取/写入）。
 	// 语义=整个会话累计消耗的 token（含压缩前历史），与 pi get_session_stats.tokens 同口径；
 	// total = input + output + cacheRead + cacheWrite。
@@ -370,6 +373,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		thinkingSinceBySession: {},
 		optimisticEchoBySession: {},
 		historyLoadingBySession: {},
+		pendingBySession: {},
 		pendingPromptAtBySession: {},
 		promptErrorBySession: {},
 		unreadBySession: {},
@@ -658,6 +662,7 @@ export const useSessionStore = create<SessionState>((set) => {
 					pendingPromptAtBySession: prune(s.pendingPromptAtBySession),
 					promptErrorBySession: prune(s.promptErrorBySession),
 					queueBySession: prune(s.queueBySession),
+					pendingBySession: prune(s.pendingBySession),
 					tokenTotals: prune(s.tokenTotals),
 					lastUsageBySession: prune(s.lastUsageBySession),
 					contextUsageBySession: prune(s.contextUsageBySession),
@@ -693,6 +698,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				extWidgetBySession: {},
 				extTitleBySession: {},
 				queueBySession: {},
+				pendingBySession: {},
 				tokenTotals: {},
 				lastUsageBySession: {},
 				contextUsageBySession: {},
@@ -1079,6 +1085,31 @@ export const useSessionStore = create<SessionState>((set) => {
 				// 流式结束：assistant — 合并到同 turn 的最后一条 assistant 消息
 				// toolResult — 单独成消息，渲染层 preprocess 会按 toolCallId 挂到前一个 assistant
 				case "message_end": {
+					// 待投递对账（任务 5）：用户消息已真正落盘投出 → 移除对应待投递条目
+					const userMsg = (event.message as any)?.role === "user" ? event.message : null;
+					if (userMsg) {
+						const umText = Array.isArray(userMsg.content)
+							? ((userMsg.content.find((b: any) => b?.type === "text") as any)?.text ?? "")
+							: String(userMsg.content ?? "");
+						if (umText.trim()) {
+							set((s) => {
+								const pend = s.pendingBySession[sessionId];
+								if (!pend || pend.length === 0) return {};
+								const next = pend.filter(
+									(t) =>
+										t.trim() !== umText.trim() &&
+										!umText.trim().startsWith(t.trim()),
+								);
+								if (next.length === pend.length) return {};
+								return {
+									pendingBySession: {
+										...s.pendingBySession,
+										[sessionId]: next,
+									},
+								};
+							});
+						}
+					}
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 在定稿后复活
 					streamingBatcher.drop(sessionId);
 					// 收到回复/工具结果视为活跃：刷新该会话 lastActivity
@@ -1390,13 +1421,38 @@ export const useSessionStore = create<SessionState>((set) => {
 					break;
 				// 队列更新：steering / followUp 消息列表
 				case "queue_update":
-					set((s) => ({
-						queueBySession: {
-							...s.queueBySession,
-							[sessionId]: {
-								steering: event.steering,
-								followUp: event.followUp,
+					set((s) => {
+						// 待投递对账（任务 5）：已进内存队列的文本不再是「待投递」
+						const pend = s.pendingBySession[sessionId];
+						const nextPend =
+							pend && pend.length > 0
+								? pend.filter(
+										(t) =>
+											!event.steering.includes(t) &&
+											!event.followUp.includes(t),
+									  )
+								: pend;
+						return {
+							queueBySession: {
+								...s.queueBySession,
+								[sessionId]: {
+									steering: event.steering,
+									followUp: event.followUp,
+								},
 							},
+							pendingBySession: {
+								...s.pendingBySession,
+								[sessionId]: nextPend,
+							},
+						};
+					});
+					break;
+				// 待投递回执（kernel pending_update，任务 5）：已落 WAL 等进程就绪重投
+				case "pending_update":
+					set((s) => ({
+						pendingBySession: {
+							...s.pendingBySession,
+							[sessionId]: event.texts ?? [],
 						},
 					}));
 					break;

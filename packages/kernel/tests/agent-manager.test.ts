@@ -29,6 +29,7 @@ import type { McpServerReport } from "../src/mcp-admin";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { extUiRegistry } from "../src/ext-ui-registry";
+import { listAll as listPending, pendingFile } from "../src/pending-messages";
 import { SkillManager } from "../src/skill-manager";
 import { MemoryDao } from "../src/memory/dao";
 import { openMemoryDb } from "../src/memory/db";
@@ -186,6 +187,8 @@ async function setup(opts: SetupOpts = {}) {
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
+	// 本文件的 prompt/steer 用例现在会写 pending WAL，一并纳入 afterEach 清理
+	tmpPaths.push(pendingFile(session.id));
 	return { projectStore, project, session, am, fakes };
 }
 
@@ -674,14 +677,18 @@ test("prompt — compact 失败 → 只合成 agent_end（退出思考态），�
 	expect(fakes[0].prompted).toEqual([]);
 });
 
-test("prompt — 未启动的会话抛错", async () => {
+test("prompt — 未启动的会话入 pending WAL（不抛错不丢消息）", async () => {
 	const { am } = await setup();
+	// 2026-10-08 P0 修复：handle 不存在（冷启动/重建交接窗口）时不再 throw——
+	// 旧行为抛错意味着消息无落盘、无重试（事故静默丢失缺口之一）。改为先落
+	// pending WAL，进程 ready 后由 _createSession 末尾的 drain 自动重投。
+	tmpPaths.push(pendingFile("nonexistent"));
 	await expect(
 		am.prompt("nonexistent", "你好", { model: MODEL }),
-	).rejects.toThrow();
-	expect(
-		await errorCodeOf(am.prompt("nonexistent", "你好", { model: MODEL })),
-	).toBe("session.notStarted");
+	).resolves.toBeUndefined();
+	const pendings = await listPending("nonexistent");
+	expect(pendings).toHaveLength(1);
+	expect(pendings[0].text).toBe("你好");
 });
 
 test("prompt — 「provider/modelId」按第一个 / 拆分调 setModel", async () => {
@@ -2700,9 +2707,12 @@ test("prompt 在 busy 时追加到 followUpList（不直接发送）", async () 
 	// busy 状态时追加到本地列表，不调 prompt
 	expect(fakes[0].prompted).toHaveLength(0);
 
-	// 验证 followUpList 内容（对象条目，含文本与可选 images）
+	// 验证 followUpList 内容（对象条目，含文本/images；pendingId 关联 WAL 条目，
+	// 投递成功后 ack 用——2026-10-08 pending WAL 修复新增字段）
 	const handle = (am as any).sessions.get(session.id);
-	expect(handle.followUpList).toEqual([{ text: "排队消息2", images: [] }]);
+	expect(handle.followUpList).toEqual([
+		{ text: "排队消息2", images: [], pendingId: expect.any(String) },
+	]);
 });
 
 test("agent_settled 自动 drain followUpList", async () => {

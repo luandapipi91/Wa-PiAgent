@@ -43,6 +43,8 @@ export class FakeSessionClient {
 	}> = [];
 	/** 下一次 prompt 抛该错误（注入失败路径），用后自动清除 */
 	nextPromptError: Error | null = null;
+	/** 下一次 steer 抛该错误（注入失败路径，如 EPIPE rpc 写失败），用后自动清除 */
+	nextSteerError: Error | null = null;
 	/** start 时抛该错误（注入启动失败路径） */
 	startError: Error | null = null;
 	/** getMessages 时抛该错误 */
@@ -120,6 +122,11 @@ export class FakeSessionClient {
 	}
 
 	async steer(text: string, images?: any[]): Promise<void> {
+		if (this.nextSteerError) {
+			const err = this.nextSteerError;
+			this.nextSteerError = null;
+			throw err;
+		}
 		this.steered.push(text);
 		this.steerImages.push(images ?? []);
 	}
@@ -188,7 +195,14 @@ export class FakeSessionClient {
 		this.thinkingLevels.push(level);
 	}
 
+	/** dispose 调用次数（探活重试断言用） */
+	disposeCalls = 0;
+	/** 前 N 次 dispose 后进程仍存活（模拟强杀未生效/竞态），之后恢复默认真死 */
+	surviveDisposes = 0;
+
 	async dispose(): Promise<void> {
+		this.disposeCalls++;
+		if (this.disposeCalls <= this.surviveDisposes) return; // 强杀未落地：进程还活着
 		this.alive = false;
 	}
 

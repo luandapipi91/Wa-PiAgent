@@ -57,6 +57,13 @@ import {
 import { createReadStream, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { buildAdditionalExtensionPaths } from "./extensions";
+import {
+	enqueue as enqueuePending,
+	listAll as listPending,
+	ack as ackPending,
+	markFailed as markPendingFailed,
+	clearSession as clearPending,
+} from "./pending-messages";
 import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
 import { Database } from "bun:sqlite";
 import { MemoryDao } from "./memory/dao";
@@ -257,10 +264,18 @@ interface SessionHandle {
 	turnEndedAt: number | null;
 	/** 历史消息快照（创建时经 get_messages 拉取 + message_end 增量追加） */
 	messages: any[];
-	/** 排队消息列表（agent_settled 时逐条 drain） */
-	followUpList: Array<{ text: string; images?: ImageContent[] }>;
-	/** 引导消息列表（优先级高于 followUpList，agent_settled 时优先 drain；images 随条目透传） */
-	steerList: Array<{ text: string; images?: ImageContent[] }>;
+	/** 排队消息列表（agent_settled 时逐条 drain）；pendingId 关联 pending WAL 条目，投递成功后 ack */
+	followUpList: Array<{
+		text: string;
+		images?: ImageContent[];
+		pendingId?: string;
+	}>;
+	/** 引导消息列表（优先级高于 followUpList，agent_settled 时优先 drain；images 随条目透传；pendingId 同上） */
+	steerList: Array<{
+		text: string;
+		images?: ImageContent[];
+		pendingId?: string;
+	}>;
 	/** 系统提示词临时文件（dispose 时清理） */
 	promptFile: string | null;
 	/** 记忆快照临时文件（dispose 时清理） */
@@ -300,6 +315,8 @@ interface SessionHandle {
 
 /** abort RPC 无响应的默认兜底超时（ms）：pi agent loop 卡死时强杀进程，保证停止生效 */
 const ABORT_RPC_TIMEOUT_MS = 5_000;
+/** dispose 后探活复查延迟（ms）：给 graceful kill 一点时间，仍存活则重试强杀 */
+const LIVENESS_RECHECK_DELAY_MS = 200;
 
 /**
  * MCP 工具清单延时刷新的延迟（ms）。
@@ -506,7 +523,12 @@ export class AgentManager {
 			if (
 				existing.crashed ||
 				!existing.client.isAlive() ||
-				existing.meta.agentName !== agentName
+				existing.meta.agentName !== agentName ||
+				// 进程归属项目与会话记录不符（占位会话跨项目接管/记录被纠正）：复用会让
+				// 消息交给带「旧项目 cwd/系统提示词」的进程——2026-10-08「会话 2 操作
+				// 会话 1 工作目录」事故的 kernel 侧根因。忙碌中也不复用：未投递消息
+				// 已在 pending WAL，重建后由新进程重投，不丢失。
+				existing.meta.projectId !== projectId
 			) {
 				this._teardownSession(sessionId);
 			} else {
@@ -816,6 +838,7 @@ export class AgentManager {
 		imPush?: ImPushInjection,
 		excludeTools?: string[],
 	): Promise<SessionHandle> {
+		const createStartedAt = Date.now(); // 任务 4：spawn 耗时可观测
 		// 启动时写入内置 subagent 的 .md 定义文件（~/.pi/agent/agents/*.md），已存在不覆盖
 		const agentsDir = join(WA_PI_DIR, "agents");
 		seedBuiltinAgents(agentsDir);
@@ -1469,6 +1492,45 @@ export class AgentManager {
 			throw err;
 		}
 
+		// 进程 ready：drain 该会话的 pending WAL（回收/崩溃交接窗口内落盘的消息重投）。
+		// 灌入内存排队队列（带 pendingId），立即投第一条（此刻必不 busy），后续条目由
+		// agent_settled drain 按序投递；投递成功由 _sendPromptNow 内 ack 删除 WAL 条目。
+		try {
+			const pendings = await listPending(sessionId);
+			if (pendings.length > 0) {
+				handle.followUpList.push(
+					...pendings.map((p) => ({
+						text: p.text,
+						images: p.images,
+						pendingId: p.id,
+					})),
+				);
+				console.log(
+					`[kernel] session ${sessionId} 进程 ready，重投 ${pendings.length} 条 pending 消息`,
+				);
+				const first = handle.followUpList.shift()!;
+				void this._sendPromptNow(
+					sessionId,
+					handle,
+					first.text,
+					first.images,
+					first.pendingId,
+				).catch((err) => {
+					console.error(`[kernel] session ${sessionId} pending 重投失败:`, err);
+					// 投递失败不丢：放回队头等下一次 agent_settled 重试，WAL 条目保留
+					handle.followUpList.unshift(first);
+					if (first.pendingId)
+						void markPendingFailed(sessionId, first.pendingId).catch(() => {});
+				});
+			}
+		} catch (err) {
+			// WAL 读取失败不阻塞会话创建（下次重建再试）
+			console.error(`[kernel] session ${sessionId} pending 重投读取失败:`, err);
+		}
+
+		console.log(
+			`[agent-manager] pi 进程就绪 session=${sessionId} cwd=${cwd} 耗时=${Date.now() - createStartedAt}ms`,
+		);
 		return handle;
 	}
 
@@ -1550,8 +1612,14 @@ export class AgentManager {
 						handle,
 						entry.text,
 						entry.images,
+						entry.pendingId,
 					).catch((err) => {
 						console.error(`[kernel] session ${sessionId} steer drain 失败:`, err);
+						// 投递失败不丢消息：条目放回队头等下一次 agent_settled 重试，
+						// pending WAL 同步保留并记失败次数
+						handle.steerList.unshift(entry);
+						if (entry.pendingId)
+							void markPendingFailed(sessionId, entry.pendingId).catch(() => {});
 					});
 				} else if (handle.followUpList.length > 0) {
 					// 无引导消息时才 drain 排队消息
@@ -1562,8 +1630,14 @@ export class AgentManager {
 						handle,
 						entry.text,
 						entry.images,
+						entry.pendingId,
 					).catch((err) => {
 						console.error(`[kernel] session ${sessionId} followUp drain 失败:`, err);
+						// 投递失败不丢消息：条目放回队头等下一次 agent_settled 重试，
+						// pending WAL 同步保留并记失败次数
+						handle.followUpList.unshift(entry);
+						if (entry.pendingId)
+							void markPendingFailed(sessionId, entry.pendingId).catch(() => {});
 					});
 				} else if (this.skillDirty.has(sessionId) || this.dirty.has(sessionId)) {
 					// 真正 idle（无排队/引导消息）且有 dirty：补重载。对话中装卸插件被 busy 挡住
@@ -1712,12 +1786,13 @@ export class AgentManager {
 		return promise;
 	}
 
-	/** 立即发送 prompt（busy 置位 + 失败回退） */
+	/** 立即发送 prompt（busy 置位 + 失败回退）；pendingId 传入时投递成功后 ack 删除 WAL 条目 */
 	private async _sendPromptNow(
 		sessionId: string,
 		handle: SessionHandle,
 		text: string,
 		images?: ImageContent[],
+		pendingId?: string,
 	): Promise<void> {
 		// pi RPC 模式不解析内置斜杠命令（仅交互模式解析，见 pi.dev/docs/latest/rpc：
 		// builtin TUI 命令不会通过 prompt 执行），文本若按普通 prompt 发出会被当作
@@ -1742,6 +1817,23 @@ export class AgentManager {
 			handle.busy = false;
 			handle.thinkingSince = null;
 			throw err;
+		}
+		// RPC resolve = pi 已接收该消息：确认消费，删除 pending WAL 条目。
+		// 已知权衡（与 pending-messages.ts 头注释一致）：RPC resolve 后、ack 写盘前崩溃
+		// 的极小窗口会重投一次（消息重复远好于丢失，可接受）。ack 失败只打日志不抛：
+		// 消息已投出的事实优先于 WAL 清理失败，残留条目靠重启后 drain 幂等重投。
+		if (pendingId) {
+			try {
+				await ackPending(sessionId, pendingId);
+				console.log(
+					`[agent-manager] pending 已投递 session=${sessionId} id=${pendingId}`,
+				);
+			} catch (err) {
+				console.error(
+					`[kernel] session ${sessionId} pending ack 失败（重启后会重投一次）:`,
+					err,
+				);
+			}
 		}
 		// 用户发送消息（含排队 drain / steer 空闲直发）视为活跃，刷新空闲回收计时
 		handle.lastActiveAt = Date.now();
@@ -1929,8 +2021,38 @@ export class AgentManager {
 			attachments?: AttachmentRef[];
 		},
 	): Promise<void> {
+		// 全链路日志（任务 4）：desktop.log 此前对消息收发零记录，排障无痕
+		console.log(
+			`[agent-manager] prompt session=${sessionId} len=${text.length} images=${opts?.attachments?.length ?? 0}`,
+		);
 		const handle = this.sessions.get(sessionId);
-		if (!handle) throw new KernelError("session.notStarted", { sessionId });
+		// handle 不存在（冷启动进行中 / 进程已被回收待重建）：先落 pending WAL，
+		// 进程 ready 后由 _createSession 末尾的 drain 自动重投。
+		// 修复交接窗口静默丢消息（2026-10-08 事故）：此前此处直接 throw，上层仅
+			// 广播错误且无重试，消息从未落盘。model 校验保留（排队 drain 与既有
+			// followUpList 行为一致：不存 model，重投用会话当前模型）。
+		if (!handle) {
+			// 所有消息必须跟随用户显式选择的模型，禁止回退到 agent config 或 pi 默认模型
+			if (!opts?.model) {
+				throw new KernelError("model.notSelected");
+			}
+			const { text: finalText, images } = await buildPromptContent(
+				text,
+				opts?.attachments ?? [],
+			);
+			await enqueuePending(sessionId, { text: finalText, images });
+			// 排队回执：WAL 落盘即广播 pending_update（前端队列面板三态「待投递」消费）。
+			// handle 未就绪无 meta，projectId/agentName 传空串：事件沿 sdk:event 信封走
+			// 既有 onEvent 通道，前端按信封的 sessionId 路由，不依赖这两个字段。
+			// texts 带待投递文本：前端面板渲染条目（仅 count 渲染不出是哪条）。
+			const pendings = await listPending(sessionId);
+			this.opts.onEvent(sessionId, "", "", {
+				type: "pending_update",
+				count: pendings.length,
+				texts: pendings.map((p) => p.text),
+			});
+			return;
+		}
 
 		// 所有消息必须跟随用户显式选择的模型，禁止回退到 agent config 或 pi 默认模型
 		if (!opts?.model) {
@@ -1967,9 +2089,20 @@ export class AgentManager {
 			opts?.attachments ?? [],
 		);
 
+		// 入口先落 pending WAL（含 id/时间戳）：投递成功（RPC resolve）后 ack 删除，
+		// 投递失败保留 —— 任何一条消息的磁盘账本在投递前就存在。
+		const pendingEntry = await enqueuePending(sessionId, {
+			text: finalText,
+			images,
+		});
+
 		if (handle.busy) {
 			// agent 运行中 → 追加到本地排队列表（图片随文本一并排队，settled 后 drain）
-			handle.followUpList.push({ text: finalText, images });
+			handle.followUpList.push({
+				text: finalText,
+				images,
+				pendingId: pendingEntry.id,
+			});
 			this._emitLocalQueueUpdate(sessionId, handle);
 			return;
 		}
@@ -1977,7 +2110,13 @@ export class AgentManager {
 		// 时可能已乐观把这条消息加入队列面板（busy 竞态——本函数多个 await 期间本轮已
 		// agent_settled，busy 翻 false 导致走这里的直发）。这里补发 queue_update，让前端
 		// 同步真实队列（该消息不在队列里），清掉乐观残留。
-		await this._sendPromptNow(sessionId, handle, finalText, images);
+		await this._sendPromptNow(
+			sessionId,
+			handle,
+			finalText,
+			images,
+			pendingEntry.id,
+		);
 		this._emitLocalQueueUpdate(sessionId, handle);
 	}
 
@@ -1989,8 +2128,29 @@ export class AgentManager {
 		text: string,
 		opts?: { attachments?: AttachmentRef[] },
 	): Promise<void> {
+		// 全链路日志（任务 4）：同 prompt 入口
+		console.log(
+			`[agent-manager] steer session=${sessionId} len=${text.length} images=${opts?.attachments?.length ?? 0}`,
+		);
 		const handle = this.sessions.get(sessionId);
-		if (!handle) return;
+		// handle 不存在（进程已被回收待重建）：原静默 return 会丢消息 → 入 pending WAL，
+			// 进程重建 ready 后由 _createSession 末尾的 drain 自动重投（2026-10-08 事故缺口）
+		if (!handle) {
+			const { text: finalText, images } = await buildPromptContent(
+				text,
+				opts?.attachments ?? [],
+			);
+			await enqueuePending(sessionId, { text: finalText, images });
+			// 排队回执：同 prompt 的 handle 不存在分支（空 meta 说明见那里）。
+			// texts 同步携带待投递文本（任务 5 前端三态渲染）。
+			const pendings = await listPending(sessionId);
+			this.opts.onEvent(sessionId, "", "", {
+				type: "pending_update",
+				count: pendings.length,
+				texts: pendings.map((p) => p.text),
+			});
+			return;
+		}
 
 		// 来自排队列表的提升（前端只有文本，附件无法重传）：images 从排队 entry 继承；
 		// 新发起的引导（Ctrl+Enter 等）：attachments 经 buildPromptContent 统一转换。
@@ -1999,13 +2159,19 @@ export class AgentManager {
 			? { text, images: queued.images }
 			: await buildPromptContent(text, opts?.attachments ?? []);
 
+		// 入口先落 pending WAL（含 id/时间戳）：确认消费后 ack。
+		// 来自排队列表的提升复用原条目 id，避免同一条消息在 WAL 里产生两个条目。
+		const pendingId =
+			queued?.pendingId ??
+			(await enqueuePending(sessionId, { text: finalText, images })).id;
+
 		if (!handle.busy) {
 			// 空闲直发（用户点「引导/立即」时 agent 已 settled）。
 			// 先发送：成功了才从 followUpList 移除该条并广播 queue_update，
 			// 避免发送失败时消息已出队（丢失）。必须与下方 busy 分支一致地从
 			// followUpList 移除，否则后续 queue_update（如 drain/prompt/settled）
 			// 会把它打回队列，前端乐观移除的第一条又恢复——「顶部的待引导消息没变化」。
-			await this._sendPromptNow(sessionId, handle, finalText, images);
+			await this._sendPromptNow(sessionId, handle, finalText, images, pendingId);
 			const fi = handle.followUpList.findIndex((e) => e.text === text);
 			if (fi >= 0) handle.followUpList.splice(fi, 1);
 			this._emitLocalQueueUpdate(sessionId, handle);
@@ -2016,7 +2182,11 @@ export class AgentManager {
 		// 第二条引导消息不叠加，转入 followUpList 排队（agent_settled 时按顺序发送）。
 		if (handle.steerList.length > 0) {
 			if (!handle.followUpList.some((e) => e.text === text)) {
-				handle.followUpList.push({ text: finalText, images });
+				handle.followUpList.push({
+					text: finalText,
+					images,
+					pendingId,
+				});
 			}
 			this._emitLocalQueueUpdate(sessionId, handle);
 			handle.lastActiveAt = Date.now();
@@ -2024,16 +2194,43 @@ export class AgentManager {
 		}
 
 		// 双保险：pi steer() 尝试 mid-loop 投递 + 本地 steerList 兜底
-		handle.steerList.push({ text: finalText, images });
+		handle.steerList.push({ text: finalText, images, pendingId });
 		// 如果该消息来自排队列表，则移除（避免 settled 时重复发送）
 		const fi = handle.followUpList.findIndex((e) => e.text === text);
 		if (fi >= 0) handle.followUpList.splice(fi, 1);
 		this._emitLocalQueueUpdate(sessionId, handle);
 		// 用户发送引导消息视为活跃，刷新空闲回收计时
 		handle.lastActiveAt = Date.now();
-		handle.client.steer(finalText, images).catch(() => {
-			// steer 失败不丢消息——agent_settled 时 steerList 会兜底
-		});
+		handle.client.steer(finalText, images).then(
+			async () => {
+				// steer RPC resolve = pi 已接收引导：确认消费，删除 WAL 条目（幂等；
+				// 若 settled drain 先行投出已 ack，这里静默返回）。ack 失败只打日志：
+				// 残留条目靠重启后 drain 幂等重投，与 _sendPromptNow 的 ack 同一权衡。
+				try {
+					await ackPending(sessionId, pendingId);
+					console.log(
+						`[agent-manager] pending 已投递 session=${sessionId} id=${pendingId}`,
+					);
+				} catch (err) {
+					console.error(
+						`[kernel] session ${sessionId} pending ack 失败（重启后会重投一次）:`,
+						err,
+					);
+				}
+			},
+			(err) => {
+				// steer 失败不丢消息——agent_settled 时 steerList 会兜底；
+				// WAL 条目保留并记失败次数。同时必须广播错误回执（extension_error 通道，
+				// 同 _onProcessExit 崩溃广播：前端 toast + 诊断列表，任务 2 消灭静默缺口）。
+				void markPendingFailed(sessionId, pendingId).catch(() => {});
+				this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+					type: "extension_error",
+					extensionPath: "agent-steer",
+					event: "引导消息投递失败（已保留，agent 结束后自动重试）",
+					error: err instanceof Error ? err.message : String(err),
+				});
+			},
+		);
 	}
 
 	/** 中止当前会话：清空本地队列 + abort。 */
@@ -2048,6 +2245,13 @@ export class AgentManager {
 		extUiRegistry.cancelAllForSession(sessionId); // 挂起的扩展对话一并作废
 		handle.steerList = [];
 		handle.followUpList = [];
+		// 用户主动放弃排队消息：持久化 WAL 一并清空，与内存队列清空语义对齐。
+		// 否则已放弃的消息会在进程重启后被 drain 重投（「诈尸」）。
+		try {
+			await clearPending(sessionId);
+		} catch (e) {
+			console.error(`[kernel] session ${sessionId} 清空 pending WAL 失败:`, e);
+		}
 		this._emitLocalQueueUpdate(sessionId, handle);
 		// 级联中止在跑的子代理进程（delegate 派发时登记）：
 		// 不中止的话主会话停了子代理仍跑到完成，成孤儿且结果无人消费。
@@ -2230,8 +2434,22 @@ export class AgentManager {
 			// 拆除会话时级联中止在跑的子代理进程（防孤儿泄漏）
 			for (const c of handle.subagentAborts) c.abort();
 			handle.subagentAborts.clear();
-			// dispose 是异步 kill，fire-and-forget（调用方多为同步拆除路径）
-			void handle.client.dispose().catch(() => {});
+			// dispose 是异步 kill，fire-and-forget（调用方多为同步拆除路径）。
+			// 探活复查：dispose 返回后进程若仍存活（强杀未落地/竞态，事故实证：强杀
+			// 后 31 秒 jsonl 仍有写入），延迟重试一次强杀。
+			void handle.client
+				.dispose()
+				.catch(() => {})
+				.finally(() => {
+					const t = setTimeout(() => {
+						if (!handle.client.isAlive()) return;
+						console.warn(
+							`[agent-manager] dispose 后 pi 进程仍存活，重试强杀 session=${sessionId}`,
+						);
+						void handle.client.dispose().catch(() => {});
+					}, LIVENESS_RECHECK_DELAY_MS);
+					(t as any).unref?.(); // 不阻塞进程退出
+				});
 			if (handle.promptFile) {
 				void rm(handle.promptFile, { force: true }).catch(() => {});
 			}
@@ -2471,8 +2689,19 @@ export class AgentManager {
 			if (!handle) continue;
 			// 正在思考/跑工具的会话绝不回收，留到下一轮
 			if (handle.busy) continue;
+			// 有未投递 pending 消息的会话不回收：WAL 虽保证消息不丢，但回收会把重投
+			// 拖到下次冷启动，且无谓放大「回收-重生」交接窗口（2026-10-08 事故前提）
+			if (
+				await listPending(id)
+					.then((entries) => entries.length > 0)
+					.catch(() => false)
+			)
+				continue;
 			if (now - handle.lastActiveAt > thresholdMs) {
 				await this.disposeSession(id);
+				console.log(
+					`[agent-manager] 空闲回收 session=${id} 空闲 ${now - handle.lastActiveAt}ms`,
+				);
 				reaped.push(id);
 			}
 		}

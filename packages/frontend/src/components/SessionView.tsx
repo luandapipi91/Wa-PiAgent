@@ -8,6 +8,7 @@ import {
 import { useTranslation } from "../i18n/useTranslation";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
+import { useToastStore } from "../store/toast";
 import { useBrowserStore } from "../store/browser";
 import { useIsBlocked } from "../store/ask";
 import { useExplorerStore } from "../store/explorer";
@@ -83,6 +84,8 @@ export const SessionView = memo(function SessionView({
 		s.projects.find((p) => p.id === sessionProjectId),
 	);
 	const queue = useSessionStore((s) => s.queueBySession[sessionId]);
+	// 待投递（kernel pending_update：已落 WAL 等进程就绪重投，任务 5 三态之一）
+	const pendingDelivery = useSessionStore((s) => s.pendingBySession[sessionId]);
 	const status = useSessionStore((s) => s.statusBySession[sessionId] ?? "idle");
 	const historyLoading = useSessionStore(
 		(s) => s.historyLoadingBySession[sessionId] ?? false,
@@ -192,7 +195,10 @@ export const SessionView = memo(function SessionView({
 	const headerStatus: AgentStatus = isBlocked ? "blocked" : status;
 	const steering = queue?.steering ?? [];
 	const followUp = queue?.followUp ?? [];
-	const hasQueue = steering.length > 0 || followUp.length > 0;
+	const hasQueue =
+		steering.length > 0 ||
+		followUp.length > 0 ||
+		(pendingDelivery?.length ?? 0) > 0;
 
 	const handleStop = () => {
 		console.log(`[SessionView] handleStop sessionId=${sessionId}`);
@@ -223,7 +229,27 @@ export const SessionView = memo(function SessionView({
 		});
 		void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer`, {
 			text,
-		});
+		}).then(
+			() => {},
+			(err) => {
+				console.error("[session-view] 引导提升失败:", err);
+				// 失败回执（2026-10-08 任务 2）：回滚乐观移动——消息从引导区放回排队区
+				// 头部，用户可重试；此前 void 无 catch，失败时消息从面板上「消失」。
+				useSessionStore.setState((s) => {
+					const cur = s.queueBySession[sessionId];
+					const steering = (cur?.steering ?? []).filter((t) => t !== text);
+					const followUp = [...(cur?.followUp ?? [])];
+					if (!followUp.includes(text)) followUp.unshift(text);
+					return {
+						queueBySession: {
+							...s.queueBySession,
+							[sessionId]: { steering, followUp },
+						},
+					};
+				});
+				useToastStore.getState().add(t("composerExtra.steerFailed"), "error");
+			},
+		);
 	};
 	const handleImmediate = (text: string) => {
 		const idx = followUp.indexOf(text);
@@ -243,10 +269,35 @@ export const SessionView = memo(function SessionView({
 				},
 			};
 		});
-		void api.post(
-			`/api/sessions/${encodeURIComponent(sessionId)}/steer/immediate`,
-			{ text },
-		);
+		void api
+			.post(
+				`/api/sessions/${encodeURIComponent(sessionId)}/steer/immediate`,
+				{ text },
+			)
+			.then(
+				() => {},
+				(err) => {
+					console.error("[session-view] 立即提升失败:", err);
+					// 失败回执（任务 5，同 handlePromote）：回滚乐观移动——消息从引导区放回排队区
+					useSessionStore.setState((s) => {
+						const cur = s.queueBySession[sessionId];
+						if (!cur) return {};
+						const steering = cur.steering.filter((x) => x !== text);
+						return {
+							queueBySession: {
+								...s.queueBySession,
+								[sessionId]: {
+									steering,
+									followUp: cur.followUp.includes(text)
+										? cur.followUp
+										: [...cur.followUp, text],
+								},
+							},
+						};
+					});
+					useToastStore.getState().add(t("composerExtra.steerFailed"), "error");
+				},
+			);
 	};
 	// 清空全部排队（steering + followUp）：kernel clearQueue 调 pi 0.84.4 clear_queue RPC
 	// 清 pi 侧队列，同步清本地双队列后推 queue_update 对齐（ RPC 失败兑底仅清本地）
@@ -485,6 +536,29 @@ export const SessionView = memo(function SessionView({
 							data-testid="queue-panel-content"
 							className="max-h-[30vh] overflow-y-auto"
 						>
+							{/* 待投递消息（kernel pending_update：已落 WAL 等进程就绪重投，任务 5 三态之一） */}
+							{(pendingDelivery?.length ?? 0) > 0 && (
+								<div
+									className="mt-2 p-2.5 rounded-sm bg-surface-elevated"
+									style={{ borderLeft: "3px solid var(--accent-soft)" }}
+									data-testid="queue-pending"
+								>
+									<div className="flex items-center justify-between">
+										<span className="text-tertiary text-[calc(11.5px*var(--font-scale))] font-bold">
+											{t("session.pendingTitle")}
+										</span>
+									</div>
+									{pendingDelivery!.map((msg, i) => (
+										<div
+											key={i}
+											className="text-[calc(12px*var(--font-scale))] text-tertiary mt-1 pl-2 truncate"
+										>
+											{msg}
+										</div>
+									))}
+								</div>
+							)}
+
 							{/* 引导中消息 */}
 							{steering.length > 0 && (
 								<div

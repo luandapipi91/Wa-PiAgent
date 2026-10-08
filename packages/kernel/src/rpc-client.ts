@@ -226,7 +226,33 @@ export class RpcClient {
 				: undefined;
 			this.pending.set(id, { resolve, reject, timer });
 			try {
-				(proc.stdin as any)?.write(JSON.stringify(payload) + "\n");
+				// write 带错误回调：对已死进程写入（stdin pipe 已断，EPIPE）时立即
+				// reject，不等 60s 命令超时（事故场景：上层 prompt/steer/abort 全部 hang、
+				// 前端零反馈）。Bun FileSink 的 write 忽略回调参数，真实环境的其余防线：
+				// 写入后存活复查（下方）、onProcExit reject 全部 pending、60s 超时兜底。
+				(proc.stdin as any)?.write(
+					JSON.stringify(payload) + "\n",
+					(writeErr: Error | null | undefined) => {
+						if (!writeErr) return; // 写入成功：等 stdout 响应 resolve
+						if (!this.pending.has(id)) return; // 已被超时/退出处理，避免双重 settle
+						clearTimeout(timer);
+						this.pending.delete(id);
+						reject(
+							writeErr instanceof Error
+								? writeErr
+								: new Error(String(writeErr)),
+						);
+					},
+				);
+				// 写入后存活复查：进程已死（exitCode 翻转）但退出回调尚未跑完的窗口，
+				// 立即 reject 而非等 onProcExit/60s 超时
+				if (!this.isAlive() && this.pending.has(id)) {
+					clearTimeout(timer);
+					this.pending.delete(id);
+					reject(
+						new Error(`pi rpc 进程不可用（写入时进程已退出）${this.formatStderrTail()}`),
+					);
+				}
 			} catch (err) {
 				clearTimeout(timer);
 				this.pending.delete(id);
