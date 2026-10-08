@@ -264,6 +264,37 @@ export async function saveLanguage(
 /** 档位白名单：off=关闭 / compat=兼容（默认）/ full=完全（只走脚本） */
 export const CODEMODE_LEVELS = ["off", "compat", "full"] as const;
 
+/** 全局 mcp.json（pi 引擎读它决定 MCP 服务器与 autoEnableCodemode） */
+const GLOBAL_MCP_FILE = join(WA_PI_DIR, "mcp.json");
+
+/**
+ * 联动 mcp.json 顶层 autoEnableCodemode。
+ * 背景（bug 修复）：pi 引擎对 codemode 曝光的 MCP 服务器会**无视 --tools** 自动
+ * 激活 codemode 工具（extensions/mcp/index.js 的 setActiveTools）——用户 mcp.json
+ * 里有默认曝光的服务器时，off 档即使不传 +codemode 也关不掉。pi 的官方开关就是
+ * 该键：off → 写 false 压制自动激活（tool_search 兜底不受影响，它只看 deferred）；
+ * compat/full → 删除该键恢复引擎默认 true。
+ * read-modify-write 保留 mcpServers 等；文件不存在时创建最小结构。
+ */
+async function syncMcpAutoEnableCodemode(
+	level: CodemodeLevel,
+	mcpFile: string,
+): Promise<void> {
+	let cfg: Record<string, unknown> = {};
+	try {
+		cfg = JSON.parse(await readFile(mcpFile, "utf8")) as Record<
+			string,
+			unknown
+		>;
+	} catch {
+		cfg = {};
+	}
+	if (level === "off") cfg.autoEnableCodemode = false;
+	else delete cfg.autoEnableCodemode;
+	await mkdir(dirname(mcpFile), { recursive: true });
+	await writeFile(mcpFile, JSON.stringify(cfg, null, 2), "utf8");
+}
+
 /**
  * 读取 codemode 档位（settings.json.codemodeLevel）。
  * 未配置或磁盘脏值回落默认档 compat（兼容：codemode 可用，其他工具照常直接调用）。
@@ -288,6 +319,7 @@ export async function loadCodemodeLevel(
 export async function saveCodemodeLevel(
 	level: CodemodeLevel,
 	file: string = SETTINGS_FILE,
+	mcpFile: string = GLOBAL_MCP_FILE,
 ): Promise<CodemodeLevel> {
 	if (!(CODEMODE_LEVELS as readonly string[]).includes(level)) {
 		throw new Error(
@@ -302,6 +334,7 @@ export async function saveCodemodeLevel(
 		delete settings.codemode;
 	}
 	await writeSettingsJson(file, settings);
+	await syncMcpAutoEnableCodemode(level, mcpFile);
 	return level;
 }
 

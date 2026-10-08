@@ -96,7 +96,7 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	});
 	r.add("PUT", "/api/settings/codemode", async (req) => {
 		const b = await readJsonBody(req);
-		const level = await saveCodemodeLevel(b.level, ctx.settingsFile);
+		const level = await saveCodemodeLevel(b.level, ctx.settingsFile, ctx.mcpFile);
 		ctx.markAllDirty?.();
 		return Response.json({ level });
 	});

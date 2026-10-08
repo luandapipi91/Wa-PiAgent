@@ -31,6 +31,8 @@ export interface RouteContext {
  markAllDirty?: () => void;
  /** 可选：settings-store 默认 settings.json 路径（测试注入 tmpdir 用，缺省用真实文件） */
  settingsFile?: string;
+ /** 可选：全局 mcp.json 路径（codemode 档位联动 autoEnableCodemode；测试注入 tmpdir 用） */
+ mcpFile?: string;
 }
 
 export type RouteRegistrar = (

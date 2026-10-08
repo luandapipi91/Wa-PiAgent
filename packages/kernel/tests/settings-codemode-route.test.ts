@@ -12,17 +12,20 @@ import { registerSettingsRoutes } from "../src/routes/settings";
 
 let dir: string;
 let file: string;
+let mcpFile: string;
 let router: HttpRouter;
 let markAllDirty: ReturnType<typeof mock>;
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "wa-pi-settings-codemode-route-"));
 	file = join(dir, "settings.json");
+	mcpFile = join(dir, "mcp.json");
 	markAllDirty = mock(() => {});
 	router = new HttpRouter();
 	registerSettingsRoutes(router, mock(async () => Response.json({})), {
 		projectStore: {} as any,
 		settingsFile: file,
+		mcpFile,
 		markAllDirty,
 	});
 });
@@ -55,7 +58,22 @@ describe("PUT /api/settings/codemode", () => {
 		expect(await loadCodemodeLevel(file)).toBe("full");
 		const raw = JSON.parse(await readFile(file, "utf8"));
 		expect(raw.codemode).toEqual({ mode: "only" });
+		// mcp.json 联动：full 非关闭档，不压制引擎自动启用
+		const mcp = JSON.parse(await readFile(mcpFile, "utf8"));
+		expect(mcp.autoEnableCodemode).toBeUndefined();
 		expect(markAllDirty).toHaveBeenCalledTimes(1);
+	});
+
+	it("写入 off → mcp.json 顶层 autoEnableCodemode:false（压引擎自动激活）", async () => {
+		await router.handle(
+			new Request("http://localhost/api/settings/codemode", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ level: "off" }),
+			}),
+		);
+		const mcp = JSON.parse(await readFile(mcpFile, "utf8"));
+		expect(mcp.autoEnableCodemode).toBe(false);
 	});
 
 	it("写入 compat 后 pi 引擎键被删除", async () => {
