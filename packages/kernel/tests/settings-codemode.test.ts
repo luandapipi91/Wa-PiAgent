@@ -6,6 +6,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import {
 	loadCodemodeLevel,
 	saveCodemodeLevel,
+	normalizeLegacyCodemode,
 } from "../src/settings-store";
 
 // codemode 三档（off/compat/full）在 settings.json 的读写。
@@ -41,6 +42,11 @@ describe("loadCodemodeLevel", () => {
 		expect(await loadCodemodeLevel(file)).toBe("compat");
 	});
 
+	it("存量废弃值 full → 回落 compat（only 档已移除）", async () => {
+		await writeFile(file, JSON.stringify({ codemodeLevel: "full" }), "utf8");
+		expect(await loadCodemodeLevel(file)).toBe("compat");
+	});
+
 	it("已配置 off → off（用户显式关闭不被默认值覆盖）", async () => {
 		await writeFile(file, JSON.stringify({ codemodeLevel: "off" }), "utf8");
 		expect(await loadCodemodeLevel(file)).toBe("off");
@@ -48,17 +54,17 @@ describe("loadCodemodeLevel", () => {
 });
 
 describe("saveCodemodeLevel", () => {
-	it("round-trip：off / compat / full 各档写后读一致", async () => {
-		for (const level of ["off", "compat", "full"] as const) {
+	it("round-trip：off / compat 两档写后读一致", async () => {
+		for (const level of ["off", "compat"] as const) {
 			await saveCodemodeLevel(level, file, mcpFile);
 			expect(await loadCodemodeLevel(file)).toBe(level);
 		}
 	});
 
-	it("白名单外档位 → 抛错且不落盘", async () => {
+	it("已废弃的 full 档 → 白名单外抛错且不落盘", async () => {
 		let thrown: unknown = null;
 		try {
-			await saveCodemodeLevel("yolo" as never, file, mcpFile);
+			await saveCodemodeLevel("full" as never, file, mcpFile);
 		} catch (err) {
 			thrown = err;
 		}
@@ -67,20 +73,24 @@ describe("saveCodemodeLevel", () => {
 		expect(await readFile(file, "utf8").catch(() => "")).toBe("");
 	});
 
-	it("full → 同步写 pi 引擎键 codemode.mode=only，且 mcp.json 不再压制自动启用", async () => {
-		await writeFile(file, JSON.stringify({ codemode: { mode: "only" } }), "utf8");
+	it("normalizeLegacyCodemode：存量 full + codemode.mode=only 一次清理为 compat", async () => {
 		await writeFile(
-			mcpFile,
-			JSON.stringify({ autoEnableCodemode: false, mcpServers: { a: {} } }),
+			file,
+			JSON.stringify({ codemodeLevel: "full", codemode: { mode: "only" } }),
 			"utf8",
 		);
-		await saveCodemodeLevel("full", file, mcpFile);
+		await normalizeLegacyCodemode(file);
 		const raw = JSON.parse(await readFile(file, "utf8"));
-		expect(raw.codemodeLevel).toBe("full");
-		expect(raw.codemode).toEqual({ mode: "only" });
-		const mcp = JSON.parse(await readFile(mcpFile, "utf8"));
-		expect(mcp.autoEnableCodemode).toBeUndefined();
-		expect(mcp.mcpServers).toEqual({ a: {} });
+		expect(raw.codemodeLevel).toBe("compat");
+		expect(raw.codemode).toBeUndefined();
+	});
+
+	it("normalizeLegacyCodemode：无遗留时不写盘", async () => {
+		await writeFile(file, JSON.stringify({ codemodeLevel: "off" }), "utf8");
+		await normalizeLegacyCodemode(file);
+		const raw = JSON.parse(await readFile(file, "utf8"));
+		expect(raw.codemodeLevel).toBe("off");
+		expect(raw.codemode).toBeUndefined();
 	});
 
 	it("compat → 删除 pi 引擎键 codemode，并删 mcp.json 的 autoEnableCodemode（恢复引擎默认自动启用）", async () => {
@@ -132,10 +142,10 @@ describe("saveCodemodeLevel", () => {
 			}),
 			"utf8",
 		);
-		await saveCodemodeLevel("full", file);
+		await saveCodemodeLevel("compat", file, mcpFile);
 		const raw = JSON.parse(await readFile(file, "utf8"));
 		expect(raw.retry).toEqual({ maxRetries: 5, baseDelayMs: 1000 });
 		expect(raw.defaultTools).toEqual(["read", "bash"]);
-		expect(raw.codemode).toEqual({ mode: "only" });
+		expect(raw.codemode).toBeUndefined();
 	});
 });

@@ -28,6 +28,7 @@ import {
 	ensureHttpIdleTimeout,
 	applySystemProxy,
 	ensureDefaultTools,
+	normalizeLegacyCodemode,
 } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle, SubagentProgressThrottle } from "./event-throttle";
@@ -122,6 +123,8 @@ export async function startKernel(opts?: {
 	// 全放行。Windows 的 bash→powershell 平台适配沿用同一机制。未配置或仍是旧版
 	// 自动写入的清单时写入/升级；用户自定义不被覆盖。
 	const defaultToolsOutcome = await ensureDefaultTools();
+	// Codemode only 档移除后的存量清理（full 归位 compat、删 pi 引擎键 codemode.mode）
+	await normalizeLegacyCodemode();
 	if (defaultToolsOutcome !== "kept") {
 		console.log(
 			"[tools] 默认内置工具清单已写入 settings.json.defaultTools（新 pi 会话生效）",

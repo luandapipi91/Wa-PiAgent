@@ -260,9 +260,9 @@ export async function saveLanguage(
 	return language;
 }
 
-// ===== Codemode 三档（系统设置 > 通用）=====
-/** 档位白名单：off=关闭 / compat=兼容（默认）/ full=完全（只走脚本） */
-export const CODEMODE_LEVELS = ["off", "compat", "full"] as const;
+// ===== Codemode 两档（系统设置 > 通用；only「完全」档已移除——pi 引擎无法按工具豁免第三方，语义不完整）=====
+/** 档位白名单：off=关闭 / compat=兼容（默认） */
+export const CODEMODE_LEVELS = ["off", "compat"] as const;
 
 /** 全局 mcp.json（pi 引擎读它决定 MCP 服务器与 autoEnableCodemode） */
 const GLOBAL_MCP_FILE = join(WA_PI_DIR, "mcp.json");
@@ -298,6 +298,8 @@ async function syncMcpAutoEnableCodemode(
 /**
  * 读取 codemode 档位（settings.json.codemodeLevel）。
  * 未配置或磁盘脏值回落默认档 compat（兼容：codemode 可用，其他工具照常直接调用）。
+ * 存量废弃值 "full"（only 档已移除）同样回落 compat；pi 引擎键残留由
+ * {@link normalizeLegacyCodemode} 启动清理。
  */
 export async function loadCodemodeLevel(
 	file: string = SETTINGS_FILE,
@@ -311,9 +313,9 @@ export async function loadCodemodeLevel(
 }
 
 /**
- * 保存 codemode 档位（read-modify-write，保留其他字段），并联动 pi 引擎键：
- * full → 写 codemode: { mode: "only" }（pi codemode 扩展启动时自读，dist/extensions/codemode/index.js）；
- * compat/off → 删除 codemode 键（"on" 为引擎默认；off 时 codemode 工具不启用，键无意义）。
+ * 保存 codemode 档位（read-modify-write，保留其他字段）。
+ * 始终删除 pi 引擎键 codemode（"on" 为引擎默认，only 档已移除不再写 mode）。
+ * 另联动 mcp.json 顶层 autoEnableCodemode（见 syncMcpAutoEnableCodemode）。
  * @throws Error 白名单外档位（message 直接回给前端）
  */
 export async function saveCodemodeLevel(
@@ -328,14 +330,28 @@ export async function saveCodemodeLevel(
 	}
 	const settings = await readSettingsJson(file);
 	settings.codemodeLevel = level;
-	if (level === "full") {
-		settings.codemode = { ...settings.codemode, mode: "only" };
-	} else {
-		delete settings.codemode;
-	}
+	delete settings.codemode;
 	await writeSettingsJson(file, settings);
 	await syncMcpAutoEnableCodemode(level, mcpFile);
 	return level;
+}
+
+/**
+ * 启动守卫：清理 only 档移除后的存量遗留——codemodeLevel="full" 归位 compat、
+ * 删除 pi 引擎键 codemode.mode（残留 only 会让引擎在 compat 档仍隐藏工具）。
+ * 无遗留时不写盘。幂等。
+ */
+export async function normalizeLegacyCodemode(
+	file: string = SETTINGS_FILE,
+): Promise<void> {
+	const settings = await readSettingsJson(file);
+	// 磁盘值按原始字符串读（"full" 已不在 CodemodeLevel 类型内，属存量遗留）
+	const legacyFull = (settings.codemodeLevel as string) === "full";
+	const hasEngineKey = settings.codemode !== undefined;
+	if (!legacyFull && !hasEngineKey) return;
+	if (legacyFull) settings.codemodeLevel = "compat";
+	delete settings.codemode;
+	await writeSettingsJson(file, settings);
 }
 
 /** 系统代理默认值（未配置时：关闭 + 空代理 = 直连） */

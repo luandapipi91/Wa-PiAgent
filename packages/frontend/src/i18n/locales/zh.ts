@@ -687,6 +687,7 @@ const zh = {
 	composerExtra: {
 		placeholderBlocked: "请先回答上方提问…",
 		placeholderQueued: "输入要加入队列的消息...",
+		steerFailed: "引导发送失败，请重试",
 	},
 	explorer: {
 		ctxCopyPath: "复制路径",
@@ -877,9 +878,8 @@ const zh = {
 			codemode: {
 				label: "Codemode",
 				desc:
-					"让模型编写 JavaScript 在沙箱中并行调用工具、过滤大输出。兼容=其他工具照常直接调用；完全=工具只经脚本调用，上下文最省；关闭=不启用（存在 MCP 时自动用 tool_search 发现工具）。保存后重建会话生效。",
+					"让模型编写 JavaScript 在沙箱中并行调用工具、过滤大输出。兼容=其他工具照常直接调用；关闭=不启用（存在 MCP 时自动用 tool_search 发现工具）。保存后重建会话生效。",
 				compat: "兼容",
-				full: "完全",
 				off: "关闭",
 			},
 			retry: {

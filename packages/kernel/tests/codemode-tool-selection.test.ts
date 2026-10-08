@@ -15,15 +15,6 @@ test("排除式 + compat：tools = ['+codemode']，excludeTools 不动", () => {
 	expect(args.excludeTools).toEqual(["subagent"]);
 });
 
-test("排除式 + full：同 compat（only 由 pi 引擎键控制，与工具注入无关）", () => {
-	const args: PiToolArgs = { excludeTools: ["subagent"] };
-	applyCodemodeToolSelection(args, "full", {
-		restricted: false,
-		hasDeferredMcp: false,
-	});
-	expect(args.tools).toEqual(["+codemode"]);
-});
-
 test("白名单 + compat：追加普通名 codemode，既有清单不动", () => {
 	const args: PiToolArgs = { tools: ["im_push_to", "read"] };
 	applyCodemodeToolSelection(args, "compat", {

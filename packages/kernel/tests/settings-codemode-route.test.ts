@@ -45,20 +45,20 @@ describe("GET /api/settings/codemode", () => {
 });
 
 describe("PUT /api/settings/codemode", () => {
-	it("写入 full 后回显，且落盘联动 pi 引擎键 + markAllDirty 调用一次", async () => {
+	it("写入 compat 后回显 + markAllDirty 调用一次，pi 引擎键不残留", async () => {
 		const res = await router.handle(
 			new Request("http://localhost/api/settings/codemode", {
 				method: "PUT",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ level: "full" }),
+				body: JSON.stringify({ level: "compat" }),
 			}),
 		);
 		expect(res?.status).toBe(200);
-		expect(await res?.json()).toEqual({ level: "full" });
-		expect(await loadCodemodeLevel(file)).toBe("full");
+		expect(await res?.json()).toEqual({ level: "compat" });
+		expect(await loadCodemodeLevel(file)).toBe("compat");
 		const raw = JSON.parse(await readFile(file, "utf8"));
-		expect(raw.codemode).toEqual({ mode: "only" });
-		// mcp.json 联动：full 非关闭档，不压制引擎自动启用
+		expect(raw.codemode).toBeUndefined();
+		// mcp.json 联动：compat 非关闭档，不压制引擎自动启用
 		const mcp = JSON.parse(await readFile(mcpFile, "utf8"));
 		expect(mcp.autoEnableCodemode).toBeUndefined();
 		expect(markAllDirty).toHaveBeenCalledTimes(1);

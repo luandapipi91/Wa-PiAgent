@@ -26,7 +26,7 @@ const MAX_DELAY_S = 60;
 const EXPORT_INCLUDE_OPTIONS = [{ value: true }, { value: false }];
 
 /** Codemode 三档展示顺序（档位语义见 kernel settings-store） */
-const CODEMODE_OPTIONS: CodemodeLevel[] = ["compat", "full", "off"];
+const CODEMODE_OPTIONS: CodemodeLevel[] = ["compat", "off"];
 
 /**
  * 内联 switch 滑块（与设置弹窗内插件/命令开关风格一致：38×22 轨道 + 18×18 白点）。

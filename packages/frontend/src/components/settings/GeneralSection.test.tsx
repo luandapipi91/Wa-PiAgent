@@ -186,7 +186,7 @@ test("Codemode 三档区块渲染在设置页最前（自动重试之前），�
 	const compat = await screen.findByTestId("codemode-level-compat");
 	expect(compat.getAttribute("data-active")).toBe("true");
 	expect(
-		screen.getByTestId("codemode-level-full").getAttribute("data-active"),
+		screen.getByTestId("codemode-level-off").getAttribute("data-active"),
 	).toBe("false");
 	expect(
 		screen.getByTestId("codemode-level-off").getAttribute("data-active"),
@@ -197,11 +197,11 @@ test("Codemode 三档区块渲染在设置页最前（自动重试之前），�
 	).toBeTruthy();
 });
 
-test("Codemode 草稿态：点「完全」只改草稿，点保存后 PUT { level: 'full' }", async () => {
+test("Codemode 草稿态：点「关闭」只改草稿，点保存后 PUT { level: 'off' }", async () => {
 	render(<GeneralSection />);
-	const full = await screen.findByTestId("codemode-level-full");
-	fireEvent.click(full);
-	expect(full.getAttribute("data-active")).toBe("true");
+	const off = await screen.findByTestId("codemode-level-off");
+	fireEvent.click(off);
+	expect(off.getAttribute("data-active")).toBe("true");
 	// 草稿态：未保存时未发 PUT
 	expect(
 		putMock.mock.calls.filter(([url]) => url === "/api/settings/codemode"),
@@ -212,5 +212,5 @@ test("Codemode 草稿态：点「完全」只改草稿，点保存后 PUT { leve
 		([url]) => url === "/api/settings/codemode",
 	);
 	expect(calls).toHaveLength(1);
-	expect(calls[0][1]).toEqual({ level: "full" });
+	expect(calls[0][1]).toEqual({ level: "off" });
 });

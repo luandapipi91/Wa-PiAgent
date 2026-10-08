@@ -139,7 +139,7 @@ describe("im_push_to 会话注入", () => {
 		}
 	});
 
-	async function setupAgent(opts?: { configStore?: unknown; codemodeLevel?: "off" | "compat" | "full" }): Promise<{
+	async function setupAgent(opts?: { configStore?: unknown; codemodeLevel?: "off" | "compat" }): Promise<{
 		project: { id: string };
 		session: { id: string };
 		am: AgentManager;

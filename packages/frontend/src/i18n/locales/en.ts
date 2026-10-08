@@ -714,6 +714,7 @@ const en = {
 	composerExtra: {
 		placeholderBlocked: "Answer the question above first…",
 		placeholderQueued: "Enter a message to queue...",
+		steerFailed: "Failed to send steer, please retry",
 	},
 	explorer: {
 		ctxCopyPath: "Copy path",
@@ -911,9 +912,8 @@ const en = {
 			codemode: {
 				label: "Codemode",
 				desc:
-					"Lets the model write JavaScript to call tools in parallel and filter large output in a sandbox. Compat = tools stay directly callable; Full = tools are only callable via scripts (most context-efficient); Off = disabled (tool_search is used to discover MCP tools automatically). Applies after sessions rebuild on save.",
+					"Lets the model write JavaScript to call tools in parallel and filter large output in a sandbox. Compat = tools stay directly callable; Off = disabled (tool_search is used to discover MCP tools automatically). Applies after sessions rebuild on save.",
 				compat: "Compat",
-				full: "Full",
 				off: "Off",
 			},
 			retry: {
