@@ -13,6 +13,8 @@ import {
 	saveShareSettings,
 	loadLanguage,
 	saveLanguage,
+	loadCodemodeLevel,
+	saveCodemodeLevel,
 } from "../settings-store";
 
 export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
@@ -85,5 +87,17 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		const b = await readJsonBody(req);
 		const language = await saveLanguage(b.language, ctx.settingsFile);
 		return Response.json({ language });
+	});
+	// Codemode 三档（直接读写 settings.json；保存后标脏重建 pi 进程——codemode 工具集
+	// 与 pi 引擎键 codemode.mode 都在进程启动时确定，运行中改档必须重建才生效）
+	r.add("GET", "/api/settings/codemode", async () => {
+		const level = await loadCodemodeLevel(ctx.settingsFile);
+		return Response.json({ level });
+	});
+	r.add("PUT", "/api/settings/codemode", async (req) => {
+		const b = await readJsonBody(req);
+		const level = await saveCodemodeLevel(b.level, ctx.settingsFile);
+		ctx.markAllDirty?.();
+		return Response.json({ level });
 	});
 };
