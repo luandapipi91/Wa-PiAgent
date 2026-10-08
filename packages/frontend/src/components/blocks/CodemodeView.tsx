@@ -59,12 +59,14 @@ export function CodemodeResultView({
 }) {
 	const { t } = useTranslation();
 	void failed; // 色调由容器承载；保留参数与 ToolCallCard 分支签名对齐
-	const output = result.content
+	// 每个文本项独立成块：pi 1.0.0 会把状态头与脚本输出拆成多个 text 项下发，
+	// join 后渲染会把它们糊成一坨（嵌套工具卡「两段内容分别成块」契约）
+	const textItems = result.content
 		.filter((c) => c.type === "text")
-		.map((c) => (c as { text: string }).text)
-		.join("\n");
+		.map((c) => (c as { text: string }).text);
+	const output = textItems.join("\n");
 	const status = parseScriptStatus(output);
-	const items = splitOutputItems(output);
+	const items = textItems.flatMap((t) => splitOutputItems(t));
 	const consoleOut = extractConsole(output);
 	const images = result.content.filter((c) => c.type === "image") as {
 		data: string;
