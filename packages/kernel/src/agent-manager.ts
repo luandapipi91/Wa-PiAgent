@@ -1320,7 +1320,7 @@ export class AgentManager {
 					],
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
-		// Codemode 三档（系统设置 > 通用）：compat/full 注入 codemode 工具；off 时若存在
+		// Codemode 两档（系统设置 > 通用）：compat 注入 codemode 工具；off 时若存在
 		// codemode/deferred 曝光的 MCP 服务器则注入 tool_search 兜底（这些 MCP 工具唯一
 		// 的发现通道，缺了就不可达）。白名单路径追加普通名（pi 禁止 +name 与普通名混用）。
 		const codemodeLevel = await (this.opts.codemodeLevelLoader ??
