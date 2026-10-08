@@ -354,41 +354,16 @@ async function callBridge(
 // 工具注册
 // =========================================================================
 
-export default function (pi: ExtensionAPI) {
-	// —— Codemode only 档全局豁免（默认豁免策略）——
-	// pi 的 only 模式隐藏 exposure=direct 的工具；第三方扩展工具默认 direct，会被
-	// 藏进 codemode 脚本。本函数把「非内置系统级、非 MCP」的工具同名重注册为
-	// model-only（getToolDefinition 取完整定义原样保留，只换曝光），实现「除内置
-	// 系统级工具外默认豁免」——无论工具来自哪个扩展，无需逐插件设置。幂等：
-	// 已 model-only 跳过。
-	// 时机注意：getAllTools/getToolDefinition 是 runtime action 方法，扩展加载期
-	// 调用会抛「runtime not initialized」——只能在 session_start（运行期、首 prompt
-	// 之前）触发；此时 -e 扩展与 settings packages 的工具均已注册。bridge 自身
-	// 14 个工具的 model-only 是注册时字段，加载期合法，不依赖本遍历。
-	const SYSTEM_TOOL_NAMES = new Set([
-		"read",
-		"bash",
-		"powershell",
-		"edit",
-		"write",
-		"grep",
-		"find",
-		"ls",
-		"codemode",
-		"tool_search",
-	]);
-	const applyOnlyModeExemption = (target: ExtensionAPI) => {
-		for (const tool of target.getAllTools()) {
-			if (tool.exposure === "model-only") continue; // 已豁免
-			if (tool.name.startsWith("mcp__")) continue; // MCP 工具曝光归 mcp.json 五档
-			if (SYSTEM_TOOL_NAMES.has(tool.name)) continue; // 系统级内置保持脚本调用
-			const def = target.getToolDefinition(tool.name);
-			if (!def) continue;
-			target.registerTool({ ...def, exposure: "model-only" });
-		}
-	};
-	pi.on("session_start", () => applyOnlyModeExemption(pi));
+// ———— Codemode only 档与第三方工具 ————
+// bridge 自身 14 个工具注册为 model-only（下方各 registerTool），only 档保持直接
+// 声明不失效。第三方扩展（pi-web-access、用户 packages）的工具曝光由其注册时
+// 的 definition 决定（默认 direct），pi 扩展 API 未暴露 getToolDefinition（完整
+// 定义含 execute 仅存于 AgentSession 内部），事后无法重注册换曝光——第三方工具
+// 在 only 档走脚本（codemode 描述里可见可调，属 only 正常语义，非失效）。
+// 曾尝试 session_start 时遍历 getAllTools 重注册，真机报 getToolDefinition is
+// not a function 已回滚；且 getAllTools 为 runtime action 方法，加载期禁调。
 
+export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		exposure: "model-only",
 		name: "ask_user_question",
