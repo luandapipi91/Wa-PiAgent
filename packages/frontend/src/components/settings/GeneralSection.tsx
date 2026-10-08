@@ -5,6 +5,7 @@ import type {
 	RetrySettings,
 	TrashSettings,
 	ProxySettings,
+	CodemodeLevel,
 } from "@wa-pi/shared";
 import {
 	EXPORT_TURNS_MAX,
@@ -23,6 +24,9 @@ const MAX_DELAY_S = 60;
 /** 图片导出范围选项：true=对话双方，false=仅导出 agent 回复。
  *  渲染为 tab 二选一（样式同外观-界面主题）。 */
 const EXPORT_INCLUDE_OPTIONS = [{ value: true }, { value: false }];
+
+/** Codemode 三档展示顺序（档位语义见 kernel settings-store） */
+const CODEMODE_OPTIONS: CodemodeLevel[] = ["compat", "full", "off"];
 
 /**
  * 内联 switch 滑块（与设置弹窗内插件/命令开关风格一致：38×22 轨道 + 18×18 白点）。
@@ -124,6 +128,23 @@ export function GeneralSection() {
 	const [archiveDays, setArchiveDays] = useState("15");
 	const [autoPurge, setAutoPurge] = useState(false);
 	const [purgeDays, setPurgeDays] = useState("30");
+	// Codemode 三档草稿：kernel 侧设置，点保存才 PUT（与重试/代理/语言同模式）
+	const [draftCodemode, setDraftCodemode] = useState<CodemodeLevel>("compat");
+
+	// Codemode 档位单独加载（GET /api/settings/codemode），失败静默、沿用默认 compat
+	useEffect(() => {
+		let cancelled = false;
+		api
+			.get("/api/settings/codemode")
+			.then((res) => {
+				const level = (res as { level?: CodemodeLevel })?.level;
+				if (!cancelled && level) setDraftCodemode(level);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	useEffect(() => {
 		api
@@ -214,6 +235,8 @@ export function GeneralSection() {
 				setLanguage(draftLang);
 				await api.put("/api/settings/language", { language: draftLang });
 			}
+			// Codemode 三档：保存后 kernel 标脏重建 pi 进程生效
+			await api.put("/api/settings/codemode", { level: draftCodemode });
 			setSaved(true);
 		} catch (e) {
 			// 保存失败：用 toast 提示，不再在按钮旁显示 inline 文本
@@ -232,6 +255,44 @@ export function GeneralSection() {
 
 	return (
 		<div className="flex flex-col gap-4 p-4 overflow-auto">
+			{/* Codemode 三档：草稿态，点保存才生效（kernel 侧设置，样式同图片导出范围分段） */}
+			<div className="flex items-center justify-between gap-4">
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.general.codemode.label")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.general.codemode.desc")}
+					</span>
+				</div>
+				<div className="inline-flex shrink-0 bg-surface-hover rounded-md p-0.5">
+					{CODEMODE_OPTIONS.map((opt) => (
+						<button
+							key={opt}
+							onClick={() => {
+								setDraftCodemode(opt);
+								setSaved(false);
+							}}
+							data-testid={`codemode-level-${opt}`}
+							data-active={draftCodemode === opt ? "true" : "false"}
+							className="px-3 py-1.5 rounded-sm text-sm transition-all"
+							style={
+								draftCodemode === opt
+									? {
+											background: "var(--surface)",
+											color: "var(--text-primary)",
+											fontWeight: 600,
+											boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+										}
+									: { color: "var(--text-secondary)" }
+							}
+						>
+							{t(`settings.general.codemode.${opt}`)}
+						</button>
+					))}
+				</div>
+			</div>
+			<div className="border-t border-hairline" />
 			{/* 自动重试：草稿态，点保存才生效 */}
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">

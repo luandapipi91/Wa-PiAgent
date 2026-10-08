@@ -103,13 +103,14 @@ test("分组间横线分隔：自动重试/提示音/回收站/对话导出/语�
 	}
 });
 
-test("设置项顺序：自动重试 → 提示音 → 回收站 → 导出轮数 → 图片导出 → 语言 → 开机自启", async () => {
+test("设置项顺序：Codemode → 自动重试 → 提示音 → 回收站 → 导出轮数 → 图片导出 → 语言 → 开机自启", async () => {
 	// mock 开机自启 IPC，确保 autoLaunch 行渲染
 	(window as any).waPiApp = { setLoginItem: () => {} };
 	render(<GeneralSection />);
 	await screen.findByTestId("retry-max-input");
 
 	const order = [
+		screen.getByTestId("codemode-level-compat"),
 		screen.getByTestId("retry-max-input"),
 		screen.getByTestId("sound-task-done-toggle"),
 		screen.getByTestId("trash-auto-archive-toggle"),
@@ -178,4 +179,38 @@ test("语言切换保存 → 写 ui-prefs store 并双写 PUT /api/settings/lang
 	expect(putMock).toHaveBeenCalledWith("/api/settings/language", {
 		language: "en",
 	});
+});
+
+test("Codemode 三档区块渲染在设置页最前（自动重试之前），默认选中「兼容」", async () => {
+	render(<GeneralSection />);
+	const compat = await screen.findByTestId("codemode-level-compat");
+	expect(compat.getAttribute("data-active")).toBe("true");
+	expect(
+		screen.getByTestId("codemode-level-full").getAttribute("data-active"),
+	).toBe("false");
+	expect(
+		screen.getByTestId("codemode-level-off").getAttribute("data-active"),
+	).toBe("false");
+	const retry = screen.getByTestId("retry-max-input");
+	expect(
+		compat.compareDocumentPosition(retry) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+});
+
+test("Codemode 草稿态：点「完全」只改草稿，点保存后 PUT { level: 'full' }", async () => {
+	render(<GeneralSection />);
+	const full = await screen.findByTestId("codemode-level-full");
+	fireEvent.click(full);
+	expect(full.getAttribute("data-active")).toBe("true");
+	// 草稿态：未保存时未发 PUT
+	expect(
+		putMock.mock.calls.filter(([url]) => url === "/api/settings/codemode"),
+	).toHaveLength(0);
+	fireEvent.click(screen.getByTestId("retry-save-btn"));
+	await new Promise((r) => setTimeout(r, 10));
+	const calls = putMock.mock.calls.filter(
+		([url]) => url === "/api/settings/codemode",
+	);
+	expect(calls).toHaveLength(1);
+	expect(calls[0][1]).toEqual({ level: "full" });
 });

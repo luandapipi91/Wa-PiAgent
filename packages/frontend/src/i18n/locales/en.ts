@@ -904,6 +904,14 @@ const en = {
 				both: "Both sides",
 				agentOnly: "Agent replies only",
 			},
+			codemode: {
+				label: "Codemode",
+				desc:
+					"Lets the model write JavaScript to call tools in parallel and filter large output in a sandbox. Compat = tools stay directly callable; Full = tools are only callable via scripts (most context-efficient); Off = disabled (tool_search is used to discover MCP tools automatically). Applies after sessions rebuild on save.",
+				compat: "Compat",
+				full: "Full",
+				off: "Off",
+			},
 			retry: {
 				label: "Auto retry",
 				desc:

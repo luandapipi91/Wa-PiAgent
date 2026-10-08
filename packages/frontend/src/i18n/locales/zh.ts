@@ -870,6 +870,14 @@ const zh = {
 				both: "对话双方",
 				agentOnly: "仅导出 agent 回复",
 			},
+			codemode: {
+				label: "Codemode",
+				desc:
+					"让模型编写 JavaScript 在沙箱中并行调用工具、过滤大输出。兼容=其他工具照常直接调用；完全=工具只经脚本调用，上下文最省；关闭=不启用（存在 MCP 时自动用 tool_search 发现工具）。保存后重建会话生效。",
+				compat: "兼容",
+				full: "完全",
+				off: "关闭",
+			},
 			retry: {
 				label: "自动重试",
 				desc:
