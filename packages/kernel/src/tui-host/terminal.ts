@@ -1,4 +1,4 @@
-import type { Terminal } from "@earendil-works/pi-tui";
+import type { ProgramStatus, Terminal } from "@earendil-works/pi-tui";
 
 export interface FakeTerminalOptions {
 	/** 初始列数（字符格），默认 85 */
@@ -89,4 +89,6 @@ export class WaPiFakeTerminal implements Terminal {
 	clearScreen(): void {}
 	setTitle(_title: string): void {}
 	setProgress(_active: boolean): void {}
+	/** pi-tui >= 1.1.0：OSC 7501 程序状态上报；帧由 frame.ts 直取，状态无处展示，no-op */
+	setProgramStatus(_status: ProgramStatus): void {}
 }
