@@ -139,7 +139,7 @@ describe("im_push_to 会话注入", () => {
 		}
 	});
 
-	async function setupAgent(opts?: { configStore?: unknown }): Promise<{
+	async function setupAgent(opts?: { configStore?: unknown; codemodeLevel?: "off" | "compat" | "full" }): Promise<{
 		project: { id: string };
 		session: { id: string };
 		am: AgentManager;
@@ -168,13 +168,18 @@ describe("im_push_to 会话注入", () => {
 			browserManager: NOOP_BROWSER_MANAGER,
 			// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
 			mcpAdmin: makeFakeMcpAdmin(),
+			...(opts?.codemodeLevel
+				? { codemodeLevelLoader: async () => opts!.codemodeLevel! }
+				: {}),
 		});
 		managers.push(am);
 		return { project: project as { id: string }, session, am, fakes };
 	}
 
-	test("ensureStarted 带 imPush → spawn env 注入联系人列表，默认仍走排除式放行", async () => {
-		const { project, session, am, fakes } = await setupAgent();
+	test("ensureStarted 带 imPush → spawn env 注入联系人列表，off 档仍走排除式放行", async () => {
+		const { project, session, am, fakes } = await setupAgent({
+			codemodeLevel: "off",
+		});
 		await am.ensureStarted(project.id, "dev", session.id, {
 			imPush: {
 				targets: ["ct_aaa", "ct_bbb"],
@@ -183,7 +188,8 @@ describe("im_push_to 会话注入", () => {
 		});
 		expect(fakes).toHaveLength(1);
 		expect(fakes[0].opts.env?.WA_PI_IM_PUSH_TARGETS).toBe("ct_aaa,ct_bbb");
-		// 未显式配置 tools：不传 --tools（排除式放行，扩展注册的 im_push_to 可用）
+		// off 档未显式配置 tools：不传 --tools（排除式放行，扩展注册的 im_push_to 可用）；
+		// compat/full 档的排除式放行 = --tools +codemode 增量（agent-manager-codemode.test.ts 锁定）
 		expect(fakes[0].opts.args ?? []).not.toContain("--tools");
 	});
 

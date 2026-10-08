@@ -138,6 +138,9 @@ interface SetupOpts {
 	mcpAdminFor?: (cwd: string) => FakeMcpAdmin;
 	/** MCP 工具清单延时刷新的延迟（ms）：透传 AgentManagerOpts（默认 3000，测试注入小值） */
 	mcpToolRefreshDelayMs?: number;
+	/** Codemode 档位固定器：测非默认档行为时注入（不传 = 生产默认 loader，
+	 *  tests/setup.ts 隔离的空 settings.json → 默认 compat） */
+	codemodeLevelLoader?: () => Promise<import("@wa-pi/shared").CodemodeLevel>;
 }
 
 /** 造测试项目 + 会话实体 + 注入 fake client 的 AgentManager */
@@ -177,6 +180,9 @@ async function setup(opts: SetupOpts = {}) {
 		...(opts.mcpToolRefreshDelayMs === undefined
 			? {}
 			: { mcpToolRefreshDelayMs: opts.mcpToolRefreshDelayMs }),
+		...(opts.codemodeLevelLoader
+			? { codemodeLevelLoader: opts.codemodeLevelLoader }
+			: {}),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
@@ -229,8 +235,10 @@ test("ensureStarted 注入 WA_PI_SCHEDULER_PROJECT_ID（定时任务归属当前
 	expect(fakes[0].opts.env?.WA_PI_SCHEDULER_PROJECT_ID).toBe(project.id);
 });
 
-test("ensureStarted 无显式 tools 时不传 --tools、用 --exclude-tools 排除 subagent", async () => {
-	const { project, session, am, fakes } = await setup();
+test("ensureStarted 无显式 tools 时不传 --tools、用 --exclude-tools 排除 subagent（off 档现状）", async () => {
+	const { project, session, am, fakes } = await setup({
+		codemodeLevelLoader: async () => "off",
+	});
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	const args = fakes[0].opts.args ?? [];
@@ -239,6 +247,13 @@ test("ensureStarted 无显式 tools 时不传 --tools、用 --exclude-tools 排�
 		v.split(","),
 	);
 	expect(excluded).toContain("subagent");
+});
+
+test("ensureStarted 默认档（compat）：排除式会话注入 --tools +codemode", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	const args = fakes[0].opts.args ?? [];
+	expect(argValues(args, "--tools")).toEqual(["+codemode"]);
 });
 
 test("ensureStarted 使用 agent 显式配置的 tools（--tools 白名单）", async () => {

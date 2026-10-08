@@ -24,6 +24,7 @@ import type {
 	SkillInfo,
 	CommandInfo,
 	SubagentProgressEvent,
+	CodemodeLevel,
 } from "@wa-pi/shared";
 import {
 	WA_PI_DIR,
@@ -96,6 +97,8 @@ import type { ExtensionManager } from "./extension-manager";
 import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "./mcp-admin";
 import { hasProjectMcpFile } from "./mcp-file";
 import { mcpServerPatternsOf, mcpToolNamesOf } from "./mcp-tool-names";
+import { applyCodemodeToolSelection } from "./codemode";
+import { loadCodemodeLevel } from "./settings-store";
 import {
 	registerBridgeSession,
 	unregisterBridgeSession,
@@ -187,6 +190,9 @@ export interface AgentManagerOpts {
 	 *  无该文件的 cwd（含默认工作区每会话唯一的 `<workdir>/<createdAt>`）复用全局实例，
 	 *  不在会话创建路径上多 spawn 一次 `pi mcp list`。 */
 	mcpAdminFor?: (cwd: string) => Pick<McpAdmin, "list" | "invalidate">;
+	/** codemode 档位读取器：生产默认读 settings.json.codemodeLevel（默认 compat）；
+	 *  测试注入固定档位（默认档行为测试不注入，靠 tests/setup.ts 的 WA_PI_DIR 隔离）。 */
+	codemodeLevelLoader?: () => Promise<CodemodeLevel>;
 	/** MCP 工具清单延时刷新的延迟（ms）：缺省 {@link MCP_TOOL_REFRESH_DELAY_MS}；测试注入小值 */
 	mcpToolRefreshDelayMs?: number;
 	// 惰性取 bridge 回调地址（kernel WS 端口在 AgentManager 构造后才确定）
@@ -658,6 +664,24 @@ export class AgentManager {
 		} catch (err) {
 			console.error("[kernel] MCP 通配模式枚举失败，跳过:", err);
 			return [];
+		}
+	}
+
+	/**
+	 * 是否存在 codemode/deferred 曝光的 MCP 服务器（codemode 关闭档决定 tool_search 兜底）。
+	 * 枚举失败不阻断会话启动：视为无（与 getMcpToolNames 的既有容错策略一致）。
+	 */
+	private async hasDeferredCodemodeMcp(
+		cwd: string = WA_PI_DIR,
+	): Promise<boolean> {
+		try {
+			const { servers } = await this._mcpAdminFor(cwd).list();
+			return servers.some(
+				(s) => s.exposure === "codemode" || s.exposure === "deferred",
+			);
+		} catch (err) {
+			console.error("[kernel] MCP 曝光枚举失败，跳过 tool_search 兜底:", err);
+			return false;
 		}
 	}
 
@@ -1296,6 +1320,19 @@ export class AgentManager {
 					],
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
+		// Codemode 三档（系统设置 > 通用）：compat/full 注入 codemode 工具；off 时若存在
+		// codemode/deferred 曝光的 MCP 服务器则注入 tool_search 兜底（这些 MCP 工具唯一
+		// 的发现通道，缺了就不可达）。白名单路径追加普通名（pi 禁止 +name 与普通名混用）。
+		const codemodeLevel = await (this.opts.codemodeLevelLoader ??
+			loadCodemodeLevel)();
+		const hasDeferredMcp =
+			codemodeLevel === "off" && !restricted
+				? await this.hasDeferredCodemodeMcp(cwd)
+				: false;
+		applyCodemodeToolSelection(toolArgs, codemodeLevel, {
+			restricted,
+			hasDeferredMcp,
+		});
 		// 调用方强制排除（定时任务等无人值守会话排除 ask 类交互工具——无应答会挂起任务）：
 		// 黑名单并入；白名单模式下从白名单剔除（im_push_to 不可被剔除）
 		const forcedExclude = excludeTools ?? [];
