@@ -885,24 +885,3 @@ test("空闲超时：窗口内无快照（kernel 侧子代理仍在跑）→ 维
 	}
 }, 10_000);
 
-// —— Codemode only 档豁免：bridge 工具全部注册为 model-only ——
-
-describe("bridge 工具 exposure", () => {
-	test("全部工具注册为 exposure: 'model-only'（only 档不被隐藏、保持直接声明）", async () => {
-		const tools = await loadTools();
-		expect(tools.length).toBeGreaterThan(0);
-		for (const tool of tools) {
-			expect(tool.exposure).toBe("model-only");
-		}
-	});
-
-	test("交互类工具在豁免清单内（ask_user_question / im_push_to / list_contacts）", async () => {
-		const tools = await loadTools();
-		const names = new Set(tools.map((t) => t.name));
-		expect(names.has("ask_user_question")).toBe(true);
-		expect(names.has("im_push_to")).toBe(true);
-		expect(names.has("list_contacts")).toBe(true);
-		const ask = tools.find((t) => t.name === "ask_user_question");
-		expect(ask.exposure).toBe("model-only");
-	});
-});

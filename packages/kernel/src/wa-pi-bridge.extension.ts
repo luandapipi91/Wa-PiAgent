@@ -365,7 +365,6 @@ async function callBridge(
 
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
-		exposure: "model-only",
 		name: "ask_user_question",
 		label: "Ask User",
 		description: ASK_DESCRIPTION,
@@ -383,7 +382,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "memory_add",
 		label: "Memory",
 		description: MEM_ADD_DESC,
@@ -416,7 +414,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "memory_replace",
 		label: "Memory",
 		description: MEM_REPLACE_DESC,
@@ -451,7 +448,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "memory_remove",
 		label: "Memory",
 		description: MEM_REMOVE_DESC,
@@ -479,7 +475,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "memory_read",
 		label: "Memory",
 		description: MEM_READ_DESC,
@@ -504,7 +499,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "memory_search",
 		label: "Memory",
 		description: MEM_SEARCH_DESC,
@@ -522,7 +516,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "delegate",
 		label: "Delegate",
 		description: DELEGATE_DESCRIPTION,
@@ -539,7 +532,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "browser_navigate",
 		label: "Browser Navigate",
 		description: BROWSER_NAVIGATE_DESCRIPTION,
@@ -556,7 +548,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "browser_evaluate",
 		label: "Browser Evaluate",
 		description: BROWSER_EVALUATE_DESCRIPTION,
@@ -573,7 +564,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "browser_screenshot",
 		label: "Browser Screenshot",
 		description: BROWSER_SCREENSHOT_DESCRIPTION,
@@ -590,7 +580,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		exposure: "model-only",
 		name: "browser_close",
 		label: "Browser Close",
 		description: BROWSER_CLOSE_DESCRIPTION,
@@ -609,7 +598,6 @@ export default function (pi: ExtensionAPI) {
 	// preview_open：把网址/项目内 html 送到用户的内置 HTML 预览面板（与 browser_* 无头
 	// 自动化不同，本工具把页面呈现在用户眼前）。注册形式与 browser_close 一致。
 	pi.registerTool({
-		exposure: "model-only",
 		name: "preview_open",
 		label: "Preview Open",
 		description: PREVIEW_OPEN_DESCRIPTION,
@@ -631,7 +619,6 @@ export default function (pi: ExtensionAPI) {
 	// 定时任务会话的 WA_PI_IM_PUSH_TARGETS env 注入保留（agent-manager spawn env），
 	// 仅作诊断用途，不再作为注册开关。
 	pi.registerTool({
-		exposure: "model-only",
 		name: "im_push_to",
 		label: "IM Push",
 		description:
@@ -658,7 +645,6 @@ export default function (pi: ExtensionAPI) {
 	// list_contacts：始终注册（与 im_push_to 对称的查询侧工具，只读）。
 	// agent 借此枚举当前系统可用联系人（含显示名/渠道名称），确定可推送目标。
 	pi.registerTool({
-		exposure: "model-only",
 		name: "list_contacts",
 		label: "IM Contacts",
 		description:
