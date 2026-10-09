@@ -170,7 +170,7 @@ for (const cfg of selected) {
 	}
 }
 
-console.log("\n════════ 汇总（语料 22 条 / 相关查询 11 / 负例 2）════════");
+console.log("\n════════ 汇总（语料 21 条 / 相关查询 11 / 负例 2）════════");
 console.log("configId".padEnd(24) + "hit@1   hit@3   MRR     相关top1  负例top1  区分度间隔");
 for (const r of results) {
 	console.log(
