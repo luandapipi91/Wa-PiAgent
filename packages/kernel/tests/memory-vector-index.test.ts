@@ -4,7 +4,7 @@ import { SCHEMA_SQL } from "../src/memory/schema";
 import { MemoryDao } from "../src/memory/dao";
 import { loadVectorExtension, initVectorColumn, quantizedScan } from "../src/memory/vector-ext";
 import { indexPendingMemories } from "../src/memory/vector-index";
-import { embedQuery } from "../src/memory/embedder";
+import { embedQuery, EMBED_DIM } from "../src/memory/embedder";
 import {
   probeModelAvailability,
   registerModelGateFailure,
@@ -68,7 +68,7 @@ test.skipIf(modelUnavailable)("回填后 listUnindexed 为空且 embedding 已�
   expect(dao.listUnindexed(10)).toHaveLength(0);
   const row = dao.getById(a.id)!;
   expect(row.embedding).toBeInstanceOf(Uint8Array);
-  expect(row.embedding!.byteLength).toBe(512 * 4);
+  expect(row.embedding!.byteLength).toBe(EMBED_DIM * 4);
   expect(row.embedMeta).toBe(dao.embedFingerprint());
 });
 
@@ -77,6 +77,26 @@ test("指纹不匹配的条目会被重新索引", () => {
   db.run("UPDATE memories SET embed_meta = 'stale-model:q8:512', embedding = X'00'");
   expect(dao.listUnindexed(10)).toHaveLength(1);
 });
+
+// 维度迁移护栏（回归锁，2026-10-09 换模型 bge-small-zh 512 维 → bge-base-zh 768 维）：
+// 存量库里的旧维度向量 + 旧指纹，在新代码下回填后必须被新维度新指纹完全覆盖——
+// 防「旧向量残留被当有效索引」的静默污染。
+test.skipIf(modelUnavailable)(
+  "存量旧维度向量+旧指纹：回填后完全替换为新维度新指纹",
+  async () => {
+    const a = add("发版流程需要先跑单元测试");
+    // 模拟存量：2048 字节（512 维 float32）旧向量 + 旧模型指纹
+    db.run("UPDATE memories SET embedding = zeroblob(2048), embed_meta = 'Xenova/bge-small-zh-v1.5:q8:512' WHERE id = ?", [a.id]);
+    expect(dao.listUnindexed(10)).toHaveLength(1); // 指纹不匹配 → 待索引
+
+    const res = await indexPendingMemories(dao, { batchSize: 8 });
+    expect(res.indexed).toBe(1);
+    const row = dao.getById(a.id)!;
+    expect(row.embedding!.length).toBe(3072); // 768 维 × 4 字节
+    expect(row.embedMeta).toBe("Xenova/bge-base-zh-v1.5:q8:768");
+    expect(dao.listUnindexed(10)).toHaveLength(0);
+  },
+);
 
 test("更新内容后该条目重新变为待索引", () => {
   const a = add("旧内容");
@@ -117,9 +137,9 @@ test.skipIf(modelUnavailable)("回填后生产路径自动刷新量化索引，�
 // 打分全集（FULL_SCAN_CAP = 2000）会重新每次多读 / 多分配约 4MB BLOB，本例会立刻变红。
 test("词法检索不物化向量：hit 的 embedding 为 null", () => {
   const a = add("发布流程需要先跑单元测试");
-  // 造一个「已索引」条目（2KB 向量已落库）
+  // 造一个「已索引」条目（当前维度的向量已落库）
   db.run("UPDATE memories SET embedding = ?, embed_meta = ? WHERE id = ?", [
-    new Uint8Array(512 * 4),
+    new Uint8Array(EMBED_DIM * 4),
     dao.embedFingerprint(),
     a.id,
   ]);

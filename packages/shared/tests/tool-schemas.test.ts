@@ -47,8 +47,6 @@ test("memory 工具描述可从 @wa-pi/shared 导入", async () => {
     MEM_REPLACE_SNIPPET,
     MEM_REMOVE_DESC,
     MEM_REMOVE_SNIPPET,
-    MEM_READ_DESC,
-    MEM_READ_SNIPPET,
   } = await import("@wa-pi/shared/tool-schemas");
   expect(typeof MEM_TARGET_DESC).toBe("string");
   expect(typeof MEM_SCOPE_DESC).toBe("string");
@@ -58,8 +56,10 @@ test("memory 工具描述可从 @wa-pi/shared 导入", async () => {
   expect(typeof MEM_REPLACE_SNIPPET).toBe("string");
   expect(typeof MEM_REMOVE_DESC).toBe("string");
   expect(typeof MEM_REMOVE_SNIPPET).toBe("string");
-  expect(typeof MEM_READ_DESC).toBe("string");
-  expect(typeof MEM_READ_SNIPPET).toBe("string");
+  // memory_read 已移除（2026-10-09）：其文案常量随之删除，防复活
+  const schemas = await import("@wa-pi/shared/tool-schemas");
+  expect("MEM_READ_DESC" in schemas).toBe(false);
+  expect("MEM_READ_SNIPPET" in schemas).toBe(false);
 });
 
 test("MEM_ADD_DESC 明确「双类型记录、琐事不记、任务完成必写执行记录」的存储准则", async () => {
@@ -99,13 +99,13 @@ test("MEM_SEARCH_DESC 给出「先查记忆再行动」的判定细则（知识/
   expect(MEM_SEARCH_DESC).toContain("single-point lookups");
 });
 
-test("MEM_SEARCH_DESC / MEM_READ_DESC 声明未传 scope 的检索范围（全局+当前项目，不跨项目）", async () => {
+test("MEM_SEARCH_DESC 声明未传 scope 的检索范围（全局+当前项目，不跨项目）", async () => {
   // 2026-09-20 项目隔离：读侧未传 scope 不再跨项目，描述必须同步声明
   // （否则 agent 会误以为能看到其它项目的记忆，或反过来不敢检索）。
-  const { MEM_SEARCH_DESC, MEM_READ_DESC, MEM_SCOPE_DESC } = await import(
+  const { MEM_SEARCH_DESC, MEM_SCOPE_DESC } = await import(
     "@wa-pi/shared/tool-schemas"
   );
-  for (const desc of [MEM_SEARCH_DESC, MEM_READ_DESC, MEM_SCOPE_DESC]) {
+  for (const desc of [MEM_SEARCH_DESC, MEM_SCOPE_DESC]) {
     expect(desc).toContain("other projects' entries are never returned");
   }
 });
@@ -198,7 +198,6 @@ test("记忆工具的模型可见文案不再指向已废弃的 MEMORY.md / USER
     "MEM_ADD_SNIPPET",
     "MEM_REPLACE_SNIPPET",
     "MEM_REMOVE_SNIPPET",
-    "MEM_READ_SNIPPET",
   ]) {
     const value = schemas[name];
     expect(typeof value).toBe("string");
@@ -239,7 +238,6 @@ test("MEM_REPLACE_DESC / MEM_REMOVE_DESC 说明「id 优先，无 id 才用 oldT
     expect(desc).toMatch(/[Pp]refer/);
     expect(desc).toContain("id");
     expect(desc).toContain("memory_search");
-    expect(desc).toContain("memory_read");
     expect(desc).toContain("oldText");
   }
 });

@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   EMBED_DIM,
+  EMBED_MODEL,
   embedDocuments,
   embedQuery,
   embedFingerprint,
@@ -31,13 +32,22 @@ if (modelUnavailable) {
   console.warn(`[memory-embedder.test] ${gate.detail}`);
 }
 
-test.skipIf(modelUnavailable)("embedDocuments 返回 512 维 Float32 字节且长度与输入一致", async () => {
+test.skipIf(modelUnavailable)("embedDocuments 返回 EMBED_DIM 维 Float32 字节且长度与输入一致（bge-base-zh 为 768 维）", async () => {
   const out = await embedDocuments(["发版流程需要先跑单元测试", "今天中午吃什么"]);
   expect(out).toHaveLength(2);
   expect(out[0]).toBeInstanceOf(Uint8Array);
   expect(out[0].byteLength).toBe(EMBED_DIM * 4);
-  // 冷环境下首次模型下载/加载（约 23MB）可能超过 bun 默认的 5s 单测超时，故此例显式放宽。
+  // 冷环境下首次模型下载/加载（约 98MB）可能超过 bun 默认的 5s 单测超时，故此例显式放宽。
 }, 60_000);
+
+// 选型钉子（2026-10-09 POC 结论）：bge-base-zh-v1.5 + CLS（bench hit@1 0.91 vs small/mean 0.73），
+// 防止模型名 / 维度 / 池化口径被无意识地改回去。
+test("选型契约：bge-base-zh-v1.5 / 768 维 / q8 / CLS 口径", () => {
+  expect(EMBED_MODEL).toBe("Xenova/bge-base-zh-v1.5");
+  expect(EMBED_DIM).toBe(768);
+  const f = embedFingerprint();
+  expect(f).toBe("Xenova/bge-base-zh-v1.5:q8:768");
+});
 
 test.skipIf(modelUnavailable)("语义相近的句子余弦相似度显著高于无关句", async () => {
   const [a, b, c] = await embedDocuments([

@@ -11,6 +11,7 @@ import {
   refreshQuantizedIndex,
   quantizedScan,
   isVectorReady,
+  EMBED_DIM,
 } from "../src/memory/vector-ext";
 
 /** 静音并捕获 console.error：断言降级日志，同时不让预期内的报错刷屏 */
@@ -48,7 +49,7 @@ test("initVectorColumn 在已有 memories 表上成功", () => {
 test("写入 embedding 后可被量化扫描命中", () => {
   loadVectorExtension(db);
   initVectorColumn(db);
-  const vec = new Uint8Array(new Float32Array(512).fill(0.1).buffer);
+  const vec = new Uint8Array(new Float32Array(EMBED_DIM).fill(0.1).buffer);
   db.run(
     "INSERT INTO memories(id, kind, target, scope, content, title, source, created_at, updated_at, embedding)" +
       " VALUES ('m1','knowledge','memory','project','发版流程','发版流程','agent',1,1,?)",
@@ -63,7 +64,7 @@ test("未初始化时 isVectorReady 为 false，且扫描返回空而不抛错",
   const fresh = new Database(":memory:");
   fresh.run(SCHEMA_SQL);
   expect(isVectorReady(fresh)).toBe(false);
-  expect(quantizedScan(fresh, new Uint8Array(512 * 4), 5)).toEqual([]);
+  expect(quantizedScan(fresh, new Uint8Array(EMBED_DIM * 4), 5)).toEqual([]);
   fresh.close();
 });
 
@@ -102,7 +103,7 @@ test("openMemoryDb 打开后向量通道已就绪且能扫描命中", () => {
   try {
     const live = openMemoryDb(dir);
     expect(isVectorReady(live)).toBe(true);
-    const vec = new Uint8Array(new Float32Array(512).fill(0.25).buffer);
+    const vec = new Uint8Array(new Float32Array(EMBED_DIM).fill(0.25).buffer);
     live.run(
       "INSERT INTO memories(id, kind, target, scope, content, title, source, created_at, updated_at, embedding)" +
         " VALUES ('wire1','knowledge','memory','project','接线验证','接线验证','agent',1,1,?)",

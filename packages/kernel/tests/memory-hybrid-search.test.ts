@@ -4,7 +4,14 @@ import { SCHEMA_SQL } from "../src/memory/schema";
 import { MemoryDao } from "../src/memory/dao";
 import { loadVectorExtension, initVectorColumn, refreshQuantizedIndex } from "../src/memory/vector-ext";
 import { indexPendingMemories } from "../src/memory/vector-index";
-import { fuseRrf, normalizeScores, RRF_K, searchHybrid } from "../src/memory/hybrid-search";
+import {
+	fuseRrf,
+	normalizeScores,
+	RRF_K,
+	searchHybrid,
+	SEMANTIC_MAX_DISTANCE,
+	withinSemanticDistance,
+} from "../src/memory/hybrid-search";
 import { embedQuery, embedQueryCallsForTest, resetEmbedderForTest } from "../src/memory/embedder";
 import {
   probeModelAvailability,
@@ -89,6 +96,34 @@ test("fuseRrf 按名次融合并对只出现在单路的条目降权", () => {
   expect(byId["b"]).toBeGreaterThan(byId["c"]);
 });
 
+// 语义候选相关度门槛（bge-base-zh-v1.5 q8/CLS 实测重校 2026-10-09）：vector_init 配置
+// distance=COSINE,normalized=1，scanDistance = 1 − 余弦相似度（量化近似，偏差 ≤0.002，
+// 越小越相关）。三查询×6 语料实测：相关/弱相关 0.51~0.62，无关 0.75~0.88 ——
+// 0.75 落在分布间隙上，既拦多数无关又保相关。
+// 过滤点在 searchHybrid 的语义候选组装处：超过阈值的候选不进 RRF 融合。
+test("SEMANTIC_MAX_DISTANCE 契约：阈值 0.75", () => {
+  expect(SEMANTIC_MAX_DISTANCE).toBe(0.75);
+});
+
+test("withinSemanticDistance 边界：≤ 0.75 放行、> 0.75 拦截", () => {
+  expect(withinSemanticDistance(0)).toBe(true); // 完全相同
+  expect(withinSemanticDistance(0.62)).toBe(true); // 实测相关/弱相关上限
+  expect(withinSemanticDistance(0.75)).toBe(true); // 边界恰等：放行
+  expect(withinSemanticDistance(0.76)).toBe(false); // 刚越过阈值
+  expect(withinSemanticDistance(0.85)).toBe(false); // 实测无关区间
+  expect(withinSemanticDistance(1)).toBe(false); // 完全不相关
+});
+
+test("候选过滤：构造 distance 分布，只放行 ≤ 阈值的语义候选", () => {
+  const hits = [
+    { id: "near", distance: 0.5 },
+    { id: "edge", distance: 0.75 },
+    { id: "far", distance: 0.85 },
+  ];
+  const kept = hits.filter((h) => withinSemanticDistance(h.distance));
+  expect(kept.map((h) => h.id)).toEqual(["near", "edge"]);
+});
+
 // 任务 7 裁定：RRF 融合分数量级（单通道上限 1/(K+1)≈0.0164、双通道 2/(K+1)≈0.0328）
 // 必须归一到词法通道的「0–1 加权和」量纲，否则 memory_search 的 score 字段在接线前后
 // 是两套完全不同的数字（任何读 score 的展示 / 阈值 / 评测逻辑都会失真）。
@@ -120,6 +155,32 @@ test.skipIf(modelUnavailable)("语义通道能召回无共同关键词的条目"
   expect(hits[0].embedding ?? null).toBeNull();
   expect(hits.every((h) => (h.embedding ?? null) === null)).toBe(true);
 });
+
+test.skipIf(modelUnavailable)(
+  "语义通道正常但语义召回 0：返回空，不退词法（用户拍板：语义说了算）",
+  async () => {
+    // 构造「通道就绪、扫描为空」：库与扩展就绪，唯一条目刻意不回填（无 embedding），
+    // quantizedScan（WHERE embedding IS NOT NULL）扫 0 条；但查询词法必中。
+    // 旧行为：semanticIds.length === 0 → lexicalOnly() 返回词法命中（这正是要去掉的降级）。
+    const fresh = new Database(":memory:");
+    fresh.run(SCHEMA_SQL);
+    loadVectorExtension(fresh);
+    initVectorColumn(fresh);
+    const freshDao = new MemoryDao(fresh);
+    freshDao.insert({
+      kind: "knowledge",
+      target: "memory",
+      scope: "project",
+      projectId: "Wa-Pi",
+      content: "发版流程需要先跑单元测试和四层测试",
+      source: "agent",
+    });
+    // 刻意不 indexPendingMemories / refreshQuantizedIndex：该条目无向量，语义扫不到它
+    const hits = await searchHybrid(freshDao, "发版流程", { projectScope: "Wa-Pi", limit: 3 });
+    expect(hits).toEqual([]);
+    fresh.close();
+  },
+);
 
 test("词法精确查询仍能命中（不被语义通道淹没）", async () => {
   // 语料条数必须 > limit：否则无论融合怎么排，返回集都必然含全部语料，断言恒真

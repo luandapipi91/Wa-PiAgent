@@ -11,7 +11,7 @@ export const SCHEMA_VERSION = "3";
  * 单一来源：embedder 与 vector-ext 都从这里导入，避免两处硬编码各自漂移
  * （两个模块保持互不依赖，只共同依赖本文件）。
  */
-export const EMBED_DIM = 512;
+export const EMBED_DIM = 768;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS memories (

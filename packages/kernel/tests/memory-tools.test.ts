@@ -37,10 +37,9 @@ beforeEach(() => {
   tools = createMemoryTools(ctx);
 });
 
-test("注册 5 个工具，名字齐全", () => {
+test("注册 4 个工具，名字齐全（memory_read 已移除：search 返回结果自带 id）", () => {
   expect(tools.map((t) => t.name).sort()).toEqual([
     "memory_add",
-    "memory_read",
     "memory_remove",
     "memory_replace",
     "memory_search",
@@ -157,8 +156,7 @@ test("memory_remove 只删目标条目，不动其它条目的 scope 与 kind", 
   expect([rows[0].scope, rows[0].kind]).toEqual(["global", "profile"]);
 });
 
-test("memory_read / memory_search 只读：不产生任何条目", async () => {
-  await call("memory_read", {});
+test("memory_search 只读：不产生任何条目", async () => {
   await call("memory_search", { query: "任意" });
   expect(ctx.dao.list({ includeArchived: true })).toHaveLength(0);
 });
@@ -236,13 +234,11 @@ test("memory_replace 多命中时返回候选 id 要求澄清", async () => {
   expect(res.matches.length).toBe(2);
 });
 
-test("memory_read 返回结构化列表与计数", async () => {
+test("memory_search 返回结果含 id（replace/remove 的 id 来源）", async () => {
   await call("memory_add", { target: "user", content: "画像" });
-  await call("memory_add", { target: "memory", content: "笔记" });
-  const res = await call("memory_read", {});
-  expect(res.entries.length).toBe(2);
-  expect(res.counts.profile).toBe(1);
-  expect(res.counts.knowledge).toBe(1);
+  const res = await call("memory_search", { query: "画像" });
+  expect(res.results.length).toBeGreaterThan(0);
+  expect(typeof res.results[0].id).toBe("string");
 });
 
 test("memory_remove 按 id 删除", async () => {
@@ -384,13 +380,11 @@ async function seedTwoProjects() {
   await call("memory_add", { target: "memory", content: "P2 项目备忘" });
 }
 
-test("scope=project 但无项目上下文时 read/search/replace/remove 一律拒绝且不动库", async () => {
+test("scope=project 但无项目上下文时 search/replace/remove 一律拒绝且不动库", async () => {
   await seedTwoProjects();
   ctx = { ...ctx, projectId: null };
   tools = createMemoryTools(ctx);
 
-  const read = await call("memory_read", { scope: "project" });
-  expect(read.success).toBe(false);
   const search = await call("memory_search", {
     query: "项目备忘",
     scope: "project",
@@ -442,7 +436,7 @@ test("显式 scope=project 时按 oldText 与按 id 的变更同样被拒", asyn
   expect(ctx.dao.list({ includeArchived: true })).toHaveLength(2);
 });
 
-test("未传 scope 的检索（search/read）限定为全局+当前项目，别项目条目不可见", async () => {
+test("未传 scope 的检索限定为全局+当前项目，别项目条目不可见", async () => {
   await seedTwoProjects(); // P1 / P2 各一条项目记忆，结束时 ctx.projectId = "P2"
   await call("memory_add", { target: "user", content: "全局画像 gscope" });
   ctx = { ...ctx, projectId: "P1" };
@@ -453,12 +447,9 @@ test("未传 scope 的检索（search/read）限定为全局+当前项目，别�
   expect(search.results.map((r: any) => r.projectId)).toEqual(["P1"]);
   expect(search.totalMatched).toBe(1);
 
-  // read：全局条目仍可见（不算跨项目），别项目条目不可见
-  const read = await call("memory_read", {});
-  const contents = read.entries.map((e: any) => e.content);
-  expect(contents).toContain("P1 项目备忘");
-  expect(contents).toContain("全局画像 gscope");
-  expect(contents).not.toContain("P2 项目备忘");
+  // 全局条目仍可见（不算跨项目）：查询词直接命中全局画像
+  const g = await call("memory_search", { query: "gscope" });
+  expect(g.results.map((r: any) => r.scope)).toEqual(["global"]);
 });
 
 test("无项目上下文时未传 scope 只返回全局条目（不返回任何项目条目）", async () => {
@@ -469,11 +460,12 @@ test("无项目上下文时未传 scope 只返回全局条目（不返回任何�
 
   const search = await call("memory_search", { query: "项目备忘" });
   expect(search.results).toHaveLength(0);
-  const read = await call("memory_read", {});
-  expect(read.entries.map((e: any) => e.content)).toEqual(["全局画像 noctx"]);
+  // 全局条目仍可被检索到（默认读范围 = 全局）
+  const g = await call("memory_search", { query: "noctx" });
+  expect(g.results.map((r: any) => r.title)).toEqual(["全局画像 noctx"]);
 });
 
-test("未传 scope 的 read/search 在无项目上下文下仍可用（只见全局），全局变更不受影响", async () => {
+test("未传 scope 的 search 在无项目上下文下仍可用（只见全局），全局变更不受影响", async () => {
   // 全局条目只能是画像（global + profile）——这是无项目上下文时唯一可见的一类
   await call("memory_add", {
     target: "user",
@@ -483,7 +475,6 @@ test("未传 scope 的 read/search 在无项目上下文下仍可用（只见全
   ctx = { ...ctx, projectId: null };
   tools = createMemoryTools(ctx);
 
-  expect((await call("memory_read", {})).entries).toHaveLength(1);
   expect(
     (await call("memory_search", { query: "zebrascope" })).results,
   ).toHaveLength(1);
@@ -675,13 +666,8 @@ test("memory_add 对 title 做与 content 同规则的注入校验（写入侧�
   expect(ctx.dao.counts()).toEqual({ profile: 0, knowledge: 0, execution: 0 });
 });
 
-test("memory_read 的条目 title 与 content 同样被净化", async () => {
-  const row = pollute(`前情 ${PAYLOAD} 后果`, `标题 ${PAYLOAD}`);
-  const res = await call("memory_read", {});
-  const entry = res.entries.find((e: any) => e.id === row.id);
-  expect(entry.title).toBe("[BLOCKED]");
-  expect(entry.content).toBe("[BLOCKED]");
-});
+// （原「memory_read 的条目 title 与 content 同样被净化」随 memory_read 移除：
+// search 用例上方已完整覆盖 title / snippet / 全载荷净化。）
 
 // =========================================================================
 // memory_search 的时间范围过滤（since / until / timeField）
@@ -861,6 +847,36 @@ test.skipIf(modelUnavailable)(
     // totalMatched 口径：语义独有命中时纯词法 countMatches 为 0，若原样回灌给模型，
     // 会出现「results 有 1 条而 totalMatched: 0」的自相矛盾。口径收敛为「不小于返回条数」。
     expect(res.totalMatched).toBeGreaterThanOrEqual(res.results.length);
+    db.close();
+  },
+);
+
+// 语义通道正常但 0 召回（如条目尚未回填向量）：用户拍板语义说了算——返回空，
+// 不退词法；totalMatched 必须同步归 0，不得出现「results 空而 totalMatched>0」
+// 的词法口径回灌矛盾。
+test.skipIf(modelUnavailable)(
+  "语义零召回时 memory_search 返回空且 totalMatched 归 0",
+  async () => {
+    const db = new Database(":memory:");
+    db.run(SCHEMA_SQL);
+    loadVectorExtension(db);
+    initVectorColumn(db);
+    const localDao = new MemoryDao(db);
+    localDao.insert({
+      kind: "knowledge",
+      target: "memory",
+      scope: "project",
+      projectId: "Wa-Pi",
+      content: "发版流程需要先跑单元测试和四层测试",
+      source: "agent",
+    });
+    // 刻意不回填：语义扫描 0 条；查询词「发版流程」词法必中（旧行为会退回词法结果）
+    const res = await searchOnce(
+      createMemoryTools({ dao: localDao, projectId: "Wa-Pi" }),
+      { query: "发版流程", limit: 3 },
+    );
+    expect(res.results).toHaveLength(0);
+    expect(res.totalMatched).toBe(0);
     db.close();
   },
 );

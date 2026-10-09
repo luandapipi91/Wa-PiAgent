@@ -14,6 +14,16 @@ export const RRF_K = 60;
 /** 每个通道取多少条参与融合 */
 export const CHANNEL_TOP_N = 50;
 
+/** 语义候选相关度门槛：scanDistance = 1 − 余弦相似度（量化近似，偏差 ≤0.002），≤ 阈值放行。
+ *  bge-base-zh-v1.5 q8/CLS 实测（2026-10-09 三查询×6 语料）：相关/弱相关 0.51~0.62，
+ *  无关 0.75~0.88 —— 0.75 落在分布间隙上，既拦多数无关又保相关。 */
+export const SEMANTIC_MAX_DISTANCE = 0.75;
+
+/** 语义候选相关度判定：距离 ≤ 阈值（即相似度足够）才进 RRF 融合 */
+export function withinSemanticDistance(distance: number): boolean {
+	return distance <= SEMANTIC_MAX_DISTANCE;
+}
+
 export interface FusedItem<T> {
   item: T;
   score: number;
@@ -81,19 +91,31 @@ export async function searchHybrid(
   // 绝不让 memory_search 失败。
   try {
     let semanticIds: string[] = [];
+    // 「语义通道可用」＝扩展就绪且查询向量编码成功；此时结果由语义说了算，
+    // 即使召回 0 条也不退词法（用户拍板）。只有通道本身不可用才降级词法。
+    let semanticAvailable = false;
     if (isVectorReady(dao.db)) {
       // 查询侧编码可能抛错（推理期原生绑定异常等，embedder 的加载期 catch 覆盖不到）。
       const qv = await embedQuery(rawQuery);
       if (qv) {
+        semanticAvailable = true;
         // 扫描宽度 SCAN_K 远大于最终返回条数：过滤发生在扫描之后，
         // 且 scope 收窄（global + 当前项目）会进一步削减候选。
+        // 相关度门槛（用户拍板 0.8）：量化距离超过阈值的候选不进融合，
+        // 低相关的语义命中不再「哪怕相似度低也会返回」。
         semanticIds = quantizedScan(dao.db, qv)
+          .filter((hit) => withinSemanticDistance(hit.distance))
           .filter((hit) => dao.matchesScope(hit.id, opts))
           .map((hit) => hit.id);
       }
     }
 
-    if (semanticIds.length === 0) return lexicalOnly();
+    // 通道不可用（扩展未就绪 / 模型不可用）：降级纯词法——这是唯一允许的降级场景。
+    if (!semanticAvailable) return lexicalOnly();
+
+    // 语义正常但召回 0（库内无向量 / 被 0.8 门槛滤光）：语义说了算，返回空，
+    // 不再退回关键词匹配——避免「语义认为没有，词法却回了低相关条目」的噪音。
+    if (semanticIds.length === 0) return [];
 
     const semanticRows = dao.getByIds(semanticIds);
     const fused = fuseRrf<{ id: string }>(

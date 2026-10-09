@@ -1,15 +1,17 @@
-// 本地 embedding 引擎：bge-small-zh-v1.5 (q8) + transformers.js。
+// 本地 embedding 引擎：bge-base-zh-v1.5 (q8, CLS) + transformers.js。
 //
 // 设计要点：
 // - 懒加载单例：模型首次使用时才下载/加载，加载失败只记录一次日志并永久降级。
 // - query 侧加指令前缀（bge 官方建议），document 侧不加。
+// - 模型选型（2026-10-09 POC）：bge-base-zh-v1.5 q8/CLS，bench hit@1 0.91 / MRR 0.922
+//   （bge-small-zh mean 口径为 0.73/0.774，见 docs/poc-embedding-model.md）。
 // - 512 token 上限，超长由 tokenizer 截断。
 // - 输出 L2 归一化后的 Float32，包装成 Uint8Array 以直接写入 SQLite BLOB。
 import type { FeatureExtractionPipeline } from "@huggingface/transformers";
 
 import { EMBED_DIM } from "./schema";
 
-export const EMBED_MODEL = "Xenova/bge-small-zh-v1.5";
+export const EMBED_MODEL = "Xenova/bge-base-zh-v1.5";
 export const EMBED_DTYPE = "q8";
 export { EMBED_DIM };
 /** bge 系列建议的检索指令前缀（仅 query 侧） */
@@ -99,7 +101,7 @@ export async function embedDocuments(texts: string[]): Promise<Uint8Array[]> {
   if (texts.length === 0) return [];
   const p = await getPipeline();
   if (!p) return [];
-  const out = await p(texts, { pooling: "mean", normalize: true });
+  const out = await p(texts, { pooling: "cls", normalize: true });
   return (out.tolist() as number[][]).map(packFloat32);
 }
 
@@ -110,7 +112,7 @@ export async function embedQuery(text: string): Promise<Uint8Array | null> {
   if (!trimmed) return null;
   const p = await getPipeline();
   if (!p) return null;
-  const out = await p([QUERY_PREFIX + trimmed], { pooling: "mean", normalize: true });
+  const out = await p([QUERY_PREFIX + trimmed], { pooling: "cls", normalize: true });
   const [vec] = out.tolist() as number[][];
   return packFloat32(vec);
 }

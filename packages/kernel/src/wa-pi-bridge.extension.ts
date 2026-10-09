@@ -26,8 +26,6 @@ import {
 	MEM_REPLACE_SNIPPET,
 	MEM_REMOVE_DESC,
 	MEM_REMOVE_SNIPPET,
-	MEM_READ_DESC,
-	MEM_READ_SNIPPET,
 	MEM_SEARCH_DESC,
 	MEM_SEARCH_SNIPPET,
 	MemoryTargetSchema,
@@ -421,7 +419,7 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			id: Type.Optional(
 				Type.String({
-					description: "Entry id from memory_search / memory_read (preferred).",
+					description: "Entry id from memory_search (preferred).",
 				}),
 			),
 			target: Type.Optional(MemoryTargetSchema),
@@ -466,30 +464,6 @@ export default function (pi: ExtensionAPI) {
 		async execute(toolCallId, params, signal) {
 			return callBridge(
 				"memory_remove",
-				toolCallId,
-				params,
-				signal,
-				DEFAULT_TIMEOUT_MS,
-			);
-		},
-	});
-
-	pi.registerTool({
-		name: "memory_read",
-		label: "Memory",
-		description: MEM_READ_DESC,
-		promptSnippet: MEM_READ_SNIPPET,
-		parameters: Type.Object({
-			target: Type.Optional(MemoryTargetSchema),
-			scope: Type.Optional(MemoryScopeSchema),
-			kind: Type.Optional(MemoryKindSchema),
-			limit: Type.Optional(
-				Type.Number({ description: "Max entries (default 50)." }),
-			),
-		}),
-		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"memory_read",
 				toolCallId,
 				params,
 				signal,

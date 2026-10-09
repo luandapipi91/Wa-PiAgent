@@ -55,7 +55,7 @@ export const MEM_TARGET_DESC =
 export const MEM_SCOPE_DESC =
   "Which scope to write to / search in: 'global' (cross-project) or 'project' (current project only). " +
   "Omit for the default — writes: 'global' for the user target, 'project' for the memory target; " +
-  "reads (memory_search / memory_read): global entries plus the current project's entries — other projects' entries are never returned.";
+  "reads (memory_search): global entries plus the current project's entries — other projects' entries are never returned.";
 
 export const MEM_ADD_DESC =
   "Append a new entry to memory. Memory has two record types: " +
@@ -76,7 +76,7 @@ export const MEM_ADD_SNIPPET =
   "Append durable facts to the user profile or your own notes (global or project scope).";
 
 export const MEM_REPLACE_DESC =
-  "Replace an existing memory entry. Prefer the entry id from memory_search / memory_read; " +
+  "Replace an existing memory entry. Prefer the entry id from memory_search; " +
   "without an id, locate it by a short unique substring (oldText) and replace with newContent. " +
   "Use this to update outdated entries instead of remove+add. SCOPE defaults like memory_add.";
 
@@ -84,20 +84,12 @@ export const MEM_REPLACE_SNIPPET =
   "Update an existing memory entry (user profile or your notes).";
 
 export const MEM_REMOVE_DESC =
-  "Remove a memory entry. Prefer the entry id from memory_search / memory_read; " +
+  "Remove a memory entry. Prefer the entry id from memory_search; " +
   "without an id, locate it by a short unique substring (oldText). " +
   "Use when an entry is wrong or no longer relevant. SCOPE defaults like memory_add.";
 
 export const MEM_REMOVE_SNIPPET =
   "Delete a memory entry (user profile or your notes).";
-
-export const MEM_READ_DESC =
-  "Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
-  "SCOPE: omit to read the global entries plus the current project's entries — other projects' entries are never returned; " +
-  "'global' / 'project' narrow it explicitly. (Writing defaults like memory_add.)";
-
-export const MEM_READ_SNIPPET =
-  "Read the current contents of a memory store (user profile or your notes).";
 
 export const MEM_SEARCH_DESC =
   "Full-text (BM25) search over memory entries, including ones NOT shown in the system prompt. " +
@@ -374,7 +366,6 @@ export const BRIDGE_TOOL_NAMES = [
   "memory_add",
   "memory_replace",
   "memory_remove",
-  "memory_read",
   "memory_search",
   "delegate",
   "browser_navigate",

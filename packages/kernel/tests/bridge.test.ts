@@ -32,6 +32,8 @@ import {
 	makeDefaultBridgeContext,
 	type BridgeSessionContext,
 } from "../src/bridge-registry";
+import { indexPendingMemories } from "../src/memory/vector-index";
+import { refreshQuantizedIndex } from "../src/memory/vector-ext";
 import { askRegistry } from "../src/ask-registry";
 import { makeAskTool } from "../src/ask-tool";
 import { createMemoryTools } from "../src/memory/tools";
@@ -54,7 +56,6 @@ const ALL_BRIDGE_TOOLS = [
 	"memory_add",
 	"memory_replace",
 	"memory_remove",
-	"memory_read",
 	"memory_search",
 	"delegate",
 	"browser_navigate",
@@ -161,7 +162,7 @@ function makeMemoryCtx() {
 
 // ---- ensureBridgeExtension ----
 
-test("ensureBridgeExtension 生成文件存在且包含全部 14 个工具名，幂等覆盖", async () => {
+test("ensureBridgeExtension 生成文件存在且包含全部 13 个工具名，幂等覆盖", async () => {
 	const p1 = await ensureBridgeExtension();
 	expect(p1).toBe(BRIDGE_EXTENSION_PATH);
 	expect(existsSync(p1)).toBe(true);
@@ -324,8 +325,8 @@ test("handleBridgeRequest：已注册 → 调用 ctx.handleTool 并透传结果"
 		token: getBridgeToken(),
 		sessionId: "s1",
 		toolCallId: "tc9",
-		tool: "memory_read",
-		params: { target: "memory" },
+		tool: "memory_search",
+		params: { query: "任意" },
 	});
 	expect(r.ok).toBe(true);
 	if (r.ok) {
@@ -333,7 +334,7 @@ test("handleBridgeRequest：已注册 → 调用 ctx.handleTool 并透传结果"
 		expect((r.result.details as any).ok).toBe(1);
 	}
 	expect(seen).toEqual([
-		{ tool: "memory_read", toolCallId: "tc9", params: { target: "memory" } },
+		{ tool: "memory_search", toolCallId: "tc9", params: { query: "任意" } },
 	]);
 });
 
@@ -399,11 +400,12 @@ test("default ctx：ask 正常 answers 文本拼接", async () => {
 
 // ---- makeDefaultBridgeContext：memory 回路 / delegate 桩 ----
 
-test("default ctx：memory_add 后 memory_read 能读回", async () => {
+test("default ctx：memory_add 后 memory_search 能读回", async () => {
+	const memoryCtx = makeMemoryCtx();
 	const ctx = makeDefaultBridgeContext({
 		sessionId: "s1",
 		cwd: tmpDir,
-		memoryCtx: makeMemoryCtx(),
+		memoryCtx,
 	});
 	const signal = new AbortController().signal;
 	await ctx.handleTool(
@@ -412,10 +414,14 @@ test("default ctx：memory_add 后 memory_read 能读回", async () => {
 		{ target: "memory", content: "bridge 记忆条目" },
 		signal,
 	);
+	// 新策略：语义可用时结果由语义+词法融合产出，0 召回不退词法——写入后先回填，
+	// 让语义通道拿到向量（生产由 debounce 回填完成，这里手动触发等价路径）。
+	await indexPendingMemories(memoryCtx.dao);
+	refreshQuantizedIndex(memoryCtx.dao.db);
 	const out = await ctx.handleTool(
-		"memory_read",
+		"memory_search",
 		"tc2",
-		{ target: "memory" },
+		{ query: "bridge 记忆条目" },
 		signal,
 	);
 	expect(out.content[0].text).toContain("bridge 记忆条目");
@@ -451,6 +457,10 @@ test("default ctx：未传 scope 的检索限定全局+当前项目，别项目�
 		signal,
 	);
 
+	// 新策略：语义可用时 0 召回不退词法——先回填，让语义通道拿到向量（生产为 debounce 回填）
+	await indexPendingMemories(memoryCtx.dao);
+	refreshQuantizedIndex(memoryCtx.dao.db);
+
 	// 真实 bridge 链路：未传 scope → 本项目条目与全局条目可见，别项目条目不可见
 	const out = await ctx.handleTool(
 		"memory_search",
@@ -462,16 +472,6 @@ test("default ctx：未传 scope 的检索限定全局+当前项目，别项目�
 	expect(text).toContain("本项目备忘");
 	expect(text).toContain("全局画像");
 	expect(text).not.toContain("别项目备忘");
-
-	// memory_read 同理（列条目也不得跨项目）
-	const read = await ctx.handleTool(
-		"memory_read",
-		"tc4",
-		{ target: "memory" },
-		signal,
-	);
-	expect(read.content[0].text).toContain("本项目备忘");
-	expect(read.content[0].text).not.toContain("别项目备忘");
 });
 
 test("default ctx：delegate/fleet 返回 not_wired 桩", async () => {
@@ -1018,12 +1018,12 @@ test("im_push_to：未设 env 也注册（14 工具，普通会话工具面板�
 	}
 });
 
-test("im_push_to：始终注册（共 14 个工具），description 为通用引导（不含联系人列表）", async () => {
+test("im_push_to：始终注册（共 13 个工具），description 为通用引导（不含联系人列表）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools).toHaveLength(14);
+		expect(tools).toHaveLength(13);
 		const imPush = tools.find((t: any) => t.name === "im_push_to");
 		expect(imPush).toBeTruthy();
 		// env 仅作诊断用途，不再写入 description（联系人由消息标记自描述）

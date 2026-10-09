@@ -2295,9 +2295,9 @@ test("自动学习关闭（reviewEnabled=false）时记忆工具返回关闭提�
 
 	const ctx = getBridgeSession(session.id)!;
 	const result = await ctx.handleTool(
-		"memory_read",
+		"memory_search",
 		"tc1",
-		{ target: "memory", scope: "global" },
+		{ target: "memory", scope: "global", query: "任意" },
 		new AbortController().signal,
 	);
 	expect(result.content[0].text).toContain("记忆功能已关闭");
@@ -2310,9 +2310,9 @@ test("默认（不传 memoryStore）记忆工具可用", async () => {
 
 	const ctx = getBridgeSession(session.id)!;
 	const result = await ctx.handleTool(
-		"memory_read",
+		"memory_search",
 		"tc1",
-		{ target: "memory", scope: "global" },
+		{ target: "memory", scope: "global", query: "任意" },
 		new AbortController().signal,
 	);
 	expect(result.content[0].text).not.toContain("记忆功能已关闭");

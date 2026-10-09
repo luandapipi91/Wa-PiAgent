@@ -17,8 +17,6 @@ import {
   MEM_REPLACE_SNIPPET,
   MEM_REMOVE_DESC,
   MEM_REMOVE_SNIPPET,
-  MEM_READ_DESC,
-  MEM_READ_SNIPPET,
   MEM_SEARCH_DESC,
   MEM_SEARCH_SNIPPET,
   MemoryTargetSchema,
@@ -232,20 +230,6 @@ export function parseTimeBound(
  */
 function sanitize(text: string): string {
   return firstThreatMessage(text, "strict") ? "[BLOCKED]" : text;
-}
-
-function toEntryJson(r: MemoryRow) {
-  return {
-    id: r.id,
-    title: sanitize(r.title),
-    content: sanitize(r.content),
-    kind: r.kind,
-    scope: r.scope,
-    projectId: r.projectId,
-    createdAt: new Date(r.createdAt).toISOString(),
-    updatedAt: new Date(r.updatedAt).toISOString(),
-    archived: r.archived === 1,
-  };
 }
 
 /** 解析变更目标：id 优先；无 id 时按 target/scope + oldText 子串匹配 */
@@ -474,63 +458,12 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
           // 真实命中总数（与 results 同过滤条件，但不受 limit / CANDIDATE_LIMIT 截断）。
           // 语义独有命中时纯词法的 countMatches 会低于本次返回条数（语义候选不是词法命中），
           // 直接回灌会出现「results 有 N 条而 totalMatched: 0」的自相矛盾；故取口径下限：
-          // 至少不小于返回条数。
-          totalMatched: Math.max(
-            ctx.dao.countMatches(query, filter),
-            hits.length,
-          ),
-        });
-      },
-    },
-    {
-      name: "memory_read",
-      label: "Memory",
-      description: MEM_READ_DESC,
-      promptSnippet: MEM_READ_SNIPPET,
-      parameters: Type.Object({
-        target: Type.Optional(MemoryTargetSchema),
-        scope: Type.Optional(MemoryScopeSchema),
-        kind: Type.Optional(MemoryKindSchema),
-        limit: Type.Optional(
-          Type.Number({ description: "Max entries (default 50)." }),
-        ),
-      }),
-      async execute(_id: string, params: Record<string, unknown>) {
-        const scope =
-          params.scope === "global" || params.scope === "project"
-            ? (params.scope as MemoryScope)
-            : undefined;
-        const check = requireProjectId(ctx, scope);
-        if (!check.ok)
-          return jsonResult({ success: false, error: check.error });
-        const projectId = check.projectId ?? undefined;
-        // 未传 scope 时按会话项目上下文收窄：全局 + 当前项目（不再列出别项目条目）
-        const readScope = resolveDefaultReadScope(scope, ctx);
-        const listOpts: ListOpts = {
-          scope: readScope.scope,
-          projectScope: readScope.projectScope,
-          projectId,
-        };
-
-        const target =
-          str(params.target) === "user"
-            ? "user"
-            : str(params.target) === "memory"
-              ? "memory"
-              : undefined;
-        const kind =
-          params.kind === "execution" || params.kind === "knowledge"
-            ? params.kind
-            : undefined;
-        const limit = typeof params.limit === "number" ? params.limit : 50;
-
-        const rows = ctx.dao
-          .list({ ...listOpts, kind })
-          .filter((r) => !target || r.target === target)
-          .slice(0, limit);
-        return jsonResult({
-          entries: rows.map(toEntryJson),
-          counts: ctx.dao.counts(listOpts),
+          // 至少不小于返回条数。语义正常但 0 召回时 results 为空，此时结果不再由词法产生，
+          // countMatches 的词法口径必须归 0——否则「results 空而 totalMatched>0」又自相矛盾。
+          totalMatched:
+            hits.length > 0
+              ? Math.max(ctx.dao.countMatches(query, filter), hits.length)
+              : 0,
         });
       },
     },
@@ -542,8 +475,7 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
       parameters: Type.Object({
         id: Type.Optional(
           Type.String({
-            description:
-              "Entry id from memory_search / memory_read (preferred).",
+            description: "Entry id from memory_search (preferred).",
           }),
         ),
         target: Type.Optional(MemoryTargetSchema),

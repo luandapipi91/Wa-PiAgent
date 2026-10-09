@@ -1,6 +1,6 @@
 import { test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { SCHEMA_SQL } from "../src/memory/schema";
+import { SCHEMA_SQL, EMBED_DIM } from "../src/memory/schema";
 import { MemoryDao, deriveTitle, makeSnippet } from "../src/memory/dao";
 
 let dao: MemoryDao;
@@ -680,7 +680,7 @@ test("getByIds 不物化向量：命中行的 embedding 为 null", () => {
   const a = add({ content: "已索引的条目" });
   // 造一个「已索引」条目（2KB 向量已落库）
   dao.db.run("UPDATE memories SET embedding = ?, embed_meta = ? WHERE id = ?", [
-    new Uint8Array(512 * 4),
+    new Uint8Array(EMBED_DIM * 4),
     dao.embedFingerprint(),
     a.id,
   ]);

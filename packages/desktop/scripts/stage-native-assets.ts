@@ -33,6 +33,8 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+// 模型名单一来源：kernel 的 embedder 选型（换模型时本脚本自动跟随）
+import { EMBED_MODEL } from "../../kernel/src/memory/embedder";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const PKG = join(import.meta.dir, "..");
@@ -273,16 +275,16 @@ export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 	const spec = nativeTargetSpec(target);
 	const nativeRoot = join(RES, "native");
 
-	// ---- 1) 模型（q8，23.3MB） ----
+	// ---- 1) 模型（q8；bge-base-zh-v1.5 约 98MB，模型名单一来源 kernel EMBED_MODEL） ----
 	const transformersDir = resolvePackageDir(
 		"@huggingface/transformers",
 		KERNEL_PKG_DIR,
 	);
-	const modelSrc = join(transformersDir, ".cache", "Xenova", "bge-small-zh-v1.5");
+	const modelSrc = join(transformersDir, ".cache", ...EMBED_MODEL.split("/"));
 	if (!existsSync(modelSrc)) {
 		throw new Error(
 			`[native] 模型缓存不存在：${modelSrc}\n` +
-				`  内置模型是「离线可用」的前提，缺了它会退化为每次启动联网下载 23MB。\n` +
+				`  内置模型是「离线可用」的前提，缺了它会退化为每次启动联网下载约 98MB。\n` +
 				`  请先在有网机器上跑一次依赖模型的测试（bun test tests/memory-embedder.test.ts，\n` +
 				`  可配 WA_PI_HF_ENDPOINT 走镜像）把模型落到上述目录，再执行打包。`,
 		);
@@ -297,7 +299,7 @@ export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 	await rm(join(RES, "models"), { recursive: true, force: true });
 	const modelFiles = await copyTree(
 		modelSrc,
-		join(RES, "models", "Xenova", "bge-small-zh-v1.5"),
+		join(RES, "models", ...EMBED_MODEL.split("/")),
 		() => true,
 	);
 
