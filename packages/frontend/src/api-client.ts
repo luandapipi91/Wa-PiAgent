@@ -29,6 +29,14 @@ export class ApiError extends Error {
 	}
 }
 
+/**
+ * MCP 面板走 `pi mcp list` 的请求超时：kernel 冷缓存要真 spawn pi（一台慢 server 单台
+ * 可耗 60s+，kernel 缺省上限 70s，见 kernel/src/mcp-admin.ts DEFAULT_LIST_TIMEOUT_MS），
+ * 前端必须等得比 kernel 更久，否则 kernel 还在读状态、前端先把请求掐了——表现为
+ * 「加载中…」后列表空白（一台坏 server 拖垮整个面板）。
+ */
+export const MCP_RPC_TIMEOUT_MS = 80_000;
+
 async function request(
 	method: string,
 	path: string,
@@ -71,8 +79,8 @@ async function request(
 }
 
 export const api = {
-	get(path: string): Promise<unknown> {
-		return request("GET", path);
+	get(path: string, timeoutMs?: number): Promise<unknown> {
+		return request("GET", path, undefined, timeoutMs);
 	},
 	post(path: string, body?: unknown, timeoutMs?: number): Promise<unknown> {
 		return request("POST", path, body, timeoutMs);

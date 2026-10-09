@@ -64,13 +64,16 @@ function listResult(
   };
 }
 
-/** 可控的状态读取者：记录 force 参数，返回 canned 结果 */
-function makeAdmin(result: McpListResult & { stale: boolean }) {
+/** 可控的状态读取者：记录 force 参数，返回 canned 结果；cached 模拟 McpAdmin 的缓存状态 */
+function makeAdmin(result: McpListResult & { stale: boolean }, opts: { cached?: boolean } = {}) {
   const forceArgs: (boolean | undefined)[] = [];
   let invalidations = 0;
+  // 缺省视为「有缓存」：既有用例的语义都是状态可即时取回（走 listWithState）
+  const cachedNow = opts.cached ?? true;
   return {
     forceArgs,
     invalidations: () => invalidations,
+    cached: () => cachedNow,
     list: async (force?: boolean) => {
       forceArgs.push(force);
       return result;
@@ -318,6 +321,41 @@ describe("GET /api/mcp", () => {
     expect(body.servers[0].state).toBeUndefined();
   });
 
+  test("冷缓存（cached=false）：配置骨架立即回（无 state、stale=true），状态随后经 mcp:changed 广播补上", async () => {
+    // 场景：盘上有一台卡死的 server（如不合规的 streamable 端点），冷缓存要真 spawn pi
+    // （单台可耗 60s+）。回包若等状态，GUI 首开就是「加载中…」→ 前端超时 → 空列表。
+    // 契约：骨架（盘上配置清单）毫秒级回，状态后台跑完经 mcp:changed 补上。
+    await writeGlobal({ mcpServers: { srv: { url: "https://x.dev/mcp" } } });
+    const admin = makeAdmin(listResult([report("srv")]), { cached: false });
+    const router = makeRouter(admin);
+    const res = (await within(get(router, "/api/mcp"), 500))!;
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.servers.map((s: any) => s.name)).toEqual(["srv"]);
+    // 骨架不带运行态：pi 还没报回来，不能捏造状态
+    expect(body.servers[0].state).toBeUndefined();
+    // stale=true：这份清单不是刚跑出来的状态（前端显示「状态未知」横幅，广播到了再刷新）
+    expect(body.stale).toBe(true);
+    expect(body.commandFailed).toBe(false);
+    // 状态随后经广播补上（带 state、stale=false）
+    await waitFor(() => broadcasts.some((e) => e.type === "mcp:changed"));
+    const ev = broadcasts.find((e) => e.type === "mcp:changed") as any;
+    expect(ev.servers[0].state).toBe("connected");
+    expect(ev.stale).toBe(false);
+  });
+
+  test("热缓存（cached=true）：行为不变——带状态回包，不额外触发广播", async () => {
+    await writeGlobal({ mcpServers: { srv: { url: "https://x.dev/mcp" } } });
+    const admin = makeAdmin(listResult([report("srv")]), { cached: true });
+    const router = makeRouter(admin);
+    const res = (await get(router, "/api/mcp"))!;
+    const body = await res.json();
+    expect(body.servers[0].state).toBe("connected");
+    expect(body.stale).toBe(false);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(broadcasts.filter((e) => e.type === "mcp:changed")).toEqual([]);
+  });
+
   test("项目不存在 → 404 project.notFound（cwd 解析失败不吞成 400）", async () => {
     cwdForProject = async () => {
       const { KernelError } = await import("@wa-pi/shared");
@@ -460,7 +498,7 @@ describe("DELETE /api/mcp/:serverName", () => {
   });
 });
 
-describe("save / delete：状态读取（冷 pi mcp list，上限 30s）不占回包路径", () => {
+describe("save / delete：状态读取（冷 pi mcp list，上限 70s）不占回包路径", () => {
   /** list() 永不返回的 admin：模拟盘上有一台卡死的 server */
   function hangingAdmin() {
     let listCalls = 0;

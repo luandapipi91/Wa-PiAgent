@@ -1,3 +1,6 @@
+## 2026-10-09
+- fix(kernel,frontend): MCP 面板超时层级重排（一台慢 server 不再拖垮整页）——kernel `pi mcp list` 缺省上限 30s→70s（pi 引擎对单台 server 默认等 60s，上限≤60s 时 pi 还没报出各台真实状态就被 kill → 整页「状态未知」）；GET /api/mcp 冷缓存改为配置骨架立即回（无 state、stale=true），状态后台跑完经 mcp:changed 广播补上（此前冷缓存回包等真实 spawn，GUI 首开「加载中…」→ 前端 30s 超时 → 列表空白）；前端 api-client 新增 MCP_RPC_TIMEOUT_MS=80s 并支持 get 自定义超时，MCP 面板列表/连接测试/工具列表三个请求改用之（须等得比 kernel 70s 久）。根因背景：bop-dev 等 streamable 端点违反 JSON-RPC（响应 id 数字变字符串），pi 引擎严格匹配致单台握手卡 60s。TDD：kernel 3 例 + 前端 2 例先红后绿，MCP 相关 48 用例全绿，两包 typecheck 0 error。
+
 ## 2026-10-08
 - v0.7.2 发版：升版 0.7.0 → 0.7.2（线上已有并发方直发的 0.7.1，故跳号；本地 version-history 已补回线上 0.7.1 条目避免覆盖丢失）。内容：Codemode 档位设置（兼容/关闭两档）+ 工具卡专属渲染；MCP 工具结果卡片重设计（摘要优先式）；pi 引擎实装 1.1.0；受限 agent MCP 服务器粒度通配（pi 1.0.4）；修复 Codemode 关闭档 MCP 失效、嵌套卡两段内容糊块（CodemodeResultView 逐文本项成块，ToolCallNested 红转绿）。验证：四包 typecheck + kernel 全量回归 + 双端打包 gate。- revert(bridge): 移除 bridge 工具的 exposure=model-only（22acb1f5）——only 档已删除，豁免失去语义载体，14 个工具回归 pi 默认 direct 曝光；真实 pi 进程加载验证通过。
 - refactor(settings): Codemode 档位收敛为两档（兼容/关闭）——移除「完全（only）」档：pi 引擎对 only 的实现会隐藏全部 direct 曝光工具且无法按工具豁免第三方（getToolDefinition 未暴露到扩展 API），档位语义不完整。存量自动迁移：启动守卫 normalizeLegacyCodemode 把 codemodeLevel="full" 归位 compat 并删除 pi 引擎键 codemode.mode（残留 only 会在兼容档仍隐藏工具）；saveCodemodeLevel 始终删除该键；白名单外（含 full）保存报错。TDD：存储层 12 用例 + 路由/纯函数/spawn 用例同步更新先红后绿，三包 typecheck 0 error。

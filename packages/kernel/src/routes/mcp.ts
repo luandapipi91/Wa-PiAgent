@@ -235,7 +235,7 @@ function mcpErrorResponse(e: unknown): Response {
 /** MCP 域处理器工厂：deps 由 ws-server 注入，单测可只注入用到的部分 */
 export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
   /** 取某作用域的状态读取者（`admin.list()` 走缓存；force 才重跑 `pi mcp list`） */
-  async function adminOf(projectId?: string): Promise<Pick<McpAdmin, "list">> {
+  async function adminOf(projectId?: string): Promise<Pick<McpAdmin, "list" | "cached">> {
     return deps.adminForCwd(await deps.cwdForProject(projectId));
   }
 
@@ -309,9 +309,9 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
    * 不为此多跑一次冷 `pi mcp list`：`listWithState` 本就会把这些字段一起取回来。
    *
    * **不占回包路径**：`listWithState` 要读状态层，而冷缓存时那是一次真 spawn `pi mcp list`
-   * （`McpAdmin` 的上限 `DEFAULT_LIST_TIMEOUT_MS = 30s`）。前端 `api-client` 的默认请求超时
-   * 同为 30s、`store/mcp.ts` 又是 fire-and-forget ——只要盘上有一台卡死的 server，
-   * 「保存 / 删除」就会在前端表现成失败（写盘其实已经成功）。故立即回包，广播放进后台任务。
+   * （`McpAdmin` 的上限 `DEFAULT_LIST_TIMEOUT_MS = 70s`）。前端 MCP 面板的请求超时是
+   * `MCP_RPC_TIMEOUT_MS = 80s`（api-client）、`store/mcp.ts` 又是 fire-and-forget ——只要盘上
+   * 有一台卡死的 server，「保存 / 删除」就会在前端表现成失败（写盘其实已经成功）。故立即回包，广播放进后台任务。
    *
    * 后台任务的异常必须咽掉：调用方已拿到 200，此时冒出的 rejection 只会污染进程
    * （未处理拒绝告警，且可能误伤无关用例）；广播失败只影响 GUI 本次刷新，
@@ -329,7 +329,25 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
   }
 
   return {
-    list: (projectId) => listWithState(projectId),
+    list: async (projectId) => {
+      const admin = await adminOf(projectId);
+      // 热缓存（含失败缓存）：状态可即时取回，走完整合并，行为不变
+      if (admin.cached()) return listWithState(projectId);
+      // 冷缓存：pi mcp list 要真 spawn（一台慢 server 单台可耗 60s+，见 DEFAULT_LIST_TIMEOUT_MS），
+      // 回包若等它，GUI 首开就是「加载中…」→ 前端超时 → 空列表。改为**配置骨架立即回**
+      //（盘上清单为骨架、无运行态、stale=true 表示「这不是刚跑出来的状态」），
+      // 状态后台跑完经 mcp:changed 广播补上——与 save/delete 的后台广播同一路径。
+      const configs = await deps.mcpFile.list(projectId);
+      broadcastChanged(projectId);
+      return {
+        servers: configs.map((c) => ({ ...c })),
+        errors: [],
+        commandFailed: false,
+        hasProblems: false,
+        stale: true,
+        note: undefined,
+      };
+    },
 
     async save({ projectId, config, originalName }) {
       // 改名时原条目必须存在（旧 McpStore 的契约，前端 zh/en 字典有 mcp.originalServerNotFound）：

@@ -203,8 +203,13 @@ export function parseMcpListOutput(
   }
 }
 
-/** `pi mcp list` 的缺省等待上限（毫秒）：一个卡住的 server 不该把 GUI 的 MCP 页永久挂住 */
-export const DEFAULT_LIST_TIMEOUT_MS = 30_000;
+/** `pi mcp list` 的缺省等待上限（毫秒）：一个卡住的 server 不该把 GUI 的 MCP 页永久挂住。
+ *
+ * 必须大于 pi 引擎对单台 server 的默认超时（60s）：pi 会等每台 server 各自超时后才退出
+ * 并报出各台真实状态（实测一台不合规 server 时整体 61s 才完成）。上限若 ≤ 60s，pi 还没
+ * 报出状态就被 kill → commandFailed → GUI 整页「状态未知」。
+ */
+export const DEFAULT_LIST_TIMEOUT_MS = 70_000;
 
 export interface McpAdminOpts {
   /** pi 可执行体与 CLI 路径（与 rpc-client 同一解析） */
@@ -262,6 +267,11 @@ export class McpAdmin {
 
   invalidate(): void {
     this.cache = undefined;
+  }
+
+  /** 是否已有缓存（含失败缓存）：调用方以此区分冷热路径（冷缓存回包不等 pi，见 routes/mcp.ts） */
+  cached(): boolean {
+    return this.cache !== undefined;
   }
 
   /**

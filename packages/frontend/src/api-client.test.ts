@@ -48,6 +48,17 @@ test("兼容顶层 code/params 形态（任务 3 files.ts 先例）", async () =
 	}
 });
 
+test("get 支持自定义超时：传入 5ms 时挂起的请求快速中止", async () => {
+	// mock：永不返回的 fetch，只响应 signal 的 abort（模拟真实 fetch 的中止语义）
+	globalThis.fetch = ((_: unknown, init?: RequestInit) =>
+		new Promise((_resolve, reject) => {
+			init?.signal?.addEventListener("abort", () =>
+				reject(new DOMException("This operation was aborted", "AbortError")),
+			);
+		})) as any;
+	await expect(api.get("/api/mcp", 5)).rejects.toThrow();
+}, 2_000);
+
 test("无结构化错误时 failure 为 undefined（行为不变）", async () => {
 	globalThis.fetch = (async () =>
 		new Response(JSON.stringify({ error: "boom" }), { status: 500 })) as any;

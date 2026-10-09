@@ -182,6 +182,13 @@ describe("McpAdmin 缓存与失败回退（假 pi）", () => {
     await expectStopped(activityFile);
   });
 
+  test("缺省 list 上限必须大于 pi 单台 server 的默认超时（60s）", () => {
+    // pi 引擎 McpServerConnection 对单台 server 的请求超时缺省 60s（实测：一台不合规
+    // server 会让 `pi mcp list` 整体跑 61s 才退出并报出各台真实状态）。kernel 上限若
+    // ≤ 60s，pi 还没报出状态就被 kill → commandFailed → GUI 整页「状态未知」。
+    expect(DEFAULT_LIST_TIMEOUT_MS).toBeGreaterThan(60_000);
+  });
+
   test("漏传 timeoutMs：缺省上限生效，卡住的 pi 仍被截断（不会无限等待）", async () => {
     const { admin, activityFile } = await fakeAdmin(); // 不传 timeoutMs
     process.env.MCP_ADMIN_TEST_MODE = "hang";

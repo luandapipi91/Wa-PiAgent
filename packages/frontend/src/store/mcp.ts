@@ -13,7 +13,7 @@ import type {
   McpTestResult,
   McpToolsResult,
 } from "@wa-pi/shared";
-import { api } from "../api-client";
+import { api, MCP_RPC_TIMEOUT_MS } from "../api-client";
 import { formatApiError, formatKernelError } from "../util/kernel-error";
 import { useToastStore } from "./toast";
 
@@ -182,8 +182,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const url = scope ? `/api/mcp?projectId=${encodeURIComponent(scope)}` : "/api/mcp";
     // 请求发出时取号：这期间到达的 `mcp:changed` 广播比本响应更新，靠这个号把过期响应挡在 store 外
     const seq = ++listSourceSeq;
+    // MCP_RPC_TIMEOUT_MS：kernel 冷缓存要真 spawn `pi mcp list`（慢 server 可耗 60s+），
+    // 默认 30s 会在 kernel 读状态时把请求掲断 → 「加载中」后列表空白
     api
-      .get(url)
+      .get(url, MCP_RPC_TIMEOUT_MS)
       .then((data: any) => {
         // 本请求发出之后已有更新的清单来源写入过 → 这份是过期数据，丢弃（不能回退视图）
         if (seq <= appliedListSeq) return;
@@ -296,7 +298,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
         errors: nextErrors,
       };
     });
-    void api.post("/api/mcp/test", { serverName, projectId });
+    void api.post("/api/mcp/test", { serverName, projectId }, MCP_RPC_TIMEOUT_MS);
   },
   listTools: (serverName, projectId) => {
     set((s) => ({ loadingTools: { ...s.loadingTools, [serverName]: true } }));
@@ -304,6 +306,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       projectId
         ? `/api/mcp/${encodeURIComponent(serverName)}/tools?projectId=${encodeURIComponent(projectId)}`
         : `/api/mcp/${encodeURIComponent(serverName)}/tools`,
+      MCP_RPC_TIMEOUT_MS,
     );
   },
   login: (serverName, timeoutSec, projectId) => {
