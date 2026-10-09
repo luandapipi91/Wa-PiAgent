@@ -28,7 +28,10 @@ import { SkillManager } from "../src/skill-manager";
 import { MemoryDao } from "../src/memory/dao";
 import { openMemoryDb } from "../src/memory/db";
 import { MemoryStore } from "../src/memory-store";
-import { embedQuery } from "../src/memory/embedder";
+import {
+	probeModelAvailability,
+	registerModelGateFailure,
+} from "./helpers/model-gate";
 import { indexPendingMemories } from "../src/memory/vector-index";
 import {
 	WA_PI_DIR,
@@ -1991,11 +1994,15 @@ test("默认（不传 memoryStore）记忆工具可用", async () => {
 // 语料与查询刻意无共同 bigram：词法通道对该查询恒 0 命中，故「1 条」只可能来自语义
 // 通道、「0 条」只可能是开关把语义通道关掉了——两种取值都有判别力（不会盲绿）。
 //
-// 模型可用性门：语义通道产出候选依赖本地 embedding 模型（同 memory-tools.test.ts）。
-const semanticModelUnavailable = (await embedQuery("语义开关端到端探测")) === null;
-if (semanticModelUnavailable) {
+// 模型可用性门（三态）：语义通道产出候选依赖本地 embedding 模型（同 memory-tools.test.ts）。
+// broken（声明了模型来源却仍加载失败）时 registerModelGateFailure 会注册一条必定失败的用例
+// —— 不再把「embedder 加载路径被改坏」静默成 skip（最终审查 I2）。
+const semanticGate = await probeModelAvailability();
+registerModelGateFailure(semanticGate, "agent-manager.test 语义开关端到端");
+const runSemanticE2E = semanticGate.status === "available";
+if (semanticGate.status === "noSource") {
 	console.warn(
-		"[agent-manager.test] 跳过语义开关端到端用例：embedding 模型不可用（模型加载失败 / 离线）。",
+		`[agent-manager.test] 跳过语义开关端到端用例：${semanticGate.detail}`,
 	);
 }
 
@@ -2014,7 +2021,7 @@ async function bridgeMemorySearch(
 	return JSON.parse(raw.content[0].text);
 }
 
-test.skipIf(semanticModelUnavailable)(
+test.skipIf(!runSemanticE2E)(
 	"语义开关端到端：配置文件 semanticEnabled=false 后 memory_search 只走词法",
 	async () => {
 		const configFile = join(WA_PI_DIR, "hermes-memory-config.json");
