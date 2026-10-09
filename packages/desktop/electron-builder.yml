@@ -24,11 +24,6 @@ extraResources:
   - from: resources/web
     to: web
     filter: ["**/*"]
-  # 模型随包内置（q8，23.3MB）：asar 内只读且 transformers 默认 cacheDir 在包内，不内置就会每次启动
-  # 联网重下 23MB。运行时由 kernel-sidecar.cjs 注入 WA_PI_MODEL_DIR=<resources>/models 指向它（离线可用）。
-  - from: resources/models
-    to: models
-    filter: ["**/*"]
   # 原生依赖（onnxruntime-node / sharp / @sqliteai/sqlite-vector + 各自平台分包）：
   #  ① 原生 .node/.dll 无法从 asar 内 dlopen → 必须落在 asar 之外（extraResources 天然如此）；
   #  ② bun 编译产物的运行时解析根是 cwd/node_modules，**不是可执行文件同目录**

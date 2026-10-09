@@ -5,8 +5,12 @@ import {
   embedDocuments,
   embedQuery,
   embedFingerprint,
+  modelCacheDir,
+  preloadModel,
   resetEmbedderForTest,
 } from "../src/memory/embedder";
+import { WA_PI_DIR } from "@wa-pi/shared";
+import { join } from "node:path";
 import {
   probeModelAvailability,
   registerModelGateFailure,
@@ -76,6 +80,20 @@ test("指纹稳定且随模型/维度变化", () => {
   expect(f).toContain(EMBED_DIM.toString());
   expect(f).toBe(embedFingerprint());
 });
+
+test("modelCacheDir 指向 WA_PI_DIR/models（不内置模型时初始化下载的持久落盘处）", () => {
+  expect(modelCacheDir()).toBe(join(WA_PI_DIR, "models"));
+});
+
+test("preloadModel 降级路径：模型加载失败时返回 false 不抛错（离线可跑）", async () => {
+  resetEmbedderForTest({ failNextLoad: true });
+  expect(await preloadModel()).toBe(false);
+});
+
+test.skipIf(modelUnavailable)("preloadModel 预热成功：初始化触发下载/加载（不推理）", async () => {
+  resetEmbedderForTest();
+  expect(await preloadModel()).toBe(true);
+}, 60_000);
 
 // 降级路径（failNextLoad 强制加载失败）本身就不依赖真模型：离线也必须跑 ——
 // 它断言的正是「模型不可用时 embedQuery 返回 null 而不抛错」。

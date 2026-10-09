@@ -1,11 +1,11 @@
-// 原生资产按目标平台准备：模型 + 原生依赖（onnxruntime-node / sharp / sqlite-vector 及其平台分包）
-// 复制到 packages/desktop/resources/{models,native}，再由 electron-builder 的 extraResources 原样
+// 原生依赖（onnxruntime-node / sharp / sqlite-vector 及其平台分包）按目标平台准备，
+// 复制到 packages/desktop/resources/native，再由 electron-builder 的 extraResources 原样
 // 拷进安装包的 resources/ 下（**在 asar 之外**——原生 .dll/.so/.dylib/.node 无法从 asar 内 dlopen）。
+// 模型不在此列：2026-10-09 起改为初始化下载（kernel preloadModel → WA_PI_DIR/models），
+// 不再随包内置（见 embedder.ts 与 stageNativeAssets 内注释）。
 //
 // 为什么需要这一层：
-// 1) 模型必须随包内置。asar 内是只读的，transformers 的默认 cacheDir 落在包内 → 每次启动都联网
-//    重下 23MB（还依赖镜像可用）。内置后用 WA_PI_MODEL_DIR 指向它，完全离线（见 embedder.ts）。
-// 2) 这些包的 **JS 被内联进编译产物，原生资产只能从磁盘加载**：
+// 1) 这些包的 **JS 被内联进编译产物，原生资产只能从磁盘加载**：
 //    - onnxruntime-node 用运行时拼出的相对路径 require ../bin/napi-v6/<plt>/<arch>/onnxruntime_binding.node，
 //      内联后该路径落在虚拟 FS 内，原生绑定永远加载不到；
 //    - @huggingface/transformers 顶层静态 import sharp，sharp 再按 exports 子路径
@@ -33,8 +33,6 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-// 模型名单一来源：kernel 的 embedder 选型（换模型时本脚本自动跟随）
-import { EMBED_MODEL } from "../../kernel/src/memory/embedder";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const PKG = join(import.meta.dir, "..");
@@ -95,24 +93,7 @@ export function vectorBinaryName(ortPlatform: string): string {
 	return "vector.dylib";
 }
 
-/**
- * 模型完整性护栏：目录里至少得有一个 .onnx 权重。
- * 下载中断 / 缓存半截时目录本身仍在（existsSync 为真），但模型加载不出来 → 会静默产出
- * 「语义检索永久不可用」的安装包，而本文件的存在意义正是避免带病出包。
- */
-export function countOnnxFiles(dir: string): number {
-	if (!existsSync(dir)) return 0;
-	let n = 0;
-	const walk = (d: string) => {
-		for (const e of readdirSync(d, { withFileTypes: true })) {
-			const abs = join(d, e.name);
-			if (e.isDirectory()) walk(abs);
-			else if (e.name.endsWith(".onnx")) n++;
-		}
-	};
-	walk(dir);
-	return n;
-}
+//（原「模型完整性护栏 countOnnxFiles」随模型内置方案移除：模型不再随包，无带病出包风险。）
 
 /**
  * ORT 原生绑定护栏：keep 过滤之后 bin/ 下必须还留着 .node 绑定。
@@ -268,48 +249,24 @@ export async function dirSize(dir: string): Promise<number> {
 }
 
 /**
- * 把模型与原生依赖按目标平台复制到 resources/{models,native}。
+ * 把原生依赖按目标平台复制到 resources/native。
  * 必须在 electron-builder 之前调用（resources/ 已由 buildSidecar 组装完 kernel + web）。
  */
 export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 	const spec = nativeTargetSpec(target);
 	const nativeRoot = join(RES, "native");
 
-	// ---- 1) 模型（q8；bge-base-zh-v1.5 约 98MB，模型名单一来源 kernel EMBED_MODEL） ----
-	const transformersDir = resolvePackageDir(
-		"@huggingface/transformers",
-		KERNEL_PKG_DIR,
-	);
-	const modelSrc = join(transformersDir, ".cache", ...EMBED_MODEL.split("/"));
-	if (!existsSync(modelSrc)) {
-		throw new Error(
-			`[native] 模型缓存不存在：${modelSrc}\n` +
-				`  内置模型是「离线可用」的前提，缺了它会退化为每次启动联网下载约 98MB。\n` +
-				`  请先在有网机器上跑一次依赖模型的测试（bun test tests/memory-embedder.test.ts，\n` +
-				`  可配 WA_PI_HF_ENDPOINT 走镜像）把模型落到上述目录，再执行打包。`,
-		);
-	}
-	// 目录在 ≠ 模型完整：下载中断会留下半截缓存，缺 ONNX 权重等于没有语义检索
-	if (countOnnxFiles(modelSrc) === 0) {
-		throw new Error(
-			`[native] 模型目录里没有 ONNX 权重（下载中断 / 缓存半截）：${modelSrc}\n` +
-				`  这会产出「语义检索永久不可用」的安装包，直接终止打包。`,
-		);
-	}
-	await rm(join(RES, "models"), { recursive: true, force: true });
-	const modelFiles = await copyTree(
-		modelSrc,
-		join(RES, "models", ...EMBED_MODEL.split("/")),
-		() => true,
-	);
+	// 模型不再随包内置（2026-10-09 改为初始化下载）：embedder 无 WA_PI_MODEL_DIR 时
+	// 显式把下载缓存落 WA_PI_DIR/models（用户目录持久可写），首启由 kernel 的
+	// preloadModel 预热从镜像下载，升级不丢。
 
-	// ---- 2) 原生依赖 ----
+	// ---- 原生依赖 ----
 	await rm(nativeRoot, { recursive: true, force: true });
 	const staged: StagedPackage[] = [];
 
 	// onnxruntime-node：只留目标平台/架构的原生库；win32 去掉 DirectML/dxcompiler/dxil
 	//（embedder 固定 device=cpu，DML 用不到，三件套 36MB）
-	const ortDir = resolvePackageDir("onnxruntime-node", transformersDir);
+	const ortDir = resolvePackageDir("onnxruntime-node", KERNEL_PKG_DIR);
 	const ortBinPrefix = `bin/napi-v6/${spec.ortPlatform}/${spec.ortArch}/`;
 	const dmlOnly = ["DirectML.dll", "dxcompiler.dll", "dxil.dll"];
 	const ortStaged = await stagePackage({
@@ -339,7 +296,7 @@ export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 	);
 
 	// sharp + 三个运行时依赖（@img/colour / detect-libc / semver）+ 平台分包
-	const sharpDir = resolvePackageDir("sharp", transformersDir);
+	const sharpDir = resolvePackageDir("sharp", KERNEL_PKG_DIR);
 	staged.push(
 		await stagePackage({
 			fromDir: sharpDir,
@@ -438,15 +395,13 @@ export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 		});
 	}
 
-	const totalMB =
-		((await dirSize(join(RES, "models"))) + (await dirSize(nativeRoot))) /
-		(1024 * 1024);
+	const totalMB = (await dirSize(nativeRoot)) / (1024 * 1024);
 	console.log(
-		`[native] 目标 ${target}（${spec.ortPlatform}/${spec.ortArch}）：模型 ${modelFiles.length} 个文件 + ` +
+		`[native] 目标 ${target}（${spec.ortPlatform}/${spec.ortArch}）：` +
 			staged
 				.map((s) => `${s.name}${s.entry ? `(+${s.entry})` : ""}`)
 				.join(" / ") +
 			`，合计 ${totalMB.toFixed(1)}MB`,
 	);
-	return { spec, staged, modelFiles, totalMB };
+	return { spec, staged, totalMB };
 }

@@ -56,9 +56,6 @@ async function startSidecar({
   devKernelExe = undefined,
   log,
   port,
-  // 记忆语义检索的模型目录（可选）：存在时注入 WA_PI_MODEL_DIR，让 transformers 走随包内置模型
-  // 并禁用联网（asar 内只读，默认 cacheDir 不可写 → 不注入就每次启动联网重下 23MB）。
-  modelDir = undefined,
   // macOS 语义检索的标准 SQLite dylib（可选）：存在时注入 WA_PI_SQLITE_DYLIB——bun 在 macOS
   // 用 Apple 专有 SQLite（不支持 loadExtension），语义检索需 setCustomSQLite 切标准构建。
   sqliteDylib = undefined,
@@ -112,13 +109,7 @@ async function startSidecar({
   // BUN_BE_BUN=1；kernel 内部 startKernel 的 ensureBunBeBunEnv() 会为 pi RPC / bun add / MCP
   // 子进程写入。
   const { BUN_BE_BUN: _bunBeBun, ...kernelEnv } = process.env;
-  // 记忆语义检索的资产入口（目录不存在就不注入，保持现状行为）：
-  //   WA_PI_MODEL_DIR：模型随包内置时指向 <resources>/models → transformers 走本地模型、禁联网
-  //     （asar 内只读，默认 cacheDir 不可写会导致每次启动重下 23MB）。
   const nativeAssets = {};
-  if (modelDir && fs.existsSync(modelDir)) {
-    nativeAssets.WA_PI_MODEL_DIR = modelDir;
-  }
   // WA_PI_SQLITE_DYLIB：文件存在才注入；不存在（win/linux 或未随包）就不注入，
   // kernel 侧静默降级为纯词法检索。
   if (sqliteDylib && fs.existsSync(sqliteDylib)) {

@@ -4,7 +4,7 @@
 // 单元测试；这里覆盖四件「错了会静默发布出坏包」的事：
 //   ① 目标平台标识（交叉打包必须显式切换平台二进制，写错就带病出包）；
 //   ② bun 编译产物 fallback 解析只认包根 index.* 的兼容层（少了它运行时 Cannot find module）；
-//   ③ electron-builder 的 extraResources 映射（漏了 native/models 就等于没把资产发出去）；
+//   ③ electron-builder 的 extraResources 映射（漏了 native 就等于没把资产发出去；模型已不随包）；
 //   ④ 完整性护栏：ORT 原生绑定与模型权重缺失时必须抛错（否则会静默发出语义检索不可用的包）。
 import { describe, test, expect } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -13,7 +13,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
 	assertOrtBindingKept,
-	countOnnxFiles,
 	dirSize,
 	ensureRootEntry,
 	nativeTargetSpec,
@@ -134,34 +133,19 @@ describe("完整性护栏：ORT 原生绑定与模型权重缺失时必须抛错
 		).toThrow();
 	});
 
-	test("模型：目录存在但没有 .onnx 权重（下载中断/半截缓存）→ 计数为 0", async () => {
-		const empty = join(TMP, "model-empty");
-		await mkdir(empty, { recursive: true });
-		await writeFile(join(empty, "config.json"), "{}", "utf8");
-		expect(countOnnxFiles(empty)).toBe(0);
-
-		const ok = join(TMP, "model-ok");
-		await mkdir(join(ok, "onnx"), { recursive: true });
-		await writeFile(join(ok, "config.json"), "{}", "utf8");
-		await writeFile(join(ok, "onnx", "model_quantized.onnx"), Buffer.alloc(4));
-		expect(countOnnxFiles(ok)).toBe(1);
-
-		// 目录不存在同样算 0（两处护栏都靠这个数决定是否终止打包）
-		expect(countOnnxFiles(join(TMP, "model-missing"))).toBe(0);
-	});
+	// （原「模型权重完整性护栏」随模型内置方案移除：模型改为初始化下载，不随包。）
 });
 
 describe("electron-builder 配置：原生资产必须随包分发到 asar 之外", () => {
-	test("extraResources 映射 resources/{kernel,web,models,native/node_modules}", async () => {
+	test("extraResources 映射 resources/{kernel,web,native/node_modules}（模型不随包，改为初始化下载）", async () => {
 		const yml = await readFile(
 			join(import.meta.dir, "..", "electron-builder.yml"),
 			"utf8",
 		);
 		expect(yml).toContain("from: resources/kernel");
 		expect(yml).toContain("from: resources/web");
-		// 模型：asar 内只读且 transformers 默认 cacheDir 在包内 → 不内置就每次启动联网重下
-		expect(yml).toContain("from: resources/models");
-		expect(yml).toContain("to: models");
+		// 模型已改为初始化下载（kernel preloadModel → WA_PI_DIR/models），不得再随包内置
+		expect(yml).not.toContain("from: resources/models");
 		// 原生二进制：asar 内无法 dlopen；运行时由 main.cjs 链接到 runtime/node_modules
 		// ⚠️ from 必须直接指向 node_modules（源目录根下名为 node_modules 的那层会被 electron-builder
 		//    的 filter 无条件排掉，实测会让整包资产静默消失）

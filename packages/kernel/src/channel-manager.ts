@@ -50,6 +50,9 @@ import type { ProjectStore } from "./project-store";
 
 type AdapterFactory = (channel: ChannelConfig) => ChannelAdapter;
 
+/** LLM 调用/消息处理出错时，IM 端统一回复的友好提示（原生错误只进控制台日志，不透出给用户） */
+const UNAVAILABLE_REPLY = "当前机器人不可用，请稍后再试～";
+
 /** Bot ID 冲突（同一 Bot ID 已被其他渠道占用）：ws-server 据此把错误映射为 HTTP 409 */
 export class ChannelConflictError extends Error {}
 
@@ -845,10 +848,12 @@ export class ChannelManager {
 				attachments: attachments.length ? attachments : undefined,
 			});
 		} catch (e) {
+			// 原生报错进控制台日志；IM 端只回统一友好提示，不透出技术细节
+			console.error(`[channel-manager] IM 消息处理失败（已向 IM 回复统一提示）: ${e instanceof Error ? e.message : String(e)}`);
 			// 会话/映射可能已在 ensureSession + persist 阶段变更（新会话已落盘）→ 出错也必须通知
 			// 前端刷新 IM 列表，否则列表停在旧状态（新会话不出现，用户以为没收到）
 			this.deps.broadcast({ type: "channel-conversations:changed" });
-			await reply(`处理出错：${e instanceof Error ? e.message : String(e)}`);
+			await reply(UNAVAILABLE_REPLY);
 			return;
 		}
 
@@ -1001,7 +1006,9 @@ export class ChannelManager {
 		let text: string;
 		const isError = lastAssistant?.stopReason === "error";
 		if (isError) {
-			text = `处理出错：${lastAssistant.errorMessage ?? "未知错误"}`;
+			// 原生报错进控制台日志；IM 端只回统一友好提示，不透出技术细节
+			console.error(`[channel-manager] LLM 调用失败（已向 IM 回复统一提示）: ${lastAssistant.errorMessage ?? "未知错误"}`);
+			text = UNAVAILABLE_REPLY;
 		} else {
 			text = composeReply(turn, channel.replyGranularity);
 			if (!text) text = "（本轮无文本回复）";

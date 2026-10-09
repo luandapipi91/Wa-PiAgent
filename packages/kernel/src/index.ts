@@ -195,6 +195,10 @@ export async function startKernel(opts?: {
 	//    失败只降级。若将来把原生依赖改成 --external 或裁剪掉主包，需重新评估这条静态边。
 	void (async () => {
 		try {
+			const { preloadModel } = await import("./memory/embedder");
+			// 初始化下载：安装包不内置模型，首启在此从镜像下载（约 98MB，失败静默降级）；
+			// 下载就绪后回填才有模型可用（有存量待回填时此顺序必要）。
+			await preloadModel();
 			const { initVectorColumn } = await import("./memory/vector-ext");
 			const { indexPendingMemories } = await import("./memory/vector-index");
 			const db = openMemoryDb(WA_PI_DIR);

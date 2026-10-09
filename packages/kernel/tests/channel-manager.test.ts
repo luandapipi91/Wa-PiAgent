@@ -193,7 +193,7 @@ test("agent_settled：按粒度组装并经适配器回复；正文+文件变更
 	expect(adapter!.outbox.at(-1)!.text).toBe("已修复。\n\n📄 修改：a.ts");
 });
 
-test("agent_settled：错误回合读取最后 assistant 消息的 stopReason/errorMessage（而非事件字段）", async () => {
+test("agent_settled：错误回合回复统一友好提示，原生错误只进控制台日志", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "改个 bug" });
 	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
@@ -208,12 +208,24 @@ test("agent_settled：错误回合读取最后 assistant 消息的 stopReason/er
 			errorMessage: "模型不可用",
 		},
 	];
-	manager.onSessionEvent(sid, { type: "agent_settled" });
-	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
-	const reply = adapter!.outbox.at(-1)!.text;
-	expect(reply).toContain("处理出错");
-	expect(reply).toContain("模型不可用");
-	expect(reply).not.toContain("（本轮无文本回复）");
+	const errSpy = mock(() => {});
+	const origErr = console.error;
+	console.error = errSpy;
+	try {
+		manager.onSessionEvent(sid, { type: "agent_settled" });
+		await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
+		const reply = adapter!.outbox.at(-1)!.text;
+		expect(reply).toBe("当前机器人不可用，请稍后再试～");
+		// 原生错误（模型名/报错详情）不得透传给 IM 用户
+		expect(reply).not.toContain("模型不可用");
+		expect(reply).not.toContain("处理出错");
+		expect(reply).not.toContain("（本轮无文本回复）");
+		// 原生错误必须落到控制台日志（排查靠它）
+		expect(errSpy).toHaveBeenCalled();
+		expect(errSpy.mock.calls.flat().join("\n")).toContain("模型不可用");
+	} finally {
+		console.error = origErr;
+	}
 });
 
 test("自动重试期间每次失败尝试的 agent_end 不触发回复；agent_settled 一轮只回一条", async () => {
@@ -241,7 +253,7 @@ test("自动重试期间每次失败尝试的 agent_end 不触发回复；agent_
 	manager.onSessionEvent(sid, { type: "agent_settled" });
 	await new Promise((r) => setTimeout(r, 500)) // 负载下 50ms 可能不够（flaky），放宽到 500ms;
 	expect(adapter!.outbox.length).toBe(before + 1);
-	expect(adapter!.outbox.at(-1)!.text).toContain("Connection error.");
+	expect(adapter!.outbox.at(-1)!.text).toBe("当前机器人不可用，请稍后再试～");
 });
 
 test("智能体删除兜底：降级为列表第一项并记 warning", async () => {
@@ -794,7 +806,7 @@ test("错误回合不走流式终结，走 sendText 新消息", async () => {
 	// 最后一条是 sendText（非流式），内容为错误提示
 	const last = adapter!.outbox.at(-1)!;
 	expect(last.streamId).toBeUndefined();
-	expect(last.text).toBe("处理出错：模型超时");
+	expect(last.text).toBe("当前机器人不可用，请稍后再试～");
 });
 
 // ===== 渠道默认工作区 + 切换开关 + 项目删除兜底（Task 4） =====
@@ -1041,15 +1053,24 @@ test("出错路径也要广播：prompt 抛错时映射已落盘 → 必须广�
 		throw new Error("Model not found");
 	};
 	broadcasted.length = 0;
-	adapter!.inject({ chatId: "u1", text: "你好" });
-	// 条件轮询等出站回复（固定 sleep 在负载下会 flaky）
-	const deadline = Date.now() + 2000;
-	while (adapter!.outbox.length === 0 && Date.now() < deadline) {
-		await new Promise((r) => setTimeout(r, 10));
+	const errSpy = mock(() => {});
+	const origErr = console.error;
+	console.error = errSpy;
+	try {
+		adapter!.inject({ chatId: "u1", text: "你好" });
+		// 条件轮询等出站回复（固定 sleep 在负载下会 flaky）
+		const deadline = Date.now() + 2000;
+		while (adapter!.outbox.length === 0 && Date.now() < deadline) {
+			await new Promise((r) => setTimeout(r, 10));
+		}
+		expect(adapter!.outbox.at(-1)!.text).toBe("当前机器人不可用，请稍后再试～");
+		// 原生错误进控制台日志
+		expect(errSpy.mock.calls.flat().join("\n")).toContain("Model not found");
+		expect(sessionsCreated).toHaveLength(1); // 会话已建立、映射已落盘
+		expect(broadcasted).toContain("channel-conversations:changed");
+	} finally {
+		console.error = origErr;
 	}
-	expect(adapter!.outbox.at(-1)!.text).toContain("处理出错");
-	expect(sessionsCreated).toHaveLength(1); // 会话已建立、映射已落盘
-	expect(broadcasted).toContain("channel-conversations:changed");
 });
 
 // 并发进站串行化：mappings.json 是「读 → 改 → 写」的读改写，且一个 mapping 就是一条 IM 会话。

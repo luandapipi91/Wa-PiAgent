@@ -8,7 +8,9 @@
 // - 512 token 上限，超长由 tokenizer 截断。
 // - 输出 L2 归一化后的 Float32，包装成 Uint8Array 以直接写入 SQLite BLOB。
 import type { FeatureExtractionPipeline } from "@huggingface/transformers";
+import { join } from "node:path";
 
+import { WA_PI_DIR } from "@wa-pi/shared";
 import { EMBED_DIM } from "./schema";
 
 export const EMBED_MODEL = "Xenova/bge-base-zh-v1.5";
@@ -48,6 +50,18 @@ export function embedFingerprint(): string {
   return `${EMBED_MODEL}:${EMBED_DTYPE}:${EMBED_DIM}`;
 }
 
+export function modelCacheDir(): string {
+  return join(WA_PI_DIR, "models");
+}
+
+/**
+ * 启动预热：触发模型下载/加载但不推理（安装包不内置模型，首启在此从镜像下载）。返回是否就绪。
+ * 失败（离线 / 镜像不可用）静默返回 false——语义检索降级，词法照常。
+ */
+export async function preloadModel(): Promise<boolean> {
+  return (await getPipeline()) !== null;
+}
+
 export function isEmbedderReady(): boolean {
   return state.status === "ready";
 }
@@ -70,10 +84,13 @@ async function getPipeline(): Promise<FeatureExtractionPipeline | null> {
         env.remoteHost = process.env.WA_PI_HF_ENDPOINT ?? "https://hf-mirror.com";
         env.remotePathTemplate = "{model}/resolve/{revision}/";
       }
-      // 模型随安装包内置时优先走本地目录
+      // 模型随安装包内置时优先走本地目录（特殊部署）；否则下载缓存落
+      // WA_PI_DIR/models（用户目录持久可写，首次初始化自动从镜像下载，升级不丢）。
       if (process.env.WA_PI_MODEL_DIR) {
         env.allowRemoteModels = false;
         env.localModelPath = process.env.WA_PI_MODEL_DIR;
+      } else {
+        env.cacheDir = modelCacheDir();
       }
       pipe = (await pipeline("feature-extraction", EMBED_MODEL, {
         dtype: EMBED_DTYPE,
