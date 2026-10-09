@@ -190,13 +190,13 @@ export interface AgentManagerOpts {
 	// extensionManager 可空：用于按已启用动态插件决定 -e 扩展路径与工具放行
 	extensionManager?: ExtensionManager;
 	// mcpAdmin 可注入：测试注入 fake，避免单测真的 spawn `pi mcp list`；缺省自建真实实例。
-	mcpAdmin?: Pick<McpAdmin, "list" | "invalidate">;
+	mcpAdmin?: Pick<McpAdmin, "list" | "invalidate" | "cached">;
 	/** 按 cwd 解析 MCP 状态读取者（测试注入；同时传 mcpAdmin 时以 mcpAdmin 为准）。
 	 *  生产不传：有 `.pi/mcp.json` 的 cwd 各建一个实例——pi 的项目级 MCP 配置就是该文件
 	 *  （F11/F12），cwd 传错就永远枚举不到项目级 server，其工具名进不了白名单；
 	 *  无该文件的 cwd（含默认工作区每会话唯一的 `<workdir>/<createdAt>`）复用全局实例，
 	 *  不在会话创建路径上多 spawn 一次 `pi mcp list`。 */
-	mcpAdminFor?: (cwd: string) => Pick<McpAdmin, "list" | "invalidate">;
+	mcpAdminFor?: (cwd: string) => Pick<McpAdmin, "list" | "invalidate" | "cached">;
 	/** codemode 档位读取器：生产默认读 settings.json.codemodeLevel（默认 compat）；
 	 *  测试注入固定档位（默认档行为测试不注入，靠 tests/setup.ts 的 WA_PI_DIR 隔离）。 */
 	codemodeLevelLoader?: () => Promise<CodemodeLevel>;
@@ -364,10 +364,10 @@ export class AgentManager {
 	// 该 map，否则全局作用域的 GUI 配置改动会等到下次会话启动才进工具清单（Task 7 修过的
 	// 同类回归：全局实例不在 map 里 → 缓存永不失效）。由 agent-manager.test.ts 的
 	// 「invalidateMcpCaches 失效全局实例与所有按 cwd 实例」用例锁定。
-	readonly mcpAdmin: Pick<McpAdmin, "list" | "invalidate">;
+	readonly mcpAdmin: Pick<McpAdmin, "list" | "invalidate" | "cached">;
 	private readonly mcpAdmins = new Map<
 		string,
-		Pick<McpAdmin, "list" | "invalidate">
+		Pick<McpAdmin, "list" | "invalidate" | "cached">
 	>();
 	// MCP 工具清单延时刷新定时器（F10）：实例级单例，避免多会话并发启动重复 spawn
 	private mcpToolRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -386,7 +386,7 @@ export class AgentManager {
 	/** 新建一个按 cwd 生效的真实 McpAdmin（`pi mcp list` 子进程的 cwd = 项目级配置的作用域） */
 	private _createMcpAdmin(
 		cwd: string,
-	): Pick<McpAdmin, "list" | "invalidate"> {
+	): Pick<McpAdmin, "list" | "invalidate" | "cached"> {
 		return new McpAdmin({
 			runtime: resolvePiRuntime(),
 			cliPath: resolvePiCliPath(),
@@ -411,7 +411,7 @@ export class AgentManager {
 	 * 注入顺序与生产决策同序（`mcpAdmin` → 项目文件判定 → `mcpAdminFor`），所以注入面测到
 	 * 的就是真实决策：`mcpAdminFor` 只对有 `.pi/mcp.json` 的 cwd 生效。
 	 */
-	private _mcpAdminFor(cwd: string): Pick<McpAdmin, "list" | "invalidate"> {
+	private _mcpAdminFor(cwd: string): Pick<McpAdmin, "list" | "invalidate" | "cached"> {
 		const cached = this.mcpAdmins.get(cwd);
 		if (cached) return cached;
 		// 固定 fake：所有 cwd 共用（既有注入面的语义不变）
@@ -430,7 +430,7 @@ export class AgentManager {
 	 *
 	 * 实例登记在 mcpAdmins，故 {@link invalidateMcpCaches} 能覆盖到它们（含全局那份）。
 	 */
-	mcpAdminForCwd(cwd: string): Pick<McpAdmin, "list" | "invalidate"> {
+	mcpAdminForCwd(cwd: string): Pick<McpAdmin, "list" | "invalidate" | "cached"> {
 		return this._mcpAdminFor(cwd);
 	}
 

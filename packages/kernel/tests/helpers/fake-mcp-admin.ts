@@ -12,8 +12,11 @@ export interface FakeMcpAdmin {
   listCalls: number;
   /** invalidate() 调用次数 */
   invalidateCalls: number;
+  /** cached() 返回值（冷热路径判定）：默认 true=热缓存，与既有用例期望一致 */
+  hasCache: boolean;
   list(force?: boolean): Promise<McpListResult & { stale: boolean }>;
   invalidate(): void;
+  cached(): boolean;
 }
 
 export function makeFakeMcpAdmin(
@@ -23,6 +26,7 @@ export function makeFakeMcpAdmin(
     servers,
     listCalls: 0,
     invalidateCalls: 0,
+    hasCache: true,
     async list() {
       fake.listCalls++;
       return {
@@ -35,6 +39,9 @@ export function makeFakeMcpAdmin(
     },
     invalidate() {
       fake.invalidateCalls++;
+    },
+    cached() {
+      return fake.hasCache;
     },
   };
   return fake;

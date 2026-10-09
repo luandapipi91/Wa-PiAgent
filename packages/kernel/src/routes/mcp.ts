@@ -126,7 +126,7 @@ export interface McpRouteDeps {
   /** projectId（缺省 = 全局作用域）→ cwd；项目不存在 / cwd 缺失抛 KernelError */
   cwdForProject: (projectId?: string) => Promise<string>;
   /** 按 cwd 取状态读取者（与任务 7 的工具枚举共用同一批实例与缓存） */
-  adminForCwd: (cwd: string) => Pick<McpAdmin, "list" | "invalidate">;
+  adminForCwd: (cwd: string) => Pick<McpAdmin, "list" | "invalidate" | "cached">;
   /** 写操作后失效**所有**按 cwd 的状态缓存（见 AgentManager.invalidateMcpCaches） */
   invalidateCaches: () => void;
   /** SSE 广播出口（mcp:changed / mcp:testResult / mcp:tools / mcp:login） */
