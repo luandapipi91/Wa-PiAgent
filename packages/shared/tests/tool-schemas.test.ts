@@ -99,6 +99,26 @@ test("MEM_SEARCH_DESC 给出「先查记忆再行动」的判定细则（知识/
   expect(MEM_SEARCH_DESC).toContain("single-point lookups");
 });
 
+test("MEM_SEARCH 查询形态限定：短句/词组，禁多关键词 AND（2026-10-09 多词搜索空结果修复）", async () => {
+  // 背景：query 描述原为 "Keywords to search for"（复数），引导模型传空格分隔多词；
+  // 词法层把多词切 FTS 隐式 AND（分居必空），语义召回又被 scope 滤光 → 多词必空。
+  // 修复方向（用户拍板）：不改检索层，提示词限定查询形态——传短句/词组，不传多关键词。
+  const { MemorySearchParamsSchema, MEM_SEARCH_DESC, MEM_SEARCH_SNIPPET } =
+    await import("@wa-pi/shared/tool-schemas");
+  const queryDesc = MemorySearchParamsSchema.properties.query.description ?? "";
+  // 短句/词组引导
+  expect(queryDesc).toContain("short phrase or sentence");
+  // 空格分词 = AND 的警告必须点名（否则模型继续传多关键词）
+  expect(queryDesc).toContain("AND");
+  // 不再引导 Keywords（复数关键词正是问题根源）
+  expect(queryDesc).not.toContain("Keywords");
+  // 工具描述反映混合检索（不再是纯 BM25 时代的描述）
+  expect(MEM_SEARCH_DESC).toContain("semantic");
+  // 系统提示词片段同步（去掉 by keyword 导向）
+  expect(MEM_SEARCH_SNIPPET).not.toContain("by keyword");
+  expect(MEM_SEARCH_SNIPPET).toContain("phrase");
+});
+
 test("MEM_SEARCH_DESC 声明未传 scope 的检索范围（全局+当前项目，不跨项目）", async () => {
   // 2026-09-20 项目隔离：读侧未传 scope 不再跨项目，描述必须同步声明
   // （否则 agent 会误以为能看到其它项目的记忆，或反过来不敢检索）。

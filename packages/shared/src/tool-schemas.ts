@@ -92,7 +92,8 @@ export const MEM_REMOVE_SNIPPET =
   "Delete a memory entry (user profile or your notes).";
 
 export const MEM_SEARCH_DESC =
-  "Full-text (BM25) search over memory entries, including ones NOT shown in the system prompt. " +
+  "Hybrid search (BM25 + semantic embeddings) over memory entries, including ones NOT shown in the system prompt. " +
+  "Query with a short phrase or sentence — space-separated words act as AND terms. " +
   "SCOPE: omit to search the global entries plus the current project's entries — other projects' entries are never returned; " +
   "'global' / 'project' narrow it explicitly. " +
   "Use this before assuming you don't know something — L2 (project knowledge) and L3 (execution log) " +
@@ -107,7 +108,7 @@ export const MEM_SEARCH_DESC =
   "Returns id/title/snippet/score; use the id with memory_replace / memory_remove.";
 
 export const MEM_SEARCH_SNIPPET =
-  "Search all memory layers (including non-injected L2/L3) by keyword or time range.";
+  "Search all memory layers (including non-injected L2/L3) with a short phrase or time range.";
 
 /** memory target schema（"memory" | "user"） */
 export const MemoryTargetSchema = Type.Union(
@@ -150,7 +151,8 @@ export const MemoryTimeFieldSchema = Type.Union(
  */
 export const MemorySearchParamsSchema = Type.Object({
   query: Type.String({
-    description: "Keywords to search for (Chinese or English).",
+    description:
+      "A short phrase or sentence describing what to recall (Chinese or English). Prefer one coherent phrase — space-separated words act as AND terms and match nothing unless all of them appear in the same entry.",
   }),
   scope: Type.Optional(MemoryScopeSchema),
   kind: Type.Optional(MemoryKindSchema),
