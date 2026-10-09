@@ -752,6 +752,18 @@ app.whenReady().then(async () => {
 	const modelDir = app.isPackaged
 		? path.join(process.resourcesPath, "models")
 		: path.join(__dirname, "..", "resources", "models");
+	// macOS 语义检索的标准 SQLite dylib：随包内置在 native/node_modules/wa-pi-sqlite-dylib
+	//（stage-native-assets 的 darwin 目标放入）。dev 下 kernel 从源码树跑，
+	// assets/sqlite 兜底路径直接命中，无需注入。
+	const sqliteDylib = app.isPackaged
+		? path.join(
+				process.resourcesPath,
+				"native",
+				"node_modules",
+				"wa-pi-sqlite-dylib",
+				"libsqlite3.dylib",
+			)
+		: undefined;
 	// packaged 下 sidecar 是 bun --compile 编译产物 WaPiKernel（分发进程名不暴露 bun）；dev 仍用 host bun。
 	const KERNEL_BIN =
 		process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
@@ -1178,6 +1190,8 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			port: actualPort,
 			// 模型目录：存在时注入 WA_PI_MODEL_DIR，transformers 走本地模型并禁联网（离线可用）。
 			modelDir,
+			// macOS 语义检索的标准 SQLite dylib：存在时注入 WA_PI_SQLITE_DYLIB。
+			sqliteDylib,
 		});
 		startup.mark("kernelReady");
 		// 登记 kernel 进程（createdAt 用 sidecar 返回的 spawn 时刻：进程真实创建时刻，

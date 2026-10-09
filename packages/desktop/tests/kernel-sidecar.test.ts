@@ -47,6 +47,52 @@ async function startSidecarHarness(spawnPids: (number | undefined)[]) {
   return { sidecar, children, killed, spawnFn };
 }
 
+test("sqliteDylib 存在 → 注入 WA_PI_SQLITE_DYLIB；未传/文件不存在 → 不注入（macOS 语义检索资产入口）", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "wa-pi-dylib-"));
+  const dylib = join(dir, "libsqlite3.dylib");
+  writeFileSync(dylib, "fake dylib");
+
+  const run = async (sqliteDylib?: string) => {
+    const child = fakeChild(4321);
+    let capturedEnv: Record<string, string> = {};
+    const spawnFn = ((_c: string, _a: string[], opts: any) => {
+      capturedEnv = opts.env;
+      return child;
+    }) as any;
+    await startSidecar({
+      isPackaged: false,
+      kernelDir: "/fake/kernel",
+      webDir: "/fake/web",
+      kernelExe: "/fake/kernel/wa-pi-kernel",
+      port: 9778,
+      log: { info() {}, error() {} },
+      sqliteDylib,
+      deps: {
+        spawnFn,
+        waitForPortFn: (async () => true) as any,
+        checkPortFn: (async () => true) as any,
+        killFn: (() => {}) as any,
+        respawnDelayMs: 5,
+        isPortInUseFn: async () => false,
+        killPortOccupantsFn: async () => [],
+      },
+    });
+    return capturedEnv;
+  };
+
+  const envWith = await run(dylib);
+  expect(envWith.WA_PI_SQLITE_DYLIB).toBe(dylib);
+
+  const envMissing = await run(join(dir, "no-such.dylib"));
+  expect(envMissing.WA_PI_SQLITE_DYLIB).toBeUndefined();
+
+  const envNone = await run(undefined);
+  expect(envNone.WA_PI_SQLITE_DYLIB).toBeUndefined();
+});
+
 /** 触发一次崩溃重启：第一个 child 被信号杀 → exit handler → scheduleRespawn → 5ms 后重新 spawn */
 async function crashAndRespawn(children: any[]) {
   children[0].emit("exit", null, "SIGKILL");

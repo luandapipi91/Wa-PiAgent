@@ -414,6 +414,30 @@ export async function stageNativeAssets(target: "win" | "linux" | "darwin") {
 		);
 	}
 
+	// ---- macOS vanilla SQLite dylib：语义检索 setCustomSQLite 必需 ----
+	// bun 在 macOS 用 Apple 专有 SQLite（不支持 loadExtension），语义检索需切标准
+	// libsqlite3.dylib。dylib 是 build-sqlite-dylib.ts 的编译产物（gitignore，不入库）：
+	// 没编译过就报错退出——宁失败不带病出包（否则静默产出「macOS 语义检索不可用」的包）。
+	// win/linux 的 bun SQLite 可直接 loadExtension，无需此文件。
+	if (spec.ortPlatform === "darwin") {
+		const dylibSrc = join(KERNEL_PKG_DIR, "assets", "sqlite", "libsqlite3.dylib");
+		if (!existsSync(dylibSrc)) {
+			throw new Error(
+				`[native] macOS 语义检索需要 ${dylibSrc}（编译产物不入库）\n` +
+					`  先跑 bun run scripts/build-sqlite-dylib.ts 生成后再打包`,
+			);
+		}
+		const dylibDir = join(nativeRoot, "node_modules", "wa-pi-sqlite-dylib");
+		await mkdir(dylibDir, { recursive: true });
+		await cp(dylibSrc, join(dylibDir, "libsqlite3.dylib"));
+		staged.push({
+			name: "wa-pi-sqlite-dylib",
+			files: 1,
+			entry: null,
+			kept: ["libsqlite3.dylib"],
+		});
+	}
+
 	const totalMB =
 		((await dirSize(join(RES, "models"))) + (await dirSize(nativeRoot))) /
 		(1024 * 1024);
