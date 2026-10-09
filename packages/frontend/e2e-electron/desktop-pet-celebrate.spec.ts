@@ -133,10 +133,9 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		expect(probe.pool).toContain("sleep");
 	});
 
-	test("溜达关闭时：对话完成的随机动作不产生位移（不进 hop/curious）", async () => {
+	test("溜达关闭时：庆祝仍会跳（动作多样），不再永久位移——跳出去会跳回来", async () => {
 		const pet = await findPetWindow();
-		// 复现用户报告：关闭「溜达」后，任务完成仍会跳走导致宠物位移。
-		// 预期：溜达关只允许「原地动作」，位移型动作（hop/curious）不参与随机抽取。
+		// 用户期望：关闭溜达后，庆祝抽中跳出去的动作落在他处，但会自动跳回起跳点。
 		const probe = (await pet.evaluate(`
 			(() => {
 				const out = {};
@@ -145,20 +144,67 @@ test.describe.serial("对话完成后的宠物动作", () => {
 					st.fly = null;
 					st.wander = false;
 					startRandomCelebrate();
-					out[st.state] = (out[st.state] || 0) + 1;
+					// curious 抽中时 state 也是 hop（跳向光标处），靠 hop_intent 区分
+					const key = st.hop_intent === "curious" ? "curious" : st.state;
+					out[key] = (out[key] || 0) + 1;
 				}
 				return out;
 			})()
 		`)) as Record<string, number>;
 
-		// 仍然一定有反应（不因过滤而静默跳过）
+		// 一定有反应且动作多样（位移型 hop/curious 不再被排除在庆祝池外）
 		const movedCount = Object.entries(probe)
 			.filter(([k]) => k !== "idle")
 			.reduce((s, [, v]) => s + v, 0);
 		expect(movedCount).toBe(60);
-		// 但不产生位移：不进入 hop / curious 两个位移型动作态
-		expect(probe["hop"]).toBeUndefined();
-		expect(probe["curious"]).toBeUndefined();
+		expect(probe["hop"]).toBeGreaterThan(0);
+		expect(probe["curious"]).toBeGreaterThan(0);
+	});
+
+	test("溜达关闭：hop 跳出去后会跳回起跳点（快进两段跳跃动画）", async () => {
+		const pet = await findPetWindow();
+		const probe = (await pet.evaluate(`
+			(() => {
+				st.wander = false;
+				st.state = "idle"; st.fly = null; st.grab = null;
+				const origin = { x: st.fx, y: st.fy };
+				runAction("hop");
+				let maxDrift = 0;
+				for (let i = 0; i < 400; i++) {   // 手动快进 tick（两段跳跃 ~100 tick 内完成）
+					tick();
+					maxDrift = Math.max(maxDrift, Math.hypot(st.fx - origin.x, st.fy - origin.y));
+				}
+				return { origin: { x: Math.round(origin.x), y: Math.round(origin.y) }, final: { x: Math.round(st.fx), y: Math.round(st.fy) }, maxDrift: Math.round(maxDrift), state: st.state };
+			})()
+		`)) as { origin: number; final: number; maxDrift: number; state: string };
+
+		// 确实跳出去过（不然测的是寂寞）
+		expect(probe.maxDrift).toBeGreaterThan(50);
+		// 最终回到起跳点（x、y 都要回，±2px），不永久位移
+		expect(Math.abs(probe.final.x - probe.origin.x)).toBeLessThanOrEqual(2);
+		expect(Math.abs(probe.final.y - probe.origin.y)).toBeLessThanOrEqual(2);
+	});
+
+	test("溜达关闭：curious 跳过去看完人，也会跳回来", async () => {
+		const pet = await findPetWindow();
+		const probe = (await pet.evaluate(`
+			(() => {
+				st.wander = false;
+				st.state = "idle"; st.fly = null; st.grab = null;
+				const origin = { x: st.fx, y: st.fy };
+				runAction("curious");
+				let maxDrift = 0;
+				for (let i = 0; i < 500; i++) {   // 出游 + watchyou(100 tick) + 跳回
+					tick();
+					maxDrift = Math.max(maxDrift, Math.hypot(st.fx - origin.x, st.fy - origin.y));
+				}
+				return { origin: { x: Math.round(origin.x), y: Math.round(origin.y) }, final: { x: Math.round(st.fx), y: Math.round(st.fy) }, maxDrift: Math.round(maxDrift), state: st.state };
+			})()
+		`)) as { origin: number; final: number; maxDrift: number; state: string };
+
+		expect(probe.maxDrift).toBeGreaterThan(30);
+		expect(Math.abs(probe.final.x - probe.origin.x)).toBeLessThanOrEqual(2);
+		expect(Math.abs(probe.final.y - probe.origin.y)).toBeLessThanOrEqual(2);
 	});
 
 	test("真实链路：主窗口转发庆祝 → 宠物确实做了动作（气泡或动作态）", async () => {
