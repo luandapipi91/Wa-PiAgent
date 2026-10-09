@@ -83,3 +83,6 @@ bun.lock
 
 # vanilla SQLite dylib（build-sqlite-dylib.ts 产物，不入库）
 packages/kernel/assets/sqlite/libsqlite3.dylib
+
+# kernel 内部文档（POC 报告等，不入远程）
+packages/kernel/docs/
