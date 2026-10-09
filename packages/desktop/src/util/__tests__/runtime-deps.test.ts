@@ -11,9 +11,80 @@ import {
 	installWithRetry,
 	buildInstallArgs,
 	buildInstallEnv,
+	linkNativeAssets,
 } from "../runtime-deps.cjs";
 
 const TMP = join(tmpdir(), `test-runtime-deps-${Date.now()}`);
+
+const noopLog = { info: () => {}, error: () => {}, warn: () => {} };
+
+// 原生依赖链接：bun 编译产物的运行时解析根是 cwd/node_modules（不是可执行文件同目录，
+// NODE_PATH 对包内 require 也不可靠），故随包分发的 resources/native/node_modules/* 必须
+// 以链接形式出现在 WA_PI_DIR/runtime/node_modules（= kernel 的 cwd）。
+describe("linkNativeAssets", () => {
+	test("逐包（含作用域包）链接进 runtime/node_modules，且幂等", async () => {
+		const base = join(TMP, "link-basic");
+		const native = join(base, "resources", "native", "node_modules");
+		const runtime = join(base, "runtime");
+		await mkdir(join(native, "foo"), { recursive: true });
+		await writeFile(join(native, "foo", "package.json"), "{}", "utf8");
+		await mkdir(join(native, "@scope", "bar"), { recursive: true });
+		await writeFile(
+			join(native, "@scope", "bar", "package.json"),
+			"{}",
+			"utf8",
+		);
+
+		const first = await linkNativeAssets(native, runtime, noopLog);
+		expect(first).toEqual({ linked: 2, skipped: 0, failed: 0 });
+		// 通过链接能读到源包内容（证明链接真的建到了 runtime/node_modules 下）
+		expect(
+			await Bun.file(
+				join(runtime, "node_modules", "foo", "package.json"),
+			).text(),
+		).toBe("{}");
+		expect(
+			await Bun.file(
+				join(runtime, "node_modules", "@scope", "bar", "package.json"),
+			).text(),
+		).toBe("{}");
+
+		// 幂等：再次调用不重建也不报错
+		const second = await linkNativeAssets(native, runtime, noopLog);
+		expect(second).toEqual({ linked: 0, skipped: 2, failed: 0 });
+	});
+
+	test("源目录缺失/未提供时静默降级（不抛错）；语义检索由 kernel 自行降级为词法", async () => {
+		const runtime = join(TMP, "link-missing", "runtime");
+		for (const src of [undefined, join(TMP, "link-missing", "nope")]) {
+			const r = await linkNativeAssets(src, runtime, noopLog);
+			expect(r.linked).toBe(0);
+			expect(r.failed).toBe(0);
+		}
+	});
+
+	test("目标同名条目存在但不是链接 → 跳过不动（不删非本模块创建的东西）", async () => {
+		const base = join(TMP, "link-notlink");
+		const native = join(base, "native", "node_modules");
+		const runtime = join(base, "runtime");
+		await mkdir(join(native, "kept"), { recursive: true });
+		await writeFile(join(native, "kept", "marker"), "src", "utf8");
+		await mkdir(join(runtime, "node_modules", "kept"), { recursive: true });
+		await writeFile(
+			join(runtime, "node_modules", "kept", "marker"),
+			"local",
+			"utf8",
+		);
+
+		const r = await linkNativeAssets(native, runtime, noopLog);
+		expect(r.skipped).toBe(1);
+		expect(r.linked).toBe(0);
+		// 原目录完好（未被删除、未被替换成链接）
+		expect(
+			await Bun.file(join(runtime, "node_modules", "kept", "marker")).text(),
+		).toBe("local");
+	});
+});
 
 const SEED_MANIFEST = {
 	name: "wa-pi-kernel-sidecar",

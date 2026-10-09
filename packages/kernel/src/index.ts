@@ -182,6 +182,30 @@ export async function startKernel(opts?: {
 		console.error("[kernel] 记忆迁移失败（不影响启动）:", err);
 	});
 
+	// 启动后异步回填未索引的记忆（存量库升级到 v3 后、或上次退出前没来得及索引的条目）。
+	// 不阻塞服务启动：整个任务 `void` 掉，只在真写入过向量时打一条完成日志；失败（模型不可用 /
+	// 扩展加载失败 / 原生二进制或模型资产缺失）只告警——语义检索静默降级，绝不能因此让 kernel 起不来。
+	// vector-ext / vector-index 走**动态 import**：把这两个模块挪出启动关键路径（回填的真入口），
+	// 且这两个模块自身解析失败（打包裁剪等）也只落到本 catch。
+	// ⚠️ 事实：本文件顶部**静态 import `./memory/db`**，而 db.ts 静态 import `./vector-ext`，
+	//    vector-ext 顶层又静态 import @sqliteai/sqlite-vector —— 这条静态边依然在启动关键路径上，
+	//    本段动态 import 并不能把 vector-ext 从启动期剥离。今天不会因此抛错，是因为该主包是**纯
+	//    JS**（导入期不加载原生库）且被内联进产物；真正碰原生的一步是运行时
+	//    require('@sqliteai/sqlite-vector-<platform>')，它落在 loadVectorExtension 的 try/catch 内，
+	//    失败只降级。若将来把原生依赖改成 --external 或裁剪掉主包，需重新评估这条静态边。
+	void (async () => {
+		try {
+			const { initVectorColumn } = await import("./memory/vector-ext");
+			const { indexPendingMemories } = await import("./memory/vector-index");
+			const db = openMemoryDb(WA_PI_DIR);
+			initVectorColumn(db);
+			const res = await indexPendingMemories(new MemoryDao(db));
+			if (res.indexed > 0) console.log(`[memory-semantic] 回填完成：${res.indexed} 条`);
+		} catch (err) {
+			console.error("[memory-semantic] 启动回填失败（不影响服务）:", err);
+		}
+	})();
+
 	// 启动时对齐扩展 pin（幂等）：依赖树被盘外重解析（repair 删 lock 后 bun install、
 	// 装/卸其它包时的 bun add）会把 node_modules 顶到新版本而 settings 的 pin 未变，
 	// pi 在 --offline 下遇到「pin ≠ 实装」会整包跳过该扩展（静默不加载、界面无报错）。

@@ -124,6 +124,7 @@ export const registerMemoryRoutes: RouteRegistrar = (
       type: "memory:config:set",
       reviewEnabled: b.reviewEnabled,
       memoryPolicyStyle: b.memoryPolicyStyle,
+      semanticEnabled: b.semanticEnabled,
     });
   });
 };

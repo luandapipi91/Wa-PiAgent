@@ -17,6 +17,11 @@ const INTEGRATION_TESTS = [
 	"tests/preview-inspect.integration.test.ts",
 	// 记忆迁移接线：启动完整 kernel 后断言存量 markdown 已入库（同属 WA_PI_DIR 快照类）
 	"tests/memory-migration-wiring.test.ts",
+	// 启动回填接线：启动完整 kernel 后断言未索引记忆被后台补齐向量（同属 WA_PI_DIR 快照类）
+	"tests/memory-backfill-wiring.test.ts",
+	// 启动回填离线接线：模型加载被挂住时启动不失败、词法可用，且回填不阻塞启动
+	//（同样会启动完整 kernel，并且会刻意挂住模型下载 → 必须独占进程）
+	"tests/memory-backfill-offline.test.ts",
 	// 记忆库打不开（memories.db 被造成目录）时仍要能启动：同样会启动完整 kernel
 	"tests/memory-db-open-failure.integration.test.ts",
 	// tui-host 端点集成（真实 WSServer + 流式 NDJSON），并行负载下 30s 超时，串行 2s 即过
@@ -44,6 +49,9 @@ const LOAD_SENSITIVE_TESTS = [
 const MOCK_LEAKY_TESTS = [
 	"tests/fs-open-env.test.ts",
 	"tests/npm-package-service.test.ts",
+	// mock.module 替换 ../src/memory/embedder（守护 vector-index 的异常兜底与终止性），
+	// 同样无恢复 API → 主批排除、单独进程补跑。
+	"tests/memory-vector-index-guards.test.ts",
 ];
 
 function run(args: string[]): boolean {

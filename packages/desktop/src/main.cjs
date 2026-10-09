@@ -740,6 +740,18 @@ app.whenReady().then(async () => {
 		process.env,
 	);
 	const runtimeDir = resolveRuntimeDir(WA_PI_DIR); // WA_PI_DIR/runtime 可写（默认 ~/.pi/agent/runtime）
+	// 原生语义检索资产（由 build 的 stageNativeAssets 产出，经 extraResources 随包分发）：
+	//   models/             模型（q8）→ 以 WA_PI_MODEL_DIR 注入，离线可用
+	//                       （asar 内只读：不内置就会每次启动联网重下 23MB）
+	//   native/node_modules 原生依赖（onnxruntime-node / sharp / sqlite-vector + 平台分包）
+	//                       → 链接进 runtime/node_modules（见下方 linkNativeAssets）
+	// 二者缺失时均不影响启动：kernel 侧自行降级（无内置模型→联网下载；无原生依赖→纯词法检索）。
+	const nativeNodeModules = app.isPackaged
+		? path.join(process.resourcesPath, "native", "node_modules")
+		: path.join(__dirname, "..", "resources", "native", "node_modules");
+	const modelDir = app.isPackaged
+		? path.join(process.resourcesPath, "models")
+		: path.join(__dirname, "..", "resources", "models");
 	// packaged 下 sidecar 是 bun --compile 编译产物 WaPiKernel（分发进程名不暴露 bun）；dev 仍用 host bun。
 	const KERNEL_BIN =
 		process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
@@ -897,6 +909,13 @@ app.whenReady().then(async () => {
 				log,
 				onStatus: (t) => setProgress(ip, t),
 			});
+			// 把随包分发的原生依赖链接进 runtime/node_modules：bun 编译产物的运行时解析根是
+			// cwd/node_modules（不是可执行文件同目录，NODE_PATH 对包内 require 也不可靠），
+			// 而 kernel 的 cwd 正是 runtimeDir。失败只告警——kernel 自行降级为词法检索，不得阻断启动。
+			const { linkNativeAssets } = require("./util/runtime-deps.cjs");
+			await linkNativeAssets(nativeNodeModules, runtimeDir, log).catch((e) =>
+				log.error("[deps] 原生依赖链接异常（忽略）", e),
+			);
 		} catch (e) {
 			clearInterval(installTrickle);
 			log.error("依赖安装失败", e);
@@ -1157,6 +1176,8 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			devKernelExe,
 			log,
 			port: actualPort,
+			// 模型目录：存在时注入 WA_PI_MODEL_DIR，transformers 走本地模型并禁联网（离线可用）。
+			modelDir,
 		});
 		startup.mark("kernelReady");
 		// 登记 kernel 进程（createdAt 用 sidecar 返回的 spawn 时刻：进程真实创建时刻，

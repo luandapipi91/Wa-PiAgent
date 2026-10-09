@@ -51,6 +51,8 @@ export interface InstructionFile {
 export interface MemoryConfig {
   reviewEnabled: boolean;
   memoryPolicyStyle: "full" | "compact" | "none";
+  /** 是否启用本地语义检索（默认 true；模型或扩展不可用时自动降级） */
+  semanticEnabled?: boolean;
 }
 
 /** 归档 sidecar 结构 */
@@ -125,6 +127,8 @@ export interface MemoryConfigSetEvent {
   type: "memory:config:set";
   reviewEnabled?: boolean;
   memoryPolicyStyle?: "full" | "compact" | "none";
+  /** 是否启用本地语义检索（缺省 true；false 时 memory_search 只走词法） */
+  semanticEnabled?: boolean;
 }
 
 // kernel → 前端

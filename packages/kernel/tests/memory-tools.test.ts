@@ -8,6 +8,16 @@ import {
   type MemoryToolContext,
 } from "../src/memory/tools";
 import { renderSnapshot } from "../src/memory/snapshot";
+import {
+  loadVectorExtension,
+  initVectorColumn,
+  refreshQuantizedIndex,
+} from "../src/memory/vector-ext";
+import { indexPendingMemories } from "../src/memory/vector-index";
+import {
+  probeModelAvailability,
+  registerModelGateFailure,
+} from "./helpers/model-gate";
 
 let ctx: MemoryToolContext;
 let tools: ReturnType<typeof createMemoryTools>;
@@ -763,4 +773,115 @@ test("memory_search 的 timeField=created 按创建时间过滤", async () => {
       })
     ).results,
   ).toHaveLength(0);
+});
+
+// =========================================================================
+// memory_search 接入混合检索（语义通道接线 + 语义开关）
+// =========================================================================
+
+// ---------------------------------------------------------------------------
+// 模型可用性门（只挂在真正依赖「语义通道产出候选」的用例上）
+//
+// 本文件其余用例全部走词法路径（工具行为 / 权限校验 / 注入净化 / 时间过滤），
+// 离线照常执行，不挂门、不受影响。下面两条**都**依赖语义通道真的召回候选：
+//   - 用例 1 断言「无共同关键词也能命中」——只有语义通道能产出这条结果；
+//   - 用例 2 断言「关掉开关后 0 条」——若语义通道本来就空（离线），
+//     hybrid 路径与词法路径结果相同，断言恒真（盲绿），开关形同虚设。
+// 故两条都挂门：三态判定（见 tests/helpers/model-gate.ts）——noSource 时 skip（不是 fail）
+// 并打印原因，把「环境不具备条件」与「断言不符」区分开；broken（声明了模型来源却仍加载失败）
+// 则**判红**：不再把「embedder 加载路径被改坏」伪装成 skip。
+// 约定与 memory-embedder.test.ts / memory-vector-index.test.ts / memory-hybrid-search.test.ts 一致。
+// ---------------------------------------------------------------------------
+const gate = await probeModelAvailability();
+registerModelGateFailure(gate, "memory-tools.test");
+const modelUnavailable = gate.status !== "available";
+
+if (modelUnavailable) {
+  console.warn(
+    `[memory-tools.test] ${gate.detail}\n` +
+      "  不依赖模型的用例（工具行为 / 权限校验 / 净化 / 时间过滤）仍照常执行。",
+  );
+}
+
+/**
+ * 自包含夹具：每个用例自带 :memory: 库 + 单条语料，回填后刷新量化索引。
+ * 刻意不复用文件顶部的 ctx / tools 夹具——那会依赖同文件其它用例的隐含状态。
+ * 回填只写 embedding 列，量化索引必须显式刷新，否则语义通道扫不到向量。
+ */
+async function semanticFixture() {
+  const db = new Database(":memory:");
+  db.run(SCHEMA_SQL);
+  loadVectorExtension(db);
+  initVectorColumn(db);
+  const localDao = new MemoryDao(db);
+  localDao.insert({
+    kind: "knowledge",
+    target: "memory",
+    scope: "project",
+    projectId: "Wa-Pi",
+    content: "发版流程需要先跑单元测试和四层测试",
+    source: "agent",
+  });
+  await indexPendingMemories(localDao);
+  refreshQuantizedIndex(db);
+  return { db, localDao };
+}
+
+/** 调 memory_search 并解析回传 JSON（execute 返回的是 { content: [{ text }] } 包装） */
+async function searchOnce(
+  list: ReturnType<typeof createMemoryTools>,
+  params: unknown,
+) {
+  const search = list.find((t) => t.name === "memory_search")!;
+  const raw = (await search.execute("1", params as never)) as {
+    content: Array<{ text: string }>;
+  };
+  return JSON.parse(raw.content[0].text) as {
+    results: Array<{ snippet: string; score: number }>;
+    totalMatched: number;
+  };
+}
+
+test.skipIf(modelUnavailable)(
+  "memory_search 默认走混合检索：语义相关但无共同关键词的查询能命中",
+  async () => {
+    const { db, localDao } = await semanticFixture();
+    // 不传 semanticEnabled（undefined）→ 必须走混合检索（默认启用）
+    const res = await searchOnce(
+      createMemoryTools({ dao: localDao, projectId: "Wa-Pi" }),
+      { query: "上线前要做什么质量检查", limit: 3 },
+    );
+
+    // 该查询与语料无任何共同 bigram（词法零命中）→ 命中的只能来自语义通道
+    expect(res.results.length).toBeGreaterThan(0);
+    expect(res.results[0].snippet).toContain("发版流程需要先跑单元测试");
+    // score 量纲：融合分数已按首位归一到 (0, 1]（RRF 原值 ≈0.0163，直接外泄会与词法
+    // 通道的 0–1 加权和撞车）。把 hybrid-search 里的归一化去掉，此处立刻变红。
+    expect(res.results[0].score).toBe(1);
+    // totalMatched 口径：语义独有命中时纯词法 countMatches 为 0，若原样回灌给模型，
+    // 会出现「results 有 1 条而 totalMatched: 0」的自相矛盾。口径收敛为「不小于返回条数」。
+    expect(res.totalMatched).toBeGreaterThanOrEqual(res.results.length);
+    db.close();
+  },
+);
+
+test.skipIf(modelUnavailable)("semanticEnabled=false 时只走词法通道", async () => {
+  const { db, localDao } = await semanticFixture();
+  const params = { query: "上线前要做什么质量检查", limit: 3 };
+
+  // 先证明该查询确实靠语义通道命中（开关打开时恰好 1 条）：否则下面的「0 条」
+  // 可能只是「词法与语义本来都命中不了」的假绿，与开关无关。
+  const on = await searchOnce(
+    createMemoryTools({ dao: localDao, projectId: "Wa-Pi" }),
+    params,
+  );
+  expect(on.results).toHaveLength(1);
+
+  const off = await searchOnce(
+    createMemoryTools({ dao: localDao, projectId: "Wa-Pi", semanticEnabled: false }),
+    params,
+  );
+  // 词法通道对该查询零命中（无共同关键词）→ 关掉语义后必然为空
+  expect(off.results).toHaveLength(0);
+  db.close();
 });

@@ -1129,8 +1129,15 @@ export class AgentManager {
 		const defaultCtx = makeDefaultBridgeContext({
 			sessionId,
 			cwd,
-			// 记忆工具走 SQLite DAO；库不可用时给占位上下文（memory_* 已在 handleTool 拦下）
-			memoryCtx: memoryCtx ?? unavailableMemoryCtx(),
+			// 记忆工具走 SQLite DAO；库不可用时给占位上下文（memory_* 已在 handleTool 拦下）。
+			// 语义开关与 reviewEnabled / memoryPolicyStyle 同源于本次 getConfig：未显式关闭
+			// （undefined / true）→ 保持默认启用；false 时 memory_search 只走词法通道。
+			memoryCtx: memoryCtx
+				? {
+						...memoryCtx,
+						semanticEnabled: memConfig?.semanticEnabled !== false,
+					}
+				: unavailableMemoryCtx(),
 		});
 		const bridgeCtx: BridgeSessionContext = {
 			cwd,

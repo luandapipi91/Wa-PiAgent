@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { buildSidecar } from "./build-kernel-sidecar";
+import { stageNativeAssets } from "./stage-native-assets";
 
 // 固化国内镜像：electron-builder 默认从 GitHub 下载 Electron 二进制 / winCodeSign / nsis，
 // 国内直连 20.205.243.166(GitHub) 经常 ETIMEDOUT，导致打包 hang 住数分钟。
@@ -56,6 +57,11 @@ async function step0TestGate(noTest: boolean) {
   // electron-builder 用 --mac；sidecar 平台名为 darwin
   const sidecarTarget = target === "mac" ? "darwin" : target;
   await buildSidecar(sidecarTarget);
+  // 步骤1b：按目标平台准备模型与原生依赖。模型内置是「离线可用」的前提；原生 .node/.dll
+  // 既不能内联进编译产物（内联后加载不到），也不能从 asar 内 dlopen。必须在 electron-builder
+  // 之前——它会把 resources/native 与 resources/models 经 extraResources 拷进安装包（asar 之外）。
+  console.log("[build] 步骤1b: 准备原生资产（模型 + onnxruntime-node / sharp / sqlite-vector）");
+  await stageNativeAssets(sidecarTarget as "win" | "linux" | "darwin");
   // macOS：用 iconutil 预生成标准 .icns（避免 electron-builder 内置转换产生 JPEG-2000 花屏图标）
   if (target === "mac")
     run("bash", [join(import.meta.dir, "generate-icons.sh")]);

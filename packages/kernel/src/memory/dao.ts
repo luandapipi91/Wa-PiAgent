@@ -6,6 +6,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { bigram } from "./bigram";
+import { embedFingerprint } from "./embedder";
 import { buildMatchExpr } from "./query";
 
 export type MemoryKind = "profile" | "knowledge" | "execution";
@@ -28,6 +29,10 @@ export interface MemoryRow {
   useCount: number;
   archived: number;
   archivedAt: number | null;
+  /** 语义向量（Float32 原始字节）；未索引为 null */
+  embedding?: Uint8Array | null;
+  /** 向量对应的模型指纹；与 embedFingerprint() 不一致即视为待重新索引 */
+  embedMeta?: string | null;
 }
 
 export interface InsertInput {
@@ -96,6 +101,19 @@ const SNIPPET_RADIUS = 40;
  */
 const FULL_SCAN_CAP = 2000;
 
+/**
+ * 词法路径的列投影（**不含 embedding**）。
+ *
+ * 词法打分（bm25 / LIKE 子串）完全不需要 2KB 向量，而打分全集物化上限
+ * FULL_SCAN_CAP = 2000 —— 用 `SELECT m.*` 会让每次词法检索最多多读、多分配
+ * 约 2000 × 2KB ≈ 4MB BLOB。search 与 searchBySubstring 的 FROM/JOIN 都写了
+ * `memories m`，故列名统一带 `m.` 前缀。toRow() 对缺席列按 null 处理，
+ * 因此显式投影不改变返回结构（embedding / embedMeta 仍为字段，值为 null）。
+ */
+const LEXICAL_COLUMNS =
+  "m.id, m.kind, m.target, m.scope, m.project_id, m.content, m.title, m.tags, " +
+  "m.source, m.created_at, m.updated_at, m.last_used_at, m.use_count, m.archived, m.archived_at";
+
 /** 从内容提取标题：首个非空行截断 */
 export function deriveTitle(content: string): string {
   const firstLine = content.split(/\r?\n/).find((l) => l.trim()) ?? content;
@@ -137,6 +155,8 @@ interface RawRow {
   use_count: number;
   archived: number;
   archived_at: number | null;
+  embedding?: Uint8Array | null;
+  embed_meta?: string | null;
 }
 
 function toRow(r: RawRow): MemoryRow {
@@ -156,6 +176,8 @@ function toRow(r: RawRow): MemoryRow {
     useCount: r.use_count,
     archived: r.archived,
     archivedAt: r.archived_at,
+    embedding: r.embedding ?? null,
+    embedMeta: r.embed_meta ?? null,
   };
 }
 
@@ -197,6 +219,48 @@ export class MemoryDao {
     return r ? toRow(r) : null;
   }
 
+  /**
+   * 按 id 批量取行（保持传入顺序）。
+   *
+   * 供融合检索补位：语义通道只给出 id 列表（量化扫描只返回 id + distance），
+   * 需要在一次查询里把这些行取回来，而不是逐条 getById。
+   * 返回顺序与入参一致：调用方（RRF 融合后的名次）依赖稳定顺序。
+   *
+   * 列投影复用词法路径的 LEXICAL_COLUMNS（**不含 embedding / embed_meta**）：
+   * 与 getById 不同，本方法一次最多要处理 SCAN_K = 200 个 id，`SELECT *` 会当场物化
+   * 200 × ~2KB ≈ 400KB 向量 BLOB，而融合只用行本身、不用向量。顺带消除「同一返回
+   * 类型两种形态」——语义独有命中不再带非 null 的 embedding（词法命中本就没有）。
+   */
+  getByIds(ids: string[]): MemoryRow[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db
+      .query(
+        `SELECT ${LEXICAL_COLUMNS} FROM memories m WHERE m.id IN (${placeholders})`,
+      )
+      .all(...ids) as RawRow[];
+    const map = new Map(rows.map((r) => [r.id, toRow(r)]));
+    return ids
+      .map((id) => map.get(id))
+      .filter((r): r is MemoryRow => !!r);
+  }
+
+  /** 单行是否落在本次检索的 scope 收窄范围内（复用 buildFilter 的语义，不另起一套规则） */
+  matchesScope(id: string, opts: ListOpts): boolean {
+    const { where, params } = this.buildFilter(opts);
+    const row = this.db
+      .query(
+        `SELECT 1 AS ok FROM memories ${where}${where ? " AND " : "WHERE "}id = ?`,
+      )
+      .get(...params, id) as { ok: number } | null;
+    return !!row;
+  }
+
+  /** 供融合后补位用的片段生成 */
+  snippetFor(row: MemoryRow, rawQuery: string): string {
+    return makeSnippet(row.content, rawQuery);
+  }
+
   /** 按内容子串查找（memory_replace/remove 无 id 时的兼容路径） */
   findBySubstring(text: string, opts: ListOpts = {}): MemoryRow[] {
     const trimmed = text.trim();
@@ -215,6 +279,8 @@ export class MemoryDao {
     );
     if (res.changes === 0) return false;
     this.syncFts(this.getById(id)!);
+    // 内容变化 → 向量失效。置 NULL 而不是删除列值，让后台任务按 listUnindexed 重算。
+    this.db.run("UPDATE memories SET embedding = NULL, embed_meta = NULL WHERE id = ?", [id]);
     return true;
   }
 
@@ -223,6 +289,31 @@ export class MemoryDao {
     if (res.changes === 0) return false;
     this.db.run("DELETE FROM memories_fts WHERE memory_id = ?", [id]);
     return true;
+  }
+
+  /** 当前生效的模型指纹（写入 embed_meta） */
+  embedFingerprint(): string {
+    return embedFingerprint();
+  }
+
+  /** 待索引条目：未归档且（无向量 或 指纹不匹配）。按 updated_at 升序，老条目优先。 */
+  listUnindexed(limit: number): MemoryRow[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM memories
+          WHERE archived = 0
+            AND (embedding IS NULL OR embed_meta IS NULL OR embed_meta <> ?)
+          ORDER BY updated_at ASC
+          LIMIT ?`,
+      )
+      .all(embedFingerprint(), limit) as RawRow[];
+    return rows.map(toRow);
+  }
+
+  /** 写入向量与指纹；返回是否命中了一行 */
+  setEmbedding(id: string, vec: Uint8Array, meta: string): boolean {
+    const res = this.db.run("UPDATE memories SET embedding = ?, embed_meta = ? WHERE id = ?", [vec, meta, id]);
+    return res.changes > 0;
   }
 
   archive(id: string): boolean {
@@ -383,7 +474,7 @@ export class MemoryDao {
     if (!clause) return [];
     const rows = this.db
       .query(
-        `SELECT m.*
+        `SELECT ${LEXICAL_COLUMNS}
            FROM memories m
           WHERE (m.content LIKE ? ESCAPE '\\'
                  OR m.title LIKE ? ESCAPE '\\'
@@ -467,7 +558,7 @@ export class MemoryDao {
 
     const rows = this.db
       .query(
-        `SELECT m.*, bm25(memories_fts) AS score
+        `SELECT ${LEXICAL_COLUMNS}, bm25(memories_fts) AS score
            FROM memories_fts
            JOIN memories m ON m.id = memories_fts.memory_id
           WHERE memories_fts MATCH ? ${clause.extra}

@@ -35,6 +35,8 @@ import type {
   MemoryTarget,
 } from "./dao";
 import { firstThreatMessage } from "./threat-patterns";
+import { searchHybrid } from "./hybrid-search";
+import { scheduleIndexPendingMemories } from "./vector-index";
 
 export interface ToolDefinition {
   name: string;
@@ -54,6 +56,8 @@ export interface MemoryToolContext {
   dao: MemoryDao;
   /** 项目标识（cwd basename）；无项目上下文时为 null */
   projectId: string | null;
+  /** 语义通道开关（来自 hermes-memory-config.json）；false 时只走词法 */
+  semanticEnabled?: boolean;
 }
 
 export function resolveScope(
@@ -324,6 +328,19 @@ function resolveTargets(
 }
 
 export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
+  /**
+   * 写入成功后的增量语义回填触发（fire-and-forget）。
+   *
+   * 不加这一层的话：`insert()` 不写向量、`updateContent()` 把向量置 NULL，而回填原先只在
+   * kernel 启动时跑一次 —— kernel 是长驻 sidecar，于是会话里刚记下的 / 刚改写的记忆在同一
+   * 进程内被 `memory_search` 的语义通道漏掉（只剩词面命中），正是规格 §1 要解决的核心场景。
+   * 语义开关关闭时不做无谓工作；失败由调度层自己记日志，绝不影响写入结果。
+   */
+  const scheduleBackfill = () => {
+    if (ctx.semanticEnabled === false) return;
+    scheduleIndexPendingMemories(ctx.dao);
+  };
+
   return [
     {
       name: "memory_add",
@@ -388,6 +405,8 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
           title: title || undefined,
           tags,
         });
+        // 写入已落库（不阻塞）：向量补齐交给 debounce 后的后台回填
+        scheduleBackfill();
         return jsonResult({
           success: true,
           id: row.id,
@@ -430,10 +449,16 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
           until: parseTimeBound(params.until, true),
           timeField: params.timeField === "created" ? "created" : "updated",
         };
-        const hits = ctx.dao.search(query, {
+        const opts = {
           ...filter,
           limit: typeof params.limit === "number" ? params.limit : 10,
-        });
+        };
+        // 未显式关闭（undefined）时走混合检索（默认启用）；searchHybrid 自己保证
+        // 「扩展未就绪 / 模型不可用 / 语义侧任何异常」都退回纯词法结果，绝不抛错。
+        const hits =
+          ctx.semanticEnabled === false
+            ? ctx.dao.search(query, opts)
+            : await searchHybrid(ctx.dao, query, opts);
         return jsonResult({
           results: hits.map((h) => ({
             id: h.id,
@@ -446,8 +471,14 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
             score: Number(h.score.toFixed(4)),
             archived: h.archived === 1,
           })),
-          // 真实命中总数（与 results 同过滤条件，但不受 limit / CANDIDATE_LIMIT 截断）
-          totalMatched: ctx.dao.countMatches(query, filter),
+          // 真实命中总数（与 results 同过滤条件，但不受 limit / CANDIDATE_LIMIT 截断）。
+          // 语义独有命中时纯词法的 countMatches 会低于本次返回条数（语义候选不是词法命中），
+          // 直接回灌会出现「results 有 N 条而 totalMatched: 0」的自相矛盾；故取口径下限：
+          // 至少不小于返回条数。
+          totalMatched: Math.max(
+            ctx.dao.countMatches(query, filter),
+            hits.length,
+          ),
         });
       },
     },
@@ -539,6 +570,8 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
         const threat = firstThreatMessage(newContent, "strict");
         if (threat) return jsonResult({ success: false, error: threat });
         const ok = ctx.dao.updateContent(resolved.rows[0].id, newContent);
+        // 改写会把向量置 NULL（向量已失效）→ 必须重新回填，否则该条目永久退出语义候选
+        if (ok) scheduleBackfill();
         return jsonResult({ success: ok, id: resolved.rows[0].id });
       },
     },

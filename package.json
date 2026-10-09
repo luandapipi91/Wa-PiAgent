@@ -9,6 +9,9 @@
     "typescript": "^5.9.3"
   },
   "license": "MIT",
+  "overrides": {
+    "onnxruntime-node": "1.23.2"
+  },
   "patchedDependencies": {},
   "private": true,
   "engines": {

@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { SCHEMA_SQL } from "./schema";
 import { migrateMemoryDb } from "./migrations";
+import { initVectorColumn } from "./vector-ext";
 
 // 连接缓存：同一进程内同一路径复用连接，避免反复打开 WAL 库与重放建表 SQL。
 const cache = new Map<string, Database>();
@@ -27,6 +28,9 @@ export function openMemoryDb(waPiDir: string): Database {
   // 结构迁移（内含写 schema_version）：必须在建表后、任何读取前执行，
   // 且不能先写版本号——否则存量库的旧版本号会被覆盖、迁移被跳过。
   migrateMemoryDb(db);
+  // 向量列声明是「连接级」的（扩展要求每个新连接重新 init），但量化数据在库内持久化，
+  // 不需要重新 vector_quantize。失败不阻断打开——记忆功能整体仍可用，只是没有语义通道。
+  initVectorColumn(db);
   cache.set(path, db);
   return db;
 }
