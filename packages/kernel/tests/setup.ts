@@ -52,3 +52,11 @@ mkdirSync(join(TEST_WA_PI_DIR, "bin"), { recursive: true });
 for (const binary of ["rg", "fd"]) {
 	writeFileSync(join(TEST_WA_PI_DIR, "bin", binary), Buffer.alloc(1_048_576));
 }
+
+// 切换 vanilla SQLite（macOS 语义检索前提，详见 src/memory/sqlite-library.ts）：
+// 必须在 worker 进程内首个 Database 创建前调用。db.ts 顶层虽也调，但 bun test
+// 多文件同 worker 时字母序靠前的文件（如 memory-dao）先建库且不 import db.ts，
+// SQLite 内嵌库一经加载，后续 setCustomSQLite 永远被拒 → 语义用例全红。
+// 失败（无 dylib / 非 macOS）静默降级，不影响任何既有用例。
+import { ensureCustomSqlite } from "../src/memory/sqlite-library";
+ensureCustomSqlite();

@@ -6,6 +6,12 @@ import { join } from "node:path";
 import { SCHEMA_SQL } from "./schema";
 import { migrateMemoryDb } from "./migrations";
 import { initVectorColumn } from "./vector-ext";
+import { ensureCustomSqlite } from "./sqlite-library";
+
+// macOS：切换 vanilla SQLite 以启用扩展加载（语义检索前提）。
+// 必须在本模块任何 Database 实例创建前调用；失败（无 dylib / 非 macOS）静默降级——
+// 语义通道关闭、词法照常，与既有降级路径一致。
+ensureCustomSqlite();
 
 // 连接缓存：同一进程内同一路径复用连接，避免反复打开 WAL 库与重放建表 SQL。
 const cache = new Map<string, Database>();

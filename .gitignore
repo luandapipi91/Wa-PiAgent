@@ -80,3 +80,6 @@ bun.lock
 
 # 隔离工作树（superpowers 实现流程用，不入库）
 .worktrees/
+
+# vanilla SQLite dylib（build-sqlite-dylib.ts 产物，不入库）
+packages/kernel/assets/sqlite/libsqlite3.dylib
