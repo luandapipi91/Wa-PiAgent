@@ -1,4 +1,5 @@
 ## 2026-10-09
+- fix(desktop): 桌面宠物关闭「溜达」后任务完成不再跳走——庆祝随机动作池（canRunAction）补上 wander 守卫：溜达关时位移型动作 hop/curious 不参与随机抽取（与自发调度同一规则），宠物仍有原地反应但不产生窗口位移；溜达开时行为不变（菜单手动点「跳一下」不受限）。根因：st.wander 只拦截了定时自发调度，庆祝路径 startRandomCelebrate 仅按可执行性过滤、不读开关。TDD：E2E 新增用例先红（60 次庆祝 14 次抽中 hop）后绿，桌面宠物 14 条 E2E + desktop 包 40 条契约测试全绿。
 - fix(kernel,frontend): MCP 面板超时层级重排（一台慢 server 不再拖垮整页）——kernel `pi mcp list` 缺省上限 30s→70s（pi 引擎对单台 server 默认等 60s，上限≤60s 时 pi 还没报出各台真实状态就被 kill → 整页「状态未知」）；GET /api/mcp 冷缓存改为配置骨架立即回（无 state、stale=true），状态后台跑完经 mcp:changed 广播补上（此前冷缓存回包等真实 spawn，GUI 首开「加载中…」→ 前端 30s 超时 → 列表空白）；前端 api-client 新增 MCP_RPC_TIMEOUT_MS=80s 并支持 get 自定义超时，MCP 面板列表/连接测试/工具列表三个请求改用之（须等得比 kernel 70s 久）。根因背景：bop-dev 等 streamable 端点违反 JSON-RPC（响应 id 数字变字符串），pi 引擎严格匹配致单台握手卡 60s。TDD：kernel 3 例 + 前端 2 例先红后绿，MCP 相关 48 用例全绿，两包 typecheck 0 error。
 
 ## 2026-10-08

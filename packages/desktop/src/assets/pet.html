@@ -494,9 +494,12 @@ function runAction(a) {
 }
 /** 该动作此刻能否真的执行：
  *  「喂虫子」已有虫在飞、与「睡觉」在跳/拖动时都是空操作，不滤掉的话
- *  抽到它就等于「任务完成」毫无反应。 */
+ *  抽到它就等于「任务完成」毫无反应。
+ *  溜达关闭时，位移型动作（hop/curious）不参与随机抽取——
+ *  任务完成可以有反应，但不允许把窗口跳走（与自发调度同一规则）。 */
 function canRunAction(a) {
   if (a === "hunt") return st.fly === null;
+  if ((a === "hop" || a === "curious") && !st.wander) return false;
   if (a === "hop") return st.state !== "drag";
   if (a === "sleep") return st.state !== "hop" && st.state !== "drag";
   return true;

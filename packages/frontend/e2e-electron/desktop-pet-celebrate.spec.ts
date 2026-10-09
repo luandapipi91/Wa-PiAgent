@@ -133,6 +133,34 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		expect(probe.pool).toContain("sleep");
 	});
 
+	test("溜达关闭时：对话完成的随机动作不产生位移（不进 hop/curious）", async () => {
+		const pet = await findPetWindow();
+		// 复现用户报告：关闭「溜达」后，任务完成仍会跳走导致宠物位移。
+		// 预期：溜达关只允许「原地动作」，位移型动作（hop/curious）不参与随机抽取。
+		const probe = (await pet.evaluate(`
+			(() => {
+				const out = {};
+				for (let i = 0; i < 60; i++) {
+					st.state = "idle";
+					st.fly = null;
+					st.wander = false;
+					startRandomCelebrate();
+					out[st.state] = (out[st.state] || 0) + 1;
+				}
+				return out;
+			})()
+		`)) as Record<string, number>;
+
+		// 仍然一定有反应（不因过滤而静默跳过）
+		const movedCount = Object.entries(probe)
+			.filter(([k]) => k !== "idle")
+			.reduce((s, [, v]) => s + v, 0);
+		expect(movedCount).toBe(60);
+		// 但不产生位移：不进入 hop / curious 两个位移型动作态
+		expect(probe["hop"]).toBeUndefined();
+		expect(probe["curious"]).toBeUndefined();
+	});
+
 	test("真实链路：主窗口转发庆祝 → 宠物确实做了动作（气泡或动作态）", async () => {
 		const pet = await findPetWindow();
 		await pet.evaluate(`(() => { st.state = "idle"; st.bubble_text = null; })()`);
