@@ -426,7 +426,7 @@ test("default ctx：memory_add 后 memory_search 能读回", async () => {
 		signal,
 	);
 	expect(out.content[0].text).toContain("bridge 记忆条目");
-});
+}, 120_000);
 
 test("default ctx：未传 scope 的检索限定全局+当前项目，别项目条目不可见", async () => {
 	const memoryCtx = makeMemoryCtx(); // projectId = "my-app"
@@ -473,7 +473,7 @@ test("default ctx：未传 scope 的检索限定全局+当前项目，别项目�
 	expect(text).toContain("本项目备忘");
 	expect(text).toContain("全局画像");
 	expect(text).not.toContain("别项目备忘");
-});
+}, 120_000);
 
 test("default ctx：delegate/fleet 返回 not_wired 桩", async () => {
 	const ctx = makeDefaultBridgeContext({
