@@ -525,7 +525,7 @@ test("open-folder：200 + opener 收到 workspaceDir + 目录被创建", async (
     expect(statSync(ws2).isDirectory()).toBe(true);
 });
 
-test("upload 单个文件夹：保留文件夹层级（不展开），名称为文件夹名", async () => {
+test("upload 单个文件夹：内容平铺进 /<name>/，链接单层直达（无文件夹名层）", async () => {
     mockEdgeOne();
     const { mkdir, writeFile } = await import("node:fs/promises");
     await mkdir(join(dir, "dist", "assets"), { recursive: true });
@@ -539,14 +539,37 @@ test("upload 单个文件夹：保留文件夹层级（不展开），名称为�
     expect(res!.status).toBe(200);
     const data = await res!.json();
     expect(data.projectName).toBe("wapi-shares");
-    // 复制链接带文件夹名：指向 /<name>/dist/（而非 /<name>/ 根目录）
-    expect(data.url).toContain("/%E6%85%A7%E6%9D%A5%E5%AE%A2/dist/");
-    // 列表条目：文件路径带 dist/ 前缀（文件夹本身作为一层保留，不展开平铺），名称为指定分享名
+    // 链接单层：指向 /<name>/（含 index.html → 打开直达站点），不带文件夹名层
+    expect(data.url).toContain("/%E6%85%A7%E6%9D%A5%E5%AE%A2/");
+    expect(data.url).not.toContain("/dist/");
+    // 列表条目：文件相对 /<name>/ 平铺（无 dist/ 前缀），名称为指定分享名
     const { loadItems } = await import("../src/share/workspace");
     const items = await loadItems(workspaceDir);
     const item = items.find((i) => i.id === data.id);
-    expect(item?.files.sort()).toEqual(["dist/assets/a.js", "dist/index.html"]);
+    expect(item?.files.sort()).toEqual(["assets/a.js", "index.html"]);
     expect(item?.name).toBe("慧来客");
+});
+
+test("upload 单个文件夹（分享名=文件夹名）：链接不得出现 /<名>/<名>/ 双层", async () => {
+    mockEdgeOne();
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    // 复现线上 bug 场景：分享名与被分享文件夹同名（如 hlk-2026Q41008_1029）
+    await mkdir(join(dir, "hlk-2026Q41008_1029"), { recursive: true });
+    await writeFile(join(dir, "hlk-2026Q41008_1029", "a.html"), "A");
+    await writeFile(join(dir, "hlk-2026Q41008_1029", "b.html"), "B");
+    const router = setup();
+    const res = await post(router, "/api/share/upload", {
+        paths: [join(dir, "hlk-2026Q41008_1029")],
+        name: "hlk-2026Q41008_1029",
+    });
+    expect(res!.status).toBe(200);
+    const data = await res!.json();
+    // 链接必须是单层 /<名>/（无 index.html → 部署包生成目录索引页，可正常打开）
+    expect(data.url).toContain("/hlk-2026Q41008_1029/");
+    // 反向断言：不得拼出分享名重复两层的历史 bug 链接
+    expect(data.url).not.toContain(
+        "/hlk-2026Q41008_1029/hlk-2026Q41008_1029/",
+    );
 });
 
 test("upload 同名合并后再次单文件分享：URL 带当次文件名而非目录（merged 标志 true）", async () => {

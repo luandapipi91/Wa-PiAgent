@@ -257,11 +257,15 @@ export function createShareRoutes(
 			const auth = await requireToken();
 			if (auth instanceof Response) return auth;
 
-			// 单文件夹分享：autoName 取文件夹名（下方 L190），但打包 root 统一用 commonRoot——
-			// 文件夹本身作为一层保留（/慧来客/dist/...），不展开平铺
+			// 单文件夹分享：打包 root 取文件夹自身 → 内容平铺进 /<分享名>/（链接统一单层，
+			// 不再保留文件夹名层——该层无索引页，曾导致「分享名=文件夹名」时链接双层重复且打不开）；
+			// 多选/混合分享：root 仍取共同父目录，各文件夹以原文件夹名隔离，互不覆盖。
 			const singleDir =
 				paths.length === 1 && statSync(paths[0]).isDirectory() ? paths[0] : null;
-			const entries = collectZipEntries(paths, commonRoot(paths));
+			const entries = collectZipEntries(
+				paths,
+				singleDir ?? commonRoot(paths),
+			);
 			if (entries.length === 0)
 				return failWith(400, "paths 为空", "share.pathsRequired");
 			const oversized = entries.find((e) => e.data.byteLength > MAX_FILE_BYTES);
@@ -336,26 +340,14 @@ export function createShareRoutes(
 				filesCount: item.files.length,
 				// 两渠道共用同一 buildDeployZip 布局（{name}/{rel}），统一复用 itemShareUrl。
 				// 关键：URL 用「本次分享的文件」而非合并后 item.files 并集计算——
-				// 同名合并后再单文件分享，链接直达当次文件（如 /慧来客/b.html），而非退化为目录；
-				// 单文件夹分享（不展开）链接带文件夹名：/<name>/<文件夹名>/（否则指向根目录无内容）；
-				// 本次多文件仍指向目录（目录已由 buildDeployZip 生成索引页，可正常访问）。
-				url: singleDir
-					? (() => {
-							let u: URL;
-							try {
-								u = new URL(url);
-							} catch {
-								// 与 itemShareUrl 同款兜底：url 由内部 encipherUrl 生成，正常不会非法
-								throw new Error(`无法解析分享链接: ${url}`);
-							}
-							u.pathname = `/${item.name}/${basename(singleDir)}/`;
-							return u.toString();
-						})()
-					: itemShareUrl(url, {
-							id: item.id,
-							name: item.name,
-							files: entries.map((e) => e.name),
-						}),
+				// 同名合并后再单文件分享，链接直达当次文件（如 /慧来客/b.html），而非退化为目录。
+				// 单文件夹分享已平铺：多文件 → 目录 /<name>/（无 index.html 时部署包自动生成目录索引页，
+				// 含 index.html 时直达站点）；单文件目录/单文件 → 直达该文件。不再为单文件夹特殊拼内层链接。
+				url: itemShareUrl(url, {
+					id: item.id,
+					name: item.name,
+					files: entries.map((e) => e.name),
+				}),
 				expiresAt,
 				// 部署目标项目名：CF 渠道按空间（默认 wapi-shares），edgeone 固定 wapi-shares
 				projectName:
