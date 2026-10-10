@@ -1482,8 +1482,18 @@ export class WSServer {
 				break;
 			}
 			case "session:delete": {
-				// 先清理 SDK session（解绑事件订阅 + dispose），再删 ProjectStore 里的会话记录
-				await this.opts.agentManager.disposeSession(event.sessionId);
+				// 删除立即响应：进程清理（disposeSession 内含最多 5s 的温和停止兕底）放后台，
+				// 不阻塞软删/广播/IM 映射——无响应 pi 进程曾让删除固定卡 5 秒。
+				// async 函数同步执行到首个 await：disposed 防复用标记在本次调用内同步生效。
+				void this.opts.agentManager
+					.disposeSession(event.sessionId)
+					.catch((e) => {
+						console.error(
+							`[ws] session:delete 后台清理失败 session=${event.sessionId}:`,
+							e,
+						);
+					});
+				// 再删 ProjectStore 里的会话记录（软删进回收站）
 				await this.opts.projectStore.deleteSession(event.sessionId);
 				await this.broadcastProjectsList();
 				// 联动清理 IM 映射（当前指针 + 历史归档），刷新 IM tab 列表。
