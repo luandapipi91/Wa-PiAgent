@@ -40,6 +40,18 @@ function fromPreviewState(
 /** 预览元素高亮选择的开关状态（主应用本地保存；本地预览 iframe 为不透明源无法自存，故放主应用） */
 const INSPECT_KEY = "hiagent.preview.inspect";
 
+/** preload（desktop）暴露的快捷键桥；浏览器 dev 下 undefined，调用处可选链降级 */
+interface WaPiModKeyApi {
+	/** Ctrl/Meta 单按松开（主进程 before-input-event 单点判定后转发）；返回取消订阅函数 */
+	onTapModKey(cb: () => void): () => void;
+}
+
+declare global {
+	interface Window {
+		waPiModKey?: WaPiModKeyApi;
+	}
+}
+
 interface Props {
 	/**
 	 * 是否渲染在独立预览窗口中（浮动模式的承载窗口）。
@@ -224,46 +236,23 @@ export function BrowserPanel({ detached = false }: Props = {}) {
 		return () => window.removeEventListener("message", onMessage);
 	}, [loadedPath, detached]);
 
-	// Cmd/Ctrl 单按切换「元素选中」主应用侧双通道：与预览页内快捷键互补。
-	// 焦点在预览 iframe 内时按键进 iframe 文档（不跨文档冒泡，不会双触发）；
-	// 焦点在主应用（输入框/空白处）时由本监听兜底——否则首次切换后焦点一旦
-	// 漂回主应用，后续 Cmd 静默失效，表现为「选中功能又丢了」。
+	// Cmd/Ctrl 单按切换「元素选中」：监听收敛在 Electron 主进程 before-input-event
+	// 单点（src/modkey-relay.cjs，覆盖焦点在主应用与预览 iframe 两种场景），经 IPC
+	//（wa-pi:modkey-tap）通知到此后切开关并下发 iframe；非 Electron 环境（浏览器 dev）
+	// 无桥不订阅，快捷键静默降级，工具栏手动开关不受影响。
 	useEffect(() => {
 		if (!loadedPath) return;
-		let pending: string | null = null;
-		// 与预览页内快捷键同款去抖：部分键盘/驱动会双发 Meta keydown(非 repeat)
-		// +keyup 配对，第二配对在本窗内忽略——否则一次按键切换两次（开了又关）
-		let lastToggleAt = 0;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Control" || e.key === "Meta") {
-				if (!e.repeat) pending = e.key;
-			} else {
-				pending = null; // 组合键（⌘C/⌘V 等）：取消待翻转
-			}
-		};
-		const onKeyUp = (e: KeyboardEvent) => {
-			if ((e.key === "Control" || e.key === "Meta") && pending === e.key) {
-				pending = null;
-				const now = performance.now();
-				if (now - lastToggleAt < 150) return;
-				lastToggleAt = now;
-				setInspectOn((prev) => {
-					const next = !prev;
-					localStorage.setItem(INSPECT_KEY, next ? "on" : "off");
-					iframeRef.current?.contentWindow?.postMessage(
-						{ type: "hiagent:inspect:set", enabled: next },
-						"*",
-					);
-					return next;
-				});
-			}
-		};
-		window.addEventListener("keydown", onKeyDown);
-		window.addEventListener("keyup", onKeyUp);
-		return () => {
-			window.removeEventListener("keydown", onKeyDown);
-			window.removeEventListener("keyup", onKeyUp);
-		};
+		return window.waPiModKey?.onTapModKey(() => {
+			setInspectOn((prev) => {
+				const next = !prev;
+				localStorage.setItem(INSPECT_KEY, next ? "on" : "off");
+				iframeRef.current?.contentWindow?.postMessage(
+					{ type: "hiagent:inspect:set", enabled: next },
+					"*",
+				);
+				return next;
+			});
+		});
 	}, [loadedPath]);
 
 	const canCodeShare = loadedPath !== null;

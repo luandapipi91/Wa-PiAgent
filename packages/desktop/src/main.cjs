@@ -19,6 +19,7 @@ const { spawnSync, execFile } = require("node:child_process");
 const { createLogger } = require("./util/log.cjs");
 const { gpuSwitchesFor } = require("./util/gpu-switches.cjs");
 const { summarizeGpuStatus } = require("./util/gpu-status.cjs");
+const { wireModKeyRelay } = require("./modkey-relay.cjs");
 const { createStartupTimeline } = require("./util/startup-timeline.cjs");
 
 // 启动时间线：定位「进程启动 → 主窗口首帧」各阶段耗时。
@@ -452,6 +453,9 @@ function createWindow() {
 			mainWindow.webContents.toggleDevTools();
 		}
 	});
+	// 预览「选择元素」快捷键（Ctrl/Meta 单按）单点监听：主进程输入层统一收键
+	//（覆盖焦点在主应用与预览 iframe 两种场景），替代原先两处 DOM 监听双通道
+	wireModKeyRelay(mainWindow.webContents);
 }
 
 // 启动页 → 主窗口切换：关启动页、显示主窗口
@@ -1047,6 +1051,8 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		const win = previewWindow;
 		// 独立预览窗口内的 iframe 被站点拒绝嵌入时，同样转告主窗口降级为外链子窗口
 		wirePreviewBlocked(win.webContents);
+		// 浮动预览窗同样挂快捷键单点监听（独立 BrowserWindow，webContents 独立）
+		wireModKeyRelay(win.webContents);
 		const params = new URLSearchParams({ "wa-preview-win": "1" });
 		if (payload.path) params.set("path", String(payload.path));
 		if (payload.sessionId) params.set("sid", String(payload.sessionId));

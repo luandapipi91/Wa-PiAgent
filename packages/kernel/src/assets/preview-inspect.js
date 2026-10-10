@@ -438,9 +438,6 @@
 				/* 忽略 */
 			}
 		}
-		function toggleInspect() {
-			setDisabled(!disabled);
-		}
 
 		// 元素是否完全移出视口（窗口滚动/元素移动出屏幕）
 		function isFullyOutOfViewport(r) {
@@ -760,39 +757,9 @@
 			document.addEventListener(ev, blockMouseForPage, true);
 		});
 
-		// Ctrl / Cmd 单独按下再松开（期间无其他按键）→ 切换高亮开关。
-		// 组合键（⌘C/⌘V/Ctrl+滚轮等）第一步也会按下修饰键——若 keydown 即翻转，
-		// 日常复制粘贴都会静默误切开关，是「开关与实际高亮不符」的高频扰动源，
-		// 故改为 keyup 时确认期间无其他按键才翻转。
-		var pendingModKey = null;
-		// 键盘切换去抖：部分键盘/驱动会双发 Meta keydown(非 repeat)+keyup 配对，
-		// 第二配对落在本窗内视为噪声忽略——否则一次按键切换两次（开了又关，等效失效）。
-		// 人手两次单按 Cmd 间隔 >300ms，不受影响。
-		var lastKbdToggleAt = 0;
-		document.addEventListener(
-			"keydown",
-			(e) => {
-				if (e.key === "Control" || e.key === "Meta") {
-					if (!e.repeat) pendingModKey = e.key;
-				} else {
-					pendingModKey = null; // 组合键：取消待翻转
-				}
-			},
-			true,
-		);
-		document.addEventListener(
-			"keyup",
-			(e) => {
-				if ((e.key === "Control" || e.key === "Meta") && pendingModKey === e.key) {
-					pendingModKey = null;
-					var now = performance.now();
-					if (now - lastKbdToggleAt < 150) return;
-					lastKbdToggleAt = now;
-					toggleInspect();
-				}
-			},
-			true,
-		);
+		// Ctrl/Cmd 单按切换已收敛至 Electron 主进程 before-input-event 单点监听
+		//（desktop/src/modkey-relay.cjs → IPC → 主应用 postMessage hiagent:inspect:set 下发），
+		// 本文档不再挂键盘监听，仅被动接收消息切换。
 		/**
 		 * e.source 是否为本页某个「本地预览子 iframe」的窗口（子层消息合法性校验，
 		 * 防任意窗口伪造 picked/changed 注入）。判定：是本页 iframe + 解析后 src

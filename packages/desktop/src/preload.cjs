@@ -60,6 +60,14 @@ contextBridge.exposeInMainWorld("waPiLinkWin", {
 // - 主窗口侧：open 开窗（带初始 path/sessionId/屏幕坐标）、cmd 下发窗口指令、onEvent 接独立窗口上报
 // - 独立窗口侧：act 上报动作（最小化/关闭/切回内嵌/元素回传）、setSize 缩放手柄、onEvent 收主窗口指令
 // 两侧共用 onEvent（主进程统一用 previewwin:event 下行），按消息 type 自行分发。
+contextBridge.exposeInMainWorld("waPiModKey", {
+	/** Ctrl/Meta 单按松开（主进程 before-input-event 单点判定后转发，预览「选择元素」切换用） */
+	onTapModKey: (cb) => {
+		const listener = () => cb();
+		ipcRenderer.on("wa-pi:modkey-tap", listener);
+		return () => ipcRenderer.removeListener("wa-pi:modkey-tap", listener);
+	},
+});
 contextBridge.exposeInMainWorld("waPiPreviewWin", {
 	open: (payload) => ipcRenderer.invoke("previewwin:open", payload),
 	cmd: (payload) => ipcRenderer.send("previewwin:cmd", payload),
