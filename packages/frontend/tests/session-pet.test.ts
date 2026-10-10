@@ -92,23 +92,23 @@ test("合成 agent_end（synthetic:true，abort/compact 兜底）→ 不庆祝",
 	expect(petCalls.celebrate).toBe(0);
 });
 
-test("IM 渠道会话（im- 前缀）→ 宠物照常庆祝（与青蛙动画的取舍无关）", () => {
+test("IM 渠道会话（im- 前缀）→ 不触发宠物庆祝（与提示音/青蛙同口径）", () => {
 	useSessionStore
 		.getState()
 		.handleSDKEvent(
 			"im-x",
 			envelope({ type: "agent_end", willRetry: false } as any, "im-x"),
 		);
-	expect(petCalls.celebrate).toBe(1);
+	expect(petCalls.celebrate).toBe(0);
 	expect(petCalls.frog).toBe(0);
 });
 
-test("定时任务会话（sched- 前缀）→ 宠物照常庆祝", () => {
+test("定时任务会话（sched- 前缀）→ 不触发宠物庆祝", () => {
 	useSessionStore
 		.getState()
 		.handleSDKEvent(
 			"sched-1",
 			envelope({ type: "agent_end", willRetry: false } as any, "sched-1"),
 		);
-	expect(petCalls.celebrate).toBe(1);
+	expect(petCalls.celebrate).toBe(0);
 });

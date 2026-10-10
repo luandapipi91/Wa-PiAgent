@@ -174,20 +174,70 @@ test("pet.html：动作列表之间不再有分隔线（两类动作已合并）
 	expect(between).not.toContain('class="sep"');
 });
 
-test("pet.html：完成动作与互动动作共用全部动作（不再区分）", () => {
+test("pet.html：菜单动作点击共用执行入口 runAction（庆祝不再抽动作池）", () => {
 	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
-	// 动作池由二级菜单的动作项派生 → 菜单增减动作时两边天然一致
-	expect(html).toContain("function actionPool()");
-	expect(html).toContain('document.querySelectorAll("#menuInter .mi[data-act]")');
-	expect(html).toContain('a !== "wander"');
-	// 完成动作走与菜单点击相同的执行入口
-	expect(html).toContain("function runAction(a)");
+	// 动作池抽取链（actionPool/canRunAction）已随「庆祝只说话不做动作」改版移除
+	expect(html).not.toContain("function actionPool(");
+	expect(html).not.toContain("function canRunAction(");
 	expect(html).not.toContain("CELEBRATE_POOL");
+	// 菜单点击仍走统一执行入口，并自行排除 wander 开关项
+	expect(html).toContain("function runAction(a)");
+	expect(html).toContain('menuInter.querySelectorAll(".mi[data-act]")');
+	expect(html).toContain('a === "wander") toggleWander()');
 	// 四个原「完成专属」动作恢复为菜单项
 	for (const a of ["hop", "croak", "hunt", "sing"])
 		expect(html).toContain(`data-act="${a}"`);
 	expect(html).toContain('data-act="yawn"');
 	expect(html).toContain('data-act="wander"');
+});
+
+test("pet.html：任务完成庆祝不再做动作，只冒气泡随机说一句（10 句话术）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 10 句话术逐一锁定（内容+数量）
+	for (const line of [
+		"呱呱呱~任务搞定啦！",
+		"呱！又干掉一个任务~",
+		"呱呱~你真棒！",
+		"呱~辛苦啦，歇会儿呗",
+		"呱呱呱！！太厉害了！",
+		"呱~这波稳了！",
+		"呱呱~干得漂亮！",
+		"呱~下一个是谁？",
+		"呱呱！收工咯~",
+		"呱~本呱看好你哦！",
+	]) {
+		expect(html).toContain(`"${line}"`);
+	}
+	// startRandomCelebrate 只剩说话：不再走动作池抽取/执行动作
+	const i = html.indexOf("function startRandomCelebrate");
+	expect(i).toBeGreaterThan(0);
+	const body = html.slice(i, html.indexOf("\n}", i));
+	expect(body).toContain("say(pick(DONE_LINES)");
+	expect(body).not.toContain("runAction");
+	expect(body).not.toContain("actionPool");
+});
+
+test("pet.html：任何跳都必须跳回原位（无论溜达开关）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 起跳点记录不再看溜达开关：非回跳段一律挂 home
+	expect(html).toContain("if (!returning && st.hop_home === null)");
+	expect(html).not.toContain("!st.wander && !returning");
+	// 回跳目标不再看溜达开关
+	{
+		const i = html.indexOf("function hopTargetIfReturn");
+		expect(i).toBeGreaterThan(0);
+		const body = html.slice(i, html.indexOf("\n}", i));
+		expect(body).toContain("st.hop_home !== null");
+		expect(body).not.toContain("wander");
+	}
+	// curious 看完人必须跳回起跳点，不得再随机跳走（else startHop() 删除）
+	{
+		const w = html.indexOf('case "watchyou"');
+		expect(w).toBeGreaterThan(0);
+		const wbody = html.slice(w, html.indexOf("case ", w + 10));
+		expect(wbody).toContain("hopTargetIfReturn()");
+		expect(wbody).not.toContain("else startHop()");
+	}
 });
 
 test("pet.html：多屏偏移不漏算（首启位置带 virt 边界；动作/缩放不跨屏）", () => {

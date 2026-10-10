@@ -1282,9 +1282,14 @@ export const useSessionStore = create<SessionState>((set) => {
 							triggerTaskDoneFrog(sessionId);
 						}
 					}
-					// 桌面宠物庆祝：真实完成（非重试中间态、非合成）就跳一段，
-					// 覆盖全部会话（含 IM 渠道与定时任务）——与提示音/青蛙动画的取舍相互独立。
-					if (!syntheticEnd) celebrateDesktopPet();
+					// 桌面宠物庆祝：真实完成（非重试中间态、非合成）才庆祝；IM 渠道（im-）与
+					// 定时任务（sched-）会话不触发——与提示音/青蛙动画同口径。
+					if (
+						!sessionId.startsWith("im-") &&
+						!sessionId.startsWith("sched-") &&
+						!syntheticEnd
+					)
+						celebrateDesktopPet();
 					const away = sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
 					streamingBatcher.drop(sessionId);

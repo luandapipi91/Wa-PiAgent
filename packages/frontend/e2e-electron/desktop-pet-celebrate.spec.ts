@@ -14,7 +14,8 @@ import {
 
 // 对话完成后的宠物动作：
 //  · 互动菜单里不再提供「任务完成」手动入口（用户要求移除）
-//  · 对话完成时一定动，但动作从多个里随机挑（庆祝只是其中之一）
+//  · 对话完成不再做动作，只冒气泡随机说一句（10 句话术）
+//  · 任何跳（无论溜达开关）都必须跳出去再跳回原位，不永久位移
 
 const APP_CWD = join(import.meta.dirname, "..", "..", "desktop");
 const USER_DATA_DIR = join(ELECTRON_E2E_DIR, "userdata-celebrate");
@@ -100,73 +101,41 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		expect(menu.some((i) => i.text.includes("任务完成"))).toBe(false);
 	});
 
-	test("对话完成：一定动，且动作在多个之间随机（不是固定庆祝）", async () => {
+	test("对话完成：不做动作，只冒气泡随机说一句（溜达开/关都不变）", async () => {
 		const pet = await findPetWindow();
-		// 反复走「对话完成」的入口，收集实际进入的状态 + 当前动作池
+		// 反复走「对话完成」的入口（溜达开/关各 30 次）：state 必须保持 idle（不做动作），
+		// 只有气泡在说话，且 60 次里出现多种话术（随机）
 		const probe = (await pet.evaluate(`
 			(() => {
-				const out = {};
-				const pool = actionPool();
-				for (let i = 0; i < 60; i++) {
-					st.state = "idle";
-					st.fly = null;   // 清掉在飞的虫子：「喂虫子」有前置条件
-					st.wander = true;
-					startRandomCelebrate();
-					out[st.state] = (out[st.state] || 0) + 1;
+				const seen = new Set();
+				for (const wander of [true, false]) {
+					for (let i = 0; i < 30; i++) {
+						st.state = "idle";
+						st.fly = null;
+						st.wander = wander;
+						st.bubble_text = null;
+						st.bubble_left = 0;
+						startRandomCelebrate();
+						if (st.state !== "idle") seen.add("动作:" + st.state);
+						if (st.bubble_text) seen.add(st.bubble_text);
+					}
 				}
-				return { seen: out, pool };
+				return [...seen];
 			})()
-		`)) as { seen: Record<string, number>; pool: string[] };
-
-		const actions = Object.keys(probe.seen).filter((a) => a !== "idle");
-		// 一定动：每次调用都进了某个动作态（不再有静默跳过）
-		const movedCount = Object.entries(probe.seen)
-			.filter(([k]) => k !== "idle")
-			.reduce((s, [, v]) => s + v, 0);
-		expect(movedCount).toBe(60);
-		// 动作随机：60 次里出现多种动作
-		expect(actions.length).toBeGreaterThan(3);
-		// 不再区分完成动作与互动动作：池子就是菜单里的全部动作项（wander 是开关，不算动作）
-		expect(probe.pool.length).toBe(12);
-		expect(probe.pool).not.toContain("wander");
-		expect(probe.pool).toContain("hop");
-		expect(probe.pool).toContain("sleep");
+		`)) as string[];
+		// 不做任何动作：state 全程保持 idle
+		expect(probe.some((s) => s.startsWith("动作:"))).toBe(false);
+		// 每次都说了话，且话术随机多样
+		expect(probe.length).toBeGreaterThan(3);
 	});
 
-	test("溜达关闭时：庆祝仍会跳（动作多样），不再永久位移——跳出去会跳回来", async () => {
-		const pet = await findPetWindow();
-		// 用户期望：关闭溜达后，庆祝抽中跳出去的动作落在他处，但会自动跳回起跳点。
-		const probe = (await pet.evaluate(`
-			(() => {
-				const out = {};
-				for (let i = 0; i < 60; i++) {
-					st.state = "idle";
-					st.fly = null;
-					st.wander = false;
-					startRandomCelebrate();
-					// curious 抽中时 state 也是 hop（跳向光标处），靠 hop_intent 区分
-					const key = st.hop_intent === "curious" ? "curious" : st.state;
-					out[key] = (out[key] || 0) + 1;
-				}
-				return out;
-			})()
-		`)) as Record<string, number>;
-
-		// 一定有反应且动作多样（位移型 hop/curious 不再被排除在庆祝池外）
-		const movedCount = Object.entries(probe)
-			.filter(([k]) => k !== "idle")
-			.reduce((s, [, v]) => s + v, 0);
-		expect(movedCount).toBe(60);
-		expect(probe["hop"]).toBeGreaterThan(0);
-		expect(probe["curious"]).toBeGreaterThan(0);
-	});
-
-	test("溜达关闭：hop 跳出去后会跳回起跳点（快进两段跳跃动画）", async () => {
+	test("溜达开启：hop 跳出去后也会跳回起跳点（快进两段跳跃动画）", async () => {
 		const pet = await findPetWindow();
 		const probe = (await pet.evaluate(`
 			(() => {
-				st.wander = false;
+				st.wander = true;   // 开着溜达也不许跳走：任何跳都必须回原位
 				st.state = "idle"; st.fly = null; st.grab = null;
+				st.next_hop_t = Infinity; st.next_special_t = Infinity;   // 禁自发调度：避免快进期间插入额外随机跳污染回位断言
 				const origin = { x: st.fx, y: st.fy };
 				runAction("hop");
 				let maxDrift = 0;
@@ -185,12 +154,13 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		expect(Math.abs(probe.final.y - probe.origin.y)).toBeLessThanOrEqual(2);
 	});
 
-	test("溜达关闭：curious 跳过去看完人，也会跳回来", async () => {
+	test("溜达开启：curious 跳过去看完人，也会跳回来", async () => {
 		const pet = await findPetWindow();
 		const probe = (await pet.evaluate(`
 			(() => {
-				st.wander = false;
+				st.wander = true;   // 开着溜达也不许跳走：任何跳都必须回原位
 				st.state = "idle"; st.fly = null; st.grab = null;
+				st.next_hop_t = Infinity; st.next_special_t = Infinity;   // 禁自发调度：避免快进期间插入额外随机跳污染回位断言
 				const origin = { x: st.fx, y: st.fy };
 				runAction("curious");
 				let maxDrift = 0;
@@ -207,7 +177,7 @@ test.describe.serial("对话完成后的宠物动作", () => {
 		expect(Math.abs(probe.final.y - probe.origin.y)).toBeLessThanOrEqual(2);
 	});
 
-	test("真实链路：主窗口转发庆祝 → 宠物确实做了动作（气泡或动作态）", async () => {
+	test("真实链路：主窗口转发庆祝 → 宠物冒气泡说话（不再做动作）", async () => {
 		const pet = await findPetWindow();
 		await pet.evaluate(`(() => { st.state = "idle"; st.bubble_text = null; })()`);
 		await main.evaluate(() => window.waPiPet?.celebrate());

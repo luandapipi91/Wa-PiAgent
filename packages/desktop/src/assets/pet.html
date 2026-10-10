@@ -387,7 +387,7 @@ const st = {
   fx: 0, fy: 0,                 // 启动时初始化
   x0: 0, y0: 0, x1: 0, y1: 0, jh: 70,
   hop_intent: null,
-  hop_home: null,   // 溜达关闭时挂在的「起跳点」{x,y}：位移段结束后跳回这里（一次性）
+  hop_home: null,   // 出游跳挂着的「起跳点」{x,y}：位移段结束后跳回这里（一次性）
   facing: 1, sw: 1, sh: 1, bob: 0, jx: 0, ck: 1,
   eyes: "open", mouth: "smile",
   blink_in: 60, blink_left: 0,
@@ -429,8 +429,8 @@ function toIdle() {
 /* ---------------- 行为触发（公式照抄 py） ---------------- */
 function startHop(tx = null, intent = null, returning = false, ty = null) {
   refreshScreens();
-  // 溜达关闭：出游跳记录起跳点（完整 x+y；回跳段 returning=true 不再记录，防 A→B→A→B 往返死循环）
-  if (!st.wander && !returning && st.hop_home === null) st.hop_home = { x: st.fx, y: st.fy };
+  // 出游跳一律记录起跳点（跳出去必须跳回来；回跳段 returning=true 不再记录，防 A→B→A→B 往返死循环）
+  if (!returning && st.hop_home === null) st.hop_home = { x: st.fx, y: st.fy };
   // 归属屏 = 宠物当前所在的屏幕（用户拖到哪块屏就归哪块）。
   // 自发动作（溜达/蹦跃）只能在归属屏内活动——只有用户拖动才允许换屏。
   const home = screenAt(st.fx);
@@ -452,9 +452,9 @@ function startHop(tx = null, intent = null, returning = false, ty = null) {
     facing: x1 >= st.fx ? 1 : -1,
     state: "hop", ticks: 0, hop_intent: intent });
 }
-/** 溜达关闭时的「跳回」目标：挂起回跳且已偏离则返回起跳点 {x,y}（并清挂起），否则 null */
+/** 「跳回」目标：挂起回跳且已偏离则返回起跳点 {x,y}（并清挂起），否则 null */
 function hopTargetIfReturn() {
-  if (!st.wander && st.hop_home !== null) {
+  if (st.hop_home !== null) {
     const h = st.hop_home;
     st.hop_home = null;
     if (Math.hypot(st.fx - h.x, st.fy - h.y) > 2) return h;
@@ -509,35 +509,29 @@ function startCelebrate() {
   Object.assign(st, { state: "celebrate", ticks: 0, dur: 72 });
   say("呱呱呱 任务完成！", 70);
 }
-/* 动作表：互动动作与「对话完成」的随机动作不区分了——
- * 池子直接由二级菜单的动作项派生，执行也走菜单点击那条路径，
- * 菜单里增删动作时两边自动保持一致（wander 是开关，不算动作）。 */
-function actionPool() {
-  return [...document.querySelectorAll("#menuInter .mi[data-act]")]
-    .map(el => el.dataset.act)
-    .filter(a => a !== "wander");
-}
-/** 动作执行入口：菜单点击与「对话完成」的随机动作共用同一条路径 */
+/* 任务完成话术：不再随机做动作（动作会带动位移/状态变化打扰用户），
+ * 改为冒气泡随机说一句——与「呱一声」同一说话形式。 */
+const DONE_LINES = [
+  "呱呱呱~任务搞定啦！",
+  "呱！又干掉一个任务~",
+  "呱呱~你真棒！",
+  "呱~辛苦啦，歇会儿呗",
+  "呱呱呱！！太厉害了！",
+  "呱~这波稳了！",
+  "呱呱~干得漂亮！",
+  "呱~下一个是谁？",
+  "呱呱！收工咯~",
+  "呱~本呱看好你哦！",
+];
+/** 动作执行入口：菜单点击共用 */
 function runAction(a) {
   if (a === "hop") hopNow();
   else if (a === "sleep") startSleep();
   else dispatch(a);
 }
-/** 该动作此刻能否真的执行：
- *  「喂虫子」已有虫在飞、与「睡觉」在跳/拖动时都是空操作，不滤掉的话
- *  抽到它就等于「任务完成」毫无反应。
- *  位移型动作（hop/curious）溜达关闭时也参与：跳出去后由 hop_home 机制跳回，
- *  不再永久位移。 */
-function canRunAction(a) {
-  if (a === "hunt") return st.fly === null;
-  if (a === "hop") return st.state !== "drag";
-  if (a === "sleep") return st.state !== "hop" && st.state !== "drag";
-  return true;
-}
+/** 任务完成：只冒气泡说一句话，不做任何动作 */
 function startRandomCelebrate() {
-  const pool = actionPool().filter(canRunAction);
-  if (!pool.length) return;
-  runAction(pick(pool));
+  say(pick(DONE_LINES), 70);
 }
 function hopNow() { if (st.state !== "drag") startHop(); }
 function toggleWander() {
@@ -781,7 +775,7 @@ function tickCore() {
         st.fx = st.x1; st.fy = st.y1;
         const intent = st.hop_intent;
         st.hop_intent = null;
-        // 溜达关闭：非 curious 落地即跳回起跳点；curious 先留着看，看完再回（home 挂到 watchyou 结束）
+        // 非 curious 落地即跳回起跳点；curious 先留着看，看完再回（home 挂到 watchyou 结束）
         if (intent !== "curious") {
           const back = hopTargetIfReturn();
           if (back !== null) { startHop(back.x, null, true, back.y); break; }
@@ -976,10 +970,10 @@ function tickCore() {
       eyes = "open";
       st.facing = gp.x >= st.fx ? 1 : -1;
       if (st.ticks >= st.dur) {
-        // 看够了就走：溜达关闭时跳回起跳点（curious 挂着的 home 在这里兑现）
+        // 看够了就跳回起跳点（curious 挂着的 home 在这里兑现）
         const back = hopTargetIfReturn();
         if (back !== null) startHop(back.x, null, true, back.y);
-        else startHop();
+        else toIdle();
       }
       break;
       break;
