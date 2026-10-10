@@ -12,7 +12,7 @@
 
 Not a single command to memorize: sessions, models, MCP, skills, and memory — all point-and-click.
 
-Visual session management · Multi-agent collaboration · TUI plugin compatible · IM bot channels · MCP ecosystem · Desktop & browser · macOS / Windows / Linux · 中文 / English UI
+Visual session management · Multi-agent collaboration · TUI plugin compatible · IM bot channels · Artifact sharing · MCP ecosystem · Desktop & browser · macOS / Windows / Linux · 中文 / English UI
 
 ![Runtime](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)
 ![Language](https://img.shields.io/badge/Language-TypeScript-3178c6?logo=typescript&logoColor=fff)
@@ -101,7 +101,7 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 - **9 built-in expert roles** (senior project manager, product manager, frontend/backend developers, test analyst, code reviewer, data analyst, UX designer, meeting minutes) — ready out of the box
 - **Custom agents**: prompt, tool whitelist, skills, model, and reasoning effort all independently configurable
 - **Assign with @**: type `@` in the chat box to summon the agent panel and put a specific role on the job; use the "relationship web" so agents collaborate proactively or on demand
-- **Task delegation**: agents can invoke sub-agents via `delegate` (its `tasks` array dispatches 1–6 sub-tasks in a single call; three built-in types: general-purpose / Explore / Plan) — complex tasks are split, run concurrently, and aggregated automatically
+- **Task delegation**: agents can invoke sub-agents via `delegate` (its `tasks` array dispatches 1–6 sub-tasks in a single call; three built-in types: general-purpose / Explore / Plan) — complex tasks are split, run concurrently, and aggregated automatically; every sub-task keeps a full viewable transcript, and unfinished instances can be resumed
 
 ### 💬 IM bot channels
 
@@ -114,6 +114,12 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 - **Schedule-driven**: let agents run on a cron schedule — daily inspections, timed data aggregation, periodic reports, unattended
 - **Status at a glance**: success / failure / running indicators with last-run time; right-click to run immediately
 - **Results pushed to IM**: when a task completes, an IM bot pushes the results into your WeCom group
+
+### 📤 Artifact sharing
+
+- **One-click publish to a public link**: deploy artifacts to EdgeOne Pages / Cloudflare Pages — paste an API token, hit deploy, and get a public URL in about 1–2 minutes
+- **Files / folders / mixed multi-select**: site folders containing an `index.html` open directly as a website; plain folders get an auto-generated directory index
+- **"My shares" management**: view and clear everything you've published; same-name shares merge automatically; custom domains supported
 
 ### 🔌 MCP connectors
 
@@ -137,6 +143,11 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 <div align="center">
 <img src="docs/assets/readme/readme-extensions.png" alt="Plugin management" width="900" />
 <br/><em>Plugin management: dynamic install / uninstall / upgrade, hot-reloaded</em>
+</div>
+
+<div align="center">
+<img src="docs/assets/readme/readme-tui.png" alt="TUI plugin panel" width="640" />
+<br/><em>TUI plugin panel: an extension dialog written for pi rendered as a native GUI window — keyboard and mouse both work</em>
 </div>
 
 ### 🧠 Models / Skills / Memory
@@ -219,13 +230,17 @@ bun run typecheck      # Type checking
 - [x] Electron desktop packaging and auto-update
 - [x] IM bot channels (WeCom)
 - [x] Scheduled automation (cron-driven, with IM push notifications)
+- [x] Artifact sharing: one-click publish to a public link (EdgeOne Pages / Cloudflare Pages)
 - [x] Bilingual Chinese & English UI
 
 **What's next:**
 
+- [ ] **More IM channels** — WeChat, Feishu, and QQ, landing step by step: your agents, living in more work chats
+- [ ] **Smarter sub-agent scheduling** — better concurrency and resource orchestration so large-scale delegation runs faster and steadier
+- [ ] **Frontend plugin system** — open the UI layer to plugins: third parties can extend frontend components and pages
+- [ ] **Expose Wa-Pi as a service** — let external clients connect: Wa-Pi serves its capabilities over MCP / HTTP endpoints for other tools to plug into
 - [ ] **Visual workflow orchestration** — upgrade multi-agent collaboration from "one conversation" to "reusable workflows": drag-and-drop task nodes, and let your AI team run the process you define, automatically
-- [ ] **Connectors** — a ready-to-use connector marketplace on top of MCP: more IM platforms, more SaaS services, configure and go
-- [ ] **Artifact sharing** — one-click export and sharing of conversations, analysis reports, and generated images, so AI output flows to where your team needs it
+- [ ] **Connector marketplace** — ready-to-use SaaS connectors on top of MCP: configure and go, no more building integrations from scratch
 - [ ] **Diff monitoring** — watch what you care about: automatic detection of changes in files, pages, and data sources, with real-time alerts that can be handed straight to an agent
 
 ## FAQ
