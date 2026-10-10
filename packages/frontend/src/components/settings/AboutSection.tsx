@@ -49,6 +49,7 @@ export function AboutSection() {
 	const loadHistory = useVersionHistoryStore((s) => s.load);
 	const { t } = useTranslation();
 	const [showBetween, setShowBetween] = useState(false);
+	const [showNotes, setShowNotes] = useState(false);
 
 	// 打开设置即刷新版本历史（与 SettingsModal 的自动检查更新同频）
 	useEffect(() => {
@@ -273,8 +274,31 @@ export function AboutSection() {
 							</div>
 						)}
 						{status === "available" && pending.length === 0 && releaseNotes && (
-							<div className="mt-1 text-xs text-secondary leading-relaxed whitespace-pre-wrap line-clamp-3">
-								{releaseNotes}
+							// 退路：版本历史数据迟到（内核 6h 缓存 / 线上拉取失败）时直接渲染
+							// releaseNotes——必须可点击展开，否则用户看不到新版本更新内容
+							<div className="mt-1">
+								<div
+									data-testid="release-notes-body"
+									className={
+										showNotes
+											? "text-xs text-secondary leading-relaxed whitespace-pre-wrap"
+											: "text-xs text-secondary leading-relaxed whitespace-pre-wrap line-clamp-3"
+									}
+								>
+									{releaseNotes}
+								</div>
+								<button
+									type="button"
+									data-testid="toggle-release-notes"
+									onClick={() => setShowNotes((v) => !v)}
+									className="mt-1 inline-flex items-center gap-1 cursor-pointer bg-transparent border-0 p-0 text-xs"
+									style={{ color: "var(--brand)" }}
+								>
+									{showNotes
+										? t("settings.about.collapse")
+										: t("settings.about.viewAll")}
+									<Icon name={showNotes ? "chevron-up" : "chevron-down"} size={12} />
+								</button>
 							</div>
 						)}
 
