@@ -138,6 +138,10 @@ let splashWindow = null;
 let mainWindow = null;
 // 预览独立窗口（浮动模式的承载窗口）：单例，主窗口收起时同步隐藏
 let previewWindow = null;
+// 浮动预览窗首帧 ready 时是否显示：正常开窗为 true；以最小化态重建（会话切回，
+// store.minimized=true 随 open payload 下发）为 false——保持隐藏，气泡可点恢复。
+// ready 消费一次后复位 true，之后的显示/隐藏由 previewwin:cmd 的 restore/hide 驱动。
+let previewReadyShowPending = true;
 // 桌面宠物窗口（呱呱）：透明无边框单例，由「外观 → 桌面宠物」开关控制；主窗口收起时不跟随隐藏
 let petWindow = null;
 let sidecar = null;
@@ -1060,6 +1064,8 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		// parsePreviewWindowParams 的 "url" 一一对应，URLSearchParams 自动编码
 		if (payload.url) params.set("url", String(payload.url));
 		win.loadURL(`http://127.0.0.1:${actualPort}/?${params.toString()}`);
+		// 以最小化态重建（会话切回场景）：首帧 ready 保持隐藏，不自动弹窗
+		previewReadyShowPending = !payload.minimized;
 		// 位置/尺寸变化回报主窗口持久化（拖动中连续触发 → 防抖合并）
 		let rectTimer = null;
 		const reportRect = () => {
@@ -1089,7 +1095,11 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		if (!previewWindow || previewWindow.isDestroyed()) return;
 		switch (type) {
 			case "ready":
-				if (!previewWindow.isVisible()) previewWindow.show();
+				// 仅当本次开窗未以最小化态启动时才显示；最小化态重建保持隐藏
+				if (previewReadyShowPending && !previewWindow.isVisible()) {
+					previewWindow.show();
+				}
+				previewReadyShowPending = true;
 				return;
 			case "minimize": // 最小化 = 隐藏窗口，主窗口据此渲染气泡（点气泡恢复）
 				previewWindow.hide();
@@ -1145,6 +1155,9 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			case "restore": // 点气泡恢复：显示并聚焦
 				previewWindow.show();
 				previewWindow.focus();
+				return;
+			case "hide": // 最小化态随会话切换恢复（store.minimized=true）：隐藏窗口，主窗口气泡已在渲染
+				previewWindow.hide();
 				return;
 			case "refresh": // 预览文件改动：转告独立窗口重挂预览 iframe
 					previewWindow.webContents.send("previewwin:event", { type: "refresh" });

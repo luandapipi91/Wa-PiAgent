@@ -65,6 +65,8 @@ interface WaPiPreviewWinApi {
 		/** 外部网址预览（与 path 互斥） */
 		url?: string | null;
 		sessionId?: string | null;
+		/** 以最小化态开窗（会话切回重建场景）：主进程首帧 ready 后保持隐藏，气泡可点恢复 */
+		minimized?: boolean;
 		rect?: { x: number; y: number; w: number; h: number } | null;
 	}): Promise<{ ok: boolean; reason?: string }>;
 	/** 主窗口：窗口指令（close=关闭并保持关闭；hide/restore=最小化与恢复；

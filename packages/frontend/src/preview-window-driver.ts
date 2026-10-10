@@ -101,6 +101,9 @@ export function usePreviewWindowDriver(): void {
 				path,
 				url: externalUrl,
 				sessionId,
+				// 最小化态随 payload 下发：切走会话窗口被销毁、切回时重建，主进程据此
+				// 决定首帧 ready 后是否显示（否则重建窗口无条件 show，最小化状态丢失）
+				minimized,
 				rect: useBrowserStore.getState().detachedRect,
 			});
 		} else {

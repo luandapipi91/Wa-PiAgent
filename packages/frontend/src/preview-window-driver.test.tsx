@@ -79,6 +79,7 @@ test("浮动模式 + 预览打开 → 请求开窗（带 path/sessionId 与记�
 			path: "/proj/index.html",
 			url: null,
 			sessionId: "s-1",
+			minimized: false,
 			rect: { x: 200, y: 120, w: 900, h: 700 },
 		},
 	]);
@@ -99,6 +100,7 @@ test("浮动模式 + 外部网址 → 请求开窗时带上 url（本地 path �
 			path: null,
 			url: "https://example.com/demo",
 			sessionId: "s-2",
+			minimized: false,
 			rect: null,
 		},
 	]);
@@ -118,6 +120,7 @@ test("浮动模式 + externalUrl 变化（agent 请求打开网址）→ 重新�
 		url: "https://example.com/later",
 		path: null,
 		sessionId: "s-9",
+		minimized: false,
 		rect: null,
 	});
 });
