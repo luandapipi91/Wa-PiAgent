@@ -1059,7 +1059,11 @@ test("steerMessage — idle 时直接 prompt 生效", async () => {
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	am.steerMessage(session.id, "引导一下");
-	await new Promise((r) => setTimeout(r, 0)); // client.prompt 为异步调用
+	// client.prompt 为异步链路：轮询等待生效（单跳 sleep 在负载下会偶发不达 → 假红）
+	const deadline = Date.now() + 2000;
+	while (fakes[0].prompted.length === 0 && Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 10));
+	}
 
 	expect(fakes[0].prompted).toEqual(["引导一下"]);
 });
