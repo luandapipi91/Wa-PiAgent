@@ -91,6 +91,51 @@ export function TrashMessageViewer({ sessionId, onBack, onClose }: Props) {
 		return "";
 	}
 
+	// 按用户消息分轮聚合：一轮（一次提问到最终回复的完整回合）内 assistant 消息
+	// 可能有 multiple 条（工具调用循环，每条带简短过渡正文），只渲染轮内最后一个
+	// 非空 text（最终回复）为一个气泡；thinking / 工具调用与结果一律不显示。
+	// 轮内没有最终正文（只有 thinking 的截断收尾）则该轮不出助手气泡。
+	function aggregateTurns(
+		msgs: LoadedMessage[],
+	): { role: "user" | "assistant"; text: string; agentName?: string }[] {
+		const out: {
+			role: "user" | "assistant";
+			text: string;
+			agentName?: string;
+		}[] = [];
+		let assistantText = "";
+		let assistantName: string | undefined;
+		const flush = () => {
+			if (assistantText.trim()) {
+				out.push({
+					role: "assistant",
+					text: assistantText,
+					agentName: assistantName,
+				});
+			}
+			assistantText = "";
+			assistantName = undefined;
+		};
+		for (const msg of msgs) {
+			if (msg.role === "user") {
+				flush();
+				const t = extractText(msg.content);
+				if (t.trim()) out.push({ role: "user", text: t });
+				continue;
+			}
+			if (msg.role !== "assistant") continue;
+			const t = extractText(msg.content);
+			if (t.trim()) {
+				assistantText = t; // 轮内取最后一个非空 text（最终回复）
+				assistantName = msg.agentName;
+			}
+		}
+		flush();
+		return out;
+	}
+
+	const turns = aggregateTurns(messages);
+
 	if (error) {
 		return (
 			<div className="flex flex-col h-full">
@@ -167,14 +212,8 @@ export function TrashMessageViewer({ sessionId, onBack, onClose }: Props) {
 					</div>
 				) : (
 					<div className="flex flex-col gap-4 max-w-3xl mx-auto">
-						{messages.map((msg, i) => {
-							// 只渲染对话正文：归档查看不展示工具调用/结果（工具原始输出是纯文本，
-							// 进 markdown 会被输出里的 "-" 行当成 setext 标题渲染成大字号），
-							// 也不展示 system / custom / compactionSummary 等非对话消息。
-							if (msg.role !== "user" && msg.role !== "assistant") return null;
-							const isUser = msg.role === "user";
-							const text = extractText(msg.content);
-							if (!text.trim()) return null;
+						{turns.map((turn, i) => {
+							const isUser = turn.role === "user";
 							return (
 								<div
 									key={i}
@@ -187,13 +226,13 @@ export function TrashMessageViewer({ sessionId, onBack, onClose }: Props) {
 												: "bg-surface-hover text-text rounded-bl-sm border border-hairline"
 										}`}
 									>
-										{!isUser && msg.agentName && (
+										{!isUser && turn.agentName && (
 											<div className="text-[10px] text-tertiary mb-1 font-medium">
-												{msg.agentName}
+												{turn.agentName}
 											</div>
 										)}
 										<Markdown
-											text={text}
+											text={turn.text}
 											interactive={false}
 											className="prose prose-sm max-w-none break-words [&_pre]:bg-black/5 [&_pre]:rounded [&_pre]:overflow-x-auto [&_code]:text-brand [&_code]:bg-brand/10 [&_code]:px-1 [&_code]:rounded"
 											testId={null}
