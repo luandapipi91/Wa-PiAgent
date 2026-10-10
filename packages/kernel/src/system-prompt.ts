@@ -127,7 +127,7 @@ export const DEFAULT_MEMORY_POLICY_PROMPT =
 	"kind=execution（执行流水，按时间线检索）\n" +
 	"- target=user → 全局；target=memory → 默认当前项目（不传 scope 即可）\n\n" +
 	"**维护已有记忆：**\n" +
-	"- 先用 memory_search 拿到条目 id，再用 memory_replace / memory_remove 按 id 精确变更\n" +
+	"- 先用 memory_search 拿到条目 id（需要看全文时再用 memory_read 按 id 读取详情），再用 memory_replace / memory_remove 按 id 精确变更\n" +
 	"- 没有 id 时可用 oldText 子串匹配，但多命中会被要求澄清；写入前先查重";
 
 /** 默认 memory-policy 段（精简版，memoryPolicyStyle=compact）：与完整版同义，只压缩篇幅 */
@@ -137,7 +137,7 @@ export const COMPACT_MEMORY_POLICY_PROMPT =
 	"值得跨会话保留的信息立即 memory_add：用户偏好/身份/环境 → target=user；讨论中直接拍板的项目决策/约定/规范 → target=memory（注意：经实测/排查/交付过程得出的选型结论和问题解决按任务完成记 execution）；" +
 	"任务完成（修复/交付/排查/实测调研/发版）时回复前必记 kind=execution（必须显式传）：做了什么+结果+结论，1-3 行；已验证可行才定下的方案即使表述为「以后都这样」也记 execution；刚完成时结论写进执行记录不拆 knowledge。" +
 	"先排除再记：未完成（排查中/中间发现/明天继续/先到这）、纯问答、单步小改、无结论尝试、只是拍板没执行——都不写执行记录。\n" +
-	"变更已有条目：memory_search 取 id，再 memory_replace / memory_remove。";
+	"变更已有条目：memory_search 取 id（需全文时 memory_read 按 id 读详情），再 memory_replace / memory_remove。";
 
 /**
  * 构造「自身进程保护」段文案（强规则：禁止 agent 杀死宿主 kernel / Electron 进程，防误杀）。

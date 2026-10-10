@@ -178,6 +178,7 @@ export const DEFAULT_AGENT_TOOLS = [
 	"memory_add",
 	"memory_replace",
 	"memory_remove",
+	"memory_read",
 	"memory_search",
 	"ask_user_question",
 	// delegate：宿主关系网调起工具（customTools 注入）

@@ -37,9 +37,10 @@ beforeEach(() => {
   tools = createMemoryTools(ctx);
 });
 
-test("注册 4 个工具，名字齐全（memory_read 已移除：search 返回结果自带 id）", () => {
+test("注册 5 个工具，名字齐全（memory_read 还原：仅按 id 读取单条详情）", () => {
   expect(tools.map((t) => t.name).sort()).toEqual([
     "memory_add",
+    "memory_read",
     "memory_remove",
     "memory_replace",
     "memory_search",
@@ -534,6 +535,67 @@ test("id 路径归属校验：无项目上下文时拒绝改/删项目条目", a
   expect(ctx.dao.getById(p2.id)!.content).toBe("P2 项目备忘");
 });
 
+// =========================================================================
+// memory_read：仅按 id 读取单条详情（id 必传，返回全文而非 snippet）
+// =========================================================================
+
+test("memory_read 参数仅 id 一个字段且必传（只支持 id 读取）", () => {
+  const schema = tool("memory_read").parameters as any;
+  expect(Object.keys(schema.properties)).toEqual(["id"]);
+  expect(schema.required).toEqual(["id"]);
+});
+
+test("memory_read 按 id 返回全文与完整元信息（非 search 的 80 字符 snippet）", async () => {
+  const long =
+    "这段正文超过八十字符，用来验证 memory_read 返回的是完整内容而不是检索摘要。" +
+    "memory_search 只给命中位置前后各四十字的片段，详情读取必须把整段原样带回，" +
+    "否则窗口外下沉到 L2/L3 的条目对 agent 来说永远是残缺的。";
+  expect(long.length).toBeGreaterThan(80);
+  const added = await call("memory_add", { target: "memory", content: long });
+  const res = await call("memory_read", { id: added.id });
+  expect(res.success).toBe(true);
+  expect(res.id).toBe(added.id);
+  expect(res.content).toBe(long);
+  expect(res.kind).toBe("knowledge");
+  expect(res.scope).toBe("project");
+  expect(res.projectId).toBe("Wa-Pi");
+  expect(typeof res.createdAt).toBe("string");
+  expect(typeof res.updatedAt).toBe("string");
+  expect(res.archived).toBe(false);
+});
+
+test("memory_read 缺 id / 空 id 一律拒绝（id 必传）", async () => {
+  for (const bad of [{}, { id: "" }, { id: "   " }]) {
+    const res = await call("memory_read", bad);
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("id is required");
+  }
+});
+
+test("memory_read 读不存在的 id 返回明确错误", async () => {
+  const res = await call("memory_read", { id: "no-such-id" });
+  expect(res.success).toBe(false);
+  expect(res.error).toContain("No entry matched id 'no-such-id'");
+});
+
+test("memory_read 归属校验：别的项目与无项目上下文都读不到项目条目", async () => {
+  await seedTwoProjects();
+  const p2 = ctx.dao.list({ projectId: "P2" })[0];
+
+  // 回到 P1 上下文：读 P2 的条目被拒
+  ctx = { ...ctx, projectId: "P1" };
+  tools = createMemoryTools(ctx);
+  const cross = await call("memory_read", { id: p2.id });
+  expect(cross.success).toBe(false);
+  expect(cross.error).toContain("另一个项目");
+
+  // 无项目上下文：项目条目同样拒绝
+  ctx = { ...ctx, projectId: null };
+  tools = createMemoryTools(ctx);
+  const noCtx = await call("memory_read", { id: p2.id });
+  expect(noCtx.success).toBe(false);
+});
+
 test("id 路径归属校验：projectId 大小写不同视为不同项目（严格比较）", async () => {
   await seedTwoProjects();
   const p2 = ctx.dao.list({ projectId: "P2" })[0];
@@ -666,8 +728,14 @@ test("memory_add 对 title 做与 content 同规则的注入校验（写入侧�
   expect(ctx.dao.counts()).toEqual({ profile: 0, knowledge: 0, execution: 0 });
 });
 
-// （原「memory_read 的条目 title 与 content 同样被净化」随 memory_read 移除：
-// search 用例上方已完整覆盖 title / snippet / 全载荷净化。）
+test("库被外部直写时 memory_read 的 title 与 content 同样被净化（防护不被旁路）", async () => {
+  const row = pollute(`前情 ${PAYLOAD} 后果`, PAYLOAD);
+  const res = await call("memory_read", { id: row.id });
+  expect(res.title).toBe("[BLOCKED]");
+  expect(res.content).toBe("[BLOCKED]");
+  // 整个返回载荷都不许出现原样文本
+  expect(JSON.stringify(res)).not.toContain(PAYLOAD);
+});
 
 // =========================================================================
 // memory_search 的时间范围过滤（since / until / timeField）

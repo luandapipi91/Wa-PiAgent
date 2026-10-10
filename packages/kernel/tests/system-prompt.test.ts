@@ -711,6 +711,13 @@ test.each([
 test.each([
 	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
 	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略：需要看全文时用 memory_read 按 id 读取详情", (_name, prompt) => {
+	expect(prompt).toContain("memory_read 按 id");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
 ])(
 	"%s 记忆策略不再宣称记忆落在 MEMORY.md / USER.md（DB 化后二者非真源）",
 	(_name, prompt) => {

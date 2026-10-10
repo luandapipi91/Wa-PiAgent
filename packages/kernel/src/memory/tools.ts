@@ -17,6 +17,8 @@ import {
   MEM_REPLACE_SNIPPET,
   MEM_REMOVE_DESC,
   MEM_REMOVE_SNIPPET,
+  MEM_READ_DESC,
+  MEM_READ_SNIPPET,
   MEM_SEARCH_DESC,
   MEM_SEARCH_SNIPPET,
   MemoryTargetSchema,
@@ -230,6 +232,21 @@ export function parseTimeBound(
  */
 function sanitize(text: string): string {
   return firstThreatMessage(text, "strict") ? "[BLOCKED]" : text;
+}
+
+/** 单条详情返回结构（id 读取）：全文 content，字段与 search 返回的元信息对齐 */
+function toEntryJson(r: MemoryRow) {
+  return {
+    id: r.id,
+    title: sanitize(r.title),
+    content: sanitize(r.content),
+    kind: r.kind,
+    scope: r.scope,
+    projectId: r.projectId,
+    createdAt: new Date(r.createdAt).toISOString(),
+    updatedAt: new Date(r.updatedAt).toISOString(),
+    archived: r.archived === 1,
+  };
 }
 
 /** 解析变更目标：id 优先；无 id 时按 target/scope + oldText 子串匹配 */
@@ -465,6 +482,34 @@ export function createMemoryTools(ctx: MemoryToolContext): ToolDefinition[] {
               ? Math.max(ctx.dao.countMatches(query, filter), hits.length)
               : 0,
         });
+      },
+    },
+    {
+      name: "memory_read",
+      label: "Memory",
+      description: MEM_READ_DESC,
+      promptSnippet: MEM_READ_SNIPPET,
+      parameters: Type.Object({
+        id: Type.String({
+          description: "Entry id from memory_search (required).",
+        }),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        // id 必传且非空：schema 已必填，这里防宿主直调 / 空白串绕过
+        const id = str(params.id).trim();
+        if (!id)
+          return jsonResult({ success: false, error: "id is required." });
+        const row = ctx.dao.getById(id);
+        if (!row)
+          return jsonResult({
+            success: false,
+            error: `No entry matched id '${id}'.`,
+          });
+        // 归属校验：项目条目不能被别的项目 / 无项目上下文读到（与 replace/remove 的 id 路径同款）
+        const ownership = requireEntryOwnership(ctx, row);
+        if (!ownership.ok)
+          return jsonResult({ success: false, error: ownership.error });
+        return jsonResult({ success: true, ...toEntryJson(row) });
       },
     },
     {

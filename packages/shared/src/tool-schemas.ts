@@ -91,6 +91,14 @@ export const MEM_REMOVE_DESC =
 export const MEM_REMOVE_SNIPPET =
   "Delete a memory entry (user profile or your notes).";
 
+export const MEM_READ_DESC =
+  "Read one memory entry in FULL by its id — the only way to get complete content, " +
+  "since memory_search returns just an 80-char snippet. ID is required and must come from memory_search; " +
+  "no other lookup form is supported. Content is sanitized like search results.";
+
+export const MEM_READ_SNIPPET =
+  "Fetch the full content of one memory entry by id (id from memory_search).";
+
 export const MEM_SEARCH_DESC =
   "Hybrid search (BM25 + semantic embeddings) over memory entries, including ones NOT shown in the system prompt. " +
   "Query with a short phrase or sentence — space-separated words act as AND terms. " +
@@ -105,7 +113,7 @@ export const MEM_SEARCH_DESC =
   "Do NOT search for single-point lookups whose answer can be read in one line (a constant's value, a function signature, a config key). " +
   "Supports Chinese and English queries. " +
   "Optionally narrow by time range with since/until (see timeField for which timestamp they filter on). " +
-  "Returns id/title/snippet/score; use the id with memory_replace / memory_remove.";
+  "Returns id/title/snippet/score; use the id with memory_replace / memory_remove / memory_read.";
 
 export const MEM_SEARCH_SNIPPET =
   "Search all memory layers (including non-injected L2/L3) with a short phrase or time range.";
@@ -368,6 +376,7 @@ export const BRIDGE_TOOL_NAMES = [
   "memory_add",
   "memory_replace",
   "memory_remove",
+  "memory_read",
   "memory_search",
   "delegate",
   "browser_navigate",

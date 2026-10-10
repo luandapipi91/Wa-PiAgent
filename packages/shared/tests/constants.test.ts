@@ -42,8 +42,8 @@ test("DEFAULT_AGENT_TOOLS 含 Pi 内置文件工具、网络工具与 amaster me
 	expect(DEFAULT_AGENT_TOOLS).toContain("memory_replace");
 	expect(DEFAULT_AGENT_TOOLS).toContain("memory_remove");
 	expect(DEFAULT_AGENT_TOOLS).toContain("memory_search");
-	// memory_read 已移除（2026-10-09）：search 返回结果自带 id，read 的取 id / 查重职责由 search 承担
-	expect(DEFAULT_AGENT_TOOLS).not.toContain("memory_read");
+	// memory_read 还原（仅按 id 读取单条详情）：补齐 search 拿到 id 之后取全文的缺口
+	expect(DEFAULT_AGENT_TOOLS).toContain("memory_read");
 	expect(DEFAULT_AGENT_TOOLS).toContain("ask_user_question");
 });
 

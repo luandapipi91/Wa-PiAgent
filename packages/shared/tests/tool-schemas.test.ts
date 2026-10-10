@@ -47,6 +47,8 @@ test("memory 工具描述可从 @wa-pi/shared 导入", async () => {
     MEM_REPLACE_SNIPPET,
     MEM_REMOVE_DESC,
     MEM_REMOVE_SNIPPET,
+    MEM_READ_DESC,
+    MEM_READ_SNIPPET,
   } = await import("@wa-pi/shared/tool-schemas");
   expect(typeof MEM_TARGET_DESC).toBe("string");
   expect(typeof MEM_SCOPE_DESC).toBe("string");
@@ -56,10 +58,27 @@ test("memory 工具描述可从 @wa-pi/shared 导入", async () => {
   expect(typeof MEM_REPLACE_SNIPPET).toBe("string");
   expect(typeof MEM_REMOVE_DESC).toBe("string");
   expect(typeof MEM_REMOVE_SNIPPET).toBe("string");
-  // memory_read 已移除（2026-10-09）：其文案常量随之删除，防复活
+  // memory_read 还原：仅按 id 读取单条详情，文案常量随之恢复
   const schemas = await import("@wa-pi/shared/tool-schemas");
-  expect("MEM_READ_DESC" in schemas).toBe(false);
-  expect("MEM_READ_SNIPPET" in schemas).toBe(false);
+  expect("MEM_READ_DESC" in schemas).toBe(true);
+  expect("MEM_READ_SNIPPET" in schemas).toBe(true);
+});
+
+test("MEM_READ_DESC 锁定「仅按 id 读取」形态；MEM_SEARCH_DESC 指回 memory_read", async () => {
+  const { MEM_READ_DESC, MEM_READ_SNIPPET, MEM_SEARCH_DESC } = await import(
+    "@wa-pi/shared/tool-schemas",
+  );
+  // id 必传 + 为什么需要它（search 只给 80 字符 snippet）+ id 唯一来源
+  expect(MEM_READ_DESC).toContain("ID is required");
+  expect(MEM_READ_DESC).toContain("80-char snippet");
+  expect(MEM_READ_DESC).toContain("from memory_search");
+  // 只支持 id：不得提供 oldText 等替代定位方式
+  expect(MEM_READ_DESC).not.toContain("oldText");
+  expect(MEM_READ_SNIPPET).toContain("by id");
+  // search 返回的 id 现在有三个去处
+  expect(MEM_SEARCH_DESC).toContain(
+    "use the id with memory_replace / memory_remove / memory_read",
+  );
 });
 
 test("MEM_ADD_DESC 明确「双类型记录、琐事不记、任务完成必写执行记录」的存储准则", async () => {
