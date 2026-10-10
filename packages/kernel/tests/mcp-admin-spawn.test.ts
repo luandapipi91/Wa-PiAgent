@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 /** 造一个走假 pi 的 McpAdmin；activityFile 记录假进程的存活痕迹 */
-async function fakeAdmin(opts: { timeoutMs?: number } = {}) {
+async function fakeAdmin(opts: { timeoutMs?: number; failedCacheTtlMs?: number } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "admin-fake-"));
   const activityFile = join(dir, "activity.log");
   process.env.MCP_ADMIN_ACTIVITY_FILE = activityFile;
@@ -35,6 +35,7 @@ async function fakeAdmin(opts: { timeoutMs?: number } = {}) {
     agentDir: dir,
     cwd: dir,
     timeoutMs: opts.timeoutMs,
+    failedCacheTtlMs: opts.failedCacheTtlMs,
   });
   return { admin, activityFile };
 }
@@ -135,6 +136,61 @@ describe("McpAdmin 缓存与失败回退（假 pi）", () => {
     expect(fourth.commandFailed).toBe(false);
     expect(fourth.stale).toBe(false);
     expect(fourth.servers.map((s) => s.name)).toEqual(["srv"]);
+  });
+
+  test("失败缓存超过 TTL 后自动过期：非 force 调用重新 spawn（自愈）", async () => {
+    const { admin, activityFile } = await fakeAdmin({ failedCacheTtlMs: 100 });
+    process.env.MCP_ADMIN_TEST_MODE = "garbage";
+    const first = await admin.list(); // 真跑失败，进缓存
+    expect(first.commandFailed).toBe(true);
+    const spawns = activityLength(activityFile);
+
+    // TTL 内：与旧行为一致——缓存短路，不重跑
+    const second = await admin.list();
+    expect(second.commandFailed).toBe(true);
+    expect(second.stale).toBe(true);
+    expect(activityLength(activityFile)).toBe(spawns);
+
+    // 过 TTL 后：失败缓存不再短路，重新 spawn；这次恢复成功 → 新鲜数据、不标 stale
+    await Bun.sleep(150);
+    process.env.MCP_ADMIN_TEST_MODE = "ok";
+    const third = await admin.list();
+    expect(third.commandFailed).toBe(false);
+    expect(third.stale).toBe(false);
+    expect(third.servers.map((s) => s.name)).toEqual(["srv"]);
+    expect(activityLength(activityFile)).toBeGreaterThan(spawns);
+  });
+
+  test("过期失败缓存重跑仍失败：新失败覆盖缓存刷新计时（不会每次调用都重跑）", async () => {
+    const { admin, activityFile } = await fakeAdmin({ failedCacheTtlMs: 100 });
+    process.env.MCP_ADMIN_TEST_MODE = "garbage";
+    await admin.list();
+    await Bun.sleep(150);
+    const second = await admin.list(); // 过期重跑，仍失败
+    expect(second.commandFailed).toBe(true);
+    // 本次真的跑过并失败，与「首次失败」同语义：不标 stale（没有可回退的旧数据）
+    expect(second.stale).toBe(false);
+    const spawns = activityLength(activityFile);
+
+    // 新失败重新计时：TTL 内不重跑
+    const third = await admin.list();
+    expect(third.commandFailed).toBe(true);
+    expect(third.stale).toBe(true);
+    expect(activityLength(activityFile)).toBe(spawns);
+  });
+
+  test("成功缓存不受失败 TTL 影响：超过 TTL 后仍命中、不重跑", async () => {
+    const { admin, activityFile } = await fakeAdmin({ failedCacheTtlMs: 100 });
+    process.env.MCP_ADMIN_TEST_MODE = "ok";
+    const first = await admin.list();
+    expect(first.stale).toBe(false);
+    const spawns = activityLength(activityFile);
+
+    await Bun.sleep(150);
+    const second = await admin.list();
+    expect(second.stale).toBe(false);
+    expect(second.servers).toEqual(first.servers);
+    expect(activityLength(activityFile)).toBe(spawns); // 成功缓存无 TTL，没再起子进程
   });
 
   test("输出不可解析但有缓存：回退上一条缓存并标 stale（规格 §8）", async () => {

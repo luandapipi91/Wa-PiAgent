@@ -211,6 +211,11 @@ export function parseMcpListOutput(
  */
 export const DEFAULT_LIST_TIMEOUT_MS = 70_000;
 
+/** 失败结果的缓存保留时长（毫秒）：保留期内命中缓存不重跑（`pi mcp list` 会挨个连 server，
+ * 很贵，防轮询轰炸）；超过则视同无缓存，下次 list 自动重跑自愈——否则一次超时会把 GUI 的
+ * 「状态未知」固化到改配置/新会话/重启为止（2026-10-10 用户实测遇到的正是这个）。 */
+export const FAILED_CACHE_TTL_MS = 60_000;
+
 export interface McpAdminOpts {
   /** pi 可执行体与 CLI 路径（与 rpc-client 同一解析） */
   runtime: string;
@@ -223,10 +228,15 @@ export interface McpAdminOpts {
    * （GUI 的 MCP 页）永远挂住。
    */
   timeoutMs?: number;
+  /** 失败结果的缓存保留时长，缺省 {@link FAILED_CACHE_TTL_MS}。 */
+  failedCacheTtlMs?: number;
 }
 
 export class McpAdmin {
   private cache?: McpListResult;
+
+  /** 缓存（含失败缓存）的写入时刻，配合 {@link FAILED_CACHE_TTL_MS} 判失败缓存过期 */
+  private cachedAt = 0;
 
   constructor(private opts: McpAdminOpts) {}
 
@@ -238,19 +248,22 @@ export class McpAdmin {
    * 此时 `stale:true` 只说明这份失败连一次重跑都没有（直接命中了失败缓存）。
    *
    * 失败结果同样进缓存（`pi mcp list` 会挨个连 server，很贵，失败不该被每次轮询重试），
-   * 但缓存命中且缓存本身是失败时必须回 `stale:true`，否则调用方分不清「刚真跑过并失败」与「这是旧失败」。
+   * 但只保留 {@link FAILED_CACHE_TTL_MS}：过期后视同无缓存、下次调用自动重跑（自愈）。
+   * 缓存命中且缓存本身是失败时必须回 `stale:true`，否则调用方分不清「刚真跑过并失败」与「这是旧失败」。
    */
   async list(force = false): Promise<McpListResult & { stale: boolean }> {
-    // 命中失败缓存 → 本次根本没跑，标 stale，别谎报新鲜
-    if (!force && this.cache) {
+    // 命中缓存（成功缓存，或保留期内的失败缓存）→ 本次根本没跑；失败缓存标 stale，别谎报新鲜
+    if (!force && this.cache && !this.failedCacheExpired()) {
       return { ...this.cache, stale: this.cache.commandFailed };
     }
     const result = await this.runList();
-    // 规格 §8：命令失败/输出不可解析 → 回退上一条缓存并标 stale（UI 显示「状态未知」），不抛错。
-    // 无缓存时把失败也记进缓存：`pi mcp list` 会真的去连每台 server（可能十几秒），
-    // 失败时不该被调用方每次轮询都重试；要重试就显式走 force。
-    if (result.commandFailed && this.cache) return { ...this.cache, stale: true };
+    // 规格 §8：命令失败/输出不可解析 → 有可回退的缓存（成功缓存，或保留期内的失败缓存）就回退
+    // 并标 stale（UI 显示「状态未知」），不抛错；失败也记进缓存并刷新计时。要立即重试就显式走 force。
+    if (result.commandFailed && this.cache && !this.failedCacheExpired()) {
+      return { ...this.cache, stale: true };
+    }
     this.cache = result;
+    this.cachedAt = Date.now();
     return { ...result, stale: false };
   }
 
@@ -267,11 +280,24 @@ export class McpAdmin {
 
   invalidate(): void {
     this.cache = undefined;
+    this.cachedAt = 0;
   }
 
-  /** 是否已有缓存（含失败缓存）：调用方以此区分冷热路径（冷缓存回包不等 pi，见 routes/mcp.ts） */
+  /** 是否已有可即时返回的缓存：成功缓存恒算；失败缓存只在保留期内算。
+   *
+   * 调用方以此区分冷热路径（冷缓存回包不等 pi，见 routes/mcp.ts）。已过期的失败缓存
+   * 返回 false：GET 走冷路径立即回骨架 + 后台重跑自愈，避免回包同步等一次最长 70s 的重跑。
+   */
   cached(): boolean {
-    return this.cache !== undefined;
+    return this.cache !== undefined && !this.failedCacheExpired();
+  }
+
+  /** 失败缓存是否已过保留期（成功缓存永不过期） */
+  private failedCacheExpired(): boolean {
+    return (
+      this.cache?.commandFailed === true &&
+      Date.now() - this.cachedAt >= (this.opts.failedCacheTtlMs ?? FAILED_CACHE_TTL_MS)
+    );
   }
 
   /**

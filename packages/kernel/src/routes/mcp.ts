@@ -331,9 +331,10 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
   return {
     list: async (projectId) => {
       const admin = await adminOf(projectId);
-      // 热缓存（含失败缓存）：状态可即时取回，走完整合并，行为不变
+      // 热缓存（成功缓存，或保留期内的失败缓存）：状态可即时取回，走完整合并，行为不变
       if (admin.cached()) return listWithState(projectId);
-      // 冷缓存：pi mcp list 要真 spawn（一台慢 server 单台可耗 60s+，见 DEFAULT_LIST_TIMEOUT_MS），
+      // 冷缓存（无缓存，或失败缓存已过保留期需重跑自愈）：pi mcp list 要真 spawn（一台慢
+      // server 单台可耗 60s+，见 DEFAULT_LIST_TIMEOUT_MS），
       // 回包若等它，GUI 首开就是「加载中…」→ 前端超时 → 空列表。改为**配置骨架立即回**
       //（盘上清单为骨架、无运行态、stale=true 表示「这不是刚跑出来的状态」），
       // 状态后台跑完经 mcp:changed 广播补上——与 save/delete 的后台广播同一路径。
