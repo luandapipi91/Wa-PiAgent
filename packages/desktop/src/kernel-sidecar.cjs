@@ -114,6 +114,10 @@ async function startSidecar({
   // kernel 侧静默降级为纯词法检索。
   if (sqliteDylib && fs.existsSync(sqliteDylib)) {
     nativeAssets.WA_PI_SQLITE_DYLIB = sqliteDylib;
+  } else {
+    // 参数未提供时显式剔除：环境里可能残留同名变量（如宿主应用自身注入的路径），
+    // 不清掉会串进 kernel 进程；kernel 侧空串/缺失均视为未设置。
+    delete kernelEnv.WA_PI_SQLITE_DYLIB;
   }
   const spawnOpts = {
     cwd: kernelDir,
