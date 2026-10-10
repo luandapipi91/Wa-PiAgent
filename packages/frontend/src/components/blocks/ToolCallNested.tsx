@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ToolCallCard, ToolGroupCard, formatArgs } from "./ToolCallCard";
 import { Linkify } from "./linkify";
@@ -110,14 +110,16 @@ function viewToResult(view: ToolCallView): ToolResultMessage | undefined {
 	};
 }
 
-/** 内层子卡：紧凑单行（工具名 + 参数摘要 + 状态），结果紧随其后。
- *  有意不复用 ToolCallCard 的折叠态——子卡是「脚本调了哪些工具」的答案，
- *  父卡折叠时也必须可见；且内层结果通常很短，不值得再点一次。 */
+/** 内层子卡：紧凑单行（工具名 + 参数摘要 + 状态），结果默认折叠——
+ *  子卡结果可能是几百行 JSON（如 MCP 搜索工具），无论长短都不直接显示，
+ *  点展开才见全文。有意不复用 ToolCallCard 的折叠态——子卡是「脚本调了哪些工具」的答案，
+ *  父卡折叠时也必须可见。 */
 const NestedToolCallCard = memo(function NestedToolCallCard({
 	view,
 }: {
 	view: ToolCallView;
 }) {
+	const [resultOpen, setResultOpen] = useState(false);
 	const status = view.status ?? (view.result ? "ok" : "running");
 	const tone =
 		status === "error"
@@ -141,23 +143,47 @@ const NestedToolCallCard = memo(function NestedToolCallCard({
 			data-status={status}
 			className="rounded border border-hairline bg-surface px-2 py-1 min-w-0"
 		>
-			<div className="flex items-center gap-1.5 min-w-0">
-				<span className={`inline-flex flex-shrink-0 ${tone}`}>
-					<Icon name={icon} size={11} />
-				</span>
-				<span className="font-mono text-[calc(11.5px*var(--font-scale))] text-primary truncate">
-					{view.toolName}
-				</span>
-				<span className="text-[calc(11px*var(--font-scale))] text-tertiary truncate min-w-0">
-					({formatArgs(viewToToolCall(view).arguments)})
-				</span>
-				{status === "running" && (
-					<span className="ml-auto flex-shrink-0">
-						<Spinner />
-					</span>
-				)}
-			</div>
-			{view.result?.content?.map(
+			{(() => {
+				const hasResult = view.result?.content?.some((c) => c?.type === "text" && c.text != null);
+				const rowProps = hasResult
+					? ({
+							"data-testid": `toolcall-nested-result-toggle-${view.toolCallId}`,
+							onClick: () => setResultOpen((v) => !v),
+							role: "button",
+							tabIndex: 0,
+							"aria-expanded": resultOpen,
+						} as const)
+					: {};
+				return (
+					<div
+						{...rowProps}
+						className={`flex items-center gap-1.5 min-w-0 ${hasResult ? "cursor-pointer select-none" : ""}`}
+					>
+						<span className={`inline-flex flex-shrink-0 ${tone}`}>
+							<Icon name={icon} size={11} />
+						</span>
+						<span className="font-mono text-[calc(11.5px*var(--font-scale))] text-primary truncate">
+							{view.toolName}
+						</span>
+						<span className="text-[calc(11px*var(--font-scale))] text-tertiary truncate min-w-0">
+							({formatArgs(viewToToolCall(view).arguments)})
+						</span>
+						{status === "running" && (
+							<span className="ml-auto flex-shrink-0">
+								<Spinner />
+							</span>
+						)}
+						{hasResult && (
+							<span className="ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[calc(11px*var(--font-scale))] text-tertiary">
+								结果
+								<Icon name={resultOpen ? "chevron-down" : "chevron-right"} size={10} />
+							</span>
+						)}
+					</div>
+				);
+			})()}
+			{resultOpen &&
+				view.result?.content?.map(
 				(c, i) =>
 					c?.type === "text" &&
 					c.text != null && (

@@ -187,7 +187,22 @@ describe("ToolCallNested", () => {
 			screen.getByTestId("toolcall-nested-item-call_00_abc/1").textContent,
 		).toContain("mcp__poc__echo");
 		expect(screen.getAllByText(/mcp__poc__echo/).length).toBeGreaterThan(0);
+		// 结果无论长短默认折叠：子卡结果可能是几百行 JSON，只有点展开才显示
+		expect(screen.queryByText(/pong-poc/)).toBeNull();
+		// 展开入口在子卡头部行内（右对齐）：整行可点，行内含工具名与「结果」入口
+		const toggle = screen.getByTestId("toolcall-nested-result-toggle-call_00_abc/1");
+		expect(toggle.textContent).toContain("mcp__poc__echo");
+		expect(toggle.textContent).toContain("结果");
+		// 入口顺序：「结果」文字在前、箭头 icon 在后（结果 ›）
+		const entry = toggle.lastElementChild as HTMLElement;
+		expect(entry.textContent).toContain("结果");
+		expect(entry.firstChild?.textContent).toBe("结果");
+		expect(entry.querySelector("svg")).toBeTruthy();
+		// 点击行内任意位置（如工具名）也触发展开；再点收起：重新隐藏
+		fireEvent.click(toggle.querySelector("span")!);
 		expect(screen.getByText(/pong-poc/)).toBeTruthy();
+		fireEvent.click(screen.getByTestId("toolcall-nested-result-toggle-call_00_abc/1"));
+		expect(screen.queryByText(/pong-poc/)).toBeNull();
 		// 展开父卡：codemode 结果的两段文本（“Script completed…” + 脚本输出）分别成块渲染，不糊成一坨
 		fireEvent.click(screen.getByTestId("toolcall-call_00_abc-header"));
 		const parentBody = screen.getByTestId("toolcall-call_00_abc-body");
@@ -219,7 +234,25 @@ describe("ToolCallNested", () => {
 		// 而「脚本调了哪些工具」的答案（子卡）仍一眼可见
 		expect(screen.queryByTestId("toolcall-call_00_abc-body")).toBeNull();
 		expect(parentCard.contains(childCard)).toBe(false);
-		expect(screen.getByText("pong")).toBeTruthy();
+		// 子卡可见（「脚本调了哪些工具」一眼可见），但结果默认折叠：只留展开入口，不显示结果文本
+		expect(screen.queryByText("pong")).toBeNull();
+		expect(screen.getByTestId("toolcall-nested-result-toggle-call_00_abc/1")).toBeTruthy();
+	});
+
+	test("子卡无结果（running）时不渲染结果展开入口", () => {
+		render(
+			<ToolCallNested
+				group={{
+					parent: outer,
+					children: [
+						{ toolCallId: "call_00_abc/2", toolName: "mcp__poc__slow", args: {}, status: "running", parentToolCallId: "call_00_abc" },
+					],
+				}}
+				isStreaming
+			/>,
+		);
+		expect(screen.getByTestId("toolcall-nested-item-call_00_abc/2")).toBeTruthy();
+		expect(screen.queryByTestId("toolcall-nested-result-toggle-call_00_abc/2")).toBeNull();
 	});
 
 	test("内层调用失败 → 子卡带失败标记；未完成 → 不误报成功", () => {
@@ -600,6 +633,9 @@ describe("MessageList：codemode → MCP 嵌套卡", () => {
 		fireEvent.click(screen.getByTestId("turn-summary"));
 		const wrapper = screen.getByTestId("toolcall-nested-call_00_abc");
 		expect(wrapper.textContent).toContain("mcp__poc__echo");
+		// 子卡结果默认折叠：不直接显示，点子卡展开入口后才见全文
+		expect(wrapper.textContent).not.toContain('pong-poc:{"text":"hi"}');
+		fireEvent.click(screen.getByTestId("toolcall-nested-result-toggle-call_00_abc/1"));
 		expect(wrapper.textContent).toContain('pong-poc:{"text":"hi"}');
 		// 平级两张卡的问题已消除：只有一张 codemode 父卡 + 其下子卡
 		expect(screen.getAllByTestId(/^toolcall-call_00_abc$/)).toHaveLength(1);
