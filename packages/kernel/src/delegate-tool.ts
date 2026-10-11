@@ -621,8 +621,14 @@ export function makeDelegateTool(opts: {
 							const startedAt = Date.now();
 							try {
 								// meta 写盘走 safeWriteMeta（与新建路径同约定）：写失败仅告警，不把整个工具调用带崩
+								// 分组字段（toolCallId/taskIndex/task）覆盖为本次调用（三处写盘同理）：委托记录
+								// 弹窗按 meta.toolCallId 分组，不覆盖的话 resume 实例留在首次创建那次委派的
+								// 分组里，本次弹窗左侧列表缺行。本轮 task 已由 pi 追加进同一份 jsonl，审计不丢。
 								await safeWriteMeta({
 									...meta,
+									toolCallId,
+									taskIndex: index,
+									task: t.task,
 									status: "running",
 									updatedAt: Date.now(),
 									resumeCount,
@@ -636,6 +642,9 @@ export function makeDelegateTool(opts: {
 								);
 								await safeWriteMeta({
 									...meta,
+									toolCallId,
+									taskIndex: index,
+									task: t.task,
 									status: out.interrupted
 										? "interrupted"
 										: out.isError
@@ -667,6 +676,9 @@ export function makeDelegateTool(opts: {
 								// 显式清掉 usage/toolStats：...meta 还带着**上一轮**的值，不能当本轮审计真源
 								await safeWriteMeta({
 									...meta,
+									toolCallId,
+									taskIndex: index,
+									task: t.task,
 									status: "interrupted",
 									updatedAt: Date.now(),
 									resumeCount,

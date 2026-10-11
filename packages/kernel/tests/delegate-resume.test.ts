@@ -201,8 +201,9 @@ describe("resume 分支", () => {
 		expect(m?.elapsedMs).toBe(7);
 		expect(m?.usage?.total).toBe(12);
 		expect(m?.usage?.costTotal).toBe(0.001);
-		// meta.task 是实例身份（首轮任务），不被本轮续聊文本覆盖
-		expect(m?.task).toBe("第一轮");
+		// meta.task 归属最近一次委派：弹窗按 toolCallId 分组后，组内展示本轮任务文本
+		//（每轮 task 文本都作为 user 消息留在 jsonl 历史里，审计轨迹不丢）
+		expect(m?.task).toBe("接着干");
 	});
 
 	test("resume 本轮失败 → meta 写 failed（不再停在 running）", async () => {
@@ -285,6 +286,29 @@ describe("resume 分支", () => {
 		});
 		expect(r.content[0].text).toContain("续聊炸了");
 		expect(r.content[0].text).toContain("兄弟任务正常");
+	});
+
+	test("resume 后 meta 分组归属本次调用（toolCallId/taskIndex/task 覆盖，弹窗按它分组）", async () => {
+		await writeMeta({
+			...baseMeta,
+			agentId: "a0000000b",
+			status: "completed",
+			toolCallId: "c-old",
+			taskIndex: 3,
+			task: "首轮任务",
+		} as never);
+		await tool().execute("c-new", {
+			tasks: [
+				{ agent: "Explore", task: "新任务一" },
+				{ agent: "Explore", task: "新任务二", resume: "a0000000b" },
+			],
+		});
+		const m = await readMeta(SID, "a0000000b");
+		// 弹窗左侧列表按 meta.toolCallId 等值过滤：不覆盖的话 resume 实例
+		// 留在旧委派分组，本次弹窗缺行（fleet 里 resume+新建混排的真实场景）
+		expect(m?.toolCallId).toBe("c-new");
+		expect(m?.taskIndex).toBe(1);
+		expect(m?.task).toBe("新任务二");
 	});
 
 	test("resume 前按 jsonl 首行 cwd 补建目录（pi resume 校验目录存在）", async () => {

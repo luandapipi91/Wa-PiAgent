@@ -1,3 +1,6 @@
+## 2026-10-11
+- fix(kernel): resume 子代理归入本次委派分组——委托记录弹窗不再缺行。根因：一次 delegate 多任务（含 resume）时外层卡片读工具结果内存数组（4 项齐全），弹窗左侧列表却按磁盘 meta 的 toolCallId 等值分组，而 resume 分支三处写盘 {...meta} 原样保留首次创建时的旧 toolCallId/taskIndex/task → resume 实例归属旧委派分组，本次弹窗只剩新建的 3 个。修复：resume 写盘（spawn 前 running/settle 终态/异常 interrupted 三处）将分组字段覆盖为本次调用的值，每轮 task 文本已由 pi 作为 user 消息追加进同一份 jsonl，审计轨迹不丢。TDD：delegate-resume 新增 fleet 混排用例（c-old→c-new 归属断言）先绿、旧断言「meta.task 不被本轮覆盖」按新语义反转，delegate 域 5 文件 104 用例全绿，kernel typecheck 0 error。
+
 ## 2026-10-10
 - docs(readme,website): README 中英与官网同步 v0.7.x 现状——产物分享从路线图待办移入已交付并新增功能小节（EdgeOne/Cloudflare Pages 一键发布公开链接、我的分享管理）；路线图未来方向新增「更多 IM 渠道 / 更高效的子代理调度 / 前端插件系统 / 对外链接器（Wa-Pi 能力对外暴露为 MCP 服务器 / HTTP 服务）」，连接器条目去「更多 IM 平台」重复（IM 已单列），可视化编排与差异监控保留；新增 TUI 插件真实截图 readme-tui.png（扩展面板 GUI 浮窗特写，真实触发 /tui-demo-options 截取）插入两份 README；子代理委托条目补转录查看与续聊；官网中英路线图同结构同步。
 - fix(frontend): 归档会话查看按轮聚合、只显示最终正文——工具调用循环里每条 assistant 消息的过渡说明（「先把上次测试记录读全…」等）此前被逐条渲染成独立气泡，观感如「思考过程全显示出来」且最终回复淹没其中（thinking 块本身已被过滤，观感问题实为中间轮过渡 text）。现按用户消息分轮聚合：每轮只渲染轮内最后一个非空 text（最终回复）为一个气泡，轮内无正文（只有 thinking 的截断收尾）不出助手气泡；thinking/工具调用与结果维持不显示。TDD：新增按轮聚合 2 用例（过渡说明与 thinking 不出现/气泡数量=有正文轮数）先红后绿，既有 tool-messages 回归 2 用例仍绿，e2e trash-viewer-render 真实浏览器通过，frontend 全量仅存 ExportButton 2 既有失败（基线在案）、typecheck 0 error。

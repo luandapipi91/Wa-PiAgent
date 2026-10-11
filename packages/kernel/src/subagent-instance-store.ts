@@ -26,6 +26,7 @@ export interface SubagentUsageShape {
 export interface SubagentMeta {
 	agentId: string;
 	parentSessionId: string;
+	/** 最近一次委派本实例的 delegate 调用 id（resume 时覆盖，弹窗左侧列表按它分组） */
 	toolCallId: string;
 	/** fleet 内序号；单委托为 null */
 	taskIndex: number | null;
