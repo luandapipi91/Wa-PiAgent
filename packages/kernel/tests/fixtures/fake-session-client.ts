@@ -15,6 +15,8 @@ export class FakeSessionClient {
 	autoSettle = true;
 
 	prompted: string[] = [];
+	/** prompt 调用总数（含抛错失败——drain 尝试的确定性信号，prompted 只记成功） */
+	promptAttempts = 0;
 	/** prompt 时传入的 images 数组（opts.images），与 prompted 同步记录 */
 	promptImages: any[][] = [];
 	steered: string[] = [];
@@ -106,6 +108,7 @@ export class FakeSessionClient {
 		text: string,
 		opts?: { images?: any[]; streamingBehavior?: "steer" | "followUp" },
 	): Promise<void> {
+		this.promptAttempts++;
 		if (this.nextPromptError) {
 			const err = this.nextPromptError;
 			this.nextPromptError = null;

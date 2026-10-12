@@ -9,7 +9,7 @@
 // 「重建 store 实例（模拟进程重启）」= 重新调用读函数：若实现把消息只留在内存
 // 或未写盘，重启后的读操作就读不出来。
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rm } from "node:fs/promises";
+import { open, rm } from "node:fs/promises";
 import {
 	ack,
 	enqueue,
@@ -55,4 +55,24 @@ test("投递抛错 → 条目保留且失败次数 +1", async () => {
 	const [after] = await listAll(sessionId);
 	expect(after.text).toBe("投递会失败的消息"); // 条目保留
 	expect(after.failures).toBe(1);
+});
+
+test("Windows 瞬时文件锁（EPERM）：rename 目标被短暂占用时重试后写入成功", async () => {
+	// 实测：bun fs.open('r') 占住目标文件 → rename 报 EPERM errno -4048，与生产
+	// steerMessage 偶发「followUp drain 失败: EPERM」（Windows 杀毒/索引/前次句柄
+	// 短暂锁住 WAL）同一根因。writeAll 的 rename 必须吸收这种瞬时锁。
+	const file = pendingFile(sessionId);
+	await enqueue(sessionId, { text: "初始条目" }); // 确保目标文件存在
+	const handle = await open(file, "r"); // 占住目标句柄
+	try {
+		// 锁保持 30ms（< 重试总窗口 ~310ms）后释放：写入应在重试窗口内成功
+		const writing = enqueue(sessionId, { text: "锁窗口消息" });
+		await new Promise((r) => setTimeout(r, 30));
+		await handle.close();
+		await writing; // 未加重试时此处抛 EPERM
+		const entries = await listAll(sessionId);
+		expect(entries.map((e) => e.text)).toEqual(["初始条目", "锁窗口消息"]);
+	} finally {
+		await handle.close().catch(() => {});
+	}
 });

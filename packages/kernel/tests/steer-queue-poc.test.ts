@@ -74,8 +74,22 @@ async function setup(events?: CapturedEvent[]) {
 }
 
 // drain 走 _sendPromptNow（发送前有 await _autoCompactIfNeeded），prompt 在微任务之后才发生；
-// fake.emit(agent_settled) 后需让出一个宏任务再断言 fake.prompted，否则永远缺最后一条。
-const flushDrain = () => new Promise((r) => setTimeout(r, 0));
+// drain 链路含多个 await + 宏任务边界，单跳 sleep 在负载下会偶发不达 → 假红（基线 4 连跑
+// 2 挂实证）。统一改轮询断言：条件满足即返回，超时才抛最后一次的断言错误（保留 expect diff）。
+async function waitForAssert(assertFn: () => void, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  let lastErr: unknown;
+  while (Date.now() - start <= timeoutMs) {
+    try {
+      assertFn();
+      return;
+    } catch (e) {
+      lastErr = e;
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("waitForAssert 超时");
+}
 
 test("busy 时 prompt 追加到 followUpList，不直接发给 client", async () => {
   const { session, am, fake } = await setup();
@@ -99,14 +113,11 @@ test("agent_settled 后 followUp 逐条 drain（一次一条）", async () => {
 
   // 第一次 settled：只 drain F1，F2 仍排队
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted).toEqual(["第一条", "F1"]);
-  // F2 还未被 prompt（仍在 followUpList 中）
+  await waitForAssert(() => expect(fake.prompted).toEqual(["第一条", "F1"]));
 
   // 第二次 settled：drain F2，队列清空
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted).toEqual(["第一条", "F1", "F2"]);
+  await waitForAssert(() => expect(fake.prompted).toEqual(["第一条", "F1", "F2"]));
 });
 
 test("steerMessage busy — 无已有引导时直调 client.steer()", async () => {
@@ -127,20 +138,26 @@ test("steerMessage busy — 已有引导中时第二条转 followUpList（不叠
 
   await am.prompt(session.id, "进行中", { model: MODEL }); // busy
   await am.steerMessage(session.id, "引导1"); // 无已有引导 → 入引导流
-  // 等待微任务：steerMessage 内部推送 _emitLocalQueueUpdate
-  await new Promise((r) => setTimeout(r, 0));
+  // 等 steerList 落位（steerMessage 内部 _emitLocalQueueUpdate 异步，负载下单跳 sleep 会假红）：
+  // 轮询 queue_update 直到 steering 含引导1，后续引导2 才会走「已有引导」分支
+  await waitForAssert(() => {
+    const q = events.filter((e) => e.e.type === "queue_update");
+    expect((q[q.length - 1]?.e as any)?.steering).toContain("引导1");
+  });
   await am.steerMessage(session.id, "引导2"); // 已有引导中 → 不再叠加
-  await new Promise((r) => setTimeout(r, 0));
+  // 等引导2 入 followUpList 的 queue_update 到达
+  await waitForAssert(() => {
+    const q = events.filter((e) => e.e.type === "queue_update");
+    expect((q[q.length - 1]?.e as any)?.followUp).toContain("引导2");
+  });
 
   // 只有第一条走了 client.steer（第二条不得再直调 steer）
   expect(fake.steered).toEqual(["引导1"]);
 
-  // 第二条应转入 followUpList 排队（经 queue_update 反映 followUp 含 引导2）
+  // 最新 queue_update：followUp 含 引导2，steering 仍只有一条引导1
   const queueEvents = events.filter((e) => e.e.type === "queue_update");
   const lastQueue = queueEvents[queueEvents.length - 1];
-  if (!lastQueue) throw new Error("未收到 queue_update 事件");
   expect((lastQueue.e as any).followUp).toContain("引导2");
-  // steering 仍只有一条引导1
   expect((lastQueue.e as any).steering).toEqual(["引导1"]);
 });
 
@@ -198,18 +215,19 @@ test("agent_settled 优先 drain steerList（引导优先级高于排队）", as
 
   // 第一次 settled：drain steerList（引导B）——引导优先于排队
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted).toEqual(["第一条", "引导B"]);
+  await waitForAssert(() => expect(fake.prompted).toEqual(["第一条", "引导B"]));
 
   // 第二次 settled：引导已清空，drain followUpList 首条（排队A）
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted).toEqual(["第一条", "引导B", "排队A"]);
+  await waitForAssert(() =>
+    expect(fake.prompted).toEqual(["第一条", "引导B", "排队A"]),
+  );
 
   // 第三次 settled：drain followUpList 下一条（引导C）
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted).toEqual(["第一条", "引导B", "排队A", "引导C"]);
+  await waitForAssert(() =>
+    expect(fake.prompted).toEqual(["第一条", "引导B", "排队A", "引导C"]),
+  );
 });
 
 test("bridge 上下文在 ensureStarted 后已注册（宿主工具回调入口）", async () => {
@@ -240,8 +258,7 @@ test("E2 — 多次 agent_settled 不重复 drain", async () => {
 
   // 第一次 settled：drain F1
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted).toEqual(["第一条", "F1"]);
+  await waitForAssert(() => expect(fake.prompted).toEqual(["第一条", "F1"]));
 
   // 第二次 settled：队列已空，不发 prompt
   const promptedBefore2 = fake.prompted.length;
@@ -262,13 +279,16 @@ test("E3 — followUp drain 中 prompt 失败不阻塞后续 drain", async () =>
 
   // 第一次 settled：尝试 drain 会失败，但不应影响后续
   fake.emit({ type: "agent_settled" });
-  // 给予微任务时间
-  await new Promise((r) => setTimeout(r, 10));
+  // 等第一次失败 drain 尝试完成（失败不计入 prompted，计入 promptAttempts）
+  await waitForAssert(() =>
+    expect(fake.promptAttempts).toBeGreaterThanOrEqual(2),
+  );
 
   // 第二次 settled：应 drain 下一条
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted.length).toBeGreaterThanOrEqual(2); // 第一条 + 至少一个 drain
+  await waitForAssert(() =>
+    expect(fake.prompted.length).toBeGreaterThanOrEqual(2), // 第一条 + 至少一个 drain
+  );
 });
 
 test("BUG: pi queue_update 空 followUp 导致前端排队列表消失", async () => {
@@ -319,8 +339,11 @@ test("BUG: 引导后 steering 队列出现重复消息", async () => {
   await am.prompt(session.id, "进行中", { model: MODEL }); // busy
   await am.steerMessage(session.id, "引导X");
 
-  // 等待微任务：steerMessage 内部推送了 _emitLocalQueueUpdate
-  await new Promise((r) => setTimeout(r, 0));
+  // 等 queue_update 到达（负载下单跳 sleep 会假红）：轮询直到 steering 含引导X
+  await waitForAssert(() => {
+    const q = events.filter((e) => e.e.type === "queue_update");
+    expect((q[q.length - 1]?.e as any)?.steering).toContain("引导X");
+  });
 
   // 收集所有 queue_update 事件
   const queueEvents = events.filter((e) => e.e.type === "queue_update");
@@ -352,14 +375,14 @@ test("BUG: 从排队提升为引导后，排队列表仍保留原消息", async 
   // 【期望】：followUpList 不应再含"排队A"
 
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
   // 第一次 drain：steerList 里的"排队A"
-  expect(fake.prompted).toEqual(["第一条", "排队A"]);
+  await waitForAssert(() => expect(fake.prompted).toEqual(["第一条", "排队A"]));
 
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
   // 第二次 drain：followUpList 里的"排队B"（"排队A"不应出现）
-  expect(fake.prompted).toEqual(["第一条", "排队A", "排队B"]);
+  await waitForAssert(() =>
+    expect(fake.prompted).toEqual(["第一条", "排队A", "排队B"]),
+  );
   // 不应出现第三个"排队A"
   expect(fake.prompted.filter((t) => t === "排队A").length).toBe(1);
 });
@@ -479,8 +502,9 @@ test("用户重发（prompt 直接发送）后清除 netDegraded，恢复正常 
 
   // 重发后 degraded 已清除，后续 settled 恢复正常 drain
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted).toEqual(["进行中", "进行中", "排队A"]);
+  await waitForAssert(() =>
+    expect(fake.prompted).toEqual(["进行中", "进行中", "排队A"]),
+  );
 });
 
 // === TDD 修复A: agent_start 时清除 netDegraded，恢复后续 drain ===
@@ -507,8 +531,7 @@ test("修复A: agent_start（新一轮开始）清除 netDegraded，恢复后续
   fake.emit({ type: "agent_start" });
   // 新一轮结束：现在应恢复 drain 排队A
   fake.emit({ type: "agent_settled" });
-  await flushDrain();
-  expect(fake.prompted).toEqual(["进行中", "排队A"]);
+  await waitForAssert(() => expect(fake.prompted).toEqual(["进行中", "排队A"]));
 });
 
 // === TDD 修复B: prompt 空闲直发时也发 queue_update（同步前端，清乐观残留） ===

@@ -56,7 +56,32 @@ async function writeAll(
 			? entries.map((e) => JSON.stringify(e)).join("\n") + "\n"
 			: "";
 	await writeFile(tmp, body, "utf8");
-	await rename(tmp, file);
+	await renameWithRetry(tmp, file);
+}
+
+/**
+ * Windows 瞬时锁重试的 rename：目标文件被杀毒/索引器/前次句柄短暂占用时
+ * rename 报 EPERM/EACCES/EBUSY（实测 bun fs.open('r') 占住目标即 EPERM -4048，
+ * 生产 steerMessage 偶发「followUp drain 失败: EPERM」同根因）。短退避重试
+ * 吸收瞬时锁（10/20/40/80/160ms，总窗口 ~310ms）；非瞬时错误或耗尽照常抛出，
+ * 原子替换语义不变（POSIX 上这些码对 rename 目标几乎不出现，重试不触发）。
+ */
+async function renameWithRetry(tmp: string, file: string): Promise<void> {
+	let delay = 10;
+	for (let attempt = 0; ; attempt++) {
+		try {
+			await rename(tmp, file);
+			return;
+		} catch (err: any) {
+			const transient =
+				err?.code === "EPERM" ||
+				err?.code === "EACCES" ||
+				err?.code === "EBUSY";
+			if (!transient || attempt >= 5) throw err;
+			await new Promise((r) => setTimeout(r, delay));
+			delay *= 2;
+		}
+	}
 }
 
 /** 入队：生成 id/时间戳并原子落盘，返回完整条目（调用方拿 id 做 ack） */
