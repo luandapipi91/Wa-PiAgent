@@ -1,3 +1,6 @@
+## 2026-10-12
+- v0.7.6 发版：升版 0.7.5 → 0.7.6（4 提交：resume 子代理归入本次委派分组、归档会话按轮聚合只显最终正文、「发现新版本」更新内容可展开全文、README/官网 v0.7.x 同步）。验证：四包 typecheck + kernel 全量回归 + 双端打包 gate（官方 Electron 源）。
+
 ## 2026-10-11
 - fix(kernel): resume 子代理归入本次委派分组——委托记录弹窗不再缺行。根因：一次 delegate 多任务（含 resume）时外层卡片读工具结果内存数组（4 项齐全），弹窗左侧列表却按磁盘 meta 的 toolCallId 等值分组，而 resume 分支三处写盘 {...meta} 原样保留首次创建时的旧 toolCallId/taskIndex/task → resume 实例归属旧委派分组，本次弹窗只剩新建的 3 个。修复：resume 写盘（spawn 前 running/settle 终态/异常 interrupted 三处）将分组字段覆盖为本次调用的值，每轮 task 文本已由 pi 作为 user 消息追加进同一份 jsonl，审计轨迹不丢。TDD：delegate-resume 新增 fleet 混排用例（c-old→c-new 归属断言）先绿、旧断言「meta.task 不被本轮覆盖」按新语义反转，delegate 域 5 文件 104 用例全绿，kernel typecheck 0 error。
 
