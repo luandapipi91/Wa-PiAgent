@@ -1,4 +1,5 @@
 # 2026-10-12
+- v0.7.7 打包发布：内嵌运行时 Bun 1.4.2 → 1.4.3（gate 在 1.4.3 下跳过 4 个记忆语义文件——exit 时 onnxruntime 静态 Env 析构 abort，.ips 帧级定位，1.4.2 全绿；产品退出走 SIGKILL 不受影响）；mac dmg 198140778 / win exe 179265284
 - v0.7.7 发版：升版 0.7.6 → 0.7.7（3 提交：会话日期上下文自动注入 1b1dadce + pending WAL Windows 瞬时锁重试/steer 测试加固 f08abdff + README 分层口径同步 0fe07ff5）。**打包改用 bun 1.4.3**（安装包内嵌 bun 同步升级）。验证：四包 typecheck + kernel 全量回归（1.4.3 基线）+ 双端打包 gate。
 
 ## 2026-10-12
