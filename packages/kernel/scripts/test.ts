@@ -161,8 +161,11 @@ for (const file of LOAD_SENSITIVE_TESTS) {
 }
 
 // 3.5 记忆语义重用例串行补跑（真实模型推理，无并行竞争；bridge 两个语义用例
-//     已放宽用例级 120s）
-for (const file of MEMORY_HEAVY_TESTS) {
+//     已放宽用例级 120s）。bun 1.4.3 下其中两个是崩溃文件，由 2.5 段跳过。
+const memoryHeavyRun = BUN_143
+	? MEMORY_HEAVY_TESTS.filter((f) => !BUN_143_CRASH_FILES.includes(f))
+	: MEMORY_HEAVY_TESTS;
+for (const file of memoryHeavyRun) {
 	ok = run(["test", "--isolate", "--timeout=120000", file]) && ok;
 }
 
