@@ -89,12 +89,13 @@ let ok = true;
 // 饿死同机运行的正式桌面 kernel（曾导致聊天无响应）。
 // bun 1.4.3 在记忆语义检索的**退出路径**会因 native 遥拆崩溃（vanilla SQLite dylib +
 // sqlite-vector 扩展 + onnxruntime 组合，C++ exception → 进程 abort；断言已全部通过、
-// bun.report 有案，1.4.2 无此问题）。受影响文件：memory-backfill-wiring（串行组跳过）、
+// bun.report 有案，1.4.2 无此问题）。受影响文件：memory-backfill-wiring、bridge（其两个语义用例同样加载 onnxruntime）、
 // memory-hybrid-search / memory-semantic-e2e（主批挪到串行组尾随跑，避免 worker 崩溃）。
 // 待 bun 修复后移除本段。
 const BUN_143 = Bun.version?.startsWith("1.4.3") ?? false;
 const BUN_143_CRASH_FILES = [
 	"tests/memory-backfill-wiring.test.ts",
+	"tests/bridge.test.ts",
 	"tests/memory-hybrid-search.test.ts",
 	"tests/memory-semantic-e2e.test.ts",
 ];
