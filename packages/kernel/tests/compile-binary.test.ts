@@ -68,13 +68,14 @@ test("KERNEL_ASSET_FILES: 全部资产真实存在且包含 preview-inspect.js",
     "panel.ts",
     "widget.ts",
     "host.ts",
+    "date-context.ts",
   ]) {
     expect(names).toContain(name);
   }
   // 压缩守卫已移除（压缩彻底依托 pi 内置机制）：两个源文件不得再进资产清单
   expect(names).not.toContain("compaction-guard.extension.ts");
   expect(names).not.toContain("compaction-guard-core.ts");
-  expect(KERNEL_ASSET_FILES).toHaveLength(11);
+  expect(KERNEL_ASSET_FILES).toHaveLength(12);
   for (const f of KERNEL_ASSET_FILES) expect(existsSync(f)).toBe(true);
 });
 
@@ -95,6 +96,7 @@ test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名
     expect(basename(dir)).toBe("assets");
     const expected = [
       "click.ts",
+      "date-context.ts",
       "file-snapshot.ts",
       "frame.ts",
       "host.ts",
