@@ -28,6 +28,9 @@ const TOOL_SCHEMAS_TARGET = join(GENERATED_DIR, "tool-schemas.ts");
 /** file-snapshot.ts 在 GENERATED_DIR 的路径（bridge 扩展的相对 import 目标） */
 const FILE_SNAPSHOT_TARGET = join(GENERATED_DIR, "file-snapshot.ts");
 
+/** date-context.ts 在 GENERATED_DIR 的路径（bridge 扩展的相对 import 目标） */
+const DATE_CONTEXT_TARGET = join(GENERATED_DIR, "date-context.ts");
+
 /**
  * 静态 bridge 扩展源文件。
  * - packaged：bun --compile --asset 嵌入编译产物 assets/ → 优先取。
@@ -69,9 +72,23 @@ function resolveFileSnapshotSource(): string {
  return join(__dirname, "file-snapshot.ts");
 }
 
+/**
+ * date-context 源文件（与 wa-pi-bridge.extension.ts 同目录，位于 kernel/src）。
+ * - packaged：bun --compile --asset 嵌入编译产物 assets/ → 优先取。
+ * - dev：同路径即可。
+ */
+function resolveDateContextSource(): string {
+ const flat = join(__dirname, "date-context.ts");
+ if (existsSync(flat)) return flat;
+ const inAssets = join(__dirname, "assets", "date-context.ts");
+ if (existsSync(inAssets)) return inAssets;
+ return join(__dirname, "date-context.ts");
+}
+
 const BRIDGE_EXTENSION_SOURCE = resolveBridgeExtensionSource();
 const TOOL_SCHEMAS_SOURCE = resolveToolSchemasSource();
 const FILE_SNAPSHOT_SOURCE = resolveFileSnapshotSource();
+const DATE_CONTEXT_SOURCE = resolveDateContextSource();
 
 /**
  * 部署 bridge 扩展到 GENERATED_DIR：复制静态扩展文件 + tool-schemas 依赖。
@@ -84,6 +101,7 @@ export async function ensureBridgeExtension(): Promise<string> {
  const { writeFile } = await import("node:fs/promises");
  await writeFile(TOOL_SCHEMAS_TARGET, readFileSync(TOOL_SCHEMAS_SOURCE));
  await writeFile(FILE_SNAPSHOT_TARGET, readFileSync(FILE_SNAPSHOT_SOURCE));
+ await writeFile(DATE_CONTEXT_TARGET, readFileSync(DATE_CONTEXT_SOURCE));
  await writeFile(BRIDGE_EXTENSION_PATH, readFileSync(BRIDGE_EXTENSION_SOURCE));
  return BRIDGE_EXTENSION_PATH;
 }

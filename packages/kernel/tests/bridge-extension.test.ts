@@ -49,6 +49,10 @@ async function loadTools(transform?: (src: string) => string): Promise<any[]> {
 	const snapshotSrc = join(import.meta.dir, "..", "src", "file-snapshot.ts");
 	copyFileSync(snapshotSrc, snapshotFile);
 	tmpFiles.push(snapshotFile);
+	const dateContextFile = join(import.meta.dir, "date-context.ts");
+	const dateContextSrc = join(import.meta.dir, "..", "src", "date-context.ts");
+	copyFileSync(dateContextSrc, dateContextFile);
+	tmpFiles.push(dateContextFile);
 	let src = generateBridgeExtension();
 	if (transform) src = transform(src);
 	writeFileSync(file, src, "utf8");
@@ -387,6 +391,10 @@ test("session_start 不再注册 custom() 兜底补丁（内置命令已由 pi �
 	const snapshotSrc = join(import.meta.dir, "..", "src", "file-snapshot.ts");
 	copyFileSync(snapshotSrc, snapshotFile);
 	tmpFiles.push(snapshotFile);
+	const dateContextFile = join(import.meta.dir, "date-context.ts");
+	const dateContextSrc = join(import.meta.dir, "..", "src", "date-context.ts");
+	copyFileSync(dateContextSrc, dateContextFile);
+	tmpFiles.push(dateContextFile);
 	const src = generateBridgeExtension();
 	writeFileSync(file, src, "utf8");
 	tmpFiles.push(file);
@@ -409,10 +417,12 @@ test("session_start 不再注册 custom() 兜底补丁（内置命令已由 pi �
 	// 见 tui-host-patch.test.ts）；现在注册的是 Codemode only 档的全局豁免兜底
 	// （晚加载的 packages 工具在会话启动时补 model-only），由豁免用例组锁定。
 
-	// 其余事件钩子不受删除影响（文件快照采集链路）
-	expect(handlers["tool_call"]?.length).toBe(1);
+	// 其余事件钩子现状：文件快照采集链路（tool_call/tool_execution_end/agent_end 各 1 个）
+	// + 日期上下文注入（before_agent_start 1 个 + tool_call 第 2 个监听，见 date-context.ts）
+	expect(handlers["tool_call"]?.length).toBe(2);
 	expect(handlers["tool_execution_end"]?.length).toBe(1);
 	expect(handlers["agent_end"]?.length).toBe(1);
+	expect(handlers["before_agent_start"]?.length).toBe(1);
 });
 
 test("ask execute：bridge socket 断开后自动重试并成功", async () => {

@@ -104,6 +104,11 @@ async function loadBridgeTools(env?: Record<string, string>): Promise<any[]> {
 			join(import.meta.dir, "..", "src", "file-snapshot.ts"),
 			join(dir, "file-snapshot.ts"),
 		);
+		// 静态 bridge 扩展还 import "./date-context.ts"（日期上下文注入），同上复制
+		copyFileSync(
+			join(import.meta.dir, "..", "src", "date-context.ts"),
+			join(dir, "date-context.ts"),
+		);
 		const file = join(dir, "wa-pi-bridge-e2e.ts");
 		writeFileSync(file, generateBridgeExtension(), "utf8");
 		const mod = await import(pathToFileURL(file).href);

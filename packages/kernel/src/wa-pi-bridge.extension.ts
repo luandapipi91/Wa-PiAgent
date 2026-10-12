@@ -57,6 +57,12 @@ import type {
 	FileSnapshotRecord,
 	SnapshotReadResult,
 } from "./file-snapshot.ts";
+import {
+	buildDateContextContent,
+	DATE_CONTEXT_CUSTOM_TYPE,
+	localDateStr,
+	shouldInjectDateContext,
+} from "./date-context.ts";
 
 // =========================================================================
 // kernel spawn pi 时注入的三个环境变量
@@ -740,5 +746,38 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			/* 上报失败静默：不影响对话主流程 */
 		}
+	});
+
+	// ———— 日期上下文注入：会话跨天后让模型感知「今天」————
+	// wa-pi 上下文无权威日期来源，跨天后模型只能靠历史消息里的旧日期推理。
+	// 两个检测点共用一条去重规则（同一天单会话最多注入一条，见 date-context.ts）：
+	// - before_agent_start（主）：发消息/resume 跨天会话首次 run，返回 message
+	//   并入本轮请求（BeforeAgentStartEventResult.message 官方通道，模型首个 token 即见）；
+	// - tool_call（辅）：长任务跑数小时跨午夜时轮中检测，经 steer 队列
+	//   并入下一次模型请求（nextTurn 队列要等下一个用户 prompt 才消费，不合用）。
+	let lastInjectedDate: string | undefined;
+	const takeDateMessage = (): {
+		customType: string;
+		content: string;
+		display: false;
+	} | undefined => {
+		const now = new Date();
+		if (!shouldInjectDateContext(lastInjectedDate, now)) return undefined;
+		lastInjectedDate = localDateStr(now);
+		return {
+			customType: DATE_CONTEXT_CUSTOM_TYPE,
+			content: buildDateContextContent(now),
+			display: false,
+		};
+	};
+
+	pi.on("before_agent_start", () => {
+		const message = takeDateMessage();
+		return message ? { message } : undefined;
+	});
+
+	pi.on("tool_call", () => {
+		const message = takeDateMessage();
+		if (message) pi.sendMessage(message, { deliverAs: "steer" });
 	});
 }

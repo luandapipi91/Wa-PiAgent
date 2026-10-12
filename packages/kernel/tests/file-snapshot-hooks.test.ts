@@ -35,6 +35,13 @@ async function loadExtensionHooks(): Promise<
 		schemasFile,
 	);
 	tmpFiles.push(extFile, snapshotFile, schemasFile);
+	// bridge 扩展还 import "./date-context.ts"（日期上下文注入），同上复制
+	const dateContextFile = join(import.meta.dir, "date-context.ts");
+	copyFileSync(
+		join(import.meta.dir, "..", "src", "date-context.ts"),
+		dateContextFile,
+	);
+	tmpFiles.push(dateContextFile);
 
 	const mod = await import(pathToFileURL(extFile).href);
 	const handlers: Record<string, ((...args: any[]) => any)[]> = {};
@@ -55,7 +62,8 @@ test("钩子链路：edit 事件 → agent_end 上报 before/after 快照", asyn
 	process.env.WA_PI_SESSION_ID = "s1";
 
 	const handlers = await loadExtensionHooks();
-	expect(handlers["tool_call"]?.length).toBe(1);
+	// tool_call 2 个：文件快照采集 + 日期上下文注入（date-context.ts）；其余各 1 个
+	expect(handlers["tool_call"]?.length).toBe(2);
 	expect(handlers["tool_execution_end"]?.length).toBe(1);
 	expect(handlers["agent_end"]?.length).toBe(1);
 

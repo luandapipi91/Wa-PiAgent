@@ -138,6 +138,11 @@ async function loadBridgeTools(env?: Record<string, string>) {
 	const snapshotSrc = join(import.meta.dir, "..", "src", "file-snapshot.ts");
 	copyFileSync(snapshotSrc, snapshotFile);
 	tmpFiles.push(snapshotFile);
+	// 静态 bridge 扩展 import "./date-context.ts"（日期上下文注入），同上复制
+	const dateContextFile = join(import.meta.dir, "date-context.ts");
+	const dateContextSrc = join(import.meta.dir, "..", "src", "date-context.ts");
+	copyFileSync(dateContextSrc, dateContextFile);
+	tmpFiles.push(dateContextFile);
 	writeFileSync(file, generateBridgeExtension(), "utf8");
 	tmpFiles.push(file);
 	const mod = await import(pathToFileURL(file).href);
