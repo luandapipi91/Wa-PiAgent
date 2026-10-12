@@ -154,7 +154,7 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 
 - **Model management**: custom OpenAI-compatible / Anthropic providers, multi-model mounting, connection tests
 - **Skill system**: a directory is a skill; pluggable enable/disable. Opening a project also loads the skills under that project's `<project root>/.pi/skills`
-- **Memory system**: global and project-level memory, letting agents accumulate experience across sessions
+- **Layered memory system**: the user profile and recent memories stay always-on (L1); older entries automatically sink into searchable long-term knowledge (L2) and execution logs (L3); global / project scopes with hybrid lexical + semantic search across all layers — agents accumulate experience across sessions
 
 <div align="center">
 <img src="docs/assets/readme/readme-models.png" alt="Model management" width="900" />
