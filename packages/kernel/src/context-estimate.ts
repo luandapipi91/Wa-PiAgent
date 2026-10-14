@@ -111,6 +111,11 @@ export function estimateMessageTokens(message: any): number {
 			for (const v of Object.values(sections)) {
 				if (typeof v === "string") chars += charWeighted(v);
 			}
+			// pi 1.2.0 estimateTokens：system 分支还会把 toolsAdded（本次请求新增的工具集）
+			// 按 JSON 序列化长度计入，漏算同样导致低估
+			if (message.toolsAdded) {
+				chars += charWeighted(JSON.stringify(message.toolsAdded));
+			}
 			return Math.ceil(chars / CHARS_PER_TOKEN);
 		}
 		case "bashExecution":

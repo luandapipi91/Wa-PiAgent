@@ -480,9 +480,6 @@ const en = {
 		exposureCodemode: "Script only",
 		exposureCodemodeDesc:
 			"Tools can only be called from code; the model writes a script first",
-		exposureCodemodeDeferred: "Script only (lazy)",
-		exposureCodemodeDeferredDesc:
-			"Same as script only, but the tool list loads on demand to save context",
 		exposureDeferred: "Load on demand",
 		exposureDeferredDesc:
 			"The model searches for these tools only when it needs them",

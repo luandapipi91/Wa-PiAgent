@@ -16,6 +16,7 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { McpExposure, McpServerConfig } from "@wa-pi/shared";
+import { normalizeMcpExposure } from "@wa-pi/shared";
 import { projectMcpPath } from "./mcp-file.ts";
 
 type RawObj = Record<string, unknown>;
@@ -70,6 +71,18 @@ export function migrateServerEntry(
 		}
 	}
 	delete out.excludeTools;
+
+	// 曝光档归一化：pi 1.2.0 起 codemode-deferred 是 alias，迁移落盘即换算成现行四档
+	// （盘上数据与现行档一步到位，不再依赖 pi 侧的验证时替换）
+	const legacyNorm = (v: unknown) => normalizeMcpExposure(v);
+	if (typeof out.exposure === "string") {
+		const normalized = legacyNorm(out.exposure);
+		if (normalized) out.exposure = normalized;
+	}
+	for (const [tool, value] of Object.entries(toolExposure)) {
+		const normalized = legacyNorm(value);
+		if (normalized) toolExposure[tool] = normalized;
+	}
 
 	if (Object.keys(toolExposure).length > 0) out.toolExposure = toolExposure;
 

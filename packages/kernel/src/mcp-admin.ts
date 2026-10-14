@@ -3,6 +3,7 @@
 // 本模块自己**不连** MCP —— 只 shell out `pi mcp list --json` 并解析那条 JSON（F14）。
 // 盘上配置的写入归 mcp-file.ts、受信归 mcp-trust.ts：这里是只读面。
 import type { McpExposure } from "@wa-pi/shared";
+import { normalizeMcpExposure } from "@wa-pi/shared";
 
 /**
  * server URL → pi 存在 mcp-auth.json 里的**旧**键（legacy 键）。
@@ -179,7 +180,14 @@ export function parseMcpListOutput(
       errors?: string[];
       note?: string;
     };
-    const servers = Array.isArray(parsed.servers) ? parsed.servers : [];
+    // pi 1.2.0 起 codemode-deferred 是 alias：防御旧配置/旧版本输出原样透出，
+    // 归一化后下游（UI 卡片、mcp-tool-names 入口映射）只见现行四档
+    const servers = (
+      Array.isArray(parsed.servers) ? parsed.servers : []
+    ).map((s) => ({
+      ...s,
+      exposure: normalizeMcpExposure(s.exposure) ?? s.exposure,
+    }));
     return {
       servers,
       errors: Array.isArray(parsed.errors) ? parsed.errors : [],

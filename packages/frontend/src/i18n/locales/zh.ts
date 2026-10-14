@@ -462,9 +462,6 @@ const zh = {
 		exposureDirectDesc: "工具直接声明给模型，模型可以随时调用",
 		exposureCodemode: "脚本调用",
 		exposureCodemodeDesc: "工具只能在代码脚本里调用，模型需要先写脚本",
-		exposureCodemodeDeferred: "脚本调用（按需加载）",
-		exposureCodemodeDeferredDesc:
-			"同「脚本调用」，但工具清单按需加载，平时不占上下文",
 		exposureDeferred: "按需加载",
 		exposureDeferredDesc: "模型需要用到时才检索出该服务器的工具",
 		exposureHidden: "不暴露",

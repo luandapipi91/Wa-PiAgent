@@ -17,8 +17,10 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  type McpExposure,
   type McpFieldError,
   type McpServerConfig,
+  normalizeMcpExposure,
   validateMcpServer,
 } from "@wa-pi/shared";
 import { KernelError } from "./kernel-error.ts";
@@ -91,6 +93,28 @@ export interface McpFileOpts {
   projectPathFor: (projectId: string) => Promise<string>;
 }
 
+/** 曝光档归一化：pi 1.2.0 起 codemode-deferred 是 alias，存量盘上配置读出即换算成现行档
+ *  （下次保存自然落新值）；toolExposure 逐工具值同理。未知值保留原样（不把用户数据改坏）。 */
+function normalizeExposureInConfig(config: McpServerConfig): McpServerConfig {
+  const exposure = normalizeMcpExposure(config.exposure);
+  let toolExposure = config.toolExposure;
+  if (toolExposure) {
+    let changed = false;
+    const next: Record<string, McpExposure> = {};
+    for (const [tool, value] of Object.entries(toolExposure)) {
+      const normalized = normalizeMcpExposure(value);
+      if (normalized !== null && normalized !== value) changed = true;
+      next[tool] = (normalized ?? value) as McpExposure;
+    }
+    if (changed) toolExposure = next;
+  }
+  return {
+    ...config,
+    exposure: exposure ?? config.exposure,
+    toolExposure,
+  };
+}
+
 export class McpFile {
   constructor(private opts: McpFileOpts) {}
 
@@ -98,7 +122,7 @@ export class McpFile {
     const path = await this.resolvePath(projectId);
     const cfg = await this.read(path);
     return Object.entries(cfg.mcpServers).map(
-      ([name, v]) => ({ name, ...v }) as McpServerConfig,
+      ([name, v]) => normalizeExposureInConfig({ name, ...v } as McpServerConfig),
     );
   }
 

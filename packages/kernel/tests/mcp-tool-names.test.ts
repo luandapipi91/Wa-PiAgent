@@ -100,18 +100,12 @@ describe("mcpToolNamesOf：枚举 pi 会注册出的工具名", () => {
       report({ name: "dbx", tools: ["query", "list"] }),
       report({ name: "codemode_srv", exposure: "codemode", tools: ["get_profile"] }),
       report({ name: "deferred_srv", exposure: "deferred", tools: ["search_docs"] }),
-      report({
-        name: "codemode_deferred_srv",
-        exposure: "codemode-deferred",
-        tools: ["ghost"],
-      }),
     ]);
     for (const name of [
       "mcp__dbx__query",
       "mcp__dbx__list",
       "mcp__codemode_srv__get_profile",
       "mcp__deferred_srv__search_docs",
-      "mcp__codemode_deferred_srv__ghost",
     ]) {
       expect(names).toContain(name);
     }
@@ -125,15 +119,6 @@ describe("mcpToolNamesOf：枚举 pi 会注册出的工具名", () => {
     ]);
     expect(names).toContain("mcp__new_srv__get_profile");
     expect(names).toContain("codemode");
-  });
-
-  test("codemode-deferred：入口同为 codemode（pi 对这两档都激活 codemode）", () => {
-    const names = mcpToolNamesOf([
-      report({ name: "s", exposure: "codemode-deferred", tools: ["t"] }),
-    ]);
-    expect(names).toContain("mcp__s__t");
-    expect(names).toContain("codemode");
-    expect(names).not.toContain("tool_search");
   });
 
   test("deferred：工具名进清单，且一并放行 tool_search 入口", () => {
@@ -312,14 +297,6 @@ describe("mcpServerPatternsOf：白名单用的服务器粒度通配（pi 1.0.4�
         report({ name: "new_srv", exposure: "codemode", tools: ["get_profile"] }),
       ]),
     ).toEqual(["mcp__new_srv__*", "codemode"]);
-  });
-
-  test("codemode-deferred：入口同为 codemode（pi 对这两档都激活 codemode）", () => {
-    expect(
-      mcpServerPatternsOf([
-        report({ name: "s", exposure: "codemode-deferred", tools: ["t"] }),
-      ]),
-    ).toEqual(["mcp__s__*", "codemode"]);
   });
 
   test("deferred 曝光：模式 + tool_search 入口殿后", () => {

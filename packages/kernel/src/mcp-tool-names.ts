@@ -65,15 +65,15 @@ export function createMcpToolName(
 
 /**
  * 非 direct 曝光对应的**入口工具**（规格 §6）：pi 的 `ensureDiscoveryActive`
- * （`dist/extensions/mcp/index.js`）就是按曝光档激活入口——`codemode` / `codemode-deferred`
- * 激活 `codemode`，`deferred` 激活 `tool_search`。白名单里没有入口工具时，这些工具即便被
+ * （`dist/extensions/mcp/index.js`）就是按曝光档激活入口——`codemode` 激活 `codemode`，
+ * `deferred` 激活 `tool_search`（pi 1.2.0 起 codemode-deferred 已并入 codemode，不再单列；
+ * 旧值在上游读取层已被归一化，这里只见现行四档）。白名单里没有入口工具时，这些工具即便被
  * pi 注册了也没人能调到（pi 对未列入 `--tools` 的名字**完全不注册**，见 POC R2a/R2b）。
  *
  * `hidden` 无入口：pi 文档明确「makes them unreachable」。
  */
 const EXPOSURE_ENTRY_TOOL: Partial<Record<McpExposure, string>> = {
   codemode: "codemode",
-  "codemode-deferred": "codemode",
   deferred: "tool_search",
 };
 
@@ -120,8 +120,9 @@ function sanitizeServerName(server: string): string {
  * 「注册哪些名字」——按 exposure 过滤会静默丢能力（pi 忽略未注册的名字且不报错）。
  *
  * 非 direct 工具必须同时有**入口工具**才可达，故当已连服务器里有非 direct 曝光时，连它的
- * 入口工具一起输出（见 {@link EXPOSURE_ENTRY_TOOL}）：`codemode` 覆盖 codemode /
- * codemode-deferred，`tool_search` 覆盖 deferred（规格 §6）。多列一个名字是无害的（pi 忽略
+ * 入口工具一起输出（见 {@link EXPOSURE_ENTRY_TOOL}）：`codemode` 覆盖 codemode，
+ * `tool_search` 覆盖 deferred（规格 §6；pi 1.2.0 起 codemode-deferred 已并入 codemode）。
+ * 多列一个名字是无害的（pi 忽略
  * 未知工具名，也只在真正需要时激活入口），漏列才是「工具静默不可用」。
  *
  * 连不上/已停用的服务器不进输出：pi 连不上就没注册任何名字，其工具名未知。

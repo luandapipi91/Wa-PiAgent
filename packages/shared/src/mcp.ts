@@ -4,13 +4,39 @@
 // excludeTools / exposeResources / debug）随 adapter 移除（任务 8 移除最后一个消费者）：
 // 迁移读取它们走 `mcp-migrate.ts` 的原始对象（`Record<string, unknown>`），不再需要类型声明。
 
-/** 工具暴露方式（规格 §8） */
+/** 工具暴露方式（规格 §8）。
+ *
+ * pi 1.2.0 起 `codemode-deferred` 降级为 alias（`MCP_EXPOSURE_ALIASES`：配置里仍接受，
+ * 但验证时静默替换为 `codemode`，「工具清单按需加载」的独立语义不复存在），
+ * 本项目自 1.2.0 升级起同步收窄为四档（用户裁决：彻底对齐），旧值经 {@link normalizeMcpExposure}
+ * 在读取/迁移/运行时状态三条路径归一化。
+ */
 export type McpExposure =
   | "codemode"
-  | "codemode-deferred"
   | "deferred"
   | "direct"
   | "hidden";
+
+/** pi 1.2.0 起被并入现行档位的旧值（旧 mcp.json / 旧 pi 输出仍可能出现） */
+const LEGACY_EXPOSURES: Record<string, McpExposure> = {
+  "codemode-deferred": "codemode",
+};
+
+/** 归一化曝光档：现行四档原样返回，旧档位映射到现行档位，未知值 / 非字符串返回 null
+ * （调用方决定报错还是保留原样——运行时状态路径选择保留，配置路径选择跟随 pi 落新值）。 */
+export function normalizeMcpExposure(value: unknown): McpExposure | null {
+  if (typeof value !== "string") return null;
+  if (LEGACY_EXPOSURES[value]) return LEGACY_EXPOSURES[value];
+  switch (value) {
+    case "codemode":
+    case "deferred":
+    case "direct":
+    case "hidden":
+      return value;
+    default:
+      return null;
+  }
+}
 
 /** MCP 服务器配置（兼容 .mcp.json 格式） */
 export interface McpServerConfig {

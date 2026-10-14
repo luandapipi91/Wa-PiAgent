@@ -1,19 +1,17 @@
 // MCP 暴露方式（exposure）的单一事实来源：表单下拉、卡片标签都从这里取，
-// 保证「五档」不会在两个组件里各写一遍而漂移。
+// 保证「四档」不会在两个组件里各写一遍而漂移。
 //
-// 官方语义（pi 内置 MCP 扩展）：
-//   direct            —— 工具直接声明给模型，模型可随时调用
-//   codemode          —— 工具只能在代码脚本里调用（模型需先写脚本）
-//   codemode-deferred —— 同 codemode，但工具清单按需加载（省上下文）
-//   deferred          —— 工具按需检索加载
-//   hidden            —— 服务器连接并注册工具，但不暴露给模型
+// 官方语义（pi 内置 MCP 扩展；pi 1.2.0 起 codemode-deferred 已并入 codemode，不再单列）：
+//   direct   —— 工具直接声明给模型，模型可随时调用
+//   codemode —— 工具只能在代码脚本里调用（模型需先写脚本）
+//   deferred —— 工具按需检索加载
+//   hidden   —— 服务器连接并注册工具，但不暴露给模型
 import type { McpExposure } from "@wa-pi/shared";
 
 /** 下拉选项顺序（与规格 §4.2 一致：direct 在最前） */
 export const MCP_EXPOSURES: readonly McpExposure[] = [
   "direct",
   "codemode",
-  "codemode-deferred",
   "deferred",
   "hidden",
 ];
@@ -26,7 +24,7 @@ export const MCP_EXPOSURES: readonly McpExposure[] = [
  */
 export const DEFAULT_MCP_EXPOSURE: McpExposure = "direct";
 
-/** i18n 键的驼峰段：codemode-deferred → CodemodeDeferred */
+/** i18n 键的驼峰段 */
 function camel(exposure: McpExposure): string {
   return exposure
     .split("-")

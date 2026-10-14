@@ -35,6 +35,26 @@ if (mode === "garbage") {
 } else if (mode === "hang") {
   // 永不退出、持续留痕：模拟 pi 卡在某台 server 上（只能靠超时 + kill 收场）
   setInterval(tick, 20);
+} else if (mode === "legacy") {
+  // 旧档位形态：pi 侧原样透出 codemode-deferred（旧配置/旧版本输出），
+  // 验证 parseMcpListOutput 的运行时归一化（下游只见现行四档）
+  process.stdout.write(
+    JSON.stringify({
+      servers: [
+        {
+          name: "legacy-srv",
+          scope: "global",
+          source: "/tmp/mcp.json",
+          enabled: true,
+          exposure: "codemode-deferred",
+          transport: "fake-cmd",
+          state: "connected",
+          tools: ["t1"],
+        },
+      ],
+      errors: [],
+    }),
+  );
 } else {
   // 正常形态：一台 connected 的 server + 空 errors
   process.stdout.write(

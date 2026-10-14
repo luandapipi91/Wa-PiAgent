@@ -98,6 +98,15 @@ describe("McpAdmin 缓存与失败回退（假 pi）", () => {
     expect(res.errors).toEqual(["配置损坏：mcp.json 第 1 行无法解析"]);
   });
 
+  test("旧档位归一化：pi 原样透出 codemode-deferred 时，下游只见 codemode（pi 1.2.0 alias）", async () => {
+    const { admin } = await fakeAdmin();
+    process.env.MCP_ADMIN_TEST_MODE = "legacy";
+    const res = await admin.list();
+    expect(res.commandFailed).toBe(false);
+    expect(res.servers[0].name).toBe("legacy-srv");
+    expect(res.servers[0].exposure).toBe("codemode");
+  });
+
   test("输出不可解析且无缓存：commandFailed（不抛错、不进缓存伪装成成功）", async () => {
     const { admin } = await fakeAdmin();
     process.env.MCP_ADMIN_TEST_MODE = "garbage";

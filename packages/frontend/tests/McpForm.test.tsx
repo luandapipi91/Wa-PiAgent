@@ -187,9 +187,10 @@ test("env key 为空时被跳过不写入", () => {
   expect(saved.env).toBeUndefined();
 });
 
-// ===== 暴露方式（exposure，规格 §4.2）：五档 + 默认 direct =====
+// ===== 暴露方式（exposure，规格 §4.2）：四档 + 默认 direct =====
+// （pi 1.2.0 起 codemode-deferred 已并入 codemode，存量旧值在读取层归一化）
 
-test("exposure 下拉包含官方五个取值（顺序固定）", () => {
+test("exposure 下拉包含官方四个取值（顺序固定）", () => {
   render(<McpForm onSave={mock()} onCancel={mock()} />);
   const select = screen.getByTestId("mcp-form-exposure");
   expect(
@@ -197,7 +198,6 @@ test("exposure 下拉包含官方五个取值（顺序固定）", () => {
   ).toEqual([
     "direct",
     "codemode",
-    "codemode-deferred",
     "deferred",
     "hidden",
   ]);
