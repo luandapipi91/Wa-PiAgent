@@ -752,7 +752,9 @@ export default function (pi: ExtensionAPI) {
 	// wa-pi 上下文无权威日期来源，跨天后模型只能靠历史消息里的旧日期推理。
 	// 两个检测点共用一条去重规则（同一天单会话最多注入一条，见 date-context.ts）：
 	// - before_agent_start（主）：发消息/resume 跨天会话首次 run，返回 message
-	//   并入本轮请求（BeforeAgentStartEventResult.message 官方通道，模型首个 token 即见）；
+	//   并入本轮请求（BeforeAgentStartEventResult.message 官方通道，模型首个 token 即见）。
+	//   pi 1.2.0 起该事件对 custom run（扩展 triggerTurn 触发）同样触发，返回的 message
+	//   两类 run 都会注入——日期注入与触发方式无关，故意不判 messageType。
 	// - tool_call（辅）：长任务跑数小时跨午夜时轮中检测，经 steer 队列
 	//   并入下一次模型请求（nextTurn 队列要等下一个用户 prompt 才消费，不合用）。
 	let lastInjectedDate: string | undefined;

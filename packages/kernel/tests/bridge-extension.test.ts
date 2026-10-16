@@ -423,6 +423,15 @@ test("session_start 不再注册 custom() 兜底补丁（内置命令已由 pi �
 	expect(handlers["tool_execution_end"]?.length).toBe(1);
 	expect(handlers["agent_end"]?.length).toBe(1);
 	expect(handlers["before_agent_start"]?.length).toBe(1);
+
+	// pi 1.2.0：before_agent_start 对 custom run（扩展 triggerTurn 触发）同样触发，
+	// 返回的 message 两类 run 都会注入——日期注入与触发方式无关，故意不判 messageType。
+	const dateMsg = handlers["before_agent_start"]![0]({
+		messageType: "custom",
+		message: {},
+	});
+	expect(dateMsg?.message?.customType).toBe("wa-pi-date-context");
+	expect(dateMsg?.message?.display).toBe(false);
 });
 
 test("ask execute：bridge socket 断开后自动重试并成功", async () => {
