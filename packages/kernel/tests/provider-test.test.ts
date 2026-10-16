@@ -99,9 +99,9 @@ test("anthropic-messages 带 x-api-key + anthropic-version header", async () => 
 });
 
 test("anthropic-messages Kimi Code baseUrl 不带 /v1 也能拼出正确路径", async () => {
-	// 回归测试：Kimi Code 端点 baseUrl 为 https://api.kimi.com/coding（不带 /v1），
-	// provider-test 必须拼出 /coding/v1/messages（与 Anthropic SDK 一致），
-	// 而非 /coding/messages（会导致 404 resource_not_found_error）
+	// 回归测试：anthropic-messages 供应商 baseUrl 不带 /v1 时，探测路径仍拼出 /v1/messages。
+	// （历史背景：kimi-coding 旧端点为 https://api.kimi.com/coding 不带 /v1；pi 1.3.0 起
+	//  内置 kimi-coding 已切 openai-completions，本用例退化为通用 anthropic 探测行为锁定。）
 	const fetchMock = mock(async () => new Response("{}", { status: 200 }));
 	globalThis.fetch = fetchMock as any;
 	await testProviderConnection({

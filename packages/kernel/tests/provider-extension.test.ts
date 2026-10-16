@@ -8,6 +8,7 @@ import {
   ensureProviderExtensionRegistered,
   extensionCoversProvider,
   resolveProviderBaseUrl,
+  resolveEffectiveBaseUrl,
   isProviderExtensionStale,
   EXTENSION_GENERATOR_VERSION,
 } from "../src/provider-extension";
@@ -795,6 +796,30 @@ test("resolveProviderBaseUrl：用户配置仅缺 /v1 后缀时仍用目录值�
     "openai-completions",
   );
   expect(url).toBe("https://api.deepseek.com/v1");
+});
+
+test("存量 kimi-coding 配置（anthropic-messages，无 /v1）在新目录下 baseUrl 解析正确", () => {
+	const allModels = [
+		// pi 1.3.0 内置目录：kimi-coding 已切 openai-completions，baseUrl 带 /v1
+		{
+			id: "kimi-for-coding", provider: "kimi-coding", api: "openai-completions",
+			baseUrl: "https://api.kimi.com/coding/v1", name: "", reasoning: false,
+			input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 256000, maxTokens: 16384,
+		},
+	] as any;
+	// 用户存量配置 api 为 anthropic-messages：按 api 分节匹配落空 → 保留用户 baseUrl
+	const legacy = resolveProviderBaseUrl(
+		"kimi-coding", ["kimi-for-coding"], "https://api.kimi.com/coding", allModels, "anthropic-messages",
+	);
+	expect(legacy).toBe("https://api.kimi.com/coding");
+	// 新配置 api 为 openai-completions：同源互为前缀 → 采用目录带 /v1 的值，且不出现 /v1/v1
+	const fresh = resolveProviderBaseUrl(
+		"kimi-coding", ["kimi-for-coding"], "https://api.kimi.com/coding", allModels, "openai-completions",
+	);
+	expect(fresh).toBe("https://api.kimi.com/coding/v1");
+	expect(resolveEffectiveBaseUrl("https://api.kimi.com/coding", "https://api.kimi.com/coding/v1"))
+		.toBe("https://api.kimi.com/coding/v1");
 });
 
 test("generateProviderExtension：用户改成无关网关地址时生成的 extension 保留用户 baseUrl", () => {
