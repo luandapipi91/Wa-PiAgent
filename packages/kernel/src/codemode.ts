@@ -1,5 +1,5 @@
 // codemode 三档（系统设置 > 通用）→ 会话 spawn 工具参数的纯函数。
-// pi 1.1.0 语义（docs/cli#tools）：
+// pi 1.3.0 语义（docs/cli#tools）：
 //   - --tools 纯 "+name/-name" 列表 = 增量修改默认选择，不构成白名单；
 //   - +name 与普通名不可混用 → 受限白名单路径只能追加普通名 "codemode"。
 // off 档的 tool_search 兜底仅排除式路径需要：白名单路径的非 direct MCP 入口工具
