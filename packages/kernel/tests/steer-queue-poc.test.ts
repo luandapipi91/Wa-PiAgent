@@ -131,6 +131,65 @@ test("steerMessage busy — 无已有引导时直调 client.steer()", async () =
   expect(fake.steered).toEqual(["S1"]);
 });
 
+// === TDD 修复: busy 时引导扩展命令改走 prompt 通道 ===
+//
+// 背景：pi 对排队型入口（steer/followUp）一律拒绝扩展命令（AgentSession
+// _throwIfExtensionCommand 直接抛 "Extension command cannot be queued"）。
+// 用户以引导方式发送已注册扩展命令（如 pi-goal-x 的 /goal-resume）时，
+// busy 直调 client.steer() 必然被拒，前端立刻弹出「引导消息投递失败」错误。
+// 期望：命中已注册扩展命令的引导文本改走 _sendPromptNow（prompt 通道入口
+// 同步执行扩展命令，streaming 中同样生效，与 settled 兑底 drain 同通道）。
+
+ test("修复: busy 时引导扩展命令（/xxx）改走 prompt 通道，不被 pi steer 拒绝", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+  // pi 已注册 goal-resume 扩展命令（对齐 pi-goal-x 的 /goal-resume）
+  fake.commandsToReturn = [{ name: "goal-resume", source: "extension" }];
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.steerMessage(session.id, "/goal-resume");
+
+  // 斜杠扩展命令不得走 client.steer（pi 对排队型入口直接抛 cannot be queued）
+  expect(fake.steered).toEqual([]);
+  // 应走 prompt 通道（pi prompt 入口同步执行扩展命令）
+  await waitForAssert(() =>
+    expect(fake.prompted).toEqual(["进行中", "/goal-resume"]),
+  );
+  // 不产生 agent-steer 投递失败广播（前端不再弹「引导消息投递失败」）
+  const extErrors = events.filter(
+    (e) => e.e.type === "extension_error" && e.e.extensionPath === "agent-steer",
+  );
+  expect(extErrors).toEqual([]);
+});
+
+test("修复: busy 时引导非命令斜杠文本仍走 steer（不误伤普通文本）", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+  fake.commandsToReturn = [{ name: "goal-resume", source: "extension" }];
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.steerMessage(session.id, "/etc/hosts 里这条记录是什么意思");
+
+  // 未命中已注册扩展命令 → 维持 steer mid-loop 语义
+  await waitForAssert(() =>
+    expect(fake.steered).toEqual(["/etc/hosts 里这条记录是什么意思"]),
+  );
+  expect(fake.prompted).toEqual(["进行中"]);
+});
+
+test("修复: busy 时引导 prompt 模板（source=prompt）仍走 steer（pi 不拒模板）", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+  fake.commandsToReturn = [{ name: "review", source: "prompt" }];
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.steerMessage(session.id, "/review");
+
+  // pi 的 steer 会展开 prompt 模板但不拒绝 → 维持 steer 通道
+  await waitForAssert(() => expect(fake.steered).toEqual(["/review"]));
+});
+
 test("steerMessage busy — 已有引导中时第二条转 followUpList（不叠加第二个引导）", async () => {
   const events: CapturedEvent[] = [];
   const { session, am, fake } = await setup(events);

@@ -185,6 +185,36 @@ test.describe.serial("插件命令级启停管理", () => {
     ).toHaveCount(0, { timeout: 15_000 });
   });
 
+  // ── 场景 4：busy 时引导发送扩展命令改走 prompt 通道（PI_E2E=1 启用），CI 默认跳过 ──
+  // 背景：pi 对排队型入口（steer）一律拒绝扩展命令（"cannot be queued"）。
+  // kernel 修复后：命中已注册扩展命令的引导文本改走 prompt 通道（入口同步执行命令）。
+  // 本用例在 busy 窗口内引导发送 /goal，断言不再出现「引导消息投递失败/cannot be queued」。
+  // busy 窗口依赖预置 provider（localhost:9999 不可达）触发 pi 网络重试；若窗口已结束
+  // 则走 idle 直发分支（同样不应报错）——修复分支的精确证明由 kernel 单测
+  // steer-queue-poc.test.ts「修复: busy 时引导扩展命令…」用例承担。
+  test("[需 pi 环境] busy 时引导发送扩展命令不报「投递失败」", async ({ page }) => {
+    test.skip(!process.env.PI_E2E, "需真实 Pi 环境（PI_E2E=1 启用）");
+
+    // 1. 开启 /goal（pi 注册为扩展命令，steer 通道会被 pi 拒绝）
+    await setCommandToggle(PI_PKG, PI_CMD, true);
+
+    // 2. 进入会话，先发一条普通消息让 agent 进入 busy（provider 不可达 → pi 重试期间 busy 保持）
+    await enterSession(page, "busy 引导扩展命令测试");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.click();
+    await textbox.fill("数一下 1 到 50 有多少个偶数");
+    await page.getByTestId("composer-send").click();
+
+    // 3. busy 窗口内以引导方式（Ctrl/Cmd+Enter）发送扩展命令
+    await textbox.click();
+    await textbox.fill("/goal 写一个计划");
+    await textbox.press("ControlOrMeta+Enter");
+
+    // 4. 断言：不出现「投递失败/cannot be queued」错误提示（修复前 busy 窗口内必现）
+    await expect(page.getByText("cannot be queued")).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByText("引导消息投递失败")).toHaveCount(0, { timeout: 5_000 });
+  });
+
   // ── 场景 3：纯前端 UI 行为，隔离 E2E 环境可验证，始终运行 ──
 
   test("extension_notify 系统消息 30s 后自动从聊天列表消失", async ({ page }) => {

@@ -2200,6 +2200,26 @@ export class AgentManager {
 			return;
 		}
 
+		// 扩展命令文本不能走 pi steer()：pi 对排队型入口（steer/followUp）一律拒绝扩展
+		// 命令（AgentSession._throwIfExtensionCommand 直接抛 "cannot be queued"），busy
+		// 时用户会立刻收到「引导消息投递失败」错误，命令要等 settled 兜底才真正执行。
+		// prompt 通道入口会同步执行扩展命令（_tryExecuteExtensionCommand，streaming 中
+		// 同样生效），因此命中已注册扩展命令（source=extension）的引导文本改走
+		// _sendPromptNow 直发（与 idle 分支、settled drain 同通道）。判定失败按非命令
+		// 处理，维持原 steer 路径。
+		if (
+			finalText.startsWith("/") &&
+			(await this._isRegisteredExtensionCommand(handle, finalText))
+		) {
+			await this._sendPromptNow(sessionId, handle, finalText, images, pendingId);
+			// 与 idle 分支一致：发送成功后从 followUpList 移除（若来自排队提升），
+			// 并广播 queue_update 让前端清掉乐观残留。
+			const cmdFi = handle.followUpList.findIndex((e) => e.text === text);
+			if (cmdFi >= 0) handle.followUpList.splice(cmdFi, 1);
+			this._emitLocalQueueUpdate(sessionId, handle);
+			return;
+		}
+
 		// 双保险：pi steer() 尝试 mid-loop 投递 + 本地 steerList 兜底
 		handle.steerList.push({ text: finalText, images, pendingId });
 		// 如果该消息来自排队列表，则移除（避免 settled 时重复发送）
@@ -2238,6 +2258,34 @@ export class AgentManager {
 				});
 			},
 		);
+	}
+
+	/** 判断引导文本是否命中 pi 已注册的扩展命令（source=extension，含 pi 内置扩展命令）。
+	 *  pi 的排队型入口（steer/followUp）对此类文本直接抛 "cannot be queued"，
+	 *  需改走 prompt 通道。非 "/" 开头、命令清单拉取失败时返回 false（回退 steer 原路径）。 */
+	private async _isRegisteredExtensionCommand(
+		handle: SessionHandle,
+		text: string,
+	): Promise<boolean> {
+		const trimmed = text.trim();
+		if (!trimmed.startsWith("/")) return false;
+		const spaceIndex = trimmed.indexOf(" ");
+		const commandName =
+			spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex);
+		if (!commandName) return false;
+		try {
+			const { commands } = await handle.client.getCommands();
+			return (commands ?? []).some(
+				(c: { name: string; source?: string }) =>
+					c.name === commandName && c.source === "extension",
+			);
+		} catch (err) {
+			console.warn(
+				`[agent-manager] 引导命令判定 getCommands 失败，回退 steer 通道:`,
+				err,
+			);
+			return false;
+		}
 	}
 
 	/** 中止当前会话：清空本地队列 + abort。 */
