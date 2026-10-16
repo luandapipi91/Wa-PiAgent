@@ -1,0 +1,272 @@
+<div align="center">
+
+**English** | [简体中文](./README.zh-CN.md)
+
+<img src="logo.svg" alt="WA PI Agent" width="96" />
+
+# WA PI Agent
+
+**A desktop GUI client for the [pi](https://github.com/earendil-works) coding agent — a powerful AI coding engine deserves an equally capable desktop interface.**
+
+**TUI plugins written for pi run unchanged** — status bars, widgets, dialogs and notifications are rendered as native GUI components.
+
+Not a single command to memorize: sessions, models, MCP, skills, and memory — all point-and-click.
+
+Visual session management · Multi-agent collaboration · TUI plugin compatible · IM bot channels · Artifact sharing · MCP ecosystem · Desktop & browser · macOS / Windows / Linux · 中文 / English UI
+
+![Runtime](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)
+![Language](https://img.shields.io/badge/Language-TypeScript-3178c6?logo=typescript&logoColor=fff)
+![Frontend](https://img.shields.io/badge/React_19-Vite_8-646cff?logo=vite&logoColor=fff)
+![Desktop](https://img.shields.io/badge/Desktop-Electron-47848f?logo=electron&logoColor=fff)
+![Agent Engine](https://img.shields.io/badge/Agent_Engine-pi-5B5BD6)
+![i18n](https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)
+![Release](https://img.shields.io/github/v/release/luandapipi91/Wa-PiAgent?label=release&color=2ea44f)
+![License](https://img.shields.io/badge/License-MIT-blue)
+![Platform](https://img.shields.io/badge/Platform-macOS_%7C_Windows_%7C_Linux-lightgrey)
+![Downloads](https://img.shields.io/github/downloads/luandapipi91/Wa-PiAgent/total?label=downloads)
+
+🌍 [Website](https://www.wapiagent.top/index.html) · [⬇ Download](https://github.com/luandapipi91/Wa-PiAgent/releases/latest)
+
+</div>
+
+---
+
+<div align="center">
+<img src="docs/assets/readme/readme-session.png" alt="Session view" width="900" />
+<br/><em>Session view: reasoning, tool calls, streaming replies, and token stats at a glance</em>
+</div>
+
+## What is this
+
+WA PI Agent is a **desktop GUI client for the [pi](https://github.com/earendil-works) coding agent**, and a framework on top of it. pi is a powerful AI coding agent, but it ships with a CLI only — configuration means hand-editing JSON, juggling multiple sessions is painful, and MCP failures surface as raw stack traces. WA PI Agent wraps it in a complete desktop app (Electron) and a browser client, turning every engine capability into something you can see and click. **TUI plugin compatible**: extensions written for pi run unchanged — their status bars, widgets, dialogs and notifications render as native GUI components instead of terminal cells.
+
+**Every session is an independent pi subprocess** with its own working directory, toolchain, and context — no interference. Engine upgrades (pi updates) and interface upgrades (this framework) are decoupled: when pi ships new capabilities, the framework picks them up automatically.
+
+On top of that, the framework offers **multi-agent collaboration**: instead of one "do-everything chat box", you get an AI team with clear roles — project manager, product manager, frontend/backend developers, test analyst, code reviewer… Each agent has its own prompt, toolset, skills, and memory, and they can delegate tasks to one another like a real team.
+
+## Up and running in three minutes
+
+```bash
+git clone https://github.com/luandapipi91/Wa-PiAgent.git
+cd Wa-PiAgent
+bun install
+bun run dev
+```
+
+The only prerequisite is [Bun](https://bun.sh) ≥ 1.4. Once started, your browser opens `http://localhost:5180` automatically. Add a model provider (OpenAI-compatible or Anthropic protocol) under "Settings → Model Management", pick an agent on the home page, and start chatting.
+
+macOS users can also double-click `start.command` in the repo root; Windows users double-click `start.bat`.
+
+**Prefer a desktop app?** Download the installer for macOS, Windows or Linux from the [Releases page](https://github.com/luandapipi91/Wa-PiAgent/releases/latest), or build it yourself — the kernel ships as a sidecar, so there is no runtime to pre-install, and the app updates itself:
+
+```bash
+bun run pack:mac     # macOS
+bun run pack:win     # Windows
+bun run pack:linux   # Linux
+bun run pack:all     # all platforms
+```
+
+All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any server.
+
+## Why a GUI instead of the pi CLI
+
+| pi native (CLI) | WA PI Agent (GUI) |
+| --- | --- |
+| Hand-written JSON for model providers | Settings form + one-click connection test |
+| CLI flags to manage sessions | Sidebar project/session list, click to switch |
+| Raw stack traces for MCP errors | Visual connection status + human-readable diagnostics |
+| One agent, one session | Multi-agent team with task delegation and concurrency |
+| Skills/plugins via directory conventions | Graphical enable/disable, install & management |
+| Extensions render inside the terminal TUI | The same TUI plugins run unchanged, rendered as native GUI components |
+| Terminal only | Desktop app + browser + IM bots |
+
+## Key features
+
+### 🖥 A friendly desktop experience
+
+- **One codebase, two ends**: run `bun run dev` in the browser, or package an **Electron desktop app** (macOS / Windows / Linux)
+- **Full-featured sessions**: message queueing / steering, interrupt & resume, history branching, attachments, **voice input**, and per-message reasoning effort (off / mid / high / max)
+- **No need to stare at the screen**: sound cues when a task finishes or needs your input — plus a frog hopping out from a corner of the chat to congratulate you (toggleable in Appearance settings)
+- **Bilingual UI (Chinese & English)**, with customizable font size and export preferences
+
+### 🎨 WYSIWYG page preview & editing
+
+- **Live preview**: AI-generated pages render instantly in the preview panel — local HTML and external URL modes
+- **Precise element picking**: hover to highlight, click an element or its parent, and "send to chat" — the AI receives a locator precise to the source line, not a screenshot
+- **Nested iframes included**: elements inside inner pages still resolve to real files on disk, so fixes always land in the right place
+- A collaboration booster for designers: point and fix, no more screenshot ping-pong
+
+### 🤖 A multi-agent team
+
+- **9 built-in expert roles** (senior project manager, product manager, frontend/backend developers, test analyst, code reviewer, data analyst, UX designer, meeting minutes) — ready out of the box
+- **Custom agents**: prompt, tool whitelist, skills, model, and reasoning effort all independently configurable
+- **Assign with @**: type `@` in the chat box to summon the agent panel and put a specific role on the job; use the "relationship web" so agents collaborate proactively or on demand
+- **Task delegation**: agents can invoke sub-agents via `delegate` (its `tasks` array dispatches 1–6 sub-tasks in a single call; three built-in types: general-purpose / Explore / Plan) — complex tasks are split, run concurrently, and aggregated automatically; every sub-task keeps a full viewable transcript, and unfinished instances can be resumed
+
+### 💬 IM bot channels
+
+- Put agents on IM: configure **bots** in Settings, bind any agent, and incoming IM messages are handled by it automatically
+- **WeCom (Enterprise WeChat) supported**; WeChat, Feishu, and QQ channel types are reserved
+- IM conversations are grouped separately in the sidebar, managed alongside local sessions
+
+### ⏰ Scheduled automation
+
+- **Schedule-driven**: let agents run on a cron schedule — daily inspections, timed data aggregation, periodic reports, unattended
+- **Status at a glance**: success / failure / running indicators with last-run time; right-click to run immediately
+- **Results pushed to IM**: when a task completes, an IM bot pushes the results into your WeCom group
+
+### 📤 Artifact sharing
+
+- **One-click publish to a public link**: deploy artifacts to EdgeOne Pages / Cloudflare Pages — paste an API token, hit deploy, and get a public URL in about 1–2 minutes
+- **Files / folders / mixed multi-select**: site folders containing an `index.html` open directly as a website; plain folders get an auto-generated directory index
+- **"My shares" management**: view and clear everything you've published; same-name shares merge automatically; custom domains supported
+
+### 🔌 MCP connectors
+
+- Manage [Model Context Protocol](https://modelcontextprotocol.io) servers graphically: stdio / HTTP transports, global and project-level configuration (global `~/.pi/agent/mcp.json`, project-level `<project>/.pi/mcp.json`; project-level config takes effect once you grant that project trust in the app and restart the session)
+- **Connection testing + live tool listing**; MCP servers that require OAuth can be signed in to from within the app, with authorization completed in your browser
+- Failures come with **human-readable diagnostics** instead of raw stack traces
+
+<div align="center">
+<img src="docs/assets/readme/readme-mcp.png" alt="MCP connectors" width="900" />
+<br/><em>MCP connectors: connection status, tool counts, error diagnostics</em>
+</div>
+
+### 🧩 Plugin ecosystem: dynamic install / uninstall / upgrade, hot-reloaded
+
+- **Full lifecycle in the GUI**: type an npm package name (`name@version`, git URLs, and local paths supported) to install; uninstall, enable/disable, and upgrade are all one click
+- **Hot reload, no restart**: install, uninstall, and upgrade take effect in the current conversation immediately (sessions mid-reply reload on the next message)
+- **New-version detection**: an upgrade badge appears when updates are available; one-click upgrade with streaming install logs
+- **TUI plugins work out of the box**: extensions written for pi need no changes — status bars, widgets, dialogs, and notifications render as native GUI components
+- Slash commands contributed by plugins can be inspected and toggled individually
+
+<div align="center">
+<img src="docs/assets/readme/readme-extensions.png" alt="Plugin management" width="900" />
+<br/><em>Plugin management: dynamic install / uninstall / upgrade, hot-reloaded</em>
+</div>
+
+<div align="center">
+<img src="docs/assets/readme/readme-tui.png" alt="TUI plugin panel" width="640" />
+<br/><em>TUI plugin panel: an extension dialog written for pi rendered as a native GUI window — keyboard and mouse both work</em>
+</div>
+
+### 🧠 Models / Skills / Memory
+
+- **Model management**: custom OpenAI-compatible / Anthropic providers, multi-model mounting, connection tests
+- **Skill system**: a directory is a skill; pluggable enable/disable. Opening a project also loads the skills under that project's `<project root>/.pi/skills`
+- **Layered memory system**: the user profile and recent memories stay always-on (L1); older entries automatically sink into searchable long-term knowledge (L2) and execution logs (L3); global / project scopes with hybrid lexical + semantic search across all layers — agents accumulate experience across sessions
+
+<div align="center">
+<img src="docs/assets/readme/readme-models.png" alt="Model management" width="900" />
+</div>
+
+### 🩺 Transparent runtime status
+
+- **Full pi RPC event integration**: real-time progress for auto-retry, context compaction, and summarization retries — no more guessing behind a spinner
+- **Extension status visualization**: extension `setStatus` bars and `setWidget` panels rendered natively; extension errors toast immediately and collect in the **Diagnostics** settings tab
+- Reasoning, tool calls, and token usage are shown step by step — the agent is no longer a black box
+
+## Architecture
+
+The framework's responsibilities are clear: **the GUI owns experience, pi owns intelligence, the kernel owns orchestration**.
+
+```mermaid
+graph LR
+    subgraph Clients
+        A["React frontend<br/>Browser / Electron"]
+        F["IM channels<br/>WeCom etc."]
+    end
+    subgraph Kernel
+        B["HTTP + SSE<br/>Sessions / Projects / Models / MCP / Bots"]
+        C["AgentManager<br/>Process lifecycle · Queues · Event routing"]
+    end
+    subgraph One independent process per session
+        D["pi RPC subprocess<br/>Toolchain · Extensions · Skills"]
+        E["MCP servers<br/>stdio / HTTP"]
+    end
+    A <-->|"HTTP / SSE"| B
+    F <-->|"Message adaptation"| B
+    B --> C
+    C -->|"spawn + JSON-RPC"| D
+    D --> E
+```
+
+- **Frontend**: React 19 + Vite 8 + Zustand + Tailwind CSS, talking to the kernel over HTTP + SSE
+- **Kernel** (`@wa-pi/kernel`): the session orchestration layer — process lifecycle, message queues, event routing, UI request bridging, IM channel adaptation
+- **Engine** (pi): each session is a `pi --mode rpc` subprocess; tool execution, extension loading, and MCP connections all happen inside the process
+
+## Project structure
+
+```text
+├── packages/
+│   ├── kernel/      # Kernel: session orchestration, HTTP/SSE server, pi process management, IM channels
+│   ├── frontend/    # React frontend (shared by browser and Electron)
+│   ├── desktop/     # Electron shell, auto-update and packaging scripts
+│   └── shared/      # Types and constants shared by frontend and backend
+└── scripts/         # dev startup orchestration, OSS publishing
+```
+
+## Development
+
+```bash
+bun run dev            # Run frontend and backend in parallel (press R to reload)
+bun test               # All tests (kernel + shared + desktop + frontend)
+bun run typecheck      # Type checking
+```
+
+- `dev:desktop` 默认使用 `packages/kernel/dist/WaPiKernel(.exe)` 编译产物（与生产同形态）；产物缺失时回退解释运行并打警告日志。构建产物：`bun run --filter @wa-pi/kernel build`。
+- Runtime environment variables: `WA_PI_WS_PORT` (kernel port, default 9776), `WA_PI_WEB_PORT` (frontend port, default 5180), `WA_PI_PREVIEW_PORT` (preview port, default 9777), `WA_PI_DIR` (data directory, default `~/.pi/agent`)
+- Frontend E2E tests live in `packages/frontend`: `bun run e2e` (Playwright)
+
+## Roadmap
+
+**Already shipped:**
+
+- [x] Multi-agent sessions and delegation (delegate)
+- [x] Graphical MCP management (with OAuth sign-in and error diagnostics)
+- [x] Skills / plugins / memory systems
+- [x] Hot-reloaded plugins: dynamic install / uninstall / upgrade, no restart
+- [x] pi RPC event transparency: retry / compaction / summarization progress, extension status & widget visualization
+- [x] Electron desktop packaging and auto-update
+- [x] IM bot channels (WeCom)
+- [x] Scheduled automation (cron-driven, with IM push notifications)
+- [x] Artifact sharing: one-click publish to a public link (EdgeOne Pages / Cloudflare Pages)
+- [x] Bilingual Chinese & English UI
+
+**What's next:**
+
+- [ ] **More IM channels** — WeChat, Feishu, and QQ, landing step by step: your agents, living in more work chats
+- [ ] **Smarter sub-agent scheduling** — better concurrency and resource orchestration so large-scale delegation runs faster and steadier
+- [ ] **Frontend plugin system** — open the UI layer to plugins: third parties can extend frontend components and pages
+- [ ] **Expose Wa-Pi as a service** — let external clients connect: Wa-Pi serves its capabilities over MCP / HTTP endpoints for other tools to plug into
+- [ ] **Visual workflow orchestration** — upgrade multi-agent collaboration from "one conversation" to "reusable workflows": drag-and-drop task nodes, and let your AI team run the process you define, automatically
+- [ ] **Connector marketplace** — ready-to-use SaaS connectors on top of MCP: configure and go, no more building integrations from scratch
+- [ ] **Diff monitoring** — watch what you care about: automatic detection of changes in files, pages, and data sources, with real-time alerts that can be handed straight to an agent
+
+## FAQ
+
+**What is pi?**
+[pi](https://github.com/earendil-works) is a command-line AI coding agent. It runs one session per process, with its own working directory, toolchain, extensions, and MCP connections.
+
+**Is there a desktop app for the pi coding agent?**
+Yes — WA PI Agent is a desktop GUI client for the pi coding agent. It runs as an Electron app on macOS, Windows and Linux, and the same interface is available in the browser.
+
+**Do my existing pi plugins still work?**
+Yes. WA PI Agent is TUI plugin compatible: extensions written for the pi CLI run unchanged — status bars, widgets, dialogs and notifications are rendered as native GUI components, and the slash commands a plugin contributes can be inspected and toggled one by one.
+
+**Do I need to install Bun before using the desktop app?**
+No. The packaged desktop build carries the kernel as a sidecar, so nothing has to be pre-installed, and the app updates itself.
+
+**Where is my data stored?**
+In your local `~/.pi/agent` directory. Nothing is uploaded to any server.
+
+**Is it free?**
+Yes. WA PI Agent is released under the [MIT License](./LICENSE).
+
+## Contributing
+
+Issues and PRs are welcome. Before submitting, make sure `bun test` passes and add your entry at the top of `CHANGELOG.md`.
+
+## License
+
+Released under the [MIT License](./LICENSE).

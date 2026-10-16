@@ -1,0 +1,46 @@
+import { test, expect } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { buildAdditionalExtensionPaths } from "../src/extensions";
+import { GENERATED_DIR } from "@wa-pi/shared";
+
+test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension 按需追加", () => {
+  const paths = buildAdditionalExtensionPaths();
+
+  // npm 包入口必须存在且解析到实际 .ts 文件
+  const webAccess = paths.find((p) => p.includes("pi-web-access"));
+  expect(webAccess).toBeTruthy();
+  expect(webAccess!.endsWith(".ts")).toBe(true);
+  expect(existsSync(webAccess!)).toBe(true);
+
+  // pi-mcp-adapter 已随 MCP 内置化迁移移除：MCP 由 pi 内置扩展（builtin:mcp）提供，
+  // 不得再出现在 -e 注入清单里（也不得因残留依赖被静默带回）
+  expect(paths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
+
+  // provider-extension 由 GENERATED_DIR 按需追加（文件存在时才加入）。
+  // 用存在性等同断言而非创建文件，避免与 provider-extension.test.ts 并发写同一文件产生 flaky。
+  const providerExt = join(GENERATED_DIR, "provider-extension.ts");
+  expect(paths.includes(providerExt)).toBe(existsSync(providerExt));
+
+  // wa-pi-bridge 同样按需追加（RPC 模式宿主工具桥，bridge-extension.ts 生成）
+  const bridgeExt = join(GENERATED_DIR, "wa-pi-bridge.ts");
+  expect(paths.includes(bridgeExt)).toBe(existsSync(bridgeExt));
+
+  // wa-pi-tui-host 同样按需追加（RPC 模式图形面板宿主，tui-host-deploy.ts 部署）
+  const tuiHostExt = join(GENERATED_DIR, "wa-pi-tui-host.ts");
+  expect(paths.includes(tuiHostExt)).toBe(existsSync(tuiHostExt));
+
+  // compression-guard 扩展已移除（压缩彻底依托 pi 内置机制）——不得再出现在追加清单里
+  const compactionGuardExt = join(GENERATED_DIR, "compaction-guard.ts");
+  expect(paths).not.toContain(compactionGuardExt);
+});
+
+test("内置扩展清单：不含 pi-mcp-adapter / 不含已移除的 pi-open-agents / 不含 pi-intercom", async () => {
+  const paths = buildAdditionalExtensionPaths();
+  expect(paths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
+  expect(paths.some((p) => p.includes("pi-open-agents"))).toBe(false);
+  expect(paths.some((p) => p.includes("pi-intercom"))).toBe(false);
+});
+
+// 动态扩展不再走 -e（改由 pi 官方 packages 机制自动加载），故 buildAdditionalExtensionPaths
+// 不再接收动态包名参数。动态扩展的加载/重载由 session.reload() 重读 settings.json packages 实现。

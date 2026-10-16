@@ -1,0 +1,13 @@
+{
+  "name": "ext-error-spam-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "扩展错误测试桩：挂载后发任意消息一次性产生 50 条 extension_error，灌满诊断列表（系统设置 > 诊断，最近 50 条）",
+  "type": "module",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

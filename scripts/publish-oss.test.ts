@@ -1,0 +1,184 @@
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { listArtifacts, injectReleaseNotes, historyArtifact, orderArtifactsForUpload, releaseArtifacts } from "./publish-oss";
+
+describe("listArtifacts", () => {
+	const dir = mkdtempSync(join(tmpdir(), "r2-artifacts-"));
+	beforeEach(() => {
+		// targets 匹配项（Win + macOS）
+		writeFileSync(join(dir, "latest.yml"), "a");
+		writeFileSync(join(dir, "latest-mac.yml"), "a");
+		writeFileSync(join(dir, "WaPi-Setup-1.2.3.exe"), "a");
+		writeFileSync(join(dir, "WaPi-Setup-1.2.3.exe.blockmap"), "a");
+		writeFileSync(join(dir, "WaPi-Setup-1.2.3.dmg"), "a");
+		writeFileSync(join(dir, "WaPi-Setup-1.2.3.dmg.blockmap"), "a");
+		writeFileSync(join(dir, "WaPi-Setup-1.2.3.zip"), "a");
+		writeFileSync(join(dir, "WaPi-Setup-1.2.3.zip.blockmap"), "a");
+		// 应被排除：无关文件 + Linux 产物（当前不走自动更新）
+		writeFileSync(join(dir, "README.txt"), "a");
+		writeFileSync(join(dir, "latest-linux.yml"), "a");
+		writeFileSync(join(dir, "WaPi-Setup-1.2.3.AppImage"), "a");
+	});
+	afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+	it("只挑选 Win+macOS 更新产物并带 releases/ 前缀", () => {
+		const out = listArtifacts(dir, "1.2.3");
+		const keys = out.map((a) => a.key).sort();
+		expect(keys).toEqual([
+			"releases/WaPi-Setup-1.2.3.dmg",
+			"releases/WaPi-Setup-1.2.3.dmg.blockmap",
+			"releases/WaPi-Setup-1.2.3.exe",
+			"releases/WaPi-Setup-1.2.3.exe.blockmap",
+			"releases/WaPi-Setup-1.2.3.zip",
+			"releases/WaPi-Setup-1.2.3.zip.blockmap",
+			"releases/latest-mac.yml",
+			"releases/latest.yml",
+		]);
+	});
+});
+
+describe("版本历史上传（内核代拉的数据源）", () => {
+	it("historyArtifact 指向 releases/version-history.json", () => {
+		const a = historyArtifact("/tmp/history.json");
+		expect(a).toEqual({
+			path: "/tmp/history.json",
+			key: "releases/version-history.json",
+		});
+	});
+
+	it("releaseArtifacts：清单同时含发布目录产物与 version-history.json", () => {
+		const dir = mkdtempSync(join(tmpdir(), "r2-release-artifacts-"));
+		try {
+			writeFileSync(join(dir, "latest.yml"), "a");
+			writeFileSync(join(dir, "WaPi-Setup-1.2.3.exe"), "a");
+			const history = join(dir, "history.json");
+			writeFileSync(history, "[]");
+			const keys = releaseArtifacts(dir, "1.2.3", history).map((a) => a.key).sort();
+			expect(keys).toEqual([
+				"releases/WaPi-Setup-1.2.3.exe",
+				"releases/latest.yml",
+				"releases/version-history.json",
+			]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("排序把 version-history.json 与 latest*.yml 一起放最后（清单类）", () => {
+		const ordered = orderArtifactsForUpload([
+			historyArtifact("/tmp/history.json"),
+			{ path: "/tmp/latest.yml", key: "releases/latest.yml" },
+			{ path: "/tmp/a.exe", key: "releases/WaPi-Setup-1.2.3.exe" },
+		]);
+		expect(ordered.map((a) => a.key)).toEqual([
+			"releases/WaPi-Setup-1.2.3.exe",
+			"releases/version-history.json",
+			"releases/latest.yml",
+		]);
+	});
+});
+
+describe("injectReleaseNotes", () => {
+	it("history 文件不存在时原样返回 yml", () => {
+		const yml = "version: 1.2.3\nfiles: []\n";
+		expect(injectReleaseNotes(yml, join(tmpdir(), "no-such-history.json"))).toBe(
+			yml,
+		);
+	});
+
+	it("无 releaseNotes 时追加 YAML 字面量块", () => {
+		const history = join(tmpdir(), "h1.json");
+		writeFileSync(
+			history,
+			JSON.stringify([
+				{
+					version: "1.2.3",
+					sections: { 新增: ["功能 A"], 修复: ["Bug B"] },
+				},
+			]),
+		);
+		const out = injectReleaseNotes("version: 1.2.3\nfiles: []\n", history);
+		expect(out).toContain("releaseNotes: |-");
+		expect(out).toContain("【新增】");
+		expect(out).toContain("- 功能 A");
+		expect(out).toContain("- Bug B");
+	});
+
+	it("已有 releaseNotes 时整体覆盖", () => {
+		const history = join(tmpdir(), "h2.json");
+		writeFileSync(
+			history,
+			JSON.stringify([{ version: "1.3.0", sections: { 修复: ["问题"] } }]),
+		);
+		const out = injectReleaseNotes(
+			"version: 1.2.0\nreleaseNotes: |-\n  旧内容\nfiles: []\n",
+			history,
+		);
+		expect(out).toContain("【修复】");
+		expect(out).not.toContain("旧内容");
+	});
+});
+
+// —— 上传顺序：安装包/blockmap 在前，latest*.yml 清单最后覆盖（防线上悬空）——
+describe("orderArtifactsForUpload", () => {
+	it("安装包/blockmap 排在清单之前", () => {
+		const artifacts = [
+			{ path: "/r/latest.yml", key: "releases/latest.yml" },
+			{ path: "/r/a.exe", key: "releases/WaPi-Setup-0.2.17.exe" },
+			{
+				path: "/r/a.exe.blockmap",
+				key: "releases/WaPi-Setup-0.2.17.exe.blockmap",
+			},
+			{ path: "/r/latest-mac.yml", key: "releases/latest-mac.yml" },
+		];
+		const ordered = orderArtifactsForUpload(artifacts);
+		expect(ordered.map((a) => a.key)).toEqual([
+			"releases/WaPi-Setup-0.2.17.exe",
+			"releases/WaPi-Setup-0.2.17.exe.blockmap",
+			"releases/latest.yml",
+			"releases/latest-mac.yml",
+		]);
+	});
+});
+
+// —— 桶 CORS 幂等判断：官网跨域读更新清单 ——
+import { hasWebsiteCorsRule } from "./publish-oss";
+
+describe("hasWebsiteCorsRule", () => {
+	it("无规则时不满足", () => {
+		expect(hasWebsiteCorsRule([])).toBe(false);
+	});
+
+	it("官网域名 + GET 满足", () => {
+		expect(
+			hasWebsiteCorsRule([
+				{
+					AllowedOrigins: ["https://www.wapiagent.top"],
+					AllowedMethods: ["GET", "HEAD"],
+				},
+			]),
+		).toBe(true);
+	});
+
+	it("本地调试来源（http://localhost:8000）满足", () => {
+		expect(
+			hasWebsiteCorsRule([
+				{ AllowedOrigins: ["http://localhost:8000"], AllowedMethods: ["GET"] },
+			]),
+		).toBe(true);
+	});
+
+	it("只有 PUT 或无关域名时不满足", () => {
+		expect(
+			hasWebsiteCorsRule([
+				{ AllowedOrigins: ["https://example.com"], AllowedMethods: ["GET"] },
+				{
+					AllowedOrigins: ["https://www.wapiagent.top"],
+					AllowedMethods: ["PUT"],
+				},
+			]),
+		).toBe(false);
+	});
+});
