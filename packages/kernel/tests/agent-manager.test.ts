@@ -1714,11 +1714,16 @@ test("listGlobalTools 返回内置工具集（含 grep/find/ls 与网络工具�
 			"grep",
 			"find",
 			"ls",
-			"web_search",
-			"fetch_content",
-			"get_search_content",
+			"wa_web_search",
+			"wa_fetch_content",
 		]),
 	);
+	// 工具带 wa_ 前缀避免与插件同名冲突；pi-web-access 已移除（2026-10-18）：
+	// get_search_content/source_check 不再提供，旧名不得出现
+	expect(names).not.toContain("web_search");
+	expect(names).not.toContain("fetch_content");
+	expect(names).not.toContain("get_search_content");
+	expect(names).not.toContain("source_check");
 	expect(names).not.toContain("subagent");
 });
 
@@ -1733,8 +1738,8 @@ test("listGlobalTools 内置工具 source='内置'，非内置工具不应显示
 		}
 	}
 
-	// web_search 是内置工具，不应显示 "扩展" 或 "插件"
-	const ws = tools.find((t) => t.name === "web_search");
+	// wa_web_search 是内置工具，不应显示 "扩展" 或 "插件"
+	const ws = tools.find((t) => t.name === "wa_web_search");
 	expect(ws?.source).toBe("内置");
 
 	// 非内置工具（MCP/动态插件）的 source 应为具体名称，不再是泛化 "扩展"

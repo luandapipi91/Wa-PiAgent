@@ -32,11 +32,14 @@ test("DEFAULT_AGENT_TOOLS 含 Pi 内置文件工具、网络工具与 amaster me
 	expect(DEFAULT_AGENT_TOOLS).toContain("grep");
 	expect(DEFAULT_AGENT_TOOLS).toContain("find");
 	expect(DEFAULT_AGENT_TOOLS).toContain("ls");
-	expect(DEFAULT_AGENT_TOOLS).toContain("web_search");
-	expect(DEFAULT_AGENT_TOOLS).toContain("fetch_content");
-	expect(DEFAULT_AGENT_TOOLS).toContain("get_search_content");
-	// pi-web-access 网络工具族：来源核查
-	expect(DEFAULT_AGENT_TOOLS).toContain("source_check");
+	expect(DEFAULT_AGENT_TOOLS).toContain("wa_web_search");
+	expect(DEFAULT_AGENT_TOOLS).toContain("wa_fetch_content");
+	// 工具带 wa_ 前缀避免与插件同名冲突；pi-web-access 已移除（2026-10-18）：
+	// get_search_content/source_check 不再提供
+	expect(DEFAULT_AGENT_TOOLS).not.toContain("web_search");
+	expect(DEFAULT_AGENT_TOOLS).not.toContain("fetch_content");
+	expect(DEFAULT_AGENT_TOOLS).not.toContain("get_search_content");
+	expect(DEFAULT_AGENT_TOOLS).not.toContain("source_check");
 	// amaster host-controlled 记忆工具（须在 allowlist 显式放行，否则被 SDK 过滤）
 	expect(DEFAULT_AGENT_TOOLS).toContain("memory_add");
 	expect(DEFAULT_AGENT_TOOLS).toContain("memory_replace");

@@ -75,7 +75,7 @@ test("KERNEL_ASSET_FILES: 全部资产真实存在且包含 preview-inspect.js",
   // 压缩守卫已移除（压缩彻底依托 pi 内置机制）：两个源文件不得再进资产清单
   expect(names).not.toContain("compaction-guard.extension.ts");
   expect(names).not.toContain("compaction-guard-core.ts");
-  expect(KERNEL_ASSET_FILES).toHaveLength(12);
+  expect(KERNEL_ASSET_FILES).toHaveLength(13);
   for (const f of KERNEL_ASSET_FILES) expect(existsSync(f)).toBe(true);
 });
 
@@ -106,6 +106,7 @@ test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名
       "tool-schemas.ts",
       "wa-pi-bridge.extension.ts",
       "wa-pi-tui-host.extension.ts",
+      "web-access.extension.ts",
       "widget.ts",
     ].sort();
     expect(readdirSync(dir).sort()).toEqual(expected);

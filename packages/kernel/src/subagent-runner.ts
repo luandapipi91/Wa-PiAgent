@@ -112,7 +112,7 @@ export interface SubagentRunOpts {
 	onProgress?: (event: SubagentProgressEvent) => void;
 	/** 已解析为目录路径的技能白名单（空 = 不传 --skill，pi 默认发现） */
 	skillPaths?: string[];
-	/** 随子进程加载的扩展文件（-e），如 pi-web-access / provider-extension；空 = 不传 */
+	/** 随子进程加载的扩展文件（-e），如 provider-extension / web-access；空 = 不传 */
 	extensionPaths?: string[];
 	/** 子代理会话文件路径（pi --session）：传了就落盘（转录留档 + 可 resume）；未传回退 --no-session */
 	sessionFile?: string;

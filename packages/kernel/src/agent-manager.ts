@@ -1031,15 +1031,18 @@ export class AgentManager {
 			| ((toolCallId: string, event: SubagentProgressEvent) => void)
 			| undefined;
 
-		// 子进程扩展集：provider-extension（自定义 provider/apiKey，缺失会 No API key）。
+		// 子进程扩展集：provider-extension（自定义 provider/apiKey，缺失会 No API key）+
+		// web-access（web_search/fetch_content，DeepSeek：纯出站 HTTP + 读本地 settings.json，
+		// 不依赖宿主回调，子代理可安全使用）。
 		// MCP 工具由 pi 内置扩展（builtin:mcp，默认加载）在子进程内自行注册，不随主
 		// 会话继承，故无需再注入扩展入口。
-		// 不带 wa-pi-bridge / pi-web-access：子代理无 WA_PI_BRIDGE_URL（bridge 工具
-		// 全依赖宿主回调），工具面保持最小。
+		// 不带 wa-pi-bridge：子代理无 WA_PI_BRIDGE_URL（bridge 工具全依赖宿主回调）。
+		const webAccessExtPath = join(GENERATED_DIR, "web-access.ts");
 		const spawnFn = makeSpawnFn({
 			resolveConfig: resolveSpawnConfig,
 			extensionPaths: [
 				...(existsSync(providerExtPath) ? [providerExtPath] : []),
+				...(existsSync(webAccessExtPath) ? [webAccessExtPath] : []),
 			],
 			// 派发前自愈：extension 文件可能与 providers.json 不同步（空壳/过时/手动改坏），
 			// 导致子进程报 "No API key found"。按需重生，保证子进程加载到含所需 provider 的 extension。

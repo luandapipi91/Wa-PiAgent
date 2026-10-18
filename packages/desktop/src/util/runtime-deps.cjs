@@ -1,7 +1,7 @@
 // 首启动态安装 kernel 运行时依赖（bun --compile 单二进制形态）。
 // 背景：编译产物内联了全部 JS 依赖，只有 3 个包必须在磁盘 node_modules：
 //   ① 原生 .node（@napi-rs/keyring，--external）；② pi RPC 子进程入口（pi-coding-agent/dist/cli.js）；
-//   ③ 内置扩展（pi-web-access）。
+//   ③ 内置扩展（现已无：web 工具改由随内核 bundle 的 web-access 扩展提供）。
 // .app 内 Resources/kernel 只读，不能就地 install，故：
 //   seed  （.app 只读）：package.json + bun.lock（内核二进制不进 runtime——见 SEED_FILES 注释）
 //   runtime（WA_PI_DIR/runtime 可写，默认 ~/.pi/agent/runtime）：复制 seed → 编译产物以

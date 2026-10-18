@@ -362,7 +362,7 @@ async function callBridge(
 
 // ———— Codemode only 档与第三方工具 ————
 // bridge 自身 14 个工具注册为 model-only（下方各 registerTool），only 档保持直接
-// 声明不失效。第三方扩展（pi-web-access、用户 packages）的工具曝光由其注册时
+// 声明不失效。第三方扩展（用户 packages）的工具曝光由其注册时
 // 的 definition 决定（默认 direct），pi 扩展 API 未暴露 getToolDefinition（完整
 // 定义含 execute 仅存于 AgentSession 内部），事后无法重注册换曝光——第三方工具
 // 在 only 档走脚本（codemode 描述里可见可调，属 only 正常语义，非失效）。

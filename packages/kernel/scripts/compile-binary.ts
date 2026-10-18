@@ -23,6 +23,7 @@ export const KERNEL_ASSET_FILES = [
 	join(KERNEL_SRC, "wa-pi-bridge.extension.ts"),
 	join(KERNEL_SRC, "file-snapshot.ts"),
 	join(KERNEL_SRC, "date-context.ts"),
+	join(KERNEL_SRC, "web-access.extension.ts"),
 	join(REPO_ROOT, "packages", "shared", "src", "tool-schemas.ts"),
 	join(KERNEL_SRC, "assets", "preview-inspect.js"),
 	join(KERNEL_SRC, "wa-pi-tui-host.extension.ts"),

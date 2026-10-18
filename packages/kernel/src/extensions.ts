@@ -124,8 +124,10 @@ function resolveLocalExtensionEntry(dir: string): string {
  * 工具被 allowlist 屏蔽、/agent 命令、banner）均无消费，仅残留误报 banner。
  * pi-mcp-adapter 已于 MCP 内置化迁移中移除——MCP 能力改由 pi 内置扩展
  * （builtin:mcp，默认加载）提供，无需再经 -e 注入第三方 adapter。
+ * pi-web-access 已于 2026-10-18 移除——web_search/fetch_content 改由 wa-pi
+ * 自研 web-access 扩展提供（DeepSeek Search/Fetch API，见 web-access.extension.ts）。
  */
-const PKG_EXTENSIONS = ["pi-web-access"] as const;
+const PKG_EXTENSIONS = [] as const;
 
 /**
  * 读取 npm 包 package.json 的 pi.extensions 声明。
@@ -159,8 +161,9 @@ function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
 
 /**
  * 构造传给 pi 进程 -e 参数的扩展入口（仅内置 + wa-pi 自生成）。
- * 含 PKG_EXTENSIONS（pi-web-access 等 wa-pi 内置依赖）、
+ * 含 PKG_EXTENSIONS（现已清空，历史曾为 pi-web-access 等）、
  * provider-extension（providers.json → GENERATED_DIR）、
+ * web-access（web_search/fetch_content，DeepSeek，见 web-access-deploy.ts）、
  * wa-pi-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）、
  * wa-pi-tui-host（图形界面下的 TUI 宿主，见 tui-host-deploy.ts）。
  *
@@ -174,6 +177,7 @@ export function buildAdditionalExtensionPaths(): string[] {
  // 首启或测试前可能尚未存在
  for (const generated of [
   "provider-extension.ts",
+  "web-access.ts",
   "wa-pi-bridge.ts",
   "wa-pi-tui-host.ts",
  ]) {

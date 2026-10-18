@@ -16,6 +16,7 @@ import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { getBuiltinProviderIds } from "./pi-catalog";
 import { refreshCatalogAndRegenerate } from "./model-catalog-refresh";
 import { ensureBridgeExtension } from "./bridge-extension";
+import { ensureWebAccessExtension } from "./web-access-deploy";
 import { deployTuiHostExtension } from "./tui-host-deploy";
 import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
@@ -240,6 +241,9 @@ export async function startKernel(opts?: {
 
 	// 启动时生成 bridge 扩展（幂等）：RPC 模式下 pi 子进程经它注册宿主工具并回调 /bridge/tool
 	await ensureBridgeExtension();
+
+	// 启动时部署 web-access 扩展（幂等）：pi 子进程经它注册 web_search/fetch_content（DeepSeek）
+	await ensureWebAccessExtension();
 
 	// 启动时部署宿主扩展（幂等）：RPC 模式下 pi 子进程经它接管 ctx.ui.custom，渲染图形面板
 	await deployTuiHostExtension();

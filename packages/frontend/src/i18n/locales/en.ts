@@ -839,7 +839,7 @@ const en = {
 			mcp: "MCP Connectors",
 			bots: "Bots",
 			diagnostics: "Diagnostics",
-			share: "Share",
+			share: "Web",
 			about: "About",
 		},
 		trashSection: "Session Archive",
@@ -863,6 +863,7 @@ const en = {
 			myShares: "My shares",
 			tabSettings: "Share settings",
 			tabShares: "My shares",
+			tabWebSearch: "Web search",
 			openFolder: "Open share folder",
 			empty: "No shares yet",
 			deploy: "Deploy now",
@@ -895,6 +896,19 @@ const en = {
 			spaceCreated: "Space created",
 			spaceHasSharesTitle:
 				"This space still has shares — clear them before deleting",
+		},
+		websearch: {
+			desc: "Web access is powered by the DeepSeek search engine (wa_web_search / wa_fetch_content). Toggle changes rebuild sessions after save — disabled tools become invisible to the model; API key takes effect immediately.",
+			searchToggle: "Web search",
+			searchToggleHint: "Let the model use the wa_web_search tool (billed per request)",
+			fetchToggle: "Web fetch",
+			fetchToggleHint: "Let the model use the wa_fetch_content tool to read page content (billed per request)",
+			apiKey: "DeepSeek API Key",
+			apiKeyHint: "Create one on the DeepSeek platform; shared by search and fetch. Masked after save",
+			save: "Save",
+			saving: "Saving…",
+			saved: "Web search settings saved — takes effect after session rebuild",
+			savedIndicator: "Saved",
 		},
 		general: {
 			exportTurns: {

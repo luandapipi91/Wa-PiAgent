@@ -11,6 +11,8 @@ import {
 	applySystemProxy,
 	loadShareSettings,
 	saveShareSettings,
+	loadWebSearchSettings,
+	saveWebSearchSettings,
 	loadLanguage,
 	saveLanguage,
 	loadCodemodeLevel,
@@ -74,6 +76,34 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 				channel: saved.channel,
 				customDomain: saved.customDomain,
 				accountId: saved.accountId,
+			},
+		});
+	});
+	// 互联网搜索配置（DeepSeek 搜索/抓取开关 + 共用 API key，web-access 扩展运行时自读同
+	// 一 settings.json，改完即时生效无需重建 pi 进程；ctx.settingsFile 供测试注入隔离文件）。
+	// 安全：GET/PUT 回包均不下发 apiKey 明文，脱敏为 hasApiKey 布尔；
+	// PUT 仍接收明文 key（用户输入），传空串/缺省时保留已存值。
+	r.add("GET", "/api/settings/websearch", async () => {
+		const webSearch = await loadWebSearchSettings(ctx.settingsFile);
+		return Response.json({
+			webSearch: {
+				searchEnabled: webSearch.searchEnabled,
+				fetchEnabled: webSearch.fetchEnabled,
+				hasApiKey: webSearch.apiKey !== "",
+			},
+		});
+	});
+	r.add("PUT", "/api/settings/websearch", async (req) => {
+		const b = await readJsonBody(req);
+		const saved = await saveWebSearchSettings(b.webSearch, ctx.settingsFile);
+		// 开关决定扩展是否注册工具（关 = 模型看不到）——注册面在 pi 进程启动时确定，
+		// 保存后标脏重建正在运行的会话，新开关状态才可见（对齐 proxy/codemode 模式）。
+		ctx.markAllDirty?.();
+		return Response.json({
+			webSearch: {
+				searchEnabled: saved.searchEnabled,
+				fetchEnabled: saved.fetchEnabled,
+				hasApiKey: saved.apiKey !== "",
 			},
 		});
 	});

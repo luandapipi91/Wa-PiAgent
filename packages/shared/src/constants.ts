@@ -157,7 +157,7 @@ export const ALL_AGENT_NAMES: string[] = [
 ];
 
 /** Agent 未显式配置 tools 时的默认工具集。
- *  含 Pi 内置工具、pi-web-access 网络工具、amaster memory 记忆工具。
+ *  含 Pi 内置工具、web-access 网络工具（web_search/fetch_content，DeepSeek）、amaster memory 记忆工具。
  *  注意：createAgentSession 的 tools 参数会被 SDK 当作 allowlist 使用，
  *  customTools（memory_add/replace/remove/read）同样要过这道 allowlist，
  *  未列出的工具会被过滤掉，因此必须在这里显式放行。 */
@@ -169,11 +169,11 @@ export const DEFAULT_AGENT_TOOLS = [
 	"grep",
 	"find",
 	"ls",
-	"web_search",
-	"fetch_content",
-	"get_search_content",
-	// pi-web-access 网络工具族：来源核查（多引擎检索 + passage 级引用评估）
-	"source_check",
+	"wa_web_search",
+	"wa_fetch_content",
+	// web-access 扩展（DeepSeek Search/Fetch API，web-access.extension.ts）；
+	// 带 wa_ 前缀避免与插件注册的 web_search/fetch_content 同名冲突（导致插件装不上）；
+	// pi-web-access 时代的 get_search_content/source_check 随移除不再提供
 	// amaster memory 记忆工具（host-controlled，经 customTools 注入，须显式放行）
 	"memory_add",
 	"memory_replace",

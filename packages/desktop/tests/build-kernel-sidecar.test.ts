@@ -14,14 +14,11 @@ test("buildRuntimeManifest: 精简清单——仅磁盘必需依赖，无 patche
   expect(m.dependencies["@earendil-works/pi-coding-agent"]).toBeString();
   // keyring：原生 .node 无法内联，external 从磁盘加载
   expect(m.dependencies["@napi-rs/keyring"]).toBeString();
-  // 内置扩展（PKG_EXTENSIONS）：pi 子进程经 -e 从磁盘加载 index.ts，必须落盘
-  // （Task 6 集成测试审计确认：缺失时 agent:prompt 报 Cannot find module '<pkg>'）
-  // pi-mcp-adapter 已随 MCP 内置化迁移移除，不得再回到清单里
+  // 内置 npm 扩展已清空：pi-mcp-adapter / pi-web-access 均已移除，不得再回到清单里
+  // （web 工具由自研 web-access 扩展提供，源码随内核 bundle 走 --asset，无需磁盘依赖）
   // 版本与 kernel package.json 单一来源一致（升级依赖时本测试自动跟随，不硬编码版本串）
   expect(m.dependencies["pi-mcp-adapter"]).toBeUndefined();
-  expect(m.dependencies["pi-web-access"]).toBe(
-    kernelPkg.dependencies["pi-web-access"],
-  );
+  expect(m.dependencies["pi-web-access"]).toBeUndefined();
   expect(m.dependencies["@earendil-works/pi-coding-agent"]).toBe(
     kernelPkg.dependencies["@earendil-works/pi-coding-agent"],
   );

@@ -24,6 +24,7 @@ import { ProgressBar } from "../ui/ProgressBar";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { Modal } from "../ui/Modal";
 import { useShareProgressStore } from "../../store/share-progress";
+import { WebSearchPanel } from "./WebSearchPanel";
 
 /**
  * 分享面板：「分享设置」与「我的分享」两个 tab。
@@ -233,7 +234,9 @@ function HelpDiagram({ variant }: { variant: "edgeone" | "cloudflare" }) {
 
 export function ShareSection() {
 	const { t } = useTranslation();
-	const [tab, setTab] = useState<"settings" | "shares">("settings");
+	const [tab, setTab] = useState<
+		"settings" | "shares" | "websearch"
+	>("websearch");
 	const [token, setToken] = useState("");
 	// 每个渠道的已保存标记：切渠道时按目标渠道恢复，不把已保存渠道的状态一刀切清空
 	const [savedByChannel, setSavedByChannel] = useState<{
@@ -558,7 +561,11 @@ export function ShareSection() {
 		</li>
 	);
 
-	const tabBtn = (key: "settings" | "shares", label: string, testid: string) => (
+	const tabBtn = (
+		key: "settings" | "shares" | "websearch",
+		label: string,
+		testid: string,
+	) => (
 		<button
 			onClick={() => setTab(key)}
 			className="px-3 py-1.5 text-sm cursor-pointer border-0 bg-transparent"
@@ -636,9 +643,16 @@ export function ShareSection() {
 				className="flex items-center gap-1 border-b border-hairline"
 				data-testid="share-tabs"
 			>
+				{tabBtn(
+					"websearch",
+					t("settings.share.tabWebSearch"),
+					"share-tab-websearch",
+				)}
 				{tabBtn("settings", t("settings.share.tabSettings"), "share-tab-settings")}
 				{tabBtn("shares", t("settings.share.tabShares"), "share-tab-shares")}
 			</div>
+
+			{tab === "websearch" && <WebSearchPanel />}
 
 			{tab === "settings" && (
 				<>

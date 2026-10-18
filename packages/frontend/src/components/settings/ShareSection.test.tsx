@@ -6,10 +6,18 @@
 // 5. 切换到 Cloudflare 渠道：显示 Account ID 输入框 + 注册链接 + 提示文案，保存带 accountId
 // 6. 我的分享：列表渲染 / 删除 / 复制链接 / 立即部署 / pending 提示
 import { test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as renderRaw, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ShareSection } from "./ShareSection";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { useShareProgressStore } from "../../store/share-progress";
+
+// 默认 tab 已改为「互联网搜索」（2026-10-18，放在第一位）：
+// 包装 render 同步切回「分享设置」tab，存量用例零改动。
+const render = (...args: Parameters<typeof renderRaw>) => {
+	const r = renderRaw(...args);
+	fireEvent.click(screen.getByTestId("share-tab-settings"));
+	return r;
+};
 
 const getMock = mock();
 const putMock = mock();
@@ -766,4 +774,17 @@ test("删除空间：确认弹窗后调用删除，toast 展示「不删云端�
 	await waitFor(() =>
 		expect(shareDeleteSpaceFactoryMock).toHaveBeenCalledWith("sp1"),
 	);
+});
+
+// 默认 tab 已改为「互联网搜索」（放在第一位）：
+test("默认激活「互联网搜索」tab（第一个 tab），计费说明已移除", async () => {
+	renderRaw(<ShareSection />);
+	// 互联网搜索面板直接可见（未点击任何 tab）
+	await screen.findByTestId("websearch-panel");
+	expect(screen.getByTestId("websearch-toggle-search")).toBeTruthy();
+	// 底部计费说明文案已移除
+	expect(screen.queryByText(/计费说明/)).toBeNull();
+	// tab 顺序：互联网搜索在最前
+	const tabs = document.querySelectorAll('[data-testid="share-tabs"] button');
+	expect((tabs[0] as HTMLElement).dataset.testid).toBe("share-tab-websearch");
 });

@@ -36,8 +36,8 @@ function run(bin: string, args: string[], cwd = ROOT) {
  *   ① 原生 .node 依赖（@napi-rs/keyring——无法内联进虚拟 FS，编译时 --external）；
  *   ② 需作为独立子进程入口的包（@earendil-works/pi-coding-agent——pi RPC 子进程
  *      执行其 dist/cli.js，子进程读不到父进程的虚拟 FS）；
- *   ③ 内置 Pi 扩展（PKG_EXTENSIONS：pi-web-access——kernel 经 -e
- *      把其入口 index.ts 传给 pi 子进程，子进程必须能从磁盘读到该包）。
+ *   ③ 内置 Pi 扩展（现已无 npm 形态内置扩展：PKG_EXTENSIONS 已清空，
+ *      web_search/fetch_content 由自研 web-access 扩展提供，源码随内核 bundle 走 --asset）。
  * 其余全部内联进编译产物（jiti 在虚拟 FS 内解析，规避 2026-07-12 external 失败根因）。
  * 无 patchedDependencies：patch 编译期已生效（--compile 内联的是已 patch 源码；
  * 磁盘副本供 -e 扩展加载，patch 仅涉及类型 + exports 子路径，不影响扩展执行）。
@@ -51,8 +51,8 @@ export const kernelRuntimeDependencies = (kernelPkg: {
 	"@earendil-works/pi-coding-agent":
 		kernelPkg.dependencies["@earendil-works/pi-coding-agent"],
 	"@napi-rs/keyring": kernelPkg.dependencies["@napi-rs/keyring"],
-	// 内置扩展（PKG_EXTENSIONS）：pi 子进程经 -e 从磁盘加载其 index.ts，必须落盘
-	"pi-web-access": kernelPkg.dependencies["pi-web-access"],
+	// 内置 npm 扩展已清空（pi-web-access 2026-10-18 移除：web 工具改由自研
+	// web-access 扩展提供，源码随内核 bundle 走 --asset，无需磁盘依赖）
 });
 
 /** 运行时 package.json（纯函数，便于测试断言） */

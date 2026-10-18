@@ -7,15 +7,14 @@ import { GENERATED_DIR } from "@wa-pi/shared";
 test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension 按需追加", () => {
   const paths = buildAdditionalExtensionPaths();
 
-  // npm 包入口必须存在且解析到实际 .ts 文件
-  const webAccess = paths.find((p) => p.includes("pi-web-access"));
-  expect(webAccess).toBeTruthy();
-  expect(webAccess!.endsWith(".ts")).toBe(true);
-  expect(existsSync(webAccess!)).toBe(true);
-
-  // pi-mcp-adapter 已随 MCP 内置化迁移移除：MCP 由 pi 内置扩展（builtin:mcp）提供，
-  // 不得再出现在 -e 注入清单里（也不得因残留依赖被静默带回）
+  // PKG_EXTENSIONS 已清空（pi-web-access 2026-10-18 移除：web 工具改由自研 web-access
+  // 扩展提供，走 GENERATED_DIR 按需追加），npm 形态内置扩展不得再出现
+  expect(paths.some((p) => p.includes("pi-web-access"))).toBe(false);
   expect(paths.some((p) => p.includes("pi-mcp-adapter"))).toBe(false);
+
+  // web-access（DeepSeek 搜索/抓取）由 GENERATED_DIR 按需追加（web-access-deploy.ts 部署）
+  const webAccessExt = join(GENERATED_DIR, "web-access.ts");
+  expect(paths.includes(webAccessExt)).toBe(existsSync(webAccessExt));
 
   // provider-extension 由 GENERATED_DIR 按需追加（文件存在时才加入）。
   // 用存在性等同断言而非创建文件，避免与 provider-extension.test.ts 并发写同一文件产生 flaky。

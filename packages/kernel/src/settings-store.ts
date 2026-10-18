@@ -13,7 +13,7 @@
 // 运行中的 pi 进程在启动时已加载 settings，保存后需重建进程才生效——
 // 由 ws-server 的 settings:save handler 调 agentManager.markAllDirty() 保证。
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { WA_PI_DIR } from "@wa-pi/shared";
@@ -51,6 +51,7 @@ interface SettingsJson {
 	retry?: Partial<RetrySettings>;
 	trash?: Partial<TrashSettings>;
 	share?: Partial<ShareSettings>;
+	webSearch?: Partial<WebSearchSettings>;
 	language?: KernelLanguage;
 	codemodeLevel?: CodemodeLevel;
 	// pi 引擎键：codemode 扩展启动时自读（mode: "only" = 其他工具不再直接声明）
@@ -69,12 +70,18 @@ async function readSettingsJson(file: string): Promise<SettingsJson> {
 	}
 }
 
+/** settings.json 原子写：先写 pid 级临时文件再 rename，避免并发读者读到半截 JSON。
+ *  背景（2026-10-18 事故）：非原子覆盖窗口内，另一进程读到不完整 JSON → 解析失败 →
+ *  以「空对象」为基座保存 → packages 等字段整块丢失（插件全部消失）。参照 mcp-file.ts
+ *  的 pid 级临时名（两个写者不会互踩同一个临时文件）。*/
 async function writeSettingsJson(
 	file: string,
 	settings: SettingsJson,
 ): Promise<void> {
 	await mkdir(dirname(file), { recursive: true });
-	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+	const tmp = `${file}.${process.pid}.tmp`;
+	await writeFile(tmp, JSON.stringify(settings, null, 2), "utf8");
+	await rename(tmp, file);
 }
 
 export async function loadRetrySettings(
@@ -747,6 +754,52 @@ export async function saveShareSettings(
 		spaces: share.spaces ?? settings.share?.spaces ?? [],
 	};
 	settings.share = next;
+	await writeSettingsJson(file, settings);
+	return next;
+}
+
+export interface WebSearchSettings {
+	/** 网页搜索（web_search 工具，DeepSeek Search API）开关 */
+	searchEnabled: boolean;
+	/** 网页抓取（fetch_content 工具，DeepSeek Fetch API）开关 */
+	fetchEnabled: boolean;
+	/** DeepSeek API Key（搜索/抓取共用，Bearer 鉴权） */
+	apiKey: string;
+}
+
+/** 互联网搜索默认值：双开关默认开启（与 pi-web-access 时代「工具一直可用」一致），
+ *  未配 key 时工具调用返回引导配置的错误文案，不影响会话其余部分。 */
+export const WEB_SEARCH_DEFAULTS: WebSearchSettings = {
+	searchEnabled: true,
+	fetchEnabled: true,
+	apiKey: "",
+};
+
+/** 读取互联网搜索配置；字段缺失逐项回退默认值 */
+export async function loadWebSearchSettings(
+	file: string = SETTINGS_FILE,
+): Promise<WebSearchSettings> {
+	const raw = (await readSettingsJson(file)).webSearch ?? {};
+	return {
+		searchEnabled: raw.searchEnabled ?? WEB_SEARCH_DEFAULTS.searchEnabled,
+		fetchEnabled: raw.fetchEnabled ?? WEB_SEARCH_DEFAULTS.fetchEnabled,
+		apiKey: raw.apiKey ?? "",
+	};
+}
+
+/** 保存互联网搜索配置（read-modify-write）。apiKey 传空串或缺省（undefined）时保留
+ * 已保存值：前端编辑开关时不会把 key 冲掉（对齐 share token 语义）。 */
+export async function saveWebSearchSettings(
+	webSearch: Partial<WebSearchSettings>,
+	file: string = SETTINGS_FILE,
+): Promise<WebSearchSettings> {
+	const settings = await readSettingsJson(file);
+	const next: WebSearchSettings = {
+		searchEnabled: webSearch.searchEnabled ?? WEB_SEARCH_DEFAULTS.searchEnabled,
+		fetchEnabled: webSearch.fetchEnabled ?? WEB_SEARCH_DEFAULTS.fetchEnabled,
+		apiKey: webSearch.apiKey ? webSearch.apiKey : (settings.webSearch?.apiKey ?? ""),
+	};
+	settings.webSearch = next;
 	await writeSettingsJson(file, settings);
 	return next;
 }
