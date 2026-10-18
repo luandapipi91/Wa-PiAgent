@@ -22,10 +22,6 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 | fflate | ^0.8.3 | MIT | Arjun Barrett (101arrowz) |
 | typebox | ^1.3.11 | MIT | Copyright (c) 2017-2026 Haydn Paterson |
 
-（2026-10-18 全量核对：pi 系版本随 1.3.0 升级修正；补录 pi-tui、@huggingface/transformers、
-@napi-rs/keyring、@noble/hashes、@sqliteai/sqlite-vector、cos-nodejs-sdk-v5、fflate；
-移除已删除的 pi-web-access。版本列为 packages/kernel/package.json 的声明区间，单一来源。）
-
 ## 运行时传递依赖中的非 MIT 宽松许可
 
 - **BlueOak-1.0.0**：glob、minimatch、path-scurry、yallist、lru-cache 等（经 @earendil-works/pi-coding-agent 链引入）。BlueOak 为宽松许可证，非 copyleft。
