@@ -168,7 +168,7 @@ export class RpcClient {
 		});
 		proc.exited.then(
 			(code) => {
-				this.onProcExit(code, proc.signalCode ?? null);
+				this.onProcExit(code, typeof proc.signalCode === "string" ? proc.signalCode : null);
 			},
 			(err) => {
 				// spawn 失败（如运行时缺失）时 exited reject，同样走退出处理
