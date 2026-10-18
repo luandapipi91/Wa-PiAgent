@@ -7,6 +7,8 @@
 //   1. 全量测试排除它们（--path-ignore-patterns）
 //   2. 用独立进程单独补跑它们（保证覆盖不丢，且互不污染）
 // 所有策略集中在本脚本，package.json 的 test 只负责调用本入口。
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 /** 会启动完整 kernel 的集成测试：单独进程跑，避免污染 worker 环境 */
@@ -124,6 +126,23 @@ function runTolerant(args: string[]): boolean {
 		`[test] [bun143] 宽免: ${label} 两次均 exit 非零但无任何断言失败（bun 1.4.3 退出析构 abort），按通过处理`,
 	);
 	return true;
+}
+
+// 模型离线化：无显式 WA_PI_MODEL_DIR 且包内缓存齐备时，把 embedder 指到包内缓存
+// （localModelPath 布局 Xenova/<model>）。否则测试隔离的 WA_PI_DIR 下无模型 →
+// 加载器走 hf-mirror 下载 → 429 限流 → 模型门判红（门查包内缓存、加载器却联网的错位）。
+// 无缓存环境不设置，保持原有「联网下载 / 无源 skip」语义。
+if (!process.env.WA_PI_MODEL_DIR) {
+	try {
+		const pkg = Bun.resolveSync("@huggingface/transformers/package.json", import.meta.dir);
+		const cache = join(dirname(pkg), ".cache");
+		if (existsSync(join(cache, "Xenova", "bge-base-zh-v1.5", "onnx", "model_quantized.onnx"))) {
+			process.env.WA_PI_MODEL_DIR = cache;
+			console.log("[test] 已启用包内模型缓存（离线语义）:", cache);
+		}
+	} catch {
+		/* 无 transformers 包 → 保持原语义 */
+	}
 }
 
 let ok = true;
