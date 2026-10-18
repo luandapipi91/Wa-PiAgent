@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
-// web-access.extension.ts —— wa-pi 内置网络工具（DeepSeek Search/Fetch API）
+// web-access.extension.ts —— wa-pi 内置网络工具（多供应商：DeepSeek / 智谱 BigModel）
 //
 // 本文件由 ensureWebAccessExtension() 复制到 GENERATED_DIR/web-access.ts，
 // pi 进程经 -e 加载（主会话 + 子代理同款注入）。
 //
 // 设计要点：
-// - 替代第三方扩展 pi-web-access（2026-10-18 移除）：只保留 web_search / fetch_content
-//   两个高频工具，实现改走 DeepSeek 自研搜索引擎（POST /v1/tools/search|fetch，
-//   Bearer 鉴权，按次计费 5 元/千次成功请求，各自 QPS 5）。
-// - 配置（双开关 + API key）存 <agentDir>/settings.json 的 webSearch 字段，
-//   每次工具执行时读取——设置页改动即时生效，无需重建会话。
+// - 替代第三方扩展 pi-web-access（2026-10-18 移除）：保留两个高频工具，供应商可配：
+//   • deepseek（默认）：POST /v1/tools/search | /v1/tools/fetch，Bearer 鉴权，
+//     按次计费 5 元/千次成功请求，各自 QPS 5
+//   • bigmodel（智谱）：POST /api/paas/v4/web_search | /api/paas/v4/reader，Bearer 鉴权
+// - 配置（供应商 + 双开关 + 各自 API key）存 <agentDir>/settings.json 的 webSearch 字段，
+//   每次工具执行时读取——开关变更保存后由 kernel markAllDirty 重建会话（注册面生效），
+//   key 保存后即时生效。
 // - 未配 key / 开关关闭时返回可操作的引导文案（不抛异常，对齐 bridge failResult 语义）。
 // - 408/429/5xx 自动重试（官方建议），401/402/403/404/400 不重试（改请求才有意义）。
 
@@ -22,8 +24,30 @@ import { homedir } from "node:os";
 
 const SEARCH_URL = "https://api.deepseek.com/v1/tools/search";
 const FETCH_URL = "https://api.deepseek.com/v1/tools/fetch";
+const BIGMODEL_SEARCH_URL = "https://open.bigmodel.cn/api/paas/v4/web_search";
+const BIGMODEL_FETCH_URL = "https://open.bigmodel.cn/api/paas/v4/reader";
 
-/** 单次请求兜底超时（ms）：DeepSeek 搜索/抓取正常秒级返回，120s 足够宽容 */
+/** 供应商标识（与 settings-store 的 WebSearchProvider 保持一致；扩展自含不导入） */
+type WebSearchProvider = "deepseek" | "bigmodel";
+
+const PROVIDERS: readonly WebSearchProvider[] = ["deepseek", "bigmodel"];
+
+function normalizeProvider(v: unknown): WebSearchProvider {
+	return PROVIDERS.includes(v as WebSearchProvider)
+		? (v as WebSearchProvider)
+		: "deepseek";
+}
+
+function providerLabel(p: WebSearchProvider): string {
+	return p === "bigmodel" ? "智谱 BigModel" : "DeepSeek";
+}
+
+/** 智谱 web_search 的 query 上限（官方：建议 ≤70 字符，Maximum string length: 70） */
+const BIGMODEL_QUERY_LIMIT = 70;
+/** 智谱搜索引擎编码：search_std 基础版（搜索意由配置默认，不暴露 UI） */
+const BIGMODEL_SEARCH_ENGINE = "search_std";
+
+/** 单次请求兜底超时（ms）：搜索/抓取正常秒级返回，120s 足够宽容（智谱 reader 默认 20s 自身会超时返回） */
 const REQUEST_TIMEOUT_MS = 120_000;
 /** 可重试状态码（官方：408/429/5xx 等待后重试） */
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
@@ -31,15 +55,19 @@ const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 const MAX_RETRIES = 2;
 
 interface WebSearchConfig {
+	provider: WebSearchProvider;
 	searchEnabled: boolean;
 	fetchEnabled: boolean;
 	apiKey: string;
+	apiKeyBigmodel: string;
 }
 
 const CONFIG_DEFAULTS: WebSearchConfig = {
+	provider: "deepseek",
 	searchEnabled: true,
 	fetchEnabled: true,
 	apiKey: "",
+	apiKeyBigmodel: "",
 };
 
 /** settings.json 路径每次执行时求值：WA_PI_DIR / PI_CODING_AGENT_DIR 双源兜底
@@ -58,9 +86,11 @@ async function loadConfig(): Promise<WebSearchConfig> {
 		const raw = JSON.parse(await readFile(settingsPath(), "utf8"));
 		const ws = raw?.webSearch ?? {};
 		return {
+			provider: normalizeProvider(ws.provider),
 			searchEnabled: ws.searchEnabled ?? CONFIG_DEFAULTS.searchEnabled,
 			fetchEnabled: ws.fetchEnabled ?? CONFIG_DEFAULTS.fetchEnabled,
 			apiKey: typeof ws.apiKey === "string" ? ws.apiKey : "",
+			apiKeyBigmodel: typeof ws.apiKeyBigmodel === "string" ? ws.apiKeyBigmodel : "",
 		};
 	} catch {
 		return { ...CONFIG_DEFAULTS };
@@ -75,9 +105,11 @@ function loadConfigSync(): WebSearchConfig {
 		const raw = JSON.parse(readFileSync(settingsPath(), "utf8"));
 		const ws = raw?.webSearch ?? {};
 		return {
+			provider: normalizeProvider(ws.provider),
 			searchEnabled: ws.searchEnabled ?? CONFIG_DEFAULTS.searchEnabled,
 			fetchEnabled: ws.fetchEnabled ?? CONFIG_DEFAULTS.fetchEnabled,
 			apiKey: typeof ws.apiKey === "string" ? ws.apiKey : "",
+			apiKeyBigmodel: typeof ws.apiKeyBigmodel === "string" ? ws.apiKeyBigmodel : "",
 		};
 	} catch {
 		return { ...CONFIG_DEFAULTS };
@@ -93,11 +125,11 @@ function textResult(text: string, error?: string) {
 	};
 }
 
-/** 从 DeepSeek 错误响应体提取 message（OpenAI 兼容格式，可能缺省） */
+/** 从供应商错误响应体提取 message（OpenAI 兼容格式优先，智谱等其它格式回退 HTTP 状态） */
 async function errorMessage(res: Response): Promise<string> {
 	try {
 		const body = await res.json();
-		return body?.error?.message || `HTTP ${res.status}`;
+		return body?.error?.message || body?.message || `HTTP ${res.status}`;
 	} catch {
 		return `HTTP ${res.status}`;
 	}
@@ -105,9 +137,9 @@ async function errorMessage(res: Response): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** 带重试的 DeepSeek POST：408/429/5xx 退避重试（1s/2s），其余状态一次性返回。
- *  返回 { ok: true, data } 或 { ok: false, status, message }。 */
-async function deepSeekPost(
+/** 带重试的供应商 POST（DeepSeek/智谱同为 Bearer + JSON）：408/429/5xx 退避重试（1s/2s），
+ *  其余状态一次性返回。返回 { ok: true, data } 或 { ok: false, status, message }。 */
+async function postJson(
 	url: string,
 	apiKey: string,
 	body: unknown,
@@ -153,14 +185,16 @@ async function deepSeekPost(
 	return { ok: false, status: 0, message: "unreachable" }; // 循环必经 return，防御性兜底
 }
 
-/** 把 API 失败翻译成模型可操作的中文文案（引导用户/模型下一步动作） */
-function failureText(kind: "搜索" | "抓取", status: number, message: string): string {
+/** 把 API 失败翻译成模型可操作的中文文案（引导用户/模型下一步动作）。
+ *  DeepSeek 专属码（402 余额）在智谱侧不会出现，无害保留。 */
+function failureText(kind: "搜索" | "抓取", provider: WebSearchProvider, status: number, message: string): string {
+	const vendor = providerLabel(provider);
 	if (status === 401)
-		return `${kind}失败：DeepSeek API Key 无效或缺失。请到 设置 → 联网 → 互联网搜索 检查 API Key。`;
+		return `${kind}失败：${vendor} API Key 无效或缺失。请到 设置 → 联网 → 互联网搜索 检查当前供应商的 API Key。`;
 	if (status === 402)
-		return `${kind}失败：DeepSeek 账号余额不足。请到 DeepSeek 平台充值后重试。`;
+		return `${kind}失败：${vendor} 账号余额不足。请到 ${vendor} 平台充值后重试。`;
 	if (status === 403)
-		return `${kind}失败：请求被 DeepSeek 安全策略拒绝（HTTP 403）。${message}`;
+		return `${kind}失败：请求被 ${vendor} 安全策略拒绝（HTTP 403）。${message}`;
 	if (status === 404)
 		return `${kind}失败：无法抓取该网页（URL 不可用、被站点拦截、内容类型不受支持或页面无可提取正文）。可换用 wa_web_search 搜索同主题信息。（该次调用不计费）`;
 	if (status === 0) return `${kind}失败：${message}（已自动重试仍失败，请检查网络后重试）`;
@@ -171,7 +205,7 @@ function failureText(kind: "搜索" | "抓取", status: number, message: string)
 // 工具名带 wa_ 前缀：避免与插件（如 pi-web-access）注册的 web_search/fetch_content 同名冲突——
 // 重名会触发插件安装/加载拦截，导致插件装不上（2026-10-18 用户实测）。
 
-const SEARCH_DESCRIPTION = `联网搜索网页（DeepSeek 搜索引擎）。返回结构化结果列表：标题、链接、短摘要（snippet，约 100-200 字符）、长摘要（summary，约 600-800 字符，适合模型阅读），need_content 为 true 时附带网页正文（每条截断至 4000 字符）。query 支持 site: / -site: / "精确短语" / lang:zh,en / after:2025-01-01 / before:2026 语法。按次计费，请在需要实时信息时使用。`;
+const SEARCH_DESCRIPTION = `联网搜索网页（供应商可在 设置 → 联网 选择：DeepSeek / 智谱 BigModel）。返回结构化结果列表：标题、链接、站点、日期与摘要。query 支持 site: / -site: / "精确短语" 等搜索语法（DeepSeek 另支持 lang:zh,en / after:2025-01-01 / before:2026）。按次计费，请在需要实时信息时使用。`;
 
 const FETCH_DESCRIPTION = `抓取单个网页，返回页面标题与 Markdown 正文。适用于：读取 wa_web_search 结果中的具体页面、获取用户提供的 URL 内容。返回的是整页 Markdown，可能包含导航栏、页脚、日历组件、推广引导等噪声内容——引用信息前请自行过滤，优先采信正文主体。受目标站点可用性与访问策略影响，抓取失败不计费。`;
 
@@ -240,6 +274,44 @@ function isFetchableUrl(url: string): boolean {
 	}
 }
 
+/** 当前供应商的 API Key（缺失返回空串） */
+function keyFor(cfg: WebSearchConfig): string {
+	return cfg.provider === "bigmodel" ? cfg.apiKeyBigmodel : cfg.apiKey;
+}
+
+/** 智谱 web_search 请求体：query 官方上限 70 字符（超长自动截断，模型无感知）；
+ *  search_engine 固定基础版（search_std，不暴露 UI）；无 ori_question/need_content 对应参数 */
+function bigmodelSearchBody(query: string, count: number) {
+	return {
+		search_query: query.slice(0, BIGMODEL_QUERY_LIMIT),
+		search_engine: BIGMODEL_SEARCH_ENGINE,
+		count: Math.min(50, Math.max(1, Math.round(count))),
+	};
+}
+
+/** 智谱搜索结果格式化：search_result[]（title/link/media/publish_date/content）。
+ *  content 为网页内容（长度不定），截 800 字符当摘要展示。 */
+function formatBigmodelResults(query: string, results: any[]): string {
+	if (!Array.isArray(results) || results.length === 0) {
+		return `没有找到与「${query}」相关的搜索结果。可尝试更换关键词后重试。`;
+	}
+	const lines: string[] = [`共 ${results.length} 条结果（${query}）：`, ""];
+	results.forEach((r, i) => {
+		lines.push(`${i + 1}. [${r.title ?? "(无标题)"}](${r.link ?? ""})`);
+		if (r.media)
+			lines.push(
+				`   站点：${r.media}${r.publish_date ? ` · ${String(r.publish_date).slice(0, 10)}` : ""}`,
+			);
+		if (r.content) {
+			const c = String(r.content);
+			const summary = c.length > 800 ? `${c.slice(0, 800)}…（已截断）` : c;
+			lines.push(`   摘要：${summary}`);
+		}
+		lines.push("");
+	});
+	return lines.join("\n");
+}
+
 export default function webAccessExtension(pi: ExtensionAPI) {
 	// 开关关闭 → 不注册：模型直接看不到该工具（而非看到但调用失败）。
 	// 运行中改开关由 kernel 保存时 markAllDirty 重建会话 → 扩展重载 → 新注册面生效。
@@ -257,13 +329,36 @@ export default function webAccessExtension(pi: ExtensionAPI) {
 					"互联网搜索未开启。请到 设置 → 联网 → 互联网搜索 打开「网页搜索」开关后重试。",
 					"web_search_disabled",
 				);
-			if (!cfg.apiKey)
+			const apiKey = keyFor(cfg);
+			if (!apiKey)
 				return textResult(
-					"互联网搜索未配置 DeepSeek API Key。请到 设置 → 联网 → 互联网搜索 填入 API Key 后重试。",
+					`互联网搜索未配置 ${providerLabel(cfg.provider)} API Key。请到 设置 → 联网 → 互联网搜索 填入当前供应商的 API Key 后重试。`,
 					"web_search_no_api_key",
 				);
 			const query = params.query.trim();
-			if (!query || query.length > 128)
+			if (!query)
+				return textResult(
+					"搜索词不合法：query 不能为空。请提供搜索词后重试。",
+					"invalid_query",
+				);
+			if (cfg.provider === "bigmodel") {
+				// 智谱 BigModel：query ≤70 超长自动截断；无 ori_question/need_content 对应参数
+				const res = await postJson(
+					BIGMODEL_SEARCH_URL,
+					apiKey,
+					bigmodelSearchBody(query, params.count ?? 10),
+					signal,
+				);
+				if (!res.ok)
+					return textResult(
+						failureText("搜索", cfg.provider, res.status, res.message),
+						`search_http_${res.status}`,
+					);
+				return textResult(
+					formatBigmodelResults(query, res.data?.search_result ?? []),
+				);
+			}
+			if (query.length > 128)
 				return textResult(
 					"搜索词不合法：query 必须为 1-128 个字符。请缩短或调整后重试。",
 					"invalid_query",
@@ -274,10 +369,10 @@ export default function webAccessExtension(pi: ExtensionAPI) {
 				need_content: params.need_content ?? false,
 			};
 			if (params.ori_question) body.ori_question = params.ori_question;
-			const res = await deepSeekPost(SEARCH_URL, cfg.apiKey, body, signal);
+			const res = await postJson(SEARCH_URL, apiKey, body, signal);
 			if (!res.ok)
 				return textResult(
-					failureText("搜索", res.status, res.message),
+					failureText("搜索", cfg.provider, res.status, res.message),
 					`search_http_${res.status}`,
 				);
 			return textResult(formatSearchResults(query, res.data?.results ?? []));
@@ -297,9 +392,10 @@ export default function webAccessExtension(pi: ExtensionAPI) {
 					"网页抓取未开启。请到 设置 → 联网 → 互联网搜索 打开「网页抓取」开关后重试。",
 					"fetch_disabled",
 				);
-			if (!cfg.apiKey)
+			const apiKey = keyFor(cfg);
+			if (!apiKey)
 				return textResult(
-					"网页抓取未配置 DeepSeek API Key。请到 设置 → 联网 → 互联网搜索 填入 API Key 后重试。",
+					`网页抓取未配置 ${providerLabel(cfg.provider)} API Key。请到 设置 → 联网 → 互联网搜索 填入当前供应商的 API Key 后重试。`,
 					"fetch_no_api_key",
 				);
 			if (!isFetchableUrl(params.url))
@@ -307,15 +403,38 @@ export default function webAccessExtension(pi: ExtensionAPI) {
 					`URL 不合法：仅支持带主机名的 HTTP/HTTPS 地址（收到「${params.url.slice(0, 200)}」）。`,
 					"invalid_url",
 				);
-			const res = await deepSeekPost(
+			if (cfg.provider === "bigmodel") {
+				// 智谱网页阅读：reader_result{content,title}，return_format=markdown 与工具语义一致
+				const res = await postJson(
+					BIGMODEL_FETCH_URL,
+					apiKey,
+					{ url: params.url, return_format: "markdown" },
+					signal,
+				);
+				if (!res.ok)
+					return textResult(
+						failureText("抓取", cfg.provider, res.status, res.message),
+						`fetch_http_${res.status}`,
+					);
+				const rr = res.data?.reader_result ?? {};
+				const title = rr.title ?? "";
+				const content = rr.content ?? "";
+				if (!content)
+					return textResult(
+						"抓取成功但页面没有可提取的正文内容。",
+						"fetch_empty_content",
+					);
+				return textResult(title ? `# ${title}\n\n${content}` : content);
+			}
+			const res = await postJson(
 				FETCH_URL,
-				cfg.apiKey,
+				apiKey,
 				{ url: params.url },
 				signal,
 			);
 			if (!res.ok)
 				return textResult(
-					failureText("抓取", res.status, res.message),
+					failureText("抓取", cfg.provider, res.status, res.message),
 					`fetch_http_${res.status}`,
 				);
 			const title = res.data?.title ?? "";

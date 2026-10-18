@@ -6,25 +6,43 @@ import { useToastStore } from "../../store/toast";
 
 /**
  * 互联网搜索面板（设置 → 联网 → 互联网搜索 tab）：
- * DeepSeek 搜索/抓取双开关 + 共用 API Key（密码框，已保存时脱敏展示）。
- * 保存走 GET/PUT /api/settings/websearch；key 明文只在 PUT 上行，回包恒脱敏（hasApiKey）。
- * kernel 侧 web-access 扩展每次工具执行时自读同一 settings.json，保存后即时生效，无需重启。
+ * 供应商选择（DeepSeek / 智谱 BigModel）+ 搜索/抓取双开关 + 各自 API Key（密码框，已保存时脱敏展示）。
+ * 保存走 GET/PUT /api/settings/websearch；key 明文只在 PUT 上行，回包恒脱敏（hasApiKey*）。
+ * 开关/供应商决定扩展注册面——保存后 kernel 标脏重建会话生效；key 本身即时生效。
  */
 
+type WebSearchProvider = "deepseek" | "bigmodel";
+
 interface WebSearchSettingsView {
+	provider: WebSearchProvider;
 	searchEnabled: boolean;
 	fetchEnabled: boolean;
 	hasApiKey: boolean;
+	hasApiKeyBigmodel: boolean;
+}
+
+/** key 输入框的掩码/编辑状态 */
+interface KeyState {
+	value: string;
+	hasSaved: boolean;
+	touched: boolean;
 }
 
 export function WebSearchPanel() {
 	const { t } = useTranslation();
+	const [provider, setProvider] = useState<WebSearchProvider>("deepseek");
 	const [searchEnabled, setSearchEnabled] = useState(true);
 	const [fetchEnabled, setFetchEnabled] = useState(true);
-	const [apiKey, setApiKey] = useState("");
-	// 服务端是否已存 key（决定掩码态）；keyTouched 表示用户点了「修改」进入输入态
-	const [hasKey, setHasKey] = useState(false);
-	const [keyTouched, setKeyTouched] = useState(false);
+	const [deepseekKey, setDeepseekKey] = useState<KeyState>({
+		value: "",
+		hasSaved: false,
+		touched: false,
+	});
+	const [bigmodelKey, setBigmodelKey] = useState<KeyState>({
+		value: "",
+		hasSaved: false,
+		touched: false,
+	});
 	const [saving, setSaving] = useState(false);
 	const [saved, setSaved] = useState(false);
 
@@ -34,9 +52,12 @@ export function WebSearchPanel() {
 			.then((res) => {
 				const ws = (res as { webSearch?: WebSearchSettingsView })?.webSearch;
 				if (!ws) return;
+				if (ws.provider === "bigmodel" || ws.provider === "deepseek")
+					setProvider(ws.provider);
 				setSearchEnabled(ws.searchEnabled);
 				setFetchEnabled(ws.fetchEnabled);
-				setHasKey(ws.hasApiKey);
+				setDeepseekKey((prev) => ({ ...prev, hasSaved: ws.hasApiKey }));
+				setBigmodelKey((prev) => ({ ...prev, hasSaved: ws.hasApiKeyBigmodel }));
 			})
 			.catch(() => {});
 	}, []);
@@ -46,16 +67,21 @@ export function WebSearchPanel() {
 		try {
 			const res = await api.put("/api/settings/websearch", {
 				webSearch: {
+					provider,
 					searchEnabled,
 					fetchEnabled,
-					// 空串 = 保留已存 key（服务端语义）；输入了新值才覆盖
-					apiKey,
+					// 原样上传：输入了新值就覆盖；空串 = 服务端保留已存 key
+					apiKey: deepseekKey.value,
+					apiKeyBigmodel: bigmodelKey.value,
 				},
 			});
 			const ws = (res as { webSearch?: WebSearchSettingsView })?.webSearch;
-			if (ws) setHasKey(ws.hasApiKey);
-			setApiKey("");
-			setKeyTouched(false);
+			if (ws) {
+				setDeepseekKey((prev) => ({ ...prev, hasSaved: ws.hasApiKey }));
+				setBigmodelKey((prev) => ({ ...prev, hasSaved: ws.hasApiKeyBigmodel }));
+			}
+			setDeepseekKey((prev) => ({ ...prev, value: "", touched: false }));
+			setBigmodelKey((prev) => ({ ...prev, value: "", touched: false }));
 			setSaved(true);
 			useToastStore.getState().add(t("settings.websearch.saved"), "success");
 			setTimeout(() => setSaved(false), 2000);
@@ -66,14 +92,19 @@ export function WebSearchPanel() {
 		}
 	};
 
-	const keyField =
-		hasKey && !keyTouched ? (
-			<div className="flex items-center gap-3 w-72" data-testid="websearch-key-mask">
+	const keyField = (
+		state: KeyState,
+		onTouched: () => void,
+		onChange: (v: string) => void,
+		testid: string,
+	) =>
+		state.hasSaved && !state.touched ? (
+			<div className="flex items-center gap-3 w-72" data-testid={`${testid}-mask`}>
 				<span className="text-sm text-secondary tracking-widest">••••••••</span>
 				<button
-					onClick={() => setKeyTouched(true)}
+					onClick={onTouched}
 					className="px-2 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
-					data-testid="websearch-key-modify"
+					data-testid={`${testid}-modify`}
 				>
 					{t("settings.share.modify")}
 				</button>
@@ -81,13 +112,13 @@ export function WebSearchPanel() {
 		) : (
 			<input
 				type="password"
-				value={apiKey}
-				onChange={(e) => setApiKey(e.target.value)}
+				value={state.value}
+				onChange={(e) => onChange(e.target.value)}
 				placeholder="sk-..."
 				autoComplete="off"
 				spellCheck={false}
 				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-72"
-				data-testid="websearch-key-input"
+				data-testid={`${testid}-input`}
 			/>
 		);
 
@@ -96,6 +127,38 @@ export function WebSearchPanel() {
 			<p className="text-xs text-secondary leading-relaxed">
 				{t("settings.websearch.desc")}
 			</p>
+
+			<div className="flex flex-col gap-1" data-testid="websearch-provider">
+				<span className="text-sm font-medium text-primary">
+					{t("settings.websearch.providerLabel")}
+				</span>
+				<div className="flex items-center gap-4">
+					<label className="flex items-center gap-1.5 cursor-pointer">
+						<input
+							type="radio"
+							name="websearch-provider"
+							checked={provider === "deepseek"}
+							onChange={() => setProvider("deepseek")}
+							data-testid="websearch-provider-deepseek"
+						/>
+						<span className="text-xs text-secondary">
+							{t("settings.websearch.providerDeepseek")}
+						</span>
+					</label>
+					<label className="flex items-center gap-1.5 cursor-pointer">
+						<input
+							type="radio"
+							name="websearch-provider"
+							checked={provider === "bigmodel"}
+							onChange={() => setProvider("bigmodel")}
+							data-testid="websearch-provider-bigmodel"
+						/>
+						<span className="text-xs text-secondary">
+							{t("settings.websearch.providerBigmodel")}
+						</span>
+					</label>
+				</div>
+			</div>
 
 			<label className="flex flex-col gap-1 cursor-pointer w-fit">
 				<span className="flex items-center gap-2">
@@ -131,15 +194,39 @@ export function WebSearchPanel() {
 				</span>
 			</label>
 
-			<label className="flex flex-col gap-1 w-fit">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.websearch.apiKey")}
-				</span>
-				{keyField}
-				<span className="text-xs text-secondary">
-					{t("settings.websearch.apiKeyHint")}
-				</span>
-			</label>
+			{provider === "deepseek" && (
+				<label className="flex flex-col gap-1 w-fit">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.websearch.apiKey")}
+					</span>
+					{keyField(
+						deepseekKey,
+						() => setDeepseekKey((prev) => ({ ...prev, touched: true })),
+						(v) => setDeepseekKey((prev) => ({ ...prev, value: v })),
+						"websearch-key-deepseek",
+					)}
+					<span className="text-xs text-secondary">
+						{t("settings.websearch.apiKeyHint")}
+					</span>
+				</label>
+			)}
+
+			{provider === "bigmodel" && (
+				<label className="flex flex-col gap-1 w-fit">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.websearch.apiKeyBigmodel")}
+					</span>
+					{keyField(
+						bigmodelKey,
+						() => setBigmodelKey((prev) => ({ ...prev, touched: true })),
+						(v) => setBigmodelKey((prev) => ({ ...prev, value: v })),
+						"websearch-key-bigmodel",
+					)}
+					<span className="text-xs text-secondary">
+						{t("settings.websearch.apiKeyBigmodelHint")}
+					</span>
+				</label>
+			)}
 
 			<div className="flex items-center gap-3">
 				<button

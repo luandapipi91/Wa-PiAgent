@@ -22,23 +22,62 @@ test("默认值：两个开关开启、apiKey 为空（没配 key 也能开工�
     ...WEB_SEARCH_DEFAULTS,
   });
   expect(WEB_SEARCH_DEFAULTS).toEqual({
+    provider: "deepseek",
     searchEnabled: true,
     fetchEnabled: true,
     apiKey: "",
+    apiKeyBigmodel: "",
   });
 });
 
-test("save 后 load 往返一致", async () => {
+test("非法 provider 回退 deepseek（存盘脏值防御）", async () => {
   const file = join(dir, "settings.json");
   await saveWebSearchSettings(
-    { searchEnabled: false, fetchEnabled: true, apiKey: "sk-deepseek-1" },
+    { provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "" },
+    file,
+  );
+  const raw = JSON.parse(
+    await require("node:fs/promises").readFile(file, "utf8"),
+  );
+  raw.webSearch.provider = "hacker";
+  await require("node:fs/promises").writeFile(file, JSON.stringify(raw));
+  expect((await loadWebSearchSettings(file)).provider).toBe("deepseek");
+});
+
+test("save 后 load 往返一致（含 provider 与双 key）", async () => {
+  const file = join(dir, "settings.json");
+  await saveWebSearchSettings(
+    {
+      provider: "bigmodel",
+      searchEnabled: false,
+      fetchEnabled: true,
+      apiKey: "sk-deepseek-1",
+      apiKeyBigmodel: "zhu-pu-1",
+    },
     file,
   );
   expect(await loadWebSearchSettings(file)).toEqual({
+    provider: "bigmodel",
     searchEnabled: false,
     fetchEnabled: true,
     apiKey: "sk-deepseek-1",
+    apiKeyBigmodel: "zhu-pu-1",
   });
+});
+
+test("apiKeyBigmodel 传空串保留已存值（切供应商不冲掉 key）", async () => {
+  const file = join(dir, "settings.json");
+  await saveWebSearchSettings(
+    { provider: "bigmodel", searchEnabled: true, fetchEnabled: true, apiKeyBigmodel: "zhu-keep" },
+    file,
+  );
+  await saveWebSearchSettings(
+    { provider: "bigmodel", searchEnabled: false, fetchEnabled: false, apiKeyBigmodel: "" },
+    file,
+  );
+  const loaded = await loadWebSearchSettings(file);
+  expect(loaded.apiKeyBigmodel).toBe("zhu-keep");
+  expect(loaded.searchEnabled).toBe(false);
 });
 
 test("save 时 apiKey 传空串保留已存值（编辑开关不冲掉 key，对齐 share token 语义）", async () => {

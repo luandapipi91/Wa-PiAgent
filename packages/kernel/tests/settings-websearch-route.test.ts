@@ -42,9 +42,11 @@ describe("GET /api/settings/websearch", () => {
 		expect(res?.status).toBe(200);
 		expect(await res?.json()).toEqual({
 			webSearch: {
+				provider: "deepseek",
 				searchEnabled: true,
 				fetchEnabled: true,
 				hasApiKey: false,
+				hasApiKeyBigmodel: false,
 			},
 		});
 	});
@@ -68,15 +70,19 @@ describe("PUT /api/settings/websearch", () => {
 		expect(res?.status).toBe(200);
 		expect(await res?.json()).toEqual({
 			webSearch: {
+				provider: "deepseek",
 				searchEnabled: true,
 				fetchEnabled: false,
 				hasApiKey: true,
+				hasApiKeyBigmodel: false,
 			},
 		});
 		expect(await loadWebSearchSettings(file)).toEqual({
+			provider: "deepseek",
 			searchEnabled: true,
 			fetchEnabled: false,
 			apiKey: "sk-deepseek-abc",
+			apiKeyBigmodel: "",
 		});
 		// 保存后触发会话重建标记（开关决定注册面，需重建才对模型可见性生效）
 		expect(markDirtyMock).toHaveBeenCalledTimes(1);
@@ -106,9 +112,11 @@ describe("PUT /api/settings/websearch", () => {
 		);
 		expect(await res?.json()).toEqual({
 			webSearch: {
+				provider: "deepseek",
 				searchEnabled: false,
 				fetchEnabled: true,
 				hasApiKey: true,
+				hasApiKeyBigmodel: false,
 			},
 		});
 	});
@@ -128,9 +136,11 @@ describe("PUT /api/settings/websearch", () => {
 		);
 		expect(await res?.json()).toEqual({
 			webSearch: {
+				provider: "deepseek",
 				searchEnabled: false,
 				fetchEnabled: false,
 				hasApiKey: false,
+				hasApiKeyBigmodel: false,
 			},
 		});
 	});

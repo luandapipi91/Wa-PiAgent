@@ -759,45 +759,74 @@ export async function saveShareSettings(
 }
 
 export interface WebSearchSettings {
-	/** 网页搜索（web_search 工具，DeepSeek Search API）开关 */
+	/** 网页搜索（wa_web_search 工具）开关 */
 	searchEnabled: boolean;
-	/** 网页抓取（fetch_content 工具，DeepSeek Fetch API）开关 */
+	/** 网页抓取（wa_fetch_content 工具）开关 */
 	fetchEnabled: boolean;
+	/** 供应商：deepseek（默认）/ bigmodel（智谱 BigModel） */
+	provider: WebSearchProvider;
 	/** DeepSeek API Key（搜索/抓取共用，Bearer 鉴权） */
 	apiKey: string;
+	/** 智谱 BigModel API Key（搜索/抓取共用，Bearer 鉴权） */
+	apiKeyBigmodel: string;
 }
 
-/** 互联网搜索默认值：双开关默认开启（与 pi-web-access 时代「工具一直可用」一致），
+export type WebSearchProvider = "deepseek" | "bigmodel";
+
+/** 互联网搜索默认值：供应商 deepseek、双开关默认开启（与 pi-web-access 时代「工具一直可用」一致），
  *  未配 key 时工具调用返回引导配置的错误文案，不影响会话其余部分。 */
 export const WEB_SEARCH_DEFAULTS: WebSearchSettings = {
+	provider: "deepseek",
 	searchEnabled: true,
 	fetchEnabled: true,
 	apiKey: "",
+	apiKeyBigmodel: "",
 };
 
-/** 读取互联网搜索配置；字段缺失逐项回退默认值 */
+const WEB_SEARCH_PROVIDERS: readonly WebSearchProvider[] = [
+	"deepseek",
+	"bigmodel",
+];
+
+/** 读取互联网搜索配置；字段缺失逐项回退默认值。
+ *  供应商值非法时回退 deepseek；旧版本 apiKey 直接作为 deepseek key 沿用（字段同名无需迁移）。 */
 export async function loadWebSearchSettings(
 	file: string = SETTINGS_FILE,
 ): Promise<WebSearchSettings> {
 	const raw = (await readSettingsJson(file)).webSearch ?? {};
+	const provider = WEB_SEARCH_PROVIDERS.includes(raw.provider as WebSearchProvider)
+		? (raw.provider as WebSearchProvider)
+		: WEB_SEARCH_DEFAULTS.provider;
 	return {
+		provider,
 		searchEnabled: raw.searchEnabled ?? WEB_SEARCH_DEFAULTS.searchEnabled,
 		fetchEnabled: raw.fetchEnabled ?? WEB_SEARCH_DEFAULTS.fetchEnabled,
 		apiKey: raw.apiKey ?? "",
+		apiKeyBigmodel: raw.apiKeyBigmodel ?? "",
 	};
 }
 
-/** 保存互联网搜索配置（read-modify-write）。apiKey 传空串或缺省（undefined）时保留
- * 已保存值：前端编辑开关时不会把 key 冲掉（对齐 share token 语义）。 */
+/** 保存互联网搜索配置（read-modify-write）。apiKey/apiKeyBigmodel 传空串或缺省（undefined）时
+ *  保留已保存值：前端编辑开关/切换供应商时不会把 key 冲掉（对齐 share token 语义）。 */
 export async function saveWebSearchSettings(
 	webSearch: Partial<WebSearchSettings>,
 	file: string = SETTINGS_FILE,
 ): Promise<WebSearchSettings> {
 	const settings = await readSettingsJson(file);
+	const provider =
+		webSearch.provider &&
+		WEB_SEARCH_PROVIDERS.includes(webSearch.provider)
+			? webSearch.provider
+			: (settings.webSearch?.provider as WebSearchProvider | undefined) ??
+				WEB_SEARCH_DEFAULTS.provider;
 	const next: WebSearchSettings = {
+		provider,
 		searchEnabled: webSearch.searchEnabled ?? WEB_SEARCH_DEFAULTS.searchEnabled,
 		fetchEnabled: webSearch.fetchEnabled ?? WEB_SEARCH_DEFAULTS.fetchEnabled,
 		apiKey: webSearch.apiKey ? webSearch.apiKey : (settings.webSearch?.apiKey ?? ""),
+		apiKeyBigmodel: webSearch.apiKeyBigmodel
+			? webSearch.apiKeyBigmodel
+			: (settings.webSearch?.apiKeyBigmodel ?? ""),
 	};
 	settings.webSearch = next;
 	await writeSettingsJson(file, settings);

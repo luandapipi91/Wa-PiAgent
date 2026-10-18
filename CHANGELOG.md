@@ -6,6 +6,8 @@
 - chore(websearch): fetch_content 工具描述补充「整页 Markdown 含导航/页脚噪声、引用前自行过滤」提示——dev 实测（21 财经抓取）发现返回正文带日历组件/二维码引导等边角料，DeepSeek 服务端行为无法客户端清洗，改为让模型有预期；参数对照官方文档核对：search 五参数缺 localization、ori_question 未校验长度，fetch 未校验 ≤8192/userinfo（用户裁决仅做描述提示，其余暂不动）。
 - fix(websearch)!: 网络工具改名 wa_web_search / wa_fetch_content（原 web_search/fetch_content）——与插件注册的工具同名触发安装/加载拦截，导致插件装不上（用户实测）；DEFAULT_AGENT_TOOLS、扩展注册、描述互引、错误文案、设置页文案（zh/en）全部同步；测试断言同步并新增「旧名不得再注册」断言。kernel+frontend typecheck 0 error，扩展 15 + agent-manager 138 + settings 32 用例全绿，dev 重部署验证 .generated 新名生效。
 - fix(websearch): 开关语义改为「关 = 模型直接看不到工具」——原来仅执行期拒绝（模型可见但调用返回错误文案，用户实测反馈）；改为扩展加载时 loadConfigSync 按开关条件注册（不注册 = 不声明给模型），PUT 保存后 ctx.markAllDirty 重建会话使新注册面生效（对齐 proxy/codemode 模式）；设置页 desc/toast 文案改为「开关变更保存后重建会话生效，Key 即时生效」；execute 内开关检查保留作双保险。新增扩展用例 2 个（全关不注册/只开搜索）+ route 断言 markAllDirty，21 用例全绿。
+- feat(websearch): 供应商可选——新增智谱 BigModel（web_search /api/paas/v4/web_search：search_query≤70 自动截断/search_engine=search_std/响应 search_result[] 格式化；网页阅读 /api/paas/v4/reader：return_format=markdown、reader_result 解析）；webSearch 配置加 provider + apiKeyBigmodel（各自独立 key、空串保留语义、非法 provider 回退 deepseek）；设置页供应商 radio + 双 key 掩码输入；无 key 错误文案带供应商名。TDD：扩展 4 个 bigmodel 用例 + store provider/双 key 4 用例 + route 响应断言同步 + WebSearchPanel 重写（供应商/双 key/掩码）63 用例全绿，双端 typecheck 0 error，dev 重部署 REST 验证 provider 字段在位。
+- fix(websearch): 供应商 Key 输入区按选中供应商条件渲染——选 DeepSeek 只显示 DeepSeek Key，选智谱只显示智谱 Key（用户反馈两区块同时展示易混淆）；切换供应商不影响已填的另一家 key（state 保留，保存照常携带）。
 
 ## 2026-10-16
 - chore(deps): 底层 pi 引擎升级 1.1.0 → 1.3.0（before_agent_start 联合事件语义适配、kimi-coding 协议切换兼容锁定；kernel/打包链路）

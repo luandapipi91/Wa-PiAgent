@@ -79,17 +79,19 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 			},
 		});
 	});
-	// 互联网搜索配置（DeepSeek 搜索/抓取开关 + 共用 API key，web-access 扩展运行时自读同
-	// 一 settings.json，改完即时生效无需重建 pi 进程；ctx.settingsFile 供测试注入隔离文件）。
-	// 安全：GET/PUT 回包均不下发 apiKey 明文，脱敏为 hasApiKey 布尔；
+	// 互联网搜索配置（供应商 + 搜索/抓取开关 + 各自 API key，web-access 扩展运行时自读同
+	// 一 settings.json，开关变更保存后标脏重建 pi 进程；ctx.settingsFile 供测试注入隔离文件）。
+	// 安全：GET/PUT 回包均不下发 key 明文，脱敏为 hasApiKey/hasApiKeyBigmodel 布尔；
 	// PUT 仍接收明文 key（用户输入），传空串/缺省时保留已存值。
 	r.add("GET", "/api/settings/websearch", async () => {
 		const webSearch = await loadWebSearchSettings(ctx.settingsFile);
 		return Response.json({
 			webSearch: {
+				provider: webSearch.provider,
 				searchEnabled: webSearch.searchEnabled,
 				fetchEnabled: webSearch.fetchEnabled,
 				hasApiKey: webSearch.apiKey !== "",
+				hasApiKeyBigmodel: webSearch.apiKeyBigmodel !== "",
 			},
 		});
 	});
@@ -101,9 +103,11 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		ctx.markAllDirty?.();
 		return Response.json({
 			webSearch: {
+				provider: saved.provider,
 				searchEnabled: saved.searchEnabled,
 				fetchEnabled: saved.fetchEnabled,
 				hasApiKey: saved.apiKey !== "",
+				hasApiKeyBigmodel: saved.apiKeyBigmodel !== "",
 			},
 		});
 	});

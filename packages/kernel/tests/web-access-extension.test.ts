@@ -242,6 +242,121 @@ test("搜索无结果：空数组返回可读文案（不计费也不算错误�
 	expect(text(r)).toContain("没有找到");
 });
 
+// ———— 供应商：bigmodel（智谱） ————
+
+test("bigmodel 搜索：请求构造（URL/search_query/search_engine）+ 响应格式化", async () => {
+	writeSettings({
+		provider: "bigmodel",
+		searchEnabled: true,
+		fetchEnabled: true,
+		apiKey: "",
+		apiKeyBigmodel: "zhu-pu-key",
+	} as any);
+	fetchQueue.push({
+		status: 200,
+		body: {
+			search_result: [
+				{
+					title: "智谱搜索结果",
+					link: "https://example.cn/a",
+					media: "ExampleCN",
+					publish_date: "2026-10-15",
+					content: "网页内容摘要".repeat(10),
+				},
+			],
+		},
+	});
+	const r = await registered["wa_web_search"].execute(
+		"bm1",
+		{ query: "智谱 GLM" },
+		undefined,
+	);
+	expect(fetchCalls[0].url).toBe(
+		"https://open.bigmodel.cn/api/paas/v4/web_search",
+	);
+	expect(fetchCalls[0].init.headers.Authorization).toBe("Bearer zhu-pu-key");
+	const body = JSON.parse(fetchCalls[0].init.body);
+	expect(body.search_query).toBe("智谱 GLM");
+	expect(body.search_engine).toBe("search_std");
+	expect(body.count).toBe(10);
+	// DeepSeek 专属参数不得出现
+	expect(body.query).toBeUndefined();
+	expect(body.ori_question).toBeUndefined();
+	const out = text(r);
+	expect(out).toContain("智谱搜索结果");
+	expect(out).toContain("https://example.cn/a");
+	expect(out).toContain("ExampleCN");
+});
+
+test("bigmodel query 超 70 字符自动截断（模型无感知，不报错）", async () => {
+	writeSettings({
+		provider: "bigmodel",
+		searchEnabled: true,
+		fetchEnabled: true,
+		apiKey: "",
+		apiKeyBigmodel: "zhu-pu-key",
+	} as any);
+	fetchQueue.push({ status: 200, body: { search_result: [] } });
+	await registered["wa_web_search"].execute(
+		"bm2",
+		{ query: "a".repeat(120) },
+		undefined,
+	);
+	const body = JSON.parse(fetchCalls[0].init.body);
+	expect(body.search_query).toHaveLength(70);
+});
+
+test("bigmodel 网页阅读：POST /reader + reader_result 解析", async () => {
+	writeSettings({
+		provider: "bigmodel",
+		searchEnabled: true,
+		fetchEnabled: true,
+		apiKey: "",
+		apiKeyBigmodel: "zhu-pu-key",
+	} as any);
+	fetchQueue.push({
+		status: 200,
+		body: {
+			reader_result: {
+				title: "阅读标题",
+				content: "# 正文 Markdown",
+			},
+		},
+	});
+	const r = await registered["wa_fetch_content"].execute(
+		"bm3",
+		{ url: "https://example.cn/page" },
+		undefined,
+	);
+	expect(fetchCalls[0].url).toBe(
+		"https://open.bigmodel.cn/api/paas/v4/reader",
+	);
+	expect(JSON.parse(fetchCalls[0].init.body)).toEqual({
+		url: "https://example.cn/page",
+		return_format: "markdown",
+	});
+	const out = text(r);
+	expect(out).toContain("阅读标题");
+	expect(out).toContain("# 正文 Markdown");
+});
+
+test("bigmodel 未配 key：文案带供应商名，不发请求", async () => {
+	writeSettings({
+		provider: "bigmodel",
+		searchEnabled: true,
+		fetchEnabled: true,
+		apiKey: "",
+		apiKeyBigmodel: "",
+	} as any);
+	const r = await registered["wa_web_search"].execute(
+		"bm4",
+		{ query: "x" },
+		undefined,
+	);
+	expect(fetchCalls).toHaveLength(0);
+	expect(text(r)).toContain("智谱 BigModel");
+});
+
 // ———— wa_fetch_content ————
 
 test("wa_fetch_content 正常：POST /v1/tools/fetch，输出 title + Markdown 正文", async () => {
