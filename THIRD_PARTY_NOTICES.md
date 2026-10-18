@@ -10,11 +10,21 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 
 | 包 | 版本 | 许可证 | 版权 / 作者 |
 | ---- | ------ | -------- | ------------- |
-| @earendil-works/pi-ai | ~1.0.0 | MIT | Mario Zechner |
-| @earendil-works/pi-coding-agent | ~1.0.0 | MIT | Mario Zechner |
+| @earendil-works/pi-ai | ~1.3.0 | MIT | Mario Zechner |
+| @earendil-works/pi-coding-agent | ~1.3.0 | MIT | Mario Zechner |
+| @earendil-works/pi-tui | 1.3.0 | MIT | Mario Zechner |
+| @huggingface/transformers | 4.3.0 | Apache-2.0 | Hugging Face |
+| @napi-rs/keyring | ^1.3.0 | MIT | Brooooooklyn (keyring-node) |
+| @noble/hashes | ^2.3.0 | MIT | Paul Miller |
+| @sqliteai/sqlite-vector | ^1.1.2 | Apache-2.0 | Gioele Cantoni (SQLite Cloud) |
 | @wecom/aibot-node-sdk | ^1.0.7 | MIT | 未声明 |
-| pi-web-access | ^0.24.2 | MIT | Copyright (c) 2025 Nico Bailon |
+| cos-nodejs-sdk-v5 | ^3.0.0 | ISC | carsonxu (Tencent Cloud) |
+| fflate | ^0.8.3 | MIT | Arjun Barrett (101arrowz) |
 | typebox | ^1.3.11 | MIT | Copyright (c) 2017-2026 Haydn Paterson |
+
+（2026-10-18 全量核对：pi 系版本随 1.3.0 升级修正；补录 pi-tui、@huggingface/transformers、
+@napi-rs/keyring、@noble/hashes、@sqliteai/sqlite-vector、cos-nodejs-sdk-v5、fflate；
+移除已删除的 pi-web-access。版本列为 packages/kernel/package.json 的声明区间，单一来源。）
 
 ## 运行时传递依赖中的非 MIT 宽松许可
 
