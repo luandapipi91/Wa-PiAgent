@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { readdirSync, rmSync } from "node:fs";
 import {
   buildCompileArgs,
+  compileKernelBinary,
   stageAssetDir,
   EXTERNAL_PACKAGES,
   KERNEL_ASSET_FILES,
@@ -13,6 +14,7 @@ import {
 import { buildWebAccessBundle } from "../src/web-access-bundle";
 import { TUI_HOST_EXTENSION_FILES } from "../src/tui-host-deploy";
 import { basename, join } from "node:path";
+import { tmpdir } from "node:os";
 
 // web-access.bundle.js 是构建期产物（gitignore，不入库）：资产清单断言前先构建一次，
 // 否则全新检出上「全部资产真实存在」与 stageAssetDir 的 cpSync 会因缺文件而红。
@@ -133,4 +135,34 @@ test("kernelBinaryName: 按平台返回 WaPiKernel(.exe)", () => {
   expect(kernelBinaryName("win")).toBe("WaPiKernel.exe");
   expect(kernelBinaryName("darwin")).toBe("WaPiKernel");
   expect(kernelBinaryName("linux")).toBe("WaPiKernel");
+});
+
+// 护栏：把「预构建先于资产暂存」的顺序变成可断言事实，而不是靠本机残留产物偶然成立。
+// 没有它时，上面 beforeAll 已把产物建好 → 删掉 compile-binary.ts 的预构建调用也不会变红
+// （存在性断言与 stageAssetDir 的 cpSync 都能过），只有全新检出上的打包冒烟才可能拦到。
+// 手法：删掉产物 + 传不存在的 bunPath（spawnSync 必失败 → 抛错），断言抛错前产物已被重建。
+test("compileKernelBinary: 预构建先于资产暂存（删产物后即使编译失败也已重建）", async () => {
+  const bundle = join(
+    import.meta.dir,
+    "..",
+    "src",
+    "assets",
+    "web-access.bundle.js",
+  );
+  rmSync(bundle, { force: true });
+  expect(existsSync(bundle)).toBe(false); // 前置：产物确实不在，回归才有意义
+  try {
+    await expect(
+      compileKernelBinary(
+        join(tmpdir(), "wa-pi-compile-order-never-built"),
+        undefined,
+        "/nonexistent/bun",
+      ),
+    ).rejects.toThrow(/bun build --compile 失败/);
+    // 走到这里说明是 spawnSync 失败抛的错（不是 cpSync ENOENT）：预构建已在暂存前完成
+    expect(existsSync(bundle)).toBe(true);
+  } finally {
+    // 变异跑（预构建被移走）时产物不会重建，补建一次让后续用例不受污染
+    if (!existsSync(bundle)) await buildWebAccessBundle(bundle);
+  }
 });
