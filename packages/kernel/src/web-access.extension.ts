@@ -6,14 +6,16 @@
 //
 // 设计要点：
 // - 替代第三方扩展 pi-web-access（2026-10-18 移除）：保留两个高频工具，供应商可配：
-//   • deepseek（默认）：POST /v1/tools/search | /v1/tools/fetch，Bearer 鉴权，
+//   • bing（默认）：GET www.bing.com/search 解析 SERP（b_algo），免 Key 免费；每次请求取一份自洽随机浏览器头
+//   • deepseek：POST /v1/tools/search | /v1/tools/fetch，Bearer 鉴权，
 //     按次计费 5 元/千次成功请求，各自 QPS 5
 //   • bigmodel（智谱）：POST /api/paas/v4/web_search | /api/paas/v4/reader，Bearer 鉴权
 // - 配置（供应商 + 双开关 + 各自 API key）存 <agentDir>/settings.json 的 webSearch 字段，
 //   每次工具执行时读取——开关变更保存后由 kernel markAllDirty 重建会话（注册面生效），
 //   key 保存后即时生效。
 // - 未配 key / 开关关闭时返回可操作的引导文案（不抛异常，对齐 bridge failResult 语义）。
-// - 408/429/5xx 自动重试（官方建议），401/402/403/404/400 不重试（改请求才有意义）。
+// - 408/429/5xx 自动重试（官方建议），401/402/403/404/400 不重试（改请求才有意义）；
+//   Bing 搜索例外：429 不重试（反爬限流下重试会被压得更狠），408/5xx/网络错误退避重试。
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
@@ -28,18 +30,18 @@ const BIGMODEL_SEARCH_URL = "https://open.bigmodel.cn/api/paas/v4/web_search";
 const BIGMODEL_FETCH_URL = "https://open.bigmodel.cn/api/paas/v4/reader";
 
 /** 供应商标识（与 settings-store 的 WebSearchProvider 保持一致；扩展自含不导入） */
-type WebSearchProvider = "deepseek" | "bigmodel";
+type WebSearchProvider = "bing" | "deepseek" | "bigmodel";
 
-const PROVIDERS: readonly WebSearchProvider[] = ["deepseek", "bigmodel"];
+const PROVIDERS: readonly WebSearchProvider[] = ["bing", "deepseek", "bigmodel"];
 
 function normalizeProvider(v: unknown): WebSearchProvider {
 	return PROVIDERS.includes(v as WebSearchProvider)
 		? (v as WebSearchProvider)
-		: "deepseek";
+		: "bing";
 }
 
 function providerLabel(p: WebSearchProvider): string {
-	return p === "bigmodel" ? "智谱 BigModel" : "DeepSeek";
+	return p === "bigmodel" ? "智谱 BigModel" : p === "bing" ? "Bing" : "DeepSeek";
 }
 
 /** 智谱 web_search 的 query 上限（官方：建议 ≤70 字符，Maximum string length: 70） */
@@ -63,7 +65,7 @@ interface WebSearchConfig {
 }
 
 const CONFIG_DEFAULTS: WebSearchConfig = {
-	provider: "deepseek",
+	provider: "bing",
 	searchEnabled: true,
 	fetchEnabled: true,
 	apiKey: "",
@@ -201,11 +203,159 @@ function failureText(kind: "搜索" | "抓取", provider: WebSearchProvider, sta
 	return `${kind}失败（HTTP ${status}）：${message}`;
 }
 
+// ———— Bing 免费搜索（免 Key）：随机浏览器头 + SERP 解析 ————
+
+const BING_SEARCH_URL = "https://www.bing.com/search";
+const BING_TIMEOUT_MS = 12_000;
+const BING_MAX_RETRIES = 2;
+
+/** 浏览器 UA 档案池：ua / brands / platform 逐项自洽，随机取用（随机模拟浏览器请求头） */
+const BROWSER_PROFILES = [
+	{ ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+	  brands: '"Chromium";v="126", "Not/A)Brand";v="24"', platform: '"Windows"' },
+	{ ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+	  brands: '"Chromium";v="126", "Not/A)Brand";v="24"', platform: '"macOS"' },
+	{ ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
+	  brands: '"Microsoft Edge";v="126", "Chromium";v="126", "Not/A)Brand";v="24"', platform: '"Windows"' },
+	{ ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
+	  brands: '"Microsoft Edge";v="126", "Chromium";v="126", "Not/A)Brand";v="24"', platform: '"macOS"' },
+] as const;
+
+/** 每次调用现取一份自洽的浏览器请求头（抓取类请求专用；API 供应商请求头不受影响） */
+function buildBrowserHeaders(): Record<string, string> {
+	const p = BROWSER_PROFILES[Math.floor(Math.random() * BROWSER_PROFILES.length)];
+	return {
+		"user-agent": p.ua,
+		accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+		"accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+		"sec-ch-ua": p.brands,
+		"sec-ch-ua-mobile": "?0",
+		"sec-ch-ua-platform": p.platform,
+		"sec-fetch-dest": "document",
+		"sec-fetch-mode": "navigate",
+		"sec-fetch-site": "none",
+		"sec-fetch-user": "?1",
+		"upgrade-insecure-requests": "1",
+	};
+}
+
+/** 常见 HTML 实体解码（参考实现同款集合） */
+function decodeEntities(text: string): string {
+	return String(text)
+		.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x27;/g, "'")
+		.replace(/&nbsp;/g, " ")
+		.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+}
+
+/** 去标签 + 空白收敛 + 实体解码（Bing 标题含 <strong> 高亮，需清洗） */
+function stripTags(html: string): string {
+	return decodeEntities(String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+}
+
+/** Bing 结果链接解包：bing.com/ck/a?…u=a1<base64url> → 真实 URL；非包装链接原样返回 */
+function extractBingUrl(href: string): string {
+	if (!href) return href;
+	const url = decodeEntities(href);
+	if (!/^https?:\/\/(www\.)?bing\.com\/ck\/a/i.test(url)) return href;
+	try {
+		const u = new URL(url).searchParams.get("u");
+		if (!u) return href;
+		const b64 = u.startsWith("a1") ? u.slice(2) : u;
+		const decoded = Buffer.from(b64.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+		return /^https?:\/\//i.test(decoded) ? decoded : href;
+	} catch { return href; }
+}
+
+/** Bing 结果页解析：b_algo 块 → {title,url,summary}（url 已解包） */
+function parseBingHtml(html: string): Array<{ title?: string; url: string; summary?: string }> {
+	const blocks = html.match(/<li class="b_algo"[\s\S]*?<\/li>/g) ?? [];
+	const out: Array<{ title?: string; url: string; summary?: string }> = [];
+	for (const block of blocks) {
+		const href = block.match(/<a[^>]*href="(https?:\/\/[^"]+)"/)?.[1];
+		if (!href) continue;
+		const url = extractBingUrl(href);
+		const titleHtml = block.match(/<h2[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h2>/)?.[1];
+		const snippetHtml = block.match(/<p[^>]*>([\s\S]*?)<\/p>/)?.[1];
+		out.push({
+			url,
+			...(titleHtml ? { title: stripTags(titleHtml) } : {}),
+			...(snippetHtml ? { summary: stripTags(snippetHtml) } : {}),
+		});
+	}
+	return out;
+}
+
+/** Bing 搜索：GET SERP 页 → b_algo 解析（免 Key 免费）。
+ *  429 不重试（反爬限流重试会被压得更狠）；408/5xx/网络错误退避重试（1s/2s，共 3 次）。 */
+async function bingSearch(
+	query: string,
+	count: number,
+	signal: AbortSignal | undefined,
+): Promise<
+	| { ok: true; results: Array<{ title?: string; url: string; summary?: string }> }
+	| { ok: false; status: number; message: string }
+> {
+	// 不发 mkt：参考实测 mkt=zh-CN 在部分线路会返回空 SERP
+	const url = `${BING_SEARCH_URL}?${new URLSearchParams({ q: query })}`;
+	// 12s 兜底超时与 pi 传入的 abort signal 叠加（任一触发即中止）
+	const timeout = AbortSignal.timeout(BING_TIMEOUT_MS);
+	const merged =
+		signal && !signal.aborted
+			? AbortSignal.any([signal, timeout])
+			: (signal ?? timeout);
+	let lastError = "";
+	for (let attempt = 0; attempt <= BING_MAX_RETRIES; attempt++) {
+		if (attempt > 0) await sleep(1000 * attempt); // 1s / 2s 线性退避
+		let res: Response;
+		try {
+			res = await fetch(url, {
+				headers: buildBrowserHeaders(), // 每次尝试现取随机浏览器头
+				signal: merged,
+			});
+		} catch (err) {
+			if (signal?.aborted) throw err; // 用户中止直接上抛
+			lastError = err instanceof Error ? err.message : String(err);
+			if (attempt < BING_MAX_RETRIES) continue;
+			return {
+				ok: false,
+				status: 0,
+				message: `搜索失败：网络请求失败（${lastError}），请检查网络后重试。`,
+			};
+		}
+		if (res.status === 429)
+			return {
+				ok: false,
+				status: 429,
+				message: "搜索失败：Bing 访问受限（HTTP 429，反爬限流），请稍后重试。",
+			};
+		if (res.ok) {
+			const seen = new Set<string>();
+			const parsed = parseBingHtml(await res.text());
+			const results = parsed
+				.filter((r) => {
+					if (seen.has(r.url)) return false; // 同 URL 只保留首条
+					seen.add(r.url);
+					return true;
+				})
+				.slice(0, Math.min(50, Math.max(1, Math.round(count))));
+			return { ok: true, results }; // 0 条为合法「无结果」，不重试
+		}
+		if ((res.status === 408 || res.status >= 500) && attempt < BING_MAX_RETRIES) continue;
+		return {
+			ok: false,
+			status: res.status,
+			message: `搜索失败：Bing 返回 HTTP ${res.status}，请稍后重试。`,
+		};
+	}
+	return { ok: false, status: 0, message: `搜索失败：网络请求失败（${lastError}），请检查网络后重试。` }; // 循环必经 return，防御性兜底
+}
+
 // ———— 工具描述（模型选择依据：用途 + 返回内容 + 限制） ————
 // 工具名带 wa_ 前缀：避免与插件（如 pi-web-access）注册的 web_search/fetch_content 同名冲突——
 // 重名会触发插件安装/加载拦截，导致插件装不上（2026-10-18 用户实测）。
 
-const SEARCH_DESCRIPTION = `联网搜索网页（供应商可在 设置 → 联网 选择：DeepSeek / 智谱 BigModel）。返回结构化结果列表：标题、链接、站点、日期与摘要。query 支持 site: / -site: / "精确短语" 等搜索语法（DeepSeek 另支持 lang:zh,en / after:2025-01-01 / before:2026）。按次计费，请在需要实时信息时使用。`;
+const SEARCH_DESCRIPTION = `联网搜索网页（供应商可在 设置 → 联网 选择：Bing（免费，无需 Key）/ DeepSeek / 智谱 BigModel）。返回结构化结果列表：标题、链接、摘要（DeepSeek 另含站点与日期）。query 支持 site: / -site: / "精确短语" 等搜索语法（lang:zh,en / after: / before: 与 need_content 仅 DeepSeek 支持）。Bing 免费；DeepSeek / 智谱按次计费。`;
 
 const FETCH_DESCRIPTION = `抓取单个网页，返回页面标题与 Markdown 正文。适用于：读取 wa_web_search 结果中的具体页面、获取用户提供的 URL 内容。返回的是整页 Markdown，可能包含导航栏、页脚、日历组件、推广引导等噪声内容——引用信息前请自行过滤，优先采信正文主体。受目标站点可用性与访问策略影响，抓取失败不计费。`;
 
@@ -329,17 +479,28 @@ export default function webAccessExtension(pi: ExtensionAPI) {
 					"互联网搜索未开启。请到 设置 → 联网 → 互联网搜索 打开「网页搜索」开关后重试。",
 					"web_search_disabled",
 				);
-			const apiKey = keyFor(cfg);
-			if (!apiKey)
-				return textResult(
-					`互联网搜索未配置 ${providerLabel(cfg.provider)} API Key。请到 设置 → 联网 → 互联网搜索 填入当前供应商的 API Key 后重试。`,
-					"web_search_no_api_key",
-				);
 			const query = params.query.trim();
 			if (!query)
 				return textResult(
 					"搜索词不合法：query 不能为空。请提供搜索词后重试。",
 					"invalid_query",
+				);
+			if (cfg.provider === "bing") {
+				// Bing 免费（免 Key）：本地 GET 搜索，无需 key 校验
+				if (query.length > 128)
+					return textResult(
+						"搜索词不合法：query 必须为 1-128 个字符。请缩短或调整后重试。",
+						"invalid_query",
+					);
+				const res = await bingSearch(query, params.count ?? 10, signal);
+				if (!res.ok) return textResult(res.message, `search_http_${res.status}`);
+				return textResult(formatSearchResults(query, res.results));
+			}
+			const apiKey = keyFor(cfg);
+			if (!apiKey)
+				return textResult(
+					`互联网搜索未配置 ${providerLabel(cfg.provider)} API Key。请到 设置 → 联网 → 互联网搜索 填入当前供应商的 API Key 后重试。`,
+					"web_search_no_api_key",
 				);
 			if (cfg.provider === "bigmodel") {
 				// 智谱 BigModel：query ≤70 超长自动截断；无 ori_question/need_content 对应参数

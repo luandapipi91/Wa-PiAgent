@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import webAccessExtension from "../src/web-access.extension";
 
-// web-access 扩展（DeepSeek 搜索/抓取）单元测试：
+// web-access 扩展（Bing 免费搜索+本地抓取 + DeepSeek/智谱 官方搜索抓取）单元测试：
 // mock 全局 fetch，不发起真实网络请求；WA_PI_DIR 指向临时目录隔离 settings.json。
 // 工具名带 wa_ 前缀（wa_web_search / wa_fetch_content）：避免与插件注册的
 // web_search/fetch_content 同名冲突导致插件装不上（2026-10-18）。
@@ -41,9 +41,15 @@ beforeEach(() => {
 	(globalThis as any).fetch = (async (url: string, init: any) => {
 		fetchCalls.push({ url, init });
 		const next = fetchQueue.shift() ?? { status: 500, body: { error: { message: "no mock" } } };
-		return new Response(JSON.stringify(next.body), {
+		const isHtml = typeof next.body === "string" || next.body instanceof Uint8Array;
+		// 非 HTML（JSON 对象）需序列化：Response 构造函数会把普通对象退化成 "[object Object]"
+		const body = isHtml ? next.body : JSON.stringify(next.body);
+		return new Response(body as any, {
 			status: next.status,
-			headers: { "content-type": "application/json" },
+			headers: {
+				"content-type": (next as any).contentType ?? (isHtml ? "text/html" : "application/json"),
+				...((next as any).headers ?? {}),
+			},
 		});
 	}) as any;
 });
@@ -76,6 +82,11 @@ const SEARCH_200 = {
 		],
 	},
 };
+
+const BING_HTML_200 = `<html><body>
+<li class="b_algo"><h2><a href="https://www.bing.com/ck/a?!&amp;&amp;p=abc&amp;u=a1aHR0cHM6Ly9leGFtcGxlLmNvbS9h&amp;ntb=1">示例标题 &amp; 实体</a></h2><p>摘要一</p></li>
+<li class="b_algo"><h2><a href="https://example.org/b">第二条 <strong>高亮</strong> 词</a></h2><p>摘要二</p></li>
+</body></html>`;
 
 // ———— 注册 ————
 
@@ -116,7 +127,7 @@ test("只开搜索：仅注册 wa_web_search", () => {
 // ———— wa_web_search ————
 
 test("wa_web_search 正常调用：Bearer key / URL / body 正确，输出含标题与链接", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	fetchQueue.push(SEARCH_200);
 	const r = await registered["wa_web_search"].execute(
 		"t1",
@@ -149,7 +160,7 @@ test("搜索开关关闭：不发起请求，返回引导开启的文案", async
 });
 
 test("未配置 key：返回引导配置文案，不发起请求", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "" });
 	const r = await registered["wa_web_search"].execute(
 		"t3",
 		{ query: "x" },
@@ -159,19 +170,20 @@ test("未配置 key：返回引导配置文案，不发起请求", async () => {
 	expect(text(r)).toContain("API Key");
 });
 
-test("settings.json 不存在时按默认配置走（开关开、无 key → 引导文案）", async () => {
+test("settings.json 不存在：默认供应商 bing，无需 Key 直接搜索", async () => {
 	// 不写 settings.json
+	fetchQueue.push({ status: 200, body: BING_HTML_200 });
 	const r = await registered["wa_web_search"].execute(
 		"t4",
-		{ query: "x" },
+		{ query: "q" },
 		undefined,
 	);
-	expect(fetchCalls).toHaveLength(0);
-	expect(text(r)).toContain("API Key");
+	expect(fetchCalls[0].url).toContain("www.bing.com/search");
+	expect(text(r)).toContain("示例标题");
 });
 
 test("429 后重试第二次成功（重试 1 次即恢复）", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	fetchQueue.push({ status: 429, body: { error: { message: "rate limited" } } });
 	fetchQueue.push(SEARCH_200);
 	const r = await registered["wa_web_search"].execute(
@@ -184,7 +196,7 @@ test("429 后重试第二次成功（重试 1 次即恢复）", async () => {
 }, 20000);
 
 test("401：key 无效文案，不重试", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-bad" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-bad" });
 	fetchQueue.push({ status: 401, body: { error: { message: "auth" } } });
 	const r = await registered["wa_web_search"].execute(
 		"t6",
@@ -197,7 +209,7 @@ test("401：key 无效文案，不重试", async () => {
 });
 
 test("402：余额不足文案", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	fetchQueue.push({ status: 402, body: { error: { message: "insufficient" } } });
 	const r = await registered["wa_web_search"].execute(
 		"t7",
@@ -208,7 +220,7 @@ test("402：余额不足文案", async () => {
 });
 
 test("count 越界裁剪到 1-50；need_content 透传", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	fetchQueue.push(SEARCH_200);
 	await registered["wa_web_search"].execute(
 		"t8",
@@ -221,7 +233,7 @@ test("count 越界裁剪到 1-50；need_content 透传", async () => {
 });
 
 test("query 超长（>128 字符）直接拒绝，不发请求", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	const r = await registered["wa_web_search"].execute(
 		"t9",
 		{ query: "a".repeat(129) },
@@ -232,7 +244,7 @@ test("query 超长（>128 字符）直接拒绝，不发请求", async () => {
 });
 
 test("搜索无结果：空数组返回可读文案（不计费也不算错误）", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	fetchQueue.push({ status: 200, body: { results: [] } });
 	const r = await registered["wa_web_search"].execute(
 		"t10",
@@ -357,10 +369,98 @@ test("bigmodel 未配 key：文案带供应商名，不发请求", async () => {
 	expect(text(r)).toContain("智谱 BigModel");
 });
 
+// ———— 供应商：bing（免费，无需 Key） ————
+
+test("bing 搜索：URL 构造 + b_algo 解析（实体清洗/ck/a 解包）+ 输出格式化", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: BING_HTML_200 });
+	const r = await registered["wa_web_search"].execute("b1", { query: "deepseek harness" }, undefined);
+	expect(fetchCalls[0].url).toBe("https://www.bing.com/search?q=deepseek+harness");
+	const out = text(r);
+	expect(out).toContain("共 2 条结果");
+	expect(out).toContain("https://example.com/a");      // ck/a 已解包
+	expect(out).not.toContain("/ck/a");                   // 不透出包装链接
+	expect(out).toContain("示例标题 & 实体");              // 实体解码
+	expect(out).toContain("摘要一");
+});
+
+test("随机浏览器头：UA 属于池、sec-ch-ua 与平台自洽、sec-fetch 齐备", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: BING_HTML_200 });
+	await registered["wa_web_search"].execute("b2", { query: "q" }, undefined);
+	const h = fetchCalls[0].init.headers;
+	const ua = String(h["user-agent"]);
+	const isWin = ua.includes("Windows");
+	const isMac = ua.includes("Macintosh");
+	expect(isWin || isMac).toBe(true);
+	expect(ua).toMatch(/Chrome\/126|Edg\/126/);
+	expect(String(h["sec-ch-ua-platform"])).toBe(isWin ? '"Windows"' : '"macOS"');
+	expect(String(h["sec-ch-ua"])).toContain(ua.includes("Edg/") ? "Microsoft Edge" : "Chromium");
+	expect(h["sec-fetch-mode"]).toBe("navigate");
+	expect(String(h["accept-language"])).toContain("zh-CN");
+});
+
+test("随机浏览器头：20 次请求至少出现 2 种 UA（随机性生效）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	for (let i = 0; i < 20; i++) fetchQueue.push({ status: 200, body: BING_HTML_200 });
+	const seen = new Set<string>();
+	for (let i = 0; i < 20; i++) {
+		await registered["wa_web_search"].execute(`r${i}`, { query: "q" }, undefined);
+		seen.add(String(fetchCalls[i].init.headers["user-agent"]));
+	}
+	expect(seen.size).toBeGreaterThanOrEqual(2);
+});
+
+test("bing 空 SERP：返回「没有找到」文案且不重试（1 次请求）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: "<html><body>no results</body></html>" });
+	const r = await registered["wa_web_search"].execute("b3", { query: "不存在" }, undefined);
+	expect(text(r)).toContain("没有找到");
+	expect(fetchCalls).toHaveLength(1);
+});
+
+test("bing 429：限流文案且不重试（1 次请求）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 429, body: "" });
+	const r = await registered["wa_web_search"].execute("b4", { query: "q" }, undefined);
+	expect(text(r)).toContain("429");
+	expect(fetchCalls).toHaveLength(1);
+});
+
+test("bing 500：重试 2 次后仍失败 → 失败文案（共 3 次请求）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 500, body: "" }, { status: 500, body: "" }, { status: 500, body: "" });
+	const r = await registered["wa_web_search"].execute("b5", { query: "q" }, undefined);
+	expect(text(r)).toContain("失败");
+	expect(fetchCalls).toHaveLength(3);
+});
+
+test("bing 500 后第二次成功：重试恢复", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 500, body: "" }, { status: 200, body: BING_HTML_200 });
+	const r = await registered["wa_web_search"].execute("b6", { query: "q" }, undefined);
+	expect(text(r)).toContain("共 2 条结果");
+	expect(fetchCalls).toHaveLength(2);
+});
+
+test("bing：count 截断（count=1 → 只输出 1 条）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: BING_HTML_200 });
+	const r = await registered["wa_web_search"].execute("b7", { query: "q", count: 1 }, undefined);
+	expect(text(r)).toContain("共 1 条结果");
+});
+
+test("bing：query 超 128 字符直接拒绝，不发请求", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	const r = await registered["wa_web_search"].execute("b8", { query: "a".repeat(129) }, undefined);
+	expect(fetchCalls).toHaveLength(0);
+	expect(text(r)).toContain("128");
+});
+
 // ———— wa_fetch_content ————
 
 test("wa_fetch_content 正常：POST /v1/tools/fetch，输出 title + Markdown 正文", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	fetchQueue.push({
 		status: 200,
 		body: { title: "Example Article", content: "# Example\n\n正文。" },
@@ -380,7 +480,7 @@ test("wa_fetch_content 正常：POST /v1/tools/fetch，输出 title + Markdown �
 });
 
 test("抓取开关关闭：引导文案，不发请求", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: false, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: false, apiKey: "sk-test" });
 	const r = await registered["wa_fetch_content"].execute(
 		"f2",
 		{ url: "https://example.com" },
@@ -391,7 +491,7 @@ test("抓取开关关闭：引导文案，不发请求", async () => {
 });
 
 test("404：目标页不可抓取文案（不计费），不重试", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	fetchQueue.push({ status: 404, body: { error: { message: "not found" } } });
 	const r = await registered["wa_fetch_content"].execute(
 		"f3",
@@ -403,7 +503,7 @@ test("404：目标页不可抓取文案（不计费），不重试", async () =>
 });
 
 test("非法 URL（非 http/https）：不发请求", async () => {
-	writeSettings({ searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
+	writeSettings({ provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "sk-test" });
 	const r = await registered["wa_fetch_content"].execute(
 		"f4",
 		{ url: "file:///etc/passwd" },
