@@ -21,7 +21,12 @@ function writeSettings(webSearch: unknown) {
 }
 
 /** 设置下一次（及后续）fetch 的响应 */
-let fetchQueue: Array<{ status: number; body: unknown }> = [];
+let fetchQueue: Array<{
+	status: number;
+	body: unknown;
+	contentType?: string;
+	headers?: Record<string, string>;
+}> = [];
 let fetchCalls: Array<{ url: string; init: any }> = [];
 const realFetch = globalThis.fetch;
 
@@ -87,6 +92,29 @@ const BING_HTML_200 = `<html><body>
 <li class="b_algo"><h2><a href="https://www.bing.com/ck/a?!&amp;&amp;p=abc&amp;u=a1aHR0cHM6Ly9leGFtcGxlLmNvbS9h&amp;ntb=1">示例标题 &amp; 实体</a></h2><p>摘要一</p></li>
 <li class="b_algo"><h2><a href="https://example.org/b">第二条 <strong>高亮</strong> 词</a></h2><p>摘要二</p></li>
 </body></html>`;
+
+// ———— 本地抓取夹具（readability 抽取 / 空壳 / GBK 编码 / 大小上限） ————
+
+const FETCH_ARTICLE_200 = `<!doctype html><html><head><title>页面标题 &amp; 测试</title>
+<style>.a{color:red}</style><script>var x=1;console.log("不该出现");</script></head>
+<body><nav>导航不该残留</nav>
+<article><h1>正文大标题</h1><p>${"这是正文的第一段落，包含足够多的文字来让抽取器识别主要内容区域。".repeat(6)}</p></article>
+<div class="sidebar"><ul><li>侧栏推荐一</li><li>侧栏推荐二</li></ul></div>
+<footer>页脚不该残留</footer></body></html>`;
+
+const FETCH_EMPTY_SHELL = `<!doctype html><html><head><title>空壳</title></head><body><div id="app"></div></body></html>`;
+
+// GBK 字节段（iconv 预生成，JS 无 GBK 编码器）：
+// "中文标题" → d6d0cec4b1eacce2；"中文测试" → d6d0cec4b2e2cad4
+const GBK_TITLE = [0xd6, 0xd0, 0xce, 0xc4, 0xb1, 0xea, 0xcc, 0xe2];
+const GBK_TEXT = [0xd6, 0xd0, 0xce, 0xc4, 0xb2, 0xe2, 0xca, 0xd4];
+function gbkFixture(metaCharset: boolean): Uint8Array {
+	const ascii = (s: string) => [...s].map((c) => c.charCodeAt(0));
+	const head = metaCharset ? `<html><head><meta charset="gbk"><title>` : `<html><head><title>`;
+	return Uint8Array.from([
+		...ascii(head), ...GBK_TITLE, ...ascii("</title></head><body><p>"), ...GBK_TEXT, ...ascii("</p></body></html>"),
+	]);
+}
 
 // ———— 注册 ————
 
@@ -511,4 +539,79 @@ test("非法 URL（非 http/https）：不发请求", async () => {
 	);
 	expect(fetchCalls).toHaveLength(0);
 	expect(text(r)).toMatch(/http/i);
+});
+
+// ———— wa_fetch_content：bing 模式本地抓取（readability + turndown + 随机头） ————
+
+test("bing 抓取：本地 GET + readability 正文抽取 + turndown 转换 + 随机头", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: FETCH_ARTICLE_200 });
+	const r = await registered["wa_fetch_content"].execute("f1", { url: "https://example.com/page" }, undefined);
+	expect(fetchCalls[0].url).toBe("https://example.com/page");
+	const h = fetchCalls[0].init.headers;
+	expect(String(h["user-agent"])).toMatch(/Chrome\/126|Edg\/126/);
+	expect(String(h["sec-ch-ua-platform"])).toBe(String(h["user-agent"]).includes("Windows") ? '"Windows"' : '"macOS"');
+	const out = text(r);
+	expect(out).toContain("# 页面标题 & 测试");       // readability 标题 + 实体解码
+	expect(out).toContain("正文大标题");
+	expect(out).toContain("这是正文的第一段落");
+	expect(out).not.toContain("侧栏推荐");             // readability 丢弃侧栏（证明走库路径）
+	expect(out).not.toContain("不该出现");              // script 内容不得残留
+	expect(out).not.toContain("导航");
+	expect(out).not.toContain("页脚");
+});
+
+test("bing 抓取：空壳页面（readability 未命中）→ 「没有可提取的正文内容」", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: FETCH_EMPTY_SHELL });
+	const r = await registered["wa_fetch_content"].execute("f2", { url: "https://example.com/app" }, undefined);
+	expect(text(r)).toContain("没有可提取的正文内容");
+});
+
+test("bing 抓取：GBK 页面按 charset 解码（响应头与 meta 两种来源）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: gbkFixture(false), contentType: "text/html; charset=gbk" });
+	const r1 = await registered["wa_fetch_content"].execute("f3", { url: "https://example.cn/a" }, undefined);
+	expect(text(r1)).toContain("中文测试");
+	fetchQueue.push({ status: 200, body: gbkFixture(true), contentType: "text/html" });
+	const r2 = await registered["wa_fetch_content"].execute("f4", { url: "https://example.cn/b" }, undefined);
+	expect(text(r2)).toContain("中文测试");
+	expect(text(r2)).toContain("中文标题");
+});
+
+test("bing 抓取：非文本内容类型拒绝（不倒出内容、不重试）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: {}, contentType: "application/pdf" });
+	const r = await registered["wa_fetch_content"].execute("f5", { url: "https://example.com/a.pdf" }, undefined);
+	expect(text(r)).toContain("application/pdf");
+	expect(text(r)).toContain("不支持");
+	expect(fetchCalls).toHaveLength(1);
+});
+
+test("bing 抓取：content-length 超上限 → 中止下载文案，不重试", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: "<html></html>", contentType: "text/html", headers: { "content-length": String(3 * 1024 * 1024) } });
+	const r = await registered["wa_fetch_content"].execute("f6", { url: "https://example.com/big" }, undefined);
+	expect(text(r)).toContain("过大");
+	expect(fetchCalls).toHaveLength(1);
+});
+
+test("bing 抓取：500 重试 2 次后失败（3 次请求）；404 不重试（1 次请求）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 500, body: "" }, { status: 500, body: "" }, { status: 500, body: "" });
+	const r1 = await registered["wa_fetch_content"].execute("f7", { url: "https://example.com/x" }, undefined);
+	expect(text(r1)).toContain("失败");
+	expect(fetchCalls).toHaveLength(3);
+	fetchCalls.length = 0;
+	fetchQueue.push({ status: 404, body: "" });
+	const r2 = await registered["wa_fetch_content"].execute("f8", { url: "https://example.com/y" }, undefined);
+	expect(text(r2)).toContain("404");
+	expect(fetchCalls).toHaveLength(1);
+});
+
+test("bing 抓取：超长正文截断（>40000 字符带截断标记）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: `<html><body><article><p>${"长".repeat(45000)}</p></article></body></html>` });
+	const r = await registered["wa_fetch_content"].execute("f9", { url: "https://example.com/long" }, undefined);
+	expect(text(r)).toContain("已截断");
 });

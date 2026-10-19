@@ -23,6 +23,9 @@ import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
+import TurndownService from "turndown";
 
 const SEARCH_URL = "https://api.deepseek.com/v1/tools/search";
 const FETCH_URL = "https://api.deepseek.com/v1/tools/fetch";
@@ -351,13 +354,105 @@ async function bingSearch(
 	return { ok: false, status: 0, message: `搜索失败：网络请求失败（${lastError}），请检查网络后重试。` }; // 循环必经 return，防御性兜底
 }
 
+// ———— Bing 本地抓取（readability 正文抽取 + turndown Markdown 转换） ————
+
+const BING_FETCH_TIMEOUT_MS = 20_000;
+/** 单页下载上限 2MB；超过中止（content-length 预检 + 实读截断双保险） */
+const MAX_FETCH_BYTES = 2 * 1024 * 1024;
+/** 正文输出上限 40000 字符，超出追加「（正文已截断）」 */
+const FETCH_TRUNCATE = 40_000;
+
+/** Markdown 转换器（无状态，模块级单例） */
+const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+
+/** 编码嗅探：响应头 charset → meta charset → utf-8 兜底；TextDecoder 不支持该标签时回退 utf-8 */
+function decodeBodyBytes(bytes: Uint8Array, contentType: string): string {
+	let charset = /charset=["']?([\w-]+)/i.exec(contentType)?.[1];
+	if (!charset) {
+		const head = new TextDecoder("latin1").decode(bytes.slice(0, 2048));
+		charset = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head)?.[1];
+	}
+	const label = (charset ?? "utf-8").toLowerCase();
+	const norm = label === "gb2312" || label === "gbk" ? "gb18030" : label;
+	try { return new TextDecoder(norm).decode(bytes); } catch { return new TextDecoder("utf-8").decode(bytes); }
+}
+
+/** 本地抓取（Bing 免费模式）：GET 目标页 → 内容类型/大小校验 → 编码嗅探 → readability 抽取 → turndown。
+ *  重试：网络错误 / 408 / 5xx 退避重试（1s/2s，共 3 次尝试）；429 与其他 4xx 不重试。 */
+async function localFetch(
+	url: string,
+	signal: AbortSignal | undefined,
+): Promise<{ ok: true; title: string; text: string } | { ok: false; status: number; message: string }> {
+	// 20s 兜底超时与 pi 传入的 abort signal 叠加（任一触发即中止）
+	const timeout = AbortSignal.timeout(BING_FETCH_TIMEOUT_MS);
+	const merged =
+		signal && !signal.aborted
+			? AbortSignal.any([signal, timeout])
+			: (signal ?? timeout);
+	let lastError = "";
+	for (let attempt = 0; attempt <= BING_MAX_RETRIES; attempt++) {
+		if (attempt > 0) await sleep(1000 * attempt); // 1s / 2s 线性退避
+		let res: Response;
+		try {
+			res = await fetch(url, {
+				headers: buildBrowserHeaders(), // 每次尝试现取随机浏览器头
+				signal: merged,
+			});
+		} catch (err) {
+			if (signal?.aborted) throw err; // 用户中止直接上抛
+			lastError = err instanceof Error ? err.message : String(err);
+			if (attempt < BING_MAX_RETRIES) continue;
+			return {
+				ok: false,
+				status: 0,
+				message: `抓取失败：网络请求失败（${lastError}），请检查网络后重试。`,
+			};
+		}
+		if (res.status === 429)
+			return {
+				ok: false,
+				status: 429,
+				message: "抓取失败：目标站点限流（HTTP 429），请稍后重试。",
+			};
+		if (!res.ok) {
+			if ((res.status === 408 || res.status >= 500) && attempt < BING_MAX_RETRIES) continue;
+			return {
+				ok: false,
+				status: res.status,
+				message: `抓取失败（HTTP ${res.status}）：无法访问该网页，请稍后重试或改用 wa_web_search 搜索同主题信息。`,
+			};
+		}
+		const contentType = res.headers.get("content-type") ?? "";
+		if (!/^text\/|json|xml/i.test(contentType))
+			return {
+				ok: false,
+				status: 0,
+				message: `抓取失败：不支持的内容类型（${contentType}），仅支持 HTML / 文本类页面。`,
+			};
+		const declared = Number(res.headers.get("content-length") ?? "");
+		if (Number.isFinite(declared) && declared > MAX_FETCH_BYTES)
+			return { ok: false, status: 0, message: "抓取失败：页面过大（超过 2MB），已中止下载。" };
+		let bytes = new Uint8Array(await res.arrayBuffer());
+		if (bytes.byteLength > MAX_FETCH_BYTES) bytes = bytes.slice(0, MAX_FETCH_BYTES); // 无 content-length 时的实读截断
+		const decoded = decodeBodyBytes(bytes, contentType);
+		// 非 HTML 文本类（纯文本 / JSON / XML）：整文作为正文，标题留空
+		if (!/^text\/html/i.test(contentType)) return { ok: true, title: "", text: decoded };
+		// HTML：readability 抽取正文（丢弃导航/侧栏/页脚/脚本），再转 Markdown；未命中返回空正文
+		const { document } = parseHTML(decoded);
+		const article = new Readability(document as any).parse();
+		if (!article?.content) return { ok: true, title: "", text: "" };
+		return { ok: true, title: article.title ?? "", text: turndown.turndown(article.content) };
+	}
+	return { ok: false, status: 0, message: `抓取失败：网络请求失败（${lastError}），请检查网络后重试。` }; // 循环必经 return，防御性兜底
+}
+
 // ———— 工具描述（模型选择依据：用途 + 返回内容 + 限制） ————
 // 工具名带 wa_ 前缀：避免与插件（如 pi-web-access）注册的 web_search/fetch_content 同名冲突——
 // 重名会触发插件安装/加载拦截，导致插件装不上（2026-10-18 用户实测）。
 
 const SEARCH_DESCRIPTION = `联网搜索网页（供应商可在 设置 → 联网 选择：Bing（免费，无需 Key）/ DeepSeek / 智谱 BigModel）。返回结构化结果列表：标题、链接、摘要（DeepSeek 另含站点与日期）。query 支持 site: / -site: / "精确短语" 等搜索语法（lang:zh,en / after: / before: 与 need_content 仅 DeepSeek 支持）。Bing 免费；DeepSeek / 智谱按次计费。`;
 
-const FETCH_DESCRIPTION = `抓取单个网页，返回页面标题与 Markdown 正文。适用于：读取 wa_web_search 结果中的具体页面、获取用户提供的 URL 内容。返回的是整页 Markdown，可能包含导航栏、页脚、日历组件、推广引导等噪声内容——引用信息前请自行过滤，优先采信正文主体。受目标站点可用性与访问策略影响，抓取失败不计费。`;
+const FETCH_DESCRIPTION = `抓取单个网页，返回页面标题与 Markdown 正文。适用于：读取 wa_web_search 结果中的具体页面、获取用户提供的 URL 内容。Bing（免费）供应商走本地抓取（readability 正文抽取 + Markdown 转换；不执行页面 JS，动态渲染页与登录墙站点可能抓不到）；DeepSeek / 智谱 走各自服务端抓取。返回文本可能仍含少量页面噪声，引用前请自行过滤、优先采信正文主体。`;
 
 const SearchParams = Type.Object({
 	query: Type.String({
@@ -554,15 +649,25 @@ export default function webAccessExtension(pi: ExtensionAPI) {
 					"fetch_disabled",
 				);
 			const apiKey = keyFor(cfg);
-			if (!apiKey)
-				return textResult(
-					`网页抓取未配置 ${providerLabel(cfg.provider)} API Key。请到 设置 → 联网 → 互联网搜索 填入当前供应商的 API Key 后重试。`,
-					"fetch_no_api_key",
-				);
 			if (!isFetchableUrl(params.url))
 				return textResult(
 					`URL 不合法：仅支持带主机名的 HTTP/HTTPS 地址（收到「${params.url.slice(0, 200)}」）。`,
 					"invalid_url",
+				);
+			if (cfg.provider === "bing") {
+				// Bing 免费（免 Key）：本地抓取 + readability/turndown，无需 key 校验
+				const res = await localFetch(params.url, signal);
+				if (!res.ok) return textResult(res.message, `fetch_bing_${res.status}`);
+				let body = res.text;
+				if (body.length > FETCH_TRUNCATE) body = `${body.slice(0, FETCH_TRUNCATE)}…（正文已截断）`;
+				if (!res.title && !body.trim())
+					return textResult("抓取成功但页面没有可提取的正文内容。", "fetch_empty_content");
+				return textResult(res.title ? `# ${res.title}\n\n${body}` : body);
+			}
+			if (!apiKey)
+				return textResult(
+					`网页抓取未配置 ${providerLabel(cfg.provider)} API Key。请到 设置 → 联网 → 互联网搜索 填入当前供应商的 API Key 后重试。`,
+					"fetch_no_api_key",
 				);
 			if (cfg.provider === "bigmodel") {
 				// 智谱网页阅读：reader_result{content,title}，return_format=markdown 与工具语义一致
