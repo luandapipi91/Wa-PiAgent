@@ -1,6 +1,6 @@
 ## 2026-10-19
 - fix(websearch): 精简搜索/抓取工具的模型可见描述（用户裁决：系统提示词不告诉 AI 供应商选择/免费计费/实现细节）——wa_web_search 只留「联网搜索→标题/链接/摘要」，wa_fetch_content 只留「抓取→标题/Markdown + 不执行 JS 限制」；query 参数说明去掉 lang:/after:/before:（provider 相关）、ori_question 收紧；先红后绿：新增描述精简反向断言（不得含供应商/计费/实现细节字串）47 用例全绿，kernel typecheck 0 error
-- v0.7.11 发版：联网免费 Bing 供应商（默认、免 Key、可切 DeepSeek/智谱）；0.7.10 打包后即被 UI 收口提交超越，未对外、tag 已撤，直接以 0.7.11 发布；mac dmg 198522004 / win exe 179544399；0.7.11 覆盖发布一次（并入工具描述精简 e2f51f96，用户指定同版本覆盖）；mac dmg 198521344 / win exe 179544171
+- v0.7.11 发版：联网免费 Bing 供应商（默认、免 Key、可切 DeepSeek/智谱）；0.7.10 未对外即撤，0.7.11 覆盖发布一次（并入工具描述精简，用户指定同版本覆盖）；mac dmg 198521344 / win exe 179544171
 - fix(websearch): 移除 bing 免费提示行「Bing 免费、无需 API Key（搜索与网页抓取均可用）。」（用户裁决，多余）——WebSearchPanel 删条件渲染节点，zh/en 词典删 providerBingHint 键，组件测试存量断言同步（正向断言删除、改由反向断言锁「不得渲染」），E2E 改断言 testid 不渲染；先红后绿：组件 9 用例全绿，E2E 1 passed（偏移端口），typecheck 0 error
 - fix(websearch): 供应商下拉选项「Bing（免费免 Key）」去除括号后缀，仅显示「Bing」（zh/en 同步，用户裁决）；先红后绿：组件断言 option 文本恰为 Bing 且不得出现「免费免」，8 用例全绿，typecheck 0 error
 - fix(websearch): 移除联网设置页顶部描述段落（「联网能力由 Bing…API Key 保存后即时生效」，用户裁决）——WebSearchPanel 删渲染节点，zh/en 词典删 websearch.desc 键；先红后绿：组件反向断言（面板不得出现该文案）新增用例，7 用例全绿，typecheck 0 error
