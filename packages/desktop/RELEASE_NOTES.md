@@ -1,4 +1,4 @@
-WA PI Agent 0.7.10 更新内容:
+WA PI Agent 0.7.11 更新内容:
 
 【新增】
 
