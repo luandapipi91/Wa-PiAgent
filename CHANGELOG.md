@@ -1,5 +1,5 @@
 ## 2026-10-19
-- v0.7.10 发版：联网免费 Bing 供应商（默认、免 Key、可切 DeepSeek/智谱）；mac dmg 0 / win exe 0
+- v0.7.10 发版：联网免费 Bing 供应商（默认、免 Key、可切 DeepSeek/智谱）；mac dmg 198522317 / win exe 179544487
 - fix(websearch): 移除 bing 免费提示行「Bing 免费、无需 API Key（搜索与网页抓取均可用）。」（用户裁决，多余）——WebSearchPanel 删条件渲染节点，zh/en 词典删 providerBingHint 键，组件测试存量断言同步（正向断言删除、改由反向断言锁「不得渲染」），E2E 改断言 testid 不渲染；先红后绿：组件 9 用例全绿，E2E 1 passed（偏移端口），typecheck 0 error
 - fix(websearch): 供应商下拉选项「Bing（免费免 Key）」去除括号后缀，仅显示「Bing」（zh/en 同步，用户裁决）；先红后绿：组件断言 option 文本恰为 Bing 且不得出现「免费免」，8 用例全绿，typecheck 0 error
 - fix(websearch): 移除联网设置页顶部描述段落（「联网能力由 Bing…API Key 保存后即时生效」，用户裁决）——WebSearchPanel 删渲染节点，zh/en 词典删 websearch.desc 键；先红后绿：组件反向断言（面板不得出现该文案）新增用例，7 用例全绿，typecheck 0 error
