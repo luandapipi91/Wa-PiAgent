@@ -42,7 +42,7 @@ describe("GET /api/settings/websearch", () => {
 		expect(res?.status).toBe(200);
 		expect(await res?.json()).toEqual({
 			webSearch: {
-				provider: "deepseek",
+				provider: "bing",
 				searchEnabled: true,
 				fetchEnabled: true,
 				hasApiKey: false,
@@ -70,7 +70,7 @@ describe("PUT /api/settings/websearch", () => {
 		expect(res?.status).toBe(200);
 		expect(await res?.json()).toEqual({
 			webSearch: {
-				provider: "deepseek",
+				provider: "bing",
 				searchEnabled: true,
 				fetchEnabled: false,
 				hasApiKey: true,
@@ -78,7 +78,7 @@ describe("PUT /api/settings/websearch", () => {
 			},
 		});
 		expect(await loadWebSearchSettings(file)).toEqual({
-			provider: "deepseek",
+			provider: "bing",
 			searchEnabled: true,
 			fetchEnabled: false,
 			apiKey: "sk-deepseek-abc",
@@ -112,7 +112,7 @@ describe("PUT /api/settings/websearch", () => {
 		);
 		expect(await res?.json()).toEqual({
 			webSearch: {
-				provider: "deepseek",
+				provider: "bing",
 				searchEnabled: false,
 				fetchEnabled: true,
 				hasApiKey: true,
@@ -136,12 +136,32 @@ describe("PUT /api/settings/websearch", () => {
 		);
 		expect(await res?.json()).toEqual({
 			webSearch: {
-				provider: "deepseek",
+				provider: "bing",
 				searchEnabled: false,
 				fetchEnabled: false,
 				hasApiKey: false,
 				hasApiKeyBigmodel: false,
 			},
 		});
+	});
+
+	it("PUT provider=bing 往返：回包 provider 为 bing，且 GET 仍为 bing", async () => {
+		const res = await router.handle(
+			new Request("http://localhost/api/settings/websearch", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					webSearch: { provider: "bing", searchEnabled: true, fetchEnabled: true },
+				}),
+			}),
+		);
+		expect(res?.status).toBe(200);
+		const saved = (await res?.json()) as { webSearch: { provider: string } };
+		expect(saved.webSearch.provider).toBe("bing");
+		const getRes = await router.handle(
+			new Request("http://localhost/api/settings/websearch", { method: "GET" }),
+		);
+		const got = (await getRes?.json()) as { webSearch: { provider: string } };
+		expect(got.webSearch.provider).toBe("bing");
 	});
 });

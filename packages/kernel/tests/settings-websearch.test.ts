@@ -17,12 +17,12 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-test("默认值：两个开关开启、apiKey 为空（没配 key 也能开工具，调用时引导配置）", async () => {
+test("默认值：默认供应商 bing（免费免 Key）、两个开关开启", async () => {
   expect(await loadWebSearchSettings(join(dir, "settings.json"))).toEqual({
     ...WEB_SEARCH_DEFAULTS,
   });
   expect(WEB_SEARCH_DEFAULTS).toEqual({
-    provider: "deepseek",
+    provider: "bing",
     searchEnabled: true,
     fetchEnabled: true,
     apiKey: "",
@@ -30,7 +30,7 @@ test("默认值：两个开关开启、apiKey 为空（没配 key 也能开工�
   });
 });
 
-test("非法 provider 回退 deepseek（存盘脏值防御）", async () => {
+test("非法 provider 回退 bing（默认免费供应商）", async () => {
   const file = join(dir, "settings.json");
   await saveWebSearchSettings(
     { provider: "deepseek", searchEnabled: true, fetchEnabled: true, apiKey: "" },
@@ -41,7 +41,15 @@ test("非法 provider 回退 deepseek（存盘脏值防御）", async () => {
   );
   raw.webSearch.provider = "hacker";
   await require("node:fs/promises").writeFile(file, JSON.stringify(raw));
-  expect((await loadWebSearchSettings(file)).provider).toBe("deepseek");
+  expect((await loadWebSearchSettings(file)).provider).toBe("bing");
+});
+
+test("provider bing 为合法值：save/load 往返保留（无需任何 key）", async () => {
+  const file = join(dir, "settings.json");
+  await saveWebSearchSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true }, file);
+  expect(await loadWebSearchSettings(file)).toEqual({
+    provider: "bing", searchEnabled: true, fetchEnabled: true, apiKey: "", apiKeyBigmodel: "",
+  });
 });
 
 test("save 后 load 往返一致（含 provider 与双 key）", async () => {
