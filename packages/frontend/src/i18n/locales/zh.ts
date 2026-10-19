@@ -865,7 +865,7 @@ const zh = {
 		},
 		websearch: {
 			providerLabel: "供应商",
-			providerBing: "Bing（免费免 Key）",
+			providerBing: "Bing",
 			providerDeepseek: "DeepSeek",
 			providerBigmodel: "智谱 BigModel",
 			providerBingHint: "Bing 免费、无需 API Key（搜索与网页抓取均可用）。",

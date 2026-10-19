@@ -899,7 +899,7 @@ const en = {
 		},
 		websearch: {
 			providerLabel: "Provider",
-			providerBing: "Bing (free, no key)",
+			providerBing: "Bing",
 			providerDeepseek: "DeepSeek",
 			providerBigmodel: "Zhipu BigModel",
 			providerBingHint: "Bing is free and needs no API key (both search and page fetch work).",

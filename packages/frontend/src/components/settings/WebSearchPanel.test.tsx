@@ -176,3 +176,11 @@ test("描述段落已移除：面板不再渲染联网能力说明文案（2026-
 	expect(screen.queryByText(/联网能力由/)).toBeNull();
 	expect(screen.queryByText(/保存后即时生效/)).toBeNull();
 });
+
+test("供应商 bing 选项文本不带括号后缀：仅显示 Bing（2026-10-19 用户裁决）", async () => {
+	render(<WebSearchPanel />);
+	const select = await screen.findByTestId("websearch-provider-select");
+	const option = select.querySelector('option[value="bing"]');
+	expect(option?.textContent).toBe("Bing");
+	expect(screen.queryByText(/免费免/)).toBeNull();
+});
