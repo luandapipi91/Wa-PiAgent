@@ -898,7 +898,6 @@ const en = {
 				"This space still has shares — clear them before deleting",
 		},
 		websearch: {
-			desc: "Web access is powered by Bing (free, no key) / DeepSeek / Zhipu BigModel (wa_web_search / wa_fetch_content). Toggle & provider changes rebuild sessions after save — disabled tools become invisible to the model; API keys take effect immediately.",
 			providerLabel: "Provider",
 			providerBing: "Bing (free, no key)",
 			providerDeepseek: "DeepSeek",

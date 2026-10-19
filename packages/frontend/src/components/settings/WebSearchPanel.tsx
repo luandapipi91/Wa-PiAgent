@@ -128,10 +128,6 @@ export function WebSearchPanel() {
 
 	return (
 		<div className="flex flex-col gap-4" data-testid="websearch-panel">
-			<p className="text-xs text-secondary leading-relaxed">
-				{t("settings.websearch.desc")}
-			</p>
-
 			<div className="flex flex-col gap-1" data-testid="websearch-provider">
 				<span className="text-sm font-medium text-primary">
 					{t("settings.websearch.providerLabel")}

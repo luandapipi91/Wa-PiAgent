@@ -864,7 +864,6 @@ const zh = {
 			spaceHasSharesTitle: "该空间下还有分享，请先清空",
 		},
 		websearch: {
-			desc: "联网能力由 Bing（免费，无需 Key）/ DeepSeek / 智谱 BigModel 提供（wa_web_search 搜索 / wa_fetch_content 抓取）。开关与供应商变更保存后重建会话生效——关闭后模型直接看不到对应工具；API Key 保存后即时生效。",
 			providerLabel: "供应商",
 			providerBing: "Bing（免费免 Key）",
 			providerDeepseek: "DeepSeek",

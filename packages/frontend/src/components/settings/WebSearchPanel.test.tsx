@@ -169,3 +169,10 @@ test("供应商 select 有可访问名：aria-label = 供应商", async () => {
 	const select = await screen.findByTestId("websearch-provider-select");
 	expect(select.getAttribute("aria-label")).toBe("供应商");
 });
+
+test("描述段落已移除：面板不再渲染联网能力说明文案（2026-10-19 用户裁决）", async () => {
+	render(<WebSearchPanel />);
+	await screen.findByTestId("websearch-panel");
+	expect(screen.queryByText(/联网能力由/)).toBeNull();
+	expect(screen.queryByText(/保存后即时生效/)).toBeNull();
+});
