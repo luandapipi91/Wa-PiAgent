@@ -80,17 +80,20 @@ test("切供应商 + 填双 key 保存 → PUT body 携带全部字段", async (
 	const select = screen.getByTestId(
 		"websearch-provider-select",
 	) as HTMLSelectElement;
-	// 默认 bing：不渲染任何 Key 输入区
+	// 默认 bing：不渲染任何 Key 输入区，展示免费提示
 	await waitFor(() => expect(select.value).toBe("bing"));
 	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
-	// 切到 deepseek：填 DeepSeek key
+	expect(screen.getByTestId("websearch-bing-hint")).toBeTruthy();
+	// 切到 deepseek：填 DeepSeek key（bing 免费提示随之消失）
 	fireEvent.change(select, { target: { value: "deepseek" } });
+	expect(screen.queryByTestId("websearch-bing-hint")).toBeNull();
 	fireEvent.change(screen.getByTestId("websearch-key-deepseek-input"), {
 		target: { value: "sk-new" },
 	});
 	// 切到 bigmodel：DeepSeek 输入区卸载、智谱输入区出现，填智谱 key
 	fireEvent.change(select, { target: { value: "bigmodel" } });
 	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
+	expect(screen.queryByTestId("websearch-bing-hint")).toBeNull();
 	fireEvent.click(screen.getByTestId("websearch-toggle-fetch"));
 	fireEvent.change(screen.getByTestId("websearch-key-bigmodel-input"), {
 		target: { value: "zhu-new" },
