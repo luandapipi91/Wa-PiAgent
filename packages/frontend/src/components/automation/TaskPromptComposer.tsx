@@ -1,0 +1,338 @@
+import {
+	useState,
+	useRef,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+} from "react";
+import { createPortal } from "react-dom";
+import { useChannelsStore } from "../../store/channels";
+import { useContactsStore } from "../../store/contacts";
+import { useSkillsStore } from "../../store/skills";
+import type { ContactEntity } from "@wa-pi/shared";
+import { ComposerTextarea } from "../ui/ComposerTextarea";
+import { QuickInvokeMenu, type MenuItem } from "../ui/QuickInvokeMenu";
+import { Icon } from "../ui/Icon";
+import { imPushToken, toPromptHtml } from "./prompt-tokens";
+
+interface Props {
+	value: string;
+	onChange: (value: string) => void;
+}
+
+/** 联系人显示名：备注 > 群名（chatId 前 8 位）/ 人名（userId），对齐通讯录面板 ContactsPanel 的 label */
+const contactLabel = (c: ContactEntity): string =>
+	c.remark ||
+	(c.kind === "group" ? (c.chatId ?? "").slice(0, 8) : (c.userId ?? ""));
+
+/**
+ * 任务指令输入框（contenteditable chip 版，复用聊天 ComposerTextarea 的 chip 机制）：
+ * - @ 联系人：chip 显示人名，存储形态 @im-push-to(bot,ct)（执行时 kernel 解析注入 im_push_to）
+ * - $ 技能：chip 显示技能名，存储形态 $[技能名]（执行时 kernel expandSkillTokens 任意位置展开）
+ * - 联系人已删除：chip 灰化显示 id，不报错（存储 token 原样保留）
+ *
+ * 双弹窗触发为派生状态（value 末尾触发符），插入走「末尾替换」模式
+ * （对齐聊天 ComposerInput.handleSelect：替换末尾触发符为 token + 空格，
+ * fallback 直接追加）；插入后 ComposerTextarea 的同步 effect 自动聚焦末尾。
+ */
+export function TaskPromptComposer({ value, onChange }: Props) {
+	const [dismissedContact, setDismissedContact] = useState(false);
+	const [dismissedSkill, setDismissedSkill] = useState(false);
+	const [skillIdx, setSkillIdx] = useState(0);
+	const containerRef = useRef<HTMLDivElement>(null);
+	const contactPopRef = useRef<HTMLDivElement>(null);
+	const skillPopRef = useRef<HTMLDivElement>(null);
+	const { bots } = useChannelsStore();
+	const { contacts, loadContacts } = useContactsStore();
+	const skills = useSkillsStore((s) => s.skills);
+	const loadSkills = useSkillsStore((s) => s.load);
+
+	const showContactPicker = /@$/.test(value) && !dismissedContact;
+	const showSkillPicker = /[$¥]$/.test(value) && !dismissedSkill;
+	// 技能弹窗列表（通用 QuickInvokeMenu）：与聊天输入框同源同渲染
+	const skillItems: MenuItem[] = skills.map((s) => ({
+		id: s.name,
+		name: s.name,
+		description: s.description,
+		source: s.source,
+	}));
+
+	// value 变化重置 dismissed（触发符被删/继续输入后允许再次弹出）
+	useEffect(() => {
+		setDismissedContact(false);
+		setDismissedSkill(false);
+		setSkillIdx(0);
+	}, [value]);
+
+	// 打开时兜底拉取（联系人采集无广播；技能列表懒加载）
+	useEffect(() => {
+		if (showContactPicker) void loadContacts();
+	}, [showContactPicker, loadContacts]);
+	useEffect(() => {
+		if (showSkillPicker && skills.length === 0) loadSkills();
+	}, [showSkillPicker, skills.length, loadSkills]);
+
+	// 弹窗定位：portal 挂 body（fixed）逃逸 Modal 内容区 overflow 裁剪，锚定输入框矩形（光标下方）。
+	// 显式设置宽度：fixed 容器默认 shrink-to-fit，与子元素 w-percent 循环依赖会导致宽度约束失效（横向撑满屏幕）。
+	// 底部空间不足向上翻，右溢出左移钳制；happy-dom 零尺寸（测试环境）不定位。
+	const positionPop = useCallback((pop: HTMLDivElement | null) => {
+		if (!pop || !containerRef.current) return;
+		const pr = containerRef.current.getBoundingClientRect();
+		if (pr.width === 0 && pr.height === 0) return;
+		pop.style.left = `${pr.left}px`;
+		pop.style.top = `${pr.bottom + 4}px`;
+		pop.style.width = `${pr.width}px`;
+		const r = pop.getBoundingClientRect();
+		if (r.width === 0 && r.height === 0) return;
+		if (pr.bottom + 4 + r.height > window.innerHeight - 8) {
+			pop.style.top = `${Math.max(8, pr.top - r.height - 4)}px`;
+		}
+		if (pr.left + r.width > window.innerWidth - 8) {
+			pop.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
+		}
+	}, []);
+	useLayoutEffect(() => {
+		if (showContactPicker) positionPop(contactPopRef.current);
+	}, [showContactPicker, positionPop]);
+	useLayoutEffect(() => {
+		if (showSkillPicker) positionPop(skillPopRef.current);
+	}, [showSkillPicker, positionPop]);
+
+	// 点击外部关闭（portal 面板挂 body，需判 container + 两个 pop 的 ref 内部）
+	useEffect(() => {
+		if (!showContactPicker && !showSkillPicker) return;
+		const handleClickOutside = (e: MouseEvent) => {
+			const t = e.target as Node;
+			if (containerRef.current?.contains(t)) return;
+			if (contactPopRef.current?.contains(t)) return;
+			if (skillPopRef.current?.contains(t)) return;
+			setDismissedContact(true);
+			setDismissedSkill(true);
+		};
+		document.addEventListener("mousedown", handleClickOutside);
+		return () => document.removeEventListener("mousedown", handleClickOutside);
+	}, [showContactPicker, showSkillPicker]);
+
+	// 滚动关闭弹窗（fixed 浮层不随容器位移脱锚）
+	useEffect(() => {
+		if (!showContactPicker && !showSkillPicker) return;
+		const onScroll = (ev: Event) => {
+			const t = ev.target as Node | null;
+			if (t instanceof Node && contactPopRef.current?.contains(t)) return;
+			if (t instanceof Node && skillPopRef.current?.contains(t)) return;
+			setDismissedContact(true);
+			setDismissedSkill(true);
+		};
+		window.addEventListener("scroll", onScroll, true);
+		return () => window.removeEventListener("scroll", onScroll, true);
+	}, [showContactPicker, showSkillPicker]);
+
+	// 插入：替换 value 末尾触发符为 token + 空格（无触发符时直接追加兜底）
+	const insertContact = useCallback(
+		(c: ContactEntity) => {
+			const token = imPushToken(c.channelId, c.id);
+			const next = /@$/.test(value)
+				? value.replace(/@$/, `${token} `)
+				: `${value}${token} `;
+			onChange(next);
+			setDismissedContact(true);
+		},
+		[value, onChange],
+	);
+
+	const insertSkill = useCallback(
+		(name: string) => {
+			const token = `$[${name}]`;
+			const next = /[$¥]$/.test(value)
+				? value.replace(/[$¥]$/, `${token} `)
+				: `${value}${token} `;
+			onChange(next);
+			setDismissedSkill(true);
+		},
+		[value, onChange],
+	);
+
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLDivElement>) => {
+			if (e.key === "Escape") {
+				if (showContactPicker || showSkillPicker) {
+					e.preventDefault();
+					setDismissedContact(true);
+					setDismissedSkill(true);
+				}
+				return;
+			}
+			// 技能弹窗打开：↑↓ 导航、Enter 选中（与聊天 ComposerInput 一致的交互）
+			if (showSkillPicker && skillItems.length > 0) {
+				if (e.key === "ArrowDown") {
+					e.preventDefault();
+					setSkillIdx((i) => (i + 1) % skillItems.length);
+					return;
+				}
+				if (e.key === "ArrowUp") {
+					e.preventDefault();
+					setSkillIdx((i) => (i - 1 + skillItems.length) % skillItems.length);
+					return;
+				}
+				if (e.key === "Enter") {
+					e.preventDefault();
+					insertSkill(skillItems[skillIdx]?.name ?? "");
+				}
+			}
+		},
+		[showContactPicker, showSkillPicker, skillItems, skillIdx, insertSkill],
+	);
+
+	// chip 元数据：查通讯录显名；查无灰化显示 id（联系人已删除，不报错）
+	const contactMeta = useCallback(
+		(contactId: string) => {
+			const c = contacts.find((x) => x.id === contactId);
+			return c
+				? { label: contactLabel(c), valid: true, kind: c.kind }
+				: { label: contactId, valid: false };
+		},
+		[contacts],
+	);
+
+	// 联系人按渠道分组（person + group 均可 @；渠道名经 bots 映射，找不到回退渠道 id）
+	const channelNameOf = useCallback(
+		(channelId: string): string =>
+			bots.find((b) => b.id === channelId)?.name ?? channelId,
+		[bots],
+	);
+	const contactsByChannel = useCallback((): Array<{
+		channelId: string;
+		channelName: string;
+		items: ContactEntity[];
+	}> => {
+		const map = new Map<string, ContactEntity[]>();
+		for (const c of contacts) {
+			const list = map.get(c.channelId) ?? [];
+			list.push(c);
+			map.set(c.channelId, list);
+		}
+		return [...map.entries()].map(([channelId, items]) => ({
+			channelId,
+			channelName: channelNameOf(channelId),
+			items,
+		}));
+	}, [contacts, channelNameOf]);
+	const grouped = contactsByChannel();
+	const totalContacts = grouped.reduce((n, g) => n + g.items.length, 0);
+
+	const popStyle = {
+		left: -9999,
+		top: -9999,
+		background: "var(--surface)",
+		boxShadow: "var(--shadow-md)",
+	};
+	const popClass =
+		"fixed z-[1000] rounded-md border border-hairline overflow-hidden py-1 max-h-48 overflow-y-auto";
+
+	return (
+		<div className="relative">
+			{/* 定位锚点：仅包输入框（弹窗紧贴输入框/光标正下方，不含提示行） */}
+			<div ref={containerRef}>
+					<ComposerTextarea
+						text={value}
+						onTextChange={onChange}
+						onKeyDown={handleKeyDown}
+						onPaste={(e) => {
+							// 跨输入框复制（剪贴板含 HTML）：把纯文本 token 合入 value，
+							// 受控层 textToHtml/toPromptHtml 重渲染成 chip（与聊天 ComposerInput 一致）
+							if (e.clipboardData.getData("text/html")) {
+								e.preventDefault();
+								const plain = e.clipboardData.getData("text/plain") || "";
+								onChange(value + plain);
+							}
+						}}
+						toHtml={(t) => toPromptHtml(t, contactMeta)}
+					testId="task-prompt-input"
+					placeholder="让智能体帮你做什么...（$ 插入技能，@ 选择联系人）"
+					// 边框与表单其他输入框一致（浅色模式下裸 contenteditable 与背景融合，看不出可输入）
+					className="rounded-md border border-hairline focus-within:border-accent px-3 py-2 min-h-[80px]"
+				/>
+			</div>
+			{/* 提示行 */}
+			<div
+				className="flex gap-3 mt-1 text-[9px]"
+				style={{ color: "var(--text-tertiary)" }}
+			>
+				<span>
+					<strong style={{ color: "#c084fc" }}>$</strong> 插入技能
+				</span>
+				<span>
+					<strong style={{ color: "#4ade80" }}>@</strong> 选择联系人
+				</span>
+			</div>
+			{/* 联系人选择器（portal 挂 body，逃逸 Modal 裁剪） */}
+			{showContactPicker &&
+				createPortal(
+					<div
+						ref={contactPopRef}
+						style={popStyle}
+						className={popClass}
+						data-testid="contact-picker"
+					>
+						{totalContacts === 0 && (
+							<div
+								className="px-3 py-2 text-[10px]"
+								style={{ color: "var(--text-tertiary)" }}
+							>
+								暂无联系人（先在 IM 里发起会话后自动收录）
+							</div>
+						)}
+						{grouped.map((group) => (
+							<div key={group.channelId}>
+								<div
+									className="px-3 py-1 text-[10px] font-medium"
+									style={{ color: "var(--text-tertiary)" }}
+								>
+									📨 {group.channelName}
+								</div>
+								{group.items.map((c) => (
+									<div
+										key={c.id}
+										onClick={() => insertContact(c)}
+										className="px-3 py-1.5 text-xs cursor-pointer hover:bg-white/5 flex items-center gap-1"
+										style={{ color: "var(--text-primary)" }}
+										data-testid={`contact-item-${c.id}`}
+									>
+										<Icon
+											name={c.kind === "group" ? "users" : "user"}
+											size={14}
+											testId={`contact-kind-${c.kind}`}
+										/>
+										<span>{contactLabel(c)}</span>
+									</div>
+								))}
+							</div>
+						))}
+					</div>,
+					document.body,
+				)}
+			{/* 技能选择器（portal 挂 body，定位/关闭与联系人选择器同款；
+			    列表体复用聊天通用 QuickInvokeMenu，键盘 ↑↓/Enter 可导航选中） */}
+			{showSkillPicker &&
+				createPortal(
+					<div
+						ref={skillPopRef}
+						style={popStyle}
+						className={popClass}
+						data-testid="skill-picker"
+					>
+						<QuickInvokeMenu
+							type="skill"
+							items={skillItems}
+							highlightedIndex={skillIdx}
+							onSelect={(it) => insertSkill(it.name)}
+							onHover={setSkillIdx}
+							emptyText="暂无技能"
+							positionClassName="relative w-full"
+						/>
+					</div>,
+					document.body,
+				)}
+		</div>
+	);
+}
