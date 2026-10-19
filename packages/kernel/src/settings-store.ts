@@ -763,7 +763,7 @@ export interface WebSearchSettings {
 	searchEnabled: boolean;
 	/** 网页抓取（wa_fetch_content 工具）开关 */
 	fetchEnabled: boolean;
-	/** 供应商：deepseek（默认）/ bigmodel（智谱 BigModel） */
+	/** 供应商：bing（默认，免 Key 免费，搜索/抓取均本地）/ deepseek / bigmodel */
 	provider: WebSearchProvider;
 	/** DeepSeek API Key（搜索/抓取共用，Bearer 鉴权） */
 	apiKey: string;
@@ -771,12 +771,12 @@ export interface WebSearchSettings {
 	apiKeyBigmodel: string;
 }
 
-export type WebSearchProvider = "deepseek" | "bigmodel";
+export type WebSearchProvider = "deepseek" | "bigmodel" | "bing";
 
-/** 互联网搜索默认值：供应商 deepseek、双开关默认开启（与 pi-web-access 时代「工具一直可用」一致），
+/** 互联网搜索默认值：供应商 bing、双开关默认开启（与 pi-web-access 时代「工具一直可用」一致），
  *  未配 key 时工具调用返回引导配置的错误文案，不影响会话其余部分。 */
 export const WEB_SEARCH_DEFAULTS: WebSearchSettings = {
-	provider: "deepseek",
+	provider: "bing",
 	searchEnabled: true,
 	fetchEnabled: true,
 	apiKey: "",
@@ -786,10 +786,11 @@ export const WEB_SEARCH_DEFAULTS: WebSearchSettings = {
 const WEB_SEARCH_PROVIDERS: readonly WebSearchProvider[] = [
 	"deepseek",
 	"bigmodel",
+	"bing",
 ];
 
 /** 读取互联网搜索配置；字段缺失逐项回退默认值。
- *  供应商值非法时回退 deepseek；旧版本 apiKey 直接作为 deepseek key 沿用（字段同名无需迁移）。 */
+ *  供应商值非法时回退 bing；旧版本 apiKey 直接作为 deepseek key 沿用（字段同名无需迁移）。 */
 export async function loadWebSearchSettings(
 	file: string = SETTINGS_FILE,
 ): Promise<WebSearchSettings> {

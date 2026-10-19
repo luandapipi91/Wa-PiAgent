@@ -14,17 +14,21 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 | @earendil-works/pi-coding-agent | ~1.3.0 | MIT | Mario Zechner |
 | @earendil-works/pi-tui | 1.3.0 | MIT | Mario Zechner |
 | @huggingface/transformers | 4.3.0 | Apache-2.0 | Hugging Face |
+| @mozilla/readability | ^0.6.0 | Apache-2.0 | Mozilla (readability) |
 | @napi-rs/keyring | ^1.3.0 | MIT | Brooooooklyn (keyring-node) |
 | @noble/hashes | ^2.3.0 | MIT | Paul Miller |
 | @sqliteai/sqlite-vector | ^1.1.2 | Apache-2.0 | Gioele Cantoni (SQLite Cloud) |
 | @wecom/aibot-node-sdk | ^1.0.7 | MIT | 未声明 |
 | cos-nodejs-sdk-v5 | ^3.0.0 | ISC | carsonxu (Tencent Cloud) |
 | fflate | ^0.8.3 | MIT | Arjun Barrett (101arrowz) |
+| linkedom | ^0.18.13 | ISC | Andrea Giammarchi |
+| turndown | ^7.2.4 | MIT | Dom Christie |
 | typebox | ^1.3.11 | MIT | Copyright (c) 2017-2026 Haydn Paterson |
 
 ## 运行时传递依赖中的非 MIT 宽松许可
 
 - **BlueOak-1.0.0**：glob、minimatch、path-scurry、yallist、lru-cache 等（经 @earendil-works/pi-coding-agent 链引入）。BlueOak 为宽松许可证，非 copyleft。
+- **BSD-2-Clause**：@mixmark-io/domino 2.2.0（turndown 依赖，随 web-access 扩展 bundle 内联分发）。BSD-2-Clause 为宽松许可证，非 copyleft。
 
 ## 构建 / 开发工具链依赖（不进运行时产物，仅供审计参考）
 

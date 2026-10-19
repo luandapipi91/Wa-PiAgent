@@ -1,5 +1,5 @@
 // WebSearchPanel（设置 → 联网 → 互联网搜索）组件测试：
-// 1. mount 回填 GET /api/settings/websearch（供应商 + 开关 + 双 key 掩码态）
+// 1. mount 回填 GET /api/settings/websearch（供应商 + 开关 + 双 key 掩码态；默认供应商 bing）
 // 2. 供应商切换 + 开关 + 双 key 保存 → PUT body 断言
 // 3. 已保存 key 时掩码展示，未点「修改」时保存传空（服务端保留语义）
 // 4. GET 失败静默（保持默认值，可正常保存）
@@ -21,7 +21,7 @@ mock.module("../../api-client", () => ({
 
 const defaultView = {
 	webSearch: {
-		provider: "deepseek",
+		provider: "bing",
 		searchEnabled: true,
 		fetchEnabled: true,
 		hasApiKey: false,
@@ -63,12 +63,12 @@ test("mount 回填：供应商/开关/key 掩码态按服务端渲染", async ()
 	const fetchT = screen.getByTestId(
 		"websearch-toggle-fetch",
 	) as HTMLInputElement;
-	const bigmodelRadio = screen.getByTestId(
-		"websearch-provider-bigmodel",
-	) as HTMLInputElement;
+	const select = screen.getByTestId(
+		"websearch-provider-select",
+	) as HTMLSelectElement;
 	await waitFor(() => expect(search.checked).toBe(false));
 	expect(fetchT.checked).toBe(true);
-	expect(bigmodelRadio.checked).toBe(true);
+	expect(select.value).toBe("bigmodel");
 	// 智谱 key 已保存 → 掩码；供应商为 bigmodel → DeepSeek key 区块不渲染
 	expect(screen.getByTestId("websearch-key-bigmodel-mask")).toBeTruthy();
 	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
@@ -77,16 +77,23 @@ test("mount 回填：供应商/开关/key 掩码态按服务端渲染", async ()
 test("切供应商 + 填双 key 保存 → PUT body 携带全部字段", async () => {
 	render(<WebSearchPanel />);
 	await screen.findByTestId("websearch-panel");
-	await waitFor(() =>
-		expect(screen.getByTestId("websearch-key-deepseek-input")).toBeTruthy(),
-	);
-	// 默认 deepseek：填 DeepSeek key
+	const select = screen.getByTestId(
+		"websearch-provider-select",
+	) as HTMLSelectElement;
+	// 默认 bing：不渲染任何 Key 输入区，展示免费提示
+	await waitFor(() => expect(select.value).toBe("bing"));
+	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
+	expect(screen.getByTestId("websearch-bing-hint")).toBeTruthy();
+	// 切到 deepseek：填 DeepSeek key（bing 免费提示随之消失）
+	fireEvent.change(select, { target: { value: "deepseek" } });
+	expect(screen.queryByTestId("websearch-bing-hint")).toBeNull();
 	fireEvent.change(screen.getByTestId("websearch-key-deepseek-input"), {
 		target: { value: "sk-new" },
 	});
 	// 切到 bigmodel：DeepSeek 输入区卸载、智谱输入区出现，填智谱 key
-	fireEvent.click(screen.getByTestId("websearch-provider-bigmodel"));
+	fireEvent.change(select, { target: { value: "bigmodel" } });
 	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
+	expect(screen.queryByTestId("websearch-bing-hint")).toBeNull();
 	fireEvent.click(screen.getByTestId("websearch-toggle-fetch"));
 	fireEvent.change(screen.getByTestId("websearch-key-bigmodel-input"), {
 		target: { value: "zhu-new" },
@@ -139,6 +146,26 @@ test("GET 失败静默：面板仍渲染，保存按默认值提交", async () =
 	fireEvent.click(screen.getByTestId("websearch-save"));
 	await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
 	const [, body] = putMock.mock.calls[0];
-	expect(body.webSearch.provider).toBe("deepseek");
+	expect(body.webSearch.provider).toBe("bing");
 	expect(body.webSearch.searchEnabled).toBe(true);
+});
+
+test("默认 bing：不渲染任何 Key 输入区，展示免费提示；保存 PUT 携带 bing", async () => {
+	render(<WebSearchPanel />);
+	await screen.findByTestId("websearch-panel");
+	await waitFor(() =>
+		expect((screen.getByTestId("websearch-provider-select") as HTMLSelectElement).value).toBe("bing"),
+	);
+	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
+	expect(screen.queryByTestId("websearch-key-bigmodel-input")).toBeNull();
+	expect(screen.getByTestId("websearch-bing-hint")).toBeTruthy();
+	fireEvent.click(screen.getByTestId("websearch-save"));
+	await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+	expect(putMock.mock.calls[0][1].webSearch.provider).toBe("bing");
+});
+
+test("供应商 select 有可访问名：aria-label = 供应商", async () => {
+	render(<WebSearchPanel />);
+	const select = await screen.findByTestId("websearch-provider-select");
+	expect(select.getAttribute("aria-label")).toBe("供应商");
 });

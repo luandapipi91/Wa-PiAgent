@@ -10,7 +10,7 @@
 // <WA_PI_DIR>/runtime 里的依赖）；WA_PI_DIR / 端口 / web 目录全部隔离，互不污染。
 import { afterAll, expect, test } from "bun:test";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,7 +121,7 @@ test(
           ? "linux"
           : "darwin";
     expect(existsSync(compiler)).toBe(true);
-    compileKernelBinary(outfile, target, compiler);
+    await compileKernelBinary(outfile, target, compiler);
     expect(existsSync(outfile)).toBe(true);
 
     // 2) 真启动（隔离数据目录 / 端口 / web 目录）
@@ -160,6 +160,16 @@ test(
       );
     }
     expect(ready).toBe(true);
+
+    // web-access 扩展必须由「打包态 asset 分支」落地（源码不在编译产物磁盘上，dev 判据为真要现场
+    // Bun.build 必挂）：产物内容 = 预构建 bundle，长度必大于源码；存在且不是源码副本才算真走到 asset。
+    const webAccessExt = join(waDir, ".generated", "web-access.ts");
+    expect(existsSync(webAccessExt)).toBe(true);
+    const sourceLen = readFileSync(
+      join(KERNEL_PKG_DIR, "src", "web-access.extension.ts"),
+      "utf8",
+    ).length;
+    expect(readFileSync(webAccessExt, "utf8").length).toBeGreaterThan(sourceLen);
   },
   180000,
 );

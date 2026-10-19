@@ -6,12 +6,12 @@ import { useToastStore } from "../../store/toast";
 
 /**
  * 互联网搜索面板（设置 → 联网 → 互联网搜索 tab）：
- * 供应商选择（DeepSeek / 智谱 BigModel）+ 搜索/抓取双开关 + 各自 API Key（密码框，已保存时脱敏展示）。
+ * 供应商选择（Bing（免费，无需 Key）/ DeepSeek / 智谱 BigModel，默认 bing）+ 搜索/抓取双开关 + 各自 API Key（密码框，已保存时脱敏展示）。
  * 保存走 GET/PUT /api/settings/websearch；key 明文只在 PUT 上行，回包恒脱敏（hasApiKey*）。
  * 开关/供应商决定扩展注册面——保存后 kernel 标脏重建会话生效；key 本身即时生效。
  */
 
-type WebSearchProvider = "deepseek" | "bigmodel";
+type WebSearchProvider = "bing" | "deepseek" | "bigmodel";
 
 interface WebSearchSettingsView {
 	provider: WebSearchProvider;
@@ -30,7 +30,7 @@ interface KeyState {
 
 export function WebSearchPanel() {
 	const { t } = useTranslation();
-	const [provider, setProvider] = useState<WebSearchProvider>("deepseek");
+	const [provider, setProvider] = useState<WebSearchProvider>("bing");
 	const [searchEnabled, setSearchEnabled] = useState(true);
 	const [fetchEnabled, setFetchEnabled] = useState(true);
 	const [deepseekKey, setDeepseekKey] = useState<KeyState>({
@@ -52,7 +52,11 @@ export function WebSearchPanel() {
 			.then((res) => {
 				const ws = (res as { webSearch?: WebSearchSettingsView })?.webSearch;
 				if (!ws) return;
-				if (ws.provider === "bigmodel" || ws.provider === "deepseek")
+				if (
+					ws.provider === "bigmodel" ||
+					ws.provider === "deepseek" ||
+					ws.provider === "bing"
+				)
 					setProvider(ws.provider);
 				setSearchEnabled(ws.searchEnabled);
 				setFetchEnabled(ws.fetchEnabled);
@@ -132,33 +136,24 @@ export function WebSearchPanel() {
 				<span className="text-sm font-medium text-primary">
 					{t("settings.websearch.providerLabel")}
 				</span>
-				<div className="flex items-center gap-4">
-					<label className="flex items-center gap-1.5 cursor-pointer">
-						<input
-							type="radio"
-							name="websearch-provider"
-							checked={provider === "deepseek"}
-							onChange={() => setProvider("deepseek")}
-							data-testid="websearch-provider-deepseek"
-						/>
-						<span className="text-xs text-secondary">
-							{t("settings.websearch.providerDeepseek")}
-						</span>
-					</label>
-					<label className="flex items-center gap-1.5 cursor-pointer">
-						<input
-							type="radio"
-							name="websearch-provider"
-							checked={provider === "bigmodel"}
-							onChange={() => setProvider("bigmodel")}
-							data-testid="websearch-provider-bigmodel"
-						/>
-						<span className="text-xs text-secondary">
-							{t("settings.websearch.providerBigmodel")}
-						</span>
-					</label>
-				</div>
+				<select
+					value={provider}
+					onChange={(e) => setProvider(e.target.value as WebSearchProvider)}
+					className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
+					data-testid="websearch-provider-select"
+					aria-label={t("settings.websearch.providerLabel")}
+				>
+					<option value="bing">{t("settings.websearch.providerBing")}</option>
+					<option value="deepseek">{t("settings.websearch.providerDeepseek")}</option>
+					<option value="bigmodel">{t("settings.websearch.providerBigmodel")}</option>
+				</select>
 			</div>
+
+			{provider === "bing" && (
+				<span className="text-xs text-secondary" data-testid="websearch-bing-hint">
+					{t("settings.websearch.providerBingHint")}
+				</span>
+			)}
 
 			<label className="flex flex-col gap-1 cursor-pointer w-fit">
 				<span className="flex items-center gap-2">

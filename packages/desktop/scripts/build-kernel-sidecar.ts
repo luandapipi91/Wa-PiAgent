@@ -85,7 +85,7 @@ export async function buildSidecar(
 
 	// 1. WaPiKernel 单二进制（bun --compile；bridge 三文件经 --asset 嵌入产物 assets/）
 	const kernelBinary = join(kernelDir, kernelBinaryName(target));
-	compileKernelBinary(kernelBinary, target);
+	await compileKernelBinary(kernelBinary, target);
 
 	// 2. 依赖清单（package.json + bun.lock）：仅磁盘必需的 external 包。
 	//    【只产出清单 + 锁文件，不打包 node_modules】——首启 BUN_BE_BUN=1 动态安装到
