@@ -1,6 +1,6 @@
 // compile-binary.ts 纯函数测试：编译参数、asset 暂存、平台二进制名。
 // 不真的跑 bun build --compile（那是 Task 6 集成测试的职责）。
-import { test, expect } from "bun:test";
+import { test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { readdirSync, rmSync } from "node:fs";
 import {
@@ -10,8 +10,17 @@ import {
   KERNEL_ASSET_FILES,
   kernelBinaryName,
 } from "../scripts/compile-binary";
+import { buildWebAccessBundle } from "../src/web-access-bundle";
 import { TUI_HOST_EXTENSION_FILES } from "../src/tui-host-deploy";
 import { basename, join } from "node:path";
+
+// web-access.bundle.js 是构建期产物（gitignore，不入库）：资产清单断言前先构建一次，
+// 否则全新检出上「全部资产真实存在」与 stageAssetDir 的 cpSync 会因缺文件而红。
+beforeAll(async () => {
+  await buildWebAccessBundle(
+    join(import.meta.dir, "..", "src", "assets", "web-access.bundle.js"),
+  );
+});
 
 test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/--asset/--outfile", () => {
   const args = buildCompileArgs("/tmp/out/WaPiKernel.exe", "/tmp/assets");
@@ -106,7 +115,7 @@ test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名
       "tool-schemas.ts",
       "wa-pi-bridge.extension.ts",
       "wa-pi-tui-host.extension.ts",
-      "web-access.extension.ts",
+      "web-access.bundle.js",
       "widget.ts",
     ].sort();
     expect(readdirSync(dir).sort()).toEqual(expected);

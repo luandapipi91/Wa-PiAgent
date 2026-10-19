@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // web-access.extension.ts —— wa-pi 内置网络工具（多供应商：DeepSeek / 智谱 BigModel）
 //
-// 本文件由 ensureWebAccessExtension() 复制到 GENERATED_DIR/web-access.ts，
+// 本文件由 ensureWebAccessExtension() 打包为单文件 bundle 后部署到 GENERATED_DIR/web-access.ts，
 // pi 进程经 -e 加载（主会话 + 子代理同款注入）。
 //
 // 设计要点：

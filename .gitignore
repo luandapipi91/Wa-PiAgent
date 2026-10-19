@@ -84,5 +84,8 @@ bun.lock
 # vanilla SQLite dylib（build-sqlite-dylib.ts 产物，不入库）
 packages/kernel/assets/sqlite/libsqlite3.dylib
 
+# web-access 扩展单文件 bundle（compile-binary.ts 构建期产物，--asset 嵌入内核二进制，不入库）
+packages/kernel/src/assets/web-access.bundle.js
+
 # kernel 内部文档（POC 报告等，不入远程）
 packages/kernel/docs/

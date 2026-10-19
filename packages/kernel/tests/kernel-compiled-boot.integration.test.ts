@@ -121,7 +121,7 @@ test(
           ? "linux"
           : "darwin";
     expect(existsSync(compiler)).toBe(true);
-    compileKernelBinary(outfile, target, compiler);
+    await compileKernelBinary(outfile, target, compiler);
     expect(existsSync(outfile)).toBe(true);
 
     // 2) 真启动（隔离数据目录 / 端口 / web 目录）

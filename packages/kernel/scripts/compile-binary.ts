@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { buildWebAccessBundle } from "../src/web-access-bundle";
 
 const KERNEL_SRC = join(import.meta.dir, "..", "src");
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
@@ -23,7 +24,9 @@ export const KERNEL_ASSET_FILES = [
 	join(KERNEL_SRC, "wa-pi-bridge.extension.ts"),
 	join(KERNEL_SRC, "file-snapshot.ts"),
 	join(KERNEL_SRC, "date-context.ts"),
-	join(KERNEL_SRC, "web-access.extension.ts"),
+	// web-access 扩展是预构建单文件 bundle（源码 + 依赖全内联）：扩展经 -e 加载时
+	// 无法解析裸 import，故 compileKernelBinary 先构建它再嵌入（见下方主流程）。
+	join(KERNEL_SRC, "assets", "web-access.bundle.js"),
 	join(REPO_ROOT, "packages", "shared", "src", "tool-schemas.ts"),
 	join(KERNEL_SRC, "assets", "preview-inspect.js"),
 	join(KERNEL_SRC, "wa-pi-tui-host.extension.ts"),
@@ -96,11 +99,14 @@ export function stageAssetDir(): string {
  * target 传 win/linux 时用 --target 交叉编译（bun ≥1.4 支持，首次会下载目标平台 runtime）。
  * bunPath 可注入：PATH 首位可能是桌面端放的 bun shim（execPath 是打包内核自己，
  * 拿它编译会报 SectionExists），调用方（如打包链/打包态冒烟测试）可传真 bun 路径。 */
-export function compileKernelBinary(
+export async function compileKernelBinary(
 	outfile: string,
 	target?: "win" | "linux" | "darwin",
 	bunPath: string = process.execPath,
-): void {
+): Promise<void> {
+	// 先把扩展源码与依赖打成预构建资产（web-access-deploy.ts packaged 分支读它）；
+	// 必须在 stageAssetDir 之前完成，否则 cpSync 找不到 assets/web-access.bundle.js。
+	await buildWebAccessBundle(join(KERNEL_SRC, "assets", "web-access.bundle.js"));
 	const assetDir = stageAssetDir();
 	try {
 		const args = buildCompileArgs(outfile, assetDir, target);
@@ -118,5 +124,7 @@ export function compileKernelBinary(
 }
 
 if (import.meta.main) {
-	compileKernelBinary(join(import.meta.dir, "..", "dist", kernelBinaryName()));
+	await compileKernelBinary(
+		join(import.meta.dir, "..", "dist", kernelBinaryName()),
+	);
 }

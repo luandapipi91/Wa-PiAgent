@@ -1,44 +1,43 @@
-// web-access-deploy.ts —— 部署 web-access 扩展（DeepSeek 搜索/抓取）到 GENERATED_DIR。
+// web-access-deploy.ts —— 部署 web-access 扩展（Bing/DeepSeek/智谱 搜索与抓取）到 GENERATED_DIR。
 //
-// 与 bridge-extension.ts 同模式：把静态扩展源文件复制到 GENERATED_DIR，
-// pi 进程经 -e 加载（主会话 buildAdditionalExtensionPaths + 子代理 extensionPaths）。
-// 扩展文件自含（无相对 import 依赖），只需复制一个文件。
+// 为什么 bundle 化：扩展经 pi 的 -e 加载，依赖必须自含。早期直接复制
+// web-access.extension.ts 源文件（当时只依赖 typebox，pi 运行时能解析到）；2026-10-19 起
+// 扩展引入链接库（linkedom/readability/turndown），GENERATED_DIR 下裸 import 无法解析
+// → 加载即失败。改为构建期打包：产物单文件自含全部依赖。
+//
+// 两条路径：
+// - dev（源码与 __dirname 同目录）→ 现场 Bun.build 打包写到 GENERATED_DIR；
+// - packaged（bun --compile 产物，源码不在磁盘）→ 读 --asset 嵌入的
+//   assets/web-access.bundle.js（compile-binary.ts 预构建）写到 GENERATED_DIR。
+// 与 bridge/tui-host 的资产读取同模式；pi 进程经 -e 加载（主会话 + 子代理同款注入）。
 
 import { mkdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GENERATED_DIR } from "@wa-pi/shared";
+import { buildWebAccessBundle } from "./web-access-bundle";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** 生成的 web-access 扩展文件路径（kernel spawn pi 时经 -e 注入） */
 export const WEB_ACCESS_EXTENSION_PATH = join(GENERATED_DIR, "web-access.ts");
 
-/**
- * 静态 web-access 扩展源文件。
- * - packaged：bun --compile --asset 嵌入编译产物 assets/ → 优先取。
- * - dev：回退到 monorepo 源码路径。
- */
-function resolveWebAccessExtensionSource(): string {
-	const flat = join(__dirname, "web-access.extension.ts");
-	if (existsSync(flat)) return flat;
-	const inAssets = join(__dirname, "assets", "web-access.extension.ts");
-	if (existsSync(inAssets)) return inAssets;
-	return flat; // 兜底同路径（bundled kernel 场景）
-}
+/** 打包态预构建产物（compile-binary.ts 生成并 --asset 嵌入到产物 assets/） */
+const BUNDLED_ASSET = join(__dirname, "assets", "web-access.bundle.js");
 
 /**
- * 部署 web-access 扩展到 GENERATED_DIR：复制静态扩展文件。
- * 每次覆盖写，幂等。返回扩展入口路径。
+ * 部署 web-access 扩展到 GENERATED_DIR：dev 现场打包 / packaged 复制预构建产物。
+ * 每次重建，幂等。返回扩展入口路径。
  */
 export async function ensureWebAccessExtension(): Promise<string> {
 	await mkdir(GENERATED_DIR, { recursive: true });
+	if (existsSync(join(__dirname, "web-access.extension.ts"))) {
+		await buildWebAccessBundle(WEB_ACCESS_EXTENSION_PATH);
+		return WEB_ACCESS_EXTENSION_PATH;
+	}
 	// POC：bun --compile 虚拟 FS 里 copyFile 不可用，改 readFileSync + writeFile（同 bridge）。
 	const { writeFile } = await import("node:fs/promises");
-	await writeFile(
-		WEB_ACCESS_EXTENSION_PATH,
-		readFileSync(resolveWebAccessExtensionSource()),
-	);
+	await writeFile(WEB_ACCESS_EXTENSION_PATH, readFileSync(BUNDLED_ASSET));
 	return WEB_ACCESS_EXTENSION_PATH;
 }

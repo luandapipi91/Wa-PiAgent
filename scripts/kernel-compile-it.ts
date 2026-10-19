@@ -94,7 +94,7 @@ async function main() {
 	try {
 		// 1. 编译
 		const bin = join(runtimeDir, kernelBinaryName());
-		compileKernelBinary(bin);
+		await compileKernelBinary(bin);
 
 		// 2. BUN_BE_BUN=1 装磁盘依赖（编译产物充当 bun CLI）
 		writeFileSync(
