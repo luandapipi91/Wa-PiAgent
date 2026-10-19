@@ -724,3 +724,12 @@ test("bing 抓取：无 content-length 的超大页面按流截断（超限即�
 	expect(text(r)).toContain("已截断"); // 对外语义不变：仍按 2MB 截断后再走正文截断
 	expect(text(r).length).toBeLessThan(50_000);
 });
+
+test("bing 抓取：重定向到非 HTTP(S) 协议被拒（file:// 不得读本机文件）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 302, body: "", headers: { location: "file:///tmp/secret.txt" } });
+	const r = await registered["wa_fetch_content"].execute("s8", { url: "https://attacker.example/p" }, undefined);
+	expect(fetchCalls).toHaveLength(1); // 不向 file:// 发请求（Bun 的 file: 抓取会直接返回文件内容）
+	expect(fetchCalls.some((c) => String(c.url).startsWith("file:"))).toBe(false);
+	expect(text(r)).toContain("重定向目标地址不合法");
+});

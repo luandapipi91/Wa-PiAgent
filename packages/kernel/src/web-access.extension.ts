@@ -454,12 +454,20 @@ async function fetchFollowingRedirects(
 > {
 	let currentUrl = url;
 	for (let hop = 0; ; hop++) {
-		const host = new URL(currentUrl).hostname;
-		if (isBlockedFetchHost(host))
+		const target = new URL(currentUrl);
+		// 逐跳校验协议与主机名：初始 URL 已由 isFetchableUrl 把关，但重定向目标不经它——
+		// 若不校验，`Location: file:///…` 会被 Bun 直接读成文件内容（自动跟随模式本会自己拒跨协议跳转）。
+		if ((target.protocol !== "http:" && target.protocol !== "https:") || target.hostname === "")
 			return {
 				kind: "failed",
 				status: 0,
-				message: `抓取失败：不允许访问本地/内网地址（${host.replace(/^\[|\]$/g, "")}）。`,
+				message: "抓取失败：重定向目标地址不合法（仅支持 HTTP/HTTPS）。",
+			};
+		if (isBlockedFetchHost(target.hostname))
+			return {
+				kind: "failed",
+				status: 0,
+				message: `抓取失败：不允许访问本地/内网地址（${target.hostname.replace(/^\[|\]$/g, "")}）。`,
 			};
 		let res: Response;
 		try {
