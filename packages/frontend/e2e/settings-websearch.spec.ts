@@ -27,7 +27,8 @@ test("联网供应商：默认 bing，select 切换 bigmodel 保存后 REST 往�
 	const select = page.getByTestId("websearch-provider-select");
 	await expect(select).toBeVisible();
 	await expect(select).toHaveValue("bing");
-	await expect(page.getByTestId("websearch-bing-hint")).toBeVisible();
+	// bing 免费提示已移除（2026-10-19 用户裁决）：不得再渲染
+	await expect(page.getByTestId("websearch-bing-hint")).toHaveCount(0);
 	// 切到 智谱 BigModel：出现智谱 Key 输入；保存
 	await select.selectOption("bigmodel");
 	await expect(page.getByTestId("websearch-key-bigmodel-input")).toBeVisible();

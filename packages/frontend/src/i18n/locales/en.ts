@@ -902,7 +902,6 @@ const en = {
 			providerBing: "Bing",
 			providerDeepseek: "DeepSeek",
 			providerBigmodel: "Zhipu BigModel",
-			providerBingHint: "Bing is free and needs no API key (both search and page fetch work).",
 			searchToggle: "Web search",
 			searchToggleHint: "Let the model use the wa_web_search tool (Bing is free; DeepSeek / Zhipu bill per request)",
 			fetchToggle: "Web fetch",

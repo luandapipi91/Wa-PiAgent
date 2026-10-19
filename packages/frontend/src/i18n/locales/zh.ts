@@ -868,7 +868,6 @@ const zh = {
 			providerBing: "Bing",
 			providerDeepseek: "DeepSeek",
 			providerBigmodel: "智谱 BigModel",
-			providerBingHint: "Bing 免费、无需 API Key（搜索与网页抓取均可用）。",
 			searchToggle: "网页搜索",
 			searchToggleHint: "开启后模型可使用 wa_web_search 工具联网搜索（Bing 免费；DeepSeek / 智谱按次计费）",
 			fetchToggle: "网页抓取",

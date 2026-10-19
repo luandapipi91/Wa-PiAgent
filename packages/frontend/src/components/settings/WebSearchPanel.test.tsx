@@ -80,20 +80,17 @@ test("切供应商 + 填双 key 保存 → PUT body 携带全部字段", async (
 	const select = screen.getByTestId(
 		"websearch-provider-select",
 	) as HTMLSelectElement;
-	// 默认 bing：不渲染任何 Key 输入区，展示免费提示
+	// 默认 bing：不渲染任何 Key 输入区
 	await waitFor(() => expect(select.value).toBe("bing"));
 	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
-	expect(screen.getByTestId("websearch-bing-hint")).toBeTruthy();
-	// 切到 deepseek：填 DeepSeek key（bing 免费提示随之消失）
+	// 切到 deepseek：填 DeepSeek key
 	fireEvent.change(select, { target: { value: "deepseek" } });
-	expect(screen.queryByTestId("websearch-bing-hint")).toBeNull();
 	fireEvent.change(screen.getByTestId("websearch-key-deepseek-input"), {
 		target: { value: "sk-new" },
 	});
 	// 切到 bigmodel：DeepSeek 输入区卸载、智谱输入区出现，填智谱 key
 	fireEvent.change(select, { target: { value: "bigmodel" } });
 	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
-	expect(screen.queryByTestId("websearch-bing-hint")).toBeNull();
 	fireEvent.click(screen.getByTestId("websearch-toggle-fetch"));
 	fireEvent.change(screen.getByTestId("websearch-key-bigmodel-input"), {
 		target: { value: "zhu-new" },
@@ -150,7 +147,7 @@ test("GET 失败静默：面板仍渲染，保存按默认值提交", async () =
 	expect(body.webSearch.searchEnabled).toBe(true);
 });
 
-test("默认 bing：不渲染任何 Key 输入区，展示免费提示；保存 PUT 携带 bing", async () => {
+test("默认 bing：不渲染任何 Key 输入区；保存 PUT 携带 bing", async () => {
 	render(<WebSearchPanel />);
 	await screen.findByTestId("websearch-panel");
 	await waitFor(() =>
@@ -158,7 +155,6 @@ test("默认 bing：不渲染任何 Key 输入区，展示免费提示；保存 
 	);
 	expect(screen.queryByTestId("websearch-key-deepseek-input")).toBeNull();
 	expect(screen.queryByTestId("websearch-key-bigmodel-input")).toBeNull();
-	expect(screen.getByTestId("websearch-bing-hint")).toBeTruthy();
 	fireEvent.click(screen.getByTestId("websearch-save"));
 	await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
 	expect(putMock.mock.calls[0][1].webSearch.provider).toBe("bing");
@@ -183,4 +179,11 @@ test("供应商 bing 选项文本不带括号后缀：仅显示 Bing（2026-10-1
 	const option = select.querySelector('option[value="bing"]');
 	expect(option?.textContent).toBe("Bing");
 	expect(screen.queryByText(/免费免/)).toBeNull();
+});
+
+test("bing 免费提示已移除：面板不再渲染 providerBingHint（2026-10-19 用户裁决）", async () => {
+	render(<WebSearchPanel />);
+	await screen.findByTestId("websearch-panel");
+	expect(screen.queryByTestId("websearch-bing-hint")).toBeNull();
+	expect(screen.queryByText(/无需 API Key/)).toBeNull();
 });

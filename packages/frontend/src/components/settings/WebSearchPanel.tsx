@@ -145,12 +145,6 @@ export function WebSearchPanel() {
 				</select>
 			</div>
 
-			{provider === "bing" && (
-				<span className="text-xs text-secondary" data-testid="websearch-bing-hint">
-					{t("settings.websearch.providerBingHint")}
-				</span>
-			)}
-
 			<label className="flex flex-col gap-1 cursor-pointer w-fit">
 				<span className="flex items-center gap-2">
 					<input
