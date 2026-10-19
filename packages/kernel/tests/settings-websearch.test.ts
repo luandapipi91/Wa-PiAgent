@@ -44,12 +44,22 @@ test("非法 provider 回退 bing（默认免费供应商）", async () => {
   expect((await loadWebSearchSettings(file)).provider).toBe("bing");
 });
 
-test("provider bing 为合法值：save/load 往返保留（无需任何 key）", async () => {
+test("provider bing 为合法值：已存 deepseek 时切 bing 能落盘并读回（无需任何 key）", async () => {
   const file = join(dir, "settings.json");
+  // 先落盘 deepseek：白名单若缺 bing，下面的 save 会静默保留 deepseek（用户切不动供应商）
+  await saveWebSearchSettings(
+    { provider: "deepseek", searchEnabled: true, fetchEnabled: true },
+    file,
+  );
   await saveWebSearchSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true }, file);
   expect(await loadWebSearchSettings(file)).toEqual({
     provider: "bing", searchEnabled: true, fetchEnabled: true, apiKey: "", apiKeyBigmodel: "",
   });
+  // 直接读盘：证明 bing 真写进了 settings.json，而非靠默认值兜底
+  const raw = JSON.parse(
+    await require("node:fs/promises").readFile(file, "utf8"),
+  );
+  expect(raw.webSearch.provider).toBe("bing");
 });
 
 test("save 后 load 往返一致（含 provider 与双 key）", async () => {

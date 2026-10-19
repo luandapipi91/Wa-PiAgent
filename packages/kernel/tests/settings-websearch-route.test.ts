@@ -145,7 +145,17 @@ describe("PUT /api/settings/websearch", () => {
 		});
 	});
 
-	it("PUT provider=bing 往返：回包 provider 为 bing，且 GET 仍为 bing", async () => {
+	it("PUT provider=bing 往返：已存 deepseek 时切 bing 生效，GET 仍为 bing", async () => {
+		// 先落盘 deepseek：白名单若缺 bing，下面的 PUT 会静默保留 deepseek
+		await router.handle(
+			new Request("http://localhost/api/settings/websearch", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					webSearch: { provider: "deepseek", searchEnabled: true, fetchEnabled: true },
+				}),
+			}),
+		);
 		const res = await router.handle(
 			new Request("http://localhost/api/settings/websearch", {
 				method: "PUT",
