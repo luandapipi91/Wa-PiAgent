@@ -141,6 +141,7 @@ export function WebSearchPanel() {
 					onChange={(e) => setProvider(e.target.value as WebSearchProvider)}
 					className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
 					data-testid="websearch-provider-select"
+					aria-label={t("settings.websearch.providerLabel")}
 				>
 					<option value="bing">{t("settings.websearch.providerBing")}</option>
 					<option value="deepseek">{t("settings.websearch.providerDeepseek")}</option>

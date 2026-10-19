@@ -163,3 +163,9 @@ test("默认 bing：不渲染任何 Key 输入区，展示免费提示；保存 
 	await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
 	expect(putMock.mock.calls[0][1].webSearch.provider).toBe("bing");
 });
+
+test("供应商 select 有可访问名：aria-label = 供应商", async () => {
+	render(<WebSearchPanel />);
+	const select = await screen.findByTestId("websearch-provider-select");
+	expect(select.getAttribute("aria-label")).toBe("供应商");
+});

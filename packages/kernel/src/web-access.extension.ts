@@ -23,6 +23,7 @@ import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { isIP } from "node:net";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
@@ -384,14 +385,20 @@ function decodeBodyBytes(bytes: Uint8Array, contentType: string): string {
 /** 本机 / 内网 / 链路本地地址拒绝表：bing 抓取在用户本机发请求，URL 可由页面内容（prompt injection）
  *  驱动，必须拦住读内网服务（本机 bridge / Ollama / 路由器后台）与云元数据（169.254.169.254）。 */
 function isBlockedFetchHost(hostname: string): boolean {
-	const host = hostname.toLowerCase().replace(/^\[|\]$/g, ""); // IPv6 字面量去方括号
+	// 归一：去尾点（`localhost.` 与 `localhost` 解析到同一主机）+ IPv6 字面量去方括号
+	const host = hostname.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
 	if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
-	if (host === "::1" || host === "0:0:0:0:0:0:0:1") return true; // IPv6 环回
+	if (isIP(host) === 6) {
+		// IPv6：环回 ::1、未指定 ::（连本机）、v4-mapped（::ffff:127.0.0.1 归一成 ::ffff:7f00:1）一律拒
+		if (host === "::1" || host === "::" || host.startsWith("::ffff:")) return true;
+		return false; // 其余公网 IPv6 字面量放行
+	}
 	const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
 	if (!v4) return false;
 	const a = Number(v4[1]);
 	const b = Number(v4[2]);
 	return (
+		a === 0 || // 0.0.0.0/8 未指定/保留（0.0.0.0 连本机）
 		a === 127 || // 127.0.0.0/8 环回
 		a === 10 || // 10.0.0.0/8 私有
 		(a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 私有
@@ -554,7 +561,9 @@ async function localFetch(
 			return {
 				ok: false,
 				status: 0,
-				message: `抓取失败：不支持的内容类型（${contentType}），仅支持 HTML / 文本类页面。`,
+				message: contentType
+					? `抓取失败：不支持的内容类型（${contentType}），仅支持 HTML / 文本类页面。`
+					: "抓取失败：目标站点未声明内容类型，仅支持 HTML / 文本类页面。",
 			};
 		}
 		const declared = Number(res.headers.get("content-length") ?? "");

@@ -733,3 +733,26 @@ test("bing 抓取：重定向到非 HTTP(S) 协议被拒（file:// 不得读本�
 	expect(fetchCalls.some((c) => String(c.url).startsWith("file:"))).toBe(false);
 	expect(text(r)).toContain("重定向目标地址不合法");
 });
+
+test("bing 抓取：拒绝表 host 归一化（尾点 / 0.0.0.0 / v4-mapped IPv6 / IPv6 未指定）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	const blocked = [
+		"http://localhost.:9778/x", // 尾点：DNS 仍解析 127.0.0.1
+		"http://[::ffff:127.0.0.1]/", // v4-mapped IPv6（解析器归一成 ::ffff:7f00:1）
+		"http://0.0.0.0/", // 未指定地址（连本机）
+		"http://[::]/", // IPv6 未指定
+	];
+	for (const url of blocked) {
+		const r = await registered["wa_fetch_content"].execute("s9", { url }, undefined);
+		expect(text(r)).toContain("不允许访问本地/内网地址");
+	}
+	expect(fetchCalls).toHaveLength(0); // 归一化后全部在发请求前拦下
+});
+
+test("bing 抓取：站点未声明 content-type → 明确文案（不是空括号）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: "<html></html>", contentType: "" });
+	const r = await registered["wa_fetch_content"].execute("s10", { url: "https://example.com/noct" }, undefined);
+	expect(text(r)).toContain("未声明内容类型");
+	expect(fetchCalls).toHaveLength(1);
+});
