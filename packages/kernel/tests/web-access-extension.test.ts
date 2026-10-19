@@ -756,3 +756,20 @@ test("bing 抓取：站点未声明 content-type → 明确文案（不是空括
 	expect(text(r)).toContain("未声明内容类型");
 	expect(fetchCalls).toHaveLength(1);
 });
+
+// ———— 模型可见描述精简（2026-10-19 用户裁决）————
+// 工具描述是系统提示词的一部分：只保留用途/返回内容/限制，
+// 不出现供应商选择、免费/计费、实现细节等信息。
+test("工具描述精简：不含供应商/计费/实现细节，保留用途与返回契约", () => {
+	const search = registered["wa_web_search"];
+	const fetchTool = registered["wa_fetch_content"];
+	const noise = /供应商|按次计费|免费|Bing|DeepSeek|智谱|设置 → 联网|readability/;
+	expect(search.description).not.toMatch(noise);
+	expect(fetchTool.description).not.toMatch(noise);
+	expect(search.description).toContain("搜索");
+	expect(search.description).toContain("标题");
+	expect(fetchTool.description).toContain("Markdown");
+	// query 参数不再承诺 provider 相关的 lang:/after:/before: 语法
+	const queryDesc = (search.parameters as any).properties.query.description as string;
+	expect(queryDesc).not.toMatch(/lang:|after:|before:/);
+});

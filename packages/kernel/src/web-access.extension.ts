@@ -588,14 +588,14 @@ async function localFetch(
 // 工具名带 wa_ 前缀：避免与插件（如 pi-web-access）注册的 web_search/fetch_content 同名冲突——
 // 重名会触发插件安装/加载拦截，导致插件装不上（2026-10-18 用户实测）。
 
-const SEARCH_DESCRIPTION = `联网搜索网页（供应商可在 设置 → 联网 选择：Bing（免费，无需 Key）/ DeepSeek / 智谱 BigModel）。返回结构化结果列表：标题、链接、摘要（DeepSeek 另含站点与日期）。query 支持 site: / -site: / "精确短语" 等搜索语法（lang:zh,en / after: / before: 与 need_content 仅 DeepSeek 支持）。Bing 免费；DeepSeek / 智谱按次计费。`;
+const SEARCH_DESCRIPTION = `联网搜索网页，返回结构化结果列表：标题、链接、摘要。`;
 
-const FETCH_DESCRIPTION = `抓取单个网页，返回页面标题与 Markdown 正文。适用于：读取 wa_web_search 结果中的具体页面、获取用户提供的 URL 内容。Bing（免费）供应商走本地抓取（readability 正文抽取 + Markdown 转换；不执行页面 JS，动态渲染页与登录墙站点可能抓不到）；DeepSeek / 智谱 走各自服务端抓取。返回文本可能仍含少量页面噪声，引用前请自行过滤、优先采信正文主体。`;
+const FETCH_DESCRIPTION = `抓取单个网页，返回页面标题与 Markdown 正文。不执行页面 JS，动态渲染页与登录墙站点可能抓不到。`;
 
 const SearchParams = Type.Object({
 	query: Type.String({
 		description:
-			"搜索词，1-128 个字符，支持 site: -site: \"短语\" lang: after: before: 等搜索语法",
+			"搜索词，1-128 个字符，支持 site: / -site: / \"精确短语\" 等搜索语法",
 	}),
 	count: Type.Optional(
 		Type.Number({
@@ -609,7 +609,7 @@ const SearchParams = Type.Object({
 	),
 	ori_question: Type.Optional(
 		Type.String({
-			description: "触发搜索的用户原始问题（可选，帮助搜索引擎理解意图）",
+			description: "用户原始问题（可选，帮助理解搜索意图）",
 		}),
 	),
 });
