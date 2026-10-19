@@ -46,14 +46,15 @@ beforeEach(() => {
 	(globalThis as any).fetch = (async (url: string, init: any) => {
 		fetchCalls.push({ url, init });
 		const next = fetchQueue.shift() ?? { status: 500, body: { error: { message: "no mock" } } };
+		const isStream = next.body instanceof ReadableStream;
 		const isHtml = typeof next.body === "string" || next.body instanceof Uint8Array;
 		// 非 HTML（JSON 对象）需序列化：Response 构造函数会把普通对象退化成 "[object Object]"
-		const body = isHtml ? next.body : JSON.stringify(next.body);
+		const body = isHtml || isStream ? next.body : JSON.stringify(next.body);
 		return new Response(body as any, {
 			status: next.status,
 			headers: {
-				"content-type": (next as any).contentType ?? (isHtml ? "text/html" : "application/json"),
-				...((next as any).headers ?? {}),
+				"content-type": next.contentType ?? (isHtml || isStream ? "text/html" : "application/json"),
+				...(next.headers ?? {}),
 			},
 		});
 	}) as any;
@@ -614,4 +615,112 @@ test("bing 抓取：超长正文截断（>40000 字符带截断标记）", async
 	fetchQueue.push({ status: 200, body: `<html><body><article><p>${"长".repeat(45000)}</p></article></body></html>` });
 	const r = await registered["wa_fetch_content"].execute("f9", { url: "https://example.com/long" }, undefined);
 	expect(text(r)).toContain("已截断");
+});
+
+// ———— 修复轮 1：SSRF 拒绝表（本机/内网）+ 重定向逐跳校验 + 流式读取上限 ————
+
+/** 造一个「按需生成」的超大 HTML 响应流：记录被拉取字节数与是否被 cancel（验证超限即停，而不是整读） */
+function largeHtmlStreamFixture(chunks: number) {
+	const enc = new TextEncoder();
+	const prefix = enc.encode("<html><body><article><p>");
+	let sent = 0;
+	let pulled = 0;
+	let cancelled = false;
+	const stream = new ReadableStream<Uint8Array>({
+		pull(controller) {
+			if (sent === 0) {
+				sent = 1;
+				pulled += prefix.byteLength;
+				controller.enqueue(prefix);
+				return;
+			}
+			if (sent > chunks) {
+				controller.close();
+				return;
+			}
+			sent += 1;
+			const part = enc.encode("长".repeat(300_000)); // 约 900KB/块（UTF-8 三字节/字）
+			pulled += part.byteLength;
+			controller.enqueue(part);
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	return { stream, pulledBytes: () => pulled, cancelled: () => cancelled };
+}
+
+test("bing 抓取：本机/内网地址直接拒绝，不发请求", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	const blocked = [
+		"http://localhost:9778/api/health",
+		"http://127.0.0.1:9333/secret",
+		"http://10.0.0.5/admin",
+		"http://172.20.3.4/internal",
+		"http://192.168.1.1/",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://[::1]:8080/x",
+		"http://printer.local/status",
+	];
+	for (const url of blocked) {
+		const r = await registered["wa_fetch_content"].execute("s1", { url }, undefined);
+		expect(text(r)).toContain("不允许访问本地/内网地址");
+		expect(text(r)).toContain(new URL(url).hostname.replace(/^\[|\]$/g, ""));
+	}
+	expect(fetchCalls).toHaveLength(0); // 拒绝发生在发请求之前（含 169.254 云元数据）
+});
+
+test("bing 抓取：公网地址照常抓取（拒绝表不误伤 + 手动重定向模式）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 200, body: FETCH_ARTICLE_200 });
+	const r1 = await registered["wa_fetch_content"].execute("s2", { url: "https://example.com/page" }, undefined);
+	expect(fetchCalls).toHaveLength(1);
+	expect(fetchCalls[0].init.redirect).toBe("manual"); // 3xx 必须手动逐跳校验，不能自动跟随
+	expect(text(r1)).toContain("正文大标题");
+	fetchQueue.push({ status: 200, body: FETCH_ARTICLE_200 });
+	const r2 = await registered["wa_fetch_content"].execute("s3", { url: "http://93.184.216.34/pub" }, undefined);
+	expect(fetchCalls).toHaveLength(2); // 公网 IP 字面量不被拒绝
+	expect(text(r2)).toContain("正文大标题");
+});
+
+test("bing 抓取：重定向到内网被拒（不发第二个请求）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 302, body: "", headers: { location: "http://127.0.0.1:9333/secret" } });
+	const r = await registered["wa_fetch_content"].execute("s4", { url: "https://example.com/jump" }, undefined);
+	expect(fetchCalls).toHaveLength(1); // 第二跳在发请求前被拦下
+	expect(fetchCalls[0].url).toBe("https://example.com/jump");
+	expect(text(r)).toContain("不允许访问本地/内网地址");
+	expect(text(r)).toContain("127.0.0.1");
+});
+
+test("bing 抓取：相对 Location 按当前 URL 解析并跟随（≤3 跳）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	fetchQueue.push({ status: 301, body: "", headers: { location: "/real-page" } });
+	fetchQueue.push({ status: 200, body: FETCH_ARTICLE_200 });
+	const r = await registered["wa_fetch_content"].execute("s5", { url: "https://example.com/jump" }, undefined);
+	expect(fetchCalls).toHaveLength(2);
+	expect(fetchCalls[1].url).toBe("https://example.com/real-page");
+	expect(text(r)).toContain("正文大标题");
+});
+
+test("bing 抓取：重定向超过 3 跳失败（不无限跟跳）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	for (let i = 0; i < 5; i++)
+		fetchQueue.push({ status: 302, body: "", headers: { location: `https://example.com/hop${i + 1}` } });
+	const r = await registered["wa_fetch_content"].execute("s6", { url: "https://example.com/hop0" }, undefined);
+	expect(fetchCalls).toHaveLength(4); // 初始 + 最多 3 跳
+	expect(text(r)).toContain("重定向");
+});
+
+test("bing 抓取：无 content-length 的超大页面按流截断（超限即取消下载，不整读）", async () => {
+	writeSettings({ provider: "bing", searchEnabled: true, fetchEnabled: true });
+	const fixture = largeHtmlStreamFixture(40); // 总计约 36MB，远超 2MB 上限
+	fetchQueue.push({ status: 200, body: fixture.stream, contentType: "text/html" });
+	const r = await registered["wa_fetch_content"].execute("s7", { url: "https://example.com/huge" }, undefined);
+	expect(fetchCalls).toHaveLength(1);
+	expect(fixture.cancelled()).toBe(true); // 超限即 cancel，不再继续拉流
+	// 上限 2MB + Bun 流内部预取窗口（实测约 4 块，~3.6MB）；整读实现会是 36MB
+	expect(fixture.pulledBytes()).toBeLessThanOrEqual(5 * 1024 * 1024);
+	expect(text(r)).toContain("已截断"); // 对外语义不变：仍按 2MB 截断后再走正文截断
+	expect(text(r).length).toBeLessThan(50_000);
 });

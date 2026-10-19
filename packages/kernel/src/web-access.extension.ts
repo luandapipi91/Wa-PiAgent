@@ -357,10 +357,14 @@ async function bingSearch(
 // ———— Bing 本地抓取（readability 正文抽取 + turndown Markdown 转换） ————
 
 const BING_FETCH_TIMEOUT_MS = 20_000;
-/** 单页下载上限 2MB；超过中止（content-length 预检 + 实读截断双保险） */
+/** 单页下载上限 2MB；超过中止（content-length 预检 + 流式读取截断双保险） */
 const MAX_FETCH_BYTES = 2 * 1024 * 1024;
 /** 正文输出上限 40000 字符，超出追加「（正文已截断）」 */
 const FETCH_TRUNCATE = 40_000;
+/** 手动跟随重定向的最大跳数（每跳都重新校验 host：自动跟随会绕过拒绝表） */
+const BING_FETCH_MAX_REDIRECTS = 3;
+/** 需手动跟随的 3xx（300/304 等无跳转语义者按普通响应处理） */
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
 /** Markdown 转换器（无状态，模块级单例） */
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
@@ -375,6 +379,119 @@ function decodeBodyBytes(bytes: Uint8Array, contentType: string): string {
 	const label = (charset ?? "utf-8").toLowerCase();
 	const norm = label === "gb2312" || label === "gbk" ? "gb18030" : label;
 	try { return new TextDecoder(norm).decode(bytes); } catch { return new TextDecoder("utf-8").decode(bytes); }
+}
+
+/** 本机 / 内网 / 链路本地地址拒绝表：bing 抓取在用户本机发请求，URL 可由页面内容（prompt injection）
+ *  驱动，必须拦住读内网服务（本机 bridge / Ollama / 路由器后台）与云元数据（169.254.169.254）。 */
+function isBlockedFetchHost(hostname: string): boolean {
+	const host = hostname.toLowerCase().replace(/^\[|\]$/g, ""); // IPv6 字面量去方括号
+	if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+	if (host === "::1" || host === "0:0:0:0:0:0:0:1") return true; // IPv6 环回
+	const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+	if (!v4) return false;
+	const a = Number(v4[1]);
+	const b = Number(v4[2]);
+	return (
+		a === 127 || // 127.0.0.0/8 环回
+		a === 10 || // 10.0.0.0/8 私有
+		(a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 私有
+		(a === 192 && b === 168) || // 192.168.0.0/16 私有
+		(a === 169 && b === 254) // 169.254.0.0/16 链路本地（云元数据）
+	);
+}
+
+/** 早退路径的响应体处理：取消流（已读完/不可取消时忽略），避免连接悬挂与无谓下载 */
+async function discardResponseBody(res: Response): Promise<void> {
+	try { await res.body?.cancel(); } catch { /* 已消费或已关闭，忽略 */ }
+}
+
+/** 流式读取响应体：累计到上限即 reader.cancel() 停止下载。
+ *  不用 arrayBuffer()：content-length 可缺失，且报的是压缩后大小（gzip 膨胀后可远超上限）。 */
+async function readBodyCapped(res: Response, limit: number): Promise<Uint8Array> {
+	const reader = res.body?.getReader();
+	if (!reader) {
+		const all = new Uint8Array(await res.arrayBuffer()); // 极少数无流实现：退回整读 + 截断
+		return all.byteLength > limit ? all.slice(0, limit) : all;
+	}
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!value) continue;
+			const room = limit - total;
+			if (value.byteLength >= room) {
+				chunks.push(value.subarray(0, room));
+				total = limit;
+				await reader.cancel().catch(() => {}); // 超限即中止下载，不再拉流
+				break;
+			}
+			chunks.push(value);
+			total += value.byteLength;
+		}
+	} finally {
+		try { reader.releaseLock(); } catch { /* 流已关闭 */ }
+	}
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const c of chunks) {
+		bytes.set(c, offset);
+		offset += c.byteLength;
+	}
+	return bytes;
+}
+
+/** 单次尝试：手动逐跳跟随重定向（每跳重新校验 host，最多 BING_FETCH_MAX_REDIRECTS 跳）。
+ *  redirect: "manual" 时 3xx 原样返回，由这里校验 Location 后再决定是否发下一跳。 */
+async function fetchFollowingRedirects(
+	url: string,
+	signal: AbortSignal,
+): Promise<
+	| { kind: "response"; res: Response }
+	| { kind: "error"; err: unknown }
+	| { kind: "failed"; status: number; message: string }
+> {
+	let currentUrl = url;
+	for (let hop = 0; ; hop++) {
+		const host = new URL(currentUrl).hostname;
+		if (isBlockedFetchHost(host))
+			return {
+				kind: "failed",
+				status: 0,
+				message: `抓取失败：不允许访问本地/内网地址（${host.replace(/^\[|\]$/g, "")}）。`,
+			};
+		let res: Response;
+		try {
+			res = await fetch(currentUrl, {
+				headers: buildBrowserHeaders(), // 每次尝试（含每跳）现取随机浏览器头
+				redirect: "manual", // 3xx 不自动跟随：跟了就没法校验中间跳的 host
+				signal,
+			});
+		} catch (err) {
+			return { kind: "error", err };
+		}
+		if (!REDIRECT_STATUS.has(res.status)) return { kind: "response", res };
+		const location = res.headers.get("location");
+		await discardResponseBody(res);
+		if (!location || hop >= BING_FETCH_MAX_REDIRECTS)
+			return {
+				kind: "failed",
+				status: res.status,
+				message: `抓取失败（HTTP ${res.status}）：${
+					location ? `重定向跳转次数过多（超过 ${BING_FETCH_MAX_REDIRECTS} 次）` : "重定向缺少目标地址"
+				}，请稍后重试或改用 wa_web_search 搜索同主题信息。`,
+			};
+		try {
+			currentUrl = new URL(location, currentUrl).toString(); // 相对 Location 按当前 URL 解析
+		} catch {
+			return {
+				kind: "failed",
+				status: res.status,
+				message: `抓取失败（HTTP ${res.status}）：重定向目标地址不合法，无法访问该网页。`,
+			};
+		}
+	}
 }
 
 /** 本地抓取（Bing 免费模式）：GET 目标页 → 内容类型/大小校验 → 编码嗅探 → readability 抽取 → turndown。
@@ -392,15 +509,12 @@ async function localFetch(
 	let lastError = "";
 	for (let attempt = 0; attempt <= BING_MAX_RETRIES; attempt++) {
 		if (attempt > 0) await sleep(1000 * attempt); // 1s / 2s 线性退避
-		let res: Response;
-		try {
-			res = await fetch(url, {
-				headers: buildBrowserHeaders(), // 每次尝试现取随机浏览器头
-				signal: merged,
-			});
-		} catch (err) {
-			if (signal?.aborted) throw err; // 用户中止直接上抛
-			lastError = err instanceof Error ? err.message : String(err);
+		const outcome = await fetchFollowingRedirects(url, merged);
+		if (outcome.kind === "failed")
+			return { ok: false, status: outcome.status, message: outcome.message };
+		if (outcome.kind === "error") {
+			if (signal?.aborted) throw outcome.err; // 用户中止直接上抛
+			lastError = outcome.err instanceof Error ? outcome.err.message : String(outcome.err);
 			if (attempt < BING_MAX_RETRIES) continue;
 			return {
 				ok: false,
@@ -408,13 +522,17 @@ async function localFetch(
 				message: `抓取失败：网络请求失败（${lastError}），请检查网络后重试。`,
 			};
 		}
-		if (res.status === 429)
+		const res = outcome.res;
+		if (res.status === 429) {
+			await discardResponseBody(res);
 			return {
 				ok: false,
 				status: 429,
 				message: "抓取失败：目标站点限流（HTTP 429），请稍后重试。",
 			};
+		}
 		if (!res.ok) {
+			await discardResponseBody(res);
 			if ((res.status === 408 || res.status >= 500) && attempt < BING_MAX_RETRIES) continue;
 			return {
 				ok: false,
@@ -423,17 +541,20 @@ async function localFetch(
 			};
 		}
 		const contentType = res.headers.get("content-type") ?? "";
-		if (!/^text\/|json|xml/i.test(contentType))
+		if (!/^text\/|json|xml/i.test(contentType)) {
+			await discardResponseBody(res);
 			return {
 				ok: false,
 				status: 0,
 				message: `抓取失败：不支持的内容类型（${contentType}），仅支持 HTML / 文本类页面。`,
 			};
+		}
 		const declared = Number(res.headers.get("content-length") ?? "");
-		if (Number.isFinite(declared) && declared > MAX_FETCH_BYTES)
+		if (Number.isFinite(declared) && declared > MAX_FETCH_BYTES) {
+			await discardResponseBody(res);
 			return { ok: false, status: 0, message: "抓取失败：页面过大（超过 2MB），已中止下载。" };
-		let bytes = new Uint8Array(await res.arrayBuffer());
-		if (bytes.byteLength > MAX_FETCH_BYTES) bytes = bytes.slice(0, MAX_FETCH_BYTES); // 无 content-length 时的实读截断
+		}
+		const bytes = await readBodyCapped(res, MAX_FETCH_BYTES); // 流式读取：到 2MB 即 cancel，不再整读
 		const decoded = decodeBodyBytes(bytes, contentType);
 		// 非 HTML 文本类（纯文本 / JSON / XML）：整文作为正文，标题留空
 		if (!/^text\/html/i.test(contentType)) return { ok: true, title: "", text: decoded };
