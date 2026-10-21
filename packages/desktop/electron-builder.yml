@@ -1,0 +1,68 @@
+appId: ai.wa-pi.desktop
+productName: WA PI Agent
+artifactName: "WaPi-Setup-${version}.${ext}"
+npmRebuild: false
+afterPack: scripts/after-pack.cjs
+afterAllArtifactBuild: scripts/after-all-artifact-build.cjs
+# 自动更新源：Cloudflare R2 自定义域名（oss.wapiagent.top → R2 bucket 公开读）。
+# 打包时据此生成 latest.yml（含 version/sha512/path）。
+# releaseNotes 由 publish-oss.ts 上传前从 version-history.json 读取注入 latest.yml
+# （electron-builder 26 不支持 releaseNotesFile）。
+publish:
+  provider: generic
+  url: https://oss.wapiagent.top/releases/
+directories:
+  output: release
+files:
+  - src/**
+  - package.json
+  - node_modules/**
+extraResources:
+  - from: resources/kernel
+    to: kernel
+    filter: ["**/*"]
+  - from: resources/web
+    to: web
+    filter: ["**/*"]
+  # 原生依赖（onnxruntime-node / sharp / @sqliteai/sqlite-vector + 各自平台分包）：
+  #  ① 原生 .node/.dll 无法从 asar 内 dlopen → 必须落在 asar 之外（extraResources 天然如此）；
+  #  ② bun 编译产物的运行时解析根是 cwd/node_modules，**不是可执行文件同目录**
+  #     → 运行时由 main.cjs 的 linkNativeAssets 把 native/node_modules/* 链进
+  #       WA_PI_DIR/runtime/node_modules（= kernel 的 cwd）。
+  # 资产由 scripts/stage-native-assets.ts 按 --target 准备（交叉打包不会自动切换平台二进制）。
+  # ⚠️ from 必须直接指向 node_modules 本体：electron-builder 的 filter 会无条件排掉
+  #    「源目录根下名为 node_modules 的那一层」（fileMatcher 的 createFilter），
+  #    写 from: resources/native + to: native 会让整个 native/node_modules 静默消失（实测踩过）。
+  - from: resources/native/node_modules
+    to: native/node_modules
+    filter: ["**/*"]
+asarUnpack:
+  - resources/**
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: src/assets/icon.ico
+  signExecutable: false # 跳过签名但保留 resEdit 图标嵌入
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: src/assets/icon.ico
+  uninstallerIcon: src/assets/icon.ico
+linux:
+  target: [AppImage]
+  icon: src/assets/icon.png
+  # scope 包名 @wa-pi/desktop 归一化后含 @/-，AppImage 可执行文件名不合法；显式指定合法名
+  executableName: wa-pi-desktop
+mac:
+  target:
+    - dmg
+    - zip
+  icon: src/assets/icon-mac.icns
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: false

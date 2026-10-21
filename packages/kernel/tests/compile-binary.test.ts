@@ -1,0 +1,168 @@
+// compile-binary.ts 纯函数测试：编译参数、asset 暂存、平台二进制名。
+// 不真的跑 bun build --compile（那是 Task 6 集成测试的职责）。
+import { test, expect, beforeAll } from "bun:test";
+import { existsSync } from "node:fs";
+import { readdirSync, rmSync } from "node:fs";
+import {
+  buildCompileArgs,
+  compileKernelBinary,
+  stageAssetDir,
+  EXTERNAL_PACKAGES,
+  KERNEL_ASSET_FILES,
+  kernelBinaryName,
+} from "../scripts/compile-binary";
+import { buildWebAccessBundle } from "../src/web-access-bundle";
+import { TUI_HOST_EXTENSION_FILES } from "../src/tui-host-deploy";
+import { basename, join } from "node:path";
+import { tmpdir } from "node:os";
+
+// web-access.bundle.js 是构建期产物（gitignore，不入库）：资产清单断言前先构建一次，
+// 否则全新检出上「全部资产真实存在」与 stageAssetDir 的 cpSync 会因缺文件而红。
+beforeAll(async () => {
+  await buildWebAccessBundle(
+    join(import.meta.dir, "..", "src", "assets", "web-access.bundle.js"),
+  );
+});
+
+test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/--asset/--outfile", () => {
+  const args = buildCompileArgs("/tmp/out/WaPiKernel.exe", "/tmp/assets");
+  expect(args[0]).toBe("build");
+  expect(
+    args[1]
+      .replace(/\\/g, "/")
+      .endsWith("packages/kernel/src/desktop-server.ts"),
+  ).toBe(true);
+  expect(args).toContain("--compile");
+  expect(args).toContain("--asset");
+  expect(args).toContain("/tmp/assets");
+  expect(args).toContain("--outfile");
+  expect(args).toContain("/tmp/out/WaPiKernel.exe");
+  for (const pkg of EXTERNAL_PACKAGES) {
+    const i = args.indexOf("--external", args.indexOf(pkg) - 1);
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe(pkg);
+  }
+});
+
+test("buildCompileArgs: target=win 追加 --target bun-windows-x64（交叉编译）", () => {
+  const args = buildCompileArgs(
+    "/tmp/out/WaPiKernel.exe",
+    "/tmp/assets",
+    "win",
+  );
+  expect(args).toContain("--target");
+  expect(args[args.indexOf("--target") + 1]).toBe("bun-windows-x64");
+  expect(buildCompileArgs("/tmp/out/k", "/tmp/assets", "linux")).toContain(
+    "bun-linux-x64",
+  );
+  // darwin：本机编译不追加 --target
+  const darwin = buildCompileArgs("/tmp/out/k", "/tmp/assets", "darwin");
+  expect(darwin).not.toContain("--target");
+});
+
+test("EXTERNAL_PACKAGES: 只含原生 .node 依赖 @napi-rs/keyring", () => {
+  expect(EXTERNAL_PACKAGES).toEqual(["@napi-rs/keyring"]);
+});
+
+test("KERNEL_ASSET_FILES: 全部资产真实存在且包含 preview-inspect.js", () => {
+  // preview-inspect.js 必须嵌入（ws-server /preview-inspect.js 路由用 new URL(..., import.meta.url)
+  // 读取，bun --compile 不会自动打包该引用，漏加则打包版元素选中/高亮失效——回归护栏）。
+  const names = KERNEL_ASSET_FILES.map((f) => basename(f));
+  expect(names).toContain("preview-inspect.js");
+  // tui-host 扩展全部文件必须嵌入：入口 + 入口相对 import 的所有 tui-host/ 模块，
+  // 缺一即打包版部署不完整 → 图形面板挂起或扩展加载失败（tui-host-deploy.ts 从 assets/ 读取）。
+  for (const name of [
+    "wa-pi-tui-host.extension.ts",
+    "terminal.ts",
+    "frame.ts",
+    "click.ts",
+    "panel.ts",
+    "widget.ts",
+    "host.ts",
+    "date-context.ts",
+  ]) {
+    expect(names).toContain(name);
+  }
+  // 压缩守卫已移除（压缩彻底依托 pi 内置机制）：两个源文件不得再进资产清单
+  expect(names).not.toContain("compaction-guard.extension.ts");
+  expect(names).not.toContain("compaction-guard-core.ts");
+  expect(KERNEL_ASSET_FILES).toHaveLength(13);
+  for (const f of KERNEL_ASSET_FILES) expect(existsSync(f)).toBe(true);
+});
+
+test("KERNEL_ASSET_FILES 覆盖 tui-host 部署清单全部源文件（防清单漂移：打包版部署缺文件）", () => {
+  // 两处清单必须同步：tui-host-deploy.ts 的源文件清单（dev 下直接读源码）
+  // 与 KERNEL_ASSET_FILES（packaged 下唯一来源）。漏一个 → 打包版 GENERATED_DIR 缺文件。
+  const assetNames = new Set(KERNEL_ASSET_FILES.map((f) => basename(f)));
+  for (const [source] of TUI_HOST_EXTENSION_FILES) {
+    expect(assetNames).toContain(basename(source));
+  }
+});
+
+test("stageAssetDir: 返回字面 assets 目录（bun 1.4.0 --asset 按目录名挂载）且资产平铺", () => {
+  const dir = stageAssetDir();
+  try {
+    // bun --compile --asset 把目录名挂到虚拟根：--asset ./assets → 产物 B:\~BUN\root\assets\。
+    // bridge-extension.ts 固定读 __dirname/assets/，故嵌入目录必须字面叫 assets。
+    expect(basename(dir)).toBe("assets");
+    const expected = [
+      "click.ts",
+      "date-context.ts",
+      "file-snapshot.ts",
+      "frame.ts",
+      "host.ts",
+      "panel.ts",
+      "preview-inspect.js",
+      "terminal.ts",
+      "tool-schemas.ts",
+      "wa-pi-bridge.extension.ts",
+      "wa-pi-tui-host.extension.ts",
+      "web-access.bundle.js",
+      "widget.ts",
+    ].sort();
+    expect(readdirSync(dir).sort()).toEqual(expected);
+  } finally {
+    // 清理唯一父目录（assets 子目录 + 父目录一并移除，避免 tmp 泄漏）
+    rmSync(join(dir, ".."), { recursive: true, force: true });
+  }
+});
+
+test("kernelBinaryName: 按平台返回 WaPiKernel(.exe)", () => {
+  const name = kernelBinaryName();
+  expect(name === "WaPiKernel.exe" || name === "WaPiKernel").toBe(true);
+  if (process.platform === "win32") expect(name).toBe("WaPiKernel.exe");
+  // 显式 target 时按目标平台命名（交叉编译场景）
+  expect(kernelBinaryName("win")).toBe("WaPiKernel.exe");
+  expect(kernelBinaryName("darwin")).toBe("WaPiKernel");
+  expect(kernelBinaryName("linux")).toBe("WaPiKernel");
+});
+
+// 护栏：把「预构建先于资产暂存」的顺序变成可断言事实，而不是靠本机残留产物偶然成立。
+// 没有它时，上面 beforeAll 已把产物建好 → 删掉 compile-binary.ts 的预构建调用也不会变红
+// （存在性断言与 stageAssetDir 的 cpSync 都能过），只有全新检出上的打包冒烟才可能拦到。
+// 手法：删掉产物 + 传不存在的 bunPath（spawnSync 必失败 → 抛错），断言抛错前产物已被重建。
+test("compileKernelBinary: 预构建先于资产暂存（删产物后即使编译失败也已重建）", async () => {
+  const bundle = join(
+    import.meta.dir,
+    "..",
+    "src",
+    "assets",
+    "web-access.bundle.js",
+  );
+  rmSync(bundle, { force: true });
+  expect(existsSync(bundle)).toBe(false); // 前置：产物确实不在，回归才有意义
+  try {
+    await expect(
+      compileKernelBinary(
+        join(tmpdir(), "wa-pi-compile-order-never-built"),
+        undefined,
+        "/nonexistent/bun",
+      ),
+    ).rejects.toThrow(/bun build --compile 失败/);
+    // 走到这里说明是 spawnSync 失败抛的错（不是 cpSync ENOENT）：预构建已在暂存前完成
+    expect(existsSync(bundle)).toBe(true);
+  } finally {
+    // 变异跑（预构建被移走）时产物不会重建，补建一次让后续用例不受污染
+    if (!existsSync(bundle)) await buildWebAccessBundle(bundle);
+  }
+});

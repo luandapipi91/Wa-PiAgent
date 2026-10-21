@@ -1,0 +1,650 @@
+// 记忆库唯一读写入口。
+//
+// 关键约束：FTS 同步完全由本层负责（不用触发器——SQLite 触发器调不到 JS 的
+// bigram 函数）。任何改写 content/title/tags 的路径都必须调 syncFts()，
+// 删除路径必须清掉对应 FTS 行。
+import type { Database, SQLQueryBindings } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
+import { bigram } from "./bigram";
+import { embedFingerprint } from "./embedder";
+import { buildMatchExpr } from "./query";
+
+export type MemoryKind = "profile" | "knowledge" | "execution";
+export type MemoryTarget = "user" | "memory";
+export type MemoryScope = "global" | "project";
+
+export interface MemoryRow {
+  id: string;
+  kind: MemoryKind;
+  target: MemoryTarget;
+  scope: MemoryScope;
+  projectId: string | null;
+  content: string;
+  title: string;
+  tags: string;
+  source: string;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number | null;
+  useCount: number;
+  archived: number;
+  archivedAt: number | null;
+  /** 语义向量（Float32 原始字节）；未索引为 null */
+  embedding?: Uint8Array | null;
+  /** 向量对应的模型指纹；与 embedFingerprint() 不一致即视为待重新索引 */
+  embedMeta?: string | null;
+}
+
+export interface InsertInput {
+  kind: MemoryKind;
+  target: MemoryTarget;
+  scope: MemoryScope;
+  projectId?: string | null;
+  content: string;
+  title?: string;
+  tags?: string;
+  source: string;
+}
+
+export interface ListOpts {
+  scope?: MemoryScope;
+  projectId?: string | null;
+  /**
+   * 项目会话的默认检索范围收窄：仅在未指定 scope 时生效，把结果限制为
+   * 「全局条目 + 该项目的项目条目」，不返回其它项目的条目。
+   * null/undefined = 不加此限制（内部 / UI 的显式列举）。
+   */
+  projectScope?: string | null;
+  kind?: MemoryKind;
+  includeArchived?: boolean;
+  /** 只看归档；与 includeArchived 互斥、本字段优先 */
+  archivedOnly?: boolean;
+  /** 最多取多少行（快照 L1 用：只取预算够用的量，不把整个 scope 载入内存） */
+  limit?: number;
+  /** 跳过前 N 行（分页偏移；仅与 limit 同用时切片有意义） */
+  offset?: number;
+  /** 时间下界（含端点，毫秒时间戳）；undefined 即不设该边界 */
+  since?: number;
+  /** 时间上界（含端点，毫秒时间戳）；undefined 即不设该边界 */
+  until?: number;
+  /** since/until 依据的时间列（默认 updated_at）；只在设了边界时有意义 */
+  timeField?: "updated" | "created";
+}
+
+export interface SearchOpts extends ListOpts {
+  limit?: number;
+  /** 排序权重（默认 1.0 / 0.5 / 0.3，见规格 §5） */
+  weights?: { bm25: number; time: number; kind: number };
+  /** 时间衰减半衰期（天，默认 30） */
+  halfLifeDays?: number;
+  now?: number;
+}
+
+export interface SearchHit extends MemoryRow {
+  score: number;
+  snippet: string;
+}
+
+const KIND_BOOST: Record<MemoryKind, number> = {
+  profile: 1.0,
+  knowledge: 0.9,
+  execution: 0.6,
+};
+
+const TITLE_MAX = 60;
+const SNIPPET_RADIUS = 40;
+/**
+ * 打分全集物化上限：取池 LIMIT 固定为它（不再随请求方 limit 变化），
+ * bm25 的 min/max 归一化天然全局化，消除池相关排序漂移（第一页塌方 +
+ * 深翻页边界翻转）。超过此命中数的极端场景页边界仍有 ±1 出入，
+ * store 按 id 去重 + totalMatched 兜底。
+ */
+const FULL_SCAN_CAP = 2000;
+
+/**
+ * 词法路径的列投影（**不含 embedding**）。
+ *
+ * 词法打分（bm25 / LIKE 子串）完全不需要 2KB 向量，而打分全集物化上限
+ * FULL_SCAN_CAP = 2000 —— 用 `SELECT m.*` 会让每次词法检索最多多读、多分配
+ * 约 2000 × 2KB ≈ 4MB BLOB。search 与 searchBySubstring 的 FROM/JOIN 都写了
+ * `memories m`，故列名统一带 `m.` 前缀。toRow() 对缺席列按 null 处理，
+ * 因此显式投影不改变返回结构（embedding / embedMeta 仍为字段，值为 null）。
+ */
+const LEXICAL_COLUMNS =
+  "m.id, m.kind, m.target, m.scope, m.project_id, m.content, m.title, m.tags, " +
+  "m.source, m.created_at, m.updated_at, m.last_used_at, m.use_count, m.archived, m.archived_at";
+
+/** 从内容提取标题：首个非空行截断 */
+export function deriveTitle(content: string): string {
+  const firstLine = content.split(/\r?\n/).find((l) => l.trim()) ?? content;
+  const t = firstLine.trim();
+  return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX) : t;
+}
+
+/** 摘取片段：优先围绕首个命中 token，否则取开头 */
+export function makeSnippet(content: string, rawQuery: string): string {
+  const tokens = bigram(rawQuery).split(/\s+/).filter(Boolean);
+  const lower = content.toLowerCase();
+  let at = -1;
+  for (const t of tokens) {
+    const i = lower.indexOf(t.toLowerCase());
+    if (i !== -1 && (at === -1 || i < at)) at = i;
+  }
+  if (at === -1) {
+    return content.length > SNIPPET_RADIUS * 2
+      ? content.slice(0, SNIPPET_RADIUS * 2)
+      : content;
+  }
+  const start = Math.max(0, at - SNIPPET_RADIUS);
+  return content.slice(start, start + SNIPPET_RADIUS * 2);
+}
+
+interface RawRow {
+  id: string;
+  kind: string;
+  target: string;
+  scope: string;
+  project_id: string | null;
+  content: string;
+  title: string;
+  tags: string;
+  source: string;
+  created_at: number;
+  updated_at: number;
+  last_used_at: number | null;
+  use_count: number;
+  archived: number;
+  archived_at: number | null;
+  embedding?: Uint8Array | null;
+  embed_meta?: string | null;
+}
+
+function toRow(r: RawRow): MemoryRow {
+  return {
+    id: r.id,
+    kind: r.kind as MemoryKind,
+    target: r.target as MemoryTarget,
+    scope: r.scope as MemoryScope,
+    projectId: r.project_id,
+    content: r.content,
+    title: r.title,
+    tags: r.tags,
+    source: r.source,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    lastUsedAt: r.last_used_at,
+    useCount: r.use_count,
+    archived: r.archived,
+    archivedAt: r.archived_at,
+    embedding: r.embedding ?? null,
+    embedMeta: r.embed_meta ?? null,
+  };
+}
+
+export class MemoryDao {
+  constructor(readonly db: Database) {}
+
+  insert(input: InsertInput): MemoryRow {
+    const now = Date.now();
+    const id = randomUUID();
+    const title = input.title?.trim() || deriveTitle(input.content);
+    this.db.run(
+      `INSERT INTO memories
+         (id, kind, target, scope, project_id, content, title, tags, source,
+          created_at, updated_at, last_used_at, use_count, archived, archived_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,0,0,NULL)`,
+      [
+        id,
+        input.kind,
+        input.target,
+        input.scope,
+        input.projectId ?? null,
+        input.content,
+        title,
+        input.tags ?? "",
+        input.source,
+        now,
+        now,
+      ],
+    );
+    const row = this.getById(id)!;
+    this.syncFts(row);
+    return row;
+  }
+
+  getById(id: string): MemoryRow | null {
+    const r = this.db
+      .query("SELECT * FROM memories WHERE id = ?")
+      .get(id) as RawRow | null;
+    return r ? toRow(r) : null;
+  }
+
+  /**
+   * 按 id 批量取行（保持传入顺序）。
+   *
+   * 供融合检索补位：语义通道只给出 id 列表（量化扫描只返回 id + distance），
+   * 需要在一次查询里把这些行取回来，而不是逐条 getById。
+   * 返回顺序与入参一致：调用方（RRF 融合后的名次）依赖稳定顺序。
+   *
+   * 列投影复用词法路径的 LEXICAL_COLUMNS（**不含 embedding / embed_meta**）：
+   * 与 getById 不同，本方法一次最多要处理 SCAN_K = 200 个 id，`SELECT *` 会当场物化
+   * 200 × ~2KB ≈ 400KB 向量 BLOB，而融合只用行本身、不用向量。顺带消除「同一返回
+   * 类型两种形态」——语义独有命中不再带非 null 的 embedding（词法命中本就没有）。
+   */
+  getByIds(ids: string[]): MemoryRow[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db
+      .query(
+        `SELECT ${LEXICAL_COLUMNS} FROM memories m WHERE m.id IN (${placeholders})`,
+      )
+      .all(...ids) as RawRow[];
+    const map = new Map(rows.map((r) => [r.id, toRow(r)]));
+    return ids
+      .map((id) => map.get(id))
+      .filter((r): r is MemoryRow => !!r);
+  }
+
+  /** 单行是否落在本次检索的 scope 收窄范围内（复用 buildFilter 的语义，不另起一套规则） */
+  matchesScope(id: string, opts: ListOpts): boolean {
+    const { where, params } = this.buildFilter(opts);
+    const row = this.db
+      .query(
+        `SELECT 1 AS ok FROM memories ${where}${where ? " AND " : "WHERE "}id = ?`,
+      )
+      .get(...params, id) as { ok: number } | null;
+    return !!row;
+  }
+
+  /** 供融合后补位用的片段生成 */
+  snippetFor(row: MemoryRow, rawQuery: string): string {
+    return makeSnippet(row.content, rawQuery);
+  }
+
+  /** 按内容子串查找（memory_replace/remove 无 id 时的兼容路径） */
+  findBySubstring(text: string, opts: ListOpts = {}): MemoryRow[] {
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+    return this.list({
+      ...opts,
+      includeArchived: opts.includeArchived ?? false,
+    }).filter((r) => r.content.includes(trimmed));
+  }
+
+  updateContent(id: string, content: string): boolean {
+    const now = Date.now();
+    const res = this.db.run(
+      "UPDATE memories SET content = ?, title = ?, updated_at = ? WHERE id = ?",
+      [content, deriveTitle(content), now, id],
+    );
+    if (res.changes === 0) return false;
+    this.syncFts(this.getById(id)!);
+    // 内容变化 → 向量失效。置 NULL 而不是删除列值，让后台任务按 listUnindexed 重算。
+    this.db.run("UPDATE memories SET embedding = NULL, embed_meta = NULL WHERE id = ?", [id]);
+    return true;
+  }
+
+  remove(id: string): boolean {
+    const res = this.db.run("DELETE FROM memories WHERE id = ?", [id]);
+    if (res.changes === 0) return false;
+    this.db.run("DELETE FROM memories_fts WHERE memory_id = ?", [id]);
+    return true;
+  }
+
+  /** 当前生效的模型指纹（写入 embed_meta） */
+  embedFingerprint(): string {
+    return embedFingerprint();
+  }
+
+  /** 待索引条目：未归档且（无向量 或 指纹不匹配）。按 updated_at 升序，老条目优先。 */
+  listUnindexed(limit: number): MemoryRow[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM memories
+          WHERE archived = 0
+            AND (embedding IS NULL OR embed_meta IS NULL OR embed_meta <> ?)
+          ORDER BY updated_at ASC
+          LIMIT ?`,
+      )
+      .all(embedFingerprint(), limit) as RawRow[];
+    return rows.map(toRow);
+  }
+
+  /** 写入向量与指纹；返回是否命中了一行 */
+  setEmbedding(id: string, vec: Uint8Array, meta: string): boolean {
+    const res = this.db.run("UPDATE memories SET embedding = ?, embed_meta = ? WHERE id = ?", [vec, meta, id]);
+    return res.changes > 0;
+  }
+
+  archive(id: string): boolean {
+    const res = this.db.run(
+      "UPDATE memories SET archived = 1, archived_at = ? WHERE id = ? AND archived = 0",
+      [Date.now(), id],
+    );
+    return res.changes > 0;
+  }
+
+  restore(id: string): boolean {
+    // 只翻状态，不动 updated_at：恢复归档是状态变更而非内容更新，
+    // 不得伪造新近性（L1 常驻选取按 updated_at 窗口、list 按 updated_at 排序、
+    // search 时间衰减以 updated_at 为基准）。archive 同样不动 updated_at，两者对称。
+    const res = this.db.run(
+      "UPDATE memories SET archived = 0, archived_at = NULL WHERE id = ? AND archived = 1",
+      [id],
+    );
+    return res.changes > 0;
+  }
+
+  /** 彻底删除归档条目（与 remove 同义，保留给 UI 的 purge 语义） */
+  purge(id: string): boolean {
+    return this.remove(id);
+  }
+
+  list(opts: ListOpts = {}): MemoryRow[] {
+    const { where, params } = this.buildFilter(opts);
+    const limit =
+      typeof opts.limit === "number" && opts.limit > 0
+        ? ` LIMIT ${Math.floor(opts.limit)}`
+        : "";
+    // OFFSET 必须依附 LIMIT 子句，无 limit 时忽略 offset（否则生成非法 SQL）
+    const offset =
+      limit && typeof opts.offset === "number" && opts.offset > 0
+        ? ` OFFSET ${Math.floor(opts.offset)}`
+        : "";
+    const rows = this.db
+      .query(
+        `SELECT * FROM memories ${where} ORDER BY updated_at DESC${limit}${offset}`,
+      )
+      .all(...params) as RawRow[];
+    return rows.map(toRow);
+  }
+
+  counts(opts: ListOpts = {}): Record<MemoryKind, number> {
+    const { where, params } = this.buildFilter(opts);
+    const rows = this.db
+      .query(`SELECT kind, COUNT(*) AS n FROM memories ${where} GROUP BY kind`)
+      .all(...params) as Array<{ kind: string; n: number }>;
+    const out: Record<MemoryKind, number> = {
+      profile: 0,
+      knowledge: 0,
+      execution: 0,
+    };
+    for (const r of rows) {
+      if (r.kind in out) out[r.kind as MemoryKind] = r.n;
+    }
+    return out;
+  }
+
+  /**
+   * 指定过滤下最早的 updated_at（无行返回 null）。
+   *
+   * 快照索引块只为算一个「时间跨度」，不该为此把整个 scope 的行连全文读进内存
+   * （上万条时既费内存，`Math.min(...rows.map(...))` 的展开还会直接 RangeError）。
+   * excludeProfile：索引块描述 L2/L3，不掺用户画像。
+   * before：只看某时间点之前的行（快照用它先求「超窗口」集合的最早时间）。
+   */
+  oldestUpdatedAt(
+    opts: ListOpts & { excludeProfile?: boolean; before?: number } = {},
+  ): number | null {
+    const { where, params } = this.buildFilter(opts);
+    const extra: string[] = [];
+    if (opts.excludeProfile) extra.push("kind <> 'profile'");
+    if (opts.before !== undefined) {
+      extra.push("updated_at < ?");
+      params.push(opts.before);
+    }
+    const conds = [where.replace(/^WHERE\s+/, ""), ...extra].filter(Boolean);
+    const row = this.db
+      .query(
+        `SELECT MIN(updated_at) AS t FROM memories${conds.length ? ` WHERE ${conds.join(" AND ")}` : ""}`,
+      )
+      .get(...params) as { t: number | null } | null;
+    return row?.t ?? null;
+  }
+
+  /**
+   * search 与 countMatches 共用的 WHERE 片段。
+   *
+   * 抽出来的唯一目的：让「返回哪几条」与「共命中几条」永远走同一套过滤条件
+   * （scope / projectId / kind / includeArchived），否则两个数字口径会漂移。
+   * 空查询（buildMatchExpr 返回 null）视为无命中。
+   */
+  private matchClause(
+    rawQuery: string,
+    opts: ListOpts,
+  ): { expr: string; extra: string; params: SQLQueryBindings[] } | null {
+    const expr = buildMatchExpr(rawQuery);
+    if (!expr) return null;
+    const { where, params } = this.buildFilter({
+      ...opts,
+      includeArchived: opts.includeArchived ?? false,
+    });
+    const extra = where ? `AND ${where.replace(/^WHERE\s+/, "")}` : "";
+    return { expr, extra, params };
+  }
+
+  /**
+   * 子串回退的 WHERE 片段（见 searchBySubstring 的说明）。
+   * 与 matchClause 共用 buildFilter，保证过滤条件与 FTS 路径完全一致。
+   */
+  private substringClause(
+    rawQuery: string,
+    opts: ListOpts,
+  ): { extra: string; params: SQLQueryBindings[]; like: string } | null {
+    const needle = rawQuery.trim();
+    // 空查询与 FTS 路径同口径：视为无命中（不做全表扫描）
+    if (!needle) return null;
+    const { where, params } = this.buildFilter({
+      ...opts,
+      includeArchived: opts.includeArchived ?? false,
+    });
+    const extra = where ? `AND ${where.replace(/^WHERE\s+/, "")}` : "";
+    // LIKE 元字符转义：SQLite 默认把 % / _ 当通配符，查询 "100%" 会命中一切
+    const like = `%${needle.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    return { extra, params, like };
+  }
+
+  /**
+   * 子串回退：FTS 零命中时改走 LIKE 子串匹配。
+   *
+   * 为什么需要：写入索引的正文经 bigram() 切成**相邻二元组**，单个汉字只作为二元组的
+   * 一部分存在（「示例」→ `示例`），因此「示」这类单字查询的 token 永远比不中——
+   * 实测单字查询 FTS 命中 0，而库里有正文含该字。UI 走本地 includes 时被掩盖，
+   * 切到服务端检索后暴露。
+   *
+   * 为什么不在写侧补 unigram：那要重建存量 memories_fts（迁移），而查询侧回退零迁移。
+   * 触发条件刻意收紧为「FTS 零命中」——有 FTS 命中时绝不回退，否则「示例」会退化成
+   * 把所有只含「示」的条目也捞出来，相关性被稀释。
+   *
+   * 打分：子串命中之间无强弱之分，bm25 分量统一取 1，仍叠加时间衰减与 kind 权重，
+   * 与 FTS 路径的排序语义保持一致。
+   * 打分全集：SQL 固定物化 FULL_SCAN_CAP（2000）条，不随请求方（store 层检索态
+   * 滚动加载传 want=offset+limit）变化——命中 ≤2000 时全集物化，各页切片
+   * 基准一致；先按 updated_at DESC 排序再截断，LIMIT 是确定性前缀（最新的 N 条），
+   * 超过上限的极端场景两页前缀包含，不产生跨页重复。
+   */
+  private searchBySubstring(
+    rawQuery: string,
+    opts: SearchOpts,
+    w: { bm25: number; time: number; kind: number },
+    halfLife: number,
+    now: number,
+  ): SearchHit[] {
+    const clause = this.substringClause(rawQuery, opts);
+    if (!clause) return [];
+    const rows = this.db
+      .query(
+        `SELECT ${LEXICAL_COLUMNS}
+           FROM memories m
+          WHERE (m.content LIKE ? ESCAPE '\\'
+                 OR m.title LIKE ? ESCAPE '\\'
+                 OR m.tags LIKE ? ESCAPE '\\') ${clause.extra}
+          ORDER BY m.updated_at DESC
+          LIMIT ${FULL_SCAN_CAP}`,
+      )
+      .all(clause.like, clause.like, clause.like, ...clause.params) as RawRow[];
+    if (rows.length === 0) return [];
+
+    const hits: SearchHit[] = rows.map((r) => {
+      const row = toRow(r);
+      const ageDays = Math.max(0, (now - row.updatedAt) / 86_400_000);
+      const timeScore = Math.exp(-ageDays / halfLife);
+      return {
+        ...row,
+        snippet: makeSnippet(row.content, rawQuery),
+        score: w.bm25 * 1 + w.time * timeScore + w.kind * KIND_BOOST[row.kind],
+      };
+    });
+    hits.sort((a, b) => b.score - a.score);
+    return this.touchHits(hits.slice(0, opts.limit ?? 10));
+  }
+
+  /** 命中即刷新热度信号（供后续「热度」排序用） */
+  private touchHits(hits: SearchHit[]): SearchHit[] {
+    const touched = Date.now();
+    for (const h of hits) {
+      this.db.run(
+        "UPDATE memories SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?",
+        [touched, h.id],
+      );
+    }
+    return hits;
+  }
+
+  /**
+   * 与 search 同口径的真实命中总数。
+   *
+   * 关键：**不**加 LIMIT —— 既不受调用方的 limit 影响，也不受检索打分
+   * 全集物化上限 FULL_SCAN_CAP（2000）影响。memory_search 的 totalMatched 用它，
+   * 从而回答「一共看到多少 / 还有多少没看到」而不是「这一页有几条」。
+   */
+  countMatches(rawQuery: string, opts: ListOpts = {}): number {
+    const clause = this.matchClause(rawQuery, opts);
+    if (!clause) return 0;
+    const row = this.db
+      .query(
+        `SELECT COUNT(*) AS n
+           FROM memories_fts
+           JOIN memories m ON m.id = memories_fts.memory_id
+          WHERE memories_fts MATCH ? ${clause.extra}`,
+      )
+      .get(clause.expr, ...clause.params) as { n: number } | null;
+    const n = row?.n ?? 0;
+    if (n > 0) return n;
+
+    // 与 search 同源的回退：FTS 零命中时按子串口径统计，否则「命中了却显示共 0 条」
+    const sub = this.substringClause(rawQuery, opts);
+    if (!sub) return 0;
+    const row2 = this.db
+      .query(
+        `SELECT COUNT(*) AS n
+           FROM memories m
+          WHERE (m.content LIKE ? ESCAPE '\\'
+                 OR m.title LIKE ? ESCAPE '\\'
+                 OR m.tags LIKE ? ESCAPE '\\') ${sub.extra}`,
+      )
+      .get(sub.like, sub.like, sub.like, ...sub.params) as { n: number } | null;
+    return row2?.n ?? 0;
+  }
+
+  /** BM25 检索 + 时间衰减 + kind 加权综合排序（规格 §5） */
+  search(rawQuery: string, opts: SearchOpts = {}): SearchHit[] {
+    const clause = this.matchClause(rawQuery, opts);
+    if (!clause) return [];
+
+    const w = { bm25: 1.0, time: 0.5, kind: 0.3, ...(opts.weights ?? {}) };
+    const halfLife = opts.halfLifeDays ?? 30;
+    const now = opts.now ?? Date.now();
+
+    const rows = this.db
+      .query(
+        `SELECT ${LEXICAL_COLUMNS}, bm25(memories_fts) AS score
+           FROM memories_fts
+           JOIN memories m ON m.id = memories_fts.memory_id
+          WHERE memories_fts MATCH ? ${clause.extra}
+          ORDER BY m.updated_at DESC
+          LIMIT ${FULL_SCAN_CAP}`,
+      )
+      .all(clause.expr, ...clause.params) as Array<RawRow & { score: number }>;
+
+    if (rows.length === 0) {
+      // 索引对单字等查询天然无 token 可比（bigram 取舍），零命中时回退子串匹配
+      return this.searchBySubstring(rawQuery, opts, w, halfLife, now);
+    }
+
+    // bm25 返回负值（越小越相关）；打分全集内 min-max 归一到 [0,1]（取池 LIMIT 固定
+    // FULL_SCAN_CAP，命中 ≤2000 时即为全集统计，min/max 与翻页轮次无关）
+    const scores = rows.map((r) => r.score);
+    const min = Math.min(...scores);
+    const max = Math.max(...scores);
+    const span = max - min;
+
+    const hits: SearchHit[] = rows.map((r) => {
+      const norm = span === 0 ? 1 : (max - r.score) / span;
+      const row = toRow(r);
+      const ageDays = Math.max(0, (now - row.updatedAt) / 86_400_000);
+      const timeScore = Math.exp(-ageDays / halfLife);
+      return {
+        ...row,
+        snippet: makeSnippet(row.content, rawQuery),
+        score:
+          w.bm25 * norm + w.time * timeScore + w.kind * KIND_BOOST[row.kind],
+      };
+    });
+
+    hits.sort((a, b) => b.score - a.score);
+    return this.touchHits(hits.slice(0, opts.limit ?? 10));
+  }
+
+  private buildFilter(opts: ListOpts): {
+    where: string;
+    params: SQLQueryBindings[];
+  } {
+    const clauses: string[] = [];
+    const params: SQLQueryBindings[] = [];
+    if (opts.archivedOnly) clauses.push("archived = 1");
+    else if (!opts.includeArchived) clauses.push("archived = 0");
+    if (opts.kind) {
+      clauses.push("kind = ?");
+      params.push(opts.kind);
+    }
+    if (opts.scope) {
+      clauses.push("scope = ?");
+      params.push(opts.scope);
+    } else if (opts.projectScope) {
+      // 项目会话的默认检索范围：全局条目 + 本项目条目（不含其它项目）。
+      // 与上一分支互斥——显式 scope 优先，收窄只在「未指定 scope」时生效。
+      clauses.push("(scope = 'global' OR (scope = 'project' AND project_id = ?))");
+      params.push(opts.projectScope);
+    }
+    // undefined / null / 空串都不加条件（空串不是合法的 projectId）
+    if (opts.projectId) {
+      clauses.push("project_id = ?");
+      params.push(opts.projectId);
+    }
+    // 时间范围（含端点）。列名只从白名单常量里取，不拼接外部输入。
+    const timeCol = opts.timeField === "created" ? "created_at" : "updated_at";
+    if (typeof opts.since === "number") {
+      clauses.push(`${timeCol} >= ?`);
+      params.push(opts.since);
+    }
+    if (typeof opts.until === "number") {
+      clauses.push(`${timeCol} <= ?`);
+      params.push(opts.until);
+    }
+    return {
+      where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+      params,
+    };
+  }
+
+  /** FTS 同步：先删旧行再插新行（内容可能变化，不能只 update） */
+  private syncFts(row: MemoryRow): void {
+    const body = bigram(`${row.title} ${row.content} ${row.tags}`);
+    this.db.run("DELETE FROM memories_fts WHERE memory_id = ?", [row.id]);
+    this.db.run("INSERT INTO memories_fts(body, memory_id) VALUES (?, ?)", [
+      body,
+      row.id,
+    ]);
+  }
+}
