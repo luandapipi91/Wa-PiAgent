@@ -1,3 +1,7 @@
+## 2026-10-21
+- fix(frontend): 思考过程排版收紧（用户反馈「中间间隔太宽」）——根因是容器 `whitespace-pre-wrap` 与 markdown 块级结构叠加：react-markdown 在块级元素之间插入的换行被当成可见空行，loose list 的圆点与正文被拆成两行，叠加 typography 段落/列表 1.25em（上下各 16px）间距；修法＝新增 remark 软换行插件（text 内 `\n` → `<br>`，代码块/行内代码不动）保留一行一个短句的换行观感，去掉容器 pre-wrap，并在 styles.css 新增 `.md-body.thinking-md` 紧凑作用域（块级 margin 归零、块间 0.5em、li 间 0.25em、li>p 归零），聊天正文排版不受影响；先红后绿：插件单元 4 例 + 组件 3 例 + CSS 契约 4 例 + E2E 间距断言（段间距 45→6px、列表项高 99→18px，正文对照仍 16px）均先失败后通过，前端全量 3066 用例 0 fail、typecheck 0 error，E2E thinking-markdown/lag-fix-smoke/collapse-viewport/thinking-empty-block/chat-blocks 10 例全绿
+- fix(frontend): 思考过程正文改走共享 Markdown 渲染（原纯文本 + Linkify，模型输出的 `**粗体**`、反引号代码、列表原样显示为标记）——ThinkingCard 换用 Markdown（interactive=false 避免思考草稿里的路径/图片触发预览副作用，链接仍新标签页打开、代码块走 CodeBlockCard 高亮折叠，流式解析沿用 streaming/throttleMs 节流，保留 whitespace-pre-wrap 维持原有的逐行观感）；先红后绿：ThinkingCard 新增 markdown 断言（粗体/行内代码/列表/原始标记不泄漏）先失败后通过，前端全量 3056 用例 0 fail + typecheck 0 error，E2E 新增 thinking-markdown.spec 通过，lag-fix-smoke / collapse-viewport / thinking-empty-block 回归通过
+
 ## 2026-10-19
 - fix(websearch): 精简搜索/抓取工具的模型可见描述（用户裁决：系统提示词不告诉 AI 供应商选择/免费计费/实现细节）——wa_web_search 只留「联网搜索→标题/链接/摘要」，wa_fetch_content 只留「抓取→标题/Markdown + 不执行 JS 限制」；query 参数说明去掉 lang:/after:/before:（provider 相关）、ori_question 收紧；先红后绿：新增描述精简反向断言（不得含供应商/计费/实现细节字串）47 用例全绿，kernel typecheck 0 error
 - v0.7.11 发版：联网免费 Bing 供应商（默认、免 Key、可切 DeepSeek/智谱）；0.7.10 未对外即撤，0.7.11 覆盖发布一次（并入工具描述精简，用户指定同版本覆盖）；mac dmg 198521344 / win exe 179544171

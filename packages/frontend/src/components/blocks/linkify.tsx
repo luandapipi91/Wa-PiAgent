@@ -5,8 +5,9 @@ import type { ReactNode } from "react";
  * 轻量 URL 链接化：把纯文本中的裸 http/https URL 转为可点击链接。
  *
  * 用途：agent 消息渲染中不走 ReactMarkdown 的纯文本位置
- * （流式子代理预览 / thinking / 工具结果），避免为了一个 URL 跑完整 markdown 管线
- * （流式中每 token 重跑 ReactMarkdown 是卡顿热点）。
+ * （流式子代理预览 / 工具结果），避免为了一个 URL 跑完整 markdown 管线
+ * （流式中每 token 重跑 ReactMarkdown 是卡顿热点）。注意思考过程已改为
+ * 与聊天正文一致的 Markdown 渲染，不再走 Linkify。
  *
  * 与 remark-gfm autolink 的差异（有意简化）：
  * - 只链接 http/https 协议，杜绝 javascript: 等注入（href 白名单协议）。

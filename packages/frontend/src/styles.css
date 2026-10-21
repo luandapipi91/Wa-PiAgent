@@ -424,6 +424,46 @@ input[type="range"]::-moz-range-thumb {
 	margin-bottom: 0.25em;
 }
 
+/* ===== 思考过程（推理草稿）紧凑排版 ===== */
+/* 思考卡与聊天正文共用 .md-body markdown 与 typography，但正文是正式内容、思考是
+   短句堆叠的草稿：typography 给段落/列表 1.25em 上下间距（12px 字号下各 16px），
+   一条短思考就会被拆成一堆视觉孤岛。这里只压垂直间距，字号/字色/斜体由思考卡自身的
+   tailwind 类决定；聊天正文不受影响（选择器带 .thinking-md）。 */
+.md-body.thinking-md :is(
+	p,
+	ul,
+	ol,
+	li,
+	dl,
+	blockquote,
+	pre,
+	table,
+	h1,
+	h2,
+	h3,
+	h4,
+	h5,
+	h6
+) {
+	margin-top: 0;
+	margin-bottom: 0;
+}
+/* 块与块之间只留一点呼吸空间（代替 typography 的双份 1.25em） */
+.md-body.thinking-md > * + * {
+	margin-top: 0.5em;
+}
+.md-body.thinking-md :is(ul, ol) {
+	padding-left: 1.15em;
+}
+/* 列表项之间的小间隙 */
+.md-body.thinking-md li + li {
+	margin-top: 0.25em;
+}
+/* loose list 的项内段落不再撑高（否则圆点与正文之间出现整行空白） */
+.md-body.thinking-md li > p {
+	margin: 0;
+}
+
 /* ===== Prism token 类名防护 ===== */
 /* Prism 的 markdown 语法会给表格 token 打 class="token table ..."，而 Tailwind JIT
    会把 tsx 里的原生 <table> 标签误收为候选类，生成 .table{display:table} 工具类。

@@ -86,7 +86,7 @@ test.describe("卡顿修复冒烟", () => {
 		await expect(page.getByTestId("text-block").first().getByText(/片段/).first()).toBeVisible();
 	});
 
-	test("修复①：thinking 流式中不跑 Linkify，停顿后恢复链接", async ({ page }) => {
+	test("修复①：thinking 流式中渲染 markdown（粗体 + 链接，节流不闪烁）", async ({ page }) => {
 		test.setTimeout(30_000);
 		const sessionId = await enterSession(page, "thinking 降级冒烟");
 		await waitHistoryReady(page, sessionId);
@@ -102,16 +102,18 @@ test.describe("卡顿修复冒烟", () => {
 			const h = useSessionStore.getState().handleSDKEvent;
 			h(sid, { event: { type: "message_start", message: { role: "assistant", content: [], model: "m", timestamp: Date.now() } }, agentName: "dev" } as any);
 			for (let i = 0; i < 30; i++) {
-				h(sid, { event: { type: "message_update", assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: `思考 see http://localhost:9${i}/ ok ` } }, agentName: "dev" } as any);
+				h(sid, { event: { type: "message_update", assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: `**思考** see http://localhost:9${i}/ ok ` } }, agentName: "dev" } as any);
 			}
 		}, sessionId);
 
-		// 流式中：thinking 始终链接化（节流方案，不闪烁）
+		// 流式中：thinking 与聊天正文一致渲染 markdown（节流方案，不闪烁）
 		const body = page.getByTestId("thinking-panel-body").first();
 		await expect(body).toBeVisible({ timeout: 3000 });
+		await expect(body.locator("strong").first()).toBeVisible({ timeout: 3000 });
 		await expect(body.locator("a").first()).toBeVisible({ timeout: 3000 });
 		// 节流窗口后内容追上
 		await page.waitForTimeout(400);
+		await expect(body.locator("strong").first()).toBeVisible();
 		await expect(body.locator("a").first()).toBeVisible();
 	});
 
