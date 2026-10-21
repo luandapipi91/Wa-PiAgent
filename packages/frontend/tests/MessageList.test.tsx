@@ -949,6 +949,104 @@ test("点击「重新发送」→ 原地重试：裁掉失败回合（用户消�
 	expect(s.streamingBySession["s1"]).toBeTruthy();
 });
 
+// 事故：多轮会话里点「重新发送」，此前几轮历史消息整段消失，切走会话再切回才恢复。
+// 根因：resend 传的是渲染行下标（toolResult 折进上一行、同回合多 assistant 合并成一行，
+// 行数远少于消息数），被 truncate 当成 messages 下标切片 → 过量裁剪。
+test("重新发送：多轮历史（含 toolResult / 同回合多 assistant）不被过量裁剪", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "第一轮问题", timestamp: 1 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [
+							{ type: "text", text: "我先读文件" },
+							{ type: "toolCall", id: "c1", name: "read", arguments: { path: "/a" } },
+						],
+						model: "pi-test",
+						stopReason: "toolUse",
+						timestamp: 2,
+					},
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "toolResult",
+						toolCallId: "c1",
+						toolName: "read",
+						content: [{ type: "text", text: "文件内容" }],
+						isError: false,
+						timestamp: 3,
+					},
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "第一轮回答" }],
+						model: "pi-test",
+						stopReason: "end_turn",
+						timestamp: 4,
+					},
+				},
+				{
+					agentName: undefined,
+					message: { role: "user", content: "失败的那条", timestamp: 5 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "⚠️ 模型调用失败" }],
+						model: "system",
+						stopReason: "error",
+						timestamp: 6,
+					},
+				},
+			],
+		},
+		streamingBySession: {},
+	});
+	useProjectsStore.setState({
+		sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev" }] as any,
+	});
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "prov-ds",
+				name: "deepseek",
+				api: "openai-completions",
+				baseUrl: "",
+				apiKey: "",
+				models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096 }],
+			},
+		],
+	});
+	useComposerPrefsStore.setState({
+		bySession: {
+			s1: { model: "deepseek/deepseek-chat", thinking: "high", attachments: [] },
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	fireEvent.click(screen.getByTestId("resend-s1-5"));
+	const list = useSessionStore.getState().messagesBySession["s1"];
+	// 前序回合原样保留（4 条）+ 乐观重建的重发消息（1 条）
+	expect(list).toHaveLength(5);
+	expect((list[0].message as any).content).toBe("第一轮问题");
+	expect((list[3].message as any).content?.[0]?.text).toBe("第一轮回答");
+	expect((list[4].message as any).role).toBe("user");
+	expect((list[4].message as any).content).toBe("失败的那条");
+});
+
 test("过期 model（provider 已删除）→ 点「重新发送」不裁剪、不重发", () => {
 	useSessionStore.setState({
 		messagesBySession: {
@@ -1434,7 +1532,7 @@ test("进行中的轮（thinking 中、无 streaming）不显示复制/导出按
 	const msg = assistantMsg(1, [{ type: "text", text: "已定稿的回答" }]);
 	render(
 		<MessageRow
-			row={{ main: msg, toolResults: new Map() }}
+			row={{ main: msg, toolResults: new Map(), srcIndex: 0 }}
 			sessionId="s1"
 			isActiveTurnRow
 		/>,
@@ -1445,7 +1543,10 @@ test("进行中的轮（thinking 中、无 streaming）不显示复制/导出按
 test("轮次结束后（非 active turn）显示复制/导出按钮", () => {
 	const msg = assistantMsg(1, [{ type: "text", text: "已完成的回答" }]);
 	render(
-		<MessageRow row={{ main: msg, toolResults: new Map() }} sessionId="s1" />,
+		<MessageRow
+			row={{ main: msg, toolResults: new Map(), srcIndex: 0 }}
+			sessionId="s1"
+		/>,
 	);
 	expect(screen.getByTestId("copy-s1-1")).toBeTruthy();
 });

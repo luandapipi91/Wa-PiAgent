@@ -27,7 +27,11 @@ mock.module("../../store/skills", () => ({ useSkillsStore }));
 const { MessageRow } = await import("../MessageList");
 
 function row(message: any) {
-	return { main: { agentName: "agent", message }, toolResults: new Map() };
+	return {
+		main: { agentName: "agent", message },
+		toolResults: new Map(),
+		srcIndex: 0,
+	};
 }
 
 const assistantMsg = {
@@ -63,6 +67,7 @@ function assistantRow(message: any, toolResults: Array<[string, any]>) {
 	return {
 		main: { agentName: "agent", message },
 		toolResults: new Map(toolResults),
+		srcIndex: 0,
 	};
 }
 

@@ -101,6 +101,9 @@ interface Props {
 export interface RenderedRow {
 	main: SessionMessage;
 	toolResults: Map<string, ToolResultMessage>;
+	/** main 消息在 store messagesBySession 数组中的下标。渲染行会折叠 toolResult、
+	 *  合并同回合 assistant，行下标远小于消息下标——「重新发送」截断必须用这个值。 */
+	srcIndex: number;
 	/** 合并行中专用的 streaming 起始 index（内容数组中从该 index 开始为新到达的流式块） */
 	streamingStartIdx?: number;
 }
@@ -267,7 +270,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 		}
 	}
 	const handleResend = useCallback(
-		(text: string, index: number, attachments?: AttachmentRef[]) => {
+		(text: string, srcIndex: number, attachments?: AttachmentRef[]) => {
 			// 过期模型（provider 已删、prefs 残留）直接放弃重发：不裁剪、不发送，
 			// 否则消息被裁掉后后端才报模型解析失败，用户丢了原消息。
 			const prefs = useComposerPrefsStore.getState().bySession[sessionId];
@@ -276,7 +279,8 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			// 原地重试：先裁掉该用户消息及之后所有行（失败的 assistant/错误），
 			// 再乐观重建用户消息 + loading（与首次发送一致，不等 SDK 回声），最后发 prompt。
 			// SDK 的 message_start(user) 回声会替换乐观占位（同步 timestamp），避免叠加。
-			useSessionStore.getState().truncate(sessionId, index);
+			// 注意：truncate 的 fromIndex 是 messagesBySession 下标，不是渲染行下标。
+			useSessionStore.getState().truncate(sessionId, srcIndex);
 			const payload = buildResendPrompt({
 				session,
 				sessionId,
@@ -402,6 +406,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 				},
 			},
 			toolResults: lastRow.toolResults,
+			srcIndex: lastRow.srcIndex,
 			streamingStartIdx: (lastMain.content ?? []).length,
 		};
 		displayRows = [...rows.slice(0, -1), merged];
@@ -896,7 +901,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 								onResend={
 									showResend
 										? (text: string, attachments?: AttachmentRef[]) =>
-												handleResend(text, vr.index, attachments)
+												handleResend(text, row.srcIndex, attachments)
 										: undefined
 								}
 								isStreaming={isMergedStreamingRow}
@@ -955,7 +960,8 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 function preprocess(messages: SessionMessage[]): RenderedRow[] {
 	const rows: RenderedRow[] = [];
 	let lastAssistantIdx = -1;
-	for (const sm of messages) {
+	for (let i = 0; i < messages.length; i++) {
+		const sm = messages[i];
 		const m = sm.message as any;
 		if (m.role === "toolResult") {
 			if (lastAssistantIdx >= 0)
@@ -968,7 +974,7 @@ function preprocess(messages: SessionMessage[]): RenderedRow[] {
 			// 避免占独立行打断同 turn assistant 连续性 → collapseSameTurnAssistants 无法合并 → duplicate key
 			if (m.role === "custom" && m.customType === "subagent-notification")
 				continue;
-			rows.push({ main: sm, toolResults: new Map() });
+			rows.push({ main: sm, toolResults: new Map(), srcIndex: i });
 			lastAssistantIdx = m.role === "assistant" ? rows.length - 1 : -1;
 		}
 	}
@@ -1007,7 +1013,11 @@ function collapseSameTurnAssistants(rows: RenderedRow[]): RenderedRow[] {
 			};
 			for (const [k, v] of row.toolResults) prev.toolResults.set(k, v);
 		} else {
-			out.push({ main: row.main, toolResults: new Map(row.toolResults) });
+			out.push({
+				main: row.main,
+				toolResults: new Map(row.toolResults),
+				srcIndex: row.srcIndex,
+			});
 		}
 	}
 	return out;
@@ -1197,7 +1207,7 @@ function StreamingRow({
 	if (hasContent)
 		return (
 			<MessageRow
-				row={{ main: streaming, toolResults: new Map() }}
+				row={{ main: streaming, toolResults: new Map(), srcIndex: -1 }}
 				sessionId={sessionId}
 				isStreaming
 			/>

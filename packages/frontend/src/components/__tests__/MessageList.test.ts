@@ -16,6 +16,7 @@ function row(over: Record<string, unknown> = {}): RenderedRow {
 			message: (over.message as any) ?? message(),
 		},
 		toolResults: new Map(),
+		srcIndex: 0,
 	};
 }
 

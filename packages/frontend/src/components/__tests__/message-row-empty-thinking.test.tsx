@@ -28,6 +28,7 @@ function row(content: any[]) {
 			message: { role: "assistant", content, timestamp: 10 } as any,
 		},
 		toolResults: new Map(),
+		srcIndex: 0,
 	};
 }
 
