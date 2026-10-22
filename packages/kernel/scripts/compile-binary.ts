@@ -3,8 +3,16 @@
 // 运行时资产嵌入到产物 import.meta.dir/assets/（bridge-extension.ts / tui-host-deploy.ts 运行时读取）。
 // 只有原生 .node 依赖（@napi-rs/keyring）external——无法内联进虚拟 FS。
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { buildWebAccessBundle } from "../src/web-access-bundle";
 
@@ -93,6 +101,50 @@ export function stageAssetDir(): string {
 	mkdirSync(dir);
 	for (const f of KERNEL_ASSET_FILES) cpSync(f, join(dir, basename(f)));
 	return dir;
+}
+
+/** 桌面端放在 PATH 首位的 bun shim：一个很小的脚本，BUN_BE_BUN=1 exec 打包内核。
+ *  它伪装成 bun，但 `bun build --compile` 会失败（InvalidObject / SectionExists）。 */
+export function isBunShim(candidate: string): boolean {
+	try {
+		if (statSync(candidate).size > 1024 * 1024) return false; // 真实 bun 几十 MB
+		const head = readFileSync(candidate, "utf8").slice(0, 1024);
+		return head.startsWith("#!") && head.includes("BUN_BE_BUN");
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * 找一个能真编译的 bun（跳过桌面端 shim）。
+ *
+ * 候选顺序：桌面端注入的真 bun（WA_PI_PI_RUNTIME）→ bun 官方安装器默认位置
+ * （~/.bun/bin/bun，PATH 被 shim 顶掉时的可靠来源）→ PATH → process.execPath。
+ */
+export function resolveCompilerBun(candidates?: string[]): string | null {
+	const looksLikeBun = (p: string) => /(^|[\\/])bun(\.exe)?$/i.test(p);
+	const list = candidates ?? [
+		process.env.WA_PI_PI_RUNTIME,
+		join(
+			homedir(),
+			".bun",
+			"bin",
+			process.platform === "win32" ? "bun.exe" : "bun",
+		),
+		Bun.which("bun"),
+		process.execPath,
+	];
+	for (const candidate of list) {
+		if (
+			candidate &&
+			looksLikeBun(candidate) &&
+			existsSync(candidate) &&
+			!isBunShim(candidate)
+		) {
+			return candidate;
+		}
+	}
+	return null;
 }
 
 /** 编译 kernel 单二进制到 outfile。用 process.execPath（真实 bun，≥1.4.0）避免 .cmd shim 问题。

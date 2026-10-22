@@ -66,3 +66,18 @@ describe("McpFile.list 曝光档归一化（pi 1.2.0 alias）", () => {
     expect(fresh?.exposure).toBe("direct");
   });
 });
+
+// Windows PowerShell 5.1 重写 JSON 时会写入 UTF-8 BOM；pi 1.4.0 起 pi 侧已兼容，
+// 而 Wa-Pi 自己的解析链若仍是裸 JSON.parse，同一份 mcp.json 会出现「引擎可读、界面报错」。
+describe("mcp.json UTF-8 BOM 兼容（Windows PowerShell 5.1 写盘）", () => {
+  test("readPath 能解析开头带 BOM 的配置", async () => {
+    const { file, globalPath } = await makeAdmin();
+    await writeFile(
+      globalPath,
+      "\uFEFF" + JSON.stringify({ mcpServers: { a: { command: "npx" } } }),
+      "utf8",
+    );
+    const raw = await file.readPath(globalPath);
+    expect(Object.keys(raw.mcpServers)).toEqual(["a"]);
+  });
+});

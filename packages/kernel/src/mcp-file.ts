@@ -16,6 +16,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { stripBom } from "./text-bom.ts";
 import {
   type McpExposure,
   type McpFieldError,
@@ -209,7 +210,7 @@ export class McpFile {
 
   private async read(path: string): Promise<RawFile> {
     try {
-      const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+      const parsed: unknown = JSON.parse(stripBom(await readFile(path, "utf8")));
       // 形状守卫：不是对象（字面 null / 数组 / 字符串…）一律按解析失败报错，
       // 不能泄漏原生 TypeError（那会绕过 KernelError 错误码契约）。
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

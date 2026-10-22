@@ -17,6 +17,7 @@ import { join } from "node:path";
 import {
   compileKernelBinary,
   kernelBinaryName,
+  resolveCompilerBun,
 } from "../scripts/compile-binary.ts";
 
 const KERNEL_PKG_DIR = join(import.meta.dir, "..");
@@ -43,31 +44,6 @@ afterAll(async () => {
     }
   }
 });
-
-/**
- * 找一个能真编译的 bun。
- *
- * 本机可能把「应用放的 bun shim」放在 PATH 首位（它 set BUN_BE_BUN=1 后直接跑打包内核），
- * 那时 process.execPath 是编译产物自己，`bun build --compile` 会报 SectionExists。
- * 优先用 WA_PI_PI_RUNTIME（桌面端会给子进程注入真 bun 路径）与 PATH 上真正的 bun；
- * 都拿不到就跳过本测试并明确打日志（不静默通过）。
- */
-function resolveCompilerBun(): string | null {
-  const looksLikeBun = (p: string) => /(^|[\\/])bun(\.exe)?$/i.test(p);
-  const candidates = [
-    process.env.WA_PI_PI_RUNTIME,
-    Bun.which("bun"),
-    // bun 官方安装器的默认位置（Windows：~/.bun/bin/bun.exe）——PATH 上只剩 shim 时的兼底
-    join(homedir(), ".bun", "bin", process.platform === "win32" ? "bun.exe" : "bun"),
-    process.execPath,
-  ];
-  for (const candidate of candidates) {
-    if (candidate && looksLikeBun(candidate) && existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
-}
 
 /** 取一个当前空闲的端口（先绑 0 再释放） */
 async function freePort(): Promise<number> {

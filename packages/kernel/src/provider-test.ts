@@ -43,8 +43,12 @@ function opencodeSessionHeaders(
 		// baseUrl 非法：交给 fetch 报网络错，这里不做主机判定
 	}
 	if (!bySlug && !byHost) return {};
-	// 探测请求无对话上下文，每次生成新会话 ID（网关仅用于路由/提示缓存）
-	return { "x-opencode-session": crypto.randomUUID() };
+	// 探测请求无对话上下文，每次生成新会话 ID（网关仅用于路由/提示缓存）。
+	// pi 1.4.0 起归属头固定带客户端标识（x-opencode-client: pi），与会话头同时下发。
+	return {
+		"x-opencode-session": crypto.randomUUID(),
+		"x-opencode-client": "pi",
+	};
 }
 
 /** 超时 10 秒 */

@@ -10,9 +10,9 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 
 | 包 | 版本 | 许可证 | 版权 / 作者 |
 | ---- | ------ | -------- | ------------- |
-| @earendil-works/pi-ai | ~1.3.0 | MIT | Mario Zechner |
-| @earendil-works/pi-coding-agent | ~1.3.0 | MIT | Mario Zechner |
-| @earendil-works/pi-tui | 1.3.0 | MIT | Mario Zechner |
+| @earendil-works/pi-ai | ~1.4.0 | MIT | Mario Zechner |
+| @earendil-works/pi-coding-agent | ~1.4.0 | MIT | Mario Zechner |
+| @earendil-works/pi-tui | 1.4.0 | MIT | Mario Zechner |
 | @huggingface/transformers | 4.3.0 | Apache-2.0 | Hugging Face |
 | @mozilla/readability | ^0.6.0 | Apache-2.0 | Mozilla (readability) |
 | @napi-rs/keyring | ^1.3.0 | MIT | Brooooooklyn (keyring-node) |

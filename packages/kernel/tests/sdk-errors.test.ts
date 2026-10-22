@@ -481,3 +481,51 @@ test("classifySdkError: 非 HTML 原文（Connection error.）→ failure 缺省
 		classifySdkError(errEvent("Connection error."))?.failure,
 	).toBeUndefined();
 });
+
+// ── pi 1.4.0 retry.js 同步（1.4.0 扩大了自动重试覆盖面）──
+// 口径：这些文案自 pi 1.4.0 起由引擎自动重试（1.3.0 不重试）。
+// 分类副本不同步 → 重试期间被当成致命错误弹红，或重试耗尽后的临时错误
+// 被当成正式回复留在历史里。
+
+test("pi 1.4.0 新增 transient：stream disconnected before completion", () => {
+	expect(
+		isTransientErrorMessage(
+			"stream disconnected before completion: stream closed before response.completed",
+		),
+	).toBe(true);
+});
+
+test("pi 1.4.0 新增 transient：上游失败文案四种", () => {
+	expect(isTransientErrorMessage("upstream request failed")).toBe(true);
+	expect(isTransientErrorMessage("upstream_stream_read_error")).toBe(true);
+	expect(isTransientErrorMessage("stream was interrupted")).toBe(true);
+	expect(isTransientErrorMessage("http/2 stream failed")).toBe(true);
+});
+
+test("pi 1.4.0 新增 transient：OAuth 刷新失败（request to … failed, reason:）", () => {
+	expect(
+		isTransientErrorMessage(
+			"request to https://oauth2.googleapis.com/token failed, reason:",
+		),
+	).toBe(true);
+});
+
+test("pi 1.4.0：状态码按词边界匹配——请求 id 里的 429/500 不再误判 transient", () => {
+	expect(
+		isTransientErrorMessage("request id chatcmpl-500x429y was rejected"),
+	).toBe(false);
+});
+
+test("pi 1.4.0：独立的 HTTP 500 仍判 transient（边界匹配不放松真实状态码）", () => {
+	expect(isTransientErrorMessage("gateway returned 500")).toBe(true);
+});
+
+test("pi 1.4.0 新增 transient 文案经 classifySdkError 分类为 transient", () => {
+	expect(
+		classifySdkError(
+			errEvent(
+				"stream disconnected before completion: stream closed before response.completed",
+			),
+		)?.category,
+	).toBe("transient");
+});

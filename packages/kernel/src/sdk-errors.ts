@@ -141,14 +141,10 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
 		"overloaded",
 		"rate.?limit",
 		"too many requests",
-		"429",
-		// 精确匹配 5xx 状态码：不能用 5\d\d（会误匹配错误页 HTML 里的任意三位数，
-		// 如 404 网页里的 "563" 像素宽度）。对齐 pi-ai 0.83.0 retry.js。
-		"500",
-		"502",
-		"503",
-		"504",
-		"524",
+		// 状态码按词边界匹配（pi-ai 1.4.0 #11057）：请求 id / 字节数里的数字不能被
+		// 误判成 HTTP 状态（如 "req_500abc"）；同时保留 "HTTP 500"、"returned 524" 的真实匹配。
+		// 也不能用 5\d\d（会误匹配错误页 HTML 里的任意三位数，如 404 网页里的 "563" 像素宽度）。
+		"(?<![a-z0-9])(?:429|500|502|503|504|520|524)(?![a-z0-9])",
 		"service.?unavailable",
 		"server.?error",
 		"internal.?error",
@@ -178,6 +174,15 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
 		"http2 request did not get a response",
 		// pi-ai 0.84.2 新增：上游请求缓冲失败（pi 内核会自动重试此类错误，属临时性）
 		"exceeded request buffer limit",
+		// pi-ai 1.4.0 新增：网关/上游失败（#10920）、Codex CLI 代理的流中断（#11057）、
+		// Vertex OAuth 临时刷新失败（#10996）——pi 1.4.0 起这些都会自动重试
+		"unable to forward upstream",
+		"upstream.?request.?failed",
+		"upstream_stream_read_error",
+		"stream was interrupted",
+		"http/?2 stream failed",
+		"request to \\S+ failed, reason:",
+		"stream disconnected before completion",
 	].join("|"),
 	"i",
 );
@@ -230,6 +235,8 @@ const FATAL_ERROR_PATTERN = new RegExp(
 		"FreeUsageLimitError",
 		"Monthly usage limit reached",
 		"available balance",
+		// pi-ai 1.4.0：ChatGPT Business 工作区用量上限（仅管理员能提额，不重试）
+		"subscription_sharing_workplace_individual_usage_limit_exceeded",
 		"401", // Unauthorized
 		"403", // Forbidden
 		"404", // Not Found —— 模型/接口路径不存在（provider baseUrl 错误或模型 ID 无效）

@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { KernelError } from "./kernel-error";
 import { ensureProxyRelay } from "./proxy-relay";
+import { stripBom } from "./text-bom";
 import type {
 	RetrySettings,
 	TrashSettings,
@@ -289,7 +290,7 @@ async function syncMcpAutoEnableCodemode(
 ): Promise<void> {
 	let cfg: Record<string, unknown> = {};
 	try {
-		cfg = JSON.parse(await readFile(mcpFile, "utf8")) as Record<
+		cfg = JSON.parse(stripBom(await readFile(mcpFile, "utf8"))) as Record<
 			string,
 			unknown
 		>;

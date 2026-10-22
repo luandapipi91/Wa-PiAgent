@@ -1,7 +1,7 @@
 // compile-binary.ts 纯函数测试：编译参数、asset 暂存、平台二进制名。
 // 不真的跑 bun build --compile（那是 Task 6 集成测试的职责）。
 import { test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { readdirSync, rmSync } from "node:fs";
 import {
   buildCompileArgs,
@@ -10,11 +10,13 @@ import {
   EXTERNAL_PACKAGES,
   KERNEL_ASSET_FILES,
   kernelBinaryName,
+  isBunShim,
+  resolveCompilerBun,
 } from "../scripts/compile-binary";
 import { buildWebAccessBundle } from "../src/web-access-bundle";
 import { TUI_HOST_EXTENSION_FILES } from "../src/tui-host-deploy";
 import { basename, join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 // web-access.bundle.js 是构建期产物（gitignore，不入库）：资产清单断言前先构建一次，
 // 否则全新检出上「全部资产真实存在」与 stageAssetDir 的 cpSync 会因缺文件而红。
@@ -165,4 +167,42 @@ test("compileKernelBinary: 预构建先于资产暂存（删产物后即使编�
     // 变异跑（预构建被移走）时产物不会重建，补建一次让后续用例不受污染
     if (!existsSync(bundle)) await buildWebAccessBundle(bundle);
   }
+});
+
+// ── 编译器 bun 解析：桌面端把 bun shim 放在 PATH 首位（BUN_BE_BUN=1 exec 打包内核），
+// 它伪装成 bun 但不能 `--compile`（报 InvalidObject / SectionExists）。必须跳过。 ──
+
+
+function makeShim(content = '#!/bin/sh\nBUN_BE_BUN=1 exec "/Applications/WA PI Agent.app/Contents/Resources/kernel/WaPiKernel" "$@"\n'): string {
+  const dir = mkdtempSync(join(tmpdir(), "bun-shim-"));
+  const shim = join(dir, "bun");
+  writeFileSync(shim, content, "utf8");
+  chmodSync(shim, 0o755);
+  return shim;
+}
+
+function realBunPath(): string {
+  return join(homedir(), ".bun", "bin", process.platform === "win32" ? "bun.exe" : "bun");
+}
+
+test("isBunShim: 桌面端 bun shim（BUN_BE_BUN=1 exec 打包内核）识别为 shim", () => {
+  expect(isBunShim(makeShim())).toBe(true);
+});
+
+test("isBunShim: 真实 bun 二进制不是 shim", () => {
+  const real = realBunPath();
+  if (!existsSync(real)) return; // 无真实 bun 的环境跳过（本机两者都在）
+  expect(isBunShim(real)).toBe(false);
+});
+
+test("resolveCompilerBun: PATH 上的 bun 是 shim 时改用真实 bun 安装位置", () => {
+  const real = realBunPath();
+  if (!existsSync(real)) return;
+  const shim = makeShim();
+  // shim 在候选列表前面：必须跳过并选中真实 bun
+  expect(resolveCompilerBun([shim, real])).toBe(real);
+});
+
+test("resolveCompilerBun: 候选全是 shim → null（调用方跳过冒烟并打日志）", () => {
+  expect(resolveCompilerBun([makeShim()])).toBeNull();
 });

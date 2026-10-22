@@ -131,6 +131,7 @@ test("anthropic-messages + opencode 域名自动带 x-opencode-session", async (
 	});
 	const [, init] = fetchMock.mock.calls[0] as any;
 	expect(String(init.headers["x-opencode-session"] ?? "")).not.toBe("");
+	expect(init.headers["x-opencode-client"]).toBe("pi");
 });
 
 test("anthropic-messages + 仅 slug 命中 opencode（自建代理域名）也带会话头", async () => {
@@ -145,6 +146,8 @@ test("anthropic-messages + 仅 slug 命中 opencode（自建代理域名）也�
 	});
 	const [, init] = fetchMock.mock.calls[0] as any;
 	expect(String(init.headers["x-opencode-session"] ?? "")).not.toBe("");
+	// pi 1.4.0 起归属头固定带客户端标识（x-opencode-client: pi），与真实请求对齐
+	expect(init.headers["x-opencode-client"]).toBe("pi");
 });
 
 test("anthropic-messages + 其他供应商不带 opencode 会话头", async () => {
@@ -159,6 +162,7 @@ test("anthropic-messages + 其他供应商不带 opencode 会话头", async () =
 	});
 	const [, init] = fetchMock.mock.calls[0] as any;
 	expect(init.headers["x-opencode-session"]).toBeUndefined();
+	expect(init.headers["x-opencode-client"]).toBeUndefined();
 });
 
 test("网络错误（fetch reject）返回失败", async () => {

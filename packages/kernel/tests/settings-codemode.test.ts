@@ -149,3 +149,19 @@ describe("saveCodemodeLevel", () => {
 		expect(raw.codemode).toBeUndefined();
 	});
 });
+
+// mcp.json 带 UTF-8 BOM（Windows PowerShell 5.1 写盘）时，saveCodemodeLevel 联动写的
+// autoEnableCodemode 必须读得到原文件——读失败会以空对象为基座回写，把 mcpServers 清空。
+describe("mcp.json BOM 兼容（saveCodemodeLevel 联动写不得丢服务器）", () => {
+	it("带 BOM 的 mcp.json：off 档写 autoEnableCodemode 后 mcpServers 保留", async () => {
+		await writeFile(
+			mcpFile,
+			"\uFEFF" + JSON.stringify({ mcpServers: { demo: { command: "npx" } } }),
+			"utf8",
+		);
+		await saveCodemodeLevel("off", file, mcpFile);
+		const saved = JSON.parse(await readFile(mcpFile, "utf8"));
+		expect(saved.mcpServers).toEqual({ demo: { command: "npx" } });
+		expect(saved.autoEnableCodemode).toBe(false);
+	});
+});

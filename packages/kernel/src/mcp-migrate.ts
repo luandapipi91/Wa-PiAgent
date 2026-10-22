@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import type { McpExposure, McpServerConfig } from "@wa-pi/shared";
 import { normalizeMcpExposure } from "@wa-pi/shared";
 import { projectMcpPath } from "./mcp-file.ts";
+import { stripBom } from "./text-bom.ts";
 
 type RawObj = Record<string, unknown>;
 
@@ -165,7 +166,7 @@ export async function migrateGlobalMcpFile(
 	let parsed: unknown;
 	try {
 		originalText = await readFile(globalPath, "utf8");
-		parsed = JSON.parse(originalText);
+		parsed = JSON.parse(stripBom(originalText));
 	} catch {
 		// 文件损坏：保持原样（宁可漏迁移，不可半写）
 		return { migrated: 0 };
@@ -226,7 +227,7 @@ export async function migrateProjectMcpFile(
 		settings?: Record<string, unknown>;
 	};
 	try {
-		legacy = JSON.parse(await readFile(legacyPath, "utf8"));
+		legacy = JSON.parse(stripBom(await readFile(legacyPath, "utf8")));
 	} catch {
 		// 旧文件损坏：保持原样、不动新文件（宁可漏迁移，不可半写）
 		return { migrated: 0 };
@@ -241,7 +242,7 @@ export async function migrateProjectMcpFile(
 	// 目标文件损坏时 JSON.parse 抛错 → 迁移整体放弃（不覆盖用户既有数据），由调用方兜底
 	const targetExists = existsSync(targetPath);
 	const existingText = targetExists ? await readFile(targetPath, "utf8") : "";
-	const existing: RawObj = targetExists ? JSON.parse(existingText) : { mcpServers: {} };
+	const existing: RawObj = targetExists ? JSON.parse(stripBom(existingText)) : { mcpServers: {} };
 	const existingServers = (existing.mcpServers ?? {}) as RawObj;
 
 	const globalDefaultDirect = legacy.settings?.directTools;

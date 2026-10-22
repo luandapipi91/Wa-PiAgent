@@ -98,11 +98,12 @@ test.describe.serial("设置页供应商管理", () => {
     await page.getByTestId("field-name").fill("E2E Preset Provider");
 
     // 选预设后模型列表清空，需经「模型快捷搜索」下拉逐个添加
-    // （pi-ai 0.83 目录里 deepseek 只有 v4 系列，旧的 deepseek-chat 已不存在）
+    // （deepseek 目录当前只有 deepseek-flash / deepseek-v4-pro；旧名 deepseek-v4-flash 已不存在，
+    //   远程目录与 pi-ai 内置数据同口径）
     await page.getByTestId("tag-input-field").focus();
-    await page.getByTestId("tag-input-field").fill("deepseek-v4-flash");
-    await page.locator('[data-testid="model-quick-option"]', { hasText: "deepseek-v4-flash" }).first().click();
-    await expect(page.locator('[data-testid="tag-input"]').getByText("deepseek-v4-flash")).toBeVisible();
+    await page.getByTestId("tag-input-field").fill("deepseek-flash");
+    await page.locator('[data-testid="model-quick-option"]', { hasText: "deepseek-flash" }).first().click();
+    await expect(page.locator('[data-testid="tag-input"]').getByText("deepseek-flash")).toBeVisible();
 
     // 补 apiKey 后保存
     await page.getByTestId("field-apiKey").fill("sk-e2e-preset");

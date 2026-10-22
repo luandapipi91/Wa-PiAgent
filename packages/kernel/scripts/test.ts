@@ -38,6 +38,12 @@ const INTEGRATION_TESTS = [
  *  git 三件套同属此类：真实 git 子进程链 + 完整 kernel HTTP 服务，并行负载下
  *  用例耗时被拉长到撞超时（bun 1.4.2 下实测并行全挂/串行 19 全过）。 */
 const LOAD_SENSITIVE_TESTS = [
+	// 中止快照用 existsSync 轮询后立刻 readFileSync+JSON.parse：主批 8 并发高负载下
+	// 读到写盘窗口内的半截 JSON（Unexpected EOF），单跑稳定绿。串行补跑消除竞争。
+	"tests/delegate-snapshot.test.ts",
+	// 假 pi 用例把 list 超时压到 300ms 验证「超时截断」；主批 8 并发下 bun 启动假 pi
+	// 偶尔超过 300ms → 第一次 list 就失败，后续「有缓存回退」断言跟着错位。串行补跑稳定。
+	"tests/mcp-admin-spawn.test.ts",
 	"tests/scheduler-watcher.test.ts",
 	"tests/routes-git.test.ts",
 	"tests/git-service.test.ts",
