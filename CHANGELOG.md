@@ -1,4 +1,5 @@
 ## 2026-10-22
+- v0.7.13 发版：pi 引擎 1.4.0 升级（流式中断恢复 + 配置 BOM 兼容）
 - chore(deps): 底层 pi 引擎升级 1.3.0 → 1.4.0（pi-ai / pi-coding-agent ~1.4.0、pi-tui 精确 1.4.0，THIRD_PARTY_NOTICES 同步）；兼容同步：sdk-errors 对齐 pi-ai 1.4.0 retry 正则（新增 stream disconnected before completion / upstream request failed / upstream_stream_error / stream was interrupted / http/2 stream failed / request to … failed 等 transient，ChatGPT Business 用量上限 fatal，裸状态码改词边界避免请求 id 误判）、mcp.json 解析统一剥 UTF-8 BOM（mcp-file / settings-store / mcp-migrate，修 PowerShell 写盘后 saveCodemodeLevel 回写丢 mcpServers）、provider-test 的 OpenCode 归属头补 x-opencode-client、新增 isBunShim / resolveCompilerBun 跳过桌面端 bun shim（PATH 首位是 WaPiKernel 时 --compile 报 InvalidObject）；TDD 先红后绿：sdk-errors 6 例、mcp-file BOM 1 例、settings-codemode BOM 1 例、compile-binary shim 4 例；测试治理：delegate-snapshot / mcp-admin-spawn 移入负载敏感串行补跑（主批 8 并发时序竞争），E2E 预设模型名改目录现存的 deepseek-flash；验证：四包 typecheck 0 error、kernel gate 全绿（含编译产物真启动冒烟）、shared 184 / desktop 309 / frontend 3065 用例 0 fail、E2E 关键 10 spec 21 passed（app-flow「首次启动空态」为既有红：global-setup 预置 e2e-proj-1，非本次引入）
 
 ## 2026-10-21
