@@ -1,0 +1,182 @@
+// kernel 单二进制编译：bun build --compile 把 desktop-server.ts 连同全部依赖
+// 内联进原生可执行文件；--asset 把 bridge/tui-host 扩展等
+// 运行时资产嵌入到产物 import.meta.dir/assets/（bridge-extension.ts / tui-host-deploy.ts 运行时读取）。
+// 只有原生 .node 依赖（@napi-rs/keyring）external——无法内联进虚拟 FS。
+import { spawnSync } from "node:child_process";
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { buildWebAccessBundle } from "../src/web-access-bundle";
+
+const KERNEL_SRC = join(import.meta.dir, "..", "src");
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
+
+/** kernel 运行时需嵌入编译产物的资产：--asset 嵌入源（编译产物 import.meta.dir/assets/ 运行时读取）。
+ * - bridge 扩展三文件：bridge-extension.ts 从 assets/ 读取后部署到 GENERATED_DIR；
+ * - tui-host 扩展六文件：tui-host-deploy.ts 从 assets/ 读取后部署到 GENERATED_DIR
+ *   （入口 + 入口相对 import 的 tui-host/ 5 模块，缺一即面板静默不可用）；
+ * - preview-inspect.js：ws-server.ts 的 /preview-inspect.js 路由经
+ *   new URL("./assets/preview-inspect.js", import.meta.url) 读取，注入本地 html 预览提供元素选中。
+ * 关键：bun --compile 不会自动打包 new URL(...) 引用的文件（Bun.file(new URL(...)) 会 ENOENT），
+ * 必须显式列入本清单才会被 --asset 嵌入产物。preview-inspect.js 曾漏加 → 打包版 /preview-inspect.js
+ * 读取失败 → 注入的 inspect 脚本加载失败 → 本地预览「无元素选择、无高亮」且页面正常渲染。 */
+export const KERNEL_ASSET_FILES = [
+	join(KERNEL_SRC, "wa-pi-bridge.extension.ts"),
+	join(KERNEL_SRC, "file-snapshot.ts"),
+	join(KERNEL_SRC, "date-context.ts"),
+	// web-access 扩展是预构建单文件 bundle（源码 + 依赖全内联）：扩展经 -e 加载时
+	// 无法解析裸 import，故 compileKernelBinary 先构建它再嵌入（见下方主流程）。
+	join(KERNEL_SRC, "assets", "web-access.bundle.js"),
+	join(REPO_ROOT, "packages", "shared", "src", "tool-schemas.ts"),
+	join(KERNEL_SRC, "assets", "preview-inspect.js"),
+	join(KERNEL_SRC, "wa-pi-tui-host.extension.ts"),
+	join(KERNEL_SRC, "tui-host", "terminal.ts"),
+	join(KERNEL_SRC, "tui-host", "frame.ts"),
+	join(KERNEL_SRC, "tui-host", "click.ts"),
+	join(KERNEL_SRC, "tui-host", "panel.ts"),
+	join(KERNEL_SRC, "tui-host", "widget.ts"),
+	join(KERNEL_SRC, "tui-host", "host.ts"),
+];
+
+/** 必须 external 的包：原生 .node 依赖无法内联进虚拟 FS，运行时从磁盘 node_modules 加载 */
+export const EXTERNAL_PACKAGES = ["@napi-rs/keyring"];
+
+/** 编译产物文件名（分发进程名不暴露 bun；替代旧 wa-pi-kernel 命名） */
+export function kernelBinaryName(target?: "win" | "linux" | "darwin"): string {
+	const plat =
+		target ??
+		(process.platform === "win32"
+			? "win"
+			: process.platform === "linux"
+				? "linux"
+				: "darwin");
+	return plat === "win" ? "WaPiKernel.exe" : "WaPiKernel";
+}
+
+/** 目标平台 → bun --target 交叉编译参数（本机平台无需指定） */
+export function bunTargetFor(
+	target: "win" | "linux" | "darwin",
+): string | undefined {
+	if (target === "win") return "bun-windows-x64";
+	if (target === "linux") return "bun-linux-x64";
+	return undefined; // darwin：本机编译，bun 默认 host 平台
+}
+
+/** bun build --compile 参数（纯函数，便于测试断言） */
+export function buildCompileArgs(
+	outfile: string,
+	assetDir: string,
+	target?: "win" | "linux" | "darwin",
+): string[] {
+	const args = [
+		"build",
+		join(KERNEL_SRC, "desktop-server.ts"),
+		"--compile",
+		...EXTERNAL_PACKAGES.flatMap((p) => ["--external", p]),
+		"--asset",
+		assetDir,
+		"--outfile",
+		outfile,
+	];
+	const bunTarget = bunTargetFor(target!);
+	if (bunTarget) args.push("--target", bunTarget);
+	return args;
+}
+
+/** 把 bridge 三文件平铺到临时目录作为 --asset 嵌入源；调用方负责 rm */
+export function stageAssetDir(): string {
+	// bun 1.4.0 --asset 把「目录名」挂到虚拟根：--asset ./assets → 产物 B:\~BUN\root\assets\。
+	// bridge-extension.ts 固定读 __dirname/assets/，故嵌入目录必须字面叫 assets——
+	// 先 mkdtemp 拿唯一父目录，再在其下建 assets/ 子目录（避免 tmp 下多实例撞名）。
+	const parent = mkdtempSync(join(tmpdir(), "wa-pi-kernel-assets-"));
+	const dir = join(parent, "assets");
+	mkdirSync(dir);
+	for (const f of KERNEL_ASSET_FILES) cpSync(f, join(dir, basename(f)));
+	return dir;
+}
+
+/** 桌面端放在 PATH 首位的 bun shim：一个很小的脚本，BUN_BE_BUN=1 exec 打包内核。
+ *  它伪装成 bun，但 `bun build --compile` 会失败（InvalidObject / SectionExists）。 */
+export function isBunShim(candidate: string): boolean {
+	try {
+		if (statSync(candidate).size > 1024 * 1024) return false; // 真实 bun 几十 MB
+		const head = readFileSync(candidate, "utf8").slice(0, 1024);
+		return head.startsWith("#!") && head.includes("BUN_BE_BUN");
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * 找一个能真编译的 bun（跳过桌面端 shim）。
+ *
+ * 候选顺序：桌面端注入的真 bun（WA_PI_PI_RUNTIME）→ bun 官方安装器默认位置
+ * （~/.bun/bin/bun，PATH 被 shim 顶掉时的可靠来源）→ PATH → process.execPath。
+ */
+export function resolveCompilerBun(candidates?: string[]): string | null {
+	const looksLikeBun = (p: string) => /(^|[\\/])bun(\.exe)?$/i.test(p);
+	const list = candidates ?? [
+		process.env.WA_PI_PI_RUNTIME,
+		join(
+			homedir(),
+			".bun",
+			"bin",
+			process.platform === "win32" ? "bun.exe" : "bun",
+		),
+		Bun.which("bun"),
+		process.execPath,
+	];
+	for (const candidate of list) {
+		if (
+			candidate &&
+			looksLikeBun(candidate) &&
+			existsSync(candidate) &&
+			!isBunShim(candidate)
+		) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
+/** 编译 kernel 单二进制到 outfile。用 process.execPath（真实 bun，≥1.4.0）避免 .cmd shim 问题。
+ * target 传 win/linux 时用 --target 交叉编译（bun ≥1.4 支持，首次会下载目标平台 runtime）。
+ * bunPath 可注入：PATH 首位可能是桌面端放的 bun shim（execPath 是打包内核自己，
+ * 拿它编译会报 SectionExists），调用方（如打包链/打包态冒烟测试）可传真 bun 路径。 */
+export async function compileKernelBinary(
+	outfile: string,
+	target?: "win" | "linux" | "darwin",
+	bunPath: string = process.execPath,
+): Promise<void> {
+	// 先把扩展源码与依赖打成预构建资产（web-access-deploy.ts packaged 分支读它）；
+	// 必须在 stageAssetDir 之前完成，否则 cpSync 找不到 assets/web-access.bundle.js。
+	await buildWebAccessBundle(join(KERNEL_SRC, "assets", "web-access.bundle.js"));
+	const assetDir = stageAssetDir();
+	try {
+		const args = buildCompileArgs(outfile, assetDir, target);
+		console.log(`[compile] $ bun ${args.join(" ")}`);
+		const r = spawnSync(bunPath, args, { stdio: "inherit" });
+		if (r.status !== 0)
+			throw new Error(`bun build --compile 失败 (exit=${r.status})`);
+		console.log(`[compile] ✅ ${outfile}`);
+	} finally {
+		rmSync(assetDir, { recursive: true, force: true });
+		// assetDir 是 mkdtemp 随机目录下的 assets/ 子目录：连带清理父目录（wa-pi-kernel-assets-*），
+		// 否则父目录泄漏到 tmp。
+		rmSync(join(assetDir, ".."), { recursive: true, force: true });
+	}
+}
+
+if (import.meta.main) {
+	await compileKernelBinary(
+		join(import.meta.dir, "..", "dist", kernelBinaryName()),
+	);
+}
