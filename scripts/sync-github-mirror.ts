@@ -1,11 +1,10 @@
-// GitHub 镜像同步脚本：把本地 HEAD 的完整快照同步到 github.com/luandapipi91/Wa-PiAgent（main）。
+// GitHub 镜像同步脚本（API 备用通道）：把本地 HEAD 的完整快照同步到
+// github.com/luandapipi91/Wa-PiAgent（main）。
 //
-// 背景：该镜像仓库的 git 端点连接被重置（git push 会挂起超时），但 api.github.com 可达，
-// 因此走 Git Data API 做「快照式同步」：
-//   1) 以远端当前 tree 为 base，算出「内容变化/新增/删除」的条目（未变化的由 base_tree 复用）；
-//   2) 只校验并补传这些条目的 blob（base64）；
-//   3) 提交增量 tree，创建无父快照 commit，强推 main。
-// 幂等：重复执行安全（已存在的 blob/tree 由 GitHub 去重复用）。
+// 现状（2026-10-23 起）：git 端点已能正常推送（需代理 + HTTP/1.1），日常同步直接用
+//   git -c http.version=HTTP/1.1 push https://github.com/luandapipi91/Wa-PiAgent.git HEAD:main
+// 保留完整提交历史、只推增量。本脚本仅在 git 端点再次不可用时作为备用：它走 Git Data API，
+// 创建**无父快照**提交并强推（每次覆盖历史，Commits 页只剩一条），日常不要使用。
 //
 // 用法：
 //   bun scripts/sync-github-mirror.ts [--skip-verify] [--message <覆盖提交信息>]
