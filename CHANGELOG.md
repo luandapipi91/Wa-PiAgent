@@ -1,5 +1,5 @@
 ## 2026-10-23
-- v0.7.14 发版：Windows 命令工具按本机 bash 探测决定（有 bash 用 bash，无才 powershell）
+- v0.7.14 发版：Windows 命令工具按本机 bash 探测决定（有 bash 用 bash，无才 powershell）；mac dmg 198532819 / win exe 179560272
 - feat(kernel): bash 探测补齐安装位置与引擎口径——新增注册表 `HKLM/HKCU\SOFTWARE\GitForWindows` InstallPath（覆盖非标准盘安装）、`%LOCALAPPDATA%\Programs\Git`（用户级安装）、`C:\msys64\usr\bin`、`C:\cygwin64\bin` 四类候选；默认存在性判定 existsSync → access(F_OK)（与引擎一致，避开 Windows Store 别名被 stat 误拒）；探测命中后写 `settings.json.shellPath`（用户未设置时），把引擎自己找不到的位置告诉它，消除「默认启用 bash 而引擎找不到」的错位。先红后绿：9 例新用例先失败（LOCALAPPDATA/MSYS2-Cygwin/注册表优先/注册表失效回退/shellPath 写入-不覆盖-非win不写-幂等），实现后 55 pass；kernel 全量 gate 0 失败
 - feat(kernel): Windows 命令工具改为按本机能力探测——有 bash（Git Bash / Cygwin / MSYS2 / WSL）默认用 bash，没有才回退 powershell。探测顺序与 pi 引擎一致（先 `%ProgramFiles%\Git\bin\bash.exe` / `%ProgramFiles(x86)%\Git\bin\bash.exe`，再 PATH 的 bash.exe），避免「我们判定有 bash、引擎执行时找不到」的错位；`settings.json.defaultTools` 自动清单改为按「平台 + bash 探测」重算（装/卸 Git Bash 重启即翻转，用户自定义清单不覆盖）；子代理走同一条 `buildPiArgs` 映射自动继承；启动期 win32 打印探测结果便于排查。先红后绿：shell-detect 6 例 + settings-store 4 例 + rpc-client 3 例新用例先失败，实现后全绿；kernel 全量 gate 0 失败
 
