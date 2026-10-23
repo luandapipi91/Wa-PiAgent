@@ -967,7 +967,8 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 	// 打包版只有 WaPiKernel（编译产物），部分 npm 包脚本的 shebang 需要 node。
 	if (app.isPackaged) {
 		try {
-			const { ensureRuntimeBinLinks } = require("./util/runtime-bin.cjs");
+			const { ensureRuntimeBinLinks, buildRuntimePath } =
+				require("./util/runtime-bin.cjs");
 			const binDir = await ensureRuntimeBinLinks({
 				kernelExe,
 				waPiDir: WA_PI_DIR,
@@ -977,11 +978,12 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			});
 			if (binDir) {
 				const sep = process.platform === "win32" ? ";" : ":";
-				// 追加 binDir 和 nodeDir（下载的 node 自带 npm/npx 需要 PATH）
+				// 前置 binDir 和 nodeDir（下载的 node 自带 npm/npx 需要 PATH）：
+				// shim 必须优先于系统同名命令，否则系统 bun/node 先命中（追加会让 shim 排在系统 bun 之后）
 				const extraPaths = [binDir];
 				if (nodeDir) extraPaths.push(nodeDir);
-				process.env.PATH = (process.env.PATH || "") + sep + extraPaths.join(sep);
-				log.info(`[runtime-bin] PATH 追加 ${extraPaths.join(sep)}`);
+				process.env.PATH = buildRuntimePath(process.env.PATH, extraPaths, sep);
+				log.info(`[runtime-bin] PATH 前置 ${extraPaths.join(sep)}`);
 			}
 		} catch (e) {
 			log.error("[runtime-bin] 创建符号链接失败", e);

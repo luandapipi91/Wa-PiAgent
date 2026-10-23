@@ -77,8 +77,38 @@ function findSystemNode() {
 }
 
 /**
+ * Windows 路径 → MSYS/Git Bash 可用的 POSIX 路径（C:\\a\\b → /c/a/b）。
+ * sh 脚本里反斜杠是转义符，不能直接写 Windows 路径。
+ */
+function toPosixPath(p) {
+	if (!p) return p;
+	if (process.platform !== "win32") return p;
+	// UNC：\\server\share → //server/share
+	if (/^[\\/]{2}/.test(p)) return p.replace(/\\/g, "/");
+	const m = /^([A-Za-z]):[\\/]?(.*)$/.exec(p);
+	if (!m) return p.replace(/\\/g, "/");
+	return "/" + m[1].toLowerCase() + "/" + m[2].replace(/\\/g, "/");
+}
+
+/**
+ * 把目录前置到 PATH 最前（同目录已在 PATH 中时会移到最前而不是重复）。
+ * 前置原因：shim 目录必须优先于系统 bun/node，否则同名的系统版本先命中。
+ */
+function buildRuntimePath(currentPath, dirs, sep) {
+	const isWin = process.platform === "win32";
+	const norm = (p) => (isWin ? p.toLowerCase() : p);
+	const wanted = (dirs || []).filter(Boolean);
+	const wantedSet = new Set(wanted.map(norm));
+	const rest = String(currentPath || "")
+		.split(sep)
+		.filter(Boolean)
+		.filter((d) => !wantedSet.has(norm(d)));
+	return [...wanted, ...rest].join(sep);
+}
+
+/**
  * 为 packaged 运行环境补充 bun/node 命令，供动态插件安装/运行 npm 包工具。
- * 有真实 node 时 binDir 只放 bun.cmd（node/npm/npx 由 node 自带，经 PATH 生效）；
+ * 有真实 node 时 binDir 放 bun.cmd + 无后缀 bun（后者给 Git Bash；node/npm/npx 由 node 自带）；
  * 无 node 时 bun fallback，binDir 生成 node/npx/npm 包装脚本。
  *
  * @param {Object} opts
@@ -86,6 +116,7 @@ function findSystemNode() {
  * @param {string} opts.waPiDir - WA_PI_DIR
  * @param {Object} opts.log - 日志对象
  * @param {string|null} [opts.nodeExe] - 真实 node 路径（系统 node 或首启下载的 node）
+ * @param {() => string|null} [opts.findSystemNodeFn] - 系统 node 探测函数（测试注入）
  * @param {boolean} opts.isPackaged - 是否打包模式
  * @returns {Promise<string|null>} binDir 路径，null 表示非 packaged
  */
@@ -94,6 +125,7 @@ async function ensureRuntimeBinLinks({
 	waPiDir,
 	log,
 	nodeExe,
+	findSystemNodeFn = findSystemNode,
 	isPackaged,
 }) {
 	if (!isPackaged) return null;
@@ -106,12 +138,26 @@ async function ensureRuntimeBinLinks({
 			path.join(binDir, "bun.cmd"),
 			`@echo off\r\nset BUN_BE_BUN=1\r\n"${t}" %*\r\n`,
 		);
-		const nodePath = nodeExe || findSystemNode();
+		// Git Bash / MSYS 查找命令只认无后缀或 .exe，不按 PATHEXT 解析 .cmd，
+		// 只放 bun.cmd 会让 bash 里的 bun 落到系统全局版本。再补一个无后缀 sh 脚本（
+		// 与 POSIX 分支同形，用 POSIX 路径——sh 中反斜杠是转义符）。
+		const bunSh = path.join(binDir, "bun");
+		await fsp.writeFile(
+			bunSh,
+			`#!/bin/sh\nBUN_BE_BUN=1 exec "${toPosixPath(t)}" "$@"\n`,
+		);
+		await fsp.chmod(bunSh, 0o755);
+		const nodePath = nodeExe || findSystemNodeFn();
 		if (nodePath) {
+			// PATH 已前置 binDir：遗留的 fallback cmd 会遮蔽真实 node（旧版本路径还可能已失效），清掉
+			for (const name of ["node.cmd", "npm.cmd", "npx.cmd"]) {
+				await fsp.rm(path.join(binDir, name), { force: true });
+			}
 			log.info(
-				`[runtime-bin] Windows: bun.cmd -> ${t}; node/npm/npx -> ${nodePath}（node 自带）`,
+				`[runtime-bin] Windows: bun.cmd + bun(sh) -> ${t}; node/npm/npx -> ${nodePath}（node 自带）`,
 			);
 		} else {
+			// 每次启动重写，保证指向当前安装路径（旧安装目录残留会让命令失效）
 			await fsp.writeFile(
 				path.join(binDir, "npx.cmd"),
 				`@echo off\r\nset BUN_BE_BUN=1\r\n"${t}" x %*\r\n`,
@@ -125,7 +171,7 @@ async function ensureRuntimeBinLinks({
 				`@echo off\r\nset BUN_BE_BUN=1\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`,
 			);
 			log.info(
-				`[runtime-bin] Windows: npx/bun/node/npm.cmd -> ${t}（bun fallback）`,
+				`[runtime-bin] Windows: npx/bun/node/npm -> ${t}（bun fallback）`,
 			);
 		}
 		return binDir;
@@ -143,7 +189,7 @@ async function ensureRuntimeBinLinks({
 	const bunScript = `#!/bin/sh\nBUN_BE_BUN=1 exec "${target}" "$@"\n`;
 	await fsp.writeFile(bunLink, bunScript);
 	await fsp.chmod(bunLink, 0o755);
-	const nodePath = nodeExe || findSystemNode();
+	const nodePath = nodeExe || findSystemNodeFn();
 	if (nodePath) {
 		await fsp.symlink(nodePath, nodeLink);
 		log.info(`[runtime-bin] node -> ${nodePath}（node 自带 npm/npx）`);
@@ -163,4 +209,9 @@ async function ensureRuntimeBinLinks({
 	return binDir;
 }
 
-module.exports = { findSystemNode, ensureRuntimeBinLinks };
+module.exports = {
+	findSystemNode,
+	ensureRuntimeBinLinks,
+	buildRuntimePath,
+	toPosixPath,
+};
