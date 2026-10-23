@@ -21,6 +21,16 @@ const REGION = "auto"; // R2 固定
 const BUCKET = "wapioss";
 
 /**
+ * 上传对象的缓存策略。
+ *
+ * Cloudflare 默认按扩展名缓存：`.zip` 在默认缓存列表里（max-age=14400），
+ * `.exe` / `.dmg` / `.yml` 不在。同一版本号覆盖发布时就会出现
+ * 「yml 已更新、zip 仍返回 4 小时前的旧对象」→ 客户端 sha512 校验失败
+ * （2026-10-23 线上事故）。统一声明 no-cache 让 CDN 每次回源校验。
+ */
+const CACHE_CONTROL = "no-cache";
+
+/**
  * 创建指向 R2 的 S3Client（endpoint/region 固定）。
  * @param {{ accessKeyId: string, secretAccessKey: string }} credentials
  * @returns {S3Client}
@@ -49,7 +59,11 @@ async function uploadLarge(client, key, body, partSize = 5 * 1024 * 1024) {
 	const size = body.length;
 	console.log(`↑ 分片上传 ${key}（${(size / 1024 / 1024).toFixed(1)} MB）…`);
 	const created = await client.send(
-		new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: key }),
+		new CreateMultipartUploadCommand({
+			Bucket: BUCKET,
+			Key: key,
+			CacheControl: CACHE_CONTROL,
+		}),
 	);
 	const uploadId = created.UploadId;
 	if (!uploadId) throw new Error("CreateMultipartUpload 未返回 UploadId");
@@ -117,7 +131,12 @@ async function uploadLarge(client, key, body, partSize = 5 * 1024 * 1024) {
  */
 async function uploadSmall(client, key, body) {
 	await client.send(
-		new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body }),
+		new PutObjectCommand({
+			Bucket: BUCKET,
+			Key: key,
+			Body: body,
+			CacheControl: CACHE_CONTROL,
+		}),
 	);
 }
 
