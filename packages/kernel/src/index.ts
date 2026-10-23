@@ -1,5 +1,5 @@
 import { ConfigStore } from "./config-store";
-import { isBashAvailable } from "./shell-detect";
+import { detectBash } from "./shell-detect";
 import { createCascadingProjectStore } from "./subagent-cascade-store";
 import { ProviderStore } from "./provider-store";
 import { syncCompactionOverrides } from "./compaction-overrides";
@@ -30,6 +30,7 @@ import {
 	ensureHttpIdleTimeout,
 	applySystemProxy,
 	ensureDefaultTools,
+	ensureShellPath,
 	normalizeLegacyCodemode,
 } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
@@ -127,8 +128,14 @@ export async function startKernel(opts?: {
 	// 仍是自动写入的清单时写入/升级；用户自定义不被覆盖。
 	const defaultToolsOutcome = await ensureDefaultTools();
 	if (process.platform === "win32") {
+		// 探测一次，同时决定默认工具清单与 shellPath：引擎自己只认 ProgramFiles
+		// 两处 + PATH，注册表 / LOCALAPPDATA / C:\msys64 这些位置靠 shellPath 告知。
+		const bashPath = detectBash();
+		const shellPathOutcome = await ensureShellPath(bashPath);
 		console.log(
-			`[tools] bash ${isBashAvailable() ? "已检测到，命令工具默认使用 bash" : "未检测到，命令工具回退 powershell"}`,
+			bashPath
+				? `[tools] bash 已检测到（${bashPath}），命令工具默认使用 bash${shellPathOutcome === "written" ? "，已写入 settings.json shellPath" : ""}`
+				: "[tools] 未检测到 bash，命令工具回退 powershell",
 		);
 	}
 	// Codemode only 档移除后的存量清理（full 归位 compat、删 pi 引擎键 codemode.mode）

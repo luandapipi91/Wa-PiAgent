@@ -230,6 +230,7 @@ import {
 	saveDefaultTools,
 	defaultToolsForPlatform,
 	ensureDefaultTools,
+	ensureShellPath,
 	WINDOWS_DEFAULT_TOOLS,
 	UNIX_DEFAULT_TOOLS,
 	LEGACY_WINDOWS_DEFAULT_TOOLS,
@@ -306,6 +307,46 @@ test("ensureDefaultTools: 平台判定翻转时用户自定义清单仍不覆盖
 	await saveDefaultTools(custom, p);
 	await expect(ensureDefaultTools(p, "win32", false)).resolves.toBe("kept");
 	expect(await loadDefaultTools(p)).toEqual(custom);
+});
+
+test("ensureShellPath: win32 探测到 bash 且用户未设置 → 写入 shellPath", async () => {
+	const p = join(dir, "settings-shellpath-write.json");
+	await writeFile(p, JSON.stringify({ retry: { maxRetries: 3 } }), "utf8");
+	await expect(
+		ensureShellPath("C:\\Program Files\\Git\\bin\\bash.exe", p, "win32"),
+	).resolves.toBe("written");
+	const raw = JSON.parse(await readFile(p, "utf8"));
+	expect(raw.shellPath).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+	// 保留其他字段
+	expect(raw.retry.maxRetries).toBe(3);
+});
+
+test("ensureShellPath: 用户已设置 → 不覆盖（kept）", async () => {
+	const p = join(dir, "settings-shellpath-user.json");
+	await writeFile(p, JSON.stringify({ shellPath: "D:\\My\\bash.exe" }), "utf8");
+	await expect(
+		ensureShellPath("C:\\Program Files\\Git\\bin\\bash.exe", p, "win32"),
+	).resolves.toBe("kept");
+	expect(JSON.parse(await readFile(p, "utf8")).shellPath).toBe("D:\\My\\bash.exe");
+});
+
+test("ensureShellPath: 未探测到 bash / 非 win32 → 不写", async () => {
+	const p1 = join(dir, "settings-shellpath-none.json");
+	await writeFile(p1, JSON.stringify({}), "utf8");
+	await expect(ensureShellPath(null, p1, "win32")).resolves.toBe("kept");
+	expect(JSON.parse(await readFile(p1, "utf8")).shellPath).toBeUndefined();
+
+	const p2 = join(dir, "settings-shellpath-posix.json");
+	await writeFile(p2, JSON.stringify({}), "utf8");
+	await expect(ensureShellPath("/bin/bash", p2, "darwin")).resolves.toBe("kept");
+	expect(JSON.parse(await readFile(p2, "utf8")).shellPath).toBeUndefined();
+});
+
+test("ensureShellPath: 已是同值 → 幂等 kept", async () => {
+	const p = join(dir, "settings-shellpath-same.json");
+	const v = "C:\\Program Files\\Git\\bin\\bash.exe";
+	await writeFile(p, JSON.stringify({ shellPath: v }), "utf8");
+	await expect(ensureShellPath(v, p, "win32")).resolves.toBe("kept");
 });
 
 test("ensureDefaultTools: 未配置 → 写入当前平台清单（written）", async () => {

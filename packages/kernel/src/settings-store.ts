@@ -920,6 +920,50 @@ export async function saveDefaultTools(
 const stringListEquals = (a: string[], b: string[]): boolean =>
 	a.length === b.length && a.every((t, i) => t === b[i]);
 
+/** 读取 settings.json.shellPath（pi 引擎的 bash 可执行文件覆盖项）。 */
+export async function loadShellPath(
+	file: string = SETTINGS_FILE,
+): Promise<string | undefined> {
+	const raw = await readSettingsJson(file);
+	const v = raw.shellPath;
+	return typeof v === "string" && v.trim() ? v : undefined;
+}
+
+/**
+ * 写入 settings.json.shellPath（read-modify-write 保留其他字段）。
+ * 为什么需要它：pi 引擎自己只认 ProgramFiles 两处 + PATH，而我们的探测还会看
+ * 注册表 InstallPath、%LOCALAPPDATA%\Programs、C:\msys64 等位置——探测命中的
+ * 路径必须通过 shellPath 告诉引擎，否则会出现「我们默认启用 bash、引擎找不到」。
+ */
+export async function saveShellPath(
+	shellPath: string,
+	file: string = SETTINGS_FILE,
+): Promise<void> {
+	const settings = await readSettingsJson(file);
+	settings.shellPath = shellPath;
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+}
+
+/**
+ * 启动守卫：把探测到的 bash 路径写进 settings.json.shellPath。
+ * - 非 Windows 不写：POSIX 的 shell 解析（/bin/bash → PATH → sh）由引擎负责。
+ * - 未探测到 bash 不写：命令工具走 powershell，shellPath 无意义。
+ * - 用户已手写 shellPath → 不覆盖（尊重显式配置）。
+ * - 已是同值 → 幂等 kept。
+ */
+export async function ensureShellPath(
+	detected: string | null = null,
+	file: string = SETTINGS_FILE,
+	platform: string = process.platform,
+): Promise<"written" | "kept"> {
+	if (platform !== "win32" || !detected) return "kept";
+	const current = await loadShellPath(file);
+	if (current !== undefined) return "kept";
+	await saveShellPath(detected, file);
+	return "written";
+}
+
 /**
  * 启动守卫：把 settings.json.defaultTools 对齐到当前「平台 + bash 探测」应得的清单。
  * - 未配置 → 写入（written）：新装/从未写过。

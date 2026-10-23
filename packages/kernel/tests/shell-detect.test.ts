@@ -67,7 +67,7 @@ test("win32：两处都未命中 → 不可用", () => {
   ).toBe(false);
 });
 
-test("win32：ProgramFiles 缺失时只查 PATH，不拼出相对路径", () => {
+test("win32：环境变量缺失时不拼出相对路径（硬编码候选均为绝对盘符路径）", () => {
   const seen: string[] = [];
   detectBash({
     platform: "win32",
@@ -77,6 +77,75 @@ test("win32：ProgramFiles 缺失时只查 PATH，不拼出相对路径", () => 
       return false;
     },
     which: () => null,
+    readGitInstallPath: () => null,
   });
-  expect(seen).toHaveLength(0);
+  // 只剩 MSYS2 / Cygwin 两个硬编码候选，都必须是绝对路径
+  expect(seen.length).toBeGreaterThan(0);
+  for (const p of seen) expect(p).toMatch(/^[A-Za-z]:\\/);
+});
+
+test("win32：Git 用户级安装（%LOCALAPPDATA%\\Programs\\Git）命中", () => {
+  const hit = "C:\\Users\\co\\AppData\\Local\\Programs\\Git\\bin\\bash.exe";
+  expect(
+    detectBash({
+      platform: "win32",
+      env: { LOCALAPPDATA: "C:\\Users\\co\\AppData\\Local" },
+      pathExists: (p) => p === hit,
+      which: () => null,
+    }),
+  ).toBe(hit);
+});
+
+test("win32：MSYS2 / Cygwin 默认安装目录命中（未加 PATH 也能发现）", () => {
+  expect(
+    detectBash({
+      platform: "win32",
+      env: {},
+      pathExists: (p) => p === "C:\\msys64\\usr\\bin\\bash.exe",
+      which: () => null,
+    }),
+  ).toBe("C:\\msys64\\usr\\bin\\bash.exe");
+  expect(
+    detectBash({
+      platform: "win32",
+      env: {},
+      pathExists: (p) => p === "C:\\cygwin64\\bin\\bash.exe",
+      which: () => null,
+    }),
+  ).toBe("C:\\cygwin64\\bin\\bash.exe");
+});
+
+test("win32：注册表 InstallPath 命中（Git 装在非标准盘）且优先于 ProgramFiles", () => {
+  const regHit = "D:\\Tools\\Git\\bin\\bash.exe";
+  expect(
+    detectBash({
+      platform: "win32",
+      env: { ProgramFiles: "C:\\Program Files" },
+      pathExists: (p) =>
+        p === regHit || p === "C:\\Program Files\\Git\\bin\\bash.exe",
+      which: () => null,
+      readGitInstallPath: () => "D:\\Tools\\Git",
+    }),
+  ).toBe(regHit);
+});
+
+test("win32：注册表指向的目录已失效（文件不存在）时继续走后续候选", () => {
+  const pf = "C:\\Program Files\\Git\\bin\\bash.exe";
+  expect(
+    detectBash({
+      platform: "win32",
+      env: { ProgramFiles: "C:\\Program Files" },
+      pathExists: (p) => p === pf,
+      which: () => null,
+      readGitInstallPath: () => "D:\\Gone\\Git",
+    }),
+  ).toBe(pf);
+});
+
+test("默认实现在 win32 无任何候选时不误判（access(F_OK) 语义，不抛错）", () => {
+  // 不注入 pathExists / which / readGitInstallPath：走默认真实探测（macOS 上没有
+  // bash.exe 与注册表），必须返回 null 而不是抛错或误判为可用。
+  expect(
+    detectBash({ platform: "win32", env: {}, readGitInstallPath: () => null }),
+  ).toBeNull();
 });
