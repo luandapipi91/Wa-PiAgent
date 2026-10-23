@@ -1,0 +1,260 @@
+// 桌面宠物：preload 桥、页面增补点、主进程接线、主窗口桥的源码契约测试。
+// main.cjs / pet-preload.cjs 顶层有 require("electron") 副作用，无法直接 import，
+// 沿用 tests/web-preferences.test.ts 的读源码断言方式锁定契约。
+import { test, expect } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const SRC = join(import.meta.dir, "..", "src");
+const read = (p: string) => readFileSync(join(SRC, p), "utf8");
+
+test("pet-preload.cjs：暴露 guaguaHost 全部约定接口（含新增穿透与庆祝回调）", () => {
+	const preload = read("pet-preload.cjs");
+	expect(preload).toContain('exposeInMainWorld("guaguaHost"');
+	for (const member of [
+		"moveWindow:",
+		"setWindowSize:",
+		"getCursorPos:",
+		"getScreenInfo:",
+		"saveConfig:",
+		"loadConfig:",
+		"setClickThrough:",
+		"close:",
+		"onCelebrate:",
+	]) {
+		expect(preload).toContain(member);
+	}
+	// 频道名与主进程一致
+	for (const channel of [
+		"pet:move",
+		"pet:size",
+		"pet:cursor",
+		"pet:screens",
+		"pet:save-config",
+		"pet:load-config",
+		"pet:click-through",
+		"pet:close",
+		"petwin:celebrate",
+	]) {
+		expect(preload).toContain(channel);
+	}
+});
+
+test("pet-preload.cjs：屏幕信息与配置必须同步读取（sendSync + returnValue 回填）", () => {
+	const preload = read("pet-preload.cjs");
+	expect(preload).toContain('ipcRenderer.sendSync("pet:screens")');
+	expect(preload).toContain('ipcRenderer.sendSync("pet:load-config")');
+});
+
+test("pet.html：交付件已就位且增补点齐全（穿透判定 / 位置记忆 / 庆祝回调）", () => {
+	const htmlPath = join(SRC, "assets", "pet.html");
+	expect(existsSync(htmlPath)).toBe(true);
+	const html = readFileSync(htmlPath, "utf8");
+
+	// 交付件原样保留的基座
+	expect(html).toContain("BASE_W = 260");
+	expect(html).toContain("function startCelebrate()");
+	expect(html).toContain("body.transparent-host");
+
+	// 增补 1：点击穿透（独立宿主光标 + 命中判定 + 宿主接口调用）
+	expect(html).toContain("hostGp");
+	expect(html).toContain("function hitTest(");
+	expect(html).toContain("function checkClickThrough(");
+	// 抓取/拖动期间绝不切穿透：快拖时窗口 setBounds 异步有延迟，光标会瞬间冲出窗口/
+	// 落到透明区，此时若开启穿透，Windows 会解除指针捕获并停发 pointermove/pointerup
+	//（抟脱离鼠标、体积松散也收不到，st.grab 残留，光标移回蛙体又「吸」着走）。
+	// 守卫必须在命中测试之前：grab 存续期间保持非穿透即可保证事件不断流，
+	// 松手后下一帧恢复正常判定。
+	{
+		const i = html.indexOf("function checkClickThrough(");
+		const body = html.slice(i, html.indexOf("\n}", i));
+		const guard = body.indexOf("if (st.grab) return;");
+		const hit = body.indexOf("hitTest(");
+		expect(guard).toBeGreaterThan(0);
+		expect(hit).toBeGreaterThan(guard);
+	}
+	expect(html).toContain("host.setClickThrough(");
+
+	// 增补 2：位置记忆（保存带 pos、启动读取 pos 并 clamp）
+	expect(html).toContain("pos: { x: Math.round(st.fx), y: Math.round(st.fy) }");
+	expect(html).toContain("cfg.pos");
+	expect(html).toContain("function savePosIfMoved(");
+
+	// 增补 3：庆祝回调注册
+	expect(html).toContain("host.onCelebrate(");
+});
+
+test("pet.html：透明宿主下页面背景透明（嵌入说明的硬要求）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// html 与 body 都必须清背景（只清 body 会让 html 的渐变当不透明底画出来）
+	expect(html).toContain(
+		"html.transparent-host, body.transparent-host { background: transparent; }",
+	);
+	expect(html).toContain('document.body.classList.add("transparent-host")');
+	expect(html).toContain(
+		'document.documentElement.classList.add("transparent-host")',
+	);
+	// 嵌入模式：#win 铺满窗口（预览模式的 60/80 偏移不得带入）
+	expect(html).toContain("body.transparent-host #win { left: 0; top: 0; }");
+});
+
+test("main.cjs：装配宠物窗口（screen 解构、setupPetWindow、退出清理）", () => {
+	const src = readFileSync(join(SRC, "main.cjs"), "utf8");
+	// require("electron") 解构里必须有 screen（宠物窗口要读显示器与光标）
+	expect(src).toMatch(/require\("electron"\)[\s\S]*?\bscreen,/);
+	// 装配点：配置文件落在 userData，关窗回执发给主窗口
+	expect(src).toContain('require("./pet-window.cjs")');
+	expect(src).toContain("setupPetWindow({");
+	expect(src).toContain('"guagua_config.json"');
+	expect(src).toContain('mainWindow.webContents.send("petwin:event"');
+	// 退出清理：flush 位置/缩放并销毁窗口
+	expect(src).toContain("petWindow.dispose()");
+	// 主窗口隐藏到托盘时不得隐藏宠物窗口（宠物常驻桌面）
+	const closeBlock = src.slice(
+		src.indexOf('mainWindow.on("close"'),
+		src.indexOf('mainWindow.on("closed"'),
+	);
+	expect(closeBlock).not.toContain("petWindow");
+});
+
+test("preload.cjs：主窗口侧暴露 waPiPet 桥（setEnabled / celebrate / onEvent）", () => {
+	const preload = read("preload.cjs");
+	expect(preload).toContain('exposeInMainWorld("waPiPet"');
+	for (const member of ["setEnabled:", "celebrate:", "onEvent:"]) {
+		expect(preload).toContain(member);
+	}
+	expect(preload).toContain('"petwin:set-enabled"');
+	expect(preload).toContain('"petwin:celebrate"');
+	expect(preload).toContain('"petwin:event"');
+});
+
+test("main.cjs：为已销毁窗口的系统事件竞态装了窄范围兜底（不让它带走主进程）", () => {
+	const src = readFileSync(join(SRC, "main.cjs"), "utf8");
+	// Electron 内部在窗口释放后处理可见性/遮挡通知时会抛 Object has been destroyed，
+	// 属于 Electron 自身竞态；未捕获异常会直接带走主进程，故对它做窄范围兑底。
+	expect(src).toContain('process.on("uncaughtException"');
+	expect(src).toContain("Object has been destroyed");
+	// 其它未捕获异常保持原有行为（记录后退出），不把真问题藏起来
+	expect(src).toContain("process.exit(1)");
+});
+
+test("pet.html：窗口被系统顶回时用 #win 偏移补偿（顶部才贴得到）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// macOS 不允许窗口高于菜单栏，实际 top 会停在菜单栏下方；差额必须补到 #win 偏移上，
+	// 否则青蛙中心最靠上只能到「窗口被顶回的位置 + 窗口半高」，永远贴不到屏顶。
+	expect(html).toContain("if (realWinX === null || realWinY === null) return;");
+	expect(html).toContain("const minOffY = -(AY - Math.round(FROG_CENTER_DY * K));");
+	expect(html).toContain("offY = Math.round(clamp(rangeY / 2 - (realWinY - p.y), minOffY, rangeY));");
+});
+
+test("pet.html：青蛙能到达屏幕四角（横向留白不再是 90px）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 横向留白抽成常量且足够小，使青蛙能贴到屏幕左右边缘（四个角）
+	const m = html.match(/const PET_EDGE_MARGIN = (\d+)/);
+	expect(m).not.toBeNull();
+	expect(Number(m![1])).toBeLessThanOrEqual(20);
+	// 四处位置 clamp（溜达落点 / 拖动 / 缩放后收敛 / 启动恢复）都要用它，且旧的 90 留白不得残留
+	expect([...html.matchAll(/PET_EDGE_MARGIN/g)].length).toBeGreaterThanOrEqual(5);
+	expect(html).not.toContain("virt.l + 90");
+	expect(html).not.toContain("home.l + 90");
+	// 溜达落点的纵向也要能到上下边（按头顶/脚底贴边算），不再是「上留 100、下留 40」
+	expect(html).not.toContain("home.t + 100");
+	expect(html).toContain("Math.round(home.t + 80 * K)");
+});
+
+test("pet.html：动作列表之间不再有分隔线（两类动作已合并）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 第一个动作项到最后一个动作项之间不得再有分隔线
+	const a = html.indexOf('data-act="hop"');
+	const b = html.indexOf('data-act="yawn"');
+	expect(a).toBeGreaterThan(0);
+	expect(b).toBeGreaterThan(a);
+	const between = html.slice(a, b);
+	expect(between).toContain('data-act="sing"'); // 四项完成动作都在，只是不再分组
+	expect(between).not.toContain('class="sep"');
+});
+
+test("pet.html：菜单动作点击共用执行入口 runAction（庆祝不再抽动作池）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 动作池抽取链（actionPool/canRunAction）已随「庆祝只说话不做动作」改版移除
+	expect(html).not.toContain("function actionPool(");
+	expect(html).not.toContain("function canRunAction(");
+	expect(html).not.toContain("CELEBRATE_POOL");
+	// 菜单点击仍走统一执行入口，并自行排除 wander 开关项
+	expect(html).toContain("function runAction(a)");
+	expect(html).toContain('menuInter.querySelectorAll(".mi[data-act]")');
+	expect(html).toContain('a === "wander") toggleWander()');
+	// 四个原「完成专属」动作恢复为菜单项
+	for (const a of ["hop", "croak", "hunt", "sing"])
+		expect(html).toContain(`data-act="${a}"`);
+	expect(html).toContain('data-act="yawn"');
+	expect(html).toContain('data-act="wander"');
+});
+
+test("pet.html：任务完成庆祝不再做动作，只冒气泡随机说一句（10 句话术）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 10 句话术逐一锁定（内容+数量）
+	for (const line of [
+		"呱呱呱~任务搞定啦！",
+		"呱！又干掉一个任务~",
+		"呱呱~你真棒！",
+		"呱~辛苦啦，歇会儿呗",
+		"呱呱呱！！太厉害了！",
+		"呱~这波稳了！",
+		"呱呱~干得漂亮！",
+		"呱~下一个是谁？",
+		"呱呱！收工咯~",
+		"呱~本呱看好你哦！",
+	]) {
+		expect(html).toContain(`"${line}"`);
+	}
+	// startRandomCelebrate 只剩说话：不再走动作池抽取/执行动作
+	const i = html.indexOf("function startRandomCelebrate");
+	expect(i).toBeGreaterThan(0);
+	const body = html.slice(i, html.indexOf("\n}", i));
+	expect(body).toContain("say(pick(DONE_LINES)");
+	expect(body).not.toContain("runAction");
+	expect(body).not.toContain("actionPool");
+});
+
+test("pet.html：任何跳都必须跳回原位（无论溜达开关）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 起跳点记录不再看溜达开关：非回跳段一律挂 home
+	expect(html).toContain("if (!returning && st.hop_home === null)");
+	expect(html).not.toContain("!st.wander && !returning");
+	// 回跳目标不再看溜达开关
+	{
+		const i = html.indexOf("function hopTargetIfReturn");
+		expect(i).toBeGreaterThan(0);
+		const body = html.slice(i, html.indexOf("\n}", i));
+		expect(body).toContain("st.hop_home !== null");
+		expect(body).not.toContain("wander");
+	}
+	// curious 看完人必须跳回起跳点，不得再随机跳走（else startHop() 删除）
+	{
+		const w = html.indexOf('case "watchyou"');
+		expect(w).toBeGreaterThan(0);
+		const wbody = html.slice(w, html.indexOf("case ", w + 10));
+		expect(wbody).toContain("hopTargetIfReturn()");
+		expect(wbody).not.toContain("else startHop()");
+	}
+});
+
+test("pet.html：多屏偏移不漏算（首启位置带 virt 边界；动作/缩放不跨屏）", () => {
+	const html = readFileSync(join(SRC, "assets", "pet.html"), "utf8");
+	// 首次启动（无历史位置）落虚拟桌面右下角：必须直接用 virt.r / virt.b。
+	// 用「虚拟桌面宽度 - 230」在 virt.l/virt.t 非 0（副屏在左侧/上方）时会落到屏幕外。
+	// fy 现在是「青蛙中心」语义，故要再减掉中心相对脚底的偏移。
+	expect(html).toContain("st.fx = virt.r - 230; st.fy = virt.b - 60 - FROG_CENTER_DY * K;");
+	expect(html).not.toContain("st.fx = sw - 230");
+	// 缩放后的位置 clamp 按「宠物当前所在的那块屏」（归属屏）——自发动作与缩放都不跨屏
+	expect(html).toContain("const homeK = screenAt(st.fx);");
+	expect(html).toContain("st.fx = clamp(st.fx, homeK.l + PET_EDGE_MARGIN, homeK.r - PET_EDGE_MARGIN);");
+	// 自发动作（溜达/蹦跶）同样只在归属屏内：不再随机挑屏、不按 virt 落点
+	expect(html).toContain("const home = screenAt(st.fx);");
+	expect(html).toContain("const x1 = clamp(tx, home.l + PET_EDGE_MARGIN, home.r - PET_EDGE_MARGIN);");
+	expect(html).not.toContain("pick(screens)");
+	expect(html).toContain("function frogFyRange() {");
+	expect(html).toContain("min: virt.t + Math.round(80 * K),");
+	expect(html).toContain("max: virt.b - Math.round(54 * K),");
+});

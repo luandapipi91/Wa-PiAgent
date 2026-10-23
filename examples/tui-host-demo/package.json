@@ -1,0 +1,11 @@
+{
+	"name": "tui-host-demo",
+	"version": "0.0.1",
+	"private": true,
+	"description": "WaPi 扩展 TUI 宿主测试桩：/tui-demo 弹一个方向键选择 + 回车的面板",
+	"type": "module",
+	"pi": { "extensions": ["./index.ts"] },
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}
