@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.7.14",
+    "date": "2026-10-23",
+    "sections": {
+      "改进": [
+        "Windows 上装了 Git Bash 的电脑，命令工具会自动改用 bash（与 Mac 一致），没装则继续用 PowerShell"
+      ]
+    }
+  },
+  {
     "version": "0.7.13",
     "date": "2026-10-22",
     "sections": {
