@@ -168,7 +168,10 @@ let ok = true;
 // bun.report 有案，1.4.2 无此问题）。受影响文件：memory-backfill-wiring、bridge（其两个语义用例同样加载 onnxruntime）、
 // memory-hybrid-search / memory-semantic-e2e（主批挪到串行组尾随跑，避免 worker 崩溃）。
 // 待 bun 修复后移除本段。
-const BUN_143 = Bun.version?.startsWith("1.4.3") ?? false;
+// 1.4.4 与 1.4.3 行为相同（同样在 exit 时对 onnxruntime 静态 Env 析构崩），一并纳入；
+// 1.4.4 的 gate 实测：22 次 panic 全部落在无断言失败的宽免路径，EXIT=0。
+const BUN_143 =
+	(Bun.version?.startsWith("1.4.3") || Bun.version?.startsWith("1.4.4")) ?? false;
 const BUN_143_CRASH_FILES = [
 	"tests/memory-backfill-wiring.test.ts",
 	"tests/bridge.test.ts",
