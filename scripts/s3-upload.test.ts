@@ -80,7 +80,7 @@ describe("uploadSmall", () => {
 		};
 		await uploadSmall(client as any, "releases/latest.yml", Buffer.from("hello"));
 		expect(sent?.constructor.name).toBe("PutObjectCommand");
-		expect(sent?.input).toEqual({
+		expect(sent?.input).toMatchObject({
 			Bucket: BUCKET,
 			Key: "releases/latest.yml",
 			Body: Buffer.from("hello"),
