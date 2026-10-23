@@ -734,53 +734,76 @@ test("左侧实例列表：目标实例 404（jsonl 缺失）时空态出现但�
 	expect(screen.getByTestId("transcript-siblings")).toBeTruthy();
 });
 
-// 真实场景（2026-10-23 用户复现）：上一轮 fleet 派发 3 个（a/b/c），下一轮只 resume 了 a、b。
-// 点开 a（此时 meta.toolCallId 已是下一轮）时，左栏必须仍是原批次的 a/b/c——
-// 按「最近一次委派」分组只会剩 a/b，未 resume 的 c 就「出不来」。
-test("左侧实例列表：打开被 resume 的实例时，仍列出原批次全部成员（含未 resume 的）", async () => {
-	const batchId = "tc-batch";
-	const resumedA = {
-		...META,
-		agentId: "a9c4c21c7",
-		toolCallId: "tc-next",
-		taskIndex: 0,
-		delegations: [
-			{ toolCallId: batchId, taskIndex: 0 },
-			{ toolCallId: "tc-next", taskIndex: 0 },
-		],
-	};
-	const resumedB = {
-		...META,
-		agentId: "add2295fd",
-		toolCallId: "tc-next",
-		taskIndex: 1,
-		delegations: [
-			{ toolCallId: batchId, taskIndex: 1 },
-			{ toolCallId: "tc-next", taskIndex: 1 },
-		],
-	};
-	const untouched = {
-		...META,
-		agentId: "adb916c93",
-		toolCallId: batchId,
-		taskIndex: 2,
-		delegations: [{ toolCallId: batchId, taskIndex: 2 }],
-	};
-	stubFetch({ list: { body: { subagents: [resumedA, resumedB, untouched] } } });
+// 真实场景（2026-10-23 用户复现）：上一轮 fleet 派发 3 个（a/b/c），下一轮 resume 了 a、b。
+// 左栏必须与**点开的那张卡片所属的委派**一致：
+//   - 从上一轮的卡片点进来（toolCallId=tc-batch）→ 原批 3 个都列出；
+//   - 从本轮的卡片点进来（toolCallId=tc-next）→ 只有本轮参与的 a/b，不能多出 c。
+const RESUMED_A = {
+	...META,
+	agentId: "a9c4c21c7",
+	toolCallId: "tc-next",
+	taskIndex: 0,
+	delegations: [
+		{ toolCallId: "tc-batch", taskIndex: 0 },
+		{ toolCallId: "tc-next", taskIndex: 0 },
+	],
+};
+const RESUMED_B = {
+	...META,
+	agentId: "add2295fd",
+	toolCallId: "tc-next",
+	taskIndex: 1,
+	delegations: [
+		{ toolCallId: "tc-batch", taskIndex: 1 },
+		{ toolCallId: "tc-next", taskIndex: 1 },
+	],
+};
+const UNTOUCHED_C = {
+	...META,
+	agentId: "adb916c93",
+	toolCallId: "tc-batch",
+	taskIndex: 2,
+	delegations: [{ toolCallId: "tc-batch", taskIndex: 2 }],
+};
+
+function siblingIds(): (string | null)[] {
+	return [...document.querySelectorAll('[data-testid^="transcript-sibling-"]')].map((el) =>
+		el.getAttribute("data-testid"),
+	);
+}
+
+test("左侧实例列表：从上一轮卡片点进来 → 列出原批次全部成员（含被 resume 与未 resume 的）", async () => {
+	stubFetch({
+		list: { body: { subagents: [RESUMED_A, RESUMED_B, UNTOUCHED_C] } },
+	});
 	render(
 		<SubagentTranscriptModal
-			open={{ sessionId: SESSION_ID, agentId: resumedA.agentId }}
+			open={{ sessionId: SESSION_ID, agentId: RESUMED_A.agentId, toolCallId: "tc-batch" }}
 			onClose={() => {}}
 		/>,
 	);
 	await waitFor(() => expect(screen.getByTestId("transcript-siblings")).toBeTruthy());
-	const items = [...document.querySelectorAll('[data-testid^="transcript-sibling-"]')].map((el) =>
-		el.getAttribute("data-testid"),
-	);
-	expect(items).toEqual([
+	expect(siblingIds()).toEqual([
 		"transcript-sibling-a9c4c21c7",
 		"transcript-sibling-add2295fd",
 		"transcript-sibling-adb916c93",
+	]);
+});
+
+test("左侧实例列表：从本轮卡片点进来 → 只列本轮参与的成员，不多出上一轮未续聊的实例", async () => {
+	stubFetch({
+		list: { body: { subagents: [RESUMED_A, RESUMED_B, UNTOUCHED_C] } },
+	});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: RESUMED_A.agentId, toolCallId: "tc-next" }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(screen.getByTestId("transcript-siblings")).toBeTruthy());
+	expect(siblingIds()).toEqual([
+		"transcript-sibling-a9c4c21c7",
+		"transcript-sibling-add2295fd",
 	]);
 });
 

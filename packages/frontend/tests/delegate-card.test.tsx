@@ -89,6 +89,8 @@ test("新数据（details.subagents）：任务行整行可点 → 打开弹窗�
 	expect(useSessionStore.getState().transcript).toEqual({
 		sessionId: "s1",
 		agentId: "a3f8c1d0a",
+		// 归属卡片自身的委派 id：左栏据此列出「点开的那一轮」的成员
+		toolCallId: "call_1",
 	});
 });
 
@@ -138,6 +140,8 @@ test("中断态（status=interrupted）：任务行同样可点开弹窗（与�
 	expect(useSessionStore.getState().transcript).toEqual({
 		sessionId: "s1",
 		agentId: "a3f8c1d0a",
+		// 归属卡片自身的委派 id：左栏据此列出「点开的那一轮」的成员
+		toolCallId: "call_1",
 	});
 });
 
@@ -162,6 +166,7 @@ test("执行中（只有进度事件、details 还没到）→ 任务行可点�
 	expect(useSessionStore.getState().transcript).toEqual({
 		sessionId: "s1",
 		agentId: "a1234567b",
+		toolCallId: "call_1",
 	});
 });
 

@@ -183,7 +183,7 @@ export function SubagentTranscriptModal({
 	open,
 	onClose,
 }: {
-	open: { sessionId: string; agentId: string } | null;
+	open: { sessionId: string; agentId: string; toolCallId?: string } | null;
 	onClose: () => void;
 }) {
 	// open 为空即卸载内容：既满足「按需加载」（关闭即丢数据、重开重拉），
@@ -194,6 +194,7 @@ export function SubagentTranscriptModal({
 			key={`${open.sessionId}:${open.agentId}`}
 			sessionId={open.sessionId}
 			initialAgentId={open.agentId}
+			groupToolCallId={open.toolCallId}
 			onClose={onClose}
 		/>
 	);
@@ -202,10 +203,13 @@ export function SubagentTranscriptModal({
 function TranscriptDialog({
 	sessionId,
 	initialAgentId,
+	groupToolCallId,
 	onClose,
 }: {
 	sessionId: string;
 	initialAgentId: string;
+	/** 打开时所在卡片所属的委派：左栏列出该轮参与的全部实例（含被 resume 走的） */
+	groupToolCallId?: string;
 	onClose: () => void;
 }) {
 	const { t } = useTranslation();
@@ -345,13 +349,14 @@ function TranscriptDialog({
 	// 左栏 = 该实例所属「任务批次」的全部成员，按该批次的 fleet 序号排序。
 	// 分组依据必须是**会话级列表**而非详情响应：详情一开始 setData(null)、目标实例 404 时 data 长期为 null，
 	// 绑详情会让左栏在每次切换的加载窗口内被卸载（闪烁），且目标 jsonl 缺失时左栏永久消失（只能关掉弹窗重开）。
-	// 批次取「首次委派」（delegations 首条）：resume 会把实例的 toolCallId 覆盖为最近一次委派，
-	// 若按它分组，打开被 resume 的实例时本轮没被 resume 的原批次成员会缺行（用户实测：上一轮派 3 个、
-	// 本轮只续聊 2 个，打开续聊的那个只看到 2 个）。旧数据没有 delegations → 退回自身 toolCallId。
+	// 分组 = **点开时所在卡片所属的委派**（groupToolCallId）：它决定了左栏该显示哪一轮的成员。
+	// 上一轮卡片 → 原批全部（含被 resume 走的与未 resume 的）；本轮卡片 → 只列本轮参与的实例。
+	// 缺该信息（旧调用方）时退回「首次委派」（delegations 首条），再退回自身 toolCallId。
 	const siblings = useMemo(() => {
 		const me = group.find((g) => g.agentId === agentId);
 		if (!me) return [];
-		const tc = me.delegations?.[0]?.toolCallId ?? me.toolCallId;
+		const tc =
+			groupToolCallId ?? me.delegations?.[0]?.toolCallId ?? me.toolCallId;
 		if (!tc) return [];
 		const indexOf = (s: TranscriptMeta): number | null => {
 			const hit = s.delegations?.find((d) => d.toolCallId === tc);

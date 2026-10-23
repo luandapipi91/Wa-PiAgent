@@ -661,8 +661,8 @@ const RESUMED_NEW_CALL = "call_e2e_new_round";
 const RESUMED_AGENTS = [
 	{ agentId: "a51e4ead6", oldIndex: 0 },
 	{ agentId: "a54dc2724", oldIndex: 1 },
-	{ agentId: "a2efb4cf7", oldIndex: 2, newIndex: 1 },
-	{ agentId: "afee2a3e7", oldIndex: 3, newIndex: 2 },
+	{ agentId: "a2efb4cf7", oldIndex: 2, newIndex: 0 },
+	{ agentId: "afee2a3e7", oldIndex: 3, newIndex: 1 },
 ];
 
 /** 向隔离目录写一个「上一轮委托 + 下一轮 resume」的会话与实例数据（kernel 每次请求重新读盘） */
@@ -763,6 +763,79 @@ function seedResumedSession(): void {
 				timestamp: now + 3,
 			},
 		},
+		// 第二轮：只 resume 了原批 4 个里的 2 个（a2efb4cf7 / afee2a3e7）
+		{
+			type: "message",
+			id: "u2",
+			parentId: "a2",
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "继续上一轮没完成的两个方向" }],
+				timestamp: now + 4,
+			},
+		},
+		{
+			type: "message",
+			id: "a3",
+			parentId: "u2",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: RESUMED_NEW_CALL,
+						name: "delegate",
+						arguments: {
+							tasks: [
+								{ agent: "Explore", task: "继续任务 3", resume: "a2efb4cf7" },
+								{ agent: "Explore", task: "继续任务 4", resume: "afee2a3e7" },
+							],
+						},
+					},
+				],
+				model: "e2e-model",
+				stopReason: "tool_use",
+				timestamp: now + 5,
+			},
+		},
+		{
+			type: "message",
+			id: "r3",
+			parentId: "a3",
+			message: {
+				role: "toolResult",
+				toolCallId: RESUMED_NEW_CALL,
+				toolName: "delegate",
+				content: [{ type: "text", text: "两个方向都续聊完成。" }],
+				isError: false,
+				timestamp: now + 6,
+				details: {
+					subagents: [
+						{
+							taskIndex: 0,
+							agentId: "a2efb4cf7",
+							jsonlPath: join(E2E_WA_PI_DIR, "subagents", RESUMED_SESSION_ID, "a2efb4cf7.jsonl"),
+							agent: "Explore",
+							subagentType: "Explore",
+							resumed: true,
+							status: "completed",
+							interrupted: false,
+						},
+						{
+							taskIndex: 1,
+							agentId: "afee2a3e7",
+							jsonlPath: join(E2E_WA_PI_DIR, "subagents", RESUMED_SESSION_ID, "afee2a3e7.jsonl"),
+							agent: "Explore",
+							subagentType: "Explore",
+							resumed: true,
+							status: "completed",
+							interrupted: false,
+						},
+					],
+					interrupted: false,
+				},
+			},
+		},
 	];
 	mkdirSync(join(E2E_WA_PI_DIR, "sessions"), { recursive: true });
 	writeFileSync(sessionPath, rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
@@ -771,12 +844,14 @@ function seedResumedSession(): void {
 	const dir = join(E2E_WA_PI_DIR, "subagents", RESUMED_SESSION_ID);
 	mkdirSync(dir, { recursive: true });
 	for (const a of RESUMED_AGENTS) {
+		// 注意用 newIndex != null 判断：本轮第一个任务的序号是 0，真值判断会把它当成「未 resume」
+		const resumed = a.newIndex != null;
 		const meta = {
 			agentId: a.agentId,
 			parentSessionId: RESUMED_SESSION_ID,
-			toolCallId: a.newIndex ? RESUMED_NEW_CALL : RESUMED_OLD_CALL,
-			taskIndex: a.newIndex ?? a.oldIndex,
-			delegations: a.newIndex
+			toolCallId: resumed ? RESUMED_NEW_CALL : RESUMED_OLD_CALL,
+			taskIndex: resumed ? a.newIndex : a.oldIndex,
+			delegations: resumed
 				? [
 						{ toolCallId: RESUMED_OLD_CALL, taskIndex: a.oldIndex },
 						{ toolCallId: RESUMED_NEW_CALL, taskIndex: a.newIndex },
@@ -788,7 +863,7 @@ function seedResumedSession(): void {
 			status: "completed",
 			createdAt: now,
 			updatedAt: now,
-			resumeCount: a.newIndex ? 1 : 0,
+			resumeCount: resumed ? 1 : 0,
 		};
 		writeFileSync(join(dir, `${a.agentId}.meta.json`), JSON.stringify(meta, null, 2), "utf8");
 		const transcript = [
@@ -842,20 +917,35 @@ test.describe("子代理转录左栏（旧轮 resume，无 LLM）", () => {
 		await expandAllTurnSummaries(page);
 		await expandDelegateCardBodies(page);
 
-		const card = page.getByTestId("delegate-card").first();
-		await expect(card).toBeVisible({ timeout: 20_000 });
-		// 入口是任务行本身（2026-10-02 起不再是文字按钮）：aria-label = 委托转录 <agent>
-		// 打开**被 resume 的那个**（第 3 行）：它的 toolCallId 已被下一轮覆盖，
-		// 若按「最近一次委派」分组，本轮没被续聊的第 1、2 行就会缺；
-		// 按「首次委派批次」分组才应看到原批 4 个全在。
-		await card.getByRole("button", { name: /委托转录 Explore/ }).nth(2).click();
+		const cards = page.getByTestId("delegate-card");
+		await expect(cards.first()).toBeVisible({ timeout: 20_000 });
 
-		const modal = page.getByTestId("subagent-transcript-modal");
+		// ① 点上一轮卡片（4 个任务）里被 resume 的那一行 → 左栏必须仍列原批 4 个
+		await cards.first().getByRole("button", { name: /委托转录 Explore/ }).nth(2).click();
+		let modal = page.getByTestId("subagent-transcript-modal");
 		await expect(modal).toBeVisible({ timeout: 15_000 });
 		await expect(modal.getByTestId("transcript-siblings")).toBeVisible({ timeout: 15_000 });
-		const ids = await modal
+		let ids = await modal
 			.locator('[data-testid^="transcript-sibling-"]')
 			.evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
 		expect(ids).toEqual(RESUMED_AGENTS.map((a) => `transcript-sibling-${a.agentId}`));
+
+		// ② 关掉，改从本轮卡片（只 resume 了 2 个）点进去 → 左栏只列本轮参与的 2 个，
+		//    不能多出上一轮没被续聊的实例
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("subagent-transcript-modal")).toHaveCount(0);
+		const secondCard = cards.nth(1);
+		await expect(secondCard).toBeVisible({ timeout: 20_000 });
+		await secondCard.getByRole("button", { name: /委托转录 Explore/ }).first().click();
+		modal = page.getByTestId("subagent-transcript-modal");
+		await expect(modal).toBeVisible({ timeout: 15_000 });
+		await expect(modal.getByTestId("transcript-siblings")).toBeVisible({ timeout: 15_000 });
+		ids = await modal
+			.locator('[data-testid^="transcript-sibling-"]')
+			.evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
+		expect(ids).toEqual([
+			"transcript-sibling-a2efb4cf7",
+			"transcript-sibling-afee2a3e7",
+		]);
 	});
 });

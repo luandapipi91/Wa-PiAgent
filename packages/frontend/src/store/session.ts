@@ -220,8 +220,17 @@ interface SessionState {
 	// 全局子代理转录弹窗（单例）：由委托卡「查看全部内容」写入目标实例，渲染在 App 根的
 	// SubagentTranscriptModal（常驻挂载点）。与 filePreview / mediaPreview 同理放 store——
 	// 委托卡随流式结束 / 轮级折叠 / 卸载时弹窗不被连带关闭，只有用户手动关闭才消失。
-	transcript: { sessionId: string; agentId: string } | null;
-	openTranscript: (target: { sessionId: string; agentId: string }) => void;
+	transcript: {
+		sessionId: string;
+		agentId: string;
+		/** 点开时所在卡片所属的委派（delegate 工具调用 id）：左栏按它列出该轮参与的全部实例 */
+		toolCallId?: string;
+	} | null;
+	openTranscript: (target: {
+		sessionId: string;
+		agentId: string;
+		toolCallId?: string;
+	}) => void;
 	closeTranscript: () => void;
 	/** 重载中（/reload 命令执行期间禁用发送） */
 	reloading: boolean;

@@ -624,7 +624,11 @@ export const DelegateCard = memo(function DelegateCard({
 										sessionId={sessionId}
 										transcriptAgentId={r.transcriptAgentId}
 										onViewTranscript={(agentId) =>
-											openTranscript({ sessionId, agentId })
+											openTranscript({
+												sessionId,
+												agentId,
+												toolCallId: toolCall.id,
+											})
 										}
 									/>
 								))}
