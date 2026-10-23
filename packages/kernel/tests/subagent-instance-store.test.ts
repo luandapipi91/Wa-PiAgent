@@ -11,6 +11,7 @@ import {
 	readMeta,
 	subagentDir,
 	sweepOrphanRunning,
+	withDelegation,
 	writeMeta,
 	type SubagentMeta,
 } from "../src/subagent-instance-store";
@@ -181,5 +182,31 @@ describe("meta 读写", () => {
 		await writeMeta(meta);
 		await Bun.write(metaPath(SID, "a3f8c1d0a"), "{ 坏 JSON");
 		expect(await readMeta(SID, "a3f8c1d0a")).toBeNull();
+	});
+});
+
+describe("withDelegation", () => {
+	test("无历史时返回只含本次的数组", () => {
+		expect(withDelegation(undefined, { toolCallId: "c1", taskIndex: 0 })).toEqual([
+			{ toolCallId: "c1", taskIndex: 0 },
+		]);
+	});
+
+	test("追加历史且不修改入参", () => {
+		const base = [{ toolCallId: "c-old", taskIndex: 3 }];
+		const out = withDelegation(base, { toolCallId: "c-new", taskIndex: 1 });
+		expect(out).toEqual([
+			{ toolCallId: "c-old", taskIndex: 3 },
+			{ toolCallId: "c-new", taskIndex: 1 },
+		]);
+		expect(base).toHaveLength(1);
+	});
+
+	test("同一调用重复写盘幂等（running → 终态只留一条，位置不变）", () => {
+		const base = [
+			{ toolCallId: "c-old", taskIndex: 3 },
+			{ toolCallId: "c-new", taskIndex: 1 },
+		];
+		expect(withDelegation(base, { toolCallId: "c-new", taskIndex: 1 })).toEqual(base);
 	});
 });

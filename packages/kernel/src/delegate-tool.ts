@@ -43,6 +43,7 @@ import {
 	jsonlPath,
 	newAgentId,
 	readMeta,
+	withDelegation,
 	writeMeta,
 } from "./subagent-instance-store";
 import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
@@ -617,6 +618,15 @@ export function makeDelegateTool(opts: {
 								resumed: true,
 							});
 							const resumeCount = meta.resumeCount + 1;
+							// 历史委派归属：toolCallId/taskIndex 只留最近一次，旧那轮弹窗按它分组会缺行。
+							// 旧数据没存 delegations 时，用当前 meta 的 toolCallId/taskIndex 补上首条历史。
+							const delegations = withDelegation(
+								meta.delegations ??
+									(meta.toolCallId
+										? [{ toolCallId: meta.toolCallId, taskIndex: meta.taskIndex ?? null }]
+										: []),
+								{ toolCallId, taskIndex: index },
+							);
 							// 本轮真实起点：异常收尾时算 elapsedMs（不编造 0）
 							const startedAt = Date.now();
 							try {
@@ -628,6 +638,7 @@ export function makeDelegateTool(opts: {
 									...meta,
 									toolCallId,
 									taskIndex: index,
+									delegations,
 									task: t.task,
 									status: "running",
 									updatedAt: Date.now(),
@@ -644,6 +655,7 @@ export function makeDelegateTool(opts: {
 									...meta,
 									toolCallId,
 									taskIndex: index,
+									delegations,
 									task: t.task,
 									status: out.interrupted
 										? "interrupted"
@@ -678,6 +690,7 @@ export function makeDelegateTool(opts: {
 									...meta,
 									toolCallId,
 									taskIndex: index,
+									delegations,
 									task: t.task,
 									status: "interrupted",
 									updatedAt: Date.now(),
@@ -756,6 +769,7 @@ export function makeDelegateTool(opts: {
 							parentSessionId,
 							toolCallId,
 							taskIndex: index,
+							delegations: [{ toolCallId, taskIndex: index }],
 							subagentType: spawnAgent,
 							requestedAgent: t.agent,
 							task: t.task,

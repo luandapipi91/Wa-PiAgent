@@ -30,6 +30,12 @@ export interface SubagentMeta {
 	toolCallId: string;
 	/** fleet 内序号；单委托为 null */
 	taskIndex: number | null;
+	/**
+	 * 历史委派归属（首次创建起累积，按发生顺序；去重）。
+	 * `toolCallId/taskIndex` 只留最近一次，resume 后旧那轮的弹窗按它分组就会缺掉被续聊的实例——
+	 * 左栏用本字段把实例归回它参与过的每一轮委派。
+	 */
+	delegations?: SubagentDelegation[];
 	subagentType: string;
 	requestedAgent: string;
 	task: string;
@@ -52,6 +58,24 @@ function root(): string {
 
 export function newAgentId(): string {
 	return `a${randomBytes(4).toString("hex")}`;
+}
+
+/** 一次委派里该实例占用的分组信息（弹窗左栏按 toolCallId 分组、按 taskIndex 排序） */
+export interface SubagentDelegation {
+	toolCallId: string;
+	taskIndex: number | null;
+}
+
+/** 把本次委派并入历史（同 toolCallId + taskIndex 重复写盘时幂等，位置不变；不改入参） */
+export function withDelegation(
+	list: SubagentDelegation[] | undefined,
+	next: SubagentDelegation,
+): SubagentDelegation[] {
+	const base = Array.isArray(list) ? list : [];
+	const dup = base.some(
+		(d) => d?.toolCallId === next.toolCallId && (d?.taskIndex ?? null) === next.taskIndex,
+	);
+	return dup ? [...base] : [...base, next];
 }
 
 export function assertAgentId(id: string): void {

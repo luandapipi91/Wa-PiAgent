@@ -10,7 +10,9 @@ import {
 	readMeta,
 	jsonlPath,
 	subagentDir,
+	type SubagentMeta,
 } from "../subagent-instance-store";
+import { backfillDelegations } from "../subagent-delegation-backfill";
 
 /**
  * 子代理转录只读读取（规格 §8）：不走 AgentManager，直接 readSessionHistory 解析 jsonl
@@ -46,9 +48,11 @@ export async function handleSubagentList(sessionId: string): Promise<Response> {
 		const ids = files
 			.filter((f) => f.endsWith(".meta.json"))
 			.map((f) => f.replace(".meta.json", ""));
-		const metas = (await Promise.all(ids.map((id) => readMeta(sessionId, id)))).filter(
-			Boolean,
-		);
+		const metas = (
+			await Promise.all(ids.map((id) => readMeta(sessionId, id)))
+		).filter(Boolean) as SubagentMeta[];
+		// 旧 meta 没有历史委派归属 → 从父会话 jsonl 惰性回填（只补缺字段的，补完落盘）
+		await backfillDelegations(sessionId, metas);
 		return Response.json({ subagents: metas });
 	} catch {
 		return Response.json({ subagents: [] });

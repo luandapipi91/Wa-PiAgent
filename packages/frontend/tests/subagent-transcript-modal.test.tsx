@@ -633,6 +633,54 @@ test("左侧实例列表：同一次委托 ≥2 个实例时出现，点击切�
 	);
 });
 
+// 回归：resume 会把 meta.toolCallId 覆盖为本次委派（v0.7.6 修复，本次弹窗不再缺行），
+// 但旧那轮的分组因此丢掉被续聊的实例。真实场景：上一轮 fleet 4 个（2 完成 / 2 未完成），
+// 下一轮 resume 那 2 个未完成的再另起 2 个新的；点开上一轮的卡片时，被 resume 的两个挂在
+// 新分组下，旧分组只剩 2 个完成的 → 左栏缺行。
+test("左侧实例列表：被 resume 走的实例在旧委派分组里仍列出，按该轮 taskIndex 排序", async () => {
+	const oldCurrent = {
+		...META,
+		agentId: "a51e4ead6",
+		toolCallId: "tc-old",
+		taskIndex: 1,
+	};
+	const oldSibling = {
+		...META,
+		agentId: "a54dc2724",
+		toolCallId: "tc-old",
+		taskIndex: 0,
+	};
+	const resumed = {
+		...META,
+		agentId: "a2efb4cf7",
+		toolCallId: "tc-new",
+		taskIndex: 0,
+		delegations: [
+			{ toolCallId: "tc-old", taskIndex: 2 },
+			{ toolCallId: "tc-new", taskIndex: 0 },
+		],
+	};
+	const other = { ...META, agentId: "a11111111", toolCallId: "tc-other" };
+	stubFetch({ list: { body: { subagents: [oldCurrent, oldSibling, resumed, other] } } });
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: oldCurrent.agentId }}
+			onClose={() => {}}
+		/>,
+	);
+	await waitFor(() => expect(screen.getByTestId("transcript-siblings")).toBeTruthy());
+	const items = [...document.querySelectorAll('[data-testid^="transcript-sibling-"]')].map((el) =>
+		el.getAttribute("data-testid"),
+	);
+	// 旧轮 3 个实例全在（含被 resume 到 tc-new 的那个），按它们在 tc-old 里的序号排；
+	// 其它委派（tc-other）仍不混入。
+	expect(items).toEqual([
+		"transcript-sibling-a54dc2724",
+		"transcript-sibling-a51e4ead6",
+		"transcript-sibling-a2efb4cf7",
+	]);
+});
+
 // 回归：左栏可见性原先绑在详情响应上（data?.meta.toolCallId），详情加载窗口内/404 后左栏被卸载。
 // 修复后左栏由会话级列表（group）+ 当前 agentId 推导，与详情请求状态解耦。
 

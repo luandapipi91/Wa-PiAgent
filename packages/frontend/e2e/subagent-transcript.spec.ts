@@ -650,3 +650,209 @@ test.describe("子代理转录旧会话渲染（无 LLM）", () => {
 		}
 	});
 });
+
+// ── 场景 4：旧轮里被 resume 走的实例仍在旧轮弹窗左栏（合成数据，不读凭证、不发 LLM） ──
+// 真实场景：上一轮 fleet 4 个（2 完成 / 2 未完成），下一轮 resume 那 2 个未完成的再另起 2 个新的。
+// resume 会把 meta.toolCallId 覆盖成本次委派，旧轮分组按等值比较就只剩 2 个完成的 → 左栏缺行。
+const RESUMED_SESSION_ID = "s-e2e-resumed-001";
+const RESUMED_OLD_CALL = "call_e2e_old_fleet";
+const RESUMED_NEW_CALL = "call_e2e_new_round";
+/** 旧轮 4 个实例：前两个没被续聊（toolCallId 仍是旧 call），后两个被下一轮 resume（已换成新 call） */
+const RESUMED_AGENTS = [
+	{ agentId: "a51e4ead6", oldIndex: 0 },
+	{ agentId: "a54dc2724", oldIndex: 1 },
+	{ agentId: "a2efb4cf7", oldIndex: 2, newIndex: 1 },
+	{ agentId: "afee2a3e7", oldIndex: 3, newIndex: 2 },
+];
+
+/** 向隔离目录写一个「上一轮委托 + 下一轮 resume」的会话与实例数据（kernel 每次请求重新读盘） */
+function seedResumedSession(): void {
+	const projPath = join(E2E_WA_PI_DIR, "projects.json");
+	const data = JSON.parse(readFileSync(projPath, "utf8"));
+	const sessionPath = join(E2E_WA_PI_DIR, "sessions", `${RESUMED_SESSION_ID}.jsonl`);
+	if (!data.sessions.some((s: any) => s.id === RESUMED_SESSION_ID)) {
+		data.sessions.push({
+			id: RESUMED_SESSION_ID,
+			projectId: PROJECT_ID,
+			primaryAgent: AGENT_NAME,
+			title: "E2E 旧轮 resume 会话",
+			createdAt: 1,
+			lastActivity: 1,
+			piSessionFile: sessionPath,
+		});
+		writeFileSync(projPath, JSON.stringify(data, null, 2), "utf8");
+	}
+
+	const cwd = join(E2E_WA_PI_DIR, "e2e-project");
+	const now = 1_700_000_100_000;
+	const subagents = RESUMED_AGENTS.map((a) => ({
+		taskIndex: a.oldIndex,
+		agentId: a.agentId,
+		jsonlPath: join(E2E_WA_PI_DIR, "subagents", RESUMED_SESSION_ID, `${a.agentId}.jsonl`),
+		agent: "Explore",
+		subagentType: "Explore",
+		resumed: false,
+		status: "completed" as const,
+		interrupted: false,
+	}));
+	const rows = [
+		{
+			type: "session",
+			version: 3,
+			id: "e2e-resumed-uuid",
+			timestamp: new Date(now).toISOString(),
+			cwd,
+		},
+		{
+			type: "message",
+			id: "u1",
+			parentId: null,
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "并行调查四个方向" }],
+				timestamp: now,
+			},
+		},
+		{
+			type: "message",
+			id: "a1",
+			parentId: "u1",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: RESUMED_OLD_CALL,
+						name: "delegate",
+						arguments: {
+							tasks: RESUMED_AGENTS.map((a) => ({
+								agent: "Explore",
+								task: `任务 ${a.oldIndex + 1}`,
+							})),
+						},
+					},
+				],
+				model: "e2e-model",
+				stopReason: "tool_use",
+				timestamp: now + 1,
+			},
+		},
+		{
+			type: "message",
+			id: "r1",
+			parentId: "a1",
+			message: {
+				role: "toolResult",
+				toolCallId: RESUMED_OLD_CALL,
+				toolName: "delegate",
+				content: [{ type: "text", text: "四个方向都调查完了。" }],
+				isError: false,
+				timestamp: now + 2,
+				details: { subagents, interrupted: false },
+			},
+		},
+		{
+			type: "message",
+			id: "a2",
+			parentId: "r1",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "结论如上。" }],
+				model: "e2e-model",
+				stopReason: "stop",
+				timestamp: now + 3,
+			},
+		},
+	];
+	mkdirSync(join(E2E_WA_PI_DIR, "sessions"), { recursive: true });
+	writeFileSync(sessionPath, rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+
+	// 实例侧：后两个 meta 的 toolCallId 已被新一轮 resume 覆盖，历史归属留在 delegations
+	const dir = join(E2E_WA_PI_DIR, "subagents", RESUMED_SESSION_ID);
+	mkdirSync(dir, { recursive: true });
+	for (const a of RESUMED_AGENTS) {
+		const meta = {
+			agentId: a.agentId,
+			parentSessionId: RESUMED_SESSION_ID,
+			toolCallId: a.newIndex ? RESUMED_NEW_CALL : RESUMED_OLD_CALL,
+			taskIndex: a.newIndex ?? a.oldIndex,
+			delegations: a.newIndex
+				? [
+						{ toolCallId: RESUMED_OLD_CALL, taskIndex: a.oldIndex },
+						{ toolCallId: RESUMED_NEW_CALL, taskIndex: a.newIndex },
+					]
+				: [{ toolCallId: RESUMED_OLD_CALL, taskIndex: a.oldIndex }],
+			subagentType: "Explore",
+			requestedAgent: "Explore",
+			task: `任务 ${a.oldIndex + 1}`,
+			status: "completed",
+			createdAt: now,
+			updatedAt: now,
+			resumeCount: a.newIndex ? 1 : 0,
+		};
+		writeFileSync(join(dir, `${a.agentId}.meta.json`), JSON.stringify(meta, null, 2), "utf8");
+		const transcript = [
+			{
+				type: "session",
+				version: 3,
+				id: `e2e-resumed-${a.agentId}`,
+				timestamp: new Date(now).toISOString(),
+				cwd,
+			},
+			{
+				type: "message",
+				id: "tu1",
+				parentId: null,
+				message: {
+					role: "user",
+					content: [{ type: "text", text: `任务 ${a.oldIndex + 1}` }],
+					timestamp: now,
+				},
+			},
+			{
+				type: "message",
+				id: "ta1",
+				parentId: "tu1",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: `${a.agentId} 的调查结论` }],
+					model: "e2e-model",
+					stopReason: "stop",
+					timestamp: now + 1,
+				},
+			},
+		];
+		writeFileSync(
+			join(dir, `${a.agentId}.jsonl`),
+			transcript.map((r) => JSON.stringify(r)).join("\n") + "\n",
+			"utf8",
+		);
+	}
+}
+
+test.describe("子代理转录左栏（旧轮 resume，无 LLM）", () => {
+	test("场景4：旧轮 4 个实例全部在左栏（含被 resume 走的两个），按该轮序号排序", async ({ page }) => {
+		test.setTimeout(120_000);
+		seedResumedSession();
+		createdSessions.push(RESUMED_SESSION_ID);
+
+		await setUiPrefs(page, "zh");
+		await page.goto("/");
+		await openSession(page, RESUMED_SESSION_ID);
+		await expandAllTurnSummaries(page);
+		await expandDelegateCardBodies(page);
+
+		const card = page.getByTestId("delegate-card").first();
+		await expect(card).toBeVisible({ timeout: 20_000 });
+		// 入口是任务行本身（2026-10-02 起不再是文字按钮）：aria-label = 委托转录 <agent>
+		await card.getByRole("button", { name: /委托转录 Explore/ }).first().click();
+
+		const modal = page.getByTestId("subagent-transcript-modal");
+		await expect(modal).toBeVisible({ timeout: 15_000 });
+		await expect(modal.getByTestId("transcript-siblings")).toBeVisible({ timeout: 15_000 });
+		const ids = await modal
+			.locator('[data-testid^="transcript-sibling-"]')
+			.evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
+		expect(ids).toEqual(RESUMED_AGENTS.map((a) => `transcript-sibling-${a.agentId}`));
+	});
+});

@@ -311,6 +311,31 @@ describe("resume 分支", () => {
 		expect(m?.task).toBe("新任务二");
 	});
 
+	test("resume 保留历史委派：旧轮弹窗仍能看到被续聊的实例（delegations 累积）", async () => {
+		await writeMeta({
+			...baseMeta,
+			agentId: "a0000000c",
+			status: "completed",
+			toolCallId: "c-old",
+			taskIndex: 3,
+			task: "首轮任务",
+		} as never);
+		await tool().execute("c-new", {
+			tasks: [
+				{ agent: "Explore", task: "新任务一" },
+				{ agent: "Explore", task: "新任务二", resume: "a0000000c" },
+			],
+		});
+		const m = await readMeta(SID, "a0000000c");
+		// toolCallId 仍归最近一次委派（本次弹窗分组）；历史归属靠 delegations 累积，
+		// 否则旧那轮的弹窗左栏会缺掉被 resume 走的实例。
+		expect(m?.toolCallId).toBe("c-new");
+		expect(m?.delegations).toEqual([
+			{ toolCallId: "c-old", taskIndex: 3 },
+			{ toolCallId: "c-new", taskIndex: 1 },
+		]);
+	});
+
 	test("resume 前按 jsonl 首行 cwd 补建目录（pi resume 校验目录存在）", async () => {
 		await writeMeta({
 			...baseMeta,

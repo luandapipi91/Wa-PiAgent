@@ -35,6 +35,11 @@ export interface TranscriptMeta {
 	createdAt?: number;
 	/** 同一次委托（delegate 调用）的公共 id：同 toolCallId 的实例构成左侧列表 */
 	toolCallId?: string;
+	/**
+	 * 历史委派归属（首次创建起累积）：resume 会把上面的 toolCallId 覆盖为本次委派，
+	 * 旧那轮的左栏靠本字段把被续聊的实例归回它参与过的分组。
+	 */
+	delegations?: Array<{ toolCallId: string; taskIndex?: number | null }>;
 	/** fleet 内序号；单委托为 null */
 	taskIndex?: number | null;
 	/** 子代理收到的任务正文 */
@@ -340,12 +345,20 @@ function TranscriptDialog({
 	// 同一次委托（toolCallId 相同）的实例，按 fleet 序号排序。
 	// 分组依据必须是**会话级列表**而非详情响应：详情一开始 setData(null)、目标实例 404 时 data 长期为 null，
 	// 绑详情会让左栏在每次切换的加载窗口内被卸载（闪烁），且目标 jsonl 缺失时左栏永久消失（只能关掉弹窗重开）。
+	// resume 会把实例的 toolCallId 覆盖为本次委派 → 旧那轮的弹窗里它不再命中等值比较，
+	// 因此还要看 delegations（历史归属），否则旧轮左栏缺掉被续聊的实例。
 	const siblings = useMemo(() => {
 		const tc = group.find((g) => g.agentId === agentId)?.toolCallId;
 		if (!tc) return [];
+		const indexOf = (s: TranscriptMeta): number | null =>
+			s.toolCallId === tc
+				? (s.taskIndex ?? null)
+				: (s.delegations?.find((d) => d.toolCallId === tc)?.taskIndex ?? null);
 		return group
-			.filter((s) => s.toolCallId === tc)
-			.sort((a, b) => (a.taskIndex ?? 0) - (b.taskIndex ?? 0));
+			.filter(
+				(s) => s.toolCallId === tc || s.delegations?.some((d) => d.toolCallId === tc),
+			)
+			.sort((a, b) => (indexOf(a) ?? 0) - (indexOf(b) ?? 0));
 	}, [group, agentId]);
 
 	const meta = data?.meta;
