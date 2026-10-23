@@ -262,9 +262,9 @@ test("loadDefaultTools: 未配置/格式非法返回 undefined", async () => {
 });
 
 test("defaultToolsForPlatform: 全平台返回清单，均含 grep/find/ls；win 用 powershell 换 bash", () => {
-	expect(defaultToolsForPlatform("win32")).toEqual(WINDOWS_DEFAULT_TOOLS);
-	expect(defaultToolsForPlatform("darwin")).toEqual(UNIX_DEFAULT_TOOLS);
-	expect(defaultToolsForPlatform("linux")).toEqual(UNIX_DEFAULT_TOOLS);
+	expect(defaultToolsForPlatform("win32", false)).toEqual(WINDOWS_DEFAULT_TOOLS);
+	expect(defaultToolsForPlatform("darwin", false)).toEqual(UNIX_DEFAULT_TOOLS);
+	expect(defaultToolsForPlatform("linux", false)).toEqual(UNIX_DEFAULT_TOOLS);
 	// 全平台清单都必须补齐 pi 注册表里的 grep/find/ls（根因修复：默认激活集缺失）
 	for (const list of [WINDOWS_DEFAULT_TOOLS, UNIX_DEFAULT_TOOLS]) {
 		for (const t of ["grep", "find", "ls"]) {
@@ -277,6 +277,35 @@ test("defaultToolsForPlatform: 全平台返回清单，均含 grep/find/ls；win
 	// macOS/Linux 平台语义：bash 在列、无 powershell
 	expect(UNIX_DEFAULT_TOOLS).toContain("bash");
 	expect(UNIX_DEFAULT_TOOLS).not.toContain("powershell");
+});
+
+test("defaultToolsForPlatform: win32 有 bash 时用 bash 清单（检测优先），无 bash 才用 powershell", () => {
+	expect(defaultToolsForPlatform("win32", true)).toEqual(UNIX_DEFAULT_TOOLS);
+	expect(defaultToolsForPlatform("win32", false)).toEqual(WINDOWS_DEFAULT_TOOLS);
+	// 非 Windows 不受该开关影响
+	expect(defaultToolsForPlatform("darwin", false)).toEqual(UNIX_DEFAULT_TOOLS);
+});
+
+test("ensureDefaultTools: win32 有 bash 时把 powershell 自动清单升级为 bash 清单", async () => {
+	const p = join(dir, "settings-ensure-win-bash.json");
+	await saveDefaultTools([...WINDOWS_DEFAULT_TOOLS], p);
+	await expect(ensureDefaultTools(p, "win32", true)).resolves.toBe("upgraded");
+	expect(await loadDefaultTools(p)).toEqual(UNIX_DEFAULT_TOOLS);
+});
+
+test("ensureDefaultTools: win32 无 bash 时把 bash 自动清单改回 powershell 清单", async () => {
+	const p = join(dir, "settings-ensure-win-nobash.json");
+	await saveDefaultTools([...UNIX_DEFAULT_TOOLS], p);
+	await expect(ensureDefaultTools(p, "win32", false)).resolves.toBe("upgraded");
+	expect(await loadDefaultTools(p)).toEqual(WINDOWS_DEFAULT_TOOLS);
+});
+
+test("ensureDefaultTools: 平台判定翻转时用户自定义清单仍不覆盖", async () => {
+	const p = join(dir, "settings-ensure-custom-win.json");
+	const custom = ["read", "bash", "grep"];
+	await saveDefaultTools(custom, p);
+	await expect(ensureDefaultTools(p, "win32", false)).resolves.toBe("kept");
+	expect(await loadDefaultTools(p)).toEqual(custom);
 });
 
 test("ensureDefaultTools: 未配置 → 写入当前平台清单（written）", async () => {

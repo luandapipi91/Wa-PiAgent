@@ -20,6 +20,7 @@ import { WA_PI_DIR } from "@wa-pi/shared";
 import { KernelError } from "./kernel-error";
 import { ensureProxyRelay } from "./proxy-relay";
 import { stripBom } from "./text-bom";
+import { isBashAvailable } from "./shell-detect";
 import type {
 	RetrySettings,
 	TrashSettings,
@@ -836,9 +837,10 @@ export async function saveWebSearchSettings(
 }
 
 /**
- * Windows 会话的默认内置工具清单（settings.json.defaultTools）：
- * bash 由 pi >= 0.84.3 的 powershell 工具接管（Windows 自带 PowerShell，零外部依赖；
- * bash 仅在用户自装 Git Bash 时由 pi 引擎自动探测使用，wa-pi 不再下载 PortableGit）。
+ * Windows **无 bash** 时的默认内置工具清单（settings.json.defaultTools）：
+ * 回退 pi >= 0.84.3 的 powershell 工具（Windows 自带，零外部依赖）。
+ * 装了 Git Bash / Cygwin / MSYS2 / WSL 的机器走 UNIX_DEFAULT_TOOLS（bash），
+ * 判定见 shell-detect.ts（探测顺序与 pi 引擎一致）。
  */
 export const WINDOWS_DEFAULT_TOOLS = [
 	"read",
@@ -882,10 +884,12 @@ export const LEGACY_WINDOWS_DEFAULT_TOOLS = [
 /** 平台对应的默认内置工具清单 */
 export function defaultToolsForPlatform(
 	platform: string = process.platform,
+	bashAvailable?: boolean,
 ): string[] {
-	return platform === "win32"
-		? [...WINDOWS_DEFAULT_TOOLS]
-		: [...UNIX_DEFAULT_TOOLS];
+	if (platform !== "win32") return [...UNIX_DEFAULT_TOOLS];
+	// 未显式传入时按本机探测：Windows 有 bash 就用 bash（与 macOS/Linux 同清单）
+	const available = bashAvailable ?? isBashAvailable();
+	return available ? [...UNIX_DEFAULT_TOOLS] : [...WINDOWS_DEFAULT_TOOLS];
 }
 
 /**
@@ -917,21 +921,31 @@ const stringListEquals = (a: string[], b: string[]): boolean =>
 	a.length === b.length && a.every((t, i) => t === b[i]);
 
 /**
- * 启动守卫：把 settings.json.defaultTools 对齐到当前平台默认清单。
+ * 启动守卫：把 settings.json.defaultTools 对齐到当前「平台 + bash 探测」应得的清单。
  * - 未配置 → 写入（written）：新装/从未写过。
- * - 恰为旧版自动写入的清单 → 升级（upgraded）：存量 Windows 老用户补齐 grep/find/ls。
- * - 其他非空值（用户自定义/已是新清单）→ 不动（kept）：尊重手工配置，幂等。
+ * - 磁盘值恰为任一「自动写入过的清单」（旧版 4 项 / powershell 版 / bash 版）→
+ *   按当前判定重算（upgraded，含 Windows 装上或卸掉 Git Bash 后清单翻转）。
+ * - 其他非空值（用户自定义）→ 不动（kept）：尊重手工配置，幂等。
  */
 export async function ensureDefaultTools(
 	file: string = SETTINGS_FILE,
+	platform: string = process.platform,
+	bashAvailable?: boolean,
 ): Promise<"written" | "upgraded" | "kept"> {
+	const desired = defaultToolsForPlatform(platform, bashAvailable);
 	const current = await loadDefaultTools(file);
 	if (current === undefined) {
-		await saveDefaultTools(defaultToolsForPlatform(), file);
+		await saveDefaultTools(desired, file);
 		return "written";
 	}
-	if (stringListEquals(current, LEGACY_WINDOWS_DEFAULT_TOOLS)) {
-		await saveDefaultTools(defaultToolsForPlatform(), file);
+	const autoWritten = [
+		LEGACY_WINDOWS_DEFAULT_TOOLS,
+		WINDOWS_DEFAULT_TOOLS,
+		UNIX_DEFAULT_TOOLS,
+	];
+	if (autoWritten.some((list) => stringListEquals(current, list))) {
+		if (stringListEquals(current, desired)) return "kept";
+		await saveDefaultTools(desired, file);
 		return "upgraded";
 	}
 	return "kept";

@@ -95,7 +95,7 @@ describe("collectProxyEnv", () => {
 
 describe("mapToolsForPlatform", () => {
 	test("win32：bash 映射为 powershell，其余工具原样", () => {
-		expect(mapToolsForPlatform(["read", "bash", "grep"], "win32")).toEqual([
+		expect(mapToolsForPlatform(["read", "bash", "grep"], "win32", false)).toEqual([
 			"read",
 			"powershell",
 			"grep",
@@ -103,7 +103,7 @@ describe("mapToolsForPlatform", () => {
 	});
 
 	test("win32：bash 与 powershell 并存时映射后去重", () => {
-		expect(mapToolsForPlatform(["bash", "powershell", "edit"], "win32")).toEqual([
+		expect(mapToolsForPlatform(["bash", "powershell", "edit"], "win32", false)).toEqual([
 			"powershell",
 			"edit",
 		]);
@@ -114,6 +114,29 @@ describe("mapToolsForPlatform", () => {
 		expect(mapToolsForPlatform(tools, "darwin")).toBe(tools);
 		expect(mapToolsForPlatform(tools, "linux")).toBe(tools);
 	});
+});
+
+test("win32 且 bash 可用：bash 原样保留（检测到 Git Bash 就用它）", () => {
+	expect(mapToolsForPlatform(["read", "bash", "edit"], "win32", true)).toEqual([
+		"read",
+		"bash",
+		"edit",
+	]);
+});
+
+test("win32 且 bash 不可用：bash 映射为 powershell", () => {
+	expect(mapToolsForPlatform(["read", "bash", "edit"], "win32", false)).toEqual([
+		"read",
+		"powershell",
+		"edit",
+	]);
+});
+
+test("非 win32：bash 可用与否都不影响结果", () => {
+	expect(mapToolsForPlatform(["read", "bash"], "darwin", false)).toEqual([
+		"read",
+		"bash",
+	]);
 });
 
 test("buildPiArgs：win32 下 --tools 清单经平台映射", () => {

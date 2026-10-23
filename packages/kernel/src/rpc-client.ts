@@ -16,6 +16,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
+import { isBashAvailable } from "./shell-detect";
 
 /**
  * Bun 的 process.env 对代理变量（HTTP_PROXY/HTTPS_PROXY/NO_PROXY 等）有特殊处理：
@@ -669,14 +670,20 @@ export interface PiLaunchSpec {
 /**
  * Windows 平台工具名映射：bash → powershell（pi >= 0.84.3 的 Windows 原生命令工具）。
  * 工具集配置（角色白名单/UI 勾选/frontmatter）跨平台只写 bash——它是「命令执行」
- * 能力的语义占位，Windows 运行时统一落地为 powershell，配置数据与用户均无需
- * 感知平台差异。非 win32 原样返回；bash 与 powershell 并存时映射后去重。
+ * 能力的语义占位，配置数据与用户均无需感知平台差异。
+ *
+ * Windows 上是否落地为 powershell 取决于本机有没有 bash（Git Bash / Cygwin /
+ * MSYS2 / WSL，探测见 shell-detect.ts）：有 bash 就保留 bash 工具，没有才换成
+ * powershell。非 win32 原样返回；bash 与 powershell 并存时映射后去重。
  */
 export function mapToolsForPlatform(
 	tools: string[],
 	platform: string = process.platform,
+	bashAvailable?: boolean,
 ): string[] {
 	if (platform !== "win32") return tools;
+	const available = bashAvailable ?? isBashAvailable();
+	if (available) return tools;
 	const mapped = tools.map((t) => (t === "bash" ? "powershell" : t));
 	return [...new Set(mapped)];
 }

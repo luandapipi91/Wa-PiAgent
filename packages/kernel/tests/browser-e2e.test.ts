@@ -30,6 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { AgentManager } from "../src/agent-manager";
+import { isBashAvailable } from "../src/shell-detect";
 import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
@@ -369,8 +370,8 @@ async function startWhitelistedAgent(tools: string[]) {
 }
 
 test("白名单：agent tools 显式配置 read+shell（不含 browser_*）时 --tools 不含 browser_*", async () => {
-	// shell 工具按平台映射：POSIX 为 bash，Windows 为 powershell
-	const shellTool = process.platform === "win32" ? "powershell" : "bash";
+	// shell 工具按平台能力映射：有 bash（POSIX / Windows 装 Git Bash）用 bash，否则 powershell
+	const shellTool = isBashAvailable() ? "bash" : "powershell";
 	const { fakes } = await startWhitelistedAgent(["read", shellTool]);
 
 	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>

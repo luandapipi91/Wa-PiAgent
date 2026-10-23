@@ -1,4 +1,5 @@
 import { ConfigStore } from "./config-store";
+import { isBashAvailable } from "./shell-detect";
 import { createCascadingProjectStore } from "./subagent-cascade-store";
 import { ProviderStore } from "./provider-store";
 import { syncCompactionOverrides } from "./compaction-overrides";
@@ -121,9 +122,15 @@ export async function startKernel(opts?: {
 	// 内置默认工具清单对齐（settings.json.defaultTools）：pi 引擎默认激活集仅
 	// read/bash/edit/write，grep/find/ls 注册但未激活；wa-pi 产品语义是内置工具
 	// 全放行，用 defaultTools 替换默认激活集——不生成硬白名单，扩展/MCP 工具仍
-	// 全放行。Windows 的 bash→powershell 平台适配沿用同一机制。未配置或仍是旧版
-	// 自动写入的清单时写入/升级；用户自定义不被覆盖。
+	// 全放行。Windows 上的命令工具按本机能力落地：探测到 bash（Git Bash / Cygwin /
+	// MSYS2 / WSL，见 shell-detect.ts）就用 bash，没有才回退 powershell。未配置或
+	// 仍是自动写入的清单时写入/升级；用户自定义不被覆盖。
 	const defaultToolsOutcome = await ensureDefaultTools();
+	if (process.platform === "win32") {
+		console.log(
+			`[tools] bash ${isBashAvailable() ? "已检测到，命令工具默认使用 bash" : "未检测到，命令工具回退 powershell"}`,
+		);
+	}
 	// Codemode only 档移除后的存量清理（full 归位 compat、删 pi 引擎键 codemode.mode）
 	await normalizeLegacyCodemode();
 	if (defaultToolsOutcome !== "kept") {
