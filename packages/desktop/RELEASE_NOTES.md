@@ -1,5 +1,5 @@
-WA PI Agent 0.7.14 更新内容:
+WA PI Agent 0.7.15 更新内容:
 
-【改进】
+【修复】
 
-- Windows 上装了 Git Bash 的电脑，命令工具会自动改用 bash（与 Mac 一致），没装则继续用 PowerShell
+- 修复委托记录弹窗里历史轮次显示不全的问题（续跑过的子任务会漏掉几行）
