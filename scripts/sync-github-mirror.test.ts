@@ -4,6 +4,7 @@ import {
 	buildEntries,
 	looksBinary,
 	parseLsTreeLine,
+	parseLsTreeZ,
 	type LsTreeEntry,
 } from "./sync-github-mirror";
 
@@ -41,6 +42,32 @@ describe("parseLsTreeLine", () => {
 		).toBeNull();
 		expect(parseLsTreeLine("garbage")).toBeNull();
 		expect(parseLsTreeLine("")).toBeNull();
+	});
+});
+
+describe("parseLsTreeZ", () => {
+	test("-z 输出按 NUL 分段解析，中文路径保持原样（不带引号 / 八进制转义）", () => {
+		const out =
+			[
+				"100644 blob 9191d97f271952c60a8d3f0695021d7c9a83ae25\tCHANGELOG.md",
+				"100644 blob 0123456789abcdef0123456789abcdef01234567\tpackages/kernel/tests/fixtures/preview-inspect/门店店长管理绩效.html",
+			].join("\0") + "\0";
+		const entries = parseLsTreeZ(out);
+		expect(entries.map((e) => e.path)).toEqual([
+			"CHANGELOG.md",
+			"packages/kernel/tests/fixtures/preview-inspect/门店店长管理绩效.html",
+		]);
+		// 回归：不加 -z 时 git 会输出 "\\351\\227\\250..." 形式的带引号转义路径，
+		// 原样当路径上传会在远端造出名为 "packages 的伪目录（见 GitHub 43a5448）
+		expect(entries[1].path.startsWith('"')).toBe(false);
+		expect(entries[1].path.includes("\\")).toBe(false);
+	});
+
+	test("跳过非 blob 段与空段", () => {
+		const out =
+			"040000 tree 0123456789abcdef0123456789abcdef01234567\tpackages\0" +
+			"100755 blob 0123456789abcdef0123456789abcdef01234567\trun.sh\0\0";
+		expect(parseLsTreeZ(out).map((e) => e.path)).toEqual(["run.sh"]);
 	});
 });
 

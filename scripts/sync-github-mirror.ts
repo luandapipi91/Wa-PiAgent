@@ -42,6 +42,21 @@ export function parseLsTreeLine(line: string): LsTreeEntry | null {
 	};
 }
 
+/**
+ * 解析 `git ls-tree -r -z` 的输出（NUL 分段）。
+ *
+ * **必须用 -z**：不带 -z 时 git 会对非 ASCII 路径按 core.quotepath 输出带引号的
+ * 八进制转义形式（`"packages/.../\351\227\250....html"`），原样当路径上传会在远端
+ * 造出名为 `"packages` 的伪目录（2026-10-23 GitHub 快照事故）。-z 下路径是原始字节，不转义。
+ */
+export function parseLsTreeZ(output: string): LsTreeEntry[] {
+	return output
+		.split("\0")
+		.filter(Boolean)
+		.map(parseLsTreeLine)
+		.filter((e): e is LsTreeEntry => e !== null);
+}
+
 /** 组装要提交的 tree 条目：只含「内容变化 / 新增」的文件与远端多余文件的删除。
  *  内容未变的条目交给 base_tree 复用——全量 upsert（每个文件一条）会让
  *  POST /git/trees 的请求体上千条，GitHub 侧构树超时（实测 504，重试还会挂住），
@@ -163,13 +178,10 @@ async function main() {
 	const pat = getPat();
 	const log = (s: string) => console.log(s);
 
-	// 1. 本地全量清单
-	const local = gitOut(["ls-tree", "-r", "HEAD"])
-		.toString("utf8")
-		.split("\n")
-		.filter(Boolean)
-		.map(parseLsTreeLine)
-		.filter((e): e is LsTreeEntry => e !== null);
+	// 1. 本地全量清单（-z：中文等非 ASCII 路径保持原样，不出现引号/八进制转义）
+	const local = parseLsTreeZ(
+		gitOut(["ls-tree", "-r", "-z", "HEAD"]).toString("utf8"),
+	);
 	log(`local files: ${local.length}`);
 
 	// 2. 远端当前 ref/commit/tree
@@ -275,7 +287,10 @@ async function main() {
 	}
 }
 
-main().catch((err) => {
-	console.error(err instanceof Error ? err.message : err);
-	process.exitCode = 1;
-});
+// 仅作为脚本直接执行时才同步；被测试 import 时不得触发凭据读取 / 网络同步
+if (import.meta.main) {
+	main().catch((err) => {
+		console.error(err instanceof Error ? err.message : err);
+		process.exitCode = 1;
+	});
+}
