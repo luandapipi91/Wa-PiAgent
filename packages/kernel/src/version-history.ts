@@ -55,9 +55,11 @@ export async function getRemoteVersionHistory(opts?: {
 	fetchImpl?: typeof fetch;
 	now?: () => number;
 	url?: string;
+	/** 绕过 6h TTL 立即重拉（发现新版本但历史里还没有它时用；成功仍刷新缓存） */
+	force?: boolean;
 }): Promise<VersionHistoryEntry[]> {
 	const now = opts?.now ?? Date.now;
-	if (cache && now() - cache.at < CACHE_TTL_MS) return cache.entries;
+	if (!opts?.force && cache && now() - cache.at < CACHE_TTL_MS) return cache.entries;
 
 	const fetchImpl = opts?.fetchImpl ?? fetch;
 	const url = opts?.url ?? VERSION_HISTORY_URL;

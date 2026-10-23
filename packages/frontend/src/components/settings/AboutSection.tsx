@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUpdaterStore } from "../../store/updater";
 import { useSettingsStore } from "../../store/settings";
 import { useOnboardingStore } from "../../store/onboarding";
@@ -57,11 +57,24 @@ export function AboutSection() {
 	}, [loadHistory]);
 
 	const ver = latestVersion ? `v${latestVersion}` : "";
+	// 历史数据里有没有「线上最新版」这一条：内核 6h 缓存 / 线上尚未更新时为 false，
+	// 此时区间内容不可信（会拿更旧的版本冒充本次更新内容），不展示区间。
+	const hasLatest = !latestVersion || entries.some((e) => e.version === latestVersion);
+	// 发现新版本但历史里没有它 → 绕过内核缓存强制重拉一次（每个版本只尝试一次，
+	// 避免线上确实没有时每次渲染都打服务）。
+	const refreshedFor = useRef<string | null>(null);
+	useEffect(() => {
+		if (!latestVersion || hasLatest) return;
+		if (refreshedFor.current === latestVersion) return;
+		refreshedFor.current = latestVersion;
+		void loadHistory(true);
+	}, [latestVersion, hasLatest, loadHistory]);
+
 	// 安装版 → 最新版之间的全部版本（含中间跳过的版本）
 	const pending = useMemo(() => {
-		if (!latestVersion) return [];
+		if (!latestVersion || !hasLatest) return [];
 		return selectUpdatesBetween(entries, appVersion, latestVersion);
-	}, [entries, appVersion, latestVersion]);
+	}, [entries, appVersion, latestVersion, hasLatest]);
 	const pendingItems = pending.reduce((n, e) => n + countItems(e), 0);
 
 	const showStatusBar =

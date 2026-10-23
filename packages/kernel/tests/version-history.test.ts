@@ -62,6 +62,21 @@ test("TTL 过期后重新拉取", async () => {
 	expect(calls).toBe(2);
 });
 
+test("force 绕过 TTL：立即重拉并刷新缓存", async () => {
+	let calls = 0;
+	const fetchImpl = (async () => {
+		calls += 1;
+		return jsonResponse(validPayload);
+	}) as unknown as typeof fetch;
+	const now = 1_000_000;
+	await getRemoteVersionHistory({ fetchImpl, now: () => now });
+	await getRemoteVersionHistory({ fetchImpl, now: () => now, force: true });
+	expect(calls).toBe(2);
+	// 强制刷新后普通读取命中新缓存（不再发请求）
+	await getRemoteVersionHistory({ fetchImpl, now: () => now });
+	expect(calls).toBe(2);
+});
+
 test("HTTP 失败不抛错：无缓存返回空数组", async () => {
 	const fetchImpl = (async () =>
 		new Response("boom", { status: 500 })) as unknown as typeof fetch;

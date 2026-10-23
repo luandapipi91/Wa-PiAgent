@@ -2609,7 +2609,10 @@ export class WSServer {
 			case "version-history:get": {
 				// 线上完整版本历史：内核代拉 + 6 小时缓存（见 version-history.ts），
 				// 失败返回空数组（前端用内置/缓存兜底），本接口永不报错。
-				const history = await getRemoteVersionHistory();
+				// event.refresh：发现新版本但历史里没有它时绕过缓存重拉（发版后不必等 6h）。
+				const history = await getRemoteVersionHistory({
+					force: event.refresh === true,
+				});
 				reply({
 					type: "version-history:get",
 					history,

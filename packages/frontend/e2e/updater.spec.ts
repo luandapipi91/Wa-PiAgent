@@ -92,4 +92,67 @@ test.describe("关于页签更新流程（mock waPiUpdater）", () => {
 		// downloaded 由 setTimeout(450ms) 触发，给足等待时间
 		await expect(page.getByTestId("install-update-btn")).toBeVisible({ timeout: 5000 });
 	});
+
+	test("版本历史停在旧数据时：发现新版本后强制重拉，并展示新版本自己的内容", async ({
+		page,
+	}) => {
+		await page.addInitScript(MOCK_SCRIPT);
+		await createProject("e2e-updater-stale", "/tmp/e2e-updater-stale");
+
+		// 拦截版本历史接口：首次（走内核缓存）返回不含 0.2.0 的旧数据；
+		// 带 refresh=1 的强制重拉才返回含 0.2.0 的新数据（真实发版后内核缓存 6h 的形态）
+		const historyPaths: string[] = [];
+		await page.route("**/api/version-history*", async (route) => {
+			const url = route.request().url();
+			historyPaths.push(url);
+			const fresh = url.includes("refresh=1");
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					type: "version-history:get",
+					history: fresh
+						? [
+								{
+									version: "0.2.0",
+									date: "2026-02-01",
+									sections: { 修复: ["新版本内容甲"] },
+								},
+							]
+						: [
+								{
+									version: "0.1.9",
+									date: "2026-01-30",
+									sections: { 改进: ["旧版本内容乙"] },
+								},
+							],
+					source: "remote",
+				}),
+			});
+		});
+
+		await page.goto("/");
+		await page.getByTestId("settings-btn").click();
+		await page.getByTestId("settings-nav-about").click();
+		await expect(page.getByTestId("about-section")).toBeVisible();
+
+		const downloadBtn = page.getByTestId("download-update-btn");
+		if (!(await downloadBtn.isVisible().catch(() => false))) {
+			await page.getByTestId("check-update-btn").click();
+		}
+		await expect(downloadBtn).toBeVisible();
+
+		// 发现新版本但历史里没有它 → 自动带 refresh=1 重拉一次
+		await expect
+			.poll(() => historyPaths.some((u) => u.includes("refresh=1")), {
+				timeout: 10_000,
+			})
+			.toBe(true);
+
+		// 重拉后区间包含新版本，且展示的是新版本自己的内容（不是旧数据）
+		await page.getByTestId("toggle-pending-versions").click();
+		const pending = page.getByTestId("pending-versions");
+		await expect(pending).toContainText("新版本内容甲");
+		await expect(pending).not.toContainText("旧版本内容乙");
+	});
 });

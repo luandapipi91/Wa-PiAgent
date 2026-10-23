@@ -38,6 +38,26 @@ test("load 成功后合并线上数据并写缓存", async () => {
 	expect(localStorage.getItem(HISTORY_CACHE_KEY)).toContain("9.9.9");
 });
 
+test("load(true) 带 refresh=1 强制拉取（绕过内核缓存）", async () => {
+	const paths: string[] = [];
+	getImpl = async (path: string) => {
+		paths.push(path);
+		return { history: remote };
+	};
+	await useVersionHistoryStore.getState().load(true);
+	expect(paths[0]).toContain("refresh=1");
+});
+
+test("load() 不带 refresh（走内核缓存）", async () => {
+	const paths: string[] = [];
+	getImpl = async (path: string) => {
+		paths.push(path);
+		return { history: remote };
+	};
+	await useVersionHistoryStore.getState().load();
+	expect(paths[0]).toBe("/api/version-history");
+});
+
 test("load 失败时保留内置数据，不抛错", async () => {
 	getImpl = async () => {
 		throw new Error("kernel down");

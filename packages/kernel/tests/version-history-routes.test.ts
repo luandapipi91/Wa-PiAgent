@@ -22,6 +22,18 @@ test("GET /api/version-history 翻译为 version-history:get 事件", async () =
 	expect(body.history[0].version).toBe("0.6.10");
 });
 
+test("?refresh=1 透传 refresh: true（绕过内核缓存重拉）", async () => {
+	const calls: any[] = [];
+	const callApi = (async (event: any) => {
+		calls.push(event);
+		return Response.json({ type: "version-history:get", history: [], source: "unavailable" });
+	}) as any;
+	const router = new HttpRouter();
+	registerVersionHistoryRoutes(router, callApi, {} as any);
+	await router.handle(new Request("http://x/api/version-history?refresh=1"));
+	expect(calls[0]).toEqual({ type: "version-history:get", refresh: true });
+});
+
 test("线上不可用时透传空数组 + source=unavailable，不 500", async () => {
 	const calls: any[] = [];
 	const callApi = (async (event: any) => {

@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, test, expect, vi } from "bun:test";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
 import { AboutSection } from "../src/components/settings/AboutSection";
 import { useUpdaterStore, initUpdater } from "../src/store/updater";
 import { useVersionHistoryStore } from "../src/store/version-history";
@@ -167,4 +167,72 @@ test("available 时展示跨版本区间摘要，点查看全部展开各版本�
 	expect(pending.getByText("区间条目乙")).toBeTruthy();
 	// 负向断言用 queryByText：getByText 找不到元素时直接抛错，永远不可能为 null
 	expect(screen.queryByText("旧条目")).toBeNull();
+});
+
+test("最新版在版本历史里：区间内容包含该版本（修复：新版本出现时看不到它的内容）", () => {
+	useUpdaterStore.setState({ appVersion: "0.7.13" });
+	useVersionHistoryStore.setState({
+		entries: [
+			{ version: "0.7.15", date: "2026-10-23", sections: { 修复: ["最新版本内容"] } },
+			{ version: "0.7.14", date: "2026-10-23", sections: { 改进: ["中间版本内容"] } },
+			{ version: "0.7.13", date: "2026-10-22", sections: { 改进: ["已安装版本内容"] } },
+		],
+	});
+	(window as any).waPiUpdater._emit({
+		phase: "available",
+		version: "0.7.15",
+		releaseNotes: "修复：最新版本内容",
+	});
+	render(<AboutSection />);
+	expect(screen.getByText(/跨 2 个版本/)).toBeTruthy();
+	fireEvent.click(screen.getByTestId("toggle-pending-versions"));
+	const pending = within(screen.getByTestId("pending-versions"));
+	expect(pending.getByText("最新版本内容")).toBeTruthy();
+	expect(pending.getByText("中间版本内容")).toBeTruthy();
+	expect(pending.queryByText("已安装版本内容")).toBeNull();
+});
+
+test("最新版不在版本历史里：不展示旧区间内容，退回 releaseNotes", () => {
+	useUpdaterStore.setState({ appVersion: "0.7.12" });
+	useVersionHistoryStore.setState({
+		entries: [
+			{ version: "0.7.13", date: "2026-10-22", sections: { 改进: ["旧版本条目"] } },
+		],
+	});
+	(window as any).waPiUpdater._emit({
+		phase: "available",
+		version: "0.7.15",
+		releaseNotes: "修复：委托记录弹窗历史轮次显示不全",
+	});
+	render(<AboutSection />);
+	// 历史数据迟到（内核缓存 / 线上未更新）时，区间不可信：必须显示新版本自己的
+	// releaseNotes，而不是拿更旧的版本内容冒充「本次更新内容」
+	expect(screen.getByTestId("release-notes-body").textContent).toContain(
+		"委托记录弹窗",
+	);
+	expect(screen.queryByTestId("toggle-pending-versions")).toBeNull();
+	// 限定在状态条内：分栏右栏默认展示 entries[0]（0.7.13）的正文，全局查会误命中
+	expect(
+		within(screen.getByTestId("updater-status")).queryByText("旧版本条目"),
+	).toBeNull();
+});
+
+test("发现新版本但历史里没有它：强制刷新版本历史（且只刷一次）", async () => {
+	const originalLoad = useVersionHistoryStore.getState().load;
+	const load = vi.fn(async (_force?: boolean) => {});
+	useVersionHistoryStore.setState({
+		load: load as never,
+		entries: [
+			{ version: "0.7.13", date: "2026-10-22", sections: { 改进: ["旧版本条目"] } },
+		],
+	});
+	(window as any).waPiUpdater._emit({
+		phase: "available",
+		version: "0.7.15",
+		releaseNotes: "新内容",
+	});
+	render(<AboutSection />);
+	await waitFor(() => expect(load.mock.calls.some((c) => c[0] === true)).toBe(true));
+	expect(load.mock.calls.filter((c) => c[0] === true).length).toBe(1);
+	useVersionHistoryStore.setState({ load: originalLoad });
 });

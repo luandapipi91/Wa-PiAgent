@@ -786,6 +786,8 @@ export interface VersionHistoryEntry {
 /** 前端 → kernel：取线上完整版本历史 */
 export interface VersionHistoryGetEvent {
 	type: "version-history:get";
+	/** 绕过内核 6h 缓存立即重拉（发现新版本但历史里没有它时用） */
+	refresh?: boolean;
 }
 
 /** kernel → 前端：完整版本历史（拉取失败时 history 为空数组，source 标为 unavailable） */

@@ -18,7 +18,8 @@ interface VersionHistoryState {
 	/** 当前 entries 的主要来源（bundled = 只有打包内置数据） */
 	source: "bundled" | "cache" | "remote";
 	loaded: boolean;
-	load: () => Promise<void>;
+	/** force=true 时带 refresh=1 绕过内核 6h 缓存重拉（发现新版本但历史里没有它时用） */
+	load: (force?: boolean) => Promise<void>;
 }
 
 const BUNDLED = bundled as VersionEntry[];
@@ -27,7 +28,7 @@ export const useVersionHistoryStore = create<VersionHistoryState>((set) => ({
 	entries: mergeVersionHistory([BUNDLED]),
 	source: "bundled",
 	loaded: false,
-	load: async () => {
+	load: async (force = false) => {
 		// 1) 先用上次落盘的线上数据暖场（离线/内核未就绪时也能看到较新的历史）
 		const cached = readHistoryCache();
 		if (cached.length) {
@@ -38,7 +39,9 @@ export const useVersionHistoryStore = create<VersionHistoryState>((set) => ({
 		}
 		// 2) 再拉线上（内核代拉，见 kernel/src/version-history.ts）；失败静默保留现有数据
 		try {
-			const data = (await api.get("/api/version-history")) as {
+			const data = (await api.get(
+				force ? "/api/version-history?refresh=1" : "/api/version-history",
+			)) as {
 				history?: VersionEntry[];
 			} | null;
 			const remote = Array.isArray(data?.history) ? data.history : [];

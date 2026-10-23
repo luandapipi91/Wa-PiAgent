@@ -4,7 +4,16 @@
 import type { RouteRegistrar } from "./types";
 
 export const registerVersionHistoryRoutes: RouteRegistrar = (r, callApi) => {
-  r.add("GET", "/api/version-history", async () =>
-    callApi({ type: "version-history:get" }),
-  );
+  r.add("GET", "/api/version-history", async (req) => {
+    // refresh=1：绕过内核缓存重拉（发现新版本但历史里没有它时由前端触发）
+    const url = new URL(req.url, "http://localhost");
+    const refresh =
+      url.searchParams.get("refresh") === "1" ||
+      url.searchParams.get("refresh") === "true";
+    return callApi(
+      refresh
+        ? { type: "version-history:get", refresh: true }
+        : { type: "version-history:get" },
+    );
+  });
 };
