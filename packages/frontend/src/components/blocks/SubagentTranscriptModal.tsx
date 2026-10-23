@@ -342,18 +342,22 @@ function TranscriptDialog({
 	// 历史里已经有 task 段（每轮任务都作为 user 消息落在 jsonl）时，顶部不再重复挂 meta.task；
 	// 仅当 jsonl 里没有 user 消息（异常/旧数据）时用它兜底。判定用未过滤的 segments。
 	const hasTaskSegment = segments.some((s) => s.kind === "task");
-	// 同一次委托（toolCallId 相同）的实例，按 fleet 序号排序。
+	// 左栏 = 该实例所属「任务批次」的全部成员，按该批次的 fleet 序号排序。
 	// 分组依据必须是**会话级列表**而非详情响应：详情一开始 setData(null)、目标实例 404 时 data 长期为 null，
 	// 绑详情会让左栏在每次切换的加载窗口内被卸载（闪烁），且目标 jsonl 缺失时左栏永久消失（只能关掉弹窗重开）。
-	// resume 会把实例的 toolCallId 覆盖为本次委派 → 旧那轮的弹窗里它不再命中等值比较，
-	// 因此还要看 delegations（历史归属），否则旧轮左栏缺掉被续聊的实例。
+	// 批次取「首次委派」（delegations 首条）：resume 会把实例的 toolCallId 覆盖为最近一次委派，
+	// 若按它分组，打开被 resume 的实例时本轮没被 resume 的原批次成员会缺行（用户实测：上一轮派 3 个、
+	// 本轮只续聊 2 个，打开续聊的那个只看到 2 个）。旧数据没有 delegations → 退回自身 toolCallId。
 	const siblings = useMemo(() => {
-		const tc = group.find((g) => g.agentId === agentId)?.toolCallId;
+		const me = group.find((g) => g.agentId === agentId);
+		if (!me) return [];
+		const tc = me.delegations?.[0]?.toolCallId ?? me.toolCallId;
 		if (!tc) return [];
-		const indexOf = (s: TranscriptMeta): number | null =>
-			s.toolCallId === tc
-				? (s.taskIndex ?? null)
-				: (s.delegations?.find((d) => d.toolCallId === tc)?.taskIndex ?? null);
+		const indexOf = (s: TranscriptMeta): number | null => {
+			const hit = s.delegations?.find((d) => d.toolCallId === tc);
+			if (hit) return hit.taskIndex ?? null;
+			return s.toolCallId === tc ? (s.taskIndex ?? null) : null;
+		};
 		return group
 			.filter(
 				(s) => s.toolCallId === tc || s.delegations?.some((d) => d.toolCallId === tc),

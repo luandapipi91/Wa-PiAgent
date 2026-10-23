@@ -845,7 +845,10 @@ test.describe("子代理转录左栏（旧轮 resume，无 LLM）", () => {
 		const card = page.getByTestId("delegate-card").first();
 		await expect(card).toBeVisible({ timeout: 20_000 });
 		// 入口是任务行本身（2026-10-02 起不再是文字按钮）：aria-label = 委托转录 <agent>
-		await card.getByRole("button", { name: /委托转录 Explore/ }).first().click();
+		// 打开**被 resume 的那个**（第 3 行）：它的 toolCallId 已被下一轮覆盖，
+		// 若按「最近一次委派」分组，本轮没被续聊的第 1、2 行就会缺；
+		// 按「首次委派批次」分组才应看到原批 4 个全在。
+		await card.getByRole("button", { name: /委托转录 Explore/ }).nth(2).click();
 
 		const modal = page.getByTestId("subagent-transcript-modal");
 		await expect(modal).toBeVisible({ timeout: 15_000 });
