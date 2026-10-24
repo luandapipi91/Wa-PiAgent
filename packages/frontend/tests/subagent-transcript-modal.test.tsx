@@ -409,6 +409,21 @@ test("open 为 null 时不挂载弹窗、不发请求（按需加载）", () => 
 	expect(fetchUrls).toEqual([]);
 });
 
+test("标题显示「委托详情」：入口与弹窗同名（2026-10-24 由「委托转录」改名）", async () => {
+	stubFetch({});
+	render(
+		<SubagentTranscriptModal
+			open={{ sessionId: SESSION_ID, agentId: AGENT_ID }}
+			onClose={() => {}}
+		/>,
+	);
+	// 弹窗的 accessible name 来自 aria-label（与标题栏同一 i18n 键）
+	expect(await screen.findByRole("dialog", { name: "委托详情" })).toBeTruthy();
+	expect(screen.queryByRole("dialog", { name: "委托转录" })).toBeNull();
+	expect(zh.blocks.delegate.transcriptTitle).toBe("委托详情");
+	expect(en.blocks.delegate.transcriptTitle).toBe("Delegate details");
+});
+
 test("打开时显示加载中", async () => {
 	stubFetch({ deferDetail: true });
 	render(

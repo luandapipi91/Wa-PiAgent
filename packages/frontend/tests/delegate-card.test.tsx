@@ -85,7 +85,7 @@ test("新数据（details.subagents）：任务行整行可点 → 打开弹窗�
 	expect(screen.getByText(/任务 1：已完成 调用了 2 个工具 成功 2 失败 0 执行中 0/)).toBeTruthy();
 	// 2026-10-02：不再有「查看全部内容」文字入口，唯一入口是任务行本身
 	expect(screen.queryByRole("button", { name: /查看全部内容/ })).toBeNull();
-	fireEvent.click(screen.getByRole("button", { name: /委托转录 Explore/ }));
+	fireEvent.click(screen.getByRole("button", { name: /委托详情 Explore/ }));
 	expect(useSessionStore.getState().transcript).toEqual({
 		sessionId: "s1",
 		agentId: "a3f8c1d0a",
@@ -105,7 +105,7 @@ test("门控①：越权行（agentId 与 jsonlPath 都为空）→ 任务行不
 	fireEvent.click(screen.getByTestId("delegate-call_1-header"));
 	// 任务行照常渲染（用户要知道派过什么），但不能给出必然 404 的入口
 	expect(screen.getByText("查 X")).toBeTruthy();
-	expect(screen.queryByRole("button", { name: /委托转录/ })).toBeNull();
+	expect(screen.queryByRole("button", { name: /委托详情/ })).toBeNull();
 	expect(useSessionStore.getState().transcript).toBeNull();
 });
 
@@ -119,7 +119,7 @@ test("门控②：agentId 非空但 jsonlPath 为空（转录目录/meta 准备�
 	);
 	fireEvent.click(screen.getByTestId("delegate-call_1-header"));
 	expect(screen.getByText("查 X")).toBeTruthy();
-	expect(screen.queryByRole("button", { name: /委托转录/ })).toBeNull();
+	expect(screen.queryByRole("button", { name: /委托详情/ })).toBeNull();
 	expect(useSessionStore.getState().transcript).toBeNull();
 });
 
@@ -136,7 +136,7 @@ test("中断态（status=interrupted）：任务行同样可点开弹窗（与�
 	// 终态默认折叠 → 展开后才看得到任务行与入口
 	fireEvent.click(screen.getByTestId("delegate-call_1-header"));
 	expect(screen.getByText("查 X")).toBeTruthy();
-	fireEvent.click(screen.getByRole("button", { name: /委托转录 Explore/ }));
+	fireEvent.click(screen.getByRole("button", { name: /委托详情 Explore/ }));
 	expect(useSessionStore.getState().transcript).toEqual({
 		sessionId: "s1",
 		agentId: "a3f8c1d0a",
@@ -162,7 +162,7 @@ test("执行中（只有进度事件、details 还没到）→ 任务行可点�
 	});
 	// 无 result：details 还没到，入口只能靠进度事件里的 agentId
 	render(<DelegateCard sessionId="s1" toolCall={newCall} />);
-	fireEvent.click(screen.getByRole("button", { name: /委托转录 Explore/ }));
+	fireEvent.click(screen.getByRole("button", { name: /委托详情 Explore/ }));
 	expect(useSessionStore.getState().transcript).toEqual({
 		sessionId: "s1",
 		agentId: "a1234567b",
@@ -209,7 +209,7 @@ test("旧 delegate 数据（无 subagents）：不出现查看入口，回复照
 			}
 		/>,
 	);
-	expect(screen.queryByRole("button", { name: /委托转录/ })).toBeNull();
+	expect(screen.queryByRole("button", { name: /委托详情/ })).toBeNull();
 	fireEvent.click(screen.getByTestId("delegate-call_2-header"));
 	expect(screen.getByText("旧结果")).toBeTruthy();
 });

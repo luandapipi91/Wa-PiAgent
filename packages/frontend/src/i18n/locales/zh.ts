@@ -280,7 +280,7 @@ const zh = {
 				"调用了 {{total}} 个工具 成功 {{done}} 失败 {{error}} 执行中 {{running}}",
 			// 子代理转录弹窗（任务 10）：标题 / 空态 / 底部统计 / 筛选
 			// （2026-10-02 移除 viewTranscript：入口不再是文字按钮，改为点击任务行）
-			transcriptTitle: "委托转录",
+			transcriptTitle: "委托详情",
 			transcriptMissing: "此委托早于转录功能上线，没有可查看的转录",
 			transcriptLoadFailed: "转录加载失败，正在重试…",
 			toolCount: "{{n}} 个工具",
