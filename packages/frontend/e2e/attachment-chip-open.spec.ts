@@ -30,7 +30,6 @@ test.describe.serial("消息内附件 chip 点击打开", () => {
     page: import("@playwright/test").Page,
     text: string,
     filePath: string,
-    fileName: string,
   ): Promise<void> {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
@@ -44,7 +43,9 @@ test.describe.serial("消息内附件 chip 点击打开", () => {
       '[data-testid="composer-input"] input[type="file"]',
       filePath,
     );
-    await expect(page.getByTestId("attachment-list")).toContainText(fileName);
+    await expect(
+      page.getByTestId("attachment-list").getByTestId("attachment-chip"),
+    ).toHaveCount(1);
 
     const sendBtn = page.getByTestId("composer-send");
     await expect(sendBtn).toBeEnabled({ timeout: 5000 });
@@ -59,12 +60,7 @@ test.describe.serial("消息内附件 chip 点击打开", () => {
     writeFileSync(tmpPath, "这是 E2E 附件点击内容", "utf8");
 
     try {
-      await enterSessionWithAttachment(
-        page,
-        "看看这个附件",
-        tmpPath,
-        "e2e-chip-open.txt",
-      );
+      await enterSessionWithAttachment(page, "看看这个附件", tmpPath);
 
       // 消息里的附件 chip（乐观占位即出现；pi 回声后由正文尾段重建，同一渲染路径）
       const chip = page
@@ -90,12 +86,7 @@ test.describe.serial("消息内附件 chip 点击打开", () => {
     writeFileSync(tmpPath, Buffer.from(PNG_BASE64, "base64"));
 
     try {
-      await enterSessionWithAttachment(
-        page,
-        "看看这张图",
-        tmpPath,
-        "e2e-chip-open.png",
-      );
+      await enterSessionWithAttachment(page, "看看这张图", tmpPath);
 
       const chip = page
         .locator('[data-testid="session-view"] .chip-attachment')

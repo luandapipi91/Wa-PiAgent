@@ -408,6 +408,7 @@ const zh = {
 		},
 		attachmentChip: {
 			removeAriaLabel: "移除附件",
+			imageName: "图片{{n}}",
 		},
 		quickInvokeMenu: {
 			sourceBuiltin: "内置",

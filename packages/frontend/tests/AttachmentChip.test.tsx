@@ -139,6 +139,77 @@ test("传入 onClick 时，点击 chip 本体触发 onClick", () => {
 	expect(onClick).toHaveBeenCalled();
 });
 
+// === 图片缩略图 + i18n 编号 ===
+// 系统剪贴板位图被浏览器统一命名为 image.png，多张重名时分不清；
+// 图片附件改为按顺序显示「图片N」，并渲染真实缩略图。
+
+test("图片附件显示 i18n 编号与缩略图，不再显示 image.png", () => {
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "image",
+				name: "image.png",
+				path: "/tmp/image.png",
+				size: 1,
+			}}
+			imageOrdinal={2}
+			thumbnailSrc="/file?path=%2Ftmp%2Fimage.png"
+			onRemove={() => {}}
+		/>,
+	);
+	const chip = screen.getByTestId("attachment-chip");
+	expect(chip.textContent).toContain("图片2");
+	expect(chip.textContent).not.toContain("image.png");
+	// 原始文件名保留在 title 里可查
+	expect(chip.getAttribute("title")).toBe("image.png");
+	const img = screen.getByTestId("attachment-thumb") as HTMLImageElement;
+	expect(img.tagName).toBe("IMG");
+	expect(img.getAttribute("src")).toBe("/file?path=%2Ftmp%2Fimage.png");
+	expect(img.getAttribute("alt")).toBe("图片2");
+	// 缩略图模式下不再渲染占位图标
+	expect(chip.querySelector("svg")).toBeNull();
+});
+
+test("缩略图加载失败回退为图标，编号保留", () => {
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "image",
+				name: "image.png",
+				path: "/tmp/image.png",
+				size: 1,
+			}}
+			imageOrdinal={1}
+			thumbnailSrc="/file?path=%2Ftmp%2Fmissing.png"
+			onRemove={() => {}}
+		/>,
+	);
+	fireEvent.error(screen.getByTestId("attachment-thumb"));
+	expect(screen.queryByTestId("attachment-thumb")).toBeNull();
+	const chip = screen.getByTestId("attachment-chip");
+	expect(chip.querySelector("svg")).toBeTruthy();
+	expect(chip.textContent).toContain("图片1");
+});
+
+test("无缩略图地址的图片仍回退图标 + 文件名，并可移除", () => {
+	const onRemove = mock();
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "image",
+				name: "cat.png",
+				path: "/tmp/cat.png",
+				size: 1,
+			}}
+			onRemove={onRemove}
+		/>,
+	);
+	expect(screen.getByText("cat.png")).toBeTruthy();
+	expect(document.querySelector("img")).toBeNull();
+	fireEvent.click(screen.getByTestId("attachment-remove"));
+	expect(onRemove).toHaveBeenCalled();
+});
+
 test("点击删除按钮不触发 chip 的 onClick", () => {
 	const onClick = mock();
 	const onRemove = mock();

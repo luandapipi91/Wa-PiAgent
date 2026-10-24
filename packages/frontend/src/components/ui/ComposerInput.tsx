@@ -2,7 +2,7 @@ import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { isModelAvailable, SUBAGENT_TYPES } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
-import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
+import { uploadFile, copyToUploads, searchFilesStream, pathToUploadUrl } from "../../fs-client";
 import { formatKernelError } from "../../util/kernel-error";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
@@ -16,6 +16,7 @@ import { useToastStore } from "../../store/toast";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
+import { imageOrdinals } from "./attachment-labels";
 import { FilePicker, type FilePickerSelection } from "./FilePicker";
 import { Icon } from "./Icon";
 import { RecordButton } from "./RecordButton";
@@ -36,6 +37,8 @@ import {
 import { imPushToken } from "../automation/prompt-tokens";
 import { ContactPickerDialog, type ImPushTarget } from "./ContactPickerDialog";
 import { openFileOrPreview } from "../../open-file-preview";
+import { resolveAbsolutePath } from "../blocks/FilePill";
+import { useImageRevisionStore } from "../../store/image-revision";
 import { useContactsStore } from "../../store/contacts";
 
 interface Props {
@@ -103,6 +106,10 @@ export function ComposerInput({
 	const [sendImOpen, setSendImOpen] = useState(false);
 	const uploading = pendingUploads > 0;
 	const { t } = useTranslation();
+	// 图片序号（仅图片计数）：剪贴板图片都被命名为 image.png，展示层用「图片1/图片2」区分
+	const imageOrdinalList = useMemo(() => imageOrdinals(attachments), [attachments]);
+	// 标注保存后 revision 变化 → 缩略图换 URL，避开浏览器对同路径图片的缓存
+	const imageRevisions = useImageRevisionStore((s) => s.revisions);
 	// 附件选择器默认定位到当前项目目录（cwd），方便就近选取项目内文件
 	const projectCwd = useProjectsStore(
 		(s) => s.projects.find((p) => p.id === projectId)?.cwd,
@@ -963,6 +970,15 @@ export function ComposerInput({
 						<AttachmentChip
 							key={i}
 							attachment={a}
+							imageOrdinal={imageOrdinalList[i]}
+							thumbnailSrc={
+								a.kind === "image" && a.path
+									? pathToUploadUrl(
+											resolveAbsolutePath(a.path, sessionId),
+											imageRevisions[resolveAbsolutePath(a.path, sessionId)] ?? 0,
+										)
+									: undefined
+							}
 							onRemove={() => removeAttachment(i)}
 							onClick={
 								a.kind !== "snippet" && a.path
