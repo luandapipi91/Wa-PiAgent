@@ -97,14 +97,20 @@ export function MediaPreviewModal() {
 	const go = (d: number) =>
 		useSessionStore.getState().setMediaPreviewIndex((index + d + count) % count);
 
-	// 关闭：非标注态直接关；标注态先请标注组件走丢弃确认，确认丢弃后再关窗
+	// 关闭：非标注态直接关；标注态先请标注组件走丢弃确认，确认丢弃后再关窗。
+	// 只在「弹出丢弃确认」时记关窗意图——保存中被拒（refused）不记，
+	// 否则意图残留会让后续正常的取消丢弃误关窗。
 	const requestClose = () => {
 		if (!annotating) {
 			useSessionStore.getState().closeMediaPreview();
 			return;
 		}
-		pendingClose.current = true;
-		annotatorRef.current?.requestCancel();
+		const result = annotatorRef.current?.requestCancel();
+		if (result === "exited") {
+			useSessionStore.getState().closeMediaPreview();
+			return;
+		}
+		pendingClose.current = result === "confirming";
 	};
 	// 退出标注态（标注组件确认后的回调）：本次退出由 ✕ 发起时一并关窗
 	const exitAnnotating = () => {

@@ -88,7 +88,7 @@ let imageNatural = { w: 100, h: 100 };
 // ─── 覆盖保存的 fetch 打桩：记录请求，按 case 返回成功/错误 ───
 type FetchCall = { url: string; init: RequestInit };
 let fetchCalls: FetchCall[] = [];
-let overwriteResult: () => Response = () =>
+let overwriteResult: () => Response | Promise<Response> = () =>
 	new Response(JSON.stringify({ type: "fs:overwrite", path: A.src }), {
 		status: 200,
 		headers: { "content-type": "application/json" },
@@ -393,6 +393,42 @@ test("保存失败：toast「保存失败」并保留标注态，版本号不变
 	// 标注态保留，用户可重试
 	expect(screen.getByTestId("image-annotator")).toBeTruthy();
 	expect(useImageRevisionStore.getState().revisions[A.src]).toBeUndefined();
+});
+
+// ─── 保存中点 ✕：不记关窗意图 ───
+
+test("保存中点 ✕ 不关窗；保存失败后取消丢弃也不会误关窗", async () => {
+	// 覆盖写入挂起 → 标注器停在 saving 态（取消 / 关闭都被拒绝）
+	let rejectOverwrite: ((e: unknown) => void) | null = null;
+	overwriteResult = () =>
+		new Promise<Response>((_resolve, reject) => {
+			rejectOverwrite = reject;
+		});
+
+	openPreview([A, B], A.src);
+	render(<MediaPreviewModal />);
+	fireEvent.click(screen.getByTestId("media-annotate"));
+	drawStroke(screen.getByTestId("annotator-canvas"));
+
+	await act(async () => {
+		fireEvent.click(screen.getByTestId("annotator-save"));
+	});
+	// 保存中：✕ 不关窗、也不弹丢弃确认（关窗请求被拒绝，不记意图）
+	fireEvent.click(screen.getByTestId("media-close"));
+	expect(screen.getByTestId("media-preview-modal")).toBeTruthy();
+	expect(screen.queryByTestId("annotator-confirm")).toBeNull();
+
+	// 保存失败 → 标注态保留，可重试
+	await act(async () => {
+		rejectOverwrite!(new Error("boom"));
+	});
+	expect(toastMessages()).toContain(i18n.t("blocks.imageAnnotator.saveFailed"));
+
+	// 之后点浮条取消 + 确认丢弃：只回普通预览，不关窗（残留关窗意图会让这里误关）
+	fireEvent.click(screen.getByTestId("annotator-cancel"));
+	fireEvent.click(screen.getByTestId("annotator-confirm-yes"));
+	expect(useSessionStore.getState().mediaPreview).not.toBeNull();
+	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
 });
 
 // ─── 入口来源：openFileOrPreview 的 annotatable 参数 ───

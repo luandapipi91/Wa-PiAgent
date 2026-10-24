@@ -121,9 +121,13 @@ function extendShape(shape: Shape, point: Point, anchor: Point | null): Shape {
 	return shape;
 }
 
+/** requestCancel 的结果：exited=已直接退出（无图形）；confirming=弹出了丢弃确认；
+ *  refused=保存中，拒绝退出（调用方不应记关窗意图） */
+export type AnnotatorCancelResult = "exited" | "confirming" | "refused";
+
 export type AnnotatorHandle = {
-	/** 请标注组件尝试退出：无图形直接回调 onCancel，有图形先弹丢弃确认 */
-	requestCancel: () => void;
+	/** 请标注组件尝试退出：无图形直接回调 onCancel，有图形先弹丢弃确认；保存中直接拒绝 */
+	requestCancel: () => AnnotatorCancelResult;
 };
 
 export function ImageAnnotator({
@@ -265,10 +269,14 @@ export function ImageAnnotator({
 		setHistory((prev) => prev.slice(0, -1));
 	}, [history]);
 
-	const requestCancel = useCallback(() => {
-		if (saving) return;
-		if (shapes.length > 0) setConfirm("discard");
-		else onCancel(false);
+	const requestCancel = useCallback((): AnnotatorCancelResult => {
+		if (saving) return "refused";
+		if (shapes.length > 0) {
+			setConfirm("discard");
+			return "confirming";
+		}
+		onCancel(false);
+		return "exited";
 	}, [saving, shapes.length, onCancel]);
 
 	useImperativeHandle(apiRef, () => ({ requestCancel }), [requestCancel]);
