@@ -2,7 +2,7 @@
 // 覆盖：空态提示、四宫格信息渲染、prompt 高亮、操作按钮调用、最近执行记录。
 // store 全部 mock，参照 AutomationSidebar.test.tsx / TaskEditForm.test.tsx 约定。
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { TaskDetailView } from "../TaskDetailView";
 import { useToastStore } from "../../../store/toast";
 
@@ -250,6 +250,36 @@ describe("TaskDetailView", () => {
 		).toBeUndefined();
 	});
 
+	// 操作按钮与全站风格统一：无底色 + SVG 图标（不再用灰底描边小方框 + emoji 字符）
+	test("顶部操作按钮：无底色 + SVG 图标，不再有 emoji 字符", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		render(<TaskDetailView />);
+		const buttons = [
+			screen.getByTestId("task-run-now-btn"),
+			[...document.querySelectorAll("button")].find(
+				(b) => b.textContent?.trim() === "编辑",
+			) as HTMLButtonElement,
+		];
+		for (const btn of buttons) {
+			expect(btn).toBeTruthy();
+			const cls = btn.className.split(/\s+/);
+			expect(cls.filter((c) => c.startsWith("bg-"))).toEqual([]);
+			expect(cls.filter((c) => /^border(-|$)/.test(c))).toEqual([]);
+			expect(btn.getAttribute("style") ?? "").not.toContain("background");
+			expect(btn.querySelector("svg")).toBeTruthy();
+			expect(btn.textContent).not.toMatch(/[▶✏️■]/);
+		}
+	});
+
 	test("点击「编辑」调用 startEdit(task)", () => {
 		schedulerState.tasks = [
 			{
@@ -371,6 +401,44 @@ describe("TaskDetailView", () => {
 		];
 		render(<TaskDetailView />);
 		fireEvent.click(screen.getByTestId("record-row-r1"));
+		expect(openRecordDetailMock).toHaveBeenCalledWith("r1", "detail");
+	});
+
+	test("最近执行的「详情」也是无底色文字按钮（与执行记录页一致）", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.recentRecordsTaskId = "t1";
+		schedulerState.recentRecords = [
+			{
+				id: "r1",
+				taskId: "t1",
+				taskName: "任务",
+				status: "success",
+				startedAt: Date.now() - 1000,
+				durationMs: 3000,
+			},
+		];
+		render(<TaskDetailView />);
+		const row = screen.getByTestId("record-row-r1");
+		const btn = within(row).getByRole("button", { name: /^详情$/ });
+		// 静态无底色、无边框（hover 反馈不算）——回退成灰底描边按钮时本用例变红
+		const cls = btn.className.split(/\s+/);
+		expect(cls.filter((c) => c.startsWith("bg-"))).toEqual([]);
+		expect(cls.filter((c) => /^border(-|$)/.test(c))).toEqual([]);
+		expect(btn.getAttribute("style") ?? "").not.toContain("background");
+		expect(btn.querySelector("svg")).toBeTruthy();
+		expect(btn.textContent).not.toContain(">");
+		// 点按钮不应冒泡成两次打开（行本身也绑了 onClick）
+		fireEvent.click(btn);
+		expect(openRecordDetailMock).toHaveBeenCalledTimes(1);
 		expect(openRecordDetailMock).toHaveBeenCalledWith("r1", "detail");
 	});
 

@@ -5,6 +5,7 @@ import { api } from "../../api-client";
 import { formatRecordError } from "../../util/kernel-error";
 import { recordShowsDuration, recordVisual } from "./record-visual";
 import { MessageList } from "../MessageList";
+import { Icon } from "../ui/Icon";
 
 /**
  * 执行记录详情页：回放该次定时任务执行的完整 agent 过程。
@@ -66,20 +67,8 @@ export function ExecutionDetailView() {
 
 	return (
 		<div data-testid="execution-detail-view" className="flex flex-col h-full">
-			{/* header：返回 + 元信息 */}
+			{/* header：元信息 + 返回（返回在右端，不再占据标题前的视觉起点） */}
 			<div className="flex items-center gap-3 p-3 border-b border-hairline flex-shrink-0">
-				<button
-					data-testid="execution-detail-back"
-					onClick={closeRecordDetail}
-					className="text-[11px] px-2 py-1 rounded cursor-pointer border"
-					style={{
-						background: "var(--surface-hover)",
-						borderColor: "var(--hairline)",
-						color: "var(--text-secondary)",
-					}}
-				>
-					← 返回
-				</button>
 				<div className="flex-1 min-w-0">
 					<div
 						className="text-xs font-medium truncate"
@@ -100,6 +89,19 @@ export function ExecutionDetailView() {
 						)}
 					</div>
 				</div>
+				<button
+					data-testid="execution-detail-back"
+					onClick={closeRecordDetail}
+					aria-label="返回执行记录"
+					className="group inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-hairline bg-surface-elevated pl-2 pr-3 cursor-pointer text-[calc(12px*var(--font-scale))] text-secondary transition-colors hover:border-hairline-strong hover:bg-surface-hover hover:text-primary"
+				>
+					<Icon
+						name="chevron-left"
+						size={14}
+						className="transition-transform duration-150 group-hover:-translate-x-0.5"
+					/>
+					返回
+				</button>
 			</div>
 
 			{/* 失败错误摘要 */}
