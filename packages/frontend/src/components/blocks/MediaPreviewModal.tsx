@@ -220,20 +220,6 @@ export function MediaPreviewModal() {
 							</button>
 						</>
 					)}
-					{/* 标注入口：仅发送前附件图片（笔按钮在复制左侧） */}
-					{canAnnotate && !annotating && (
-						<button
-							className="fv-btn"
-							onClick={() => {
-								pendingClose.current = false;
-								setAnnotating(true);
-							}}
-							title={t("blocks.imageAnnotator.annotate")}
-							data-testid="media-annotate"
-						>
-							<Icon name="edit" size={12} />
-						</button>
-					)}
 					{!annotating && (
 						<button
 							className="fv-btn"
@@ -294,6 +280,24 @@ export function MediaPreviewModal() {
 								data-testid="media-video"
 							/>
 						</div>
+					)}
+					{/* 标注入口：浮在图片右下角的圆形笔按钮（仅发送前附件图片；标注态隐藏）。
+					    默认半透明不遮挡画面，悬停时放大并变清晰；鼠标按下不传给下层缩放/拖拽视口。 */}
+					{canAnnotate && !annotating && (
+						<button
+							type="button"
+							onClick={() => {
+								pendingClose.current = false;
+								setAnnotating(true);
+							}}
+							onMouseDown={(e) => e.stopPropagation()}
+							title={t("blocks.imageAnnotator.annotate")}
+							aria-label={t("blocks.imageAnnotator.annotate")}
+							data-testid="media-annotate"
+							className="absolute bottom-5 right-5 z-10 flex h-[70px] w-[70px] cursor-pointer items-center justify-center rounded-full border border-white/25 bg-black/30 text-white opacity-60 shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition-[transform,opacity,background-color] duration-200 ease-out hover:scale-110 hover:bg-black/45 hover:opacity-100 active:scale-105"
+						>
+							<Icon name="edit" size={26} strokeWidth={2} />
+						</button>
 					)}
 					{count > 1 && !annotating && (
 						<>

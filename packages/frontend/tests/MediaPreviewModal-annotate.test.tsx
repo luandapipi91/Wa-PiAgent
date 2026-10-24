@@ -178,6 +178,28 @@ test("附件图片（uploads 下 png 且 annotatablePath 匹配）→ 顶栏出�
 	expect(screen.getByTestId("media-annotate")).toBeTruthy();
 });
 
+test("笔按钮是图片上的圆形悬浮按钮：不在顶栏、70px、默认半透明、悬停放大变清晰", () => {
+	openPreview([A, B], A.src);
+	render(<MediaPreviewModal />);
+	const btn = screen.getByTestId("media-annotate");
+
+	// 不再是右上角顶栏里的图标按钮：顶栏（拖动把手）内不应包含它
+	const topbar = document.querySelector("[data-modal-drag-handle]");
+	expect(topbar?.contains(btn)).toBe(false);
+
+	// 圆形 70px、绝对定位浮在图片上、默认半透明 + 悬停放大并变清晰
+	expect(btn.className).toContain("h-[70px]");
+	expect(btn.className).toContain("w-[70px]");
+	expect(btn.className).toContain("rounded-full");
+	expect(btn.className).toContain("absolute");
+	expect(btn.className).toContain("opacity-60");
+	expect(btn.className).toContain("hover:opacity-100");
+	expect(btn.className).toContain("hover:scale-110");
+	expect(btn.className).toContain("transition-");
+	// 有可访问名称（图标按钮不能只有 title）
+	expect(btn.getAttribute("aria-label")).toBeTruthy();
+});
+
 test("annotatablePath 不匹配（聊天里的图片等其他入口）→ 不出现笔按钮", () => {
 	openPreview([A, B], B.src);
 	render(<MediaPreviewModal />);

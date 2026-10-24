@@ -107,8 +107,22 @@ test.describe.serial("图片标注覆盖保存", () => {
 			await chip.click();
 			const modal = page.getByTestId("media-preview-modal");
 			await expect(modal).toBeVisible({ timeout: 10_000 });
+			// 入口是浮在图片右下角的圆形笔按钮（不是顶栏图标）：约 70×70、默认半透明
 			const annotateBtn = page.getByTestId("media-annotate");
 			await expect(annotateBtn).toBeVisible();
+			const btnBox = (await annotateBtn.boundingBox())!;
+			expect(Math.round(btnBox.width)).toBe(70);
+			expect(Math.round(btnBox.height)).toBe(70);
+			const btnOpacity = await annotateBtn.evaluate(
+				(el) => getComputedStyle(el).opacity,
+			);
+			expect(Number(btnOpacity)).toBeLessThan(1);
+			await annotateBtn.hover();
+			await expect
+				.poll(() =>
+					annotateBtn.evaluate((el) => getComputedStyle(el).opacity),
+				)
+				.toBe("1");
 			await annotateBtn.click();
 
 			const annotator = page.getByTestId("image-annotator");
@@ -124,6 +138,20 @@ test.describe.serial("图片标注覆盖保存", () => {
 					}),
 				)
 				.toEqual([200, 120]);
+			// 画布必须把原图铺进去（只画标注线时画布是透明的，用户看到「图片不见了」）：
+			// 测试图是纯色底，中心像素应等于原图底色且不透明；修复前 alpha=0（只有标注线）
+			const centerPixel = await canvas.evaluate((el) => {
+				const c = el as HTMLCanvasElement;
+				const ctx = c.getContext("2d")!;
+				const d = ctx.getImageData(
+					Math.floor(c.width / 2),
+					Math.floor(c.height / 2),
+					1,
+					1,
+				).data;
+				return [d[0], d[1], d[2], d[3]];
+			});
+			expect(centerPixel).toEqual([...BASE_RGB, 255]);
 			await page.screenshot({ path: shotAnnotator });
 			expect(statSync(shotAnnotator).size).toBeGreaterThan(0);
 			// 零图形时保存无语义：按钮应为禁用，画一笔后才可用

@@ -225,6 +225,24 @@ test("点击工具/颜色/粗细后选中态切换（不重置其他属性）", 
 	).toBe("false");
 });
 
+test("画布重绘先铺原图：图片加载后 drawImage 打底，画布不只剩余标注线", async () => {
+	setup();
+	const canvas = await canvasOf();
+	// 图片加载完成触发重绘：清屏 → 铺原图（漏这一步时用户看到的是空白画布）
+	await waitFor(() => expect(lastRedraw()).toContain("drawImage"));
+	const first = lastRedraw();
+	expect(first[0]).toBe("clearRect");
+	expect(first[1]).toBe("drawImage");
+
+	// 画一笔后的重绘同样以原图打底
+	drawStroke(canvas);
+	await waitFor(() => expect(undoBtn().disabled).toBe(false));
+	const after = lastRedraw();
+	expect(after[0]).toBe("clearRect");
+	expect(after[1]).toBe("drawImage");
+	expect(after.some((call) => call.startsWith("lineTo:"))).toBe(true);
+});
+
 test("画笔拖拽提交后撤销：按钮回到禁用且画布重绘为空", async () => {
 	setup();
 	const canvas = await canvasOf();
@@ -237,8 +255,11 @@ test("画笔拖拽提交后撤销：按钮回到禁用且画布重绘为空", as
 	fireEvent.click(undoBtn());
 	await waitFor(() => expect(undoBtn().disabled).toBe(true));
 	expect(redraws()).toBeGreaterThan(before);
-	// 撤销后最后一次重绘只清屏、不再绘制任何图形
-	expect(calls.slice(calls.lastIndexOf("clearRect"))).toEqual(["clearRect"]);
+	// 撤销后最后一次重绘：清屏 → 铺回原图 → 不再绘制任何图形
+	expect(calls.slice(calls.lastIndexOf("clearRect"))).toEqual([
+		"clearRect",
+		"drawImage",
+	]);
 });
 
 test("空拖拽（位移 < 2px）不产生图形，不留下隐形 shape", async () => {
@@ -270,7 +291,11 @@ test("清空：内联确认条确认后画布清空，且清空本身可撤销",
 	fireEvent.click(screen.getByTestId("annotator-confirm-yes"));
 	await waitFor(() => expect(redraws()).toBeGreaterThan(before));
 	expect(screen.queryByTestId("annotator-confirm")).toBeNull();
-	expect(calls.slice(calls.lastIndexOf("clearRect"))).toEqual(["clearRect"]);
+	// 清空后：清屏 → 铺回原图 → 没有图形
+	expect(calls.slice(calls.lastIndexOf("clearRect"))).toEqual([
+		"clearRect",
+		"drawImage",
+	]);
 	expect(undoBtn().disabled).toBe(false);
 });
 
@@ -704,7 +729,10 @@ test("pointercancel（手势被系统接管）：丢弃草稿，不把半截图�
 	expect(undoBtn().disabled).toBe(true);
 
 	fireEvent.pointerCancel(canvas, { pointerId: 1 });
-	// 没有留下图形（撤销仍禁用），最后一次重绘只剩清屏
+	// 没有留下图形（撤销仍禁用），最后一次重绘只剩清屏 + 原图
 	expect(undoBtn().disabled).toBe(true);
-	expect(calls.slice(calls.lastIndexOf("clearRect"))).toEqual(["clearRect"]);
+	expect(calls.slice(calls.lastIndexOf("clearRect"))).toEqual([
+		"clearRect",
+		"drawImage",
+	]);
 });

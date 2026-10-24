@@ -208,15 +208,18 @@ export function ImageAnnotator({
 		};
 	}, [src]);
 
-	// 每次 shapes / draft 变化全量重绘（清屏后按序画）：撤销、清空、拖动预览都走这里
+	// 每次 image / shapes / draft 变化全量重绘：先铺原图，再按序画标注。
+	// 原图必须画进 canvas（而不是叠一个 <img>）：导出用的是同一套绘制，显示与导出一致；
+	// 漏画原图时画布只剩标注线，用户看到的就是「图片不见了」。
 	useEffect(() => {
 		const canvas = canvasRef.current;
 		if (!canvas) return;
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return;
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
+		if (image) ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 		drawShapes(ctx, draft ? [...shapes, draft] : shapes);
-	}, [shapes, draft]);
+	}, [image, shapes, draft]);
 
 	const remember = useCallback((action: AnnotatorAction) => {
 		setHistory((prev) => {
