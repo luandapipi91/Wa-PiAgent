@@ -345,13 +345,14 @@ test("图片项：顶部栏在计数之后渲染 − 100% + 缩放控件", async
 	await waitFor(() =>
 		expect(screen.getByTestId("media-counter").textContent).toBe("3 / 4"),
 	);
-	// 顺序：计数 → 缩小 → 百分比 → 放大 → 复制（关闭按钮无 testid）
+	// 顺序：计数 → 缩小 → 百分比 → 放大 → 复制 → 关闭
 	expect(topbarTestIds()).toEqual([
 		"media-counter",
 		"media-zoom-out",
 		"media-zoom-percent",
 		"media-zoom-in",
 		"media-copy",
+		"media-close",
 	]);
 	expect(screen.getByTestId("media-zoom-percent").textContent).toBe("100%");
 });

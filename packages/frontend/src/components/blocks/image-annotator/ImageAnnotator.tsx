@@ -7,7 +7,14 @@
  * - 标注只在前端内存：保存时经 `renderAnnotatedBlob` 合成进像素交给 `onSave`。
  * - 撤销是操作栈（add / erase / clear），橡皮擦与清空都可回退，历史上限 200 步。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useImperativeHandle,
+	useRef,
+	useState,
+	type Ref,
+} from "react";
 import { useTranslation } from "../../../i18n/useTranslation";
 import { Icon, type IconName } from "../../ui/Icon";
 import {
@@ -45,6 +52,11 @@ const WIDTHS: { level: StrokeLevel; dot: number; labelKey: string }[] = [
 
 /** 历史栈上限：超出只丢最早的历史，可见 shapes 不受影响 */
 const HISTORY_LIMIT = 200;
+
+/** 可标注图片尺寸上限（规格 §3.1 条件 4）：边长 ≤ 8192 且总像素 ≤ 40MP。
+ *  超限图片进标注会吃掉大量内存，在加载阶段直接拒绝。 */
+const MAX_IMAGE_SIDE = 8192;
+const MAX_IMAGE_PIXELS = 40 * 1024 * 1024;
 
 /** 文字输入浮层尺寸：宽度走内联样式保证与夹取计算一致；高度取保守估计（略大于实际行高） */
 const TEXT_INPUT_WIDTH = 112;
@@ -109,18 +121,29 @@ function extendShape(shape: Shape, point: Point, anchor: Point | null): Shape {
 	return shape;
 }
 
+export type AnnotatorHandle = {
+	/** 请标注组件尝试退出：无图形直接回调 onCancel，有图形先弹丢弃确认 */
+	requestCancel: () => void;
+};
+
 export function ImageAnnotator({
 	src,
 	alt,
 	mime,
 	onCancel,
 	onSave,
+	apiRef,
+	onDiscardCancelled,
 }: {
 	src: string;
 	alt: string;
 	mime: string;
 	onCancel: (dirty: boolean) => void;
 	onSave: (blob: Blob) => Promise<void>;
+	/** 对外开放「尝试退出」（父组件顶栏 ✕ 等外部关闭入口用） */
+	apiRef?: Ref<AnnotatorHandle>;
+	/** 丢弃确认里选了「取消」：撤销父组件在请求退出时记下的关闭意图 */
+	onDiscardCancelled?: () => void;
 }) {
 	const { t } = useTranslation();
 	const rootRef = useRef<HTMLDivElement | null>(null);
@@ -130,6 +153,8 @@ export function ImageAnnotator({
 
 	const [image, setImage] = useState<HTMLImageElement | null>(null);
 	const [loadFailed, setLoadFailed] = useState(false);
+	// 尺寸/像素超限：进标注会吃掉大量内存，展示错误态而不是画布（规格 §3.1 条件 4）
+	const [tooLarge, setTooLarge] = useState(false);
 	const [tool, setTool] = useState<Tool>("pen");
 	const [color, setColor] = useState<string>(ANNOTATOR_COLORS[0]);
 	const [level, setLevel] = useState<StrokeLevel>("medium");
@@ -155,8 +180,19 @@ export function ImageAnnotator({
 	useEffect(() => {
 		setImage(null);
 		setLoadFailed(false);
+		setTooLarge(false);
 		const img = new Image();
-		img.onload = () => setImage(img);
+		img.onload = () => {
+			if (
+				img.naturalWidth > MAX_IMAGE_SIDE ||
+				img.naturalHeight > MAX_IMAGE_SIDE ||
+				img.naturalWidth * img.naturalHeight > MAX_IMAGE_PIXELS
+			) {
+				setTooLarge(true);
+				return;
+			}
+			setImage(img);
+		};
 		img.onerror = () => setLoadFailed(true);
 		img.src = src;
 		return () => {
@@ -235,6 +271,14 @@ export function ImageAnnotator({
 		else onCancel(false);
 	}, [saving, shapes.length, onCancel]);
 
+	useImperativeHandle(apiRef, () => ({ requestCancel }), [requestCancel]);
+
+	/** 关掉确认条；丢弃确认被取消时通知父组件撤销关闭意图 */
+	const dismissConfirm = useCallback(() => {
+		if (confirm === "discard") onDiscardCancelled?.();
+		setConfirm(null);
+	}, [confirm, onDiscardCancelled]);
+
 	// Esc 与 Ctrl/Cmd+Z：标注态内全局生效（文字输入框自行拦截）
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -246,12 +290,12 @@ export function ImageAnnotator({
 			if (e.key !== "Escape" || textDraft) return;
 			e.preventDefault();
 			// 确认条打开时，Esc 先关确认条，不直接触发退出
-			if (confirm) setConfirm(null);
+			if (confirm) dismissConfirm();
 			else requestCancel();
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [undo, requestCancel, textDraft, confirm]);
+	}, [undo, requestCancel, dismissConfirm, textDraft, confirm]);
 
 	const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
 		if (saving || e.button !== 0) return;
@@ -397,6 +441,21 @@ export function ImageAnnotator({
 				<div className="text-[calc(12px*var(--font-scale))] text-tertiary">
 					{t("blocks.imageAnnotator.loadFailed")}
 				</div>
+			) : tooLarge ? (
+				<div
+					data-testid="annotator-too-large"
+					className="flex flex-col items-center gap-2 text-[calc(12px*var(--font-scale))] text-tertiary"
+				>
+					<span>{t("blocks.imageAnnotator.tooLarge")}</span>
+					<button
+						type="button"
+						data-testid="annotator-too-large-cancel"
+						onClick={() => onCancel(false)}
+						className="rounded-full bg-surface-hover px-2.5 py-1 text-[calc(12px*var(--font-scale))] text-secondary"
+					>
+						{t("blocks.imageAnnotator.cancel")}
+					</button>
+				</div>
 			) : (
 				<canvas
 					ref={canvasRef}
@@ -439,7 +498,8 @@ export function ImageAnnotator({
 				/>
 			)}
 
-			{collapsed ? (
+			{/* 浮条：尺寸超限时没有可编辑图片，不渲染 */}
+			{!tooLarge && collapsed && (
 				<button
 					type="button"
 					data-testid="annotator-expand"
@@ -451,7 +511,8 @@ export function ImageAnnotator({
 				>
 					<Icon name="edit" size={15} />
 				</button>
-			) : (
+			)}
+			{!tooLarge && !collapsed && (
 				<div
 					data-testid="annotator-bar"
 					role="toolbar"
@@ -480,7 +541,7 @@ export function ImageAnnotator({
 							<button
 								type="button"
 								data-testid="annotator-confirm-no"
-								onClick={() => setConfirm(null)}
+								onClick={dismissConfirm}
 								className="rounded-full bg-surface-hover px-2 py-1 text-[calc(12px*var(--font-scale))] text-secondary"
 							>
 								{t("blocks.imageAnnotator.confirmNo")}

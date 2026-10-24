@@ -521,6 +521,33 @@ test("图片加载失败：提示加载失败、不渲染画布、保存不可�
 	).toBe(true);
 });
 
+test("图片尺寸超限（边长>8192 或 总像素>40MP）：提示超限、不渲染画布与浮条，取消回退", async () => {
+	const label = i18n.t("blocks.imageAnnotator.tooLarge");
+	expect(label).not.toBe("blocks.imageAnnotator.tooLarge");
+	for (const [w, h] of [
+		[9000, 100],
+		[8000, 6000],
+	]) {
+		(globalThis as Record<string, unknown>).Image = class {
+			naturalWidth = w;
+			naturalHeight = h;
+			onload: (() => void) | null = null;
+			onerror: (() => void) | null = null;
+			set src(_value: string) {
+				this.onload?.();
+			}
+		};
+		const { onCancel } = setup();
+		await waitFor(() => expect(screen.getByText(label)).toBeTruthy());
+		expect(screen.queryByTestId("annotator-canvas")).toBeNull();
+		expect(screen.queryByTestId("annotator-bar")).toBeNull();
+
+		fireEvent.click(screen.getByTestId("annotator-too-large-cancel"));
+		expect(onCancel).toHaveBeenCalledWith(false);
+		cleanup();
+	}
+});
+
 test("Ctrl+Z 撤销最后一步", async () => {
 	setup();
 	drawStroke(await canvasOf());

@@ -381,6 +381,7 @@ const zh = {
 			saveFailed: "保存失败",
 			loadFailed: "图片加载失败",
 			unsupported: "该图片格式不支持标注",
+			tooLarge: "图片尺寸过大，无法标注",
 			discardConfirm: "放弃未保存的标注？",
 			collapse: "收起工具栏",
 			expand: "展开工具栏",

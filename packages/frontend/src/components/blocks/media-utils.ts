@@ -25,6 +25,14 @@ export function isAnnotatableImageSrc(src: string): boolean {
 	return UPLOADS_SEGMENT_RE.test(src);
 }
 
+/** 路径同一性比较：归一正反斜杠、重复分隔符并忽略大小写。
+ *  Windows 上上传接口返回反斜杠路径，而同目录画廊回写的 src 是正斜杠形式，直接 === 会失配。 */
+export function sameFilePath(a: string, b: string): boolean {
+	const norm = (p: string) =>
+		p.replace(/\\/g, "/").replace(/\/{2,}/g, "/").toLowerCase();
+	return norm(a) === norm(b);
+}
+
 /** 媒体 src 路径映射：http(s)/data/blob 原样；本地绝对/相对路径 → kernel /file URL */
 export function resolveMediaSrc(src: string, sessionId: string): string {
 	if (/^(https?:|data:|blob:)/i.test(src)) return src;

@@ -393,6 +393,7 @@ const en = {
 			saveFailed: "Save failed",
 			loadFailed: "Failed to load image",
 			unsupported: "This image format can't be annotated",
+			tooLarge: "Image is too large to annotate",
 			discardConfirm: "Discard unsaved annotations?",
 			collapse: "Collapse toolbar",
 			expand: "Expand toolbar",

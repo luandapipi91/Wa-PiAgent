@@ -82,6 +82,8 @@ const originalFetch = globalThis.fetch;
 
 /** 导出画布时用的 mime（标注保存按扩展名映射，断言 png→image/png 用） */
 let exportedMime = "";
+/** 图片解码结果的自然尺寸（超限用例改成 9000 等） */
+let imageNatural = { w: 100, h: 100 };
 
 // ─── 覆盖保存的 fetch 打桩：记录请求，按 case 返回成功/错误 ───
 type FetchCall = { url: string; init: RequestInit };
@@ -95,6 +97,7 @@ let overwriteResult: () => Response = () =>
 beforeEach(() => {
 	ctxCalls.length = 0;
 	exportedMime = "";
+	imageNatural = { w: 100, h: 100 };
 	canvasProto.getContext = () => makeFakeCtx();
 	canvasProto.toBlob = (cb: (blob: Blob | null) => void, mime: string) => {
 		exportedMime = mime;
@@ -102,8 +105,8 @@ beforeEach(() => {
 	};
 	canvasProto.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
 	(globalThis as Record<string, unknown>).Image = class {
-		naturalWidth = 100;
-		naturalHeight = 100;
+		naturalWidth = imageNatural.w;
+		naturalHeight = imageNatural.h;
 		onload: (() => void) | null = null;
 		onerror: (() => void) | null = null;
 		set src(_value: string) {
@@ -154,6 +157,18 @@ function openPreview(items: MediaItem[], annotatablePath?: string) {
 
 const toastMessages = () =>
 	useToastStore.getState().toasts.map((toast) => toast.message);
+
+/** 在标注画布上画一笔（宿主 mock 比例 1：client 坐标 = 自然坐标） */
+function drawStroke(canvas: HTMLElement) {
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 10,
+		clientY: 10,
+	});
+	fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 40, clientY: 30 });
+	fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 60, clientY: 50 });
+}
 
 // ─── 入口：笔按钮的显示条件 ───
 
@@ -206,6 +221,18 @@ test("isAnnotatableImageSrc：uploads 段 + png/jpg/jpeg/webp 白名单", () => 
 	expect(isAnnotatableImageSrc("/w/p/.wa-pi/uploadsx/a.png")).toBe(false);
 });
 
+test("路径写法不同（annotatablePath 反斜杠 / item.src 正斜杠）→ 仍能匹配并显示笔按钮", () => {
+	// 真实链路：上传接口在 Windows 返回反斜杠路径，同目录画廊回写的 src 是正斜杠归一形式
+	const win: MediaItem = {
+		src: "C:/work/demo/.wa-pi/uploads/a.png",
+		kind: "image",
+		name: "a.png",
+	};
+	openPreview([win], "C:\\work\\demo\\.wa-pi\\uploads\\a.png");
+	render(<MediaPreviewModal />);
+	expect(screen.getByTestId("media-annotate")).toBeTruthy();
+});
+
 // ─── 标注态 ───
 
 test("点击笔 → 进入标注态：主体换成 ImageAnnotator，顶栏隐藏缩放/复制/翻页", () => {
@@ -220,7 +247,7 @@ test("点击笔 → 进入标注态：主体换成 ImageAnnotator，顶栏隐藏
 	);
 	// 图片缩放视口被替换（不再叠一层）
 	expect(screen.queryByTestId("zoomable-image")).toBeNull();
-	// 顶栏：缩放 / 复制 / 笔 / 翻页全部隐藏，文件名与计数仍在（关闭按钮无 testid）
+	// 顶栏：缩放 / 复制 / 笔 / 翻页全部隐藏，文件名与计数仍在（关闭按钮保留）
 	expect(screen.queryByTestId("media-zoom-out")).toBeNull();
 	expect(screen.queryByTestId("media-zoom-in")).toBeNull();
 	expect(screen.queryByTestId("media-copy")).toBeNull();
@@ -251,6 +278,71 @@ test("标注态 Esc 不关闭预览窗（closeOnEsc=false），由标注组件�
 	expect(useSessionStore.getState().mediaPreview).not.toBeNull();
 	expect(screen.queryByTestId("image-annotator")).toBeNull();
 	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
+});
+
+// ─── 顶栏 ✕：标注态先走丢弃确认，再关窗 ───
+
+test("标注态点 ✕（无未保存图形）→ 直接关窗", () => {
+	openPreview([A, B], A.src);
+	render(<MediaPreviewModal />);
+	fireEvent.click(screen.getByTestId("media-annotate"));
+	fireEvent.click(screen.getByTestId("media-close"));
+
+	expect(screen.queryByTestId("media-preview-modal")).toBeNull();
+	expect(useSessionStore.getState().mediaPreview).toBeNull();
+});
+
+test("标注态点 ✕（有未保存图形）→ 先弹丢弃确认，确认后关窗", () => {
+	openPreview([A, B], A.src);
+	render(<MediaPreviewModal />);
+	fireEvent.click(screen.getByTestId("media-annotate"));
+	drawStroke(screen.getByTestId("annotator-canvas"));
+
+	fireEvent.click(screen.getByTestId("media-close"));
+	// 未确认前不关窗、不丢图形
+	expect(screen.getByTestId("annotator-confirm")).toBeTruthy();
+	expect(screen.getByTestId("media-preview-modal")).toBeTruthy();
+	expect(useSessionStore.getState().mediaPreview).not.toBeNull();
+
+	fireEvent.click(screen.getByTestId("annotator-confirm-yes"));
+	expect(useSessionStore.getState().mediaPreview).toBeNull();
+});
+
+test("丢弃确认点「取消」→ 撤销关窗意图，继续标注；之后浮条取消只回预览不关窗", () => {
+	openPreview([A, B], A.src);
+	render(<MediaPreviewModal />);
+	fireEvent.click(screen.getByTestId("media-annotate"));
+	drawStroke(screen.getByTestId("annotator-canvas"));
+
+	fireEvent.click(screen.getByTestId("media-close"));
+	fireEvent.click(screen.getByTestId("annotator-confirm-no"));
+	expect(screen.getByTestId("image-annotator")).toBeTruthy();
+
+	// 取消关窗意图：再走浮条「取消」并确认丢弃，只回普通预览，不关窗
+	fireEvent.click(screen.getByTestId("annotator-cancel"));
+	fireEvent.click(screen.getByTestId("annotator-confirm-yes"));
+	expect(useSessionStore.getState().mediaPreview).not.toBeNull();
+	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
+});
+
+// ─── 尺寸预检（规格 §3.1 条件 4） ───
+
+test("图片尺寸超限（naturalWidth 9000）→ 显示超限错误态、无画布与浮条，取消回普通预览", async () => {
+	imageNatural = { w: 9000, h: 100 };
+	openPreview([A, B], A.src);
+	render(<MediaPreviewModal />);
+	fireEvent.click(screen.getByTestId("media-annotate"));
+
+	await waitFor(() =>
+		expect(screen.getByTestId("annotator-too-large")).toBeTruthy(),
+	);
+	expect(screen.queryByTestId("annotator-canvas")).toBeNull();
+	expect(screen.queryByTestId("annotator-bar")).toBeNull();
+
+	fireEvent.click(screen.getByTestId("annotator-too-large-cancel"));
+	expect(screen.queryByTestId("image-annotator")).toBeNull();
+	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
+	expect(useSessionStore.getState().mediaPreview).not.toBeNull();
 });
 
 // ─── 保存接线 ───

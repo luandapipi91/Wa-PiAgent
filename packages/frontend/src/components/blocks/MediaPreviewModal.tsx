@@ -8,8 +8,16 @@ import { ThumbStrip } from "./ThumbStrip";
 import { useDirGallery } from "./useDirGallery";
 import { Icon } from "../ui/Icon";
 import { ZoomableImage, type ZoomControls } from "./ZoomableImage";
-import { resolveCopyPath, resolveMediaSrc, isAnnotatableImageSrc } from "./media-utils";
-import { ImageAnnotator } from "./image-annotator/ImageAnnotator";
+import {
+	isAnnotatableImageSrc,
+	resolveCopyPath,
+	resolveMediaSrc,
+	sameFilePath,
+} from "./media-utils";
+import {
+	ImageAnnotator,
+	type AnnotatorHandle,
+} from "./image-annotator/ImageAnnotator";
 import { mimeForExt } from "./image-annotator/draw";
 import { overwriteFile } from "../../fs-client";
 import { useImageRevisionStore } from "../../store/image-revision";
@@ -42,8 +50,15 @@ export function MediaPreviewModal() {
 	// 标注态：主体换成 ImageAnnotator，顶栏隐藏缩放/复制/翻页；组件常驻挂载，
 	// 关闭或重新打开预览（openId 变化）时自动退出标注态
 	const [annotating, setAnnotating] = useState(false);
+	// 标注组件句柄：顶栏 ✕ 在标注态要请它走自己的丢弃确认，而不是直接关窗
+	const annotatorRef = useRef<AnnotatorHandle | null>(null);
+	// 本次退出标注是否来自顶栏 ✕（丢弃确认后要跟着关窗；用户取消丢弃则撤销）
+	const pendingClose = useRef(false);
 	const openId = preview?.openId ?? null;
-	useEffect(() => setAnnotating(false), [openId]);
+	useEffect(() => {
+		setAnnotating(false);
+		pendingClose.current = false;
+	}, [openId]);
 
 	// 键盘 ←/→ 循环切换（仅多媒体时绑定；标注态交给标注组件）
 	useEffect(() => {
@@ -77,17 +92,34 @@ export function MediaPreviewModal() {
 	}, [isImage, annotating]);
 
 	if (!preview) return null;
-	const close = () => useSessionStore.getState().closeMediaPreview();
 	const item = preview.items[index];
 	const src = resolveMediaSrc(item.src, preview.sessionId);
 	const go = (d: number) =>
 		useSessionStore.getState().setMediaPreviewIndex((index + d + count) % count);
 
-	// 可标注：本次预览由发送前附件缩略图打开（annotatablePath 与当前项一致），
+	// 关闭：非标注态直接关；标注态先请标注组件走丢弃确认，确认丢弃后再关窗
+	const requestClose = () => {
+		if (!annotating) {
+			useSessionStore.getState().closeMediaPreview();
+			return;
+		}
+		pendingClose.current = true;
+		annotatorRef.current?.requestCancel();
+	};
+	// 退出标注态（标注组件确认后的回调）：本次退出由 ✕ 发起时一并关窗
+	const exitAnnotating = () => {
+		const closeRequested = pendingClose.current;
+		pendingClose.current = false;
+		setAnnotating(false);
+		if (closeRequested) useSessionStore.getState().closeMediaPreview();
+	};
+
+	// 可标注：本次预览由发送前附件缩略图打开（annotatablePath 与当前项指向同一文件），
 	// 且路径在 .wa-pi/uploads 下、扩展名在白名单内（真实可写由内核二次校验）
 	const canAnnotate =
 		isImage &&
-		preview.annotatablePath === item.src &&
+		!!preview.annotatablePath &&
+		sameFilePath(preview.annotatablePath, item.src) &&
 		isAnnotatableImageSrc(item.src);
 	// 标注导出的 mime：按扩展名映射（白名单内必有值，回退 png）
 	const annotatorMime =
@@ -122,7 +154,7 @@ export function MediaPreviewModal() {
 
 	return (
 		<Modal
-			onClose={close}
+			onClose={requestClose}
 			closeOnEsc={!annotating}
 			width="90vw"
 			height="85vh"
@@ -178,7 +210,10 @@ export function MediaPreviewModal() {
 					{canAnnotate && !annotating && (
 						<button
 							className="fv-btn"
-							onClick={() => setAnnotating(true)}
+							onClick={() => {
+								pendingClose.current = false;
+								setAnnotating(true);
+							}}
 							title={t("blocks.imageAnnotator.annotate")}
 							data-testid="media-annotate"
 						>
@@ -199,7 +234,12 @@ export function MediaPreviewModal() {
 							<Icon name="clipboard" size={12} />
 						</button>
 					)}
-					<button className="fv-btn" onClick={close} title={t("common.close")}>
+					<button
+						className="fv-btn"
+						onClick={requestClose}
+						title={t("common.close")}
+						data-testid="media-close"
+					>
 						<Icon name="x" size={12} />
 					</button>
 				</div>
@@ -210,7 +250,11 @@ export function MediaPreviewModal() {
 							src={src}
 							alt={item.name}
 							mime={annotatorMime}
-							onCancel={() => setAnnotating(false)}
+							apiRef={annotatorRef}
+							onCancel={exitAnnotating}
+							onDiscardCancelled={() => {
+								pendingClose.current = false;
+							}}
 							onSave={saveAnnotated}
 						/>
 					) : item.kind === "image" ? (
