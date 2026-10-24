@@ -921,9 +921,11 @@ test.describe("子代理转录左栏（旧轮 resume，无 LLM）", () => {
 		await expect(cards.first()).toBeVisible({ timeout: 20_000 });
 
 		// ① 点上一轮卡片（4 个任务）里被 resume 的那一行 → 左栏必须仍列原批 4 个
-		await cards.first().getByRole("button", { name: /委托转录 Explore/ }).nth(2).click();
+		await cards.first().getByRole("button", { name: /委托详情 Explore/ }).nth(2).click();
 		let modal = page.getByTestId("subagent-transcript-modal");
 		await expect(modal).toBeVisible({ timeout: 15_000 });
+		// 弹窗标题与入口名一致：「委托详情」
+		await expect(modal.getByRole("dialog", { name: "委托详情" })).toBeVisible();
 		await expect(modal.getByTestId("transcript-siblings")).toBeVisible({ timeout: 15_000 });
 		let ids = await modal
 			.locator('[data-testid^="transcript-sibling-"]')
@@ -936,7 +938,7 @@ test.describe("子代理转录左栏（旧轮 resume，无 LLM）", () => {
 		await expect(page.getByTestId("subagent-transcript-modal")).toHaveCount(0);
 		const secondCard = cards.nth(1);
 		await expect(secondCard).toBeVisible({ timeout: 20_000 });
-		await secondCard.getByRole("button", { name: /委托转录 Explore/ }).first().click();
+		await secondCard.getByRole("button", { name: /委托详情 Explore/ }).first().click();
 		modal = page.getByTestId("subagent-transcript-modal");
 		await expect(modal).toBeVisible({ timeout: 15_000 });
 		await expect(modal.getByTestId("transcript-siblings")).toBeVisible({ timeout: 15_000 });
