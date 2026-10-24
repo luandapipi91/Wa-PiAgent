@@ -214,7 +214,7 @@ bun test               # All tests (kernel + shared + desktop + frontend)
 bun run typecheck      # Type checking
 ```
 
-- `dev:desktop` 默认使用 `packages/kernel/dist/WaPiKernel(.exe)` 编译产物（与生产同形态）；产物缺失时回退解释运行并打警告日志。构建产物：`bun run --filter @wa-pi/kernel build`。
+- `dev:desktop` uses the compiled artifact at `packages/kernel/dist/WaPiKernel(.exe)` by default (same shape as production). When the artifact is missing, it falls back to interpreted execution and logs a warning. Build it with `bun run --filter @wa-pi/kernel build`.
 - Runtime environment variables: `WA_PI_WS_PORT` (kernel port, default 9776), `WA_PI_WEB_PORT` (frontend port, default 5180), `WA_PI_PREVIEW_PORT` (preview port, default 9777), `WA_PI_DIR` (data directory, default `~/.pi/agent`)
 - Frontend E2E tests live in `packages/frontend`: `bun run e2e` (Playwright)
 
@@ -223,6 +223,7 @@ bun run typecheck      # Type checking
 **Already shipped:**
 
 - [x] Multi-agent sessions and delegation (delegate)
+- [x] Smarter sub-agent scheduling: concurrent execution with resource orchestration, so large-scale delegation runs fast and steady
 - [x] Graphical MCP management (with OAuth sign-in and error diagnostics)
 - [x] Skills / plugins / memory systems
 - [x] Hot-reloaded plugins: dynamic install / uninstall / upgrade, no restart
@@ -236,12 +237,10 @@ bun run typecheck      # Type checking
 **What's next:**
 
 - [ ] **More IM channels** — WeChat, Feishu, and QQ, landing step by step: your agents, living in more work chats
-- [ ] **Smarter sub-agent scheduling** — better concurrency and resource orchestration so large-scale delegation runs faster and steadier
+- [ ] **Local knowledge base** — turn your own docs, notes and code directories into a searchable knowledge base (hybrid vector + keyword retrieval), so agents answer from your material instead of generic knowledge. Fully local: index and storage stay on disk, nothing is uploaded
 - [ ] **Frontend plugin system** — open the UI layer to plugins: third parties can extend frontend components and pages
 - [ ] **Expose Wa-Pi as a service** — let external clients connect: Wa-Pi serves its capabilities over MCP / HTTP endpoints for other tools to plug into
-- [ ] **Visual workflow orchestration** — upgrade multi-agent collaboration from "one conversation" to "reusable workflows": drag-and-drop task nodes, and let your AI team run the process you define, automatically
 - [ ] **Connector marketplace** — ready-to-use SaaS connectors on top of MCP: configure and go, no more building integrations from scratch
-- [ ] **Diff monitoring** — watch what you care about: automatic detection of changes in files, pages, and data sources, with real-time alerts that can be handed straight to an agent
 
 ## FAQ
 
