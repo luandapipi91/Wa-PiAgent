@@ -257,7 +257,7 @@ test("路径写法不同（annotatablePath 反斜杠 / item.src 正斜杠）→ 
 
 // ─── 标注态 ───
 
-test("点击笔 → 进入标注态：主体换成 ImageAnnotator，顶栏隐藏缩放/复制/翻页", () => {
+test("点击笔 → 进入标注态：主体换成 ImageAnnotator，顶栏保留缩放、隐藏复制/笔/翻页", () => {
 	openPreview([A, B], A.src);
 	render(<MediaPreviewModal />);
 	fireEvent.click(screen.getByTestId("media-annotate"));
@@ -269,12 +269,13 @@ test("点击笔 → 进入标注态：主体换成 ImageAnnotator，顶栏隐藏
 	);
 	// 图片缩放视口被替换（不再叠一层）
 	expect(screen.queryByTestId("zoomable-image")).toBeNull();
-	// 顶栏：缩放 / 复制 / 笔 / 翻页全部隐藏，文件名与计数仍在（关闭按钮保留）
-	expect(screen.queryByTestId("media-zoom-out")).toBeNull();
-	expect(screen.queryByTestId("media-zoom-in")).toBeNull();
+	// 顶栏：复制 / 笔 / 翻页隐藏；缩放控件保留（编辑态也要能缩放，控的是标注画布）
 	expect(screen.queryByTestId("media-copy")).toBeNull();
 	expect(screen.queryByTestId("media-annotate")).toBeNull();
 	expect(screen.queryByTestId("media-next")).toBeNull();
+	expect(screen.getByTestId("media-zoom-out")).toBeTruthy();
+	expect(screen.getByTestId("media-zoom-in")).toBeTruthy();
+	expect(screen.getByTestId("media-zoom-percent").textContent).toBe("100%");
 	expect(screen.getByTestId("media-counter").textContent).toBe("1 / 2");
 });
 

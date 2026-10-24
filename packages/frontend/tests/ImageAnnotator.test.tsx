@@ -98,6 +98,9 @@ const redraws = () => calls.filter((call) => call === "clearRect").length;
 function setup(props: {
 	onCancel?: ReturnType<typeof mock>;
 	onSave?: (blob: Blob) => Promise<void>;
+	initialZoom?: number;
+	initialPan?: { x: number; y: number };
+	onZoomChange?: (zoom: number) => void;
 } = {}) {
 	const onCancel = props.onCancel ?? mock();
 	const onSave = props.onSave ?? mock(async () => {});
@@ -108,6 +111,9 @@ function setup(props: {
 			mime="image/png"
 			onCancel={onCancel}
 			onSave={onSave}
+			initialZoom={props.initialZoom}
+			initialPan={props.initialPan}
+			onZoomChange={props.onZoomChange}
 		/>,
 	);
 	return { onCancel, onSave };
@@ -260,6 +266,65 @@ test("画笔拖拽提交后撤销：按钮回到禁用且画布重绘为空", as
 		"clearRect",
 		"drawImage",
 	]);
+});
+
+test("缩放：滚轮改 transform、双击重置、初始缩放沿用传入值", async () => {
+	const zoomOf = (el: HTMLElement) => el.style.transform;
+	setup({ initialZoom: 2, initialPan: { x: 12, y: -8 } });
+	const canvas = await canvasOf();
+	await waitFor(() => expect(lastRedraw()).toContain("drawImage"));
+
+	// 进入编辑态沿用外面已经调好的视角，不重置回 100%
+	expect(zoomOf(canvas)).toContain("scale(2)");
+	expect(zoomOf(canvas)).toContain("translate(12px, -8px)");
+
+	// 滚轮放大（绑在根容器上）：zoom 变大
+	const root = screen.getByTestId("image-annotator");
+	fireEvent.wheel(root, { deltaY: -100 });
+	await waitFor(() => expect(zoomOf(canvas)).toContain("scale(2.2)"));
+
+	// 双击重置
+	fireEvent.doubleClick(canvas);
+	await waitFor(() => expect(zoomOf(canvas)).toContain("scale(1)"));
+	expect(zoomOf(canvas)).toContain("translate(0px, 0px)");
+});
+
+test("绘制坐标按 canvas.width / rect.width 换算（transform 已在 rect 内，缩放不需要另一套公式）", async () => {
+	// happy-dom 的 rect 是固定桩、不随 transform 变化，这里锁住换算公式本身；
+	// 真实缩放下 rect 会跟着放大（E2E 覆盖）
+	setup();
+	const canvas = await canvasOf();
+	await waitFor(() => expect(lastRedraw()).toContain("drawImage"));
+	fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 20, clientY: 10 });
+	fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 30, clientY: 20 });
+	fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 40, clientY: 30 });
+	await waitFor(() => expect(undoBtn().disabled).toBe(false));
+	// rect 为 100×100、canvas 自然尺寸也是 100×100（beforeEach 的 mock），scale=1
+	expect(lastRedraw()).toContain("moveTo:20,10");
+	expect(lastRedraw()).toContain("lineTo:40,30");
+});
+
+test("空格 + 拖拽平移视角：不产生图形；松手后恢复正常绘制", async () => {
+	setup();
+	const canvas = await canvasOf();
+	await waitFor(() => expect(lastRedraw()).toContain("drawImage"));
+
+	// 空格按住 → 抓手
+	fireEvent.keyDown(window, { code: "Space" });
+	await waitFor(() => expect(canvas.style.cursor).toBe("grab"));
+
+	fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+	fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 35, clientY: 25 });
+	fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 35, clientY: 25 });
+	// 平移了视角，但没有画任何东西（撤销仍禁用）
+	await waitFor(() => expect(canvas.style.transform).toContain("translate("));
+	expect(undoBtn().disabled).toBe(true);
+
+	// 松开空格 → 光标恢复十字，正常绘制
+	fireEvent.keyUp(window, { code: "Space" });
+	await waitFor(() => expect(canvas.style.cursor).toBe("crosshair"));
+	drawStroke(canvas);
+	await waitFor(() => expect(undoBtn().disabled).toBe(false));
 });
 
 test("空拖拽（位移 < 2px）不产生图形，不留下隐形 shape", async () => {

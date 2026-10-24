@@ -26,6 +26,7 @@ import {
 	strokeWidthFor,
 	undoAction,
 } from "./draw";
+import { clampPan, type ImageTransform } from "../ZoomableImage";
 import type {
 	AnnotatorAction,
 	Point,
@@ -121,6 +122,9 @@ function extendShape(shape: Shape, point: Point, anchor: Point | null): Shape {
 	return shape;
 }
 
+/** 缩放范围（与 ZoomableImage 一致） */
+const clampZoom = (z: number) => Math.max(0.1, Math.min(20, z));
+
 /** requestCancel 的结果：exited=已直接退出（无图形）；confirming=弹出了丢弃确认；
  *  refused=保存中，拒绝退出（调用方不应记关窗意图） */
 export type AnnotatorCancelResult = "exited" | "confirming" | "refused";
@@ -128,6 +132,10 @@ export type AnnotatorCancelResult = "exited" | "confirming" | "refused";
 export type AnnotatorHandle = {
 	/** 请标注组件尝试退出：无图形直接回调 onCancel，有图形先弹丢弃确认；保存中直接拒绝 */
 	requestCancel: () => AnnotatorCancelResult;
+	/** 顶栏缩放控件（标注态下显示）：与滚轮/双击共用同一套 zoom */
+	zoomIn: () => void;
+	zoomOut: () => void;
+	resetZoom: () => void;
 };
 
 export function ImageAnnotator({
@@ -139,6 +147,10 @@ export function ImageAnnotator({
 	onExportError,
 	apiRef,
 	onDiscardCancelled,
+	initialZoom,
+	initialPan,
+	onZoomChange,
+	onTransformChange,
 }: {
 	src: string;
 	alt: string;
@@ -151,6 +163,13 @@ export function ImageAnnotator({
 	apiRef?: Ref<AnnotatorHandle>;
 	/** 丢弃确认里选了「取消」：撤销父组件在请求退出时记下的关闭意图 */
 	onDiscardCancelled?: () => void;
+	/** 初始缩放/平移：从预览态进来时沿用用户已经调好的视角，不重置回 100% */
+	initialZoom?: number;
+	initialPan?: { x: number; y: number };
+	/** 缩放值上报（顶栏百分比） */
+	onZoomChange?: (zoom: number) => void;
+	/** 缩放/平移变化上报（父组件存起来，退出编辑后交回预览） */
+	onTransformChange?: (t: ImageTransform) => void;
 }) {
 	const { t } = useTranslation();
 	const rootRef = useRef<HTMLDivElement | null>(null);
@@ -168,6 +187,18 @@ export function ImageAnnotator({
 	const [shapes, setShapes] = useState<Shape[]>([]);
 	const [history, setHistory] = useState<AnnotatorAction[]>([]);
 	const [draft, setDraft] = useState<Shape | null>(null);
+	// 缩放/平移：与预览态同一套语义（transform-origin center + translate/scale），
+	// 绘制坐标经 getBoundingClientRect 自动吃到变换，换算公式不需要改。
+	const [zoom, setZoom] = useState(() => clampZoom(initialZoom ?? 1));
+	const [pan, setPan] = useState(initialPan ?? { x: 0, y: 0 });
+	// 空格键按住 = 临时抓手：绘制工具与平移手势共存，不需要切工具
+	const [spaceHeld, setSpaceHeld] = useState(false);
+	const panDragRef = useRef<{
+		startX: number;
+		startY: number;
+		panX: number;
+		panY: number;
+	} | null>(null);
 	const [textDraft, setTextDraft] = useState<{
 		x: number;
 		y: number;
@@ -221,8 +252,7 @@ export function ImageAnnotator({
 		drawShapes(ctx, draft ? [...shapes, draft] : shapes);
 	}, [image, shapes, draft]);
 
-	const remember = useCallback((action: AnnotatorAction) => {
-		setHistory((prev) => {
+	const remember = useCallback((action: AnnotatorAction) => {		setHistory((prev) => {
 			const next = [...prev, action];
 			return next.length > HISTORY_LIMIT
 				? next.slice(next.length - HISTORY_LIMIT)
@@ -235,6 +265,8 @@ export function ImageAnnotator({
 		(e: React.PointerEvent<HTMLCanvasElement>): Point | null => {
 			const canvas = canvasRef.current;
 			if (!canvas) return null;
+			// getBoundingClientRect 返回的是**变换后**的矩形，所以缩放下 canvas.width/rect.width
+			// 自动包含 zoom，缩放后的坐标换算不需要另写一套公式
 			const rect = canvas.getBoundingClientRect();
 			if (!rect.width || !rect.height) return null;
 			const scale = canvas.width / rect.width;
@@ -245,6 +277,60 @@ export function ImageAnnotator({
 		},
 		[],
 	);
+
+	// 缩放/平移上报：顶栏百分比 + 父组件存视角（退出编辑后交回预览，不跳回 100%）
+	useEffect(() => {
+		onZoomChange?.(zoom);
+	}, [zoom, onZoomChange]);
+	useEffect(() => {
+		onTransformChange?.({ zoom, pan });
+	}, [zoom, pan, onTransformChange]);
+
+	// 滚轮缩放：绑在根容器（画布与四周留白都能缩放），手动绑定以关闭 passive 才能 preventDefault
+	useEffect(() => {
+		const el = rootRef.current;
+		if (!el) return;
+		const onWheel = (e: WheelEvent) => {
+			e.preventDefault();
+			const delta = e.deltaY > 0 ? -0.1 : 0.1;
+			setZoom((z) => clampZoom(z + delta * z));
+		};
+		el.addEventListener("wheel", onWheel, { passive: false });
+		return () => el.removeEventListener("wheel", onWheel);
+	}, []);
+
+	// 空格键 = 临时抓手：绘制工具与平移手势共存，不靠切工具
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.code !== "Space" || textDraft) return;
+			e.preventDefault();
+			setSpaceHeld(true);
+		};
+		const onKeyUp = (e: KeyboardEvent) => {
+			if (e.code === "Space") setSpaceHeld(false);
+		};
+		window.addEventListener("keydown", onKeyDown);
+		window.addEventListener("keyup", onKeyUp);
+		return () => {
+			window.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("keyup", onKeyUp);
+		};
+	}, [textDraft]);
+
+	const resetZoom = useCallback(() => {
+		setZoom(1);
+		setPan({ x: 0, y: 0 });
+	}, []);
+	const zoomIn = useCallback(() => setZoom((z) => clampZoom(z * 1.25)), []);
+	const zoomOut = useCallback(() => setZoom((z) => clampZoom(z / 1.25)), []);
+
+	/** 平移：按当前缩放夹取，避免把图拖出画面拉不回来 */
+	const applyPan = useCallback((next: { x: number; y: number }) => {
+		const canvas = canvasRef.current;
+		if (!canvas) return setPan(next);
+		// offsetWidth/Height 不受 transform 影响，就是 contain 后的基准尺寸
+		setPan(clampPan(next, zoom, canvas.offsetWidth, canvas.offsetHeight));
+	}, [zoom]);
 
 	const addShape = useCallback(
 		(shape: Shape) => {
@@ -287,7 +373,11 @@ export function ImageAnnotator({
 		return "exited";
 	}, [saving, shapes.length, onCancel]);
 
-	useImperativeHandle(apiRef, () => ({ requestCancel }), [requestCancel]);
+	useImperativeHandle(
+		apiRef,
+		() => ({ requestCancel, zoomIn, zoomOut, resetZoom }),
+		[requestCancel, zoomIn, zoomOut, resetZoom],
+	);
 
 	/** 关掉确认条；丢弃确认被取消时通知父组件撤销关闭意图 */
 	const dismissConfirm = useCallback(() => {
@@ -314,7 +404,20 @@ export function ImageAnnotator({
 	}, [undo, requestCancel, dismissConfirm, textDraft, confirm]);
 
 	const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-		if (saving || e.button !== 0) return;
+		if (saving) return;
+		// 中键 / 空格+左键 = 平移（不产生图形）：绘制需要拖拽，平移不能抢左键
+		if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+			e.preventDefault();
+			e.currentTarget.setPointerCapture?.(e.pointerId);
+			panDragRef.current = {
+				startX: e.clientX,
+				startY: e.clientY,
+				panX: pan.x,
+				panY: pan.y,
+			};
+			return;
+		}
+		if (e.button !== 0) return;
 		const point = toNatural(e);
 		if (!point) return;
 
@@ -374,6 +477,15 @@ export function ImageAnnotator({
 
 	const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
 		if (saving) return;
+		// 平移中：只动视角，不碰草稿
+		const drag = panDragRef.current;
+		if (drag) {
+			applyPan({
+				x: drag.panX + (e.clientX - drag.startX),
+				y: drag.panY + (e.clientY - drag.startY),
+			});
+			return;
+		}
 		const point = toNatural(e);
 		if (!point) return;
 
@@ -391,6 +503,7 @@ export function ImageAnnotator({
 		if (canvas.hasPointerCapture?.(e.pointerId)) {
 			canvas.releasePointerCapture?.(e.pointerId);
 		}
+		panDragRef.current = null;
 		anchorRef.current = null;
 		setDraft(null);
 	};
@@ -399,6 +512,11 @@ export function ImageAnnotator({
 		const canvas = e.currentTarget;
 		if (canvas.hasPointerCapture?.(e.pointerId)) {
 			canvas.releasePointerCapture?.(e.pointerId);
+		}
+		// 平移结束：不提交任何图形
+		if (panDragRef.current) {
+			panDragRef.current = null;
+			return;
 		}
 		const anchor = anchorRef.current;
 		anchorRef.current = null;
@@ -497,11 +615,23 @@ export function ImageAnnotator({
 					aria-label={alt}
 					width={image?.naturalWidth ?? 0}
 					height={image?.naturalHeight ?? 0}
-					className="block max-h-full max-w-full cursor-crosshair touch-none"
+					// 缩放/平移与预览态同一套 transform（origin center），指针换算仍由 rect 自动吃变换
+					style={{
+						transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+						transformOrigin: "center center",
+						cursor: spaceHeld
+							? panDragRef.current
+								? "grabbing"
+								: "grab"
+							: "crosshair",
+						willChange: "transform",
+					}}
+					className="block max-h-full max-w-full touch-none"
 					onPointerDown={onPointerDown}
 					onPointerMove={onPointerMove}
 					onPointerUp={onPointerUp}
 					onPointerCancel={onPointerCancel}
+					onDoubleClick={resetZoom}
 				/>
 			)}
 

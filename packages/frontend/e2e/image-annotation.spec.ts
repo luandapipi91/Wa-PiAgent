@@ -123,6 +123,15 @@ test.describe.serial("图片标注覆盖保存", () => {
 					annotateBtn.evaluate((el) => getComputedStyle(el).opacity),
 				)
 				.toBe("1");
+			// 外面先放大到 125%：进编辑态后视角要一致（不重置回 100%）
+			await page.getByTestId("media-zoom-in").click();
+			await expect(page.getByTestId("media-zoom-percent")).toHaveText("125%");
+			const previewImgTransform = await page
+				.getByTestId("zoomable-image")
+				.locator("img")
+				.evaluate((el) => getComputedStyle(el).transform);
+			expect(previewImgTransform).toContain("1.25");
+
 			await annotateBtn.click();
 
 			const annotator = page.getByTestId("image-annotator");
@@ -152,6 +161,21 @@ test.describe.serial("图片标注覆盖保存", () => {
 				return [d[0], d[1], d[2], d[3]];
 			});
 			expect(centerPixel).toEqual([...BASE_RGB, 255]);
+			// 编辑态沿用外面的视角：顶栏百分比仍是 125%，画布的 transform 也是 1.25
+			await expect(page.getByTestId("media-zoom-percent")).toHaveText("125%");
+			const canvasTransform = await canvas.evaluate(
+				(el) => getComputedStyle(el).transform,
+			);
+			expect(canvasTransform).toContain("1.25");
+			// 编辑态也能缩放：顶栏 − + 改的是标注画布
+			await page.getByTestId("media-zoom-in").click();
+			await expect(page.getByTestId("media-zoom-percent")).toHaveText("156%");
+			await page.getByTestId("media-zoom-out").click();
+			await expect(page.getByTestId("media-zoom-percent")).toHaveText("125%");
+			// 放大后的画布在视口里确实更大（rect 已含 transform，绘制换算才能自洽）
+			const zoomedBox = (await canvas.boundingBox())!;
+			expect(zoomedBox.width).toBeGreaterThan(200);
+
 			await page.screenshot({ path: shotAnnotator });
 			expect(statSync(shotAnnotator).size).toBeGreaterThan(0);
 			// 零图形时保存无语义：按钮应为禁用，画一笔后才可用

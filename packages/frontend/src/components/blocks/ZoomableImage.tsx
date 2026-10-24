@@ -15,6 +15,25 @@ export type ZoomControls = {
 	reset: () => void;
 };
 
+/** 图片变换（缩放 + 平移偏移）：预览与标注态共用同一形状，进入/退出编辑时交接，
+ *  避免用户放大到某一处后一进编辑就被重置回 100%。 */
+export type ImageTransform = { zoom: number; pan: { x: number; y: number } };
+
+/** 平移量：随缩放放大可视角，避免缩得大时图片被拖出画面再也拉不回来 */
+export const clampPan = (
+	pan: { x: number; y: number },
+	zoom: number,
+	baseWidth: number,
+	baseHeight: number,
+): { x: number; y: number } => {
+	const maxX = Math.max(0, ((zoom - 1) * baseWidth) / 2);
+	const maxY = Math.max(0, ((zoom - 1) * baseHeight) / 2);
+	return {
+		x: Math.max(-maxX, Math.min(maxX, pan.x)),
+		y: Math.max(-maxY, Math.min(maxY, pan.y)),
+	};
+};
+
 /** 缩放范围夹取（0.1x ~ 20x）；纯函数，提到模块级供命令回调用 */
 const clampZoom = (z: number) => Math.max(0.1, Math.min(20, z));
 
@@ -29,6 +48,9 @@ export function ZoomableImage({
 	renderToolbar,
 	controlsRef,
 	onZoomChange,
+	initialZoom,
+	initialPan,
+	onTransformChange,
 }: {
 	src: string;
 	alt: string;
@@ -37,9 +59,15 @@ export function ZoomableImage({
 	controlsRef?: Ref<ZoomControls>;
 	/** 缩放值变化回调（供外部展示百分比） */
 	onZoomChange?: (zoom: number) => void;
+	/** 初始缩放：从标注态返回时沿用其缩放，不重置回 100% */
+	initialZoom?: number;
+	/** 初始平移：同上 */
+	initialPan?: { x: number; y: number };
+	/** 缩放/平移变化上报（父组件存起来，进出标注态交接） */
+	onTransformChange?: (t: ImageTransform) => void;
 }) {
-	const [zoom, setZoom] = useState(1);
-	const [pan, setPan] = useState({ x: 0, y: 0 });
+	const [zoom, setZoom] = useState(() => clampZoom(initialZoom ?? 1));
+	const [pan, setPan] = useState(initialPan ?? { x: 0, y: 0 });
 	const [dragging, setDragging] = useState(false);
 	const dragRef = useRef({ startX: 0, startY: 0, panX: 0, panY: 0 });
 	const bodyRef = useRef<HTMLDivElement>(null);
@@ -60,6 +88,10 @@ export function ZoomableImage({
 	useEffect(() => {
 		onZoomChange?.(zoom);
 	}, [zoom, onZoomChange]);
+
+	useEffect(() => {
+		onTransformChange?.({ zoom, pan });
+	}, [zoom, pan, onTransformChange]);
 
 	// 滚轮缩放（手动绑定，关闭 passive 以便 preventDefault）
 	useEffect(() => {

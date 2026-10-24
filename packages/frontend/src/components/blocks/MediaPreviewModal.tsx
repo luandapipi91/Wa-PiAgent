@@ -7,7 +7,7 @@ import { MODAL_POS_KEYS } from "../ui/modal-position";
 import { ThumbStrip } from "./ThumbStrip";
 import { useDirGallery } from "./useDirGallery";
 import { Icon } from "../ui/Icon";
-import { ZoomableImage, type ZoomControls } from "./ZoomableImage";
+import { ZoomableImage, type ImageTransform, type ZoomControls } from "./ZoomableImage";
 import {
 	isAnnotatableImageSrc,
 	resolveCopyPath,
@@ -47,8 +47,18 @@ export function MediaPreviewModal() {
 	// 缩放命令与百分比：zoom 状态在 ZoomableImage 内部，命令经 ref 下发、百分比经回调上报
 	const zoomRef = useRef<ZoomControls | null>(null);
 	const [zoom, setZoom] = useState(1);
+	// 当前视角（缩放 + 平移）：预览与标注态共用。用户在外面放大到某处后点笔，
+	// 编辑态要从同一视角开始，不能重置回 100%/居中；退出编辑时再把新视角交回预览。
+	const transformRef = useRef<ImageTransform>({ zoom: 1, pan: { x: 0, y: 0 } });
+	const [annotatorZoom, setAnnotatorZoom] = useState(1);
 	// 当前项是否图片：缩放控件与 +/−/0 快捷键仅对图片生效（视频无需缩放）
 	const isImage = preview?.items[index]?.kind === "image";
+	// 切换图片时视角归零：沿用上一张的平移量会错位
+	const itemSrc = preview?.items[index]?.src;
+	useEffect(() => {
+		transformRef.current = { zoom: 1, pan: { x: 0, y: 0 } };
+		setAnnotatorZoom(1);
+	}, [itemSrc]);
 	// 标注态：主体换成 ImageAnnotator，顶栏隐藏缩放/复制/翻页；组件常驻挂载，
 	// 关闭或重新打开预览（openId 变化）时自动退出标注态
 	const [annotating, setAnnotating] = useState(false);
@@ -193,12 +203,16 @@ export function MediaPreviewModal() {
 							</span>
 						)}
 					</span>
-					{/* 缩放控件：计数之后、复制按钮之前，仅图片项且非标注态（− % +） */}
-					{isImage && !annotating && (
+					{/* 缩放控件：计数之后、复制按钮之前，仅图片项（− % +）；标注态下控标注画布同一套 zoom */}
+					{isImage && (
 						<>
 							<button
 								className="fv-btn"
-								onClick={() => zoomRef.current?.zoomOut()}
+								onClick={() =>
+									annotating
+										? annotatorRef.current?.zoomOut()
+										: zoomRef.current?.zoomOut()
+								}
 								title={t("blocks.fileViewer.zoomOut")}
 								data-testid="media-zoom-out"
 							>
@@ -208,11 +222,15 @@ export function MediaPreviewModal() {
 								className="text-[calc(11px*var(--font-scale))] text-tertiary w-10 text-center"
 								data-testid="media-zoom-percent"
 							>
-								{Math.round(zoom * 100)}%
+								{Math.round((annotating ? annotatorZoom : zoom) * 100)}%
 							</span>
 							<button
 								className="fv-btn"
-								onClick={() => zoomRef.current?.zoomIn()}
+								onClick={() =>
+									annotating
+										? annotatorRef.current?.zoomIn()
+										: zoomRef.current?.zoomIn()
+								}
 								title={t("blocks.fileViewer.zoomIn")}
 								data-testid="media-zoom-in"
 							>
@@ -251,6 +269,13 @@ export function MediaPreviewModal() {
 							alt={item.name}
 							mime={annotatorMime}
 							apiRef={annotatorRef}
+							// 接着外面的缩放/位置继续编辑，不从 100% 重新开始
+							initialZoom={transformRef.current.zoom}
+							initialPan={transformRef.current.pan}
+							onZoomChange={setAnnotatorZoom}
+							onTransformChange={(tr) => {
+								transformRef.current = tr;
+							}}
 							onCancel={exitAnnotating}
 							onDiscardCancelled={() => {
 								pendingClose.current = false;
@@ -268,6 +293,12 @@ export function MediaPreviewModal() {
 							alt={item.name}
 							controlsRef={zoomRef}
 							onZoomChange={setZoom}
+							// 从标注态退出时沿用编辑时的视角，画面不跳
+							initialZoom={transformRef.current.zoom}
+							initialPan={transformRef.current.pan}
+							onTransformChange={(tr) => {
+								transformRef.current = tr;
+							}}
 						/>
 					) : (
 						<div className="flex-1 bg-black flex items-center justify-center p-2.5">
