@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, toAppPath } from "./helpers";
 
 const PROJECT_CWD = join(E2E_WA_PI_DIR, "e2e-project");
 const FILE_PATH = join(PROJECT_CWD, "AGENTS.md");
@@ -77,7 +77,12 @@ test.describe
 			await expect(chip).toBeVisible({ timeout: 10_000 });
 			// chip 视觉只显示 basename，data-token 保留绝对路径引用
 			await expect(chip).toHaveText("#AGENTS.md");
-			await expect(chip).toHaveAttribute("data-token", `#[${FILE_PATH}]`);
+			// 前端把文件引用路径归一为正斜杠（ExplorerPanel 拖拽时 replace(/\/g,"/")），
+			// 期望值同口径，否则 Windows 上 join() 的反斜杠必然不等
+			await expect(chip).toHaveAttribute(
+				"data-token",
+				`#[${toAppPath(FILE_PATH)}]`,
+			);
 		});
 
 		test("拖文件树文件夹到输入框：chip token 同样为绝对路径", async ({ page }) => {
@@ -88,7 +93,10 @@ test.describe
 			const chip = editor.locator(".chip-file").first();
 			await expect(chip).toBeVisible({ timeout: 10_000 });
 			await expect(chip).toHaveText("#e2e-drag-dir");
-			await expect(chip).toHaveAttribute("data-token", `#[${DIR_PATH}]`);
+			await expect(chip).toHaveAttribute(
+				"data-token",
+				`#[${toAppPath(DIR_PATH)}]`,
+			);
 		});
 
 		test("从系统拖入文件夹：走路径引用生成 folder 附件，不出现 Failed to fetch", async ({

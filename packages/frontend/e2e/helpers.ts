@@ -268,3 +268,12 @@ export async function createSessionViaPrompt(
     return data.sessions?.find((s: any) => s.id === sessionId);
   });
 }
+
+/**
+ * 文件名引用（chip data-token）里的路径形态：前端统一全正斜杠。
+ * ExplorerPanel 拖拽时 `fpath.replace(/\\/g, "/")` 归一（避免 Windows 上出现混合分隔符），
+ * 所以断言 chip token 时不能用 `join()` 的原样结果（Windows 是反斜杠）当作期望值。
+ */
+export function toAppPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}

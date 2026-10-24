@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createSessionViaPrompt, saveProvider } from "./helpers";
+import { createSessionViaPrompt, saveProvider, toAppPath } from "./helpers";
 
 // 空文件回归素材：0 字节文件（曾经因「content 为空」被误判成读取失败）
 writeFileSync(join(E2E_WA_PI_DIR, "e2e-project", "EMPTY.go"), "");
@@ -281,12 +281,13 @@ test.describe
 			);
 			await page.mouse.up();
 
-			// 输入框 chip：data-token 为绝对路径（不依赖会话 cwd 即可解析，无 path: 锚）
+			// 输入框 chip：data-token 为绝对路径（不依赖会话 cwd 即可解析，无 path: 锚）；
+			// 前端把路径归一为正斜杠，期望值也要同口径（否则 Windows 上 join() 的反斜杠必然不等）
 			const chip = composer.locator(".chip-file").first();
 			await expect(chip).toBeVisible({ timeout: 5000 });
 			await expect(chip).toHaveAttribute(
 				"data-token",
-				`#[${join(E2E_WA_PI_DIR, "e2e-project", "AGENTS.md")}]`,
+				`#[${toAppPath(join(E2E_WA_PI_DIR, "e2e-project", "AGENTS.md"))}]`,
 			);
 
 			// 发送 → 聊天窗用户消息（乐观插入）里 #path:绝对路径 还原渲染为 chip
