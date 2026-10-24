@@ -52,6 +52,29 @@ test("图片文件 → 打开媒体画廊（不进文件预览窗）", () => {
 	expect(mp.sessionId).toBe("s1");
 });
 
+test("文件树双击 uploads 下的图片 → 同样带上标注入口（不必从附件缩略图进）", () => {
+	const win = "H:/work/demo/.wa-pi/uploads/shot.png";
+	openFileOrPreview(win, "s1");
+	expect(useSessionStore.getState().mediaPreview!.annotatablePath).toBe(win);
+});
+
+test("uploads 之外的图片 → 不带标注入口（覆盖保存只能写 uploads）", () => {
+	openFileOrPreview("/work/demo/pics/cat.png", "s1");
+	expect(useSessionStore.getState().mediaPreview!.annotatablePath).toBeUndefined();
+});
+
+test("uploads 下但扩展名不在白名单（gif）→ 不带标注入口", () => {
+	openFileOrPreview("/work/demo/.wa-pi/uploads/anim.gif", "s1");
+	expect(useSessionStore.getState().mediaPreview!.annotatablePath).toBeUndefined();
+});
+
+test("显式 annotatable:false → 保留调用方关掉入口的能力", () => {
+	openFileOrPreview("/work/demo/.wa-pi/uploads/shot.png", "s1", {
+		annotatable: false,
+	});
+	expect(useSessionStore.getState().mediaPreview!.annotatablePath).toBeUndefined();
+});
+
 test("视频文件 → 打开媒体画廊（kind=video，播放交给画廊）", () => {
 	openFileOrPreview("/work/demo/pics/clip.mp4", "s1");
 	expect(useSessionStore.getState().filePreview).toBeNull();

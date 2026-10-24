@@ -479,11 +479,16 @@ test("保存中点 ✕ 不关窗；保存失败后取消丢弃也不会误关窗
 
 // ─── 入口来源：openFileOrPreview 的 annotatable 参数 ───
 
-test("openFileOrPreview 传 annotatable 时把路径写进 mediaPreview.annotatablePath", () => {
+test("openFileOrPreview：uploads 下的图片默认带标注入口，显式 annotatable:false 才关掉", () => {
 	openFileOrPreview(A.src, "s1", { annotatable: true });
 	expect(useSessionStore.getState().mediaPreview?.annotatablePath).toBe(A.src);
 
+	// 不带 opts（文件树双击、路径胶囊等入口）同样可以标注
 	openFileOrPreview(A.src, "s1");
+	expect(useSessionStore.getState().mediaPreview?.annotatablePath).toBe(A.src);
+
+	// 显式关掉
+	openFileOrPreview(A.src, "s1", { annotatable: false });
 	expect(
 		useSessionStore.getState().mediaPreview?.annotatablePath,
 	).toBeUndefined();

@@ -14,16 +14,10 @@ export function fileNameOf(src: string): string {
 	return noQuery.replace(/\\/g, "/").split("/").pop() ?? src;
 }
 
-// 可标注图片：扩展名白名单（png/jpg/jpeg/webp）+ 路径含 .wa-pi/uploads 段。
-// 前端粗判只为避免无意义入口，路径真实可写由内核覆盖接口二次校验。
-const ANNOTATABLE_EXT_RE = /\.(png|jpe?g|webp)$/i;
-const UPLOADS_SEGMENT_RE = /[\\/]\.wa-pi[\\/]uploads[\\/]/;
-
-/** 该媒体 src 是否允许标注（发送前上传到 .wa-pi/uploads 的 png/jpg/jpeg/webp） */
-export function isAnnotatableImageSrc(src: string): boolean {
-	if (!ANNOTATABLE_EXT_RE.test(src)) return false;
-	return UPLOADS_SEGMENT_RE.test(src);
-}
+// 可标注图片判定下沉在 file-path（它无任何 import）：`open-file-preview` 也要用它，
+// 而本模块依赖 FilePill、FilePill 又依赖 `open-file-preview`，直接从这里取会成环。
+// 这里只转出，现有 import 方不用改。
+export { isAnnotatableImageSrc } from "./file-path";
 
 /** 路径同一性比较：归一正反斜杠、重复分隔符并忽略大小写。
  *  Windows 上上传接口返回反斜杠路径，而同目录画廊回写的 src 是正斜杠形式，直接 === 会失配。 */

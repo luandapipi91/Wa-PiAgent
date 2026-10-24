@@ -16,7 +16,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import {
+	createProject,
+	createSessionViaPrompt,
+	saveProvider,
+	setUiPrefs,
+} from "./helpers";
 
 /** 原图底色（明显区别于标注默认红 #E5484D，便于采样判定「是新画的标注」） */
 const BASE_RGB = [30, 58, 138] as const;
@@ -35,6 +40,104 @@ async function makeFixture(page: Page): Promise<string> {
 		return canvas.toDataURL("image/png").split(",")[1];
 	}, [...BASE_RGB] as [number, number, number]);
 }
+
+test.describe.serial("文件树入口同样可标注", () => {
+	test.beforeAll(async () => {
+		// 预置假 provider：否则首启 onboarding 向导弹窗拦截所有点击
+		await saveProvider({
+			id: "e2e-annotate-provider",
+			name: "E2E Annotate",
+			slug: "e2e-annotate",
+			baseUrl: "http://localhost:9999/v1",
+			apiKey: "sk-e2e",
+			api: "openai-completions",
+			models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+		});
+	});
+
+	test("文件树双击 uploads 下的图片 → 预览窗右下角也有笔按钮", async ({ page }) => {
+		test.setTimeout(120_000);
+		const projectName = `e2e-annotate-tree-${randomUUID().slice(0, 8)}`;
+		const projectCwd = join(E2E_WA_PI_DIR, projectName);
+		const uploadsDir = join(projectCwd, ".wa-pi", "uploads");
+		const workDir = join(tmpdir(), "wa-pi-e2e-annotate-tree");
+		mkdirSync(uploadsDir, { recursive: true });
+		mkdirSync(workDir, { recursive: true });
+		const fixturePath = join(workDir, "tree-source.png");
+		let projectId = "";
+		try {
+			const project = await createProject(projectName, projectCwd);
+			projectId = project.id;
+			await setUiPrefs(page, "zh");
+			await page.goto("/");
+			writeFileSync(fixturePath, Buffer.from(await makeFixture(page), "base64"));
+			// 直接把图写进 uploads（模拟此前上传过的图片），再走文件树双击这条路
+			const uploadsImage = join(uploadsDir, "from-explorer.png");
+			writeFileSync(uploadsImage, readFileSync(fixturePath));
+
+			// 不依赖 new-session-pane（应用可能恢复到上一个用例留下的会话）：
+			// 只要侧栏能交互就能点项目与会话行，这一步不承担业务断言。
+			await page.waitForTimeout(1500);
+
+			// 通过 API 建一个会话（不依赖输入框发消息，避免 pi 进程真的跑起来）
+			const created = await createSessionViaPrompt(project.id, {
+				agentName: "dev",
+				text: "e2e tree entry",
+				model: "model-a",
+			});
+			// 先在侧栏点项目名展开会话列表，再点会话行
+			await page.getByText(projectName).first().click();
+			await page.getByTestId(`session-${created.id}`).click();
+			await expect(page.getByTestId("session-view")).toBeVisible({
+				timeout: 15_000,
+			});
+
+			// 打开右侧文件树 → 逐级展开 → 双击 uploads 里的图片
+			await page.getByTestId("btn-explorer").click();
+			const panel = page.locator('[data-testid="explorer-panel"]');
+			await expect(panel).toBeVisible({ timeout: 5000 });
+			await panel.getByText(".wa-pi", { exact: true }).click();
+			await panel.getByText("uploads", { exact: true }).click();
+			const fileNode = panel.getByText("from-explorer.png", { exact: true });
+			await expect(fileNode).toBeVisible({ timeout: 10_000 });
+			await fileNode.dblclick();
+
+			// 媒体画廊打开，且右下角有圆形笔按钮（与附件入口一致）
+			await expect(page.getByTestId("media-preview-modal")).toBeVisible({
+				timeout: 10_000,
+			});
+			const annotateBtn = page.getByTestId("media-annotate");
+			await expect(annotateBtn).toBeVisible();
+			const box = (await annotateBtn.boundingBox())!;
+			expect(Math.round(box.width)).toBe(70);
+			// 点进去能进入编辑态（画布铺出了原图）
+			await annotateBtn.click();
+			const canvas = page.getByTestId("annotator-canvas");
+			await expect(canvas).toBeVisible();
+			const centerPixel = await canvas.evaluate((el) => {
+				const c = el as HTMLCanvasElement;
+				const ctx = c.getContext("2d")!;
+				const d = ctx.getImageData(
+					Math.floor(c.width / 2),
+					Math.floor(c.height / 2),
+					1,
+					1,
+				).data;
+				return [d[0], d[1], d[2], d[3]];
+			});
+			expect(centerPixel).toEqual([...BASE_RGB, 255]);
+		} finally {
+			await page.goto("about:blank").catch(() => {});
+			if (projectId) {
+				await fetch(
+					`http://127.0.0.1:${E2E_WS_PORT}/api/projects/${encodeURIComponent(projectId)}`,
+					{ method: "DELETE" },
+				).catch(() => {});
+			}
+			if (existsSync(workDir)) rmSync(workDir, { recursive: true, force: true });
+		}
+	});
+});
 
 test.describe.serial("图片标注覆盖保存", () => {
 	test.beforeAll(async () => {
