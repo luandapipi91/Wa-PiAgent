@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import {
 	mkdir,
 	mkdtemp,
 	readdir,
 	readFile,
 	rm,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { HttpRouter } from "../src/http-router";
 import { MAX_OVERWRITE_BYTES, registerFileRoutes } from "../src/routes/files";
 
@@ -24,6 +26,20 @@ beforeEach(async () => {
 afterEach(async () => {
 	await rm(root, { recursive: true, force: true });
 });
+
+/** 当前环境能否建符号链接（Windows 非开发者模式/非管理员会 EPERM） */
+const CAN_SYMLINK = (() => {
+	const dir = mkdtempSync(join(tmpdir(), "files-overwrite-symprobe-"));
+	try {
+		writeFileSync(join(dir, "target"), "x");
+		symlinkSync(join(dir, "target"), join(dir, "link"));
+		return true;
+	} catch {
+		return false;
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+})();
 
 /** 只用到 projectStore.load 的假 store */
 function makeRouter(): HttpRouter {
@@ -118,6 +134,59 @@ test("项目内不存在的文件（isPathInProjects → missing）拒绝写入 
 	// 失败不落盘，也不残留临时文件
 	expect(await readdir(join(cwd, ".wa-pi/uploads"))).toEqual([]);
 });
+
+test("uploads 内的 ../ 穿越路径拒绝写入（403 fs.forbidden）", async () => {
+	// 目标就放在项目根：仅当穿越未被拦住才会被改写，断言才有意义
+	const target = await seed("notes.png", OLD_BYTES);
+	const traversal = `${join(cwd, ".wa-pi", "uploads")}${sep}..${sep}..${sep}notes.png`;
+	const res = await makeRouter().handle(
+		overwriteRequest(traversal, NEW_BYTES),
+	);
+
+	expect(res!.status).toBe(403);
+	expect((await res!.json()).failure.code).toBe("fs.forbidden");
+	expect(new Uint8Array(await readFile(target))).toEqual(OLD_BYTES);
+});
+
+test.skipIf(!CAN_SYMLINK)(
+	"uploads 内指向项目外的符号链接拒绝写入（403 fs.forbidden）",
+	async () => {
+		const outsideDir = await mkdtemp(join(tmpdir(), "files-overwrite-out-"));
+		const outside = join(outsideDir, "a.png");
+		await writeFile(outside, OLD_BYTES);
+		const link = join(cwd, ".wa-pi/uploads/escape.png");
+		try {
+			await symlink(outside, link);
+			const res = await makeRouter().handle(
+				overwriteRequest(link, NEW_BYTES),
+			);
+
+			expect(res!.status).toBe(403);
+			expect((await res!.json()).failure.code).toBe("fs.forbidden");
+			expect(new Uint8Array(await readFile(outside))).toEqual(OLD_BYTES);
+		} finally {
+			await rm(outsideDir, { recursive: true, force: true });
+		}
+	},
+);
+
+test.skipIf(!CAN_SYMLINK)(
+	"uploads 内指向项目内非 uploads 文件的符号链接拒绝写入（403 fs.forbidden）",
+	async () => {
+		const target = await seed("notes.txt", OLD_BYTES);
+		const link = join(cwd, ".wa-pi/uploads/inner.png");
+		await symlink(target, link);
+		const res = await makeRouter().handle(overwriteRequest(link, NEW_BYTES));
+
+		expect(res!.status).toBe(403);
+		expect((await res!.json()).failure.code).toBe("fs.forbidden");
+		expect(new Uint8Array(await readFile(target))).toEqual(OLD_BYTES);
+		const leftovers = (await readdir(join(cwd, ".wa-pi/uploads"))).filter(
+			(n) => n.startsWith(".annotate-"),
+		);
+		expect(leftovers).toEqual([]);
+	},
+);
 
 test("不支持的扩展名返回 400 imageAnn.unsupported", async () => {
 	const target = await seed(".wa-pi/uploads/a.gif");
