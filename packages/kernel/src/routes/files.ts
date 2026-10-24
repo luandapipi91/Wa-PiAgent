@@ -7,16 +7,21 @@
 import type { RouteRegistrar } from "./types";
 import { readJsonBody, paramErrorResponse } from "./types";
 import { toKernelPayload } from "@wa-pi/shared";
-import { resolveCwdForFsRequest, uniquePath } from "../ws-server";
+import { resolveCwdForFsRequest, uniquePath, isPathInProjects } from "../ws-server";
 import {
   appendChunk,
   finalizeRecording,
   discardRecording,
 } from "../recording-store";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { mkdir, writeFile, rename, rm } from "node:fs/promises";
+import { join, basename, dirname, extname, resolve, sep } from "node:path";
+import { randomUUID } from "node:crypto";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
+/** 图片标注覆盖写回的体积上限：100MB */
+export const MAX_OVERWRITE_BYTES = 100 * 1024 * 1024;
+/** 允许覆盖写回的图片扩展名（标注工具只产出这几种） */
+export const OVERWRITE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
 async function resolveUploadDir(
   projectStore: any,
@@ -87,6 +92,87 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
         },
         { status: 500 },
       );
+    }
+  });
+
+  // POST /api/files/overwrite：标注结果覆盖写回项目 .wa-pi/uploads 内的既有图片
+  // （先写同目录临时文件再 rename，避免半截内容；失败一律清掉临时文件）
+  r.add("POST", "/api/files/overwrite", async (req) => {
+    const ct = req.headers.get("content-type") ?? "";
+    const form = ct.includes("multipart/form-data")
+      ? await req.formData()
+      : null;
+    const file = form?.get("file");
+    const targetPath = form?.get("path");
+    if (
+      !(file instanceof Blob) ||
+      typeof targetPath !== "string" ||
+      !targetPath
+    ) {
+      return paramErrorResponse("缺少 file/path 字段", "file/path");
+    }
+
+    // 先做路径授权（403）、再校验扩展名/体积（400）：非 uploads 路径即使扩展名不支持
+    // 也应报权限错误，不向未授权路径泄露写入策略
+    const { projects } = await projectStore.load();
+    const hit = isPathInProjects(resolve(targetPath), projects);
+    const real = hit.kind === "exists" ? hit.path : "";
+    // 只允许改写 .wa-pi/uploads/ 下的既有文件：realpath 口径防 ../ 与符号链接逃逸，
+    // 必须 exists（不存在的文件不能借此新建）
+    if (!real.includes(`${sep}.wa-pi${sep}uploads${sep}`)) {
+      return Response.json(
+        {
+          error: "仅允许覆盖项目 .wa-pi/uploads 内的文件",
+          failure: { code: "fs.forbidden" },
+        },
+        { status: 403 },
+      );
+    }
+
+    // 扩展名以 realpath 为准：uploads 内的符号链接可能指向同目录下另一个扩展名的文件，
+    // 只查请求路径会让 png 字节写进 gif 等非白名单文件
+    if (!OVERWRITE_EXTS.has(extname(real).toLowerCase())) {
+      return Response.json(
+        {
+          error: "仅支持覆盖 png/jpg/jpeg/webp 图片",
+          failure: { code: "imageAnn.unsupported" },
+        },
+        { status: 400 },
+      );
+    }
+    if (file.size > MAX_OVERWRITE_BYTES) {
+      return Response.json(
+        {
+          error: `文件超过 ${MAX_OVERWRITE_BYTES / 1024 / 1024}MB 上限`,
+          failure: {
+            code: "attachment.tooLarge",
+            params: { maxMb: MAX_OVERWRITE_BYTES / 1024 / 1024 },
+          },
+        },
+        { status: 400 },
+      );
+    }
+
+    // 临时名带随机后缀：并发/重试的两次覆盖不会互相抹掉对方的临时文件
+    const tmp = join(
+      dirname(real),
+      `.annotate-${process.pid}-${Date.now()}-${randomUUID()}.tmp`,
+    );
+    try {
+      await writeFile(tmp, new Uint8Array(await file.arrayBuffer()));
+      await rename(tmp, real);
+      return Response.json({ type: "fs:overwrite", path: real });
+    } catch (e) {
+      const payload = toKernelPayload(e);
+      return Response.json(
+        {
+          error: e instanceof Error ? e.message : String(e),
+          ...(payload ? { failure: payload } : {}),
+        },
+        { status: 500 },
+      );
+    } finally {
+      await rm(tmp, { force: true });
     }
   });
 

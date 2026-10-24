@@ -982,7 +982,10 @@ export function ComposerInput({
 							onRemove={() => removeAttachment(i)}
 							onClick={
 								a.kind !== "snippet" && a.path
-									? () => openFileOrPreview(a.path!, sessionId)
+									? () =>
+											openFileOrPreview(a.path!, sessionId, {
+												annotatable: a.kind === "image",
+											})
 									: undefined
 							}
 						/>

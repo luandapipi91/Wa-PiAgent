@@ -8,7 +8,19 @@ import { ThumbStrip } from "./ThumbStrip";
 import { useDirGallery } from "./useDirGallery";
 import { Icon } from "../ui/Icon";
 import { ZoomableImage, type ZoomControls } from "./ZoomableImage";
-import { resolveCopyPath, resolveMediaSrc } from "./media-utils";
+import {
+	isAnnotatableImageSrc,
+	resolveCopyPath,
+	resolveMediaSrc,
+	sameFilePath,
+} from "./media-utils";
+import {
+	ImageAnnotator,
+	type AnnotatorHandle,
+} from "./image-annotator/ImageAnnotator";
+import { mimeForExt } from "./image-annotator/draw";
+import { overwriteFile } from "../../fs-client";
+import { useImageRevisionStore } from "../../store/image-revision";
 import { useToastStore } from "../../store/toast";
 import {
 	copyImageToClipboard,
@@ -26,6 +38,8 @@ export function MediaPreviewModal() {
 	const preview = useSessionStore((s) => s.mediaPreview);
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
+	// 标注保存后 revision 变化 → 主图与缩略图条换上带新版本号的 URL（键与 bump 同一口径：item.src）
+	const revisions = useImageRevisionStore((s) => s.revisions);
 	// 同目录画廊：打开时按当前文件所在目录重建 items（图片 + 视频，名称自然序）
 	useDirGallery();
 	const index = preview?.index ?? 0;
@@ -35,10 +49,22 @@ export function MediaPreviewModal() {
 	const [zoom, setZoom] = useState(1);
 	// 当前项是否图片：缩放控件与 +/−/0 快捷键仅对图片生效（视频无需缩放）
 	const isImage = preview?.items[index]?.kind === "image";
-
-	// 键盘 ←/→ 循环切换（仅多媒体时绑定）
+	// 标注态：主体换成 ImageAnnotator，顶栏隐藏缩放/复制/翻页；组件常驻挂载，
+	// 关闭或重新打开预览（openId 变化）时自动退出标注态
+	const [annotating, setAnnotating] = useState(false);
+	// 标注组件句柄：顶栏 ✕ 在标注态要请它走自己的丢弃确认，而不是直接关窗
+	const annotatorRef = useRef<AnnotatorHandle | null>(null);
+	// 本次退出标注是否来自顶栏 ✕（丢弃确认后要跟着关窗；用户取消丢弃则撤销）
+	const pendingClose = useRef(false);
+	const openId = preview?.openId ?? null;
 	useEffect(() => {
-		if (!preview || count < 2) return;
+		setAnnotating(false);
+		pendingClose.current = false;
+	}, [openId]);
+
+	// 键盘 ←/→ 循环切换（仅多媒体时绑定；标注态交给标注组件）
+	useEffect(() => {
+		if (!preview || count < 2 || annotating) return;
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === "ArrowLeft") {
 				useSessionStore
@@ -50,11 +76,11 @@ export function MediaPreviewModal() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [preview, index, count]);
+	}, [preview, index, count, annotating]);
 
 	// 键盘 + / − / 0：放大、缩小、重置（仅图片项；与 ←/→ 翻页、Esc 关闭并存）
 	useEffect(() => {
-		if (!isImage) return;
+		if (!isImage || annotating) return;
 		const onKey = (e: KeyboardEvent) => {
 			// 美式键盘上 “+” 需 Shift，主键位是 “=”，同样视为放大
 			if (e.key === "+" || e.key === "=") zoomRef.current?.zoomIn();
@@ -65,14 +91,66 @@ export function MediaPreviewModal() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [isImage]);
+	}, [isImage, annotating]);
 
 	if (!preview) return null;
-	const close = () => useSessionStore.getState().closeMediaPreview();
 	const item = preview.items[index];
-	const src = resolveMediaSrc(item.src, preview.sessionId);
+	const src = resolveMediaSrc(item.src, preview.sessionId, revisions[item.src] ?? 0);
 	const go = (d: number) =>
 		useSessionStore.getState().setMediaPreviewIndex((index + d + count) % count);
+
+	// 关闭：非标注态直接关；标注态先请标注组件走丢弃确认，确认丢弃后再关窗。
+	// 只在「弹出丢弃确认」时记关窗意图——保存中被拒（refused）不记，
+	// 否则意图残留会让后续正常的取消丢弃误关窗。
+	const requestClose = () => {
+		if (!annotating) {
+			useSessionStore.getState().closeMediaPreview();
+			return;
+		}
+		// 标注器未挂载（标注条件在期间失效等）：否则 `annotating` 为真而句柄为空时 ✕/Esc 彻底关不掉窗
+		if (!annotatorRef.current) {
+			pendingClose.current = false;
+			useSessionStore.getState().closeMediaPreview();
+			return;
+		}
+		const result = annotatorRef.current.requestCancel();
+		if (result === "exited") {
+			useSessionStore.getState().closeMediaPreview();
+			return;
+		}
+		pendingClose.current = result === "confirming";
+	};
+	// 退出标注态（标注组件确认后的回调）：本次退出由 ✕ 发起时一并关窗
+	const exitAnnotating = () => {
+		const closeRequested = pendingClose.current;
+		pendingClose.current = false;
+		setAnnotating(false);
+		if (closeRequested) useSessionStore.getState().closeMediaPreview();
+	};
+
+	// 可标注：本次预览由发送前附件缩略图打开（annotatablePath 与当前项指向同一文件），
+	// 且路径在 .wa-pi/uploads 下、扩展名在白名单内（真实可写由内核二次校验）
+	const canAnnotate =
+		isImage &&
+		!!preview.annotatablePath &&
+		sameFilePath(preview.annotatablePath, item.src) &&
+		isAnnotatableImageSrc(item.src);
+	// 标注导出的 mime：按扩展名映射（白名单内必有值，回退 png）
+	const annotatorMime =
+		mimeForExt(item.src.slice(item.src.lastIndexOf(".") + 1)) ?? "image/png";
+
+	// 保存标注：覆盖 uploads 原图 → 版本号自增（预览/缩略图按它刷新）→ 退出标注态；
+	// 失败只提示并保留标注态，shapes 在 ImageAnnotator 内可继续编辑重试
+	const saveAnnotated = async (blob: Blob) => {
+		try {
+			await overwriteFile(item.src, blob);
+			useImageRevisionStore.getState().bumpImageRevision(item.src);
+			addToast(t("blocks.imageAnnotator.saved"), "success");
+			setAnnotating(false);
+		} catch {
+			addToast(t("blocks.imageAnnotator.saveFailed"), "error");
+		}
+	};
 
 	// 复制：图片 → canvas 转 PNG 写剪贴板；视频/其他 → 复制路径（本地路径解析为绝对路径）
 	const copy = async () => {
@@ -90,7 +168,8 @@ export function MediaPreviewModal() {
 
 	return (
 		<Modal
-			onClose={close}
+			onClose={requestClose}
+			closeOnEsc={!annotating}
 			width="90vw"
 			height="85vh"
 			resizable
@@ -114,8 +193,8 @@ export function MediaPreviewModal() {
 							</span>
 						)}
 					</span>
-					{/* 缩放控件：计数之后、复制按钮之前，仅图片项（− % +） */}
-					{isImage && (
+					{/* 缩放控件：计数之后、复制按钮之前，仅图片项且非标注态（− % +） */}
+					{isImage && !annotating && (
 						<>
 							<button
 								className="fv-btn"
@@ -141,25 +220,62 @@ export function MediaPreviewModal() {
 							</button>
 						</>
 					)}
+					{/* 标注入口：仅发送前附件图片（笔按钮在复制左侧） */}
+					{canAnnotate && !annotating && (
+						<button
+							className="fv-btn"
+							onClick={() => {
+								pendingClose.current = false;
+								setAnnotating(true);
+							}}
+							title={t("blocks.imageAnnotator.annotate")}
+							data-testid="media-annotate"
+						>
+							<Icon name="edit" size={12} />
+						</button>
+					)}
+					{!annotating && (
+						<button
+							className="fv-btn"
+							onClick={copy}
+							title={
+								item.kind === "image"
+									? t("blocks.fileViewer.copyImage")
+									: t("blocks.fileViewer.copyPath")
+							}
+							data-testid="media-copy"
+						>
+							<Icon name="clipboard" size={12} />
+						</button>
+					)}
 					<button
 						className="fv-btn"
-						onClick={copy}
-						title={
-							item.kind === "image"
-								? t("blocks.fileViewer.copyImage")
-								: t("blocks.fileViewer.copyPath")
-						}
-						data-testid="media-copy"
+						onClick={requestClose}
+						title={t("common.close")}
+						data-testid="media-close"
 					>
-						<Icon name="clipboard" size={12} />
-					</button>
-					<button className="fv-btn" onClick={close} title={t("common.close")}>
 						<Icon name="x" size={12} />
 					</button>
 				</div>
-				{/* 主体：图片缩放视口 / 视频全尺寸播放；key=index 切换时重置缩放与播放状态 */}
+				{/* 主体：标注画布 / 图片缩放视口 / 视频全尺寸播放；key=index 切换时重置缩放与播放状态 */}
 				<div className="flex-1 relative min-h-0 flex">
-					{item.kind === "image" ? (
+					{annotating && canAnnotate ? (
+						<ImageAnnotator
+							src={src}
+							alt={item.name}
+							mime={annotatorMime}
+							apiRef={annotatorRef}
+							onCancel={exitAnnotating}
+							onDiscardCancelled={() => {
+								pendingClose.current = false;
+							}}
+							onSave={saveAnnotated}
+							// 导出阶段失败（toBlob 返回 null 等）：onSave 不会被调到，单独复用保存失败提示
+							onExportError={() =>
+								addToast(t("blocks.imageAnnotator.saveFailed"), "error")
+							}
+						/>
+					) : item.kind === "image" ? (
 						<ZoomableImage
 							key={index}
 							src={src}
@@ -179,7 +295,7 @@ export function MediaPreviewModal() {
 							/>
 						</div>
 					)}
-					{count > 1 && (
+					{count > 1 && !annotating && (
 						<>
 							<button
 								type="button"
@@ -200,8 +316,8 @@ export function MediaPreviewModal() {
 						</>
 					)}
 				</div>
-				{/* 底部缩略图条：仅多媒体时显示，点击跳转（同目录可能有上千项，条内虚拟滚动） */}
-				{count > 1 && (
+				{/* 底部缩略图条：仅多媒体且非标注态时显示，点击跳转（同目录可能有上千项，条内虚拟滚动） */}
+				{count > 1 && !annotating && (
 					<ThumbStrip
 						items={preview.items}
 						index={index}

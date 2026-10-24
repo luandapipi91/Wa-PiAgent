@@ -14,10 +14,34 @@ export function fileNameOf(src: string): string {
 	return noQuery.replace(/\\/g, "/").split("/").pop() ?? src;
 }
 
-/** 媒体 src 路径映射：http(s)/data/blob 原样；本地绝对/相对路径 → kernel /file URL */
-export function resolveMediaSrc(src: string, sessionId: string): string {
+// 可标注图片：扩展名白名单（png/jpg/jpeg/webp）+ 路径含 .wa-pi/uploads 段。
+// 前端粗判只为避免无意义入口，路径真实可写由内核覆盖接口二次校验。
+const ANNOTATABLE_EXT_RE = /\.(png|jpe?g|webp)$/i;
+const UPLOADS_SEGMENT_RE = /[\\/]\.wa-pi[\\/]uploads[\\/]/;
+
+/** 该媒体 src 是否允许标注（发送前上传到 .wa-pi/uploads 的 png/jpg/jpeg/webp） */
+export function isAnnotatableImageSrc(src: string): boolean {
+	if (!ANNOTATABLE_EXT_RE.test(src)) return false;
+	return UPLOADS_SEGMENT_RE.test(src);
+}
+
+/** 路径同一性比较：归一正反斜杠、重复分隔符并忽略大小写。
+ *  Windows 上上传接口返回反斜杠路径，而同目录画廊回写的 src 是正斜杠形式，直接 === 会失配。 */
+export function sameFilePath(a: string, b: string): boolean {
+	const norm = (p: string) =>
+		p.replace(/\\/g, "/").replace(/\/{2,}/g, "/").toLowerCase();
+	return norm(a) === norm(b);
+}
+
+/** 媒体 src 路径映射：http(s)/data/blob 原样；本地绝对/相对路径 → kernel /file URL。
+ *  version > 0 时给本地 URL 追加 `&v=N`（标注覆盖保存后的缓存刷新，远程地址不受影响）。 */
+export function resolveMediaSrc(
+	src: string,
+	sessionId: string,
+	version?: number,
+): string {
 	if (/^(https?:|data:|blob:)/i.test(src)) return src;
-	return pathToUploadUrl(resolveAbsolutePath(src, sessionId));
+	return pathToUploadUrl(resolveAbsolutePath(src, sessionId), version);
 }
 
 /** md 预览相对路径解析（baseDir 拼接）：FileViewer 的 PreviewImage 与 a 渲染器共用 */

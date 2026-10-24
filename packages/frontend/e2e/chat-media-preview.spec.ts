@@ -243,7 +243,7 @@ test("对话媒体：画廊图片缩放控件（− % + 与键盘 +/−/0，视�
 	await expect(page.getByTestId("media-preview-modal")).toBeVisible();
 	await expect(page.getByTestId("media-counter")).toHaveText("2 / 4");
 
-	// 控件位置：顶部栏内顺序 = 计数 → 缩小 → 百分比 → 放大 → 复制
+	// 控件位置：顶部栏内顺序 = 计数 → 缩小 → 百分比 → 放大 → 复制 → 关闭
 	const order = await page
 		.locator("[data-modal-drag-handle] [data-testid]")
 		.evaluateAll((els) =>
@@ -255,6 +255,7 @@ test("对话媒体：画廊图片缩放控件（− % + 与键盘 +/−/0，视�
 		"media-zoom-percent",
 		"media-zoom-in",
 		"media-copy",
+		"media-close",
 	]);
 
 	const percent = page.getByTestId("media-zoom-percent");
