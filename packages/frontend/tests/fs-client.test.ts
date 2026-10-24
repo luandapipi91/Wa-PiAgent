@@ -37,8 +37,31 @@ describe("fs-client readFile", () => {
 	});
 
 	test("rejects on fs:readFile error", async () => {
-		fake.setResponse("fs:readFile", { content: "", reason: "ENOENT" });
+		// 按 kernel 的真实错误形状：fs:error 只有 path/reason，不带 content 字段
+		fake.setResponse("fs:readFile", {
+			type: "fs:error",
+			path: "/tmp/missing.txt",
+			reason: "ENOENT",
+		});
 		await expect(readFile("/tmp/missing.txt")).rejects.toThrow("ENOENT");
+	});
+
+	test("空文件（0 字节）正常返回空内容，不当成读取失败", async () => {
+		// 回归：空文件 base64 是 ""，旧实现用 `!res.content` 判断，
+		// 把「内容为空」误判成「读取失败」，空文件永远打不开
+		fake.setResponse("fs:readFile", {
+			type: "fs:readFile",
+			content: "",
+			mimeType: "text/plain",
+		});
+		const result = await readFile("/tmp/empty.go");
+		expect(result.content).toBe("");
+		expect(result.mimeType).toBe("text/plain");
+	});
+
+	test("fs:error 没带 reason 时用「读取失败」兜底", async () => {
+		fake.setResponse("fs:readFile", { type: "fs:error", path: "/tmp/x" });
+		await expect(readFile("/tmp/x")).rejects.toThrow("读取失败");
 	});
 });
 

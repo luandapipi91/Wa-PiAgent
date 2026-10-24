@@ -116,6 +116,20 @@ test("文本文件：加载后渲染 base64 解码内容 + 文件名", async () 
 	).not.toBeNull();
 });
 
+test("空文件（0 字节）正常打开：不显示错误态", async () => {
+	// 回归：空文件 base64 为 ""，曾被 fs-client 误判成读取失败（用户双击空 .go 文件报错）
+	fake.setResponse("fs:readFile", {
+		type: "fs:readFile",
+		content: "",
+		mimeType: "text/plain",
+	});
+	render(<FileViewer path="/work/demo/empty.go" onClose={() => {}} />);
+
+	await waitFor(() => expect(screen.getByTestId("file-viewer")).toBeTruthy());
+	expect(screen.queryByTestId("fv-error")).toBeNull();
+	expect(screen.getByTestId("file-viewer").textContent).toContain("empty.go");
+});
+
 test("图片文件：拼成 data URI 渲染到 <img>", async () => {
 	const b64 = "iVBORw0KGgo="; // 任意合法 base64 片段
 	fake.setResponse("fs:readFile", { content: b64, mimeType: "image/png" });
@@ -189,8 +203,8 @@ test("unsupported 文件：显示默认方式打开按钮，点击调用 openFil
 });
 
 test("读取失败：显示错误态 + 关闭按钮", async () => {
-	// 让 readFile 抛错：transport.post 返回空对象 → readFile 因 !res.content throw
-	fake.setResponse("fs:readFile", {});
+	// 让 readFile 抛错：按 kernel 真实错误形状返回 fs:error（无 content 字段）
+	fake.setResponse("fs:readFile", { type: "fs:error", path: "/work/demo/x.txt" });
 	render(<FileViewer path="/work/demo/x.txt" onClose={() => {}} />);
 
 	await waitFor(() =>

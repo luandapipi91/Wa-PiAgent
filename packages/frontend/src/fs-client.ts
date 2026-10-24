@@ -179,7 +179,11 @@ export async function readFile(path: string): Promise<{
 					message: res.reason,
 				}).main || i18n.t("store.unsupportedPreview"),
 		};
-	if (!res.content) throw new Error(res.reason ?? i18n.t("store.readFailed"));
+	// 空文件（0 字节）的 base64 就是 ""——不能拿「content 为空」当失败：
+	// 真正的失败是 kernel 的 fs:error（或响应里根本没有 content 字段）。
+	if (res.type === "fs:error" || typeof res.content !== "string") {
+		throw new Error(res.reason ?? i18n.t("store.readFailed"));
+	}
 	return {
 		content: res.content,
 		mimeType: res.mimeType,

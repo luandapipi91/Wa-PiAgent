@@ -1,10 +1,13 @@
 // 文件树 + 文件预览 E2E：进入项目会话→点文件树按钮→面板展开→文件树渲染→双击预览
 // 依赖 global-setup 预置的 e2e-project（cwd=<WA_PI_DIR>/e2e-project，含 AGENTS.md）
 import { test, expect } from "@playwright/test";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
 import { createSessionViaPrompt, saveProvider } from "./helpers";
+
+// 空文件回归素材：0 字节文件（曾经因「content 为空」被误判成读取失败）
+writeFileSync(join(E2E_WA_PI_DIR, "e2e-project", "EMPTY.go"), "");
 
 // 图片预览用例素材：同目录 3 张图（画廊按同目录建清单，缩略图条应恰为 3 项）
 const PIC_DIR = join(E2E_WA_PI_DIR, "e2e-project", "explorer-pics");
@@ -134,6 +137,37 @@ test.describe
 			expect(
 				await centered.evaluate((el) => getComputedStyle(el).textAlign),
 			).toMatch(/^(?:-webkit-)?center$/);
+		});
+
+		test("双击 0 字节空文件：正常打开预览，不报读取失败", async ({ page }) => {
+			test.setTimeout(60_000);
+			await page.goto("/");
+			await page.waitForTimeout(2000);
+
+			const sessionId = await createSession();
+			await page.getByText("E2E项目").first().click();
+			await page.getByTestId(`session-${sessionId}`).click();
+			await expect(page.getByTestId("session-view")).toBeVisible({
+				timeout: 8000,
+			});
+
+			await page.getByTestId("btn-explorer").click();
+			await expect(page.getByTestId("explorer-aside")).toBeVisible({
+				timeout: 5000,
+			});
+
+			const fileNode = page
+				.locator('[data-testid="explorer-panel"]')
+				.getByText("EMPTY.go");
+			await expect(fileNode).toBeVisible({ timeout: 5000 });
+			await fileNode.dblclick();
+
+			// 打开的是文件预览器（不是错误态）
+			await expect(page.getByTestId("file-viewer")).toBeVisible({
+				timeout: 5000,
+			});
+			await expect(page.getByTestId("fv-error")).toHaveCount(0);
+			await expect(page.getByTestId("file-viewer")).toContainText("EMPTY.go");
 		});
 
 		test("双击不支持预览的文件：显示在文件管理器中打开按钮", async ({ page }) => {
