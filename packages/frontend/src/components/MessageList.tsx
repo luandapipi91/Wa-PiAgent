@@ -106,6 +106,11 @@ export interface RenderedRow {
 	srcIndex: number;
 	/** 合并行中专用的 streaming 起始 index（内容数组中从该 index 开始为新到达的流式块） */
 	streamingStartIdx?: number;
+	/** 与 main.message.content 等长：每个内容块所属 assistant 消息的 timestamp。
+	 *  同回合多条 assistant 合并成一行后，块下标仍能反查到「发起该工具调用的那条消息」——
+	 *  pi 每条 assistant 消息自带 timestamp（实测 167/173 条只含 1 个 toolCall），
+	 *  它就是该次工具调用的发起时间，不需要前端另计。 */
+	blockTimestamps?: number[];
 }
 
 /** Virtuoso 列表项：消息行或独立流式占位行 */
@@ -974,11 +979,56 @@ function preprocess(messages: SessionMessage[]): RenderedRow[] {
 			// 避免占独立行打断同 turn assistant 连续性 → collapseSameTurnAssistants 无法合并 → duplicate key
 			if (m.role === "custom" && m.customType === "subagent-notification")
 				continue;
-			rows.push({ main: sm, toolResults: new Map(), srcIndex: i });
+			rows.push({
+				main: sm,
+				toolResults: new Map(),
+			srcIndex: i,
+				blockTimestamps: blockTimestampsOf(m),
+			});
 			lastAssistantIdx = m.role === "assistant" ? rows.length - 1 : -1;
 		}
 	}
 	return collapseSameTurnAssistants(rows);
+}
+
+/** 每个内容块对应的消息 timestamp（非 assistant 消息或缺失 timestamp 时为 undefined 占位） */
+function blockTimestampsOf(message: any): number[] | undefined {
+	const content = message?.content;
+	if (!Array.isArray(content)) return undefined;
+	const ts =
+		typeof message?.timestamp === "number" && message.timestamp > 0
+			? message.timestamp
+			: undefined;
+	if (ts === undefined) return undefined;
+	return content.map(() => ts);
+}
+
+/** 拼接两条消息的块级时间戳；任一侧缺失则整行降级为 undefined（不猜）。 */
+function concatBlockTimestamps(
+	prev: number[] | undefined,
+	prevLen: number,
+	next: number[] | undefined,
+	nextLen: number,
+): number[] | undefined {
+	if (!prev || !next) return undefined;
+	return [...prev, ...next].slice(0, prevLen + nextLen);
+}
+
+/** 工具调用段内每张卡各自的发起时间：toolCalls 段的 calls 与 content 块一一对应（连续块），
+ *  故第 i 个调用取 firstBlockIdx + i 的时间戳。合并行里可能跨多条 assistant 消息，
+ *  逐卡取才不会把前面消息的等待时间算进后面的调用。 */
+function startTimesOf(
+	seg: Extract<Segment, { kind: "toolCalls" }>,
+	row: RenderedRow,
+): Map<string, number> | undefined {
+	const stamps = row.blockTimestamps;
+	if (!stamps) return undefined;
+	const map = new Map<string, number>();
+	for (let i = 0; i < seg.calls.length; i++) {
+		const ts = stamps[seg.firstBlockIdx + i];
+		if (typeof ts === "number") map.set(seg.calls[i].id, ts);
+	}
+	return map.size > 0 ? map : undefined;
 }
 
 /**
@@ -1011,12 +1061,20 @@ function collapseSameTurnAssistants(rows: RenderedRow[]): RenderedRow[] {
 				agentName: prev.main.agentName,
 				message: mergedMsg,
 			};
+			// 块级时间戳同步拼接：合并后仍能反查每块来自哪条消息（shell 耗时依赖）
+			prev.blockTimestamps = concatBlockTimestamps(
+				prev.blockTimestamps,
+				prevMsg.content?.length ?? 0,
+				row.blockTimestamps,
+				curMsg.content?.length ?? 0,
+			);
 			for (const [k, v] of row.toolResults) prev.toolResults.set(k, v);
 		} else {
 			out.push({
 				main: row.main,
 				toolResults: new Map(row.toolResults),
 				srcIndex: row.srcIndex,
+				blockTimestamps: row.blockTimestamps,
 			});
 		}
 	}
@@ -1487,6 +1545,7 @@ export const MessageRow = memo(function MessageRow({
 					toolCalls={seg.calls}
 					results={row.toolResults}
 					isStreaming={segIsStreaming}
+					startedAtById={startTimesOf(seg, row)}
 				/>
 			);
 		}
@@ -1699,6 +1758,16 @@ type Segment =
  * 例：text₁ → toolCall → text₂ → delegate → text₃ → fleet → text₄
  *   → [text₁][toolCalls][delegate][text₂][fleet][text₃][text₄]
  */
+/** 零宽字符不是 ECMAScript 空白字符（trim 去不掉），但渲染出来是不可见的空气泡。
+ *  模型输出常夹带 U+200B；过滤时按「去掉零宽字符后是否还有可见字符」判断。 */
+const INVISIBLE_CHARS_RE = /[\u200b-\u200f\u2060\ufeff\u00ad]/g;
+function isVisibleText(value: unknown): value is string {
+	return (
+		typeof value === "string" &&
+		value.replace(INVISIBLE_CHARS_RE, "").trim().length > 0
+	);
+}
+
 export function segmentBlocks(blocks: any[]): Segment[] {
 	const segs: Segment[] = [];
 	let cur: Segment | null = null;
@@ -1719,12 +1788,12 @@ export function segmentBlocks(blocks: any[]): Segment[] {
 			// 空正文 thinking 块不入渲染流：pi 侧会产出带 thinkingSignature 但正文为空的
 			// thinking 块（实测近期会话占比 9~15%），照常入场会渲染成一张正文全空的
 			// 「思考过程」卡（用户报告「空的思考」）。规则与空 text 块一致。
-			if (!b.thinking?.trim()) continue;
+			if (!isVisibleText(b.thinking)) continue;
 			// thinking 不合并：每段独立成卡，区分 finalized/streaming
 			push();
 			segs.push({ kind: "thinking", texts: [b.thinking], firstBlockIdx: idx });
 		} else if (b.type === "text") {
-			if (!b.text?.trim()) continue;
+			if (!isVisibleText(b.text)) continue;
 			if (!cur || cur.kind !== "text") {
 				push();
 				cur = { kind: "text", texts: [], firstBlockIdx: idx, blockIdxs: [] };

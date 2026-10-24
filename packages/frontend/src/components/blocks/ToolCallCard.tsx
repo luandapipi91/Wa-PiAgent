@@ -6,6 +6,13 @@ import { useAutoCollapse } from "./useAutoCollapse";
 import { Linkify } from "./linkify";
 import { McpResultView } from "./McpResultView";
 import { CodemodeScriptView, CodemodeResultView } from "./CodemodeView";
+import {
+	EditDiffView,
+	buildEditPreview,
+	parseEditDiff,
+} from "./EditDiffView";
+import { ReadContentView, parseReadResult } from "./ReadContentView";
+import { ShellOutputView, parseShellResult } from "./ShellOutputView";
 import { useTranslation } from "../../i18n/useTranslation";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { Icon } from "../ui/Icon";
@@ -189,66 +196,101 @@ function PrettyArgsView({ args }: { args: Record<string, unknown> }) {
 	return <ArgValue v={args} />;
 }
 
-/** edit 工具专用参数视图：文件路径 + 新旧内容代码块（兼容 edits 数组与平铺两种参数结构） */
-function EditArgsView({ args }: { args: Record<string, unknown> }) {
-	const { t } = useTranslation();
-	const edits = Array.isArray(args.edits)
-		? args.edits
-		: args.oldText !== undefined || args.newText !== undefined
-			? [{ oldText: args.oldText, newText: args.newText }]
-			: [];
-	// 参数来自 LLM 输出，流式中可能是截断/畸形的 JSON（如 edits: [null]、oldText 为对象）。
-	// 形状不符时降级到通用视图——通用视图对任意输入安全，避免单张卡片拖垮整个消息列表渲染。
-	const valid = edits.every(
-		(e) =>
-			e &&
-			typeof e === "object" &&
-			(e.oldText === undefined || typeof e.oldText === "string") &&
-			(e.newText === undefined || typeof e.newText === "string"),
-	);
-	if (!valid) return <PrettyArgsView args={args} />;
+/** 工具失败：错误文本块（不走 Linkify 平铺，也不展示残缺内容） */
+function ToolErrorBlock({ result }: { result?: ToolResultMessage }) {
+	const text = (result?.content ?? [])
+		.filter((c: any) => c?.type === "text")
+		.map((c: any) => c.text)
+		.join("\n");
+	if (!text) return null;
 	return (
-		<div className="space-y-2">
-			{edits.map((e, i) => (
-				<div key={i} className="min-w-0">
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary font-semibold mb-0.5">
-						{edits.length > 1
-							? t("blocks.toolCall.editNumber", { index: i + 1 })
-							: t("blocks.toolCall.contentChange")}
-					</div>
-					{e.oldText !== undefined && (
-						<>
-							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">
-								{t("blocks.toolCall.oldText")}
-							</div>
-							<AutoScrollPre text={e.oldText} />
-						</>
-					)}
-					{e.newText !== undefined && (
-						<>
-							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">
-								{t("blocks.toolCall.newText")}
-							</div>
-							<AutoScrollPre text={e.newText} />
-						</>
-					)}
-				</div>
-			))}
-		</div>
+		<pre className="m-0 rounded bg-danger-soft border border-danger/20 px-2 py-1.5 text-[calc(11px*var(--font-scale))] leading-[1.6] text-danger whitespace-pre-wrap break-words font-mono">
+			{text}
+		</pre>
 	);
 }
 
-/** 卡片标题：edit 显示文件名，其余工具显示名称 + 截断参数 */
-function toolCallTitle(toolCall: ToolCall, askLabel: string): ReactNode {
-	const name = toolCall.name === "ask_user_question" ? askLabel : toolCall.name;
+/** 卡片标题：edit/read 显示文件名与动作，其余工具显示名称 + 截断参数 */
+function toolCallTitle(
+	toolCall: ToolCall,
+	t: (key: string, opts?: Record<string, unknown>) => string,
+): ReactNode {
 	if (toolCall.name === "edit") {
 		const path =
 			typeof toolCall.arguments.path === "string"
 				? toolCall.arguments.path
 				: undefined;
+		return path ? (
+			fileTitle(path, t("blocks.toolCall.editAction"))
+		) : (
+			<span className="font-mono">edit</span>
+		);
+	}
+	if (toolCall.name === "read") {
+		const path =
+			typeof toolCall.arguments.path === "string"
+				? toolCall.arguments.path
+				: undefined;
+		const offset =
+			typeof toolCall.arguments.offset === "number"
+				? toolCall.arguments.offset
+				: undefined;
+		const limit =
+			typeof toolCall.arguments.limit === "number"
+				? toolCall.arguments.limit
+				: undefined;
+		let range: string | null = null;
+		if (offset !== undefined || limit !== undefined) {
+			const from = offset ?? 1;
+			range =
+				limit !== undefined
+					? t("blocks.toolCall.readRange", { from, to: from + limit - 1 })
+					: t("blocks.toolCall.readFrom", { from });
+		}
+		return path ? (
+			fileTitle(path, t("blocks.toolCall.readAction"), range)
+		) : (
+			<span className="font-mono">read</span>
+		);
+	}
+	if (toolCall.name === "bash" || toolCall.name === "powershell") {
+		const command =
+			typeof toolCall.arguments.command === "string"
+				? toolCall.arguments.command
+				: "";
+		const firstLine = command.split("\n")[0] ?? "";
+		const shown =
+			firstLine.length > 80 ? `${firstLine.slice(0, 78)}…` : firstLine;
 		return (
 			<span className="font-mono">
-				edit {path && <span className="text-tertiary">({path})</span>}
+				<span className="font-sans text-tertiary">
+					{t("blocks.toolCall.shellAction")}
+				</span>{" "}
+				<span className="font-semibold">{shown || "…"}</span>
+				<span className="ml-1.5 align-middle text-[calc(9px*var(--font-scale))] font-bold uppercase tracking-wider text-tertiary border border-hairline rounded px-1 py-px">
+					{toolCall.name === "powershell" ? "pwsh" : "bash"}
+				</span>
+			</span>
+		);
+	}
+	if (toolCall.name === "write") {
+		const path =
+			typeof toolCall.arguments.path === "string"
+				? toolCall.arguments.path
+				: undefined;
+		return path ? (
+			fileTitle(path, t("blocks.toolCall.writeAction"))
+		) : (
+			<span className="font-mono">write</span>
+		);
+	}
+	if (toolCall.name === "ask_user_question") {
+		return (
+			<span className="font-mono">
+				{t("blocks.toolCall.askUserQuestionName")}{" "}
+				<span className="text-tertiary">
+					({formatArgs(toolCall.arguments)})
+				</span>
 			</span>
 		);
 	}
@@ -268,8 +310,36 @@ function toolCallTitle(toolCall: ToolCall, askLabel: string): ReactNode {
 	}
 	return (
 		<span className="font-mono">
-			{name}{" "}
+			{toolCall.name}{" "}
 			<span className="text-tertiary">({formatArgs(toolCall.arguments)})</span>
+		</span>
+	);
+}
+
+/** 去掉末尾空行（write 内容通常以换行结尾，不应多渲染空行） */
+function trimTrailingEmptyLines(lines: string[]): string[] {
+	let end = lines.length;
+	while (end > 0 && lines[end - 1] === "") end--;
+	return lines.slice(0, end);
+}
+
+/** 文件类工具标题：动作 + 文件名为主、目录为辅（完整路径放 title 属性） */
+function fileTitle(
+	path: string,
+	action: string,
+	trailing?: string | null,
+): ReactNode {
+	const norm = path.replace(/\\/g, "/");
+	const idx = norm.lastIndexOf("/");
+	const file = idx >= 0 ? norm.slice(idx + 1) : norm;
+	const parts = idx >= 0 ? norm.slice(0, idx).split("/").filter(Boolean) : [];
+	const dir = parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : parts.join("/");
+	return (
+		<span className="font-mono" title={norm}>
+			<span className="font-sans text-tertiary">{action}</span>{" "}
+			<span className="font-semibold">{file}</span>
+			{dir && <span className="text-tertiary"> · {dir}</span>}
+			{trailing && <span className="text-tertiary"> · {trailing}</span>}
 		</span>
 	);
 }
@@ -279,10 +349,13 @@ export function ToolCallCard({
 	toolCall,
 	result,
 	isStreaming,
+	startedAt,
 }: {
 	toolCall: ToolCall;
 	result?: ToolResultMessage;
 	isStreaming?: boolean;
+	/** 工具开始执行的绝对时间（assistant 消息时间戳，epoch ms）：用于算耗时 */
+	startedAt?: number;
 }) {
 	const collapseProcessByDefault = useUiPrefsStore(
 		(s) => s.collapseProcessByDefault,
@@ -297,6 +370,72 @@ export function ToolCallCard({
 	const failed = !!result?.isError;
 	const tone = !result ? "accent" : failed ? "danger" : "success";
 	const stats = editLineStats(toolCall.name, toolCall.arguments, result);
+	// edit：优先用 pi 生成的 details.diff（带真实行号）；执行中/旧会话用参数构造块级预览。
+	const diffText =
+		toolCall.name === "edit" &&
+		result &&
+		!result.isError &&
+		result.details &&
+		typeof result.details === "object" &&
+		typeof (result.details as any).diff === "string"
+			? ((result.details as any).diff as string)
+			: null;
+	const editRows =
+		toolCall.name === "edit" && !failed
+			? diffText
+				? parseEditDiff(diffText)
+				: buildEditPreview(toolCall.arguments)
+			: [];
+	// read：完成后解析正文（剥离尾部提示）+ 行号起点 + 截断信息
+	const readView =
+		toolCall.name === "read" && result && !failed
+			? parseReadResult(
+					result.content as any,
+					toolCall.arguments,
+					result.details as any,
+				)
+			: null;
+	// shell：完成后解析输出/退出码/截断（成功与失败都要，失败时退出码来自正文）
+	const isShell =
+		toolCall.name === "bash" || toolCall.name === "powershell";
+	const shellView =
+		isShell && result
+			? parseShellResult(
+					result.content as any,
+					result.details,
+					failed,
+				)
+			: null;
+	const shellCommand =
+		typeof toolCall.arguments.command === "string"
+			? toolCall.arguments.command
+			: "";
+	// write：正文来自参数（不是结果），行号从 1 起，无截断；去掉末尾空行
+	const writeView =
+		toolCall.name === "write" &&
+		!failed &&
+		typeof toolCall.arguments.content === "string" &&
+		toolCall.arguments.content !== ""
+			? {
+					lines: trimTrailingEmptyLines(
+						(toolCall.arguments.content as string).split("\n"),
+					),
+					startLine: 1,
+					truncation: null,
+					notice: null,
+				}
+			: null;
+	const shellTimeout =
+		typeof toolCall.arguments.timeout === "number"
+			? toolCall.arguments.timeout
+			: undefined;
+	const durationMs =
+		startedAt !== undefined &&
+		result &&
+		typeof result.timestamp === "number" &&
+		result.timestamp > 0
+			? result.timestamp - startedAt
+			: undefined;
 	return (
 		<ProcessCard
 			tone={tone}
@@ -309,12 +448,12 @@ export function ToolCallCard({
 					<Icon name="check" />
 				)
 			}
-			title={toolCallTitle(toolCall, t("blocks.toolCall.askUserQuestionName"))}
+			title={toolCallTitle(toolCall, t)}
 			meta={
 				<>
 					{!result ? (
 						<Spinner />
-					) : failed ? (
+					) : shellView && shellView.exitCode !== null ? null /* shell 的退出码已在下方自述，不再叠「完成」 */ : failed ? (
 						t("blocks.toolCall.failedMeta")
 					) : (
 						t("blocks.toolCall.doneMeta")
@@ -334,6 +473,26 @@ export function ToolCallCard({
 							)}
 						</span>
 					)}
+					{readView && readView.lines.length > 0 && (
+						<span
+							data-testid={`toolcall-${toolCall.id}-lines`}
+							className="font-mono"
+						>
+							{t("blocks.toolCall.readLines", { n: readView.lines.length })}
+						</span>
+					)}
+					{shellView && shellView.exitCode !== null && (
+						<span
+							data-testid={`toolcall-${toolCall.id}-exit`}
+							className={
+								shellView.exitCode === 0
+									? "font-mono font-semibold text-success"
+									: "font-mono font-semibold text-danger"
+							}
+						>
+							{t("blocks.toolCall.shellExit", { code: shellView.exitCode })}
+						</span>
+					)}
 				</>
 			}
 			open={open}
@@ -350,11 +509,61 @@ export function ToolCallCard({
 						}
 				/>
 			) : toolCall.name === "edit" ? (
-				<EditArgsView args={toolCall.arguments} />
+				failed ? (
+					<ToolErrorBlock result={result} />
+				) : editRows.length > 0 ? (
+					<EditDiffView
+						rows={editRows}
+						diffText={diffText}
+						testId={`toolcall-${toolCall.id}-diff`}
+					/>
+				) : (
+					<PrettyArgsView args={toolCall.arguments} />
+				)
+			) : toolCall.name === "read" ? (
+				failed ? (
+					<ToolErrorBlock result={result} />
+				) : readView ? (
+					<ReadContentView
+						view={readView}
+						testId={`toolcall-${toolCall.id}-read`}
+					/>
+				) : (
+					<PrettyArgsView args={toolCall.arguments} />
+				)
+			) : isShell ? (
+				result && shellView ? (
+					<ShellOutputView
+						shell={toolCall.name as "bash" | "powershell"}
+						command={shellCommand}
+						timeout={shellTimeout}
+						durationMs={durationMs}
+						view={shellView}
+						testId={`toolcall-${toolCall.id}-shell`}
+					/>
+				) : (
+					<PrettyArgsView args={toolCall.arguments} />
+				)
+			) : toolCall.name === "write" ? (
+				failed ? (
+					<ToolErrorBlock result={result} />
+				) : writeView && writeView.lines.length > 0 ? (
+					<ReadContentView
+						view={writeView}
+						testId={`toolcall-${toolCall.id}-write`}
+						followTail={!!isStreaming && !result}
+					/>
+				) : (
+					<PrettyArgsView args={toolCall.arguments} />
+				)
 			) : (
 				<PrettyArgsView args={toolCall.arguments} />
 			)}
-			{result && (
+			{result &&
+				toolCall.name !== "edit" &&
+				toolCall.name !== "read" &&
+				toolCall.name !== "write" &&
+				!isShell && (
 				<div
 					className={`mt-1 pt-1 border-t border-hairline ${failed ? "text-danger" : "text-success"}`}
 				>
