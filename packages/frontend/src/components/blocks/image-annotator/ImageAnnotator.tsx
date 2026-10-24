@@ -1,0 +1,600 @@
+/**
+ * 图片标注画布：图片 + 底部半透明浮条（工具 / 粗细 / 颜色 / 撤销 / 清空 / 折叠 / 取消 / 保存）。
+ *
+ * - 坐标一律存图片自然像素；`canvas.width/height` = 图片自然尺寸，CSS 按容器 contain 缩放，
+ *   指针坐标乘 `canvas.width / rect.width` 换算。
+ * - 浮条 absolute 悬浮、不占布局，可折叠为 32×32 小笔按钮。
+ * - 标注只在前端内存：保存时经 `renderAnnotatedBlob` 合成进像素交给 `onSave`。
+ * - 撤销是操作栈（add / erase / clear），橡皮擦与清空都可回退，历史上限 200 步。
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "../../../i18n/useTranslation";
+import { Icon, type IconName } from "../../ui/Icon";
+import {
+	ANNOTATOR_COLORS,
+	drawShapes,
+	hitTestShape,
+	normalizeRect,
+	renderAnnotatedBlob,
+	strokeWidthFor,
+	undoAction,
+} from "./draw";
+import type {
+	AnnotatorAction,
+	Point,
+	Shape,
+	StrokeLevel,
+	Tool,
+} from "./types";
+
+const TOOLS: { tool: Tool; icon: IconName; labelKey: string }[] = [
+	// 现有图标库没有专门的箭头/方形/椭圆/文字/橡皮，取最接近的图形（不使用 emoji）
+	{ tool: "arrow", icon: "arrow-up", labelKey: "blocks.imageAnnotator.toolArrow" },
+	{ tool: "rect", icon: "checkbox", labelKey: "blocks.imageAnnotator.toolRect" },
+	{ tool: "ellipse", icon: "circle", labelKey: "blocks.imageAnnotator.toolEllipse" },
+	{ tool: "text", icon: "note", labelKey: "blocks.imageAnnotator.toolText" },
+	{ tool: "pen", icon: "edit", labelKey: "blocks.imageAnnotator.toolPen" },
+	{ tool: "eraser", icon: "trash", labelKey: "blocks.imageAnnotator.toolEraser" },
+];
+
+const WIDTHS: { level: StrokeLevel; dot: number; labelKey: string }[] = [
+	{ level: "thin", dot: 4, labelKey: "blocks.imageAnnotator.thin" },
+	{ level: "medium", dot: 6, labelKey: "blocks.imageAnnotator.medium" },
+	{ level: "thick", dot: 9, labelKey: "blocks.imageAnnotator.thick" },
+];
+
+/** 历史栈上限：超出只丢最早的历史，可见 shapes 不受影响 */
+const HISTORY_LIMIT = 200;
+
+/** 玻璃质感：半透明 + 背景模糊，下层图片始终透出 */
+const BAR_STYLE = {
+	background: "color-mix(in srgb, var(--surface) 78%, transparent)",
+	backdropFilter: "blur(10px)",
+	border: "1px solid color-mix(in srgb, var(--hairline) 70%, transparent)",
+	boxShadow: "0 6px 20px rgba(0, 0, 0, 0.18)",
+} as const;
+
+const TOOL_BTN =
+	"flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors";
+const ACTION_BTN =
+	"flex h-7 shrink-0 items-center justify-center rounded-full px-1.5 text-[calc(12px*var(--font-scale))] text-secondary transition-colors hover:text-primary disabled:cursor-default disabled:opacity-40";
+
+/** 空拖拽判定：矩形/椭圆两个方向都要够 2px，箭头/画笔按位移长度 */
+function isMeaningfulShape(shape: Shape): boolean {
+	if (shape.kind === "rect" || shape.kind === "ellipse") {
+		return shape.w >= 2 && shape.h >= 2;
+	}
+	if (shape.kind === "arrow") {
+		return Math.hypot(shape.x2 - shape.x1, shape.y2 - shape.y1) >= 2;
+	}
+	if (shape.kind === "stroke") {
+		const [first] = shape.points;
+		if (!first) return false;
+		return shape.points.some(
+			(p) => Math.abs(p.x - first.x) >= 2 || Math.abs(p.y - first.y) >= 2,
+		);
+	}
+	return shape.text.trim().length > 0;
+}
+
+/** 把拖拽当前位置应用到进行中的 shape（pointermove 与 pointerup 共用，避免漏掉末点） */
+function extendShape(shape: Shape, point: Point, anchor: Point | null): Shape {
+	if (shape.kind === "stroke") {
+		const last = shape.points[shape.points.length - 1];
+		// 采样点间距 > 1px，避免同点堆积
+		if (last && Math.hypot(point.x - last.x, point.y - last.y) <= 1) {
+			return shape;
+		}
+		return { ...shape, points: [...shape.points, point] };
+	}
+	if (shape.kind === "arrow") return { ...shape, x2: point.x, y2: point.y };
+	if (shape.kind === "rect" || shape.kind === "ellipse") {
+		if (!anchor) return shape;
+		return { ...shape, ...normalizeRect(anchor.x, anchor.y, point.x, point.y) };
+	}
+	return shape;
+}
+
+export function ImageAnnotator({
+	src,
+	alt,
+	mime,
+	onCancel,
+	onSave,
+}: {
+	src: string;
+	alt: string;
+	mime: string;
+	onCancel: (dirty: boolean) => void;
+	onSave: (blob: Blob) => Promise<void>;
+}) {
+	const { t } = useTranslation();
+	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	// 矩形/椭圆的拖拽锚点（draft 的 x/y 会被归一化覆盖，锚点单独存）
+	const anchorRef = useRef<Point | null>(null);
+
+	const [image, setImage] = useState<HTMLImageElement | null>(null);
+	const [loadFailed, setLoadFailed] = useState(false);
+	const [tool, setTool] = useState<Tool>("pen");
+	const [color, setColor] = useState<string>(ANNOTATOR_COLORS[0]);
+	const [level, setLevel] = useState<StrokeLevel>("medium");
+	const [shapes, setShapes] = useState<Shape[]>([]);
+	const [history, setHistory] = useState<AnnotatorAction[]>([]);
+	const [draft, setDraft] = useState<Shape | null>(null);
+	const [textDraft, setTextDraft] = useState<{
+		x: number;
+		y: number;
+		left: number;
+		top: number;
+		value: string;
+	} | null>(null);
+	const [collapsed, setCollapsed] = useState(false);
+	const [confirm, setConfirm] = useState<"clear" | "discard" | null>(null);
+	const [saving, setSaving] = useState(false);
+
+	const strokeWidth = image
+		? strokeWidthFor(image.naturalWidth, image.naturalHeight, level)
+		: 2;
+
+	// 图片加载：happy-dom 无解码能力，测试注入 Image 打桩
+	useEffect(() => {
+		setImage(null);
+		setLoadFailed(false);
+		const img = new Image();
+		img.onload = () => setImage(img);
+		img.onerror = () => setLoadFailed(true);
+		img.src = src;
+		return () => {
+			img.onload = null;
+			img.onerror = null;
+		};
+	}, [src]);
+
+	// 每次 shapes / draft 变化全量重绘（清屏后按序画）：撤销、清空、拖动预览都走这里
+	useEffect(() => {
+		const canvas = canvasRef.current;
+		if (!canvas) return;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return;
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+		drawShapes(ctx, draft ? [...shapes, draft] : shapes);
+	}, [shapes, draft]);
+
+	const remember = useCallback((action: AnnotatorAction) => {
+		setHistory((prev) => {
+			const next = [...prev, action];
+			return next.length > HISTORY_LIMIT
+				? next.slice(next.length - HISTORY_LIMIT)
+				: next;
+		});
+	}, []);
+
+	/** 指针坐标 → 图片自然像素 */
+	const toNatural = useCallback(
+		(e: React.PointerEvent<HTMLCanvasElement>): Point | null => {
+			const canvas = canvasRef.current;
+			if (!canvas) return null;
+			const rect = canvas.getBoundingClientRect();
+			if (!rect.width || !rect.height) return null;
+			const scale = canvas.width / rect.width;
+			return {
+				x: (e.clientX - rect.left) * scale,
+				y: (e.clientY - rect.top) * scale,
+			};
+		},
+		[],
+	);
+
+	const addShape = useCallback(
+		(shape: Shape) => {
+			setShapes((prev) => [...prev, shape]);
+			remember({ type: "add", shape });
+		},
+		[remember],
+	);
+
+	// 橡皮擦：命中即删除最上层（数组末尾）的一个，一次事件只删一个
+	const eraseAt = useCallback(
+		(point: Point) => {
+			for (let i = shapes.length - 1; i >= 0; i -= 1) {
+				if (!hitTestShape(shapes[i], point)) continue;
+				remember({ type: "erase", shape: shapes[i], index: i });
+				setShapes([...shapes.slice(0, i), ...shapes.slice(i + 1)]);
+				return;
+			}
+		},
+		[shapes, remember],
+	);
+
+	const undo = useCallback(() => {
+		const action = history[history.length - 1];
+		if (!action) return;
+		setShapes((prev) => undoAction(prev, action));
+		// 只 pop 一次：undoAction 依赖 shape 引用同一性，重复 pop 会连撤两步
+		setHistory((prev) => prev.slice(0, -1));
+	}, [history]);
+
+	const requestCancel = useCallback(() => {
+		if (saving) return;
+		if (shapes.length > 0) setConfirm("discard");
+		else onCancel(false);
+	}, [saving, shapes.length, onCancel]);
+
+	// Esc 与 Ctrl/Cmd+Z：标注态内全局生效（文字输入框自行拦截）
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+				e.preventDefault();
+				undo();
+				return;
+			}
+			if (e.key !== "Escape" || textDraft) return;
+			e.preventDefault();
+			// 确认条打开时，Esc 先关确认条，不直接触发退出
+			if (confirm) setConfirm(null);
+			else requestCancel();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [undo, requestCancel, textDraft, confirm]);
+
+	const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+		if (saving || e.button !== 0) return;
+		const point = toNatural(e);
+		if (!point) return;
+
+		if (tool === "text") {
+			const rect = e.currentTarget.getBoundingClientRect();
+			setTextDraft({
+				x: point.x,
+				y: point.y,
+				left: e.clientX - rect.left,
+				top: e.clientY - rect.top,
+				value: "",
+			});
+			return;
+		}
+
+		e.currentTarget.setPointerCapture?.(e.pointerId);
+		if (tool === "eraser") {
+			eraseAt(point);
+			return;
+		}
+
+		anchorRef.current = point;
+		if (tool === "pen") {
+			setDraft({ kind: "stroke", points: [point], color, width: strokeWidth });
+		} else if (tool === "arrow") {
+			setDraft({
+				kind: "arrow",
+				x1: point.x,
+				y1: point.y,
+				x2: point.x,
+				y2: point.y,
+				color,
+				width: strokeWidth,
+			});
+		} else {
+			setDraft({
+				kind: tool,
+				x: point.x,
+				y: point.y,
+				w: 0,
+				h: 0,
+				color,
+				width: strokeWidth,
+			});
+		}
+	};
+
+	const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+		if (saving) return;
+		const point = toNatural(e);
+		if (!point) return;
+
+		if (tool === "eraser") {
+			if (e.buttons !== 0) eraseAt(point);
+			return;
+		}
+
+		setDraft((prev) => (prev ? extendShape(prev, point, anchorRef.current) : prev));
+	};
+
+	const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+		const canvas = e.currentTarget;
+		if (canvas.hasPointerCapture?.(e.pointerId)) {
+			canvas.releasePointerCapture?.(e.pointerId);
+		}
+		const anchor = anchorRef.current;
+		anchorRef.current = null;
+		if (!draft) return;
+		// pointerup 坐标也要并入，避免最后一帧 move 丢失导致形状偏小
+		const point = toNatural(e);
+		const shape = point ? extendShape(draft, point, anchor) : draft;
+		setDraft(null);
+		if (!isMeaningfulShape(shape)) return;
+		addShape(shape);
+	};
+
+	const submitText = () => {
+		if (!textDraft) return;
+		const { x, y, value } = textDraft;
+		setTextDraft(null);
+		const text = value.trim();
+		if (!text) return;
+		addShape({
+			kind: "text",
+			x,
+			y,
+			text,
+			color,
+			fontSize: Math.max(14, strokeWidth * 5),
+		});
+	};
+
+	const doClear = () => {
+		if (shapes.length === 0) return;
+		remember({ type: "clear", shapes });
+		setShapes([]);
+		setConfirm(null);
+	};
+
+	const save = async () => {
+		if (!image || saving) return;
+		setSaving(true);
+		try {
+			const blob = await renderAnnotatedBlob(
+				image,
+				image.naturalWidth,
+				image.naturalHeight,
+				shapes,
+				mime,
+			);
+			await onSave(blob);
+		} catch {
+			// 失败提示由父组件负责；这里保留编辑态与全部 shapes 供重试
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const divider = (
+		<span className="mx-0.5 h-5 w-px shrink-0 bg-hairline" aria-hidden="true" />
+	);
+
+	return (
+		<div
+			data-testid="image-annotator"
+			className="relative flex flex-1 min-h-0 items-center justify-center overflow-hidden"
+		>
+			{loadFailed ? (
+				<div className="text-[calc(12px*var(--font-scale))] text-tertiary">
+					{t("blocks.imageAnnotator.loadFailed")}
+				</div>
+			) : (
+				<canvas
+					ref={canvasRef}
+					data-testid="annotator-canvas"
+					aria-label={alt}
+					width={image?.naturalWidth ?? 0}
+					height={image?.naturalHeight ?? 0}
+					className="block max-h-full max-w-full cursor-crosshair touch-none"
+					onPointerDown={onPointerDown}
+					onPointerMove={onPointerMove}
+					onPointerUp={onPointerUp}
+					onPointerCancel={onPointerUp}
+				/>
+			)}
+
+			{/* 文字工具的内联输入框：位置取 pointerdown 时的容器内偏移 */}
+			{textDraft && (
+				<input
+					data-testid="annotator-text-input"
+					autoFocus
+					value={textDraft.value}
+					style={{ left: textDraft.left, top: textDraft.top, color }}
+					className="absolute z-20 w-28 rounded-sm border border-hairline bg-surface px-1 py-0.5 text-[calc(13px*var(--font-scale))] outline-none"
+					onChange={(e) =>
+						setTextDraft((prev) =>
+							prev ? { ...prev, value: e.target.value } : prev,
+						)
+					}
+					onKeyDown={(e) => {
+						// 输入框内的 Esc/Enter 不外泄到浮条快捷键
+						e.stopPropagation();
+						if (e.key === "Enter") submitText();
+						else if (e.key === "Escape") setTextDraft(null);
+					}}
+				/>
+			)}
+
+			{collapsed ? (
+				<button
+					type="button"
+					data-testid="annotator-expand"
+					aria-label={t("blocks.imageAnnotator.expand")}
+					title={t("blocks.imageAnnotator.expand")}
+					onClick={() => setCollapsed(false)}
+					className="absolute bottom-3 left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full text-secondary transition-colors hover:text-primary"
+					style={BAR_STYLE}
+				>
+					<Icon name="edit" size={15} />
+				</button>
+			) : (
+				<div
+					data-testid="annotator-bar"
+					role="toolbar"
+					aria-label={t("blocks.imageAnnotator.annotate")}
+					className="absolute bottom-3 left-1/2 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-full px-2 py-1"
+					style={BAR_STYLE}
+				>
+					{confirm ? (
+						<div
+							data-testid="annotator-confirm"
+							className="flex items-center gap-2 whitespace-nowrap px-1"
+						>
+							<span className="text-[calc(12px*var(--font-scale))] text-secondary">
+								{confirm === "clear"
+									? t("blocks.imageAnnotator.clearConfirm")
+									: t("blocks.imageAnnotator.discardConfirm")}
+							</span>
+							<button
+								type="button"
+								data-testid="annotator-confirm-yes"
+								onClick={confirm === "clear" ? doClear : () => onCancel(true)}
+								className="rounded-full bg-brand px-2 py-1 text-[calc(12px*var(--font-scale))] text-white"
+							>
+								{t("blocks.imageAnnotator.confirmYes")}
+							</button>
+							<button
+								type="button"
+								data-testid="annotator-confirm-no"
+								onClick={() => setConfirm(null)}
+								className="rounded-full bg-surface-hover px-2 py-1 text-[calc(12px*var(--font-scale))] text-secondary"
+							>
+								{t("blocks.imageAnnotator.confirmNo")}
+							</button>
+						</div>
+					) : (
+						<>
+							<div data-testid="annotator-tools" className="flex items-center">
+								{TOOLS.map((item) => (
+									<button
+										key={item.tool}
+										type="button"
+										data-testid={`annotator-tool-${item.tool}`}
+										aria-label={t(item.labelKey)}
+										aria-pressed={tool === item.tool}
+										title={t(item.labelKey)}
+										onClick={() => setTool(item.tool)}
+										className={`${TOOL_BTN} ${
+											tool === item.tool
+												? "bg-surface-hover text-primary"
+												: "text-secondary hover:text-primary"
+										}`}
+									>
+										<Icon name={item.icon} size={15} />
+									</button>
+								))}
+							</div>
+							{divider}
+							<div
+								data-testid="annotator-widths"
+								className="flex items-center"
+								role="group"
+							>
+								{WIDTHS.map((item) => (
+									<button
+										key={item.level}
+										type="button"
+										data-testid={`annotator-width-${item.level}`}
+										aria-label={t(item.labelKey)}
+										aria-pressed={level === item.level}
+										title={t(item.labelKey)}
+										onClick={() => setLevel(item.level)}
+										className={`${TOOL_BTN} ${
+											level === item.level
+												? "text-primary"
+												: "text-tertiary hover:text-secondary"
+										}`}
+									>
+										<span
+											className="rounded-full bg-current"
+											style={{ width: item.dot, height: item.dot }}
+										/>
+									</button>
+								))}
+							</div>
+							{divider}
+							<div
+								data-testid="annotator-colors"
+								className="flex items-center"
+								aria-label={t("blocks.imageAnnotator.colorLabel")}
+								role="group"
+							>
+								{ANNOTATOR_COLORS.map((value) => (
+									<button
+										key={value}
+										type="button"
+										data-testid={`annotator-color-${value.slice(1)}`}
+										aria-label={value}
+										aria-pressed={color === value}
+										onClick={() => setColor(value)}
+										className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+									>
+										<span
+											className="rounded-full"
+											style={{
+												background: value,
+												width: color === value ? 16 : 12,
+												height: color === value ? 16 : 12,
+												boxShadow:
+													color === value
+														? `0 0 0 1.5px var(--surface), 0 0 0 2.5px ${value}`
+														: "none",
+											}}
+										/>
+									</button>
+								))}
+							</div>
+							{divider}
+							<button
+								type="button"
+								data-testid="annotator-undo"
+								aria-label={t("blocks.imageAnnotator.undo")}
+								title={t("blocks.imageAnnotator.undo")}
+								onClick={undo}
+								disabled={history.length === 0}
+								className={ACTION_BTN}
+							>
+								<Icon name="reply" size={15} />
+							</button>
+							<button
+								type="button"
+								data-testid="annotator-clear"
+								aria-label={t("blocks.imageAnnotator.clear")}
+								title={t("blocks.imageAnnotator.clear")}
+								onClick={() => setConfirm("clear")}
+								disabled={shapes.length === 0}
+								className={ACTION_BTN}
+							>
+								<Icon name="trash" size={15} />
+							</button>
+							{divider}
+							<button
+								type="button"
+								data-testid="annotator-cancel"
+								onClick={requestCancel}
+								disabled={saving}
+								className={ACTION_BTN}
+							>
+								{t("blocks.imageAnnotator.cancel")}
+							</button>
+							<button
+								type="button"
+								data-testid="annotator-save"
+								onClick={save}
+								disabled={saving || !image}
+								className="ml-0.5 flex h-7 shrink-0 items-center rounded-full bg-brand px-2.5 text-[calc(12px*var(--font-scale))] text-white transition-opacity disabled:cursor-default disabled:opacity-50"
+							>
+								{saving
+									? t("blocks.imageAnnotator.saving")
+									: t("blocks.imageAnnotator.save")}
+							</button>
+							<button
+								type="button"
+								data-testid="annotator-collapse"
+								aria-label={t("blocks.imageAnnotator.collapse")}
+								title={t("blocks.imageAnnotator.collapse")}
+								onClick={() => setCollapsed(true)}
+								className={TOOL_BTN + " text-tertiary hover:text-primary"}
+							>
+								<Icon name="chevron-down" size={14} />
+							</button>
+						</>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
