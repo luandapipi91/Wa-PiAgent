@@ -34,6 +34,20 @@ test("不保存模型也能「下一步」进入第 2 步", async () => {
   expect(screen.getByTestId("agent-create-picker")).toBeTruthy();
 });
 
+test("保存模型供应商成功后自动进入第 2 步（不用再点下一步）", async () => {
+  render(<OnboardingWizard onClose={() => {}} />);
+  await screen.findByTestId("wizard-step-1");
+  fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
+  fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
+  fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
+  fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "model-1|" } });
+  fireEvent.click(screen.getByTestId("provider-save-btn"));
+  // 保存成功 → 自动前进：第 1 步卸载、第 2 步出现
+  expect(await screen.findByTestId("wizard-step-2")).toBeTruthy();
+  expect(screen.queryByTestId("wizard-step-1")).toBeNull();
+  expect(screen.getByTestId("agent-create-picker")).toBeTruthy();
+});
+
 test("第 2 步「上一步」返回第 1 步", async () => {
   render(<OnboardingWizard onClose={() => {}} />);
   await screen.findByTestId("wizard-step-1");

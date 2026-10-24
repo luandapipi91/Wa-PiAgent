@@ -62,11 +62,14 @@ export function OnboardingWizard({ onClose }: Props) {
 						</div>
 						{/* ProviderForm 不传 onCancel：向导场景不渲染取消按钮 */}
 						<ProviderForm
-							onSaved={() =>
+							onSaved={() => {
 								useToastStore
 									.getState()
-									.add(t("onboardingWizard.providerSaved"), "success")
-							}
+									.add(t("onboardingWizard.providerSaved"), "success");
+								// 保存成功即自动前进：第 1 步的唯一动作就是配好模型，
+								// 再让用户点一次「下一步」是多余的一步
+								setStep(2);
+							}}
 						/>
 					</div>
 				)}

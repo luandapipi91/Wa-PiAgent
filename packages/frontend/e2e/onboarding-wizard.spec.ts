@@ -83,8 +83,7 @@ test.describe.serial("初始化向导", () => {
     await expect(page.getByTestId("agent-select")).toContainText(AGENT_NAME, { timeout: 10_000 });
   });
 
-  test("设置页可重新打开引导", async ({ page }) => {
-    await createProject("e2e-onboarding2", "/tmp/e2e-onboarding2");
+  test("设置页可重新打开引导", async ({ page }) => {    await createProject("e2e-onboarding2", "/tmp/e2e-onboarding2");
     // 先补一个 provider：providers 非空 → 向导不应自动弹出
     await saveProvider({
       id: "e2e-onboarding-provider",
@@ -114,6 +113,46 @@ test.describe.serial("初始化向导", () => {
     await expect(page.getByTestId("wizard-step-1")).toBeVisible();
 
     // 关闭向导（ESC），provider 清理由 afterAll 的 deleteAllProviders 统一还愿
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("onboarding-wizard")).toHaveCount(0);
+  });
+
+  // 用户需求：第 1 步保存模型成功后自动进入下一步，不要求再点一次「下一步」。
+  test("第 1 步保存模型后自动进入第 2 步", async ({ page }) => {
+    // 前一个用例可能留下了 provider；清空使向导自动弹出，回到第 1 步
+    await deleteAllProviders();
+    await createProject("e2e-onboarding3", "/tmp/e2e-onboarding3");
+    await page.goto("/");
+    await expect(page.getByTestId("onboarding-wizard")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("wizard-step-1")).toBeVisible();
+
+    // 填完整表单：名称 / Base URL / API Key / 一个模型（回车入表）
+    await page.getByTestId("field-name").fill("E2E Onboarding Auto");
+    await page.getByTestId("field-baseUrl").fill("http://localhost:9999/v1");
+    await page.getByTestId("field-apiKey").fill("sk-e2e");
+    const modelInput = page.getByTestId("tag-input-field");
+    await modelInput.fill("model-a");
+    await modelInput.press("Enter");
+
+    await page.getByTestId("provider-save-btn").click();
+
+    // 保存成功 → 无需点「下一步」直接到第 2 步，且第 1 步已卸载
+    await expect(page.getByTestId("wizard-step-2")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("wizard-step-1")).toHaveCount(0);
+    await expect(page.getByTestId("agent-create-picker")).toBeVisible();
+
+    // API 核对：供应商确实已落盘（不是只前端跳步）。save 是 fire-and-forget，
+    // 请求与跳步并发发出，故轮询等待落盘
+    await expect
+      .poll(
+        async () =>
+          ((await listProviders()) as { name?: string }[]).some(
+            (p) => p?.name === "E2E Onboarding Auto",
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("onboarding-wizard")).toHaveCount(0);
   });
