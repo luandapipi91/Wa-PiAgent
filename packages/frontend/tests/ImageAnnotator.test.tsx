@@ -6,6 +6,7 @@
 // - HTMLCanvasElement.prototype.getBoundingClientRect → 100×100（与图片自然尺寸一致，scale=1）
 // - globalThis.Image → 赋 src 同步触发 onload，naturalWidth/Height = 100
 import { test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { createRef } from "react";
 import {
 	render,
 	screen,
@@ -15,7 +16,11 @@ import {
 	act,
 } from "@testing-library/react";
 import i18n from "../src/i18n";
-import { ImageAnnotator } from "../src/components/blocks/image-annotator/ImageAnnotator";
+import {
+	ImageAnnotator,
+	type AnnotatorCancelResult,
+	type AnnotatorHandle,
+} from "../src/components/blocks/image-annotator/ImageAnnotator";
 
 // 假 2D 上下文调用记录：断言绘制/重绘行为的唯一依据（happy-dom 无真实画布）。
 const calls: string[] = [];
@@ -525,8 +530,11 @@ test("图片尺寸超限（边长>8192 或 总像素>40MP）：提示超限、�
 	const label = i18n.t("blocks.imageAnnotator.tooLarge");
 	expect(label).not.toBe("blocks.imageAnnotator.tooLarge");
 	for (const [w, h] of [
+		// 边长超限
 		[9000, 100],
-		[8000, 6000],
+		// 40,008,000 像素：超过 40MP 十进制口径，但低于 40MiB（41,943,040）——
+		// 这条用例把“40MP”钉在十进制 40,000,000，防止回退成 40 * 1024 * 1024
+		[8000, 5001],
 	]) {
 		(globalThis as Record<string, unknown>).Image = class {
 			naturalWidth = w;
@@ -548,6 +556,21 @@ test("图片尺寸超限（边长>8192 或 总像素>40MP）：提示超限、�
 	}
 });
 
+test("恰好 40MP（8000×5000 = 40,000,000 像素）允许标注，不上报超限", async () => {
+	(globalThis as Record<string, unknown>).Image = class {
+		naturalWidth = 8000;
+		naturalHeight = 5000;
+		onload: (() => void) | null = null;
+		onerror: (() => void) | null = null;
+		set src(_value: string) {
+			this.onload?.();
+		}
+	};
+	setup();
+	await waitFor(() => expect(screen.getByTestId("annotator-canvas")).toBeTruthy());
+	expect(screen.queryByTestId("annotator-too-large")).toBeNull();
+});
+
 test("Ctrl+Z 撤销最后一步", async () => {
 	setup();
 	drawStroke(await canvasOf());
@@ -555,4 +578,133 @@ test("Ctrl+Z 撤销最后一步", async () => {
 
 	fireEvent.keyDown(window, { key: "z", ctrlKey: true });
 	await waitFor(() => expect(undoBtn().disabled).toBe(true));
+});
+
+// ─── 审查修复：折叠态确认可见 / 导出失败反馈 / 输入法 Enter / 零图形 / pointercancel ───
+
+test("折叠态下请求退出：先展开浮条再显示丢弃确认条（不再「点了 ✕ 毫无反应」）", async () => {
+	const onCancel = mock();
+	const apiRef = createRef<AnnotatorHandle>();
+	render(
+		<ImageAnnotator
+			src="/proj/.wa-pi/uploads/a.png"
+			alt="a.png"
+			mime="image/png"
+			onCancel={onCancel}
+			onSave={async () => {}}
+			apiRef={apiRef}
+		/>,
+	);
+	drawStroke(await canvasOf());
+	await waitFor(() => expect(undoBtn().disabled).toBe(false));
+
+	fireEvent.click(screen.getByTestId("annotator-collapse"));
+	expect(screen.queryByTestId("annotator-bar")).toBeNull();
+
+	let result: AnnotatorCancelResult | undefined;
+	act(() => {
+		result = apiRef.current?.requestCancel();
+	});
+	// 返回 confirming（父组件据此记下关窗意图），且界面真的变了：浮条展开 + 确认条可见
+	expect(result).toBe("confirming");
+	expect(screen.getByTestId("annotator-bar")).toBeTruthy();
+	expect(screen.getByTestId("annotator-confirm")).toBeTruthy();
+	expect(onCancel).not.toHaveBeenCalled();
+
+	// 确认丢弃照常退出
+	fireEvent.click(screen.getByTestId("annotator-confirm-yes"));
+	expect(onCancel).toHaveBeenCalledWith(true);
+});
+
+test("折叠态下按 Esc：同样先展开浮条并显示确认条", async () => {
+	const { onCancel } = setup();
+	drawStroke(await canvasOf());
+	fireEvent.click(screen.getByTestId("annotator-collapse"));
+
+	fireEvent.keyDown(window, { key: "Escape" });
+	expect(screen.getByTestId("annotator-bar")).toBeTruthy();
+	expect(screen.getByTestId("annotator-confirm")).toBeTruthy();
+	expect(onCancel).not.toHaveBeenCalled();
+});
+
+test("导出失败（toBlob 返回 null）：回调 onExportError，saving 复位、shapes 保留、不调 onSave", async () => {
+	canvasProto.toBlob = (cb: (blob: Blob | null) => void) => cb(null);
+	const onExportError = mock();
+	const onSave = mock(async () => {});
+	render(
+		<ImageAnnotator
+			src="/proj/.wa-pi/uploads/a.png"
+			alt="a.png"
+			mime="image/png"
+			onCancel={mock()}
+			onSave={onSave}
+			onExportError={onExportError}
+		/>,
+	);
+	drawStroke(await canvasOf());
+	const saveBtn = screen.getByTestId("annotator-save") as HTMLButtonElement;
+
+	fireEvent.click(saveBtn);
+	await waitFor(() => expect(onExportError).toHaveBeenCalledTimes(1));
+	// 导出就没成功：onSave 不该被调到（否则会误报「已保存」）
+	expect(onSave).not.toHaveBeenCalled();
+	// saving 复位：按钮回到可用，用户能重试
+	await waitFor(() => expect(saveBtn.disabled).toBe(false));
+	// 劳动成果保留
+	expect(undoBtn().disabled).toBe(false);
+});
+
+test("文字输入：输入法组词中的 Enter 不提交，组词结束后才提交", async () => {
+	setup();
+	const canvas = await canvasOf();
+	fireEvent.click(screen.getByTestId("annotator-tool-text"));
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 20,
+		clientY: 30,
+	});
+	const input = screen.getByTestId("annotator-text-input") as HTMLInputElement;
+	fireEvent.change(input, { target: { value: "重点" } });
+
+	// 拼音选词按 Enter：不是提交
+	fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+	expect(screen.getByTestId("annotator-text-input")).toBeTruthy();
+	expect(undoBtn().disabled).toBe(true);
+
+	// 组词结束后 Enter 正常提交
+	fireEvent.keyDown(input, { key: "Enter", isComposing: false });
+	expect(screen.queryByTestId("annotator-text-input")).toBeNull();
+	await waitFor(() => expect(undoBtn().disabled).toBe(false));
+});
+
+test("零图形时保存按钮禁用（没有可导出的标注），画一笔后可用、撤销回零又禁用", async () => {
+	setup();
+	const saveBtn = screen.getByTestId("annotator-save") as HTMLButtonElement;
+	expect(saveBtn.disabled).toBe(true);
+
+	drawStroke(await canvasOf());
+	await waitFor(() => expect(saveBtn.disabled).toBe(false));
+
+	fireEvent.click(undoBtn());
+	await waitFor(() => expect(saveBtn.disabled).toBe(true));
+});
+
+test("pointercancel（手势被系统接管）：丢弃草稿，不把半截图提交成图形", async () => {
+	setup();
+	const canvas = await canvasOf();
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 10,
+		clientY: 10,
+	});
+	fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 60, clientY: 50 });
+	// 草稿已画出，但尚未提交
+	expect(undoBtn().disabled).toBe(true);
+
+	fireEvent.pointerCancel(canvas, { pointerId: 1 });
+	// 没有留下图形（撤销仍禁用），最后一次重绘只剩清屏
+	expect(undoBtn().disabled).toBe(true);
+	expect(calls.slice(calls.lastIndexOf("clearRect"))).toEqual(["clearRect"]);
 });

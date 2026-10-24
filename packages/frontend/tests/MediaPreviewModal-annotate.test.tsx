@@ -351,6 +351,8 @@ test("保存成功：覆盖原图 → bump 版本号 → toast「已保存」→
 	openPreview([A, B], A.src);
 	render(<MediaPreviewModal />);
 	fireEvent.click(screen.getByTestId("media-annotate"));
+	// 零图形时保存按钮禁用（没有可导出的标注），先画一笔
+	drawStroke(screen.getByTestId("annotator-canvas"));
 	// 点击后保存链路在 await 后改状态：包在 act 里等微任务刷完，避免测试环境的调度延迟
 	await act(async () => {
 		fireEvent.click(screen.getByTestId("annotator-save"));
@@ -386,6 +388,7 @@ test("保存失败：toast「保存失败」并保留标注态，版本号不变
 	openPreview([A, B], A.src);
 	render(<MediaPreviewModal />);
 	fireEvent.click(screen.getByTestId("media-annotate"));
+	drawStroke(screen.getByTestId("annotator-canvas"));
 	await act(async () => {
 		fireEvent.click(screen.getByTestId("annotator-save"));
 	});
@@ -393,6 +396,26 @@ test("保存失败：toast「保存失败」并保留标注态，版本号不变
 	// 标注态保留，用户可重试
 	expect(screen.getByTestId("image-annotator")).toBeTruthy();
 	expect(useImageRevisionStore.getState().revisions[A.src]).toBeUndefined();
+});
+
+test("导出阶段失败（toBlob 返回 null）：toast「保存失败」并保留标注态，不发覆盖请求", async () => {
+	// 导出就没成功：父组件拿不到 Blob，必须自己给提示（否则用户无限重试而无反馈）
+	canvasProto.toBlob = (cb: (blob: Blob | null) => void) => cb(null);
+	openPreview([A, B], A.src);
+	render(<MediaPreviewModal />);
+	fireEvent.click(screen.getByTestId("media-annotate"));
+	drawStroke(screen.getByTestId("annotator-canvas"));
+
+	await act(async () => {
+		fireEvent.click(screen.getByTestId("annotator-save"));
+	});
+	expect(toastMessages()).toContain(i18n.t("blocks.imageAnnotator.saveFailed"));
+	expect(fetchCalls.length).toBe(0);
+	expect(screen.getByTestId("image-annotator")).toBeTruthy();
+	// 可重试：保存按钮已复位（并未停在 saving）
+	expect(
+		(screen.getByTestId("annotator-save") as HTMLButtonElement).disabled,
+	).toBe(false);
 });
 
 // ─── 保存中点 ✕：不记关窗意图 ───

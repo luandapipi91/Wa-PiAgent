@@ -15,6 +15,7 @@ import {
 } from "../recording-store";
 import { mkdir, writeFile, rename, rm } from "node:fs/promises";
 import { join, basename, dirname, extname, resolve, sep } from "node:path";
+import { randomUUID } from "node:crypto";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
 /** 图片标注覆盖写回的体积上限：100MB */
@@ -128,7 +129,9 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
       );
     }
 
-    if (!OVERWRITE_EXTS.has(extname(targetPath).toLowerCase())) {
+    // 扩展名以 realpath 为准：uploads 内的符号链接可能指向同目录下另一个扩展名的文件，
+    // 只查请求路径会让 png 字节写进 gif 等非白名单文件
+    if (!OVERWRITE_EXTS.has(extname(real).toLowerCase())) {
       return Response.json(
         {
           error: "仅支持覆盖 png/jpg/jpeg/webp 图片",
@@ -150,9 +153,10 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
       );
     }
 
+    // 临时名带随机后缀：并发/重试的两次覆盖不会互相抹掉对方的临时文件
     const tmp = join(
       dirname(real),
-      `.annotate-${process.pid}-${Date.now()}.tmp`,
+      `.annotate-${process.pid}-${Date.now()}-${randomUUID()}.tmp`,
     );
     try {
       await writeFile(tmp, new Uint8Array(await file.arrayBuffer()));

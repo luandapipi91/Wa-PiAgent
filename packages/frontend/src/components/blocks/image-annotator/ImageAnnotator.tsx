@@ -53,10 +53,10 @@ const WIDTHS: { level: StrokeLevel; dot: number; labelKey: string }[] = [
 /** 历史栈上限：超出只丢最早的历史，可见 shapes 不受影响 */
 const HISTORY_LIMIT = 200;
 
-/** 可标注图片尺寸上限（规格 §3.1 条件 4）：边长 ≤ 8192 且总像素 ≤ 40MP。
+/** 可标注图片尺寸上限（规格 §3.1 条件 4）：边长 ≤ 8192 且总像素 ≤ 40MP（40,000,000 像素，十进制口径）。
  *  超限图片进标注会吃掉大量内存，在加载阶段直接拒绝。 */
 const MAX_IMAGE_SIDE = 8192;
-const MAX_IMAGE_PIXELS = 40 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 40_000_000;
 
 /** 文字输入浮层尺寸：宽度走内联样式保证与夹取计算一致；高度取保守估计（略大于实际行高） */
 const TEXT_INPUT_WIDTH = 112;
@@ -136,6 +136,7 @@ export function ImageAnnotator({
 	mime,
 	onCancel,
 	onSave,
+	onExportError,
 	apiRef,
 	onDiscardCancelled,
 }: {
@@ -144,6 +145,8 @@ export function ImageAnnotator({
 	mime: string;
 	onCancel: (dirty: boolean) => void;
 	onSave: (blob: Blob) => Promise<void>;
+	/** 导出（原图 + 标注合成成 Blob）失败：父组件负责提示，避免用户无限重试而无反馈 */
+	onExportError?: () => void;
 	/** 对外开放「尝试退出」（父组件顶栏 ✕ 等外部关闭入口用） */
 	apiRef?: Ref<AnnotatorHandle>;
 	/** 丢弃确认里选了「取消」：撤销父组件在请求退出时记下的关闭意图 */
@@ -272,6 +275,8 @@ export function ImageAnnotator({
 	const requestCancel = useCallback((): AnnotatorCancelResult => {
 		if (saving) return "refused";
 		if (shapes.length > 0) {
+			// 确认条在浮条内部：折叠态下必须先展开，否则外面点了 ✕/Esc 界面毫无变化
+			setCollapsed(false);
 			setConfirm("discard");
 			return "confirming";
 		}
@@ -377,6 +382,16 @@ export function ImageAnnotator({
 		setDraft((prev) => (prev ? extendShape(prev, point, anchorRef.current) : prev));
 	};
 
+	/** 指针被系统取消（手势被接管 / 触控中断）：丢弃草稿，不把半截图当成用户画的图形 */
+	const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+		const canvas = e.currentTarget;
+		if (canvas.hasPointerCapture?.(e.pointerId)) {
+			canvas.releasePointerCapture?.(e.pointerId);
+		}
+		anchorRef.current = null;
+		setDraft(null);
+	};
+
 	const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
 		const canvas = e.currentTarget;
 		if (canvas.hasPointerCapture?.(e.pointerId)) {
@@ -417,19 +432,27 @@ export function ImageAnnotator({
 	};
 
 	const save = async () => {
-		if (!image || saving) return;
+		if (!image || saving || shapes.length === 0) return;
 		setSaving(true);
+		let blob: Blob;
+		// 只包导出：导出失败时父组件的 onSave 根本不会被调用，必须单独回调 onExportError 才有提示
 		try {
-			const blob = await renderAnnotatedBlob(
+			blob = await renderAnnotatedBlob(
 				image,
 				image.naturalWidth,
 				image.naturalHeight,
 				shapes,
 				mime,
 			);
+		} catch {
+			setSaving(false);
+			onExportError?.();
+			return;
+		}
+		try {
 			await onSave(blob);
 		} catch {
-			// 失败提示由父组件负责；这里保留编辑态与全部 shapes 供重试
+			// 保存失败提示由父组件负责（这里不重复 toast）；保留编辑态与全部 shapes 供重试
 		} finally {
 			setSaving(false);
 		}
@@ -475,7 +498,7 @@ export function ImageAnnotator({
 					onPointerDown={onPointerDown}
 					onPointerMove={onPointerMove}
 					onPointerUp={onPointerUp}
-					onPointerCancel={onPointerUp}
+					onPointerCancel={onPointerCancel}
 				/>
 			)}
 
@@ -500,6 +523,8 @@ export function ImageAnnotator({
 					onKeyDown={(e) => {
 						// 输入框内的 Esc/Enter 不外泄到浮条快捷键
 						e.stopPropagation();
+						// 输入法组词中（拼音选词等）的 Enter 是确认候选词，不是提交文字
+						if (e.nativeEvent.isComposing || e.keyCode === 229) return;
 						if (e.key === "Enter") submitText();
 						else if (e.key === "Escape") setTextDraft(null);
 					}}
@@ -525,7 +550,7 @@ export function ImageAnnotator({
 					data-testid="annotator-bar"
 					role="toolbar"
 					aria-label={t("blocks.imageAnnotator.annotate")}
-					className="absolute bottom-3 left-1/2 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-full px-2 py-1"
+					className="absolute bottom-3 left-1/2 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-full px-2 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 					style={BAR_STYLE}
 				>
 					{confirm ? (
@@ -674,7 +699,7 @@ export function ImageAnnotator({
 								type="button"
 								data-testid="annotator-save"
 								onClick={save}
-								disabled={saving || !image}
+								disabled={saving || !image || shapes.length === 0}
 								className="ml-0.5 flex h-7 shrink-0 items-center rounded-full bg-brand px-2.5 text-[calc(12px*var(--font-scale))] text-white transition-opacity disabled:cursor-default disabled:opacity-50"
 							>
 								{saving

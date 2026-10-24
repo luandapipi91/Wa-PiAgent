@@ -224,3 +224,18 @@ test("超过上限的文件返回 400 attachment.tooLarge 且不写盘", async (
 	expect(new Uint8Array(await readFile(target))).toEqual(OLD_BYTES);
 	expect(await readdir(join(cwd, ".wa-pi/uploads"))).toEqual(["a.png"]);
 });
+
+test.skipIf(!CAN_SYMLINK)(
+	"符号链接的扩展名按 realpath 校验（uploads 内 a.png → b.gif 返回 400，不写盘）",
+	async () => {
+		// 否则只校验请求路径的扩展名：png 字节能写进同目录的 gif 等非白名单文件
+		const target = await seed(".wa-pi/uploads/b.gif", OLD_BYTES);
+		const link = join(cwd, ".wa-pi/uploads/a.png");
+		await symlink(target, link);
+		const res = await makeRouter().handle(overwriteRequest(link, NEW_BYTES));
+
+		expect(res!.status).toBe(400);
+		expect((await res!.json()).failure.code).toBe("imageAnn.unsupported");
+		expect(new Uint8Array(await readFile(target))).toEqual(OLD_BYTES);
+	},
+);

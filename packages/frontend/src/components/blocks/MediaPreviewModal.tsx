@@ -107,7 +107,13 @@ export function MediaPreviewModal() {
 			useSessionStore.getState().closeMediaPreview();
 			return;
 		}
-		const result = annotatorRef.current?.requestCancel();
+		// 标注器未挂载（标注条件在期间失效等）：否则 `annotating` 为真而句柄为空时 ✕/Esc 彻底关不掉窗
+		if (!annotatorRef.current) {
+			pendingClose.current = false;
+			useSessionStore.getState().closeMediaPreview();
+			return;
+		}
+		const result = annotatorRef.current.requestCancel();
 		if (result === "exited") {
 			useSessionStore.getState().closeMediaPreview();
 			return;
@@ -264,6 +270,10 @@ export function MediaPreviewModal() {
 								pendingClose.current = false;
 							}}
 							onSave={saveAnnotated}
+							// 导出阶段失败（toBlob 返回 null 等）：onSave 不会被调到，单独复用保存失败提示
+							onExportError={() =>
+								addToast(t("blocks.imageAnnotator.saveFailed"), "error")
+							}
 						/>
 					) : item.kind === "image" ? (
 						<ZoomableImage

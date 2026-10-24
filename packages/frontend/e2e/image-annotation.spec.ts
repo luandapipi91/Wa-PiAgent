@@ -126,6 +126,8 @@ test.describe.serial("图片标注覆盖保存", () => {
 				.toEqual([200, 120]);
 			await page.screenshot({ path: shotAnnotator });
 			expect(statSync(shotAnnotator).size).toBeGreaterThan(0);
+			// 零图形时保存无语义：按钮应为禁用，画一笔后才可用
+			await expect(page.getByTestId("annotator-save")).toBeDisabled();
 
 			// 画笔：斜向拖一条
 			const box = (await canvas.boundingBox())!;
@@ -140,6 +142,7 @@ test.describe.serial("图片标注覆盖保存", () => {
 			await page.mouse.move(to.x, to.y, { steps: 8 });
 			await page.mouse.up();
 			await expect(page.getByTestId("annotator-undo")).toBeEnabled();
+			await expect(page.getByTestId("annotator-save")).toBeEnabled();
 
 			// 矩形：换工具再拖一个
 			await page.getByTestId("annotator-tool-rect").click();
@@ -162,6 +165,18 @@ test.describe.serial("图片标注覆盖保存", () => {
 			await expect(expand).toBeVisible();
 			await expand.click();
 			await expect(bar).toBeVisible();
+
+			// 折叠态点顶栏 ✕：确认条在浮条内部，必须先自动展开才看得到（否则点了毫无反应）
+			await page.getByTestId("annotator-collapse").click();
+			await expect(bar).toHaveCount(0);
+			await page.getByTestId("media-close").click();
+			await expect(bar).toBeVisible();
+			await expect(page.getByTestId("annotator-confirm")).toBeVisible();
+			// 选「取消」：留在编辑态、窗口不关
+			await page.getByTestId("annotator-confirm-no").click();
+			await expect(page.getByTestId("annotator-confirm")).toHaveCount(0);
+			await expect(modal).toBeVisible();
+			await expect(annotator).toHaveCount(1);
 
 			// 保存：成功 toast + 退出标注态
 			await page.getByTestId("annotator-save").click();
