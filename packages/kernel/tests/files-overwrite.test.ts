@@ -5,6 +5,7 @@ import {
 	mkdtemp,
 	readdir,
 	readFile,
+	realpath,
 	rm,
 	symlink,
 	writeFile,
@@ -86,7 +87,9 @@ test("普通项目 uploads 内图片可覆盖，返回 fs:overwrite", async () =
 
 	expect(res).not.toBeNull();
 	expect(res!.status).toBe(200);
-	expect(await res!.json()).toEqual({ type: "fs:overwrite", path: target });
+	// 实现返回 realpath 口径（防符号链接逃逸）；macOS 的 /var 是 /private/var 的符号链接，
+	// 直接拿 mkdtemp 的路径比对会因未解析链接而失败，故按同一口径取真实路径。
+	expect(await res!.json()).toEqual({ type: "fs:overwrite", path: await realpath(target) });
 	expect(new Uint8Array(await readFile(target))).toEqual(NEW_BYTES);
 	// 原子写入的临时文件不残留
 	expect(await readdir(join(cwd, ".wa-pi/uploads"))).toEqual(["a.png"]);

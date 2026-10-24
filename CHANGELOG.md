@@ -1,4 +1,5 @@
 ## 2026-10-24
+- test(kernel): files-overwrite 路径断言改用 realpath 口径——实现返回 realpath（防符号链接逃逸），而测试拿 mkdtemp 的原始路径比对；macOS 的 /var 是 /private/var 的符号链接，导致该用例在 mac 上必红（gate 阻塞）。断言改为 `await realpath(target)` 与实现同口径
 - v0.8.0 发版：图片涂鸦标注 + 工具卡片分型重做（差异/摘要/终端）+ 图片缩略图与编号 + 向导自动前进 + 委托详情改名；minor 升级（35 提交 / 71 文件 / +10609 行）
 - feat(onboarding): 初始化向导第 1 步保存模型后自动进入第 2 步——第 1 步唯一动作就是配好模型，再让用户点一次「下一步」是多余步骤；`ProviderForm.onSaved` 里 `setStep(2)`（紧接成功 toast）。测试：组件补 1 例（保存回调后 step 前进）、E2E onboarding-wizard 补场景「第 1 步保存模型后自动进入第 2 步」；单测 6/6、E2E 3/3
 - feat(image-annotator): 移除浮条收起按钮（保存右侧 chevron）——不再有「折叠成小笔」形态，工具条始终可见；同步删掉 `collapsed` state、`annotator-collapse`/`annotator-expand` 两个入口与 i18n `collapse`/`expand`，`requestCancel` 里也不必再先展开浮条。测试：原「折叠/展开」用例改为「无收起按钮且浮条始终可见」，E2E 断言两个 testid 均不存在
