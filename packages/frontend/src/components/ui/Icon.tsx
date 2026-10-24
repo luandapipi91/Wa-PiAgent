@@ -408,6 +408,15 @@ const ICONS = {
 		</>
 	),
 	"chevron-up": <path d="M6 15l6-6 6 6" />,
+	// 手掌（拖动/平移）：掌指 + 拇指，stroke 风格与其余图标同口径
+	hand: (
+		<>
+			<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12" />
+			<path d="M11 12V4.5a1.5 1.5 0 0 1 3 0V12" />
+			<path d="M14 12V6.5a1.5 1.5 0 0 1 3 0V14" />
+			<path d="M17 13.5a1.5 1.5 0 0 1 3 0V16a6 6 0 0 1-6 6h-2.4a6 6 0 0 1-5.2-3l-2.5-4.6a1.5 1.5 0 0 1 2.6-1.5L8 15" />
+		</>
+	),
 } as const satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

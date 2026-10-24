@@ -157,16 +157,16 @@ function drawRectTool(
 	fireEvent.pointerUp(canvas, { pointerId: 1, clientX: x2, clientY: y2 });
 }
 
-test("渲染底部浮条：6 个工具、3 档粗细、8 个颜色、撤销/清空/取消/保存", async () => {
+test("渲染底部浮条：7 个工具（含手掌）、3 档粗细、8 个颜色、撤销/清空/取消/保存", async () => {
 	setup();
 	expect(screen.getByTestId("image-annotator")).toBeTruthy();
 	expect(screen.getByTestId("annotator-bar")).toBeTruthy();
-	for (const tool of ["arrow", "rect", "ellipse", "text", "pen", "eraser"]) {
+	for (const tool of ["hand", "arrow", "rect", "ellipse", "text", "pen", "eraser"]) {
 		expect(screen.getByTestId(`annotator-tool-${tool}`)).toBeTruthy();
 	}
 	expect(
 		screen.getByTestId("annotator-tools").querySelectorAll("button").length,
-	).toBe(6);
+	).toBe(7);
 	expect(
 		screen.getByTestId("annotator-widths").querySelectorAll("button").length,
 	).toBe(3);
@@ -304,6 +304,74 @@ test("绘制坐标按 canvas.width / rect.width 换算（transform 已在 rect �
 	expect(lastRedraw()).toContain("lineTo:40,30");
 });
 
+test("缩小到 50% 时手掌仍可自由拖动，拖动中不被夹回中心", async () => {
+	setup({ initialZoom: 0.5 });
+	const canvas = await canvasOf();
+	await waitFor(() => expect(lastRedraw()).toContain("drawImage"));
+	// happy-dom 不做布局：给容器与画布桩出尺寸（画布 100×100、视口 500×400）
+	const root = screen.getByTestId("image-annotator");
+	for (const [el, w, h] of [
+		[root, 500, 400],
+		[canvas, 100, 100],
+	] as [HTMLElement, number, number][]) {
+		Object.defineProperty(el, "offsetWidth", { value: w, configurable: true });
+		Object.defineProperty(el, "offsetHeight", { value: h, configurable: true });
+	}
+	fireEvent.click(screen.getByTestId("annotator-tool-hand"));
+
+	const pan = (x1: number, y1: number, x2: number, y2: number) => {
+		fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: x1, clientY: y1 });
+		fireEvent.pointerMove(canvas, { pointerId: 1, clientX: x2, clientY: y2 });
+		fireEvent.pointerUp(canvas, { pointerId: 1, clientX: x2, clientY: y2 });
+	};
+
+	// 连续两次平移：第二次相对第一次累加，说明没有被「重置回中心」
+	pan(10, 10, 50, 30);
+	await waitFor(() => expect(canvas.style.transform).toContain("translate(40px, 20px)"));
+	pan(10, 10, 50, 30);
+	await waitFor(() => expect(canvas.style.transform).toContain("translate(80px, 40px)"));
+	// 缩小状态下平移同样不产生图形
+	expect(undoBtn().disabled).toBe(true);
+});
+
+test("手掌模式：编辑区任意空白处都能拖（不必按在图片上），绘制工具下不铺该层", async () => {
+	setup({ initialZoom: 0.5 });
+	const canvas = await canvasOf();
+	await waitFor(() => expect(lastRedraw()).toContain("drawImage"));
+	const root = screen.getByTestId("image-annotator");
+	for (const [el, w, h] of [
+		[root, 500, 400],
+		[canvas, 100, 100],
+	] as [HTMLElement, number, number][]) {
+		Object.defineProperty(el, "offsetWidth", { value: w, configurable: true });
+		Object.defineProperty(el, "offsetHeight", { value: h, configurable: true });
+	}
+
+	// 默认画笔下没有手掌层（不会拦住绘制）
+	expect(screen.queryByTestId("annotator-pan-layer")).toBeNull();
+	fireEvent.click(screen.getByTestId("annotator-tool-hand"));
+	const layer = screen.getByTestId("annotator-pan-layer");
+
+	// 从图片外的空白处按下拖动（层铺满整块编辑区）
+	fireEvent.pointerDown(layer, { pointerId: 1, button: 0, clientX: 5, clientY: 5 });
+	fireEvent.pointerMove(layer, { pointerId: 1, clientX: 65, clientY: 45 });
+	fireEvent.pointerUp(layer, { pointerId: 1, clientX: 65, clientY: 45 });
+
+	await waitFor(() =>
+		expect(canvas.style.transform).toContain("translate(60px, 40px)"),
+	);
+	expect(undoBtn().disabled).toBe(true);
+});
+
+test("空格按住时同样铺手掌层（任何工具下都能从空白处拖动）", () => {
+	setup();
+	expect(screen.queryByTestId("annotator-pan-layer")).toBeNull();
+	fireEvent.keyDown(window, { code: "Space" });
+	expect(screen.getByTestId("annotator-pan-layer")).toBeTruthy();
+	fireEvent.keyUp(window, { code: "Space" });
+	expect(screen.queryByTestId("annotator-pan-layer")).toBeNull();
+});
+
 test("空格 + 拖拽平移视角：不产生图形；松手后恢复正常绘制", async () => {
 	setup();
 	const canvas = await canvasOf();
@@ -325,6 +393,46 @@ test("空格 + 拖拽平移视角：不产生图形；松手后恢复正常绘�
 	await waitFor(() => expect(canvas.style.cursor).toBe("crosshair"));
 	drawStroke(canvas);
 	await waitFor(() => expect(undoBtn().disabled).toBe(false));
+});
+
+test("再点一次已选中的工具 → 取消选中并切到手掌（每个工具都如此）", () => {
+	setup();
+	for (const tool of ["pen", "rect", "ellipse", "arrow", "text", "eraser"]) {
+		// 先归零到手掌，再选中该工具（默认画笔已选中，直接点会走「取消」分支）
+		fireEvent.click(screen.getByTestId("annotator-tool-hand"));
+		fireEvent.click(screen.getByTestId(`annotator-tool-${tool}`));
+		expect(
+			screen.getByTestId(`annotator-tool-${tool}`).getAttribute("aria-pressed"),
+		).toBe("true");
+		// 再点一次 → 取消选中，切到手掌
+		fireEvent.click(screen.getByTestId(`annotator-tool-${tool}`));
+		expect(
+			screen.getByTestId(`annotator-tool-${tool}`).getAttribute("aria-pressed"),
+		).toBe("false");
+		expect(
+			screen.getByTestId("annotator-tool-hand").getAttribute("aria-pressed"),
+		).toBe("true");
+	}
+});
+
+test("手掌工具：拖拽只平移视角、不产生图形，光标为抓手指针", async () => {
+	setup();
+	const canvas = await canvasOf();
+	await waitFor(() => expect(lastRedraw()).toContain("drawImage"));
+	// 点手掌进入拖图模式（光标变抓手）
+	fireEvent.click(screen.getByTestId("annotator-tool-hand"));
+	expect(
+		screen.getByTestId("annotator-tool-hand").getAttribute("aria-pressed"),
+	).toBe("true");
+	await waitFor(() => expect(canvas.style.cursor).toBe("grab"));
+
+	fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+	fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 40, clientY: 30 });
+	fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 40, clientY: 30 });
+
+	await waitFor(() => expect(canvas.style.transform).toContain("translate("));
+	// 没有画出任何图形
+	expect(undoBtn().disabled).toBe(true);
 });
 
 test("空拖拽（位移 < 2px）不产生图形，不留下隐形 shape", async () => {
@@ -364,14 +472,11 @@ test("清空：内联确认条确认后画布清空，且清空本身可撤销",
 	expect(undoBtn().disabled).toBe(false);
 });
 
-test("折叠：浮条隐藏只剩小笔按钮，再点恢复浮条", () => {
+test("浮条没有收起按钮：不再折叠成小笔，工具栏始终可见", () => {
 	setup();
-	fireEvent.click(screen.getByTestId("annotator-collapse"));
-	expect(screen.queryByTestId("annotator-bar")).toBeNull();
-	expect(screen.getByTestId("annotator-expand")).toBeTruthy();
-
-	fireEvent.click(screen.getByTestId("annotator-expand"));
 	expect(screen.getByTestId("annotator-bar")).toBeTruthy();
+	// 保存按钮右侧不再有收起
+	expect(screen.queryByTestId("annotator-collapse")).toBeNull();
 	expect(screen.queryByTestId("annotator-expand")).toBeNull();
 });
 
@@ -672,7 +777,7 @@ test("Ctrl+Z 撤销最后一步", async () => {
 
 // ─── 审查修复：折叠态确认可见 / 导出失败反馈 / 输入法 Enter / 零图形 / pointercancel ───
 
-test("折叠态下请求退出：先展开浮条再显示丢弃确认条（不再「点了 ✕ 毫无反应」）", async () => {
+test("请求退出（父组件 ✕）：有图形时弹丢弃确认条，不直接退出", async () => {
 	const onCancel = mock();
 	const apiRef = createRef<AnnotatorHandle>();
 	render(
@@ -688,33 +793,18 @@ test("折叠态下请求退出：先展开浮条再显示丢弃确认条（不�
 	drawStroke(await canvasOf());
 	await waitFor(() => expect(undoBtn().disabled).toBe(false));
 
-	fireEvent.click(screen.getByTestId("annotator-collapse"));
-	expect(screen.queryByTestId("annotator-bar")).toBeNull();
-
 	let result: AnnotatorCancelResult | undefined;
 	act(() => {
 		result = apiRef.current?.requestCancel();
 	});
-	// 返回 confirming（父组件据此记下关窗意图），且界面真的变了：浮条展开 + 确认条可见
+	// 返回 confirming（父组件据此记下关窗意图），且界面上确认条真的出现了
 	expect(result).toBe("confirming");
-	expect(screen.getByTestId("annotator-bar")).toBeTruthy();
 	expect(screen.getByTestId("annotator-confirm")).toBeTruthy();
 	expect(onCancel).not.toHaveBeenCalled();
 
 	// 确认丢弃照常退出
 	fireEvent.click(screen.getByTestId("annotator-confirm-yes"));
 	expect(onCancel).toHaveBeenCalledWith(true);
-});
-
-test("折叠态下按 Esc：同样先展开浮条并显示确认条", async () => {
-	const { onCancel } = setup();
-	drawStroke(await canvasOf());
-	fireEvent.click(screen.getByTestId("annotator-collapse"));
-
-	fireEvent.keyDown(window, { key: "Escape" });
-	expect(screen.getByTestId("annotator-bar")).toBeTruthy();
-	expect(screen.getByTestId("annotator-confirm")).toBeTruthy();
-	expect(onCancel).not.toHaveBeenCalled();
 });
 
 test("导出失败（toBlob 返回 null）：回调 onExportError，saving 复位、shapes 保留、不调 onSave", async () => {

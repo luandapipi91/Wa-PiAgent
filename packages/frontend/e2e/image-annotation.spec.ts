@@ -181,6 +181,74 @@ test.describe.serial("图片标注覆盖保存", () => {
 			// 零图形时保存无语义：按钮应为禁用，画一笔后才可用
 			await expect(page.getByTestId("annotator-save")).toBeDisabled();
 
+			// 工具可取消选中：默认画笔已选中，再点一次回到手掌（拖图模式）
+			await expect(page.getByTestId("annotator-tool-pen")).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			await page.getByTestId("annotator-tool-pen").click();
+			await expect(page.getByTestId("annotator-tool-pen")).toHaveAttribute(
+				"aria-pressed",
+				"false",
+			);
+			await expect(page.getByTestId("annotator-tool-hand")).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			// 先缩小到 80%：用户反馈「图片缩小后就不能拖了」——任何缩放下都应该能拖
+			await page.getByTestId("media-zoom-out").click();
+			await page.getByTestId("media-zoom-out").click();
+			await expect(page.getByTestId("media-zoom-percent")).toHaveText("80%");
+			// 手掌模式下拖拽只平移视角，不产生图形（撤销仍禁用）
+			const panBefore = await canvas.evaluate((el) => el.style.transform);
+			const hb = (await canvas.boundingBox())!;
+			await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+			await page.mouse.down();
+			await page.mouse.move(hb.x + hb.width / 2 + 20, hb.y + hb.height / 2 + 12, {
+				steps: 4,
+			});
+			await page.mouse.up();
+			await expect
+				.poll(() => canvas.evaluate((el) => el.style.transform))
+				.not.toBe(panBefore);
+			// 从图片外的空白区按下也能拖（手掌层铺满整块编辑区，不必正好按在图上）
+			const rootBox = (await annotator.boundingBox())!;
+			const blankX = rootBox.x + 24;
+			const blankY = rootBox.y + 24;
+			const panBeforeBlank = await canvas.evaluate((el) => el.style.transform);
+			await page.mouse.move(blankX, blankY);
+			await page.mouse.down();
+			await page.mouse.move(blankX + 18, blankY + 10, { steps: 4 });
+			await page.mouse.up();
+			await expect
+				.poll(() => canvas.evaluate((el) => el.style.transform))
+				.not.toBe(panBeforeBlank);
+			await expect(page.getByTestId("annotator-undo")).toBeDisabled();
+
+			// 继续拖第二次：位置应累加，而不是被「重置回中心」
+			const panAfterFirst = await canvas.evaluate((el) => el.style.transform);
+			const hb2 = (await canvas.boundingBox())!;
+			await page.mouse.move(hb2.x + hb2.width / 2, hb2.y + hb2.height / 2);
+			await page.mouse.down();
+			await page.mouse.move(hb2.x + hb2.width / 2 + 20, hb2.y + hb2.height / 2 + 12, {
+				steps: 4,
+			});
+			await page.mouse.up();
+			await expect
+				.poll(() => canvas.evaluate((el) => el.style.transform))
+				.not.toBe(panAfterFirst);
+			await expect(page.getByTestId("annotator-undo")).toBeDisabled();
+			// 点回画笔：选中态恢复，光标不再是抓手
+			await page.getByTestId("annotator-tool-pen").click();
+			await expect(page.getByTestId("annotator-tool-pen")).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			await expect(page.getByTestId("annotator-tool-hand")).toHaveAttribute(
+				"aria-pressed",
+				"false",
+			);
+
 			// 画笔：斜向拖一条
 			const box = (await canvas.boundingBox())!;
 			const at = (fx: number, fy: number) => ({
@@ -210,17 +278,12 @@ test.describe.serial("图片标注覆盖保存", () => {
 			await page.mouse.up();
 			await expect(page.getByTestId("annotator-clear")).toBeEnabled();
 
-			// 浮条折叠 → 展开
-			await page.getByTestId("annotator-collapse").click();
-			await expect(bar).toHaveCount(0);
-			const expand = page.getByTestId("annotator-expand");
-			await expect(expand).toBeVisible();
-			await expand.click();
+			// 浮条不再可收起（保存右侧没有收起按钮，也不存在小笔折叠态）
+			await expect(page.getByTestId("annotator-collapse")).toHaveCount(0);
+			await expect(page.getByTestId("annotator-expand")).toHaveCount(0);
 			await expect(bar).toBeVisible();
 
-			// 折叠态点顶栏 ✕：确认条在浮条内部，必须先自动展开才看得到（否则点了毫无反应）
-			await page.getByTestId("annotator-collapse").click();
-			await expect(bar).toHaveCount(0);
+			// 点顶栏 ✕：有未保存图形 → 弹丢弃确认条
 			await page.getByTestId("media-close").click();
 			await expect(bar).toBeVisible();
 			await expect(page.getByTestId("annotator-confirm")).toBeVisible();

@@ -37,6 +37,7 @@ import type {
 
 const TOOLS: { tool: Tool; icon: IconName; labelKey: string }[] = [
 	// 现有图标库没有专门的箭头/方形/椭圆/文字/橡皮，取最接近的图形（不使用 emoji）
+	{ tool: "hand", icon: "hand", labelKey: "blocks.imageAnnotator.toolHand" },
 	{ tool: "arrow", icon: "arrow-up", labelKey: "blocks.imageAnnotator.toolArrow" },
 	{ tool: "rect", icon: "checkbox", labelKey: "blocks.imageAnnotator.toolRect" },
 	{ tool: "ellipse", icon: "circle", labelKey: "blocks.imageAnnotator.toolEllipse" },
@@ -193,6 +194,8 @@ export function ImageAnnotator({
 	const [pan, setPan] = useState(initialPan ?? { x: 0, y: 0 });
 	// 空格键按住 = 临时抓手：绘制工具与平移手势共存，不需要切工具
 	const [spaceHeld, setSpaceHeld] = useState(false);
+	// 正在拖拽平移：只用于光标反馈（panDragRef 是 ref，变化不触发重渲染）
+	const [panning, setPanning] = useState(false);
 	const panDragRef = useRef<{
 		startX: number;
 		startY: number;
@@ -206,7 +209,6 @@ export function ImageAnnotator({
 		top: number;
 		value: string;
 	} | null>(null);
-	const [collapsed, setCollapsed] = useState(false);
 	const [confirm, setConfirm] = useState<"clear" | "discard" | null>(null);
 	const [saving, setSaving] = useState(false);
 
@@ -324,13 +326,53 @@ export function ImageAnnotator({
 	const zoomIn = useCallback(() => setZoom((z) => clampZoom(z * 1.25)), []);
 	const zoomOut = useCallback(() => setZoom((z) => clampZoom(z / 1.25)), []);
 
-	/** 平移：按当前缩放夹取，避免把图拖出画面拉不回来 */
+	/** 平移：只在「图片将被完全拖出视口」时才夹取，任何缩放比例（含 <100%）都可自由拖 */
 	const applyPan = useCallback((next: { x: number; y: number }) => {
 		const canvas = canvasRef.current;
-		if (!canvas) return setPan(next);
-		// offsetWidth/Height 不受 transform 影响，就是 contain 后的基准尺寸
-		setPan(clampPan(next, zoom, canvas.offsetWidth, canvas.offsetHeight));
+		const root = rootRef.current;
+		if (!canvas || !root) return setPan(next);
+		// offsetWidth/Height 不受 transform 影响，就是 contain 后的基准尺寸与视口尺寸
+		setPan(
+			clampPan(
+				next,
+				zoom,
+				canvas.offsetWidth,
+				canvas.offsetHeight,
+				root.offsetWidth,
+				root.offsetHeight,
+			),
+		);
 	}, [zoom]);
+
+	/** 开始平移：记起点与当前偏移（canvas 与手掌层共用） */
+	const beginPan = useCallback(
+		(clientX: number, clientY: number) => {
+			panDragRef.current = {
+				startX: clientX,
+				startY: clientY,
+				panX: pan.x,
+				panY: pan.y,
+			};
+			setPanning(true);
+		},
+		[pan],
+	);
+	/** 拖拽中：累加位移后夹取（只保「图片没被整张拖出视口」） */
+	const movePan = useCallback(
+		(clientX: number, clientY: number) => {
+			const drag = panDragRef.current;
+			if (!drag) return;
+			applyPan({
+				x: drag.panX + (clientX - drag.startX),
+				y: drag.panY + (clientY - drag.startY),
+			});
+		},
+		[applyPan],
+	);
+	const endPan = useCallback(() => {
+		panDragRef.current = null;
+		setPanning(false);
+	}, []);
 
 	const addShape = useCallback(
 		(shape: Shape) => {
@@ -364,8 +406,6 @@ export function ImageAnnotator({
 	const requestCancel = useCallback((): AnnotatorCancelResult => {
 		if (saving) return "refused";
 		if (shapes.length > 0) {
-			// 确认条在浮条内部：折叠态下必须先展开，否则外面点了 ✕/Esc 界面毫无变化
-			setCollapsed(false);
 			setConfirm("discard");
 			return "confirming";
 		}
@@ -405,16 +445,11 @@ export function ImageAnnotator({
 
 	const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
 		if (saving) return;
-		// 中键 / 空格+左键 = 平移（不产生图形）：绘制需要拖拽，平移不能抢左键
-		if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+		// 中键 / 空格+左键 / 手掌工具 = 平移（不产生图形）：左键仍归绘制，不能无条件抢
+		if (e.button === 1 || (e.button === 0 && (spaceHeld || tool === "hand"))) {
 			e.preventDefault();
 			e.currentTarget.setPointerCapture?.(e.pointerId);
-			panDragRef.current = {
-				startX: e.clientX,
-				startY: e.clientY,
-				panX: pan.x,
-				panY: pan.y,
-			};
+			beginPan(e.clientX, e.clientY);
 			return;
 		}
 		if (e.button !== 0) return;
@@ -462,7 +497,7 @@ export function ImageAnnotator({
 				color,
 				width: strokeWidth,
 			});
-		} else {
+		} else if (tool === "rect" || tool === "ellipse") {
 			setDraft({
 				kind: tool,
 				x: point.x,
@@ -478,12 +513,8 @@ export function ImageAnnotator({
 	const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
 		if (saving) return;
 		// 平移中：只动视角，不碰草稿
-		const drag = panDragRef.current;
-		if (drag) {
-			applyPan({
-				x: drag.panX + (e.clientX - drag.startX),
-				y: drag.panY + (e.clientY - drag.startY),
-			});
+		if (panDragRef.current) {
+			movePan(e.clientX, e.clientY);
 			return;
 		}
 		const point = toNatural(e);
@@ -504,6 +535,7 @@ export function ImageAnnotator({
 			canvas.releasePointerCapture?.(e.pointerId);
 		}
 		panDragRef.current = null;
+		endPan();
 		anchorRef.current = null;
 		setDraft(null);
 	};
@@ -515,7 +547,7 @@ export function ImageAnnotator({
 		}
 		// 平移结束：不提交任何图形
 		if (panDragRef.current) {
-			panDragRef.current = null;
+			endPan();
 			return;
 		}
 		const anchor = anchorRef.current;
@@ -619,11 +651,13 @@ export function ImageAnnotator({
 					style={{
 						transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
 						transformOrigin: "center center",
-						cursor: spaceHeld
-							? panDragRef.current
-								? "grabbing"
-								: "grab"
-							: "crosshair",
+						// 手掌工具或空格按住时是抓手（可拖图），其余工具是十字准星
+						cursor:
+							tool === "hand" || spaceHeld
+								? panning
+									? "grabbing"
+									: "grab"
+								: "crosshair",
 						willChange: "transform",
 					}}
 					className="block max-h-full max-w-full touch-none"
@@ -636,6 +670,35 @@ export function ImageAnnotator({
 			)}
 
 			{/* 文字工具的内联输入框：位置取 pointerdown 时的容器内偏移 */}
+			{/* 手掌/空格模式：整块编辑区（含图片四周留白）都能拖，不必正好按在图片上。
+			只有在这些模式下才铺这层，绘制工具下它不拦截事件。 */}
+			{(tool === "hand" || spaceHeld) && !loadFailed && !tooLarge && (
+				<div
+					data-testid="annotator-pan-layer"
+					className="absolute inset-0 z-[1] touch-none"
+					style={{ cursor: panning ? "grabbing" : "grab" }}
+					onPointerDown={(e) => {
+						if (e.button !== 0 && e.button !== 1) return;
+						e.preventDefault();
+						e.currentTarget.setPointerCapture?.(e.pointerId);
+						beginPan(e.clientX, e.clientY);
+					}}
+					onPointerMove={(e) => movePan(e.clientX, e.clientY)}
+					onPointerUp={(e) => {
+						if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+							e.currentTarget.releasePointerCapture?.(e.pointerId);
+						}
+						endPan();
+					}}
+					onPointerCancel={(e) => {
+						if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+							e.currentTarget.releasePointerCapture?.(e.pointerId);
+						}
+						endPan();
+					}}
+				/>
+			)}
+
 			{textDraft && (
 				<input
 					data-testid="annotator-text-input"
@@ -665,20 +728,7 @@ export function ImageAnnotator({
 			)}
 
 			{/* 浮条：尺寸超限时没有可编辑图片，不渲染 */}
-			{!tooLarge && collapsed && (
-				<button
-					type="button"
-					data-testid="annotator-expand"
-					aria-label={t("blocks.imageAnnotator.expand")}
-					title={t("blocks.imageAnnotator.expand")}
-					onClick={() => setCollapsed(false)}
-					className="absolute bottom-3 left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full text-secondary transition-colors hover:text-primary"
-					style={BAR_STYLE}
-				>
-					<Icon name="edit" size={15} />
-				</button>
-			)}
-			{!tooLarge && !collapsed && (
+			{!tooLarge && (
 				<div
 					data-testid="annotator-bar"
 					role="toolbar"
@@ -723,8 +773,11 @@ export function ImageAnnotator({
 										data-testid={`annotator-tool-${item.tool}`}
 										aria-label={t(item.labelKey)}
 										aria-pressed={tool === item.tool}
+										// 再点一次已选中的工具 = 取消选中回到手掌（默认笔选中，再点笔就是拖图）
 										title={t(item.labelKey)}
-										onClick={() => setTool(item.tool)}
+										onClick={() =>
+											setTool((prev) => (prev === item.tool ? "hand" : item.tool))
+										}
 										className={`${TOOL_BTN} ${
 											tool === item.tool
 												? "bg-surface-hover text-primary"
@@ -838,16 +891,6 @@ export function ImageAnnotator({
 								{saving
 									? t("blocks.imageAnnotator.saving")
 									: t("blocks.imageAnnotator.save")}
-							</button>
-							<button
-								type="button"
-								data-testid="annotator-collapse"
-								aria-label={t("blocks.imageAnnotator.collapse")}
-								title={t("blocks.imageAnnotator.collapse")}
-								onClick={() => setCollapsed(true)}
-								className={TOOL_BTN + " text-tertiary hover:text-primary"}
-							>
-								<Icon name="chevron-down" size={14} />
 							</button>
 						</>
 					)}

@@ -397,6 +397,7 @@ const en = {
 		imageAnnotator: {
 			annotate: "Annotate",
 			toolArrow: "Arrow",
+			toolHand: "Hand",
 			toolRect: "Rectangle",
 			toolEllipse: "Ellipse",
 			toolText: "Text",
@@ -420,8 +421,6 @@ const en = {
 			unsupported: "This image format can't be annotated",
 			tooLarge: "Image is too large to annotate",
 			discardConfirm: "Discard unsaved annotations?",
-			collapse: "Collapse toolbar",
-			expand: "Expand toolbar",
 		},
 	},
 	ui: {

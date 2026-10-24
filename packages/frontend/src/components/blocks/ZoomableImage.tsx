@@ -19,15 +19,28 @@ export type ZoomControls = {
  *  避免用户放大到某一处后一进编辑就被重置回 100%。 */
 export type ImageTransform = { zoom: number; pan: { x: number; y: number } };
 
-/** 平移量：随缩放放大可视角，避免缩得大时图片被拖出画面再也拉不回来 */
+/** 平移量夹取：**只保底部线**——确保图片至少还有一小块留在视口内（不会“被拖丢”），
+ *  除此之外不限制。之前按「缩放 > 1 才有可平移空间」算，导致缩小到 100% 以下时
+ *  平移量恒被夹为 0（拖不动 + 拖动中被拉回中心），那是错误的产品语义。
+ *
+ *  maxX = (视口宽 + 图片显示宽) / 2 - 保留可见宽：图片左右边缘最多各自贴到视口边界内侧。 */
 export const clampPan = (
 	pan: { x: number; y: number },
 	zoom: number,
 	baseWidth: number,
 	baseHeight: number,
+	viewWidth: number,
+	viewHeight: number,
+	keepVisible = 24,
 ): { x: number; y: number } => {
-	const maxX = Math.max(0, ((zoom - 1) * baseWidth) / 2);
-	const maxY = Math.max(0, ((zoom - 1) * baseHeight) / 2);
+	const maxX = Math.max(
+		0,
+		(viewWidth + baseWidth * zoom) / 2 - keepVisible,
+	);
+	const maxY = Math.max(
+		0,
+		(viewHeight + baseHeight * zoom) / 2 - keepVisible,
+	);
 	return {
 		x: Math.max(-maxX, Math.min(maxX, pan.x)),
 		y: Math.max(-maxY, Math.min(maxY, pan.y)),
@@ -108,7 +121,7 @@ export function ZoomableImage({
 
 	const onMouseDown = useCallback(
 		(e: React.MouseEvent) => {
-			if (zoom <= 1) return;
+			// 任何缩放下（含缩小到 <100%）都可拖：只要图片还能被看到，就不该禁止用户移动
 			e.preventDefault();
 			setDragging(true);
 			dragRef.current = {
@@ -118,7 +131,7 @@ export function ZoomableImage({
 				panY: pan.y,
 			};
 		},
-		[zoom, pan],
+		[pan],
 	);
 
 	useEffect(() => {
@@ -126,7 +139,25 @@ export function ZoomableImage({
 		const onMove = (e: MouseEvent) => {
 			const dx = e.clientX - dragRef.current.startX;
 			const dy = e.clientY - dragRef.current.startY;
-			setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
+			const body = bodyRef.current;
+			const img = body?.querySelector("img") as HTMLImageElement | null;
+			const next = {
+				x: dragRef.current.panX + dx,
+				y: dragRef.current.panY + dy,
+			};
+			// 不夹取时图片可被拖出视口再也拉不回来；夹取只保「至少留一小块可见」
+			setPan(
+				body && img
+					? clampPan(
+							next,
+							zoom,
+							img.offsetWidth,
+							img.offsetHeight,
+							body.offsetWidth,
+							body.offsetHeight,
+						)
+					: next,
+			);
 		};
 		const onUp = () => setDragging(false);
 		window.addEventListener("mousemove", onMove);
@@ -135,7 +166,7 @@ export function ZoomableImage({
 			window.removeEventListener("mousemove", onMove);
 			window.removeEventListener("mouseup", onUp);
 		};
-	}, [dragging]);
+	}, [dragging, zoom]);
 
 	return (
 		<div className="flex flex-col h-full w-full" data-testid="zoomable-image">
@@ -146,7 +177,7 @@ export function ZoomableImage({
 				onMouseDown={onMouseDown}
 				onDoubleClick={reset}
 				style={{
-					cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "default",
+					cursor: dragging ? "grabbing" : zoom > 1 ? "grab" : "default",
 				}}
 			>
 				<img

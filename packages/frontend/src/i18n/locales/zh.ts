@@ -385,6 +385,7 @@ const zh = {
 		imageAnnotator: {
 			annotate: "标注",
 			toolArrow: "箭头",
+			toolHand: "手掌",
 			toolRect: "矩形",
 			toolEllipse: "椭圆",
 			toolText: "文字",
@@ -408,8 +409,6 @@ const zh = {
 			unsupported: "该图片格式不支持标注",
 			tooLarge: "图片尺寸过大，无法标注",
 			discardConfirm: "放弃未保存的标注？",
-			collapse: "收起工具栏",
-			expand: "展开工具栏",
 		},
 	},
 	ui: {
