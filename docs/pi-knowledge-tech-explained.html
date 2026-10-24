@@ -1,0 +1,2617 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi-knowledge 技术原理拆解 · 一个 AI 的书房是怎样建成的</title>
+<meta name="description" content="基于 pi-knowledge v0.12.0 发布包源码的深度技术拆解：索引管线、混合检索、多样性重排、自适应扩窗、向量存储与工程稳定性设计。">
+<style>
+  /* ============ 设计令牌 ============ */
+  :root{
+    --paper:#f3efe4;
+    --paper-raised:#fbf8ef;
+    --paper-sunk:#eae4d4;
+    --ink:#15211e;
+    --ink-2:#46524d;
+    --ink-3:#5f6a65;
+    --line:#d5cdbb;
+    --line-strong:#b6ac95;
+    --green:#0e4b43;
+    --green-2:#1f6b5e;
+    --green-soft:#dde8e2;
+    --orange:#a9431d;
+    --orange-soft:#f3e0d3;
+    --blue:#245178;
+    --blue-soft:#dde6ee;
+    --gold:#8f6a14;
+    --code-bg:#eee8d9;
+    --sans:"MiSans","PingFang SC","Microsoft YaHei","Noto Sans SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    --mono:ui-monospace,"SFMono-Regular","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;
+    --serif:"Iowan Old Style","Palatino Linotype","Book Antiqua",Georgia,"Songti SC","Noto Serif SC",serif;
+    --shadow:0 1px 0 rgba(21,33,30,.05),0 18px 40px -28px rgba(21,33,30,.35);
+    --maxw:1080px;
+    --prose:70ch;
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:24px}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(36,81,120,.06), transparent 70%),
+      repeating-linear-gradient(0deg, transparent 0 31px, rgba(21,33,30,.025) 31px 32px),
+      var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:17px;
+    line-height:1.78;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  ::selection{background:var(--green);color:#fff}
+  a{color:var(--green-2);text-decoration-thickness:1px;text-underline-offset:3px}
+  a:hover{color:var(--orange)}
+  :focus-visible{outline:2px solid var(--orange);outline-offset:3px;border-radius:2px}
+  hr{border:0;border-top:1px solid var(--line);margin:3rem 0}
+
+  /* ============ 顶部进度 ============ */
+  .progress{
+    position:fixed;inset:0 0 auto 0;height:3px;z-index:50;
+    background:transparent;pointer-events:none;
+  }
+  .progress span{
+    display:block;height:100%;width:0%;
+    background:linear-gradient(90deg,var(--green),var(--green-2),var(--orange));
+    transition:width .1s linear;
+  }
+
+  /* ============ 骨架 ============ */
+  .shell{
+    display:grid;
+    grid-template-columns:236px minmax(0,1fr);
+    max-width:1560px;
+    margin:0 auto;
+  }
+
+  /* ============ 侧栏 ============ */
+  .sidebar{
+    position:sticky;top:0;align-self:start;height:100vh;
+    padding:30px 22px 34px 30px;
+    border-right:1px solid var(--line);
+    display:flex;flex-direction:column;gap:22px;
+    background:linear-gradient(180deg, rgba(251,248,239,.72), rgba(243,239,228,.2));
+    backdrop-filter:blur(2px);
+  }
+  .brand{display:flex;align-items:flex-start;gap:10px;text-decoration:none;color:var(--ink)}
+  .brand svg{flex:0 0 auto;margin-top:3px}
+  .brand-name{font-weight:800;font-size:15px;letter-spacing:-.01em;line-height:1.3}
+  .brand-sub{display:block;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.04em;margin-top:3px}
+  .toc-label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-3);border-top:1px solid var(--line);padding-top:14px;
+  }
+  .toc{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;overflow-y:auto;scrollbar-width:thin}
+  .toc a{
+    display:block;padding:7px 9px 7px 11px;border-radius:3px;
+    font-size:13px;color:var(--ink-2);text-decoration:none;line-height:1.45;
+    border-left:2px solid transparent;transition:background .18s,color .18s,border-color .18s;
+  }
+  .toc a:hover{background:rgba(21,33,30,.045);color:var(--ink)}
+  .toc a.active{color:var(--green);background:rgba(14,75,67,.07);border-left-color:var(--green);font-weight:600}
+  .toc .sub{padding-left:22px;font-size:12.5px;color:var(--ink-3)}
+  .sidebar-foot{
+    margin-top:auto;font-family:var(--mono);font-size:10.5px;line-height:1.6;color:var(--ink-3);
+    border-top:1px solid var(--line);padding-top:14px;
+  }
+  .sidebar-foot strong{color:var(--ink-2);font-weight:600}
+
+  /* ============ 主区 ============ */
+  main{min-width:0;padding:0 54px 120px}
+  .wrap{max-width:var(--maxw);margin:0 auto}
+  .prose{max-width:var(--maxw)}
+  .prose > :not(.table-wrap):not(figure){max-width:var(--prose)}
+
+  /* ============ Hero ============ */
+  .hero{padding:72px 0 40px;position:relative}
+  .hero-meta{
+    display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:.02em;
+    margin-bottom:22px;
+  }
+  .hero-meta .dot{width:4px;height:4px;border-radius:50%;background:var(--line-strong)}
+  .hero-meta b{color:var(--ink-2);font-weight:600}
+  h1{
+    font-size:clamp(38px,5.4vw,68px);
+    line-height:1.02;letter-spacing:-.045em;font-weight:850;
+    margin:0 0 22px;max-width:15ch;
+    text-wrap:balance;
+  }
+  h1 .accent{color:var(--green)}
+  .lede{
+    font-size:clamp(17px,1.6vw,20px);line-height:1.65;color:var(--ink-2);
+    max-width:52ch;margin:0 0 30px;text-wrap:pretty;
+  }
+  .lede strong{color:var(--ink);font-weight:650}
+  .hero-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:10px 16px;border:1px solid var(--line-strong);border-radius:2px;
+    background:var(--paper-raised);color:var(--ink);text-decoration:none;
+    font-size:13.5px;font-weight:600;letter-spacing:.01em;
+    transition:transform .18s cubic-bezier(.2,.7,.3,1),box-shadow .18s,background .18s,border-color .18s;
+  }
+  .btn:hover{transform:translateY(-1px);box-shadow:var(--shadow);border-color:var(--ink-3);color:var(--ink)}
+  .btn.primary{background:var(--green);border-color:var(--green);color:#fff}
+  .btn.primary:hover{background:#0b3f38;color:#fff}
+  .hero-figure{margin:44px 0 0}
+
+  /* ============ 章节 ============ */
+  section.chapter{padding-top:34px;margin-top:34px}
+  .chapter-head{margin-bottom:26px}
+  .chapter-title{
+    font-size:clamp(27px,3.4vw,40px);line-height:1.16;letter-spacing:-.03em;font-weight:820;
+    margin:0 0 14px;text-wrap:balance;
+  }
+  .chapter-intro{font-size:17px;color:var(--ink-2);max-width:62ch;margin:0}
+  .chapter-rule{display:flex;align-items:center;gap:12px;margin:0 0 18px;color:var(--line-strong)}
+  .chapter-rule::before{content:"";width:64px;height:1px;background:currentColor}
+  .chapter-rule::after{content:"";flex:1;height:1px;background:var(--line)}
+  .chapter-rule svg{flex:0 0 auto}
+
+  h3{
+    font-size:clamp(20px,2.1vw,25px);line-height:1.3;letter-spacing:-.02em;font-weight:760;
+    margin:52px 0 14px;scroll-margin-top:20px;
+  }
+  h4{font-size:16.5px;line-height:1.4;font-weight:720;margin:30px 0 8px;letter-spacing:-.005em}
+  p{margin:0 0 16px;text-wrap:pretty}
+  .prose ul,.prose ol{margin:0 0 18px;padding-left:22px}
+  .prose li{margin:0 0 7px}
+  .prose li::marker{color:var(--green-2)}
+  strong{font-weight:680}
+  code:not(pre code){
+    font-family:var(--mono);font-size:.86em;
+    background:var(--code-bg);padding:1.5px 5px;border-radius:2px;
+    color:#2f3d38;white-space:nowrap;
+  }
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.92em;letter-spacing:-.01em}
+
+  /* ============ 「先说人话」============ */
+  .plain{
+    position:relative;
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    padding:20px 24px 18px;
+    margin:24px 0;
+    box-shadow:var(--shadow);
+  }
+  .plain::before,.plain::after{
+    content:"";position:absolute;width:9px;height:9px;border-color:var(--green-2);border-style:solid;
+  }
+  .plain::before{top:-1px;left:-1px;border-width:1px 0 0 1px}
+  .plain::after{bottom:-1px;right:-1px;border-width:0 1px 1px 0}
+  .plain-tag{
+    display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+    color:var(--green);margin-bottom:8px;
+  }
+  .plain p:last-child{margin-bottom:0}
+  .plain p{font-size:16.5px}
+
+  .deep{
+    border-top:1px dashed var(--line-strong);
+    margin:26px 0 0;padding-top:20px;
+  }
+  .deep-tag{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--orange);display:block;margin-bottom:8px}
+
+  .note{
+    background:var(--blue-soft);border:1px solid #c6d3df;
+    padding:16px 20px;margin:22px 0;font-size:15.5px;
+  }
+  .note b{color:var(--blue)}
+  .warn{
+    background:var(--orange-soft);border:1px solid #e3c6b3;
+    padding:16px 20px;margin:22px 0;font-size:15.5px;
+  }
+  .warn b{color:var(--orange)}
+
+  /* ============ 图 ============ */
+  figure{
+    margin:34px 0;padding:0;
+    width:100%;
+  }
+  figure .frame{
+    position:relative;background:var(--paper-raised);border:1px solid var(--line);
+    padding:22px 22px 18px;overflow-x:auto;
+  }
+  figure .frame::before,figure .frame::after{
+    content:"";position:absolute;width:11px;height:11px;border-color:var(--line-strong);border-style:solid;pointer-events:none;
+  }
+  figure .frame::before{top:6px;left:6px;border-width:1px 0 0 1px}
+  figure .frame::after{bottom:6px;right:6px;border-width:0 1px 1px 0}
+  figure svg{display:block;width:100%;height:auto;min-width:560px}
+  figure.vertical svg{min-width:0}
+  figcaption{
+    display:flex;gap:10px;align-items:baseline;
+    margin-top:10px;font-size:12.5px;color:var(--ink-3);line-height:1.6;
+  }
+  figcaption .fnum{font-family:var(--mono);color:var(--orange);font-size:11px;letter-spacing:.04em;flex:0 0 auto}
+
+  /* SVG 通用 */
+  svg text{font-family:var(--sans);fill:var(--ink-2)}
+  svg .mono{font-family:var(--mono)}
+  svg .t-title{fill:var(--ink);font-weight:700}
+  svg .t-small{font-size:10.5px;fill:var(--ink-3)}
+  svg .t-label{font-family:var(--mono);font-size:10px;fill:var(--ink-3);letter-spacing:.02em}
+  svg .stroke{stroke:var(--line-strong);fill:none}
+  svg .stroke-green{stroke:var(--green-2);fill:none}
+  svg .stroke-orange{stroke:var(--orange);fill:none}
+  svg .fill-green{fill:var(--green-soft)}
+  svg .fill-orange{fill:var(--orange-soft)}
+  svg .fill-blue{fill:var(--blue-soft)}
+  svg .fill-paper{fill:var(--paper-raised)}
+  svg .fill-code{fill:var(--code-bg)}
+
+  /* ============ 表格 ============ */
+  .table-wrap{overflow-x:auto;margin:26px 0;border:1px solid var(--line);background:var(--paper-raised)}
+  table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.55;min-width:620px}
+  caption{caption-side:top;text-align:left;padding:12px 16px 10px;font-size:12.5px;color:var(--ink-3);border-bottom:1px solid var(--line)}
+  th{
+    text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);background:var(--paper-sunk);padding:10px 14px;border-bottom:1px solid var(--line-strong);white-space:nowrap;
+  }
+  td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:rgba(14,75,67,.035)}
+  td.mono,th.mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+  td b{color:var(--ink)}
+  .tag{
+    display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.05em;
+    padding:1px 6px;border:1px solid var(--line-strong);border-radius:2px;color:var(--ink-2);white-space:nowrap;
+  }
+  .tag.g{border-color:#9db9ad;color:var(--green);background:rgba(14,75,67,.06)}
+  .tag.o{border-color:#d6b39b;color:var(--orange);background:rgba(169,67,29,.06)}
+  .tag.b{border-color:#a9bfd1;color:var(--blue);background:rgba(36,81,120,.06)}
+
+  /* ============ 公式 ============ */
+  .formula{
+    font-family:var(--mono);font-size:14px;line-height:1.9;
+    background:var(--code-bg);border:1px solid var(--line);
+    padding:16px 20px;margin:20px 0;overflow-x:auto;
+    color:#26332f;
+  }
+  .formula .hl{color:var(--orange);font-weight:600}
+  .formula .dim{color:var(--ink-3)}
+  .formula .cap{display:block;font-size:11px;color:var(--ink-3);margin-top:8px;letter-spacing:.01em}
+
+  /* ============ 数字条 ============ */
+  .stats{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    border-top:1px solid var(--line-strong);border-bottom:1px solid var(--line-strong);
+    margin:30px 0;
+  }
+  .stat{padding:16px 18px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:0}
+  .stat .k{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:5px}
+  .stat .v{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums;letter-spacing:-.03em;color:var(--green);font-weight:600}
+  .stat .d{display:block;font-size:12px;color:var(--ink-3);margin-top:2px}
+
+  /* ============ 模式选择器 ============ */
+  .modes{margin:30px 0;border:1px solid var(--line);background:var(--paper-raised)}
+  .mode-tabs{display:flex;flex-wrap:wrap;gap:0;border-bottom:1px solid var(--line);padding:0 8px}
+  .mode-tab{
+    appearance:none;border:0;background:transparent;cursor:pointer;
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    padding:12px 12px 10px;color:var(--ink-3);border-bottom:2px solid transparent;
+    transition:color .16s,border-color .16s,background .16s;
+  }
+  .mode-tab:hover{color:var(--ink);background:rgba(21,33,30,.03)}
+  .mode-tab[aria-selected="true"]{color:var(--green);border-bottom-color:var(--green);font-weight:600}
+  .mode-panel{padding:22px 24px 20px;display:grid;grid-template-columns:1.15fr .85fr;gap:24px}
+  .mode-panel[hidden]{display:none}
+  .mode-panel h4{margin:0 0 6px;font-size:18px}
+  .mode-panel p{margin:0 0 10px;font-size:15px;color:var(--ink-2)}
+  .mode-facts{display:flex;flex-direction:column;gap:9px;font-size:13px}
+  .mode-facts div{display:grid;grid-template-columns:74px 1fr;gap:8px}
+  .mode-facts dt{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--ink-3);padding-top:3px}
+  .mode-facts dd{margin:0;color:var(--ink-2)}
+  .mode-line{
+    grid-column:1/-1;border-top:1px solid var(--line);padding-top:12px;
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
+  }
+  .mode-line b{color:var(--orange);font-weight:600}
+
+  /* ============ 时间线 ============ */
+  .timeline{list-style:none;margin:32px 0;padding:0;border-left:1px solid var(--line-strong)}
+  .timeline li{position:relative;padding:0 0 26px 28px}
+  .timeline li::before{
+    content:"";position:absolute;left:-4.5px;top:7px;width:8px;height:8px;
+    background:var(--paper);border:1.5px solid var(--green-2);border-radius:50%;
+  }
+  .timeline .ver{font-family:var(--mono);font-size:12px;color:var(--orange);letter-spacing:.02em}
+  .timeline .date{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-left:8px}
+  .timeline .what{display:block;font-size:15.5px;color:var(--ink-2);margin-top:4px}
+  .timeline .why{display:block;font-size:13px;color:var(--ink-3);margin-top:3px;font-style:italic}
+
+  /* ============ 详情折叠 ============ */
+  details{border:1px solid var(--line);background:rgba(251,248,239,.6);margin:20px 0}
+  summary{
+    cursor:pointer;padding:13px 18px;font-size:14px;font-weight:650;color:var(--ink-2);
+    display:flex;align-items:center;gap:10px;list-style:none;
+  }
+  summary::-webkit-details-marker{display:none}
+  summary::before{
+    content:"";width:7px;height:7px;border-right:1.5px solid var(--green-2);border-bottom:1.5px solid var(--green-2);
+    transform:rotate(-45deg);transition:transform .18s;flex:0 0 auto;
+  }
+  details[open] summary::before{transform:rotate(45deg)}
+  details[open] summary{border-bottom:1px solid var(--line)}
+  details .body{padding:16px 20px 4px;font-size:15px}
+  details .body p:last-child{margin-bottom:12px}
+
+  /* ============ 页脚 ============ */
+  footer{
+    margin-top:80px;border-top:1px solid var(--line-strong);padding:34px 0 0;
+    font-size:13px;color:var(--ink-3);line-height:1.7;
+  }
+  footer .cols{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-bottom:26px}
+  footer h4{margin:0 0 8px;font-size:12px;font-family:var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+  footer a{color:var(--ink-2)}
+  .colophon{font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;border-top:1px solid var(--line);padding-top:16px}
+
+  /* ============ 移动端 ============ */
+  .mobile-nav{display:none}
+
+  @media (max-width:1080px){
+    .shell{grid-template-columns:200px minmax(0,1fr)}
+    main{padding:0 34px 90px}
+    .sidebar{padding:24px 16px 28px 22px}
+    .mode-panel{grid-template-columns:1fr}
+  }
+  @media (max-width:860px){
+    body{font-size:16.5px}
+    .shell{display:block}
+    .sidebar{display:none}
+    main{padding:0 20px 70px}
+    .mobile-nav{
+      display:block;position:sticky;top:0;z-index:40;
+      background:rgba(243,239,228,.94);backdrop-filter:blur(8px);
+      border-bottom:1px solid var(--line);margin:0 -20px 0;padding:0 20px;
+    }
+    .mobile-nav summary{padding:13px 0;font-size:13px;font-weight:600;color:var(--ink)}
+    .mobile-nav summary::before{margin-right:2px}
+    .mobile-nav .toc{padding:0 0 14px;max-height:56vh}
+    .hero{padding:44px 0 20px}
+    h1{max-width:none}
+    figure .frame{padding:14px 12px 12px}
+    figure svg{min-width:860px}
+    .stats{grid-template-columns:1fr 1fr}
+    .stat:nth-child(2n){border-right:0}
+    footer .cols{grid-template-columns:1fr}
+    figcaption{display:block}
+    figcaption .fnum{display:inline; margin-right:6px}
+    figcaption::after{content:" · 左右滑动查看全图"; color:var(--ink-3)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
+  }
+
+  /* ============ 打印 ============ */
+  @media print{
+    body{background:#fff;font-size:11pt}
+    .sidebar,.progress,.mobile-nav,.hero-actions,.mode-tabs{display:none!important}
+    .shell{display:block}
+    main{padding:0}
+    section.chapter{break-before:page}
+    figure .frame{break-inside:avoid}
+    a{color:inherit;text-decoration:none}
+    .plain,.note,.warn,details{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+
+<div class="shell">
+  <!-- ==================== 侧栏 ==================== -->
+  <aside class="sidebar" aria-label="目录">
+    <a class="brand" href="#top">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <rect x="1" y="1" width="20" height="20" fill="none" stroke="#0e4b43" stroke-width="1.2"/>
+        <path d="M5 6.5h12M5 11h12M5 15.5h7" stroke="#0e4b43" stroke-width="1.2" stroke-linecap="round"/>
+        <circle cx="16" cy="15.5" r="1.6" fill="#a9431d"/>
+      </svg>
+      <span>
+        <span class="brand-name">pi-knowledge</span>
+        <span class="brand-sub">SOURCE TEARDOWN / v0.12.0</span>
+      </span>
+    </a>
+
+    <div class="toc-label">阅读路径</div>
+    <ul class="toc" id="toc">
+      <li><a href="#why">先看问题：AI 为什么失忆</a></li>
+      <li><a href="#overview">全景：建馆与找书</a></li>
+      <li><a href="#index">建馆 · 索引管线</a></li>
+      <li><a href="#chunk" class="sub">切块：三种刀法</a></li>
+      <li><a href="#context" class="sub">每块内容都要办身份证</a></li>
+      <li><a href="#embed" class="sub">把文字变成坐标</a></li>
+      <li><a href="#store" class="sub">落库：三份账本</a></li>
+      <li><a href="#search">找书 · 检索管线</a></li>
+      <li><a href="#fusion" class="sub">两个馆员与融合公式</a></li>
+      <li><a href="#gate" class="sub">置信门：宁可不答</a></li>
+      <li><a href="#diversity" class="sub">去重与文件交错</a></li>
+      <li><a href="#adaptive" class="sub">自适应扩窗</a></li>
+      <li><a href="#modes" class="sub">七种搜索模式</a></li>
+      <li><a href="#engineering">工程内功</a></li>
+      <li><a href="#tradeoffs">取舍清单与设计哲学</a></li>
+      <li><a href="#timeline">版本演进</a></li>
+      <li><a href="#cheatsheet">一页速记</a></li>
+    </ul>
+
+    <div class="sidebar-foot">
+      <strong>分析对象</strong><br>
+      pi-knowledge@0.12.0<br>
+      发布包 58 个文件<br>
+      MIT · 作者 nczz<br>
+      <span style="color:var(--line-strong)">—</span><br>
+      索引 13 个工具<br>
+      10 种代码语言 AST
+    </div>
+  </aside>
+
+  <!-- ==================== 主区 ==================== -->
+  <main id="top">
+    <details class="mobile-nav">
+      <summary>阅读路径 · 目录</summary>
+      <ul class="toc" id="mobileToc"></ul>
+    </details>
+
+    <div class="wrap">
+
+      <!-- ==================== HERO ==================== -->
+      <header class="hero">
+        <div class="hero-meta">
+          <span><b>技术原理拆解</b></span>
+          <span class="dot"></span>
+          <span>源码版本 0.12.0</span>
+          <span class="dot"></span>
+          <span>适用 Pi / OMP</span>
+          <span class="dot"></span>
+          <span>全文约 25 分钟</span>
+        </div>
+
+        <h1>一个 AI 的书房<br>是<span class="accent">怎样建成</span>的</h1>
+
+        <p class="lede">
+          <strong>pi-knowledge</strong> 是一个本地优先的 RAG 知识库插件。它把你散落在仓库里的代码、文档、PDF、网页，
+          做成一座可以按「意思」或「原词」随时查的私人图书馆——让编码智能体在每次新会话里，
+          都能从你的真实项目出发回答，而不是靠猜。
+        </p>
+
+        <div class="hero-actions">
+          <a class="btn primary" href="#overview">
+            从全景图开始
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h9M7.5 3l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="btn" href="#cheatsheet">直接看关键数字</a>
+        </div>
+
+        <figure class="hero-figure vertical">
+          <div class="frame">
+            <svg viewBox="0 0 1000 260" role="img" aria-label="从原始文件到可检索知识的路径示意图">
+              <defs>
+                <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                  <line x1="0" y1="0" x2="0" y2="6" stroke="#b6ac95" stroke-width="1" opacity=".55"/>
+                </pattern>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0l10 5-10 5z" fill="#6d7772"/>
+                </marker>
+                <marker id="arrowO" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0l10 5-10 5z" fill="#a9431d"/>
+                </marker>
+              </defs>
+
+              <!-- 文件堆 -->
+              <g transform="translate(20,34)">
+                <rect x="22" y="8" width="96" height="124" fill="url(#hatch)" stroke="#b6ac95"/>
+                <rect x="12" y="16" width="96" height="124" fill="#fbf8ef" stroke="#b6ac95"/>
+                <rect x="2" y="24" width="96" height="124" fill="#fbf8ef" stroke="#6d7772"/>
+                <path d="M14 42h70M14 56h58M14 70h66M14 84h44M14 98h62M14 112h50" stroke="#d5cdbb" stroke-width="2" stroke-linecap="round"/>
+                <text x="50" y="172" text-anchor="middle" class="t-label">CODE · DOCS · PDF · URL</text>
+              </g>
+
+              <path d="M150 115h58" stroke="#6d7772" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+              <!-- 切片 -->
+              <g transform="translate(214,36)">
+                <rect x="0" y="0" width="120" height="144" fill="#fbf8ef" stroke="#6d7772"/>
+                <g stroke="#b6ac95" fill="#eee8d9">
+                  <rect x="12" y="14" width="96" height="26"/>
+                  <rect x="12" y="46" width="96" height="40"/>
+                  <rect x="12" y="92" width="96" height="18"/>
+                  <rect x="12" y="116" width="96" height="18"/>
+                </g>
+                <text x="60" y="172" text-anchor="middle" class="t-label">CHUNKS</text>
+              </g>
+
+              <g transform="translate(214,10)">
+                <text x="60" y="14" text-anchor="middle" class="t-small">按结构切，不按长度切</text>
+              </g>
+
+              <path d="M340 112h54" stroke="#6d7772" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+              <!-- 身份证 + 向量 -->
+              <g transform="translate(400,30)">
+                <rect x="0" y="0" width="152" height="150" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="12" y="20" class="t-label">EMBEDDING INPUT</text>
+                <g class="t-small">
+                  <text x="12" y="40">File: src/auth.ts</text>
+                  <text x="12" y="56">Section: Login &gt; Token</text>
+                  <text x="12" y="72">Symbol: refreshToken</text>
+                </g>
+                <line x1="12" y1="82" x2="140" y2="82" stroke="#d5cdbb"/>
+                <text x="12" y="100" class="t-small">“每次刷新都会… ”</text>
+                <g transform="translate(12,114)" stroke="#0e4b43" fill="none">
+                  <rect x="0" y="0" width="8" height="20"/><rect x="12" y="0" width="8" height="20"/>
+                  <rect x="24" y="0" width="8" height="20"/><rect x="36" y="0" width="8" height="20"/>
+                  <rect x="48" y="0" width="8" height="20"/><rect x="60" y="0" width="8" height="20"/>
+                  <rect x="72" y="0" width="8" height="20"/><rect x="84" y="0" width="8" height="20"/>
+                  <rect x="96" y="0" width="8" height="20"/>
+                </g>
+                <text x="126" y="130" class="t-label">384-d</text>
+                <text x="76" y="172" text-anchor="middle" class="t-label">VECTOR</text>
+              </g>
+
+              <path d="M560 110h54" stroke="#6d7772" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+              <!-- 数据库 -->
+              <g transform="translate(622,38)">
+                <path d="M0 14c0-8 29-14 64-14s64 6 64 14v110c0 8-29 14-64 14S0 132 0 124z" fill="#dde8e2" stroke="#0e4b43"/>
+                <ellipse cx="64" cy="14" rx="64" ry="14" fill="#fbf8ef" stroke="#0e4b43"/>
+                <path d="M0 58c0 8 29 14 64 14s64-6 64-14M0 96c0 8 29 14 64 14s64-6 64-14" fill="none" stroke="#1f6b5e" opacity=".7"/>
+                <text x="64" y="172" text-anchor="middle" class="t-label">SQLITE + VECTORS</text>
+              </g>
+
+              <path d="M756 110h54" stroke="#a9431d" stroke-width="1.4" marker-end="url(#arrowO)"/>
+
+              <!-- 检索 -->
+              <g transform="translate(818,34)">
+                <rect x="0" y="0" width="160" height="142" fill="#fbf8ef" stroke="#a9431d"/>
+                <text x="12" y="20" class="t-label">QUERY</text>
+                <text x="12" y="40" class="t-small">“刷新令牌在哪实现？”</text>
+                <line x1="12" y1="52" x2="148" y2="52" stroke="#e3c6b3"/>
+                <g class="t-small">
+                  <text x="12" y="70">BM25 关键词</text>
+                  <text x="12" y="86">＋ 向量语义</text>
+                  <text x="12" y="102">＋ 多样性重排</text>
+                </g>
+                <text x="12" y="126" class="t-label" fill="#a9431d">→ 3 条带出处的答案</text>
+                <text x="80" y="172" text-anchor="middle" class="t-label">RETRIEVE</text>
+              </g>
+
+              <text x="500" y="235" text-anchor="middle" class="t-label">图 0 · 一次「建馆 → 找书」的完整闭环　（示意，非按比例）</text>
+            </svg>
+          </div>
+        </figure>
+      </header>
+
+      <!-- ==================== 1. 问题 ==================== -->
+      <section class="chapter" id="why">
+        <div class="chapter-rule">
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0v12M0 6h12" stroke="#b6ac95" stroke-width="1"/></svg>
+        </div>
+        <div class="chapter-head">
+          <h2 class="chapter-title">先看问题：AI 为什么记不住你的项目</h2>
+          <p class="chapter-intro">
+            编码智能体并不笨，它只是每次打开工位时，桌上都是空的。
+          </p>
+        </div>
+
+        <div class="prose">
+          <p>
+            想象一位能力很强的新同事：读代码飞快、写代码也快，但有个奇怪的毛病——
+            <strong>每天上班都会失忆</strong>。昨天你们一起理清的登录流程、上周定下的目录约定、
+            三个月前写进 README 的部署细节，今天他全都不记得。
+          </p>
+          <p>
+            这就是编码智能体的默认状态。它每次会话只拥有两样东西：
+            <strong>当前上下文窗口里能放下的内容</strong>，以及<strong>它能主动去读的文件</strong>。
+            而真实项目往往有几千个文件、几十万字文档，还有散落在 PDF、网页、会议记录里的知识。
+            把整个项目塞进提示词，既贵又慢，而且一定会超出窗口。
+          </p>
+
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              这就像让一个博学的顾问回答你公司的问题，但不给他任何资料，只允许他"凭印象说"。
+              <strong>RAG（检索增强生成）</strong>做的事很朴素：先帮顾问建一个图书馆，
+              他回答前先去查资料，查到了再开口。
+            </p>
+          </div>
+
+          <p>
+            pi-knowledge 的定位需要和另一类插件区分开：
+            <code>pi-memory</code> 管理的是<strong>智能体自己写的笔记</strong>；
+            pi-knowledge 索引的是<strong>你已经存在的文件</strong>。
+            前者像便签本，后者像档案馆。
+          </p>
+
+          <h3 id="why-rag">RAG 的三个动作</h3>
+          <p>
+            README 引用了 Lewis 等人 2020 年的 RAG 论文。落到工程上，它只有三个动作，
+            而 pi-knowledge 的绝大多数复杂度都花在把这三个动作做稳：
+          </p>
+          <ol>
+            <li><strong>离线建索引</strong>：把原始资料切成小块，转成机器能比较的表示，存起来。</li>
+            <li><strong>在线检索</strong>：用户提问时，从索引里找出最相关的几块。</li>
+            <li><strong>只注入相关上下文</strong>：把这几块交给模型，而不是整个代码库。</li>
+          </ol>
+
+          <div class="note">
+            <b>一个关键区别：</b>检索系统不"理解"你的项目，它只负责<strong>把最可能相关的那几页翻出来</strong>。
+            答案是否正确，仍取决于模型如何使用这些材料。所以"检索质量"和"回答质量"是两件事，
+            pi-knowledge 的工程重心明显押在前者。
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 2. 全景 ==================== -->
+      <section class="chapter" id="overview">
+        <div class="chapter-rule">
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0v12M0 6h12" stroke="#b6ac95" stroke-width="1"/></svg>
+        </div>
+        <div class="chapter-head">
+          <h2 class="chapter-title">全景：一个插件，两个房间</h2>
+          <p class="chapter-intro">
+            一边是"建馆"——把文件变成可检索的数据；一边是"找书"——把问题变成带出处的答案。
+            中间隔着三份账本。
+          </p>
+        </div>
+
+        <figure>
+          <div class="frame">
+            <svg viewBox="0 0 1000 520" role="img" aria-label="pi-knowledge 全景架构图：Pi 宿主、扩展入口、知识引擎、SQLite、向量文件、模型 worker 与索引/检索两条链路">
+              <defs>
+                <marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0l10 5-10 5z" fill="#6d7772"/>
+                </marker>
+                <marker id="ar2g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0l10 5-10 5z" fill="#0e4b43"/>
+                </marker>
+                <marker id="ar2o" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0l10 5-10 5z" fill="#a9431d"/>
+                </marker>
+              </defs>
+
+              <!-- 宿主区 -->
+              <rect x="20" y="18" width="960" height="118" fill="none" stroke="#d5cdbb" stroke-dasharray="4 4"/>
+              <text x="36" y="40" class="t-label">PI / OMP 宿主进程</text>
+
+              <g>
+                <rect x="44" y="56" width="150" height="60" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="119" y="80" text-anchor="middle" class="t-title" style="font-size:13px">对话 / 工具调用</text>
+                <text x="119" y="98" text-anchor="middle" class="t-small">agent loop</text>
+              </g>
+
+              <g>
+                <rect x="236" y="56" width="186" height="60" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="329" y="80" text-anchor="middle" class="t-title" style="font-size:13px">extension.js</text>
+                <text x="329" y="98" text-anchor="middle" class="t-small">12 行 shim · 零原生依赖</text>
+              </g>
+
+              <g>
+                <rect x="464" y="46" width="238" height="80" fill="#dde8e2" stroke="#0e4b43"/>
+                <text x="583" y="72" text-anchor="middle" class="t-title" style="font-size:13px">知识引擎 KnowledgeEngine</text>
+                <text x="583" y="92" text-anchor="middle" class="t-small">索引编排 · 检索编排 · 诊断</text>
+                <text x="583" y="110" text-anchor="middle" class="t-label">ENGINE.JS · 2038 行</text>
+              </g>
+
+              <g>
+                <rect x="744" y="56" width="214" height="60" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="851" y="76" text-anchor="middle" class="t-title" style="font-size:13px">13 个工具 + 4 类 hooks</text>
+                <text x="851" y="94" text-anchor="middle" class="t-small">search / add / update / doctor…</text>
+                <text x="851" y="109" text-anchor="middle" class="t-small">session · context · prompt</text>
+              </g>
+
+              <path d="M194 86h34" stroke="#6d7772" marker-end="url(#ar2)"/>
+              <path d="M422 86h34" stroke="#6d7772" marker-end="url(#ar2)"/>
+              <path d="M702 86h34" stroke="#6d7772" marker-end="url(#ar2)"/>
+
+              <!-- 两条链路 -->
+              <g>
+                <rect x="44" y="174" width="278" height="300" fill="none" stroke="#0e4b43" stroke-dasharray="3 3"/>
+                <text x="60" y="196" class="t-label" fill="#0e4b43">① 建馆 / INDEXING</text>
+
+                <g class="t-small">
+                  <rect x="60" y="210" width="246" height="38" fill="#fbf8ef" stroke="#b6ac95"/>
+                  <text x="72" y="234">扫描：ignore · 10MB · 二进制嗅探</text>
+
+                  <rect x="60" y="258" width="246" height="38" fill="#fbf8ef" stroke="#b6ac95"/>
+                  <text x="72" y="282">切块：Markdown / AST / 段落</text>
+
+                  <rect x="60" y="306" width="246" height="38" fill="#fbf8ef" stroke="#b6ac95"/>
+                  <text x="72" y="330">加前缀：路径 · 符号 · 签名</text>
+
+                  <rect x="60" y="354" width="246" height="38" fill="#fbf8ef" stroke="#b6ac95"/>
+                  <text x="72" y="378">嵌入：e5-small · 384 维 · 64/批</text>
+
+                  <rect x="60" y="402" width="246" height="46" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="72" y="422">落库：事务写入 + 临时向量文件</text>
+                  <text x="72" y="438" class="t-small">最后原子 rename 成正式文件</text>
+                </g>
+                <path d="M183 450v-8" stroke="#0e4b43"/>
+                <path d="M183 248v10M183 296v10M183 344v10M183 392v10" stroke="#0e4b43" marker-end="url(#ar2g)"/>
+              </g>
+
+              <g>
+                <rect x="354" y="174" width="292" height="300" fill="none" stroke="#a9431d" stroke-dasharray="3 3"/>
+                <text x="370" y="196" class="t-label" fill="#a9431d">② 找书 / RETRIEVAL</text>
+
+                <g class="t-small">
+                  <rect x="370" y="210" width="260" height="38" fill="#fbf8ef" stroke="#d6b39b"/>
+                  <text x="382" y="234">查询分析：纠错 · 分词 · 词干</text>
+
+                  <rect x="370" y="258" width="260" height="38" fill="#fbf8ef" stroke="#d6b39b"/>
+                  <text x="382" y="282">双路召回：BM25 ＋ 向量</text>
+
+                  <rect x="370" y="306" width="260" height="38" fill="#fbf8ef" stroke="#d6b39b"/>
+                  <text x="382" y="330">融合：0.45 / 0.55 + 0.15</text>
+
+                  <rect x="370" y="354" width="260" height="38" fill="#fbf8ef" stroke="#d6b39b"/>
+                  <text x="382" y="378">加分 · 门槛 · 去重 · 交错</text>
+
+                  <rect x="370" y="402" width="260" height="46" fill="#f3e0d3" stroke="#d6b39b"/>
+                  <text x="382" y="422">输出：内容 + 路径 + 行号</text>
+                  <text x="382" y="438" class="t-small">+ 分数解释 + 新鲜度 provenance</text>
+                </g>
+                <path d="M500 250v8M500 298v8M500 346v8M500 394v8" stroke="#a9431d" marker-end="url(#ar2o)"/>
+              </g>
+
+              <!-- 存储 -->
+              <g>
+                <rect x="674" y="174" width="292" height="300" fill="none" stroke="#245178" stroke-dasharray="3 3"/>
+                <text x="690" y="196" class="t-label" fill="#245178">③ 三份账本 / STORAGE</text>
+
+                <g>
+                  <rect x="690" y="210" width="260" height="76" fill="#dde6ee" stroke="#245178"/>
+                  <text x="704" y="232" class="t-title" style="font-size:12.5px">knowledge.db</text>
+                  <text x="704" y="250" class="t-small">knowledge_bases · chunks</text>
+                  <text x="704" y="266" class="t-small">symbols · indexing_jobs · FTS5</text>
+                </g>
+
+                <g>
+                  <rect x="690" y="298" width="260" height="76" fill="#fbf8ef" stroke="#245178"/>
+                  <text x="704" y="320" class="t-title" style="font-size:12.5px">vectors/&lt;kbId&gt;.bin</text>
+                  <text x="704" y="338" class="t-small">8 字节头 + float32 矩阵</text>
+                  <text x="704" y="354" class="t-small">第 i 条 ↔ 第 i 个 rowid</text>
+                </g>
+
+                <g>
+                  <rect x="690" y="386" width="260" height="76" fill="#fbf8ef" stroke="#245178"/>
+                  <text x="704" y="408" class="t-title" style="font-size:12.5px">models/</text>
+                  <text x="704" y="426" class="t-small">ONNX 模型缓存（约 32MB）</text>
+                  <text x="704" y="442" class="t-small">config.json 存 Node 路径</text>
+                </g>
+              </g>
+
+              <!-- 模型 worker -->
+              <g>
+                <rect x="44" y="492" width="0" height="0" fill="none"/>
+              </g>
+              <g transform="translate(354,492)">
+                <rect x="0" y="0" width="612" height="20" fill="none"/>
+              </g>
+              <g transform="translate(44,486)">
+                <rect x="0" y="0" width="278" height="26" fill="#eee8d9" stroke="#6d7772" stroke-dasharray="2 2"/>
+                <text x="10" y="17" class="t-small">独立 Node 子进程：model worker（Node 22+）</text>
+              </g>
+              <g transform="translate(354,486)">
+                <rect x="0" y="0" width="292" height="26" fill="#eee8d9" stroke="#6d7772" stroke-dasharray="2 2"/>
+                <text x="10" y="17" class="t-small">IPC 优先 / stdio JSONL 兜底</text>
+              </g>
+
+              <path d="M183 486v-4" stroke="#6d7772"/>
+              <path d="M500 486v-4" stroke="#6d7772"/>
+            </svg>
+          </div>
+          <figcaption><span class="fnum">FIG 1</span><span>整体架构。索引与检索都经由同一个 <code>KnowledgeEngine</code>；SQLite 管元数据与倒排索引，二进制文件管向量，模型计算被隔离在子进程里。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              这个插件把自己挂成 Pi 的<strong>扩展</strong>：安装后，智能体多了 13 个"图书管理员工具"，
+              并且在每轮对话开始前，系统会告诉它"你有哪些知识库可用"。
+              真正的重活在你显式让它建库/搜索时发生，平时它几乎不占资源。
+            </p>
+          </div>
+
+          <h3>启动为什么这么轻</h3>
+          <p>
+            这是整个项目最值得先讲的一个工程决定。Pi 在安装插件时会先"检查"一遍扩展入口；
+            如果入口文件顶层就 <code>import</code> 了 SQLite 原生模块或 ONNX 运行时，安装校验就会被迫加载这些重依赖，
+            在跨平台环境里极易失败。
+          </p>
+          <p>
+            所以它做了三层延迟：
+          </p>
+          <ul>
+            <li><code>extension.js</code> 只有 12 行，只负责把 <code>dist/index.js</code> 转发出去；</li>
+            <li><code>dist/index.js</code> 顶层<strong>零静态 import</strong>，连参数校验的 JSON Schema 都是自己内联实现的；</li>
+            <li>引擎、SQLite、文件监听、模型客户端，全部在第一次真正用到时才 <code>await import()</code>。</li>
+          </ul>
+
+          <div class="deep">
+            <span class="deep-tag">再看实现</span>
+            <p>
+              扩展注册了 4 类钩子：<code>session_start</code> 初始化引擎、按需启动文件监听；
+              <code>before_agent_start</code> 把知识库清单追加进系统提示；
+              <code>context</code> 在开启自动注入时，用最后一次用户消息做一次 <code>fast</code> 检索，把前 3 条结果前置成一条 <code>[Knowledge context]</code> 消息；
+              <code>session_shutdown</code> 收尾。
+            </p>
+            <p>
+              模块级开关 <code>PI_KNOWLEDGE_WATCH</code> 和 <code>PI_KNOWLEDGE_AUTO_INJECT</code> 都是
+              <strong>opt-in</strong>，而且在模块加载时读取一次——会话中途改环境变量不会生效。
+              这是一个刻意的取舍：把"每轮自动检索"留成用户显式开启的能力，避免默认行为悄悄变贵。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 3. 索引 ==================== -->
+      <section class="chapter" id="index">
+        <div class="chapter-rule">
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0v12M0 6h12" stroke="#b6ac95" stroke-width="1"/></svg>
+        </div>
+        <div class="chapter-head">
+          <h2 class="chapter-title">建馆：把一堆文件变成可检索的知识</h2>
+          <p class="chapter-intro">
+            索引管线做六件事：扫描、切块、加前缀、算向量、落库、记账。
+            难点不在“做”，而在“遇到脏数据、大文件、超长段落、中断崩溃时还能做对”。
+          </p>
+        </div>
+
+        <figure>
+          <div class="frame">
+            <svg viewBox="0 0 1000 330" role="img" aria-label="索引管线六阶段流程图，标注每个阶段的关键参数">
+              <defs>
+                <marker id="ar3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0l10 5-10 5z" fill="#0e4b43"/>
+                </marker>
+              </defs>
+
+              <line x1="60" y1="100" x2="940" y2="100" stroke="#d5cdbb" stroke-width="1"/>
+
+              <!-- 6 节点 -->
+              <g>
+                <circle cx="110" cy="100" r="17" fill="#fbf8ef" stroke="#0e4b43" stroke-width="1.4"/>
+                <text x="110" y="105" text-anchor="middle" class="mono" style="font-size:12px;fill:#0e4b43">1</text>
+                <text x="110" y="64" text-anchor="middle" class="t-title" style="font-size:13px">扫描</text>
+                <text x="110" y="140" text-anchor="middle" class="t-small">ignore 规则</text>
+                <text x="110" y="156" text-anchor="middle" class="t-small">10MB 上限</text>
+                <text x="110" y="172" text-anchor="middle" class="t-small">512B 二进制嗅探</text>
+                <text x="110" y="196" text-anchor="middle" class="t-label">PLAN 先数不写</text>
+              </g>
+
+              <g>
+                <circle cx="270" cy="100" r="17" fill="#fbf8ef" stroke="#0e4b43" stroke-width="1.4"/>
+                <text x="270" y="105" text-anchor="middle" class="mono" style="font-size:12px;fill:#0e4b43">2</text>
+                <text x="270" y="64" text-anchor="middle" class="t-title" style="font-size:13px">抽取文本</text>
+                <text x="270" y="140" text-anchor="middle" class="t-small">PDF → unpdf</text>
+                <text x="270" y="156" text-anchor="middle" class="t-small">DOCX → mammoth</text>
+                <text x="270" y="172" text-anchor="middle" class="t-small">HTML → 结构化 Markdown</text>
+                <text x="270" y="196" text-anchor="middle" class="t-label">单文件失败不拖垮整轮</text>
+              </g>
+
+              <g>
+                <circle cx="430" cy="100" r="17" fill="#fbf8ef" stroke="#0e4b43" stroke-width="1.4"/>
+                <text x="430" y="105" text-anchor="middle" class="mono" style="font-size:12px;fill:#0e4b43">3</text>
+                <text x="430" y="64" text-anchor="middle" class="t-title" style="font-size:13px">结构切块</text>
+                <text x="430" y="140" text-anchor="middle" class="t-small">Markdown 标题栈</text>
+                <text x="430" y="156" text-anchor="middle" class="t-small">tree-sitter AST</text>
+                <text x="430" y="172" text-anchor="middle" class="t-small">段落兜底</text>
+                <text x="430" y="196" text-anchor="middle" class="t-label">目标 450 / 550 / 900 token</text>
+              </g>
+
+              <g>
+                <circle cx="590" cy="100" r="17" fill="#fbf8ef" stroke="#0e4b43" stroke-width="1.4"/>
+                <text x="590" y="105" text-anchor="middle" class="mono" style="font-size:12px;fill:#0e4b43">4</text>
+                <text x="590" y="64" text-anchor="middle" class="t-title" style="font-size:13px">预算内再切</text>
+                <text x="590" y="140" text-anchor="middle" class="t-small">e5 上限 512 token</text>
+                <text x="590" y="156" text-anchor="middle" class="t-small">目标 448（87.5%）</text>
+                <text x="590" y="172" text-anchor="middle" class="t-small">API 上限 20,000 字符</text>
+                <text x="590" y="196" text-anchor="middle" class="t-label">切在段落 → 行 → 句号</text>
+              </g>
+
+              <g>
+                <circle cx="750" cy="100" r="17" fill="#fbf8ef" stroke="#0e4b43" stroke-width="1.4"/>
+                <text x="750" y="105" text-anchor="middle" class="mono" style="font-size:12px;fill:#0e4b43">5</text>
+                <text x="750" y="64" text-anchor="middle" class="t-title" style="font-size:13px">批量嵌入</text>
+                <text x="750" y="140" text-anchor="middle" class="t-small">每批 64 块</text>
+                <text x="750" y="156" text-anchor="middle" class="t-small">本地 384 维 / API 可变</text>
+                <text x="750" y="172" text-anchor="middle" class="t-small">独立 worker 进程</text>
+                <text x="750" y="196" text-anchor="middle" class="t-label">数量不匹配立刻报错</text>
+              </g>
+
+              <g>
+                <circle cx="910" cy="100" r="17" fill="#fbf8ef" stroke="#0e4b43" stroke-width="1.4"/>
+                <text x="910" y="105" text-anchor="middle" class="mono" style="font-size:12px;fill:#0e4b43">6</text>
+                <text x="910" y="64" text-anchor="middle" class="t-title" style="font-size:13px">落库</text>
+                <text x="910" y="140" text-anchor="middle" class="t-small">chunks 事务插入</text>
+                <text x="910" y="156" text-anchor="middle" class="t-small">向量流式追加</text>
+                <text x="910" y="172" text-anchor="middle" class="t-small">job 表记录进度</text>
+                <text x="910" y="196" text-anchor="middle" class="t-label">临时文件 → 原子 rename</text>
+              </g>
+
+              <path d="M128 100h124M288 100h124M448 100h124M608 100h124M768 100h124" stroke="#0e4b43" stroke-width="1" marker-end="url(#ar3)"/>
+
+              <text x="500" y="258" text-anchor="middle" class="t-label">进度是持久化的：文件数 · 块数 · chunks/s · ETA · 跳过原因</text>
+              <text x="500" y="282" text-anchor="middle" class="t-label">中断后 KB 保持 indexing / error 状态，检索默认跳过它</text>
+            </svg>
+          </div>
+          <figcaption><span class="fnum">FIG 2</span><span>索引管线的六个阶段。注意第 4 阶段：切块不是“切完就算”，还要按嵌入模型的真实预算再校验一次，避免尾部被静默截断。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <h3 id="scan">先决定“索引谁”，再决定“怎么切”</h3>
+          <p>
+            一个真实项目的目录里，大部分文件对检索没有价值：依赖包、构建产物、压缩的二进制、锁定文件、密钥文件。
+            如果把这些全灌进去，不只是浪费算力和存储，更糟的是<strong>它们会稀释检索结果</strong>。
+          </p>
+          <p>
+            所以扫描阶段先做三层过滤：
+          </p>
+          <ol>
+            <li><strong>用户显式排除</strong>：<code>exclude_paths</code> 里列出的路径，整棵剪掉。</li>
+            <li><strong>建议排除</strong>：约 40 条模式，包括 <code>node_modules</code>、<code>dist</code>、<code>.env</code>、<code>*.pem</code>、<code>*secret*</code>、压缩包、Playwright 缓存等。这些<strong>可以被用户确认后覆盖</strong>。</li>
+            <li><strong>技术跳过</strong>：超过 10MB 的文件、二进制文件（读前 512 字节，发现 <code>0x00</code> 即判定）、不可读文件。<strong>无法绕过</strong>。</li>
+          </ol>
+
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              它像一个负责任的搬家工人：默认不搬垃圾、不搬保险柜（密钥）、不搬超重家具（10MB 以上），
+              但会先把“有多少东西、哪些没搬”列一张清单给你看——这就是 <code>knowledge_plan</code>。
+              你确认清单后，才真正开始花钱算向量。
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <caption>六种跳过原因。前三种是“建议排除”，后三种是“技术跳过”。</caption>
+              <thead><tr><th>原因</th><th>触发条件</th><th>能否覆盖</th><th>典型例子</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">suggested_excluded</td><td>命中排除模式或 <code>.gitignore</code></td><td><span class="tag g">可覆盖</span></td><td><code>node_modules/</code>、<code>dist/</code>、<code>.env</code></td></tr>
+                <tr><td class="mono">oversized</td><td>文件大于 10 MiB</td><td><span class="tag o">不可</span></td><td>打包后的 <code>bundle.js</code></td></tr>
+                <tr><td class="mono">binary</td><td>前 512 字节含 <code>0x00</code></td><td><span class="tag o">不可</span></td><td>图片、可执行文件、压缩包</td></tr>
+                <tr><td class="mono">unreadable</td><td><code>stat</code>/读取失败</td><td><span class="tag o">不可</span></td><td>权限不足的文件</td></tr>
+                <tr><td class="mono">inaccessible</td><td>目录无法列出</td><td><span class="tag o">不可</span></td><td>断开的挂载点</td></tr>
+                <tr><td class="mono">extraction_failed</td><td>PDF/DOCX 解析抛错</td><td><span class="tag o">不可</span></td><td>损坏的文档</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="warn">
+            <b>一个容易忽略的边界：</b><code>include_suggested_text: true</code> 会<strong>连同 <code>.gitignore</code> 一起绕过</strong>——
+            因为它和排除规则共用同一个 <code>ignore</code> 实例。想只纳入某几个被忽略的目录，更安全的做法是用 <code>include_paths</code> 精确指定。
+          </div>
+        </div>
+
+        <!-- ============ 切块 ============ -->
+        <h3 id="chunk">切块：三种刀法，一个共同目标</h3>
+
+        <div class="prose">
+          <p>
+            为什么要切？两个原因：
+            <strong>模型一次只能处理有限长度的文本</strong>（本地 e5 是 512 token）；
+            <strong>检索需要“小而准”的单位</strong>——把整个文件当一个单位，命中后你只能拿到一大坨内容，既浪费上下文，也掩盖真正相关的那几行。
+          </p>
+          <p>
+            pi-knowledge 没有用“固定字符数 + 重叠窗口”这种通用做法，而是按内容结构分三路：
+          </p>
+        </div>
+
+        <figure>
+          <div class="frame">
+            <svg viewBox="0 0 1000 470" role="img" aria-label="三种切块策略对比：Markdown 标题感知、代码 AST 结构切块、普通文本段落切块">
+              <!-- 三个面板 -->
+              <g>
+                <rect x="16" y="16" width="304" height="420" fill="none" stroke="#d5cdbb"/>
+                <text x="32" y="40" class="t-label" fill="#0e4b43">A · MARKDOWN</text>
+                <text x="32" y="62" class="t-title" style="font-size:14px">跟着标题走</text>
+
+                <g class="mono" style="font-size:11px">
+                  <text x="32" y="90" fill="#6d7772"># 认证</text>
+                  <text x="32" y="106" fill="#6d7772">## 登录</text>
+                  <text x="32" y="122" fill="#46524d">用户提交账号密码…</text>
+                  <text x="32" y="138" fill="#46524d">服务端校验并签发…</text>
+                  <text x="32" y="154" fill="#6d7772">## 刷新令牌</text>
+                  <text x="32" y="170" fill="#46524d">每次刷新都会旋转…</text>
+                  <text x="32" y="186" fill="#46524d">旧令牌立即失效…</text>
+                </g>
+
+                <path d="M32 200h272" stroke="#d5cdbb" stroke-dasharray="3 3"/>
+
+                <g>
+                  <rect x="32" y="214" width="272" height="54" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="44" y="232" class="mono" style="font-size:10px" fill="#0e4b43">CHUNK 1 · breadcrumb</text>
+                  <text x="44" y="248" class="t-small">认证 &gt; 登录　（标题被前置进正文）</text>
+                  <text x="44" y="262" class="t-small">目标 450 token · 块 ≥ 50 字符</text>
+                </g>
+                <g>
+                  <rect x="32" y="278" width="272" height="54" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="44" y="296" class="mono" style="font-size:10px" fill="#0e4b43">CHUNK 2 · breadcrumb</text>
+                  <text x="44" y="312" class="t-small">认证 &gt; 刷新令牌</text>
+                  <text x="44" y="326" class="t-small">同一节超过 450 token 再按段落拆</text>
+                </g>
+
+                <text x="32" y="362" class="t-small">标题栈：<tspan class="mono" style="font-size:10px"># → ## → ###</tspan> 逐级维护</text>
+                <text x="32" y="380" class="t-small">每块正文开头保留当前标题</text>
+                <text x="32" y="398" class="t-small">块与块之间<tspan style="font-weight:700">没有重叠</tspan></text>
+                <text x="32" y="416" class="t-label">行号来自估算，非精确</text>
+              </g>
+
+              <g>
+                <rect x="344" y="16" width="312" height="420" fill="none" stroke="#d5cdbb"/>
+                <text x="360" y="40" class="t-label" fill="#0e4b43">B · CODE AST</text>
+                <text x="360" y="62" class="t-title" style="font-size:14px">顺着语法树切</text>
+
+                <g class="mono" style="font-size:11px">
+                  <text x="360" y="90" fill="#6d7772">export function a() { … }</text>
+                  <text x="360" y="106" fill="#46524d">  return 1;</text>
+                  <text x="360" y="122" fill="#6d7772">}</text>
+                  <text x="360" y="138" fill="#6d7772">function b() { … }</text>
+                  <text x="360" y="154" fill="#46524d">  return 2;</text>
+                  <text x="360" y="170" fill="#6d7772">}</text>
+                  <text x="360" y="186" fill="#6d7772">class Svc {</text>
+                  <text x="360" y="202" fill="#46524d">  login() { … }</text>
+                  <text x="360" y="218" fill="#46524d">  logout() { … }</text>
+                  <text x="360" y="234" fill="#6d7772">}</text>
+                </g>
+
+                <path d="M360 250h280" stroke="#d5cdbb" stroke-dasharray="3 3"/>
+
+                <g>
+                  <rect x="360" y="264" width="280" height="58" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="372" y="282" class="mono" style="font-size:10px" fill="#a9431d">CHUNK · GROUP</text>
+                  <text x="372" y="298" class="t-small">a() 与 b() 同属模块且都很小</text>
+                  <text x="372" y="314" class="t-small">合并成一段连续原始源码（≤ 900 token）</text>
+                </g>
+                <g>
+                  <rect x="360" y="332" width="280" height="58" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="372" y="350" class="mono" style="font-size:10px" fill="#0e4b43">CHUNK · CLASS</text>
+                  <text x="372" y="366" class="t-small">类太大 → 递归到方法级</text>
+                  <text x="372" y="382" class="t-small">单个方法超过 1,800 token → 按行回退</text>
+                </g>
+
+                <text x="360" y="412" class="t-small">支持 10 种语言：TS / JS / Py / Go / Rust</text>
+                <text x="360" y="430" class="t-small">/ Java / Bash / C / C++ / QML</text>
+                <text x="360" y="448" class="t-label">语法错误时按语言决定“容错”或“回退”</text>
+              </g>
+
+              <g>
+                <rect x="680" y="16" width="304" height="420" fill="none" stroke="#d5cdbb"/>
+                <text x="696" y="40" class="t-label" fill="#0e4b43">C · PLAIN TEXT</text>
+                <text x="696" y="62" class="t-title" style="font-size:14px">按段落、按预算</text>
+
+                <g>
+                  <rect x="696" y="82" width="272" height="30" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="708" y="102" class="t-small">段落 1　≈ 180 token</text>
+                  <rect x="696" y="118" width="272" height="30" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="708" y="138" class="t-small">段落 2　≈ 260 token</text>
+                  <rect x="696" y="154" width="272" height="30" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="708" y="174" class="t-small">段落 3　≈ 220 token</text>
+                  <text x="696" y="200" class="t-label">累计 ≤ 550 token 就继续装</text>
+                </g>
+
+                <g>
+                  <rect x="696" y="220" width="272" height="46" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="708" y="238" class="t-small">单个超长段落：&gt; 6,000 字符</text>
+                  <text x="708" y="254" class="t-small">以 6,000 字符为步长硬切</text>
+                </g>
+
+                <g>
+                  <rect x="696" y="282" width="272" height="72" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="708" y="300" class="mono" style="font-size:10px" fill="#0e4b43">EMBEDDING-SAFE 再切</text>
+                  <text x="708" y="318" class="t-small">超 448 token 的块继续二分</text>
+                  <text x="708" y="334" class="t-small">切点优先级：空行 → 换行 → 句号</text>
+                  <text x="708" y="348" class="t-small">→ 空白；保护 emoji 代理对</text>
+                </g>
+
+                <text x="696" y="386" class="t-small">切不动（单字符/无边界）直接抛错</text>
+                <text x="696" y="404" class="t-small">宁可失败，也不静默截断</text>
+                <text x="696" y="430" class="t-label">SPLIT → 标记 chunk_part / count</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption><span class="fnum">FIG 3</span><span>三种切块策略。共同目标只有一个：每块都自带足够的上下文，且长度在嵌入预算之内。代码块保留原始源码片段，方便模型直接修改。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              它不是在“按字数切纸”，而是在<strong>顺着内容天然的缝隙下刀</strong>：
+              文档顺着标题切，代码顺着函数和类切，实在没有结构才按段落切。
+              小函数会被打包成一捆，大函数会被拆到方法级，太长再按行切。
+            </p>
+          </div>
+
+          <div class="deep">
+            <span class="deep-tag">再看实现</span>
+            <p>
+              <strong>Markdown</strong>：维护一个标题栈，遇到新标题先结束上一节；块的正文是
+              <code>当前标题 + 空行 + 本节内容</code>，元数据带 <code>heading</code> 与 <code>breadcrumb</code>。
+              同一节按 <code>\n\n</code> 拆段累加，超过 450 token 就先落一块。
+            </p>
+            <p>
+              <strong>代码</strong>：用 tree-sitter 解析成语法树，识别函数、方法、类、接口、类型、变量等节点；
+              只有函数值（箭头函数、函数表达式）才会被当作可切单元，纯变量声明在 C/C++ 里会被跳过。
+              <code>namespace</code> 自身不产块，直接下钻。单块目标 900 token、硬上限 1,800；
+              同一父作用域下的小成员如果累计不超过 900 token，就合并成 <code>symbol_kind: "group"</code> 的块。
+              tree-sitter 给的是<strong>字节偏移</strong>，代码里专门建了 byte→UTF-16 索引映射，所以中文源码不会被切坏。
+            </p>
+            <p>
+              <strong>没有重叠窗口</strong>：这是明确的取舍。省存储、省向量、避免同一段内容被重复召回；
+              跨块上下文交给检索期的 <code>adaptive</code> 模式在相邻块里补。
+            </p>
+          </div>
+
+          <div class="note">
+            <b>为什么“再切一次”很重要：</b>结构切块只能保证“语义上完整”，不能保证“模型吃得下”。
+            e5 的 tokenizer 只吃 512 token；早期版本用 <code>truncation: true</code>，超出部分被<strong>静默丢掉</strong>——
+            结果是文件尾部的内容永远检索不到。0.12.0 改成先用 tokenizer 精确测量，再按结构边界二次切分，
+            并把策略版本写进 KB 元数据，旧库会被 <code>knowledge_doctor</code> 提示重建。
+          </div>
+        </div>
+
+        <!-- ============ 上下文前缀 ============ -->
+        <h3 id="context">每块内容都要办一张“身份证”</h3>
+
+        <div class="prose">
+          <p>
+            假设两段代码都写着 <code>return refresh(token)</code>。一段在支付服务里，一段在登录服务里。
+            如果只把这段文字转成向量，它们会非常接近；但用户问“登录令牌怎么刷新”时，你只想要后者。
+          </p>
+          <p>
+            解决办法不是让模型更聪明，而是<strong>在切片进入索引之前，把它的身份信息一起写进去</strong>。
+            这叫上下文检索（Contextual Retrieval）：Anthropic 的做法是让 LLM 给每块生成一段上下文说明；
+            pi-knowledge 选择了一条更便宜、更保护隐私的本地路线——用<strong>文件路径、类型、标题面包屑、AST 结构</strong>拼出一个固定前缀。
+          </p>
+        </div>
+
+        <figure>
+          <div class="frame">
+            <svg viewBox="0 0 1000 380" role="img" aria-label="chunk 加上下文前缀后成为嵌入输入的示意图，前缀包含文件路径、类型、章节、语言、作用域、符号和签名">
+              <defs>
+                <marker id="ar4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0l10 5-10 5z" fill="#a9431d"/>
+                </marker>
+              </defs>
+
+              <!-- 左：原始 chunk -->
+              <g>
+                <rect x="24" y="34" width="300" height="190" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="40" y="58" class="t-label">原始 CHUNK（入库时保留）</text>
+                <g class="mono" style="font-size:12px">
+                  <text x="40" y="88" fill="#6d7772">export async function</text>
+                  <text x="40" y="106" fill="#15211e">refreshToken(user) {</text>
+                  <text x="40" y="124" fill="#46524d">  const next = rotate(user);</text>
+                  <text x="40" y="142" fill="#46524d">  await revoke(user.old);</text>
+                  <text x="40" y="160" fill="#46524d">  return next;</text>
+                  <text x="40" y="178" fill="#15211e">}</text>
+                </g>
+                <text x="40" y="208" class="t-small">人类阅读时看到的就是这段源码</text>
+              </g>
+
+              <path d="M336 128h56" stroke="#a9431d" stroke-width="1.4" marker-end="url(#ar4)"/>
+
+              <!-- 右：嵌入输入 -->
+              <g>
+                <rect x="404" y="24" width="572" height="300" fill="#fbf8ef" stroke="#a9431d"/>
+                <text x="420" y="48" class="t-label" fill="#a9431d">EMBEDDING / FTS 实际输入</text>
+
+                <g class="mono" style="font-size:11.5px">
+                  <text x="420" y="76" fill="#0e4b43">File: src/auth/session.ts</text>
+                  <text x="420" y="94" fill="#0e4b43">Type: typescript</text>
+                  <text x="420" y="112" fill="#0e4b43">Section: 认证 &gt; 刷新令牌</text>
+                  <text x="420" y="130" fill="#0e4b43">Language: typescript</text>
+                  <text x="420" y="148" fill="#0e4b43">Scope: SessionService &gt; refreshToken</text>
+                  <text x="420" y="166" fill="#0e4b43">Kind: method</text>
+                  <text x="420" y="184" fill="#0e4b43">Symbol: refreshToken</text>
+                  <text x="420" y="202" fill="#0e4b43">Signature: async refreshToken(user): Promise&lt;Token&gt;</text>
+                  <text x="420" y="222" fill="#6d7772">　</text>
+                  <text x="420" y="240" fill="#46524d">export async function refreshToken(user) { … }</text>
+                </g>
+
+                <line x1="420" y1="256" x2="960" y2="256" stroke="#d5cdbb"/>
+
+                <!-- 标注 -->
+                <g class="t-small">
+                  <text x="420" y="278">前缀让“只有代码、没有上下文”的块也能被</text>
+                  <text x="420" y="296"><tspan style="font-weight:700">路径 / 符号 / 章节名</tspan> 这类查询命中。</text>
+                </g>
+                <text x="420" y="316" class="t-label">代价：前缀占用 token 预算，所以目标值取 448 而不是 512</text>
+              </g>
+
+              <!-- 底部去重说明 -->
+              <text x="24" y="266" class="t-label">前缀来自三类元数据</text>
+              <g class="t-small">
+                <text x="24" y="288">· Markdown：heading / breadcrumb</text>
+                <text x="24" y="306">· 代码 AST：symbol / scope / parent / signature</text>
+                <text x="24" y="324">· 嵌入二次切分：chunk_part / part_count</text>
+              </g>
+              <text x="24" y="356" class="t-label">同一份前缀同时进入向量和 FTS5，一次建索引两路受益</text>
+            </svg>
+          </div>
+          <figcaption><span class="fnum">FIG 4</span><span>同一块内容的两种形态：给用户看的是原始文本；给模型算向量、给 FTS 建倒排的是“前缀 + 正文”。前缀不写回源文件，只存在于索引中。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              就像图书馆给每本书贴标签：书名、作者、分类、所在楼层。
+              读者找书时，<strong>标签和正文都能被搜索到</strong>——所以“RefreshToken 在哪个类里”这种问题才有可能被检索命中。
+            </p>
+          </div>
+
+          <div class="deep">
+            <span class="deep-tag">再看实现</span>
+            <p>
+              前缀的拼接顺序是固定的：<code>File</code>、<code>Type</code>、<code>Section</code>（优先 breadcrumb）、
+              <code>Language</code>、<code>Scope</code>、<code>Kind</code>、<code>Symbol</code>、<code>Signature</code>，然后是空行和正文。
+              这份文本同时用于：
+            </p>
+            <ul>
+              <li><code>embedDocuments()</code> 的输入（文档侧加 <code>passage: </code> 前缀）；</li>
+              <li><code>content_tokenized</code> 字段，供 FTS5 建倒排索引；</li>
+              <li>搜索时的 <code>coverage</code> 计算（查询词覆盖了多少信号词）。</li>
+            </ul>
+            <p>
+              这也解释了为什么“搜文件名”能命中：文件名在 <code>File:</code> 行里，已经被分词进 FTS 了。
+              代价是通用词（比如 <code>File</code>、<code>Type</code>）会出现在每个块里，但 BM25 的 IDF 会自动压低它们的权重。
+            </p>
+          </div>
+        </div>
+
+        <!-- ============ Embedding ============ -->
+        <h3 id="embed">把文字变成坐标：本地优先的向量化</h3>
+
+        <div class="prose">
+          <p>
+            向量（embedding）是一串固定长度的数字。语义相近的文本，在这串数字构成的高维空间里距离更近。
+            “怎么重置密码”和“password reset procedure”字面完全不同，但向量可能很近——这就是语义检索的价值。
+          </p>
+
+          <div class="stats">
+            <div class="stat"><span class="k">默认本地模型</span><span class="v">e5-small</span><span class="d">多语言 · 384 维</span></div>
+            <div class="stat"><span class="k">模型体积</span><span class="v">~32 MB</span><span class="d">ONNX fp32，首次下载</span></div>
+            <div class="stat"><span class="k">单块 token 上限</span><span class="v">512</span><span class="d">目标预算 448</span></div>
+            <div class="stat"><span class="k">索引批量</span><span class="v">64</span><span class="d">可配置</span></div>
+          </div>
+
+          <p>
+            默认路径<strong>不需要 API key</strong>：模型跑在本地，首次使用时从 Hugging Face 下载到
+            <code>~/.pi/knowledge/models/</code>，之后离线可用。如果想要更高精度，可以切到 OpenAI 兼容的嵌入 API
+            （例如 <code>text-embedding-3-small</code>，或自建的 <code>Qwen3-Embedding-8B</code>）。
+          </p>
+
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              本地模型像自带一台小型翻译机：不用联网、不花 API 费、代码不出门，代价是精度和速度不如云端大模型。
+              两种模式共用同一套存储格式，但<strong>向量空间不通用</strong>——换模型就必须重建索引。
+            </p>
+          </div>
+
+          <details>
+            <summary>为什么模型要跑在独立子进程里？</summary>
+            <div class="body">
+              <p>
+                这不是洁癖，是被线上事故逼出来的。CHANGELOG 记录了几次严重问题：
+                ONNX 运行时被加载进 Pi 的 TUI 进程后，macOS arm64 上退出会 abort；
+                宿主进程内做 ONNX dispose 会和空闲定时器竞争，出现 <code>Session already disposed</code>；
+                OMP 的打包宿主甚至不是 Node，没有 <code>child_process.fork().send()</code>。
+              </p>
+              <p>
+                于是有了现在的设计：<code>model-worker.js</code> 作为独立 Node 22+ 进程，客户端优先用 IPC，
+                宿主不支持 IPC 时自动退化到 <strong>stdio + JSONL</strong>（每行一个 JSON 请求/响应）。
+                worker 崩溃只会让当前批次失败，错误信息带上 stderr 尾部 4,000 字符；下次调用会自动重启。
+                宿主的 <code>session_shutdown</code> 只负责 <code>SIGKILL</code> worker，绝不在自己进程里做 ONNX 清理。
+              </p>
+            </div>
+          </details>
+
+          <div class="warn">
+            <b>向量空间是有“签名”的。</b>每个 KB 记录模型名、维度、pooling、归一化、前缀策略，以及 API base URL 的短哈希。
+            签名对不上时，<code>knowledge_search</code> 会<strong>跳过该 KB 的向量召回并给出警告</strong>，但 BM25 仍可用。
+            换句话说：换模型不会悄悄给出错误答案，而是明确降级。
+          </div>
+        </div>
+
+        <!-- ============ 存储 ============ -->
+        <h3 id="store">落库：三份账本，各管一件事</h3>
+
+        <div class="prose">
+          <p>
+            索引结果不是塞进一个大 JSON，而是拆成三份职责明确的存储：
+            SQLite 管结构化元数据与全文索引，二进制文件管向量，模型目录管权重。
+          </p>
+        </div>
+
+        <figure>
+          <div class="frame">
+            <svg viewBox="0 0 1000 520" role="img" aria-label="存储布局：目录树、SQLite 表关系、向量二进制文件字节布局">
+              <!-- 左：目录树 -->
+              <g>
+                <rect x="20" y="24" width="270" height="300" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="36" y="48" class="t-label">磁盘布局</text>
+                <g class="mono" style="font-size:11.5px">
+                  <text x="36" y="78" fill="#0e4b43">~/.pi/knowledge/</text>
+                  <text x="52" y="98" fill="#15211e">├─ knowledge.db</text>
+                  <text x="52" y="118" fill="#46524d">│　元数据 + 块 + FTS5</text>
+                  <text x="52" y="138" fill="#15211e">├─ vectors/</text>
+                  <text x="68" y="158" fill="#46524d">└─ &lt;kbId&gt;.bin</text>
+                  <text x="52" y="178" fill="#15211e">├─ models/</text>
+                  <text x="68" y="198" fill="#46524d">└─ ONNX 缓存 ~32MB</text>
+                  <text x="52" y="218" fill="#15211e">└─ config.json</text>
+                  <text x="68" y="238" fill="#46524d">└─ node_path 等软配置</text>
+                </g>
+                <text x="36" y="270" class="t-small">项目目录<tspan font-weight="700">只读</tspan>：不写任何文件</text>
+                <text x="36" y="288" class="t-small">OMP 下默认换到 ~/.omp/knowledge</text>
+                <text x="36" y="306" class="t-label">可用环境变量整体搬走</text>
+              </g>
+
+              <!-- 中：表关系 -->
+              <g>
+                <rect x="316" y="24" width="330" height="300" fill="#fbf8ef" stroke="#245178"/>
+                <text x="332" y="48" class="t-label" fill="#245178">knowledge.db · 5 张表</text>
+
+                <g>
+                  <rect x="332" y="62" width="138" height="60" fill="#dde6ee" stroke="#245178"/>
+                  <text x="344" y="82" class="mono" style="font-size:11px" fill="#245178">knowledge_bases</text>
+                  <text x="344" y="98" class="t-small">id · name · status</text>
+                  <text x="344" y="112" class="t-small">embedding_* · source_*</text>
+                </g>
+
+                <g>
+                  <rect x="498" y="62" width="132" height="60" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="510" y="82" class="mono" style="font-size:11px" fill="#0e4b43">chunks</text>
+                  <text x="510" y="98" class="t-small">content · hash</text>
+                  <text x="510" y="112" class="t-small">file · 行号 · metadata</text>
+                </g>
+
+                <path d="M470 92h22" stroke="#245178" marker-end="url(#ar2)"/>
+
+                <g>
+                  <rect x="332" y="136" width="138" height="56" fill="#fbf8ef" stroke="#245178"/>
+                  <text x="344" y="156" class="mono" style="font-size:11px" fill="#245178">symbols</text>
+                  <text x="344" y="172" class="t-small">name · kind · 行号</text>
+                  <text x="344" y="186" class="t-small">符号 / 配置键 / 标题</text>
+                </g>
+
+                <g>
+                  <rect x="498" y="136" width="132" height="56" fill="#fbf8ef" stroke="#245178"/>
+                  <text x="510" y="156" class="mono" style="font-size:11px" fill="#245178">chunks_fts</text>
+                  <text x="510" y="172" class="t-small">FTS5 外部内容表</text>
+                  <text x="510" y="186" class="t-small">触发器自动同步</text>
+                </g>
+
+                <g>
+                  <rect x="332" y="206" width="298" height="56" fill="#fbf8ef" stroke="#245178"/>
+                  <text x="344" y="226" class="mono" style="font-size:11px" fill="#245178">indexing_jobs</text>
+                  <text x="344" y="242" class="t-small">一 KB 一行 · 阶段 · 计数 · 最后进度时间</text>
+                  <text x="344" y="256" class="t-small">卡死检测的唯一依据</text>
+                </g>
+
+                <g class="t-small">
+                  <text x="332" y="288">WAL 模式 · busy_timeout 60s · 外键级联删除</text>
+                  <text x="332" y="306">schema_version = 5，迁移逐版本递进</text>
+                </g>
+              </g>
+
+              <!-- 右：向量文件 -->
+              <g>
+                <rect x="678" y="24" width="302" height="300" fill="#fbf8ef" stroke="#a9431d"/>
+                <text x="694" y="48" class="t-label" fill="#a9431d">vectors/&lt;kbId&gt;.bin</text>
+
+                <g>
+                  <rect x="694" y="64" width="120" height="40" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="704" y="80" class="mono" style="font-size:10px" fill="#a9431d">offset 0 · u32</text>
+                  <text x="704" y="96" class="t-small">count</text>
+
+                  <rect x="820" y="64" width="120" height="40" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="830" y="80" class="mono" style="font-size:10px" fill="#a9431d">offset 4 · u32</text>
+                  <text x="830" y="96" class="t-small">dim</text>
+                </g>
+
+                <g>
+                  <rect x="694" y="116" width="246" height="52" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="706" y="134" class="t-small">第 0 条向量 · dim × float32LE</text>
+                  <text x="706" y="152" class="t-label">8 + 0 × dim × 4 字节</text>
+                </g>
+                <g>
+                  <rect x="694" y="174" width="246" height="52" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="706" y="192" class="t-small">第 1 条向量 · dim × float32LE</text>
+                  <text x="706" y="210" class="t-label">8 + 1 × dim × 4 字节</text>
+                </g>
+                <g>
+                  <rect x="694" y="232" width="246" height="34" fill="none" stroke="#d5cdbb" stroke-dasharray="3 3"/>
+                  <text x="706" y="254" class="t-small">…（按 chunks rowid 升序排列）</text>
+                </g>
+
+                <text x="694" y="290" class="t-small">写入：临时文件 → close 回写头 → rename</text>
+                <text x="694" y="308" class="t-label">没有 ID、没有校验和，靠顺序对齐</text>
+              </g>
+
+              <!-- 底部：rowid 对齐 -->
+              <g>
+                <rect x="20" y="350" width="960" height="140" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="36" y="374" class="t-label">最关键的一条隐式契约：向量下标 ↔ chunk 的 rowid 顺序</text>
+
+                <g class="mono" style="font-size:11px">
+                  <text x="36" y="404" fill="#46524d">chunks 表（按 rowid 排序）</text>
+                  <text x="470" y="404" fill="#46524d">vectors/&lt;kbId&gt;.bin</text>
+                </g>
+                <g>
+                  <rect x="36" y="418" width="370" height="24" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="48" y="435" class="mono" style="font-size:10.5px">rowid 1 · chunk A</text>
+                  <rect x="36" y="446" width="370" height="24" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="48" y="463" class="mono" style="font-size:10.5px">rowid 2 · chunk B</text>
+                </g>
+                <g>
+                  <rect x="470" y="418" width="370" height="24" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="482" y="435" class="mono" style="font-size:10.5px">第 0 条向量 → chunk A</text>
+                  <rect x="470" y="446" width="370" height="24" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="482" y="463" class="mono" style="font-size:10.5px">第 1 条向量 → chunk B</text>
+                </g>
+                <path d="M414 430h48M414 458h48" stroke="#6d7772" stroke-dasharray="2 2"/>
+                <text x="860" y="435" class="t-small">所以删除</text>
+                <text x="860" y="452" class="t-small">必须重建</text>
+                <text x="860" y="469" class="t-small">向量文件</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption><span class="fnum">FIG 5</span><span>三份账本。向量文件没有每条向量的 ID，靠“第 i 条向量对应第 i 个 chunk rowid”这个顺序契约工作——这也决定了更新时必须整文件重建。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              SQLite 像图书馆的<strong>借阅目录</strong>：书名、位置、分类、摘要都在这。
+              向量文件像一柜<strong>按固定顺序摆放的“语义指纹卡”</strong>：第 3 张卡对应目录里第 3 本书，
+              所以中间抽走一本书，后面的卡片就全错位了——必须整柜重排。
+            </p>
+          </div>
+
+          <div class="deep">
+            <span class="deep-tag">再看实现</span>
+            <p>
+              FTS5 使用<strong>外部内容表</strong>模式：正文存在 <code>chunks</code> 表，倒排索引存在 <code>chunks_fts</code>，
+              通过 3 个触发器（insert / delete / update）保持同步。入索引文本是预分词后的
+              <code>content_tokenized</code>：它把 camelCase 拆开（<code>refreshToken</code> → <code>refresh Token</code>）、
+              把 <code>HTTPServer</code> 拆成 <code>HTTP Server</code>、把字母和数字拆开，并给<strong>每个中文字符加空格</strong>，
+              这样配合 FTS5 默认的 <code>unicode61</code> 分词器，中文就能按字检索。
+            </p>
+            <p>
+              向量文件只有 8 字节头 + 连续的 <code>float32</code> 矩阵，读的时候按 <code>8 + i × dim × 4</code> 定位。
+              写入先占位 8 字节，最后 <code>close()</code> 才回填真实的 count/dim，然后原子 <code>rename</code>。
+              半成品临时文件读出来是 <code>count=0</code>，天然不会被当成有效索引。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 4. 检索 ==================== -->
+      <section class="chapter" id="search">
+        <div class="chapter-rule">
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0v12M0 6h12" stroke="#b6ac95" stroke-width="1"/></svg>
+        </div>
+        <div class="chapter-head">
+          <h2 class="chapter-title">找书：一次搜索要经过多少道关卡</h2>
+          <p class="chapter-intro">
+            召回、融合、门槛、加分、去重、扩窗、重排。
+            每一道都只解决一个具体问题，而它们叠在一起，才让“搜索结果看起来像人找的”。
+          </p>
+        </div>
+
+        <figure>
+          <div class="frame">
+            <svg viewBox="0 0 1000 430" role="img" aria-label="检索管线：查询分析、双路召回、融合、置信门、排序加成、去重交错、后处理与输出">
+              <defs>
+                <marker id="ar6" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0l10 5-10 5z" fill="#a9431d"/>
+                </marker>
+              </defs>
+
+              <g>
+                <rect x="24" y="40" width="150" height="62" fill="#f3e0d3" stroke="#a9431d"/>
+                <text x="38" y="64" class="t-label" fill="#a9431d">QUERY</text>
+                <text x="38" y="84" class="t-small">“登录令牌怎么刷新”</text>
+              </g>
+
+              <path d="M178 71h44" stroke="#a9431d" marker-end="url(#ar6)"/>
+
+              <g>
+                <rect x="226" y="40" width="184" height="62" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="240" y="62" class="t-title" style="font-size:12.5px">查询分析</text>
+                <text x="240" y="80" class="t-small">纠错 · 分词 · 去停用词</text>
+                <text x="240" y="94" class="t-small">词干化 → 信号词集合</text>
+              </g>
+
+              <path d="M414 71h44" stroke="#a9431d" marker-end="url(#ar6)"/>
+
+              <g>
+                <rect x="462" y="24" width="250" height="160" fill="none" stroke="#a9431d" stroke-dasharray="3 3"/>
+                <text x="476" y="44" class="t-label" fill="#a9431d">召回 / RECALL</text>
+
+                <rect x="476" y="56" width="222" height="52" fill="#dde8e2" stroke="#0e4b43"/>
+                <text x="488" y="76" class="t-small" fill="#0e4b43">BM25 · FTS5 倒排</text>
+                <text x="488" y="92" class="t-small">短语 AND 优先，空则 OR 回退</text>
+
+                <rect x="476" y="118" width="222" height="52" fill="#f3e0d3" stroke="#a9431d"/>
+                <text x="488" y="138" class="t-small" fill="#a9431d">向量 · 点积扫描</text>
+                <text x="488" y="154" class="t-small">流式 top-K，内存 O(K)</text>
+              </g>
+
+              <path d="M716 104h44" stroke="#a9431d" marker-end="url(#ar6)"/>
+
+              <g>
+                <rect x="764" y="40" width="212" height="86" fill="#fbf8ef" stroke="#a9431d"/>
+                <text x="778" y="62" class="t-label" fill="#a9431d">融合 / FUSION</text>
+                <text x="778" y="82" class="mono" style="font-size:10.5px">0.45·BM25 + 0.55·Vector</text>
+                <text x="778" y="98" class="mono" style="font-size:10.5px">+ 0.15 · overlap</text>
+                <text x="778" y="116" class="t-small">每路先 min-max 归一，上限 1.15</text>
+              </g>
+
+              <path d="M870 126v38" stroke="#a9431d" marker-end="url(#ar6)"/>
+
+              <g>
+                <rect x="764" y="170" width="212" height="82" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="778" y="192" class="t-title" style="font-size:12.5px">排序加成</text>
+                <text x="778" y="210" class="t-small">路径 +，文件名 +，文档 +</text>
+                <text x="778" y="226" class="t-small">测试 ×0.48，本地化 ×0.2</text>
+                <text x="778" y="244" class="t-label">KB 信任系数也在这一步乘</text>
+              </g>
+
+              <path d="M760 211h-44" stroke="#a9431d" marker-end="url(#ar6)"/>
+
+              <g>
+                <rect x="508" y="170" width="208" height="82" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="522" y="192" class="t-title" style="font-size:12.5px">置信门</text>
+                <text x="522" y="210" class="t-small">分数 ≥ 0.18</text>
+                <text x="522" y="226" class="t-small">且词法证据足够</text>
+                <text x="522" y="244" class="t-label">不够 → 返回空，而不是硬凑</text>
+              </g>
+
+              <path d="M504 211h-44" stroke="#a9431d" marker-end="url(#ar6)"/>
+
+              <g>
+                <rect x="252" y="170" width="208" height="82" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="266" y="192" class="t-title" style="font-size:12.5px">多样性重排</text>
+                <text x="266" y="210" class="t-small">MMR λ=0.76（strong 0.62）</text>
+                <text x="266" y="226" class="t-small">压重复：Jaccard / 行邻 / 余弦</text>
+                <text x="266" y="244" class="t-label">同文件不再霸榜</text>
+              </g>
+
+              <path d="M248 211h-44" stroke="#a9431d" marker-end="url(#ar6)"/>
+
+              <g>
+                <rect x="24" y="170" width="180" height="82" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="38" y="192" class="t-title" style="font-size:12.5px">文件交错</text>
+                <text x="38" y="210" class="t-small">按文件轮转取号</text>
+                <text x="38" y="226" class="t-small">同一文件的第二名后置</text>
+                <text x="38" y="244" class="t-label">README 不再占满前五</text>
+              </g>
+
+              <g>
+                <rect x="24" y="296" width="270" height="96" fill="#fbf8ef" stroke="#0e4b43" stroke-dasharray="3 3"/>
+                <text x="38" y="318" class="t-label" fill="#0e4b43">ADAPTIVE（可选）</text>
+                <text x="38" y="338" class="t-small">以命中块为种子，向同文件上下扩 ±80 行</text>
+                <text x="38" y="354" class="t-small">结构关系加分，重叠窗口只留一个</text>
+                <text x="38" y="372" class="t-label">适合“需要看懂上下文才能改代码”</text>
+              </g>
+
+              <g>
+                <rect x="316" y="296" width="270" height="96" fill="#fbf8ef" stroke="#a9431d" stroke-dasharray="3 3"/>
+                <text x="330" y="318" class="t-label" fill="#a9431d">DEEP（可选）</text>
+                <text x="330" y="338" class="t-small">取前 30 个候选，送 cross-encoder 重排</text>
+                <text x="330" y="354" class="t-small">本地 MiniLM 或 Cohere / Jina / TEI API</text>
+                <text x="330" y="372" class="t-label">慢，但适合高风险答案的最终校验</text>
+              </g>
+
+              <g>
+                <rect x="608" y="296" width="368" height="96" fill="#dde8e2" stroke="#0e4b43"/>
+                <text x="622" y="318" class="t-label" fill="#0e4b43">输出</text>
+                <text x="622" y="338" class="t-small">content · file_path · start_line / end_line · score</text>
+                <text x="622" y="354" class="t-small">snippet（以命中词为中心）· ranking（分数解释）</text>
+                <text x="622" y="370" class="t-small">provenance：chunk_id / hash / 源文件 mtime / 是否 stale</text>
+              </g>
+
+              <path d="M114 256v40" stroke="#6d7772" marker-end="url(#ar6)"/>
+              <path d="M451 256v40" stroke="#6d7772" marker-end="url(#ar6)"/>
+              <path d="M586 344h16" stroke="#6d7772" marker-end="url(#ar6)"/>
+              <path d="M294 380h6v24h300v-12" stroke="#6d7772" marker-end="url(#ar6)" fill="none"/>
+
+              <text x="500" y="416" text-anchor="middle" class="t-label">每一道关卡都能被“诊断开关”展开：模式回退 · profile · boost · 调整后分数 · 匹配原因 · 数据新鲜度</text>
+            </svg>
+          </div>
+          <figcaption><span class="fnum">FIG 6</span><span>检索全流程。注意顺序：先加完各种 boost 再进置信门（门槛用的是加成后的分数），门控之后才做多样性重排。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <h3 id="fusion">两个馆员：一个记原词，一个懂意思</h3>
+          <p>
+            检索系统最怕“只用一种找法”。只用关键词，会错过换个说法的内容；只用向量，会在一堆语义相近但事实上无关的块里翻车。
+            所以它同时雇了两个馆员：
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <caption>两种召回方式的强弱项。它们不是替代关系，而是互补关系。</caption>
+              <thead><tr><th>维度</th><th>BM25（词法馆员）</th><th>向量（语义馆员）</th></tr></thead>
+              <tbody>
+                <tr><td>怎么找</td><td>FTS5 倒排索引，按词频、逆文档频率、长度归一化打分</td><td>把查询和每块文本都变成向量，算方向相似度</td></tr>
+                <tr><td>擅长</td><td>精确符号、文件名、命令、错误码、配置键、引号短语</td><td>概念、同义词、跨语言、描述性长问题</td></tr>
+                <tr><td>盲区</td><td>换个词就找不到；中文需要预分词</td><td>“看起来像”但事实无关；低频专有名词不稳</td></tr>
+                <tr><td>速度</td><td>毫秒级，SQLite 内部完成</td><td>需要一次查询嵌入 + 全库扫描（流式）</td></tr>
+                <tr><td>可解释性</td><td>能说清命中了哪些词</td><td>只能说“向量近”，不易解释</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              BM25 像图书馆的<strong>目录卡片</strong>：你报出准确书名或关键词，它立刻把书找出来。
+              向量像一位<strong>读过所有书的馆员</strong>：你说“那本讲怎么防止登录被劫持的”，他也能意会。
+              两个人都问一遍，再把答案合并，比单信一个人靠谱。
+            </p>
+          </div>
+
+          <div class="deep">
+            <span class="deep-tag">再看实现</span>
+            <p>
+              BM25 用的是 SQLite FTS5 内置的 <code>bm25()</code>：默认 <code>k1 = 1.2</code>、<code>b = 0.75</code>，单列权重 1.0。
+              FTS5 返回的是负分（越相关越负），代码取反后才变成“越大越好”。
+              查询词会被包成短语并默认用 <code>AND</code> 连接；只有零结果且词数大于 1 时才退化成 <code>OR</code>。
+              <code>fast</code> 模式特意关掉了 OR 回退——它要的就是“精确”。
+            </p>
+            <p>
+              向量侧先用 <code>query: </code> 前缀嵌入查询，然后按 <code>rowid</code> 顺序流式扫描整个 <code>.bin</code> 文件，
+              用一个长度等于 <code>limit</code> 的升序数组维护 top-K；只有入选的 K 条才复制向量，其余全部复用同一块 scratch 缓冲。
+              相似度函数名义上叫 cosine，实际只算点积——因为入库时已经做了 L2 归一化。
+            </p>
+          </div>
+
+          <h3>融合：为什么不用 RRF</h3>
+          <p>
+            两路召回的分数量纲完全不同：BM25 可能是 0 到 30 的任何值，向量相似度在 -1 到 1 之间。
+            合并前必须先归一化。pi-knowledge 用的是<strong>列表内 min-max 归一化 + 加权求和</strong>：
+          </p>
+
+          <div class="formula">
+            fused(id) = <span class="hl">0.45</span> × norm(BM25) + <span class="hl">0.55</span> × norm(vector) + <span class="hl">0.15</span> × [两路都有]
+            <span class="cap">norm(x) = (x − min) / (max − min)；单元素列表归一为 1；理论上限 1.15，下限 0。</span>
+          </div>
+
+          <p>
+            RRF（倒数排名融合）是学术界的常用基线：只看名次，不看分数，鲁棒且无需归一化。
+            代码里确实还留着 <code>reciprocalRankFusion()</code>（k=60），但<strong>没有任何调用点</strong>。
+            原因写在 README 里：项目自己的实测发现，RRF 把分数压得太扁，导致排名诊断几乎不可用。
+            换成加权融合后，分数保留了“差多少”的信息，<code>diagnostics</code> 才能告诉你为什么某条排第一。
+          </p>
+
+          <div class="note">
+            <b>一个实现细节：</b>overlap 加成要求两路归一化分数<strong>都大于 0</strong>。
+            而每路列表的末名归一后恰好是 0，所以“只在两路都排最后”的块拿不到这 0.15。
+            这不是 bug，但说明分数不是概率，别拿它跨查询比较。
+          </div>
+        </div>
+
+        <h3 id="gate">置信门：宁可不答，也不硬凑</h3>
+
+        <div class="prose">
+          <p>
+            语义检索最危险的失败模式不是“没找到”，而是<strong>找到了一堆看起来很像、实际上无关的内容</strong>。
+            模型拿到这些内容，会非常自信地编出一个错误答案。
+          </p>
+          <p>
+            所以 hybrid 路径设了一道门：候选必须同时满足<strong>分数阈值</strong>和<strong>词法证据</strong>。
+          </p>
+
+          <div class="formula">
+            score ≥ <span class="hl">0.18</span>　（balanced profile）<br>
+            且 hasEnoughLexicalEvidence：<br>
+            　n ≤ 1　　　　　→ 直接通过<br>
+            　sourceFileBoost ≥ 0.22 → 直接通过（文件名/路径已是强证据）<br>
+            　n ≤ 3　　　　　→ coverage ≥ 1/n<br>
+            　其他　　　　　→ coverage ≥ <span class="hl">0.34</span>
+            <span class="cap">n = 查询中的信号词数量；coverage = 命中信号词 / 全部信号词。阈值随 profile 变化：precision 0.4，recall 0.12。</span>
+          </div>
+
+          <p>
+            这套规则的精妙之处在于它<strong>不是一刀切</strong>：短查询（1 个词）只要命中就放行；
+            中等查询命中一个词也算过；长查询才要求 34% 的覆盖率。
+            同时，文件名或路径的强命中可以直接绕过覆盖率要求——因为“你搜的文件名就在路径里”几乎不会是假阳性。
+          </p>
+
+          <div class="warn">
+            <b>注意门槛用的是“加过 boost 的分数”，不是原始融合分。</b>
+            路径、文件名、文档位置带来的加成会实打实提高通过率。
+            这意味着一个纯 BM25 命中（原始分可能只有 0.2 多）的代码文件，很容易过 0.18 的线；
+            而一个语义上很像、但没有任何词法交集的块，会被稳稳地挡在外面。
+          </div>
+
+          <h3>加分与惩罚：让“该出现的”排在前面</h3>
+
+          <p>
+            融合分只回答“相关性”，不回答“哪个更像用户要的”。于是排序阶段又叠了一层业务规则：
+          </p>
+        </div>
+
+        <figure>
+            <div class="frame">
+              <svg viewBox="0 0 1000 400" role="img" aria-label="候选分数调整示意：融合基础分经过路径、源码、文档加成，以及测试和本地化惩罚">
+                <text x="32" y="30" class="t-label">一个候选的“分数旅行”（示例值，仅演示运算顺序）</text>
+
+                <line x1="250" y1="58" x2="250" y2="352" stroke="#b6ac95"/>
+                <g class="t-label">
+                  <text x="250" y="372" text-anchor="middle">0</text>
+                  <text x="390" y="372" text-anchor="middle">0.4</text>
+                  <text x="530" y="372" text-anchor="middle">0.8</text>
+                  <text x="670" y="372" text-anchor="middle">1.2</text>
+                  <text x="810" y="372" text-anchor="middle">1.6</text>
+                </g>
+                <line x1="250" y1="352" x2="840" y2="352" stroke="#b6ac95"/>
+
+                <g class="t-small">
+                  <text x="32" y="78">融合分</text>
+                  <text x="32" y="122">+ 路径命中</text>
+                  <text x="32" y="166">+ 文件名命中</text>
+                  <text x="32" y="210">+ 文档加成</text>
+                  <text x="32" y="254">× 测试惩罚</text>
+                  <text x="32" y="298">× 本地化惩罚</text>
+                </g>
+
+                <g>
+                  <rect x="250" y="66" width="210" height="22" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="470" y="82" class="t-label">0.60</text>
+
+                  <rect x="250" y="110" width="273" height="22" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="533" y="126" class="t-label">+0.18 → 0.78</text>
+
+                  <rect x="250" y="154" width="385" height="22" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="645" y="170" class="t-label">+0.32 → 1.10</text>
+
+                  <text x="260" y="214" class="t-small">不适用（不是 readme / docs）</text>
+
+                  <rect x="250" y="242" width="186" height="22" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="446" y="258" class="t-label">×0.48 → 0.53</text>
+
+                  <rect x="250" y="286" width="39" height="22" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="299" y="302" class="t-label">×0.20 → 0.11</text>
+                </g>
+
+                <g>
+                  <rect x="250" y="326" width="520" height="14" fill="none" stroke="#d5cdbb" stroke-dasharray="2 2"/>
+                  <text x="778" y="337" class="t-label">最终 adjusted_score</text>
+                </g>
+
+                <text x="32" y="392" class="t-small">路径加成：每命中一个路径词 +0.18，上限 0.45；文件名单独命中直接 +0.32。</text>
+              </svg>
+            </div>
+            <figcaption><span class="fnum">FIG 7</span><span>分数调整的运算顺序：先加，再乘。测试文件与本地化文件会被显著降权，除非查询明确在找它们。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <div class="table-wrap">
+            <table>
+              <caption>排序阶段的加减分规则（balanced profile 基准）</caption>
+              <thead><tr><th>规则</th><th>条件</th><th>效果</th><th>为什么</th></tr></thead>
+              <tbody>
+                <tr><td>路径命中</td><td>查询词出现在文件路径里</td><td class="mono">+0.18 / 词，≤ +0.45</td><td>路径本身就是强上下文</td></tr>
+                <tr><td>文件名命中</td><td>命中 basename（去掉扩展名与测试后缀）</td><td class="mono">+0.32</td><td><code>auth.ts</code> 对“auth”查询几乎必中</td></tr>
+                <tr><td>源码文件加成</td><td>代码文件且命中路径</td><td class="mono">≤ +0.22</td><td>避免文档/生成物抢走代码查询</td></tr>
+                <tr><td>文档加成</td><td>安装/README/quickstart/docs</td><td class="mono">+0.85 / +0.35</td><td>“怎么装”这类问题文档优先</td></tr>
+                <tr><td>测试惩罚</td><td>测试文件，且查询不想找测试</td><td class="mono">× 0.48</td><td>测试代码通常不是实现答案</td></tr>
+                <tr><td>反向测试惩罚</td><td>非测试文件，但查询明确要测试</td><td class="mono">× 0.88</td><td>让测试文件相对上浮</td></tr>
+                <tr><td>本地化惩罚</td><td>locale/i18n/translations 下的文本</td><td class="mono">× 0.20</td><td>避免翻译文件淹没实现</td></tr>
+                <tr><td>KB 信任系数</td><td>stale / 目录 / 文本或 URL</td><td class="mono">×0.92 / ×1.04 / ×0.98</td><td>陈旧的库降权，本地文件优先</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            这些规则有一个共同点：<strong>它们都不是“硬过滤”，而是“调分数”</strong>。
+            这意味着即使查询很奇特，相关结果也不会被彻底抹掉，只是排后面。
+          </p>
+        </div>
+
+        <h3 id="diversity">去重与文件交错：不要让一个文件霸榜</h3>
+
+        <div class="prose">
+          <p>
+            真实项目里有个固定现象：README 或某个大文件被切成几十块，每一块的向量都很像，于是一次搜索的前五条全是它。
+            用户看到的是“五段重复的话”，而不是五个答案。
+          </p>
+          <p>
+            解决方案是 <strong>MMR（最大边际相关性）</strong>：每选一条，就把它和已选内容的“冗余度”算进去，下一轮优先选“相关性还行、但和已选不太重复”的。
+          </p>
+
+          <div class="formula">
+            MMR(i) = <span class="hl">λ</span> × relevance(i) − (1 − λ) × redundancy(i)<br>
+            λ = <span class="hl">0.76</span>（balanced）　/　0.62（strong）<br><br>
+            redundancy(i) = max over 已选 s of:<br>
+            　max( Jaccard(词集合), lineProximity(行距离), max(0, cos(向量)) × <span class="hl">0.35</span> )
+            <span class="cap">冗余度取三项中的最大值，不是加权和；向量项被压到最多 0.35，避免“向量像”一票否决。</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <caption>行邻近度（lineProximity）的阶梯。同一个 KB、同一个文件才开始计分。</caption>
+              <thead><tr><th>关系</th><th>冗余度</th><th>含义</th></tr></thead>
+              <tbody>
+                <tr><td>窗口有交集 / 行区间重叠</td><td class="mono">1.0</td><td>基本是同一段内容</td></tr>
+                <tr><td>间隙 ≤ 20 行</td><td class="mono">0.8</td><td>极可能是上下游</td></tr>
+                <tr><td>间隙 ≤ 80 行</td><td class="mono">0.45</td><td>同一小节</td></tr>
+                <tr><td>同文件但更远</td><td class="mono">0.2</td><td>仍有一定冗余</td></tr>
+                <tr><td>不同文件</td><td class="mono">0</td><td>不惩罚</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            MMR 之后还有一道<strong>文件级交错</strong>：按文件分桶，然后轮转取号——第一轮每个文件取第 1 名，第二轮每个文件取第 2 名。
+            它可能把一条低分结果提到高分结果前面，这是故意的：对“我需要从多个文件里找线索”的场景，多样性比严格单调更有用。
+          </p>
+
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              就像点菜：不让你把同一盘菜连点五份，而是每样先上一份。
+              真正需要“只看某一个文件”的场景，可以设 <code>diversity: "off"</code>，或者直接用 <code>fast</code> 模式。
+            </p>
+          </div>
+        </div>
+
+        <h3 id="adaptive">自适应扩窗：把“命中一行”变成“看得懂的上下文”</h3>
+
+        <div class="prose">
+          <p>
+            切块是必要的，但它有个副作用：一个函数被切成一块，调用它的地方在另一块。
+            模型只拿到函数体，可能不知道它被谁调用、参数从哪来。
+          </p>
+          <p>
+            <code>adaptive</code> 模式在检索后做一次“补上下文”：以命中的块为种子，从同一个文件里取出上下各 80 行的邻居，
+            按相关性和结构关系挑出最值得带的几块，按行号排序拼成一段连续文本。
+          </p>
+        </div>
+
+        <figure>
+          <div class="frame">
+            <svg viewBox="0 0 1000 380" role="img" aria-label="adaptive 模式扩窗示意：命中块作为种子，同文件上下文、兄弟方法按距离和结构关系加分">
+              <g>
+                <rect x="24" y="30" width="470" height="316" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="40" y="52" class="t-label">同一文件 · 行窗口（±80 行）</text>
+
+                <g class="mono" style="font-size:11px">
+                  <text x="40" y="82" fill="#6d7772"> 41  class SessionService {</text>
+                  <text x="40" y="102" fill="#6d7772"> 42    login(user) {</text>
+                  <text x="40" y="122" fill="#46524d"> 43      const token = issue(user);</text>
+                  <text x="40" y="142" fill="#6d7772"> 44    }</text>
+                  <text x="40" y="162" fill="#6d7772"> 45</text>
+                  <text x="40" y="182" fill="#46524d"> 46    logout(user) { … }</text>
+                  <text x="40" y="202" fill="#6d7772"> 47</text>
+                </g>
+
+                <rect x="34" y="214" width="450" height="56" fill="#f3e0d3" stroke="#a9431d"/>
+                <g class="mono" style="font-size:11px">
+                  <text x="46" y="234" fill="#a9431d"> 48    refreshToken(user) {</text>
+                  <text x="46" y="250" fill="#a9431d"> 49      const next = rotate(user);</text>
+                  <text x="46" y="266" fill="#a9431d"> 50    }</text>
+                </g>
+
+                <g class="mono" style="font-size:11px">
+                  <text x="40" y="296" fill="#6d7772"> 51</text>
+                  <text x="40" y="316" fill="#46524d"> 52    revokeOld(user) { … }</text>
+                  <text x="40" y="336" fill="#6d7772"> 53  }</text>
+                </g>
+              </g>
+
+              <g>
+                <rect x="520" y="30" width="456" height="316" fill="#fbf8ef" stroke="#0e4b43"/>
+                <text x="536" y="52" class="t-label" fill="#0e4b43">邻居候选的排序公式</text>
+
+                <g class="mono" style="font-size:11.5px">
+                  <text x="536" y="80">score = seedBoost + relationBoost</text>
+                  <text x="536" y="98">　　　　 + proximity + coverage</text>
+                </g>
+
+                <g class="t-small">
+                  <text x="536" y="128">seedBoost：种子自身 +2（保证它在）</text>
+                  <text x="536" y="148">proximity：1 / (1 + 行距离/20)</text>
+                  <text x="536" y="168">coverage：查询词在候选里的覆盖率</text>
+                </g>
+
+                <line x1="536" y1="184" x2="960" y2="184" stroke="#d5cdbb"/>
+                <text x="536" y="204" class="t-label">结构关系加成（双方都有 AST 元数据才生效）</text>
+
+                <g class="t-small">
+                  <text x="536" y="226">同父作用域 + 不同 symbol（兄弟方法）　+1.35</text>
+                  <text x="536" y="244">同 parent_symbol + 不同 symbol　　　　+1.20</text>
+                  <text x="536" y="262">scope 互为前缀　　　　　　　　　　+0.90</text>
+                  <text x="536" y="280">同名自身（非种子）　　　　　　　　+0.35</text>
+                </g>
+
+                <line x1="536" y1="296" x2="960" y2="296" stroke="#d5cdbb"/>
+                <text x="536" y="318" class="t-small">取前 5 个邻居，按行号排序拼接，上限 6,000 字符。</text>
+                <text x="536" y="336" class="t-small">重叠窗口只保留分数更高/覆盖更广的那个。</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption><span class="fnum">FIG 8</span><span>自适应扩窗。它不是“把附近所有代码都拼进来”，而是按距离、查询覆盖率和 AST 结构关系给邻居打分，只带最值得的几块。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              你问“这个函数怎么工作”，只给你函数体不够，还得给你它所在类、相邻的调用方。
+              <code>adaptive</code> 就是那个会顺手多翻两页的馆员——但它不会把整本书搬来，只挑最相关的几页。
+            </p>
+          </div>
+
+          <div class="deep">
+            <span class="deep-tag">再看实现</span>
+            <p>
+              邻域选择有一个容易忽略的细节：<strong>先按分数选，再按行号排</strong>。
+              选择阶段用 <code>score</code> 降序，行号只做稳定 tie-break；拼装阶段重新按 <code>start_line</code> 排序，
+              保证输出是自然阅读顺序。若种子没被选进前 N，会被强制追加（<code>Number.MAX_SAFE_INTEGER</code>）。
+              最后按 <code>maxContextChars</code> 截断，允许最后一个块被切一半。
+            </p>
+            <p>
+              它不是调用图分析：所有“兄弟/父子”判断都来自索引时写入的 AST 元数据，不分析真实的调用关系。
+              这也是它便宜、稳定的原因——不需要跑类型检查器或语言服务器。
+            </p>
+          </div>
+        </div>
+
+        <h3>深度重排：请一位专家复核</h3>
+
+        <div class="prose">
+          <p>
+            <code>deep</code> 模式在 hybrid 召回之后，取前 30 个候选，交给 <strong>cross-encoder</strong> 逐对打分：
+            把“查询 + 候选文本”一起送进模型，直接输出相关性分数。
+            它比向量检索慢得多，但判断更细，适合高风险问题或对答案做最终校验。
+          </p>
+          <p>
+            默认本地模型是 <code>Xenova/ms-marco-MiniLM-L-4-v2</code>；也可以接 Cohere、Jina 或任意兼容 API（包括 Hugging Face 的 TEI）。
+            本地路径默认走 <code>text-classification</code> pipeline，输出经过 sigmoid，落在 0 到 1；
+            开 <code>PI_KNOWLEDGE_RERANKER_RAW_LOGITS=true</code> 可以拿原始 logit，避免强相关分数被压平。
+          </p>
+
+          <div class="note">
+            <b>参数上的两个细节：</b>重排最多取 <code>limit × 3</code> 条（balanced）；
+            送到重排器的单条文本默认截断到 12,000 字符，API 超时 30 秒。
+            重排器失败<strong>不会自动降级到本地</strong>——配置错了就直接报错，而不是给你一个“看起来正常”的结果。
+          </div>
+        </div>
+
+        <h3 id="modes">七种搜索模式，一份决策树</h3>
+
+        <div class="prose">
+          <p>
+            工具参数里的 <code>mode</code> 不是“精度档位”，而是<strong>七种不同的检索策略</strong>。
+            选错模式的代价不是慢一点，而是拿不到本该拿到的上下文。点开下面的标签看每一种的实际行为：
+          </p>
+        </div>
+
+        <div class="modes" id="modeExplorer">
+          <div class="mode-tabs" role="tablist" aria-label="搜索模式">
+            <button class="mode-tab" role="tab" aria-selected="true" data-mode="hybrid">hybrid</button>
+            <button class="mode-tab" role="tab" aria-selected="false" data-mode="fast">fast</button>
+            <button class="mode-tab" role="tab" aria-selected="false" data-mode="semantic">semantic</button>
+            <button class="mode-tab" role="tab" aria-selected="false" data-mode="semantic_hybrid">semantic_hybrid</button>
+            <button class="mode-tab" role="tab" aria-selected="false" data-mode="adaptive">adaptive</button>
+            <button class="mode-tab" role="tab" aria-selected="false" data-mode="deep">deep</button>
+            <button class="mode-tab" role="tab" aria-selected="false" data-mode="auto">auto</button>
+          </div>
+
+          <div class="mode-panel" data-panel="hybrid">
+            <div><h4>hybrid · 默认</h4><p>BM25 与向量双路召回，加权融合。但它有一条硬规则：<strong>BM25 零命中时，整个 KB 直接跳过</strong>。这是“词法锚定”，用来压住低证据的语义误召回。</p></div>
+            <dl class="mode-facts"><div><dt>召回</dt><dd>BM25（AND 优先，OR 兜底）＋ 向量</dd></div><div><dt>门控</dt><dd>分数 ≥ 0.18 且词法证据足够</dd></div><div><dt>适合</dt><dd>大多数带关键词的项目问题</dd></div></dl>
+            <div class="mode-line">auto 内的回退：<b>fast → semantic → adaptive</b></div>
+          </div>
+
+          <div class="mode-panel" data-panel="fast" hidden>
+            <div><h4>fast · 精确查找</h4><p>只用 BM25，而且关掉 OR 回退。它不读向量，也不做语义联想。查符号、文件名、命令、错误码、配置键、带引号的字符串时最快最准。</p></div>
+            <dl class="mode-facts"><div><dt>召回</dt><dd>FTS5 严格短语匹配</dd></div><div><dt>门控</dt><dd>只要任一词命中（coverage &gt; 0）</dd></div><div><dt>适合</dt><dd><code>ERR_ABORTED</code>、<code>refreshToken</code>、<code>settings.json</code></dd></div></dl>
+            <div class="mode-line">auto 内的回退：<b>hybrid → semantic</b></div>
+          </div>
+
+          <div class="mode-panel" data-panel="semantic" hidden>
+            <div><h4>semantic · 只按意思找</h4><p>纯向量检索，不要求词法重叠。适合概念性问题、跨语言提问、或者你确定索引里用的词和你说的完全不一样。</p></div>
+            <dl class="mode-facts"><div><dt>召回</dt><dd>向量 top-K</dd></div><div><dt>门控</dt><dd>无（这是它容易误召回的原因）</dd></div><div><dt>适合</dt><dd>“登录是怎么防止劫持的”</dd></div></dl>
+            <div class="mode-line">auto 内的回退：<b>hybrid → adaptive</b></div>
+          </div>
+
+          <div class="mode-panel" data-panel="semantic_hybrid" hidden>
+            <div><h4>semantic_hybrid · 弱词法也能融合</h4><p>和 hybrid 一样双路融合，但去掉了“BM25 必须非空”这条约束。词法重叠很弱、但向量很有把握时用它。</p></div>
+            <dl class="mode-facts"><div><dt>召回</dt><dd>BM25（可为空）＋ 向量</dd></div><div><dt>门控</dt><dd>只看分数阈值，不看词法证据</dd></div><div><dt>适合</dt><dd>中英混合、术语不一致的查询</dd></div></dl>
+            <div class="mode-line">它是 hybrid 与 semantic 之间的<b>中间档</b></div>
+          </div>
+
+          <div class="mode-panel" data-panel="adaptive" hidden>
+            <div><h4>adaptive · 带上下文回来</h4><p>先用 hybrid 召回，再把命中块周围的同文件内容扩进来。需要“看懂上下文才能安全改代码”时用它。</p></div>
+            <dl class="mode-facts"><div><dt>召回</dt><dd>hybrid ＋ 同文件行窗扩展</dd></div><div><dt>门控</dt><dd>与 hybrid 相同</dd></div><div><dt>适合</dt><dd>“把这个方法改成异步”</dd></div></dl>
+            <div class="mode-line">默认扩 <b>±80 行</b>，最多 5 个邻居、6,000 字符</div>
+          </div>
+
+          <div class="mode-panel" data-panel="deep" hidden>
+            <div><h4>deep · 慢，但更准</h4><p>hybrid 召回后，用 cross-encoder 逐对重排。它是唯一会调用第二个模型的模式，也是唯一可能让你等上几秒的模式。</p></div>
+            <dl class="mode-facts"><div><dt>召回</dt><dd>hybrid 前 30 个候选</dd></div><div><dt>门控</dt><dd>重排前先过 hybrid 门</dd></div><div><dt>适合</dt><dd>高风险结论、最终核对</dd></div></dl>
+            <div class="mode-line">topK = <b>limit × 3</b>（balanced）</div>
+          </div>
+
+          <div class="mode-panel" data-panel="auto" hidden>
+            <div><h4>auto · 让工具自己选</h4><p>按查询形状挑主模式：看起来像精确查找就用 fast，长问题或概念词就用 semantic，其余用 hybrid。结果为空或“弱”时，按回退链重试，最多 3 次。</p></div>
+            <dl class="mode-facts"><div><dt>判据</dt><dd>引号/路径/驼峰/常量/文件名/工单号 → fast</dd></div><div><dt>判据</dt><dd>≥10 词或含 how/why/架构/流程 → semantic</dd></div><div><dt>判据</dt><dd>其余 → hybrid</dd></div></dl>
+            <div class="mode-line">弱结果判定：空结果 / 精确串没命中且 coverage &lt; 0.67 / 语义尝试 coverage = 0</div>
+          </div>
+        </div>
+
+        <div class="prose">
+          <p>
+            除了 <code>mode</code>，还有一层独立的 <strong>profile</strong>：它不改召回方式，只改“要多少条、片段多长、门槛多高、扩窗多大”。
+            <code>profile: "auto"</code> 会根据模式和查询形状自动选；也可以手动指定。
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <caption>六种 profile 的关键参数。工具里显式传的 limit / 参数优先级高于 profile。</caption>
+              <thead><tr><th>Profile</th><th>默认条数</th><th>片段长度</th><th>门槛</th><th>候选数</th><th>扩窗行数</th><th>典型场景</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">balanced</td><td>10</td><td>240</td><td>0.18</td><td>max(50, 12×limit)</td><td>80</td><td>默认</td></tr>
+                <tr><td class="mono">precision</td><td>5</td><td>400</td><td>0.40</td><td>max(30, 6×limit)</td><td>60</td><td>标识符、错误码</td></tr>
+                <tr><td class="mono">recall</td><td>15</td><td>320</td><td>0.12</td><td>max(75, 16×limit)</td><td>100</td><td>广撒网找线索</td></tr>
+                <tr><td class="mono">low_token</td><td>5</td><td>768</td><td>0.40</td><td>max(35, 8×limit)</td><td>80</td><td>慢模型、少条目长片段</td></tr>
+                <tr><td class="mono">long_context</td><td>5</td><td>1,000</td><td>0.25</td><td>max(50, 10×limit)</td><td>120</td><td>规格、长文档</td></tr>
+                <tr><td class="mono">code / docs</td><td>10 / 8</td><td>320 / 768</td><td>0.25 / 0.22</td><td>50–60 起</td><td>80 / 120</td><td>意图别名对应的预设</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="note">
+            <b>结果里还带“出处”和“新鲜度”：</b>每条结果都有 <code>provenance</code>，包含块 ID、内容哈希、索引时间、源文件 mtime，
+            以及一个 <code>stale</code> 标记——源文件比索引新时，它会告诉你“这条可能过期了”。
+            开 <code>diagnostics</code> 还能看到分数是怎么被加出来的。
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 5. 工程 ==================== -->
+      <section class="chapter" id="engineering">
+        <div class="chapter-rule">
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0v12M0 6h12" stroke="#b6ac95" stroke-width="1"/></svg>
+        </div>
+        <div class="chapter-head">
+          <h2 class="chapter-title">工程内功：让一场几小时的任务不把库弄坏</h2>
+          <p class="chapter-intro">
+            算法决定“搜得好不好”，工程决定“能不能安心用”。
+            这一章讲那些不性感、但真正决定产品能不能活下来的细节。
+          </p>
+        </div>
+
+        <div class="prose">
+          <h3>大项目：把长任务做成“可观察的状态”</h3>
+          <p>
+            索引一个几万文件的项目，可能要跑几分钟到几十分钟。中途不能“看起来像卡死”，
+            也不能因为进程被杀就把整个库损毁。pi-knowledge 的做法是把长任务拆成可持久化的状态机：
+          </p>
+          <ul>
+            <li><strong>先规划再动手</strong>：目录扫描先只读元数据，算出可扫描文件数、字节数、跳过统计，再开始昂贵的嵌入。</li>
+            <li><strong>硬性分批</strong>：每 64 块嵌入一次；每 500 行分页读取 chunk；删除也按 500 一批。</li>
+            <li><strong>流式写盘</strong>：向量边算边追加到临时文件，不在内存里攒整个库。</li>
+            <li><strong>进度落库</strong>：<code>indexing_jobs</code> 表记录阶段、已处理文件/块数、跳过数、最后进度时间，ETL 细节全在 SQLite 里，换个会话也能查。</li>
+            <li><strong>卡死判定</strong>：<code>status = indexing</code> 且超过 10 分钟没有进度 → 判为 stuck，doctor 给 blocking 级告警。</li>
+          </ul>
+
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              它把“搬家”做成了带物流单号的流程：搬了多少箱、哪箱没搬、现在卡在哪一步，都能查。
+              搬一半车坏了，它不会假装搬完了——库会停在“未完成”状态，检索不会去读它。
+            </p>
+          </div>
+
+          <h3>增量更新：只重算真正变了的东西</h3>
+
+          <p>
+            每次改几行代码就全量重建索引，是不现实的。pi-knowledge 的增量判定颗粒度是<strong>块</strong>，不是文件。
+            每个块有一个身份哈希：
+          </p>
+
+          <div class="formula">
+            content_hash = sha256( file_path ␀ file_type ␀ start_line ␀ end_line ␀ metadata_json ␀ content )
+            <span class="cap">六个字段用 \0 连接。任何一项变化都会被视为“新块”。</span>
+          </div>
+
+          <p>
+            更新时，新切出的每个块去旧索引里找一个 hash 相同的“未被认领”的旧块：找到就复用它的向量；
+            找不到就重新嵌入。扫描结束后，旧索引里<strong>没有被任何新块认领的条目</strong>就是需要删除的内容——
+            这自然覆盖了“文件被删”“文件被排除规则排除”“代码被改写”三种情况。
+          </p>
+        </div>
+
+        <figure>
+          <div class="frame">
+            <svg viewBox="0 0 1000 480" role="img" aria-label="增量更新与向量文件重建示意：旧向量、新向量、临时最终文件，以及按 rowid 重建后原子替换">
+              <!-- 左：三类判定 -->
+              <g>
+                <rect x="20" y="24" width="300" height="410" fill="#fbf8ef" stroke="#6d7772"/>
+                <text x="36" y="48" class="t-label">一次 update 的块级判定</text>
+
+                <g>
+                  <rect x="36" y="66" width="268" height="70" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="48" y="86" class="mono" style="font-size:10.5px" fill="#0e4b43">UNCHANGED</text>
+                  <text x="48" y="104" class="t-small">hash 在旧索引里找到匹配</text>
+                  <text x="48" y="120" class="t-small">→ 复用旧向量，不重新嵌入</text>
+                </g>
+
+                <g>
+                  <rect x="36" y="146" width="268" height="70" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="48" y="166" class="mono" style="font-size:10.5px" fill="#a9431d">ADDED</text>
+                  <text x="48" y="184" class="t-small">hash 找不到匹配</text>
+                  <text x="48" y="200" class="t-small">→ 嵌入后写入临时 .added 文件</text>
+                </g>
+
+                <g>
+                  <rect x="36" y="226" width="268" height="70" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="48" y="246" class="mono" style="font-size:10.5px">REMOVED</text>
+                  <text x="48" y="264" class="t-small">旧块没有被任何新块认领</text>
+                  <text x="48" y="280" class="t-small">→ 从表中删除，向量重建时跳过</text>
+                </g>
+
+                <text x="36" y="326" class="t-label">为什么不能直接改旧向量文件？</text>
+                <text x="36" y="346" class="t-small">向量下标必须与 rowid 顺序一一对应；</text>
+                <text x="36" y="364" class="t-small">中间删一条，后面的全部错位。</text>
+                <text x="36" y="382" class="t-small">所以删除后必须整文件重建。</text>
+                <text x="36" y="408" class="t-label">代价：增量只省“嵌入”，不省“重写”。</text>
+              </g>
+
+              <!-- 右：重建流程 -->
+              <g>
+                <rect x="348" y="24" width="632" height="410" fill="#fbf8ef" stroke="#a9431d"/>
+                <text x="364" y="48" class="t-label" fill="#a9431d">向量文件重建：三个文件同时存在</text>
+
+                <g>
+                  <rect x="364" y="66" width="180" height="96" fill="#dde6ee" stroke="#245178"/>
+                  <text x="376" y="86" class="mono" style="font-size:10.5px" fill="#245178">1 · 旧文件</text>
+                  <text x="376" y="104" class="t-small">vectors/&lt;id&gt;.bin</text>
+                  <text x="376" y="122" class="t-small">只读；提供未变块的向量</text>
+                  <text x="376" y="140" class="t-small">按 hash → 下标映射取用</text>
+                </g>
+
+                <g>
+                  <rect x="560" y="66" width="180" height="96" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="572" y="86" class="mono" style="font-size:10.5px" fill="#a9431d">2 · 新增文件</text>
+                  <text x="572" y="104" class="t-small">*.added.*.tmp</text>
+                  <text x="572" y="122" class="t-small">本轮新嵌入的向量</text>
+                  <text x="572" y="140" class="t-small">失败直接删，不影响旧库</text>
+                </g>
+
+                <g>
+                  <rect x="756" y="66" width="208" height="96" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="768" y="86" class="mono" style="font-size:10.5px" fill="#0e4b43">3 · 最终临时文件</text>
+                  <text x="768" y="104" class="t-small">按新 rowid 顺序逐条写</text>
+                  <text x="768" y="122" class="t-small">缺失向量 → 单条重嵌修补</text>
+                  <text x="768" y="140" class="t-small">close → rename 原子替换</text>
+                </g>
+
+                <path d="M544 114h12" stroke="#a9431d"/>
+                <path d="M740 114h12" stroke="#a9431d"/>
+                <path d="M492 162v26" stroke="#245178" marker-end="url(#ar2)"/>
+                <path d="M650 162v26" stroke="#a9431d" marker-end="url(#ar2o)"/>
+
+                <g>
+                  <rect x="364" y="194" width="600" height="40" fill="#eee8d9" stroke="#b6ac95"/>
+                  <text x="376" y="218" class="t-small">按 <tspan class="mono">chunks</tspan> 表 rowid 升序遍历全表 → 决定每条向量从哪里取 → 写入最终临时文件</text>
+                </g>
+
+                <g>
+                  <rect x="364" y="252" width="600" height="52" fill="#fbf8ef" stroke="#6d7772"/>
+                  <text x="376" y="272" class="t-small">取向量优先级：旧文件（hash 匹配）→ 新增文件（本轮嵌入）→ 单条重新嵌入（修复）</text>
+                  <text x="376" y="290" class="t-label">任一步失败：删除临时文件，回滚本轮插入的 chunk，恢复或置错状态</text>
+                </g>
+
+                <text x="364" y="334" class="t-label">为什么不能直接原地改？</text>
+                <g class="t-small">
+                  <text x="364" y="354">· 中途崩溃可能留下半个文件，旧文件仍完整可用</text>
+                  <text x="364" y="372">· rename 在同一文件系统上是原子的</text>
+                  <text x="364" y="390">· 读者要么看到旧文件，要么看到新文件，不会看到中间态</text>
+                  <text x="364" y="408">· 未 close 的临时文件头部 count=0，天然不会被误读</text>
+                </g>
+              </g>
+            </svg>
+          </div>
+          <figcaption><span class="fnum">FIG 9</span><span>增量更新与向量重建。它是“块级增量 + 文件级重建”的混合策略：省掉重复嵌入，但为了维持顺序契约，仍要重写整个向量文件。</span></figcaption>
+        </figure>
+
+        <div class="prose">
+          <div class="warn">
+            <b>行号参与哈希，是双刃剑。</b>在文件头部插入几行，后面所有块的行号都会变，于是整文件重嵌入。
+            好处是“块内容 + 位置”一起变才重建，避免旧内容错位；代价是对自动生成的巨型文件不友好。
+            这是设计取舍，不是缺陷。
+          </div>
+
+          <h3>失败语义：add 全有或全无，update 可回滚</h3>
+          <p>
+            两个写操作的失败策略不同，因为它们的风险不同：
+          </p>
+          <ul>
+            <li><strong>add 失败</strong>：删掉知识库记录、chunks、symbols、job，再删向量文件。不留下半成品。</li>
+            <li><strong>update 失败</strong>：只删本轮新插入的 chunk，恢复旧状态；向量文件从未被原地修改，旧索引仍可用。</li>
+            <li><strong>取消</strong>：取消与失败区分——取消时恢复原状态（可能是 ready），真失败才置 <code>error</code>。</li>
+            <li><strong>更新期间</strong>：KB 状态是 <code>indexing</code>，检索会跳过它。用可用性换一致性。</li>
+          </ul>
+
+          <h3>文件监听：两套机制互为保险</h3>
+          <p>
+            开启 <code>PI_KNOWLEDGE_WATCH</code> 后，每个目录型 KB 会同时跑两套监听：
+            <code>fs.watch(recursive)</code> 负责及时性，每 2 秒一次的全目录快照轮询负责兜底。
+            两者共享同一个 2 秒防抖槽，所以一次 <code>git checkout</code> 带来的大量变更只会触发一次 update。
+          </p>
+          <p>
+            轮询比较的是 <code>mtime + size</code> 快照，并且复用与索引完全一致的扫描/过滤逻辑——
+            这保证“监听范围”和“索引范围”不会漂移。代价是每 2 秒一次目录遍历，虽然在 ignore 规则下已经剪掉了大部分。
+          </p>
+
+        </div>
+
+        <h3>健康诊断：100 分制，不加载模型</h3>
+
+        <figure>
+            <div class="frame">
+              <svg viewBox="0 0 1000 300" role="img" aria-label="健康分算法：100 分减去 blocking 35 分、warning 12 分、info 2 分">
+                <text x="32" y="30" class="t-label">health_score = clamp(100 − Σ penalty, 0, 100)</text>
+
+                <!-- 总分条 -->
+                <g>
+                  <rect x="32" y="54" width="936" height="38" fill="#dde8e2" stroke="#0e4b43"/>
+                  <text x="46" y="79" class="mono" style="font-size:13px" fill="#0e4b43">100</text>
+                  <text x="954" y="79" text-anchor="end" class="t-small" fill="#0e4b43">健康</text>
+                </g>
+
+                <!-- 扣分条 -->
+                <g>
+                  <rect x="32" y="110" width="936" height="38" fill="#fbf8ef" stroke="#b6ac95"/>
+                  <rect x="32" y="110" width="328" height="38" fill="#f3e0d3" stroke="#a9431d"/>
+                  <text x="46" y="135" class="mono" style="font-size:12px" fill="#a9431d">blocking −35</text>
+                  <text x="370" y="135" class="t-small">卡死索引 / error 状态 / 没有任何 KB</text>
+                </g>
+
+                <g>
+                  <rect x="32" y="158" width="936" height="38" fill="#fbf8ef" stroke="#b6ac95"/>
+                  <rect x="32" y="158" width="112" height="38" fill="#eee8d9" stroke="#8f6a14"/>
+                  <text x="46" y="183" class="mono" style="font-size:12px" fill="#8f6a14">warning −12</text>
+                  <text x="154" y="183" class="t-small">覆盖率 &lt; 80% / 陈旧文件 / 孤儿块 / 策略版本落后</text>
+                </g>
+
+                <g>
+                  <rect x="32" y="206" width="936" height="38" fill="#fbf8ef" stroke="#b6ac95"/>
+                  <rect x="32" y="206" width="19" height="38" fill="#dde6ee" stroke="#245178"/>
+                  <text x="61" y="231" class="mono" style="font-size:12px" fill="#245178">info −2</text>
+                  <text x="120" y="231" class="t-small">有跳过文件 / 缺少符号索引</text>
+                </g>
+
+                <text x="32" y="276" class="t-small">三项 blocking 就直接归零。每个 issue 都带一个机器可读的 action_code：run_update / rebuild_kb / wait_for_indexing / review_skipped_scope。</text>
+              </svg>
+            </div>
+            <figcaption><span class="fnum">FIG 10</span><span>健康分不是“感觉分”，而是可枚举问题的加权和。doctor 不加载嵌入模型，所以它在索引坏了的时候仍然能跑。</span></figcaption>
+          </figure>
+
+        <div class="prose">
+          <p>
+            <code>knowledge_status</code> 是轻量视图：逐库列出状态、块数、文件数、当前/上一次 job、覆盖率、陈旧/孤儿/卡死/跳过统计；
+            <code>knowledge_doctor</code> 则输出健康分、问题列表和具体动作。两个工具都<strong>不需要加载模型</strong>，
+            所以即使嵌入配置坏了，你仍然能诊断“为什么坏了”。
+          </p>
+
+          <div class="plain">
+            <span class="plain-tag">先说人话</span>
+            <p>
+              就像医院体检：不是告诉你“你不太健康”，而是列出“血压高、缺维 D、该去复查”，
+              并且每一项都对应一个可执行的动作。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 6. 取舍 ==================== -->
+      <section class="chapter" id="tradeoffs">
+        <div class="chapter-rule">
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0v12M0 6h12" stroke="#b6ac95" stroke-width="1"/></svg>
+        </div>
+        <div class="chapter-head">
+          <h2 class="chapter-title">取舍清单：每一个“聪明”，都有账单</h2>
+          <p class="chapter-intro">
+            这份源码最值得学的不是某个公式，而是它如何把“代价”写在明面上。
+          </p>
+        </div>
+
+        <div class="prose">
+          <div class="table-wrap">
+            <table>
+              <caption>主要设计选择及其代价。没有一项是免费的。</caption>
+              <thead><tr><th>选择</th><th>换来什么</th><th>付出什么</th></tr></thead>
+              <tbody>
+                <tr><td><b>零重叠切块</b></td><td>更少存储与向量；不会重复召回同一段</td><td>跨块上下文要靠 adaptive 在检索期补；块边界处可能断章</td></tr>
+                <tr><td><b>hybrid 词法锚定</b></td><td>大幅降低低证据语义误召回</td><td>换了说法的查询可能被整库跳过；所以另开 semantic_hybrid</td></tr>
+                <tr><td><b>本地模型优先</b></td><td>零 API 费、代码不出门、离线可用</td><td>精度与速度不如云端；首次下载 ~32MB；需要 Node 22+ 子进程</td></tr>
+                <tr><td><b>行号进哈希</b></td><td>块位置变化能可靠识别</td><td>文件头插行会导致整文件重嵌入</td></tr>
+                <tr><td><b>更新期间不可检索</b></td><td>不会读到半成品</td><td>大库更新时该 KB 暂时“下线”</td></tr>
+                <tr><td><b>向量按下标对齐 rowid</b></td><td>文件格式极简、扫描快、省内存</td><td>删除必须整文件重建；无逐条校验和，靠不变量约束</td></tr>
+                <tr><td><b>不自动恢复崩溃任务</b></td><td>实现简单，状态可预测</td><td>中断后需人工 remove + 重建；靠 doctor 提示</td></tr>
+                <tr><td><b>显式失败优于静默回退</b></td><td>配置错误、模型不匹配、超预算立刻可见</td><td>首次使用更容易“报错”，需要读文档</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>四条设计哲学</h3>
+          <ol>
+            <li><strong>结构优先于固定窗口。</strong>先在内容里找天然边界，再考虑 token 预算；只有在没有结构时才退化成字符切分。</li>
+            <li><strong>可诊断性是可交付特性。</strong>分数怎么来的、任务卡在哪、文件为什么被跳过——都能被查询，而不是只写在日志里。</li>
+            <li><strong>进程隔离优于精细释放。</strong>面对原生运行时的不确定性，把风险关进子进程，比在主进程里精确管理生命周期更可靠。</li>
+            <li><strong>显式失败优于聪明回退。</strong>API 失败、维度不匹配、签名过期、向量缺失——全都给出明确信号和下一步动作。</li>
+          </ol>
+
+          <div class="note">
+            <b>一个值得注意的细节：</b>搜索时每个 KB 都会各自嵌入一次查询。
+            模型有缓存，但多 KB 意味着多次 worker 往返或多次 API 计费。
+            这不是设计目标，而是当前实现的优化空间。
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 7. 时间线 ==================== -->
+      <section class="chapter" id="timeline">
+        <div class="chapter-rule">
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0v12M0 6h12" stroke="#b6ac95" stroke-width="1"/></svg>
+        </div>
+        <div class="chapter-head">
+          <h2 class="chapter-title">版本演进：一部长达四个月的“踩坑史”</h2>
+          <p class="chapter-intro">
+            CHANGELOG 比 README 诚实。它记录了哪些设计是被现实打回来的。
+          </p>
+        </div>
+
+        <div class="prose">
+          <ol class="timeline">
+            <li>
+              <span class="ver">0.1.0</span><span class="date">2026-06-14</span>
+              <span class="what">最小 RAG 闭环：7 个工具、FTS5、Markdown 切块、本地 e5（384 维）、BM25 + 余弦 + RRF、cross-encoder 重排、内容哈希增量。</span>
+              <span class="why">先把“能跑通”做出来，watcher 与自动注入默认关闭。</span>
+            </li>
+            <li>
+              <span class="ver">0.2 – 0.3</span><span class="date">2026-06</span>
+              <span class="what">URL / PDF / DOCX 抽取、JSONL 导入导出、端到端取消；随后修复 BM25 分数方向、ONNX 退出崩溃、dispose 竞态。</span>
+              <span class="why">原生运行时与宿主进程生命周期冲突，是这个项目最早也最重的一课。</span>
+            </li>
+            <li>
+              <span class="ver">0.4.0</span><span class="date">2026-06-16</span>
+              <span class="what">持久化 indexing job、knowledge_plan、上下文索引（路径/面包屑/AST 进嵌入）、adaptive 模式、多样性三档、RRF 换成加权融合、置信门控。</span>
+              <span class="why">“只看排名、不看分数分布”导致无法调试；README 霸榜倒逼出去重与交错。</span>
+            </li>
+            <li>
+              <span class="ver">0.4.1</span><span class="date">2026-06-16</span>
+              <span class="what">把本地模型隔离进独立 worker 进程；移除自定义 TUI 渲染器。</span>
+              <span class="why">macOS arm64 上 ONNX 在主进程里会导致 /quit abort；宽度不安全的自绘 UI 会崩 TUI。</span>
+            </li>
+            <li>
+              <span class="ver">0.4.3 – 0.4.5</span><span class="date">2026-06</span>
+              <span class="what">extension.js shim、延迟 import、Bun/ better-sqlite3 双驱动、OMP 路径兼容、安装期校验不再解析原生依赖。</span>
+              <span class="why">宿主不一定是 Node；安装期只需要“看一眼”，不该加载重依赖。</span>
+            </li>
+            <li>
+              <span class="ver">0.4.6 – 0.5</span><span class="date">2026-06 – 07</span>
+              <span class="what">超大段落二次切分、API 失败默认显式抛出、离线模式、避免 SQLite 活迭代器、同一 KB 更新合并、busy_timeout 调大、结构化 action code。</span>
+              <span class="why">静默回退会掩盖错 key / 错 baseURL；长任务 + 游标 + 并发操作会互相卡死。</span>
+            </li>
+            <li>
+              <span class="ver">0.5.3 – 0.5.6</span><span class="date">2026-07</span>
+              <span class="what">Windows stdio JSONL worker 传输、Node 22+ 发现（含 Codex runtime）、knowledge_configure 持久化、搜索 profile。</span>
+              <span class="why">宿主没有 IPC 时，嵌入子系统仍然要能工作。</span>
+            </li>
+            <li>
+              <span class="ver">0.6 – 0.8</span><span class="date">2026-07 – 08</span>
+              <span class="what">嵌入签名 + 维度元数据、文档批嵌入禁止回退、旧库降级 BM25 + warning、可配置重排器（HF / API / TEI / raw logits）、工具审批分级。</span>
+              <span class="why">向量空间兼容性必须显式建模，连 base URL 变了都算不兼容。</span>
+            </li>
+            <li>
+              <span class="ver">0.9 – 0.11</span><span class="date">2026-08 – 10</span>
+              <span class="what">递归 AST 切块、同父兄弟打包、Bash/C/C++/QML 支持、缺失向量修补、embedding 批量可调、前缀 on/off、semantic_hybrid。</span>
+              <span class="why">代码检索需要真正的结构信息，而不是正则猜函数边界。</span>
+            </li>
+            <li>
+              <span class="ver">0.12.0</span><span class="date">2026-10-19</span>
+              <span class="what">embedding-safe 二次切分（策略版本 2）、无依赖 HTML 结构化、doctor 提示 reindex、单飞模型加载。</span>
+              <span class="why">“截断不报错”是最隐蔽的数据损失；凡是改变块文本/边界的策略都必须版本化。</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- ==================== 8. 速记 ==================== -->
+      <section class="chapter" id="cheatsheet">
+        <div class="chapter-rule">
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0v12M0 6h12" stroke="#b6ac95" stroke-width="1"/></svg>
+        </div>
+        <div class="chapter-head">
+          <h2 class="chapter-title">一页速记</h2>
+          <p class="chapter-intro">如果你只记得住一屏，记这些。</p>
+        </div>
+
+        <div class="prose">
+          <h3>关键数字</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>参数</th><th>值</th><th>它控制什么</th></tr></thead>
+              <tbody>
+                <tr><td>单文件上限</td><td class="mono">10 MiB</td><td>超过直接跳过，不可覆盖</td></tr>
+                <tr><td>二进制嗅探</td><td class="mono">前 512 字节</td><td>发现 0x00 即判为二进制</td></tr>
+                <tr><td>最小块</td><td class="mono">50 字符</td><td>太短的块直接丢弃</td></tr>
+                <tr><td>Markdown 目标</td><td class="mono">450 token</td><td>标题感知切块</td></tr>
+                <tr><td>纯文本目标</td><td class="mono">550 token</td><td>段落累加上限</td></tr>
+                <tr><td>代码目标 / 上限</td><td class="mono">900 / 1,800 token</td><td>AST 块大小与递归阈值</td></tr>
+                <tr><td>单段硬上限</td><td class="mono">6,000 字符</td><td>再长就按字符切</td></tr>
+                <tr><td>本地嵌入上限</td><td class="mono">512 token</td><td>e5 模型窗口</td></tr>
+                <tr><td>嵌入目标预算</td><td class="mono">448 token</td><td>512 × 87.5%，留前缀余量</td></tr>
+                <tr><td>API 输入上限</td><td class="mono">20,000 字符</td><td>可用环境变量调整</td></tr>
+                <tr><td>索引批量</td><td class="mono">64</td><td>每批嵌入的块数</td></tr>
+                <tr><td>分页读取</td><td class="mono">500 行</td><td>keyset 分页，不用 OFFSET</td></tr>
+                <tr><td>融合权重</td><td class="mono">0.45 / 0.55 / 0.15</td><td>BM25 / 向量 / 双路重叠</td></tr>
+                <tr><td>hybrid 门槛</td><td class="mono">0.18</td><td>balanced profile</td></tr>
+                <tr><td>覆盖率要求</td><td class="mono">1/n（n≤3）或 0.34</td><td>长查询的词法证据</td></tr>
+                <tr><td>MMR λ</td><td class="mono">0.76 / 0.62</td><td>balanced / strong</td></tr>
+                <tr><td>向量冗余权重</td><td class="mono">0.35</td><td>余弦相似度在去重中的上限</td></tr>
+                <tr><td>adaptive 扩窗</td><td class="mono">±80 行 / 5 邻居 / 6,000 字符</td><td>上下文扩展预算</td></tr>
+                <tr><td>deep 候选</td><td class="mono">30 → limit×3</td><td>重排广度</td></tr>
+                <tr><td>卡死阈值</td><td class="mono">10 分钟</td><td>无进度即判 stuck</td></tr>
+                <tr><td>健康分扣分</td><td class="mono">35 / 12 / 2</td><td>blocking / warning / info</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>术语表</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>术语</th><th>一句话解释</th></tr></thead>
+              <tbody>
+                <tr><td><b>RAG</b></td><td>先检索资料，再让模型基于资料回答</td></tr>
+                <tr><td><b>Chunk</b></td><td>从原始文件切出来的一段可检索文本</td></tr>
+                <tr><td><b>Embedding</b></td><td>把文本映射成一串数字（向量），语义近则距离近</td></tr>
+                <tr><td><b>BM25</b></td><td>基于词频和逆文档频率的关键词打分算法</td></tr>
+                <tr><td><b>FTS5</b></td><td>SQLite 内置的全文检索模块</td></tr>
+                <tr><td><b>Hybrid</b></td><td>关键词检索与向量检索的结合</td></tr>
+                <tr><td><b>RRF</b></td><td>只看名次的融合方法；本项目保留但未启用</td></tr>
+                <tr><td><b>MMR</b></td><td>在相关性和多样性之间取平衡的重排方法</td></tr>
+                <tr><td><b>Reranker</b></td><td>对候选做二次打分的模型，通常更慢更准</td></tr>
+                <tr><td><b>AST</b></td><td>抽象语法树；代码切块用它找函数/类边界</td></tr>
+                <tr><td><b>Provenance</b></td><td>结果的出处与新鲜度信息</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plain">
+            <span class="plain-tag">最后一句</span>
+            <p>
+              这套系统真正的核心不是“向量数据库”或“BM25”，而是<strong>把“检索”拆成一串可解释、可诊断、可回滚的小决定</strong>：
+              切在哪、加什么前缀、什么时候不回答、为什么这条排第一。
+              模型会换，公式会调，但这套工程方法不会过时。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 页脚 ==================== -->
+      <footer>
+        <div class="cols">
+          <div>
+            <h4>分析对象</h4>
+            <p>
+              <b>pi-knowledge</b> v0.12.0（发布于 2026-10-19），MIT 许可。
+              本文基于 npm 发布包 <code>pi-knowledge-0.12.0.tgz</code> 内的 58 个文件静态阅读，
+              包括 <code>dist/</code> 编译产物、README、CHANGELOG、<code>docs/configuration.md</code>、
+              <code>docs/offline-mode.md</code> 与内置 skill 提示词。
+            </p>
+          </div>
+          <div>
+            <h4>阅读说明</h4>
+            <p>
+              文中所有数字均来自源码常量或 README 声明；示意图用于解释结构与流程，不代表真实比例。
+              与官方文档表述不一致处，以发布包源码行为为准。
+              这是一个第三方解读，不是项目官方文档。
+            </p>
+          </div>
+        </div>
+        <div class="colophon">
+          pi-knowledge / source teardown · 2026-10 · 中文技术拆解 · 单文件离线可读
+        </div>
+      </footer>
+
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* 阅读进度 */
+  var bar = document.getElementById("progressBar");
+  function onScroll(){
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    var p = max > 0 ? (h.scrollTop || document.body.scrollTop) / max : 0;
+    bar.style.width = (p * 100).toFixed(2) + "%";
+  }
+  document.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  /* 目录高亮 */
+  var links = Array.prototype.slice.call(document.querySelectorAll("#toc a"));
+  var map = {};
+  links.forEach(function(a){
+    var id = a.getAttribute("href").slice(1);
+    var el = document.getElementById(id);
+    if (el) map[id] = a;
+  });
+  var targets = Object.keys(map).map(function(id){ return document.getElementById(id); });
+  if ("IntersectionObserver" in window && targets.length){
+    var visible = {};
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        visible[e.target.id] = e.isIntersecting ? e.intersectionRatio : 0;
+      });
+      var bestId = null, best = 0;
+      Object.keys(visible).forEach(function(id){
+        if (visible[id] > best){ best = visible[id]; bestId = id; }
+      });
+      links.forEach(function(a){ a.classList.remove("active"); });
+      if (bestId && map[bestId]) map[bestId].classList.add("active");
+    }, { rootMargin: "-10% 0px -65% 0px", threshold: [0, .15, .4, .75] });
+    targets.forEach(function(t){ io.observe(t); });
+  }
+  /* 移动端目录：从侧栏克隆，避免维护两份 */
+  var tocSource = document.getElementById("toc");
+  var tocMobile = document.getElementById("mobileToc");
+  if (tocSource && tocMobile) tocMobile.innerHTML = tocSource.innerHTML;
+
+  /* 搜索模式切换 */
+  var explorer = document.getElementById("modeExplorer");
+  if (explorer) {
+    var tabs = Array.prototype.slice.call(explorer.querySelectorAll(".mode-tab"));
+    var panels = Array.prototype.slice.call(explorer.querySelectorAll(".mode-panel"));
+    tabs.forEach(function(tab){
+      tab.addEventListener("click", function(){
+        var mode = tab.getAttribute("data-mode");
+        tabs.forEach(function(t){ t.setAttribute("aria-selected", String(t === tab)); });
+        panels.forEach(function(p){ p.hidden = p.getAttribute("data-panel") !== mode; });
+      });
+      tab.addEventListener("keydown", function(e){
+        var i = tabs.indexOf(tab);
+        var next = null;
+        if (e.key === "ArrowRight") next = tabs[(i + 1) % tabs.length];
+        if (e.key === "ArrowLeft") next = tabs[(i - 1 + tabs.length) % tabs.length];
+        if (next){ e.preventDefault(); next.focus(); next.click(); }
+      });
+    });
+  }
+})();
+</script>
+</body>
+</html>
