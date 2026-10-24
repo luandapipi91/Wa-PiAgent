@@ -8,8 +8,13 @@ import { mediaKindOf } from "./components/blocks/file-path";
  * （MediaPreviewModal——与聊天里点图同一个窗，自带同目录缩略图条与左右切换）；
  * 其余文件用内置文件预览器（FilePreviewModal）。
  * 文件树双击、聊天文件标签（FilePill / 附件 / 修改清单）共用此分发。
+ * opts.annotatable：由发送前附件缩略图触发——图片预览窗允许标注并覆盖保存回 uploads 原图。
  */
-export function openFileOrPreview(path: string, sessionId: string): void {
+export function openFileOrPreview(
+	path: string,
+	sessionId: string,
+	opts?: { annotatable?: boolean },
+): void {
 	if (isHtmlPath(path)) {
 		useBrowserStore.getState().openBrowser(path, sessionId);
 		return;
@@ -21,7 +26,9 @@ export function openFileOrPreview(path: string, sessionId: string): void {
 		const name = path.replace(/\\/g, "/").split("/").pop() || path;
 		useSessionStore
 			.getState()
-			.openMediaPreview([{ src: path, kind, name }], 0, sessionId);
+			.openMediaPreview([{ src: path, kind, name }], 0, sessionId, {
+				annotatablePath: opts?.annotatable ? path : undefined,
+			});
 		return;
 	}
 	useSessionStore.getState().openFilePreview(path, sessionId);

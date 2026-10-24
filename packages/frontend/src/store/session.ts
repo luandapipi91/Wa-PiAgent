@@ -207,11 +207,14 @@ interface SessionState {
 		sessionId: string;
 		/** 本次打开的序号：同目录画廊只在“打开”时重新拉目录，切换项/回写 items 都不变 */
 		openId: number;
+		/** 仅「发送前附件缩略图」打开的预览带：可标注图片的原始路径（与当前项 src 相等才显示笔按钮） */
+		annotatablePath?: string;
 	} | null;
 	openMediaPreview: (
 		items: MediaItem[],
 		index: number,
 		sessionId: string,
+		opts?: { annotatablePath?: string },
 	) => void;
 	/** 同目录画廊加载完成时回写清单与当前项（openId 保持不变） */
 	setMediaPreviewItems: (items: MediaItem[], index: number) => void;
@@ -925,10 +928,16 @@ export const useSessionStore = create<SessionState>((set) => {
 
 		// 打开媒体画廊：items 为该文本块内全部媒体（collectMediaItems 收集），index 为起始项。
 		// 打开后由 useDirGallery 按当前文件所在目录重建清单（同目录画廊）。
-		openMediaPreview: (items, index, sessionId) => {
+		openMediaPreview: (items, index, sessionId, opts) => {
 			if (items.length === 0) return;
 			set({
-				mediaPreview: { items, index, sessionId, openId: ++mediaOpenSeq },
+				mediaPreview: {
+					items,
+					index,
+					sessionId,
+					openId: ++mediaOpenSeq,
+					annotatablePath: opts?.annotatablePath,
+				},
 			});
 		},
 		// 同目录画廊回写：items 换成目录内媒体、index 定位到当前项；openId 不变，避免再次触发加载

@@ -236,6 +236,28 @@ export async function uploadFile(
 	return { path: data.path };
 }
 
+/** 覆盖写入既有图片（标注保存）：multipart 字段 file + path，只允许项目 .wa-pi/uploads 下的
+ *  png/jpg/jpeg/webp（内核二次校验）。错误按 uploadFile 同口径抛 KernelError，便于 i18n 文案。 */
+export async function overwriteFile(
+	path: string,
+	file: Blob,
+): Promise<{ path: string }> {
+	const name = path.replace(/\\/g, "/").split("/").pop() || "image";
+	const form = new FormData();
+	form.append("file", new File([file], name, { type: file.type }));
+	form.append("path", path);
+	const res = await fetch("/api/files/overwrite", { method: "POST", body: form });
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		const failure =
+			data?.failure ??
+			(data?.code ? { code: data.code, params: data.params } : undefined);
+		if (failure) throw new KernelError(failure.code, failure.params);
+		throw new Error(data.error ?? `${res.status}`);
+	}
+	return { path: data.path ?? path };
+}
+
 export async function searchFiles(
 	query: string,
 	opts: {
