@@ -207,14 +207,16 @@ interface SessionState {
 		sessionId: string;
 		/** 本次打开的序号：同目录画廊只在“打开”时重新拉目录，切换项/回写 items 都不变 */
 		openId: number;
-		/** 仅「发送前附件缩略图」打开的预览带：可标注图片的原始路径（与当前项 src 相等才显示笔按钮） */
+		/** 本次打开时允许标注的图片路径（与当前项 src 相等才显示笔按钮） */
 		annotatablePath?: string;
+		/** 打开即进入标注态：上传完截图点缩略图时直接开始画，不必再点一次笔 */
+		autoAnnotate?: boolean;
 	} | null;
 	openMediaPreview: (
 		items: MediaItem[],
 		index: number,
 		sessionId: string,
-		opts?: { annotatablePath?: string },
+		opts?: { annotatablePath?: string; autoAnnotate?: boolean },
 	) => void;
 	/** 同目录画廊加载完成时回写清单与当前项（openId 保持不变） */
 	setMediaPreviewItems: (items: MediaItem[], index: number) => void;
@@ -937,6 +939,7 @@ export const useSessionStore = create<SessionState>((set) => {
 					sessionId,
 					openId: ++mediaOpenSeq,
 					annotatablePath: opts?.annotatablePath,
+					autoAnnotate: opts?.autoAnnotate,
 				},
 			});
 		},

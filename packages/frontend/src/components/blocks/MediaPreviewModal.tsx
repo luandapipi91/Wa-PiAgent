@@ -34,6 +34,23 @@ import {
  *  图片顶部栏（计数之后）提供 − % + 缩放控件与键盘 +/−/0（视频项不显示）；
  *  视频全尺寸 <video controls autoplay>。点遮罩不关闭（与 FilePreviewModal 同款防误触）。
  *  按住标题栏可拖动窗口移动位置，右下角手柄可拖动调整大小；尺寸与位置均持久化，重开保持。 */
+/** 某一项是否可标注：图片 + annotatablePath 指向同一文件 + 扩展名在白名单 */
+function annotatableItem(
+	preview: NonNullable<
+		ReturnType<typeof useSessionStore.getState>["mediaPreview"]
+	>,
+	index: number,
+): boolean {
+	const item = preview.items[index];
+	return (
+		!!item &&
+		item.kind === "image" &&
+		!!preview.annotatablePath &&
+		sameFilePath(preview.annotatablePath, item.src) &&
+		isAnnotatableImageSrc(item.src)
+	);
+}
+
 export function MediaPreviewModal() {
 	const preview = useSessionStore((s) => s.mediaPreview);
 	const { t } = useTranslation();
@@ -68,7 +85,11 @@ export function MediaPreviewModal() {
 	const pendingClose = useRef(false);
 	const openId = preview?.openId ?? null;
 	useEffect(() => {
-		setAnnotating(false);
+		// 上传截图后点缩略图（autoAnnotate）：打开即进标注态，不必再点一次笔；
+		// 只有当前项确实可标注才进，否则会留下「顶栏全隐藏却没有画布」的僵死态
+		setAnnotating(
+			!!preview?.autoAnnotate && annotatableItem(preview, preview.index),
+		);
 		pendingClose.current = false;
 	}, [openId]);
 
@@ -113,7 +134,7 @@ export function MediaPreviewModal() {
 	// 只在「弹出丢弃确认」时记关窗意图——保存中被拒（refused）不记，
 	// 否则意图残留会让后续正常的取消丢弃误关窗。
 	const requestClose = () => {
-		if (!annotating) {
+		if (!inAnnotator) {
 			useSessionStore.getState().closeMediaPreview();
 			return;
 		}
@@ -138,13 +159,10 @@ export function MediaPreviewModal() {
 		if (closeRequested) useSessionStore.getState().closeMediaPreview();
 	};
 
-	// 可标注：本次预览由发送前附件缩略图打开（annotatablePath 与当前项指向同一文件），
-	// 且路径在 .wa-pi/uploads 下、扩展名在白名单内（真实可写由内核二次校验）
-	const canAnnotate =
-		isImage &&
-		!!preview.annotatablePath &&
-		sameFilePath(preview.annotatablePath, item.src) &&
-		isAnnotatableImageSrc(item.src);
+	// 可标注：本次打开允许标注，且当前项就是那张图（真实可写由内核二次校验）
+	const canAnnotate = annotatableItem(preview, index);
+	// 真正处于标注界面：annotating 只是意图，当前项不可标注时按普通预览渲染（防僵死态）
+	const inAnnotator = annotating && canAnnotate;
 	// 标注导出的 mime：按扩展名映射（白名单内必有值，回退 png）
 	const annotatorMime =
 		mimeForExt(item.src.slice(item.src.lastIndexOf(".") + 1)) ?? "image/png";
@@ -179,7 +197,7 @@ export function MediaPreviewModal() {
 	return (
 		<Modal
 			onClose={requestClose}
-			closeOnEsc={!annotating}
+			closeOnEsc={!inAnnotator}
 			width="90vw"
 			height="85vh"
 			resizable
@@ -209,7 +227,7 @@ export function MediaPreviewModal() {
 							<button
 								className="fv-btn"
 								onClick={() =>
-									annotating
+									inAnnotator
 										? annotatorRef.current?.zoomOut()
 										: zoomRef.current?.zoomOut()
 								}
@@ -222,12 +240,12 @@ export function MediaPreviewModal() {
 								className="text-[calc(11px*var(--font-scale))] text-tertiary w-10 text-center"
 								data-testid="media-zoom-percent"
 							>
-								{Math.round((annotating ? annotatorZoom : zoom) * 100)}%
+								{Math.round((inAnnotator ? annotatorZoom : zoom) * 100)}%
 							</span>
 							<button
 								className="fv-btn"
 								onClick={() =>
-									annotating
+									inAnnotator
 										? annotatorRef.current?.zoomIn()
 										: zoomRef.current?.zoomIn()
 								}
@@ -238,7 +256,7 @@ export function MediaPreviewModal() {
 							</button>
 						</>
 					)}
-					{!annotating && (
+					{!inAnnotator && (
 						<button
 							className="fv-btn"
 							onClick={copy}
@@ -263,7 +281,7 @@ export function MediaPreviewModal() {
 				</div>
 				{/* 主体：标注画布 / 图片缩放视口 / 视频全尺寸播放；key=index 切换时重置缩放与播放状态 */}
 				<div className="flex-1 relative min-h-0 flex">
-					{annotating && canAnnotate ? (
+					{inAnnotator ? (
 						<ImageAnnotator
 							src={src}
 							alt={item.name}
@@ -314,7 +332,7 @@ export function MediaPreviewModal() {
 					)}
 					{/* 标注入口：浮在图片右下角的圆形笔按钮（仅发送前附件图片；标注态隐藏）。
 					    默认半透明不遮挡画面，悬停时放大并变清晰；鼠标按下不传给下层缩放/拖拽视口。 */}
-					{canAnnotate && !annotating && (
+					{canAnnotate && !inAnnotator && (
 						<button
 							type="button"
 							onClick={() => {
@@ -330,7 +348,7 @@ export function MediaPreviewModal() {
 							<Icon name="edit" size={26} strokeWidth={2} />
 						</button>
 					)}
-					{count > 1 && !annotating && (
+					{count > 1 && !inAnnotator && (
 						<>
 							<button
 								type="button"
@@ -352,7 +370,7 @@ export function MediaPreviewModal() {
 					)}
 				</div>
 				{/* 底部缩略图条：仅多媒体且非标注态时显示，点击跳转（同目录可能有上千项，条内虚拟滚动） */}
-				{count > 1 && !annotating && (
+				{count > 1 && !inAnnotator && (
 					<ThumbStrip
 						items={preview.items}
 						index={index}

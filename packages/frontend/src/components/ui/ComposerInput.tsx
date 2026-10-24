@@ -987,6 +987,8 @@ export function ComposerInput({
 									? () =>
 											openFileOrPreview(a.path!, sessionId, {
 												annotatable: a.kind === "image",
+												// 上传截图后点缩略图：直接进标注态（用户主场景就是圈注后发给 AI）
+												edit: a.kind === "image",
 											})
 									: undefined
 							}

@@ -144,14 +144,18 @@ afterEach(() => {
 	globalThis.fetch = originalFetch;
 });
 
-function openPreview(items: MediaItem[], annotatablePath?: string) {
+function openPreview(
+	items: MediaItem[],
+	annotatablePath?: string,
+	autoAnnotate?: boolean,
+) {
 	useSessionStore
 		.getState()
 		.openMediaPreview(
 			items,
 			0,
 			"s1",
-			annotatablePath ? { annotatablePath } : undefined,
+			annotatablePath ? { annotatablePath, autoAnnotate } : undefined,
 		);
 }
 
@@ -281,6 +285,33 @@ test("点击笔 → 进入标注态：主体换成 ImageAnnotator，顶栏保留
 	expect(screen.getByTestId("media-zoom-in")).toBeTruthy();
 	expect(screen.getByTestId("media-zoom-percent").textContent).toBe("100%");
 	expect(screen.getByTestId("media-counter").textContent).toBe("1 / 2");
+});
+
+test("autoAnnotate（上传截图后点缩略图）：打开即进标注态，不必再点笔", () => {
+	openPreview([A, B], A.src, true);
+	render(<MediaPreviewModal />);
+	// 直接就是标注画布，没有中间的普通预览
+	expect(screen.getByTestId("image-annotator")).toBeTruthy();
+	expect(screen.getByTestId("annotator-bar")).toBeTruthy();
+	expect(screen.queryByTestId("zoomable-image")).toBeNull();
+	// 笔按钮在标注态本来就不出现
+	expect(screen.queryByTestId("media-annotate")).toBeNull();
+});
+
+test("autoAnnotate 但当前项不可标注（gif）→ 不进标注态，也不会留下僵死顶栏", () => {
+	const gif: MediaItem = {
+		src: "/work/demo/.wa-pi/uploads/a.gif",
+		kind: "image",
+		name: "a.gif",
+	};
+	openPreview([gif], gif.src, true);
+	render(<MediaPreviewModal />);
+	// 仍是普通预览，顶栏完整可用（复制/翻页/关闭都在），不是「全隐藏却无画布」
+	expect(screen.getByTestId("zoomable-image")).toBeTruthy();
+	expect(screen.queryByTestId("annotator-bar")).toBeNull();
+	expect(screen.getByTestId("media-copy")).toBeTruthy();
+	expect(screen.getByTestId("media-close")).toBeTruthy();
+	expect(screen.getByTestId("media-zoom-in")).toBeTruthy();
 });
 
 test("标注态点取消（无图形）→ 回到可缩放图片预览", () => {

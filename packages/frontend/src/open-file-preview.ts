@@ -18,7 +18,7 @@ import { isAnnotatableImageSrc, mediaKindOf } from "./components/blocks/file-pat
 export function openFileOrPreview(
 	path: string,
 	sessionId: string,
-	opts?: { annotatable?: boolean },
+	opts?: { annotatable?: boolean; edit?: boolean },
 ): void {
 	if (isHtmlPath(path)) {
 		useBrowserStore.getState().openBrowser(path, sessionId);
@@ -29,14 +29,13 @@ export function openFileOrPreview(
 		// 单元素清单起步：画廊打开后会按当前文件所在目录重建清单（useDirGallery），
 		// 目录不可列（远程/工作区外等）时退化为只显示这一张。
 		const name = path.replace(/\\/g, "/").split("/").pop() || path;
-		const annotatablePath =
-			opts?.annotatable === false || !isAnnotatableImageSrc(path)
-				? undefined
-				: path;
+		const annotatable = opts?.annotatable !== false && isAnnotatableImageSrc(path);
 		useSessionStore
 			.getState()
 			.openMediaPreview([{ src: path, kind, name }], 0, sessionId, {
-				annotatablePath,
+				annotatablePath: annotatable ? path : undefined,
+				// opts.edit：打开即进标注态（上传截图后点缩略图走这条，省掉再点笔）
+				autoAnnotate: annotatable && opts?.edit === true,
 			});
 		return;
 	}

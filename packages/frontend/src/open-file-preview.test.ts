@@ -70,6 +70,30 @@ test("uploads 下但扩展名不在白名单（gif）→ 不带标注入口", ()
 	expect(useSessionStore.getState().mediaPreview!.annotatablePath).toBeUndefined();
 });
 
+test("edit:true（上传后点缩略图）→ 打开即进标注态", () => {
+	openFileOrPreview("/work/demo/.wa-pi/uploads/shot.png", "s1", {
+		annotatable: true,
+		edit: true,
+	});
+	const mp = useSessionStore.getState().mediaPreview!;
+	expect(mp.annotatablePath).toBe("/work/demo/.wa-pi/uploads/shot.png");
+	expect(mp.autoAnnotate).toBe(true);
+});
+
+test("不带 edit → 只打开预览，不自动进标注态", () => {
+	openFileOrPreview("/work/demo/.wa-pi/uploads/shot.png", "s1", {
+		annotatable: true,
+	});
+	expect(useSessionStore.getState().mediaPreview!.autoAnnotate).toBe(false);
+});
+
+test("edit:true 但扩展名不支持（gif）→ 也不自动进标注态", () => {
+	openFileOrPreview("/work/demo/.wa-pi/uploads/anim.gif", "s1", { edit: true });
+	const mp = useSessionStore.getState().mediaPreview!;
+	expect(mp.annotatablePath).toBeUndefined();
+	expect(mp.autoAnnotate).toBe(false);
+});
+
 test("显式 annotatable:false → 保留调用方关掉入口的能力", () => {
 	openFileOrPreview("/work/demo/.wa-pi/uploads/shot.png", "s1", {
 		annotatable: false,

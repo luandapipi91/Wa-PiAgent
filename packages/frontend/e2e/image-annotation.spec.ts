@@ -206,11 +206,21 @@ test.describe.serial("图片标注覆盖保存", () => {
 			expect(absPath).toContain(".wa-pi/uploads");
 			expect(srcBefore).not.toContain("&v=");
 
-			// 点缩略图 → 媒体预览窗；笔按钮仅发送前附件图片显示
+			// 点缩略图 → 直接进入编辑模式（上传截图后点缩略图就是来圈注的，省掉再点一次笔）
 			await chip.click();
 			const modal = page.getByTestId("media-preview-modal");
 			await expect(modal).toBeVisible({ timeout: 10_000 });
-			// 入口是浮在图片右下角的圆形笔按钮（不是顶栏图标）：约 70×70、默认半透明
+			await expect(page.getByTestId("image-annotator")).toBeVisible({
+				timeout: 10_000,
+			});
+			// 已在编辑态：既没有笔按钮，也没有普通预览的缩放视口
+			await expect(page.getByTestId("media-annotate")).toHaveCount(0);
+			await expect(page.getByTestId("zoomable-image")).toHaveCount(0);
+
+			// 退出编辑 → 回到普通预览，右下角圆形笔按钮在（约 70×70、默认半透明、悬停变清晰）
+			await page.getByTestId("annotator-cancel").click();
+			await expect(page.getByTestId("image-annotator")).toHaveCount(0);
+			await expect(page.getByTestId("zoomable-image")).toBeVisible();
 			const annotateBtn = page.getByTestId("media-annotate");
 			await expect(annotateBtn).toBeVisible();
 			const btnBox = (await annotateBtn.boundingBox())!;
@@ -226,7 +236,7 @@ test.describe.serial("图片标注覆盖保存", () => {
 					annotateBtn.evaluate((el) => getComputedStyle(el).opacity),
 				)
 				.toBe("1");
-			// 外面先放大到 125%：进编辑态后视角要一致（不重置回 100%）
+			// 外面先放大到 125%：再进编辑态后视角要一致（不重置回 100%）
 			await page.getByTestId("media-zoom-in").click();
 			await expect(page.getByTestId("media-zoom-percent")).toHaveText("125%");
 			const previewImgTransform = await page
@@ -423,6 +433,10 @@ test.describe.serial("图片标注覆盖保存", () => {
 			await expect(modal).toHaveCount(0);
 			await chip.click();
 			await expect(modal).toBeVisible({ timeout: 10_000 });
+			// 重新打开同样直接进编辑态：先退出到普通预览再检查像素
+			await expect(page.getByTestId("image-annotator")).toBeVisible();
+			await page.getByTestId("annotator-cancel").click();
+			await expect(page.getByTestId("image-annotator")).toHaveCount(0);
 			const previewImg = modal
 				.getByTestId("zoomable-image")
 				.locator("img")
