@@ -9,10 +9,10 @@ import { isAnnotatableImageSrc, mediaKindOf } from "./components/blocks/file-pat
  * 其余文件用内置文件预览器（FilePreviewModal）。
  * 文件树双击、聊天文件标签（FilePill / 附件 / 修改清单）共用此分发。
  *
- * 标注入口：只要图片落在 `.wa-pi/uploads` 下且是 png/jpg/jpeg/webp（isAnnotatableImageSrc），
- * 任何入口打开都能在预览窗右下角看到笔按钮——附件缩略图、文件树双击、路径胶囊一致。
- * 覆盖保存只写 uploads，不会误改用户工程文件；聊天消息内联图片走另一条入口
- * （MarkdownImage → openMediaPreview），不在此列。
+ * 标注入口：只要是 png/jpg/jpeg/webp（isAnnotatableImageSrc），任何入口打开都能在预览窗
+ * 右下角看到笔按钮——附件缩略图、文件树双击、路径胶囊一致，不再限制 uploads 目录。
+ * 内核按「路径 realpath 在项目工作区内 + 文件已存在 + realpath 扩展名是图片」把最后一道关，
+ * 项目外的文件写不进去。聊天消息内联图片走另一条入口（MarkdownImage → openMediaPreview）。
  * opts.annotatable === false 可显式关掉（保留给"只预览不可改"的调用方）。
  */
 export function openFileOrPreview(

@@ -212,7 +212,7 @@ test("annotatablePath 不匹配（聊天里的图片等其他入口）→ 不出
 	expect(screen.queryByTestId("media-annotate")).toBeNull();
 });
 
-test("路径不在 .wa-pi/uploads 下 或 扩展名不在白名单（gif）→ 不出现笔按钮", () => {
+test("项目内非 uploads 的图片同样可标注（已放开目录限制）；gif 仍不可标注", () => {
 	const outside: MediaItem = {
 		src: "/work/demo/pics/a.png",
 		kind: "image",
@@ -220,7 +220,7 @@ test("路径不在 .wa-pi/uploads 下 或 扩展名不在白名单（gif）→ �
 	};
 	openPreview([outside], outside.src);
 	render(<MediaPreviewModal />);
-	expect(screen.queryByTestId("media-annotate")).toBeNull();
+	expect(screen.getByTestId("media-annotate")).toBeTruthy();
 	cleanup();
 
 	const gif: MediaItem = {
@@ -233,14 +233,18 @@ test("路径不在 .wa-pi/uploads 下 或 扩展名不在白名单（gif）→ �
 	expect(screen.queryByTestId("media-annotate")).toBeNull();
 });
 
-test("isAnnotatableImageSrc：uploads 段 + png/jpg/jpeg/webp 白名单", () => {
+test("isAnnotatableImageSrc：只看 png/jpg/jpeg/webp 扩展名，不限目录", () => {
 	expect(isAnnotatableImageSrc("/w/p/.wa-pi/uploads/a.png")).toBe(true);
 	expect(isAnnotatableImageSrc("C:\\w\\p\\.wa-pi\\uploads\\a.JPG")).toBe(true);
 	expect(isAnnotatableImageSrc("/w/p/.wa-pi/uploads/a.jpeg")).toBe(true);
 	expect(isAnnotatableImageSrc("/w/p/.wa-pi/uploads/a.webp")).toBe(true);
+	// 已放开 uploads 白名单：项目内任意位置的图片都可标注
+	expect(isAnnotatableImageSrc("/w/p/assets/logo.png")).toBe(true);
+	expect(isAnnotatableImageSrc("/w/p/docs/img/demo.WEBP")).toBe(true);
+	// 非图片格式仍然拒绝
 	expect(isAnnotatableImageSrc("/w/p/.wa-pi/uploads/a.gif")).toBe(false);
-	expect(isAnnotatableImageSrc("/w/p/pics/a.png")).toBe(false);
-	expect(isAnnotatableImageSrc("/w/p/.wa-pi/uploadsx/a.png")).toBe(false);
+	expect(isAnnotatableImageSrc("/w/p/assets/logo.svg")).toBe(false);
+	expect(isAnnotatableImageSrc("/w/p/assets/readme.md")).toBe(false);
 });
 
 test("路径写法不同（annotatablePath 反斜杠 / item.src 正斜杠）→ 仍能匹配并显示笔按钮", () => {

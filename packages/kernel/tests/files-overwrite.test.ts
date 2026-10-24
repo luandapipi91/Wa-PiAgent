@@ -103,14 +103,15 @@ test("默认工作区会话目录（<cwd>/123/...）内图片可覆盖", async (
 	expect(new Uint8Array(await readFile(target))).toEqual(NEW_BYTES);
 });
 
-test("项目内非 uploads 路径拒绝写入（403 fs.forbidden），内容不变", async () => {
-	const target = await seed("notes.txt", NEW_BYTES);
+test("项目内任意位置的既有图片都可覆盖（不再限于 .wa-pi/uploads）", async () => {
+	// 用户明确要求放开 uploads 白名单：项目里的 logo.png / 文档配图同样可标注覆盖
+	const target = await seed("assets/logo.png", OLD_BYTES);
 	const res = await makeRouter().handle(
-		overwriteRequest(target, OLD_BYTES, "a.png"),
+		overwriteRequest(target, NEW_BYTES, "logo.png"),
 	);
 
-	expect(res!.status).toBe(403);
-	expect((await res!.json()).failure.code).toBe("fs.forbidden");
+	expect(res!.status).toBe(200);
+	expect((await res!.json()).path).toBe(await realpath(target));
 	expect(new Uint8Array(await readFile(target))).toEqual(NEW_BYTES);
 });
 
@@ -138,17 +139,21 @@ test("项目内不存在的文件（isPathInProjects → missing）拒绝写入 
 	expect(await readdir(join(cwd, ".wa-pi/uploads"))).toEqual([]);
 });
 
-test("uploads 内的 ../ 穿越路径拒绝写入（403 fs.forbidden）", async () => {
-	// 目标就放在项目根：仅当穿越未被拦住才会被改写，断言才有意义
-	const target = await seed("notes.png", OLD_BYTES);
-	const traversal = `${join(cwd, ".wa-pi", "uploads")}${sep}..${sep}..${sep}notes.png`;
-	const res = await makeRouter().handle(
-		overwriteRequest(traversal, NEW_BYTES),
-	);
+test("../ 穿越出项目边界仍拒绝写入（403 fs.forbidden），目标内容不变", async () => {
+	const outsideDir = await mkdtemp(join(tmpdir(), "files-overwrite-out-"));
+	const outside = join(outsideDir, "escape.png");
+	await writeFile(outside, OLD_BYTES);
+	// 从一个真实存在于项目内的路径出发一路 .. 穿到项目外：realpath 归一后必须被拒
+	const traversal = `${join(cwd, ".wa-pi", "uploads")}${sep}..${sep}..${sep}..${sep}..${sep}${outsideDir}${sep}escape.png`;
+	try {
+		const res = await makeRouter().handle(overwriteRequest(traversal, NEW_BYTES));
 
-	expect(res!.status).toBe(403);
-	expect((await res!.json()).failure.code).toBe("fs.forbidden");
-	expect(new Uint8Array(await readFile(target))).toEqual(OLD_BYTES);
+		expect(res!.status).toBe(403);
+		expect((await res!.json()).failure.code).toBe("fs.forbidden");
+		expect(new Uint8Array(await readFile(outside))).toEqual(OLD_BYTES);
+	} finally {
+		await rm(outsideDir, { recursive: true, force: true });
+	}
 });
 
 test.skipIf(!CAN_SYMLINK)(
@@ -174,15 +179,17 @@ test.skipIf(!CAN_SYMLINK)(
 );
 
 test.skipIf(!CAN_SYMLINK)(
-	"uploads 内指向项目内非 uploads 文件的符号链接拒绝写入（403 fs.forbidden）",
+	"符号链接指向项目内非图片文件：按 realpath 扩展名 400，不写盘",
 	async () => {
 		const target = await seed("notes.txt", OLD_BYTES);
 		const link = join(cwd, ".wa-pi/uploads/inner.png");
 		await symlink(target, link);
 		const res = await makeRouter().handle(overwriteRequest(link, NEW_BYTES));
 
-		expect(res!.status).toBe(403);
-		expect((await res!.json()).failure.code).toBe("fs.forbidden");
+		// 已放开 uploads 白名单后，这条不再是权限问题：realpath 扩展名不是图片 → 400，
+		// 且 png 字节绝不能写进这个 .txt
+		expect(res!.status).toBe(400);
+		expect((await res!.json()).failure.code).toBe("imageAnn.unsupported");
 		expect(new Uint8Array(await readFile(target))).toEqual(OLD_BYTES);
 		const leftovers = (await readdir(join(cwd, ".wa-pi/uploads"))).filter(
 			(n) => n.startsWith(".annotate-"),

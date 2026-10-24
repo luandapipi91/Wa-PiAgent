@@ -41,7 +41,7 @@ async function makeFixture(page: Page): Promise<string> {
 	}, [...BASE_RGB] as [number, number, number]);
 }
 
-test.describe.serial("文件树入口同样可标注", () => {
+test.describe.serial("文件树入口同样可标注（项目内任意图片）", () => {
 	test.beforeAll(async () => {
 		// 预置假 provider：否则首启 onboarding 向导弹窗拦截所有点击
 		await saveProvider({
@@ -55,13 +55,14 @@ test.describe.serial("文件树入口同样可标注", () => {
 		});
 	});
 
-	test("文件树双击 uploads 下的图片 → 预览窗右下角也有笔按钮", async ({ page }) => {
+	test("文件树双击项目内普通目录的图片 → 预览窗右下角也有笔按钮（白名单已放开）", async ({ page }) => {
 		test.setTimeout(120_000);
 		const projectName = `e2e-annotate-tree-${randomUUID().slice(0, 8)}`;
 		const projectCwd = join(E2E_WA_PI_DIR, projectName);
-		const uploadsDir = join(projectCwd, ".wa-pi", "uploads");
+		// 放在项目内的普通目录（非 .wa-pi/uploads）：验证白名单已放开
+		const assetsDir = join(projectCwd, "assets");
 		const workDir = join(tmpdir(), "wa-pi-e2e-annotate-tree");
-		mkdirSync(uploadsDir, { recursive: true });
+		mkdirSync(assetsDir, { recursive: true });
 		mkdirSync(workDir, { recursive: true });
 		const fixturePath = join(workDir, "tree-source.png");
 		let projectId = "";
@@ -71,9 +72,9 @@ test.describe.serial("文件树入口同样可标注", () => {
 			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			writeFileSync(fixturePath, Buffer.from(await makeFixture(page), "base64"));
-			// 直接把图写进 uploads（模拟此前上传过的图片），再走文件树双击这条路
-			const uploadsImage = join(uploadsDir, "from-explorer.png");
-			writeFileSync(uploadsImage, readFileSync(fixturePath));
+			// 项目内普通目录的图片（如 logo、文档配图）：同样允许标注覆盖
+			const projectImage = join(assetsDir, "logo.png");
+			writeFileSync(projectImage, readFileSync(fixturePath));
 
 			// 不依赖 new-session-pane（应用可能恢复到上一个用例留下的会话）：
 			// 只要侧栏能交互就能点项目与会话行，这一步不承担业务断言。
@@ -96,9 +97,8 @@ test.describe.serial("文件树入口同样可标注", () => {
 			await page.getByTestId("btn-explorer").click();
 			const panel = page.locator('[data-testid="explorer-panel"]');
 			await expect(panel).toBeVisible({ timeout: 5000 });
-			await panel.getByText(".wa-pi", { exact: true }).click();
-			await panel.getByText("uploads", { exact: true }).click();
-			const fileNode = panel.getByText("from-explorer.png", { exact: true });
+			await panel.getByText("assets", { exact: true }).click();
+			const fileNode = panel.getByText("logo.png", { exact: true });
 			await expect(fileNode).toBeVisible({ timeout: 10_000 });
 			await fileNode.dblclick();
 

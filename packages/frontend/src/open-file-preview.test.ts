@@ -58,9 +58,11 @@ test("文件树双击 uploads 下的图片 → 同样带上标注入口（不必
 	expect(useSessionStore.getState().mediaPreview!.annotatablePath).toBe(win);
 });
 
-test("uploads 之外的图片 → 不带标注入口（覆盖保存只能写 uploads）", () => {
+test("项目内非 uploads 的图片 → 同样带标注入口（已放开目录限制）", () => {
 	openFileOrPreview("/work/demo/pics/cat.png", "s1");
-	expect(useSessionStore.getState().mediaPreview!.annotatablePath).toBeUndefined();
+	expect(useSessionStore.getState().mediaPreview!.annotatablePath).toBe(
+		"/work/demo/pics/cat.png",
+	);
 });
 
 test("uploads 下但扩展名不在白名单（gif）→ 不带标注入口", () => {

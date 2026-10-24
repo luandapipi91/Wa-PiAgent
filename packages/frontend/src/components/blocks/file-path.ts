@@ -38,15 +38,16 @@ export function mediaKindOf(path: string): "image" | "video" | null {
  return null;
 }
 
-// 可标注图片：扩展名白名单（png/jpg/jpeg/webp）+ 路径含 .wa-pi/uploads 段。
+// 可标注图片：只看扩展名（png/jpg/jpeg/webp），**不再限制目录**。
+// 用户明确要求放开 uploads 白名单：项目里任意既有图片（logo、文档配图等）都可标注覆盖，
+// 真实可写范围由内核按「项目工作区内 + 已存在」二次校验。
 // 放在本模块（无任何 import）而不是 media-utils：open-file-preview 要用它判断
 // 「文件树双击打开的图能不能标注」，而 media-utils 依赖 FilePill、FilePill 又依赖
 // open-file-preview——放 media-utils 会形成循环。
 export const ANNOTATABLE_EXT_RE = /\.(png|jpe?g|webp)$/i;
-const UPLOADS_SEGMENT_RE = /[\\/]\.wa-pi[\\/]uploads[\\/]/;
 
-/** 该媒体 src 是否允许标注（.wa-pi/uploads 下的 png/jpg/jpeg/webp） */
+/** 该媒体 src 是否允许标注（png/jpg/jpeg/webp；去掉 query/hash 再判扩展名） */
 export function isAnnotatableImageSrc(src: string): boolean {
- if (!ANNOTATABLE_EXT_RE.test(src)) return false;
- return UPLOADS_SEGMENT_RE.test(src);
+ const clean = src.split(/[?#]/)[0];
+ return ANNOTATABLE_EXT_RE.test(clean);
 }

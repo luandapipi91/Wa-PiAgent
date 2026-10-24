@@ -95,7 +95,7 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
     }
   });
 
-  // POST /api/files/overwrite：标注结果覆盖写回项目 .wa-pi/uploads 内的既有图片
+  // POST /api/files/overwrite：标注结果覆盖写回项目工作区内的既有图片
   // （先写同目录临时文件再 rename，避免半截内容；失败一律清掉临时文件）
   r.add("POST", "/api/files/overwrite", async (req) => {
     const ct = req.headers.get("content-type") ?? "";
@@ -112,25 +112,25 @@ export const registerFileRoutes: RouteRegistrar = (r, _callApi, ctx) => {
       return paramErrorResponse("缺少 file/path 字段", "file/path");
     }
 
-    // 先做路径授权（403）、再校验扩展名/体积（400）：非 uploads 路径即使扩展名不支持
-    // 也应报权限错误，不向未授权路径泄露写入策略
+    // 路径授权：realpath 必须落在某个项目工作区内（isPathInProjects 口径，与 /file、
+    // /preview 一致），且必须 exists——不存在的文件不能借这个接口新建。
+    // 不限制具体子目录：项目内任意既有图片都可被标注覆盖（用户明确不要 uploads 白名单）。
+    // 保留「必须在项目内」这条底线，否则就成了任意绝对路径写入接口。
     const { projects } = await projectStore.load();
     const hit = isPathInProjects(resolve(targetPath), projects);
     const real = hit.kind === "exists" ? hit.path : "";
-    // 只允许改写 .wa-pi/uploads/ 下的既有文件：realpath 口径防 ../ 与符号链接逃逸，
-    // 必须 exists（不存在的文件不能借此新建）
-    if (!real.includes(`${sep}.wa-pi${sep}uploads${sep}`)) {
+    if (!real) {
       return Response.json(
         {
-          error: "仅允许覆盖项目 .wa-pi/uploads 内的文件",
+          error: "只能覆盖项目工作区内已存在的文件",
           failure: { code: "fs.forbidden" },
         },
         { status: 403 },
       );
     }
 
-    // 扩展名以 realpath 为准：uploads 内的符号链接可能指向同目录下另一个扩展名的文件，
-    // 只查请求路径会让 png 字节写进 gif 等非白名单文件
+    // 扩展名以 realpath 为准：项目内的符号链接可能指向另一个扩展名的文件，
+    // 只查请求路径会让 png 字节写进 gif 等非图片文件
     if (!OVERWRITE_EXTS.has(extname(real).toLowerCase())) {
       return Response.json(
         {
