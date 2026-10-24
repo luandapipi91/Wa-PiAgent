@@ -449,6 +449,7 @@ const en = {
 		},
 		attachmentChip: {
 			removeAriaLabel: "Remove attachment",
+			imageName: "Image {{n}}",
 		},
 		quickInvokeMenu: {
 			sourceBuiltin: "Built-in",

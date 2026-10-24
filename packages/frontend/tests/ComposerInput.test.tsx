@@ -17,6 +17,7 @@ import {
 	cleanup,
 } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import type { AttachmentDraft } from "@wa-pi/shared";
 import { useState } from "react";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 import { emitEventForTesting, disconnectEvents } from "../src/events";
@@ -26,6 +27,7 @@ import { useSkillsStore } from "../src/store/skills";
 import { useCommandsStore } from "../src/store/commands";
 import { useAgentsStore } from "../src/store/agents";
 import { useToastStore } from "../src/store/toast";
+import { useImageRevisionStore } from "../src/store/image-revision";
 
 const apiCalls: { method: string; path: string; body?: any }[] = [];
 
@@ -130,6 +132,7 @@ beforeEach(() => {
 	});
 	useAgentsStore.setState({ list: [], configs: {} });
 	useCommandsStore.setState({ commands: [], loading: false });
+	useImageRevisionStore.setState({ revisions: {} });
 });
 
 // beforeEach 用 mock 整体替换了 skills store 的 action，zustand store 是进程级单例，
@@ -1459,4 +1462,103 @@ describe("超大附件降级处理", () => {
 		const attachments = setAttachments.mock.calls[0][0]([]);
 		expect(attachments[0].path).toContain("uploads");
 	});
+});
+
+// 剪贴板里的多张位图被浏览器统一命名为 image.png：展示层必须按图片顺序编号 + 缩略图，
+// 否则用户看到一排同名的 image.png，完全分不清哪张是哪张。
+test("粘贴多张同名 image.png：显示 图片1/图片2 与缩略图", async () => {
+	function Harness() {
+		const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+		return (
+			<ComposerInput
+				text=""
+				setText={mock()}
+				model="openai/gpt-4o"
+				setModel={mock()}
+				thinking="disabled"
+				setThinking={mock()}
+				attachments={attachments}
+				setAttachments={setAttachments as any}
+				projectId="p1"
+				sessionId="s1"
+				onSend={mock()}
+				placeholder="输入..."
+			/>
+		);
+	}
+	render(<Harness />);
+
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]')!;
+	const png = () =>
+		new File([new Uint8Array([137, 80, 78, 71])], "image.png", {
+			type: "image/png",
+		});
+	fireEvent.paste(textbox, { clipboardData: { files: [png(), png()] } });
+
+	await waitFor(() =>
+		expect(screen.getAllByTestId("attachment-chip")).toHaveLength(2),
+	);
+	const list = screen.getByTestId("attachment-list");
+	expect(list.textContent).toContain("图片1");
+	expect(list.textContent).toContain("图片2");
+	expect(list.textContent).not.toContain("image.png");
+	const imgs = list.querySelectorAll('[data-testid="attachment-thumb"]');
+	expect(imgs).toHaveLength(2);
+	for (const img of Array.from(imgs)) {
+		expect((img as HTMLImageElement).getAttribute("src")).toContain(
+			"/file?path=",
+		);
+	}
+});
+
+// 标注覆盖保存后 revision 变化：附件缩略图必须换 URL，否则浏览器仍命中同路径图片的旧缓存。
+test("附件缩略图按 revision 刷新缓存版本号", async () => {
+	function Harness() {
+		const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+		return (
+			<ComposerInput
+				text=""
+				setText={mock()}
+				model="openai/gpt-4o"
+				setModel={mock()}
+				thinking="disabled"
+				setThinking={mock()}
+				attachments={attachments}
+				setAttachments={setAttachments as any}
+				projectId="p1"
+				sessionId="s1"
+				onSend={mock()}
+				placeholder="输入..."
+			/>
+		);
+	}
+	render(<Harness />);
+
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]')!;
+	fireEvent.paste(textbox, {
+		clipboardData: {
+			files: [
+				new File([new Uint8Array([137, 80, 78, 71])], "a.png", {
+					type: "image/png",
+				}),
+			],
+		},
+	});
+
+	await waitFor(() =>
+		expect(screen.getAllByTestId("attachment-thumb")).toHaveLength(1),
+	);
+	const thumbSrc = () =>
+		screen.getByTestId("attachment-thumb").getAttribute("src");
+	// 上传接口（fetchMock）返回的绝对路径
+	const abs = "/project/p1/.wa-pi/uploads/a.png";
+	expect(thumbSrc()).toBe("/file?path=" + encodeURIComponent(abs));
+
+	// 标注保存 bump 后：同一张图换到带版本号的 URL
+	act(() => useImageRevisionStore.getState().bumpImageRevision(abs));
+	expect(thumbSrc()).toBe("/file?path=" + encodeURIComponent(abs) + "&v=1");
 });
