@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../ui/Icon";
 import { resolveMediaSrc, type MediaItem } from "./media-utils";
+import { useImageRevisionStore } from "../../store/image-revision";
 
 /** 单项步距（缩略图 48px + 间距 6px），与渲染样式保持一致 */
 export const THUMB_STEP = 54;
@@ -22,6 +23,8 @@ export function ThumbStrip({ items, index, sessionId, onSelect }: Props) {
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const [scrollLeft, setScrollLeft] = useState(0);
 	const [viewport, setViewport] = useState(0);
+	// 标注覆盖保存后按 revision 换 URL，避开浏览器对同路径图片的缓存（键与 bump 同一口径：原始 src）
+	const revisions = useImageRevisionStore((s) => s.revisions);
 
 	const containerWidth = () =>
 		rootRef.current?.clientWidth || window.innerWidth || FALLBACK_VIEWPORT;
@@ -89,7 +92,11 @@ export function ThumbStrip({ items, index, sessionId, onSelect }: Props) {
 						>
 							{it.kind === "image" ? (
 								<img
-									src={resolveMediaSrc(it.src, sessionId)}
+									src={resolveMediaSrc(
+										it.src,
+										sessionId,
+										revisions[it.src] ?? 0,
+									)}
 									alt={it.name}
 									loading="lazy"
 									className="w-full h-full object-cover"

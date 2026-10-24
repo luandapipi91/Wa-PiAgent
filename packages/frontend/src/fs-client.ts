@@ -407,7 +407,12 @@ export async function discardRecording(
 	});
 }
 
-/** 把附件绝对路径转成可被 <audio>/<img> 直接加载的 kernel /file URL。 */
-export function pathToUploadUrl(absPath: string): string {
-	return "/file?path=" + encodeURIComponent(absPath);
+/** 把附件绝对路径转成可被 <audio>/<img> 直接加载的 kernel /file URL。
+ *  version > 0 时追加 `&v=N`（标注覆盖保存后的缓存刷新，见 store/image-revision）。 */
+export function pathToUploadUrl(absPath: string, version?: number): string {
+	return (
+		"/file?path=" +
+		encodeURIComponent(absPath) +
+		(version ? "&v=" + version : "")
+	);
 }

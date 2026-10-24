@@ -38,6 +38,8 @@ export function MediaPreviewModal() {
 	const preview = useSessionStore((s) => s.mediaPreview);
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
+	// 标注保存后 revision 变化 → 主图与缩略图条换上带新版本号的 URL（键与 bump 同一口径：item.src）
+	const revisions = useImageRevisionStore((s) => s.revisions);
 	// 同目录画廊：打开时按当前文件所在目录重建 items（图片 + 视频，名称自然序）
 	useDirGallery();
 	const index = preview?.index ?? 0;
@@ -93,7 +95,7 @@ export function MediaPreviewModal() {
 
 	if (!preview) return null;
 	const item = preview.items[index];
-	const src = resolveMediaSrc(item.src, preview.sessionId);
+	const src = resolveMediaSrc(item.src, preview.sessionId, revisions[item.src] ?? 0);
 	const go = (d: number) =>
 		useSessionStore.getState().setMediaPreviewIndex((index + d + count) % count);
 

@@ -33,10 +33,15 @@ export function sameFilePath(a: string, b: string): boolean {
 	return norm(a) === norm(b);
 }
 
-/** 媒体 src 路径映射：http(s)/data/blob 原样；本地绝对/相对路径 → kernel /file URL */
-export function resolveMediaSrc(src: string, sessionId: string): string {
+/** 媒体 src 路径映射：http(s)/data/blob 原样；本地绝对/相对路径 → kernel /file URL。
+ *  version > 0 时给本地 URL 追加 `&v=N`（标注覆盖保存后的缓存刷新，远程地址不受影响）。 */
+export function resolveMediaSrc(
+	src: string,
+	sessionId: string,
+	version?: number,
+): string {
 	if (/^(https?:|data:|blob:)/i.test(src)) return src;
-	return pathToUploadUrl(resolveAbsolutePath(src, sessionId));
+	return pathToUploadUrl(resolveAbsolutePath(src, sessionId), version);
 }
 
 /** md 预览相对路径解析（baseDir 拼接）：FileViewer 的 PreviewImage 与 a 渲染器共用 */
