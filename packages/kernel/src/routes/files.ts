@@ -14,7 +14,7 @@ import {
   discardRecording,
 } from "../recording-store";
 import { mkdir, writeFile, rename, rm } from "node:fs/promises";
-import { join, basename, dirname, extname, resolve, sep } from "node:path";
+import { join, basename, dirname, extname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
