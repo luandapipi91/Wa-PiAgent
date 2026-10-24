@@ -962,8 +962,10 @@ export function ComposerInput({
 				</div>
 			)}
 			{attachments.length > 0 && (
+				// items-start：图片 chip（56 缩略图 + 标签）比文件胶囊高得多；不显式顶部对齐时，
+				// flex-wrap 行内交叉轴 stretch 会把文件胶囊连同背景拉伸成一个大灰块
 				<div
-					className="flex flex-wrap gap-2 mt-2 px-1"
+					className="flex flex-wrap items-start gap-2 mt-2 px-1"
 					data-testid="attachment-list"
 				>
 					{attachments.map((a, i) => (

@@ -1514,6 +1514,54 @@ test("粘贴多张同名 image.png：显示 图片1/图片2 与缩略图", async
 });
 
 // 标注覆盖保存后 revision 变化：附件缩略图必须换 URL，否则浏览器仍命中同路径图片的旧缓存。
+test("附件区容器顶部对齐：图片与普通文件混排时不被行高拉伸（items-start）", async () => {
+	function Harness() {
+		const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+		return (
+			<ComposerInput
+				text=""
+				setText={mock()}
+				model="openai/gpt-4o"
+				setModel={mock()}
+				thinking="disabled"
+				setThinking={mock()}
+				attachments={attachments}
+				setAttachments={setAttachments as any}
+				projectId="p1"
+				sessionId="s1"
+				onSend={mock()}
+				placeholder="输入..."
+			/>
+		);
+	}
+	render(<Harness />);
+
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]')!;
+	// 一次粘贴带入「文本文件 + 图片」两种附件
+	fireEvent.paste(textbox, {
+		clipboardData: {
+			files: [
+				new File(["@echo off\n"], "start.bat", { type: "text/plain" }),
+				new File([new Uint8Array([137, 80, 78, 71])], "image.png", {
+					type: "image/png",
+				}),
+			],
+		},
+	});
+
+	await waitFor(() =>
+		expect(screen.getAllByTestId("attachment-chip")).toHaveLength(2),
+	);
+	// happy-dom 不做布局，这里锁住类名契约：去掉 items-start 后 flex-wrap 行内
+	// 交叉轴 stretch 会把文件胶囊连同背景拉成一个大灰块（真实浏览器回归见
+	// e2e/composer-image-attachments.spec.ts「图片与普通文件混排」）。
+	const list = screen.getByTestId("attachment-list");
+	expect(list.className.split(/\s+/)).toContain("items-start");
+});
+
+// 标注覆盖保存后 revision 变化：附件缩略图必须换 URL，否则浏览器仍命中同路径图片的旧缓存。
 test("附件缩略图按 revision 刷新缓存版本号", async () => {
 	function Harness() {
 		const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);

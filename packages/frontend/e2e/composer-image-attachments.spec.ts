@@ -79,4 +79,56 @@ test.describe.serial("图片附件编号与缩略图", () => {
 			)
 			.toEqual([1, 1]);
 	});
+
+	// 回归用户反馈：图片 + 普通文件混排时，附件区多出一个大灰块。
+	// 根因：附件行是 flex-wrap（默认 align-items: stretch），行高被最高的图片 chip
+	// （56 缩略图 + 标签）撞高，文件胶囊的 bg + rounded-pill 背景被拉成一大块。
+	test("图片与普通文件混排：文件胶囊不被行高拉伸", async ({ page }) => {
+		test.setTimeout(90_000);
+		const projectName = `e2e-mixed-att-${randomUUID().slice(0, 8)}`;
+		const project = await createProject(projectName, `/tmp/${projectName}`);
+
+		await setUiPrefs(page, "zh");
+		await page.goto("/");
+		await expect(page.getByTestId("new-session-pane")).toBeVisible({
+			timeout: 10_000,
+		});
+		await page.getByTestId("project-select").selectOption(project.id);
+
+		// drop 一次带入「一张图片 + 一个文本文件」，走真实上传链路
+		await page
+			.locator('[data-testid="composer-input"]')
+			.evaluate((el, b64) => {
+				const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+				const dt = new DataTransfer();
+				dt.items.add(
+					new File(["@echo off\n"], "start.bat", { type: "text/plain" }),
+				);
+				dt.items.add(new File([bytes], "image.png", { type: "image/png" }));
+				el.dispatchEvent(
+					new DragEvent("drop", {
+						dataTransfer: dt,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			}, PNG_BASE64);
+
+		const list = page.getByTestId("attachment-list");
+		await expect(list.getByTestId("attachment-chip")).toHaveCount(2, {
+			timeout: 20_000,
+		});
+		const fileChip = list
+			.getByTestId("attachment-chip")
+			.filter({ hasText: "start.bat" });
+		const imgChip = list
+			.getByTestId("attachment-chip")
+			.filter({ hasText: "图片1" });
+		const fileBox = (await fileChip.boundingBox())!;
+		const imgBox = (await imgChip.boundingBox())!;
+		// 图片 chip 高（缩略图 + 标签）；文件胶囊保持自身高度，不被拉伸到行高
+		expect(imgBox.height).toBeGreaterThan(60);
+		expect(fileBox.height).toBeLessThan(40);
+		expect(Math.abs(fileBox.y - imgBox.y)).toBeLessThan(4);
+	});
 });
