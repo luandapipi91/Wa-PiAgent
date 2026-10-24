@@ -161,7 +161,7 @@ test("assistant 消息按 content block 渲染 thinking + text + toolCall", () =
 	).toBeTruthy();
 	// 单个 toolCall 直接渲染单卡（不成组），未完成时默认展开
 	expect(screen.queryByTestId("toolcall-group")).toBeNull();
-	expect(screen.getByTestId("toolcall-c1-header").textContent).toContain("read");
+	expect(screen.getByTestId("toolcall-c1-header").textContent).toMatch(/读取|read/i);
 	// executingMode 下无 result 默认展开
 	expect(screen.getByTestId("toolcall-c1-body")).toBeTruthy();
 });
@@ -464,6 +464,33 @@ test("空字符串 text block 不渲染空白文字气泡", () => {
 	// toolCall 折叠在轮级摘要行内：先展开摘要行，单卡直接可见（不成组）
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
+	expect(screen.queryByTestId("text-block")).toBeNull();
+});
+
+test("零宽空格 text block 不渲染空白气泡（模型输出夹带 U+200B）", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				assistantMsg(1, [
+					{
+						type: "toolCall",
+						id: "c1",
+						name: "bash",
+						arguments: { command: "ls" },
+					},
+					{ type: "text", text: "\u200b" },
+				]),
+			],
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
+	// U+200B 不是 ECMAScript 空白字符，trim() 去不掉，但渲染出来是空气泡
 	expect(screen.queryByTestId("text-block")).toBeNull();
 });
 
@@ -2386,7 +2413,7 @@ test("已定稿含过程段的行：折叠为摘要行，text 保留，点击展
 	// 点击展开：过程段卡片可见
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("thinking-panel")).toBeTruthy();
-	expect(screen.getByTestId("toolcall-t1-header").textContent).toContain("read");
+	expect(screen.getByTestId("toolcall-t1-header").textContent).toMatch(/读取|read/i);
 	// thinking 卡本身默认折叠（历史已完成），再点击展开可见思考内容
 	fireEvent.click(screen.getByTestId("thinking-panel-header"));
 	expect(screen.getByText("思考中")).toBeTruthy();
@@ -2609,7 +2636,7 @@ test("进行中的轮（thinking）：末行已定稿含过程段 → 不折叠�
 	// 无摘要行；过程段直接可见（thinking 卡存在、toolCall 卡 header 可见、text 可见）
 	expect(screen.queryByTestId("turn-summary")).toBeNull();
 	expect(screen.getByTestId("thinking-panel")).toBeTruthy();
-	expect(screen.getByTestId("toolcall-t1-header").textContent).toContain("read");
+	expect(screen.getByTestId("toolcall-t1-header").textContent).toMatch(/读取|read/i);
 	expect(screen.getByText("阶段性回复")).toBeTruthy();
 });
 
@@ -3004,4 +3031,65 @@ test("role=system 消息不渲染任何行（兜底 kernel 过滤，pi 0.86 会�
 	// 相邻 user 消息仍正常渲染
 	expect(screen.getByText("你好")).toBeTruthy();
 	void container;
+});
+
+// ── shell 耗时：用 pi 返回的「该次工具调用所属 assistant 消息」时间戳 ──
+// pi 每条 assistant 消息带 timestamp（实测 167/173 条只含 1 个 toolCall），
+// 同回合多条 assistant 会被合并成一行渲染——耗时不能取合并行首条消息的时间戳，
+// 否则后面的工具调用会把前面消息的等待时间也算进去（实测出现「耗时 5m 7s」）。
+test("同回合合并行：每张 shell 卡用自己那条 assistant 消息的 timestamp 算耗时", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				// 第一条 assistant（ts=1000）发起 bash#a，3.6s 后返回
+				assistantMsg(1000, [
+					{ type: "toolCall", id: "a", name: "bash", arguments: { command: "echo a" } },
+				]),
+				{
+					agentName: "product",
+					message: {
+						role: "toolResult",
+						toolCallId: "a",
+						toolName: "bash",
+						content: [{ type: "text", text: "a" }],
+						isError: false,
+						timestamp: 4600,
+					},
+				} as any,
+				// 第二条 assistant（ts=5000）发起 bash#b，1.0s 后返回
+				assistantMsg(5000, [
+					{ type: "toolCall", id: "b", name: "bash", arguments: { command: "echo b" } },
+				]),
+				{
+					agentName: "product",
+					message: {
+						role: "toolResult",
+						toolCallId: "b",
+						toolName: "bash",
+						content: [{ type: "text", text: "b" }],
+						isError: false,
+						timestamp: 6000,
+					},
+				} as any,
+			],
+		},
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	// 两条 bash 连续 → 归成一张组卡，展开后逐张卡可见
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	const group = screen.getByTestId("toolcall-group-header");
+	fireEvent.click(group);
+	fireEvent.click(screen.getByTestId("toolcall-a-header"));
+	fireEvent.click(screen.getByTestId("toolcall-b-header"));
+	expect(
+		screen.getByTestId("toolcall-a-shell-duration").textContent,
+	).toContain("3.6s");
+	// 若用合并行首条消息（1000）算，这里会是 5.0s
+	expect(
+		screen.getByTestId("toolcall-b-shell-duration").textContent,
+	).toContain("1.0s");
 });

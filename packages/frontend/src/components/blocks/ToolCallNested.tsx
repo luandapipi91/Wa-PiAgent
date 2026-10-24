@@ -214,9 +214,11 @@ function NestedToolCallList({ views }: { views: ToolCallView[] }) {
 export const ToolCallNested = memo(function ToolCallNested({
 	group,
 	isStreaming,
+	startedAt,
 }: {
 	group: ToolCallGroup;
 	isStreaming?: boolean;
+	startedAt?: number;
 }) {
 	return (
 		<div data-testid={`toolcall-nested-${group.parent.toolCallId}`}>
@@ -224,6 +226,7 @@ export const ToolCallNested = memo(function ToolCallNested({
 				toolCall={viewToToolCall(group.parent)}
 				result={viewToResult(group.parent)}
 				isStreaming={isStreaming}
+				startedAt={startedAt}
 			/>
 			{group.children.length > 0 && <NestedToolCallList views={group.children} />}
 		</div>
@@ -274,11 +277,14 @@ export function ToolCallsSegment({
 	toolCalls,
 	results,
 	isStreaming,
+	startedAtById,
 }: {
 	sessionId: string;
 	toolCalls: any[];
 	results: Map<string, ToolResultMessage>;
 	isStreaming?: boolean;
+	/** 每张卡各自的发起时间（pi assistant 消息 timestamp，按 toolCallId 索引）：用于算 shell 耗时 */
+	startedAtById?: Map<string, number>;
 }) {
 	// 嵌套调用表按会话读取：部分状态替身（历史单测的 mock store）没有该字段，
 	// 缺省当「无嵌套调用」处理，不因缺字段拖垬整行渲染
@@ -293,10 +299,17 @@ export function ToolCallsSegment({
 					toolCall={tc}
 					result={results.get(tc.id)}
 					isStreaming={isStreaming}
+					startedAt={startedAtById?.get(tc.id)}
 				/>
 			);
 		}
-		return <ToolCallNested group={group} isStreaming={isStreaming} />;
+		return (
+			<ToolCallNested
+				group={group}
+				isStreaming={isStreaming}
+				startedAt={startedAtById?.get(tc.id)}
+			/>
+		);
 	};
 	return (
 		<ToolGroupCard

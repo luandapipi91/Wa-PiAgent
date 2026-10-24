@@ -44,6 +44,9 @@ export function ProcessCard(props: {
 	const { tone, icon, title, meta, open, onToggle, muted, testId, children } =
 		props;
 	const t = TONE_STYLE[tone];
+	// 弱化只作用于折叠态：展开查看明细时恢复不透明，否则历史卡里的内容（命令输出/diff）
+	// 会跟着变淡，影响排查。data-muted 仍保留「这是历史卡」的语义。
+	const dimmed = muted && !open;
 	// 折叠/展开时保持视口位置：长卡在虚拟列表中高度阶跃会让浏览器 clamp scrollTop
 	// （视口跳顶/跳底），以头部按钮为锚点补偿（详见 toggleViewport 注释）
 	const headerRef = useRef<HTMLButtonElement | null>(null);
@@ -56,7 +59,7 @@ export function ProcessCard(props: {
 		<div
 			data-testid={testId}
 			data-muted={muted || undefined}
-			className={`rounded-lg border border-hairline bg-surface transition-opacity ${muted ? "opacity-55" : ""}`}
+			className={`rounded-lg border border-hairline bg-surface transition-opacity ${dimmed ? "opacity-55" : ""}`}
 		>
 			<button
 				type="button"
