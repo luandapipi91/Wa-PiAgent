@@ -94,6 +94,7 @@ const ICONS = {
 	radio: <circle cx="12" cy="12" r="7" />,
 	// ── 箭头/折叠 ──
 	"chevron-down": <path d="M6 9.5l6 6 6-6" />,
+	"chevron-left": <path d="M14.5 6l-6 6 6 6" />,
 	"chevron-right": <path d="M9.5 6l6 6-6 6" />,
 	"arrow-up": (
 		<>

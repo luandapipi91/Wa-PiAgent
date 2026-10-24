@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
 import { formatRecordError } from "../../util/kernel-error";
 import { recordShowsDuration, recordVisual } from "./record-visual";
+import { RecordDetailLink } from "./RecordDetailLink";
 
 // 初始加载窗口：按天/周/月对应的时间跨度（毫秒）
 const PERIOD_MS = {
@@ -189,18 +190,8 @@ export function ExecutionRecords() {
 									)}
 								</div>
 							</div>
-							{/* 详情入口：与整行 onClick 同效，给习惯找按钮的用户 */}
-							<button
-								onClick={() => openRecordDetail(r.id, "records")}
-								className="text-[10px] px-2 py-1 rounded border cursor-pointer flex-shrink-0 self-center"
-								style={{
-									background: "var(--surface)",
-									borderColor: "var(--hairline)",
-									color: "var(--text-secondary)",
-								}}
-							>
-								详情
-							</button>
+							{/* 详情入口：与整行 onClick 同效，无底色文字按钮 */}
+							<RecordDetailLink onClick={() => openRecordDetail(r.id, "records")} />
 						</div>
 					))}
 				</div>

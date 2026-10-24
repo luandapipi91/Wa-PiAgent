@@ -6,15 +6,18 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { ExecutionRecords } from "../ExecutionRecords";
 
 const loadRecordsMock = mock();
+const openRecordDetailMock = mock();
 
 const schedulerState: {
 	tasks: any[];
 	records: any[];
 	loadRecords: typeof loadRecordsMock;
+	openRecordDetail: typeof openRecordDetailMock;
 } = {
 	tasks: [],
 	records: [],
 	loadRecords: loadRecordsMock,
+	openRecordDetail: openRecordDetailMock,
 };
 
 mock.module("../../../store/scheduler", () => ({
@@ -23,6 +26,7 @@ mock.module("../../../store/scheduler", () => ({
 
 beforeEach(() => {
 	loadRecordsMock.mockReset();
+	openRecordDetailMock.mockReset();
 	schedulerState.tasks = [];
 	schedulerState.records = [];
 	cleanup();
@@ -95,6 +99,32 @@ describe("ExecutionRecords", () => {
 		// r1 success 显示「耗时 5s」，r2 failed 显示「网络错误」。
 		expect(screen.getByText("耗时 5s")).toBeTruthy();
 		expect(screen.getByText("网络错误")).toBeTruthy();
+	});
+
+	test("详情入口：无底色文字按钮「详情 ›」，点击打开该记录", () => {
+		schedulerState.tasks = [{ id: "t1", name: "每日报表" }];
+		schedulerState.records = [
+			{
+				id: "r1",
+				taskId: "t1",
+				taskName: "每日报表",
+				status: "success",
+				startedAt: Date.now() - 1000,
+				durationMs: 5000,
+			},
+		];
+		render(<ExecutionRecords />);
+		const btn = screen.getByRole("button", { name: /^详情$/ });
+		// 无底色、无边框（若回退成旧版灰底描边按钮，这些断言会红）
+		const cls = btn.className.split(/\s+/);
+		expect(cls.filter((c) => c.startsWith("bg-"))).toEqual([]);
+		expect(cls.filter((c) => /^border(-|$)/.test(c))).toEqual([]);
+		expect(btn.getAttribute("style") ?? "").not.toContain("background");
+		// 「详情」文字 + 右箭头图标（箭头不再是文字符号）
+		expect(btn.querySelector("svg")).toBeTruthy();
+		expect(btn.textContent).not.toContain(">");
+		fireEvent.click(btn);
+		expect(openRecordDetailMock).toHaveBeenCalledWith("r1", "records");
 	});
 
 	test("按天筛选：仅显示 24 小时内的记录", () => {

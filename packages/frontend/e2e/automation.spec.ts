@@ -370,6 +370,22 @@ test.describe
 				"utf8",
 			);
 
+			// 详情入口：无底色文字按钮 + 右箭头，点击同样进详情（静态背景必须透明）
+			const detailEntry = page
+				.getByTestId(`execution-record-row-${record.id}`)
+				.getByRole("button", { name: /^详情$/ });
+			await expect(detailEntry).toBeVisible();
+			await expect(detailEntry.locator("svg")).toBeVisible();
+			expect(
+				await detailEntry.evaluate((el) => getComputedStyle(el).backgroundColor),
+			).toBe("rgba(0, 0, 0, 0)");
+			await detailEntry.click();
+			await expect(page.getByTestId("execution-detail-view")).toBeVisible({
+				timeout: 10_000,
+			});
+			await page.getByTestId("execution-detail-back").click();
+			await expect(page.getByTestId("execution-records")).toBeVisible();
+
 			// 点记录行 → record-detail 页签：MessageList 复用渲染 jsonl 回放
 			await page.getByTestId(`execution-record-row-${record.id}`).click();
 			await expect(page.getByTestId("execution-detail-view")).toBeVisible({
@@ -387,6 +403,17 @@ test.describe
 				listBox?.height ?? 0,
 				"消息列表容器高度应 > 0（flex 塌陷回归）",
 			).toBeGreaterThan(0);
+
+			// 返回入口在 header 右端（不在标题左侧），且是带图标的按钮
+			const backBtn = page.getByTestId("execution-detail-back");
+			const backBox = (await backBtn.boundingBox())!;
+			const titleBox = (await page
+				.getByTestId("execution-detail-view")
+				.getByText(/· 执行详情/)
+				.first()
+				.boundingBox())!;
+			expect(titleBox.x, "标题在左、返回在右").toBeLessThan(backBox.x);
+			expect(await backBtn.locator("svg").count()).toBe(1);
 
 			// 返回 → 按来源快照回执行记录页
 			await page.getByTestId("execution-detail-back").click();

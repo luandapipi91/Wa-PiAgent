@@ -122,6 +122,20 @@ describe("ExecutionDetailView", () => {
 		expect(closeRecordDetailMock).toHaveBeenCalledTimes(1);
 	});
 
+	test("返回按钮在 header 右端（不在标题左侧），且是带图标的文字按钮", () => {
+		apiGetMock.mockResolvedValueOnce({ messages: [] });
+		render(<ExecutionDetailView />);
+		const back = screen.getByTestId("execution-detail-back");
+		const header = back.parentElement!;
+		// 标题区先出现，返回按钮是 header 的最后一个子节点 → flex 行里靠右
+		expect(header.firstElementChild).not.toBe(back);
+		expect(header.lastElementChild).toBe(back);
+		// 美化：用 SVG 图标而非裸「←」字符
+		expect(back.querySelector("svg")).toBeTruthy();
+		expect(back.textContent).toContain("返回");
+		expect(back.textContent).not.toContain("←");
+	});
+
 	test("无 sessionId（旧记录/会话创建前失败）：不拉接口，显示空态与错误摘要", async () => {
 		schedulerState.records = [
 			{

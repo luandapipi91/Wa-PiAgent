@@ -14,6 +14,8 @@ import {
 	type ContactChipMeta,
 } from "./prompt-tokens";
 import { recordShowsDuration, recordVisual } from "./record-visual";
+import { RecordDetailLink } from "./RecordDetailLink";
+import { Icon } from "../ui/Icon";
 
 /**
  * 任务详情视图：四宫格信息（计划/角色/联系人/目录）+ 任务指令高亮 + 最近执行记录。
@@ -134,41 +136,31 @@ export function TaskDetailView() {
 					onClick={() => void runNow()}
 					disabled={runPending}
 					data-testid="task-run-now-btn"
-					className="text-[10px] px-2 py-1 rounded border"
-					style={{
-						background: "var(--surface-hover)",
-						borderColor: "var(--hairline)",
-						color: "var(--text-secondary)",
-						cursor: runPending ? "not-allowed" : "pointer",
-						opacity: runPending ? 0.5 : 1,
-					}}
+					className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-[calc(11px*var(--font-scale))] text-secondary transition-colors ${
+						runPending
+							? "opacity-50 cursor-not-allowed"
+							: "cursor-pointer hover:bg-surface-hover hover:text-primary"
+					}`}
 				>
-					▶ 立即执行
+					<Icon name="play" size={11} />
+					立即执行
 				</button>
 				{running && (
 					<button
 						onClick={() => void cancelRun()}
 						data-testid="task-cancel-run-btn"
-						className="text-[10px] px-2 py-1 rounded cursor-pointer border"
-						style={{
-							background: "rgba(239,68,68,0.08)",
-							borderColor: "rgba(239,68,68,0.4)",
-							color: "#f87171",
-						}}
+						className="inline-flex h-7 items-center gap-1 rounded-md px-2 cursor-pointer text-[calc(11px*var(--font-scale))] text-danger transition-colors hover:bg-danger-soft"
 					>
-						■ 取消执行
+						<Icon name="stop" size={11} />
+						取消执行
 					</button>
 				)}
 				<button
 					onClick={() => startEdit(task)}
-					className="text-[10px] px-2 py-1 rounded cursor-pointer border"
-					style={{
-						background: "var(--surface-hover)",
-						borderColor: "var(--hairline)",
-						color: "var(--text-secondary)",
-					}}
+					className="inline-flex h-7 items-center gap-1 rounded-md px-2 cursor-pointer text-[calc(11px*var(--font-scale))] text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
 				>
-					✏️ 编辑
+					<Icon name="edit" size={12} />
+					编辑
 				</button>
 			</div>
 
@@ -281,20 +273,7 @@ function RecordRow({
 					)}
 				</div>
 			</div>
-			<button
-				onClick={(e) => {
-					e.stopPropagation();
-					open();
-				}}
-				className="text-[10px] px-2 py-1 rounded border cursor-pointer flex-shrink-0 self-center"
-				style={{
-					background: "var(--surface)",
-					borderColor: "var(--hairline)",
-					color: "var(--text-secondary)",
-				}}
-			>
-				详情
-			</button>
+			<RecordDetailLink onClick={open} />
 		</div>
 	);
 }
