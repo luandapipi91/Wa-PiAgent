@@ -33,15 +33,17 @@ function makeFakeCtx() {
 		restore: () => calls.push("restore"),
 		beginPath: () => calls.push("beginPath"),
 		closePath: () => calls.push("closePath"),
-		moveTo: () => calls.push("moveTo"),
-		lineTo: () => calls.push("lineTo"),
+		moveTo: (x: number, y: number) => calls.push(`moveTo:${x},${y}`),
+		lineTo: (x: number, y: number) => calls.push(`lineTo:${x},${y}`),
 		quadraticCurveTo: () => calls.push("quadraticCurveTo"),
 		stroke: () => calls.push("stroke"),
 		fill: () => calls.push("fill"),
 		arc: () => calls.push("arc"),
 		ellipse: () => calls.push("ellipse"),
-		strokeRect: () => calls.push("strokeRect"),
-		fillText: () => calls.push("fillText"),
+		strokeRect: (x: number, y: number, w: number, h: number) =>
+			calls.push(`strokeRect:${x},${y},${w},${h}`),
+		fillText: (text: string, x: number, y: number) =>
+			calls.push(`fillText:${text},${x},${y}`),
 		clearRect: () => calls.push("clearRect"),
 		drawImage: () => calls.push("drawImage"),
 		measureText: (text: string) => ({ width: text.length * 8 }),
@@ -123,6 +125,27 @@ function drawStroke(canvas: HTMLElement, to = { x: 60, y: 50 }) {
 
 const undoBtn = () => screen.getByTestId("annotator-undo") as HTMLButtonElement;
 
+/** 最近一次全量重绘产生的 ctx 调用（从最后一个 clearRect 开始） */
+const lastRedraw = () => calls.slice(calls.lastIndexOf("clearRect"));
+
+/** 用矩形工具拖一个包围盒（默认宿主 mock 比例为 1，client 坐标 = 自然坐标） */
+function drawRectTool(
+	canvas: HTMLElement,
+	x1: number,
+	y1: number,
+	x2: number,
+	y2: number,
+) {
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: x1,
+		clientY: y1,
+	});
+	fireEvent.pointerMove(canvas, { pointerId: 1, clientX: x2, clientY: y2 });
+	fireEvent.pointerUp(canvas, { pointerId: 1, clientX: x2, clientY: y2 });
+}
+
 test("渲染底部浮条：6 个工具、3 档粗细、8 个颜色、撤销/清空/取消/保存", async () => {
 	setup();
 	expect(screen.getByTestId("image-annotator")).toBeTruthy();
@@ -203,7 +226,7 @@ test("画笔拖拽提交后撤销：按钮回到禁用且画布重绘为空", as
 	expect(undoBtn().disabled).toBe(true);
 	drawStroke(canvas);
 	await waitFor(() => expect(undoBtn().disabled).toBe(false));
-	expect(calls).toContain("lineTo");
+	expect(calls.some((call) => call.startsWith("lineTo:"))).toBe(true);
 
 	const before = redraws();
 	fireEvent.click(undoBtn());
@@ -275,8 +298,118 @@ test("文字工具：点画布出现内联输入框，Enter 提交后重绘并�
 
 	expect(screen.queryByTestId("annotator-text-input")).toBeNull();
 	await waitFor(() => expect(redraws()).toBeGreaterThan(before));
-	expect(calls).toContain("fillText");
+	expect(calls.some((call) => call.startsWith("fillText:"))).toBe(true);
 	expect(undoBtn().disabled).toBe(false);
+});
+
+test("坐标换算：canvas 显示 50×50、图片 100×100 时坐标按 2 倍放大后绘制", async () => {
+	setup();
+	const canvas = await canvasOf();
+	// 图片自然尺寸 100×100 被容器缩到 50×50 显示：client 坐标应为自然坐标的一半
+	canvas.getBoundingClientRect = () => new DOMRect(0, 0, 50, 50);
+
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 20,
+		clientY: 10,
+	});
+	fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 30, clientY: 20 });
+	fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 40, clientY: 30 });
+
+	// 断言真实绘制输出（drawShapes 的 ctx 调用），不依赖内部 state：
+	// client (20,10) → 自然 (40,20)，依此类推
+	const redraw = lastRedraw();
+	expect(redraw).toContain("moveTo:40,20");
+	expect(redraw).toContain("lineTo:60,40");
+	expect(redraw).toContain("lineTo:80,60");
+	expect(redraw).not.toContain("moveTo:20,10");
+});
+
+test("文字输入框按根容器定位：canvas 居中留白不错位、靠边不溢出", async () => {
+	setup();
+	const canvas = await canvasOf();
+	const root = screen.getByTestId("image-annotator");
+	// 根容器 300×200（viewport 原点 (30,40)），画布居中留白后位于 (100,50)、尺寸 100×100
+	root.getBoundingClientRect = () => new DOMRect(30, 40, 300, 200);
+	canvas.getBoundingClientRect = () => new DOMRect(130, 90, 100, 100);
+	fireEvent.click(screen.getByTestId("annotator-tool-text"));
+
+	// canvas 内 (20,10) → client (150,100)。input 的包含块是根容器，故偏移为 120/60
+	//（若误用 canvas rect 会得到 20/10，即缺陷现场）
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 150,
+		clientY: 100,
+	});
+	const input = screen.getByTestId("annotator-text-input") as HTMLInputElement;
+	expect(input.style.left).toBe("120px");
+	expect(input.style.top).toBe("60px");
+
+	// 靠右下点击：夹取到容器内（输入框 112×28：300-112=188、200-28=172）
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 400,
+		clientY: 300,
+	});
+	expect(input.style.left).toBe("188px");
+	expect(input.style.top).toBe("172px");
+});
+
+test("橡皮擦：只删命中的图形，另一个保留，撤销可恢复", async () => {
+	setup();
+	const canvas = await canvasOf();
+	fireEvent.click(screen.getByTestId("annotator-tool-rect"));
+	drawRectTool(canvas, 10, 10, 30, 30);
+	drawRectTool(canvas, 60, 60, 80, 80);
+	expect(lastRedraw()).toContain("strokeRect:10,10,20,20");
+	expect(lastRedraw()).toContain("strokeRect:60,60,20,20");
+
+	fireEvent.click(screen.getByTestId("annotator-tool-eraser"));
+	// 点左矩形上边框 (20,10)：只删它，右矩形保留
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 20,
+		clientY: 10,
+	});
+	expect(lastRedraw()).not.toContain("strokeRect:10,10,20,20");
+	expect(lastRedraw()).toContain("strokeRect:60,60,20,20");
+
+	// 撤销把被擦的图形插回原位
+	fireEvent.click(undoBtn());
+	expect(lastRedraw()).toContain("strokeRect:10,10,20,20");
+	expect(lastRedraw()).toContain("strokeRect:60,60,20,20");
+});
+
+test("橡皮擦：多图形同时命中时一次事件只删最上层一个", async () => {
+	setup();
+	const canvas = await canvasOf();
+	fireEvent.click(screen.getByTestId("annotator-tool-rect"));
+	// 两个矩形共享左边界 x=10：后画的 (10,10)-(70,70) 在最上层
+	drawRectTool(canvas, 10, 10, 50, 50);
+	drawRectTool(canvas, 10, 10, 70, 70);
+
+	fireEvent.click(screen.getByTestId("annotator-tool-eraser"));
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 10,
+		clientY: 30,
+	});
+	expect(lastRedraw()).not.toContain("strokeRect:10,10,60,60");
+	expect(lastRedraw()).toContain("strokeRect:10,10,40,40");
+
+	// 再擦一次才轮到下层
+	fireEvent.pointerDown(canvas, {
+		pointerId: 1,
+		button: 0,
+		clientX: 10,
+		clientY: 30,
+	});
+	expect(lastRedraw()).not.toContain("strokeRect:10,10,40,40");
 });
 
 test("保存：导出 Blob 交给 onSave，保存中按钮禁用并显示 saving", async () => {

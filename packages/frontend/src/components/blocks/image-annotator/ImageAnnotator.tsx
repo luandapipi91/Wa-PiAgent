@@ -46,6 +46,20 @@ const WIDTHS: { level: StrokeLevel; dot: number; labelKey: string }[] = [
 /** 历史栈上限：超出只丢最早的历史，可见 shapes 不受影响 */
 const HISTORY_LIMIT = 200;
 
+/** 文字输入浮层尺寸：宽度走内联样式保证与夹取计算一致；高度取保守估计（略大于实际行高） */
+const TEXT_INPUT_WIDTH = 112;
+const TEXT_INPUT_HEIGHT = 28;
+
+/** 把浮层偏移夹取到容器内；容器尺寸不可测（0/undefined）时原样返回 */
+function clampOffset(
+	offset: number,
+	containerSize: number | undefined,
+	size: number,
+): number {
+	if (!containerSize) return offset;
+	return Math.min(Math.max(offset, 0), Math.max(0, containerSize - size));
+}
+
 /** 玻璃质感：半透明 + 背景模糊，下层图片始终透出 */
 const BAR_STYLE = {
 	background: "color-mix(in srgb, var(--surface) 78%, transparent)",
@@ -109,6 +123,7 @@ export function ImageAnnotator({
 	onSave: (blob: Blob) => Promise<void>;
 }) {
 	const { t } = useTranslation();
+	const rootRef = useRef<HTMLDivElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	// 矩形/椭圆的拖拽锚点（draft 的 x/y 会被归一化覆盖，锚点单独存）
 	const anchorRef = useRef<Point | null>(null);
@@ -244,12 +259,22 @@ export function ImageAnnotator({
 		if (!point) return;
 
 		if (tool === "text") {
-			const rect = e.currentTarget.getBoundingClientRect();
+			// input 的包含块是根容器（canvas 在 contain 布局下可能居中留白），
+			// 所以偏移要相对根容器算；用 canvas rect 会在留白区明显错位
+			const rootRect = rootRef.current?.getBoundingClientRect();
+			const canvasRect = e.currentTarget.getBoundingClientRect();
+			const offsetX = rootRect
+				? e.clientX - rootRect.left
+				: e.clientX - canvasRect.left;
+			const offsetY = rootRect
+				? e.clientY - rootRect.top
+				: e.clientY - canvasRect.top;
 			setTextDraft({
 				x: point.x,
 				y: point.y,
-				left: e.clientX - rect.left,
-				top: e.clientY - rect.top,
+				// 靠右/靠下点击时夹取到容器内，避免输入框溢出被裁掉
+				left: clampOffset(offsetX, rootRect?.width, TEXT_INPUT_WIDTH),
+				top: clampOffset(offsetY, rootRect?.height, TEXT_INPUT_HEIGHT),
 				value: "",
 			});
 			return;
@@ -364,6 +389,7 @@ export function ImageAnnotator({
 
 	return (
 		<div
+			ref={rootRef}
 			data-testid="image-annotator"
 			className="relative flex flex-1 min-h-0 items-center justify-center overflow-hidden"
 		>
@@ -392,8 +418,13 @@ export function ImageAnnotator({
 					data-testid="annotator-text-input"
 					autoFocus
 					value={textDraft.value}
-					style={{ left: textDraft.left, top: textDraft.top, color }}
-					className="absolute z-20 w-28 rounded-sm border border-hairline bg-surface px-1 py-0.5 text-[calc(13px*var(--font-scale))] outline-none"
+					style={{
+						left: textDraft.left,
+						top: textDraft.top,
+						width: TEXT_INPUT_WIDTH,
+						color,
+					}}
+					className="absolute z-20 rounded-sm border border-hairline bg-surface px-1 py-0.5 text-[calc(13px*var(--font-scale))] outline-none"
 					onChange={(e) =>
 						setTextDraft((prev) =>
 							prev ? { ...prev, value: e.target.value } : prev,
