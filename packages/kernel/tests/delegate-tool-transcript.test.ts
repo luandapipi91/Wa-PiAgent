@@ -132,6 +132,53 @@ describe("XML 块渲染（规格 §7 定稿形状）", () => {
 		expect(s.endsWith("</subagent>")).toBe(true);
 		expect(s.split("</result>")).toHaveLength(2);
 	});
+
+	test("interrupted + 实例已登记：追加 <continuation> 续接指引（独立元素，位于 </result> 后）", () => {
+		const s = renderSubagentBlock({
+			taskIndex: 0,
+			agentId: "a9c34d55",
+			subagentType: "general-purpose",
+			status: "interrupted",
+			resumed: false,
+			jsonlPath: "C:/x/subagents/sid/a9c34d55.jsonl",
+			text: "子智能体执行中断：子智能体已被中止",
+		});
+		// 指引含可复制的 resume 调用形状与决策标准，不进 <result> 正文
+		expect(s).toContain(
+			'<continuation>续接此实例：delegate tasks=[{"resume":"a9c34d55","task":"续接指令"}]',
+		);
+		expect(s).toContain("适用：后续依赖现场细节");
+		// 顺序：…</result><continuation>…</continuation></subagent>
+		const tail = s.slice(s.indexOf("</result>"));
+		expect(tail.startsWith("</result><continuation>")).toBe(true);
+		expect(tail.endsWith("</continuation></subagent>")).toBe(true);
+		// 正文未被污染
+		expect(s).toContain("<result>\n子智能体执行中断：子智能体已被中止\n</result>");
+	});
+
+	test("interrupted 但实例未登记（agentId/jsonlPath 空）：不伪造指引；completed 不注入", () => {
+		const aborted = renderSubagentBlock({
+			taskIndex: 1,
+			agentId: "",
+			subagentType: "general-purpose",
+			status: "interrupted",
+			resumed: false,
+			jsonlPath: "",
+			text: "子智能体执行中断：子智能体已被中止",
+		});
+		expect(aborted).not.toContain("<continuation>");
+		expect(aborted.endsWith("</result></subagent>")).toBe(true);
+		const done = renderSubagentBlock({
+			taskIndex: 0,
+			agentId: "a3f8c1d0a",
+			subagentType: "Explore",
+			status: "completed",
+			resumed: false,
+			jsonlPath: "C:/x/subagents/sid/a3f8c1d0a.jsonl",
+			text: "done",
+		});
+		expect(done).not.toContain("<continuation>");
+	});
 });
 
 describe("execute：身份、落盘与返回块", () => {

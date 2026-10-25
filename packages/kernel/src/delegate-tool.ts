@@ -231,6 +231,12 @@ function escapeXml(s: string): string {
  * `<result>` 包裹正文并以换行分隔——正文是任意文本（报告常含代码与标签字面串），
  * 必须做 XML 转义，否则正文里的 `</result>`/`</subagent>` 会提前闭合结构、破坏多块拼接。
  * 未建实例的任务（如越权项）agentId / jsonlPath 为空串，模型据此知道没转录可查。
+ * 中断类终态且实例已登记时追加 `<continuation>` 续接指引（独立元素，不进正文）：
+ * PoC 实证（2026-10-25，deepseek-flash×40 次）：中断现场无引导时父模型受「新建接力」
+ * 惯性锁定仅 20% 选 resume（真实会话 0/7），加现场引导后 90%（Fisher p=0.0055）。
+ * 门控与前端一致：agentId + jsonlPath 双非空才注入，未登记实例绝不伪造；
+ * completed/failed 不注入（正常终态的 resume 引导由工具描述覆盖）。中止快照与
+ * settle 后最终返回共用本函数，改此一处两处自动一致。
  */
 export function renderSubagentBlock(r: {
 	taskIndex: number;
@@ -243,13 +249,20 @@ export function renderSubagentBlock(r: {
 	jsonlPath: string;
 	text: string;
 }): string {
+	// 续接指引（中断/手动停止等非正常终态）：带决策标准而非无条件号召——resume 会
+	// 全量重放历史（首请求大），上段跑偏或只剩独立收尾时新建更干净；文案给标准把
+	// 选择权和判断依据一起交给父模型。resumed=true 的实例二次中断仍可续接，不额外门控。
+	const continuation =
+		r.status === "interrupted" && r.agentId !== "" && r.jsonlPath !== ""
+			? `<continuation>续接此实例：delegate tasks=[{"resume":"${r.agentId}","task":"续接指令"}]，其上下文完整保留（转录已落盘）。适用：后续依赖现场细节。不适用：上段已跑偏、或只剩独立收尾——新建实例更干净（现场以落盘报告为准）。</continuation>`
+			: "";
 	return (
 		`<subagent><index>${r.taskIndex}</index><agent_id>${r.agentId}</agent_id>` +
 		`<type>${escapeXml(r.subagentType)}</type><status>${escapeXml(r.status)}</status>` +
 		`<elapsed>${formatElapsedShort(r.elapsedMs ?? 0)}</elapsed>` +
 		`<tokens>${formatTokensShort(r.totalTokens)}</tokens>` +
 		`<resumed>${r.resumed}</resumed>` +
-		`<transcript>${r.jsonlPath}</transcript><result>\n${escapeXml(r.text)}\n</result></subagent>`
+		`<transcript>${r.jsonlPath}</transcript><result>\n${escapeXml(r.text)}\n</result>${continuation}</subagent>`
 	);
 }
 
