@@ -521,6 +521,22 @@ describe("makeSpawnFn：转录路径与进度事件", () => {
 		expect(seen).toEqual([jsonl]);
 	});
 
+	test("thinkingOverride：任务带 thinking 时覆盖 resolveConfig 合并结果；缺省保持原值", async () => {
+		const seen: Array<unknown> = [];
+		const spawn = makeSpawnFn({
+			resolveConfig: async () => ({ ...baseConfig(), thinking: "medium" as const }),
+			cwd: "/tmp",
+			runSubagentAgent: (async (config: { thinking?: string }) => {
+				seen.push(config.thinking);
+				return { text: "ok", isError: false, elapsedMs: 1 };
+			}) as never,
+		});
+		// 传入覆盖 → 本次委派用调用值；不传 → 保持 resolveConfig 合并结果（继承主代理）
+		await spawn("Explore", "task", "tc-think-1", 0, undefined, "max");
+		await spawn("Explore", "task", "tc-think-2");
+		expect(seen).toEqual(["max", "medium"]);
+	});
+
 	test("进度事件带 agentId（从转录路径反解实例 id）与 taskIndex", async () => {
 		const events: Array<{ agentId?: string; taskIndex?: number }> = [];
 		const spawn = makeSpawnFn({

@@ -35,6 +35,7 @@ import type {
 	DelegationHints,
 	SubagentDetails,
 	SubagentProgressEvent,
+	ThinkingLevel,
 	ToolStats,
 } from "@wa-pi/shared";
 import type { SubagentMeta } from "./subagent-instance-store";
@@ -98,6 +99,8 @@ export type DelegateSpawnFn = (
 	taskIndex?: number,
 	/** 子代理转录落盘路径（pi --session <path>）；空/缺省时不落盘 */
 	sessionFile?: string,
+	/** 调用级思考强度覆盖（delegate tasks[].thinking）；缺省不覆盖（保持 resolveConfig 合并结果） */
+	thinkingOverride?: ThinkingLevel,
 ) => Promise<DelegateSpawnResult>;
 
 /**
@@ -414,7 +417,14 @@ export function makeDelegateTool(opts: {
 		},
 		async execute(
 			toolCallId: string,
-			args: { tasks: Array<{ agent: string; task: string; resume?: string }> },
+			args: {
+				tasks: Array<{
+					agent: string;
+					task: string;
+					resume?: string;
+					thinking?: ThinkingLevel;
+				}>,
+			},
 		): Promise<{
 			content: Array<{ type: "text"; text: string }>;
 			details:
@@ -663,6 +673,8 @@ export function makeDelegateTool(opts: {
 									toolCallId,
 									index,
 									jsonl,
+									// 缺省不传第 6 参：调用形状与旧契约一致（spawn mock 精确参数断言不破）
+									...(t.thinking ? [t.thinking] : []),
 								);
 								await safeWriteMeta({
 									...meta,
@@ -812,7 +824,14 @@ export function makeDelegateTool(opts: {
 						// 内部按 progress.taskIndex 区分各子任务
 						try {
 							const { text, isError, toolStats, usage, interrupted, elapsedMs } =
-								await opts.spawn(spawnAgent, t.task, toolCallId, index, jsonl);
+								await opts.spawn(
+								spawnAgent,
+								t.task,
+								toolCallId,
+								index,
+								jsonl,
+								...(t.thinking ? [t.thinking] : []),
+							);
 							// 终态落盘：usage 用扁平形状（SubagentUsageShape），拆包后审计/列表直接读
 							await safeWriteMeta({
 								...metaBase,
@@ -1003,6 +1022,7 @@ export function makeSpawnFn(opts: {
 		toolCallId: string,
 		taskIndex?: number,
 		sessionFile?: string,
+		thinkingOverride?: ThinkingLevel,
 	) => {
 		const config = await opts.resolveConfig(agent);
 		if (!config) {
@@ -1022,6 +1042,9 @@ export function makeSpawnFn(opts: {
 		}
 		// skillsAllOff=true 表示显式全不选：子代理也不加载任何技能（传空数组）
 		// 否则 skills 非空按白名单解析，空数组则 undefined（保持原语义）
+		// 调用级思考强度覆盖：delegate tasks[].thinking 传入时优先于 resolveConfig
+		// 的合并结果（agent 覆盖配置 > 继承主会话），仅本次委派生效
+		if (thinkingOverride) config.thinking = thinkingOverride;
 		const skillPaths = config.skillsAllOff
 			? []
 			: opts.resolveSkillPaths && config.skills.length

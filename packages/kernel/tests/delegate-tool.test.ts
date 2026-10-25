@@ -105,6 +105,23 @@ test("delegate: 合法调起透传结果", async () => {
 	);
 });
 
+test("delegate: tasks[].thinking 透传给 spawn 第 6 参（思考强度按次覆盖）", async () => {
+	const spawn = mock(async () => ({ text: "ok", isError: false }));
+	const tool = makeDelegateTool({ askTo, spawn, sessionId: SID });
+	const res = await tool.execute("tc-think", {
+		tasks: [{ agent: "Explore", task: "search code", thinking: "max" }],
+	});
+	expect(res.isError).toBe(false);
+	expect(spawn).toHaveBeenCalledWith(
+		"Explore",
+		"search code",
+		"tc-think",
+		0,
+		expect.any(String),
+		"max",
+	);
+});
+
 test("delegate: 透传 spawn 的失败结果（isError 原样带出）", async () => {
 	const spawn = mock(async () => ({ text: "子智能体执行失败", isError: true }));
 	const tool = makeDelegateTool({ askTo, spawn, sessionId: SID });
