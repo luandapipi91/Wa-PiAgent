@@ -1,5 +1,5 @@
 ## 2026-10-25
-- v0.8.2 发版：delegate 支持按次指定思考强度 + 中断类终态追加 <continuation> 续接指引
+- v0.8.2 发版：delegate 支持按次指定思考强度 + 中断类终态追加 <continuation> 续接指引；mac dmg 210943557 / win exe 199334911（zip 实测 sha512 与 yml 一致、cf-cache-status MISS）
 - feat(kernel+shared): delegate 支持按次传入思考强度——tasks[] 新增可选 thinking（disabled/medium/high/max，TypeBox Union 严格校验），调用值优先于 agent 覆盖配置/继承主代理（spawn 闭包在 resolveConfig 合并后覆盖，仅本次委派生效；resume 续接同样生效）；缺省不多传第 6 参，spawn 调用形状与旧契约一致。底层机制复用既有 pi --thinking 链路（mapThinking 映射 disabled→off、max→xhigh）。测试：makeSpawnFn 补覆盖/缺省双断言、delegate-tool 补 execute 层第 6 参透传断言，delegate/subagent 相关 130/130 全绿、typecheck 0 error
 - feat(kernel): delegate 中断类终态返回块追加 <continuation> 续接指引——超时时限/liveness 判死/手动停止/异常路径（status=interrupted 且 agentId+jsonlPath 双非空，与前端门控一致，未登记实例不伪造；completed/failed 不注入）在 </result> 后渲染独立元素，含可复制的 resume 调用形状与决策标准（适用：后续依赖现场细节；不适用：上段跑偏/只剩独立收尾）。依据 PoC（deepseek-flash×40 次，2026-10-25）：中断现场无引导时父模型受「新建接力」惯性锁定仅 20% 选 resume（真实会话 0/7），加现场引导后 90%（Fisher p=0.0055，合并 n=20 p=0.0001）；中止快照与 settle 后最终返回共用 renderSubagentBlock，改一处两处一致。测试：delegate-tool-transcript 补 2 例（interrupted+已登记注入并校验元素顺序/正文未污染、未登记不伪造+completed 不注入），delegate/subagent 相关 86/86 全绿
 
