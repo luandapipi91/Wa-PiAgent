@@ -32,6 +32,7 @@ import { formatKernelError } from "./util/kernel-error";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
 import { initUpdater } from "./store/updater";
+import { initUpdateNotice } from "./store/notice";
 import { useUiPrefsStore } from "./store/ui-prefs";
 import { onDesktopPetEvent } from "./util/desktop-pet";
 import {
@@ -150,6 +151,8 @@ export function App() {
 		useContactsStore.getState().loadContacts();
 		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
 		initUpdater();
+		// 版本更新系统通知：启动自动检测 + 自然日去重（桌面专属，浏览器版 no-op）
+		const offUpdateNotice = initUpdateNotice();
 		// 桌面宠物窗口关闭回执（宠物右键菜单「关闭」）：设置开关同步置关，避免状态不一致
 		const offPetClosed = onDesktopPetEvent((payload) => {
 			if (payload?.type === "closed") {
@@ -383,6 +386,7 @@ export function App() {
 			off();
 			offReconnect();
 			offPetClosed();
+			offUpdateNotice();
 		};
 	}, []); // 空依赖：onMessage 用 getState，不需重订阅
 

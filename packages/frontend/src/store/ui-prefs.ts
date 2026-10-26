@@ -63,6 +63,9 @@ interface UiPrefsState {
 	/** 桌面宠物开关（默认 true）：关闭即销毁宠物窗口，即时生效。 */
 	desktopPet: boolean;
 	setDesktopPet: (v: boolean) => void;
+	/** 最近一次发「新版本」系统通知的日期（本地时区 YYYY-MM-DD），用于自然日去重。 */
+	lastUpdateNoticeDate?: string;
+	setLastUpdateNoticeDate: (d: string) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
@@ -197,6 +200,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 				// 建窗/销窗在主进程：设置一旦变化立即同步（浏览器环境为 no-op）
 				setDesktopPetEnabled(v);
 			},
+			lastUpdateNoticeDate: undefined,
+			setLastUpdateNoticeDate: (d) => set({ lastUpdateNoticeDate: d }),
 		}),
 		{
 			name: STORAGE_KEY,
