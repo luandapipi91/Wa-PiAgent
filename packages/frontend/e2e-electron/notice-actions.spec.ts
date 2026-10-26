@@ -12,25 +12,18 @@ import {
 	ELECTRON_E2E_PORT,
 } from "../playwright.electron.config";
 
-// 通知链路 Electron E2E：场景②「更新可用 → 系统通知」+ 场景①②「点击通知跳转」。
+// 通知卡片链路 Electron E2E（v2 自绘卡片窗口）：卡片显示与同会话合并、
+// 点击卡片跳更新页（关于分区）、REST 建会话后点击卡片跳会话。
 //
-// 两个与真实链路的偏差（探针实证后的方案，均为 Electron 机制使然，非本分支实现缺口）：
-// 1. 打点方式：contextBridge 暴露的 waPiNotice 属性不可变（页面覆盖赋值静默失败），
-//    渲染端包一层 send 记录不可行 → 改在主进程 ipcMain.removeHandler("notice:send")
-//    后注册记录版 handler：同一 IPC 入口记录完整载荷；顺带不弹真实系统通知
-//    （避免 E2E 机器触发 macOS 首次授权弹窗），真实发送逻辑由真机手工验收覆盖。
-// 2. 更新可用触发：dev（未打包）主进程 updater:check 被 dev 占位短路（updater.cjs
-//    `if (!isPackaged)` 直接 return，防误触发真实更新），WA_PI_UPDATER_FEED_URL
-//    指向的 mock feed 在 dev 下不生效 → 改为广播 updater:event {phase:"available"}
-//    （与 electron-updater 事件经 translateUpdaterEvent 广播的载荷同构），覆盖
-//    渲染端 store 状态机 → initUpdateNotice 订阅 → notice:send 的真实链路；
-//    electron-updater 拉取 feed 的段由 desktop 单测与真机手工验收（简报步骤 4）覆盖。
+// 与真实链路一致（不再拦截 notice:send handler）：主窗口渲染进程直发
+// preload 暴露的 waPiNotice.send（page.evaluate）→ 真实 IPC → 主进程
+// notice:send handler → 队列合并 → 卡片窗口下行显示；点击卡片走真实上行
+// notice-card:event → 主进程下发 notice:action → 主窗口跳转。全程无 mock。
+// 发送不带 backgroundOnly（前台也显示卡片；渲染端真实请求由单测覆盖形状）。
 
 const APP_CWD = join(import.meta.dirname, "..", "..", "desktop");
 const USER_DATA_DIR = join(ELECTRON_E2E_DIR, "userdata-notice");
 const KERNEL = `http://127.0.0.1:${ELECTRON_E2E_PORT}`;
-// mock「远端新版本」号：只需高于 dev app.getVersion()，语言无关（标题模板插版本号）
-const MOCK_VERSION = "9.9.9";
 
 function e2eEnv(): Record<string, string> {
 	const env: Record<string, string> = {};
@@ -49,37 +42,44 @@ function e2eEnv(): Record<string, string> {
 let app: ElectronApplication;
 let main: Page;
 
-/** 主进程侧记录到的 notice:send 载荷（记录版 handler 写入 globalThis.__seen） */
-async function interceptedSends(): Promise<Array<Record<string, any>>> {
-	return app.evaluate(() => (globalThis as any).__seen ?? []);
+/** 主窗口渲染进程直发通知（preload 桥 → notice:send 真实链路） */
+async function sendNotice(payload: Record<string, unknown>): Promise<void> {
+	await main.evaluate((p) => (window as any).waPiNotice.send(p), payload);
 }
 
-/** 广播「发现新版本」事件（与 updater.cjs translateUpdaterEvent 的 available 载荷同构） */
-async function broadcastUpdateAvailable(version: string): Promise<void> {
-	await app.evaluate(({ BrowserWindow }, v) => {
-		const w = BrowserWindow.getAllWindows().find(
-			(x) =>
-				!x.isDestroyed() &&
-				(x.webContents.getURL() || "").startsWith("http"),
-		);
-		w!.webContents.send("updater:event", {
-			phase: "available",
-			version: v,
-			releaseNotes: "E2E mock release notes",
-		});
-	}, version);
+/** 卡片窗口页面（file://…/notice-card.html；send 后按需创建，轮询等待） */
+async function cardWindow(): Promise<Page> {
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		const card = app
+			.windows()
+			.find((w) => w.url().includes("notice-card.html"));
+		if (card) return card;
+		await new Promise((r) => setTimeout(r, 200));
+	}
+	throw new Error("未在超时内找到卡片窗口");
 }
 
-/** 模拟通知点击下行（notice.cjs 通知 click 后 webContents.send("notice:action", action)） */
-async function sendNoticeAction(action: Record<string, unknown>): Promise<void> {
-	await app.evaluate(({ BrowserWindow }, a) => {
-		const w = BrowserWindow.getAllWindows().find(
-			(x) =>
-				!x.isDestroyed() &&
-				(x.webContents.getURL() || "").startsWith("http"),
+/** 卡片窗口当前是否可见（node 侧 BrowserWindow.isVisible；hide 后 DOM 仍在，必须查窗口而非 DOM） */
+async function cardVisible(): Promise<boolean> {
+	return app.evaluate(({ BrowserWindow }) => {
+		const card = BrowserWindow.getAllWindows().find(
+			(w) =>
+				!w.isDestroyed() &&
+				(w.webContents.getURL() || "").includes("notice-card.html"),
 		);
-		w!.webContents.send("notice:action", a);
-	}, action);
+		return card ? card.isVisible() : false;
+	});
+}
+
+/** 等卡片消失（5s 自动消失，或点击处理掉最后一条后立即隐藏） */
+async function waitCardHidden(): Promise<void> {
+	const deadline = Date.now() + 12_000;
+	while (Date.now() < deadline) {
+		if (!(await cardVisible())) return;
+		await new Promise((r) => setTimeout(r, 300));
+	}
+	throw new Error("卡片窗口未在超时内消失");
 }
 
 test.beforeAll(async () => {
@@ -100,8 +100,8 @@ test.beforeAll(async () => {
 		await new Promise((r) => setTimeout(r, 300));
 	}
 	if (!main) throw new Error("未在超时内找到主窗口");
-	// 等 React mount 完成：App useEffect 已注册 waPiNotice.onAction 与
-	// initUpdateNotice 的 store 订阅，此后广播 updater:event 才会触发通知
+	// 等 React mount 完成：App useEffect 已注册 waPiNotice.onAction，
+	// 此后卡片点击下发的 notice:action 才会被消费
 	await main.waitForSelector('[data-testid="new-session-pane"]', {
 		timeout: 120_000,
 	});
@@ -128,18 +128,6 @@ test.beforeAll(async () => {
 		await close.click();
 		await expect(main.getByTestId("onboarding-wizard")).toHaveCount(0);
 	}
-
-	// 替换 notice:send 为记录版：捕获渲染端发出的完整通知载荷（含 action），
-	// 不再弹真实系统通知（见文件头说明 1）
-	await app.evaluate(({ ipcMain }) => {
-		const im = ipcMain as any;
-		im.removeHandler("notice:send");
-		(globalThis as any).__seen = [];
-		im.handle("notice:send", (_e: unknown, payload: unknown) => {
-			(globalThis as any).__seen.push(payload);
-			return { sent: true };
-		});
-	});
 });
 
 test.afterAll(async () => {
@@ -147,53 +135,83 @@ test.afterAll(async () => {
 	rmSync(ELECTRON_E2E_DIR, { recursive: true, force: true });
 });
 
-test.describe.serial("通知链路（更新通知 + 点击跳转）", () => {
-	test("更新可用：自动发出系统通知请求，标题含新版本号且 action 指向更新页", async () => {
-		// 前置：尚无任何通知发出
-		expect(await interceptedSends()).toHaveLength(0);
+test.describe.serial("通知卡片链路（v2 自绘卡片）", () => {
+	test("两条不同会话各成条（2/2），同会话再发合并且条数不变、内容刷新", async () => {
+		await waitCardHidden(); // 前置：无残留卡片
+		const sid1 = "s-e2e-card-a-" + Math.random().toString(36).slice(2, 8);
+		const sid2 = "s-e2e-card-b-" + Math.random().toString(36).slice(2, 8);
 
-		// 广播 available → 渲染端 store → initUpdateNotice 订阅触发 send
-		await broadcastUpdateAvailable(MOCK_VERSION);
-		await expect
-			.poll(interceptedSends, { timeout: 10_000 })
-			.toHaveLength(1);
+		// 第一条：卡片窗口出现，条数指示 1/1
+		await sendNotice({
+			title: "任务完成",
+			body: "「会话甲」已完成",
+			action: { type: "session", sessionId: sid1 },
+			theme: "light",
+		});
+		let card = await cardWindow();
+		await expect(card.locator("#count")).toHaveText("1/1");
 
-		const [payload] = await interceptedSends();
-		// 标题含新版本号（zh「发现新版本 v9.9.9」/ en「New version v9.9.9 available」）
-		expect(String(payload.title)).toContain(MOCK_VERSION);
-		// body 非空（i18n 文案已在渲染端组装）
-		expect(String(payload.body).length).toBeGreaterThan(0);
-		// action 形状：整包指向更新页
-		expect(payload.action).toEqual({ type: "update" });
-		// 更新通知不受前台拦截（无 backgroundOnly），前台也能弹
-		expect(payload.backgroundOnly).toBeUndefined();
+		// 第二条（不同会话）：追加成条，index 指向新条（enqueue 契约，单测 notice.test.ts 同源），
+		// 条数指示「当前/总数」→ 2/2（规格「交互规格」：条数指示只统计不同会话）
+		await sendNotice({
+			title: "任务完成",
+			body: "「会话乙」已完成",
+			action: { type: "session", sessionId: sid2 },
+			theme: "light",
+		});
+		card = await cardWindow();
+		await expect(card.locator("#count")).toHaveText("2/2");
+		await expect(card.locator("#body")).toHaveText("「会话乙」已完成");
 
-		// 同自然日至多一条：再次 available 不重复发送（lastUpdateNoticeDate 已记日）
-		await broadcastUpdateAvailable(MOCK_VERSION);
-		await main.waitForTimeout(600);
-		expect(await interceptedSends()).toHaveLength(1);
+		// 同会话（sid2，当前显示条）再发：合并为一条（仍 2/2，条数不增）且内容刷新、
+		// 位置不变（规格：新完成仅刷新该条内容，不改变队列位置）
+		await sendNotice({
+			title: "任务完成",
+			body: "「会话乙」第二轮已完成",
+			action: { type: "session", sessionId: sid2 },
+			theme: "light",
+		});
+		await expect(card.locator("#count")).toHaveText("2/2");
+		await expect(card.locator("#body")).toHaveText("「会话乙」第二轮已完成");
+
+		// 收尾：等 5s 倒计时自动消失，队列清空，不影响下一条用例
+		await waitCardHidden();
 	});
 
-	test("点击更新通知：打开设置并定位关于页", async () => {
+	test("点击卡片跳更新页：设置弹窗打开并定位关于分区，卡片消失", async () => {
+		await waitCardHidden(); // 前置：无残留卡片
 		expect(main.getByTestId("settings-modal")).toHaveCount(0);
 
-		// 模拟通知 click 下行（真实系统通知的 click 不可能被自动化点按）
-		await sendNoticeAction({ type: "update" });
+		// 发「新版本」条目（渲染端 initUpdateNotice 的 action 形状）
+		await sendNotice({
+			title: "发现新版本 v9.9.9",
+			body: "点击查看新版本更新内容",
+			action: { type: "update" },
+			theme: "light",
+		});
+		const card = await cardWindow();
+		await expect(card.locator("#title")).toHaveText("发现新版本 v9.9.9");
+
+		// 真实点击卡片主体：上行 card:click → 主进程下发 notice:action({type:"update"})
+		await card.locator("#card").click();
 
 		// 设置弹窗打开且「关于」分区激活（about-section 仅在 about 分支渲染）
 		await expect(main.getByTestId("settings-modal")).toBeVisible();
 		await expect(main.getByTestId("settings-nav-about")).toBeVisible();
 		await expect(main.getByTestId("about-section")).toBeVisible();
+		// 点击 = 已处理最后一条：卡片消失
+		await waitCardHidden();
 
 		// 收尾关弹窗，不影响下一条用例
 		await main.getByTestId("settings-close").click();
 		await expect(main.getByTestId("settings-modal")).toHaveCount(0);
 	});
 
-	test("点击会话通知：跳进对应会话", async () => {
-		// 经 kernel REST 准备真实会话（照 e2e/agent-preview-open.spec.ts 的
-		// createSessionViaPrompt 先例：prompt POST 返回时会话记录已落盘，
-		// 模型调用的错误走 SSE 广播，不影响建会话；前端经 SSE 自动同步列表）
+	test("点击卡片跳会话：REST 建会话后发 session 条目，点击进对应会话", async () => {
+		await waitCardHidden(); // 前置：无残留卡片
+
+		// 经 kernel REST 准备真实会话（照原 spec 先例：prompt POST 返回时会话
+		// 记录已落盘，模型调用的错误走 SSE 广播，不影响建会话；前端经 SSE 自动同步列表）
 		const projectName = "e2e-notice-proj";
 		const projectRes = await fetch(`${KERNEL}/api/projects`, {
 			method: "POST",
@@ -230,10 +248,20 @@ test.describe.serial("通知链路（更新通知 + 点击跳转）", () => {
 			)
 			.toBe(true);
 
-		// 模拟通知 click 下行：跳会话
-		await sendNoticeAction({ type: "session", sessionId });
+		await sendNotice({
+			title: "任务完成",
+			body: "「e2e notice session」已完成",
+			action: { type: "session", sessionId },
+			theme: "light",
+		});
+		const card = await cardWindow();
+		await expect(card.locator("#count")).toHaveText("1/1");
+
+		// 真实点击卡片主体 → notice:action({type:"session",sessionId}) → 跳会话
+		await card.locator("#card").click();
 
 		// 会话视图出现（SessionView 渲染即跳转成功）
 		await expect(main.getByTestId("session-view")).toBeVisible();
+		await waitCardHidden();
 	});
 });

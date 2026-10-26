@@ -4,7 +4,7 @@ import i18n from "../i18n";
 import { useBrowserStore } from "./browser";
 import { useProjectsStore } from "./projects";
 import { useSettingsStore } from "./settings";
-import { useUiPrefsStore } from "./ui-prefs";
+import { useUiPrefsStore, type ThemeMode } from "./ui-prefs";
 import { useUpdaterStore } from "./updater";
 
 // 通知点击动作：session=跳转会话；update=查看更新内容（消费在后续任务）
@@ -18,8 +18,17 @@ interface WaPiNoticeApi {
 		body: string;
 		action: NoticeAction;
 		backgroundOnly?: boolean;
+		theme: "light" | "dark";
 	}): Promise<{ sent: boolean; reason?: string }>;
 	onAction(cb: (action: NoticeAction) => void): () => void;
+}
+
+/**
+ * themeMode → 通知卡片主题："dark" → 深色；"light"/"system" → 浅色
+ * （跟随系统时读不到系统明暗值，用 light 兜底）。两处通知 payload 组装共用。
+ */
+export function noticeTheme(mode: ThemeMode): "light" | "dark" {
+	return mode === "dark" ? "dark" : "light";
 }
 
 declare global {
@@ -48,6 +57,7 @@ export function requestTaskDoneNotice(sessionId: string): void {
 			body,
 			action: { type: "session", sessionId },
 			backgroundOnly: true,
+			theme: noticeTheme(useUiPrefsStore.getState().themeMode),
 		})
 		.catch(() => {});
 }
@@ -93,6 +103,7 @@ export function initUpdateNotice(): () => void {
 				title: i18n.t("notice.updateTitle", { version: s.latestVersion }),
 				body: i18n.t("notice.updateBody"),
 				action: { type: "update" },
+				theme: noticeTheme(useUiPrefsStore.getState().themeMode),
 			})
 			.catch(() => {});
 		useUiPrefsStore.getState().setLastUpdateNoticeDate(today);

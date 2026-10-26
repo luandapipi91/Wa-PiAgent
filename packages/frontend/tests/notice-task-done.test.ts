@@ -16,8 +16,9 @@ mock.module("../src/api-client", () => ({
 }));
 
 import i18n from "../src/i18n";
-import { requestTaskDoneNotice } from "../src/store/notice";
+import { noticeTheme, requestTaskDoneNotice } from "../src/store/notice";
 import { useProjectsStore } from "../src/store/projects";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 function session(id: string, title: string): SessionEntity {
 	return {
@@ -42,6 +43,8 @@ beforeEach(async () => {
 		onAction: () => () => {},
 	};
 	useProjectsStore.setState({ sessions: [] });
+	// themeMode 归位默认（dark 用例改过后不污染后续用例）
+	useUiPrefsStore.setState({ themeMode: "system" });
 	await i18n.changeLanguage("zh");
 });
 
@@ -80,7 +83,7 @@ test("会话不在 projectsStore.sessions → 同样不抛、用默认文案", (
 	expect(sendCalls[0].body).toBe("未命名会话");
 });
 
-test("payload 形状：{ title, body, action:{type:'session',sessionId}, backgroundOnly:true }", () => {
+test("payload 形状：{ title, body, action:{type:'session',sessionId}, backgroundOnly:true, theme }", () => {
 	useProjectsStore.setState({ sessions: [session("s1", "会话A")] });
 	requestTaskDoneNotice("s1");
 	expect(sendCalls[0]).toEqual({
@@ -88,5 +91,27 @@ test("payload 形状：{ title, body, action:{type:'session',sessionId}, backgro
 		body: "「会话A」已完成，点击查看",
 		action: { type: "session", sessionId: "s1" },
 		backgroundOnly: true,
+		theme: "light", // 默认 themeMode=system → 卡片浅色
 	});
+});
+
+test("themeMode=dark → payload.theme='dark'（卡片按深色渲染）", () => {
+	useUiPrefsStore.setState({ themeMode: "dark" });
+	useProjectsStore.setState({ sessions: [session("s1", "会话A")] });
+	requestTaskDoneNotice("s1");
+	expect(sendCalls[0].theme).toBe("dark");
+});
+
+// ---- noticeTheme 映射（themeMode → 卡片主题，两处 payload 组装共用）----
+
+test("noticeTheme：dark → 'dark'", () => {
+	expect(noticeTheme("dark")).toBe("dark");
+});
+
+test("noticeTheme：light → 'light'", () => {
+	expect(noticeTheme("light")).toBe("light");
+});
+
+test("noticeTheme：system → 'light'（跟随系统时读不到系统值用 light 兜底）", () => {
+	expect(noticeTheme("system")).toBe("light");
 });

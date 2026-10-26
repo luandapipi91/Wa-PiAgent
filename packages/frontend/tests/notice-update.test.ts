@@ -78,6 +78,8 @@ test("status=available 且今天未发 → waPiNotice.send 被调，标题含 la
 	expect(sendCalls[0].body).toBe("点击查看新版本更新内容");
 	expect(sendCalls[0].action).toEqual({ type: "update" });
 	expect(sendCalls[0].backgroundOnly).toBeUndefined();
+	// 默认 themeMode=system → 卡片浅色（dark 映射由 notice-task-done.test.ts 的 noticeTheme 用例覆盖）
+	expect(sendCalls[0].theme).toBe("light");
 });
 
 test("available 但 lastUpdateNoticeDate===今天 → 不调", () => {
