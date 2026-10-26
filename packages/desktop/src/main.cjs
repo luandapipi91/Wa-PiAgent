@@ -506,6 +506,11 @@ for (const [switchName, switchValue] of gpuSwitchesFor(process.platform)) {
 }
 app.whenReady().then(async () => {
 	startup.mark("ready");
+	// Windows 系统通知前提：AppUserModelId 必须与 electron-builder.yml 的 appId 一致，
+	// 否则 toast 通知发不出来/归因错误。仅 Windows 有此概念，其它平台不设以免影响桌面集成。
+	if (process.platform === "win32") {
+		app.setAppUserModelId("ai.wa-pi.desktop");
+	}
 	// ready 后重算界面语言（ready 前 getLocale 返回空串，见顶部 LOCALE 注释）
 	LOCALE = app.getLocale().startsWith("zh") ? "zh" : "en";
 	// 「跟随系统」主题：同步系统主题到 themeSource（Windows 区分系统/应用主题），
@@ -603,6 +608,16 @@ app.whenReady().then(async () => {
 			} catch {}
 			trayInstance = null;
 		},
+	});
+
+	// 系统通知：渲染进程 notice:send → 系统通知（一律静音）；点通知 → 激活应用 + 下发 action
+	const { setupNotice } = require("./notice/notice.cjs");
+	const { Notification } = require("electron");
+	setupNotice({
+		getMainWindow: () => mainWindow,
+		activateApp,
+		ipcMain,
+		Notification,
 	});
 
 	// 端口被占用时启动页「换端口启动」按钮的处理：杀掉占用进程后重启本应用（保留；

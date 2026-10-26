@@ -94,6 +94,18 @@ contextBridge.exposeInMainWorld("waPiUpdater", {
 	},
 });
 
+// 系统通知桥接：send 触发主进程发系统通知（payload 透传，主进程负责前台拦截）；
+// onAction 接通知点击下发的 action 载荷，返回解绑函数。
+// IPC 通道由 notice/notice.cjs 的 setupNotice 注册。
+contextBridge.exposeInMainWorld("waPiNotice", {
+	send: (payload) => ipcRenderer.invoke("notice:send", payload),
+	onAction: (callback) => {
+		const listener = (_event, action) => callback(action);
+		ipcRenderer.on("notice:action", listener);
+		return () => ipcRenderer.removeListener("notice:action", listener);
+	},
+});
+
 // 桌面宠物桥（主窗口侧）：开关同步 + 任务完成庆祝转发 + 宠物窗口关闭回执。
 // 宠物窗口自身用 src/pet-preload.cjs（暴露页面约定的 window.guaguaHost）。
 contextBridge.exposeInMainWorld("waPiPet", {
