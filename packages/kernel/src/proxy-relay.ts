@@ -273,6 +273,9 @@ export class ProxyRelay {
 	 * 隧道建立后互通：回 200、转发已缓冲的 head、双向 pipe；
 	 * 统计上下行字节，隧道关闭时回调 onClose（只调一次）。
 	 * preToClient：上游 CONNECT 响应里多读的隧道数据，需转给客户端并计入 down。
+	 * dataFailProbe：仅经上游的隧道传入——隧道关闭时目标零回应（downBytes===0，
+	 * 连 TLS ServerHello 都没回来）则调用，用于识别「上游进程活着但出口已死」
+	 * 的数据面失败（CONNECT 200 之后发生，连接层回退覆盖不到的盲区）。
 	 */
 	private establishTunnel(
 		client: Socket,
@@ -280,6 +283,7 @@ export class ProxyRelay {
 		head: Buffer,
 		onClose: (s: TunnelStats) => void,
 		preToClient?: Buffer,
+		dataFailProbe?: () => void,
 	): void {
 		const startedAt = Date.now();
 		let upBytes = head?.length ?? 0;
@@ -300,6 +304,10 @@ export class ProxyRelay {
 		const done = () => {
 			if (closed) return;
 			closed = true;
+			// 上游路径专属：目标零回应即断开 ≈ 上游出口死（正常目标至少回 TLS
+			// ServerHello / 响应头）。误判源仅剩客户端在握手前主动放弃，代价只是
+			// 一段冷却期直连，可接受。
+			if (dataFailProbe && downBytes === 0) dataFailProbe();
 			onClose({ durMs: Date.now() - startedAt, upBytes, downBytes });
 		};
 		client.once("close", done);
@@ -427,6 +435,22 @@ export class ProxyRelay {
 					head,
 					onSuccess,
 					restFromUpstream.length ? restFromUpstream : undefined,
+					// 数据面失败探针：200 之后出口死（节点全挂的常见形态）连接层
+					// 感知不到，靠「关闭时零回应」兜底——记冷却让后续请求（含客户端
+					// 自动重试）回退直连，而不是每条请求都撞死节点。本条请求已无法
+					// 挽救（200 已回给客户端），由客户端重试在冷却期内恢复。
+					() => {
+						this.upstreamDownUntil = this.now() + this.upstreamDownMs;
+						console.warn(
+							`[proxy-relay] 上游代理 ${upstream.origin} 隧道建立后目标零回应即断开（出口疑似不可用），` +
+								`${this.upstreamDownMs}ms 内回退直连`,
+						);
+						// 同步落 network.log：排障时可与连接日志对时（desktop.log 轮转较早）
+						this.log(
+							`CONNECT ${host}:${port} via=upstream result=fail status=502` +
+								` err="隧道建立后目标零回应，出口疑似不可用，回退直连"`,
+						);
+					},
 				);
 			};
 			sock.on("data", onData);
