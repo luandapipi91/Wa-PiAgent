@@ -40,6 +40,25 @@ let messagesDeferred: {
 	reject: (reason?: any) => void;
 } | null = null;
 
+// 控制 /stats GET 的异步解析：冷启动时该请求要等 pi 进程就绪（实测 2.7~5s），
+// 不能挡骨架——用例据此验证「stats 挂起时历史照常就绪」。
+let statsDeferred: {
+	promise: Promise<unknown>;
+	resolve: (value: unknown) => void;
+	reject: (reason?: any) => void;
+} | null = null;
+
+function deferStats() {
+	let resolve!: (value: unknown) => void;
+	let reject!: (reason?: any) => void;
+	const promise = new Promise<unknown>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	statsDeferred = { promise, resolve, reject };
+	return statsDeferred;
+}
+
 function deferMessages() {
 	let resolve!: (value: {
 		messages: SessionMessage[];
@@ -65,6 +84,9 @@ mock.module("../src/api-client", () => ({
 			apiCalls.push({ method: "get", path });
 			if (path.includes("/messages")) {
 				return messagesDeferred?.promise ?? Promise.resolve({ messages: [] });
+			}
+			if (path.includes("/stats")) {
+				return statsDeferred?.promise ?? Promise.resolve({});
 			}
 			return Promise.resolve({});
 		},
@@ -98,6 +120,7 @@ beforeEach(() => {
 	disconnectEvents();
 	apiCalls.length = 0;
 	messagesDeferred = null;
+	statsDeferred = null;
 
 	// composer-db 默认值重置，避免 Composer 异步加载覆盖测试状态。
 	composerDbDefaults.model = "openai/gpt-4o";
@@ -1682,6 +1705,155 @@ test("扩展 widget chip 队列：拖动松手后的 click 被吞掉（不误展
 	expect(screen.getByTestId("ext-widget-pi-goal").textContent).not.toContain(
 		"进度 4/6",
 	);
+});
+
+test("stats 慢于阈值时胶囊区显示骨架占位，返回后替换为真实胶囊", async () => {
+	const stats = deferStats();
+	const messages = deferMessages();
+	await renderSessionView("s1");
+	// 历史先到（「本轮」胶囊由消息的 usage 推导，胶囊组常驻）
+	await act(async () => {
+		messages.resolve({
+			messages: [
+				{
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "回答" }],
+						timestamp: 1,
+						model: "m",
+						stopReason: "stop",
+						usage: {
+							input: 10,
+							output: 5,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 15,
+						},
+					},
+				},
+			],
+		});
+	});
+	// 阈值窗口内不闪骨架（热会话 stats 通常 ~0.1s 返回）
+	expect(screen.queryByTestId("token-capsules-skeleton")).toBeNull();
+	// 超过阈值仍未返回 → 胶囊区出骨架占位
+	await waitFor(
+		() => expect(screen.getByTestId("token-capsules-skeleton")).toBeTruthy(),
+		{ timeout: 2000 },
+	);
+	expect(screen.queryByTestId("token-total")).toBeNull();
+
+	await act(async () => {
+		stats.resolve({
+			stats: {
+				tokens: { input: 100, output: 20, total: 120 },
+				contextUsage: { used: 64, total: 128, ratio: 0.5 },
+			},
+		});
+	});
+	// 骨架撤除，真实胶囊接管
+	await waitFor(() => {
+		expect(screen.queryByTestId("token-capsules-skeleton")).toBeNull();
+		expect(screen.getByTestId("token-total")).toBeTruthy();
+	});
+});
+
+test("stats 在阈值内返回时不显示胶囊骨架（不闪）", async () => {
+	const stats = deferStats();
+	await renderSessionView("s1");
+	// 阈值窗口内（远小于 CAPSULE_SKELETON_DELAY_MS）不应出现骨架——
+	// 这段等待本身就是变异验证的抓手：延迟被改成 0 时这里会真红
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 60));
+	});
+	expect(screen.queryByTestId("token-capsules-skeleton")).toBeNull();
+	await act(async () => {
+		stats.resolve({ stats: { tokens: { input: 1, output: 2, total: 3 } } });
+	});
+	expect(screen.queryByTestId("token-capsules-skeleton")).toBeNull();
+	// 过了阈值时间窗也不应补闪
+	await new Promise((resolve) => setTimeout(resolve, 400));
+	expect(screen.queryByTestId("token-capsules-skeleton")).toBeNull();
+});
+
+test("stats 返回空响应时胶囊骨架撤除，不残留永久占位", async () => {
+	const stats = deferStats();
+	await renderSessionView("s1");
+	await waitFor(
+		() => expect(screen.getByTestId("token-capsules-skeleton")).toBeTruthy(),
+		{ timeout: 2000 },
+	);
+	await act(async () => {
+		stats.resolve({});
+	});
+	await waitFor(
+		() => expect(screen.queryByTestId("token-capsules-skeleton")).toBeNull(),
+		{ timeout: 2000 },
+	);
+});
+
+test("stats 挂起不阻塞会话加载：messages 到达即撤 loading，stats 迟到后仍回填 token", async () => {
+	// 冷会话场景：/stats 要等 pi 进程就绪（实测 2.7~5s），/messages 直读 jsonl 只 0.1s。
+	// 骨架必须只等 messages。
+	const stats = deferStats();
+	const messages = deferMessages();
+	await renderSessionView("s1");
+	expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(true);
+
+	const history: SessionMessage[] = [
+		{
+			agentName: undefined,
+			message: { role: "user", content: "历史问题", timestamp: 1 },
+		},
+	];
+	await act(async () => {
+		messages.resolve({ messages: history });
+	});
+
+	// stats 仍未返回，但历史已就绪：loading 必须已撤
+	await waitFor(() => {
+		expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
+	});
+	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
+	expect(useSessionStore.getState().tokenTotals["s1"]).toBeUndefined();
+
+	// stats 迟到 → token 胶囊数据回填，不影响已就绪的历史
+	await act(async () => {
+		stats.resolve({ stats: { tokens: { input: 10, output: 20, total: 30 } } });
+	});
+	await waitFor(() => {
+		expect(useSessionStore.getState().tokenTotals["s1"]?.total).toBe(30);
+	});
+	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
+	expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
+});
+
+test("stats 先到、messages 后到：token 数据不被覆盖，loading 随 messages 撤除", async () => {
+	const stats = deferStats();
+	const messages = deferMessages();
+	await renderSessionView("s1");
+
+	await act(async () => {
+		stats.resolve({
+			stats: {
+				tokens: { input: 5, output: 7, total: 12 },
+				contextUsage: { used: 64, total: 128, ratio: 0.5 },
+			},
+		});
+	});
+	await waitFor(() => {
+		expect(useSessionStore.getState().tokenTotals["s1"]?.total).toBe(12);
+	});
+	expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(true);
+
+	await act(async () => {
+		messages.resolve({ messages: [] });
+	});
+	await waitFor(() => {
+		expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
+	});
+	expect(useSessionStore.getState().tokenTotals["s1"]?.total).toBe(12);
+	expect(useSessionStore.getState().contextUsageBySession["s1"]?.used).toBe(64);
 });
 
 test("token 胶囊：缓存命中率按整会话累计（主+子）计算，而非最近一条 assistant 的 lastUsage", () => {

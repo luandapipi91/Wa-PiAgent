@@ -7,7 +7,7 @@ import {
 } from "@wa-pi/shared";
 import { useTranslation } from "../i18n/useTranslation";
 import { useProjectsStore } from "../store/projects";
-import { useSessionStore } from "../store/session";
+import { useSessionStore, type SessionStatsPayload } from "../store/session";
 import { useToastStore } from "../store/toast";
 import { useBrowserStore } from "../store/browser";
 import { useIsBlocked } from "../store/ask";
@@ -59,6 +59,9 @@ const AGENT_STATE_KEY: Record<AgentStatus, string> = {
 
 // memo 包裹：浏览器预览拖拽期 App 顶层随 splitRatio/floatRect 每帧重渲染，
 // props 不变时跳过本组件（含 MessageList markdown）的 reconcile
+/** token 胶囊骨架的出现阈值：stats 在此时间内返回就不亮骨架（热会话 ~0.1s，避免闪一下） */
+export const CAPSULE_SKELETON_DELAY_MS = 200;
+
 export const SessionView = memo(function SessionView({
 	sessionId,
 	sourceLabel,
@@ -90,6 +93,8 @@ export const SessionView = memo(function SessionView({
 	const historyLoading = useSessionStore(
 		(s) => s.historyLoadingBySession[sessionId] ?? false,
 	);
+	// token 胶囊骨架：stats 未返回时占位。延迟阈值避免热会话（stats ~0.1s）闪一下
+	const [capsuleSkeleton, setCapsuleSkeleton] = useState(false);
 	const isBlocked = useIsBlocked(sessionId);
 	const reloading = useSessionStore((s) => s.reloading);
 	const messages = useSessionStore((s) => s.messagesBySession[sessionId]);
@@ -112,23 +117,40 @@ export const SessionView = memo(function SessionView({
 		useSessionStore.getState().markRead(sessionId);
 		// 标记历史加载中：响应到达前置 true，MessageList 在无消息时显示 loading
 		useSessionStore.getState().setHistoryLoading(sessionId, true);
+		// stats 走旁路：冷会话上它要等 pi 进程就绪（实测 2.7~5s，会转为官方 RPC），
+		// 不能参与骨架门控——骨架只等 messages（直读 jsonl，~0.1s），token 胶囊晚点回填。
+		// 慢于阈值才亮胶囊骨架（热会话直接返回，不闪）；完成时（含空响应）无论成败都撤。
+		let cancelled = false;
+		setCapsuleSkeleton(false);
+		const skeletonTimer = setTimeout(() => {
+			if (!cancelled) setCapsuleSkeleton(true);
+		}, CAPSULE_SKELETON_DELAY_MS);
+		void api
+			.get(`/api/sessions/${encodeURIComponent(sessionId)}/stats`)
+			.catch(() => null)
+			.then((statsRes) => {
+				if (cancelled) return;
+				clearTimeout(skeletonTimer);
+				setCapsuleSkeleton(false);
+				const stats = (statsRes as { stats?: SessionStatsPayload | null } | null)
+					?.stats;
+				if (!stats) return;
+				const current =
+					useSessionStore.getState().messagesBySession[sessionId] ?? [];
+				useSessionStore.getState().seedTokenTotal(sessionId, current, stats);
+			});
 		void (async () => {
 			try {
-				const [statsRes, messagesRes] = await Promise.all([
-					api
-						.get(`/api/sessions/${encodeURIComponent(sessionId)}/stats`)
-						.catch(() => null),
-					api.get(`/api/sessions/${encodeURIComponent(sessionId)}/messages`),
-				]);
+				const messagesRes = await api.get(
+					`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+				);
 				const res = messagesRes as {
 					messages: any[];
 					isActive: boolean;
 					thinkingSince: number | null;
 				};
 				useSessionStore.getState().setMessages(sessionId, res.messages);
-				useSessionStore
-					.getState()
-					.seedTokenTotal(sessionId, res.messages, (statsRes as any)?.stats);
+				useSessionStore.getState().seedTokenTotal(sessionId, res.messages);
 				// thinking 的设置由 isActive=true 驱动（打开正在跑的会话补设）；
 				// 清除由 SDK 事件（agent_end / failTurn / agent_settled）驱动。
 				// isActive=false 不在此干预——避免冷启动竞态（getCommands 先触发 ensureStarted
@@ -143,6 +165,10 @@ export const SessionView = memo(function SessionView({
 				useSessionStore.getState().setHistoryLoading(sessionId, false);
 			}
 		})();
+		return () => {
+			cancelled = true;
+			clearTimeout(skeletonTimer);
+		};
 	}, [sessionId]);
 
 	// 下面的 hooks 必须在 early return 之前调用，否则 session 在/不在两次渲染
@@ -366,8 +392,9 @@ export const SessionView = memo(function SessionView({
 					{project && sessionProjectId !== SYSTEM_PROJECT_ID && (
 						<GitToolbar project={project} />
 					)}
-					{/* Token 胶囊标签组（缓存胶囊改用 tokenTotals，故两者任一存在即渲染） */}
-					{lastUsage && (
+					{/* Token 胶囊标签组（缓存胶囊改用 tokenTotals，故两者任一存在即渲染）；
+						stats 未返回时在胶囊位置先占骨架，避免胶囊组晚到导致顶栏跳变 */}
+					{(lastUsage || capsuleSkeleton) && (
 						<div
 							className="flex flex-wrap items-center gap-x-2 gap-y-2 min-w-0 max-w-full"
 							data-testid="token-capsules"
@@ -378,6 +405,18 @@ export const SessionView = memo(function SessionView({
 										input: fmtTok(lastUsage.input),
 										output: fmtTok(lastUsage.output),
 									})}
+								</span>
+							)}
+							{/* stats 未返回：占用（含进度条）/ 累计 / 缓存 三格骨架占位 */}
+							{capsuleSkeleton && !tokenTotal && (
+								<span
+									className="flex items-center gap-x-2"
+									data-testid="token-capsules-skeleton"
+									aria-hidden="true"
+								>
+									<span className="block h-[26px] w-[68px] rounded-[10px] bg-hairline animate-pulse" />
+									<span className="block h-[18px] w-[56px] rounded-[10px] bg-hairline animate-pulse" />
+									<span className="block h-[18px] w-[44px] rounded-[10px] bg-hairline animate-pulse" />
 								</span>
 							)}
 							{/* 占用 + 进度条胶囊（只认官方 contextUsage，无本地估算） */}
