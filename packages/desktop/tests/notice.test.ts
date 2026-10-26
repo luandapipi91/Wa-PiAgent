@@ -253,6 +253,37 @@ test("卡片 card:click → 队列非空时移除当前条并刷新显示下一�
 	expect(h.hides.length).toBe(0); // 队列非空 → 不关卡片
 });
 
+test("卡片 card:click → 队列非空时重置倒计时：运行态（fake timer）", () => {
+	const h = makeHarness();
+	send(h, { title: "A", body: "a", action: { type: "session", sessionId: "s1" } });
+	send(h, { title: "B", body: "b", action: { type: "session", sessionId: "s2" } });
+	h.fireLoad();
+	h.timer.advance(3000); // 已走 3s
+	h.fireCardEvent({ type: "card:click" }); // 移除 B 刷新 → 重置倒计时
+	h.timer.advance(4999); // 重置后 at=8000、now=7999；未重置实现 at=5000 此刻已触发（有区分力）
+	expect(h.hides.length).toBe(0);
+	h.timer.advance(1); // now=8000 → 到期
+	expect(h.hides.length).toBe(1);
+	expect(h.lastUpdate().items.length).toBe(0);
+});
+
+test("卡片 card:click → 暂停态下重置为满额暂停且不启动计时（fake timer）", () => {
+	const h = makeHarness();
+	send(h, { title: "A", body: "a", action: { type: "session", sessionId: "s1" } });
+	send(h, { title: "B", body: "b", action: { type: "session", sessionId: "s2" } });
+	h.fireLoad();
+	h.timer.advance(3000); // 已走 3s
+	h.fireCardEvent({ type: "card:hover", action: "pause" }); // 暂停（剩余 2s）
+	h.fireCardEvent({ type: "card:click" }); // 悬停中点击 → 重置为满额暂停（5s）、不设 timer
+	h.timer.advance(10000); // 保持暂停：多久都不该触发
+	expect(h.hides.length).toBe(0);
+	h.fireCardEvent({ type: "card:hover", action: "resume" }); // 从满额 5s 续跑
+	h.timer.advance(4999); // 未重置为满额的实现（剩余 2s）此刻早已触发
+	expect(h.hides.length).toBe(0);
+	h.timer.advance(1); // 满额 5s 走完 → 到期
+	expect(h.hides.length).toBe(1);
+});
+
 test("卡片 card:hover pause/resume → 倒计时暂停/恢复（注入 fake timer 断言）", () => {
 	const h = makeHarness();
 	send(h, { title: "t", body: "b", action: { type: "update" } });
@@ -288,9 +319,9 @@ test("卡片 card:switch → queue.next/prev 刷新 + 倒计时重置（fake tim
 	h.timer.advance(3000); // 已走 3s
 	h.fireCardEvent({ type: "card:switch", dir: "next" }); // 1 → 0（循环）
 	expect(h.lastUpdate().index).toBe(0); // 切换后刷新
-	h.timer.advance(1999); // 若未重置，此刻早该到期（已走 4999ms）
-	expect(h.hides.length).toBe(0); // 重置生效：未到期
-	h.timer.advance(3001); // 重置后 5s 走满（3000+1999+3001-3000=5001ms）
+	h.timer.advance(4999); // 重置后 at=8000、now=7999 未到期；未重置实现 at=5000 此刻已触发（有区分力）
+	expect(h.hides.length).toBe(0);
+	h.timer.advance(1); // now=8000 → 重置后 5s 走满
 	expect(h.hides.length).toBe(1);
 });
 

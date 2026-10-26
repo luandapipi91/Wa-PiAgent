@@ -116,14 +116,18 @@ function setupNotice({
 						win.webContents.send("notice:action", current.action);
 					}
 				}
-				// 点击 = 已处理：移除当前条；队列空 → 停倒计时并关卡片，否则刷新继续显示
-				// （不重置倒计时：悬停暂停态由页面 mouseenter/mouseleave 管理，强行重启会丢暂停）
+				// 点击 = 已处理：移除当前条；队列空 → 停倒计时并关卡片；否则刷新显示下一条并重置倒计时
+				// （规格「交互规格（批准稿）」：「否则显示下一条并重置倒计时」。尊重暂停态：
+				// 悬停中 → 重置为满额暂停（remainingMs=满额、不设 timer，resume 从满额跑）；
+				// 运行中 → 照常 startCountdown()。避免点击把用户注视中的卡片提前收走）
 				if (queue.removeCurrent()) {
 					stopCountdown();
 					controller.hide();
 					queue.clear();
 				} else {
 					refresh();
+					if (remainingMs != null) remainingMs = CARD_AUTO_HIDE_MS;
+					else startCountdown();
 				}
 			} else if (evt.type === "card:hover") {
 				if (evt.action === "pause") pauseCountdown();
