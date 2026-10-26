@@ -77,13 +77,21 @@ function setupNotice({
 		if (timerId == null) return; // 未在计时（未启动/已暂停/已到期）：忽略
 		t.clear(timerId);
 		timerId = null;
-		remainingMs = Math.max(0, deadline - t.now());
+		remainingMs = Math.max(0, deadline - t.now()); // 仅作暂停态标志（resume 恒满额重启，不消费数值）
 	};
+	// 规格「移开后重新计 5 秒」：resume 恒满额重启，不续剩余
 	const resumeCountdown = () => {
 		if (remainingMs == null || timerId != null) return; // 未暂停过：忽略
-		deadline = t.now() + remainingMs;
-		timerId = t.set(onExpire, remainingMs);
+		deadline = t.now() + CARD_AUTO_HIDE_MS;
+		timerId = t.set(onExpire, CARD_AUTO_HIDE_MS);
 		remainingMs = null;
+	};
+	// 重置倒计时并尊重暂停态（规格「悬停或切换交互时倒计时暂停」）：
+	// 悬停暂停中 → 重置为满额暂停（不设 timer，resume 从满额跑）；运行中 → 照常满额重启。
+	// click 移除后刷新 / switch 切换 / 新通知入队三条路径统一走这里。
+	const resetCountdownRespectingPause = () => {
+		if (remainingMs != null) remainingMs = CARD_AUTO_HIDE_MS;
+		else startCountdown();
 	};
 	const onExpire = () => {
 		timerId = null;
@@ -126,8 +134,7 @@ function setupNotice({
 					queue.clear();
 				} else {
 					refresh();
-					if (remainingMs != null) remainingMs = CARD_AUTO_HIDE_MS;
-					else startCountdown();
+					resetCountdownRespectingPause();
 				}
 			} else if (evt.type === "card:hover") {
 				if (evt.action === "pause") pauseCountdown();
@@ -137,7 +144,8 @@ function setupNotice({
 				if (evt.dir === "prev") queue.prev();
 				else queue.next();
 				refresh();
-				startCountdown(); // 切换 = 用户仍在浏览：重置 5s
+				// 切换 = 用户仍在浏览：重置倒计时（规格「悬停或切换交互时倒计时暂停」，尊重暂停态）
+				resetCountdownRespectingPause();
 			}
 		},
 	});
@@ -159,7 +167,7 @@ function setupNotice({
 		});
 		lastTheme = payload.theme;
 		refresh();
-		startCountdown(); // 新通知重新计 5s
+		resetCountdownRespectingPause(); // 新通知重新计 5s（悬停中不打断暂停）
 		return { sent: true };
 	});
 }

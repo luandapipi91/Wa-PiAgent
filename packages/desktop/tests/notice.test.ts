@@ -284,7 +284,7 @@ test("卡片 card:click → 暂停态下重置为满额暂停且不启动计时�
 	expect(h.hides.length).toBe(1);
 });
 
-test("卡片 card:hover pause/resume → 倒计时暂停/恢复（注入 fake timer 断言）", () => {
+test("卡片 card:hover pause/resume → 倒计时暂停/移开后重新计 5s（fake timer）", () => {
 	const h = makeHarness();
 	send(h, { title: "t", body: "b", action: { type: "update" } });
 	h.fireLoad();
@@ -293,11 +293,47 @@ test("卡片 card:hover pause/resume → 倒计时暂停/恢复（注入 fake ti
 	h.timer.advance(10000); // 暂停期间推进多久都不该到期
 	expect(h.hides.length).toBe(0);
 	h.fireCardEvent({ type: "card:hover", action: "resume" });
-	h.timer.advance(1999); // 剩余 2s：还差 1ms
+	h.timer.advance(4999); // 规格「移开后重新计 5 秒」：满额重计，还差 1ms（续剩余实现剩余 2s 此刻已触发）
 	expect(h.hides.length).toBe(0);
-	h.timer.advance(1); // 剩余时间走满 → 到期
+	h.timer.advance(1); // 满额 5s 走完 → 到期
 	expect(h.hides.length).toBe(1);
 	expect(h.lastUpdate().items.length).toBe(0); // 队列清空
+});
+
+test("卡片 card:switch → 悬停暂停中切换保持暂停满额、不消失（fake timer）", () => {
+	const h = makeHarness();
+	send(h, { title: "A", body: "a", action: { type: "session", sessionId: "s1" } });
+	send(h, { title: "B", body: "b", action: { type: "session", sessionId: "s2" } });
+	h.fireLoad();
+	h.timer.advance(3000);
+	h.fireCardEvent({ type: "card:hover", action: "pause" }); // 悬停暂停
+	h.fireCardEvent({ type: "card:switch", dir: "next" }); // 悬停中切箭头 → 重置为满额暂停
+	h.timer.advance(10000); // 仍悬停：不消失（无脑 startCountdown 变异下会触发）
+	expect(h.hides.length).toBe(0);
+	h.fireCardEvent({ type: "card:hover", action: "resume" }); // 移开 → 重新计 5s
+	h.timer.advance(4999);
+	expect(h.hides.length).toBe(0);
+	h.timer.advance(1);
+	expect(h.hides.length).toBe(1);
+});
+
+test("notice:send：悬停暂停中来新通知 → 保持暂停满额、不消失（fake timer）", () => {
+	const h = makeHarness();
+	send(h, { title: "A", body: "a", action: { type: "session", sessionId: "s1" } });
+	h.fireLoad();
+	h.timer.advance(3000);
+	h.fireCardEvent({ type: "card:hover", action: "pause" }); // 悬停暂停
+	send(h, { title: "B", body: "b", action: { type: "session", sessionId: "s2" } }); // 悬停中入队（页面就绪直接下行）
+	expect(h.lastUpdate().items.length).toBe(2); // 入队并刷新显示
+	h.timer.advance(4999); // 保持暂停：不消失（无脑 startCountdown 变异下后续会提前触发）
+	expect(h.hides.length).toBe(0);
+	h.timer.advance(10000); // 继续悬停多久都不消失
+	expect(h.hides.length).toBe(0);
+	h.fireCardEvent({ type: "card:hover", action: "resume" }); // 移开 → 重新计 5s
+	h.timer.advance(4999);
+	expect(h.hides.length).toBe(0);
+	h.timer.advance(1);
+	expect(h.hides.length).toBe(1);
 });
 
 test("倒计时 5s 到期（fake timer）→ hide() + 队列清空", () => {

@@ -73,7 +73,7 @@ function makeHarness(opts: { workArea?: WorkArea } = {}) {
 
 	const controller = createNoticeCardController({
 		BrowserWindow,
-		ipcMain,
+		ipcMain: ipcMain as any, // mock 不实现完整 electron.IpcMain（照 notice.test.ts 先例）
 		getPrimaryDisplay: () => ({
 			workArea: opts.workArea ?? { x: 0, y: 0, width: 1920, height: 1080 },
 		}),
