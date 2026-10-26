@@ -845,6 +845,13 @@ const zh = {
 		checkFailed: "检查失败",
 		downloadFailed: "下载失败",
 	},
+	notice: {
+		taskDoneTitle: "任务完成",
+		taskDoneBody: "「{{title}}」已完成，点击查看",
+		untitledSession: "未命名会话",
+		updateTitle: "发现新版本 v{{version}}",
+		updateBody: "点击查看新版本更新内容",
+	},
 	emptyState: {
 		title: "开始你的第一个项目",
 		subtitle:

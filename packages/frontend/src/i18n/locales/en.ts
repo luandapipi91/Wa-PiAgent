@@ -875,6 +875,13 @@ const en = {
 		checkFailed: "Check failed",
 		downloadFailed: "Download failed",
 	},
+	notice: {
+		taskDoneTitle: "Task Completed",
+		taskDoneBody: "\"{{title}}\" finished, click to view",
+		untitledSession: "Untitled session",
+		updateTitle: "New version v{{version}} available",
+		updateBody: "Click to view what's new",
+	},
 	emptyState: {
 		title: "Start your first project",
 		subtitle:
