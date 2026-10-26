@@ -21,6 +21,7 @@ import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
 import { triggerTaskDoneFrog } from "../util/frog";
 import { celebrateDesktopPet } from "../util/desktop-pet";
+import { requestTaskDoneNotice } from "./notice";
 import { useUiPrefsStore } from "./ui-prefs";
 import type { MediaItem } from "../components/blocks/media-utils";
 import type { ToolCallView } from "../components/blocks/ToolCallNested";
@@ -1303,14 +1304,16 @@ export const useSessionStore = create<SessionState>((set) => {
 							triggerTaskDoneFrog(sessionId);
 						}
 					}
-					// 桌面宠物庆祝：真实完成（非重试中间态、非合成）才庆祝；IM 渠道（im-）与
-					// 定时任务（sched-）会话不触发——与提示音/青蛙动画同口径。
+					// 桌面宠物庆祝 + 任务完成系统通知：真实完成（非重试中间态、非合成）才触发；
+					// IM 渠道（im-）与定时任务（sched-）会话不触发——与提示音/青蛙动画同口径。
 					if (
 						!sessionId.startsWith("im-") &&
 						!sessionId.startsWith("sched-") &&
 						!syntheticEnd
-					)
+					) {
 						celebrateDesktopPet();
+						requestTaskDoneNotice(sessionId);
+					}
 					const away = sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
 					streamingBatcher.drop(sessionId);
