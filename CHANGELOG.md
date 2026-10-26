@@ -1,4 +1,5 @@
 ## 2026-10-26
+- feat(desktop): 通知卡片窗口 + 单文件渲染页——`notice/notice-card-window.cjs` 导出 `createNoticeCardController`（ensureWindow 三态/showCard 主屏 workArea 右下角边距 16px/showInactive 不抢焦点/下行 notice-card:update/上行 notice-card:event 经 onAction 回调）、`notice/notice-card.html`（320×96 零依赖、theme 驱动 class、click/hover/switch 上行）、`preload.cjs` 增 waPiNoticeCard 桥；测试 12 例（mock electron 照 pet-window 先例，含 html/preload 源码契约）
 - feat(desktop): 新增系统通知——后台任务完成/新版本提醒，点击跳会话或更新页
 - v0.8.3 发版：打开会话不再等 /stats + token 胶囊骨架屏（冷会话省 2.7~5s 白屏）；mac dmg 210944320 / win exe 199334697（zip 实测 sha512 与 yml 一致、cf-cache-status MISS）
 - feat(frontend): token 胶囊加载态骨架屏——`stats` 未返回时顶栏胶囊区先占位 3 格灰 pill（占用含进度条 68×26 / 累计 56×18 / 缓存 44×18，`bg-hairline animate-pulse`，`data-testid=token-capsules-skeleton`），数据到达后原位置换成真实胶囊；带 200ms 延迟阈值（`CAPSULE_SKELETON_DELAY_MS`，热会话 ~0.1s 返回时不闪），请求失败/空响应同样撤骨架不留永久占位，胶囊组渲染条件放宽为 `lastUsage || capsuleSkeleton`（无历史 usage 的冷会话也能看到占位）。测试：`SessionView.test.tsx` 补 3 例（慢于阈值亮骨架→返回后替换真实胶囊、阈值内返回不闪、空响应撤骨架），改前前两例真红，且对延迟阈值做变异验证（常量改 0 时「不闪」用例真红）；相关 98 用例（SessionView/App/MessageList/session-switch）全绿、frontend typecheck 0 error；真实浏览器（vite dev 直连内核）实测：冷会话点击后 781ms 亮骨架→2904ms（stats 2778ms 返回）换成真实胶囊

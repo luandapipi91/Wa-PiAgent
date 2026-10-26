@@ -106,6 +106,18 @@ contextBridge.exposeInMainWorld("waPiNotice", {
 	},
 });
 
+// 通知卡片窗口桥（notice-card.html 专用）：上行卡片事件 / 下行队列同步。
+// notice-card 窗口加载本 preload（同 link-window 复用模式），仅卡片页面会触发这些 IPC。
+// IPC 通道由 notice/notice-card-window.cjs 的 createNoticeCardController 注册。
+contextBridge.exposeInMainWorld("waPiNoticeCard", {
+	sendNoticeEvent: (evt) => ipcRenderer.send("notice-card:event", evt),
+	onCardUpdate: (callback) => {
+		const listener = (_event, payload) => callback(payload);
+		ipcRenderer.on("notice-card:update", listener);
+		return () => ipcRenderer.removeListener("notice-card:update", listener);
+	},
+});
+
 // 桌面宠物桥（主窗口侧）：开关同步 + 任务完成庆祝转发 + 宠物窗口关闭回执。
 // 宠物窗口自身用 src/pet-preload.cjs（暴露页面约定的 window.guaguaHost）。
 contextBridge.exposeInMainWorld("waPiPet", {

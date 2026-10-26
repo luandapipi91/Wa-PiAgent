@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>通知卡片 · wa-pi</title>
+<!--
+  通知卡片渲染页（通知系统 v2 发送层）：单文件零依赖，内联 CSS/JS，由透明 BrowserWindow loadFile 加载。
+  宿主窗口与桥接见 notice-card-window.cjs / preload.cjs 的 waPiNoticeCard 段：
+    - 下行 onCardUpdate({ items, index, theme, count })：渲染当前条目与主题（theme === "dark" → body.dark）
+    - 上行 sendNoticeEvent(evt)：
+        { type: "card:click" }                       点击卡片主体
+        { type: "card:hover", action: "pause"|"resume" } 悬停进入 / 离开（倒计时暂停由主进程侧处理）
+        { type: "card:switch", dir: "prev"|"next" }  左右箭头切换
+  无桥（浏览器直接打开本文件）时静默降级为静态预览。
+-->
+<style>
+  /* 透明窗口：页面背景必须透明，卡片本体自绘圆角背景 */
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: transparent;
+  }
+  :root {
+    --card-bg: rgba(255, 255, 255, .97);
+    --card-border: rgba(0, 0, 0, .08);
+    --fg: #1f2329;
+    --fg-dim: rgba(31, 35, 41, .62);
+    --arrow-hover-bg: rgba(0, 0, 0, .06);
+  }
+  body.dark {
+    --card-bg: rgba(32, 33, 36, .97);
+    --card-border: rgba(255, 255, 255, .12);
+    --fg: #e8eaed;
+    --fg-dim: rgba(232, 234, 237, .6);
+    --arrow-hover-bg: rgba(255, 255, 255, .1);
+  }
+  #card {
+    box-sizing: border-box;
+    width: 100%; height: 100%;
+    display: flex; align-items: stretch; gap: 6px;
+    padding: 14px 10px 14px 14px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+    cursor: pointer;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: var(--fg);
+  }
+  .content {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  }
+  #title {
+    font-size: 13px; font-weight: 600; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #body {
+    font-size: 12px; line-height: 1.45; color: var(--fg-dim);
+    display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .side {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: space-between; flex: none;
+  }
+  #count { font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+  .nav { display: flex; gap: 2px; }
+  .arrow {
+    width: 22px; height: 20px;
+    border: none; border-radius: 6px;
+    background: transparent; color: var(--fg-dim);
+    font-size: 14px; line-height: 1; padding: 0;
+    cursor: pointer;
+    transition: background-color .15s;
+  }
+  .arrow:hover { background: var(--arrow-hover-bg); color: var(--fg); }
+  .arrow:active { opacity: .7; }
+</style>
+</head>
+<body>
+<div id="card" role="button" aria-label="通知卡片">
+  <div class="content">
+    <div id="title"></div>
+    <div id="body"></div>
+  </div>
+  <div class="side">
+    <div id="count">1/1</div>
+    <div class="nav">
+      <button class="arrow" id="prev" aria-label="上一条">&#8249;</button>
+      <button class="arrow" id="next" aria-label="下一条">&#8250;</button>
+    </div>
+  </div>
+</div>
+<script>
+  (function () {
+    var bridge = window.waPiNoticeCard;
+    var send = function (evt) {
+      try { if (bridge) bridge.sendNoticeEvent(evt); } catch (e) { /* 无桥降级：静默 */ }
+    };
+    var card = document.getElementById("card");
+    var titleEl = document.getElementById("title");
+    var bodyEl = document.getElementById("body");
+    var countEl = document.getElementById("count");
+
+    // 下行：渲染当前条目 + 主题 class（theme 缺省按浅色）
+    function render(p) {
+      if (!p) return;
+      var items = Array.isArray(p.items) ? p.items : [];
+      var it = items[p.index];
+      document.body.classList.toggle("dark", p.theme === "dark");
+      titleEl.textContent = it ? (it.title || "") : "";
+      bodyEl.textContent = it ? (it.body || "") : "";
+      var count = p.count > 0 ? p.count : 1;
+      var n = (p.index + 1) > count ? count : (p.index + 1);
+      countEl.textContent = n + "/" + count;
+    }
+    if (bridge && typeof bridge.onCardUpdate === "function") {
+      bridge.onCardUpdate(render);
+    }
+
+    // 整体可点击 → 执行当前这条的跳转（主进程侧激活应用 + 转发 action）
+    card.addEventListener("click", function () { send({ type: "card:click" }); });
+    // 悬停进入/离开 → 倒计时暂停/恢复
+    card.addEventListener("mouseenter", function () { send({ type: "card:hover", action: "pause" }); });
+    card.addEventListener("mouseleave", function () { send({ type: "card:hover", action: "resume" }); });
+    // 左右箭头 → 切换条目（不触发卡片主体的 click）
+    document.getElementById("prev").addEventListener("click", function (e) {
+      e.stopPropagation();
+      send({ type: "card:switch", dir: "prev" });
+    });
+    document.getElementById("next").addEventListener("click", function (e) {
+      e.stopPropagation();
+      send({ type: "card:switch", dir: "next" });
+    });
+  })();
+</script>
+</body>
+</html>
