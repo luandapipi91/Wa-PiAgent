@@ -1,7 +1,9 @@
 // 系统通知请求侧：组装 i18n 文案后经 window.waPiNotice 桥交主进程发送。
 // 前台窗口拦截判断在主进程，渲染端不做前台判断。
 import i18n from "../i18n";
+import { useBrowserStore } from "./browser";
 import { useProjectsStore } from "./projects";
+import { useSettingsStore } from "./settings";
 import { useUiPrefsStore } from "./ui-prefs";
 import { useUpdaterStore } from "./updater";
 
@@ -95,4 +97,38 @@ export function initUpdateNotice(): () => void {
 			.catch(() => {});
 		useUiPrefsStore.getState().setLastUpdateNoticeDate(today);
 	});
+}
+
+/**
+ * 通知点击下行分发：按 action.type 唤起对应界面。
+ * session：照 Sidebar onSelectSession 模板——activateSession 切浏览器预览；会话在列表
+ *   直接选中，不在列表（如 kernel 侧建的 IM 接入会话尚未同步）先重拉再选中。
+ * update：打开设置并定位「关于」页（查看新版本内容）。
+ * 返回跳转目标供 UI 层补充视图切换（"session" → setView("session")，setView 是 App
+ * 内部 state 不能在这里调）；未知 type 返回 null 且三个 store 均不变。
+ */
+export function handleNoticeAction(
+	action: NoticeAction,
+): "session" | "settings" | null {
+	if (action.type === "session") {
+		useBrowserStore.getState().activateSession(action.sessionId);
+		const st = useProjectsStore.getState();
+		if (st.sessions.some((x) => x.id === action.sessionId)) {
+			st.selectSession(action.sessionId);
+		} else {
+			// 兜底：会话不在本地列表时先重拉再选中，否则 SessionView 找不到 session 渲染空白
+			void st
+				.load()
+				.then(() =>
+					useProjectsStore.getState().selectSession(action.sessionId),
+				);
+		}
+		return "session";
+	}
+	if (action.type === "update") {
+		useSettingsStore.getState().open();
+		useSettingsStore.getState().setSection("about");
+		return "settings";
+	}
+	return null;
 }
