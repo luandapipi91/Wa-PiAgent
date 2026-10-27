@@ -291,33 +291,35 @@ export function AppearanceSection() {
 			)}
 			<div className="border-t border-hairline" />
 			{/* 语言切换：即时生效（与外观页交互一致），双写 kernel settings.json */}
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.appearance.language.label")}
-				</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.appearance.language.desc")}
-				</span>
-			</div>
-			<select
-				value={language}
-				onChange={(e) => {
-					const v = e.target.value as AppLanguage;
-					setLanguage(v);
-					void api
-						.put("/api/settings/language", { language: v })
-						.catch((err: unknown) =>
-							useToastStore
-								.getState()
-								.add(err instanceof Error ? err.message : String(err), "error"),
+			<div className="flex items-center justify-between gap-4">
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.appearance.language.label")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.language.desc")}
+					</span>
+				</div>
+				<select
+					value={language}
+					onChange={(e) => {
+						const v = e.target.value as AppLanguage;
+						setLanguage(v);
+						void api
+							.put("/api/settings/language", { language: v })
+							.catch((err: unknown) =>
+								useToastStore
+									.getState()
+									.add(err instanceof Error ? err.message : String(err), "error"),
 						);
-				}}
-				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
-				data-testid="language-select"
-			>
-				<option value="zh">{t("settings.appearance.language.zh")}</option>
-				<option value="en">{t("settings.appearance.language.en")}</option>
-			</select>
+					}}
+					className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-40"
+					data-testid="language-select"
+				>
+					<option value="zh">{t("settings.appearance.language.zh")}</option>
+					<option value="en">{t("settings.appearance.language.en")}</option>
+				</select>
+			</div>
 		</div>
 	);
 }
