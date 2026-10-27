@@ -156,6 +156,7 @@ function setupNotice({
 	});
 
 	ipcMain.handle("notice:send", (_event, payload) => {
+		// 防御：title 必须是字符串（渲染侧契约），异常载荷直接拒绝
 		if (typeof payload?.title !== "string") {
 			return { sent: false, reason: "invalid" };
 		}
