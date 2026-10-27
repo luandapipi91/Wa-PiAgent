@@ -136,6 +136,11 @@ function setupNotice({
 					refresh();
 					resetCountdownRespectingPause();
 				}
+			} else if (evt.type === "card:close") {
+				// 手动关闭：不跳转，整卡收起——停倒计时 + 关卡片 + 清空队列
+				stopCountdown();
+				controller.hide();
+				queue.clear();
 			} else if (evt.type === "card:hover") {
 				if (evt.action === "pause") pauseCountdown();
 				else resumeCountdown();
@@ -151,12 +156,16 @@ function setupNotice({
 	});
 
 	ipcMain.handle("notice:send", (_event, payload) => {
+		// [notice-diag] 临时诊断埋点（排查后删除）
+		log?.info?.(`[notice-diag] notice:send 收到: bgOnly=${payload?.backgroundOnly} theme=${payload?.theme} title=${typeof payload?.title} actionType=${payload?.action?.type}`);
 		// 防御：title 必须是字符串（渲染侧契约），异常载荷直接拒绝
 		if (typeof payload?.title !== "string") {
+			log?.info?.("[notice-diag] 拒绝: invalid");
 			return { sent: false, reason: "invalid" };
 		}
 		// backgroundOnly:true 仅在窗口于后台（最小化/未聚焦）时显示
 		if (payload.backgroundOnly && !isBackgrounded(getMainWindow())) {
+			log?.info?.("[notice-diag] 拦截: foreground（窗口在前台）");
 			return { sent: false, reason: "foreground" };
 		}
 		queue.enqueue({
@@ -168,6 +177,7 @@ function setupNotice({
 		lastTheme = payload.theme;
 		refresh();
 		resetCountdownRespectingPause(); // 新通知重新计 5s（悬停中不打断暂停）
+		log?.info?.(`[notice-diag] 已入队并 showCard: count=${queue.count} index=${queue.index}`);
 		return { sent: true };
 	});
 }

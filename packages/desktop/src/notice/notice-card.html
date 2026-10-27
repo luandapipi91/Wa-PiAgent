@@ -10,7 +10,8 @@
     - 上行 sendNoticeEvent(evt)：
         { type: "card:click" }                       点击卡片主体
         { type: "card:hover", action: "pause"|"resume" } 悬停进入 / 离开（倒计时暂停由主进程侧处理）
-        { type: "card:switch", dir: "prev"|"next" }  左右箭头切换
+        { type: "card:switch", dir: "prev"|"next" }   左右箭头切换
+        { type: "card:close" }                        手动关闭按钮（整卡收起，不跳转）
   无桥（浏览器直接打开本文件）时静默降级为静态预览。
 -->
 <style>
@@ -77,6 +78,16 @@
   }
   .arrow:hover { background: var(--arrow-hover-bg); color: var(--fg); }
   .arrow:active { opacity: .7; }
+  #close {
+    width: 22px; height: 20px;
+    border: none; border-radius: 6px;
+    background: transparent; color: var(--fg-dim);
+    font-size: 13px; line-height: 1; padding: 0;
+    cursor: pointer;
+    transition: background-color .15s;
+  }
+  #close:hover { background: var(--arrow-hover-bg); color: var(--fg); }
+  #close:active { opacity: .7; }
 </style>
 </head>
 <body>
@@ -91,6 +102,7 @@
       <button class="arrow" id="prev" aria-label="上一条">&#8249;</button>
       <button class="arrow" id="next" aria-label="下一条">&#8250;</button>
     </div>
+    <button id="close" aria-label="关闭" title="关闭">&#215;</button>
   </div>
 </div>
 <script>
@@ -133,6 +145,11 @@
     document.getElementById("next").addEventListener("click", function (e) {
       e.stopPropagation();
       send({ type: "card:switch", dir: "next" });
+    });
+    // 手动关闭 → 整卡收起（不触发卡片主体的 click，不跳转）
+    document.getElementById("close").addEventListener("click", function (e) {
+      e.stopPropagation();
+      send({ type: "card:close" });
     });
   })();
 </script>

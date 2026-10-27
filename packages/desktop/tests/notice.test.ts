@@ -378,3 +378,17 @@ test("卡片窗口销毁后再次 notice:send → 不抛错，重建窗口成功
 	expect(payload.items[0].title).toBe("t2");
 	expect(payload.index).toBe(0);
 });
+
+test("卡片 card:close → 清空队列 + 关卡片 + 倒计时停止 + 不透传 action", () => {
+	const h = makeHarness();
+	send(h, { title: "A", body: "a", action: { type: "session", sessionId: "s1" } });
+	send(h, { title: "B", body: "b", action: { type: "session", sessionId: "s2" } });
+	h.fireLoad();
+	const hidesBefore = h.hides.length;
+	h.fireCardEvent({ type: "card:close" });
+	expect(h.hides.length).toBe(hidesBefore + 1); // 关卡片
+	expect(h.lastUpdate().items.length).toBe(0); // 队列清空（clear 原地清空）
+	expect(h.sentToMain.filter(([ch]) => ch === "notice:action").length).toBe(0); // close 不跳转
+	h.timer.advance(10000);
+	expect(h.hides.length).toBe(hidesBefore + 1); // 倒计时已停：到期不重复触发
+});
