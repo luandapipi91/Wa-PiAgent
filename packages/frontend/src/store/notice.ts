@@ -42,7 +42,11 @@ declare global {
  * 会话名取不到或为空串时用「未命名会话」兜底；浏览器版（无 window.waPiNotice）静默 no-op。
  */
 export function requestTaskDoneNotice(sessionId: string): void {
+	// 通知开关关闭：不发（外观 → 任务完成通知）
+	if (!useUiPrefsStore.getState().noticeTaskDone) return;
 	const api = window.waPiNotice;
+	// [notice-diag] 临时诊断埋点（排查后删除）
+	console.error(`[notice-diag] requestTaskDoneNotice: sessionId=${sessionId} bridge=${!!api}`);
 	if (!api) return;
 	const sessionTitle =
 		useProjectsStore.getState().sessions.find((x) => x.id === sessionId)
@@ -59,7 +63,11 @@ export function requestTaskDoneNotice(sessionId: string): void {
 			backgroundOnly: true,
 			theme: noticeTheme(useUiPrefsStore.getState().themeMode),
 		})
-		.catch(() => {});
+		.then(
+			// [notice-diag] 临时诊断埋点（排查后删除）
+			(res) => console.error(`[notice-diag] send 结果: ${JSON.stringify(res)}`),
+			(err) => console.error("[notice-diag] send 失败:", err),
+		);
 }
 
 /** 本地时区 YYYY-MM-DD。手工拼年月日补零；禁用 toISOString()（UTC 偏移会错日）。 */

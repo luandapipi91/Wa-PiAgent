@@ -91,6 +91,8 @@ export function AppearanceSection() {
 		(s) => s.setCollapseProcessByDefault,
 	);
 	const frogTaskDone = useUiPrefsStore((s) => s.frogTaskDone);
+	const noticeTaskDone = useUiPrefsStore((s) => s.noticeTaskDone);
+	const setNoticeTaskDone = useUiPrefsStore((s) => s.setNoticeTaskDone);
 	const setFrogTaskDone = useUiPrefsStore((s) => s.setFrogTaskDone);
 	const desktopPet = useUiPrefsStore((s) => s.desktopPet);
 	const setDesktopPet = useUiPrefsStore((s) => s.setDesktopPet);
@@ -244,6 +246,22 @@ export function AppearanceSection() {
 					on={frogTaskDone}
 					onToggle={() => setFrogTaskDone(!frogTaskDone)}
 					testId="frog-task-done-toggle"
+				/>
+			</div>
+			{/* 任务完成通知（即时生效） */}
+			<div className="flex items-center justify-between gap-4">
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.appearance.noticeTaskDone")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.noticeTaskDoneDesc")}
+					</span>
+				</div>
+				<ToggleSwitch
+					on={noticeTaskDone}
+					onToggle={() => setNoticeTaskDone(!noticeTaskDone)}
+					testId="notice-task-done-toggle"
 				/>
 			</div>
 			{/* 桌面宠物（即时生效：关闭即销毁宠物窗口）。

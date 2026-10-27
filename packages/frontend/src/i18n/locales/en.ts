@@ -1052,6 +1052,9 @@ const en = {
 			taskDoneFrog: "Frog animation",
 			taskDoneFrogDesc:
 				"A frog hops out from a corner of the chat area when a task finishes.",
+			noticeTaskDone: "Task Completion Notice",
+			noticeTaskDoneDesc:
+				"When a task finishes while the window is in the background, show a notice card at the bottom-right corner.",
 			desktopPet: {
 				label: "Desktop pet",
 				desc:

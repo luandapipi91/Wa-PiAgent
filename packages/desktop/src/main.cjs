@@ -315,6 +315,10 @@ function createWindow() {
 			preload: path.join(__dirname, "preload.cjs"),
 		},
 	});
+	// [notice-diag] 临时诊断：渲染端 console 全部落盘（排查后删除）
+	mainWindow.webContents.on("console-message", (_e, _level, message) => {
+		log.info(`[renderer-console] ${message}`);
+	});
 	// 外链子窗口集合：移除 parent 后，主窗口收起时需手动同步隐藏子窗口
 	const childWindows = new Set();
 	// 点关闭按钮 → 最小化到托盘，不退出

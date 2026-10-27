@@ -1015,6 +1015,8 @@ const zh = {
 			},
 			taskDoneFrog: "任务完成动画",
 			taskDoneFrogDesc: "任务完成时，一只青蛙从聊天区角落蹦出。",
+			noticeTaskDone: "任务完成通知",
+			noticeTaskDoneDesc: "任务完成且窗口不在前台时，在屏幕右下角弹出通知卡片。",
 			desktopPet: {
 				label: "桌面宠物",
 				desc:

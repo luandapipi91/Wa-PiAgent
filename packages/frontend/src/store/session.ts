@@ -1311,6 +1311,8 @@ export const useSessionStore = create<SessionState>((set) => {
 						!sessionId.startsWith("sched-") &&
 						!syntheticEnd
 					) {
+						// [notice-diag] 临时诊断埋点（排查后删除）
+						console.error(`[notice-diag] agent_end 通知分支命中: sessionId=${sessionId}`);
 						celebrateDesktopPet();
 						requestTaskDoneNotice(sessionId);
 					}

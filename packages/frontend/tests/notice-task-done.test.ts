@@ -45,6 +45,8 @@ beforeEach(async () => {
 	useProjectsStore.setState({ sessions: [] });
 	// themeMode 归位默认（dark 用例改过后不污染后续用例）
 	useUiPrefsStore.setState({ themeMode: "system" });
+	// 通知开关归位默认（关闭用例改过后不污染后续用例）
+	useUiPrefsStore.setState({ noticeTaskDone: true });
 	await i18n.changeLanguage("zh");
 });
 
@@ -114,4 +116,15 @@ test("noticeTheme：light → 'light'", () => {
 
 test("noticeTheme：system → 'light'（跟随系统时读不到系统值用 light 兜底）", () => {
 	expect(noticeTheme("system")).toBe("light");
+});
+
+test("通知开关关闭 → requestTaskDoneNotice 不发通知", () => {
+	useProjectsStore.setState({ sessions: [session("s1", "会话A")] });
+	useUiPrefsStore.setState({ noticeTaskDone: false });
+	requestTaskDoneNotice("s1");
+	expect(sendCalls).toHaveLength(0);
+});
+
+test("通知开关默认开启：ui-prefs 初始 noticeTaskDone === true", () => {
+	expect(useUiPrefsStore.getState().noticeTaskDone).toBe(true);
 });

@@ -41,6 +41,9 @@ interface UiPrefsState {
 	/** 任务完成青蛙动画开关（默认 true），即时生效。 */
 	frogTaskDone: boolean;
 	setFrogTaskDone: (v: boolean) => void;
+	/** 任务完成通知卡片开关（默认 true）：窗口不在前台时右下角弹卡片。 */
+	noticeTaskDone: boolean;
+	setNoticeTaskDone: (v: boolean) => void;
 	/** 需要操作（ask_user_question 待回答）提示音开关（默认 true），即时生效。 */
 	soundNeedsAction: boolean;
 	setSoundNeedsAction: (v: boolean) => void;
@@ -87,6 +90,8 @@ export const SOUND_TASK_DONE_DEFAULT = true;
 /** 定时任务完成提示音默认关（需求：默认不响） */
 export const SOUND_SCHED_TASK_DONE_DEFAULT = false;
 export const FROG_TASK_DONE_DEFAULT = true;
+/** 任务完成通知卡片默认开 */
+export const NOTICE_TASK_DONE_DEFAULT = true;
 export const SOUND_NEEDS_ACTION_DEFAULT = true;
 
 /** 开机自启默认值：安装后默认开启 */
@@ -176,6 +181,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			setSoundSchedTaskDone: (v) => set({ soundSchedTaskDone: v }),
 			frogTaskDone: FROG_TASK_DONE_DEFAULT,
 			setFrogTaskDone: (v) => set({ frogTaskDone: v }),
+			noticeTaskDone: NOTICE_TASK_DONE_DEFAULT,
+			setNoticeTaskDone: (v) => set({ noticeTaskDone: v }),
 			soundNeedsAction: SOUND_NEEDS_ACTION_DEFAULT,
 			setSoundNeedsAction: (v) => set({ soundNeedsAction: v }),
 			autoLaunch: AUTO_LAUNCH_DEFAULT,
