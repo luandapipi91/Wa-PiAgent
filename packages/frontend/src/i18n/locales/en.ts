@@ -1009,13 +1009,6 @@ const en = {
 			proxy: {
 				label: "Use system proxy",
 			},
-			language: {
-				label: "Language",
-				desc:
-					"Choose the interface language. Takes effect immediately. On first launch it is auto-selected based on your browser language.",
-				zh: "中文",
-				en: "English",
-			},
 			sound: {
 				label: "Sound",
 				desc:
@@ -1055,6 +1048,12 @@ const en = {
 			noticeTaskDone: "Task Completion Notice",
 			noticeTaskDoneDesc:
 				"When a task finishes while the window is in the background, show a notice card at the bottom-right corner.",
+			language: {
+				label: "Language",
+				desc: "Choose the interface language. Takes effect immediately. On first launch it is auto-selected based on your browser language.",
+				zh: "中文",
+				en: "English",
+			},
 			desktopPet: {
 				label: "Desktop pet",
 				desc:

@@ -74,13 +74,13 @@ test("分组标题「对话导出」存在，且导出轮数/图片导出选项�
 	).toBeTruthy();
 });
 
-test("分组间横线分隔：自动重试/提示音/回收站/对话导出/语言 各组间均有 border-t 分隔容器", async () => {
+test("分组间横线分隔：自动重试/提示音/回收站/对话导出 各组间均有 border-t 分隔容器", async () => {
 	// mock 开机自启 IPC，确保 autoLaunch 行渲染
 	(window as any).waPiApp = { setLoginItem: () => {} };
 	render(<GeneralSection />);
 	await screen.findByTestId("retry-max-input");
 
-	// 五组之间应有分隔线：每组相邻 testid 之间至少存在一个带 border-t 的分隔容器
+	// 四组之间应有分隔线：每组相邻 testid 之间至少存在一个带 border-t 的分隔容器
 	// （testid 元素嵌套层级不同，不能用 nextElementSibling 遍历，改用 compareDocumentPosition
 	//   判定分隔容器在 groups[i] 之后、groups[i+1] 之前）
 	const groups = [
@@ -88,7 +88,7 @@ test("分组间横线分隔：自动重试/提示音/回收站/对话导出/语�
 		screen.getByTestId("sound-task-done-toggle"),
 		screen.getByTestId("trash-auto-archive-toggle"),
 		screen.getByTestId("export-turns-slider"),
-		screen.getByTestId("language-select"),
+		screen.getByTestId("auto-launch-toggle"),
 	];
 	const separators = Array.from(document.querySelectorAll(".border-t"));
 	expect(separators.length).toBeGreaterThanOrEqual(4);
@@ -103,7 +103,7 @@ test("分组间横线分隔：自动重试/提示音/回收站/对话导出/语�
 	}
 });
 
-test("设置项顺序：Codemode → 自动重试 → 提示音 → 回收站 → 导出轮数 → 图片导出 → 语言 → 开机自启", async () => {
+test("设置项顺序：Codemode → 自动重试 → 提示音 → 回收站 → 导出轮数 → 图片导出 → 开机自启", async () => {
 	// mock 开机自启 IPC，确保 autoLaunch 行渲染
 	(window as any).waPiApp = { setLoginItem: () => {} };
 	render(<GeneralSection />);
@@ -116,7 +116,6 @@ test("设置项顺序：Codemode → 自动重试 → 提示音 → 回收站 �
 		screen.getByTestId("trash-auto-archive-toggle"),
 		screen.getByTestId("export-turns-slider"),
 		screen.getByTestId("export-include-user-agent-only"),
-		screen.getByTestId("language-select"),
 		screen.getByTestId("auto-launch-toggle"),
 	];
 	for (let i = 0; i < order.length - 1; i++) {
@@ -157,29 +156,6 @@ test("定时任务完成提示音开关：默认关闭，点击切换写 store",
 	expect(useUiPrefsStore.getState().soundSchedTaskDone).toBe(true);
 });
 
-test("语言切换保存 → 写 ui-prefs store 并双写 PUT /api/settings/language", async () => {
-	useUiPrefsStore.setState({ language: "zh" });
-	render(<GeneralSection />);
-	await screen.findByTestId("retry-max-input");
-
-	fireEvent.change(screen.getByTestId("language-select"), {
-		target: { value: "en" },
-	});
-	// 草稿态：未保存时 store 不变、不发 language 请求
-	expect(useUiPrefsStore.getState().language).toBe("zh");
-	expect(putMock).not.toHaveBeenCalledWith(
-		"/api/settings/language",
-		expect.anything(),
-	);
-
-	fireEvent.click(screen.getByTestId("retry-save-btn"));
-	await new Promise((r) => setTimeout(r, 10));
-	// 本地生效（ui-prefs）+ 双写 kernel settings.json
-	expect(useUiPrefsStore.getState().language).toBe("en");
-	expect(putMock).toHaveBeenCalledWith("/api/settings/language", {
-		language: "en",
-	});
-});
 
 test("Codemode 三档区块渲染在设置页最前（自动重试之前），默认选中「兼容」", async () => {
 	render(<GeneralSection />);

@@ -14,7 +14,6 @@ import {
 } from "../../store/ui-prefs";
 import { useToastStore } from "../../store/toast";
 import { previewNeedsAction, previewTaskDone } from "../../util/sound";
-import type { AppLanguage } from "../../i18n/detect";
 
 /** 与 kernel settings-store 的产品约束对齐（重试最多 10 次；间隔 0.5s-60s） */
 const MAX_RETRIES = 10;
@@ -85,9 +84,6 @@ function SoundSwitch({
  * 通用设置：pi 自动重试配置（transient 错误——网络/超时/5xx/限流——后的自动重试）。
  * 保存到 settings.json.retry，pi 进程启动时加载；kernel 保存后会标脏活跃会话，
  * 下次发消息时重建进程生效。
- *
- * 语言切换为草稿态：select 只改本地 draft，点「保存」才调 setLanguage 生效；
- * 关闭窗口不保存则还原（组件卸载，store 仍为原值）。
  */
 export function GeneralSection() {
 	const [maxRetries, setMaxRetries] = useState("3");
@@ -103,8 +99,6 @@ export function GeneralSection() {
 	const setExportTurns = useUiPrefsStore((s) => s.setExportTurns);
 	const exportIncludeUser = useUiPrefsStore((s) => s.exportIncludeUser);
 	const setExportIncludeUser = useUiPrefsStore((s) => s.setExportIncludeUser);
-	const language = useUiPrefsStore((s) => s.language);
-	const setLanguage = useUiPrefsStore((s) => s.setLanguage);
 	const soundTaskDone = useUiPrefsStore((s) => s.soundTaskDone);
 	const setSoundTaskDone = useUiPrefsStore((s) => s.setSoundTaskDone);
 	// 定时任务完成提示音（默认关）：仅作用于定时任务执行会话（sched- 前缀）
@@ -115,8 +109,6 @@ export function GeneralSection() {
 	const autoLaunch = useUiPrefsStore((s) => s.autoLaunch);
 	const setAutoLaunch = useUiPrefsStore((s) => s.setAutoLaunch);
 	const { t } = useTranslation();
-	// 语言草稿：select 改草稿，点保存才 setLanguage 生效；关闭窗口丢弃草稿。
-	const [draftLang, setDraftLang] = useState<AppLanguage>(language);
 	// 导出轮数草稿：滑块只改草稿，点保存才 setExportTurns 生效，
 	// 与语言/重试配置一致（保存后才生效）。关闭窗口不保存则还原（store 仍为原值）。
 	const [draftExportTurns, setDraftExportTurns] = useState(exportTurns);
@@ -229,12 +221,6 @@ export function GeneralSection() {
 			// 图片导出范围草稿生效（仅当与当前值不同时才写入）
 			if (draftExportIncludeUser !== exportIncludeUser)
 				setExportIncludeUser(draftExportIncludeUser);
-			// 语言草稿生效（仅当与当前值不同时才写入），并双写 kernel settings.json
-			// （后端 i18n 基建：kernel 侧生成的消息将来按此语言输出）
-			if (draftLang !== language) {
-				setLanguage(draftLang);
-				await api.put("/api/settings/language", { language: draftLang });
-			}
 			// Codemode 三档：保存后 kernel 标脏重建 pi 进程生效
 			await api.put("/api/settings/codemode", { level: draftCodemode });
 			setSaved(true);
@@ -588,28 +574,6 @@ export function GeneralSection() {
 					))}
 				</div>
 			</div>
-			<div className="border-t border-hairline" />
-			{/* 语言切换：草稿态，点保存才生效 */}
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.general.language.label")}
-				</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.general.language.desc")}
-				</span>
-			</div>
-			<select
-				value={draftLang}
-				onChange={(e) => {
-					setDraftLang(e.target.value as AppLanguage);
-					setSaved(false);
-				}}
-				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
-				data-testid="language-select"
-			>
-				<option value="zh">{t("settings.general.language.zh")}</option>
-				<option value="en">{t("settings.general.language.en")}</option>
-			</select>
 			<div className="border-t border-hairline" />
 			{/* 开机自启：即时生效（经 IPC 同步系统） */}
 			{typeof window !== "undefined" && window.waPiApp?.setLoginItem && (

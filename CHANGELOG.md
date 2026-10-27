@@ -1,3 +1,7 @@
+## 2026-10-27
+
+- feat(settings): 通知卡片加手动关闭按钮；外观加「任务完成通知」开关；语言设置移至外观 tab 并改为即时生效
+
 ## 2026-10-26
 - feat(frontend): 通知载荷携带主题——`store/notice.ts` 新增 `noticeTheme(themeMode)` 映射（dark→dark，light/system→light，跟随系统读不到系统值 light 兑底），requestTaskDoneNotice/initUpdateNotice 两处 payload 组装共用；E2E `notice-actions.spec.ts` 重写为卡片链路 3 用例（主窗口 waPiNotice.send 直发不再拦截 handler：两条不同会话各成条+同会话合并刷新、点击卡片跳关于页+卡片消失、REST 建会话点击跳会话）；单测补 theme 断言与映射用例 6 例
 - feat(desktop): 通知发送层切换为卡片窗口（v2）——`notice.cjs` 的 `setupNotice` 改为组合通知队列+5s 倒计时（可注入 timer，pause 记剩余/resume 续剩余/新通知与切换重置）+ `createNoticeCardController`；`notice:send` 防御非字符串 title（invalid）→ 前台判定（backgroundOnly，逻辑不动）→ 同 sessionId 稳定键合并入队（`session:<id>` / `update:<type>`）→ showCard 下行；卡片事件：click 从队列当前条透传原 action 下发 `notice:action`（上行不带载荷）+移除当前条（空则 hide+clear）、hover 暂停/恢复、switch 刷新+重置 5s；移除 OS Notification 依赖与 main.cjs 的 win32 `setAppUserModelId` 块；notice.test.ts 重写 15 例（isBackgrounded 3 例保留 + 卡片链路 12 例，fake timer 驱动倒计时，TDD 先红后绿）；desktop 全量 362 例 0 fail、既有通知链路 Electron E2E 3/3（应用正常启动、通道契约无回归）

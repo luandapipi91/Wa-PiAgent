@@ -975,12 +975,6 @@ const zh = {
 			proxy: {
 				label: "使用系统代理",
 			},
-			language: {
-				label: "语言",
-				desc: "选择界面显示语言，即时生效。首次启动时根据浏览器语言自动选择。",
-				zh: "中文",
-				en: "English",
-			},
 			sound: {
 				label: "提示音",
 				desc: "任务完成或等待你操作时播放提示音，即时生效。",
@@ -1017,6 +1011,12 @@ const zh = {
 			taskDoneFrogDesc: "任务完成时，一只青蛙从聊天区角落蹦出。",
 			noticeTaskDone: "任务完成通知",
 			noticeTaskDoneDesc: "任务完成且窗口不在前台时，在屏幕右下角弹出通知卡片。",
+			language: {
+				label: "语言",
+				desc: "选择界面显示语言，即时生效。首次启动时根据浏览器语言自动选择。",
+				zh: "中文",
+				en: "English",
+			},
 			desktopPet: {
 				label: "桌面宠物",
 				desc:

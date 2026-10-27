@@ -1,10 +1,13 @@
 import { useTranslation } from "../../i18n/useTranslation";
+import { api } from "../../api-client";
 import {
 	FONT_SIZE_MAX,
 	FONT_SIZE_MIN,
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
 import type { ThemeColor, ThemeMode } from "../../store/ui-prefs";
+import type { AppLanguage } from "../../i18n/detect";
+import { useToastStore } from "../../store/toast";
 
 const THEME_MODES: ThemeMode[] = ["system", "light", "dark"];
 
@@ -93,6 +96,8 @@ export function AppearanceSection() {
 	const frogTaskDone = useUiPrefsStore((s) => s.frogTaskDone);
 	const noticeTaskDone = useUiPrefsStore((s) => s.noticeTaskDone);
 	const setNoticeTaskDone = useUiPrefsStore((s) => s.setNoticeTaskDone);
+	const language = useUiPrefsStore((s) => s.language);
+	const setLanguage = useUiPrefsStore((s) => s.setLanguage);
 	const setFrogTaskDone = useUiPrefsStore((s) => s.setFrogTaskDone);
 	const desktopPet = useUiPrefsStore((s) => s.desktopPet);
 	const setDesktopPet = useUiPrefsStore((s) => s.setDesktopPet);
@@ -284,6 +289,35 @@ export function AppearanceSection() {
 					/>
 				</div>
 			)}
+			<div className="border-t border-hairline" />
+			{/* 语言切换：即时生效（与外观页交互一致），双写 kernel settings.json */}
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">
+					{t("settings.appearance.language.label")}
+				</span>
+				<span className="text-xs text-tertiary">
+					{t("settings.appearance.language.desc")}
+				</span>
+			</div>
+			<select
+				value={language}
+				onChange={(e) => {
+					const v = e.target.value as AppLanguage;
+					setLanguage(v);
+					void api
+						.put("/api/settings/language", { language: v })
+						.catch((err: unknown) =>
+							useToastStore
+								.getState()
+								.add(err instanceof Error ? err.message : String(err), "error"),
+						);
+				}}
+				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
+				data-testid="language-select"
+			>
+				<option value="zh">{t("settings.appearance.language.zh")}</option>
+				<option value="en">{t("settings.appearance.language.en")}</option>
+			</select>
 		</div>
 	);
 }
