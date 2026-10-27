@@ -253,6 +253,7 @@ test("notice-card.html：单文件零依赖、桥接口与主题 class 驱动齐
 		"card:click",
 		"card:hover",
 		"card:switch",
+		"card:close",
 	]) {
 		expect(html).toContain(marker);
 	}
