@@ -1,6 +1,7 @@
 ## 2026-10-27
 
 - feat(settings): 通知卡片加手动关闭按钮；外观加「任务完成通知」开关；语言设置移至外观 tab 并改为即时生效
+- feat(frontend): 任务完成通知正文改为 agent 本轮回复摘要（80 字截断省略，纯工具轮兜底会话名文案）
 
 ## 2026-10-26
 - feat(frontend): 通知载荷携带主题——`store/notice.ts` 新增 `noticeTheme(themeMode)` 映射（dark→dark，light/system→light，跟随系统读不到系统值 light 兑底），requestTaskDoneNotice/initUpdateNotice 两处 payload 组装共用；E2E `notice-actions.spec.ts` 重写为卡片链路 3 用例（主窗口 waPiNotice.send 直发不再拦截 handler：两条不同会话各成条+同会话合并刷新、点击卡片跳关于页+卡片消失、REST 建会话点击跳会话）；单测补 theme 断言与映射用例 6 例
