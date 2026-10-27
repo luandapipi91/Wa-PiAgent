@@ -16,7 +16,7 @@ mock.module("../src/api-client", () => ({
 }));
 
 import i18n from "../src/i18n";
-import { noticeTheme, requestTaskDoneNotice } from "../src/store/notice";
+import { noticeTheme, requestTaskDoneNotice, summarizeReply } from "../src/store/notice";
 import { useProjectsStore } from "../src/store/projects";
 import { useUiPrefsStore } from "../src/store/ui-prefs";
 
@@ -127,4 +127,50 @@ test("通知开关关闭 → requestTaskDoneNotice 不发通知", () => {
 
 test("通知开关默认开启：ui-prefs 初始 noticeTaskDone === true", () => {
 	expect(useUiPrefsStore.getState().noticeTaskDone).toBe(true);
+});
+
+test("summarizeReply：取最后一条 assistant 的 text，超 80 字截断加 …", () => {
+	const msgs = [
+		{ message: { role: "user", content: "你好" } },
+		{
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "想一下" },
+					{ type: "text", text: "啊".repeat(100) },
+				],
+			},
+		},
+	] as any;
+	const out = summarizeReply(msgs);
+	expect(out.startsWith("啊")).toBe(true);
+	expect(out.length).toBe(81); // 80 + …
+	expect(out.endsWith("…")).toBe(true);
+});
+
+test("summarizeReply：最后一条 assistant 无文本（纯工具轮）→ 空串", () => {
+	const msgs = [
+		{ message: { role: "assistant", content: [{ type: "text", text: "早前回复" }] } },
+		{ message: { role: "assistant", content: [{ type: "toolCall", id: "t1" }] } },
+	] as any;
+	expect(summarizeReply(msgs)).toBe("");
+});
+
+test("summarizeReply：空/undefined 消息 → 空串", () => {
+	expect(summarizeReply(undefined)).toBe("");
+	expect(summarizeReply([])).toBe("");
+});
+
+test("有回复摘要 → body=摘要本身（不含会话名）", () => {
+	useProjectsStore.setState({ sessions: [session("s1", "会话A")] });
+	requestTaskDoneNotice("s1", "这是 agent 的回复内容");
+	expect(sendCalls).toHaveLength(1);
+	expect(sendCalls[0].body).toBe("这是 agent 的回复内容");
+});
+
+test("无回复摘要 → body 兜底会话名文案", () => {
+	useProjectsStore.setState({ sessions: [session("s1", "会话A")] });
+	requestTaskDoneNotice("s1", "");
+	expect(sendCalls).toHaveLength(1);
+	expect(sendCalls[0].body).toBe("「会话A」已完成，点击查看");
 });

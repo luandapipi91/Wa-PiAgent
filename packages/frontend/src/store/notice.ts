@@ -38,10 +38,39 @@ declare global {
 }
 
 /**
+ * 从会话消息列表提取「本轮 agent 回复」的文本摘要：取最后一条 assistant 消息，
+ * 拼接其 text 内容（跳过 thinking/toolCall），压平空白后超 maxLen 截断加「…」。
+ * 最后一条 assistant 无文本（纯工具轮）或列表为空时返回空串（由调用方兜底）。
+ */
+export function summarizeReply(
+	msgs: { message: { role?: string; content?: unknown } }[] | undefined,
+	maxLen = 80,
+): string {
+	const list = msgs ?? [];
+	for (let i = list.length - 1; i >= 0; i--) {
+		const m = list[i]?.message;
+		if (m?.role !== "assistant") continue;
+		const content = m.content;
+		const text = Array.isArray(content)
+			? content
+					.filter((c) => (c as { type?: string }).type === "text")
+					.map((c) => (c as { text?: string }).text ?? "")
+					.join(" ")
+			: typeof content === "string"
+				? content
+				: "";
+		const trimmed = text.replace(/\s+/g, " ").trim();
+		if (!trimmed) return ""; // 本轮无文本回复：不再向前找（语义限「本轮」）
+		return trimmed.length > maxLen ? trimmed.slice(0, maxLen) + "…" : trimmed;
+	}
+	return "";
+}
+
+/**
  * 请求主进程发「任务完成」系统通知：文案按当前应用语言在渲染端组装。
  * 会话名取不到或为空串时用「未命名会话」兜底；浏览器版（无 window.waPiNotice）静默 no-op。
  */
-export function requestTaskDoneNotice(sessionId: string): void {
+export function requestTaskDoneNotice(sessionId: string, replySummary?: string): void {
 	// 通知开关关闭：不发（外观 → 任务完成通知）
 	if (!useUiPrefsStore.getState().noticeTaskDone) return;
 	const api = window.waPiNotice;
@@ -51,9 +80,12 @@ export function requestTaskDoneNotice(sessionId: string): void {
 	const sessionTitle =
 		useProjectsStore.getState().sessions.find((x) => x.id === sessionId)
 			?.title ?? "";
-	const body = sessionTitle
-		? i18n.t("notice.taskDoneBody", { title: sessionTitle })
-		: i18n.t("notice.untitledSession");
+	// 正文：优先展示 agent 本轮回复摘要（超长省略）；无文本回复时兜底会话名文案
+	const body =
+		replySummary ||
+		(sessionTitle
+			? i18n.t("notice.taskDoneBody", { title: sessionTitle })
+			: i18n.t("notice.untitledSession"));
 	// send 为 IPC invoke，失败时静默降级，避免 unhandled rejection 报错刷屏
 	void api
 		.send({

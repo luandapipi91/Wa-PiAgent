@@ -21,7 +21,7 @@ import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
 import { triggerTaskDoneFrog } from "../util/frog";
 import { celebrateDesktopPet } from "../util/desktop-pet";
-import { requestTaskDoneNotice } from "./notice";
+import { requestTaskDoneNotice, summarizeReply } from "./notice";
 import { useUiPrefsStore } from "./ui-prefs";
 import type { MediaItem } from "../components/blocks/media-utils";
 import type { ToolCallView } from "../components/blocks/ToolCallNested";
@@ -1314,7 +1314,10 @@ export const useSessionStore = create<SessionState>((set) => {
 						// [notice-diag] 临时诊断埋点（排查后删除）
 						console.error(`[notice-diag] agent_end 通知分支命中: sessionId=${sessionId}`);
 						celebrateDesktopPet();
-						requestTaskDoneNotice(sessionId);
+						requestTaskDoneNotice(
+							sessionId,
+							summarizeReply(useSessionStore.getState().messagesBySession[sessionId]),
+						);
 					}
 					const away = sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
