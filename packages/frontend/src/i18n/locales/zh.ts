@@ -229,6 +229,8 @@ const zh = {
 			modified: "修改",
 			tooLarge: "过大",
 			readError: "读取失败",
+			missing: "文件已移动或删除",
+			movedFrom: "原路径",
 			preview: "预览",
 			expand: "展开",
 			collapse: "收起",

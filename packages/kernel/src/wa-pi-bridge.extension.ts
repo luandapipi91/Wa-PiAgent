@@ -12,8 +12,8 @@ import type {
 	ToolCallEvent,
 	ToolExecutionEndEvent,
 } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import { Type } from "typebox";
 import {
 	ASK_DESCRIPTION,
@@ -49,6 +49,7 @@ import {
 } from "./tool-schemas.ts";
 import {
 	applySizeLimit,
+	markMissingFiles,
 	recordAfter,
 	recordBefore,
 	serializeSnapshots,
@@ -697,6 +698,48 @@ export default function (pi: ExtensionAPI) {
 	// ===== 文件修改清单：采集本轮 edit/write 的文件前后快照 =====
 	const snapshots = new Map<string, FileSnapshotRecord>();
 	const toolCallIdToPath = new Map<string, string>();
+	/**
+	 * 项目 cwd 内一次遍历，为所有失效路径按同名文件唯一命中新位置。
+	 * 深度 ≤4、跳过 node_modules/.git/隐藏目录；探测不到不保证未移动（启发式截断）。
+	 * 同名命中 ≥2 个视为二义，淘汰不指路。项目外路径（如 /tmp）直接短路跳过。
+	 */
+	const collectMovedTargets = (paths: string[]): Map<string, string> => {
+		const root = process.cwd() + "/";
+		const bases = new Map<string, string>();
+		for (const p of paths) {
+			if (!p.startsWith(root)) continue;
+			bases.set(basename(p), p);
+		}
+		if (bases.size === 0) return bases;
+		const hits = new Map<string, string>();
+		const walk = (dir: string, depth: number) => {
+			if (depth > 4) return;
+			let entries;
+			try {
+				entries = readdirSync(dir, { withFileTypes: true });
+			} catch {
+				return;
+			}
+			for (const e of entries) {
+				if (e.name.startsWith(".")) continue;
+				const full = `${dir}/${e.name}`;
+				if (e.isDirectory()) {
+					if (e.name === "node_modules" || e.name === ".git") continue;
+					walk(full, depth + 1);
+				} else if (bases.has(e.name)) {
+					hits.set(e.name, hits.has(e.name) ? "" : full);
+				}
+			}
+		};
+		walk(process.cwd(), 0);
+		const out = new Map<string, string>();
+		for (const [base, orig] of bases) {
+			const hit = hits.get(base);
+			if (hit) out.set(orig, hit);
+		}
+		return out;
+	};
+
 	const readSnapshot = (p: string): SnapshotReadResult => {
 		try {
 			return { kind: "content", content: readFileSync(p, "utf8") };
@@ -724,12 +767,21 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async () => {
-		if (snapshots.size === 0) return;
+		// 每轮必报（空清单也报）：前端按轮覆盖，「本轮没改文件」时清掉上一轮的旧卡片，
+		// 避免 bash 直改/会话外改名后前端一直挂着失效路径。
 		applySizeLimit(snapshots);
-		const files = serializeSnapshots(snapshots);
+		let files = serializeSnapshots(snapshots);
 		snapshots.clear();
 		toolCallIdToPath.clear();
 		if (!BRIDGE_URL || !BRIDGE_TOKEN || !BRIDGE_SESSION_ID) return;
+		// 存在性探测：会话外移动/改名/删除会让快照路径失效；项目内同名唯一命中则给出新位置。
+		// 放在 bridge 守卫之后：未配置上报时不必白跑目录遍历（agent_end 是阻塞窗口）。
+		const missingPaths = files.filter((f) => !existsSync(f.path)).map((f) => f.path);
+		const movedMap = missingPaths.length ? collectMovedTargets(missingPaths) : new Map<string, string>();
+		files = markMissingFiles(files, {
+			exists: (p) => existsSync(p),
+			findSameBasename: (p) => movedMap.get(p) ?? null,
+		});
 		try {
 			// 必须带超时：pi 在把 agent_end 写 RPC stdout 前会 await 本钩子，
 			// fetch 挂起（如代理链路异常）会让整轮对话一直"思考中"直到系统级超时。

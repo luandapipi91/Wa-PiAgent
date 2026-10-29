@@ -1,13 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  recordBefore,
-  recordAfter,
-  applySizeLimit,
-  serializeSnapshots,
-  SNAPSHOT_SIZE_LIMIT,
-  type FileSnapshotRecord,
-  type SnapshotReadResult,
-} from "../src/file-snapshot";
+import { recordBefore, recordAfter, applySizeLimit, serializeSnapshots, SNAPSHOT_SIZE_LIMIT, type FileSnapshotRecord, type SnapshotReadResult, markMissingFiles } from "../src/file-snapshot";
 
 const read = (map: Record<string, string | { code: string }>): ((p: string) => SnapshotReadResult) => {
   return (p) => {
@@ -73,5 +65,47 @@ describe("文件快照采集", () => {
       { path: "/a.ts", before: "v0", after: "v1" },
       { path: "/new.ts", before: null, after: "c" },
     ]);
+  });
+});
+
+describe("markMissingFiles（上报前存在性探测）", () => {
+  const io = {
+    exists: (p: string) => p === "/prj/keep.html",
+    findSameBasename: (p: string) =>
+      p.endsWith("moved.html") ? "/prj/new/moved.html" : null,
+  };
+
+  test("路径仍存在 → 原样（不加任何标记）", () => {
+    const files = [{ path: "/prj/keep.html", before: "a", after: "b" }];
+    expect(markMissingFiles(files, io)).toEqual([
+      { path: "/prj/keep.html", before: "a", after: "b" },
+    ]);
+  });
+
+  test("路径失效 → missing:true", () => {
+    const files = [{ path: "/prj/gone.html", before: "a", after: "b" }];
+    expect(markMissingFiles(files, io)).toEqual([
+      { path: "/prj/gone.html", before: "a", after: "b", missing: true },
+    ]);
+  });
+
+  test("路径失效且项目内同名唯一命中 → missing + movedTo 指向新位置", () => {
+    const files = [{ path: "/prj/old/moved.html", before: "a", after: "b" }];
+    expect(markMissingFiles(files, io)).toEqual([
+      {
+        path: "/prj/old/moved.html",
+        before: "a",
+        after: "b",
+        missing: true,
+        movedTo: "/prj/new/moved.html",
+      },
+    ]);
+  });
+
+  test("标记不污染序列化外的共享状态（返回新对象）", () => {
+    const files = [{ path: "/prj/gone.html", before: null, after: null }];
+    const out = markMissingFiles(files, io);
+    expect(files[0]).not.toHaveProperty("missing");
+    expect(out[0]).not.toBe(files[0]);
   });
 });

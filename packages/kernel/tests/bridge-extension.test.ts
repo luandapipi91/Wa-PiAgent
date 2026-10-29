@@ -904,3 +904,80 @@ test("空闲超时：窗口内无快照（kernel 侧子代理仍在跑）→ 维
 	}
 }, 10_000);
 
+
+// ── agent_end 文件修改上报：每轮必报 + 失效标记（missing/movedTo）──
+describe("agent_end 文件修改上报", () => {
+	/** 加载扩展并捕获事件钩子（同上方模式）。 */
+	async function loadAgentEndHandlers() {
+	injectBridgeEnv();
+	const copy = (srcRel: string, targetRel: string) => {
+		const target = join(import.meta.dir, targetRel);
+		copyFileSync(join(import.meta.dir, srcRel), target);
+		tmpFiles.push(target);
+	};
+		copy(join("..", "..", "shared", "src", "tool-schemas.ts"), "tool-schemas.ts");
+		copy(join("..", "src", "file-snapshot.ts"), "file-snapshot.ts");
+		copy(join("..", "src", "date-context.ts"), "date-context.ts");
+	const file = join(
+		import.meta.dir,
+		`.tmp-bridge-end-${Math.random().toString(36).slice(2)}.ts`,
+	);
+	writeFileSync(file, generateBridgeExtension(), "utf8");
+	tmpFiles.push(file);
+	const mod = await import(pathToFileURL(file).href);
+	const handlers: Record<string, ((...args: any[]) => any)[]> = {};
+	mod.default({
+		registerTool: () => {},
+		registerCommand: () => {},
+		on: (event: string, handler: (...args: any[]) => any) => {
+			(handlers[event] ??= []).push(handler);
+		},
+		getAllTools: () => [],
+		getToolDefinition: () => undefined,
+	});
+	return handlers;
+}
+
+	function captureFetch(): { calls: { url: string; body: any }[]; restore: () => void } {
+		const calls: { url: string; body: any }[] = [];
+		const orig = globalThis.fetch;
+		globalThis.fetch = (async (url: any, init: any) => {
+			calls.push({ url: String(url), body: JSON.parse(init?.body ?? "{}") });
+			return { ok: true, status: 200 };
+		}) as any;
+		return { calls, restore: () => { globalThis.fetch = orig; } };
+	}
+
+	test("无快照的轮次也上报空清单（每轮必报，前端按轮覆盖）", async () => {
+		const { restore, calls } = captureFetch();
+		try {
+			const handlers = await loadAgentEndHandlers();
+			await handlers["agent_end"][0]();
+			const fc = calls.filter((c) => c.url.includes("/bridge/file-changes"));
+			expect(fc.length).toBe(1);
+			expect(fc[0].body.files).toEqual([]);
+		} finally {
+			restore();
+		}
+	});
+
+	test("失效路径上报 missing 标记（会话外被移动/改名）", async () => {
+		const { restore, calls } = captureFetch();
+		try {
+			const handlers = await loadAgentEndHandlers();
+			await handlers["tool_call"][0]({
+				toolName: "write",
+				toolCallId: "c1",
+				input: { path: "/nonexistent-dir-xyz/old.html" },
+			});
+			await handlers["tool_execution_end"][0]({ toolName: "write", toolCallId: "c1" });
+			await handlers["agent_end"][0]();
+			const fc = calls.filter((c) => c.url.includes("/bridge/file-changes"));
+			expect(fc.length).toBe(1);
+			expect(fc[0].body.files[0].path).toBe("/nonexistent-dir-xyz/old.html");
+			expect(fc[0].body.files[0].missing).toBe(true);
+		} finally {
+			restore();
+		}
+	});
+});

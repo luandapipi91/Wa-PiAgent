@@ -80,3 +80,37 @@ export function serializeSnapshots(
 		...(s.error ? { error: true } : {}),
 	}));
 }
+
+/** 序列化后的单文件快照（上报给 kernel 的形态） */
+export type SerializedFileChange = {
+	path: string;
+	before: string | null;
+	after: string | null;
+	oversized?: boolean;
+	error?: boolean;
+	/** 上报时路径已不存在（会话外被移动/改名/删除） */
+	missing?: boolean;
+	/** 项目内按同名文件唯一命中到的新位置（missing 时尽力探测） */
+	movedTo?: string;
+};
+
+/**
+ * 上报前存在性探测：会话外可能发生移动/改名/删除，快照里的路径会失效。
+ * - 仍存在 → 原样返回
+ * - 已失效 → 标记 missing；若项目内按同名文件唯一命中新位置，附加 movedTo
+ * 纯函数：exists / findSameBasename 由调用方注入，便于单测。
+ */
+export function markMissingFiles(
+	files: SerializedFileChange[],
+	io: { exists: (p: string) => boolean; findSameBasename: (p: string) => string | null },
+): SerializedFileChange[] {
+	return files.map((f) => {
+		if (io.exists(f.path)) return f;
+		const movedTo = io.findSameBasename(f.path);
+		return {
+			...f,
+			missing: true,
+			...(movedTo ? { movedTo } : {}),
+		};
+	});
+}

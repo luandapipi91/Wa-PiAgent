@@ -240,6 +240,8 @@ const en = {
 			modified: "Modified",
 			tooLarge: "Too large",
 			readError: "Read error",
+			missing: "File moved or deleted",
+			movedFrom: "Original path",
 			preview: "Preview",
 			expand: "Expand",
 			collapse: "Collapse",

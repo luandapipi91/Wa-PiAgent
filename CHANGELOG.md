@@ -1,4 +1,5 @@
 ## 2026-10-29
+- fix(frontend): 文件修改清单路径失真修复——会话外移动/改名后卡片一直显示失效路径：① kernel agent_end 每轮必报（空清单也报，前端按轮覆盖清掉旧卡）；② 上报前存在性探测，失效路径标 missing、项目内同名唯一命中标 movedTo（新位置可打开/预览，找不回则显示失效徽标并禁用打开/分享；kernel 纯函数 markMissingFiles + 行为测试，bridge-extension 27/27）
 - v0.8.5 发版：智能体头像卡通彩色图标库（91 个 Fluent Emoji Flat + 分组选择面板）+ 委派判据改专项优先；mac dmg 210892417 / win exe 199219259（zip 实测 sha512 与 yml 一致、cf-cache-status MISS；gate 因机器高负载 4 次才稳定绿）
 - fix(frontend): 侧栏会话行/回收站行头像加固定尺寸居中槽——emoji 文本（基线排版）与彩色 svg（行内块）混排导致各行图标竖向不齐，统一收进 20/24px flex 槽同位渲染
 - fix(frontend): 卡通彩色头像图标全面放大——多色细节图标沿用旧 emoji 尺寸（11-24px）无法辨认，各位点放大至 16-30px、chips svg 13→15px（容器同步微调；E2E 因真实 kernel 占用 9776 改用偏移端口跑通 8/8）

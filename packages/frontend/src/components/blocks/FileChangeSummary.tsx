@@ -53,15 +53,23 @@ function FileChangeItem({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const abs = resolveAbsolutePath(file.path, sessionId);
+  const movedToAbs = file.movedTo
+    ? resolveAbsolutePath(file.movedTo, sessionId)
+    : null;
+  // 失效且找不回新位置：路径已不存在，打开/预览/分享全部禁用（diff 内容仍在可展开）
+  const gone = file.missing === true && !movedToAbs;
+  const targetAbs = movedToAbs ?? abs;
   const isAdded = file.before === null && !file.error && !file.oversized;
   const canDiff = file.before != null && !file.error && !file.oversized;
-  const label = file.error
-    ? t("blocks.fileChanges.readError")
-    : file.oversized
-      ? t("blocks.fileChanges.tooLarge")
-      : isAdded
-        ? t("blocks.fileChanges.added")
-        : t("blocks.fileChanges.modified");
+  const label = file.missing
+    ? t("blocks.fileChanges.missing")
+    : file.error
+      ? t("blocks.fileChanges.readError")
+      : file.oversized
+        ? t("blocks.fileChanges.tooLarge")
+        : isAdded
+          ? t("blocks.fileChanges.added")
+          : t("blocks.fileChanges.modified");
 
   return (
     <div className="flex flex-col gap-1">
@@ -75,20 +83,34 @@ function FileChangeItem({
         >
           {label}
         </span>
-        <button
-          type="button"
-          className="font-mono text-[12px] text-accent hover:underline text-left"
-          onClick={() => openFileOrPreview(abs, sessionId)}
-        >
-          {file.path}
-        </button>
-        {!file.error && !file.oversized && (
+        {gone ? (
+          <span className="font-mono text-[12px] text-tertiary line-through">
+            {file.path}
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="font-mono text-[12px] text-accent hover:underline text-left"
+            onClick={() => openFileOrPreview(targetAbs, sessionId)}
+          >
+            {movedToAbs ? file.movedTo : file.path}
+          </button>
+        )}
+        {movedToAbs && (
+          <span
+            className="text-[11px] text-tertiary truncate"
+            title={file.path}
+          >
+            {t("blocks.fileChanges.movedFrom")}：{file.path}
+          </span>
+        )}
+        {!gone && !file.error && !file.oversized && (
           <span className="ml-auto flex items-center gap-2 text-tertiary text-[11px] select-none">
             {canDiff && (
               <button
                 type="button"
                 className="hover:text-accent"
-                onClick={() => openFileOrPreview(abs, sessionId)}
+                onClick={() => openFileOrPreview(targetAbs, sessionId)}
               >
                 {t("blocks.fileChanges.preview")}
               </button>
@@ -106,11 +128,23 @@ function FileChangeItem({
               </button>
             )}
             <ShareButton
-              paths={[abs]}
+              paths={[targetAbs]}
               sessionId={sessionId}
               testId={`file-change-share-${file.path}`}
             />
           </span>
+        )}
+        {gone && canDiff && (
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="ml-auto text-tertiary text-[11px] hover:text-accent select-none"
+          >
+            {open
+              ? t("blocks.fileChanges.collapse")
+              : t("blocks.fileChanges.expand")}
+          </button>
         )}
       </div>
       {open && canDiff && (

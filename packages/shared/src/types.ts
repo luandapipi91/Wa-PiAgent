@@ -1286,6 +1286,10 @@ export interface FileChangeSnapshot {
 	oversized?: boolean;
 	/** 快照读取失败标记：权限/二进制等，前端不渲染 diff */
 	error?: boolean;
+	/** 上报时路径已不存在（会话外被移动/改名/删除），前端显示失效徽标并禁用打开/分享 */
+	missing?: boolean;
+	/** 项目内按同名文件唯一命中的新位置；存在时前端以新路径展示与打开 */
+	movedTo?: string;
 }
 
 export type SDKEvent =
