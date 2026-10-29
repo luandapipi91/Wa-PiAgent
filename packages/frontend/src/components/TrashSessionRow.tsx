@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { SessionEntity, ProjectEntity } from "@wa-pi/shared";
 import { agentDefOf, SYSTEM_PROJECT_NAME } from "@wa-pi/shared";
+import { AgentAvatarContent } from "./ui/AgentAvatar";
 import { Icon } from "./ui/Icon";
 import { useTranslation } from "../i18n/useTranslation";
 
@@ -81,8 +82,8 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 			<span
 				className={`flex items-center gap-1.5 shrink-0 ${selected ? "text-white/80" : "text-secondary"}`}
 			>
-				<span className="text-base">
-					{emoji ?? <Icon name="robot" size="1em" />}
+				<span className="w-6 h-6 flex-none flex items-center justify-center">
+					<AgentAvatarContent avatar={emoji} iconSize={18} />
 				</span>
 				<span className="text-xs">{session.primaryAgent}</span>
 			</span>

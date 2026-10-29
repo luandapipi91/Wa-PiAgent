@@ -1,6 +1,7 @@
 import { useAgentsStore } from "../store/agents";
 import { api } from "../api-client";
 import { Modal } from "./ui/Modal";
+import { AgentAvatar } from "./ui/AgentAvatar";
 import { useTranslation } from "../i18n/useTranslation";
 import { useToastStore } from "../store/toast";
 
@@ -59,12 +60,13 @@ export function AgentMissingModal({ sessionId, onClose }: Props) {
             onClick={() => pick(a.displayName)}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm cursor-pointer text-left border-0 bg-transparent transition-colors text-secondary hover:bg-surface-hover"
           >
-            <span
-              className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-[calc(12px*var(--font-scale))] flex-none"
-              style={{ background: avatarBackground(a.avatarColor) }}
-            >
-              {a.avatar}
-            </span>
+            <AgentAvatar
+              avatar={a.avatar}
+              background={avatarBackground(a.avatarColor)}
+              className="w-6 h-6"
+              textClassName="text-[calc(12px*var(--font-scale))]"
+              iconSize={20}
+            />
             <span className="text-[calc(12px*var(--font-scale))] text-primary">
               {a.displayName}
             </span>

@@ -99,11 +99,11 @@ test("agent chip 有头像时，@ 在 avatar 之前（最前面）", () => {
         const avatarIdx = html.indexOf("chip-agent-avatar");
         expect(atIdx).toBeGreaterThanOrEqual(0);
         expect(avatarIdx).toBeGreaterThan(atIdx);
-        // 头像 emoji 在 @ 之后、名称之前
-        const emojiIdx = html.indexOf("🔍");
+        // 头像在 @ 之后、名称之前；🔍 命中映射 → SVG 图标
+        const iconIdx = html.indexOf("<svg", avatarIdx);
         const nameIdx = html.indexOf("代码审查", avatarIdx);
-        expect(emojiIdx).toBeGreaterThan(atIdx);
-        expect(nameIdx).toBeGreaterThan(emojiIdx);
+        expect(iconIdx).toBeGreaterThan(atIdx);
+        expect(nameIdx).toBeGreaterThan(iconIdx);
 });
 
 test("输入时回调 onTextChange", () => {

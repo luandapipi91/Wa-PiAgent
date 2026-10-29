@@ -66,6 +66,32 @@ describe("AgentGalleryModal", () => {
     expect(screen.getByTestId("agent-gallery").textContent).toContain("4 个");
   });
 
+  test("旧 emoji 头像命中映射后渲染 svg 图标；icon: 前缀同理", () => {
+    seed(["a"]);
+    useAgentsStore.setState({
+      list: [
+        agent("a"),
+        { ...agent("b"), avatar: "icon:database" },
+        { ...agent("c"), avatar: "🐉" },
+      ],
+      createAgent: realCreateAgent,
+      deleteAgent: realDeleteAgent,
+    } as any);
+    renderModal();
+    // 🤖 命中映射 → svg；icon:database → svg
+    expect(
+      screen.getByTestId("gallery-card-a").querySelector("svg"),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("gallery-card-b").querySelector("svg"),
+    ).toBeTruthy();
+    // 未命中映射的旧 emoji 仍是文本（兼容）
+    expect(
+      screen.getByTestId("gallery-card-c").querySelector("svg"),
+    ).toBeNull();
+    expect(screen.getByTestId("gallery-card-c").textContent).toContain("🐉");
+  });
+
   test("左键卡片触发 onChatWith；右键弹编辑/删除菜单，点空白处关闭", async () => {
     seed(["a"]);
     const onChatWith = mock();

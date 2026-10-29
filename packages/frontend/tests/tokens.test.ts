@@ -147,11 +147,11 @@ test("textToHtml agent chip 的 @ 在 avatar 之前（最前面）", () => {
   const avatarIdx = html.indexOf("chip-agent-avatar");
   expect(atIdx).toBeGreaterThanOrEqual(0);
   expect(avatarIdx).toBeGreaterThan(atIdx);
-  // 头像 emoji 在 @ 之后、name 之前
-  const emojiIdx = html.indexOf("🔍");
+  // 头像在 @ 之后、name 之前；🔍 命中映射 → 内联 SVG 图标
+  const iconIdx = html.indexOf("<svg", avatarIdx);
   const nameIdx = html.indexOf("代码审查", avatarIdx);
-  expect(emojiIdx).toBeGreaterThan(atIdx);
-  expect(nameIdx).toBeGreaterThan(emojiIdx);
+  expect(iconIdx).toBeGreaterThan(atIdx);
+  expect(nameIdx).toBeGreaterThan(iconIdx);
 });
 
 test("textToHtml agent chip：内置 subagent data-token 存英文但显示中文 displayName", () => {

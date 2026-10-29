@@ -1,3 +1,10 @@
+## 2026-10-29
+- fix(frontend): 侧栏会话行/回收站行头像加固定尺寸居中槽——emoji 文本（基线排版）与彩色 svg（行内块）混排导致各行图标竖向不齐，统一收进 20/24px flex 槽同位渲染
+- fix(frontend): 卡通彩色头像图标全面放大——多色细节图标沿用旧 emoji 尺寸（11-24px）无法辨认，各位点放大至 16-30px、chips svg 13→15px（容器同步微调；E2E 因真实 kernel 占用 9776 改用偏移端口跑通 8/8）
+- feat(frontend): 头像美术层整体换为卡通彩色图标库（Fluent Emoji Flat 90+1 个，MIT）——新生成 avatar-icons.ts（分组/白名单/彩色 SVG），AgentAvatar 彩色图标改中性浅底承载（渐变底仅留给旧 emoji），选择面板/聊天 chip/14 位点同步换源；自绘线性 Icon.tsx 保留供其他 UI 使用（单测 246+28 全绿、E2E 8/8、tsc 干净）
+- feat(frontend): 智能体头像接入自绘图标库——avatar 字段新增 icon:名称 编码（旧 emoji 值与 12 个内置角色 emoji 显示层自动映射，存储/REST 零改动）；编辑弹窗头像文本框换成分组图标选择面板（createPortal 弹层，约 40 图标四组，选后写 icon:xxx）；14 个渲染位点（宫格/编辑头部/角色 pill/下拉/菜单行/missing 弹窗/@ 补全/聊天 chip/会话行/回收站行）统一走 AgentAvatar 渲染，Icon.tsx 补齐缺失图标并导出 isIconName；E2E agents.spec 补头像选择→持久化→选中态链路（8/8 过）
+- fix(delegate): 委派判据改为专项优先——工具描述新增「任务落在专员领域时优先派该专员，通用只兜底」规则（DELEGATE_DESCRIPTION 单行，先红后绿：新增 delegate-description.test.ts 3 例，shared 全套件 187/187）；运行时 prompts.json 旧判据「多步带写→general-purpose/代码问题先派 Explore」同步替换为逐领域路由表；9 个专员代理字段改为「凡本领域一律派我」+ 通用改显式兜底（领域全覆盖口径，经 OpenCode Go/glm-5.3 回放验证：专员调用份额 1%→88%，前端召回 90%、后端 83%；「工程链归通用」口径被回放证伪——字段让位写法拉不动领域信号）
+
 ## 2026-10-27
 - v0.8.4 发版：通知系统 v2（卡片通知窗口 / 任务完成通知 / 新版本提醒 / 点击跳转 / 设置开关）+ 语言设置移至外观即时生效；mac dmg 211011026 / win exe 199344547（zip 实测 sha512 与 yml 一致、cf-cache-status MISS）
 

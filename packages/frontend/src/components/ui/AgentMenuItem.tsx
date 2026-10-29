@@ -1,4 +1,5 @@
 import type { AgentName } from "@wa-pi/shared";
+import { AgentAvatar } from "./AgentAvatar";
 
 interface Props {
   name: string;
@@ -41,10 +42,14 @@ export function AgentMenuItem({
         highlighted ? "bg-accent-soft" : selected ? "bg-surface-hover" : "hover:bg-surface-hover"
       }`}
     >
-      <span
-        className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-[calc(12px*var(--font-scale))] flex-none"
-        style={{ background: avatarBackground(avatarColor) }}
-      >{avatar ?? "🤖"}</span>
+      <AgentAvatar
+        avatar={avatar}
+        fallback="🤖"
+        background={avatarBackground(avatarColor)}
+        className="w-6 h-6"
+        textClassName="text-[calc(12px*var(--font-scale))]"
+        iconSize={20}
+      />
       <span className="min-w-0 flex-1">
         <div className="text-[calc(12px*var(--font-scale))] text-primary truncate">{name}</div>
         {description && <div className="text-[calc(11px*var(--font-scale))] text-tertiary truncate">{description}</div>}

@@ -4,6 +4,7 @@ import type { AgentConfig, AgentName } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 import { filterItems } from "../../quick-invoke/trigger";
 import { AgentMenuItem } from "./AgentMenuItem";
+import { AgentAvatar } from "./AgentAvatar";
 
 interface Props {
 	agents: AgentConfig[];
@@ -148,19 +149,20 @@ export function AgentDropdown({
 					</span>
 				) : current ? (
 					<>
-						<span
-							className="w-[18px] h-[18px] rounded-sm flex items-center justify-center text-[calc(11px*var(--font-scale))] flex-none"
-							style={{
-								background: current.avatarColor?.includes("-")
+						<AgentAvatar
+							avatar={current.avatar}
+							background={
+								current.avatarColor?.includes("-")
 									? `linear-gradient(135deg, ${current.avatarColor
 											.split("-")
 											.map((s) => s.trim())
 											.join(", ")})`
-									: current.avatarColor || undefined,
-							}}
-						>
-							{current.avatar}
-						</span>
+									: current.avatarColor || undefined
+							}
+							className="w-5 h-5"
+							textClassName="text-[calc(11px*var(--font-scale))]"
+							iconSize={16}
+						/>
 						<span className="max-w-[180px] truncate">{current.displayName}</span>
 						<span
 							className="ml-auto flex-none"

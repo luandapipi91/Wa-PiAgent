@@ -44,6 +44,16 @@ test("stringifyAgentMd 往返一致", () => {
 	expect(c2).toEqual(c);
 });
 
+test("avatar icon: 前缀序列化→解析往返无损", () => {
+	const c = parseAgentMd(DEV_MD);
+	c.avatar = "icon:monitor";
+	const md = stringifyAgentMd(c);
+	// 双引号包裹，icon: 前缀不被 YAML 破坏
+	expect(md).toContain('avatar: "icon:monitor"');
+	const c2 = parseAgentMd(md);
+	expect(c2.avatar).toBe("icon:monitor");
+});
+
 test("validateAgentConfig 拒绝非法 displayName", () => {
 	const bad = parseAgentMd(DEV_MD);
 	bad.displayName = "a/b";

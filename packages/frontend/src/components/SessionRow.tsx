@@ -2,6 +2,7 @@ import { useRef, useEffect, memo, type MouseEvent } from "react";
 import type { SessionEntity } from "@wa-pi/shared";
 import { formatRelativeTime } from "@wa-pi/shared";
 import { agentEmoji } from "../theme/agents";
+import { AgentAvatarContent } from "./ui/AgentAvatar";
 import { useSessionStore } from "../store/session";
 import { selectPendingAsks } from "../store/ask";
 import { Icon } from "./ui/Icon";
@@ -56,7 +57,10 @@ export const SessionRow = memo(function SessionRow({ session, selected, onSelect
       }}
       data-testid={`session-${session.id}`}
     >
-      <span className="text-sm">{agentEmoji(session.primaryAgent)}</span>
+      {/* 固定图标槽：emoji（基线排版）与彩色 svg（行内块）同槽居中，保证各行竖向对齐 */}
+      <span className="w-5 h-5 flex-none flex items-center justify-center">
+        <AgentAvatarContent avatar={agentEmoji(session.primaryAgent)} iconSize={16} />
+      </span>
       <span className="flex-1 min-w-0 flex flex-col justify-center">
         <span className="truncate">{session.title}</span>
         {subtitle && (

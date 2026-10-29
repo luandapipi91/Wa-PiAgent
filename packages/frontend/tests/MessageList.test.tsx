@@ -1940,7 +1940,8 @@ test("历史用户消息中 @[智能体名称] 渲染为 chip 样式（非字面
 	// chip 应保留 data-token 属性（原始 token）
 	expect(chip?.getAttribute("data-token")).toBe("@[项目管理]");
 	// chip 应包含注册的头像
-	expect(chip?.querySelector(".chip-agent-avatar")?.textContent).toBe("📋");
+	// 📋 命中旧 emoji 映射 → 升级为彩色 SVG 图标
+	expect(chip?.querySelector(".chip-agent-avatar svg")).toBeTruthy();
 });
 
 test("用户消息含 expandTokens 展开的 #path: 文件引用 → 还原渲染为 chip-file", () => {
@@ -2172,7 +2173,7 @@ test("组件挂载时自动注册 agentsStore 中的智能体 meta（chip 渲染
 	// 组件挂载后 useEffect 应自动注册 → chip 应包含头像 📋（waitFor 等 effect 执行）
 	await waitFor(() => {
 		const avatar = document.querySelector(".chip-agent .chip-agent-avatar");
-		expect(avatar?.textContent).toBe("📋");
+		expect(avatar?.querySelector("svg")).toBeTruthy();
 	});
 });
 

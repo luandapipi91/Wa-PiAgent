@@ -24,6 +24,7 @@ import {
 // 5. 会话中切换：pill 下拉搜索 → 选择 →【继续切换】→「已切换为」分隔行
 // 6. Composer：@ 出智能体补全（选中联动 agent-select）、# 出文件补全
 // 7. 删除智能体：右键删除 → 二次确认 → 列表消失；会话保留 → 发消息出 agent_missing 重选弹窗 → 点选恢复
+// 8. 头像图标库：详情弹窗点头像 → 图标面板点选 → 保存 → REST 校验持久化 + 重开面板选中态
 //
 // 环境说明（与简报的偏差）：
 // - global-setup 在 kernel 启动前预置了 agents/dev.md，并以 WA_PI_SKIP_AGENT_SEED=1 启动 kernel，
@@ -494,5 +495,54 @@ test.describe
       );
       await page.getByTestId("cfg-save").click();
       await expect(page.getByTestId("agent-config")).toHaveCount(0);
+    });
+
+    test("8 头像图标库：点选图标 → 保存持久化 → 重开面板选中态", async ({
+      page,
+    }) => {
+      const cfg = page.getByTestId("agent-config");
+      // A3 在早期用例的清理中已被删除，这里自建（afterAll 有兜底清理）；goto 复位到侧栏态
+      await createAgent(A3);
+      await page.goto("/", { timeout: 60_000 });
+      await page.getByTestId("agent-collapsed").click();
+      await page.getByTestId(`gallery-card-${A3}`).click({ button: "right" });
+      await page.getByTestId("gallery-ctx-edit").click();
+      await expect(cfg).toBeVisible();
+      await expect(page.getByTestId("cfg-name-input")).toHaveValue(A3, {
+        timeout: 10_000,
+      });
+
+      // 头像行内按钮 → 打开图标选择面板 → 点选 rocket
+      await page.getByTestId("cfg-avatar-button").click();
+      await expect(page.getByTestId("cfg-avatar-panel")).toBeVisible();
+      await page.getByTestId("avatar-icon-rocket").click();
+      // 点选后面板自动关闭，draft.avatar 已写入 icon:rocket
+      await expect(page.getByTestId("cfg-avatar-panel")).toHaveCount(0);
+
+      // 保存 → REST 校验 avatar 字段持久化为新格式 icon:rocket
+      await page.getByTestId("cfg-save").click();
+      await expect(cfg).toHaveCount(0);
+      const saved = await getAgentConfig(A3);
+      expect(saved.avatar).toBe("icon:rocket");
+
+      // 重开面板：保存后宫格仍开着，直接右键卡片再进编辑（不能点 agent-collapsed，会被宫格 overlay 拦截）
+      await page.getByTestId(`gallery-card-${A3}`).click({ button: "right" });
+      await page.getByTestId("gallery-ctx-edit").click();
+      await expect(cfg).toBeVisible();
+      await page.getByTestId("cfg-avatar-button").click();
+      await expect(page.getByTestId("cfg-avatar-panel")).toBeVisible();
+      await expect(page.getByTestId("avatar-icon-rocket")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expect(page.getByTestId("avatar-icon-gear")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      // 点遮罩关闭面板，再关闭编辑弹窗（不保存）
+      await page.getByTestId("cfg-avatar-panel").click({ position: { x: 5, y: 5 } });
+      await expect(page.getByTestId("cfg-avatar-panel")).toHaveCount(0);
+      await page.getByTestId("agent-config-close").click();
+      await expect(cfg).toHaveCount(0);
     });
   });

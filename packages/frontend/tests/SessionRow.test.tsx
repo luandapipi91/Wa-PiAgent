@@ -16,8 +16,12 @@ beforeEach(() => { useSessionStore.setState({ unreadBySession: {}, statusBySessi
 
 test("显示 emoji + 标题 + 相对时间", () => {
   render(<table><tbody><SessionRow session={session} selected={false} onSelect={() => {}} /></tbody></table>);
-  // 旧默认角色（技术实现）已下线，avatar 查不到时回退默认 🤖
-  expect(screen.getByText("🤖")).toBeTruthy();
+  // 旧默认角色（技术实现）已下线，avatar 查不到时回退 robot 图标（🤖 映射升级）
+  expect(
+    screen.getByText("测试会话")
+      .closest("tbody")!
+      .querySelector("svg"),
+  ).toBeTruthy();
   expect(screen.getByText("测试会话")).toBeTruthy();
   expect(screen.getByText("2m")).toBeTruthy();
 });

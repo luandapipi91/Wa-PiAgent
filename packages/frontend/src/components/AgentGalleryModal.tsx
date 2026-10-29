@@ -16,6 +16,7 @@ import { STATUS_COLORS } from "../theme/colors";
 import { Modal } from "./ui/Modal";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Icon } from "./ui/Icon";
+import { AgentAvatar } from "./ui/AgentAvatar";
 import { useTranslation } from "../i18n/useTranslation";
 import { AgentCreatePicker } from "./onboarding/AgentCreatePicker";
 
@@ -164,12 +165,14 @@ export function AgentGalleryModal({
                 style={{ background: STATUS_COLORS[status] }}
                 data-testid={`gallery-status-${agent.displayName}`}
               />
-              <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center text-xl mb-2.5"
-                style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
-              >
-                {agent.avatar || def.emoji}
-              </div>
+              <AgentAvatar
+                avatar={agent.avatar}
+                fallback={def.emoji}
+                background={`linear-gradient(135deg, ${c1}, ${c2})`}
+                className="w-10 h-10 rounded-lg mb-2.5"
+                textClassName="text-xl"
+                iconSize={30}
+              />
               <div className="text-[calc(13px*var(--font-scale))] font-semibold text-primary mb-1 truncate">
                 {agent.displayName}
               </div>
@@ -204,14 +207,13 @@ export function AgentGalleryModal({
             >
               {builtinBadge}
             </span>
-            <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center text-xl mb-2.5"
-              style={{
-                background: `linear-gradient(135deg, ${t.gradient[0]}, ${t.gradient[1]})`,
-              }}
-            >
-              {t.emoji}
-            </div>
+            <AgentAvatar
+              avatar={t.emoji}
+              background={`linear-gradient(135deg, ${t.gradient[0]}, ${t.gradient[1]})`}
+              className="w-10 h-10 rounded-lg mb-2.5"
+              textClassName="text-xl"
+              iconSize={30}
+            />
             <div className="text-[calc(13px*var(--font-scale))] font-semibold text-primary mb-1 truncate">
               {t.displayName}
             </div>

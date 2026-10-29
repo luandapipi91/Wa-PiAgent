@@ -5,6 +5,8 @@
 // /[名称] 不在 expandTokens 处理——原样保留为 /名称 发送给 pi 解析执行
 
 import { iconSvg } from "../components/ui/Icon";
+import { AVATAR_ICONS } from "../components/ui/avatar-icons";
+import { resolveAgentAvatar } from "../components/ui/AgentAvatar";
 import i18n from "../i18n";
 
 /** 智能体 token 正则：匹配 @[非]字符的名称] */
@@ -192,6 +194,7 @@ export function ensureChipStyles() {
       color: var(--accent, #5B5BD6);
       border: 1px solid var(--accent-soft, #EEEEFF);
     }
+    .chip-agent-avatar svg { width: 15px; height: 15px; display: block; }
     .chip-agent-avatar {
       display: inline-flex;
       align-items: center;
@@ -374,8 +377,22 @@ export function textToHtml(
       if (s.type === "agent") {
         const token = `@[${s.value}]`;
         const meta = agentMetaLookup.get(s.value);
+        // avatar 支持 icon: 前缀/旧 emoji 映射 → 内联 SVG；其余 emoji 原样文本（旧数据兼容）
+        const resolved = resolveAgentAvatar(meta?.avatar);
+        const avatarInner =
+          resolved.type === "icon"
+            ? AVATAR_ICONS[resolved.icon]
+            : meta?.avatar
+              ? escapeHtml(meta.avatar)
+              : "";
+        const avatarBg =
+          resolved.type === "icon"
+            ? "var(--surface)"
+            : meta
+              ? escapeHtml(avatarStyle(meta.avatarColor))
+              : "";
         const avatarHtml = meta?.avatar
-          ? `<span class="chip-agent-avatar" style="background:${escapeHtml(avatarStyle(meta.avatarColor))}">${escapeHtml(meta.avatar)}</span>`
+          ? `<span class="chip-agent-avatar" style="background:${avatarBg}">${avatarInner}</span>`
           : "";
         const trigger = hideTrigger ? "" : "@";
         // 内置 subagent 的 token 用英文 name（与提示词一致），但 chip 显示其中文 displayName（若有注册）

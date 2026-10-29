@@ -7,6 +7,7 @@ import { api } from "../api-client";
 import { onMessage } from "../events";
 import { Modal } from "./ui/Modal";
 import { AgentDropdown } from "./ui/AgentDropdown";
+import { AgentAvatar } from "./ui/AgentAvatar";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "../i18n/useTranslation";
 
@@ -66,19 +67,20 @@ export function AgentSwitcher({ sessionId, readOnly = false }: Props) {
                 data-testid="agent-switcher"
                 title={current.displayName}
             >
-                <span
-                    className="w-[16px] h-[16px] rounded-sm flex items-center justify-center text-[calc(11px*var(--font-scale))] flex-none"
-                    style={{
-                        background: current.avatarColor?.includes("-")
-                            ? `linear-gradient(135deg, ${current.avatarColor
-                                  .split("-")
-                                  .map((s) => s.trim())
-                                  .join(", ")})`
-                            : current.avatarColor || undefined,
-                    }}
-                >
-                    {current.avatar}
-                </span>
+                <AgentAvatar
+                  avatar={current.avatar}
+                  background={
+                    current.avatarColor?.includes("-")
+                        ? `linear-gradient(135deg, ${current.avatarColor
+                              .split("-")
+                              .map((s) => s.trim())
+                              .join(", ")})`
+                        : current.avatarColor || undefined
+                  }
+                  className="w-5 h-5"
+                  textClassName="text-[calc(11px*var(--font-scale))]"
+                  iconSize={16}
+                />
                 <span className="max-w-[180px] truncate">
                     {current.displayName}
                 </span>

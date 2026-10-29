@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { AgentConfig, AgentName, AgentToolItem } from "@wa-pi/shared";
 import { agentDefOf, resolveProviderSlug, isSubagentType } from "@wa-pi/shared";
 import { useTranslation } from "../i18n/useTranslation";
@@ -15,6 +16,13 @@ import { api } from "../api-client";
 import { onMessage } from "../events";
 import type { SubagentOverride } from "@wa-pi/shared";
 import { Modal } from "./ui/Modal";
+import { AgentAvatar } from "./ui/AgentAvatar";
+import { avatarBackground } from "./ui/AgentMenuItem";
+import {
+	AVATAR_ICON_GROUPS,
+	AVATAR_ICONS,
+	type AvatarIconName,
+} from "./ui/avatar-icons";
 import { filterItems } from "../quick-invoke/trigger";
 
 interface Props {
@@ -33,6 +41,73 @@ const TABS: { key: Tab; labelKey: string }[] = [
 
 const inp =
 	"flex-1 px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none placeholder:text-tertiary";
+
+/** 头像可选图标库（分组）；写入值为 `icon:名称`，存储/REST 格式不变 */
+
+/**
+ * 头像图标选择面板：分组标题 + 网格，点选即写入 draft.avatar = `icon:xxx`。
+ * createPortal 遮罩层弹层（参照 AgentDropdown 的 portal 模式），点遮罩/图标后关闭。
+ */
+function AvatarPickerPanel({
+	current,
+	onPick,
+	onClose,
+}: {
+	current?: string;
+	onPick: (icon: AvatarIconName) => void;
+	onClose: () => void;
+}) {
+	// Esc 关闭（capture + stopPropagation：不连带外层 Modal 的 Esc 行为）
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Escape") return;
+			e.stopPropagation();
+			onClose();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [onClose]);
+	return createPortal(
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+			onClick={onClose}
+			data-testid="cfg-avatar-panel"
+		>
+			<div
+				className="w-[420px] max-w-[90vw] max-h-[70vh] overflow-y-auto bg-surface-elevated border border-hairline rounded-md shadow-lg p-3"
+				onClick={(e) => e.stopPropagation()}
+			>
+				{AVATAR_ICON_GROUPS.map((g) => (
+					<div key={g.label} className="mb-2">
+						<div className="text-xs text-tertiary mb-1">{g.label}</div>
+						<div className="grid grid-cols-8 gap-1">
+							{g.icons.map((icon) => {
+								const selected = current === `icon:${icon}`;
+								return (
+									<button
+										key={icon}
+										type="button"
+										aria-pressed={selected}
+										data-testid={`avatar-icon-${icon}`}
+										onClick={() => onPick(icon)}
+										className={`flex items-center justify-center rounded-sm py-1.5 cursor-pointer transition-colors ${selected ? "bg-accent-soft text-accent" : "text-secondary hover:bg-surface-hover hover:text-primary"}`}
+									>
+										<span
+											className="inline-block leading-none [&>svg]:w-full [&>svg]:h-full"
+											style={{ width: 22, height: 22 }}
+											dangerouslySetInnerHTML={{ __html: AVATAR_ICONS[icon] }}
+										/>
+									</button>
+								);
+							})}
+						</div>
+					</div>
+				))}
+			</div>
+		</div>,
+		document.body,
+	);
+}
 
 interface TabProps {
 	draft: AgentConfig;
@@ -178,12 +253,15 @@ export function AgentConfig({ agentName, onClose }: Props) {
 			data-testid="agent-config"
 		>
 			<header className="flex items-center gap-3 px-5 py-3.5 border-b border-hairline">
-				<div
-					className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0"
-					style={{ background: `linear-gradient(135deg, ${hg1}, ${hg2})` }}
-				>
-					{draft?.avatar || def.emoji}
-				</div>
+				<AgentAvatar
+					avatar={draft?.avatar}
+					fallback={def.emoji}
+					background={`linear-gradient(135deg, ${hg1}, ${hg2})`}
+					className="w-9 h-9 rounded-lg"
+					textClassName="text-lg"
+					iconSize={26}
+					testId="cfg-avatar-preview"
+				/>
 				<div className="flex-1 min-w-0">
 					<div className="text-sm font-semibold text-primary truncate">
 						{draft?.displayName ?? agentName}
@@ -309,6 +387,8 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 function BasicTab({ draft, onChange }: TabProps) {
 	const { t } = useTranslation();
+	// 头像图标面板开关（点头像块弹出）
+	const [avatarPanelOpen, setAvatarPanelOpen] = useState(false);
 	// 模型下拉：扁平化 providers（同 ModelSelector），slug/id 作为 option value
 	const providers = useProvidersStore((s) => s.providers);
 	const models = useMemo(() => {
@@ -350,13 +430,33 @@ function BasicTab({ draft, onChange }: TabProps) {
 				/>
 			</Row>
 			<Row label={t("agentConfig.labelAvatar")}>
-				<input
-					value={draft.avatar}
-					onChange={(e) => onChange({ ...draft, avatar: e.target.value })}
-					className="w-14 px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none text-center"
-					data-testid="cfg-avatar-input"
-				/>
+				<button
+					type="button"
+					onClick={() => setAvatarPanelOpen(true)}
+					className="w-14 h-9 rounded-sm border border-hairline bg-surface flex items-center justify-center cursor-pointer hover:border-hairline-strong transition-colors"
+					data-testid="cfg-avatar-button"
+					aria-label={t("agentConfig.labelAvatar")}
+				>
+					<AgentAvatar
+						avatar={draft.avatar}
+						fallback=""
+						background={avatarBackground(draft.avatarColor)}
+						iconSize={26}
+						textClassName="text-lg"
+						testId="cfg-avatar-preview-inline"
+					/>
+				</button>
 			</Row>
+			{avatarPanelOpen && (
+				<AvatarPickerPanel
+					current={draft.avatar}
+					onPick={(icon) => {
+						onChange({ ...draft, avatar: `icon:${icon}` });
+						setAvatarPanelOpen(false);
+					}}
+					onClose={() => setAvatarPanelOpen(false)}
+				/>
+			)}
 
 			<Sec>{t("agentConfig.secModel")}</Sec>
 			<Row label={t("agentConfig.labelModel")}>

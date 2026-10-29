@@ -180,11 +180,52 @@ describe("AgentConfig 4 tab", () => {
 		expect(lastSaved("dev").config.model).toContain("m1");
 	});
 
-	test("基本 tab：头像颜色选择器已取消（无 cfg-color-1/2，仅留 emoji 输入）", () => {
+	test("基本 tab：头像颜色选择器已取消，头像改为图标选择按钮", () => {
 		renderConfig("dev");
 		expect(screen.queryByTestId("cfg-color-1")).toBeNull();
 		expect(screen.queryByTestId("cfg-color-2")).toBeNull();
-		expect(screen.getByTestId("cfg-avatar-input")).toBeTruthy();
+		// 文本输入框已换成头像块按钮（点选图标面板）
+		expect(screen.queryByTestId("cfg-avatar-input")).toBeNull();
+		expect(screen.getByTestId("cfg-avatar-button")).toBeTruthy();
+	});
+
+	test("头像选择器：点击头像弹面板，选图标写入 draft 并保存 icon: 前缀", () => {
+		renderConfig("dev");
+		// 初始 avatar 是旧 emoji（🤖 命中映射）→ 头像块渲染 svg 图标
+		const btn = screen.getByTestId("cfg-avatar-button");
+		expect(btn.querySelector("svg")).toBeTruthy();
+		// 头部预览同步渲染图标
+		expect(
+			screen.getByTestId("cfg-avatar-preview").querySelector("svg"),
+		).toBeTruthy();
+
+		// 点击弹出分组图标面板
+		fireEvent.click(btn);
+		const panel = screen.getByTestId("cfg-avatar-panel");
+		expect(panel).toBeTruthy();
+		// 分组标题存在
+		expect(panel.textContent).toContain("研发工程");
+
+		// 点选图标 → 面板关闭 + draft 写入 icon: 前缀
+		fireEvent.click(screen.getByTestId("avatar-icon-gear"));
+		expect(screen.queryByTestId("cfg-avatar-panel")).toBeNull();
+
+		// 重开面板：当前选中高亮
+		fireEvent.click(screen.getByTestId("cfg-avatar-button"));
+		expect(
+			screen
+				.getByTestId("cfg-avatar-panel")
+				.querySelector("[aria-pressed='true']")
+				?.getAttribute("data-testid"),
+		).toBe("avatar-icon-gear");
+		fireEvent.click(screen.getByTestId("cfg-avatar-panel")); // 点遮罩关闭
+
+		fireEvent.click(screen.getByText("保存"));
+		expect(lastSaved("dev").config.avatar).toBe("icon:gear");
+		// 保存后头部预览变为新图标
+		expect(
+			screen.getByTestId("cfg-avatar-preview").querySelector("svg"),
+		).toBeTruthy();
 	});
 
 	test("关系网 tab：搜索过滤 + 自身置灰不可选 + 勾选写入 askTo", () => {
@@ -867,5 +908,17 @@ describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
 		render(<AgentConfig agentName="Plan" onClose={onClose} />);
 		fireEvent.click(screen.getByTestId("cfg-save"));
 		expect(onClose).toHaveBeenCalled();
+	});
+});
+
+describe("审查修复：图标面板 Esc 关闭", () => {
+	test("按 Escape 关闭图标面板，且不关闭外层编辑弹窗", () => {
+		renderConfig("dev");
+		fireEvent.click(screen.getByTestId("cfg-avatar-button"));
+		expect(screen.getByTestId("cfg-avatar-panel")).toBeTruthy();
+		fireEvent.keyDown(window, { key: "Escape" });
+		expect(screen.queryByTestId("cfg-avatar-panel")).toBeNull();
+		// 外层弹窗还在
+		expect(screen.getByTestId("agent-config")).toBeTruthy();
 	});
 });
