@@ -1,4 +1,5 @@
 ## 2026-10-29
+- v0.8.5 发版：智能体头像卡通彩色图标库（91 个 Fluent Emoji Flat + 分组选择面板）+ 委派判据改专项优先
 - fix(frontend): 侧栏会话行/回收站行头像加固定尺寸居中槽——emoji 文本（基线排版）与彩色 svg（行内块）混排导致各行图标竖向不齐，统一收进 20/24px flex 槽同位渲染
 - fix(frontend): 卡通彩色头像图标全面放大——多色细节图标沿用旧 emoji 尺寸（11-24px）无法辨认，各位点放大至 16-30px、chips svg 13→15px（容器同步微调；E2E 因真实 kernel 占用 9776 改用偏移端口跑通 8/8）
 - feat(frontend): 头像美术层整体换为卡通彩色图标库（Fluent Emoji Flat 90+1 个，MIT）——新生成 avatar-icons.ts（分组/白名单/彩色 SVG），AgentAvatar 彩色图标改中性浅底承载（渐变底仅留给旧 emoji），选择面板/聊天 chip/14 位点同步换源；自绘线性 Icon.tsx 保留供其他 UI 使用（单测 246+28 全绿、E2E 8/8、tsc 干净）
