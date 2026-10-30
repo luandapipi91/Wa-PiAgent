@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -17,6 +17,7 @@ import {
 	COMPACT_MEMORY_POLICY_PROMPT,
 	ENV_CONSTRAINTS_SUFFIX,
 	PROMPTS_SCHEMA_VERSION,
+	repairDelegateMechanism,
 	type PromptSegment,
 } from "../src/system-prompt";
 import { buildDelegateRoster } from "../src/delegate-tool";
@@ -731,4 +732,66 @@ test("DEFAULT 记忆策略分层说明：profile / knowledge / execution 与 tar
 	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("kind=knowledge");
 	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("target=user");
 	expect(DEFAULT_MEMORY_POLICY_PROMPT).toContain("target=memory");
+});
+
+describe("v29 迁移：delegate-mechanism 旧判据（通用优先）→ 专项优先", () => {
+	const OLD_CONTENT = [
+		"## Delegation Mechanism",
+		"",
+		"用 `delegate(agent, task)` 把工作交给 <subagents> 里的子代理。**默认委托：除单点定义查询外，代码问题一律先派 Explore 再行动。**",
+		"路由：规划设计 → Plan；多步带写 → general-purpose；需要用户交互 → 不派。",
+		"",
+		"用户：找出所有引用 X 的文件，解释每处用途",
+		"你：delegate(agent=\"Explore\", task=\"搜索全仓库引用 X 的位置，逐处说明用途\")",
+	].join("\n");
+
+	function writeV28(f: string, dmContent: string) {
+		const segments: PromptSegment[] = [
+			{ id: "base", content: "BASE" },
+			{ id: "delegate-mechanism", content: dmContent },
+			{ id: "delegate-roster" },
+		];
+		writeFileSync(f, JSON.stringify({ schemaVersion: 28, segments }, null, 2));
+	}
+
+	test("repairDelegateMechanism：命中旧指纹 → 替换为专项优先总则+逐领域路由", () => {
+		const out = repairDelegateMechanism(OLD_CONTENT);
+		expect(out).toContain("专项优先");
+		expect(out).toContain("前端 → 前端开发者");
+		expect(out).not.toContain("多步带写 → general-purpose");
+		expect(out).not.toContain("代码问题一律先派 Explore");
+		// 非判据内容（示例等）保留
+		expect(out).toContain("delegate(agent=");
+	});
+
+	test("幂等：已是专项优先内容 → 原样返回", () => {
+		const fixed = repairDelegateMechanism(OLD_CONTENT);
+		expect(repairDelegateMechanism(fixed)).toBe(fixed);
+	});
+
+	test("ensurePromptsConfig：v28 旧判据文件迁移后升级为专项优先，其余内容保留", async () => {
+		const f = tempFile();
+		writeV28(f, OLD_CONTENT);
+		await ensurePromptsConfig(f);
+		const loaded = await loadPromptSegments(f);
+		const dm = (loaded as PromptSegment[]).find((s) => s.id === "delegate-mechanism")!;
+		expect(dm.content).toContain("专项优先");
+		expect(dm.content).toContain("前端 → 前端开发者");
+		expect(dm.content).not.toContain("多步带写 → general-purpose");
+		expect(dm.content).toContain("delegate(agent=");
+		const raw = JSON.parse(readFileSync(f, "utf8"));
+		expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
+		rmSync(f, { force: true });
+	});
+
+	test("ensurePromptsConfig：用户自定义内容（无旧判据指纹）→ 迁移保留不覆盖", async () => {
+		const f = tempFile();
+		const custom = "## Delegation Mechanism\n\n我自己的委托规则";
+		writeV28(f, custom);
+		await ensurePromptsConfig(f);
+		const loaded = await loadPromptSegments(f);
+		const dm = (loaded as PromptSegment[]).find((s) => s.id === "delegate-mechanism")!;
+		expect(dm.content).toBe(custom);
+		rmSync(f, { force: true });
+	});
 });

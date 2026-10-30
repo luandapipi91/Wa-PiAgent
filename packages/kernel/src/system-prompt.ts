@@ -204,6 +204,27 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
 	'用户：找出所有引用 X 的文件 → delegate(tasks=[{agent:"Explore", task:"全仓库搜索 X 并说明用途"}])\n' +
 	"@agentName → 立即 delegate（不存在则告知；多个依次派发）。";
 
+/** v29 迁移用的旧「通用优先」判据指纹与专项优先替换文案。仅命中旧指纹才替换；
+ *  用户自定义内容不含指纹 → 原样保留；修复后不再命中 → 幂等。 */
+const OLD_GENERIC_PRIORITY_RULES: Array<[string, string]> = [
+	[
+		"**默认委托：除单点定义查询外，代码问题一律先派 Explore 再行动。**",
+		"**专项优先：任务落在任一专员的领域（前端/后端/评审/质量分析/业务数据/需求/设计/纪要/任务拆解…）时，优先派该专员；通用只兜底没有专员覆盖的多步执行任务。**",
+	],
+	[
+		"路由：规划设计 → Plan；多步带写 → general-purpose；需要用户交互 → 不派。",
+		"路由：前端 → 前端开发者；服务端/架构 → 后端架构师；评审/审查 → 代码审查员；测试分析 → 测试结果分析师；业务数据 → 数据分析师；需求/PRD → 产品经理；界面设计 → UX设计师；纪要整理 → 会议纪要专家；任务拆解 → 高级项目经理；只读调查 → Explore；规划 → Plan；需要用户交互 → 不派。",
+	],
+];
+
+export function repairDelegateMechanism(content: string): string {
+	let out = content;
+	for (const [from, to] of OLD_GENERIC_PRIORITY_RULES) {
+		if (out.includes(from)) out = out.split(from).join(to);
+	}
+	return out;
+}
+
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。
  * 顺序即输出顺序。
@@ -307,8 +328,10 @@ export function composePrompt(
  *  v26：新增 im-push 段（定时任务推送目标引导，同样纯运行时注入不落盘）。
  *  v27：新增 scheduled-tasks 段（定时任务管理引导，同样纯运行时注入不落盘）。
  *  v28：self-protection 段改为纯运行时注入（落盘剔除、运行时按实际 bridge 端口生成），
- *       旧文件里写死端口的 content 随迁移清理。 */
-export const PROMPTS_SCHEMA_VERSION = 28;
+ *       旧文件里写死端口的 content 随迁移清理。
+ *  v29：delegate-mechanism 旧「通用优先」判据（多步带写→general-purpose 等）迁移为
+ *       专项优先路由——内容命中旧指纹才逐句替换，用户自定义内容无指纹不触碰。 */
+export const PROMPTS_SCHEMA_VERSION = 29;
 
 /** im-channel 段 id：IM 渠道附加提示词，运行时注入段——不持久化到 prompts.json */
 export const IM_CHANNEL_SEGMENT_ID = "im-channel";
@@ -494,9 +517,18 @@ export async function ensurePromptsConfig(filePath: string): Promise<void> {
 		// 例：21 → 22 只新增 memory-policy 段，delegate-mechanism 等用户自定义内容保持不变。
 		const merged = DEFAULT_PROMPT_SEGMENTS.map((def) => {
 			const existingSeg = existing.find((s) => s.id === def.id);
-			return existingSeg && existingSeg.content
-				? { ...def, content: existingSeg.content }
-				: def;
+			if (existingSeg && existingSeg.content) {
+				// v29：delegate-mechanism 命中旧「通用优先」判据指纹 → 修复为专项优先
+				//（用户自定义内容不含旧指纹，原样保留）
+				if (def.id === "delegate-mechanism") {
+					return {
+						...def,
+						content: repairDelegateMechanism(existingSeg.content),
+					};
+				}
+				return { ...def, content: existingSeg.content };
+			}
+			return def;
 		});
 		await savePromptSegments(filePath, merged);
 	} catch (e) {

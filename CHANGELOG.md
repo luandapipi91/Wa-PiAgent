@@ -1,4 +1,8 @@
+## 2026-10-30
+- fix(kernel): 老用户 prompts.json 旧「通用优先」判据随升级自动迁移为专项优先——PROMPTS_SCHEMA_VERSION 28→29，ensurePromptsConfig 迁移时对 delegate-mechanism 段做指纹修复（命中「多步带写→general-purpose」等旧指纹才逐句替换为专项优先总则+逐领域路由，用户自定义内容无指纹不触碰；v28 清 self-protection 同款手法，新增 4 例迁移测试）
+
 ## 2026-10-29
+- fix(frontend): 头像选择面板观感对齐 POC——图标 22→30px、8 列紧凑改 6 列、每格补中文名标签（avatar-icons.ts 新增 AVATAR_ICON_LABELS 91 项中文映射）
 - fix(frontend): 文件修改清单路径失真修复——会话外移动/改名后卡片一直显示失效路径：① kernel agent_end 每轮必报（空清单也报，前端按轮覆盖清掉旧卡）；② 上报前存在性探测，失效路径标 missing、项目内同名唯一命中标 movedTo（新位置可打开/预览，找不回则显示失效徽标并禁用打开/分享；kernel 纯函数 markMissingFiles + 行为测试，bridge-extension 27/27）
 - v0.8.5 发版：智能体头像卡通彩色图标库（91 个 Fluent Emoji Flat + 分组选择面板）+ 委派判据改专项优先；mac dmg 210892417 / win exe 199219259（zip 实测 sha512 与 yml 一致、cf-cache-status MISS；gate 因机器高负载 4 次才稳定绿）
 - fix(frontend): 侧栏会话行/回收站行头像加固定尺寸居中槽——emoji 文本（基线排版）与彩色 svg（行内块）混排导致各行图标竖向不齐，统一收进 20/24px flex 槽同位渲染
