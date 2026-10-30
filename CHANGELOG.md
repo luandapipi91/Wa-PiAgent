@@ -1,6 +1,6 @@
 ## 2026-10-30
 - test(kernel): PROMPTS_SCHEMA_VERSION 断言 28 → 29——62dc61cc 升 schema 版本时漏改这条断言，gate 必红（本轮发版阻塞项）
-- v0.8.6 发版：头像选择面板中文标签 + 旧 prompts 判据自动迁移专项优先 + 文件修改清单路径失真修复
+- v0.8.6 发版：头像选择面板中文标签 + 旧 prompts 判据自动迁移专项优先 + 文件修改清单路径失真修复；mac dmg 210899776 / win exe 199221010（zip 实测 sha512 与 yml 一致、cf-cache-status MISS）
 - fix(kernel): 老用户 prompts.json 旧「通用优先」判据随升级自动迁移为专项优先——PROMPTS_SCHEMA_VERSION 28→29，ensurePromptsConfig 迁移时对 delegate-mechanism 段做指纹修复（命中「多步带写→general-purpose」等旧指纹才逐句替换为专项优先总则+逐领域路由，用户自定义内容无指纹不触碰；v28 清 self-protection 同款手法，新增 4 例迁移测试）
 
 ## 2026-10-29
