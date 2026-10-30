@@ -20,6 +20,7 @@ import { AgentAvatar } from "./ui/AgentAvatar";
 import { avatarBackground } from "./ui/AgentMenuItem";
 import {
 	AVATAR_ICON_GROUPS,
+	AVATAR_ICON_LABELS,
 	AVATAR_ICONS,
 	type AvatarIconName,
 } from "./ui/avatar-icons";
@@ -80,7 +81,7 @@ function AvatarPickerPanel({
 				{AVATAR_ICON_GROUPS.map((g) => (
 					<div key={g.label} className="mb-2">
 						<div className="text-xs text-tertiary mb-1">{g.label}</div>
-						<div className="grid grid-cols-8 gap-1">
+						<div className="grid grid-cols-6 gap-2">
 							{g.icons.map((icon) => {
 								const selected = current === `icon:${icon}`;
 								return (
@@ -89,14 +90,20 @@ function AvatarPickerPanel({
 										type="button"
 										aria-pressed={selected}
 										data-testid={`avatar-icon-${icon}`}
+										title={AVATAR_ICON_LABELS[icon] ?? icon}
 										onClick={() => onPick(icon)}
-										className={`flex items-center justify-center rounded-sm py-1.5 cursor-pointer transition-colors ${selected ? "bg-accent-soft text-accent" : "text-secondary hover:bg-surface-hover hover:text-primary"}`}
+										className={`flex flex-col items-center gap-1 rounded-md py-2 cursor-pointer transition-colors ${selected ? "bg-accent-soft" : "hover:bg-surface-hover"}`}
 									>
 										<span
 											className="inline-block leading-none [&>svg]:w-full [&>svg]:h-full"
-											style={{ width: 22, height: 22 }}
+											style={{ width: 30, height: 30 }}
 											dangerouslySetInnerHTML={{ __html: AVATAR_ICONS[icon] }}
 										/>
+										<span
+											className={`text-[10px] leading-none truncate w-full text-center ${selected ? "text-accent" : "text-tertiary"}`}
+										>
+											{AVATAR_ICON_LABELS[icon] ?? icon}
+										</span>
 									</button>
 								);
 							})}

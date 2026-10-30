@@ -205,6 +205,8 @@ describe("AgentConfig 4 tab", () => {
 		expect(panel).toBeTruthy();
 		// 分组标题存在
 		expect(panel.textContent).toContain("研发工程");
+		// 图标下方显示中文名（对齐 POC 观感）
+		expect(panel.textContent).toContain("机器人");
 
 		// 点选图标 → 面板关闭 + draft 写入 icon: 前缀
 		fireEvent.click(screen.getByTestId("avatar-icon-gear"));
