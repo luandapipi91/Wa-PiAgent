@@ -8,7 +8,12 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import type { BridgeToolResult } from "./bridge-registry";
 import type { BrowserManager, ElementRef } from "./browser-manager";
-import { ANNOTATE_SCRIPT, resolveRefScript } from "./browser-annotate";
+import {
+  ANNOTATE_SCRIPT,
+  SNAPSHOT_SCRIPT,
+  formatSnapshot,
+  resolveRefScript,
+} from "./browser-annotate";
 
 const NAVIGATE_TIMEOUT_MS = 120_000;
 const OPERATION_TIMEOUT_MS = 60_000;
@@ -117,6 +122,8 @@ export async function handleBrowserTool(
       return evaluateTool(manager, sessionId, params);
     case "browser_screenshot":
       return screenshotTool(manager, sessionId, params);
+    case "browser_snapshot":
+      return snapshotTool(manager, sessionId, params);
     case "browser_close":
       return closeTool(manager, sessionId);
     default:
@@ -228,7 +235,7 @@ async function evaluateTool(
           }
           if (!state.refs?.[`@${ref}`]) {
             return errResult(
-              `ref @${ref} 不存在或已过期（页面可能已导航），请重新 browser_screenshot {annotate:true}`,
+              `ref @${ref} 不存在或已过期（页面可能已导航），请重新 browser_snapshot 或 browser_screenshot {annotate:true}`,
               "invalid_ref",
             );
           }
@@ -244,7 +251,7 @@ async function evaluateTool(
             typeof loc.y !== "number"
           ) {
             return errResult(
-              `ref @${ref} 已过期：对应元素已不在当前页面，请重新 browser_screenshot {annotate:true}`,
+              `ref @${ref} 已过期：对应元素已不在当前页面，请重新 browser_snapshot 或 browser_screenshot {annotate:true}`,
               "invalid_ref",
             );
           }
@@ -451,6 +458,51 @@ async function screenshotTool(
     return textResult(JSON.stringify(result), result);
   } catch (err) {
     return errResult(`截图失败: ${errMessage(err)}`, errMessage(err));
+  }
+}
+
+async function snapshotTool(
+  manager: BrowserManager,
+  sessionId: string,
+  params: unknown,
+): Promise<BridgeToolResult> {
+  const state = manager.get(sessionId);
+  if (!state) {
+    return errResult(
+      "浏览器视图未创建：请先调用 browser_navigate 打开页面",
+      "no_view",
+    );
+  }
+  try {
+    const raw = await runViewOp(
+      () => state.view.evaluate(SNAPSHOT_SCRIPT),
+      OPERATION_TIMEOUT_MS,
+      "snapshot",
+    );
+    if (!raw || typeof raw !== "object") {
+      throw new Error("快照失败：页面未返回 refs 对象");
+    }
+    // 与 annotate 截图共用同一份会话缓存：click ref 对两者无感
+    state.refs = raw as Record<string, ElementRef>;
+    const snapshot = formatSnapshot(state.refs);
+    const body =
+      snapshot.length > EVAL_RESULT_MAX_CHARS
+        ? snapshot.slice(0, EVAL_RESULT_MAX_CHARS) +
+          `…（截断，原长 ${snapshot.length}）`
+        : snapshot;
+    const result = {
+      ok: true,
+      snapshot: body,
+      url: state.view.url,
+      title: state.view.title,
+      refCount: Object.keys(state.refs).length,
+    };
+    return textResult(JSON.stringify(result), {
+      ok: true,
+      refCount: result.refCount,
+    });
+  } catch (err) {
+    return errResult(`browser_snapshot 失败: ${errMessage(err)}`, errMessage(err));
   }
 }
 

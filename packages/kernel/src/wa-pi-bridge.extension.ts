@@ -44,6 +44,8 @@ import {
 	BrowserScreenshotParamsSchema,
 	BROWSER_CLOSE_DESCRIPTION,
 	BrowserCloseParamsSchema,
+	BROWSER_SNAPSHOT_DESCRIPTION,
+	BrowserSnapshotParamsSchema,
 	PREVIEW_OPEN_DESCRIPTION,
 	PreviewOpenParamsSchema,
 } from "./tool-schemas.ts";
@@ -575,6 +577,22 @@ export default function (pi: ExtensionAPI) {
 		async execute(toolCallId, params, signal) {
 			return callBridge(
 				"browser_screenshot",
+				toolCallId,
+				params,
+				signal,
+				BROWSER_OPERATION_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "browser_snapshot",
+		label: "Browser Snapshot",
+		description: BROWSER_SNAPSHOT_DESCRIPTION,
+		parameters: BrowserSnapshotParamsSchema,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"browser_snapshot",
 				toolCallId,
 				params,
 				signal,

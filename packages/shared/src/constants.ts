@@ -187,6 +187,7 @@ export const DEFAULT_AGENT_TOOLS = [
 	"browser_navigate",
 	"browser_evaluate",
 	"browser_screenshot",
+	"browser_snapshot",
 	"browser_close",
 	// preview_open：把网址/项目内 html 送到用户的内置预览面板（自定义工具，须显式放行）
 	"preview_open",

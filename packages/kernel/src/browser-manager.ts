@@ -38,11 +38,21 @@ export interface WebViewLike {
   close(): void;
 }
 
-/** annotate 截图生成的元素 ref 映射条目（x/y 为标注时的视口中心坐标，仅作展示参考） */
+/** annotate 截图 / snapshot 快照共用的元素 ref 映射条目（x/y 为标注时的视口中心坐标，仅作展示参考；click ref 每次实时重查位置） */
 export interface ElementRef {
   n: number;
   tag: string;
   label: string;
+  /** ARIA role（SNAPSHOT_SCRIPT 产物可能有） */
+  role?: string;
+  /** input 的 type（SNAPSHOT_SCRIPT 产物可能有） */
+  inputType?: string;
+  /** 输入类元素的当前值（password 已打码） */
+  value?: string;
+  /** checkbox/radio 的勾选态 */
+  checked?: boolean;
+  /** 非原生元素但 cursor:pointer（自绘按钮/列表项） */
+  pointer?: boolean;
   x: number;
   y: number;
 }

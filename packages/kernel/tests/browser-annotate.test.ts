@@ -6,7 +6,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   ANNOTATE_SCRIPT,
+  INTERACTIVE_ROLE_SELECTOR,
   MAX_ANNOTATED_ELEMENTS,
+  SNAPSHOT_SCRIPT,
   resolveRefScript,
 } from "../src/browser-annotate";
 
@@ -45,5 +47,32 @@ describe("browser-annotate 注入脚本", () => {
     expect(() => resolveRefScript(1.5)).toThrow();
     expect(() => resolveRefScript(Number.NaN)).toThrow();
     expect(() => resolveRefScript(201)).toThrow();
+  });
+});
+
+describe("SNAPSHOT_SCRIPT 文本快照注入脚本", () => {
+  test("合法 JS 且为自执行 IIFE，产物无反引号/插值残留", () => {
+    expect(() => new Function(SNAPSHOT_SCRIPT)).not.toThrow();
+    expect(SNAPSHOT_SCRIPT.trimEnd().endsWith("})()")).toBe(true);
+    expect(SNAPSHOT_SCRIPT).not.toContain("`");
+    expect(SNAPSHOT_SCRIPT).not.toContain("${");
+  });
+
+  test("打 data-wa-ref 锚点供 click ref 复用，但不注入视觉 overlay", () => {
+    expect(SNAPSHOT_SCRIPT).toContain("data-wa-ref");
+    expect(SNAPSHOT_SCRIPT).not.toContain("data-wa-annotate");
+  });
+
+  test("枚举覆盖交互 role 白名单与 cursor:pointer 非原生元素", () => {
+    expect(SNAPSHOT_SCRIPT).toContain('[role="button"]');
+    expect(SNAPSHOT_SCRIPT).toContain("cursor");
+    expect(SNAPSHOT_SCRIPT).toContain("labels"); // checkbox 关联 label 取名
+    expect(SNAPSHOT_SCRIPT).toContain("password"); // 密码打码
+    expect(INTERACTIVE_ROLE_SELECTOR).toContain('[role="menuitem"]');
+  });
+
+  test("枚举上限与 ANNOTATE_SCRIPT 同源（MAX_ANNOTATED_ELEMENTS 插值）", () => {
+    expect(SNAPSHOT_SCRIPT).toContain(String(MAX_ANNOTATED_ELEMENTS));
+    expect(MAX_ANNOTATED_ELEMENTS).toBe(200);
   });
 });

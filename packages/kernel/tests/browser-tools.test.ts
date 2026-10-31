@@ -688,3 +688,78 @@ describe("browser_evaluate click ref", () => {
     }
   });
 });
+
+describe("browser_snapshot 文本快照", () => {
+  const snapRefs = {
+    "@1": { n: 1, tag: "input", inputType: "text", label: "手机号", value: "132", x: 100, y: 50 },
+    "@2": { n: 2, tag: "button", label: "登 录", x: 100, y: 90 },
+    "@3": { n: 3, tag: "input", inputType: "checkbox", label: "同意协议", checked: true, x: 20, y: 120 },
+    "@4": { n: 4, tag: "div", role: undefined, label: "深圳1测试店", pointer: true, x: 60, y: 160 },
+  };
+
+  function makeSnapManager(evaluateImpl: (script: string) => unknown) {
+    return new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-snap-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            return script.includes("data-wa-ref") ? evaluateImpl(script) : script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+  }
+
+  test("snapshot：返回 agent-browser 风格文本行并缓存 refs", async () => {
+    const m = makeSnapManager(() => snapRefs);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_snapshot", {});
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.refCount).toBe(4);
+      expect(parsed.snapshot).toContain('@1 textbox "手机号" = "132"');
+      expect(parsed.snapshot).toContain('@2 button "登 录"');
+      expect(parsed.snapshot).toContain('@3 checkbox "同意协议" [checked]');
+      expect(parsed.snapshot).toContain('@4 generic "深圳1测试店" (pointer)');
+      expect(m.get("s1")?.refs?.["@2"]?.label).toBe("登 录");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("snapshot：脚本返回非对象报错", async () => {
+    const m = makeSnapManager(() => "not-an-object");
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_snapshot", {});
+      expect(r.content[0].text).toContain("快照失败");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("snapshot：视图未创建报错", async () => {
+    const m = makeSnapManager(() => snapRefs);
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_snapshot", {});
+      expect(JSON.stringify(r)).toContain("no_view");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("snapshot 后 click ref 复用同一缓存；文案指向 browser_snapshot", async () => {
+    const m = makeSnapManager(() => snapRefs);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      await handleBrowserTool(m, "s1", "browser_snapshot", {});
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 99 });
+      expect(JSON.stringify(r)).toContain("invalid_ref");
+      expect(r.content[0].text).toContain("browser_snapshot");
+    } finally {
+      m.dispose();
+    }
+  });
+});

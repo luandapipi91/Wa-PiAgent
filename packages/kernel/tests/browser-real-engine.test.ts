@@ -19,7 +19,7 @@ import { handleBrowserTool } from "../src/browser-tools";
 
 // 本地静态页：data: URL（避免端口冲突）。点击 #btn 会改 document.title。
 const TEST_HTML = `<h1>hello</h1><button id="btn" onclick="document.title='clicked'">go</button><input id="inp">`;
-const TEST_URL = "data:text/html," + encodeURIComponent(TEST_HTML);
+const TEST_URL = "data:text/html;charset=utf-8," + encodeURIComponent(TEST_HTML);
 
 /** 探测真实引擎可用性：构造 + 导航 + evaluate + 关闭，任何一步失败即不可用 */
 async function probeEngineAvailable(): Promise<boolean> {
@@ -297,7 +297,7 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
 
   testReal("annotate 全链路：screenshot annotate → refs → click ref → 生效", async () => {
     const annotateHtml = `<a id="lnk" href="#x">link1</a><button id="btn" onclick="document.title='clicked'">go</button><input id="inp" placeholder="ph">`;
-    const annotateUrl = "data:text/html," + encodeURIComponent(annotateHtml);
+    const annotateUrl = "data:text/html;charset=utf-8," + encodeURIComponent(annotateHtml);
     const screenshotDir = mkdtempSync(join(tmpdir(), "browser-annotate-real-"));
     const manager = new BrowserManager({
       screenshotDir,
@@ -351,8 +351,8 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
 
   testReal("annotate：重复标注编号连续；导航后 ref 过期报 invalid_ref", async () => {
     const annotateHtml = `<a id="lnk" href="#x">link1</a><button id="btn" onclick="document.title='clicked'">go</button><input id="inp" placeholder="ph">`;
-    const annotateUrl = "data:text/html," + encodeURIComponent(annotateHtml);
-    const page2Url = "data:text/html," + encodeURIComponent("<p>page2</p>");
+    const annotateUrl = "data:text/html;charset=utf-8," + encodeURIComponent(annotateHtml);
+    const page2Url = "data:text/html;charset=utf-8," + encodeURIComponent("<p>page2</p>");
     const screenshotDir = mkdtempSync(join(tmpdir(), "browser-annotate-real-"));
     const manager = new BrowserManager({
       screenshotDir,
@@ -371,14 +371,62 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
       expect(Object.keys(r1).length).toBe(Object.keys(r2).length);
       expect(Object.keys(r2)[0]).toBe("@1");
 
-      // 导航到另一页面：refs 缓存清空，click ref 1 报 invalid_ref 并提示重新截图
+      // 导航到另一页面：refs 缓存清空，click ref 1 报 invalid_ref 并提示重新快照
       await handleBrowserTool(manager, sid, "browser_navigate", { url: page2Url });
       const clickRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
         action: "click",
         ref: 1,
       });
       expect(JSON.stringify(clickRes)).toContain("invalid_ref");
-      expect(clickRes.content[0].text).toContain("重新 browser_screenshot");
+      expect(clickRes.content[0].text).toContain("重新 browser_snapshot");
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
+  testReal("snapshot 文本快照：文本行格式 + click ref 复用同一缓存", async () => {
+    const snapHtml = `<label>同意协议<input id="cb" type="checkbox" checked></label><button id="btn" onclick="document.title='clicked'">确 定</button><a id="lnk" href="#x">忘记密码</a><input id="inp" placeholder="手机号"><div id="item" style="cursor:pointer">深圳1测试店</div>`;
+    const snapUrl = "data:text/html;charset=utf-8," + encodeURIComponent(snapHtml);
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-snap-real-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    const sid = sessionId("snap");
+    try {
+      await handleBrowserTool(manager, sid, "browser_navigate", { url: snapUrl });
+
+      // snapshot：纯文本行、无需截图；div(pointer)/checkbox(checked)/带空格按钮均在列
+      const snap = await handleBrowserTool(manager, sid, "browser_snapshot", {});
+      const parsed = JSON.parse(snap.content[0].text) as {
+        ok: boolean;
+        snapshot: string;
+        refCount: number;
+      };
+      expect(parsed.ok).toBe(true);
+      expect(parsed.refCount).toBeGreaterThanOrEqual(5);
+      expect(parsed.snapshot).toContain("[checked]");
+      expect(parsed.snapshot).toContain("确 定");
+      expect(parsed.snapshot).toContain("(pointer)");
+      expect(parsed.snapshot).toContain("深圳1测试店");
+      expect(parsed.snapshot).toContain("忘记密码");
+
+      // click ref 复用 snapshot 缓存：点「确 定」按钮 → title 变化（跨工具缓存互通）
+      const line = parsed.snapshot.split("\n").find((l) => l.includes("确 定"));
+      expect(line).toBeDefined();
+      const refN = Number(line!.match(/^@(\d+)/)![1]);
+      const clickRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "click",
+        ref: refN,
+      });
+      expect(clickRes.content[0].text).toContain('"ok":true');
+      const titleRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "eval",
+        script: `document.title`,
+      });
+      expect(JSON.parse(titleRes.content[0].text).result).toBe("clicked");
     } finally {
       manager.dispose();
       rmSync(screenshotDir, { recursive: true, force: true });

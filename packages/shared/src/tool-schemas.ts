@@ -381,6 +381,14 @@ export const BROWSER_CLOSE_DESCRIPTION =
 
 export const BrowserCloseParamsSchema = Type.Object({});
 
+export const BROWSER_SNAPSHOT_DESCRIPTION = [
+  "获取当前页面可交互元素的文本快照（ref 编号列表，含角色/名称/输入值/勾选态/可点击标记），并将 refs 缓存到会话供 browser_evaluate click 的 ref 参数使用。",
+  "返回纯文本（几百 token）：读页面结构、定位元素优先用本工具，无需截图；需要视觉确认（布局/图片/颜色）时才用 browser_screenshot。",
+  "枚举范围：原生控件（a/button/input/select/textarea）、ARIA 交互 role、cursor:pointer 且带可读文本的自绘元素。仅覆盖主文档，不穿透 iframe/shadow DOM。",
+].join("\n");
+
+export const BrowserSnapshotParamsSchema = Type.Object({});
+
 // =========================================================================
 // preview_open 工具（把网址/本地 html 送到用户的内置 HTML 预览）
 // =========================================================================

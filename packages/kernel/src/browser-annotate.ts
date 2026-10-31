@@ -14,6 +14,30 @@
 /** 可交互元素标注上限（超出部分不标注，防止超长页面生成爆炸性 refs）。改动需同步下方脚本内的枚举上限（已用插值单源化） */
 export const MAX_ANNOTATED_ELEMENTS = 200;
 
+/** 交互语义 role 白名单：snapshot/annotate 枚举的非原生可交互元素（ARIA 交互角色） */
+export const INTERACTIVE_ROLES = [
+  "button",
+  "link",
+  "checkbox",
+  "radio",
+  "tab",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "switch",
+  "combobox",
+  "textbox",
+  "search",
+  "slider",
+  "treeitem",
+] as const;
+
+/** 交互 role 对应的 CSS 属性选择器串（供脚本内 querySelectorAll 拼接） */
+export const INTERACTIVE_ROLE_SELECTOR = INTERACTIVE_ROLES.map(
+  (r) => `[role="${r}"]`,
+).join(",");
+
 /** 清除旧标注的选择器前缀，测试断言与脚本行为共用此标记 */
 export const ANNOTATE_SCRIPT: string = `(() => {
   const MARK = 'data-wa-annotate', REF = 'data-wa-ref';
@@ -47,9 +71,115 @@ export const ANNOTATE_SCRIPT: string = `(() => {
 })()`;
 
 /**
- * 生成「按 data-wa-ref 实时定位元素」的脚本：先 scrollIntoView 居中，
- * 返回 { found: true, x, y }（视口中心坐标）或 { found: false }（元素已不存在）。
- * n 非正整数或超上限时抛错（防御性校验：n 会被拼接进脚本，必须杜绝注入）。
+ * 文本快照注入脚本：枚举可交互元素并打 data-wa-ref 锚点（供 click ref 实时定位），
+ * 返回增强 refs（含 role/value/checked/pointer 元数据），不注入任何视觉 overlay。
+ * 与 ANNOTATE_SCRIPT 的区别：后者叠加红框+角标供截图看，本脚本纯文本快照路线。
+ * 枚举范围比 ANNOTATE_SCRIPT 宽：额外包含 cursor:pointer 且带可读文本的非原生元素
+ * （POS 列表项、自绘按钮等高频形态，对齐 agent-browser 的 clickable 标记）。
+ */
+export const SNAPSHOT_SCRIPT: string = `(() => {
+  const REF = 'data-wa-ref';
+  document.querySelectorAll('[' + REF + ']').forEach(e => e.removeAttribute(REF));
+  const seen = new Set();
+  const els = [];
+  const push = (el) => {
+    if (!el || seen.has(el) || els.length >= ${MAX_ANNOTATED_ELEMENTS}) return;
+    const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+    if (r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none') { seen.add(el); els.push(el); }
+  };
+  document.querySelectorAll('a,button,input,select,textarea,[onclick],${INTERACTIVE_ROLE_SELECTOR}').forEach(push);
+  const all = document.querySelectorAll('body *');
+  for (let i = 0; i < all.length && els.length < ${MAX_ANNOTATED_ELEMENTS}; i++) {
+    const el = all[i];
+    if (seen.has(el)) continue;
+    try { if (getComputedStyle(el).cursor !== 'pointer') continue; } catch (e) { continue; }
+    const named = el.getAttribute('aria-label') || el.title || (el.childNodes.length === 1 ? el.textContent : '') || '';
+    if (!named.trim()) continue;
+    push(el);
+  }
+  const refs = {};
+  for (let i = 0; i < els.length; i++) {
+    const n = i + 1, el = els[i], b = el.getBoundingClientRect();
+    el.setAttribute(REF, String(n));
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    let label = el.innerText || (el.labels && el.labels[0] ? el.labels[0].innerText : '') || el.value || el.placeholder || el.getAttribute('aria-label') || el.title || el.getAttribute('name') || '';
+    label = String(label).trim().replace(/\s+/g, ' ').slice(0, 40);
+    const isCheck = tag === 'input' && (type === 'checkbox' || type === 'radio');
+    let value = undefined;
+    if (tag === 'input' && !isCheck && type !== 'submit' && type !== 'button') {
+      value = type === 'password' ? '••••••' : String(el.value ?? '').slice(0, 40);
+    }
+    const native = ['a','button','input','select','textarea'].includes(tag);
+    refs['@' + n] = {
+      n: n,
+      tag: tag,
+      role: el.getAttribute('role') || undefined,
+      inputType: type || undefined,
+      label: label,
+      value: value,
+      checked: isCheck ? !!el.checked : undefined,
+      pointer: !native && getComputedStyle(el).cursor === 'pointer' ? true : undefined,
+      x: Math.round(b.left + b.width / 2),
+      y: Math.round(b.top + b.height / 2)
+    };
+  }
+  return refs;
+})()`;
+
+/** 快照 refs 单条目的展示形状（宽松于 ElementRef：额外携带 role/value/checked/pointer 元数据） */
+export interface BrowserSnapshotRef {
+  n: number;
+  tag: string;
+  role?: string;
+  inputType?: string;
+  label: string;
+  value?: string;
+  checked?: boolean;
+  pointer?: boolean;
+  x: number;
+  y: number;
+}
+
+/**
+ * 把快照 refs 格式化为 agent-browser 风格的文本行（一行一个元素），供模型直接阅读定位：
+ * @2 button "登 录" / @1 textbox "手机号" = "132" / @3 checkbox "同意协议" [checked] / @4 generic "深圳1测试店" (pointer)
+ */
+export function formatSnapshot(refs: Record<string, BrowserSnapshotRef>): string {
+  return Object.entries(refs)
+    .map(([key, r]) => {
+      const kind = kindOf(r);
+      const label = r.label ? ` "${r.label}"` : "";
+      const value = r.value !== undefined ? ` = "${r.value}"` : "";
+      const checked = r.checked ? " [checked]" : "";
+      const pointer = r.pointer ? " (pointer)" : "";
+      return `${key} ${kind}${label}${value}${checked}${pointer}`;
+    })
+    .join("\n");
+}
+
+/** 元素展示类型：优先 ARIA role，其次按原生标签/input type 归类 */
+function kindOf(r: BrowserSnapshotRef): string {
+  if (r.role) return r.role;
+  if (r.tag === "input") {
+    if (r.inputType === "checkbox" || r.inputType === "radio" || r.inputType === "search" || r.inputType === "file" || r.inputType === "range") {
+      return r.inputType;
+    }
+    if (r.inputType === "submit" || r.inputType === "button") return "button";
+    return "textbox";
+  }
+  if (r.tag === "a") return "link";
+  if (r.tag === "button") return "button";
+  if (r.tag === "select") return "combobox";
+  if (r.tag === "textarea") return "textbox";
+  return "generic";
+}
+
+/**
+ * 生成「按 data-wa-ref 实时定位元素」的脚本：先 scrollIntoView 居中（水平垂直都居中，
+ * 超宽元素中心才不会落在视口外），返回 { found: true, x, y }（视口中心坐标）或
+ * { found: false }（元素已不存在）。n 非正整数或超上限时抛错（防御性校验：n 会被
+ * 拼接进脚本，必须杜绝注入）。
  */
 export function resolveRefScript(n: number): string {
   if (!Number.isInteger(n) || n < 1 || n > MAX_ANNOTATED_ELEMENTS) {
