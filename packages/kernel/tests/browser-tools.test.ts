@@ -599,3 +599,92 @@ describe("browser_screenshot annotate", () => {
     }
   });
 });
+
+describe("browser_evaluate click ref", () => {
+  function makeRefManager() {
+    const clicked: Array<[unknown, unknown]> = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-ref-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("data-wa-ref")) return { found: true, x: 111, y: 222 };
+            return script;
+          },
+          async click(a?: unknown, b?: unknown) {
+            clicked.push([a, b]);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return { m, clicked };
+  }
+
+  async function seed(m: BrowserManager, refs: Record<string, unknown>) {
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+    (m.get("s1") as { refs?: unknown }).refs = refs;
+  }
+
+  test("click ref：实时定位元素中心并按坐标真实点击", async () => {
+    const { m, clicked } = makeRefManager();
+    try {
+      await seed(m, { "@2": { n: 2, tag: "button", label: "go", x: 0, y: 0 } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 2 });
+      expect(r.content[0].text).toContain('"ok":true');
+      expect(clicked[0]?.[0]).toBe(111);
+      expect(clicked[0]?.[1]).toBe(222);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("click ref：编号不在缓存中报 invalid_ref", async () => {
+    const { m } = makeRefManager();
+    try {
+      await seed(m, { "@1": { n: 1, tag: "a", label: "l", x: 1, y: 1 } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 9 });
+      expect(JSON.stringify(r)).toContain("invalid_ref");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("click ref：元素已被页面移除（found:false）报 invalid_ref", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-ref-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("data-wa-ref")) return { found: false };
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await seed(m, { "@1": { n: 1, tag: "a", label: "l", x: 1, y: 1 } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 1 });
+      expect(JSON.stringify(r)).toContain("invalid_ref");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("click ref：非法编号（0 / 1.5）报 invalid_ref", async () => {
+    const { m } = makeRefManager();
+    try {
+      await seed(m, { "@1": { n: 1, tag: "a", label: "l", x: 1, y: 1 } });
+      for (const bad of [0, 1.5]) {
+        const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+          action: "click",
+          ref: bad,
+        });
+        expect(JSON.stringify(r)).toContain("invalid_ref");
+      }
+    } finally {
+      m.dispose();
+    }
+  });
+});

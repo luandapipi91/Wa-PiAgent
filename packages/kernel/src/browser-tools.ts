@@ -215,6 +215,59 @@ async function evaluateTool(
         return textResult(payload, { ok: true });
       }
       case "click": {
+        // ref 编号定位（优先于 selector/x/y）：来自最近一次 annotate 截图的 refs。
+        // 每次点击前实时重查元素位置（先 scrollIntoView 再取中心），页面重排也能点准；
+        // 元素已消失或缓存缺失一律报 invalid_ref——宁失效不错点。
+        const ref = num(p.ref);
+        if (p.ref !== undefined) {
+          if (ref === undefined || !Number.isInteger(ref) || ref < 1) {
+            return errResult(
+              `ref 需为正整数，收到 ${JSON.stringify(p.ref)}`,
+              "invalid_ref",
+            );
+          }
+          if (!state.refs?.[`@${ref}`]) {
+            return errResult(
+              `ref @${ref} 不存在或已过期（页面可能已导航），请重新 browser_screenshot {annotate:true}`,
+              "invalid_ref",
+            );
+          }
+          const loc = (await runViewOp(
+            () => view.evaluate(resolveRefScript(ref)),
+            OPERATION_TIMEOUT_MS,
+            "click ref",
+          )) as { found?: boolean; x?: number; y?: number } | undefined;
+          if (
+            !loc ||
+            loc.found !== true ||
+            typeof loc.x !== "number" ||
+            typeof loc.y !== "number"
+          ) {
+            return errResult(
+              `ref @${ref} 已过期：对应元素已不在当前页面，请重新 browser_screenshot {annotate:true}`,
+              "invalid_ref",
+            );
+          }
+          const rx = loc.x;
+          const ry = loc.y;
+          await runViewOp(
+            () =>
+              view.click(
+                rx,
+                ry,
+                cleanOpts({
+                  button: str(p.button),
+                  modifiers: arr(p.modifiers),
+                  clickCount: num(p.clickCount),
+                }),
+              ),
+            OPERATION_TIMEOUT_MS,
+            "click",
+          );
+          return textResult(JSON.stringify({ ok: true, action: "click", ref }), {
+            ok: true,
+          });
+        }
         const selector = str(p.selector);
         if (selector) {
           await runViewOp(

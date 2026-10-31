@@ -278,7 +278,7 @@ export const BROWSER_EVALUATE_DESCRIPTION = [
   "在浏览器视图中执行 JS 表达式或 DOM 操作（点击/输入/按键/滚动）。所有操作派发原生浏览器事件（event.isTrusted === true）。",
   "action:",
   "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）",
-  "- click: 按 CSS selector 等元素可操作后点击其中心，或按视口坐标 (x,y) 点击",
+  "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击，或按 ref 编号点击（编号来自最近一次 browser_screenshot annotate:true 的 refs；优先于 selector/x/y）",
   "- type: 向当前焦点元素插入文本（等价粘贴，无 keydown）",
   "- press: 按命名键（Enter/Tab/ArrowDown/Escape...）或单字符+修饰键",
   "- scroll: 按像素增量滚动（正 dy 向下）",
@@ -305,6 +305,13 @@ export const BrowserEvaluateParamsSchema = Type.Object({
   ),
   y: Type.Optional(
     Type.Integer({ description: "action=click 时的视口 y 坐标" }),
+  ),
+  ref: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description:
+        "action=click 时的元素编号（来自最近一次 browser_screenshot annotate:true 返回的 refs），优先于 selector/x/y",
+    }),
   ),
   button: Type.Optional(
     Type.Union([
