@@ -35,6 +35,8 @@ describe("browser-annotate 注入脚本", () => {
     expect(() => new Function(s)).not.toThrow();
     expect(s).toContain('data-wa-ref="7"');
     expect(s).toContain("scrollIntoView");
+    // 超宽元素也要水平居中，否则中心 x 可能落在视口外点空（审查 Minor #2）
+    expect(s).toContain("inline");
   });
 
   test("resolveRefScript 拒绝非正整数（防脚本注入）", () => {

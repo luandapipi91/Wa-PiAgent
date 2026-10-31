@@ -11,7 +11,7 @@
 // 已知限制（声明行为，非缺陷）：只枚举主文档可见元素，不穿透 iframe 与
 // shadow DOM；上限 MAX_ANNOTATED_ELEMENTS 个，超出部分不标注。
 
-/** 可交互元素标注上限（超出部分不标注，防止超长页面生成爆炸性 refs） */
+/** 可交互元素标注上限（超出部分不标注，防止超长页面生成爆炸性 refs）。改动需同步下方脚本内的枚举上限（已用插值单源化） */
 export const MAX_ANNOTATED_ELEMENTS = 200;
 
 /** 清除旧标注的选择器前缀，测试断言与脚本行为共用此标记 */
@@ -22,7 +22,7 @@ export const ANNOTATE_SCRIPT: string = `(() => {
   const SEL = 'a,button,input,select,textarea,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="tab"],[role="menuitem"],[onclick]';
   const els = [];
   const all = document.querySelectorAll(SEL);
-  for (let i = 0; i < all.length && els.length < 200; i++) {
+  for (let i = 0; i < all.length && els.length < ${MAX_ANNOTATED_ELEMENTS}; i++) {
     const el = all[i], r = el.getBoundingClientRect(), s = getComputedStyle(el);
     if (r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none') els.push(el);
   }
@@ -58,7 +58,7 @@ export function resolveRefScript(n: number): string {
   return `(() => {
     const el = document.querySelector('[data-wa-ref="${n}"]');
     if (!el) return { found: false };
-    el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const r = el.getBoundingClientRect();
     return { found: true, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
   })()`;
