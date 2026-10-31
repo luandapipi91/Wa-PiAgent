@@ -527,3 +527,75 @@ describe("browser_* 错误分支与参数透传", () => {
     }
   });
 });
+
+describe("browser_screenshot annotate", () => {
+  const fakeRefs = { "@1": { n: 1, tag: "button", label: "go", x: 50, y: 30 } };
+
+  function makeAnnotateManager(evaluateImpl: (script: string) => unknown) {
+    return new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-annotate-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            return script.includes("data-wa-ref") ? evaluateImpl(script) : script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+  }
+
+  test("annotate:true：注入脚本、返回 refs 并写入会话缓存", async () => {
+    const m = makeAnnotateManager(() => fakeRefs);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_screenshot", { annotate: true });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.refs["@1"].label).toBe("go");
+      expect(m.get("s1")?.refs?.["@1"]?.tag).toBe("button");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("annotate:true：注入失败时整体报错、不返回截图", async () => {
+    const m = makeAnnotateManager(() => {
+      throw new Error("inject failed");
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_screenshot", { annotate: true });
+      // errResult 的 content 是纯文本（非 JSON），断言报错信息存在且无成功标记
+      expect(r.content[0].text).toContain("inject failed");
+      expect(r.content[0].text).not.toContain('"ok":true');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("不传 annotate：行为不变、返回体无 refs 字段", async () => {
+    const m = makeAnnotateManager(() => fakeRefs);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_screenshot", {});
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.refs).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_navigate 后上一轮 refs 清空", async () => {
+    const m = makeAnnotateManager(() => fakeRefs);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      (m.get("s1") as { refs?: unknown }).refs = fakeRefs;
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      expect(m.get("s1")?.refs).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+});

@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import type { BridgeToolResult } from "./bridge-registry";
-import type { BrowserManager } from "./browser-manager";
+import type { BrowserManager, ElementRef } from "./browser-manager";
+import { ANNOTATE_SCRIPT, resolveRefScript } from "./browser-annotate";
 
 const NAVIGATE_TIMEOUT_MS = 120_000;
 const OPERATION_TIMEOUT_MS = 60_000;
@@ -148,6 +149,8 @@ async function navigateTool(
     // headless UA → 同机桌面 Chrome UA（首次导航前；失败静默跳过不阻断导航）
     await manager.prepareUserAgent?.(state);
     await runViewOp(() => state.view.navigate(url), timeoutMs, "页面加载");
+    // 导航后 DOM 更换，上一轮 annotate 的 ref 全部失效，清空缓存（refs 属性引用的旧元素已不存在）
+    state.refs = undefined;
     const result = {
       ok: true,
       sessionId,
@@ -335,11 +338,29 @@ async function screenshotTool(
       "no_view",
     );
   }
-  const p = params as { format?: unknown; quality?: unknown; return?: unknown };
+  const p = params as {
+    format?: unknown;
+    quality?: unknown;
+    return?: unknown;
+    annotate?: unknown;
+  };
   const format = str(p.format) ?? "png";
   const quality = num(p.quality);
   const returnMode = str(p.return) ?? "path";
   try {
+    // annotate：截图前注入编号标注并缓存 refs。明确要求标注时注入失败直接报错，
+    // 不静默降级为普通截图（refs 缺失会让后续 click ref 全部失效，埋雷不如报错）。
+    if (p.annotate === true) {
+      const raw = await runViewOp(
+        () => state.view.evaluate(ANNOTATE_SCRIPT),
+        OPERATION_TIMEOUT_MS,
+        "annotate",
+      );
+      if (!raw || typeof raw !== "object") {
+        throw new Error("标注注入失败：页面未返回 refs 对象");
+      }
+      state.refs = raw as Record<string, ElementRef>;
+    }
     if (returnMode === "base64") {
       const b64 = (await runViewOp(
         () => state.view.screenshot({ format, quality, encoding: "base64" }),
@@ -352,6 +373,7 @@ async function screenshotTool(
         base64: dataUrl,
         url: state.view.url,
         title: state.view.title,
+        refs: state.refs,
       };
       return textResult(JSON.stringify(result), result);
     }
@@ -371,6 +393,7 @@ async function screenshotTool(
       title: state.view.title,
       format,
       sizeBytes: buf.length,
+      refs: state.refs,
     };
     return textResult(JSON.stringify(result), result);
   } catch (err) {

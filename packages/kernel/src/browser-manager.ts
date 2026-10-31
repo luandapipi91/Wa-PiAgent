@@ -38,6 +38,15 @@ export interface WebViewLike {
   close(): void;
 }
 
+/** annotate 截图生成的元素 ref 映射条目（x/y 为标注时的视口中心坐标，仅作展示参考） */
+export interface ElementRef {
+  n: number;
+  tag: string;
+  label: string;
+  x: number;
+  y: number;
+}
+
 export interface BrowserViewState {
   view: WebViewLike;
   sessionId: string;
@@ -45,6 +54,8 @@ export interface BrowserViewState {
   lastUsedAt: number;
   /** 桌面 UA 伪装（幂等）的进行中 Promise；undefined 表示尚未开始 */
   userAgentReady?: Promise<void>;
+  /** 最近一次 annotate 截图的 refs 缓存（"@N" → ElementRef）；导航后清空 */
+  refs?: Record<string, ElementRef>;
 }
 
 export interface BrowserManagerOptions {

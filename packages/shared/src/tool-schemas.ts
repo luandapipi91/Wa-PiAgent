@@ -347,7 +347,7 @@ export const BrowserEvaluateParamsSchema = Type.Object({
 });
 
 export const BROWSER_SCREENSHOT_DESCRIPTION =
-  "截取当前浏览器视图的视口图像。默认保存到 wa-pi 临时目录并返回文件路径（避免 base64 撑爆 token）；return=base64 时内联返回 data URL。";
+  "截取当前浏览器视图的视口图像。默认保存到 wa-pi 临时目录并返回文件路径（避免 base64 撑爆 token）；return=base64 时内联返回 data URL。annotate=true 时截图前为主文档可见可交互元素叠加编号标注（红框+角标）并返回 refs 映射（\"@N\"→元素信息+坐标），配合 browser_evaluate click 的 ref 参数使用；不穿透 iframe/shadow DOM。";
 
 export const BrowserScreenshotParamsSchema = Type.Object({
   format: Type.Optional(
@@ -360,6 +360,12 @@ export const BrowserScreenshotParamsSchema = Type.Object({
   quality: Type.Optional(Type.Integer({ minimum: 0, maximum: 100 })),
   return: Type.Optional(
     Type.Union([Type.Literal("path"), Type.Literal("base64")]),
+  ),
+  annotate: Type.Optional(
+    Type.Boolean({
+      description:
+        "截图前为可交互元素叠加编号标注并返回 refs 映射（配合 browser_evaluate click 的 ref 参数）",
+    }),
   ),
 });
 
