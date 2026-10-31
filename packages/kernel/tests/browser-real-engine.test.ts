@@ -294,4 +294,94 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
       rmSync(screenshotDir, { recursive: true, force: true });
     }
   });
+
+  testReal("annotate 全链路：screenshot annotate → refs → click ref → 生效", async () => {
+    const annotateHtml = `<a id="lnk" href="#x">link1</a><button id="btn" onclick="document.title='clicked'">go</button><input id="inp" placeholder="ph">`;
+    const annotateUrl = "data:text/html," + encodeURIComponent(annotateHtml);
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-annotate-real-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    const sid = sessionId("annotate");
+    try {
+      // 1) navigate 到含链接/按钮/输入框的静态页
+      const nav = await handleBrowserTool(manager, sid, "browser_navigate", { url: annotateUrl });
+      expect(JSON.parse(nav.content[0].text).ok).toBe(true);
+
+      // 2) annotate 截图：refs 连续、字段齐全、截图落盘
+      const shot = await handleBrowserTool(manager, sid, "browser_screenshot", { annotate: true });
+      const shotParsed = JSON.parse(shot.content[0].text) as {
+        ok: boolean;
+        path: string;
+        refs?: Record<string, { n: number; tag: string; label: string; x: number; y: number }>;
+      };
+      expect(shotParsed.ok).toBe(true);
+      expect(shotParsed.refs).toBeDefined();
+      const refs = shotParsed.refs!;
+      const keys = Object.keys(refs);
+      expect(keys.length).toBeGreaterThanOrEqual(3); // a/button/input 至少 3 个
+      keys.forEach((k, i) => {
+        expect(k).toBe("@" + (i + 1)); // 编号从 1 连续递增
+        expect(typeof refs[k].x).toBe("number");
+        expect(typeof refs[k].y).toBe("number");
+      });
+      expect(existsSync(shotParsed.path)).toBe(true);
+
+      // 3) 找到 label 为 "go" 的按钮 ref，按编号点击 → onclick 改 title 生效
+      const goEntry = Object.entries(refs).find(([, v]) => v.label === "go");
+      expect(goEntry).toBeDefined();
+      const goRef = Number(goEntry![0].slice(1));
+      const clickRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "click",
+        ref: goRef,
+      });
+      expect(clickRes.content[0].text).toContain('"ok":true');
+      const titleRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "eval",
+        script: `document.title`,
+      });
+      expect(JSON.parse(titleRes.content[0].text).result).toBe("clicked");
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
+  testReal("annotate：重复标注编号连续；导航后 ref 过期报 invalid_ref", async () => {
+    const annotateHtml = `<a id="lnk" href="#x">link1</a><button id="btn" onclick="document.title='clicked'">go</button><input id="inp" placeholder="ph">`;
+    const annotateUrl = "data:text/html," + encodeURIComponent(annotateHtml);
+    const page2Url = "data:text/html," + encodeURIComponent("<p>page2</p>");
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-annotate-real-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    const sid = sessionId("expire");
+    try {
+      await handleBrowserTool(manager, sid, "browser_navigate", { url: annotateUrl });
+
+      // 同页连续两次 annotate：旧标注清除、编号仍从 @1 连续
+      const shot1 = await handleBrowserTool(manager, sid, "browser_screenshot", { annotate: true });
+      const shot2 = await handleBrowserTool(manager, sid, "browser_screenshot", { annotate: true });
+      const r1 = JSON.parse(shot1.content[0].text).refs as Record<string, unknown>;
+      const r2 = JSON.parse(shot2.content[0].text).refs as Record<string, unknown>;
+      expect(Object.keys(r1).length).toBe(Object.keys(r2).length);
+      expect(Object.keys(r2)[0]).toBe("@1");
+
+      // 导航到另一页面：refs 缓存清空，click ref 1 报 invalid_ref 并提示重新截图
+      await handleBrowserTool(manager, sid, "browser_navigate", { url: page2Url });
+      const clickRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "click",
+        ref: 1,
+      });
+      expect(JSON.stringify(clickRes)).toContain("invalid_ref");
+      expect(clickRes.content[0].text).toContain("重新 browser_screenshot");
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
 });
