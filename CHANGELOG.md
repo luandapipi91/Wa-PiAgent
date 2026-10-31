@@ -1,3 +1,6 @@
+## 2026-10-31
+- feat(kernel): browser 带注释截图 + 文本快照 + ref 点击闭环——`browser_screenshot` 新增 `annotate:true`（截图前为主文档可见可交互元素叠加编号标注，返回 refs 映射并缓存会话，导航后失效）；新增 `browser_snapshot` 文本快照工具（agent-browser 风格纯文本 ref 列表，含 role/名称/输入值（密码打码）/勾选态/pointer 自绘元素标记，无需截图，枚举范围含原生控件 + ARIA 交互 role + cursor:pointer 可读元素）；`browser_evaluate` click 新增 `ref` 编号定位（每次实时重查元素位置 scrollIntoView 后取中心真实点击，页面重排也能点准，缓存缺失/元素消失报 invalid_ref 宁失效不错点）；新模块 `browser-annotate.ts`（注入脚本 + ref 定位脚本 + 快照格式化，上限 200 单源化）。测试：单测 + Layer3 真实引擎集成（annotate 全链路/重复标注/导航过期/snapshot 格式与跨工具 ref 缓存互通）全绿、typecheck 0 error；美管家 POS 真实站点 E2E 全流程验收通过（登录→收银创建新顾客→现金结算→流水查询→撤单，单据状态已验证翻转）
+
 ## 2026-10-30
 - test(kernel): PROMPTS_SCHEMA_VERSION 断言 28 → 29——62dc61cc 升 schema 版本时漏改这条断言，gate 必红（本轮发版阻塞项）
 - v0.8.6 发版：头像选择面板中文标签 + 旧 prompts 判据自动迁移专项优先 + 文件修改清单路径失真修复；mac dmg 210899776 / win exe 199221010（zip 实测 sha512 与 yml 一致、cf-cache-status MISS）
@@ -18,6 +21,7 @@
 
 - feat(settings): 通知卡片加手动关闭按钮；外观加「任务完成通知」开关；语言设置移至外观 tab 并改为即时生效
 - feat(frontend): 任务完成通知正文改为 agent 本轮回复摘要（80 字截断省略，纯工具轮兜底会话名文案）
+
 
 ## 2026-10-26
 - feat(frontend): 通知载荷携带主题——`store/notice.ts` 新增 `noticeTheme(themeMode)` 映射（dark→dark，light/system→light，跟随系统读不到系统值 light 兑底），requestTaskDoneNotice/initUpdateNotice 两处 payload 组装共用；E2E `notice-actions.spec.ts` 重写为卡片链路 3 用例（主窗口 waPiNotice.send 直发不再拦截 handler：两条不同会话各成条+同会话合并刷新、点击卡片跳关于页+卡片消失、REST 建会话点击跳会话）；单测补 theme 断言与映射用例 6 例
