@@ -298,7 +298,9 @@ export function hoverLocateScript(opts: {
 export function clickTextScript(text: string): string {
   return `/* wa-click-text */ (() => {
   const q = ${JSON.stringify(text)};
-  const SEL = 'a,button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],[role="checkbox"],[role="radio"],[onclick]';
+  // 结构性交互元素 + class 启发式（menu/tab/dropdown/btn，覆盖 ant 等自绘组件）——
+  // 与 hoverLocateScript 保持同一集合，避免「hover 能悬停的 click 找不到」
+  const SEL = 'a,button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],[role="checkbox"],[role="radio"],[onclick],[class*="menu"],[class*="tab"],[class*="dropdown"],[class*="btn"],[class*="button"]';
   const els = [...document.querySelectorAll(SEL)];
   const visible = (el) => {
     const r = el.getBoundingClientRect(), s = getComputedStyle(el);

@@ -222,3 +222,15 @@ describe("hoverLocateScript 悬停定位脚本", () => {
     expect(s).not.toContain('alert(1); ("');
   });
 });
+
+describe("clickTextScript 与 hover 元素集合一致性", () => {
+  test("click text 集合含 menu/tab/dropdown/btn 启发式（与 hover 对齐）", () => {
+    const s = clickTextScript("盘点");
+    expect(s).toContain('[class*="menu"]');
+    expect(s).toContain('[class*="tab"]');
+    expect(s).toContain('[class*="dropdown"]');
+    expect(s).toContain('[class*="btn"]');
+    // 启发式集合是文档序追加、反向遍历仍取最深匹配
+    expect(s).toContain("i--");
+  });
+});
