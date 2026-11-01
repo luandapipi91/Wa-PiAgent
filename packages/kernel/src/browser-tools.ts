@@ -172,8 +172,11 @@ async function navigateTool(
       title: state.view.title,
       loading: state.view.loading,
     };
-    // 操作后自动附文本快照（差值+稳定检测；snapshot:false 跳过）
-    if (p.snapshot !== false) await attachAutoSnapshot(state, result);
+    // 操作后自动附文本快照（差值+稳定检测；snapshot:false 跳过）。
+    // 导航是「从零到有」的最大等待场景，SPA 首屏挂载实测可超 3s（美管家）——预算提到
+    // 16 帧（~4s），对齐 dagu（5s）的业界上限量级；稳定即提前返回，快站不受影响。
+    if (p.snapshot !== false)
+      await attachAutoSnapshot(state, result, { maxFrames: 16 });
     return textResult(JSON.stringify(result), result);
   } catch (err) {
     const msg = errMessage(err);
@@ -472,8 +475,11 @@ async function snapshotTool(
     );
   }
   try {
-    // 稳定检测抓帧（双帧一致，最多 4 帧），并刷新差值基准供后续操作对比
-    const { refs, text, framesValid } = await captureStableSnapshot(state.view);
+    // 稳定检测抓帧（双帧一致 + 非空门槛——导航后 SPA 首屏未挂载时空帧不算稳定；
+    // 最多 4 帧），并刷新差值基准供后续操作对比
+    const { refs, text, framesValid } = await captureStableSnapshot(state.view, {
+      requireNonEmpty: true,
+    });
     if (framesValid === 0) {
       throw new Error("快照失败：页面未返回 refs 对象");
     }
@@ -513,11 +519,19 @@ async function snapshotTool(
 async function attachAutoSnapshot(
   state: BrowserViewState,
   result: Record<string, unknown>,
+  opts: { maxFrames?: number } = {},
 ): Promise<void> {
   try {
-    const { refs, text } = await captureStableSnapshot(state.view);
+    const { refs, text } = await captureStableSnapshot(state.view, opts);
     state.refs = refs as Record<string, ElementRef>;
     result.refCount = Object.keys(refs).length;
+    if (text.length === 0) {
+      // 稳定检测预算内页面始终没有可交互元素（SPA 首屏挂载中/真空白页）：
+      // 不返回空快照误导 agent，也不污染差值基准，给明确提示让 agent 稍后重取
+      result.snapshotNote =
+        "页面尚未渲染出可交互元素（SPA 首屏挂载中或页面为空）；稍后可重新调用 browser_snapshot 获取";
+      return;
+    }
     if (text !== state.lastSnapshot) {
       result.snapshot = diffSnapshotLines(state.lastSnapshot, text);
       state.lastSnapshot = text;

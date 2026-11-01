@@ -1,3 +1,6 @@
+## 2026-11-01
+- feat(kernel): 操作后自动附文本快照（差值+稳定检测，对齐 Playwright MCP「每步返快照」+ browser-use 变化星号）——`browser_navigate` 与操作类 `browser_evaluate`（click/type/press/scroll/scrollTo，eval 除外）完成后自动等渲染稳定（双帧快照文本一致，导航 16 帧/~4s、操作 4 帧/~1s，空帧不算稳定——SPA 首屏未挂载不提前返回）再与上次快照对比：有变化返回全量 snapshot（新增/变化行打 `*` 前缀），无变化返回 `snapshotUnchanged:true`，预算内始终无元素返回 `snapshotNote` 降级提示（不误导为空白页），快照异常不阻断操作（`snapshotError`）；`snapshot:false` 可关。新增 `captureStableSnapshot`（kernel 侧循环，间隔/帧数/非空门槛可注入）与 `diffSnapshotLines`（行级差值）；`BrowserViewState.lastSnapshot` 差值基准，显式 browser_snapshot 同走稳定检测并刷新基准。TDD：17 个新用例（含 fake 帧序列稳定/降级/差值、变异验证 eval 防护）+ 真实引擎 3 场景 + 美管家真实站点实测（首航降级提示→挂载后操作自动返 12 元素全量快照）
+
 ## 2026-10-31
 - feat(kernel): browser 带注释截图 + 文本快照 + ref 点击闭环——`browser_screenshot` 新增 `annotate:true`（截图前为主文档可见可交互元素叠加编号标注，返回 refs 映射并缓存会话，导航后失效）；新增 `browser_snapshot` 文本快照工具（agent-browser 风格纯文本 ref 列表，含 role/名称/输入值（密码打码）/勾选态/pointer 自绘元素标记，无需截图，枚举范围含原生控件 + ARIA 交互 role + cursor:pointer 可读元素）；`browser_evaluate` click 新增 `ref` 编号定位（每次实时重查元素位置 scrollIntoView 后取中心真实点击，页面重排也能点准，缓存缺失/元素消失报 invalid_ref 宁失效不错点）；新模块 `browser-annotate.ts`（注入脚本 + ref 定位脚本 + 快照格式化，上限 200 单源化）。测试：单测 + Layer3 真实引擎集成（annotate 全链路/重复标注/导航过期/snapshot 格式与跨工具 ref 缓存互通）全绿、typecheck 0 error；美管家 POS 真实站点 E2E 全流程验收通过（登录→收银创建新顾客→现金结算→流水查询→撤单，单据状态已验证翻转）
 

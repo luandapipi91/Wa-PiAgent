@@ -134,6 +134,28 @@ describe("captureStableSnapshot 渲染稳定检测", () => {
     });
     expect(formatSnapshot(r.refs)).toContain('"b"');
   });
+
+  test("requireNonEmpty：空帧不算稳定，继续等到有内容帧", async () => {
+    // SPA 场景：load 后 Vue 未挂载前连续空帧，不应被判稳定提前返回
+    const EMPTY = {};
+    const r = await captureStableSnapshot(frameView([EMPTY, EMPTY, A, A]), {
+      intervalMs: 1,
+      maxFrames: 4,
+      requireNonEmpty: true,
+    });
+    expect(formatSnapshot(r.refs)).toContain('"a"');
+  });
+
+  test("requireNonEmpty：预算内始终为空 → 降级返回空帧（不报错）", async () => {
+    const EMPTY = {};
+    const r = await captureStableSnapshot(frameView([EMPTY]), {
+      intervalMs: 1,
+      maxFrames: 2,
+      requireNonEmpty: true,
+    });
+    expect(r.text).toBe("");
+    expect(r.framesValid).toBeGreaterThan(0); // 空对象也是有效快照（真空白页）
+  });
 });
 
 describe("diffSnapshotLines 差值标记", () => {

@@ -833,6 +833,24 @@ describe("操作后自动快照（差值+稳定检测）", () => {
     }
   });
 
+  test("导航后页面始终未渲染出元素 → snapshotNote 提示而非空快照", async () => {
+    const m = makeAutoSnapManager([{}]); // 恒空帧：SPA 首屏未挂载的降级场景
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.refCount).toBe(0);
+      expect(parsed.snapshot).toBeUndefined(); // 空文本不作为快照返回
+      expect(parsed.snapshotNote).toContain("browser_snapshot");
+      // 空快照不污染差值基准（lastSnapshot 保持无基准状态）
+      expect(m.get("s1")?.lastSnapshot).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
   test("eval 不附快照", async () => {
     const m = makeAutoSnapManager([S1]);
     try {

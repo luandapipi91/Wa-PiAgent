@@ -141,10 +141,13 @@ export interface BrowserSnapshotRef {
   y: number;
 }
 
-/** 稳定检测选项（单测注入小间隔/少帧数；生产默认 250ms × 4 帧 ≈ 总等待 750ms） */
+/** 稳定检测选项（单测注入小间隔/少帧数；生产默认 250ms × 4 帧 ≈ 总等待 750ms）。
+ * requireNonEmpty：空快照帧不算稳定（导航后 SPA 首屏未挂载时连续空帧不应提前返回）；
+ * 预算内始终为空则降级返回末帧。导航场景建议开启，局部操作流不建议（局部更新可能无快照行变化）。 */
 export interface StableSnapshotOptions {
   intervalMs?: number;
   maxFrames?: number;
+  requireNonEmpty?: boolean;
 }
 
 /**
@@ -178,7 +181,11 @@ export async function captureStableSnapshot(
     >;
     if (raw && typeof raw === "object") framesValid++;
     const text = formatSnapshot(refs);
-    if (prevText !== null && text === prevText) return { refs, text, framesValid };
+    const settled =
+      prevText !== null &&
+      text === prevText &&
+      !(opts.requireNonEmpty && text.length === 0);
+    if (settled) return { refs, text, framesValid };
     prevText = text;
     last = { refs, text };
   }
