@@ -1387,3 +1387,60 @@ describe("browser_navigate fresh 干净起步", () => {
     }
   });
 });
+
+describe("browser_wait hash 条件（SPA 路由）", () => {
+  function makeHashManager(probeResults: boolean[]) {
+    let i = 0;
+    return new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-hash-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-wait-hash")) {
+              return probeResults[Math.min(i++, probeResults.length - 1)];
+            }
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+  }
+
+  test("hash 立即匹配 → ok", async () => {
+    const m = makeHashManager([true]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { hash: "goodsInventory" });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.matched).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("hash 轮询后匹配（SPA 路由跳转延迟）→ ok", async () => {
+    const m = makeHashManager([false, false, true]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { hash: "goodsInventory", timeout: 3000 });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.matched).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("hash 超时 → wait_timeout", async () => {
+    const m = makeHashManager([false]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { hash: "never", timeout: 600 });
+      expect(JSON.stringify(r)).toContain("wait_timeout");
+    } finally {
+      m.dispose();
+    }
+  });
+});

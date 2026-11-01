@@ -248,7 +248,7 @@ export const DelegateParamsSchema = Type.Object({
 // =========================================================================
 
 export const BROWSER_NAVIGATE_DESCRIPTION =
-  "在浏览器视图中加载一个 URL（首次调用自动创建视图）。页面主 frame load 事件后返回。用于抓取 JS 渲染页面/进入自动化流程起点。默认自动附页面文本快照（等待渲染稳定后与上次对比，有变化返回 snapshot、无变化返回 snapshotUnchanged；snapshot:false 跳过）。";
+  "在浏览器视图中加载一个 URL（首次调用自动创建视图）。页面主 frame load 事件后返回。用于抓取 JS 渲染页面/进入自动化流程起点。默认自动附页面文本快照（等待渲染稳定后与上次对比，有变化返回 snapshot、无变化返回 snapshotUnchanged；snapshot:false 跳过）。fresh:true 先清 localStorage/sessionStorage/cookie 再刷新（回归测试干净起步）。SPA 工作流：外部导航用本工具；SPA 内部跳转可直接改 location.hash + browser_wait{hash} 等路由到位；等待一律用 browser_wait，勿用 bash sleep。";
 
 export const BrowserNavigateParamsSchema = Type.Object({
   url: Type.String({ description: "http/https 或 about:blank URL" }),
@@ -278,6 +278,12 @@ export const BrowserNavigateParamsSchema = Type.Object({
         "导航完成后自动附页面文本快照（默认 true；有变化返回 snapshot 并标记新增/变化行，无变化返回 snapshotUnchanged）",
     }),
   ),
+  fresh: Type.Optional(
+    Type.Boolean({
+      description:
+        "导航前清除该站点的 localStorage/sessionStorage/cookie 后刷新（回归测试干净起步，清掉残留登录态）",
+    }),
+  ),
 });
 
 export const BROWSER_EVALUATE_DESCRIPTION = [
@@ -285,7 +291,8 @@ export const BROWSER_EVALUATE_DESCRIPTION = [
   "操作类 action（click/type/press/scroll/scrollTo）完成后自动附页面文本快照：等待渲染稳定（双帧一致，约 0.25~1s）后与上次对比——有变化返回 snapshot（新增/变化行打 * 前缀），无变化返回 snapshotUnchanged:true；snapshot:false 可跳过。读页面结构/定位元素也可直接用 browser_snapshot。",
   "action:",
   "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）。仅用于读计算值、复杂采样等结构化工具无法达成的场景——点击/输入/读文本/等待优先用对应工具（click text、browser_read、browser_wait）",
-  "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击，或按 ref 编号点击（编号来自最近一次 browser_snapshot / browser_screenshot annotate:true 的 refs；优先于 selector/x/y）",
+  "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击、按 ref 编号点击（来自最近一次 browser_snapshot / annotate 截图的 refs），或按可见文本点击（text 参数，如 text:\"盘点完成\"）。优先级 ref > text > selector > x/y",
+  "- hover: 悬停在元素上触发下拉/菜单（selector 或 text 定位，CDP 真实鼠标移动，可触发 ant 等 hover 菜单）",
   "- type: 向当前焦点元素插入文本（等价粘贴，无 keydown）",
   "- press: 按命名键（Enter/Tab/ArrowDown/Escape...）或单字符+修饰键",
   "- scroll: 按像素增量滚动（正 dy 向下）",
@@ -421,11 +428,17 @@ export const BrowserReadParamsSchema = Type.Object({
 });
 
 export const BROWSER_WAIT_DESCRIPTION = [
-  "等待条件满足后再继续：text 页面出现某文本（如 toast \"操作成功\"）、hiddenSelector 某元素消失（如 loading 遮罩退场）、ms 固定等待。多条件并存时全部满足才返回。",
-  "轮询间隔 250ms，默认超时 10s（可调，上限 60s），超时返回 wait_timeout 与当前状态。用于点击提交后等结果、等列表刷新等场景，替代用 eval 自写轮询。",
+  "等待条件满足后再继续：text 页面出现某文本（如 toast \"操作成功\"）、hash 页面路由 hash 包含某值（SPA 内部跳转后等路由到位）、hiddenSelector 某元素消失（如 loading 遮罩退场）、ms 固定等待。多条件并存时全部满足才返回。",
+  "轮询间隔 250ms，默认超时 10s（可调，上限 60s），超时返回 wait_timeout 与当前状态。用于点击提交后等结果、等列表刷新、SPA hash 跳转后等路由到位等场景，替代 bash sleep 与 eval 自写轮询。",
 ].join("\n");
 
 export const BrowserWaitParamsSchema = Type.Object({
+  hash: Type.Optional(
+    Type.String({
+      description:
+        "等待 location.hash 包含该值（SPA hash 路由跳转后等路由到位，如 \"goodsInventory\"）",
+    }),
+  ),
   text: Type.Optional(
     Type.String({ description: "等待页面文本包含该内容（如 toast 提示）" }),
   ),

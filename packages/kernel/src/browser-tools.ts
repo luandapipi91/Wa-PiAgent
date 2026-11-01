@@ -770,18 +770,25 @@ async function waitTool(
     ms?: unknown;
     hiddenSelector?: unknown;
     timeout?: unknown;
+    hash?: unknown;
   };
   const wantText = str(p.text);
   const hiddenSel = str(p.hiddenSelector);
+  const wantHash = str(p.hash);
   const ms = num(p.ms);
-  if (wantText === undefined && hiddenSel === undefined && ms === undefined) {
+  if (
+    wantText === undefined &&
+    hiddenSel === undefined &&
+    wantHash === undefined &&
+    ms === undefined
+  ) {
     return errResult(
-      "browser_wait 至少需要一个条件：text / hiddenSelector / ms",
+      "browser_wait 至少需要一个条件：text / hiddenSelector / hash / ms",
       "wait_missing_condition",
     );
   }
   const t0 = Date.now();
-  if (ms !== undefined && wantText === undefined && hiddenSel === undefined) {
+  if (ms !== undefined && wantText === undefined && hiddenSel === undefined && wantHash === undefined) {
     await Bun.sleep(Math.min(ms, 10_000));
     return textResult(
       JSON.stringify({ ok: true, waitedMs: Date.now() - t0 }),
@@ -797,6 +804,9 @@ async function waitTool(
     : `/* wa-wait-hidden */ (() => { const el = document.querySelector(${JSON.stringify(hiddenSel)}); return !el || el.getBoundingClientRect().width === 0; })()`;
   const textScript = textProbe ?? "true";
   // text 与 hidden 条件并存时在轮询里分别探测，全部满足才算
+  const hashProbe = wantHash === undefined
+    ? undefined
+    : `/* wa-wait-hash */ location.hash.includes(${JSON.stringify(wantHash)})`;
   while (Date.now() - t0 < timeoutMs) {
     try {
       let satisfied = true;
@@ -816,6 +826,14 @@ async function waitTool(
         );
         if (r !== true) satisfied = false;
       }
+      if (satisfied && hashProbe) {
+        const r = await runViewOp(
+          () => state.view.evaluate(hashProbe),
+          OPERATION_TIMEOUT_MS,
+          "wait hash",
+        );
+        if (r !== true) satisfied = false;
+      }
       if (satisfied) {
         return textResult(
           JSON.stringify({ ok: true, matched: true, waitedMs: Date.now() - t0 }),
@@ -828,7 +846,7 @@ async function waitTool(
     await Bun.sleep(250);
   }
   return errResult(
-    `等待超时（${timeoutMs}ms）：${wantText !== undefined ? `页面文本未出现 "${wantText}"` : ""}${wantText !== undefined && hiddenSel !== undefined ? "；" : ""}${hiddenSel !== undefined ? `元素未消失 ${hiddenSel}` : ""}`,
+    `等待超时（${timeoutMs}ms）：${wantText !== undefined ? `页面文本未出现 "${wantText}"` : ""}${wantText !== undefined && (hiddenSel !== undefined || wantHash !== undefined) ? "；" : ""}${hiddenSel !== undefined ? `元素未消失 ${hiddenSel}` : ""}${hiddenSel !== undefined && wantHash !== undefined ? "；" : ""}${wantHash !== undefined ? `hash 未包含 "${wantHash}"（当前 ${state.view.url}）` : ""}`,
     "wait_timeout",
   );
 }
