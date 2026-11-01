@@ -324,7 +324,7 @@ export function clickTextScript(text: string): string {
     const el = drillDown(el0);
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const b = el.getBoundingClientRect();
-    const label = t.trim().replace(/\\s+/g, ' ').slice(0, 40);
+    const label = String(el.innerText || el.value || el.getAttribute('aria-label') || el.title || '').trim().replace(/\\s+/g, ' ').slice(0, 40);
     return { found: true, x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2), label: label };
   }
   return { found: false };
