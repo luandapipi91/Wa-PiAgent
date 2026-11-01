@@ -1739,3 +1739,64 @@ describe("ref 参数容错（@N 格式与数字等价）", () => {
     }
   });
 });
+
+describe("fresh 的 cookie 清理升级（CDP 清 HttpOnly）", () => {
+  test("fresh:true → CDP clearBrowserCookies 被调用（含 HttpOnly 会话凭据）", async () => {
+    const cdpCalls: Array<{ method: string; params?: unknown }> = [];
+    let navCount = 0;
+    const evals: string[] = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-freshcdp-")),
+      viewFactory: () =>
+        makeFakeView({
+          async navigate() {
+            navCount++;
+          },
+          async evaluate(script: string) {
+            evals.push(script);
+            return script;
+          },
+          cdp: async (method: string, params?: unknown) => {
+            cdpCalls.push({ method, params });
+            return {};
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", fresh: true });
+      expect(cdpCalls.some((c) => c.method === "Network.clearBrowserCookies")).toBe(true);
+      expect(evals.find((s) => s.includes("localStorage.clear"))).toBeDefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("无 CDP 能力 → 降级 document.cookie 清理不报错", async () => {
+    let navCount = 0;
+    const evals: string[] = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-freshcdp-")),
+      viewFactory: () =>
+        makeFakeView({
+          async navigate() {
+            navCount++;
+          },
+          async evaluate(script: string) {
+            evals.push(script);
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", fresh: true });
+      expect(JSON.parse(r.content[0].text).fresh).toBe(true);
+      expect(evals.find((s) => s.includes("expires=Thu, 01 Jan 1970"))).toBeDefined();
+    } finally {
+      m.dispose();
+    }
+  });
+});

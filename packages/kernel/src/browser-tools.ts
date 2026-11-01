@@ -214,6 +214,15 @@ async function navigateTool(
     // 故先航到目标再清再刷。
     let fresh = false;
     if (p.fresh === true) {
+      // CDP 清全部 cookie（含 HttpOnly 的会话恢复凭据——document.cookie 无权清除，
+      // 清完存储 SPA 仍会自动重登，第十五轮实测）。CDP 不可用时降级 document.cookie。
+      try {
+        if (typeof state.view.cdp === "function") {
+          await state.view.cdp("Network.clearBrowserCookies", {});
+        }
+      } catch {
+        // 降级到脚本内 document.cookie 清理
+      }
       // 清存储 + location.reload 同一次 evaluate：reload 不占导航槽，避免
       // 双 navigate 在慢首载时连锁 navigation already pending（第四轮验收实测）
       await runViewOp(

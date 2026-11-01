@@ -740,3 +740,47 @@ testReal("click text 全 DOM 兜底：分类树等不在启发式集合的节点
     rmSync(screenshotDir, { recursive: true, force: true });
   }
 });
+
+testReal("navigate fresh：HttpOnly cookie 被 CDP clearBrowserCookies 清除", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: (req) => {
+      // 仅 /set 路径下发 cookie——否则 fresh 后的 reload 会再次收到 Set-Cookie，
+      // 清除验证必然失败（服务器行为，非工具缺陷）
+      const set = new URL(req.url).pathname === "/set";
+      const h = new Headers({ "Content-Type": "text/html" });
+      if (set) h.set("Set-Cookie", "sid=secret123; Path=/; HttpOnly");
+      return new Response("<div>c</div>", { headers: h });
+    },
+  });
+  const url = `http://127.0.0.1:${server.port}/`;
+  const screenshotDir = mkdtempSync(join(tmpdir(), "browser-httponly-real-"));
+  const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
+  const sid = sessionId("httponly");
+  try {
+    await handleBrowserTool(manager, sid, "browser_navigate", { url: url + "set", snapshot: false });
+    const getCookies = () =>
+      handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "eval",
+        script: `(async () => { const r = await window.__cdpCookies; return JSON.stringify(r || []); })()`,
+      });
+    // 用 CDP 读 cookie（HttpOnly 用 document.cookie 读不到）
+    const view = manager.get(sid)?.view;
+    const before = (await view?.cdp("Network.getCookies", { urls: [url] })) as {
+      cookies: Array<{ name: string; value: string }>;
+    };
+    expect(before.cookies.some((c) => c.name === "sid" && c.value === "secret123")).toBe(true);
+
+    const nav = await handleBrowserTool(manager, sid, "browser_navigate", { url, fresh: true });
+    expect(JSON.parse(nav.content[0].text).fresh).toBe(true);
+    const after = (await view.cdp("Network.getCookies", { urls: [url] })) as {
+      cookies: Array<{ name: string; value: string }>;
+    };
+    expect(after.cookies.some((c) => c.name === "sid")).toBe(false); // HttpOnly sid 被清除
+    void getCookies;
+  } finally {
+    manager.dispose();
+    server.stop(true);
+    rmSync(screenshotDir, { recursive: true, force: true });
+  }
+});
