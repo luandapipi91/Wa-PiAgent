@@ -322,15 +322,25 @@ export function clickTextScript(text: string): string {
       cur = deeper;
     }
   };
-  for (let i = els.length - 1; i >= 0; i--) {
-    const el0 = els[i];
+  const tryHit = (el0) => {
     const t0 = normalize(String(el0.innerText || el0.value || el0.getAttribute('aria-label') || el0.title || ''));
-    if (!t0.includes(normalize(q)) || !visible(el0)) continue;
+    if (!t0.includes(normalize(q)) || !visible(el0)) return null;
     const el = drillDown(el0);
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const b = el.getBoundingClientRect();
     const label = String(el.innerText || el.value || el.getAttribute('aria-label') || el.title || '').trim().replace(/\\s+/g, ' ').slice(0, 40);
     return { found: true, x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2), label: label };
+  };
+  // 第一轮：结构性交互元素 + class 启发式集合
+  for (let i = els.length - 1; i >= 0; i--) {
+    const hit = tryHit(els[i]);
+    if (hit) return hit;
+  }
+  // 第二轮兜底：全 DOM 反向最深匹配（覆盖分类树等不在启发式集合的自绘节点）
+  const all = [...document.querySelectorAll('body *')];
+  for (let i = all.length - 1; i >= 0; i--) {
+    const hit = tryHit(all[i]);
+    if (hit) return hit;
   }
   return { found: false };
 })()`;

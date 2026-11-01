@@ -251,3 +251,16 @@ describe("clickTextScript 全半角归一化", () => {
     expect(s).toContain("normalize");
   });
 });
+
+describe("clickTextScript 全 DOM 兜底", () => {
+  test("启发式集合未命中时兜底全 DOM 反向最深匹配（覆盖分类树等自绘节点）", () => {
+    const s = clickTextScript("头疗单品");
+    // 兜底段：body * 全量反向遍历（文档序后代在后 → 反向先遇最深）
+    expect(s).toContain("body *");
+    // 兜底在启发式之后（兜底段出现在主循环之后）
+    const mainIdx = s.indexOf("for (let i = els.length");
+    const fallbackIdx = s.indexOf("body *");
+    expect(mainIdx).toBeGreaterThan(-1);
+    expect(fallbackIdx).toBeGreaterThan(mainIdx);
+  });
+});

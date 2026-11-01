@@ -717,3 +717,26 @@ testReal("navigate 同站 hash 路由：秒回不走 load 等待，页面路由�
     rmSync(screenshotDir, { recursive: true, force: true });
   }
 });
+
+testReal("click text 全 DOM 兜底：分类树等不在启发式集合的节点可点击", async () => {
+  const html = `<div class="ant-tree"><span class="ant-tree-title" onclick="document.title='tree'">头疗单品</span></div>`;
+  const url = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+  const screenshotDir = mkdtempSync(join(tmpdir(), "browser-fallback-real-"));
+  const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
+  const sid = sessionId("fallback");
+  try {
+    await handleBrowserTool(manager, sid, "browser_navigate", { url, snapshot: false });
+    const r = await handleBrowserTool(manager, sid, "browser_evaluate", { action: "click", text: "头疗单品" });
+    const parsed = JSON.parse(r.content[0].text) as { ok: boolean; textMatch?: string };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.textMatch).toContain("头疗单品");
+    const title = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "eval",
+      script: `document.title`,
+    });
+    expect(JSON.parse(title.content[0].text).result).toBe("tree");
+  } finally {
+    manager.dispose();
+    rmSync(screenshotDir, { recursive: true, force: true });
+  }
+});
