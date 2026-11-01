@@ -7,10 +7,16 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import type { BridgeToolResult } from "./bridge-registry";
-import type { BrowserManager, ElementRef } from "./browser-manager";
+import type {
+  BrowserManager,
+  BrowserViewState,
+  ElementRef,
+} from "./browser-manager";
 import {
   ANNOTATE_SCRIPT,
   SNAPSHOT_SCRIPT,
+  captureStableSnapshot,
+  diffSnapshotLines,
   formatSnapshot,
   resolveRefScript,
 } from "./browser-annotate";
@@ -141,6 +147,7 @@ async function navigateTool(
     width?: unknown;
     height?: unknown;
     timeout?: unknown;
+    snapshot?: unknown;
   };
   const url = str(p.url);
   if (!url) {
@@ -165,6 +172,8 @@ async function navigateTool(
       title: state.view.title,
       loading: state.view.loading,
     };
+    // 操作后自动附文本快照（差值+稳定检测；snapshot:false 跳过）
+    if (p.snapshot !== false) await attachAutoSnapshot(state, result);
     return textResult(JSON.stringify(result), result);
   } catch (err) {
     const msg = errMessage(err);
@@ -192,6 +201,7 @@ async function evaluateTool(
   }
   const view = state.view;
   const p = params as Record<string, unknown>;
+  const wantSnapshot = p.snapshot !== false;
   const action = str(p.action);
   if (!action) {
     return errResult("browser_evaluate 需要 action 参数", "missing_action");
@@ -271,9 +281,7 @@ async function evaluateTool(
             OPERATION_TIMEOUT_MS,
             "click",
           );
-          return textResult(JSON.stringify({ ok: true, action: "click", ref }), {
-            ok: true,
-          });
+          return opResult(state, { ok: true, action: "click", ref }, wantSnapshot);
         }
         const selector = str(p.selector);
         if (selector) {
@@ -311,22 +319,18 @@ async function evaluateTool(
           );
         } else {
           return errResult(
-            "action=click 需要 selector 或 x/y 坐标",
+            "action=click 需要 selector、x/y 或 ref",
             "missing_click_target",
           );
         }
-        return textResult(JSON.stringify({ ok: true, action: "click" }), {
-          ok: true,
-        });
+        return opResult(state, { ok: true, action: "click" }, wantSnapshot);
       }
       case "type": {
         const text = str(p.text);
         if (!text)
           return errResult("action=type 需要 text 参数", "missing_text");
         await runViewOp(() => view.type(text), OPERATION_TIMEOUT_MS, "type");
-        return textResult(JSON.stringify({ ok: true, action: "type" }), {
-          ok: true,
-        });
+        return opResult(state, { ok: true, action: "type" }, wantSnapshot);
       }
       case "press": {
         const key = str(p.key);
@@ -336,9 +340,7 @@ async function evaluateTool(
           OPERATION_TIMEOUT_MS,
           "press",
         );
-        return textResult(JSON.stringify({ ok: true, action: "press" }), {
-          ok: true,
-        });
+        return opResult(state, { ok: true, action: "press" }, wantSnapshot);
       }
       case "scroll": {
         const dx = num(p.dx) ?? 0;
@@ -348,9 +350,7 @@ async function evaluateTool(
           OPERATION_TIMEOUT_MS,
           "scroll",
         );
-        return textResult(JSON.stringify({ ok: true, action: "scroll" }), {
-          ok: true,
-        });
+        return opResult(state, { ok: true, action: "scroll" }, wantSnapshot);
       }
       case "scrollTo": {
         const selector = str(p.selector);
@@ -368,9 +368,7 @@ async function evaluateTool(
           OPERATION_TIMEOUT_MS,
           "scrollTo",
         );
-        return textResult(JSON.stringify({ ok: true, action: "scrollTo" }), {
-          ok: true,
-        });
+        return opResult(state, { ok: true, action: "scrollTo" }, wantSnapshot);
       }
       default:
         return errResult(
@@ -474,17 +472,15 @@ async function snapshotTool(
     );
   }
   try {
-    const raw = await runViewOp(
-      () => state.view.evaluate(SNAPSHOT_SCRIPT),
-      OPERATION_TIMEOUT_MS,
-      "snapshot",
-    );
-    if (!raw || typeof raw !== "object") {
+    // 稳定检测抓帧（双帧一致，最多 4 帧），并刷新差值基准供后续操作对比
+    const { refs, text, framesValid } = await captureStableSnapshot(state.view);
+    if (framesValid === 0) {
       throw new Error("快照失败：页面未返回 refs 对象");
     }
-    // 与 annotate 截图共用同一份会话缓存：click ref 对两者无感
-    state.refs = raw as Record<string, ElementRef>;
-    const snapshot = formatSnapshot(state.refs);
+    const prev = state.lastSnapshot;
+    state.refs = refs as Record<string, ElementRef>;
+    state.lastSnapshot = text;
+    const snapshot = text; // 显式调用给完整状态（不打星；星号仅操作流的附加快照用）
     const body =
       snapshot.length > EVAL_RESULT_MAX_CHARS
         ? snapshot.slice(0, EVAL_RESULT_MAX_CHARS) +
@@ -495,7 +491,8 @@ async function snapshotTool(
       snapshot: body,
       url: state.view.url,
       title: state.view.title,
-      refCount: Object.keys(state.refs).length,
+      refCount: Object.keys(refs).length,
+      changed: prev !== undefined && prev !== text ? true : undefined,
     };
     return textResult(JSON.stringify(result), {
       ok: true,
@@ -504,6 +501,42 @@ async function snapshotTool(
   } catch (err) {
     return errResult(`browser_snapshot 失败: ${errMessage(err)}`, errMessage(err));
   }
+}
+
+/**
+ * 操作完成后附页面文本快照（差值+稳定检测，对齐 Playwright MCP「每步自动返快照」+
+ * browser-use 的变化星号）：稳定检测（双帧一致，最多 4 帧/约 750ms，超时取末帧降级）后
+ * 与上次快照对比——有变化：全量快照（新增/变化行打 "*"）；无变化：snapshotUnchanged；
+ * 注入失败：snapshotError（操作本身已成功，绝不因附加信息失败而报错）。
+ * 任一情况 refs 缓存都刷新为最新，click ref 即刻可用。
+ */
+async function attachAutoSnapshot(
+  state: BrowserViewState,
+  result: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const { refs, text } = await captureStableSnapshot(state.view);
+    state.refs = refs as Record<string, ElementRef>;
+    result.refCount = Object.keys(refs).length;
+    if (text !== state.lastSnapshot) {
+      result.snapshot = diffSnapshotLines(state.lastSnapshot, text);
+      state.lastSnapshot = text;
+    } else {
+      result.snapshotUnchanged = true;
+    }
+  } catch (err) {
+    result.snapshotError = errMessage(err);
+  }
+}
+
+/** 操作类 action 的统一返回：按需附快照后序列化 */
+async function opResult(
+  state: BrowserViewState,
+  base: Record<string, unknown>,
+  wantSnapshot: boolean,
+): Promise<BridgeToolResult> {
+  if (wantSnapshot) await attachAutoSnapshot(state, base);
+  return textResult(JSON.stringify(base), { ok: true });
 }
 
 async function closeTool(

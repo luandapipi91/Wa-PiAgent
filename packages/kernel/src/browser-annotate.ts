@@ -156,11 +156,19 @@ export interface StableSnapshotOptions {
 export async function captureStableSnapshot(
   view: { evaluate(script: string): Promise<unknown> },
   opts: StableSnapshotOptions = {},
-): Promise<{ refs: Record<string, BrowserSnapshotRef>; text: string }> {
+): Promise<{
+  refs: Record<string, BrowserSnapshotRef>;
+  text: string;
+  framesValid: number;
+}> {
   const intervalMs = opts.intervalMs ?? 250;
   const maxFrames = opts.maxFrames ?? 4;
   let prevText: string | null = null;
-  let last: { refs: Record<string, BrowserSnapshotRef>; text: string } | undefined;
+  let last: {
+    refs: Record<string, BrowserSnapshotRef>;
+    text: string;
+  } | undefined;
+  let framesValid = 0;
   for (let frame = 0; frame < maxFrames; frame++) {
     if (frame > 0) await Bun.sleep(intervalMs);
     const raw = await view.evaluate(SNAPSHOT_SCRIPT);
@@ -168,12 +176,13 @@ export async function captureStableSnapshot(
       string,
       BrowserSnapshotRef
     >;
+    if (raw && typeof raw === "object") framesValid++;
     const text = formatSnapshot(refs);
-    if (prevText !== null && text === prevText) return { refs, text };
+    if (prevText !== null && text === prevText) return { refs, text, framesValid };
     prevText = text;
     last = { refs, text };
   }
-  return last!;
+  return { ...last!, framesValid };
 }
 
 /**

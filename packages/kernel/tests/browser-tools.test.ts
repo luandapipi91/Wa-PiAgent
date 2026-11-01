@@ -577,7 +577,11 @@ describe("browser_screenshot annotate", () => {
   test("不传 annotate：行为不变、返回体无 refs 字段", async () => {
     const m = makeAnnotateManager(() => fakeRefs);
     try {
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      // snapshot:false 隔离 navigate 的自动快照，只验证 screenshot 自身语义
+      await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+        snapshot: false,
+      });
       const r = await handleBrowserTool(m, "s1", "browser_screenshot", {});
       const parsed = JSON.parse(r.content[0].text);
       expect(parsed.ok).toBe(true);
@@ -587,13 +591,19 @@ describe("browser_screenshot annotate", () => {
     }
   });
 
-  test("browser_navigate 后上一轮 refs 清空", async () => {
+  test("browser_navigate 后旧 refs 被新快照刷新（非 annotate 路径）", async () => {
     const m = makeAnnotateManager(() => fakeRefs);
     try {
+      // 第一次导航创建视图（自动快照已填 fakeRefs），预置一轮过期的旧 refs
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
-      (m.get("s1") as { refs?: unknown }).refs = fakeRefs;
+      (m.get("s1") as { refs?: unknown }).refs = {
+        "@9": { n: 9, tag: "div", label: "stale", x: 0, y: 0 },
+      };
+      // 第二次导航：自动快照应将旧 refs 替换为新页面的 refs
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
-      expect(m.get("s1")?.refs).toBeUndefined();
+      const refs = m.get("s1")?.refs;
+      expect(refs?.["@9"]).toBeUndefined();
+      expect(refs?.["@1"]?.label).toBe("go");
     } finally {
       m.dispose();
     }
@@ -683,6 +693,158 @@ describe("browser_evaluate click ref", () => {
         });
         expect(JSON.stringify(r)).toContain("invalid_ref");
       }
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+describe("操作后自动快照（差值+稳定检测）", () => {
+  const S1 = { "@1": { n: 1, tag: "button", label: "登 录", x: 10, y: 20 } };
+  const S2 = {
+    "@1": {
+      n: 1,
+      tag: "input",
+      inputType: "text",
+      label: "手机号",
+      value: "132",
+      x: 10,
+      y: 20,
+    },
+  };
+
+  // 帧序列按消费次序给足（稳定检测每帧消费一次，末帧重复返回）
+  function makeAutoSnapManager(frames: Record<string, unknown>[]) {
+    let i = 0;
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-autosnap-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (!script.includes("data-wa-ref")) return script;
+            return frames[Math.min(i++, frames.length - 1)];
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return m;
+  }
+
+  test("navigate 默认附首帧快照（无星）并写入 refs 缓存", async () => {
+    const m = makeAutoSnapManager([S1, S1]);
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshot).toContain('@1 button "登 录"');
+      expect(parsed.snapshot).not.toContain("* ");
+      expect(parsed.refCount).toBe(1);
+      expect(m.get("s1")?.refs?.["@1"]?.label).toBe("登 录");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("操作后页面有变化 → snapshot 带星行且 refs 刷新", async () => {
+    const m = makeAutoSnapManager([S1, S1, S2, S2]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        selector: "#btn",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshot).toContain('* @1 textbox "手机号" = "132"');
+      expect(parsed.snapshotUnchanged).toBeUndefined();
+      expect(m.get("s1")?.refs?.["@1"]?.value).toBe("132");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("操作后无变化 → snapshotUnchanged 且无 snapshot 字段", async () => {
+    const m = makeAutoSnapManager([S1, S1, S1, S1]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        selector: "#btn",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshotUnchanged).toBe(true);
+      expect(parsed.snapshot).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("snapshot:false → 不抓帧、无附加字段", async () => {
+    const m = makeAutoSnapManager([S1]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+        snapshot: false,
+      });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        selector: "#btn",
+        snapshot: false,
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshot).toBeUndefined();
+      expect(parsed.snapshotUnchanged).toBeUndefined();
+      // 从未抓帧：refs 缓存从未被填充
+      expect(m.get("s1")?.refs).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("快照注入失败 → 操作仍成功 + snapshotError", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-autosnap-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("data-wa-ref")) throw new Error("inject boom");
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        selector: "#btn",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshotError).toContain("inject boom");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("eval 不附快照", async () => {
+    const m = makeAutoSnapManager([S1]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "eval",
+        script: "document.title",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshot).toBeUndefined();
+      expect(parsed.snapshotUnchanged).toBeUndefined();
     } finally {
       m.dispose();
     }

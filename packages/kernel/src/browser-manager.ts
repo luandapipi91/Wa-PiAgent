@@ -66,6 +66,8 @@ export interface BrowserViewState {
   userAgentReady?: Promise<void>;
   /** 最近一次 annotate 截图的 refs 缓存（"@N" → ElementRef）；导航后清空 */
   refs?: Record<string, ElementRef>;
+  /** 最近一次文本快照（稳定检测后），供操作后差值对比 */
+  lastSnapshot?: string;
 }
 
 export interface BrowserManagerOptions {
