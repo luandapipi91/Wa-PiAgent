@@ -778,7 +778,8 @@ export default function (pi: ExtensionAPI) {
 			snapshots,
 			toolCallIdToPath,
 			event.toolCallId,
-			resolve(path),
+			// 归一为正斜杠：上报/展示/movedTo 匹配跨平台一致（Windows resolve() 会产生反斜杠盘符路径，前端展示与持久化格式分裂）
+			resolve(path).replace(/\\/g, "/"),
 			readSnapshot,
 		);
 	});

@@ -18,7 +18,7 @@ import {
 	mkdtempSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { generateBridgeExtension } from "../src/bridge-extension";
 
@@ -973,7 +973,9 @@ describe("agent_end 文件修改上报", () => {
 			await handlers["agent_end"][0]();
 			const fc = calls.filter((c) => c.url.includes("/bridge/file-changes"));
 			expect(fc.length).toBe(1);
-			expect(fc[0].body.files[0].path).toBe("/nonexistent-dir-xyz/old.html");
+			expect(fc[0].body.files[0].path).toBe(
+				resolve("/nonexistent-dir-xyz/old.html").replace(/\\/g, "/"),
+			);
 			expect(fc[0].body.files[0].missing).toBe(true);
 		} finally {
 			restore();
