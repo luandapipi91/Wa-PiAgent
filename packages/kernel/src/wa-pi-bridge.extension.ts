@@ -373,7 +373,11 @@ async function callBridge(
 // not a function 已回滚；且 getAllTools 为 runtime action 方法，加载期禁调。
 
 export default function (pi: ExtensionAPI) {
+	// model-only：模型可直调、codemode 脚本不可调（pi 对交互式工具的官方语义）。
+	// 脚本调用 ask_user_question 会永久挂死：嵌套调用不进 transcript → 前端无
+	// 提问卡片可答 → ask 无硬超时。仅豁免真正等待用户交互的工具。
 	pi.registerTool({
+		exposure: "model-only",
 		name: "ask_user_question",
 		label: "Ask User",
 		description: ASK_DESCRIPTION,

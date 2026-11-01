@@ -904,7 +904,6 @@ test("空闲超时：窗口内无快照（kernel 侧子代理仍在跑）→ 维
 	}
 }, 10_000);
 
-
 // ── agent_end 文件修改上报：每轮必报 + 失效标记（missing/movedTo）──
 describe("agent_end 文件修改上报", () => {
 	/** 加载扩展并捕获事件钩子（同上方模式）。 */
@@ -978,6 +977,39 @@ describe("agent_end 文件修改上报", () => {
 			expect(fc[0].body.files[0].missing).toBe(true);
 		} finally {
 			restore();
+		}
+	});
+});
+
+// ── 交互类工具 model-only 豁免（防 codemode 脚本调用挂死）──
+// codemode 沙箱会把 direct 且活跃的工具注入脚本 tools 对象；ask_user_question
+// 调用后需用户在 UI 作答才返回，而嵌套调用不进 transcript → 前端无卡片可答 →
+// 脚本 await 永久 pending。model-only（模型可直调、脚本不可调）是 pi 对交互式
+// 工具的官方语义。仅豁免真正等待用户交互的工具，其余工具保持默认 direct。
+
+describe("交互类工具 exposure", () => {
+	test("ask_user_question 注册为 exposure: 'model-only'（脚本不可调、模型直调不受影响）", async () => {
+		const tools = await loadTools();
+		const ask = tools.find((t) => t.name === "ask_user_question");
+		expect(ask).toBeDefined();
+		expect(ask.exposure).toBe("model-only");
+	});
+
+	test("非交互工具不被误伤（保持默认曝光，可被脚本调用）", async () => {
+		const tools = await loadTools();
+		const directNames = [
+			"memory_add",
+			"memory_search",
+			"delegate",
+			"browser_navigate",
+			"preview_open",
+			"im_push_to",
+			"list_contacts",
+		];
+		for (const name of directNames) {
+			const tool = tools.find((t) => t.name === name);
+			expect(tool).toBeDefined();
+			expect(tool.exposure).toBeUndefined();
 		}
 	});
 });

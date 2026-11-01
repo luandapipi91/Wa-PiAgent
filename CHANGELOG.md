@@ -1,4 +1,5 @@
 ## 2026-11-01
+- fix(kernel): ask_user_question 注册为 exposure=model-only，堵住 codemode 脚本调用它导致会话永久卡死的洞——根因：codemode 沙箱把 direct 且活跃的工具全部注入脚本（仅排 codemode 自身），而 ask_user_question 调用后需用户在 UI 作答才返回且无硬超时，嵌套调用又不进 transcript → 前端无提问卡片可答 → 脚本 await 永久 pending。model-only（模型可直调、脚本不可调）是 pi 对交互式工具的官方语义；仅豁免真正等待用户交互的工具，其余 bridge 工具保持默认 direct 可被脚本调（当年 only 档的 14 工具全量豁免已随 only 档删除 revert，本次不复活）。TDD：bridge-extension 2 用例先红后绿（ask=model-only 断言 + 非交互工具不被误伤），全套 27 用例绿 + typecheck 0 error
 - feat(kernel): 操作后自动附文本快照（差值+稳定检测，对齐 Playwright MCP「每步返快照」+ browser-use 变化星号）——`browser_navigate` 与操作类 `browser_evaluate`（click/type/press/scroll/scrollTo，eval 除外）完成后自动等渲染稳定（双帧快照文本一致，导航 16 帧/~4s、操作 4 帧/~1s，空帧不算稳定——SPA 首屏未挂载不提前返回）再与上次快照对比：有变化返回全量 snapshot（新增/变化行打 `*` 前缀），无变化返回 `snapshotUnchanged:true`，预算内始终无元素返回 `snapshotNote` 降级提示（不误导为空白页），快照异常不阻断操作（`snapshotError`）；`snapshot:false` 可关。新增 `captureStableSnapshot`（kernel 侧循环，间隔/帧数/非空门槛可注入）与 `diffSnapshotLines`（行级差值）；`BrowserViewState.lastSnapshot` 差值基准，显式 browser_snapshot 同走稳定检测并刷新基准。TDD：17 个新用例（含 fake 帧序列稳定/降级/差值、变异验证 eval 防护）+ 真实引擎 3 场景 + 美管家真实站点实测（首航降级提示→挂载后操作自动返 12 元素全量快照）
 
 ## 2026-10-31
