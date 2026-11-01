@@ -131,6 +131,10 @@ export async function handleBrowserTool(
       return screenshotTool(manager, sessionId, params);
     case "browser_snapshot":
       return snapshotTool(manager, sessionId, params);
+    case "browser_read":
+      return readTool(manager, sessionId, params);
+    case "browser_wait":
+      return waitTool(manager, sessionId, params);
     case "browser_close":
       return closeTool(manager, sessionId);
     default:
@@ -597,6 +601,141 @@ async function opResult(
 ): Promise<BridgeToolResult> {
   if (wantSnapshot) await attachAutoSnapshot(state, base);
   return textResult(JSON.stringify(base), { ok: true });
+}
+
+/**
+ * 读页面文本：无 selector 返回 body innerText，有 selector 返回该元素子树 innerText。
+ * 超长截断（EVAL_RESULT_MAX_CHARS）并标 truncated；selector 未命中报 read_element_not_found。
+ * 与 eval 的区别：结构化、免写脚本、统一截断语义，覆盖「读表格/读面板内容」高频需求。
+ */
+async function readTool(
+  manager: BrowserManager,
+  sessionId: string,
+  params: unknown,
+): Promise<BridgeToolResult> {
+  const state = manager.get(sessionId);
+  if (!state) {
+    return errResult(
+      "浏览器视图未创建：请先调用 browser_navigate 打开页面",
+      "no_view",
+    );
+  }
+  const p = params as { selector?: unknown };
+  const selector = str(p.selector);
+  const script = selector === undefined
+    ? "/* wa-read */ document.body.innerText"
+    : `/* wa-read */ (document.querySelector(${JSON.stringify(selector)})?.innerText ?? null)`;
+  try {
+    const raw = (await runViewOp(
+      () => state.view.evaluate(script),
+      OPERATION_TIMEOUT_MS,
+      "read",
+    )) as string | null | undefined;
+    if (raw === null || raw === undefined) {
+      return errResult(
+        `未找到元素：${selector}；可先用 browser_snapshot 查看页面结构`,
+        "read_element_not_found",
+      );
+    }
+    const text = typeof raw === "string" ? raw : String(raw);
+    const truncated = text.length > EVAL_RESULT_MAX_CHARS;
+    const result = {
+      ok: true,
+      text: truncated ? text.slice(0, EVAL_RESULT_MAX_CHARS) + "…（截断）" : text,
+      url: state.view.url,
+      title: state.view.title,
+      truncated: truncated ? true : undefined,
+    };
+    return textResult(JSON.stringify(result), { ok: true });
+  } catch (err) {
+    return errResult(`browser_read 失败: ${errMessage(err)}`, errMessage(err));
+  }
+}
+
+/**
+ * 条件等待：轮询页面直到条件满足或超时（默认 10s，轮询间隔 250ms）。
+ * 条件（至少给一个，多个时全部满足才返回）：text 页面文本包含；hiddenSelector 元素
+ * 从 DOM 移除或不可见；ms 无条件固定等待（上限 10s）。覆盖「点提交后等 toast/等列表
+ * 刷新」高频场景，替代模型用 eval 自写 setTimeout 采样。
+ */
+async function waitTool(
+  manager: BrowserManager,
+  sessionId: string,
+  params: unknown,
+): Promise<BridgeToolResult> {
+  const state = manager.get(sessionId);
+  if (!state) {
+    return errResult(
+      "浏览器视图未创建：请先调用 browser_navigate 打开页面",
+      "no_view",
+    );
+  }
+  const p = params as {
+    text?: unknown;
+    ms?: unknown;
+    hiddenSelector?: unknown;
+    timeout?: unknown;
+  };
+  const wantText = str(p.text);
+  const hiddenSel = str(p.hiddenSelector);
+  const ms = num(p.ms);
+  if (wantText === undefined && hiddenSel === undefined && ms === undefined) {
+    return errResult(
+      "browser_wait 至少需要一个条件：text / hiddenSelector / ms",
+      "wait_missing_condition",
+    );
+  }
+  const t0 = Date.now();
+  if (ms !== undefined && wantText === undefined && hiddenSel === undefined) {
+    await Bun.sleep(Math.min(ms, 10_000));
+    return textResult(
+      JSON.stringify({ ok: true, waitedMs: Date.now() - t0 }),
+      { ok: true },
+    );
+  }
+  const timeoutMs = Math.min(num(p.timeout) ?? 10_000, 60_000);
+  const textProbe = wantText === undefined
+    ? undefined
+    : `/* wa-wait-text */ document.body.innerText.includes(${JSON.stringify(wantText)})`;
+  const hiddenProbe = hiddenSel === undefined
+    ? undefined
+    : `/* wa-wait-hidden */ (() => { const el = document.querySelector(${JSON.stringify(hiddenSel)}); return !el || el.getBoundingClientRect().width === 0; })()`;
+  const textScript = textProbe ?? "true";
+  // text 与 hidden 条件并存时在轮询里分别探测，全部满足才算
+  while (Date.now() - t0 < timeoutMs) {
+    try {
+      let satisfied = true;
+      if (textProbe) {
+        const r = await runViewOp(
+          () => state.view.evaluate(textScript),
+          OPERATION_TIMEOUT_MS,
+          "wait text",
+        );
+        if (r !== true) satisfied = false;
+      }
+      if (satisfied && hiddenProbe) {
+        const r = await runViewOp(
+          () => state.view.evaluate(hiddenProbe),
+          OPERATION_TIMEOUT_MS,
+          "wait hidden",
+        );
+        if (r !== true) satisfied = false;
+      }
+      if (satisfied) {
+        return textResult(
+          JSON.stringify({ ok: true, matched: true, waitedMs: Date.now() - t0 }),
+          { ok: true },
+        );
+      }
+    } catch {
+      // 单次探测失败（页面跳转中/执行环境未就绪）不终止等待，下一轮重试
+    }
+    await Bun.sleep(250);
+  }
+  return errResult(
+    `等待超时（${timeoutMs}ms）：${wantText !== undefined ? `页面文本未出现 "${wantText}"` : ""}${wantText !== undefined && hiddenSel !== undefined ? "；" : ""}${hiddenSel !== undefined ? `元素未消失 ${hiddenSel}` : ""}`,
+    "wait_timeout",
+  );
 }
 
 async function closeTool(

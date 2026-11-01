@@ -1045,3 +1045,160 @@ describe("browser_evaluate click text 文本定位", () => {
     }
   });
 });
+
+describe("browser_read 读页面文本", () => {
+  function makeReadManager(evalResult: unknown) {
+    return new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-read-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-read")) return evalResult;
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+  }
+
+  test("无 selector：返回页面文本", async () => {
+    const m = makeReadManager("第一行文本\n第二行 化石骨贴 20");
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_read", {});
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.text).toContain("化石骨贴 20");
+      expect(parsed.truncated).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("selector 指向不存在元素 → read_element_not_found", async () => {
+    const m = makeReadManager(null);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_read", { selector: "#nope" });
+      expect(JSON.stringify(r)).toContain("read_element_not_found");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("超长文本截断并标记 truncated", async () => {
+    const m = makeReadManager("x".repeat(20_000));
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_read", {});
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.truncated).toBe(true);
+      expect(parsed.text.length).toBeLessThan(9_000);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("视图未创建 → no_view", async () => {
+    const m = makeReadManager("t");
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_read", {});
+      expect(JSON.stringify(r)).toContain("no_view");
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+describe("browser_wait 条件等待", () => {
+  // 探针契约：evaluate 返回布尔（真实引擎 innerText.includes → boolean）
+  function makeWaitManager(probeResults: boolean[]) {
+    let i = 0;
+    return new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-wait-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-wait-text") || script.includes("wa-wait-hidden")) {
+              return probeResults[Math.min(i++, probeResults.length - 1)];
+            }
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+  }
+
+  test("text 立即满足 → ok", async () => {
+    const m = makeWaitManager([true]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { text: "操作成功" });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.matched).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("text 轮询后满足 → ok（模拟渲染延迟）", async () => {
+    const m = makeWaitManager([false, false, true]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { text: "操作成功", timeout: 3000 });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.matched).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("text 超时 → wait_timeout", async () => {
+    const m = makeWaitManager([false]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { text: "永不出现", timeout: 600 });
+      expect(JSON.stringify(r)).toContain("wait_timeout");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("ms 模式：直接等待后 ok", async () => {
+    const m = makeWaitManager([true]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { ms: 50 });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.waitedMs).toBeGreaterThanOrEqual(40);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("无任何条件 → wait_missing_condition", async () => {
+    const m = makeWaitManager([true]);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", {});
+      expect(JSON.stringify(r)).toContain("wait_missing_condition");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("视图未创建 → no_view", async () => {
+    const m = makeWaitManager([true]);
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { ms: 10 });
+      expect(JSON.stringify(r)).toContain("no_view");
+    } finally {
+      m.dispose();
+    }
+  });
+});

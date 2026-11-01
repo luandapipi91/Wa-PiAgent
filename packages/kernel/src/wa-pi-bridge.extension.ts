@@ -46,6 +46,10 @@ import {
 	BrowserCloseParamsSchema,
 	BROWSER_SNAPSHOT_DESCRIPTION,
 	BrowserSnapshotParamsSchema,
+	BROWSER_READ_DESCRIPTION,
+	BrowserReadParamsSchema,
+	BROWSER_WAIT_DESCRIPTION,
+	BrowserWaitParamsSchema,
 	PREVIEW_OPEN_DESCRIPTION,
 	PreviewOpenParamsSchema,
 } from "./tool-schemas.ts";
@@ -597,6 +601,38 @@ export default function (pi: ExtensionAPI) {
 		async execute(toolCallId, params, signal) {
 			return callBridge(
 				"browser_snapshot",
+				toolCallId,
+				params,
+				signal,
+				BROWSER_OPERATION_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "browser_read",
+		label: "Browser Read",
+		description: BROWSER_READ_DESCRIPTION,
+		parameters: BrowserReadParamsSchema,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"browser_read",
+				toolCallId,
+				params,
+				signal,
+				BROWSER_OPERATION_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "browser_wait",
+		label: "Browser Wait",
+		description: BROWSER_WAIT_DESCRIPTION,
+		parameters: BrowserWaitParamsSchema,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"browser_wait",
 				toolCallId,
 				params,
 				signal,

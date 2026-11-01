@@ -407,6 +407,49 @@ export const BROWSER_SNAPSHOT_DESCRIPTION = [
 
 export const BrowserSnapshotParamsSchema = Type.Object({});
 
+export const BROWSER_READ_DESCRIPTION = [
+  "读取页面文本：无 selector 返回整个页面可见文本，有 selector 返回该元素子树的文本。超长自动截断。",
+  "用于读表格/面板/列表内容、验证操作结果（如库存数量变化）等读类需求；读页面结构/定位元素用 browser_snapshot。仅主文档，不穿透 iframe/shadow DOM。",
+].join("\n");
+
+export const BrowserReadParamsSchema = Type.Object({
+  selector: Type.Optional(
+    Type.String({
+      description: "只读该 CSS selector 元素的子树文本；省略则读整个页面",
+    }),
+  ),
+});
+
+export const BROWSER_WAIT_DESCRIPTION = [
+  "等待条件满足后再继续：text 页面出现某文本（如 toast \"操作成功\"）、hiddenSelector 某元素消失（如 loading 遮罩退场）、ms 固定等待。多条件并存时全部满足才返回。",
+  "轮询间隔 250ms，默认超时 10s（可调，上限 60s），超时返回 wait_timeout 与当前状态。用于点击提交后等结果、等列表刷新等场景，替代用 eval 自写轮询。",
+].join("\n");
+
+export const BrowserWaitParamsSchema = Type.Object({
+  text: Type.Optional(
+    Type.String({ description: "等待页面文本包含该内容（如 toast 提示）" }),
+  ),
+  hiddenSelector: Type.Optional(
+    Type.String({
+      description: "等待该 CSS selector 元素从 DOM 移除或不可见（如 loading 遮罩）",
+    }),
+  ),
+  ms: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 10000,
+      description: "无条件固定等待毫秒数（上限 10000）",
+    }),
+  ),
+  timeout: Type.Optional(
+    Type.Integer({
+      minimum: 250,
+      maximum: 60000,
+      description: "等待超时毫秒数（默认 10000，上限 60000）",
+    }),
+  ),
+});
+
 // =========================================================================
 // preview_open 工具（把网址/本地 html 送到用户的内置 HTML 预览）
 // =========================================================================
