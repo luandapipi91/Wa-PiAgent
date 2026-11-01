@@ -943,3 +943,105 @@ describe("browser_snapshot 文本快照", () => {
     }
   });
 });
+
+describe("browser_evaluate click text 文本定位", () => {
+  function makeTextManager(evalResult: unknown) {
+    const clicked: Array<[unknown, unknown]> = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-text-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("data-wa-ref")) return { found: true, x: 5, y: 6 };
+            if (script.includes("wa-click-text")) return evalResult;
+            return script;
+          },
+          async click(a?: unknown, b?: unknown) {
+            clicked.push([a, b]);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return { m, clicked };
+  }
+
+  test("text 模式：定位元素中心并坐标真实点击", async () => {
+    const { m, clicked } = makeTextManager({ found: true, x: 111, y: 222, label: "盘点完成" });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+        snapshot: false,
+      });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        text: "盘点完成",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.textMatch).toBe("盘点完成");
+      expect(clicked[0]?.[0]).toBe(111);
+      expect(clicked[0]?.[1]).toBe(222);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("text 未找到 → click_text_not_found 并提示替代手段", async () => {
+    const { m } = makeTextManager({ found: false });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+        snapshot: false,
+      });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        text: "不存在的按钮",
+      });
+      expect(JSON.stringify(r)).toContain("click_text_not_found");
+      expect(r.content[0].text).toContain("browser_snapshot");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("ref 与 text 并存 → ref 优先（不触发文本脚本）", async () => {
+    const { m, clicked } = makeTextManager({ found: true, x: 111, y: 222, label: "盘点完成" });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+        snapshot: false,
+      });
+      (m.get("s1") as { refs?: unknown }).refs = {
+        "@1": { n: 1, tag: "button", label: "go", x: 0, y: 0 },
+      };
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        ref: 1,
+        text: "盘点完成",
+      });
+      expect(r.content[0].text).toContain('"ref":1');
+      expect(clicked[0]?.[0]).toBe(5); // ref 路径的坐标
+      expect(clicked[0]?.[1]).toBe(6);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("text 为空白 → invalid_click_text", async () => {
+    const { m } = makeTextManager({ found: true, x: 1, y: 1 });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+        snapshot: false,
+      });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        text: "   ",
+      });
+      expect(JSON.stringify(r)).toContain("invalid_click_text");
+    } finally {
+      m.dispose();
+    }
+  });
+});

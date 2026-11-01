@@ -244,6 +244,34 @@ function kindOf(r: BrowserSnapshotRef): string {
 }
 
 /**
+ * 生成「按可见文本定位并返回中心坐标」的脚本：在可交互元素（含交互 role/onclick）里
+ * 反向遍历取**最深**的文本匹配（避免命中包含同文本的父容器），scrollIntoView 居中后
+ * 返回 { found:true, x, y, label } 或 { found:false }。目标文本经 JSON.stringify 转义嵌入，
+ * 杜绝脚本注入。脚本首行带 wa-click-text 标记供测试/fake 识别。
+ */
+export function clickTextScript(text: string): string {
+  return `/* wa-click-text */ (() => {
+  const q = ${JSON.stringify(text)};
+  const SEL = 'a,button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],[role="checkbox"],[role="radio"],[onclick]';
+  const els = [...document.querySelectorAll(SEL)];
+  const visible = (el) => {
+    const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+  };
+  for (let i = els.length - 1; i >= 0; i--) {
+    const el = els[i];
+    const t = String(el.innerText || el.value || el.getAttribute('aria-label') || el.title || '');
+    if (!t.includes(q) || !visible(el)) continue;
+    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+    const b = el.getBoundingClientRect();
+    const label = t.trim().replace(/\\s+/g, ' ').slice(0, 40);
+    return { found: true, x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2), label: label };
+  }
+  return { found: false };
+})()`;
+}
+
+/**
  * 生成「按 data-wa-ref 实时定位元素」的脚本：先 scrollIntoView 居中（水平垂直都居中，
  * 超宽元素中心才不会落在视口外），返回 { found: true, x, y }（视口中心坐标）或
  * { found: false }（元素已不存在）。n 非正整数或超上限时抛错（防御性校验：n 会被

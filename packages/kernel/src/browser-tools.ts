@@ -16,6 +16,7 @@ import {
   ANNOTATE_SCRIPT,
   SNAPSHOT_SCRIPT,
   captureStableSnapshot,
+  clickTextScript,
   diffSnapshotLines,
   formatSnapshot,
   resolveRefScript,
@@ -285,6 +286,51 @@ async function evaluateTool(
             "click",
           );
           return opResult(state, { ok: true, action: "click", ref }, wantSnapshot);
+        }
+        // 文本定位：点那个写着某文本的可见交互元素（CSS selector 表达不了文本匹配，
+        // 这是 POS/后台系统最高频的点击形态）。优先级 ref > text > selector > x/y。
+        const clickText = str(p.text);
+        if (clickText !== undefined) {
+          if (!clickText.trim()) {
+            return errResult("click 的 text 不能为空", "invalid_click_text");
+          }
+          const loc = (await runViewOp(
+            () => view.evaluate(clickTextScript(clickText)),
+            OPERATION_TIMEOUT_MS,
+            "click text",
+          )) as { found?: boolean; x?: number; y?: number; label?: string } | undefined;
+          if (
+            !loc ||
+            loc.found !== true ||
+            typeof loc.x !== "number" ||
+            typeof loc.y !== "number"
+          ) {
+            return errResult(
+              `未找到文本包含 "${clickText}" 的可见可交互元素；可先用 browser_snapshot 查看页面，或改用 selector/x-y`,
+              "click_text_not_found",
+            );
+          }
+          const tx = loc.x;
+          const ty = loc.y;
+          await runViewOp(
+            () =>
+              view.click(
+                tx,
+                ty,
+                cleanOpts({
+                  button: str(p.button),
+                  modifiers: arr(p.modifiers),
+                  clickCount: num(p.clickCount),
+                }),
+              ),
+            OPERATION_TIMEOUT_MS,
+            "click",
+          );
+          return opResult(
+            state,
+            { ok: true, action: "click", textMatch: loc.label ?? clickText },
+            wantSnapshot,
+          );
         }
         const selector = str(p.selector);
         if (selector) {

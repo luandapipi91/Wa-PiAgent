@@ -11,6 +11,7 @@ import {
   MAX_ANNOTATED_ELEMENTS,
   SNAPSHOT_SCRIPT,
   captureStableSnapshot,
+  clickTextScript,
   diffSnapshotLines,
   formatSnapshot,
   resolveRefScript,
@@ -181,5 +182,24 @@ describe("diffSnapshotLines 差值标记", () => {
 
   test("完全相同 → 原样无星（外层应走 unchanged 分支）", () => {
     expect(diffSnapshotLines(prev, prev)).toBe(prev);
+  });
+});
+
+describe("clickTextScript 文本定位脚本", () => {
+  test("合法 JS；目标文本经 JSON 转义嵌入（防注入）", () => {
+    const evil = '"); alert(1); ("';
+    const s = clickTextScript(evil);
+    expect(() => new Function(s)).not.toThrow();
+    expect(s).toContain("wa-click-text"); // fake/测试识别标记
+    expect(s).not.toContain('alert(1); ("');
+  });
+
+  test("脚本含文本匹配、可见性过滤与最深匹配语义", () => {
+    const s = clickTextScript("盘点完成");
+    expect(s).toContain("盘点完成");
+    expect(s).toContain("getBoundingClientRect");
+    expect(s).toContain("scrollIntoView");
+    // 反向遍历取最深匹配（避免命中含同文本的父容器）
+    expect(s).toContain("i--");
   });
 });

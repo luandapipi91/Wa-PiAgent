@@ -338,7 +338,12 @@ export const BrowserEvaluateParamsSchema = Type.Object({
     ),
   ),
   clickCount: Type.Optional(Type.Integer({ minimum: 1, maximum: 3 })),
-  text: Type.Optional(Type.String({ description: "action=type 时的文本" })),
+  text: Type.Optional(
+    Type.String({
+      description:
+        "action=type 时的文本；action=click 时为按可见文本定位（子串匹配可交互元素并点击其中心）",
+    }),
+  ),
   key: Type.Optional(
     Type.String({ description: "action=press 时的键名或单字符" }),
   ),
