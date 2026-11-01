@@ -14,6 +14,8 @@ import type {
 } from "./browser-manager";
 import {
   ANNOTATE_SCRIPT,
+  DISMISS_SCRIPT,
+  MODAL_PROBE,
   SNAPSHOT_SCRIPT,
   captureStableSnapshot,
   clickTextScript,
@@ -349,6 +351,20 @@ async function evaluateTool(
           wantSnapshot,
         );
       }
+      case "dismissModals": {
+        // 弹窗清除：直接移除 ant 系模态节点（第六/十二轮实测比点关闭按钮可靠），
+        // 返回移除数量；附自动快照让 agent 立即看到干净后的页面
+        const removed = await runViewOp(
+          () => view.evaluate(DISMISS_SCRIPT),
+          OPERATION_TIMEOUT_MS,
+          "dismissModals",
+        );
+        return opResult(
+          state,
+          { ok: true, action: "dismissModals", removed: Number(removed) || 0 },
+          wantSnapshot,
+        );
+      }
       case "click": {
         // ref 编号定位（优先于 selector/x/y）：来自最近一次 annotate 截图的 refs。
         // 每次点击前实时重查元素位置（先 scrollIntoView 再取中心），页面重排也能点准；
@@ -515,6 +531,53 @@ async function evaluateTool(
         const text = str(p.text);
         if (!text)
           return errResult("action=type 需要 text 参数", "missing_text");
+        const typeSelector = str(p.selector);
+        if (typeSelector) {
+          // 有 selector：click 聚焦 → 键入 → 验证 → 未生效自动原生 setter 兜底。
+          // 背景：SPA 内页重渲染会吞焦点导致键入失效（第十二/十三轮实测），
+          // 把「click 聚焦 + type + 验证 + eval 兑底」四步三次往返压成一次调用。
+          try {
+            await runViewOp(
+              () => view.click(typeSelector, { timeout: num(p.timeout) ?? 5000 }),
+              OPERATION_TIMEOUT_MS,
+              "type 聚焦",
+            );
+          } catch {
+            // 聚焦失败继续（元素可能已聚焦）
+          }
+          await runViewOp(() => view.type(text), OPERATION_TIMEOUT_MS, "type");
+          const probe = `/* wa-typecheck */ (() => { const el = document.querySelector(${JSON.stringify(typeSelector)}); return el ? String(el.value ?? "") : ""; })()`;
+          let check: unknown;
+          try {
+            check = await runViewOp(() => view.evaluate(probe), OPERATION_TIMEOUT_MS, "type 验证");
+          } catch {
+            check = undefined;
+          }
+          if (check === text) {
+            return opResult(state, { ok: true, action: "type", selector: typeSelector }, wantSnapshot);
+          }
+          // 键入未生效（自绘组件/焦点被吞）：原生 setter + input/change 事件兑底
+          const setScript = `/* wa-typeset */ (() => {
+            const el = document.querySelector(${JSON.stringify(typeSelector)});
+            if (!el) return "NO_EL";
+            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const set = Object.getOwnPropertyDescriptor(proto, "value").set;
+            set.call(el, ${JSON.stringify(text)});
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            return String(el.value ?? "");
+          })()`;
+          const fallbackVal = await runViewOp(
+            () => view.evaluate(setScript),
+            OPERATION_TIMEOUT_MS,
+            "type 兑底",
+          );
+          return opResult(
+            state,
+            { ok: fallbackVal === text, action: "type", selector: typeSelector, fallback: true },
+            wantSnapshot,
+          );
+        }
         await runViewOp(() => view.type(text), OPERATION_TIMEOUT_MS, "type");
         return opResult(state, { ok: true, action: "type" }, wantSnapshot);
       }
@@ -708,6 +771,18 @@ async function attachAutoSnapshot(
     const { refs, text } = await captureStableSnapshot(state.view, opts);
     state.refs = refs as Record<string, ElementRef>;
     result.refCount = Object.keys(refs).length;
+    // 模态遮罩检测：文本快照对遮罩无感知（历史多轮卡点），操作后立即提示，
+    // 避免 agent 盲目重试数轮才发现被弹窗挡住
+    try {
+      const modalText = await runViewOp(
+        () => state.view.evaluate(MODAL_PROBE),
+        OPERATION_TIMEOUT_MS,
+        "modal 检测",
+      );
+      if (typeof modalText === "string" && modalText) result.modalDetected = modalText;
+    } catch {
+      // 检测失败忽略（快照与操作本身已成功）
+    }
     if (text.length === 0) {
       // 稳定检测预算内页面始终没有可交互元素（SPA 首屏挂载中/真空白页）：
       // 不返回空快照误导 agent，也不污染差值基准，给明确提示让 agent 稍后重取

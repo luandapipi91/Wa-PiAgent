@@ -1512,3 +1512,173 @@ describe("navigate 同站 hash 路由跳转", () => {
     }
   });
 });
+
+describe("type selector 聚焦与原生 setter 兜底", () => {
+  // fake：type 首次无效（值不变），模拟 SPA 内页键盘输入失效
+  function makeTypeManager() {
+    let typeAttempts = 0;
+    let focused = "";
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-typesel-")),
+      viewFactory: () =>
+        makeFakeView({
+          async click(selectorOrX: string | number) {
+            focused = String(selectorOrX);
+          },
+          async type(text: string) {
+            typeAttempts++;
+            void text; // 首两次键入无效（SPA 重渲染吞焦点）
+          },
+          async evaluate(script: string) {
+            if (script.includes("wa-typeset")) return "zz1234"; // 模拟原生 setter 设置成功后读回的值
+            if (script.includes("wa-typecheck")) return focused ? "typed" : "";
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return { m, getAttempts: () => typeAttempts };
+  }
+
+  test("type+selector：聚焦→键入→验证未生效→自动原生 setter 兜底", async () => {
+    const { m, getAttempts } = makeTypeManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        selector: "input[type=password]",
+        text: "zz1234",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.fallback).toBe(true); // 键入未生效走了原生 setter 兜底
+      expect(getAttempts()).toBeGreaterThanOrEqual(1); // 确实尝试过 view.type
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("type+selector：键入生效时不触发兜底", async () => {
+    let attempts = 0;
+    let value = "";
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-typesel-")),
+      viewFactory: () =>
+        makeFakeView({
+          async click() {},
+          async type(text: string) {
+            attempts++;
+            value = text; // 键入生效：值真实写入
+          },
+          async evaluate(script: string) {
+            if (script.includes("wa-typecheck")) return value;
+            if (script.includes("wa-typeset")) return "SET_OK";
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        selector: "input[type=password]",
+        text: "zz1234",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.fallback).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+describe("操作返回自动检测模态遮罩", () => {
+  function makeModalManager(modalProbe: string) {
+    return new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-modal-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-modal")) return modalProbe;
+            if (script.includes("wa-click-text")) return { found: true, x: 50, y: 60, label: "库存" };
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+  }
+
+  test("操作后页面有可见模态 → 返回体 modalDetected 含模态文本", async () => {
+    const m = makeModalManager("系统功能升级 立即升级");
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", text: "库存" });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.modalDetected).toContain("系统功能升级");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("无模态 → 无 modalDetected 字段", async () => {
+    const m = makeModalManager("");
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", text: "库存" });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.modalDetected).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+describe("dismissModals 弹窗清除", () => {
+  function makeDismissManager(removed: number) {
+    return new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-dismiss-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-dismiss")) return removed;
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+  }
+
+  test("移除模态节点返回 removed 数 + 附快照", async () => {
+    const m = makeDismissManager(5);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "dismissModals" });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.removed).toBe(5);
+      expect(parsed.refCount).toBeDefined(); // 附自动快照
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("无弹窗 → removed 0", async () => {
+    const m = makeDismissManager(0);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "dismissModals" });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.removed).toBe(0);
+    } finally {
+      m.dispose();
+    }
+  });
+});

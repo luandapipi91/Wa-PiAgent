@@ -292,6 +292,31 @@ export function hoverLocateScript(opts: {
 })()`;
 }
 
+/** 模态遮罩探针：返回可见模态的文本摘要（无则空串）。文本快照对遮罩无感知（历史多轮卡点），此探针补盲区 */
+export const MODAL_PROBE = `/* wa-modal */ (() => {
+  const sels = ['.ant-modal-wrap', '.ant-modal-root', '.ant-modal', "[class*='dialog']"];
+  const ms = [];
+  for (const s of sels) {
+    for (const e of document.querySelectorAll(s)) {
+      const r = e.getBoundingClientRect();
+      if (r.width > 100 && r.height > 50 && getComputedStyle(e).display !== 'none') ms.push(e);
+    }
+  }
+  if (!ms.length) return '';
+  const t = (ms[ms.length - 1].innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
+  return t || '检测到弹窗';
+})()`;
+
+/** 弹窗清除脚本：直接移除 ant 系模态节点（遮罩/包装/内容），返回移除数量。
+ * 第六/十二轮实测：比点关闭按钮可靠（不依赖 ref/关闭按钮形态），且遮罩一并清除 */
+export const DISMISS_SCRIPT = `/* wa-dismiss */ (() => {
+  let removed = 0;
+  for (const sel of ['.ant-modal-root', '.ant-modal-wrap', '.ant-modal-mask']) {
+    for (const e of document.querySelectorAll(sel)) { e.remove(); removed++; }
+  }
+  return removed;
+})()`;
+
 /**
  * 生成「按可见文本定位并返回中心坐标」的脚本：在可交互元素（含交互 role/onclick）里
  * 反向遍历取**最深**的文本匹配（避免命中包含同文本的父容器），scrollIntoView 居中后
