@@ -284,7 +284,7 @@ export const BROWSER_EVALUATE_DESCRIPTION = [
   "在浏览器视图中执行 JS 表达式或 DOM 操作（点击/输入/按键/滚动）。所有操作派发原生浏览器事件（event.isTrusted === true）。",
   "操作类 action（click/type/press/scroll/scrollTo）完成后自动附页面文本快照：等待渲染稳定（双帧一致，约 0.25~1s）后与上次对比——有变化返回 snapshot（新增/变化行打 * 前缀），无变化返回 snapshotUnchanged:true；snapshot:false 可跳过。读页面结构/定位元素也可直接用 browser_snapshot。",
   "action:",
-  "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）",
+  "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）。仅用于读计算值、复杂采样等结构化工具无法达成的场景——点击/输入/读文本/等待优先用对应工具（click text、browser_read、browser_wait）",
   "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击，或按 ref 编号点击（编号来自最近一次 browser_snapshot / browser_screenshot annotate:true 的 refs；优先于 selector/x/y）",
   "- type: 向当前焦点元素插入文本（等价粘贴，无 keydown）",
   "- press: 按命名键（Enter/Tab/ArrowDown/Escape...）或单字符+修饰键",

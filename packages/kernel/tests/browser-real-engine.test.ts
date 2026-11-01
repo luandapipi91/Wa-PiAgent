@@ -499,3 +499,43 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
     }
   });
 });
+
+testReal("click text / read / wait 真实引擎：文本点击生效、读文本、等 toast 文本", async () => {
+  const html = `<button id="pd" onclick="document.getElementById('st').textContent='操作成功'">盘点完成</button><span id="st"></span><div id="panel"><span>化石骨贴 20</span></div>`;
+  const url = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+  const screenshotDir = mkdtempSync(join(tmpdir(), "browser-tooling-real-"));
+  const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
+  const sid = sessionId("tooling");
+  try {
+    const nav = await handleBrowserTool(manager, sid, "browser_navigate", { url, snapshot: false });
+    expect(JSON.parse(nav.content[0].text).ok).toBe(true);
+
+    // 1) click text：按文本点「盘点完成」→ 副作用 span 文本变「操作成功」
+    const click = await handleBrowserTool(manager, sid, "browser_evaluate", { action: "click", text: "盘点完成" });
+    const clickParsed = JSON.parse(click.content[0].text) as { ok: boolean; textMatch?: string };
+    expect(clickParsed.ok).toBe(true);
+    expect(clickParsed.textMatch).toContain("盘点完成");
+
+    // 2) wait text：等「操作成功」出现（真实轮询）
+    const wait = await handleBrowserTool(manager, sid, "browser_wait", { text: "操作成功", timeout: 5000 });
+    const waitParsed = JSON.parse(wait.content[0].text) as { ok: boolean; matched: boolean };
+    expect(waitParsed.ok).toBe(true);
+    expect(waitParsed.matched).toBe(true);
+
+    // 3) read：整页文本与子树文本
+    const readAll = await handleBrowserTool(manager, sid, "browser_read", {});
+    const readAllParsed = JSON.parse(readAll.content[0].text) as { ok: boolean; text: string };
+    expect(readAllParsed.ok).toBe(true);
+    expect(readAllParsed.text).toContain("化石骨贴 20");
+    expect(readAllParsed.text).toContain("操作成功");
+
+    const readSel = await handleBrowserTool(manager, sid, "browser_read", { selector: "#panel" });
+    const readSelParsed = JSON.parse(readSel.content[0].text) as { ok: boolean; text: string };
+    expect(readSelParsed.ok).toBe(true);
+    expect(readSelParsed.text).toContain("化石骨贴 20");
+    expect(readSelParsed.text).not.toContain("盘点完成"); // 子树读取不含页面其他部分
+  } finally {
+    manager.dispose();
+    rmSync(screenshotDir, { recursive: true, force: true });
+  }
+});
