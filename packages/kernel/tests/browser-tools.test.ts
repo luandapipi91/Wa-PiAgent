@@ -1202,3 +1202,53 @@ describe("browser_wait 条件等待", () => {
     }
   });
 });
+
+describe("click selector 鲁棒性（无效选择器快速失败+错误引导）", () => {
+  function makeSelManager(clickErr?: Error) {
+    return new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-sel-")),
+      viewFactory: () =>
+        makeFakeView({
+          async click(selectorOrX: string | number) {
+            if (clickErr) throw clickErr;
+            void selectorOrX;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+  }
+
+  test("selector 为字面 null/undefined/空白 → 立即 invalid_click_selector（不烧超时）", async () => {
+    for (const bad of ["null", "undefined", "   "]) {
+      const m = makeSelManager();
+      try {
+        await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+        const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+          action: "click",
+          selector: bad,
+        });
+        expect(JSON.stringify(r)).toContain("invalid_click_selector");
+        expect(r.content[0].text).toContain("text");
+      } finally {
+        m.dispose();
+      }
+    }
+  });
+
+  test("selector 超时未命中 → 错误信息引导 text 定位/snapshot", async () => {
+    const m = makeSelManager(new Error("timeout waiting for '#nope' to be actionable"));
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        selector: "#nope",
+      });
+      expect(JSON.stringify(r)).toContain("invalid_click_selector");
+      expect(r.content[0].text).toContain("#nope");
+      expect(r.content[0].text).toContain("browser_snapshot");
+    } finally {
+      m.dispose();
+    }
+  });
+});

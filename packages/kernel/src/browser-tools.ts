@@ -338,20 +338,43 @@ async function evaluateTool(
         }
         const selector = str(p.selector);
         if (selector) {
-          await runViewOp(
-            () =>
-              view.click(
-                selector,
-                cleanOpts({
-                  button: str(p.button),
-                  modifiers: arr(p.modifiers),
-                  clickCount: num(p.clickCount),
-                  timeout: num(p.timeout),
-                }),
-              ),
-            OPERATION_TIMEOUT_MS,
-            "click",
-          );
+          // 模型常见幻觉参数：selector 传成字面 "null"/"undefined"——快速失败并指向
+          // 文本定位/snapshot，不烧 30s 超时（实测：等待不可动作元素直到 timeout）
+          if (selector === "null" || selector === "undefined" || !selector.trim()) {
+            return errResult(
+              `无效的 selector: "${selector}"。若你想按文本点击，请改传 text 参数（如 text:"按钮文本"）；或先用 browser_snapshot 获取元素 ref`,
+              "invalid_click_selector",
+            );
+          }
+          try {
+            await runViewOp(
+              () =>
+                view.click(
+                  selector,
+                  cleanOpts({
+                    button: str(p.button),
+                    modifiers: arr(p.modifiers),
+                    clickCount: num(p.clickCount),
+                    timeout: num(p.timeout),
+                  }),
+                ),
+              OPERATION_TIMEOUT_MS,
+              "click",
+            );
+          } catch (err) {
+            const msg = errMessage(err);
+            // 超时未命中：给模型一条可操作的出路，而不是裸超时信息
+            if (/timeout|actionable|waiting for/i.test(msg)) {
+              return errResult(
+                `click 超时：selector "${selector}" 未命中可交互元素。可改用 text:"…" 按文本定位，或 browser_snapshot 后按 ref 点击；当前页面 ${view.url}`,
+                "invalid_click_selector",
+              );
+            }
+            return errResult(
+              `browser_evaluate click 失败: ${msg}；当前页面 ${view.url} (${view.title})`,
+              msg,
+            );
+          }
         } else if (typeof p.x === "number" && typeof p.y === "number") {
           // 先收窄到 const，否则 typeof 收窄不会传播进闭包（p 是可变 Record）
           const x = p.x;
