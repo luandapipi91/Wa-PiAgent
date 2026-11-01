@@ -674,3 +674,39 @@ testReal("密码框打码可区分：空显示空串，有值显示打码（type
     rmSync(screenshotDir, { recursive: true, force: true });
   }
 });
+
+testReal("navigate 同站 hash 路由：秒回不走 load 等待，页面路由生效", async () => {
+  // 页面本身监听 hashchange 更新标题——模拟 SPA hash 路由
+  const server = Bun.serve({
+    port: 0,
+    fetch: () =>
+      new Response(
+        `<div>spa</div><script>addEventListener("hashchange", () => { document.title = location.hash; });</script>`,
+        { headers: { "Content-Type": "text/html" } },
+      ),
+  });
+  const base = `http://127.0.0.1:${server.port}/`;
+  const screenshotDir = mkdtempSync(join(tmpdir(), "browser-hashnav-real-"));
+  const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
+  const sid = sessionId("hashnav");
+  try {
+    const t0 = Date.now();
+    const nav = await handleBrowserTool(manager, sid, "browser_navigate", {
+      url: base + "#/stock/stockInventory/goodsInventory",
+    });
+    const elapsed = Date.now() - t0;
+    const parsed = JSON.parse(nav.content[0].text) as { ok: boolean; hashNav?: boolean };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.hashNav).toBe(true);
+    expect(elapsed).toBeLessThan(10_000); // 秒回，不是 120s load 等待
+    const title = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "eval",
+      script: `document.title`,
+    });
+    expect(JSON.parse(title.content[0].text).result).toContain("goodsInventory");
+  } finally {
+    manager.dispose();
+    server.stop(true);
+    rmSync(screenshotDir, { recursive: true, force: true });
+  }
+});

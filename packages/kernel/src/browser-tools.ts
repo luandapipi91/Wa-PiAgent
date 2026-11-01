@@ -169,6 +169,41 @@ async function navigateTool(
     });
     // headless UA → 同机桌面 Chrome UA（首次导航前；失败静默跳过不阻断导航）
     await manager.prepareUserAgent?.(state);
+    // 同站 hash 路由跳转：目标 URL 与当前页面同 origin 且带 hash 时，直接 eval 改
+    // location.hash——WebView.navigate 对 SPA hash 路由会等 load 事件挂起到超时
+    // （第五轮实测 120s，页面实际早已渲染）。blob: 文档的 origin 即来源站点 origin，
+    // 同样命中本分支。
+    try {
+      const cur = new URL(state.view.url);
+      const tgt = new URL(url);
+      if (
+        cur.origin === tgt.origin &&
+        tgt.hash &&
+        tgt.hash !== cur.hash &&
+        state.view.url !== "about:blank"
+      ) {
+        await runViewOp(
+          () =>
+            state.view.evaluate(
+              `location.hash = ${JSON.stringify(tgt.hash)}; 'ok'`,
+            ),
+          OPERATION_TIMEOUT_MS,
+          "hash 跳转",
+        );
+        const result = {
+          ok: true,
+          sessionId,
+          url: state.view.url,
+          title: state.view.title,
+          loading: state.view.loading,
+          hashNav: true,
+        };
+        if (p.snapshot !== false) await attachAutoSnapshot(state, result);
+        return textResult(JSON.stringify(result), result);
+      }
+    } catch {
+      // URL 解析失败（如 about:blank）→ 走正常导航
+    }
     await runViewOp(() => state.view.navigate(url), timeoutMs, "页面加载");
     // fresh：清当前 origin 登录态（localStorage/sessionStorage/非 HttpOnly cookie）后刷新，
     // 回归测试干净起步——清除必须在目标页面上下文里做（localStorage 按 origin 隔离），

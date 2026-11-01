@@ -1474,3 +1474,41 @@ describe("fresh 二次加载与文本归一化", () => {
     }
   });
 });
+
+describe("navigate 同站 hash 路由跳转", () => {
+  test("同 origin 且目标带 hash → eval 改 hash 秒回（不走 navigate 的 load 等待）", async () => {
+    let navCount = 0;
+    const evals: string[] = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-hashnav-")),
+      viewFactory: () =>
+        makeFakeView({
+          get url() {
+            return "blob:https://hlk.meiguanjia.net/921d";
+          },
+          async navigate() {
+            navCount++;
+          },
+          async evaluate(script: string) {
+            evals.push(script);
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      // 首次 getOrCreate：用一次普通导航建立会话（blob 页面上）
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "https://hlk.meiguanjia.net/#/stock/stockInventory/goodsInventory",
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.hashNav).toBe(true);
+      expect(evals.find((s) => s.includes("location.hash"))).toBeDefined();
+      expect(navCount).toBe(0); // 全程不触发 WebView.navigate（避免 load 挂起）
+    } finally {
+      m.dispose();
+    }
+  });
+});
