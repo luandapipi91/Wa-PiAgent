@@ -185,7 +185,9 @@ async function navigateTool(
         await runViewOp(
           () =>
             state.view.evaluate(
-              `location.hash = ${JSON.stringify(tgt.hash)}; 'ok'`,
+              // IIFE 单表达式（evaluate 是表达式语义，裸多语句语法错误）；
+              // location.hash 赋值触发同文档导航，绝不能用裸语句
+              `(() => { location.hash = ${JSON.stringify(tgt.hash)}; return "ok"; })()`,
             ),
           OPERATION_TIMEOUT_MS,
           "hash 跳转",

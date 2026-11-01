@@ -690,6 +690,13 @@ testReal("navigate 同站 hash 路由：秒回不走 load 等待，页面路由�
   const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
   const sid = sessionId("hashnav");
   try {
+    // 1) 普通导航建立页面（冷启动场景）
+    let t0b = Date.now();
+    const nav0 = await handleBrowserTool(manager, sid, "browser_navigate", { url: base, snapshot: false });
+    console.log("nav0 耗时:", Date.now() - t0b);
+    expect(JSON.parse(nav0.content[0].text).ok).toBe(true);
+
+    // 2) 同站 hash 跳转：秒回不走 load 等待，页面路由生效
     const t0 = Date.now();
     const nav = await handleBrowserTool(manager, sid, "browser_navigate", {
       url: base + "#/stock/stockInventory/goodsInventory",
