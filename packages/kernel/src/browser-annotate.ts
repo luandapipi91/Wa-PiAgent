@@ -306,10 +306,22 @@ export function clickTextScript(text: string): string {
     const r = el.getBoundingClientRect(), s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
   };
+  const drillDown = (el) => {
+    // 容器命中（class 含 menu/tab 但自身是导航条外壳）时向下钻到仍包含目标的
+    // 最深可见后代，避免点到容器中心落空（实测导航条 textMatch 整行）
+    let cur = el;
+    for (;;) {
+      const kids = [...cur.children].filter(visible);
+      const deeper = kids.find((k) => String(k.innerText || '').includes(q));
+      if (!deeper) return cur;
+      cur = deeper;
+    }
+  };
   for (let i = els.length - 1; i >= 0; i--) {
-    const el = els[i];
-    const t = String(el.innerText || el.value || el.getAttribute('aria-label') || el.title || '');
-    if (!t.includes(q) || !visible(el)) continue;
+    const el0 = els[i];
+    const t0 = String(el0.innerText || el0.value || el0.getAttribute('aria-label') || el0.title || '');
+    if (!t0.includes(q) || !visible(el0)) continue;
+    const el = drillDown(el0);
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const b = el.getBoundingClientRect();
     const label = t.trim().replace(/\\s+/g, ' ').slice(0, 40);

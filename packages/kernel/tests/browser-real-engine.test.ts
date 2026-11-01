@@ -619,3 +619,26 @@ testReal("navigate fresh：残留 localStorage/sessionStorage/cookie 被清除",
     rmSync(screenshotDir, { recursive: true, force: true });
   }
 });
+
+testReal("click text 容器下钻：class 含 menu 的导航容器命中后钻到真实目标子元素", async () => {
+  const html = `<div class="nav-menu" style="width:300px"><span onclick="document.title='wrong'">收银</span><span id="inv" onclick="document.title='inv'">库存</span></div>`;
+  const url = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+  const screenshotDir = mkdtempSync(join(tmpdir(), "browser-drill-real-"));
+  const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
+  const sid = sessionId("drill");
+  try {
+    await handleBrowserTool(manager, sid, "browser_navigate", { url, snapshot: false });
+    const r = await handleBrowserTool(manager, sid, "browser_evaluate", { action: "click", text: "库存" });
+    const parsed = JSON.parse(r.content[0].text) as { ok: boolean; textMatch?: string };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.textMatch).toBe("库存"); // 下钻后 label 是子元素的，不是容器整行
+    const title = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "eval",
+      script: `document.title`,
+    });
+    expect(JSON.parse(title.content[0].text).result).toBe("inv"); // 点中的是「库存」不是「收银」
+  } finally {
+    manager.dispose();
+    rmSync(screenshotDir, { recursive: true, force: true });
+  }
+});

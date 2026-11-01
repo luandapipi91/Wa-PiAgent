@@ -234,3 +234,12 @@ describe("clickTextScript 与 hover 元素集合一致性", () => {
     expect(s).toContain("i--");
   });
 });
+
+describe("clickTextScript 容器下钻", () => {
+  test("命中元素后向下钻取包含文本的最深后代（防容器误点）", () => {
+    const s = clickTextScript("库存");
+    // 下钻循环：命中容器后沿 children 找仍包含目标的更深后代
+    expect(s).toContain("deeper");
+    expect(s).toContain("children");
+  });
+});
