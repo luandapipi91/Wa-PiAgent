@@ -243,3 +243,11 @@ describe("clickTextScript 容器下钻", () => {
     expect(s).toContain("children");
   });
 });
+
+describe("clickTextScript 全半角归一化", () => {
+  test("查询与元素文本都做全半角括号归一化后再匹配", () => {
+    const s = clickTextScript("化骨贴(大)");
+    // 归一化函数：全角括号 → 半角
+    expect(s).toContain("normalize");
+  });
+});

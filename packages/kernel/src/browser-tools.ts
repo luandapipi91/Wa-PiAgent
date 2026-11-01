@@ -175,15 +175,16 @@ async function navigateTool(
     // 故先航到目标再清再刷。
     let fresh = false;
     if (p.fresh === true) {
+      // 清存储 + location.reload 同一次 evaluate：reload 不占导航槽，避免
+      // 双 navigate 在慢首载时连锁 navigation already pending（第四轮验收实测）
       await runViewOp(
         () =>
           state.view.evaluate(
-            "(() => { try { localStorage.clear(); sessionStorage.clear(); const ks = document.cookie.split(';'); for (const k of ks) document.cookie = k.split('=')[0] + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/'; } catch {} return 'cleared'; })()",
+            "(() => { try { localStorage.clear(); sessionStorage.clear(); const ks = document.cookie.split(';'); for (const k of ks) document.cookie = k.split('=')[0] + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/'; } catch {} location.reload(); return 'reloading'; })()",
           ),
         OPERATION_TIMEOUT_MS,
-        "fresh 清理",
+        "fresh 清理+刷新",
       );
-      await runViewOp(() => state.view.navigate(url), timeoutMs, "页面加载(fresh 刷新)");
       fresh = true;
     }
     // 导航后 DOM 更换，上一轮 annotate 的 ref 全部失效，清空缓存（refs 属性引用的旧元素已不存在）

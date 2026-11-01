@@ -1356,7 +1356,7 @@ describe("browser_navigate fresh 干净起步", () => {
     return { m, getNavCount: () => navCount, evals };
   }
 
-  test("fresh:true → 导航后清存储并二次导航（共 2 次 navigate）", async () => {
+  test("fresh:true → 清存储后 location.reload 刷新（不占导航槽，共 1 次 navigate）", async () => {
     const { m, getNavCount, evals } = makeFreshManager();
     try {
       const r = await handleBrowserTool(m, "s1", "browser_navigate", {
@@ -1366,11 +1366,12 @@ describe("browser_navigate fresh 干净起步", () => {
       const parsed = JSON.parse(r.content[0].text);
       expect(parsed.ok).toBe(true);
       expect(parsed.fresh).toBe(true);
-      expect(getNavCount()).toBe(2); // 首航到目标 origin → 清存储 → 刷新
+      expect(getNavCount()).toBe(1); // 只有一次真实导航，刷新走 reload（避免 pending 连锁）
       const clear = evals.find((s) => s.includes("localStorage.clear"));
       expect(clear).toBeDefined();
       expect(clear).toContain("sessionStorage");
       expect(clear).toContain("cookie");
+      expect(clear).toContain("location.reload");
     } finally {
       m.dispose();
     }
@@ -1439,6 +1440,35 @@ describe("browser_wait hash 条件（SPA 路由）", () => {
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
       const r = await handleBrowserTool(m, "s1", "browser_wait", { hash: "never", timeout: 600 });
       expect(JSON.stringify(r)).toContain("wait_timeout");
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+describe("fresh 二次加载与文本归一化", () => {
+  test("fresh 清存储后用 location.reload 刷新（不占导航槽，避免 pending 连锁）", async () => {
+    let navCount = 0;
+    const evals: string[] = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-fresh2-")),
+      viewFactory: () =>
+        makeFakeView({
+          async navigate() {
+            navCount++;
+          },
+          async evaluate(script: string) {
+            evals.push(script);
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", fresh: true });
+      expect(navCount).toBe(1); // 只有一次真实导航，刷新走 reload
+      expect(evals.find((s) => s.includes("location.reload"))).toBeDefined();
     } finally {
       m.dispose();
     }

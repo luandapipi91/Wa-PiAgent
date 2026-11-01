@@ -305,6 +305,8 @@ export function clickTextScript(text: string): string {
   // 与 hoverLocateScript 保持同一集合，避免「hover 能悬停的 click 找不到」
   const SEL = 'a,button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],[role="checkbox"],[role="radio"],[onclick],[class*="menu"],[class*="tab"],[class*="dropdown"],[class*="btn"],[class*="button"]';
   const els = [...document.querySelectorAll(SEL)];
+  // 全半角括号归一化：产品名含全角括号、模型查询常用半角，归一后才匹配（第四轮实测）
+  const normalize = (s) => String(s).replace(/（/g, '(').replace(/）/g, ')');
   const visible = (el) => {
     const r = el.getBoundingClientRect(), s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
@@ -315,15 +317,15 @@ export function clickTextScript(text: string): string {
     let cur = el;
     for (;;) {
       const kids = [...cur.children].filter(visible);
-      const deeper = kids.find((k) => String(k.innerText || '').includes(q));
+      const deeper = kids.find((k) => normalize(String(k.innerText || '')).includes(normalize(q)));
       if (!deeper) return cur;
       cur = deeper;
     }
   };
   for (let i = els.length - 1; i >= 0; i--) {
     const el0 = els[i];
-    const t0 = String(el0.innerText || el0.value || el0.getAttribute('aria-label') || el0.title || '');
-    if (!t0.includes(q) || !visible(el0)) continue;
+    const t0 = normalize(String(el0.innerText || el0.value || el0.getAttribute('aria-label') || el0.title || ''));
+    if (!t0.includes(normalize(q)) || !visible(el0)) continue;
     const el = drillDown(el0);
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const b = el.getBoundingClientRect();
