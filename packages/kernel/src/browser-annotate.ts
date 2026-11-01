@@ -244,6 +244,52 @@ function kindOf(r: BrowserSnapshotRef): string {
 }
 
 /**
+ * 生成「按可见文本定位并返回中心坐标」的悬停定位脚本：selector 优先（精确），否则按
+ * 文本子串在可交互元素+自绘 pointer 元素里反向遍历取**最深**匹配。scrollIntoView 居中后
+ * 返回 { found:true, x, y, label } 或 { found:false }。文本经 JSON.stringify 转义防注入。
+ * 首行 wa-hover 标记供测试/fake 识别（hover 动作用：定位后经 CDP 真实鼠标移动触发悬停）。
+ */
+export function hoverLocateScript(opts: {
+  selector?: string;
+  text?: string;
+}): string {
+  const sel = opts.selector ? JSON.stringify(opts.selector) : "null";
+  const q = JSON.stringify(opts.text ?? "");
+  return `/* wa-hover */ (() => {
+  const sel = ${sel}, q = ${q};
+  let el = null;
+  if (sel) {
+    el = document.querySelector(sel);
+  } else {
+    const SEL = 'a,button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],[onclick],[class*="tab"],[class*="menu"],[class*="dropdown"]';
+    const els = [...document.querySelectorAll(SEL)];
+    for (let i = els.length - 1; i >= 0; i--) {
+      const e = els[i];
+      const t = String(e.innerText || e.getAttribute('aria-label') || e.title || '');
+      if (t.includes(q)) { el = e; break; }
+    }
+    if (!el) {
+      const all = [...document.querySelectorAll('body *')];
+      for (let i = all.length - 1; i >= 0; i--) {
+        const e = all[i];
+        if (getComputedStyle(e).cursor !== 'pointer') continue;
+        const t = String(e.innerText || e.getAttribute('aria-label') || e.title || '');
+        if (t.includes(q) && t.length < 60) { el = e; break; }
+      }
+    }
+  }
+  if (!el) return { found: false };
+  const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+  if (r.width <= 0 || r.height <= 0 || s.visibility === 'hidden' || s.display === 'none') return { found: false };
+  el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+  const b = el.getBoundingClientRect();
+  let label = String(el.innerText || el.getAttribute('aria-label') || el.title || '');
+  label = label.trim().replace(/\\s+/g, ' ').slice(0, 40);
+  return { found: true, x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2), label: label };
+})()`;
+}
+
+/**
  * 生成「按可见文本定位并返回中心坐标」的脚本：在可交互元素（含交互 role/onclick）里
  * 反向遍历取**最深**的文本匹配（避免命中包含同文本的父容器），scrollIntoView 居中后
  * 返回 { found:true, x, y, label } 或 { found:false }。目标文本经 JSON.stringify 转义嵌入，

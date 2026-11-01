@@ -14,6 +14,7 @@ import {
   clickTextScript,
   diffSnapshotLines,
   formatSnapshot,
+  hoverLocateScript,
   resolveRefScript,
 } from "../src/browser-annotate";
 
@@ -201,5 +202,23 @@ describe("clickTextScript 文本定位脚本", () => {
     expect(s).toContain("scrollIntoView");
     // 反向遍历取最深匹配（避免命中含同文本的父容器）
     expect(s).toContain("i--");
+  });
+});
+
+describe("hoverLocateScript 悬停定位脚本", () => {
+  test("合法 JS；文本经 JSON 转义；含 selector 与文本两种模式", () => {
+    const byText = hoverLocateScript({ text: "库存" });
+    expect(() => new Function(byText)).not.toThrow();
+    expect(byText).toContain("wa-hover");
+    expect(byText).toContain("库存");
+    const bySel = hoverLocateScript({ selector: "#dd" });
+    expect(() => new Function(bySel)).not.toThrow();
+    expect(bySel).toContain("#dd");
+  });
+
+  test("恶意文本被 JSON 转义（防注入）", () => {
+    const s = hoverLocateScript({ text: '"); alert(1); ("' });
+    expect(() => new Function(s)).not.toThrow();
+    expect(s).not.toContain('alert(1); ("');
   });
 });

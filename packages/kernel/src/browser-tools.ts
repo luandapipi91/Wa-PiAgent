@@ -17,6 +17,7 @@ import {
   SNAPSHOT_SCRIPT,
   captureStableSnapshot,
   clickTextScript,
+  hoverLocateScript,
   diffSnapshotLines,
   formatSnapshot,
   resolveRefScript,
@@ -238,6 +239,59 @@ async function evaluateTool(
             `…（截断，原长 ${payload.length}）`;
         }
         return textResult(payload, { ok: true });
+      }
+      case "hover": {
+        // 悬停：定位元素中心后经 CDP 派发真实 mouseMoved（isTrusted），触发 ant 等
+        // 组件的 mouseenter 悬停下拉——合成事件（el.dispatchEvent）触发不了，这是
+        // 后台系统导航的最大坑。定位优先级与 click 相同：selector 优先，其次文本。
+        const hasCdp = typeof view.cdp === "function";
+        if (!hasCdp) {
+          return errResult(
+            "hover 需要支持 CDP 的 Chrome 后端（当前引擎不可用）",
+            "hover_unavailable",
+          );
+        }
+        const hoverSelector = str(p.selector);
+        const hoverText = str(p.text);
+        if (hoverSelector === undefined && hoverText === undefined) {
+          return errResult(
+            "action=hover 需要 selector 或 text 参数",
+            "missing_hover_target",
+          );
+        }
+        const loc = (await runViewOp(
+          () =>
+            view.evaluate(
+              hoverLocateScript({ selector: hoverSelector, text: hoverText }),
+            ),
+          OPERATION_TIMEOUT_MS,
+          "hover",
+        )) as { found?: boolean; x?: number; y?: number; label?: string } | undefined;
+        if (!loc || loc.found !== true || typeof loc.x !== "number" || typeof loc.y !== "number") {
+          return errResult(
+            `未找到悬停目标（${hoverSelector ?? `文本 "${hoverText}"`}）；可先用 browser_snapshot 查看页面`,
+            "hover_target_not_found",
+          );
+        }
+        const hx = loc.x;
+        const hy = loc.y;
+        await runViewOp(
+          () =>
+            view.cdp!("Input.dispatchMouseEvent", {
+              type: "mouseMoved",
+              x: hx,
+              y: hy,
+              button: "none",
+              pointerType: "mouse",
+            }),
+          OPERATION_TIMEOUT_MS,
+          "hover move",
+        );
+        return opResult(
+          state,
+          { ok: true, action: "hover", hovered: loc.label ?? hoverSelector ?? hoverText, x: hx, y: hy },
+          wantSnapshot,
+        );
       }
       case "click": {
         // ref 编号定位（优先于 selector/x/y）：来自最近一次 annotate 截图的 refs。

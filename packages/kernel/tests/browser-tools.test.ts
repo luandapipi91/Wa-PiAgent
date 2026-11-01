@@ -1252,3 +1252,84 @@ describe("click selector 鲁棒性（无效选择器快速失败+错误引导）
     }
   });
 });
+
+describe("browser_evaluate hover 悬停动作", () => {
+  function makeHoverManager(locResult: unknown, withCdp = true) {
+    const cdpCalls: Array<{ method: string; params?: unknown }> = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-hover-")),
+      viewFactory: () => {
+        const base = makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-hover")) return locResult;
+            return script;
+          },
+        }) as WebViewLike & { cdp?: unknown };
+        if (withCdp) {
+          base.cdp = async (method: string, params?: unknown) => {
+            cdpCalls.push({ method, params });
+            return {};
+          };
+        }
+        return base;
+      },
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return { m, cdpCalls };
+  }
+
+  test("hover text：定位后 CDP 真实鼠标移动 + 附快照", async () => {
+    const { m, cdpCalls } = makeHoverManager({ found: true, x: 131, y: 42, label: "库存" });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "hover", text: "库存" });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.hovered).toContain("库存");
+      const mv = cdpCalls.find((c) => c.method === "Input.dispatchMouseEvent");
+      expect(mv).toBeDefined();
+      expect((mv!.params as { type: string }).type).toBe("mouseMoved");
+      expect((mv!.params as { x: number }).x).toBe(131);
+      expect((mv!.params as { y: number }).y).toBe(42);
+      expect(parsed.refCount).toBeDefined(); // 附自动快照
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("hover selector 模式", async () => {
+    const { m, cdpCalls } = makeHoverManager({ found: true, x: 50, y: 60, label: "下拉" });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "hover", selector: ".tab_select" });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect((cdpCalls[0].params as { x: number }).x).toBe(50);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("未找到目标 → hover_target_not_found", async () => {
+    const { m } = makeHoverManager({ found: false });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "hover", text: "不存在" });
+      expect(JSON.stringify(r)).toContain("hover_target_not_found");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("引擎无 CDP → hover_unavailable（提示需要 Chrome 后端）", async () => {
+    const { m } = makeHoverManager({ found: true, x: 1, y: 1 }, false);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "hover", text: "库存" });
+      expect(JSON.stringify(r)).toContain("hover_unavailable");
+    } finally {
+      m.dispose();
+    }
+  });
+});

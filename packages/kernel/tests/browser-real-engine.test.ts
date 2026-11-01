@@ -539,3 +539,49 @@ testReal("click text / read / wait 真实引擎：文本点击生效、读文本
     rmSync(screenshotDir, { recursive: true, force: true });
   }
 });
+
+testReal("hover 真实引擎：CDP 鼠标移动触发 mouseenter 展开下拉并可点击", async () => {
+  const html = `<div id="dd" style="width:80px;height:30px" onmouseenter="document.getElementById('menu').style.display='block'">库存</div><ul id="menu" style="display:none"><li id="item" onclick="document.title='opened'">产品盘点</li></ul>`;
+  const url = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+  const screenshotDir = mkdtempSync(join(tmpdir(), "browser-hover-real-"));
+  const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
+  const sid = sessionId("hover");
+  try {
+    const nav = await handleBrowserTool(manager, sid, "browser_navigate", { url, snapshot: false });
+    expect(JSON.parse(nav.content[0].text).ok).toBe(true);
+
+    // 初始 menu 隐藏
+    const before = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "eval",
+      script: `getComputedStyle(document.getElementById("menu")).display`,
+    });
+    expect(JSON.parse(before.content[0].text).result).toBe("none");
+
+    // hover 触发 mouseenter → menu 显示
+    const hover = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "hover",
+      selector: "#dd",
+    });
+    expect(JSON.parse(hover.content[0].text).ok).toBe(true);
+    const after = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "eval",
+      script: `getComputedStyle(document.getElementById("menu")).display`,
+    });
+    expect(JSON.parse(after.content[0].text).result).toBe("block");
+
+    // 点击展开后的菜单项 → onclick 生效
+    const click = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "click",
+      selector: "#item",
+    });
+    expect(JSON.parse(click.content[0].text).ok).toBe(true);
+    const title = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "eval",
+      script: `document.title`,
+    });
+    expect(JSON.parse(title.content[0].text).result).toBe("opened");
+  } finally {
+    manager.dispose();
+    rmSync(screenshotDir, { recursive: true, force: true });
+  }
+});
