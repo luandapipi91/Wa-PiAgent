@@ -642,3 +642,35 @@ testReal("click text 容器下钻：class 含 menu 的导航容器命中后钻�
     rmSync(screenshotDir, { recursive: true, force: true });
   }
 });
+
+testReal("密码框打码可区分：空显示空串，有值显示打码（type 后可感知）", async () => {
+  const html = `<input id="pw" type="password" placeholder="请输入登录密码">`;
+  const url = "data:text/html;charset=utf-8," + encodeURIComponent(html);
+  const screenshotDir = mkdtempSync(join(tmpdir(), "browser-mask-real-"));
+  const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
+  const sid = sessionId("mask");
+  try {
+    await handleBrowserTool(manager, sid, "browser_navigate", { url, snapshot: false });
+    // 空密码框：value 显示空串（不是打码）
+    const empty = await handleBrowserTool(manager, sid, "browser_snapshot", {});
+    const emptyParsed = JSON.parse(empty.content[0].text) as { snapshot: string };
+    const emptyLine = emptyParsed.snapshot.split("\n").find((l) => l.includes("textbox"));
+    expect(emptyLine).toBeDefined();
+    expect(emptyLine).not.toContain("••••••");
+
+    // 聚焦 + 输入 → 快照出现打码（与空可区分，type 生效可感知）
+    await handleBrowserTool(manager, sid, "browser_evaluate", { action: "click", selector: "#pw", snapshot: false });
+    const typed = await handleBrowserTool(manager, sid, "browser_evaluate", { action: "type", text: "zz1234" });
+    const typedParsed = JSON.parse(typed.content[0].text) as {
+      ok: boolean;
+      snapshot?: string;
+      snapshotUnchanged?: boolean;
+    };
+    expect(typedParsed.ok).toBe(true);
+    expect(typedParsed.snapshot).toContain("••••••");
+    expect(typedParsed.snapshotUnchanged).toBeUndefined();
+  } finally {
+    manager.dispose();
+    rmSync(screenshotDir, { recursive: true, force: true });
+  }
+});

@@ -108,7 +108,10 @@ export const SNAPSHOT_SCRIPT: string = `(() => {
     const isCheck = tag === 'input' && (type === 'checkbox' || type === 'radio');
     let value = undefined;
     if (tag === 'input' && !isCheck && type !== 'submit' && type !== 'button') {
-      value = type === 'password' ? '••••••' : String(el.value ?? '').slice(0, 40);
+      // 密码框：空显示空串、非空才打码——否则 type 前后快照无变化，agent 无法感知输入生效
+      value = type === 'password'
+        ? (el.value ? '••••••' : '')
+        : String(el.value ?? '').slice(0, 40);
     }
     const native = ['a','button','input','select','textarea'].includes(tag);
     refs['@' + n] = {
