@@ -4,11 +4,15 @@
 // 这里验证：脚本合法性（可被 new Function 解析）、关键行为标记（清除旧标注、
 // scrollIntoView）、枚举上限常量，以及 resolveRefScript 对非法入参的防注入校验。
 import { describe, expect, test } from "bun:test";
+import type { WebViewLike } from "../src/browser-manager";
 import {
   ANNOTATE_SCRIPT,
   INTERACTIVE_ROLE_SELECTOR,
   MAX_ANNOTATED_ELEMENTS,
   SNAPSHOT_SCRIPT,
+  captureStableSnapshot,
+  diffSnapshotLines,
+  formatSnapshot,
   resolveRefScript,
 } from "../src/browser-annotate";
 
@@ -74,5 +78,86 @@ describe("SNAPSHOT_SCRIPT 文本快照注入脚本", () => {
   test("枚举上限与 ANNOTATE_SCRIPT 同源（MAX_ANNOTATED_ELEMENTS 插值）", () => {
     expect(SNAPSHOT_SCRIPT).toContain(String(MAX_ANNOTATED_ELEMENTS));
     expect(MAX_ANNOTATED_ELEMENTS).toBe(200);
+  });
+});
+
+describe("captureStableSnapshot 渲染稳定检测", () => {
+  // fake view：每次快照 evaluate 按次序返回帧序列（最后一帧重复返回）
+  function frameView(frames: Record<string, unknown>[]): WebViewLike {
+    let i = 0;
+    return {
+      url: "about:blank",
+      title: "",
+      loading: false,
+      async navigate() {},
+      async evaluate(script: string) {
+        if (!script.includes("data-wa-ref")) return script;
+        return frames[Math.min(i++, frames.length - 1)];
+      },
+      async click() {},
+      async type() {},
+      async press() {},
+      async scroll() {},
+      async scrollTo() {},
+      async screenshot() {
+        return Buffer.from([0]);
+      },
+      close() {},
+    } as unknown as WebViewLike;
+  }
+  const A = { "@1": { n: 1, tag: "button", label: "a", x: 1, y: 1 } };
+  const B = { "@1": { n: 1, tag: "button", label: "b", x: 1, y: 1 } };
+  const OPTS = { intervalMs: 1, maxFrames: 4 };
+
+  test("相邻两帧一致 → 立即稳定返回该帧", async () => {
+    const r = await captureStableSnapshot(frameView([A, A]), OPTS);
+    expect(formatSnapshot(r.refs)).toContain('"a"');
+  });
+
+  test("渲染中逐帧变化 → 取到一致的那帧", async () => {
+    const r = await captureStableSnapshot(frameView([A, B, B]), OPTS);
+    expect(formatSnapshot(r.refs)).toContain('"b"');
+  });
+
+  test("持续变化超帧数预算 → 取末帧降级（不报错）", async () => {
+    const r = await captureStableSnapshot(frameView([A, B, A, B, A]), {
+      intervalMs: 1,
+      maxFrames: 4,
+    });
+    expect(formatSnapshot(r.refs)).toContain('"b"');
+  });
+
+  test("单帧也成立（页面已静止）", async () => {
+    const r = await captureStableSnapshot(frameView([B]), {
+      intervalMs: 1,
+      maxFrames: 4,
+    });
+    expect(formatSnapshot(r.refs)).toContain('"b"');
+  });
+});
+
+describe("diffSnapshotLines 差值标记", () => {
+  const prev = '@1 button "登 录"\n@2 textbox "手机号" = ""';
+
+  test("无基准（首次）→ 原样不打星", () => {
+    expect(diffSnapshotLines(undefined, prev)).toBe(prev);
+  });
+
+  test("新增行打星，旧行保持原样", () => {
+    const next = `${prev}\n@3 button "搜索"`;
+    const out = diffSnapshotLines(prev, next);
+    expect(out).toContain('* @3 button "搜索"');
+    expect(out.split("\n")).toContain('@1 button "登 录"'); // 无星
+  });
+
+  test("值变化的行视为新行打星", () => {
+    const next = prev.replace('= ""', '= "132"');
+    const out = diffSnapshotLines(prev, next);
+    expect(out).toContain('* @2 textbox "手机号" = "132"');
+    expect(out.split("\n")).toContain('@1 button "登 录"'); // 无星
+  });
+
+  test("完全相同 → 原样无星（外层应走 unchanged 分支）", () => {
+    expect(diffSnapshotLines(prev, prev)).toBe(prev);
   });
 });

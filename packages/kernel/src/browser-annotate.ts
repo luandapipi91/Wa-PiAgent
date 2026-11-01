@@ -141,6 +141,58 @@ export interface BrowserSnapshotRef {
   y: number;
 }
 
+/** 稳定检测选项（单测注入小间隔/少帧数；生产默认 250ms × 4 帧 ≈ 总等待 750ms） */
+export interface StableSnapshotOptions {
+  intervalMs?: number;
+  maxFrames?: number;
+}
+
+/**
+ * 带渲染稳定检测的快照抓取：每帧注入 SNAPSHOT_SCRIPT，相邻两帧格式化文本一致即认为
+ * 渲染已稳定并返回该帧；持续变化（动画/轮询）超过帧数预算则取末帧降级（不报错，
+ * 与 nexus-browser 的 fallback 策略同型）。kernel 侧循环而非页面内 await：复用
+ * runViewOp 的单槽重试语义，且帧序列可被 fake view 精确控制便于测试。
+ */
+export async function captureStableSnapshot(
+  view: { evaluate(script: string): Promise<unknown> },
+  opts: StableSnapshotOptions = {},
+): Promise<{ refs: Record<string, BrowserSnapshotRef>; text: string }> {
+  const intervalMs = opts.intervalMs ?? 250;
+  const maxFrames = opts.maxFrames ?? 4;
+  let prevText: string | null = null;
+  let last: { refs: Record<string, BrowserSnapshotRef>; text: string } | undefined;
+  for (let frame = 0; frame < maxFrames; frame++) {
+    if (frame > 0) await Bun.sleep(intervalMs);
+    const raw = await view.evaluate(SNAPSHOT_SCRIPT);
+    const refs = (raw && typeof raw === "object" ? raw : {}) as Record<
+      string,
+      BrowserSnapshotRef
+    >;
+    const text = formatSnapshot(refs);
+    if (prevText !== null && text === prevText) return { refs, text };
+    prevText = text;
+    last = { refs, text };
+  }
+  return last!;
+}
+
+/**
+ * 差值标记：与上次快照文本逐行对比，新出现（或值变化导致文本不同）的行打 "* " 前缀
+ * （browser-use 同款变化高亮）；无基准（首次）或完全一致时原样返回（一致时外层应走
+ * snapshotUnchanged 分支）。
+ */
+export function diffSnapshotLines(
+  prev: string | undefined,
+  next: string,
+): string {
+  if (prev === undefined) return next;
+  const prevLines = new Set(prev.split("\n"));
+  return next
+    .split("\n")
+    .map((line) => (prevLines.has(line) ? line : `* ${line}`))
+    .join("\n");
+}
+
 /**
  * 把快照 refs 格式化为 agent-browser 风格的文本行（一行一个元素），供模型直接阅读定位：
  * @2 button "登 录" / @1 textbox "手机号" = "132" / @3 checkbox "同意协议" [checked] / @4 generic "深圳1测试店" (pointer)
