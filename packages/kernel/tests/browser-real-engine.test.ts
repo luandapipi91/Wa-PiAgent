@@ -432,4 +432,70 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
       rmSync(screenshotDir, { recursive: true, force: true });
     }
   });
+
+  testReal("操作后自动快照：navigate 附首帧 / type 后星号回显 / 无变化 unchanged", async () => {
+    const autoHtml = `<input id="inp" placeholder="ph"><button id="noop" onclick="void(0)">noop</button><button id="t" onclick="document.title='t2'">t</button>`;
+    const autoUrl = "data:text/html;charset=utf-8," + encodeURIComponent(autoHtml);
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-autosnap-real-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    const sid = sessionId("autosnap");
+    try {
+      // 1) navigate：返回体自动附快照，input 以 textbox 行出现
+      const nav = await handleBrowserTool(manager, sid, "browser_navigate", { url: autoUrl });
+      const navParsed = JSON.parse(nav.content[0].text) as {
+        ok: boolean;
+        snapshot?: string;
+        refCount?: number;
+      };
+      expect(navParsed.ok).toBe(true);
+      expect(navParsed.snapshot).toContain("textbox");
+      expect(navParsed.refCount!).toBeGreaterThanOrEqual(3);
+
+      // 2) 聚焦输入框（无 DOM 变化）→ snapshotUnchanged
+      await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "click",
+        selector: "#inp",
+      });
+      const focusRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "click",
+        selector: "#inp",
+        snapshot: false,
+      });
+      expect(JSON.parse(focusRes.content[0].text).ok).toBe(true);
+
+      // 3) type 输入 → 快照打星且 value 回显
+      const typeRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "type",
+        text: "138",
+      });
+      const typeParsed = JSON.parse(typeRes.content[0].text) as {
+        ok: boolean;
+        snapshot?: string;
+        snapshotUnchanged?: boolean;
+      };
+      expect(typeParsed.ok).toBe(true);
+      expect(typeParsed.snapshot).toContain('= "138"');
+      expect(typeParsed.snapshot).toContain("* ");
+      expect(typeParsed.snapshotUnchanged).toBeUndefined();
+
+      // 4) 无副作用点击 → unchanged
+      const noopRes = await handleBrowserTool(manager, sid, "browser_evaluate", {
+        action: "click",
+        selector: "#noop",
+      });
+      const noopParsed = JSON.parse(noopRes.content[0].text) as {
+        ok: boolean;
+        snapshotUnchanged?: boolean;
+      };
+      expect(noopParsed.ok).toBe(true);
+      expect(noopParsed.snapshotUnchanged).toBe(true);
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
 });

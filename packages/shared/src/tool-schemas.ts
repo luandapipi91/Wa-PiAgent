@@ -248,7 +248,7 @@ export const DelegateParamsSchema = Type.Object({
 // =========================================================================
 
 export const BROWSER_NAVIGATE_DESCRIPTION =
-  "在浏览器视图中加载一个 URL（首次调用自动创建视图）。页面主 frame load 事件后返回。用于抓取 JS 渲染页面/进入自动化流程起点。";
+  "在浏览器视图中加载一个 URL（首次调用自动创建视图）。页面主 frame load 事件后返回。用于抓取 JS 渲染页面/进入自动化流程起点。默认自动附页面文本快照（等待渲染稳定后与上次对比，有变化返回 snapshot、无变化返回 snapshotUnchanged；snapshot:false 跳过）。";
 
 export const BrowserNavigateParamsSchema = Type.Object({
   url: Type.String({ description: "http/https 或 about:blank URL" }),
@@ -272,13 +272,20 @@ export const BrowserNavigateParamsSchema = Type.Object({
       description: "页面加载超时毫秒数（默认 120000）",
     }),
   ),
+  snapshot: Type.Optional(
+    Type.Boolean({
+      description:
+        "导航完成后自动附页面文本快照（默认 true；有变化返回 snapshot 并标记新增/变化行，无变化返回 snapshotUnchanged）",
+    }),
+  ),
 });
 
 export const BROWSER_EVALUATE_DESCRIPTION = [
   "在浏览器视图中执行 JS 表达式或 DOM 操作（点击/输入/按键/滚动）。所有操作派发原生浏览器事件（event.isTrusted === true）。",
+  "操作类 action（click/type/press/scroll/scrollTo）完成后自动附页面文本快照：等待渲染稳定（双帧一致，约 0.25~1s）后与上次对比——有变化返回 snapshot（新增/变化行打 * 前缀），无变化返回 snapshotUnchanged:true；snapshot:false 可跳过。读页面结构/定位元素也可直接用 browser_snapshot。",
   "action:",
   "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）",
-  "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击，或按 ref 编号点击（编号来自最近一次 browser_screenshot annotate:true 的 refs；优先于 selector/x/y）",
+  "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击，或按 ref 编号点击（编号来自最近一次 browser_snapshot / browser_screenshot annotate:true 的 refs；优先于 selector/x/y）",
   "- type: 向当前焦点元素插入文本（等价粘贴，无 keydown）",
   "- press: 按命名键（Enter/Tab/ArrowDown/Escape...）或单字符+修饰键",
   "- scroll: 按像素增量滚动（正 dy 向下）",
@@ -349,6 +356,12 @@ export const BrowserEvaluateParamsSchema = Type.Object({
     Type.Integer({
       minimum: 100,
       description: "等待元素可操作/存在的毫秒数（默认 30000）",
+    }),
+  ),
+  snapshot: Type.Optional(
+    Type.Boolean({
+      description:
+        "操作完成后自动附页面文本快照（默认 true；等待渲染稳定，有变化返回 snapshot 并打 * 标记，无变化返回 snapshotUnchanged）",
     }),
   ),
 });
