@@ -9,6 +9,8 @@ import {
   ANNOTATE_SCRIPT,
   INTERACTIVE_ROLE_SELECTOR,
   MAX_ANNOTATED_ELEMENTS,
+  DISMISS_SCRIPT,
+  MODAL_PROBE,
   SNAPSHOT_SCRIPT,
   captureStableSnapshot,
   clickTextScript,
@@ -262,5 +264,19 @@ describe("clickTextScript 全 DOM 兜底", () => {
     const fallbackIdx = s.indexOf("body *");
     expect(mainIdx).toBeGreaterThan(-1);
     expect(fallbackIdx).toBeGreaterThan(mainIdx);
+  });
+});
+
+describe("弹窗探针与清除的通用遮罩覆盖", () => {
+  test("MODAL_PROBE 含非标准全屏遮罩检测（fixed/absolute+覆盖视口+z-index）", () => {
+    expect(MODAL_PROBE).toContain("position");
+    expect(MODAL_PROBE).toContain("zIndex");
+    expect(MODAL_PROBE).toContain("innerWidth");
+  });
+
+  test("DISMISS_SCRIPT 含关闭按钮点击与全屏遮罩移除", () => {
+    expect(DISMISS_SCRIPT).toContain("close");
+    expect(DISMISS_SCRIPT).toContain("position");
+    expect(DISMISS_SCRIPT).toContain("zIndex");
   });
 });

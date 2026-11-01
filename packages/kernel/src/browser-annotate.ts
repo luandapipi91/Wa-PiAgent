@@ -302,6 +302,17 @@ export const MODAL_PROBE = `/* wa-modal */ (() => {
       if (r.width > 100 && r.height > 50 && getComputedStyle(e).display !== 'none') ms.push(e);
     }
   }
+  if (!ms.length) {
+    // 非标准弹窗（升级公告等无 ant class 的全屏覆盖层）：fixed/absolute+覆盖视口大半+z-index>100
+    const ov = [...document.querySelectorAll('body *')].find((e) => {
+      const st = getComputedStyle(e);
+      if (st.position !== 'fixed' && st.position !== 'absolute') return false;
+      const r = e.getBoundingClientRect();
+      if (r.width < innerWidth * 0.8 || r.height < innerHeight * 0.6) return false;
+      return Number(st.zIndex) > 100;
+    });
+    if (ov) ms.push(ov);
+  }
   if (!ms.length) return '';
   const t = (ms[ms.length - 1].innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
   return t || '检测到弹窗';
@@ -313,6 +324,19 @@ export const DISMISS_SCRIPT = `/* wa-dismiss */ (() => {
   let removed = 0;
   for (const sel of ['.ant-modal-root', '.ant-modal-wrap', '.ant-modal-mask']) {
     for (const e of document.querySelectorAll(sel)) { e.remove(); removed++; }
+  }
+  // 非标准弹窗的关闭按钮（class 含 close 的可见小元素）
+  for (const c of document.querySelectorAll("[class*='close']")) {
+    const r = c.getBoundingClientRect();
+    if (r.width > 0 && r.width < 80 && r.height > 0 && r.height < 80) { try { c.click(); } catch {} }
+  }
+  // 非标准全屏遮罩层移除（同探针条件）
+  for (const e of document.querySelectorAll('body *')) {
+    const st = getComputedStyle(e);
+    if (st.position !== 'fixed' && st.position !== 'absolute') continue;
+    const r = e.getBoundingClientRect();
+    if (r.width < innerWidth * 0.8 || r.height < innerHeight * 0.6) continue;
+    if (Number(st.zIndex) > 100) { e.remove(); removed++; }
   }
   return removed;
 })()`;
