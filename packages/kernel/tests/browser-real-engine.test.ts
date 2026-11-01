@@ -585,3 +585,37 @@ testReal("hover 真实引擎：CDP 鼠标移动触发 mouseenter 展开下拉并
     rmSync(screenshotDir, { recursive: true, force: true });
   }
 });
+
+testReal("navigate fresh：残留 localStorage/sessionStorage/cookie 被清除", async () => {
+  // localStorage 按 origin 隔离，data: URL 无 origin 会抛 SecurityError——用本地 HTTP 服务承载
+  const server = Bun.serve({
+    port: 0,
+    fetch: () => new Response("<div>persist</div>", { headers: { "Content-Type": "text/html" } }),
+  });
+  const url = `http://127.0.0.1:${server.port}/`;
+  const screenshotDir = mkdtempSync(join(tmpdir(), "browser-fresh-real-"));
+  const manager = new BrowserManager({ screenshotDir, idleTimeoutMs: 60_000, sweepIntervalMs: 60_000 });
+  const sid = sessionId("fresh");
+  try {
+    // 首航并写入假登录态（写入与读回同一次 eval，排除跨 evaluate 状态丢失的干扰）
+    await handleBrowserTool(manager, sid, "browser_navigate", { url, snapshot: false });
+    const before = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "eval",
+      script: `(() => { localStorage.setItem("token","abc"); sessionStorage.setItem("s","1"); document.cookie="k=v;path=/"; return JSON.stringify([localStorage.getItem("token"), document.cookie]); })()`,
+    });
+    expect(JSON.parse(before.content[0].text).result).toBe("[\"abc\",\"k=v\"]");
+
+    // fresh 导航：残留登录态被清除
+    const nav = await handleBrowserTool(manager, sid, "browser_navigate", { url, fresh: true });
+    expect(JSON.parse(nav.content[0].text).fresh).toBe(true);
+    const after = await handleBrowserTool(manager, sid, "browser_evaluate", {
+      action: "eval",
+      script: `JSON.stringify([localStorage.getItem("token"), sessionStorage.getItem("s"), document.cookie])`,
+    });
+    expect(JSON.parse(after.content[0].text).result).toBe("[null,null,\"\"]");
+  } finally {
+    manager.dispose();
+    server.stop(true);
+    rmSync(screenshotDir, { recursive: true, force: true });
+  }
+});

@@ -1333,3 +1333,57 @@ describe("browser_evaluate hover 悬停动作", () => {
     }
   });
 });
+
+describe("browser_navigate fresh 干净起步", () => {
+  function makeFreshManager() {
+    let navCount = 0;
+    const evals: string[] = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-fresh-")),
+      viewFactory: () =>
+        makeFakeView({
+          async navigate() {
+            navCount++;
+          },
+          async evaluate(script: string) {
+            evals.push(script);
+            return script;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return { m, getNavCount: () => navCount, evals };
+  }
+
+  test("fresh:true → 导航后清存储并二次导航（共 2 次 navigate）", async () => {
+    const { m, getNavCount, evals } = makeFreshManager();
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", {
+        url: "http://example.com",
+        fresh: true,
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.fresh).toBe(true);
+      expect(getNavCount()).toBe(2); // 首航到目标 origin → 清存储 → 刷新
+      const clear = evals.find((s) => s.includes("localStorage.clear"));
+      expect(clear).toBeDefined();
+      expect(clear).toContain("sessionStorage");
+      expect(clear).toContain("cookie");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("不传 fresh → 单次导航、不清存储", async () => {
+    const { m, getNavCount, evals } = makeFreshManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      expect(getNavCount()).toBe(1);
+      expect(evals.find((s) => s.includes("localStorage.clear"))).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+});

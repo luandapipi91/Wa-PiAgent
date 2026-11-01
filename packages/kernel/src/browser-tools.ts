@@ -154,6 +154,7 @@ async function navigateTool(
     height?: unknown;
     timeout?: unknown;
     snapshot?: unknown;
+    fresh?: unknown;
   };
   const url = str(p.url);
   if (!url) {
@@ -169,6 +170,22 @@ async function navigateTool(
     // headless UA → 同机桌面 Chrome UA（首次导航前；失败静默跳过不阻断导航）
     await manager.prepareUserAgent?.(state);
     await runViewOp(() => state.view.navigate(url), timeoutMs, "页面加载");
+    // fresh：清当前 origin 登录态（localStorage/sessionStorage/非 HttpOnly cookie）后刷新，
+    // 回归测试干净起步——清除必须在目标页面上下文里做（localStorage 按 origin 隔离），
+    // 故先航到目标再清再刷。
+    let fresh = false;
+    if (p.fresh === true) {
+      await runViewOp(
+        () =>
+          state.view.evaluate(
+            "(() => { try { localStorage.clear(); sessionStorage.clear(); const ks = document.cookie.split(';'); for (const k of ks) document.cookie = k.split('=')[0] + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/'; } catch {} return 'cleared'; })()",
+          ),
+        OPERATION_TIMEOUT_MS,
+        "fresh 清理",
+      );
+      await runViewOp(() => state.view.navigate(url), timeoutMs, "页面加载(fresh 刷新)");
+      fresh = true;
+    }
     // 导航后 DOM 更换，上一轮 annotate 的 ref 全部失效，清空缓存（refs 属性引用的旧元素已不存在）
     state.refs = undefined;
     const result = {
@@ -177,6 +194,7 @@ async function navigateTool(
       url: state.view.url,
       title: state.view.title,
       loading: state.view.loading,
+      fresh: fresh ? true : undefined,
     };
     // 操作后自动附文本快照（差值+稳定检测；snapshot:false 跳过）。
     // 导航是「从零到有」的最大等待场景，SPA 首屏挂载实测可超 3s（美管家）——预算提到
