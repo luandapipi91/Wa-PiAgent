@@ -1682,3 +1682,60 @@ describe("dismissModals 弹窗清除", () => {
     }
   });
 });
+
+describe("ref 参数容错（@N 格式与数字等价）", () => {
+  function makeRefOkManager() {
+    const clicked: Array<[unknown, unknown]> = [];
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-reftol-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("data-wa-ref")) return { found: true, x: 7, y: 8 };
+            return script;
+          },
+          async click(a?: unknown, b?: unknown) {
+            clicked.push([a, b]);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return { m, clicked };
+  }
+
+  test('ref 传 "@3"（快照显示格式）与 3 等价', async () => {
+    const { m, clicked } = makeRefOkManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      (m.get("s1") as { refs?: unknown }).refs = { "@3": { n: 3, tag: "button", label: "go", x: 0, y: 0 } };
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        ref: "@3" as never,
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.ref).toBe(3);
+      expect(clicked[0]?.[0]).toBe(7);
+      expect(clicked[0]?.[1]).toBe(8);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("ref 传纯数字字符串 \"3\" 同样等价", async () => {
+    const { m, clicked } = makeRefOkManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      (m.get("s1") as { refs?: unknown }).refs = { "@2": { n: 2, tag: "a", label: "l", x: 0, y: 0 } };
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "click",
+        ref: "2" as never,
+      });
+      expect(JSON.parse(r.content[0].text).ok).toBe(true);
+      expect(clicked[0]?.[0]).toBe(7); // 探针坐标
+    } finally {
+      m.dispose();
+    }
+  });
+});

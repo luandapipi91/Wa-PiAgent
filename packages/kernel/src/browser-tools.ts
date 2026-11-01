@@ -369,11 +369,20 @@ async function evaluateTool(
         // ref 编号定位（优先于 selector/x/y）：来自最近一次 annotate 截图的 refs。
         // 每次点击前实时重查元素位置（先 scrollIntoView 再取中心），页面重排也能点准；
         // 元素已消失或缓存缺失一律报 invalid_ref——宁失效不错点。
-        const ref = num(p.ref);
+        // 格式容错：快照显示为 @N，模型常传 "@3" 或 "3"，与数字 3 等价解析
+        const ref =
+          typeof p.ref === "number" && Number.isInteger(p.ref)
+            ? p.ref
+            : typeof p.ref === "string"
+              ? (() => {
+                  const m = p.ref.trim().match(/^@?(\d+)$/);
+                  return m ? Number(m[1]) : undefined;
+                })()
+              : undefined;
         if (p.ref !== undefined) {
           if (ref === undefined || !Number.isInteger(ref) || ref < 1) {
             return errResult(
-              `ref 需为正整数，收到 ${JSON.stringify(p.ref)}`,
+              `ref 需为正整数或 "@N" 格式，收到 ${JSON.stringify(p.ref)}`,
               "invalid_ref",
             );
           }
