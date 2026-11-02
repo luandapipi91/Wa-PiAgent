@@ -30,6 +30,13 @@ export interface WebViewLike {
    * fake/旧引擎可省略——省略时依赖 CDP 的增强（如桌面 UA 伪装）自动跳过。
    */
   cdp?(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  /**
+   * 订阅 CDP 事件（仅 Chrome 后端支持，事件类型即 CDP 方法名如
+   * "Page.javascriptDialogOpening"；需先 cdp("Page.enable") 开启域）。
+   * fake/旧引擎可省略——省略时 dialog 自动应答自动跳过。
+   * 真实 Bun.WebView 的 listener 参数是 MessageEvent，此处用结构子集 { data }。
+   */
+  addEventListener?(type: string, listener: (event: { data?: unknown }) => void): void;
   screenshot(opts?: {
     format?: string;
     quality?: number;
@@ -68,6 +75,10 @@ export interface BrowserViewState {
   refs?: Record<string, ElementRef>;
   /** 最近一次文本快照（稳定检测后），供操作后差值对比 */
   lastSnapshot?: string;
+  /** 最近一次自动应答的原生 dialog（alert/confirm/prompt/beforeunload）；操作返回时取出附到 dismissedDialog 并清空 */
+  dialog?: { type: string; message: string };
+  /** dialog 自动应答器是否已安装（幂等标记，同视图只装一次） */
+  dialogWatcherInstalled?: boolean;
 }
 
 export interface BrowserManagerOptions {

@@ -292,55 +292,6 @@ export function hoverLocateScript(opts: {
 })()`;
 }
 
-/** 模态遮罩探针：返回可见模态的文本摘要（无则空串）。文本快照对遮罩无感知（历史多轮卡点），此探针补盲区 */
-export const MODAL_PROBE = `/* wa-modal */ (() => {
-  const sels = ['.ant-modal-wrap', '.ant-modal-root', '.ant-modal', "[class*='dialog']"];
-  const ms = [];
-  for (const s of sels) {
-    for (const e of document.querySelectorAll(s)) {
-      const r = e.getBoundingClientRect();
-      if (r.width > 100 && r.height > 50 && getComputedStyle(e).display !== 'none') ms.push(e);
-    }
-  }
-  if (!ms.length) {
-    // 非标准弹窗（升级公告等无 ant class 的全屏覆盖层）：fixed/absolute+覆盖视口大半+z-index>100
-    const ov = [...document.querySelectorAll('body *')].find((e) => {
-      const st = getComputedStyle(e);
-      if (st.position !== 'fixed' && st.position !== 'absolute') return false;
-      const r = e.getBoundingClientRect();
-      if (r.width < innerWidth * 0.8 || r.height < innerHeight * 0.6) return false;
-      return Number(st.zIndex) > 100;
-    });
-    if (ov) ms.push(ov);
-  }
-  if (!ms.length) return '';
-  const t = (ms[ms.length - 1].innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
-  return t || '检测到弹窗';
-})()`;
-
-/** 弹窗清除脚本：直接移除 ant 系模态节点（遮罩/包装/内容），返回移除数量。
- * 第六/十二轮实测：比点关闭按钮可靠（不依赖 ref/关闭按钮形态），且遮罩一并清除 */
-export const DISMISS_SCRIPT = `/* wa-dismiss */ (() => {
-  let removed = 0;
-  for (const sel of ['.ant-modal-root', '.ant-modal-wrap', '.ant-modal-mask']) {
-    for (const e of document.querySelectorAll(sel)) { e.remove(); removed++; }
-  }
-  // 非标准弹窗的关闭按钮（class 含 close 的可见小元素）
-  for (const c of document.querySelectorAll("[class*='close']")) {
-    const r = c.getBoundingClientRect();
-    if (r.width > 0 && r.width < 80 && r.height > 0 && r.height < 80) { try { c.click(); } catch {} }
-  }
-  // 非标准全屏遮罩层移除（同探针条件）
-  for (const e of document.querySelectorAll('body *')) {
-    const st = getComputedStyle(e);
-    if (st.position !== 'fixed' && st.position !== 'absolute') continue;
-    const r = e.getBoundingClientRect();
-    if (r.width < innerWidth * 0.8 || r.height < innerHeight * 0.6) continue;
-    if (Number(st.zIndex) > 100) { e.remove(); removed++; }
-  }
-  return removed;
-})()`;
-
 /**
  * 生成「按可见文本定位并返回中心坐标」的脚本：在可交互元素（含交互 role/onclick）里
  * 反向遍历取**最深**的文本匹配（避免命中包含同文本的父容器），scrollIntoView 居中后
@@ -412,4 +363,115 @@ export function resolveRefScript(n: number): string {
     const r = el.getBoundingClientRect();
     return { found: true, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
   })()`;
+}
+
+/** occlusionProbeScript 的入参：三种目标描述至少给一种（优先 selector > ref > text） */
+export interface OcclusionProbeOpts {
+  /** text 定位模式的中心点坐标（text 无 selector 可重查，必须外部传坐标） */
+  x?: number;
+  y?: number;
+  /** selector 定位模式：脚本内重查并取 rect 中心做 elementFromPoint */
+  targetSelector?: string;
+  /** ref 定位模式：重查 [data-wa-ref="N"] */
+  targetRef?: number;
+  /** text 定位模式的目标文本（祖先链文本近似判断） */
+  targetText?: string;
+}
+
+/**
+ * 生成「点击前遮挡校验」脚本：对目标中心点 document.elementFromPoint，命中非目标且
+ * 非其祖先/语义关联（label↔input）→ 返回 { occluded:true, occluder:{tag,cls,text} }；
+ * 否则 { occluded:false }。宁放行不错杀：目标重查不到（已过期，由后续定位逻辑报错）、
+ * 中心点无命中（坐标在视口外，点击逻辑自己处理）均放行。三种判断策略：
+ * - selector/ref：重查目标元素精确判断（contains 双向 + label↔表单控件关联）
+ * - text：目标无 selector 可重查，三重判断——hit 自身文本含目标 / hit 后代文本含
+ *   目标（hit 是容器）/ hit 是表单控件且 value、aria-label 或关联 label 文本含目标；
+ *   均不满足 → 遮挡（真实遮罩场景 hit 无关，其后代必不含目标文本）
+ * 入参全部经 JSON.stringify/整数校验转义嵌入，杜绝脚本注入。脚本首行带 wa-occlusion
+ * 标记供测试/fake 识别。
+ */
+export function occlusionProbeScript(opts: OcclusionProbeOpts): string {
+  const px = typeof opts.x === "number" && Number.isFinite(opts.x) ? Math.round(opts.x) : null;
+  const py = typeof opts.y === "number" && Number.isFinite(opts.y) ? Math.round(opts.y) : null;
+  const sel = opts.targetSelector !== undefined ? JSON.stringify(opts.targetSelector) : "null";
+  if (opts.targetRef !== undefined) {
+    const n = opts.targetRef;
+    if (!Number.isInteger(n) || n < 1 || n > MAX_ANNOTATED_ELEMENTS) {
+      throw new Error(`occlusion targetRef 必须是 1-${MAX_ANNOTATED_ELEMENTS} 的整数，收到 ${n}`);
+    }
+  }
+  const ref = opts.targetRef !== undefined ? String(opts.targetRef) : "null";
+  const text = opts.targetText !== undefined ? JSON.stringify(opts.targetText) : "null";
+  return `/* wa-occlusion */ (() => {
+  const SEL = ${sel};
+  const REF = ${ref};
+  const TEXT = ${text};
+  const PX = ${px === null ? "null" : String(px)};
+  const PY = ${py === null ? "null" : String(py)};
+  const norm = (s) => String(s == null ? '' : s).replace(/（/g, '(').replace(/）/g, ')');
+  const target = SEL ? document.querySelector(SEL) : (REF != null ? document.querySelector('[data-wa-ref="' + REF + '"]') : null);
+  let px = PX, py = PY;
+  if (target) {
+    const r = target.getBoundingClientRect();
+    px = Math.round(r.left + r.width / 2);
+    py = Math.round(r.top + r.height / 2);
+  }
+  if (px == null || py == null) return { occluded: false };
+  let hit = null;
+  try { hit = document.elementFromPoint(px, py); } catch (e) { hit = null; }
+  if (!hit) return { occluded: false };
+  const related = (a, b) => {
+    if (!a || !b) return false;
+    if (a === b || a.contains(b) || b.contains(a)) return true;
+    const tn = (el) => (el && el.tagName ? String(el.tagName).toUpperCase() : '');
+    const lbl = tn(a) === 'LABEL' ? a : (tn(b) === 'LABEL' ? b : null);
+    const ctl = ['INPUT','TEXTAREA','SELECT'].indexOf(tn(a)) >= 0 ? a : (['INPUT','TEXTAREA','SELECT'].indexOf(tn(b)) >= 0 ? b : null);
+    if (lbl && ctl) {
+      if (lbl.htmlFor && lbl.htmlFor === ctl.id) return true;
+      if (lbl.contains(ctl)) return true;
+      try { if (ctl.labels && Array.prototype.includes.call(ctl.labels, lbl)) return true; } catch (e) {}
+    }
+    return false;
+  };
+  if (target) {
+    if (related(hit, target)) return { occluded: false };
+  } else if (TEXT != null) {
+    // text 定位：目标无 selector 可重查。祖先链近似不可行（遮罩向上链到 body，
+    // body.innerText 必含目标文本，无法区分真祖先与共同祖先），改用三重判断：
+    // 1) hit 自身文本含目标 → hit 即目标；2) hit 后代文本含目标 → hit 是目标容器；
+    // 3) hit 是表单控件 → value/aria-label 或关联 label 文本含目标（label↔input）。
+    // 文本源与 clickTextScript 的 tryHit 一致（innerText/value/aria-label/title），
+    // 归一化同源（全角括号）。宁报遮挡不误放行：罕见结构误报时模型 snapshot 自查，
+    // 代价远小于点在遮罩上的意外副作用。
+    const q = norm(TEXT);
+    const txt = (el) => norm(el.innerText || el.value || el.getAttribute('aria-label') || el.title || '');
+    if (txt(hit).includes(q)) return { occluded: false };
+    const kids = hit.querySelectorAll ? Array.prototype.slice.call(hit.querySelectorAll('*'), 0, 200) : [];
+    for (let i = 0; i < kids.length; i++) {
+      if (txt(kids[i]).includes(q)) return { occluded: false };
+    }
+    const tn = hit.tagName ? String(hit.tagName).toUpperCase() : '';
+    if (tn === 'INPUT' || tn === 'TEXTAREA' || tn === 'SELECT') {
+      let lbl = null;
+      try {
+        if (hit.labels && hit.labels.length) lbl = hit.labels[0];
+        else if (hit.id) lbl = document.querySelector('label[for="' + hit.id + '"]');
+        else lbl = hit.closest('label');
+      } catch (e) { lbl = null; }
+      if (lbl && txt(lbl).includes(q)) return { occluded: false };
+    }
+  } else {
+    return { occluded: false };
+  }
+  const rawCls = hit.className;
+  const cls = typeof rawCls === 'string' ? rawCls : (rawCls && rawCls.baseVal) || '';
+  return {
+    occluded: true,
+    occluder: {
+      tag: String(hit.tagName || '').toLowerCase(),
+      cls: String(cls).slice(0, 60),
+      text: String(hit.innerText || hit.value || '').trim().replace(/\\s+/g, ' ').slice(0, 20),
+    },
+  };
+})()`;
 }

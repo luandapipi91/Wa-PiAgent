@@ -303,3 +303,21 @@ test("PREVIEW_OPEN_DESCRIPTION 声明与 browser_* 自动化无关，且保持�
   // 用户拍板：工具提示词必须精简（≈50 token 约束，按字符数近似把关）
   expect(PREVIEW_OPEN_DESCRIPTION.length).toBeLessThanOrEqual(60);
 });
+
+test("browser_evaluate type 支持 clear 清空语义（重填字段场景）", async () => {
+  const { BrowserEvaluateParamsSchema, BROWSER_EVALUATE_DESCRIPTION } =
+    await import("@wa-pi/shared/tool-schemas");
+  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
+    string,
+    { type?: string; description?: string }
+  >;
+  expect(evalProps.clear).toBeDefined();
+  expect(evalProps.clear.type).toBe("boolean");
+  // 描述写清「重填字段用 clear:true」的用法指引
+  expect(evalProps.clear.description).toContain("clear:true");
+  expect(evalProps.clear.description).toContain("重填");
+  // 默认追加语义不变（描述里明确）
+  expect(evalProps.clear.description).toContain("追加");
+  // 顶层描述也提示 type 的 clear 用法
+  expect(BROWSER_EVALUATE_DESCRIPTION).toContain("clear:true");
+});

@@ -1596,93 +1596,6 @@ describe("type selector 聚焦与原生 setter 兜底", () => {
   });
 });
 
-describe("操作返回自动检测模态遮罩", () => {
-  function makeModalManager(modalProbe: string) {
-    return new BrowserManager({
-      screenshotDir: mkdtempSync(join(tmpdir(), "browser-modal-")),
-      viewFactory: () =>
-        makeFakeView({
-          async evaluate(script: string) {
-            if (script.includes("wa-modal")) return modalProbe;
-            if (script.includes("wa-click-text")) return { found: true, x: 50, y: 60, label: "库存" };
-            return script;
-          },
-        }),
-      idleTimeoutMs: 60_000,
-      sweepIntervalMs: 60_000,
-    });
-  }
-
-  test("操作后页面有可见模态 → 返回体 modalDetected 含模态文本", async () => {
-    const m = makeModalManager("系统功能升级 立即升级");
-    try {
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
-      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", text: "库存" });
-      const parsed = JSON.parse(r.content[0].text);
-      expect(parsed.ok).toBe(true);
-      expect(parsed.modalDetected).toContain("系统功能升级");
-    } finally {
-      m.dispose();
-    }
-  });
-
-  test("无模态 → 无 modalDetected 字段", async () => {
-    const m = makeModalManager("");
-    try {
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
-      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", text: "库存" });
-      const parsed = JSON.parse(r.content[0].text);
-      expect(parsed.ok).toBe(true);
-      expect(parsed.modalDetected).toBeUndefined();
-    } finally {
-      m.dispose();
-    }
-  });
-});
-
-describe("dismissModals 弹窗清除", () => {
-  function makeDismissManager(removed: number) {
-    return new BrowserManager({
-      screenshotDir: mkdtempSync(join(tmpdir(), "browser-dismiss-")),
-      viewFactory: () =>
-        makeFakeView({
-          async evaluate(script: string) {
-            if (script.includes("wa-dismiss")) return removed;
-            return script;
-          },
-        }),
-      idleTimeoutMs: 60_000,
-      sweepIntervalMs: 60_000,
-    });
-  }
-
-  test("移除模态节点返回 removed 数 + 附快照", async () => {
-    const m = makeDismissManager(5);
-    try {
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
-      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "dismissModals" });
-      const parsed = JSON.parse(r.content[0].text);
-      expect(parsed.ok).toBe(true);
-      expect(parsed.removed).toBe(5);
-      expect(parsed.refCount).toBeDefined(); // 附自动快照
-    } finally {
-      m.dispose();
-    }
-  });
-
-  test("无弹窗 → removed 0", async () => {
-    const m = makeDismissManager(0);
-    try {
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
-      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "dismissModals" });
-      const parsed = JSON.parse(r.content[0].text);
-      expect(parsed.removed).toBe(0);
-    } finally {
-      m.dispose();
-    }
-  });
-});
-
 describe("ref 参数容错（@N 格式与数字等价）", () => {
   function makeRefOkManager() {
     const clicked: Array<[unknown, unknown]> = [];
@@ -1795,6 +1708,384 @@ describe("fresh 的 cookie 清理升级（CDP 清 HttpOnly）", () => {
       const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", fresh: true });
       expect(JSON.parse(r.content[0].text).fresh).toBe(true);
       expect(evals.find((s) => s.includes("expires=Thu, 01 Jan 1970"))).toBeDefined();
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 原生 dialog 自动应答：Page.enable + 订阅 Page.javascriptDialogOpening，
+// alert/confirm/beforeunload → accept，prompt → dismiss（对齐 browser-use
+// popups_watchdog 语义）；操作返回体带 dismissedDialog 字段。
+// ---------------------------------------------------------------------------
+
+/** 带 cdp + addEventListener 的 fake view：捕获 dialog 事件监听器供手动触发 */
+function makeDialogFakeManager() {
+  const cdpCalls: Array<{ method: string; params?: unknown }> = [];
+  let dialogListener: ((e: { data?: unknown }) => void) | null = null;
+  const m = new BrowserManager({
+    screenshotDir: mkdtempSync(join(tmpdir(), "browser-dialog-")),
+    viewFactory: () =>
+      makeFakeView({
+        cdp: async (method: string, params?: unknown) => {
+          cdpCalls.push({ method, params });
+          return {};
+        },
+        addEventListener: (type: string, listener: (e: { data?: unknown }) => void) => {
+          if (type === "Page.javascriptDialogOpening") dialogListener = listener;
+        },
+      }),
+    idleTimeoutMs: 60_000,
+    sweepIntervalMs: 60_000,
+  });
+  return {
+    m,
+    cdpCalls,
+    fireDialog: (data: unknown) => dialogListener?.({ data }),
+  };
+}
+
+describe("原生 dialog 自动应答", () => {
+  test("navigate 后启用 Page.enable 并注册 javascriptDialogOpening 监听", async () => {
+    const { m, cdpCalls } = makeDialogFakeManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      expect(cdpCalls.some((c) => c.method === "Page.enable")).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("alert 事件 → 自动 accept，后续 click 返回体带 dismissedDialog", async () => {
+    const { m, cdpCalls, fireDialog } = makeDialogFakeManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      fireDialog({ type: "alert", message: "登录已过期" });
+      expect(cdpCalls.some((c) => c.method === "Page.handleJavaScriptDialog" && (c.params as { accept?: boolean }).accept === true)).toBe(true);
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn", snapshot: false });
+      const parsed = JSON.parse(r.content[0].text) as { ok: boolean; dismissedDialog?: { type: string; message: string } };
+      expect(parsed.ok).toBe(true);
+      expect(parsed.dismissedDialog).toEqual({ type: "alert", message: "登录已过期" });
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("prompt 事件 → 自动 dismiss（accept:false）", async () => {
+    const { m, cdpCalls, fireDialog } = makeDialogFakeManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      fireDialog({ type: "prompt", message: "请输入年龄", defaultPrompt: "18" });
+      const call = cdpCalls.find((c) => c.method === "Page.handleJavaScriptDialog");
+      expect(call).toBeDefined();
+      expect((call?.params as { accept?: boolean }).accept).toBe(false);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("confirm/beforeunload 事件 → 自动 accept", async () => {
+    const { m, cdpCalls, fireDialog } = makeDialogFakeManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      fireDialog({ type: "confirm", message: "确认删除？" });
+      fireDialog({ type: "beforeunload", message: "" });
+      const accepts = cdpCalls.filter((c) => c.method === "Page.handleJavaScriptDialog");
+      expect(accepts.length).toBe(2);
+      expect(accepts.every((c) => (c.params as { accept?: boolean }).accept === true)).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("dismissedDialog 取走即清空（不重复上报）", async () => {
+    const { m, fireDialog } = makeDialogFakeManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      fireDialog({ type: "alert", message: "once" });
+      const r1 = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn", snapshot: false });
+      expect(JSON.parse(r1.content[0].text).dismissedDialog).toBeDefined();
+      const r2 = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn", snapshot: false });
+      expect(JSON.parse(r2.content[0].text).dismissedDialog).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("无 dialog 时操作返回体不带 dismissedDialog 字段", async () => {
+    const { m } = makeDialogFakeManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn", snapshot: false });
+      expect(JSON.parse(r.content[0].text).dismissedDialog).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("应答调用失败不影响主流程（静默容错）", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-dialog-")),
+      viewFactory: () =>
+        makeFakeView({
+          cdp: async (method: string) => {
+            if (method === "Page.handleJavaScriptDialog") throw new Error("cdp busy");
+            return {};
+          },
+          addEventListener: (_type: string, listener: (e: { data?: unknown }) => void) => {
+            (listener as { __store?: boolean }).__store = true;
+            listeners.push(listener);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    const listeners: Array<(e: { data?: unknown }) => void> = [];
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      listeners[0]?.({ data: { type: "alert", message: "x" } });
+      await Bun.sleep(10); // 应答 promise 的 rejection 必须被内部 catch，不能冒泡为 unhandled rejection
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn", snapshot: false });
+      expect(JSON.parse(r.content[0].text).ok).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("旧引擎/fake 无 cdp 或 addEventListener → 静默跳过不报错", async () => {
+    const m = makeManager();
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      expect(r.content[0].text).toContain('"ok":true');
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 点击前遮挡校验：click 的 text/selector/ref 定位路径在派发点击前，用目标中心点
+// document.elementFromPoint 校验——命中非目标且非其祖先/语义关联 → 报 click_occluded
+// 错误附遮挡元素摘要（tag/class/文本前 20 字），让模型自己决策（先 snapshot 看弹窗），
+// 不自动旁路；x/y 直传坐标不校验（显式坐标的任务意图不同）。
+// ---------------------------------------------------------------------------
+
+/** 带 wa-occlusion 探针拦截的 fake view 管理器：探针返回预设结果并记录调用 */
+function makeOcclusionManager(occlusionResult: unknown) {
+  const clicked: Array<[unknown, unknown]> = [];
+  const probes: string[] = [];
+  const m = new BrowserManager({
+    screenshotDir: mkdtempSync(join(tmpdir(), "browser-occlusion-")),
+    viewFactory: () =>
+      makeFakeView({
+        async evaluate(script: string) {
+          // wa-occlusion 必须最先匹配：探针脚本源码里含 data-wa-ref 字面量
+          if (script.includes("wa-occlusion")) {
+            probes.push(script);
+            return occlusionResult;
+          }
+          if (script.includes("data-wa-ref")) return { found: true, x: 5, y: 6 };
+          if (script.includes("wa-click-text")) return { found: true, x: 111, y: 222, label: "目标按钮" };
+          return script;
+        },
+        async click(a?: unknown, b?: unknown) {
+          clicked.push([a, b]);
+        },
+      }),
+    idleTimeoutMs: 60_000,
+    sweepIntervalMs: 60_000,
+  });
+  return { m, clicked, probes };
+}
+
+describe("点击前遮挡校验（click_occluded）", () => {
+  const OCCLUDER = { occluded: true, occluder: { tag: "div", cls: "ant-modal-mask", text: "升级公告遮罩层内容" } };
+
+  test("text 模式：探针报遮挡 → click_occluded 错误附遮挡摘要且不派发点击", async () => {
+    const { m, clicked, probes } = makeOcclusionManager(OCCLUDER);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", text: "目标按钮", snapshot: false });
+      expect(JSON.stringify(r)).toContain("click_occluded");
+      expect(r.content[0].text).toContain("div");
+      expect(r.content[0].text).toContain("ant-modal-mask");
+      expect(r.content[0].text).toContain("升级公告遮罩层内容");
+      expect(r.content[0].text).toContain("browser_snapshot");
+      expect(clicked.length).toBe(0); // 遮挡时不派发点击
+      expect(probes.length).toBe(1); // 定位后跑了一次探针
+      expect(probes[0]).toContain("elementFromPoint");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("text 模式：探针放行 → 正常点击", async () => {
+    const { m, clicked } = makeOcclusionManager({ occluded: false });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", text: "目标按钮", snapshot: false });
+      const parsed = JSON.parse(r.content[0].text) as { ok: boolean };
+      expect(parsed.ok).toBe(true);
+      expect(clicked[0]?.[0]).toBe(111);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("selector 模式：探针报遮挡 → click_occluded 且不派发点击", async () => {
+    const { m, clicked, probes } = makeOcclusionManager(OCCLUDER);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#btn", snapshot: false });
+      expect(JSON.stringify(r)).toContain("click_occluded");
+      expect(clicked.length).toBe(0);
+      expect(probes.length).toBe(1);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("ref 模式：探针报遮挡 → click_occluded 且不派发点击", async () => {
+    const { m, clicked } = makeOcclusionManager(OCCLUDER);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      (m.get("s1") as { refs?: unknown }).refs = { "@2": { n: 2, tag: "button", label: "l", x: 0, y: 0 } };
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 2, snapshot: false });
+      expect(JSON.stringify(r)).toContain("click_occluded");
+      expect(clicked.length).toBe(0);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("x/y 直传坐标不校验（探针不被调用）", async () => {
+    const { m, clicked, probes } = makeOcclusionManager(OCCLUDER);
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", x: 10, y: 20, snapshot: false });
+      const parsed = JSON.parse(r.content[0].text) as { ok: boolean };
+      expect(parsed.ok).toBe(true);
+      expect(clicked[0]?.[0]).toBe(10);
+      expect(probes.length).toBe(0); // 显式坐标不走遮挡校验
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("探针异常/返回形状不符 → 宁放行不错杀（不阻塞点击）", async () => {
+    const { m, clicked } = makeOcclusionManager(null); // evaluate 抛错/返回 null 都按放行
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", text: "目标按钮", snapshot: false });
+      const parsed = JSON.parse(r.content[0].text) as { ok: boolean };
+      expect(parsed.ok).toBe(true);
+      expect(clicked.length).toBe(1);
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// type 清空语义：clear:true 时输入前先清空焦点元素（input/textarea 原生 setter
+// + input/change 事件；contenteditable 清 textContent）再输入，默认 false 追加
+// 语义不变。重填字段用 clear:true，省「全选删除再输入」的多次往返。
+// ---------------------------------------------------------------------------
+
+describe("type 的 clear 清空语义", () => {
+  /** 记录 evaluate 脚本序列与 type 调用顺序的 fake view */
+  function makeTypeOrderManager() {
+    const evals: string[] = [];
+    let typeCalled = 0;
+    let lastTyped = "";
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-clear-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            evals.push(script);
+            if (script.includes("wa-typecheck")) return lastTyped; // 模拟键入生效
+            if (script.includes("wa-clear")) return "CLEARED";
+            if (script.includes("wa-typeset")) return lastTyped; // 模拟兑底生效
+            return script;
+          },
+          async type(t: string) {
+            typeCalled++;
+            lastTyped = t;
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return { m, evals, typeCalled: () => typeCalled };
+  }
+
+  test("clear:true（无 selector）：type 前先执行清空焦点元素脚本", async () => {
+    const { m, evals, typeCalled } = makeTypeOrderManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        text: "新文本",
+        clear: true,
+        snapshot: false,
+      });
+      const parsed = JSON.parse(r.content[0].text) as { ok: boolean };
+      expect(parsed.ok).toBe(true);
+      const clearIdx = evals.findIndex((s) => s.includes("wa-clear"));
+      expect(clearIdx).toBeGreaterThanOrEqual(0);
+      // 清空必须发生在 type 之前（evals 里清空脚本是唯一的 evaluate，type 无脚本——
+      // 用清空脚本存在 + type 被调用断言顺序契约）
+      expect(typeCalled()).toBe(1);
+      // 清空脚本覆盖三种焦点元素形态
+      const clearScript = evals[clearIdx];
+      expect(clearScript).toContain("activeElement");
+      expect(clearScript).toContain("isContentEditable");
+      expect(clearScript).toContain("textContent");
+      expect(clearScript).toContain("HTMLTextAreaElement");
+      expect(clearScript).toContain('new Event("input"');
+      expect(clearScript).toContain('new Event("change"');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("缺省 clear（false）：不执行清空脚本，追加语义不变", async () => {
+    const { m, evals } = makeTypeOrderManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        text: "追加文本",
+        snapshot: false,
+      });
+      const parsed = JSON.parse(r.content[0].text) as { ok: boolean };
+      expect(parsed.ok).toBe(true);
+      expect(evals.some((s) => s.includes("wa-clear"))).toBe(false);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("clear:true（selector 路径）：聚焦后 type 前执行清空脚本", async () => {
+    const { m, evals } = makeTypeOrderManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        text: "重填内容",
+        selector: "#inp",
+        clear: true,
+        snapshot: false,
+      });
+      const parsed = JSON.parse(r.content[0].text) as { ok: boolean };
+      expect(parsed.ok).toBe(true);
+      const clearIdx = evals.findIndex((s) => s.includes("wa-clear"));
+      expect(clearIdx).toBeGreaterThanOrEqual(0);
+      // 清空发生在键入验证（wa-typecheck）之前
+      const checkIdx = evals.findIndex((s) => s.includes("wa-typecheck"));
+      expect(checkIdx).toBeGreaterThan(clearIdx);
     } finally {
       m.dispose();
     }

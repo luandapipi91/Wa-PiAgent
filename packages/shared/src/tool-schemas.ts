@@ -293,8 +293,7 @@ export const BROWSER_EVALUATE_DESCRIPTION = [
   "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）。仅用于读计算值、复杂采样等结构化工具无法达成的场景——点击/输入/读文本/等待优先用对应工具（click text、browser_read、browser_wait）",
   "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击、按 ref 编号点击（来自最近一次 browser_snapshot / annotate 截图的 refs），或按可见文本点击（text 参数，如 text:\"盘点完成\"）。优先级 ref > text > selector > x/y",
   "- hover: 悬停在元素上触发下拉/菜单（selector 或 text 定位，CDP 真实鼠标移动，可触发 ant 等 hover 菜单）",
-  "- dismissModals: 移除页面上的模态弹窗/遮罩（ant 系），返回移除数量。操作被弹窗挡住时的第一响应，附自动快照",
-  "- type: 向当前焦点元素插入文本（等价粘贴，无 keydown）",
+  "- type: 向当前焦点元素插入文本（等价粘贴，无 keydown）；重填字段（搜索框/表单改值）用 clear:true 先清空再输入，默认 false 追加",
   "- press: 按命名键（Enter/Tab/ArrowDown/Escape...）或单字符+修饰键",
   "- scroll: 按像素增量滚动（正 dy 向下）",
   "- scrollTo: 滚动使元素进入视口",
@@ -308,7 +307,6 @@ export const BrowserEvaluateParamsSchema = Type.Object({
     Type.Literal("press"),
     Type.Literal("scroll"),
     Type.Literal("scrollTo"),
-    Type.Literal("dismissModals"),
   ]),
   script: Type.Optional(
     Type.String({ description: "action=eval 时的 JS 表达式" }),
@@ -351,6 +349,12 @@ export const BrowserEvaluateParamsSchema = Type.Object({
     Type.String({
       description:
         "action=type 时的文本；action=click 时为按可见文本定位（子串匹配可交互元素并点击其中心）；type+selector 时先聚焦后键入，键入未生效自动原生 setter 兑底",
+    }),
+  ),
+  clear: Type.Optional(
+    Type.Boolean({
+      description:
+        "action=type 时的清空语义：true 先清空焦点元素（input/textarea 原生 setter + input/change 事件；contenteditable 清 textContent）再输入；默认 false 追加。重填字段（搜索框/表单改值）用 clear:true",
     }),
   ),
   key: Type.Optional(

@@ -9,14 +9,13 @@ import {
   ANNOTATE_SCRIPT,
   INTERACTIVE_ROLE_SELECTOR,
   MAX_ANNOTATED_ELEMENTS,
-  DISMISS_SCRIPT,
-  MODAL_PROBE,
   SNAPSHOT_SCRIPT,
   captureStableSnapshot,
   clickTextScript,
   diffSnapshotLines,
   formatSnapshot,
   hoverLocateScript,
+  occlusionProbeScript,
   resolveRefScript,
 } from "../src/browser-annotate";
 
@@ -267,16 +266,40 @@ describe("clickTextScript 全 DOM 兜底", () => {
   });
 });
 
-describe("弹窗探针与清除的通用遮罩覆盖", () => {
-  test("MODAL_PROBE 含非标准全屏遮罩检测（fixed/absolute+覆盖视口+z-index）", () => {
-    expect(MODAL_PROBE).toContain("position");
-    expect(MODAL_PROBE).toContain("zIndex");
-    expect(MODAL_PROBE).toContain("innerWidth");
+describe("occlusionProbeScript 点击前遮挡校验脚本", () => {
+  test("合法 JS 且为自执行 IIFE，含 elementFromPoint 与 wa-occlusion 标记", () => {
+    const s = occlusionProbeScript({ x: 10, y: 20, targetText: "按钮" });
+    expect(() => new Function(s)).not.toThrow();
+    expect(s.trimEnd().endsWith("})()")).toBe(true);
+    expect(s).toContain("wa-occlusion");
+    expect(s).toContain("elementFromPoint");
+    // 禁止反引号与 ${（外层 TS 模板字符串转义约束，与 ANNOTATE_SCRIPT 同规）
+    expect(s).not.toContain("`");
+    expect(s).not.toContain("${");
   });
 
-  test("DISMISS_SCRIPT 含关闭按钮点击与全屏遮罩移除", () => {
-    expect(DISMISS_SCRIPT).toContain("close");
-    expect(DISMISS_SCRIPT).toContain("position");
-    expect(DISMISS_SCRIPT).toContain("zIndex");
+  test("三种目标描述的嵌入形态：selector 原样嵌入、ref 走 data-wa-ref、text JSON 转义", () => {
+    const sel = occlusionProbeScript({ targetSelector: 'div.a"b' }); // 含引号的 selector 也必须安全嵌入
+    expect(() => new Function(sel)).not.toThrow();
+    expect(sel).toContain("querySelector");
+    const ref = occlusionProbeScript({ targetRef: 7 });
+    expect(ref).toContain('data-wa-ref');
+    expect(ref).toContain('const REF = 7'); // ref 经整数校验后以数字字面量嵌入
+    const text = occlusionProbeScript({ x: 1, y: 2, targetText: "确认</script>" });
+    expect(() => new Function(text)).not.toThrow();
+  });
+
+  test("targetRef 非正整数抛错（防注入，与 resolveRefScript 同规）", () => {
+    expect(() => occlusionProbeScript({ targetRef: 0 })).toThrow();
+    expect(() => occlusionProbeScript({ targetRef: -1 })).toThrow();
+    expect(() => occlusionProbeScript({ targetRef: 1.5 })).toThrow();
+    expect(() => occlusionProbeScript({ targetRef: Number.NaN })).toThrow();
+    expect(() => occlusionProbeScript({ targetRef: 201 })).toThrow();
+  });
+
+  test("非有限坐标按缺省处理（脚本内 px/py null 防御放行）", () => {
+    const s = occlusionProbeScript({ x: Number.NaN, y: Number.POSITIVE_INFINITY, targetText: "x" });
+    expect(() => new Function(s)).not.toThrow();
+    expect(s).toContain("null");
   });
 });

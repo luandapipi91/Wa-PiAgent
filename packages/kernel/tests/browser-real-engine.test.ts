@@ -194,6 +194,195 @@ describe("Layer 3 真实 Bun.WebView 引擎集成测试", () => {
     }
   });
 
+  testReal("真实引擎：固定遮罩盖住 button → click text 报 click_occluded 含遮挡元素信息", async () => {
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    // 全屏 fixed 遮罩（z-index 更高）盖住按钮：模拟弹窗背后点按钮的场景
+    const occHtml = `
+      <button id="target" onclick="document.title='clicked'">确认提交</button>
+      <div id="mask" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999"></div>`;
+    const occUrl = "data:text/html;charset=utf-8," + encodeURIComponent(occHtml);
+    try {
+      await handleBrowserTool(manager, sessionId("occ"), "browser_navigate", { url: occUrl, snapshot: false });
+      const clickRes = await handleBrowserTool(manager, sessionId("occ"), "browser_evaluate", {
+        action: "click",
+        text: "确认提交",
+        snapshot: false,
+      });
+      const details = clickRes.details as { error?: string };
+      expect(details.error).toBe("click_occluded");
+      // 遮挡元素摘要：mask 的 tag 与文本提示，引导模型先 snapshot 决策
+      expect(clickRes.content[0].text).toContain("div");
+      expect(clickRes.content[0].text).toContain("browser_snapshot");
+      // 未派发点击：title 未变
+      const titleRes = await handleBrowserTool(manager, sessionId("occ"), "browser_evaluate", {
+        action: "eval",
+        script: "document.title",
+      });
+      expect((JSON.parse(titleRes.content[0].text) as { result: string }).result).toBe("");
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
+  testReal("真实引擎：无遮挡时 click text 正常派发（遮挡校验不误杀）", async () => {
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    // 无遮罩：按钮内嵌 span（中心点命中 span，向上链经过 button）→ 祖先链文本近似放行
+    const freeHtml = `<button id="ok" onclick="document.title='clicked'"><span>普通按钮</span></button>`;
+    const freeUrl = "data:text/html;charset=utf-8," + encodeURIComponent(freeHtml);
+    try {
+      await handleBrowserTool(manager, sessionId("free"), "browser_navigate", { url: freeUrl, snapshot: false });
+      const clickRes = await handleBrowserTool(manager, sessionId("free"), "browser_evaluate", {
+        action: "click",
+        text: "普通按钮",
+        snapshot: false,
+      });
+      const parsed = JSON.parse(clickRes.content[0].text) as { ok: boolean };
+      expect(parsed.ok).toBe(true);
+      const titleRes = await handleBrowserTool(manager, sessionId("free"), "browser_evaluate", {
+        action: "eval",
+        script: "document.title",
+      });
+      expect((JSON.parse(titleRes.content[0].text) as { result: string }).result).toBe("clicked");
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
+  testReal("真实引擎：type clear:true 先清空有值输入框再输入（重填语义）", async () => {
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    try {
+      await handleBrowserTool(manager, sessionId("clr"), "browser_navigate", { url: TEST_URL, snapshot: false });
+      // 先填入旧值：聚焦 + type
+      await handleBrowserTool(manager, sessionId("clr"), "browser_evaluate", {
+        action: "eval",
+        script: `document.getElementById("inp").focus()`,
+      });
+      await handleBrowserTool(manager, sessionId("clr"), "browser_evaluate", {
+        action: "type",
+        text: "old-value",
+        snapshot: false,
+      });
+      // clear:false（缺省）追加：值 = 旧值 + 新文本
+      await handleBrowserTool(manager, sessionId("clr"), "browser_evaluate", {
+        action: "type",
+        text: "-appended",
+        snapshot: false,
+      });
+      const appendRes = await handleBrowserTool(manager, sessionId("clr"), "browser_evaluate", {
+        action: "eval",
+        script: `document.getElementById("inp").value`,
+      });
+      expect((JSON.parse(appendRes.content[0].text) as { result: string }).result).toBe("old-value-appended");
+      // clear:true 重填：值 = 新文本（旧值被清空）
+      await handleBrowserTool(manager, sessionId("clr"), "browser_evaluate", {
+        action: "eval",
+        script: `document.getElementById("inp").focus()`,
+      });
+      await handleBrowserTool(manager, sessionId("clr"), "browser_evaluate", {
+        action: "type",
+        text: "new-value",
+        clear: true,
+        snapshot: false,
+      });
+      const clearRes = await handleBrowserTool(manager, sessionId("clr"), "browser_evaluate", {
+        action: "eval",
+        script: `document.getElementById("inp").value`,
+      });
+      expect((JSON.parse(clearRes.content[0].text) as { result: string }).result).toBe("new-value");
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
+  testReal("真实引擎：alert 阻塞页 click 不卡死且返回 dismissedDialog（自动应答）", async () => {
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    // 点击按钮弹 alert（阻塞主线程）；点击后改 title 验证阻塞解除后继续执行
+    const alertHtml = `<button id="b" onclick="alert('blocked!');document.title='after-alert'">alert</button>`;
+    const alertUrl = "data:text/html;charset=utf-8," + encodeURIComponent(alertHtml);
+    try {
+      await handleBrowserTool(manager, sessionId("dlg"), "browser_navigate", { url: alertUrl, snapshot: false });
+      // 文本定位点击：alert 弹出会阻塞 click promise，自动应答后应正常 resolve（而非 60s 超时报错）
+      const clickRes = await handleBrowserTool(manager, sessionId("dlg"), "browser_evaluate", {
+        action: "click",
+        text: "alert",
+        snapshot: false,
+      });
+      const clickParsed = JSON.parse(clickRes.content[0].text) as {
+        ok: boolean;
+        dismissedDialog?: { type: string; message: string };
+      };
+      expect(clickParsed.ok).toBe(true);
+      expect(clickParsed.dismissedDialog).toEqual({ type: "alert", message: "blocked!" });
+      // alert 应答后 onclick 余下语句继续执行（阻塞解除的副作用验证）
+      const titleRes = await handleBrowserTool(manager, sessionId("dlg"), "browser_evaluate", {
+        action: "eval",
+        script: "document.title",
+      });
+      expect((JSON.parse(titleRes.content[0].text) as { result: string }).result).toBe("after-alert");
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
+  testReal("真实引擎：prompt 阻塞页 click 自动 dismiss 且不卡死", async () => {
+    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
+    const manager = new BrowserManager({
+      screenshotDir,
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    // prompt dismiss 后返回 null，onclick 继续改 title（dismiss 语义验证）
+    const promptHtml = `<button id="p" onclick="const v=prompt('name?');document.title='got:'+String(v)">ask</button>`;
+    const promptUrl = "data:text/html;charset=utf-8," + encodeURIComponent(promptHtml);
+    try {
+      await handleBrowserTool(manager, sessionId("dlg2"), "browser_navigate", { url: promptUrl, snapshot: false });
+      const clickRes = await handleBrowserTool(manager, sessionId("dlg2"), "browser_evaluate", {
+        action: "click",
+        text: "ask",
+        snapshot: false,
+      });
+      const clickParsed = JSON.parse(clickRes.content[0].text) as {
+        ok: boolean;
+        dismissedDialog?: { type: string; message: string };
+      };
+      expect(clickParsed.ok).toBe(true);
+      expect(clickParsed.dismissedDialog?.type).toBe("prompt");
+      expect(clickParsed.dismissedDialog?.message).toBe("name?");
+      const titleRes = await handleBrowserTool(manager, sessionId("dlg2"), "browser_evaluate", {
+        action: "eval",
+        script: "document.title",
+      });
+      expect((JSON.parse(titleRes.content[0].text) as { result: string }).result).toBe("got:null");
+    } finally {
+      manager.dispose();
+      rmSync(screenshotDir, { recursive: true, force: true });
+    }
+  });
+
   testReal("真实引擎：evaluate 对象返回值 JSON 序列化（WebViewLike 返回值形状假设）", async () => {
     const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-engine-"));
     const manager = new BrowserManager({

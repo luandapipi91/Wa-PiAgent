@@ -11,17 +11,17 @@ import type {
   BrowserManager,
   BrowserViewState,
   ElementRef,
+  WebViewLike,
 } from "./browser-manager";
 import {
   ANNOTATE_SCRIPT,
-  DISMISS_SCRIPT,
-  MODAL_PROBE,
   SNAPSHOT_SCRIPT,
   captureStableSnapshot,
   clickTextScript,
   hoverLocateScript,
   diffSnapshotLines,
   formatSnapshot,
+  occlusionProbeScript,
   resolveRefScript,
 } from "./browser-annotate";
 
@@ -104,6 +104,76 @@ function cleanOpts<T extends Record<string, unknown>>(o: T): T {
   return o;
 }
 
+/**
+ * 幂等安装原生 dialog 自动应答器：Page.enable + 订阅 Page.javascriptDialogOpening。
+ * 页面 alert/confirm/prompt 会阻塞主线程导致后续操作挂起直到超时，订阅事件后记录
+ * dialog 消息并立即应答解除阻塞：alert/confirm/beforeunload → accept，prompt →
+ * dismiss（对齐 browser-use popups_watchdog 语义）。记录的 dialog 在下次操作返回时
+ * 以 dismissedDialog 字段带回（take 语义，见 takeDismissedDialog）。引擎不支持
+ * cdp/addEventListener（fake/旧引擎）或 Page.enable 失败时静默跳过——增强能力不阻断导航。
+ */
+async function installDialogAutoResponder(state: BrowserViewState): Promise<void> {
+  const view = state.view;
+  if (state.dialogWatcherInstalled) return;
+  if (typeof view.cdp !== "function" || typeof view.addEventListener !== "function") return;
+  state.dialogWatcherInstalled = true; // 先标记再安装，防并发重复注册监听
+  try {
+    // 先注册监听再 Page.enable：Bun.WebView 对无监听器的事件在 JSON 解析前丢弃，
+    // enable 后立即可能来事件（如导航触发 beforeunload），不能错过
+    view.addEventListener("Page.javascriptDialogOpening", (e) => {
+      const d = e.data as { type?: unknown; message?: unknown } | undefined;
+      const type = typeof d?.type === "string" ? d.type : "unknown";
+      const message = typeof d?.message === "string" ? d.message : "";
+      state.dialog = { type, message };
+      // 应答失败静默：dialog 已记录，下次操作返回仍会提示模型 snapshot 确认
+      void view
+        .cdp!("Page.handleJavaScriptDialog", { accept: type !== "prompt" })
+        .catch(() => {});
+    });
+    await view.cdp("Page.enable");
+  } catch {
+    // Page.enable 失败（如 cdp 会话未建立）：保持标记避免反复重试，主流程不受影响
+  }
+}
+
+/** 取走并清空最近一次自动应答的 dialog（take 语义，保证不重复上报） */
+function takeDismissedDialog(state: BrowserViewState): { type: string; message: string } | undefined {
+  const d = state.dialog;
+  state.dialog = undefined;
+  return d;
+}
+
+/**
+ * 点击前遮挡校验：对目标中心点跑 occlusionProbeScript，命中非目标且非其祖先/语义
+ * 关联 → 返回 click_occluded 错误（附遮挡元素摘要，让模型自己决策先 snapshot 看弹窗，
+ * 不自动旁路不自动清除）；未遮挡/探针失败（宁放行不错杀）返回 null 继续点击。
+ */
+async function occlusionCheck(
+  view: WebViewLike,
+  probe: string,
+  targetDesc: string,
+): Promise<BridgeToolResult | null> {
+  try {
+    const occ = (await runViewOp(
+      () => view.evaluate(probe),
+      OPERATION_TIMEOUT_MS,
+      "click 遮挡校验",
+    )) as
+      | { occluded?: boolean; occluder?: { tag?: unknown; cls?: unknown; text?: unknown } }
+      | undefined;
+    if (!occ || occ.occluded !== true) return null;
+    const tag = typeof occ.occluder?.tag === "string" ? occ.occluder.tag : "?";
+    const cls = typeof occ.occluder?.cls === "string" ? occ.occluder.cls : "";
+    const occText = typeof occ.occluder?.text === "string" ? occ.occluder.text : "";
+    return errResult(
+      `点击目标 ${targetDesc} 被遮挡：中心点实际命中 <${tag}${cls ? ` class="${cls}"` : ""}>（文本："${occText}"）。页面可能有弹窗/遮罩，请先 browser_snapshot 查看页面状态再决策，勿盲目重试`,
+      "click_occluded",
+    );
+  } catch {
+    return null;
+  }
+}
+
 function num(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
@@ -145,6 +215,32 @@ export async function handleBrowserTool(
   }
 }
 
+/**
+ * 清空当前焦点元素：input/textarea 用原生 setter 置空 + input/change 事件（React
+ * 受控组件友好，与 type 键入兑底同一套路）；contenteditable 清 textContent + input
+ * 事件。返回状态标记供调试（NO_EL/NOT_EDITABLE/CLEARED）。
+ */
+function clearActiveElementScript(): string {
+  return `/* wa-clear */ (() => {
+  const el = document.activeElement;
+  if (!el) return "NO_EL";
+  if (el.isContentEditable) {
+    el.textContent = "";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return "CLEARED";
+  }
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const set = Object.getOwnPropertyDescriptor(proto, "value").set;
+    set.call(el, "");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return "CLEARED";
+  }
+  return "NOT_EDITABLE";
+})()`;
+}
+
 async function navigateTool(
   manager: BrowserManager,
   sessionId: string,
@@ -171,6 +267,9 @@ async function navigateTool(
     });
     // headless UA → 同机桌面 Chrome UA（首次导航前；失败静默跳过不阻断导航）
     await manager.prepareUserAgent?.(state);
+    // dialog 自动应答器（幂等）：prepareUserAgent 内已确保至少导航过一次
+    // （about:blank），cdp 会话已建立，此时 Page.enable 才能成功
+    await installDialogAutoResponder(state);
     // 同站 hash 路由跳转：目标 URL 与当前页面同 origin 且带 hash 时，直接 eval 改
     // location.hash——WebView.navigate 对 SPA hash 路由会等 load 事件挂起到超时
     // （第五轮实测 120s，页面实际早已渲染）。blob: 文档的 origin 即来源站点 origin，
@@ -244,6 +343,7 @@ async function navigateTool(
       title: state.view.title,
       loading: state.view.loading,
       fresh: fresh ? true : undefined,
+      dismissedDialog: takeDismissedDialog(state),
     };
     // 操作后自动附文本快照（差值+稳定检测；snapshot:false 跳过）。
     // 导航是「从零到有」的最大等待场景，SPA 首屏挂载实测可超 3s（美管家）——预算提到
@@ -360,20 +460,6 @@ async function evaluateTool(
           wantSnapshot,
         );
       }
-      case "dismissModals": {
-        // 弹窗清除：直接移除 ant 系模态节点（第六/十二轮实测比点关闭按钮可靠），
-        // 返回移除数量；附自动快照让 agent 立即看到干净后的页面
-        const removed = await runViewOp(
-          () => view.evaluate(DISMISS_SCRIPT),
-          OPERATION_TIMEOUT_MS,
-          "dismissModals",
-        );
-        return opResult(
-          state,
-          { ok: true, action: "dismissModals", removed: Number(removed) || 0 },
-          wantSnapshot,
-        );
-      }
       case "click": {
         // ref 编号定位（优先于 selector/x/y）：来自最近一次 annotate 截图的 refs。
         // 每次点击前实时重查元素位置（先 scrollIntoView 再取中心），页面重排也能点准；
@@ -419,6 +505,14 @@ async function evaluateTool(
           }
           const rx = loc.x;
           const ry = loc.y;
+          // 点击前遮挡校验（ref 可重查目标元素，精确判断）：被遮罩/弹窗盖住时
+          // 报错让模型先 snapshot 决策，而不是点在遮罩上产生意外副作用
+          const occludedRef = await occlusionCheck(
+            view,
+            occlusionProbeScript({ targetRef: ref }),
+            `@${ref}`,
+          );
+          if (occludedRef) return occludedRef;
           await runViewOp(
             () =>
               view.click(
@@ -460,6 +554,14 @@ async function evaluateTool(
           }
           const tx = loc.x;
           const ty = loc.y;
+          // 点击前遮挡校验：text 定位无 selector 可重查，传中心坐标 + 目标文本做
+          // 祖先链近似判断（详见 occlusionProbeScript）
+          const occludedText = await occlusionCheck(
+            view,
+            occlusionProbeScript({ x: tx, y: ty, targetText: clickText }),
+            `"${clickText}"`,
+          );
+          if (occludedText) return occludedText;
           await runViewOp(
             () =>
               view.click(
@@ -491,6 +593,15 @@ async function evaluateTool(
             );
           }
           try {
+            // 点击前遮挡校验（selector 可重查目标元素，精确判断）：快速失败给出
+            // 遮挡语义，替代引擎 30s actionable 超时（引擎自身也做 topmost 检查，
+            // 但报的是超时而非遮挡原因）
+            const occludedSel = await occlusionCheck(
+              view,
+              occlusionProbeScript({ targetSelector: selector }),
+              `"${selector}"`,
+            );
+            if (occludedSel) return occludedSel;
             await runViewOp(
               () =>
                 view.click(
@@ -549,6 +660,8 @@ async function evaluateTool(
         const text = str(p.text);
         if (!text)
           return errResult("action=type 需要 text 参数", "missing_text");
+        // clear:true：输入前先清空焦点元素（重填字段场景），默认 false 追加语义不变
+        const clear = p.clear === true;
         const typeSelector = str(p.selector);
         if (typeSelector) {
           // 有 selector：click 聚焦 → 键入 → 验证 → 未生效自动原生 setter 兜底。
@@ -562,6 +675,15 @@ async function evaluateTool(
             );
           } catch {
             // 聚焦失败继续（元素可能已聚焦）
+          }
+          if (clear) {
+            // 重填场景：聚焦后先清空再键入（input/textarea 原生 setter + input/change；
+            // contenteditable 清 textContent，见 clearActiveElementScript）
+            await runViewOp(
+              () => view.evaluate(clearActiveElementScript()),
+              OPERATION_TIMEOUT_MS,
+              "type 清空",
+            );
           }
           await runViewOp(() => view.type(text), OPERATION_TIMEOUT_MS, "type");
           const probe = `/* wa-typecheck */ (() => { const el = document.querySelector(${JSON.stringify(typeSelector)}); return el ? String(el.value ?? "") : ""; })()`;
@@ -594,6 +716,13 @@ async function evaluateTool(
             state,
             { ok: fallbackVal === text, action: "type", selector: typeSelector, fallback: true },
             wantSnapshot,
+          );
+        }
+        if (clear) {
+          await runViewOp(
+            () => view.evaluate(clearActiveElementScript()),
+            OPERATION_TIMEOUT_MS,
+            "type 清空",
           );
         }
         await runViewOp(() => view.type(text), OPERATION_TIMEOUT_MS, "type");
@@ -789,18 +918,6 @@ async function attachAutoSnapshot(
     const { refs, text } = await captureStableSnapshot(state.view, opts);
     state.refs = refs as Record<string, ElementRef>;
     result.refCount = Object.keys(refs).length;
-    // 模态遮罩检测：文本快照对遮罩无感知（历史多轮卡点），操作后立即提示，
-    // 避免 agent 盲目重试数轮才发现被弹窗挡住
-    try {
-      const modalText = await runViewOp(
-        () => state.view.evaluate(MODAL_PROBE),
-        OPERATION_TIMEOUT_MS,
-        "modal 检测",
-      );
-      if (typeof modalText === "string" && modalText) result.modalDetected = modalText;
-    } catch {
-      // 检测失败忽略（快照与操作本身已成功）
-    }
     if (text.length === 0) {
       // 稳定检测预算内页面始终没有可交互元素（SPA 首屏挂载中/真空白页）：
       // 不返回空快照误导 agent，也不污染差值基准，给明确提示让 agent 稍后重取
@@ -825,6 +942,10 @@ async function opResult(
   base: Record<string, unknown>,
   wantSnapshot: boolean,
 ): Promise<BridgeToolResult> {
+  // 本次操作期间捕获到原生 dialog（已自动应答解除阻塞）→ 附到返回体提示模型；
+  // take 语义：取走即清空，不重复上报
+  const dismissed = takeDismissedDialog(state);
+  if (dismissed) base.dismissedDialog = dismissed;
   if (wantSnapshot) await attachAutoSnapshot(state, base);
   return textResult(JSON.stringify(base), { ok: true });
 }
