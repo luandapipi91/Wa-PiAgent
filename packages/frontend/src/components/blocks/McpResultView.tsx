@@ -14,6 +14,13 @@
 import { useMemo, useState } from "react";
 import type { ToolResultMessage } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
+import {
+	parseResultJson,
+	ParsedResultView,
+	RESULT_BTN_BASE_CLS,
+	RESULT_MAX_H,
+	RESULT_MONO_BASE_CLS,
+} from "./tool-result-shared";
 
 /** pi 截断输出前缀（dist 内 truncated 输出固定格式） */
 const TRUNCATED_RE =
@@ -24,9 +31,6 @@ const MAX_RENDER_LINES = 500;
 
 /** 摘要里最多列的主题条数 */
 const SUMMARY_ITEM_LIMIT = 3;
-
-/** 结果区限高：超出滚动（避免一张卡片铺满整屏） */
-const MAX_HEIGHT_CLS = "max-h-[360px] overflow-auto";
 
 /** JSON token 着色的轻量正则：字符串（含转义）/ bool / null / 数字。
  *  每行独立处理——stringify(v, null, 2) 保证字符串不跨行。 */
@@ -189,17 +193,12 @@ export function McpResultView({
 		};
 	}, [result]);
 
-	// JSON 探测：成功留 data（摘要 + 展开共用），失败降级原文
-	const parsed = useMemo(() => {
-		const trimmed = body.trim();
-		if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-			try {
-				return { kind: "json" as const, data: JSON.parse(trimmed) };
-			} catch {
-				/* 截断/畸形 JSON：按原文渲染 */
-			}
-		}
-		return { kind: "text" as const, data: undefined };
+	// JSON 探测：成功留 data（摘要 + 展开共用），失败降级原文（共享 parseResultJson）
+	const parsed = useMemo((): ParsedResultView => {
+		const data = parseResultJson(body);
+		return data !== null
+			? { kind: "json", data }
+			: { kind: "text", data: undefined };
 	}, [body]);
 
 	const summary = useMemo(
@@ -308,17 +307,7 @@ export function McpResultView({
 						type="button"
 						data-testid="mcp-result-expand"
 						onClick={() => setExpanded(true)}
-						className="ml-auto text-[calc(11px*var(--font-scale))] flex-shrink-0 rounded px-2 py-0.5 transition-colors"
-						style={{
-							color: "var(--accent)",
-							background: "none",
-							border: "none",
-							cursor: "pointer",
-						}}
-						onMouseEnter={(e) =>
-							(e.currentTarget.style.background = "var(--accent-soft)")
-						}
-						onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+						className={`ml-auto flex-shrink-0 rounded px-2 py-0.5 ${RESULT_BTN_BASE_CLS} text-[var(--accent)] hover:bg-[var(--accent-soft)]`}
 					>
 						{t("blocks.toolCall.mcpExpand")} ▾
 					</button>
@@ -360,13 +349,7 @@ export function McpResultView({
 										type="button"
 										data-testid="mcp-result-collapse"
 										onClick={() => setExpanded(false)}
-										className="text-[calc(11px*var(--font-scale))] text-tertiary hover:text-[var(--brand)] transition-colors"
-										style={{
-											cursor: "pointer",
-											background: "none",
-											border: "none",
-											padding: "0 2px",
-										}}
+										className={`px-0.5 ${RESULT_BTN_BASE_CLS} text-tertiary hover:text-[var(--brand)]`}
 									>
 										{t("blocks.toolCall.mcpCollapse")} ▴
 									</button>
@@ -375,13 +358,7 @@ export function McpResultView({
 									type="button"
 									data-testid="mcp-result-copy"
 									onClick={copyFull}
-									className="ml-auto text-[calc(11px*var(--font-scale))] text-tertiary hover:text-[var(--brand)] transition-colors"
-									style={{
-										cursor: "pointer",
-										background: "none",
-										border: "none",
-										padding: "0 2px",
-									}}
+									className={`ml-auto px-0.5 ${RESULT_BTN_BASE_CLS} text-tertiary hover:text-[var(--brand)]`}
 								>
 									{copied
 										? t("blocks.toolCall.mcpCopied")
@@ -392,7 +369,7 @@ export function McpResultView({
 						<pre
 							data-testid="mcp-result-code"
 							data-failed={failed || undefined}
-							className={`${MAX_HEIGHT_CLS} m-0 p-2 font-mono text-[calc(11px*var(--font-scale))] leading-relaxed ${
+							className={`${RESULT_MAX_H} ${RESULT_MONO_BASE_CLS} p-2 leading-relaxed ${
 								failed ? "text-[var(--danger)]" : "text-primary"
 							}`}
 						>

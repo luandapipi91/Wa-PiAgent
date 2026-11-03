@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
 import { useIsDarkMode } from "../../theme/use-is-dark-mode";
-
-/** 输出区最大高度：超出纵向滚动，避免长输出撑爆消息流 */
-const MAX_HEIGHT = 300;
+import { RESULT_CLIP_PX, RESULT_MONO_FONT_CLS } from "./tool-result-shared";
 
 export interface ShellResultView {
 	output: string;
@@ -162,8 +160,8 @@ export function ShellOutputView({
 
 			{view.output !== "" && (
 				<div
-					className="px-3 py-2 overflow-auto text-[calc(11px*var(--font-scale))] leading-[1.7] whitespace-pre"
-					style={{ maxHeight: MAX_HEIGHT }}
+					className={`px-3 py-2 overflow-auto ${RESULT_MONO_FONT_CLS} leading-[1.7] whitespace-pre`}
+					style={{ maxHeight: RESULT_CLIP_PX }}
 				>
 					{view.output}
 				</div>

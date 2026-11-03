@@ -5,6 +5,7 @@
 import type { ToolResultMessage } from "@wa-pi/shared";
 import { CodeBlockCard } from "./CodeBlockCard";
 import { useTranslation } from "../../i18n/useTranslation";
+import { RESULT_MONO_WRAP_CLS } from "./tool-result-shared";
 
 const CONSOLE_BLOCK_RE = /<console_output>\n?([\s\S]*?)<\/console_output>/;
 const STATUS_LINE_RE = /^(Script (?:completed|failed)[^\n]*)\n?/;
@@ -97,7 +98,9 @@ export function CodemodeResultView({
 					<div className="text-xs text-tertiary">
 						{t("blocks.toolCall.codemode.console")}
 					</div>
-					<pre className="text-xs text-tertiary whitespace-pre-wrap break-words max-h-[180px] overflow-auto font-mono">
+					<pre
+						className={`text-xs text-tertiary ${RESULT_MONO_WRAP_CLS} max-h-[180px] overflow-auto font-mono`}
+					>
 						{consoleOut}
 					</pre>
 				</div>

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
+import {
+	RESULT_CLIP_PX,
+	RESULT_MONO_FONT_CLS,
+	RESULT_TOGGLE_BAR_CLS,
+} from "./tool-result-shared";
 
 /** 默认只展示的预览行数：先看 6 行，按需展开其余 */
 const PREVIEW_LINES = 6;
-/** 展开后内容区最大高度（超出纵向滚动，避免长文件撑爆消息流） */
-const MAX_HEIGHT = 300;
 
 export interface ReadResultView {
 	lines: string[];
@@ -152,11 +155,11 @@ export function ReadContentView({
 								effectiveExpanded ? "overflow-auto" : "overflow-hidden"
 							}
 							style={
-								effectiveExpanded ? { maxHeight: MAX_HEIGHT } : undefined
+								effectiveExpanded ? { maxHeight: RESULT_CLIP_PX } : undefined
 							}
 						>
 							<div
-								className="font-mono text-[calc(11px*var(--font-scale))] leading-[1.75]"
+								className={`${RESULT_MONO_FONT_CLS} leading-[1.75]`}
 								style={{ tabSize: 4 }}
 							>
 								{shown.map((line, i) => (
@@ -185,7 +188,7 @@ export function ReadContentView({
 							type="button"
 							data-testid={testId ? `${testId}-toggle` : undefined}
 							onClick={() => setExpanded((v) => !v)}
-							className="w-full text-center text-[calc(11px*var(--font-scale))] text-secondary hover:text-primary py-1 border-t border-dashed border-hairline bg-surface-elevated transition-colors"
+							className={RESULT_TOGGLE_BAR_CLS}
 						>
 							{expanded
 								? t("blocks.toolCall.readCollapse")

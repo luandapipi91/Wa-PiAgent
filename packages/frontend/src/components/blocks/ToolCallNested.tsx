@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ToolCallCard, ToolGroupCard, formatArgs } from "./ToolCallCard";
-import { Linkify } from "./linkify";
+import { ToolResultText } from "./ToolResultTextView";
 import { Spinner } from "./ProcessCard";
 import { Icon } from "../ui/Icon";
 import { useSessionStore } from "../../store/session";
@@ -191,7 +191,8 @@ const NestedToolCallCard = memo(function NestedToolCallCard({
 							key={i}
 							className={`mt-0.5 text-[calc(11.5px*var(--font-scale))] ${status === "error" ? "text-danger" : "text-secondary"}`}
 						>
-							<Linkify text={c.text} />
+							{/* 返回文本美化渲染：JSON 结构化 / 非 JSON 原样保留换行 */}
+							<ToolResultText text={c.text} />
 						</div>
 					),
 			)}

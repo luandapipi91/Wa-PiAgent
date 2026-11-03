@@ -3,8 +3,8 @@ import { Fragment, useEffect, useRef } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
-import { Linkify } from "./linkify";
 import { McpResultView } from "./McpResultView";
+import { ToolResultText } from "./ToolResultTextView";
 import { CodemodeScriptView, CodemodeResultView } from "./CodemodeView";
 import {
 	EditDiffView,
@@ -565,7 +565,7 @@ export function ToolCallCard({
 				toolCall.name !== "write" &&
 				!isShell && (
 				<div
-					className={`mt-1 pt-1 border-t border-hairline ${failed ? "text-danger" : "text-success"}`}
+					className={`mt-1 pt-1 border-t border-hairline ${failed ? "text-danger" : "text-secondary"}`}
 				>
 					{toolCall.name.startsWith("mcp__") ? (
 						// MCP 结果（多为大 JSON）：结构化渲染（截断横幅 / 语法高亮 / 限高 / 复制），
@@ -575,12 +575,13 @@ export function ToolCallCard({
 						// codemode：脚本输出协议解析（==> text N/M <== 分隔 / console 块 / 图片）
 						<CodemodeResultView result={result} failed={failed} />
 					) : (
+						// 其余工具：返回文本美化渲染——JSON 结构化（snapshot 等长文本
+						// 还原真实换行缩进），非 JSON 原样保留换行。旧实现走 Linkify
+						// 平铺，单行 JSON 原文加字面量 \n 无法阅读。
 						result.content.map(
 							(c: any, i: number) =>
 								c?.type === "text" && (
-									<div key={i}>
-										<Linkify text={c.text} />
-									</div>
+									<ToolResultText key={i} text={c.text} />
 								),
 						)
 					)}
