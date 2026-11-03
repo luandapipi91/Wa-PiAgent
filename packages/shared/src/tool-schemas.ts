@@ -287,14 +287,15 @@ export const BrowserNavigateParamsSchema = Type.Object({
 });
 
 export const BROWSER_EVALUATE_DESCRIPTION = [
-  "在浏览器视图中执行 JS 表达式或 DOM 操作（点击/输入/按键/滚动）。所有操作派发原生浏览器事件（event.isTrusted === true）。",
+  "操作页面的标准流程：先 browser_snapshot 拿 [ref=N] → 用 ref 定位 click/type/press → 再 snapshot 确认结果。ref 是首选定位方式；CSS selector 仅用于无快照或临时调试。不要凭对某网站的记忆猜 selector——页面元素以快照 ref 为准。",
+  "在浏览器视图中执行 JS 表达式或 DOM 操作（点击/输入/按键/滚动）。所有操作派发原生浏览器事件（event.isTrusted === true）。",,
   "操作类 action（click/type/press/scroll/scrollTo）完成后自动附页面文本快照：等待渲染稳定（双帧一致，约 0.25~1s）后与上次对比——有变化返回 snapshot（新增/变化行打 * 前缀），无变化返回 snapshotUnchanged:true；snapshot:false 可跳过。读页面结构/定位元素也可直接用 browser_snapshot。",
   "action:",
   "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）。仅用于读计算值、复杂采样等结构化工具无法达成的场景——点击/输入/读文本/等待优先用对应工具（click text、browser_read、browser_wait）",
-  "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击、按 ref 编号点击（来自最近一次 browser_snapshot / annotate 截图的 refs），或按可见文本点击（text 参数，如 text:\"盘点完成\"）。优先级 ref > text > selector > x/y",
+  "- click: 按 CSS selector 点击其中心、按视口坐标 (x,y) 点击、按 ref 点击（ref = 最近一次 browser_snapshot 快照里的 [ref=N]，即元素 backendDOMNodeId），或按可见文本点击（text 参数，如 text:\"盘点完成\"）。优先级 ref > text > selector > x/y",
   "- hover: 悬停在元素上触发下拉/菜单（selector 或 text 定位，CDP 真实鼠标移动，可触发 ant 等 hover 菜单）",
-  "- type: 向当前焦点元素插入文本（等价粘贴，无 keydown）；重填字段（搜索框/表单改值）用 clear:true 先清空再输入，默认 false 追加",
-  "- press: 按命名键（Enter/Tab/ArrowDown/Escape...）或单字符+修饰键",
+  "- type: 向元素插入文本（等价粘贴，无 keydown）；支持 ref/selector 定位聚焦（ref = 快照 [ref=N]，优先于 selector），无定位参数则对当前焦点元素；重填字段（搜索框/表单改值）用 clear:true 先清空再输入，默认 false 追加",
+  "- press: 按命名键（Enter/Tab/ArrowDown/Escape...）或单字符+修饰键；支持 ref 定位聚焦（ref = 快照 [ref=N]，先聚焦目标再派发按键），无 ref 则对当前焦点元素",
   "- scroll: 按像素增量滚动（正 dy 向下）",
   "- scrollTo: 滚动使元素进入视口",
 ].join("\n");
@@ -312,7 +313,10 @@ export const BrowserEvaluateParamsSchema = Type.Object({
     Type.String({ description: "action=eval 时的 JS 表达式" }),
   ),
   selector: Type.Optional(
-    Type.String({ description: "action=click/scrollTo 时的 CSS selector" }),
+    Type.String({
+      description:
+        "兑底定位方式，优先用快照 ref；action=click/scrollTo/type 时的 CSS selector",
+    }),
   ),
   x: Type.Optional(
     Type.Integer({ description: "action=click 时的视口 x 坐标" }),
@@ -324,7 +328,7 @@ export const BrowserEvaluateParamsSchema = Type.Object({
     Type.Integer({
       minimum: 1,
       description:
-        "action=click 时的元素编号（来自最近一次 browser_screenshot annotate:true 返回的 refs），优先于 selector/x/y",
+        "action=click/type/press 时的元素标识（= 最近一次 browser_snapshot 快照行里的 [ref=N]，即 backendDOMNodeId），优先于 selector/x/y；元素已变化时按 role+name 自动回查",
     }),
   ),
   button: Type.Optional(
@@ -413,9 +417,15 @@ export const BROWSER_CLOSE_DESCRIPTION =
 export const BrowserCloseParamsSchema = Type.Object({});
 
 export const BROWSER_SNAPSHOT_DESCRIPTION = [
-  "获取当前页面可交互元素的文本快照（ref 编号列表，含角色/名称/输入值/勾选态/可点击标记），并将 refs 缓存到会话供 browser_evaluate click 的 ref 参数使用。",
+  "获取当前页面的 AX 树形文本快照（层级缩进反映页面结构，对齐 agent-browser）：",
+  '- heading "页题"（内容行）',
+  '- text "提示文本"（无 ref）',
+  '- textbox "请输入手机号" = "" [ref=12]（输入值实时，勾选态显示 [checked]）',
+  '- button "登 录" [ref=15]',
+  '- generic "自绘卡片" [ref=18] (pointer)（cursor:pointer 兑底，AX 树漏掉的自绘件）',
+  "ref = 页面元素的 backendDOMNodeId（跨快照相对稳定），已缓存到会话供 browser_evaluate click 的 ref 参数使用；交互元素无条件带 ref，可点击即可定位。",
   "返回纯文本（几百 token）：读页面结构、定位元素优先用本工具，无需截图；需要视觉确认（布局/图片/颜色）时才用 browser_screenshot。",
-  "枚举范围：原生控件（a/button/input/select/textarea）、ARIA 交互 role、cursor:pointer 且带可读文本的自绘元素。仅覆盖主文档，不穿透 iframe/shadow DOM。",
+  "覆盖范围：AX 树全部语义节点 + cursor:pointer 自绘件兑底；仅主文档（不穿透跨域 iframe/shadow DOM 内部）。元素失效时点击会按 role+name 自动回查，重名歧义会要求重新 snapshot。",
 ].join("\n");
 
 export const BrowserSnapshotParamsSchema = Type.Object({});
@@ -435,7 +445,7 @@ export const BrowserReadParamsSchema = Type.Object({
 
 export const BROWSER_WAIT_DESCRIPTION = [
   "等待条件满足后再继续：text 页面出现某文本（如 toast \"操作成功\"）、hash 页面路由 hash 包含某值（SPA 内部跳转后等路由到位）、hiddenSelector 某元素消失（如 loading 遮罩退场）、ms 固定等待。多条件并存时全部满足才返回。",
-  "轮询间隔 250ms，默认超时 10s（可调，上限 60s），超时返回 wait_timeout 与当前状态。用于点击提交后等结果、等列表刷新、SPA hash 跳转后等路由到位等场景，替代 bash sleep 与 eval 自写轮询。",
+  "命中或超时后自动附当前页面文本快照（含 ref 提示首行与差值标记；无变化时 snapshotUnchanged），通常无需再单独 browser_snapshot——省一轮往返。轮询间隔 250ms，默认超时 10s（可调，上限 60s），超时返回 wait_timeout 与当前页面快照。用于点击提交后等结果、等列表刷新、SPA hash 跳转后等路由到位等场景，替代 bash sleep 与 eval 自写轮询。",
 ].join("\n");
 
 export const BrowserWaitParamsSchema = Type.Object({

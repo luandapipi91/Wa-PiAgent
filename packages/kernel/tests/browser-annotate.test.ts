@@ -5,9 +5,11 @@
 // scrollIntoView）、枚举上限常量，以及 resolveRefScript 对非法入参的防注入校验。
 import { describe, expect, test } from "bun:test";
 import type { WebViewLike } from "../src/browser-manager";
+import type { AXNode } from "../src/dom/ax-snapshot";
 import {
   ANNOTATE_SCRIPT,
   INTERACTIVE_ROLE_SELECTOR,
+  INTERACTIVE_ROLES,
   MAX_ANNOTATED_ELEMENTS,
   SNAPSHOT_SCRIPT,
   captureStableSnapshot,
@@ -16,7 +18,6 @@ import {
   formatSnapshot,
   hoverLocateScript,
   occlusionProbeScript,
-  resolveRefScript,
 } from "../src/browser-annotate";
 
 describe("browser-annotate 注入脚本", () => {
@@ -28,9 +29,9 @@ describe("browser-annotate 注入脚本", () => {
     expect(ANNOTATE_SCRIPT).not.toContain("${");
   });
 
-  test("ANNOTATE_SCRIPT 先清除旧标注再枚举可交互元素", () => {
+  test("ANNOTATE_SCRIPT 先清除旧标注再枚举可交互元素（data-wa-ref 锚点已退役）", () => {
     expect(ANNOTATE_SCRIPT).toContain("data-wa-annotate");
-    expect(ANNOTATE_SCRIPT).toContain("data-wa-ref");
+    expect(ANNOTATE_SCRIPT).not.toContain("data-wa-ref");
     expect(ANNOTATE_SCRIPT).toContain("getBoundingClientRect");
   });
 
@@ -38,22 +39,34 @@ describe("browser-annotate 注入脚本", () => {
     expect(ANNOTATE_SCRIPT).toContain("200");
     expect(MAX_ANNOTATED_ELEMENTS).toBe(200);
   });
+});
 
-  test("resolveRefScript 嵌入编号并先 scrollIntoView 再取中心", () => {
-    const s = resolveRefScript(7);
-    expect(() => new Function(s)).not.toThrow();
-    expect(s).toContain('data-wa-ref="7"');
-    expect(s).toContain("scrollIntoView");
-    // 超宽元素也要水平居中，否则中心 x 可能落在视口外点空（审查 Minor #2）
-    expect(s).toContain("inline");
+describe("INTERACTIVE_ROLES 角色白名单（ARIA 1.2 核对）", () => {
+  test("输入类角色用 ARIA 1.2 规范名：searchbox（非 search）+ spinbutton/listbox 齐备", () => {
+    const roles = INTERACTIVE_ROLES as readonly string[];
+    // ARIA 1.2：role=search 是 landmark 容器（非交互），交互输入角色是 searchbox；
+    // 现状漏写会导致 role=searchbox 的输入框不进快照/标注
+    expect(roles).toContain("searchbox");
+    expect(roles).not.toContain("search");
+    // ARIA 1.2 widget 角色全表核对补齐
+    expect(roles).toContain("spinbutton");
+    expect(roles).toContain("listbox");
   });
 
-  test("resolveRefScript 拒绝非正整数（防脚本注入）", () => {
-    expect(() => resolveRefScript(0)).toThrow();
-    expect(() => resolveRefScript(-1)).toThrow();
-    expect(() => resolveRefScript(1.5)).toThrow();
-    expect(() => resolveRefScript(Number.NaN)).toThrow();
-    expect(() => resolveRefScript(201)).toThrow();
+  test("既有交互角色保留（button/link/checkbox/radio/tab/menu*/option/switch/combobox/textbox/slider/treeitem）", () => {
+    const roles = INTERACTIVE_ROLES as readonly string[];
+    for (const r of [
+      "button", "link", "checkbox", "radio", "tab", "menuitem",
+      "menuitemcheckbox", "menuitemradio", "option", "switch",
+      "combobox", "textbox", "slider", "treeitem",
+    ]) {
+      expect(roles).toContain(r);
+    }
+  });
+
+  test("角色选择器串与白名单同源（searchbox 进 selector）", () => {
+    expect(INTERACTIVE_ROLE_SELECTOR).toContain('[role="searchbox"]');
+    expect(INTERACTIVE_ROLE_SELECTOR).not.toContain('[role="search"]');
   });
 });
 
@@ -65,8 +78,8 @@ describe("SNAPSHOT_SCRIPT 文本快照注入脚本", () => {
     expect(SNAPSHOT_SCRIPT).not.toContain("${");
   });
 
-  test("打 data-wa-ref 锚点供 click ref 复用，但不注入视觉 overlay", () => {
-    expect(SNAPSHOT_SCRIPT).toContain("data-wa-ref");
+  test("纯文本快照（data-wa-ref 锚点已退役，不再打 DOM 锚点）", () => {
+    expect(SNAPSHOT_SCRIPT).not.toContain("data-wa-ref");
     expect(SNAPSHOT_SCRIPT).not.toContain("data-wa-annotate");
   });
 
@@ -84,8 +97,8 @@ describe("SNAPSHOT_SCRIPT 文本快照注入脚本", () => {
   });
 });
 
-describe("captureStableSnapshot 渲染稳定检测", () => {
-  // fake view：每次快照 evaluate 按次序返回帧序列（最后一帧重复返回）
+describe("captureStableSnapshot 双线（AX 优先 / 平铺降级）", () => {
+  // 平铺降级线 fake：无 cdp，每帧快照 evaluate 按次序返回帧序列（最后一帧重复返回）
   function frameView(frames: Record<string, unknown>[]): WebViewLike {
     let i = 0;
     return {
@@ -94,7 +107,7 @@ describe("captureStableSnapshot 渲染稳定检测", () => {
       loading: false,
       async navigate() {},
       async evaluate(script: string) {
-        if (!script.includes("data-wa-ref")) return script;
+        if (!script.includes("wa-snapshot")) return script;
         return frames[Math.min(i++, frames.length - 1)];
       },
       async click() {},
@@ -108,37 +121,72 @@ describe("captureStableSnapshot 渲染稳定检测", () => {
       close() {},
     } as unknown as WebViewLike;
   }
+
+  /** AX 线 fake：getFullAXTree 按次序返回节点帧序列（最后一帧重复返回） */
+  function axFrameView(frames: AXNode[][], opts: { failFrom?: number } = {}): WebViewLike {
+    let i = 0;
+    return {
+      url: "about:blank",
+      title: "",
+      loading: false,
+      async navigate() {},
+      async evaluate(script: string) {
+        if (script.includes("wa-snapshot")) throw new Error("不应走平铺线");
+        return [];
+      },
+      async cdp(method: string) {
+        if (opts.failFrom !== undefined && i >= opts.failFrom) throw new Error("cdp boom");
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "u-1" } } };
+        if (method === "Accessibility.getFullAXTree") {
+          return { nodes: frames[Math.min(i++, frames.length - 1)] };
+        }
+        return {};
+      },
+      async click() {},
+      async type() {},
+      async press() {},
+      async scroll() {},
+      async scrollTo() {},
+      async screenshot() {
+        return Buffer.from([0]);
+      },
+      close() {},
+    } as unknown as WebViewLike;
+  }
+
   const A = { "@1": { n: 1, tag: "button", label: "a", x: 1, y: 1 } };
   const B = { "@1": { n: 1, tag: "button", label: "b", x: 1, y: 1 } };
   const OPTS = { intervalMs: 1, maxFrames: 4 };
 
-  test("相邻两帧一致 → 立即稳定返回该帧", async () => {
+  // —— 平铺降级线（无 cdp fake）：行为不变 ——
+  test("[平铺线] 相邻两帧一致 → 立即稳定返回该帧", async () => {
     const r = await captureStableSnapshot(frameView([A, A]), OPTS);
-    expect(formatSnapshot(r.refs)).toContain('"a"');
+    expect(r.text).toContain('"a"');
+    expect(r.selectorMap).toBeUndefined();
   });
 
-  test("渲染中逐帧变化 → 取到一致的那帧", async () => {
+  test("[平铺线] 渲染中逐帧变化 → 取到一致的那帧", async () => {
     const r = await captureStableSnapshot(frameView([A, B, B]), OPTS);
-    expect(formatSnapshot(r.refs)).toContain('"b"');
+    expect(r.text).toContain('"b"');
   });
 
-  test("持续变化超帧数预算 → 取末帧降级（不报错）", async () => {
+  test("[平铺线] 持续变化超帧数预算 → 取末帧降级（不报错）", async () => {
     const r = await captureStableSnapshot(frameView([A, B, A, B, A]), {
       intervalMs: 1,
       maxFrames: 4,
     });
-    expect(formatSnapshot(r.refs)).toContain('"b"');
+    expect(r.text).toContain('"b"');
   });
 
-  test("单帧也成立（页面已静止）", async () => {
+  test("[平铺线] 单帧也成立（页面已静止）", async () => {
     const r = await captureStableSnapshot(frameView([B]), {
       intervalMs: 1,
       maxFrames: 4,
     });
-    expect(formatSnapshot(r.refs)).toContain('"b"');
+    expect(r.text).toContain('"b"');
   });
 
-  test("requireNonEmpty：空帧不算稳定，继续等到有内容帧", async () => {
+  test("[平铺线] requireNonEmpty：空帧不算稳定，继续等到有内容帧", async () => {
     // SPA 场景：load 后 Vue 未挂载前连续空帧，不应被判稳定提前返回
     const EMPTY = {};
     const r = await captureStableSnapshot(frameView([EMPTY, EMPTY, A, A]), {
@@ -146,10 +194,10 @@ describe("captureStableSnapshot 渲染稳定检测", () => {
       maxFrames: 4,
       requireNonEmpty: true,
     });
-    expect(formatSnapshot(r.refs)).toContain('"a"');
+    expect(r.text).toContain('"a"');
   });
 
-  test("requireNonEmpty：预算内始终为空 → 降级返回空帧（不报错）", async () => {
+  test("[平铺线] requireNonEmpty：预算内始终为空 → 降级返回空帧（不报错）", async () => {
     const EMPTY = {};
     const r = await captureStableSnapshot(frameView([EMPTY]), {
       intervalMs: 1,
@@ -158,6 +206,54 @@ describe("captureStableSnapshot 渲染稳定检测", () => {
     });
     expect(r.text).toBe("");
     expect(r.framesValid).toBeGreaterThan(0); // 空对象也是有效快照（真空白页）
+  });
+
+  // —— AX 线（cdp fake）——
+  const AX_A: AXNode[] = [
+    { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2"] },
+    { nodeId: "2", role: { type: "role", value: "button" }, name: { type: "computedString", value: "甲" }, backendDOMNodeId: 11 },
+  ];
+  const AX_B: AXNode[] = [
+    { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2"] },
+    { nodeId: "2", role: { type: "role", value: "button" }, name: { type: "computedString", value: "乙" }, backendDOMNodeId: 12 },
+  ];
+
+  test("[AX 线] 双帧一致即返回，带 selectorMap（ref→role/name）", async () => {
+    const r = await captureStableSnapshot(axFrameView([AX_A, AX_A]), OPTS);
+    expect(r.text).toContain('- button "甲" [ref=11]');
+    expect(r.selectorMap?.[11]).toStrictEqual({ role: "button", name: "甲" });
+  });
+
+  test("[AX 线] requireNonEmpty：仅根节点（空树）不算稳定，继续等到有内容帧", async () => {
+    const ROOT_ONLY: AXNode[] = [
+      { nodeId: "1", role: { type: "role", value: "RootWebArea" } },
+    ];
+    const r = await captureStableSnapshot(axFrameView([ROOT_ONLY, ROOT_ONLY, AX_B, AX_B]), {
+      intervalMs: 1,
+      maxFrames: 4,
+      requireNonEmpty: true,
+    });
+    expect(r.text).toContain('"乙"');
+  });
+
+  test("[AX 线] cdp 中途抛错 → 降级平铺线继续抓帧（不报错）", async () => {
+    // 第 2 帧起 cdp 抛错：第 1 帧 AX 文本（乙树），后续平铺线 refs 帧 → 文本含 "a"
+    const view = axFrameView([AX_A, AX_A], { failFrom: 1 });
+    const withFlat = view as unknown as {
+      evaluate: (s: string) => Promise<unknown>;
+    };
+    // 降级后 evaluate 走平铺帧：改写 evaluate 逻辑——首个 wa-snapshot 帧返 A
+    let flatCalls = 0;
+    withFlat.evaluate = async (s: string) => {
+      if (s.includes("wa-snapshot")) {
+        flatCalls++;
+        return flatCalls === 1 ? A : A;
+      }
+      return [];
+    };
+    const r = await captureStableSnapshot(view, { intervalMs: 1, maxFrames: 3 });
+    expect(r.text.length).toBeGreaterThan(0);
+    expect(r.framesValid).toBeGreaterThan(0);
   });
 });
 
@@ -278,28 +374,37 @@ describe("occlusionProbeScript 点击前遮挡校验脚本", () => {
     expect(s).not.toContain("${");
   });
 
-  test("三种目标描述的嵌入形态：selector 原样嵌入、ref 走 data-wa-ref、text JSON 转义", () => {
+  test("两种目标描述的嵌入形态：selector 原样嵌入、text JSON 转义（data-wa-ref 模式已退役）", () => {
     const sel = occlusionProbeScript({ targetSelector: 'div.a"b' }); // 含引号的 selector 也必须安全嵌入
     expect(() => new Function(sel)).not.toThrow();
     expect(sel).toContain("querySelector");
-    const ref = occlusionProbeScript({ targetRef: 7 });
-    expect(ref).toContain('data-wa-ref');
-    expect(ref).toContain('const REF = 7'); // ref 经整数校验后以数字字面量嵌入
     const text = occlusionProbeScript({ x: 1, y: 2, targetText: "确认</script>" });
     expect(() => new Function(text)).not.toThrow();
+    expect(occlusionProbeScript({})).toContain("occluded: false"); // 无目标描述 → 放行
   });
 
-  test("targetRef 非正整数抛错（防注入，与 resolveRefScript 同规）", () => {
-    expect(() => occlusionProbeScript({ targetRef: 0 })).toThrow();
-    expect(() => occlusionProbeScript({ targetRef: -1 })).toThrow();
-    expect(() => occlusionProbeScript({ targetRef: 1.5 })).toThrow();
-    expect(() => occlusionProbeScript({ targetRef: Number.NaN })).toThrow();
-    expect(() => occlusionProbeScript({ targetRef: 201 })).toThrow();
+  test("不再支持 data-wa-ref 目标模式（click ref 已改坐标+文本近似）", () => {
+    const s = occlusionProbeScript({ x: 10, y: 20, targetText: "登录" });
+    expect(s).not.toContain("data-wa-ref");
   });
 
   test("非有限坐标按缺省处理（脚本内 px/py null 防御放行）", () => {
     const s = occlusionProbeScript({ x: Number.NaN, y: Number.POSITIVE_INFINITY, targetText: "x" });
     expect(() => new Function(s)).not.toThrow();
     expect(s).toContain("null");
+  });
+
+  test("ref 场景传 role：输入类目标命中表单控件 → 含语义放行分支（百度 textarea 误报修复）", () => {
+    // 背景：AX name 可能来自 wrapper 的 aria-label（百度搜索框 AX name 是热搜词），
+    // 探针在 textarea 上读不到该文本 → 误报遮挡卡死 ref 工作流。目标为输入类 role
+    // 且中心命中表单控件（自身或后代）时视为目标本身放行。
+    const s = occlusionProbeScript({ x: 10, y: 20, targetText: "网友称…", role: "textbox" });
+    expect(() => new Function(s)).not.toThrow();
+    expect(s).toContain('"textbox"'); // role 经 JSON 转义嵌入
+    expect(s).toContain("FORM_ROLES");
+    expect(s).toContain("isFormControl");
+    // 不传 role：不嵌入角色变量值（TEXT 判断行为不变）
+    const noRole = occlusionProbeScript({ x: 10, y: 20, targetText: "登录" });
+    expect(noRole).toContain("const ROLE = null");
   });
 });

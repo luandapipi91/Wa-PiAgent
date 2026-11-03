@@ -321,3 +321,43 @@ test("browser_evaluate type 支持 clear 清空语义（重填字段场景）", 
   // 顶层描述也提示 type 的 clear 用法
   expect(BROWSER_EVALUATE_DESCRIPTION).toContain("clear:true");
 });
+
+// =========================================================================
+// ref 工作流修复（2026-11-03）：type/press 支持 ref + 工作流引导 + selector 降级
+// =========================================================================
+
+test("browser_evaluate ref 参数覆盖 click/type/press 三动作（ref 工作流不断裂）", async () => {
+  const { BrowserEvaluateParamsSchema, BROWSER_EVALUATE_DESCRIPTION } =
+    await import("@wa-pi/shared/tool-schemas");
+  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
+    string,
+    { description?: string }
+  >;
+  // ref 描述声明三种动作均可定位（模型读到才知道 type/press 也能用 ref）
+  expect(evalProps.ref).toBeDefined();
+  expect(evalProps.ref.description).toContain("click");
+  expect(evalProps.ref.description).toContain("type");
+  expect(evalProps.ref.description).toContain("press");
+  // 顶层描述：type/press 的 action 行明确 ref 定位语义
+  expect(BROWSER_EVALUATE_DESCRIPTION).toMatch(/- type:[^\n]*ref/);
+  expect(BROWSER_EVALUATE_DESCRIPTION).toMatch(/- press:[^\n]*ref/);
+});
+
+test("BROWSER_EVALUATE_DESCRIPTION 开头给出标准工作流（snapshot→ref→确认，禁猜 selector）", async () => {
+  const { BROWSER_EVALUATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
+  expect(BROWSER_EVALUATE_DESCRIPTION.startsWith("操作页面的标准流程")).toBe(true);
+  expect(BROWSER_EVALUATE_DESCRIPTION).toContain("browser_snapshot");
+  expect(BROWSER_EVALUATE_DESCRIPTION).toContain("[ref=N]");
+  // 反模式防线：不许凭训练记忆猜 CSS selector
+  expect(BROWSER_EVALUATE_DESCRIPTION).toContain("不要凭对某网站的记忆猜 selector");
+});
+
+test("selector 参数降级为兑底定位方式（优先快照 ref）", async () => {
+  const { BrowserEvaluateParamsSchema } = await import("@wa-pi/shared/tool-schemas");
+  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
+    string,
+    { description?: string }
+  >;
+  expect(evalProps.selector?.description).toContain("兑底");
+  expect(evalProps.selector?.description).toContain("ref");
+});

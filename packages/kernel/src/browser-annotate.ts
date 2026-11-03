@@ -1,20 +1,24 @@
 // browser-annotate.ts —— browser_* 带注释截图的页面注入脚本。
 //
 // ANNOTATE_SCRIPT：截图前注入，为主文档可见的可交互元素叠加编号标注
-// （红框 + 角标），并返回 refs 映射供模型按编号交互（配合 evaluateTool
-// 的 click ref）。resolveRefScript：点击前实时重查元素位置——先滚动到
-// 视口中央再取中心坐标，页面重排/滚动后依然点得准。
+// （红框 + 角标），返回 refs 映射供截图展示（click ref 已改走 dom/ax-snapshot
+// 的 backendDOMNodeId 链路，不再消费本脚本产物）。
+// SNAPSHOT_SCRIPT：平铺快照降级线（view.cdp 不可用/AX 拉取失败时的兼容产物），
+// 正常路径走 captureAxSnapshot（AX 树形快照）。
 //
-// 约束：ANNOTATE_SCRIPT 字面量内禁止出现反引号与 ${（本文件外层用模板
-// 字符串包裹，脚本内部一律用字符串拼接，避免转义事故，测试有断言钉住）。
+// 约束：脚本字面量内禁止出现反引号与 ${（本文件外层用模板字符串包裹，脚本内部
+// 一律用字符串拼接，避免转义事故，测试有断言钉住）。
 //
 // 已知限制（声明行为，非缺陷）：只枚举主文档可见元素，不穿透 iframe 与
 // shadow DOM；上限 MAX_ANNOTATED_ELEMENTS 个，超出部分不标注。
+import { captureAxSnapshot, type AxRefEntry } from "./dom/ax-snapshot";
 
 /** 可交互元素标注上限（超出部分不标注，防止超长页面生成爆炸性 refs）。改动需同步下方脚本内的枚举上限（已用插值单源化） */
 export const MAX_ANNOTATED_ELEMENTS = 200;
 
-/** 交互语义 role 白名单：snapshot/annotate 枚举的非原生可交互元素（ARIA 交互角色） */
+/** 交互语义 role 白名单：snapshot/annotate 枚举的非原生可交互元素（ARIA 1.2 交互角色）。
+ * searchbox 修复：[role=search] 是 landmark 容器（非交互），交互输入角色是 searchbox；
+ * spinbutton/listbox 为 ARIA 1.2 全表核对补齐 */
 export const INTERACTIVE_ROLES = [
   "button",
   "link",
@@ -28,8 +32,10 @@ export const INTERACTIVE_ROLES = [
   "switch",
   "combobox",
   "textbox",
-  "search",
+  "searchbox",
   "slider",
+  "spinbutton",
+  "listbox",
   "treeitem",
 ] as const;
 
@@ -39,10 +45,9 @@ export const INTERACTIVE_ROLE_SELECTOR = INTERACTIVE_ROLES.map(
 ).join(",");
 
 /** 清除旧标注的选择器前缀，测试断言与脚本行为共用此标记 */
-export const ANNOTATE_SCRIPT: string = `(() => {
-  const MARK = 'data-wa-annotate', REF = 'data-wa-ref';
+export const ANNOTATE_SCRIPT: string = `/* wa-annotate */ (() => {
+  const MARK = 'data-wa-annotate';
   document.querySelectorAll('[' + MARK + ']').forEach(e => e.remove());
-  document.querySelectorAll('[' + REF + ']').forEach(e => e.removeAttribute(REF));
   const SEL = 'a,button,input,select,textarea,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="tab"],[role="menuitem"],[onclick]';
   const els = [];
   const all = document.querySelectorAll(SEL);
@@ -53,7 +58,6 @@ export const ANNOTATE_SCRIPT: string = `(() => {
   const refs = {};
   for (let i = 0; i < els.length; i++) {
     const n = i + 1, el = els[i], b = el.getBoundingClientRect();
-    el.setAttribute(REF, String(n));
     let label = el.innerText || el.value || el.placeholder || el.getAttribute('aria-label') || el.getAttribute('name') || '';
     label = label.trim().replace(/\\s+/g, ' ').slice(0, 40);
     refs['@' + n] = { n: n, tag: el.tagName.toLowerCase(), label: label, x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
@@ -77,9 +81,7 @@ export const ANNOTATE_SCRIPT: string = `(() => {
  * 枚举范围比 ANNOTATE_SCRIPT 宽：额外包含 cursor:pointer 且带可读文本的非原生元素
  * （POS 列表项、自绘按钮等高频形态，对齐 agent-browser 的 clickable 标记）。
  */
-export const SNAPSHOT_SCRIPT: string = `(() => {
-  const REF = 'data-wa-ref';
-  document.querySelectorAll('[' + REF + ']').forEach(e => e.removeAttribute(REF));
+export const SNAPSHOT_SCRIPT: string = `/* wa-snapshot */ (() => {
   const seen = new Set();
   const els = [];
   const push = (el) => {
@@ -100,7 +102,6 @@ export const SNAPSHOT_SCRIPT: string = `(() => {
   const refs = {};
   for (let i = 0; i < els.length; i++) {
     const n = i + 1, el = els[i], b = el.getBoundingClientRect();
-    el.setAttribute(REF, String(n));
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || '').toLowerCase();
     let label = el.innerText || (el.labels && el.labels[0] ? el.labels[0].innerText : '') || el.value || el.placeholder || el.getAttribute('aria-label') || el.title || el.getAttribute('name') || '';
@@ -159,40 +160,74 @@ export interface StableSnapshotOptions {
  * 与 nexus-browser 的 fallback 策略同型）。kernel 侧循环而非页面内 await：复用
  * runViewOp 的单槽重试语义，且帧序列可被 fake view 精确控制便于测试。
  */
-export async function captureStableSnapshot(
-  view: { evaluate(script: string): Promise<unknown> },
-  opts: StableSnapshotOptions = {},
-): Promise<{
-  refs: Record<string, BrowserSnapshotRef>;
+/**
+ * 带渲染稳定检测的快照抓取（双帧一致即稳定，超帧数预算取末帧降级）。
+ * 双线：view.cdp 可用 → AX 树形线（captureAxSnapshot，带 selectorMap）；无 cdp 或
+ * AX 中途抛错（页面跳转中/域不可用）→ 降级 SNAPSHOT_SCRIPT 平铺线（行为与旧版
+ * 一致）。空帧语义：AX 线仅根节点（text 为空）与平铺线空 refs 均视为空，
+ * requireNonEmpty 时不判稳定。kernel 侧循环而非页面内 await：复用 runViewOp 的
+ * 单槽重试语义，且帧序列可被 fake view 精确控制便于测试。
+ */
+export interface StableSnapshotResult {
   text: string;
   framesValid: number;
-}> {
+  /** AX 线产物（click ref 回查缓存）；平铺降级线无 */
+  selectorMap?: Record<number, AxRefEntry>;
+  /** 帧抓取抛错的最后错误（framesValid===0 时供上层报告 snapshotError） */
+  lastError?: string;
+}
+
+export async function captureStableSnapshot(
+  view: { evaluate(script: string): Promise<unknown>; cdp?(method: string, params?: Record<string, unknown>): Promise<unknown> },
+  opts: StableSnapshotOptions = {},
+): Promise<StableSnapshotResult> {
   const intervalMs = opts.intervalMs ?? 250;
   const maxFrames = opts.maxFrames ?? 4;
+  let flatMode = typeof view.cdp !== "function";
   let prevText: string | null = null;
-  let last: {
-    refs: Record<string, BrowserSnapshotRef>;
-    text: string;
-  } | undefined;
+  let last: StableSnapshotResult | undefined;
   let framesValid = 0;
+  let lastError: string | undefined;
   for (let frame = 0; frame < maxFrames; frame++) {
     if (frame > 0) await Bun.sleep(intervalMs);
-    const raw = await view.evaluate(SNAPSHOT_SCRIPT);
-    const refs = (raw && typeof raw === "object" ? raw : {}) as Record<
-      string,
-      BrowserSnapshotRef
-    >;
-    if (raw && typeof raw === "object") framesValid++;
-    const text = formatSnapshot(refs);
+    let snap: { text: string; selectorMap?: Record<number, AxRefEntry> } | undefined;
+    let frameValid = false;
+    if (!flatMode) {
+      try {
+        snap = await captureAxSnapshot(view as { evaluate(script: string): Promise<unknown>; cdp(method: string, params?: Record<string, unknown>): Promise<unknown> });
+        frameValid = true;
+      } catch (err) {
+        flatMode = true; // AX 线异常（页面跳转中/域不可用）→ 本帧起降级平铺线
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    if (!snap) {
+      try {
+        const raw = await view.evaluate(SNAPSHOT_SCRIPT);
+        if (raw && typeof raw === "object") {
+          snap = { text: formatSnapshot(raw as Record<string, BrowserSnapshotRef>) };
+          frameValid = true;
+        } else {
+          // 非对象返回 → 空快照帧（对齐旧版空页语义，不记为有效帧）
+          snap = { text: "" };
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    if (frameValid) framesValid++;
+    const text = snap ? snap.text : "";
     const settled =
       prevText !== null &&
       text === prevText &&
       !(opts.requireNonEmpty && text.length === 0);
-    if (settled) return { refs, text, framesValid };
+    if (settled) {
+      return { text, framesValid, selectorMap: snap?.selectorMap, lastError };
+    }
     prevText = text;
-    last = { refs, text };
+    if (snap) last = { text: snap.text, framesValid, selectorMap: snap.selectorMap, lastError };
   }
-  return { ...last!, framesValid };
+  return last ?? { text: "", framesValid: 0, lastError };
 }
 
 /**
@@ -346,47 +381,29 @@ export function clickTextScript(text: string): string {
 })()`;
 }
 
-/**
- * 生成「按 data-wa-ref 实时定位元素」的脚本：先 scrollIntoView 居中（水平垂直都居中，
- * 超宽元素中心才不会落在视口外），返回 { found: true, x, y }（视口中心坐标）或
- * { found: false }（元素已不存在）。n 非正整数或超上限时抛错（防御性校验：n 会被
- * 拼接进脚本，必须杜绝注入）。
- */
-export function resolveRefScript(n: number): string {
-  if (!Number.isInteger(n) || n < 1 || n > MAX_ANNOTATED_ELEMENTS) {
-    throw new Error(`ref 必须是 1-${MAX_ANNOTATED_ELEMENTS} 的整数，收到 ${n}`);
-  }
-  return `(() => {
-    const el = document.querySelector('[data-wa-ref="${n}"]');
-    if (!el) return { found: false };
-    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-    const r = el.getBoundingClientRect();
-    return { found: true, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
-  })()`;
-}
-
-/** occlusionProbeScript 的入参：三种目标描述至少给一种（优先 selector > ref > text） */
+/** occlusionProbeScript 的入参：两种目标描述至少给一种（优先 selector > 坐标+文本） */
 export interface OcclusionProbeOpts {
-  /** text 定位模式的中心点坐标（text 无 selector 可重查，必须外部传坐标） */
+  /** 坐标模式（click ref 无 DOM 锚点可重查，定位阶段传入 quad 中心坐标） */
   x?: number;
   y?: number;
   /** selector 定位模式：脚本内重查并取 rect 中心做 elementFromPoint */
   targetSelector?: string;
-  /** ref 定位模式：重查 [data-wa-ref="N"] */
-  targetRef?: number;
-  /** text 定位模式的目标文本（祖先链文本近似判断） */
+  /** 坐标模式的目标文本（祖先链文本近似判断） */
   targetText?: string;
+  /** ref 定位时的目标 AX role：输入类目标命中表单控件时语义放行（防 AX name 在 wrapper 上的误报） */
+  role?: string;
 }
 
 /**
  * 生成「点击前遮挡校验」脚本：对目标中心点 document.elementFromPoint，命中非目标且
  * 非其祖先/语义关联（label↔input）→ 返回 { occluded:true, occluder:{tag,cls,text} }；
  * 否则 { occluded:false }。宁放行不错杀：目标重查不到（已过期，由后续定位逻辑报错）、
- * 中心点无命中（坐标在视口外，点击逻辑自己处理）均放行。三种判断策略：
- * - selector/ref：重查目标元素精确判断（contains 双向 + label↔表单控件关联）
- * - text：目标无 selector 可重查，三重判断——hit 自身文本含目标 / hit 后代文本含
- *   目标（hit 是容器）/ hit 是表单控件且 value、aria-label 或关联 label 文本含目标；
- *   均不满足 → 遮挡（真实遮罩场景 hit 无关，其后代必不含目标文本）
+ * 中心点无命中（坐标在视口外，点击逻辑自己处理）均放行。两种判断策略：
+ * - selector：重查目标元素精确判断（contains 双向 + label↔表单控件关联）
+ * - 坐标+文本（click ref 与 text 定位共用）：目标无 selector 可重查，三重判断——
+ *   hit 自身文本含目标 / hit 后代文本含目标（hit 是容器）/ hit 是表单控件且 value、
+ *   aria-label 或关联 label 文本含目标；均不满足 → 遮挡（真实遮罩场景 hit 无关，
+ *   其后代必不含目标文本）
  * 入参全部经 JSON.stringify/整数校验转义嵌入，杜绝脚本注入。脚本首行带 wa-occlusion
  * 标记供测试/fake 识别。
  */
@@ -394,22 +411,16 @@ export function occlusionProbeScript(opts: OcclusionProbeOpts): string {
   const px = typeof opts.x === "number" && Number.isFinite(opts.x) ? Math.round(opts.x) : null;
   const py = typeof opts.y === "number" && Number.isFinite(opts.y) ? Math.round(opts.y) : null;
   const sel = opts.targetSelector !== undefined ? JSON.stringify(opts.targetSelector) : "null";
-  if (opts.targetRef !== undefined) {
-    const n = opts.targetRef;
-    if (!Number.isInteger(n) || n < 1 || n > MAX_ANNOTATED_ELEMENTS) {
-      throw new Error(`occlusion targetRef 必须是 1-${MAX_ANNOTATED_ELEMENTS} 的整数，收到 ${n}`);
-    }
-  }
-  const ref = opts.targetRef !== undefined ? String(opts.targetRef) : "null";
   const text = opts.targetText !== undefined ? JSON.stringify(opts.targetText) : "null";
+  const role = opts.role !== undefined ? JSON.stringify(opts.role) : "null";
   return `/* wa-occlusion */ (() => {
   const SEL = ${sel};
-  const REF = ${ref};
   const TEXT = ${text};
+  const ROLE = ${role};
   const PX = ${px === null ? "null" : String(px)};
   const PY = ${py === null ? "null" : String(py)};
   const norm = (s) => String(s == null ? '' : s).replace(/（/g, '(').replace(/）/g, ')');
-  const target = SEL ? document.querySelector(SEL) : (REF != null ? document.querySelector('[data-wa-ref="' + REF + '"]') : null);
+  const target = SEL ? document.querySelector(SEL) : null;
   let px = PX, py = PY;
   if (target) {
     const r = target.getBoundingClientRect();
@@ -436,7 +447,20 @@ export function occlusionProbeScript(opts: OcclusionProbeOpts): string {
   if (target) {
     if (related(hit, target)) return { occluded: false };
   } else if (TEXT != null) {
-    // text 定位：目标无 selector 可重查。祖先链近似不可行（遮罩向上链到 body，
+    // 输入类目标（ref 定位传 AX role）语义放行：中心命中表单控件（自身或后代含
+    // input/textarea/select）视为目标本身。背景：AX name 可能来自 wrapper 的
+    // aria-label（百度搜索框 AX name 是热搜词，textarea 上探针读不到）→ 文本判断
+    // 误报遮挡卡死 ref 工作流；真遮罩场景 hit 不含表单控件，放行不会误杀。
+    const FORM_ROLES = ['textbox', 'searchbox', 'combobox', 'spinbutton'];
+    const isFormControl = (el) => {
+      const tn = el && el.tagName ? String(el.tagName).toUpperCase() : '';
+      if (tn === 'INPUT' || tn === 'TEXTAREA' || tn === 'SELECT') return true;
+      try { return !!(el && el.querySelector && el.querySelector('input,textarea,select')); } catch (e) { return false; }
+    };
+    if (FORM_ROLES.indexOf(String(ROLE == null ? '' : ROLE).toLowerCase()) >= 0 && isFormControl(hit)) {
+      return { occluded: false };
+    }
+    // 坐标+文本定位：目标无 selector 可重查。祖先链近似不可行（遮罩向上链到 body，
     // body.innerText 必含目标文本，无法区分真祖先与共同祖先），改用三重判断：
     // 1) hit 自身文本含目标 → hit 即目标；2) hit 后代文本含目标 → hit 是目标容器；
     // 3) hit 是表单控件 → value/aria-label 或关联 label 文本含目标（label↔input）。

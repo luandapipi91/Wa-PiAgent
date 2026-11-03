@@ -537,7 +537,7 @@ describe("browser_screenshot annotate", () => {
       viewFactory: () =>
         makeFakeView({
           async evaluate(script: string) {
-            return script.includes("data-wa-ref") ? evaluateImpl(script) : script;
+            return script.includes("wa-annotate") ? evaluateImpl(script) : script;
           },
         }),
       idleTimeoutMs: 60_000,
@@ -591,35 +591,72 @@ describe("browser_screenshot annotate", () => {
     }
   });
 
-  test("browser_navigate 后旧 refs 被新快照刷新（非 annotate 路径）", async () => {
+  test("browser_navigate 后旧 refs/selectorMap 清空（过期锚点不得被消费）", async () => {
     const m = makeAnnotateManager(() => fakeRefs);
     try {
-      // 第一次导航创建视图（自动快照已填 fakeRefs），预置一轮过期的旧 refs
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
-      (m.get("s1") as { refs?: unknown }).refs = {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      // 预置上一轮过期的 annotate refs 与快照 selectorMap
+      (m.get("s1") as { refs?: unknown; selectorMap?: unknown }).refs = {
         "@9": { n: 9, tag: "div", label: "stale", x: 0, y: 0 },
       };
-      // 第二次导航：自动快照应将旧 refs 替换为新页面的 refs
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
-      const refs = m.get("s1")?.refs;
-      expect(refs?.["@9"]).toBeUndefined();
-      expect(refs?.["@1"]?.label).toBe("go");
+      (m.get("s1") as { selectorMap?: unknown }).selectorMap = { 999: { role: "button", name: "stale" } };
+      // 第二次导航：旧缓存全部失效清空
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      expect(m.get("s1")?.refs?.["@9"]).toBeUndefined();
+      expect(m.get("s1")?.selectorMap?.[999]).toBeUndefined();
     } finally {
       m.dispose();
     }
   });
 });
 
-describe("browser_evaluate click ref", () => {
-  function makeRefManager() {
+describe("browser_evaluate click ref（backendDOMNodeId 新链路）", () => {
+  /** 登录页形态 AX 树：RootWebArea → heading/textbox/button */
+  const AX_LOGIN: unknown = {
+    nodes: [
+      { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2", "3", "4"] },
+      { nodeId: "2", role: { type: "role", value: "heading" }, name: { type: "computedString", value: "慧来客" }, backendDOMNodeId: 10 },
+      { nodeId: "3", role: { type: "role", value: "textbox" }, name: { type: "computedString", value: "请输入手机号" }, backendDOMNodeId: 12 },
+      { nodeId: "4", role: { type: "role", value: "button" }, name: { type: "computedString", value: "登 录" }, backendDOMNodeId: 15 },
+    ],
+  };
+
+  /**
+   * click ref fake：cdp 提供 AX 树与 getBoxModel（boxes 表驱动；未命中抛错模拟失效），
+   * evaluate 提供遮挡探针结果。
+   */
+  function makeRefManager(opts: {
+    boxes?: Record<number, number[]>;
+    axTree?: unknown;
+    occlusion?: unknown;
+    probeError?: boolean;
+  } = {}) {
     const clicked: Array<[unknown, unknown]> = [];
+    const probes: string[] = [];
+    const cdpCalls: Array<{ method: string; params?: Record<string, unknown> }> = [];
     const m = new BrowserManager({
       screenshotDir: mkdtempSync(join(tmpdir(), "browser-ref-")),
       viewFactory: () =>
         makeFakeView({
           async evaluate(script: string) {
-            if (script.includes("data-wa-ref")) return { found: true, x: 111, y: 222 };
+            if (script.includes("wa-occlusion")) {
+              if (opts.probeError) throw new Error("probe boom");
+              probes.push(script);
+              return opts.occlusion ?? { occluded: false };
+            }
             return script;
+          },
+          async cdp(method: string, params?: Record<string, unknown>) {
+            cdpCalls.push({ method, params });
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "u-1" } } };
+            if (method === "Accessibility.getFullAXTree") return opts.axTree ?? AX_LOGIN;
+            if (method === "DOM.scrollIntoViewIfNeeded") return {};
+            if (method === "DOM.getBoxModel") {
+              const quad = opts.boxes?.[Number(params?.backendNodeId)];
+              if (!quad) throw new Error("No node with id");
+              return { model: { content: quad } };
+            }
+            return {};
           },
           async click(a?: unknown, b?: unknown) {
             clicked.push([a, b]);
@@ -628,71 +665,111 @@ describe("browser_evaluate click ref", () => {
       idleTimeoutMs: 60_000,
       sweepIntervalMs: 60_000,
     });
-    return { m, clicked };
+    return { m, clicked, probes, cdpCalls };
   }
 
-  async function seed(m: BrowserManager, refs: Record<string, unknown>) {
-    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
-    (m.get("s1") as { refs?: unknown }).refs = refs;
+  async function seedSelectorMap(m: BrowserManager, map: Record<number, { role: string; name: string }>) {
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+    (m.get("s1") as { selectorMap?: unknown }).selectorMap = map;
   }
 
-  test("click ref：实时定位元素中心并按坐标真实点击", async () => {
-    const { m, clicked } = makeRefManager();
-    try {
-      await seed(m, { "@2": { n: 2, tag: "button", label: "go", x: 0, y: 0 } });
-      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 2 });
-      expect(r.content[0].text).toContain('"ok":true');
-      expect(clicked[0]?.[0]).toBe(111);
-      expect(clicked[0]?.[1]).toBe(222);
-    } finally {
-      m.dispose();
-    }
-  });
-
-  test("click ref：编号不在缓存中报 invalid_ref", async () => {
-    const { m } = makeRefManager();
-    try {
-      await seed(m, { "@1": { n: 1, tag: "a", label: "l", x: 1, y: 1 } });
-      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 9 });
-      expect(JSON.stringify(r)).toContain("invalid_ref");
-    } finally {
-      m.dispose();
-    }
-  });
-
-  test("click ref：元素已被页面移除（found:false）报 invalid_ref", async () => {
-    const m = new BrowserManager({
-      screenshotDir: mkdtempSync(join(tmpdir(), "browser-ref-")),
-      viewFactory: () =>
-        makeFakeView({
-          async evaluate(script: string) {
-            if (script.includes("data-wa-ref")) return { found: false };
-            return script;
-          },
-        }),
-      idleTimeoutMs: 60_000,
-      sweepIntervalMs: 60_000,
+  test("click ref：getBoxModel quad 中心坐标真实点击（先 scrollIntoViewIfNeeded）", async () => {
+    const { m, clicked, cdpCalls } = makeRefManager({
+      boxes: { 15: [10, 20, 30, 20, 30, 40, 10, 40] },
     });
     try {
-      await seed(m, { "@1": { n: 1, tag: "a", label: "l", x: 1, y: 1 } });
-      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 1 });
-      expect(JSON.stringify(r)).toContain("invalid_ref");
+      await seedSelectorMap(m, { 15: { role: "button", name: "登 录" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 15 });
+      expect(r.content[0].text).toContain('"ok":true');
+      expect(clicked[0]?.[0]).toBe(20); // quad 四点平均
+      expect(clicked[0]?.[1]).toBe(30);
+      const idxScroll = cdpCalls.findIndex((c) => c.method === "DOM.scrollIntoViewIfNeeded");
+      const idxBox = cdpCalls.findIndex((c) => c.method === "DOM.getBoxModel");
+      expect(idxBox).toBeGreaterThan(idxScroll);
     } finally {
       m.dispose();
     }
   });
 
-  test("click ref：非法编号（0 / 1.5）报 invalid_ref", async () => {
-    const { m } = makeRefManager();
+  test("click ref：selectorMap 无此 ref → invalid_ref 提示重新 snapshot", async () => {
+    const { m } = makeRefManager({ boxes: { 15: [0, 0, 1, 0, 1, 1, 0, 1] } });
     try {
-      await seed(m, { "@1": { n: 1, tag: "a", label: "l", x: 1, y: 1 } });
-      for (const bad of [0, 1.5]) {
+      await seedSelectorMap(m, { 15: { role: "button", name: "登 录" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 99 });
+      expect(JSON.stringify(r)).toContain("invalid_ref");
+      expect(r.content[0].text).toContain("browser_snapshot");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("click ref：原 ref 失效 → AX 重拉按 role+name 唯一回查新 backendId 并更新缓存", async () => {
+    const { m, clicked } = makeRefManager({
+      boxes: { 15: [0, 0, 20, 0, 20, 10, 0, 10] }, // 只有新 id=15 有盒子；旧 id=99 抛错触发回查
+    });
+    try {
+      await seedSelectorMap(m, { 99: { role: "button", name: "登 录" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 99 });
+      expect(r.content[0].text).toContain('"ok":true');
+      expect(clicked[0]?.[0]).toBe(10);
+      // 回查结果写回 selectorMap：后续点击直接命中新 id
+      expect(m.get("s1")?.selectorMap?.[15]).toStrictEqual({ role: "button", name: "登 录" });
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("click ref：回查重名歧义 → 报错要求重新 snapshot（宁失效不错点）", async () => {
+    const dupTree = {
+      nodes: [
+        { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2", "3"] },
+        { nodeId: "2", role: { type: "role", value: "button" }, name: { type: "computedString", value: "登 录" }, backendDOMNodeId: 15 },
+        { nodeId: "3", role: { type: "role", value: "button" }, name: { type: "computedString", value: "登 录" }, backendDOMNodeId: 16 },
+      ],
+    };
+    const { m, clicked } = makeRefManager({ axTree: dupTree });
+    try {
+      await seedSelectorMap(m, { 99: { role: "button", name: "登 录" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 99 });
+      expect(JSON.stringify(r)).toContain("invalid_ref");
+      expect(r.content[0].text).toContain("多个");
+      expect(r.content[0].text).toContain("重新 browser_snapshot");
+      expect(clicked.length).toBe(0);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("click ref：非法编号（0 / 1.5 / 负数）报 invalid_ref", async () => {
+    const { m } = makeRefManager({ boxes: { 15: [0, 0, 1, 0, 1, 1, 0, 1] } });
+    try {
+      await seedSelectorMap(m, { 15: { role: "button", name: "登 录" } });
+      for (const bad of [0, 1.5, -3]) {
         const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
           action: "click",
           ref: bad,
         });
         expect(JSON.stringify(r)).toContain("invalid_ref");
       }
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("click ref：遮挡校验走坐标+文本模式，报遮挡时不派发点击", async () => {
+    const { m, clicked, probes } = makeRefManager({
+      boxes: { 15: [10, 20, 30, 20, 30, 40, 10, 40] },
+      occlusion: { occluded: true, occluder: { tag: "div", cls: "mask", text: "遮罩文本" } },
+    });
+    try {
+      await seedSelectorMap(m, { 15: { role: "button", name: "登 录" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 15, snapshot: false });
+      expect(JSON.stringify(r)).toContain("click_occluded");
+      expect(clicked.length).toBe(0);
+      // 新链路探针带定位阶段算好的 quad 中心坐标 + 目标文本（不再有 data-wa-ref 锚点）
+      expect(probes[0]).toContain("wa-occlusion");
+      expect(probes[0]).not.toContain("data-wa-ref");
+      expect(probes[0]).toContain("登 录");
     } finally {
       m.dispose();
     }
@@ -721,7 +798,7 @@ describe("操作后自动快照（差值+稳定检测）", () => {
       viewFactory: () =>
         makeFakeView({
           async evaluate(script: string) {
-            if (!script.includes("data-wa-ref")) return script;
+            if (!script.includes("wa-snapshot")) return script;
             return frames[Math.min(i++, frames.length - 1)];
           },
         }),
@@ -731,7 +808,7 @@ describe("操作后自动快照（差值+稳定检测）", () => {
     return m;
   }
 
-  test("navigate 默认附首帧快照（无星）并写入 refs 缓存", async () => {
+  test("navigate 默认附首帧快照（无星；降级线无 selectorMap 产物）", async () => {
     const m = makeAutoSnapManager([S1, S1]);
     try {
       const r = await handleBrowserTool(m, "s1", "browser_navigate", {
@@ -741,14 +818,15 @@ describe("操作后自动快照（差值+稳定检测）", () => {
       expect(parsed.ok).toBe(true);
       expect(parsed.snapshot).toContain('@1 button "登 录"');
       expect(parsed.snapshot).not.toContain("* ");
-      expect(parsed.refCount).toBe(1);
-      expect(m.get("s1")?.refs?.["@1"]?.label).toBe("登 录");
+      // 平铺降级线（fake 无 cdp）无 selectorMap 产物；AX 线的 selectorMap 写入见下用例
+      expect(parsed.refCount).toBe(0);
+      expect(m.get("s1")?.selectorMap).toBeUndefined();
     } finally {
       m.dispose();
     }
   });
 
-  test("操作后页面有变化 → snapshot 带星行且 refs 刷新", async () => {
+  test("操作后页面有变化 → snapshot 带星行", async () => {
     const m = makeAutoSnapManager([S1, S1, S2, S2]);
     try {
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
@@ -760,7 +838,6 @@ describe("操作后自动快照（差值+稳定检测）", () => {
       expect(parsed.ok).toBe(true);
       expect(parsed.snapshot).toContain('* @1 textbox "手机号" = "132"');
       expect(parsed.snapshotUnchanged).toBeUndefined();
-      expect(m.get("s1")?.refs?.["@1"]?.value).toBe("132");
     } finally {
       m.dispose();
     }
@@ -812,7 +889,7 @@ describe("操作后自动快照（差值+稳定检测）", () => {
       viewFactory: () =>
         makeFakeView({
           async evaluate(script: string) {
-            if (script.includes("data-wa-ref")) throw new Error("inject boom");
+            if (script.includes("wa-snapshot")) throw new Error("inject boom");
             return script;
           },
         }),
@@ -869,59 +946,94 @@ describe("操作后自动快照（差值+稳定检测）", () => {
   });
 });
 
-describe("browser_snapshot 文本快照", () => {
-  const snapRefs = {
-    "@1": { n: 1, tag: "input", inputType: "text", label: "手机号", value: "132", x: 100, y: 50 },
-    "@2": { n: 2, tag: "button", label: "登 录", x: 100, y: 90 },
-    "@3": { n: 3, tag: "input", inputType: "checkbox", label: "同意协议", checked: true, x: 20, y: 120 },
-    "@4": { n: 4, tag: "div", role: undefined, label: "深圳1测试店", pointer: true, x: 60, y: 160 },
+describe("browser_snapshot 文本快照（AX 树形线）", () => {
+  /** 登录页形态 AX 树 fixture（heading/text/textbox/button） */
+  const AX_LOGIN = {
+    nodes: [
+      { nodeId: "1", role: { type: "role", value: "RootWebArea" }, name: { type: "computedString", value: "慧来客" }, childIds: ["2", "3", "4", "5"] },
+      { nodeId: "2", role: { type: "role", value: "heading" }, name: { type: "computedString", value: "慧来客" }, backendDOMNodeId: 10 },
+      { nodeId: "3", role: { type: "role", value: "StaticText" }, name: { type: "computedString", value: "手机号登录后可进行后续操作" } },
+      { nodeId: "4", role: { type: "role", value: "textbox" }, name: { type: "computedString", value: "请输入手机号" }, backendDOMNodeId: 12 },
+      { nodeId: "5", role: { type: "role", value: "button" }, name: { type: "computedString", value: "登 录" }, backendDOMNodeId: 15 },
+    ],
   };
 
-  function makeSnapManager(evaluateImpl: (script: string) => unknown) {
-    return new BrowserManager({
+  /** AX 线 fake（cdp 可用）；failAx 时 cdp 抛错走降级平铺线 */
+  function makeSnapManager(opts: { axTree?: unknown; failAx?: boolean; flatFrames?: unknown[] } = {}) {
+    let i = 0;
+    const m = new BrowserManager({
       screenshotDir: mkdtempSync(join(tmpdir(), "browser-snap-")),
       viewFactory: () =>
         makeFakeView({
           async evaluate(script: string) {
-            return script.includes("data-wa-ref") ? evaluateImpl(script) : script;
+            if (script.includes("wa-snapshot")) {
+              const frames = opts.flatFrames ?? [];
+              return frames[Math.min(i++, Math.max(frames.length - 1, 0))];
+            }
+            return script;
+          },
+          async cdp(method: string) {
+            if (opts.failAx) throw new Error("ax boom");
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "u-1" } } };
+            if (method === "Accessibility.getFullAXTree") return opts.axTree ?? AX_LOGIN;
+            return {};
           },
         }),
       idleTimeoutMs: 60_000,
       sweepIntervalMs: 60_000,
     });
+    return m;
   }
 
-  test("snapshot：返回 agent-browser 风格文本行并缓存 refs", async () => {
-    const m = makeSnapManager(() => snapRefs);
+  test("snapshot：树形缩进文本 + selectorMap 缓存（ref=backendDOMNodeId）", async () => {
+    const m = makeSnapManager();
     try {
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
       const r = await handleBrowserTool(m, "s1", "browser_snapshot", {});
       const parsed = JSON.parse(r.content[0].text);
       expect(parsed.ok).toBe(true);
-      expect(parsed.refCount).toBe(4);
-      expect(parsed.snapshot).toContain('@1 textbox "手机号" = "132"');
-      expect(parsed.snapshot).toContain('@2 button "登 录"');
-      expect(parsed.snapshot).toContain('@3 checkbox "同意协议" [checked]');
-      expect(parsed.snapshot).toContain('@4 generic "深圳1测试店" (pointer)');
-      expect(m.get("s1")?.refs?.["@2"]?.label).toBe("登 录");
+      expect(parsed.refCount).toBe(3); // heading/textbox/button
+      expect(parsed.snapshot).toContain('- heading "慧来客" [ref=10]');
+      expect(parsed.snapshot).toContain('- text "手机号登录后可进行后续操作"');
+      expect(parsed.snapshot).toContain('- textbox "请输入手机号" = "" [ref=12]');
+      expect(parsed.snapshot).toContain('- button "登 录" [ref=15]');
+      // selectorMap 写入会话供 click ref 回查
+      expect(m.get("s1")?.selectorMap?.[15]).toStrictEqual({ role: "button", name: "登 录" });
     } finally {
       m.dispose();
     }
   });
 
-  test("snapshot：脚本返回非对象报错", async () => {
-    const m = makeSnapManager(() => "not-an-object");
+  test("snapshot：AX 线失败 → 降级平铺线（兼容产物，无 selectorMap）", async () => {
+    const m = makeSnapManager({
+      failAx: true,
+      flatFrames: [{ "@2": { n: 2, tag: "button", label: "登 录", x: 1, y: 1 } }],
+    });
     try {
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
       const r = await handleBrowserTool(m, "s1", "browser_snapshot", {});
-      expect(r.content[0].text).toContain("快照失败");
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshot).toContain('@2 button "登 录"');
+      expect(m.get("s1")?.selectorMap).toBeUndefined();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("snapshot：双线均失败（平铺线返回非对象）报错", async () => {
+    const m = makeSnapManager({ failAx: true, flatFrames: ["not-an-object"] });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_snapshot", {});
+      expect(r.content[0].text).toContain("browser_snapshot 失败"); // lastError（ax boom）优先呈现
     } finally {
       m.dispose();
     }
   });
 
   test("snapshot：视图未创建报错", async () => {
-    const m = makeSnapManager(() => snapRefs);
+    const m = makeSnapManager();
     try {
       const r = await handleBrowserTool(m, "s1", "browser_snapshot", {});
       expect(JSON.stringify(r)).toContain("no_view");
@@ -930,14 +1042,41 @@ describe("browser_snapshot 文本快照", () => {
     }
   });
 
-  test("snapshot 后 click ref 复用同一缓存；文案指向 browser_snapshot", async () => {
-    const m = makeSnapManager(() => snapRefs);
+  test("snapshot 后 click ref 用 selectorMap（真实快照产物→点击）", async () => {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-snap-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-occlusion")) return { occluded: false };
+            return script;
+          },
+          async cdp(method: string, params?: Record<string, unknown>) {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "u-1" } } };
+            if (method === "Accessibility.getFullAXTree") return AX_LOGIN;
+            if (method === "DOM.scrollIntoViewIfNeeded") return {};
+            if (method === "DOM.getBoxModel") {
+              if (Number(params?.backendNodeId) === 15) {
+                return { model: { content: [0, 0, 10, 0, 10, 10, 0, 10] } };
+              }
+              throw new Error("No node with id");
+            }
+            return {};
+          },
+          async click(a?: unknown) {
+            clickedSnap.push(a);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    const clickedSnap: unknown[] = [];
     try {
-      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
       await handleBrowserTool(m, "s1", "browser_snapshot", {});
-      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 99 });
-      expect(JSON.stringify(r)).toContain("invalid_ref");
-      expect(r.content[0].text).toContain("browser_snapshot");
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 15, snapshot: false });
+      expect(r.content[0].text).toContain('"ok":true');
+      expect(clickedSnap[0]).toBe(5);
     } finally {
       m.dispose();
     }
@@ -952,9 +1091,16 @@ describe("browser_evaluate click text 文本定位", () => {
       viewFactory: () =>
         makeFakeView({
           async evaluate(script: string) {
-            if (script.includes("data-wa-ref")) return { found: true, x: 5, y: 6 };
             if (script.includes("wa-click-text")) return evalResult;
+            if (script.includes("wa-occlusion")) return { occluded: false };
             return script;
+          },
+          async cdp(method: string) {
+            if (method === "DOM.scrollIntoViewIfNeeded") return {};
+            if (method === "DOM.getBoxModel") {
+              return { model: { content: [0, 0, 14, 0, 14, 8, 0, 8] } };
+            }
+            return {};
           },
           async click(a?: unknown, b?: unknown) {
             clicked.push([a, b]);
@@ -1012,17 +1158,15 @@ describe("browser_evaluate click text 文本定位", () => {
         url: "http://example.com",
         snapshot: false,
       });
-      (m.get("s1") as { refs?: unknown }).refs = {
-        "@1": { n: 1, tag: "button", label: "go", x: 0, y: 0 },
-      };
+      (m.get("s1") as { selectorMap?: unknown }).selectorMap = { 1: { role: "button", name: "go" } };
       const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
         action: "click",
         ref: 1,
         text: "盘点完成",
       });
       expect(r.content[0].text).toContain('"ref":1');
-      expect(clicked[0]?.[0]).toBe(5); // ref 路径的坐标
-      expect(clicked[0]?.[1]).toBe(6);
+      expect(clicked[0]?.[0]).toBe(7); // ref 路径的 quad 中心坐标
+      expect(clicked[0]?.[1]).toBe(4);
     } finally {
       m.dispose();
     }
@@ -1203,6 +1347,121 @@ describe("browser_wait 条件等待", () => {
   });
 });
 
+describe("browser_wait 命中后自动附快照（2026-11-03）", () => {
+  /** 稳定 AX 树：button "go" + heading "待命页"（有名 content 角色也有 ref） */
+  const AX_WAIT_TREE: unknown = {
+    nodes: [
+      { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2", "3"] },
+      { nodeId: "2", role: { type: "role", value: "button" }, name: { type: "computedString", value: "go" }, backendDOMNodeId: 5 },
+      { nodeId: "3", role: { type: "role", value: "heading" }, name: { type: "computedString", value: "待命页" }, backendDOMNodeId: 7 },
+    ],
+  };
+
+  /** wait fake：探测结果可控，AX 树恒定（供 attachAutoSnapshot 走 AX 线） */
+  function makeWaitSnapManager(opts: { textHit?: boolean; hiddenHit?: boolean } = {}) {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-waitsnap-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-wait-text")) return opts.textHit === true;
+            if (script.includes("wa-wait-hidden")) return opts.hiddenHit === true;
+            return script;
+          },
+          async cdp(method: string) {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "u-1" } } };
+            if (method === "Accessibility.getFullAXTree") return AX_WAIT_TREE;
+            return {};
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return m;
+  }
+
+  const HINT = "提示：操作元素优先用上方快照中的 [ref=";
+
+  test("wait text 命中 → 返回体附 snapshot（提示首行+树形行）与 refCount", async () => {
+    const m = makeWaitSnapManager({ textHit: true });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { text: "go", timeout: 2000 });
+      const parsed = JSON.parse(r.content[0].text) as {
+        ok?: boolean; matched?: boolean; snapshot?: string; refCount?: number; hint?: string;
+      };
+      expect(parsed.ok).toBe(true);
+      expect(parsed.matched).toBe(true);
+      expect(parsed.snapshot?.startsWith(HINT)).toBe(true);
+      expect(parsed.snapshot).toContain('- button "go" [ref=5]');
+      expect(parsed.refCount).toBe(2); // button + 有名 heading
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("wait 命中但页面无变化 → snapshotUnchanged + hint 字段降级", async () => {
+    const m = makeWaitSnapManager({ textHit: true });
+    try {
+      // navigate 默认附快照 → 基准已建立；wait 后页面同基准 → unchanged
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { text: "go", timeout: 2000 });
+      const parsed = JSON.parse(r.content[0].text) as {
+        snapshotUnchanged?: boolean; hint?: string; snapshot?: string;
+      };
+      expect(parsed.snapshotUnchanged).toBe(true);
+      expect(parsed.snapshot).toBeUndefined();
+      expect(parsed.hint).toContain("[ref=");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("wait ms 固定等待完成 → 附快照", async () => {
+    const m = makeWaitSnapManager({});
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { ms: 50 });
+      const parsed = JSON.parse(r.content[0].text) as { ok?: boolean; snapshot?: string; refCount?: number };
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshot?.startsWith(HINT)).toBe(true);
+      expect(parsed.refCount).toBe(2);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("wait hiddenSelector 命中 → 附快照", async () => {
+    const m = makeWaitSnapManager({ hiddenHit: true });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { hiddenSelector: "#loading", timeout: 2000 });
+      const parsed = JSON.parse(r.content[0].text) as { ok?: boolean; matched?: boolean; snapshot?: string };
+      expect(parsed.ok).toBe(true);
+      expect(parsed.snapshot?.startsWith(HINT)).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("wait 超时 → 错误文本附当前页面快照（模型自查未等到原因）", async () => {
+    const m = makeWaitSnapManager({ textHit: false });
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      const r = await handleBrowserTool(m, "s1", "browser_wait", { text: "never", timeout: 400 });
+      const text = r.content[0].text;
+      expect(text).toContain("等待超时");
+      expect((r.details as { error?: string }).error).toBe("wait_timeout");
+      // 附当前快照：提示首行 + 树形行（模型直接判断页面状态，免再 snapshot）
+      expect(text).toContain("当前页面快照");
+      expect(text).toContain(HINT);
+      expect(text).toContain('[ref=5]');
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
 describe("click selector 鲁棒性（无效选择器快速失败+错误引导）", () => {
   function makeSelManager(clickErr?: Error) {
     return new BrowserManager({
@@ -1292,7 +1551,8 @@ describe("browser_evaluate hover 悬停动作", () => {
       expect((mv!.params as { type: string }).type).toBe("mouseMoved");
       expect((mv!.params as { x: number }).x).toBe(131);
       expect((mv!.params as { y: number }).y).toBe(42);
-      expect(parsed.refCount).toBeDefined(); // 附自动快照
+      // 附自动快照机制运行：fake cdp 无 AX 实现 → 快照以 snapshotError 可观测（不阻断 hover 成功）
+      expect(parsed.snapshotError).toBeDefined();
     } finally {
       m.dispose();
     }
@@ -1596,6 +1856,314 @@ describe("type selector 聚焦与原生 setter 兜底", () => {
   });
 });
 
+// =========================================================================
+// type/press ref 聚焦（快照 [ref=N] 工作流补齐，2026-11-03）
+// =========================================================================
+
+describe("type/press ref 聚焦（locateRefTarget 接入）", () => {
+  /** 登录页形态 AX 树：RootWebArea → heading/textbox/button（同 click ref 测试） */
+  const AX_LOGIN_INPUT: unknown = {
+    nodes: [
+      { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2", "3", "4"] },
+      { nodeId: "2", role: { type: "role", value: "heading" }, name: { type: "computedString", value: "慧来客" }, backendDOMNodeId: 10 },
+      { nodeId: "3", role: { type: "role", value: "textbox" }, name: { type: "computedString", value: "请输入手机号" }, backendDOMNodeId: 12 },
+      { nodeId: "4", role: { type: "role", value: "button" }, name: { type: "computedString", value: "登 录" }, backendDOMNodeId: 15 },
+    ],
+  };
+
+  /**
+   * type/press ref fake：cdp 提供 AX 树与 getBoxModel（boxes 表驱动；未命中抛错模拟
+   * 失效），click 记录聚焦坐标，type/press 记录派发，evaluate 提供遮挡探针与键入验证。
+   */
+  function makeRefInputManager(opts: {
+    boxes?: Record<number, number[]>;
+    axTree?: unknown;
+    typeEffective?: boolean;
+  } = {}) {
+    const clicked: Array<[unknown, unknown]> = [];
+    const typed: string[] = [];
+    const pressed: string[] = [];
+    let activeValue = "";
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-refinput-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-occlusion")) return { occluded: false };
+            if (script.includes("wa-typecheck")) return activeValue; // activeElement 值
+            // 模拟原生 setter 设置成功后读回的值（与 makeTypeManager 模式对齐）
+            if (script.includes("wa-typeset")) return "zz1234";
+            return script;
+          },
+          async cdp(method: string, params?: Record<string, unknown>) {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "u-1" } } };
+            if (method === "Accessibility.getFullAXTree") return opts.axTree ?? AX_LOGIN_INPUT;
+            if (method === "DOM.scrollIntoViewIfNeeded") return {};
+            if (method === "DOM.getBoxModel") {
+              const quad = opts.boxes?.[Number(params?.backendNodeId)];
+              if (!quad) throw new Error("No node with id");
+              return { model: { content: quad } };
+            }
+            return {};
+          },
+          async click(a?: unknown, b?: unknown) {
+            clicked.push([a, b]);
+          },
+          async type(text: string) {
+            typed.push(text);
+            if (opts.typeEffective !== false) activeValue = text;
+          },
+          async press(key: string) {
+            pressed.push(key);
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return { m, clicked, typed, pressed };
+  }
+
+  async function seedSelectorMap(m: BrowserManager, map: Record<number, { role: string; name: string }>) {
+    await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+    (m.get("s1") as { selectorMap?: unknown }).selectorMap = map;
+  }
+
+  test("type+ref：坐标聚焦（先 scrollIntoViewIfNeeded）后键入生效，返回 ok 与 ref", async () => {
+    const { m, clicked, typed } = makeRefInputManager({
+      boxes: { 12: [10, 20, 30, 20, 30, 40, 10, 40] },
+    });
+    try {
+      await seedSelectorMap(m, { 12: { role: "textbox", name: "请输入手机号" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        ref: 12,
+        text: "13800000000",
+        snapshot: false,
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.ref).toBe(12);
+      expect(clicked[0]?.[0]).toBe(20); // quad 四点平均中心
+      expect(clicked[0]?.[1]).toBe(30);
+      expect(typed).toEqual(["13800000000"]);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("type+ref：键入未生效 → activeElement 原生 setter 兑底（fallback 标记）", async () => {
+    const { m } = makeRefInputManager({
+      boxes: { 12: [0, 0, 10, 0, 10, 10, 0, 10] },
+      typeEffective: false,
+    });
+    try {
+      await seedSelectorMap(m, { 12: { role: "textbox", name: "请输入手机号" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        ref: 12,
+        text: "zz1234",
+        snapshot: false,
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.fallback).toBe(true);
+      expect(parsed.ok).toBe(true); // 兑底读回值与 text 一致
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("type+ref：原 ref 失效 → role+name 回查新 id 并更新 selectorMap", async () => {
+    const { m, clicked } = makeRefInputManager({
+      // AX 树中 textbox 的新 backendId=12；旧 id=99 无盒子抛错触发回查
+      boxes: { 12: [0, 0, 20, 0, 20, 10, 0, 10] },
+    });
+    try {
+      await seedSelectorMap(m, { 99: { role: "textbox", name: "请输入手机号" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        ref: 99,
+        text: "abc",
+        snapshot: false,
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.recovered).toBe(true);
+      expect(clicked[0]?.[0]).toBe(10);
+      expect(m.get("s1")?.selectorMap?.[12]).toStrictEqual({ role: "textbox", name: "请输入手机号" });
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("type+ref：selectorMap 无此 ref → invalid_ref 提示重新 snapshot", async () => {
+    const { m } = makeRefInputManager({ boxes: { 12: [0, 0, 1, 0, 1, 1, 0, 1] } });
+    try {
+      await seedSelectorMap(m, { 12: { role: "textbox", name: "请输入手机号" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "type",
+        ref: 99,
+        text: "abc",
+        snapshot: false,
+      });
+      expect(JSON.stringify(r)).toContain("invalid_ref");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("press+ref：坐标聚焦后按键派发（Enter 到达目标元素）", async () => {
+    const { m, clicked, pressed } = makeRefInputManager({
+      boxes: { 15: [10, 20, 30, 20, 30, 40, 10, 40] },
+    });
+    try {
+      await seedSelectorMap(m, { 15: { role: "button", name: "登 录" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "press",
+        ref: 15,
+        key: "Enter",
+        snapshot: false,
+      });
+      const parsed = JSON.parse(r.content[0].text);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.ref).toBe(15);
+      expect(clicked[0]?.[0]).toBe(20);
+      expect(clicked[0]?.[1]).toBe(30);
+      expect(pressed).toEqual(["Enter"]);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("press+ref：selectorMap 无此 ref → invalid_ref 且不派发按键", async () => {
+    const { m, pressed } = makeRefInputManager({ boxes: { 15: [0, 0, 1, 0, 1, 1, 0, 1] } });
+    try {
+      await seedSelectorMap(m, { 15: { role: "button", name: "登 录" } });
+      const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
+        action: "press",
+        ref: 99,
+        key: "Enter",
+        snapshot: false,
+      });
+      expect(JSON.stringify(r)).toContain("invalid_ref");
+      expect(pressed.length).toBe(0);
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
+// =========================================================================
+// 返回体 ref 提示（双保险：工具返回体动态引导 ref 工作流，2026-11-03）
+// =========================================================================
+
+describe("返回体 ref 提示（navigate/snapshot/screenshot/操作后快照）", () => {
+  const AX_HINT_TREE: unknown = {
+    nodes: [
+      { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2"] },
+      { nodeId: "2", role: { type: "role", value: "button" }, name: { type: "computedString", value: "go" }, backendDOMNodeId: 5 },
+    ],
+  };
+
+  function makeHintManager() {
+    const m = new BrowserManager({
+      screenshotDir: mkdtempSync(join(tmpdir(), "browser-hint-")),
+      viewFactory: () =>
+        makeFakeView({
+          async evaluate(script: string) {
+            if (script.includes("wa-occlusion")) return { occluded: false };
+            if (script.includes("wa-annotate")) return { "@5": { label: "go", tag: "button", x: 1, y: 1 } };
+            return script;
+          },
+          async cdp(method: string) {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "u-1" } } };
+            if (method === "Accessibility.getFullAXTree") return AX_HINT_TREE;
+            if (method === "DOM.scrollIntoViewIfNeeded") return {};
+            if (method === "DOM.getBoxModel") return { model: { content: [0, 0, 10, 0, 10, 10, 0, 10] } };
+            return {};
+          },
+        }),
+      idleTimeoutMs: 60_000,
+      sweepIntervalMs: 60_000,
+    });
+    return m;
+  }
+
+  function parseHint(r: { content: { text: string }[] }): string | undefined {
+    return (JSON.parse(r.content[0].text) as { hint?: string }).hint;
+  }
+
+  const HINT_PREFIX = "提示：操作元素优先用上方快照中的 [ref=";
+
+  test("browser_navigate 返回体：快照文本首行拼 ref 提示；snapshot:false 时降级 hint 字段", async () => {
+    const m = makeHintManager();
+    try {
+      const r = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const parsed = JSON.parse(r.content[0].text) as { snapshot: string; hint?: string };
+      // 默认自动附快照：提示拼在快照文本首行（模型读快照第一眼即见）
+      expect(parsed.snapshot.startsWith(HINT_PREFIX)).toBe(true);
+      expect(parsed.snapshot).toContain("CSS selector");
+      expect(parsed.snapshot.split("\n").length).toBeGreaterThan(1); // 首行提示后仍有快照内容
+      // 跳过自动快照：无快照文本 → 独立 hint 字段（等价形式）
+      const r2 = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      expect(parseHint(r2)).toContain("[ref=");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_snapshot 返回体：快照文本首行拼 ref 提示", async () => {
+    const m = makeHintManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_snapshot", {});
+      const parsed = JSON.parse(r.content[0].text) as { snapshot?: string };
+      expect(parsed.snapshot?.startsWith(HINT_PREFIX)).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("browser_screenshot（含 annotate）返回体：无快照文本 → hint 字段", async () => {
+    const m = makeHintManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com" });
+      const r = await handleBrowserTool(m, "s1", "browser_screenshot", {});
+      expect(parseHint(r)).toContain("[ref=");
+      // annotate 模式（返回 refs 映射）同样带提示
+      const r2 = await handleBrowserTool(m, "s1", "browser_screenshot", { annotate: true });
+      const parsed = JSON.parse(r2.content[0].text) as { refs?: unknown; hint?: string };
+      expect(parsed.hint).toContain("[ref=");
+    } finally {
+      m.dispose();
+    }
+  });
+
+  test("操作后自动快照：有差值快照拼首行；无变化（snapshotUnchanged）降级 hint 字段", async () => {
+    const m = makeHintManager();
+    try {
+      await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
+      // 首次 click：产生差值快照 → 提示拼首行
+      const click = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#go" });
+      const parsed = JSON.parse(click.content[0].text) as { snapshot?: string; hint?: string };
+      expect(parsed.snapshot?.startsWith(HINT_PREFIX)).toBe(true);
+      // 二次 click：页面无变化 → snapshotUnchanged 无快照文本 → hint 字段
+      const click2 = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", selector: "#go" });
+      const parsed2 = JSON.parse(click2.content[0].text) as { snapshotUnchanged?: boolean; hint?: string };
+      expect(parsed2.snapshotUnchanged).toBe(true);
+      expect(parsed2.hint).toContain("[ref=");
+      // press 同样走首行拼接
+      const press = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "press", key: "Enter" });
+      const parsedP = JSON.parse(press.content[0].text) as { snapshot?: string };
+      // 二次 click 后基准已刷新，press 后页面可能仍无变化，两种形态都算合规
+      const hasFirstLine = parsedP.snapshot?.startsWith(HINT_PREFIX);
+      const hasField = parsedP.snapshot === undefined;
+      expect(hasFirstLine || hasField).toBe(true);
+    } finally {
+      m.dispose();
+    }
+  });
+});
+
 describe("ref 参数容错（@N 格式与数字等价）", () => {
   function makeRefOkManager() {
     const clicked: Array<[unknown, unknown]> = [];
@@ -1604,8 +2172,15 @@ describe("ref 参数容错（@N 格式与数字等价）", () => {
       viewFactory: () =>
         makeFakeView({
           async evaluate(script: string) {
-            if (script.includes("data-wa-ref")) return { found: true, x: 7, y: 8 };
+            if (script.includes("wa-occlusion")) return { occluded: false };
             return script;
+          },
+          async cdp(method: string, params?: Record<string, unknown>) {
+            if (method === "DOM.scrollIntoViewIfNeeded") return {};
+            if (method === "DOM.getBoxModel") {
+              return { model: { content: [0, 0, 14, 0, 14, 8, 0, 8] } };
+            }
+            return {};
           },
           async click(a?: unknown, b?: unknown) {
             clicked.push([a, b]);
@@ -1621,7 +2196,7 @@ describe("ref 参数容错（@N 格式与数字等价）", () => {
     const { m, clicked } = makeRefOkManager();
     try {
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
-      (m.get("s1") as { refs?: unknown }).refs = { "@3": { n: 3, tag: "button", label: "go", x: 0, y: 0 } };
+      (m.get("s1") as { selectorMap?: unknown }).selectorMap = { 3: { role: "button", name: "go" } };
       const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
         action: "click",
         ref: "@3" as never,
@@ -1629,8 +2204,8 @@ describe("ref 参数容错（@N 格式与数字等价）", () => {
       const parsed = JSON.parse(r.content[0].text);
       expect(parsed.ok).toBe(true);
       expect(parsed.ref).toBe(3);
-      expect(clicked[0]?.[0]).toBe(7);
-      expect(clicked[0]?.[1]).toBe(8);
+      expect(clicked[0]?.[0]).toBe(7); // quad 四点平均
+      expect(clicked[0]?.[1]).toBe(4);
     } finally {
       m.dispose();
     }
@@ -1640,13 +2215,13 @@ describe("ref 参数容错（@N 格式与数字等价）", () => {
     const { m, clicked } = makeRefOkManager();
     try {
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
-      (m.get("s1") as { refs?: unknown }).refs = { "@2": { n: 2, tag: "a", label: "l", x: 0, y: 0 } };
+      (m.get("s1") as { selectorMap?: unknown }).selectorMap = { 3: { role: "button", name: "go" } };
       const r = await handleBrowserTool(m, "s1", "browser_evaluate", {
         action: "click",
-        ref: "2" as never,
+        ref: "3" as never,
       });
       expect(JSON.parse(r.content[0].text).ok).toBe(true);
-      expect(clicked[0]?.[0]).toBe(7); // 探针坐标
+      expect(clicked[0]?.[0]).toBe(7); // quad 中心坐标
     } finally {
       m.dispose();
     }
@@ -1880,14 +2455,19 @@ function makeOcclusionManager(occlusionResult: unknown) {
     viewFactory: () =>
       makeFakeView({
         async evaluate(script: string) {
-          // wa-occlusion 必须最先匹配：探针脚本源码里含 data-wa-ref 字面量
           if (script.includes("wa-occlusion")) {
             probes.push(script);
             return occlusionResult;
           }
-          if (script.includes("data-wa-ref")) return { found: true, x: 5, y: 6 };
           if (script.includes("wa-click-text")) return { found: true, x: 111, y: 222, label: "目标按钮" };
           return script;
+        },
+        async cdp(method: string) {
+          if (method === "DOM.scrollIntoViewIfNeeded") return {};
+          if (method === "DOM.getBoxModel") {
+            return { model: { content: [0, 0, 10, 0, 10, 10, 0, 10] } };
+          }
+          return {};
         },
         async click(a?: unknown, b?: unknown) {
           clicked.push([a, b]);
@@ -1946,11 +2526,11 @@ describe("点击前遮挡校验（click_occluded）", () => {
     }
   });
 
-  test("ref 模式：探针报遮挡 → click_occluded 且不派发点击", async () => {
+  test("ref 模式（坐标+文本近似）：探针报遮挡 → click_occluded 且不派发点击", async () => {
     const { m, clicked } = makeOcclusionManager(OCCLUDER);
     try {
       await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
-      (m.get("s1") as { refs?: unknown }).refs = { "@2": { n: 2, tag: "button", label: "l", x: 0, y: 0 } };
+      (m.get("s1") as { selectorMap?: unknown }).selectorMap = { 2: { role: "button", name: "l" } };
       const r = await handleBrowserTool(m, "s1", "browser_evaluate", { action: "click", ref: 2, snapshot: false });
       expect(JSON.stringify(r)).toContain("click_occluded");
       expect(clicked.length).toBe(0);

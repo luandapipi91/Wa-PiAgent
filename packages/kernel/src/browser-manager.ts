@@ -71,8 +71,10 @@ export interface BrowserViewState {
   lastUsedAt: number;
   /** 桌面 UA 伪装（幂等）的进行中 Promise；undefined 表示尚未开始 */
   userAgentReady?: Promise<void>;
-  /** 最近一次 annotate 截图的 refs 缓存（"@N" → ElementRef）；导航后清空 */
+  /** 最近一次 annotate 截图的 refs 缓存（"@N" → ElementRef，仅供展示）；导航后清空 */
   refs?: Record<string, ElementRef>;
+  /** 最近一次 AX 快照的 click ref 回查缓存（ref=backendDOMNodeId → role/name）；导航后清空 */
+  selectorMap?: Record<number, { role: string; name: string }>;
   /** 最近一次文本快照（稳定检测后），供操作后差值对比 */
   lastSnapshot?: string;
   /** 最近一次自动应答的原生 dialog（alert/confirm/prompt/beforeunload）；操作返回时取出附到 dismissedDialog 并清空 */

@@ -22,12 +22,33 @@ import {
   diffSnapshotLines,
   formatSnapshot,
   occlusionProbeScript,
-  resolveRefScript,
 } from "./browser-annotate";
+import { locateRefTarget, type AxRefEntry, type RefClickTarget } from "./dom/ax-snapshot";
 
 const NAVIGATE_TIMEOUT_MS = 120_000;
 const OPERATION_TIMEOUT_MS = 60_000;
 const EVAL_RESULT_MAX_CHARS = 8_000;
+
+/**
+ * 返回体动态提示（双保险之二，随工具描述一起内建）：browser_navigate/snapshot/
+ * screenshot 及操作后自动快照的返回体每次都带，持续引导模型走 ref 工作流，
+ * 防「凭训练记忆猜 selector」回潮。一句为限，避免 token 膨胀。
+ */
+const REF_HINT =
+  "提示：操作元素优先用上方快照中的 [ref=N]（click/type/press 的 ref 参数），不要猜 CSS selector";
+
+/**
+ * 返回体 ref 提示注入（所有带 ref/快照的返回路径共用）：已有快照文本 → 拼在首行
+ * （模型读快照第一眼即见）；无快照文本（snapshotUnchanged/snapshot:false/截图）→
+ * 独立 hint 字段（等价形式）。
+ */
+function applyRefHint(result: Record<string, unknown>): void {
+  if (typeof result.snapshot === "string" && result.snapshot.length > 0) {
+    result.snapshot = `${REF_HINT}\n${result.snapshot}`;
+  } else {
+    result.hint = REF_HINT;
+  }
+}
 
 function textResult(
   text: string,
@@ -178,6 +199,105 @@ function num(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
+/**
+ * ref 参数解析（click/type/press 共用）：快照显示 [ref=N]，容错模型传 "@N" 或 "N"
+ * 字符串格式。undefined=未传；null=传了但非法；正整数=有效。
+ */
+function parseRefParam(raw: unknown): number | null | undefined {
+  if (raw === undefined) return undefined;
+  const ref =
+    typeof raw === "number" && Number.isInteger(raw)
+      ? raw
+      : typeof raw === "string"
+        ? (() => {
+            const m = raw.trim().match(/^@?(\d+)$/);
+            return m ? Number(m[1]) : undefined;
+          })()
+        : undefined;
+  if (ref === undefined || !Number.isInteger(ref) || ref < 1) return null;
+  return ref;
+}
+
+/** ref 非法参数的统一错误（click/type/press 同文案） */
+function invalidRefResult(raw: unknown): BridgeToolResult {
+  return errResult(
+    `ref 需为正整数或 "@N" 格式，收到 ${JSON.stringify(raw)}`,
+    "invalid_ref",
+  );
+}
+
+/**
+ * ref 定位公共链路（click/type/press 共用）：selectorMap 查缓存 → locateRefTarget
+ * （scrollIntoViewIfNeeded + getBoxModel quad 中心；失效按 role+name 回查）→ 遮挡
+ * 校验。定位成功返回坐标；任一步失败返回可操作的错误结果（invalid_ref/click_occluded）。
+ */
+async function locateRefForAction(
+  view: WebViewLike,
+  state: BrowserViewState,
+  ref: number,
+  action: string,
+): Promise<
+  | { target: RefClickTarget; entry: AxRefEntry }
+  | { error: BridgeToolResult }
+> {
+  if (typeof view.cdp !== "function") {
+    // selectorMap 只在 AX 线（cdp 引擎）产生；无 cdp 时 ref 语义不存在
+    return {
+      error: errResult(
+        `${action} ref 需要 CDP 引擎（快照 [ref=N] 由 AX 树线产生），请重新 browser_snapshot`,
+        "invalid_ref",
+      ),
+    };
+  }
+  const entry = state.selectorMap?.[ref];
+  if (!entry) {
+    return {
+      error: errResult(
+        `ref ${ref} 不存在或已过期（页面可能已导航），请重新 browser_snapshot 后使用新 ref`,
+        "invalid_ref",
+      ),
+    };
+  }
+  let target: RefClickTarget;
+  try {
+    target = await runViewOp(
+      () =>
+        locateRefTarget(
+          view as WebViewLike & {
+            cdp(method: string, params?: Record<string, unknown>): Promise<unknown>;
+          },
+          ref,
+          entry,
+        ),
+      OPERATION_TIMEOUT_MS,
+      `${action} ref 定位`,
+    );
+  } catch (err) {
+    // 失效回查失败（歧义/找不到）：给模型可操作的出路，不烧到超时
+    return { error: errResult(errMessage(err), "invalid_ref") };
+  }
+  // 回查命中新节点：更新 selectorMap，后续操作直接命中新 id
+  if (target.recovered) {
+    state.selectorMap = { ...state.selectorMap, [target.backendNodeId]: entry };
+  }
+  // 点击/聚焦前遮挡校验：ref 无 DOM 锚点可重查，传 quad 中心坐标 + 目标文本 + AX
+  // role 做近似判断（详见 occlusionProbeScript）：被遮罩/弹窗盖住时报错让模型先
+  // snapshot 决策；输入类目标命中表单控件时探针语义放行（防 AX name 在 wrapper 上
+  // 的误报，如百度搜索框）
+  const occluded = await occlusionCheck(
+    view,
+    occlusionProbeScript({
+      x: target.x,
+      y: target.y,
+      targetText: entry.name === "" ? undefined : entry.name,
+      role: entry.role,
+    }),
+    `ref ${ref}（${entry.role} "${entry.name}"）`,
+  );
+  if (occluded) return { error: occluded };
+  return { target, entry };
+}
+
 function str(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
@@ -302,6 +422,7 @@ async function navigateTool(
           hashNav: true,
         };
         if (p.snapshot !== false) await attachAutoSnapshot(state, result);
+        applyRefHint(result);
         return textResult(JSON.stringify(result), result);
       }
     } catch {
@@ -334,8 +455,9 @@ async function navigateTool(
       );
       fresh = true;
     }
-    // 导航后 DOM 更换，上一轮 annotate 的 ref 全部失效，清空缓存（refs 属性引用的旧元素已不存在）
+    // 导航后页面更换，上一轮的快照 ref 与 annotate 标注全部失效，清空缓存
     state.refs = undefined;
+    state.selectorMap = undefined;
     const result = {
       ok: true,
       sessionId,
@@ -350,6 +472,7 @@ async function navigateTool(
     // 16 帧（~4s），对齐 dagu（5s）的业界上限量级；稳定即提前返回，快站不受影响。
     if (p.snapshot !== false)
       await attachAutoSnapshot(state, result, { maxFrames: 16 });
+    applyRefHint(result);
     return textResult(JSON.stringify(result), result);
   } catch (err) {
     const msg = errMessage(err);
@@ -461,63 +584,20 @@ async function evaluateTool(
         );
       }
       case "click": {
-        // ref 编号定位（优先于 selector/x/y）：来自最近一次 annotate 截图的 refs。
-        // 每次点击前实时重查元素位置（先 scrollIntoView 再取中心），页面重排也能点准；
-        // 元素已消失或缓存缺失一律报 invalid_ref——宁失效不错点。
-        // 格式容错：快照显示为 @N，模型常传 "@3" 或 "3"，与数字 3 等价解析
-        const ref =
-          typeof p.ref === "number" && Number.isInteger(p.ref)
-            ? p.ref
-            : typeof p.ref === "string"
-              ? (() => {
-                  const m = p.ref.trim().match(/^@?(\d+)$/);
-                  return m ? Number(m[1]) : undefined;
-                })()
-              : undefined;
-        if (p.ref !== undefined) {
-          if (ref === undefined || !Number.isInteger(ref) || ref < 1) {
-            return errResult(
-              `ref 需为正整数或 "@N" 格式，收到 ${JSON.stringify(p.ref)}`,
-              "invalid_ref",
-            );
-          }
-          if (!state.refs?.[`@${ref}`]) {
-            return errResult(
-              `ref @${ref} 不存在或已过期（页面可能已导航），请重新 browser_snapshot 或 browser_screenshot {annotate:true}`,
-              "invalid_ref",
-            );
-          }
-          const loc = (await runViewOp(
-            () => view.evaluate(resolveRefScript(ref)),
-            OPERATION_TIMEOUT_MS,
-            "click ref",
-          )) as { found?: boolean; x?: number; y?: number } | undefined;
-          if (
-            !loc ||
-            loc.found !== true ||
-            typeof loc.x !== "number" ||
-            typeof loc.y !== "number"
-          ) {
-            return errResult(
-              `ref @${ref} 已过期：对应元素已不在当前页面，请重新 browser_snapshot 或 browser_screenshot {annotate:true}`,
-              "invalid_ref",
-            );
-          }
-          const rx = loc.x;
-          const ry = loc.y;
-          // 点击前遮挡校验（ref 可重查目标元素，精确判断）：被遮罩/弹窗盖住时
-          // 报错让模型先 snapshot 决策，而不是点在遮罩上产生意外副作用
-          const occludedRef = await occlusionCheck(
-            view,
-            occlusionProbeScript({ targetRef: ref }),
-            `@${ref}`,
-          );
-          if (occludedRef) return occludedRef;
+        // ref 定位（优先于 selector/x/y）：ref = backendDOMNodeId，来自最近一次
+        // browser_snapshot 的 selectorMap 缓存，定位/回查/遮挡校验走公共链路
+        // locateRefForAction（与 type/press 同一套，保持 ref 工作流行为一致）。
+        // 格式容错：快照显示为 [ref=N]，模型常传 "@N" 或 "N"，与数字 N 等价解析
+        const ref = parseRefParam(p.ref);
+        if (ref === null) return invalidRefResult(p.ref);
+        if (ref !== undefined) {
+          const loc = await locateRefForAction(view, state, ref, "click");
+          if ("error" in loc) return loc.error;
           await runViewOp(
             () =>
               view.click(
-                rx,
-                ry,
+                loc.target.x,
+                loc.target.y,
                 cleanOpts({
                   button: str(p.button),
                   modifiers: arr(p.modifiers),
@@ -527,7 +607,11 @@ async function evaluateTool(
             OPERATION_TIMEOUT_MS,
             "click",
           );
-          return opResult(state, { ok: true, action: "click", ref }, wantSnapshot);
+          return opResult(
+            state,
+            { ok: true, action: "click", ref, recovered: loc.target.recovered || undefined },
+            wantSnapshot,
+          );
         }
         // 文本定位：点那个写着某文本的可见交互元素（CSS selector 表达不了文本匹配，
         // 这是 POS/后台系统最高频的点击形态）。优先级 ref > text > selector > x/y。
@@ -662,6 +746,71 @@ async function evaluateTool(
           return errResult("action=type 需要 text 参数", "missing_text");
         // clear:true：输入前先清空焦点元素（重填字段场景），默认 false 追加语义不变
         const clear = p.clear === true;
+        // ref 聚焦链路（优先于 selector）：locateRefTarget 坐标聚焦 → clear → 键入 →
+        // activeElement 验证 → 未生效原生 setter 兑底。ref 模式无 selector 锚点，
+        // 验证与兑底都以 activeElement 为目标（点击聚焦后即目标元素）。
+        const typeRef = parseRefParam(p.ref);
+        if (typeRef === null) return invalidRefResult(p.ref);
+        if (typeRef !== undefined) {
+          const loc = await locateRefForAction(view, state, typeRef, "type");
+          if ("error" in loc) return loc.error;
+          const recovered = loc.target.recovered || undefined;
+          try {
+            await runViewOp(
+              () => view.click(loc.target.x, loc.target.y),
+              OPERATION_TIMEOUT_MS,
+              "type ref 聚焦",
+            );
+          } catch {
+            // 聚焦失败继续（元素可能已聚焦）
+          }
+          if (clear) {
+            // 重填场景：聚焦后先清空再键入（input/textarea 原生 setter + input/change；
+            // contenteditable 清 textContent，见 clearActiveElementScript）
+            await runViewOp(
+              () => view.evaluate(clearActiveElementScript()),
+              OPERATION_TIMEOUT_MS,
+              "type 清空",
+            );
+          }
+          await runViewOp(() => view.type(text), OPERATION_TIMEOUT_MS, "type");
+          // 验证：读 activeElement 值（无 selector 锚点，以当前焦点元素为准）
+          const probe = `/* wa-typecheck */ (() => { const el = document.activeElement; return el ? String(el.value ?? "") : ""; })()`;
+          let check: unknown;
+          try {
+            check = await runViewOp(() => view.evaluate(probe), OPERATION_TIMEOUT_MS, "type 验证");
+          } catch {
+            check = undefined;
+          }
+          if (check === text) {
+            return opResult(
+              state,
+              { ok: true, action: "type", ref: typeRef, recovered },
+              wantSnapshot,
+            );
+          }
+          // 键入未生效（自绘组件/焦点被吞）：activeElement 原生 setter + input/change 兑底
+          const setScript = `/* wa-typeset */ (() => {
+            const el = document.activeElement;
+            if (!el) return "NO_EL";
+            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const set = Object.getOwnPropertyDescriptor(proto, "value").set;
+            set.call(el, ${JSON.stringify(text)});
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            return String(el.value ?? "");
+          })()`;
+          const fallbackVal = await runViewOp(
+            () => view.evaluate(setScript),
+            OPERATION_TIMEOUT_MS,
+            "type 兑底",
+          );
+          return opResult(
+            state,
+            { ok: fallbackVal === text, action: "type", ref: typeRef, fallback: true, recovered },
+            wantSnapshot,
+          );
+        }
         const typeSelector = str(p.selector);
         if (typeSelector) {
           // 有 selector：click 聚焦 → 键入 → 验证 → 未生效自动原生 setter 兜底。
@@ -731,6 +880,33 @@ async function evaluateTool(
       case "press": {
         const key = str(p.key);
         if (!key) return errResult("action=press 需要 key 参数", "missing_key");
+        // ref 聚焦链路（快照 [ref=N]）：先坐标聚焦目标再派发按键（按键直接到达目标
+        // 元素，省去先 click 聚焦一步往返）；无 ref 则对当前焦点元素，语义不变
+        const pressRef = parseRefParam(p.ref);
+        if (pressRef === null) return invalidRefResult(p.ref);
+        if (pressRef !== undefined) {
+          const loc = await locateRefForAction(view, state, pressRef, "press");
+          if ("error" in loc) return loc.error;
+          try {
+            await runViewOp(
+              () => view.click(loc.target.x, loc.target.y),
+              OPERATION_TIMEOUT_MS,
+              "press ref 聚焦",
+            );
+          } catch {
+            // 聚焦失败继续（元素可能已聚焦）
+          }
+          await runViewOp(
+            () => view.press(key, cleanOpts({ modifiers: arr(p.modifiers) })),
+            OPERATION_TIMEOUT_MS,
+            "press",
+          );
+          return opResult(
+            state,
+            { ok: true, action: "press", ref: pressRef, recovered: loc.target.recovered || undefined },
+            wantSnapshot,
+          );
+        }
         await runViewOp(
           () => view.press(key, cleanOpts({ modifiers: arr(p.modifiers) })),
           OPERATION_TIMEOUT_MS,
@@ -828,6 +1004,7 @@ async function screenshotTool(
         url: state.view.url,
         title: state.view.title,
         refs: state.refs,
+        hint: REF_HINT,
       };
       return textResult(JSON.stringify(result), result);
     }
@@ -848,6 +1025,7 @@ async function screenshotTool(
       format,
       sizeBytes: buf.length,
       refs: state.refs,
+      hint: REF_HINT,
     };
     return textResult(JSON.stringify(result), result);
   } catch (err) {
@@ -870,27 +1048,29 @@ async function snapshotTool(
   try {
     // 稳定检测抓帧（双帧一致 + 非空门槛——导航后 SPA 首屏未挂载时空帧不算稳定；
     // 最多 4 帧），并刷新差值基准供后续操作对比
-    const { refs, text, framesValid } = await captureStableSnapshot(state.view, {
+    const { text, framesValid, selectorMap, lastError } = await captureStableSnapshot(state.view, {
       requireNonEmpty: true,
     });
     if (framesValid === 0) {
-      throw new Error("快照失败：页面未返回 refs 对象");
+      throw new Error(lastError ?? "快照失败：页面未返回快照数据");
     }
     const prev = state.lastSnapshot;
-    state.refs = refs as Record<string, ElementRef>;
+    if (selectorMap) state.selectorMap = selectorMap;
     state.lastSnapshot = text;
     const snapshot = text; // 显式调用给完整状态（不打星；星号仅操作流的附加快照用）
-    const body =
+    // 先截断再拼提示首行：提示永远完整可见，截断阈值语义不变
+    const body0 =
       snapshot.length > EVAL_RESULT_MAX_CHARS
         ? snapshot.slice(0, EVAL_RESULT_MAX_CHARS) +
           `…（截断，原长 ${snapshot.length}）`
         : snapshot;
+    const body = `${REF_HINT}\n${body0}`;
     const result = {
       ok: true,
       snapshot: body,
       url: state.view.url,
       title: state.view.title,
-      refCount: Object.keys(refs).length,
+      refCount: Object.keys(selectorMap ?? {}).length,
       changed: prev !== undefined && prev !== text ? true : undefined,
     };
     return textResult(JSON.stringify(result), {
@@ -915,9 +1095,15 @@ async function attachAutoSnapshot(
   opts: { maxFrames?: number } = {},
 ): Promise<void> {
   try {
-    const { refs, text } = await captureStableSnapshot(state.view, opts);
-    state.refs = refs as Record<string, ElementRef>;
-    result.refCount = Object.keys(refs).length;
+    const { text, framesValid, selectorMap, lastError } = await captureStableSnapshot(state.view, opts);
+    if (framesValid === 0 && lastError) {
+      // 双线全部帧无效且是抛错型失败：操作本身已成功，不报错阻断，但给 snapshotError
+      // 让模型知道快照缺失（旧版 evaluate 抛错同语义）；纯空页（无错误）走下方 snapshotNote
+      result.snapshotError = lastError;
+      return;
+    }
+    if (selectorMap) state.selectorMap = selectorMap;
+    result.refCount = Object.keys(selectorMap ?? {}).length;
     if (text.length === 0) {
       // 稳定检测预算内页面始终没有可交互元素（SPA 首屏挂载中/真空白页）：
       // 不返回空快照误导 agent，也不污染差值基准，给明确提示让 agent 稍后重取
@@ -942,11 +1128,13 @@ async function opResult(
   base: Record<string, unknown>,
   wantSnapshot: boolean,
 ): Promise<BridgeToolResult> {
+  // 返回体动态提示（含操作后快照）：有快照文本拼首行，否则独立 hint 字段
   // 本次操作期间捕获到原生 dialog（已自动应答解除阻塞）→ 附到返回体提示模型；
   // take 语义：取走即清空，不重复上报
   const dismissed = takeDismissedDialog(state);
   if (dismissed) base.dismissedDialog = dismissed;
   if (wantSnapshot) await attachAutoSnapshot(state, base);
+  applyRefHint(base);
   return textResult(JSON.stringify(base), { ok: true });
 }
 
@@ -1042,10 +1230,11 @@ async function waitTool(
   const t0 = Date.now();
   if (ms !== undefined && wantText === undefined && hiddenSel === undefined && wantHash === undefined) {
     await Bun.sleep(Math.min(ms, 10_000));
-    return textResult(
-      JSON.stringify({ ok: true, waitedMs: Date.now() - t0 }),
-      { ok: true },
-    );
+    // 固定等待完成也附快照（等待常用于等渲染/动画，模型直接拿到就绪后的页面）
+    const result: Record<string, unknown> = { ok: true, waitedMs: Date.now() - t0 };
+    await attachAutoSnapshot(state, result);
+    applyRefHint(result);
+    return textResult(JSON.stringify(result), { ok: true });
   }
   const timeoutMs = Math.min(num(p.timeout) ?? 10_000, 60_000);
   const textProbe = wantText === undefined
@@ -1087,20 +1276,29 @@ async function waitTool(
         if (r !== true) satisfied = false;
       }
       if (satisfied) {
-        return textResult(
-          JSON.stringify({ ok: true, matched: true, waitedMs: Date.now() - t0 }),
-          { ok: true },
-        );
+        // 命中即附快照（差值/unchanged 机制照旧）：省掉模型 wait 后再 snapshot 的一轮往返
+        const result: Record<string, unknown> = { ok: true, matched: true, waitedMs: Date.now() - t0 };
+        await attachAutoSnapshot(state, result);
+        applyRefHint(result);
+        return textResult(JSON.stringify(result), { ok: true, matched: true });
       }
     } catch {
       // 单次探测失败（页面跳转中/执行环境未就绪）不终止等待，下一轮重试
     }
     await Bun.sleep(250);
   }
-  return errResult(
-    `等待超时（${timeoutMs}ms）：${wantText !== undefined ? `页面文本未出现 "${wantText}"` : ""}${wantText !== undefined && (hiddenSel !== undefined || wantHash !== undefined) ? "；" : ""}${hiddenSel !== undefined ? `元素未消失 ${hiddenSel}` : ""}${hiddenSel !== undefined && wantHash !== undefined ? "；" : ""}${wantHash !== undefined ? `hash 未包含 "${wantHash}"（当前 ${state.view.url}）` : ""}`,
-    "wait_timeout",
-  );
+  const timeoutMsg = `等待超时（${timeoutMs}ms）：${wantText !== undefined ? `页面文本未出现 "${wantText}"` : ""}${wantText !== undefined && (hiddenSel !== undefined || wantHash !== undefined) ? "；" : ""}${hiddenSel !== undefined ? `元素未消失 ${hiddenSel}` : ""}${hiddenSel !== undefined && wantHash !== undefined ? "；" : ""}${wantHash !== undefined ? `hash 未包含 "${wantHash}"（当前 ${state.view.url}）` : ""}`;
+  // 超时附当前页面快照（复用 attachAutoSnapshot 差值机制）：让模型直接看到页面现状
+  // 自查未等到的原因，不必再调一次 browser_snapshot
+  const extra: Record<string, unknown> = {};
+  await attachAutoSnapshot(state, extra);
+  applyRefHint(extra);
+  let snapInfo = "";
+  if (typeof extra.snapshot === "string") snapInfo = `\n\n当前页面快照：\n${extra.snapshot}`;
+  else if (extra.snapshotUnchanged === true) snapInfo = "\n\n当前页面快照与上次一致（snapshotUnchanged），可回看上次快照";
+  else if (typeof extra.snapshotError === "string") snapInfo = `\n\n当前快照获取失败：${extra.snapshotError}`;
+  else if (typeof extra.snapshotNote === "string") snapInfo = `\n\n${extra.snapshotNote}`;
+  return errResult(`${timeoutMsg}${snapInfo}`, "wait_timeout");
 }
 
 async function closeTool(
