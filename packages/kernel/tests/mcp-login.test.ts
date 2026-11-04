@@ -433,12 +433,18 @@ describe("POST /api/mcp/login（长任务：受理与结果分离）", () => {
     };
     return {
       list: async () => result,
-      invalidate: () => {},
+      // invalidate（登录/登出后必调）→ 下一次探测反映新凭据：真实 `pi mcp list` 每次实时
+      // 实测，凭据写入后再探测即 connected。假件若永远报 needs-auth，会被 routes/mcp.ts
+      // 的「needs-auth 覆写 signedIn=false」把新凭据错杀成 false——保真才测得住真实契约。
+      invalidate: () => {
+        result.servers[0].state = "connected";
+      },
     };
   }
 
   function makeRouter(opts: { killGraceSec?: number; admin?: unknown; spawnImpl?: () => McpLoginProcess } = {}) {
     const router = new HttpRouter();
+    const admin = opts.admin ?? makeAdmin();
     const file = new McpFile({
       globalPath: join(dir, "mcp.json"),
       projectPathFor: async (projectId) =>
@@ -447,9 +453,12 @@ describe("POST /api/mcp/login（长任务：受理与结果分离）", () => {
     createMcpRoutes({
       mcpFile: file,
       cwdForProject: (projectId) => cwdForProject(projectId),
-      adminForCwd: () => (opts.admin ?? makeAdmin()) as never,
+      adminForCwd: () => admin as never,
       invalidateCaches: () => {
         invalidations++;
+        // 真实链路：失效缓存后下一次探测重新实测（新凭据 → connected）。缺省假 admin
+        // 靠这里翻 state 才与真实 pi 一致；自定义 admin 由它自己的 invalidate 语义决定。
+        (admin as { invalidate?: () => void }).invalidate?.();
       },
       broadcast: (e) => broadcasts.push(e),
       piSpawn: {
