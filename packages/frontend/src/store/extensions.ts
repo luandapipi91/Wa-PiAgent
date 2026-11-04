@@ -8,6 +8,7 @@ import type {
     ExtensionProgressEvent,
     ExtensionInstallDoneEvent,
     ExtensionRepairProgressEvent,
+    ExtensionUpgradeDoneEvent,
 } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { formatKernelError } from "../util/kernel-error";
@@ -32,10 +33,12 @@ interface ExtensionsState {
     upgrading: UpgradingMap;
     uninstalling: Record<string, boolean>;
     repairing: string | null; // 修复中：最新进度行（null = 未在修复）
+    changelogs: Record<string, string>; // 最近一次升级的更新内容（按包名键控；不持久化）
     error: string | null;
     load: () => void;
     setAll: (data: ExtensionListResult | ExtensionChangedEvent) => void;
     setError: (data: ExtensionErrorEvent) => void;
+    applyUpgradeDone: (data: ExtensionUpgradeDoneEvent) => void;
     applyProgress: (data: ExtensionProgressEvent) => void;
     completeInstall: (data: ExtensionInstallDoneEvent) => void;
     applyRepairProgress: (data: ExtensionRepairProgressEvent) => void;
@@ -55,6 +58,7 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
     upgrading: {},
     uninstalling: {},
     repairing: null,
+    changelogs: {},
     error: null,
 
     load: () => {
@@ -170,6 +174,12 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
         }));
         void api.post("/api/extensions/upgrade", { name });
     },
+
+    // extension:upgrade:done：记录本次升级的更新内容（卡片展示；页面刷新后消失）
+    applyUpgradeDone: (data) =>
+        set((s) => ({
+            changelogs: { ...s.changelogs, [data.name]: data.changelog },
+        })),
 
     // extension:repair:progress：更新修复进度行
     applyRepairProgress: (data) => set({ repairing: data.message }),

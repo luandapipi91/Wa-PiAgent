@@ -1162,6 +1162,7 @@ const en = {
 			enabled: "Enabled",
 			disabled: "Disabled",
 			upgrade: "⬆ Upgrade",
+			changelog: "What's new",
 			upgradingBtn: "⟳ Upgrading…",
 			commands: "⌘ Commands",
 			uninstalling: "Uninstalling…",

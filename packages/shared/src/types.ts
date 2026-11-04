@@ -30,6 +30,7 @@ import type {
 	ExtensionErrorEvent,
 	ExtensionProgressEvent,
 	ExtensionInstallDoneEvent,
+	ExtensionUpgradeDoneEvent,
 	ExtensionRepairProgressEvent,
 	ExtensionRepairDoneEvent,
 	ExtensionNotifyEvent,
@@ -1553,6 +1554,7 @@ export type WSServerEvent =
 	| ExtensionErrorEvent
 	| ExtensionProgressEvent
 	| ExtensionInstallDoneEvent
+	| ExtensionUpgradeDoneEvent
 	| ExtensionRepairProgressEvent
 	| ExtensionRepairDoneEvent
 	| ExtensionNotifyEvent

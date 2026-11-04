@@ -1123,6 +1123,7 @@ const zh = {
 			enabled: "已启用",
 			disabled: "已禁用",
 			upgrade: "⬆ 升级",
+			changelog: "本次更新内容",
 			upgradingBtn: "⟳ 升级中…",
 			commands: "⌘ 附加命令",
 			uninstalling: "卸载中…",

@@ -793,6 +793,9 @@ test("listEnabledPackageNames 不触碰 pkgService（无版本/registry 查询�
     getDescription: () => {
       throw new Error("不应调用 getDescription");
     },
+    getPackageChangelog: () => {
+      throw new Error("不应调用 getPackageChangelog");
+    },
   } satisfies Omit<NpmPackageService, "runtimeDir" | "spawn">;
   const mgr = new ExtensionManager(
     dir,

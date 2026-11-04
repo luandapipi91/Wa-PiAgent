@@ -21,6 +21,7 @@ export function ExtensionSection() {
     retryInstall,
     removeInstall,
     repairExtensions,
+    changelogs,
   } = useExtensionsStore();
   const { t } = useTranslation();
 
@@ -221,6 +222,31 @@ export function ExtensionSection() {
                       : t("settings.extension.disabled")}
                   </span>
                 </label>
+
+                {/* 本次升级的更新内容（extension:upgrade:done 带回；页面刷新后消失） */}
+                {changelogs[pkg.name] && (
+                  <div
+                    className="mt-2 rounded-sm p-2"
+                    style={{
+                      background: "var(--surface-elevated)",
+                      border: "1px solid var(--hairline)",
+                    }}
+                    data-testid={`ext-changelog-${pkg.name}`}
+                  >
+                    <p
+                      className="text-xs font-medium mb-1"
+                      style={{ color: "var(--text-tertiary)" }}
+                    >
+                      {t("settings.extension.changelog")}
+                    </p>
+                    <pre
+                      className="text-xs whitespace-pre-wrap max-h-40 overflow-y-auto m-0"
+                      style={{ color: "var(--text-primary)", fontFamily: "inherit" }}
+                    >
+                      {changelogs[pkg.name]}
+                    </pre>
+                  </div>
+                )}
               </div>
 
               {/* 操作按钮 */}

@@ -328,6 +328,9 @@ export function App() {
 				case "extension:install:done":
 					useExtensionsStore.getState().completeInstall(e);
 					break;
+				case "extension:upgrade:done":
+					useExtensionsStore.getState().applyUpgradeDone(e);
+					break;
 				case "extension:repair:progress":
 					useExtensionsStore.getState().applyRepairProgress(e);
 					break;
