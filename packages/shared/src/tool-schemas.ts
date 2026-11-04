@@ -281,14 +281,14 @@ export const BrowserNavigateParamsSchema = Type.Object({
   fresh: Type.Optional(
     Type.Boolean({
       description:
-        "导航前清除该站点的 localStorage/sessionStorage/cookie 后刷新（回归测试干净起步，清掉残留登录态）",
+        "导航完成后在该站点上下文清除 localStorage/sessionStorage/cookie 后刷新（回归测试干净起步，清掉残留登录态）",
     }),
   ),
 });
 
 export const BROWSER_EVALUATE_DESCRIPTION = [
   "操作页面的标准流程：先 browser_snapshot 拿 [ref=N] → 用 ref 定位 click/type/press → 再 snapshot 确认结果。ref 是首选定位方式；CSS selector 仅用于无快照或临时调试。不要凭对某网站的记忆猜 selector——页面元素以快照 ref 为准。",
-  "在浏览器视图中执行 JS 表达式或 DOM 操作（点击/输入/按键/滚动）。所有操作派发原生浏览器事件（event.isTrusted === true）。",,
+  "在浏览器视图中执行 JS 表达式或 DOM 操作（点击/输入/按键/滚动）。所有操作派发原生浏览器事件（event.isTrusted === true）。",
   "操作类 action（click/type/press/scroll/scrollTo）完成后自动附页面文本快照：等待渲染稳定（双帧一致，约 0.25~1s）后与上次对比——有变化返回 snapshot（新增/变化行打 * 前缀），无变化返回 snapshotUnchanged:true；snapshot:false 可跳过。读页面结构/定位元素也可直接用 browser_snapshot。",
   "action:",
   "- eval: 执行 JS 表达式（自动 await Promise），结果 JSON 序列化返回（超长截断）。仅用于读计算值、复杂采样等结构化工具无法达成的场景——点击/输入/读文本/等待优先用对应工具（click text、browser_read、browser_wait）",
@@ -325,11 +325,16 @@ export const BrowserEvaluateParamsSchema = Type.Object({
     Type.Integer({ description: "action=click 时的视口 y 坐标" }),
   ),
   ref: Type.Optional(
-    Type.Integer({
-      minimum: 1,
-      description:
-        "action=click/type/press 时的元素标识（= 最近一次 browser_snapshot 快照行里的 [ref=N]，即 backendDOMNodeId），优先于 selector/x/y；元素已变化时按 role+name 自动回查",
-    }),
+    Type.Union(
+      [
+        Type.Integer({ minimum: 1 }),
+        Type.String({ pattern: "^@?[1-9]\\d*$" }),
+      ],
+      {
+        description:
+          "action=click/type/press 时的元素标识（= 最近一次 browser_snapshot 快照行里的 [ref=N]，即 backendDOMNodeId），优先于 selector/x/y；元素已变化时按 role+name 自动回查；也接受 \"@N\"/\"N\" 字符串格式（如 \"@5\"/\"5\"），正整数数字亦可",
+      },
+    ),
   ),
   button: Type.Optional(
     Type.Union([
