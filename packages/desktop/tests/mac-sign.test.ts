@@ -28,9 +28,12 @@ describe("resolveIdentity", () => {
 		exec: () => "-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
 	};
 
-	test("无 CODESIGN_IDENTITY 且钥匙串无证书 → 回退 ad-hoc（-）", () => {
-		expect(resolveIdentity({}, noCert)).toBe("-");
-		expect(resolveIdentity({ CODESIGN_IDENTITY: "  " }, noCert)).toBe("-");
+	test("无 CODESIGN_IDENTITY 且钥匙串无证书 → 报错（禁止静默回退 ad-hoc，防 OTA 断更新）", () => {
+		// ad-hoc 签名的 requirement 是 cdhash，已装用户的 Squirrel.Mac 更新验证必败
+		// （0.9.1 断更新根因），故回退路径改为直接报错并给出修复指引。
+		expect(() => resolveIdentity({}, noCert)).toThrow(/WA PI Agent Self-Signed/);
+		expect(() => resolveIdentity({}, noCert)).toThrow(/OTA|更新失败/);
+		expect(() => resolveIdentity({ CODESIGN_IDENTITY: "  " }, noCert)).toThrow();
 	});
 
 	test("钥匙串有默认自签名证书时自动使用（避免静默回退 ad-hoc）", () => {
@@ -132,12 +135,14 @@ function execNoCert(cmd, args, opts) {
 const darwin = process.platform === "darwin" ? test : test.skip;
 
 describe("signMacApp", () => {
-	darwin("成功签名最小 .app 并通过 verify（无证书→ad-hoc）", () => {
+	test("无证书（身份解析失败）→ signed:false + 含修复指引的 error", () => {
+		// 纯桩逻辑（security 无证书 → resolveIdentity 抛错，根本走不到 codesign），全平台可跑
 		const app = makeFakeApp();
 		try {
 			const result = signMacApp(app, { env: {}, exec: execNoCert });
-			expect(result.signed).toBe(true);
-			expect(result.identity).toBe("-");
+			expect(result.signed).toBe(false);
+			expect(result.error).toMatch(/WA PI Agent Self-Signed/);
+			expect(result.error).toMatch(/OTA|更新失败/);
 		} finally {
 			rmSync(app, { recursive: true, force: true });
 		}
@@ -157,7 +162,11 @@ describe("signMacApp", () => {
 		const exec = () => {
 			throw new Error("codesign: invalid identity\nat line 2");
 		};
-		const result = signMacApp("/nonexistent.app", { exec });
+		// 显式 ad-hoc 绕过证书查找，聚焦测 codesign 执行失败的错误传播
+		const result = signMacApp("/nonexistent.app", {
+			env: { CODESIGN_IDENTITY: "-" },
+			exec,
+		});
 		expect(result.signed).toBe(false);
 		expect(result.error).toBe("codesign: invalid identity");
 	});
@@ -168,7 +177,10 @@ describe("signMacApp", () => {
 			call += 1;
 			if (call > 1) throw new Error("code object is not signed at all");
 		};
-		const result = signMacApp("/tmp/any.app", { exec });
+		const result = signMacApp("/tmp/any.app", {
+			env: { CODESIGN_IDENTITY: "-" },
+			exec,
+		});
 		expect(result.signed).toBe(false);
 		expect(result.error).toBe("code object is not signed at all");
 	});

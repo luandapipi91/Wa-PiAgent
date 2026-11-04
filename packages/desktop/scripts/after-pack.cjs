@@ -7,7 +7,8 @@
 //    导致 exe 图标是 Electron 默认。现改用 signExecutable:false 只跳过签名、保留图标嵌入。
 const path = require("node:path");
 const fs = require("node:fs");
-const { signMacApp } = require("./mac-sign.cjs");
+// 不解构，保留 macSign.signMacApp 延迟属性查找：测试可替换缓存对象上的方法做 mock
+const macSign = require("./mac-sign.cjs");
 
 /** macOS：对打包产物签名（在 dmg/zip 生成前，签名会进入安装包）。 */
 function signMacArtifact(appOutDir, packager) {
@@ -19,14 +20,16 @@ function signMacArtifact(appOutDir, packager) {
 		console.log(`[afterPack] ${appPath} 不存在，跳过签名`);
 		return;
 	}
-	const result = signMacApp(appPath);
+	const result = macSign.signMacApp(appPath);
 	if (result.signed) {
 		console.log(
 			`[afterPack] ✅ macOS 产物已签名 (identity=${result.identity}) → ${appPath}`,
 		);
 	} else {
-		console.warn(
-			`[afterPack] ⚠️ macOS 产物签名失败（重装后屏幕录制权限可能失效）: ${result.error}`,
+		// 直接报错终止打包：无签名/坏签名的包会导致已装用户 OTA 更新验证失败（0.9.1 教训），
+		// 不能让坏包流入产物目录。错误信息含修复指引（来自 resolveIdentity/signMacApp）。
+		throw new Error(
+			`[afterPack] macOS 产物签名失败，终止打包（无签名包会导致 OTA 断更新）: ${result.error}`,
 		);
 	}
 }
