@@ -225,7 +225,7 @@ function isAbortErrorMessage(message: string): boolean {
  *
  * 来源：pi-ai retry.js 的 NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN + 401/403。
  */
-const FATAL_ERROR_PATTERN = new RegExp(
+export const FATAL_ERROR_PATTERN = new RegExp(
 	[
 		"insufficient_quota",
 		"quota exceeded",
@@ -237,6 +237,10 @@ const FATAL_ERROR_PATTERN = new RegExp(
 		"available balance",
 		// pi-ai 1.4.0：ChatGPT Business 工作区用量上限（仅管理员能提额，不重试）
 		"subscription_sharing_workplace_individual_usage_limit_exceeded",
+		// pi 1.5.0：智谱/Z.ai 套餐用量上限（HTTP 429 携带 JSON code 1308，数小时重置，重试必败 #11537）
+		'"code"\\s*:\\s*"?1308(?![0-9])',
+		// pi 1.4.0 遗漏补齐：ChatGPT 个人版用量上限（workplace 变体已在上，个人版此前缺失）
+		"subscription_sharing_usage_limit_exceeded",
 		"401", // Unauthorized
 		"403", // Forbidden
 		"404", // Not Found —— 模型/接口路径不存在（provider baseUrl 错误或模型 ID 无效）

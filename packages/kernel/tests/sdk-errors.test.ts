@@ -4,6 +4,7 @@ import {
 	extractSdkErrorMessage,
 	classifySdkError,
 	isTransientErrorMessage,
+	FATAL_ERROR_PATTERN,
 } from "../src/sdk-errors";
 
 // 根因回归：SDK 把 provider 运行时错误（不可用模型 / 鉴权失败 / 网络）
@@ -528,4 +529,21 @@ test("pi 1.4.0 新增 transient 文案经 classifySdkError 分类为 transient",
 			),
 		)?.category,
 	).toBe("transient");
+});
+
+test("pi 1.5.0：智谱/Z.ai 套餐限额（HTTP 429 携带 code 1308）→ fatal，不再无效重试", () => {
+	const body = 'HTTP 429 {"error":{"code":1308,"message":"usage limit reached"}}';
+	// 1308 条目在 FATAL 表（优先判定），不再被 TRANSIENT 的 429 词边界拖去无效重试
+	expect(classifySdkError(errEvent(body))?.category).toBe("fatal");
+});
+
+test("pi 1.5.0：1308 正则负向前瞻——13080/11308 等长数字不被 1308 条目命中", () => {
+	// 兜底语义下"非 fatal"测不出条目精确性，直接断言正则本身
+	expect(FATAL_ERROR_PATTERN.test('{"code":13080}')).toBe(false);
+	expect(FATAL_ERROR_PATTERN.test('{"code":11308,"message":"x"}')).toBe(false);
+	expect(FATAL_ERROR_PATTERN.test('"code": 1308')).toBe(true);
+});
+
+test("pi 1.4.0 遗漏补齐：个人版用量上限条目进入 FATAL 表（不再依赖兜底）", () => {
+	expect(FATAL_ERROR_PATTERN.test("subscription_sharing_usage_limit_exceeded")).toBe(true);
 });
