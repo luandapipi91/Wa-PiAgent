@@ -1,5 +1,5 @@
 // packages/kernel/src/npm-package-service.ts
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   existsSync,
   mkdirSync,
@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { KernelError } from "./kernel-error";
+import { extractChangelogEntries } from "./changelog";
 
 export interface NpmPackageServiceOpts {
   /** 包管理器命令，默认 ["bun"]，从 settings.json.npmCommand 读取 */
@@ -302,6 +303,33 @@ export class NpmPackageService {
       if (!existsSync(pkgJson)) return undefined;
       const pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
       return pkg.version;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 读取已装包的 CHANGELOG 并提取 (fromVersion, toVersion] 新条目。
+   *  changelog 定位对齐 pi 1.5.0 官方语义：package.json 的 pi.changelogPath（缺省
+   *  "CHANGELOG.md"，空串视为禁用）；resolve 后必须仍在包根内（防路径逃逸，逃逸按无
+   *  changelog 处理）。changelog 属锦上添花，任何异常 → undefined，绝不阻断升级。 */
+  getPackageChangelog(
+    name: string,
+    fromVersion: string,
+    toVersion: string,
+  ): string | undefined {
+    try {
+      const pkgDir = join(this.runtimeDir, "node_modules", name);
+      const pkgJson = JSON.parse(
+        readFileSync(join(pkgDir, "package.json"), "utf8"),
+      ) as { pi?: { changelogPath?: string } };
+      const declared = pkgJson.pi?.changelogPath;
+      if (declared === "") return undefined;
+      const resolved = join(pkgDir, declared ?? "CHANGELOG.md");
+      const rel = relative(pkgDir, resolved);
+      if (!rel || rel.startsWith("..") || rel.startsWith("/")) return undefined;
+      if (!existsSync(resolved)) return undefined;
+      const md = readFileSync(resolved, "utf8");
+      return extractChangelogEntries(md, fromVersion, toVersion) || undefined;
     } catch {
       return undefined;
     }

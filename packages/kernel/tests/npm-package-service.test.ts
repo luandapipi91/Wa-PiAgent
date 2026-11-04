@@ -461,3 +461,65 @@ test("upgrade 以 --exact 调用包管理器", async () => {
   await svc.upgrade("demo-pkg").catch(() => {});
   expect(rec.read()).toEqual(["add", "--exact", "demo-pkg"]);
 });
+
+// ===== pi 1.5.0 升级：getPackageChangelog（包内 CHANGELOG.md 定位与区间提取的真 fixture） =====
+
+/** 建一个已安装包：node_modules/<name>/{package.json, ...files} */
+function makeInstalledPkg(
+	name: string,
+	pkgJson: Record<string, unknown>,
+	files: Record<string, string> = {},
+) {
+	const pkgDir = join(dir, "node_modules", name);
+	mkdirSync(pkgDir, { recursive: true });
+	writeFileSync(join(pkgDir, "package.json"), JSON.stringify(pkgJson));
+	for (const [rel, content] of Object.entries(files)) {
+		const p = join(pkgDir, rel);
+		mkdirSync(join(p, ".."), { recursive: true });
+		writeFileSync(p, content);
+	}
+	return pkgDir;
+}
+
+test("getPackageChangelog：包根 CHANGELOG.md 提取 (from, to] 区段", () => {
+	makeInstalledPkg(
+		"demo-ext",
+		{ name: "demo-ext", version: "1.1.0" },
+		{
+			"CHANGELOG.md":
+				"# Changelog\n## 1.1.0\n- 新功能列表\n## 1.0.0\n- 旧条目",
+		},
+	);
+	const svc = new NpmPackageService(dir);
+	const out = svc.getPackageChangelog("demo-ext", "1.0.0", "1.1.0");
+	expect(out).toContain("1.1.0");
+	expect(out).toContain("新功能列表");
+	expect(out).not.toContain("旧条目");
+});
+
+test("getPackageChangelog：包根无 CHANGELOG.md → undefined", () => {
+	makeInstalledPkg("demo-ext", { name: "demo-ext", version: "1.1.0" });
+	const svc = new NpmPackageService(dir);
+	expect(svc.getPackageChangelog("demo-ext", "1.0.0", "1.1.0")).toBeUndefined();
+});
+
+test("getPackageChangelog：pi.changelogPath 指向包外 → undefined（防逃逸）", () => {
+	writeFileSync(join(dir, "escape.md"), "## 9.9.9\n- 不该被读到");
+	makeInstalledPkg(
+		"demo-ext",
+		{ name: "demo-ext", version: "1.1.0", pi: { changelogPath: "../../escape.md" } },
+	);
+	const svc = new NpmPackageService(dir);
+	expect(svc.getPackageChangelog("demo-ext", "1.0.0", "1.1.0")).toBeUndefined();
+});
+
+test("getPackageChangelog：pi.changelogPath 指定包内自定义路径 → 按它读取", () => {
+	makeInstalledPkg(
+		"demo-ext",
+		{ name: "demo-ext", version: "1.1.0", pi: { changelogPath: "docs/UPDATES.md" } },
+		{ "docs/UPDATES.md": "## 1.1.0\n- 自定义路径的更新" },
+	);
+	const svc = new NpmPackageService(dir);
+	const out = svc.getPackageChangelog("demo-ext", "1.0.0", "1.1.0");
+	expect(out).toContain("自定义路径的更新");
+});

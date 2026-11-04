@@ -120,6 +120,9 @@ const mockPkgService = {
   getInstalledVersion: (_name: string) => "9.9.9" as string | undefined,
   getLatestVersion: async (_name: string) => "9.9.10" as string | undefined,
   getDescription: (_name: string) => "Mock description" as string | undefined,
+  // pi 1.5.0 升级链路新增：默认不产 changelog（具体断言见新增的 changelog 编排用例）
+  getPackageChangelog: (_name: string, _from: string, _to: string) =>
+    undefined as string | undefined,
 } satisfies Omit<NpmPackageService, "runtimeDir" | "spawn">;
 
 function mockManager(dataDir: string) {
@@ -969,4 +972,82 @@ test("并发升级两个包：后完成者不覆盖先完成者的版本（写�
   expect(settings.packages).toContain("npm:b@2.0.0");
   expect(settings.packages).not.toContain("npm:a@1.0.0");
   expect(settings.packages).not.toContain("npm:b@1.0.0");
+});
+
+// ---- pi 1.5.0 升级 changelog：upgrade 的编排（oldVersion 提取 + 透传） ----
+// 文件读取与解析的真 fixture 测试在 npm-package-service.test.ts / changelog.test.ts。
+
+test("upgrade 返回 changelog 并以 (name, 旧pin版本, 新版本) 调用读取", async () => {
+	writeFileSync(
+		join(dir, "settings.json"),
+		JSON.stringify({ npmCommand: ["bun"], packages: ["npm:test-pkg@1.0.0"] }),
+		"utf8",
+	);
+	const calls: Array<[string, string, string]> = [];
+	const svc = {
+		...mockPkgService,
+		upgrade: async () => ({ version: "9.9.9" }),
+		getPackageChangelog: async (name: string, from: string, to: string) => {
+			calls.push([name, from, to]);
+			return "## 9.9.9\n- 新功能列表";
+		},
+	};
+	const mgr = new ExtensionManager(
+		dir,
+		svc as unknown as NpmPackageService,
+	);
+	const info = await mgr.upgrade("test-pkg");
+	expect(info.changelog).toBe("## 9.9.9\n- 新功能列表");
+	expect(calls).toEqual([["test-pkg", "1.0.0", "9.9.9"]]);
+});
+
+test("upgrade：pin 无版本号时回退 getInstalledVersion 作旧版本", async () => {
+	writeFileSync(
+		join(dir, "settings.json"),
+		JSON.stringify({ npmCommand: ["bun"], packages: ["npm:test-pkg"] }),
+		"utf8",
+	);
+	const calls: Array<[string, string, string]> = [];
+	const svc = {
+		...mockPkgService,
+		getInstalledVersion: () => "2.0.0" as string | undefined,
+		upgrade: async () => ({ version: "9.9.9" }),
+		getPackageChangelog: async (name: string, from: string, to: string) => {
+			calls.push([name, from, to]);
+			return undefined;
+		},
+	};
+	const mgr = new ExtensionManager(
+		dir,
+		svc as unknown as NpmPackageService,
+	);
+	const info = await mgr.upgrade("test-pkg");
+	expect(calls).toEqual([["test-pkg", "2.0.0", "9.9.9"]]);
+	expect(info.changelog).toBeUndefined();
+	expect(info.version).toBe("9.9.9"); // changelog 缺省不影响升级结果
+});
+
+test("upgrade：旧版本无法确定（pin 无版本 + 磁盘读不到）→ 不调 changelog 读取", async () => {
+	writeFileSync(
+		join(dir, "settings.json"),
+		JSON.stringify({ npmCommand: ["bun"], packages: ["npm:test-pkg"] }),
+		"utf8",
+	);
+	let called = false;
+	const svc = {
+		...mockPkgService,
+		getInstalledVersion: () => undefined as string | undefined,
+		upgrade: async () => ({ version: "9.9.9" }),
+		getPackageChangelog: async () => {
+			called = true;
+			return undefined;
+		},
+	};
+	const mgr = new ExtensionManager(
+		dir,
+		svc as unknown as NpmPackageService,
+	);
+	const info = await mgr.upgrade("test-pkg");
+	expect(called).toBe(false);
+	expect(info.changelog).toBeUndefined();
 });

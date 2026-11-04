@@ -476,6 +476,13 @@ export class ExtensionManager {
       throw new KernelError("ext.upgradeUnsupported", { source: "local" });
     }
 
+    // 升级前先固定旧版本：优先 pin 的 @version 段；pin 无版本则读升级前的磁盘实装
+    // （升级后再读拿到的是新版本，时序必须在前）。两者皆无 → 不带 changelog。
+    const pinVersion = matched?.split("@").pop();
+    const oldVersion =
+      pinVersion && /^\d+\.\d+\.\d+/.test(pinVersion)
+        ? pinVersion
+        : this.pkgService.getInstalledVersion(name);
     const result = await this.pkgService.upgrade(name, onProgress);
     const entry = `npm:${name}@${result.version}`;
     // 写回在互斥队列内重读最新 settings：若按本请求开始时的旧快照整文件覆盖，
@@ -494,6 +501,13 @@ export class ExtensionManager {
       version: result.version,
       description: this.pkgService.getDescription(name),
       enabled: true,
+      changelog: oldVersion
+        ? await this.pkgService.getPackageChangelog(
+            name,
+            oldVersion,
+            result.version,
+          )
+        : undefined,
     };
   }
 

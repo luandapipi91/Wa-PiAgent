@@ -10,6 +10,7 @@ export interface PackageInfo {
 	latestVersion?: string; // npm registry 最新版本
 	description?: string; // 从 package.json 读取
 	enabled: boolean; // 是否在 packages 数组中
+	changelog?: string; // 本次升级的 CHANGELOG 新条目（仅 upgrade 响应携带；安装/列表不带）
 }
 
 // ===== WS 协议事件 =====
@@ -48,6 +49,13 @@ export interface ExtensionListResult {
 export interface ExtensionChangedEvent {
 	type: "extension:changed";
 	packages: PackageInfo[];
+}
+
+/** 插件升级完成：携带本次更新内容（CHANGELOG (from, to] 新条目；无新条目则不广播） */
+export interface ExtensionUpgradeDoneEvent {
+	type: "extension:upgrade:done";
+	name: string;
+	changelog: string;
 }
 export interface ExtensionErrorEvent {
 	type: "extension:error";

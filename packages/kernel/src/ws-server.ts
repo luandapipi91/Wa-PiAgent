@@ -2779,8 +2779,17 @@ export class WSServer {
 					// 包管理器日志行流式回推给请求者（与 install 一致）
 					const onProgress = (message: string) =>
 						reply({ type: "extension:progress", name: event.name, message });
-					await this.opts.extensionManager.upgrade(event.name, onProgress);
+					const info = await this.opts.extensionManager.upgrade(
+						event.name,
+						onProgress,
+					);
 					this.opts.agentManager.markAllDirty();
+					if (info.changelog)
+						this.broadcast({
+							type: "extension:upgrade:done",
+							name: event.name,
+							changelog: info.changelog,
+						});
 					const { packages } = await this.opts.extensionManager.list();
 					this.broadcast({ type: "extension:changed", packages });
 					const skillResult = await this.scanSkillsWithExtensions();
