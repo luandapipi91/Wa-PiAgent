@@ -11,7 +11,7 @@
 //   3. 长文本块超 8 行默认收起只显示前 8 行，展开/收起按钮复用 ReadContentView
 //      同款样式与文案（readExpandMore / readCollapse）。
 // JSON 探测 / 限高 / 按钮样式与 McpResultView 共用 tool-result-shared。
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
 import {
@@ -36,10 +36,12 @@ export function parseToolResultText(
 }
 
 /** 长文本字段块：保留真实换行与前导空格；超 PREVIEW_LINES 行默认收起可展开 */
-function LongTextBlock({ text }: { text: string }) {
+const LongTextBlock = memo(function LongTextBlock({ text }: { text: string }) {
 	const { t } = useTranslation();
 	const [expanded, setExpanded] = useState(false);
-	const lines = text.split("\n");
+	// 兼容 \r\n（部分工具返回体为 CRLF），避免行尾残留 \r 在 pre-wrap 下被当换行渲染为双换行；
+	// text 不变时不重复 split（大 snapshot 可能几百 KB）
+	const lines = useMemo(() => text.split(/\r?\n/), [text]);
 	if (lines.length <= PREVIEW_LINES) {
 		return (
 			<pre data-testid="tool-result-longtext" className={LONG_TEXT_CLS}>
@@ -84,7 +86,7 @@ function LongTextBlock({ text }: { text: string }) {
 			</button>
 		</div>
 	);
-}
+});
 
 /** 字段值渲染：含换行的字符串 → 长文本块；标量直接展示；嵌套对象/数组紧凑 JSON 兜底 */
 function FieldValue({ v }: { v: unknown }): ReactNode {
@@ -102,8 +104,10 @@ function FieldValue({ v }: { v: unknown }): ReactNode {
 }
 
 /** 工具返回文本美化渲染：JSON 结构化 / 非 JSON 原样（颜色继承外层成功/失败 tone） */
-export function ToolResultText({ text }: { text: string }) {
-	const parsed = parseToolResultText(text);
+// memo：props 只有 text，ToolCallCard streaming 更新 / 父级折叠切换重渲染时跳过重复 parse
+export const ToolResultText = memo(function ToolResultText({ text }: { text: string }) {
+	// text 不变时不重复 parse（browser_snapshot 返回体可能几百 KB）
+	const parsed = useMemo(() => parseToolResultText(text), [text]);
 	if (parsed.kind === "text") {
 		return (
 			<pre className={`${RESULT_MONO_BASE_CLS} leading-[1.6]`}>{text}</pre>
@@ -119,4 +123,4 @@ export function ToolResultText({ text }: { text: string }) {
 			))}
 		</div>
 	);
-}
+});

@@ -1,5 +1,5 @@
 // ToolResultTextView 测试：工具返回文本美化渲染（JSON 结构化 / 非 JSON 原样 / 畸形容错）。
-import { test, expect } from "bun:test";
+import { test, expect, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ToolResultText, parseToolResultText } from "./ToolResultTextView";
 import { ToolCallCard } from "./ToolCallCard";
@@ -100,6 +100,68 @@ test("超长文本默认前 8 行 + 展开按钮；展开显示全部；收起�
 	// 收起恢复预览
 	fireEvent.click(screen.getByTestId("tool-result-collapse"));
 	expect(text()).not.toContain("- line 9");
+});
+
+// —— 性能：重渲染不重复解析 / 展开收起不重复 split ——
+
+import { useState } from "react";
+
+/** 父组件重渲染器：点击按钮强制重渲染，每次渲染新建子元素（避免 React 元素引用相同 bailout） */
+function RerenderParent({ renderChild }: { renderChild: () => React.ReactNode }) {
+	const [, setTick] = useState(0);
+	return (
+		<div>
+			<button
+				type="button"
+				data-testid="force-rerender"
+				onClick={() => setTick((t) => t + 1)}
+			>
+				force
+			</button>
+			{renderChild()}
+		</div>
+	);
+}
+
+test("ToolResultText：props 不变重渲染时 parseToolResultText 只执行一次", async () => {
+	let parseCount = 0;
+	const shared = await import("./tool-result-shared");
+	// mock 前先捕获原函数：mock.module 后命名空间的 getter 会解析到 mock 自身，
+	// 若在包装器里经命名空间调用会无限递归
+	const origParseResultJson = shared.parseResultJson;
+	mock.module("./tool-result-shared", () => ({
+		...shared,
+		parseResultJson: (text: string) => {
+			parseCount += 1;
+			return origParseResultJson(text);
+		},
+	}));
+	const { ToolResultText } = await import("./ToolResultTextView");
+
+	const { container } = render(
+		<RerenderParent renderChild={() => <ToolResultText text={NAV_JSON} />} />,
+	);
+	// 首次渲染 + 3 次父级强制重渲染，props 均未变化
+	for (let i = 0; i < 3; i++) {
+		fireEvent.click(screen.getByTestId("force-rerender"));
+	}
+	expect(container.textContent).toMatch(/refCount:\s*29/);
+	expect(parseCount).toBe(1);
+});
+
+test("含 \r\n 的长文本：预览各行无 \r 残留，行数与 split(/\r?\n/) 预期一致", () => {
+	const lines = Array.from({ length: 12 }, (_, i) => `- line ${i + 1}`);
+	const raw = JSON.stringify({ ok: true, snapshot: lines.join("\r\n") });
+	const { container } = render(<ToolResultText text={raw} />);
+
+	const block = container.querySelector(
+		'pre[data-testid="tool-result-longtext"]',
+	);
+	expect(block).not.toBeNull();
+	const preview = block!.textContent ?? "";
+	// 预览只含前 8 行且行尾无 \r（whitespace-pre-wrap 下 \r 会被当换行 → 双换行）
+	expect(preview).not.toContain("\r");
+	expect(preview.split("\n")).toEqual(lines.slice(0, 8));
 });
 
 // —— 链路：ToolCallCard 非 MCP/codemode 工具替换点生效 ——
