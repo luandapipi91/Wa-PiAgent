@@ -267,6 +267,47 @@ describe("GET /api/mcp", () => {
     expect("signedIn" in byName.stdioSrv).toBe(false);
   });
 
+  test("needs-auth（凭据失效）时键还在也按未登录报：signedIn 覆写为 false，前端出「登录」按钮", async () => {
+    await writeGlobal({ mcpServers: { oauthSrv: { url: "http://127.0.0.1:9920/mcp" } } });
+    // 模拟「登录过但凭据已失效」：pi 的 markNeedsAuth 不删凭据，mcp-auth.json 里键残留
+    await Bun.write(
+      join(dir, "mcp-auth.json"),
+      JSON.stringify({ "mcp__oauthSrv|http://127.0.0.1:9920/mcp": { tokens: {} } }),
+    );
+    const router = makeRouter(
+      makeAdmin(listResult([report("oauthSrv", { state: "needs-auth" })])),
+    );
+
+    const res = await get(router, "/api/mcp");
+    const body = await res!.json();
+    const byName = Object.fromEntries(
+      body.servers.map((s: { name: string }) => [s.name, s]),
+    );
+    // state 照实透传（徽标「需登录」），但 signedIn 必须是 false：
+    // 键存在≠凭据有效，needs-auth 是 pi 实测「401 且 refresh 失败」的结果，
+    // 若按 true 报前端只会画出「登出」按钮，用户没有重新授权的入口
+    expect(byName.oauthSrv.state).toBe("needs-auth");
+    expect(byName.oauthSrv.signedIn).toBe(false);
+  });
+
+  test("connected 且键存在时 signedIn=true 不受影响（登出按钮照常）", async () => {
+    await writeGlobal({ mcpServers: { oauthSrv: { url: "http://127.0.0.1:9920/mcp" } } });
+    await Bun.write(
+      join(dir, "mcp-auth.json"),
+      JSON.stringify({ "mcp__oauthSrv|http://127.0.0.1:9920/mcp": { tokens: {} } }),
+    );
+    const router = makeRouter(
+      makeAdmin(listResult([report("oauthSrv", { state: "connected" })])),
+    );
+
+    const res = await get(router, "/api/mcp");
+    const body = await res!.json();
+    const byName = Object.fromEntries(
+      body.servers.map((s: { name: string }) => [s.name, s]),
+    );
+    expect(byName.oauthSrv.signedIn).toBe(true);
+  });
+
   test("stale / hasProblems / note 原样透传，且不外泄 pi 的原始 stdout（raw）", async () => {
     await writeGlobal({ mcpServers: {} });
     const router = makeRouter(

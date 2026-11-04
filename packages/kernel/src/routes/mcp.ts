@@ -152,7 +152,9 @@ export interface McpServerEntry extends McpServerConfig {
   /**
    * 是否已登录（F19）：`<agentDir>/mcp-auth.json` 里有该 server（名 + URL）的凭据条目。
    * 只对 HTTP server 赋值（stdio 没有 OAuth，pi 会直接报 does not use OAuth）
-   * ——它是登录/登出按钮的唯一依据：pi 的 `state` 分不清「需要登录」与「凭据在但连不上」。
+   * ——它是登录/登出按钮的唯一依据。语义是「凭据有效可登」而非「凭据条目存在」：
+   * pi 实测 `needs-auth`（凭据在但 401 且 refresh 失败/无 refresh token）时覆写为 false，
+   * 否则前端只画「登出」按钮，用户没有重新授权的入口（pi 的 login 支持覆盖失效凭据）。
    */
   signedIn?: boolean;
 }
@@ -268,7 +270,12 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
       // 迁移前是纯规范化 URL —— 两种都认，见 mcpAuthKeysOf。
       if (canUseOAuth(entry)) {
         const signedIn = mcpAuthKeysOf(signedInKeys, entry.name, entry.url!);
-        if (signedIn !== null) entry.signedIn = signedIn;
+        if (signedIn !== null) {
+          // needs-auth = pi 实测凭据失效（401 且 refresh 失败/无 refresh token），
+          // 键残留不等于已登录：按 false 报，让前端出「登录」按钮而非「登出」。
+          // 其他 state（含 failed——分不清是不是网络问题）不动，保留键存在性事实。
+          entry.signedIn = entry.state === "needs-auth" ? false : signedIn;
+        }
       }
       return entry;
     });
