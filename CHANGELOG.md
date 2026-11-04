@@ -1,3 +1,6 @@
+## 2026-11-04
+- chore(deps): 底层 pi 引擎升级 1.4.0 → 1.5.0（sdk-errors 补智谱 1308 与个人版限额 fatal 条目、事件类型补 deferred；依赖产物校验增加版本一致性，安装失败/装出旧版拒绝启动；插件升级展示本次更新内容；安装包 0.8.7，内核随包指纹自动重装至 1.5.0）
+
 ## 2026-11-03
 - refactor(frontend): 共享层推广到 read/shell/codemode 卡片——tool-result-shared 拆派生常量（RESULT_MONO_FONT_CLS 等宽+11px 字号、RESULT_MONO_WRAP_CLS 换行两件套与字号解耦，BASE_CLS 改二者组合）+ RESULT_CLIP_PX=300（read 正文展开/shell 终端输出的数字限高同值同义）；ReadContentView：toggle 按钮逐字同款换 RESULT_TOGGLE_BAR_CLS、正文容器/限高接共享件；ShellOutputView：限高/输出区字号接共享件；CodemodeView：console 块换行两件套接共享件。意图差异保留：codemode console 的 text-xs+180px 限高（次要信息档）、shell 终端 whitespace-pre 不软折行、shell 复制按钮/文本项（套基座会改字体或继承）不硬套；领域逻辑（read 行号/截断解析/渐隐、shell/codemode 输出形态）零改动。纯样式常量等价替换，blocks 目录 63 用例 + 全量 3306 绿 + tsc 零错误
 - refactor(frontend): ToolResultTextView/McpResultView 重复逻辑抽共享件 tool-result-shared——parseResultJson 纯函数统一 JSON 探测（trim+parse+object 判定，两组件内联 try/catch 退役）；样式常量归一：RESULT_MAX_H（两处同款限高）、RESULT_MONO_BASE_CLS（等宽结果块基座，自含块/容器块各自组合差异部分）、RESULT_TOGGLE_BAR_CLS（全宽条状 toggle）、RESULT_BTN_BASE_CLS（小按钮基座，MCP 三按钮 inline style 迁移为 Tailwind 等价类，expand 的 JS hover 改 hover:bg-[var(--accent-soft)]）。场景逻辑（摘要条/延迟展开/tokenize 高亮/复制/长文本折叠）零改动；LongTextBlock 未接入 MCP（其文本态有自己的行号+500 行折叠阈值，接入会改行为）。重构前置：先补 McpResultView 行为快照 4 用例（原零覆盖）护住交互，重构前后全绿证明行为不变；tool-result-shared 2 用例 + ToolResultTextView 7 用例不动全绿，frontend 全量 3306 绿 + tsc 零错误
