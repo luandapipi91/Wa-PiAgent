@@ -719,6 +719,17 @@ test.each([
 test.each([
 	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
 	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
+])("%s 记忆策略：遇到过时/失效记忆顺手修正或删除（不必等用户提醒）", (_name, prompt) => {
+	expect(prompt).toContain("顺手修正或删除");
+	expect(prompt).toMatch(/过时[、/]失效|过时、失效|过时或失效/);
+	expect(prompt).toMatch(/memory_replace[\s\S]{0,40}?memory_remove|memory_remove[\s\S]{0,40}?memory_replace/);
+	// 防误删：execution 是带日期的历史日志，旧了也不删；清理对象仅限当下声称的事实
+	expect(prompt).toContain("执行流水是历史日志");
+});
+
+test.each([
+	["DEFAULT", DEFAULT_MEMORY_POLICY_PROMPT],
+	["COMPACT", COMPACT_MEMORY_POLICY_PROMPT],
 ])(
 	"%s 记忆策略不再宣称记忆落在 MEMORY.md / USER.md（DB 化后二者非真源）",
 	(_name, prompt) => {
