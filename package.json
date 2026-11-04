@@ -10,7 +10,14 @@
   },
   "license": "MIT",
   "overrides": {
-    "onnxruntime-node": "1.23.2"
+    "onnxruntime-node": "1.23.2",
+    "happy-dom": "20.11.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/dom": "10.4.1",
+    "react-virtuoso": "4.18.12",
+    "zustand": "5.0.15"
   },
   "patchedDependencies": {},
   "private": true,
