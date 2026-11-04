@@ -314,7 +314,8 @@ export const POINTER_PROBE_MAX = 200;
  * cursor:pointer 兑底扫描脚本（对齐 agent-browser find_cursor_interactive_elements）：
  * 扫 body *，收 cursor:pointer / onclick / tabindex 三信号的非原生非交互 role 元素
  * （AX 树已覆盖原生控件与交互 role，不重复），排除继承 pointer 的子元素、隐藏、
- * 零尺寸、无可读文本。命中元素打 data-wa-ptr 顺序锚点供 CDP 批量解析 backendNodeId。
+ * 零尺寸、无可读文本。命中元素打 data-wa-ptr 顺序锚点供 CDP 逐个解析 backendNodeId
+ * （DOM.querySelectorAll 集中拿 nodeIds 后串行 DOM.describeNode，数量 ≤ 200）。
  * 产物为 [{text}] 数组（顺序即 data-wa-ptr 序号）。字面量禁反引号与 ${（产物层）。
  */
 export const POINTER_PROBE_SCRIPT: string = `(() => {
@@ -388,17 +389,63 @@ export async function fetchAxNodes(view: AxSnapshotView): Promise<AXNode[]> {
   return result.nodes;
 }
 
+export interface AxSnapshotFrame {
+  tree: AxTree;
+  selectorMap: Record<number, AxRefEntry>;
+  /** probe 原始产物（保留空 text 占位，与 data-wa-ptr 锚点序号对齐供 finalize 解析） */
+  probes: { text: string }[];
+  /** 轻量文本：AX 主体（无 (pointer) 标记）+ 未解析附加行（无 [ref=]），供帧间稳定比较 */
+  text: string;
+  nodeCount: number;
+}
+
 /**
- * 兑底元素 backendNodeId 解析：probe 脚本已打 data-wa-ptr="i" 锚点 →
- * DOM.getDocument → DOM.querySelectorAll 集中拿 nodeIds → 逐个 describeNode 取
- * backendNodeId（数量 ≤ 200，单次 <1ms）。任一步失败由调用方降级为无兑底。
+ * AX 快照单帧（轻量）：拉树 → 重建 → ref 分配 → probe evaluate（仅收集自绘元素文本，
+ * 不做 CDP 解析）。probe evaluate 抛错吞掉 → probes=[]（对齐兑底失败不影响 AX 主体）。
+ * fetchAxNodes 抛错仍向上抛（触发 captureStableSnapshot 降级平铺线）。
+ * 仅稳定收敛后由 finalizeAxSnapshot 对最终帧执行一次 CDP 解析；中间帧只跑本函数。
  */
-async function resolvePointerBackends(view: AxSnapshotView): Promise<PointerElement[]> {
-  const probes = (await view.evaluate(POINTER_PROBE_SCRIPT)) as
-    | { text?: unknown }[]
-    | unknown[]
-    | undefined;
-  if (!Array.isArray(probes) || probes.length === 0) return [];
+export async function captureAxSnapshotFrame(view: AxSnapshotView): Promise<AxSnapshotFrame> {
+  const nodes = await fetchAxNodes(view);
+  const tree = buildAxTree(nodes);
+  const selectorMap = assignAxRefs(tree);
+  let probes: { text: string }[] = [];
+  try {
+    const raw = (await view.evaluate(POINTER_PROBE_SCRIPT)) as
+      | { text?: unknown }[]
+      | unknown[]
+      | undefined;
+    if (Array.isArray(raw)) {
+      probes = raw.map((p) => ({ text: String((p as { text?: unknown })?.text ?? "") }));
+    }
+  } catch {
+    // probe 失败 → 无兑底（finalize 跳过 CDP 解析链）
+  }
+  const body = renderAxTree(tree);
+  const extraText = probes
+    .filter((p) => p.text)
+    .map((p) => `- generic ${JSON.stringify(p.text)} (pointer)`)
+    .join("\n");
+  return {
+    tree,
+    selectorMap,
+    probes,
+    text: extraText ? `${body}\n${extraText}` : body,
+    nodeCount: nodes.length,
+  };
+}
+
+/**
+ * 兑底元素 backendNodeId 解析（仅收敛后的最终帧执行一次）：frame.probes 已打
+ * data-wa-ptr="i" 锚点 → DOM.getDocument → DOM.querySelectorAll 集中拿 nodeIds →
+ * 逐个 describeNode 取 backendNodeId（数量 ≤ 200，单次 <1ms）。probes 空则跳过整条
+ * CDP 链。任一步失败向上抛出，由调用方降级为无兑底。
+ */
+async function resolvePointerBackends(
+  view: AxSnapshotView,
+  probes: { text: string }[],
+): Promise<PointerElement[]> {
+  if (probes.length === 0) return [];
   const doc = (await view.cdp("DOM.getDocument")) as { root?: { nodeId?: number } } | undefined;
   const docId = doc?.root?.nodeId;
   if (docId === undefined) return [];
@@ -413,36 +460,44 @@ async function resolvePointerBackends(view: AxSnapshotView): Promise<PointerElem
       | { node?: { backendNodeId?: number } }
       | undefined;
     const backendId = desc?.node?.backendNodeId;
-    const text = String((probes[i] as { text?: unknown })?.text ?? "");
+    const text = probes[i].text;
     if (backendId !== undefined && text) out.push({ backendId, text });
   }
   return out;
 }
 
 /**
- * AX 树形快照主入口：拉树 → 重建 → ref 分配 → 兑底合并 → 渲染。
- * 兑底扫描/解析失败降级为无兑底行（AX 主体不受影响）。
+ * AX 快照收尾：对最终帧执行一次兑底 CDP 解析链 → mergePointerElements → 渲染完整
+ * 快照。整段失败降级为纯 AX 主体（兑底失败不影响 AX 主体）。
  */
-export async function captureAxSnapshot(view: AxSnapshotView): Promise<AxSnapshot> {
-  const nodes = await fetchAxNodes(view);
-  const tree = buildAxTree(nodes);
-  const selectorMap = assignAxRefs(tree);
+export async function finalizeAxSnapshot(
+  frame: AxSnapshotFrame,
+  view: AxSnapshotView,
+): Promise<AxSnapshot> {
   let extraText = "";
   try {
     extraText = mergePointerElements(
-      tree,
-      await resolvePointerBackends(view),
-      selectorMap,
+      frame.tree,
+      await resolvePointerBackends(view, frame.probes),
+      frame.selectorMap,
     ).extraText;
   } catch {
     // 兑底失败不影响 AX 主体
   }
-  const body = renderAxTree(tree);
+  const body = renderAxTree(frame.tree);
   return {
     text: extraText ? `${body}\n${extraText}` : body,
-    selectorMap,
-    nodeCount: nodes.length,
+    selectorMap: frame.selectorMap,
+    nodeCount: frame.nodeCount,
   };
+}
+
+/**
+ * AX 树形快照主入口（Frame + Finalize 组合）：拉树 → 重建 → ref 分配 → 兑底合并 →
+ * 渲染。兑底扫描/解析失败降级为无兑底行（AX 主体不受影响）。
+ */
+export async function captureAxSnapshot(view: AxSnapshotView): Promise<AxSnapshot> {
+  return finalizeAxSnapshot(await captureAxSnapshotFrame(view), view);
 }
 
 /** ref 点击定位产物：坐标为视口相对（quad 中心）；recovered 标记失效回查 */
