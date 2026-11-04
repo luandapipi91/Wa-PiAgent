@@ -1,5 +1,5 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
-// Theme 取自 pi-coding-agent 而不是 pi-tui：pi-tui 0.85.1 的 index.d.ts 里根本没有 Theme 导出
+// Theme 取自 pi-coding-agent 而不是 pi-tui：pi-tui 1.5.0 的 index.d.ts 里根本没有 Theme 导出
 // （pi-coding-agent/dist/index.d.ts:29 才是它 re-export 的来源）。widget 工厂的第 2 个形参
 // 正是这个 Theme（pi-coding-agent/dist/core/extensions/types.d.ts 的 setWidget 重载），
 // 所以类型来源必须与 pi 的签名一致。`import type` 会被擦除，无运行时代价。

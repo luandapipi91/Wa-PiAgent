@@ -354,7 +354,7 @@ export type AssistantMessageEvent =
 	  }
 	| {
 			type: "done";
-			reason: "stop" | "length" | "toolUse";
+			reason: "stop" | "length" | "toolUse" | "deferred";
 			message: AssistantMessage;
 	  }
 	| { type: "error"; reason: "aborted" | "error"; error: AssistantMessage };

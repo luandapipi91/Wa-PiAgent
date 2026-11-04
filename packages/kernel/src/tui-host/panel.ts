@@ -1,6 +1,6 @@
 import { TuiAltScreen, type Component } from "@earendil-works/pi-tui";
 // 这两个类型取自 pi-coding-agent，而不是 pi-tui：factory 第 3 个参数的类型由 pi 的 custom 签名决定
-// （pi-coding-agent/dist/core/extensions/types.d.ts:117 的形参就是它 re-export 的 KeybindingsManager，
+// （pi-coding-agent/dist/core/extensions/types.d.ts 里 custom 签名的形参就是它 re-export 的 KeybindingsManager，
 // 即 pi-tui 基类的子类）。pi-tui 0.85.1 确实有 KeybindingsManager 导出
 // （pi-tui/dist/index.d.ts:21），但把基类实例赋给该形参实测报 TS2739，所以类型来源不能改回 pi-tui。
 // Theme 则根本不在 pi-tui 的导出里，只能从 pi-coding-agent 取。`import type` 会被擦除，无运行时代价。
