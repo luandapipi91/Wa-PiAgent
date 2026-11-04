@@ -74,6 +74,7 @@ import type {
 	McpListToolsEvent,
 	McpListResult,
 	McpChangedEvent,
+	McpProbeEvent,
 	McpTestResult,
 	McpToolsResult,
 	McpLoginEvent,
@@ -1570,6 +1571,7 @@ export type WSServerEvent =
 	| MemorySearchResultEvent
 	| McpListResult
 	| McpChangedEvent
+	| McpProbeEvent
 	| McpTestResult
 	| McpToolsResult
 	| McpLoginEvent

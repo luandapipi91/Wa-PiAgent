@@ -298,7 +298,10 @@ function effectiveState(
     serverStatuses: Record<string, "disconnected" | "connected" | "error">;
   },
 ): string | undefined {
-  if (s.stale) return undefined;
+  // stale = 本次清单是骨架（状态还在后台并发池里逐台探测）。
+  // 探测完成一台就把它的 state 直接写进条目（mcp:probe → applyProbe），那是新鲜值：
+  // 已探测的台（state 有值）照常显示；还没轮到的台（state 缺省）保持「状态未知」。
+  if (s.stale && entry.state === undefined) return undefined;
   const tested = s.serverStatuses[entry.name];
   if (tested === "connected") return "connected";
   if (tested === "error") return "failed";

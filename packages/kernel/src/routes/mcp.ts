@@ -29,8 +29,9 @@ import type {
   McpServerStatus,
   WSServerEvent,
 } from "@wa-pi/shared";
-import type { McpAdmin, McpServerReport } from "../mcp-admin";
+import type { McpAdmin } from "../mcp-admin";
 import { canUseOAuth, mcpAuthKeysOf, readMcpAuthKeys } from "../mcp-admin";
+import { probeMcpServer } from "../mcp-probe";
 import type { McpFile } from "../mcp-file";
 import type { ProjectStore } from "../project-store";
 import { McpTrustStore } from "../mcp-trust";
@@ -210,6 +211,18 @@ export interface McpHandlers {
 const LOGIN_UNFINISHED_TEXT = "登录未完成（pi 没有输出原因）";
 const LOGOUT_UNFINISHED_TEXT = "登出失败（pi 没有输出原因）";
 
+/** 列表批量探测的单台截止时间：http 握手毫秒级 → 3s；stdio 要 spawn 子进程 → 10s。
+ *  缺陷背景（2026-11-04）：统一 3s 把 Context7（npx -y …@latest 冷启动实测 4~5s）误判成
+ *  「握手超时或进程提前退出」，而 pi 的单台超时是 60s 所以它是好的——超时必须按传输类型分档。 */
+export const PROBE_TIMEOUT_HTTP_MS = 3_000;
+export const PROBE_TIMEOUT_STDIO_MS = 10_000;
+
+/** 按台取列表探测的超时档：http/streamable-http（含缺省按 url 推断）→ 3s；stdio → 10s */
+export function probeTimeoutFor(config: McpServerConfig): number {
+  const type = config.type ?? (config.url ? "http" : config.command ? "stdio" : undefined);
+  return type === "stdio" ? PROBE_TIMEOUT_STDIO_MS : PROBE_TIMEOUT_HTTP_MS;
+}
+
 /** `pi mcp list` 的 state → 前端 McpServerStatus（规格 §7：测试/列工具取其 state） */
 function toServerStatus(state: string | undefined): McpServerStatus {
   if (state === "connected") return "connected";
@@ -236,124 +249,148 @@ function mcpErrorResponse(e: unknown): Response {
 
 /** MCP 域处理器工厂：deps 由 ws-server 注入，单测可只注入用到的部分 */
 export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
-  /** 取某作用域的状态读取者（`admin.list()` 走缓存；force 才重跑 `pi mcp list`） */
-  async function adminOf(projectId?: string): Promise<Pick<McpAdmin, "list" | "cached">> {
-    return deps.adminForCwd(await deps.cwdForProject(projectId));
+  /** 登录态只对「可能走 OAuth」的台计算（判据与 pi 一致，见 canUseOAuth）；needs-auth 时按 false 报 */
+  function entryWithSignedIn(
+    entry: McpServerEntry,
+    state: string | undefined,
+    signedInKeys: ReadonlySet<string>,
+  ): McpServerEntry {
+    if (!canUseOAuth(entry)) return entry;
+    const signedIn = mcpAuthKeysOf(signedInKeys, entry.name, entry.url!);
+    if (signedIn === null) return entry;
+    entry.signedIn = state === "needs-auth" ? false : signedIn;
+    return entry;
   }
 
-  /**
-   * 合并「盘上配置」与「pi 报的运行时状态」。
-   *
-   * 以**配置清单为骨架**：本作用域里配了但 pi 没报的 server（典型：项目未受信，pi 直接
-   * 忽略 `.pi/mcp.json`）也要出现在列表里，否则用户看不到自己的配置、更无从编辑；
-   * 这类条目没有 state，配合响应里的 `note`（pi 的「项目未受信任」提示）正好解释
-   * 「我配的服务器为什么不生效」。pi 报的字段（scope/state/tools/error/enabled/exposure）
-   * 覆盖同名配置字段——它们读的是同一个文件，pi 的解读更权威。
-   */
-  async function listWithState(
-    projectId?: string,
-    force = false,
-  ): Promise<McpListPayload> {
-    const configs = await deps.mcpFile.list(projectId);
-    // 登录态是客户端凭据文件里的事实（F19），与作用域无关：一次读回来供下面逐台比对
-    const signedInKeys = await readMcpAuthKeys(deps.piSpawn.agentDir);
-    const res = await (await adminOf(projectId)).list(force);
-    const byName = new Map(res.servers.map((r) => [r.name, r]));
-    const servers: McpServerEntry[] = configs.map((c) => {
-      const report = byName.get(c.name);
-      // 展开而非挑字段：pi 的 report 形状可能随版本增字段（规格 F14），少一列不该丢信息
-      const entry: McpServerEntry = report ? { ...c, ...report } : { ...c };
-      // 登录态只对「可能走 OAuth」的 server 赋値：stdio 没有 OAuth；带静态 Authorization 头
-      // （大小写不敏感）或 auth 配置的 HTTP server 走固定凭据，pi 的 login 会直接拒绝。
-      // 给它们 false 只会让前端误以为「可以在 GUI 里登录」；判据与 pi 一致见 canUseOAuth。
-      // 比对必须走与 pi 同一套键（F19）：1.0.0 起是 `mcp__<server>|<规范化 URL>`，
-      // 迁移前是纯规范化 URL —— 两种都认，见 mcpAuthKeysOf。
-      if (canUseOAuth(entry)) {
-        const signedIn = mcpAuthKeysOf(signedInKeys, entry.name, entry.url!);
-        if (signedIn !== null) {
-          // needs-auth = pi 实测凭据失效（401 且 refresh 失败/无 refresh token），
-          // 键残留不等于已登录：按 false 报，让前端出「登录」按钮而非「登出」。
-          // 其他 state（含 failed——分不清是不是网络问题）不动，保留键存在性事实。
-          entry.signedIn = entry.state === "needs-auth" ? false : signedIn;
-        }
-      }
-      return entry;
-    });
-    // 逐字段拷贝而非 `...res`：list() 的返回值带 `raw`（pi 的完整 stdout），
-    // 那是排查用的旁路数据，不该随 GUI 的列表响应外泄。
-    return {
-      servers,
-      errors: res.errors,
-      commandFailed: res.commandFailed,
-      hasProblems: res.hasProblems,
-      stale: res.stale,
-      note: res.note,
-    };
+  /** 项目未受信 → pi 不加载该项目的 .pi/mcp.json；显式 true 才算受信（祖先继承语义见 McpTrustStore.get） */
+  async function projectUntrustedNote(projectId: string | undefined): Promise<string | undefined> {
+    if (projectId === undefined) return undefined;
+    try {
+      const cwd = await deps.cwdForProject(projectId);
+      const trusted = await new McpTrustStore(trustFilePath()).get(cwd);
+      return trusted === true ? undefined : "project-untrusted";
+    } catch {
+      return undefined; // 项目不存在等：列表路由的骨架响应里不做受信判断
+    }
   }
 
-  /** 取某 server 的运行时报告；pi 没报它时按「命令失败」/「服务器不存在」区分 */
-  async function reportOf(
+
+  /** 从盘上配置找单台；找不到 → mcp.serverNotFound（404，前端按字典显示） */
+  async function configOf(
     serverName: string,
     projectId: string | undefined,
-    force: boolean,
-  ): Promise<McpServerReport> {
-    const res = await (await adminOf(projectId)).list(force);
-    const report = res.servers.find((s) => s.name === serverName);
-    if (report) return report;
-    // 命令没跑起来时 servers 恒为空：这时报「服务器不存在」会误导（配置其实在盘上）
-    if (res.commandFailed) {
-      throw new Error("无法读取 MCP 状态（pi mcp list 未返回结果），请稍后重试");
-    }
-    throw new KernelError("mcp.serverNotFound", { name: serverName });
+  ): Promise<McpServerConfig> {
+    const configs = await deps.mcpFile.list(projectId);
+    const config = configs.find((c) => c.name === serverName);
+    if (!config) throw new KernelError("mcp.serverNotFound", { name: serverName });
+    return config;
   }
 
+  /** 列表探测的并发池大小：台与台完全独立，一台卡死只影响它自己 */
+  const PROBE_CONCURRENCY = 10;
+
   /**
-   * 写盘成功后广播一份带状态的清单。
+   * 并发池探测本作用域全部配置，逐台广播（mcp:probe），全部完成后 mcp:changed 收尾（清 stale）。
    *
-   * 广播的是**完整清单载荷**（含 `stale` / `note` / `errors`），与 `GET /api/mcp` 同形：
-   * 前端靠这些元信息决定「状态未知」与「项目未受信」两处说明，丢了它们会让一次保存
-   * 就把「配置为什么没生效」的解释抹掉（且把缓存里的连接态当成最新）。
-   * 不为此多跑一次冷 `pi mcp list`：`listWithState` 本就会把这些字段一起取回来。
+   * 取代旧的「shell out `pi mcp list` 全量等完」：pi 是 Promise.all 等最慢一台才一次性输出，
+   * 一台卡死（如 OAuth 刷新挂 60s）就拖垮整个清单；探测池里每台独立 3s 截止、互相无牵连。
+   * 每台完成后**立即**广播单台结果，前端逐台亮灯，不必等 100 台全部结束。
+   */
+  async function probeAllAndBroadcast(
+    projectId: string | undefined,
+    configs: McpServerConfig[],
+  ): Promise<void> {
+    const agentDir = deps.piSpawn.agentDir;
+    // stdio 兜底 cwd：探测作用域目录（与 pi spawn MCP 子进程同源），不继承 kernel 进程 cwd
+    const cwd = await deps.cwdForProject(projectId);
+    const signedInKeys = await readMcpAuthKeys(agentDir);
+    const results: McpServerEntry[] = configs.map((c) => ({ ...c }));
+    let cursor = 0;
+    const applyOne = (i: number, probe: { state: string; tools: string[]; error?: string }) => {
+      const entry = entryWithSignedIn(results[i]!, probe.state, signedInKeys);
+      entry.state = probe.state;
+      entry.tools = probe.tools;
+      if (probe.error) entry.error = probe.error;
+      deps.broadcast({
+        type: "mcp:probe",
+        projectId,
+        serverName: entry.name,
+        state: probe.state,
+        tools: probe.tools,
+        ...(probe.error ? { error: probe.error } : {}),
+        ...(entry.signedIn !== undefined ? { signedIn: entry.signedIn } : {}),
+      });
+    };
+    const worker = async () => {
+      for (;;) {
+        const i = cursor++;
+        if (i >= configs.length) return;
+        try {
+          const probe = await probeMcpServer(configs[i]!, {
+            timeoutMs: probeTimeoutFor(configs[i]!),
+            agentDir,
+            cwd,
+          });
+          applyOne(i, probe);
+        } catch {
+          // 探测器内部不该抛（全部收口为 failed）；万一抛了也按失败落地，不让一台拖垮池子
+          applyOne(i, { state: "failed", tools: [], error: "探测异常" });
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.max(1, Math.min(PROBE_CONCURRENCY, configs.length)) }, worker),
+    );
+    // 收尾：全量载荷广播一次，清掉「状态未知」横幅（servers 已带各自的最终状态）
+    const enabled = results.filter((r) => r.enabled !== false);
+    deps.broadcast({
+      type: "mcp:changed",
+      projectId,
+      servers: results,
+      errors: [],
+      commandFailed: false,
+      hasProblems: enabled.some((r) => r.state === "failed"),
+      stale: false,
+      note: await projectUntrustedNote(projectId),
+    });
+  }
+  /**
+   * 写盘 / 登录态变化后的后台刷新：重跑并发池探测并广播（mcp:probe × N + mcp:changed 收尾）。
    *
-   * **不占回包路径**：`listWithState` 要读状态层，而冷缓存时那是一次真 spawn `pi mcp list`
-   * （`McpAdmin` 的上限 `DEFAULT_LIST_TIMEOUT_MS = 70s`）。前端 MCP 面板的请求超时是
-   * `MCP_RPC_TIMEOUT_MS = 80s`（api-client）、`store/mcp.ts` 又是 fire-and-forget ——只要盘上
-   * 有一台卡死的 server，「保存 / 删除」就会在前端表现成失败（写盘其实已经成功）。故立即回包，广播放进后台任务。
-   *
-   * 后台任务的异常必须咽掉：调用方已拿到 200，此时冒出的 rejection 只会污染进程
-   * （未处理拒绝告警，且可能误伤无关用例）；广播失败只影响 GUI 本次刷新，
-   * 用户下次进面板仍会重新拉清单。
+   * **不占回包路径**：探测要真连每台 server（单台 3s 截止、并发 10，总量可控但仍非零），
+   * 调用方先回包、广播放后台。后台异常必须咽掉：调用方已拿到 200，冒出的 rejection 只会
+   * 污染进程；广播失败只影响 GUI 本次刷新，用户下次进面板仍会重新拉清单。
    */
   function broadcastChanged(projectId?: string): void {
     void (async () => {
       try {
-        const payload = await listWithState(projectId);
-        deps.broadcast({ type: "mcp:changed", projectId, ...payload });
+        const configs = await deps.mcpFile.list(projectId);
+        await probeAllAndBroadcast(projectId, configs);
       } catch {
         // 同上：写盘已成功、回包已发出，广播失败不该升级为未处理拒绝
       }
     })();
   }
 
+
   return {
     list: async (projectId) => {
-      const admin = await adminOf(projectId);
-      // 热缓存（成功缓存，或保留期内的失败缓存）：状态可即时取回，走完整合并，行为不变
-      if (admin.cached()) return listWithState(projectId);
-      // 冷缓存（无缓存，或失败缓存已过保留期需重跑自愈）：pi mcp list 要真 spawn（一台慢
-      // server 单台可耗 60s+，见 DEFAULT_LIST_TIMEOUT_MS），
-      // 回包若等它，GUI 首开就是「加载中…」→ 前端超时 → 空列表。改为**配置骨架立即回**
-      //（盘上清单为骨架、无运行态、stale=true 表示「这不是刚跑出来的状态」），
-      // 状态后台跑完经 mcp:changed 广播补上——与 save/delete 的后台广播同一路径。
+      // 立即回**配置骨架**（带登录态，无运行态、stale=true），不等任何一台服务器：
+      // 状态由后台并发池逐台探测（每台独立 3s 截止），完成一台广播一台（mcp:probe），
+      // 前端逐台亮灯；全部结束后 mcp:changed 收尾清掉「状态未知」横幅。
       const configs = await deps.mcpFile.list(projectId);
-      broadcastChanged(projectId);
+      const signedInKeys = await readMcpAuthKeys(deps.piSpawn.agentDir);
+      const servers = configs.map((c) => entryWithSignedIn({ ...c }, undefined, signedInKeys));
+      void probeAllAndBroadcast(projectId, configs).catch(() => {
+        // 后台探测的失败不升级为未处理拒绝：GUI 下次进面板仍会重新拉清单
+      });
       return {
-        servers: configs.map((c) => ({ ...c })),
+        servers,
         errors: [],
         commandFailed: false,
         hasProblems: false,
         stale: true,
-        note: undefined,
+        note: await projectUntrustedNote(projectId),
       };
     },
 
@@ -396,14 +433,20 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
         deps.broadcast({ type: "mcp:testResult", serverName, ...payload });
       };
       try {
-        // force：用户点「测试」要的是**此刻**的真实状态，不能拿缓存糊弄
-        const report = await reportOf(serverName, projectId, true);
-        const status = toServerStatus(report.state);
+        // 单台探测：与全量 `pi mcp list` 完全独立——一台卡住（如 OAuth 刷新挂死）
+        // 不再拖垮其他台的测试（2026-11-04 设计缺陷修复）。探测不做 OAuth 刷新
+        //（刷新可能挂死，正是那次事故根源），token 过期时如实报 needs-auth。
+        const config = await configOf(serverName, projectId);
+        const probe = await probeMcpServer(config, {
+          agentDir: deps.piSpawn.agentDir,
+          cwd: await deps.cwdForProject(projectId),
+        });
+        const status = toServerStatus(probe.state);
         emit({
           success: status === "connected",
           status,
-          ...(status === "connected" ? { toolCount: report.tools?.length ?? 0 } : {}),
-          ...(report.error && status === "error" ? { error: report.error } : {}),
+          ...(status === "connected" ? { toolCount: probe.tools.length } : {}),
+          ...(probe.error && status === "error" ? { error: probe.error } : {}),
         });
       } catch (err) {
         const payload = toKernelPayload(err);
@@ -423,11 +466,14 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
         deps.broadcast({ type: "mcp:tools", serverName, ...(Array.isArray(tools) ? { tools } : tools) });
       };
       try {
-        // force：与 test 同理由（点「查看工具」要此刻的真实清单）
-        const report = await reportOf(serverName, projectId, true);
-        // `pi mcp list --json` 的 tools 只有名字（无 description/parameters，规格 §7）：如实透传，
-        // 不虚构字段——旧实现靠自建连接拿到的参数摘要随 mcp-connector.ts 一并消失。
-        emit((report.tools ?? []).map((name) => ({ name })));
+        // 单台探测（与 test 同步独立化）：直接对这一台拿工具清单，与全量 list 解耦。
+        // tools 只有名字（无 description/parameters，规格 §7）：如实透传，不虚构字段。
+        const config = await configOf(serverName, projectId);
+        const probe = await probeMcpServer(config, {
+          agentDir: deps.piSpawn.agentDir,
+          cwd: await deps.cwdForProject(projectId),
+        });
+        emit(probe.tools.map((name) => ({ name })));
       } catch (err) {
         emit({ error: err instanceof Error ? err.message : String(err) });
       }

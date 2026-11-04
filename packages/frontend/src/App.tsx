@@ -357,6 +357,10 @@ export function App() {
 				case "mcp:testResult":
 					useMcpStore.getState().setTestResult(e as any);
 					break;
+				// 列表并发池的逐台探测结果：完成一台亮一台，不等全部结束
+				case "mcp:probe":
+					useMcpStore.getState().applyProbe(e as any);
+					break;
 				case "mcp:tools":
 					useMcpStore.getState().setToolsResult(e as any);
 					break;

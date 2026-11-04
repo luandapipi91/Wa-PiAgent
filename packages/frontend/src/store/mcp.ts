@@ -10,6 +10,7 @@ import type {
   McpChangedEvent,
   McpListResult,
   McpLoginEvent,
+  McpProbeEvent,
   McpTestResult,
   McpToolsResult,
 } from "@wa-pi/shared";
@@ -119,6 +120,8 @@ interface McpState {
     sourceSeq?: number,
   ): void;
   setTestResult(data: McpTestResult): void;
+  /** 单台探测结果（mcp:probe）：列表并发池逐台推送 */
+  applyProbe(data: McpProbeEvent): void;
   setToolsResult(data: McpToolsResult): void;
   save(
     config: McpServerConfig,
@@ -154,6 +157,10 @@ interface McpState {
  * 后续刷新把它带回来（`onReconnect` 也不刷新 MCP）。故每次请求发出 / 每帧事件到达都取一个
  * 更大的号，只有比「已应用的来源」更大的来源才允许写入。
  */
+/** 「测试中」状态的看门狗：广播丢失/请求挂死时强制复位，不让按钮永久转圈 */
+const PROBE_WATCHDOG_MS = 60_000;
+const probeWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
+
 let listSourceSeq = 0;
 /** 已应用的清单来源序号（见 {@link listSourceSeq}）：序号更小的来源一律丢弃 */
 let appliedListSeq = 0;
@@ -227,8 +234,35 @@ export const useMcpStore = create<McpState>((set, get) => ({
       loading: false,
     });
   },
+  /**
+   * 单台探测结果（mcp:probe）：列表并发池逐台推送。
+   * 只更新该台的状态字段；作用域不符的进度不属于当前视图，直接丢弃。
+   */
+  applyProbe: (data) => {
+    const s = get();
+    if ((data.projectId ?? null) !== (s.selectedProjectId ?? null)) return;
+    set({
+      servers: s.servers.map((sv) =>
+        sv.name === data.serverName
+          ? {
+              ...sv,
+              state: data.state,
+              tools: data.tools,
+              ...(data.error ? { error: data.error } : {}),
+              ...(data.signedIn !== undefined ? { signedIn: data.signedIn } : {}),
+            }
+          : sv,
+      ),
+    });
+  },
   setTestResult: (data) =>
     set((s) => {
+      // 正常结果到达 → 撤掉该台的看门狗（不撤的话它到点会误报「测试超时」）
+      const watchdog = probeWatchdogs.get(data.serverName);
+      if (watchdog) {
+        clearTimeout(watchdog);
+        probeWatchdogs.delete(data.serverName);
+      }
       const status: McpServerStatus =
         data.status ?? (data.success ? "connected" : "error");
       const nextTesting = { ...s.testingServers };
@@ -298,6 +332,25 @@ export const useMcpStore = create<McpState>((set, get) => ({
         errors: nextErrors,
       };
     });
+    // 看门狗：kernel 探测本身有单台超时（10s），但广播/HTTP 链路若挂死，
+    // 「测试中」不能永久卡住——到点强制复位并提示（正常结果到达时撤狗）
+    const previous = probeWatchdogs.get(serverName);
+    if (previous) clearTimeout(previous);
+    probeWatchdogs.set(
+      serverName,
+      setTimeout(() => {
+        probeWatchdogs.delete(serverName);
+        set((s) => {
+          if (!s.testingServers[serverName]) return s;
+          const nextTesting = { ...s.testingServers };
+          delete nextTesting[serverName];
+          return {
+            testingServers: nextTesting,
+            errors: { ...s.errors, [serverName]: i18n.t("store.mcpProbeTimeout") },
+          };
+        });
+      }, PROBE_WATCHDOG_MS),
+    );
     void api.post("/api/mcp/test", { serverName, projectId }, MCP_RPC_TIMEOUT_MS);
   },
   listTools: (serverName, projectId) => {

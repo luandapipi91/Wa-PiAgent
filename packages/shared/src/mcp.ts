@@ -174,6 +174,24 @@ export interface McpChangedEvent {
   /** pi 的顶层提示（项目未受信任时配置被忽略的唯一信号） */
   note?: string;
 }
+/**
+ * 单台探测结果（kernel 的并发池探测器逐台推送，规格：单台独立、互不拖累）。
+ * GUI 的列表状态不再依赖全量 `pi mcp list`：一台卡住只影响它自己。
+ */
+export interface McpProbeEvent {
+  type: "mcp:probe";
+  /** 作用域（与 mcp:changed 同一语义）：前端据此丢弃不属于当前视图的进度 */
+  projectId?: string;
+  serverName: string;
+  /** 探测出的运行时状态（connected / needs-auth / failed / disabled） */
+  state: string;
+  /** 已连接时的工具名清单 */
+  tools: string[];
+  /** 失败原因（超时 / HTTP 错误等） */
+  error?: string;
+  /** 登录态（仅可能走 OAuth 的台下发，语义与列表条目同） */
+  signedIn?: boolean;
+}
 export interface McpTestResult {
   type: "mcp:testResult";
   serverName: string;

@@ -830,6 +830,7 @@ const zh = {
 	store: {
 		duplicateProjectCwd: "相同目录的项目已存在",
 		mcpConnectFailed: "连接失败",
+		mcpProbeTimeout: "测试超时，请稍后重试",
 		recordingFile: "录音 {{duration}}.webm",
 		recordingBusy: "已有录音进行中",
 		recordingNoAudioTrack: "未获取到音频轨道",

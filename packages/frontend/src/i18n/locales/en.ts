@@ -858,6 +858,7 @@ const en = {
 	store: {
 		duplicateProjectCwd: "A project with this directory already exists",
 		mcpConnectFailed: "Connection failed",
+		mcpProbeTimeout: "Test timed out. Please try again.",
 		recordingFile: "Recording {{duration}}.webm",
 		recordingBusy: "A recording is already in progress",
 		recordingNoAudioTrack: "No audio track captured",
