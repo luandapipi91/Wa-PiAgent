@@ -118,6 +118,21 @@ async function syncSeed(seedDir, runtimeDir, log) {
 	log.info(`[deps] seed → ${runtimeDir}`);
 }
 
+// 版本声明与实装的匹配判定（纯函数，便于穷举测试）：
+// "~X.Y.Z" → major.minor 相等即满足（minor 内浮动允许，~1.5.0 装出 1.5.1 算过）；
+// 精确 "X.Y.Z" → 三段全等。任一侧解析失败一律 false（装出无法识别的版本号 = 不信任）。
+function matchDeclaredRange(declared, installed) {
+	const parse = (v) => {
+		const m = /^[~^]?v?(\d+)\.(\d+)\.(\d+)/.exec(String(v ?? ""));
+		return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+	};
+	const d = parse(declared);
+	const i = parse(installed);
+	if (!d || !i) return false;
+	if (String(declared).startsWith("~")) return d[0] === i[0] && d[1] === i[1];
+	return d[0] === i[0] && d[1] === i[1] && d[2] === i[2];
+}
+
 // 安装后产物校验：顶层依赖的 package.json 必须存在（校验失败说明安装未真正完成，
 // 可能是网络中断导致的半装）。仅看 bun install 退出码会漏掉这类情况。
 // 注意：不校验 keyring 的 .node 产物——@napi-rs/keyring 经 optionalDependencies
@@ -134,7 +149,23 @@ async function verifyInstall(runtimeDir, log) {
 	const missing = [];
 	for (const name of Object.keys(manifest.dependencies || {})) {
 		const pkgJson = path.join(runtimeDir, "node_modules", name, "package.json");
-		if (!(await exists(pkgJson))) missing.push(`${name}（包未安装）`);
+		if (!(await exists(pkgJson))) {
+			missing.push(`${name}（包未安装）`);
+			continue;
+		}
+		// 版本一致性：装出的版本必须满足清单声明（~ 按 major.minor、精确按全等）。
+		// 防 npm 源元数据陈旧/缓存污染把旧版装进来还通过校验 → 新内核 × 旧依赖静默混跑
+		// （升级不成功不允许启动：校验失败走同一 missing 抛错路径，installWithRetry 换源重试）。
+		let installedVersion;
+		try {
+			installedVersion = JSON.parse(await fsp.readFile(pkgJson, "utf8")).version;
+		} catch {
+			installedVersion = undefined;
+		}
+		if (!matchDeclaredRange(manifest.dependencies[name], installedVersion))
+			missing.push(
+				`${name}（版本 ${installedVersion ?? "未知"} 不满足声明 ${manifest.dependencies[name]}）`,
+			);
 	}
 	if (missing.length) {
 		throw new Error(`安装产物校验失败: ${missing.join("；")}`);
@@ -476,6 +507,7 @@ module.exports = {
 	computeDepsFingerprint,
 	parseInstallMarker,
 	shouldSkipInstall,
+	matchDeclaredRange,
 	DEFAULT_REGISTRY,
 	FALLBACK_REGISTRY,
 };
