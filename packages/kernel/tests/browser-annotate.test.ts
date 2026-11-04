@@ -408,3 +408,137 @@ describe("occlusionProbeScript 点击前遮挡校验脚本", () => {
     expect(noRole).toContain("const ROLE = null");
   });
 });
+
+describe("captureStableSnapshot AX 线 describeNode 收敛（Frame/Finalize 拆分）", () => {
+  /** 计数 fake：AX 节点帧序列 + probe 返回 pointers，记录全部 cdp 调用与 probe evaluate 次数 */
+  function axCountingView(
+    frames: AXNode[][],
+    pointers: { text: string }[],
+    opts: { nodeIds?: number[]; backendIds?: number[] } = {},
+  ): WebViewLike & {
+    calls: { method: string }[];
+    probeEvals: number;
+  } {
+    let i = 0;
+    const calls: { method: string }[] = [];
+    const view = {
+      calls,
+      probeEvals: 0,
+      url: "about:blank",
+      title: "",
+      loading: false,
+      async navigate() {},
+      async evaluate(script: string) {
+        if (script.includes("data-wa-ptr")) {
+          view.probeEvals++;
+          return pointers;
+        }
+        throw new Error("不应走平铺线");
+      },
+      async cdp(method: string, params?: Record<string, unknown>) {
+        calls.push({ method });
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "u-1" } } };
+        if (method === "Accessibility.getFullAXTree") {
+          return { nodes: frames[Math.min(i++, frames.length - 1)] };
+        }
+        if (method === "DOM.getDocument") return { root: { nodeId: 5 } };
+        if (method === "DOM.querySelectorAll") return { nodeIds: opts.nodeIds ?? [] };
+        if (method === "DOM.describeNode") {
+          const requested = Number(params?.nodeId ?? -1);
+          const pos = (opts.nodeIds ?? []).indexOf(requested);
+          return {
+            node: { backendNodeId: pos >= 0 ? (opts.backendIds?.[pos] ?? requested) : requested },
+          };
+        }
+        return {};
+      },
+      async click() {},
+      async type() {},
+      async press() {},
+      async scroll() {},
+      async scrollTo() {},
+      async screenshot() {
+        return Buffer.from([0]);
+      },
+      close() {},
+    };
+    return view as unknown as WebViewLike & { calls: { method: string }[]; probeEvals: number };
+  }
+
+  /** 三帧一致的 AX 树（含一个可点 button） */
+  const STABLE: AXNode[] = [
+    { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2", "3"] },
+    { nodeId: "2", role: { type: "role", value: "button" }, name: { type: "computedString", value: "甲" }, backendDOMNodeId: 11 },
+    { nodeId: "3", role: { type: "role", value: "button" }, name: { type: "computedString", value: "乙" }, backendDOMNodeId: 12 },
+  ];
+
+  test("T1: 三帧一致 + probe 命中 3 元素 → describeNode 恰 3 次（出口 1×3），getDocument/querySelectorAll 各恰 1 次", async () => {
+    const view = axCountingView([STABLE, STABLE, STABLE], [{ text: "卡1" }, { text: "卡2" }, { text: "卡3" }], {
+      nodeIds: [100, 101, 102],
+      backendIds: [201, 202, 203],
+    });
+    const r = await captureStableSnapshot(view, { intervalMs: 1, maxFrames: 4 });
+    expect(r.text).toContain("(pointer)");
+    const count = (m: string) => view.calls.filter((c) => c.method === m).length;
+    expect(count("DOM.describeNode")).toBe(3);
+    expect(count("DOM.getDocument")).toBe(1);
+    expect(count("DOM.querySelectorAll")).toBe(1);
+  });
+
+  test("T3: probe 命中 0 跑多帧 → CDP 解析链零调用，probe evaluate 每帧照跑，文本为纯 AX 主体", async () => {
+    const view = axCountingView([STABLE, STABLE, STABLE], []);
+    const r = await captureStableSnapshot(view, { intervalMs: 1, maxFrames: 3 });
+    const count = (m: string) => view.calls.filter((c) => c.method === m).length;
+    expect(count("DOM.describeNode")).toBe(0);
+    expect(count("DOM.getDocument")).toBe(0);
+    expect(count("DOM.querySelectorAll")).toBe(0);
+    expect(view.probeEvals).toBe(2); // 第 2 帧即稳定早退（双帧一致），共跑 2 帧
+    expect(r.text).toBe('- button "甲" [ref=11]\n- button "乙" [ref=12]');
+    expect(r.text).not.toContain("(pointer)");
+  });
+
+  test("T4: 帧持续变化跑满 maxFrames → 返回末帧完整文本（含 [ref] (pointer)），describeNode 仅末帧一次", async () => {
+    const mk = (n: string, id: number): AXNode[] => [
+      { nodeId: "1", role: { type: "role", value: "RootWebArea" }, childIds: ["2"] },
+      { nodeId: "2", role: { type: "role", value: "button" }, name: { type: "computedString", value: n }, backendDOMNodeId: id },
+    ];
+    const view = axCountingView(
+      [mk("a", 11), mk("b", 12), mk("c", 13), mk("d", 14)],
+      [{ text: "自绘件" }],
+      { nodeIds: [100], backendIds: [999] },
+    );
+    const r = await captureStableSnapshot(view, { intervalMs: 1, maxFrames: 4 });
+    expect(r.text).toContain('- button "d" [ref=14]');
+    expect(r.text).toContain('- generic "自绘件" [ref=999] (pointer)');
+    expect(r.selectorMap?.[999]).toStrictEqual({ role: "generic", name: "自绘件" });
+    expect(view.calls.filter((c) => c.method === "DOM.describeNode").length).toBe(1);
+  });
+
+  test("T5: describeNode 链抛错 → 出口返回纯 AX 主体文本，不抛错", async () => {
+    const view = axCountingView([STABLE, STABLE], [{ text: "卡1" }], { nodeIds: [100] });
+    // 劫持 describeNode 抛错
+    const v = view as unknown as {
+      cdp: (m: string, p?: Record<string, unknown>) => Promise<unknown>;
+    };
+    const orig = v.cdp.bind(v);
+    v.cdp = async (m, p) => {
+      if (m === "DOM.describeNode") throw new Error("describe boom");
+      return orig(m, p);
+    };
+    const r = await captureStableSnapshot(view, { intervalMs: 1, maxFrames: 4 });
+    expect(r.text).toBe('- button "甲" [ref=11]\n- button "乙" [ref=12]');
+    expect(r.text).not.toContain("(pointer)");
+  });
+
+  test("T8: settled 返回的 selectorMap 含 pointer 强制 ref 增补（refCount 口径不变）", async () => {
+    // probe backendId=12 命中 AX 树 button「乙」→ 强制 ref 并标 (pointer)，selectorMap 增补
+    const view = axCountingView([STABLE, STABLE], [{ text: "乙" }], {
+      nodeIds: [100],
+      backendIds: [12],
+    });
+    const r = await captureStableSnapshot(view, { intervalMs: 1, maxFrames: 4 });
+    expect(r.text).toContain('- button "乙" [ref=12] (pointer)');
+    expect(r.selectorMap?.[11]).toStrictEqual({ role: "button", name: "甲" });
+    expect(r.selectorMap?.[12]).toStrictEqual({ role: "button", name: "乙" });
+  });
+});

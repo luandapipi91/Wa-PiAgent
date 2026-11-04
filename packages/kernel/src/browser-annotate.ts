@@ -11,7 +11,13 @@
 //
 // 已知限制（声明行为，非缺陷）：只枚举主文档可见元素，不穿透 iframe 与
 // shadow DOM；上限 MAX_ANNOTATED_ELEMENTS 个，超出部分不标注。
-import { captureAxSnapshot, type AxRefEntry } from "./dom/ax-snapshot";
+import {
+  captureAxSnapshotFrame,
+  finalizeAxSnapshot,
+  type AxRefEntry,
+  type AxSnapshotFrame,
+  type AxSnapshotView,
+} from "./dom/ax-snapshot";
 
 /** 可交互元素标注上限（超出部分不标注，防止超长页面生成爆炸性 refs）。改动需同步下方脚本内的枚举上限（已用插值单源化） */
 export const MAX_ANNOTATED_ELEMENTS = 200;
@@ -162,9 +168,10 @@ export interface StableSnapshotOptions {
  */
 /**
  * 带渲染稳定检测的快照抓取（双帧一致即稳定，超帧数预算取末帧降级）。
- * 双线：view.cdp 可用 → AX 树形线（captureAxSnapshot，带 selectorMap）；无 cdp 或
+ * 双线：view.cdp 可用 → AX 树形线（captureAxSnapshotFrame，带 selectorMap）；无 cdp 或
  * AX 中途抛错（页面跳转中/域不可用）→ 降级 SNAPSHOT_SCRIPT 平铺线（行为与旧版
- * 一致）。空帧语义：AX 线仅根节点（text 为空）与平铺线空 refs 均视为空，
+ * 一致）。AX 线中间帧仅轻量文本参与稳定比较，describeNode 解析收敛到出口一次
+ * （settled/末帧出口 finalize）。空帧语义：AX 线仅根节点（text 为空）与平铺线空 refs 均视为空，
  * requireNonEmpty 时不判稳定。kernel 侧循环而非页面内 await：复用 runViewOp 的
  * 单槽重试语义，且帧序列可被 fake view 精确控制便于测试。
  */
@@ -188,16 +195,22 @@ export async function captureStableSnapshot(
   let last: StableSnapshotResult | undefined;
   let framesValid = 0;
   let lastError: string | undefined;
+  let lastAxFrame: AxSnapshotFrame | undefined;
   for (let frame = 0; frame < maxFrames; frame++) {
     if (frame > 0) await Bun.sleep(intervalMs);
     let snap: { text: string; selectorMap?: Record<number, AxRefEntry> } | undefined;
     let frameValid = false;
+    let axFrame = false; // 本帧是否来自 AX 线（settled 出口决定是否 finalize）
     if (!flatMode) {
       try {
-        snap = await captureAxSnapshot(view as { evaluate(script: string): Promise<unknown>; cdp(method: string, params?: Record<string, unknown>): Promise<unknown> });
+        const ax = await captureAxSnapshotFrame(view as AxSnapshotView);
+        lastAxFrame = ax;
+        snap = { text: ax.text, selectorMap: ax.selectorMap };
         frameValid = true;
+        axFrame = true;
       } catch (err) {
         flatMode = true; // AX 线异常（页面跳转中/域不可用）→ 本帧起降级平铺线
+        lastAxFrame = undefined;
         lastError = err instanceof Error ? err.message : String(err);
       }
     }
@@ -222,10 +235,24 @@ export async function captureStableSnapshot(
       text === prevText &&
       !(opts.requireNonEmpty && text.length === 0);
     if (settled) {
+      // AX 线 settled：对当前帧 finalize 一次（完整 text + selectorMap）；finalize 失败退回轻量帧
+      if (axFrame && lastAxFrame) {
+        const fin = await finalizeAxSnapshot(lastAxFrame, view as AxSnapshotView).catch(() => null);
+        if (fin) {
+          return { text: fin.text, framesValid, selectorMap: fin.selectorMap, lastError };
+        }
+      }
       return { text, framesValid, selectorMap: snap?.selectorMap, lastError };
     }
     prevText = text;
     if (snap) last = { text: snap.text, framesValid, selectorMap: snap.selectorMap, lastError };
+  }
+  // 超预算末帧出口：未降级且末帧为 AX 帧 → finalize 一次；失败退回 last（轻量末帧）
+  if (!flatMode && lastAxFrame) {
+    const fin = await finalizeAxSnapshot(lastAxFrame, view as AxSnapshotView).catch(() => null);
+    if (fin) {
+      return { text: fin.text, framesValid, selectorMap: fin.selectorMap, lastError };
+    }
   }
   return last ?? { text: "", framesValid: 0, lastError };
 }

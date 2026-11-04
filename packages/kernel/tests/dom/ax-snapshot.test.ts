@@ -8,6 +8,8 @@ import {
   assignAxRefs,
   buildAxTree,
   captureAxSnapshot,
+  captureAxSnapshotFrame,
+  finalizeAxSnapshot,
   classifyAxRole,
   extractAxString,
   locateRefTarget,
@@ -445,6 +447,39 @@ describe("captureAxSnapshot AX 拉取与快照产物", () => {
       },
     };
   }
+
+  test("T2: Frame 轻量文本：附加行含 (pointer) 不含 [ref=]，AX 主体无 (pointer) 标注", async () => {
+    const view = fakeAxView(loginPageFixture(), {
+      pointers: [{ text: "自绘卡片" }],
+      nodeIds: [100],
+      backendIds: [555],
+    });
+    const frame = await captureAxSnapshotFrame(view);
+    expect(frame.text).toContain('- generic "自绘卡片" (pointer)');
+    // 附加行不含 [ref=]（解析前未知 backendId），AX 主体行不受影响
+    const extraLine = frame.text.split("\n").find((l) => l.includes("自绘卡片"));
+    expect(extraLine).toBe('- generic "自绘卡片" (pointer)');
+    // AX 主体行保持原样（无 (pointer) 强制标注，merge 未发生）
+    expect(frame.text).toContain('- button "登 录" [ref=15]');
+    expect(frame.text.split("\n").filter((l) => l.includes("(pointer)")).length).toBe(1);
+    expect(frame.nodeCount).toBe(6);
+    // Frame 阶段未跑 CDP 解析链
+    expect(view.calls.some((c) => c.method === "DOM.describeNode")).toBe(false);
+  });
+
+  test("T6: Frame→Finalize 组装：probe 命中 AX 节点 → 主体行标 (pointer) 强制 ref，无重复附加行", async () => {
+    // probe backendId=15 命中「登 录」button（对齐既有 fakeAxView 用例口径）
+    const view = fakeAxView(loginPageFixture(), {
+      pointers: [{ text: "登 录" }],
+      nodeIds: [100],
+      backendIds: [15],
+    });
+    const frame = await captureAxSnapshotFrame(view);
+    const snap = await finalizeAxSnapshot(frame, view);
+    expect(snap.text).toContain('- button "登 录" [ref=15] (pointer)');
+    expect(snap.text.split("\n").filter((l) => l.includes("登 录")).length).toBe(1);
+    expect(snap.selectorMap[15]).toStrictEqual({ role: "button", name: "登 录" });
+  });
 
   test("getFullAXTree 传入 Page.getFrameTree 的 UUID frameId（数字 frameId 会 Invalid parameters）", async () => {
     const view = fakeAxView(loginPageFixture());
