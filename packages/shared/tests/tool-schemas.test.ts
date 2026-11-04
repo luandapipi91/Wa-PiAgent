@@ -361,3 +361,59 @@ test("selector 参数降级为兑底定位方式（优先快照 ref）", async (
   expect(evalProps.selector?.description).toContain("兑底");
   expect(evalProps.selector?.description).toContain("ref");
 });
+
+// =========================================================================
+// 三项修复（TDD 先红后绿）
+// =========================================================================
+
+test("BROWSER_EVALUATE_DESCRIPTION 描述数组无空洞/空串元素（join 后不出现连续换行）", async () => {
+  const { BROWSER_EVALUATE_DESCRIPTION } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  // 修复前数组里有一个多余的 ",,"，join("\n") 后产生 "\n\n"（空洞行）
+  expect(BROWSER_EVALUATE_DESCRIPTION).not.toContain("\n\n");
+  expect(BROWSER_EVALUATE_DESCRIPTION).not.toContain("\n\n\n");
+});
+
+test("browser_navigate fresh 参数描述与实现语义一致（导航完成后在目标页上下文清除）", async () => {
+  const { BrowserNavigateParamsSchema } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  const navProps = BrowserNavigateParamsSchema.properties as Record<
+    string,
+    { description?: string }
+  >;
+  const desc = navProps.fresh?.description ?? "";
+  // 实现：先导航到目标页 → 在目标页上下文清 localStorage/sessionStorage/cookie → reload
+  expect(desc).toContain("导航完成后");
+  expect(desc).not.toContain("导航前");
+});
+
+test("browser_evaluate ref 参数校验层接受 \"@5\"/\"5\" 字符串、拒绝 \"abc\" 与 0（容错可达）", async () => {
+  const { BrowserEvaluateParamsSchema } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  const { Value } = await import("typebox/value");
+  const { Compile } = await import("typebox/compile");
+  // 复刻 pi-ai validateToolArguments 的真实校验路径：Value.Convert + Compile.Check
+  const validator = Compile(
+    BrowserEvaluateParamsSchema as unknown as Parameters<typeof Compile>[0],
+  );
+  const check = (ref: unknown) => {
+    const args: Record<string, unknown> = { action: "click", ref };
+    Value.Convert(BrowserEvaluateParamsSchema, args);
+    return validator.Check(args);
+  };
+  expect(check("@5")).toBe(true);
+  expect(check("5")).toBe(true);
+  expect(check(5)).toBe(true);
+  expect(check("abc")).toBe(false);
+  expect(check(0)).toBe(false);
+  expect(check("0")).toBe(false);
+  // 描述补一句字符串容错说明，模型才知道可以传 "@N"
+  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
+    string,
+    { description?: string }
+  >;
+  expect(evalProps.ref?.description).toContain('"@N"');
+});
