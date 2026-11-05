@@ -1,3 +1,6 @@
+## 2026-11-05
+- refactor(kernel): 浏览器工具返回体 ref 提示语改为正向定位优先级——原「操作元素优先用上方快照中的 [ref=N]，不要猜 CSS selector」改为「元素定位优先级 ref > text > selector > x/y（ref = 上方快照中的 [ref=N]）」，由纯禁止话术改为给出定位方式的使用顺序（与 browser_evaluate click 描述同口径）；TDD 先红后绿（4 用例断言新前缀 + 反向断言旧文案不再出现），kernel browser-tools 121 测试绿 + tsc 0 错误
+
 ## 2026-11-04
 - feat(kernel): 记忆策略提示词补「过时/失效记忆顺手修正或删除」主动维护引导——DEFAULT 完整版「维护已有记忆」加一条：检索或使用记忆时发现条目已过时、失效（信息不再成立、与现状矛盾）→ 顺手 memory_replace 修正或 memory_remove 删除，不必等用户提醒；COMPACT 精简版「变更已有条目」句尾同步同义短句。冲突检查：memory_replace/memory_remove 工具描述（update outdated entries / no longer relevant）完全同向，与「写入前先查重」「按 id 精确变更」作用维度不同不冲突；发现边界风险后收紧——补限定「execution 执行流水是历史日志，旧了也不删」（防带日期流水被当过时条目误删）。TDD：两版本参数化断言（顺手修正或删除/过时失效字样/memory_replace+memory_remove 相邻/执行流水是历史日志）先红后绿，system-prompt 全家 81 用例 + agent-manager 138 用例绿 + tsc 零错误
 - chore(release): v0.9.2 发版——MCP 连接测试卡死修复（单台探测逐台亮灯）+ npx 型服务器误报修复 + mac 更新可靠性加固；mac zip 205945043 / win exe 186030250（双端，linux 交叉打包缺平台分包不发，与历届一致）

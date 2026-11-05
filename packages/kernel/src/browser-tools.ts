@@ -35,7 +35,7 @@ const EVAL_RESULT_MAX_CHARS = 8_000;
  * 防「凭训练记忆猜 selector」回潮。一句为限，避免 token 膨胀。
  */
 const REF_HINT =
-  "提示：操作元素优先用上方快照中的 [ref=N]（click/type/press 的 ref 参数），不要猜 CSS selector";
+  "提示：元素定位优先级 ref > text > selector > x/y（ref = 上方快照中的 [ref=N]）";
 
 /**
  * 返回体 ref 提示注入（所有带 ref/快照的返回路径共用）：已有快照文本 → 拼在首行

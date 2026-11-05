@@ -1100,7 +1100,7 @@ describe("Layer 3 真实引擎 ref 工作流（百度场景，2026-11-03）", ()
       });
       const navP = JSON.parse(nav.content[0].text) as { ok: boolean; snapshot?: string };
       expect(navP.ok).toBe(true);
-      expect(navP.snapshot?.startsWith("提示：操作元素优先用上方快照中的 [ref=")).toBe(true);
+      expect(navP.snapshot?.startsWith("提示：元素定位优先级 ref > text > selector > x/y")).toBe(true);
 
       // 2) snapshot 拿输入框 ref（模拟模型标准工作流，不猜 selector）
       const snap = await handleBrowserTool(manager, sid, "browser_snapshot", {});
@@ -1109,7 +1109,7 @@ describe("Layer 3 真实引擎 ref 工作流（百度场景，2026-11-03）", ()
         snapshot: string;
       };
       expect(snapP.ok).toBe(true);
-      expect(snapP.snapshot.startsWith("提示：操作元素优先用上方快照中的 [ref=")).toBe(true);
+      expect(snapP.snapshot.startsWith("提示：元素定位优先级 ref > text > selector > x/y")).toBe(true);
       const lines = snapP.snapshot.split("\n");
       const refOf = (line: string | undefined) => line?.match(/\[ref=(\d+)\]/)?.[1];
       const inputLine = lines.find((l) => /- (textbox|searchbox|combobox)/.test(l));

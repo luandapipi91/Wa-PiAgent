@@ -1380,7 +1380,7 @@ describe("browser_wait 命中后自动附快照（2026-11-03）", () => {
     return m;
   }
 
-  const HINT = "提示：操作元素优先用上方快照中的 [ref=";
+  const HINT = "提示：元素定位优先级 ref > text > selector > x/y";
 
   test("wait text 命中 → 返回体附 snapshot（提示首行+树形行）与 refCount", async () => {
     const m = makeWaitSnapManager({ textHit: true });
@@ -1393,6 +1393,8 @@ describe("browser_wait 命中后自动附快照（2026-11-03）", () => {
       expect(parsed.ok).toBe(true);
       expect(parsed.matched).toBe(true);
       expect(parsed.snapshot?.startsWith(HINT)).toBe(true);
+      expect(parsed.snapshot).toContain("[ref=N]");
+      expect(parsed.snapshot).not.toContain("不要猜 CSS selector");
       expect(parsed.snapshot).toContain('- button "go" [ref=5]');
       expect(parsed.refCount).toBe(2); // button + 有名 heading
     } finally {
@@ -2092,7 +2094,7 @@ describe("返回体 ref 提示（navigate/snapshot/screenshot/操作后快照）
     return (JSON.parse(r.content[0].text) as { hint?: string }).hint;
   }
 
-  const HINT_PREFIX = "提示：操作元素优先用上方快照中的 [ref=";
+  const HINT_PREFIX = "提示：元素定位优先级 ref > text > selector > x/y";
 
   test("browser_navigate 返回体：快照文本首行拼 ref 提示；snapshot:false 时降级 hint 字段", async () => {
     const m = makeHintManager();
@@ -2101,7 +2103,8 @@ describe("返回体 ref 提示（navigate/snapshot/screenshot/操作后快照）
       const parsed = JSON.parse(r.content[0].text) as { snapshot: string; hint?: string };
       // 默认自动附快照：提示拼在快照文本首行（模型读快照第一眼即见）
       expect(parsed.snapshot.startsWith(HINT_PREFIX)).toBe(true);
-      expect(parsed.snapshot).toContain("CSS selector");
+      expect(parsed.snapshot).toContain("ref > text > selector > x/y");
+      expect(parsed.snapshot).not.toContain("不要猜 CSS selector");
       expect(parsed.snapshot.split("\n").length).toBeGreaterThan(1); // 首行提示后仍有快照内容
       // 跳过自动快照：无快照文本 → 独立 hint 字段（等价形式）
       const r2 = await handleBrowserTool(m, "s1", "browser_navigate", { url: "http://example.com", snapshot: false });
