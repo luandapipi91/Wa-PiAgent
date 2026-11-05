@@ -141,7 +141,10 @@ const NestedToolCallCard = memo(function NestedToolCallCard({
 		<div
 			data-testid={`toolcall-nested-item-${view.toolCallId}`}
 			data-status={status}
-			className="rounded border border-hairline bg-surface px-2 py-1 min-w-0"
+			// 断行兜底：子卡挂在 ProcessCard body 之外，继承不到 body 的
+			// overflow-wrap:anywhere。结果里的长无断点串（紧凑 JSON/base64/
+			// 长 URL）不兜底会横铺出卡片（用户报告：codemode 结果超出边框）。
+			className="rounded border border-hairline bg-surface px-2 py-1 min-w-0 [overflow-wrap:anywhere]"
 		>
 			{(() => {
 				const hasResult = view.result?.content?.some((c) => c?.type === "text" && c.text != null);

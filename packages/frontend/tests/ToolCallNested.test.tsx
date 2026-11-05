@@ -239,6 +239,38 @@ describe("ToolCallNested", () => {
 		expect(screen.getByTestId("toolcall-nested-result-toggle-call_00_abc/1")).toBeTruthy();
 	});
 
+	test("子卡根节点带断行兜底：结果里的大 JSON 不撑破卡片", () => {
+		// 子卡挂在外层卡之后（ProcessCard body 之外），不继承 body 的
+		// overflow-wrap:anywhere——长无断点内容（紧凑 JSON/base64/长 URL）
+		// 会在子卡内横铺出屏（用户报告：codemode 调用结果超出边框）。
+		// 兜底挂在子卡根节点上，结果文本（pre 与 JSON 字段 span）统一继承。
+		render(
+			<ToolCallNested
+				group={{
+					parent: {
+						...outer,
+						result: { content: [{ type: "text", text: "Script completed" }] },
+					},
+					children: [
+						{
+							...inner,
+							status: "ok",
+							result: {
+								content: [
+									{ type: "text", text: JSON.stringify({ samples: "x".repeat(600) }) },
+								],
+							},
+						},
+					],
+				}}
+			/>,
+		);
+		fireEvent.click(screen.getByTestId("toolcall-nested-result-toggle-call_00_abc/1"));
+		const item = screen.getByTestId("toolcall-nested-item-call_00_abc/1");
+		expect(item.textContent).toContain("samples"); // 前置：结果已展开渲染
+		expect(item.className).toContain("[overflow-wrap:anywhere]");
+	});
+
 	test("子卡无结果（running）时不渲染结果展开入口", () => {
 		render(
 			<ToolCallNested

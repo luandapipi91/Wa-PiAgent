@@ -177,6 +177,19 @@ function mkResult(toolCallId: string, text: string): ToolResultMessage {
 	};
 }
 
+// —— 布局兜底 ——
+// 嵌套子卡（codemode → MCP）渲染在 ProcessCard body 之外，不继承 body 上的
+// overflow-wrap:anywhere。JSON 字段值是无自带兜底的 inline span，长无断点串
+// （base64/紧凑 JSON/长 URL）会把卡片横向撑出屏幕（用户实测：codemode 子卡结果溢出）。
+// 兜底必须由 ToolResultText 自己携带，不依赖调用方容器。
+test("JSON 分支根容器带断行兜底：长无断点字段值不撑破卡片", () => {
+	const { container } = render(
+		<ToolResultText text={JSON.stringify({ samples: "x".repeat(600) })} />,
+	);
+	const root = container.firstElementChild as HTMLElement;
+	expect(root.className).toContain("[overflow-wrap:anywhere]");
+});
+
 /** browser_navigate 返回体：单行 JSON、snapshot 含字面量 \n（旧渲染为一坨无法阅读的平铺文本） */
 test("ToolCallCard browser 工具：JSON 返回体经 ToolResultText 结构化渲染，缩进可见", () => {
 	render(

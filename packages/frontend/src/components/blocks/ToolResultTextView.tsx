@@ -114,7 +114,10 @@ export const ToolResultText = memo(function ToolResultText({ text }: { text: str
 		);
 	}
 	return (
-		<div>
+		// 断行兜底自带：JSON 字段值是裸 inline span，不继承调用方的 overflow-wrap。
+		// 嵌套子卡渲染在 ProcessCard body 之外（无 body 上的 anywhere 兜底），
+		// 长无断点串（base64/紧凑 JSON/长 URL）会把卡片横向撑出屏幕。
+		<div className="[overflow-wrap:anywhere]">
 			{Object.entries(parsed.data).map(([k, v]) => (
 				<div key={k} className="min-w-0">
 					<span className="font-mono text-tertiary">{k}:</span>{" "}

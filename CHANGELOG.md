@@ -1,4 +1,5 @@
 ## 2026-11-05
+- fix(frontend): codemode 嵌套子卡长结果横向溢出修复（用户报告「codemode 调用显示超出边框」）——根因：嵌套子卡（codemode → tools.xxx）挂在 ToolCallNested 根节点、位于外层 ProcessCard body 之外，继承不到 body 上的 overflow-wrap:anywhere 兜底；ToolResultText 的 JSON 分支又把字段值（字符串/对象/数组）渲染为无自带兜底的 inline span，长无断点串（紧凑 JSON/base64/长 URL）不换行、横铺出卡片右边界。修复：子卡根节点与 ToolResultText JSON 分支根各加 `[overflow-wrap:anywhere]`（前者与 ProcessCard body 同策略覆盖子卡全部内容，后者让组件自包含、不依赖调用方容器）。TDD 先红后绿：2 组件用例类契约断言（红：空 className）+ 新增 E2E `toolcall-nested-overflow.spec.ts`（真模型 codemode → tools.bash cat 单行 JSON fixture；红：子卡 scrollWidth 3410 > clientWidth 862，绿：无横向溢出、根 overflow-wrap=anywhere）；frontend 全量 3314 pass（3 fail 为既有基线，stash 复跑确认无关）+ tsc 0 错误
 - refactor(kernel): 浏览器工具返回体 ref 提示语改为正向定位优先级——原「操作元素优先用上方快照中的 [ref=N]，不要猜 CSS selector」改为「元素定位优先级 ref > text > selector > x/y（ref = 上方快照中的 [ref=N]）」，由纯禁止话术改为给出定位方式的使用顺序（与 browser_evaluate click 描述同口径）；TDD 先红后绿（4 用例断言新前缀 + 反向断言旧文案不再出现），kernel browser-tools 121 测试绿 + tsc 0 错误
 
 ## 2026-11-04
