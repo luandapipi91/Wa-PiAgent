@@ -26,7 +26,7 @@ beforeAll(async () => {
   );
 });
 
-test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/--asset/--outfile", () => {
+test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--smol/--external/--asset/--outfile", () => {
   const args = buildCompileArgs("/tmp/out/WaPiKernel.exe", "/tmp/assets");
   expect(args[0]).toBe("build");
   expect(
@@ -35,6 +35,8 @@ test("buildCompileArgs: 入口是 desktop-server.ts，含 --compile/--external/-
       .endsWith("packages/kernel/src/desktop-server.ts"),
   ).toBe(true);
   expect(args).toContain("--compile");
+  // 性能体检（2026-11-06）：空载稳态 RSS 727MB→349MB（JSC 惰性 GC 堆水位），--smol 压住峰值
+  expect(args).toContain("--smol");
   expect(args).toContain("--asset");
   expect(args).toContain("/tmp/assets");
   expect(args).toContain("--outfile");

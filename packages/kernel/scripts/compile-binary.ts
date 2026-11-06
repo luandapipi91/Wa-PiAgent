@@ -80,6 +80,9 @@ export function buildCompileArgs(
 		"build",
 		join(KERNEL_SRC, "desktop-server.ts"),
 		"--compile",
+		// 性能体检（2026-11-06）：JSC 惰性 GC 使空闲堆水位停在高点（实测空载稳态 727MB→349MB），
+		// --smol 让编译产物内置激进 GC 策略压住峰值；启动耗时无回退（实测 1.4-2.7s 与常规持平）。
+		"--smol",
 		...EXTERNAL_PACKAGES.flatMap((p) => ["--external", p]),
 		"--asset",
 		assetDir,
@@ -154,7 +157,10 @@ export function resolveCompilerBun(candidates?: string[]): string | null {
 export async function compileKernelBinary(
 	outfile: string,
 	target?: "win" | "linux" | "darwin",
-	bunPath: string = process.execPath,
+	// 默认编译器走 resolveCompilerBun（跳过桌面端 bun shim / 打包内核自身）：
+	// 宿主启动的 bash 里 PATH 首位是 shim、execPath 是打包内核，拿去 --compile 报
+	// SectionExists（2026-11-07 实测）；resolveCompilerBun 失败才回退 execPath（原行为）。
+	bunPath: string = resolveCompilerBun() ?? process.execPath,
 ): Promise<void> {
 	// 先把扩展源码与依赖打成预构建资产（web-access-deploy.ts packaged 分支读它）；
 	// 必须在 stageAssetDir 之前完成，否则 cpSync 找不到 assets/web-access.bundle.js。
