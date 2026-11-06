@@ -10,18 +10,21 @@
 //   ← result（HTTP 200；响应体可能是纯 JSON 或 SSE `data:` 行）
 //   → {"jsonrpc":"2.0","method":"notifications/initialized"}               （通知，无 id）
 //   → {"jsonrpc":"2.0","id":2,"method":"tools/list"}                        （拿工具名）
-//   ← result.tools[].name
+//   ← result.tools[].{name,description,inputSchema}（名字进 tools，三者进 toolSummaries）
 // stdio 传输为换行分隔 JSON（与 pi-mcp 的 stdio transport 一致）。
 import { join } from "node:path";
-import type { McpServerConfig } from "@wa-pi/shared";
-import { WA_PI_DIR } from "@wa-pi/shared";
+import { WA_PI_DIR, toolParamsFromSchema } from "@wa-pi/shared";
+import type { McpServerConfig, McpToolSummary } from "@wa-pi/shared";
 import { canUseOAuth, mcpNamespace, normalizeMcpAuthKey } from "./mcp-admin";
 
 export type McpProbeState = "connected" | "needs-auth" | "failed" | "disabled";
 
 export interface McpProbeResult {
   state: McpProbeState;
+  /** 工具名清单（既有消费者：工具数、mcp:probe 事件） */
   tools: string[];
+  /** 工具摘要（name / description / inputSchema 三件套）；`tools` 是它的名字投影 */
+  toolSummaries: McpToolSummary[];
   error?: string;
 }
 
@@ -50,7 +53,7 @@ interface JsonRpcResponse {
 
 /** 失败结果快捷构造 */
 function failed(error: string): McpProbeResult {
-  return { state: "failed", tools: [], error };
+  return { state: "failed", tools: [], toolSummaries: [], error };
 }
 
 /** 响应体解析：先按纯 JSON，失败再按 SSE 的 `data:` 行逐条试 */
@@ -71,10 +74,23 @@ function parseRpcPayload(text: string): JsonRpcResponse | null {
   }
 }
 
-function extractTools(payload: JsonRpcResponse | null): string[] {
-  const result = payload?.result as { tools?: { name?: unknown }[] } | undefined;
+function extractTools(payload: JsonRpcResponse | null): McpToolSummary[] {
+  const result = payload?.result as { tools?: unknown } | undefined;
   if (!Array.isArray(result?.tools)) return [];
-  return result!.tools!.map((t) => (typeof t?.name === "string" ? t.name : "")).filter(Boolean);
+  const summaries: McpToolSummary[] = [];
+  for (const raw of result.tools) {
+    const tool = raw as { name?: unknown; description?: unknown; inputSchema?: unknown };
+    if (typeof tool?.name !== "string" || !tool.name) continue;
+    const parameters = toolParamsFromSchema(tool.inputSchema);
+    summaries.push({
+      name: tool.name,
+      ...(typeof tool.description === "string" && tool.description
+        ? { description: tool.description }
+        : {}),
+      ...(parameters ? { parameters } : {}),
+    });
+  }
+  return summaries;
 }
 
 function errorMessage(err: unknown): string {
@@ -151,7 +167,7 @@ async function probeHttp(
       signal: ac.signal,
     });
     if (initRes.status === 401 || initRes.status === 403) {
-      return { state: "needs-auth", tools: [] };
+      return { state: "needs-auth", tools: [], toolSummaries: [] };
     }
     if (!initRes.ok) return failed(`HTTP ${initRes.status}`);
     const sessionId = initRes.headers.get("mcp-session-id") ?? undefined;
@@ -159,10 +175,10 @@ async function probeHttp(
     if (initPayload?.error) return failed(initPayload.error.message ?? "initialize 被拒绝");
     if (!initPayload?.result) return failed("响应不是有效的 MCP initialize 结果");
 
-    // tools/list：拿工具名。此步失败不影响「已连接」的结论（tools 记为空）
+    // tools/list：拿工具名与摘要。此步失败不影响「已连接」的结论（tools 记为空）
     const headers = buildHeaders();
     if (sessionId) headers["mcp-session-id"] = sessionId;
-    let tools: string[] = [];
+    let toolSummaries: McpToolSummary[] = [];
     if (deadline - Date.now() > 0) {
       try {
         const toolsRes = await fetch(url, {
@@ -172,13 +188,13 @@ async function probeHttp(
           signal: ac.signal,
         });
         if (toolsRes.ok) {
-          tools = extractTools(parseRpcPayload(await toolsRes.text()));
+          toolSummaries = extractTools(parseRpcPayload(await toolsRes.text()));
         }
       } catch {
         // tools/list 失败不改变 connected 结论
       }
     }
-    return { state: "connected", tools };
+    return { state: "connected", tools: toolSummaries.map((t) => t.name), toolSummaries };
   } catch (err) {
     const e = err as Error;
     if (e?.name === "AbortError" || e?.name === "TimeoutError") {
@@ -285,8 +301,9 @@ async function probeStdio(
     send({ jsonrpc: "2.0", method: "notifications/initialized" });
     send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     const toolsLine = await readLine();
-    if (toolsLine === null) return { state: "connected", tools: [] };
-    return { state: "connected", tools: extractTools(parseRpcPayload(toolsLine)) };
+    if (toolsLine === null) return { state: "connected", tools: [], toolSummaries: [] };
+    const toolSummaries = extractTools(parseRpcPayload(toolsLine));
+    return { state: "connected", tools: toolSummaries.map((t) => t.name), toolSummaries };
   } catch (err) {
     return failed(errorMessage(err));
   } finally {
@@ -317,7 +334,7 @@ export async function probeMcpServer(
   config: McpServerConfig,
   opts: McpProbeOpts = {},
 ): Promise<McpProbeResult> {
-  if (config.enabled === false) return { state: "disabled", tools: [] };
+  if (config.enabled === false) return { state: "disabled", tools: [], toolSummaries: [] };
   const timeoutMs = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
   const agentDir = opts.agentDir ?? WA_PI_DIR;
   const deadline = Date.now() + timeoutMs;

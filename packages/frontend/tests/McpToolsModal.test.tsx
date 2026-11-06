@@ -26,7 +26,7 @@ test("有工具时显示工具列表（即使 loading）", () => {
   expect(screen.getByText("query")).toBeTruthy();
 });
 
-test("参数未知时什么都不渲染：不写「无参数」「参数」（pi mcp list --json 只给名字）", () => {
+test("参数未知时什么都不渲染：不写「无参数」「参数」（拿不到 inputSchema 就不虚构）", () => {
   render(
     <McpToolsModal
       serverName="dbx"
@@ -38,7 +38,52 @@ test("参数未知时什么都不渲染：不写「无参数」「参数」（pi
   // 正向控制：工具名照常渲染（否则下面两条「不存在」可能只是因为什么都没渲染）
   expect(screen.getByText("query")).toBeTruthy();
   expect(screen.getByText("list")).toBeTruthy();
-  // pi mcp list --json 只给名字：参数未知时必须什么都不渲染，不能写「无参数」
+  // 拿不到 inputSchema 时：参数未知，必须什么都不渲染，不能写「无参数」
   expect(screen.queryByText("无参数")).toBeNull();
   expect(screen.queryByText("参数")).toBeNull();
+});
+
+test("工具摘要：渲染简介与参数（名字 / 类型 / 必填 / 参数说明）", () => {
+  render(
+    <McpToolsModal
+      serverName="hlk-mcp"
+      tools={[
+        {
+          name: "list_shops",
+          description: "获取当前商户的门店列表",
+          parameters: [
+            { name: "keyword", type: "string", description: "搜索关键词", required: true },
+            { name: "limit", type: "integer", required: false },
+          ],
+        },
+      ]}
+      loading={false}
+      onClose={() => {}}
+    />,
+  );
+  expect(screen.getByText("list_shops")).toBeTruthy();
+  expect(screen.getByText("获取当前商户的门店列表")).toBeTruthy();
+  expect(screen.getByText("参数")).toBeTruthy();
+  expect(screen.getByText("keyword")).toBeTruthy();
+  expect(screen.getByText("string")).toBeTruthy();
+  expect(screen.getByText(/搜索关键词/)).toBeTruthy();
+  // 两个参数 → 两个类型标记（必填标记只在 keyword 上：一个 *）
+  expect(screen.getAllByTestId("mcp-tool-param-type")).toHaveLength(2);
+  expect(screen.getAllByText("*")).toHaveLength(1);
+});
+
+test("参数没有 type 时不渲染空类型标记（不留孤立占位）", () => {
+  render(
+    <McpToolsModal
+      serverName="hlk-mcp"
+      tools={[{ name: "t", parameters: [{ name: "any", type: "", required: false }] }]}
+      loading={false}
+      onClose={() => {}}
+    />,
+  );
+  expect(screen.getByText("t")).toBeTruthy();
+  // 正向控制：参数名与参数块照常渲染
+  expect(screen.getByText("any")).toBeTruthy();
+  expect(screen.getByText("参数")).toBeTruthy();
+  expect(screen.queryAllByTestId("mcp-tool-param-type")).toHaveLength(0);
 });

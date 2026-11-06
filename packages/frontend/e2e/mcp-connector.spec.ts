@@ -130,12 +130,12 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
     // 「已连接 · N 工具」的 N 来自 pi 报的 tools 长度
     await expect(page.getByTestId(`mcp-state-${SERVER}`)).toContainText("2");
 
-    // REST 同源证据：清单条目的 state/tools/exposure 都是 pi 报的运行时事实
+    // REST 同源证据：GET /api/mcp 立即回配置骨架（state/tools 是后台探测经 SSE 广播的运行态，
+    // 不进这个回包——见 routes/mcp.ts 的 list 注释），故这里只断言配置层事实；
+    // 运行态（connected + 2 个工具）已由上面的卡片断言提供。
     const entry = await mcpEntry(SERVER);
     expect(entry, `GET /api/mcp 应有 ${SERVER}: ${JSON.stringify(entry)}`).toBeTruthy();
-    expect(entry.state).toBe("connected");
     expect(entry.exposure).toBe("direct");
-    expect([...entry.tools].sort()).toEqual(["echo", "ping"]);
   });
 
   test("相反控制：连不上的 server 不会被报成 connected（connected 断言非平凡）", async () => {
@@ -153,7 +153,7 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
     }
   });
 
-  test("工具弹窗列出 pi 报的工具名（echo/ping）", async ({ page }) => {
+  test("工具弹窗列出工具名 + tools/list 的简介与参数（echo/ping）", async ({ page }) => {
     test.setTimeout(120_000);
     await page.goto("/");
     await navigateToMcp(page);
@@ -162,7 +162,11 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
     await expect(modal).toBeVisible({ timeout: 20_000 });
     await expect(modal).toContainText("echo", { timeout: 20_000 });
     await expect(modal).toContainText("ping");
-    // 工具名照常渲染；pi 的 list 不给描述/参数，故不渲染参数（也不写「无参数」）
+    // 简介与参数来自 tools/list 的 description / inputSchema（探测器解析后透传）：
+    // 弹窗不再只有工具名——夹具的 echo 带简介，text 参数带说明且必填
+    await expect(modal).toContainText("原样回显 text 参数（夹具用）");
+    await expect(modal).toContainText("要回显的文本");
+    // 只写真实存在的信息：不写「无参数」（ping 的 properties 为空 → 参数块整体不渲染）
     await expect(modal).not.toContainText("无参数");
 
     await modal.getByText("✕").click();
@@ -349,6 +353,8 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
       },
     });
     await expect(item).toHaveAttribute("data-status", "ok", { timeout: 8000 });
+    // 子卡结果默认折叠（点头部行才展开渲染）：先点开再断言文本
+    await item.getByTestId(`toolcall-nested-result-toggle-${child}`).click();
     await expect(item).toContainText('pong-poc:{"echo":"hi"}');
   });
 
@@ -423,13 +429,20 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
     await api("POST", "/api/mcp", {
       config: { name: SERVER, command: "bun", args: [FIXTURE], exposure: "direct" },
     });
+    // GET /api/mcp 只回配置骨架（state/tools 由后台探测经 SSE 广播，不进回包）——
+    // 这里断言配置已落盘；运行态由下面卡片的 connected 断言提供。
     const entry = await mcpEntry(SERVER);
-    expect(entry?.state).toBe("connected");
-    expect([...(entry?.tools ?? [])].sort()).toEqual(["echo", "ping"]);
+    expect(entry).toBeTruthy();
+    expect(entry.exposure).toBe("direct");
 
     await page.goto("/");
     await navigateToMcp(page);
     await expect(page.getByTestId(`mcp-card-${SERVER}`)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId(`mcp-state-${SERVER}`)).toHaveAttribute(
+      "data-state",
+      "connected",
+      { timeout: 30_000 },
+    );
 
     await api("DELETE", `/api/mcp/${SERVER}`);
     await expect(page.getByTestId(`mcp-card-${SERVER}`)).toHaveCount(0, {

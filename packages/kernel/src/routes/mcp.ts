@@ -27,6 +27,7 @@ import type {
   McpFieldError,
   McpServerConfig,
   McpServerStatus,
+  McpToolSummary,
   WSServerEvent,
 } from "@wa-pi/shared";
 import type { McpAdmin } from "../mcp-admin";
@@ -462,18 +463,18 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
     },
 
     async listTools({ projectId, serverName }) {
-      const emit = (tools: { name: string }[] | { error: string }) => {
+      const emit = (tools: McpToolSummary[] | { error: string }) => {
         deps.broadcast({ type: "mcp:tools", serverName, ...(Array.isArray(tools) ? { tools } : tools) });
       };
       try {
         // 单台探测（与 test 同步独立化）：直接对这一台拿工具清单，与全量 list 解耦。
-        // tools 只有名字（无 description/parameters，规格 §7）：如实透传，不虚构字段。
+        // 工具摘要是 tools/list 的原始事实（name / description / inputSchema 参数），如实透传。
         const config = await configOf(serverName, projectId);
         const probe = await probeMcpServer(config, {
           agentDir: deps.piSpawn.agentDir,
           cwd: await deps.cwdForProject(projectId),
         });
-        emit(probe.tools.map((name) => ({ name })));
+        emit(probe.toolSummaries);
       } catch (err) {
         emit({ error: err instanceof Error ? err.message : String(err) });
       }

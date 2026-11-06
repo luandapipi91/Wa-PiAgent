@@ -111,11 +111,50 @@ export interface McpToolParam {
   required?: boolean;
 }
 
-/** MCP 工具摘要（来自 mcp-cache.json） */
+/** MCP 工具摘要（tools/list 响应的 name / description / inputSchema 三件套） */
 export interface McpToolSummary {
   name: string;
   description?: string;
   parameters?: McpToolParam[];
+}
+
+/**
+ * MCP 工具的 `inputSchema`（JSON Schema object）→ 参数摘要。
+ *
+ * 规则（与「不虚构字段」同源）：拿不到 `properties` 就返回 undefined，让调用方
+ * 什么都不渲染，而不是显示一个空「参数」块；单个参数没有 `type` 时 `type` 为空串，
+ * 由展示层决定是否隐藏。`required` 统一给布尔值（不在 required 列表里就是 false）。
+ */
+export function toolParamsFromSchema(inputSchema: unknown): McpToolParam[] | undefined {
+  if (!inputSchema || typeof inputSchema !== "object" || Array.isArray(inputSchema)) {
+    return undefined;
+  }
+  const properties = (inputSchema as { properties?: unknown }).properties;
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
+    return undefined;
+  }
+  const requiredRaw = (inputSchema as { required?: unknown }).required;
+  const required = new Set(
+    Array.isArray(requiredRaw) ? requiredRaw.filter((r): r is string => typeof r === "string") : [],
+  );
+  const params: McpToolParam[] = [];
+  for (const [name, raw] of Object.entries(properties as Record<string, unknown>)) {
+    const prop = raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as { type?: unknown; description?: unknown })
+      : {};
+    let type = "";
+    if (typeof prop.type === "string") type = prop.type;
+    else if (Array.isArray(prop.type)) {
+      type = prop.type.filter((v): v is string => typeof v === "string").join(" | ");
+    }
+    params.push({
+      name,
+      type,
+      ...(typeof prop.description === "string" ? { description: prop.description } : {}),
+      required: required.has(name),
+    });
+  }
+  return params.length > 0 ? params : undefined;
 }
 
 /** 服务器运行时状态 */

@@ -44,9 +44,21 @@ process.stdin.on("data", (chunk) => {
         result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "mock-stdio", version: "1.0" } },
       }) + "\\n");
     } else if (msg.method === "tools/list") {
+      // tool_a 带 description + inputSchema：验证 stdio 分支与 http 一样把摘要解析出来
       process.stdout.write(JSON.stringify({
         jsonrpc: "2.0", id: msg.id,
-        result: { tools: [{ name: "tool_a" }, { name: "tool_b" }] },
+        result: { tools: [
+          {
+            name: "tool_a",
+            description: "标准输入工具",
+            inputSchema: {
+              type: "object",
+              properties: { text: { type: "string", description: "输入文本" } },
+              required: ["text"],
+            },
+          },
+          { name: "tool_b" },
+        ] },
       }) + "\\n");
     }
     // notifications（无 id）静默忽略
@@ -114,6 +126,66 @@ describe("probeMcpServer", () => {
 				expect(res.tools).toEqual(["alpha", "beta"]);
 				expect(res.error).toBeUndefined();
 				expect(sawSessionId).not.toBeNull();
+			} finally {
+				mock.close();
+			}
+		});
+
+		test("tools/list 的 description / inputSchema 解析成工具摘要（名字 + 简介 + 参数）", async () => {
+			const mock = startMockMcpHttp(async (_pathname, req) => {
+				if (req.headers.get("mcp-session-id") === "sess-1") {
+					return new Response(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: 2,
+							result: {
+								tools: [
+									{
+										name: "list_shops",
+										description: "获取门店列表",
+										inputSchema: {
+											type: "object",
+											properties: {
+												keyword: { type: "string", description: "搜索关键词" },
+											},
+											required: ["keyword"],
+										},
+									},
+									{ name: "ping" },
+								],
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "m", version: "1" } },
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json", "mcp-session-id": "sess-1" } },
+				);
+			});
+			try {
+				const res = await probeMcpServer({
+					name: "http-summary",
+					type: "http",
+					url: `http://127.0.0.1:${mock.port}/mcp`,
+				});
+				expect(res.state).toBe("connected");
+				// 名字清单保持原样（既有消费者：工具数、mcp:probe 事件）
+				expect(res.tools).toEqual(["list_shops", "ping"]);
+				expect(res.toolSummaries).toEqual([
+					{
+						name: "list_shops",
+						description: "获取门店列表",
+						parameters: [
+							{ name: "keyword", type: "string", description: "搜索关键词", required: true },
+						],
+					},
+					{ name: "ping" },
+				]);
 			} finally {
 				mock.close();
 			}
@@ -271,6 +343,16 @@ describe("probeMcpServer", () => {
 			});
 			expect(res.state).toBe("connected");
 			expect(res.tools).toEqual(["tool_a", "tool_b"]);
+			expect(res.toolSummaries).toEqual([
+				{
+					name: "tool_a",
+					description: "标准输入工具",
+					parameters: [
+						{ name: "text", type: "string", description: "输入文本", required: true },
+					],
+				},
+				{ name: "tool_b" },
+			]);
 		});
 
 		test("env 注入到子进程", async () => {

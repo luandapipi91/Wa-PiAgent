@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { getMimeType, resolveStaticPath } from "../src/ws-server";
+import { getMimeType } from "../src/fs-preview";
+import { resolveStaticPath } from "../src/ws-server";
 
 test("resolveStaticPath: 干净路径返回 index.html", () => {
   expect(resolveStaticPath("/", "/web")).toBe("/web/index.html");

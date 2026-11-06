@@ -30,7 +30,19 @@ process.stdin.on("data", (chunk) => {
     } else if (msg.method === "tools/list") {
       process.stdout.write(JSON.stringify({
         jsonrpc: "2.0", id: msg.id,
-        result: { tools: [{ name: "tool_x" }, { name: "tool_y" }] },
+        // 带 description + inputSchema：路由层必须原样透传（“查看工具”弹窗要显示简介/参数）
+        result: { tools: [
+          {
+            name: "tool_x",
+            description: "列出 X",
+            inputSchema: {
+              type: "object",
+              properties: { limit: { type: "integer", description: "上限" } },
+              required: ["limit"],
+            },
+          },
+          { name: "tool_y" },
+        ] },
       }) + "\\n");
     }
   }
@@ -128,13 +140,20 @@ describe("MCP 路由：test/listTools 单台独立（不再依赖全量 list）"
     expect(last.status).toBe("error");
   }, 15000); // 探测默认上限 10s，放宽 bun test 框架超时
 
-  test("listTools 走单台探测，返回该台工具清单", async () => {
+  test("listTools 走单台探测，返回该台工具清单（含简介与参数）", async () => {
     events.length = 0;
     await handlers.listTools({ serverName: "dbx-ok" });
-    const last = events.at(-1) as { type: string; serverName: string; tools?: { name: string }[] };
+    const last = events.at(-1) as { type: string; serverName: string; tools?: unknown[] };
     expect(last.type).toBe("mcp:tools");
     expect(last.serverName).toBe("dbx-ok");
-    expect(last.tools).toEqual([{ name: "tool_x" }, { name: "tool_y" }]);
+    expect(last.tools).toEqual([
+      {
+        name: "tool_x",
+        description: "列出 X",
+        parameters: [{ name: "limit", type: "integer", description: "上限", required: true }],
+      },
+      { name: "tool_y" },
+    ]);
   });
 
   test("不存在的 server → 广播错误并带 mcp.serverNotFound", async () => {

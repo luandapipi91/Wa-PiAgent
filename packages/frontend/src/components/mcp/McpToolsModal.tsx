@@ -68,8 +68,13 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
                       {tool.parameters.map(p => (
                         <div key={p.name} className="ml-1">
                           <span className="font-medium text-secondary">{p.name}</span>
-                          {" "}
-                          <span style={{ color: "var(--accent)" }}>{p.type}</span>
+                          {/* schema 没给 type 时不留空占位（类型未知就不写） */}
+                          {p.type && (
+                            <>
+                              {" "}
+                              <span data-testid="mcp-tool-param-type" style={{ color: "var(--accent)" }}>{p.type}</span>
+                            </>
+                          )}
                           {p.required && <span className="text-[var(--danger)] ml-0.5">*</span>}
                           {p.description && <span className="text-tertiary ml-1">— {p.description}</span>}
                         </div>
