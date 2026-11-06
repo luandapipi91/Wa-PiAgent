@@ -4,14 +4,40 @@ import { createServer } from "node:net";
 import {
 	waitForPort,
 	findAvailablePort,
+	isPortInUse,
 	killPortOccupants,
 	waitPortReleased,
 	resolveWaPiDir,
 } from "../src/util/port.cjs";
 
+// kernel 自 0.9.3 起回环收紧：Bun.serve 显式 hostname "127.0.0.1"（specific 绑定）。
+// isPortInUse 的探测原理是「试绑定同端口」，若探测绑 wildcard（Node listen(port) 默认 [::]），
+// 与 specific 地址不冲突 → 误判「端口空闲」→ sidecar 30s 未就绪（Windows 实测），
+// 故探测必须与 kernel 同绑 127.0.0.1。
+test("isPortInUse: 服务绑 127.0.0.1（specific）时必须探测为占用", async () => {
+	const s = createServer();
+	await new Promise<void>((r) => s.listen(59994, "127.0.0.1", r));
+	try {
+		expect(await isPortInUse(59994)).toBe(true);
+	} finally {
+		await new Promise<void>((r) => s.close(() => r()));
+	}
+});
+
+test("waitForPort: 服务绑 127.0.0.1 时也能等到就绪", async () => {
+	const s = createServer();
+	await new Promise<void>((r) => s.listen(59992, "127.0.0.1", r));
+	try {
+		expect(await waitForPort(59992, 2000)).toBe(true);
+	} finally {
+		await new Promise<void>((r) => s.close(() => r()));
+	}
+});
+
 test("waitForPort: 端口起来后 resolve true", async () => {
 	const s = createServer();
-	await new Promise<void>((r) => s.listen(59997, r));
+	// 被探测服务与 kernel 同绑 127.0.0.1（回环收紧后的生产场景）
+	await new Promise<void>((r) => s.listen(59997, "127.0.0.1", r));
 	const ok = await waitForPort(59997, 2000);
 	expect(ok).toBe(true);
 	await new Promise<void>((r) => s.close(() => r()));
@@ -29,7 +55,7 @@ test("findAvailablePort: 起始端口空闲时返回该端口", async () => {
 
 test("findAvailablePort: 起始端口被占用时返回下一个可用端口", async () => {
 	const s = createServer();
-	await new Promise<void>((r) => s.listen(59993, r));
+	await new Promise<void>((r) => s.listen(59993, "127.0.0.1", r));
 	try {
 		const port = await findAvailablePort(59993, 5);
 		expect(port).toBeGreaterThan(59993);
@@ -268,9 +294,9 @@ test("killPortOccupants: taskkill 失败（权限不足/死 PID）不计入成�
 test("waitPortReleased: 端口被监听时轮询窗口后返回 false，空闲时立即 true", async () => {
 	// 空闲端口：第一次探测即通过
 	expect(await waitPortReleased(59775, 3, 50)).toBe(true);
-	// 真实监听：整个窗口（3×50ms）内都占用 → false
+	// 真实监听：整个窗口（3×50ms）内都占用 → false（夹具与被探测服务同绑 127.0.0.1）
 	const s = createServer();
-	await new Promise<void>((r) => s.listen(59775, r));
+	await new Promise<void>((r) => s.listen(59775, "127.0.0.1", r));
 	try {
 		expect(await waitPortReleased(59775, 3, 50)).toBe(false);
 	} finally {

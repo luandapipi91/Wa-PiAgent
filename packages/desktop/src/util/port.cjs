@@ -9,7 +9,10 @@ function isPortInUse(port) {
     const server = createServer();
     server.once("error", () => resolve(true));
     server.once("listening", () => server.close(() => resolve(false)));
-    server.listen(port);
+    // 显式绑 127.0.0.1：kernel 与各服务自 0.9.3 起回环收紧只绑 specific 地址，
+    // 探测必须同地址——listen(port) 默认绑 wildcard [::]，与 specific 绑定不冲突，
+    // 会误判「端口空闲」（Windows 实测 sidecar 30s 未就绪误报）。
+    server.listen(port, "127.0.0.1");
   });
 }
 

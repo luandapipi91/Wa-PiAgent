@@ -50,9 +50,9 @@ test("updateHealthState: 已停止 → 永不触发重启（失败计数保留�
 
 test("checkPort: 端口被监听（健康）→ true", async () => {
   const server = createServer();
-  // 注：isPortInUse 探测时绑定所有接口（server.listen(port)），
-  // Windows 下通配符绑定与特定地址(127.0.0.1)绑定可共存、探测不到，故此处同样绑定所有接口（与 port.cjs.test.ts 惯例一致）。
-  await new Promise<void>((resolve) => server.listen(0, resolve));
+  // isPortInUse 探测绑 127.0.0.1（与 kernel 回环收紧后的生产绑定一致）；
+  // 夹具必须同绑 127.0.0.1：Windows 下 wildcard 绑定与 specific 绑定可共存，探测不到
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
   try {
     expect(await checkPort(port)).toBe(true);
