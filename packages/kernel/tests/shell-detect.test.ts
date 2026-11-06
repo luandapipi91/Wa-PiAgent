@@ -142,10 +142,19 @@ test("win32：注册表指向的目录已失效（文件不存在）时继续走
   ).toBe(pf);
 });
 
-test("默认实现在 win32 无任何候选时不误判（access(F_OK) 语义，不抛错）", () => {
-  // 不注入 pathExists / which / readGitInstallPath：走默认真实探测（macOS 上没有
-  // bash.exe 与注册表），必须返回 null 而不是抛错或误判为可用。
-  expect(
-    detectBash({ platform: "win32", env: {}, readGitInstallPath: () => null }),
-  ).toBeNull();
+test("默认实现在 win32 不抛错，结果与机器事实一致（access(F_OK) 语义）", () => {
+  // 不注入 pathExists / which：走默认真实探测（access F_OK 语义 + reg query），永不抛错。
+  // 原断言「必须返回 null」只在无 bash 的机器成立（macOS/CI 设想）；装了 Git Bash 的
+  // Windows 开发机上 PATH 命中、合法返回真实路径——断言改与机器事实一致（存量失败根因）。
+  // 不抛错由「detectBash 直接调用未异常」天然表达（detectBash 内部全 try/catch 兑底）；
+  // 不用闭包赋值再断言——TS 不追踪回调内赋值，hit 会被 narrow 成 null 致 toBe(string) 类型错。
+  const hit = detectBash({ platform: "win32", env: {}, readGitInstallPath: () => null });
+  const bashOnPath =
+    (globalThis as { Bun?: { which?: (c: string) => string | null } }).Bun?.which?.("bash.exe") ?? null;
+  if (bashOnPath) {
+    // PATH 上有 bash.exe → 前序候选（注册表已注入 null、env:{} 无 ProgramFiles）后由 which 命中
+    expect(hit).toBe(bashOnPath);
+  } else {
+    expect(hit).toBeNull();
+  }
 });
