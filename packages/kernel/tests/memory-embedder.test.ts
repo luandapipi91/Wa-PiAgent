@@ -2,12 +2,17 @@ import { test, expect } from "bun:test";
 import {
   EMBED_DIM,
   EMBED_MODEL,
+  EMBEDDER_IDLE_UNLOAD_MS,
   embedDocuments,
   embedQuery,
   embedFingerprint,
+  isEmbedderReady,
+  maybeUnloadForIdle,
   modelCacheDir,
   preloadModel,
   resetEmbedderForTest,
+  shouldUnloadForIdle,
+  unloadModel,
 } from "../src/memory/embedder";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { join } from "node:path";
@@ -101,3 +106,50 @@ test("模型不可用时返回 null 而不抛错", async () => {
   resetEmbedderForTest({ failNextLoad: true });
   expect(await embedQuery("任意文本")).toBeNull();
 });
+
+// ---------------------------------------------------------------------------
+// 空闲自动卸载（性能优化：模型常驻 ~110-180MB，空闲 5 分钟卸载、用时重载 ~400ms；
+// dispose 实测真降 RSS —— spike: 推理后 327MB → dispose+GC 后 219MB）
+// ---------------------------------------------------------------------------
+
+// 判定是纯函数：表驱动离线可跑，不挂模型门（挂门会让判定契约在无网 CI 零断言）
+test("shouldUnloadForIdle 四分支表驱动：有管道+无 inflight+有使用记录+超阈值才卸", () => {
+  const now = 1_000_000;
+  const used = now - EMBEDDER_IDLE_UNLOAD_MS; // 恰好到阈值
+  const cases: Array<[string, boolean, number, number, boolean]> = [
+    // [名, hasPipe, inflight, lastUsedAt, 期望]
+    ["空闲超阈值 → 卸", true, 0, used, true],
+    ["未到阈值 → 不卸", true, 0, now - 1, false],
+    ["推理进行中 → 不卸", true, 1, used, false],
+    ["无管道（已卸/未加载）→ 不卸", false, 0, used, false],
+    ["从未使用（lastUsedAt=0）→ 不卸", true, 0, 0, false],
+  ];
+  for (const [name, hasPipe, inflight, lastUsedAt, expected] of cases) {
+    expect(shouldUnloadForIdle(now, lastUsedAt, inflight, hasPipe)).toBe(expected);
+  }
+});
+
+test("unloadModel 无模型时幂等不抛错（离线可跑）", async () => {
+  resetEmbedderForTest();
+  await expect(unloadModel()).resolves.toBeUndefined();
+});
+
+test.skipIf(modelUnavailable)("空闲卸载行为链：未超时不卸 → 超时卸 → 再次使用自动重载", async () => {
+  resetEmbedderForTest();
+  expect(await preloadModel()).toBe(true);
+  expect(isEmbedderReady()).toBe(true);
+
+  const now = Date.now();
+  // 未超时：不卸载，模型仍就绪
+  expect(await maybeUnloadForIdle(now - EMBEDDER_IDLE_UNLOAD_MS + 1)).toBe(false);
+  expect(isEmbedderReady()).toBe(true);
+
+  // 超时（now + 6min）：卸载，单例回到 idle
+  expect(await maybeUnloadForIdle(now + EMBEDDER_IDLE_UNLOAD_MS + 60_000)).toBe(true);
+  expect(isEmbedderReady()).toBe(false);
+
+  // 再次使用：懒加载自动重载（卸载/重载闭环，正是「需要的时候再重新加载」的验收）
+  const vec = await embedQuery("卸载后重新加载验证");
+  expect(vec).not.toBeNull();
+  expect(isEmbedderReady()).toBe(true);
+}, 120_000);
