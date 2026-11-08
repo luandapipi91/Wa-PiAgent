@@ -1,3 +1,5 @@
+## 2026-11-08
+- chore(release): v0.9.5 发版——内存优化：嵌入模型空闲 5 分钟自动卸载（-110-180MB，用时懒加载重载）+ 编译产物 --smol 收紧内核内存 + 编译器 shim 误选 SectionExists 修复 + 存量测试失败清零；mac zip 205946045 / win exe 186031658（双端，linux 不发与历届一致）
 ## 2026-11-07
 - perf(kernel): embedding 模型空闲自动卸载——闲置 5 分钟后 dispose 并释放内存（实测推理后 327MB → dispose+GC 后 219MB，净降 ~108MB），下次使用懒加载自动重载（缓存热 ~300-400ms）。实现：embedder 新增 unloadModel（官方 PreTrainedModel.dispose() 遍历释放 ONNX session——wasm/原生堆不受 JS GC 管理，spike 实测仅置空引用不调 dispose 内存不归还，这是朴素方案不可行的根因）+ lastUsedAt/inflight 跟踪（推理中不卸载）+ 60s 检查定时器（unref 不阻碍退出）+ shouldUnloadForIdle 纯函数（离线表驱动测试不挂模型门）+ resetEmbedderForTest 扩展清理。TDD 先红后绿（判定四分支表驱动 + unloadModel 幂等 + 空闲卸载行为链：未超时不卸→超时卸→embedQuery 自动重载闭环），memory 全家绿 + tsc 0 错误
 - test(kernel): mcp-routes-probe afterAll 清理加固——stdio 探测子进程/socket 句柄可能晚于 stop 释放，立即 rm 临时目录偶发 EBUSY（全量实测一次，单跑 3 连绿确认概率性），短延迟 + 尽力而为（锁住不视为失败，与 memory-backfill-wiring 清理同策略）；全量测试存在并行负载 flaky 噪声（三轮全量三套互斥失败集合：routes-mcp POST 用例 / delegate-snapshot 超时 / mcp-routes-probe EBUSY，均单跑复验全绿），与本次改动无关，负载敏感用例治理待后续专项
