@@ -104,7 +104,9 @@ test("钩子链路：edit 事件 → agent_end 上报 before/after 快照", asyn
 		expect(postedBody.token).toBe("test-token");
 		expect(postedBody.sessionId).toBe("s1");
 		expect(postedBody.files).toHaveLength(1);
-		expect(postedBody.files[0].path).toBe(targetFile);
+		// e8f10b7bb 起 bridge 录路径有意归一为正斜杠（跨平台上报/展示/movedTo 格式一致），
+		// 断言同步为平台无关形态（本用例曾漏改，Windows 本机必红——存量失败根因）
+		expect(postedBody.files[0].path).toBe(targetFile.replace(/\\/g, "/"));
 		expect(postedBody.files[0].before).toBe("const x = 1\n");
 		expect(postedBody.files[0].after).toBe("const x = 2\n");
 	} finally {

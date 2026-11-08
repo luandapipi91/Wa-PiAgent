@@ -27,6 +27,15 @@ let loadPromise: Promise<FeatureExtractionPipeline | null> | null = null;
 let failNextLoad = false;
 let queryCalls = 0;
 
+// —— 空闲自动卸载（性能优化：模型常驻 ~110-180MB，空闲 5 分钟卸载、用时重载 ~400ms）——
+/** 空闲多久后卸载模型；下次使用自动重载（缓存热加载 ~300-400ms） */
+export const EMBEDDER_IDLE_UNLOAD_MS = 5 * 60_000;
+/** 最近一次使用时刻（getPipeline 成功 / embedQuery / embedDocuments 刷新；0 = 从未使用） */
+let lastUsedAt = 0;
+/** 推理进行中计数：>0 时不卸载（防「卸到一半有人在用」） */
+let inflight = 0;
+let idleTimer: ReturnType<typeof setInterval> | null = null;
+
 /** 测试用：重置单例状态 */
 export function resetEmbedderForTest(opts: { failNextLoad?: boolean } = {}): void {
   pipe = null;
@@ -34,6 +43,12 @@ export function resetEmbedderForTest(opts: { failNextLoad?: boolean } = {}): voi
   loadPromise = null;
   failNextLoad = opts.failNextLoad ?? false;
   queryCalls = 0;
+  lastUsedAt = 0;
+  inflight = 0;
+  if (idleTimer) {
+    clearInterval(idleTimer);
+    idleTimer = null;
+  }
 }
 
 /**
@@ -64,6 +79,63 @@ export async function preloadModel(): Promise<boolean> {
 
 export function isEmbedderReady(): boolean {
   return state.status === "ready";
+}
+
+/** 空闲卸载判定（纯函数，便于离线表驱动测试）：有管道 + 无推理进行中 + 有使用记录 + 超阈值 */
+export function shouldUnloadForIdle(
+  now: number,
+  lastUsed: number,
+  inflightCount: number,
+  hasPipe: boolean,
+  threshold: number = EMBEDDER_IDLE_UNLOAD_MS,
+): boolean {
+  return hasPipe && inflightCount === 0 && lastUsed > 0 && now - lastUsed >= threshold;
+}
+
+/**
+ * 卸载模型释放内存（~110-180MB）：官方 dispose() 遍历释放全部 ONNX session（wasm/原生堆
+ * 不受 JS GC 管理——实测置空引用不调 dispose 内存不归还），再置空单例 + 同步 GC。
+ * dispose 失败只告警：单例已置空，最坏退回 GC 兑底，不影响后续重载。
+ */
+export async function unloadModel(): Promise<void> {
+  if (loadPromise) {
+    try {
+      await loadPromise;
+    } catch {
+      /* 加载失败同样视为已无可卸载对象 */
+    }
+  }
+  const p = pipe;
+  pipe = null;
+  state = { status: "idle" };
+  loadPromise = null;
+  lastUsedAt = 0;
+  if (!p) return;
+  try {
+    await (p as unknown as { model?: { dispose?: () => Promise<unknown> } }).model?.dispose?.();
+  } catch (err) {
+    console.error("[memory-semantic] 模型 dispose 失败（单例已置空，退回 GC 兑底）:", err);
+  }
+  Bun.gc(true);
+}
+
+/** 空闲卸载入口（定时器每 60s 调一次；now 可注入测试）。返回是否真的卸了。 */
+export async function maybeUnloadForIdle(now: number = Date.now()): Promise<boolean> {
+  if (!shouldUnloadForIdle(now, lastUsedAt, inflight, pipe !== null)) return false;
+  await unloadModel();
+  console.log(
+    `[memory-semantic] embedding 模型空闲 ${Math.round(EMBEDDER_IDLE_UNLOAD_MS / 60_000)} 分钟，已卸载（下次使用自动重载）`,
+  );
+  return true;
+}
+
+function ensureIdleTimer(): void {
+  if (idleTimer) return;
+  idleTimer = setInterval(() => {
+    void maybeUnloadForIdle().catch(() => {});
+  }, 60_000);
+  // 不阳碍进程退出（kernel 自己有生命周期管理，定时器不该挂住它）
+  idleTimer.unref?.();
 }
 
 async function getPipeline(): Promise<FeatureExtractionPipeline | null> {
@@ -97,6 +169,8 @@ async function getPipeline(): Promise<FeatureExtractionPipeline | null> {
         device: "cpu",
       })) as FeatureExtractionPipeline;
       state = { status: "ready" };
+      lastUsedAt = Date.now();
+      ensureIdleTimer();
       return pipe;
     } catch (err) {
       state = { status: "failed" };
@@ -116,10 +190,16 @@ function packFloat32(values: number[]): Uint8Array {
 /** 批量编码文档（不带指令前缀）。模型不可用时返回空数组。 */
 export async function embedDocuments(texts: string[]): Promise<Uint8Array[]> {
   if (texts.length === 0) return [];
-  const p = await getPipeline();
-  if (!p) return [];
-  const out = await p(texts, { pooling: "cls", normalize: true });
-  return (out.tolist() as number[][]).map(packFloat32);
+  inflight++;
+  try {
+    const p = await getPipeline();
+    if (!p) return [];
+    const out = await p(texts, { pooling: "cls", normalize: true });
+    lastUsedAt = Date.now();
+    return (out.tolist() as number[][]).map(packFloat32);
+  } finally {
+    inflight--;
+  }
 }
 
 /** 编码查询（带指令前缀）。空输入或模型不可用时返回 null。 */
@@ -127,9 +207,15 @@ export async function embedQuery(text: string): Promise<Uint8Array | null> {
   queryCalls++;
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const p = await getPipeline();
-  if (!p) return null;
-  const out = await p([QUERY_PREFIX + trimmed], { pooling: "cls", normalize: true });
-  const [vec] = out.tolist() as number[][];
-  return packFloat32(vec);
+  inflight++;
+  try {
+    const p = await getPipeline();
+    if (!p) return null;
+    const out = await p([QUERY_PREFIX + trimmed], { pooling: "cls", normalize: true });
+    lastUsedAt = Date.now();
+    const [vec] = out.tolist() as number[][];
+    return packFloat32(vec);
+  } finally {
+    inflight--;
+  }
 }

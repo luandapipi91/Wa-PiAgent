@@ -112,9 +112,17 @@ describe("MCP 路由：test/listTools 单台独立（不再依赖全量 list）"
     });
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     hangServer.stop(true);
-    rmSync(dir, { recursive: true, force: true });
+    // Windows 句柄释放竞争：stdio 探测子进程/socket 句柄可能晚于 stop 释放，立即 rm
+    // 偶发 EBUSY（2026-11-07 全量实测一次）；短延迟 + 尽力而为，锁住不视为失败
+    //（目录随进程退出自然释放，与 memory-backfill-wiring 清理同策略）
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* 目录被句柄短暂锁住属预期 */
+    }
   });
 
   test("状态读取层卡死时，stdio 台的连接测试仍秒级返回 connected", async () => {

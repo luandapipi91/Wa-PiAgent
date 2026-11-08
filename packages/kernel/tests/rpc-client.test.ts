@@ -139,13 +139,21 @@ test("非 win32：bash 可用与否都不影响结果", () => {
 	]);
 });
 
-test("buildPiArgs：win32 下 --tools 清单经平台映射", () => {
+test("buildPiArgs：win32 下 --tools 清单经平台映射（注入 bashAvailable 两分支确定性）", () => {
 	const platformDesc = Object.getOwnPropertyDescriptor(process, "platform");
 	Object.defineProperty(process, "platform", { value: "win32" });
 	try {
-		const args = buildPiArgs({ tools: ["read", "bash"] });
+		// 注入 bashAvailable 摆脱本机探测缓存：装了 Git Bash 的 Windows 开发机上
+		// isBashAvailable() === true，原断言（无注入）隐含「本机无 bash」假设必红（存量失败根因）
+		const args = buildPiArgs({ tools: ["read", "bash"], bashAvailable: false });
 		expect(args).toContain("--tools");
 		expect(args[args.indexOf("--tools") + 1]).toBe("read,powershell");
+		// 注入 true → bash 原样保留（检测到 Git Bash 就用它）
+		const argsKeep = buildPiArgs({ tools: ["read", "bash"], bashAvailable: true });
+		expect(argsKeep[argsKeep.indexOf("--tools") + 1]).toBe("read,bash");
+		// 缺省 → 走进程探测，两种合法形态之一（不钉死本机事实）
+		const argsDefault = buildPiArgs({ tools: ["read", "bash"] });
+		expect(argsDefault[argsDefault.indexOf("--tools") + 1]).toMatch(/^read,(bash|powershell)$/);
 	} finally {
 		if (platformDesc) Object.defineProperty(process, "platform", platformDesc);
 	}

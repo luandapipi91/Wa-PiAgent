@@ -24,6 +24,8 @@ const INTEGRATION_TESTS = [
 	// 启动回填离线接线：模型加载被挂住时启动不失败、词法可用，且回填不阻塞启动
 	//（同样会启动完整 kernel，并且会刻意挂住模型下载 → 必须独占进程）
 	"tests/memory-backfill-offline.test.ts",
+	// embedding 预热惰性化回归门：空库启动不下载/加载模型（同属启动完整 kernel 的 WA_PI_DIR 快照类）
+	"tests/memory-preload-lazy.test.ts",
 	// 记忆库打不开（memories.db 被造成目录）时仍要能启动：同样会启动完整 kernel
 	"tests/memory-db-open-failure.integration.test.ts",
 	// tui-host 端点集成（真实 WSServer + 流式 NDJSON），并行负载下 30s 超时，串行 2s 即过
@@ -31,6 +33,10 @@ const INTEGRATION_TESTS = [
 	// 打包形态冒烟：真编译内核二进制 + 真启动等端口就绪。源码/dev 形态不复现的
 	// 「编译产物启动即静默退出」只能靠它拦住（本轮 P0 就是这么漏出去的）
 	"tests/kernel-compiled-boot.integration.test.ts",
+	// 真实引擎百度场景（ref 工作流端到端）：必须独占进程——Chrome 进程级 argv 由进程内
+	// 第一个 WebView 决定，本文件的直连工厂（--no-proxy-server）必须是首启动者；与主批
+	// 同进程时首启动权不可控（其他 browser 测试的默认工厂先跑）直连参数即失效
+	"tests/browser-real-baidu.test.ts",
 ];
 
 /** 负载敏感测试：依赖真实文件系统事件（fs.watch/FSEvents），--parallel 多 worker

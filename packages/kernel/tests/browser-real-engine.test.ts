@@ -13,6 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import { BrowserManager, makeDefaultViewFactory } from "../src/browser-manager";
 import { handleBrowserTool } from "../src/browser-tools";
@@ -49,6 +50,7 @@ async function probeEngineAvailable(): Promise<boolean> {
 const engineAvailable = await probeEngineAvailable();
 // 引擎不可用时所有真实链路测试直接跳过（skipIf 的别名写法）
 const testReal = engineAvailable ? test : test.skip;
+
 
 function sessionId(tag: string): string {
   return `test-session-${tag}`;
@@ -1080,113 +1082,3 @@ describe("Layer 3 AX 树形快照专项（滚动定位 / 失效回查）", () =>
   });
 });
 
-describe("Layer 3 真实引擎 ref 工作流（百度场景，2026-11-03）", () => {
-  // 「模型不走 ref」行为修复的端到端验收：快照 [ref=N] → type/press 全部用 ref 定位，
-  // 全程零 CSS selector。依赖外网可达 baidu.com；不可达时 wait/导航超时算失败，
-  // 由 CI/本地环境自行取舍（与引擎不可用跳过不同源，不混用 skipIf）。
-  testReal("navigate → snapshot → type{ref} → press{ref, Enter} → 搜索结果页（wd=wa-pi）", async () => {
-    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-baidu-"));
-    const manager = new BrowserManager({
-      screenshotDir,
-      idleTimeoutMs: 60_000,
-      sweepIntervalMs: 60_000,
-    });
-    const sid = sessionId("baidu");
-    try {
-      // 1) 导航百度：返回体快照首行带 ref 提示（动态提示双保险）
-      const nav = await handleBrowserTool(manager, sid, "browser_navigate", {
-        url: "https://www.baidu.com",
-        timeout: 60_000,
-      });
-      const navP = JSON.parse(nav.content[0].text) as { ok: boolean; snapshot?: string };
-      expect(navP.ok).toBe(true);
-      expect(navP.snapshot?.startsWith("提示：元素定位优先级 ref > text > selector > x/y")).toBe(true);
-
-      // 2) snapshot 拿输入框 ref（模拟模型标准工作流，不猜 selector）
-      const snap = await handleBrowserTool(manager, sid, "browser_snapshot", {});
-      const snapP = JSON.parse(snap.content[0].text) as {
-        ok: boolean;
-        snapshot: string;
-      };
-      expect(snapP.ok).toBe(true);
-      expect(snapP.snapshot.startsWith("提示：元素定位优先级 ref > text > selector > x/y")).toBe(true);
-      const lines = snapP.snapshot.split("\n");
-      const refOf = (line: string | undefined) => line?.match(/\[ref=(\d+)\]/)?.[1];
-      const inputLine = lines.find((l) => /- (textbox|searchbox|combobox)/.test(l));
-      const inputRefStr = refOf(inputLine);
-      expect(inputRefStr).toBeDefined(); // 百度首页必有输入框
-      const inputRef = Number(inputRefStr);
-
-      // 3) type{ref} 键入（clear:true 防残留；返回体带 ref 回显）
-      const type = await handleBrowserTool(manager, sid, "browser_evaluate", {
-        action: "type",
-        ref: inputRef,
-        text: "wa-pi",
-        clear: true,
-        timeout: 30_000,
-      });
-      const typeP = JSON.parse(type.content[0].text) as { ok: boolean; ref: number };
-      expect(typeP.ok).toBe(true);
-      expect(typeP.ref).toBe(inputRef);
-
-      // 4) press{ref, Enter}：输入框内发起检索（百度新版 textarea 需聚焦时回车）
-      const press = await handleBrowserTool(manager, sid, "browser_evaluate", {
-        action: "press",
-        ref: inputRef,
-        key: "Enter",
-        timeout: 30_000,
-      });
-      const pressP = JSON.parse(press.content[0].text) as { ok: boolean; ref: number };
-      expect(pressP.ok).toBe(true);
-      expect(pressP.ref).toBe(inputRef);
-
-      // 5) 断言搜索结果页出现（URL 进 /s?wd=wa-pi）
-      await handleBrowserTool(manager, sid, "browser_wait", { text: "wa-pi", timeout: 20_000 });
-      const final = await handleBrowserTool(manager, sid, "browser_evaluate", {
-        action: "eval",
-        script: "location.href + ' | ' + document.title",
-      });
-      const finalText = String((JSON.parse(final.content[0].text) as { result: string }).result);
-      expect(finalText).toMatch(/baidu\.com\/s\?/);
-      expect(finalText).toContain("wd=wa-pi");
-    } finally {
-      manager.dispose();
-      rmSync(screenshotDir, { recursive: true, force: true });
-    }
-  }, 240_000);
-
-  testReal("wait{text} 命中返回体快照已含新出现元素（省一次 snapshot 往返实证）", async () => {
-    // 页面：点击后 600ms 才插入 late-marker 元素 → wait 命中时新元素已在页面
-    const html = `<h1>延迟页</h1><button id="go" onclick="setTimeout(function(){document.body.insertAdjacentHTML('beforeend','<div id=late>late-marker</div>')},600)">触发</button>`;
-    const url = "data:text/html;charset=utf-8," + encodeURIComponent(html);
-    const screenshotDir = mkdtempSync(join(tmpdir(), "browser-real-waitsnap-"));
-    const manager = new BrowserManager({
-      screenshotDir,
-      idleTimeoutMs: 60_000,
-      sweepIntervalMs: 60_000,
-    });
-    const sid = sessionId("waitsnap");
-    try {
-      await handleBrowserTool(manager, sid, "browser_navigate", { url });
-      const snap = await handleBrowserTool(manager, sid, "browser_snapshot", {});
-      const snapP = JSON.parse(snap.content[0].text) as { snapshot: string };
-      const goRef = Number(snapP.snapshot.match(/- button[^\n]*\[ref=(\d+)\]/)?.[1]);
-      expect(goRef).toBeGreaterThan(0);
-      await handleBrowserTool(manager, sid, "browser_evaluate", { action: "click", ref: goRef, snapshot: false });
-      // wait 命中即附快照：返回体应已包含 wait 前不存在、wait 后才出现的新元素 ref 行
-      const wt = await handleBrowserTool(manager, sid, "browser_wait", { text: "late-marker", timeout: 8000 });
-      const wtP = JSON.parse(wt.content[0].text) as {
-        ok?: boolean; matched?: boolean; snapshot?: string; refCount?: number; hint?: string;
-      };
-      expect(wtP.ok).toBe(true);
-      expect(wtP.matched).toBe(true);
-      expect(wtP.snapshot).toBeDefined(); // 命中附快照（差值含新元素）
-      expect(wtP.snapshot).toContain("late-marker");
-      expect(wtP.snapshot).toMatch(/\[ref=\d+\]/); // 新元素已带 ref，后续可直接用
-      expect((wtP.refCount ?? 0)).toBeGreaterThan(0);
-    } finally {
-      manager.dispose();
-      rmSync(screenshotDir, { recursive: true, force: true });
-    }
-  }, 60_000);
-});

@@ -651,6 +651,8 @@ export interface PiLaunchSpec {
 	skillPaths?: string[];
 	/** --tools a,b,c：工具白名单（空数组 = 不传，pi 默认全量） */
 	tools?: string[];
+	/** 平台映射用 bash 可用性（可测试注入；缺省走进程级探测缓存，装了 Git Bash 的机器为 true） */
+	bashAvailable?: boolean;
 	/** --exclude-tools a,b,c：工具黑名单（与白名单可组合） */
 	excludeTools?: string[];
 	/** --thinking <level> */
@@ -698,7 +700,7 @@ export function buildPiArgs(spec: PiLaunchSpec): string[] {
 	if (spec.noSkills) args.push("--no-skills");
 	for (const s of spec.skillPaths ?? []) args.push("--skill", s);
 	if (spec.tools && spec.tools.length > 0)
-		args.push("--tools", mapToolsForPlatform(spec.tools).join(","));
+		args.push("--tools", mapToolsForPlatform(spec.tools, undefined, spec.bashAvailable).join(","));
 	if (spec.excludeTools && spec.excludeTools.length > 0)
 		args.push("--exclude-tools", spec.excludeTools.join(","));
 	if (spec.thinking) args.push("--thinking", spec.thinking);
