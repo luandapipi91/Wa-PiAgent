@@ -13,6 +13,7 @@ export {
   type KbFileType,
   type KbSkipReason,
 } from "./scan";
+export { extractText, ExtractionError, type ExtractedText } from "./extract";
 export {
   initKbVectorColumn,
   isKbVectorReady,
