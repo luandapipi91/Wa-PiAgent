@@ -156,9 +156,9 @@ export interface KbInfo {
 	autoWatch: boolean;
 	/** 上次索引完成时间戳；从未索引过为 null */
 	lastIndexedAt: number | null;
-	/** scanning/indexing 进行中的实时进度（完成后清除） */
+	/** scanning/indexing 进行中的实时进度（完成后清除）。phase 与 indexing_jobs 阶段一致（规格 §6.1） */
 	progress?: {
-		phase: "scanning" | "indexing";
+		phase: "scanning" | "extracting" | "chunking" | "embedding" | "committing";
 		filesTotal: number;
 		filesDone: number;
 		chunksDone: number;
