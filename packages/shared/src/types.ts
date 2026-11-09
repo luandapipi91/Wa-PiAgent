@@ -122,6 +122,7 @@ export interface SubagentOverride {
 	type: string;
 	model?: string | null;
 	thinking?: ThinkingLevel | null;
+	knowledgeBaseIds?: string[]; // 覆盖时绑定的知识库 id 列表（同 AgentConfig.knowledgeBaseIds）
 }
 
 /** 内置 subagent 完整信息（前端 AgentConfig 展示用）。systemPrompt/builtinToolNames 来自 pi-subagents，只读。 */
