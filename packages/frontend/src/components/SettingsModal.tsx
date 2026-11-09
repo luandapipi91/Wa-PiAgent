@@ -10,6 +10,7 @@ import { SkillSection } from "./settings/SkillSection";
 import { ExtensionSection } from "./settings/ExtensionSection";
 import { MemorySection } from "./settings/MemorySection";
 import { McpSection } from "./settings/McpSection";
+import { KnowledgeSection } from "./settings/KnowledgeSection";
 import { BotsSection } from "./settings/BotsSection";
 import { ShareSection } from "./settings/ShareSection";
 import { AboutSection } from "./settings/AboutSection";
@@ -145,6 +146,18 @@ export function SettingsModal({ onClose }: Props) {
 						{t("settings.nav.mcp")}
 					</button>
 					<button
+						onClick={() => setSection("knowledge")}
+						className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+						style={
+							activeSection === "knowledge"
+								? { background: "var(--accent-soft)", color: "var(--accent)" }
+								: { color: "var(--secondary)" }
+						}
+						data-testid="settings-nav-knowledge"
+					>
+						{t("settings.nav.knowledge")}
+					</button>
+					<button
 						onClick={() => setSection("bots")}
 						className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
 						style={
@@ -209,6 +222,7 @@ export function SettingsModal({ onClose }: Props) {
 					{activeSection === "plugins" && <ExtensionSection />}
 					{activeSection === "memory" && <MemorySection />}
 					{activeSection === "mcp" && <McpSection />}
+					{activeSection === "knowledge" && <KnowledgeSection />}
 					{activeSection === "bots" && <BotsSection />}
 					{activeSection === "diagnostics" && <DiagnosticsSection />}
 					{activeSection === "share" && <ShareSection />}

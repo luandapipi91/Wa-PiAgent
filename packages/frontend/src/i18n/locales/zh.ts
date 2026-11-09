@@ -871,6 +871,7 @@ const zh = {
 			plugins: "插件",
 			memory: "记忆",
 			mcp: "MCP 连接器",
+			knowledge: "知识库",
 			bots: "机器人",
 			diagnostics: "诊断",
 			share: "联网",

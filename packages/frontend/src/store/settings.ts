@@ -8,6 +8,7 @@ export type SettingsSection =
 	| "plugins"
 	| "memory"
 	| "mcp"
+	| "knowledge"
 	| "bots"
 	| "share"
 	| "diagnostics"

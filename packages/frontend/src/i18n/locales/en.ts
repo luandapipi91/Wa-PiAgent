@@ -901,6 +901,7 @@ const en = {
 			plugins: "Plugins",
 			memory: "Memory",
 			mcp: "MCP Connectors",
+			knowledge: "Knowledge Base",
 			bots: "Bots",
 			diagnostics: "Diagnostics",
 			share: "Web",
