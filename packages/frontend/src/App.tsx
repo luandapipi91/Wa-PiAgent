@@ -27,6 +27,7 @@ import { useMcpStore } from "./store/mcp";
 import { useMemoryStore } from "./store/memory";
 import { useChannelsStore } from "./store/channels";
 import { useContactsStore } from "./store/contacts";
+import { useKnowledgeStore } from "./store/knowledge";
 import { useToastStore } from "./store/toast";
 import { formatKernelError } from "./util/kernel-error";
 import { useComposerPrefsStore } from "./store/composer-prefs";
@@ -175,6 +176,9 @@ export function App() {
 			useExtensionsStore.getState().load();
 			useAgentsStore.getState().loadAll();
 			useSubagentsStore.getState().load();
+			// 知识库：重连后重拉清单——断连期间的 knowledge:progress 帧（含终态）可能丢失，
+			// 靠清单回包的 status/progress 把徽章从「索引中 x%」拉回真实状态
+			useKnowledgeStore.getState().listKbs();
 			// 定时任务：重连后刷新任务列表 + 执行记录 + 状态点 + 详情页「最近执行」
 			void useSchedulerStore.getState().refreshFromEvents();
 			useContactsStore.getState().loadContacts();

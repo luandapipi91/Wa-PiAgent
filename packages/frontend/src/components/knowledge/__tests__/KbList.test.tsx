@@ -62,20 +62,25 @@ describe("KbList 状态徽章", () => {
 				]}
 			/>,
 		);
-		expect(screen.getByText("索引中 42%")).toBeTruthy();
+		const badge = screen.getByText("索引中 42%");
+		expect(badge).toBeTruthy();
+		// 徽章色：索引中蓝（--info 固定蓝，不随 --accent 主题漂移——出厂 accent 是绿）
+		expect((badge as HTMLElement).style.color).toBe("var(--info)");
 	});
 
 	test("failedCount>0 渲染「失败 3 文件」且可点击", () => {
+		const onShowFailed = mock(() => {});
 		render(
 			<KbList
 				kbs={[{ ...kbReady, status: "error", failedCount: 3 }]}
-				onShowFailed={mock(() => {})}
+				onShowFailed={onShowFailed}
 			/>,
 		);
 		const badge = screen.getByText("失败 3 文件");
 		expect(badge).toBeTruthy();
-		// 点击不抛错（B4 才接失败弹窗，本任务只要求回调可触发）
+		// 点击不抛错（B4 才接失败弹窗）；契约：带库 id 回调，B4 弹窗按 id 拉失败清单
 		expect(() => fireEvent.click(badge)).not.toThrow();
+		expect(onShowFailed).toHaveBeenCalledWith("kb_1");
 	});
 
 	test("error 且 failedCount=0 渲染「索引中断」", () => {

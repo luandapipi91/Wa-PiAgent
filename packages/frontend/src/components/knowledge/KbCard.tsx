@@ -3,7 +3,9 @@
 // 布局：头行（名称 + 状态徽章 + 自动更新开关）→ 描述（单行截断）→
 // 元信息行（文件夹路径 · 规模 · 上次索引）→ 操作行（更新/重建/删除）。
 // 状态徽章文案（规格 §6.8，简报逐字定稿）：
-//   进行中 → 「索引中 x%」（蓝，percent = round(filesDone/filesTotal*100)）
+//   进行中 → 「索引中 x%」（蓝，percent = round(filesDone/filesTotal*100)）；
+//     色用语义 token --info（固定蓝）而非 --accent——后者是主题色（出厂青蛙绿），会与
+//     「就绪绿」同色系，违反规格的色义区分
 //   failedCount>0 → 「失败 N 文件」（橙，可点击 → onShowFailed，B4 接失败弹窗）
 //   error → 「索引中断」（橙红）
 //   其余 → 「就绪」（绿）
@@ -37,7 +39,7 @@ function statusBadge(
             percent: Math.round((p.filesDone / p.filesTotal) * 100),
           })
         : t("kb.statusIndexing");
-    return { label, color: "var(--accent)", clickable: false };
+    return { label, color: "var(--info)", clickable: false };
   }
   // 失败文件数独立于 status：ready 库最近一轮也可能有部分文件失败（规格 §6.8「点开 failed_count」）
   if (kb.failedCount > 0) {

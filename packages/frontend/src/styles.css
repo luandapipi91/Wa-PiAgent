@@ -84,6 +84,8 @@
 	/* —— 语义色 —— */
 	--success: #34a853;
 	--success-soft: #e6f4ea;
+	--info: #3b82f6;
+	--info-soft: #e0ecff;
 	--warning: #b45309;
 	--warning-soft: #fef3c7;
 	--danger: #dc2626;
