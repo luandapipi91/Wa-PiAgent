@@ -51,6 +51,9 @@ const LOAD_SENSITIVE_TESTS = [
 	// 偶尔超过 300ms → 第一次 list 就失败，后续「有缓存回退」断言跟着错位。串行补跑稳定。
 	"tests/mcp-admin-spawn.test.ts",
 	"tests/scheduler-watcher.test.ts",
+	// 知识库文件监听（任务 11）：真实 fs.watch(recursive) + 防抖/轮询时序，
+	// 并行高负载下事件投递可被延迟 → 防抖/兑底断言可能超窗，串行补跑稳定。
+	"tests/knowledge-watcher.test.ts",
 	"tests/routes-git.test.ts",
 	"tests/git-service.test.ts",
 	"tests/git-watcher.test.ts",

@@ -42,4 +42,14 @@ export {
   type KbSearchResult,
   type KbSkippedKb,
 } from "./search";
+export {
+  watchKb,
+  restoreWatchers,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_DEBOUNCE_MS,
+  type WatchKbOptions,
+  type IndexFn,
+  type KbWatchController,
+  type RestoreWatchersController,
+} from "./watcher";
 export { makeKnowledgeToolContext, type KnowledgeToolContext } from "./tool";
