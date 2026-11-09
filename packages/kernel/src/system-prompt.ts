@@ -56,6 +56,9 @@ export interface SystemPromptContext {
 	/** 自身进程保护提示词：由构造函数按实际启动的 bridge 端口生成（buildSelfProtectionPrompt），
 	 *  经 ctx 传入，避免在渲染层写死端口号。未提供时兜底用当前环境生成。 */
 	selfProtectionContext?: string;
+	/** knowledge-bases 段的内容（绑定知识库清单，buildKnowledgeBasesPrompt 产出；
+	 *  空串/未传则整段不出现）。纯运行时注入：不落盘 prompts.json。 */
+	knowledgeBasesContext?: string;
 }
 
 /** env-constraints 段的固定文案后缀（skill_directories 块之后拼接；以 \n 开头） */
@@ -74,6 +77,7 @@ export const DYNAMIC_SEGMENT_IDS = new Set([
 	"scheduled-tasks",
 	"memory-snapshot",
 	"memory-policy",
+	"knowledge-bases",
 ]);
 
 /** 静态段 id 集合（content 完全由 prompts.json 决定，无运行时兜底） */
@@ -241,6 +245,7 @@ export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
 	{ id: "scheduled-tasks" }, // 动态：定时任务管理引导（全局化后始终注入）
 	{ id: "memory-policy" }, // 动态：memoryPolicy（写入策略引导）
 	{ id: "memory-snapshot" }, // 动态：memorySnapshot
+	{ id: "knowledge-bases" }, // 动态：绑定知识库清单（纯运行时注入，不落盘）
 ];
 
 /** 定时任务管理引导提示词（经 ctx.scheduledTasksContext 注入）。
@@ -271,6 +276,10 @@ function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
 	// 忽略 prompts.json 里可能残留的写死端口 content；ctx 未提供时兜底按当前环境生成
 	if (seg.id === SELF_PROTECTION_SEGMENT_ID)
 		return ctx.selfProtectionContext ?? buildSelfProtectionPrompt();
+	// knowledge-bases 同为运行时注入段（绑定知识库清单）：始终取上下文值（文案由 buildKnowledgeBasesPrompt 产出），
+	// 忽略 prompts.json 里可能残留的 content；无绑定库时 ctx 为空 → 段不出现
+	if (seg.id === KNOWLEDGE_BASES_SEGMENT_ID)
+		return ctx.knowledgeBasesContext ?? "";
 
 	// 用户在 prompts.json 里显式写了 content：其余段（含动态段）都允许覆盖
 	if (seg.content && seg.content.length > 0) {
@@ -331,8 +340,9 @@ export function composePrompt(
  *  v28：self-protection 段改为纯运行时注入（落盘剔除、运行时按实际 bridge 端口生成），
  *       旧文件里写死端口的 content 随迁移清理。
  *  v29：delegate-mechanism 旧「通用优先」判据（多步带写→general-purpose 等）迁移为
- *       专项优先路由——内容命中旧指纹才逐句替换，用户自定义内容无指纹不触碰。 */
-export const PROMPTS_SCHEMA_VERSION = 29;
+ *       专项优先路由——内容命中旧指纹才逐句替换，用户自定义内容无指纹不触碰。
+ *  v30：新增 knowledge-bases 段（绑定知识库清单，纯运行时注入不落盘）。 */
+export const PROMPTS_SCHEMA_VERSION = 30;
 
 /** im-channel 段 id：IM 渠道附加提示词，运行时注入段——不持久化到 prompts.json */
 export const IM_CHANNEL_SEGMENT_ID = "im-channel";
@@ -346,6 +356,10 @@ export const SCHEDULED_TASKS_SEGMENT_ID = "scheduled-tasks";
 /** self-protection 段 id：自身进程保护，运行时注入段——不持久化到 prompts.json，
  *  文案由 buildSelfProtectionPrompt 按实际启动的 bridge 端口生成（不写死端口号）。 */
 export const SELF_PROTECTION_SEGMENT_ID = "self-protection";
+
+/** knowledge-bases 段 id：绑定知识库清单，运行时注入段——不持久化到 prompts.json，
+ *  文案由 buildKnowledgeBasesPrompt 按 agent 绑定的库清单生成（无绑定则段不出现）。 */
+export const KNOWLEDGE_BASES_SEGMENT_ID = "knowledge-bases";
 
 /**
  * 确保段列表含 im-channel 占位段（无 content，运行时由 ctx.imChannelContext 填充）。
@@ -438,6 +452,25 @@ export function ensureSelfProtectionSegment(
 }
 
 /**
+ * 确保段列表含 knowledge-bases 占位段（无 content，运行时由 ctx.knowledgeBasesContext 填充）。
+ * 该段不写入 prompts.json（savePromptSegments 剔除），运行时加载段列表后需用本函数补回；
+ * 默认顺序即末尾（memory-snapshot 之后），缺失时追加到末尾。
+ * 已存在（旧版文件残留）则剥掉持久化的 content（返回新数组，不原地改）。
+ */
+export function ensureKnowledgeBasesSegment(
+	segments: PromptSegment[],
+): PromptSegment[] {
+	const idx = segments.findIndex((s) => s.id === KNOWLEDGE_BASES_SEGMENT_ID);
+	if (idx >= 0) {
+		if (!segments[idx].content) return segments;
+		const next = segments.slice();
+		next[idx] = { id: KNOWLEDGE_BASES_SEGMENT_ID };
+		return next;
+	}
+	return [...segments, { id: KNOWLEDGE_BASES_SEGMENT_ID }];
+}
+
+/**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。
  * 注意：仅返回 segments 数组，不暴露 schemaVersion（迁移逻辑用 loadPromptsRawVersion）。
  */
@@ -469,7 +502,7 @@ async function loadPromptsRawVersion(filePath: string): Promise<number> {
 
 /**
  * 保存段落配置到 prompts.json（写入当前 schemaVersion）。
- * im-channel / im-push / scheduled-tasks / self-protection 为运行时注入段，
+ * im-channel / im-push / scheduled-tasks / self-protection / knowledge-bases 为运行时注入段，
  * 一律剔除不落盘（spec：这些段不写入 prompts.json），避免旧写死文案（如 self-protection 的
  * 端口号）被持久化；运行时由 ensure* 函数补回占位段。
  */
@@ -484,7 +517,8 @@ export async function savePromptSegments(
 			s.id !== IM_CHANNEL_SEGMENT_ID &&
 			s.id !== IM_PUSH_SEGMENT_ID &&
 			s.id !== SCHEDULED_TASKS_SEGMENT_ID &&
-			s.id !== SELF_PROTECTION_SEGMENT_ID,
+			s.id !== SELF_PROTECTION_SEGMENT_ID &&
+			s.id !== KNOWLEDGE_BASES_SEGMENT_ID,
 	);
 	await mkdir(dirname(filePath), { recursive: true });
 	await writeFile(

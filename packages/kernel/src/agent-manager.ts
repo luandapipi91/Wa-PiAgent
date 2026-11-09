@@ -115,6 +115,10 @@ import {
 	type BridgeToolResult,
 } from "./bridge-registry";
 import { makeKnowledgeToolContext } from "./knowledge/tool";
+import { buildKnowledgeBasesPrompt } from "./knowledge/prompt";
+import { KnowledgeStore } from "./knowledge/store";
+import { knowledgeDbPath } from "./knowledge/paths";
+import { KB_SCHEMA_SQL } from "./knowledge/schema";
 import {
 	RpcClient,
 	buildPiArgs,
@@ -136,6 +140,7 @@ import {
 	ensureImPushSegment,
 	ensureScheduledTasksSegment,
 	ensureSelfProtectionSegment,
+	ensureKnowledgeBasesSegment,
 	buildScheduledTasksSystemPrompt,
 	buildSelfProtectionPrompt,
 	DEFAULT_PROMPT_SEGMENTS,
@@ -338,6 +343,47 @@ const MCP_TOOL_REFRESH_DELAY_MS = 3_000;
  */
 const TURN_RESUME_WINDOW_MS = 5 * 60_000;
 
+/**
+ * 删库后的悬挂绑定清理（任务 9，规格 §6.6：库被删除时从所有智能体绑定中移除该 id）。
+ * 遍历 subagent overrides（~/.pi/agent/subagent-overrides.json）与命名 agent configs
+ * （agentsDir/*.md），从各自的 knowledgeBaseIds 中移除 kbId 并写回；无绑定的记录不重写。
+ * 由 KnowledgeStore 的 onKbDeleted 回调触发（见 getKnowledgeStore）；overridesFile 可注入
+ * 供测试隔离（缺省用全局 SUBAGENT_OVERRIDES_FILE）。
+ */
+export async function removeKbBinding(
+	kbId: string,
+	opts?: {
+		configStore?: ConfigStore | null;
+		overridesFile?: string;
+	},
+): Promise<void> {
+	const { SUBAGENT_OVERRIDES_FILE } = await import("@wa-pi/shared");
+	const { loadSubagentOverrides, saveSubagentOverride } = await import(
+		"./subagent-store"
+	);
+	const overridesFile = opts?.overridesFile ?? SUBAGENT_OVERRIDES_FILE;
+	// 内置 subagent overrides：仅重写含该 id 的记录，其余不动（避免无谓写盘）
+	const overrides = await loadSubagentOverrides(overridesFile);
+	for (const o of overrides) {
+		if (!o.knowledgeBaseIds?.includes(kbId)) continue;
+		await saveSubagentOverride(overridesFile, {
+			...o,
+			knowledgeBaseIds: o.knowledgeBaseIds.filter((id) => id !== kbId),
+		});
+	}
+	// 命名智能体 configs：同上
+	const configStore = opts?.configStore;
+	if (!configStore) return;
+	const configs = await configStore.listAgents();
+	for (const c of configs) {
+		if (!c.knowledgeBaseIds?.includes(kbId)) continue;
+		await configStore.saveAgent({
+			...c,
+			knowledgeBaseIds: c.knowledgeBaseIds.filter((id) => id !== kbId),
+		});
+	}
+}
+
 export class AgentManager {
 	// sessionId → SessionHandle（核心数据结构，一个 WaPi 会话对应一个 pi rpc 子进程）
 	private sessions = new Map<string, SessionHandle>();
@@ -354,6 +400,9 @@ export class AgentManager {
 	private skillDirty = new Set<string>();
 	// 系统提示词段落配置缓存（首次加载后缓存；用户编辑 prompts.json 后需重启 kernel 刷新）
 	private promptSegments: PromptSegment[] | null = null;
+	// 知识库登记库（knowledge.db）惰性连接：会话启动读绑定清单渲染 system prompt 段、
+	// 删库回调注册（悬挂绑定清理）。打开失败由调用方降级，不阻断会话创建。
+	private knowledgeStore: KnowledgeStore | null = null;
 	// 会话级浏览器视图池：browser_* 工具的执行后端（可注入 fake，生产默认实例化）
 	readonly browserManager: BrowserManager;
 	// MCP 状态读取者（规格 §7）：只 shell out `pi mcp list --json`，不自建连接。
@@ -473,7 +522,35 @@ export class AgentManager {
 		this.promptSegments = ensureSelfProtectionSegment(this.promptSegments);
 		// scheduled-tasks 段同样不落盘，运行时补回（memory-policy 之前、im-push 之后）
 		this.promptSegments = ensureScheduledTasksSegment(this.promptSegments);
+		// knowledge-bases 段同样不落盘，运行时补回（默认顺序即末尾，memory-snapshot 之后）
+		this.promptSegments = ensureKnowledgeBasesSegment(this.promptSegments);
 		return this.promptSegments;
+	}
+
+	/**
+	 * 知识库登记库（knowledge.db）惰性连接：首个调用方建连后缓存。
+	 * 建连同时注册删库回调——库被删除时清理所有智能体绑定中的悬挂引用
+	 * （遍历 subagent overrides 与命名 agent configs 写回，规格 §6.6）。
+	 * 打开失败由调用方降级（catch），不阻断会话创建。
+	 */
+	private getKnowledgeStore(): KnowledgeStore {
+		if (!this.knowledgeStore) {
+			const db = new Database(knowledgeDbPath(WA_PI_DIR));
+			db.exec(KB_SCHEMA_SQL); // 幂等建表（不存在 knowledge.db 时自动创建）
+			this.knowledgeStore = new KnowledgeStore(db, WA_PI_DIR);
+			this.knowledgeStore.setOnKbDeleted((kbId) => {
+				// 回调是同步遍历触发的 void promise：清理失败只告警，不阻断删库流程
+				void removeKbBinding(kbId, {
+					configStore: this.opts.configStore,
+				}).catch((err) => {
+					console.warn(
+						`[kernel] 知识库 ${kbId} 悬挂绑定清理失败:`,
+						err,
+					);
+				});
+			});
+		}
+		return this.knowledgeStore;
 	}
 
 	/** 后绑定 im_push_to 全局执行器（index.ts 在 channelManager 构造后调用）。 */
@@ -1110,6 +1187,39 @@ export class AgentManager {
 			agentsDir,
 		);
 
+		// 知识库绑定清单（规格 §6.6）：命名 agent 从 config 读；内置 subagent 主会话
+		// （configStore 只覆盖命名智能体）回落 override——两条路径都要接。
+		// 无绑定/库清单为空 → knowledgeBasesContext 不传（段不出现）、工具不可见（见 toolArgs）。
+		let knowledgeKbIds: string[] | undefined;
+		let knowledgeBasesContext: string | undefined;
+		try {
+			let boundKbIds = config?.knowledgeBaseIds;
+			if (!boundKbIds?.length) {
+				const { getSubagentOverride } = await import("./subagent-store");
+				const { SUBAGENT_OVERRIDES_FILE } = await import("@wa-pi/shared");
+				const override = await getSubagentOverride(
+					SUBAGENT_OVERRIDES_FILE,
+					agentName,
+				);
+				boundKbIds = override?.knowledgeBaseIds;
+			}
+			if (boundKbIds?.length) {
+				// 按 id 过滤：悬挂引用（库已删但清理回调未及写回）自然跳过
+				const kbs = this
+					.getKnowledgeStore()
+					.listKbs()
+					.filter((kb) => boundKbIds!.includes(kb.id));
+				if (kbs.length > 0) {
+					knowledgeKbIds = boundKbIds;
+					knowledgeBasesContext = buildKnowledgeBasesPrompt(kbs);
+				}
+			}
+		} catch (err) {
+			// 登记库打开失败（磁盘/权限/损坏）：降级跳过清单注入，不阻断会话创建
+			//（knowledge_search 调用时另有 bridge 层兜底）
+			console.warn(`[kernel] 知识库清单注入跳过（agent=${agentName}）:`, err);
+		}
+
 		// delegate 工具实例（execute 由 bridge ctx 调用；schema 在 wa-pi-bridge 扩展里）
 		const delegateTool = makeDelegateTool({
 			askTo: askToTargets,
@@ -1141,12 +1251,13 @@ export class AgentManager {
 						...memoryCtx,
 						semanticEnabled: memConfig?.semanticEnabled !== false,
 					}
-					: unavailableMemoryCtx(),
-			// 知识库检索：绑定清单来自 agent config 的 knowledgeBaseIds；未绑定（空/缺省）
+				: unavailableMemoryCtx(),
+			// 知识库检索：绑定清单来自 config（命名 agent）或 override（内置 subagent 主会话）
+			// 合并后的 knowledgeKbIds（组装处已含登记库可用性降级）；未绑定（空/缺省）
 			// 不注入，handleTool 对 knowledge_search 返回「未绑定」友好提示。
 			// 工厂只建闭包不打开 db（惰性），打开失败由 /bridge/tool 兑底，不阻断会话创建。
-			knowledgeCtx: config?.knowledgeBaseIds?.length
-				? makeKnowledgeToolContext(WA_PI_DIR, config.knowledgeBaseIds)
+			knowledgeCtx: knowledgeKbIds?.length
+				? makeKnowledgeToolContext(WA_PI_DIR, knowledgeKbIds)
 				: undefined,
 		});
 		const bridgeCtx: BridgeSessionContext = {
@@ -1322,6 +1433,9 @@ export class AgentManager {
 			selfProtectionContext: buildSelfProtectionPrompt(
 				this.opts.bridgeBaseUrl?.(),
 			),
+			// 绑定知识库清单（buildKnowledgeBasesPrompt 产出）：无绑定/清单为空为 undefined
+			// → knowledge-bases 段不出现（规格 §6.6，仿 skill 清单）
+			knowledgeBasesContext,
 		});
 		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });
@@ -1347,19 +1461,31 @@ export class AgentManager {
 		const extensionPaths = buildAdditionalExtensionPaths();
 
 		const restricted = !!config?.tools?.length;
+		// 知识库工具可见性（规格 §6.6：「不是禁用，是不可见」）：
+		// - restricted（白名单模式）且绑定非空：白名单并入 knowledge_search（照 im_push_to 先例——
+		//   绑定了库却静默无工具属于静默失败）；绑定空则不并入（白名单天然排除，无需处理）
+		// - 非 restricted（默认全放行）：绑定非空不动作（全放行已含）；绑定空则追加 exclude，
+		//   屏蔽未绑定智能体的 knowledge_search 可见性
+		const hasKbBinding = (knowledgeKbIds?.length ?? 0) > 0;
 		const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
 			? {
 					tools: [
 						// 受限 agent 白名单无条件并入 im_push_to：工具始终注册（bridge 扩展），
 						// 不并入会被白名单挡掉（主聊天 @im-push-to 标记会话同样需要推送能力）
 						"im_push_to",
+						...(hasKbBinding ? ["knowledge_search"] : []),
 						...resolveAgentTools(
 							config!.tools!,
 							await this.getMcpToolPatterns(cwd),
 						),
 					],
 				}
-			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
+			: {
+					excludeTools: [
+						...ALWAYS_EXCLUDED_TOOLS,
+						...(hasKbBinding ? [] : ["knowledge_search"]),
+					],
+				};
 		// Codemode 两档（系统设置 > 通用）：compat 注入 codemode 工具；off 时若存在
 		// codemode/deferred 曝光的 MCP 服务器则注入 tool_search 兜底（这些 MCP 工具唯一
 		// 的发现通道，缺了就不可达）。白名单路径追加普通名（pi 禁止 +name 与普通名混用）。

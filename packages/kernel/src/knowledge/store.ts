@@ -75,6 +75,14 @@ export class KnowledgeStore {
     private readonly waPiDir: string,
   ) {}
 
+  /** 删库回调（悬挂绑定清理）：接线处经 setOnKbDeleted 注册，deleteKb 时按注册顺序遍历调用 */
+  private onKbDeletedCbs: Array<(kbId: string) => void> = [];
+
+  /** 注册删库回调（如：从智能体绑定的 knowledgeBaseIds 中清理悬挂引用）。支持多个。 */
+  setOnKbDeleted(cb: (kbId: string) => void): void {
+    this.onKbDeletedCbs.push(cb);
+  }
+
   /**
    * 登记新库。name/description 不填时的默认值规则（规格 §6.8）：
    * 名称取文件夹 basename，描述用默认模板。
@@ -116,7 +124,7 @@ export class KnowledgeStore {
     return row ? rowToKb(row, this.getJob(id)) : null;
   }
 
-  /** 级联清理：删 job 行 + 登记行 + 每库 db 文件（含 WAL/SHM 伴生文件） */
+  /** 级联清理：删 job 行 + 登记行 + 每库 db 文件（含 WAL/SHM 伴生文件）+ 触发删库回调 */
   deleteKb(id: string): void {
     // bun:sqlite 默认 foreign_keys=OFF，ON DELETE CASCADE 不生效，必须显式删
     this.db.run(`DELETE FROM indexing_jobs WHERE kb_id = ?`, [id]);
@@ -127,6 +135,14 @@ export class KnowledgeStore {
         unlinkSync(f);
       } catch {
         // 文件不存在即目标状态，跳过
+      }
+    }
+    // 登记行已删，回调清理绑定中的悬挂引用（回调自身失败不阻断删除流程）
+    for (const cb of this.onKbDeletedCbs) {
+      try {
+        cb(id);
+      } catch (err) {
+        console.warn(`[knowledge] 删库回调执行失败 (kbId=${id}):`, err);
       }
     }
   }

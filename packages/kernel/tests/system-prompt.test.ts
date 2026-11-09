@@ -458,14 +458,15 @@ test("ensurePromptsConfig 首次调用写入默认配置", async () => {
 	await ensurePromptsConfig(f);
 	expect(existsSync(f)).toBe(true);
 	const loaded = await loadPromptSegments(f);
-	// im-channel / im-push / scheduled-tasks / self-protection 为运行时注入段，不落盘
+	// im-channel / im-push / scheduled-tasks / self-protection / knowledge-bases 为运行时注入段，不落盘
 	expect(loaded).toEqual(
 		DEFAULT_PROMPT_SEGMENTS.filter(
 			(s) =>
 				s.id !== "im-channel" &&
 				s.id !== "im-push" &&
 				s.id !== "scheduled-tasks" &&
-				s.id !== "self-protection",
+				s.id !== "self-protection" &&
+				s.id !== "knowledge-bases",
 		),
 	);
 	rmSync(f, { force: true });
@@ -617,14 +618,15 @@ test("ensurePromptsConfig 全新机器首次写入含 schemaVersion + 最新静�
 	await ensurePromptsConfig(f);
 	const raw = JSON.parse(readFileSync(f, "utf8"));
 	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
-	// im-channel / im-push / scheduled-tasks / self-protection 为运行时注入段，不落盘
+	// im-channel / im-push / scheduled-tasks / self-protection / knowledge-bases 为运行时注入段，不落盘
 	expect(raw.segments).toEqual(
 		DEFAULT_PROMPT_SEGMENTS.filter(
 			(s) =>
 				s.id !== "im-channel" &&
 				s.id !== "im-push" &&
 				s.id !== "scheduled-tasks" &&
-				s.id !== "self-protection",
+				s.id !== "self-protection" &&
+				s.id !== "knowledge-bases",
 		),
 	);
 	rmSync(f, { force: true });

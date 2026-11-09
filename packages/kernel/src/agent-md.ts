@@ -129,6 +129,16 @@ export function parseAgentMd(md: string): AgentConfig {
 		// 技能显式全不选：仅 frontmatter 写出 true 时为 true，其余（缺失/false）为 undefined
 		skillsAllOff: y.skillsAllOff === true ? true : undefined,
 		mcpServers: Array.isArray(y.mcpServers) ? (y.mcpServers as string[]) : [],
+		// 绑定知识库 id 清单（规格 §6.6）：与 tools/skills 同款列表容错解析；缺失/空 → undefined（无绑定）
+		knowledgeBaseIds: (() => {
+			const raw = Array.isArray(y.knowledgeBaseIds)
+				? (y.knowledgeBaseIds as string[])
+				: String(y.knowledgeBaseIds ?? "")
+						.split(",")
+						.map((s: string) => s.trim());
+			const ids = raw.filter((s: string) => s !== "");
+			return ids.length > 0 ? ids : undefined;
+		})(),
 		partners,
 		delegationHints: (() => {
 			const h = y.delegationHints as Record<string, string> | undefined;
@@ -167,6 +177,9 @@ export function stringifyAgentMd(c: AgentConfig): string {
 	fm.push(
 		`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`,
 	);
+	// 绑定知识库：非空才写出（无绑定不污染 agent.md）；frontmatter 列表行与 tools/skills 同款
+	if (c.knowledgeBaseIds?.length)
+		fm.push(`knowledgeBaseIds: [${c.knowledgeBaseIds.join(", ")}]`);
 	fm.push("partners:");
 	fm.push(`  askTo: [${c.partners.askTo.join(", ")}]`);
 	// 委派引导：三字段有任一非空才写出，避免污染所有 agent.md

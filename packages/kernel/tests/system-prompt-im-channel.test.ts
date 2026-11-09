@@ -99,7 +99,7 @@ test("savePromptSegments 剔除 im-channel 段（不落盘）；loadPromptSegmen
 	}
 });
 
-test("PROMPTS_SCHEMA_VERSION 已升到 29", () => {
-	// 29：delegate-mechanism 段指纹修复（历史数据里仍是「通用优先」旧判据的自动迁移）
-	expect(PROMPTS_SCHEMA_VERSION).toBe(29);
+test("PROMPTS_SCHEMA_VERSION 已升到 30", () => {
+	// 30：新增 knowledge-bases 段（绑定知识库清单，纯运行时注入不落盘）
+	expect(PROMPTS_SCHEMA_VERSION).toBe(30);
 });
