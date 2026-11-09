@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentConfig, AgentName, AgentToolItem } from "@wa-pi/shared";
 import { agentDefOf, resolveProviderSlug, isSubagentType } from "@wa-pi/shared";
@@ -127,6 +127,9 @@ export function AgentConfig({ agentName, onClose }: Props) {
 	const { t } = useTranslation();
 	const [tab, setTab] = useState<Tab>("basic");
 	const [draft, setDraft] = useState<AgentConfig | null>(null);
+	// 用户编辑在途标记：mount 后异步回包（GET config / agent:config 广播）不得覆盖在途编辑，
+	// 否则快网手快的用户（E2E）刚做的修改会被晚到的回包静默回滚（E2E 冒烟发现的真实竞态）
+	const draftDirtyRef = useRef(false);
 	const [tools, setTools] = useState<AgentToolItem[]>([]);
 	const config = useAgentsStore((s) => s.configs[agentName]);
 	// model 有效性校验：磁盘残留的裸 ID（如 glm-4.6）不匹配 select option（slug/id 格式），视为无效
@@ -172,6 +175,8 @@ export function AgentConfig({ agentName, onClose }: Props) {
 	}, [builtinInfo]);
 
 	useEffect(() => {
+		// 切换目标智能体（弹窗重开）时复位在途编辑标记
+		draftDirtyRef.current = false;
 		// 工具列表：内置与命名智能体都需要（工具 tab 展示系统工具全集 + 勾选态）
 		api.get("/api/agents/tools").then((data: any) => {
 			if (data?.tools) setTools(data.tools);
@@ -191,13 +196,13 @@ export function AgentConfig({ agentName, onClose }: Props) {
 			.then((data: any) => {
 				if (data?.config) {
 					useAgentsStore.getState().setConfig(agentName, data.config);
-					setDraft(data.config);
+					if (!draftDirtyRef.current) setDraft(data.config);
 				}
 			})
 			.catch(() => {});
 		const off = onMessage((e) => {
 			if (e.type === "agent:config" && e.agentName === agentName)
-				setDraft(e.config);
+				if (!draftDirtyRef.current) setDraft(e.config);
 			if (e.type === "agent:tools:list") setTools(e.tools);
 		});
 		return off;
@@ -220,6 +225,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 	const canSave = !!draft && (isBuiltin || (!nameEmpty && !nameConflict));
 
 	const handleChange = (next: AgentConfig) => {
+		draftDirtyRef.current = true;
 		setDraft(next);
 	};
 
