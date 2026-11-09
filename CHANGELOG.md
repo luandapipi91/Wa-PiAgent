@@ -1,3 +1,6 @@
+## 2026-11-09
+- feat(kernel): 内置知识库后端——每库独立存储/索引管线/混合检索/knowledge_search 工具/system prompt 注入/监听维护
+
 ## 2026-11-08
 - chore(release): v0.9.5 发版——内存优化：嵌入模型空闲 5 分钟自动卸载（-110-180MB，用时懒加载重载）+ 编译产物 --smol 收紧内核内存 + 编译器 shim 误选 SectionExists 修复 + 存量测试失败清零；mac zip 205946045 / win exe 186031658（双端，linux 不发与历届一致）
 ## 2026-11-07
