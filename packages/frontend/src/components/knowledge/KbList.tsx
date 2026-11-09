@@ -17,6 +17,8 @@ interface Props {
   onShowFailed?: (id: string) => void;
   onEdit?: (kb: KbInfo) => void;
   onReindex?: (id: string) => void;
+  /** 取消进行中的索引（B4）；缺省回退到 store 的 cancelIndex */
+  onCancel?: (id: string) => void;
 }
 
 export function KbList({
@@ -26,9 +28,10 @@ export function KbList({
   onShowFailed,
   onEdit,
   onReindex,
+  onCancel,
 }: Props) {
   const { t } = useTranslation();
-  const { deleteKb, setAutoWatch } = useKnowledgeStore();
+  const { deleteKb, setAutoWatch, cancelIndex } = useKnowledgeStore();
   // 待确认删除的库 id（null = 无确认框）
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -59,6 +62,7 @@ export function KbList({
           onDelete={() => setConfirmDelete(kb.id)}
           onToggleWatch={(on) => (onToggleWatch ?? setAutoWatch)(kb.id, on)}
           onShowFailed={onShowFailed ? () => onShowFailed(kb.id) : undefined}
+          onCancel={() => (onCancel ?? cancelIndex)(kb.id)}
         />
       ))}
 

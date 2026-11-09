@@ -11,6 +11,7 @@
 //   其余 → 「就绪」（绿）
 import type { KbInfo } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
+import { KbProgress } from "./KbProgress";
 
 interface Props {
   kb: KbInfo;
@@ -23,6 +24,8 @@ interface Props {
   onToggleWatch: (on: boolean) => void;
   /** 失败文件徽章点击（B4 接失败清单弹窗前的占位回调） */
   onShowFailed?: () => void;
+  /** 取消进行中的索引（indexing/scanning 时随进度区展示取消按钮） */
+  onCancel?: () => void;
 }
 
 /** 徽章呈现：label + 语义色（色板对齐 McpCard 的 success/accent/warning/danger） */
@@ -62,6 +65,7 @@ export function KbCard({
   onDelete,
   onToggleWatch,
   onShowFailed,
+  onCancel,
 }: Props) {
   const { t } = useTranslation();
   const badge = statusBadge(kb, t);
@@ -112,6 +116,9 @@ export function KbCard({
           onToggle={() => onToggleWatch(!kb.autoWatch)}
         />
       </div>
+
+      {/* 索引进度区（任务 B4：仅 indexing/scanning 渲染，ready/error 内部返回 null） */}
+      <KbProgress kb={kb} onCancel={onCancel ? () => onCancel() : undefined} />
 
       {/* 描述行（单行截断） */}
       {kb.description && (

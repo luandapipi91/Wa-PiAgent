@@ -11,6 +11,7 @@ import {
   type KbFormPayload,
   type KbFormSaveResult,
 } from "./KbFormModal";
+import { KbFailedModal } from "./KbFailedModal";
 
 /** 弹窗目标：null=关闭；"new"=新建；KbInfo=编辑该库 */
 type KbFormTarget = KbInfo | "new" | null;
@@ -19,6 +20,8 @@ export function KnowledgePage() {
   const { t } = useTranslation();
   const { kbs, loading, listKbs } = useKnowledgeStore();
   const [formTarget, setFormTarget] = useState<KbFormTarget>(null);
+  /** 失败清单弹窗目标（null=关闭；kbId=展示该库最近一轮的失败文件） */
+  const [failedKbId, setFailedKbId] = useState<string | null>(null);
 
   // 挂载即拉清单（B4+ 的失败清单/进度亦经本 store 的 SSE 订阅回流）
   useEffect(() => {
@@ -92,6 +95,8 @@ export function KnowledgePage() {
             kbs={kbs}
             // B3：编辑入口接 KbFormModal（只更名称/描述）
             onEdit={(kb) => setFormTarget(kb)}
+            // B4：失败徽章点击接失败清单弹窗（B2 占位回调的落点）
+            onShowFailed={(id) => setFailedKbId(id)}
             // 占位（重建链路不在 B3 范围，弹窗不含重建操作）：按钮可渲染，点击暂无动作
             onReindex={() => {
               /* 重建索引：后续任务接 POST /api/knowledge/:id/index */
@@ -106,6 +111,15 @@ export function KnowledgePage() {
           kb={formTarget === "new" ? undefined : formTarget}
           onSave={handleFormSave}
           onClose={() => setFormTarget(null)}
+        />
+      )}
+
+      {/* 失败文件清单弹窗（B4）：库名从当前清单取，取不到（已删）回退 kbId */}
+      {failedKbId && (
+        <KbFailedModal
+          kbId={failedKbId}
+          kbName={kbs.find((k) => k.id === failedKbId)?.name ?? failedKbId}
+          onClose={() => setFailedKbId(null)}
         />
       )}
     </div>

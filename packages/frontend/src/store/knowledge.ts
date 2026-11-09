@@ -25,6 +25,8 @@ interface KnowledgeState {
   deleteKb(id: string): Promise<void>;
   /** 更新自动更新开关（PUT autoWatch）；失败弹 toast，成功就地改本地 */
   setAutoWatch(id: string, on: boolean): Promise<void>;
+  /** 取消进行中的索引（POST cancel）；失败弹 toast，成功 refetch 对齐 kernel 快照 */
+  cancelIndex(id: string): Promise<void>;
   /** 处理 knowledge:progress：维护 progress map 并同步对应库的 status/progress */
   applyProgress(e: KbProgressEvent): void;
 }
@@ -88,6 +90,19 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
     set((s) => ({
       kbs: s.kbs.map((k) => (k.id === id ? { ...k, autoWatch: on } : k)),
     }));
+  },
+
+  cancelIndex: async (id) => {
+    try {
+      await api.post(`/api/knowledge/${encodeURIComponent(id)}/cancel`);
+    } catch (e) {
+      // 取消失败不能静默（索引仍在跑，用户以为已停）
+      useToastStore.getState().add(formatApiError(e), "error");
+      return;
+    }
+    // kernel 即时返回当前快照，收尾恢复（恢复原状态/删 job 行）异步完成；终态经 SSE
+    // 推帧为主，此处 refetch 兜底对齐快照（与 App.tsx 断连重连清单兜底同思路）
+    useKnowledgeStore.getState().listKbs();
   },
 
   applyProgress: (e) => {
