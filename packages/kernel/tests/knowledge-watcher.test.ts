@@ -200,3 +200,36 @@ test("重入协调：手动索引进行中的变更不丢，手动完成后 watc
   expect(store.getJob(kbId)).toBeNull();
   w.stop();
 });
+
+test("cancelIndex 仅中止当前轮自动索引，watcher（监听/轮询）继续存活", async () => {
+  await initialIndex();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let calls = 0;
+  const w = watchKb(ctx, kbId, {
+    embedFn: fakeEmbed,
+    debounceMs: 20,
+    pollIntervalMs: 50,
+    // 阻塞式 indexFn：真实 runIndex 前先挂在 gate 上，模拟一轮进行中的自动索引
+    indexFn: async (c, id, signal) => {
+      calls++;
+      await gate;
+      return await runIndex(c, id, fakeEmbed, signal);
+    },
+  });
+  try {
+    await writeMd("cancelled.md", "# 取消目标\n内容");
+    await waitFor(() => calls === 1, 5_000); // 轮询发现变更 → 防抖 → 自动索引起跑并挂住
+    expect(w.indexing).toBe(true);
+
+    w.cancelIndex();
+    release(); // 放行当前轮：signal 已 aborted，runIndex 走取消收尾（恢复 ready、删 job）
+    await waitFor(() => !w.indexing, 5_000);
+    expect(w.stopped).toBe(false); // watcher 未被拆：监听/轮询继续接后续变更
+    expect(w.fsWatcher).not.toBeNull();
+    expect(store.getJob(kbId)).toBeNull();
+    expect(store.getKb(kbId)!.status).toBe("ready");
+  } finally {
+    w.stop();
+  }
+});

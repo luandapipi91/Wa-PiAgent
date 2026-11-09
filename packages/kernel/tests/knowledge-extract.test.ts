@@ -32,3 +32,20 @@ test("extractText html 去除 script/style/nav 并保留正文结构", async () 
 test("extractText 不存在的文件抛 ExtractionError", async () => {
   expect(extractText(fix("no-such-file.md"), "md")).rejects.toThrow(ExtractionError);
 });
+
+// 最终审查修复回归（T4①）：未闭合的 <script>（截断页常见）配对剔除捕捉不到，
+// 会把后续正文全部吞进脚本块——补一遍贪婪剔到文末兜底
+test("extractText html 未闭合 script 兜底剔除（截断页面）", async () => {
+  const r = await extractText(fix("unclosed.html"), "html");
+  expect(r.text).toContain("正文第一段");
+  expect(r.text).not.toContain("console.log");
+  expect(r.text).not.toMatch(/<script/i);
+});
+
+// 最终审查修复回归（T4②）：&amp; 必须最后替换，否则 &amp;lt; 被双重解码成 <
+test("extractText 实体解码顺序：&amp;lt; 单次解码保持文本形态", async () => {
+  const r = await extractText(fix("entities.html"), "html");
+  // &amp;lt; 解码一次 → 字面文本 &lt;b&gt;，不再二次解码成真标签 <b>
+  expect(r.text).toContain("&lt;b&gt;不应成为真标签&lt;/b&gt;");
+  expect(r.text).not.toContain("<b>");
+});

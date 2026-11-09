@@ -47,15 +47,16 @@ function readBufferOrThrow(absPath: string): Buffer {
 	}
 }
 
-/** 少量高频 HTML 实体还原（不引入完整实体表——知识库正文不依赖冷门实体） */
+/** 少量高频 HTML 实体还原（不引入完整实体表——知识库正文不依赖冷门实体）；
+ * &amp; 必须最后替换，否则 &amp;lt; 会被二次解码成 <（最终审查修复） */
 function decodeHtmlEntities(s: string): string {
 	return s
 		.replace(/&nbsp;/g, " ")
-		.replace(/&amp;/g, "&")
 		.replace(/&lt;/g, "<")
 		.replace(/&gt;/g, ">")
 		.replace(/&quot;/g, '"')
-		.replace(/&#39;/g, "'");
+		.replace(/&#39;/g, "'")
+		.replace(/&amp;/g, "&");
 }
 
 /**
@@ -68,7 +69,10 @@ function extractHtmlText(absPath: string): ExtractedText {
 	let html = readBufferOrThrow(absPath).toString("utf8");
 	html = html
 		.replace(/<!--[\s\S]*?-->/g, " ")
-		.replace(/<(script|style|nav|header|footer)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
+		.replace(/<(script|style|nav|header|footer)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+		// 未闭合的 <script>/<style>（截断页面常见）：配对剔除捕捉不到，会把后续正文
+		// 全部吞进脚本块——补一遍贪婪剔到文末兜底（最终审查修复）
+		.replace(/<(script|style)\b[^>]*>[\s\S]*$/gi, " ");
 	const text = decodeHtmlEntities(
 		html
 			.replace(/<\/(p|div|section|article|h[1-6]|li|tr|blockquote|pre)\b>/gi, "\n")

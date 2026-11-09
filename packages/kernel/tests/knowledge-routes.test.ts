@@ -22,6 +22,7 @@ import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore } from "../src/knowledge/store";
 import { kbDbPath } from "../src/knowledge/paths";
 import type { EmbedFn } from "../src/knowledge/indexer";
+import type { WatchKbOptions } from "../src/knowledge/watcher";
 import { EMBED_DIM } from "../src/memory/schema";
 import { loadSubagentOverrides, saveSubagentOverride } from "../src/subagent-store";
 import { removeKbBinding } from "../src/agent-manager";
@@ -32,6 +33,9 @@ let srcDir: string;
 let reg: Database;
 let store: KnowledgeStore;
 let overridesFile: string;
+// 运行登记清理句柄：ready 收尾会自动挂 watcher（fs.watch 句柄挂着 Windows rmSync 会 EBUSY），
+// afterEach 统一拆掉（含测试中途已 detach 的，幂等）
+let activeServer: WSServer | null = null;
 
 /** 阻塞式 fake embed：首次调用挂起，直到测试 resolveAll/rejectAll；放行后未来调用直接完成 */
 function makeGateEmbed() {
@@ -42,18 +46,23 @@ function makeGateEmbed() {
   } | null = null;
   let closed = false;
   let resolveMode = false;
+  let holdMode = false; // hold：后续 embed 调用重新挂起（ready 后再卡住 watcher 源索引用）
   const fakeVecs = (n: number) =>
     Array.from({ length: n }, () => new Uint8Array(EMBED_DIM).fill(128));
   return {
     embed: (texts: string[]): Promise<Uint8Array[]> => {
-      if (closed && resolveMode) return Promise.resolve(fakeVecs(texts.length));
+      if (!holdMode && closed && resolveMode) return Promise.resolve(fakeVecs(texts.length));
       return new Promise((resolve, reject) => {
-        if (closed) {
+        if (closed && !holdMode) {
           reject(new Error("测试收尾：gate 已关闭"));
           return;
         }
         pending = { n: texts.length, resolve, reject };
       });
+    },
+    /** 放行后重新挂起后续调用（watcher 触发的索引要卡在 embed 才能测 cancel） */
+    hold: () => {
+      holdMode = true;
     },
     /** 放行当前挂起批次与后续调用（fake 向量），索引正常完成收尾 */
     resolveAll: () => {
@@ -89,16 +98,19 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // 让阻塞中的 runIndex 退出收尾（释放每库 db 句柄），再删临时目录（Windows 文件占用）
+  // 先拆文件监听（fs.watch 句柄挂着 Windows 删不掉临时目录），再让阻塞中的 runIndex 退出
+  // 收尾（释放每库 db 句柄），最后删临时目录
+  activeServer?.kbWatchStopAll();
+  activeServer = null;
   gate.rejectAll();
-  await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 200)); // 等 runIndex 取消/失败收尾链跑完（释放每库 db 句柄）
   reg.close();
   rmSync(tmpDir, { recursive: true, force: true });
   rmSync(srcDir, { recursive: true, force: true });
 });
 
 /** 起最小 WSServer：知识库登记库与 gate embed 注入（生产路径缺省用 agentManager 共享实例） */
-async function startTestServer() {
+async function startTestServer(kbWatchOpts?: WatchKbOptions) {
   const projectFile = join(tmpDir, "projects.json");
   writeFileSync(
     projectFile,
@@ -123,12 +135,14 @@ async function startTestServer() {
     dataDir,
     knowledgeStore: store,
     kbEmbedFn: gate.embed,
+    kbWatchOpts,
     agentManager: { disposeAll: async () => {}, markAllDirty: () => {} } as any,
     channelManager: null,
     port: 0,
   };
   const server = new WSServer(opts);
   await server.start();
+  activeServer = server;
   return { server, port: server.actualPort };
 }
 
@@ -402,4 +416,84 @@ test("DELETE 后清理智能体绑定中的悬挂引用", async () => {
   const overrides = await loadSubagentOverrides(overridesFile);
   // 悬挂引用已清：knowledgeBaseIds 不再含该 id（空数组记录保留——removeKbBinding 只重写含该 id 的记录）
   expect(overrides.every((o) => !o.knowledgeBaseIds?.includes(kb.id))).toBe(true);
+});
+
+// ===== 10. 运行登记接线（最终审查修复）：ready 收尾挂监听 / autoWatch 开关 / delete 拆监听 / cancel 覆盖 watcher 源 =====
+
+/** 类型缩写：运行登记表条目（ws-server 私有字段，测试经 any 桥接观察） */
+type KbRunEntry = { watch: { stopped: boolean; indexing: boolean } | null; abort: AbortController | null };
+
+async function createAndWaitReady(port: number): Promise<string> {
+  const created = (await (
+    await api(port, "POST", "/api/knowledge", { folderPath: srcDir })
+  ).json()) as any;
+  gate.resolveAll();
+  await waitFor(() => store.getKb(created.kb.id)!.status === "ready");
+  return created.kb.id as string;
+}
+
+test("索引 ready 后 watcher 挂入运行登记；autoWatch 开关切换 attach/detach", async () => {
+  const { server, port } = await startTestServer();
+  const kbId = await createAndWaitReady(port);
+  const runs = (server as any).kbRuns as Map<string, KbRunEntry>;
+  // ready 收尾自动挂监听（修复前：运行期创建的库永不挂监听，自动更新主流程失效）
+  await waitFor(() => runs.get(kbId)?.watch != null);
+  const first = runs.get(kbId)!.watch!;
+  expect(first.stopped).toBe(false);
+
+  // autoWatch 关 → 同步拆监听清登记
+  const off = await api(port, "PUT", `/api/knowledge/${kbId}`, { autoWatch: false });
+  expect(off.status).toBe(200);
+  expect(runs.get(kbId)).toBeUndefined();
+  expect(first.stopped).toBe(true);
+
+  // autoWatch 开 → 重新 attach（新 watcher，状态仍 ready）
+  const on = await api(port, "PUT", `/api/knowledge/${kbId}`, { autoWatch: true });
+  expect(on.status).toBe(200);
+  expect(runs.get(kbId)?.watch != null).toBe(true);
+  expect(runs.get(kbId)!.watch!.stopped).toBe(false);
+});
+
+test("delete 同步拆监听清登记（无孤儿 watcher 轮询到重启）", async () => {
+  const { server, port } = await startTestServer();
+  const kbId = await createAndWaitReady(port);
+  const runs = (server as any).kbRuns as Map<string, KbRunEntry>;
+  await waitFor(() => runs.get(kbId)?.watch != null);
+  const watch = runs.get(kbId)!.watch!;
+
+  const res = await api(port, "DELETE", `/api/knowledge/${kbId}`);
+  expect(res.status).toBe(200);
+  expect(store.getKb(kbId)).toBeNull();
+  expect(runs.get(kbId)).toBeUndefined();
+  // 监听+轮询已关：不再 60s 轮询+反复 warn
+  expect(watch.stopped).toBe(true);
+});
+
+test("watcher 触发的自动索引可被 cancel 端点取消（watcher 存活）", async () => {
+  // 注入加速轮询/防抖：60s/2s 默认值下测试等不起
+  const { server, port } = await startTestServer({ pollIntervalMs: 50, debounceMs: 20 });
+  const kbId = await createAndWaitReady(port);
+  const runs = (server as any).kbRuns as Map<string, KbRunEntry>;
+  await waitFor(() => runs.get(kbId)?.watch != null);
+  const entry = runs.get(kbId)!;
+
+  // 目录变更 → 轮询兑底（加速后 50ms）发现 → 防抖（20ms）→ watcher 触发 runIndex；
+  // gate 先 hold 住让那轮索引稳定卡在 embed（否则 resolveMode 下毫秒级跑完捕捉不到 job 行）。
+  // 先睡过一个轮询周期：等 attach 时异步拍的基线快照就绪，否则写文件会被吞进初始基线（无差异不触发）
+  gate.hold();
+  await new Promise((r) => setTimeout(r, 150));
+  writeFileSync(join(srcDir, "late.md"), "# 迟到\n\n监听触发的新内容。");
+  await waitFor(() => store.getJob(kbId) !== null, 5000);
+  // watcher 源索引：abort 登记为空（不走 startKbIndex），修复前 cancel 端点查不到、无法取消
+  expect(entry.abort).toBeNull();
+  expect(entry.watch!.indexing).toBe(true);
+
+  const res = await api(port, "POST", `/api/knowledge/${kbId}/cancel`);
+  expect(res.status).toBe(200);
+  gate.rejectAll(); // 放行阻塞中的 embed → runIndex 走取消收尾
+  await waitFor(() => store.getJob(kbId) === null);
+  expect(store.getKb(kbId)!.status).toBe("ready"); // 取消恢复原状态
+  // 只中止当前轮：watcher 存活，后续变更照常触发
+  await waitFor(() => entry.watch!.indexing === false);
+  expect(entry.watch!.stopped).toBe(false);
 });

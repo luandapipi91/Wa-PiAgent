@@ -69,7 +69,7 @@ import {
 	ensureBunBeBunEnv,
 } from "@wa-pi/shared";
 import { KernelError, toKernelPayload } from "./kernel-error";
-import { restoreWatchers, type RestoreWatchersController } from "./knowledge/watcher";
+import { restoreWatchers } from "./knowledge/watcher";
 import type { ExecutionRecord, ScheduledTask, PushResult } from "@wa-pi/shared";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -483,16 +483,23 @@ export async function startKernel(opts?: {
 	// 删库回调 setOnKbDeleted 已在该实例上注册，另建实例会导致悬挂绑定清理不触发）。
 	// 打开失败仅降级知识库功能（路由请求时另惰性重试 agentManager 的连接），不阻断启动。
 	// 打开成功后接看文件监听恢复（任务 11，规格 §6.7）：autoWatch 且 ready 的库挂监听；
-	// 上次中断（status=indexing）的库置 error，不自动续跑。恢复失败同样只降级，不阻断启动。
-	let kbWatchers: RestoreWatchersController | null = null;
+	// 上次中断（status=indexing）的库置 error，不自动续跑。恢复挂上的 watcher 经 onAttach
+	// 登记进 server 的运行登记表（最终审查修复：与运行期 attach 同一登记，delete 才能
+	// 同步 detach、stopAll 才能一并清理）。恢复失败同样只降级，不阻断启动。
 	try {
 		const kbStore = agentManager.getKnowledgeStore();
 		(server as any).opts.knowledgeStore = kbStore;
-		kbWatchers = restoreWatchers({
-			store: kbStore,
-			waPiDir: WA_PI_DIR,
-			sse: (evt) => broadcast(evt),
-		});
+		restoreWatchers(
+			{
+				store: kbStore,
+				waPiDir: WA_PI_DIR,
+				sse: (evt) => broadcast(evt),
+			},
+			{},
+			{
+				onAttach: (kbId, controller) => (server as any).kbWatchRegister(kbId, controller),
+			},
+		);
 	} catch (err) {
 		console.warn("[kernel] 知识库登记库打开失败，知识库功能降级:", err);
 	}
@@ -922,7 +929,7 @@ export async function startKernel(opts?: {
 		clearInterval(reapTimer);
 		clearInterval(archiveTimer); // 回收站自动归档
 		eventThrottle.dispose();
-		kbWatchers?.stopAll(); // 停止知识库文件监听（fs.watch 句柄 + 轮询 interval）
+		(server as any).kbWatchStopAll(); // 停止知识库文件监听 + 清运行登记表（fs.watch 句柄 + 轮询 interval）
 		scheduler.stopAll(); // 停止全部 cron 调度（避免退出期再触发新执行）
 		// 先断渠道长连接（避免关闭期收到新进站再触发 agent 调用），再回收 pi 子进程
 		await channelManager.stop().catch(() => {});
@@ -943,7 +950,7 @@ export async function startKernel(opts?: {
 	return {
 		port: server.actualPort,
 		stop: async () => {
-			kbWatchers?.stopAll(); // Windows：fs.watch 句柄挂着会锁目录（与登记库句柄同理）
+			(server as any).kbWatchStopAll(); // Windows：fs.watch 句柄挂着会锁目录（与登记库句柄同理）
 			await server.stop().catch(() => {});
 			agentManager.disposeKnowledgeStore();
 		},

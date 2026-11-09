@@ -39,8 +39,14 @@ export interface WatchKbOptions {
 /** watchKb 返回的控制器：stop 清 watcher + 轮询 interval + 防抖定时器并中止进行中索引 */
 export interface KbWatchController {
   stop(): void;
+  /** 仅中止当前进行中的自动索引（不动监听/轮询/防抖，watcher 继续存活）——cancel 端点对 watcher 源索引用 */
+  cancelIndex(): void;
+  /** 有一轮自动索引进行中（cancel 端点判断「是否有可取消的任务」用） */
+  readonly indexing: boolean;
   /** fs.watch 句柄（测试/诊断用它 close() 模拟监听失效，验证 60s 轮询兜底） */
   readonly fsWatcher: FSWatcher | null;
+  /** 已停止（测试断言 delete/stopAll 后监听与轮询已关） */
+  readonly stopped: boolean;
 }
 
 /**
@@ -65,11 +71,22 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   let lastSnapshot: string | null = null; // relPath+mtime+size 联合键（scanFolder 已排序；null=基线未就绪）
   let pendingReport = false; // 有未消化的变更已排队（schedule 置位、索引消化后复位）——轮询同一差异只上报一次，
   // 否则基线不推进的轮询会每个周期重复 schedule 重置防抖窗口，timer 永不到期（触发饥饿）
-  const internalAbort = new AbortController();
+  let currentAbort: AbortController | null = null; // 当前进行中那轮索引的控制器（每轮新建，索引间隙为 null）
   if (opts.signal) {
-    if (opts.signal.aborted) return { stop, get fsWatcher() {
-      return fsWatcher;
-    } }; // 已取消：不挂任何监听（stop 可重复调用）
+    if (opts.signal.aborted)
+      return {
+        stop,
+        cancelIndex,
+        get indexing() {
+          return running;
+        },
+        get fsWatcher() {
+          return fsWatcher;
+        },
+        get stopped() {
+          return stopped;
+        },
+      }; // 已取消：不挂任何监听（stop 可重复调用）
     opts.signal.addEventListener("abort", () => stop(), { once: true });
   }
 
@@ -99,7 +116,14 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
     try {
       do {
         dirty = false;
-        await indexFn(ctx, kbId, internalAbort.signal);
+        // 每轮独立控制器：cancelIndex 只中止当前轮，watcher（监听/轮询）继续存活接后续触发
+        const abort = new AbortController();
+        currentAbort = abort;
+        try {
+          await indexFn(ctx, kbId, abort.signal);
+        } finally {
+          if (currentAbort === abort) currentAbort = null;
+        }
       } while (dirty && !stopped);
       // 成功后才推进基线（变更未被索引消化前，轮询的差异信号必须保持）：
       // 拍当前目录快照——含本轮进行中窗口内被 runIndex 消化的变更；
@@ -179,6 +203,11 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
     })();
   }, pollMs);
 
+  /** 仅中止当前进行中的索引；不动 stopped/timer/watcher——后续变更/轮询照常触发新轮 */
+  function cancelIndex(): void {
+    currentAbort?.abort(); // runIndex 取消语义：恢复原状态、删 job 行；trigger catch 判定后不重排
+  }
+
   function stop(): void {
     if (stopped) return;
     stopped = true;
@@ -193,12 +222,22 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
       /* 已失效/已关闭：目标状态即无监听 */
     }
     fsWatcher = null;
-    internalAbort.abort(); // 中止进行中索引（runIndex 取消语义：恢复原状态，旧索引保留）
+    currentAbort?.abort(); // 中止进行中索引（runIndex 取消语义：恢复原状态，旧索引保留）
   }
 
-  return { stop, get fsWatcher() {
-    return fsWatcher;
-  } };
+  return {
+    stop,
+    cancelIndex,
+    get indexing() {
+      return running;
+    },
+    get fsWatcher() {
+      return fsWatcher;
+    },
+    get stopped() {
+      return stopped;
+    },
+  };
 }
 
 /** restoreWatchers 返回的控制器：kernel 退出时统一清掉全部 watcher */
@@ -213,7 +252,11 @@ export interface RestoreWatchersController {
  *   - autoWatch=1 且 status=ready：挂监听；
  *   - 其余（scanning/error/autoWatch 关）不挂——关掉后仅手动更新/重建。
  */
-export function restoreWatchers(ctx: KbContext, opts: WatchKbOptions = {}): RestoreWatchersController {
+export function restoreWatchers(
+  ctx: KbContext,
+  opts: WatchKbOptions = {},
+  hooks: { onAttach?: (kbId: string, controller: KbWatchController) => void } = {},
+): RestoreWatchersController {
   const controllers: KbWatchController[] = [];
   for (const kb of ctx.store.listKbs()) {
     try {
@@ -223,7 +266,11 @@ export function restoreWatchers(ctx: KbContext, opts: WatchKbOptions = {}): Rest
         continue;
       }
       if (kb.autoWatch && kb.status === "ready") {
-        controllers.push(watchKb(ctx, kb.id, opts));
+        const controller = watchKb(ctx, kb.id, opts);
+        controllers.push(controller);
+        // 恢复挂上的 watcher 同步进调用方的运行登记（最终审查修复：否则 delete 时
+        // 拆不到它，留下孤儿 watcher 60s 轮询+反复 warn 直到重启）
+        hooks.onAttach?.(kb.id, controller);
       }
     } catch (err) {
       // 单库恢复失败不拖垮其余库（如库行元数据异常）

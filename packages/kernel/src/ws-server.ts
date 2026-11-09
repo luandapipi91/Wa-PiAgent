@@ -98,7 +98,8 @@ import { registerMemoryRoutes } from "./routes/memory";
 import { registerKnowledgeRoutes } from "./routes/knowledge";
 import { runIndex, getKbFailures, clearKbFailures, type EmbedFn } from "./knowledge/indexer";
 import { scanFolder } from "./knowledge/scan";
-import type { KbContext } from "./knowledge/index";
+import type { KbContext, KbWatchController, WatchKbOptions } from "./knowledge/index";
+import { watchKb } from "./knowledge/watcher";
 import type { KnowledgeStore } from "./knowledge/store";
 import type { KbProgressEvent } from "@wa-pi/shared";
 import { registerSettingsRoutes } from "./routes/settings";
@@ -443,6 +444,10 @@ export interface WSServerOpts {
 	 * 知识库嵌入函数（测试注入 fake 绕开真实模型）。缺省用真实 embedDocuments。
 	 */
 	kbEmbedFn?: EmbedFn;
+	/**
+	 * 知识库文件监听参数（测试注入加速 pollIntervalMs/debounceMs）。缺省 60s 轮询 + 2s 防抖。
+	 */
+	kbWatchOpts?: WatchKbOptions;
 	/** IM 渠道机器人管理器（Task 8 注入真实实例；测试/未启用时为 null，相关 case 走降级路径） */
 	channelManager: import("./channel-manager").ChannelManager | null;
 	dataDir?: string;
@@ -566,8 +571,14 @@ export class WSServer {
 	 * 在 {@link registerRoutes} 里装配：它依赖已注入的 opts.mcpFile / agentManager。
 	 */
 	private mcpHandlers!: McpHandlers;
-	/** 知识库索引的取消控制器（kbId → controller；runIndex 结束后自清） */
-	private kbAborts = new Map<string, AbortController>();
+	/**
+	 * 知识库运行登记：kbId → { watch: 文件监听控制器, abort: 手动索引取消控制器 }。
+	 * 同一时刻一个库只有一轮索引在跑（runIndex 重入防护基于 job 行，watcher 触发会
+	 * 防抖等待手动完成），abort 与 watch.indexing 至多一个为真。
+	 * watch 生命周期：ready 收尾 / autoWatch 开 / restore 恢复时 attach；delete /
+	 * autoWatch 关 / stopAll 时 detach（最终审查修复：运行期创建的库此前永不监听）。
+	 */
+	private kbRuns = new Map<string, { watch: KbWatchController | null; abort: AbortController | null }>();
 
 	/**
 	 * 知识库登记库解析：opts 注入优先（测试），缺省用 agentManager 的共享实例——
@@ -585,20 +596,75 @@ export class WSServer {
 		return { store, waPiDir: store.waPiDir, sse: (evt: KbProgressEvent) => this.broadcast(evt) };
 	}
 
+	/** 取运行登记条目（无则建空条目挂入——abort/watch 字段随后各自赋值） */
+	private kbRunsEntry(kbId: string): { watch: KbWatchController | null; abort: AbortController | null } {
+		let entry = this.kbRuns.get(kbId);
+		if (!entry) {
+			entry = { watch: null, abort: null };
+			this.kbRuns.set(kbId, entry);
+		}
+		return entry;
+	}
+
+	/**
+	 * 给 autoWatch 开且 ready 的库挂文件监听并登记（幂等：已挂跳过，不重启轮询基线）。
+	 * 三个调用点：索引 ready 收尾 / PUT autoWatch=true / restore 恢复（后者走 kbWatchRegister）。
+	 * 守卫挡住不满足条件的调用（delete 竞态下 getKb 为 null、error/scanning、autoWatch 关）。
+	 */
+	private kbWatchAttach(kbId: string): void {
+		const kb = this.kbStore().getKb(kbId);
+		if (!kb || !kb.autoWatch || kb.status !== "ready") return;
+		const entry = this.kbRunsEntry(kbId);
+		if (entry.watch) return;
+		// embedFn 透传 kbEmbedFn（watcher 缺省 indexFn 只认 opts.embedFn，不传会走真实模型）；
+		// kbWatchOpts 显式字段（测试注入 poll/debounce）优先覆盖
+		entry.watch = watchKb(this.kbContext(), kbId, {
+			embedFn: this.opts.kbEmbedFn,
+			...this.opts.kbWatchOpts,
+		});
+	}
+
+	/** 拆文件监听并清登记（delete / PUT autoWatch=false 共用）；无监听也无手动索引时移除条目 */
+	private kbWatchDetach(kbId: string): void {
+		const entry = this.kbRuns.get(kbId);
+		if (!entry) return;
+		entry.watch?.stop();
+		entry.watch = null;
+		if (!entry.abort) this.kbRuns.delete(kbId);
+	}
+
+	/** index.ts restoreWatchers 恢复挂上的 watcher 登记进同一张运行表（幂等：旧监听先拆） */
+	kbWatchRegister(kbId: string, controller: KbWatchController): void {
+		const entry = this.kbRunsEntry(kbId);
+		entry.watch?.stop();
+		entry.watch = controller;
+	}
+
+	/** 停全部文件监听并清登记表（kernel shutdown/stop 双路共用） */
+	kbWatchStopAll(): void {
+		for (const entry of this.kbRuns.values()) entry.watch?.stop();
+		this.kbRuns.clear();
+	}
+
 	/**
 	 * 异步触发一轮索引：不阻塞 HTTP/WS 响应（控制者裁决），进度经 ctx.sse 广播 SSE。
 	 * 失败已由 indexer 落库（status=error）并广播，这里只防 unhandled rejection；
-	 * controller 存入 kbAborts 供 cancel 端点中止，收尾自清。
+	 * controller 存入 kbRuns 供 cancel 端点中止，收尾自清。
 	 */
 	private startKbIndex(kbId: string): void {
 		const controller = new AbortController();
-		this.kbAborts.set(kbId, controller);
+		const entry = this.kbRunsEntry(kbId);
+		entry.abort = controller;
 		void runIndex(this.kbContext(), kbId, this.opts.kbEmbedFn, controller.signal)
 			.catch((err) => {
 				console.warn(`[kernel] 知识库索引失败 (kbId=${kbId}):`, err);
 			})
 			.finally(() => {
-				this.kbAborts.delete(kbId);
+				if (entry.abort === controller) entry.abort = null;
+				// 索引成功收尾（ready）且 autoWatch 开 → 挂文件监听（最终审查修复：运行期创建的库
+				// 此前永不监听，自动更新主流程失效）。取消/delete/error 场景由 kbWatchAttach 内部
+				// 状态守卫挡住不挂（delete 竞态 getKb 为 null → 不挂）。
+				this.kbWatchAttach(kbId);
 			});
 	}
 
@@ -3047,12 +3113,16 @@ export class WSServer {
 			}
 			case "knowledge:cancel": {
 				try {
-					const controller = this.kbAborts.get(event.kbId);
-					if (!controller) {
+					const entry = this.kbRuns.get(event.kbId);
+					if (!entry || (!entry.abort && !entry.watch?.indexing)) {
 						reply({ type: "error", message: "该库没有进行中的索引任务" });
 						break;
 					}
-					controller.abort();
+					entry.abort?.abort();
+					// watcher 源触发的自动索引走 watcher 内部 signal，一并取消（最终审查修复：
+					// 此前只查手动索引登记，watcher 触发的索引无法取消）；只中止当前轮，
+					// 监听/轮询继续存活接后续变更
+					entry.watch?.cancelIndex();
 					// 取消语义（恢复原状态/删 job 行）由 indexer 收尾完成；即时返回当前快照
 					const kb = this.kbStore().getKb(event.kbId);
 					if (!kb) {
@@ -3078,6 +3148,10 @@ export class WSServer {
 						reply({ type: "error", message: "索引进行中，请先取消再删除" });
 						break;
 					}
+					// 同步拆文件监听并清登记（最终审查修复：ready 库此前留孤儿 watcher，
+					// 60s 轮询+反复 warn 直到重启）。getJob 检查已保证此刻无索引在跑
+					//（watcher 触发的索引同样建 job 行），stop 安全；无 watcher 时幂等 no-op
+					this.kbWatchDetach(event.kbId);
 					store.deleteKb(event.kbId);
 					clearKbFailures(event.kbId);
 					reply({ type: "knowledge:delete", ok: true });
@@ -3101,6 +3175,10 @@ export class WSServer {
 					}
 					if (event.autoWatch !== undefined) {
 						store.setAutoWatch(event.kbId, event.autoWatch);
+						// 运行中 watcher 感知开关切换（最终审查修复）：开 → 给 ready 库挂监听
+						//（内部守卫：scanning/error 不挂，等索引收尾再挂）；关 → 拆监听清登记
+						if (event.autoWatch) this.kbWatchAttach(event.kbId);
+						else this.kbWatchDetach(event.kbId);
 					}
 					reply({ type: "knowledge:update", kb: store.getKb(event.kbId)! });
 				} catch (err) {

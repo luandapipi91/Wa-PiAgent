@@ -539,6 +539,9 @@ export class AgentManager {
 	getKnowledgeStore(): KnowledgeStore {
 		if (!this.knowledgeStore) {
 			const db = new Database(knowledgeDbPath(WA_PI_DIR));
+			// WAL 允许读写并发，busy_timeout 防短暂锁竞争直接抛错（与 memory/db.ts、kb-db.ts 同款先例）
+			db.run("PRAGMA journal_mode = WAL");
+			db.run("PRAGMA busy_timeout = 60000");
 			db.exec(KB_SCHEMA_SQL); // 幂等建表（不存在 knowledge.db 时自动创建）
 			this.knowledgeStore = new KnowledgeStore(db, WA_PI_DIR);
 			this.knowledgeStore.setOnKbDeleted((kbId) => {
