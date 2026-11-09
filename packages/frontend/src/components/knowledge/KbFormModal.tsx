@@ -11,7 +11,7 @@
 // 默认值规则（kernel 同款兜底，前端空值直接提交）：名称留空 → 后端取文件夹名；
 // 描述留空 → 后端生成默认描述。保存失败经 onSave 返回 { ok:false, message } 回显弹窗，
 // 成功时由调用方刷新清单并关闭弹窗。
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { KbInfo, KbScanPreview } from "@wa-pi/shared";
 import { Modal } from "../ui/Modal";
 import { DirTreePicker } from "../DirTreePicker";
@@ -103,10 +103,15 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   // 浏览器环境（无 Electron 原生目录对话框）才挂 DirTreePicker 覆盖层
   const [pickerOpen, setPickerOpen] = useState(false);
+  // 扫描序号：改路径/再次扫描即作废在途响应（resolve 时序号不匹配则丢弃），
+  // 防止旧路径的预览落地误导新路径提交（架空两段式确认语义）
+  const scanSeqRef = useRef(0);
 
   const changeFolder = (v: string) => {
     setFolderPath(v);
-    // 路径变了，旧预览作废（防止按旧路径创建）
+    // 路径变了：作废在途扫描（旧响应 resolve 后被序号检查丢弃）并清旧预览
+    scanSeqRef.current += 1;
+    setScanning(false);
     setPreview(null);
     setScanError(undefined);
     setInlineError(undefined);
@@ -134,6 +139,7 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
       setInlineError(t("kb.pleaseSelectFolder"));
       return;
     }
+    const seq = ++scanSeqRef.current;
     setScanning(true);
     setScanError(undefined);
     setPreview(null);
@@ -141,11 +147,12 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
       const data = (await api.post("/api/knowledge/preview", {
         folderPath: p,
       })) as { preview?: KbScanPreview };
-      setPreview(data?.preview ?? null);
+      // 本次扫描仍是最新一次才落地（期间改过路径/重新扫描则丢弃旧响应）
+      if (seq === scanSeqRef.current) setPreview(data?.preview ?? null);
     } catch (e) {
-      setScanError(formatApiError(e));
+      if (seq === scanSeqRef.current) setScanError(formatApiError(e));
     } finally {
-      setScanning(false);
+      if (seq === scanSeqRef.current) setScanning(false);
     }
   };
 
@@ -353,7 +360,7 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
                 }}
                 data-testid="kb-cancel"
               >
-                ✕
+                {t("kb.cancel")}
               </button>
               <button
                 type="button"

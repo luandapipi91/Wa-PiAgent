@@ -521,6 +521,7 @@ const zh = {
 		descPlaceholder: "不填则生成默认描述",
 		saveNew: "创建并索引",
 		saveEdit: "保存",
+		cancel: "取消",
 		pleaseSelectFolder: "请选择文件夹",
 		indexableCount: "{{count}} 个文件可索引",
 		skipTotal: "另跳过 {{count}} 个文件：",

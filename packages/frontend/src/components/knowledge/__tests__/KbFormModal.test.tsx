@@ -18,6 +18,7 @@ import {
 import { KbFormModal, type KbFormPayload } from "../KbFormModal";
 import { KnowledgePage } from "../KnowledgePage";
 import { useKnowledgeStore } from "../../../store/knowledge";
+import enLocale from "../../../i18n/locales/en";
 import type { KbInfo } from "@wa-pi/shared";
 
 // 伪 preview 回包：3 个可索引 + 2 项建议排除 + 1 项二进制（覆盖跳过原因计数映射）
@@ -38,6 +39,8 @@ const previewPayload = {
 // get 回带 kbReady 的清单：KnowledgePage mount 必拉 listKbs（会覆盖 setState 注入），
 // 让清单稳定含 kbReady，供「更新入口」测试使用（弹窗测试不消费 get，互不影响）
 const postCalls: Array<[string, unknown]> = [];
+// preview 延迟闸（扫描竞态测试用）：非 undefined 时 preview 响应挂起直到放行；beforeEach 复位
+let previewGate: Promise<void> | undefined;
 
 const kbReady: KbInfo = {
 	id: "kb_1",
@@ -57,7 +60,10 @@ mock.module("../../../api-client", () => ({
 		get: mock(async () => ({ type: "knowledge:list", kbs: [kbReady] })),
 		post: mock(async (path: string, body?: unknown) => {
 			postCalls.push([path, body]);
-			if (path === "/api/knowledge/preview") return previewPayload;
+			if (path === "/api/knowledge/preview") {
+				if (previewGate) await previewGate;
+				return previewPayload;
+			}
 			return {};
 		}),
 		put: mock(async () => ({})),
@@ -68,6 +74,7 @@ mock.module("../../../api-client", () => ({
 beforeEach(() => {
 	cleanup();
 	postCalls.length = 0;
+	previewGate = undefined;
 });
 
 describe("KbFormModal 校验与默认值提示", () => {
@@ -114,6 +121,42 @@ describe("KbFormModal 两段式（扫描预览 → 创建并索引）", () => {
 		await screen.findByText(/3 个文件可索引/);
 		expect(screen.getByText(/建议排除 2/)).toBeTruthy();
 		expect(screen.getByText(/二进制 1/)).toBeTruthy();
+	});
+
+	test("扫描中改路径：旧响应 resolve 后不落地旧路径预览，提交走新路径（审查修复 1）", async () => {
+		const onSave = mock(async () => ({ ok: true }));
+		render(<KbFormModal onSave={onSave} />);
+		fireEvent.change(screen.getByTestId("kb-folder-input"), {
+			target: { value: "D:/旧路径A" },
+		});
+		// 挂起 preview 响应，制造在途扫描
+		let release!: () => void;
+		previewGate = new Promise<void>((r) => {
+			release = r;
+		});
+		fireEvent.click(screen.getByTestId("kb-scan"));
+		// 扫描中改路径 B（作废在途扫描）
+		fireEvent.change(screen.getByTestId("kb-folder-input"), {
+			target: { value: "D:/新路径B" },
+		});
+		// 放行旧响应（A 路径的 previewPayload），flush 宏任务让 handleScan 走完
+		release();
+		await new Promise((r) => setTimeout(r, 10));
+		// 旧预览不得出现（否则 A 的「3 个文件可索引」会误导 B 路径提交）
+		expect(screen.queryByTestId("kb-preview")).toBeNull();
+		expect(screen.queryByText(/3 个文件可索引/)).toBeNull();
+		// 提交走新路径 B
+		fireEvent.click(screen.getByTestId("kb-save"));
+		await waitFor(() =>
+			expect(onSave).toHaveBeenCalledWith(
+				expect.objectContaining({ folderPath: "D:/新路径B" }),
+			),
+		);
+	});
+
+	test("操作行取消按钮为文字「取消」（与标题栏关闭区分，对齐 McpForm 惯例）", () => {
+		render(<KbFormModal onSave={mock(() => {})} />);
+		expect(screen.getByTestId("kb-cancel").textContent).toBe("取消");
 	});
 });
 
@@ -176,5 +219,10 @@ describe("KnowledgePage 挂接", () => {
 			(screen.getByTestId("kb-name-input") as HTMLInputElement).value,
 		).toBe("产品知识库");
 		expect(screen.getByTestId("kb-save").textContent).toBe("保存");
+	});
+
+	test("en 文案无字面双 &&（React 不解析 HTML 实体，审查修复 2）", () => {
+		expect((enLocale as any).kb.saveNew).toBe("Create & Index");
+		expect((enLocale as any).kb.cancel).toBe("Cancel");
 	});
 });
