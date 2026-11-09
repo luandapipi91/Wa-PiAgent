@@ -33,6 +33,8 @@ interface KnowledgeState {
   setAutoWatch(id: string, on: boolean): Promise<void>;
   /** 取消进行中的索引（POST cancel）；失败弹 toast，成功 refetch 对齐 kernel 快照 */
   cancelIndex(id: string): Promise<void>;
+  /** 重建索引（POST :id/index）；已有进行中任务的 400 也弹 toast，成功 refetch 清单切「索引中」 */
+  reindex(id: string): Promise<void>;
   /** 处理 knowledge:progress：维护 progress map 并同步对应库的 status/progress */
   applyProgress(e: KbProgressEvent): void;
 }
@@ -109,6 +111,18 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
     }
     // kernel 即时返回当前快照，收尾恢复（恢复原状态/删 job 行）异步完成；终态经 SSE
     // 推帧为主，此处 refetch 兜底对齐快照（与 App.tsx 断连重连清单兜底同思路）
+    useKnowledgeStore.getState().listKbs();
+  },
+
+  reindex: async (id) => {
+    try {
+      await api.post(`/api/knowledge/${encodeURIComponent(id)}/index`);
+    } catch (e) {
+      // 失败不能静默：含 kernel 防护的「已有进行中的索引任务」（重复索引 400），toast 提示即可
+      useToastStore.getState().add(formatApiError(e), "error");
+      return;
+    }
+    // POST 成功即已开任务；进度主走 SSE 推帧，此处 refetch 让状态立即切「索引中」
     useKnowledgeStore.getState().listKbs();
   },
 

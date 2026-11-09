@@ -121,6 +121,8 @@ function AvatarPickerPanel({
 interface TabProps {
 	draft: AgentConfig;
 	onChange: (c: AgentConfig) => void;
+	/** 内置 subagent（BasicTab 只读展示，知识库绑定除外）：受限提示对其不成立 */
+	isBuiltin?: boolean;
 }
 
 export function AgentConfig({ agentName, onClose }: Props) {
@@ -341,7 +343,11 @@ export function AgentConfig({ agentName, onClose }: Props) {
 					)}
 					{/* 内置 subagent：所有字段只读，onChange 用 noop 防止编辑 */}
 					{draft && tab === "basic" && (
-						<BasicTab draft={draft} onChange={handleChange} />
+						<BasicTab
+							draft={draft}
+							onChange={handleChange}
+							isBuiltin={isBuiltin}
+						/>
 					)}
 					{draft && tab === "tools" && (
 						<ToolsTab draft={draft} onChange={handleChange} tools={tools} />
@@ -415,14 +421,17 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 	);
 }
 
-function BasicTab({ draft, onChange }: TabProps) {
+function BasicTab({ draft, onChange, isBuiltin }: TabProps) {
 	const { t } = useTranslation();
 	// 头像图标面板开关（点头像块弹出）
 	const [avatarPanelOpen, setAvatarPanelOpen] = useState(false);
 	// 知识库绑定（B5）：清单来自 knowledge store（AgentConfig mount 时已拉取）；
-	// 受限判定：tools 白名单非空（空数组 = 全量默认），此时绑定会自动启用搜索工具需明示
+	// 受限判定：tools 白名单非空（空数组 = 全量默认），此时绑定会自动启用搜索工具需明示；
+	// 内置 subagent 豁免——kernel 的 restricted 白名单语义只对命名 agent 的 config.tools 生效，
+	// 内置走全放行，提示对其不成立
 	const kbs = useKnowledgeStore((s) => s.kbs);
-	const restricted = Array.isArray(draft.tools) && draft.tools.length > 0;
+	const restricted =
+		!isBuiltin && Array.isArray(draft.tools) && draft.tools.length > 0;
 	const kbIds = Array.isArray(draft.knowledgeBaseIds)
 		? draft.knowledgeBaseIds
 		: [];

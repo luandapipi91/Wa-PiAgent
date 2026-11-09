@@ -327,7 +327,7 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
               <input
                 className={`w-full ${INPUT_CLASS}`}
                 style={INPUT_STYLE}
-                placeholder={t("kb.namePlaceholder")}
+                placeholder={editing ? t("kb.namePlaceholderEdit") : t("kb.namePlaceholder")}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 data-testid="kb-name-input"
@@ -338,7 +338,7 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
               <input
                 className={`w-full ${INPUT_CLASS}`}
                 style={INPUT_STYLE}
-                placeholder={t("kb.descPlaceholder")}
+                placeholder={editing ? t("kb.descPlaceholderEdit") : t("kb.descPlaceholder")}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 data-testid="kb-desc-input"

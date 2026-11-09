@@ -18,7 +18,7 @@ type KbFormTarget = KbInfo | "new" | null;
 
 export function KnowledgePage() {
   const { t } = useTranslation();
-  const { kbs, loading, listKbs } = useKnowledgeStore();
+  const { kbs, loading, listKbs, reindex } = useKnowledgeStore();
   const [formTarget, setFormTarget] = useState<KbFormTarget>(null);
   /** 失败清单弹窗目标（null=关闭；kbId=展示该库最近一轮的失败文件） */
   const [failedKbId, setFailedKbId] = useState<string | null>(null);
@@ -97,10 +97,8 @@ export function KnowledgePage() {
             onEdit={(kb) => setFormTarget(kb)}
             // B4：失败徽章点击接失败清单弹窗（B2 占位回调的落点）
             onShowFailed={(id) => setFailedKbId(id)}
-            // 占位（重建链路不在 B3 范围，弹窗不含重建操作）：按钮可渲染，点击暂无动作
-            onReindex={() => {
-              /* 重建索引：后续任务接 POST /api/knowledge/:id/index */
-            }}
+            // 重建索引：接 store.reindex（POST :id/index，重复索引 400 由 store toast 提示）
+            onReindex={(id) => reindex(id)}
           />
         )}
       </div>

@@ -220,6 +220,28 @@ describe("AgentConfig 保存链路带上 knowledgeBaseIds", () => {
 		);
 	});
 
+	describe("受限提示与内置 subagent 豁免（最终审查修复）", () => {
+		test("命名 agent tools 非空 → 显示受限提示（未破坏原语义）", async () => {
+			useAgentsStore.setState({
+				configs: { dev: { ...cfg("dev"), tools: ["read", "bash"] } },
+			});
+			render(<AgentConfig agentName="dev" onClose={() => {}} />);
+			await waitFor(() => screen.getByTestId("kb-bind-check-kb_1"));
+			expect(screen.getByText(/自动启用搜索工具/)).toBeTruthy();
+		});
+
+		test("内置 subagent（builtinToolNames 非空）→ 不显示受限提示（kernel 全放行，提示对其不成立）", async () => {
+			useSubagentsStore.setState({
+				subagents: [
+					{ ...builtinSubagent, builtinToolNames: ["read", "bash"] },
+				],
+			});
+			render(<AgentConfig agentName="general-purpose" onClose={() => {}} />);
+			await waitFor(() => screen.getByTestId("kb-bind-check-kb_1"));
+			expect(screen.queryByText(/自动启用搜索工具/)).toBeNull();
+		});
+	});
+
 	test("保存时过滤失效 id（审查重点 2）：勾选的库已从清单删除 → 不进 payload", async () => {
 		// draft 预置已失效的 kb_gone（清单里只有 kb_1/kb_9），保存后 payload 只含有效 id
 		const withGone = {
