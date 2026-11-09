@@ -1,3 +1,6 @@
+## 2026-11-10
+- feat(frontend): 知识库新建/编辑弹窗 KbFormModal——扫描预览两段式（选路径 →「扫描预览」POST preview 展示可索引数+六类跳过原因中文计数 →「创建并索引」）、名称/描述默认值 placeholder 提示（留空直接提交由 kernel 兑底取文件夹名/默认描述）、文件夹选择对齐 projects 惯例（Electron 原生目录对话框优先 + 浏览器回退 DirTreePicker 覆盖层 + 文本输入兜底）、编辑模式回填名称/描述且源目录只读（PUT 只更名称/描述）、未选路径提交内联拦截「请选择文件夹」不发请求；挂接 KnowledgePage 新建按钮与 KbList 更新入口（保存成功刷新 store 清单并关弹窗，失败错误回显弹窗），onReindex 保持占位（重建链路后续任务）。TDD 先红后绿（8 组件用例：拦截/placeholder/两段式/跳过计数/编辑回填/挂接链路），frontend 全量 3335 pass（2 fail 为存量基线）+ tsc 0 错误
+
 ## 2026-11-09
 - feat(kernel): 内置知识库后端——每库独立存储/索引管线/混合检索/knowledge_search 工具/system prompt 注入/监听维护
 
