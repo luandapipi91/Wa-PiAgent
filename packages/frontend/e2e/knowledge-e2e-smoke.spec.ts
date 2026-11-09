@@ -87,12 +87,14 @@ async function listKbs(): Promise<Array<Record<string, any>>> {
  * 读「研发」智能体的 config（按 displayName 定位）。
  * 不写死 dev：seed 的 dev.md 文件名与 displayName 不一致，首次保存会触发 kernel
  * 设计内的归一化 rename（displayName 即身份键，dev.md → 研发.md，绑定随 config 迁移），
- * 之后键不再悬 dev——回读必须按实际键。
+ * 之后键不再悬 dev——回读必须按实际键定位；找不到「研发」直接失败（不静默退回 dev，
+ * 那会拿到 rename 前的旧键或 default 空 config，掩盖定位失败）。
  */
 async function getYanfaConfig(): Promise<any> {
 	const list = await api("GET", "/api/agents");
 	const target = (list?.agents ?? []).find((a) => a.displayName === "研发");
-	return getAgentConfig(String(target?.displayName ?? "dev"));
+	if (!target?.displayName) throw new Error("REST 找不到智能体「研发」（定位失败，不回退 dev）");
+	return getAgentConfig(String(target.displayName));
 }
 
 /** REST 轮询直到条件满足（E2E helper 的 pollUntil 未导出，这里就地实现） */

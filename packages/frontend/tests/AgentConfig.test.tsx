@@ -36,10 +36,19 @@ const cfg = (
 
 // REST API 调用记录（替代已删除的 ws-instance send）
 const apiCalls: { method: string; path: string; body?: any }[] = [];
+// 竞态用例 gate：置真后 agent config GET 挂起，由用例经 resolveConfigGate 手动放行——
+// 复现「mount → 回包晚于用户编辑」的真实时序（异步回包覆盖在途编辑的门卫回归锁）
+let gateConfigGet = false;
+let resolveConfigGate: ((value: any) => void) | null = null;
 mock.module("../src/api-client", () => ({
 	api: {
 		get: (path: string) => {
 			apiCalls.push({ method: "get", path });
+			if (gateConfigGet && /\/config$/.test(path)) {
+				return new Promise((resolve) => {
+					resolveConfigGate = resolve;
+				});
+			}
 			return Promise.resolve({});
 		},
 		post: (path: string, body?: any) => {
@@ -96,6 +105,8 @@ const emitEvent = async (e: any) => {
 
 beforeEach(() => {
 	apiCalls.length = 0;
+	gateConfigGet = false;
+	resolveConfigGate = null;
 	eventHandlers.clear();
 	useAgentsStore.setState({ list: [], configs: {} });
 	useSkillsStore.setState({ allSkills: [] });
@@ -922,5 +933,63 @@ describe("审查修复：图标面板 Esc 关闭", () => {
 		expect(screen.queryByTestId("cfg-avatar-panel")).toBeNull();
 		// 外层弹窗还在
 		expect(screen.getByTestId("agent-config")).toBeTruthy();
+	});
+});
+
+describe("异步回包竞态门卫（draftDirtyRef）", () => {
+	// 真实时序：mount 发出 config GET → 用户立刻编辑 → 回包才 resolve。
+	// 修复前回包无条件 setDraft，把用户已做的修改静默回滚（E2E 冒烟发现）；
+	// 修复后 draftDirtyRef 门卫：仅无在途编辑时才应用回包。
+	test("在途编辑时延迟 GET 回包不得覆盖 draft（E2E 冒烟发现的真实竞态）", async () => {
+		// store 缓存提供初始 draft（displayName=dev），config GET 挂起
+		gateConfigGet = true;
+		renderConfig("dev", cfg("dev", { description: "缓存旧简介" }));
+		// draft 就绪后用户编辑：改 displayName（handleChange 置 dirty）
+		const nameInput = (await waitFor(() =>
+			screen.getByTestId("cfg-name-input"),
+		)) as HTMLInputElement;
+		expect(nameInput.value).toBe("dev");
+		fireEvent.change(nameInput, { target: { value: "手动改名" } });
+		expect(
+			(screen.getByTestId("cfg-name-input") as HTMLInputElement).value,
+		).toBe("手动改名");
+
+		// 回包此刻才 resolve（携带不同数据），不得覆盖在途编辑
+		await act(async () => {
+			resolveConfigGate!({ config: cfg("dev") });
+		});
+		expect(
+			(screen.getByTestId("cfg-name-input") as HTMLInputElement).value,
+		).toBe("手动改名");
+
+		// SSE 广播（agent:config）同走门卫：也不得覆盖
+		await emitEvent({
+			type: "agent:config",
+			agentName: "dev",
+			config: cfg("dev", { description: "广播数据" }),
+		});
+		expect(
+			(screen.getByTestId("cfg-name-input") as HTMLInputElement).value,
+		).toBe("手动改名");
+	});
+
+	// 门卫不得破坏原语义（「强制 API 重新加载，覆盖可能过期的 store 缓存」）：
+	// 无在途编辑时，回包仍应覆盖 store 缓存 —— 否则重开弹窗永远显示旧数据
+	test("无在途编辑时延迟回包仍覆盖 store 缓存（原「重开不显示旧数据」语义保留）", async () => {
+		gateConfigGet = true;
+		renderConfig("dev", cfg("dev", { description: "缓存旧简介" }));
+		const nameInput = (await waitFor(() =>
+			screen.getByTestId("cfg-name-input"),
+		)) as HTMLInputElement;
+		expect(nameInput.value).toBe("dev"); // 未做任何编辑
+
+		await act(async () => {
+			resolveConfigGate!({
+				config: cfg("dev", { displayName: "研发", description: "磁盘新简介" }),
+			});
+		});
+		expect(
+			(screen.getByTestId("cfg-name-input") as HTMLInputElement).value,
+		).toBe("研发");
 	});
 });
