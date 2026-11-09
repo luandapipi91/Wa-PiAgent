@@ -532,8 +532,11 @@ export class AgentManager {
 	 * 建连同时注册删库回调——库被删除时清理所有智能体绑定中的悬挂引用
 	 * （遍历 subagent overrides 与命名 agent configs 写回，规格 §6.6）。
 	 * 打开失败由调用方降级（catch），不阻断会话创建。
+	 *
+	 * 公开给 ws-server 的知识库路由复用同一实例（任务 10）：路由删库必须触发这里的
+	 * onKbDeleted 回调，新建实例会导致回调不触发、悬挂绑定无人清理。
 	 */
-	private getKnowledgeStore(): KnowledgeStore {
+	getKnowledgeStore(): KnowledgeStore {
 		if (!this.knowledgeStore) {
 			const db = new Database(knowledgeDbPath(WA_PI_DIR));
 			db.exec(KB_SCHEMA_SQL); // 幂等建表（不存在 knowledge.db 时自动创建）
@@ -551,6 +554,16 @@ export class AgentManager {
 			});
 		}
 		return this.knowledgeStore;
+	}
+
+	/** 关闭知识库登记库句柄（kernel 优雅退出用；下次 getKnowledgeStore 重连） */
+	disposeKnowledgeStore(): void {
+		try {
+			this.knowledgeStore?.close();
+		} catch {
+			/* 已关闭/损坏时忽略——进程退出路径，无可补救 */
+		}
+		this.knowledgeStore = null;
 	}
 
 	/** 后绑定 im_push_to 全局执行器（index.ts 在 channelManager 构造后调用）。 */

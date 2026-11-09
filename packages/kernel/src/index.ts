@@ -478,6 +478,15 @@ export async function startKernel(opts?: {
 	// 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）
 	(server as any).opts.agentManager = agentManager;
 
+	// 知识库登记库：启动即打开（建表幂等），并把同一实例注入 server（routes/WS 复用——
+	// 删库回调 setOnKbDeleted 已在该实例上注册，另建实例会导致悬挂绑定清理不触发）。
+	// 打开失败仅降级知识库功能（路由请求时另惰性重试 agentManager 的连接），不阻断启动。
+	try {
+		(server as any).opts.knowledgeStore = agentManager.getKnowledgeStore();
+	} catch (err) {
+		console.warn("[kernel] 知识库登记库打开失败，知识库功能降级:", err);
+	}
+
 	// 渠道管理器：在 agentManager 之后构造（onEvent 闭包与 replyTurn 依赖它）。
 	// adapterFactories 显式传入，避免 ChannelManager 构造函数的 mock 兜底重复注册。
 	// WA_PI_CHANNELS_MOCK=1 时附带注册 mock 工厂，供 E2E 与开发注入测试消息。
@@ -907,6 +916,8 @@ export async function startKernel(opts?: {
 		// 先断渠道长连接（避免关闭期收到新进站再触发 agent 调用），再回收 pi 子进程
 		await channelManager.stop().catch(() => {});
 		await agentManager.disposeAll().catch(() => {});
+		// 关闭知识库登记库句柄（Windows：句柄挂着会让测试/重启时目录无法删除）
+		agentManager.disposeKnowledgeStore();
 		// 子代理已全部回收：把仍标记 running 的实例修正为 interrupted（下次启动还有一道兜底）
 		await sweepOrphanRunning("kernel 退出").catch(() => {});
 		await server.stop().catch(() => {});
@@ -916,5 +927,13 @@ export async function startKernel(opts?: {
 	process.on("SIGINT", () => void shutdown("SIGINT"));
 	process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-	return { port: server.actualPort, stop: () => server.stop() };
+	// stop 除停 server 外还需释放启动期打开的资源（知识库登记库句柄）——
+	// Windows 上句柄挂着会让测试/重启无法删除 WA_PI_DIR 目录（EBUSY）
+	return {
+		port: server.actualPort,
+		stop: async () => {
+			await server.stop().catch(() => {});
+			agentManager.disposeKnowledgeStore();
+		},
+	};
 }

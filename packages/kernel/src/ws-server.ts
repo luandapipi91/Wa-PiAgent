@@ -95,6 +95,12 @@ import { registerSkillRoutes } from "./routes/skills";
 import { collectProjectSkillSources } from "./skill-sources";
 import { registerExtensionRoutes } from "./routes/extensions";
 import { registerMemoryRoutes } from "./routes/memory";
+import { registerKnowledgeRoutes } from "./routes/knowledge";
+import { runIndex, getKbFailures, clearKbFailures, type EmbedFn } from "./knowledge/indexer";
+import { scanFolder } from "./knowledge/scan";
+import type { KbContext } from "./knowledge/index";
+import type { KnowledgeStore } from "./knowledge/store";
+import type { KbProgressEvent } from "@wa-pi/shared";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
 import { createShareRoutes } from "./routes/share";
@@ -428,6 +434,15 @@ export interface WSServerOpts {
 	 */
 	mcpFile?: McpFile;
 	agentManager: AgentManager;
+	/**
+	 * 知识库登记库（knowledge.db）。缺省惰性解析 agentManager 的共享实例
+	 * （同一实例——删库回调才触发）；测试注入 tmpdir 实例。
+	 */
+	knowledgeStore?: KnowledgeStore;
+	/**
+	 * 知识库嵌入函数（测试注入 fake 绕开真实模型）。缺省用真实 embedDocuments。
+	 */
+	kbEmbedFn?: EmbedFn;
 	/** IM 渠道机器人管理器（Task 8 注入真实实例；测试/未启用时为 null，相关 case 走降级路径） */
 	channelManager: import("./channel-manager").ChannelManager | null;
 	dataDir?: string;
@@ -551,6 +566,41 @@ export class WSServer {
 	 * 在 {@link registerRoutes} 里装配：它依赖已注入的 opts.mcpFile / agentManager。
 	 */
 	private mcpHandlers!: McpHandlers;
+	/** 知识库索引的取消控制器（kbId → controller；runIndex 结束后自清） */
+	private kbAborts = new Map<string, AbortController>();
+
+	/**
+	 * 知识库登记库解析：opts 注入优先（测试），缺省用 agentManager 的共享实例——
+	 * 同一实例，路由删库才能触发 agent-manager 里注册的 onKbDeleted 悬挂绑定清理。
+	 * 惰性解析（每请求）：registerRoutes 在构造器里跑，此时 index.ts 的真实
+	 * agentManager 尚未回填（占位 any），建连失败也只在该次请求报错不阻断启动。
+	 */
+	private kbStore(): KnowledgeStore {
+		return this.opts.knowledgeStore ?? this.opts.agentManager.getKnowledgeStore();
+	}
+
+	/** 知识库运行上下文：sse 直接走 SSE 总线广播（knowledge:progress） */
+	private kbContext(): KbContext {
+		const store = this.kbStore();
+		return { store, waPiDir: store.waPiDir, sse: (evt: KbProgressEvent) => this.broadcast(evt) };
+	}
+
+	/**
+	 * 异步触发一轮索引：不阻塞 HTTP/WS 响应（控制者裁决），进度经 ctx.sse 广播 SSE。
+	 * 失败已由 indexer 落库（status=error）并广播，这里只防 unhandled rejection；
+	 * controller 存入 kbAborts 供 cancel 端点中止，收尾自清。
+	 */
+	private startKbIndex(kbId: string): void {
+		const controller = new AbortController();
+		this.kbAborts.set(kbId, controller);
+		void runIndex(this.kbContext(), kbId, this.opts.kbEmbedFn, controller.signal)
+			.catch((err) => {
+				console.warn(`[kernel] 知识库索引失败 (kbId=${kbId}):`, err);
+			})
+			.finally(() => {
+				this.kbAborts.delete(kbId);
+			});
+	}
 
 	constructor(private opts: WSServerOpts) {
 		// tui-host registry 是模块级单例（agent-manager 的会话销毁路径也要用它），
@@ -670,6 +720,7 @@ export class WSServer {
 		registerSkillRoutes(this.router, callApi, ctx);
 		registerExtensionRoutes(this.router, callApi, ctx);
 		registerMemoryRoutes(this.router, callApi, ctx);
+		registerKnowledgeRoutes(this.router, callApi, ctx);
 		// MCP 域：数据来源是 McpFile（配置，唯一写入者）+ AgentManager 按 cwd 持有的 McpAdmin
 		// （状态，唯一读取者，规格 §7）。两套入口（REST/WS）共用同一份 handlers，不各自实现一遍。
 		const mcpFile =
@@ -2912,6 +2963,158 @@ export class WSServer {
 					this.opts.agentManager.markAllDirty();
 					const config = await this.opts.memoryStore.getConfig();
 					this.broadcast({ type: "memory:config", config });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			// ===== 内置知识库（任务 10：REST 与 WS 共用同一批事件）=====
+			case "knowledge:list": {
+				try {
+					reply({ type: "knowledge:list", kbs: this.kbStore().listKbs() });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:preview": {
+				try {
+					const folderPath = String(event.folderPath ?? "").trim();
+					if (!folderPath) {
+						reply({ type: "error", message: "folderPath 必填" });
+						break;
+					}
+					if (!existsSync(folderPath)) {
+						reply({ type: "error", message: `目录不存在：${folderPath}` });
+						break;
+					}
+					// 低频交互路径（任务 3 次要③：scanFolder 全同步 IO，勿进高频链路）
+					const preview = await scanFolder(folderPath, []);
+					reply({
+						type: "knowledge:preview",
+						preview: {
+							totalFiles: preview.indexable.length,
+							totalBytes: preview.indexable.reduce((sum, f) => sum + f.size, 0),
+							skippable: preview.skips.map((s) => ({ path: s.path, reason: s.reason })),
+						},
+					});
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:create": {
+				try {
+					const folderPath = String(event.folderPath ?? "").trim();
+					if (!folderPath) {
+						reply({ type: "error", message: "folderPath 必填" });
+						break;
+					}
+					if (!existsSync(folderPath)) {
+						reply({ type: "error", message: `目录不存在：${folderPath}` });
+						break;
+					}
+					const kb = this.kbStore().createKb({
+						folderPath,
+						name: event.name,
+						description: event.description,
+					});
+					reply({ type: "knowledge:create", kb });
+					this.startKbIndex(kb.id);
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:index": {
+				try {
+					const store = this.kbStore();
+					const kb = store.getKb(event.kbId);
+					if (!kb) {
+						reply({ type: "error", message: `知识库不存在：${event.kbId}` });
+						break;
+					}
+					if (store.getJob(event.kbId)) {
+						reply({ type: "error", message: `知识库 ${event.kbId} 已有进行中的索引任务` });
+						break;
+					}
+					reply({ type: "knowledge:index", kb });
+					this.startKbIndex(event.kbId);
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:cancel": {
+				try {
+					const controller = this.kbAborts.get(event.kbId);
+					if (!controller) {
+						reply({ type: "error", message: "该库没有进行中的索引任务" });
+						break;
+					}
+					controller.abort();
+					// 取消语义（恢复原状态/删 job 行）由 indexer 收尾完成；即时返回当前快照
+					const kb = this.kbStore().getKb(event.kbId);
+					if (!kb) {
+						reply({ type: "error", message: `知识库不存在：${event.kbId}` });
+						break;
+					}
+					reply({ type: "knowledge:cancel", kb });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:delete": {
+				try {
+					const store = this.kbStore();
+					if (!store.getKb(event.kbId)) {
+						reply({ type: "error", message: `知识库不存在：${event.kbId}` });
+						break;
+					}
+					// 索引进行中禁止删除：runIndex 持有每库 db 句柄，Windows 上删不掉文件
+					//（POSIX 也会留下无主写入）；前端先 cancel 再 delete
+					if (store.getJob(event.kbId)) {
+						reply({ type: "error", message: "索引进行中，请先取消再删除" });
+						break;
+					}
+					store.deleteKb(event.kbId);
+					clearKbFailures(event.kbId);
+					reply({ type: "knowledge:delete", ok: true });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:update": {
+				try {
+					const store = this.kbStore();
+					if (!store.getKb(event.kbId)) {
+						reply({ type: "error", message: `知识库不存在：${event.kbId}` });
+						break;
+					}
+					if (event.name !== undefined || event.description !== undefined) {
+						store.updateKbMeta(event.kbId, {
+							name: event.name,
+							description: event.description,
+						});
+					}
+					if (event.autoWatch !== undefined) {
+						store.setAutoWatch(event.kbId, event.autoWatch);
+					}
+					reply({ type: "knowledge:update", kb: store.getKb(event.kbId)! });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:failed": {
+				try {
+					if (!this.kbStore().getKb(event.kbId)) {
+						reply({ type: "error", message: `知识库不存在：${event.kbId}` });
+						break;
+					}
+					reply({ type: "knowledge:failed", failures: getKbFailures(event.kbId) });
 				} catch (err) {
 					replyError(reply, err);
 				}

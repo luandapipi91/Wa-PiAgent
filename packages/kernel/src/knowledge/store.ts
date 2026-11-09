@@ -72,7 +72,8 @@ function rowToKb(row: KbRow, job: KbJob | null): KbInfo {
 export class KnowledgeStore {
   constructor(
     private readonly db: Database,
-    private readonly waPiDir: string,
+    /** WA_PI_DIR：deleteKb 定位每库 db 文件用；routes 层构建 KbContext 也读它（openKbDb） */
+    readonly waPiDir: string,
   ) {}
 
   /** 删库回调（悬挂绑定清理）：接线处经 setOnKbDeleted 注册，deleteKb 时按注册顺序遍历调用 */
@@ -147,6 +148,11 @@ export class KnowledgeStore {
     }
   }
 
+  /** 关闭登记库连接（kernel 优雅退出用；Windows 上句柄挂着会锁住目录无法删除） */
+  close(): void {
+    this.db.close();
+  }
+
   /** 更新状态；counters 提供时一并更新对应计数（embedMeta 为库级模型指纹；lastIndexedAt 由索引收尾写入） */
   updateStatus(
     id: string,
@@ -191,6 +197,23 @@ export class KnowledgeStore {
 
   setAutoWatch(id: string, on: boolean): void {
     this.db.run(`UPDATE knowledge_bases SET auto_watch = ? WHERE id = ?`, [on ? 1 : 0, id]);
+  }
+
+  /** 更新库元信息（名称/描述）；未提供的字段不动。autoWatch 走 setAutoWatch（语义独立） */
+  updateKbMeta(id: string, meta: { name?: string; description?: string }): void {
+    const sets: string[] = [];
+    const args: (string | number)[] = [];
+    if (meta.name !== undefined) {
+      sets.push("name = ?");
+      args.push(meta.name);
+    }
+    if (meta.description !== undefined) {
+      sets.push("description = ?");
+      args.push(meta.description);
+    }
+    if (sets.length === 0) return;
+    args.push(id);
+    this.db.run(`UPDATE knowledge_bases SET ${sets.join(", ")} WHERE id = ?`, args);
   }
 
   /** 库级模型指纹（embed_meta）；从未索引过为 null。不进 KbInfo 投影——索引器增量判定专用 */

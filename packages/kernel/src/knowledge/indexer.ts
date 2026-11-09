@@ -30,6 +30,29 @@ type KbStatus = KbInfo["status"];
 // KbContext 定义在桶导出（任务 7/11 复用）；此处重导出让调用方从任一入口导入都可行
 export type { KbContext } from "./index";
 
+/** 单个失败文件（最近一轮索引的抽取阶段产生）；reason 为失败原因摘要 */
+export interface KbFailure {
+  path: string;
+  reason: string;
+}
+
+/**
+ * 失败文件清单（进程内内存：kbId → 最近一轮的失败文件及原因）。
+ * 控制者裁决的最简方案：indexer 抽取失败处就地记录，route 直接读取。
+ * kernel 重启后丢失可接受——登记行 failed_count 与 job.skip_stats 兑底展示数量。
+ */
+const kbFailures = new Map<string, KbFailure[]>();
+
+/** 最近一轮索引的失败文件清单（无记录/库不存在返回空数组） */
+export function getKbFailures(kbId: string): KbFailure[] {
+  return kbFailures.get(kbId) ?? [];
+}
+
+/** 清除某库的失败清单（删库时调用，防 Map 无界增长） */
+export function clearKbFailures(kbId: string): void {
+  kbFailures.delete(kbId);
+}
+
 /** 嵌入与进度批大小（规格硬性：批 64，批间让出事件循环） */
 export const INDEX_BATCH = 64;
 
@@ -168,6 +191,8 @@ export async function runIndex(
 
   ctx.store.startJob(kbId, "scanning");
   ctx.store.updateStatus(kbId, "indexing");
+  // 新起一轮：清空上一轮的失败清单（失败文件按 relPath 记录，抽取 catch 处写入）
+  kbFailures.set(kbId, []);
   emit(ctx, kbId, "scanning", "indexing", kb.fileCount, 0, 0);
 
   let filesTotal = 0;
@@ -203,9 +228,14 @@ export async function runIndex(
       let text: string;
       try {
         text = (await extractText(file.absPath, file.type)).text;
-      } catch {
-        // 单文件失败不拖垮整轮（规格 §6.3）；extraction_failed 由抽取阶段产生，计入跳过统计
+      } catch (err) {
+        // 单文件失败不拖垮整轮（规格 §6.3）；extraction_failed 由抽取阶段产生，计入跳过统计；
+        // 失败文件及原因就地记入内存清单（GET /api/knowledge/:id/failed 读取，任务 10）
         failedCount++;
+        kbFailures.get(kbId)?.push({
+          path: file.relPath,
+          reason: err instanceof Error ? err.message : String(err),
+        });
         skipStats.extraction_failed = (skipStats.extraction_failed ?? 0) + 1;
         filesDone++;
         ctx.store.updateJobProgress(kbId, { phase: "extracting", filesDone, skipStats: { ...skipStats } });

@@ -189,6 +189,98 @@ export interface KbProgressEvent {
 	status: "scanning" | "indexing" | "ready" | "error";
 }
 
+// ============ 内置知识库：前端 → kernel 事件（REST 路由与 WS 共用同一批，任务 10）============
+
+export interface KnowledgeListEvent {
+	type: "knowledge:list";
+}
+
+export interface KnowledgePreviewEvent {
+	type: "knowledge:preview";
+	/** 待预览扫描的源目录绝对路径 */
+	folderPath: string;
+}
+
+export interface KnowledgeCreateEvent {
+	type: "knowledge:create";
+	folderPath: string;
+	/** 不填时取 folderPath basename */
+	name?: string;
+	/** 不填时用默认描述模板 */
+	description?: string;
+}
+
+export interface KnowledgeIndexEvent {
+	type: "knowledge:index";
+	kbId: string;
+}
+
+export interface KnowledgeCancelEvent {
+	type: "knowledge:cancel";
+	kbId: string;
+}
+
+export interface KnowledgeDeleteEvent {
+	type: "knowledge:delete";
+	kbId: string;
+}
+
+export interface KnowledgeUpdateEvent {
+	type: "knowledge:update";
+	kbId: string;
+	name?: string;
+	description?: string;
+	autoWatch?: boolean;
+}
+
+export interface KnowledgeFailedEvent {
+	type: "knowledge:failed";
+	kbId: string;
+}
+
+// ---- kernel 回复 ----
+
+export interface KnowledgeListResult {
+	type: "knowledge:list";
+	kbs: KbInfo[];
+}
+
+export interface KnowledgePreviewResult {
+	type: "knowledge:preview";
+	preview: KbScanPreview;
+}
+
+export interface KnowledgeCreateResult {
+	type: "knowledge:create";
+	kb: KbInfo;
+}
+
+export interface KnowledgeIndexResult {
+	type: "knowledge:index";
+	kb: KbInfo;
+}
+
+export interface KnowledgeCancelResult {
+	type: "knowledge:cancel";
+	kb: KbInfo;
+}
+
+export interface KnowledgeDeleteResult {
+	type: "knowledge:delete";
+	ok: true;
+}
+
+export interface KnowledgeUpdateResult {
+	type: "knowledge:update";
+	kb: KbInfo;
+}
+
+/** 最近一轮索引的失败文件清单（进程内内存；kernel 重启后丢失可接受，failed_count 兑底） */
+export interface KnowledgeFailedResult {
+	type: "knowledge:failed";
+	failures: Array<{ path: string; reason: string }>;
+}
+
 export interface ProjectEntity {
 	id: string;
 	name: string;
@@ -943,7 +1035,15 @@ export type WSClientEvent =
 	| TrashRestoreEvent
 	| TrashDeleteEvent
 	| TrashEmptyEvent
-	| VersionHistoryGetEvent;
+	| VersionHistoryGetEvent
+	| KnowledgeListEvent
+	| KnowledgePreviewEvent
+	| KnowledgeCreateEvent
+	| KnowledgeIndexEvent
+	| KnowledgeCancelEvent
+	| KnowledgeDeleteEvent
+	| KnowledgeUpdateEvent
+	| KnowledgeFailedEvent;
 
 // kernel → 前端
 /** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
@@ -1662,7 +1762,16 @@ export type WSServerEvent =
 	| GitChangedEvent
 	| ShareProgressEvent
 	| PreviewOpenEvent
-	| VersionHistoryResult;
+	| VersionHistoryResult
+	| KbProgressEvent
+	| KnowledgeListResult
+	| KnowledgePreviewResult
+	| KnowledgeCreateResult
+	| KnowledgeIndexResult
+	| KnowledgeCancelResult
+	| KnowledgeDeleteResult
+	| KnowledgeUpdateResult
+	| KnowledgeFailedResult;
 
 /**
  * agent 请求在内置 HTML 预览中打开内容（preview_open 工具触发，kernel → 前端广播）。
