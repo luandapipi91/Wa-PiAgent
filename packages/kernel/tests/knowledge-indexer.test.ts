@@ -222,6 +222,53 @@ test("SSE 进度事件：knowledge:progress 五阶段推进 + 终态 ready", asy
   expect(phases).toContain("embedding");
 });
 
+test("commit 中途失败：单事务回滚，旧块零丢失（更新失败旧数据不动）", async () => {
+  await runIndex(ctx, kbId, fakeEmbed);
+  const before = chunkCount();
+  // 记录旧块指纹：失败后必须原样还在（旧块未被部分应用式替换）
+  let oldHashes: string[] = [];
+  withKbDb((db) => {
+    oldHashes = (db.query("SELECT content_hash h FROM chunks ORDER BY h").all() as Array<{ h: string }>).map((r) => r.h);
+  });
+  // 造变化文件（a.md 重写）+ 新文件（d.md）→ 两者都在 commit 事务内
+  writeFileSync(join(srcDir, "a.md"), "# A1\n\n改过的内容甲。\n\n# A2\n\n改过的内容乙。");
+  writeFileSync(join(srcDir, "d.md"), "# D\n\n新文件内容。");
+  // 注入 commit 期故障：插 d.md 块时 ABORT（触发器在库文件内持久，runIndex 的新连接可见）
+  withKbDb((db) => {
+    db.run(
+      `CREATE TRIGGER fail_commit BEFORE INSERT ON chunks
+       WHEN NEW.file_path = 'd.md'
+       BEGIN SELECT RAISE(ABORT, '注入的 commit 失败'); END;`,
+    );
+  });
+  await expect(runIndex(ctx, kbId, fakeEmbed)).rejects.toThrow("注入的 commit 失败");
+  expect(store.getKb(kbId)!.status).toBe("error");
+  expect(store.getJob(kbId)).toBeNull();
+  // 单事务 ROLLBACK：a.md 旧块仍在（内容 hash 不变）、无 d.md 块、总数不变
+  expect(chunkCount()).toBe(before);
+  withKbDb((db) => {
+    const hashes = (db.query("SELECT content_hash h FROM chunks ORDER BY h").all() as Array<{ h: string }>).map((r) => r.h);
+    expect(hashes).toEqual(oldHashes);
+    expect((db.query("SELECT count(*) c FROM chunks WHERE file_path = 'd.md'").get() as { c: number }).c).toBe(0);
+  });
+  // 故障排除后重建可成功（触发器随测试夹具清理消失）
+  rmSync(join(srcDir, "d.md"));
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(store.getKb(kbId)!.status).toBe("ready");
+});
+
+test("重入防护：已有活动 job 时二次 runIndex 被拒", async () => {
+  // 模拟另一入口（watcher/工具/路由）已启动索引
+  store.startJob(kbId, "scanning");
+  await expect(runIndex(ctx, kbId, fakeEmbed)).rejects.toThrow("拒绝重入");
+  // 防护发生在状态改写之前：status 未被污染成 indexing
+  expect(store.getKb(kbId)!.status).toBe("scanning");
+  // job 清理后不再误伤
+  store.finishJob(kbId);
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(store.getKb(kbId)!.status).toBe("ready");
+});
+
 test("kb 不存在时抛错", async () => {
   await expect(runIndex(ctx, "no-such-kb", fakeEmbed)).rejects.toThrow();
 });

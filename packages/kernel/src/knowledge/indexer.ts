@@ -8,8 +8,9 @@
 //
 // 失败/取消语义（规格 §6.3 + 控制者简报）：
 //   - 首次建库（last_indexed_at 为空）失败或取消：删该库全部块与 job，失败置 error、取消恢复原状态；
-//   - 更新失败：嵌入期失败时 chunks 表未动（旧索引保持可用）；commit 逐文件事务，已完成文件一致保留；
-//   - 更新取消：恢复原状态（ready），已完成部分保留（每文件事务，数据始终一致）。
+//   - 更新失败：嵌入期失败时 chunks 表未动（旧索引保持可用）；commit 阶段整体单事务，
+//     失败自动 ROLLBACK，旧数据零丢失；
+//   - 更新取消：恢复原状态（ready），commit 事务未开始或整体回滚，旧数据原样保留。
 // 量化索引刷新沿用 memory/vector-index.ts 的 finish 模式：本轮写过/删过向量才在收尾刷一次
 // （vector_quantize 是 O(N) 全量重建，逐批刷新会把后台任务变成持续 CPU 占用）。
 import type { Database } from "bun:sqlite";
@@ -150,6 +151,13 @@ export async function runIndex(
 ): Promise<IndexResult> {
   const kb = ctx.store.getKb(kbId);
   if (!kb) throw new Error(`知识库不存在：${kbId}`);
+  // 重入防护：job 行是活动任务的唯一真源（startJob/finishJob 严格维护），
+  // 存在即拒绝，防止 watcher/工具/路由多入口并发触发交错写同一 kb db。
+  // 不用 status==="indexing" 判定：崩溃残骸（status 停在 indexing 但 job 行已不在）
+  // 若也被拒会死锁无法重建；残留 status 会在下一轮成功后自然收敛。
+  if (ctx.store.getJob(kbId)) {
+    throw new Error(`知识库 ${kbId} 已有进行中的索引任务，拒绝重入`);
+  }
   const prevStatus = kb.status;
   const firstRun = kb.lastIndexedAt === null;
   const fingerprint = embedFingerprint();
@@ -261,7 +269,9 @@ export async function runIndex(
       await new Promise((r) => setTimeout(r, 0));
     }
 
-    // ===== 阶段 5：落库（逐文件事务：FTS 应用层同事务双写，不用触发器——规格 §6.1）=====
+    // ===== 阶段 5：落库（单个大事务：FTS 应用层同事务双写，不用触发器——规格 §6.1）=====
+    // 整个 commit 阶段（变化文件重写 + 已删文件移除 + 回填 UPDATE）包进同一事务：
+    // 失败/异常时 SQLite 自动 ROLLBACK，旧块零丢失——「更新失败旧数据不动」在数据层逐字成立。
     throwIfAborted(signal);
     ctx.store.updateJobProgress(kbId, { phase: "committing" });
     emit(ctx, kbId, "committing", "indexing", filesTotal, filesDone, chunksDone);
@@ -269,52 +279,42 @@ export async function runIndex(
     const removedPaths: string[] = [];
     for (const [path] of existing.byPath) if (!nowPaths.has(path)) removedPaths.push(path);
 
-    const insertChunk = db.transaction((plan: FilePlan) => {
-      if (plan.hasOld) {
+    const commitAll = db.transaction(() => {
+      const deleteFileRows = (relPath: string) => {
         // 先删 FTS（子查询依赖 chunks 行）再删块
-        db.run(`DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?)`, [plan.relPath]);
-        db.run(`DELETE FROM chunks WHERE file_path = ?`, [plan.relPath]);
-      }
+        db.run(`DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?)`, [relPath]);
+        db.run(`DELETE FROM chunks WHERE file_path = ?`, [relPath]);
+      };
       const now = Date.now();
-      for (let i = 0; i < plan.chunks.length; i++) {
-        const c = plan.chunks[i];
-        const reuse = plan.reuse.get(i);
-        const id = reuse?.id ?? c.id;
-        const embedding = reuse?.embedding ?? vecByChunk.get(c) ?? null;
-        db.run(
-          `INSERT INTO chunks (id, file_path, file_type, title, breadcrumb, start_line, end_line,
-             content, prefix_content, content_hash, file_mtime, file_size, embedding, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id, c.relPath, c.fileType, c.title ?? null, c.breadcrumb ?? null,
-            c.startLine, c.endLine, c.content, c.prefixContent, c.contentHash,
-            plan.mtime, plan.size, embedding, now,
-          ],
-        );
-        db.run(`INSERT INTO chunks_fts (body, chunk_id) VALUES (?, ?)`, [bigram(c.prefixContent), id]);
+      for (const plan of plans) {
+        if (plan.hasOld) deleteFileRows(plan.relPath);
+        for (let i = 0; i < plan.chunks.length; i++) {
+          const c = plan.chunks[i];
+          const reuse = plan.reuse.get(i);
+          const id = reuse?.id ?? c.id;
+          const embedding = reuse?.embedding ?? vecByChunk.get(c) ?? null;
+          db.run(
+            `INSERT INTO chunks (id, file_path, file_type, title, breadcrumb, start_line, end_line,
+               content, prefix_content, content_hash, file_mtime, file_size, embedding, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              id, c.relPath, c.fileType, c.title ?? null, c.breadcrumb ?? null,
+              c.startLine, c.endLine, c.content, c.prefixContent, c.contentHash,
+              plan.mtime, plan.size, embedding, now,
+            ],
+          );
+          db.run(`INSERT INTO chunks_fts (body, chunk_id) VALUES (?, ?)`, [bigram(c.prefixContent), id]);
+        }
+      }
+      for (const relPath of removedPaths) deleteFileRows(relPath);
+      for (const b of needEmbed) {
+        if (b.backfillId !== undefined) {
+          // 嵌入批完成后 vec 必已就位
+          db.run(`UPDATE chunks SET embedding = ? WHERE id = ?`, [b.vec as Uint8Array, b.backfillId]);
+        }
       }
     });
-    const removeFile = db.transaction((relPath: string) => {
-      db.run(`DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?)`, [relPath]);
-      db.run(`DELETE FROM chunks WHERE file_path = ?`, [relPath]);
-    });
-    const backfillAll = db.transaction((items: EmbedItem[]) => {
-      for (const b of items) {
-        // 嵌入批完成后 vec 必已就位（backfills 过滤过 backfillId）
-        db.run(`UPDATE chunks SET embedding = ? WHERE id = ?`, [b.vec as Uint8Array, b.backfillId as string]);
-      }
-    });
-
-    for (const plan of plans) {
-      throwIfAborted(signal);
-      insertChunk(plan);
-    }
-    for (const relPath of removedPaths) {
-      throwIfAborted(signal);
-      removeFile(relPath);
-    }
-    const backfills = needEmbed.filter((b) => b.backfillId !== undefined);
-    if (backfills.length > 0) backfillAll(backfills);
+    commitAll();
 
     // ===== 收尾：counters + last_indexed_at + embed_meta（任务要点）+ job 清除 + 量化刷新 =====
     const { c: chunkTotal } = db.query(`SELECT COUNT(*) c FROM chunks`).get() as { c: number };

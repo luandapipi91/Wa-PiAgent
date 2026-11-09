@@ -185,11 +185,14 @@ export class KnowledgeStore {
     return row?.embed_meta ?? null;
   }
 
-  /** 开始一轮索引任务（同库同时只有一个活动 job——kb_id 是主键） */
+  /** 开始一轮索引任务（同库同时只允许一个活动 job——kb_id 是主键）；已有活动 job 时拒绝，不静默覆盖 */
   startJob(kbId: string, phase: KbPhase): void {
+    if (this.getJob(kbId)) {
+      throw new Error(`知识库 ${kbId} 已有进行中的索引任务，拒绝重复启动`);
+    }
     const now = Date.now();
     this.db.run(
-      `INSERT OR REPLACE INTO indexing_jobs (kb_id, phase, last_progress_at, created_at)
+      `INSERT INTO indexing_jobs (kb_id, phase, last_progress_at, created_at)
        VALUES (?, ?, ?, ?)`,
       [kbId, phase, now, now],
     );
