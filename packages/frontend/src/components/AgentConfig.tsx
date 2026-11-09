@@ -12,7 +12,9 @@ import {
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useSubagentsStore } from "../store/subagents";
+import { useKnowledgeStore } from "../store/knowledge";
 import { api } from "../api-client";
+import { KbBindingSection } from "./knowledge/KbBindingSection";
 import { onMessage } from "../events";
 import type { SubagentOverride } from "@wa-pi/shared";
 import { Modal } from "./ui/Modal";
@@ -164,6 +166,8 @@ export function AgentConfig({ agentName, onClose }: Props) {
 			delegationHints: builtinInfo.delegationHints,
 			// 真实 systemPrompt（来自 pi-subagents），只读展示
 			systemPromptBody: builtinInfo.systemPrompt,
+			// 知识库绑定来自用户 override（无 override 时空列表），可编辑（保存走 saveOverride）
+			knowledgeBaseIds: builtinInfo.override?.knowledgeBaseIds ?? [],
 		};
 	}, [builtinInfo]);
 
@@ -172,6 +176,8 @@ export function AgentConfig({ agentName, onClose }: Props) {
 		api.get("/api/agents/tools").then((data: any) => {
 			if (data?.tools) setTools(data.tools);
 		});
+		// 知识库清单：绑定区展示与保存时失效 id 过滤的依据（B5）
+		useKnowledgeStore.getState().listKbs();
 		// 内置 subagent 不走 WS 加载，直接用本地构造的 draft
 		if (isBuiltin) {
 			if (builtinDraft) setDraft(builtinDraft);
@@ -219,6 +225,12 @@ export function AgentConfig({ agentName, onClose }: Props) {
 
 	const save = () => {
 		if (!draft) return;
+		// 绑定的知识库过滤失效 id（清单里已不存在的库不进保存载荷，审查重点 2）
+		const kbKnown = new Set(useKnowledgeStore.getState().kbs.map((k) => k.id));
+		const kbIds = (Array.isArray(draft.knowledgeBaseIds)
+			? draft.knowledgeBaseIds
+			: []
+		).filter((id) => kbKnown.has(id));
 		if (isBuiltin) {
 			const validModel =
 				modelIds.size > 0 && draft.model && !modelIds.has(draft.model)
@@ -228,6 +240,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 				type: agentName,
 				model: validModel ?? null,
 				thinking: draft.thinking ?? null,
+				knowledgeBaseIds: kbIds,
 			};
 			useSubagentsStore.getState().saveOverride(override);
 			onClose();
@@ -237,8 +250,8 @@ export function AgentConfig({ agentName, onClose }: Props) {
 		// model 无效（磁盘残留裸 ID 不匹配 option）时置 null（跟随全局），避免"显示跟随全局但保存旧值"
 		const configToSend =
 			modelIds.size > 0 && draft.model && !modelIds.has(draft.model)
-				? { ...draft, model: null }
-				: draft;
+				? { ...draft, model: null, knowledgeBaseIds: kbIds }
+				: { ...draft, knowledgeBaseIds: kbIds };
 		// 名称可能被改：agentName 为旧 displayName，draft.displayName 为新值，kernel 走 rename 联动
 		void api.put(`/api/agents/${encodeURIComponent(agentName)}/config`, {
 			config: configToSend,
@@ -396,6 +409,19 @@ function BasicTab({ draft, onChange }: TabProps) {
 	const { t } = useTranslation();
 	// 头像图标面板开关（点头像块弹出）
 	const [avatarPanelOpen, setAvatarPanelOpen] = useState(false);
+	// 知识库绑定（B5）：清单来自 knowledge store（AgentConfig mount 时已拉取）；
+	// 受限判定：tools 白名单非空（空数组 = 全量默认），此时绑定会自动启用搜索工具需明示
+	const kbs = useKnowledgeStore((s) => s.kbs);
+	const restricted = Array.isArray(draft.tools) && draft.tools.length > 0;
+	const kbIds = Array.isArray(draft.knowledgeBaseIds)
+		? draft.knowledgeBaseIds
+		: [];
+	const toggleKb = (id: string) => {
+		const next = kbIds.includes(id)
+			? kbIds.filter((x) => x !== id)
+			: [...kbIds, id];
+		onChange({ ...draft, knowledgeBaseIds: next });
+	};
 	// 模型下拉：扁平化 providers（同 ModelSelector），slug/id 作为 option value
 	const providers = useProvidersStore((s) => s.providers);
 	const models = useMemo(() => {
@@ -503,6 +529,18 @@ function BasicTab({ draft, onChange }: TabProps) {
 					<option value="max">{t("agentConfig.thinkingMax")}</option>
 				</select>
 			</Row>
+
+			<Sec>{t("agentConfig.secKb")}</Sec>
+			{/* 内置 subagent 的 BasicTab 整体只读（pointer-events-none），
+			    知识库绑定是 override 可编辑字段，单独豁免可点 */}
+			<div className="pointer-events-auto">
+				<KbBindingSection
+					kbs={kbs}
+					selected={kbIds}
+					onToggle={toggleKb}
+					restricted={restricted}
+				/>
+			</div>
 
 			<Sec>{t("agentConfig.secPrompt")}</Sec>
 			<textarea

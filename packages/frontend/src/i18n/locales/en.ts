@@ -152,6 +152,7 @@ const en = {
 		partnerSelf: "Self",
 		partnerHint:
 			"Selected roles can be called actively/passively during agent execution",
+		secKb: "Knowledge bases",
 	},
 	filePicker: {
 		thisPc: "This PC",
@@ -555,6 +556,10 @@ const en = {
 		skipUnreadable: "Unreadable",
 		skipInaccessible: "Inaccessible",
 		skipExtractionFailed: "Extraction failed",
+		bindAfterIndex: "Searchable once indexing completes",
+		bindRestrictedHint:
+			"Binding a knowledge base will automatically enable the search tool",
+		bindEmpty: "No knowledge bases yet. Create one on the knowledge page first.",
 	},
 	mcpForm: {
 		nameLabel: "Name",

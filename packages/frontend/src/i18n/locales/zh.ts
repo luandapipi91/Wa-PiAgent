@@ -144,6 +144,7 @@ const zh = {
 		partnerNoMatch: "无匹配智能体",
 		partnerSelf: "自身",
 		partnerHint: "可以在agent执行过程中主动/被动的调用勾选的角色",
+		secKb: "知识库",
 	},
 	filePicker: {
 		thisPc: "此电脑",
@@ -540,6 +541,9 @@ const zh = {
 		skipUnreadable: "不可读",
 		skipInaccessible: "不可访问",
 		skipExtractionFailed: "解析失败",
+		bindAfterIndex: "索引完成后可检索",
+		bindRestrictedHint: "绑定知识库将自动启用搜索工具",
+		bindEmpty: "暂无知识库，先在知识库页新建",
 	},
 	mcpForm: {
 		nameLabel: "名称",
