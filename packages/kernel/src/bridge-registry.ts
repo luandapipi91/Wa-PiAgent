@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import type { BridgeStreamFrame, SubagentProgressEvent } from "@wa-pi/shared";
 import { runAskTool } from "./ask-runner";
 import { createMemoryTools, type MemoryToolContext } from "./memory/tools";
+import type { KnowledgeToolContext } from "./knowledge/tool";
 
 /** 工具执行结果（与 pi AgentToolResult 对齐，经 HTTP 原样回传给扩展） */
 export interface BridgeToolResult {
@@ -217,12 +218,15 @@ export async function handleBridgeStream(
  *
  * - ask_user_question → runAskTool（ask-runner，与 SDK customTools 路径同一份实现）
  * - memory_* → createMemoryTools（memory/tools，SQLite DAO 后端）生成的对应工具的 execute
+ * - knowledge_search → opts.knowledgeCtx.search（knowledge/tool 组装的闭包）；未注入即「未绑定」
  * - delegate / fleet → not_wired 桩
  */
 export function makeDefaultBridgeContext(opts: {
   sessionId: string;
   cwd: string;
   memoryCtx: MemoryToolContext;
+  /** 知识库检索上下文（agent-manager 组装）；未注入 = 未绑定任何库，工具返回友好提示 */
+  knowledgeCtx?: KnowledgeToolContext;
 }): BridgeSessionContext {
   // 松开 ToolDefinition 的 SDK 泛型：本文件不引用 pi SDK 类型，按结构化签名调用
   const memoryTools = createMemoryTools(opts.memoryCtx) as unknown as Array<{
@@ -250,10 +254,80 @@ export function makeDefaultBridgeContext(opts: {
       if (memTool) {
         return memTool.execute(toolCallId, params, signal);
       }
+      if (tool === "knowledge_search") {
+        return handleKnowledgeSearch(opts.knowledgeCtx, params);
+      }
       return {
         content: [{ type: "text", text: `未知 bridge 工具: ${tool}` }],
         details: { error: "unknown_tool" },
       };
     },
   };
+}
+
+/**
+ * knowledge_search 分支：参数校验 → knowledgeCtx.search → snake_case 结构化输出
+ * （字段名对齐 shared/tool-schemas 的 KB_SEARCH_DESCRIPTION 文案：
+ * content / file_path / title / breadcrumb / lines / kb_name / score）。
+ * 未注入 knowledgeCtx（= 未绑定任何库）返回友好提示；query 空参数返回错误内容。
+ */
+async function handleKnowledgeSearch(
+  knowledgeCtx: KnowledgeToolContext | undefined,
+  params: unknown,
+): Promise<BridgeToolResult> {
+  if (!knowledgeCtx) {
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            "未绑定知识库：当前智能体没有绑定任何知识库，knowledge_search 不可用。" +
+            "可在智能体设置中绑定知识库后重试。",
+        },
+      ],
+      details: { error: "no_knowledge_base" },
+    };
+  }
+  const query =
+    typeof (params as Record<string, unknown>)?.query === "string"
+      ? ((params as Record<string, unknown>).query as string).trim()
+      : "";
+  if (!query) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "参数错误：query 不能为空，请提供要检索的短语或句子。",
+        },
+      ],
+      details: { error: "invalid_params" },
+    };
+  }
+  const rawLimit = (params as Record<string, unknown>).limit;
+  const limit =
+    typeof rawLimit === "number" && Number.isFinite(rawLimit)
+      ? Math.min(Math.max(Math.trunc(rawLimit), 1), 20)
+      : 5;
+  const res = await knowledgeCtx.search(query, limit);
+  const skipped = res.skippedKbs.length
+    ? res.skippedKbs.map((s) => `${s.kbId}(${s.reason})`).join(", ")
+    : null;
+  const text = res.found
+    ? JSON.stringify({
+        results: res.results.map((h) => ({
+          content: h.content,
+          file_path: h.filePath,
+          title: h.title,
+          breadcrumb: h.breadcrumb,
+          lines:
+            h.startLine != null
+              ? `${h.startLine}-${h.endLine ?? h.startLine}`
+              : null,
+          kb_name: h.kbName,
+          score: Number(h.score.toFixed(4)),
+        })),
+        skippedKbs: skipped,
+      })
+    : `知识库中未找到相关内容${skipped ? `（跳过: ${skipped}）` : ""}。空结果表示知识库未覆盖该内容，不代表事实不存在。`;
+  return { content: [{ type: "text", text }] };
 }

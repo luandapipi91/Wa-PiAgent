@@ -35,3 +35,11 @@ export {
   kbQuantizedScan,
   KB_SCAN_K,
 } from "./vector";
+export {
+  searchKnowledge,
+  RRF_K,
+  type KbSearchHit,
+  type KbSearchResult,
+  type KbSkippedKb,
+} from "./search";
+export { makeKnowledgeToolContext, type KnowledgeToolContext } from "./tool";

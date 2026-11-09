@@ -58,6 +58,7 @@ const ALL_BRIDGE_TOOLS = [
 	"memory_remove",
 	"memory_read",
 	"memory_search",
+	"knowledge_search",
 	"delegate",
 	"browser_navigate",
 	"browser_evaluate",
@@ -1013,7 +1014,7 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 
 // ── C1：im_push_to 始终注册（Task 2 变更：不再依赖 WA_PI_IM_PUSH_TARGETS env）──
 
-test("im_push_to：未设 env 也注册（17 工具，普通会话工具面板可用）", async () => {
+test("im_push_to：未设 env 也注册（18 工具，普通会话工具面板可用）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	delete process.env.WA_PI_IM_PUSH_TARGETS;
 	try {
@@ -1027,12 +1028,12 @@ test("im_push_to：未设 env 也注册（17 工具，普通会话工具面板�
 	}
 });
 
-test("im_push_to：始终注册（共 17 个工具），description 为通用引导（不含联系人列表）", async () => {
+test("im_push_to：始终注册（共 18 个工具），description 为通用引导（不含联系人列表）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools).toHaveLength(17);
+		expect(tools).toHaveLength(18);
 		const imPush = tools.find((t: any) => t.name === "im_push_to");
 		expect(imPush).toBeTruthy();
 		// env 仅作诊断用途，不再写入 description（联系人由消息标记自描述）

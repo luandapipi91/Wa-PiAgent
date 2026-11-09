@@ -34,6 +34,9 @@ import {
 	MemoryScopeSchema,
 	MemoryKindSchema,
 	MemorySearchParamsSchema,
+	KB_SEARCH_DESCRIPTION,
+	KB_SEARCH_SNIPPET,
+	KB_SEARCH_PARAMS_SCHEMA,
 	DELEGATE_DESCRIPTION,
 	DelegateParamsSchema,
 	BROWSER_NAVIGATE_DESCRIPTION,
@@ -521,6 +524,23 @@ export default function (pi: ExtensionAPI) {
 		async execute(toolCallId, params, signal) {
 			return callBridge(
 				"memory_search",
+				toolCallId,
+				params,
+				signal,
+				DEFAULT_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "knowledge_search",
+		label: "Knowledge",
+		description: KB_SEARCH_DESCRIPTION,
+		promptSnippet: KB_SEARCH_SNIPPET,
+		parameters: KB_SEARCH_PARAMS_SCHEMA,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"knowledge_search",
 				toolCallId,
 				params,
 				signal,

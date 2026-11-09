@@ -114,6 +114,7 @@ import {
 	type BridgeSessionContext,
 	type BridgeToolResult,
 } from "./bridge-registry";
+import { makeKnowledgeToolContext } from "./knowledge/tool";
 import {
 	RpcClient,
 	buildPiArgs,
@@ -1140,7 +1141,13 @@ export class AgentManager {
 						...memoryCtx,
 						semanticEnabled: memConfig?.semanticEnabled !== false,
 					}
-				: unavailableMemoryCtx(),
+					: unavailableMemoryCtx(),
+			// 知识库检索：绑定清单来自 agent config 的 knowledgeBaseIds；未绑定（空/缺省）
+			// 不注入，handleTool 对 knowledge_search 返回「未绑定」友好提示。
+			// 工厂只建闭包不打开 db（惰性），打开失败由 /bridge/tool 兑底，不阻断会话创建。
+			knowledgeCtx: config?.knowledgeBaseIds?.length
+				? makeKnowledgeToolContext(WA_PI_DIR, config.knowledgeBaseIds)
+				: undefined,
 		});
 		const bridgeCtx: BridgeSessionContext = {
 			cwd,
