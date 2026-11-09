@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   prefix_content TEXT NOT NULL,   -- 身份前缀 + 正文（嵌入输入源，见 §6.4）
   content_hash TEXT NOT NULL,     -- sha256(相对路径+行号+内容+metadata)
   file_mtime INTEGER NOT NULL,
+  file_size INTEGER NOT NULL DEFAULT 0, -- 字节数（§6.3 增量快筛要求 mtime+size 双比对；§6.1 表结构未含此列，为满足快筛语义补——v1 未发布无迁移负担）
   embedding BLOB,                 -- 量化向量（embed_meta 不匹配视为未索引，后台回填）
   updated_at INTEGER NOT NULL
 );

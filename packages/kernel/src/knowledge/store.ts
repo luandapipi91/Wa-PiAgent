@@ -131,11 +131,17 @@ export class KnowledgeStore {
     }
   }
 
-  /** 更新状态；counters 提供时一并更新对应计数（embedMeta 为库级模型指纹） */
+  /** 更新状态；counters 提供时一并更新对应计数（embedMeta 为库级模型指纹；lastIndexedAt 由索引收尾写入） */
   updateStatus(
     id: string,
     status: KbStatus,
-    counters?: { fileCount?: number; chunkCount?: number; failedCount?: number; embedMeta?: string },
+    counters?: {
+      fileCount?: number;
+      chunkCount?: number;
+      failedCount?: number;
+      embedMeta?: string;
+      lastIndexedAt?: number;
+    },
   ): void {
     if (!counters) {
       this.db.run(`UPDATE knowledge_bases SET status = ? WHERE id = ?`, [status, id]);
@@ -159,12 +165,24 @@ export class KnowledgeStore {
       sets.push("embed_meta = ?");
       args.push(counters.embedMeta);
     }
+    if (counters.lastIndexedAt !== undefined) {
+      sets.push("last_indexed_at = ?");
+      args.push(counters.lastIndexedAt);
+    }
     args.push(id);
     this.db.run(`UPDATE knowledge_bases SET ${sets.join(", ")} WHERE id = ?`, args);
   }
 
   setAutoWatch(id: string, on: boolean): void {
     this.db.run(`UPDATE knowledge_bases SET auto_watch = ? WHERE id = ?`, [on ? 1 : 0, id]);
+  }
+
+  /** 库级模型指纹（embed_meta）；从未索引过为 null。不进 KbInfo 投影——索引器增量判定专用 */
+  getEmbedMeta(id: string): string | null {
+    const row = this.db.query(`SELECT embed_meta FROM knowledge_bases WHERE id = ?`).get(id) as
+      | { embed_meta: string | null }
+      | null;
+    return row?.embed_meta ?? null;
   }
 
   /** 开始一轮索引任务（同库同时只有一个活动 job——kb_id 是主键） */
