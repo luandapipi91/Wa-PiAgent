@@ -111,6 +111,7 @@ export interface AgentConfig {
 	// 技能显式全不选：true = 该智能体不加载任何技能（与 skills:[] 的"继承全部"语义区分）
 	skillsAllOff?: boolean;
 	mcpServers: string[];
+	knowledgeBaseIds?: string[]; // 绑定的知识库 id 列表
 	partners: Partners;
 	delegationHints?: DelegationHints; // 委派引导：注入 delegate 工具描述
 	systemPromptBody?: string; // frontmatter 后的正文
@@ -136,6 +137,55 @@ export interface SubagentInfo {
 	/** 委派引导：从 ~/.pi/agent/agents/*.md 的 frontmatter 提取，前端只读展示 */
 	delegationHints?: DelegationHints;
 	override?: SubagentOverride;
+}
+
+// ============ 内置知识库（KB）============
+
+/** 知识库元信息（列表/详情展示用） */
+export interface KbInfo {
+	id: string;
+	name: string;
+	description: string;
+	/** 源目录路径 */
+	folderPath: string;
+	/** scanning=扫描中 indexing=建索引中 ready=可用 error=失败 */
+	status: "scanning" | "indexing" | "ready" | "error";
+	fileCount: number;
+	chunkCount: number;
+	failedCount: number;
+	autoWatch: boolean;
+	/** 上次索引完成时间戳；从未索引过为 null */
+	lastIndexedAt: number | null;
+	/** scanning/indexing 进行中的实时进度（完成后清除） */
+	progress?: {
+		phase: "scanning" | "indexing";
+		filesTotal: number;
+		filesDone: number;
+		chunksDone: number;
+	};
+}
+
+/** 首次扫描预览：文件总量与建议跳过清单 */
+export interface KbScanPreview {
+	totalFiles: number;
+	totalBytes: number;
+	skippable: Array<{
+		path: string;
+		/** suggested_excluded=命中默认排除规则 oversized=超大小上限 binary=二进制
+		 * unreadable=无法读取 inaccessible=无访问权限 extraction_failed=文本抽取失败 */
+		reason: "suggested_excluded" | "oversized" | "binary" | "unreadable" | "inaccessible" | "extraction_failed";
+	}>;
+}
+
+/** SSE 事件：知识库索引进度（kernel → 前端广播） */
+export interface KbProgressEvent {
+	type: "knowledge:progress";
+	kbId: string;
+	phase: "scanning" | "indexing";
+	filesTotal: number;
+	filesDone: number;
+	chunksDone: number;
+	status: "scanning" | "indexing" | "ready" | "error";
 }
 
 export interface ProjectEntity {

@@ -191,6 +191,35 @@ export const MemorySearchParamsSchema = Type.Object({
 });
 
 // =========================================================================
+// knowledge_search
+// =========================================================================
+
+export const KB_SEARCH_DESCRIPTION =
+  "Hybrid search (BM25 + semantic embeddings) over the built-in knowledge bases bound to this agent " +
+  "(requirements, PRDs, specs and other product/business documents — the available list is in the system prompt). " +
+  "Query with a short phrase or sentence — space-separated words act as AND terms. Supports Chinese and English. " +
+  "Use this BEFORE answering product/business questions, before citing or quoting requirement/spec documents, " +
+  "and whenever you are unsure whether memory already covers it. " +
+  "An empty result means the knowledge bases do not contain it — NOT that the fact does not exist; " +
+  "do not treat absence as refutation, fall back to asking the user or the source documents. " +
+  "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first.";
+
+export const KB_SEARCH_SNIPPET =
+  "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score.";
+
+/** knowledge_search 参数——kernel 工具与 pi bridge 扩展共用同一份定义。 */
+export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
+  query: Type.String({
+    description:
+      "A short phrase or sentence describing what to look up (Chinese or English). " +
+      "Prefer one coherent phrase — space-separated words act as AND terms.",
+  }),
+  limit: Type.Optional(
+    Type.Number({ description: "Max results (default 5, max 20)." }),
+  ),
+});
+
+// =========================================================================
 // delegate
 // =========================================================================
 
