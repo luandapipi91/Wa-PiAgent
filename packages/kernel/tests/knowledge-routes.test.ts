@@ -351,6 +351,32 @@ test("GET /api/knowledge/:id/failed 列出失败文件清单", async () => {
   expect((store.getKb(kbId)!).failedCount).toBe(1);
 });
 
+// ===== 9. 每库 db 打不开时索引失败不卡死：job 清理 + status error + 可重新 index =====
+
+// 审查修复回归：openKbDb 原在 runIndex 主体 try 之外，损坏的每库 db 文件会让
+// startJob 之后直接 throw——job 行残留、status 卡 indexing、cancel/delete/index
+// 三条恢复路径全灭且重启不恢复。修复后必须走统一失败收尾。
+test("每库 db 损坏时索引失败可恢复（job 清理、status error、重试成功）", async () => {
+  const kb = store.createKb({ folderPath: srcDir, name: "坏库" });
+  // 预写损坏的每库 db 文件：openKbDb 首句 PRAGMA journal_mode=WAL 对非 sqlite 文件必抛
+  writeFileSync(kbDbPath(waPiDir, kb.id), "这不是一个 sqlite 数据库文件");
+  const { port } = await startTestServer();
+  const res = await api(port, "POST", `/api/knowledge/${kb.id}/index`);
+  expect(res.status).toBe(200); // 异步触发，响应不等索引结果
+  // 失败收尾：job 行清理、status 回退 error（首次建库计数归零可见失败）
+  await waitFor(() => store.getJob(kb.id) === null);
+  expect(store.getKb(kb.id)!.status).toBe("error");
+  expect(store.getKb(kb.id)!.fileCount).toBe(0);
+
+  // 恢复路径：排除坏文件后重新 index 可正常完成
+  rmSync(kbDbPath(waPiDir, kb.id));
+  const res2 = await api(port, "POST", `/api/knowledge/${kb.id}/index`);
+  expect(res2.status).toBe(200);
+  gate.resolveAll();
+  await waitFor(() => store.getKb(kb.id)!.status === "ready");
+  expect(store.getJob(kb.id)).toBeNull();
+});
+
 // ===== 8. 端到端：DELETE 后清理智能体绑定中的悬挂引用（任务 9 次要①补测）=====
 // routes 复用 agent-manager 注册过 onKbDeleted 回调的同一 store 实例时，
 // 删库回调触发 removeKbBinding：overrides 文件里该 kbId 被移除。

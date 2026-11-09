@@ -200,8 +200,14 @@ export async function runIndex(
   let failedCount = 0;
   let chunksDone = 0;
 
-  const db = openKbDb(ctx.waPiDir, kbId);
+  // db 可空：openKbDb（每库文件损坏/不可写时抛 SQLITE_NOTADB 等）必须在主体 try 内——
+  // 否则 startJob 之后裸抛会残留 job 行 + status 卡 indexing，且 cancel/delete/index
+  // 三条恢复路径全灭、重启不恢复（审查修复回归：knowledge-routes 测试第 9 条锁定）。
+  // catch/finally 对 db 做空值防护：未打开时跳过首建清理、无事可关。
+  let db: Database | null = null;
   try {
+    // ===== 阶段 0：打开每库 db =====
+    db = openKbDb(ctx.waPiDir, kbId);
     // ===== 阶段 1：扫描（先数不写，复用任务 3）=====
     throwIfAborted(signal);
     const preview = await scanFolder(kb.folderPath, []);
@@ -309,11 +315,13 @@ export async function runIndex(
     const removedPaths: string[] = [];
     for (const [path] of existing.byPath) if (!nowPaths.has(path)) removedPaths.push(path);
 
-    const commitAll = db.transaction(() => {
+    // 事务闭包内不可引用可变外层变量（TS 无法窄化）：捕获此刻已打开的连接为不可变别名
+    const kdb = db as Database;
+    const commitAll = kdb.transaction(() => {
       const deleteFileRows = (relPath: string) => {
         // 先删 FTS（子查询依赖 chunks 行）再删块
-        db.run(`DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?)`, [relPath]);
-        db.run(`DELETE FROM chunks WHERE file_path = ?`, [relPath]);
+        kdb.run(`DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?)`, [relPath]);
+        kdb.run(`DELETE FROM chunks WHERE file_path = ?`, [relPath]);
       };
       const now = Date.now();
       for (const plan of plans) {
@@ -323,7 +331,7 @@ export async function runIndex(
           const reuse = plan.reuse.get(i);
           const id = reuse?.id ?? c.id;
           const embedding = reuse?.embedding ?? vecByChunk.get(c) ?? null;
-          db.run(
+          kdb.run(
             `INSERT INTO chunks (id, file_path, file_type, title, breadcrumb, start_line, end_line,
                content, prefix_content, content_hash, file_mtime, file_size, embedding, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -333,14 +341,14 @@ export async function runIndex(
               plan.mtime, plan.size, embedding, now,
             ],
           );
-          db.run(`INSERT INTO chunks_fts (body, chunk_id) VALUES (?, ?)`, [bigram(c.prefixContent), id]);
+          kdb.run(`INSERT INTO chunks_fts (body, chunk_id) VALUES (?, ?)`, [bigram(c.prefixContent), id]);
         }
       }
       for (const relPath of removedPaths) deleteFileRows(relPath);
       for (const b of needEmbed) {
         if (b.backfillId !== undefined) {
           // 嵌入批完成后 vec 必已就位
-          db.run(`UPDATE chunks SET embedding = ? WHERE id = ?`, [b.vec as Uint8Array, b.backfillId]);
+          kdb.run(`UPDATE chunks SET embedding = ? WHERE id = ?`, [b.vec as Uint8Array, b.backfillId]);
         }
       }
     });
@@ -364,8 +372,8 @@ export async function runIndex(
     return { ok: true, cancelled: false, filesTotal, filesDone, chunkCount: chunkTotal, failedCount };
   } catch (err) {
     const cancelled = signal?.aborted === true;
-    if (firstRun) {
-      // 首次建库（取消或失败）：删该库全部块，不留半成品
+    if (firstRun && db) {
+      // 首次建库（取消或失败）：删该库全部块，不留半成品（db 未打开则无块可清）
       db.run(`DELETE FROM chunks_fts`);
       db.run(`DELETE FROM chunks`);
       refreshKbQuantizedIndex(db);
@@ -390,6 +398,6 @@ export async function runIndex(
     emit(ctx, kbId, "committing", "error", filesTotal, filesDone, chunksDone);
     throw err;
   } finally {
-    db.close();
+    db?.close();
   }
 }

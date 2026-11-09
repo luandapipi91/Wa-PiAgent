@@ -15,11 +15,22 @@ ensureCustomSqlite();
 /** 打开（必要时新建）某知识库的独立 db；每次返回新连接 */
 export function openKbDb(waPiDir: string, kbId: string): Database {
   const db = new Database(kbDbPath(waPiDir, kbId), { create: true });
-  db.run("PRAGMA journal_mode = WAL");
-  db.run("PRAGMA busy_timeout = 60000");
-  db.run(KB_DB_SCHEMA_SQL);
-  // 向量列声明是「连接级」的（扩展要求每个新连接重新 init），量化数据在库内持久化。
-  // 失败不阻断打开——检索的词法通道照常，只是没有语义通道。
-  initKbVectorColumn(db);
-  return db;
+  try {
+    db.run("PRAGMA journal_mode = WAL");
+    db.run("PRAGMA busy_timeout = 60000");
+    db.run(KB_DB_SCHEMA_SQL);
+    // 向量列声明是「连接级」的（扩展要求每个新连接重新 init），量化数据在库内持久化。
+    // 失败不阻断打开——检索的词法通道照常，只是没有语义通道。
+    initKbVectorColumn(db);
+    return db;
+  } catch (err) {
+    // 打开中途失败（如文件损坏非 sqlite 库 → SQLITE_NOTADB）：必须关掉半初始化连接，
+    // 否则 Windows 上句柄挂着锁死文件/目录（审查修复：与 runIndex 的失败收尾配套）
+    try {
+      db.close();
+    } catch {
+      /* 已损坏连接的关闭失败无可补救 */
+    }
+    throw err;
+  }
 }
