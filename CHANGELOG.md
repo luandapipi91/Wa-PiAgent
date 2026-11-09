@@ -1,4 +1,5 @@
 ## 2026-11-10
+- fix(frontend): 知识库弹窗审查修复——①扫描竞态：扫描中改路径/浏览后旧 preview 响应 resolve 仍无条件落地，界面显 A 路径「N 个文件可索引」提交却走 B 路径，架空两段式确认语义；scanSeqRef 序号计数器（changeFolder 作废在途 + resolve/catch/finally 时序号不匹配即丢弃，不在闭包内自比旧值）；②en saveNew "Create && Index" 字面渲染双 &（React 不解析 HTML 实体）改 "Create & Index"；③操作行取消按钮「✕」与标题栏关闭重复，改文字「取消」（对齐 McpForm 的 cancel 惯例，zh/en 同步 kb.cancel 键）。TDD 先红后绿（3 新用例：previewGate 延迟闸复现竞态/取消文案断言/en locale 回归锁），frontend 全量 3338 pass（2 fail 为存量基线）+ tsc 0 错误
 - feat(frontend): 知识库新建/编辑弹窗 KbFormModal——扫描预览两段式（选路径 →「扫描预览」POST preview 展示可索引数+六类跳过原因中文计数 →「创建并索引」）、名称/描述默认值 placeholder 提示（留空直接提交由 kernel 兑底取文件夹名/默认描述）、文件夹选择对齐 projects 惯例（Electron 原生目录对话框优先 + 浏览器回退 DirTreePicker 覆盖层 + 文本输入兜底）、编辑模式回填名称/描述且源目录只读（PUT 只更名称/描述）、未选路径提交内联拦截「请选择文件夹」不发请求；挂接 KnowledgePage 新建按钮与 KbList 更新入口（保存成功刷新 store 清单并关弹窗，失败错误回显弹窗），onReindex 保持占位（重建链路后续任务）。TDD 先红后绿（8 组件用例：拦截/placeholder/两段式/跳过计数/编辑回填/挂接链路），frontend 全量 3335 pass（2 fail 为存量基线）+ tsc 0 错误
 
 ## 2026-11-09
