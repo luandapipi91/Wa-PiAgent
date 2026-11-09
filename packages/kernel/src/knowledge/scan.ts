@@ -1,0 +1,237 @@
+// 知识库扫描器：索引管线第一阶段「先数不写」的只读预览（规格 §6.3）。
+// 三层过滤，优先级从高到低：
+//   1. 用户显式排除（excludePaths，整棵子树剪掉，不记 skips——六类枚举无 user_excluded）
+//   2. 建议排除（SUGGESTED_EXCLUDES ~40 条内置规则，可被用户确认覆盖）
+//   3. 技术跳过（不可覆盖）：>10MiB oversized → 前 512B 含 0x00 binary → 读失败 unreadable/inaccessible
+// 只读约束：不向源目录写任何文件；符号链接一律不跟随（防止逃出源目录边界）。
+import { readdirSync, statSync, openSync, readSync, closeSync, type Dirent } from "node:fs";
+import { join } from "node:path";
+
+/** 单文件索引上限：10 MiB（规格硬性，不可绕过） */
+export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+/** 二进制探测窗口：前 512 字节含 0x00 判二进制 */
+const BINARY_SNIFF_BYTES = 512;
+
+/**
+ * 建议排除模式列表（内置 ~40 条量级，用户新建时可确认覆盖）。
+ * 匹配语义：
+ *   - 纯名称（无 *）：匹配 relPath 的任意一段（目录或文件名按段精确匹配）
+ *   - 含 *：对文件名（basename）做通配，* 匹配任意字符（不跨段）
+ */
+export const SUGGESTED_EXCLUDES: readonly string[] = [
+  // 依赖与构建产物目录
+  "node_modules", "vendor", "dist", "build", "out", "target", "coverage",
+  // 版本控制与缓存目录
+  ".git", ".cache", "__pycache__", ".venv",
+  // IDE 配置目录
+  ".idea",
+  // 密钥与凭据
+  ".env", "*.pem", "*.key", "*.p12", "id_rsa*", "*secret*",
+  // 依赖锁文件
+  "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb",
+  "Cargo.lock", "poetry.lock", "Pipfile.lock", "composer.lock",
+  // 压缩包
+  "*.zip", "*.tar", "*.gz", "*.rar", "*.7z",
+  // 图片二进制
+  "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.ico", "*.bmp",
+  // 视频二进制
+  "*.mp4", "*.mkv", "*.mov",
+  // 音频二进制
+  "*.mp3", "*.wav",
+  // 字体二进制
+  "*.woff", "*.woff2", "*.ttf",
+  // 原生二进制与字节码（刻意不含 *.bin——big.bin 类文件走 oversized 判定）
+  "*.exe", "*.dll", "*.so", "*.wasm", "*.pyc",
+  // 数据库 / 系统 / 日志
+  "*.sqlite", "*.db", ".DS_Store", "Thumbs.db", "*.log",
+];
+
+/** 可索引文件的类型分类（与 extractText / chunkDocument 的 type 参数对接） */
+export type KbFileType = "md" | "txt" | "docx" | "pdf" | "html";
+
+/** 六类跳过原因（枚举与 @wa-pi/shared KbScanPreview 逐字一致；extraction_failed 仅由抽取阶段产生，扫描不产出） */
+export type KbSkipReason =
+  | "suggested_excluded"
+  | "oversized"
+  | "binary"
+  | "unreadable"
+  | "inaccessible"
+  | "extraction_failed";
+
+/** 可索引文件条目 */
+export interface ScannedFile {
+  /** POSIX 风格相对路径（一律 / 分隔，跨平台稳定） */
+  relPath: string;
+  absPath: string;
+  type: KbFileType;
+  /** 字节数 */
+  size: number;
+  /** 修改时间（毫秒时间戳，增量快照对比用） */
+  mtime: number;
+}
+
+/** 跳过条目（path 为 relPath） */
+export interface ScanSkip {
+  path: string;
+  reason: KbSkipReason;
+}
+
+/** 扫描预览（后端内部形状；routes 层映射为 @wa-pi/shared KbScanPreview） */
+export interface ScanPreview {
+  indexable: ScannedFile[];
+  skips: ScanSkip[];
+}
+
+/** 扩展名 → 类型映射；未识别扩展名/无扩展名按 txt 尝试（binary 探测兜底） */
+const TYPE_BY_EXT: Record<string, KbFileType> = {
+  ".md": "md",
+  ".markdown": "md",
+  ".mdx": "md",
+  ".txt": "txt",
+  ".docx": "docx",
+  ".pdf": "pdf",
+  ".html": "html",
+  ".htm": "html",
+};
+
+function detectType(name: string): KbFileType {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return "txt";
+  return TYPE_BY_EXT[name.slice(dot).toLowerCase()] ?? "txt";
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 仅支持 * 通配的 basename 匹配（模式不跨路径段） */
+function globMatch(pattern: string, base: string): boolean {
+  const re = new RegExp(`^${pattern.split("*").map(escapeRegExp).join(".*")}$`);
+  return re.test(base);
+}
+
+/** EACCES/EPERM 视为无权限（inaccessible），其余读错误视为不可读（unreadable） */
+function isAccessDenied(e: unknown): boolean {
+  const code = (e as NodeJS.ErrnoException | null)?.code;
+  return code === "EACCES" || code === "EPERM";
+}
+
+/**
+ * 扫描源目录：递归遍历、三层过滤，产出可索引清单与跳过清单。
+ * 只读 stat 遍历，不写入源目录；符号链接一律不跟随。
+ * 输出按路径排序保证跨平台确定性。
+ */
+export async function scanFolder(folderPath: string, excludePaths: string[]): Promise<ScanPreview> {
+  const indexable: ScannedFile[] = [];
+  const skips: ScanSkip[] = [];
+  const normExcludes = excludePaths
+    .map(ex => ex.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, ""))
+    .filter(Boolean);
+
+  // 第 1 层：用户显式排除——命中即整棵剪掉（不记 skips）
+  function isUserExcluded(relPath: string): boolean {
+    const segments = relPath.split("/");
+    return normExcludes.some(ex =>
+      ex.includes("/")
+        ? relPath === ex || relPath.startsWith(`${ex}/`)
+        : segments.includes(ex),
+    );
+  }
+
+  // 第 2 层：建议排除——目录命中时只展开一层记录直接子项（避免 node_modules 深层万级条目撑爆预览）
+  function matchSuggested(relPath: string): boolean {
+    const segments = relPath.split("/");
+    const base = segments[segments.length - 1];
+    return SUGGESTED_EXCLUDES.some(pattern =>
+      pattern.includes("*") ? globMatch(pattern, base) : segments.includes(pattern),
+    );
+  }
+
+  function recordSuggestedSubtree(absDir: string, relDir: string): void {
+    let children: Dirent[];
+    try {
+      children = readdirSync(absDir, { withFileTypes: true });
+    } catch {
+      return; // 目录本身已排除，展开失败无需记录
+    }
+    for (const c of children) {
+      const childRel = `${relDir}/${c.name}`;
+      if (isUserExcluded(childRel)) continue; // 用户显式排除优先：不进 skips
+      skips.push({ path: childRel, reason: "suggested_excluded" });
+    }
+  }
+
+  function looksBinary(absFile: string): boolean {
+    const fd = openSync(absFile, "r");
+    try {
+      const buf = Buffer.alloc(BINARY_SNIFF_BYTES);
+      const n = readSync(fd, buf, 0, BINARY_SNIFF_BYTES, 0);
+      return buf.subarray(0, n).includes(0);
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  function handleFile(absFile: string, relPath: string): void {
+    if (isUserExcluded(relPath)) return;
+    if (matchSuggested(relPath)) {
+      skips.push({ path: relPath, reason: "suggested_excluded" });
+      return;
+    }
+    let size: number;
+    let mtime: number;
+    try {
+      const st = statSync(absFile);
+      if (!st.isFile()) return; // 竞态：遍历中已变为非常规文件，忽略
+      size = st.size;
+      mtime = st.mtimeMs;
+    } catch (e) {
+      skips.push({ path: relPath, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
+      return;
+    }
+    if (size > MAX_FILE_BYTES) {
+      skips.push({ path: relPath, reason: "oversized" });
+      return;
+    }
+    try {
+      if (looksBinary(absFile)) {
+        skips.push({ path: relPath, reason: "binary" });
+        return;
+      }
+    } catch (e) {
+      skips.push({ path: relPath, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
+      return;
+    }
+    indexable.push({ relPath, absPath: absFile, type: detectType(relPath), size, mtime });
+  }
+
+  function walkDir(absDir: string, relDir: string): void {
+    const entries = readdirSync(absDir, { withFileTypes: true }); // 顶层失败直接抛给调用方
+    for (const dirent of entries) {
+      if (dirent.isSymbolicLink()) continue; // 安全：不跟随链接，防逃出源目录边界
+      const childRel = relDir ? `${relDir}/${dirent.name}` : dirent.name;
+      const childAbs = join(absDir, dirent.name);
+      if (dirent.isDirectory()) {
+        if (isUserExcluded(childRel)) continue;
+        if (matchSuggested(childRel)) {
+          recordSuggestedSubtree(childAbs, childRel);
+          continue;
+        }
+        try {
+          walkDir(childAbs, childRel);
+        } catch (e) {
+          skips.push({ path: childRel, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
+        }
+      } else if (dirent.isFile()) {
+        handleFile(childAbs, childRel);
+      }
+      // 其余（fifo/socket/设备等非常规条目）：忽略
+    }
+  }
+
+  walkDir(folderPath, "");
+  indexable.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
+  skips.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return { indexable, skips };
+}

@@ -4,6 +4,16 @@ export { knowledgeDbPath, knowledgeDir, kbDbPath } from "./paths";
 export { KnowledgeStore, JOB_STUCK_MS, type KbJob } from "./store";
 export { openKbDb } from "./kb-db";
 export {
+  scanFolder,
+  SUGGESTED_EXCLUDES,
+  MAX_FILE_BYTES,
+  type ScanPreview,
+  type ScannedFile,
+  type ScanSkip,
+  type KbFileType,
+  type KbSkipReason,
+} from "./scan";
+export {
   initKbVectorColumn,
   isKbVectorReady,
   refreshKbQuantizedIndex,
