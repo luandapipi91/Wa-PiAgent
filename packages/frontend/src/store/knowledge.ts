@@ -15,6 +15,12 @@ interface KnowledgeState {
   kbs: KbInfo[];
   loading: boolean;
   /**
+   * 清单是否成功加载过（B5 审查修复）：false = 未知态（未拉取/拉取中/失败）。
+   * 消费方（AgentConfig 保存链路）据此区分「清单已知为空」与「清单未知」——
+   * 未知态不得把绑定过滤成空（那会静默清空既有绑定）。
+   */
+  loaded: boolean;
+  /**
    * 各库最新索引进度（按 kbId 键控）。列表回包自带的 kb.progress 也会 seed 进来
    * （刷新页面后 SSE 事件流尚未推帧时，徽章仍有进度可渲染）；索引到终态（ready/error）清除。
    */
@@ -34,6 +40,7 @@ interface KnowledgeState {
 export const useKnowledgeStore = create<KnowledgeState>((set) => ({
   kbs: [],
   loading: false,
+  loaded: false,
   progress: {},
 
   listKbs: () => {
@@ -58,7 +65,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
             };
           }
         }
-        set({ kbs, progress, loading: false });
+        set({ kbs, progress, loading: false, loaded: true });
       })
       .catch(() => set({ loading: false }));
   },

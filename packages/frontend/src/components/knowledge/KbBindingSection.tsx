@@ -18,10 +18,10 @@ interface Props {
 	restricted?: boolean;
 }
 
-/** 状态摘要：未完成索引的库标注「索引完成后可检索」，就绪/失败复用知识库页徽章文案 */
+/** 状态摘要：未完成索引的库标注「索引完成后可检索」，error 库明示暂不可检索；就绪复用知识库页徽章文案 */
 function statusHint(kb: KbInfo, t: (k: string) => string): string {
 	if (kb.status === "ready") return t("kb.statusReady");
-	if (kb.status === "error") return t("kb.statusInterrupted");
+	if (kb.status === "error") return t("kb.bindInterrupted");
 	// scanning / indexing：索引未完成，可绑定但暂不可检索
 	return t("kb.bindAfterIndex");
 }
@@ -36,7 +36,7 @@ export function KbBindingSection({
 	const selectedSet = new Set(selected);
 	return (
 		<div data-testid="kb-binding-section">
-			{restricted && (
+			{restricted && kbs.length > 0 && (
 				<p
 					className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2"
 					data-testid="kb-bind-restricted-hint"

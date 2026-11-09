@@ -225,12 +225,16 @@ export function AgentConfig({ agentName, onClose }: Props) {
 
 	const save = () => {
 		if (!draft) return;
-		// 绑定的知识库过滤失效 id（清单里已不存在的库不进保存载荷，审查重点 2）
-		const kbKnown = new Set(useKnowledgeStore.getState().kbs.map((k) => k.id));
-		const kbIds = (Array.isArray(draft.knowledgeBaseIds)
+		// 绑定的知识库过滤失效 id（审查重点 2）；但仅在清单已知（loaded）时过滤——
+		// 清单未知态（未加载成功：拉取中/失败）不得当空态，否则既有绑定会被静默清空（审查修复 1）
+		const kbStore = useKnowledgeStore.getState();
+		let kbIds = Array.isArray(draft.knowledgeBaseIds)
 			? draft.knowledgeBaseIds
-			: []
-		).filter((id) => kbKnown.has(id));
+			: [];
+		if (kbStore.loaded) {
+			const kbKnown = new Set(kbStore.kbs.map((k) => k.id));
+			kbIds = kbIds.filter((id) => kbKnown.has(id));
+		}
 		if (isBuiltin) {
 			const validModel =
 				modelIds.size > 0 && draft.model && !modelIds.has(draft.model)

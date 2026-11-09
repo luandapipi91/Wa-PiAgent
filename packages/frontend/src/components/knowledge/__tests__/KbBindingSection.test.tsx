@@ -28,15 +28,19 @@ import type { KbInfo } from "@wa-pi/shared";
 import type { AgentConfig as AgentConfigType } from "@wa-pi/shared";
 
 // REST API 调用记录；get 对 /api/knowledge 返回清单（AgentConfig mount 必拉 listKbs，
-// 直接 setState 注入会被 mount 拉取覆盖，照 KbFormModal.test.tsx 的做法让 get 回清单）
+// 直接 setState 注入会被 mount 拉取覆盖，照 KbFormModal.test.tsx 的做法让 get 回清单）；
+// kbListFail=true 时 get /api/knowledge 拒绝，模拟清单未知态（未 resolve/失败，审查修复 1）
 const apiCalls: { method: string; path: string; body?: any }[] = [];
 const kbListFixture: KbInfo[] = [];
+let kbListFail = false;
 mock.module("../../../api-client", () => ({
 	api: {
 		get: mock(async (path: string) => {
 			apiCalls.push({ method: "get", path });
-			if (path === "/api/knowledge")
+			if (path === "/api/knowledge") {
+				if (kbListFail) throw new Error("simulated knowledge list failure");
 				return { type: "knowledge:list", kbs: kbListFixture };
+			}
 			return {};
 		}),
 		post: mock(async () => ({})),
@@ -118,6 +122,7 @@ const configSaveCall = (agentName: string) =>
 beforeEach(() => {
 	cleanup();
 	apiCalls.length = 0;
+	kbListFail = false;
 	kbListFixture.length = 0;
 	kbListFixture.push(...kbs);
 	useKnowledgeStore.setState(useKnowledgeStore.getInitialState(), true);
@@ -151,6 +156,28 @@ describe("KbBindingSection 勾选列表", () => {
 			<KbBindingSection kbs={kbs} selected={[]} onToggle={mock()} restricted />,
 		);
 		expect(screen.getByText(/自动启用搜索工具/)).toBeTruthy();
+	});
+
+	test("空清单且受限时不显示受限提示（无库可绑，提示误导）", () => {
+		render(
+			<KbBindingSection kbs={[]} selected={[]} onToggle={mock()} restricted />,
+		);
+		expect(screen.queryByText(/自动启用搜索工具/)).toBeNull();
+		// 空清单提示仍在（引导用户先去建库）
+		expect(screen.getByText(/暂无知识库/)).toBeTruthy();
+	});
+
+	test("error 库状态摘要含「暂不可检索」暗示", () => {
+		const failed = { ...kbReady, id: "kb_err", status: "error" as const };
+		render(
+			<KbBindingSection
+				kbs={[failed]}
+				selected={[]}
+				onToggle={mock()}
+			/>,
+		);
+		expect(screen.getByText(/索引中断/)).toBeTruthy();
+		expect(screen.getByText(/暂不可检索/)).toBeTruthy();
 	});
 
 	test("已删除库 id 不进勾选列表（审查重点 2）", () => {
@@ -206,5 +233,23 @@ describe("AgentConfig 保存链路带上 knowledgeBaseIds", () => {
 		const call = configSaveCall("dev");
 		expect(call).toBeTruthy();
 		expect(call!.body.config.knowledgeBaseIds).toEqual([]);
+	});
+
+	test("清单未知态不清空既有绑定（审查修复 1）：加载失败时保存 payload 原样保留", async () => {
+		// get /api/knowledge 失败 → store loading 复位但清单从未成功加载（未知态）
+		kbListFail = true;
+		const withBinding = { ...cfg("dev"), knowledgeBaseIds: ["kb_1"] };
+		useAgentsStore.setState({ configs: { dev: withBinding } });
+		render(<AgentConfig agentName="dev" onClose={() => {}} />);
+		// draft 就绪（name input 渲染）且 listKbs 失败已落定（loading 复位）
+		await waitFor(() => screen.getByTestId("cfg-name-input"));
+		await waitFor(() =>
+			expect(useKnowledgeStore.getState().loading).toBe(false),
+		);
+		fireEvent.click(screen.getByTestId("cfg-save"));
+		const call = configSaveCall("dev");
+		expect(call).toBeTruthy();
+		// 未知态 ≠ 空态：不把清单未知当「库里没有」，既有绑定原样保留
+		expect(call!.body.config.knowledgeBaseIds).toEqual(["kb_1"]);
 	});
 });
