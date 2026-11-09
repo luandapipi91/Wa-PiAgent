@@ -14,6 +14,7 @@ export {
   type KbSkipReason,
 } from "./scan";
 export { extractText, ExtractionError, type ExtractedText } from "./extract";
+export { chunkDocument, estimateTokens, type KnowledgeChunk, type ChunkerDoc } from "./chunker";
 export {
   initKbVectorColumn,
   isKbVectorReady,
