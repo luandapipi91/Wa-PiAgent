@@ -47,6 +47,9 @@ export const SUGGESTED_EXCLUDES: readonly string[] = [
   "*.sqlite", "*.db", ".DS_Store", "Thumbs.db", "*.log",
 ];
 
+/** 模式的小写副本：NTFS/APFS 大小写不敏感，匹配时目标 relPath 也归一小写（见 matchSuggested） */
+const SUGGESTED_EXCLUDES_LOWER = SUGGESTED_EXCLUDES.map(p => p.toLowerCase());
+
 /** 可索引文件的类型分类（与 extractText / chunkDocument 的 type 参数对接） */
 export type KbFileType = "md" | "txt" | "docx" | "pdf" | "html";
 
@@ -112,7 +115,7 @@ function globMatch(pattern: string, base: string): boolean {
 }
 
 /** EACCES/EPERM 视为无权限（inaccessible），其余读错误视为不可读（unreadable） */
-function isAccessDenied(e: unknown): boolean {
+export function isAccessDenied(e: unknown): boolean {
   const code = (e as NodeJS.ErrnoException | null)?.code;
   return code === "EACCES" || code === "EPERM";
 }
@@ -139,11 +142,12 @@ export async function scanFolder(folderPath: string, excludePaths: string[]): Pr
     );
   }
 
-  // 第 2 层：建议排除——目录命中时只展开一层记录直接子项（避免 node_modules 深层万级条目撑爆预览）
+  // 第 2 层：建议排除——目录命中时只展开一层记录直接子项（避免 node_modules 深层万级条目撑爆预览）。
+  // 大小写归一：Windows 文件系统大小写不敏感，server.PEM/.ENV/MySecret.TXT 等变体必须同样命中。
   function matchSuggested(relPath: string): boolean {
-    const segments = relPath.split("/");
+    const segments = relPath.toLowerCase().split("/");
     const base = segments[segments.length - 1];
-    return SUGGESTED_EXCLUDES.some(pattern =>
+    return SUGGESTED_EXCLUDES_LOWER.some(pattern =>
       pattern.includes("*") ? globMatch(pattern, base) : segments.includes(pattern),
     );
   }
