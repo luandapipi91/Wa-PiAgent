@@ -177,11 +177,11 @@ export interface KbScanPreview {
 	}>;
 }
 
-/** SSE 事件：知识库索引进度（kernel → 前端广播） */
+/** SSE 事件：知识库索引进度（kernel → 前端广播）。phase 与 indexing_jobs 阶段一致（规格 §6.1） */
 export interface KbProgressEvent {
 	type: "knowledge:progress";
 	kbId: string;
-	phase: "scanning" | "indexing";
+	phase: "scanning" | "extracting" | "chunking" | "embedding" | "committing";
 	filesTotal: number;
 	filesDone: number;
 	chunksDone: number;
