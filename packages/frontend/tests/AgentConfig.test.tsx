@@ -67,7 +67,9 @@ mock.module("../src/api-client", () => ({
 		put: (path: string, body?: any) => {
 			apiCalls.push({ method: "put", path, body });
 			if (saveFailure && /\/config$/.test(path)) {
+				// 一次性消费：失败后用户再点保存应走正常（成功）路径
 				const { status, body: errBody } = saveFailure;
+				saveFailure = null;
 				const err = new Error(
 					errBody.error ?? errBody.message ?? `${status}`,
 				) as Error & { status: number };
@@ -1102,5 +1104,71 @@ describe("保存失败可见（S12）", () => {
 		fireEvent.click(screen.getByTestId("cfg-save"));
 		await waitFor(() => expect(onClose).toHaveBeenCalled());
 		expect(errorToastMessages()).toEqual([]);
+	});
+});
+
+// ── S12 复审修复轮 1 ────────────────────────────────────────────────────
+// I-2：失败 → 改字段 → 再保存（成功）这条重试流程此前只有人工验证，无回归锁。
+// I-3：内置 subagent 的 draft 由 store 的 subagent:list 广播重算（builtinDraft），
+//      effect 顶部的 dirty 复位会把在途编辑标记冲掉 → 广播静默回滚未保存编辑。
+const planInfo = {
+	name: "Plan",
+	displayName: "规划子智能体",
+	description: "",
+	emoji: "📐",
+	gradient: ["#7c3aed", "#a78bfa"] as [string, string],
+	readOnly: true,
+	systemPrompt: "x",
+	builtinToolNames: [],
+};
+
+describe("S12 复审修复轮 1", () => {
+	test("保存失败后改字段再保存：第二次成功即关窗，载荷含新值", async () => {
+		const onClose = mock();
+		mockSaveConfig(500, { message: "knowledgeBaseIds 无效" });
+		renderConfig("研发", cfg("研发"), onClose);
+		fireEvent.click(screen.getByTestId("cfg-save"));
+		await waitFor(() =>
+			expect(errorToastMessages()).toContain("knowledgeBaseIds 无效"),
+		);
+		// 失败不关窗：用户还留在弹窗里，可改字段重试
+		expect(onClose).not.toHaveBeenCalled();
+
+		// 用户修正字段（改名）后再点保存：mockSaveConfig 是一次性的，这次走成功路径
+		fireEvent.change(screen.getByTestId("cfg-name-input"), {
+			target: { value: "研发二组" },
+		});
+		fireEvent.click(screen.getByTestId("cfg-save"));
+
+		await waitFor(() => expect(onClose).toHaveBeenCalled());
+		const puts = apiCalls.filter((c) => c.method === "put");
+		expect(puts).toHaveLength(2);
+		expect(puts[1].body.config.displayName).toBe("研发二组");
+	});
+
+	test("内置 subagent 编辑中收到 subagent:list 广播：draft 不被覆盖", async () => {
+		useSubagentsStore.setState({
+			subagents: [
+				{ ...planInfo, override: { type: "Plan", thinking: "high" } },
+			],
+		});
+		render(<AgentConfig agentName="Plan" onClose={() => {}} />);
+		const thinkingSelect = screen.getByTestId(
+			"cfg-thinking-select",
+		) as HTMLSelectElement;
+		fireEvent.change(thinkingSelect, { target: { value: "max" } });
+		expect(thinkingSelect.value).toBe("max");
+
+		// 广播到达：store 换成旧 override（thinking 仍是 high），builtinDraft 随之重算
+		await act(async () => {
+			useSubagentsStore.setState({
+				subagents: [
+					{ ...planInfo, override: { type: "Plan", thinking: "high" } },
+				],
+			});
+		});
+		expect(
+			(screen.getByTestId("cfg-thinking-select") as HTMLSelectElement).value,
+		).toBe("max");
 	});
 });

@@ -178,18 +178,24 @@ export function AgentConfig({ agentName, onClose }: Props) {
 		};
 	}, [builtinInfo]);
 
+	// 切换目标智能体（弹窗重开）时复位在途编辑标记。
+	// 必须独立成 effect：下方 effect 还会因 builtinDraft（subagent:list 广播导致的 store 重算）重跑，
+	// 在那里复位会把在途编辑标记冲掉 —— 广播带来的旧 override 于是盖掉用户未保存的编辑（I-3）
 	useEffect(() => {
-		// 切换目标智能体（弹窗重开）时复位在途编辑标记
 		draftDirtyRef.current = false;
+	}, [agentName]);
+
+	useEffect(() => {
 		// 工具列表：内置与命名智能体都需要（工具 tab 展示系统工具全集 + 勾选态）
 		api.get("/api/agents/tools").then((data: any) => {
 			if (data?.tools) setTools(data.tools);
 		});
 		// 知识库清单：绑定区展示与保存时失效 id 过滤的依据（B5）
 		useKnowledgeStore.getState().listKbs();
-		// 内置 subagent 不走 WS 加载，直接用本地构造的 draft
+		// 内置 subagent 不走 WS 加载，直接用本地构造的 draft；
+		// 同样受 dirty 门卫保护：广播导致的 store 重算不得覆盖在途编辑（I-3）
 		if (isBuiltin) {
-			if (builtinDraft) setDraft(builtinDraft);
+			if (builtinDraft && !draftDirtyRef.current) setDraft(builtinDraft);
 			return;
 		}
 		// 先从 store 缓存设置初始值（如果已有），然后通过 API 拉取最新数据覆盖
