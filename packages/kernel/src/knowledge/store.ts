@@ -29,6 +29,12 @@ export function processOwnerId(): string {
   return PROC_OWNER_ID;
 }
 
+/** 仅供测试：把存活 owner 表归位到「只有本进程」（模块级状态的用例间污染清理） */
+export function resetJobOwnerStateForTest(): void {
+  liveOwners.clear();
+  liveOwners.add(PROC_OWNER_ID);
+}
+
 /** 默认描述模板（规格 §6.8：不填时告诉智能体这是哪来的资料、何时该查） */
 function defaultDescription(name: string): string {
   return `来自文件夹「${name}」的资料索引，回答与「${name}」相关的问题前可检索本库`;
@@ -277,14 +283,16 @@ export class KnowledgeStore {
 
   /**
    * 开始一轮索引任务（同库同时只允许一个活动 job——kb_id 是主键）；已有活动 job 时拒绝，不静默覆盖。
-   * opts.owner 由 indexer 传 processOwnerId()：同进程写下的 owner 记为存活，卡死判定据此豁免。
+   *
+   * owner 缺省 = 本进程 owner（processOwnerId）：**忘传 owner 不会静默失去活任务保护**；
+   * 只有显式传 `owner: null` 才表示无 owner（旧库/外来行语义，回落心跳阈值判定）。
    */
-  startJob(kbId: string, phase: KbPhase, opts?: { owner?: string }): void {
+  startJob(kbId: string, phase: KbPhase, opts?: { owner?: string | null }): void {
     if (this.getJob(kbId)) {
       throw new Error(`知识库 ${kbId} 已有进行中的索引任务，拒绝重复启动`);
     }
     const now = Date.now();
-    const owner = opts?.owner ?? null;
+    const owner = opts?.owner === undefined ? processOwnerId() : opts.owner;
     this.db.run(
       `INSERT INTO indexing_jobs (kb_id, phase, owner, last_progress_at, heartbeat_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -333,7 +341,11 @@ export class KnowledgeStore {
     this.db.run(`UPDATE indexing_jobs SET ${sets.join(", ")} WHERE kb_id = ?`, args);
   }
 
-  /** 任务收尾：删 job 行（KbInfo.progress 随之清除） */
+  /**
+   * 任务收尾：删 job 行（KbInfo.progress 随之清除）。
+   * 不动 liveOwners：存活表登的是「进程」，不是「这一轮 job」——进程还活着，owner 就该继续被豁免；
+   * job 行的存在与否才是活动任务的唯一真源（startJob 插入、本方法删除）。
+   */
   finishJob(kbId: string): void {
     this.db.run(`DELETE FROM indexing_jobs WHERE kb_id = ?`, [kbId]);
   }
@@ -372,12 +384,12 @@ export class KnowledgeStore {
   }
 
   /**
-   * 把 job 的 owner 置空 = 该 owner 失联（进程重启后旧 owner 必然不存在，这也是测试模拟失联的钩子）。
+   * 把 job 的 owner 置空 = 该 job 的 owner 失联（进程重启后旧 owner 必然不存在，这也是测试模拟失联的钩子）。
    * 置空后该 job 回落到「心跳超过 JOB_STUCK_MS」判定。
+   * 刻意不动模块级 liveOwners：owner 是进程级标识，同一进程可能还挂着别的 kb 的 job，
+   * 全局摘除会误伤它们；本 job 靠 owner=NULL 就已足够脱离活任务豁免。
    */
   expireJobOwner(kbId: string): void {
-    const job = this.getJob(kbId);
-    if (job?.owner) liveOwners.delete(job.owner);
     this.db.run(`UPDATE indexing_jobs SET owner = NULL WHERE kb_id = ?`, [kbId]);
   }
 
@@ -387,6 +399,11 @@ export class KnowledgeStore {
    *     （大目录扫描、单个超大文件抽取、嵌入模型慢），按「多久没进度」判会误杀正在跑的索引；
    *   · owner 为 null 或已失联（重启残留 / expireJobOwner 置空）→ 心跳超过 JOB_STUCK_MS 即卡死。
    * at 显式传入时替代心跳时刻（确定性测试/离线推演用）；无进行中 job 恒为 false。
+   *
+   * ⚠️ 已知边界（本计划不覆盖，勿误当 bug）：本进程 owner 存活时**永不**判卡死，因此 runIndex
+   * 自身挂死（网络盘 scanFolder 卡住、embed 永不返回）会把该库锁到进程重启——兜底轮询不会回收，
+   * 重索引也会因 job 行仍存在而被重入防护一直挡回。后续以软看门狗（心跳超时后主动 abort 该轮）或
+   * 强制重置 job 入口解决，不在「卡死判定」里加阈值（那会退回误杀活任务的老坑）。
    */
   isJobStuck(kbId: string, at?: number): boolean {
     const job = this.getJob(kbId);

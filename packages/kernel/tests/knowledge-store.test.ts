@@ -1,8 +1,8 @@
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
-import { KnowledgeStore } from "../src/knowledge/store";
+import { KnowledgeStore, processOwnerId, resetJobOwnerStateForTest } from "../src/knowledge/store";
 import { openKbDb } from "../src/knowledge/kb-db";
 import { kbDbPath } from "../src/knowledge/paths";
 
@@ -15,6 +15,9 @@ beforeEach(() => {
   db.run(KB_SCHEMA_SQL);
   regDb = db;
   store = new KnowledgeStore(db, "/tmp/wa-pi-test");
+});
+afterEach(() => {
+  resetJobOwnerStateForTest(); // 存活 owner 表是模块级状态，用例间必须归位
 });
 
 test("createKb 不填名称/描述时用文件夹 basename 与默认描述模板", () => {
@@ -37,7 +40,8 @@ test("deleteKb 级联清理：删除每库 db 文件与 indexing_jobs", async ()
 });
 test("updateJobProgress 与 stuck 判定", () => {
   const kb = store.createKb({ folderPath: "D:/x", name: "a", description: "" });
-  store.startJob(kb.id, "scanning");
+  // 显式无 owner（旧库/外来行语义）：卡死只按心跳阈值判——startJob 缺省已是本进程 owner（活任务豁免）
+  store.startJob(kb.id, "scanning", { owner: null });
   store.updateJobProgress(kb.id, { phase: "embedding", filesTotal: 100, filesDone: 40, chunksDone: 900 });
   const job = store.getJob(kb.id)!;
   expect(job.filesDone).toBe(40);
@@ -105,4 +109,24 @@ test("重启残留 job（owner 未由本进程登记）：心跳未超阈值不�
     kb.id,
   ]);
   expect(store.isJobStuck(kb.id)).toBe(true); // 心跳超阈值：owner 必然已不存在
+});
+
+test("startJob 缺省 owner = 本进程 owner：忘传 owner 的调用点同样享有活任务保护", () => {
+  const kb = store.createKb({ folderPath: srcDir });
+  store.startJob(kb.id, "scanning");
+  expect(store.getJob(kb.id)!.owner).toBe(processOwnerId());
+  // 心跳推到 20 分钟前：缺省 owner 若为 null（旧行为），这里必判卡死——本用例锁住缺省方向
+  const stale = Date.now() - 20 * 60_000;
+  regDb.run(`UPDATE indexing_jobs SET heartbeat_at = ?, last_progress_at = ? WHERE kb_id = ?`, [
+    stale,
+    stale,
+    kb.id,
+  ]);
+  expect(store.isJobStuck(kb.id)).toBe(false);
+});
+
+test("startJob 显式传 owner: null 才算无 owner（不抢缺省值）", () => {
+  const kb = store.createKb({ folderPath: srcDir });
+  store.startJob(kb.id, "scanning", { owner: null });
+  expect(store.getJob(kb.id)!.owner).toBeNull();
 });

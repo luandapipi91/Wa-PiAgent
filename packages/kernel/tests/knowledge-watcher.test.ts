@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
-import { KnowledgeStore } from "../src/knowledge/store";
+import { KnowledgeStore, resetJobOwnerStateForTest } from "../src/knowledge/store";
 import { runIndex, type KbContext, type EmbedFn, type IndexResult } from "../src/knowledge/indexer";
 import { watchKb, restoreWatchers, shouldAdvanceBaseline, type WatchKbOptions } from "../src/knowledge/watcher";
 import { openKbDb } from "../src/knowledge/kb-db";
@@ -35,6 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetJobOwnerStateForTest(); // 存活 owner 表是模块级状态，用例间必须归位
   reg.close();
   rmSync(waPiDir, { recursive: true, force: true });
   rmSync(srcDir, { recursive: true, force: true });
@@ -292,7 +293,16 @@ test("轮询兜底不清理 owner 存活的活任务 job 行", async () => {
     },
   });
   store.startJob(kbId, "extracting", { owner: "proc-a" });
-  await sleep(900);
+  // 心跳直接推到 20 分钟前（远超 10 分钟阈值）：这是「只看多久没进度」的旧判定必判卡死的前提，
+  // 也就是这条用例能真正锁住需求 6 的关键。必须走 SQL 直写——updateJobProgress 会刷新心跳，
+  // 造不出旧心跳（旧实现还会忽略 heartbeatAt 第三参、照样写 now）。
+  const stale = Date.now() - 20 * 60_000;
+  reg.run(`UPDATE indexing_jobs SET heartbeat_at = ?, last_progress_at = ? WHERE kb_id = ?`, [
+    stale,
+    stale,
+    kbId,
+  ]);
+  await sleep(900); // 跨过 4 个 200ms 轮询周期
   expect(store.getJob(kbId)).not.toBeNull(); // 活任务的 job 行不得被清
   expect(calls).toBe(0); // 更不该因此触发一轮重索引
   w.stop();
