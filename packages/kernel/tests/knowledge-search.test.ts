@@ -377,3 +377,11 @@ test("融合改加权分数：双路都命中的块融合分显著高于 RRF 量
   // 词法 + 语义双路命中：0.45 + 0.55 + 0.15 = 1.15（RRF 下最多 2/61≈0.033）
   expect(r.results[0].score).toBeGreaterThan(0.5);
 });
+
+test("置信门：覆盖率不足的弱命中不进结果（found=false，不许低分凑数）", async () => {
+  const kbId = setupKb("弱命中库", [{ content: "定价政策", title: "定价" }]);
+  // 长问句 10 个 bigram，块只覆盖 3/10 = 0.3 < 0.34 门槛
+  const r = await searchKnowledge(ctx, [kbId], "定价政策说明与退款流程", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(false);
+  expect(r.results).toHaveLength(0);
+});

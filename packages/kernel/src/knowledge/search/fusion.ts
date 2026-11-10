@@ -9,15 +9,16 @@ export interface FusionResult {
 /** 权重取自上游默认值：BM25 0.45 / 向量 0.55 / 双路同时命中的加成 0.15 */
 export const FUSION_WEIGHTS = { bm25: 0.45, vector: 0.55, overlap: 0.15 };
 
-/** min-max 归一到 0~1；空列表返回空 Map，全等分数一律归为 1（避免除零） */
+/**
+ * 相对强度归一（score / max）：空列表返回空 Map，非正最大值一律归 0。
+ * 不用 min-max 的原因：知识库常见小库（2~5 条候选），min-max 会把「次强命中」压成 0，
+ * 与 0.18 置信门叠加后只剩一条结果；相对强度保留名次差距又不把第二名判成零相关。
+ */
 export function normalizeScores(list: FusionResult[]): Map<string, number> {
 	if (list.length === 0) return new Map();
-	const scores = list.map((item) => item.score);
-	const min = Math.min(...scores);
-	const max = Math.max(...scores);
-	return new Map(
-		list.map((item) => [item.chunkId, max === min ? 1 : (item.score - min) / (max - min)]),
-	);
+	const max = Math.max(...list.map((item) => item.score));
+	if (max <= 0) return new Map(list.map((item) => [item.chunkId, 0]));
+	return new Map(list.map((item) => [item.chunkId, item.score / max]));
 }
 
 /**

@@ -10,6 +10,7 @@ import { stat as fsStat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { buildMatchExpr } from "../memory/query";
 import { weightedScoreFusion } from "./search/fusion";
+import { MIN_HYBRID_SCORE, hasEnoughLexicalEvidence, queryTokensOf } from "./search/ranking";
 import { bigram } from "../memory/bigram";
 import { embedQuery } from "../memory/embedder";
 import { knowledgeFingerprint } from "./fingerprint";
@@ -122,6 +123,7 @@ export async function searchKnowledge(
   // 查询侧只算一次：嵌入（null = 模型不可用 → 语义通道禁用）+ FTS MATCH 表达式
   const queryVec = await embedQueryFn(query);
   const matchExpr = buildMatchExpr(query);
+  const queryTokens = queryTokensOf(query);
 
   for (const kbId of kbIds) {
     const kb = ctx.store.getKb(kbId);
@@ -179,6 +181,7 @@ export async function searchKnowledge(
       const orExpr = buildOrMatchExpr(query);
       if (orExpr) lexical = runLexical(orExpr);
     }
+    const lexicalIds = new Set(lexical.map((r) => r.id));
     // 语义通道：量化扫描（扫描宽度远大于融合条数）→ 距离门过滤；
     // 指纹不匹配或查询向量缺失时整通道跳过（扫描失败扩展内部降级为空数组）。
     const semantic =
@@ -215,6 +218,12 @@ export async function searchKnowledge(
     for (const { chunkId: id, score } of fused) {
       const row = byId.get(id);
       if (!row) continue;
+      // 置信门（分数）+ 词法证据门（覆盖率）：低分与「与查询几乎无词法重叠」的块不进结果。
+      // 词法门需要正文，所以放在回读之后（管线：召回→融合→分数门→回读→词法门→boost→多样性→截断→扩窗）
+      if (score < MIN_HYBRID_SCORE) continue;
+      // 词法门只约束「词法通道命中过的块」；纯语义命中（词法零重叠）是语义模式的价值所在，
+      // 由分数门单独把关（否则「字面不同、意思相近」的命中会被整体杀掉）
+      if (lexicalIds.has(id) && !hasEnoughLexicalEvidence(row.content, queryTokens)) continue;
       merged.push({
         hit: {
           kbId,
