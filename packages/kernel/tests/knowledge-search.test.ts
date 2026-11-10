@@ -414,3 +414,26 @@ test("候选回读收敛：大库 limit=5 时结果条数与内容仍正确（�
   expect(r.results.length).toBeLessThanOrEqual(5);
   expect(r.results[0].content).toContain("定价政策");
 });
+
+test("mode=deep 且 reranker 未就绪：退化为 hybrid，mode=hybrid、rerankUsed=false 且仍返回结果", async () => {
+  const kbId = setupKb("deep退化库", [{ content: "定价政策说明。", title: "定价" }]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { mode: "deep" });
+  expect(r.found).toBe(true);
+  expect(r.mode).toBe("hybrid");
+  expect(r.rerankUsed).toBe(false);
+});
+
+test("mode=deep 且注入 scorer：按重排分排序，mode=deep、rerankUsed=true", async () => {
+  const kbId = setupKb("deep库", [
+    { content: "定价政策说明。", title: "定价" },
+    { content: "定价政策附录。", title: "附录" },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), {
+    mode: "deep",
+    // 反转顺序：让原本第二的排到第一
+    rerankFn: async (_q, docs) => docs.map((_, i) => (i === 0 ? 0 : 1)),
+  });
+  expect(r.mode).toBe("deep");
+  expect(r.rerankUsed).toBe(true);
+  expect(r.results[0].title).toBe("附录");
+});

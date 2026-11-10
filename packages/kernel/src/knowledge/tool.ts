@@ -16,7 +16,7 @@ import type { KbContext } from "./index";
 
 /** knowledge_search 的宿主上下文：bridge-registry opts.knowledgeCtx 的形状 */
 export interface KnowledgeToolContext {
-  search(query: string, limit: number): Promise<import("./search").KbSearchResult>;
+  search(query: string, limit: number, mode?: "hybrid" | "deep"): Promise<import("./search").KbSearchResult>;
 }
 
 /** makeKnowledgeToolContext 参数：绑定清单（kbIds）由调用方从 agent config / override 读出 */
@@ -47,10 +47,10 @@ export function makeKnowledgeToolContext(
     return ownStore;
   };
   return {
-    async search(query, limit) {
+    async search(query, limit, mode) {
       // search 不消费进度事件，sse 给 noop 满足 KbContext 形状即可
       const ctx: KbContext = { store: getStore(), waPiDir, sse: () => {} };
-      return searchKnowledge(ctx, kbIds, query, limit);
+      return searchKnowledge(ctx, kbIds, query, limit, undefined, { mode });
     },
   };
 }

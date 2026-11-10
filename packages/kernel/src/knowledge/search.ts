@@ -73,6 +73,10 @@ export interface KbSearchResult {
   found: boolean;
   results: KbSearchHit[];
   skippedKbs: KbSkippedKb[];
+  /** 实际生效的检索模式（deep 但 reranker 未就绪时退化为 hybrid） */
+  mode: "hybrid" | "deep";
+  /** 本轮是否真的做了重排 */
+  rerankUsed: boolean;
 }
 
 /** 源文件 stat 函数形状：缺省真 fs，测试注入计数/伪造实现（同 embedQueryFn 的注入先例） */
@@ -80,6 +84,10 @@ export type StatFn = (path: string) => Promise<{ mtimeMs: number }>;
 
 /** searchKnowledge 可注入项（生产调用方不用传） */
 export interface SearchOptions {
+  /** 检索模式：hybrid（缺省）= 融合 + 门控 + boost + 多样性；deep = 额外做 cross-encoder 重排 */
+  mode?: "hybrid" | "deep";
+  /** 重排注入点（缺省用真实 reranker；测试可注入假打分器） */
+  rerankFn?: (query: string, docs: string[]) => Promise<number[] | null>;
   /** 新鲜度核对注入点（缺省 fs.promises.stat） */
   statFn?: StatFn;
   /** 回读候选倍数：库内融合后只回读 limit*multiplier 条正文（缺省 2，至少 10） */
@@ -321,6 +329,26 @@ export async function searchKnowledge(
     }
   }
 
+  // deep 模式：对最终 ≤limit 条做 cross-encoder 重排（未就绪则退化为 hybrid）
+  let effectiveMode: "hybrid" | "deep" = "hybrid";
+  let rerankUsed = false;
+  if (opts.mode === "deep" && top.length > 0) {
+    const { rerankScores: realRerank, isRerankerReady } = await import("./reranker");
+    const scorer = opts.rerankFn ?? (isRerankerReady() ? realRerank : async () => null);
+    const scores = await scorer(query, top.map((t) => t.hit.content));
+    if (scores && scores.length === top.length) {
+      rerankUsed = true;
+      effectiveMode = "deep";
+      const order = scores
+        .map((sc, i) => ({ i, sc }))
+        .sort((a, b) => b.sc - a.sc)
+        .map((o) => o.i);
+      const reordered = order.map((i) => top[i]);
+      top.length = 0;
+      top.push(...reordered);
+    }
+  }
+
   const results: KbSearchHit[] = top.map((entry) => {
     const key = `${entry.hit.kbId}\0${entry.hit.filePath}`;
     const rows = fileRows.get(key);
@@ -337,5 +365,5 @@ export async function searchKnowledge(
       endLine: merged.endLine,
     };
   });
-  return { found: results.length > 0, results, skippedKbs };
+  return { found: results.length > 0, results, skippedKbs, mode: effectiveMode, rerankUsed };
 }

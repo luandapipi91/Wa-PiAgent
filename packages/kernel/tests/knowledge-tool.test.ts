@@ -35,6 +35,8 @@ const fakeKbResult: KbSearchResult = {
     },
   ],
   skippedKbs: [],
+  mode: "hybrid",
+  rerankUsed: false,
 };
 
 describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 knowledge_search 并返回结构化结果", async () => {
@@ -111,6 +113,8 @@ describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 know
         },
       ],
       skippedKbs: [],
+      mode: "hybrid",
+      rerankUsed: false,
     };
     const ctx = makeDefaultBridgeContext({
       sessionId: "s",
@@ -191,6 +195,8 @@ describe("makeKnowledgeToolContext 连接复用", () => {
         found: false,
         results: [],
         skippedKbs: [{ kbId: "kb_1", reason: "missing" }],
+        mode: "hybrid",
+        rerankUsed: false,
       });
       // 自建连接会当场创建 knowledge.db：文件不存在即证明未新开连接
       expect(existsSync(knowledgeDbPath(tmp))).toBe(false);

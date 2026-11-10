@@ -221,6 +221,13 @@ export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
   limit: Type.Optional(
     Type.Number({ description: "Max results (default 5, max 20)." }),
   ),
+  mode: Type.Optional(
+    Type.Union([Type.Literal("hybrid"), Type.Literal("deep")], {
+      description:
+        "Search mode: hybrid (default) = fusion + gates + diversity; " +
+        "deep = also cross-encoder rerank (requires Deep rerank enabled in settings; falls back to hybrid when unavailable).",
+    }),
+  ),
 });
 
 // =========================================================================

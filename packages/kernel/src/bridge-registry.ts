@@ -308,7 +308,9 @@ async function handleKnowledgeSearch(
     typeof rawLimit === "number" && Number.isFinite(rawLimit)
       ? Math.min(Math.max(Math.trunc(rawLimit), 1), 20)
       : 5;
-  const res = await knowledgeCtx.search(query, limit);
+  const rawMode = (params as Record<string, unknown>)?.mode;
+  const mode = rawMode === "deep" ? "deep" : "hybrid";
+  const res = await knowledgeCtx.search(query, limit, mode);
   const skipped = res.skippedKbs.length
     ? res.skippedKbs.map((s) => `${s.kbId}(${s.reason})`).join(", ")
     : null;
@@ -329,6 +331,8 @@ async function handleKnowledgeSearch(
           ...(h.stale ? { stale: true } : {}),
         })),
         skippedKbs: skipped,
+        mode: res.mode,
+        rerank_used: res.rerankUsed,
       })
     : `知识库中未找到相关内容${skipped ? `（跳过: ${skipped}）` : ""}。空结果表示知识库未覆盖该内容，不代表事实不存在。`;
   return { content: [{ type: "text", text }] };
