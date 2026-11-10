@@ -494,6 +494,7 @@ const zh = {
 		loading: "加载中...",
 		loadFailed: "知识库清单加载失败",
 		retry: "重试",
+		refreshWarn: "刷新失败，显示的可能不是最新清单",
 		statusReady: "就绪",
 		statusFailedFiles: "失败 {{count}} 文件",
 		statusFailedHint: "查看 {{count}} 个失败文件及原因",
@@ -542,6 +543,8 @@ const zh = {
 		bindInterrupted: "索引中断 · 暂不可检索",
 		bindRestrictedHint: "绑定知识库将自动启用搜索工具",
 		bindEmpty: "暂无知识库，先在知识库页新建",
+		bindLoading: "知识库清单加载中…",
+		bindLoadFailed: "知识库清单加载失败",
 	},
 	mcpForm: {
 		nameLabel: "名称",

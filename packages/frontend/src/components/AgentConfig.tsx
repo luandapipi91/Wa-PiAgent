@@ -430,6 +430,9 @@ function BasicTab({ draft, onChange, isBuiltin }: TabProps) {
 	// 内置 subagent 豁免——kernel 的 restricted 白名单语义只对命名 agent 的 config.tools 生效，
 	// 内置走全放行，提示对其不成立
 	const kbs = useKnowledgeStore((s) => s.kbs);
+	// 清单未知（拉取中/失败）≠ 空清单：绑定区据此区分「加载中/加载失败」与「暂无知识库」
+	const kbLoaded = useKnowledgeStore((s) => s.loaded);
+	const kbError = useKnowledgeStore((s) => s.error);
 	const restricted =
 		!isBuiltin && Array.isArray(draft.tools) && draft.tools.length > 0;
 	const kbIds = Array.isArray(draft.knowledgeBaseIds)
@@ -558,6 +561,8 @@ function BasicTab({ draft, onChange, isBuiltin }: TabProps) {
 					selected={kbIds}
 					onToggle={toggleKb}
 					restricted={restricted}
+					ready={kbLoaded}
+					error={kbError}
 				/>
 			</div>
 

@@ -275,3 +275,43 @@ describe("AgentConfig 保存链路带上 knowledgeBaseIds", () => {
 		expect(call!.body.config.knowledgeBaseIds).toEqual(["kb_1"]);
 	});
 });
+
+// ── 审查修复轮 1（Critical）：清单未知/失败 ≠ 空清单 ─────────────────────
+// kernel 未启动时绑定区原显示「暂无知识库，先在知识库页新建」——用户会以为库没了去重复登记。
+describe("KbBindingSection 清单未知态", () => {
+	test("ready=false：显示「加载中」而非「暂无知识库」", () => {
+		render(
+			<KbBindingSection kbs={[]} selected={[]} onToggle={mock()} ready={false} />,
+		);
+		expect(screen.queryByText(/暂无知识库/)).toBeNull();
+		expect(screen.getByTestId("kb-bind-status").textContent).toContain("加载中");
+	});
+
+	test("ready=false + error：显示「加载失败」而非「暂无知识库」", () => {
+		render(
+			<KbBindingSection
+				kbs={[]}
+				selected={[]}
+				onToggle={mock()}
+				ready={false}
+				error="kernel 未启动"
+			/>,
+		);
+		expect(screen.queryByText(/暂无知识库/)).toBeNull();
+		expect(screen.getByTestId("kb-bind-status").textContent).toContain(
+			"加载失败",
+		);
+	});
+
+	test("AgentConfig 接线：清单拉取失败时绑定区显示加载失败（订阅 loaded/error）", async () => {
+		kbListFail = true;
+		useAgentsStore.setState({ configs: { dev: cfg("dev") } });
+		render(<AgentConfig agentName="dev" onClose={() => {}} />);
+		await waitFor(() =>
+			expect(screen.getByTestId("kb-bind-status").textContent).toContain(
+				"加载失败",
+			),
+		);
+		expect(screen.queryByText(/暂无知识库/)).toBeNull();
+	});
+});

@@ -509,6 +509,7 @@ const en = {
 		loading: "Loading...",
 		loadFailed: "Failed to load knowledge bases",
 		retry: "Retry",
+		refreshWarn: "Refresh failed; the list may be out of date",
 		statusReady: "Ready",
 		statusFailedFiles: "{{count}} failed files",
 		statusFailedHint: "View {{count}} failed files and reasons",
@@ -558,6 +559,8 @@ const en = {
 		bindRestrictedHint:
 			"Binding a knowledge base will automatically enable the search tool",
 		bindEmpty: "No knowledge bases yet. Create one on the knowledge page first.",
+		bindLoading: "Loading knowledge bases…",
+		bindLoadFailed: "Failed to load knowledge bases",
 	},
 	mcpForm: {
 		nameLabel: "Name",

@@ -49,8 +49,18 @@ interface KnowledgeState {
  * 清单请求序号（模块级，B-hardening S10）：每次 listKbs 自增并把自己那一号记下来，
  * 回包时序号已过期就直接丢弃——并发拉取（挂载拉取 + SSE 终态补拉 + 重试）时，
  * 晚到的旧回包不得把新回包的状态（库已删/索引已完成/计数已更新）覆盖回去。
+ * 写操作（删除/改开关）成功落地时会 bump 本号，作废在途回包。
  */
 let listSeq = 0;
+
+/**
+ * 最近一次成功落地（写入 kbs）的请求号；0 = 从未有过可用清单。
+ * 两个用途：
+ *   1. 过期成功回包：已有清单时才丢弃（S10）；一份都没有时，任何成功回包都比空状态有用
+ *      （否则「先发的成功回包被丢弃 + 后发的失败」会让界面误报「加载失败」，实际数据刚到手）。
+ *   2. 写操作落地时同步抬高（与 listSeq 对齐），保证早于本次写入的在途回包一律作废。
+ */
+let appliedSeq = 0;
 
 /**
  * 终态帧触发的清单刷新（模块级节流）：fileCount/chunkCount/failedCount/lastIndexedAt
@@ -80,7 +90,10 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
     api
       .get("/api/knowledge")
       .then((data: any) => {
-        if (seq !== listSeq) return; // 更晚的请求已发出：本次回包过期，丢弃
+        // 已有清单时，过期回包丢弃（不让旧数据覆盖新数据）；
+        // 尚无任何清单时不丢——一份可用数据总比空状态强（否则会误报加载失败）
+        if (seq !== listSeq && appliedSeq !== 0) return;
+        appliedSeq = seq;
         // kernel 回包是 { type, kbs }；容忍裸数组与空对象（测试 mock 返回 {} 时落空列表）
         const kbs: KbInfo[] = Array.isArray(data) ? data : (data?.kbs ?? []);
         // 回包自带的进行中进度 seed 进 map，徽章刷新前就有进度可显示
@@ -102,8 +115,9 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
         set({ kbs, progress, loading: false, loaded: true, error: null });
       })
       .catch((e) => {
-        if (seq !== listSeq) return; // 过期回包的失败同样不得改写最新状态
-        // 失败保持 loaded=false（未知态），只记错误文案，由页面渲染「加载失败 + 重试」
+        if (seq !== listSeq) return; // 过期回包的失败不得改写最新状态
+        // 失败不改写 loaded（保持原值）：从未成功过 = 未知态，页面整页「加载失败 + 重试」；
+        // 已成功过 = 列表继续展示，error 只驱动列表上方的刷新失败弱提示（静默比误报更糟）
         set({ loading: false, error: formatApiError(e) });
       });
   },
@@ -116,11 +130,14 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
       useToastStore.getState().add(formatApiError(e), "error");
       return;
     }
-    // kernel 无 knowledge 域 changed 广播：删除成功就地移除（含进度残留）
+    // kernel 无 knowledge 域 changed 广播：删除成功就地移除（含进度残留）；
+    // 同时作废在途清单回包（否则刚删的库会被旧回包加回来）
+    listSeq += 1;
+    appliedSeq = listSeq;
     set((s) => {
       const progress = { ...s.progress };
       delete progress[id];
-      return { kbs: s.kbs.filter((k) => k.id !== id), progress };
+      return { kbs: s.kbs.filter((k) => k.id !== id), progress, loading: false };
     });
   },
 
@@ -131,9 +148,12 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
       useToastStore.getState().add(formatApiError(e), "error");
       return;
     }
-    // PUT 成功即事实，就地改本地（kernel 无清单广播）
+    // PUT 成功即事实，就地改本地（kernel 无清单广播）；同理作废在途回包
+    listSeq += 1;
+    appliedSeq = listSeq;
     set((s) => ({
       kbs: s.kbs.map((k) => (k.id === id ? { ...k, autoWatch: on } : k)),
+      loading: false,
     }));
   },
 

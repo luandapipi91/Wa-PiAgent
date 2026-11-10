@@ -322,3 +322,151 @@ describe("knowledge store：清单三态与并发序号", () => {
 		expect(useKnowledgeStore.getState().kbs[0]?.fileCount).toBe(3);
 	});
 });
+
+// ── 审查修复轮 1：刷新失败不清空列表、重试防连点、首帧不闪空态、写操作作废在途回包 ──
+describe("knowledge store：刷新/重试/写操作与在途回包", () => {
+	beforeEach(() => {
+		cleanup();
+		useKnowledgeStore.setState({
+			kbs: [],
+			progress: {},
+			loading: false,
+			loaded: false,
+			error: null,
+		});
+	});
+
+	test("首帧未加载时不闪「暂无知识库」：显示加载中，成功后才切换到真空态", async () => {
+		const { api } = await import("../../../api-client");
+		const getMock = api.get as unknown as {
+			mockImplementationOnce(fn: () => Promise<unknown>): void;
+		};
+		let release: ((v: unknown) => void) | null = null;
+		getMock.mockImplementationOnce(() => new Promise((r) => (release = r)));
+
+		render(<KnowledgePage />);
+		// loading 初值是 false，这里不可能靠 loading 判断「还没加载过」——必须用 loaded
+		expect(screen.queryByTestId("kb-empty")).toBeNull();
+		expect(screen.getByTestId("kb-loading")).toBeTruthy();
+
+		act(() => {
+			(release as unknown as (v: unknown) => void)({
+				type: "knowledge:list",
+				kbs: [],
+			});
+		});
+		await act(async () => {});
+		expect(screen.getByTestId("kb-empty")).toBeTruthy();
+	});
+
+	test("重试按钮在请求进行中置灰并显示加载态（防连点）", async () => {
+		const { api } = await import("../../../api-client");
+		const getMock = api.get as unknown as {
+			mockRejectedValueOnce(e: Error): void;
+			mockImplementationOnce(fn: () => Promise<unknown>): void;
+		};
+		getMock.mockRejectedValueOnce(new Error("kernel 未启动"));
+		render(<KnowledgePage />);
+		await waitFor(() => expect(screen.getByTestId("kb-retry")).toBeTruthy());
+
+		let release: ((v: unknown) => void) | null = null;
+		getMock.mockImplementationOnce(() => new Promise((r) => (release = r)));
+		fireEvent.click(screen.getByTestId("kb-retry"));
+		const btn = screen.getByTestId("kb-retry") as HTMLButtonElement;
+		expect(btn.disabled).toBe(true);
+		expect(btn.textContent).toContain("加载中");
+
+		act(() => {
+			(release as unknown as (v: unknown) => void)({
+				type: "knowledge:list",
+				kbs: [],
+			});
+		});
+		await act(async () => {});
+	});
+
+	test("已成功加载过：后续刷新失败保留列表、不出错误块，只给弱提示", async () => {
+		const { api } = await import("../../../api-client");
+		const getMock = api.get as unknown as {
+			mockResolvedValueOnce(v: unknown): void;
+			mockRejectedValueOnce(e: Error): void;
+		};
+		// 第一次（mount）成功落地 → 列表可见
+		getMock.mockResolvedValueOnce({ type: "knowledge:list", kbs: [kbReady] });
+		render(<KnowledgePage />);
+		await waitFor(() => expect(screen.getByTestId("kb-list")).toBeTruthy());
+
+		getMock.mockRejectedValueOnce(new Error("kernel 断开"));
+		await act(async () => {
+			useKnowledgeStore.getState().listKbs();
+		});
+
+		// 误报加载失败是错的：数据还在（loaded 不变），只是可能不是最新
+		expect(screen.queryByTestId("kb-load-error")).toBeNull();
+		expect(screen.getByTestId("kb-list")).toBeTruthy();
+		expect(screen.getByTestId("kb-refresh-warn")).toBeTruthy();
+	});
+
+	test("删库成功后在途清单回包不把已删库加回来（写操作作废在途回包）", async () => {
+		const { api } = await import("../../../api-client");
+		const getMock = api.get as unknown as {
+			mockImplementationOnce(fn: () => Promise<unknown>): void;
+		};
+		let release: ((v: unknown) => void) | null = null;
+		getMock.mockImplementationOnce(() => new Promise((r) => (release = r)));
+		const other = { ...kbReady, id: "kb_2", name: "另一个库" };
+		useKnowledgeStore.setState({
+			kbs: [kbReady, other],
+			progress: {},
+			loading: false,
+			loaded: true,
+			error: null,
+		});
+
+		useKnowledgeStore.getState().listKbs(); // 在途（回包含 kb_1）
+		await act(async () => {
+			await useKnowledgeStore.getState().deleteKb("kb_1");
+		});
+		expect(useKnowledgeStore.getState().kbs.map((k) => k.id)).toEqual(["kb_2"]);
+
+		act(() => {
+			(release as unknown as (v: unknown) => void)({
+				type: "knowledge:list",
+				kbs: [kbReady, other],
+			});
+		});
+		await act(async () => {});
+		expect(useKnowledgeStore.getState().kbs.map((k) => k.id)).toEqual(["kb_2"]);
+	});
+
+	test("自动更新开关成功后在途清单回包不改回旧值", async () => {
+		const { api } = await import("../../../api-client");
+		const getMock = api.get as unknown as {
+			mockImplementationOnce(fn: () => Promise<unknown>): void;
+		};
+		let release: ((v: unknown) => void) | null = null;
+		getMock.mockImplementationOnce(() => new Promise((r) => (release = r)));
+		useKnowledgeStore.setState({
+			kbs: [{ ...kbReady, autoWatch: true }],
+			progress: {},
+			loading: false,
+			loaded: true,
+			error: null,
+		});
+
+		useKnowledgeStore.getState().listKbs(); // 在途（回包 autoWatch: true）
+		await act(async () => {
+			await useKnowledgeStore.getState().setAutoWatch("kb_1", false);
+		});
+		expect(useKnowledgeStore.getState().kbs[0]?.autoWatch).toBe(false);
+
+		act(() => {
+			(release as unknown as (v: unknown) => void)({
+				type: "knowledge:list",
+				kbs: [{ ...kbReady, autoWatch: true }],
+			});
+		});
+		await act(async () => {});
+		expect(useKnowledgeStore.getState().kbs[0]?.autoWatch).toBe(false);
+	});
+});

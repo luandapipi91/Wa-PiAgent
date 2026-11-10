@@ -85,30 +85,46 @@ export function KnowledgePage() {
             <p className="text-[calc(11px*var(--font-scale))] text-tertiary mt-1 mb-3">
               {error}
             </p>
+            {/* 请求进行中置灰：错误块刻意不清空，不置灰会被当成没反应而连点 */}
             <button
               onClick={() => listKbs()}
-              className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white"
+              disabled={loading}
+              className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white disabled:opacity-60"
               style={{ background: "var(--accent)", border: "none" }}
               data-testid="kb-retry"
             >
-              {t("kb.retry")}
+              {loading ? t("kb.loading") : t("kb.retry")}
             </button>
           </div>
-        ) : loading && !loaded ? (
-          // 仅在「还没成功加载过」时占位：后续刷新保持旧列表，避免闪白
-          <div className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8">
+        ) : !loaded ? (
+          // 用 loaded（而非 loading 初值）判定「还没成功加载过」：否则首帧会先闪一次空态
+          <div
+            className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8"
+            data-testid="kb-loading"
+          >
             {t("kb.loading")}
           </div>
         ) : (
-          <KbList
-            kbs={kbs}
-            // B3：编辑入口接 KbFormModal（只更名称/描述）
-            onEdit={(kb) => setFormTarget(kb)}
-            // B4：失败徽章点击接失败清单弹窗（B2 占位回调的落点）
-            onShowFailed={(id) => setFailedKbId(id)}
-            // 重建索引：接 store.reindex（POST :id/index，重复索引 400 由 store toast 提示）
-            onReindex={(id) => reindex(id)}
-          />
+          <>
+            {/* 刷新失败（已有清单）：弱提示不阻断列表——旧数据仍比空白有用 */}
+            {error && (
+              <div
+                className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2"
+                data-testid="kb-refresh-warn"
+              >
+                {t("kb.refreshWarn")}
+              </div>
+            )}
+            <KbList
+              kbs={kbs}
+              // B3：编辑入口接 KbFormModal（只更名称/描述）
+              onEdit={(kb) => setFormTarget(kb)}
+              // B4：失败徽章点击接失败清单弹窗（B2 占位回调的落点）
+              onShowFailed={(id) => setFailedKbId(id)}
+              // 重建索引：接 store.reindex（POST :id/index，重复索引 400 由 store toast 提示）
+              onReindex={(id) => reindex(id)}
+            />
+          </>
         )}
       </div>
 
