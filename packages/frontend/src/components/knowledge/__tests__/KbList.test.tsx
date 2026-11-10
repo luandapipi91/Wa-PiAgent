@@ -167,6 +167,19 @@ describe("KbList 操作契约", () => {
 		expect(onDelete).not.toHaveBeenCalled();
 	});
 
+	test("确认框消失后库脱离索引中（ready/error）：确认框不复活", () => {
+		const onDelete = mock(() => {});
+		const { rerender } = render(<KbList kbs={[kbReady]} onDelete={onDelete} />);
+		fireEvent.click(screen.getByTestId("kb-delete-kb_1"));
+		expect(screen.getByTestId("confirm-ok")).toBeTruthy();
+		// busy：确认框收起
+		rerender(<KbList kbs={[{ ...kbReady, status: "indexing" }]} onDelete={onDelete} />);
+		expect(screen.queryByTestId("confirm-ok")).toBeNull();
+		// 索引被取消/失败后回到 ready：不能复活（复活后点下去是不可逆删库）
+		rerender(<KbList kbs={[{ ...kbReady, status: "ready" }]} onDelete={onDelete} />);
+		expect(screen.queryByTestId("confirm-ok")).toBeNull();
+	});
+
 	test("autoWatch 开关切换回调", () => {
 		const onToggleWatch = mock(() => {});
 		render(<KbList kbs={[kbReady]} onToggleWatch={onToggleWatch} />);

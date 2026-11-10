@@ -3,7 +3,7 @@
 // props 注入点（测试契约）：onDelete/onToggleWatch/onShowFailed/onEdit/onReindex
 // 可选，缺省回退到 knowledge store 的同名实现（KnowledgePage 不传 props 即走真实链路）。
 // 删除复用现有 ConfirmDialog（审查重点 5：先确认再删）。
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { KbInfo } from "@wa-pi/shared";
 import { useKnowledgeStore } from "../../store/knowledge";
 import { KbCard } from "./KbCard";
@@ -39,6 +39,11 @@ export function KbList({
   const confirmTarget = confirmDelete ? kbs.find((k) => k.id === confirmDelete) : undefined;
   const confirmTargetBusy =
     confirmTarget?.status === "indexing" || confirmTarget?.status === "scanning";
+  // 目标变 busy 时直接清空 state（而非只在渲染时跳过）：否则库脱离 busy（取消后回 ready/error）
+  // 时旧 id 会让确认框复活，而那一下点下去是不可逆删库
+  useEffect(() => {
+    if (confirmTargetBusy) setConfirmDelete(null);
+  }, [confirmTargetBusy]);
 
   const handleDelete = (id: string) => {
     (onDelete ?? deleteKb)(id);
