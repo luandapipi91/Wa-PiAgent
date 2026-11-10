@@ -78,6 +78,13 @@ interface McpState {
   servers: McpServerEntry[];
   /** 本次清单是否 stale（状态读不到、用的是上一条缓存）→ 全页显示「状态未知」 */
   stale: boolean;
+  /**
+   * 本轮状态探测是否仍在进行：骨架清单（stale=true）回来 → true；收尾帧（mcp:changed
+   * stale=false）或全部台都探到 → false。
+   * 打开面板时先回骨架、后台逐台探测，探测过程本身不是异常——「状态未知」横幅要等探测
+   * 结束（第一次列表更新完毕）后才出现，否则每次进面板都先闪一条黄条。
+   */
+  probing: boolean;
   /** pi 的顶层提示（如「项目未受信任」），供 UI 解释配置为何不生效 */
   note?: string;
   selectedProjectId: string | null;
@@ -168,6 +175,7 @@ let appliedListSeq = 0;
 export const useMcpStore = create<McpState>((set, get) => ({
   servers: [],
   stale: false,
+  probing: false,
   note: undefined,
   selectedProjectId: null,
   projectScopeEnabled: null,
@@ -230,6 +238,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
       servers: payload.servers ?? [],
       // 状态读不到时（stale）不把可能过期的连接态当成最新
       stale: has("stale") ? payload.stale === true : s.stale,
+      // 骨架（stale=true）到收尾帧（stale=false）之间是正常的探测过程，不算「状态未知」
+      probing: has("stale") ? payload.stale === true : s.probing,
       note: has("note") ? payload.note : s.note,
       loading: false,
     });
@@ -241,19 +251,22 @@ export const useMcpStore = create<McpState>((set, get) => ({
   applyProbe: (data) => {
     const s = get();
     if ((data.projectId ?? null) !== (s.selectedProjectId ?? null)) return;
-    set({
-      servers: s.servers.map((sv) =>
-        sv.name === data.serverName
-          ? {
-              ...sv,
-              state: data.state,
-              tools: data.tools,
-              ...(data.error ? { error: data.error } : {}),
-              ...(data.signedIn !== undefined ? { signedIn: data.signedIn } : {}),
-            }
-          : sv,
-      ),
-    });
+    const servers = s.servers.map((sv) =>
+      sv.name === data.serverName
+        ? {
+            ...sv,
+            state: data.state,
+            tools: data.tools,
+            ...(data.error ? { error: data.error } : {}),
+            ...(data.signedIn !== undefined ? { signedIn: data.signedIn } : {}),
+          }
+        : sv,
+    );
+    // 收尾帧万一丢了（广播丢失），全部台都探到也算本轮探测结束：
+    // 否则「状态未知」横幅会被一个不上不下的 probing 永久按住
+    const allProbed =
+      servers.length > 0 && servers.every((sv) => sv.state !== undefined);
+    set({ servers, ...(allProbed ? { probing: false } : {}) });
   },
   setTestResult: (data) =>
     set((s) => {

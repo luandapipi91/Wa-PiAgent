@@ -197,6 +197,53 @@ test("load 的晚到响应不覆盖已切走的作用域", async () => {
   expect(useMcpStore.getState().servers).toEqual([]);
 });
 
+// ===== 首轮状态探测的收尾（「状态未知」横幅不在探测过程中闪出来）=====
+
+test("骨架清单（stale=true）到达 → probing=true（状态仍在探测）", () => {
+  useMcpStore.getState().load();
+  useMcpStore.getState().setServers({
+    servers: [{ name: "a", command: "echo" }],
+    stale: true,
+  });
+  expect(useMcpStore.getState().probing).toBe(true);
+});
+
+test("收尾帧（mcp:changed stale=false）到达 → probing=false", () => {
+  useMcpStore.setState({ probing: true, stale: true });
+  useMcpStore.getState().setServers({
+    type: "mcp:changed",
+    servers: [{ name: "a", command: "echo", state: "connected" }],
+    stale: false,
+  });
+  expect(useMcpStore.getState().probing).toBe(false);
+});
+
+test("收尾帧丢失时，全部台都探到也算探测结束（probing=false）", () => {
+  useMcpStore.setState({
+    probing: true,
+    stale: true,
+    servers: [
+      { name: "a", command: "echo" },
+      { name: "b", command: "echo" },
+    ],
+  });
+  useMcpStore.getState().applyProbe({
+    type: "mcp:probe",
+    serverName: "a",
+    state: "connected",
+    tools: [],
+  });
+  expect(useMcpStore.getState().probing).toBe(true);
+  useMcpStore.getState().applyProbe({
+    type: "mcp:probe",
+    serverName: "b",
+    state: "failed",
+    tools: [],
+    error: "探测超时",
+  });
+  expect(useMcpStore.getState().probing).toBe(false);
+});
+
 // ===== 测试结果 / 工具列表 =====
 
 test("setTestResult 成功更新状态为 connected 并记 toolCount", () => {

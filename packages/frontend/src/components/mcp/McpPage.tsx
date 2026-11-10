@@ -22,6 +22,7 @@ export function McpPage() {
     errors,
     loginStates,
     stale,
+    probing,
     note,
     selectedProjectId,
     projectScopeEnabled,
@@ -195,8 +196,9 @@ export function McpPage() {
         </button>
       </div>
 
-      {/* 状态未知 / 未受信提示 */}
-      {stale && (
+      {/* 状态未知 / 未受信提示：状态探测进行中不弹这条（探测本身不是异常，
+          要等第一次列表更新完毕、状态仍未就绪才提示） */}
+      {stale && !probing && (
         <div
           className="px-5 py-2 text-[calc(11.5px*var(--font-scale))]"
           style={{ background: "var(--warning-soft)", color: "var(--warning)" }}

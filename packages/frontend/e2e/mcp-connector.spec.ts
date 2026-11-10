@@ -138,6 +138,35 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
     expect(entry.exposure).toBe("direct");
   });
 
+  test("首轮状态探测进行中不弹「状态未知」横幅（等列表更新完毕才可能提示）", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await page.goto("/");
+    await navigateToMcp(page);
+
+    // 骨架清单：GET /api/mcp 的真实形状（stale=true，运行态由后台探测经 mcp:probe 逐台补上）。
+    // 探测过程本身不是异常——这时不应弹「下方显示的是上一次的结果」的黄条。
+    await page.evaluate(() => {
+      (window as any).__PI_E2E_EVENT__({
+        type: "mcp:changed",
+        servers: [],
+        stale: true,
+      });
+    });
+    await expect(page.getByTestId("mcp-stale-banner")).toHaveCount(0);
+
+    // 收尾帧（stale=false）：探测已结束、状态就绪 → 同样不该有「状态未知」
+    await page.evaluate(() => {
+      (window as any).__PI_E2E_EVENT__({
+        type: "mcp:changed",
+        servers: [],
+        stale: false,
+      });
+    });
+    await expect(page.getByTestId("mcp-stale-banner")).toHaveCount(0);
+  });
+
   test("相反控制：连不上的 server 不会被报成 connected（connected 断言非平凡）", async () => {
     test.setTimeout(120_000);
     const bogus = "e2e-bogus";

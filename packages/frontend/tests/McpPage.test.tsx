@@ -31,6 +31,7 @@ beforeEach(() => {
   useMcpStore.setState({
     servers: [],
     stale: false,
+    probing: false,
     note: undefined,
     selectedProjectId: null,
     searchQuery: "",
@@ -182,9 +183,20 @@ test("pi 未报状态的 server 显示「状态未知」", () => {
 
 // ===== stale / note =====
 
+test("首轮状态探测进行中（stale 骨架）不显示「状态未知」横幅", () => {
+  useMcpStore.setState({
+    stale: true,
+    probing: true,
+    servers: [{ name: "dbx", command: "echo" }],
+  });
+  render(<McpPage />);
+  expect(screen.queryByTestId("mcp-stale-banner")).toBeNull();
+});
+
 test("清单 stale 时显示「状态未知」横幅，且卡片不把旧状态当最新", () => {
   useMcpStore.setState({
     stale: true,
+    probing: false,
     servers: [{ name: "dbx", command: "echo", state: "connected" }],
   });
   render(<McpPage />);
