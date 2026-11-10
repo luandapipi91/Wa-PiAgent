@@ -2,10 +2,17 @@
 // - fake knowledgeCtx 注入（不经真实 db / 嵌入模型，同任务 7 的注入先例，不用 mock.module）
 // - 三个简报断言：分发返回结构（含 file_path）/ 未绑定提示（含「未绑定」）/ 空参数错误
 import { describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeDefaultBridgeContext } from "../src/bridge-registry";
 import { KB_SEARCH_DESCRIPTION } from "@wa-pi/shared";
 import type { MemoryToolContext } from "../src/memory/tools";
 import type { KbSearchResult } from "../src/knowledge/search";
+import { makeKnowledgeToolContext } from "../src/knowledge/tool";
+import { knowledgeDbPath } from "../src/knowledge/paths";
+import type { KnowledgeStore } from "../src/knowledge/store";
+import { resetEmbedderForTest } from "../src/memory/embedder";
 
 // 最小 memoryCtx：createMemoryTools 构造期只建闭包不触碰 dao，本测试只走 knowledge_search 分支
 const fakeMemoryCtx = { dao: null, projectId: null } as unknown as MemoryToolContext;
@@ -155,5 +162,41 @@ describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 know
     expect((r.details as { error?: string }).error).toBeTruthy();
     // 空参数直接拒绝，不应触达检索闭包
     expect(searchCalls).toBe(0);
+  });
+});
+
+describe("makeKnowledgeToolContext 连接复用", () => {
+  test("注入共享 store 时检索走注入实例，不自建 knowledge.db", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "kb-tool-ctx-"));
+    // 模型不可用 → 语义通道跳过，测试不触碰真实嵌入（同 search 测试的 failNextLoad 先例）
+    resetEmbedderForTest({ failNextLoad: true });
+    try {
+      let getKbCalls = 0;
+      // 注入实例只需满足检索路径的登记库读接口：getKb 返回 null → 该库跳过，不触碰磁盘
+      const sharedStore = {
+        getKb: (id: string) => {
+          getKbCalls++;
+          return null;
+        },
+      } as unknown as KnowledgeStore;
+      const ctx = makeKnowledgeToolContext({
+        waPiDir: tmp,
+        kbIds: ["kb_1"],
+        store: sharedStore,
+      });
+      const res = await ctx.search("定价", 5);
+      // 注入的实例被真正使用（而非被忽略后自建）
+      expect(getKbCalls).toBe(1);
+      expect(res).toEqual({
+        found: false,
+        results: [],
+        skippedKbs: [{ kbId: "kb_1", reason: "missing" }],
+      });
+      // 自建连接会当场创建 knowledge.db：文件不存在即证明未新开连接
+      expect(existsSync(knowledgeDbPath(tmp))).toBe(false);
+    } finally {
+      resetEmbedderForTest();
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
