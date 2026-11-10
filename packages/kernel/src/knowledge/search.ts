@@ -9,6 +9,7 @@ import type { Database } from "bun:sqlite";
 import { stat as fsStat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { buildMatchExpr } from "../memory/query";
+import { weightedScoreFusion } from "./search/fusion";
 import { bigram } from "../memory/bigram";
 import { embedQuery } from "../memory/embedder";
 import { knowledgeFingerprint } from "./fingerprint";
@@ -16,8 +17,6 @@ import type { KbContext } from "./index";
 import { KbDbMissingError, openKbDbExisting } from "./kb-db";
 import { kbQuantizedScan, KB_SCAN_K } from "./vector";
 
-/** RRF 平滑常数：60 是论文推荐值，越大越削弱头部名次的优势（照抄 memory 取值） */
-export const RRF_K = 60;
 /** 每个通道取多少条参与融合（照抄 memory 取值） */
 export const CHANNEL_TOP_N = 50;
 /** 语义候选相关度门槛：量化距离 ≤ 阈值放行（照抄 memory 取值；bge 实测落在相关/无关分布间隙上） */
@@ -166,14 +165,15 @@ export async function searchKnowledge(
     const runLexical = (expr: string) =>
       db
         .query(
-          `SELECT c.id AS id
+          // bm25() 是负值且越小越相关：取负换成「越大越相关」的普通分数，供 min-max 归一
+          `SELECT c.id AS id, -bm25(chunks_fts) AS score
              FROM chunks_fts
              JOIN chunks c ON c.id = chunks_fts.chunk_id
             WHERE chunks_fts MATCH ?
-            ORDER BY bm25(chunks_fts)
+            ORDER BY score DESC
             LIMIT ${CHANNEL_TOP_N}`,
         )
-        .all(expr) as Array<{ id: string }>;
+        .all(expr) as Array<{ id: string; score: number }>;
     let lexical = matchExpr ? runLexical(matchExpr) : [];
     if (lexical.length === 0) {
       const orExpr = buildOrMatchExpr(query);
@@ -186,15 +186,13 @@ export async function searchKnowledge(
         ? kbQuantizedScan(db, queryVec, KB_SCAN_K).filter((h) => withinSemanticDistance(h.distance))
         : [];
 
-    // 库内 RRF 融合：score = Σ 1/(K + rank)，rank 从 1 开始
-    const scores = new Map<string, number>();
-    for (const channel of [lexical.map((r) => r.id), semantic.map((h) => h.id)]) {
-      channel.forEach((id, idx) => {
-        scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + idx + 1));
-      });
-    }
-    if (scores.size === 0) continue;
-    const fused = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+    // 库内加权分数融合（替代原先的 RRF 名次融合）：两路各自 min-max 归一后
+    // 0.45·BM25 + 0.55·向量 + 0.15·双路加成，保留分数分布信息
+    const fused = weightedScoreFusion(
+      lexical.map((r) => ({ chunkId: r.id, score: r.score })),
+      semantic.map((h) => ({ chunkId: h.id, score: 1 - h.distance })),
+    );
+    if (fused.length === 0) continue;
 
     // 按融合名次回读出处字段（id 来自库内，缺失即跳过的防御不必要——IN 查询必命中）
     const placeholders = fused.map(() => "?").join(",");
@@ -203,7 +201,7 @@ export async function searchKnowledge(
         `SELECT id, content, file_path, title, breadcrumb, start_line, end_line, file_mtime
            FROM chunks WHERE id IN (${placeholders})`,
       )
-      .all(...fused.map(([id]) => id)) as Array<{
+      .all(...fused.map((f) => f.chunkId)) as Array<{
       id: string;
       content: string;
       file_path: string;
@@ -214,7 +212,7 @@ export async function searchKnowledge(
       file_mtime: number;
     }>;
     const byId = new Map(rows.map((r) => [r.id, r]));
-    for (const [id, score] of fused) {
+    for (const { chunkId: id, score } of fused) {
       const row = byId.get(id);
       if (!row) continue;
       merged.push({

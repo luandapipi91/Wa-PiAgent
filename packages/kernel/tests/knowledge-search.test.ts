@@ -366,3 +366,14 @@ test("error 且从未成功索引过的库仍被跳过（无可用旧索引）",
   expect(r.found).toBe(false);
   expect(r.skippedKbs).toContainEqual({ kbId, reason: "not_ready" });
 });
+
+test("融合改加权分数：双路都命中的块融合分显著高于 RRF 量纲（RRF 上限≈0.033）", async () => {
+  const kbId = setupKb("加权融合库", [
+    { content: "定价政策说明：按年订阅享九折。", title: "定价", vec: pack(VEC_A) },
+    { content: "退款流程需要提交工单。", title: "退款" },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(VEC_A));
+  expect(r.found).toBe(true);
+  // 词法 + 语义双路命中：0.45 + 0.55 + 0.15 = 1.15（RRF 下最多 2/61≈0.033）
+  expect(r.results[0].score).toBeGreaterThan(0.5);
+});
