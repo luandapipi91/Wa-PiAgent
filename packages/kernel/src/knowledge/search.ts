@@ -6,8 +6,8 @@
 // 名次、对分数尺度免疫）。RRF 原始分跨库可比（都是名次的调和和），且 knowledge
 // 检索没有 memory_search 的 0–1 量纲历史包袱，故不做首位归一化。
 import type { Database } from "bun:sqlite";
-import { statSync } from "node:fs";
-import { join } from "node:path";
+import { stat as fsStat } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 import { buildMatchExpr } from "../memory/query";
 import { bigram } from "../memory/bigram";
 import { embedQuery, embedFingerprint } from "../memory/embedder";
@@ -67,19 +67,33 @@ export interface KbSearchResult {
   skippedKbs: KbSkippedKb[];
 }
 
-/** mtime 比对容差（毫秒）：chunks.file_mtime 存的是 stat.mtimeMs 浮点，经 SQLite INTEGER
- * 亲和往返可能丢亚毫秒精度；1ms 内的差异视为同一时刻 */
-const MTIME_TOLERANCE_MS = 1;
+/** 源文件 stat 函数形状：缺省真 fs，测试注入计数/伪造实现（同 embedQueryFn 的注入先例） */
+export type StatFn = (path: string) => Promise<{ mtimeMs: number }>;
+
+/** searchKnowledge 可注入项（生产调用方不用传） */
+export interface SearchOptions {
+  statFn?: StatFn;
+}
 
 /**
- * 命中块的源文件是否已落后于索引记录：文件不存在、stat 失败、mtime 不符都算陈旧
- * ——「无法证明新鲜即陈旧」。纯同步 stat，调用方已把次数钳在 limit 内。
+ * 命中块的源文件是否已落后于索引记录。返回 true 的三种情形：
+ * 1. 块路径解析后越出库根（file_path 是绝对路径或含 `..`）——不 stat，直接判陈旧；
+ * 2. 文件不存在 / stat 报错；
+ * 3. mtime 与索引记录不严格相等（SQLite 对分数值存 REAL、往返严格相等，无需容差）。
+ * 「无法证明新鲜即陈旧」。
  */
-function sourceChanged(root: string, filePath: string, recordedMtime: number): boolean {
+async function sourceChanged(
+  root: string,
+  filePath: string,
+  recordedMtime: number,
+  statFn: StatFn,
+): Promise<boolean> {
+  const rootAbs = resolve(root);
+  const abs = resolve(rootAbs, filePath);
+  if (abs !== rootAbs && !abs.startsWith(rootAbs + sep)) return true;
   try {
-    const st = statSync(join(root, filePath));
-    if (!st.isFile()) return true;
-    return Math.abs(st.mtimeMs - recordedMtime) >= MTIME_TOLERANCE_MS;
+    const st = await statFn(abs);
+    return Number(recordedMtime) !== st.mtimeMs;
   } catch {
     return true;
   }
@@ -98,7 +112,9 @@ export async function searchKnowledge(
   query: string,
   limit: number,
   embedQueryFn: QueryEmbedFn = embedQuery,
+  opts: SearchOptions = {},
 ): Promise<KbSearchResult> {
+  const statFn: StatFn = opts.statFn ?? fsStat;
   const skippedKbs: KbSkippedKb[] = [];
   // 中间态多带库根与记录 mtime：截断后要拿它们核对源文件新鲜度（不暴露给调用方）
   const merged: Array<{ hit: KbSearchHit; root: string; recordedMtime: number }> = [];
@@ -222,10 +238,13 @@ export async function searchKnowledge(
   // 跨库合并：按融合分降序截 limit（limit≤0 时 slice 语义不安全，钳到 0）
   merged.sort((a, b) => b.hit.score - a.hit.score);
   const top = merged.slice(0, Math.max(0, limit));
-  // 新鲜度只核对最终返回的这几条（≤limit 次 stat，不放大 IO）；整库已标 stale 的不再重复 stat
-  for (const { hit, root, recordedMtime } of top) {
-    if (!hit.stale && sourceChanged(root, hit.filePath, recordedMtime)) hit.stale = true;
-  }
+  // 新鲜度只核对最终返回的这几条（≤limit 次 stat，并发不放大 IO）；整库已标 stale 的短路不再 stat
+  await Promise.all(
+    top.map(async ({ hit, root, recordedMtime }) => {
+      if (hit.stale) return;
+      if (await sourceChanged(root, hit.filePath, recordedMtime, statFn)) hit.stale = true;
+    }),
+  );
   const results = top.map((e) => e.hit);
   return { found: results.length > 0, results, skippedKbs };
 }

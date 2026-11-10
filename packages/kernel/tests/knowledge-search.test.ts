@@ -304,6 +304,61 @@ test("源文件 mtime 与索引记录一致时不标 stale", async () => {
   expect(r.results[0].stale).toBeUndefined();
 });
 
+test("mtime 只差亚毫秒也算陈旧：严格相等比对，无容差", async () => {
+  const kbId = setupKb("亚毫秒库", [
+    { content: "定价政策说明。", title: "定价", filePath: "docs/p.md", fileMtime: 1000 },
+  ]);
+  // 注入 stat：磁盘上的 mtime 与记录差 0.5ms（SQLite 对分数值存 REAL，往返严格相等，
+  // 这种差异只可能是文件真的动过 → 不该被容差吞掉）
+  const statFn = async () => ({ mtimeMs: 1000.5 });
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { statFn });
+  expect(r.results[0].stale).toBe(true);
+});
+
+test("file_path 越出库根（绝对路径/..）直接判 stale 且不 stat", async () => {
+  const kbId = setupKb("越界库", [
+    { content: "定价政策说明。", title: "定价", filePath: "../../etc/passwd" },
+  ]);
+  const calls: string[] = [];
+  const statFn = async (p: string) => {
+    calls.push(p);
+    return { mtimeMs: 1 };
+  };
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { statFn });
+  expect(r.results[0].stale).toBe(true);
+  expect(calls).toEqual([]);
+});
+
+test("新鲜度核对只做在截断后的 ≤limit 条上（不放大 IO）", async () => {
+  const kbId = setupKb("多块库", [
+    { content: "定价政策甲说明。", title: "甲", filePath: "docs/a.md" },
+    { content: "定价政策乙说明。", title: "乙", filePath: "docs/b.md" },
+    { content: "定价政策丙说明。", title: "丙", filePath: "docs/c.md" },
+  ]);
+  let calls = 0;
+  const statFn = async () => {
+    calls++;
+    return { mtimeMs: 1 };
+  };
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 2, fakeEmbedQuery(null), { statFn });
+  expect(r.results.length).toBe(2);
+  expect(calls).toBe(2);
+});
+
+test("整库 error 的陈旧命中已标 stale 后不再 stat", async () => {
+  const kbId = setupKb("整库陈旧", [{ content: "定价政策说明。", title: "定价" }]);
+  store.updateStatus(kbId, "ready", { fileCount: 1, chunkCount: 1, lastIndexedAt: Date.now() });
+  store.updateStatus(kbId, "error");
+  let calls = 0;
+  const statFn = async () => {
+    calls++;
+    return { mtimeMs: 1 };
+  };
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { statFn });
+  expect(r.results[0].stale).toBe(true);
+  expect(calls).toBe(0);
+});
+
 test("error 且从未成功索引过的库仍被跳过（无可用旧索引）", async () => {
   const kbId = setupKb("首建失败", [{ content: "定价政策说明。", title: "定价" }]);
   store.updateStatus(kbId, "error", { fileCount: 0, chunkCount: 0, failedCount: 0 });

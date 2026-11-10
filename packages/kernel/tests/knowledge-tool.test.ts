@@ -3,6 +3,7 @@
 // - 三个简报断言：分发返回结构（含 file_path）/ 未绑定提示（含「未绑定」）/ 空参数错误
 import { describe, expect, test } from "bun:test";
 import { makeDefaultBridgeContext } from "../src/bridge-registry";
+import { KB_SEARCH_DESCRIPTION } from "@wa-pi/shared";
 import type { MemoryToolContext } from "../src/memory/tools";
 import type { KbSearchResult } from "../src/knowledge/search";
 
@@ -29,8 +30,7 @@ const fakeKbResult: KbSearchResult = {
   skippedKbs: [],
 };
 
-describe("knowledge_search bridge 分发", () => {
-  test("handleTool 分发 knowledge_search 并返回结构化结果", async () => {
+describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 knowledge_search 并返回结构化结果", async () => {
     let called: { query: string; limit: number } | null = null;
     const knowledgeCtx = {
       search: async (query: string, limit: number) => {
@@ -73,6 +73,53 @@ describe("knowledge_search bridge 分发", () => {
       signal,
     );
     expect(called!).toEqual({ query: "定价", limit: 20 });
+  });
+
+  test("陈旧命中在输出里带 stale:true，新鲜命中不带该键（不给正常结果加噪声）", async () => {
+    const result: KbSearchResult = {
+      found: true,
+      results: [
+        {
+          kbId: "kb-1",
+          kbName: "产品资料",
+          content: "新鲜块。",
+          filePath: "docs/fresh.md",
+          title: "新鲜",
+          breadcrumb: null,
+          startLine: 1,
+          endLine: 2,
+          score: 0.02,
+        },
+        {
+          kbId: "kb-1",
+          kbName: "产品资料",
+          content: "源文件已改的旧块。",
+          filePath: "docs/stale.md",
+          title: "陈旧",
+          breadcrumb: null,
+          startLine: 3,
+          endLine: 4,
+          score: 0.01,
+          stale: true,
+        },
+      ],
+      skippedKbs: [],
+    };
+    const ctx = makeDefaultBridgeContext({
+      sessionId: "s",
+      cwd: "/x",
+      memoryCtx: fakeMemoryCtx,
+      knowledgeCtx: { search: async () => result },
+    });
+    const r = await ctx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+    const parsed = JSON.parse(r.content[0].text as string) as { results: Array<Record<string, unknown>> };
+    expect(parsed.results[0].stale).toBeUndefined();
+    expect("stale" in parsed.results[0]).toBe(false);
+    expect(parsed.results[1].stale).toBe(true);
+  });
+
+  test("工具描述告知 stale 的含义（旧索引/源文件已改）", () => {
+    expect(KB_SEARCH_DESCRIPTION).toContain("stale");
   });
 
   test("未绑定任何库时返回友好提示文本", async () => {

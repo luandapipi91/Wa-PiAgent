@@ -268,7 +268,7 @@ export function makeDefaultBridgeContext(opts: {
 /**
  * knowledge_search 分支：参数校验 → knowledgeCtx.search → snake_case 结构化输出
  * （字段名对齐 shared/tool-schemas 的 KB_SEARCH_DESCRIPTION 文案：
- * content / file_path / title / breadcrumb / lines / kb_name / score）。
+ * content / file_path / title / breadcrumb / lines / kb_name / score / stale）。
  * 未注入 knowledgeCtx（= 未绑定任何库）返回友好提示；query 空参数返回错误内容。
  */
 async function handleKnowledgeSearch(
@@ -325,6 +325,8 @@ async function handleKnowledgeSearch(
               : null,
           kb_name: h.kbName,
           score: Number(h.score.toFixed(4)),
+          // 仅陈旧命中带该键：正常结果不加噪声；智能体见 stale 应提示重建索引/核对原文
+          ...(h.stale ? { stale: true } : {}),
         })),
         skippedKbs: skipped,
       })

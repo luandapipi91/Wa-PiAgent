@@ -9,7 +9,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
@@ -263,6 +263,28 @@ test("POST /api/knowledge 创建并触发索引", async () => {
     folderPath: join(tmpDir, "no-such-dir"),
   });
   expect(bad.status).toBe(400);
+});
+
+// ===== 3b. folderPath 归一：相对路径转绝对，~ 不做展开 =====
+
+test("POST /api/knowledge 相对路径归一为绝对路径入库", async () => {
+  const { port } = await startTestServer();
+  // 库根必须绝对：相对路径在索引期会随 cwd 漂移，且检索时的路径前缀校验需要绝对根
+  const rel = relative(process.cwd(), srcDir);
+  const res = await api(port, "POST", "/api/knowledge", { folderPath: `  ${rel}  ` });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  expect(body.kb.folderPath).toBe(srcDir);
+});
+
+test("POST /api/knowledge 拒绝 ~ 开头的路径（不替 shell 做展开）", async () => {
+  const { port } = await startTestServer();
+  const res = await api(port, "POST", "/api/knowledge", { folderPath: "~/docs" });
+  expect(res.status).toBe(400);
+  const body = (await res.json()) as any;
+  expect(String(body.error)).toContain("绝对路径");
+  // 不入库：没有任何库根带 ~
+  expect(store.listKbs().some((k) => k.folderPath.includes("~"))).toBe(false);
 });
 
 // ===== 4. POST /api/knowledge/:id/cancel 取消索引 =====

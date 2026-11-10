@@ -3072,11 +3072,21 @@ export class WSServer {
 			}
 			case "knowledge:create": {
 				try {
-					const folderPath = String(event.folderPath ?? "").trim();
-					if (!folderPath) {
+					const rawFolderPath = String(event.folderPath ?? "").trim();
+					if (!rawFolderPath) {
 						reply({ type: "error", message: "folderPath 必填" });
 						break;
 					}
+					// 库根必须是绝对路径：相对路径会在索引期随 cwd 漂移，检索时的库根前缀校验也依赖它。
+					// `~` 展开是 shell 的职责，这里不代劳——直接报错让用户给绝对路径。
+					if (rawFolderPath.startsWith("~")) {
+						reply({
+							type: "error",
+							message: `请使用绝对路径（不支持 ~ 展开）：${rawFolderPath}`,
+						});
+						break;
+					}
+					const folderPath = resolve(rawFolderPath);
 					if (!existsSync(folderPath)) {
 						reply({ type: "error", message: `目录不存在：${folderPath}` });
 						break;

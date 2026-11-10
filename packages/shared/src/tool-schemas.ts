@@ -202,7 +202,11 @@ export const KB_SEARCH_DESCRIPTION =
   "and whenever you are unsure whether memory already covers it. " +
   "An empty result means the knowledge bases do not contain it — NOT that the fact does not exist; " +
   "do not treat absence as refutation, fall back to asking the user or the source documents. " +
-  "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first.";
+  "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first. " +
+  "A hit carrying `stale: true` comes from an outdated index — the source file changed or failed to extract " +
+  "after the last successful indexing, so the chunk may lag behind the document on disk. " +
+  "Such hits are still the best available answer, but verify important details against the current file, " +
+  "quote them only with that caveat, and tell the user the knowledge base needs re-indexing.";
 
 export const KB_SEARCH_SNIPPET =
   "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score.";
