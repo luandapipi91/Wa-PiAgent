@@ -38,6 +38,8 @@ const STRUCT_TARGET = 450;
 const PLAIN_TARGET = 550;
 /** 嵌入预算：512 × 87.5% = 448，prefixContent 硬上限 */
 const EMBED_BUDGET = 448;
+/** 标题前缀最多占预算的 30%：留出正文份额，避免深层/超长标题栈把预算吃满 */
+const HEAD_BUDGET = Math.floor(EMBED_BUDGET * 0.3);
 /** 单段超过该字符数按 6000 字符硬切（全局约束） */
 const HARD_CUT_CHARS = 6000;
 
@@ -51,7 +53,10 @@ const CJK_RE = /[\u3000-\u303f\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af\uf900-\ufa
 export function estimateTokens(text: string): number {
 	const cjk = text.match(CJK_RE)?.length ?? 0;
 	const words = text.replace(CJK_RE, " ").split(/\s+/).filter(Boolean).length;
-	return cjk + words;
+	// 无空白文本（压缩 JS/CSS、长 URL、连续标识符）按空白分词会严重低估：
+	// 用「4 字符 ≈ 1 token」的非 CJK 兜底并取较大者（英文散文下词数更大，不受影响）
+	const denseRest = Math.ceil(text.replace(CJK_RE, "").replace(/\s+/g, "").length / 4);
+	return cjk + Math.max(words, denseRest);
 }
 
 /**
@@ -212,6 +217,19 @@ function parseMdSections(lines: string[]): MdSection[] {
 }
 
 /** 预算再切分隔符优先级：空行 → 换行 → 句号 → 空白（全局约束）；全无时按字符比例硬切兜底 */
+/** 按 token 预算截断文本（二分字符边界；estimateTokens 单调非降） */
+function truncateToTokens(text: string, budget: number): string {
+	if (estimateTokens(text) <= budget) return text;
+	let lo = 0;
+	let hi = text.length;
+	while (lo < hi) {
+		const mid = Math.ceil((lo + hi) / 2);
+		if (estimateTokens(text.slice(0, mid)) <= budget) lo = mid;
+		else hi = mid - 1;
+	}
+	return text.slice(0, lo);
+}
+
 function splitBudget(content: string, target: number): string[] {
 	if (estimateTokens(content) <= target) return [content];
 	const mid = content.length / 2;
@@ -280,13 +298,15 @@ export function chunkDocument(doc: ChunkerDoc): KnowledgeChunk[] {
 
 	const chunks: KnowledgeChunk[] = [];
 	for (const b of raw) {
-		const head =
+		const rawHead =
 			`File: ${relPath}\nType: ${doc.type}` +
 			(b.breadcrumb !== undefined ? `\nSection: ${b.breadcrumb}` : "") +
 			"\n\n";
-		// 前缀自身吃掉的预算从内容份额中扣除；病态超长前缀（≥448 token）时不再切（防御）
-		const contentTarget = EMBED_BUDGET - estimateTokens(head);
-		const parts = contentTarget >= 1 ? splitBudget(b.content, contentTarget) : [b.content];
+		// 前缀只允许吃 30% 预算：超长标题栈直接截断前缀，保证正文始终有份额可分
+		// （此前 contentTarget < 1 时整块原样返回，会被 tokenizer 静默截断，尾部内容等于丢失）
+		const head = truncateToTokens(rawHead, HEAD_BUDGET);
+		const contentTarget = Math.max(1, EMBED_BUDGET - estimateTokens(head));
+		const parts = splitBudget(b.content, contentTarget);
 		const sourceBody = b.content.slice(b.headLen);
 		let offset = 0;
 		for (const part of parts) {

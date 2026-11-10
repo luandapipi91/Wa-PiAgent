@@ -14,8 +14,9 @@ import {
   type KbContext,
   type EmbedFn,
 } from "../src/knowledge/indexer";
+import { KB_CHUNKER_VERSION, knowledgeFingerprint } from "../src/knowledge/fingerprint";
 import { EMBED_DIM } from "../src/memory/schema";
-import { embedFingerprint, embedderKeepAliveCountForTest } from "../src/memory/embedder";
+import { embedderKeepAliveCountForTest } from "../src/memory/embedder";
 import type { KbProgressEvent } from "@wa-pi/shared";
 
 // 索引编排器测试：注入 fake embed 绕开真实模型（与简报一致：全 128 填充的 768 维向量）。
@@ -91,7 +92,7 @@ test("runIndex 全流程：块落库、FTS 双写、向量写入、状态 ready"
   // 收尾：last_indexed_at 写入 + embed_meta 指纹落库（任务要点）
   const kb = store.getKb(kbId)!;
   expect(kb.lastIndexedAt).toBeGreaterThan(0);
-  expect(store.getEmbedMeta(kbId)).toBe(embedFingerprint());
+  expect(store.getEmbedMeta(kbId)).toBe(knowledgeFingerprint());
   expect(r.ok).toBe(true);
   expect(r.cancelled).toBe(false);
   expect(store.getJob(kbId)).toBeNull();
@@ -438,4 +439,11 @@ test("索引失败原因持久化到 KbInfo.lastError（失败写入、成功清
   // 成功一轮后清空（避免旧错误长期挂在就绪库上误导）
   await runIndex(ctx, kbId, fakeEmbed);
   expect(store.getKb(kbId)!.lastError ?? null).toBeNull();
+});
+
+test("切块版本进 embed_meta 指纹：chunker 版本变化会触发全量重建", async () => {
+  await runIndex(ctx, kbId, fakeEmbed);
+  const meta = store.getEmbedMeta(kbId)!;
+  expect(meta).toContain(`chunker=${KB_CHUNKER_VERSION}`);
+  expect(meta).toBe(knowledgeFingerprint());
 });

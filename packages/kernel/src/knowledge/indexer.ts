@@ -16,7 +16,8 @@
 import type { Database } from "bun:sqlite";
 import type { KbInfo } from "@wa-pi/shared";
 import { bigram } from "../memory/bigram";
-import { acquireEmbedderKeepAlive, embedDocuments, embedFingerprint } from "../memory/embedder";
+import { acquireEmbedderKeepAlive, embedDocuments } from "../memory/embedder";
+import { knowledgeFingerprint } from "./fingerprint";
 import { scanFolder } from "./scan";
 import { extractText } from "./extract";
 import { chunkDocument, type KnowledgeChunk } from "./chunker";
@@ -218,7 +219,7 @@ export async function runIndex(
   }
   const prevStatus = kb.status;
   const firstRun = kb.lastIndexedAt === null;
-  const fingerprint = embedFingerprint();
+  const fingerprint = knowledgeFingerprint();
   // 库级指纹不匹配 = 存量向量全部过期（规格 §6.2）：视为未索引，快筛短路失效、hash 复用只留行不重嵌。
   // 指纹从登记库直读（KbInfo 投影不含 embed_meta）——从未索引过为 null，null 不算不匹配。
   const storedMeta = ctx.store.getEmbedMeta(kbId);

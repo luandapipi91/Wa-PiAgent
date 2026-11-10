@@ -10,7 +10,8 @@ import { stat as fsStat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { buildMatchExpr } from "../memory/query";
 import { bigram } from "../memory/bigram";
-import { embedQuery, embedFingerprint } from "../memory/embedder";
+import { embedQuery } from "../memory/embedder";
+import { knowledgeFingerprint } from "./fingerprint";
 import type { KbContext } from "./index";
 import { KbDbMissingError, openKbDbExisting } from "./kb-db";
 import { kbQuantizedScan, KB_SCAN_K } from "./vector";
@@ -140,7 +141,7 @@ export async function searchKnowledge(
     // 库级指纹直读登记库（KbInfo 投影不含 embed_meta）：null = 从未索引，不算不匹配。
     // 不匹配只降级向量通道（存量向量全部过期），词法照常，仍参与检索。
     const storedMeta = ctx.store.getEmbedMeta(kbId);
-    const mismatch = storedMeta !== null && storedMeta !== embedFingerprint();
+    const mismatch = storedMeta !== null && storedMeta !== knowledgeFingerprint();
     if (mismatch) skippedKbs.push({ kbId, reason: "embed_meta_mismatch" });
 
     // 检索路径用「只开已存在的库」：库文件丢失时必须显式报出（skippedKbs），
