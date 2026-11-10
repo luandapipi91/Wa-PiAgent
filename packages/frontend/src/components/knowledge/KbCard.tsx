@@ -3,12 +3,12 @@
 // 布局：头行（名称 + 状态徽章 + 自动更新开关）→ 描述（单行截断）→
 // 元信息行（文件夹路径 · 规模 · 上次索引）→ 操作行（更新/重建/删除）。
 // 状态徽章文案（规格 §6.8，简报逐字定稿）：
-//   进行中 → 「索引中 x%」（蓝，percent = round(filesDone/filesTotal*100)）；
-//     色用语义 token --info（固定蓝）而非 --accent——后者是主题色（出厂青蛙绿），会与
-//     「就绪绿」同色系，违反规格的色义区分
+//   进行中（scanning/indexing）→ 不渲染徽章：进度区已显示「知识库生成中… + 百分比」，
+//     再叠一个「索引中 x%」既重复又容易和进度区的百分比口径打架
 //   failedCount>0 → 「失败 N 文件」（橙，可点击 → onShowFailed，B4 接失败弹窗）
 //   error → 「索引中断」（橙红）
 //   其余 → 「就绪」（绿）
+// 索引进行中时「编辑/重建」置灰：kernel 对进行中的库直接拒绝重建（400），按钮可点等于没反应。
 import type { KbInfo } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 import { KbProgress } from "./KbProgress";
@@ -32,18 +32,9 @@ interface Props {
 function statusBadge(
   kb: KbInfo,
   t: (k: string, o?: Record<string, unknown>) => string,
-): { label: string; color: string; clickable: boolean } {
-  if (kb.status === "indexing" || kb.status === "scanning") {
-    const p = kb.progress;
-    // filesTotal=0 时百分比无意义（0/0 → NaN），退化为不带百分比的「索引中」
-    const label =
-      p && p.filesTotal > 0
-        ? t("kb.statusIndexingPercent", {
-            percent: Math.round((p.filesDone / p.filesTotal) * 100),
-          })
-        : t("kb.statusIndexing");
-    return { label, color: "var(--info)", clickable: false };
-  }
+): { label: string; color: string; clickable: boolean } | null {
+  // 进行中不渲染徽章：进度区统一显示「知识库生成中… + 百分比」
+  if (kb.status === "indexing" || kb.status === "scanning") return null;
   // 失败文件数独立于 status：ready 库最近一轮也可能有部分文件失败（规格 §6.8「点开 failed_count」）
   if (kb.failedCount > 0) {
     return {
@@ -69,8 +60,10 @@ export function KbCard({
 }: Props) {
   const { t } = useTranslation();
   const badge = statusBadge(kb, t);
+  // 索引进行中：编辑/重建不可用（kernel 会拒绝，按钮可点等于没反应）
+  const busy = kb.status === "indexing" || kb.status === "scanning";
   // 可点击徽章（failedCount>0）渲染为 button：原生可聚焦/可回车触发，供 B4 接失败清单弹窗
-  const badgeNode = badge.clickable ? (
+  const badgeNode = !badge ? null : badge.clickable ? (
     <button
       type="button"
       className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full font-medium"
@@ -86,6 +79,13 @@ export function KbCard({
       className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full font-medium"
       style={{ background: badge.color + "20", color: badge.color }}
       data-testid={`kb-status-${kb.id}`}
+      // 索引中断时把失败原因挂出来（此前只有四个字，用户无从判断）
+      title={kb.status === "error" ? (kb.lastError ?? undefined) : undefined}
+      aria-label={
+        kb.status === "error" && kb.lastError
+          ? `${badge.label}：${kb.lastError}`
+          : undefined
+      }
     >
       {badge.label}
     </span>
@@ -154,6 +154,7 @@ export function KbCard({
             onClick={onEdit}
             testId={`kb-edit-${kb.id}`}
             label={t("kb.editButton")}
+            disabled={busy}
           />
         )}
         {onReindex && (
@@ -161,12 +162,16 @@ export function KbCard({
             onClick={onReindex}
             testId={`kb-reindex-${kb.id}`}
             label={t("kb.reindexButton")}
+            disabled={busy}
           />
         )}
         <CardBtn
           onClick={onDelete}
           testId={`kb-delete-${kb.id}`}
           label={t("kb.deleteButton")}
+          // 索引进行中 kernel 会拒绝删除（400），禁用并挂原因，避免用户走完确认框才失败
+          disabled={busy}
+          title={busy ? t("kb.deleteBusyHint") : undefined}
           danger
         />
       </div>
@@ -238,11 +243,16 @@ function CardBtn({
   testId,
   label,
   danger,
+  disabled,
+  title,
 }: {
   onClick: () => void;
   testId: string;
   label: string;
   danger?: boolean;
+  disabled?: boolean;
+  /** 悬停提示（禁用时说明原因） */
+  title?: string;
 }) {
   const color = danger ? "var(--danger)" : "var(--text-secondary)";
   const borderColor = danger ? "var(--danger)" : "var(--hairline)";
@@ -250,11 +260,15 @@ function CardBtn({
     <button
       onClick={onClick}
       data-testid={testId}
+      disabled={disabled}
+      title={title}
       className="text-[calc(11px*var(--font-scale))] px-2.5 py-1 rounded-md"
       style={{
         color,
         border: `1px solid ${borderColor}`,
         background: "transparent",
+        opacity: disabled ? 0.45 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
       }}
     >
       {label}

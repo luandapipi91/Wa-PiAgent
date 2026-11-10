@@ -29,6 +29,8 @@ import {
 	loadRetrySettings,
 	saveRetrySettings,
 	loadHttpIdleTimeoutMs,
+	loadKnowledgeRerankSettings,
+	saveKnowledgeRerankSettings,
 	saveHttpIdleTimeoutMs,
 	DEFAULT_HTTP_IDLE_TIMEOUT_MS,
 } from "./settings-store";
@@ -97,7 +99,12 @@ import { registerExtensionRoutes } from "./routes/extensions";
 import { registerMemoryRoutes } from "./routes/memory";
 import { registerKnowledgeRoutes } from "./routes/knowledge";
 import { runIndex, getKbFailures, clearKbFailures, type EmbedFn } from "./knowledge/indexer";
-import { scanFolder } from "./knowledge/scan";
+import { scanFolder, scanFolderAsync } from "./knowledge/scan";
+import {
+	rememberPreview,
+	evaluatePreviewPlan,
+	peekPreviewPlan,
+} from "./knowledge/preview-plans";
 import type { KbContext, KbWatchController, WatchKbOptions } from "./knowledge/index";
 import { watchKb } from "./knowledge/watcher";
 import type { KnowledgeStore } from "./knowledge/store";
@@ -448,6 +455,11 @@ export interface WSServerOpts {
 	 * 知识库文件监听参数（测试注入加速 pollIntervalMs/debounceMs）。缺省 60s 轮询 + 2s 防抖。
 	 */
 	kbWatchOpts?: WatchKbOptions;
+	/**
+	 * 知识库扫描函数（测试注入计数/故障复现；缺省 scanFolderAsync）。
+	 * 只影响 preview / create 比对两个低频交互路径，与索主管线同用异步扫描（不阻塞事件循环）。
+	 */
+	kbScanFolder?: typeof scanFolder;
 	/** IM 渠道机器人管理器（Task 8 注入真实实例；测试/未启用时为 null，相关 case 走降级路径） */
 	channelManager: import("./channel-manager").ChannelManager | null;
 	dataDir?: string;
@@ -3054,10 +3066,18 @@ export class WSServer {
 						reply({ type: "error", message: `目录不存在：${folderPath}` });
 						break;
 					}
-					// 低频交互路径（任务 3 次要③：scanFolder 全同步 IO，勿进高频链路）
-					const preview = await scanFolder(folderPath, []);
+					// 低频交互路径，但目录可能很大：用异步扫描让出事件循环，避免卡住 SSE 心跳
+					// （同步 readdirSync 曾把前端看门狗饿断）。excludePaths（扫描第 1 层）未接线，省略 = 不过滤
+					const preview = await (this.opts.kbScanFolder ?? scanFolderAsync)(folderPath);
+					// 计划令牌：记住本次可索引清单，创建时比对是否过期（任务 9，S13）。
+					// 目录统一按绝对路径记（与创建侧的 resolve 一致），相对路径不会误判目录不符。
+					const planToken = rememberPreview(
+						resolve(folderPath),
+						preview.indexable.map((f) => f.relPath),
+					);
 					reply({
 						type: "knowledge:preview",
+						planToken,
 						preview: {
 							totalFiles: preview.indexable.length,
 							totalBytes: preview.indexable.reduce((sum, f) => sum + f.size, 0),
@@ -3071,21 +3091,52 @@ export class WSServer {
 			}
 			case "knowledge:create": {
 				try {
-					const folderPath = String(event.folderPath ?? "").trim();
-					if (!folderPath) {
+					const rawFolderPath = String(event.folderPath ?? "").trim();
+					if (!rawFolderPath) {
 						reply({ type: "error", message: "folderPath 必填" });
 						break;
 					}
+					// 库根必须是绝对路径：相对路径会在索引期随 cwd 漂移，检索时的库根前缀校验也依赖它。
+					// `~` 展开是 shell 的职责，这里不代劳——直接报错让用户给绝对路径。
+					if (rawFolderPath.startsWith("~")) {
+						reply({
+							type: "error",
+							message: `请使用绝对路径（不支持 ~ 展开）：${rawFolderPath}`,
+						});
+						break;
+					}
+					const folderPath = resolve(rawFolderPath);
 					if (!existsSync(folderPath)) {
 						reply({ type: "error", message: `目录不存在：${folderPath}` });
 						break;
+					}
+					// 预览后目录可能已被改动：有有效 token 就重扫一次比对，只报告差异、不阻断创建
+					// （索引管线本身会按最新目录重建，用户看到的预览只是信息，不是白名单）
+					const planToken = String(event.planToken ?? "").trim();
+					let planChanged: { added: string[]; removed: string[] } | undefined;
+					// 先 peek（只判存在/过期/目录一致）再决定要不要扫：无效令牌不白扫一遍全目录
+					if (planToken && peekPreviewPlan(planToken, folderPath).hit) {
+						try {
+							const current = await (this.opts.kbScanFolder ?? scanFolderAsync)(folderPath);
+							const diff = evaluatePreviewPlan(
+								planToken,
+								folderPath,
+								current.indexable.map((f) => f.relPath),
+							);
+							if (diff.hit && diff.changed) {
+								planChanged = { added: diff.added ?? [], removed: diff.removed ?? [] };
+							}
+						} catch (err) {
+							// 比对是纯提示性质：扫描失败（网络盘掉线/权限回收）不能连坐创建，按未命中处理
+							console.warn("[knowledge] 预览计划比对失败，按未命中处理：", err);
+						}
 					}
 					const kb = this.kbStore().createKb({
 						folderPath,
 						name: event.name,
 						description: event.description,
 					});
-					reply({ type: "knowledge:create", kb });
+					reply({ type: "knowledge:create", kb, ...(planChanged ? { planChanged } : {}) });
 					this.startKbIndex(kb.id);
 				} catch (err) {
 					replyError(reply, err);
@@ -3193,6 +3244,72 @@ export class WSServer {
 						break;
 					}
 					reply({ type: "knowledge:failed", failures: getKbFailures(event.kbId) });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:rerank": {
+				try {
+					const { rerankerStatus } = await import("./knowledge/reranker");
+					const settings = await loadKnowledgeRerankSettings();
+					reply({
+						type: "knowledge:rerank",
+						enabled: settings.enabled,
+						...rerankerStatus(),
+					});
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:rerank:save": {
+				try {
+					const settings = await saveKnowledgeRerankSettings({ enabled: event.enabled === true });
+					const { prepareReranker, unloadReranker, rerankerStatus } = await import("./knowledge/reranker");
+					if (settings.enabled) {
+						// 后台下载/加载，不阻塞响应；状态由前端轮询 GET 获取
+						void prepareReranker();
+					} else {
+						void unloadReranker();
+					}
+					reply({ type: "knowledge:rerank", enabled: settings.enabled, ...rerankerStatus() });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:rerank:retry": {
+				try {
+					const { prepareReranker, rerankerStatus } = await import("./knowledge/reranker");
+					void prepareReranker();
+					const settings = await loadKnowledgeRerankSettings();
+					reply({ type: "knowledge:rerank", enabled: settings.enabled, ...rerankerStatus() });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:health": {
+				try {
+					if (!this.kbStore().getKb(event.kbId)) {
+						reply({ type: "error", message: `知识库不存在：${event.kbId}` });
+						break;
+					}
+					const { diagnoseKb } = await import("./knowledge/diagnostics");
+					reply({
+						type: "knowledge:health",
+						diagnostic: await diagnoseKb(this.kbContext(), event.kbId),
+					});
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:doctor": {
+				try {
+					const { runDoctor } = await import("./knowledge/doctor");
+					reply({ type: "knowledge:doctor", report: await runDoctor(this.kbContext()) });
 				} catch (err) {
 					replyError(reply, err);
 				}

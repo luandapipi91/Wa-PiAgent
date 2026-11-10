@@ -5,14 +5,26 @@
 // 的 dao 类型耦合）；融合逻辑参照其 fuseRrf 写法（score = Σ 1/(K + rank)，只看
 // 名次、对分数尺度免疫）。RRF 原始分跨库可比（都是名次的调和和），且 knowledge
 // 检索没有 memory_search 的 0–1 量纲历史包袱，故不做首位归一化。
+import type { Database } from "bun:sqlite";
+import { stat as fsStat } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 import { buildMatchExpr } from "../memory/query";
-import { embedQuery, embedFingerprint } from "../memory/embedder";
+import { weightedScoreFusion } from "./search/fusion";
+import {
+  MIN_HYBRID_SCORE,
+  hasEnoughLexicalEvidence,
+  queryTokensOf,
+  scoreChunkForQuery,
+} from "./search/ranking";
+import { diversify } from "./search/diversity";
+import { expandWindow, type WindowRow } from "./search/window";
+import { bigram } from "../memory/bigram";
+import { embedQuery } from "../memory/embedder";
+import { knowledgeFingerprint } from "./fingerprint";
 import type { KbContext } from "./index";
-import { openKbDb } from "./kb-db";
+import { KbDbMissingError, openKbDbExisting } from "./kb-db";
 import { kbQuantizedScan, KB_SCAN_K } from "./vector";
 
-/** RRF 平滑常数：60 是论文推荐值，越大越削弱头部名次的优势（照抄 memory 取值） */
-export const RRF_K = 60;
 /** 每个通道取多少条参与融合（照抄 memory 取值） */
 export const CHANNEL_TOP_N = 50;
 /** 语义候选相关度门槛：量化距离 ≤ 阈值放行（照抄 memory 取值；bge 实测落在相关/无关分布间隙上） */
@@ -21,6 +33,17 @@ export const SEMANTIC_MAX_DISTANCE = 0.75;
 /** 语义候选相关度判定：距离 ≤ 阈值（即相似度足够）才进 RRF 融合 */
 export function withinSemanticDistance(distance: number): boolean {
   return distance <= SEMANTIC_MAX_DISTANCE;
+}
+
+/**
+ * OR 降级表达式：`"t1" OR "t2" …`。
+ * buildMatchExpr 产出的空格分隔短语在 FTS5 里是隐式 AND——中文长问句切成多个 bigram 后
+ * 要求同一块全部命中，只有原文子串才满足。零命中时降级 OR 保证「部分重叠」也能召回。
+ */
+function buildOrMatchExpr(raw: string): string | null {
+  const tokens = bigram(raw).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens.map(t => `"${t.replace(/"/g, '""')}"`).join(" OR ");
 }
 
 export interface KbSearchHit {
@@ -33,9 +56,13 @@ export interface KbSearchHit {
   startLine: number | null;
   endLine: number | null;
   score: number;
+  /** 结果可能落后于磁盘：库更新失败（整库旧索引）或该块的源文件 mtime 已与索引记录不符
+   * （抽取失败/外删/索引后被改）——内容可能过期 */
+  stale?: boolean;
 }
 
-/** skippedKbs 条目：reason 取 not_ready（status≠ready）/ embed_meta_mismatch（向量通道降级）/ missing（库不存在） */
+/** skippedKbs 条目：reason 取 not_ready（status≠ready）/ embed_meta_mismatch（向量通道降级）/
+ * missing（登记行不存在）/ db_missing（库文件丢失，需重建索引）/ db_error（库文件打不开，如损坏） */
 export interface KbSkippedKb {
   kbId: string;
   reason: string;
@@ -46,6 +73,49 @@ export interface KbSearchResult {
   found: boolean;
   results: KbSearchHit[];
   skippedKbs: KbSkippedKb[];
+  /** 实际生效的检索模式（deep 但 reranker 未就绪时退化为 hybrid） */
+  mode: "hybrid" | "deep";
+  /** 本轮是否真的做了重排 */
+  rerankUsed: boolean;
+}
+
+/** 源文件 stat 函数形状：缺省真 fs，测试注入计数/伪造实现（同 embedQueryFn 的注入先例） */
+export type StatFn = (path: string) => Promise<{ mtimeMs: number }>;
+
+/** searchKnowledge 可注入项（生产调用方不用传） */
+export interface SearchOptions {
+  /** 检索模式：hybrid（缺省）= 融合 + 门控 + boost + 多样性；deep = 额外做 cross-encoder 重排 */
+  mode?: "hybrid" | "deep";
+  /** 重排注入点（缺省用真实 reranker；测试可注入假打分器） */
+  rerankFn?: (query: string, docs: string[]) => Promise<number[] | null>;
+  /** 新鲜度核对注入点（缺省 fs.promises.stat） */
+  statFn?: StatFn;
+  /** 回读候选倍数：库内融合后只回读 limit*multiplier 条正文（缺省 2，至少 10） */
+  readLimitMultiplier?: number;
+}
+
+/**
+ * 命中块的源文件是否已落后于索引记录。返回 true 的三种情形：
+ * 1. 块路径解析后越出库根（file_path 是绝对路径或含 `..`）——不 stat，直接判陈旧；
+ * 2. 文件不存在 / stat 报错；
+ * 3. mtime 与索引记录不严格相等（SQLite 对分数值存 REAL、往返严格相等，无需容差）。
+ * 「无法证明新鲜即陈旧」。
+ */
+async function sourceChanged(
+  root: string,
+  filePath: string,
+  recordedMtime: number,
+  statFn: StatFn,
+): Promise<boolean> {
+  const rootAbs = resolve(root);
+  const abs = resolve(rootAbs, filePath);
+  if (abs !== rootAbs && !abs.startsWith(rootAbs + sep)) return true;
+  try {
+    const st = await statFn(abs);
+    return Number(recordedMtime) !== st.mtimeMs;
+  } catch {
+    return true;
+  }
 }
 
 /** 查询嵌入函数形状：缺省用真实 embedQuery，测试注入 fake 绕开模型（同 indexer 的 EmbedFn 模式） */
@@ -61,13 +131,17 @@ export async function searchKnowledge(
   query: string,
   limit: number,
   embedQueryFn: QueryEmbedFn = embedQuery,
+  opts: SearchOptions = {},
 ): Promise<KbSearchResult> {
+  const statFn: StatFn = opts.statFn ?? fsStat;
   const skippedKbs: KbSkippedKb[] = [];
-  const merged: KbSearchHit[] = [];
+  // 中间态多带库根与记录 mtime：截断后要拿它们核对源文件新鲜度（不暴露给调用方）
+  const merged: Array<{ hit: KbSearchHit; root: string; recordedMtime: number }> = [];
 
   // 查询侧只算一次：嵌入（null = 模型不可用 → 语义通道禁用）+ FTS MATCH 表达式
   const queryVec = await embedQueryFn(query);
   const matchExpr = buildMatchExpr(query);
+  const queryTokens = queryTokensOf(query);
 
   for (const kbId of kbIds) {
     const kb = ctx.store.getKb(kbId);
@@ -75,7 +149,10 @@ export async function searchKnowledge(
       skippedKbs.push({ kbId, reason: "missing" });
       continue;
     }
-    if (kb.status !== "ready") {
+    // 更新失败（status=error）但库里仍有上一轮建成的索引：旧数据不是「不可用」，
+    // 而是「可能过期」——允许检索并逐条标 stale，比整库下线更符合「旧索引保持可用」的语义
+    const staleKb = kb.status === "error" && kb.chunkCount > 0 && kb.lastIndexedAt !== null;
+    if (kb.status !== "ready" && !staleKb) {
       skippedKbs.push({ kbId, reason: "not_ready" });
       continue;
     }
@@ -83,63 +160,96 @@ export async function searchKnowledge(
     // 库级指纹直读登记库（KbInfo 投影不含 embed_meta）：null = 从未索引，不算不匹配。
     // 不匹配只降级向量通道（存量向量全部过期），词法照常，仍参与检索。
     const storedMeta = ctx.store.getEmbedMeta(kbId);
-    const mismatch = storedMeta !== null && storedMeta !== embedFingerprint();
+    const mismatch = storedMeta !== null && storedMeta !== knowledgeFingerprint();
     if (mismatch) skippedKbs.push({ kbId, reason: "embed_meta_mismatch" });
 
-    const db = openKbDb(ctx.waPiDir, kbId);
+    // 检索路径用「只开已存在的库」：库文件丢失时必须显式报出（skippedKbs），
+    // 否则 openKbDb 会当场建一个空库 → 检索恒零命中，用户看到的是「库里没这内容」
+    let db: Database;
     try {
-      // 词法通道：FTS MATCH bigram 查询（body 写入侧已 bigram 化），bm25 负值越小越
-      // 相关，升序即名次；名次只取决于 SQL 返回顺序，bm25 分值本身不参与融合。
-      const lexical = matchExpr
-        ? (db
-            .query(
-              `SELECT c.id AS id
-                 FROM chunks_fts
-                 JOIN chunks c ON c.id = chunks_fts.chunk_id
-                WHERE chunks_fts MATCH ?
-                ORDER BY bm25(chunks_fts)
-                LIMIT ${CHANNEL_TOP_N}`,
-            )
-            .all(matchExpr) as Array<{ id: string }>)
-        : [];
-      // 语义通道：量化扫描（扫描宽度远大于融合条数）→ 距离门过滤；
-      // 指纹不匹配或查询向量缺失时整通道跳过（扫描失败扩展内部降级为空数组）。
-      const semantic =
-        queryVec && !mismatch
-          ? kbQuantizedScan(db, queryVec, KB_SCAN_K).filter((h) => withinSemanticDistance(h.distance))
-          : [];
-
-      // 库内 RRF 融合：score = Σ 1/(K + rank)，rank 从 1 开始
-      const scores = new Map<string, number>();
-      for (const channel of [lexical.map((r) => r.id), semantic.map((h) => h.id)]) {
-        channel.forEach((id, idx) => {
-          scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + idx + 1));
-        });
+      db = openKbDbExisting(ctx.waPiDir, kbId);
+    } catch (err) {
+      if (err instanceof KbDbMissingError) {
+        skippedKbs.push({ kbId, reason: "db_missing" });
+      } else {
+        // 库在但打不开（如文件损坏）：同样标跳过，不让单库故障拖垮整次跨库检索
+        console.warn(`[knowledge] 知识库 db 打开失败 (kbId=${kbId}):`, err);
+        skippedKbs.push({ kbId, reason: "db_error" });
       }
-      if (scores.size === 0) continue;
-      const fused = [...scores.entries()].sort((a, b) => b[1] - a[1]);
-
-      // 按融合名次回读出处字段（id 来自库内，缺失即跳过的防御不必要——IN 查询必命中）
-      const placeholders = fused.map(() => "?").join(",");
-      const rows = db
+      continue;
+    }
+    // 连接归 kb-db 缓存所有，这里不 close：索引可能正持有同一实例（关掉会打断索引）
+    // 词法通道：FTS MATCH bigram 查询（body 写入侧已 bigram 化），bm25 负值越小越
+    // 相关，升序即名次；名次只取决于 SQL 返回顺序，bm25 分值本身不参与融合。
+    // 短语 AND 零命中时降级 OR 重查（长问句只有部分重叠也要能召回）。
+    const runLexical = (expr: string) =>
+      db
         .query(
-          `SELECT id, content, file_path, title, breadcrumb, start_line, end_line
-             FROM chunks WHERE id IN (${placeholders})`,
+          // bm25() 是负值且越小越相关：取负换成「越大越相关」的普通分数，供 min-max 归一
+          `SELECT c.id AS id, -bm25(chunks_fts) AS score
+             FROM chunks_fts
+             JOIN chunks c ON c.id = chunks_fts.chunk_id
+            WHERE chunks_fts MATCH ?
+            ORDER BY score DESC
+            LIMIT ${CHANNEL_TOP_N}`,
         )
-        .all(...fused.map(([id]) => id)) as Array<{
-        id: string;
-        content: string;
-        file_path: string;
-        title: string | null;
-        breadcrumb: string | null;
-        start_line: number | null;
-        end_line: number | null;
-      }>;
-      const byId = new Map(rows.map((r) => [r.id, r]));
-      for (const [id, score] of fused) {
-        const row = byId.get(id);
-        if (!row) continue;
-        merged.push({
+        .all(expr) as Array<{ id: string; score: number }>;
+    let lexical = matchExpr ? runLexical(matchExpr) : [];
+    if (lexical.length === 0) {
+      const orExpr = buildOrMatchExpr(query);
+      if (orExpr) lexical = runLexical(orExpr);
+    }
+    const lexicalIds = new Set(lexical.map((r) => r.id));
+    // 语义通道：量化扫描（扫描宽度远大于融合条数）→ 距离门过滤；
+    // 指纹不匹配或查询向量缺失时整通道跳过（扫描失败扩展内部降级为空数组）。
+    const semantic =
+      queryVec && !mismatch
+        ? kbQuantizedScan(db, queryVec, KB_SCAN_K).filter((h) => withinSemanticDistance(h.distance))
+        : [];
+
+    // 库内加权分数融合（替代原先的 RRF 名次融合）：两路各自 min-max 归一后
+    // 0.45·BM25 + 0.55·向量 + 0.15·双路加成，保留分数分布信息
+    const fused = weightedScoreFusion(
+      lexical.map((r) => ({ chunkId: r.id, score: r.score })),
+      semantic.map((h) => ({ chunkId: h.id, score: 1 - h.distance })),
+    );
+    if (fused.length === 0) continue;
+
+    // 按融合名次回读出处字段：只取前 limit*multiplier（至少 10）条候选——
+    // 词法 50 + 语义 200 去重后可达数百条，全量回读正文只为最终 5 条是纯浪费
+    const readLimit = Math.max(Math.trunc(limit * (opts.readLimitMultiplier ?? 2)), 10);
+    const candidates = fused.slice(0, readLimit);
+    const placeholders = candidates.map(() => "?").join(",");
+    const rows = db
+      .query(
+        `SELECT id, content, file_path, file_type, title, breadcrumb, start_line, end_line, file_mtime
+           FROM chunks WHERE id IN (${placeholders})`,
+      )
+      .all(...candidates.map((f) => f.chunkId)) as Array<{
+      id: string;
+      content: string;
+      file_path: string;
+      file_type: string;
+      title: string | null;
+      breadcrumb: string | null;
+      start_line: number | null;
+      end_line: number | null;
+      file_mtime: number;
+    }>;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const { chunkId: id, score } of candidates) {
+      const row = byId.get(id);
+      if (!row) continue;
+      // 置信门（分数）+ 词法证据门（覆盖率）：低分与「与查询几乎无词法重叠」的块不进结果。
+      // 词法门需要正文，所以放在回读之后（管线：召回→融合→分数门→回读→词法门→boost→多样性→截断→扩窗）
+      if (score < MIN_HYBRID_SCORE) continue;
+      // 词法门只约束「词法通道命中过的块」；纯语义命中（词法零重叠）是语义模式的价值所在，
+      // 由分数门单独把关（否则「字面不同、意思相近」的命中会被整体杀掉）
+      if (lexicalIds.has(id) && !hasEnoughLexicalEvidence(row.content, queryTokens)) continue;
+      // 加权分：路径/文件名命中加成、文档意图加权、测试与本地化副本降权（纯函数见 search/ranking）
+      const { adjustedScore } = scoreChunkForQuery(score, row, queryTokens);
+      merged.push({
+        hit: {
           kbId,
           kbName: kb.name,
           content: row.content,
@@ -148,16 +258,112 @@ export async function searchKnowledge(
           breadcrumb: row.breadcrumb,
           startLine: row.start_line,
           endLine: row.end_line,
-          score,
-        });
-      }
-    } finally {
-      db.close();
+          score: adjustedScore,
+          ...(staleKb ? { stale: true } : {}),
+        },
+        root: kb.folderPath,
+        recordedMtime: row.file_mtime,
+      });
     }
   }
 
-  // 跨库合并：按融合分降序截 limit（limit≤0 时 slice 语义不安全，钳到 0）
-  merged.sort((a, b) => b.score - a.score);
-  const results = merged.slice(0, Math.max(0, limit));
-  return { found: results.length > 0, results, skippedKbs };
+  // 跨库合并：先按加权分降序，再做多样性与文件交错（单文件最多 2 条），最后截断。
+  // 多样性必须在截断前——否则单文件的相邻块会把 limit 占满，其他来源永远进不来。
+  merged.sort((a, b) => b.hit.score - a.hit.score);
+  const ranked = merged.map((m) => ({
+    ...m,
+    score: m.hit.score,
+    filePath: m.hit.filePath,
+    content: m.hit.content,
+  }));
+  const top =
+    ranked.length > 0
+      ? diversify(ranked, { limit: Math.max(0, limit), maxPerFile: 2, lambda: 0.7 })
+      : [];
+  // 新鲜度只核对最终返回的这几条（≤limit 次 stat，并发不放大 IO）；整库已标 stale 的短路不再 stat
+  await Promise.all(
+    top.map(async ({ hit, root, recordedMtime }) => {
+      if (hit.stale) return;
+      if (await sourceChanged(root, hit.filePath, recordedMtime, statFn)) hit.stale = true;
+    }),
+  );
+  // 自适应扩窗：按「库 + 文件」取同文件全部块作为上下文（邻块 score=0，只作内容），
+  // 命中块与前后若干块合并，预算内给出可读段落；库打不开时跳过扩窗、保留命中块原文。
+  const fileRows = new Map<string, WindowRow[]>();
+  for (const { hit } of top) {
+    const key = `${hit.kbId}\0${hit.filePath}`;
+    if (fileRows.has(key)) continue;
+    try {
+      const db = openKbDbExisting(ctx.waPiDir, hit.kbId);
+      const rows = db
+        .query(
+          `SELECT id, file_path, start_line, end_line, content
+             FROM chunks WHERE file_path = ? ORDER BY start_line`,
+        )
+        .all(hit.filePath) as Array<{
+        id: string;
+        file_path: string;
+        start_line: number | null;
+        end_line: number | null;
+        content: string;
+      }>;
+      fileRows.set(
+        key,
+        rows.map((r) => ({
+          id: r.id,
+          filePath: r.file_path,
+          startLine: r.start_line,
+          endLine: r.end_line,
+          content: r.content,
+          score: 0,
+        })),
+      );
+    } catch {
+      /* 库不可用：不扩窗，保留命中块原文 */
+    }
+  }
+  for (const [key, rows] of fileRows) {
+    const hitIds = new Set(top.filter((t) => `${t.hit.kbId}\0${t.hit.filePath}` === key).map((t) => t.hit.filePath));
+    for (const row of rows) {
+      if (hitIds.has(row.filePath) && top.some((t) => t.hit.content === row.content)) row.score = 1;
+    }
+  }
+
+  // deep 模式：对最终 ≤limit 条做 cross-encoder 重排（未就绪则退化为 hybrid）
+  let effectiveMode: "hybrid" | "deep" = "hybrid";
+  let rerankUsed = false;
+  if (opts.mode === "deep" && top.length > 0) {
+    const { rerankScores: realRerank, isRerankerReady } = await import("./reranker");
+    const scorer = opts.rerankFn ?? (isRerankerReady() ? realRerank : async () => null);
+    const scores = await scorer(query, top.map((t) => t.hit.content));
+    if (scores && scores.length === top.length) {
+      rerankUsed = true;
+      effectiveMode = "deep";
+      const order = scores
+        .map((sc, i) => ({ i, sc }))
+        .sort((a, b) => b.sc - a.sc)
+        .map((o) => o.i);
+      const reordered = order.map((i) => top[i]);
+      top.length = 0;
+      top.push(...reordered);
+    }
+  }
+
+  const results: KbSearchHit[] = top.map((entry) => {
+    const key = `${entry.hit.kbId}\0${entry.hit.filePath}`;
+    const rows = fileRows.get(key);
+    if (!rows || rows.length === 0) return entry.hit;
+    // 命中块按内容匹配（同一文件内可能多条命中）
+    const withHits = rows.map((r) => ({ ...r, score: r.content === entry.hit.content ? 1 : 0 }));
+    const expanded = expandWindow(withHits, 5);
+    const merged = expanded.find((w) => w.content.includes(entry.hit.content));
+    if (!merged) return entry.hit;
+    return {
+      ...entry.hit,
+      content: merged.content,
+      startLine: merged.startLine,
+      endLine: merged.endLine,
+    };
+  });
+  return { found: results.length > 0, results, skippedKbs, mode: effectiveMode, rerankUsed };
 }

@@ -9,7 +9,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
@@ -19,7 +19,10 @@ import { MemoryStore } from "../src/memory-store";
 import { closeAllMemoryDbs } from "../src/memory/db";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
+import { scanFolder } from "../src/knowledge/scan";
+import { expirePreviewPlanForTest } from "../src/knowledge/preview-plans";
 import { KnowledgeStore } from "../src/knowledge/store";
+import { closeAllKbDbs } from "../src/knowledge/kb-db";
 import { kbDbPath } from "../src/knowledge/paths";
 import type { EmbedFn } from "../src/knowledge/indexer";
 import type { WatchKbOptions } from "../src/knowledge/watcher";
@@ -98,6 +101,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  closeAllKbDbs(); // 每库连接归缓存所有，用例间必须归位
   // 先拆文件监听（fs.watch 句柄挂着 Windows 删不掉临时目录），再让阻塞中的 runIndex 退出
   // 收尾（释放每库 db 句柄），最后删临时目录
   activeServer?.kbWatchStopAll();
@@ -110,7 +114,10 @@ afterEach(async () => {
 });
 
 /** 起最小 WSServer：知识库登记库与 gate embed 注入（生产路径缺省用 agentManager 共享实例） */
-async function startTestServer(kbWatchOpts?: WatchKbOptions) {
+async function startTestServer(
+  kbWatchOpts?: WatchKbOptions,
+  scanFolderFn?: typeof scanFolder,
+) {
   const projectFile = join(tmpDir, "projects.json");
   writeFileSync(
     projectFile,
@@ -136,6 +143,7 @@ async function startTestServer(kbWatchOpts?: WatchKbOptions) {
     knowledgeStore: store,
     kbEmbedFn: gate.embed,
     kbWatchOpts,
+    kbScanFolder: scanFolderFn,
     agentManager: { disposeAll: async () => {}, markAllDirty: () => {} } as any,
     channelManager: null,
     port: 0,
@@ -202,6 +210,7 @@ test("GET /api/knowledge 列出登记库", async () => {
     filesTotal: 3,
     filesDone: 1,
     chunksDone: 0,
+    chunksTotal: 0,
   });
   expect(withoutJob.progress).toBeUndefined();
 });
@@ -226,6 +235,136 @@ test("POST /api/knowledge/preview 返回扫描预览", async () => {
   // 错误路径：缺 folderPath → 400
   const bad = await api(port, "POST", "/api/knowledge/preview", {});
   expect(bad.status).toBe(400);
+});
+
+// ===== 2b. 预览计划令牌：创建时报告预览后目录变化（任务 9，S13）=====
+
+test("preview 回包带 planToken；预览后目录变动，create 回包 planChanged 列出新增/减少", async () => {
+  const { port } = await startTestServer();
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  expect(typeof preview.planToken).toBe("string");
+  // 预览之后目录变动：删一个、加一个
+  rmSync(join(srcDir, "a.md"));
+  writeFileSync(join(srcDir, "added.md"), "# 新增文件");
+
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    name: "变化库",
+    planToken: preview.planToken,
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  // 不阻断创建：库照建，只在回包里补差异
+  expect(body.type).toBe("knowledge:create");
+  expect(body.kb.name).toBe("变化库");
+  expect(body.planChanged).toEqual({ added: ["added.md"], removed: ["a.md"] });
+});
+
+test("preview → create 目录未变：回包不含 planChanged", async () => {
+  const { port } = await startTestServer();
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    planToken: preview.planToken,
+  });
+  const body = (await res.json()) as any;
+  expect(body.type).toBe("knowledge:create");
+  expect(body.planChanged).toBeUndefined();
+});
+
+test("planToken 无效或缺失：不阻断创建，回包不含 planChanged", async () => {
+  const { port } = await startTestServer();
+  const bad = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    planToken: "not-a-real-token",
+  });
+  expect(bad.status).toBe(200);
+  const badBody = (await bad.json()) as any;
+  expect(badBody.type).toBe("knowledge:create");
+  expect(badBody.planChanged).toBeUndefined();
+
+  const none = await api(port, "POST", "/api/knowledge", { folderPath: srcDir });
+  const noneBody = (await none.json()) as any;
+  expect(noneBody.type).toBe("knowledge:create");
+  expect(noneBody.planChanged).toBeUndefined();
+});
+
+test("planToken 有效但比对扫描抛错：创建仍成功且回包无 planChanged（I-1）", async () => {
+  // 第二次同步扫描（创建侧比对）抛错：模拟网络盘掉线 / 权限被回收
+  let calls = 0;
+  const { port } = await startTestServer(undefined, async (p) => {
+    calls += 1;
+    if (calls >= 2) throw new Error("EACCES: readdir /mnt/net");
+    return scanFolder(p);
+  });
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  expect(typeof preview.planToken).toBe("string");
+
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    name: "掉线库",
+    planToken: preview.planToken,
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  // 比对失败只按未命中处理，不影响创建
+  expect(body.type).toBe("knowledge:create");
+  expect(body.kb.name).toBe("掉线库");
+  expect(body.planChanged).toBeUndefined();
+  expect(calls).toBe(2); // 预览 1 次 + 比对 1 次（抛错后不再重扫）
+});
+
+test("planToken 有效且未注入扫描器（生产缺省异步扫描）：比对路径仍然生效（I2）", async () => {
+  // 不注入 kbScanFolder：走 ws-server 的缺省扫描器（scanFolderAsync，不阻塞事件循环）。
+  // 锁行为：异步扫描路径真的跑了——若缺省扫描器缺失或未被 await，比对会落到 catch 里，
+  // 回包就不会有 planChanged。
+  const { port } = await startTestServer();
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  expect(typeof preview.planToken).toBe("string");
+  writeFileSync(join(srcDir, "late.md"), "# 预览后才写进来的");
+
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    name: "异步比对库",
+    planToken: preview.planToken,
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  expect(body.type).toBe("knowledge:create");
+  expect(body.kb.name).toBe("异步比对库");
+  expect(body.planChanged).toEqual({ added: ["late.md"], removed: [] });
+});
+
+test("planToken 已过期：不再重新扫描比对，创建照常且回包无 planChanged（I-2）", async () => {
+  let scans = 0;
+  const { port } = await startTestServer(undefined, async (p) => {
+    scans += 1;
+    return scanFolder(p);
+  });
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  expect(typeof preview.planToken).toBe("string");
+  // 把令牌推到期（测试缝），此时 peek 不命中 → 不该为它再全量扫一遍
+  expirePreviewPlanForTest(preview.planToken);
+  const before = scans;
+
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    planToken: preview.planToken,
+  });
+  const body = (await res.json()) as any;
+  expect(body.type).toBe("knowledge:create");
+  expect(body.planChanged).toBeUndefined();
+  expect(scans).toBe(before);
 });
 
 // ===== 3. POST /api/knowledge 创建并触发索引 =====
@@ -260,6 +399,28 @@ test("POST /api/knowledge 创建并触发索引", async () => {
     folderPath: join(tmpDir, "no-such-dir"),
   });
   expect(bad.status).toBe(400);
+});
+
+// ===== 3b. folderPath 归一：相对路径转绝对，~ 不做展开 =====
+
+test("POST /api/knowledge 相对路径归一为绝对路径入库", async () => {
+  const { port } = await startTestServer();
+  // 库根必须绝对：相对路径在索引期会随 cwd 漂移，且检索时的路径前缀校验需要绝对根
+  const rel = relative(process.cwd(), srcDir);
+  const res = await api(port, "POST", "/api/knowledge", { folderPath: `  ${rel}  ` });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  expect(body.kb.folderPath).toBe(srcDir);
+});
+
+test("POST /api/knowledge 拒绝 ~ 开头的路径（不替 shell 做展开）", async () => {
+  const { port } = await startTestServer();
+  const res = await api(port, "POST", "/api/knowledge", { folderPath: "~/docs" });
+  expect(res.status).toBe(400);
+  const body = (await res.json()) as any;
+  expect(String(body.error)).toContain("绝对路径");
+  // 不入库：没有任何库根带 ~
+  expect(store.listKbs().some((k) => k.folderPath.includes("~"))).toBe(false);
 });
 
 // ===== 4. POST /api/knowledge/:id/cancel 取消索引 =====
@@ -496,4 +657,25 @@ test("watcher 触发的自动索引可被 cancel 端点取消（watcher 存活�
   // 只中止当前轮：watcher 存活，后续变更照常触发
   await waitFor(() => entry.watch!.indexing === false);
   expect(entry.watch!.stopped).toBe(false);
+});
+
+// ===== 固定路径不得被 /:id 抢走（http-router 首匹配）=====
+
+test("PUT /api/knowledge/rerank 命中 rerank 开关，而不是被 PUT /:id 吞掉", async () => {
+  const { port } = await startTestServer();
+  const res = await api(port, "PUT", "/api/knowledge/rerank", { enabled: false });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  // 被 /:id 抢走时回的是 error「知识库不存在：rerank」
+  expect(body.type).toBe("knowledge:rerank");
+  expect(body.enabled).toBe(false);
+});
+
+test("GET /api/knowledge/rerank 与 GET /api/knowledge/doctor 都能命中（不被 /:id 约束）", async () => {
+  const { port } = await startTestServer();
+  const rerank = (await (await api(port, "GET", "/api/knowledge/rerank")).json()) as any;
+  expect(rerank.type).toBe("knowledge:rerank");
+  const doctor = (await (await api(port, "GET", "/api/knowledge/doctor")).json()) as any;
+  expect(doctor.type).toBe("knowledge:doctor");
+  expect(typeof doctor.report.health_score).toBe("number");
 });

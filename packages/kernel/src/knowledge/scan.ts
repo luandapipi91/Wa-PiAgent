@@ -1,10 +1,26 @@
 // 知识库扫描器：索引管线第一阶段「先数不写」的只读预览（规格 §6.3）。
 // 三层过滤，优先级从高到低：
 //   1. 用户显式排除（excludePaths，整棵子树剪掉，不记 skips——六类枚举无 user_excluded）
-//   2. 建议排除（SUGGESTED_EXCLUDES ~40 条内置规则，可被用户确认覆盖）
-//   3. 技术跳过（不可覆盖）：>10MiB oversized → 前 512B 含 0x00 binary → 读失败 unreadable/inaccessible
+//      ⚠️ 当前未接线：产品层没有排除入口，preview/indexer/watcher 三处调用都省略该参数
+//      （= 空数组）。实现保留完整，后续给 knowledge_bases 加 exclude_paths 列并透传 events 即可启用。
+//   2. 建议排除（SUGGESTED_EXCLUDES ~40 条内置规则）——当前是固定规则，用户不可覆盖
+//      （设计上的「确认后覆盖」尚未实现）
+//   3. 技术跳过（不可覆盖）：>10MiB oversized → 前 512B 含 0x00 binary（docx/pdf 容器格式豁免）
+//      → 读失败 unreadable/inaccessible
 // 只读约束：不向源目录写任何文件；符号链接一律不跟随（防止逃出源目录边界）。
-import { readdirSync, statSync, openSync, readSync, closeSync, type Dirent } from "node:fs";
+// 两版入口：scanFolder（同步 I/O，首建/预览等低频路径）与 scanFolderAsync（异步 I/O，
+// 60s 轮询快照——不能阻塞事件循环）。两版共用同一个遍历器（walkScan）与同一套谓词，
+// 差别只在注入的 fs 适配器，故结果逐项相等由结构保证，不靠人工同步两份代码。
+import {
+  readdirSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+  type Dirent,
+  type Stats,
+} from "node:fs";
+import { open as openAsync, readdir as readdirAsync, stat as statAsync } from "node:fs/promises";
 import { join } from "node:path";
 
 /** 单文件索引上限：10 MiB（规格硬性，不可绕过） */
@@ -120,65 +136,126 @@ export function isAccessDenied(e: unknown): boolean {
   return code === "EACCES" || code === "EPERM";
 }
 
-/**
- * 扫描源目录：递归遍历、三层过滤，产出可索引清单与跳过清单。
- * 只读 stat 遍历，不写入源目录；符号链接一律不跟随。
- * 输出按路径排序保证跨平台确定性。
- */
-export async function scanFolder(folderPath: string, excludePaths: string[]): Promise<ScanPreview> {
-  const indexable: ScannedFile[] = [];
-  const skips: ScanSkip[] = [];
-  const normExcludes = excludePaths
+/** 排除模式归一化：反斜杠转 POSIX 分隔、去掉开头 ./ 与结尾 /（两版共用） */
+function normalizeExcludes(excludePaths: string[]): string[] {
+  return excludePaths
     .map(ex => ex.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, ""))
     .filter(Boolean);
+}
 
-  // 第 1 层：用户显式排除——命中即整棵剪掉（不记 skips）
-  function isUserExcluded(relPath: string): boolean {
-    const segments = relPath.split("/");
-    return normExcludes.some(ex =>
-      ex.includes("/")
-        ? relPath === ex || relPath.startsWith(`${ex}/`)
-        : segments.includes(ex),
-    );
+/** 第 1 层：用户显式排除——命中即整棵剪掉（不记 skips） */
+function isUserExcluded(relPath: string, normExcludes: string[]): boolean {
+  const segments = relPath.split("/");
+  return normExcludes.some(ex =>
+    ex.includes("/")
+      ? relPath === ex || relPath.startsWith(`${ex}/`)
+      : segments.includes(ex),
+  );
+}
+
+/**
+ * 第 2 层：建议排除——目录命中时只展开一层记录直接子项（避免 node_modules 深层万级条目撑爆预览）。
+ * 大小写归一：Windows 文件系统大小写不敏感，server.PEM/.ENV/MySecret.TXT 等变体必须同样命中。
+ */
+function matchSuggested(relPath: string): boolean {
+  const segments = relPath.toLowerCase().split("/");
+  const base = segments[segments.length - 1];
+  return SUGGESTED_EXCLUDES_LOWER.some(pattern =>
+    pattern.includes("*") ? globMatch(pattern, base) : segments.includes(pattern),
+  );
+}
+
+/** 跳过归因（两版共用）：EACCES/EPERM → inaccessible，其余读错误 → unreadable */
+function skipReasonFor(e: unknown): KbSkipReason {
+  return isAccessDenied(e) ? "inaccessible" : "unreadable";
+}
+
+/** 技术跳过第一步（两版共用）：>10MiB 判 oversized，判定先于二进制嗅探 */
+function isOversized(size: number): boolean {
+  return size > MAX_FILE_BYTES;
+}
+
+// docx/pdf 是容器格式（ZIP / 压缩流），前 512 字节必然含 0x00——嗅探只对可能被
+// 当纯文本读的文本类与未识别扩展名有意义，对这两类声明支持的格式探测会把整类误杀
+function skipsBinarySniff(type: KbFileType): boolean {
+  return type === "docx" || type === "pdf";
+}
+
+/**
+ * 扫描所需的三种只读操作。同步版与异步版各注入一套实现，遍历、过滤与判定顺序
+ * （本模块唯一一份）完全共用——两版结果逐项相等由结构保证，不靠人工同步两份代码。
+ * 对外导出（作为 scanFolder/scanFolderAsync 的第三参）仅供测试注入错误形状：
+ * skipReasonFor 依赖 err.code，而同步 throw 与异步 reject 的错误对象形状可能不同。
+ */
+export interface ScanFs {
+  readdir(absDir: string): Dirent[] | Promise<Dirent[]>;
+  stat(absPath: string): Stats | Promise<Stats>;
+  /** 前 512 字节是否含 0x00 */
+  sniffBinary(absFile: string): boolean | Promise<boolean>;
+}
+
+function sniffBinarySync(absFile: string): boolean {
+  const fd = openSync(absFile, "r");
+  try {
+    const buf = Buffer.alloc(BINARY_SNIFF_BYTES);
+    const n = readSync(fd, buf, 0, BINARY_SNIFF_BYTES, 0);
+    return buf.subarray(0, n).includes(0);
+  } finally {
+    closeSync(fd);
   }
+}
 
-  // 第 2 层：建议排除——目录命中时只展开一层记录直接子项（避免 node_modules 深层万级条目撑爆预览）。
-  // 大小写归一：Windows 文件系统大小写不敏感，server.PEM/.ENV/MySecret.TXT 等变体必须同样命中。
-  function matchSuggested(relPath: string): boolean {
-    const segments = relPath.toLowerCase().split("/");
-    const base = segments[segments.length - 1];
-    return SUGGESTED_EXCLUDES_LOWER.some(pattern =>
-      pattern.includes("*") ? globMatch(pattern, base) : segments.includes(pattern),
-    );
-  }
+const SYNC_FS: ScanFs = {
+  readdir: absDir => readdirSync(absDir, { withFileTypes: true }),
+  stat: absPath => statSync(absPath),
+  sniffBinary: sniffBinarySync,
+};
 
-  function recordSuggestedSubtree(absDir: string, relDir: string): void {
+const ASYNC_FS: ScanFs = {
+  readdir: absDir => readdirAsync(absDir, { withFileTypes: true }),
+  stat: absPath => statAsync(absPath),
+  sniffBinary: async absFile => {
+    const fh = await openAsync(absFile, "r");
+    try {
+      const buf = Buffer.alloc(BINARY_SNIFF_BYTES);
+      const { bytesRead } = await fh.read(buf, 0, BINARY_SNIFF_BYTES, 0);
+      return buf.subarray(0, bytesRead).includes(0);
+    } finally {
+      await fh.close();
+    }
+  },
+};
+
+/**
+ * 唯一一份扫描实现：递归遍历、三层过滤，产出可索引清单与跳过清单。
+ * 只读遍历，不写入源目录；符号链接一律不跟随。输出按路径排序保证跨平台确定性。
+ * fsx 只决定「是否阻塞」：同步版供首建/预览，异步版供 60s 轮询快照（不能卡事件循环）。
+ */
+async function walkScan(
+  fsx: ScanFs,
+  folderPath: string,
+  excludePaths: string[],
+): Promise<ScanPreview> {
+  const indexable: ScannedFile[] = [];
+  const skips: ScanSkip[] = [];
+  const normExcludes = normalizeExcludes(excludePaths);
+
+  async function recordSuggestedSubtree(absDir: string, relDir: string): Promise<void> {
     let children: Dirent[];
     try {
-      children = readdirSync(absDir, { withFileTypes: true });
+      children = await fsx.readdir(absDir);
     } catch {
       return; // 目录本身已排除，展开失败无需记录
     }
     for (const c of children) {
       const childRel = `${relDir}/${c.name}`;
-      if (isUserExcluded(childRel)) continue; // 用户显式排除优先：不进 skips
+      if (isUserExcluded(childRel, normExcludes)) continue; // 用户显式排除优先：不进 skips
       skips.push({ path: childRel, reason: "suggested_excluded" });
     }
   }
 
-  function looksBinary(absFile: string): boolean {
-    const fd = openSync(absFile, "r");
-    try {
-      const buf = Buffer.alloc(BINARY_SNIFF_BYTES);
-      const n = readSync(fd, buf, 0, BINARY_SNIFF_BYTES, 0);
-      return buf.subarray(0, n).includes(0);
-    } finally {
-      closeSync(fd);
-    }
-  }
-
-  function handleFile(absFile: string, relPath: string): void {
-    if (isUserExcluded(relPath)) return;
+  async function handleFile(absFile: string, relPath: string): Promise<void> {
+    if (isUserExcluded(relPath, normExcludes)) return;
     if (matchSuggested(relPath)) {
       skips.push({ path: relPath, reason: "suggested_excluded" });
       return;
@@ -186,56 +263,87 @@ export async function scanFolder(folderPath: string, excludePaths: string[]): Pr
     let size: number;
     let mtime: number;
     try {
-      const st = statSync(absFile);
+      const st = await fsx.stat(absFile);
       if (!st.isFile()) return; // 竞态：遍历中已变为非常规文件，忽略
       size = st.size;
       mtime = st.mtimeMs;
     } catch (e) {
-      skips.push({ path: relPath, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
+      skips.push({ path: relPath, reason: skipReasonFor(e) });
       return;
     }
-    if (size > MAX_FILE_BYTES) {
+    const type = detectType(relPath);
+    if (isOversized(size)) {
       skips.push({ path: relPath, reason: "oversized" });
       return;
     }
-    try {
-      if (looksBinary(absFile)) {
-        skips.push({ path: relPath, reason: "binary" });
+    if (!skipsBinarySniff(type)) {
+      try {
+        if (await fsx.sniffBinary(absFile)) {
+          skips.push({ path: relPath, reason: "binary" });
+          return;
+        }
+      } catch (e) {
+        skips.push({ path: relPath, reason: skipReasonFor(e) });
         return;
       }
-    } catch (e) {
-      skips.push({ path: relPath, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
-      return;
     }
-    indexable.push({ relPath, absPath: absFile, type: detectType(relPath), size, mtime });
+    indexable.push({ relPath, absPath: absFile, type, size, mtime });
   }
 
-  function walkDir(absDir: string, relDir: string): void {
-    const entries = readdirSync(absDir, { withFileTypes: true }); // 顶层失败直接抛给调用方
+  async function walkDir(absDir: string, relDir: string): Promise<void> {
+    const entries = await fsx.readdir(absDir); // 顶层失败直接抛给调用方
     for (const dirent of entries) {
       if (dirent.isSymbolicLink()) continue; // 安全：不跟随链接，防逃出源目录边界
       const childRel = relDir ? `${relDir}/${dirent.name}` : dirent.name;
       const childAbs = join(absDir, dirent.name);
       if (dirent.isDirectory()) {
-        if (isUserExcluded(childRel)) continue;
+        if (isUserExcluded(childRel, normExcludes)) continue;
         if (matchSuggested(childRel)) {
-          recordSuggestedSubtree(childAbs, childRel);
+          await recordSuggestedSubtree(childAbs, childRel);
           continue;
         }
         try {
-          walkDir(childAbs, childRel);
+          await walkDir(childAbs, childRel);
         } catch (e) {
-          skips.push({ path: childRel, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
+          skips.push({ path: childRel, reason: skipReasonFor(e) });
         }
       } else if (dirent.isFile()) {
-        handleFile(childAbs, childRel);
+        await handleFile(childAbs, childRel);
       }
       // 其余（fifo/socket/设备等非常规条目）：忽略
     }
   }
 
-  walkDir(folderPath, "");
+  await walkDir(folderPath, "");
   indexable.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
   skips.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   return { indexable, skips };
+}
+
+/**
+ * 扫描源目录（同步 I/O）：readdirSync/statSync 会阻塞调用线程。
+ * 供首建、预览等低频长任务使用；返回 Promise 仅为沿用既有签名。
+ * fsx 仅供测试注入错误形状，产品调用方恒用缺省的同步适配器。
+ */
+export function scanFolder(
+  folderPath: string,
+  /** 用户显式排除（相对路径或目录名）；当前产品层未接线，调用方省略 = 不过滤 */
+  excludePaths: string[] = [],
+  fsx: ScanFs = SYNC_FS,
+): Promise<ScanPreview> {
+  return walkScan(fsx, folderPath, excludePaths);
+}
+
+/**
+ * 扫描源目录（异步 I/O）：与 scanFolder 逐项等价（同一遍历器、同一套谓词与判定顺序），
+ * 但用 node:fs/promises 让出事件循环——供 60s 轮询快照使用，大目录扫描不卡整个进程。
+ * fsx 仅供测试注入错误形状，产品调用方恒用缺省的异步适配器。
+ */
+export function scanFolderAsync(
+  folderPath: string,
+  /** 用户显式排除（相对路径或目录名）；语义同 scanFolder */
+  excludePaths: string[] = [],
+  fsx: ScanFs = ASYNC_FS,
+): Promise<ScanPreview> {
+  return walkScan(fsx, folderPath, excludePaths);
 }

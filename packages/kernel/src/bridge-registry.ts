@@ -268,7 +268,7 @@ export function makeDefaultBridgeContext(opts: {
 /**
  * knowledge_search 分支：参数校验 → knowledgeCtx.search → snake_case 结构化输出
  * （字段名对齐 shared/tool-schemas 的 KB_SEARCH_DESCRIPTION 文案：
- * content / file_path / title / breadcrumb / lines / kb_name / score）。
+ * content / file_path / title / breadcrumb / lines / kb_name / score / stale）。
  * 未注入 knowledgeCtx（= 未绑定任何库）返回友好提示；query 空参数返回错误内容。
  */
 async function handleKnowledgeSearch(
@@ -308,7 +308,9 @@ async function handleKnowledgeSearch(
     typeof rawLimit === "number" && Number.isFinite(rawLimit)
       ? Math.min(Math.max(Math.trunc(rawLimit), 1), 20)
       : 5;
-  const res = await knowledgeCtx.search(query, limit);
+  const rawMode = (params as Record<string, unknown>)?.mode;
+  const mode = rawMode === "deep" ? "deep" : "hybrid";
+  const res = await knowledgeCtx.search(query, limit, mode);
   const skipped = res.skippedKbs.length
     ? res.skippedKbs.map((s) => `${s.kbId}(${s.reason})`).join(", ")
     : null;
@@ -325,8 +327,12 @@ async function handleKnowledgeSearch(
               : null,
           kb_name: h.kbName,
           score: Number(h.score.toFixed(4)),
+          // 仅陈旧命中带该键：正常结果不加噪声；智能体见 stale 应提示重建索引/核对原文
+          ...(h.stale ? { stale: true } : {}),
         })),
         skippedKbs: skipped,
+        mode: res.mode,
+        rerank_used: res.rerankUsed,
       })
     : `知识库中未找到相关内容${skipped ? `（跳过: ${skipped}）` : ""}。空结果表示知识库未覆盖该内容，不代表事实不存在。`;
   return { content: [{ type: "text", text }] };

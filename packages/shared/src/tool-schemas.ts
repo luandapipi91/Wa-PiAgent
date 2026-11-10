@@ -202,10 +202,14 @@ export const KB_SEARCH_DESCRIPTION =
   "and whenever you are unsure whether memory already covers it. " +
   "An empty result means the knowledge bases do not contain it — NOT that the fact does not exist; " +
   "do not treat absence as refutation, fall back to asking the user or the source documents. " +
-  "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first.";
+  "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first. " +
+  "A hit carrying `stale: true` comes from an outdated index — the source file changed or failed to extract " +
+  "after the last successful indexing, so the chunk may lag behind the document on disk. " +
+  "Such hits are still the best available answer, but verify important details against the current file, " +
+  "quote them only with that caveat, and tell the user the knowledge base needs re-indexing.";
 
 export const KB_SEARCH_SNIPPET =
-  "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score.";
+  "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score (plus stale/mode/rerank_used when applicable).";
 
 /** knowledge_search 参数——kernel 工具与 pi bridge 扩展共用同一份定义。 */
 export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
@@ -216,6 +220,13 @@ export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
   }),
   limit: Type.Optional(
     Type.Number({ description: "Max results (default 5, max 20)." }),
+  ),
+  mode: Type.Optional(
+    Type.Union([Type.Literal("hybrid"), Type.Literal("deep")], {
+      description:
+        "Search mode: hybrid (default) = fusion + gates + diversity; " +
+        "deep = also cross-encoder rerank (requires Deep rerank enabled in settings; falls back to hybrid when unavailable).",
+    }),
   ),
 });
 

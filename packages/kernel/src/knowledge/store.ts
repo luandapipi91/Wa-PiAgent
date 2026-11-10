@@ -6,13 +6,35 @@ import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { basename } from "node:path";
 import type { KbInfo } from "@wa-pi/shared";
+import { closeAllKbDbs, evictKbDb } from "./kb-db";
 import { kbDbPath } from "./paths";
 
 type KbPhase = NonNullable<KbInfo["progress"]>["phase"];
 type KbStatus = KbInfo["status"];
 
-/** 卡死阈值：job 超过 10 分钟无进度更新视为卡死（watcher 兜底重索引用） */
+/** 卡死阈值：owner 已失联的 job 超过 10 分钟无心跳视为卡死（watcher 兜底重索引用） */
 export const JOB_STUCK_MS = 10 * 60_000;
+
+/** 本进程的 owner 标识（pid + 启动随机串）：kernel 单进程，进程退出这个串就不再出现 */
+const PROC_OWNER_ID = `${process.pid}-${randomUUID().slice(0, 8)}`;
+
+/**
+ * 本进程写下过（或自身持有）的存活 owner。
+ * 存活判定不查系统进程表：同进程登记的 owner 一律视为存活；不在表里的（重启残留、他进程旧行）
+ * 视为已失联，交回心跳阈值判定。进程重启后本表清空，旧 owner 自然失联——这正是要修的 bug。
+ */
+const liveOwners = new Set<string>([PROC_OWNER_ID]);
+
+/** 当前进程的 owner 标识（indexer 起任务时写入 indexing_jobs.owner） */
+export function processOwnerId(): string {
+  return PROC_OWNER_ID;
+}
+
+/** 仅供测试：把存活 owner 表归位到「只有本进程」（模块级状态的用例间污染清理） */
+export function resetJobOwnerStateForTest(): void {
+  liveOwners.clear();
+  liveOwners.add(PROC_OWNER_ID);
+}
 
 /** 默认描述模板（规格 §6.8：不填时告诉智能体这是哪来的资料、何时该查） */
 function defaultDescription(name: string): string {
@@ -26,8 +48,14 @@ export interface KbJob {
   filesTotal: number | null;
   filesDone: number | null;
   chunksDone: number | null;
+  /** 本轮待嵌入块总量（embedding 阶段前为 null） */
+  chunksTotal: number | null;
   /** 跳过原因 → 数量（skip_stats JSON 解析结果） */
   skipStats: Record<string, number> | null;
+  /** 执行进程标识；null = 无主/已失联（旧库行、进程重启残留） */
+  owner: string | null;
+  /** 最近一次心跳时刻（失联 owner 的卡死判定依据） */
+  heartbeatAt: number;
   lastProgressAt: number;
   createdAt: number;
 }
@@ -43,6 +71,7 @@ interface KbRow {
   failed_count: number | null;
   auto_watch: number;
   last_indexed_at: number | null;
+  last_error: string | null;
   created_at: number;
 }
 
@@ -58,12 +87,14 @@ function rowToKb(row: KbRow, job: KbJob | null): KbInfo {
     failedCount: row.failed_count ?? 0,
     autoWatch: row.auto_watch === 1,
     lastIndexedAt: row.last_indexed_at,
+    lastError: row.last_error ?? null,
     progress: job
       ? {
           phase: job.phase,
           filesTotal: job.filesTotal ?? 0,
           filesDone: job.filesDone ?? 0,
           chunksDone: job.chunksDone ?? 0,
+          chunksTotal: job.chunksTotal ?? 0,
         }
       : undefined,
   };
@@ -74,7 +105,34 @@ export class KnowledgeStore {
     private readonly db: Database,
     /** WA_PI_DIR：deleteKb 定位每库 db 文件用；routes 层构建 KbContext 也读它（openKbDb） */
     readonly waPiDir: string,
-  ) {}
+  ) {
+    this.migrateJobTable();
+  }
+
+  /**
+   * 轻量迁移：已发布版本的 knowledge.db 里缺列，CREATE TABLE IF NOT EXISTS 不会补——
+   * 按实际列名检查后 ALTER 补齐（幂等）。
+   *   · indexing_jobs.chunks_total（embedding 阶段进度）
+   *   · indexing_jobs.owner / heartbeat_at（卡死判定按 owner 失联 + 心跳）
+   *   · knowledge_bases.last_error（失败原因上界面）
+   */
+  private migrateJobTable(): void {
+    const ensure = (table: string, column: string, ddl: string) => {
+      const cols = this.db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (cols.length > 0 && !cols.some((c) => c.name === column)) {
+        this.db.run(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      }
+    };
+    ensure("indexing_jobs", "chunks_total", "chunks_total INTEGER");
+    ensure("indexing_jobs", "owner", "owner TEXT");
+    ensure("indexing_jobs", "heartbeat_at", "heartbeat_at INTEGER");
+    ensure("knowledge_bases", "last_error", "last_error TEXT");
+  }
+
+  /** 记录/清空最近一次整轮索引失败原因（成功收尾传 null） */
+  setLastError(id: string, message: string | null): void {
+    this.db.run(`UPDATE knowledge_bases SET last_error = ? WHERE id = ?`, [message, id]);
+  }
 
   /** 删库回调（悬挂绑定清理）：接线处经 setOnKbDeleted 注册，deleteKb 时按注册顺序遍历调用 */
   private onKbDeletedCbs: Array<(kbId: string) => void> = [];
@@ -130,12 +188,18 @@ export class KnowledgeStore {
     // bun:sqlite 默认 foreign_keys=OFF，ON DELETE CASCADE 不生效，必须显式删
     this.db.run(`DELETE FROM indexing_jobs WHERE kb_id = ?`, [id]);
     this.db.run(`DELETE FROM knowledge_bases WHERE id = ?`, [id]);
+    // 先关缓存连接再删文件：Windows 上句柄占用会让 unlinkSync 静默失败，
+    // 留下登记行已删、db 文件成孤儿的半删除状态（S7）。传 path：只关本目录下该库的连接
     const p = kbDbPath(this.waPiDir, id);
+    evictKbDb(id, p);
     for (const f of [p, `${p}-wal`, `${p}-shm`]) {
       try {
         unlinkSync(f);
-      } catch {
-        // 文件不存在即目标状态，跳过
+      } catch (err) {
+        // 文件不存在即目标状态；其他原因（占用/权限）删不掉会留孤儿文件——留痕便于排障
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          console.warn(`[knowledge] 删库遗留文件未清掉: ${f}`, err);
+        }
       }
     }
     // 登记行已删，回调清理绑定中的悬挂引用（回调自身失败不阻断删除流程）
@@ -148,8 +212,12 @@ export class KnowledgeStore {
     }
   }
 
-  /** 关闭登记库连接（kernel 优雅退出用；Windows 上句柄挂着会锁住目录无法删除） */
+  /**
+   * 关闭登记库 + 全部每库 db 连接（kernel 优雅退出用；Windows 上句柄挂着会锁住目录无法删除）。
+   * 每库连接归 kb-db 的缓存所有，本层只在此刻统一释放；下次访问惰性重连。
+   */
   close(): void {
+    closeAllKbDbs();
     this.db.close();
   }
 
@@ -224,26 +292,38 @@ export class KnowledgeStore {
     return row?.embed_meta ?? null;
   }
 
-  /** 开始一轮索引任务（同库同时只允许一个活动 job——kb_id 是主键）；已有活动 job 时拒绝，不静默覆盖 */
-  startJob(kbId: string, phase: KbPhase): void {
+  /**
+   * 开始一轮索引任务（同库同时只允许一个活动 job——kb_id 是主键）；已有活动 job 时拒绝，不静默覆盖。
+   *
+   * owner 缺省 = 本进程 owner（processOwnerId）：**忘传 owner 不会静默失去活任务保护**；
+   * 只有显式传 `owner: null` 才表示无 owner（旧库/外来行语义，回落心跳阈值判定）。
+   */
+  startJob(kbId: string, phase: KbPhase, opts?: { owner?: string | null }): void {
     if (this.getJob(kbId)) {
       throw new Error(`知识库 ${kbId} 已有进行中的索引任务，拒绝重复启动`);
     }
     const now = Date.now();
+    const owner = opts?.owner === undefined ? processOwnerId() : opts.owner;
     this.db.run(
-      `INSERT INTO indexing_jobs (kb_id, phase, last_progress_at, created_at)
-       VALUES (?, ?, ?, ?)`,
-      [kbId, phase, now, now],
+      `INSERT INTO indexing_jobs (kb_id, phase, owner, last_progress_at, heartbeat_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [kbId, phase, owner, now, now, now],
     );
+    if (owner !== null) liveOwners.add(owner);
   }
 
-  /** 部分更新 job 进度；每次调用都刷新 last_progress_at（卡死判定依据） */
+  /**
+   * 部分更新 job 进度；每次调用都刷新心跳（last_progress_at + heartbeat_at）——
+   * 心跳是 owner 失联后判卡死的唯一依据。opts.heartbeatAt 供测试/离线推演指定心跳时刻。
+   */
   updateJobProgress(
     kbId: string,
-    patch: Partial<{ phase: KbPhase; filesTotal: number; filesDone: number; chunksDone: number; skipStats: Record<string, number> }>,
+    patch: Partial<{ phase: KbPhase; filesTotal: number; filesDone: number; chunksDone: number; chunksTotal: number; skipStats: Record<string, number> }>,
+    opts?: { heartbeatAt?: number },
   ): void {
-    const sets = ["last_progress_at = ?"];
-    const args: (string | number)[] = [Date.now()];
+    const beat = opts?.heartbeatAt ?? Date.now();
+    const sets = ["last_progress_at = ?", "heartbeat_at = ?"];
+    const args: (string | number)[] = [beat, beat];
     if (patch.phase !== undefined) {
       sets.push("phase = ?");
       args.push(patch.phase);
@@ -260,6 +340,10 @@ export class KnowledgeStore {
       sets.push("chunks_done = ?");
       args.push(patch.chunksDone);
     }
+    if (patch.chunksTotal !== undefined) {
+      sets.push("chunks_total = ?");
+      args.push(patch.chunksTotal);
+    }
     if (patch.skipStats !== undefined) {
       sets.push("skip_stats = ?");
       args.push(JSON.stringify(patch.skipStats));
@@ -268,7 +352,11 @@ export class KnowledgeStore {
     this.db.run(`UPDATE indexing_jobs SET ${sets.join(", ")} WHERE kb_id = ?`, args);
   }
 
-  /** 任务收尾：删 job 行（KbInfo.progress 随之清除） */
+  /**
+   * 任务收尾：删 job 行（KbInfo.progress 随之清除）。
+   * 不动 liveOwners：存活表登的是「进程」，不是「这一轮 job」——进程还活着，owner 就该继续被豁免；
+   * job 行的存在与否才是活动任务的唯一真源（startJob 插入、本方法删除）。
+   */
   finishJob(kbId: string): void {
     this.db.run(`DELETE FROM indexing_jobs WHERE kb_id = ?`, [kbId]);
   }
@@ -281,7 +369,10 @@ export class KnowledgeStore {
           files_total: number | null;
           files_done: number | null;
           chunks_done: number | null;
+          chunks_total: number | null;
           skip_stats: string | null;
+          owner: string | null;
+          heartbeat_at: number | null;
           last_progress_at: number;
           created_at: number;
         }
@@ -293,20 +384,42 @@ export class KnowledgeStore {
       filesTotal: row.files_total,
       filesDone: row.files_done,
       chunksDone: row.chunks_done,
+      chunksTotal: row.chunks_total,
       skipStats: row.skip_stats ? (JSON.parse(row.skip_stats) as Record<string, number>) : null,
+      owner: row.owner ?? null,
+      // 旧库迁移补列后存量行为 NULL：回落到 last_progress_at（迁移前它承担的就是心跳职责）
+      heartbeatAt: row.heartbeat_at ?? row.last_progress_at,
       lastProgressAt: row.last_progress_at,
       createdAt: row.created_at,
     };
   }
 
   /**
-   * 卡死判定：时刻 at 距当前时间超过 JOB_STUCK_MS 即卡死；无进行中 job 恒为 false。
-   * at 缺省取该库 job 的 last_progress_at（watcher 兜底判「10 分钟无进度」的常规用法）；
-   * 显式传 at 用于确定性测试/离线推演（以过去时刻询问「此刻算卡死吗」）。
+   * 把 job 的 owner 置空 = 该 job 的 owner 失联（进程重启后旧 owner 必然不存在，这也是测试模拟失联的钩子）。
+   * 置空后该 job 回落到「心跳超过 JOB_STUCK_MS」判定。
+   * 刻意不动模块级 liveOwners：owner 是进程级标识，同一进程可能还挂着别的 kb 的 job，
+   * 全局摘除会误伤它们；本 job 靠 owner=NULL 就已足够脱离活任务豁免。
+   */
+  expireJobOwner(kbId: string): void {
+    this.db.run(`UPDATE indexing_jobs SET owner = NULL WHERE kb_id = ?`, [kbId]);
+  }
+
+  /**
+   * 卡死判定（watcher 兜底回收残骸的唯一依据）：
+   *   · owner 是本进程写下的存活 owner → 恒为 false。活任务可能长时间不刷新心跳
+   *     （大目录扫描、单个超大文件抽取、嵌入模型慢），按「多久没进度」判会误杀正在跑的索引；
+   *   · owner 为 null 或已失联（重启残留 / expireJobOwner 置空）→ 心跳超过 JOB_STUCK_MS 即卡死。
+   * at 显式传入时替代心跳时刻（确定性测试/离线推演用）；无进行中 job 恒为 false。
+   *
+   * ⚠️ 已知边界（本计划不覆盖，勿误当 bug）：本进程 owner 存活时**永不**判卡死，因此 runIndex
+   * 自身挂死（网络盘 scanFolder 卡住、embed 永不返回）会把该库锁到进程重启——兜底轮询不会回收，
+   * 重索引也会因 job 行仍存在而被重入防护一直挡回。后续以软看门狗（心跳超时后主动 abort 该轮）或
+   * 强制重置 job 入口解决，不在「卡死判定」里加阈值（那会退回误杀活任务的老坑）。
    */
   isJobStuck(kbId: string, at?: number): boolean {
     const job = this.getJob(kbId);
     if (!job) return false;
-    return Date.now() - (at ?? job.lastProgressAt) > JOB_STUCK_MS;
+    if (job.owner !== null && liveOwners.has(job.owner)) return false;
+    return Date.now() - (at ?? job.heartbeatAt) > JOB_STUCK_MS;
   }
 }

@@ -1,12 +1,12 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore } from "../src/knowledge/store";
-import { openKbDb } from "../src/knowledge/kb-db";
+import { closeAllKbDbs, openKbDb } from "../src/knowledge/kb-db";
 import { refreshKbQuantizedIndex } from "../src/knowledge/vector";
 import { searchKnowledge } from "../src/knowledge/search";
 import type { KbContext } from "../src/knowledge/index";
@@ -57,6 +57,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  closeAllKbDbs(); // 每库连接归缓存所有，用例间必须归位
   reg.close();
   rmSync(waPiDir, { recursive: true, force: true });
 });
@@ -70,6 +71,8 @@ interface FakeChunk {
   startLine?: number | null;
   endLine?: number | null;
   vec?: Uint8Array;
+  /** 索引时记录的源文件 mtime（缺省 1：与磁盘上任何真实文件都对不上） */
+  fileMtime?: number;
 }
 
 /** 手工插块：chunks 行 + FTS 双写（body = bigram(prefixContent)，与 indexer 写入格式一致） */
@@ -79,7 +82,7 @@ function insertChunk(db: Database, c: FakeChunk): void {
   db.run(
     `INSERT INTO chunks (id, file_path, file_type, title, breadcrumb, start_line, end_line,
        content, prefix_content, content_hash, file_mtime, file_size, embedding, updated_at)
-     VALUES (?, ?, 'md', ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
+     VALUES (?, ?, 'md', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     [
       id,
       c.filePath ?? "docs/doc.md",
@@ -90,6 +93,7 @@ function insertChunk(db: Database, c: FakeChunk): void {
       c.content,
       prefixContent,
       randomUUID(),
+      c.fileMtime ?? 1,
       c.vec ?? null,
       Date.now(),
     ],
@@ -244,4 +248,192 @@ test("指纹不匹配：跳过向量通道、BM25 照常、skippedKbs 注明 emb
   expect(r.results[0].title).toBe("定价");
   // 向量通道确实被跳过：语义专属块不在结果
   expect(r.results.some((h) => h.title === "水果")).toBe(false);
+});
+
+test("词法通道 AND 零命中时降级 OR 重查：长问句只部分重叠也能召回", async () => {
+  const kbId = setupKb("长问句库", [
+    // 块里只有「定价政策」，不含「说明」相关 bigram
+    { content: "定价政策：按年订阅享九折。", title: "定价", filePath: "docs/p.md" },
+  ]);
+  // 查询「定价政策说明」的四字 / 三字组合与块部分重叠：
+  // AND 语义下需要同时出现「政说」「说明」等 bigram → 零命中；OR 回退应召回
+  const r = await searchKnowledge(ctx, [kbId], "定价政策说明", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  expect(r.results.length).toBeGreaterThan(0);
+  expect(r.results[0].title).toBe("定价");
+});
+
+test("索引失败的库只要有旧索引仍可检索，结果标注 stale（不再整库下线）", async () => {
+  const kbId = setupKb("失败但有旧索引", [{ content: "定价政策说明。", title: "定价" }]);
+  // 更新失败：status=error，但 counters 与 lastIndexedAt 保留（旧索引数据还在库里）
+  store.updateStatus(kbId, "ready", { fileCount: 1, chunkCount: 1, lastIndexedAt: Date.now() });
+  store.updateStatus(kbId, "error");
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  expect(r.results[0].title).toBe("定价");
+  expect(r.results[0].stale).toBe(true);
+  // 不再作为 not_ready 跳过
+  expect(r.skippedKbs.some((s) => s.reason === "not_ready")).toBe(false);
+});
+
+test("命中块的源文件 mtime 与索引记录不一致时标 stale", async () => {
+  // 源文件在索引之后被改过（这里 insertChunk 记录的 file_mtime=1，磁盘文件必然更新）
+  const kbId = setupKb("过期块库", [{ content: "定价政策说明。", title: "定价", filePath: "docs/p.md" }]);
+  mkdirSync(join(waPiDir, "docs"), { recursive: true });
+  writeFileSync(join(waPiDir, "docs/p.md"), "新版内容");
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.results[0].stale).toBe(true);
+});
+
+test("源文件不在磁盘上（抽取失败/外删未重索引）同样标 stale", async () => {
+  const kbId = setupKb("缺文件库", [{ content: "定价政策说明。", title: "定价", filePath: "docs/gone.md" }]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  expect(r.results[0].stale).toBe(true);
+});
+
+test("源文件 mtime 与索引记录一致时不标 stale", async () => {
+  mkdirSync(join(waPiDir, "docs"), { recursive: true });
+  const abs = join(waPiDir, "docs/p.md");
+  writeFileSync(abs, "定价政策说明。");
+  const kbId = setupKb("新鲜库", [
+    { content: "定价政策说明。", title: "定价", filePath: "docs/p.md", fileMtime: statSync(abs).mtimeMs },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  expect(r.results[0].stale).toBeUndefined();
+});
+
+test("mtime 只差亚毫秒也算陈旧：严格相等比对，无容差", async () => {
+  const kbId = setupKb("亚毫秒库", [
+    { content: "定价政策说明。", title: "定价", filePath: "docs/p.md", fileMtime: 1000 },
+  ]);
+  // 注入 stat：磁盘上的 mtime 与记录差 0.5ms（SQLite 对分数值存 REAL，往返严格相等，
+  // 这种差异只可能是文件真的动过 → 不该被容差吞掉）
+  const statFn = async () => ({ mtimeMs: 1000.5 });
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { statFn });
+  expect(r.results[0].stale).toBe(true);
+});
+
+test("file_path 越出库根（绝对路径/..）直接判 stale 且不 stat", async () => {
+  const kbId = setupKb("越界库", [
+    { content: "定价政策说明。", title: "定价", filePath: "../../etc/passwd" },
+  ]);
+  const calls: string[] = [];
+  const statFn = async (p: string) => {
+    calls.push(p);
+    return { mtimeMs: 1 };
+  };
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { statFn });
+  expect(r.results[0].stale).toBe(true);
+  expect(calls).toEqual([]);
+});
+
+test("新鲜度核对只做在截断后的 ≤limit 条上（不放大 IO）", async () => {
+  const kbId = setupKb("多块库", [
+    { content: "定价政策甲说明。", title: "甲", filePath: "docs/a.md" },
+    { content: "定价政策乙说明。", title: "乙", filePath: "docs/b.md" },
+    { content: "定价政策丙说明。", title: "丙", filePath: "docs/c.md" },
+  ]);
+  let calls = 0;
+  const statFn = async () => {
+    calls++;
+    return { mtimeMs: 1 };
+  };
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 2, fakeEmbedQuery(null), { statFn });
+  expect(r.results.length).toBe(2);
+  expect(calls).toBe(2);
+});
+
+test("整库 error 的陈旧命中已标 stale 后不再 stat", async () => {
+  const kbId = setupKb("整库陈旧", [{ content: "定价政策说明。", title: "定价" }]);
+  store.updateStatus(kbId, "ready", { fileCount: 1, chunkCount: 1, lastIndexedAt: Date.now() });
+  store.updateStatus(kbId, "error");
+  let calls = 0;
+  const statFn = async () => {
+    calls++;
+    return { mtimeMs: 1 };
+  };
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { statFn });
+  expect(r.results[0].stale).toBe(true);
+  expect(calls).toBe(0);
+});
+
+test("error 且从未成功索引过的库仍被跳过（无可用旧索引）", async () => {
+  const kbId = setupKb("首建失败", [{ content: "定价政策说明。", title: "定价" }]);
+  store.updateStatus(kbId, "error", { fileCount: 0, chunkCount: 0, failedCount: 0 });
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(false);
+  expect(r.skippedKbs).toContainEqual({ kbId, reason: "not_ready" });
+});
+
+test("融合改加权分数：双路都命中的块融合分显著高于 RRF 量纲（RRF 上限≈0.033）", async () => {
+  const kbId = setupKb("加权融合库", [
+    { content: "定价政策说明：按年订阅享九折。", title: "定价", vec: pack(VEC_A) },
+    { content: "退款流程需要提交工单。", title: "退款" },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(VEC_A));
+  expect(r.found).toBe(true);
+  // 词法 + 语义双路命中：0.45 + 0.55 + 0.15 = 1.15（RRF 下最多 2/61≈0.033）
+  expect(r.results[0].score).toBeGreaterThan(0.5);
+});
+
+test("置信门：覆盖率不足的弱命中不进结果（found=false，不许低分凑数）", async () => {
+  const kbId = setupKb("弱命中库", [{ content: "定价政策", title: "定价" }]);
+  // 长问句 10 个 bigram，块只覆盖 3/10 = 0.3 < 0.34 门槛
+  const r = await searchKnowledge(ctx, [kbId], "定价政策说明与退款流程", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(false);
+  expect(r.results).toHaveLength(0);
+});
+
+test("自适应扩窗：命中块合并同文件相邻块并互相补上下文", async () => {
+  const kbId = setupKb("扩窗库", [
+    { content: "第一段：概述。", title: "A", filePath: "docs/w.md", startLine: 1, endLine: 5 },
+    { content: "第二段：定价政策说明。", title: "B", filePath: "docs/w.md", startLine: 6, endLine: 10 },
+    { content: "第三段：附录。", title: "C", filePath: "docs/w.md", startLine: 11, endLine: 15 },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  // 命中中间的「第二段」，扩窗后正文应带上前后邻块
+  expect(r.results[0].content).toContain("定价政策说明");
+  expect(r.results[0].content).toContain("第一段");
+  expect(r.results[0].content).toContain("第三段");
+});
+
+test("候选回读收敛：大库 limit=5 时结果条数与内容仍正确（截断不破坏结果）", async () => {
+  const kbId = setupKb(
+    "大库",
+    Array.from({ length: 60 }, (_, i) => ({
+      content: `定价政策第${i}条说明。`,
+      title: `T${i}`,
+      filePath: `docs/${i}.md`,
+    })),
+  );
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { readLimitMultiplier: 2 });
+  expect(r.found).toBe(true);
+  expect(r.results.length).toBeLessThanOrEqual(5);
+  expect(r.results[0].content).toContain("定价政策");
+});
+
+test("mode=deep 且 reranker 未就绪：退化为 hybrid，mode=hybrid、rerankUsed=false 且仍返回结果", async () => {
+  const kbId = setupKb("deep退化库", [{ content: "定价政策说明。", title: "定价" }]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { mode: "deep" });
+  expect(r.found).toBe(true);
+  expect(r.mode).toBe("hybrid");
+  expect(r.rerankUsed).toBe(false);
+});
+
+test("mode=deep 且注入 scorer：按重排分排序，mode=deep、rerankUsed=true", async () => {
+  const kbId = setupKb("deep库", [
+    { content: "定价政策说明。", title: "定价" },
+    { content: "定价政策附录。", title: "附录" },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), {
+    mode: "deep",
+    // 反转顺序：让原本第二的排到第一
+    rerankFn: async (_q, docs) => docs.map((_, i) => (i === 0 ? 0 : 1)),
+  });
+  expect(r.mode).toBe("deep");
+  expect(r.rerankUsed).toBe(true);
+  expect(r.results[0].title).toBe("附录");
 });

@@ -61,6 +61,7 @@ interface SettingsJson {
 	httpIdleTimeoutMs?: number;
 	useSystemProxy?: boolean;
 	httpProxy?: string;
+	knowledgeRerank?: { enabled?: boolean };
 	[key: string]: unknown;
 }
 
@@ -993,4 +994,34 @@ export async function ensureDefaultTools(
 		return "upgraded";
 	}
 	return "kept";
+}
+
+// ---------------------------------------------------------------------------
+// 知识库深度重排（rerank）开关：默认关闭，开启后由设置页显式触发模型下载。
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeRerankSettings {
+	enabled: boolean;
+}
+
+/** 读取 rerank 开关（缺省关闭） */
+export async function loadKnowledgeRerankSettings(
+	file: string = SETTINGS_FILE,
+): Promise<KnowledgeRerankSettings> {
+	const raw = (await readSettingsJson(file)).knowledgeRerank as
+		| { enabled?: unknown }
+		| undefined;
+	return { enabled: raw?.enabled === true };
+}
+
+/** 保存 rerank 开关（read-modify-write，保留其他字段） */
+export async function saveKnowledgeRerankSettings(
+	settings: KnowledgeRerankSettings,
+	file: string = SETTINGS_FILE,
+): Promise<KnowledgeRerankSettings> {
+	const current = await readSettingsJson(file);
+	current.knowledgeRerank = { enabled: settings.enabled === true };
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify(current, null, 2), "utf8");
+	return { enabled: current.knowledgeRerank.enabled === true };
 }

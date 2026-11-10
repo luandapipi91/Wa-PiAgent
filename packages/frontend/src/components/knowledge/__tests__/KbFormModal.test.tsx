@@ -2,12 +2,12 @@
 // 逐字契约（简报示意测试的断言语义，取值不可改）：
 //   · placeholder「不填则使用文件夹名」「不填则生成默认描述」
 //   · 未选文件夹提交 → 内联提示含「请选择文件夹」且 onSave 未被调用
-//   · 两段式：kb-folder-input → kb-scan → 「3 个文件可索引」→ kb-save → onSave 带 folderPath
+//   · 两段式：kb-folder-input（失焦/回车自动扫描）→「3 个文件可索引」→ kb-save → onSave 带 folderPath
 //   · 跳过原因计数「建议排除 2」（suggested_excluded 中文映射 + 数量）
 //   · 编辑模式回填：kb-name-input value = 产品知识库
 // 注：简报示意代码是 vitest + jest-dom 语义，沿用本仓库 bun:test 约定（照 KbList.test.tsx）：
 // vi.fn → mock、toBeInTheDocument → toBeTruthy；api mock 用 mock.module（B2 同款零侵入）。
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import {
 	render,
 	screen,
@@ -18,12 +18,15 @@ import {
 import { KbFormModal, type KbFormPayload } from "../KbFormModal";
 import { KnowledgePage } from "../KnowledgePage";
 import { useKnowledgeStore } from "../../../store/knowledge";
+import { _setFsTransport } from "../../../fs-client";
 import enLocale from "../../../i18n/locales/en";
 import type { KbInfo } from "@wa-pi/shared";
 
 // 伪 preview 回包：3 个可索引 + 2 项建议排除 + 1 项二进制（覆盖跳过原因计数映射）
+// planToken：预览计划令牌，创建时回传给 kernel 比对目录是否变化（任务 9）
 const previewPayload = {
 	type: "knowledge:preview",
+	planToken: "plan_123",
 	preview: {
 		totalFiles: 3,
 		totalBytes: 48000,
@@ -49,6 +52,13 @@ let postFailPath: string | null = null;
 const toastAdd = mock(() => {});
 // preview 延迟闸（扫描竞态测试用）：非 undefined 时 preview 响应挂起直到放行；beforeEach 复位
 let previewGate: Promise<void> | undefined;
+// 创建回包（任务 9）：默认空对象，测试可注入 planChanged 模拟「预览后目录有变化」
+let createReply: Record<string, unknown> = {};
+
+/** 注入 POST /api/knowledge 的回包（如带 planChanged） */
+function mockCreateReply(reply: Record<string, unknown>) {
+	createReply = reply;
+}
 
 const kbReady: KbInfo = {
 	id: "kb_1",
@@ -82,6 +92,7 @@ mock.module("../../../api-client", () => ({
 				if (previewGate) await previewGate;
 				return previewPayload;
 			}
+			if (path === "/api/knowledge") return createReply;
 			return {};
 		}),
 		put: mock(async () => ({})),
@@ -95,8 +106,30 @@ beforeEach(() => {
 	getCalls.length = 0;
 	previewGate = undefined;
 	postFailPath = null;
+	createReply = {};
 	toastAdd.mockReset();
 });
+
+afterEach(() => {
+	_setFsTransport(null);
+});
+
+/** 伪 fs transport：「浏览」回退目录树（浏览器环境）拉目录用，避免真实网络 */
+function mockFsTransport() {
+	_setFsTransport({
+		get: async (path: string) => {
+			if (path === "/api/fs/home") return { home: "/Users/co" };
+			if (path === "/api/fs/roots") return { roots: ["/"] };
+			return {};
+		},
+		post: async (path: string) => {
+			if (path === "/api/fs/list-dir")
+				return { entries: [{ name: "资料", isDir: true }] };
+			return {};
+		},
+		del: async () => ({}),
+	});
+}
 
 describe("KbFormModal 校验与默认值提示", () => {
 	test("未选文件夹提交被拦截（审查重点 3）：内联提示「请选择文件夹」且不调 onSave", async () => {
@@ -116,6 +149,62 @@ describe("KbFormModal 校验与默认值提示", () => {
 	});
 });
 
+describe("KbFormModal 自动扫描（选定路径即预览，无需按钮）", () => {
+	test("输入路径失焦即自动扫描：展示可索引数，且弹窗内不存在扫描按钮", async () => {
+		render(<KbFormModal onSave={mock(async () => ({ ok: true }))} />);
+		const input = screen.getByTestId("kb-folder-input");
+		fireEvent.change(input, { target: { value: "D:/资料/产品文档" } });
+		// 没有可点的扫描按钮：选定路径（失焦）即触发
+		expect(screen.queryByTestId("kb-scan")).toBeNull();
+		fireEvent.blur(input);
+		await screen.findByText(/3 个文件可索引/);
+		expect(
+			postCalls.some(([p]) => p === "/api/knowledge/preview"),
+		).toBe(true);
+	});
+
+	test("输入路径回车即自动扫描（不必等失焦）", async () => {
+		render(<KbFormModal onSave={mock(async () => ({ ok: true }))} />);
+		const input = screen.getByTestId("kb-folder-input");
+		fireEvent.change(input, { target: { value: "D:/资料/产品文档" } });
+		fireEvent.keyDown(input, { key: "Enter" });
+		await screen.findByText(/3 个文件可索引/);
+	});
+
+	test("目录树选中文件夹后自动扫描（不再需要手点扫描）", async () => {
+		mockFsTransport();
+		render(<KbFormModal onSave={mock(async () => ({ ok: true }))} />);
+		fireEvent.click(screen.getByTestId("kb-browse"));
+		// 目录树懒加载出 home 下的子目录 → 选中 → 确定
+		await screen.findByText("资料");
+		fireEvent.click(screen.getByText("资料"));
+		await waitFor(() =>
+			expect(
+				(screen.getByTestId("dir-pick") as HTMLButtonElement).disabled,
+			).toBe(false),
+		);
+		fireEvent.click(screen.getByTestId("dir-pick"));
+		// 选完直接出预览（无需再点扫描）
+		await screen.findByText(/3 个文件可索引/);
+		expect(
+			(screen.getByTestId("kb-folder-input") as HTMLInputElement).value,
+		).toContain("资料");
+	});
+
+	test("同一路径不重复扫描：改回原路径重新失焦仍只算一次（去重）", async () => {
+		render(<KbFormModal onSave={mock(async () => ({ ok: true }))} />);
+		const input = screen.getByTestId("kb-folder-input");
+		fireEvent.change(input, { target: { value: "D:/资料/产品文档" } });
+		fireEvent.blur(input);
+		await screen.findByText(/3 个文件可索引/);
+		const first = postCalls.filter(([p]) => p === "/api/knowledge/preview").length;
+		fireEvent.blur(input);
+		await new Promise((r) => setTimeout(r, 10));
+		const second = postCalls.filter(([p]) => p === "/api/knowledge/preview").length;
+		expect(second).toBe(first);
+	});
+});
+
 describe("KbFormModal 两段式（扫描预览 → 创建并索引）", () => {
 	test("选文件夹后提交：先 preview 展示可索引数，再 save 带 folderPath", async () => {
 		const onSave = mock(async () => ({ ok: true }));
@@ -123,7 +212,8 @@ describe("KbFormModal 两段式（扫描预览 → 创建并索引）", () => {
 		fireEvent.change(screen.getByTestId("kb-folder-input"), {
 			target: { value: "D:/资料/产品文档" },
 		});
-		fireEvent.click(screen.getByTestId("kb-scan"));
+		// 自动扫描：路径失焦即预览（按钮已移除）
+		fireEvent.blur(screen.getByTestId("kb-folder-input"));
 		await screen.findByText(/3 个文件可索引/);
 		fireEvent.click(screen.getByTestId("kb-save"));
 		await waitFor(() =>
@@ -133,12 +223,28 @@ describe("KbFormModal 两段式（扫描预览 → 创建并索引）", () => {
 		);
 	});
 
+	test("预览返回 planToken：保存时随 payload 透传（供后端比对目录变化）", async () => {
+		const onSave = mock(async () => ({ ok: true }));
+		render(<KbFormModal onSave={onSave} />);
+		fireEvent.change(screen.getByTestId("kb-folder-input"), {
+			target: { value: "D:/资料/产品文档" },
+		});
+		fireEvent.blur(screen.getByTestId("kb-folder-input"));
+		await screen.findByText(/3 个文件可索引/);
+		fireEvent.click(screen.getByTestId("kb-save"));
+		await waitFor(() =>
+			expect(onSave).toHaveBeenCalledWith(
+				expect.objectContaining({ planToken: "plan_123" }),
+			),
+		);
+	});
+
 	test("扫描预览展示跳过原因计数：建议排除 2 / 二进制 1", async () => {
 		render(<KbFormModal onSave={mock(async () => ({ ok: true }))} />);
 		fireEvent.change(screen.getByTestId("kb-folder-input"), {
 			target: { value: "D:/资料/产品文档" },
 		});
-		fireEvent.click(screen.getByTestId("kb-scan"));
+		fireEvent.blur(screen.getByTestId("kb-folder-input"));
 		await screen.findByText(/3 个文件可索引/);
 		expect(screen.getByText(/建议排除 2/)).toBeTruthy();
 		expect(screen.getByText(/二进制 1/)).toBeTruthy();
@@ -155,7 +261,7 @@ describe("KbFormModal 两段式（扫描预览 → 创建并索引）", () => {
 		previewGate = new Promise<void>((r) => {
 			release = r;
 		});
-		fireEvent.click(screen.getByTestId("kb-scan"));
+		fireEvent.blur(screen.getByTestId("kb-folder-input"));
 		// 扫描中改路径 B（作废在途扫描）
 		fireEvent.change(screen.getByTestId("kb-folder-input"), {
 			target: { value: "D:/新路径B" },
@@ -230,6 +336,34 @@ describe("KnowledgePage 挂接", () => {
 					(b as KbFormPayload).name === undefined,
 			),
 		).toBeTruthy();
+	});
+
+	test("预览后目录变化：创建成功弹出变化提示（新增/减少文件数）", async () => {
+		mockCreateReply({
+			type: "knowledge:create",
+			kb: { ...kbReady, id: "kb_new" },
+			planChanged: { added: ["c.md"], removed: ["b.txt"] },
+		});
+		render(<KnowledgePage />);
+		fireEvent.click(screen.getByTestId("kb-add-button"));
+		fireEvent.change(screen.getByTestId("kb-folder-input"), {
+			target: { value: "D:/资料/产品文档" },
+		});
+		// 两段式：先扫描预览（带回 planToken），再提交
+		fireEvent.blur(screen.getByTestId("kb-folder-input"));
+		await screen.findByText(/3 个文件可索引/);
+		fireEvent.click(screen.getByTestId("kb-save"));
+		await waitFor(() =>
+			expect(toastAdd).toHaveBeenCalledWith(
+				expect.stringContaining("新增 1"),
+				"info",
+			),
+		);
+		// 提示同时带减少数
+		expect(toastAdd).toHaveBeenCalledWith(
+			expect.stringContaining("减少 1"),
+			"info",
+		);
 	});
 
 	test("卡片「编辑」入口打开编辑弹窗并回填名称（保存文案 = 保存）", async () => {

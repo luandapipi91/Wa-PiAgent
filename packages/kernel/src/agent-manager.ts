@@ -1271,9 +1271,14 @@ export class AgentManager {
 			// 知识库检索：绑定清单来自 config（命名 agent）或 override（内置 subagent 主会话）
 			// 合并后的 knowledgeKbIds（组装处已含登记库可用性降级）；未绑定（空/缺省）
 			// 不注入，handleTool 对 knowledge_search 返回「未绑定」友好提示。
-			// 工厂只建闭包不打开 db（惰性），打开失败由 /bridge/tool 兑底，不阻断会话创建。
+			// 复用上面已打开的共享登记库连接（getKnowledgeStore 缓存实例）：所有会话不再
+			// 各自新建连接（会话结束的 fd 泄漏），删库回调也仍只注册一份。
 			knowledgeCtx: knowledgeKbIds?.length
-				? makeKnowledgeToolContext(WA_PI_DIR, knowledgeKbIds)
+				? makeKnowledgeToolContext({
+						waPiDir: WA_PI_DIR,
+						kbIds: knowledgeKbIds,
+						store: this.getKnowledgeStore(),
+					})
 				: undefined,
 		});
 		const bridgeCtx: BridgeSessionContext = {

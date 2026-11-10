@@ -1,5 +1,6 @@
 // 目录树选择器：ControlledTreeEnvironment + onMissingItems 懒加载 + 预展开 home。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
 	ControlledTreeEnvironment,
 	Tree,
@@ -605,11 +606,17 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
 		[expandedItems, focusedItem, selectedItems],
 	);
 
-	return (
+	// 覆盖层 portal 到 body 顶层：z-index 只在同一层叠上下文内比较。调用方可能位于
+	// 弹窗（Modal，portal 到 body、z-50）的层叠上下文里（如知识库新建弹窗内的「浏览」），
+	// 留在祖先内时再高的 z 也盖不过后挂载的同级弹窗；且早于调用方弹窗渲染时
+	// 同 z-50 会按 DOM 顺序被压在下面。挂到 body + 层级 60（高于 Modal 遮罩）
+	// 让「盖在弹窗之上」成为组件自身的保证，所有调用点无需额外包裹。
+	return createPortal(
 		<>
 			<style>{TREE_STYLES}</style>
 			<div
-				className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+				className="fixed inset-0 bg-black/60 flex items-center justify-center"
+				style={{ zIndex: 60 }}
 				data-testid="dir-picker"
 			>
 				<div className="bg-surface w-[600px] max-h-[80vh] rounded-lg flex flex-col border border-hairline shadow-lg">
@@ -734,6 +741,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
 					</div>
 				</div>
 			</div>
-		</>
+		</>,
+		document.body,
 	);
 }

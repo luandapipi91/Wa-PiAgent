@@ -24,8 +24,25 @@ export const registerKnowledgeRoutes: RouteRegistrar = (r, callApi) => {
       folderPath: b.folderPath,
       name: b.name,
       description: b.description,
+      // 预览计划令牌：仅用于回报「预览后目录有变化」，不阻断创建
+      planToken: b.planToken,
     });
   });
+  // 深度重排（rerank）开关：GET 状态、PUT 开关（开启后由 kernel 后台下载模型）、POST 重试下载
+  r.add("GET", "/api/knowledge/rerank", async () => callApi({ type: "knowledge:rerank" }));
+  r.add("PUT", "/api/knowledge/rerank", async (req) => {
+    const b = await readJsonBody(req);
+    return callApi({ type: "knowledge:rerank:save", enabled: b.enabled === true });
+  });
+  r.add("POST", "/api/knowledge/rerank/retry", async () =>
+    callApi({ type: "knowledge:rerank:retry" }),
+  );
+  // 单库诊断 / 全库体检（医生报告）
+  r.add("GET", "/api/knowledge/doctor", async () => callApi({ type: "knowledge:doctor" }));
+  r.add("GET", "/api/knowledge/:id/health", async (_req, p) =>
+    callApi({ type: "knowledge:health", kbId: p.id }),
+  );
+
   // 手动重索引
   r.add("POST", "/api/knowledge/:id/index", async (_req, p) =>
     callApi({ type: "knowledge:index", kbId: p.id }),

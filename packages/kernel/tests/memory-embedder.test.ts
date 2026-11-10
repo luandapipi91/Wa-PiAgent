@@ -3,6 +3,8 @@ import {
   EMBED_DIM,
   EMBED_MODEL,
   EMBEDDER_IDLE_UNLOAD_MS,
+  acquireEmbedderKeepAlive,
+  embedderKeepAliveCountForTest,
   embedDocuments,
   embedQuery,
   embedFingerprint,
@@ -133,6 +135,40 @@ test("unloadModel 无模型时幂等不抛错（离线可跑）", async () => {
   resetEmbedderForTest();
   await expect(unloadModel()).resolves.toBeUndefined();
 });
+
+// 保活：长任务（知识库索引）运行期间模型不得被空闲卸载——抽取阶段可能超过 5 分钟不调嵌入，
+// 若此时把模型卸了，嵌入阶段要重新加载，用户看到的就是「建库到一半模型没了」。
+test("shouldUnloadForIdle：保活引用未释放时不卸（即便已超空闲阈值）", () => {
+  const now = 1_000_000;
+  const used = now - EMBEDDER_IDLE_UNLOAD_MS;
+  expect(shouldUnloadForIdle(now, used, 0, true, EMBEDDER_IDLE_UNLOAD_MS, 1)).toBe(false);
+  expect(shouldUnloadForIdle(now, used, 0, true, EMBEDDER_IDLE_UNLOAD_MS, 0)).toBe(true);
+});
+
+test("acquireEmbedderKeepAlive 引用计数：幂等释放、归零后恢复可卸载", () => {
+  resetEmbedderForTest();
+  const release1 = acquireEmbedderKeepAlive();
+  const release2 = acquireEmbedderKeepAlive();
+  expect(embedderKeepAliveCountForTest()).toBe(2);
+  release1();
+  expect(embedderKeepAliveCountForTest()).toBe(1);
+  release1(); // 重复释放不双重扣减
+  expect(embedderKeepAliveCountForTest()).toBe(1);
+  release2();
+  expect(embedderKeepAliveCountForTest()).toBe(0);
+});
+
+test.skipIf(modelUnavailable)("保活期间空闲超时也不卸载，释放后下一轮才卸", async () => {
+  resetEmbedderForTest();
+  expect(await preloadModel()).toBe(true);
+  const release = acquireEmbedderKeepAlive();
+  const now = Date.now();
+  expect(await maybeUnloadForIdle(now + EMBEDDER_IDLE_UNLOAD_MS + 60_000)).toBe(false);
+  expect(isEmbedderReady()).toBe(true);
+  release();
+  expect(await maybeUnloadForIdle(now + EMBEDDER_IDLE_UNLOAD_MS + 120_000)).toBe(true);
+  expect(isEmbedderReady()).toBe(false);
+}, 120_000);
 
 test.skipIf(modelUnavailable)("空闲卸载行为链：未超时不卸 → 超时卸 → 再次使用自动重载", async () => {
   resetEmbedderForTest();

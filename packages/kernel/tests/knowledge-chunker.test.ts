@@ -78,11 +78,11 @@ test("结构块正文以标题文本+空行开头且行号对应源文件", () =
   expect(zhekou?.endLine).toBe(9);
 });
 
-test("contentHash 可按 sha256(relPath NUL startLine NUL endLine NUL content) 复算", () => {
+test("contentHash 可按 sha256(relPath NUL fileType NUL startLine NUL endLine NUL breadcrumb NUL content) 复算", () => {
   const chunks = chunkDocument({ type: "md", text: SAMPLE_MD, relPath: "p.md" });
   for (const c of chunks) {
     const want = createHash("sha256")
-      .update(`p.md\0${c.startLine}\0${c.endLine}\0${c.content}`)
+      .update(`p.md\0md\0${c.startLine}\0${c.endLine}\0${c.breadcrumb ?? ""}\0${c.content}`)
       .digest("hex");
     expect(c.contentHash).toBe(want);
   }
@@ -105,4 +105,35 @@ test("多空行分隔的段间源行不被合成 join 压缩（endLine 取源末
   const c = chunkDocument({ type: "txt", text, relPath: "g.txt" })[0];
   expect(c.startLine).toBe(1);
   expect(c.endLine).toBe(5);
+});
+
+test("身份 hash 含面包屑：祖先标题改名、正文不变时 hash 必须变化（否则复用旧向量造成语义分叉）", () => {
+  const a = chunkDocument({ type: "md", text: "# 产品\n\n## 定价\n\n价格说明。", relPath: "a.md" });
+  const b = chunkDocument({ type: "md", text: "# 产品线\n\n## 定价\n\n价格说明。", relPath: "a.md" });
+  const ca = a.find(c => c.title === "定价")!;
+  const cb = b.find(c => c.title === "定价")!;
+  expect(ca.content).toBe(cb.content); // 本层标题与正文都没变
+  expect(ca.contentHash).not.toBe(cb.contentHash); // 但面包屑变了 → 身份必须变
+});
+
+test("超预算块按句子边界再切：每块估算 token ≤ 448，尾部内容不丢", () => {
+  const long = Array.from({ length: 120 }, (_, i) => `第${i}句：这是一段足够长的中文内容用于验证切分。`).join("");
+  const chunks = chunkDocument({ type: "txt", text: long, relPath: "big.txt" });
+  expect(chunks.length).toBeGreaterThan(1);
+  for (const c of chunks) expect(estimateTokens(c.content)).toBeLessThanOrEqual(448);
+  expect(chunks.some(c => c.content.includes("第119句"))).toBe(true);
+});
+
+test("超长标题栈占满预算时仍切正文且前缀不超硬上限（不静默截断）", () => {
+  const longTitle = "很长的章节标题".repeat(40); // 单级 ≈ 280 字，四级栈 ≈ 1100+ token
+  const head = `# ${longTitle}\n\n## ${longTitle}\n\n### ${longTitle}\n\n#### ${longTitle}\n\n`;
+  const body = "正文内容说明。".repeat(400);
+  const chunks = chunkDocument({ type: "md", text: head + body, relPath: "deep.md" });
+  expect(chunks.length).toBeGreaterThan(1);
+  for (const c of chunks) {
+    expect(estimateTokens(c.prefixContent)).toBeLessThanOrEqual(448);
+    expect(c.content.length).toBeGreaterThan(0);
+  }
+  // 尾部内容必须在某些块里出现（不许因为前缀吃满预算而丢掉后半段）
+  expect(chunks.some(c => c.content.includes("正文内容说明。正文内容说明。"))).toBe(true);
 });

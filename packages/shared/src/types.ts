@@ -142,6 +142,40 @@ export interface SubagentInfo {
 
 // ============ 内置知识库（KB）============
 
+/** 单库诊断（GET /api/knowledge/:id/health 回包） */
+export interface KbDiagnostic {
+	kbId: string;
+	kbName: string;
+	status: KbInfo["status"];
+	stuck_indexing: boolean;
+	last_progress_age_ms: number;
+	/** 索引后被修改过的源文件（相对路径） */
+	stale_files: string[];
+	/** 库里仍有块、但源文件已不存在（相对路径） */
+	orphan_files: string[];
+	coverage_percent: number;
+	total_source_files: number;
+	indexed_files: number;
+	/** 扫描阶段的跳过统计（原因 → 数量） */
+	skipped: Record<string, number>;
+}
+
+/** 医生问题条目 */
+export interface KbDoctorIssue {
+	severity: "blocking" | "warning" | "info";
+	kbName?: string;
+	message: string;
+	action: string;
+}
+
+/** 全库体检报告（GET /api/knowledge/doctor 回包） */
+export interface KbDoctorReport {
+	health_score: number;
+	summary: string;
+	issues: KbDoctorIssue[];
+	diagnostics: KbDiagnostic[];
+}
+
 /** 知识库元信息（列表/详情展示用） */
 export interface KbInfo {
 	id: string;
@@ -157,12 +191,16 @@ export interface KbInfo {
 	autoWatch: boolean;
 	/** 上次索引完成时间戳；从未索引过为 null */
 	lastIndexedAt: number | null;
+	/** 最近一次整轮索引失败的原因（status=error 时展示；成功一轮后清空） */
+	lastError?: string | null;
 	/** scanning/indexing 进行中的实时进度（完成后清除）。phase 与 indexing_jobs 阶段一致（规格 §6.1） */
 	progress?: {
 		phase: "scanning" | "extracting" | "chunking" | "embedding" | "committing";
 		filesTotal: number;
 		filesDone: number;
 		chunksDone: number;
+		/** 本轮待嵌入块总量（embedding 阶段才可知；之前为 0）。前端据此算块级真实推进 */
+		chunksTotal?: number;
 	};
 }
 
@@ -186,6 +224,8 @@ export interface KbProgressEvent {
 	filesTotal: number;
 	filesDone: number;
 	chunksDone: number;
+	/** 本轮待嵌入块总量（embedding 阶段才可知；之前为 0） */
+	chunksTotal?: number;
 	status: "scanning" | "indexing" | "ready" | "error";
 }
 
@@ -208,6 +248,12 @@ export interface KnowledgeCreateEvent {
 	name?: string;
 	/** 不填时用默认描述模板 */
 	description?: string;
+	/**
+	 * 预览计划令牌（来自 knowledge:preview 回包）。
+	 * 仅用于报告「预览后目录有变化」，不能阻断创建；无效/过期令牌直接忽略。
+	 * kernel 进程内存有效（TTL 10 分钟，最多 32 条）。
+	 */
+	planToken?: string;
 }
 
 export interface KnowledgeIndexEvent {
@@ -238,6 +284,31 @@ export interface KnowledgeFailedEvent {
 	kbId: string;
 }
 
+/** 深度重排开关：GET 状态 / 保存开关（PUT 语义） */
+export interface KnowledgeRerankEvent {
+	type: "knowledge:rerank";
+}
+
+export interface KnowledgeRerankSaveEvent {
+	type: "knowledge:rerank:save";
+	enabled: boolean;
+}
+
+export interface KnowledgeRerankRetryEvent {
+	type: "knowledge:rerank:retry";
+}
+
+/** 单库诊断请求（GET /api/knowledge/:id/health） */
+export interface KnowledgeHealthEvent {
+	type: "knowledge:health";
+	kbId: string;
+}
+
+/** 全库体检请求（GET /api/knowledge/doctor） */
+export interface KnowledgeDoctorEvent {
+	type: "knowledge:doctor";
+}
+
 // ---- kernel 回复 ----
 
 export interface KnowledgeListResult {
@@ -248,11 +319,21 @@ export interface KnowledgeListResult {
 export interface KnowledgePreviewResult {
 	type: "knowledge:preview";
 	preview: KbScanPreview;
+	/**
+	 * 预览计划令牌：创建时回传给 knowledge:create，kernel 用它比对目录是否变化。
+	 * 缺失表示本次预览未记录计划（旧版本 kernel）。
+	 */
+	planToken?: string;
 }
 
 export interface KnowledgeCreateResult {
 	type: "knowledge:create";
 	kb: KbInfo;
+	/**
+	 * 预览后目录变化（仅当请求带了有效 planToken 且比对出差异时存在）：
+	 * 创建不受影响、索引按最新目录执行，前端只用来提示用户预览已过期。
+	 */
+	planChanged?: { added: string[]; removed: string[] };
 }
 
 export interface KnowledgeIndexResult {
@@ -279,6 +360,28 @@ export interface KnowledgeUpdateResult {
 export interface KnowledgeFailedResult {
 	type: "knowledge:failed";
 	failures: Array<{ path: string; reason: string }>;
+}
+
+/** 深度重排状态回包（enabled 来自设置，status/progress 来自模型加载器） */
+export interface KnowledgeRerankResult {
+	type: "knowledge:rerank";
+	enabled: boolean;
+	status: "idle" | "downloading" | "ready" | "failed";
+	model: string;
+	progress?: number;
+	error?: string;
+}
+
+/** 单库诊断结果 */
+export interface KnowledgeHealthResult {
+	type: "knowledge:health";
+	diagnostic: KbDiagnostic;
+}
+
+/** 全库体检结果 */
+export interface KnowledgeDoctorResult {
+	type: "knowledge:doctor";
+	report: KbDoctorReport;
 }
 
 export interface ProjectEntity {
@@ -1043,7 +1146,12 @@ export type WSClientEvent =
 	| KnowledgeCancelEvent
 	| KnowledgeDeleteEvent
 	| KnowledgeUpdateEvent
-	| KnowledgeFailedEvent;
+	| KnowledgeFailedEvent
+	| KnowledgeHealthEvent
+	| KnowledgeDoctorEvent
+	| KnowledgeRerankEvent
+	| KnowledgeRerankSaveEvent
+	| KnowledgeRerankRetryEvent;
 
 // kernel → 前端
 /** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
@@ -1771,7 +1879,10 @@ export type WSServerEvent =
 	| KnowledgeCancelResult
 	| KnowledgeDeleteResult
 	| KnowledgeUpdateResult
-	| KnowledgeFailedResult;
+	| KnowledgeFailedResult
+	| KnowledgeHealthResult
+	| KnowledgeDoctorResult
+	| KnowledgeRerankResult;
 
 /**
  * agent 请求在内置 HTML 预览中打开内容（preview_open 工具触发，kernel → 前端广播）。
