@@ -1,6 +1,6 @@
 // 知识库文件监听（任务 11，规格 §6.7「自动更新」）：
 //   - fs.watch(folder, { recursive: true })（Windows 原生支持）是加速器；
-//   - setInterval(60s) 快照轮询是正确性兜底（监听失效/网络盘场景），复用 scanFolder
+//   - setInterval(60s) 快照轮询是正确性兜底（监听失效/网络盘场景），复用 scanFolderAsync
 //     与索引完全一致的过滤逻辑（excludePaths 未接线，与 runIndex 一样省略），保证监听范围=索引范围不漂移；
 //   - 两套机制共用一个防抖槽（2s）：git checkout 式批量变更只触发一轮 update；
 //   - 合并语义：同库 runIndex 进行中再触发 → dirty 标记，本轮完成后自动重跑一次（排队合并，不重复开）。//   - 重入协调（审查修复）：手动更新（ws-server 同一 runIndex）进行中时触发不丢弃，防抖重排//     等待手动完成后自动补跑——变更最多延迟、不丢失；轮询基线仅在索引成功后推进。
@@ -10,7 +10,7 @@
 // 才判卡死，见 store.isJobStuck 注释）→ 清残留 job 行后走防抖槽重索引。
 import { watch, type FSWatcher } from "node:fs";
 import { runIndex, type EmbedFn, type IndexResult } from "./indexer";
-import { scanFolder } from "./scan";
+import { scanFolderAsync } from "./scan";
 import type { KbContext } from "./index";
 
 export const DEFAULT_POLL_INTERVAL_MS = 60_000;
@@ -77,7 +77,7 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let fsWatcher: FSWatcher | null = null;
-  let lastSnapshot: string | null = null; // relPath+mtime+size 联合键（scanFolder 已排序；null=基线未就绪）
+  let lastSnapshot: string | null = null; // relPath+mtime+size 联合键（快照已排序；null=基线未就绪）
   let suppressedSnapshot: string | null = null; // 取消那一刻的目录快照：同批变更不再自动触发（尊重用户取消），
   // 出现新变更（快照变化）后照常触发——此时基线仍是旧值，全量快筛会把遗留变更一并消化
   let pendingReport = false; // 有未消化的变更已排队（schedule 置位、索引消化后复位）——轮询同一差异只上报一次，
@@ -102,11 +102,12 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   }
 
   /**
-   * 目录快照：复用 scanFolder 过滤逻辑（excludePaths 未接线，与 runIndex 一致省略），
+   * 目录快照：复用 scanFolderAsync 过滤逻辑（excludePaths 未接线，与 runIndex 一致省略），
    * 只取可索引清单的 relPath+mtime+size——与增量快筛判定同源，监听范围=索引范围。
+   * 走异步版：轮询每 60s 一次，大目录同步扫描会阻塞事件循环影响 WS 心跳/其他库索引。
    */
   async function takeSnapshot(): Promise<string> {
-    const preview = await scanFolder(folder);
+    const preview = await scanFolderAsync(folder);
     return preview.indexable.map((f) => `${f.relPath}|${f.mtime}|${f.size}`).join("\n");
   }
 

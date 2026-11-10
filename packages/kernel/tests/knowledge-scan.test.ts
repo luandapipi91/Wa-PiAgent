@@ -1,8 +1,8 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scanFolder, isAccessDenied } from "../src/knowledge/scan";
+import { scanFolder, scanFolderAsync, isAccessDenied } from "../src/knowledge/scan";
 
 // 扫描器测试：mkdtemp 临时夹具（beforeEach 建、afterEach 删），扫描只读、不落任何文件。
 // 夹具布局：
@@ -105,6 +105,47 @@ test("docx/pdf 容器格式豁免二进制嗅探：前 512 字节含 0x00 仍可
   expect(types.get("report.pdf")).toBe("pdf");
   // 未识别扩展名/无扩展名仍走嗅探（回归锁：夹具里的 binaryfile 全 0x00）
   expect(p.skips.find(s => s.path === "binaryfile")?.reason).toBe("binary");
+});
+
+// ── 异步扫描（scanFolderAsync）───────────────────────────────────────────────
+// 60s 轮询快照走异步版，避免大目录扫描阻塞事件循环。两版必须共用同一套谓词与
+// 过滤顺序，因此用「逐项相等」锁住：任何一处逻辑漂移都会让下列断言变红。
+
+test("scanFolderAsync 与 scanFolder 结果一致（同一目录逐项相等）", async () => {
+  const sync = await scanFolder(root);
+  const asyncRes = await scanFolderAsync(root);
+  expect(asyncRes.indexable.map(f => f.relPath)).toEqual(sync.indexable.map(f => f.relPath));
+  expect(asyncRes.skips.map(s => `${s.path}:${s.reason}`)).toEqual(sync.skips.map(s => `${s.path}:${s.reason}`));
+  // 条目全字段相等（type/size/mtime/absPath）：不只是路径对齐，分类与元数据也必须同源
+  expect(asyncRes).toEqual(sync);
+});
+
+test("scanFolderAsync 同样遵循用户 excludePaths（整棵子树剪掉）", async () => {
+  mkdirSync(join(root, "drafts"), { recursive: true });
+  writeFileSync(join(root, "drafts", "note.md"), "# 草稿\n待整理内容");
+  const sync = await scanFolder(root, ["drafts"]);
+  const asyncRes = await scanFolderAsync(root, ["drafts"]);
+  expect(asyncRes).toEqual(sync);
+  expect(asyncRes.indexable.some(f => f.relPath.startsWith("drafts/"))).toBe(false);
+});
+
+test("scanFolderAsync 不跟随符号链接（防逃出源目录边界）", async () => {
+  // 源目录外造一个正常 md，再用符号链接指进来：跟随即会多出 linked/secret.md
+  const outside = mkdtempSync(join(tmpdir(), "kb-scan-outside-"));
+  try {
+    mkdirSync(join(outside, "dir"));
+    writeFileSync(join(outside, "dir", "secret.md"), "# 外部文件");
+    try {
+      symlinkSync(join(outside, "dir"), join(root, "linked"), "dir");
+    } catch {
+      return; // 平台/权限不允许建链接：跳过该断言（不伪造通过）
+    }
+    const p = await scanFolderAsync(root);
+    expect(p.indexable.some(f => f.relPath.startsWith("linked"))).toBe(false);
+    expect(p.skips.some(s => s.path.startsWith("linked"))).toBe(false);
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
 });
 
 test("excludePaths 可省略（默认空数组）：第 1 层当前未接线，签名保留给后续接入", async () => {
