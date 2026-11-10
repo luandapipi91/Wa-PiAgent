@@ -658,3 +658,24 @@ test("watcher 触发的自动索引可被 cancel 端点取消（watcher 存活�
   await waitFor(() => entry.watch!.indexing === false);
   expect(entry.watch!.stopped).toBe(false);
 });
+
+// ===== 固定路径不得被 /:id 抢走（http-router 首匹配）=====
+
+test("PUT /api/knowledge/rerank 命中 rerank 开关，而不是被 PUT /:id 吞掉", async () => {
+  const { port } = await startTestServer();
+  const res = await api(port, "PUT", "/api/knowledge/rerank", { enabled: false });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  // 被 /:id 抢走时回的是 error「知识库不存在：rerank」
+  expect(body.type).toBe("knowledge:rerank");
+  expect(body.enabled).toBe(false);
+});
+
+test("GET /api/knowledge/rerank 与 GET /api/knowledge/doctor 都能命中（不被 /:id 约束）", async () => {
+  const { port } = await startTestServer();
+  const rerank = (await (await api(port, "GET", "/api/knowledge/rerank")).json()) as any;
+  expect(rerank.type).toBe("knowledge:rerank");
+  const doctor = (await (await api(port, "GET", "/api/knowledge/doctor")).json()) as any;
+  expect(doctor.type).toBe("knowledge:doctor");
+  expect(typeof doctor.report.health_score).toBe("number");
+});

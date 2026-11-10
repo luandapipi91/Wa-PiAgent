@@ -57,14 +57,14 @@ export function expandWindow(
       const mergedRows = list.slice(from, to + 1);
       for (const r of mergedRows) covered.add(r.id);
       const merged = mergedRows.map((r) => r.content).join("\n…\n");
-      // 预算不足：退回命中块原文（不扩窗）
-      const content = merged.length <= maxChars ? merged : row.content;
+      // 预算不足：退回命中块原文（不扩窗）——行号必须跟着退回，否则 lines 与 content 对不上
+      const inBudget = merged.length <= maxChars;
       out.push({
         id: row.id,
         filePath: row.filePath,
-        startLine: mergedRows[0].startLine,
-        endLine: mergedRows[mergedRows.length - 1].endLine,
-        content,
+        startLine: inBudget ? mergedRows[0].startLine : row.startLine,
+        endLine: inBudget ? mergedRows[mergedRows.length - 1].endLine : row.endLine,
+        content: inBudget ? merged : row.content,
         score: row.score,
       });
     }

@@ -28,6 +28,21 @@ export const registerKnowledgeRoutes: RouteRegistrar = (r, callApi) => {
       planToken: b.planToken,
     });
   });
+  // 深度重排（rerank）开关：GET 状态、PUT 开关（开启后由 kernel 后台下载模型）、POST 重试下载
+  r.add("GET", "/api/knowledge/rerank", async () => callApi({ type: "knowledge:rerank" }));
+  r.add("PUT", "/api/knowledge/rerank", async (req) => {
+    const b = await readJsonBody(req);
+    return callApi({ type: "knowledge:rerank:save", enabled: b.enabled === true });
+  });
+  r.add("POST", "/api/knowledge/rerank/retry", async () =>
+    callApi({ type: "knowledge:rerank:retry" }),
+  );
+  // 单库诊断 / 全库体检（医生报告）
+  r.add("GET", "/api/knowledge/doctor", async () => callApi({ type: "knowledge:doctor" }));
+  r.add("GET", "/api/knowledge/:id/health", async (_req, p) =>
+    callApi({ type: "knowledge:health", kbId: p.id }),
+  );
+
   // 手动重索引
   r.add("POST", "/api/knowledge/:id/index", async (_req, p) =>
     callApi({ type: "knowledge:index", kbId: p.id }),
@@ -51,20 +66,6 @@ export const registerKnowledgeRoutes: RouteRegistrar = (r, callApi) => {
       autoWatch: b.autoWatch,
     });
   });
-  // 深度重排（rerank）开关：GET 状态、PUT 开关（开启后由 kernel 后台下载模型）、POST 重试下载
-  r.add("GET", "/api/knowledge/rerank", async () => callApi({ type: "knowledge:rerank" }));
-  r.add("PUT", "/api/knowledge/rerank", async (req) => {
-    const b = await readJsonBody(req);
-    return callApi({ type: "knowledge:rerank:save", enabled: b.enabled === true });
-  });
-  r.add("POST", "/api/knowledge/rerank/retry", async () =>
-    callApi({ type: "knowledge:rerank:retry" }),
-  );
-  // 单库诊断 / 全库体检（医生报告）
-  r.add("GET", "/api/knowledge/doctor", async () => callApi({ type: "knowledge:doctor" }));
-  r.add("GET", "/api/knowledge/:id/health", async (_req, p) =>
-    callApi({ type: "knowledge:health", kbId: p.id }),
-  );
   // 最近一轮索引的失败文件清单
   r.add("GET", "/api/knowledge/:id/failed", async (_req, p) =>
     callApi({ type: "knowledge:failed", kbId: p.id }),

@@ -1,6 +1,7 @@
 // 知识库医生：把单库诊断汇总成健康分 + 问题清单（100 分制扣分取自 pi-knowledge engine#doctor）。
 import type { KbContext } from "./index";
 import { diagnoseKb, type KbDiagnostic } from "./diagnostics";
+import { knowledgeFingerprint } from "./fingerprint";
 
 export type DoctorSeverity = "blocking" | "warning" | "info";
 
@@ -60,7 +61,15 @@ export async function runDoctor(ctx: KbContext): Promise<DoctorReport> {
 				action: "查看失败原因并重建该库",
 			});
 		}
-		if (d.coverage_percent < 80) {
+		if (d.diagnosis_error) {
+			issues.push({
+				severity: "warning",
+				kbName: d.kbName,
+				message: `诊断未完成：${d.diagnosis_error}`,
+				action: "确认源目录可访问后重新诊断",
+			});
+		}
+		if (!d.diagnosis_error && d.coverage_percent < 80) {
 			issues.push({
 				severity: "warning",
 				kbName: d.kbName,
@@ -74,6 +83,16 @@ export async function runDoctor(ctx: KbContext): Promise<DoctorReport> {
 				kbName: d.kbName,
 				message: `${d.stale_files.length} 个文件在索引后被修改`,
 				action: "运行更新或重建索引",
+			});
+		}
+		// 指纹失配（换模型或切块器版本升级）：检索已自动降级，但存量索引需要重建才恢复语义通道
+		const storedMeta = ctx.store.getEmbedMeta(kb.id);
+		if (storedMeta !== null && storedMeta !== knowledgeFingerprint()) {
+			issues.push({
+				severity: "warning",
+				kbName: d.kbName,
+				message: "索引指纹与当前模型/切块版本不一致（语义通道已降级）",
+				action: "重建该库以按当前版本重新索引",
 			});
 		}
 		if (d.orphan_files.length > 0) {

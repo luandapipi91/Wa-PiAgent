@@ -22,6 +22,8 @@ export interface KbDiagnostic {
 	indexed_files: number;
 	/** 扫描阶段的跳过统计（原因 → 数量） */
 	skipped: Record<string, number>;
+	/** 诊断本身失败的原因（扫描/打开库失败）；有值时不把 coverage=100 当健康 */
+	diagnosis_error?: string;
 }
 
 /**
@@ -58,7 +60,8 @@ export async function diagnoseKb(ctx: KbContext, kbId: string): Promise<KbDiagno
 		const preview = await scanFolder(kb.folderPath);
 		for (const f of preview.indexable) current.set(f.relPath, f.mtime);
 		for (const s of preview.skips) base.skipped[s.reason] = (base.skipped[s.reason] ?? 0) + 1;
-	} catch {
+	} catch (err) {
+		base.diagnosis_error = `源目录扫描失败：${err instanceof Error ? err.message : String(err)}`;
 		return base;
 	}
 	base.total_source_files = current.size;
@@ -71,7 +74,8 @@ export async function diagnoseKb(ctx: KbContext, kbId: string): Promise<KbDiagno
 			.query(`SELECT file_path, MAX(updated_at) AS updated FROM chunks GROUP BY file_path`)
 			.all() as Array<{ file_path: string; updated: number }>;
 		for (const r of rows) indexed.set(r.file_path, r.updated);
-	} catch {
+	} catch (err) {
+		base.diagnosis_error = `索引库读取失败：${err instanceof Error ? err.message : String(err)}`;
 		return base;
 	}
 

@@ -209,7 +209,7 @@ export const KB_SEARCH_DESCRIPTION =
   "quote them only with that caveat, and tell the user the knowledge base needs re-indexing.";
 
 export const KB_SEARCH_SNIPPET =
-  "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score.";
+  "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score (plus stale/mode/rerank_used when applicable).";
 
 /** knowledge_search 参数——kernel 工具与 pi bridge 扩展共用同一份定义。 */
 export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({

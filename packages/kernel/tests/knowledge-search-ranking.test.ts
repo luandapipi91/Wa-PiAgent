@@ -44,3 +44,12 @@ test("README/quickstart 等文档意图加权", () => {
   const other = scoreChunkForQuery(0.5, { file_path: "docs/changelog.md", file_type: "md" }, tokens);
   expect(readme.adjustedScore).toBeGreaterThan(other.adjustedScore);
 });
+
+test("boost 不得把弱相关文档顶到精确命中之前（乘性、幅度受限）", () => {
+  const tokens = queryTokensOf("定价政策");
+  // 精确命中：根目录、路径含查询词，base 0.54
+  const exact = scoreChunkForQuery(0.54, { file_path: "定价政策.md", file_type: "md" }, tokens);
+  // 弱相关：docs/ 里只提一句的文档，base 0.45
+  const weak = scoreChunkForQuery(0.45, { file_path: "docs/changelog.md", file_type: "md" }, tokens);
+  expect(exact.adjustedScore).toBeGreaterThan(weak.adjustedScore);
+});

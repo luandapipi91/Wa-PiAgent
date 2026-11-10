@@ -70,14 +70,18 @@ export function pathTokenBoost(filePath: string, tokens: Set<string>): number {
 	return Math.min(0.12, hits * 0.04);
 }
 
-/** 文档意图加权：README / quickstart / install / getting-started 类文件（0.85），docs/ 前缀（0.35） */
+/**
+ * 文档意图加权：README / quickstart / install / getting-started 类文件，或 docs/ 目录。
+ * 幅度刻意压到与路径命中同量级（≤0.12）：上游原值（0.85 / 0.35）是给「代码库检索」设计的，
+ * 在文档库里会把「只在 docs/ 里提一句的长文档」顶到「根目录精确命中」前面。
+ */
 export function documentationBoost(filePath: string, tokens: Set<string>): number {
 	const lower = filePath.toLowerCase();
 	const wantsGuide = [...tokens].some((t) =>
 		/readme|install|getting-started|quickstart|入门|安装|快速开始/i.test(t),
 	);
-	if (wantsGuide && /readme|install|getting-started|quickstart/.test(lower)) return 0.85;
-	if (lower.startsWith("docs/") || lower.includes("/docs/")) return 0.35;
+	if (wantsGuide && /readme|install|getting-started|quickstart/.test(lower)) return 0.12;
+	if (lower.startsWith("docs/") || lower.includes("/docs/")) return 0.08;
 	return 0;
 }
 
@@ -104,7 +108,9 @@ export function scoreChunkForQuery(
 	const docBoost = documentationBoost(chunk.file_path, queryTokens);
 	const isTest = hasAny(chunk.file_path, TEST_PATH_PATTERNS);
 	const isLocalization = hasAny(chunk.file_path, LOCALIZATION_PATTERNS);
-	let adjustedScore = baseScore + pathBoost + docBoost;
+	// 乘性加权：boost 只做百分比奖励（≤1.24 倍），不改变相关度分本身的量纲——
+	// 加法会让「低相关 + 命中 docs/」超过「高相关 + 无路径奖励」（实测相关度反转）
+	let adjustedScore = baseScore * (1 + pathBoost + docBoost);
 	if (isTest && !queryAsksForTests(queryTokens)) adjustedScore *= 0.48;
 	if (isLocalization && !queryAsksForLocalization(queryTokens)) adjustedScore *= 0.2;
 	return {

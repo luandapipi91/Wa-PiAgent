@@ -25,3 +25,14 @@ test("预算不足时不扩窗，返回原命中", () => {
   expect(out).toHaveLength(1);
   expect(out[0].content).toBe("x".repeat(WINDOW_MAX_CHARS));
 });
+
+test("预算不足回退时行号跟着退回命中块（lines 与 content 一致）", () => {
+  const rows = [
+    { id: "1", filePath: "a.md", startLine: 1, endLine: 10, content: "上下文", score: 0 },
+    { id: "2", filePath: "a.md", startLine: 11, endLine: 20, content: "x".repeat(WINDOW_MAX_CHARS), score: 1 },
+  ];
+  const out = expandWindow(rows, 1);
+  expect(out).toHaveLength(1);
+  expect(out[0].startLine).toBe(11);
+  expect(out[0].endLine).toBe(20);
+});

@@ -3,7 +3,6 @@
 // 未就绪/失败时返回 null，调用方退化 hybrid（绝不报错、不阻断检索）。
 // 模型管理沿用 memory/embedder 的 env 策略：WA_PI_MODEL_DIR 存在走本地目录（离线语义），
 // 否则缓存落 WA_PI_DIR/models，首次加载由 transformers 自动从镜像下载。
-import { embedFingerprint } from "../memory/embedder";
 
 /** 默认 reranker 模型（上游默认）：ms-marco MiniLM-L4 cross-encoder，量化后体积很小 */
 export const RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-4-v2";
@@ -19,12 +18,15 @@ export interface RerankerStatus {
 	error?: string;
 }
 
-type RerankPipeline = (
-	inputs: Array<{ text: string; text_pair: string }>,
+/** tokenizer：支持 (text, { text_pair }) 成对编码 */
+type RerankTokenizer = (
+	text: string | string[],
 	opts?: Record<string, unknown>,
-) => Promise<Array<{ score?: number; label?: string }> | Array<Array<{ score?: number; label?: string }>>>;
+) => Promise<unknown>;
+/** 序列分类模型：返回 logits（dims: [batch, numLabels]） */
+type RerankModel = (inputs: unknown) => Promise<{ logits: { data: Float32Array; dims: number[] } }>;
 
-let pipe: RerankPipeline | null = null;
+let pipe: { tokenizer: RerankTokenizer; model: RerankModel } | null = null;
 let state: RerankerStatus = { status: "idle", model: RERANK_MODEL };
 let loadPromise: Promise<boolean> | null = null;
 let failNextLoad = false;
@@ -37,7 +39,7 @@ export function isRerankerReady(): boolean {
 	return state.status === "ready" && pipe !== null;
 }
 
-async function getPipeline(): Promise<RerankPipeline | null> {
+async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: RerankModel } | null> {
 	if (state.status === "failed") return null;
 	if (pipe) return pipe;
 	if (loadPromise) {
@@ -68,17 +70,19 @@ async function getPipeline(): Promise<RerankPipeline | null> {
 				const { modelCacheDir } = await import("../memory/embedder");
 				env.cacheDir = modelCacheDir();
 			}
-			// progress_callback 用于把下载进度透出到设置页
-			const created = (await pipeline("text-classification", RERANK_MODEL, {
+			// 不用 pipeline("text-classification")：它的 softmax 对单 logit 的 cross-encoder 恒输出 1.0，
+			// 且不透传 text_pair（对象数组会被当纯文本 tokenize）。这里直接持 tokenizer + 分类模型。
+			const mod = (await import("@huggingface/transformers")) as unknown as {
+				AutoTokenizer: { from_pretrained: (m: string) => Promise<RerankTokenizer> };
+				AutoModelForSequenceClassification: {
+					from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankModel>;
+				};
+			};
+			const tokenizer = await mod.AutoTokenizer.from_pretrained(RERANK_MODEL);
+			const model = await mod.AutoModelForSequenceClassification.from_pretrained(RERANK_MODEL, {
 				dtype: RERANK_DTYPE,
-				device: "cpu",
-				progress_callback: (p: { status?: string; progress?: number }) => {
-					if (p?.progress !== undefined) {
-						state = { status: "downloading", model: RERANK_MODEL, progress: Math.round(p.progress) };
-					}
-				},
-			})) as unknown as RerankPipeline;
-			pipe = created;
+			});
+			pipe = { tokenizer, model };
 			state = { status: "ready", model: RERANK_MODEL };
 			return true;
 		} catch (err) {
@@ -97,8 +101,18 @@ async function getPipeline(): Promise<RerankPipeline | null> {
 }
 
 /** 预加载（设置页「开启」后调用）：触发首次下载/加载；失败只记录状态，不抛 */
+/**
+ * 失败后是否允许再次尝试加载：设置页「重试」按钮依赖它。
+ * 只对 failed / idle 放行；downloading 已在加载中、ready 已可用，都无需重复触发。
+ */
+export function shouldRetryLoad(status: RerankerState): boolean {
+	return status === "failed" || status === "idle";
+}
+
 export async function prepareReranker(): Promise<boolean> {
 	if (state.status === "ready") return true;
+	// 上一次失败不能把重试永久锁死：清掉 failed 后重新走加载路径
+	if (state.status === "failed") state = { status: "idle", model: RERANK_MODEL };
 	const p = await getPipeline();
 	return p !== null;
 }
@@ -118,16 +132,14 @@ export async function rerankScores(query: string, docs: string[]): Promise<numbe
 		const out: number[] = [];
 		for (let i = 0; i < docs.length; i += batchSize) {
 			const batch = docs.slice(i, i + batchSize);
-			const res = await p(batch.map((d) => ({ text: query, text_pair: d })));
-			const flat = (Array.isArray(res) && Array.isArray(res[0]) ? res.flat() : res) as Array<{
-				score?: number;
-				label?: string;
-			}>;
-			// 部分模型输出多标签（label 0/1）：取 label="1" 的分数；二分类默认取最高分作为相关度
-			for (const item of flat) {
-				out.push(typeof item.score === "number" ? item.score : 0);
-			}
-			if (flat.length > batch.length) out.length = out.length - (flat.length - batch.length);
+			const inputs = await p.tokenizer(batch.map(() => query), {
+				text_pair: batch,
+				padding: true,
+				truncation: true,
+				max_length: 512,
+			});
+			const { logits } = await p.model(inputs);
+			out.push(...parseRerankLogits(logits.data, logits.dims));
 		}
 		return out.slice(0, docs.length);
 	} catch (err) {
@@ -138,6 +150,21 @@ export async function rerankScores(query: string, docs: string[]): Promise<numbe
 		};
 		return null;
 	}
+}
+
+/**
+ * 从 logits 解析每个样本的相关度分数（纯函数，便于单测）。
+ * - 单 logit（cross-encoder 常见，如 ms-marco-MiniLM）：直接取原值（sigmoid 不改变排序）
+ * - 多类（numLabels ≥ 2）：取最后一类的概率（softmax 近似：直接取该列 logit 也保序）
+ */
+export function parseRerankLogits(data: Float32Array, dims: number[]): number[] {
+	const labels = dims.length >= 2 ? Math.max(1, dims[dims.length - 1]) : 1;
+	const batch = labels > 0 ? Math.trunc(data.length / labels) : 0;
+	const out: number[] = [];
+	for (let i = 0; i < batch; i++) {
+		out.push(labels === 1 ? data[i] : data[i * labels + (labels - 1)]);
+	}
+	return out;
 }
 
 /** 卸载模型（设置页关闭开关时调用）：释放 ONNX session，不删缓存文件 */
@@ -162,5 +189,5 @@ export function resetRerankerForTest(opts: { failNextLoad?: boolean } = {}): voi
 
 /** 模型指纹（设置页/排障用）：与 embedding 指纹区分开 */
 export function rerankerFingerprint(): string {
-	return `rerank:${RERANK_MODEL}:${RERANK_DTYPE}:${embedFingerprint().length}`;
+	return `rerank:${RERANK_MODEL}:${RERANK_DTYPE}`;
 }

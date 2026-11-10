@@ -65,3 +65,21 @@ test("医生报告：有 stale 问题时给出 warning 与动作", async () => {
   expect(report.issues.some((i) => i.severity === "warning" && /修改/.test(i.message))).toBe(true);
   expect(report.diagnostics.length).toBe(1);
 });
+
+test("诊断失败不冒充健康：源目录不可读时给 diagnosis_error 与 warning", async () => {
+  await runIndex(ctx, kbId, fakeEmbed);
+  store.updateStatus(kbId, "ready", { fileCount: 1, chunkCount: 1, lastIndexedAt: Date.now() });
+  // 目录换成不存在路径 → 扫描失败
+  const broken = store.createKb({ folderPath: "/definitely/not/exists/kb-xyz" });
+  const d = await diagnoseKb(ctx, broken.id);
+  expect(d.diagnosis_error).toBeTruthy();
+  const report = await runDoctor(ctx);
+  expect(report.issues.some((i) => /诊断未完成/.test(i.message))).toBe(true);
+});
+
+test("切块/模型指纹失配在体检里给出重建提示", async () => {
+  await runIndex(ctx, kbId, fakeEmbed);
+  store.updateStatus(kbId, "ready", { embedMeta: "stale-model:q8:768:chunker=1" });
+  const report = await runDoctor(ctx);
+  expect(report.issues.some((i) => /指纹/.test(i.message))).toBe(true);
+});
