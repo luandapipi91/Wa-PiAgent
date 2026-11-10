@@ -51,6 +51,11 @@ export const registerKnowledgeRoutes: RouteRegistrar = (r, callApi) => {
       autoWatch: b.autoWatch,
     });
   });
+  // 单库诊断 / 全库体检（医生报告）
+  r.add("GET", "/api/knowledge/doctor", async () => callApi({ type: "knowledge:doctor" }));
+  r.add("GET", "/api/knowledge/:id/health", async (_req, p) =>
+    callApi({ type: "knowledge:health", kbId: p.id }),
+  );
   // 最近一轮索引的失败文件清单
   r.add("GET", "/api/knowledge/:id/failed", async (_req, p) =>
     callApi({ type: "knowledge:failed", kbId: p.id }),

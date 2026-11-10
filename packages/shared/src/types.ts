@@ -142,6 +142,40 @@ export interface SubagentInfo {
 
 // ============ 内置知识库（KB）============
 
+/** 单库诊断（GET /api/knowledge/:id/health 回包） */
+export interface KbDiagnostic {
+	kbId: string;
+	kbName: string;
+	status: KbInfo["status"];
+	stuck_indexing: boolean;
+	last_progress_age_ms: number;
+	/** 索引后被修改过的源文件（相对路径） */
+	stale_files: string[];
+	/** 库里仍有块、但源文件已不存在（相对路径） */
+	orphan_files: string[];
+	coverage_percent: number;
+	total_source_files: number;
+	indexed_files: number;
+	/** 扫描阶段的跳过统计（原因 → 数量） */
+	skipped: Record<string, number>;
+}
+
+/** 医生问题条目 */
+export interface KbDoctorIssue {
+	severity: "blocking" | "warning" | "info";
+	kbName?: string;
+	message: string;
+	action: string;
+}
+
+/** 全库体检报告（GET /api/knowledge/doctor 回包） */
+export interface KbDoctorReport {
+	health_score: number;
+	summary: string;
+	issues: KbDoctorIssue[];
+	diagnostics: KbDiagnostic[];
+}
+
 /** 知识库元信息（列表/详情展示用） */
 export interface KbInfo {
 	id: string;
@@ -250,6 +284,17 @@ export interface KnowledgeFailedEvent {
 	kbId: string;
 }
 
+/** 单库诊断请求（GET /api/knowledge/:id/health） */
+export interface KnowledgeHealthEvent {
+	type: "knowledge:health";
+	kbId: string;
+}
+
+/** 全库体检请求（GET /api/knowledge/doctor） */
+export interface KnowledgeDoctorEvent {
+	type: "knowledge:doctor";
+}
+
 // ---- kernel 回复 ----
 
 export interface KnowledgeListResult {
@@ -301,6 +346,18 @@ export interface KnowledgeUpdateResult {
 export interface KnowledgeFailedResult {
 	type: "knowledge:failed";
 	failures: Array<{ path: string; reason: string }>;
+}
+
+/** 单库诊断结果 */
+export interface KnowledgeHealthResult {
+	type: "knowledge:health";
+	diagnostic: KbDiagnostic;
+}
+
+/** 全库体检结果 */
+export interface KnowledgeDoctorResult {
+	type: "knowledge:doctor";
+	report: KbDoctorReport;
 }
 
 export interface ProjectEntity {
@@ -1065,7 +1122,9 @@ export type WSClientEvent =
 	| KnowledgeCancelEvent
 	| KnowledgeDeleteEvent
 	| KnowledgeUpdateEvent
-	| KnowledgeFailedEvent;
+	| KnowledgeFailedEvent
+	| KnowledgeHealthEvent
+	| KnowledgeDoctorEvent;
 
 // kernel → 前端
 /** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
@@ -1793,7 +1852,9 @@ export type WSServerEvent =
 	| KnowledgeCancelResult
 	| KnowledgeDeleteResult
 	| KnowledgeUpdateResult
-	| KnowledgeFailedResult;
+	| KnowledgeFailedResult
+	| KnowledgeHealthResult
+	| KnowledgeDoctorResult;
 
 /**
  * agent 请求在内置 HTML 预览中打开内容（preview_open 工具触发，kernel → 前端广播）。

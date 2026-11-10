@@ -3247,6 +3247,31 @@ export class WSServer {
 				}
 				break;
 			}
+			case "knowledge:health": {
+				try {
+					if (!this.kbStore().getKb(event.kbId)) {
+						reply({ type: "error", message: `知识库不存在：${event.kbId}` });
+						break;
+					}
+					const { diagnoseKb } = await import("./knowledge/diagnostics");
+					reply({
+						type: "knowledge:health",
+						diagnostic: await diagnoseKb(this.kbContext(), event.kbId),
+					});
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:doctor": {
+				try {
+					const { runDoctor } = await import("./knowledge/doctor");
+					reply({ type: "knowledge:doctor", report: await runDoctor(this.kbContext()) });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
 			// ===== MCP 域（rest 与 ws 共用路由层的 handlers，规格 §7） =====
 			// 数据来源：盘上配置走 McpFile（唯一写入者），运行状态走按 cwd 的 McpAdmin
 			// （`pi mcp list --json`，唯一读取者）。旧 McpStore / mcp-connector 已删除。
