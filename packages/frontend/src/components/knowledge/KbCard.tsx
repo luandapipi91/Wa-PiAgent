@@ -169,6 +169,9 @@ export function KbCard({
           onClick={onDelete}
           testId={`kb-delete-${kb.id}`}
           label={t("kb.deleteButton")}
+          // 索引进行中 kernel 会拒绝删除（400），禁用并挂原因，避免用户走完确认框才失败
+          disabled={busy}
+          title={busy ? t("kb.deleteBusyHint") : undefined}
           danger
         />
       </div>
@@ -241,12 +244,15 @@ function CardBtn({
   label,
   danger,
   disabled,
+  title,
 }: {
   onClick: () => void;
   testId: string;
   label: string;
   danger?: boolean;
   disabled?: boolean;
+  /** 悬停提示（禁用时说明原因） */
+  title?: string;
 }) {
   const color = danger ? "var(--danger)" : "var(--text-secondary)";
   const borderColor = danger ? "var(--danger)" : "var(--hairline)";
@@ -255,6 +261,7 @@ function CardBtn({
       onClick={onClick}
       data-testid={testId}
       disabled={disabled}
+      title={title}
       className="text-[calc(11px*var(--font-scale))] px-2.5 py-1 rounded-md"
       style={{
         color,

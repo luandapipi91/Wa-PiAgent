@@ -528,6 +528,7 @@ const en = {
 		editButton: "Edit",
 		reindexButton: "Rebuild",
 		deleteButton: "Delete",
+		deleteBusyHint: "Indexing in progress — cancel it before deleting",
 		deleteTitle: "Confirm deletion",
 		deleteMessage: 'Delete knowledge base "{{name}}"? Its index data will be removed permanently.',
 		formTitleNew: "New Knowledge Base",

@@ -108,6 +108,18 @@ describe("KbList 状态徽章", () => {
 		expect(onReindex).toHaveBeenCalledWith("kb_1");
 	});
 
+	test("索引中删除按钮禁用并提示原因（不再走完确认后吃 400）", () => {
+		render(
+			<KbList
+				kbs={[{ ...kbReady, id: "kb_busy", status: "indexing" }]}
+				onDelete={mock(() => {})}
+			/>,
+		);
+		const del = screen.getByTestId("kb-delete-kb_busy") as HTMLButtonElement;
+		expect(del.disabled).toBe(true);
+		expect(del.getAttribute("title")).toContain("索引");
+	});
+
 	test("failedCount>0 渲染「失败 3 文件」且可点击", () => {
 		const onShowFailed = mock(() => {});
 		render(

@@ -513,6 +513,7 @@ const zh = {
 		editButton: "编辑",
 		reindexButton: "重建",
 		deleteButton: "删除",
+		deleteBusyHint: "索引进行中，请先取消再删除",
 		deleteTitle: "确认删除",
 		deleteMessage: "确定要删除知识库「{{name}}」吗？索引数据将被级联清理且不可恢复。",
 		formTitleNew: "新建知识库",
