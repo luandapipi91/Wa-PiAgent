@@ -434,13 +434,23 @@ export async function runIndex(
     return { ok: true, cancelled: false, filesTotal, filesDone, chunkCount: chunkTotal, failedCount };
   } catch (err) {
     const cancelled = signal?.aborted === true;
-    if (firstRun && db) {
-      // 首次建库（取消或失败）：删该库全部块，不留半成品（db 未打开则无块可清）
-      db.run(`DELETE FROM chunks_fts`);
-      db.run(`DELETE FROM chunks`);
-      refreshKbQuantizedIndex(db);
-    }
+    // 先清 job 行（幂等 DELETE）：它必须先于下面任何一步——连接被外部 evict 时回滚写库必抛，
+    // job 行残留则重入防护永远挡回，而任务 1 的 owner 存活判定又会豁免本进程 → 永不回收
     ctx.store.finishJob(kbId);
+    if (firstRun && db) {
+      // 首次建库（取消或失败）：删该库全部块，不留半成品（db 未打开则无块可清）。
+      // 连接可能已被外部关闭（evict/删库）：残块随库文件一起消失，清不掉不是新问题——只告警，不阻断收尾
+      try {
+        db.run(`DELETE FROM chunks_fts`);
+        db.run(`DELETE FROM chunks`);
+        refreshKbQuantizedIndex(db);
+      } catch (cleanupErr) {
+        console.warn(
+          `[knowledge] 首建失败后的残块清理跳过（连接已被外部 evict）: kbId=${kbId}`,
+          cleanupErr,
+        );
+      }
+    }
     if (cancelled) {
       // 取消：恢复原状态（新建库 prevStatus=scanning；同库单 job 下 prevStatus 不会是 indexing）
       const restore: KbStatus = prevStatus === "indexing" ? "scanning" : prevStatus;

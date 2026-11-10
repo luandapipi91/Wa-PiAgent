@@ -189,14 +189,17 @@ export class KnowledgeStore {
     this.db.run(`DELETE FROM indexing_jobs WHERE kb_id = ?`, [id]);
     this.db.run(`DELETE FROM knowledge_bases WHERE id = ?`, [id]);
     // 先关缓存连接再删文件：Windows 上句柄占用会让 unlinkSync 静默失败，
-    // 留下登记行已删、db 文件成孤儿的半删除状态（S7）
-    evictKbDb(id);
+    // 留下登记行已删、db 文件成孤儿的半删除状态（S7）。传 path：只关本目录下该库的连接
     const p = kbDbPath(this.waPiDir, id);
+    evictKbDb(id, p);
     for (const f of [p, `${p}-wal`, `${p}-shm`]) {
       try {
         unlinkSync(f);
-      } catch {
-        // 文件不存在即目标状态，跳过
+      } catch (err) {
+        // 文件不存在即目标状态；其他原因（占用/权限）删不掉会留孤儿文件——留痕便于排障
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          console.warn(`[knowledge] 删库遗留文件未清掉: ${f}`, err);
+        }
       }
     }
     // 登记行已删，回调清理绑定中的悬挂引用（回调自身失败不阻断删除流程）

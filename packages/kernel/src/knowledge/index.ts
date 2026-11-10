@@ -15,7 +15,7 @@ export interface KbContext {
 export { SCHEMA_VERSION, KB_SCHEMA_SQL, KB_DB_SCHEMA_SQL } from "./schema";
 export { knowledgeDbPath, knowledgeDir, kbDbPath } from "./paths";
 export { KnowledgeStore, JOB_STUCK_MS, type KbJob } from "./store";
-export { openKbDb } from "./kb-db";
+export { openKbDb, openKbDbExisting, evictKbDb, closeAllKbDbs, KbDbMissingError } from "./kb-db";
 export {
   scanFolder,
   SUGGESTED_EXCLUDES,

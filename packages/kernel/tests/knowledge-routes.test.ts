@@ -20,6 +20,7 @@ import { closeAllMemoryDbs } from "../src/memory/db";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore } from "../src/knowledge/store";
+import { closeAllKbDbs } from "../src/knowledge/kb-db";
 import { kbDbPath } from "../src/knowledge/paths";
 import type { EmbedFn } from "../src/knowledge/indexer";
 import type { WatchKbOptions } from "../src/knowledge/watcher";
@@ -98,6 +99,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  closeAllKbDbs(); // 每库连接归缓存所有，用例间必须归位
   // 先拆文件监听（fs.watch 句柄挂着 Windows 删不掉临时目录），再让阻塞中的 runIndex 退出
   // 收尾（释放每库 db 句柄），最后删临时目录
   activeServer?.kbWatchStopAll();

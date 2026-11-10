@@ -8,6 +8,7 @@ import { KnowledgeStore } from "../src/knowledge/store";
 import { openKbDb, openKbDbExisting, evictKbDb, closeAllKbDbs } from "../src/knowledge/kb-db";
 import { kbDbPath } from "../src/knowledge/paths";
 import { searchKnowledge } from "../src/knowledge/search";
+import { runIndex, type EmbedFn } from "../src/knowledge/indexer";
 import type { KbContext } from "../src/knowledge/index";
 
 // 每库 db 连接生命周期（S7）：
@@ -82,6 +83,33 @@ test("deleteKb 前 evict 缓存连接，文件可删除（Windows 占用回归�
   expect(() => conn.run("SELECT 1")).toThrow();
   // 重复关闭安全：调用方惯用 finally db.close()
   expect(() => conn.close()).not.toThrow();
+});
+
+test("缓存命中的库文件被外部删除：openKbDb 丢弃缓存并重建文件（不写已删 inode）", () => {
+  const a = openKbDb(dir, "kb_ext_gone");
+  const p = kbDbPath(dir, "kb_ext_gone");
+  // 外部删掉库文件（连接仍活着：`SELECT 1` 是常量表达式、不碰文件，探活看不出来）
+  removeKbFiles("kb_ext_gone");
+  expect(existsSync(p)).toBe(false);
+
+  const b = openKbDb(dir, "kb_ext_gone");
+  expect(b).not.toBe(a); // 缓存项被丢弃（否则后续写入落在已 unlink 的 inode 上）
+  expect(existsSync(p)).toBe(true); // 文件被重建回来
+  expect((b.query("SELECT COUNT(*) c FROM chunks").get() as { c: number }).c).toBe(0);
+  expect(() => a.close()).not.toThrow();
+});
+
+test("索引中途连接被外部 evict：job 行清理、status 不卡 indexing", async () => {
+  const kb = store.createKb({ folderPath: srcDir });
+  // 最坏形态：嵌入阶段外部关掉连接（并发 deleteKb/evict），此后写库必抛
+  const embedFn: EmbedFn = async () => {
+    evictKbDb(kb.id);
+    throw new Error("模拟连接被外部关闭");
+  };
+  await expect(runIndex(ctx, kb.id, embedFn)).rejects.toThrow();
+  // 失败收尾不能因「连接已关闭」而中断：job 行必须清掉，否则重入防护会把库锁死
+  expect(store.getJob(kb.id)).toBeNull();
+  expect(store.getKb(kb.id)!.status).toBe("error");
 });
 
 test("检索路径：库文件丢失标 skippedKbs(db_missing)，不当作空库返回未找到", async () => {

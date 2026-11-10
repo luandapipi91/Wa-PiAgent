@@ -8,8 +8,13 @@
 // 这里刻意不提供「用完自关」的约定：句柄归缓存所有，调用方关掉别人正在用的
 // 连接（索引持有一整轮、期间检索命中同一实例）会把活任务打断。
 //
-// 缓存项的失效兜底：命中时做一次 `SELECT 1` 探活，抛错即丢弃重建——既有大量
-// 调用方（测试的 withKbDb 等）习惯用完即 close，纯缓存会返回已关闭连接。
+// 缓存项的失效兜底：命中时先确认文件还在（`SELECT 1` 是常量表达式、不碰文件，库文件
+// 被外部删掉时探活照样通过）再探活，任一不成立即丢弃重建——既有大量调用方（测试的
+// withKbDb 等）习惯用完即 close，纯缓存会返回已关闭连接；库文件被删后继续用旧连接则
+// 会把整轮数据写进已 unlink 的 inode（静默丢失）。
+//
+// 容量：连接数 = 进程内被访问过的库数，进程级不回收（无 LRU 淘汰——每库一条连接的开销
+// 远小于重开时重跑 DDL + 向量列声明；上限淘汰策略待后续需要时再做）。
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { KB_DB_SCHEMA_SQL } from "./schema";
@@ -44,13 +49,16 @@ function alive(db: Database): boolean {
 }
 
 /**
- * 取缓存里的活连接；路径不符 / 已失效（被外部关闭）则丢弃该项。
+ * 取缓存里的活连接；下列任一不成立则丢弃该项：
+ *   · 路径不符（同 kbId 换了 WA_PI_DIR，测试）
+ *   · 库文件已不在（外部删除；`SELECT 1` 看不出来）
+ *   · 连接已失效（被外部 close()）
  * 丢弃时静默重建，不向上报错——调用方拿到的必须是一条可用连接。
  */
 function cachedAlive(kbId: string, path: string): Database | null {
   const entry = cache.get(kbId);
   if (!entry) return null;
-  if (entry.path === path && alive(entry.db)) return entry.db;
+  if (entry.path === path && existsSync(path) && alive(entry.db)) return entry.db;
   cache.delete(kbId);
   try {
     entry.db.close();
@@ -66,6 +74,9 @@ function initDb(kbId: string, path: string, create: boolean): Database {
   try {
     db.run("PRAGMA journal_mode = WAL");
     db.run("PRAGMA busy_timeout = 60000");
+    // 每库连接常驻不回收，页缓存压到 800KiB（默认 2MiB）：几十个库同时持有也不会
+    // 把内存堆起来。知识库是小库高频读，800KiB 足够覆盖热点页。
+    db.run("PRAGMA cache_size = -800");
     db.run(KB_DB_SCHEMA_SQL);
     // 向量列声明是「连接级」的（扩展要求每个新连接重新 init），量化数据在库内持久化。
     // 失败不阻断打开——检索的词法通道照常，只是没有语义通道。
@@ -85,7 +96,10 @@ function initDb(kbId: string, path: string, create: boolean): Database {
   }
 }
 
-/** 打开（必要时新建）某知识库的独立 db；同库复用缓存连接。建库/索引路径用 */
+/** 打开（必要时新建）某知识库的独立 db；同库复用缓存连接。建库/索引路径用。
+ *
+ * 返回的连接由缓存持有，调用方不得 `close()`：关掉会把正持有同一实例的索引/检索
+ * 打断。测试需要归位模块级缓存时用 `closeAllKbDbs()`。 */
 export function openKbDb(waPiDir: string, kbId: string): Database {
   const path = kbDbPath(waPiDir, kbId);
   return cachedAlive(kbId, path) ?? initDb(kbId, path, true);
@@ -98,16 +112,18 @@ export function openKbDb(waPiDir: string, kbId: string): Database {
 export function openKbDbExisting(waPiDir: string, kbId: string): Database {
   const path = kbDbPath(waPiDir, kbId);
   if (!existsSync(path)) {
-    evictKbDb(kbId); // 文件都没了：缓存里若有活连接，那是别的路径或已删文件的残留
+    evictKbDb(kbId, path); // 文件都没了：本目录下的缓存项必为已删文件的残留
     throw new KbDbMissingError(`知识库 db 不存在：${path}`);
   }
   return cachedAlive(kbId, path) ?? initDb(kbId, path, false);
 }
 
-/** 关闭并移除某库的缓存连接（删库前必须调用：Windows 上句柄占用会让文件删不掉） */
-export function evictKbDb(kbId: string): void {
+/** 关闭并移除某库的缓存连接（删库前必须调用：Windows 上句柄占用会让文件删不掉）。
+ * 传 path 时只关「同一文件」的缓存项（防止误关同名 kbId 在另一 WA_PI_DIR 下的连接）。 */
+export function evictKbDb(kbId: string, path?: string): void {
   const entry = cache.get(kbId);
   if (!entry) return;
+  if (path !== undefined && entry.path !== path) return;
   cache.delete(kbId);
   try {
     entry.db.close();

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore } from "../src/knowledge/store";
-import { openKbDb } from "../src/knowledge/kb-db";
+import { closeAllKbDbs, openKbDb } from "../src/knowledge/kb-db";
 import { kbQuantizedScan } from "../src/knowledge/vector";
 import {
   runIndex,
@@ -48,6 +48,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  closeAllKbDbs(); // 每库连接归缓存所有，用例间必须归位
   reg.close();
   rmSync(waPiDir, { recursive: true, force: true });
   rmSync(srcDir, { recursive: true, force: true });

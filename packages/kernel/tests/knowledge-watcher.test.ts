@@ -7,7 +7,7 @@ import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore, resetJobOwnerStateForTest } from "../src/knowledge/store";
 import { runIndex, type KbContext, type EmbedFn, type IndexResult } from "../src/knowledge/indexer";
 import { watchKb, restoreWatchers, shouldAdvanceBaseline, type WatchKbOptions } from "../src/knowledge/watcher";
-import { openKbDb } from "../src/knowledge/kb-db";
+import { closeAllKbDbs, openKbDb } from "../src/knowledge/kb-db";
 import { EMBED_DIM } from "../src/memory/schema";
 
 // 知识库文件监听测试（任务 11，规格 §6.7）：真实临时目录 + 真实 fs.watch，
@@ -35,6 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  closeAllKbDbs(); // 每库连接归缓存所有，用例间必须归位
   resetJobOwnerStateForTest(); // 存活 owner 表是模块级状态，用例间必须归位
   reg.close();
   rmSync(waPiDir, { recursive: true, force: true });

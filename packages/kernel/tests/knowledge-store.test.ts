@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore, processOwnerId, resetJobOwnerStateForTest } from "../src/knowledge/store";
-import { openKbDb } from "../src/knowledge/kb-db";
+import { closeAllKbDbs, openKbDb } from "../src/knowledge/kb-db";
 import { kbDbPath } from "../src/knowledge/paths";
 
 // store 测试：:memory: 登记库
@@ -17,6 +17,7 @@ beforeEach(() => {
   store = new KnowledgeStore(db, "/tmp/wa-pi-test");
 });
 afterEach(() => {
+  closeAllKbDbs(); // 每库连接归缓存所有，用例间必须归位
   resetJobOwnerStateForTest(); // 存活 owner 表是模块级状态，用例间必须归位
 });
 
