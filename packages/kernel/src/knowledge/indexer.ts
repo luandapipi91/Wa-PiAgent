@@ -241,7 +241,7 @@ export async function runIndex(
   // db 可空：openKbDb（每库文件损坏/不可写时抛 SQLITE_NOTADB 等）必须在主体 try 内——
   // 否则 startJob 之后裸抛会残留 job 行 + status 卡 indexing，且 cancel/delete/index
   // 三条恢复路径全灭、重启不恢复（审查修复回归：knowledge-routes 测试第 9 条锁定）。
-  // catch/finally 对 db 做空值防护：未打开时跳过首建清理、无事可关。
+  // catch 对 db 做空值防护：未打开时跳过首建清理。
   let db: Database | null = null;
   // 嵌入按子批跑并在批间让出（见 wrapEmbedWithYield）：不把主线程一次占住几十秒
   const embed = wrapEmbedWithYield(embedFn, EMBED_YIELD_SUB_BATCH, signal);
@@ -463,6 +463,7 @@ export async function runIndex(
     throw err;
   } finally {
     releaseKeepAlive();
-    db?.close();
+    // 不关闭每库 db：连接归 kb-db 缓存所有（同库的检索可能正命中同一实例，关掉会打断它）。
+    // 释放时机：删库时 evictKbDb、进程退出时 closeAllKbDbs
   }
 }

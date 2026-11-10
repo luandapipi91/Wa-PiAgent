@@ -5,11 +5,12 @@
 // 的 dao 类型耦合）；融合逻辑参照其 fuseRrf 写法（score = Σ 1/(K + rank)，只看
 // 名次、对分数尺度免疫）。RRF 原始分跨库可比（都是名次的调和和），且 knowledge
 // 检索没有 memory_search 的 0–1 量纲历史包袱，故不做首位归一化。
+import type { Database } from "bun:sqlite";
 import { buildMatchExpr } from "../memory/query";
 import { bigram } from "../memory/bigram";
 import { embedQuery, embedFingerprint } from "../memory/embedder";
 import type { KbContext } from "./index";
-import { openKbDb } from "./kb-db";
+import { KbDbMissingError, openKbDbExisting } from "./kb-db";
 import { kbQuantizedScan, KB_SCAN_K } from "./vector";
 
 /** RRF 平滑常数：60 是论文推荐值，越大越削弱头部名次的优势（照抄 memory 取值） */
@@ -49,7 +50,8 @@ export interface KbSearchHit {
   stale?: boolean;
 }
 
-/** skippedKbs 条目：reason 取 not_ready（status≠ready）/ embed_meta_mismatch（向量通道降级）/ missing（库不存在） */
+/** skippedKbs 条目：reason 取 not_ready（status≠ready）/ embed_meta_mismatch（向量通道降级）/
+ * missing（登记行不存在）/ db_missing（库文件丢失，需重建索引）/ db_error（库文件打不开，如损坏） */
 export interface KbSkippedKb {
   kbId: string;
   reason: string;
@@ -103,79 +105,90 @@ export async function searchKnowledge(
     const mismatch = storedMeta !== null && storedMeta !== embedFingerprint();
     if (mismatch) skippedKbs.push({ kbId, reason: "embed_meta_mismatch" });
 
-    const db = openKbDb(ctx.waPiDir, kbId);
+    // 检索路径用「只开已存在的库」：库文件丢失时必须显式报出（skippedKbs），
+    // 否则 openKbDb 会当场建一个空库 → 检索恒零命中，用户看到的是「库里没这内容」
+    let db: Database;
     try {
-      // 词法通道：FTS MATCH bigram 查询（body 写入侧已 bigram 化），bm25 负值越小越
-      // 相关，升序即名次；名次只取决于 SQL 返回顺序，bm25 分值本身不参与融合。
-      // 短语 AND 零命中时降级 OR 重查（长问句只有部分重叠也要能召回）。
-      const runLexical = (expr: string) =>
-        db
-          .query(
-            `SELECT c.id AS id
-               FROM chunks_fts
-               JOIN chunks c ON c.id = chunks_fts.chunk_id
-              WHERE chunks_fts MATCH ?
-              ORDER BY bm25(chunks_fts)
-              LIMIT ${CHANNEL_TOP_N}`,
-          )
-          .all(expr) as Array<{ id: string }>;
-      let lexical = matchExpr ? runLexical(matchExpr) : [];
-      if (lexical.length === 0) {
-        const orExpr = buildOrMatchExpr(query);
-        if (orExpr) lexical = runLexical(orExpr);
+      db = openKbDbExisting(ctx.waPiDir, kbId);
+    } catch (err) {
+      if (err instanceof KbDbMissingError) {
+        skippedKbs.push({ kbId, reason: "db_missing" });
+      } else {
+        // 库在但打不开（如文件损坏）：同样标跳过，不让单库故障拖垮整次跨库检索
+        console.warn(`[knowledge] 知识库 db 打开失败 (kbId=${kbId}):`, err);
+        skippedKbs.push({ kbId, reason: "db_error" });
       }
-      // 语义通道：量化扫描（扫描宽度远大于融合条数）→ 距离门过滤；
-      // 指纹不匹配或查询向量缺失时整通道跳过（扫描失败扩展内部降级为空数组）。
-      const semantic =
-        queryVec && !mismatch
-          ? kbQuantizedScan(db, queryVec, KB_SCAN_K).filter((h) => withinSemanticDistance(h.distance))
-          : [];
-
-      // 库内 RRF 融合：score = Σ 1/(K + rank)，rank 从 1 开始
-      const scores = new Map<string, number>();
-      for (const channel of [lexical.map((r) => r.id), semantic.map((h) => h.id)]) {
-        channel.forEach((id, idx) => {
-          scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + idx + 1));
-        });
-      }
-      if (scores.size === 0) continue;
-      const fused = [...scores.entries()].sort((a, b) => b[1] - a[1]);
-
-      // 按融合名次回读出处字段（id 来自库内，缺失即跳过的防御不必要——IN 查询必命中）
-      const placeholders = fused.map(() => "?").join(",");
-      const rows = db
+      continue;
+    }
+    // 连接归 kb-db 缓存所有，这里不 close：索引可能正持有同一实例（关掉会打断索引）
+    // 词法通道：FTS MATCH bigram 查询（body 写入侧已 bigram 化），bm25 负值越小越
+    // 相关，升序即名次；名次只取决于 SQL 返回顺序，bm25 分值本身不参与融合。
+    // 短语 AND 零命中时降级 OR 重查（长问句只有部分重叠也要能召回）。
+    const runLexical = (expr: string) =>
+      db
         .query(
-          `SELECT id, content, file_path, title, breadcrumb, start_line, end_line
-             FROM chunks WHERE id IN (${placeholders})`,
+          `SELECT c.id AS id
+             FROM chunks_fts
+             JOIN chunks c ON c.id = chunks_fts.chunk_id
+            WHERE chunks_fts MATCH ?
+            ORDER BY bm25(chunks_fts)
+            LIMIT ${CHANNEL_TOP_N}`,
         )
-        .all(...fused.map(([id]) => id)) as Array<{
-        id: string;
-        content: string;
-        file_path: string;
-        title: string | null;
-        breadcrumb: string | null;
-        start_line: number | null;
-        end_line: number | null;
-      }>;
-      const byId = new Map(rows.map((r) => [r.id, r]));
-      for (const [id, score] of fused) {
-        const row = byId.get(id);
-        if (!row) continue;
-        merged.push({
-          kbId,
-          kbName: kb.name,
-          content: row.content,
-          filePath: row.file_path,
-          title: row.title,
-          breadcrumb: row.breadcrumb,
-          startLine: row.start_line,
-          endLine: row.end_line,
-          score,
-          ...(staleKb ? { stale: true } : {}),
-        });
-      }
-    } finally {
-      db.close();
+        .all(expr) as Array<{ id: string }>;
+    let lexical = matchExpr ? runLexical(matchExpr) : [];
+    if (lexical.length === 0) {
+      const orExpr = buildOrMatchExpr(query);
+      if (orExpr) lexical = runLexical(orExpr);
+    }
+    // 语义通道：量化扫描（扫描宽度远大于融合条数）→ 距离门过滤；
+    // 指纹不匹配或查询向量缺失时整通道跳过（扫描失败扩展内部降级为空数组）。
+    const semantic =
+      queryVec && !mismatch
+        ? kbQuantizedScan(db, queryVec, KB_SCAN_K).filter((h) => withinSemanticDistance(h.distance))
+        : [];
+
+    // 库内 RRF 融合：score = Σ 1/(K + rank)，rank 从 1 开始
+    const scores = new Map<string, number>();
+    for (const channel of [lexical.map((r) => r.id), semantic.map((h) => h.id)]) {
+      channel.forEach((id, idx) => {
+        scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + idx + 1));
+      });
+    }
+    if (scores.size === 0) continue;
+    const fused = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+
+    // 按融合名次回读出处字段（id 来自库内，缺失即跳过的防御不必要——IN 查询必命中）
+    const placeholders = fused.map(() => "?").join(",");
+    const rows = db
+      .query(
+        `SELECT id, content, file_path, title, breadcrumb, start_line, end_line
+           FROM chunks WHERE id IN (${placeholders})`,
+      )
+      .all(...fused.map(([id]) => id)) as Array<{
+      id: string;
+      content: string;
+      file_path: string;
+      title: string | null;
+      breadcrumb: string | null;
+      start_line: number | null;
+      end_line: number | null;
+    }>;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const [id, score] of fused) {
+      const row = byId.get(id);
+      if (!row) continue;
+      merged.push({
+        kbId,
+        kbName: kb.name,
+        content: row.content,
+        filePath: row.file_path,
+        title: row.title,
+        breadcrumb: row.breadcrumb,
+        startLine: row.start_line,
+        endLine: row.end_line,
+        score,
+        ...(staleKb ? { stale: true } : {}),
+      });
     }
   }
 

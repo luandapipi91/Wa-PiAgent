@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { basename } from "node:path";
 import type { KbInfo } from "@wa-pi/shared";
+import { closeAllKbDbs, evictKbDb } from "./kb-db";
 import { kbDbPath } from "./paths";
 
 type KbPhase = NonNullable<KbInfo["progress"]>["phase"];
@@ -187,6 +188,9 @@ export class KnowledgeStore {
     // bun:sqlite 默认 foreign_keys=OFF，ON DELETE CASCADE 不生效，必须显式删
     this.db.run(`DELETE FROM indexing_jobs WHERE kb_id = ?`, [id]);
     this.db.run(`DELETE FROM knowledge_bases WHERE id = ?`, [id]);
+    // 先关缓存连接再删文件：Windows 上句柄占用会让 unlinkSync 静默失败，
+    // 留下登记行已删、db 文件成孤儿的半删除状态（S7）
+    evictKbDb(id);
     const p = kbDbPath(this.waPiDir, id);
     for (const f of [p, `${p}-wal`, `${p}-shm`]) {
       try {
@@ -205,8 +209,12 @@ export class KnowledgeStore {
     }
   }
 
-  /** 关闭登记库连接（kernel 优雅退出用；Windows 上句柄挂着会锁住目录无法删除） */
+  /**
+   * 关闭登记库 + 全部每库 db 连接（kernel 优雅退出用；Windows 上句柄挂着会锁住目录无法删除）。
+   * 每库连接归 kb-db 的缓存所有，本层只在此刻统一释放；下次访问惰性重连。
+   */
   close(): void {
+    closeAllKbDbs();
     this.db.close();
   }
 
