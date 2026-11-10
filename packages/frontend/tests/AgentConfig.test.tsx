@@ -14,6 +14,7 @@ import { useSkillsStore } from "../src/store/skills";
 import { useProjectsStore } from "../src/store/projects";
 import { useProvidersStore } from "../src/store/providers";
 import { useSubagentsStore } from "../src/store/subagents";
+import { useToastStore } from "../src/store/toast";
 
 const cfg = (
 	name: string,
@@ -40,6 +41,14 @@ const apiCalls: { method: string; path: string; body?: any }[] = [];
 // 复现「mount → 回包晚于用户编辑」的真实时序（异步回包覆盖在途编辑的门卫回归锁）
 let gateConfigGet = false;
 let resolveConfigGate: ((value: any) => void) | null = null;
+// 保存失败注入（S12）：置值后下一次 config PUT 以该状态码/错误体拒绝
+// （复现 kernel 400/500：error/message 走 ApiError.message，formatApiError 原样展示）
+let saveFailure: { status: number; body: { message?: string; error?: string } } | null =
+	null;
+// 保存在途 gate：置真后 config PUT 挂起，由用例经 resolvePutGate 放行——
+// 用于断言「请求未落定时重复点击不会重复提交」
+let gatePut = false;
+let resolvePutGate: ((value: any) => void) | null = null;
 mock.module("../src/api-client", () => ({
 	api: {
 		get: (path: string) => {
@@ -57,6 +66,19 @@ mock.module("../src/api-client", () => ({
 		},
 		put: (path: string, body?: any) => {
 			apiCalls.push({ method: "put", path, body });
+			if (saveFailure && /\/config$/.test(path)) {
+				const { status, body: errBody } = saveFailure;
+				const err = new Error(
+					errBody.error ?? errBody.message ?? `${status}`,
+				) as Error & { status: number };
+				err.status = status;
+				return Promise.reject(err);
+			}
+			if (gatePut) {
+				return new Promise((resolve) => {
+					resolvePutGate = resolve;
+				});
+			}
 			return Promise.resolve({});
 		},
 		del: (path: string) => {
@@ -107,6 +129,10 @@ beforeEach(() => {
 	apiCalls.length = 0;
 	gateConfigGet = false;
 	resolveConfigGate = null;
+	saveFailure = null;
+	gatePut = false;
+	resolvePutGate = null;
+	useToastStore.setState({ toasts: [] });
 	eventHandlers.clear();
 	useAgentsStore.setState({ list: [], configs: {} });
 	useSkillsStore.setState({ allSkills: [] });
@@ -490,11 +516,12 @@ describe("AgentConfig 4 tab", () => {
 		expect((saveBtn as HTMLButtonElement).disabled).toBe(true);
 	});
 
-	test("点保存触发 onClose", () => {
+	test("点保存触发 onClose", async () => {
 		const onClose = mock();
 		renderConfig("dev", cfg("dev"), onClose);
 		fireEvent.click(screen.getByText("保存"));
-		expect(onClose).toHaveBeenCalled();
+		// 保存改为 async（await 回包成功才关窗），断言时序随之后移，语义不变
+		await waitFor(() => expect(onClose).toHaveBeenCalled());
 	});
 
 	test("技能 tab：全局禁用的技能显示为灰色并标注「全局禁用」", () => {
@@ -902,7 +929,7 @@ describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
 		);
 	});
 
-	test("内置 subagent 点保存触发 onClose", () => {
+	test("内置 subagent 点保存触发 onClose", async () => {
 		useSubagentsStore.setState({
 			subagents: [
 				{
@@ -920,7 +947,8 @@ describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
 		const onClose = mock();
 		render(<AgentConfig agentName="Plan" onClose={onClose} />);
 		fireEvent.click(screen.getByTestId("cfg-save"));
-		expect(onClose).toHaveBeenCalled();
+		// 同上：await 保存回包后才关窗
+		await waitFor(() => expect(onClose).toHaveBeenCalled());
 	});
 });
 
@@ -991,5 +1019,88 @@ describe("异步回包竞态门卫（draftDirtyRef）", () => {
 		expect(
 			(screen.getByTestId("cfg-name-input") as HTMLInputElement).value,
 		).toBe("研发");
+	});
+});
+
+// ── S12：保存失败必须可见 ────────────────────────────────────────────────
+// 修复前：handleSave 点火式发请求（saveOverride 内部 .catch(() => {}) 吞错）+ 立即 onClose，
+// 保存失败被完全吞掉——用户以为绑定已保存，实际改动凭空消失。修复后：await → 成功才关窗，
+// 失败 toast 报错并保持弹窗（用户可直接重试或修正）。
+const mockSaveConfig = (
+	status: number,
+	body: { message?: string; error?: string },
+) => {
+	saveFailure = { status, body };
+};
+
+const errorToastMessages = () =>
+	useToastStore
+		.getState()
+		.toasts.filter((t) => t.type === "error")
+		.map((t) => t.message);
+
+describe("保存失败可见（S12）", () => {
+	test("命名 agent 保存失败：弹窗不关闭且 toast 报错（不再静默丢改动）", async () => {
+		const onClose = mock();
+		mockSaveConfig(500, { message: "knowledgeBaseIds 无效" });
+		renderConfig("研发", cfg("研发"), onClose);
+		fireEvent.click(screen.getByTestId("cfg-save"));
+		await waitFor(() =>
+			expect(errorToastMessages()).toContain("knowledgeBaseIds 无效"),
+		);
+		expect(onClose).not.toHaveBeenCalled();
+	});
+
+	test("内置 subagent 保存失败：saveOverride 抛错 → toast 报错且弹窗不关闭", async () => {
+		const onClose = mock();
+		const saveOverride = mock(() =>
+			Promise.reject(new Error("knowledgeBaseIds 无效")),
+		);
+		useSubagentsStore.setState({
+			subagents: [
+				{
+					name: "Plan",
+					displayName: "规划子智能体",
+					description: "",
+					emoji: "📐",
+					gradient: ["#7c3aed", "#a78bfa"] as [string, string],
+					readOnly: true,
+					systemPrompt: "x",
+					builtinToolNames: [],
+				},
+			],
+			saveOverride,
+		});
+		render(<AgentConfig agentName="Plan" onClose={onClose} />);
+		fireEvent.click(screen.getByTestId("cfg-save"));
+		await waitFor(() =>
+			expect(errorToastMessages()).toContain("knowledgeBaseIds 无效"),
+		);
+		expect(onClose).not.toHaveBeenCalled();
+	});
+
+	test("保存中禁用保存按钮：请求未落定时重复点击不重复提交", async () => {
+		const onClose = mock();
+		gatePut = true;
+		renderConfig("dev", cfg("dev"), onClose);
+		const btn = screen.getByTestId("cfg-save") as HTMLButtonElement;
+		fireEvent.click(btn);
+		await waitFor(() => expect(btn.disabled).toBe(true));
+		fireEvent.click(btn);
+		expect(apiCalls.filter((c) => c.method === "put")).toHaveLength(1);
+		await act(async () => {
+			resolvePutGate!({});
+		});
+		await waitFor(() => expect(onClose).toHaveBeenCalled());
+		expect(errorToastMessages()).toEqual([]);
+	});
+
+	// 未绑定知识库的普通保存路径行为不变：成功 → 直接关窗，不发 toast
+	test("普通保存成功：仍关窗且不弹错误 toast（原有行为不变）", async () => {
+		const onClose = mock();
+		renderConfig("dev", cfg("dev"), onClose);
+		fireEvent.click(screen.getByTestId("cfg-save"));
+		await waitFor(() => expect(onClose).toHaveBeenCalled());
+		expect(errorToastMessages()).toEqual([]);
 	});
 });

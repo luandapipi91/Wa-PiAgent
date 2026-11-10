@@ -6,7 +6,7 @@ import { onMessage } from "../events";
 interface State {
 	subagents: SubagentInfo[];
 	load: () => void;
-	saveOverride: (override: SubagentOverride) => void;
+	saveOverride: (override: SubagentOverride) => Promise<void>;
 	getByName: (name: string) => SubagentInfo | undefined;
 }
 
@@ -14,6 +14,7 @@ interface State {
  * 内置 subagent 信息 store。
  * - load：GET /api/subagents，kernel 回包后填充 subagents
  * - saveOverride：PUT /api/subagents/override，kernel 持久化后广播 subagent:list 自动刷新
+ *   （失败会向调用方抛错，由调用方提示用户）
  *
  * App.tsx 启动时调 load；SSE 事件已在 store 顶部 onMessage 里自动监听。
  */
@@ -27,14 +28,12 @@ export const useSubagentsStore = create<State>((set, get) => ({
 			})
 			.catch(() => {});
 	},
-	saveOverride: (override) => {
-		api
-			.put("/api/subagents/override", { override })
-			.then((data: any) => {
-				// kernel 返回的 subagent:list 响应体在此处理（响应先于 SSE 广播到达时兜底刷新 store）
-				if (data?.type === "subagent:list") handleSubagentEvent(data);
-			})
-			.catch(() => {});
+	// 保存失败必须向调用方抛错（不再 .catch 吞掉）：调用方据此保持弹窗 + toast 报错，
+	// 否则用户的绑定改动会静默丢失（S12）
+	saveOverride: async (override) => {
+		const data: any = await api.put("/api/subagents/override", { override });
+		// kernel 返回的 subagent:list 响应体在此处理（响应先于 SSE 广播到达时兜底刷新 store）
+		if (data?.type === "subagent:list") handleSubagentEvent(data);
 	},
 	getByName: (name) => get().subagents.find((s) => s.name === name),
 }));

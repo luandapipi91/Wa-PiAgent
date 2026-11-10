@@ -13,6 +13,8 @@ import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useSubagentsStore } from "../store/subagents";
 import { useKnowledgeStore } from "../store/knowledge";
+import { useToastStore } from "../store/toast";
+import { formatApiError } from "../util/kernel-error";
 import { api } from "../api-client";
 import { KbBindingSection } from "./knowledge/KbBindingSection";
 import { onMessage } from "../events";
@@ -225,14 +227,16 @@ export function AgentConfig({ agentName, onClose }: Props) {
 	const nameEmpty = trimmedName === "";
 
 	const canSave = !!draft && (isBuiltin || (!nameEmpty && !nameConflict));
+	// 保存在途：保存期间禁用保存按钮，且阻止重复提交（成功才关窗，失败留在弹窗里重试）
+	const [saving, setSaving] = useState(false);
 
 	const handleChange = (next: AgentConfig) => {
 		draftDirtyRef.current = true;
 		setDraft(next);
 	};
 
-	const save = () => {
-		if (!draft) return;
+	const save = async () => {
+		if (!draft || saving) return;
 		// 绑定的知识库过滤失效 id（审查重点 2）；但仅在清单已知（loaded）时过滤——
 		// 清单未知态（未加载成功：拉取中/失败）不得当空态，否则既有绑定会被静默清空（审查修复 1）
 		const kbStore = useKnowledgeStore.getState();
@@ -243,31 +247,39 @@ export function AgentConfig({ agentName, onClose }: Props) {
 			const kbKnown = new Set(kbStore.kbs.map((k) => k.id));
 			kbIds = kbIds.filter((id) => kbKnown.has(id));
 		}
-		if (isBuiltin) {
-			const validModel =
-				modelIds.size > 0 && draft.model && !modelIds.has(draft.model)
-					? null
-					: draft.model;
-			const override: SubagentOverride = {
-				type: agentName,
-				model: validModel ?? null,
-				thinking: draft.thinking ?? null,
-				knowledgeBaseIds: kbIds,
-			};
-			useSubagentsStore.getState().saveOverride(override);
-			onClose();
+		if (!isBuiltin && !canSave) return;
+		setSaving(true);
+		try {
+			if (isBuiltin) {
+				const validModel =
+					modelIds.size > 0 && draft.model && !modelIds.has(draft.model)
+						? null
+						: draft.model;
+				const override: SubagentOverride = {
+					type: agentName,
+					model: validModel ?? null,
+					thinking: draft.thinking ?? null,
+					knowledgeBaseIds: kbIds,
+				};
+				await useSubagentsStore.getState().saveOverride(override);
+			} else {
+				// model 无效（磁盘残留裸 ID 不匹配 option）时置 null（跟随全局），避免"显示跟随全局但保存旧值"
+				const configToSend =
+					modelIds.size > 0 && draft.model && !modelIds.has(draft.model)
+						? { ...draft, model: null, knowledgeBaseIds: kbIds }
+						: { ...draft, knowledgeBaseIds: kbIds };
+				// 名称可能被改：agentName 为旧 displayName，draft.displayName 为新值，kernel 走 rename 联动
+				await api.put(`/api/agents/${encodeURIComponent(agentName)}/config`, {
+					config: configToSend,
+				});
+			}
+		} catch (e) {
+			// 保存失败：不关弹窗，把错误带给用户（此前静默吞错，用户以为已保存）
+			useToastStore.getState().add(formatApiError(e), "error");
 			return;
+		} finally {
+			setSaving(false);
 		}
-		if (!canSave) return;
-		// model 无效（磁盘残留裸 ID 不匹配 option）时置 null（跟随全局），避免"显示跟随全局但保存旧值"
-		const configToSend =
-			modelIds.size > 0 && draft.model && !modelIds.has(draft.model)
-				? { ...draft, model: null, knowledgeBaseIds: kbIds }
-				: { ...draft, knowledgeBaseIds: kbIds };
-		// 名称可能被改：agentName 为旧 displayName，draft.displayName 为新值，kernel 走 rename 联动
-		void api.put(`/api/agents/${encodeURIComponent(agentName)}/config`, {
-			config: configToSend,
-		});
 		onClose();
 	};
 
@@ -389,7 +401,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 				</button>
 				<button
 					onClick={save}
-					disabled={!canSave}
+					disabled={!canSave || saving}
 					data-testid="cfg-save"
 					className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
 					style={{ background: "var(--accent)", color: "#fff" }}
