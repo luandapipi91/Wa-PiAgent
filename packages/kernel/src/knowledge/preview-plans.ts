@@ -38,6 +38,7 @@ function purgeExpired(now: number): void {
 /**
  * 记住一次预览结果，返回 planToken。
  * folderPath 必须是归一化后的绝对路径（调用方用 resolve，与创建侧一致）。
+ * 同一目录只留一份计划：先删掉该目录的旧条目（反复预览不囤积全量清单副本）。
  */
 export function rememberPreview(
 	folderPath: string,
@@ -46,6 +47,10 @@ export function rememberPreview(
 ): string {
 	const now = opts?.now ?? Date.now();
 	purgeExpired(now);
+	// 同目录覆盖：旧 token 立即失效（避免同目录多份清单副本，旧预览也不应再被采纳）
+	for (const [id, plan] of plans) {
+		if (plan.folderPath === folderPath) plans.delete(id);
+	}
 	const planId = randomUUID();
 	plans.set(planId, {
 		folderPath,
@@ -59,6 +64,29 @@ export function rememberPreview(
 		plans.delete(oldest.value);
 	}
 	return planId;
+}
+
+/**
+ * 只判「是否值得昂贵地扫一遍」：令牌存在、未过期、目录一致。
+ * 不比对清单、不返差异（创建侧先 peek 决定要不要扫描，无效令牌不白扫）。
+ */
+export function peekPreviewPlan(
+	planId: string,
+	folderPath: string,
+	opts?: { now?: number },
+): { hit: boolean } {
+	const now = opts?.now ?? Date.now();
+	purgeExpired(now);
+	const plan = plans.get(planId);
+	if (!plan) return { hit: false };
+	if (plan.folderPath !== folderPath) return { hit: false };
+	return { hit: true };
+}
+
+/** 测试缝：把令牌的创建时间推到 TTL 之外（进程间无定时器，过期只在读写时判定） */
+export function expirePreviewPlanForTest(planId: string): void {
+	const plan = plans.get(planId);
+	if (plan) plan.createdAt = Date.now() - PREVIEW_PLAN_TTL_MS - 1;
 }
 
 /**

@@ -98,7 +98,11 @@ import { registerMemoryRoutes } from "./routes/memory";
 import { registerKnowledgeRoutes } from "./routes/knowledge";
 import { runIndex, getKbFailures, clearKbFailures, type EmbedFn } from "./knowledge/indexer";
 import { scanFolder } from "./knowledge/scan";
-import { rememberPreview, evaluatePreviewPlan } from "./knowledge/preview-plans";
+import {
+	rememberPreview,
+	evaluatePreviewPlan,
+	peekPreviewPlan,
+} from "./knowledge/preview-plans";
 import type { KbContext, KbWatchController, WatchKbOptions } from "./knowledge/index";
 import { watchKb } from "./knowledge/watcher";
 import type { KnowledgeStore } from "./knowledge/store";
@@ -449,6 +453,11 @@ export interface WSServerOpts {
 	 * 知识库文件监听参数（测试注入加速 pollIntervalMs/debounceMs）。缺省 60s 轮询 + 2s 防抖。
 	 */
 	kbWatchOpts?: WatchKbOptions;
+	/**
+	 * 知识库同步扫描函数（测试注入计数/故障复现；缺省 scanFolder）。
+	 * 只影响 preview / create 比对两个低频交互路径，索主管线走 scanFolderAsync。
+	 */
+	kbScanFolder?: typeof scanFolder;
 	/** IM 渠道机器人管理器（Task 8 注入真实实例；测试/未启用时为 null，相关 case 走降级路径） */
 	channelManager: import("./channel-manager").ChannelManager | null;
 	dataDir?: string;
@@ -3057,7 +3066,7 @@ export class WSServer {
 					}
 					// 低频交互路径（任务 3 次要③：scanFolder 全同步 IO，勿进高频链路）
 					// excludePaths（扫描第 1 层）未接线，省略 = 不过滤
-					const preview = await scanFolder(folderPath);
+					const preview = await (this.opts.kbScanFolder ?? scanFolder)(folderPath);
 					// 计划令牌：记住本次可索引清单，创建时比对是否过期（任务 9，S13）。
 					// 目录统一按绝对路径记（与创建侧的 resolve 一致），相对路径不会误判目录不符。
 					const planToken = rememberPreview(
@@ -3099,19 +3108,25 @@ export class WSServer {
 						reply({ type: "error", message: `目录不存在：${folderPath}` });
 						break;
 					}
-					// 预览后目录可能已被改动：有 token 就重扫一次比对，只报告差异、不阻断创建
+					// 预览后目录可能已被改动：有有效 token 就重扫一次比对，只报告差异、不阻断创建
 					// （索引管线本身会按最新目录重建，用户看到的预览只是信息，不是白名单）
 					const planToken = String(event.planToken ?? "").trim();
 					let planChanged: { added: string[]; removed: string[] } | undefined;
-					if (planToken) {
-						const current = await scanFolder(folderPath);
-						const diff = evaluatePreviewPlan(
-							planToken,
-							folderPath,
-							current.indexable.map((f) => f.relPath),
-						);
-						if (diff.hit && diff.changed) {
-							planChanged = { added: diff.added ?? [], removed: diff.removed ?? [] };
+					// 先 peek（只判存在/过期/目录一致）再决定要不要扫：无效令牌不白扫一遍全目录
+					if (planToken && peekPreviewPlan(planToken, folderPath).hit) {
+						try {
+							const current = await (this.opts.kbScanFolder ?? scanFolder)(folderPath);
+							const diff = evaluatePreviewPlan(
+								planToken,
+								folderPath,
+								current.indexable.map((f) => f.relPath),
+							);
+							if (diff.hit && diff.changed) {
+								planChanged = { added: diff.added ?? [], removed: diff.removed ?? [] };
+							}
+						} catch (err) {
+							// 比对是纯提示性质：扫描失败（网络盘掉线/权限回收）不能连坐创建，按未命中处理
+							console.warn("[knowledge] 预览计划比对失败，按未命中处理：", err);
 						}
 					}
 					const kb = this.kbStore().createKb({

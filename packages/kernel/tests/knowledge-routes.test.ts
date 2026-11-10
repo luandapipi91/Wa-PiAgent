@@ -19,6 +19,8 @@ import { MemoryStore } from "../src/memory-store";
 import { closeAllMemoryDbs } from "../src/memory/db";
 import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
+import { scanFolder } from "../src/knowledge/scan";
+import { expirePreviewPlanForTest } from "../src/knowledge/preview-plans";
 import { KnowledgeStore } from "../src/knowledge/store";
 import { closeAllKbDbs } from "../src/knowledge/kb-db";
 import { kbDbPath } from "../src/knowledge/paths";
@@ -112,7 +114,10 @@ afterEach(async () => {
 });
 
 /** 起最小 WSServer：知识库登记库与 gate embed 注入（生产路径缺省用 agentManager 共享实例） */
-async function startTestServer(kbWatchOpts?: WatchKbOptions) {
+async function startTestServer(
+  kbWatchOpts?: WatchKbOptions,
+  scanFolderFn?: typeof scanFolder,
+) {
   const projectFile = join(tmpDir, "projects.json");
   writeFileSync(
     projectFile,
@@ -138,6 +143,7 @@ async function startTestServer(kbWatchOpts?: WatchKbOptions) {
     knowledgeStore: store,
     kbEmbedFn: gate.embed,
     kbWatchOpts,
+    kbScanFolder: scanFolderFn,
     agentManager: { disposeAll: async () => {}, markAllDirty: () => {} } as any,
     channelManager: null,
     port: 0,
@@ -285,6 +291,57 @@ test("planToken 无效或缺失：不阻断创建，回包不含 planChanged", a
   const noneBody = (await none.json()) as any;
   expect(noneBody.type).toBe("knowledge:create");
   expect(noneBody.planChanged).toBeUndefined();
+});
+
+test("planToken 有效但比对扫描抛错：创建仍成功且回包无 planChanged（I-1）", async () => {
+  // 第二次同步扫描（创建侧比对）抛错：模拟网络盘掉线 / 权限被回收
+  let calls = 0;
+  const { port } = await startTestServer(undefined, async (p) => {
+    calls += 1;
+    if (calls >= 2) throw new Error("EACCES: readdir /mnt/net");
+    return scanFolder(p);
+  });
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  expect(typeof preview.planToken).toBe("string");
+
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    name: "掉线库",
+    planToken: preview.planToken,
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  // 比对失败只按未命中处理，不影响创建
+  expect(body.type).toBe("knowledge:create");
+  expect(body.kb.name).toBe("掉线库");
+  expect(body.planChanged).toBeUndefined();
+  expect(calls).toBe(2); // 预览 1 次 + 比对 1 次（抛错后不再重扫）
+});
+
+test("planToken 已过期：不再重新扫描比对，创建照常且回包无 planChanged（I-2）", async () => {
+  let scans = 0;
+  const { port } = await startTestServer(undefined, async (p) => {
+    scans += 1;
+    return scanFolder(p);
+  });
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  expect(typeof preview.planToken).toBe("string");
+  // 把令牌推到期（测试缝），此时 peek 不命中 → 不该为它再全量扫一遍
+  expirePreviewPlanForTest(preview.planToken);
+  const before = scans;
+
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    planToken: preview.planToken,
+  });
+  const body = (await res.json()) as any;
+  expect(body.type).toBe("knowledge:create");
+  expect(body.planChanged).toBeUndefined();
+  expect(scans).toBe(before);
 });
 
 // ===== 3. POST /api/knowledge 创建并触发索引 =====

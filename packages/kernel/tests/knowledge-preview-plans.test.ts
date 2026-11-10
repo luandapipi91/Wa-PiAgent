@@ -5,6 +5,8 @@ import { test, expect } from "bun:test";
 import {
 	rememberPreview,
 	evaluatePreviewPlan,
+	peekPreviewPlan,
+	expirePreviewPlanForTest,
 	PREVIEW_PLAN_MAX,
 	PREVIEW_PLAN_TTL_MS,
 } from "../src/knowledge/preview-plans";
@@ -61,4 +63,34 @@ test("计划表最多保留 32 条：超出后最早的被淘汰（LRU 上限）
 	expect(evaluatePreviewPlan(latest, "/fake/kb-latest", ["a.md"]).hit).toBe(
 		true,
 	);
+});
+
+test("同目录重新预览覆盖旧计划：旧 token 失效（不囤积同目录副本）", () => {
+	const first = rememberPreview(dir, ["a.md"]);
+	const second = rememberPreview(dir, ["a.md", "b.md"]);
+	// 旧 token 被同目录的新计划顶掉
+	expect(evaluatePreviewPlan(first, dir, ["a.md"])).toEqual({ hit: false });
+	expect(evaluatePreviewPlan(second, dir, ["a.md", "b.md"])).toEqual({
+		hit: true,
+		changed: false,
+		token: second,
+	});
+});
+
+test("peekPreviewPlan 只判存在/过期/目录一致，不比对清单", () => {
+	const token = rememberPreview(dir, ["a.md"]);
+	expect(peekPreviewPlan(token, dir)).toEqual({ hit: true });
+	expect(peekPreviewPlan("nope", dir)).toEqual({ hit: false });
+	expect(peekPreviewPlan(token, "/fake/other")).toEqual({ hit: false });
+	const expiredAt = Date.now() + PREVIEW_PLAN_TTL_MS + 1;
+	expect(peekPreviewPlan(token, dir, { now: expiredAt })).toEqual({
+		hit: false,
+	});
+});
+
+test("expirePreviewPlanForTest：测试缝把令牌推到期后 peek 不命中", () => {
+	const token = rememberPreview(dir, ["a.md"]);
+	expirePreviewPlanForTest(token);
+	expect(peekPreviewPlan(token, dir)).toEqual({ hit: false });
+	expect(evaluatePreviewPlan(token, dir, ["a.md"])).toEqual({ hit: false });
 });
