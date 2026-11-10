@@ -17,6 +17,7 @@ import {
   scoreChunkForQuery,
 } from "./search/ranking";
 import { diversify } from "./search/diversity";
+import { expandWindow, type WindowRow } from "./search/window";
 import { bigram } from "../memory/bigram";
 import { embedQuery } from "../memory/embedder";
 import { knowledgeFingerprint } from "./fingerprint";
@@ -272,6 +273,63 @@ export async function searchKnowledge(
       if (await sourceChanged(root, hit.filePath, recordedMtime, statFn)) hit.stale = true;
     }),
   );
-  const results = top.map((e) => e.hit);
+  // 自适应扩窗：按「库 + 文件」取同文件全部块作为上下文（邻块 score=0，只作内容），
+  // 命中块与前后若干块合并，预算内给出可读段落；库打不开时跳过扩窗、保留命中块原文。
+  const fileRows = new Map<string, WindowRow[]>();
+  for (const { hit } of top) {
+    const key = `${hit.kbId}\0${hit.filePath}`;
+    if (fileRows.has(key)) continue;
+    try {
+      const db = openKbDbExisting(ctx.waPiDir, hit.kbId);
+      const rows = db
+        .query(
+          `SELECT id, file_path, start_line, end_line, content
+             FROM chunks WHERE file_path = ? ORDER BY start_line`,
+        )
+        .all(hit.filePath) as Array<{
+        id: string;
+        file_path: string;
+        start_line: number | null;
+        end_line: number | null;
+        content: string;
+      }>;
+      fileRows.set(
+        key,
+        rows.map((r) => ({
+          id: r.id,
+          filePath: r.file_path,
+          startLine: r.start_line,
+          endLine: r.end_line,
+          content: r.content,
+          score: 0,
+        })),
+      );
+    } catch {
+      /* 库不可用：不扩窗，保留命中块原文 */
+    }
+  }
+  for (const [key, rows] of fileRows) {
+    const hitIds = new Set(top.filter((t) => `${t.hit.kbId}\0${t.hit.filePath}` === key).map((t) => t.hit.filePath));
+    for (const row of rows) {
+      if (hitIds.has(row.filePath) && top.some((t) => t.hit.content === row.content)) row.score = 1;
+    }
+  }
+
+  const results: KbSearchHit[] = top.map((entry) => {
+    const key = `${entry.hit.kbId}\0${entry.hit.filePath}`;
+    const rows = fileRows.get(key);
+    if (!rows || rows.length === 0) return entry.hit;
+    // 命中块按内容匹配（同一文件内可能多条命中）
+    const withHits = rows.map((r) => ({ ...r, score: r.content === entry.hit.content ? 1 : 0 }));
+    const expanded = expandWindow(withHits, 5);
+    const merged = expanded.find((w) => w.content.includes(entry.hit.content));
+    if (!merged) return entry.hit;
+    return {
+      ...entry.hit,
+      content: merged.content,
+      startLine: merged.startLine,
+      endLine: merged.endLine,
+    };
+  });
   return { found: results.length > 0, results, skippedKbs };
 }

@@ -385,3 +385,17 @@ test("置信门：覆盖率不足的弱命中不进结果（found=false，不许
   expect(r.found).toBe(false);
   expect(r.results).toHaveLength(0);
 });
+
+test("自适应扩窗：命中块合并同文件相邻块并互相补上下文", async () => {
+  const kbId = setupKb("扩窗库", [
+    { content: "第一段：概述。", title: "A", filePath: "docs/w.md", startLine: 1, endLine: 5 },
+    { content: "第二段：定价政策说明。", title: "B", filePath: "docs/w.md", startLine: 6, endLine: 10 },
+    { content: "第三段：附录。", title: "C", filePath: "docs/w.md", startLine: 11, endLine: 15 },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  // 命中中间的「第二段」，扩窗后正文应带上前后邻块
+  expect(r.results[0].content).toContain("定价政策说明");
+  expect(r.results[0].content).toContain("第一段");
+  expect(r.results[0].content).toContain("第三段");
+});
