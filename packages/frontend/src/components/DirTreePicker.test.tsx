@@ -31,11 +31,10 @@ afterEach(() => {
 
 test("面板无内联 background 硬编码，使用 bg-surface token 类", async () => {
 	mockTransport();
-	const { container } = render(
-		<DirTreePicker onPick={() => {}} onCancel={() => {}} />,
-	);
+	render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
 	await waitFor(() => expect(screen.getByTestId("dir-pick")).toBeTruthy());
-	const panel = container.querySelector(".bg-surface");
+	// 覆盖层 portal 到 body，不再在 render 容器内（见下方 portal 契约测试）
+	const panel = document.body.querySelector(".bg-surface");
 	expect(panel).toBeTruthy();
 	expect((panel as HTMLElement).style.background).toBe(""); // 不再有 #FFFFFF 内联覆盖
 });
@@ -79,6 +78,23 @@ test("TREE_STYLES 覆盖库选中/聚焦按钮背景为 transparent（暗色适�
 		".rct-tree-item-title-container-selected .rct-tree-item-button",
 	);
 	expect(styles).toContain("background-color: transparent !important");
+});
+
+test("覆盖层挂到 body 且层级高于 Modal 遮罩——弹窗内触发时不被弹窗盖住", async () => {
+	mockTransport();
+	// 复现生产结构：调用方位于 Modal（portal 到 body、z-50）的层叠上下文内。
+	// z-index 只在同一层叠上下文比较，若覆盖层留在该祖先内，再大的 z 也盖不过
+	// 后挂载的同级弹窗（知识库「新建」弹窗内点「浏览」被新弹窗遮挡的根因）。
+	render(
+		<div style={{ position: "fixed", zIndex: 50 }}>
+			<DirTreePicker onPick={() => {}} onCancel={() => {}} />
+		</div>,
+	);
+	const overlay = await screen.findByTestId("dir-picker");
+	// 必须脱离调用方祖先层叠上下文：直接作为 body 子级参与根层叠上下文
+	expect(overlay.parentElement).toBe(document.body);
+	// 层级必须高于 Modal 遮罩 z-50，才能压住后挂载的弹窗
+	expect(Number(getComputedStyle(overlay).zIndex)).toBeGreaterThan(50);
 });
 
 test("树节点正常渲染（默认 showFiles=false：只显示目录，文件被过滤）", async () => {

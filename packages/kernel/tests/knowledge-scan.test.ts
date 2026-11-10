@@ -87,3 +87,30 @@ test("indexable 条目携带 type/size/mtime 且 relPath 为 POSIX 风格", asyn
   const b = p.indexable.find(f => f.relPath === "b.txt")!;
   expect(b.type).toBe("txt");
 });
+
+test("docx/pdf 容器格式豁免二进制嗅探：前 512 字节含 0x00 仍可索引", async () => {
+  // docx = ZIP 容器（PK\x03\x04 14 00 ...），pdf 的压缩流同样含 0x00——
+  // 对这两类声明支持的容器格式做「前 512 字节含 0x00 判二进制」会把整类文件误杀
+  const docx = Buffer.concat([
+    Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]),
+    Buffer.alloc(600),
+  ]);
+  const pdf = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(600)]);
+  writeFileSync(join(root, "spec.docx"), docx);
+  writeFileSync(join(root, "report.pdf"), pdf);
+
+  const p = await scanFolder(root, []);
+  const types = new Map(p.indexable.map(f => [f.relPath, f.type]));
+  expect(types.get("spec.docx")).toBe("docx");
+  expect(types.get("report.pdf")).toBe("pdf");
+  // 未识别扩展名/无扩展名仍走嗅探（回归锁：夹具里的 binaryfile 全 0x00）
+  expect(p.skips.find(s => s.path === "binaryfile")?.reason).toBe("binary");
+});
+
+test("excludePaths 可省略（默认空数组）：第 1 层当前未接线，签名保留给后续接入", async () => {
+  // 四个调用点（preview/indexer/watcher）都传 []，产品层没有排除入口——
+  // 省略参数必须等价于空数组，不能因为「以为已接线」而炸掉
+  const p = await scanFolder(root);
+  expect(p.indexable.length).toBeGreaterThan(0);
+  expect(p.skips.length).toBeGreaterThan(0);
+});

@@ -16,7 +16,7 @@
 import type { Database } from "bun:sqlite";
 import type { KbInfo } from "@wa-pi/shared";
 import { bigram } from "../memory/bigram";
-import { embedDocuments, embedFingerprint } from "../memory/embedder";
+import { acquireEmbedderKeepAlive, embedDocuments, embedFingerprint } from "../memory/embedder";
 import { scanFolder } from "./scan";
 import { extractText } from "./extract";
 import { chunkDocument, type KnowledgeChunk } from "./chunker";
@@ -58,6 +58,39 @@ export const INDEX_BATCH = 64;
 
 /** 嵌入函数形状：缺省用真实 embedDocuments，测试注入 fake 绕开模型 */
 export type EmbedFn = (texts: string[]) => Promise<Uint8Array[]>;
+
+/**
+ * 单个子批的嵌入条数：把一个 64 批的推理切成小块，块间让出事件循环。
+ *
+ * 为什么必须切：onnxruntime 推理在 kernel 主线程上连续占用（实测 533 字块的 64 条一批
+ * 阻塞 28-33s，128 块整轮事件循环最大停顿 33s），SSE 心跳 5s 一次被饿死，超过前端
+ * 10s 看门狗阈值 → 重建/新建到一半界面「连接已断开，正在重连」，进度也断在半路。
+ * 子批 4 实测单次占用 1.3-2.2s（负载高时 ~6s）：心跳留足余量，吞吐与大批持平
+ * （135 块 0.35s/块 vs 批 8 的 0.34s/块，固定开销占比小）。
+ */
+export const EMBED_YIELD_SUB_BATCH = 4;
+
+/**
+ * 把 embedFn 包成「子批推理 + 批间让出事件循环」：返回顺序与输入一一对应。
+ * 让出窗口里跑 SSE 心跳、HTTP 路由与取消检查——长索引期间界面不断连、取消及时生效。
+ */
+export function wrapEmbedWithYield(
+  embedFn: EmbedFn,
+  subBatch: number = EMBED_YIELD_SUB_BATCH,
+  signal?: AbortSignal,
+): EmbedFn {
+  return async (texts) => {
+    if (texts.length <= subBatch) return embedFn(texts);
+    const out: Uint8Array[] = [];
+    for (let i = 0; i < texts.length; i += subBatch) {
+      out.push(...(await embedFn(texts.slice(i, i + subBatch))));
+      // 让出事件循环：心跳/HTTP/取消检查都在这个窗口里跑
+      await new Promise((r) => setTimeout(r, 0));
+      throwIfAborted(signal);
+    }
+    return out;
+  };
+}
 
 /** 一轮索引的结果（取消/失败不抛错取消——取消正常返回，真失败抛错） */
 export interface IndexResult {
@@ -126,9 +159,10 @@ function emit(
   filesTotal: number,
   filesDone: number,
   chunksDone: number,
+  chunksTotal: number,
 ): void {
   try {
-    ctx.sse({ type: "knowledge:progress", kbId, phase, status, filesTotal, filesDone, chunksDone });
+    ctx.sse({ type: "knowledge:progress", kbId, phase, status, filesTotal, filesDone, chunksDone, chunksTotal });
   } catch {
     /* 广播失败不影响索引推进 */
   }
@@ -193,31 +227,48 @@ export async function runIndex(
   ctx.store.updateStatus(kbId, "indexing");
   // 新起一轮：清空上一轮的失败清单（失败文件按 relPath 记录，抽取 catch 处写入）
   kbFailures.set(kbId, []);
-  emit(ctx, kbId, "scanning", "indexing", kb.fileCount, 0, 0);
+  emit(ctx, kbId, "scanning", "indexing", kb.fileCount, 0, 0, 0);
 
   let filesTotal = 0;
   let filesDone = 0;
   let failedCount = 0;
   let chunksDone = 0;
+  // 本轮待嵌入块总量（embedding 阶段才可知，之前保持 0——前端据此把进度条从文件阶段切到块阶段）
+  let chunksTotal = 0;
 
   // db 可空：openKbDb（每库文件损坏/不可写时抛 SQLITE_NOTADB 等）必须在主体 try 内——
   // 否则 startJob 之后裸抛会残留 job 行 + status 卡 indexing，且 cancel/delete/index
   // 三条恢复路径全灭、重启不恢复（审查修复回归：knowledge-routes 测试第 9 条锁定）。
   // catch/finally 对 db 做空值防护：未打开时跳过首建清理、无事可关。
   let db: Database | null = null;
+  // 嵌入按子批跑并在批间让出（见 wrapEmbedWithYield）：不把主线程一次占住几十秒
+  const embed = wrapEmbedWithYield(embedFn, EMBED_YIELD_SUB_BATCH, signal);
+  // 索引全程持有 embedder 保活引用：抽取阶段可能长时间不调嵌入，若放任空闲卸载，
+  // 嵌入阶段要重新加载模型（用户可见为「建库到一半模型被释放」）。
+  const releaseKeepAlive = acquireEmbedderKeepAlive();
   try {
     // ===== 阶段 0：打开每库 db =====
     db = openKbDb(ctx.waPiDir, kbId);
     // ===== 阶段 1：扫描（先数不写，复用任务 3）=====
     throwIfAborted(signal);
-    const preview = await scanFolder(kb.folderPath, []);
+    // excludePaths（扫描第 1 层）未接线：产品层无排除入口，此处省略 = 不过滤
+    const preview = await scanFolder(kb.folderPath);
     filesTotal = preview.indexable.length;
     const skipStats: Record<string, number> = {};
     for (const s of preview.skips) skipStats[s.reason] = (skipStats[s.reason] ?? 0) + 1;
     ctx.store.updateJobProgress(kbId, { filesTotal, skipStats });
-    emit(ctx, kbId, "scanning", "indexing", filesTotal, 0, 0);
+    emit(ctx, kbId, "scanning", "indexing", filesTotal, 0, 0, 0);
 
     const existing = loadExisting(db);
+
+    // 归零突变保护：目录「可读但为空」而库里已有索引——网络盘/外置卷瞬时挂空的典型形态。
+    // 不拦的话「未认领即删除」会把全部存量块删光，并作为一次成功的索引置 ready（内容归零、
+    // 无法回滚）。首建且本来为空（库里没有任何行）不受影响，照常置 ready 的空库。
+    if (filesTotal === 0 && existing.byPath.size > 0) {
+      throw new Error(
+        `扫描结果为空但库内已有 ${existing.byPath.size} 个文件的索引（目录可能瞬时不可读/未挂载），已拒绝本轮以免清空库`,
+      );
+    }
 
     // ===== 阶段 2/3：抽取 + 切块（全部在内存完成，落库推迟到 commit——commit 前不对外可见）=====
     const plans: FilePlan[] = [];
@@ -245,7 +296,7 @@ export async function runIndex(
         skipStats.extraction_failed = (skipStats.extraction_failed ?? 0) + 1;
         filesDone++;
         ctx.store.updateJobProgress(kbId, { phase: "extracting", filesDone, skipStats: { ...skipStats } });
-        emit(ctx, kbId, "extracting", "indexing", filesTotal, filesDone, 0);
+        emit(ctx, kbId, "extracting", "indexing", filesTotal, filesDone, 0, 0);
         continue;
       }
       const chunks = chunkDocument({ type: file.type, text, relPath: file.relPath });
@@ -266,7 +317,7 @@ export async function runIndex(
       plans.push(plan);
       filesDone++;
       ctx.store.updateJobProgress(kbId, { phase: "extracting", filesDone, skipStats: { ...skipStats } });
-      emit(ctx, kbId, "extracting", "indexing", filesTotal, filesDone, 0);
+      emit(ctx, kbId, "extracting", "indexing", filesTotal, filesDone, 0, 0);
     }
 
     // ===== 阶段 4：嵌入（批 64，批间让出事件循环；数量不匹配立刻抛错）=====
@@ -284,12 +335,13 @@ export async function runIndex(
         needEmbed.push({ prefixContent: c.prefixContent, backfillId: c.id });
       }
     }
-    ctx.store.updateJobProgress(kbId, { phase: "embedding" });
-    emit(ctx, kbId, "embedding", "indexing", filesTotal, filesDone, 0);
+    chunksTotal = needEmbed.length;
+    ctx.store.updateJobProgress(kbId, { phase: "embedding", chunksTotal });
+    emit(ctx, kbId, "embedding", "indexing", filesTotal, filesDone, 0, chunksTotal);
     for (let i = 0; i < needEmbed.length; i += INDEX_BATCH) {
       throwIfAborted(signal);
       const batch = needEmbed.slice(i, i + INDEX_BATCH);
-      const vecs = await embedFn(batch.map((b) => b.prefixContent));
+      const vecs = await embed(batch.map((b) => b.prefixContent));
       if (vecs.length !== batch.length) {
         throw new Error(`嵌入数量不匹配：期望 ${batch.length}，实际 ${vecs.length}`);
       }
@@ -300,7 +352,7 @@ export async function runIndex(
       }
       chunksDone += batch.length;
       ctx.store.updateJobProgress(kbId, { phase: "embedding", chunksDone });
-      emit(ctx, kbId, "embedding", "indexing", filesTotal, filesDone, chunksDone);
+      emit(ctx, kbId, "embedding", "indexing", filesTotal, filesDone, chunksDone, chunksTotal);
       // 让出事件循环（桌面 UI 不卡；规格 §6.3 硬性要求）
       await new Promise((r) => setTimeout(r, 0));
     }
@@ -310,13 +362,16 @@ export async function runIndex(
     // 失败/异常时 SQLite 自动 ROLLBACK，旧块零丢失——「更新失败旧数据不动」在数据层逐字成立。
     throwIfAborted(signal);
     ctx.store.updateJobProgress(kbId, { phase: "committing" });
-    emit(ctx, kbId, "committing", "indexing", filesTotal, filesDone, chunksDone);
+    emit(ctx, kbId, "committing", "indexing", filesTotal, filesDone, chunksDone, chunksTotal);
     const nowPaths = new Set(preview.indexable.map((f) => f.relPath));
     const removedPaths: string[] = [];
     for (const [path] of existing.byPath) if (!nowPaths.has(path)) removedPaths.push(path);
 
     // 事务闭包内不可引用可变外层变量（TS 无法窄化）：捕获此刻已打开的连接为不可变别名
     const kdb = db as Database;
+    // 本事务是否删/插过行：行重建会让 rowid 变化，量化 shadow（按 rowid JOIN）必须随之重建，
+    // 即便本轮 needEmbed/removedPaths 都为 0（touch 类「mtime 变、内容不变、hash 全复用」）
+    let touchedRows = false;
     const commitAll = kdb.transaction(() => {
       const deleteFileRows = (relPath: string) => {
         // 先删 FTS（子查询依赖 chunks 行）再删块
@@ -325,7 +380,10 @@ export async function runIndex(
       };
       const now = Date.now();
       for (const plan of plans) {
-        if (plan.hasOld) deleteFileRows(plan.relPath);
+        if (plan.hasOld) {
+          deleteFileRows(plan.relPath);
+          touchedRows = true;
+        }
         for (let i = 0; i < plan.chunks.length; i++) {
           const c = plan.chunks[i];
           const reuse = plan.reuse.get(i);
@@ -365,9 +423,11 @@ export async function runIndex(
       lastIndexedAt: Date.now(),
     });
     ctx.store.finishJob(kbId);
-    emit(ctx, kbId, "committing", "ready", filesTotal, filesDone, chunksDone);
-    // 本轮写过或删过向量才刷量化索引（O(N) 全量重建，沿用 memory finish 模式）
-    if (needEmbed.length > 0 || removedPaths.length > 0) refreshKbQuantizedIndex(db);
+    ctx.store.setLastError(kbId, null); // 成功一轮后清空历史失败原因
+    emit(ctx, kbId, "committing", "ready", filesTotal, filesDone, chunksDone, chunksTotal);
+    // 本轮写过/删过向量，或行被删除重建（rowid 变了）才刷量化索引
+    // （O(N) 全量重建，沿用 memory finish 模式；只看 needEmbed/removed 会漏掉 touch 类重建）
+    if (touchedRows || needEmbed.length > 0 || removedPaths.length > 0) refreshKbQuantizedIndex(db);
 
     return { ok: true, cancelled: false, filesTotal, filesDone, chunkCount: chunkTotal, failedCount };
   } catch (err) {
@@ -383,7 +443,7 @@ export async function runIndex(
       // 取消：恢复原状态（新建库 prevStatus=scanning；同库单 job 下 prevStatus 不会是 indexing）
       const restore: KbStatus = prevStatus === "indexing" ? "scanning" : prevStatus;
       ctx.store.updateStatus(kbId, restore);
-      emit(ctx, kbId, "committing", restore, filesTotal, filesDone, chunksDone);
+      emit(ctx, kbId, "committing", restore, filesTotal, filesDone, chunksDone, chunksTotal);
       return {
         ok: false,
         cancelled: true,
@@ -395,9 +455,12 @@ export async function runIndex(
     }
     // 真失败：首次建库计数归零可见失败；更新失败旧 counters 不动（旧索引保持可用）
     ctx.store.updateStatus(kbId, "error", firstRun ? { fileCount: 0, chunkCount: 0, failedCount: 0 } : undefined);
-    emit(ctx, kbId, "committing", "error", filesTotal, filesDone, chunksDone);
+    // 失败原因上界面（此前只进 console.warn，用户只看到「索引中断」）
+    ctx.store.setLastError(kbId, err instanceof Error ? err.message : String(err));
+    emit(ctx, kbId, "committing", "error", filesTotal, filesDone, chunksDone, chunksTotal);
     throw err;
   } finally {
+    releaseKeepAlive();
     db?.close();
   }
 }

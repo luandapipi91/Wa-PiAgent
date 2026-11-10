@@ -3,7 +3,7 @@
 // 沿用 bun:test + @testing-library/react 约定（照 ExtensionSection.test.tsx，断言 toBeTruthy）；
 // 删除确认复用现有 ConfirmDialog，其确认按钮 testid 为 confirm-ok（全仓既有惯例）。
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { KbList } from "../KbList";
 import { useKnowledgeStore } from "../../../store/knowledge";
 import type { KbInfo } from "@wa-pi/shared";
@@ -44,7 +44,7 @@ describe("KbList 状态徽章", () => {
 		expect((badge as HTMLElement).style.color).toBe("var(--success)");
 	});
 
-	test("indexing 库渲染「索引中 42%」", () => {
+	test("indexing 库不渲染「索引中」徽章（进度区文案已说明生成中，徽章重复且误导）", () => {
 		render(
 			<KbList
 				kbs={[
@@ -62,10 +62,49 @@ describe("KbList 状态徽章", () => {
 				]}
 			/>,
 		);
-		const badge = screen.getByText("索引中 42%");
-		expect(badge).toBeTruthy();
-		// 徽章色：索引中蓝（--info 固定蓝，不随 --accent 主题漂移——出厂 accent 是绿）
-		expect((badge as HTMLElement).style.color).toBe("var(--info)");
+		expect(screen.queryByText(/索引中/)).toBeNull();
+		// 进度区仍在：统一文案 + 进度条
+		expect(screen.getByText(/知识库生成中/)).toBeTruthy();
+		expect(screen.getByTestId("kb-progress-kb_2")).toBeTruthy();
+	});
+
+	test("索引进行中：编辑/重建按钮置灰不可点（点了没反应更糟）", () => {
+		const onEdit = mock(() => {});
+		const onReindex = mock(() => {});
+		render(
+			<KbList
+				kbs={[
+					{
+						...kbReady,
+						id: "kb_3",
+						status: "indexing",
+						progress: { phase: "embedding", filesTotal: 10, filesDone: 5, chunksDone: 0 },
+					},
+				]}
+				onEdit={onEdit}
+				onReindex={onReindex}
+			/>,
+		);
+		const edit = screen.getByTestId("kb-edit-kb_3") as HTMLButtonElement;
+		const reindex = screen.getByTestId("kb-reindex-kb_3") as HTMLButtonElement;
+		expect(edit.disabled).toBe(true);
+		expect(reindex.disabled).toBe(true);
+		fireEvent.click(reindex);
+		fireEvent.click(edit);
+		expect(onReindex).not.toHaveBeenCalled();
+		expect(onEdit).not.toHaveBeenCalled();
+	});
+
+	test("就绪库：编辑/重建按钮可用", () => {
+		const onEdit = mock(() => {});
+		const onReindex = mock(() => {});
+		render(<KbList kbs={[kbReady]} onEdit={onEdit} onReindex={onReindex} />);
+		const edit = screen.getByTestId("kb-edit-kb_1") as HTMLButtonElement;
+		const reindex = screen.getByTestId("kb-reindex-kb_1") as HTMLButtonElement;
+		expect(edit.disabled).toBe(false);
+		expect(reindex.disabled).toBe(false);
+		fireEvent.click(reindex);
+		expect(onReindex).toHaveBeenCalledWith("kb_1");
 	});
 
 	test("failedCount>0 渲染「失败 3 文件」且可点击", () => {
@@ -127,12 +166,15 @@ describe("knowledge store：SSE 进度合并", () => {
 			filesTotal: 100,
 			filesDone: 42,
 			chunksDone: 0,
+			chunksTotal: 200,
 			status: "indexing",
 		});
 		const s = useKnowledgeStore.getState();
 		expect(s.progress["kb_1"]?.filesDone).toBe(42);
 		expect(s.kbs[0]?.status).toBe("indexing");
 		expect(s.kbs[0]?.progress?.filesDone).toBe(42);
+		// 块总量必须一并落到库进度上，否则进度条退回文件口径（一上来 100%）
+		expect(s.kbs[0]?.progress?.chunksTotal).toBe(200);
 	});
 
 	test("applyProgress 终态（ready）：清 progress map 与库内 progress", () => {
@@ -164,4 +206,46 @@ describe("knowledge store：SSE 进度合并", () => {
 		expect(s.kbs[0]?.status).toBe("ready");
 		expect(s.kbs[0]?.progress).toBeUndefined();
 	});
+});
+
+test("error 库徽章带失败原因（lastError）作为 title/aria-label", () => {
+  render(
+    <KbList
+      kbs={[
+        {
+          ...kbReady,
+          id: "kb_err",
+          status: "error",
+          lastError: "模型加载失败 model exploded",
+        },
+      ]}
+    />,
+  );
+  const badge = screen.getByTestId("kb-status-kb_err");
+  expect(badge.textContent).toBe("索引中断");
+  // 失败原因必须能被用户看到（悬停/读屏），不能只有四个字
+  expect(badge.getAttribute("title")).toContain("model exploded");
+  expect(badge.getAttribute("aria-label")).toContain("model exploded");
+});
+
+test("终态帧触发一次清单刷新：计数与失败数不会停在创建时的 0", async () => {
+  const { api } = await import("../../../api-client");
+  const getMock = api.get as unknown as { mockClear(): void; mock: { calls: unknown[][] } };
+  getMock.mockClear();
+  useKnowledgeStore.setState({ kbs: [{ ...kbReady, status: "indexing" }], progress: {}, loading: false, loaded: true });
+  useKnowledgeStore.getState().applyProgress({
+    type: "knowledge:progress",
+    kbId: "kb_1",
+    phase: "committing",
+    filesTotal: 3,
+    filesDone: 3,
+    chunksDone: 7,
+    status: "ready",
+  });
+  // fileCount/chunkCount/failedCount/lastIndexedAt 只能从清单回包获得：终态必须补一次拉取
+  await waitFor(() =>
+    expect(
+      getMock.mock.calls.filter((c) => c[0] === "/api/knowledge").length,
+    ).toBe(1),
+  );
 });

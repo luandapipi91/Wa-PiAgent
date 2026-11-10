@@ -42,6 +42,92 @@ describe("KbProgress 进度条", () => {
 		cleanup();
 	});
 
+	test("文案统一「知识库生成中…」：不再按阶段显示「生成向量中…」", () => {
+		render(
+			<KbProgress
+				kb={{
+					...kbReady,
+					status: "indexing",
+					progress: { phase: "embedding", filesTotal: 100, filesDone: 100, chunksDone: 0, chunksTotal: 200 },
+				}}
+				onCancel={mock()}
+			/>,
+		);
+		expect(screen.getByText(/知识库生成中/)).toBeTruthy();
+		expect(screen.queryByText(/生成向量中/)).toBeNull();
+	});
+
+	test("解析阶段只占前 50%：80/100 文件 → 40%（不是 80%）", () => {
+		render(
+			<KbProgress
+				kb={{
+					...kbReady,
+					status: "indexing",
+					progress: { phase: "extracting", filesTotal: 100, filesDone: 80, chunksDone: 0 },
+				}}
+				onCancel={mock()}
+			/>,
+		);
+		expect(screen.getByText("40%")).toBeTruthy();
+	});
+
+	test("嵌入阶段按块推进：文件已全部解析但只嵌了 50/200 块 → 63%（不再一上来 100%）", () => {
+		render(
+			<KbProgress
+				kb={{
+					...kbReady,
+					status: "indexing",
+					progress: { phase: "embedding", filesTotal: 100, filesDone: 100, chunksDone: 50, chunksTotal: 200 },
+				}}
+				onCancel={mock()}
+			/>,
+		);
+		expect(screen.getByText("63%")).toBeTruthy();
+	});
+
+	test("嵌入阶段缺块总量（旧快照未带）→ 停在 50% 而不是 100%", () => {
+		render(
+			<KbProgress
+				kb={{
+					...kbReady,
+					status: "indexing",
+					progress: { phase: "embedding", filesTotal: 100, filesDone: 100, chunksDone: 0 },
+				}}
+				onCancel={mock()}
+			/>,
+		);
+		expect(screen.getByText("50%")).toBeTruthy();
+	});
+
+	test("落库收尾走到 100%", () => {
+		render(
+			<KbProgress
+				kb={{
+					...kbReady,
+					status: "indexing",
+					progress: { phase: "committing", filesTotal: 100, filesDone: 100, chunksDone: 200, chunksTotal: 200 },
+				}}
+				onCancel={mock()}
+			/>,
+		);
+		expect(screen.getByText("100%")).toBeTruthy();
+	});
+
+	test("刚创建扫描中（0 文件）：显示 0% 进度条而非空白", () => {
+		render(
+			<KbProgress
+				kb={{
+					...kbReady,
+					id: "kb_new",
+					status: "scanning",
+					progress: { phase: "scanning", filesTotal: 0, filesDone: 0, chunksDone: 0 },
+				}}
+				onCancel={mock()}
+			/>,
+		);
+		expect(screen.getByText("0%")).toBeTruthy();
+	});
+
 	test("progress 事件驱动进度条更新（审查重点 1）", () => {
 		const onCancel = mock();
 		const { rerender } = render(
@@ -59,13 +145,13 @@ describe("KbProgress 进度条", () => {
 				kb={{
 					...kbReady,
 					status: "indexing",
-					progress: { phase: "embedding", filesTotal: 100, filesDone: 80, chunksDone: 640 },
+					progress: { phase: "embedding", filesTotal: 100, filesDone: 100, chunksDone: 80, chunksTotal: 200 },
 				}}
 				onCancel={onCancel}
 			/>,
 		);
-		// 逐字断言：80%（round(filesDone/filesTotal*100)）
-		expect(screen.getByText(/80%/)).toBeTruthy();
+		// 嵌入阶段按块推进：解析占 50%，嵌入再占 50%（80/200 块 → 50 + 20 = 70%）
+		expect(screen.getByText("70%")).toBeTruthy();
 	});
 
 	test("取消按钮回调", () => {

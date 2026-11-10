@@ -1,7 +1,7 @@
 // 知识库文件监听（任务 11，规格 §6.7「自动更新」）：
 //   - fs.watch(folder, { recursive: true })（Windows 原生支持）是加速器；
 //   - setInterval(60s) 快照轮询是正确性兜底（监听失效/网络盘场景），复用 scanFolder
-//     与索引完全一致的过滤逻辑（excludePaths 同传 []），保证监听范围=索引范围不漂移；
+//     与索引完全一致的过滤逻辑（excludePaths 未接线，与 runIndex 一样省略），保证监听范围=索引范围不漂移；
 //   - 两套机制共用一个防抖槽（2s）：git checkout 式批量变更只触发一轮 update；
 //   - 合并语义：同库 runIndex 进行中再触发 → dirty 标记，本轮完成后自动重跑一次（排队合并，不重复开）。//   - 重入协调（审查修复）：手动更新（ws-server 同一 runIndex）进行中时触发不丢弃，防抖重排//     等待手动完成后自动补跑——变更最多延迟、不丢失；轮询基线仅在索引成功后推进。
 // 监听是库级开关（autoWatch，列表页「自动更新」默认开）：关掉后仅手动更新/重建。
@@ -22,6 +22,15 @@ export type IndexFn = (
   kbId: string,
   signal?: AbortSignal,
 ) => Promise<IndexResult>;
+
+/**
+ * 轮询基线推进判定：只有「成功」才允许推进。
+ * runIndex 取消是正常 resolve（ok:false, cancelled:true）而非抛错——若不看 ok 就推进，
+ * 这批变更会被标记成已消化，轮询再也无法发现差异（变更静默丢失直到下次文件变动）。
+ */
+export function shouldAdvanceBaseline(r: Pick<IndexResult, "ok" | "cancelled">): boolean {
+  return r.ok === true;
+}
 
 export interface WatchKbOptions {
   /** 兜底轮询间隔（默认 60_000；测试注入加速） */
@@ -69,6 +78,8 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let fsWatcher: FSWatcher | null = null;
   let lastSnapshot: string | null = null; // relPath+mtime+size 联合键（scanFolder 已排序；null=基线未就绪）
+  let suppressedSnapshot: string | null = null; // 取消那一刻的目录快照：同批变更不再自动触发（尊重用户取消），
+  // 出现新变更（快照变化）后照常触发——此时基线仍是旧值，全量快筛会把遗留变更一并消化
   let pendingReport = false; // 有未消化的变更已排队（schedule 置位、索引消化后复位）——轮询同一差异只上报一次，
   // 否则基线不推进的轮询会每个周期重复 schedule 重置防抖窗口，timer 永不到期（触发饥饿）
   let currentAbort: AbortController | null = null; // 当前进行中那轮索引的控制器（每轮新建，索引间隙为 null）
@@ -91,11 +102,11 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   }
 
   /**
-   * 目录快照：复用 scanFolder 过滤逻辑（excludePaths 与 runIndex 同传 []），
+   * 目录快照：复用 scanFolder 过滤逻辑（excludePaths 未接线，与 runIndex 一致省略），
    * 只取可索引清单的 relPath+mtime+size——与增量快筛判定同源，监听范围=索引范围。
    */
   async function takeSnapshot(): Promise<string> {
-    const preview = await scanFolder(folder, []);
+    const preview = await scanFolder(folder);
     return preview.indexable.map((f) => `${f.relPath}|${f.mtime}|${f.size}`).join("\n");
   }
 
@@ -114,13 +125,15 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
     }
     running = true;
     try {
+      let allOk = true;
       do {
         dirty = false;
         // 每轮独立控制器：cancelIndex 只中止当前轮，watcher（监听/轮询）继续存活接后续触发
         const abort = new AbortController();
         currentAbort = abort;
         try {
-          await indexFn(ctx, kbId, abort.signal);
+          const r = await indexFn(ctx, kbId, abort.signal);
+          allOk = allOk && shouldAdvanceBaseline(r);
         } finally {
           if (currentAbort === abort) currentAbort = null;
         }
@@ -129,8 +142,17 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
       // 拍当前目录快照——含本轮进行中窗口内被 runIndex 消化的变更；
       // 「落库后、快照前」毫秒级写入的极端竞态留待下次变更/轮询触发全量快筛消化，不会永久丢失
       if (!stopped) {
-        lastSnapshot = await takeSnapshot();
-        pendingReport = false; // 变更已消化：轮询可恢复上报新差异
+        if (allOk) {
+          lastSnapshot = await takeSnapshot();
+          suppressedSnapshot = null;
+          pendingReport = false; // 变更已消化：轮询可恢复上报新差异
+        } else {
+          // 取消（或未成功）：基线不推进（差异信号保留），但记下当前快照抑制同批重试——
+          // 用户主动取消后不应被下一轮轮询立刻推翻；出现新变更时快照与 suppressed 不同，
+          // 轮询照常触发，那轮全量快筛会把遗留变更一并消化
+          suppressedSnapshot = await takeSnapshot();
+          pendingReport = false;
+        }
       }
     } catch (err) {
       // job 行仍在 = 触发遭重入拒绝（TOCTOU 窗口：前置检查后手动任务才起跑）——
@@ -192,7 +214,8 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
       }
       if (stopped) return;
       if (lastSnapshot !== null && snap !== lastSnapshot) {
-        if (!pendingReport) schedule(); // 同一差异只上报一次（见 pendingReport 声明处注释）
+        // 与取消时刻完全相同的差异不再上报（尊重取消）；slow 变化会改变快照 → 恢复触发
+        if (snap !== suppressedSnapshot && !pendingReport) schedule();
         return; // 基线推进权在 trigger 成功路径（见 trigger 内注释）
       }
       lastSnapshot = snap; // 无差异：快照与基线一致，刷新无害（含首轮建基线）

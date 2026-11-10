@@ -245,3 +245,37 @@ test("指纹不匹配：跳过向量通道、BM25 照常、skippedKbs 注明 emb
   // 向量通道确实被跳过：语义专属块不在结果
   expect(r.results.some((h) => h.title === "水果")).toBe(false);
 });
+
+test("词法通道 AND 零命中时降级 OR 重查：长问句只部分重叠也能召回", async () => {
+  const kbId = setupKb("长问句库", [
+    // 块里只有「定价政策」，不含「说明」相关 bigram
+    { content: "定价政策：按年订阅享九折。", title: "定价", filePath: "docs/p.md" },
+  ]);
+  // 查询「定价政策说明」的四字 / 三字组合与块部分重叠：
+  // AND 语义下需要同时出现「政说」「说明」等 bigram → 零命中；OR 回退应召回
+  const r = await searchKnowledge(ctx, [kbId], "定价政策说明", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  expect(r.results.length).toBeGreaterThan(0);
+  expect(r.results[0].title).toBe("定价");
+});
+
+test("索引失败的库只要有旧索引仍可检索，结果标注 stale（不再整库下线）", async () => {
+  const kbId = setupKb("失败但有旧索引", [{ content: "定价政策说明。", title: "定价" }]);
+  // 更新失败：status=error，但 counters 与 lastIndexedAt 保留（旧索引数据还在库里）
+  store.updateStatus(kbId, "ready", { fileCount: 1, chunkCount: 1, lastIndexedAt: Date.now() });
+  store.updateStatus(kbId, "error");
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  expect(r.results[0].title).toBe("定价");
+  expect(r.results[0].stale).toBe(true);
+  // 不再作为 not_ready 跳过
+  expect(r.skippedKbs.some((s) => s.reason === "not_ready")).toBe(false);
+});
+
+test("error 且从未成功索引过的库仍被跳过（无可用旧索引）", async () => {
+  const kbId = setupKb("首建失败", [{ content: "定价政策说明。", title: "定价" }]);
+  store.updateStatus(kbId, "error", { fileCount: 0, chunkCount: 0, failedCount: 0 });
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(false);
+  expect(r.skippedKbs).toContainEqual({ kbId, reason: "not_ready" });
+});

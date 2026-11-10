@@ -1,8 +1,12 @@
 // 知识库扫描器：索引管线第一阶段「先数不写」的只读预览（规格 §6.3）。
 // 三层过滤，优先级从高到低：
 //   1. 用户显式排除（excludePaths，整棵子树剪掉，不记 skips——六类枚举无 user_excluded）
-//   2. 建议排除（SUGGESTED_EXCLUDES ~40 条内置规则，可被用户确认覆盖）
-//   3. 技术跳过（不可覆盖）：>10MiB oversized → 前 512B 含 0x00 binary → 读失败 unreadable/inaccessible
+//      ⚠️ 当前未接线：产品层没有排除入口，preview/indexer/watcher 三处调用都省略该参数
+//      （= 空数组）。实现保留完整，后续给 knowledge_bases 加 exclude_paths 列并透传 events 即可启用。
+//   2. 建议排除（SUGGESTED_EXCLUDES ~40 条内置规则）——当前是固定规则，用户不可覆盖
+//      （设计上的「确认后覆盖」尚未实现）
+//   3. 技术跳过（不可覆盖）：>10MiB oversized → 前 512B 含 0x00 binary（docx/pdf 容器格式豁免）
+//      → 读失败 unreadable/inaccessible
 // 只读约束：不向源目录写任何文件；符号链接一律不跟随（防止逃出源目录边界）。
 import { readdirSync, statSync, openSync, readSync, closeSync, type Dirent } from "node:fs";
 import { join } from "node:path";
@@ -125,7 +129,11 @@ export function isAccessDenied(e: unknown): boolean {
  * 只读 stat 遍历，不写入源目录；符号链接一律不跟随。
  * 输出按路径排序保证跨平台确定性。
  */
-export async function scanFolder(folderPath: string, excludePaths: string[]): Promise<ScanPreview> {
+export async function scanFolder(
+  folderPath: string,
+  /** 用户显式排除（相对路径或目录名）；当前产品层未接线，调用方省略 = 不过滤 */
+  excludePaths: string[] = [],
+): Promise<ScanPreview> {
   const indexable: ScannedFile[] = [];
   const skips: ScanSkip[] = [];
   const normExcludes = excludePaths
@@ -194,20 +202,25 @@ export async function scanFolder(folderPath: string, excludePaths: string[]): Pr
       skips.push({ path: relPath, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
       return;
     }
+    const type = detectType(relPath);
     if (size > MAX_FILE_BYTES) {
       skips.push({ path: relPath, reason: "oversized" });
       return;
     }
-    try {
-      if (looksBinary(absFile)) {
-        skips.push({ path: relPath, reason: "binary" });
+    // docx/pdf 是容器格式（ZIP / 压缩流），前 512 字节必然含 0x00——嗅探只对可能被
+    // 当纯文本读的文本类与未识别扩展名有意义，对这两类声明支持的格式探测会把整类误杀
+    if (type !== "docx" && type !== "pdf") {
+      try {
+        if (looksBinary(absFile)) {
+          skips.push({ path: relPath, reason: "binary" });
+          return;
+        }
+      } catch (e) {
+        skips.push({ path: relPath, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
         return;
       }
-    } catch (e) {
-      skips.push({ path: relPath, reason: isAccessDenied(e) ? "inaccessible" : "unreadable" });
-      return;
     }
-    indexable.push({ relPath, absPath: absFile, type: detectType(relPath), size, mtime });
+    indexable.push({ relPath, absPath: absFile, type, size, mtime });
   }
 
   function walkDir(absDir: string, relDir: string): void {

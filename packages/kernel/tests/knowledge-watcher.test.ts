@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore } from "../src/knowledge/store";
 import { runIndex, type KbContext, type EmbedFn, type IndexResult } from "../src/knowledge/indexer";
-import { watchKb, restoreWatchers, type WatchKbOptions } from "../src/knowledge/watcher";
+import { watchKb, restoreWatchers, shouldAdvanceBaseline, type WatchKbOptions } from "../src/knowledge/watcher";
+import { openKbDb } from "../src/knowledge/kb-db";
 import { EMBED_DIM } from "../src/memory/schema";
 
 // 知识库文件监听测试（任务 11，规格 §6.7）：真实临时目录 + 真实 fs.watch，
@@ -232,4 +233,48 @@ test("cancelIndex 仅中止当前轮自动索引，watcher（监听/轮询）继
   } finally {
     w.stop();
   }
+});
+
+test("基线推进判定：只有成功才推进——取消（正常 resolve）与失败都不推进", () => {
+  // runIndex 取消是「正常 resolve 但 ok:false」，若不判定 ok 就推进基线，
+  // 这批变更会被标记为已消化，轮询再也无法兜回（审查发现的静默丢变更）
+  expect(shouldAdvanceBaseline({ ok: true, cancelled: false })).toBe(true);
+  expect(shouldAdvanceBaseline({ ok: false, cancelled: true })).toBe(false);
+  expect(shouldAdvanceBaseline({ ok: false, cancelled: false })).toBe(false);
+});
+
+test("取消后同批变更不被轮询立刻重试（尊重用户取消），新变更到来仍能触发", async () => {
+  const initialCount = await initialIndex();
+  let calls = 0;
+  const w = watchKb(ctx, kbId, {
+    embedFn: fakeEmbed,
+    pollIntervalMs: 300,
+    debounceMs: 200,
+    indexFn: async (_c, _id, _signal) => {
+      calls++;
+      if (calls === 1) {
+        // 首轮：用户取消（runIndex 取消语义 = 正常 resolve + ok:false）
+        return { ok: false, cancelled: true, filesTotal: 1, filesDone: 0, chunkCount: initialCount, failedCount: 0 };
+      }
+      return runIndex(ctx, kbId, fakeEmbed) as Promise<IndexResult>;
+    },
+  });
+  await writeMd("b.md", "# B\n\n取消前的新文件。");
+  await waitFor(() => calls >= 1, 4000);
+  // 跨过多个轮询周期：同批变更不得自动重试（否则「取消」形同虚设）
+  await sleep(1200);
+  expect(calls).toBe(1);
+  // 新变更到来：基线未推进 → 差异重新触发，且这轮会把取消前那批一起索引
+  await writeMd("c.md", "# C\n\n又一个文件。");
+  await waitFor(() => calls >= 2, 6000);
+  await waitFor(() => {
+    const db = openKbDb(waPiDir, kbId);
+    try {
+      const n = (db.query("SELECT COUNT(*) c FROM chunks WHERE file_path = 'b.md'").get() as { c: number }).c;
+      return n > 0;
+    } finally {
+      db.close();
+    }
+  }, 6000);
+  w.stop();
 });

@@ -1,7 +1,7 @@
 // KbFormModal — 知识库新建/编辑弹窗（任务 B3，仿 McpFormModal 模式：Modal 壳 + 表单体）
 //
-// 两段式（新建）：选路径 →「扫描预览」POST /api/knowledge/preview → 展示可索引数 +
-// 跳过原因计数 →「创建并索引」经 onSave（调用方 KnowledgePage 发 POST /api/knowledge）；
+// 两段式（新建）：选路径（浏览/目录树选中/手输后失焦或回车，自动触发）POST /api/knowledge/preview
+// → 展示可索引数 + 跳过原因计数 →「创建并索引」经 onSave（调用方 KnowledgePage 发 POST /api/knowledge）；
 // 编辑模式走 PUT 只更新名称/描述（源文件夹创建后不可改，只读展示）。
 //
 // 文件夹选择对齐 projects store 惯例（createProjectFromDir）：Electron 下用原生系统目录
@@ -106,18 +106,23 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
   // 扫描序号：改路径/再次扫描即作废在途响应（resolve 时序号不匹配则丢弃），
   // 防止旧路径的预览落地误导新路径提交（架空两段式确认语义）
   const scanSeqRef = useRef(0);
+  // 已扫描路径：自动触发（失焦/回车/选完目录）对同一路径去重，避免无意义重复请求；
+  // 扫描失败时清空，允许同路径再次触发重试
+  const scannedPathRef = useRef("");
 
   const changeFolder = (v: string) => {
     setFolderPath(v);
     // 路径变了：作废在途扫描（旧响应 resolve 后被序号检查丢弃）并清旧预览
     scanSeqRef.current += 1;
+    scannedPathRef.current = "";
     setScanning(false);
     setPreview(null);
     setScanError(undefined);
     setInlineError(undefined);
   };
 
-  // 「浏览」：Electron 原生目录对话框优先，浏览器回退 DirTreePicker
+  // 「浏览」：Electron 原生目录对话框优先，浏览器回退 DirTreePicker；
+  // 选定即自动扫描预览
   const browseFolder = async () => {
     const show = (
       window as {
@@ -126,19 +131,21 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
     ).waPiApp?.showOpenDirectoryDialog;
     if (show) {
       const dir = await show();
-      if (dir) changeFolder(dir);
+      if (dir) {
+        changeFolder(dir);
+        void runScan(dir);
+      }
       return;
     }
     setPickerOpen(true);
   };
 
-  // 第一段：扫描预览（临时目录也可扫——只扫不建库，kernel 存在性校验在此兜底）
-  const handleScan = async () => {
-    const p = folderPath.trim();
-    if (!p) {
-      setInlineError(t("kb.pleaseSelectFolder"));
-      return;
-    }
+  // 第一段：扫描预览（临时目录也可扫——只扫不建库，kernel 存在性校验在此兜底）。
+  // 由选路径动作自动触发（浏览/目录树/失焦/回车），无需单独的扫描按钮
+  const runScan = async (rawPath: string) => {
+    const p = rawPath.trim();
+    if (!p || p === scannedPathRef.current) return;
+    scannedPathRef.current = p;
     const seq = ++scanSeqRef.current;
     setScanning(true);
     setScanError(undefined);
@@ -150,7 +157,10 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
       // 本次扫描仍是最新一次才落地（期间改过路径/重新扫描则丢弃旧响应）
       if (seq === scanSeqRef.current) setPreview(data?.preview ?? null);
     } catch (e) {
-      if (seq === scanSeqRef.current) setScanError(formatApiError(e));
+      if (seq === scanSeqRef.current) {
+        setScanError(formatApiError(e));
+        scannedPathRef.current = ""; // 失败允许同路径重试（再次失焦/回车）
+      }
     } finally {
       if (seq === scanSeqRef.current) setScanning(false);
     }
@@ -221,7 +231,7 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
         </div>
         <div className="p-4 overflow-y-auto" style={{ maxHeight: "72vh" }}>
           <div className="flex flex-col gap-2.5" data-testid="kb-form">
-            {/* 源文件夹：编辑模式只读（PUT 不收 folderPath）；新建 = 文本输入 + 浏览 + 扫描预览 */}
+            {/* 源文件夹：编辑模式只读（PUT 不收 folderPath）；新建 = 文本输入 + 浏览（选定即自动扫描预览） */}
             <Field label={t("kb.folderLabel")}>
               {editing ? (
                 <div
@@ -243,6 +253,10 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
                       placeholder={t("kb.folderPlaceholder")}
                       value={folderPath}
                       onChange={(e) => changeFolder(e.target.value)}
+                      onBlur={() => void runScan(folderPath)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void runScan(folderPath);
+                      }}
                       data-testid="kb-folder-input"
                     />
                     <button
@@ -259,21 +273,16 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
                       {t("kb.browse")}
                     </button>
                   </div>
+                  {/* 扫描状态行：自动扫描进行中提示 / 失败文案（无手动扫描按钮，选路径即预览） */}
                   <div className="flex items-center gap-2 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => void handleScan()}
-                      disabled={scanning}
-                      className="text-[calc(11px*var(--font-scale))] font-semibold px-2.5 py-1 rounded-md"
-                      style={{
-                        background: "var(--accent-soft)",
-                        color: "var(--accent)",
-                        border: "none",
-                      }}
-                      data-testid="kb-scan"
-                    >
-                      {scanning ? t("kb.scanning") : t("kb.scanButton")}
-                    </button>
+                    {scanning && (
+                      <span
+                        className="text-[calc(11px*var(--font-scale))] text-tertiary"
+                        data-testid="kb-scanning"
+                      >
+                        {t("kb.scanning")}
+                      </span>
+                    )}
                     <FieldError
                       message={scanError}
                       testId="kb-scan-error"
@@ -376,18 +385,17 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
           </div>
         </div>
       </Modal>
-      {/* DirTreePicker 自身是 fixed z-50，与 Modal overlay 同级；包一层 z-60 确保盖在弹窗之上 */}
+      {/* DirTreePicker 自带 portal 到 body 顶层（层级高于 Modal 遮罩），直接挂即可 */}
       {pickerOpen && (
-        <div className="fixed inset-0" style={{ zIndex: 60 }}>
-          <DirTreePicker
-            showFiles={false}
-            onPick={(p) => {
-              setPickerOpen(false);
-              changeFolder(p);
-            }}
-            onCancel={() => setPickerOpen(false)}
-          />
-        </div>
+        <DirTreePicker
+          showFiles={false}
+          onPick={(p) => {
+            setPickerOpen(false);
+            changeFolder(p);
+            void runScan(p);
+          }}
+          onCancel={() => setPickerOpen(false)}
+        />
       )}
     </>
   );

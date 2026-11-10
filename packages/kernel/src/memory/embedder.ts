@@ -34,7 +34,31 @@ export const EMBEDDER_IDLE_UNLOAD_MS = 5 * 60_000;
 let lastUsedAt = 0;
 /** 推理进行中计数：>0 时不卸载（防「卸到一半有人在用」） */
 let inflight = 0;
+/**
+ * 长任务保活引用计数：>0 时不卸载。用于知识库索引这类「间隔很久才调一次嵌入」的长任务
+ * （抽取阶段可能连续几分钟不打模型）——否则模型会在任务中途被空闲回收，嵌入阶段重新加载。
+ */
+let keepAlive = 0;
 let idleTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 取一个保活引用：返回释放函数（幂等，重复调用不重复扣减）。
+ * 长任务在开始时 acquire、结束时 release，期间空闲卸载一律不生效。
+ */
+export function acquireEmbedderKeepAlive(): () => void {
+  keepAlive++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    keepAlive = Math.max(0, keepAlive - 1);
+  };
+}
+
+/** 测试用探针：当前保活引用数 */
+export function embedderKeepAliveCountForTest(): number {
+  return keepAlive;
+}
 
 /** 测试用：重置单例状态 */
 export function resetEmbedderForTest(opts: { failNextLoad?: boolean } = {}): void {
@@ -45,6 +69,7 @@ export function resetEmbedderForTest(opts: { failNextLoad?: boolean } = {}): voi
   queryCalls = 0;
   lastUsedAt = 0;
   inflight = 0;
+  keepAlive = 0;
   if (idleTimer) {
     clearInterval(idleTimer);
     idleTimer = null;
@@ -81,15 +106,22 @@ export function isEmbedderReady(): boolean {
   return state.status === "ready";
 }
 
-/** 空闲卸载判定（纯函数，便于离线表驱动测试）：有管道 + 无推理进行中 + 有使用记录 + 超阈值 */
+/** 空闲卸载判定（纯函数，便于离线表驱动测试）：有管道 + 无推理进行中 + 无保活 + 有使用记录 + 超阈值 */
 export function shouldUnloadForIdle(
   now: number,
   lastUsed: number,
   inflightCount: number,
   hasPipe: boolean,
   threshold: number = EMBEDDER_IDLE_UNLOAD_MS,
+  keepAliveCount: number = 0,
 ): boolean {
-  return hasPipe && inflightCount === 0 && lastUsed > 0 && now - lastUsed >= threshold;
+  return (
+    hasPipe &&
+    inflightCount === 0 &&
+    keepAliveCount === 0 &&
+    lastUsed > 0 &&
+    now - lastUsed >= threshold
+  );
 }
 
 /**
@@ -121,7 +153,7 @@ export async function unloadModel(): Promise<void> {
 
 /** 空闲卸载入口（定时器每 60s 调一次；now 可注入测试）。返回是否真的卸了。 */
 export async function maybeUnloadForIdle(now: number = Date.now()): Promise<boolean> {
-  if (!shouldUnloadForIdle(now, lastUsedAt, inflight, pipe !== null)) return false;
+  if (!shouldUnloadForIdle(now, lastUsedAt, inflight, pipe !== null, EMBEDDER_IDLE_UNLOAD_MS, keepAlive)) return false;
   await unloadModel();
   console.log(
     `[memory-semantic] embedding 模型空闲 ${Math.round(EMBEDDER_IDLE_UNLOAD_MS / 60_000)} 分钟，已卸载（下次使用自动重载）`,

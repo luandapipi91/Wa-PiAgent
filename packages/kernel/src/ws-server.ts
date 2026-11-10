@@ -3055,7 +3055,8 @@ export class WSServer {
 						break;
 					}
 					// 低频交互路径（任务 3 次要③：scanFolder 全同步 IO，勿进高频链路）
-					const preview = await scanFolder(folderPath, []);
+					// excludePaths（扫描第 1 层）未接线，省略 = 不过滤
+					const preview = await scanFolder(folderPath);
 					reply({
 						type: "knowledge:preview",
 						preview: {

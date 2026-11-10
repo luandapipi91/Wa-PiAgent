@@ -26,6 +26,8 @@ export interface KbJob {
   filesTotal: number | null;
   filesDone: number | null;
   chunksDone: number | null;
+  /** 本轮待嵌入块总量（embedding 阶段前为 null） */
+  chunksTotal: number | null;
   /** 跳过原因 → 数量（skip_stats JSON 解析结果） */
   skipStats: Record<string, number> | null;
   lastProgressAt: number;
@@ -43,6 +45,7 @@ interface KbRow {
   failed_count: number | null;
   auto_watch: number;
   last_indexed_at: number | null;
+  last_error: string | null;
   created_at: number;
 }
 
@@ -58,12 +61,14 @@ function rowToKb(row: KbRow, job: KbJob | null): KbInfo {
     failedCount: row.failed_count ?? 0,
     autoWatch: row.auto_watch === 1,
     lastIndexedAt: row.last_indexed_at,
+    lastError: row.last_error ?? null,
     progress: job
       ? {
           phase: job.phase,
           filesTotal: job.filesTotal ?? 0,
           filesDone: job.filesDone ?? 0,
           chunksDone: job.chunksDone ?? 0,
+          chunksTotal: job.chunksTotal ?? 0,
         }
       : undefined,
   };
@@ -74,7 +79,31 @@ export class KnowledgeStore {
     private readonly db: Database,
     /** WA_PI_DIR：deleteKb 定位每库 db 文件用；routes 层构建 KbContext 也读它（openKbDb） */
     readonly waPiDir: string,
-  ) {}
+  ) {
+    this.migrateJobTable();
+  }
+
+  /**
+   * 轻量迁移：已发布版本的 knowledge.db 里缺列，CREATE TABLE IF NOT EXISTS 不会补——
+   * 按实际列名检查后 ALTER 补齐（幂等）。
+   *   · indexing_jobs.chunks_total（embedding 阶段进度）
+   *   · knowledge_bases.last_error（失败原因上界面）
+   */
+  private migrateJobTable(): void {
+    const ensure = (table: string, column: string, ddl: string) => {
+      const cols = this.db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (cols.length > 0 && !cols.some((c) => c.name === column)) {
+        this.db.run(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      }
+    };
+    ensure("indexing_jobs", "chunks_total", "chunks_total INTEGER");
+    ensure("knowledge_bases", "last_error", "last_error TEXT");
+  }
+
+  /** 记录/清空最近一次整轮索引失败原因（成功收尾传 null） */
+  setLastError(id: string, message: string | null): void {
+    this.db.run(`UPDATE knowledge_bases SET last_error = ? WHERE id = ?`, [message, id]);
+  }
 
   /** 删库回调（悬挂绑定清理）：接线处经 setOnKbDeleted 注册，deleteKb 时按注册顺序遍历调用 */
   private onKbDeletedCbs: Array<(kbId: string) => void> = [];
@@ -240,7 +269,7 @@ export class KnowledgeStore {
   /** 部分更新 job 进度；每次调用都刷新 last_progress_at（卡死判定依据） */
   updateJobProgress(
     kbId: string,
-    patch: Partial<{ phase: KbPhase; filesTotal: number; filesDone: number; chunksDone: number; skipStats: Record<string, number> }>,
+    patch: Partial<{ phase: KbPhase; filesTotal: number; filesDone: number; chunksDone: number; chunksTotal: number; skipStats: Record<string, number> }>,
   ): void {
     const sets = ["last_progress_at = ?"];
     const args: (string | number)[] = [Date.now()];
@@ -259,6 +288,10 @@ export class KnowledgeStore {
     if (patch.chunksDone !== undefined) {
       sets.push("chunks_done = ?");
       args.push(patch.chunksDone);
+    }
+    if (patch.chunksTotal !== undefined) {
+      sets.push("chunks_total = ?");
+      args.push(patch.chunksTotal);
     }
     if (patch.skipStats !== undefined) {
       sets.push("skip_stats = ?");
@@ -281,6 +314,7 @@ export class KnowledgeStore {
           files_total: number | null;
           files_done: number | null;
           chunks_done: number | null;
+          chunks_total: number | null;
           skip_stats: string | null;
           last_progress_at: number;
           created_at: number;
@@ -293,6 +327,7 @@ export class KnowledgeStore {
       filesTotal: row.files_total,
       filesDone: row.files_done,
       chunksDone: row.chunks_done,
+      chunksTotal: row.chunks_total,
       skipStats: row.skip_stats ? (JSON.parse(row.skip_stats) as Record<string, number>) : null,
       lastProgressAt: row.last_progress_at,
       createdAt: row.created_at,

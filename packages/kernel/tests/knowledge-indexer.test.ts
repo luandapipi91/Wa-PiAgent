@@ -1,14 +1,21 @@
 import { test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore } from "../src/knowledge/store";
 import { openKbDb } from "../src/knowledge/kb-db";
-import { runIndex, type KbContext, type EmbedFn } from "../src/knowledge/indexer";
+import { kbQuantizedScan } from "../src/knowledge/vector";
+import {
+  runIndex,
+  wrapEmbedWithYield,
+  EMBED_YIELD_SUB_BATCH,
+  type KbContext,
+  type EmbedFn,
+} from "../src/knowledge/indexer";
 import { EMBED_DIM } from "../src/memory/schema";
-import { embedFingerprint } from "../src/memory/embedder";
+import { embedFingerprint, embedderKeepAliveCountForTest } from "../src/memory/embedder";
 import type { KbProgressEvent } from "@wa-pi/shared";
 
 // 索引编排器测试：注入 fake embed 绕开真实模型（与简报一致：全 128 填充的 768 维向量）。
@@ -160,8 +167,10 @@ test("进度持久化：embedding 阶段每批写 job", async () => {
     return fakeEmbed(texts);
   });
   await runIndex(ctx, kbId, probe);
-  expect(snapshots.length).toBe(2); // ceil(70/64)
-  expect(snapshots[1]).toBe(64); // 第 2 批开跑时第 1 批进度已落库
+  // 外部批仍按 64 记账（2 批），但推理按子批 4 切碎让出 → 共 18 次调用（16 + 2）
+  expect(snapshots.length).toBe(18);
+  expect(snapshots[16]).toBe(64); // 外部第 2 批开跑时第 1 批进度已落库
+  expect(snapshots.slice(0, 16).every((v) => v === null)).toBe(true); // 第 1 批未收尾前不写 chunksDone
   expect(store.getJob(kbId)).toBeNull(); // 收尾 job 清除
 });
 
@@ -222,6 +231,114 @@ test("SSE 进度事件：knowledge:progress 五阶段推进 + 终态 ready", asy
   expect(phases).toContain("embedding");
 });
 
+test("嵌入按子批让出：外部批被切碎，顺序与数量不变（主线程不被单批推理长时间占死）", async () => {
+  const calls: number[] = [];
+  // 用索引编码返回值，验证子批拼接后顺序不串
+  const probe: EmbedFn = async (texts) => {
+    calls.push(texts.length);
+    return texts.map((t) => new Uint8Array([Number(t.slice(1))]));
+  };
+  const wrapped = wrapEmbedWithYield(probe);
+  const texts = Array.from({ length: 20 }, (_, i) => `t${i}`);
+  const out = await wrapped(texts);
+  expect(calls).toEqual([4, 4, 4, 4, 4]);
+  expect(out.map((v) => v[0])).toEqual(texts.map((_, i) => i));
+});
+
+test("子批之间让出事件循环：让出窗口内排队的宏任务先于下一子批执行", async () => {
+  let ticked = 0;
+  const seen: number[] = [];
+  const probe: EmbedFn = async (texts) => {
+    seen.push(ticked);
+    if (seen.length === 1) setTimeout(() => ticked++, 0);
+    return texts.map(() => new Uint8Array(EMBED_DIM).fill(1));
+  };
+  const wrapped = wrapEmbedWithYield(probe);
+  await wrapped(Array.from({ length: 20 }, (_, i) => `t${i}`));
+  // 第一个子批之后，每进入下一个子批时 timer 都已跑过（中间确实让出了事件循环）
+  expect(seen.slice(1).every((v) => v === 1)).toBe(true);
+});
+
+test("子批让出后响应取消：signal 已中止则下一次让出即抛错", async () => {
+  const controller = new AbortController();
+  const probe: EmbedFn = async (texts) => {
+    controller.abort(); // 第一批完成后取消
+    return texts.map(() => new Uint8Array(EMBED_DIM).fill(1));
+  };
+  const wrapped = wrapEmbedWithYield(probe, undefined, controller.signal);
+  await expect(wrapped(Array.from({ length: 20 }, (_, i) => `t${i}`))).rejects.toThrow("索引已取消");
+});
+
+test("索引默认走子批让出（外部包 64 条时实际推理调用不超过子批上限）", async () => {
+  // 70 块 → 外部 2 批（64+6）→ 子批切分成 [4×16, 4+2]
+  for (const f of ["a.md", "b.txt"]) rmSync(join(srcDir, f));
+  const sections: string[] = [];
+  for (let i = 1; i <= 70; i++) sections.push(`# 节${i}\n\n第${i}节内容段落。`);
+  writeFileSync(join(srcDir, "many.md"), sections.join("\n\n"));
+  const sizes: number[] = [];
+  const probe: EmbedFn = async (texts) => {
+    sizes.push(texts.length);
+    return fakeEmbed(texts);
+  };
+  await runIndex(ctx, kbId, probe);
+  expect(sizes.length).toBe(18);
+  expect(Math.max(...sizes)).toBeLessThanOrEqual(EMBED_YIELD_SUB_BATCH);
+  expect(sizes.reduce((a, b) => a + b, 0)).toBe(70);
+});
+
+test("进度事件带 chunksTotal：embedding 阶段暴露块总量，逐批追平（进度条要真实推进）", async () => {
+  const probe = mock(fakeEmbed);
+  await runIndex(ctx, kbId, probe);
+  const total = probe.mock.calls.reduce((sum, call) => sum + call[0].length, 0);
+  expect(total).toBeGreaterThan(0);
+  const embeddingFrames = events.filter((e) => e.phase === "embedding" && e.status === "indexing");
+  expect(embeddingFrames.length).toBeGreaterThan(0);
+  // 嵌入阶段每一帧都带块总量（前端据此算 0→100 的推进，而不是用文件数冒充）
+  expect(embeddingFrames.every((e) => e.chunksTotal === total)).toBe(true);
+  // 首帧 chunksDone=0，末帧追平总量
+  expect(embeddingFrames[0].chunksDone).toBe(0);
+  expect(embeddingFrames.at(-1)!.chunksDone).toBe(total);
+  // 嵌入之前的阶段没有块总量可言，显式给 0（避免前端拿到 undefined 又要分支）
+  expect(
+    events.filter((e) => e.phase === "scanning" || e.phase === "extracting").every((e) => e.chunksTotal === 0),
+  ).toBe(true);
+});
+
+test("job 行同步持久化 chunksTotal（刷新/断连后快照也能算真实进度）", async () => {
+  const snapshots: Array<number | null> = [];
+  const probe: EmbedFn = async (texts) => {
+    snapshots.push(store.getJob(kbId)?.chunksTotal ?? null);
+    return fakeEmbed(texts);
+  };
+  await runIndex(ctx, kbId, probe);
+  expect(snapshots.length).toBeGreaterThan(0);
+  // 嵌入开始前 job 行已写入块总量（每批开跑时都能读到）
+  expect(snapshots.every((v) => v !== null && v > 0)).toBe(true);
+});
+
+test("索引全程持有 embedder 保活引用：抽取/嵌入期间模型不会被空闲卸载", async () => {
+  const seen: number[] = [];
+  const probe: EmbedFn = async (texts) => {
+    seen.push(embedderKeepAliveCountForTest());
+    return fakeEmbed(texts);
+  };
+  await runIndex(ctx, kbId, probe);
+  expect(seen.length).toBeGreaterThan(0);
+  // 嵌入调用发生时就已持有保活（索引开始即 acquire，覆盖抽取阶段的长时间不调嵌入）
+  expect(seen.every((n) => n >= 1)).toBe(true);
+});
+
+test("索引收尾释放保活引用（成功/失败都不泄漏）", async () => {
+  const before = embedderKeepAliveCountForTest();
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(embedderKeepAliveCountForTest()).toBe(before);
+  // 失败路径：环境异常（这里用空嵌入触发数量不匹配）也要释放
+  writeFileSync(join(srcDir, "c.md"), "# C\n\n新增内容。");
+  const bad: EmbedFn = () => Promise.resolve([]);
+  await expect(runIndex(ctx, kbId, bad)).rejects.toThrow();
+  expect(embedderKeepAliveCountForTest()).toBe(before);
+});
+
 test("commit 中途失败：单事务回滚，旧块零丢失（更新失败旧数据不动）", async () => {
   await runIndex(ctx, kbId, fakeEmbed);
   const before = chunkCount();
@@ -271,4 +388,53 @@ test("重入防护：已有活动 job 时二次 runIndex 被拒", async () => {
 
 test("kb 不存在时抛错", async () => {
   await expect(runIndex(ctx, "no-such-kb", fakeEmbed)).rejects.toThrow();
+});
+
+test("mtime 变但内容不变（行重建、hash 全复用）也刷新量化索引：语义通道仍能命中", async () => {
+  // 量化要求合法 float32 向量（Uint8Array.fill(128) 是字节填充，会被扩展判为非法 blob）
+  const floatEmbed: EmbedFn = async (texts) =>
+    texts.map(() => new Uint8Array(new Float32Array(new Array(EMBED_DIM).fill(0.1)).buffer));
+  await runIndex(ctx, kbId, floatEmbed);
+  // touch：mtime 变、size 与内容不变 → 快筛不命中 → 重切块 → contentHash 全复用（needEmbed=0）
+  // 但 commit 仍删除并重建行（rowid 变化），量化 shadow 按 rowid JOIN，不刷新就会错位
+  const t = Date.now() / 1000 + 5;
+  utimesSync(join(srcDir, "a.md"), t, t);
+  const r2 = await runIndex(ctx, kbId, floatEmbed);
+  expect(r2.ok).toBe(true);
+  withKbDb((db) => {
+    const vec = new Uint8Array(new Float32Array(new Array(EMBED_DIM).fill(0.1)).buffer);
+    const hits = kbQuantizedScan(db, vec, 50);
+    // 全部块都必须能被量化扫描覆盖：a.md 的行被删后重插（rowid 变化），
+    // shadow 不重建会让它的块从语义通道里消失（只剩 b.txt 的块）
+    expect(hits.length).toBe(chunkCount());
+    expect(chunkCount()).toBeGreaterThan(1);
+  });
+});
+
+test("扫描结果归零突变拒绝本轮：目录瞬时挂空不删存量块，置 error", async () => {
+  await runIndex(ctx, kbId, fakeEmbed);
+  const before = chunkCount();
+  expect(before).toBeGreaterThan(0);
+  // 模拟「网络盘/外置卷瞬时挂成空目录」：readdirSync 成功返回 0 项，不抛错
+  for (const f of readdirSync(srcDir)) unlinkSync(join(srcDir, f));
+  await expect(runIndex(ctx, kbId, fakeEmbed)).rejects.toThrow(/归零|为空/);
+  // 存量块不得被删（修复前会被当成「所有文件都已删除」全删并置 ready）
+  expect(chunkCount()).toBe(before);
+  const kb = store.getKb(kbId)!;
+  expect(kb.status).toBe("error");
+  expect(kb.chunkCount).toBe(before);
+});
+
+test("索引失败原因持久化到 KbInfo.lastError（失败写入、成功清空）", async () => {
+  const boom: EmbedFn = async () => {
+    throw new Error("模型加载失败 model exploded");
+  };
+  await expect(runIndex(ctx, kbId, boom)).rejects.toThrow(/model exploded/);
+  const failed = store.getKb(kbId)!;
+  expect(failed.status).toBe("error");
+  // 失败原因必须能被界面读到（此前只进 console.warn，用户只看到「索引中断」四个字）
+  expect(failed.lastError).toContain("model exploded");
+  // 成功一轮后清空（避免旧错误长期挂在就绪库上误导）
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(store.getKb(kbId)!.lastError ?? null).toBeNull();
 });

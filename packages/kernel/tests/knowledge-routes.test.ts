@@ -202,6 +202,7 @@ test("GET /api/knowledge 列出登记库", async () => {
     filesTotal: 3,
     filesDone: 1,
     chunksDone: 0,
+    chunksTotal: 0,
   });
   expect(withoutJob.progress).toBeUndefined();
 });

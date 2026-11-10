@@ -150,8 +150,8 @@ test.describe
 			await expect(page.getByTestId("kb-form-modal")).toBeVisible();
 			await page.getByTestId("kb-folder-input").fill(FIXTURE_DIR);
 
-			// 扫描预览：显示 3 个可索引文件
-			await page.getByTestId("kb-scan").click();
+			// 扫描预览：路径选定（回车/失焦）即自动触发，显示 3 个可索引文件
+			await page.getByTestId("kb-folder-input").press("Enter");
 			await expect(page.getByTestId("kb-preview-indexable")).toContainText(
 				"3",
 				{ timeout: 15_000 },
@@ -331,5 +331,66 @@ test.describe
 
 			// 本文件已完整走完删除链路，清掉共享 id 防止 afterAll 兜底重复删
 			kbId = "";
+		});
+
+		test("索引进行中：统一「知识库生成中…」+ 编辑/重建置灰，就绪后恢复可用", async ({
+			page,
+		}) => {
+			test.setTimeout(300_000);
+			// 慢夹具：单个大 md 切出上千块 → 嵌入阶段要跑十几秒，留足「索引中」的观测窗口
+			const SLOW_DIR = join(tmpdir(), `kb-e2e-slow-${process.pid}`);
+			rmSync(SLOW_DIR, { recursive: true, force: true });
+			mkdirSync(SLOW_DIR, { recursive: true });
+			const sections: string[] = [];
+			for (let i = 1; i <= 2000; i++) {
+				sections.push(`## 节${i}\n\n第${i}节的正文内容，用于制造足够长的嵌入阶段。`);
+			}
+			writeFileSync(join(SLOW_DIR, "big.md"), sections.join("\n\n"), "utf8");
+
+			await ensureProvider();
+			await setUiPrefs(page, "zh");
+			// REST 创建即触发索引（异步），UI 随后打开观察窗口
+			const created = await api("POST", "/api/knowledge", {
+				folderPath: SLOW_DIR,
+				name: "E2E慢库",
+			});
+			const slowKbId = String(created.kb.id);
+			try {
+				await page.goto("/", { timeout: 60_000 });
+				await page.getByTestId("settings-btn").click();
+				await expect(page.getByTestId("settings-modal")).toBeVisible();
+				await page.getByTestId("settings-nav-knowledge").click();
+				const card = page.getByTestId(`kb-card-${slowKbId}`);
+				await expect(card).toBeVisible({ timeout: 15_000 });
+
+				// 进度区：统一文案 + 百分比 + 进度条；不再有阶段名，徽章也不再显示「索引中」
+				await expect(card.getByText("知识库生成中…")).toBeVisible({
+					timeout: 20_000,
+				});
+				await expect(card.getByText(/索引中/)).toHaveCount(0);
+				await expect(page.getByTestId(`kb-progress-${slowKbId}`)).toBeVisible();
+
+				// 索引进行中：编辑/重建置灰（kernel 会拒绝重建，按钮可点等于没反应）
+				await expect(page.getByTestId(`kb-edit-${slowKbId}`)).toBeDisabled();
+				await expect(page.getByTestId(`kb-reindex-${slowKbId}`)).toBeDisabled();
+
+				// 就绪后：徽章「就绪」、编辑/重建恢复可用、进度区消失
+				await expect(page.getByTestId(`kb-status-${slowKbId}`)).toHaveText(
+					"就绪",
+					{ timeout: 180_000 },
+				);
+				await expect(page.getByTestId(`kb-edit-${slowKbId}`)).toBeEnabled();
+				await expect(page.getByTestId(`kb-reindex-${slowKbId}`)).toBeEnabled();
+				await expect(page.getByTestId(`kb-progress-${slowKbId}`)).toHaveCount(0);
+			} finally {
+				// 索引若还在跑，先取消再删（kernel 拒绝删除进行中的库）
+				await api("POST", `/api/knowledge/${encodeURIComponent(slowKbId)}/cancel`).catch(
+					() => {},
+				);
+				await api("DELETE", `/api/knowledge/${encodeURIComponent(slowKbId)}`).catch(
+					() => {},
+				);
+				rmSync(SLOW_DIR, { recursive: true, force: true });
+			}
 		});
 	});

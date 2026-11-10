@@ -157,12 +157,16 @@ export interface KbInfo {
 	autoWatch: boolean;
 	/** 上次索引完成时间戳；从未索引过为 null */
 	lastIndexedAt: number | null;
+	/** 最近一次整轮索引失败的原因（status=error 时展示；成功一轮后清空） */
+	lastError?: string | null;
 	/** scanning/indexing 进行中的实时进度（完成后清除）。phase 与 indexing_jobs 阶段一致（规格 §6.1） */
 	progress?: {
 		phase: "scanning" | "extracting" | "chunking" | "embedding" | "committing";
 		filesTotal: number;
 		filesDone: number;
 		chunksDone: number;
+		/** 本轮待嵌入块总量（embedding 阶段才可知；之前为 0）。前端据此算块级真实推进 */
+		chunksTotal?: number;
 	};
 }
 
@@ -186,6 +190,8 @@ export interface KbProgressEvent {
 	filesTotal: number;
 	filesDone: number;
 	chunksDone: number;
+	/** 本轮待嵌入块总量（embedding 阶段才可知；之前为 0） */
+	chunksTotal?: number;
 	status: "scanning" | "indexing" | "ready" | "error";
 }
 

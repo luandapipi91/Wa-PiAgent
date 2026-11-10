@@ -53,9 +53,9 @@ export function KnowledgePage() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden" data-testid="kb-page">
-      {/* 标题栏（样式对齐 McpPage，修复 B1 遗留：占位 h2 无样式类） */}
+      {/* 标题栏：页面标题与「+ 新建知识库」同一行（样式对齐 MemoryPage 的标题栏 + 右侧控件） */}
       <div
-        className="flex items-center px-5 py-3.5"
+        className="flex items-center justify-between px-5 py-3.5"
         style={{
           background: "var(--surface)",
           borderBottom: "1px solid var(--hairline)",
@@ -64,16 +64,6 @@ export function KnowledgePage() {
         <h2 className="text-base font-extrabold text-primary m-0">
           {t("settings.nav.knowledge")}
         </h2>
-      </div>
-
-      {/* 工具栏：新建按钮（B3 接 KbFormModal） */}
-      <div
-        className="flex items-center justify-end gap-2.5 px-5 py-2.5"
-        style={{
-          background: "var(--surface)",
-          borderBottom: "1px solid var(--hairline)",
-        }}
-      >
         <button
           onClick={() => setFormTarget("new")}
           className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"

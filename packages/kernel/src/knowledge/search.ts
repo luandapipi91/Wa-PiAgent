@@ -6,6 +6,7 @@
 // 名次、对分数尺度免疫）。RRF 原始分跨库可比（都是名次的调和和），且 knowledge
 // 检索没有 memory_search 的 0–1 量纲历史包袱，故不做首位归一化。
 import { buildMatchExpr } from "../memory/query";
+import { bigram } from "../memory/bigram";
 import { embedQuery, embedFingerprint } from "../memory/embedder";
 import type { KbContext } from "./index";
 import { openKbDb } from "./kb-db";
@@ -23,6 +24,17 @@ export function withinSemanticDistance(distance: number): boolean {
   return distance <= SEMANTIC_MAX_DISTANCE;
 }
 
+/**
+ * OR 降级表达式：`"t1" OR "t2" …`。
+ * buildMatchExpr 产出的空格分隔短语在 FTS5 里是隐式 AND——中文长问句切成多个 bigram 后
+ * 要求同一块全部命中，只有原文子串才满足。零命中时降级 OR 保证「部分重叠」也能召回。
+ */
+function buildOrMatchExpr(raw: string): string | null {
+  const tokens = bigram(raw).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens.map(t => `"${t.replace(/"/g, '""')}"`).join(" OR ");
+}
+
 export interface KbSearchHit {
   kbId: string;
   kbName: string;
@@ -33,6 +45,8 @@ export interface KbSearchHit {
   startLine: number | null;
   endLine: number | null;
   score: number;
+  /** 结果来自「更新失败的库」的旧索引（status=error 但 chunkCount>0）——内容可能落后于磁盘 */
+  stale?: boolean;
 }
 
 /** skippedKbs 条目：reason 取 not_ready（status≠ready）/ embed_meta_mismatch（向量通道降级）/ missing（库不存在） */
@@ -75,7 +89,10 @@ export async function searchKnowledge(
       skippedKbs.push({ kbId, reason: "missing" });
       continue;
     }
-    if (kb.status !== "ready") {
+    // 更新失败（status=error）但库里仍有上一轮建成的索引：旧数据不是「不可用」，
+    // 而是「可能过期」——允许检索并逐条标 stale，比整库下线更符合「旧索引保持可用」的语义
+    const staleKb = kb.status === "error" && kb.chunkCount > 0 && kb.lastIndexedAt !== null;
+    if (kb.status !== "ready" && !staleKb) {
       skippedKbs.push({ kbId, reason: "not_ready" });
       continue;
     }
@@ -90,18 +107,23 @@ export async function searchKnowledge(
     try {
       // 词法通道：FTS MATCH bigram 查询（body 写入侧已 bigram 化），bm25 负值越小越
       // 相关，升序即名次；名次只取决于 SQL 返回顺序，bm25 分值本身不参与融合。
-      const lexical = matchExpr
-        ? (db
-            .query(
-              `SELECT c.id AS id
-                 FROM chunks_fts
-                 JOIN chunks c ON c.id = chunks_fts.chunk_id
-                WHERE chunks_fts MATCH ?
-                ORDER BY bm25(chunks_fts)
-                LIMIT ${CHANNEL_TOP_N}`,
-            )
-            .all(matchExpr) as Array<{ id: string }>)
-        : [];
+      // 短语 AND 零命中时降级 OR 重查（长问句只有部分重叠也要能召回）。
+      const runLexical = (expr: string) =>
+        db
+          .query(
+            `SELECT c.id AS id
+               FROM chunks_fts
+               JOIN chunks c ON c.id = chunks_fts.chunk_id
+              WHERE chunks_fts MATCH ?
+              ORDER BY bm25(chunks_fts)
+              LIMIT ${CHANNEL_TOP_N}`,
+          )
+          .all(expr) as Array<{ id: string }>;
+      let lexical = matchExpr ? runLexical(matchExpr) : [];
+      if (lexical.length === 0) {
+        const orExpr = buildOrMatchExpr(query);
+        if (orExpr) lexical = runLexical(orExpr);
+      }
       // 语义通道：量化扫描（扫描宽度远大于融合条数）→ 距离门过滤；
       // 指纹不匹配或查询向量缺失时整通道跳过（扫描失败扩展内部降级为空数组）。
       const semantic =
@@ -149,6 +171,7 @@ export async function searchKnowledge(
           startLine: row.start_line,
           endLine: row.end_line,
           score,
+          ...(staleKb ? { stale: true } : {}),
         });
       }
     } finally {

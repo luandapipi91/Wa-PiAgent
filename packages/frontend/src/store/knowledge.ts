@@ -39,6 +39,20 @@ interface KnowledgeState {
   applyProgress(e: KbProgressEvent): void;
 }
 
+/**
+ * 终态帧触发的清单刷新（模块级节流）：fileCount/chunkCount/failedCount/lastIndexedAt
+ * 只存在于清单回包，SSE 终态帧只带 status——不补拉的话卡片会长期停在创建时的 0 文件/0 块，
+ * 失败文件徽章也永不出现（失败清单入口等于不存在）。同一轮多个终态帧合并成一次。
+ */
+let terminalRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleListRefresh(): void {
+  if (terminalRefreshTimer) return;
+  terminalRefreshTimer = setTimeout(() => {
+    terminalRefreshTimer = null;
+    useKnowledgeStore.getState().listKbs();
+  }, 0);
+}
+
 export const useKnowledgeStore = create<KnowledgeState>((set) => ({
   kbs: [],
   loading: false,
@@ -63,6 +77,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
               filesTotal: kb.progress.filesTotal,
               filesDone: kb.progress.filesDone,
               chunksDone: kb.progress.chunksDone,
+              chunksTotal: kb.progress.chunksTotal ?? 0,
               status: kb.status,
             };
           }
@@ -128,6 +143,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
 
   applyProgress: (e) => {
     const terminal = e.status === "ready" || e.status === "error";
+    if (terminal) scheduleListRefresh(); // 计数/失败数只能从清单回包刷新
     set((s) => {
       const progress = { ...s.progress };
       if (terminal) delete progress[e.kbId];
@@ -146,6 +162,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
                       filesTotal: e.filesTotal,
                       filesDone: e.filesDone,
                       chunksDone: e.chunksDone,
+                      chunksTotal: e.chunksTotal ?? 0,
                     },
               }
             : k,

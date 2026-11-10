@@ -41,3 +41,31 @@ test("updateJobProgress 与 stuck 判定", () => {
   expect(store.isJobStuck(kb.id, Date.now() - 11 * 60_000)).toBe(true);   // 超过 10 分钟
   expect(store.isJobStuck(kb.id, Date.now() - 3 * 60_000)).toBe(false);
 });
+
+test("chunksTotal 持久化：job 行与 KbInfo.progress 都带上块总量", () => {
+  const kb = store.createKb({ folderPath: "D:/x", name: "a", description: "" });
+  store.startJob(kb.id, "scanning");
+  store.updateJobProgress(kb.id, { phase: "embedding", filesTotal: 3, filesDone: 3, chunksDone: 64, chunksTotal: 200 });
+  expect(store.getJob(kb.id)!.chunksTotal).toBe(200);
+  expect(store.getKb(kb.id)!.progress!.chunksTotal).toBe(200);
+});
+
+test("旧库迁移：indexing_jobs 缺 chunks_total 列时自动补齐（已发布库不能炸）", () => {
+  // 模拟 0.9.x 已发布的 v1 库结构：没有 chunks_total 列
+  const legacy = new Database(":memory:");
+  legacy.run(`CREATE TABLE knowledge_bases (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+    folder_path TEXT NOT NULL, status TEXT NOT NULL, file_count INTEGER DEFAULT 0,
+    chunk_count INTEGER DEFAULT 0, failed_count INTEGER DEFAULT 0, embed_meta TEXT,
+    auto_watch INTEGER NOT NULL DEFAULT 1, last_indexed_at INTEGER, created_at INTEGER NOT NULL)`);
+  legacy.run(`CREATE TABLE indexing_jobs (
+    kb_id TEXT PRIMARY KEY REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    phase TEXT NOT NULL, files_total INTEGER, files_done INTEGER, chunks_done INTEGER,
+    skip_stats TEXT, last_progress_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`);
+  const legacyStore = new KnowledgeStore(legacy, "/tmp/wa-pi-test");
+  const kb = legacyStore.createKb({ folderPath: "D:/x", name: "旧库", description: "" });
+  legacyStore.startJob(kb.id, "scanning");
+  legacyStore.updateJobProgress(kb.id, { phase: "embedding", chunksTotal: 12, chunksDone: 3 });
+  expect(legacyStore.getJob(kb.id)!.chunksTotal).toBe(12);
+  legacy.close();
+});
