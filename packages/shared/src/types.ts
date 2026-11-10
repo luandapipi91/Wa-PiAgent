@@ -214,6 +214,12 @@ export interface KnowledgeCreateEvent {
 	name?: string;
 	/** 不填时用默认描述模板 */
 	description?: string;
+	/**
+	 * 预览计划令牌（来自 knowledge:preview 回包）。
+	 * 仅用于报告「预览后目录有变化」，不能阻断创建；无效/过期令牌直接忽略。
+	 * kernel 进程内存有效（TTL 10 分钟，最多 32 条）。
+	 */
+	planToken?: string;
 }
 
 export interface KnowledgeIndexEvent {
@@ -254,11 +260,21 @@ export interface KnowledgeListResult {
 export interface KnowledgePreviewResult {
 	type: "knowledge:preview";
 	preview: KbScanPreview;
+	/**
+	 * 预览计划令牌：创建时回传给 knowledge:create，kernel 用它比对目录是否变化。
+	 * 缺失表示本次预览未记录计划（旧版本 kernel）。
+	 */
+	planToken?: string;
 }
 
 export interface KnowledgeCreateResult {
 	type: "knowledge:create";
 	kb: KbInfo;
+	/**
+	 * 预览后目录变化（仅当请求带了有效 planToken 且比对出差异时存在）：
+	 * 创建不受影响、索引按最新目录执行，前端只用来提示用户预览已过期。
+	 */
+	planChanged?: { added: string[]; removed: string[] };
 }
 
 export interface KnowledgeIndexResult {

@@ -98,6 +98,7 @@ import { registerMemoryRoutes } from "./routes/memory";
 import { registerKnowledgeRoutes } from "./routes/knowledge";
 import { runIndex, getKbFailures, clearKbFailures, type EmbedFn } from "./knowledge/indexer";
 import { scanFolder } from "./knowledge/scan";
+import { rememberPreview, evaluatePreviewPlan } from "./knowledge/preview-plans";
 import type { KbContext, KbWatchController, WatchKbOptions } from "./knowledge/index";
 import { watchKb } from "./knowledge/watcher";
 import type { KnowledgeStore } from "./knowledge/store";
@@ -3057,8 +3058,15 @@ export class WSServer {
 					// 低频交互路径（任务 3 次要③：scanFolder 全同步 IO，勿进高频链路）
 					// excludePaths（扫描第 1 层）未接线，省略 = 不过滤
 					const preview = await scanFolder(folderPath);
+					// 计划令牌：记住本次可索引清单，创建时比对是否过期（任务 9，S13）。
+					// 目录统一按绝对路径记（与创建侧的 resolve 一致），相对路径不会误判目录不符。
+					const planToken = rememberPreview(
+						resolve(folderPath),
+						preview.indexable.map((f) => f.relPath),
+					);
 					reply({
 						type: "knowledge:preview",
+						planToken,
 						preview: {
 							totalFiles: preview.indexable.length,
 							totalBytes: preview.indexable.reduce((sum, f) => sum + f.size, 0),
@@ -3091,12 +3099,27 @@ export class WSServer {
 						reply({ type: "error", message: `目录不存在：${folderPath}` });
 						break;
 					}
+					// 预览后目录可能已被改动：有 token 就重扫一次比对，只报告差异、不阻断创建
+					// （索引管线本身会按最新目录重建，用户看到的预览只是信息，不是白名单）
+					const planToken = String(event.planToken ?? "").trim();
+					let planChanged: { added: string[]; removed: string[] } | undefined;
+					if (planToken) {
+						const current = await scanFolder(folderPath);
+						const diff = evaluatePreviewPlan(
+							planToken,
+							folderPath,
+							current.indexable.map((f) => f.relPath),
+						);
+						if (diff.hit && diff.changed) {
+							planChanged = { added: diff.added ?? [], removed: diff.removed ?? [] };
+						}
+					}
 					const kb = this.kbStore().createKb({
 						folderPath,
 						name: event.name,
 						description: event.description,
 					});
-					reply({ type: "knowledge:create", kb });
+					reply({ type: "knowledge:create", kb, ...(planChanged ? { planChanged } : {}) });
 					this.startKbIndex(kb.id);
 				} catch (err) {
 					replyError(reply, err);

@@ -231,6 +231,62 @@ test("POST /api/knowledge/preview 返回扫描预览", async () => {
   expect(bad.status).toBe(400);
 });
 
+// ===== 2b. 预览计划令牌：创建时报告预览后目录变化（任务 9，S13）=====
+
+test("preview 回包带 planToken；预览后目录变动，create 回包 planChanged 列出新增/减少", async () => {
+  const { port } = await startTestServer();
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  expect(typeof preview.planToken).toBe("string");
+  // 预览之后目录变动：删一个、加一个
+  rmSync(join(srcDir, "a.md"));
+  writeFileSync(join(srcDir, "added.md"), "# 新增文件");
+
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    name: "变化库",
+    planToken: preview.planToken,
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  // 不阻断创建：库照建，只在回包里补差异
+  expect(body.type).toBe("knowledge:create");
+  expect(body.kb.name).toBe("变化库");
+  expect(body.planChanged).toEqual({ added: ["added.md"], removed: ["a.md"] });
+});
+
+test("preview → create 目录未变：回包不含 planChanged", async () => {
+  const { port } = await startTestServer();
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    planToken: preview.planToken,
+  });
+  const body = (await res.json()) as any;
+  expect(body.type).toBe("knowledge:create");
+  expect(body.planChanged).toBeUndefined();
+});
+
+test("planToken 无效或缺失：不阻断创建，回包不含 planChanged", async () => {
+  const { port } = await startTestServer();
+  const bad = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    planToken: "not-a-real-token",
+  });
+  expect(bad.status).toBe(200);
+  const badBody = (await bad.json()) as any;
+  expect(badBody.type).toBe("knowledge:create");
+  expect(badBody.planChanged).toBeUndefined();
+
+  const none = await api(port, "POST", "/api/knowledge", { folderPath: srcDir });
+  const noneBody = (await none.json()) as any;
+  expect(noneBody.type).toBe("knowledge:create");
+  expect(noneBody.planChanged).toBeUndefined();
+});
+
 // ===== 3. POST /api/knowledge 创建并触发索引 =====
 
 test("POST /api/knowledge 创建并触发索引", async () => {

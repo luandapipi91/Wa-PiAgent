@@ -24,6 +24,8 @@ export const registerKnowledgeRoutes: RouteRegistrar = (r, callApi) => {
       folderPath: b.folderPath,
       name: b.name,
       description: b.description,
+      // 预览计划令牌：仅用于回报「预览后目录有变化」，不阻断创建
+      planToken: b.planToken,
     });
   });
   // 手动重索引
