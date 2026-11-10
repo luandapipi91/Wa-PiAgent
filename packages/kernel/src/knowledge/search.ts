@@ -80,7 +80,10 @@ export type StatFn = (path: string) => Promise<{ mtimeMs: number }>;
 
 /** searchKnowledge 可注入项（生产调用方不用传） */
 export interface SearchOptions {
+  /** 新鲜度核对注入点（缺省 fs.promises.stat） */
   statFn?: StatFn;
+  /** 回读候选倍数：库内融合后只回读 limit*multiplier 条正文（缺省 2，至少 10） */
+  readLimitMultiplier?: number;
 }
 
 /**
@@ -204,14 +207,17 @@ export async function searchKnowledge(
     );
     if (fused.length === 0) continue;
 
-    // 按融合名次回读出处字段（id 来自库内，缺失即跳过的防御不必要——IN 查询必命中）
-    const placeholders = fused.map(() => "?").join(",");
+    // 按融合名次回读出处字段：只取前 limit*multiplier（至少 10）条候选——
+    // 词法 50 + 语义 200 去重后可达数百条，全量回读正文只为最终 5 条是纯浪费
+    const readLimit = Math.max(Math.trunc(limit * (opts.readLimitMultiplier ?? 2)), 10);
+    const candidates = fused.slice(0, readLimit);
+    const placeholders = candidates.map(() => "?").join(",");
     const rows = db
       .query(
         `SELECT id, content, file_path, file_type, title, breadcrumb, start_line, end_line, file_mtime
            FROM chunks WHERE id IN (${placeholders})`,
       )
-      .all(...fused.map((f) => f.chunkId)) as Array<{
+      .all(...candidates.map((f) => f.chunkId)) as Array<{
       id: string;
       content: string;
       file_path: string;
@@ -223,7 +229,7 @@ export async function searchKnowledge(
       file_mtime: number;
     }>;
     const byId = new Map(rows.map((r) => [r.id, r]));
-    for (const { chunkId: id, score } of fused) {
+    for (const { chunkId: id, score } of candidates) {
       const row = byId.get(id);
       if (!row) continue;
       // 置信门（分数）+ 词法证据门（覆盖率）：低分与「与查询几乎无词法重叠」的块不进结果。

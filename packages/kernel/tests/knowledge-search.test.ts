@@ -399,3 +399,18 @@ test("自适应扩窗：命中块合并同文件相邻块并互相补上下文",
   expect(r.results[0].content).toContain("第一段");
   expect(r.results[0].content).toContain("第三段");
 });
+
+test("候选回读收敛：大库 limit=5 时结果条数与内容仍正确（截断不破坏结果）", async () => {
+  const kbId = setupKb(
+    "大库",
+    Array.from({ length: 60 }, (_, i) => ({
+      content: `定价政策第${i}条说明。`,
+      title: `T${i}`,
+      filePath: `docs/${i}.md`,
+    })),
+  );
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), { readLimitMultiplier: 2 });
+  expect(r.found).toBe(true);
+  expect(r.results.length).toBeLessThanOrEqual(5);
+  expect(r.results[0].content).toContain("定价政策");
+});
