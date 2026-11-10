@@ -10,7 +10,12 @@ import { stat as fsStat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { buildMatchExpr } from "../memory/query";
 import { weightedScoreFusion } from "./search/fusion";
-import { MIN_HYBRID_SCORE, hasEnoughLexicalEvidence, queryTokensOf } from "./search/ranking";
+import {
+  MIN_HYBRID_SCORE,
+  hasEnoughLexicalEvidence,
+  queryTokensOf,
+  scoreChunkForQuery,
+} from "./search/ranking";
 import { bigram } from "../memory/bigram";
 import { embedQuery } from "../memory/embedder";
 import { knowledgeFingerprint } from "./fingerprint";
@@ -201,13 +206,14 @@ export async function searchKnowledge(
     const placeholders = fused.map(() => "?").join(",");
     const rows = db
       .query(
-        `SELECT id, content, file_path, title, breadcrumb, start_line, end_line, file_mtime
+        `SELECT id, content, file_path, file_type, title, breadcrumb, start_line, end_line, file_mtime
            FROM chunks WHERE id IN (${placeholders})`,
       )
       .all(...fused.map((f) => f.chunkId)) as Array<{
       id: string;
       content: string;
       file_path: string;
+      file_type: string;
       title: string | null;
       breadcrumb: string | null;
       start_line: number | null;
@@ -224,6 +230,8 @@ export async function searchKnowledge(
       // 词法门只约束「词法通道命中过的块」；纯语义命中（词法零重叠）是语义模式的价值所在，
       // 由分数门单独把关（否则「字面不同、意思相近」的命中会被整体杀掉）
       if (lexicalIds.has(id) && !hasEnoughLexicalEvidence(row.content, queryTokens)) continue;
+      // 加权分：路径/文件名命中加成、文档意图加权、测试与本地化副本降权（纯函数见 search/ranking）
+      const { adjustedScore } = scoreChunkForQuery(score, row, queryTokens);
       merged.push({
         hit: {
           kbId,
@@ -234,7 +242,7 @@ export async function searchKnowledge(
           breadcrumb: row.breadcrumb,
           startLine: row.start_line,
           endLine: row.end_line,
-          score,
+          score: adjustedScore,
           ...(staleKb ? { stale: true } : {}),
         },
         root: kb.folderPath,
