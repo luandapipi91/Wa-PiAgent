@@ -21,6 +21,7 @@ import { scanFolder } from "./scan";
 import { extractText } from "./extract";
 import { chunkDocument, type KnowledgeChunk } from "./chunker";
 import { openKbDb } from "./kb-db";
+import { processOwnerId } from "./store";
 import { refreshKbQuantizedIndex } from "./vector";
 import type { KbContext } from "./index";
 
@@ -223,7 +224,8 @@ export async function runIndex(
   const storedMeta = ctx.store.getEmbedMeta(kbId);
   const fingerprintMismatch = storedMeta !== null && storedMeta !== fingerprint;
 
-  ctx.store.startJob(kbId, "scanning");
+  // owner 写入本进程标识：卡死兜底据此豁免本进程的活任务（进度长时间不刷新也不误杀）
+  ctx.store.startJob(kbId, "scanning", { owner: processOwnerId() });
   ctx.store.updateStatus(kbId, "indexing");
   // 新起一轮：清空上一轮的失败清单（失败文件按 relPath 记录，抽取 catch 处写入）
   kbFailures.set(kbId, []);

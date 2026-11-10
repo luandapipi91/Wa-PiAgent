@@ -6,8 +6,8 @@
 //   - 合并语义：同库 runIndex 进行中再触发 → dirty 标记，本轮完成后自动重跑一次（排队合并，不重复开）。//   - 重入协调（审查修复）：手动更新（ws-server 同一 runIndex）进行中时触发不丢弃，防抖重排//     等待手动完成后自动补跑——变更最多延迟、不丢失；轮询基线仅在索引成功后推进。
 // 监听是库级开关（autoWatch，列表页「自动更新」默认开）：关掉后仅手动更新/重建。
 // 中断恢复（规格 §6.7）：restoreWatchers 对 status=indexing 的库置 error（不自动续跑）；
-// 卡死兜底：轮询发现 isJobStuck(kbId)（默认调用形式——at 取 job.lastProgressAt 假想进度时刻，
-// 见 store.isJobStuck 注释）→ 清残留 job 行后走防抖槽重索引。
+// 卡死兜底：轮询发现 isJobStuck(kbId)（owner 存活则恒为 false；owner 失联且心跳超 10 分钟
+// 才判卡死，见 store.isJobStuck 注释）→ 清残留 job 行后走防抖槽重索引。
 import { watch, type FSWatcher } from "node:fs";
 import { runIndex, type EmbedFn, type IndexResult } from "./indexer";
 import { scanFolder } from "./scan";
@@ -200,9 +200,9 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
     .catch(() => {}); // 目录暂不可读：下轮轮询再建基线
 
   // 60s 兜底轮询：快照有差异 → 防抖槽触发（基线不在此推进——变更未被索引消化前差异信号
-  // 必须保持，否则 trigger 遭重入拒绝后轮询永远不再兜回）；无差异但 job 卡死（默认调用形式
-  // isJobStuck(kbId)，10 分钟无进度更新）→ 清残留 job 行后同样走防抖槽重索引
-  //（runIndex 重入防护基于 job 行存在）。
+  // 必须保持，否则 trigger 遭重入拒绝后轮询永远不再兜回）；无差异但 job 卡死
+  // （默认调用形式 isJobStuck(kbId)：owner 存活时恒为 false，失联且心跳超 10 分钟才为 true）
+  // → 清残留 job 行后同样走防抖槽重索引（runIndex 重入防护基于 job 行存在）。
   pollTimer = setInterval(() => {
     void (async () => {
       if (stopped) return;

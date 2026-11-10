@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS indexing_jobs (
   files_total INTEGER, files_done INTEGER,
   chunks_done INTEGER,
   chunks_total INTEGER,           -- 本轮待嵌入块总量（embedding 阶段写入；旧库由 KnowledgeStore 构造器 ALTER 补列）
+  owner TEXT,                     -- 执行进程标识（pid+启动随机串）：卡死判定按 owner 是否失联，不按「多久没进度」（旧库由构造器 ALTER 补列）
+  heartbeat_at INTEGER,           -- 最近一次心跳（每次 updateJobProgress 刷新）：owner 失联后按它判卡死（旧库由构造器 ALTER 补列）
   skip_stats TEXT,                -- JSON：跳过原因 → 数量
   last_progress_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL

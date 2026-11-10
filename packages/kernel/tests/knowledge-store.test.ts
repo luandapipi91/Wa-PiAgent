@@ -8,9 +8,12 @@ import { kbDbPath } from "../src/knowledge/paths";
 
 // store 测试：:memory: 登记库
 let store: KnowledgeStore;
+/** 登记库连接（重启残留 job 类用例需绕过 startJob 直接写行） */
+let regDb: Database;
 beforeEach(() => {
   const db = new Database(":memory:");
   db.run(KB_SCHEMA_SQL);
+  regDb = db;
   store = new KnowledgeStore(db, "/tmp/wa-pi-test");
 });
 
@@ -68,4 +71,38 @@ test("旧库迁移：indexing_jobs 缺 chunks_total 列时自动补齐（已发�
   legacyStore.updateJobProgress(kb.id, { phase: "embedding", chunksTotal: 12, chunksDone: 3 });
   expect(legacyStore.getJob(kb.id)!.chunksTotal).toBe(12);
   legacy.close();
+});
+
+// ===== 卡死判定按 owner + 心跳（S6）：正在运行的活任务不被兜底误杀，失联残骸仍可回收 =====
+
+/** createKb 用的假文件夹路径（store 层不碰磁盘，只要一个字符串） */
+const srcDir = "/tmp/wa-pi-test-src";
+
+test("卡死判定按 owner 失联：owner 存活时长时间无进度不判卡死", () => {
+  const kb = store.createKb({ folderPath: srcDir });
+  store.startJob(kb.id, "scanning", { owner: "proc-a" });
+  expect(store.getJob(kb.id)!.owner).toBe("proc-a");
+  // 心跳时间戳人为推到 20 分钟前（远超 10 分钟阈值）
+  store.updateJobProgress(kb.id, {}, { heartbeatAt: Date.now() - 20 * 60_000 });
+  expect(store.isJobStuck(kb.id)).toBe(false); // owner 仍存活
+  store.expireJobOwner(kb.id); // 模拟进程重启：owner 失联
+  expect(store.isJobStuck(kb.id)).toBe(true);
+});
+
+test("重启残留 job（owner 未由本进程登记）：心跳未超阈值不判卡死，超阈值才判", () => {
+  const kb = store.createKb({ folderPath: srcDir });
+  const stale = Date.now() - 20 * 60_000;
+  // 直接写行 = 上个进程留下的 job 行（不经 startJob，故不会被登记为本进程存活 owner）
+  regDb.run(
+    `INSERT INTO indexing_jobs (kb_id, phase, owner, last_progress_at, heartbeat_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [kb.id, "embedding", "9999-dead", Date.now() - 60_000, Date.now() - 60_000, stale],
+  );
+  expect(store.isJobStuck(kb.id)).toBe(false); // 心跳新鲜：保守等待，不抢别进程的活
+  regDb.run(`UPDATE indexing_jobs SET heartbeat_at = ?, last_progress_at = ? WHERE kb_id = ?`, [
+    stale,
+    stale,
+    kb.id,
+  ]);
+  expect(store.isJobStuck(kb.id)).toBe(true); // 心跳超阈值：owner 必然已不存在
 });

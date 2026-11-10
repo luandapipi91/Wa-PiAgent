@@ -278,3 +278,22 @@ test("取消后同批变更不被轮询立刻重试（尊重用户取消），�
   }, 6000);
   w.stop();
 });
+
+test("轮询兜底不清理 owner 存活的活任务 job 行", async () => {
+  const initialCount = await initialIndex();
+  let calls = 0;
+  const w = watchKb(ctx, kbId, {
+    embedFn: fakeEmbed,
+    pollIntervalMs: 200,
+    debounceMs: 150,
+    indexFn: async () => {
+      calls++;
+      return { ok: true, cancelled: false, filesTotal: 0, filesDone: 0, chunkCount: initialCount, failedCount: 0 };
+    },
+  });
+  store.startJob(kbId, "extracting", { owner: "proc-a" });
+  await sleep(900);
+  expect(store.getJob(kbId)).not.toBeNull(); // 活任务的 job 行不得被清
+  expect(calls).toBe(0); // 更不该因此触发一轮重索引
+  w.stop();
+});
