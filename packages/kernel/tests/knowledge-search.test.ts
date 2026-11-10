@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
@@ -71,6 +71,8 @@ interface FakeChunk {
   startLine?: number | null;
   endLine?: number | null;
   vec?: Uint8Array;
+  /** 索引时记录的源文件 mtime（缺省 1：与磁盘上任何真实文件都对不上） */
+  fileMtime?: number;
 }
 
 /** 手工插块：chunks 行 + FTS 双写（body = bigram(prefixContent)，与 indexer 写入格式一致） */
@@ -80,7 +82,7 @@ function insertChunk(db: Database, c: FakeChunk): void {
   db.run(
     `INSERT INTO chunks (id, file_path, file_type, title, breadcrumb, start_line, end_line,
        content, prefix_content, content_hash, file_mtime, file_size, embedding, updated_at)
-     VALUES (?, ?, 'md', ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
+     VALUES (?, ?, 'md', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     [
       id,
       c.filePath ?? "docs/doc.md",
@@ -91,6 +93,7 @@ function insertChunk(db: Database, c: FakeChunk): void {
       c.content,
       prefixContent,
       randomUUID(),
+      c.fileMtime ?? 1,
       c.vec ?? null,
       Date.now(),
     ],
@@ -271,6 +274,34 @@ test("索引失败的库只要有旧索引仍可检索，结果标注 stale（�
   expect(r.results[0].stale).toBe(true);
   // 不再作为 not_ready 跳过
   expect(r.skippedKbs.some((s) => s.reason === "not_ready")).toBe(false);
+});
+
+test("命中块的源文件 mtime 与索引记录不一致时标 stale", async () => {
+  // 源文件在索引之后被改过（这里 insertChunk 记录的 file_mtime=1，磁盘文件必然更新）
+  const kbId = setupKb("过期块库", [{ content: "定价政策说明。", title: "定价", filePath: "docs/p.md" }]);
+  mkdirSync(join(waPiDir, "docs"), { recursive: true });
+  writeFileSync(join(waPiDir, "docs/p.md"), "新版内容");
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.results[0].stale).toBe(true);
+});
+
+test("源文件不在磁盘上（抽取失败/外删未重索引）同样标 stale", async () => {
+  const kbId = setupKb("缺文件库", [{ content: "定价政策说明。", title: "定价", filePath: "docs/gone.md" }]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  expect(r.results[0].stale).toBe(true);
+});
+
+test("源文件 mtime 与索引记录一致时不标 stale", async () => {
+  mkdirSync(join(waPiDir, "docs"), { recursive: true });
+  const abs = join(waPiDir, "docs/p.md");
+  writeFileSync(abs, "定价政策说明。");
+  const kbId = setupKb("新鲜库", [
+    { content: "定价政策说明。", title: "定价", filePath: "docs/p.md", fileMtime: statSync(abs).mtimeMs },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
+  expect(r.found).toBe(true);
+  expect(r.results[0].stale).toBeUndefined();
 });
 
 test("error 且从未成功索引过的库仍被跳过（无可用旧索引）", async () => {

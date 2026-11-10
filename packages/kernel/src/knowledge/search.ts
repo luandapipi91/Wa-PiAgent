@@ -6,6 +6,8 @@
 // 名次、对分数尺度免疫）。RRF 原始分跨库可比（都是名次的调和和），且 knowledge
 // 检索没有 memory_search 的 0–1 量纲历史包袱，故不做首位归一化。
 import type { Database } from "bun:sqlite";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import { buildMatchExpr } from "../memory/query";
 import { bigram } from "../memory/bigram";
 import { embedQuery, embedFingerprint } from "../memory/embedder";
@@ -46,7 +48,8 @@ export interface KbSearchHit {
   startLine: number | null;
   endLine: number | null;
   score: number;
-  /** 结果来自「更新失败的库」的旧索引（status=error 但 chunkCount>0）——内容可能落后于磁盘 */
+  /** 结果可能落后于磁盘：库更新失败（整库旧索引）或该块的源文件 mtime 已与索引记录不符
+   * （抽取失败/外删/索引后被改）——内容可能过期 */
   stale?: boolean;
 }
 
@@ -64,6 +67,24 @@ export interface KbSearchResult {
   skippedKbs: KbSkippedKb[];
 }
 
+/** mtime 比对容差（毫秒）：chunks.file_mtime 存的是 stat.mtimeMs 浮点，经 SQLite INTEGER
+ * 亲和往返可能丢亚毫秒精度；1ms 内的差异视为同一时刻 */
+const MTIME_TOLERANCE_MS = 1;
+
+/**
+ * 命中块的源文件是否已落后于索引记录：文件不存在、stat 失败、mtime 不符都算陈旧
+ * ——「无法证明新鲜即陈旧」。纯同步 stat，调用方已把次数钳在 limit 内。
+ */
+function sourceChanged(root: string, filePath: string, recordedMtime: number): boolean {
+  try {
+    const st = statSync(join(root, filePath));
+    if (!st.isFile()) return true;
+    return Math.abs(st.mtimeMs - recordedMtime) >= MTIME_TOLERANCE_MS;
+  } catch {
+    return true;
+  }
+}
+
 /** 查询嵌入函数形状：缺省用真实 embedQuery，测试注入 fake 绕开模型（同 indexer 的 EmbedFn 模式） */
 export type QueryEmbedFn = (text: string) => Promise<Uint8Array | null>;
 
@@ -79,7 +100,8 @@ export async function searchKnowledge(
   embedQueryFn: QueryEmbedFn = embedQuery,
 ): Promise<KbSearchResult> {
   const skippedKbs: KbSkippedKb[] = [];
-  const merged: KbSearchHit[] = [];
+  // 中间态多带库根与记录 mtime：截断后要拿它们核对源文件新鲜度（不暴露给调用方）
+  const merged: Array<{ hit: KbSearchHit; root: string; recordedMtime: number }> = [];
 
   // 查询侧只算一次：嵌入（null = 模型不可用 → 语义通道禁用）+ FTS MATCH 表达式
   const queryVec = await embedQueryFn(query);
@@ -161,7 +183,7 @@ export async function searchKnowledge(
     const placeholders = fused.map(() => "?").join(",");
     const rows = db
       .query(
-        `SELECT id, content, file_path, title, breadcrumb, start_line, end_line
+        `SELECT id, content, file_path, title, breadcrumb, start_line, end_line, file_mtime
            FROM chunks WHERE id IN (${placeholders})`,
       )
       .all(...fused.map(([id]) => id)) as Array<{
@@ -172,28 +194,38 @@ export async function searchKnowledge(
       breadcrumb: string | null;
       start_line: number | null;
       end_line: number | null;
+      file_mtime: number;
     }>;
     const byId = new Map(rows.map((r) => [r.id, r]));
     for (const [id, score] of fused) {
       const row = byId.get(id);
       if (!row) continue;
       merged.push({
-        kbId,
-        kbName: kb.name,
-        content: row.content,
-        filePath: row.file_path,
-        title: row.title,
-        breadcrumb: row.breadcrumb,
-        startLine: row.start_line,
-        endLine: row.end_line,
-        score,
-        ...(staleKb ? { stale: true } : {}),
+        hit: {
+          kbId,
+          kbName: kb.name,
+          content: row.content,
+          filePath: row.file_path,
+          title: row.title,
+          breadcrumb: row.breadcrumb,
+          startLine: row.start_line,
+          endLine: row.end_line,
+          score,
+          ...(staleKb ? { stale: true } : {}),
+        },
+        root: kb.folderPath,
+        recordedMtime: row.file_mtime,
       });
     }
   }
 
   // 跨库合并：按融合分降序截 limit（limit≤0 时 slice 语义不安全，钳到 0）
-  merged.sort((a, b) => b.score - a.score);
-  const results = merged.slice(0, Math.max(0, limit));
+  merged.sort((a, b) => b.hit.score - a.hit.score);
+  const top = merged.slice(0, Math.max(0, limit));
+  // 新鲜度只核对最终返回的这几条（≤limit 次 stat，不放大 IO）；整库已标 stale 的不再重复 stat
+  for (const { hit, root, recordedMtime } of top) {
+    if (!hit.stale && sourceChanged(root, hit.filePath, recordedMtime)) hit.stale = true;
+  }
+  const results = top.map((e) => e.hit);
   return { found: results.length > 0, results, skippedKbs };
 }
