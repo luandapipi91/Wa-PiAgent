@@ -23,8 +23,10 @@ import enLocale from "../../../i18n/locales/en";
 import type { KbInfo } from "@wa-pi/shared";
 
 // 伪 preview 回包：3 个可索引 + 2 项建议排除 + 1 项二进制（覆盖跳过原因计数映射）
+// planToken：预览计划令牌，创建时回传给 kernel 比对目录是否变化（任务 9）
 const previewPayload = {
 	type: "knowledge:preview",
+	planToken: "plan_123",
 	preview: {
 		totalFiles: 3,
 		totalBytes: 48000,
@@ -50,6 +52,13 @@ let postFailPath: string | null = null;
 const toastAdd = mock(() => {});
 // preview 延迟闸（扫描竞态测试用）：非 undefined 时 preview 响应挂起直到放行；beforeEach 复位
 let previewGate: Promise<void> | undefined;
+// 创建回包（任务 9）：默认空对象，测试可注入 planChanged 模拟「预览后目录有变化」
+let createReply: Record<string, unknown> = {};
+
+/** 注入 POST /api/knowledge 的回包（如带 planChanged） */
+function mockCreateReply(reply: Record<string, unknown>) {
+	createReply = reply;
+}
 
 const kbReady: KbInfo = {
 	id: "kb_1",
@@ -83,6 +92,7 @@ mock.module("../../../api-client", () => ({
 				if (previewGate) await previewGate;
 				return previewPayload;
 			}
+			if (path === "/api/knowledge") return createReply;
 			return {};
 		}),
 		put: mock(async () => ({})),
@@ -96,6 +106,7 @@ beforeEach(() => {
 	getCalls.length = 0;
 	previewGate = undefined;
 	postFailPath = null;
+	createReply = {};
 	toastAdd.mockReset();
 });
 
@@ -212,6 +223,22 @@ describe("KbFormModal 两段式（扫描预览 → 创建并索引）", () => {
 		);
 	});
 
+	test("预览返回 planToken：保存时随 payload 透传（供后端比对目录变化）", async () => {
+		const onSave = mock(async () => ({ ok: true }));
+		render(<KbFormModal onSave={onSave} />);
+		fireEvent.change(screen.getByTestId("kb-folder-input"), {
+			target: { value: "D:/资料/产品文档" },
+		});
+		fireEvent.blur(screen.getByTestId("kb-folder-input"));
+		await screen.findByText(/3 个文件可索引/);
+		fireEvent.click(screen.getByTestId("kb-save"));
+		await waitFor(() =>
+			expect(onSave).toHaveBeenCalledWith(
+				expect.objectContaining({ planToken: "plan_123" }),
+			),
+		);
+	});
+
 	test("扫描预览展示跳过原因计数：建议排除 2 / 二进制 1", async () => {
 		render(<KbFormModal onSave={mock(async () => ({ ok: true }))} />);
 		fireEvent.change(screen.getByTestId("kb-folder-input"), {
@@ -309,6 +336,34 @@ describe("KnowledgePage 挂接", () => {
 					(b as KbFormPayload).name === undefined,
 			),
 		).toBeTruthy();
+	});
+
+	test("预览后目录变化：创建成功弹出变化提示（新增/减少文件数）", async () => {
+		mockCreateReply({
+			type: "knowledge:create",
+			kb: { ...kbReady, id: "kb_new" },
+			planChanged: { added: ["c.md"], removed: ["b.txt"] },
+		});
+		render(<KnowledgePage />);
+		fireEvent.click(screen.getByTestId("kb-add-button"));
+		fireEvent.change(screen.getByTestId("kb-folder-input"), {
+			target: { value: "D:/资料/产品文档" },
+		});
+		// 两段式：先扫描预览（带回 planToken），再提交
+		fireEvent.blur(screen.getByTestId("kb-folder-input"));
+		await screen.findByText(/3 个文件可索引/);
+		fireEvent.click(screen.getByTestId("kb-save"));
+		await waitFor(() =>
+			expect(toastAdd).toHaveBeenCalledWith(
+				expect.stringContaining("新增 1"),
+				"info",
+			),
+		);
+		// 提示同时带减少数
+		expect(toastAdd).toHaveBeenCalledWith(
+			expect.stringContaining("减少 1"),
+			"info",
+		);
 	});
 
 	test("卡片「编辑」入口打开编辑弹窗并回填名称（保存文案 = 保存）", async () => {

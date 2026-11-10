@@ -547,6 +547,8 @@ const en = {
 		saveEdit: "Save",
 		cancel: "Cancel",
 		pleaseSelectFolder: "Please select a folder",
+		planChangedHint:
+			"The folder changed after the preview: {{added}} added, {{removed}} removed. Indexed using the latest content.",
 		indexableCount: "{{count}} files indexable",
 		skipTotal: "Skipping {{count}} files:",
 		skipSuggestedExcluded: "Suggested-excluded",

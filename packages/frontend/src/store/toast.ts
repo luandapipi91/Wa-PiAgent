@@ -3,12 +3,13 @@ import { create } from "zustand";
 export interface ToastItem {
   id: string;
   message: string;
-  type: "error" | "success";
+  /** info 用于中性提示（如预览后目录变化），渲染回退到品牌色 */
+  type: "error" | "success" | "info";
 }
 
 interface ToastState {
   toasts: ToastItem[];
-  add: (message: string, type?: "error" | "success") => void;
+  add: (message: string, type?: "error" | "success" | "info") => void;
   dismiss: (id: string) => void;
 }
 

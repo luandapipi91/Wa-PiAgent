@@ -532,6 +532,7 @@ const zh = {
 		saveEdit: "保存",
 		cancel: "取消",
 		pleaseSelectFolder: "请选择文件夹",
+		planChangedHint: "预览后目录有变化：新增 {{added}}、减少 {{removed}}，已按最新内容索引",
 		indexableCount: "{{count}} 个文件可索引",
 		skipTotal: "另跳过 {{count}} 个文件：",
 		skipSuggestedExcluded: "建议排除",

@@ -25,6 +25,8 @@ export interface KbFormPayload {
   name?: string;
   /** 留空则由 kernel 生成默认描述 */
   description?: string;
+  /** 预览计划令牌（来自最近一次预览）：创建时回传给 kernel 比对目录是否变化 */
+  planToken?: string;
 }
 
 export interface KbFormSaveResult {
@@ -97,6 +99,8 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
   const [description, setDescription] = useState(kb?.description ?? "");
   const [scanning, setScanning] = useState(false);
   const [preview, setPreview] = useState<KbScanPreview | null>(null);
+  // 预览计划令牌：随预览回包落地，创建时透传（目录在预览后变动由后端报告）
+  const [planToken, setPlanToken] = useState<string | undefined>();
   const [scanError, setScanError] = useState<string | undefined>();
   const [inlineError, setInlineError] = useState<string | undefined>();
   const [formError, setFormError] = useState<string | undefined>();
@@ -117,6 +121,7 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
     scannedPathRef.current = "";
     setScanning(false);
     setPreview(null);
+    setPlanToken(undefined);
     setScanError(undefined);
     setInlineError(undefined);
   };
@@ -153,9 +158,12 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
     try {
       const data = (await api.post("/api/knowledge/preview", {
         folderPath: p,
-      })) as { preview?: KbScanPreview };
+      })) as { preview?: KbScanPreview; planToken?: string };
       // 本次扫描仍是最新一次才落地（期间改过路径/重新扫描则丢弃旧响应）
-      if (seq === scanSeqRef.current) setPreview(data?.preview ?? null);
+      if (seq === scanSeqRef.current) {
+        setPreview(data?.preview ?? null);
+        setPlanToken(data?.planToken);
+      }
     } catch (e) {
       if (seq === scanSeqRef.current) {
         setScanError(formatApiError(e));
@@ -182,6 +190,8 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
         folderPath: folder,
         name: name.trim() || undefined,
         description: description.trim() || undefined,
+        // 编辑模式无预览（源目录不可改），planToken 自然为 undefined
+        planToken,
       });
       if (result && !result.ok) setFormError(result.message);
     } catch (e) {

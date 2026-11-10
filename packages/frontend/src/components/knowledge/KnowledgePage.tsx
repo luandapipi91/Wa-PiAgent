@@ -5,6 +5,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
 import { formatApiError } from "../../util/kernel-error";
 import { useKnowledgeStore } from "../../store/knowledge";
+import { useToastStore } from "../../store/toast";
 import { KbList } from "./KbList";
 import {
   KbFormModal,
@@ -35,7 +36,21 @@ export function KnowledgePage() {
   ): Promise<KbFormSaveResult> => {
     try {
       if (formTarget === "new") {
-        await api.post("/api/knowledge", payload);
+        const res = (await api.post("/api/knowledge", payload)) as {
+          planChanged?: { added: string[]; removed: string[] };
+        };
+        // 预览后目录有变动（用户在两段式里停留、外部程序写文件）：库照建，
+        // 只提示「看到的预览已过期，已按最新内容索引」
+        const changed = res?.planChanged;
+        if (changed && (changed.added.length > 0 || changed.removed.length > 0)) {
+          useToastStore.getState().add(
+            t("kb.planChangedHint", {
+              added: changed.added.length,
+              removed: changed.removed.length,
+            }),
+            "info",
+          );
+        }
       } else if (formTarget) {
         await api.put(`/api/knowledge/${encodeURIComponent(formTarget.id)}`, {
           name: payload.name,
