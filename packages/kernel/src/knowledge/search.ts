@@ -16,6 +16,7 @@ import {
   queryTokensOf,
   scoreChunkForQuery,
 } from "./search/ranking";
+import { diversify } from "./search/diversity";
 import { bigram } from "../memory/bigram";
 import { embedQuery } from "../memory/embedder";
 import { knowledgeFingerprint } from "./fingerprint";
@@ -251,9 +252,19 @@ export async function searchKnowledge(
     }
   }
 
-  // 跨库合并：按融合分降序截 limit（limit≤0 时 slice 语义不安全，钳到 0）
+  // 跨库合并：先按加权分降序，再做多样性与文件交错（单文件最多 2 条），最后截断。
+  // 多样性必须在截断前——否则单文件的相邻块会把 limit 占满，其他来源永远进不来。
   merged.sort((a, b) => b.hit.score - a.hit.score);
-  const top = merged.slice(0, Math.max(0, limit));
+  const ranked = merged.map((m) => ({
+    ...m,
+    score: m.hit.score,
+    filePath: m.hit.filePath,
+    content: m.hit.content,
+  }));
+  const top =
+    ranked.length > 0
+      ? diversify(ranked, { limit: Math.max(0, limit), maxPerFile: 2, lambda: 0.7 })
+      : [];
   // 新鲜度只核对最终返回的这几条（≤limit 次 stat，并发不放大 IO）；整库已标 stale 的短路不再 stat
   await Promise.all(
     top.map(async ({ hit, root, recordedMtime }) => {
