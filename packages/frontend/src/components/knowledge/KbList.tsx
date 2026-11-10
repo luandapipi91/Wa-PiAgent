@@ -34,6 +34,11 @@ export function KbList({
   const { deleteKb, setAutoWatch, cancelIndex } = useKnowledgeStore();
   // 待确认删除的库 id（null = 无确认框）
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // 渲染前按 id 复查状态：确认框开着时库可能被外部（watcher 自动重建 / 他处重建）转为索引中，
+  // 那种情况下 kernel 会拒删除（400），确认框应当自动消失而不是让用户确认完才吃错
+  const confirmTarget = confirmDelete ? kbs.find((k) => k.id === confirmDelete) : undefined;
+  const confirmTargetBusy =
+    confirmTarget?.status === "indexing" || confirmTarget?.status === "scanning";
 
   const handleDelete = (id: string) => {
     (onDelete ?? deleteKb)(id);
@@ -66,12 +71,12 @@ export function KbList({
         />
       ))}
 
-      {/* 删除确认弹窗 */}
-      {confirmDelete && (
+      {/* 删除确认弹窗（目标库转为索引中时不渲染） */}
+      {confirmDelete && !confirmTargetBusy && (
         <ConfirmDialog
           title={t("kb.deleteTitle")}
           message={t("kb.deleteMessage", {
-            name: kbs.find((k) => k.id === confirmDelete)?.name ?? confirmDelete,
+            name: confirmTarget?.name ?? confirmDelete,
           })}
           confirmText={t("kb.deleteButton")}
           danger
