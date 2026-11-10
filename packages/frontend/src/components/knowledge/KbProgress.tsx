@@ -8,6 +8,8 @@
 //   scanning/extracting/chunking → 文件解析占前 50%（filesDone/filesTotal）
 //   embedding/committing → 块嵌入占后 50%（chunksDone/chunksTotal）
 // 块总量未知（旧快照未带）时停在 50%，绝不拿文件口径冒充 100%。
+// 取消按钮 testid 带 kb.id：同一页面可能同时渲染多个索引进度区（KbList 全量渲染
+// indexing 的库），裸 `kb-cancel` 还会与 KbFormModal 表单取消按钮撞车。
 import type { KbInfo } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 
@@ -56,7 +58,7 @@ export function KbProgress({ kb, onCancel }: Props) {
         {onCancel && (
           <button
             type="button"
-            data-testid="kb-cancel"
+            data-testid={`kb-cancel-index-${kb.id}`}
             onClick={() => onCancel(kb.id)}
             className="text-[calc(10.5px*var(--font-scale))] font-medium px-2 py-0.5 rounded-md"
             style={{

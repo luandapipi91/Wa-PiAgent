@@ -157,13 +157,38 @@ describe("KbProgress 进度条", () => {
 	test("取消按钮回调", () => {
 		const onCancel = mock();
 		render(<KbProgress kb={indexingKb} onCancel={onCancel} />);
-		fireEvent.click(screen.getByTestId("kb-cancel"));
+		fireEvent.click(screen.getByTestId("kb-cancel-index-kb_1"));
 		expect(onCancel).toHaveBeenCalledWith("kb_1");
 	});
 
 	test("ready 后进度区消失", () => {
 		render(<KbProgress kb={kbReady} onCancel={mock()} />);
-		expect(screen.queryByTestId("kb-cancel")).toBeNull();
+		expect(screen.queryByTestId("kb-cancel-index-kb_1")).toBeNull();
+	});
+
+	test("取消按钮 testid 带 kbId：两个库同时索引时按钮不撞车", () => {
+		// 同一页面可能出现多个索引进度区（KbList 渲染全部 indexing 的库），
+		// 裸 testid 会让 e2e/自动化选中第一个而误导第二个的取消操作。
+		const indexingProgress = {
+			phase: "embedding" as const,
+			filesTotal: 10,
+			filesDone: 1,
+			chunksDone: 0,
+		};
+		render(
+			<>
+				<KbProgress
+					kb={{ ...kbReady, id: "kb_1", status: "indexing", progress: indexingProgress }}
+					onCancel={mock()}
+				/>
+				<KbProgress
+					kb={{ ...kbReady, id: "kb_2", status: "indexing", progress: indexingProgress }}
+					onCancel={mock()}
+				/>
+			</>,
+		);
+		expect(screen.getByTestId("kb-cancel-index-kb_1")).toBeTruthy();
+		expect(screen.getByTestId("kb-cancel-index-kb_2")).toBeTruthy();
 	});
 
 	test("scanning 阶段也渲染进度区（仅 ready/error 消失）", () => {
@@ -177,7 +202,7 @@ describe("KbProgress 进度条", () => {
 				onCancel={mock()}
 			/>,
 		);
-		expect(screen.getByTestId("kb-cancel")).toBeTruthy();
+		expect(screen.getByTestId("kb-cancel-index-kb_1")).toBeTruthy();
 	});
 });
 
