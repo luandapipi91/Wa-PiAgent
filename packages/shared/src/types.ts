@@ -284,6 +284,20 @@ export interface KnowledgeFailedEvent {
 	kbId: string;
 }
 
+/** 深度重排开关：GET 状态 / 保存开关（PUT 语义） */
+export interface KnowledgeRerankEvent {
+	type: "knowledge:rerank";
+}
+
+export interface KnowledgeRerankSaveEvent {
+	type: "knowledge:rerank:save";
+	enabled: boolean;
+}
+
+export interface KnowledgeRerankRetryEvent {
+	type: "knowledge:rerank:retry";
+}
+
 /** 单库诊断请求（GET /api/knowledge/:id/health） */
 export interface KnowledgeHealthEvent {
 	type: "knowledge:health";
@@ -346,6 +360,16 @@ export interface KnowledgeUpdateResult {
 export interface KnowledgeFailedResult {
 	type: "knowledge:failed";
 	failures: Array<{ path: string; reason: string }>;
+}
+
+/** 深度重排状态回包（enabled 来自设置，status/progress 来自模型加载器） */
+export interface KnowledgeRerankResult {
+	type: "knowledge:rerank";
+	enabled: boolean;
+	status: "idle" | "downloading" | "ready" | "failed";
+	model: string;
+	progress?: number;
+	error?: string;
 }
 
 /** 单库诊断结果 */
@@ -1124,7 +1148,10 @@ export type WSClientEvent =
 	| KnowledgeUpdateEvent
 	| KnowledgeFailedEvent
 	| KnowledgeHealthEvent
-	| KnowledgeDoctorEvent;
+	| KnowledgeDoctorEvent
+	| KnowledgeRerankEvent
+	| KnowledgeRerankSaveEvent
+	| KnowledgeRerankRetryEvent;
 
 // kernel → 前端
 /** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
@@ -1854,7 +1881,8 @@ export type WSServerEvent =
 	| KnowledgeUpdateResult
 	| KnowledgeFailedResult
 	| KnowledgeHealthResult
-	| KnowledgeDoctorResult;
+	| KnowledgeDoctorResult
+	| KnowledgeRerankResult;
 
 /**
  * agent 请求在内置 HTML 预览中打开内容（preview_open 工具触发，kernel → 前端广播）。

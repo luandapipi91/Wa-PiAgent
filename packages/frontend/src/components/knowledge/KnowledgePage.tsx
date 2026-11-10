@@ -13,6 +13,7 @@ import {
   type KbFormSaveResult,
 } from "./KbFormModal";
 import { KbFailedModal } from "./KbFailedModal";
+import { DoctorModal } from "./DoctorModal";
 
 /** 弹窗目标：null=关闭；"new"=新建；KbInfo=编辑该库 */
 type KbFormTarget = KbInfo | "new" | null;
@@ -23,11 +24,25 @@ export function KnowledgePage() {
   const [formTarget, setFormTarget] = useState<KbFormTarget>(null);
   /** 失败清单弹窗目标（null=关闭；kbId=展示该库最近一轮的失败文件） */
   const [failedKbId, setFailedKbId] = useState<string | null>(null);
+  /** 体检弹窗开关 */
+  const [doctorOpen, setDoctorOpen] = useState(false);
+  const rerank = useKnowledgeStore((s) => s.rerank);
+  const setRerankEnabled = useKnowledgeStore((s) => s.setRerankEnabled);
+  const retryRerank = useKnowledgeStore((s) => s.retryRerank);
+  const loadRerank = useKnowledgeStore((s) => s.loadRerank);
 
   // 挂载即拉清单（B4+ 的失败清单/进度亦经本 store 的 SSE 订阅回流）
   useEffect(() => {
     listKbs();
+    loadRerank();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 下载中每 1.5s 轮询一次状态，直到终态（ready/failed/idle）
+  useEffect(() => {
+    if (rerank.status !== "downloading") return;
+    const timer = setInterval(() => loadRerank(), 1500);
+    return () => clearInterval(timer);
+  }, [rerank.status, loadRerank]);
 
   /** 弹窗保存：新建发 POST（自动触发索引），编辑发 PUT 只更名称/描述；
    *  成功后刷新清单并关闭弹窗（POST 返回即落库，索引进度走 SSE 刷新徽章） */
@@ -79,6 +94,58 @@ export function KnowledgePage() {
         <h2 className="text-base font-extrabold text-primary m-0">
           {t("settings.nav.knowledge")}
         </h2>
+        {/* 深度重排开关：默认关闭，开启后才下载 cross-encoder 模型 */}
+        <label className="flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-secondary select-none cursor-pointer">
+          <input
+            type="checkbox"
+            checked={rerank.enabled}
+            onChange={(e) => void setRerankEnabled(e.target.checked)}
+            data-testid="kb-rerank-toggle"
+          />
+          <span>{t("kb.rerankLabel")}</span>
+          <span
+            className="text-[calc(10.5px*var(--font-scale))]"
+            style={{
+              color:
+                rerank.status === "failed"
+                  ? "var(--danger)"
+                  : rerank.status === "ready"
+                    ? "var(--success)"
+                    : "var(--text-tertiary)",
+            }}
+            data-testid="kb-rerank-status"
+          >
+            {rerank.status === "downloading"
+              ? t("kb.rerankDownloading", { progress: rerank.progress ?? 0 })
+              : rerank.status === "ready"
+                ? t("kb.rerankReady")
+                : rerank.status === "failed"
+                  ? t("kb.rerankFailed")
+                  : t("kb.rerankIdle")}
+          </span>
+          {rerank.status === "failed" && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                void retryRerank();
+              }}
+              className="px-1.5 py-0.5 rounded"
+              style={{ border: "1px solid var(--hairline)" }}
+              data-testid="kb-rerank-retry"
+            >
+              {t("kb.rerankRetry")}
+            </button>
+          )}
+        </label>
+        <button
+          onClick={() => setDoctorOpen(true)}
+          className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md shrink-0"
+          style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
+          data-testid="kb-doctor-open"
+        >
+          {t("kb.doctorOpen")}
+        </button>
         <button
           onClick={() => setFormTarget("new")}
           className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
@@ -153,6 +220,8 @@ export function KnowledgePage() {
       )}
 
       {/* 失败文件清单弹窗（B4）：库名从当前清单取，取不到（已删）回退 kbId */}
+      {doctorOpen && <DoctorModal onClose={() => setDoctorOpen(false)} />}
+
       {failedKbId && (
         <KbFailedModal
           kbId={failedKbId}

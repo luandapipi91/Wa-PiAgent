@@ -5,11 +5,20 @@
 //   · SSE：knowledge:progress（kernel 索引管线逐帧广播，按 kbId 过滤）
 // kernel 的 knowledge 域没有 mcp:changed 类的清单广播 → 写操作成功后就地更新本地状态。
 import { create } from "zustand";
-import type { KbInfo, KbProgressEvent } from "@wa-pi/shared";
+import type { KbDoctorReport, KbInfo, KbProgressEvent } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { formatApiError } from "../util/kernel-error";
 import { useToastStore } from "./toast";
 import { onEventType } from "../events";
+
+/** rerank 开关与模型状态（与 GET /api/knowledge/rerank 回包一致） */
+export interface RerankState {
+  enabled: boolean;
+  status: "idle" | "downloading" | "ready" | "failed";
+  model: string;
+  progress?: number;
+  error?: string;
+}
 
 interface KnowledgeState {
   kbs: KbInfo[];
@@ -41,6 +50,20 @@ interface KnowledgeState {
   cancelIndex(id: string): Promise<void>;
   /** 重建索引（POST :id/index）；已有进行中任务的 400 也弹 toast，成功 refetch 清单切「索引中」 */
   reindex(id: string): Promise<void>;
+  /** rerank 开关与模型状态（设置页展示用） */
+  rerank: RerankState;
+  /** 写 rerank 状态（load/save/retry 共用） */
+  setRerank(next: RerankState): void;
+  /** 拉取 rerank 状态 */
+  loadRerank(): void;
+  /** 保存 rerank 开关（开启即触发后台下载模型） */
+  setRerankEnabled(enabled: boolean): Promise<void>;
+  /** 重试下载 */
+  retryRerank(): Promise<void>;
+  /** 全库体检报告（诊断弹窗） */
+  doctor: KbDoctorReport | null;
+  /** 拉取体检报告 */
+  loadDoctor(): Promise<void>;
   /** 处理 knowledge:progress：维护 progress map 并同步对应库的 status/progress */
   applyProgress(e: KbProgressEvent): void;
 }
@@ -78,6 +101,8 @@ function scheduleListRefresh(): void {
 
 export const useKnowledgeStore = create<KnowledgeState>((set) => ({
   kbs: [],
+  rerank: { enabled: false, status: "idle", model: "" },
+  doctor: null,
   loading: false,
   loaded: false,
   error: null,
@@ -180,6 +205,64 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
     }
     // POST 成功即已开任务；进度主走 SSE 推帧，此处 refetch 让状态立即切「索引中」
     useKnowledgeStore.getState().listKbs();
+  },
+
+  setRerank: (next) => set({ rerank: next }),
+
+  loadRerank: () => {
+    api
+      .get("/api/knowledge/rerank")
+      .then((data: any) => {
+        useKnowledgeStore.getState().setRerank({
+          enabled: data?.enabled === true,
+          status: data?.status ?? "idle",
+          model: data?.model ?? "",
+          progress: typeof data?.progress === "number" ? data.progress : undefined,
+          error: typeof data?.error === "string" ? data.error : undefined,
+        });
+      })
+      .catch(() => {
+        /* 状态拉取失败不打断页面 */
+      });
+  },
+
+  setRerankEnabled: async (enabled) => {
+    try {
+      const data: any = await api.put("/api/knowledge/rerank", { enabled });
+      useKnowledgeStore.getState().setRerank({
+        enabled: data?.enabled === true,
+        status: data?.status ?? "idle",
+        model: data?.model ?? "",
+        progress: typeof data?.progress === "number" ? data.progress : undefined,
+        error: typeof data?.error === "string" ? data.error : undefined,
+      });
+    } catch (e) {
+      useToastStore.getState().add(formatApiError(e), "error");
+    }
+  },
+
+  retryRerank: async () => {
+    try {
+      const data: any = await api.post("/api/knowledge/rerank/retry");
+      useKnowledgeStore.getState().setRerank({
+        enabled: data?.enabled === true,
+        status: data?.status ?? "idle",
+        model: data?.model ?? "",
+        progress: typeof data?.progress === "number" ? data.progress : undefined,
+        error: typeof data?.error === "string" ? data.error : undefined,
+      });
+    } catch (e) {
+      useToastStore.getState().add(formatApiError(e), "error");
+    }
+  },
+
+  loadDoctor: async () => {
+    try {
+      const data: any = await api.get("/api/knowledge/doctor");
+      set({ doctor: data?.report ?? null });
+    } catch (e) {
+      useToastStore.getState().add(formatApiError(e), "error");
+    }
   },
 
   applyProgress: (e) => {

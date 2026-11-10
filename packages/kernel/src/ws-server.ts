@@ -29,6 +29,8 @@ import {
 	loadRetrySettings,
 	saveRetrySettings,
 	loadHttpIdleTimeoutMs,
+	loadKnowledgeRerankSettings,
+	saveKnowledgeRerankSettings,
 	saveHttpIdleTimeoutMs,
 	DEFAULT_HTTP_IDLE_TIMEOUT_MS,
 } from "./settings-store";
@@ -3242,6 +3244,47 @@ export class WSServer {
 						break;
 					}
 					reply({ type: "knowledge:failed", failures: getKbFailures(event.kbId) });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:rerank": {
+				try {
+					const { rerankerStatus } = await import("./knowledge/reranker");
+					const settings = await loadKnowledgeRerankSettings();
+					reply({
+						type: "knowledge:rerank",
+						enabled: settings.enabled,
+						...rerankerStatus(),
+					});
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:rerank:save": {
+				try {
+					const settings = await saveKnowledgeRerankSettings({ enabled: event.enabled === true });
+					const { prepareReranker, unloadReranker, rerankerStatus } = await import("./knowledge/reranker");
+					if (settings.enabled) {
+						// 后台下载/加载，不阻塞响应；状态由前端轮询 GET 获取
+						void prepareReranker();
+					} else {
+						void unloadReranker();
+					}
+					reply({ type: "knowledge:rerank", enabled: settings.enabled, ...rerankerStatus() });
+				} catch (err) {
+					replyError(reply, err);
+				}
+				break;
+			}
+			case "knowledge:rerank:retry": {
+				try {
+					const { prepareReranker, rerankerStatus } = await import("./knowledge/reranker");
+					void prepareReranker();
+					const settings = await loadKnowledgeRerankSettings();
+					reply({ type: "knowledge:rerank", enabled: settings.enabled, ...rerankerStatus() });
 				} catch (err) {
 					replyError(reply, err);
 				}
