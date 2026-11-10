@@ -16,6 +16,9 @@ export const PREVIEW_PLAN_TTL_MS = 10 * 60 * 1000;
 /** 令牌表容量上限（超出淘汰最旧一条） */
 export const PREVIEW_PLAN_MAX = 32;
 
+/** 单份计划的清单条数上限：超过则不登记计划（只放弃差异提示，创建照常） */
+const PREVIEW_PLAN_MAX_FILES = 20_000;
+
 interface PreviewPlan {
 	/** 归一化后的库根绝对路径：令牌只对该目录有效 */
 	folderPath: string;
@@ -39,6 +42,8 @@ function purgeExpired(now: number): void {
  * 记住一次预览结果，返回 planToken。
  * folderPath 必须是归一化后的绝对路径（调用方用 resolve，与创建侧一致）。
  * 同一目录只留一份计划：先删掉该目录的旧条目（反复预览不囤积全量清单副本）。
+ * 清单过大（>20000 条）时返回空串、不登记：PREVIEW_PLAN_MAX 只管条数不管体积，
+ * 百万级路径的 Set 会长期占住 kernel 堆内存；差异提示是纯提示，宁可不给也不能拖垮进程。
  */
 export function rememberPreview(
 	folderPath: string,
@@ -47,6 +52,8 @@ export function rememberPreview(
 ): string {
 	const now = opts?.now ?? Date.now();
 	purgeExpired(now);
+	// 体积上限：超限直接放弃登记（返回空串 = 调用方拿不到有效 token，创建时跳过比对）
+	if (indexable.length > PREVIEW_PLAN_MAX_FILES) return "";
 	// 同目录覆盖：旧 token 立即失效（避免同目录多份清单副本，旧预览也不应再被采纳）
 	for (const [id, plan] of plans) {
 		if (plan.folderPath === folderPath) plans.delete(id);

@@ -88,6 +88,27 @@ test("peekPreviewPlan 只判存在/过期/目录一致，不比对清单", () =>
 	});
 });
 
+// 体积上限（I4）：32 条上限只管条数、不管体积，单份清单可能上百万路径。
+// 超过 20000 条就放弃登记计划：创建照常，只是不再给「预览已过期」提示。
+test("清单超过 20000 条：rememberPreview 返回空串，不登记计划", () => {
+	const huge = Array.from({ length: 20_001 }, (_, i) => `f${i}.md`);
+	expect(rememberPreview(dir, huge)).toBe("");
+	// 空 token 天然不命中：创建侧照建库，只是拿不到差异
+	expect(evaluatePreviewPlan("", dir, huge)).toEqual({ hit: false });
+	expect(peekPreviewPlan("", dir)).toEqual({ hit: false });
+});
+
+test("清单正好 20000 条（上限内）：照常登记计划", () => {
+	const big = Array.from({ length: 20_000 }, (_, i) => `f${i}.md`);
+	const token = rememberPreview(dir, big);
+	expect(token).not.toBe("");
+	expect(evaluatePreviewPlan(token, dir, big)).toEqual({
+		hit: true,
+		changed: false,
+		token,
+	});
+});
+
 test("expirePreviewPlanForTest：测试缝把令牌推到期后 peek 不命中", () => {
 	const token = rememberPreview(dir, ["a.md"]);
 	expirePreviewPlanForTest(token);

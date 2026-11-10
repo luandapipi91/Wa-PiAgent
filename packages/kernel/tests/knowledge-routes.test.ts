@@ -320,6 +320,29 @@ test("planToken 有效但比对扫描抛错：创建仍成功且回包无 planCh
   expect(calls).toBe(2); // 预览 1 次 + 比对 1 次（抛错后不再重扫）
 });
 
+test("planToken 有效且未注入扫描器（生产缺省异步扫描）：比对路径仍然生效（I2）", async () => {
+  // 不注入 kbScanFolder：走 ws-server 的缺省扫描器（scanFolderAsync，不阻塞事件循环）。
+  // 锁行为：异步扫描路径真的跑了——若缺省扫描器缺失或未被 await，比对会落到 catch 里，
+  // 回包就不会有 planChanged。
+  const { port } = await startTestServer();
+  const preview = (await (
+    await api(port, "POST", "/api/knowledge/preview", { folderPath: srcDir })
+  ).json()) as any;
+  expect(typeof preview.planToken).toBe("string");
+  writeFileSync(join(srcDir, "late.md"), "# 预览后才写进来的");
+
+  const res = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    name: "异步比对库",
+    planToken: preview.planToken,
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  expect(body.type).toBe("knowledge:create");
+  expect(body.kb.name).toBe("异步比对库");
+  expect(body.planChanged).toEqual({ added: ["late.md"], removed: [] });
+});
+
 test("planToken 已过期：不再重新扫描比对，创建照常且回包无 planChanged（I-2）", async () => {
   let scans = 0;
   const { port } = await startTestServer(undefined, async (p) => {

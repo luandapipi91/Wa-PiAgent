@@ -97,7 +97,7 @@ import { registerExtensionRoutes } from "./routes/extensions";
 import { registerMemoryRoutes } from "./routes/memory";
 import { registerKnowledgeRoutes } from "./routes/knowledge";
 import { runIndex, getKbFailures, clearKbFailures, type EmbedFn } from "./knowledge/indexer";
-import { scanFolder } from "./knowledge/scan";
+import { scanFolder, scanFolderAsync } from "./knowledge/scan";
 import {
 	rememberPreview,
 	evaluatePreviewPlan,
@@ -454,8 +454,8 @@ export interface WSServerOpts {
 	 */
 	kbWatchOpts?: WatchKbOptions;
 	/**
-	 * 知识库同步扫描函数（测试注入计数/故障复现；缺省 scanFolder）。
-	 * 只影响 preview / create 比对两个低频交互路径，索主管线走 scanFolderAsync。
+	 * 知识库扫描函数（测试注入计数/故障复现；缺省 scanFolderAsync）。
+	 * 只影响 preview / create 比对两个低频交互路径，与索主管线同用异步扫描（不阻塞事件循环）。
 	 */
 	kbScanFolder?: typeof scanFolder;
 	/** IM 渠道机器人管理器（Task 8 注入真实实例；测试/未启用时为 null，相关 case 走降级路径） */
@@ -3064,9 +3064,9 @@ export class WSServer {
 						reply({ type: "error", message: `目录不存在：${folderPath}` });
 						break;
 					}
-					// 低频交互路径（任务 3 次要③：scanFolder 全同步 IO，勿进高频链路）
-					// excludePaths（扫描第 1 层）未接线，省略 = 不过滤
-					const preview = await (this.opts.kbScanFolder ?? scanFolder)(folderPath);
+					// 低频交互路径，但目录可能很大：用异步扫描让出事件循环，避免卡住 SSE 心跳
+					// （同步 readdirSync 曾把前端看门狗饿断）。excludePaths（扫描第 1 层）未接线，省略 = 不过滤
+					const preview = await (this.opts.kbScanFolder ?? scanFolderAsync)(folderPath);
 					// 计划令牌：记住本次可索引清单，创建时比对是否过期（任务 9，S13）。
 					// 目录统一按绝对路径记（与创建侧的 resolve 一致），相对路径不会误判目录不符。
 					const planToken = rememberPreview(
@@ -3115,7 +3115,7 @@ export class WSServer {
 					// 先 peek（只判存在/过期/目录一致）再决定要不要扫：无效令牌不白扫一遍全目录
 					if (planToken && peekPreviewPlan(planToken, folderPath).hit) {
 						try {
-							const current = await (this.opts.kbScanFolder ?? scanFolder)(folderPath);
+							const current = await (this.opts.kbScanFolder ?? scanFolderAsync)(folderPath);
 							const diff = evaluatePreviewPlan(
 								planToken,
 								folderPath,
