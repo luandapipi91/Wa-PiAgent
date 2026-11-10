@@ -507,6 +507,8 @@ const en = {
 		addButton: "+ New Knowledge Base",
 		empty: "No knowledge bases yet. Click “+ New Knowledge Base” above to register one",
 		loading: "Loading...",
+		loadFailed: "Failed to load knowledge bases",
+		retry: "Retry",
 		statusReady: "Ready",
 		statusFailedFiles: "{{count}} failed files",
 		statusFailedHint: "View {{count}} failed files and reasons",

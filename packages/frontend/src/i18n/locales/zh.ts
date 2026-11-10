@@ -492,6 +492,8 @@ const zh = {
 		addButton: "+ 新建知识库",
 		empty: "暂无知识库，点击右上角「+ 新建知识库」登记第一个库",
 		loading: "加载中...",
+		loadFailed: "知识库清单加载失败",
+		retry: "重试",
 		statusReady: "就绪",
 		statusFailedFiles: "失败 {{count}} 文件",
 		statusFailedHint: "查看 {{count}} 个失败文件及原因",

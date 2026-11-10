@@ -3,8 +3,9 @@
 // 沿用 bun:test + @testing-library/react 约定（照 ExtensionSection.test.tsx，断言 toBeTruthy）；
 // 删除确认复用现有 ConfirmDialog，其确认按钮 testid 为 confirm-ok（全仓既有惯例）。
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import { KbList } from "../KbList";
+import { KnowledgePage } from "../KnowledgePage";
 import { useKnowledgeStore } from "../../../store/knowledge";
 import type { KbInfo } from "@wa-pi/shared";
 
@@ -248,4 +249,76 @@ test("终态帧触发一次清单刷新：计数与失败数不会停在创建�
       getMock.mock.calls.filter((c) => c[0] === "/api/knowledge").length,
     ).toBe(1),
   );
+});
+
+// ── 清单三态 + 请求序号（S9/S10）─────────────────────────────────────────
+// 契约：拉取失败 = 未知态，不得渲染成「暂无知识库」（那是「已知为空」）；
+// 并发拉取时晚到的旧回包不得覆盖新回包（否则删库/索引完成后计数会回退）。
+
+describe("knowledge store：清单三态与并发序号", () => {
+	beforeEach(() => {
+		cleanup();
+		useKnowledgeStore.setState({
+			kbs: [],
+			progress: {},
+			loading: false,
+			loaded: false,
+			error: null,
+		});
+	});
+
+	test("listKbs 失败进入 error 态：显示加载失败与重试，不显示「暂无知识库」", async () => {
+		const { api } = await import("../../../api-client");
+		const getMock = api.get as unknown as {
+			mockRejectedValueOnce(e: Error): void;
+			mock: { calls: unknown[][] };
+		};
+		getMock.mockRejectedValueOnce(new Error("kernel 未启动"));
+
+		render(<KnowledgePage />);
+		await waitFor(() => expect(screen.getByTestId("kb-load-error")).toBeTruthy());
+		// 失败 ≠ 空清单：空态文案会误导用户以为没有库
+		expect(screen.queryByTestId("kb-empty")).toBeNull();
+		expect(screen.getByTestId("kb-load-error").textContent).toContain("kernel 未启动");
+
+		// 重试按钮重新拉清单：本次 mock 走默认成功实现（空清单），error 清除后转真空态
+		const before = getMock.mock.calls.length;
+		fireEvent.click(screen.getByTestId("kb-retry"));
+		await waitFor(() => expect(screen.getByTestId("kb-empty")).toBeTruthy());
+		expect(getMock.mock.calls.length).toBeGreaterThan(before);
+		expect(useKnowledgeStore.getState().error).toBeNull();
+		expect(useKnowledgeStore.getState().loaded).toBe(true);
+	});
+
+	test("并发 listKbs 乱序返回：晚到的旧响应不覆盖新状态", async () => {
+		const { api } = await import("../../../api-client");
+		const getMock = api.get as unknown as {
+			mockImplementationOnce(fn: () => Promise<unknown>): void;
+			mockResolvedValueOnce(v: unknown): void;
+		};
+		// 第 1 次：挂起，等测试放行；第 2 次：立即返回 fileCount=3
+		let releaseFirst: ((v: unknown) => void) | null = null;
+		getMock.mockImplementationOnce(
+			() => new Promise((resolve) => (releaseFirst = resolve)),
+		);
+		getMock.mockResolvedValueOnce({
+			type: "knowledge:list",
+			kbs: [{ ...kbReady, fileCount: 3 }],
+		});
+
+		useKnowledgeStore.getState().listKbs(); // 第 1 次（慢）
+		useKnowledgeStore.getState().listKbs(); // 第 2 次（快）
+		await waitFor(() => expect(useKnowledgeStore.getState().kbs[0]?.fileCount).toBe(3));
+
+		// 放行第 1 次的旧回包（fileCount=99）：序号已过期，必须被丢弃
+		expect(releaseFirst).not.toBeNull();
+		act(() => {
+			(releaseFirst as unknown as (v: unknown) => void)({
+				type: "knowledge:list",
+				kbs: [{ ...kbReady, fileCount: 99 }],
+			});
+		});
+		await act(async () => {});
+		expect(useKnowledgeStore.getState().kbs[0]?.fileCount).toBe(3);
+	});
 });

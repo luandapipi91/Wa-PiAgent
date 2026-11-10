@@ -21,6 +21,12 @@ interface KnowledgeState {
    */
   loaded: boolean;
   /**
+   * 最近一次清单拉取的错误文案（null = 无错误，B-hardening S9）。
+   * 失败 ≠ 空清单：页面据此区分「拉取失败（未知态）」与「已知为空」，
+   * 否则 kernel 未启动时会误报「暂无知识库」（用户会去重复登记）。
+   */
+  error: string | null;
+  /**
    * 各库最新索引进度（按 kbId 键控）。列表回包自带的 kb.progress 也会 seed 进来
    * （刷新页面后 SSE 事件流尚未推帧时，徽章仍有进度可渲染）；索引到终态（ready/error）清除。
    */
@@ -40,6 +46,13 @@ interface KnowledgeState {
 }
 
 /**
+ * 清单请求序号（模块级，B-hardening S10）：每次 listKbs 自增并把自己那一号记下来，
+ * 回包时序号已过期就直接丢弃——并发拉取（挂载拉取 + SSE 终态补拉 + 重试）时，
+ * 晚到的旧回包不得把新回包的状态（库已删/索引已完成/计数已更新）覆盖回去。
+ */
+let listSeq = 0;
+
+/**
  * 终态帧触发的清单刷新（模块级节流）：fileCount/chunkCount/failedCount/lastIndexedAt
  * 只存在于清单回包，SSE 终态帧只带 status——不补拉的话卡片会长期停在创建时的 0 文件/0 块，
  * 失败文件徽章也永不出现（失败清单入口等于不存在）。同一轮多个终态帧合并成一次。
@@ -57,13 +70,17 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
   kbs: [],
   loading: false,
   loaded: false,
+  error: null,
   progress: {},
 
   listKbs: () => {
+    // 先领号再发请求：只有最新一号的回包有权写状态
+    const seq = ++listSeq;
     set({ loading: true });
     api
       .get("/api/knowledge")
       .then((data: any) => {
+        if (seq !== listSeq) return; // 更晚的请求已发出：本次回包过期，丢弃
         // kernel 回包是 { type, kbs }；容忍裸数组与空对象（测试 mock 返回 {} 时落空列表）
         const kbs: KbInfo[] = Array.isArray(data) ? data : (data?.kbs ?? []);
         // 回包自带的进行中进度 seed 进 map，徽章刷新前就有进度可显示
@@ -82,9 +99,13 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
             };
           }
         }
-        set({ kbs, progress, loading: false, loaded: true });
+        set({ kbs, progress, loading: false, loaded: true, error: null });
       })
-      .catch(() => set({ loading: false }));
+      .catch((e) => {
+        if (seq !== listSeq) return; // 过期回包的失败同样不得改写最新状态
+        // 失败保持 loaded=false（未知态），只记错误文案，由页面渲染「加载失败 + 重试」
+        set({ loading: false, error: formatApiError(e) });
+      });
   },
 
   deleteKb: async (id) => {

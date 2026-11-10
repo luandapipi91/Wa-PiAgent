@@ -18,7 +18,7 @@ type KbFormTarget = KbInfo | "new" | null;
 
 export function KnowledgePage() {
   const { t } = useTranslation();
-  const { kbs, loading, listKbs, reindex } = useKnowledgeStore();
+  const { kbs, loading, error, loaded, listKbs, reindex } = useKnowledgeStore();
   const [formTarget, setFormTarget] = useState<KbFormTarget>(null);
   /** 失败清单弹窗目标（null=关闭；kbId=展示该库最近一轮的失败文件） */
   const [failedKbId, setFailedKbId] = useState<string | null>(null);
@@ -74,9 +74,28 @@ export function KnowledgePage() {
         </button>
       </div>
 
-      {/* 列表内容 */}
+      {/* 列表内容：三态（加载失败/加载中/列表含真空态）*/}
       <div className="flex-1 overflow-y-auto px-5 py-3.5">
-        {loading ? (
+        {error && !loaded ? (
+          // 拉取失败且从未成功过 = 清单未知态：不能渲染成「暂无知识库」（那是已知为空）
+          <div className="text-center py-8" data-testid="kb-load-error">
+            <p className="text-[calc(12.5px*var(--font-scale))] text-tertiary m-0">
+              {t("kb.loadFailed")}
+            </p>
+            <p className="text-[calc(11px*var(--font-scale))] text-tertiary mt-1 mb-3">
+              {error}
+            </p>
+            <button
+              onClick={() => listKbs()}
+              className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white"
+              style={{ background: "var(--accent)", border: "none" }}
+              data-testid="kb-retry"
+            >
+              {t("kb.retry")}
+            </button>
+          </div>
+        ) : loading && !loaded ? (
+          // 仅在「还没成功加载过」时占位：后续刷新保持旧列表，避免闪白
           <div className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8">
             {t("kb.loading")}
           </div>
