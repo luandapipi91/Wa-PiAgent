@@ -3,6 +3,7 @@
 //   - setInterval(60s) 快照轮询是正确性兜底（监听失效/网络盘场景），复用 scanFolderAsync
 //     与索引完全一致的过滤逻辑（excludePaths 未接线，与 runIndex 一样省略），保证监听范围=索引范围不漂移；
 //   - 两套机制共用一个防抖槽（2s）：git checkout 式批量变更只触发一轮 update；
+//   - 轮询快照单飞：单轮扫描可能超过轮询间隔（网络盘大目录），已在跑则跳过本轮，不叠罗汉；
 //   - 合并语义：同库 runIndex 进行中再触发 → dirty 标记，本轮完成后自动重跑一次（排队合并，不重复开）。//   - 重入协调（审查修复）：手动更新（ws-server 同一 runIndex）进行中时触发不丢弃，防抖重排//     等待手动完成后自动补跑——变更最多延迟、不丢失；轮询基线仅在索引成功后推进。
 // 监听是库级开关（autoWatch，列表页「自动更新」默认开）：关掉后仅手动更新/重建。
 // 中断恢复（规格 §6.7）：restoreWatchers 对 status=indexing 的库置 error（不自动续跑）；
@@ -41,6 +42,8 @@ export interface WatchKbOptions {
   indexFn?: IndexFn;
   /** 嵌入函数（透传缺省 runIndex；测试注入 fake 绕开模型） */
   embedFn?: EmbedFn;
+  /** 目录快照获取器（缺省 takeSnapshot；仅测试注入，用来挂住一轮快照验证单飞守卫） */
+  snapshotFn?: () => Promise<string>;
   /** 外部取消信号（aborted 时自动 stop，watcher 内部的索引用内部 signal 中止） */
   signal?: AbortSignal;
 }
@@ -83,6 +86,7 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   let pendingReport = false; // 有未消化的变更已排队（schedule 置位、索引消化后复位）——轮询同一差异只上报一次，
   // 否则基线不推进的轮询会每个周期重复 schedule 重置防抖窗口，timer 永不到期（触发饥饿）
   let currentAbort: AbortController | null = null; // 当前进行中那轮索引的控制器（每轮新建，索引间隙为 null）
+  let snapshotInFlight = false; // 快照单飞：同一时刻只允许一个扫描在跑（见 guardedSnapshot）
   if (opts.signal) {
     if (opts.signal.aborted)
       return {
@@ -109,6 +113,26 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   async function takeSnapshot(): Promise<string> {
     const preview = await scanFolderAsync(folder);
     return preview.indexable.map((f) => `${f.relPath}|${f.mtime}|${f.size}`).join("\n");
+  }
+
+  const snapshotFn = opts.snapshotFn ?? takeSnapshot;
+
+  /**
+   * 快照单飞守卫：同一时刻最多一个扫描在跑，已在跑则返回 null（调用方跳过本轮，下个间隔重试）。
+   * 为什么需要：扫描异步化后单轮可能超过 pollIntervalMs（网络盘 10 万文件可达分钟级），固定节拍的
+   * setInterval 会按时起新的一轮叠罗汉；且慢的旧快照晚到会覆盖 lastSnapshot、制造虚假差异。
+   * 为什么选「单飞开关」而非自调度 setTimeout：固定节拍不变（自调度会把间隔变成「扫描耗时 + pollMs」，
+   * 慢盘下检测频率持续漂移）；stop() 仍是幂等清 timer，不依赖任何在飞状态。
+   * 挂载基线也走同一守卫：首轮扫描同样可能超过一个轮询周期，基线晚到覆盖新值也是虚假差异。
+   */
+  async function guardedSnapshot(): Promise<string | null> {
+    if (snapshotInFlight) return null;
+    snapshotInFlight = true;
+    try {
+      return await snapshotFn();
+    } finally {
+      snapshotInFlight = false; // 无论成功/失败/拒绝都要归还，否则轮询永久停摆
+    }
   }
 
   /** 触发一轮索引；进行中则只标 dirty，本轮完成后 do-while 重跑一次吸收变更 */
@@ -194,9 +218,9 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   }
 
   // 挂载即拍基线快照（异步；基线未就绪前轮询只建基线不判变更，防止误触发）
-  void takeSnapshot()
+  void guardedSnapshot()
     .then((s) => {
-      if (!stopped) lastSnapshot = s;
+      if (!stopped && s !== null) lastSnapshot = s;
     })
     .catch(() => {}); // 目录暂不可读：下轮轮询再建基线
 
@@ -207,12 +231,13 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   pollTimer = setInterval(() => {
     void (async () => {
       if (stopped) return;
-      let snap: string;
+      let snap: string | null;
       try {
-        snap = await takeSnapshot();
+        snap = await guardedSnapshot();
       } catch {
         return; // 目录暂不可读：下轮再试
       }
+      if (snap === null) return; // 单飞：上一轮仍在跑，跳过本轮（下个间隔自然重试）
       if (stopped) return;
       if (lastSnapshot !== null && snap !== lastSnapshot) {
         // 与取消时刻完全相同的差异不再上报（尊重取消）；slow 变化会改变快照 → 恢复触发

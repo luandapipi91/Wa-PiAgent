@@ -1,8 +1,19 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, readdirSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  readdirSync,
+  mkdirSync,
+  writeFileSync,
+  symlinkSync,
+  statSync,
+  type Dirent,
+  type Stats,
+} from "node:fs";
+import { readdir as readdirAsync, stat as statAsync } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scanFolder, scanFolderAsync, isAccessDenied } from "../src/knowledge/scan";
+import { scanFolder, scanFolderAsync, isAccessDenied, type ScanFs } from "../src/knowledge/scan";
 
 // 扫描器测试：mkdtemp 临时夹具（beforeEach 建、afterEach 删），扫描只读、不落任何文件。
 // 夹具布局：
@@ -154,4 +165,93 @@ test("excludePaths 可省略（默认空数组）：第 1 层当前未接线，�
   const p = await scanFolder(root);
   expect(p.indexable.length).toBeGreaterThan(0);
   expect(p.skips.length).toBeGreaterThan(0);
+});
+
+// ── 错误归因的等价性保险丝（I-02）───────────────────────────────────────────
+// 「两版逐项相等由结构保证」只覆盖过滤链，不覆盖 fs 适配器的错误对象形状：
+// skipReasonFor 依赖 err.code，而 EACCES/EPERM 可能来自 stat、open 或 read 阶段，
+// 同步版是 throw、异步版是 reject（甚至可能是 AggregateError）。这两条用例用可注入的
+// ScanFs 制造错误，锁住「同一错误 → 同一归因 + 同一路径」，两版必须逐项相等。
+
+/** 构造带 code 的错误（模拟 Node 的 ErrnoException 形状） */
+function errWithCode(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`注入错误 ${code}`), { code });
+}
+
+interface FsFaults {
+  /** 指定 absPath 的 stat 抛错 */
+  statErr?: Record<string, NodeJS.ErrnoException>;
+  /** 指定 absDir 的 readdir 抛错 */
+  readdirErr?: Record<string, NodeJS.ErrnoException>;
+  /** 指定 absFile 的二进制嗅探（open/read 阶段）抛错 */
+  sniffErr?: Record<string, NodeJS.ErrnoException>;
+  /** 指定 absPath 的 stat 返回「非常规文件」（模拟遍历中被替换/删除的竞态） */
+  notAFile?: Set<string>;
+}
+
+/**
+ * 真实目录 + 按路径注入错误。shape 决定错误投递方式：
+ * sync = 同步 throw（对应 SYNC_FS 的 readdirSync/statSync/openSync），
+ * async = rejected Promise（对应 ASYNC_FS 的 fs/promises）。两者都必须走到同一归因。
+ */
+function faultyFs(shape: "sync" | "async", faults: FsFaults): ScanFs {
+  // 异步形状返回 rejected Promise，同步形状直接 throw——错误投递方式不同、判定结果必须相同
+  const raise = <T,>(e: Error): T | Promise<T> => {
+    if (shape === "async") return Promise.reject<T>(e);
+    throw e;
+  };
+  const readdir = (absDir: string): Dirent[] | Promise<Dirent[]> => {
+    const err = faults.readdirErr?.[absDir];
+    if (err) return raise(err);
+    return shape === "async"
+      ? readdirAsync(absDir, { withFileTypes: true })
+      : readdirSync(absDir, { withFileTypes: true });
+  };
+  const stat = (absPath: string): Stats | Promise<Stats> => {
+    const err = faults.statErr?.[absPath];
+    if (err) return raise(err);
+    if (faults.notAFile?.has(absPath)) {
+      // 竞态：stat 成功但已不是常规文件（目录替换文件等）→ 扫描应静默忽略
+      return Object.assign(statSync(absPath), { isFile: () => false });
+    }
+    return shape === "async" ? statAsync(absPath) : statSync(absPath);
+  };
+  // 嗅探只验错误归因：无注入时一律判「非二进制」（夹具里都是文本内容）
+  const sniffBinary = (absFile: string): boolean | Promise<boolean> => {
+    const err = faults.sniffErr?.[absFile];
+    if (err) return raise(err);
+    return false;
+  };
+  return { readdir, stat, sniffBinary };
+}
+
+test("错误归因两版一致：EACCES/EPERM → inaccessible，其余读取错误 → unreadable", async () => {
+  mkdirSync(join(root, "locked"), { recursive: true });
+  const faults: FsFaults = {
+    statErr: { [join(root, "a.md")]: errWithCode("EACCES") }, // stat 阶段权限拒绝
+    sniffErr: { [join(root, "b.txt")]: errWithCode("ENOTDIR") }, // open/read 阶段非权限错误
+    readdirErr: { [join(root, "locked")]: errWithCode("EPERM") }, // 子目录 readdir 权限拒绝
+  };
+  const sync = await scanFolder(root, [], faultyFs("sync", faults));
+  const asyncRes = await scanFolderAsync(root, [], faultyFs("async", faults));
+  expect(asyncRes).toEqual(sync); // 同一错误在两版下必须产生同一份清单
+  const reasons = Object.fromEntries(sync.skips.map(s => [s.path, s.reason]));
+  expect(reasons["a.md"]).toBe("inaccessible");
+  expect(reasons["b.txt"]).toBe("unreadable");
+  expect(reasons["locked"]).toBe("inaccessible");
+});
+
+test("顶层 readdir 失败：两版都向上拒绝，不吞成空清单", async () => {
+  const faults: FsFaults = { readdirErr: { [root]: errWithCode("EACCES") } };
+  await expect(scanFolder(root, [], faultyFs("sync", faults))).rejects.toThrow("注入错误 EACCES");
+  await expect(scanFolderAsync(root, [], faultyFs("async", faults))).rejects.toThrow("注入错误 EACCES");
+});
+
+test("stat 后发现已非常规文件：两版都静默忽略（不索引、不记 skip）", async () => {
+  const faults: FsFaults = { notAFile: new Set([join(root, "a.md")]) };
+  const sync = await scanFolder(root, [], faultyFs("sync", faults));
+  const asyncRes = await scanFolderAsync(root, [], faultyFs("async", faults));
+  expect(asyncRes).toEqual(sync);
+  expect(sync.indexable.some(f => f.relPath === "a.md")).toBe(false);
+  expect(sync.skips.some(s => s.path === "a.md")).toBe(false);
 });

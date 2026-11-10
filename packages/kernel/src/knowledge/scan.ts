@@ -184,8 +184,10 @@ function skipsBinarySniff(type: KbFileType): boolean {
 /**
  * 扫描所需的三种只读操作。同步版与异步版各注入一套实现，遍历、过滤与判定顺序
  * （本模块唯一一份）完全共用——两版结果逐项相等由结构保证，不靠人工同步两份代码。
+ * 对外导出（作为 scanFolder/scanFolderAsync 的第三参）仅供测试注入错误形状：
+ * skipReasonFor 依赖 err.code，而同步 throw 与异步 reject 的错误对象形状可能不同。
  */
-interface ScanFs {
+export interface ScanFs {
   readdir(absDir: string): Dirent[] | Promise<Dirent[]>;
   stat(absPath: string): Stats | Promise<Stats>;
   /** 前 512 字节是否含 0x00 */
@@ -321,23 +323,27 @@ async function walkScan(
 /**
  * 扫描源目录（同步 I/O）：readdirSync/statSync 会阻塞调用线程。
  * 供首建、预览等低频长任务使用；返回 Promise 仅为沿用既有签名。
+ * fsx 仅供测试注入错误形状，产品调用方恒用缺省的同步适配器。
  */
 export function scanFolder(
   folderPath: string,
   /** 用户显式排除（相对路径或目录名）；当前产品层未接线，调用方省略 = 不过滤 */
   excludePaths: string[] = [],
+  fsx: ScanFs = SYNC_FS,
 ): Promise<ScanPreview> {
-  return walkScan(SYNC_FS, folderPath, excludePaths);
+  return walkScan(fsx, folderPath, excludePaths);
 }
 
 /**
  * 扫描源目录（异步 I/O）：与 scanFolder 逐项等价（同一遍历器、同一套谓词与判定顺序），
  * 但用 node:fs/promises 让出事件循环——供 60s 轮询快照使用，大目录扫描不卡整个进程。
+ * fsx 仅供测试注入错误形状，产品调用方恒用缺省的异步适配器。
  */
 export function scanFolderAsync(
   folderPath: string,
   /** 用户显式排除（相对路径或目录名）；语义同 scanFolder */
   excludePaths: string[] = [],
+  fsx: ScanFs = ASYNC_FS,
 ): Promise<ScanPreview> {
-  return walkScan(ASYNC_FS, folderPath, excludePaths);
+  return walkScan(fsx, folderPath, excludePaths);
 }

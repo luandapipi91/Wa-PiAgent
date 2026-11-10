@@ -308,3 +308,32 @@ test("轮询兜底不清理 owner 存活的活任务 job 行", async () => {
   expect(calls).toBe(0); // 更不该因此触发一轮重索引
   w.stop();
 });
+
+// I-01 回归锁：轮询单飞。异步化后单轮快照可能超过 pollIntervalMs（网络盘 10 万文件分钟级），
+// setInterval 会按时起新的一轮叠罗汉，且慢的旧快照晚到还会覆盖 lastSnapshot 制造虚假差异。
+// 这条用例把「任一时刻最多一个快照在跑」钉死：挂住第一轮后，多个轮询间隔内不得再进入第二次。
+test("轮询单飞：上一轮快照未结束时后续间隔不再进入（防叠罗汉）", async () => {
+  await initialIndex();
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const w = watchKb(ctx, kbId, {
+    embedFn: fakeEmbed,
+    pollIntervalMs: 30,
+    debounceMs: 30,
+    // 仅测试注入口：缺省是 takeSnapshot（真实扫描）。这里第一轮挂住，直到本用例 release
+    snapshotFn: async () => {
+      calls++;
+      await gate;
+      return "hanged";
+    },
+  });
+  await sleep(300); // 跨过约 10 个轮询间隔
+  expect(calls).toBe(1); // 单飞：挂住期间后续间隔全部跳过，不得叠罗汉
+  release();
+  await sleep(150); // 释放后恢复：证明守卫不会把轮询永久钉死
+  expect(calls).toBeGreaterThan(1);
+  w.stop();
+});
