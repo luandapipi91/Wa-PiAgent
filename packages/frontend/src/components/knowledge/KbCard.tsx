@@ -26,6 +26,8 @@ interface Props {
   onShowFailed?: () => void;
   /** 取消进行中的索引（indexing/scanning 时随进度区展示取消按钮） */
   onCancel?: () => void;
+  /** 打开「关联智能体」弹窗（知识库侧管理绑定） */
+  onManageAgents?: (kb: KbInfo) => void;
 }
 
 /** 徽章呈现：label + 语义色（色板对齐 McpCard 的 success/accent/warning/danger） */
@@ -57,6 +59,7 @@ export function KbCard({
   onToggleWatch,
   onShowFailed,
   onCancel,
+  onManageAgents,
 }: Props) {
   const { t } = useTranslation();
   const badge = statusBadge(kb, t);
@@ -163,6 +166,14 @@ export function KbCard({
             testId={`kb-reindex-${kb.id}`}
             label={t("kb.reindexButton")}
             disabled={busy}
+          />
+        )}
+        {onManageAgents && (
+          // 绑定是纯配置操作，索引进行中也可以调整（不必等索引完成）
+          <CardBtn
+            onClick={() => onManageAgents(kb)}
+            testId={`kb-agents-${kb.id}`}
+            label={t("kb.agentsButton")}
           />
         )}
         <CardBtn

@@ -506,3 +506,16 @@ describe("knowledge store：刷新/重试/写操作与在途回包", () => {
 		expect(useKnowledgeStore.getState().kbs[0]?.autoWatch).toBe(false);
 	});
 });
+
+test("卡片「关联智能体」按钮触发回调（索引进行中也可点：绑定是配置操作）", () => {
+  const onManageAgents = mock(() => {});
+  render(
+    <KbList
+      kbs={[{ ...kbReady, id: "kb_agents", status: "indexing" }]}
+      onManageAgents={onManageAgents}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("kb-agents-kb_agents"));
+  expect(onManageAgents).toHaveBeenCalledTimes(1);
+  expect((screen.getByTestId("kb-agents-kb_agents") as HTMLButtonElement).disabled).toBe(false);
+});

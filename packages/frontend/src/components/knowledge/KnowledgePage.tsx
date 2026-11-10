@@ -14,6 +14,7 @@ import {
 } from "./KbFormModal";
 import { KbFailedModal } from "./KbFailedModal";
 import { DoctorModal } from "./DoctorModal";
+import { KbAgentsModal } from "./KbAgentsModal";
 
 /** 弹窗目标：null=关闭；"new"=新建；KbInfo=编辑该库 */
 type KbFormTarget = KbInfo | "new" | null;
@@ -26,6 +27,8 @@ export function KnowledgePage() {
   const [failedKbId, setFailedKbId] = useState<string | null>(null);
   /** 体检弹窗开关 */
   const [doctorOpen, setDoctorOpen] = useState(false);
+  /** 「关联智能体」弹窗目标库 */
+  const [agentsKb, setAgentsKb] = useState<KbInfo | null>(null);
   const rerank = useKnowledgeStore((s) => s.rerank);
   const setRerankEnabled = useKnowledgeStore((s) => s.setRerankEnabled);
   const retryRerank = useKnowledgeStore((s) => s.retryRerank);
@@ -203,6 +206,7 @@ export function KnowledgePage() {
               onEdit={(kb) => setFormTarget(kb)}
               // B4：失败徽章点击接失败清单弹窗（B2 占位回调的落点）
               onShowFailed={(id) => setFailedKbId(id)}
+            onManageAgents={(kb) => setAgentsKb(kb)}
               // 重建索引：接 store.reindex（POST :id/index，重复索引 400 由 store toast 提示）
               onReindex={(id) => reindex(id)}
             />
@@ -221,6 +225,7 @@ export function KnowledgePage() {
 
       {/* 失败文件清单弹窗（B4）：库名从当前清单取，取不到（已删）回退 kbId */}
       {doctorOpen && <DoctorModal onClose={() => setDoctorOpen(false)} />}
+      {agentsKb && <KbAgentsModal kb={agentsKb} onClose={() => setAgentsKb(null)} />}
 
       {failedKbId && (
         <KbFailedModal

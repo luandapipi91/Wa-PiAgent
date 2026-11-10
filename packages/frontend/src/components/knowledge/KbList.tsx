@@ -19,6 +19,8 @@ interface Props {
   onReindex?: (id: string) => void;
   /** 取消进行中的索引（B4）；缺省回退到 store 的 cancelIndex */
   onCancel?: (id: string) => void;
+  /** 打开「关联智能体」弹窗（知识库侧管理绑定） */
+  onManageAgents?: (kb: KbInfo) => void;
 }
 
 export function KbList({
@@ -29,6 +31,7 @@ export function KbList({
   onEdit,
   onReindex,
   onCancel,
+  onManageAgents,
 }: Props) {
   const { t } = useTranslation();
   const { deleteKb, setAutoWatch, cancelIndex } = useKnowledgeStore();
@@ -73,6 +76,7 @@ export function KbList({
           onToggleWatch={(on) => (onToggleWatch ?? setAutoWatch)(kb.id, on)}
           onShowFailed={onShowFailed ? () => onShowFailed(kb.id) : undefined}
           onCancel={() => (onCancel ?? cancelIndex)(kb.id)}
+          onManageAgents={onManageAgents}
         />
       ))}
 
