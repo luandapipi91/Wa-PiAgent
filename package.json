@@ -38,5 +38,10 @@
   },
   "workspaces": [
     "packages/*"
+  ],
+  "trustedDependencies": [
+    "@google/genai",
+    "onnxruntime-node",
+    "protobufjs"
   ]
 }
