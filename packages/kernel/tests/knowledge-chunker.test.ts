@@ -78,11 +78,11 @@ test("结构块正文以标题文本+空行开头且行号对应源文件", () =
   expect(zhekou?.endLine).toBe(9);
 });
 
-test("contentHash 可按 sha256(relPath NUL startLine NUL endLine NUL content) 复算", () => {
+test("contentHash 可按 sha256(relPath NUL fileType NUL startLine NUL endLine NUL breadcrumb NUL content) 复算", () => {
   const chunks = chunkDocument({ type: "md", text: SAMPLE_MD, relPath: "p.md" });
   for (const c of chunks) {
     const want = createHash("sha256")
-      .update(`p.md\0${c.startLine}\0${c.endLine}\0${c.content}`)
+      .update(`p.md\0md\0${c.startLine}\0${c.endLine}\0${c.breadcrumb ?? ""}\0${c.content}`)
       .digest("hex");
     expect(c.contentHash).toBe(want);
   }
@@ -105,4 +105,13 @@ test("多空行分隔的段间源行不被合成 join 压缩（endLine 取源末
   const c = chunkDocument({ type: "txt", text, relPath: "g.txt" })[0];
   expect(c.startLine).toBe(1);
   expect(c.endLine).toBe(5);
+});
+
+test("身份 hash 含面包屑：祖先标题改名、正文不变时 hash 必须变化（否则复用旧向量造成语义分叉）", () => {
+  const a = chunkDocument({ type: "md", text: "# 产品\n\n## 定价\n\n价格说明。", relPath: "a.md" });
+  const b = chunkDocument({ type: "md", text: "# 产品线\n\n## 定价\n\n价格说明。", relPath: "a.md" });
+  const ca = a.find(c => c.title === "定价")!;
+  const cb = b.find(c => c.title === "定价")!;
+  expect(ca.content).toBe(cb.content); // 本层标题与正文都没变
+  expect(ca.contentHash).not.toBe(cb.contentHash); // 但面包屑变了 → 身份必须变
 });

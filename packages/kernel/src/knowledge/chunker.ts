@@ -54,9 +54,23 @@ export function estimateTokens(text: string): number {
 	return cjk + words;
 }
 
-/** sha256 十六进制摘要，输入按 \0（NUL）分隔拼接：relPath␀startLine␀endLine␀content */
-function contentHashOf(relPath: string, startLine: number, endLine: number, content: string): string {
-	return createHash("sha256").update(`${relPath}\0${startLine}\0${endLine}\0${content}`).digest("hex");
+/**
+ * sha256 十六进制摘要，输入按 \0（NUL）分隔拼接，6 字段：
+ * relPath␀fileType␀startLine␀endLine␀breadcrumb␀content。
+ * 面包屑进身份的原因：块的嵌入输入（prefixContent）含完整标题链，只改祖先标题时
+ * 本层正文不变——若 hash 不含面包屑，会复用旧向量却写入新前缀，语义检索按旧含义召回。
+ */
+function contentHashOf(
+	relPath: string,
+	fileType: string,
+	startLine: number,
+	endLine: number,
+	breadcrumb: string | undefined,
+	content: string,
+): string {
+	return createHash("sha256")
+		.update(`${relPath}\0${fileType}\0${startLine}\0${endLine}\0${breadcrumb ?? ""}\0${content}`)
+		.digest("hex");
 }
 
 /** 子串内换行数（行号推算用：切点前完整换行数 + 子段自身换行数） */
@@ -241,7 +255,7 @@ function nearestWhitespaceCut(content: string, mid: number): number | null {
  * 把抽取文本切成 KnowledgeChunk：
  * 1) 按类型分派结构切块（450）/ 段落累加（550），单段 > 6000 字符先硬切；
  * 2) 每块做嵌入预算再切，保证 prefixContent ≤ 448 token（前缀自身占额从内容份额扣除）；
- * 3) 生成 uuid id 与 contentHash = sha256(relPath␀startLine␀endLine␀content)。
+ * 3) 生成 uuid id 与 contentHash = sha256(relPath␀fileType␀startLine␀endLine␀breadcrumb␀content)。
  * 空白文本返回 []。块行号取正文实际源行（合成标题前导行不计入）。
  */
 export function chunkDocument(doc: ChunkerDoc): KnowledgeChunk[] {
@@ -291,7 +305,7 @@ export function chunkDocument(doc: ChunkerDoc): KnowledgeChunk[] {
 				endLine,
 				content: part,
 				prefixContent: head + part,
-				contentHash: contentHashOf(relPath, startLine, endLine, part),
+				contentHash: contentHashOf(relPath, doc.type, startLine, endLine, b.breadcrumb, part),
 			});
 			offset += part.length;
 		}
