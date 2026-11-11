@@ -253,7 +253,8 @@ export const KB_SEARCH_DESCRIPTION =
   "If top results are repetitive, retry with diversity 'strong' or mode 'adaptive' instead of increasing the limit first. " +
   "An empty result means the knowledge bases do not contain it — NOT that the fact does not exist; " +
   "do not treat absence as refutation, fall back to asking the user or the source documents. " +
-  "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first. " +
+  "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first, plus total_count/has_more for paging " +
+  "(and tuning when diagnostics=true). An empty page with offset > 0 means no more results, not that the KB lacks the answer. " +
   "A hit carrying `stale: true` comes from an outdated index — the source file changed or failed to extract " +
   "after the last successful indexing, so the chunk may lag behind the document on disk. " +
   "Such hits are still the best available answer, but verify important details against the current file, " +

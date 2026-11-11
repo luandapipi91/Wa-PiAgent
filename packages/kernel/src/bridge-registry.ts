@@ -284,9 +284,11 @@ function clampInt(value: unknown, min: number, max: number): number | undefined 
   return Math.min(Math.max(Math.trunc(value), min), max);
 }
 
-/** 枚举参数：集合外的字符串（旧客户端/手写调用）一律当未提供，回落默认策略 */
+/** 枚举参数：trim + 小写归一后比对（取值全小写，归一安全）；集合外的值当未提供，回落默认策略 */
 function enumParam(value: unknown, allowed: Set<string>): string | undefined {
-  return typeof value === "string" && allowed.has(value) ? value : undefined;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  return allowed.has(normalized) ? normalized : undefined;
 }
 
 /** 字符串参数：缺省/空串视为未提供 */
@@ -297,7 +299,8 @@ function stringParam(value: unknown): string | undefined {
 /**
  * knowledge_search 分支：参数解析 → knowledgeCtx.search → snake_case 结构化输出
  * （字段名对齐 shared/tool-schemas 的 KB_SEARCH_DESCRIPTION 文案：
- * content / file_path / title / breadcrumb / lines / kb_name / score / stale）。
+ * content / file_path / title / breadcrumb / lines / kb_name / score / stale，
+ * 以及分页承诺 total_count / has_more 与 diagnostics=true 时的 tuning）。
  * 参数面直接对齐 KB_SEARCH_PARAMS_SCHEMA：mode 12 取值 / profile 8 取值 / 分页 /
  * 过滤 / 多样性 / 诊断全部原样下传（不在这里折叠 mode，也不替调用方补 limit，
  * 缺省值由 searchKnowledge 按 profile/env 决定）。
@@ -363,26 +366,57 @@ async function handleKnowledgeSearch(
   const skipped = res.skippedKbs.length
     ? res.skippedKbs.map((s) => `${s.kbId}(${s.reason})`).join(", ")
     : null;
-  const text = res.found
-    ? JSON.stringify({
-        results: res.results.map((h) => ({
-          content: h.content,
-          file_path: h.filePath,
-          title: h.title,
-          breadcrumb: h.breadcrumb,
-          lines:
-            h.startLine != null
-              ? `${h.startLine}-${h.endLine ?? h.startLine}`
-              : null,
-          kb_name: h.kbName,
-          score: Number(h.score.toFixed(4)),
-          // 仅陈旧命中带该键：正常结果不加噪声；智能体见 stale 应提示重建索引/核对原文
-          ...(h.stale ? { stale: true } : {}),
-        })),
-        skippedKbs: skipped,
-        mode: res.modeUsed,
-        rerank_used: res.rerankUsed,
-      })
-    : `知识库中未找到相关内容${skipped ? `（跳过: ${skipped}）` : ""}。空结果表示知识库未覆盖该内容，不代表事实不存在。`;
+  if (!res.found) {
+    // offset 越过总数：是「这一页没内容」，不是「库里没内容」（offset 放开后才会出现）
+    if ((opts.offset ?? 0) > 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `本页已无更多结果（共 ${res.totalCount} 条，已翻到 offset ${opts.offset}）` +
+              `${skipped ? `（跳过: ${skipped}）` : ""}。把 offset 设为 0 可从头重检。`,
+          },
+        ],
+        details: {
+          total_count: res.totalCount,
+          has_more: res.hasMore,
+          offset: opts.offset,
+        },
+      };
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `知识库中未找到相关内容${skipped ? `（跳过: ${skipped}）` : ""}。空结果表示知识库未覆盖该内容，不代表事实不存在。`,
+        },
+      ],
+    };
+  }
+  const text = JSON.stringify({
+    results: res.results.map((h) => ({
+      content: h.content,
+      file_path: h.filePath,
+      title: h.title,
+      breadcrumb: h.breadcrumb,
+      lines:
+        h.startLine != null
+          ? `${h.startLine}-${h.endLine ?? h.startLine}`
+          : null,
+      kb_name: h.kbName,
+      score: Number(h.score.toFixed(4)),
+      // 仅陈旧命中带该键：正常结果不加噪声；智能体见 stale 应提示重建索引/核对原文
+      ...(h.stale ? { stale: true } : {}),
+    })),
+    skippedKbs: skipped,
+    mode: res.modeUsed,
+    rerank_used: res.rerankUsed,
+    // 分页承诺（offset 已放开）：模型靠这两项判断要不要继续翻页
+    total_count: res.totalCount,
+    has_more: res.hasMore,
+    // diagnostics 开关的唯一可见效果（无命中时无排序诊断可报）
+    ...(opts.diagnostics === true ? { tuning: res.tuning } : {}),
+  });
   return { content: [{ type: "text", text }] };
 }

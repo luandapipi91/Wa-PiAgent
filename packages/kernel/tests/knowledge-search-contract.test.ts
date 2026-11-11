@@ -6,7 +6,16 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KB_SEARCH_PARAMS_SCHEMA, type KbSearchResult } from "@wa-pi/shared";
+import {
+  KB_SEARCH_LIMIT_MAX,
+  KB_SEARCH_PARAMS_SCHEMA,
+  KB_SEARCH_WINDOW_MAX,
+  type KbSearchResult,
+} from "@wa-pi/shared";
+import {
+  MAX_SEARCH_RESULTS,
+  MAX_SEARCH_WINDOW,
+} from "../src/knowledge/search/contracts";
 import { makeDefaultBridgeContext } from "../src/bridge-registry";
 import type { MemoryToolContext } from "../src/memory/tools";
 import { makeKnowledgeToolContext } from "../src/knowledge/tool";
@@ -74,12 +83,17 @@ describe("knowledge_search 参数面", () => {
     expect(enumValues(props.diversity)).toEqual(["off", "balanced", "strong"]);
     expect(props.diagnostics.type).toBe("boolean");
   });
+
+  test("工具上的上限与检索层常量同值（双份定义防漂移）", () => {
+    expect(KB_SEARCH_LIMIT_MAX).toBe(MAX_SEARCH_RESULTS);
+    expect(KB_SEARCH_WINDOW_MAX).toBe(MAX_SEARCH_WINDOW);
+  });
 });
 
 // 最小 memoryCtx：createMemoryTools 构造期只建闭包不触碰 dao，本组测试只走 knowledge_search 分支
 const fakeMemoryCtx = { dao: null, projectId: null } as unknown as MemoryToolContext;
 const signal = new AbortController().signal;
-// 检索闭包桩：本组测试只看入参，回包字段无关
+// 检索闭包桩：本组测试只看入参与回包字段，内容无关
 const emptyResult = {
   found: false,
   results: [],
@@ -90,8 +104,43 @@ const emptyResult = {
   hasMore: false,
 } as unknown as KbSearchResult;
 
-/** 注入 fake knowledgeCtx，记录每次检索拿到的入参 */
-function captureBridgeCtx() {
+// 有命中的回包：用来断言分页承诺与 diagnostics 开关
+const foundResult = {
+  found: true,
+  results: [
+    {
+      kbId: "kb-1",
+      kbName: "产品资料",
+      content: "定价策略：订阅制，按席位收费。",
+      filePath: "docs/pricing.md",
+      fileType: "markdown",
+      title: "定价",
+      breadcrumb: "商业/定价",
+      startLine: 12,
+      endLine: 18,
+      score: 0.0164,
+      snippet: "定价策略",
+      ranking: {},
+      provenance: {
+        chunk_id: "c-1",
+        chunk_hash: "h-1",
+        indexed_at: 1,
+        stale: false,
+        match_reason: "hybrid",
+        source_chunk_ids: ["c-1"],
+      },
+    },
+  ],
+  skippedKbs: [],
+  modeUsed: "hybrid",
+  rerankUsed: false,
+  totalCount: 12,
+  hasMore: true,
+  tuning: { requested_profile: "auto", selected_profile: "balanced", limit: 10 },
+} as unknown as KbSearchResult;
+
+/** 注入 fake knowledgeCtx，记录每次检索拿到的入参（回包可指定） */
+function captureBridgeCtx(result: KbSearchResult = emptyResult) {
   const calls: Array<{
     query: string;
     opts?: Record<string, unknown>;
@@ -103,7 +152,7 @@ function captureBridgeCtx() {
     knowledgeCtx: {
       search: async (query, opts) => {
         calls.push({ query, opts: opts as Record<string, unknown> | undefined });
-        return emptyResult;
+        return result;
       },
     },
   });
@@ -162,6 +211,75 @@ describe("bridge 参数透传", () => {
       signal,
     );
     expect(calls[0]).toEqual({ query: "定价", opts: {} });
+  });
+
+  test("枚举值 trim + 小写归一生效（「 Hybrid 」→ hybrid）", async () => {
+    const { ctx, calls } = captureBridgeCtx();
+    await ctx.handleTool(
+      "knowledge_search",
+      "t1",
+      { query: "定价", mode: " Hybrid ", profile: " PRECISION " },
+      signal,
+    );
+    expect(calls[0]).toEqual({
+      query: "定价",
+      opts: { mode: "hybrid", profile: "precision" },
+    });
+  });
+});
+
+describe("bridge 回包：分页承诺与 diagnostics", () => {
+  test("回包无条件带 total_count / has_more", async () => {
+    const { ctx } = captureBridgeCtx(foundResult);
+    const r = await ctx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+    const parsed = JSON.parse(r.content[0].text as string) as Record<string, unknown>;
+    expect(parsed.total_count).toBe(12);
+    expect(parsed.has_more).toBe(true);
+  });
+
+  test("diagnostics:true 附带 tuning，false/缺省不含", async () => {
+    const withDiag = await captureBridgeCtx(foundResult).ctx.handleTool(
+      "knowledge_search",
+      "t1",
+      { query: "定价", diagnostics: true },
+      signal,
+    );
+    const diagPayload = JSON.parse(withDiag.content[0].text as string) as Record<string, unknown>;
+    expect(diagPayload.tuning).toEqual({ requested_profile: "auto", selected_profile: "balanced", limit: 10 });
+
+    for (const params of [{ query: "定价" }, { query: "定价", diagnostics: false }]) {
+      const r = await captureBridgeCtx(foundResult).ctx.handleTool(
+        "knowledge_search",
+        "t1",
+        params,
+        signal,
+      );
+      const parsed = JSON.parse(r.content[0].text as string) as Record<string, unknown>;
+      expect("tuning" in parsed).toBe(false);
+    }
+  });
+
+  test("offset 越过总数：文案说本页已无更多，不再断言知识库未覆盖", async () => {
+    const result = { ...emptyResult, totalCount: 3 } as unknown as KbSearchResult;
+    const { ctx } = captureBridgeCtx(result);
+    const r = await ctx.handleTool(
+      "knowledge_search",
+      "t1",
+      { query: "定价", offset: 5 },
+      signal,
+    );
+    const text = r.content[0].text;
+    expect(text).toContain("已无更多");
+    expect(text).toContain("3");
+    // 旧文案会误报「知识库未覆盖」——翻页场景必须能分辨
+    expect(text).not.toContain("未找到相关内容");
+    expect(r.details).toEqual({ total_count: 3, has_more: false, offset: 5 });
+  });
+
+  test("offset=0 的空结果保持原文案（无命中就是未覆盖）", async () => {
+    const { ctx } = captureBridgeCtx();
+    const r = await ctx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+    expect(r.content[0].text).toContain("未找到相关内容");
   });
 });
 
