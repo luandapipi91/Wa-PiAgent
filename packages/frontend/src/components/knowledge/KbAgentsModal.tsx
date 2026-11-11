@@ -182,7 +182,7 @@ export function KbAgentsModal({ kb, onClose }: Props) {
                 <label
                   key={k}
                   className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[calc(12px*var(--font-scale))]"
-                  style={{ border: "1px solid var(--hairline)" }}
+                  style={{ border: "1px solid var(--hairline)", userSelect: "none" }}
                 >
                   <input
                     type="checkbox"

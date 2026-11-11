@@ -537,7 +537,7 @@ const zh = {
 		agentsBoundCount: "已关联 {{count}} 个",
 		agentsLoading: "正在读取智能体…",
 		agentsEmpty: "还没有智能体",
-		agentsNamedTag: "命名",
+		agentsNamedTag: "自定义",
 		agentsBuiltinTag: "内置",
 		agentsHint: "勾选后该智能体在对话中可检索本库；取消勾选即解除绑定。",
 		agentsSearchPlaceholder: "搜索智能体",
