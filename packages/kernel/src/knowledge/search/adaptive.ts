@@ -12,7 +12,7 @@ export interface AdaptiveChunk extends RankChunk {
   metadataJson?: string | null;
 }
 
-/** parseAdaptiveMetadata 的产物（字段同上游 ScanMetadata，snake_case 已改 camelCase） */
+/** parseAdaptiveMetadata 的产物（camelCase 字段）；JSON 源键沿用上游 snake_case，不改以免破坏兼容 */
 export interface AdaptiveMetadata {
   symbol?: string;
   symbolKind?: string;
