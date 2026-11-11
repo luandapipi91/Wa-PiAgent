@@ -76,11 +76,13 @@ test("融合：单路命中不加 overlap 加成", () => {
   expect(byId.get("b")!).toBeCloseTo(0, 5); // 该通道最小值被 min-max 压成 0
 });
 
-test("RRF：k=60 名次融合，两路都靠前的块居首", () => {
+test("RRF：k=60，同一块在多个列表里的名次分累加", () => {
   const fused = reciprocalRankFusion([
-    [{ chunkId: "a", score: 99 }, { chunkId: "b", score: 1 }],
-    [{ chunkId: "b", score: 0.9 }, { chunkId: "a", score: 0.8 }],
+    [{ chunkId: "a", score: 99 }, { chunkId: "b", score: 1 }], // a 第 1 名、b 第 2 名
+    [{ chunkId: "b", score: 0.9 }], // b 第 1 名
   ]);
-  expect(fused.map((f) => f.chunkId)).toEqual(["a", "b"]);
-  expect(fused[0].score).toBeCloseTo(1 / 61 + 1 / 62, 10);
+  // b = 1/(60+2) + 1/(60+1) > a = 1/(60+1)：名次分跨列表累加
+  expect(fused.map((f) => f.chunkId)).toEqual(["b", "a"]);
+  expect(fused[0].score).toBeCloseTo(1 / 62 + 1 / 61, 10);
+  expect(fused[1].score).toBeCloseTo(1 / 61, 10);
 });
