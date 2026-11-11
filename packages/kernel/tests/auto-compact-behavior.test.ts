@@ -143,14 +143,15 @@ test("条件②：上游钳制后输出预算仍充足 → 不触发", async () 
 
 test("条件②：钳制后输出预算不足 → 触发", async () => {
 	const { session, am, fake } = await setup();
-	// set_model 回传真实模型：200K 窗口、384K 标称输出
-	fake.modelToReturn = { contextWindow: 200_000, maxTokens: 384_000 };
-	// 引擎口径占用 190K
-	fake.contextUsageToReturn = { tokens: 190_000, contextWindow: 200_000 };
+	// set_model 回传真实模型：40K 窗口、8K 最大输出
+	fake.modelToReturn = { contextWindow: 40_000, maxTokens: 8_192 };
+	// 引擎口径占用 32K（恰好不达 80% 阈值，条件①不触发）
+	fake.contextUsageToReturn = { tokens: 32_000, contextWindow: 40_000 };
 	await am.prompt(session.id, "继续", { model: CUSTOM_MODEL });
-	// 条件②新口径下该压仍压的守护用例：margin=max(4096, ceil(190000*0.15)=28500)=28500，
-	// room=200000-190000-28500=-18500 < 32768 → 回退 room=min(32768, 200000-190000-4096)=5904，
-	// 钳制后输出 5904 < 8192（几乎无法作答）→ 必须真的走压缩
+	// 条件②新口径下该压仍压的守护用例；参数选在条件①②非重叠区：
+	// margin=max(4096, ceil(32000*0.15)=4800)=4800，room=40000-32000-4800=3200 < 32768
+	// → 回退 room=min(32768, 40000-32000-4096)=3904，钳制后输出 3904 < 8192 → 仅条件②触发。
+	// 若 maxOutputTokens 传丢，条件②不判定、条件①也不触发 → 本用例必红，锁死条件②的接线。
 	expect(fake.compacted.length).toBeGreaterThan(0);
 });
 
