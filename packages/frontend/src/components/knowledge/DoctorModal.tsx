@@ -30,14 +30,27 @@ export function DoctorModal({ onClose }: Props) {
         style={{ borderBottom: "1px solid var(--hairline)" }}
       >
         <span className="text-primary font-bold text-sm">{t("kb.doctorTitle")}</span>
-        <button
-          onClick={() => void loadDoctor()}
-          className="text-[calc(11px*var(--font-scale))] px-2 py-1 rounded-md"
-          style={{ border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
-          data-testid="kb-doctor-rerun"
-        >
-          {t("kb.doctorRerun")}
-        </button>
+        <span className="flex items-center gap-1.5">
+          <button
+            onClick={() => void loadDoctor()}
+            className="text-[calc(11px*var(--font-scale))] px-2 py-1 rounded-md"
+            style={{ border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
+            data-testid="kb-doctor-rerun"
+          >
+            {t("kb.doctorRerun")}
+          </button>
+          {/* 标题栏关闭按钮：可预期的退出路径，不依赖猜「点遮罩能关」 */}
+          <button
+            onClick={onClose}
+            aria-label={t("common.close")}
+            title={t("common.close")}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-secondary hover:text-primary"
+            style={{ border: "none", background: "transparent", cursor: "pointer" }}
+            data-testid="kb-doctor-close"
+          >
+            ✕
+          </button>
+        </span>
       </div>
       <div className="p-4 overflow-y-auto" style={{ maxHeight: "60vh" }}>
         <div className="flex items-baseline gap-2 mb-3">

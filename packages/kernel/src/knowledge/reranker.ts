@@ -30,6 +30,8 @@ let pipe: { tokenizer: RerankTokenizer; model: RerankModel } | null = null;
 let state: RerankerStatus = { status: "idle", model: RERANK_MODEL };
 let loadPromise: Promise<boolean> | null = null;
 let failNextLoad = false;
+/** 测试注入的加载器（避免联网） */
+let testLoader: RerankerLoader | null = null;
 
 export function rerankerStatus(): RerankerStatus {
 	return { ...state };
@@ -37,6 +39,60 @@ export function rerankerStatus(): RerankerStatus {
 
 export function isRerankerReady(): boolean {
 	return state.status === "ready" && pipe !== null;
+}
+
+/** transformers 的下载进度事件（字段随版本略有差异，只取需要的） */
+export interface DownloadProgressEvent {
+	status?: string;
+	file?: string;
+	loaded?: number;
+	total?: number;
+}
+
+/** 每个文件的下载进度累加器（file → {loaded,total}） */
+export type DownloadProgressMap = Map<string, { loaded: number; total: number }>;
+
+/**
+ * 把 transformers 的进度事件聚合成一个 0~99 的百分比（纯函数，便于单测）。
+ * 为什么不用事件自带的 progress：tokenizer 与 model 是两次独立下载，后者从 0% 重新开始，
+ * 直接透传会让进度条先 100% 再跳回 0%；按「所有已见文件的 loaded/total 之和」算，整体单调。
+ * 上限封 99：100% 只由「加载完成」这一事实给出，避免下载完了但 ONNX 还没就绪的假完成。
+ */
+export function aggregateDownloadProgress(
+	files: DownloadProgressMap,
+	ev: DownloadProgressEvent,
+): number {
+	const file = ev.file;
+	if (file) {
+		if (ev.status === "initiate") {
+			if (!files.has(file)) files.set(file, { loaded: 0, total: 0 });
+		} else if (ev.status === "done") {
+			const cur = files.get(file) ?? { loaded: 0, total: 0 };
+			const size = cur.total || cur.loaded;
+			files.set(file, { loaded: size, total: size });
+		} else if (typeof ev.loaded === "number" || typeof ev.total === "number") {
+			files.set(file, { loaded: ev.loaded ?? 0, total: ev.total ?? 0 });
+		}
+	}
+	let loaded = 0;
+	let total = 0;
+	for (const v of files.values()) {
+		loaded += v.loaded;
+		total += v.total;
+	}
+	if (total <= 0) return 0;
+	return Math.min(99, Math.round((loaded / total) * 100));
+}
+
+type RerankerPair = { tokenizer: RerankTokenizer; model: RerankModel };
+/** 加载器：默认走 transformers 真实下载；测试可注入 fake（不联网） */
+export type RerankerLoader = (
+	onProgress?: (ev: DownloadProgressEvent) => void,
+) => Promise<RerankerPair>;
+
+/** 测试钩子：替换加载器（null 恢复默认） */
+export function setRerankerLoaderForTest(loader: RerankerLoader | null): void {
+	testLoader = loader;
 }
 
 async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: RerankModel } | null> {
@@ -58,31 +114,20 @@ async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: Reran
 		}
 		state = { status: "downloading", model: RERANK_MODEL, progress: 0 };
 		try {
-			const { pipeline, env } = await import("@huggingface/transformers");
-			if (!env.remoteHost || env.remoteHost.includes("huggingface.co")) {
-				env.remoteHost = process.env.WA_PI_HF_ENDPOINT ?? "https://hf-mirror.com";
-				env.remotePathTemplate = "{model}/resolve/{revision}/";
-			}
-			if (process.env.WA_PI_MODEL_DIR) {
-				env.allowRemoteModels = false;
-				env.localModelPath = process.env.WA_PI_MODEL_DIR;
-			} else {
-				const { modelCacheDir } = await import("../memory/embedder");
-				env.cacheDir = modelCacheDir();
-			}
-			// 不用 pipeline("text-classification")：它的 softmax 对单 logit 的 cross-encoder 恒输出 1.0，
-			// 且不透传 text_pair（对象数组会被当纯文本 tokenize）。这里直接持 tokenizer + 分类模型。
-			const mod = (await import("@huggingface/transformers")) as unknown as {
-				AutoTokenizer: { from_pretrained: (m: string) => Promise<RerankTokenizer> };
-				AutoModelForSequenceClassification: {
-					from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankModel>;
+			// 下载进度：按文件聚合 loaded/total（tokenizer 与 model 两次下载合并成一个百分比），
+			// 否则 UI 只会看到 0% 一直到加载完成（下载大文件时表现为「卡住」）
+			const files: DownloadProgressMap = new Map();
+			const onProgress = (ev: DownloadProgressEvent) => {
+				if (state.status !== "downloading") return;
+				state = {
+					status: "downloading",
+					model: RERANK_MODEL,
+					progress: aggregateDownloadProgress(files, ev),
 				};
 			};
-			const tokenizer = await mod.AutoTokenizer.from_pretrained(RERANK_MODEL);
-			const model = await mod.AutoModelForSequenceClassification.from_pretrained(RERANK_MODEL, {
-				dtype: RERANK_DTYPE,
-			});
-			pipe = { tokenizer, model };
+			const loader = testLoader ?? defaultRerankerLoader;
+			const pair = await loader(onProgress);
+			pipe = pair;
 			state = { status: "ready", model: RERANK_MODEL };
 			return true;
 		} catch (err) {
@@ -99,6 +144,41 @@ async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: Reran
 	loadPromise = null;
 	return ok ? pipe : null;
 }
+
+/** 默认加载器：transformers 直连（镜像 endpoint 可配），把下载进度回调透传出去 */
+const defaultRerankerLoader: RerankerLoader = async (onProgress) => {
+	const { env } = await import("@huggingface/transformers");
+	if (!env.remoteHost || env.remoteHost.includes("huggingface.co")) {
+		// 注意尾部斜杠：remoteHost 是与 remotePathTemplate 直接字符串拼接的
+		const endpoint = (process.env.WA_PI_HF_ENDPOINT ?? "https://hf-mirror.com").replace(/\/+$/, "");
+		env.remoteHost = `${endpoint}/`;
+		env.remotePathTemplate = "{model}/resolve/{revision}/";
+	}
+	if (process.env.WA_PI_MODEL_DIR) {
+		env.allowRemoteModels = false;
+		env.localModelPath = process.env.WA_PI_MODEL_DIR;
+	} else {
+		const { modelCacheDir } = await import("../memory/embedder");
+		env.cacheDir = modelCacheDir();
+	}
+	// 不用 pipeline("text-classification")：它的 softmax 对单 logit 的 cross-encoder 恒输出 1.0，
+	// 且不透传 text_pair（对象数组会被当纯文本 tokenize）。这里直接持 tokenizer + 分类模型。
+	const mod = (await import("@huggingface/transformers")) as unknown as {
+		AutoTokenizer: {
+			from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankTokenizer>;
+		};
+		AutoModelForSequenceClassification: {
+			from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankModel>;
+		};
+	};
+	const opts = { progress_callback: onProgress };
+	const tokenizer = await mod.AutoTokenizer.from_pretrained(RERANK_MODEL, opts);
+	const model = await mod.AutoModelForSequenceClassification.from_pretrained(RERANK_MODEL, {
+		...opts,
+		dtype: RERANK_DTYPE,
+	});
+	return { tokenizer, model };
+};
 
 /** 预加载（设置页「开启」后调用）：触发首次下载/加载；失败只记录状态，不抛 */
 /**
@@ -184,6 +264,7 @@ export function resetRerankerForTest(opts: { failNextLoad?: boolean } = {}): voi
 	pipe = null;
 	loadPromise = null;
 	failNextLoad = opts.failNextLoad === true;
+	testLoader = null;
 	state = { status: "idle", model: RERANK_MODEL };
 }
 

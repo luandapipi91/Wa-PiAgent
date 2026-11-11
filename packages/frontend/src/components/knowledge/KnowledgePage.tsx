@@ -1,5 +1,5 @@
 // 知识库管理页（任务 B2：列表填充；B3：新建/编辑表单弹窗接入）
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { KbInfo } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
@@ -27,6 +27,9 @@ export function KnowledgePage() {
   const [failedKbId, setFailedKbId] = useState<string | null>(null);
   /** 体检弹窗开关 */
   const [doctorOpen, setDoctorOpen] = useState(false);
+  /** 页头「更多」菜单（深度重排等次要开关收在这里） */
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
   /** 「关联智能体」弹窗目标库 */
   const [agentsKb, setAgentsKb] = useState<KbInfo | null>(null);
   const rerank = useKnowledgeStore((s) => s.rerank);
@@ -84,6 +87,23 @@ export function KnowledgePage() {
     }
   };
 
+  // 「更多」菜单：点击外部关闭（Esc 同样关闭）
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [moreOpen]);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden" data-testid="kb-page">
       {/* 标题栏：页面标题与「+ 新建知识库」同一行（样式对齐 MemoryPage 的标题栏 + 右侧控件） */}
@@ -97,66 +117,98 @@ export function KnowledgePage() {
         <h2 className="text-base font-extrabold text-primary m-0">
           {t("settings.nav.knowledge")}
         </h2>
-        {/* 深度重排开关：默认关闭，开启后才下载 cross-encoder 模型 */}
-        <label className="flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-secondary select-none cursor-pointer">
-          <input
-            type="checkbox"
-            checked={rerank.enabled}
-            onChange={(e) => void setRerankEnabled(e.target.checked)}
-            data-testid="kb-rerank-toggle"
-          />
-          <span>{t("kb.rerankLabel")}</span>
-          <span
-            className="text-[calc(10.5px*var(--font-scale))]"
-            style={{
-              color:
-                rerank.status === "failed"
-                  ? "var(--danger)"
-                  : rerank.status === "ready"
-                    ? "var(--success)"
-                    : "var(--text-tertiary)",
-            }}
-            data-testid="kb-rerank-status"
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setDoctorOpen(true)}
+            className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md"
+            style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
+            data-testid="kb-doctor-open"
           >
-            {rerank.status === "downloading"
-              ? t("kb.rerankDownloading", { progress: rerank.progress ?? 0 })
-              : rerank.status === "ready"
-                ? t("kb.rerankReady")
-                : rerank.status === "failed"
-                  ? t("kb.rerankFailed")
-                  : t("kb.rerankIdle")}
-          </span>
-          {rerank.status === "failed" && (
+            {t("kb.doctorOpen")}
+          </button>
+          <button
+            onClick={() => setFormTarget("new")}
+            className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white"
+            style={{ background: "var(--accent)", border: "none" }}
+            data-testid="kb-add-button"
+          >
+            {t("kb.addButton")}
+          </button>
+          {/* 「更多」菜单：深度重排等次要开关，点开 popup 后操作 */}
+          <div className="relative" ref={moreRef}>
             <button
               type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                void retryRerank();
-              }}
-              className="px-1.5 py-0.5 rounded"
-              style={{ border: "1px solid var(--hairline)" }}
-              data-testid="kb-rerank-retry"
+              onClick={() => setMoreOpen((v) => !v)}
+              aria-label={t("kb.moreButton")}
+              title={t("kb.moreButton")}
+              aria-expanded={moreOpen}
+              className="w-8 h-8 flex items-center justify-center rounded-full"
+              style={{ border: "1px solid var(--hairline)", background: "var(--surface)", color: "var(--text-secondary)" }}
+              data-testid="kb-more-menu"
             >
-              {t("kb.rerankRetry")}
+              ⋮
             </button>
-          )}
-        </label>
-        <button
-          onClick={() => setDoctorOpen(true)}
-          className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md shrink-0"
-          style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
-          data-testid="kb-doctor-open"
-        >
-          {t("kb.doctorOpen")}
-        </button>
-        <button
-          onClick={() => setFormTarget("new")}
-          className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
-          style={{ background: "var(--accent)", border: "none" }}
-          data-testid="kb-add-button"
-        >
-          {t("kb.addButton")}
-        </button>
+            {moreOpen && (
+              <div
+                className="absolute right-0 z-50 mt-1.5 rounded-lg p-3"
+                style={{
+                  top: "100%",
+                  width: 300,
+                  background: "var(--surface-elevated)",
+                  border: "1px solid var(--hairline)",
+                  boxShadow: "0 6px 20px rgba(0,0,0,.12)",
+                }}
+                data-testid="kb-more-popup"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[calc(12px*var(--font-scale))] text-primary">
+                    {t("kb.rerankLabel")}
+                  </span>
+                  <RerankSwitch
+                    enabled={rerank.enabled}
+                    onChange={(next) => void setRerankEnabled(next)}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-1.5">
+                  <span
+                    className="text-[calc(10.5px*var(--font-scale))]"
+                    style={{
+                      color:
+                        rerank.status === "failed"
+                          ? "var(--danger)"
+                          : rerank.status === "ready"
+                            ? "var(--success)"
+                            : "var(--text-tertiary)",
+                    }}
+                    data-testid="kb-rerank-status"
+                  >
+                    {rerank.status === "downloading"
+                      ? t("kb.rerankDownloading", { progress: rerank.progress ?? 0 })
+                      : rerank.status === "ready"
+                        ? t("kb.rerankReady")
+                        : rerank.status === "failed"
+                          ? t("kb.rerankFailed")
+                          : t("kb.rerankIdle")}
+                  </span>
+                  {rerank.status === "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => void retryRerank()}
+                      className="px-1.5 py-0.5 rounded text-[calc(10.5px*var(--font-scale))]"
+                      style={{ border: "1px solid var(--hairline)" }}
+                      data-testid="kb-rerank-retry"
+                    >
+                      {t("kb.rerankRetry")}
+                    </button>
+                  )}
+                </div>
+                <div className="text-tertiary text-[calc(10px*var(--font-scale))] mt-2">
+                  {t("kb.rerankHint")}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 列表内容：三态（加载失败/加载中/列表含真空态）*/}
@@ -235,5 +287,41 @@ export function KnowledgePage() {
         />
       )}
     </div>
+  );
+}
+
+/** 深度重排开关（页头「更多」菜单内）：role=switch 的原生按钮，状态由外部的 rerank.enabled 驱动 */
+function RerankSwitch({ enabled, onChange }: { enabled: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      onClick={() => onChange(!enabled)}
+      className="relative shrink-0"
+      style={{
+        width: 34,
+        height: 20,
+        borderRadius: 9999,
+        background: enabled ? "var(--brand)" : "var(--hairline-strong)",
+        transition: "background 0.2s",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+      }}
+      data-testid="kb-rerank-toggle"
+    >
+      <span
+        className="absolute rounded-full bg-white transition-all"
+        style={{
+          width: 16,
+          height: 16,
+          top: 2,
+          left: enabled ? undefined : 2,
+          right: enabled ? 2 : undefined,
+          boxShadow: "0 1px 2px rgba(0,0,0,.1)",
+        }}
+      />
+    </button>
   );
 }
