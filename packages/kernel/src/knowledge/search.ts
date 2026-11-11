@@ -26,6 +26,7 @@ import {
 	isWeakResult,
 	pickNextFallback,
 	pickPrimaryMode,
+	retrievalModeFor,
 	type ResolvedMode,
 	type SearchMode,
 } from "./search/modes";
@@ -96,8 +97,9 @@ export type StatFn = (path: string) => Promise<{ mtimeMs: number }>;
 /** searchKnowledge 可注入项（生产调用方不用传） */
 export interface SearchOptions {
   /**
-   * 检索模式（七种，完整对齐 pi-knowledge）：
-   * hybrid（缺省）/ fast / semantic / semantic_hybrid / adaptive / deep / auto。
+   * 检索模式（12 个对外取值，完整对齐 pi-knowledge）：
+   * hybrid（缺省）/ fast / semantic / semantic_hybrid / adaptive / deep / auto，
+   * 以及别名 code / config / errors / docs / decision（经 retrievalModeFor 归一到策略）。
    * 每种策略见 search/modes.ts 的 MODE_SPECS。
    */
   mode?: SearchMode;
@@ -148,11 +150,13 @@ export async function searchKnowledge(
   embedQueryFn: QueryEmbedFn = embedQuery,
   opts: SearchOptions = {},
 ): Promise<KbSearchResult> {
-  const requested = opts.mode ?? "hybrid";
+  const mode = opts.mode ?? "hybrid";
   // auto：按查询形状挑主模式，结果弱时按回退链重试（最多 AUTO_MAX_ATTEMPTS 次）
-  if (requested === "auto") {
+  if (mode === "auto") {
     return searchAuto(ctx, kbIds, query, limit, embedQueryFn, opts);
   }
+  // 12 个对外 mode 先归一到检索策略（code/config/errors → fast，docs/decision → hybrid）
+  const requested = retrievalModeFor(mode);
   const spec = MODE_SPECS[requested];
   const statFn: StatFn = opts.statFn ?? fsStat;
   const skippedKbs: KbSkippedKb[] = [];
