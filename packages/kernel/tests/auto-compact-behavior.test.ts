@@ -159,7 +159,7 @@ test("条件②：叠加输出预算后仍在窗口内 → 不触发", async () 
 	fake.modelToReturn = { contextWindow: 200_000, maxTokens: 8_192 };
 	fake.contextUsageToReturn = { tokens: 140_000, contextWindow: 200_000 };
 	await am.prompt(session.id, "继续", { model: CUSTOM_MODEL });
-	// 140000 + 8192 + 4096 = 152288 < 200000 → 不触发
+	// 钳制后 = min(8192, 200000-140000-ceil(140000*0.15)=39000) = 8192 ≥ 8192 → 不触发
 	expect(fake.compacted.length).toBe(0);
 });
 
