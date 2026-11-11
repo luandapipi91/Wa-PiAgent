@@ -25,6 +25,13 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 | turndown | ^7.2.4 | MIT | Dom Christie |
 | typebox | ^1.3.11 | MIT | Copyright (c) 2017-2026 Haydn Paterson |
 
+## pi-knowledge
+
+- 版本：0.13.0
+- 许可：MIT
+- 用途：`packages/kernel/src/knowledge/search/` 下 contracts/query/tuning/ranking/diversity/fusion/bm25/modes/adaptive/snippet/reranker-config/reranker-logits 为逐字或近逐字移植（详见各文件头注释）
+- 来源：https://www.npmjs.com/package/pi-knowledge
+
 ## 运行时传递依赖中的非 MIT 宽松许可
 
 - **BlueOak-1.0.0**：glob、minimatch、path-scurry、yallist、lru-cache 等（经 @earendil-works/pi-coding-agent 链引入）。BlueOak 为宽松许可证，非 copyleft。
