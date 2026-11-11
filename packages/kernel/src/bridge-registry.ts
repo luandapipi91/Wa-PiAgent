@@ -340,7 +340,10 @@ async function handleKnowledgeSearch(
   const offset = clampInt(raw.offset, 0, KB_SEARCH_WINDOW_MAX - 1);
   if (offset !== undefined) {
     // 上游窗口规则：offset + limit ≤ 800（limit 缺省时其值由 profile 决定，上限只能夹到窗口边界）
-    opts.offset = limit === undefined ? offset : Math.min(offset, KB_SEARCH_WINDOW_MAX - limit);
+    opts.offset =
+      limit === undefined
+        ? offset
+        : Math.min(offset, KB_SEARCH_WINDOW_MAX - limit);
   }
   const mode = enumParam(raw.mode, KB_SEARCH_MODE_SET);
   if (mode) opts.mode = mode as KnowledgeSearchOptions["mode"];

@@ -324,8 +324,7 @@ export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
   ),
   file_type: Type.Optional(
     Type.String({
-      description:
-        "Filter by file type (e.g. typescript, markdown, python)",
+      description: "Filter by file type (e.g. typescript, markdown, python)",
     }),
   ),
   path_pattern: Type.Optional(
