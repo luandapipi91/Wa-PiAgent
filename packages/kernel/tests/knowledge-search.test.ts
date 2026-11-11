@@ -116,7 +116,12 @@ function setupKb(name: string, chunks: FakeChunk[]): string {
   } finally {
     db.close();
   }
-  store.updateStatus(kbId, "ready");
+  // 计数器对齐真实索引产物（空库会被静默跳过，检索用例不能留 chunkCount=0）
+  store.updateStatus(kbId, "ready", {
+    fileCount: new Set(chunks.map((c) => c.filePath ?? "docs/doc.md")).size,
+    chunkCount: chunks.length,
+    lastIndexedAt: Date.now(),
+  });
   return kbId;
 }
 
@@ -512,6 +517,20 @@ test("词法证据门用 title+breadcrumb 兜底：正文只是引用该词也�
   expect(r.results[0].ranking.coverage).toBe(1);
 });
 
+test("词法证据门用 filePath 兜底：只有文件名命中也能过门（上游 FTS 前缀含 File: 路径）", async () => {
+  const kbId = setupKb("文件名命中的库", [
+    // 正文与查询零重叠、无 title/breadcrumb；文件名精确命中（FTS prefix 双写路径）
+    {
+      content: "完全无关的正文内容。",
+      filePath: "docs/定价政策.md",
+      prefixContent: "定价政策",
+    },
+  ]);
+  const r = await search([kbId], "定价政策", { limit: 5, embedQueryFn: fakeEmbedQuery(null) });
+  expect(r.found).toBe(true);
+  expect(r.results[0].ranking.coverage).toBe(1);
+});
+
 // ============ 自适应扩窗 ============
 
 test("adaptive：modeUsed=adaptive 且结果合并同文件邻块（多 source_chunk_ids）", async () => {
@@ -708,6 +727,28 @@ test("mode=deep 且注入 scorer：按重排分排序，rerankUsed=true", async 
   expect(r.rerankUsed).toBe(true);
   expect(r.results[0].title).toBe("附录");
   expect(r.results[0].provenance.match_reason).toBe("rerank");
+});
+
+test("deep：重排结果按 topK 截断（max(limit × multiplier, limit)）", async () => {
+  const kbId = setupKb(
+    "deep截断库",
+    Array.from({ length: 40 }, (_, i) => ({
+      content: `定价政策第${i}条说明。`,
+      title: `T${i}`,
+      filePath: `docs/${i}.md`,
+    })),
+  );
+  const r = await search([kbId], "定价政策", {
+    limit: 5,
+    mode: "deep",
+    embedQueryFn: fakeEmbedQuery(null),
+    // 分数倒序注入，保证 30 条重排候选都有分
+    rerankFn: async (_q, docs) => docs.map((_, i) => docs.length - i),
+  });
+  expect(r.rerankUsed).toBe(true);
+  // balanced 的 deep_rerank_top_k_multiplier=3 → 5×3=15；不截断会是 30
+  expect(r.totalCount).toBeLessThanOrEqual(15);
+  expect(r.totalCount).toBe(15);
 });
 
 // ============ auto 模式 ============

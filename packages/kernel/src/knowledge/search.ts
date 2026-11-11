@@ -366,6 +366,9 @@ export async function searchKnowledge(
       skippedKbs.push({ kbId: kb.id, reason: "not_ready" });
       continue;
     }
+    // 空库静默跳过（对齐上游 `if (kb.chunk_count === 0) continue`）：
+    // 否则会走召回并产出误导性的 `no lexical match` warning
+    if (kb.chunkCount === 0) continue;
     let mismatch = false;
     // 库级指纹直读登记库（KbInfo 投影不含 embed_meta）：null = 从未索引，不算不匹配。
     // 不匹配只降级向量通道（存量向量全部过期），词法照常，仍参与检索。
@@ -513,12 +516,12 @@ export async function searchKnowledge(
   }
   const candidatePool = filtered.slice(0, candidateLimit);
   const candidatePoolTruncated = candidatePool.length < filtered.length;
-  // fast 短路不参与融合，也不给多样性喂向量（对齐上游：向量表只在 semantic 分支填充）
+  const diversity = opts.diversity ?? "balanced";
+  // fast 短路不参与融合；diversity=off 直通，不需要块向量（避免无谓回读最高 800 条 embedding）
   const vectorsByChunkId =
-    recallMode === "fast"
+    recallMode === "fast" || diversity === "off"
       ? new Map<string, Float32Array>()
       : loadCandidateVectors(candidatePool, runtimeByKbId);
-  const diversity = opts.diversity ?? "balanced";
   const kbNameOf = (kbId: string): string => runtimeByKbId.get(kbId)?.kb.name ?? "unknown";
 
   // deep：只对前 deepRerankCandidates 条做 cross-encoder 重排（未就绪/失败 → 走普通排序，
@@ -537,9 +540,13 @@ export async function searchKnowledge(
     throwIfAborted(opts.signal);
     if (scores && scores.length === rerankCandidates.length) {
       rerankUsed = true;
+      // 上游 rerank() 内部按 topK = max(limit × deepRerankTopKMultiplier, limit) 截断；
+      // 不截断会让 totalCount/多样性池远大于上游（重排候选最多 30 条全进结果）
+      const topK = Math.max(limit * tuning.deepRerankTopKMultiplier, limit);
       const order = scores
         .map((score, index) => ({ index, score }))
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK);
       for (const { index, score } of order) {
         const candidate = rerankCandidates[index];
         ranked.push({

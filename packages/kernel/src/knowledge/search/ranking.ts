@@ -78,11 +78,13 @@ export function normalizeKbFileType(fileType: string): string {
   return KB_FILE_TYPE_ALIASES[normalized] ?? normalizeFileTypeFilter(normalized) ?? normalized;
 }
 
-/** 覆盖率/词法证据的判定文本：title + breadcrumb + content（对齐上游 buildChunkEmbeddingText 的作用） */
+/** 覆盖率/词法证据的判定文本：title + breadcrumb + filePath + content。
+ * 上游 buildChunkEmbeddingText 的上下文中含 `File: <相对路径>`，文件名精确命中的块
+ * 会进 BM25 却可能正文零重叠——路径必须计入覆盖率，否则会被词法证据门误杀。 */
 export function buildChunkEmbeddingText(
-  chunk: Pick<RankChunk, "content" | "title" | "breadcrumb">,
+  chunk: Pick<RankChunk, "content" | "filePath" | "title" | "breadcrumb">,
 ): string {
-  return [chunk.title, chunk.breadcrumb, chunk.content].filter(Boolean).join("\n");
+  return [chunk.title, chunk.breadcrumb, chunk.filePath, chunk.content].filter(Boolean).join("\n");
 }
 
 export function isTestPath(filePath: string): boolean {

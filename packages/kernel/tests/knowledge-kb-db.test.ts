@@ -115,7 +115,8 @@ test("索引中途连接被外部 evict：job 行清理、status 不卡 indexing
 test("检索路径：库文件丢失标 skippedKbs(db_missing)，不当作空库返回未找到", async () => {
   const kb = store.createKb({ folderPath: srcDir, name: "丢库" });
   openKbDb(dir, kb.id); // 建库
-  store.updateStatus(kb.id, "ready");
+  // chunkCount>0：跳过「空库静默跳过」分支，才走到 db 文件缺失的判定
+  store.updateStatus(kb.id, "ready", { chunkCount: 1 });
   evictKbDb(kb.id);
   removeKbFiles(kb.id);
 
