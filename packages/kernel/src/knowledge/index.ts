@@ -37,14 +37,20 @@ export {
 } from "./vector";
 export {
   searchKnowledge,
-  type KbSearchHit,
-  type KbSearchResult,
-  type KbSkippedKb,
+  type QueryEmbedFn,
+  type RerankFn,
+  type SearchOptions,
+  type StatFn,
 } from "./search";
-export { FUSION_WEIGHTS, weightedScoreFusion } from "./search/fusion";
-export { MIN_HYBRID_SCORE, hasEnoughLexicalEvidence, queryTokensOf, scoreChunkForQuery } from "./search/ranking";
-export { diversify, interleaveByFile } from "./search/diversity";
-export { expandWindow, WINDOW_MAX_CHARS, WINDOW_NEIGHBOR_BLOCKS } from "./search/window";
+export type { KbSearchHit, KbSearchResult, KbSkippedKb } from "@wa-pi/shared";
+export { weightedScoreFusion } from "./search/fusion";
+export { MIN_HYBRID_SCORE, hasEnoughLexicalEvidence, scoreChunkForQuery } from "./search/ranking";
+export {
+  diversifyRankedChunks,
+  interleaveByFile,
+  type DiversityMode,
+  type RankedCandidate,
+} from "./search/diversity";
 export { diagnoseKb, type KbDiagnostic } from "./diagnostics";
 export { runDoctor, scoreFromIssues, type DoctorReport, type DoctorIssue } from "./doctor";
 export { KB_CHUNKER_VERSION, knowledgeFingerprint } from "./fingerprint";

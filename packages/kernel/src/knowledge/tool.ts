@@ -1,7 +1,8 @@
 // knowledge_search 工具的宿主侧组装（任务 8）：
-// 把 KnowledgeStore / waPiDir / 绑定清单包成 search(query, limit) 闭包，
-// bridge-registry 只依赖 KnowledgeToolContext 窄接口（同 memory/tools 的先例：
-// 接口定义在业务模块，分发层 import type），不感知 db 生命周期。
+// 把 KnowledgeStore / waPiDir / 绑定清单包成 search(query, opts) 闭包（opts 原样透传给
+// searchKnowledge：mode/profile/分页/过滤/多样性/诊断），bridge-registry 只依赖
+// KnowledgeToolContext 窄接口（同 memory/tools 的先例：接口定义在业务模块，分发层 import type），
+// 不感知 db 生命周期。
 //
 // 连接所有权：生产路径由 agent-manager 传入共享 store（getKnowledgeStore()，生命周期与
 // kernel 一致）——所有会话复用同一登记库连接，会话结束不再泄漏 fd，删库回调也只有一份。
@@ -13,14 +14,28 @@ import { knowledgeDbPath } from "./paths";
 import { KB_SCHEMA_SQL } from "./schema";
 import { KnowledgeStore } from "./store";
 import type { KbContext } from "./index";
+import type { SearchOptions } from "./search";
+
+/** knowledge_search 的检索入参：bridge 解析工具参数后原样透传给 searchKnowledge */
+export type KnowledgeSearchOptions = Pick<
+  SearchOptions,
+  | "mode"
+  | "profile"
+  | "limit"
+  | "offset"
+  | "kbId"
+  | "fileType"
+  | "pathPattern"
+  | "diversity"
+  | "diagnostics"
+>;
 
 /** knowledge_search 的宿主上下文：bridge-registry opts.knowledgeCtx 的形状 */
 export interface KnowledgeToolContext {
   search(
     query: string,
-    limit: number,
-    mode?: import("./search/modes").SearchMode,
-  ): Promise<import("./search").KbSearchResult>;
+    opts?: KnowledgeSearchOptions,
+  ): Promise<import("@wa-pi/shared").KbSearchResult>;
 }
 
 /** makeKnowledgeToolContext 参数：绑定清单（kbIds）由调用方从 agent config / override 读出 */
@@ -51,10 +66,10 @@ export function makeKnowledgeToolContext(
     return ownStore;
   };
   return {
-    async search(query, limit, mode) {
+    async search(query, opts) {
       // search 不消费进度事件，sse 给 noop 满足 KbContext 形状即可
       const ctx: KbContext = { store: getStore(), waPiDir, sse: () => {} };
-      return searchKnowledge(ctx, kbIds, query, limit, undefined, { mode });
+      return searchKnowledge(ctx, kbIds, query, opts);
     },
   };
 }

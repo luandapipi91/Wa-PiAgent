@@ -1,125 +1,240 @@
-// 检索排序的质量层：置信门与词法证据门（移植自 pi-knowledge search/ranking.ts 的判定语义）。
-// 目标：低分命中不再凑数——融合分低于门槛、或与查询几乎没有词法重叠的块不进结果。
-import { bigram } from "../../memory/bigram";
+// 移植自 pi-knowledge@0.13.0 dist/src/search/ranking.js（MIT）
+// 排序质量层：融合分 → 加权分（路径/文件名命中、文档意图、测试与本地化副本降权），
+// 以及词法证据门（覆盖率，源码文件命中可直接放行）。
+// 函数与常量逐字搬运上游；仅把 chunk 形状换成 Wa-Pi 的 RankChunk。
+// 上游 buildChunkEmbeddingText(chunk) 会拼 `File:`/`Section:` 上下文前缀；Wa-Pi 不复制
+// 前缀字符串，改用「title + breadcrumb + content」，保证「文件名/标题精确命中、正文只是
+// 引用该词」的块不被词法证据门误杀。
+import type { KbSearchRanking } from "@wa-pi/shared";
+import { signalTokens, tokenizeForSearch } from "./query";
+import type { RankChunk } from "./contracts";
 
 /** 最低融合分（上游默认 0.18）：低于此分的命中即使排在前面也整体丢弃 */
 export const MIN_HYBRID_SCORE = 0.18;
 
-/** 单字与标点不算信号词（中文 bigram 里"的/了"类噪声不参与覆盖率） */
-const STOP_CHARS = new Set(["的", "了", "是", "在", "和", "与", "或", "也", "都", "就"]);
+export const FILE_TYPE_ALIASES: Record<string, string> = {
+  csharp: "csharp",
+  cs: "csharp",
+  c: "c",
+  cc: "cpp",
+  cxx: "cpp",
+  cpp: "cpp",
+  hpp: "cpp",
+  hh: "cpp",
+  hxx: "cpp",
+  js: "javascript",
+  jsx: "javascript",
+  md: "markdown",
+  mdx: "markdown",
+  php: "php",
+  py: "python",
+  qml: "qml",
+  rb: "ruby",
+  sh: "bash",
+  ts: "typescript",
+  tsx: "typescript",
+  yml: "yaml",
+};
 
-/** 查询 token 集：bigram 切分后去掉纯标点与停用单字 */
-export function queryTokensOf(query: string): Set<string> {
-  const tokens = bigram(query).split(/\s+/).filter(Boolean);
-  return new Set(tokens.filter((t) => !(t.length === 1 && STOP_CHARS.has(t))));
+const SOURCE_FILE_TYPES = new Set([
+  "bash",
+  "c",
+  "cpp",
+  "csharp",
+  "go",
+  "java",
+  "javascript",
+  "php",
+  "python",
+  "qml",
+  "ruby",
+  "rust",
+  "typescript",
+]);
+
+const TEST_PATH_PATTERNS = ["_test.", ".test.", ".spec.", "/test/", "/tests/", "tests/", "__tests__/", "spec/"];
+
+export function normalizeFileTypeFilter(fileType: string | undefined): string | undefined {
+  if (!fileType) return undefined;
+  const normalized = fileType.trim().toLowerCase();
+  return FILE_TYPE_ALIASES[normalized] ?? normalized;
 }
 
-/** 信号词（用于判定"查询是否足够具体"）：去掉停用词后的 token */
-export function signalTokens(tokens: Set<string>): Set<string> {
-  return new Set([...tokens].filter((t) => !(t.length === 1 && STOP_CHARS.has(t))));
+/** Wa-Pi chunks.file_type（scan.ts 的 KbFileType）→ 上游排序词汇。
+ * md/txt 在上游别名表里分别有 md→markdown；txt 没有 txt→text 规则，必须自建这张表。
+ * docx/pdf 上游没有对应类型，保持原样：天然不参与 documentationBoost /
+ * isLocalizationPath / sourceFileBoost（它们的判定集合里都没有 docx/pdf）。 */
+const KB_FILE_TYPE_ALIASES: Record<string, string> = {
+  md: "markdown",
+  txt: "text",
+  html: "html",
+  docx: "docx",
+  pdf: "pdf",
+};
+
+/** 把 Wa-Pi 存储的文件类型（或上游别名，如 ts/markdown）归一到排序层词汇 */
+export function normalizeKbFileType(fileType: string): string {
+  const normalized = fileType.trim().toLowerCase();
+  return KB_FILE_TYPE_ALIASES[normalized] ?? normalizeFileTypeFilter(normalized) ?? normalized;
 }
 
-/** 查询 token 在文本中的命中比例（0~1） */
+/** 覆盖率/词法证据的判定文本：title + breadcrumb + filePath + content。
+ * 上游 buildChunkEmbeddingText 的上下文中含 `File: <相对路径>`，文件名精确命中的块
+ * 会进 BM25 却可能正文零重叠——路径必须计入覆盖率，否则会被词法证据门误杀。 */
+export function buildChunkEmbeddingText(
+  chunk: Pick<RankChunk, "content" | "filePath" | "title" | "breadcrumb">,
+): string {
+  return [chunk.title, chunk.breadcrumb, chunk.filePath, chunk.content].filter(Boolean).join("\n");
+}
+
+export function isTestPath(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  return TEST_PATH_PATTERNS.some((pattern) => lower.includes(pattern));
+}
+
+export function queryAsksForTests(queryTokens: Set<string>): boolean {
+  const signals = signalTokens(queryTokens);
+  return ["assert", "fixture", "spec", "test", "testing"].some((token) => signals.has(token));
+}
+
+function queryAsksForUserGuide(queryTokens: Set<string>): boolean {
+  const signals = signalTokens(queryTokens);
+  return ["config", "configuration", "install", "onboard", "quickstart", "setup", "start", "usage"].some((token) => signals.has(token));
+}
+
+function queryAsksForLocalization(queryTokens: Set<string>): boolean {
+  const signals = signalTokens(queryTokens);
+  return ["i18n", "lang", "language", "locale", "localization", "translation"].some((token) => signals.has(token));
+}
+
+export function isLocalizationPath(filePath: string, fileType: string): boolean {
+  if (!["json", "markdown", "text", "toml", "yaml"].includes(fileType)) return false;
+  const lower = filePath.toLowerCase();
+  return (
+    lower.includes("/locale/") ||
+    lower.startsWith("locale/") ||
+    lower.includes("/locales/") ||
+    lower.startsWith("locales/") ||
+    lower.includes("/lang/") ||
+    lower.startsWith("lang/") ||
+    lower.includes("/i18n/") ||
+    lower.startsWith("i18n/") ||
+    lower.includes("/translations/") ||
+    lower.startsWith("translations/")
+  );
+}
+
 export function queryCoverage(text: string, queryTokens: Set<string>): number {
-  if (queryTokens.size === 0) return 1;
-  let hit = 0;
-  for (const t of queryTokens) if (text.includes(t)) hit++;
-  return hit / queryTokens.size;
+  const textTokens = signalTokens(tokenizeForSearch(text));
+  const signals = signalTokens(queryTokens);
+  if (signals.size === 0) return 0;
+  let matched = 0;
+  for (const token of signals) {
+    if (textTokens.has(token)) matched++;
+  }
+  return matched / signals.size;
 }
 
-/**
- * 词法证据门：与查询几乎没有词法重叠的块不进结果。
- * - 信号词 ≤1（短查询/单个术语）：直接放行（此时全靠语义通道）
- * - 信号词 ≤3：要求覆盖率达到 1/signals
- * - 更多信号词：要求覆盖率 ≥ 0.34（长问句允许部分重叠）
- */
-export function hasEnoughLexicalEvidence(text: string, queryTokens: Set<string>): boolean {
+export function hasAnyLexicalEvidence(text: string, queryTokens: Set<string>): boolean {
+  return queryCoverage(text, queryTokens) > 0;
+}
+
+export function pathTokenBoost(filePath: string, queryTokens: Set<string>): number {
+  const pathTokens = signalTokens(tokenizeForSearch(filePath.replace(/[./_-]/g, " ")));
+  const signals = signalTokens(queryTokens);
+  let matched = 0;
+  for (const token of signals) {
+    if (pathTokens.has(token)) matched++;
+  }
+  if (matched === 0) return 0;
+  return Math.min(0.45, 0.18 * matched);
+}
+
+export function basenameTokenBoost(filePath: string, queryTokens: Set<string>): number {
+  const basename = filePath.split("/").at(-1) ?? filePath;
+  const stem = basename.replace(/\.[^.]+$/, "").replace(/_test$|\.test$|\.spec$/i, "");
+  const baseTokens = signalTokens(tokenizeForSearch(stem.replace(/[._-]/g, " ")));
+  const signals = signalTokens(queryTokens);
+  if (baseTokens.size === 0 || signals.size === 0) return 0;
+  for (const token of signals) {
+    if (baseTokens.has(token)) return 0.32;
+  }
+  return 0;
+}
+
+export function sourceFileBoost(
+  chunk: Pick<RankChunk, "filePath" | "fileType">,
+  queryTokens: Set<string>,
+): number {
+  if (!SOURCE_FILE_TYPES.has(chunk.fileType)) return 0;
+  if (queryAsksForUserGuide(queryTokens)) return Math.min(0.05, pathTokenBoost(chunk.filePath, queryTokens));
+  const boost = basenameTokenBoost(chunk.filePath, queryTokens);
+  if (boost > 0) return boost;
+  const boostFromPath = pathTokenBoost(chunk.filePath, queryTokens);
+  return Math.min(0.22, boostFromPath);
+}
+
+function documentationBoost(
+  chunk: Pick<RankChunk, "filePath" | "fileType">,
+  queryTokens: Set<string>,
+): number {
+  if (!queryAsksForUserGuide(queryTokens)) return 0;
+  const lower = chunk.filePath.toLowerCase();
+  if (chunk.fileType !== "markdown") return 0;
+  if (
+    lower.includes("install") ||
+    lower.includes("readme") ||
+    lower.includes("getting-started") ||
+    lower.includes("quickstart")
+  ) {
+    return 0.85;
+  }
+  if (lower.startsWith("docs/")) return 0.35;
+  return 0;
+}
+
+export type RankingDiagnostics = KbSearchRanking;
+
+export function scoreChunkForQuery(
+  baseScore: number,
+  chunk: RankChunk,
+  queryTokens: Set<string>,
+): RankingDiagnostics {
+  const guideIntent = queryAsksForUserGuide(queryTokens);
+  const pathBoost =
+    guideIntent && SOURCE_FILE_TYPES.has(chunk.fileType)
+      ? Math.min(0.08, pathTokenBoost(chunk.filePath, queryTokens))
+      : pathTokenBoost(chunk.filePath, queryTokens);
+  const sourceBoost = sourceFileBoost(chunk, queryTokens);
+  const docBoost = documentationBoost(chunk, queryTokens);
+  const testIntent = queryAsksForTests(queryTokens);
+  const test = isTestPath(chunk.filePath);
+  const localization = isLocalizationPath(chunk.filePath, chunk.fileType);
+  const localizationPenalty = localization && !queryAsksForLocalization(queryTokens) ? 0.2 : 1;
+  let adjustedScore = baseScore + pathBoost + sourceBoost + docBoost;
+  if (test && !testIntent) adjustedScore *= 0.48;
+  if (!test && testIntent) adjustedScore *= 0.88;
+  adjustedScore *= localizationPenalty;
+  return {
+    adjusted_score: adjustedScore,
+    base_score: baseScore,
+    coverage: queryCoverage(buildChunkEmbeddingText(chunk), queryTokens),
+    documentation_boost: docBoost,
+    is_localization: localization,
+    is_test: test,
+    localization_penalty: localizationPenalty,
+    path_boost: pathBoost,
+    source_boost: sourceBoost,
+    test_intent: testIntent,
+    user_guide_intent: guideIntent,
+  };
+}
+
+export function hasEnoughLexicalEvidence(chunk: RankChunk, queryTokens: Set<string>): boolean {
   const signals = signalTokens(queryTokens);
   if (signals.size <= 1) return true;
-  const coverage = queryCoverage(text, queryTokens);
+  if (sourceFileBoost(chunk, queryTokens) >= 0.22) return true;
+  const coverage = queryCoverage(buildChunkEmbeddingText(chunk), queryTokens);
   if (signals.size <= 3) return coverage >= 1 / signals.size;
   return coverage >= 0.34;
-}
-
-/** 测试路径（与文档库无关但偶有出现的同名资料）：非测试意图时降权 */
-const TEST_PATH_PATTERNS = ["__tests__/", "/test/", "/tests/", ".test.", ".spec.", "spec/"];
-
-/** 本地化目录：查询没有本地化意图时降权（多语言副本会被反复命中） */
-const LOCALIZATION_PATTERNS = ["locales/", "i18n/", ".i18n.", "_i18n."];
-
-function hasAny(text: string, patterns: string[]): boolean {
-	const lower = text.toLowerCase();
-	return patterns.some((p) => lower.includes(p));
-}
-
-/** 查询是否在问测试（"测试/用例/test/spec"） */
-export function queryAsksForTests(tokens: Set<string>): boolean {
-	return [...tokens].some((t) => /测试|用例|单测|test|spec/i.test(t));
-}
-
-/** 查询是否在问本地化文案 */
-function queryAsksForLocalization(tokens: Set<string>): boolean {
-	return [...tokens].some((t) => /i18n|国际化|本地化|翻译|locale/i.test(t));
-}
-
-/** 路径段/文件名命中查询 token 的加分（最多 0.12） */
-export function pathTokenBoost(filePath: string, tokens: Set<string>): number {
-	const lower = filePath.toLowerCase();
-	let hits = 0;
-	for (const t of tokens) if (t.length >= 2 && lower.includes(t.toLowerCase())) hits++;
-	return Math.min(0.12, hits * 0.04);
-}
-
-/**
- * 文档意图加权：README / quickstart / install / getting-started 类文件，或 docs/ 目录。
- * 幅度刻意压到与路径命中同量级（≤0.12）：上游原值（0.85 / 0.35）是给「代码库检索」设计的，
- * 在文档库里会把「只在 docs/ 里提一句的长文档」顶到「根目录精确命中」前面。
- */
-export function documentationBoost(filePath: string, tokens: Set<string>): number {
-	const lower = filePath.toLowerCase();
-	const wantsGuide = [...tokens].some((t) =>
-		/readme|install|getting-started|quickstart|入门|安装|快速开始/i.test(t),
-	);
-	if (wantsGuide && /readme|install|getting-started|quickstart/.test(lower)) return 0.12;
-	if (lower.startsWith("docs/") || lower.includes("/docs/")) return 0.08;
-	return 0;
-}
-
-export interface RankingScore {
-	adjustedScore: number;
-	baseScore: number;
-	coverage: number;
-	pathBoost: number;
-	docBoost: number;
-	isTest: boolean;
-	isLocalization: boolean;
-}
-
-/**
- * 融合分 → 加权分：路径/文件名命中加分、文档意图加权、测试与本地化副本降权。
- * 纯函数，只依赖 file_path / file_type 与查询 token；返回诊断字段供后续排查。
- */
-export function scoreChunkForQuery(
-	baseScore: number,
-	chunk: { file_path: string; file_type: string },
-	queryTokens: Set<string>,
-): RankingScore {
-	const pathBoost = pathTokenBoost(chunk.file_path, queryTokens);
-	const docBoost = documentationBoost(chunk.file_path, queryTokens);
-	const isTest = hasAny(chunk.file_path, TEST_PATH_PATTERNS);
-	const isLocalization = hasAny(chunk.file_path, LOCALIZATION_PATTERNS);
-	// 乘性加权：boost 只做百分比奖励（≤1.24 倍），不改变相关度分本身的量纲——
-	// 加法会让「低相关 + 命中 docs/」超过「高相关 + 无路径奖励」（实测相关度反转）
-	let adjustedScore = baseScore * (1 + pathBoost + docBoost);
-	if (isTest && !queryAsksForTests(queryTokens)) adjustedScore *= 0.48;
-	if (isLocalization && !queryAsksForLocalization(queryTokens)) adjustedScore *= 0.2;
-	return {
-		adjustedScore,
-		baseScore,
-		coverage: queryCoverage(chunk.file_path, queryTokens),
-		pathBoost,
-		docBoost,
-		isTest,
-		isLocalization,
-	};
 }

@@ -1,8 +1,19 @@
 // 深度重排（cross-encoder reranker）：把 (query, 块) 拼对过一遍模型打分。
 // 与 embedding 模型（bi-encoder）不同：权重独立、必须按需下载；只在 deep 模式触发，
-// 未就绪/失败时返回 null，调用方退化 hybrid（绝不报错、不阻断检索）。
-// 模型管理沿用 memory/embedder 的 env 策略：WA_PI_MODEL_DIR 存在走本地目录（离线语义），
-// 否则缓存落 WA_PI_DIR/models，首次加载由 transformers 自动从镜像下载。
+// 未就绪/失败时返回空结果，调用方退化 hybrid（不阻断检索）。
+// 模型选择由上游配置层 PI_KNOWLEDGE_RERANKER*（见 search/reranker-config.ts）决定，
+// 缺省 ms-marco MiniLM-L4 + q8；加载路径沿用 memory/embedder 的 env 策略：
+// WA_PI_MODEL_DIR 存在走本地目录（离线语义），否则缓存落 WA_PI_DIR/models，
+// 首次加载由 transformers 自动从镜像下载。
+
+import { throwIfAborted } from "./search/contracts";
+import {
+	DEFAULT_RERANKER_REMOTE_HOST,
+	DEFAULT_RERANKER_REMOTE_PATH_TEMPLATE,
+	resolveRerankerConfig,
+	type HfRerankerConfig,
+} from "./search/reranker-config";
+import { rerankWithSingleRawLogit, type RawLogitTokenizer } from "./search/reranker-logits";
 
 /** 默认 reranker 模型（上游默认）：ms-marco MiniLM-L4 cross-encoder，量化后体积很小 */
 export const RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-4-v2";
@@ -18,15 +29,18 @@ export interface RerankerStatus {
 	error?: string;
 }
 
-/** tokenizer：支持 (text, { text_pair }) 成对编码 */
+/** tokenizer：支持 (text, { text_pair }) 成对编码（transformers.js v4 是同步返回 BatchEncoding） */
 type RerankTokenizer = (
 	text: string | string[],
 	opts?: Record<string, unknown>,
-) => Promise<unknown>;
+) => unknown;
 /** 序列分类模型：返回 logits（dims: [batch, numLabels]） */
 type RerankModel = (inputs: unknown) => Promise<{ logits: { data: Float32Array; dims: number[] } }>;
 
 let pipe: { tokenizer: RerankTokenizer; model: RerankModel } | null = null;
+/** 当前（或上次尝试加载的）模型与精度：状态/错误文案/指纹都用它，不再写死 RERANK_MODEL */
+let activeModel = RERANK_MODEL;
+let activeDtype = RERANK_DTYPE;
 let state: RerankerStatus = { status: "idle", model: RERANK_MODEL };
 let loadPromise: Promise<boolean> | null = null;
 let failNextLoad = false;
@@ -87,7 +101,8 @@ export function aggregateDownloadProgress(
 type RerankerPair = { tokenizer: RerankTokenizer; model: RerankModel };
 /** 加载器：默认走 transformers 真实下载；测试可注入 fake（不联网） */
 export type RerankerLoader = (
-	onProgress?: (ev: DownloadProgressEvent) => void,
+	onProgress: ((ev: DownloadProgressEvent) => void) | undefined,
+	config: HfRerankerConfig,
 ) => Promise<RerankerPair>;
 
 /** 测试钩子：替换加载器（null 恢复默认） */
@@ -107,13 +122,23 @@ async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: Reran
 			failNextLoad = false;
 			state = {
 				status: "failed",
-				model: RERANK_MODEL,
+				model: activeModel,
 				error: `reranker 模型加载失败（测试注入）`,
 			};
 			return false;
 		}
-		state = { status: "downloading", model: RERANK_MODEL, progress: 0 };
 		try {
+			// 模型/修订/精度/下载源全部来自上游配置层（PI_KNOWLEDGE_RERANKER*），缺省即
+			// RERANK_MODEL + q8 + WA_PI_HF_ENDPOINT 镜像；api provider 未实现，在这里就报错
+			const config = resolveRerankerConfig();
+			if (config.provider !== "hf") {
+				throw new Error(
+					`reranker provider "${config.provider}" 未支持：Wa-Pi 只实现本地 hf 重排`,
+				);
+			}
+			activeModel = config.model;
+			activeDtype = config.dtype ?? RERANK_DTYPE;
+			state = { status: "downloading", model: activeModel, progress: 0 };
 			// 下载进度：按文件聚合 loaded/total（tokenizer 与 model 两次下载合并成一个百分比），
 			// 否则 UI 只会看到 0% 一直到加载完成（下载大文件时表现为「卡住」）
 			const files: DownloadProgressMap = new Map();
@@ -121,19 +146,19 @@ async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: Reran
 				if (state.status !== "downloading") return;
 				state = {
 					status: "downloading",
-					model: RERANK_MODEL,
+					model: activeModel,
 					progress: aggregateDownloadProgress(files, ev),
 				};
 			};
 			const loader = testLoader ?? defaultRerankerLoader;
-			const pair = await loader(onProgress);
+			const pair = await loader(onProgress, config);
 			pipe = pair;
-			state = { status: "ready", model: RERANK_MODEL };
+			state = { status: "ready", model: activeModel };
 			return true;
 		} catch (err) {
 			state = {
 				status: "failed",
-				model: RERANK_MODEL,
+				model: activeModel,
 				error: `reranker 模型加载失败：${err instanceof Error ? err.message : String(err)}`,
 			};
 			console.error("[knowledge] reranker 加载失败（deep 模式将退化为 hybrid）：", err);
@@ -145,40 +170,67 @@ async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: Reran
 	return ok ? pipe : null;
 }
 
-/** 默认加载器：transformers 直连（镜像 endpoint 可配），把下载进度回调透传出去 */
-const defaultRerankerLoader: RerankerLoader = async (onProgress) => {
+/**
+ * 临时把 transformers 的下载源指到重排配置，执行 fn 后还原。
+ * `env` 是进程级全局（上游靠 model-worker 子进程隔离，Wa-Pi 单进程没有隔离）：不还原的话，
+ * 一旦改为重排专用 host/模型 URL，随后 embedder 的旧守卫（跳过「非空且不含 huggingface.co」）
+ * 会保留该 host，e5 就去错误的源拉模型。失败/抛错路径同样必须还原。
+ *
+ * 还原是「比较后写」：只改回仍是我们本次写入的值。窗口内别的模块（如 embedder）合法改写过
+ * 就不动它——否则会把自己的旧值反向盖回去（lost update）。
+ */
+export async function withRerankerEnv<T>(
+	config: HfRerankerConfig,
+	fn: () => Promise<T>,
+): Promise<T> {
 	const { env } = await import("@huggingface/transformers");
-	if (!env.remoteHost || env.remoteHost.includes("huggingface.co")) {
-		// 注意尾部斜杠：remoteHost 是与 remotePathTemplate 直接字符串拼接的
-		const endpoint = (process.env.WA_PI_HF_ENDPOINT ?? "https://hf-mirror.com").replace(/\/+$/, "");
-		env.remoteHost = `${endpoint}/`;
-		env.remotePathTemplate = "{model}/resolve/{revision}/";
+	const prevRemoteHost = env.remoteHost;
+	const prevRemotePathTemplate = env.remotePathTemplate;
+	// remoteHost 与 remotePathTemplate 是直接字符串拼接：尾部斜杠必须补齐
+	const host = config.remoteHost ?? DEFAULT_RERANKER_REMOTE_HOST;
+	const mineHost = `${host.replace(/\/+$/, "")}/`;
+	const mineTemplate = config.remotePathTemplate ?? DEFAULT_RERANKER_REMOTE_PATH_TEMPLATE;
+	env.remoteHost = mineHost;
+	env.remotePathTemplate = mineTemplate;
+	try {
+		return await fn();
+	} finally {
+		if (env.remoteHost === mineHost) env.remoteHost = prevRemoteHost;
+		if (env.remotePathTemplate === mineTemplate)
+			env.remotePathTemplate = prevRemotePathTemplate;
 	}
-	if (process.env.WA_PI_MODEL_DIR) {
-		env.allowRemoteModels = false;
-		env.localModelPath = process.env.WA_PI_MODEL_DIR;
-	} else {
-		const { modelCacheDir } = await import("../memory/embedder");
-		env.cacheDir = modelCacheDir();
-	}
-	// 不用 pipeline("text-classification")：它的 softmax 对单 logit 的 cross-encoder 恒输出 1.0，
-	// 且不透传 text_pair（对象数组会被当纯文本 tokenize）。这里直接持 tokenizer + 分类模型。
-	const mod = (await import("@huggingface/transformers")) as unknown as {
-		AutoTokenizer: {
-			from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankTokenizer>;
+}
+
+/** 默认加载器：transformers 直连，模型/修订/精度/下载源均取自上游配置层 */
+const defaultRerankerLoader: RerankerLoader = async (onProgress, config) =>
+	withRerankerEnv(config, async () => {
+		const { env } = await import("@huggingface/transformers");
+		if (process.env.WA_PI_MODEL_DIR) {
+			env.allowRemoteModels = false;
+			env.localModelPath = process.env.WA_PI_MODEL_DIR;
+		} else {
+			const { modelCacheDir } = await import("../memory/embedder");
+			env.cacheDir = modelCacheDir();
+		}
+		// 不用 pipeline("text-classification")：它的 softmax 对单 logit 的 cross-encoder 恒输出 1.0，
+		// 且不透传 text_pair（对象数组会被当纯文本 tokenize）。这里直接持 tokenizer + 分类模型，
+		// 打分恒走原始 logit（RAW_LOGITS=false 也只支持单 logit；多类输出由 scoreSingleRawLogit 报明确错误）。
+		const mod = (await import("@huggingface/transformers")) as unknown as {
+			AutoTokenizer: {
+				from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankTokenizer>;
+			};
+			AutoModelForSequenceClassification: {
+				from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankModel>;
+			};
 		};
-		AutoModelForSequenceClassification: {
-			from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankModel>;
-		};
-	};
-	const opts = { progress_callback: onProgress };
-	const tokenizer = await mod.AutoTokenizer.from_pretrained(RERANK_MODEL, opts);
-	const model = await mod.AutoModelForSequenceClassification.from_pretrained(RERANK_MODEL, {
-		...opts,
-		dtype: RERANK_DTYPE,
+		const opts = { progress_callback: onProgress, revision: config.revision };
+		const tokenizer = await mod.AutoTokenizer.from_pretrained(config.model, opts);
+		const model = await mod.AutoModelForSequenceClassification.from_pretrained(config.model, {
+			...opts,
+			dtype: config.dtype ?? RERANK_DTYPE,
+		});
+		return { tokenizer, model };
 	});
-	return { tokenizer, model };
-};
 
 /** 预加载（设置页「开启」后调用）：触发首次下载/加载；失败只记录状态，不抛 */
 /**
@@ -192,59 +244,67 @@ export function shouldRetryLoad(status: RerankerState): boolean {
 export async function prepareReranker(): Promise<boolean> {
 	if (state.status === "ready") return true;
 	// 上一次失败不能把重试永久锁死：清掉 failed 后重新走加载路径
-	if (state.status === "failed") state = { status: "idle", model: RERANK_MODEL };
+	if (state.status === "failed") state = { status: "idle", model: activeModel };
 	const p = await getPipeline();
 	return p !== null;
 }
 
 /**
- * 对 (query, doc) 对打分：返回与 docs 等长的相关度分数（越高越相关）。
- * 未就绪/推理失败返回 null（调用方退化 hybrid）。
+ * 上游签名 rerank(query, candidates, topK, signal)：逐条 (query, 正文) 打分，按分降序截断到 topK
+ * （search.ts 的 deep 分支使用）。
+ * - 复用进程内 tokenizer+model（Wa-Pi 没有 model worker 子进程），模型/修订/精度取自
+ *   PI_KNOWLEDGE_RERANKER*（缺省 RERANK_MODEL + q8）
+ * - 未就绪返回 []（不触发下载），调用方退化普通排序
+ * - 配置/加载/推理任何错误一律 console.warn + 返回 []，绝不阻断检索（取消信号除外）
  */
-export async function rerankScores(query: string, docs: string[]): Promise<number[] | null> {
-	if (docs.length === 0) return [];
-	// 未就绪不触发加载：下载只由设置页「开启」显式触发（prepareReranker），检索路径只消费已就绪的模型
-	if (!isRerankerReady()) return null;
-	const p = pipe;
-	if (!p) return null;
+export async function rerank(
+	query: string,
+	candidates: Array<{ chunkId: string; content: string }>,
+	topK: number,
+	signal?: AbortSignal,
+): Promise<Array<{ chunkId: string; score: number }>> {
+	if (candidates.length === 0) return [];
 	try {
-		const batchSize = 16;
-		const out: number[] = [];
-		for (let i = 0; i < docs.length; i += batchSize) {
-			const batch = docs.slice(i, i + batchSize);
-			const inputs = await p.tokenizer(batch.map(() => query), {
-				text_pair: batch,
-				padding: true,
-				truncation: true,
-				max_length: 512,
-			});
-			const { logits } = await p.model(inputs);
-			out.push(...parseRerankLogits(logits.data, logits.dims));
+		const config = resolveRerankerConfig();
+		if (config.provider !== "hf") {
+			throw new Error(
+				`reranker provider "${config.provider}" 未支持：Wa-Pi 只实现本地 hf 重排（未支持 HTTP API 重排）`,
+			);
 		}
-		return out.slice(0, docs.length);
+		// 未就绪不触发加载：下载只由设置页「开启」显式触发（prepareReranker）
+		if (!isRerankerReady()) return [];
+		const p = pipe;
+		if (!p) return [];
+		// transformers.js v4 的 tokenizer 调用同步返回 BatchEncoding；共享类型只声明到 unknown，
+		// 这里窄化到上游 RawLogitTokenizer 形状（运行时一致）
+		const tokenizer = p.tokenizer as unknown as RawLogitTokenizer;
+		const results: Array<{ chunkId: string; score: number }> = [];
+		for (const candidate of candidates) {
+			throwIfAborted(signal);
+			const [scored] = await rerankWithSingleRawLogit(
+				{ text: query, text_pair: candidate.content },
+				tokenizer,
+				p.model,
+				activeModel,
+			);
+			results.push({ chunkId: candidate.chunkId, score: scored.score });
+			// 逐条推理是同步重活：每完成一条让出一次事件循环，
+			// 避免长候选列表（deep 30 条）把 SSE 心跳等宏任务饿死
+			await new Promise<void>((resolve) => setImmediate(resolve));
+		}
+		results.sort((a, b) => b.score - a.score);
+		return results.slice(0, topK);
 	} catch (err) {
+		// 取消要向上抛（否则检索会当成「没有重排」继续跑）
+		if (signal?.aborted) throw err;
 		state = {
 			status: "failed",
-			model: RERANK_MODEL,
-			error: `reranker 推理失败：${err instanceof Error ? err.message : String(err)}`,
+			model: activeModel,
+			error: `reranker 重排失败：${err instanceof Error ? err.message : String(err)}`,
 		};
-		return null;
+		console.warn("[knowledge] reranker 重排失败（deep 模式退化为普通排序）：", err);
+		return [];
 	}
-}
-
-/**
- * 从 logits 解析每个样本的相关度分数（纯函数，便于单测）。
- * - 单 logit（cross-encoder 常见，如 ms-marco-MiniLM）：直接取原值（sigmoid 不改变排序）
- * - 多类（numLabels ≥ 2）：取最后一类的概率（softmax 近似：直接取该列 logit 也保序）
- */
-export function parseRerankLogits(data: Float32Array, dims: number[]): number[] {
-	const labels = dims.length >= 2 ? Math.max(1, dims[dims.length - 1]) : 1;
-	const batch = labels > 0 ? Math.trunc(data.length / labels) : 0;
-	const out: number[] = [];
-	for (let i = 0; i < batch; i++) {
-		out.push(labels === 1 ? data[i] : data[i * labels + (labels - 1)]);
-	}
-	return out;
 }
 
 /** 卸载模型（设置页关闭开关时调用）：释放 ONNX session，不删缓存文件 */
@@ -256,7 +316,7 @@ export async function unloadReranker(): Promise<void> {
 		console.warn("[knowledge] reranker dispose 失败（单例已置空，退回 GC 兜底）:", err);
 	}
 	pipe = null;
-	if (state.status === "ready") state = { status: "idle", model: RERANK_MODEL };
+	if (state.status === "ready") state = { status: "idle", model: activeModel };
 }
 
 /** 测试钩子：重置状态；failNextLoad 让下一次加载直接失败 */
@@ -265,10 +325,12 @@ export function resetRerankerForTest(opts: { failNextLoad?: boolean } = {}): voi
 	loadPromise = null;
 	failNextLoad = opts.failNextLoad === true;
 	testLoader = null;
+	activeModel = RERANK_MODEL;
+	activeDtype = RERANK_DTYPE;
 	state = { status: "idle", model: RERANK_MODEL };
 }
 
 /** 模型指纹（设置页/排障用）：与 embedding 指纹区分开 */
 export function rerankerFingerprint(): string {
-	return `rerank:${RERANK_MODEL}:${RERANK_DTYPE}`;
+	return `rerank:${activeModel}:${activeDtype}`;
 }

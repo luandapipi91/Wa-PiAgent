@@ -10,6 +10,13 @@ const KB_EMBED_TABLE = "chunks";
 const KB_EMBED_COLUMN = "embedding";
 /** 语义通道的扫描宽度：覆盖过滤损耗（与 memory 同值） */
 export const KB_SCAN_K = SCAN_K;
+/** 语义候选相关度门槛：量化距离 ≤ 阈值放行（照抄 memory；bge 实测落在相关/无关分布间隙上） */
+export const SEMANTIC_MAX_DISTANCE = 0.75;
+
+/** 语义候选相关度判定：距离 ≤ 阈值（即相似度足够）才进入召回 */
+export function withinSemanticDistance(distance: number): boolean {
+  return distance <= SEMANTIC_MAX_DISTANCE;
+}
 
 const initialized = new WeakSet<Database>();
 

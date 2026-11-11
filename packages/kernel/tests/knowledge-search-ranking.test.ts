@@ -1,55 +1,115 @@
 import { test, expect } from "bun:test";
+import { tokenizeForSearch, signalTokens } from "../src/knowledge/search/query";
 import {
-  MIN_HYBRID_SCORE,
-  hasEnoughLexicalEvidence,
-  queryCoverage,
-  queryTokensOf,
   scoreChunkForQuery,
+  hasEnoughLexicalEvidence,
+  hasAnyLexicalEvidence,
+  sourceFileBoost,
+  pathTokenBoost,
+  basenameTokenBoost,
+  normalizeFileTypeFilter,
+  normalizeKbFileType,
+  buildChunkEmbeddingText,
+  isTestPath,
+  queryAsksForTests,
+  isLocalizationPath,
 } from "../src/knowledge/search/ranking";
+import type { RankChunk } from "../src/knowledge/search/contracts";
 
-test("置信门常量取上游默认 0.18", () => expect(MIN_HYBRID_SCORE).toBe(0.18));
+const chunk = (over: Partial<RankChunk> = {}): RankChunk => ({
+  id: "c1",
+  kbId: "kb1",
+  filePath: "docs/pricing.md",
+  fileType: "markdown",
+  content: "定价政策说明：按年订阅享九折。",
+  contentHash: "h",
+  startLine: 1,
+  endLine: 10,
+  indexedAt: 1,
+  ...over,
+});
+const tokens = (q: string) => tokenizeForSearch(q);
 
-test("coverage：查询 token 在文本中的命中比例", () => {
-  const tokens = queryTokensOf("定价政策退款");
-  // bigram：定价/价政/政策/政退/退款 → 文本命中前三个 = 3/5
-  expect(queryCoverage("定价政策说明", tokens)).toBeCloseTo(3 / 5, 5);
+test("file_type 别名归一", () => {
+  expect(normalizeFileTypeFilter("typescript")).toBe("typescript");
+  expect(normalizeFileTypeFilter("ts")).toBe("typescript");
+  expect(normalizeFileTypeFilter("markdown")).toBe("markdown");
+  expect(normalizeFileTypeFilter("md")).toBe("markdown");
+  expect(normalizeFileTypeFilter(undefined)).toBeUndefined();
 });
 
-test("词法证据门：signals ≤ 1 直接放行；≤3 个 signal 要求覆盖全部", () => {
-  expect(hasEnoughLexicalEvidence("任意文本", queryTokensOf("定价"))).toBe(true); // signals=1
-  const t3 = queryTokensOf("定价政策"); // 定价/价政/政策 = 3 signals
-  expect(hasEnoughLexicalEvidence("退款流程", t3)).toBe(false); // 0/3
-  expect(hasEnoughLexicalEvidence("定价政策", t3)).toBe(true); // 3/3
+test("Wa-Pi 存储 file_type → 上游排序词汇（txt 无上游别名，必须自建映射）", () => {
+  expect(normalizeKbFileType("md")).toBe("markdown");
+  expect(normalizeKbFileType("txt")).toBe("text");
+  expect(normalizeKbFileType("html")).toBe("html");
+  expect(normalizeKbFileType("docx")).toBe("docx");
+  expect(normalizeKbFileType("pdf")).toBe("pdf");
+  // 上游别名仍可用（过滤参数可能直接传 ts/markdown）
+  expect(normalizeKbFileType("ts")).toBe("typescript");
+  expect(normalizeKbFileType("markdown")).toBe("markdown");
 });
 
-test("长问句（signals > 3）：覆盖率 ≥ 0.34 才放行", () => {
-  const tokens = queryTokensOf("定价政策说明与退款流程"); // 10 个 bigram
-  expect(hasEnoughLexicalEvidence("定价政策说明", tokens)).toBe(true); // 5/10 = 0.5
-  expect(hasEnoughLexicalEvidence("定价政策", tokens)).toBe(false); // 3/10 = 0.3
+test("测试路径与本地化识别", () => {
+  expect(isTestPath("src/a.test.ts")).toBe(true);
+  // 上游意图词表是英文（assert/fixture/spec/test/testing）；tokens 先去停用词 "how"/"to"
+  expect(queryAsksForTests(signalTokens(tokens("how to test")))).toBe(true);
+  // 上游 isLocalizationPath 只对 json/markdown/text/toml/yaml 判定（源码文件不算本地化副本）
+  expect(isLocalizationPath("locales/zh.json", "json")).toBe(true);
 });
 
-test("路径/文件名命中 query token 加分，测试文件在非测试意图下减分", () => {
-  const tokens = queryTokensOf("定价政策");
-  const hit = scoreChunkForQuery(0.5, { file_path: "docs/定价政策.md", file_type: "md" }, tokens);
-  const plain = scoreChunkForQuery(0.5, { file_path: "docs/other.md", file_type: "md" }, tokens);
-  expect(hit.adjustedScore).toBeGreaterThan(plain.adjustedScore);
-
-  const testFile = scoreChunkForQuery(0.5, { file_path: "docs/__tests__/定价政策.md", file_type: "md" }, tokens);
-  expect(testFile.adjustedScore).toBeLessThan(plain.adjustedScore);
+test("pathTokenBoost ≤ 0.45、basename 命中 0.32", () => {
+  expect(pathTokenBoost("src/pricing/policy.ts", signalTokens(tokens("pricing")))).toBeCloseTo(0.18, 5);
+  expect(basenameTokenBoost("/a/pricing.md", signalTokens(tokens("pricing")))).toBeCloseTo(0.32, 5);
+  expect(pathTokenBoost("src/other.ts", signalTokens(tokens("pricing")))).toBe(0);
 });
 
-test("README/quickstart 等文档意图加权", () => {
-  const tokens = queryTokensOf("install quickstart");
-  const readme = scoreChunkForQuery(0.5, { file_path: "docs/quickstart.md", file_type: "md" }, tokens);
-  const other = scoreChunkForQuery(0.5, { file_path: "docs/changelog.md", file_type: "md" }, tokens);
-  expect(readme.adjustedScore).toBeGreaterThan(other.adjustedScore);
+test("sourceFileBoost ≥ 0.22 时词法证据门直接放行", () => {
+  // 上游只给源码文件类型算 sourceFileBoost（markdown 恒为 0）；正文与查询几乎无重叠，靠放行分支通过
+  const c = chunk({ filePath: "src/定价政策.ts", fileType: "typescript", content: "与本查询无关的说明" });
+  const q = signalTokens(tokens("定价政策说明"));
+  expect(sourceFileBoost(c, q)).toBeGreaterThanOrEqual(0.22);
+  expect(hasEnoughLexicalEvidence(c, q)).toBe(true);
 });
 
-test("boost 不得把弱相关文档顶到精确命中之前（乘性、幅度受限）", () => {
-  const tokens = queryTokensOf("定价政策");
-  // 精确命中：根目录、路径含查询词，base 0.54
-  const exact = scoreChunkForQuery(0.54, { file_path: "定价政策.md", file_type: "md" }, tokens);
-  // 弱相关：docs/ 里只提一句的文档，base 0.45
-  const weak = scoreChunkForQuery(0.45, { file_path: "docs/changelog.md", file_type: "md" }, tokens);
-  expect(exact.adjustedScore).toBeGreaterThan(weak.adjustedScore);
+test("覆盖率门：信号词 ≤1 直通；≤3 要求 1/n；更多要求 0.34", () => {
+  expect(hasEnoughLexicalEvidence(chunk({ content: "完全无关" }), signalTokens(tokens("定价")))).toBe(true);
+  const three = signalTokens(tokens("定价 政策 折扣"));
+  expect(hasEnoughLexicalEvidence(chunk({ content: "定价说明" }), three)).toBe(true); // 1/3
+  const many = signalTokens(tokens("定价 政策 折扣 订阅 年费 退款"));
+  expect(hasEnoughLexicalEvidence(chunk({ content: "定价说明" }), many)).toBe(false); // 1/6 < 0.34
+});
+
+test("中文长问句：bigram 覆盖率门比上游单字门更严（锁定已知限制，非 bug）", () => {
+  // bigram 把查询切成相邻二元组：9 个信号词里文档只命中 登录/劫持/持的 = 3/9 ≈ 0.333 < 0.34
+  const q = signalTokens(tokens("登录是怎么防止劫持的"));
+  const c = chunk({
+    filePath: "docs/session.md",
+    title: null,
+    breadcrumb: null,
+    content: "登录会话被劫持的处理",
+  });
+  expect(hasEnoughLexicalEvidence(c, q)).toBe(false);
+});
+
+test("scoreChunkForQuery 返回完整 ranking 字段", () => {
+  const r = scoreChunkForQuery(0.5, chunk(), signalTokens(tokens("定价政策")));
+  expect(r.base_score).toBe(0.5);
+  expect(r.adjusted_score).toBeGreaterThanOrEqual(0.5);
+  expect(r).toMatchObject({ is_test: false, is_localization: false, test_intent: false, user_guide_intent: false, documentation_boost: 0 });
+  expect(r.coverage).toBeGreaterThan(0);
+});
+
+test("覆盖率文本包含 title/breadcrumb：正文零重叠但标题命中也能过词法证据门", () => {
+  const q = signalTokens(tokens("定价政策")); // 3 个信号词
+  const viaTitle = chunk({ title: "定价政策", content: "完全无关的正文" });
+  expect(buildChunkEmbeddingText(viaTitle)).toContain("定价政策");
+  expect(hasEnoughLexicalEvidence(viaTitle, q)).toBe(true);
+  expect(scoreChunkForQuery(0.5, viaTitle, q).coverage).toBe(1);
+  // 反证：title/breadcrumb 都没命中时，同一正文过不了门
+  const bare = chunk({ title: null, breadcrumb: null, content: "完全无关的正文" });
+  expect(hasEnoughLexicalEvidence(bare, q)).toBe(false);
+});
+
+test("中文覆盖率不为 0", () => {
+  expect(hasAnyLexicalEvidence("定价政策说明", tokens("定价政策"))).toBe(true);
 });

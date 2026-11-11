@@ -1,11 +1,28 @@
-import { test, expect, beforeEach } from "bun:test";
-import { rerankerStatus, resetRerankerForTest, prepareReranker, rerankScores } from "../src/knowledge/reranker";
+import { test, expect, beforeEach, spyOn } from "bun:test";
+import { rerankerStatus, resetRerankerForTest, prepareReranker } from "../src/knowledge/reranker";
 
 beforeEach(() => resetRerankerForTest());
 
-test("初始状态 idle；未就绪时 rerankScores 返回 null（调用方退化 hybrid）", async () => {
+/** 临时设置 env（配置层读 PI_KNOWLEDGE_RERANKER*，用后还原） */
+async function withEnv(vars: Record<string, string>, fn: () => Promise<void> | void): Promise<void> {
+  const saved: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    saved[key] = process.env[key];
+    process.env[key] = value;
+  }
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("初始状态 idle；未就绪不放行重排（调用方退化 hybrid）", async () => {
   expect(rerankerStatus().status).toBe("idle");
-  expect(await rerankScores("定价", ["定价政策"])).toBeNull();
+  expect(rerankerStatus().model).toBe("Xenova/ms-marco-MiniLM-L-4-v2");
 });
 
 test("下载/加载失败进入 failed 并带原因", async () => {
@@ -29,18 +46,6 @@ test("失败后允许重试加载（shouldRetryLoad）", async () => {
   expect(shouldRetryLoad("idle")).toBe(true);
   expect(shouldRetryLoad("ready")).toBe(false);
   expect(shouldRetryLoad("downloading")).toBe(false);
-});
-
-test("parseRerankLogits：单 logit 取原值（不再恒为 1），多类取最后一列", async () => {
-  const { parseRerankLogits } = await import("../src/knowledge/reranker");
-  // 单 logit（ms-marco 这类 cross-encoder）：原值，且不同样本可区分
-  const single = parseRerankLogits(new Float32Array([2.5, -1.2]), [2, 1]);
-  expect(single[0]).toBeCloseTo(2.5, 5);
-  expect(single[1]).toBeCloseTo(-1.2, 5); // Float32 精度
-  // 两类：取 label=1 那一列
-  const two = parseRerankLogits(new Float32Array([0.1, 0.9, 0.7, 0.3]), [2, 2]);
-  expect(two[0]).toBeCloseTo(0.9, 5);
-  expect(two[1]).toBeCloseTo(0.3, 5);
 });
 
 test("下载进度聚合：按文件 loaded/total 累加，单调不回退且封顶 99", async () => {
@@ -82,4 +87,238 @@ test("下载进度回调接到 prepareReranker：回调触发时状态为 downlo
   expect(await p).toBe(true);
   expect(rerankerStatus().status).toBe("ready");
   expect(rerankerStatus().progress).toBeUndefined();
+});
+
+// ============ 上游签名 rerank(query, candidates, topK, signal) ============
+
+/** 假 pipeline：content 当分数（"3" → logit 3），tokenizer 回显 text_pair 供断言 */
+function fakeRerankPipeline() {
+  return {
+    tokenizer: (text: string | string[], opts?: Record<string, unknown>) => ({ text, pair: opts?.text_pair }),
+    model: async (inputs: unknown) => ({
+      logits: { data: new Float32Array([Number((inputs as { pair: string }).pair)]), dims: [1, 1] },
+    }),
+  };
+}
+
+test("rerank：未就绪返回空数组（不触发加载，调用方退化 hybrid）", async () => {
+  const { rerank } = await import("../src/knowledge/reranker");
+  expect(await rerank("定价", [{ chunkId: "a", content: "x" }], 5)).toEqual([]);
+  expect(rerankerStatus().status).toBe("idle");
+});
+
+test("rerank：按分降序并截断 topK，text_pair 传候选正文", async () => {
+  const { rerank, setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  const pairs: string[] = [];
+  const base = fakeRerankPipeline();
+  setRerankerLoaderForTest(async () => ({
+    tokenizer: (text: string | string[], opts?: Record<string, unknown>) => {
+      pairs.push(String(opts?.text_pair));
+      return base.tokenizer(text, opts);
+    },
+    model: base.model,
+  }));
+  await prepareReranker();
+  const out = await rerank(
+    "定价",
+    [
+      { chunkId: "a", content: "1.5" },
+      { chunkId: "b", content: "3" },
+      { chunkId: "c", content: "2" },
+    ],
+    2,
+  );
+  expect(out.map((r) => r.chunkId)).toEqual(["b", "c"]);
+  expect(out[0].score).toBeCloseTo(3, 5);
+  // 全部候选都打分（截断发生在打分之后），正文按 text_pair 逐条送入
+  expect(pairs).toEqual(["1.5", "3", "2"]);
+});
+
+test("rerank：逐条推理之间让出事件循环（长候选列表不饿死宏任务）", async () => {
+  const { rerank, setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  const order: string[] = [];
+  setRerankerLoaderForTest(async () => ({
+    tokenizer: () => ({}),
+    model: async () => {
+      order.push("infer");
+      return { logits: { data: new Float32Array([1]), dims: [1, 1] } };
+    },
+  }));
+  await prepareReranker();
+  // 先排一个宏任务：若 rerank 不在每条之间让出事件循环，它只能在整体返回后才执行
+  setImmediate(() => order.push("macrotask"));
+  await rerank("定价", [{ chunkId: "a", content: "1" }, { chunkId: "b", content: "2" }], 2);
+  expect(order).toEqual(["infer", "macrotask", "infer"]);
+});
+
+test("rerank：候选为空直接返回空数组（不解析配置、不加载）", async () => {
+  const { rerank } = await import("../src/knowledge/reranker");
+  expect(await rerank("定价", [], 5)).toEqual([]);
+});
+
+test("rerank：signal 已取消 → 抛 Cancelled（不吞成空结果）", async () => {
+  const { rerank, setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  setRerankerLoaderForTest(async () => fakeRerankPipeline());
+  await prepareReranker();
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    rerank("定价", [{ chunkId: "a", content: "1" }], 5, controller.signal),
+  ).rejects.toThrow("Cancelled");
+});
+
+test("rerank：api provider 未支持 → console.warn + 返回空数组（不阻断检索）", async () => {
+  const { rerank } = await import("../src/knowledge/reranker");
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  let warned = "";
+  try {
+    await withEnv({ PI_KNOWLEDGE_RERANKER: "api:cohere/rerank-v3" }, async () => {
+      expect(await rerank("q", [{ chunkId: "a", content: "x" }], 5)).toEqual([]);
+    });
+  } finally {
+    // mockRestore 会清掉调用记录，先取出来
+    warned = warn.mock.calls.flat().map(String).join(" ");
+    warn.mockRestore();
+  }
+  // 配置错误只进日志与状态，不抛给检索
+  expect(warned).toContain("未支持");
+  expect(rerankerStatus().status).toBe("failed");
+  expect(rerankerStatus().error).toContain("未支持");
+});
+
+test("rerank：多 logit 模型 → 明确 single-logit 错误（日志 + 状态），返回空数组", async () => {
+  const { rerank, setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  setRerankerLoaderForTest(async () => ({
+    tokenizer: (text: string | string[], opts?: Record<string, unknown>) => ({
+      text,
+      pair: opts?.text_pair,
+    }),
+    model: async () => ({ logits: { data: new Float32Array([0.2, 0.8]), dims: [1, 2] } }),
+  }));
+  await prepareReranker();
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  let warned = "";
+  try {
+    expect(await rerank("q", [{ chunkId: "a", content: "x" }], 5)).toEqual([]);
+  } finally {
+    warned = warn.mock.calls.flat().map(String).join(" ");
+    warn.mockRestore();
+  }
+  expect(rerankerStatus().status).toBe("failed");
+  expect(rerankerStatus().error).toContain("single-logit");
+  expect(warned).toContain("single-logit");
+});
+
+// ============ 配置层真正生效（修复轮 1） ============
+
+test("loader 收到 PI_KNOWLEDGE_RERANKER* 的模型/修订/精度（不再写死 RERANK_MODEL）", async () => {
+  const { setRerankerLoaderForTest, rerankerFingerprint } = await import("../src/knowledge/reranker");
+  let seen: { model: string; revision: string; dtype?: string; remoteHost?: string } | null = null;
+  setRerankerLoaderForTest(async (_onProgress, config) => {
+    seen = config;
+    return fakeRerankPipeline();
+  });
+  await withEnv(
+    {
+      PI_KNOWLEDGE_RERANKER: "hf:org/other-reranker",
+      PI_KNOWLEDGE_RERANKER_REVISION: "v2",
+      PI_KNOWLEDGE_RERANKER_DTYPE: "fp16",
+    },
+    async () => {
+      expect(await prepareReranker()).toBe(true);
+    },
+  );
+  expect(seen).not.toBeNull();
+  const config = seen as unknown as { model: string; revision: string; dtype?: string };
+  expect(config.model).toBe("org/other-reranker");
+  expect(config.revision).toBe("v2");
+  expect(config.dtype).toBe("fp16");
+  // 状态与指纹跟着实际加载的模型走
+  expect(rerankerStatus().model).toBe("org/other-reranker");
+  expect(rerankerFingerprint()).toBe("rerank:org/other-reranker:fp16");
+});
+
+test("未配置时 loader 拿到上游默认模型 main/q8，remoteHost 回落 WA_PI_HF_ENDPOINT", async () => {
+  const { setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  let seen: { model: string; revision: string; dtype?: string; remoteHost?: string } | null = null;
+  setRerankerLoaderForTest(async (_onProgress, config) => {
+    seen = config;
+    return fakeRerankPipeline();
+  });
+  await withEnv({ WA_PI_HF_ENDPOINT: "https://mirror.example.com" }, async () => {
+    await prepareReranker();
+  });
+  const config = seen as unknown as { model: string; revision: string; dtype?: string; remoteHost?: string };
+  expect(config.model).toBe("Xenova/ms-marco-MiniLM-L-4-v2");
+  expect(config.revision).toBe("main");
+  expect(config.dtype).toBeUndefined(); // 未设 → 由 loader 回落 RERANK_DTYPE(q8)
+  expect(config.remoteHost).toBe("https://mirror.example.com/");
+});
+
+test("PI_KNOWLEDGE_RERANKER=api:… 未支持：prepareReranker 失败并在状态里报原因", async () => {
+  await withEnv({ PI_KNOWLEDGE_RERANKER: "api:cohere/rerank-v3" }, async () => {
+    expect(await prepareReranker()).toBe(false);
+  });
+  expect(rerankerStatus().status).toBe("failed");
+  expect(rerankerStatus().error).toContain("未支持");
+});
+
+
+test("withRerankerEnv：加载期间用配置的源，结束后无条件还原（成功/失败都一样）", async () => {
+  const { env } = await import("@huggingface/transformers");
+  const { withRerankerEnv } = await import("../src/knowledge/reranker");
+  const { resolveRerankerConfig } = await import("../src/knowledge/search/reranker-config");
+  // transformers 的 env 是进程级全局：这个用例直接盯着它，确保重排不给 embedder 留污染
+  const before = { host: env.remoteHost, path: env.remotePathTemplate };
+  try {
+    const config = resolveRerankerConfig({
+      PI_KNOWLEDGE_RERANKER_REMOTE_HOST: "https://rerank.example.com",
+      PI_KNOWLEDGE_RERANKER_REMOTE_PATH_TEMPLATE: "{model}/{revision}/",
+    } as never);
+    if (config.provider !== "hf") throw new Error("expected hf config");
+    const seen: string[] = [];
+    const out = await withRerankerEnv(config, async () => {
+      seen.push(`${env.remoteHost}|${env.remotePathTemplate}`);
+      return "ok";
+    });
+    expect(out).toBe("ok");
+    expect(seen).toEqual(["https://rerank.example.com/|{model}/{revision}/"]);
+    expect(env.remoteHost).toBe(before.host);
+    expect(env.remotePathTemplate).toBe(before.path);
+    // 失败路径同样还原
+    await expect(
+      withRerankerEnv(config, async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+    expect(env.remoteHost).toBe(before.host);
+    expect(env.remotePathTemplate).toBe(before.path);
+  } finally {
+    env.remoteHost = before.host;
+    env.remotePathTemplate = before.path;
+  }
+});
+
+test("withRerankerEnv：加载窗口内他人改写的 env 不被 finally 覆盖（lost update）", async () => {
+  const { env } = await import("@huggingface/transformers");
+  const { withRerankerEnv } = await import("../src/knowledge/reranker");
+  const { resolveRerankerConfig } = await import("../src/knowledge/search/reranker-config");
+  const before = { host: env.remoteHost, path: env.remotePathTemplate };
+  try {
+    const config = resolveRerankerConfig({
+      PI_KNOWLEDGE_RERANKER_REMOTE_HOST: "https://rerank.example.com",
+    } as never);
+    if (config.provider !== "hf") throw new Error("expected hf config");
+    await withRerankerEnv(config, async () => {
+      // 模拟 embedder 在窗口内完成加载并写入镜像 host
+      env.remoteHost = "https://hf-mirror.com";
+    });
+    // 他人写入必须保留，不能被「还原成 prev」盖回去
+    expect(env.remoteHost).toBe("https://hf-mirror.com");
+    // 没被别人动过的字段照常还原
+    expect(env.remotePathTemplate).toBe(before.path);
+  } finally {
+    env.remoteHost = before.host;
+    env.remotePathTemplate = before.path;
+  }
 });

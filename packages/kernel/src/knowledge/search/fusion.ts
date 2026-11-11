@@ -1,34 +1,45 @@
-// 库内两路融合：min-max 归一后加权求和（移植自 pi-knowledge search/fusion.ts）。
-// 与 RRF 的区别：RRF 只看名次、对分数尺度免疫；加权融合保留分数分布信息，
-// 让「词法与语义都强命中」的块明显排在「单路勉强命中」之前（overlap 加成）。
+// 移植自 pi-knowledge@0.13.0 dist/src/search/fusion.js（MIT）
+// 两路召回融合的两种方案：
+// - reciprocalRankFusion：只看名次（score = Σ 1/(k + rank + 1)），对分数尺度免疫；
+// - weightedScoreFusion：min-max 归一后 0.45·BM25 + 0.55·向量 + 0.15·双路同时命中加成，
+//   保留分数分布信息，让「词法与语义都强命中」的块明显排在「单路勉强命中」之前。
+// 知识库检索走 weightedScoreFusion（见 search.ts）。min-max 会把各路最小值压成 0，
+// 小库（2~5 条候选）里「次强命中」因此可能归零——这是对齐上游的已知取舍，不另改公式。
 export interface FusionResult {
 	chunkId: string;
 	score: number;
 }
 
-/** 权重取自上游默认值：BM25 0.45 / 向量 0.55 / 双路同时命中的加成 0.15 */
-export const FUSION_WEIGHTS = { bm25: 0.45, vector: 0.55, overlap: 0.15 };
-
-/**
- * 相对强度归一（score / max）：空列表返回空 Map，非正最大值一律归 0。
- * 不用 min-max 的原因：知识库常见小库（2~5 条候选），min-max 会把「次强命中」压成 0，
- * 与 0.18 置信门叠加后只剩一条结果；相对强度保留名次差距又不把第二名判成零相关。
- */
-export function normalizeScores(list: FusionResult[]): Map<string, number> {
+function normalizeScores(list: FusionResult[]): Map<string, number> {
 	if (list.length === 0) return new Map();
-	const max = Math.max(...list.map((item) => item.score));
-	if (max <= 0) return new Map(list.map((item) => [item.chunkId, 0]));
-	return new Map(list.map((item) => [item.chunkId, item.score / max]));
+	const scores = list.map((item) => item.score);
+	const min = Math.min(...scores);
+	const max = Math.max(...scores);
+	return new Map(
+		list.map((item) => {
+			const normalized = max === min ? 1 : (item.score - min) / (max - min);
+			return [item.chunkId, normalized];
+		}),
+	);
 }
 
-/**
- * 加权分数融合：两路各自归一后加权求和，双路都为正（归一后）时再加 overlap。
- * 返回按融合分降序排列的候选（未截断）。
- */
+export function reciprocalRankFusion(lists: FusionResult[][], k = 60): FusionResult[] {
+	const scores = new Map<string, number>();
+	for (const list of lists) {
+		for (let rank = 0; rank < list.length; rank++) {
+			const { chunkId } = list[rank];
+			scores.set(chunkId, (scores.get(chunkId) ?? 0) + 1 / (k + rank + 1));
+		}
+	}
+	return [...scores.entries()]
+		.map(([chunkId, score]) => ({ chunkId, score }))
+		.sort((a, b) => b.score - a.score);
+}
+
 export function weightedScoreFusion(
 	bm25Results: FusionResult[],
 	vectorResults: FusionResult[],
-	weights = FUSION_WEIGHTS,
+	weights = { bm25: 0.45, vector: 0.55, overlap: 0.15 },
 ): FusionResult[] {
 	const bm25Scores = normalizeScores(bm25Results);
 	const vectorScores = normalizeScores(vectorResults);
