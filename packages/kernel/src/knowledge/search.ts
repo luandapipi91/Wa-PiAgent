@@ -336,6 +336,7 @@ export async function searchKnowledge(
     kbName: hit.kbName,
     score: hit.score,
     content: hit.content,
+    // snippet 不参与多样性决策（上游用查询片段），这里以正文占位
     snippet: hit.content,
     startLine: hit.startLine ?? 0,
     endLine: hit.endLine ?? 0,
