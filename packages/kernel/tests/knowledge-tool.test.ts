@@ -435,3 +435,15 @@ test("knowledge_read：文件不存在时给可操作的提示", async () => {
   expect(r.content[0].text).toContain("读取失败");
   expect(r.content[0].text).toContain("相对库根");
 });
+
+test("回包每条带 chunk_id（可直接交给 knowledge_read 按块读上下文）", async () => {
+  const ctx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: { search: async () => fakeKbResult },
+  });
+  const r = await ctx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+  const parsed = JSON.parse(r.content[0].text as string) as { results: Array<Record<string, unknown>> };
+  expect(parsed.results[0].chunk_id).toBe(fakeKbResult.results[0].provenance.chunk_id);
+});

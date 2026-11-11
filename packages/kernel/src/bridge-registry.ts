@@ -501,6 +501,8 @@ async function handleKnowledgeSearch(
           ? `${h.startLine}-${h.endLine ?? h.startLine}`
           : null,
       kb_name: h.kbName,
+      // 块 id：knowledge_read 可直接按它读该块 ±N 块上下文（file_path 读整篇时不需要）
+      chunk_id: h.provenance.chunk_id,
       score: Number(h.score.toFixed(4)),
       // 仅陈旧命中带该键：正常结果不加噪声；智能体见 stale 应提示重建索引/核对原文
       ...(h.stale ? { stale: true } : {}),
