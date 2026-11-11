@@ -9,6 +9,7 @@ import type { Database } from "bun:sqlite";
 import { stat as fsStat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { buildMatchExpr } from "../memory/query";
+import type { RankChunk } from "./search/contracts";
 import { weightedScoreFusion } from "./search/fusion";
 import {
   MIN_HYBRID_SCORE,
@@ -274,6 +275,19 @@ export async function searchKnowledge(
     for (const { chunkId: id, score } of candidates) {
       const row = byId.get(id);
       if (!row) continue;
+      // 排序层入参是 RankChunk（契约对齐上游 Chunk）：把回读行映射过去；
+      // contentHash/indexedAt 不参与排序，填占位值（T8 编排重写时改查投影）
+      const rankChunk: RankChunk = {
+        id: row.id,
+        kbId,
+        filePath: row.file_path,
+        fileType: row.file_type,
+        content: row.content,
+        contentHash: "",
+        startLine: row.start_line,
+        endLine: row.end_line,
+        indexedAt: 0,
+      };
       // 置信门（分数）+ 词法证据门（覆盖率）：低分与「与查询几乎无词法重叠」的块不进结果。
       // 词法门需要正文，所以放在回读之后（管线：召回→融合→分数门→回读→词法门→boost→多样性→截断→扩窗）
       // 门控按模式分档（见 modes.ts 的 GatePolicy）：
@@ -286,12 +300,12 @@ export async function searchKnowledge(
       }
       if (spec.gate === "strong") {
         // 词法门只约束「词法通道命中过的块」；纯语义命中由分数门单独把关
-        if (lexicalIds.has(id) && !hasEnoughLexicalEvidence(row.content, queryTokens)) continue;
+        if (lexicalIds.has(id) && !hasEnoughLexicalEvidence(rankChunk, queryTokens)) continue;
       } else if (spec.gate === "coverage") {
         if (!lexicalIds.has(id)) continue;
       }
       // 加权分：路径/文件名命中加成、文档意图加权、测试与本地化副本降权（纯函数见 search/ranking）
-      const { adjustedScore } = scoreChunkForQuery(score, row, queryTokens);
+      const { adjusted_score: adjustedScore } = scoreChunkForQuery(score, rankChunk, queryTokens);
       merged.push({
         hit: {
           kbId,
