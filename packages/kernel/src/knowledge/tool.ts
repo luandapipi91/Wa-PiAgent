@@ -10,6 +10,7 @@
 // 由 /bridge/tool 的 handleBridgeRequest 兜底成 500，不阻断会话创建。
 import { Database } from "bun:sqlite";
 import { searchKnowledge } from "./search";
+import { readKnowledge, type ReadOptions, type ReadResult } from "./read";
 import { knowledgeDbPath } from "./paths";
 import { KB_SCHEMA_SQL } from "./schema";
 import { KnowledgeStore } from "./store";
@@ -36,6 +37,9 @@ export interface KnowledgeToolContext {
     query: string,
     opts?: KnowledgeSearchOptions,
   ): Promise<import("@wa-pi/shared").KbSearchResult>;
+  /** 按文件路径 / 块 id 读回已抽取正文（docx/pdf 是二进制，模型读不了原文件）。
+   *  可选：旧实现只提供 search 时不视为错误，bridge 会给「不支持」提示 */
+  read?(opts: ReadOptions): Promise<ReadResult>;
 }
 
 /** makeKnowledgeToolContext 参数：绑定清单（kbIds）由调用方从 agent config / override 读出 */
@@ -70,6 +74,10 @@ export function makeKnowledgeToolContext(
       // search 不消费进度事件，sse 给 noop 满足 KbContext 形状即可
       const ctx: KbContext = { store: getStore(), waPiDir, sse: () => {} };
       return searchKnowledge(ctx, kbIds, query, opts);
+    },
+    async read(opts) {
+      const ctx: KbContext = { store: getStore(), waPiDir, sse: () => {} };
+      return readKnowledge(ctx, kbIds, opts);
     },
   };
 }

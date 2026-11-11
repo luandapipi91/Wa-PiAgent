@@ -11,6 +11,8 @@ import {
   KB_SEARCH_PARAMS_SCHEMA,
   KB_SEARCH_WINDOW_MAX,
   type KbSearchResult,
+  KB_READ_PARAMS_SCHEMA,
+  KB_READ_DESCRIPTION,
 } from "@wa-pi/shared";
 import {
   MAX_SEARCH_RESULTS,
@@ -310,4 +312,17 @@ describe("makeKnowledgeToolContext 透传到 searchKnowledge", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+});
+
+test("knowledge_read 契约：file_path / chunk_id / kb_id / before / after / max_chars", () => {
+  const p = KB_READ_PARAMS_SCHEMA.properties;
+  expect(p.file_path).toBeTruthy();
+  expect(p.chunk_id).toBeTruthy();
+  expect(p.kb_id).toBeTruthy();
+  expect((p.before as any).minimum).toBe(0);
+  expect((p.before as any).maximum).toBe(20);
+  expect((p.after as any).maximum).toBe(20);
+  expect((p.max_chars as any).minimum).toBe(200);
+  expect(KB_READ_DESCRIPTION).toContain("extracted text");
+  expect(KB_READ_DESCRIPTION).toContain("chunk_id");
 });

@@ -535,6 +535,7 @@ export async function searchKnowledge(
       ? new Map<string, Float32Array>()
       : loadCandidateVectors(candidatePool, runtimeByKbId);
   const kbNameOf = (kbId: string): string => runtimeByKbId.get(kbId)?.kb.name ?? "unknown";
+  const kbFolderOf = (kbId: string): string => runtimeByKbId.get(kbId)?.kb.folderPath ?? "";
 
   // deep：只对前 deepRerankCandidates 条做 cross-encoder 重排（未就绪/失败 → 走普通排序，
   // modeUsed 仍报 deep，rerankUsed=false）。注意用入参 mode 判定，不是归一后的 retrievalMode。
@@ -572,6 +573,7 @@ export async function searchKnowledge(
         ranked.push({
           chunk: candidate.chunk,
           kbName: kbNameOf(candidate.kbId),
+          kbFolderPath: kbFolderOf(candidate.chunk.kbId),
           ranking: scoreChunkForQuery(score, candidate.chunk, queryTokens),
           score,
           content: candidate.row.content,
@@ -605,6 +607,7 @@ export async function searchKnowledge(
         pushAdaptiveCandidate(ranked, {
           chunk: candidate.chunk,
           kbName: kbNameOf(candidate.kbId),
+          kbFolderPath: kbFolderOf(candidate.chunk.kbId),
           ranking: candidate.ranking,
           score: candidate.score,
           content: context.content,
@@ -617,6 +620,7 @@ export async function searchKnowledge(
         ranked.push({
           chunk: candidate.chunk,
           kbName: kbNameOf(candidate.kbId),
+          kbFolderPath: kbFolderOf(candidate.chunk.kbId),
           ranking: candidate.ranking,
           score: candidate.score,
           content: candidate.row.content,
@@ -665,6 +669,7 @@ export async function searchKnowledge(
     return {
       kbId: entry.chunk.kbId,
       kbName: entry.kbName,
+      kbFolderPath: entry.kbFolderPath ?? kbFolderOf(entry.chunk.kbId),
       content: entry.content,
       filePath: entry.chunk.filePath,
       fileType: entry.chunk.fileType,

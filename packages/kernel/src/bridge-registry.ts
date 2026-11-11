@@ -4,6 +4,7 @@
 // 本模块按 sessionId 找到 AgentManager（或测试）注册的 BridgeSessionContext 并分发执行。
 // token 用于防本机其他进程伪造调用（bridge 端点只认 kernel spawn pi 时注入的 token）。
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import {
   KB_SEARCH_DIVERSITIES,
   KB_SEARCH_LIMIT_MAX,
@@ -265,6 +266,9 @@ export function makeDefaultBridgeContext(opts: {
       if (tool === "knowledge_search") {
         return handleKnowledgeSearch(opts.knowledgeCtx, params);
       }
+      if (tool === "knowledge_read") {
+        return handleKnowledgeRead(opts.knowledgeCtx, params);
+      }
       return {
         content: [{ type: "text", text: `未知 bridge 工具: ${tool}` }],
         details: { error: "unknown_tool" },
@@ -306,6 +310,86 @@ function stringParam(value: unknown): string | undefined {
  * 缺省值由 searchKnowledge 按 profile/env 决定）。
  * 未注入 knowledgeCtx（= 未绑定任何库）返回友好提示；query 空参数返回错误内容。
  */
+/**
+ * knowledge_read 分支：把「读已抽取正文」暴露给模型。
+ * 为什么需要它：检索命中给的是文件路径，而 docx/pdf 是二进制——模型 read 不了，
+ * 只能去 find 再写脚本抽取。这里直接从 chunks 表返回索引时抽好的正文。
+ * 参数：file_path（相对库根或绝对）或 chunk_id 二选一，可选 kb_id/before/after/max_chars。
+ */
+async function handleKnowledgeRead(
+  knowledgeCtx: KnowledgeToolContext | undefined,
+  params: unknown,
+): Promise<BridgeToolResult> {
+  if (!knowledgeCtx?.read) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "未绑定知识库：当前智能体没有绑定任何知识库，knowledge_read 不可用。",
+        },
+      ],
+      details: { error: "no_knowledge_base" },
+    };
+  }
+  const raw = (params ?? {}) as Record<string, unknown>;
+  const filePath = typeof raw.file_path === "string" ? raw.file_path.trim() : "";
+  const chunkId = typeof raw.chunk_id === "string" ? raw.chunk_id.trim() : "";
+  if (!filePath && !chunkId) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "参数错误：需要 file_path（相对库根或绝对路径）或 chunk_id 之一。",
+        },
+      ],
+      details: { error: "invalid_params" },
+    };
+  }
+  const opts: Parameters<NonNullable<KnowledgeToolContext["read"]>>[0] = {};
+  if (filePath) opts.filePath = filePath;
+  if (chunkId) opts.chunkId = chunkId;
+  const kbId = stringParam(raw.kb_id);
+  if (kbId) opts.kbId = kbId;
+  const before = clampInt(raw.before, 0, 20);
+  if (before !== undefined) opts.before = before;
+  const after = clampInt(raw.after, 0, 20);
+  if (after !== undefined) opts.after = after;
+  const maxChars = clampInt(raw.max_chars, 200, 200_000);
+  if (maxChars !== undefined) opts.maxChars = maxChars;
+
+  const res = await knowledgeCtx.read(opts);
+  if (!res.found) {
+    const reasonText =
+      res.reason === "chunk_not_found"
+        ? "没有找到该 chunk（可能已随索引重建失效，请重新检索）"
+        : res.reason === "kb_not_bound"
+          ? "指定的知识库不在当前智能体的绑定清单里"
+          : "该文件不在已索引的知识库里（路径需相对库根，或使用检索结果里的 file_path_abs）";
+    return { content: [{ type: "text", text: `读取失败：${reasonText}。` }], details: { error: res.reason } };
+  }
+  const header = [
+    `库：${res.kbName}`,
+    `文件：${res.filePath}`,
+    `绝对路径：${res.filePathAbs}`,
+    res.startLine != null ? `行号：${res.startLine}-${res.endLine ?? res.startLine}` : null,
+    `块数：${res.chunkCount}${res.truncated ? "（已按 max_chars 截断）" : ""}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    content: [{ type: "text", text: `${header}\n\n${res.content ?? ""}` }],
+    details: {
+      kb_id: res.kbId,
+      file_path: res.filePath,
+      file_path_abs: res.filePathAbs,
+      start_line: res.startLine,
+      end_line: res.endLine,
+      chunk_count: res.chunkCount,
+      truncated: res.truncated === true,
+    },
+  };
+}
+
 async function handleKnowledgeSearch(
   knowledgeCtx: KnowledgeToolContext | undefined,
   params: unknown,
@@ -408,6 +492,8 @@ async function handleKnowledgeSearch(
     results: res.results.map((h) => ({
       content: h.content,
       file_path: h.filePath,
+      // 绝对路径：模型拿到后可直接 read，不必再 find/grep 定位（docx/pdf 需配合 knowledge_read）
+      file_path_abs: h.kbFolderPath ? join(h.kbFolderPath, h.filePath) : null,
       title: h.title,
       breadcrumb: h.breadcrumb,
       lines:

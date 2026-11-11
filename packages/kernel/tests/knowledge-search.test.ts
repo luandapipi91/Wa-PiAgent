@@ -1003,3 +1003,10 @@ test("auto 成功：suggestions 透传该次尝试的（有结果 → undefined�
   expect(r.modeUsed).toBe("hybrid");
   expect(r.suggestions).toBeUndefined();
 });
+
+test("A：检索结果带库根绝对路径（模型可拼出可读路径，不必再 find）", async () => {
+  const kbId = setupKb("路径库", [{ content: "定价政策说明。", filePath: "docs/pricing.md" }]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", { limit: 5, embedQueryFn: fakeEmbedQuery(null) });
+  expect(r.results[0].kbFolderPath).toBe(waPiDir);
+  expect(r.results[0].filePath).toBe("docs/pricing.md");
+});

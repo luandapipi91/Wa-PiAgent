@@ -19,6 +19,8 @@ export type DiversityMode = "off" | "balanced" | "strong" | undefined;
 export interface RankedCandidate {
   chunk: RankChunk;
   kbName: string;
+  /** 库根绝对路径（结果组装用；多样性排序不读它） */
+  kbFolderPath?: string;
   ranking?: RankingDiagnostics;
   score: number;
   content: string;

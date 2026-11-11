@@ -351,6 +351,44 @@ export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
   ),
 });
 
+/** knowledge_read：按文件路径或块 id 读回**已抽取的正文**（docx/pdf 是二进制，read 工具读不了） */
+export const KB_READ_DESCRIPTION =
+  "Read the extracted text of a knowledge-base file (or a chunk's neighbourhood) instead of opening the raw file. " +
+  "Knowledge bases index PDF/DOCX/PDF/HTML/TXT/MD files by extracting their text; the original file may be binary and unreadable by the read tool. " +
+  "Call this after knowledge_search when you need the full document or more surrounding context: pass the hit's `file_path` (relative to the KB root) or its `chunk_id`. " +
+  "Absolute paths are also accepted (file_path_abs from knowledge_search). " +
+  "Returns the extracted text plus the relative/absolute path and line range.";
+
+export const KB_READ_SNIPPET =
+  "Read extracted text of a knowledge-base file or a chunk's neighbourhood (by file_path or chunk_id).";
+
+export const KB_READ_PARAMS_SCHEMA = Type.Object({
+  file_path: Type.Optional(
+    Type.String({
+      description:
+        "File path inside the knowledge base: relative to the KB root (as returned in knowledge_search hits) or absolute (file_path_abs).",
+    }),
+  ),
+  chunk_id: Type.Optional(
+    Type.String({
+      description:
+        "Chunk id from a knowledge_search hit; returns that chunk plus the surrounding chunks (see before/after).",
+    }),
+  ),
+  kb_id: Type.Optional(
+    Type.String({ description: "Restrict the read to one knowledge base (must be bound to this agent)." }),
+  ),
+  before: Type.Optional(
+    Type.Number({ description: "Chunks to include before chunk_id (default 1).", minimum: 0, maximum: 20 }),
+  ),
+  after: Type.Optional(
+    Type.Number({ description: "Chunks to include after chunk_id (default 1).", minimum: 0, maximum: 20 }),
+  ),
+  max_chars: Type.Optional(
+    Type.Number({ description: "Max characters returned (default 20000).", minimum: 200, maximum: 200000 }),
+  ),
+});
+
 // =========================================================================
 // delegate
 // =========================================================================

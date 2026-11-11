@@ -39,6 +39,7 @@ const fakeKbResult: KbSearchResult = {
     {
       kbId: "kb-1",
       kbName: "产品资料",
+      kbFolderPath: "/data/kb-1",
       content: "定价策略：订阅制，按席位收费。",
       filePath: "docs/pricing.md",
       fileType: "markdown",
@@ -328,4 +329,109 @@ test("无 suggestions 时不给提示文案（不制造噪声）", async () => {
   });
   const miss = await missCtx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
   expect(miss.content[0].text).not.toContain("建议：");
+});
+
+test("A：回包每条命中带 file_path_abs（库根 + 相对路径），模型可直接读文件", async () => {
+  const ctx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: { search: async () => fakeKbResult },
+  });
+  const r = await ctx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+  const parsed = JSON.parse(r.content[0].text as string) as { results: Array<Record<string, unknown>> };
+  expect(parsed.results[0].file_path_abs).toBe("/data/kb-1/docs/pricing.md");
+});
+
+// ============ D：knowledge_read 分发 ============
+
+test("knowledge_read：按 file_path 读回已抽取正文（header + content + details）", async () => {
+  const got: { value?: Record<string, unknown> } = {};
+  const ctx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: {
+      search: async () => fakeKbResult,
+      read: async (opts: any) => {
+        got.value = opts as Record<string, unknown>;
+        return {
+          found: true,
+          kbId: "kb-1",
+          kbName: "产品资料",
+          filePath: "docs/pricing.md",
+          filePathAbs: "/data/kb-1/docs/pricing.md",
+          content: "定价策略：订阅制，按席位收费。",
+          startLine: 1,
+          endLine: 10,
+          chunkCount: 2,
+          truncated: false,
+        };
+      },
+    },
+  });
+  const r = await ctx.handleTool("knowledge_read", "t1", { file_path: "docs/pricing.md" }, signal);
+  expect(got.value).toEqual({ filePath: "docs/pricing.md" });
+  expect(r.content[0].text).toContain("库：产品资料");
+  expect(r.content[0].text).toContain("绝对路径：/data/kb-1/docs/pricing.md");
+  expect(r.content[0].text).toContain("定价策略");
+  expect(r.details).toMatchObject({ file_path: "docs/pricing.md", chunk_count: 2, truncated: false });
+});
+
+test("knowledge_read：chunk_id + before/after 透传，max_chars 夹紧", async () => {
+  const got: { value?: Record<string, unknown> } = {};
+  const ctx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: {
+      search: async () => fakeKbResult,
+      read: async (opts: any) => {
+        got.value = opts as Record<string, unknown>;
+        return { found: false, reason: "chunk_not_found" };
+      },
+    },
+  });
+  const r = await ctx.handleTool(
+    "knowledge_read",
+    "t1",
+    { chunk_id: "c1", before: 2, after: 99, max_chars: 999_999 },
+    signal,
+  );
+  expect(got.value).toMatchObject({ chunkId: "c1", before: 2, after: 20, maxChars: 200_000 });
+  expect(r.content[0].text).toContain("chunk");
+  expect(r.details).toMatchObject({ error: "chunk_not_found" });
+});
+
+test("knowledge_read：缺 file_path 与 chunk_id 报参数错误；未绑定时给未绑定提示", async () => {
+  const ctx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: { search: async () => fakeKbResult, read: async () => ({ found: false }) },
+  });
+  const bad = await ctx.handleTool("knowledge_read", "t1", {}, signal);
+  expect(bad.content[0].text).toContain("参数错误");
+
+  const unbound = await makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+  }).handleTool("knowledge_read", "t1", { file_path: "a.md" }, signal);
+  expect(unbound.content[0].text).toContain("未绑定");
+});
+
+test("knowledge_read：文件不存在时给可操作的提示", async () => {
+  const ctx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: {
+      search: async () => fakeKbResult,
+      read: async () => ({ found: false, reason: "file_not_found" }),
+    },
+  });
+  const r = await ctx.handleTool("knowledge_read", "t1", { file_path: "docs/nope.docx" }, signal);
+  expect(r.content[0].text).toContain("读取失败");
+  expect(r.content[0].text).toContain("相对库根");
 });

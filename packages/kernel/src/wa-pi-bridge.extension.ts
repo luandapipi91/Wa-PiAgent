@@ -36,6 +36,9 @@ import {
 	MemorySearchParamsSchema,
 	KB_SEARCH_DESCRIPTION,
 	KB_SEARCH_SNIPPET,
+	KB_READ_DESCRIPTION,
+	KB_READ_PARAMS_SCHEMA,
+	KB_READ_SNIPPET,
 	KB_SEARCH_PARAMS_SCHEMA,
 	DELEGATE_DESCRIPTION,
 	DelegateParamsSchema,
@@ -541,6 +544,23 @@ export default function (pi: ExtensionAPI) {
 		async execute(toolCallId, params, signal) {
 			return callBridge(
 				"knowledge_search",
+				toolCallId,
+				params,
+				signal,
+				DEFAULT_TIMEOUT_MS,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "knowledge_read",
+		label: "Knowledge Read",
+		description: KB_READ_DESCRIPTION,
+		promptSnippet: KB_READ_SNIPPET,
+		parameters: KB_READ_PARAMS_SCHEMA,
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"knowledge_read",
 				toolCallId,
 				params,
 				signal,

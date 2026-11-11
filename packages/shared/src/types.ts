@@ -266,6 +266,8 @@ export interface KbSearchProvenance {
 export interface KbSearchHit {
 	kbId: string;
 	kbName: string;
+	/** 库根绝对路径：与 filePath 拼起来即绝对路径（模型读文件不必先 find） */
+	kbFolderPath: string;
 	content: string;
 	filePath: string;
 	/** 归一后的上游文件类型词汇：markdown / text / html / docx / pdf … */
