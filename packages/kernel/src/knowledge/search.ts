@@ -350,6 +350,11 @@ export async function searchKnowledge(
     seenKbIds.add(kb.id);
     kbs.push(kb);
   }
+  // kbId 过滤后一个库都不剩（kbId 写错/库已删）时必须显式报出，
+  // 否则与「库里没这内容」不可区分：用户看到空结果却查不出原因
+  if (opts.kbId && kbs.length === 0) {
+    skippedKbs.push({ kbId: opts.kbId, reason: "kb_not_found" });
+  }
 
   const tuning = resolveSearchTuning({
     query,
@@ -381,7 +386,8 @@ export async function searchKnowledge(
     const storedMeta = ctx.store.getEmbedMeta(kb.id);
     if (storedMeta !== null && storedMeta !== knowledgeFingerprint()) {
       mismatch = true;
-      skippedKbs.push({ kbId: kb.id, reason: "embed_meta_mismatch" });
+      // 库仍参与检索（词法照常），不是「被跳过」：走 warnings 而不是 skippedKbs
+      warnings.push(`「${kb.name}」向量通道已禁用（embedding 指纹不匹配），仅返回词法结果`);
     }
     // 检索路径用「只开已存在的库」：库文件丢失时必须显式报出（skippedKbs），
     // 否则 openKbDb 会当场建一个空库 → 检索恒零命中，用户看到的是「库里没这内容」

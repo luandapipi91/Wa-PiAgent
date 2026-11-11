@@ -288,6 +288,9 @@ export async function rerank(
 				activeModel,
 			);
 			results.push({ chunkId: candidate.chunkId, score: scored.score });
+			// 逐条推理是同步重活：每完成一条让出一次事件循环，
+			// 避免长候选列表（deep 30 条）把 SSE 心跳等宏任务饿死
+			await new Promise<void>((resolve) => setImmediate(resolve));
 		}
 		results.sort((a, b) => b.score - a.score);
 		return results.slice(0, topK);

@@ -52,6 +52,25 @@ describe("检索调优（对齐上游 tuning.js）", () => {
     expect(t.minHybridScore).toBe(0.4);
   });
 
+  test("非法 profile 回落 auto（不抛 TypeError）", () => {
+    const saved = process.env.PI_KNOWLEDGE_SEARCH_PROFILE;
+    delete process.env.PI_KNOWLEDGE_SEARCH_PROFILE;
+    try {
+      const t = resolveSearchTuning({
+        query: "定价",
+        mode: "hybrid",
+        profile: "bogus" as never,
+        kbSourceTypes: ["directory"],
+      });
+      expect(t.requestedProfile).toBe("auto");
+      expect(["balanced", "low_token", "precision", "recall", "long_context", "code", "docs"]).toContain(
+        t.selectedProfile,
+      );
+    } finally {
+      if (saved !== undefined) process.env.PI_KNOWLEDGE_SEARCH_PROFILE = saved;
+    }
+  });
+
   test("环境变量 PI_KNOWLEDGE_* 覆盖并夹紧", () => {
     const saved = {
       profile: process.env.PI_KNOWLEDGE_SEARCH_PROFILE,

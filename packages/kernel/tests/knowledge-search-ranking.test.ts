@@ -79,6 +79,18 @@ test("覆盖率门：信号词 ≤1 直通；≤3 要求 1/n；更多要求 0.34
   expect(hasEnoughLexicalEvidence(chunk({ content: "定价说明" }), many)).toBe(false); // 1/6 < 0.34
 });
 
+test("中文长问句：bigram 覆盖率门比上游单字门更严（锁定已知限制，非 bug）", () => {
+  // bigram 把查询切成相邻二元组：9 个信号词里文档只命中 登录/劫持/持的 = 3/9 ≈ 0.333 < 0.34
+  const q = signalTokens(tokens("登录是怎么防止劫持的"));
+  const c = chunk({
+    filePath: "docs/session.md",
+    title: null,
+    breadcrumb: null,
+    content: "登录会话被劫持的处理",
+  });
+  expect(hasEnoughLexicalEvidence(c, q)).toBe(false);
+});
+
 test("scoreChunkForQuery 返回完整 ranking 字段", () => {
   const r = scoreChunkForQuery(0.5, chunk(), signalTokens(tokens("定价政策")));
   expect(r.base_score).toBe(0.5);

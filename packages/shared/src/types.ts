@@ -284,8 +284,9 @@ export interface KbSearchHit {
 	stale?: boolean;
 }
 
-/** 被跳过的库：reason 取 not_ready / missing / db_missing / db_error /
- * embed_meta_mismatch（向量通道降级）/ lexical_anchor（hybrid 系列词法零命中） */
+/** 被跳过的库：reason 取 not_ready / missing / kb_not_found（kbId 过滤后无库可检）/
+ * db_missing / db_error / lexical_anchor（hybrid 系列词法零命中）。
+ * 注意：embedding 指纹不匹配的库仍参与检索（仅关向量通道），走 warnings 不走这里。 */
 export interface KbSkippedKb {
 	kbId: string;
 	reason: string;

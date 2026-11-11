@@ -627,7 +627,7 @@ test("索引中(status=indexing)的库被跳过并在 skippedKbs 说明", async 
   expect(r.skippedKbs).toContainEqual({ kbId: kbIndexing, reason: "not_ready" });
 });
 
-test("指纹不匹配：跳过向量通道、BM25 照常、skippedKbs 注明 embed_meta_mismatch", async () => {
+test("指纹不匹配：跳过向量通道、BM25 照常、warnings 说明向量通道已禁用", async () => {
   const kbId = setupKb("过期库", [
     // 词法可命中（若向量通道未被跳过，它还会叠加语义分）
     { content: "定价政策说明。", title: "定价", vec: pack(VEC_A) },
@@ -637,12 +637,26 @@ test("指纹不匹配：跳过向量通道、BM25 照常、skippedKbs 注明 emb
   // 库登记指纹 ≠ 当前模型指纹（非 null 才算不匹配；null = 从未索引不算）
   store.updateStatus(kbId, "ready", { embedMeta: "stale-model:q8:768" });
   const r = await search([kbId], "定价政策", { limit: 5, embedQueryFn: fakeEmbedQuery(VEC_A) });
-  expect(r.skippedKbs).toContainEqual({ kbId, reason: "embed_meta_mismatch" });
+  expect(r.skippedKbs.some((s) => s.reason === "embed_meta_mismatch")).toBe(false);
+  // 库仍在检索（不是被跳过），降级原因走 warnings
+  expect(r.warnings?.some((w) => w.includes("过期库") && w.includes("向量通道已禁用"))).toBe(true);
   // BM25 照常
   expect(r.found).toBe(true);
   expect(r.results[0].title).toBe("定价");
   // 向量通道确实被跳过：语义专属块不在结果
   expect(r.results.some((h) => h.title === "水果")).toBe(false);
+});
+
+test("不存在的 kbId：results 为空且 skippedKbs 注明 kb_not_found", async () => {
+  const kbId = setupKb("存在库", [{ content: "定价政策说明。", title: "定价" }]);
+  const r = await search([kbId], "定价政策", {
+    kbId: "kb_not_exist",
+    limit: 5,
+    embedQueryFn: fakeEmbedQuery(null),
+  });
+  expect(r.found).toBe(false);
+  expect(r.results).toEqual([]);
+  expect(r.skippedKbs).toContainEqual({ kbId: "kb_not_exist", reason: "kb_not_found" });
 });
 
 test("词法通道 AND 零命中时降级 OR 重查：长问句只部分重叠也能召回", async () => {

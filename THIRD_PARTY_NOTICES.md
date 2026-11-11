@@ -29,6 +29,7 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 
 - 版本：0.13.0
 - 许可：MIT
+- 版权：Copyright (c) pi-knowledge contributors（上游 LICENSE 未署名，MIT）
 - 用途：`packages/kernel/src/knowledge/search/` 下 contracts/query/tuning/ranking/diversity/fusion/bm25/modes/adaptive/snippet/reranker-config/reranker-logits 为逐字或近逐字移植（详见各文件头注释）
 - 来源：https://www.npmjs.com/package/pi-knowledge
 

@@ -223,7 +223,9 @@ export function resolveSearchWindow(
 
 /** 解析本次查询的调优参数：显式 profile > 环境变量 PI_KNOWLEDGE_SEARCH_PROFILE > auto，再逐项夹紧 */
 export function resolveSearchTuning(input: SearchTuningInput): SearchTuning {
-  const requestedProfile = input.profile ?? parseProfile(process.env.PI_KNOWLEDGE_SEARCH_PROFILE) ?? "auto";
+  // 非法 profile（外部调用方/历史环境变量写入脏值）回落 auto，不让脏值抛 TypeError
+  const requestedProfile =
+    parseProfile(input.profile) ?? parseProfile(process.env.PI_KNOWLEDGE_SEARCH_PROFILE) ?? "auto";
   const selectedProfile = requestedProfile === "auto" ? chooseRuntimeProfile(input) : requestedProfile;
   const base = PROFILE_DEFAULTS[selectedProfile];
   return {

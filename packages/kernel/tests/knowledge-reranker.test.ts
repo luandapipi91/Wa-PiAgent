@@ -134,6 +134,23 @@ test("rerank：按分降序并截断 topK，text_pair 传候选正文", async ()
   expect(pairs).toEqual(["1.5", "3", "2"]);
 });
 
+test("rerank：逐条推理之间让出事件循环（长候选列表不饿死宏任务）", async () => {
+  const { rerank, setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  const order: string[] = [];
+  setRerankerLoaderForTest(async () => ({
+    tokenizer: () => ({}),
+    model: async () => {
+      order.push("infer");
+      return { logits: { data: new Float32Array([1]), dims: [1, 1] } };
+    },
+  }));
+  await prepareReranker();
+  // 先排一个宏任务：若 rerank 不在每条之间让出事件循环，它只能在整体返回后才执行
+  setImmediate(() => order.push("macrotask"));
+  await rerank("定价", [{ chunkId: "a", content: "1" }, { chunkId: "b", content: "2" }], 2);
+  expect(order).toEqual(["infer", "macrotask", "infer"]);
+});
+
 test("rerank：候选为空直接返回空数组（不解析配置、不加载）", async () => {
   const { rerank } = await import("../src/knowledge/reranker");
   expect(await rerank("定价", [], 5)).toEqual([]);

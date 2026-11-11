@@ -1,6 +1,6 @@
 // 移植自 pi-knowledge@0.13.0 dist/src/search/fusion.js（MIT）
 // 两路召回融合的两种方案：
-// - reciprocalRankFusion：只看名次（score = Σ 1/(k + rank)），对分数尺度免疫；
+// - reciprocalRankFusion：只看名次（score = Σ 1/(k + rank + 1)），对分数尺度免疫；
 // - weightedScoreFusion：min-max 归一后 0.45·BM25 + 0.55·向量 + 0.15·双路同时命中加成，
 //   保留分数分布信息，让「词法与语义都强命中」的块明显排在「单路勉强命中」之前。
 // 知识库检索走 weightedScoreFusion（见 search.ts）。min-max 会把各路最小值压成 0，
