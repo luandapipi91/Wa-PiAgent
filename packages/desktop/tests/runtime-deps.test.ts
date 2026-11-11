@@ -371,6 +371,8 @@ test("matchDeclaredRange: ~ 声明按 major.minor 判定，精确声明全等判
   expect(matchDeclaredRange("~1.5.0", "1.5.1")).toBe(true);
   expect(matchDeclaredRange("~1.5.0", "1.4.0")).toBe(false);
   expect(matchDeclaredRange("~1.5.0", "2.0.0")).toBe(false);
+  // 锁定既有语义：~ 只比 major.minor，声明 ~1.5.2 时装出 1.5.1 视为满足（允许 minor 内浮动），不是精确版本
+  expect(matchDeclaredRange("~1.5.2", "1.5.1")).toBe(true);
   expect(matchDeclaredRange("1.5.0", "1.5.0")).toBe(true);
   expect(matchDeclaredRange("1.5.0", "1.5.1")).toBe(false);
 });

@@ -1,5 +1,6 @@
 ## 2026-11-11
 - chore(deps): 底层 pi 引擎升级 1.5.0 → 1.5.2（pi-tui 精确齐步消除双份安装、发送前压缩的输出预算判据对齐上游钳制；安装包 0.9.6，内核随包指纹自动重装至 1.5.2）
+- test(desktop): runtime-deps 测试补锁定断言 matchDeclaredRange("~1.5.2", "1.5.1") 为 true，注明 ~ 允许 minor 内浮动的既有语义（防止误当精确版本用）
 
 ## 2026-11-10
 - feat(kernel): 检索模式完整对齐 pi-knowledge 的 7 种——新增 `search/modes.ts` 模式规格表（词法策略/语义开关/词法锚定/门控/扩窗/候选倍数/重排）：`fast`（只 BM25 严格短语、关 OR 回退与向量、不扩窗）、`semantic`（纯向量、无置信门）、`semantic_hybrid`（双路但去词法锚定与证据门）、`adaptive`（hybrid + 行窗 ±80 行/5 邻居/6000 字符，新增 `expandLineWindow`）、`deep`（候选改 limit×3）、`hybrid` 补齐文档的词法锚定（BM25 零命中整库跳过，skippedKbs 新增 `lexical_anchor`）、`auto`（按查询形状选 fast/semantic/hybrid + 弱结果回退链，最多 3 次；弱判定：空结果、fast 精确串未中且 coverage<0.67、semantic coverage=0）；工具 schema 的 mode 枚举扩到 7 种、描述同步。TDD：模式规格/auto 判据/行窗扩展纯函数单测 + 6 条端到端模式行为用例
