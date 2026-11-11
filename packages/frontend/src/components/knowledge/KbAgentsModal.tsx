@@ -174,14 +174,14 @@ export function KbAgentsModal({ kb, onClose }: Props) {
             {search.trim() ? t("kb.agentsNoMatch") : t("kb.agentsEmpty")}
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col">
             {visible.map((row) => {
               const k = rowKey(row);
               return (
                 <label
                   key={k}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[calc(12px*var(--font-scale))]"
-                  style={{ border: "1px solid var(--hairline)", userSelect: "none" }}
+                  className="flex items-center gap-2 px-2 py-2 cursor-pointer text-[calc(12px*var(--font-scale))]"
+                  style={{ borderBottom: "1px solid var(--hairline)", userSelect: "none" }}
                 >
                   <input
                     type="checkbox"
