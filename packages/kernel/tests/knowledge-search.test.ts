@@ -704,14 +704,14 @@ test("mode=deep 且 reranker 未就绪：modeUsed 仍报 deep、rerankUsed=false
     limit: 5,
     mode: "deep",
     embedQueryFn: fakeEmbedQuery(null),
-    rerankFn: async () => null, // 显式注入「未就绪」，不受跨文件 reranker 全局态影响
+    rerankFn: async () => [], // 显式注入「未就绪」，不受跨文件 reranker 全局态影响
   });
   expect(r.found).toBe(true);
   expect(r.modeUsed).toBe("deep");
   expect(r.rerankUsed).toBe(false);
 });
 
-test("mode=deep 且注入 scorer：按重排分排序，rerankUsed=true", async () => {
+test("mode=deep 且注入 scorer：采用重排器返回顺序（分降序），rerankUsed=true", async () => {
   const kbId = setupKb("deep库", [
     { content: "定价政策说明。", title: "定价" },
     { content: "定价政策附录。", title: "附录" },
@@ -720,8 +720,11 @@ test("mode=deep 且注入 scorer：按重排分排序，rerankUsed=true", async 
     limit: 5,
     mode: "deep",
     embedQueryFn: fakeEmbedQuery(null),
-    // 反转顺序：让原本第二的排到第一
-    rerankFn: async (_q, docs) => docs.map((_, i) => (i === 0 ? 0 : 1)),
+    // 反转顺序：让原本第二的排到第一（重排器契约：返回即分降序）
+    rerankFn: async (_q, candidates) =>
+      candidates
+        .map((candidate, i) => ({ chunkId: candidate.chunkId, score: i === 0 ? 0 : 1 }))
+        .sort((a, b) => b.score - a.score),
   });
   expect(r.modeUsed).toBe("deep");
   expect(r.rerankUsed).toBe(true);
@@ -742,8 +745,9 @@ test("deep：重排结果按 topK 截断（max(limit × multiplier, limit)）", 
     limit: 5,
     mode: "deep",
     embedQueryFn: fakeEmbedQuery(null),
-    // 分数倒序注入，保证 30 条重排候选都有分
-    rerankFn: async (_q, docs) => docs.map((_, i) => docs.length - i),
+    // 分数倒序注入，故意不守 topK：验证调用方仍会截断
+    rerankFn: async (_q, candidates) =>
+      candidates.map((candidate, i) => ({ chunkId: candidate.chunkId, score: candidates.length - i })),
   });
   expect(r.rerankUsed).toBe(true);
   // balanced 的 deep_rerank_top_k_multiplier=3 → 5×3=15；不截断会是 30

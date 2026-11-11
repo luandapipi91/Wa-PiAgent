@@ -83,3 +83,76 @@ test("下载进度回调接到 prepareReranker：回调触发时状态为 downlo
   expect(rerankerStatus().status).toBe("ready");
   expect(rerankerStatus().progress).toBeUndefined();
 });
+
+// ============ 上游签名 rerank(query, candidates, topK, signal) ============
+
+/** 假 pipeline：content 当分数（"3" → logit 3），tokenizer 回显 text_pair 供断言 */
+function fakeRerankPipeline() {
+  return {
+    tokenizer: (text: string | string[], opts?: Record<string, unknown>) => ({ text, pair: opts?.text_pair }),
+    model: async (inputs: unknown) => ({
+      logits: { data: new Float32Array([Number((inputs as { pair: string }).pair)]), dims: [1, 1] },
+    }),
+  };
+}
+
+test("rerank：未就绪返回空数组（不触发加载，调用方退化 hybrid）", async () => {
+  const { rerank } = await import("../src/knowledge/reranker");
+  expect(await rerank("定价", [{ chunkId: "a", content: "x" }], 5)).toEqual([]);
+  expect(rerankerStatus().status).toBe("idle");
+});
+
+test("rerank：按分降序并截断 topK，text_pair 传候选正文", async () => {
+  const { rerank, setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  const pairs: string[] = [];
+  const base = fakeRerankPipeline();
+  setRerankerLoaderForTest(async () => ({
+    tokenizer: (text: string | string[], opts?: Record<string, unknown>) => {
+      pairs.push(String(opts?.text_pair));
+      return base.tokenizer(text, opts);
+    },
+    model: base.model,
+  }));
+  await prepareReranker();
+  const out = await rerank(
+    "定价",
+    [
+      { chunkId: "a", content: "1.5" },
+      { chunkId: "b", content: "3" },
+      { chunkId: "c", content: "2" },
+    ],
+    2,
+  );
+  expect(out.map((r) => r.chunkId)).toEqual(["b", "c"]);
+  expect(out[0].score).toBeCloseTo(3, 5);
+  // 全部候选都打分（截断发生在打分之后），正文按 text_pair 逐条送入
+  expect(pairs).toEqual(["1.5", "3", "2"]);
+});
+
+test("rerank：候选为空直接返回空数组（不解析配置、不加载）", async () => {
+  const { rerank } = await import("../src/knowledge/reranker");
+  expect(await rerank("定价", [], 5)).toEqual([]);
+});
+
+test("rerank：signal 已取消 → 抛 Cancelled（不吞成空结果）", async () => {
+  const { rerank, setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  setRerankerLoaderForTest(async () => fakeRerankPipeline());
+  await prepareReranker();
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    rerank("定价", [{ chunkId: "a", content: "1" }], 5, controller.signal),
+  ).rejects.toThrow("Cancelled");
+});
+
+test("rerank：api provider 抛明确的未支持错误", async () => {
+  const { rerank } = await import("../src/knowledge/reranker");
+  const prev = process.env.PI_KNOWLEDGE_RERANKER;
+  process.env.PI_KNOWLEDGE_RERANKER = "api:cohere/rerank-v3";
+  try {
+    await expect(rerank("q", [{ chunkId: "a", content: "x" }], 5)).rejects.toThrow("未支持");
+  } finally {
+    if (prev === undefined) delete process.env.PI_KNOWLEDGE_RERANKER;
+    else process.env.PI_KNOWLEDGE_RERANKER = prev;
+  }
+});

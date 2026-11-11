@@ -4,6 +4,10 @@
 // 模型管理沿用 memory/embedder 的 env 策略：WA_PI_MODEL_DIR 存在走本地目录（离线语义），
 // 否则缓存落 WA_PI_DIR/models，首次加载由 transformers 自动从镜像下载。
 
+import { throwIfAborted } from "./search/contracts";
+import { resolveRerankerConfig } from "./search/reranker-config";
+import { rerankWithSingleRawLogit, type RawLogitTokenizer } from "./search/reranker-logits";
+
 /** 默认 reranker 模型（上游默认）：ms-marco MiniLM-L4 cross-encoder，量化后体积很小 */
 export const RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-4-v2";
 export const RERANK_DTYPE = "q8";
@@ -18,11 +22,11 @@ export interface RerankerStatus {
 	error?: string;
 }
 
-/** tokenizer：支持 (text, { text_pair }) 成对编码 */
+/** tokenizer：支持 (text, { text_pair }) 成对编码（transformers.js v4 是同步返回 BatchEncoding） */
 type RerankTokenizer = (
 	text: string | string[],
 	opts?: Record<string, unknown>,
-) => Promise<unknown>;
+) => unknown;
 /** 序列分类模型：返回 logits（dims: [batch, numLabels]） */
 type RerankModel = (inputs: unknown) => Promise<{ logits: { data: Float32Array; dims: number[] } }>;
 
@@ -245,6 +249,60 @@ export function parseRerankLogits(data: Float32Array, dims: number[]): number[] 
 		out.push(labels === 1 ? data[i] : data[i * labels + (labels - 1)]);
 	}
 	return out;
+}
+
+/**
+ * 上游签名 rerank(query, candidates, topK, signal)：逐条 (query, 正文) 打分，按分降序截断到 topK
+ * （search.ts 的 deep 分支使用）。
+ * - 复用进程内 tokenizer+model（Wa-Pi 没有 model worker 子进程）；模型仍是设置页管理的
+ *   RERANK_MODEL，配置层只用来做 provider 分流
+ * - 未就绪返回 []（同 rerankScores 的 null 约定），调用方退化普通排序
+ * - PI_KNOWLEDGE_RERANKER=api:<model> 未实现：抛明确错误（Wa-Pi 不走 HTTP 重排 API）
+ */
+export async function rerank(
+	query: string,
+	candidates: Array<{ chunkId: string; content: string }>,
+	topK: number,
+	signal?: AbortSignal,
+): Promise<Array<{ chunkId: string; score: number }>> {
+	if (candidates.length === 0) return [];
+	const config = resolveRerankerConfig();
+	if (config.provider !== "hf") {
+		throw new Error(
+			`reranker provider "${config.provider}" 未支持：Wa-Pi 只实现本地 hf 重排（模型由设置页「深度重排」管理）`,
+		);
+	}
+	// 未就绪不触发加载：下载只由设置页「开启」显式触发（同 rerankScores）
+	if (!isRerankerReady()) return [];
+	const p = pipe;
+	if (!p) return [];
+	// transformers.js v4 的 tokenizer 调用同步返回 BatchEncoding；共享类型按「可能异步」声明，
+	// 这里窄化到上游 RawLogitTokenizer 形状（运行时一致）
+	const tokenizer = p.tokenizer as unknown as RawLogitTokenizer;
+	try {
+		const results: Array<{ chunkId: string; score: number }> = [];
+		for (const candidate of candidates) {
+			throwIfAborted(signal);
+			const [scored] = await rerankWithSingleRawLogit(
+				{ text: query, text_pair: candidate.content },
+				tokenizer,
+				p.model,
+				RERANK_MODEL,
+			);
+			results.push({ chunkId: candidate.chunkId, score: scored.score });
+		}
+		results.sort((a, b) => b.score - a.score);
+		return results.slice(0, topK);
+	} catch (err) {
+		// 取消要向上抛（否则检索会当成「没有重排」继续跑）
+		if (signal?.aborted) throw err;
+		state = {
+			status: "failed",
+			model: RERANK_MODEL,
+			error: `reranker 推理失败：${err instanceof Error ? err.message : String(err)}`,
+		};
+		return [];
+	}
 }
 
 /** 卸载模型（设置页关闭开关时调用）：释放 ONNX session，不删缓存文件 */

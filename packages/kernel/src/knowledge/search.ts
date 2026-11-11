@@ -67,8 +67,14 @@ export type { KbSearchHit, KbSearchResult, KbSkippedKb } from "@wa-pi/shared";
 
 /** 查询嵌入函数形状：缺省用真实 embedQuery，测试注入 fake 绕开模型（同 indexer 的 EmbedFn 模式） */
 export type QueryEmbedFn = (text: string) => Promise<Uint8Array | null>;
-/** 重排打分函数形状（分数越大越相关）；返回 null = 重排不可用，退化普通排序 */
-export type RerankFn = (query: string, docs: string[]) => Promise<number[] | null>;
+/** 重排函数形状（上游签名 rerank(query, candidates, topK, signal)，返回按分降序的命中）；
+ *  返回空数组 = 重排不可用，退化普通排序 */
+export type RerankFn = (
+  query: string,
+  candidates: Array<{ chunkId: string; content: string }>,
+  topK: number,
+  signal?: AbortSignal,
+) => Promise<Array<{ chunkId: string; score: number }>>;
 /** 源文件 stat 函数形状：缺省真 fs，测试注入计数/伪造实现 */
 export type StatFn = (path: string) => Promise<{ mtimeMs: number }>;
 
@@ -529,26 +535,33 @@ export async function searchKnowledge(
   let ranked: RankedCandidate[] = [];
   let rerankUsed = false;
   if (requestedMode === "deep" && candidatePool.length > 0) {
-    const { rerankScores, isRerankerReady } = await import("./reranker");
+    const { rerank, isRerankerReady } = await import("./reranker");
     const rerankCandidates = candidatePool.slice(0, tuning.deepRerankCandidates);
-    const scorer: RerankFn =
-      opts.rerankFn ?? (isRerankerReady() ? rerankScores : async () => null);
-    const scores = await scorer(
-      query,
-      rerankCandidates.map((candidate) => candidate.row.content),
-    );
+    // 上游 rerank() 内部按 topK = max(limit × deepRerankTopKMultiplier, limit) 截断；
+    // 不截断会让 totalCount/多样性池远大于上游（重排候选最多 30 条全进结果）
+    const topK = Math.max(limit * tuning.deepRerankTopKMultiplier, limit);
+    // 未就绪不触发加载：下载只由设置页「开启」显式触发，检索路径只消费已就绪的模型
+    const rerankFn: RerankFn | null =
+      opts.rerankFn ?? (isRerankerReady() ? rerank : null);
+    const hits = rerankFn
+      ? await rerankFn(
+          query,
+          rerankCandidates.map((candidate) => ({
+            chunkId: candidate.chunk.id,
+            content: candidate.row.content,
+          })),
+          topK,
+          opts.signal,
+        )
+      : [];
     throwIfAborted(opts.signal);
-    if (scores && scores.length === rerankCandidates.length) {
+    if (hits.length > 0) {
       rerankUsed = true;
-      // 上游 rerank() 内部按 topK = max(limit × deepRerankTopKMultiplier, limit) 截断；
-      // 不截断会让 totalCount/多样性池远大于上游（重排候选最多 30 条全进结果）
-      const topK = Math.max(limit * tuning.deepRerankTopKMultiplier, limit);
-      const order = scores
-        .map((score, index) => ({ index, score }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, topK);
-      for (const { index, score } of order) {
-        const candidate = rerankCandidates[index];
+      const byChunkId = new Map(rerankCandidates.map((candidate) => [candidate.chunk.id, candidate]));
+      // 上游 rerank() 已按分降序并截断；这里再兜一次，保证注入的假重排器也守同一契约
+      for (const { chunkId, score } of hits.slice(0, topK)) {
+        const candidate = byChunkId.get(chunkId);
+        if (!candidate) continue;
         ranked.push({
           chunk: candidate.chunk,
           kbName: kbNameOf(candidate.kbId),
