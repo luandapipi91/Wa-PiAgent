@@ -1,11 +1,28 @@
-import { test, expect, beforeEach } from "bun:test";
-import { rerankerStatus, resetRerankerForTest, prepareReranker, rerankScores } from "../src/knowledge/reranker";
+import { test, expect, beforeEach, spyOn } from "bun:test";
+import { rerankerStatus, resetRerankerForTest, prepareReranker } from "../src/knowledge/reranker";
 
 beforeEach(() => resetRerankerForTest());
 
-test("初始状态 idle；未就绪时 rerankScores 返回 null（调用方退化 hybrid）", async () => {
+/** 临时设置 env（配置层读 PI_KNOWLEDGE_RERANKER*，用后还原） */
+async function withEnv(vars: Record<string, string>, fn: () => Promise<void> | void): Promise<void> {
+  const saved: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    saved[key] = process.env[key];
+    process.env[key] = value;
+  }
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("初始状态 idle；未就绪不放行重排（调用方退化 hybrid）", async () => {
   expect(rerankerStatus().status).toBe("idle");
-  expect(await rerankScores("定价", ["定价政策"])).toBeNull();
+  expect(rerankerStatus().model).toBe("Xenova/ms-marco-MiniLM-L-4-v2");
 });
 
 test("下载/加载失败进入 failed 并带原因", async () => {
@@ -29,18 +46,6 @@ test("失败后允许重试加载（shouldRetryLoad）", async () => {
   expect(shouldRetryLoad("idle")).toBe(true);
   expect(shouldRetryLoad("ready")).toBe(false);
   expect(shouldRetryLoad("downloading")).toBe(false);
-});
-
-test("parseRerankLogits：单 logit 取原值（不再恒为 1），多类取最后一列", async () => {
-  const { parseRerankLogits } = await import("../src/knowledge/reranker");
-  // 单 logit（ms-marco 这类 cross-encoder）：原值，且不同样本可区分
-  const single = parseRerankLogits(new Float32Array([2.5, -1.2]), [2, 1]);
-  expect(single[0]).toBeCloseTo(2.5, 5);
-  expect(single[1]).toBeCloseTo(-1.2, 5); // Float32 精度
-  // 两类：取 label=1 那一列
-  const two = parseRerankLogits(new Float32Array([0.1, 0.9, 0.7, 0.3]), [2, 2]);
-  expect(two[0]).toBeCloseTo(0.9, 5);
-  expect(two[1]).toBeCloseTo(0.3, 5);
 });
 
 test("下载进度聚合：按文件 loaded/total 累加，单调不回退且封顶 99", async () => {
@@ -145,14 +150,99 @@ test("rerank：signal 已取消 → 抛 Cancelled（不吞成空结果）", asyn
   ).rejects.toThrow("Cancelled");
 });
 
-test("rerank：api provider 抛明确的未支持错误", async () => {
+test("rerank：api provider 未支持 → console.warn + 返回空数组（不阻断检索）", async () => {
   const { rerank } = await import("../src/knowledge/reranker");
-  const prev = process.env.PI_KNOWLEDGE_RERANKER;
-  process.env.PI_KNOWLEDGE_RERANKER = "api:cohere/rerank-v3";
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  let warned = "";
   try {
-    await expect(rerank("q", [{ chunkId: "a", content: "x" }], 5)).rejects.toThrow("未支持");
+    await withEnv({ PI_KNOWLEDGE_RERANKER: "api:cohere/rerank-v3" }, async () => {
+      expect(await rerank("q", [{ chunkId: "a", content: "x" }], 5)).toEqual([]);
+    });
   } finally {
-    if (prev === undefined) delete process.env.PI_KNOWLEDGE_RERANKER;
-    else process.env.PI_KNOWLEDGE_RERANKER = prev;
+    // mockRestore 会清掉调用记录，先取出来
+    warned = warn.mock.calls.flat().map(String).join(" ");
+    warn.mockRestore();
   }
+  // 配置错误只进日志与状态，不抛给检索
+  expect(warned).toContain("未支持");
+  expect(rerankerStatus().status).toBe("failed");
+  expect(rerankerStatus().error).toContain("未支持");
 });
+
+test("rerank：多 logit 模型 → 明确 single-logit 错误（日志 + 状态），返回空数组", async () => {
+  const { rerank, setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  setRerankerLoaderForTest(async () => ({
+    tokenizer: (text: string | string[], opts?: Record<string, unknown>) => ({
+      text,
+      pair: opts?.text_pair,
+    }),
+    model: async () => ({ logits: { data: new Float32Array([0.2, 0.8]), dims: [1, 2] } }),
+  }));
+  await prepareReranker();
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  let warned = "";
+  try {
+    expect(await rerank("q", [{ chunkId: "a", content: "x" }], 5)).toEqual([]);
+  } finally {
+    warned = warn.mock.calls.flat().map(String).join(" ");
+    warn.mockRestore();
+  }
+  expect(rerankerStatus().status).toBe("failed");
+  expect(rerankerStatus().error).toContain("single-logit");
+  expect(warned).toContain("single-logit");
+});
+
+// ============ 配置层真正生效（修复轮 1） ============
+
+test("loader 收到 PI_KNOWLEDGE_RERANKER* 的模型/修订/精度（不再写死 RERANK_MODEL）", async () => {
+  const { setRerankerLoaderForTest, rerankerFingerprint } = await import("../src/knowledge/reranker");
+  let seen: { model: string; revision: string; dtype?: string; remoteHost?: string } | null = null;
+  setRerankerLoaderForTest(async (_onProgress, config) => {
+    seen = config;
+    return fakeRerankPipeline();
+  });
+  await withEnv(
+    {
+      PI_KNOWLEDGE_RERANKER: "hf:org/other-reranker",
+      PI_KNOWLEDGE_RERANKER_REVISION: "v2",
+      PI_KNOWLEDGE_RERANKER_DTYPE: "fp16",
+    },
+    async () => {
+      expect(await prepareReranker()).toBe(true);
+    },
+  );
+  expect(seen).not.toBeNull();
+  const config = seen as unknown as { model: string; revision: string; dtype?: string };
+  expect(config.model).toBe("org/other-reranker");
+  expect(config.revision).toBe("v2");
+  expect(config.dtype).toBe("fp16");
+  // 状态与指纹跟着实际加载的模型走
+  expect(rerankerStatus().model).toBe("org/other-reranker");
+  expect(rerankerFingerprint()).toBe("rerank:org/other-reranker:fp16");
+});
+
+test("未配置时 loader 拿到上游默认模型 main/q8，remoteHost 回落 WA_PI_HF_ENDPOINT", async () => {
+  const { setRerankerLoaderForTest } = await import("../src/knowledge/reranker");
+  let seen: { model: string; revision: string; dtype?: string; remoteHost?: string } | null = null;
+  setRerankerLoaderForTest(async (_onProgress, config) => {
+    seen = config;
+    return fakeRerankPipeline();
+  });
+  await withEnv({ WA_PI_HF_ENDPOINT: "https://mirror.example.com" }, async () => {
+    await prepareReranker();
+  });
+  const config = seen as unknown as { model: string; revision: string; dtype?: string; remoteHost?: string };
+  expect(config.model).toBe("Xenova/ms-marco-MiniLM-L-4-v2");
+  expect(config.revision).toBe("main");
+  expect(config.dtype).toBeUndefined(); // 未设 → 由 loader 回落 RERANK_DTYPE(q8)
+  expect(config.remoteHost).toBe("https://mirror.example.com/");
+});
+
+test("PI_KNOWLEDGE_RERANKER=api:… 未支持：prepareReranker 失败并在状态里报原因", async () => {
+  await withEnv({ PI_KNOWLEDGE_RERANKER: "api:cohere/rerank-v3" }, async () => {
+    expect(await prepareReranker()).toBe(false);
+  });
+  expect(rerankerStatus().status).toBe("failed");
+  expect(rerankerStatus().error).toContain("未支持");
+});
+
