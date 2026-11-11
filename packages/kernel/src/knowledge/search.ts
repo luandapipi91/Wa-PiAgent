@@ -689,6 +689,15 @@ export async function searchKnowledge(
     totalCount,
     hasMore: offset + limit < totalCount,
     ...(warnings.length > 0 ? { warnings: [...new Set(warnings)] } : {}),
+    // 空结果时的重试建议（逐字对齐上游 engine.search 的两条文案）
+    ...(results.length === 0
+      ? {
+          suggestions: [
+            "Try mode 'fast' for exact symbols, mode 'semantic' for pure vector search, or mode 'semantic_hybrid' when weak lexical overlap should not block fused vector results.",
+            "Run knowledge_status if the KB should contain this answer.",
+          ],
+        }
+      : {}),
     tuning: {
       ...tuningSummary,
       retrieved_candidates: unique.length,
@@ -738,11 +747,12 @@ async function searchAuto(
       attemptMode,
     );
     if (!weak) {
+      // skippedKbs 只带「最终采用的那次尝试」的：早期尝试的跳过原因（如 hybrid 的
+      // lexical_anchor）在后续尝试里可能并不成立，合并会给出「某库被跳过」的误导
       return {
         ...response,
         modeUsed: attemptMode,
         retryModes: tried.slice(0, -1),
-        skippedKbs,
         ...(warnings.length > 0 ? { warnings: [...new Set(warnings)] } : {}),
       };
     }
@@ -761,6 +771,10 @@ async function searchAuto(
     hasMore: false,
     ...(warnings.length > 0 ? { warnings: [...new Set(warnings)] } : {}),
     tuning: last.tuning,
+    // 全弱时给上游的重试建议（逐字对齐 engine.search）
+    suggestions: [
+      "No results after auto mode fallback. Check knowledge_status, try a more exact term, or rebuild the KB if indexing rules changed.",
+    ],
   };
 }
 

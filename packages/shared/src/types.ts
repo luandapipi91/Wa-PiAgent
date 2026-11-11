@@ -331,6 +331,8 @@ export interface KbSearchResult {
 	hasMore: boolean;
 	warnings?: string[];
 	tuning: KbSearchTuningSummary;
+  /** 空结果时的重试建议（对齐上游 suggestions：非 auto 两条、auto 全弱一条） */
+  suggestions?: string[];
 }
 
 /** 首次扫描预览：文件总量与建议跳过清单 */
@@ -1465,6 +1467,12 @@ export interface AgentDeletedEvent {
 export interface AgentToolItem {
 	name: string;
 	source: string;
+	/**
+	 * 工具简介：MCP 工具取服务器 `tools/list` 的官方 description（原文，英文）；
+	 * 内置 / 本地工具取 BUILTIN_TOOL_DESCRIPTIONS 的中文简介；
+	 * 未知工具（第三方插件）无描述，不带本字段。展示端负责截断。
+	 */
+	description?: string;
 } // source: "内置" | "MCP" | <插件包名>
 export interface AgentToolsListResult {
 	type: "agent:tools:list";

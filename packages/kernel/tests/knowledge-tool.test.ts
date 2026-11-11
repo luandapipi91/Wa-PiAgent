@@ -282,3 +282,50 @@ describe("makeKnowledgeToolContext 连接复用", () => {
     }
   });
 });
+
+test("suggestions 透出：有命中进 JSON、空结果进文案尾部（模型能读到重试指引）", async () => {
+  const suggestions = [
+    "Try mode 'fast' for exact symbols, mode 'semantic' for pure vector search, or mode 'semantic_hybrid' when weak lexical overlap should not block fused vector results.",
+    "Run knowledge_status if the KB should contain this answer.",
+  ];
+  const hitCtx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: { search: async () => ({ ...fakeKbResult, suggestions }) },
+  });
+  const hit = await hitCtx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+  expect((JSON.parse(hit.content[0].text as string) as { suggestions?: string[] }).suggestions).toEqual(suggestions);
+
+  const missCtx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: {
+      search: async () => ({
+        ...fakeKbResult,
+        found: false,
+        results: [],
+        totalCount: 0,
+        hasMore: false,
+        suggestions,
+      }),
+    },
+  });
+  const miss = await missCtx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+  expect(miss.content[0].text).toContain("建议：");
+  expect(miss.content[0].text).toContain("knowledge_status");
+});
+
+test("无 suggestions 时不给提示文案（不制造噪声）", async () => {
+  const missCtx = makeDefaultBridgeContext({
+    sessionId: "s",
+    cwd: "/x",
+    memoryCtx: fakeMemoryCtx,
+    knowledgeCtx: {
+      search: async () => ({ ...fakeKbResult, found: false, results: [], totalCount: 0, hasMore: false }),
+    },
+  });
+  const miss = await missCtx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+  expect(miss.content[0].text).not.toContain("建议：");
+});

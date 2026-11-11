@@ -964,3 +964,42 @@ test("error 且从未成功索引过的库仍被跳过（无可用旧索引）",
   expect(r.found).toBe(false);
   expect(r.skippedKbs).toContainEqual({ kbId, reason: "not_ready" });
 });
+
+// ============ auto 补齐（对齐上游 suggestions / skippedKbs 语义）============
+
+test("非 auto 空结果给出上游 suggestions 两条（fast/semantic 提示 + 检查库状态）", async () => {
+  const kbId = setupKb("提示库", [{ content: "苹果香蕉价格分析。", vec: pack(VEC_B) }]);
+  const r = await searchKnowledge(ctx, [kbId], "量子通信技术", { limit: 5, embedQueryFn: fakeEmbedQuery(VEC_A) });
+  expect(r.results).toEqual([]);
+  expect(r.suggestions?.length).toBe(2);
+  expect(r.suggestions?.join(" ")).toContain("mode 'fast'");
+  expect(r.suggestions?.join(" ")).toContain("knowledge_status");
+});
+
+test("有结果时不给 suggestions（与上游一致：undefined）", async () => {
+  const kbId = setupKb("有结果库", [{ content: "定价政策说明。" }]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", { limit: 5, embedQueryFn: fakeEmbedQuery(null) });
+  expect(r.results.length).toBeGreaterThan(0);
+  expect(r.suggestions).toBeUndefined();
+});
+
+test("auto 全弱：返回上游 auto 建议文案，并保留诊断（modeUsed/retryModes/tuning）", async () => {
+  const kbId = setupKb("全弱库", [{ content: "苹果香蕉价格分析。", vec: pack(VEC_A) }]);
+  // hybrid 词法锚定跳过 → fast 无命中 → semantic 命中但 coverage=0 判弱
+  const r = await searchKnowledge(ctx, [kbId], "量子通信技术", { limit: 5, mode: "auto", embedQueryFn: fakeEmbedQuery(VEC_A) });
+  expect(r.results).toEqual([]);
+  expect(r.suggestions?.length).toBe(1);
+  expect(r.suggestions?.[0]).toContain("auto mode fallback");
+  expect(r.retryModes?.length).toBe(2);
+  expect(r.modeUsed).toBe("semantic");
+  expect(r.tuning).toBeTruthy();
+});
+
+test("auto 成功：suggestions 透传该次尝试的（有结果 → undefined），skippedKbs 不残留早期尝试的跳过原因", async () => {
+  const hitKb = setupKb("命中库", [{ content: "定价政策说明。" }]);
+  const missKb = setupKb("无词法库", [{ content: "苹果香蕉价格分析。" }]);
+  const r = await searchKnowledge(ctx, [hitKb, missKb], "定价政策", { limit: 5, mode: "auto", embedQueryFn: fakeEmbedQuery(null) });
+  expect(r.results.length).toBeGreaterThan(0);
+  expect(r.modeUsed).toBe("hybrid");
+  expect(r.suggestions).toBeUndefined();
+});
