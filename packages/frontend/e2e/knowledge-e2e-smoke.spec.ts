@@ -198,11 +198,17 @@ test.describe
 			await page.getByTestId("gallery-ctx-edit").click();
 			await expect(page.getByTestId("agent-config")).toBeVisible();
 
-			// 知识库绑定区勾选该库（BasicTab 内）
+			// 知识库绑定区（多选下拉）：展开面板 → 勾选该库 → 收起态摘要显示库名
+			await page.getByTestId("kb-bind-trigger").click();
 			const check = page.getByTestId(`kb-bind-check-${kbId}`);
 			await expect(check).toBeVisible({ timeout: 15_000 });
 			await check.check();
 			await expect(check).toBeChecked();
+			await expect(page.getByTestId("kb-bind-summary")).toHaveText("E2E冒烟库");
+			// Esc 只收起面板，不应把整个编辑弹窗关掉（面板捕获阶段拦下 Esc）
+			await page.keyboard.press("Escape");
+			await expect(page.getByTestId("kb-bind-panel")).toHaveCount(0);
+			await expect(page.getByTestId("agent-config")).toBeVisible();
 			await page.getByTestId("cfg-save").click();
 			await expect(page.getByTestId("agent-config")).toBeHidden({
 				timeout: 15_000,
@@ -219,9 +225,12 @@ test.describe
 				.click({ button: "right" });
 			await page.getByTestId("gallery-ctx-edit").click();
 			await expect(page.getByTestId("agent-config")).toBeVisible();
-			await expect(page.getByTestId(`kb-bind-check-${kbId}`)).toBeChecked({
+			// 收起态摘要回显已绑定库名；展开面板确认勾选态
+			await expect(page.getByTestId("kb-bind-summary")).toHaveText("E2E冒烟库", {
 				timeout: 15_000,
 			});
+			await page.getByTestId("kb-bind-trigger").click();
+			await expect(page.getByTestId(`kb-bind-check-${kbId}`)).toBeChecked();
 			await page.getByTestId("agent-config-close").click();
 		});
 
@@ -311,7 +320,7 @@ test.describe
 			}, 15_000);
 			expect(rest).toBe(true);
 
-			// 绑定区：该库的勾选行消失（失效 id 不产生行）。
+			// 绑定区：该库不再出现在候选里（失效 id 不产生行），摘要回落到占位。
 			// 先关设置弹窗（否则其 modal-overlay 拦截后续点击），再从折叠栏开宫格
 			await page.getByTestId("settings-close").click();
 			await expect(page.getByTestId("settings-modal")).toBeHidden();
@@ -323,6 +332,8 @@ test.describe
 			await expect(page.getByTestId("agent-config")).toBeVisible();
 			await expect(page.getByTestId("kb-binding-section")).toBeVisible();
 			await expect(page.getByTestId(`kb-bind-check-${kbId}`)).toHaveCount(0);
+			// 清单已空：摘要无库名（占位文案），触发器也不再展开面板
+			await expect(page.getByTestId("kb-bind-summary")).toHaveText("选择知识库");
 
 			// kernel 悬挂绑定清理：agent config 不再引用已删库 id
 			const cfg = await getYanfaConfig();
@@ -370,9 +381,14 @@ test.describe
 				await expect(card.getByText(/索引中/)).toHaveCount(0);
 				await expect(page.getByTestId(`kb-progress-${slowKbId}`)).toBeVisible();
 
-				// 索引进行中：编辑/重建置灰（kernel 会拒绝重建，按钮可点等于没反应）
+				// 索引进行中：编辑/重建/关联智能体置灰（kernel 会拒绝重建，按钮可点等于没反应）
 				await expect(page.getByTestId(`kb-edit-${slowKbId}`)).toBeDisabled();
 				await expect(page.getByTestId(`kb-reindex-${slowKbId}`)).toBeDisabled();
+				await expect(page.getByTestId(`kb-agents-${slowKbId}`)).toBeDisabled();
+				// 首次索引（从未索引成功过）：不提供取消入口（库里没有可回退的内容）
+				await expect(
+					page.getByTestId(`kb-cancel-index-${slowKbId}`),
+				).toHaveCount(0);
 
 				// 就绪后：徽章「就绪」、编辑/重建恢复可用、进度区消失
 				await expect(page.getByTestId(`kb-status-${slowKbId}`)).toHaveText(
@@ -381,6 +397,7 @@ test.describe
 				);
 				await expect(page.getByTestId(`kb-edit-${slowKbId}`)).toBeEnabled();
 				await expect(page.getByTestId(`kb-reindex-${slowKbId}`)).toBeEnabled();
+				await expect(page.getByTestId(`kb-agents-${slowKbId}`)).toBeEnabled();
 				await expect(page.getByTestId(`kb-progress-${slowKbId}`)).toHaveCount(0);
 			} finally {
 				// 索引若还在跑，先取消再删（kernel 拒绝删除进行中的库）

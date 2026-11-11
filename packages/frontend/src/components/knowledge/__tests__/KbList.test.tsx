@@ -507,15 +507,48 @@ describe("knowledge store：刷新/重试/写操作与在途回包", () => {
 	});
 });
 
-test("卡片「关联智能体」按钮触发回调（索引进行中也可点：绑定是配置操作）", () => {
+test("卡片「关联智能体」按钮：索引进行中置灰不可点，就绪后可点", () => {
   const onManageAgents = mock(() => {});
-  render(
+  const { rerender } = render(
     <KbList
       kbs={[{ ...kbReady, id: "kb_agents", status: "indexing" }]}
       onManageAgents={onManageAgents}
     />,
   );
-  fireEvent.click(screen.getByTestId("kb-agents-kb_agents"));
+  const busyBtn = screen.getByTestId("kb-agents-kb_agents") as HTMLButtonElement;
+  expect(busyBtn.disabled).toBe(true);
+  fireEvent.click(busyBtn);
+  expect(onManageAgents).not.toHaveBeenCalled();
+
+  rerender(<KbList kbs={[{ ...kbReady, id: "kb_agents" }]} onManageAgents={onManageAgents} />);
+  const readyBtn = screen.getByTestId("kb-agents-kb_agents") as HTMLButtonElement;
+  expect(readyBtn.disabled).toBe(false);
+  fireEvent.click(readyBtn);
   expect(onManageAgents).toHaveBeenCalledTimes(1);
-  expect((screen.getByTestId("kb-agents-kb_agents") as HTMLButtonElement).disabled).toBe(false);
+});
+
+describe("取消索引按钮：首次索引不提供", () => {
+  beforeEach(() => {
+    cleanup();
+    useKnowledgeStore.setState({ kbs: [], progress: {}, loading: false });
+  });
+
+  test("首次创建的库索引中（从未索引完成）：不渲染取消按钮", () => {
+    render(
+      <KbList
+        kbs={[{ ...kbReady, id: "kb_new", status: "indexing", lastIndexedAt: null }]}
+        onCancel={mock(() => {})}
+      />,
+    );
+    // 进度区照常显示「知识库生成中…」，只是没有取消入口
+    expect(screen.getByTestId("kb-progress-kb_new")).toBeTruthy();
+    expect(screen.queryByTestId("kb-cancel-index-kb_new")).toBeNull();
+  });
+
+  test("已索引过的库重建中：渲染取消按钮并可点", () => {
+    const onCancel = mock(() => {});
+    render(<KbList kbs={[{ ...kbReady, id: "kb_old", status: "indexing" }]} onCancel={onCancel} />);
+    fireEvent.click(screen.getByTestId("kb-cancel-index-kb_old"));
+    expect(onCancel).toHaveBeenCalledWith("kb_old");
+  });
 });

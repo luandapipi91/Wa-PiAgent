@@ -1,9 +1,10 @@
 // KbBindingSection 组件测试（任务 B5，TDD）。
 // 逐字契约（简报示意测试的断言语义，取值不可改）：
-//   · 勾选行渲染库名「产品知识库」+ 描述「产品定价与规格」+ 索引中标「索引完成后可检索」
+//   · 收起态：摘要行显示已绑定库名（「产品知识库、索引中库」），未绑定时显示占位「选择知识库」
+//   · 展开后勾选行渲染库名「产品知识库」+ 描述「产品定价与规格」+ 索引中标「索引完成后可检索」
 //   · 点击复选框 kb-bind-check-kb_1 → onToggle("kb_1")
-//   · restricted 时提示含「自动启用搜索工具」
-//   · selected 里的失效 id（kb_gone）不产生勾选行（queryByTestId 为 null）
+//   · restricted 时面板顶部提示含「自动启用搜索工具」
+//   · selected 里的失效 id（kb_gone）不产生勾选行（queryByTestId 为 null），也不进摘要
 //   · AgentConfig 保存链路两条都带 knowledgeBaseIds: ["kb_1"]：
 //     命名 agent → api.put body.config；内置 subagent → saveOverride payload
 // 注：简报示意代码是 vitest + jest-dom 语义，沿用本仓库 bun:test 约定（照 KbList.test.tsx）：
@@ -133,8 +134,25 @@ beforeEach(() => {
 });
 
 describe("KbBindingSection 勾选列表", () => {
-	test("勾选列表渲染库名+描述截断+状态", () => {
+	/** 展开下拉面板（复选行只在面板打开时渲染） */
+	const openPanel = () =>
+		fireEvent.click(screen.getByTestId("kb-bind-trigger"));
+
+	test("收起态摘要：已绑定库名用「、」拼接", () => {
+		render(<KbBindingSection kbs={kbs} selected={["kb_1", "kb_9"]} onToggle={mock()} />);
+		expect(screen.getByTestId("kb-bind-summary").textContent).toBe(
+			"产品知识库、索引中库",
+		);
+	});
+
+	test("收起态摘要：未绑定显示占位「选择知识库」", () => {
 		render(<KbBindingSection kbs={kbs} selected={[]} onToggle={mock()} />);
+		expect(screen.getByTestId("kb-bind-summary").textContent).toBe("选择知识库");
+	});
+
+	test("展开后勾选列表渲染库名+描述截断+状态", () => {
+		render(<KbBindingSection kbs={kbs} selected={[]} onToggle={mock()} />);
+		openPanel();
 		expect(screen.getByText("产品知识库")).toBeTruthy();
 		// 两行 fixture 共享同一描述（kb_9 = { ...kbReady } 展开），getByText 会多匹配，
 		// 按断言语义（描述被渲染）取 getAllByText
@@ -147,6 +165,7 @@ describe("KbBindingSection 勾选列表", () => {
 	test("勾选/取消回调 toggle 对应 id", () => {
 		const onToggle = mock();
 		render(<KbBindingSection kbs={kbs} selected={[]} onToggle={onToggle} />);
+		openPanel();
 		fireEvent.click(screen.getByTestId("kb-bind-check-kb_1"));
 		expect(onToggle).toHaveBeenCalledWith("kb_1");
 	});
@@ -155,6 +174,7 @@ describe("KbBindingSection 勾选列表", () => {
 		render(
 			<KbBindingSection kbs={kbs} selected={[]} onToggle={mock()} restricted />,
 		);
+		openPanel();
 		expect(screen.getByText(/自动启用搜索工具/)).toBeTruthy();
 	});
 
@@ -162,9 +182,13 @@ describe("KbBindingSection 勾选列表", () => {
 		render(
 			<KbBindingSection kbs={[]} selected={[]} onToggle={mock()} restricted />,
 		);
+		openPanel();
 		expect(screen.queryByText(/自动启用搜索工具/)).toBeNull();
-		// 空清单提示仍在（引导用户先去建库）
-		expect(screen.getByText(/暂无知识库/)).toBeTruthy();
+		// 空清单时面板不展开（无候选），状态由触发器下方一行说明
+		expect(screen.queryByTestId("kb-bind-panel")).toBeNull();
+		expect(screen.getByTestId("kb-bind-status").textContent).toContain(
+			"暂无知识库",
+		);
 	});
 
 	test("error 库状态摘要含「暂不可检索」暗示", () => {
@@ -176,6 +200,7 @@ describe("KbBindingSection 勾选列表", () => {
 				onToggle={mock()}
 			/>,
 		);
+		openPanel();
 		expect(screen.getByText(/索引中断/)).toBeTruthy();
 		expect(screen.getByText(/暂不可检索/)).toBeTruthy();
 	});
@@ -184,18 +209,26 @@ describe("KbBindingSection 勾选列表", () => {
 		render(
 			<KbBindingSection kbs={kbs} selected={["kb_gone"]} onToggle={mock()} />,
 		);
+		openPanel();
 		expect(screen.queryByTestId("kb-bind-check-kb_gone")).toBeNull();
+		// 摘要同样不显示失效库（只剩占位文案）
+		expect(screen.getByTestId("kb-bind-summary").textContent).toBe("选择知识库");
 	});
 });
 
 describe("AgentConfig 保存链路带上 knowledgeBaseIds", () => {
+	/** 展开知识库下拉并等候选行就绪（复选行只在面板打开时渲染） */
+	const openKbPanel = async () => {
+		await waitFor(() => screen.getByTestId("kb-bind-trigger"));
+		fireEvent.click(screen.getByTestId("kb-bind-trigger"));
+		return await waitFor(() => screen.getByTestId("kb-bind-check-kb_1"));
+	};
+
 	test("命名 agent：勾选后保存 → api.put config 含 knowledgeBaseIds: [kb_1]", async () => {
 		useAgentsStore.setState({ configs: { dev: cfg("dev") } });
 		render(<AgentConfig agentName="dev" onClose={() => {}} />);
 		// mount 拉取清单（get mock 回包）后勾选行就绪
-		const check = await waitFor(() =>
-			screen.getByTestId("kb-bind-check-kb_1"),
-		);
+		const check = await openKbPanel();
 		fireEvent.click(check);
 		fireEvent.click(screen.getByTestId("cfg-save"));
 		const call = configSaveCall("dev");
@@ -210,9 +243,7 @@ describe("AgentConfig 保存链路带上 knowledgeBaseIds", () => {
 			saveOverride,
 		});
 		render(<AgentConfig agentName="general-purpose" onClose={() => {}} />);
-		const check = await waitFor(() =>
-			screen.getByTestId("kb-bind-check-kb_1"),
-		);
+		const check = await openKbPanel();
 		fireEvent.click(check);
 		fireEvent.click(screen.getByTestId("cfg-save"));
 		expect(saveOverride).toHaveBeenCalledWith(
@@ -226,7 +257,7 @@ describe("AgentConfig 保存链路带上 knowledgeBaseIds", () => {
 				configs: { dev: { ...cfg("dev"), tools: ["read", "bash"] } },
 			});
 			render(<AgentConfig agentName="dev" onClose={() => {}} />);
-			await waitFor(() => screen.getByTestId("kb-bind-check-kb_1"));
+			await openKbPanel();
 			expect(screen.getByText(/自动启用搜索工具/)).toBeTruthy();
 		});
 
@@ -237,7 +268,7 @@ describe("AgentConfig 保存链路带上 knowledgeBaseIds", () => {
 				],
 			});
 			render(<AgentConfig agentName="general-purpose" onClose={() => {}} />);
-			await waitFor(() => screen.getByTestId("kb-bind-check-kb_1"));
+			await openKbPanel();
 			expect(screen.queryByText(/自动启用搜索工具/)).toBeNull();
 		});
 	});
@@ -250,7 +281,7 @@ describe("AgentConfig 保存链路带上 knowledgeBaseIds", () => {
 		};
 		useAgentsStore.setState({ configs: { dev: withGone } });
 		render(<AgentConfig agentName="dev" onClose={() => {}} />);
-		await waitFor(() => screen.getByTestId("kb-bind-check-kb_1"));
+		await openKbPanel();
 		fireEvent.click(screen.getByTestId("cfg-save"));
 		const call = configSaveCall("dev");
 		expect(call).toBeTruthy();

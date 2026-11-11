@@ -1,3 +1,8 @@
+## 2026-11-11
+- feat(frontend): 智能体编辑页知识库绑定从平铺复选框改为多选下拉——新增通用 MultiSelect 组件（收起态单行摘要：已绑定库名「、」拼接、溢出省略、悬停 title 看全量；面板内点行切换不收起、可连续勾选；外部 mousedown / Esc 收起且 Esc 不外泄宿主弹窗；空清单不展开空面板，状态由触发器下方一行说明；受限模式「自动启用搜索工具」提示随面板顶部出现；索引中的库标注「索引完成后可检索」仍可勾选）。zh/en 各补 bindPlaceholder 文案。TDD：MultiSelect 12 例新写 + KbBindingSection 契约测试改写（收起态摘要 / 展开勾选 / 空清单不展开面板），frontend 知识库 96 pass + tsc 0，E2E 冒烟同步（展开面板勾选、Esc 只收面板不关编辑弹窗、删库后摘要回落占位）
+- fix(frontend): 知识库首次索引不再显示「取消索引」按钮——只有「已索引过」的库（lastIndexedAt 非空，即重建/自动更新场景）在进度区提供取消入口；首次建库时库里没有可回退的内容，摆取消入口只会让人误点掉刚发起的建库（判据与 kernel indexer 的 firstRun 定义一致）。TDD 先红后绿（KbList 首次索引无取消按钮 + 已索引库重建仍可取消 2 例），frontend 知识库 94 pass + tsc 0 + E2E 知识库冒烟 5 步绿（「索引进行中」用例补首次索引无取消按钮断言）
+- fix(frontend): 知识库卡片「关联智能体」按钮索引生成中（indexing/scanning）置灰，就绪后恢复可点——与编辑/重建入口一致：库未就绪时不开放操作。KbList 单测改 rerender 断言（置灰不可点 → 就绪可点），E2E 冒烟补置灰/恢复断言
+
 ## 2026-11-10
 - feat(kernel): 检索模式完整对齐 pi-knowledge 的 7 种——新增 `search/modes.ts` 模式规格表（词法策略/语义开关/词法锚定/门控/扩窗/候选倍数/重排）：`fast`（只 BM25 严格短语、关 OR 回退与向量、不扩窗）、`semantic`（纯向量、无置信门）、`semantic_hybrid`（双路但去词法锚定与证据门）、`adaptive`（hybrid + 行窗 ±80 行/5 邻居/6000 字符，新增 `expandLineWindow`）、`deep`（候选改 limit×3）、`hybrid` 补齐文档的词法锚定（BM25 零命中整库跳过，skippedKbs 新增 `lexical_anchor`）、`auto`（按查询形状选 fast/semantic/hybrid + 弱结果回退链，最多 3 次；弱判定：空结果、fast 精确串未中且 coverage<0.67、semantic coverage=0）；工具 schema 的 mode 枚举扩到 7 种、描述同步。TDD：模式规格/auto 判据/行窗扩展纯函数单测 + 6 条端到端模式行为用例
 - fix(frontend): 知识库体检弹窗补标题栏关闭按钮（不再只能点遮罩退出）；「重新诊断」补可见反馈——请求中按钮禁用并显示「诊断中…」、内容区置灰，完成后刷新「更新于 HH:MM:SS」时间戳（此前报告内容不变时界面零变化，看起来像没响应）；深度重排从页头平铺复选框改为「新建知识库」旁的「⋮」更多菜单——点开 popup 后用 switch 控制并展示下载进度/失败重试，点击外部或 Esc 关闭；「诊断」入口一并收进该菜单（页头只留「新建知识库」+ ⋮，开体检弹窗前自动收起菜单）；卡片关联智能体弹窗同步文案措辞

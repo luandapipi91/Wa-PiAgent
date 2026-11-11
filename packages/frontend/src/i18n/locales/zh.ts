@@ -569,6 +569,7 @@ const zh = {
 		skipInaccessible: "不可访问",
 		skipExtractionFailed: "解析失败",
 		bindAfterIndex: "索引完成后可检索",
+		bindPlaceholder: "选择知识库",
 		bindInterrupted: "索引中断 · 暂不可检索",
 		bindRestrictedHint: "绑定知识库将自动启用搜索工具",
 		bindEmpty: "暂无知识库，先在知识库页新建",

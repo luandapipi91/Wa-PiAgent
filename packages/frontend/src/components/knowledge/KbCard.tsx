@@ -24,9 +24,10 @@ interface Props {
   onToggleWatch: (on: boolean) => void;
   /** 失败文件徽章点击（B4 接失败清单弹窗前的占位回调） */
   onShowFailed?: () => void;
-  /** 取消进行中的索引（indexing/scanning 时随进度区展示取消按钮） */
+  /** 取消进行中的索引（indexing/scanning 时随进度区展示取消按钮；首次索引不展示） */
   onCancel?: () => void;
   /** 打开「关联智能体」弹窗（知识库侧管理绑定） */
+  /** 打开「关联智能体」弹窗（知识库侧管理绑定）；索引生成中按钮置灰 */
   onManageAgents?: (kb: KbInfo) => void;
 }
 
@@ -121,7 +122,12 @@ export function KbCard({
       </div>
 
       {/* 索引进度区（任务 B4：仅 indexing/scanning 渲染，ready/error 内部返回 null） */}
-      <KbProgress kb={kb} onCancel={onCancel ? () => onCancel() : undefined} />
+      {/* 取消入口只给「已索引过」的库（重建/自动更新场景）：首次创建的库还在建库首次索引，
+          此时库里没有任何可回退的内容，摆一个取消按钮只是让人误点掉刚发起的建库 */}
+      <KbProgress
+        kb={kb}
+        onCancel={onCancel && kb.lastIndexedAt != null ? () => onCancel() : undefined}
+      />
 
       {/* 描述行（单行截断） */}
       {kb.description && (
@@ -169,11 +175,12 @@ export function KbCard({
           />
         )}
         {onManageAgents && (
-          // 绑定是纯配置操作，索引进行中也可以调整（不必等索引完成）
+          // 索引生成中置灰（与编辑/重建一致：库未就绪时不开放操作）
           <CardBtn
             onClick={() => onManageAgents(kb)}
             testId={`kb-agents-${kb.id}`}
             label={t("kb.agentsButton")}
+            disabled={busy}
           />
         )}
         <CardBtn

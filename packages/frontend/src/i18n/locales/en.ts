@@ -585,6 +585,7 @@ const en = {
 		skipInaccessible: "Inaccessible",
 		skipExtractionFailed: "Extraction failed",
 		bindAfterIndex: "Searchable once indexing completes",
+		bindPlaceholder: "Select knowledge bases",
 		bindInterrupted: "Interrupted · not searchable yet",
 		bindRestrictedHint:
 			"Binding a knowledge base will automatically enable the search tool",

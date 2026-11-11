@@ -1,14 +1,17 @@
-// KbBindingSection — 智能体编辑页的知识库绑定勾选列表（任务 B5）。
+// KbBindingSection — 智能体编辑页的知识库绑定（任务 B5，多选下拉形态）。
 //
 // 纯展示组件：props 注入 kbs/selected/onToggle/restricted/ready/error，不直接读写 store
 //（清单获取与保存过滤由 AgentConfig 接线，便于内嵌任意 tab）。
-//   · 勾选行 = 复选框（data-testid="kb-bind-check-{id}"）+ 名称 + 描述单行截断 + 状态摘要
+//   · 收起态单行摘要：已绑定库名用「、」拼接，超出省略号（悬停 title 看全量），
+//     不再用一长排复选框把表单撑开
+//   · 展开面板：每行=复选框（data-testid="kb-bind-check-{id}"）+ 名称 + 描述单行截断 + 状态摘要
 //   · 索引中（scanning/indexing）的库标注「索引完成后可检索」，但仍可勾选（绑定在先、索引完成后生效）
-//   · 受限模式（tools 白名单非空）显示「绑定知识库将自动启用搜索工具」提示：
+//   · 受限模式（tools 白名单非空）在面板顶部提示「绑定知识库将自动启用搜索工具」：
 //     kernel 侧在受限模式下绑定后会自动把 knowledge_search 并入白名单，前端只需明示该行为
-//   · selected 中的失效 id（库已删除）不产生任何行；保存侧由 AgentConfig 再过滤一次
+//   · selected 中的失效 id（库已删除）不产生任何行、也不进摘要；保存侧由 AgentConfig 再过滤一次
 import type { KbInfo } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
+import { MultiSelect, type MultiSelectOption } from "../ui/MultiSelect";
 
 interface Props {
 	kbs: KbInfo[];
@@ -53,52 +56,36 @@ export function KbBindingSection({
 	error = null,
 }: Props) {
 	const { t } = useTranslation();
-	const selectedSet = new Set(selected);
+	const options: MultiSelectOption[] = kbs.map((kb) => ({
+		value: kb.id,
+		label: kb.name,
+		description: kb.description,
+		meta: statusHint(kb, t),
+	}));
+	const empty = emptyHint(ready, !!error, t);
+
 	return (
-		<div data-testid="kb-binding-section">
-			{restricted && kbs.length > 0 && (
-				<p
-					className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2"
-					data-testid="kb-bind-restricted-hint"
-				>
-					{t("kb.bindRestrictedHint")}
-				</p>
-			)}
+		<div data-testid="kb-binding-section" className="flex flex-col gap-1.5">
+			<MultiSelect
+				testId="kb-bind"
+				ariaLabel={t("agentConfig.secKb")}
+				options={options}
+				selected={selected}
+				onToggle={onToggle}
+				placeholder={t("kb.bindPlaceholder")}
+				/* 无库可绑时提示误导（勾不出任何东西），只在有候选库时提示 */
+				hint={restricted && kbs.length > 0 ? t("kb.bindRestrictedHint") : undefined}
+			/>
+			{/* 空清单/未知态在触发器下方明说原因：失败详情挂 title，不占行 */}
 			{kbs.length === 0 && (
 				<p
-					className="text-sm text-tertiary py-1"
+					className="text-[calc(11px*var(--font-scale))] text-tertiary"
 					data-testid="kb-bind-status"
-					/* 失败原因挂 title：绑定区空间小，详情不占行 */
 					title={!ready && error ? error : undefined}
 				>
-					{emptyHint(ready, !!error, t)}
+					{empty}
 				</p>
 			)}
-			<div className="flex flex-col">
-				{kbs.map((kb) => (
-					<label
-						key={kb.id}
-						className="flex items-center gap-2 py-1 cursor-pointer"
-					>
-						<input
-							type="checkbox"
-							data-testid={`kb-bind-check-${kb.id}`}
-							checked={selectedSet.has(kb.id)}
-							onChange={() => onToggle(kb.id)}
-						/>
-						<span className="text-sm text-primary whitespace-nowrap shrink-0">
-							{kb.name}
-						</span>
-						{/* 描述单行截断：block + truncate（inline 上 text-overflow 不生效，同 SkillDescBubble） */}
-						<span className="block min-w-0 flex-1 truncate text-[calc(11px*var(--font-scale))] text-tertiary">
-							{kb.description}
-						</span>
-						<span className="text-[calc(10px*var(--font-scale))] text-tertiary whitespace-nowrap shrink-0">
-							{statusHint(kb, t)}
-						</span>
-					</label>
-				))}
-			</div>
 		</div>
 	);
 }
