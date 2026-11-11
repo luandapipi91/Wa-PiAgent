@@ -17,6 +17,8 @@ const SEVERITY_COLOR: Record<string, string> = {
 export function DoctorModal({ onClose }: Props) {
   const { t } = useTranslation();
   const doctor = useKnowledgeStore((s) => s.doctor);
+  const doctorLoading = useKnowledgeStore((s) => s.doctorLoading);
+  const doctorUpdatedAt = useKnowledgeStore((s) => s.doctorUpdatedAt);
   const loadDoctor = useKnowledgeStore((s) => s.loadDoctor);
 
   useEffect(() => {
@@ -33,11 +35,17 @@ export function DoctorModal({ onClose }: Props) {
         <span className="flex items-center gap-1.5">
           <button
             onClick={() => void loadDoctor()}
+            disabled={doctorLoading}
             className="text-[calc(11px*var(--font-scale))] px-2 py-1 rounded-md"
-            style={{ border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
+            style={{
+              border: "1px solid var(--hairline)",
+              color: "var(--text-secondary)",
+              cursor: doctorLoading ? "default" : "pointer",
+              opacity: doctorLoading ? 0.6 : 1,
+            }}
             data-testid="kb-doctor-rerun"
           >
-            {t("kb.doctorRerun")}
+            {doctorLoading ? t("kb.doctorRunning") : t("kb.doctorRerun")}
           </button>
           {/* 标题栏关闭按钮：可预期的退出路径，不依赖猜「点遮罩能关」 */}
           <button
@@ -52,7 +60,11 @@ export function DoctorModal({ onClose }: Props) {
           </button>
         </span>
       </div>
-      <div className="p-4 overflow-y-auto" style={{ maxHeight: "60vh" }}>
+      <div
+        className="p-4 overflow-y-auto"
+        style={{ maxHeight: "60vh", opacity: doctorLoading ? 0.6 : 1, transition: "opacity 0.15s" }}
+        data-testid="kb-doctor-content"
+      >
         <div className="flex items-baseline gap-2 mb-3">
           <span
             className="text-[calc(28px*var(--font-scale))] font-extrabold"
@@ -64,6 +76,17 @@ export function DoctorModal({ onClose }: Props) {
           <span className="text-tertiary text-[calc(11px*var(--font-scale))]">
             {doctor?.summary ?? ""}
           </span>
+          {/* 更新时间：每轮诊断都会刷新，让「重新诊断」有可见结果 */}
+          {doctorUpdatedAt && !doctorLoading && (
+            <span
+              className="text-tertiary text-[calc(10px*var(--font-scale))] ml-auto"
+              data-testid="kb-doctor-updated"
+            >
+              {t("kb.doctorUpdatedAt", {
+                time: new Date(doctorUpdatedAt).toLocaleTimeString(undefined, { hour12: false }),
+              })}
+            </span>
+          )}
         </div>
         {(doctor?.issues ?? []).length === 0 ? (
           <div className="text-tertiary text-[calc(12px*var(--font-scale))] py-4 text-center">

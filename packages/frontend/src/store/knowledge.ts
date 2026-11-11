@@ -62,6 +62,10 @@ interface KnowledgeState {
   retryRerank(): Promise<void>;
   /** 全库体检报告（诊断弹窗） */
   doctor: KbDoctorReport | null;
+  /** 体检请求进行中（重新诊断的可见反馈：按钮禁用 + 内容置灰） */
+  doctorLoading: boolean;
+  /** 最近一次体检完成时间（毫秒）；每次重新诊断都会刷新，用来证明「确实跑过一轮」 */
+  doctorUpdatedAt: number | null;
   /** 拉取体检报告 */
   loadDoctor(): Promise<void>;
   /** 处理 knowledge:progress：维护 progress map 并同步对应库的 status/progress */
@@ -103,6 +107,8 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
   kbs: [],
   rerank: { enabled: false, status: "idle", model: "" },
   doctor: null,
+  doctorLoading: false,
+  doctorUpdatedAt: null,
   loading: false,
   loaded: false,
   error: null,
@@ -257,11 +263,15 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
   },
 
   loadDoctor: async () => {
+    set({ doctorLoading: true });
     try {
       const data: any = await api.get("/api/knowledge/doctor");
-      set({ doctor: data?.report ?? null });
+      set({ doctor: data?.report ?? null, doctorUpdatedAt: Date.now() });
     } catch (e) {
       useToastStore.getState().add(formatApiError(e), "error");
+    } finally {
+      // 成功失败都要复位，否则按钮会永久停在「诊断中」
+      set({ doctorLoading: false });
     }
   },
 

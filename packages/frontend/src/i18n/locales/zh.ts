@@ -533,6 +533,8 @@ const zh = {
 		doctorRerun: "重新诊断",
 		doctorHealthy: "知识库状态健康",
 		moreButton: "更多",
+		doctorRunning: "诊断中…",
+		doctorUpdatedAt: "更新于 {{time}}",
 		rerankHint: "开启后需下载重排模型（约 20MB），下载完成才会生效。",
 		agentsButton: "关联智能体",
 		agentsTitle: "「{{name}}」的关联智能体",

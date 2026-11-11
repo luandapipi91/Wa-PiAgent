@@ -548,6 +548,8 @@ const en = {
 		doctorRerun: "Re-run",
 		doctorHealthy: "Knowledge bases are healthy",
 		moreButton: "More",
+		doctorRunning: "Diagnosing…",
+		doctorUpdatedAt: "Updated {{time}}",
 		rerankHint: "Turning this on downloads the rerank model (~20MB); it takes effect once the download finishes.",
 		agentsButton: "Agents",
 		agentsTitle: "Agents bound to \"{{name}}\"",
