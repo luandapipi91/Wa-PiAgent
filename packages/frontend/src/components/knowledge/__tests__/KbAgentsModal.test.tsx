@@ -103,6 +103,13 @@ describe("KbAgentsModal", () => {
     expect(row.style.borderBottom).not.toBe(""); // happy-dom 会把 var() 变量规范化，只断言非空
   });
 
+  test("每行高度为 1.5 倍（py-4：32px → 48px）", async () => {
+    render(<KbAgentsModal kb={kb} onClose={() => {}} />);
+    const row = (await screen.findByTestId("kb-agent-研发")).closest("label") as HTMLElement;
+    expect(row.className).toContain("py-4");
+    expect(row.className).not.toContain("py-2");
+  });
+
   test("标题用主题色", async () => {
     render(<KbAgentsModal kb={kb} onClose={() => {}} />);
     const title = await screen.findByText("「慧来客需求」的关联智能体");

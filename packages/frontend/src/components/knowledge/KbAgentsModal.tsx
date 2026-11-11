@@ -180,7 +180,7 @@ export function KbAgentsModal({ kb, onClose }: Props) {
               return (
                 <label
                   key={k}
-                  className="flex items-center gap-2 px-2 py-2 cursor-pointer text-[calc(12px*var(--font-scale))]"
+                  className="flex items-center gap-2 px-2 py-4 cursor-pointer text-[calc(12px*var(--font-scale))]"
                   style={{ borderBottom: "1px solid var(--hairline)", userSelect: "none" }}
                 >
                   <input
