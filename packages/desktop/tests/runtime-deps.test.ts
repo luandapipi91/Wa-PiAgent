@@ -364,7 +364,7 @@ test("syncSeed: 清理历史遗留文件（kernel.js 时代 + 已移除的动态
 });
 
 
-// ===== pi 1.5.0 升级：版本一致性校验（装出旧版必须阻断启动，防内核混跑） =====
+// ===== pi 1.5.x 升级（1.5.0 → 1.5.2）：版本一致性校验（装出旧版必须阻断启动，防内核混跑） =====
 
 test("matchDeclaredRange: ~ 声明按 major.minor 判定，精确声明全等判定", () => {
   expect(matchDeclaredRange("~1.5.0", "1.5.0")).toBe(true);

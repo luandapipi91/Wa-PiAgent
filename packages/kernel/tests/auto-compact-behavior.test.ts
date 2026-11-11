@@ -141,6 +141,19 @@ test("条件②：上游钳制后输出预算仍充足 → 不触发", async () 
 	expect(fake.compacted.length).toBe(0);
 });
 
+test("条件②：钳制后输出预算不足 → 触发", async () => {
+	const { session, am, fake } = await setup();
+	// set_model 回传真实模型：200K 窗口、384K 标称输出
+	fake.modelToReturn = { contextWindow: 200_000, maxTokens: 384_000 };
+	// 引擎口径占用 190K
+	fake.contextUsageToReturn = { tokens: 190_000, contextWindow: 200_000 };
+	await am.prompt(session.id, "继续", { model: CUSTOM_MODEL });
+	// 条件②新口径下该压仍压的守护用例：margin=max(4096, ceil(190000*0.15)=28500)=28500，
+	// room=200000-190000-28500=-18500 < 32768 → 回退 room=min(32768, 200000-190000-4096)=5904，
+	// 钳制后输出 5904 < 8192（几乎无法作答）→ 必须真的走压缩
+	expect(fake.compacted.length).toBeGreaterThan(0);
+});
+
 test("条件②：叠加输出预算后仍在窗口内 → 不触发", async () => {
 	const { session, am, fake } = await setup();
 	fake.modelToReturn = { contextWindow: 200_000, maxTokens: 8_192 };
