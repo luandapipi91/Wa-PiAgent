@@ -130,15 +130,15 @@ test("回归：引擎口径低估 CJK 时，内核估算仍触发预压缩（修
 	expect(fake.compacted.length).toBe(1);
 });
 
-test("条件②：占用未超 80%，但输入 + 模型最大输出 + 预留余量越窗口 → 触发", async () => {
+test("条件②：上游钳制后输出预算仍充足 → 不触发", async () => {
 	const { session, am, fake } = await setup();
 	// set_model 回传真实模型：200K 窗口、64K 最大输出
 	fake.modelToReturn = { contextWindow: 200_000, maxTokens: 64_000 };
 	// 引擎口径占用 140K（70% < 80%，仅靠比例不压缩）
 	fake.contextUsageToReturn = { tokens: 140_000, contextWindow: 200_000 };
 	await am.prompt(session.id, "继续", { model: CUSTOM_MODEL });
-	// 140000 + 64000 + 4096 = 208096 > 200000 → 触发
-	expect(fake.compacted.length).toBe(1);
+	// 上游钳制后输出 = 200000-140000-ceil(140000*0.15)=39000，不低于 8192 → 不触发
+	expect(fake.compacted.length).toBe(0);
 });
 
 test("条件②：叠加输出预算后仍在窗口内 → 不触发", async () => {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	AUTO_COMPACT_OUTPUT_RESERVE,
 	AUTO_COMPACT_USAGE_RATIO,
+	clampedRequestMaxTokens,
 	shouldCompactBeforeSend,
 } from "../auto-compact";
 
@@ -69,12 +70,22 @@ describe("shouldCompactBeforeSend：条件② 输入 + 最大输出 + 预留余�
 		expect(shouldCompactBeforeSend(10_000, 20_000, -5)).toBe(false);
 	});
 
+	test("条件②：钳制后输出预算充足时不压缩（标称输出再大也不误触发）", () => {
+		// 窗口 400K / 标称 384K / 占用 300K：上游钳制后仍可输出 55000
+		expect(shouldCompactBeforeSend(300_000, 400_000, 384_000)).toBe(false);
+	});
+
+	test("条件②：钳制后输出预算不足时压缩", () => {
+		// 窗口 200K / 标称 384K / 占用 190K：上游钳制后只剩 5904（< 8192）
+		expect(shouldCompactBeforeSend(190_000, 200_000, 384_000)).toBe(true);
+	});
+
 	test("双条件真值表交叉验证", () => {
 		// [used, window, maxOut, 期望]
 		const cases: Array<[number, number, number | undefined, boolean]> = [
 			[0, 100_000, 8_192, false], // 两条都不满足
 			[80_001, 100_000, 8_192, true], // 仅条件①
-			[75_000, 100_000, 32_000, true], // 仅条件②（75000+32000+4096=111096>100000）
+			[75_000, 100_000, 32_000, false], // 钳制后 = min(32000, 20904) = 20904 ≥ 8192 → 不压缩
 			[80_001, 100_000, undefined, true], // 仅条件①，无 maxOut
 			[75_000, 100_000, undefined, false], // 无 maxOut 时条件②无法判定
 			[95_000, 100_000, 0, true], // 仅条件①，maxOut 非法
@@ -88,5 +99,15 @@ describe("shouldCompactBeforeSend：条件② 输入 + 最大输出 + 预留余�
 	test("窗口非法（<=0）时无论输出预算都不压缩", () => {
 		expect(shouldCompactBeforeSend(100, 0, 10_000)).toBe(false);
 		expect(shouldCompactBeforeSend(100, -1, 10_000)).toBe(false);
+	});
+});
+
+describe("clampedRequestMaxTokens：上游钳制公式", () => {
+	test("clampedRequestMaxTokens 复刻上游公式", () => {
+		expect(clampedRequestMaxTokens(300_000, 1_000_000, 384_000)).toBe(384_000);
+		expect(clampedRequestMaxTokens(300_000, 400_000, 384_000)).toBe(55_000);
+		expect(clampedRequestMaxTokens(190_000, 200_000, 384_000)).toBe(5_904);
+		expect(clampedRequestMaxTokens(10_000, 200_000, 384_000)).toBe(185_904);
+		expect(clampedRequestMaxTokens(790_000, 1_000_000, 384_000)).toBe(91_500);
 	});
 });
