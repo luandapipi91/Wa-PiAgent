@@ -92,6 +92,15 @@ describe("KbAgentsModal", () => {
     expect(list.style.maxHeight).toBeTruthy();
   });
 
+  test("搜索框不显示浏览器默认黑色聚焦框（outline-none + 主题描边）", async () => {
+    render(<KbAgentsModal kb={kb} onClose={() => {}} />);
+    await screen.findByTestId("kb-agent-研发");
+    const search = screen.getByTestId("kb-agents-search");
+    expect(search.className).toContain("outline-none");
+    expect(search.className).toContain("focus:border-brand");
+    expect(search.style.border).toBe("");
+  });
+
   test("搜索按名称过滤，清空后恢复全部", async () => {
     render(<KbAgentsModal kb={kb} onClose={() => {}} />);
     await screen.findByTestId("kb-agent-研发");

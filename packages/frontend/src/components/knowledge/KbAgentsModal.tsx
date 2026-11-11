@@ -157,8 +157,7 @@ export function KbAgentsModal({ kb, onClose }: Props) {
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("kb.agentsSearchPlaceholder")}
           data-testid="kb-agents-search"
-          className="w-full px-2 py-1.5 rounded-md text-[calc(12px*var(--font-scale))]"
-          style={{ border: "1px solid var(--hairline)", background: "transparent" }}
+          className="w-full px-2 py-1.5 rounded-md text-[calc(12px*var(--font-scale))] border border-hairline bg-surface text-primary placeholder:text-tertiary outline-none appearance-none focus:border-brand"
         />
       </div>
       <div
