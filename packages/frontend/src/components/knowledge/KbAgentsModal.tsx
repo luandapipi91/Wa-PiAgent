@@ -143,7 +143,7 @@ export function KbAgentsModal({ kb, onClose }: Props) {
         className="px-4 py-3 flex items-center justify-between"
         style={{ borderBottom: "1px solid var(--hairline)" }}
       >
-        <span className="text-primary font-bold text-sm">
+        <span className="text-brand font-bold text-sm">
           {t("kb.agentsTitle", { name: kb.name })}
         </span>
         <span className="text-tertiary text-[calc(11px*var(--font-scale))]">

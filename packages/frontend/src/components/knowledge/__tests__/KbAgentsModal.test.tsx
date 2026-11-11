@@ -92,6 +92,13 @@ describe("KbAgentsModal", () => {
     expect(list.style.maxHeight).toBeTruthy();
   });
 
+  test("标题用主题色", async () => {
+    render(<KbAgentsModal kb={kb} onClose={() => {}} />);
+    const title = await screen.findByText("「慧来客需求」的关联智能体");
+    expect(title.className).toContain("text-brand");
+    expect(title.className).not.toContain("text-primary");
+  });
+
   test("搜索框不显示浏览器默认黑色聚焦框（outline-none + 主题描边）", async () => {
     render(<KbAgentsModal kb={kb} onClose={() => {}} />);
     await screen.findByTestId("kb-agent-研发");
