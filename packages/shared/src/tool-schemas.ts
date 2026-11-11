@@ -200,6 +200,9 @@ export const KB_SEARCH_DESCRIPTION =
   "Query with a short phrase or sentence — space-separated words act as AND terms. Supports Chinese and English. " +
   "Use this BEFORE answering product/business questions, before citing or quoting requirement/spec documents, " +
   "and whenever you are unsure whether memory already covers it. " +
+  "Pick the mode deliberately: hybrid (default) for keyword-bearing questions, fast for identifiers/paths/error codes, " +
+  "semantic for conceptual or cross-language questions, semantic_hybrid when wording differs from the source, " +
+  "adaptive when you need surrounding context, deep for high-stakes verification, auto to let the tool decide. " +
   "An empty result means the knowledge bases do not contain it — NOT that the fact does not exist; " +
   "do not treat absence as refutation, fall back to asking the user or the source documents. " +
   "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first. " +
@@ -209,7 +212,7 @@ export const KB_SEARCH_DESCRIPTION =
   "quote them only with that caveat, and tell the user the knowledge base needs re-indexing.";
 
 export const KB_SEARCH_SNIPPET =
-  "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score (plus stale/mode/rerank_used when applicable).";
+  "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score (plus stale/mode/rerank_used when applicable). Seven modes: hybrid / fast / semantic / semantic_hybrid / adaptive / deep / auto.";
 
 /** knowledge_search 参数——kernel 工具与 pi bridge 扩展共用同一份定义。 */
 export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
@@ -222,11 +225,28 @@ export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
     Type.Number({ description: "Max results (default 5, max 20)." }),
   ),
   mode: Type.Optional(
-    Type.Union([Type.Literal("hybrid"), Type.Literal("deep")], {
-      description:
-        "Search mode: hybrid (default) = fusion + gates + diversity; " +
-        "deep = also cross-encoder rerank (requires Deep rerank enabled in settings; falls back to hybrid when unavailable).",
-    }),
+    Type.Union(
+      [
+        Type.Literal("hybrid"),
+        Type.Literal("fast"),
+        Type.Literal("semantic"),
+        Type.Literal("semantic_hybrid"),
+        Type.Literal("adaptive"),
+        Type.Literal("deep"),
+        Type.Literal("auto"),
+      ],
+      {
+        description:
+          "Search mode (7 strategies): " +
+          "hybrid (default) = BM25 + vector fusion with lexical anchoring, score gate 0.18 and lexical-evidence gate; " +
+          "fast = strict BM25 phrase only (no OR fallback, no vectors) for identifiers, paths, error codes; " +
+          "semantic = pure vector recall, no lexical anchoring and no gate; " +
+          "semantic_hybrid = fusion without lexical anchoring/evidence gate (score gate only); " +
+          "adaptive = hybrid plus same-file line window (±80 lines, max 5 neighbours); " +
+          "deep = hybrid with wider candidates (limit×3) then cross-encoder rerank (needs Deep rerank enabled; falls back to hybrid when unavailable); " +
+          "auto = picks fast/semantic/hybrid from the query shape and retries weaker results along a fallback chain (max 3 attempts).",
+      },
+    ),
   ),
 });
 

@@ -16,7 +16,11 @@ import type { KbContext } from "./index";
 
 /** knowledge_search 的宿主上下文：bridge-registry opts.knowledgeCtx 的形状 */
 export interface KnowledgeToolContext {
-  search(query: string, limit: number, mode?: "hybrid" | "deep"): Promise<import("./search").KbSearchResult>;
+  search(
+    query: string,
+    limit: number,
+    mode?: import("./search/modes").SearchMode,
+  ): Promise<import("./search").KbSearchResult>;
 }
 
 /** makeKnowledgeToolContext 参数：绑定清单（kbIds）由调用方从 agent config / override 读出 */

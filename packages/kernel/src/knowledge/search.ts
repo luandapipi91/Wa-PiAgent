@@ -17,7 +17,17 @@ import {
   scoreChunkForQuery,
 } from "./search/ranking";
 import { diversify } from "./search/diversity";
-import { expandWindow, type WindowRow } from "./search/window";
+import { expandLineWindow, expandWindow, type WindowRow } from "./search/window";
+import {
+	MODE_SPECS,
+	AUTO_MAX_ATTEMPTS,
+	attemptSignal,
+	isWeakResult,
+	pickNextFallback,
+	pickPrimaryMode,
+	type ResolvedMode,
+	type SearchMode,
+} from "./search/modes";
 import { bigram } from "../memory/bigram";
 import { embedQuery } from "../memory/embedder";
 import { knowledgeFingerprint } from "./fingerprint";
@@ -73,8 +83,8 @@ export interface KbSearchResult {
   found: boolean;
   results: KbSearchHit[];
   skippedKbs: KbSkippedKb[];
-  /** 实际生效的检索模式（deep 但 reranker 未就绪时退化为 hybrid） */
-  mode: "hybrid" | "deep";
+  /** 实际生效的检索模式（auto 已解析；deep 但 reranker 未就绪时退化为 hybrid） */
+  mode: ResolvedMode;
   /** 本轮是否真的做了重排 */
   rerankUsed: boolean;
 }
@@ -84,8 +94,12 @@ export type StatFn = (path: string) => Promise<{ mtimeMs: number }>;
 
 /** searchKnowledge 可注入项（生产调用方不用传） */
 export interface SearchOptions {
-  /** 检索模式：hybrid（缺省）= 融合 + 门控 + boost + 多样性；deep = 额外做 cross-encoder 重排 */
-  mode?: "hybrid" | "deep";
+  /**
+   * 检索模式（七种，完整对齐 pi-knowledge）：
+   * hybrid（缺省）/ fast / semantic / semantic_hybrid / adaptive / deep / auto。
+   * 每种策略见 search/modes.ts 的 MODE_SPECS。
+   */
+  mode?: SearchMode;
   /** 重排注入点（缺省用真实 reranker；测试可注入假打分器） */
   rerankFn?: (query: string, docs: string[]) => Promise<number[] | null>;
   /** 新鲜度核对注入点（缺省 fs.promises.stat） */
@@ -133,13 +147,20 @@ export async function searchKnowledge(
   embedQueryFn: QueryEmbedFn = embedQuery,
   opts: SearchOptions = {},
 ): Promise<KbSearchResult> {
+  const requested = opts.mode ?? "hybrid";
+  // auto：按查询形状挑主模式，结果弱时按回退链重试（最多 AUTO_MAX_ATTEMPTS 次）
+  if (requested === "auto") {
+    return searchAuto(ctx, kbIds, query, limit, embedQueryFn, opts);
+  }
+  const spec = MODE_SPECS[requested];
   const statFn: StatFn = opts.statFn ?? fsStat;
   const skippedKbs: KbSkippedKb[] = [];
   // 中间态多带库根与记录 mtime：截断后要拿它们核对源文件新鲜度（不暴露给调用方）
   const merged: Array<{ hit: KbSearchHit; root: string; recordedMtime: number }> = [];
 
   // 查询侧只算一次：嵌入（null = 模型不可用 → 语义通道禁用）+ FTS MATCH 表达式
-  const queryVec = await embedQueryFn(query);
+  // semantic=false 的模式（fast）不花一次 embedding
+  const queryVec = spec.semantic ? await embedQueryFn(query) : null;
   const matchExpr = buildMatchExpr(query);
   const queryTokens = queryTokensOf(query);
 
@@ -194,16 +215,26 @@ export async function searchKnowledge(
             LIMIT ${CHANNEL_TOP_N}`,
         )
         .all(expr) as Array<{ id: string; score: number }>;
-    let lexical = matchExpr ? runLexical(matchExpr) : [];
-    if (lexical.length === 0) {
-      const orExpr = buildOrMatchExpr(query);
-      if (orExpr) lexical = runLexical(orExpr);
+    let lexical: Array<{ id: string; score: number }> = [];
+    if (spec.lexical !== "off" && matchExpr) {
+      lexical = runLexical(matchExpr);
+      // fast 关掉 OR 回退（严格短语匹配）；hybrid 系列零命中时降级 OR
+      if (lexical.length === 0 && spec.lexical === "and_or") {
+        const orExpr = buildOrMatchExpr(query);
+        if (orExpr) lexical = runLexical(orExpr);
+      }
+    }
+    // 词法锚定（hybrid/adaptive/deep 的硬规则）：BM25 零命中就把整库跳过，
+    // 不让低证据的纯语义命中混进结果（这是 hybrid 与 semantic_hybrid 的核心差别）
+    if (spec.lexicalAnchor && lexical.length === 0) {
+      skippedKbs.push({ kbId, reason: "lexical_anchor" });
+      continue;
     }
     const lexicalIds = new Set(lexical.map((r) => r.id));
     // 语义通道：量化扫描（扫描宽度远大于融合条数）→ 距离门过滤；
     // 指纹不匹配或查询向量缺失时整通道跳过（扫描失败扩展内部降级为空数组）。
     const semantic =
-      queryVec && !mismatch
+      spec.semantic && queryVec && !mismatch
         ? kbQuantizedScan(db, queryVec, KB_SCAN_K).filter((h) => withinSemanticDistance(h.distance))
         : [];
 
@@ -217,7 +248,10 @@ export async function searchKnowledge(
 
     // 按融合名次回读出处字段：只取前 limit*multiplier（至少 10）条候选——
     // 词法 50 + 语义 200 去重后可达数百条，全量回读正文只为最终 5 条是纯浪费
-    const readLimit = Math.max(Math.trunc(limit * (opts.readLimitMultiplier ?? 2)), 10);
+    const readLimit = Math.max(
+      Math.trunc(limit * (opts.readLimitMultiplier ?? spec.candidateMultiplier)),
+      10,
+    );
     const candidates = fused.slice(0, readLimit);
     const placeholders = candidates.map(() => "?").join(",");
     const rows = db
@@ -242,10 +276,20 @@ export async function searchKnowledge(
       if (!row) continue;
       // 置信门（分数）+ 词法证据门（覆盖率）：低分与「与查询几乎无词法重叠」的块不进结果。
       // 词法门需要正文，所以放在回读之后（管线：召回→融合→分数门→回读→词法门→boost→多样性→截断→扩窗）
-      if (score < MIN_HYBRID_SCORE) continue;
-      // 词法门只约束「词法通道命中过的块」；纯语义命中（词法零重叠）是语义模式的价值所在，
-      // 由分数门单独把关（否则「字面不同、意思相近」的命中会被整体杀掉）
-      if (lexicalIds.has(id) && !hasEnoughLexicalEvidence(row.content, queryTokens)) continue;
+      // 门控按模式分档（见 modes.ts 的 GatePolicy）：
+      //   strong（hybrid/adaptive/deep）= 分数门 + 词法证据门
+      //   score（semantic_hybrid）= 只分数门
+      //   coverage（fast）= 只要被词法命中
+      //   none（semantic）= 不过门，靠语义距离门
+      if (spec.gate === "strong" || spec.gate === "score") {
+        if (score < MIN_HYBRID_SCORE) continue;
+      }
+      if (spec.gate === "strong") {
+        // 词法门只约束「词法通道命中过的块」；纯语义命中由分数门单独把关
+        if (lexicalIds.has(id) && !hasEnoughLexicalEvidence(row.content, queryTokens)) continue;
+      } else if (spec.gate === "coverage") {
+        if (!lexicalIds.has(id)) continue;
+      }
       // 加权分：路径/文件名命中加成、文档意图加权、测试与本地化副本降权（纯函数见 search/ranking）
       const { adjustedScore } = scoreChunkForQuery(score, row, queryTokens);
       merged.push({
@@ -330,9 +374,11 @@ export async function searchKnowledge(
   }
 
   // deep 模式：对最终 ≤limit 条做 cross-encoder 重排（未就绪则退化为 hybrid）
-  let effectiveMode: "hybrid" | "deep" = "hybrid";
+  // 重排只在 deep（spec.rerank）且模型就绪时发生；否则 mode 报 hybrid 系列的实际模式
+  let effectiveMode: ResolvedMode = requested;
   let rerankUsed = false;
-  if (opts.mode === "deep" && top.length > 0) {
+  if (spec.rerank) effectiveMode = "hybrid"; // deep 未就绪时按 hybrid 呈现，成功重排再改回 deep
+  if (spec.rerank && top.length > 0) {
     const { rerankScores: realRerank, isRerankerReady } = await import("./reranker");
     const scorer = opts.rerankFn ?? (isRerankerReady() ? realRerank : async () => null);
     const scores = await scorer(query, top.map((t) => t.hit.content));
@@ -350,11 +396,24 @@ export async function searchKnowledge(
   }
 
   const results: KbSearchHit[] = top.map((entry) => {
+    // 扩窗策略：blocks（±5 邻块）/ lines（adaptive：±80 行、最多 5 邻居、6000 字符）/ none
+    if (spec.expand === "none") return entry.hit;
     const key = `${entry.hit.kbId}\0${entry.hit.filePath}`;
     const rows = fileRows.get(key);
     if (!rows || rows.length === 0) return entry.hit;
     // 命中块按内容匹配（同一文件内可能多条命中）
     const withHits = rows.map((r) => ({ ...r, score: r.content === entry.hit.content ? 1 : 0 }));
+    if (spec.expand === "lines") {
+      const hitRow = withHits.find((r) => r.content === entry.hit.content);
+      if (!hitRow) return entry.hit;
+      const win = expandLineWindow(withHits, hitRow);
+      return {
+        ...entry.hit,
+        content: win.content,
+        startLine: win.startLine,
+        endLine: win.endLine,
+      };
+    }
     const expanded = expandWindow(withHits, 5);
     const merged = expanded.find((w) => w.content.includes(entry.hit.content));
     if (!merged) return entry.hit;
@@ -366,4 +425,36 @@ export async function searchKnowledge(
     };
   });
   return { found: results.length > 0, results, skippedKbs, mode: effectiveMode, rerankUsed };
+}
+
+/**
+ * auto 模式：按查询形状选主模式，弱结果按回退链重试（最多 AUTO_MAX_ATTEMPTS 次）。
+ * 每次尝试都完整跑一遍管线（门控/扩窗/重排按该模式的规格），
+ * 取第一次「不弱」的结果；全弱则返回最后一次的结果，mode 报最后一次的模式。
+ */
+async function searchAuto(
+  ctx: KbContext,
+  kbIds: string[],
+  query: string,
+  limit: number,
+  embedQueryFn: QueryEmbedFn,
+  opts: SearchOptions,
+): Promise<KbSearchResult> {
+  const primary = pickPrimaryMode(query);
+  const attempted: ResolvedMode[] = [];
+  let current: ResolvedMode | null = primary;
+  let last: KbSearchResult | null = null;
+  while (current && attempted.length < AUTO_MAX_ATTEMPTS) {
+    attempted.push(current);
+    const res = await searchKnowledge(ctx, kbIds, query, limit, embedQueryFn, {
+      ...opts,
+      mode: current,
+    });
+    last = { ...res, mode: res.rerankUsed ? "deep" : current };
+    if (!isWeakResult(attemptSignal(current, query, res.results))) {
+      return last;
+    }
+    current = pickNextFallback(primary, attempted);
+  }
+  return last ?? { found: false, results: [], skippedKbs: [], mode: primary, rerankUsed: false };
 }

@@ -180,19 +180,43 @@ test("结果带出处：file_path/title/lines/kb_name 且 score 有序", async (
   }
 });
 
-test("向量通道：语义相近（手工向量夹角小）命中", async () => {
+test("语义通道（对齐 pi-knowledge）：hybrid 有词法锚定 → 纯语义命中被整库跳过", async () => {
   const kbId = setupKb("研究笔记", [
     // 两块语料与查询词零重叠：命中只能来自语义通道
     { content: "苹果和香蕉的价格走势分析。", title: "水果", vec: pack(VEC_A) },
     { content: "桌子和椅子的木料工艺记录。", title: "木工", vec: pack(VEC_B) },
   ]);
-  // 查询向量取簇 A（即 VEC_A 方向）；「量子通信技术」与语料零词法重叠
+  // 「量子通信技术」与语料零词法重叠 → hybrid 的词法锚定把整库跳过
   const r = await searchKnowledge(ctx, [kbId], "量子通信技术", 5, fakeEmbedQuery(VEC_A));
+  expect(r.found).toBe(false);
+  expect(r.skippedKbs.some((k) => k.reason === "lexical_anchor")).toBe(true);
+});
+
+test("semantic 模式：纯向量命中（无词法锚定、无置信门）", async () => {
+  const kbId = setupKb("研究笔记", [
+    { content: "苹果和香蕉的价格走势分析。", title: "水果", vec: pack(VEC_A) },
+    { content: "桌子和椅子的木料工艺记录。", title: "木工", vec: pack(VEC_B) },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "量子通信技术", 5, fakeEmbedQuery(VEC_A), {
+    mode: "semantic",
+  });
   expect(r.found).toBe(true);
-  expect(r.results.length).toBeGreaterThan(0);
+  expect(r.mode).toBe("semantic");
   expect(r.results[0].title).toBe("水果");
   // 簇 B 与查询向量正交（距离≈1 > 0.75 门）：被距离门拦住，不许低分凑数
   expect(r.results.some((h) => h.title === "木工")).toBe(false);
+});
+
+test("semantic_hybrid 模式：去掉词法锚定与词法证据门，纯语义命中也能进结果", async () => {
+  const kbId = setupKb("研究笔记", [
+    { content: "苹果和香蕉的价格走势分析。", title: "水果", vec: pack(VEC_A) },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "量子通信技术", 5, fakeEmbedQuery(VEC_A), {
+    mode: "semantic_hybrid",
+  });
+  expect(r.found).toBe(true);
+  expect(r.mode).toBe("semantic_hybrid");
+  expect(r.results[0].title).toBe("水果");
 });
 
 test("全部库零命中返回 found:false 而非低分凑数", async () => {
@@ -436,4 +460,91 @@ test("mode=deep 且注入 scorer：按重排分排序，mode=deep、rerankUsed=t
   expect(r.mode).toBe("deep");
   expect(r.rerankUsed).toBe(true);
   expect(r.results[0].title).toBe("附录");
+});
+
+// ============ 七种模式（对齐 pi-knowledge）的端到端行为 ============
+
+test("fast：严格短语 + 关 OR 回退；只有部分词重叠时零命中（hybrid 会 OR 兜底命中）", async () => {
+  const kbId = setupKb("严格库", [{ content: "定价政策说明。", title: "定价" }]);
+  const fast = await searchKnowledge(ctx, [kbId], "定价 报销", 5, fakeEmbedQuery(null), {
+    mode: "fast",
+  });
+  const hy = await searchKnowledge(ctx, [kbId], "定价 报销", 5, fakeEmbedQuery(null), {
+    mode: "hybrid",
+  });
+  expect(fast.mode).toBe("fast");
+  expect(fast.found).toBe(false); // 严格 AND，两词都要在
+  expect(hy.found).toBe(true); // OR 兜底，「定价」命中即召回
+});
+
+test("fast：命中时不扩窗（只给命中块原文）", async () => {
+  const kbId = setupKb("快查库", [
+    { content: "定价政策说明。", title: "定价", filePath: "docs/a.md", startLine: 1, endLine: 10 },
+    { content: "退款流程说明。", title: "退款", filePath: "docs/a.md", startLine: 11, endLine: 20 },
+  ]);
+  const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), {
+    mode: "fast",
+  });
+  expect(r.results[0].content).toBe("定价政策说明。");
+});
+
+test("adaptive：只在 ±80 行内扩窗；块级扩窗会拼的远邻居不进来", async () => {
+  const kbId = setupKb("自适应库", [
+    { content: "前言说明文字。", title: "前言", filePath: "docs/a.md", startLine: 1, endLine: 10 },
+    { content: "定价政策说明。", title: "定价", filePath: "docs/a.md", startLine: 200, endLine: 210 },
+    { content: "附录补充文字。", title: "附录", filePath: "docs/a.md", startLine: 400, endLine: 410 },
+  ]);
+  const hy = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), {
+    mode: "hybrid",
+  });
+  const ad = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null), {
+    mode: "adaptive",
+  });
+  expect(hy.results[0].content).toContain("前言说明文字。"); // 块级扩窗：前后邻块都拼
+  expect(ad.results[0].content).not.toContain("前言说明文字。"); // 行窗：190 行外，不拼
+  expect(ad.results[0].content).toContain("定价政策说明。");
+  expect(ad.mode).toBe("adaptive");
+});
+
+test("auto：带引号的精确查询走 fast 并命中", async () => {
+  const kbId = setupKb("自动库", [{ content: "定价政策说明。", title: "定价" }]);
+  const r = await searchKnowledge(ctx, [kbId], '"定价政策"', 5, fakeEmbedQuery(null), {
+    mode: "auto",
+  });
+  expect(r.mode).toBe("fast");
+  expect(r.found).toBe(true);
+});
+
+test("auto：fast 弱结果（严格短语零命中）回退 hybrid 拿到结果", async () => {
+  const kbId = setupKb("自动回退库", [{ content: "定价政策说明。", title: "定价" }]);
+  // 带引号 → 主模式 fast；引号内容不在库里 → fast 零命中 → 回退 hybrid，
+  // OR 兜底命中「定价」，且信号词少（≤3）时词法证据门放行
+  const r = await searchKnowledge(ctx, [kbId], '"蒸饺" 定价', 5, fakeEmbedQuery(null), {
+    mode: "auto",
+  });
+  expect(r.found).toBe(true);
+  expect(r.mode).toBe("hybrid");
+});
+
+test("auto：概念型长问题走 semantic；结果有词法重叠时不触发回退", async () => {
+  const kbId = setupKb("语义库", [
+    { content: "苹果和香蕉的价格走势分析。", title: "水果", vec: pack(VEC_A) },
+  ]);
+  // 含「怎么」→ semantic；语料与查询有词法重叠（价格/走势/分析），coverage>0 → 不回退
+  const r = await searchKnowledge(ctx, [kbId], "水果的价格走势是怎么分析的", 5, fakeEmbedQuery(VEC_A), {
+    mode: "auto",
+  });
+  expect(r.mode).toBe("semantic");
+  expect(r.found).toBe(true);
+});
+
+test("auto：semantic 结果零词法重叠（弱）→ 按回退链换模式", async () => {
+  const kbId = setupKb("语义弱库", [
+    { content: "苹果和香蕉的价格走势分析。", title: "水果", vec: pack(VEC_A) },
+  ]);
+  // 含「怎么」→ semantic；纯语义命中但 coverage=0 → 判弱 → 回退（hybrid 词法锚定跳过、adaptive 兜底）
+  const r = await searchKnowledge(ctx, [kbId], "登录是怎么防止会话劫持的", 5, fakeEmbedQuery(VEC_A), {
+    mode: "auto",
+  });
+  expect(r.mode).not.toBe("semantic");
 });
