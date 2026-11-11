@@ -55,6 +55,8 @@ let listResult: ReturnType<typeof parseMcpListOutput> | null = null;
 const tempDirs: string[] = [];
 // HTTP 401 假 server（第 1、2 组共用），afterAll 统一停
 const stoppedServers: Array<{ stop: (opts?: boolean) => void }> = [];
+// 代理中和用：保存 shell 原值，afterAll 对称恢复
+const savedProxyEnv: Record<string, string | undefined> = {};
 
 async function tempDir(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
@@ -97,6 +99,11 @@ afterAll(async () => {
   admin?.invalidate();
   for (const srv of stoppedServers) srv.stop(true);
   stoppedServers.length = 0;
+  // 恢复 shell 原代理变量（与 beforeAll 的中和对称），不污染同进程后续测试
+  for (const [key, value] of Object.entries(savedProxyEnv)) {
+    if (value !== undefined) process.env[key] = value;
+    else delete process.env[key];
+  }
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()!;
     await rm(dir, { recursive: true, force: true });
@@ -105,6 +112,21 @@ afterAll(async () => {
 
 describe("第 1 组：pi mcp list --json 的 state 值域与 authProvider 字段（真 pi）", () => {
   beforeAll(async () => {
+    // 代理中和（同任务 3 cad65e2b）：本机 shell 的 HTTP(S)_PROXY 漂移是常态
+    // （公司代理/VPN，本机实测挂着 HTTPS_PROXY），环回 401 假 server 的请求若
+    // 被代理劫持，needs-auth 会误报成 failed。McpAdmin 与 McpLoginRunner 的
+    // 子进程 env 都是内部构造的 {...process.env} 裸展开（无测试注入点），任务 3
+    // 的「子进程 env 显式置空 + NO_PROXY」层对它们不可达，唯一可落地的中和是
+    // 删掉 process.env 的代理键源头——本文件全部 spawn 入口（list / login）由此
+    // 一并覆盖；afterAll 对称恢复。
+    const proxyKeys = [
+      "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+      "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+    ];
+    for (const key of proxyKeys) {
+      savedProxyEnv[key] = process.env[key];
+      delete process.env[key];
+    }
     baseDir = await tempDir("mcp-contract-list-");
     const agentDir = join(baseDir, "agent-dir");
     await mkdir(agentDir, { recursive: true });
@@ -119,7 +141,6 @@ describe("第 1 组：pi mcp list --json 的 state 值域与 authProvider 字段
         });
       },
     });
-    tempDirs.push("http-server-holder"); // 占位：保证 tempDirs 非空时目录清理顺序无碍
     stoppedServers.push(httpSrv);
     const mcpConfig = {
       mcpServers: {
