@@ -4,10 +4,18 @@
 // 本模块按 sessionId 找到 AgentManager（或测试）注册的 BridgeSessionContext 并分发执行。
 // token 用于防本机其他进程伪造调用（bridge 端点只认 kernel spawn pi 时注入的 token）。
 import { randomUUID } from "node:crypto";
-import type { BridgeStreamFrame, SubagentProgressEvent } from "@wa-pi/shared";
+import {
+  KB_SEARCH_DIVERSITIES,
+  KB_SEARCH_LIMIT_MAX,
+  KB_SEARCH_MODES,
+  KB_SEARCH_PROFILES,
+  KB_SEARCH_WINDOW_MAX,
+  type BridgeStreamFrame,
+  type SubagentProgressEvent,
+} from "@wa-pi/shared";
 import { runAskTool } from "./ask-runner";
 import { createMemoryTools, type MemoryToolContext } from "./memory/tools";
-import type { KnowledgeToolContext } from "./knowledge/tool";
+import type { KnowledgeSearchOptions, KnowledgeToolContext } from "./knowledge/tool";
 
 /** 工具执行结果（与 pi AgentToolResult 对齐，经 HTTP 原样回传给扩展） */
 export interface BridgeToolResult {
@@ -265,10 +273,34 @@ export function makeDefaultBridgeContext(opts: {
   };
 }
 
+// knowledge_search 参数面的取值集合（真源在 shared/tool-schemas 的 KB_SEARCH_* 常量）
+const KB_SEARCH_MODE_SET = new Set<string>(KB_SEARCH_MODES);
+const KB_SEARCH_PROFILE_SET = new Set<string>(KB_SEARCH_PROFILES);
+const KB_SEARCH_DIVERSITY_SET = new Set<string>(KB_SEARCH_DIVERSITIES);
+
+/** 整数参数：非数字/非有限值视为未提供；否则截断并夹紧到 [min, max] */
+function clampInt(value: unknown, min: number, max: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return Math.min(Math.max(Math.trunc(value), min), max);
+}
+
+/** 枚举参数：集合外的字符串（旧客户端/手写调用）一律当未提供，回落默认策略 */
+function enumParam(value: unknown, allowed: Set<string>): string | undefined {
+  return typeof value === "string" && allowed.has(value) ? value : undefined;
+}
+
+/** 字符串参数：缺省/空串视为未提供 */
+function stringParam(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 /**
- * knowledge_search 分支：参数校验 → knowledgeCtx.search → snake_case 结构化输出
+ * knowledge_search 分支：参数解析 → knowledgeCtx.search → snake_case 结构化输出
  * （字段名对齐 shared/tool-schemas 的 KB_SEARCH_DESCRIPTION 文案：
  * content / file_path / title / breadcrumb / lines / kb_name / score / stale）。
+ * 参数面直接对齐 KB_SEARCH_PARAMS_SCHEMA：mode 12 取值 / profile 8 取值 / 分页 /
+ * 过滤 / 多样性 / 诊断全部原样下传（不在这里折叠 mode，也不替调用方补 limit，
+ * 缺省值由 searchKnowledge 按 profile/env 决定）。
  * 未注入 knowledgeCtx（= 未绑定任何库）返回友好提示；query 空参数返回错误内容。
  */
 async function handleKnowledgeSearch(
@@ -288,10 +320,8 @@ async function handleKnowledgeSearch(
       details: { error: "no_knowledge_base" },
     };
   }
-  const query =
-    typeof (params as Record<string, unknown>)?.query === "string"
-      ? ((params as Record<string, unknown>).query as string).trim()
-      : "";
+  const raw = (params ?? {}) as Record<string, unknown>;
+  const query = typeof raw.query === "string" ? raw.query.trim() : "";
   if (!query) {
     return {
       content: [
@@ -303,14 +333,30 @@ async function handleKnowledgeSearch(
       details: { error: "invalid_params" },
     };
   }
-  const rawLimit = (params as Record<string, unknown>).limit;
-  const limit =
-    typeof rawLimit === "number" && Number.isFinite(rawLimit)
-      ? Math.min(Math.max(Math.trunc(rawLimit), 1), 20)
-      : 5;
-  const rawMode = (params as Record<string, unknown>)?.mode;
-  const mode = rawMode === "deep" ? "deep" : "hybrid";
-  const res = await knowledgeCtx.search(query, limit, mode);
+
+  const opts: KnowledgeSearchOptions = {};
+  const limit = clampInt(raw.limit, 1, KB_SEARCH_LIMIT_MAX);
+  if (limit !== undefined) opts.limit = limit;
+  const offset = clampInt(raw.offset, 0, KB_SEARCH_WINDOW_MAX - 1);
+  if (offset !== undefined) {
+    // 上游窗口规则：offset + limit ≤ 800（limit 缺省时其值由 profile 决定，上限只能夹到窗口边界）
+    opts.offset = limit === undefined ? offset : Math.min(offset, KB_SEARCH_WINDOW_MAX - limit);
+  }
+  const mode = enumParam(raw.mode, KB_SEARCH_MODE_SET);
+  if (mode) opts.mode = mode as KnowledgeSearchOptions["mode"];
+  const profile = enumParam(raw.profile, KB_SEARCH_PROFILE_SET);
+  if (profile) opts.profile = profile as KnowledgeSearchOptions["profile"];
+  const kbId = stringParam(raw.kb_id);
+  if (kbId) opts.kbId = kbId;
+  const fileType = stringParam(raw.file_type);
+  if (fileType) opts.fileType = fileType;
+  const pathPattern = stringParam(raw.path_pattern);
+  if (pathPattern) opts.pathPattern = pathPattern;
+  const diversity = enumParam(raw.diversity, KB_SEARCH_DIVERSITY_SET);
+  if (diversity) opts.diversity = diversity as KnowledgeSearchOptions["diversity"];
+  if (typeof raw.diagnostics === "boolean") opts.diagnostics = raw.diagnostics;
+
+  const res = await knowledgeCtx.search(query, opts);
   const skipped = res.skippedKbs.length
     ? res.skippedKbs.map((s) => `${s.kbId}(${s.reason})`).join(", ")
     : null;

@@ -87,10 +87,10 @@ const fakeKbResult: KbSearchResult = {
 };
 
 describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 knowledge_search 并返回结构化结果", async () => {
-    let called: { query: string; limit: number } | null = null;
+    let called: { query: string; opts?: unknown } | null = null;
     const knowledgeCtx = {
-      search: async (query: string, limit: number) => {
-        called = { query, limit };
+      search: async (query: string, opts?: unknown) => {
+        called = { query, opts };
         return fakeKbResult;
       },
     };
@@ -104,15 +104,15 @@ describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 know
     // 输出为 snake_case 字段（对齐 KB_SEARCH_DESCRIPTION 的 file_path/kb_name 文案）
     expect(r.content[0].text).toContain("file_path");
     expect(r.content[0].text).toContain("docs/pricing.md");
-    // 闭包透传：query 原样、limit 缺省 5
-    expect(called!).toEqual({ query: "定价", limit: 5 });
+    // 闭包透传：query 原样；limit 缺省不补数字（默认预算交给 search profile/env）
+    expect(called!).toEqual({ query: "定价", opts: {} });
   });
 
-  test("handleTool 透传 limit 并钳制到上限 20", async () => {
-    let called: { query: string; limit: number } | null = null;
+  test("handleTool 透传 limit 并钳制到上限 50", async () => {
+    let called: { query: string; opts?: unknown } | null = null;
     const knowledgeCtx = {
-      search: async (query: string, limit: number) => {
-        called = { query, limit };
+      search: async (query: string, opts?: unknown) => {
+        called = { query, opts };
         return fakeKbResult;
       },
     };
@@ -128,7 +128,8 @@ describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 know
       { query: "定价", limit: 99 },
       signal,
     );
-    expect(called!).toEqual({ query: "定价", limit: 20 });
+    // 上限对齐 schema 的 KB_SEARCH_LIMIT_MAX（= searchKnowledge 的 MAX_SEARCH_RESULTS）
+    expect(called!).toEqual({ query: "定价", opts: { limit: 50 } });
   });
 
   test("陈旧命中在输出里带 stale:true，新鲜命中不带该键（不给正常结果加噪声）", async () => {
@@ -228,7 +229,7 @@ describe("makeKnowledgeToolContext 连接复用", () => {
         kbIds: ["kb_1"],
         store: sharedStore,
       });
-      const res = await ctx.search("定价", 5);
+      const res = await ctx.search("定价", { limit: 5 });
       // 注入的实例被真正使用（而非被忽略后自建）
       expect(getKbCalls).toBe(1);
       expect(res).toMatchObject({

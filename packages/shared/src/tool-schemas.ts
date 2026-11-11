@@ -7,6 +7,7 @@
 // 依赖：仅 typebox（Pi 进程和 WaPi kernel 均可用）。
 
 import { Type } from "typebox";
+import type { KbSearchMode, KbSearchProfile } from "./types";
 
 // =========================================================================
 // ask_user_question
@@ -194,15 +195,62 @@ export const MemorySearchParamsSchema = Type.Object({
 // knowledge_search
 // =========================================================================
 
+/** knowledge_search 单次返回条数上限（与 kernel search/contracts.ts 的 MAX_SEARCH_RESULTS 同值） */
+export const KB_SEARCH_LIMIT_MAX = 50;
+
+/** 分页窗口上限（offset + limit；与 kernel search/contracts.ts 的 MAX_SEARCH_WINDOW 同值） */
+export const KB_SEARCH_WINDOW_MAX = 800;
+
+/** 检索模式（对齐 pi-knowledge 0.13.0 的 12 个取值；code/config/errors/docs/decision 为意图别名） */
+export const KB_SEARCH_MODES = [
+  "auto",
+  "fast",
+  "semantic",
+  "hybrid",
+  "semantic_hybrid",
+  "deep",
+  "adaptive",
+  "code",
+  "config",
+  "docs",
+  "errors",
+  "decision",
+] as const satisfies readonly KbSearchMode[];
+
+/** 检索预算 profile 的 8 个取值 */
+export const KB_SEARCH_PROFILES = [
+  "auto",
+  "balanced",
+  "low_token",
+  "precision",
+  "recall",
+  "long_context",
+  "code",
+  "docs",
+] as const satisfies readonly KbSearchProfile[];
+
+/** 结果多样性档位 */
+export const KB_SEARCH_DIVERSITIES = ["off", "balanced", "strong"] as const;
+
 export const KB_SEARCH_DESCRIPTION =
-  "Hybrid search (BM25 + semantic embeddings) over the built-in knowledge bases bound to this agent " +
-  "(requirements, PRDs, specs and other product/business documents — the available list is in the system prompt). " +
+  "Search the built-in knowledge bases bound to this agent " +
+  "(requirements, PRDs, specs and other product/business documents — the available list is in the system prompt) " +
+  "using lexical BM25, semantic vectors, reranking and filters. " +
   "Query with a short phrase or sentence — space-separated words act as AND terms. Supports Chinese and English. " +
-  "Use this BEFORE answering product/business questions, before citing or quoting requirement/spec documents, " +
+  "Use it to find relevant context before answering domain questions, before citing or quoting requirement/spec documents, " +
   "and whenever you are unsure whether memory already covers it. " +
-  "Pick the mode deliberately: hybrid (default) for keyword-bearing questions, fast for identifiers/paths/error codes, " +
-  "semantic for conceptual or cross-language questions, semantic_hybrid when wording differs from the source, " +
-  "adaptive when you need surrounding context, deep for high-stakes verification, auto to let the tool decide. " +
+  "Pick the mode deliberately: hybrid (default) for most questions with useful lexical anchors — it fuses BM25 and semantic vectors but still requires keyword evidence; " +
+  "fast for exact symbols, filenames, commands, error codes, API names, config keys or quoted strings; " +
+  "semantic for pure vector search when exact terms may differ from the indexed wording; " +
+  "semantic_hybrid for vector recall plus BM25/fusion scoring without the hybrid lexical-evidence gate; " +
+  "adaptive when you need surrounding implementation context or nearby sections; " +
+  "deep for high-stakes answers, ambiguous top results or final verification where slower cross-encoder reranking is acceptable; " +
+  "auto to let the tool pick fast/semantic/hybrid from the query shape and retry weaker results along a fallback chain; " +
+  "code/config/errors are shortcuts for code-and-config lookups (retrieval like fast), docs/decision for prose documents and decision records (retrieval like hybrid). " +
+  "Pick the profile when the default budget does not fit: low_token for slow local models that need fewer, stricter, longer snippets; " +
+  "precision for identifiers/errors; recall or long_context for broad prose/document research; code/docs for their respective corpora. " +
+  "If a search returns no results or obviously weak results, retry once with a different mode before concluding the KB lacks the answer. " +
+  "If top results are repetitive, retry with diversity 'strong' or mode 'adaptive' instead of increasing the limit first. " +
   "An empty result means the knowledge bases do not contain it — NOT that the fact does not exist; " +
   "do not treat absence as refutation, fall back to asking the user or the source documents. " +
   "Returns content/file_path/title/breadcrumb/lines/kb_name/score per hit, best first. " +
@@ -212,7 +260,8 @@ export const KB_SEARCH_DESCRIPTION =
   "quote them only with that caveat, and tell the user the knowledge base needs re-indexing.";
 
 export const KB_SEARCH_SNIPPET =
-  "Search the built-in knowledge bases; hits return document chunks with content/file_path/title/breadcrumb/lines/kb_name/score (plus stale/mode/rerank_used when applicable). Seven modes: hybrid / fast / semantic / semantic_hybrid / adaptive / deep / auto.";
+  "Search knowledge bases (hybrid is lexical-anchored BM25 + semantic fusion); 12 modes / 8 profiles, paging and metadata filters. " +
+  "Hits return content/file_path/title/breadcrumb/lines/kb_name/score (plus stale/mode/rerank_used when applicable).";
 
 /** knowledge_search 参数——kernel 工具与 pi bridge 扩展共用同一份定义。 */
 export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
@@ -221,32 +270,84 @@ export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
       "A short phrase or sentence describing what to look up (Chinese or English). " +
       "Prefer one coherent phrase — space-separated words act as AND terms.",
   }),
-  limit: Type.Optional(
-    Type.Number({ description: "Max results (default 5, max 20)." }),
-  ),
   mode: Type.Optional(
     Type.Union(
-      [
-        Type.Literal("hybrid"),
-        Type.Literal("fast"),
-        Type.Literal("semantic"),
-        Type.Literal("semantic_hybrid"),
-        Type.Literal("adaptive"),
-        Type.Literal("deep"),
-        Type.Literal("auto"),
-      ],
+      KB_SEARCH_MODES.map((mode) => Type.Literal(mode)),
       {
         description:
-          "Search mode (7 strategies): " +
+          "Search mode (12 values; code/config/errors/docs/decision are intent aliases of the six retrieval strategies): " +
           "hybrid (default) = BM25 + vector fusion with lexical anchoring, score gate 0.18 and lexical-evidence gate; " +
           "fast = strict BM25 phrase only (no OR fallback, no vectors) for identifiers, paths, error codes; " +
           "semantic = pure vector recall, no lexical anchoring and no gate; " +
           "semantic_hybrid = fusion without lexical anchoring/evidence gate (score gate only); " +
           "adaptive = hybrid plus same-file line window (±80 lines, max 5 neighbours); " +
           "deep = hybrid with wider candidates (limit×3) then cross-encoder rerank (needs Deep rerank enabled; falls back to hybrid when unavailable); " +
-          "auto = picks fast/semantic/hybrid from the query shape and retries weaker results along a fallback chain (max 3 attempts).",
+          "auto = picks fast/semantic/hybrid from the query shape and retries weaker results along a fallback chain (max 3 attempts); " +
+          "code/config/errors cover code/config/error-code lookups and retrieve like fast; docs/decision cover prose documents and decision records and retrieve like hybrid.",
       },
     ),
+  ),
+  profile: Type.Optional(
+    Type.Union(
+      KB_SEARCH_PROFILES.map((profile) => Type.Literal(profile)),
+      {
+        description:
+          "Search budget profile (8 values): auto (default) = choose from the query shape and mode; " +
+          "balanced = general purpose (10 hits); low_token = fewer, stricter, longer snippets for slow local models; " +
+          "precision = identifiers/errors, high score gate and 5 hits; recall = broad coverage with a low gate; " +
+          "long_context = long snippets and wide adaptive windows for prose/document research; " +
+          "code / docs = budgets tuned for their corpora.",
+      },
+    ),
+  ),
+  limit: Type.Optional(
+    Type.Number({
+      description:
+        `Max results, 1-${KB_SEARCH_LIMIT_MAX} (default comes from the search profile/env).`,
+      minimum: 1,
+      maximum: KB_SEARCH_LIMIT_MAX,
+      multipleOf: 1,
+    }),
+  ),
+  offset: Type.Optional(
+    Type.Number({
+      description: `Pagination offset; offset + limit must not exceed ${KB_SEARCH_WINDOW_MAX}`,
+      minimum: 0,
+      maximum: KB_SEARCH_WINDOW_MAX - 1,
+      multipleOf: 1,
+    }),
+  ),
+  kb_id: Type.Optional(
+    Type.String({
+      description: "Limit search to a specific KB by ID or exact name",
+    }),
+  ),
+  file_type: Type.Optional(
+    Type.String({
+      description:
+        "Filter by file type (e.g. typescript, markdown, python)",
+    }),
+  ),
+  path_pattern: Type.Optional(
+    Type.String({
+      description: "Filter by file path substring (for example src/engine.ts)",
+    }),
+  ),
+  diversity: Type.Optional(
+    Type.Union(
+      KB_SEARCH_DIVERSITIES.map((diversity) => Type.Literal(diversity)),
+      {
+        description:
+          "Result diversity: off = pure relevance order, no per-file spread; balanced (default) = light MMR de-duplication; " +
+          "strong = prefer one hit per file when top results are repetitive.",
+      },
+    ),
+  ),
+  diagnostics: Type.Optional(
+    Type.Boolean({
+      description:
+        "Include ranking diagnostics and mode/fallback details in the result",
+    }),
   ),
 });
 
