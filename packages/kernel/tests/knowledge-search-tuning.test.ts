@@ -52,6 +52,26 @@ describe("检索调优（对齐上游 tuning.js）", () => {
     expect(t.minHybridScore).toBe(0.4);
   });
 
+  test("环境变量 PI_KNOWLEDGE_* 覆盖并夹紧", () => {
+    const saved = {
+      profile: process.env.PI_KNOWLEDGE_SEARCH_PROFILE,
+      limit: process.env.PI_KNOWLEDGE_SEARCH_DEFAULT_LIMIT,
+    };
+    // profile 名会 trim + 小写；超范围的数值被夹到区间上界
+    process.env.PI_KNOWLEDGE_SEARCH_PROFILE = " docs ";
+    process.env.PI_KNOWLEDGE_SEARCH_DEFAULT_LIMIT = "999999";
+    try {
+      const t = resolveSearchTuning({ query: "定价", mode: "hybrid", kbSourceTypes: ["directory"] });
+      expect(t.requestedProfile).toBe("docs");
+      expect(t.defaultLimit).toBe(50);
+    } finally {
+      if (saved.profile === undefined) delete process.env.PI_KNOWLEDGE_SEARCH_PROFILE;
+      else process.env.PI_KNOWLEDGE_SEARCH_PROFILE = saved.profile;
+      if (saved.limit === undefined) delete process.env.PI_KNOWLEDGE_SEARCH_DEFAULT_LIMIT;
+      else process.env.PI_KNOWLEDGE_SEARCH_DEFAULT_LIMIT = saved.limit;
+    }
+  });
+
   test("窗口校验：limit 1-50、offset 非负、offset+limit ≤ 800", () => {
     expect(resolveSearchWindow(undefined, undefined, 10)).toEqual({ limit: 10, offset: 0 });
     expect(() => resolveSearchWindow(0, 0, 10)).toThrow("limit must be an integer from 1 to 50");
