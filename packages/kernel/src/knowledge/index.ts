@@ -41,7 +41,7 @@ export {
   type KbSearchResult,
   type KbSkippedKb,
 } from "./search";
-export { FUSION_WEIGHTS, weightedScoreFusion } from "./search/fusion";
+export { weightedScoreFusion } from "./search/fusion";
 export { MIN_HYBRID_SCORE, hasEnoughLexicalEvidence, queryTokensOf, scoreChunkForQuery } from "./search/ranking";
 export {
   diversifyRankedChunks,

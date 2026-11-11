@@ -154,7 +154,11 @@ test("结果带出处：file_path/title/lines/kb_name 且 score 有序", async (
     { content: "完全不相关的条目内容。", title: "其他", filePath: "docs/other.md" },
   ]);
   const r = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(null));
-  expect(r.results.length).toBeGreaterThanOrEqual(2);
+  // min-max 归一（对齐 pi-knowledge 的 fusion）的必然结果：只有一个通道有候选时，除最高分
+  // 外全部归 0，过不了 0.18 置信门——所以纯词法场景（模型不可用）每库只留最相关一条。
+  // 改用相对强度归一时这里能留两条；本用例只断言上游语义下的实际输出，
+  // 「同库多文件出处」由多样性/窗口用例覆盖。
+  expect(r.results.length).toBe(1);
   for (const h of r.results) {
     expect(typeof h.kbId).toBe("string");
     expect(h.kbName).toBe("产品手册");
