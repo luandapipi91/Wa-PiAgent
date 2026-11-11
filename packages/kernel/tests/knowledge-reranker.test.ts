@@ -246,3 +246,38 @@ test("PI_KNOWLEDGE_RERANKER=api:… 未支持：prepareReranker 失败并在状�
   expect(rerankerStatus().error).toContain("未支持");
 });
 
+
+test("withRerankerEnv：加载期间用配置的源，结束后无条件还原（成功/失败都一样）", async () => {
+  const { env } = await import("@huggingface/transformers");
+  const { withRerankerEnv } = await import("../src/knowledge/reranker");
+  const { resolveRerankerConfig } = await import("../src/knowledge/search/reranker-config");
+  // transformers 的 env 是进程级全局：这个用例直接盯着它，确保重排不给 embedder 留污染
+  const before = { host: env.remoteHost, path: env.remotePathTemplate };
+  try {
+    const config = resolveRerankerConfig({
+      PI_KNOWLEDGE_RERANKER_REMOTE_HOST: "https://rerank.example.com",
+      PI_KNOWLEDGE_RERANKER_REMOTE_PATH_TEMPLATE: "{model}/{revision}/",
+    } as never);
+    if (config.provider !== "hf") throw new Error("expected hf config");
+    const seen: string[] = [];
+    const out = await withRerankerEnv(config, async () => {
+      seen.push(`${env.remoteHost}|${env.remotePathTemplate}`);
+      return "ok";
+    });
+    expect(out).toBe("ok");
+    expect(seen).toEqual(["https://rerank.example.com/|{model}/{revision}/"]);
+    expect(env.remoteHost).toBe(before.host);
+    expect(env.remotePathTemplate).toBe(before.path);
+    // 失败路径同样还原
+    await expect(
+      withRerankerEnv(config, async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+    expect(env.remoteHost).toBe(before.host);
+    expect(env.remotePathTemplate).toBe(before.path);
+  } finally {
+    env.remoteHost = before.host;
+    env.remotePathTemplate = before.path;
+  }
+});

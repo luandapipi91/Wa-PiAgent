@@ -170,39 +170,61 @@ async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: Reran
 	return ok ? pipe : null;
 }
 
-/** 默认加载器：transformers 直连，模型/修订/精度/下载源均取自上游配置层 */
-const defaultRerankerLoader: RerankerLoader = async (onProgress, config) => {
+/**
+ * 临时把 transformers 的下载源指到重排配置，执行 fn 后无条件还原。
+ * `env` 是进程级全局（上游靠 model-worker 子进程隔离，Wa-Pi 单进程没有隔离）：不还原的话，
+ * 一旦改为重排专用 host/模型 URL，随后 embedder 的旧守卫（跳过「非空且不含 huggingface.co」）
+ * 会保留该 host，e5 就去错误的源拉模型。失败/抛错路径同样必须还原。
+ */
+export async function withRerankerEnv<T>(
+	config: HfRerankerConfig,
+	fn: () => Promise<T>,
+): Promise<T> {
 	const { env } = await import("@huggingface/transformers");
+	const prevRemoteHost = env.remoteHost;
+	const prevRemotePathTemplate = env.remotePathTemplate;
 	// remoteHost 与 remotePathTemplate 是直接字符串拼接：尾部斜杠必须补齐
 	const host = config.remoteHost ?? DEFAULT_RERANKER_REMOTE_HOST;
 	env.remoteHost = `${host.replace(/\/+$/, "")}/`;
 	env.remotePathTemplate = config.remotePathTemplate ?? DEFAULT_RERANKER_REMOTE_PATH_TEMPLATE;
-	if (process.env.WA_PI_MODEL_DIR) {
-		env.allowRemoteModels = false;
-		env.localModelPath = process.env.WA_PI_MODEL_DIR;
-	} else {
-		const { modelCacheDir } = await import("../memory/embedder");
-		env.cacheDir = modelCacheDir();
+	try {
+		return await fn();
+	} finally {
+		env.remoteHost = prevRemoteHost;
+		env.remotePathTemplate = prevRemotePathTemplate;
 	}
-	// 不用 pipeline("text-classification")：它的 softmax 对单 logit 的 cross-encoder 恒输出 1.0，
-	// 且不透传 text_pair（对象数组会被当纯文本 tokenize）。这里直接持 tokenizer + 分类模型，
-	// 打分恒走原始 logit（RAW_LOGITS=false 也只支持单 logit；多类输出由 scoreSingleRawLogit 报明确错误）。
-	const mod = (await import("@huggingface/transformers")) as unknown as {
-		AutoTokenizer: {
-			from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankTokenizer>;
+}
+
+/** 默认加载器：transformers 直连，模型/修订/精度/下载源均取自上游配置层 */
+const defaultRerankerLoader: RerankerLoader = async (onProgress, config) =>
+	withRerankerEnv(config, async () => {
+		const { env } = await import("@huggingface/transformers");
+		if (process.env.WA_PI_MODEL_DIR) {
+			env.allowRemoteModels = false;
+			env.localModelPath = process.env.WA_PI_MODEL_DIR;
+		} else {
+			const { modelCacheDir } = await import("../memory/embedder");
+			env.cacheDir = modelCacheDir();
+		}
+		// 不用 pipeline("text-classification")：它的 softmax 对单 logit 的 cross-encoder 恒输出 1.0，
+		// 且不透传 text_pair（对象数组会被当纯文本 tokenize）。这里直接持 tokenizer + 分类模型，
+		// 打分恒走原始 logit（RAW_LOGITS=false 也只支持单 logit；多类输出由 scoreSingleRawLogit 报明确错误）。
+		const mod = (await import("@huggingface/transformers")) as unknown as {
+			AutoTokenizer: {
+				from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankTokenizer>;
+			};
+			AutoModelForSequenceClassification: {
+				from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankModel>;
+			};
 		};
-		AutoModelForSequenceClassification: {
-			from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<RerankModel>;
-		};
-	};
-	const opts = { progress_callback: onProgress, revision: config.revision };
-	const tokenizer = await mod.AutoTokenizer.from_pretrained(config.model, opts);
-	const model = await mod.AutoModelForSequenceClassification.from_pretrained(config.model, {
-		...opts,
-		dtype: config.dtype ?? RERANK_DTYPE,
+		const opts = { progress_callback: onProgress, revision: config.revision };
+		const tokenizer = await mod.AutoTokenizer.from_pretrained(config.model, opts);
+		const model = await mod.AutoModelForSequenceClassification.from_pretrained(config.model, {
+			...opts,
+			dtype: config.dtype ?? RERANK_DTYPE,
+		});
+		return { tokenizer, model };
 	});
-	return { tokenizer, model };
-};
 
 /** 预加载（设置页「开启」后调用）：触发首次下载/加载；失败只记录状态，不抛 */
 /**
