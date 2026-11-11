@@ -223,6 +223,44 @@ test("semantic_hybrid 模式：去掉词法锚定与词法证据门，纯语义�
   expect(r.results[0].title).toBe("水果");
 });
 
+test("mode=code 别名：经 retrievalModeFor 归一到 fast，行为与 fast 等价", async () => {
+  const kbId = setupKb("代码库", [
+    { content: "refreshToken 刷新逻辑在 auth/session.ts 里。", title: "会话", vec: pack(VEC_A) },
+    { content: "定价政策说明。", title: "定价", vec: pack(VEC_B) },
+  ]);
+  const fast = await searchKnowledge(ctx, [kbId], "refreshToken", 5, fakeEmbedQuery(VEC_A), {
+    mode: "fast",
+  });
+  // code 走 fast 规格（不跑语义、只严格短语）：模式若没被归一，MODE_SPECS["code"] 是 undefined
+  const code = await searchKnowledge(ctx, [kbId], "refreshToken", 5, fakeEmbedQuery(VEC_A), {
+    mode: "code",
+  });
+  expect(code.found).toBe(true);
+  expect(code.mode).toBe("fast");
+  expect(code.results.map((h) => [h.title, h.score])).toEqual(
+    fast.results.map((h) => [h.title, h.score]),
+  );
+});
+
+test("mode=docs 别名：经 retrievalModeFor 归一到 hybrid，行为与 hybrid 一致", async () => {
+  const kbId = setupKb("文档库", [
+    { content: "定价政策说明：按年订阅享九折优惠。", title: "定价", vec: pack(VEC_A) },
+    { content: "退款流程需要提交工单。", title: "退款", vec: pack(VEC_B) },
+  ]);
+  const hybrid = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(VEC_A), {
+    mode: "hybrid",
+  });
+  // docs 走 hybrid 规格（双路 + 词法锚定 + 强门控）
+  const docs = await searchKnowledge(ctx, [kbId], "定价政策", 5, fakeEmbedQuery(VEC_A), {
+    mode: "docs",
+  });
+  expect(docs.found).toBe(true);
+  expect(docs.mode).toBe("hybrid");
+  expect(docs.results.map((h) => [h.title, h.score])).toEqual(
+    hybrid.results.map((h) => [h.title, h.score]),
+  );
+});
+
 test("全部库零命中返回 found:false 而非低分凑数", async () => {
   const kbId = setupKb("产品手册", [
     { content: "定价政策说明。", title: "定价", vec: pack(VEC_A) },
