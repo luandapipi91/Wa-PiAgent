@@ -366,6 +366,10 @@ async function handleKnowledgeSearch(
   const skipped = res.skippedKbs.length
     ? res.skippedKbs.map((s) => `${s.kbId}(${s.reason})`).join(", ")
     : null;
+  // 检索层 warnings（如 embedding 指纹不匹配导致向量通道禁用）必须能被模型看到，
+  // 否则信息只落在没人读的字段里（与 skippedKbs 同等可观测）
+  const warnings = res.warnings?.length ? res.warnings : null;
+  const warningNote = warnings ? `（提示：${warnings.join("；")}）` : "";
   if (!res.found) {
     // offset 越过总数：是「这一页没内容」，不是「库里没内容」（offset 放开后才会出现）
     if ((opts.offset ?? 0) > 0) {
@@ -375,7 +379,7 @@ async function handleKnowledgeSearch(
             type: "text",
             text:
               `本页已无更多结果（共 ${res.totalCount} 条，已翻到 offset ${opts.offset}）` +
-              `${skipped ? `（跳过: ${skipped}）` : ""}。把 offset 设为 0 可从头重检。`,
+              `${skipped ? `（跳过: ${skipped}）` : ""}。把 offset 设为 0 可从头重检。${warningNote}`,
           },
         ],
         details: {
@@ -389,7 +393,7 @@ async function handleKnowledgeSearch(
       content: [
         {
           type: "text",
-          text: `知识库中未找到相关内容${skipped ? `（跳过: ${skipped}）` : ""}。空结果表示知识库未覆盖该内容，不代表事实不存在。`,
+          text: `知识库中未找到相关内容${skipped ? `（跳过: ${skipped}）` : ""}。空结果表示知识库未覆盖该内容，不代表事实不存在。${warningNote}`,
         },
       ],
     };
@@ -410,6 +414,7 @@ async function handleKnowledgeSearch(
       ...(h.stale ? { stale: true } : {}),
     })),
     skippedKbs: skipped,
+    ...(warnings ? { warnings } : {}),
     mode: res.modeUsed,
     rerank_used: res.rerankUsed,
     // 分页承诺（offset 已放开）：模型靠这两项判断要不要继续翻页

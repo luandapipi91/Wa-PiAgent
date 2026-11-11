@@ -168,6 +168,39 @@ describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 know
     expect(parsed.results[0].stale).toBeUndefined();
     expect("stale" in parsed.results[0]).toBe(false);
     expect(parsed.results[1].stale).toBe(true);
+    // 无 warnings 时也不加 warnings 键（不给正常结果加噪声）
+    expect("warnings" in parsed).toBe(false);
+  });
+
+  test("warnings 透出：有命中进 JSON、空结果进文案尾部（模型能读到降级原因）", async () => {
+    const warning = "「过期库」向量通道已禁用（embedding 指纹不匹配），仅返回词法结果";
+    const hitCtx = makeDefaultBridgeContext({
+      sessionId: "s",
+      cwd: "/x",
+      memoryCtx: fakeMemoryCtx,
+      knowledgeCtx: { search: async () => ({ ...fakeKbResult, warnings: [warning] }) },
+    });
+    const hit = await hitCtx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+    expect((JSON.parse(hit.content[0].text as string) as { warnings?: string[] }).warnings).toEqual([warning]);
+
+    const missCtx = makeDefaultBridgeContext({
+      sessionId: "s",
+      cwd: "/x",
+      memoryCtx: fakeMemoryCtx,
+      knowledgeCtx: {
+        search: async () => ({
+          ...fakeKbResult,
+          found: false,
+          results: [],
+          totalCount: 0,
+          hasMore: false,
+          warnings: [warning],
+        }),
+      },
+    });
+    const miss = await missCtx.handleTool("knowledge_search", "t1", { query: "定价" }, signal);
+    expect(miss.content[0].text).toContain("提示：");
+    expect(miss.content[0].text).toContain(warning);
   });
 
   test("工具描述告知 stale 的含义（旧索引/源文件已改）", () => {
