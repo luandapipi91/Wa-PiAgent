@@ -91,6 +91,25 @@ describe("buildAdaptiveContext", () => {
   });
 });
 
+describe("parseAdaptiveMetadata 容错", () => {
+  test("非 JSON / JSON 数组都退化为空结构", () => {
+    expect(parseAdaptiveMetadata({ ...c("m", 1, 5), metadataJson: "not json" })).toEqual({ scope: [] });
+    expect(parseAdaptiveMetadata({ ...c("m", 1, 5), metadataJson: "[1,2]" })).toEqual({ scope: [] });
+  });
+});
+
+describe("buildAdaptiveContext 分隔符", () => {
+  test("块内含 \\n\\n 时按原样保留，块间仍以空行分隔", () => {
+    const seed = c("s", 1, 10, "第一段\n\n第二段");
+    const ctx = buildAdaptiveContext(seed, [seed], tokenizeForSearch("第一段"), {
+      maxContextChars: 6000,
+      neighborTarget: 1,
+    });
+    expect(ctx.content).toBe("第一段\n\n第二段");
+    expect(ctx.content).toContain("\n\n第二段");
+  });
+});
+
 describe("adaptiveRelationBoost", () => {
   // 上游用法：两侧都是 parseAdaptiveMetadata 的产物
   const meta = (raw: Record<string, unknown>) =>

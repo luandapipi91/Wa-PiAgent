@@ -1,8 +1,11 @@
 // 移植自 pi-knowledge@0.13.0 dist/src/search/ranking.js（MIT）
 // 排序质量层：融合分 → 加权分（路径/文件名命中、文档意图、测试与本地化副本降权），
 // 以及词法证据门（覆盖率，源码文件命中可直接放行）。
-// 函数与常量逐字搬运上游；仅把 chunk 形状换成 Wa-Pi 的 RankChunk，
-// 且上游的 buildChunkEmbeddingText(chunk)（含 title/breadcrumb 前缀）用 chunk.content 代替。
+// 函数与常量逐字搬运上游；仅把 chunk 形状换成 Wa-Pi 的 RankChunk。
+// 上游 buildChunkEmbeddingText(chunk) 会拼 `File:`/`Section:` 上下文前缀；Wa-Pi 不复制
+// 前缀字符串，改用「title + breadcrumb + content」，保证「文件名/标题精确命中、正文只是
+// 引用该词」的块不被词法证据门误杀。
+import type { KbSearchRanking } from "@wa-pi/shared";
 import { signalTokens, tokenizeForSearch } from "./query";
 import type { RankChunk } from "./contracts";
 
@@ -55,6 +58,31 @@ export function normalizeFileTypeFilter(fileType: string | undefined): string | 
   if (!fileType) return undefined;
   const normalized = fileType.trim().toLowerCase();
   return FILE_TYPE_ALIASES[normalized] ?? normalized;
+}
+
+/** Wa-Pi chunks.file_type（scan.ts 的 KbFileType）→ 上游排序词汇。
+ * md/txt 在上游别名表里分别有 md→markdown；txt 没有 txt→text 规则，必须自建这张表。
+ * docx/pdf 上游没有对应类型，保持原样：天然不参与 documentationBoost /
+ * isLocalizationPath / sourceFileBoost（它们的判定集合里都没有 docx/pdf）。 */
+const KB_FILE_TYPE_ALIASES: Record<string, string> = {
+  md: "markdown",
+  txt: "text",
+  html: "html",
+  docx: "docx",
+  pdf: "pdf",
+};
+
+/** 把 Wa-Pi 存储的文件类型（或上游别名，如 ts/markdown）归一到排序层词汇 */
+export function normalizeKbFileType(fileType: string): string {
+  const normalized = fileType.trim().toLowerCase();
+  return KB_FILE_TYPE_ALIASES[normalized] ?? normalizeFileTypeFilter(normalized) ?? normalized;
+}
+
+/** 覆盖率/词法证据的判定文本：title + breadcrumb + content（对齐上游 buildChunkEmbeddingText 的作用） */
+export function buildChunkEmbeddingText(
+  chunk: Pick<RankChunk, "content" | "title" | "breadcrumb">,
+): string {
+  return [chunk.title, chunk.breadcrumb, chunk.content].filter(Boolean).join("\n");
 }
 
 export function isTestPath(filePath: string): boolean {
@@ -163,19 +191,7 @@ function documentationBoost(
   return 0;
 }
 
-export interface RankingDiagnostics {
-  adjusted_score: number;
-  base_score: number;
-  coverage: number;
-  documentation_boost: number;
-  is_localization: boolean;
-  is_test: boolean;
-  localization_penalty: number;
-  path_boost: number;
-  source_boost: number;
-  test_intent: boolean;
-  user_guide_intent: boolean;
-}
+export type RankingDiagnostics = KbSearchRanking;
 
 export function scoreChunkForQuery(
   baseScore: number,
@@ -200,7 +216,7 @@ export function scoreChunkForQuery(
   return {
     adjusted_score: adjustedScore,
     base_score: baseScore,
-    coverage: queryCoverage(chunk.content, queryTokens),
+    coverage: queryCoverage(buildChunkEmbeddingText(chunk), queryTokens),
     documentation_boost: docBoost,
     is_localization: localization,
     is_test: test,
@@ -216,12 +232,7 @@ export function hasEnoughLexicalEvidence(chunk: RankChunk, queryTokens: Set<stri
   const signals = signalTokens(queryTokens);
   if (signals.size <= 1) return true;
   if (sourceFileBoost(chunk, queryTokens) >= 0.22) return true;
-  const coverage = queryCoverage(chunk.content, queryTokens);
+  const coverage = queryCoverage(buildChunkEmbeddingText(chunk), queryTokens);
   if (signals.size <= 3) return coverage >= 1 / signals.size;
   return coverage >= 0.34;
-}
-
-// TODO(T8): 上游无此函数，编排重写后删除
-export function queryTokensOf(query: string): Set<string> {
-  return tokenizeForSearch(query);
 }

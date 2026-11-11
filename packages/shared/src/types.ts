@@ -204,6 +204,134 @@ export interface KbInfo {
 	};
 }
 
+/** knowledge_search 的对外 mode（12 个取值，对齐 pi-knowledge；code/config/errors/docs/decision 为别名） */
+export type KbSearchMode =
+	| "auto"
+	| "fast"
+	| "semantic"
+	| "hybrid"
+	| "semantic_hybrid"
+	| "deep"
+	| "adaptive"
+	| "code"
+	| "config"
+	| "docs"
+	| "errors"
+	| "decision";
+
+/** 归一后的检索策略（12 个 mode 经 retrievalModeFor 落到这 6 个） */
+export type KbRetrievalMode = "fast" | "semantic" | "hybrid" | "semantic_hybrid" | "adaptive" | "deep";
+
+/** provenance.match_reason 的取值 */
+export type KbMatchReason = "bm25" | "vector" | "hybrid" | "rerank" | "adaptive";
+
+/** 检索 profile（auto = 按查询内容与 mode 自动选） */
+export type KbSearchProfile =
+	| "auto"
+	| "balanced"
+	| "low_token"
+	| "precision"
+	| "recall"
+	| "long_context"
+	| "code"
+	| "docs";
+
+/** 排序诊断（scoreChunkForQuery 的产物，字段名对齐上游输出契约） */
+export interface KbSearchRanking {
+	adjusted_score: number;
+	base_score: number;
+	coverage: number;
+	documentation_boost: number;
+	is_localization: boolean;
+	is_test: boolean;
+	localization_penalty: number;
+	path_boost: number;
+	source_boost: number;
+	test_intent: boolean;
+	user_guide_intent: boolean;
+}
+
+/** 命中块出处（对齐上游 provenance；source_mtime 是索引时记录的源文件 mtime） */
+export interface KbSearchProvenance {
+	chunk_id: string;
+	chunk_hash: string;
+	indexed_at: number;
+	source_mtime?: number;
+	stale: boolean;
+	match_reason: KbMatchReason;
+	source_chunk_ids: string[];
+}
+
+/** 检索结果条目 */
+export interface KbSearchHit {
+	kbId: string;
+	kbName: string;
+	content: string;
+	filePath: string;
+	/** 归一后的上游文件类型词汇：markdown / text / html / docx / pdf … */
+	fileType: string;
+	title: string | null;
+	breadcrumb: string | null;
+	startLine: number | null;
+	endLine: number | null;
+	score: number;
+	/** 查询词居中的片段摘要 */
+	snippet: string;
+	/** 排序诊断（覆盖率、加分/降权明细） */
+	ranking: KbSearchRanking;
+	provenance: KbSearchProvenance;
+	/** 结果可能落后于磁盘（整库旧索引或该块源文件已与索引记录不符） */
+	stale?: boolean;
+}
+
+/** 被跳过的库：reason 取 not_ready / missing / db_missing / db_error /
+ * embed_meta_mismatch（向量通道降级）/ lexical_anchor（hybrid 系列词法零命中） */
+export interface KbSkippedKb {
+	kbId: string;
+	reason: string;
+}
+
+/** 检索调优参数摘要（下划线命名，对齐上游输出契约） */
+export interface KbSearchTuningSummary {
+	requested_profile: KbSearchProfile;
+	selected_profile: Exclude<KbSearchProfile, "auto">;
+	limit: number;
+	snippet_max_length: number;
+	min_hybrid_score: number;
+	candidate_limit: number;
+	retrieval_limit_per_kb: number;
+	retrieved_candidates: number;
+	filtered_candidates: number;
+	diversity_candidates: number;
+	candidate_pool_truncated: boolean;
+	candidate_min: number;
+	candidate_multiplier: number;
+	adaptive_context_lines: number;
+	adaptive_max_context_chars: number;
+	adaptive_neighbor_target: number;
+	deep_rerank_candidates: number;
+	deep_rerank_top_k_multiplier: number;
+}
+
+/** knowledge_search 回包 */
+export interface KbSearchResult {
+	/** 本页是否有命中（空结果 = 知识库未覆盖，不许低分凑数） */
+	found: boolean;
+	results: KbSearchHit[];
+	/** Wa-Pi 特有：被跳过的库与原因（上游只用 warnings 文本表达） */
+	skippedKbs: KbSkippedKb[];
+	/** 入参 mode 原样回显（code/errors 等别名不归一），对齐上游 mode_used */
+	modeUsed: KbSearchMode;
+	/** auto 回退链里在最终模式之前尝试过的模式 */
+	retryModes?: KbRetrievalMode[];
+	/** deep 模式是否真的做了重排（modeUsed 仍报 deep） */
+	rerankUsed: boolean;
+	totalCount: number;
+	hasMore: boolean;
+	warnings?: string[];
+	tuning: KbSearchTuningSummary;
+}
+
 /** 首次扫描预览：文件总量与建议跳过清单 */
 export interface KbScanPreview {
 	totalFiles: number;

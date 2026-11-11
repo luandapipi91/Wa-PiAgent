@@ -120,7 +120,10 @@ test("检索路径：库文件丢失标 skippedKbs(db_missing)，不当作空库
   removeKbFiles(kb.id);
 
   // 查询嵌入注入 null：不触发模型，本用例只看库文件缺失的分支
-  const r = await searchKnowledge(ctx, [kb.id], "内容甲", 5, async () => null);
+  const r = await searchKnowledge(ctx, [kb.id], "内容甲", {
+    limit: 5,
+    embedQueryFn: async () => null,
+  });
   expect(r.found).toBe(false);
   expect(r.skippedKbs).toContainEqual({ kbId: kb.id, reason: "db_missing" });
 

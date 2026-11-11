@@ -1,10 +1,11 @@
 // 移植自 pi-knowledge@0.13.0 dist/src/search/tuning.js（MIT）
 // 一次查询的「调优参数」：按 profile 给默认预算，再允许环境变量逐项覆盖并夹紧到安全区间。
+import type { KbSearchProfile } from "@wa-pi/shared";
 import { MAX_SEARCH_RESULTS, MAX_SEARCH_WINDOW } from "./contracts";
 import { MIN_HYBRID_SCORE } from "./ranking";
 
 /** 对外可选的 profile（auto = 由查询内容与 mode 自动选） */
-export type SearchProfile = "auto" | "balanced" | "low_token" | "precision" | "recall" | "long_context" | "code" | "docs";
+export type SearchProfile = KbSearchProfile;
 
 /** 解析后的具体 profile（auto 之外七种，对应 PROFILE_DEFAULTS 的键） */
 type ConcreteProfile = Exclude<SearchProfile, "auto">;

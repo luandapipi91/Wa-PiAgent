@@ -8,6 +8,8 @@ import {
   pathTokenBoost,
   basenameTokenBoost,
   normalizeFileTypeFilter,
+  normalizeKbFileType,
+  buildChunkEmbeddingText,
   isTestPath,
   queryAsksForTests,
   isLocalizationPath,
@@ -34,6 +36,17 @@ test("file_type 别名归一", () => {
   expect(normalizeFileTypeFilter("markdown")).toBe("markdown");
   expect(normalizeFileTypeFilter("md")).toBe("markdown");
   expect(normalizeFileTypeFilter(undefined)).toBeUndefined();
+});
+
+test("Wa-Pi 存储 file_type → 上游排序词汇（txt 无上游别名，必须自建映射）", () => {
+  expect(normalizeKbFileType("md")).toBe("markdown");
+  expect(normalizeKbFileType("txt")).toBe("text");
+  expect(normalizeKbFileType("html")).toBe("html");
+  expect(normalizeKbFileType("docx")).toBe("docx");
+  expect(normalizeKbFileType("pdf")).toBe("pdf");
+  // 上游别名仍可用（过滤参数可能直接传 ts/markdown）
+  expect(normalizeKbFileType("ts")).toBe("typescript");
+  expect(normalizeKbFileType("markdown")).toBe("markdown");
 });
 
 test("测试路径与本地化识别", () => {
@@ -72,6 +85,17 @@ test("scoreChunkForQuery 返回完整 ranking 字段", () => {
   expect(r.adjusted_score).toBeGreaterThanOrEqual(0.5);
   expect(r).toMatchObject({ is_test: false, is_localization: false, test_intent: false, user_guide_intent: false, documentation_boost: 0 });
   expect(r.coverage).toBeGreaterThan(0);
+});
+
+test("覆盖率文本包含 title/breadcrumb：正文零重叠但标题命中也能过词法证据门", () => {
+  const q = signalTokens(tokens("定价政策")); // 3 个信号词
+  const viaTitle = chunk({ title: "定价政策", content: "完全无关的正文" });
+  expect(buildChunkEmbeddingText(viaTitle)).toContain("定价政策");
+  expect(hasEnoughLexicalEvidence(viaTitle, q)).toBe(true);
+  expect(scoreChunkForQuery(0.5, viaTitle, q).coverage).toBe(1);
+  // 反证：title/breadcrumb 都没命中时，同一正文过不了门
+  const bare = chunk({ title: null, breadcrumb: null, content: "完全无关的正文" });
+  expect(hasEnoughLexicalEvidence(bare, q)).toBe(false);
 });
 
 test("中文覆盖率不为 0", () => {

@@ -7,9 +7,6 @@ import {
   chooseAutoMode,
   fallbackModesFor,
   isWeakAutoResponse,
-  MODE_SPECS,
-  pickPrimaryMode,
-  pickNextFallback,
   type SearchMode,
 } from "../src/knowledge/search/modes";
 
@@ -77,19 +74,4 @@ test("弱结果判定（上游 isWeakAutoResponse）", () => {
   expect(isWeakAutoResponse('"ERR_ABORTED"', resp(1, 0, "a.ts", "ERR_ABORTED 出现"), "fast", "fast")).toBe(false);
   expect(isWeakAutoResponse("定价", resp(1, 0), "hybrid", "semantic")).toBe(true);
   expect(isWeakAutoResponse("定价", resp(1, 0.3), "hybrid", "semantic")).toBe(false);
-});
-
-// TODO(T8): 编排未重写前 search.ts 仍吃旧适配层，这里只做防误删的冒烟断言
-describe("过渡适配层（T8 删除）", () => {
-  test("MODE_SPECS 仍按 6 种检索策略给出规格", () => {
-    expect(Object.keys(MODE_SPECS).sort()).toEqual(
-      ["adaptive", "deep", "fast", "hybrid", "semantic", "semantic_hybrid"].sort(),
-    );
-  });
-
-  test("pickPrimaryMode / pickNextFallback 行为未变", () => {
-    expect(pickPrimaryMode('"ERR_ABORTED"')).toBe("fast");
-    expect(pickPrimaryMode("定价政策")).toBe("hybrid");
-    expect(pickNextFallback("hybrid", ["hybrid"])).toBe("fast");
-  });
 });

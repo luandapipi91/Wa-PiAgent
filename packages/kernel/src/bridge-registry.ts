@@ -331,7 +331,7 @@ async function handleKnowledgeSearch(
           ...(h.stale ? { stale: true } : {}),
         })),
         skippedKbs: skipped,
-        mode: res.mode,
+        mode: res.modeUsed,
         rerank_used: res.rerankUsed,
       })
     : `知识库中未找到相关内容${skipped ? `（跳过: ${skipped}）` : ""}。空结果表示知识库未覆盖该内容，不代表事实不存在。`;

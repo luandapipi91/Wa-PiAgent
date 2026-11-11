@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { makeDefaultBridgeContext } from "../src/bridge-registry";
 import { KB_SEARCH_DESCRIPTION } from "@wa-pi/shared";
 import type { MemoryToolContext } from "../src/memory/tools";
-import type { KbSearchResult } from "../src/knowledge/search";
+import type { KbSearchResult } from "@wa-pi/shared";
 import { makeKnowledgeToolContext } from "../src/knowledge/tool";
 import { knowledgeDbPath } from "../src/knowledge/paths";
 import type { KnowledgeStore } from "../src/knowledge/store";
@@ -19,6 +19,20 @@ const fakeMemoryCtx = { dao: null, projectId: null } as unknown as MemoryToolCon
 
 const signal = new AbortController().signal;
 
+const fakeRanking = {
+  adjusted_score: 0.5,
+  base_score: 0.5,
+  coverage: 1,
+  documentation_boost: 0,
+  is_localization: false,
+  is_test: false,
+  localization_penalty: 1,
+  path_boost: 0,
+  source_boost: 0,
+  test_intent: false,
+  user_guide_intent: false,
+};
+
 const fakeKbResult: KbSearchResult = {
   found: true,
   results: [
@@ -27,16 +41,49 @@ const fakeKbResult: KbSearchResult = {
       kbName: "产品资料",
       content: "定价策略：订阅制，按席位收费。",
       filePath: "docs/pricing.md",
+      fileType: "markdown",
       title: "定价",
       breadcrumb: "商业/定价",
       startLine: 12,
       endLine: 18,
       score: 0.0164,
+      snippet: "定价策略：订阅制",
+      ranking: fakeRanking,
+      provenance: {
+        chunk_id: "c-1",
+        chunk_hash: "h-1",
+        indexed_at: 1,
+        stale: false,
+        match_reason: "hybrid",
+        source_chunk_ids: ["c-1"],
+      },
     },
   ],
   skippedKbs: [],
-  mode: "hybrid",
+  modeUsed: "hybrid",
   rerankUsed: false,
+  totalCount: 1,
+  hasMore: false,
+  tuning: {
+    requested_profile: "auto",
+    selected_profile: "balanced",
+    limit: 5,
+    snippet_max_length: 240,
+    min_hybrid_score: 0.18,
+    candidate_limit: 50,
+    retrieval_limit_per_kb: 50,
+    retrieved_candidates: 1,
+    filtered_candidates: 1,
+    diversity_candidates: 1,
+    candidate_pool_truncated: false,
+    candidate_min: 50,
+    candidate_multiplier: 12,
+    adaptive_context_lines: 80,
+    adaptive_max_context_chars: 6000,
+    adaptive_neighbor_target: 5,
+    deep_rerank_candidates: 30,
+    deep_rerank_top_k_multiplier: 3,
+  },
 };
 
 describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 knowledge_search 并返回结构化结果", async () => {
@@ -86,35 +133,28 @@ describe("knowledge_search bridge 分发", () => {  test("handleTool 分发 know
 
   test("陈旧命中在输出里带 stale:true，新鲜命中不带该键（不给正常结果加噪声）", async () => {
     const result: KbSearchResult = {
-      found: true,
+      ...fakeKbResult,
       results: [
         {
-          kbId: "kb-1",
-          kbName: "产品资料",
+          ...fakeKbResult.results[0],
           content: "新鲜块。",
           filePath: "docs/fresh.md",
           title: "新鲜",
-          breadcrumb: null,
           startLine: 1,
           endLine: 2,
-          score: 0.02,
         },
         {
-          kbId: "kb-1",
-          kbName: "产品资料",
+          ...fakeKbResult.results[0],
           content: "源文件已改的旧块。",
           filePath: "docs/stale.md",
           title: "陈旧",
-          breadcrumb: null,
           startLine: 3,
           endLine: 4,
-          score: 0.01,
           stale: true,
+          provenance: { ...fakeKbResult.results[0].provenance, stale: true },
         },
       ],
-      skippedKbs: [],
-      mode: "hybrid",
-      rerankUsed: false,
+      totalCount: 2,
     };
     const ctx = makeDefaultBridgeContext({
       sessionId: "s",
@@ -191,12 +231,14 @@ describe("makeKnowledgeToolContext 连接复用", () => {
       const res = await ctx.search("定价", 5);
       // 注入的实例被真正使用（而非被忽略后自建）
       expect(getKbCalls).toBe(1);
-      expect(res).toEqual({
+      expect(res).toMatchObject({
         found: false,
         results: [],
         skippedKbs: [{ kbId: "kb_1", reason: "missing" }],
-        mode: "hybrid",
+        modeUsed: "hybrid",
         rerankUsed: false,
+        totalCount: 0,
+        hasMore: false,
       });
       // 自建连接会当场创建 knowledge.db：文件不存在即证明未新开连接
       expect(existsSync(knowledgeDbPath(tmp))).toBe(false);
