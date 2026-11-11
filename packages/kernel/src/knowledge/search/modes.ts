@@ -123,13 +123,14 @@ export function isWeakAutoResponse(
 // 以下为旧自研简化版的过渡适配层，当前 search.ts 仍引用；T8 重写编排后整段删除。
 // ---------------------------------------------------------------------------
 
-/** TODO(T8): 上游无此符号，编排重写后删除 */
+// TODO(T8): 上游无此符号，编排重写后删除
 export type ResolvedMode = RetrievalMode;
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** 词法通道行为：off=不跑 FTS；and_only=只跑严格短语（关 OR 回退）；and_or=短语零命中降级 OR */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export type LexicalPolicy = "off" | "and_only" | "and_or";
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /**
  * 门控策略：
  * - strong：分数 ≥ 0.18 且词法证据足够（hybrid / adaptive / deep）
@@ -137,14 +138,13 @@ export type LexicalPolicy = "off" | "and_only" | "and_or";
  * - coverage：只要该块被词法命中（fast：任一词命中即放行）
  * - none：不过门（semantic：纯向量，靠距离门把关）
  */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export type GatePolicy = "strong" | "score" | "coverage" | "none";
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** 扩窗策略：blocks=±5 邻块（既有行为）；lines=±80 行 / 5 邻居 / 6000 字符；none=不扩 */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export type ExpandPolicy = "blocks" | "lines" | "none";
 
-/** TODO(T8): 上游无此符号，编排重写后删除 */
+// TODO(T8): 上游无此符号，编排重写后删除
 export interface ModeSpec {
 	lexical: LexicalPolicy;
 	semantic: boolean;
@@ -158,7 +158,7 @@ export interface ModeSpec {
 	rerank: boolean;
 }
 
-/** TODO(T8): 上游无此符号，编排重写后删除 */
+// TODO(T8): 上游无此符号，编排重写后删除
 export const MODE_SPECS: Record<ResolvedMode, ModeSpec> = {
 	// 默认：双路融合 + 词法锚定 + 强门控 + 块扩窗
 	hybrid: {
@@ -222,8 +222,8 @@ export const MODE_SPECS: Record<ResolvedMode, ModeSpec> = {
 	},
 };
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** 各模式在 auto 里的回退链（第一项以外按顺序尝试，跳过已尝试过的） */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 const AUTO_FALLBACK: Record<ResolvedMode, ResolvedMode[]> = {
 	hybrid: ["fast", "semantic", "adaptive"],
 	fast: ["hybrid", "semantic"],
@@ -233,21 +233,21 @@ const AUTO_FALLBACK: Record<ResolvedMode, ResolvedMode[]> = {
 	deep: ["hybrid"],
 };
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** auto 最多尝试几次（含主模式） */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export const AUTO_MAX_ATTEMPTS = 3;
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** 精确查找特征：引号串 / 路径 / 驼峰 / 常量 / 文件名 / 工单号 */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 const EXACT_FILE_RE =
 	/\b[\w.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|mdx|yml|yaml|toml|ini|py|go|rs|java|kt|sql|html|css|sh|env)\b/gi;
-/** TODO(T8): 上游无此符号，编排重写后删除 */
+// TODO(T8): 上游无此符号，编排重写后删除
 const EXACT_TICKET_RE = /\b[A-Z]{2,}-\d+\b/g;
-/** TODO(T8): 上游无此符号，编排重写后删除 */
+// TODO(T8): 上游无此符号，编排重写后删除
 const EXACT_CONST_RE = /\b[A-Z][A-Z0-9_]{2,}\b/g;
-/** TODO(T8): 上游无此符号，编排重写后删除 */
+// TODO(T8): 上游无此符号，编排重写后删除
 const CAMEL_RE = /\b[a-z]+(?:[A-Z][a-z0-9]*)+\b|\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+\b/g;
-/** TODO(T8): 上游无此符号，编排重写后删除 */
+// TODO(T8): 上游无此符号，编排重写后删除
 const CONCEPT_RE = /how|why|架构|流程|原理|怎么|如何|为什么|机制|设计/i;
 
 /**
@@ -278,8 +278,8 @@ export function pickPrimaryMode(query: string): ResolvedMode {
 	return "hybrid";
 }
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** auto 每次尝试后的信号 */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export interface AttemptSignal {
 	mode: ResolvedMode;
 	resultCount: number;
@@ -300,8 +300,8 @@ export function isWeakResult(sig: AttemptSignal): boolean {
 	return false;
 }
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** 按回退链选下一个还没尝试过的模式；没有则 null */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export function pickNextFallback(
 	primary: ResolvedMode,
 	attempted: ResolvedMode[],
@@ -312,8 +312,8 @@ export function pickNextFallback(
 	return null;
 }
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** 从查询里抽「精确串」：引号内容、路径、文件名、常量、工单号（用于 fast 的命中判定） */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export function extractExactSpans(query: string): string[] {
 	const spans = new Set<string>();
 	for (const m of query.matchAll(/["'“”‘’]([^"'“”‘’]{1,200})["'“”‘’]/g)) {
@@ -328,8 +328,8 @@ export function extractExactSpans(query: string): string[] {
 	return [...spans];
 }
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** 结果里的最高词法覆盖率 */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export function maxCoverage(
 	tokens: Set<string>,
 	results: Array<{ content: string }>,
@@ -342,8 +342,8 @@ export function maxCoverage(
 	return best;
 }
 
+// TODO(T8): 上游无此符号，编排重写后删除
 /** 组装一次尝试的信号（供 auto 判定） */
-/** TODO(T8): 上游无此符号，编排重写后删除 */
 export function attemptSignal(
 	mode: ResolvedMode,
 	query: string,
