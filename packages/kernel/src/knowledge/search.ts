@@ -17,7 +17,7 @@ import {
   queryTokensOf,
   scoreChunkForQuery,
 } from "./search/ranking";
-import { diversify } from "./search/diversity";
+import { diversifyRankedChunks, interleaveByFile, type RankedCandidate } from "./search/diversity";
 import { expandLineWindow, expandWindow, type WindowRow } from "./search/window";
 import {
 	MODE_SPECS,
@@ -157,7 +157,7 @@ export async function searchKnowledge(
   const statFn: StatFn = opts.statFn ?? fsStat;
   const skippedKbs: KbSkippedKb[] = [];
   // 中间态多带库根与记录 mtime：截断后要拿它们核对源文件新鲜度（不暴露给调用方）
-  const merged: Array<{ hit: KbSearchHit; root: string; recordedMtime: number }> = [];
+  const merged: Array<{ hit: KbSearchHit; chunk: RankChunk; root: string; recordedMtime: number }> = [];
 
   // 查询侧只算一次：嵌入（null = 模型不可用 → 语义通道禁用）+ FTS MATCH 表达式
   // semantic=false 的模式（fast）不花一次 embedding
@@ -319,25 +319,37 @@ export async function searchKnowledge(
           score: adjustedScore,
           ...(staleKb ? { stale: true } : {}),
         },
+        chunk: rankChunk,
         root: kb.folderPath,
         recordedMtime: row.file_mtime,
       });
     }
   }
 
-  // 跨库合并：先按加权分降序，再做多样性与文件交错（单文件最多 2 条），最后截断。
+  // 跨库合并：先按加权分降序，再按上游形式做多样性（MMR）+ 文件交错，最后截断到 limit。
   // 多样性必须在截断前——否则单文件的相邻块会把 limit 占满，其他来源永远进不来。
   merged.sort((a, b) => b.hit.score - a.hit.score);
-  const ranked = merged.map((m) => ({
-    ...m,
-    score: m.hit.score,
-    filePath: m.hit.filePath,
-    content: m.hit.content,
+  // 当前管线不保留块向量（量化扫描只回距离），向量冗余项留空；行邻近与词法相似度仍然生效
+  const vectors = new Map<string, Float32Array>();
+  const ranked: RankedCandidate[] = merged.map(({ hit, chunk }) => ({
+    chunk,
+    kbName: hit.kbName,
+    score: hit.score,
+    content: hit.content,
+    snippet: hit.content,
+    startLine: hit.startLine ?? 0,
+    endLine: hit.endLine ?? 0,
+    sourceChunkIds: [chunk.id],
   }));
-  const top =
-    ranked.length > 0
-      ? diversify(ranked, { limit: Math.max(0, limit), maxPerFile: 2, lambda: 0.7 })
-      : [];
+  const diversified = interleaveByFile(
+    await diversifyRankedChunks(ranked, "balanced", vectors),
+    "balanced",
+  );
+  // 多样性层只决定顺序：按块 id 映回带库根/记录 mtime 的合并条目，再截断到 limit
+  const mergedByChunkId = new Map(merged.map((m) => [m.chunk.id, m]));
+  const top = diversified
+    .slice(0, Math.max(0, limit))
+    .flatMap((c) => mergedByChunkId.get(c.chunk.id) ?? []);
   // 新鲜度只核对最终返回的这几条（≤limit 次 stat，并发不放大 IO）；整库已标 stale 的短路不再 stat
   await Promise.all(
     top.map(async ({ hit, root, recordedMtime }) => {
