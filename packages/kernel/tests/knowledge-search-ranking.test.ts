@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { test, expect } from "bun:test";
 import { tokenizeForSearch, signalTokens } from "../src/knowledge/search/query";
 import {
   scoreChunkForQuery,
