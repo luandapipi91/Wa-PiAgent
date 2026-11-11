@@ -171,10 +171,13 @@ async function getPipeline(): Promise<{ tokenizer: RerankTokenizer; model: Reran
 }
 
 /**
- * 临时把 transformers 的下载源指到重排配置，执行 fn 后无条件还原。
+ * 临时把 transformers 的下载源指到重排配置，执行 fn 后还原。
  * `env` 是进程级全局（上游靠 model-worker 子进程隔离，Wa-Pi 单进程没有隔离）：不还原的话，
  * 一旦改为重排专用 host/模型 URL，随后 embedder 的旧守卫（跳过「非空且不含 huggingface.co」）
  * 会保留该 host，e5 就去错误的源拉模型。失败/抛错路径同样必须还原。
+ *
+ * 还原是「比较后写」：只改回仍是我们本次写入的值。窗口内别的模块（如 embedder）合法改写过
+ * 就不动它——否则会把自己的旧值反向盖回去（lost update）。
  */
 export async function withRerankerEnv<T>(
 	config: HfRerankerConfig,
@@ -185,13 +188,16 @@ export async function withRerankerEnv<T>(
 	const prevRemotePathTemplate = env.remotePathTemplate;
 	// remoteHost 与 remotePathTemplate 是直接字符串拼接：尾部斜杠必须补齐
 	const host = config.remoteHost ?? DEFAULT_RERANKER_REMOTE_HOST;
-	env.remoteHost = `${host.replace(/\/+$/, "")}/`;
-	env.remotePathTemplate = config.remotePathTemplate ?? DEFAULT_RERANKER_REMOTE_PATH_TEMPLATE;
+	const mineHost = `${host.replace(/\/+$/, "")}/`;
+	const mineTemplate = config.remotePathTemplate ?? DEFAULT_RERANKER_REMOTE_PATH_TEMPLATE;
+	env.remoteHost = mineHost;
+	env.remotePathTemplate = mineTemplate;
 	try {
 		return await fn();
 	} finally {
-		env.remoteHost = prevRemoteHost;
-		env.remotePathTemplate = prevRemotePathTemplate;
+		if (env.remoteHost === mineHost) env.remoteHost = prevRemoteHost;
+		if (env.remotePathTemplate === mineTemplate)
+			env.remotePathTemplate = prevRemotePathTemplate;
 	}
 }
 

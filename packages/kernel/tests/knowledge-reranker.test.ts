@@ -281,3 +281,27 @@ test("withRerankerEnv：加载期间用配置的源，结束后无条件还原�
     env.remotePathTemplate = before.path;
   }
 });
+
+test("withRerankerEnv：加载窗口内他人改写的 env 不被 finally 覆盖（lost update）", async () => {
+  const { env } = await import("@huggingface/transformers");
+  const { withRerankerEnv } = await import("../src/knowledge/reranker");
+  const { resolveRerankerConfig } = await import("../src/knowledge/search/reranker-config");
+  const before = { host: env.remoteHost, path: env.remotePathTemplate };
+  try {
+    const config = resolveRerankerConfig({
+      PI_KNOWLEDGE_RERANKER_REMOTE_HOST: "https://rerank.example.com",
+    } as never);
+    if (config.provider !== "hf") throw new Error("expected hf config");
+    await withRerankerEnv(config, async () => {
+      // 模拟 embedder 在窗口内完成加载并写入镜像 host
+      env.remoteHost = "https://hf-mirror.com";
+    });
+    // 他人写入必须保留，不能被「还原成 prev」盖回去
+    expect(env.remoteHost).toBe("https://hf-mirror.com");
+    // 没被别人动过的字段照常还原
+    expect(env.remotePathTemplate).toBe(before.path);
+  } finally {
+    env.remoteHost = before.host;
+    env.remotePathTemplate = before.path;
+  }
+});
