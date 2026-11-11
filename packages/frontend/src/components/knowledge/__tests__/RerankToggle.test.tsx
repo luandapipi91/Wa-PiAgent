@@ -53,6 +53,17 @@ describe("深度重排（页头「更多」菜单内）", () => {
     expect(screen.queryByTestId("kb-rerank-toggle")).toBeNull();
   });
 
+  test("诊断也收进「更多」菜单：页头无诊断按钮，菜单内入口可打开体检弹窗", async () => {
+    render(<KnowledgePage />);
+    await screen.findByTestId("kb-more-menu");
+    expect(screen.queryByTestId("kb-doctor-open")).toBeNull(); // 页头已无
+    fireEvent.click(screen.getByTestId("kb-more-menu"));
+    const entry = await screen.findByTestId("kb-doctor-open");
+    fireEvent.click(entry);
+    await screen.findByTestId("kb-doctor-modal");
+    expect(screen.queryByTestId("kb-more-popup")).toBeNull(); // 开弹窗前先收菜单
+  });
+
   test("开关是 switch（role=switch + aria-checked），点击后 PUT {enabled:true}", async () => {
     await openMenu();
     const toggle = await screen.findByTestId("kb-rerank-toggle");

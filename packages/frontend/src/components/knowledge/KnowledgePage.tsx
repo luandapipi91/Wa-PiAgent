@@ -119,14 +119,6 @@ export function KnowledgePage() {
         </h2>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setDoctorOpen(true)}
-            className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md"
-            style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
-            data-testid="kb-doctor-open"
-          >
-            {t("kb.doctorOpen")}
-          </button>
-          <button
             onClick={() => setFormTarget("new")}
             className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white"
             style={{ background: "var(--accent)", border: "none" }}
@@ -204,6 +196,20 @@ export function KnowledgePage() {
                 </div>
                 <div className="text-tertiary text-[calc(10px*var(--font-scale))] mt-2">
                   {t("kb.rerankHint")}
+                </div>
+                <div style={{ borderTop: "1px solid var(--hairline)", marginTop: 8, paddingTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setDoctorOpen(true);
+                    }}
+                    className="w-full text-left px-1 py-1.5 rounded-md text-[calc(12px*var(--font-scale))] text-primary hover:bg-surface"
+                    style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                    data-testid="kb-doctor-open"
+                  >
+                    {t("kb.doctorOpen")}
+                  </button>
                 </div>
               </div>
             )}
