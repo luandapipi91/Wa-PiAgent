@@ -76,6 +76,31 @@ test("融合：单路命中不加 overlap 加成", () => {
   expect(byId.get("b")!).toBeCloseTo(0, 5); // 该通道最小值被 min-max 压成 0
 });
 
+test("融合：两路都是空列表时返回空数组", () => {
+  expect(weightedScoreFusion([], [])).toEqual([]);
+});
+
+test("融合：单通道全同分走 max === min 分支（归一均为 1），各得 0.45", () => {
+  const fused = weightedScoreFusion(
+    [{ chunkId: "a", score: 5 }, { chunkId: "b", score: 5 }],
+    [],
+  );
+  const byId = new Map(fused.map((f) => [f.chunkId, f.score]));
+  expect(fused.length).toBe(2); // 全同分不会被压成 0
+  expect(byId.get("a")!).toBeCloseTo(0.45, 5);
+  expect(byId.get("b")!).toBeCloseTo(0.45, 5);
+});
+
+test("融合：向量权重单独为 0.55（单路最高分只拿 vector 份额）", () => {
+  const fused = weightedScoreFusion(
+    [],
+    [{ chunkId: "a", score: 0.9 }, { chunkId: "b", score: 0 }],
+  );
+  const byId = new Map(fused.map((f) => [f.chunkId, f.score]));
+  expect(byId.get("a")!).toBeCloseTo(0.55, 5);
+  expect(byId.get("b")!).toBeCloseTo(0, 5);
+});
+
 test("RRF：k=60，同一块在多个列表里的名次分累加", () => {
   const fused = reciprocalRankFusion([
     [{ chunkId: "a", score: 99 }, { chunkId: "b", score: 1 }], // a 第 1 名、b 第 2 名
