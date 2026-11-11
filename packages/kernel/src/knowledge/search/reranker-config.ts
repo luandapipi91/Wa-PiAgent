@@ -59,7 +59,7 @@ function stripProviderPrefix(raw: string): { provider?: RerankerProvider; value:
 interface ParsedHfUrl {
   model: string;
   revision?: string;
-  remoteHost: string;
+  remoteHost?: string;
 }
 
 function parseHuggingFaceUrl(raw: string): ParsedHfUrl | undefined {
@@ -90,7 +90,7 @@ function resolveHfModel(raw: string): ParsedHfUrl {
   if (!raw.includes("/") || raw.startsWith("/") || raw.endsWith("/")) {
     throw new Error(`Invalid reranker model id: ${raw}`);
   }
-  return { model: raw, remoteHost: "" };
+  return { model: raw };
 }
 
 function parseNumber(
@@ -206,7 +206,8 @@ export function resolveRerankerConfig(env: NodeJS.ProcessEnv = process.env): Rer
     dtype: cleanEnv(env.PI_KNOWLEDGE_RERANKER_DTYPE),
     remoteHost:
       cleanEnv(env.PI_KNOWLEDGE_RERANKER_REMOTE_HOST) ??
-      (resolved.remoteHost || waPiRemoteHost(env)),
+      resolved.remoteHost ??
+      waPiRemoteHost(env),
     remotePathTemplate: cleanEnv(env.PI_KNOWLEDGE_RERANKER_REMOTE_PATH_TEMPLATE),
     ...(rawLogits ? { rawLogits: true } : {}),
   };

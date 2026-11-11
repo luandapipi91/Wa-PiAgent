@@ -276,7 +276,7 @@ export async function rerank(
 	if (!isRerankerReady()) return [];
 	const p = pipe;
 	if (!p) return [];
-	// transformers.js v4 的 tokenizer 调用同步返回 BatchEncoding；共享类型按「可能异步」声明，
+	// transformers.js v4 的 tokenizer 调用同步返回 BatchEncoding；共享类型只声明到 unknown，
 	// 这里窄化到上游 RawLogitTokenizer 形状（运行时一致）
 	const tokenizer = p.tokenizer as unknown as RawLogitTokenizer;
 	try {

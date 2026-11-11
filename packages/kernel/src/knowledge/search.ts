@@ -541,8 +541,7 @@ export async function searchKnowledge(
     // 不截断会让 totalCount/多样性池远大于上游（重排候选最多 30 条全进结果）
     const topK = Math.max(limit * tuning.deepRerankTopKMultiplier, limit);
     // 未就绪不触发加载：下载只由设置页「开启」显式触发，检索路径只消费已就绪的模型
-    const rerankFn: RerankFn | null =
-      opts.rerankFn ?? (isRerankerReady() ? rerank : null);
+    const rerankFn: RerankFn | null = opts.rerankFn ?? (isRerankerReady() ? rerank : null);
     const hits = rerankFn
       ? await rerankFn(
           query,
@@ -557,7 +556,9 @@ export async function searchKnowledge(
     throwIfAborted(opts.signal);
     if (hits.length > 0) {
       rerankUsed = true;
-      const byChunkId = new Map(rerankCandidates.map((candidate) => [candidate.chunk.id, candidate]));
+      const byChunkId = new Map(
+        rerankCandidates.map((candidate) => [candidate.chunk.id, candidate]),
+      );
       // 上游 rerank() 已按分降序并截断；这里再兜一次，保证注入的假重排器也守同一契约
       for (const { chunkId, score } of hits.slice(0, topK)) {
         const candidate = byChunkId.get(chunkId);

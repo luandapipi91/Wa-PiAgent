@@ -46,7 +46,8 @@ describe("重排配置（上游 reranker-config.js 语义 + Wa-Pi 镜像回落�
     const cfg = resolveRerankerConfig({} as never);
     expect(cfg.provider).toBe("hf");
     expect(cfg.model).toBe(DEFAULT_RERANKER_MODEL);
-    expect(rerankerCacheKey(cfg as never)).toContain(DEFAULT_RERANKER_MODEL);
+    if (!isHfRerankerConfig(cfg)) throw new Error("expected hf config");
+    expect(rerankerCacheKey(cfg)).toContain(DEFAULT_RERANKER_MODEL);
   });
 
   test("未设 PI_KNOWLEDGE_RERANKER_REMOTE_HOST 时回落 WA_PI_HF_ENDPOINT（补尾部斜杠）", () => {
