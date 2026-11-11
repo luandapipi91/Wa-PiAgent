@@ -48,9 +48,25 @@ describe("pi 工具结果契约（真 pi --mode rpc）", () => {
 	let client: RpcClient | null = null;
 	let stopServer: (() => void) | null = null;
 	let toolEnds: any[] = [];
+	// 代理中和用：保存 shell 原值，afterAll 恢复
+	const savedProxyEnv: Record<string, string | undefined> = {};
 
 	// 一次 spawn 跑完 10 个探针调用，全部 test 共享收集结果（bun test 同文件串行执行）。
 	beforeAll(async () => {
+		// 代理中和：本机 shell 的 HTTP(S)_PROXY 漂移是常态（公司代理/VPN），
+		// pi 子进程 fetch 假服务器 127.0.0.1 的请求可能被代理劫持 → 假 LLM 失联、
+		// 测试换环境就红。rpc-client 的 env 合并顺序是 process.env < opts.env <
+		// collectProxyEnv()，仅在 opts.env 置空会被 shell 值覆盖回去，故先删
+		// process.env 让 collectProxyEnv() 读不到（根因修复），再在下方 opts.env
+		// 显式置空 + NO_PROXY 环回双保险（环回流量永不走代理）。
+		const proxyKeys = [
+			"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+			"http_proxy", "https_proxy", "all_proxy", "no_proxy",
+		];
+		for (const key of proxyKeys) {
+			savedProxyEnv[key] = process.env[key];
+			delete process.env[key];
+		}
 		baseDir = await mkdtemp(join(tmpdir(), "pi-contract-"));
 		const repo = join(baseDir, "repo");
 		const nested = join(repo, "nested");
@@ -165,7 +181,15 @@ describe("pi 工具结果契约（真 pi --mode rpc）", () => {
 				thinking: "off",
 			}),
 			cwd: baseDir,
-			env: { PI_CODING_AGENT_DIR: baseDir },
+			env: {
+				PI_CODING_AGENT_DIR: baseDir,
+				// 代理中和双保险：置空代理变量 + 环回直连白名单（配合上方删除 process.env，
+				// 防御未来 env 合并顺序变化后 shell 代理重新渗入）
+				HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "",
+				http_proxy: "", https_proxy: "", all_proxy: "",
+				NO_PROXY: "127.0.0.1,localhost",
+				no_proxy: "127.0.0.1,localhost",
+			},
 			onEvent: (e) => {
 				events.push(e);
 				if (e.type === "tool_execution_end") toolEnds.push(e);
@@ -195,6 +219,11 @@ describe("pi 工具结果契约（真 pi --mode rpc）", () => {
 			/* 进程可能已自行退出 */
 		}
 		stopServer?.();
+		// 恢复 shell 原代理变量，不污染同进程后续测试
+		for (const [key, value] of Object.entries(savedProxyEnv)) {
+			if (value !== undefined) process.env[key] = value;
+			else delete process.env[key];
+		}
 		if (baseDir) await rm(baseDir, { recursive: true, force: true });
 	}, 30_000);
 
