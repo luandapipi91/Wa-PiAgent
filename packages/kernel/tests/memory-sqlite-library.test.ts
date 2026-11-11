@@ -98,7 +98,11 @@ describe("ensureCustomSqlite（端到端）", () => {
 	});
 
 	test("同 worker 二调被拒时不误报：以扩展探针为准", () => {
-		if (!dylibAvailable) {
+		// 守卫必须执行时求值而非用模块级 dylibAvailable：前序用例会正确清理
+		// WA_PI_SQLITE_DYLIB，而 assets 兜底产物（gitignore）不一定编译过，
+		// 此时 resolveSqliteDylibPath() 为 null，测试无法构造「二调被拒」现场——
+		// 依文件头「环境不具备不是失败」原则跳过。
+		if (resolveSqliteDylibPath() === null) {
 			console.warn("跳过：vanilla SQLite dylib 不存在（跑 bun run scripts/build-sqlite-dylib.ts 产出）");
 			return;
 		}

@@ -130,15 +130,29 @@ test("回归：引擎口径低估 CJK 时，内核估算仍触发预压缩（修
 	expect(fake.compacted.length).toBe(1);
 });
 
-test("条件②：占用未超 80%，但输入 + 模型最大输出 + 预留余量越窗口 → 触发", async () => {
+test("条件②：上游钳制后输出预算仍充足 → 不触发", async () => {
 	const { session, am, fake } = await setup();
 	// set_model 回传真实模型：200K 窗口、64K 最大输出
 	fake.modelToReturn = { contextWindow: 200_000, maxTokens: 64_000 };
 	// 引擎口径占用 140K（70% < 80%，仅靠比例不压缩）
 	fake.contextUsageToReturn = { tokens: 140_000, contextWindow: 200_000 };
 	await am.prompt(session.id, "继续", { model: CUSTOM_MODEL });
-	// 140000 + 64000 + 4096 = 208096 > 200000 → 触发
-	expect(fake.compacted.length).toBe(1);
+	// 上游钳制后输出 = 200000-140000-ceil(140000*0.15)=39000，不低于 8192 → 不触发
+	expect(fake.compacted.length).toBe(0);
+});
+
+test("条件②：钳制后输出预算不足 → 触发", async () => {
+	const { session, am, fake } = await setup();
+	// set_model 回传真实模型：40K 窗口、8K 最大输出
+	fake.modelToReturn = { contextWindow: 40_000, maxTokens: 8_192 };
+	// 引擎口径占用 32K（恰好不达 80% 阈值，条件①不触发）
+	fake.contextUsageToReturn = { tokens: 32_000, contextWindow: 40_000 };
+	await am.prompt(session.id, "继续", { model: CUSTOM_MODEL });
+	// 条件②新口径下该压仍压的守护用例；参数选在条件①②非重叠区：
+	// margin=max(4096, ceil(32000*0.15)=4800)=4800，room=40000-32000-4800=3200 < 32768
+	// → 回退 room=min(32768, 40000-32000-4096)=3904，钳制后输出 3904 < 8192 → 仅条件②触发。
+	// 若 maxOutputTokens 传丢，条件②不判定、条件①也不触发 → 本用例必红，锁死条件②的接线。
+	expect(fake.compacted.length).toBeGreaterThan(0);
 });
 
 test("条件②：叠加输出预算后仍在窗口内 → 不触发", async () => {
@@ -146,7 +160,7 @@ test("条件②：叠加输出预算后仍在窗口内 → 不触发", async () 
 	fake.modelToReturn = { contextWindow: 200_000, maxTokens: 8_192 };
 	fake.contextUsageToReturn = { tokens: 140_000, contextWindow: 200_000 };
 	await am.prompt(session.id, "继续", { model: CUSTOM_MODEL });
-	// 140000 + 8192 + 4096 = 152288 < 200000 → 不触发
+	// 钳制后 = min(8192, 200000-140000-ceil(140000*0.15)=39000) = 8192 ≥ 8192 → 不触发
 	expect(fake.compacted.length).toBe(0);
 });
 

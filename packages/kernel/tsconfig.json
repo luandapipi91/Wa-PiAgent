@@ -5,7 +5,10 @@
     // tsc 仅用于类型检查（构建走 bun build）；开启 allowImportingTsExtensions
     // 以允许带 .ts 后缀的相对导入（如 wa-pi-tui-host.extension.ts 导入 ./tui-host/host.ts）。
     "noEmit": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // tests 跨包 import frontend 的 .tsx 套件（工具契约锁上游 diff 格式 ↔ 解析器兼容），
+    // kernel 自身 src 无 JSX；开关只为让 tsc 能解析被引入的 .tsx，不影响 kernel 类型图。
+    "jsx": "react-jsx"
   },
   "include": ["src", "tests"],
   // wa-pi-bridge.extension.ts 是「静态扩展模板」：运行时由 ensureBridgeExtension()
