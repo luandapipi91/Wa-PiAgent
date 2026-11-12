@@ -40,6 +40,7 @@ import {
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_CWD,
 	matchKernelCommand,
+	BUILTIN_TOOL_DESCRIPTIONS,
 } from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
@@ -103,7 +104,7 @@ import { projectSkillsDirOf } from "./skill-sources";
 import type { ExtensionManager } from "./extension-manager";
 import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "./mcp-admin";
 import { hasProjectMcpFile } from "./mcp-file";
-import { mcpServerPatternsOf, mcpToolNamesOf } from "./mcp-tool-names";
+import { mcpEntryToolsOf, MCP_HARD_FILTER_ENTRY, mcpServerPatternsOf, mcpToolNamesOf } from "./mcp-tool-names";
 import { applyCodemodeToolSelection } from "./codemode";
 import { loadCodemodeLevel } from "./settings-store";
 import {
@@ -245,6 +246,11 @@ export const WA_PI_DEFAULT_SYSTEM_PROMPT = WA_PI_DEFAULT_BASE_PROMPT;
 /** 永不放行给 LLM 直接调用的工具（subagent 必须走宿主 delegate 工具） */
 const ALWAYS_EXCLUDED_TOOLS = ["subagent"];
 
+/** 知识库工具组：可见性同进同出（绑定即可见；未绑定则不可见）。
+ *  必须一起处理——只放 knowledge_search 会让模型拿到路径后去读原文件（docx/pdf 二进制读不了，
+ *  于是它自己写脚本解析），knowledge_read 才是「读已抽取正文」的入口。 */
+const KNOWLEDGE_TOOLS = ["knowledge_search", "knowledge_read"];
+
 /** 单个任务周期内崩溃自动接力上限：超过后回落为报错提示，不再自动续跑（用户拍板 2 次） */
 const AUTO_RESUME_MAX_ATTEMPTS = 2;
 /** 崩溃后延迟重建毫秒数：给进程退出/资源释放留缓冲 */
@@ -323,6 +329,14 @@ interface SessionHandle {
 const ABORT_RPC_TIMEOUT_MS = 5_000;
 /** dispose 后探活复查延迟（ms）：给 graceful kill 一点时间，仍存活则重试强杀 */
 const LIVENESS_RECHECK_DELAY_MS = 200;
+/**
+ * 空闲会话子进程回收阈值（ms）：lastActiveAt 超过此值且非 busy 才回收进程。
+ * 5 分钟（原 60s）：pi ≥1.5.1 默认 cacheWarming: "idle"，进程在两次 run 之间
+ * 刷新 Anthropic prompt cache（TTL 300s，刷新间隔 270s）；60s 会在首次刷新
+ * tick 前回收进程、保温一次都发不出，300s 让进程活过首次刷新（缓存续命到
+ * ~9.5 分钟），代价是空闲会话进程多常驻约 4 分钟。
+ */
+export const IDLE_REAP_THRESHOLD_MS = 300_000;
 
 /**
  * MCP 工具清单延时刷新的延迟（ms）。
@@ -672,6 +686,20 @@ export class AgentManager {
 	}
 
 	/**
+	 * 智能体配置保存后：该智能体的活跃会话标记为待整进程重建。
+	 *
+	 * 工具集 / 系统提示词都是 pi 的启动参数（--tools / --system-prompt），热重载不重读；
+	 * 不重建进程的话，设置里关掉的工具在现有会话的下一次对话里仍可用。等 idle 时（
+	 * `_reloadIfDirty`）重建，进行中的回合不被打断。与 renameAgentSessions 共用
+	 * skillDirty（整进程重建集合）。
+	 */
+	markAgentDirty(agentName: string): void {
+		for (const [id, handle] of this.sessions) {
+			if (handle.meta.agentName === agentName) this.skillDirty.add(id);
+		}
+	}
+
+	/**
 	 * 标记当前所有活跃会话为待整进程重建（provider 增删/改 model id 后调用）。
 	 * provider-extension.ts 经 -e 参数在 pi 进程 spawn 时固化加载，session.reload()
 	 * 热重载不会重读 -e——若走 markAllDirty（dirty 集合 → reloadExtensions 热重载），
@@ -745,8 +773,9 @@ export class AgentManager {
 	 * 连不上/需登录的服务器工具名未知，不输出。
 	 *
 	 * **白名单组装不用本方法**：pi 1.0.4 起 `--tools` 支持 `mcp__<server>__*` 通配
-	 * （POC 实测），受限 agent 的白名单改用 {@link getMcpToolPatterns} 的服务器粒度模式，
-	 * 不受枚举竞态影响。本方法仅供 UI 展示（勾选清单需要真实注册名）。
+	 * （POC 实测），内置只读子代理的白名单用 {@link getMcpToolPatterns} 的服务器粒度模式
+	 * （子代理没有勾选清单，只能整台放行）；主会话受限路径按用户勾选的精确名放行
+	 * （{@link getMcpEntryTools}）；本方法仅供 UI 展示（勾选清单需要真实注册名）。
 	 *
 	 * McpAdmin 自带缓存，故本方法不额外缓存；F10 的失效由 {@link _scheduleMcpToolRefresh} 负责。
 	 */
@@ -763,7 +792,10 @@ export class AgentManager {
 	}
 
 	/**
-	 * 受限 agent 白名单用的 MCP 放行集：服务器粒度通配模式 + 非 direct 入口工具。
+	 * 内置只读子代理白名单用的 MCP 放行集：服务器粒度通配模式 + 非 direct 入口工具。
+	 *
+	 * 子代理是独立 pi 进程，没有「智能体设置里的勾选清单」可依据，只能整台服务器放行
+	 * （主会话受限路径按勾选的精确名放行，见 {@link getMcpEntryTools}）。
 	 *
 	 * pi 1.0.4 起 `--tools` 含任何 `mcp__` 前缀条目即进入 MCP 硬过滤，条目支持 `*`
 	 * 通配（POC 实测：`mcp__poc_mcp_server__*` 放行整台服务器，含 hash 退化名；
@@ -779,6 +811,30 @@ export class AgentManager {
 			return mcpServerPatternsOf(servers);
 		} catch (err) {
 			console.error("[kernel] MCP 通配模式枚举失败，跳过:", err);
+			return [];
+		}
+	}
+
+	/**
+	 * 受限 agent 主会话白名单用的 MCP 入口工具（`codemode` / `tool_search`）。
+	 *
+	 * 主会话的工具集由用户在智能体设置里逐个勾选，白名单只按勾选的**精确名**放行（
+	 * 不再整台服务器通配——否则关掉的工具照旧可用）。勾选了非 direct 曝光的工时时，
+	 * 它们必须靠入口工具才可达（规格 §6）；勾选清单里没有 MCP 工具时直接跳过枚举。
+	 *
+	 * `cwd` 语义与 {@link getMcpToolNames} 相同（受信项目的服务器也要能枚举到，F11/F12）；
+	 * 枚举失败退空数组不阻断会话启动。
+	 */
+	private async getMcpEntryTools(
+		selectedTools: string[],
+		cwd: string = WA_PI_DIR,
+	): Promise<string[]> {
+		if (!selectedTools.some((t) => t.startsWith("mcp__"))) return [];
+		try {
+			const { servers } = await this._mcpAdminFor(cwd).list();
+			return mcpEntryToolsOf(servers, selectedTools);
+		} catch (err) {
+			console.error("[kernel] MCP 入口工具枚举失败，跳过:", err);
 			return [];
 		}
 	}
@@ -824,18 +880,33 @@ export class AgentManager {
 
 	/** 全局工具清单：内置（DEFAULT_AGENT_TOOLS）+ MCP 工具 + 动态插件登记，供详情弹窗勾选。
 	 *  剔除 subagent（宿主不允许直接暴露，关系网调起走 delegate）。
-	 *  source 值：内置 → "内置"，MCP 工具 → "MCP"。 */
-	async listGlobalTools(): Promise<{ name: string; source: string }[]> {
-		const items = DEFAULT_AGENT_TOOLS.filter((t) => t !== "subagent").map(
-			(name) => ({ name, source: "内置" }),
-		);
+	 *  source 值：内置 → "内置"，MCP 工具 → "MCP"。
+	 *
+	 *  `descriptions`（可选）：MCP 注册名 → 服务器官方 description（来自
+	 *  McpToolDescriptionIndex）。不传/查不到时不带 description 字段（不要空字符串，
+	 *  展示端据此决定是否渲染简介行）。内置工具的中文简介直接查 BUILTIN_TOOL_DESCRIPTIONS。 */
+	async listGlobalTools(
+		descriptions?: Map<string, string>,
+	): Promise<{ name: string; source: string; description?: string }[]> {
+		const items: { name: string; source: string; description?: string }[] =
+			DEFAULT_AGENT_TOOLS.filter((t) => t !== "subagent").map((name) => {
+				const description = BUILTIN_TOOL_DESCRIPTIONS[name];
+				return description === undefined
+					? { name, source: "内置" }
+					: { name, source: "内置", description };
+			});
 		const seen = new Set(items.map((i) => i.name));
 		// MCP 工具：mcp-admin 实时枚举（命名复刻 pi 内置 MCP，规格 F4）。
 		// 无项目上下文（宿主全局工具清单）→ 全局作用域枚举。
 		for (const t of await this.getMcpToolNames()) {
 			if (!seen.has(t)) {
 				seen.add(t);
-				items.push({ name: t, source: "MCP" });
+				const description = descriptions?.get(t);
+				items.push(
+					description === undefined
+						? { name: t, source: "MCP" }
+						: { name: t, source: "MCP", description },
+				);
 			}
 		}
 		// 注：第三方扩展运行时注册的工具不在此列——pi 不给宿主查询已注册工具的接口
@@ -1482,29 +1553,43 @@ export class AgentManager {
 		const extensionPaths = buildAdditionalExtensionPaths();
 
 		const restricted = !!config?.tools?.length;
-		// 知识库工具可见性（规格 §6.6：「不是禁用，是不可见」）：
+		// 知识库工具可见性（规格 §6.6：「不是禁用，是不可见」）：知识库工具只随「实际绑定」出现。
 		// - restricted（白名单模式）且绑定非空：白名单并入 knowledge_search（照 im_push_to 先例——
-		//   绑定了库却静默无工具属于静默失败）；绑定空则不并入（白名单天然排除，无需处理）
+		//   绑定了库却静默无工具属于静默失败）；绑定空则剔除——含 agent 配置里显式写了
+		//   knowledge_search 的情况（白名单会把不可用工具重新放出来），并入项与显式项统一去重
 		// - 非 restricted（默认全放行）：绑定非空不动作（全放行已含）；绑定空则追加 exclude，
 		//   屏蔽未绑定智能体的 knowledge_search 可见性
 		const hasKbBinding = (knowledgeKbIds?.length ?? 0) > 0;
 		const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
 			? {
-					tools: [
-						// 受限 agent 白名单无条件并入 im_push_to：工具始终注册（bridge 扩展），
-						// 不并入会被白名单挡掉（主聊天 @im-push-to 标记会话同样需要推送能力）
-						"im_push_to",
-						...(hasKbBinding ? ["knowledge_search"] : []),
-						...resolveAgentTools(
-							config!.tools!,
-							await this.getMcpToolPatterns(cwd),
-						),
-					],
+					tools: Array.from(
+						new Set([
+							// 受限 agent 白名单无条件并入 im_push_to：工具始终注册（bridge 扩展），
+							// 不并入会被白名单挡掉（主聊天 @im-push-to 标记会话同样需要推送能力）
+							"im_push_to",
+							...(hasKbBinding ? KNOWLEDGE_TOOLS : []),
+							...resolveAgentTools(
+								config!.tools!,
+								// 只按勾选的 MCP 工具精确名放行（不再整台服务器通配）——
+								// 设置里关掉的工具必须真的不可用；非 direct 服务器的入口工具按需并入。
+								// 一个 MCP 工具都没勾时也要放一个匹配不到任何工具的 mcp__ 条目：
+								// pi 仅以「--tools 含 mcp__ 前缀条目」作为 MCP 硬过滤开关（1.5.0
+								// agent-session 的 _allowlistFiltersMcp），不硬过滤时未点名的
+								// codemode/deferred 工具仍会注册，codemode 工具能直接调到它们。
+								[
+									...await this.getMcpEntryTools(config!.tools!, cwd),
+									...(config!.tools!.some((t) => t.startsWith("mcp__"))
+										? []
+										: [MCP_HARD_FILTER_ENTRY]),
+								],
+							).filter((t) => hasKbBinding || !KNOWLEDGE_TOOLS.includes(t)),
+						]),
+					),
 				}
 			: {
 					excludeTools: [
 						...ALWAYS_EXCLUDED_TOOLS,
-						...(hasKbBinding ? [] : ["knowledge_search"]),
+						...(hasKbBinding ? [] : KNOWLEDGE_TOOLS),
 					],
 				};
 		// Codemode 两档（系统设置 > 通用）：compat 注入 codemode 工具；off 时若存在
@@ -2892,7 +2977,7 @@ export class AgentManager {
 	 * 历史，用户再点开时 ensureStarted 从 jsonl 冷启动恢复。
 	 * 返回被回收的 sessionId 列表，供调用方记日志。
 	 */
-	async reapIdleSessions(thresholdMs: number = 60 * 1000): Promise<string[]> {
+	async reapIdleSessions(thresholdMs: number = IDLE_REAP_THRESHOLD_MS): Promise<string[]> {
 		const now = Date.now();
 		const reaped: string[] = [];
 		// 复制 keys：disposeSession 会改 sessions Map，避免迭代异常
