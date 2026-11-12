@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { existsSync, readdirSync, statSync, utimesSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, statSync, utimesSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { createSessionViaPrompt, ensureProvider } from "./helpers";
+import { createSessionViaPrompt, ensureProvider, saveProvider } from "./helpers";
 
 const API = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -99,6 +99,68 @@ test.describe.serial("默认工作区", () => {
       }
       if (!existsSync(subDir) || Date.now() > cleanupDeadline) break;
       await new Promise((r) => setTimeout(r, 300));
+    }
+  });
+
+  test("默认工作区会话的「项目文件」列出该会话真实工作目录的内容", async ({ page }) => {
+    // 回归：默认工作区会话的 cwd 由 session.createdAt 推导（workdir/<createdAt>）。
+    // 前端乐观建会话用本地 Date.now()、内核收到 prompt 后自己再取一次并据此建目录，
+    // 两者恒差几毫秒。若 addSession 同 id 去重时丢弃内核记录，文件树会去请求一个
+    // 不存在的目录 → 面板恒空白（且 5s 轮询不自愈）。
+    await page.goto("/");
+    await page.waitForTimeout(1000);
+
+    // 预置供应商让发送按钮可用（模型调用本身会失败，不影响会话创建与目录落地）
+    await saveProvider({
+      id: "e2e-defaultws-provider",
+      name: "E2E DefaultWS",
+      slug: "e2e-defaultws",
+      baseUrl: "http://localhost:9999/v1",
+      apiKey: "sk-e2e",
+      api: "openai-completions",
+      models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+    });
+
+    // 从 UI 新建本工作区会话（走 NewSessionPane 的乐观建会话路径）
+    await page.getByText("默认工作区").first().click();
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+    await page.getByTestId("model-selector").selectOption({ label: "E2E DefaultWS/model-a" });
+    const title = "explorer-dir-" + Math.random().toString(36).slice(2, 8);
+    await page.locator('[data-testid="composer-input"] [role="textbox"]').fill(title);
+    await page.getByTestId("composer-send").click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
+
+    // 内核记录的 createdAt 即真实工作目录名
+    const sid = await page
+      .locator(`aside [data-testid^="session-"]:has-text("${title}")`)
+      .first()
+      .getAttribute("data-testid")
+      .then((v) => v?.replace("session-", "") ?? "");
+    expect(sid).not.toBe("");
+    const list = await fetch(`${API}/api/projects`).then((r) => r.json());
+    const session = (list.sessions ?? []).find((s: any) => s.id === sid);
+    expect(session).toBeTruthy();
+    const dir = join(E2E_WA_PI_DIR, "workdir", String(session.createdAt));
+    expect(existsSync(dir)).toBe(true);
+
+    // 往真实工作目录写标记文件，文件树面板必须能列出来
+    const marker = `marker-${Date.now()}.txt`;
+    writeFileSync(join(dir, marker), "hello", "utf8");
+
+    await page.getByTestId("btn-explorer").click();
+    await expect(page.getByTestId("explorer-aside")).toBeVisible({ timeout: 5000 });
+    // 面板若按错误目录（前端乐观时间戳）请求，会回 fs:error 且被当作空目录 → 恒空白
+    await expect(page.getByText(marker, { exact: true })).toBeVisible({ timeout: 10000 });
+
+    // 清理：先删会话（拆进程释放 cwd 句柄），再删目录
+    await fetch(`${API}/api/sessions/${sid}`, { method: "DELETE" }).catch(() => {});
+    const deadline = Date.now() + 10_000;
+    while (existsSync(dir) && Date.now() < deadline) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        await new Promise((r) => setTimeout(r, 300));
+      }
     }
   });
 

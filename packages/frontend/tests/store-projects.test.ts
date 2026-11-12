@@ -355,3 +355,34 @@ test("selectSession 无匹配会话时不动技能选中项目（保持默认工
   useProjectsStore.getState().selectSession("不存在");
   expect(useSkillsStore.getState().selectedProjectId).toBe(SYSTEM_PROJECT_ID);
 });
+
+test("addSession 同 id 已存在时采用内核记录的 createdAt（默认工作区文件树按它推导目录）", () => {
+  // 新会话首次发送：前端乐观记录用本地 Date.now()（t1）建会话，随后 kernel 自己
+  // 生成目录名与 createdAt（t2）并广播 session:created。两者必然差几毫秒，
+  // 若去重直接丢弃内核记录，前端会一直请求 workdir/<t1>（不存在）→ 文件树空白。
+  const t1 = 1794450476755;
+  const t2 = 1794450476761;
+  useProjectsStore.getState().addSession({
+    id: "s1",
+    projectId: "__system__",
+    primaryAgent: "dev",
+    title: "hi",
+    createdAt: t1,
+    lastActivity: t1,
+    piSessionFile: "",
+  });
+
+  useProjectsStore.getState().addSession({
+    id: "s1",
+    projectId: "__system__",
+    primaryAgent: "dev",
+    title: "hi",
+    createdAt: t2,
+    lastActivity: t2,
+    piSessionFile: "/x/s1.jsonl",
+  });
+
+  const sessions = useProjectsStore.getState().sessions;
+  expect(sessions).toHaveLength(1);
+  expect(sessions[0]!.createdAt).toBe(t2);
+});

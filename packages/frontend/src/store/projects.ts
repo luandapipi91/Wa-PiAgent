@@ -110,8 +110,19 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
 		}),
 	addSession: (sess) =>
 		set((s) => {
-			// 去重：同 id session 已存在则忽略（kernel 可能重复广播 session:created）
-			if (s.sessions.some((x) => x.id === sess.id)) return s;
+			// 同 id 已存在：不重复 append，但要用内核记录覆盖本地乐观记录里的 createdAt。
+			// 默认工作区会话的 cwd 由 createdAt 推导（workdir/<createdAt>），而前端乐观建会话用本地
+			// Date.now()、内核在收到 prompt 后自己再取一次 Date.now() 并据此建目录 —— 两者恒差几毫秒。
+			// 若这里单纯丢弃内核记录，前端会一直请求不存在的 workdir/<前端时间戳>，文件树恒空白
+			// （且 5s 轮询不会自愈，只能等刷新页面 / 任意 projects:list 广播整表覆盖）。
+			// 其余字段仍以本地为准，避免覆盖用户本地状态（lastActivity 由 touchSession 维护）。
+			if (s.sessions.some((x) => x.id === sess.id)) {
+				return {
+					sessions: s.sessions.map((x) =>
+						x.id === sess.id ? { ...x, createdAt: sess.createdAt } : x,
+					),
+				};
+			}
 			// 只 append 到列表，不自动选中：IM 渠道被动创建的会话（session:created 广播）
 			// 不应抢占当前视图打扰用户；调用方需要选中时显式调 selectSession（NewSessionPane 已如此）。
 			return { sessions: [...s.sessions, sess] };
