@@ -115,7 +115,7 @@ interface KbRuntime {
   kb: KbInfo;
   db: Database;
   trust: number;
-  /** status=error 但仍有旧索引（上游 status=stale）→ 结果逐条标 stale */
+  /** 索引失败（error）或正在更新（indexing）但仍有可用旧索引 → 结果逐条标 stale 并降权 */
   stale: boolean;
   /** 库级模型指纹与当前不一致：向量通道降级（词法照常） */
   mismatch: boolean;
@@ -369,10 +369,14 @@ export async function searchKnowledge(
   );
   const tuningSummary = summarizeSearchTuning(tuning, limit, candidateLimit);
 
-  // 打开每库连接（缓存复用，不 close）：旧索引（status=error 但 chunkCount>0）仍可检索并标 stale
+  // 打开每库连接（缓存复用，不 close）：只要库里已有可用旧块，索引失败（error）或正在更新
+  // （indexing）都继续检索并标 stale——重建/增量期间把整个库挡掉会让用户在索引窗口内搜不到任何内容，
+  // 而旧块在磁盘上完好（WAL 下读写并发，事务提交前读到的是上一版快照）。
   const runtimeByKbId = new Map<string, KbRuntime>();
   for (const kb of kbs) {
-    const stale = kb.status === "error" && kb.chunkCount > 0 && kb.lastIndexedAt !== null;
+    const hasOldIndex = kb.chunkCount > 0 && kb.lastIndexedAt !== null;
+    const stale =
+      hasOldIndex && (kb.status === "error" || kb.status === "indexing");
     if (kb.status !== "ready" && !stale) {
       skippedKbs.push({ kbId: kb.id, reason: "not_ready" });
       continue;

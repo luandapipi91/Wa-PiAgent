@@ -613,18 +613,32 @@ test("opts.kbId 收窄检索范围（按 id 或库名）", async () => {
   expect(byId.skippedKbs).toEqual([]);
 });
 
-test("索引中(status=indexing)的库被跳过并在 skippedKbs 说明", async () => {
+test("索引中(status=indexing)的库仍可检索旧索引，结果标 stale", async () => {
   const kbReady = setupKb("就绪库", [{ content: "定价政策说明。", title: "定价" }]);
   const kbIndexing = setupKb("索引中库", [{ content: "定价政策补充说明。", title: "定价" }]);
+  // 上一轮已成功索引过（有 chunkCount + lastIndexedAt），本轮正在重建
   store.updateStatus(kbIndexing, "indexing");
   const r = await search([kbReady, kbIndexing], "定价政策", {
     limit: 5,
     embedQueryFn: fakeEmbedQuery(null),
   });
   expect(r.found).toBe(true);
-  expect(r.results.every((h) => h.kbId !== kbIndexing)).toBe(true);
-  expect(r.results.some((h) => h.kbId === kbReady)).toBe(true);
-  expect(r.skippedKbs).toContainEqual({ kbId: kbIndexing, reason: "not_ready" });
+  const indexingHits = r.results.filter((h) => h.kbId === kbIndexing);
+  expect(indexingHits.length).toBeGreaterThan(0);
+  expect(indexingHits.every((h) => h.stale === true)).toBe(true);
+  expect(r.skippedKbs.some((s) => s.reason === "not_ready")).toBe(false);
+});
+
+test("索引中但从未成功索引过（chunkCount=0）的库仍被跳过", async () => {
+  const kbReady = setupKb("就绪库", [{ content: "定价政策说明。", title: "定价" }]);
+  const kbFresh = setupKb("首建中库", [{ content: "定价政策补充说明。", title: "定价" }]);
+  store.updateStatus(kbFresh, "indexing", { fileCount: 0, chunkCount: 0, failedCount: 0 });
+  const r = await search([kbReady, kbFresh], "定价政策", {
+    limit: 5,
+    embedQueryFn: fakeEmbedQuery(null),
+  });
+  expect(r.results.every((h) => h.kbId !== kbFresh)).toBe(true);
+  expect(r.skippedKbs).toContainEqual({ kbId: kbFresh, reason: "not_ready" });
 });
 
 test("指纹不匹配：跳过向量通道、BM25 照常、warnings 说明向量通道已禁用", async () => {
