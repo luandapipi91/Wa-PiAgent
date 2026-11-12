@@ -1,13 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { mkdirSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { ensureProvider, setUiPrefs, getAgentConfig } from "./helpers";
 
 // 知识库前端 E2E 冒烟（任务 B6，合并前验收）：真实 kernel（隔离 WA_PI_DIR）+ 真实浏览器。
 //
 // 六步冒烟（串行一条流，共享夹具目录与 kbId）：
-// 1. 设置 → 知识库 → 新建：文本输入夹具路径（浏览器无 Electron 原生目录对话框的兜底）→
+// 1. 设置 → 知识库 → 新建：浏览 → 目录树导航选夹具目录（源文件夹只读，选择是唯一入口）→
 //    扫描预览显示 3 文件 → 创建并索引 → 列表徽章变「就绪」
 // 2. 智能体编辑（宫格右键 dev/研发）→ 知识库绑定区勾选该库 → 保存 →
 //    REST 校验 knowledgeBaseIds 持久化 + 重开弹窗勾选回显
@@ -20,7 +19,9 @@ import { ensureProvider, setUiPrefs, getAgentConfig } from "./helpers";
 // embedding 模型（bge-base-zh-v1.5 q8）需预置到 E2E 隔离目录 models/（约 99MB），
 // 缺失时索引内嵌阶段会现场从 hf-mirror 下载，ready 轮询超时需相应放宽。
 
-const FIXTURE_DIR = join(tmpdir(), `kb-e2e-fixture-${process.pid}`);
+// 夹具固定在 /tmp 浅层（macOS 恒存在）：目录树逐层导航只有 2 层（tmp → 夹具目录），
+// os.tmpdir() 的 /var/folders 深链导航层数多且目录名随机器变化，易碎
+const FIXTURE_DIR = `/tmp/kb-e2e-fixture-${process.pid}`;
 
 function writeFixture(): void {
 	mkdirSync(FIXTURE_DIR, { recursive: true });
@@ -130,7 +131,7 @@ test.describe
 			}
 		});
 
-		test("新建库：文本路径 → 扫描预览 3 文件 → 创建并索引 → 就绪", async ({
+		test("新建库：目录树选择 → 扫描预览 3 文件 → 创建并索引 → 就绪", async ({
 			page,
 		}) => {
 			test.setTimeout(180_000);
@@ -145,13 +146,22 @@ test.describe
 			await expect(page.getByTestId("kb-page")).toBeVisible();
 			await expect(page.getByTestId("kb-empty")).toBeVisible();
 
-			// 新建弹窗：文本输入路径兜底（浏览器无原生目录对话框）
+			// 新建弹窗：源文件夹只读不可手输，点「浏览」走目录树选择（唯一入口）
 			await page.getByTestId("kb-add-button").click();
 			await expect(page.getByTestId("kb-form-modal")).toBeVisible();
-			await page.getByTestId("kb-folder-input").fill(FIXTURE_DIR);
+			await expect(page.getByTestId("kb-folder-input")).toHaveAttribute("readonly");
+			await page.getByTestId("kb-browse").click();
+			await expect(page.getByTestId("dir-picker")).toBeVisible();
+			// 逐层导航：/ → tmp → kb-e2e-fixture-<pid>（选定即自动扫描）
+			for (const seg of FIXTURE_DIR.split("/").filter(Boolean)) {
+				await page
+					.getByTestId("dir-picker")
+					.getByText(seg, { exact: true })
+					.click();
+			}
+			await page.getByTestId("dir-pick").click();
 
-			// 扫描预览：路径选定（回车/失焦）即自动触发，显示 3 个可索引文件
-			await page.getByTestId("kb-folder-input").press("Enter");
+			// 扫描预览：目录选定即自动触发，显示 3 个可索引文件
 			await expect(page.getByTestId("kb-preview-indexable")).toContainText(
 				"3",
 				{ timeout: 15_000 },

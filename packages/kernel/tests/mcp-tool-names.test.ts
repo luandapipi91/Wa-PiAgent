@@ -6,14 +6,17 @@
 // `截断前缀_<sha256(server\0tool) 前 8 位>`。本文件逐条锁住这些规则——
 // 期望值由 pi 源码公式独立算出（不 import 生产实现），故实现漂移会被抓住。
 //
-// pi 1.0.4 起 `--tools` 白名单支持 `*` 通配（含 `mcp__` 条目才过滤 MCP 工具），
-// 受限 agent 白名单改用服务器粒度通配（`mcpServerPatternsOf`，见文件末尾 describe）；
-// 精确名枚举（`mcpToolNamesOf`）仍服务于 UI 工具清单（真实注册名展示）。
+// pi 1.0.4 起 `--tools` 白名单支持 `*` 通配（含 `mcp__` 条目才过滤 MCP 工具）。
+// 受限 agent 主会话白名单按**用户勾选的精确工具名**放行（智能体设置里逐个开关），
+// 只对勾选的工具补非 direct 服务器的入口工具（`mcpEntryToolsOf`，见文件末尾 describe）；
+// 服务器粒度通配（`mcpServerPatternsOf`）只剩内置只读子代理在用（子代理没有勾选清单）；
+// 精确名枚举（`mcpToolNamesOf`）服务于 UI 工具清单（真实注册名展示）。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import type { McpServerReport } from "../src/mcp-admin.ts";
 import {
   createMcpToolName,
+  mcpEntryToolsOf,
   mcpServerPatternsOf,
   mcpToolNamesOf,
 } from "../src/mcp-tool-names.ts";
@@ -339,5 +342,83 @@ describe("mcpServerPatternsOf：白名单用的服务器粒度通配（pi 1.0.4�
 
   test("空报告：空数组", () => {
     expect(mcpServerPatternsOf([])).toEqual([]);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// mcpEntryToolsOf：受限 agent 主会话只放行「智能体设置里勾选的 MCP 工具」时，
+// 非 direct 曝光的工具必须靠入口工具才可达（规格 §6）。
+//
+// 判定「要不要放入口」的开关是「勾选清单里有没有 mcp__ 条目」：没有时勾选清单里
+// 一个 MCP 工具都不放行（pi 的 --tools 不含 mcp__ 条目 → 不进入 MCP 硬过滤，未匹配白名单的
+// 非 direct 工具仍可被 tool_search 激活）——此时放 tool_search 等于把关掉的工具找回来。
+// -----------------------------------------------------------------------------
+describe("mcpEntryToolsOf：按勾选清单决定是否放行 MCP 入口工具", () => {
+  test("未勾选任何 MCP 工具：不放行任何入口（否则 tool_search 能激活被关掉的工具）", () => {
+    expect(
+      mcpEntryToolsOf(
+        [
+          report({ name: "a", exposure: "codemode", tools: ["t"] }),
+          report({ name: "b", exposure: "deferred", tools: ["u"] }),
+        ],
+        ["read", "bash"],
+      ),
+    ).toEqual([]);
+  });
+
+  test("勾选了 MCP 工具：非 direct 服务器的入口一并放行，direct 服务器不产生入口", () => {
+    expect(
+      mcpEntryToolsOf(
+        [
+          report({ name: "dbx", tools: ["query"] }),
+          report({ name: "ologs", exposure: "codemode", tools: ["get_profile"] }),
+          report({ name: "docs", exposure: "deferred", tools: ["search"] }),
+        ],
+        ["read", "mcp__dbx__query", "mcp__ologs__get_profile", "mcp__docs__search"],
+      ),
+    ).toEqual(["codemode", "tool_search"]);
+  });
+
+  test("只勾了 direct 服务器的工具：不需要入口", () => {
+    expect(
+      mcpEntryToolsOf(
+        [report({ name: "dbx", tools: ["query"] })],
+        ["mcp__dbx__query"],
+      ),
+    ).toEqual([]);
+  });
+
+  test("hidden 曝光的服务器无入口（pi 文档：unreachable）", () => {
+    expect(
+      mcpEntryToolsOf(
+        [report({ name: "s", exposure: "hidden", tools: ["t"] })],
+        ["mcp__s__t"],
+      ),
+    ).toEqual([]);
+  });
+
+  test("未连上 / 已停用的服务器不产生入口（与工具清单口径一致）", () => {
+    expect(
+      mcpEntryToolsOf(
+        [
+          report({ name: "failed", state: "failed", exposure: "codemode" }),
+          report({ name: "off", enabled: false, state: "disabled", exposure: "deferred" }),
+        ],
+        ["mcp__failed__x", "mcp__off__y"],
+      ),
+    ).toEqual([]);
+  });
+
+  test("多台非 direct 服务器共享同一入口：去重且顺序稳定", () => {
+    expect(
+      mcpEntryToolsOf(
+        [
+          report({ name: "a", exposure: "deferred", tools: ["t1"] }),
+          report({ name: "b", exposure: "codemode", tools: ["t2"] }),
+          report({ name: "c", exposure: "codemode", tools: ["t3"] }),
+        ],
+        ["mcp__a__t1", "mcp__b__t2", "mcp__c__t3"],
+      ),
+    ).toEqual(["tool_search", "codemode"]);
   });
 });

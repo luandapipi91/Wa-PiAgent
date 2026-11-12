@@ -112,6 +112,7 @@ const en = {
 	agentConfig: {
 		tabBasic: "Basic",
 		tabTools: "Tools",
+		tabMcp: "MCP",
 		tabSkills: "Skills",
 		tabPartners: "Partners",
 		loading: "Loading...",
@@ -142,8 +143,9 @@ const en = {
 		hintsBenefitPlaceholder:
 			"Benefits of delegating to this agent, e.g.: keep repeated grep exploration noise out of the main context",
 		toolsHint: "All checked = full default; unchecking saves an explicit list",
-		mcpEntryHint:
-			"MCP entry tools: required to reach MCP tools that are not exposed directly; always allowed together with MCP tools",
+		mcpGroupHint:
+			"Grouped by MCP server; the group switch enables or disables all tools of that server at once",
+		mcpEmpty: "No MCP tools",
 		skillsSelectAll: "Select all",
 		skillsGlobalDisabled: "Disabled globally",
 		skillsEmpty: "No skills yet. Add a skill directory in settings.",
@@ -534,11 +536,14 @@ const en = {
 		formTitleNew: "New Knowledge Base",
 		formTitleEdit: "Edit Knowledge Base",
 		folderLabel: "Source folder",
-		folderPlaceholder: "Type or paste an absolute folder path, e.g. D:/docs",
+		folderPlaceholder: "Pick a folder via Browse",
+		duplicateFolder:
+			'Folder already registered as knowledge base "{{name}}"; duplicate folders are not allowed',
 		browse: "Browse",
 		scanning: "Scanning...",
 		rerankLabel: "Deep rerank",
 		rerankIdle: "Off",
+		rerankPending: "Pending load",
 		rerankDownloading: "Downloading model {{progress}}%",
 		rerankReady: "Ready",
 		rerankFailed: "Model unavailable",

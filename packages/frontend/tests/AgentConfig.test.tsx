@@ -6,6 +6,7 @@ import {
 	cleanup,
 	act,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import type { AgentConfig as AgentConfigType } from "@wa-pi/shared";
 import { AgentConfig } from "../src/components/AgentConfig";
@@ -162,11 +163,12 @@ const configSaveCall = (agentName: string) =>
 	);
 const lastSaved = (agentName: string) => configSaveCall(agentName)!.body;
 
-describe("AgentConfig 4 tab", () => {
-	test("渲染 4 个 tab：基本/工具/技能/关系网，无 capabilities", () => {
+describe("AgentConfig 5 tab", () => {
+	test("渲染 5 个 tab：基本/工具/MCP/技能/关系网，无 capabilities", () => {
 		renderConfig();
 		expect(screen.getByTestId("tab-basic")).toBeTruthy();
 		expect(screen.getByTestId("tab-tools")).toBeTruthy();
+		expect(screen.getByTestId("tab-mcp")).toBeTruthy();
 		expect(screen.getByTestId("tab-skills")).toBeTruthy();
 		expect(screen.getByTestId("tab-partners")).toBeTruthy();
 		expect(screen.queryByTestId("tab-capabilities")).toBeNull();
@@ -314,7 +316,7 @@ describe("AgentConfig 4 tab", () => {
 		expect(lastSaved("dev").config.tools).toEqual(["read"]);
 	});
 
-	test("工具 tab：内置工具显示'内置'标签，动态插件显示插件名，MCP 显示'MCP'", async () => {
+	test("工具 tab：内置工具显示'内置'标签，动态插件显示插件名；MCP tab：MCP 工具显示'MCP'", async () => {
 		renderConfig();
 		fireEvent.click(screen.getByTestId("tab-tools"));
 		await emitEvent({
@@ -334,12 +336,70 @@ describe("AgentConfig 4 tab", () => {
 		// 插件工具标签应显示具体插件名，而非泛化"扩展"
 		expect(screen.getByText("my-plugin")).toBeTruthy();
 		expect(screen.queryByText("扩展")).toBeNull();
+		// MCP 工具已移出工具 tab
+		expect(screen.queryByTestId("tool-switch-some-mcp-tool")).toBeNull();
 
-		// MCP 工具标签应显示 "MCP"
-		expect(screen.getByText("MCP")).toBeTruthy();
+		// 切到 MCP tab：工具名无法解析服务器 → 归入「其他」组，标签仍显示 "MCP"
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		const other = await screen.findByTestId("mcp-group-其他");
+		// 组默认收起，需先展开组头才能看到组内工具行
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-其他"));
+		expect(other.textContent).toContain("some-mcp-tool");
+		expect(within(other).getByText("MCP")).toBeTruthy();
 	});
 
-	test("工具 tab：MCP 入口工具（codemode/tool_search）单独标注、不给开关", async () => {
+	test("工具行显示描述，超长描述带 title 全文", async () => {
+		// MCP 官方描述可能很长：行内截断，title 保留完整原文供悬停查看
+		const longDesc = "查询数据库并返回结果行".repeat(20);
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-tools"));
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "read", source: "内置", description: "读取文件内容" },
+				{ name: "mcp__dbx__query", source: "MCP", description: longDesc },
+			],
+		});
+		// 工具 tab：描述行紧随名称行渲染，title 为完整文本
+		const desc = await screen.findByTestId("tool-desc-read");
+		expect(desc.textContent).toBe("读取文件内容");
+		expect(desc.getAttribute("title")).toBe("读取文件内容");
+		// MCP tab：长描述也完整写入 title（行内由 CSS truncate 截断）
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		const mcpDesc = screen.getByTestId("tool-desc-mcp__dbx__query");
+		expect(mcpDesc.textContent).toBe(longDesc);
+		expect(mcpDesc.getAttribute("title")).toBe(longDesc);
+	});
+
+	test("无 description 的工具不渲染描述行", async () => {
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-tools"));
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [{ name: "read", source: "内置" }],
+		});
+		// 工具行照常渲染，但描述行不存在（不占高度）
+		expect(await screen.findByTestId("tool-switch-read")).toBeTruthy();
+		expect(screen.queryByTestId("tool-desc-read")).toBeNull();
+	});
+
+	test("MCP tab：组内工具显示描述", async () => {
+		renderConfig();
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "mcp__dbx__query", source: "MCP", description: "执行 SQL 查询" },
+			],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		// 组默认收起，展开组头后才能看到组内工具行
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		const desc = screen.getByTestId("tool-desc-mcp__dbx__query");
+		expect(desc.textContent).toBe("执行 SQL 查询");
+	});
+
+	test("工具 tab 与 MCP tab：MCP 入口工具（codemode/tool_search）均不展示", async () => {
 		renderConfig();
 		fireEvent.click(screen.getByTestId("tab-tools"));
 		await emitEvent({
@@ -355,14 +415,247 @@ describe("AgentConfig 4 tab", () => {
 		expect(
 			(await screen.findByTestId("tool-switch-read")).getAttribute("data-on"),
 		).toBe("true");
-		// 入口工具单独成区：kernel 无论勾没勾都会并进白名单，给开关反而是误导
-		expect(screen.getByTestId("mcp-entry-tool-codemode")).toBeTruthy();
-		expect(screen.getByTestId("mcp-entry-tool-tool_search")).toBeTruthy();
+		// 入口工具整块移除：既没有独立区块，也没有开关，更不出现在任何分组里
+		expect(screen.queryByTestId("mcp-entry-tools")).toBeNull();
+		expect(screen.queryByTestId("mcp-entry-tool-codemode")).toBeNull();
 		expect(screen.queryByTestId("tool-switch-codemode")).toBeNull();
 		expect(screen.queryByTestId("tool-switch-tool_search")).toBeNull();
-		expect(screen.getByTestId("mcp-entry-tools").textContent).toContain(
-			"自动放行",
+		expect(screen.queryByText("codemode")).toBeNull();
+		expect(screen.queryByText("tool_search")).toBeNull();
+		// MCP tab 里同样不展示入口工具；真正的 MCP 工具照常出现
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		expect(screen.queryByTestId("mcp-entry-tools")).toBeNull();
+		expect(screen.queryByTestId("tool-switch-codemode")).toBeNull();
+		expect(screen.queryByTestId("tool-switch-tool_search")).toBeNull();
+		expect(screen.queryByText("codemode")).toBeNull();
+		expect(screen.queryByText("tool_search")).toBeNull();
+		// 组默认收起，展开后组内只剩真正 MCP 工具
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		expect(screen.getByTestId("mcp-group-dbx").textContent).toContain("query");
+	});
+
+	test("工具 tab 不再出现 MCP 工具，MCP 工具只在 MCP tab", async () => {
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-tools"));
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "read", source: "内置" },
+				{ name: "my-plugin-tool", source: "my-plugin" },
+				{ name: "mcp__dbx__query", source: "MCP" },
+			],
+		});
+		expect(await screen.findByTestId("tool-switch-read")).toBeTruthy();
+		// 工具 tab：普通工具（内置 + 插件）保留，MCP 工具不在其中
+		expect(screen.getByTestId("tool-switch-my-plugin-tool")).toBeTruthy();
+		expect(screen.queryByTestId("tool-switch-mcp__dbx__query")).toBeNull();
+		// 工具 tab 不再有分组标题
+		expect(screen.queryByTestId("tools-group-plain")).toBeNull();
+		expect(screen.queryByTestId("tools-group-mcp")).toBeNull();
+		// 切到 MCP tab 后存在（组默认收起，需先展开）
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		expect(screen.getByTestId("tool-switch-mcp__dbx__query")).toBeTruthy();
+		// 切回工具 tab 依然不显示
+		fireEvent.click(screen.getByTestId("tab-tools"));
+		expect(screen.queryByTestId("tool-switch-mcp__dbx__query")).toBeNull();
+	});
+
+	test("MCP tab：按 MCP 服务器分组，组内显示去掉前缀的短工具名", async () => {
+		renderConfig();
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "read", source: "内置" },
+				{ name: "mcp__dbx__query", source: "MCP" },
+				{ name: "mcp__dbx__dbx_list_tables", source: "MCP" },
+				{ name: "mcp__yunxiao__get_current_user", source: "MCP" },
+			],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		const dbx = await screen.findByTestId("mcp-group-dbx");
+		// 组头 = 服务器名 + 工具数（收起态即可见）
+		expect(dbx.textContent).toContain("dbx");
+		expect(dbx.textContent).toContain("2");
+		// 组默认收起，展开后组内只显示短名
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		expect(dbx.textContent).toContain("query");
+		expect(dbx.textContent).toContain("dbx_list_tables");
+		expect(dbx.textContent).not.toContain("mcp__dbx__");
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-yunxiao"));
+		const yunxiao = screen.getByTestId("mcp-group-yunxiao");
+		expect(yunxiao.textContent).toContain("yunxiao");
+		expect(yunxiao.textContent).toContain("get_current_user");
+		expect(yunxiao.textContent).not.toContain("mcp__yunxiao__");
+		// 开关 testId 仍用完整工具名
+		expect(screen.getByTestId("tool-switch-mcp__dbx__query")).toBeTruthy();
+	});
+
+	test("MCP tab：组开关一键取消该服务器全部工具，且不影响其它工具", async () => {
+		renderConfig();
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "read", source: "内置" },
+				{ name: "mcp__dbx__query", source: "MCP" },
+				{ name: "mcp__dbx__dbx_list_tables", source: "MCP" },
+				{ name: "mcp__yunxiao__get_current_user", source: "MCP" },
+			],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		const dbxSwitch = await screen.findByTestId("mcp-group-switch-dbx");
+		// 默认全量 = 全勾，组开关 on
+		expect(dbxSwitch.getAttribute("data-on")).toBe("true");
+		// 组开关在组头，无需展开即可点击；点击后展开断言组内行状态
+		fireEvent.click(dbxSwitch);
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		expect(
+			screen.getByTestId("tool-switch-mcp__dbx__query").getAttribute("data-on"),
+		).toBe("false");
+		expect(
+			screen
+				.getByTestId("tool-switch-mcp__dbx__dbx_list_tables")
+				.getAttribute("data-on"),
+		).toBe("false");
+		fireEvent.click(screen.getByText("保存"));
+		const saved = lastSaved("dev").config.tools;
+		expect(saved).not.toContain("mcp__dbx__query");
+		expect(saved).not.toContain("mcp__dbx__dbx_list_tables");
+		// 跨 tab 不误删：普通工具与其它服务器的 MCP 工具仍在
+		expect(saved).toContain("read");
+		expect(saved).toContain("mcp__yunxiao__get_current_user");
+	});
+
+	test("MCP tab：从显式列表点击组开关可批量勾上该服务器全部工具", async () => {
+		renderConfig("dev", cfg("dev", { tools: ["read"] }));
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "read", source: "内置" },
+				{ name: "mcp__dbx__query", source: "MCP" },
+				{ name: "mcp__dbx__dbx_list_tables", source: "MCP" },
+				{ name: "mcp__yunxiao__get_current_user", source: "MCP" },
+			],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		const dbxSwitch = await screen.findByTestId("mcp-group-switch-dbx");
+		// 显式列表里没有 dbx 工具 → 组开关 off
+		expect(dbxSwitch.getAttribute("data-on")).toBe("false");
+		fireEvent.click(dbxSwitch);
+		expect(dbxSwitch.getAttribute("data-on")).toBe("true");
+		fireEvent.click(screen.getByTestId("mcp-group-switch-yunxiao"));
+		fireEvent.click(screen.getByText("保存"));
+		const saved = lastSaved("dev").config.tools;
+		// 三个 MCP 工具全部勾上，原有 read 保留
+		expect(saved).toEqual(
+			expect.arrayContaining([
+				"read",
+				"mcp__dbx__query",
+				"mcp__dbx__dbx_list_tables",
+				"mcp__yunxiao__get_current_user",
+			]),
 		);
+	});
+
+	test("MCP tab：关闭单个工具（同组其它工具仍开）→ 保存的 tools 只去掉该工具", async () => {
+		renderConfig();
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				{ name: "read", source: "内置" },
+				{ name: "mcp__dbx__query", source: "MCP" },
+				{ name: "mcp__dbx__dbx_list_tables", source: "MCP" },
+			],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		await screen.findByTestId("mcp-group-toggle-dbx");
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		// 默认 tools=[]（全量默认）→ 两个工具都开；只关掉其中一个
+		const off = screen.getByTestId("tool-switch-mcp__dbx__dbx_list_tables");
+		expect(off.getAttribute("data-on")).toBe("true");
+		fireEvent.click(off);
+		expect(off.getAttribute("data-on")).toBe("false");
+		// 同组另一个工具不受影响
+		expect(
+			screen.getByTestId("tool-switch-mcp__dbx__query").getAttribute("data-on"),
+		).toBe("true");
+		// 组开关随之变为 off（不是全勾）
+		expect(
+			screen.getByTestId("mcp-group-switch-dbx").getAttribute("data-on"),
+		).toBe("false");
+
+		fireEvent.click(screen.getByText("保存"));
+		const saved = lastSaved("dev").config.tools;
+		expect(saved).not.toContain("mcp__dbx__dbx_list_tables");
+		// 只关掉的那一个：同服务器其它工具与普通工具都在白名单里
+		expect(saved).toContain("mcp__dbx__query");
+		expect(saved).toContain("read");
+	});
+
+	test("MCP tab：组默认收起，点组头展开、再点收起", async () => {
+		renderConfig();
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [{ name: "mcp__dbx__query", source: "MCP" }],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		await screen.findByTestId("mcp-group-dbx");
+		// 默认收起：只有组头，不渲染组内工具行
+		expect(screen.queryByTestId("mcp-group-body-dbx")).toBeNull();
+		expect(screen.queryByTestId("tool-switch-mcp__dbx__query")).toBeNull();
+		// 点组头展开
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		expect(screen.getByTestId("mcp-group-body-dbx")).toBeTruthy();
+		expect(screen.getByTestId("tool-switch-mcp__dbx__query")).toBeTruthy();
+		// 再点收起
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		expect(screen.queryByTestId("mcp-group-body-dbx")).toBeNull();
+	});
+
+	test("MCP tab：点组开关只切换勾选，不触发折叠", async () => {
+		renderConfig();
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [
+				// 带一个非 MCP 工具：避免切到空数组后落回「空=全选」语义
+				{ name: "read", source: "内置" },
+				{ name: "mcp__dbx__query", source: "MCP" },
+			],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		const dbxSwitch = await screen.findByTestId("mcp-group-switch-dbx");
+		// 收起态点组开关：勾选被取消，但组仍然收起
+		fireEvent.click(dbxSwitch);
+		expect(screen.queryByTestId("mcp-group-body-dbx")).toBeNull();
+		expect(dbxSwitch.getAttribute("data-on")).toBe("false");
+		// 展开后组内行开关同步为关
+		fireEvent.click(screen.getByTestId("mcp-group-toggle-dbx"));
+		expect(
+			screen.getByTestId("tool-switch-mcp__dbx__query").getAttribute("data-on"),
+		).toBe("false");
+	});
+
+	test("MCP tab：组标题使用主题色与放大的字号", async () => {
+		renderConfig();
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [{ name: "mcp__dbx__query", source: "MCP" }],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		const toggle = await screen.findByTestId("mcp-group-toggle-dbx");
+		const cls = toggle.className ?? "";
+		expect(cls).toContain("text-brand");
+		expect(cls).toContain("13px");
+	});
+
+	test("MCP tab：无 MCP 工具时显示空态文案", async () => {
+		renderConfig();
+		await emitEvent({
+			type: "agent:tools:list",
+			tools: [{ name: "read", source: "内置" }],
+		});
+		fireEvent.click(screen.getByTestId("tab-mcp"));
+		expect(await screen.findByText("暂无 MCP 工具")).toBeTruthy();
 	});
 
 	test("工具 tab：4 个 browser_* 开关渲染且默认勾选，点掉 browser_navigate 后保存为显式白名单", async () => {

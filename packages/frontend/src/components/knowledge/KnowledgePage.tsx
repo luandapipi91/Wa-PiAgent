@@ -19,6 +19,24 @@ import { KbAgentsModal } from "./KbAgentsModal";
 /** 弹窗目标：null=关闭；"new"=新建；KbInfo=编辑该库 */
 type KbFormTarget = KbInfo | "new" | null;
 
+/** 重排状态轮询上限（次）：1.5s × 40 ≈ 1 分钟，够启动恢复加载模型 */
+export const RERANK_IDLE_POLL_MAX = 40;
+
+/**
+ * 重排状态是否需要继续轮询。
+ * - downloading：跟下载进度，不设上限（慢网大模型可能很久）
+ * - 已开启但仍 idle：kernel 重启后正在按开关恢复加载模型，得跟着等终态；
+ *   设上限避免「内核不加载」时无限请求
+ */
+export function shouldPollRerank(
+  state: { enabled: boolean; status: string },
+  polls: number,
+): boolean {
+  if (state.status === "downloading") return true;
+  if (state.status === "idle" && state.enabled) return polls < RERANK_IDLE_POLL_MAX;
+  return false;
+}
+
 export function KnowledgePage() {
   const { t } = useTranslation();
   const { kbs, loading, error, loaded, listKbs, reindex } = useKnowledgeStore();
@@ -43,12 +61,22 @@ export function KnowledgePage() {
     loadRerank();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 下载中每 1.5s 轮询一次状态，直到终态（ready/failed/idle）
+  // 下载中 / 已开启但仍在 idle（kernel 重启恢复中）每 1.5s 轮询一次状态，直到终态
+  const rerankPolls = useRef(0);
   useEffect(() => {
-    if (rerank.status !== "downloading") return;
-    const timer = setInterval(() => loadRerank(), 1500);
+    if (!shouldPollRerank(rerank, rerankPolls.current)) {
+      rerankPolls.current = 0;
+      return;
+    }
+    const timer = setInterval(() => {
+      rerankPolls.current += 1;
+      loadRerank();
+      if (!shouldPollRerank(useKnowledgeStore.getState().rerank, rerankPolls.current)) {
+        clearInterval(timer);
+      }
+    }, 1500);
     return () => clearInterval(timer);
-  }, [rerank.status, loadRerank]);
+  }, [rerank.status, rerank.enabled, loadRerank]);
 
   /** 弹窗保存：新建发 POST（自动触发索引），编辑发 PUT 只更名称/描述；
    *  成功后刷新清单并关闭弹窗（POST 返回即落库，索引进度走 SSE 刷新徽章） */
@@ -180,7 +208,11 @@ export function KnowledgePage() {
                         ? t("kb.rerankReady")
                         : rerank.status === "failed"
                           ? t("kb.rerankFailed")
-                          : t("kb.rerankIdle")}
+                          : rerank.enabled
+                            ? // 开关已开但模型尚未加载（重启后恢复中）：idle 不能读作「未开启」，
+                              // 否则与旁边的开关自身矛盾
+                              t("kb.rerankPending")
+                            : t("kb.rerankIdle")}
                   </span>
                   {rerank.status === "failed" && (
                     <button

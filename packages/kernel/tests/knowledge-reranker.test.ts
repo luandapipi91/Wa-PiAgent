@@ -322,3 +322,73 @@ test("withRerankerEnv：加载窗口内他人改写的 env 不被 finally 覆盖
     env.remotePathTemplate = before.path;
   }
 });
+
+// ============ 启动恢复：settings 里已开启时后台加载模型 ============
+//
+// 背景（2026-11-12 缺陷）：开关持久化在 settings.json，模型就绪态只活在进程内存。
+// 重启后没人按开关恢复加载，状态恒 idle；前端 idle 文案是「未开启」，
+// 于是出现「开关已开 + 未开启」的矛盾展示，deep 检索也静默退化 hybrid。
+
+test("prepareRerankerIfEnabled：settings 未开启时完全不加载模型（不下载、不联网）", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { setRerankerLoaderForTest, prepareRerankerIfEnabled } = await import("../src/knowledge/reranker");
+  const dir = mkdtempSync(join(tmpdir(), "kb-rerank-restore-"));
+  const file = join(dir, "settings.json");
+  let loaderCalled = 0;
+  setRerankerLoaderForTest(async () => {
+    loaderCalled += 1;
+    return fakeRerankPipeline();
+  });
+  try {
+    expect(await prepareRerankerIfEnabled(file)).toBe(false);
+    expect(loaderCalled).toBe(0);
+    expect(rerankerStatus().status).toBe("idle");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("prepareRerankerIfEnabled：settings 已开启时后台加载并进入 ready", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { setRerankerLoaderForTest, prepareRerankerIfEnabled, rerankerStatus } = await import(
+    "../src/knowledge/reranker"
+  );
+  const { saveKnowledgeRerankSettings } = await import("../src/settings-store");
+  const dir = mkdtempSync(join(tmpdir(), "kb-rerank-restore-"));
+  const file = join(dir, "settings.json");
+  let loaderCalled = 0;
+  setRerankerLoaderForTest(async () => {
+    loaderCalled += 1;
+    return fakeRerankPipeline();
+  });
+  try {
+    await saveKnowledgeRerankSettings({ enabled: true }, file);
+    expect(await prepareRerankerIfEnabled(file)).toBe(true);
+    expect(loaderCalled).toBe(1);
+    expect(rerankerStatus().status).toBe("ready");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("prepareRerankerIfEnabled：加载失败只落到 failed 状态，不抛给启动流程", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { prepareRerankerIfEnabled, rerankerStatus } = await import("../src/knowledge/reranker");
+  const { saveKnowledgeRerankSettings } = await import("../src/settings-store");
+  const dir = mkdtempSync(join(tmpdir(), "kb-rerank-restore-"));
+  const file = join(dir, "settings.json");
+  try {
+    await saveKnowledgeRerankSettings({ enabled: true }, file);
+    resetRerankerForTest({ failNextLoad: true });
+    expect(await prepareRerankerIfEnabled(file)).toBe(false);
+    expect(rerankerStatus().status).toBe("failed");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

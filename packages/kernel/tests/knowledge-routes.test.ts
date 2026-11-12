@@ -7,7 +7,14 @@
 // 「最终 ready」语义由 knowledge-indexer.test.ts（任务 6）承载。
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { ConfigStore } from "../src/config-store";
@@ -278,6 +285,9 @@ test("preview → create 目录未变：回包不含 planChanged", async () => {
 
 test("planToken 无效或缺失：不阻断创建，回包不含 planChanged", async () => {
   const { port } = await startTestServer();
+  // 两次 create 用不同目录（同目录二次创建已被重复拦截，见重复登记用例）
+  const srcDir2 = mkdtempSync(join(tmpdir(), "kb-routes-src2-"));
+  writeFileSync(join(srcDir2, "b.md"), "# 标题三\n\n内容丙。");
   const bad = await api(port, "POST", "/api/knowledge", {
     folderPath: srcDir,
     planToken: "not-a-real-token",
@@ -287,7 +297,7 @@ test("planToken 无效或缺失：不阻断创建，回包不含 planChanged", a
   expect(badBody.type).toBe("knowledge:create");
   expect(badBody.planChanged).toBeUndefined();
 
-  const none = await api(port, "POST", "/api/knowledge", { folderPath: srcDir });
+  const none = await api(port, "POST", "/api/knowledge", { folderPath: srcDir2 });
   const noneBody = (await none.json()) as any;
   expect(noneBody.type).toBe("knowledge:create");
   expect(noneBody.planChanged).toBeUndefined();
@@ -424,6 +434,43 @@ test("POST /api/knowledge 拒绝 ~ 开头的路径（不替 shell 做展开）",
 });
 
 // ===== 4. POST /api/knowledge/:id/cancel 取消索引 =====
+
+test("POST /api/knowledge 同一文件夹重复登记被拒（含尾斜杠与 symlink 归一）", async () => {
+  const { port } = await startTestServer();
+  const first = await api(port, "POST", "/api/knowledge", {
+    folderPath: srcDir,
+    name: "首个库",
+  });
+  expect(first.status).toBe(200);
+  const firstBody = (await first.json()) as any;
+  const firstCount = store.listKbs().length;
+
+  // 同路径再登记 → 400，错误文案带已登记库名；不新建行、不触发索引
+  const dup = await api(port, "POST", "/api/knowledge", { folderPath: srcDir });
+  expect(dup.status).toBe(400);
+  const dupBody = (await dup.json()) as any;
+  expect(String(dupBody.error)).toContain("重复");
+  expect(String(dupBody.error)).toContain("首个库");
+  expect(store.listKbs().length).toBe(firstCount);
+  expect(store.getJob(firstBody.kb.id)).not.toBeNull(); // 首库索引不受影响
+
+  // 尾斜杠：同一目录的另一种写法也归一后拦截
+  const trailing = await api(port, "POST", "/api/knowledge", {
+    folderPath: `${srcDir}/`,
+  });
+  expect(trailing.status).toBe(400);
+  expect(store.listKbs().length).toBe(firstCount);
+
+  // symlink 指向同目录：macOS 上 /tmp 是 /private/tmp 的 symlink 是同类问题，
+  // 用 realpath 归一拦截（Windows 无 symlink 权限，仅非 Windows 跑）
+  if (process.platform !== "win32") {
+    const linkPath = join(tmpDir, "kb-dup-link");
+    symlinkSync(srcDir, linkPath);
+    const viaLink = await api(port, "POST", "/api/knowledge", { folderPath: linkPath });
+    expect(viaLink.status).toBe(400);
+    expect(store.listKbs().length).toBe(firstCount);
+  }
+});
 
 test("POST /api/knowledge/:id/cancel 取消索引", async () => {
   const { port } = await startTestServer();

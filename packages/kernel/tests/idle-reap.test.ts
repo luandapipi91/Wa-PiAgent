@@ -8,7 +8,10 @@
 // 构造范式与 agent-manager.test.ts 一致：createClientFn 注入 FakeSessionClient，
 // ensureStarted 建好合法 SessionHandle 后，直接改 (am as any).sessions.get(id) 的字段驱动测试。
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { AgentManager } from "../src/agent-manager";
+import {
+  AgentManager,
+  IDLE_REAP_THRESHOLD_MS,
+} from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { tuiHostRegistry } from "../src/tui-host-registry";
 import {
@@ -133,4 +136,29 @@ test("回收会话时清空该会话的 tui-host 面板与输入队列", async (
   await am.reapIdleSessions(5_000);
 
   expect(tuiHostRegistry.sessionIds()).not.toContain(session.id);
+});
+
+// —— 空闲回收阈值规格 ——
+//
+// pi ≥1.5.1 默认 cacheWarming: "idle"：进程存活时在两次 run 之间刷新 Anthropic
+// 服务端 prompt cache（TTL 300s，刷新间隔 = TTL×0.9 = 270s）。旧阈值 60s 会在
+// 首次刷新 tick（真实请求开始 + 270s）前回收进程，保温一次都发不出；改 300s
+// 让进程活过首次刷新，缓存单次续命到 ~9.5 分钟。
+// 值即规格（产品拍板），两处断言：契约值 + 无参默认阈值行为。
+test("IDLE_REAP_THRESHOLD_MS 契约值为 5 分钟（300_000）", () => {
+  expect(IDLE_REAP_THRESHOLD_MS).toBe(300_000);
+});
+
+test("无参调用 reapIdleSessions 用默认阈值：空闲 2 分钟的会话不回收", async () => {
+  const { session, am, fakes } = await setup();
+  const handle = (am as any).sessions.get(session.id) as any;
+  // 120s 介于旧默认 60s（会被回收）与新阈值 300s（保留）之间
+  handle.busy = false;
+  handle.lastActiveAt = Date.now() - 120_000;
+
+  const reaped = await am.reapIdleSessions();
+
+  expect(reaped).toEqual([]);
+  expect(fakes[0].alive).toBe(true);
+  expect((am as any).sessions.has(session.id)).toBe(true);
 });

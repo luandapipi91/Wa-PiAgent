@@ -29,17 +29,20 @@ import {
 	type AvatarIconName,
 } from "./ui/avatar-icons";
 import { filterItems } from "../quick-invoke/trigger";
+import { Icon } from "./ui/Icon";
 
 interface Props {
 	agentName: AgentName;
 	onClose: () => void;
 }
 
-type Tab = "basic" | "tools" | "skills" | "partners";
+type Tab = "basic" | "tools" | "mcp" | "skills" | "partners";
 
 const TABS: { key: Tab; labelKey: string }[] = [
 	{ key: "basic", labelKey: "agentConfig.tabBasic" },
 	{ key: "tools", labelKey: "agentConfig.tabTools" },
+	// MCP 工具单独成 tab：数量多且按服务器分组，与内置/插件工具混排会淹没本地工具
+	{ key: "mcp", labelKey: "agentConfig.tabMcp" },
 	{ key: "skills", labelKey: "agentConfig.tabSkills" },
 	{ key: "partners", labelKey: "agentConfig.tabPartners" },
 ];
@@ -370,6 +373,9 @@ export function AgentConfig({ agentName, onClose }: Props) {
 					{draft && tab === "tools" && (
 						<ToolsTab draft={draft} onChange={handleChange} tools={tools} />
 					)}
+					{draft && tab === "mcp" && (
+						<McpTab draft={draft} onChange={handleChange} tools={tools} />
+					)}
 					{draft && tab === "skills" && (
 						<SkillsTab draft={draft} onChange={handleChange} />
 					)}
@@ -651,33 +657,111 @@ function BasicTab({ draft, onChange, isBuiltin }: TabProps) {
 	);
 }
 
+// MCP 入口工具（pi 的 ensureDiscoveryActive）：非「直接可用」的 MCP 工具必须靠它到达。
+// kernel 无论用户勾没勾都会把它并进白名单（resolveAgentTools 无条件合并枚举结果），
+// 所以界面上不再展示（既不给开关也不占条目），只保留过滤逻辑（T7 复审登记）。
+const isMcpEntryTool = (name: string) =>
+	name === "codemode" || name === "tool_search";
+
+/** draft.tools 空数组 = 全量默认（kernel 语义）：展示态展开为全部可选项；否则原样作为显式白名单 */
+function expandChecked(tools: string[], all: string[]): string[] {
+	return tools.length === 0 ? all : tools;
+}
+
+/**
+ * 批量切换勾选：names 全部已勾选 → 整组取消；否则 → 整组勾上。
+ * 一律以 all（普通 + MCP 全集）为基准换算，避免只按当前 tab 换算而误删其它工具。
+ */
+function toggleNames(
+	tools: string[],
+	all: string[],
+	names: string[],
+): string[] {
+	const checked = new Set(expandChecked(tools, all));
+	const allOn = names.every((n) => checked.has(n));
+	for (const n of names) {
+		if (allOn) checked.delete(n);
+		else checked.add(n);
+	}
+	// all 之外的残留项（磁盘/兼容性写入）原样保留，不因切换勾选而被清掉
+	const extra = tools.filter((n) => !all.includes(n));
+	return all.filter((n) => checked.has(n)).concat(extra);
+}
+
+/** 从 `mcp__<server>__<tool>` 解析服务器名与短工具名；前缀不匹配的归入「其他」 */
+function parseMcpToolName(name: string): { server: string; short: string } {
+	const parts = name.split("__");
+	if (parts.length >= 3 && parts[0] === "mcp" && parts[1]) {
+		return { server: parts[1], short: parts.slice(2).join("__") };
+	}
+	return { server: "其他", short: name };
+}
+
+/** 工具行：名称（+ 来源标签）+ 可选描述 + 开关；普通工具与 MCP 工具共用 */
+function ToolRow({
+	name,
+	label,
+	source,
+	description,
+	on,
+	onToggle,
+}: {
+	name: string;
+	label: string;
+	source: string;
+	/** 可选：MCP 服务器官方描述或内置工具中文简介；第三方插件可能没有 */
+	description?: string;
+	on: boolean;
+	onToggle: () => void;
+}) {
+	return (
+		<label className="flex items-center gap-2 py-1 cursor-pointer justify-between">
+			<span className="flex flex-col min-w-0">
+				<span className="flex items-center gap-2">
+					<span className="text-sm text-primary">{label}</span>
+					<span
+						className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
+						style={{
+							background: "var(--hairline)",
+							color: "var(--text-tertiary)",
+						}}
+					>
+						{source}
+					</span>
+				</span>
+				{/* 描述行：单行截断，title 保留完整原文（MCP 描述可能很长）；无描述时不渲染 */}
+				{description && (
+					<span
+						data-testid={`tool-desc-${name}`}
+						title={description}
+						className="text-[calc(11px*var(--font-scale))] text-tertiary truncate"
+					>
+						{description}
+					</span>
+				)}
+			</span>
+			<SwitchButton on={on} onClick={onToggle} testId={`tool-switch-${name}`} />
+		</label>
+	);
+}
+
 function ToolsTab({
 	draft,
 	onChange,
 	tools,
 }: TabProps & { tools: AgentToolItem[] }) {
 	const { t } = useTranslation();
-	// MCP 入口工具（pi 的 ensureDiscoveryActive）：非「直接可用」的 MCP 工具必须靠它到达。
-	// kernel 无论用户勾没勾都会把它并进白名单（resolveAgentTools 无条件合并枚举结果），
-	// 所以这里只展示、不给开关——避免“勾了 codemode 却仍然调不到工具”的误导（T7 复审登记）。
-	const isMcpEntryTool = (name: string) =>
-		name === "codemode" || name === "tool_search";
-	const selectable = tools.filter((tl) => !isMcpEntryTool(tl.name));
-	const entryTools = tools.filter((tl) => isMcpEntryTool(tl.name));
-	const all = selectable.map((tl) => tl.name);
+	// 工具 tab 只保留非 MCP 工具（内置 + 插件）；MCP 工具全部移到 MCP tab
+	const plainTools = tools.filter(
+		(tl) => tl.source !== "MCP" && !isMcpEntryTool(tl.name),
+	);
+	// 勾选基准始终是全部可选项（普通 + MCP），保证跨 tab 切换时不会误删另一侧的工具
+	const all = tools.filter((tl) => !isMcpEntryTool(tl.name)).map((tl) => tl.name);
 	// 防御：draft.tools 可能因磁盘残留/API 兼容性为非数组，统一规范化为 []
 	const dtools: string[] = Array.isArray(draft.tools) ? draft.tools : [];
-	// 空数组 = 全量默认（kernel 语义）：展示态全部勾选，取消勾选即转为显式列表
-	const checked = (n: string) => dtools.length === 0 || dtools.includes(n);
-	const toggle = (n: string) => {
-		const next =
-			dtools.length === 0
-				? all.filter((x) => x !== n)
-				: dtools.includes(n)
-					? dtools.filter((x) => x !== n)
-					: [...dtools, n];
-		onChange({ ...draft, tools: next });
-	};
+	const checked = new Set(expandChecked(dtools, all));
+	const toggle = (n: string) =>
+		onChange({ ...draft, tools: toggleNames(dtools, all, [n]) });
 	if (tools.length === 0)
 		return <p className="text-sm text-tertiary">{t("agentConfig.loading")}</p>;
 	return (
@@ -685,63 +769,124 @@ function ToolsTab({
 			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
 				{t("agentConfig.toolsHint")}
 			</p>
-			{selectable.map((tl) => (
-				<label
+			{plainTools.map((tl) => (
+				<ToolRow
 					key={tl.name}
-					className="flex items-center gap-2 py-1 cursor-pointer justify-between"
-				>
-					<span className="flex items-center gap-2">
-						<span className="text-sm text-primary">{tl.name}</span>
-						<span
-							className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
-							style={{
-								background: "var(--hairline)",
-								color: "var(--text-tertiary)",
-							}}
-						>
-							{tl.source}
-						</span>
-					</span>
-					<SwitchButton
-						on={checked(tl.name)}
-						onClick={() => toggle(tl.name)}
-						testId={`tool-switch-${tl.name}`}
-					/>
-				</label>
+					name={tl.name}
+					label={tl.name}
+					source={tl.source}
+					description={tl.description}
+					on={checked.has(tl.name)}
+					onToggle={() => toggle(tl.name)}
+				/>
 			))}
+		</div>
+	);
+}
 
-			{/* MCP 入口工具：不能单独关掉（kernel 强制放行），需明确标注而不是给个没用的开关 */}
-			{entryTools.length > 0 && (
-				<div
-					className="mt-3 pt-3"
-					style={{ borderTop: "1px solid var(--hairline)" }}
-					data-testid="mcp-entry-tools"
-				>
-					<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
-						{t("agentConfig.mcpEntryHint")}
-					</p>
-					{entryTools.map((tl) => (
-						<div
-							key={tl.name}
-							className="flex items-center gap-2 py-1 justify-between"
-							data-testid={`mcp-entry-tool-${tl.name}`}
-						>
-							<span className="flex items-center gap-2">
-								<span className="text-sm text-tertiary">{tl.name}</span>
-								<span
-									className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
-									style={{
-										background: "var(--hairline)",
-										color: "var(--text-tertiary)",
-									}}
-								>
-									{tl.source}
-								</span>
-							</span>
-						</div>
-					))}
-				</div>
+function McpTab({
+	draft,
+	onChange,
+	tools,
+}: TabProps & { tools: AgentToolItem[] }) {
+	const { t } = useTranslation();
+	const mcpTools = tools.filter(
+		(tl) => tl.source === "MCP" && !isMcpEntryTool(tl.name),
+	);
+	// 勾选基准始终是全部可选项（普通 + MCP），与工具 tab 共用同一条保存链路
+	const all = tools.filter((tl) => !isMcpEntryTool(tl.name)).map((tl) => tl.name);
+	// 防御：draft.tools 可能因磁盘残留/API 兼容性为非数组，统一规范化为 []
+	const dtools: string[] = Array.isArray(draft.tools) ? draft.tools : [];
+	const checked = new Set(expandChecked(dtools, all));
+	const toggle = (names: string[]) =>
+		onChange({ ...draft, tools: toggleNames(dtools, all, names) });
+	// 折叠状态：纯 UI 状态（不写进 draft/config，也不跨弹窗持久化），默认全部收起
+	const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+	const toggleGroup = (server: string) => {
+		setOpenGroups((prev) => {
+			const next = new Set(prev);
+			if (next.has(server)) next.delete(server);
+			else next.add(server);
+			return next;
+		});
+	};
+	// 按服务器名分组，组按服务器名字母序排列；服务器名无法解析的归入「其他」
+	const groups = new Map<
+		string,
+		{ name: string; short: string; description?: string }[]
+	>();
+	for (const tl of mcpTools) {
+		const { server, short } = parseMcpToolName(tl.name);
+		const list = groups.get(server) ?? [];
+		list.push({ name: tl.name, short, description: tl.description });
+		groups.set(server, list);
+	}
+	const servers = Array.from(groups.keys()).sort((a, b) =>
+		a.localeCompare(b, "zh-CN"),
+	);
+	return (
+		<div className="flex flex-col">
+			<p className="text-[calc(11px*var(--font-scale))] text-tertiary">
+				{t("agentConfig.toolsHint")}
+			</p>
+			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
+				{t("agentConfig.mcpGroupHint")}
+			</p>
+			{groups.size === 0 && (
+				<p className="text-sm text-tertiary">{t("agentConfig.mcpEmpty")}</p>
 			)}
+			{servers.map((server) => {
+				const items = groups.get(server)!;
+				const names = items.map((i) => i.name);
+				// 组开关 on = 该组全部工具已勾选；点击即整组取消 / 整组勾上
+				const allOn = names.every((n) => checked.has(n));
+				const open = openGroups.has(server);
+				return (
+					<div
+						key={server}
+						className="mt-3 first:mt-0"
+						data-testid={`mcp-group-${server}`}
+					>
+						<div className="flex items-center gap-2 justify-between mb-1">
+							{/* 组头整体可点：切换折叠；开关单独 stopPropagation，不触发折叠 */}
+							<button
+								type="button"
+								onClick={() => toggleGroup(server)}
+								data-testid={`mcp-group-toggle-${server}`}
+								aria-expanded={open}
+								className="flex items-center gap-1 p-0 bg-transparent border-0 cursor-pointer text-left text-[calc(13px*var(--font-scale))] text-brand font-semibold"
+							>
+								<Icon
+									name={open ? "chevron-down" : "chevron-right"}
+									size={12}
+								/>
+								<span>{`${server} · ${items.length}`}</span>
+							</button>
+							<SwitchButton
+								on={allOn}
+								onClick={() => toggle(names)}
+								testId={`mcp-group-switch-${server}`}
+							/>
+						</div>
+						{/* 收起时不渲染组内工具行 */}
+						{open && (
+							<div data-testid={`mcp-group-body-${server}`}>
+								{items.map((item) => (
+									<ToolRow
+										key={item.name}
+										name={item.name}
+										label={item.short}
+										source="MCP"
+										description={item.description}
+										on={checked.has(item.name)}
+										onToggle={() => toggle([item.name])}
+									/>
+								))}
+							</div>
+						)}
+					</div>
+				);
+			})}
 		</div>
 	);
 }

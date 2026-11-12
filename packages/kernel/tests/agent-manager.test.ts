@@ -26,6 +26,7 @@ import {
 	type FakeMcpAdmin,
 } from "./helpers/fake-mcp-admin";
 import type { McpServerReport } from "../src/mcp-admin";
+import { MCP_HARD_FILTER_ENTRY } from "../src/mcp-tool-names";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { extUiRegistry } from "../src/ext-ui-registry";
@@ -44,6 +45,7 @@ import {
 	BUILTIN_SKILLS_DIR,
 	SYSTEM_PROJECT_CWD,
 	DEFAULT_AGENT_TOOLS,
+	BUILTIN_TOOL_DESCRIPTIONS,
 } from "@wa-pi/shared";
 import type { AskParams, ThinkingLevel } from "@wa-pi/shared";
 import type { RpcClient, RpcClientOpts } from "../src/rpc-client";
@@ -1840,9 +1842,12 @@ test("listGlobalTools 含 mcp-admin 枚举出的全部 MCP 工具名与入口工
 	expect(names).not.toContain("mcp");
 });
 
-test("受限 agent 的 --tools 白名单并入 MCP 服务器通配模式与入口工具（F4/F7，pi 1.0.4）", async () => {
+test("受限 agent 只放行勾选的 MCP 工具（工具级开关生效，F4/F7）", async () => {
 	const configStore = {
-		getAgent: mock(async () => ({ displayName: "dev", tools: ["read"] })),
+		getAgent: mock(async () => ({
+			displayName: "dev",
+			tools: ["read", "mcp__dbx__query"],
+		})),
 	} as any;
 	const { project, session, am, fakes } = await setup({
 		configStore,
@@ -1852,19 +1857,127 @@ test("受限 agent 的 --tools 白名单并入 MCP 服务器通配模式与入�
 
 	const args = fakes[0].opts.args ?? [];
 	const tools = argValues(args, "--tools").flatMap((v) => v.split(","));
-	// 基础白名单 + 服务器粒度通配模式都在（模式前缀覆盖退化名，不受枚举竞态影响）
 	expect(tools).toContain("read");
-	expect(tools).toContain("mcp__dbx__*");
-	// pi 缺省曝光 codemode（未写 exposure 的 server）与 deferred 的服务器：模式与各自的入口工具
-	// 都必须在白名单里——缺入口就是静默不可用（规格 §6）
-	expect(tools).toContain("mcp__ologs__*");
+	// 勾选的精确工具名放行
+	expect(tools).toContain("mcp__dbx__query");
+	// 同一服务器里未勾选的工具不放行——这是「工具开关关掉就不可用」的核心
+	expect(tools).not.toContain("mcp__dbx__list");
+	// 不再整台服务器放行（否则单工具开关形同虚设）
+	expect(tools).not.toContain("mcp__dbx__*");
+	// 未勾选的服务器一律不放行
+	expect(tools).not.toContain("mcp__ologs__get_profile");
+	expect(tools).not.toContain("mcp__docs__search");
+	// 勾了 MCP 工具就不需要「硬过滤哨兵」（它只用于一个 MCP 工具都没勾的情形）
+	expect(tools).not.toContain(MCP_HARD_FILTER_ENTRY);
+});
+
+test("受限 agent 勾选 codemode / deferred 服务器的工具：白名单补对应入口工具", async () => {
+	const configStore = {
+		getAgent: mock(async () => ({
+			displayName: "dev",
+			tools: ["read", "mcp__ologs__get_profile", "mcp__docs__search"],
+		})),
+	} as any;
+	const { project, session, am, fakes } = await setup({
+		configStore,
+		mcpAdmin: makeFakeMcpAdmin([...MCP_SERVERS]),
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
+		v.split(","),
+	);
+	expect(tools).toContain("mcp__ologs__get_profile");
 	expect(tools).toContain("codemode");
-	expect(tools).toContain("mcp__docs__*");
+	expect(tools).toContain("mcp__docs__search");
 	expect(tools).toContain("tool_search");
-	// 白名单用模式而非逐工具精确名（pi 1.0.4 的 --tools 按 mcp__ 条目过滤）
+	// 未勾选的 direct 服务器工具照旧不放行
 	expect(tools).not.toContain("mcp__dbx__query");
-	// 不再放行 adapter 时代的聚合名
-	expect(tools).not.toContain("mcp");
+});
+
+test("受限 agent + codemode 曝光：同服务器只放行勾选的工具，并补 codemode 入口（工具级开关在 codemode 下同样生效）", async () => {
+	// codemode 曝光的工具不直接声明给模型，只能由 codemode 脚本调用——此时「关掉的工具」
+	// 更依赖白名单真的把它挡在注册之外（否则 codemode 的 ctx.tools 里仍有它）。
+	const configStore = {
+		getAgent: mock(async () => ({
+			displayName: "dev",
+			tools: ["read", "mcp__cm_srv__keep"],
+		})),
+	} as any;
+	const { project, session, am, fakes } = await setup({
+		configStore,
+		mcpAdmin: makeFakeMcpAdmin([
+			{
+				name: "cm_srv",
+				scope: "global",
+				enabled: true,
+				exposure: "codemode",
+				state: "connected",
+				tools: ["keep", "off"],
+			},
+		]),
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
+		v.split(","),
+	);
+	// 勾选的精确名 + codemode 入口（非 direct 工具的唯一到达通道）
+	expect(tools).toContain("mcp__cm_srv__keep");
+	expect(tools).toContain("codemode");
+	// 同服务器未勾选的工具不放行，也不再整台服务器通配
+	expect(tools).not.toContain("mcp__cm_srv__off");
+	expect(tools).not.toContain("mcp__cm_srv__*");
+});
+
+test("受限 agent 未勾选任何 MCP 工具：白名单不放任何真实 MCP 工具，但要触发 pi 的 MCP 硬过滤", async () => {
+	const configStore = {
+		getAgent: mock(async () => ({ displayName: "dev", tools: ["read", "bash"] })),
+	} as any;
+	const { project, session, am, fakes } = await setup({
+		configStore,
+		mcpAdmin: makeFakeMcpAdmin([...MCP_SERVERS]),
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
+		v.split(","),
+	);
+	// 没有任何真实 MCP 工具名（白名单里的 mcp__ 条目只是硬过滤哨兵）
+	expect(
+		tools.filter((t) => t.startsWith("mcp__") && t !== MCP_HARD_FILTER_ENTRY),
+	).toEqual([]);
+	// 哨兵必须在：否则 pi 不对 MCP 硬过滤，codemode 工具能调到未点名的 codemode/deferred 工具
+	expect(tools).toContain(MCP_HARD_FILTER_ENTRY);
+	// 也不需要任何 MCP 入口工具
+	expect(tools).not.toContain("tool_search");
+});
+
+test("智能体配置保存后 markAgentDirty：该智能体的活跃会话下次 ensureStarted 整进程重建（新工具集生效）", async () => {
+	// 工具集是 pi 进程的启动参数，热重载（reloadExtensions）不重读 --tools；
+	// 保存后不重建进程，下一次对话仍用旧工具集——「关了开关不生效」的另一半。
+	let cfg: any = { displayName: "dev", tools: ["read"] };
+	const configStore = { getAgent: mock(async () => cfg) } as any;
+	const { project, session, am, fakes } = await setup({
+		configStore,
+		mcpToolRefreshDelayMs: 60_000,
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect(fakes).toHaveLength(1);
+	expect(
+		argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) => v.split(",")),
+	).toEqual(["im_push_to", "read", MCP_HARD_FILTER_ENTRY, "codemode"]);
+
+	cfg = { displayName: "dev", tools: ["read", "bash"] };
+	am.markAgentDirty("dev");
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 整进程重建：新起一个 pi client，且用新白名单
+	expect(fakes).toHaveLength(2);
+	const tools = argValues(fakes[1].opts.args ?? [], "--tools").flatMap((v) =>
+		v.split(","),
+	);
+	expect(tools).toContain("bash");
 });
 
 test("MCP 枚举失败（list 抛错）不阻断会话启动：白名单退回基础工具", async () => {
@@ -1885,7 +1998,10 @@ test("MCP 枚举失败（list 抛错）不阻断会话启动：白名单退回�
 	const args = fakes[0].opts.args ?? [];
 	const tools = argValues(args, "--tools").flatMap((v) => v.split(","));
 	expect(tools).toContain("read");
-	expect(tools.some((t) => t.startsWith("mcp__"))).toBe(false);
+	// 枚举失败时只退回基础工具 + 硬过滤哨兵（哨兵不是真实工具名，只用来让 pi 硬过滤 MCP）
+	expect(
+		tools.filter((t) => t.startsWith("mcp__") && t !== MCP_HARD_FILTER_ENTRY),
+	).toEqual([]);
 });
 
 test("工具清单延时刷新（F10）：会话启动后失效缓存并重算，后续枚举拿到新工具名", async () => {
@@ -1944,7 +2060,7 @@ test("项目作用域（F11/F12）：受限 agent 用会话/项目 cwd 枚举，
 			name: "proj",
 			scope: "project",
 			enabled: true,
-			exposure: "direct",
+			exposure: "codemode",
 			state: "connected",
 			tools: ["proj_tool"],
 		},
@@ -1954,14 +2070,17 @@ test("项目作用域（F11/F12）：受限 agent 用会话/项目 cwd 枚举，
 			name: "global",
 			scope: "global",
 			enabled: true,
-			exposure: "direct",
+			exposure: "deferred",
 			state: "connected",
 			tools: ["global_tool"],
 		},
 	]);
 	const seenCwds: string[] = [];
 	const configStore = {
-		getAgent: mock(async () => ({ displayName: "dev", tools: ["read"] })),
+		getAgent: mock(async () => ({
+			displayName: "dev",
+			tools: ["read", "mcp__proj__proj_tool", "mcp__global__global_tool"],
+		})),
 	} as any;
 	const { project, session, am, fakes } = await setup({
 		projectCwd,
@@ -1980,9 +2099,10 @@ test("项目作用域（F11/F12）：受限 agent 用会话/项目 cwd 枚举，
 	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
 		v.split(","),
 	);
-	expect(tools).toContain("mcp__proj__*");
-	// 不是拿全局作用域那份枚举凑数
-	expect(tools).not.toContain("mcp__global__*");
+	// 项目作用域枚举出 codemode 服务器 → 入口是 codemode；若错用全局那份枚举，会得到 deferred 的 tool_search
+	expect(tools).toContain("mcp__proj__proj_tool");
+	expect(tools).toContain("codemode");
+	expect(tools).not.toContain("tool_search");
 });
 
 test("枚举作用域（F11）：cwd 无 .pi/mcp.json 时复用全局实例，不再为每个会话 cwd 各建一个 McpAdmin", async () => {
@@ -1992,9 +2112,13 @@ test("枚举作用域（F11）：cwd 无 .pi/mcp.json 时复用全局实例，�
 	const sessionCwd = mkdtempSync(join(tmpdir(), "wa-pi-am-mcp-noproj-"));
 	tmpPaths.push(sessionCwd);
 	const createdCwds: string[] = [];
-	const globalAdmin = makeFakeMcpAdmin([...MCP_SERVERS]);
+	// codemode 曝光的服务器：白名单里的入口工具由枚举结果决定，可用来验证「复用的是全局那份」
+	const globalAdmin = makeFakeMcpAdmin([MCP_SERVERS[1]]);
 	const configStore = {
-		getAgent: mock(async () => ({ displayName: "dev", tools: ["read"] })),
+		getAgent: mock(async () => ({
+			displayName: "dev",
+			tools: ["read", "mcp__ologs__get_profile"],
+		})),
 	} as any;
 	const { project, session, am, fakes } = await setup({
 		projectCwd: sessionCwd,
@@ -2009,11 +2133,12 @@ test("枚举作用域（F11）：cwd 无 .pi/mcp.json 时复用全局实例，�
 
 	// 只建了全局那一个实例：会话 cwd 复用它，没有第二个实例（也就没有第二次 `pi mcp list`）
 	expect(createdCwds).toEqual([WA_PI_DIR]);
-	// 且白名单真的拿到了全局那份枚举（复用而非空清单）
+	// 且白名单真的拿到了全局那份枚举（复用而非空清单）：codemode 入口来自 ologs 的曝光
 	const tools = argValues(fakes[0].opts.args ?? [], "--tools").flatMap((v) =>
 		v.split(","),
 	);
-	expect(tools).toContain("mcp__dbx__*");
+	expect(tools).toContain("mcp__ologs__get_profile");
+	expect(tools).toContain("codemode");
 });
 
 // ─── MCP 缓存失效（任务 8 裁决 2：含全局那份与所有按 cwd 的实例）─────────────
@@ -3443,4 +3568,35 @@ test("受限白名单 agent + excludeTools：白名单剔除该工具并进黑�
 		v.split(","),
 	);
 	expect(excluded).toContain("ask_user_question");
+});
+
+// ─── listGlobalTools 的工具描述 ─────────────────────────────────────────────
+
+test("listGlobalTools(map) 内置项带中文简介，MCP 项按 map 带描述，查不到的不带字段", async () => {
+	const { am } = await setup({ mcpAdmin: makeFakeMcpAdmin([...MCP_SERVERS]) });
+	const descriptions = new Map<string, string>([["mcp__dbx__query", "执行 SQL 查询"]]);
+	const tools = await am.listGlobalTools(descriptions);
+
+	// 内置工具：本地维护的中文简介
+	const read = tools.find((t) => t.name === "read");
+	expect(read?.source).toBe("内置");
+	expect(read?.description).toBe(BUILTIN_TOOL_DESCRIPTIONS.read!);
+	expect(read?.description?.length).toBeGreaterThan(0);
+
+	// MCP 工具：按注册名命中 map
+	expect(tools.find((t) => t.name === "mcp__dbx__query")?.description).toBe("执行 SQL 查询");
+	// map 里没有的 MCP 工具：不带 description（不是空字符串）
+	const list = tools.find((t) => t.name === "mcp__dbx__list");
+	expect(list?.source).toBe("MCP");
+	expect("description" in (list as object)).toBe(false);
+});
+
+test("listGlobalTools() 不传描述索引时不给 MCP 项塞空描述，内置项仍有简介", async () => {
+	const { am } = await setup({ mcpAdmin: makeFakeMcpAdmin([...MCP_SERVERS]) });
+	const tools = await am.listGlobalTools();
+
+	for (const t of tools) {
+		if (t.source === "MCP") expect("description" in t).toBe(false);
+		if (t.source === "内置") expect(t.description?.length).toBeGreaterThan(0);
+	}
 });

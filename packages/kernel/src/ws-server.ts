@@ -21,6 +21,7 @@ import type { SkillManager } from "./skill-manager";
 import type { ExtensionManager } from "./extension-manager";
 import type { MemoryStore } from "./memory-store";
 import { McpFile, projectMcpPath } from "./mcp-file";
+import { McpToolDescriptionIndex } from "./mcp-tool-descriptions";
 import { createMcpHandlers, createMcpRoutes } from "./routes/mcp";
 import type { McpHandlers } from "./routes/mcp";
 import { resolvePiCliPath, resolvePiRuntime } from "./rpc-client";
@@ -160,6 +161,15 @@ function expandTilde(p: string): string {
 		return p.replace(/^~/, homedir());
 	}
 	return p;
+}
+
+/** 知识库同判归一：realpath 后比较（symlink、尾斜杠等不同写法实为同一目录）；realpath 失败退回原值 */
+function kbPathReal(p: string): string {
+	try {
+		return realpathSync(p);
+	} catch {
+		return p;
+	}
 }
 
 /** 在目录下递归搜索指定文件名，返回第一个匹配的绝对路径（深度最浅优先） */
@@ -584,6 +594,12 @@ export class WSServer {
 	 */
 	private mcpHandlers!: McpHandlers;
 	/**
+	 * MCP 工具描述索引（注册名 → 服务器官方 description）：工具清单泄一时带上简介。
+	 * 与 mcpHandlers 一同在 {@link registerRoutes} 里装配，复用同一个 mcpFile 实例
+	 * （全局作用域：agentDir / cwd 均用 WA_PI_DIR 口径）。
+	 */
+	private mcpToolDescriptions!: McpToolDescriptionIndex;
+	/**
 	 * 知识库运行登记：kbId → { watch: 文件监听控制器, abort: 手动索引取消控制器 }。
 	 * 同一时刻一个库只有一轮索引在跑（runIndex 重入防护基于 job 行，watcher 触发会
 	 * 防抖等待手动完成），abort 与 watch.indexing 至多一个为真。
@@ -830,6 +846,12 @@ export class WSServer {
 			},
 		};
 		this.mcpHandlers = createMcpHandlers(mcpDeps);
+		// 工具描述晒探：与 McpFile 同实例（配置读取只需 list），描述缓存自己带 TTL
+		this.mcpToolDescriptions = new McpToolDescriptionIndex({
+			mcpFile,
+			agentDir: WA_PI_DIR,
+			cwd: WA_PI_DIR,
+		});
 		createMcpRoutes(mcpDeps)(this.router, callApi, ctx);
 		registerSettingsRoutes(this.router, callApi, ctx);
 		registerChannelRoutes(this.router, callApi, ctx);
@@ -2108,10 +2130,28 @@ export class WSServer {
 				break;
 			}
 			case "agent:tools:list": {
+				// 先用当前缓存立即回包（清单不能被没见过服务器拖住）；过期则后台重探，
+				// 完成后广播新的完整清单（前端已监听 agent:tools:list，无需额外请求）。
 				reply({
 					type: "agent:tools:list",
-					tools: await this.opts.agentManager.listGlobalTools(),
+					tools: await this.opts.agentManager.listGlobalTools(
+						this.mcpToolDescriptions.descriptions(),
+					),
 				});
+				if (this.mcpToolDescriptions.needsRefresh()) {
+					void this.mcpToolDescriptions
+						.refresh()
+						.then(() =>
+							this.opts.agentManager.listGlobalTools(
+								this.mcpToolDescriptions.descriptions(),
+							),
+						)
+						.then((tools) => this.broadcast({ type: "agent:tools:list", tools }))
+						.catch((err) => {
+							// 背景探测失败只影响本次描述刷新，不能导致请求级错误
+							console.warn("[kernel] MCP 工具描述刷新失败:", err);
+						});
+				}
 				break;
 			}
 			case "agent:config:get": {
@@ -2170,6 +2210,9 @@ export class WSServer {
 					reply({ type: "error", message: errs.join("; ") });
 					break;
 				}
+				// 工具集 / 系统提示词是 pi 的启动参数：保存后标记该智能体的活跃会话待整进程重建，
+				// 下一次对话（ensureStarted）就用新配置——否则设置里关掉的工具在旧进程里仍可用
+				this.opts.agentManager.markAgentDirty(event.config.displayName);
 				this.broadcast({
 					type: "agent:list",
 					agents: await this.opts.configStore.listAgents(),
@@ -3108,6 +3151,20 @@ export class WSServer {
 					const folderPath = resolve(rawFolderPath);
 					if (!existsSync(folderPath)) {
 						reply({ type: "error", message: `目录不存在：${folderPath}` });
+						break;
+					}
+					// 同一文件夹只允许登记一个库：realpath 归一后比对（symlink/尾斜杠等不同写法实为同一目录），
+					// 重复索引同一份资料只会浪费空间与检索排序；fail-fast 放在扫描比对之前，不白扫一遍
+					const incomingReal = kbPathReal(folderPath);
+					const duplicated = this
+						.kbStore()
+						.listKbs()
+						.find((k) => kbPathReal(k.folderPath) === incomingReal);
+					if (duplicated) {
+						reply({
+							type: "error",
+							message: `该文件夹已登记为知识库「${duplicated.name}」，同一文件夹不能重复添加`,
+						});
 						break;
 					}
 					// 预览后目录可能已被改动：有有效 token 就重扫一次比对，只报告差异、不阻断创建

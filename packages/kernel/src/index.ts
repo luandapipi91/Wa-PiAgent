@@ -3,7 +3,7 @@ import { detectBash } from "./shell-detect";
 import { createCascadingProjectStore } from "./subagent-cascade-store";
 import { ProviderStore } from "./provider-store";
 import { syncCompactionOverrides } from "./compaction-overrides";
-import { AgentManager } from "./agent-manager";
+import { AgentManager, IDLE_REAP_THRESHOLD_MS } from "./agent-manager";
 import { WSServer } from "./ws-server";
 import { SkillManager } from "./skill-manager";
 import { ExtensionManager } from "./extension-manager";
@@ -557,6 +557,20 @@ export async function startKernel(opts?: {
 	// 启动阶段已过（HTTP 已监听，此后有真实 handle 撑着），撤掉启动期心跳
 	clearInterval(startupKeepAlive);
 
+	// 深度重排开关的启动恢复：开关持久化在 settings.json，模型就绪态只活在进程内存。
+	// 不按开关恢复加载的话，重启后状态恒为 idle（菜单里显示「未开启」），deep 检索静默
+	// 退化为普通排序。后台执行、不阻塞启动；失败只落到 failed 状态（菜单可点重试）。
+	void (async () => {
+		try {
+			const { prepareRerankerIfEnabled, rerankerStatus } = await import("./knowledge/reranker");
+			if (await prepareRerankerIfEnabled()) {
+				console.log(`[knowledge] 深度重排已按设置恢复：${rerankerStatus().model}`);
+			}
+		} catch (err) {
+			console.warn("[knowledge] 深度重排恢复失败（不影响启动，可在知识库菜单重试）:", err);
+		}
+	})();
+
 	// 子代理残留状态自愈：meta 的 running → 终态只发生在 delegate-tool 的 settle（spawn 返回后），
 	// 上次进程被强杀 / 整体退出时没人收尾 → meta 停在 running，那个实例再也 resume 不了
 	// （被「正在运行，不能并发续聊」拒掉）。子代理是 kernel 的子进程，重启后不可能还活着，
@@ -858,10 +872,11 @@ export async function startKernel(opts?: {
 	await scheduler.start();
 	console.log("[kernel] 定时任务调度器已启动");
 
-	// 空闲会话子进程回收：每 30s 扫描，回收 lastActivity 超过 1 分钟且非 busy 的会话进程。
+	// 空闲会话子进程回收：每 30s 扫描，回收 lastActivity 超过 5 分钟且非 busy 的会话进程
+	// （阈值 IDLE_REAP_THRESHOLD_MS 定义在 agent-manager.ts，5 分钟让 pi 的 cacheWarming
+	// "idle" 首次刷新 tick（真实请求开始 + 270s）有机会发生）。
 	// dispose 只杀进程、保留会话记录与 jsonl 历史，用户再点开时冷启动恢复。
 	const IDLE_REAP_INTERVAL_MS = 30 * 1000;
-	const IDLE_REAP_THRESHOLD_MS = 60 * 1000;
 	const reapTimer = setInterval(() => {
 		agentManager
 			.reapIdleSessions(IDLE_REAP_THRESHOLD_MS)

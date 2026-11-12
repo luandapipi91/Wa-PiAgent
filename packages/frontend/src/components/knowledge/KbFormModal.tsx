@@ -1,6 +1,6 @@
 // KbFormModal — 知识库新建/编辑弹窗（任务 B3，仿 McpFormModal 模式：Modal 壳 + 表单体）
 //
-// 两段式（新建）：选路径（浏览/目录树选中/手输后失焦或回车，自动触发）POST /api/knowledge/preview
+// 两段式（新建）：选路径（只能经「浏览」/目录树选择，源文件夹输入框只读不允许手输，选定即自动触发）POST /api/knowledge/preview
 // → 展示可索引数 + 跳过原因计数 →「创建并索引」经 onSave（调用方 KnowledgePage 发 POST /api/knowledge）；
 // 编辑模式走 PUT 只更新名称/描述（源文件夹创建后不可改，只读展示）。
 //
@@ -18,6 +18,7 @@ import { DirTreePicker } from "../DirTreePicker";
 import { api } from "../../api-client";
 import { formatApiError } from "../../util/kernel-error";
 import { useTranslation } from "../../i18n/useTranslation";
+import { useKnowledgeStore } from "../../store/knowledge";
 
 export interface KbFormPayload {
   folderPath: string;
@@ -58,8 +59,8 @@ const SKIP_REASON_KEYS: Record<
   extraction_failed: "kb.skipExtractionFailed",
 };
 
-// 输入控件通用外观（对齐 McpForm 惯例：表单底色 + 细边框）
-const INPUT_CLASS = "text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md";
+// 输入控件通用外观（对齐 McpForm 惯例：表单底色 + 细边框；outline-none 去浏览器默认黑色聚焦框）
+const INPUT_CLASS = "text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md outline-none";
 const INPUT_STYLE = {
   background: "var(--canvas)",
   border: "1px solid var(--hairline)",
@@ -91,10 +92,15 @@ function FieldError({ message, testId }: { message?: string; testId: string }) {
   );
 }
 
+/** 路径同判归一（前端轻量版）：去尾斜杠；realpath 级归一由 kernel 创建侧兑底 */
+const normFolderPath = (p: string) => p.trim().replace(/\/+$/, "");
+
 export function KbFormModal({ kb, onSave, onClose }: Props) {
   const { t } = useTranslation();
   const editing = !!kb;
   const [folderPath, setFolderPath] = useState("");
+  // 已登记库清单：选择阶段就提示同文件夹重复（kernel 创建侧同样拦截兑底，此处防误操作早发现）
+  const kbs = useKnowledgeStore((s) => s.kbs);
   const [name, setName] = useState(kb?.name ?? "");
   const [description, setDescription] = useState(kb?.description ?? "");
   const [scanning, setScanning] = useState(false);
@@ -173,6 +179,15 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
       if (seq === scanSeqRef.current) setScanning(false);
     }
   };
+
+  // 编辑模式源文件夹固定为原值且不可改，不做重复检查；新建模式所选路径已登记 → 警告 + 禁用创建
+  const duplicateKb = editing
+    ? undefined
+    : folderPath.trim()
+      ? kbs.find(
+          (k) => normFolderPath(k.folderPath) === normFolderPath(folderPath),
+        )
+      : undefined;
 
   const handleSubmit = async () => {
     // 编辑模式源文件夹固定为原值；新建未选路径则内联拦截，不发起保存
@@ -263,10 +278,7 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
                       placeholder={t("kb.folderPlaceholder")}
                       value={folderPath}
                       onChange={(e) => changeFolder(e.target.value)}
-                      onBlur={() => void runScan(folderPath)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void runScan(folderPath);
-                      }}
+                      readOnly
                       data-testid="kb-folder-input"
                     />
                     <button
@@ -340,6 +352,14 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
                 </>
               )}
               <FieldError message={inlineError} testId="kb-folder-error" />
+              <FieldError
+                message={
+                  duplicateKb
+                    ? t("kb.duplicateFolder", { name: duplicateKb.name })
+                    : undefined
+                }
+                testId="kb-duplicate"
+              />
             </Field>
 
             <Field label={t("kb.nameLabel")}>
@@ -384,7 +404,7 @@ export function KbFormModal({ kb, onSave, onClose }: Props) {
               <button
                 type="button"
                 onClick={() => void handleSubmit()}
-                disabled={saving}
+                disabled={saving || !!duplicateKb}
                 className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white"
                 style={{ background: "var(--accent)", border: "none" }}
                 data-testid="kb-save"

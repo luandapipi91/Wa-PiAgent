@@ -106,6 +106,7 @@ const zh = {
 	agentConfig: {
 		tabBasic: "基本",
 		tabTools: "工具",
+		tabMcp: "MCP",
 		tabSkills: "技能",
 		tabPartners: "关系网",
 		loading: "加载中...",
@@ -135,8 +136,9 @@ const zh = {
 		hintsBenefitPlaceholder:
 			"调起本智能体的好处，如：把多次 grep 探索的噪声挡在主上下文之外",
 		toolsHint: "全部勾选 = 全量默认；取消勾选后按显式列表保存",
-		mcpEntryHint:
-			"MCP 入口工具：非「直接可用」的 MCP 工具靠它才到位，随 MCP 工具自动放行（无需也无法单独勾选）",
+		mcpGroupHint:
+			"按 MCP 服务器分组；组开关可批量启用或停用该服务器的全部工具",
+		mcpEmpty: "暂无 MCP 工具",
 		skillsSelectAll: "全部勾选",
 		skillsGlobalDisabled: "全局禁用",
 		skillsEmpty: "暂无技能，可在设置中添加技能目录",
@@ -519,11 +521,14 @@ const zh = {
 		formTitleNew: "新建知识库",
 		formTitleEdit: "编辑知识库",
 		folderLabel: "源文件夹",
-		folderPlaceholder: "输入或粘贴文件夹绝对路径，如 D:/资料/产品文档",
+		folderPlaceholder: "点击「浏览」选择文件夹",
+		duplicateFolder:
+			"该文件夹已登记为知识库「{{name}}」，不能重复添加",
 		browse: "浏览",
 		scanning: "扫描中…",
 		rerankLabel: "深度重排",
 		rerankIdle: "未开启",
+		rerankPending: "待加载",
 		rerankDownloading: "模型下载中 {{progress}}%",
 		rerankReady: "已就绪",
 		rerankFailed: "模型不可用",

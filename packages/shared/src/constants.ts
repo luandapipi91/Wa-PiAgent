@@ -196,6 +196,47 @@ export const DEFAULT_AGENT_TOOLS = [
 ];
 
 /**
+ * 内置 / 本地宿主工具的**中文一句话简介**（工具清单展示用）。
+ *
+ * 与 MCP 工具的区别：MCP 工具的 description 由服务器在 `tools/list` 里给出（英文原文，
+ * kernel 侧按注册名索引，见 mcp-tool-descriptions.ts）；这些工具是我们自己注册的，
+ * 没有官方 description 可取，故在此本地维护。
+ *
+ * 契约：{@link DEFAULT_AGENT_TOOLS} 的每一项都必须有条目（shared 测试强制）；
+ * 未登记的工具（第三方插件）清单里不带 description 字段。
+ */
+export const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
+	read: "读取文件内容",
+	bash: "执行 shell 命令",
+	edit: "按原文精确替换文件片段",
+	write: "写入文件（新建或整文件覆盖）",
+	grep: "按正则在文件中搜索内容",
+	find: "按文件名 / glob 模式查找文件",
+	ls: "列出目录内容",
+	wa_web_search: "联网搜索网页，返回标题、链接与摘要",
+	wa_fetch_content: "抓取网页正文并转为 Markdown",
+	memory_add: "新增一条长期记忆",
+	memory_replace: "按 id 改写已有记忆内容",
+	memory_remove: "按 id 删除记忆",
+	memory_read: "按 id 读取单条记忆的完整内容",
+	memory_search: "按语义搜索长期记忆",
+	ask_user_question: "向用户提问并等待回答",
+	delegate: "委派子智能体执行任务",
+	browser_navigate: "在浏览器视图中打开网址",
+	browser_evaluate: "在页面执行 JS 或点击 / 输入 / 按键 / 滚动",
+	browser_screenshot: "页面截图（可为可交互元素加编号标注）",
+	browser_snapshot: "获取页面结构快照（带元素 ref，供定位操作）",
+	browser_read: "读取页面文本内容",
+	browser_wait: "等待页面文本 / 路由 / 元素条件满足",
+	browser_close: "关闭浏览器视图，释放浏览器资源",
+	preview_open: "把网址或本地 html 送到用户的内置预览面板",
+	// 以下不在 DEFAULT_AGENT_TOOLS 里（按场景显式放行），一并给简介便于清单展示
+	knowledge_search: "在智能体绑定的知识库中检索文档片段",
+	im_push_to: "把任务结果推送给指定 IM 联系人",
+	list_contacts: "列出可用的 IM 联系人及其所属渠道",
+};
+
+/**
  * 合并工具 allowlist：baseTools + harvestedTools（MCP 工具名）。
  *
  * pi 不给宿主提供「查询会话已注册工具」的接口（RPC 无列工具命令、package.json 无

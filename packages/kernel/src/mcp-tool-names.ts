@@ -1,9 +1,11 @@
 // pi 内置 MCP 扩展的工具名处理（规格 F4）。
 //
-// 两套输出，两种用途（pi 1.0.4 起 `--tools` 支持 `mcp__` 前缀条目 + `*` 通配）：
-//   - mcpServerPatternsOf：受限 agent 白名单用——服务器粒度通配模式
-//     `mcp__<server>__*` + 非 direct 入口工具。模式前缀恒定，天然覆盖超长/撞名的
-//     hash 退化名，也不受枚举竞态影响（白名单的 POC 实测依据见其 JSDoc）。
+// 三套输出，三种用途（pi 1.0.4 起 `--tools` 支持 `mcp__` 前缀条目 + `*` 通配）：
+//   - mcpEntryToolsOf：受限 agent **主会话**用——按用户勾选清单决定要不要放行入口工具
+//     （`codemode` / `tool_search`）。工具本身按勾选的精确名放行，不再整台服务器通配。
+//   - mcpServerPatternsOf：内置只读子代理用——服务器粒度通配模式
+//     `mcp__<server>__*` + 非 direct 入口工具（子代理无勾选清单，只能整台放行）。
+//     模式前缀恒定，天然覆盖超长/撞名的 hash 退化名，也不受枚举竞态影响。
 //   - mcpToolNamesOf：UI 工具清单（listGlobalTools）用——逐工具枚举真实
 //     注册名，供用户在智能体设置里查看。
 //
@@ -78,7 +80,11 @@ const EXPOSURE_ENTRY_TOOL: Partial<Record<McpExposure, string>> = {
 };
 
 /**
- * 枚举受限 agent 白名单用的**服务器粒度通配模式**（pi 1.0.4 语义，POC 实测）。
+ * 枚举内置只读子代理白名单用的**服务器粒度通配模式**（pi 1.0.4 语义，POC 实测）。
+ *
+ * 主会话受限路径不用本函数：那里要按用户在智能体设置里的**逐个工具开关**放行，
+ * 服务器粒度通配会把关掉的工具一起放行（见 {@link mcpEntryToolsOf} 的注释）。
+ * 子代理没有勾选清单（独立 pi 进程），只能整台服务器放行。
  *
  * pi 1.0.4 起 `--tools` 含任何 `mcp__` 前缀条目即进入 MCP 硬过滤，条目按精确名（Set）
  * 或 `*` 通配（正则）匹配注册名。逐工具精确名枚举（{@link mcpToolNamesOf}）在 1.0.4 下
@@ -112,8 +118,47 @@ function sanitizeServerName(server: string): string {
 }
 
 /**
+ * 受限 agent 主会话白名单用的 **MCP 入口工具**（勾选清单里出现 `mcp__` 条目才需要）。
+ *
+ * 与 {@link mcpServerPatternsOf} 的区别：这里只决定「要不要放入口工具」，不放行整台
+ * 服务器——服务器粒度放行会让智能体设置里关掉的 MCP 工具照旧可用。工具本身由调用方按
+ * 勾选清单的精确名放行（pi 的 `--tools` 支持精确名）。
+ *
+ * 为什么勾选为空就返回空：`--tools` 里没有任何 `mcp__` 条目时 pi 不进入 MCP 硬过滤，
+ * 未点名的非 direct 工具仍能被 `tool_search` 激活——此时放入口等于把用户关掉的工具
+ * 找回来。勾选里出现 `mcp__` 条目后 pi 会硬过滤（未点名的不注册），入口才只暴露勾选项。
+ *
+ * 未连上 / 已停用 / 需登录的服务器不产生入口（与 {@link mcpToolNamesOf} 口径一致）；
+ * `hidden` 无入口（pi 文档：makes them unreachable）。
+ */
+export function mcpEntryToolsOf(
+  reports: McpServerReport[],
+  selected: Iterable<string>,
+): string[] {
+  if (![...selected].some((name) => name.startsWith("mcp__"))) return [];
+  const entries: string[] = [];
+  for (const report of reports) {
+    if (report.state !== "connected") continue;
+    const entry = EXPOSURE_ENTRY_TOOL[report.exposure];
+    if (entry !== undefined && !entries.includes(entry)) entries.push(entry);
+  }
+  return entries;
+}
+
+/**
+ * 「一个 MCP 工具都不放行」时仍要放进 `--tools` 的条目。
+ *
+ * pi 只按 `startsWith("mcp__")` 决定是否对 MCP 工具硬过滤（1.5.0 agent-session 的
+ * `_allowlistFiltersMcp`），不校验该条目是否命中任何工具。受限 agent 一个 MCP 工具都
+ * 没勾时，没有这个条目就不会硬过滤——未点名的 codemode/deferred 工具仍会注册，
+ * `codemode` 工具（pi 缺省档位会注入）能直接调到它们，等于关掉的开关不生效。
+ * 注册名恒为 `mcp__<server>__<tool>`，`mcp__` 本身永远匹配不到任何工具。
+ */
+export const MCP_HARD_FILTER_ENTRY = "mcp__";
+
+/**
  * 枚举 pi 内置 MCP 扩展会注册出的工具名（**UI 工具清单用**，展示真实注册名；
- * 受限 agent 白名单用 {@link mcpServerPatternsOf} 的通配模式，不用本函数）。
+ * 受限 agent 主会话白名单按勾选清单的精确名放行（方便用户逐个开关），不用本函数）。
  *
  * 输出**所有已连服务器**的工具名，不按 exposure 过滤：pi 对一切已连服务器的工具都先
  * `assignName` 注册（exposure 只决定注册后怎么被模型看见），而 `--tools` 白名单决定

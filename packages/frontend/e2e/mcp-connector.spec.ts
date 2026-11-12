@@ -220,7 +220,9 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
     await page.getByTestId("gallery-card-研发").click({ button: "right" });
     await page.getByTestId("gallery-ctx-edit").click();
     await expect(page.getByTestId("agent-config")).toBeVisible({ timeout: 10_000 });
-    await page.getByTestId("tab-tools").click();
+    // MCP 工具已移到独立的「MCP」tab（工具 tab 只剩内置 + 插件），先切 tab 再展开服务器分组
+    await page.getByTestId("tab-mcp").click();
+    await page.getByTestId("mcp-group-toggle-e2e").click();
     await expect(page.getByTestId("tool-switch-mcp__e2e__echo")).toBeVisible({
       timeout: 15_000,
     });
@@ -242,7 +244,8 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
       await expect(page.getByTestId("agent-config")).toBeVisible({
         timeout: 10_000,
       });
-      await page.getByTestId("tab-tools").click();
+      await page.getByTestId("tab-mcp").click();
+      await page.getByTestId("mcp-group-toggle-e2e").click();
 
       const sw = page.getByTestId("tool-switch-mcp__e2e__echo");
       await expect(sw).toBeVisible({ timeout: 15_000 });

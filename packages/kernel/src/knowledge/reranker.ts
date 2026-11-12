@@ -250,6 +250,21 @@ export async function prepareReranker(): Promise<boolean> {
 }
 
 /**
+ * 启动恢复：开关持久化在 settings.json，但模型就绪态只活在进程内存里。
+ * 不在启动时按开关恢复加载的话，重启后状态恒为 idle（前端 idle 文案「未开启」），
+ * 表现为「开关已开 + 未开启」的矛盾，且 deep 检索静默退化为普通排序。
+ * 失败只落到 failed 状态（用户可在菜单里点重试），不抛给启动流程。
+ */
+export async function prepareRerankerIfEnabled(
+	settingsFile?: string,
+): Promise<boolean> {
+	const { loadKnowledgeRerankSettings } = await import("../settings-store");
+	const settings = await loadKnowledgeRerankSettings(settingsFile);
+	if (!settings.enabled) return false;
+	return await prepareReranker();
+}
+
+/**
  * 上游签名 rerank(query, candidates, topK, signal)：逐条 (query, 正文) 打分，按分降序截断到 topK
  * （search.ts 的 deep 分支使用）。
  * - 复用进程内 tokenizer+model（Wa-Pi 没有 model worker 子进程），模型/修订/精度取自

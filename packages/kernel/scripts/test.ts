@@ -28,6 +28,9 @@ const INTEGRATION_TESTS = [
 	"tests/memory-preload-lazy.test.ts",
 	// 记忆库打不开（memories.db 被造成目录）时仍要能启动：同样会启动完整 kernel
 	"tests/memory-db-open-failure.integration.test.ts",
+	// 深度重排启动恢复接线：启动完整 kernel 后断言 settings 已开启时模型自动加载进 ready
+	//（同属启动完整 kernel 的 WA_PI_DIR 快照类）
+	"tests/knowledge-rerank-startup-wiring.test.ts",
 	// tui-host 端点集成（真实 WSServer + 流式 NDJSON），并行负载下 30s 超时，串行 2s 即过
 	"tests/tui-host-routes.integration.test.ts",
 	// 打包形态冒烟：真编译内核二进制 + 真启动等端口就绪。源码/dev 形态不复现的
@@ -57,6 +60,9 @@ const LOAD_SENSITIVE_TESTS = [
 	"tests/routes-git.test.ts",
 	"tests/git-service.test.ts",
 	"tests/git-watcher.test.ts",
+	// MCP 工具级开关的真 pi 契约：每次 spawn 真 pi + 真连 stdio MCP fixture（探针 9s），
+	// 并行批的负载下 MCP 冷启动可被拖过探针窗口 → 主批排除、串行补跑稳定。
+	"tests/mcp-tool-gating.test.ts",
 ];
 
 // 记忆语义检索重用例：真实 embedding 模型推理（加载 + 逐条推理），并行批的高负载下

@@ -12,6 +12,7 @@ import {
 	isSubagentType,
 	normalizeSubagentType,
 	WA_PI_DIR,
+	BUILTIN_TOOL_DESCRIPTIONS,
 } from "../src/constants";
 
 // pi-lens 已彻底移除：这些工具名不应再出现在默认 allowlist 或扩展映射里
@@ -219,4 +220,22 @@ test("SUBAGENT_OVERRIDES_FILE 指向 ~/.pi/agent/subagent-overrides.json", () =>
 	expect(SUBAGENT_OVERRIDES_FILE.endsWith("subagent-overrides.json")).toBe(true);
 	expect(SUBAGENT_OVERRIDES_FILE.includes(".pi/agent")).toBe(true);
 	expect(SUBAGENT_OVERRIDES_FILE.includes(".wa-pi")).toBe(false);
+});
+
+// ---- BUILTIN_TOOL_DESCRIPTIONS：内置工具中文简介（工具清单展示用）----
+
+describe("BUILTIN_TOOL_DESCRIPTIONS", () => {
+	test("DEFAULT_AGENT_TOOLS 每一项都有非空中文简介", () => {
+		for (const tool of DEFAULT_AGENT_TOOLS) {
+			const desc = BUILTIN_TOOL_DESCRIPTIONS[tool];
+			expect(desc, `缺少内置工具简介：${tool}`).toBeTruthy();
+			expect(desc!.trim().length).toBeGreaterThan(0);
+		}
+	});
+
+	test("额外的宿主工具（knowledge_search / im_push_to / list_contacts）也有简介", () => {
+		for (const tool of ["knowledge_search", "im_push_to", "list_contacts"]) {
+			expect(BUILTIN_TOOL_DESCRIPTIONS[tool]?.trim()).toBeTruthy();
+		}
+	});
 });
