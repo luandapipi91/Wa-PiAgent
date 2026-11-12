@@ -94,7 +94,16 @@ export function parseAgentMd(md: string): AgentConfig {
 	if (!fm) throw new Error("agent.md 缺少 frontmatter");
 	const [, yamlText, bodyText] = fm;
 	const y = parseYaml(yamlText);
-	const partners = (y.partners as Partners) ?? { askTo: [] };
+	// partners 归一：标准形态是嵌套块 { askTo: [...] }；手工创建的 md 常见行内写法
+	// partners: [] / partners: [a, b] 会被标量分支解析成裸数组——裸数组回写时
+	// stringifyAgentMd 访问 c.partners.askTo.join 直接 TypeError，改绑保存 500，
+	// 故行内列表视为 askTo、其余非法结构归一空
+	const partnersRaw = y.partners as unknown;
+	const partners: Partners = Array.isArray(partnersRaw)
+		? { askTo: partnersRaw as string[] }
+		: partnersRaw && Array.isArray((partnersRaw as Partners).askTo)
+			? (partnersRaw as Partners)
+			: { askTo: [] };
 	return {
 		displayName: y.displayName as string,
 		avatar: y.avatar as string,
@@ -105,7 +114,7 @@ export function parseAgentMd(md: string): AgentConfig {
 				? null
 				: (y.model as string),
 		thinking:
-			y.thinking === undefined || y.thinking === null
+			y.thinking === undefined || y.thinking === null || y.thinking === ""
 				? null
 				: ((y.thinking === "low"
 						? "medium"

@@ -66,3 +66,13 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
   notarize: false
+  # 切断 Apple 时间戳服务（TSA）依赖：electron-builder 内部签名 pass（@electron/osx-sign）
+  # 对每个文件无条件追加 `--timestamp`（不带 URL → Apple 默认 TSA），TSA 抖动/超时整包中止。
+  # `timestamp: null` 无效——MacTargetHelper.buildSignOptions 里是
+  # `timestamp: customSignOptions.timestamp || undefined`，null 被吞成 undefined 后
+  # osx-sign 又落回默认 TSA 分支。codesign 同一选项「后者覆盖前者」，
+  # additionalArguments 拼在 osx-sign 自带的 --timestamp 之后，故这里等价于显式关闭。
+  # hardenedRuntime 保留（flags=runtime 不变）；自签名证书 + 未公证的包不需要时间戳，
+  # OTA 更新验证用的是 identity 的 DR（certificate root），与时间戳无关。
+  additionalArguments:
+    - "--timestamp=none"

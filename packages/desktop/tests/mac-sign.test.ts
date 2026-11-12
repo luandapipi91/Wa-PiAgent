@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 
 describe("resolveIdentity", () => {
 	const noCert = {
@@ -183,5 +184,24 @@ describe("signMacApp", () => {
 		});
 		expect(result.signed).toBe(false);
 		expect(result.error).toBe("code object is not signed at all");
+	});
+});
+
+describe("electron-builder 打包配置：macOS 签名与 Apple TSA 解耦", () => {
+	// 背景：electron-builder 内部签名 pass（@electron/osx-sign）对每个文件无条件追加
+	// `--timestamp`（不带 URL → 走 Apple 默认时间戳服务），TSA 抖动/超时就整包中止。
+	// `mac.timestamp: null` 无效：MacTargetHelper.buildSignOptions 里是
+	// `timestamp: customSignOptions.timestamp || undefined`，null 被吞成 undefined，
+	// osx-sign 收到 undefined 又回落到默认 TSA 分支。
+	// 解法：codesign 同一选项「后者覆盖前者」，用 additionalArguments 追加
+	// `--timestamp=none`（osx-sign 把它拼在 --timestamp 之后、文件路径之前）。
+	test("mac.additionalArguments 追加 --timestamp=none", async () => {
+		const yml = await readFile(
+			join(import.meta.dir, "..", "electron-builder.yml"),
+			"utf8",
+		);
+		expect(yml).toContain('"--timestamp=none"');
+		// hardened runtime 必须保留：这是时间戳被强制引入的原因，去掉它会改变签名语义
+		expect(yml).toContain("hardenedRuntime: true");
 	});
 });

@@ -1,6 +1,6 @@
 // 知识库管理页（任务 B2：列表填充；B3：新建/编辑表单弹窗接入）
-import { useEffect, useState, useRef } from "react";
-import type { KbInfo } from "@wa-pi/shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentConfig, KbInfo, SubagentInfo } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
 import { formatApiError } from "../../util/kernel-error";
@@ -50,6 +50,11 @@ export function KnowledgePage() {
   const moreRef = useRef<HTMLDivElement>(null);
   /** 「关联智能体」弹窗目标库 */
   const [agentsKb, setAgentsKb] = useState<KbInfo | null>(null);
+  /** 智能体绑定清单（命名 + 内置）：卡片关联智能体行的数据源；null=清单未知（不渲染该行） */
+  const [agentRows, setAgentRows] = useState<{
+    agents: AgentConfig[];
+    subs: SubagentInfo[];
+  } | null>(null);
   const rerank = useKnowledgeStore((s) => s.rerank);
   const setRerankEnabled = useKnowledgeStore((s) => s.setRerankEnabled);
   const retryRerank = useKnowledgeStore((s) => s.retryRerank);
@@ -60,6 +65,41 @@ export function KnowledgePage() {
     listKbs();
     loadRerank();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 拉取智能体绑定清单（与 KbAgentsModal 同一份数据口径）：mount 一次 + 弹窗关闭后重拉
+  const loadAgentBindings = useCallback(async () => {
+    try {
+      const [agentsRes, subsRes] = await Promise.all([
+        api.get("/api/agents"),
+        api.get("/api/subagents"),
+      ]);
+      setAgentRows({
+        agents: (agentsRes as any)?.agents ?? [],
+        subs: (subsRes as any)?.subagents ?? [],
+      });
+    } catch {
+      // 绑定清单拉取失败：保持 null（卡片不渲染关联行），不打扰主流程
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAgentBindings();
+  }, [loadAgentBindings]);
+
+  // kbId → 已关联智能体展示名（倒排一次，卡片 O(1) 取用）；null=清单未知
+  const agentNamesByKb = useMemo<Record<string, string[]> | undefined>(() => {
+    if (!agentRows) return undefined;
+    const map: Record<string, string[]> = {};
+    const add = (kbId: string, name: string) => {
+      (map[kbId] ??= []).push(name);
+    };
+    // 与弹窗 bound 判断同一口径：命名 agent 看 config.knowledgeBaseIds，内置看 override
+    for (const c of agentRows.agents)
+      for (const id of c.knowledgeBaseIds ?? []) add(id, c.displayName);
+    for (const s of agentRows.subs)
+      for (const id of s.override?.knowledgeBaseIds ?? []) add(id, s.displayName);
+    return map;
+  }, [agentRows]);
 
   // 下载中 / 已开启但仍在 idle（kernel 重启恢复中）每 1.5s 轮询一次状态，直到终态
   const rerankPolls = useRef(0);
@@ -297,6 +337,7 @@ export function KnowledgePage() {
               // B4：失败徽章点击接失败清单弹窗（B2 占位回调的落点）
               onShowFailed={(id) => setFailedKbId(id)}
             onManageAgents={(kb) => setAgentsKb(kb)}
+              agentNamesByKb={agentNamesByKb}
               // 重建索引：接 store.reindex（POST :id/index，重复索引 400 由 store toast 提示）
               onReindex={(id) => reindex(id)}
             />
@@ -315,7 +356,16 @@ export function KnowledgePage() {
 
       {/* 失败文件清单弹窗（B4）：库名从当前清单取，取不到（已删）回退 kbId */}
       {doctorOpen && <DoctorModal onClose={() => setDoctorOpen(false)} />}
-      {agentsKb && <KbAgentsModal kb={agentsKb} onClose={() => setAgentsKb(null)} />}
+      {agentsKb && (
+        <KbAgentsModal
+          kb={agentsKb}
+          onClose={() => {
+            setAgentsKb(null);
+            // 保存/解除绑定后重拉：卡片上的关联名单保持最新（取消也无害，多一次读）
+            void loadAgentBindings();
+          }}
+        />
+      )}
 
       {failedKbId && (
         <KbFailedModal

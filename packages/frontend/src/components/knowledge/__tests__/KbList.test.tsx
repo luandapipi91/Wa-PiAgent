@@ -552,3 +552,70 @@ describe("取消索引按钮：首次索引不提供", () => {
     expect(onCancel).toHaveBeenCalledWith("kb_old");
   });
 });
+
+describe("KbCard 关联智能体行", () => {
+  beforeEach(() => {
+    cleanup();
+    useKnowledgeStore.setState({ kbs: [], progress: {}, loading: false });
+  });
+
+  test("显示已关联智能体名称（、拼接），点击该行打开关联弹窗", () => {
+    const onManageAgents = mock(() => {});
+    render(
+      <KbList
+        kbs={[kbReady]}
+        agentNamesByKb={{ kb_1: ["研发", "评审", "产品"] }}
+        onManageAgents={onManageAgents}
+      />,
+    );
+    const line = screen.getByTestId("kb-agents-line-kb_1");
+    expect(line.textContent).toContain("研发、评审、产品");
+    fireEvent.click(line);
+    expect(onManageAgents).toHaveBeenCalledWith(kbReady);
+  });
+
+  test("超长省略：title 挂全量名称，文本节点单行截断", () => {
+    const names = ["很长的名字一号", "很长的名字二号", "很长的名字三号", "很长的名字四号"];
+    render(
+      <KbList
+        kbs={[kbReady]}
+        agentNamesByKb={{ kb_1: names }}
+        onManageAgents={mock(() => {})}
+      />,
+    );
+    const line = screen.getByTestId("kb-agents-line-kb_1");
+    // 悬停看全量：title 为完整名称列表
+    expect(line.getAttribute("title")).toBe(names.join("、"));
+    // 单行截断由 CSS truncate 保证（样式契约）
+    expect(line.querySelector(".truncate")).toBeTruthy();
+  });
+
+  test("已加载但无关联：显示「未关联」占位，仍可点击去关联", () => {
+    const onManageAgents = mock(() => {});
+    render(<KbList kbs={[kbReady]} agentNamesByKb={{}} onManageAgents={onManageAgents} />);
+    const line = screen.getByTestId("kb-agents-line-kb_1");
+    expect(line.textContent).toContain("未关联");
+    fireEvent.click(line);
+    expect(onManageAgents).toHaveBeenCalledWith(kbReady);
+  });
+
+  test("父级未传 agentNamesByKb（清单未知）：不渲染关联行（不误报「未关联」）", () => {
+    render(<KbList kbs={[kbReady]} onManageAgents={mock(() => {})} />);
+    expect(screen.queryByTestId("kb-agents-line-kb_1")).toBeNull();
+  });
+
+  test("索引进行中：关联行置灰不可点", () => {
+    const onManageAgents = mock(() => {});
+    render(
+      <KbList
+        kbs={[{ ...kbReady, id: "kb_busy", status: "indexing" }]}
+        agentNamesByKb={{ kb_busy: ["研发"] }}
+        onManageAgents={onManageAgents}
+      />,
+    );
+    const line = screen.getByTestId("kb-agents-line-kb_busy") as HTMLButtonElement;
+    expect(line.disabled).toBe(true);
+    fireEvent.click(line);
+    expect(onManageAgents).not.toHaveBeenCalled();
+  });
+});

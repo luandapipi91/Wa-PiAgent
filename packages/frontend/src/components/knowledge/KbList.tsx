@@ -21,6 +21,8 @@ interface Props {
   onCancel?: (id: string) => void;
   /** 打开「关联智能体」弹窗（知识库侧管理绑定） */
   onManageAgents?: (kb: KbInfo) => void;
+  /** kbId → 已关联智能体展示名；undefined=绑定清单未知（卡片不渲染关联行） */
+  agentNamesByKb?: Record<string, string[]>;
 }
 
 export function KbList({
@@ -32,6 +34,7 @@ export function KbList({
   onReindex,
   onCancel,
   onManageAgents,
+  agentNamesByKb,
 }: Props) {
   const { t } = useTranslation();
   const { deleteKb, setAutoWatch, cancelIndex } = useKnowledgeStore();
@@ -77,6 +80,9 @@ export function KbList({
           onShowFailed={onShowFailed ? () => onShowFailed(kb.id) : undefined}
           onCancel={() => (onCancel ?? cancelIndex)(kb.id)}
           onManageAgents={onManageAgents}
+          agentNames={
+            agentNamesByKb ? (agentNamesByKb[kb.id] ?? []) : undefined
+          }
         />
       ))}
 

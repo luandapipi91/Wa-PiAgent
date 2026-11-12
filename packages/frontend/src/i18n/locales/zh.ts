@@ -554,6 +554,8 @@ const zh = {
 		agentsConfirm: "确认",
 		agentsCancel: "取消",
 		agentsSaveFailed: "以下智能体保存失败：{{names}}",
+		agentsLineLabel: "关联智能体",
+		agentsLineNone: "未关联",
 		nameLabel: "名称",
 		namePlaceholder: "不填则使用文件夹名",
 		namePlaceholderEdit: "留空则保持原值",

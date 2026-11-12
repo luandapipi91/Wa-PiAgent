@@ -269,3 +269,72 @@ test("skillsAllOff 为 false 时不写入 frontmatter", () => {
 	expect(md).not.toContain("skillsAllOff");
 	expect(parseAgentMd(md).skillsAllOff).toBeUndefined();
 });
+
+test("存量 md 的空值行（model:/thinking: 后无值）归一为 null，不卡校验", () => {
+	// 历史版本/手工创建的 md 会带空值行（现行 stringify 对 thinking null 不写行，但存量文件仍在），
+	// 自写 YAML 解析把空值解析成 ""，thinking 若不归一为 null 会过不了 validateAgentConfig，
+	// 导致该智能体任何 config 回写（如知识库弹窗改绑）都被拒：「非法 thinking: 」
+	const legacy = `---
+displayName: 冒烟观测
+avatar: "🧪"
+avatarColor: "#4ba26f-#6bb58a"
+description: 临时冒烟观测用
+model: 
+thinking: 
+tools: [read, knowledge_search]
+skills: []
+mcpServers: []
+knowledgeBaseIds: [kb_1]
+partners: []
+---
+正文。`;
+	const c = parseAgentMd(legacy);
+	expect(c.thinking).toBeNull();
+	expect(c.model).toBeNull();
+	// 归一后必须能过校验：否则该 agent 的 config 回写一律被拒
+	expect(validateAgentConfig(c)).toEqual([]);
+});
+
+test("存量 md 的 partners 行内写法归一为 { askTo }，保存回写不崩", () => {
+	// 手工创建的 md 常见行内写法 partners: []；此前解析成裸数组，
+	// 保存回写时 stringifyAgentMd 访问 c.partners.askTo.join 直接 TypeError → 改绑保存 500
+	const legacy = `---
+displayName: 冒烟观测
+avatar: "🧪"
+avatarColor: "#4ba26f-#6bb58a"
+description: 临时冒烟观测用
+model: 
+thinking: 
+tools: [read]
+skills: []
+mcpServers: []
+knowledgeBaseIds: [kb_1]
+partners: []
+---
+正文。`;
+	const c = parseAgentMd(legacy);
+	expect(c.partners).toEqual({ askTo: [] });
+	// 回写往返：不抛错且结构保持
+	expect(() => stringifyAgentMd(c)).not.toThrow();
+	expect(parseAgentMd(stringifyAgentMd(c)).partners).toEqual({ askTo: [] });
+});
+
+test("partners 行内列表写法（partners: [a, b]）视为 askTo 列表，往返保留", () => {
+	const md = `---
+displayName: 测试
+avatar: "x"
+avatarColor: "#1-#2"
+description: d
+model: null
+thinking: null
+tools: []
+skills: []
+mcpServers: []
+partners: [研发, 测试]
+---
+正文。`;
+	const c = parseAgentMd(md);
+	expect(c.partners).toEqual({ askTo: ["研发", "测试"] });
+	const round = parseAgentMd(stringifyAgentMd(c));
+	expect(round.partners).toEqual({ askTo: ["研发", "测试"] });
+});

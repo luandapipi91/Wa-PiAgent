@@ -26,9 +26,10 @@ interface Props {
   onShowFailed?: () => void;
   /** 取消进行中的索引（indexing/scanning 时随进度区展示取消按钮；首次索引不展示） */
   onCancel?: () => void;
-  /** 打开「关联智能体」弹窗（知识库侧管理绑定） */
   /** 打开「关联智能体」弹窗（知识库侧管理绑定）；索引生成中按钮置灰 */
   onManageAgents?: (kb: KbInfo) => void;
+  /** 已关联智能体展示名；undefined=绑定清单未知（不渲染该行，不误报「未关联」）；[] =已知无关联 */
+  agentNames?: string[];
 }
 
 /** 徽章呈现：label + 语义色（色板对齐 McpCard 的 success/accent/warning/danger） */
@@ -61,6 +62,7 @@ export function KbCard({
   onShowFailed,
   onCancel,
   onManageAgents,
+  agentNames,
 }: Props) {
   const { t } = useTranslation();
   const badge = statusBadge(kb, t);
@@ -155,6 +157,37 @@ export function KbCard({
             : t("kb.neverIndexed")}
         </span>
       </div>
+
+      {/* 关联智能体行：整行可点击 → 打开关联弹窗；名称超长单行省略，悬停 title 看全量。
+          索引中置灰（与编辑/重建一致）；未关联时显示占位文案，仍可点击去关联 */}
+      {agentNames !== undefined && (
+        <button
+          type="button"
+          className="flex items-center gap-1 w-full text-left mb-2 text-[calc(11px*var(--font-scale))]"
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            opacity: busy ? 0.45 : 1,
+            cursor: busy ? "not-allowed" : "pointer",
+          }}
+          data-testid={`kb-agents-line-${kb.id}`}
+          title={agentNames.length > 0 ? agentNames.join("、") : undefined}
+          disabled={busy}
+          onClick={() => onManageAgents?.(kb)}
+        >
+          <span className="text-tertiary whitespace-nowrap shrink-0">
+            🔗 {t("kb.agentsLineLabel")}：
+          </span>
+          <span
+            className={`truncate min-w-0 ${
+              agentNames.length > 0 ? "text-secondary" : "text-tertiary"
+            }`}
+          >
+            {agentNames.length > 0 ? agentNames.join("、") : t("kb.agentsLineNone")}
+          </span>
+        </button>
+      )}
 
       {/* 操作行：更新/重建/删除 */}
       <div className="flex gap-1.5 flex-wrap items-center">

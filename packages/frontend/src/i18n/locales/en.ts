@@ -569,6 +569,8 @@ const en = {
 		agentsConfirm: "Confirm",
 		agentsCancel: "Cancel",
 		agentsSaveFailed: "Failed to save: {{names}}",
+		agentsLineLabel: "Agents",
+		agentsLineNone: "None",
 		nameLabel: "Name",
 		namePlaceholder: "Leave empty to use the folder name",
 		namePlaceholderEdit: "Leave empty to keep the current value",
