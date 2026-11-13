@@ -1,7 +1,7 @@
 // KbCard 副本状态行（任务 11）：有 mirrorMeta 才渲染「副本 {converted} · 降级 {degraded}」，
 // title 悬停展示 images 总数与转换器版本；无 mirrorMeta（旧库）整行不渲染。
 // 注：简报示意代码用 vitest，本仓库未装 vitest，沿用 bun:test + @testing-library/react
-// 约定（照 KbProgress.test，断言 toBeTruthy/toBeNull）；断言语义与取值逐字对齐简报，不可改。
+// 约定（照 KbProgress.test，断言 toBeTruthy/toBeNull）；title 断言经审查 M-1 收紧为文案锚点（单字符 "1" 偏弱）。
 import { describe, test, expect, beforeEach } from "bun:test";
 import { render, screen, cleanup } from "@testing-library/react";
 import { KbCard } from "../KbCard";
@@ -39,8 +39,8 @@ describe("KbCard 副本状态行", () => {
 		// title 悬停展示 images 总数与 converterVersion
 		const line = screen.getByText(/副本\s*8\s*·\s*降级\s*1/);
 		const title = line.getAttribute("title") ?? "";
-		expect(title).toContain("40");
-		expect(title).toContain("1");
+		expect(title).toContain("图片 40 张"); // images 总数完整文案断言
+		expect(title).toContain("版本 1"); // 版本文案锚点（单字符 "1" 可匹配任意含 1 子串，偏弱）
 	});
 
 	test("无 mirrorMeta(旧库) 不渲染副本行", () => {

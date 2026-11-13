@@ -123,7 +123,7 @@ function scanKbMirror(waPiDir: string, kbId: string): MirrorScan | null {
 	// _assets 排除按首段路径段判断：!p.startsWith("_assets") 会误伤 _assets_backup 等相邻目录名
 	let mdRels: string[];
 	try {
-		mdRels = readdirSync(mirrorDir, { recursive: true }).filter((p) => {
+		mdRels = readdirSync(mirrorDir, { recursive: true, encoding: "utf-8" }).filter((p) => {
 			const [head] = p.split(/[\\/]/);
 			return p.endsWith(".md") && head !== "_assets";
 		});
