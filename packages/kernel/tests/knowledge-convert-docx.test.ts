@@ -95,6 +95,8 @@ function relsXml(pairs: [string, string][]): string {
 
 let brokenDocxPath = "";
 let mismatchDocxPath = "";
+let altchunkSynthDocxPath = "";
+let midEmptyDocxPath = "";
 
 beforeAll(() => {
   const dir = mkdtempSync(join(tmpdir(), "kb-docx-fix-"));
@@ -127,6 +129,63 @@ beforeAll(() => {
   });
   mismatchDocxPath = join(dir, "mismatch.docx");
   writeFileSync(mismatchDocxPath, mismatchZip);
+
+  // altchunkSynth（I-1a）: 真实样本的 html part 内无 img 引用（改写是空操作），
+  // 合成一个 src 改写非空的 altChunk docx: html 里 <img src="file:///C:/fake/image1.png">
+  // 配一个同 Content-Location 的真 image part → 改写必须命中并产出外联引用
+  const synthMht = [
+    "MIME-Version: 1.0",
+    "Content-Type: multipart/related;",
+    "    boundary=\"----=mhtSynthPart\"",
+    "",
+    "------=mhtSynthPart",
+    "Content-Type: text/html;",
+    "    charset=\"utf-8\"",
+    "Content-Transfer-Encoding: quoted-printable",
+    "Content-Location: file:///C:/fake/document.html",
+    "",
+    '<html><body><p>合成正文</p><img src="file:///C:/fake/image1.png"></body></html>',
+    "",
+    "------=mhtSynthPart",
+    "Content-Type: image/png",
+    "Content-Transfer-Encoding: base64",
+    "Content-Location: file:///C:/fake/image1.png",
+    "",
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6",
+    "kgAAAABJRU5ErkJggg==",
+    "",
+    "------=mhtSynthPart--",
+    "",
+  ].join("\n");
+  const synthZip = zipSync({
+    "[Content_Types].xml": strToU8(CT_XML),
+    "_rels/.rels": strToU8(ROOT_RELS_XML),
+    "word/document.xml": strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+      `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ` +
+      `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+      `<w:body><w:altChunk r:id="rId1"/></w:body></w:document>`
+    ),
+    "word/afchunk.mht": strToU8(synthMht),
+  });
+  altchunkSynthDocxPath = join(dir, "altchunk-synth.docx");
+  writeFileSync(altchunkSynthDocxPath, synthZip);
+
+  // midEmpty（I-1b）: 3 张图、中间第 2 张 0 字节——
+  // 0 字节置空后序号必须照常推进：第 3 张必须落盘为 img3.png（而非顺位补成 img2）
+  const midEmptyZip = zipSync({
+    "[Content_Types].xml": strToU8(CT_XML),
+    "_rels/.rels": strToU8(ROOT_RELS_XML),
+    "word/document.xml": strToU8(docXml(["rId1", "rId2", "rId3"])),
+    "word/_rels/document.xml.rels": strToU8(
+      relsXml([["rId1", "media/image1.png"], ["rId2", "media/image2.png"], ["rId3", "media/image3.png"]])
+    ),
+    "word/media/image1.png": PNG1PX,
+    "word/media/image2.png": new Uint8Array(0),
+    "word/media/image3.png": PNG1PX,
+  });
+  midEmptyDocxPath = join(dir, "mid-empty.docx");
+  writeFileSync(midEmptyDocxPath, midEmptyZip);
 });
 
 afterAll(() => {
@@ -171,5 +230,28 @@ describe("docx 双通道", () => {
     expect(r.markdown.match(/data:image/g)).toBeNull(); // 全部外联或置空
     expect(r.markdown).toContain("![d]()"); // 多余的第 3 个占位符被置空
     expect(r.markdown).toContain("../source/x/img1.png");
+  });
+
+  test("altChunk src 改写: html 内 img 的 file:/// 路径改写为外联（合成样本）", async () => {
+    const sink = makeSink(tmpDir());
+    const r = await convertDocxSmart(altchunkSynthDocxPath, sink);
+    expect(r.via).toBe("altChunk(mht→html)");
+    expect(r.markdown).toContain("合成正文"); // MHT 正文真实内容
+    expect(r.markdown).toContain("../source/x/img1.png"); // src 已改写为外联引用（I-1a 核心断言）
+    expect(r.markdown).not.toContain("file:///C:/fake/"); // 不得残留源内断链引用
+    expect(r.markdown).not.toMatch(/data:image/);
+    expect(r.images.length).toBe(1); // image part 落盘
+    expect(Bun.file(r.images[0]).size).toBeGreaterThan(0);
+  });
+
+  test("0 字节在中间: 第 3 张落盘 img3.png（序号照常推进）", async () => {
+    const sink = makeSink(tmpDir());
+    const r = await convertDocxSmart(midEmptyDocxPath, sink);
+    expect(r.markdown).toContain("../source/x/img1.png");
+    expect(r.markdown).toContain("../source/x/img3.png"); // 第 3 张是 img3（I-1b 核心断言：不是顺位补成 img2）
+    expect(r.markdown).not.toContain("../source/x/img2.png"); // 0 字节那张不落盘不被引用
+    expect(r.markdown).toContain("![d]()"); // 中间引用置空
+    expect(r.warnings.some((w) => w.includes("0 字节"))).toBe(true);
+    expect(r.images.length).toBe(2); // 只落盘第 1、3 张
   });
 });
