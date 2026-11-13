@@ -403,10 +403,12 @@ export async function runIndex(
       };
       const now = Date.now();
       for (const plan of plans) {
-        // 全部块 hash 命中且向量有效（全复用）：行原样保留不删不插——内容/向量完全一致，
+        // 全部块 hash 命中且向量有效（全复用）才直通：行原样保留不删不插——内容/向量完全一致，
         // 重写只会白瘫 rowid（量化 shadow 按 rowid JOIN，被迫每轮 O(N) 全量重建）。
+        // 前提 chunks.length > 0：空白文本产 0 块时 0===0 误判全复用会跳过 deleteFileRows，
+        // 旧块残留且自愈静默失效（审查 C-1）；零块必须走删旧路径。
         // 零变更轮保持零写库；部分变化（含向量缺失回填/指纹不匹配）才走删旧插新
-        const allReuse = plan.reuse.size === plan.chunks.length;
+        const allReuse = plan.chunks.length > 0 && plan.reuse.size === plan.chunks.length;
         if (plan.hasOld && !allReuse) {
           deleteFileRows(plan.relPath);
           touchedRows = true;

@@ -5,7 +5,7 @@
 //   4. 删除：源文件删除 → 副本与块一并清理；
 //   5. mirror_meta 统计落库（converterVersion/converted/degraded/images）。
 // 夹具模式与 knowledge-watcher.test.ts 一致：临时源目录 + fake embed + 每库 db 断言即开即关。
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
   appendFileSync,
@@ -25,6 +25,7 @@ import { searchKnowledge } from "../src/knowledge/search";
 import { mirrorDirFor, mirrorMdPath } from "../src/knowledge/mirror";
 import { CONVERTER_VERSION } from "../src/knowledge/convert";
 import { closeAllKbDbs, openKbDb } from "../src/knowledge/kb-db";
+import { kbQuantizedScan } from "../src/knowledge/vector";
 import { EMBED_DIM } from "../src/memory/schema";
 
 const FIX = join(import.meta.dir, "fixtures/knowledge-convert");
@@ -181,4 +182,68 @@ test("源文件删除 → 副本与块一并清理", async () => {
   // 副本与块一并清理
   expect(existsSync(mdPath)).toBe(false);
   expect(countChunks("gone.docx")).toBe(0);
+});
+
+// ===== 审查修复轮 1（C-1/I-1/I-2）=====
+
+// C-1 回归锁（两条触发路径）：空白文本 → chunkDocument 产 0 块，reuse.size(0) === chunks.length(0)
+// 不得误判「全复用」跳过 deleteFileRows（否则旧块残留、自愈静默失效）
+test("源文件内容清空 → 旧块删除零残留（零块不误判全复用）", async () => {
+  writeFileSync(join(srcDir, "empty.md"), "# 有点内容\n\n正文段落。");
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(countChunks("empty.md")).toBeGreaterThan(0);
+  // 源清空 → 快筛不命中 → 直通转换产出空副本 → 0 块 → hasOld 必须删旧块
+  writeFileSync(join(srcDir, "empty.md"), "");
+  const r = await runIndex(ctx, kbId, fakeEmbed);
+  expect(r.ok).toBe(true);
+  expect(countChunks("empty.md")).toBe(0);
+});
+
+test("副本被外部清空 → 快筛命中以空副本为准, 旧块删除零残留", async () => {
+  writeFileSync(join(srcDir, "wipe.md"), "# 原内容\n\n正文段落。");
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(countChunks("wipe.md")).toBeGreaterThan(0);
+  // 快筛命中（源未变）分支 readMirrorMd 返回 "" 非 null——不触发转换重建，以空副本为准重切
+  writeFileSync(mirrorMdPath(mirrorRoot(), "wipe.md"), "");
+  const r = await runIndex(ctx, kbId, fakeEmbed);
+  expect(r.ok).toBe(true);
+  expect(countChunks("wipe.md")).toBe(0);
+});
+
+// I-1a 回归锁（R-10 直通分支）：零变更轮全命中时既有行 rowid/id/hash 不变（不删不插，
+// rowid 稳定 = 量化 shadow 无需重建）；且语义通道（量化扫描）仍命中全部块
+test("零变更轮直通: 全命中时既有行 rowid 不变, 量化扫描仍全命中", async () => {
+  // 量化要求合法 float32 向量（字节填充会被扩展判为非法 blob，见 knowledge-indexer 既有锁测）
+  const floatEmbed: EmbedFn = async (texts) =>
+    texts.map(() => new Uint8Array(new Float32Array(new Array(EMBED_DIM).fill(0.1)).buffer));
+  writeFileSync(join(srcDir, "stable.md"), "# 稳定内容\n\n第一段。\n\n第二段。");
+  await runIndex(ctx, kbId, floatEmbed);
+  const readRows = () => {
+    let rows: Array<{ rowid: number; id: string; h: string }> = [];
+    withKbDb((db) => {
+      rows = db
+        .query("SELECT rowid, id, content_hash h FROM chunks WHERE file_path = 'stable.md' ORDER BY rowid")
+        .all() as Array<{ rowid: number; id: string; h: string }>;
+    });
+    return rows;
+  };
+  const before = readRows();
+  expect(before.length).toBeGreaterThan(0);
+  await runIndex(ctx, kbId, floatEmbed); // 零变更轮：快筛命中 + 副本 hash 全命中 → 直通
+  expect(readRows()).toEqual(before); // rowid/id/hash 全部不变（不删不插）
+  // 量化 shadow 未重建也必须对齐：语义通道仍命中全部块
+  const vec = new Uint8Array(new Float32Array(new Array(EMBED_DIM).fill(0.1)).buffer);
+  withKbDb((db) => {
+    const hits = kbQuantizedScan(db, vec, 50);
+    expect(hits.length).toBe(before.length);
+  });
+});
+
+// I-2：快筛命中且副本 hash 全命中轮零嵌入（「命中不重嵌」直接断言）
+test("快筛命中且 hash 全命中轮零嵌入调用", async () => {
+  writeFileSync(join(srcDir, "noop.md"), "# 无变更\n\n零嵌入内容。");
+  await runIndex(ctx, kbId, fakeEmbed); // 首轮全嵌
+  const spy = mock(fakeEmbed);
+  await runIndex(ctx, kbId, spy); // 源未变 → 快筛命中读副本重切 → hash 全命中 → 不重嵌
+  expect(spy.mock.calls.length).toBe(0);
 });
