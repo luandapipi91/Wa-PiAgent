@@ -204,15 +204,13 @@ export function McpCard({
             {t("mcpCard.builtin")}
           </span>
         )}
-        {/* 内置条目：卡片右侧快捷启停 switch（与智能体 MCP 分组开关同款视觉） */}
-        {builtin && (
-          <SwitchButton
-            on={config.enabled !== false}
-            onClick={() => onToggleEnabled?.(config.enabled === false)}
-            testId={`mcp-switch-${config.name}`}
-            className="ml-auto"
-          />
-        )}
+        {/* 卡片右侧快捷启停 switch（所有条目；与智能体 MCP 分组开关同款视觉） */}
+        <SwitchButton
+          on={config.enabled !== false}
+          onClick={() => onToggleEnabled?.(config.enabled === false)}
+          testId={`mcp-switch-${config.name}`}
+          className="ml-auto"
+        />
       </div>
 
       {/* 描述行 */}

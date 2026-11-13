@@ -88,6 +88,28 @@ test.describe.serial("内置 agent-browser MCP", () => {
     await page.getByTestId("agent-config-close").click();
   });
 
+  test("普通条目同样有右侧快捷开关（e2e-dummy 停用态切换）", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto("/");
+    await navigateToMcp(page);
+    const card = page.getByTestId("mcp-card-e2e-dummy");
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    const sw = page.getByTestId("mcp-switch-e2e-dummy");
+    await expect(sw).toBeVisible();
+    // 夹具里 dummy 预置 disabled：开关初始关；位置同样在卡片右侧
+    await expect(sw).toHaveAttribute("data-on", "false");
+    const swBox = await sw.boundingBox();
+    const cardBox = await card.boundingBox();
+    expect(
+      swBox && cardBox && swBox.x + swBox.width / 2 > cardBox.x + cardBox.width / 2,
+    ).toBe(true);
+    // 点击写入 enabled=true（REST 落盘），再点击复原为停用
+    await sw.dispatchEvent("click");
+    await expect(sw).toHaveAttribute("data-on", "true", { timeout: 30_000 });
+    await sw.dispatchEvent("click");
+    await expect(sw).toHaveAttribute("data-on", "false", { timeout: 30_000 });
+  });
+
   test("存量受限智能体经启动迁移默认打开 agent-browser 分组", async ({ page }) => {
     test.setTimeout(120_000);
     await page.goto("/");

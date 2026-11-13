@@ -337,3 +337,45 @@ test("登录失败：显示错误文案（不再显示「等待授权」）", ()
   );
   expect(screen.queryByTestId("mcp-login-waiting-test")).toBeNull();
 });
+
+test("普通条目同样有右侧快捷 switch（data-on 随 enabled，点击回调）", () => {
+  const calls: boolean[] = [];
+  render(
+    <McpCard
+      config={{ name: "test", command: "echo", exposure: "codemode" }}
+      state="connected"
+      onTest={noop}
+      onViewTools={noop}
+      onEdit={noop}
+      onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
+      onToggleEnabled={(enabled: boolean) => {
+        calls.push(enabled);
+      }}
+    />,
+  );
+  const sw = screen.getByTestId("mcp-switch-test");
+  expect(sw.getAttribute("data-on")).toBe("true");
+  fireEvent.click(sw);
+  expect(calls).toEqual([false]);
+});
+
+test("普通条目停用态 switch data-on=false（编辑/删除仍保留）", () => {
+  render(
+    <McpCard
+      config={{ name: "test", command: "echo", enabled: false }}
+      state="disabled"
+      onTest={noop}
+      onViewTools={noop}
+      onEdit={noop}
+      onDelete={noop}
+      onLogin={noop}
+      onLogout={noop}
+      onToggleEnabled={noop}
+    />,
+  );
+  expect(screen.getByTestId("mcp-switch-test").getAttribute("data-on")).toBe("false");
+  expect(screen.getByTestId("mcp-edit-test")).toBeTruthy();
+  expect(screen.getByTestId("mcp-delete-test")).toBeTruthy();
+});
