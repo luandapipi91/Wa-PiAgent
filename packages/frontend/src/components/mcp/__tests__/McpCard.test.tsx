@@ -75,3 +75,27 @@ describe("McpCard 内置条目", () => {
     expect(screen.getByText("Downloading Chrome…")).toBeTruthy();
   });
 });
+
+describe("McpCard 内置条目启停形态", () => {
+  beforeEach(() => cleanup());
+
+  test("启停是视觉 switch（data-on 暴露开关态），不再是「停用/启用」文字按钮", () => {
+    render(<McpCard {...baseProps} />);
+    const sw = screen.getByTestId("mcp-switch-agent-browser");
+    expect(sw.getAttribute("data-on")).toBe("true");
+    expect(screen.queryByText("停用")).toBeNull();
+    expect(screen.queryByText("启用")).toBeNull();
+  });
+
+  test("停用态 switch data-on=false", () => {
+    render(
+      <McpCard
+        {...baseProps}
+        config={{ ...(base as object), enabled: false } as never}
+      />,
+    );
+    expect(
+      screen.getByTestId("mcp-switch-agent-browser").getAttribute("data-on"),
+    ).toBe("false");
+  });
+});

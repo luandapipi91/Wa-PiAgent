@@ -3,6 +3,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import type { McpLoginState, McpServerEntry } from "../../store/mcp";
 import { copyToClipboard } from "../../util/clipboard";
 import { exposureDescKey, exposureLabelKey } from "./exposure";
+import { SwitchButton } from "../SwitchButton";
 
 interface Props {
   config: McpServerEntry;
@@ -214,6 +215,15 @@ export function McpCard({
             {t(exposureLabelKey(config.exposure))}
           </span>
         )}
+        {/* 内置条目：卡片右侧快捷启停 switch（与智能体 MCP 分组开关同款视觉） */}
+        {builtin && (
+          <SwitchButton
+            on={config.enabled !== false}
+            onClick={() => onToggleEnabled?.(config.enabled === false)}
+            testId={`mcp-switch-${config.name}`}
+            className="ml-auto"
+          />
+        )}
       </div>
 
       {/* 描述行 */}
@@ -401,27 +411,6 @@ export function McpCard({
           label={t("mcpCard.viewToolsButton")}
           disabled={testing}
         />
-        {builtin && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={config.enabled !== false}
-            data-testid={`mcp-switch-${config.name}`}
-            onClick={() => onToggleEnabled?.(config.enabled === false)}
-            className="text-[calc(11px*var(--font-scale))] px-2.5 py-1 rounded-md"
-            style={{
-              color: config.enabled === false ? "var(--text-tertiary)" : "var(--accent)",
-              border: `1px solid ${
-                config.enabled === false ? "var(--hairline)" : "var(--accent)"
-              }`,
-              background: "transparent",
-            }}
-          >
-            {config.enabled === false
-              ? t("mcpCard.enable")
-              : t("mcpCard.disable")}
-          </button>
-        )}
         {!builtin && (
           <CardBtn
             onClick={onEdit}

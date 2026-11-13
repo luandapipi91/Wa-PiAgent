@@ -20,6 +20,7 @@ import {
 	expandChecked,
 	toggleNames,
 } from "../agent-mcp-group-tools";
+import { SwitchButton } from "./SwitchButton";
 import { KbBindingSection } from "./knowledge/KbBindingSection";
 import { onMessage } from "../events";
 import type { SubagentOverride } from "@wa-pi/shared";
@@ -1102,43 +1103,3 @@ function PartnersTab({
 	);
 }
 
-/** 内联 Toggle Switch（与插件/技能管理风格一致） */
-function SwitchButton({
-	on,
-	onClick,
-	testId,
-}: {
-	on: boolean;
-	onClick: () => void;
-	testId: string;
-}) {
-	return (
-		<div
-			onClick={(e) => {
-				e.stopPropagation();
-				onClick();
-			}}
-			className="relative shrink-0 cursor-pointer"
-			style={{
-				width: 38,
-				height: 22,
-				borderRadius: 9999,
-				background: on ? "var(--brand)" : "var(--hairline-strong)",
-				transition: "background 0.2s",
-			}}
-			data-testid={testId}
-			data-on={on ? "true" : "false"}
-		>
-			<span
-				className="absolute top-0.5 rounded-full bg-white transition-all"
-				style={{
-					width: 18,
-					height: 18,
-					left: on ? undefined : 2,
-					right: on ? 2 : undefined,
-					boxShadow: "0 1px 2px rgba(0,0,0,.1)",
-				}}
-			/>
-		</div>
-	);
-}

@@ -657,8 +657,6 @@ const zh = {
 		loginCopyLink: "复制链接",
 		loginFailed: "登录失败",
 		builtin: "内置",
-		enable: "启用",
-		disable: "停用",
 		browserMissing:
 			"未检测到可用浏览器（Chrome / Chromium / Edge / Brave），安装后才能使用浏览器工具。",
 		installBrowser: "安装浏览器",

@@ -32,6 +32,13 @@ test.describe.serial("内置 agent-browser MCP", () => {
 
     const sw = page.getByTestId("mcp-switch-agent-browser");
     await expect(sw).toBeVisible();
+    // 启停是右侧视觉开关：不是「停用/启用」文字按钮；开关体在卡片水平中点右侧
+    await expect(card.getByText("停用", { exact: true })).toHaveCount(0);
+    await expect(card.getByText("启用", { exact: true })).toHaveCount(0);
+    await expect(sw).toHaveAttribute("data-on", "true");
+    const swBox = await sw.boundingBox();
+    const cardBox = await card.boundingBox();
+    expect(swBox && cardBox && swBox.x + swBox.width / 2 > cardBox.x + cardBox.width / 2).toBe(true);
     // 列表后台探测会持续更新状态、卡片节点可能被替换：直接派发 click，跳过 actionability 重试
     // 等首轮后台探测落定（否则在飞的旧探测结果会把停用状态覆盖回 connected）
     await expect(page.getByTestId("mcp-state-agent-browser")).toHaveAttribute(
@@ -40,12 +47,14 @@ test.describe.serial("内置 agent-browser MCP", () => {
       { timeout: 30_000 },
     );
     await sw.dispatchEvent("click");
+    await expect(sw).toHaveAttribute("data-on", "false");
     await expect(page.getByTestId("mcp-state-agent-browser")).toHaveAttribute(
       "data-state",
       "disabled",
       { timeout: 30_000 },
     );
     await sw.dispatchEvent("click");
+    await expect(sw).toHaveAttribute("data-on", "true");
     await expect(page.getByTestId("mcp-state-agent-browser")).not.toHaveAttribute(
       "data-state",
       "disabled",
