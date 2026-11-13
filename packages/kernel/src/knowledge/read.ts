@@ -8,10 +8,11 @@
 //
 // 数据源：每库独立 DB 的 chunks 表（file_path / start_line / end_line / content）+ mirror 目录副本。
 // 库选择：opts.kbId 指定时只查该库（且必须在绑定清单内）；否则按 kbIds 顺序找第一个命中的库。
-// 路径：既接受相对库根的路径（= chunks.file_path），也接受绝对路径（按库根前缀换算），
-// 还接受检索 hit 的副本形态路径（源 rel + ".md"，去 .md 后定位同一文件）。
+// 路径：既接受相对库根的路径（= chunks.file_path）、绝对路径（按库根前缀换算），
+// 还接受检索 hit 出参的两种回传形态：副本相对路径（源 rel + ".md"）与副本绝对路径
+// （filePathAbs，mirror 目录下，换算回源 rel）。
 import { existsSync } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { isAbsolute, join, normalize, sep } from "node:path";
 import { mirrorDirFor, mirrorMdPath, readMirrorMd } from "./mirror";
 import type { KbContext } from "./index";
 import { openKbDbExisting } from "./kb-db";
@@ -130,14 +131,24 @@ export async function readKnowledge(
 			};
 		}
 
-		// filePath 模式：入参两种形态都接受——源相对路径（chunks.file_path）或检索 hit 的
-		// 副本路径（源 rel + ".md"，去 .md 后定位同一文件）。逐候选「先副本后 chunks」：
+		// filePath 模式：入参三种形态都接受——源相对路径（chunks.file_path）、检索 hit 的
+		// 副本相对路径（源 rel + ".md"，去 .md 后定位同一文件）、检索 hit 的 filePathAbs
+		// （mirror 目录下的绝对路径：KB_READ_PARAMS_SCHEMA 承诺 file_path 接受绝对路径，
+		// bridge 错误文案亦引导此用法；不在库根内，需换算回源 rel）。
+		// 逐候选「先副本后 chunks」：
 		//   副本存在 → 读副本全文返回（filePathAbs 指副本）；
 		//   无副本（降级抽取/纯文本） → 维持既有 chunks.content 路径（filePathAbs 源绝对路径）。
-		const rel = toRelative(kb.folderPath, opts.filePath!) ?? opts.filePath!;
+		const rawPath = opts.filePath!;
+		const rawNorm = normalize(rawPath);
+		let rel = toRelative(kb.folderPath, rawPath) ?? rawPath;
+		// mirror 副本绝对路径回传：取 mirrorRoot 下相对路径并去掉副本 .md 后缀 → 源 rel；
+		// mirror 外的绝对路径维持既有源绝对路径换算（toRelative 不匹配则保留原样）
+		const mirrorRoot = normalize(mirrorDir);
+		if (isAbsolute(rawPath) && rawNorm.startsWith(mirrorRoot + sep)) {
+			rel = rawNorm.slice(mirrorRoot.length + 1).replace(/\.md$/, "");
+		}
 		const candidates = rel.endsWith(".md") ? [rel, rel.slice(0, -".md".length)] : [rel];
 		for (const srcRel of candidates) {
-			const mirrorAbs = mirrorMdPath(mirrorDir, srcRel);
 			const mirrorContent = readMirrorMd(mirrorDir, srcRel);
 			if (mirrorContent !== null) {
 				return {
@@ -145,7 +156,7 @@ export async function readKnowledge(
 					kbId: id,
 					kbName: kb.name,
 					filePath: srcRel,
-					filePathAbs: mirrorAbs,
+					filePathAbs: mirrorMdPath(mirrorDir, srcRel),
 					content: mirrorContent.slice(0, maxChars),
 					startLine: 1,
 					endLine: null,

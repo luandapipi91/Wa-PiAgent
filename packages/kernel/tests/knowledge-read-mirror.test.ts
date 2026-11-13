@@ -123,6 +123,21 @@ describe("检索/读取指向副本", () => {
     expect(r.filePathAbs).toBe(mirrorMdPath(mirrorRoot(), srcRel));
   });
 
+  test("往返: search hit.filePathAbs 回传 knowledge_read → 返回副本内容(不 file_not_found)", async () => {
+    // KB_READ_PARAMS_SCHEMA 承诺 file_path 接受绝对路径（file_path_abs），bridge 错误文案也在引导
+    // 此用法；有副本时 filePathAbs 是 mirror 目录下的绝对路径（不在库根内），必须能换算回源 rel
+    const srcRel = await buildConvertedKb();
+    const res = await searchKnowledge(ctx, [kbId], "查询对象", { mode: "fast" });
+    const hit = res.results.find((h) => h.filePath === srcRel + ".md");
+    expect(hit).toBeTruthy();
+    expect(hit!.filePathAbs).toBeTruthy();
+    const r = await readKnowledge(ctx, [kbId], { filePath: hit!.filePathAbs });
+    expect(r.found).toBe(true); // 修前 file_not_found（回归锁）
+    expect(r.content).toContain("查询对象");
+    expect(r.filePath).toBe(srcRel);
+    expect(r.filePathAbs).toBe(mirrorMdPath(mirrorRoot(), srcRel));
+  });
+
   test("knowledge_read(chunkId): content 仍为按块上下文, 有副本时 file_path_abs 指副本", async () => {
     const srcRel = await buildConvertedKb();
     const res = await searchKnowledge(ctx, [kbId], "查询对象", { mode: "fast" });

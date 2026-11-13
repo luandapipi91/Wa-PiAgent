@@ -683,7 +683,7 @@ export async function searchKnowledge(
     return {
       kbId: entry.chunk.kbId,
       kbName: entry.kbName,
-      kbFolderPath: entry.kbFolderPath ?? kbFolderOf(entry.chunk.kbId),
+      kbFolderPath: kbFolder,
       content: entry.content,
       filePath: hasMirror ? srcRel + ".md" : srcRel,
       sourcePath: srcRel,
