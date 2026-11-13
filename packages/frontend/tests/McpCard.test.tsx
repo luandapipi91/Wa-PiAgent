@@ -145,7 +145,7 @@ test("state 缺省或未知串 → 状态未知（不硬套连接态）", () => 
   expect(badge.getAttribute("data-tone")).toBe("neutral");
 });
 
-test("展示暴露方式标签（title 为一句说明）", () => {
+test("不展示暴露方式标签（exposure 信息只在编辑表单出现）", () => {
   render(
     <McpCard
       config={{ name: "test", command: "echo", exposure: "codemode" }}
@@ -158,9 +158,9 @@ test("展示暴露方式标签（title 为一句说明）", () => {
       onLogout={noop}
     />,
   );
-  const tag = screen.getByTestId("mcp-exposure-test");
-  expect(tag.textContent).toContain("脚本调用");
-  expect(tag.getAttribute("title")).toContain("脚本");
+  expect(screen.queryByTestId("mcp-exposure-test")).toBeNull();
+  expect(screen.queryByText("脚本调用")).toBeNull();
+  expect(screen.queryByText("直连可用")).toBeNull();
 });
 
 test("stateBadge：只有 failed 是错误色调（disabled/unknown 都不是）", () => {

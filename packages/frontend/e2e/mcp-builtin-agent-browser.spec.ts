@@ -29,6 +29,8 @@ test.describe.serial("内置 agent-browser MCP", () => {
     await expect(card).toBeVisible({ timeout: 30_000 });
     await expect(card.getByTestId("mcp-delete-agent-browser")).toHaveCount(0);
     await expect(card.getByTestId("mcp-edit-agent-browser")).toHaveCount(0);
+    // 暴露方式标签不展示（exposure 信息只在编辑表单出现）
+    await expect(card.getByText("直连可用")).toHaveCount(0);
 
     const sw = page.getByTestId("mcp-switch-agent-browser");
     await expect(sw).toBeVisible();

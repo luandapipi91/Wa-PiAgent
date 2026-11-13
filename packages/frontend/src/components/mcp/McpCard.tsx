@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
 import type { McpLoginState, McpServerEntry } from "../../store/mcp";
 import { copyToClipboard } from "../../util/clipboard";
-import { exposureDescKey, exposureLabelKey } from "./exposure";
 import { SwitchButton } from "../SwitchButton";
 
 interface Props {
@@ -203,16 +202,6 @@ export function McpCard({
             data-testid={`mcp-builtin-${config.name}`}
           >
             {t("mcpCard.builtin")}
-          </span>
-        )}
-        {config.exposure && (
-          <span
-            className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
-            style={{ background: "var(--hairline)", color: "var(--text-tertiary)" }}
-            data-testid={`mcp-exposure-${config.name}`}
-            title={t(exposureDescKey(config.exposure))}
-          >
-            {t(exposureLabelKey(config.exposure))}
           </span>
         )}
         {/* 内置条目：卡片右侧快捷启停 switch（与智能体 MCP 分组开关同款视觉） */}
