@@ -21,7 +21,6 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 
 const managers: AgentManager[] = [];
@@ -74,7 +73,6 @@ async function setup(opts: { configStore?: any } = {}) {
 		configStore: opts.configStore ?? null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 		mcpAdmin: makeFakeMcpAdmin(),
 	});
 	managers.push(am);

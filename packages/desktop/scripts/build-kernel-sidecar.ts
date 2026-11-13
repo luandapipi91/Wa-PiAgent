@@ -51,6 +51,8 @@ export const kernelRuntimeDependencies = (kernelPkg: {
 	"@earendil-works/pi-coding-agent":
 		kernelPkg.dependencies["@earendil-works/pi-coding-agent"],
 	"@napi-rs/keyring": kernelPkg.dependencies["@napi-rs/keyring"],
+	// 浏览器自动化：agent-browser 平台原生二进制（Rust CLI + 内置 MCP server）
+	"agent-browser": kernelPkg.dependencies["agent-browser"],
 	// 内置 npm 扩展已清空（pi-web-access 2026-10-18 移除：web 工具改由自研
 	// web-access 扩展提供，源码随内核 bundle 走 --asset，无需磁盘依赖）
 });

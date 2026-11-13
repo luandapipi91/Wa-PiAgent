@@ -117,7 +117,6 @@ import {
 	type FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 import { getBridgeSession } from "../src/bridge-registry";
 import type { RpcClient } from "../src/rpc-client";
@@ -165,7 +164,6 @@ describe("im_push_to 会话注入", () => {
 			createClientFn: fakeClientFactory(fakes) as (
 				o: Parameters<typeof Object>[0] extends never ? never : any,
 			) => RpcClient,
-			browserManager: NOOP_BROWSER_MANAGER,
 			// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
 			mcpAdmin: makeFakeMcpAdmin(),
 			...(opts?.codemodeLevel
@@ -342,7 +340,6 @@ describe("主聊天 im_push_to 全局执行器", () => {
 			configStore: (opts?.configStore ?? null) as any,
 			onEvent: () => {},
 			createClientFn: fakeClientFactory(fakes) as any,
-			browserManager: NOOP_BROWSER_MANAGER,
 			// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
 			mcpAdmin: makeFakeMcpAdmin(),
 		});

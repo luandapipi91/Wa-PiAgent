@@ -39,6 +39,12 @@ export function McpPage() {
     loadProjectScope,
     setSelectedProjectId,
     setSearchQuery,
+    setServerEnabled,
+    builtinBrowserStatus,
+    installingBrowser,
+    browserInstallLog,
+    loadBuiltinStatus,
+    installBuiltinBrowser,
   } = useMcpStore();
 
   const projects = useProjectsStore((s) => s.projects);
@@ -55,6 +61,13 @@ export function McpPage() {
   useEffect(() => {
     load(selectedProjectId ?? undefined);
   }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 内置 agent-browser 的浏览器就绪状态：只有列表里真有内置条目时才查
+  // （项目作用域没有内置条目，不产生无谓请求；安装完成后由 store 回读）
+  const hasBuiltinServer = servers.some((s) => s.builtin);
+  useEffect(() => {
+    if (hasBuiltinServer) void loadBuiltinStatus();
+  }, [hasBuiltinServer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 项目级开关的初值来自 trust.json 的**真值回读**（不靠 pi 的 note 反推：项目还没有
   // .pi/mcp.json 时没有 note，靠 note 会把「未设置」显示成「已开」，而受信是安全决定）。
@@ -247,6 +260,14 @@ export function McpPage() {
                 onDelete={() => setConfirmDelete(s.name)}
                 onLogin={(timeoutSec) => handleLogin(s.name, timeoutSec)}
                 onLogout={() => handleLogout(s.name)}
+                builtin={s.builtin}
+                onToggleEnabled={(enabled) =>
+                  void setServerEnabled(s.name, enabled, selectedProjectId ?? undefined)
+                }
+                browserStatus={s.builtin ? builtinBrowserStatus ?? undefined : undefined}
+                installing={s.builtin ? installingBrowser : undefined}
+                installLog={s.builtin ? browserInstallLog : undefined}
+                onInstall={installBuiltinBrowser}
               />
             );
           })

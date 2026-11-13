@@ -28,3 +28,10 @@ test("buildRuntimeManifest: 精简清单——仅磁盘必需依赖，无 patche
   // 其余内联进 exe 的包不再出现（jiti 在虚拟 FS 内解析）
   expect(m.dependencies["@amaster.ai/pi-memory"]).toBeUndefined();
 });
+
+test("buildRuntimeManifest 含 agent-browser（首启依赖安装会装平台原生二进制）", () => {
+  const m = buildRuntimeManifest() as any;
+  // 浏览器能力改由内置 agent-browser MCP 提供：平台二进制必须随 runtime 安装
+  expect(m.dependencies["agent-browser"]).toBeString();
+  expect(m.dependencies["agent-browser"]).toBe(kernelPkg.dependencies["agent-browser"]);
+});

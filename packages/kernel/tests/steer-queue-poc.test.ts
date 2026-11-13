@@ -15,7 +15,6 @@ import {
   type FakeSessionClient,
   fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { WA_PI_DIR } from "@wa-pi/shared";
@@ -66,7 +65,6 @@ async function setup(events?: CapturedEvent[]) {
     configStore: null,
     onEvent: (sid, _pid, _name, e) => events?.push({ sessionId: sid, e }),
     createClientFn: fakeClientFactory(fakes),
-    browserManager: NOOP_BROWSER_MANAGER,
   });
   managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);

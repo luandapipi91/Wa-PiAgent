@@ -18,6 +18,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { stripBom } from "./text-bom.ts";
 import {
+  BUILTIN_MCP_NAME,
   type McpExposure,
   type McpFieldError,
   type McpServerConfig,
@@ -151,6 +152,9 @@ export class McpFile {
     projectId?: string,
     originalName?: string,
   ): Promise<{ ok: true } | { ok: false; errors: McpFieldError[] }> {
+    if (input.name === BUILTIN_MCP_NAME || originalName === BUILTIN_MCP_NAME) {
+      throw new KernelError("mcp.builtinProtected", { name: BUILTIN_MCP_NAME });
+    }
     const errors = validateMcpServer(input);
     if (errors.length > 0) return { ok: false, errors };
 
@@ -187,6 +191,9 @@ export class McpFile {
   }
 
   async delete(serverName: string, projectId?: string): Promise<void> {
+    if (serverName === BUILTIN_MCP_NAME) {
+      throw new KernelError("mcp.builtinProtected", { name: BUILTIN_MCP_NAME });
+    }
     const path = await this.resolvePath(projectId);
     // 与 save 对称：delete 也是读-改-写，必须与并发写串行化（否则会复活刚被删掉的 server）
     await serializeByPath(path, async () => {
@@ -202,6 +209,66 @@ export class McpFile {
   /** 供测试与迁移使用 */
   async readPath(path: string): Promise<RawFile> {
     return this.read(path);
+  }
+
+  /**
+   * 物化内置条目（只写全局作用域）：缺失则创建；已存在则保留 enabled、其余字段按内置定义纠正。
+   * 保留旧条目上的未知键（例如 pi 未来新增的字段），与 save 的未知键保护一致。
+   */
+  async ensureBuiltin(
+    input: McpServerConfig & { description?: string },
+  ): Promise<{ created: boolean; repaired: boolean }> {
+    const path = await this.resolvePath();
+    return await serializeByPath(path, async () => {
+      let cfg: RawFile;
+      try {
+        cfg = await this.read(path);
+      } catch (e: unknown) {
+        // 坏文件不物化也不覆写：覆写会把用户自定义条目连同损坏内容一起清掉；
+        // 跳过本次（文件修好后下次启动自然补回），不能让启动链因配置损坏而崩。
+        if (e instanceof KernelError && e.code === "mcp.configParseFailed") {
+          console.warn(
+            `[kernel] mcp.json 损坏，跳过内置条目物化（修复文件后重启应用会自动补回）: ${path}`,
+            e,
+          );
+          return { created: false, repaired: false };
+        }
+        throw e;
+      }
+      const previous = cfg.mcpServers[input.name];
+      const enabled = previous?.enabled === false ? false : true;
+      const { name: _name, ...rest } = input;
+      const entry: RawServer = {};
+      for (const [key, value] of Object.entries(previous ?? {})) {
+        if (isUnknownKey(key)) entry[key] = value;
+      }
+      for (const [key, value] of Object.entries(rest)) {
+        if (value !== undefined) entry[key] = value;
+      }
+      entry.enabled = enabled;
+      const created = !previous;
+      const repaired = !created && JSON.stringify(previous) !== JSON.stringify(entry);
+      if (created || repaired) {
+        cfg.mcpServers[input.name] = entry;
+        await this.write(path, cfg);
+      }
+      return { created, repaired };
+    });
+  }
+
+  /** 只改 enabled（内置条目的停用/启用入口；普通条目也可复用） */
+  async setEnabled(name: string, enabled: boolean, projectId?: string): Promise<void> {
+    const path = await this.resolvePath(projectId);
+    await serializeByPath(path, async () => {
+      const cfg = await this.read(path);
+      const entry = cfg.mcpServers[name];
+      if (!entry) {
+        throw new KernelError("mcp.serverNotFound", { name });
+      }
+      if (enabled) delete entry.enabled;
+      else entry.enabled = false;
+      await this.write(path, cfg);
+    });
   }
 
   private async resolvePath(projectId?: string): Promise<string> {

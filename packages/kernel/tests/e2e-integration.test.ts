@@ -12,7 +12,6 @@ import {
 	type FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 import { WA_PI_DIR } from "@wa-pi/shared";
 
@@ -40,7 +39,6 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
 		configStore,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
 		mcpAdmin: makeFakeMcpAdmin(),
 	});
@@ -169,7 +167,6 @@ test("[第三层] 预热占位会话不进侧栏，首发消息转正后出现",
 		configStore,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
 		mcpAdmin: makeFakeMcpAdmin(),
 	});

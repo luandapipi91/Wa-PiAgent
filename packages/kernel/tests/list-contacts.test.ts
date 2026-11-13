@@ -212,7 +212,6 @@ void rmSyncStub;
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { fakeClientFactory } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 
 describe("handleTool 分发 list_contacts", () => {
@@ -254,7 +253,6 @@ describe("handleTool 分发 list_contacts", () => {
 			configStore: null as any,
 			onEvent: () => {},
 			createClientFn: fakeClientFactory([]) as any,
-			browserManager: NOOP_BROWSER_MANAGER,
 		});
 		managers.push(am);
 		return { project: project as { id: string }, session, am };

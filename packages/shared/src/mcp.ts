@@ -231,6 +231,13 @@ export interface McpProbeEvent {
   /** 登录态（仅可能走 OAuth 的台下发，语义与列表条目同） */
   signedIn?: boolean;
 }
+/** 浏览器安装进度（仅内置 agent-browser 使用）：start → line×N → done/error */
+export interface McpInstallProgressEvent {
+  type: "mcp:installProgress";
+  phase: "start" | "line" | "done" | "error";
+  message?: string;
+}
+
 export interface McpTestResult {
   type: "mcp:testResult";
   serverName: string;
@@ -277,3 +284,6 @@ export interface McpLoginEvent {
   /** phase=error 时失败文案（pi 的末行输出，如随超时一起打的 cancelled） */
   error?: string;
 }
+
+/** 内置 agent-browser MCP 的固定服务器名：常驻 MCP 列表、不可删除、不可编辑，只可停用 */
+export const BUILTIN_MCP_NAME = "agent-browser";

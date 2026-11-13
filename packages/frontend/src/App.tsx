@@ -372,6 +372,10 @@ export function App() {
 				case "mcp:login":
 					useMcpStore.getState().setLoginEvent(e as any);
 					break;
+				// 浏览器安装进度（内置 agent-browser）：start → line×N → done/error
+				case "mcp:installProgress":
+					useMcpStore.getState().setInstallProgress(e as any);
+					break;
 				case "channels:changed":
 					void useChannelsStore.getState().loadBots();
 					break;

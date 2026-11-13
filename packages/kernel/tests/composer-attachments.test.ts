@@ -20,7 +20,6 @@ import {
   FakeSessionClient,
   fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { WA_PI_DIR } from "@wa-pi/shared";
 
 function makeTempDir(prefix: string) {
@@ -116,7 +115,6 @@ async function withComposerServer<T>(
     configStore: null,
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
-    browserManager: NOOP_BROWSER_MANAGER,
   });
 
   const server = new WSServer({

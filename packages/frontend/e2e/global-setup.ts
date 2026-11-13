@@ -211,6 +211,17 @@ async function globalSetup() {
 			// 删）；embedder 对该 env 走 localModelPath 免下载。不设时透传 undefined，与原行为
 			// 完全等价（现场从镜像下载到 WA_PI_DIR/models）。
 			WA_PI_MODEL_DIR: process.env.WA_PI_MODEL_DIR,
+			// 内置 agent-browser 的浏览器就绪状态：E2E 固定注入「缺失」，
+			// 验证 MCP 页的「安装浏览器」入口（不真的下载 Chrome）
+			WA_PI_AGENT_BROWSER_DOCTOR_JSON: JSON.stringify({
+				checks: [
+					{
+						id: "chrome.installed",
+						status: "fail",
+						message: "E2E: Chrome not found",
+					},
+				],
+			}),
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 		shell: true, // Windows 下 bun 是 npm 装的 .cmd shim，需要 shell 解析，否则 spawn ENOENT

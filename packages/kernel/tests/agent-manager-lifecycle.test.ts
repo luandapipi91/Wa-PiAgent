@@ -15,7 +15,6 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import {
 	clearSession as clearPending,
@@ -105,7 +104,6 @@ async function setup(
 		createClientFn: opts.startDelayMs
 			? slowStartFactory(fakes, opts.startDelayMs)
 			: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 	});
 	managers.push(am);
 	if (opts.startDelayMs) {

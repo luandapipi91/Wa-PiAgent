@@ -191,41 +191,6 @@ test("DelegateParamsSchema：tasks 数组 1..DELEGATE_MAX_TASKS，每项 agent/t
   expect(DelegateParamsSchema.required).toEqual(["tasks"]);
 });
 
-test("browser_* 工具描述可从 @wa-pi/shared 导入且非空", async () => {
-  const {
-    BROWSER_NAVIGATE_DESCRIPTION,
-    BROWSER_EVALUATE_DESCRIPTION,
-    BROWSER_SCREENSHOT_DESCRIPTION,
-    BROWSER_CLOSE_DESCRIPTION,
-  } = await import("@wa-pi/shared/tool-schemas");
-  expect(typeof BROWSER_NAVIGATE_DESCRIPTION).toBe("string");
-  expect(BROWSER_NAVIGATE_DESCRIPTION.length).toBeGreaterThan(10);
-  expect(typeof BROWSER_EVALUATE_DESCRIPTION).toBe("string");
-  expect(BROWSER_EVALUATE_DESCRIPTION.length).toBeGreaterThan(10);
-  expect(typeof BROWSER_SCREENSHOT_DESCRIPTION).toBe("string");
-  expect(BROWSER_SCREENSHOT_DESCRIPTION.length).toBeGreaterThan(10);
-  expect(typeof BROWSER_CLOSE_DESCRIPTION).toBe("string");
-  expect(BROWSER_CLOSE_DESCRIPTION.length).toBeGreaterThan(10);
-});
-
-test("browser_* 工具 schema 定义关键字段", async () => {
-  const {
-    BrowserNavigateParamsSchema,
-    BrowserEvaluateParamsSchema,
-    BrowserScreenshotParamsSchema,
-  } = await import("@wa-pi/shared/tool-schemas");
-  expect(Object.keys(BrowserNavigateParamsSchema.properties)).toContain("url");
-  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
-    string,
-    unknown
-  >;
-  expect(evalProps.action).toBeDefined();
-  expect(evalProps.script).toBeDefined();
-  expect(Object.keys(BrowserScreenshotParamsSchema.properties)).toContain(
-    "format",
-  );
-});
-
 test("记忆工具的模型可见文案不再指向已废弃的 MEMORY.md / USER.md 文件", async () => {
   const schemas = (await import("@wa-pi/shared/tool-schemas")) as Record<
     string,
@@ -281,139 +246,24 @@ test("MEM_REPLACE_DESC / MEM_REMOVE_DESC 说明「id 优先，无 id 才用 oldT
   }
 });
 
-test("BRIDGE_TOOL_NAMES 包含 4 个 browser 工具", async () => {
-  const { BRIDGE_TOOL_NAMES } = await import("@wa-pi/shared/tool-schemas");
-  for (const name of [
-    "browser_navigate",
-    "browser_evaluate",
-    "browser_screenshot",
-    "browser_close",
-  ]) {
-    expect(BRIDGE_TOOL_NAMES).toContain(name);
-  }
-});
 
-test("PREVIEW_OPEN_DESCRIPTION 声明与 browser_* 自动化无关，且保持精简（≤60 字符）", async () => {
+test("PREVIEW_OPEN_DESCRIPTION 不再提 browser_*，且保持精简（≤60 字符）", async () => {
   const { PREVIEW_OPEN_DESCRIPTION } = await import(
     "@wa-pi/shared/tool-schemas"
   );
-  // 区分语：模型不得把「把页面呈现给用户看」与无头自动化混用（防误调 browser_*）
-  expect(PREVIEW_OPEN_DESCRIPTION).toContain("browser_");
-  expect(PREVIEW_OPEN_DESCRIPTION).toMatch(/无关|不同|不是|非/);
+  // 自研浏览器工具已移除：文案不再引用不存在的 browser_*
+  expect(PREVIEW_OPEN_DESCRIPTION).not.toContain("browser_");
   // 用户拍板：工具提示词必须精简（≈50 token 约束，按字符数近似把关）
   expect(PREVIEW_OPEN_DESCRIPTION.length).toBeLessThanOrEqual(60);
 });
 
-test("browser_evaluate type 支持 clear 清空语义（重填字段场景）", async () => {
-  const { BrowserEvaluateParamsSchema, BROWSER_EVALUATE_DESCRIPTION } =
-    await import("@wa-pi/shared/tool-schemas");
-  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
-    string,
-    { type?: string; description?: string }
-  >;
-  expect(evalProps.clear).toBeDefined();
-  expect(evalProps.clear.type).toBe("boolean");
-  // 描述写清「重填字段用 clear:true」的用法指引
-  expect(evalProps.clear.description).toContain("clear:true");
-  expect(evalProps.clear.description).toContain("重填");
-  // 默认追加语义不变（描述里明确）
-  expect(evalProps.clear.description).toContain("追加");
-  // 顶层描述也提示 type 的 clear 用法
-  expect(BROWSER_EVALUATE_DESCRIPTION).toContain("clear:true");
+
+test("DEFAULT_AGENT_TOOLS 不再包含任何 browser_* 工具", async () => {
+  const { DEFAULT_AGENT_TOOLS } = await import("../src/constants");
+  expect(DEFAULT_AGENT_TOOLS.filter((t) => t.startsWith("browser_"))).toEqual([]);
 });
 
-// =========================================================================
-// ref 工作流修复（2026-11-03）：type/press 支持 ref + 工作流引导 + selector 降级
-// =========================================================================
-
-test("browser_evaluate ref 参数覆盖 click/type/press 三动作（ref 工作流不断裂）", async () => {
-  const { BrowserEvaluateParamsSchema, BROWSER_EVALUATE_DESCRIPTION } =
-    await import("@wa-pi/shared/tool-schemas");
-  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
-    string,
-    { description?: string }
-  >;
-  // ref 描述声明三种动作均可定位（模型读到才知道 type/press 也能用 ref）
-  expect(evalProps.ref).toBeDefined();
-  expect(evalProps.ref.description).toContain("click");
-  expect(evalProps.ref.description).toContain("type");
-  expect(evalProps.ref.description).toContain("press");
-  // 顶层描述：type/press 的 action 行明确 ref 定位语义
-  expect(BROWSER_EVALUATE_DESCRIPTION).toMatch(/- type:[^\n]*ref/);
-  expect(BROWSER_EVALUATE_DESCRIPTION).toMatch(/- press:[^\n]*ref/);
-});
-
-test("BROWSER_EVALUATE_DESCRIPTION 开头给出标准工作流（snapshot→ref→确认，禁猜 selector）", async () => {
-  const { BROWSER_EVALUATE_DESCRIPTION } = await import("@wa-pi/shared/tool-schemas");
-  expect(BROWSER_EVALUATE_DESCRIPTION.startsWith("操作页面的标准流程")).toBe(true);
-  expect(BROWSER_EVALUATE_DESCRIPTION).toContain("browser_snapshot");
-  expect(BROWSER_EVALUATE_DESCRIPTION).toContain("[ref=N]");
-  // 反模式防线：不许凭训练记忆猜 CSS selector
-  expect(BROWSER_EVALUATE_DESCRIPTION).toContain("不要凭对某网站的记忆猜 selector");
-});
-
-test("selector 参数降级为兑底定位方式（优先快照 ref）", async () => {
-  const { BrowserEvaluateParamsSchema } = await import("@wa-pi/shared/tool-schemas");
-  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
-    string,
-    { description?: string }
-  >;
-  expect(evalProps.selector?.description).toContain("兑底");
-  expect(evalProps.selector?.description).toContain("ref");
-});
-
-// =========================================================================
-// 三项修复（TDD 先红后绿）
-// =========================================================================
-
-test("BROWSER_EVALUATE_DESCRIPTION 描述数组无空洞/空串元素（join 后不出现连续换行）", async () => {
-  const { BROWSER_EVALUATE_DESCRIPTION } = await import(
-    "@wa-pi/shared/tool-schemas"
-  );
-  // 修复前数组里有一个多余的 ",,"，join("\n") 后产生 "\n\n"（空洞行）
-  expect(BROWSER_EVALUATE_DESCRIPTION).not.toContain("\n\n");
-  expect(BROWSER_EVALUATE_DESCRIPTION).not.toContain("\n\n\n");
-});
-
-test("browser_navigate fresh 参数描述与实现语义一致（导航完成后在目标页上下文清除）", async () => {
-  const { BrowserNavigateParamsSchema } = await import(
-    "@wa-pi/shared/tool-schemas"
-  );
-  const navProps = BrowserNavigateParamsSchema.properties as Record<
-    string,
-    { description?: string }
-  >;
-  const desc = navProps.fresh?.description ?? "";
-  // 实现：先导航到目标页 → 在目标页上下文清 localStorage/sessionStorage/cookie → reload
-  expect(desc).toContain("导航完成后");
-  expect(desc).not.toContain("导航前");
-});
-
-test("browser_evaluate ref 参数校验层接受 \"@5\"/\"5\" 字符串、拒绝 \"abc\" 与 0（容错可达）", async () => {
-  const { BrowserEvaluateParamsSchema } = await import(
-    "@wa-pi/shared/tool-schemas"
-  );
-  const { Value } = await import("typebox/value");
-  const { Compile } = await import("typebox/compile");
-  // 复刻 pi-ai validateToolArguments 的真实校验路径：Value.Convert + Compile.Check
-  const validator = Compile(
-    BrowserEvaluateParamsSchema as unknown as Parameters<typeof Compile>[0],
-  );
-  const check = (ref: unknown) => {
-    const args: Record<string, unknown> = { action: "click", ref };
-    Value.Convert(BrowserEvaluateParamsSchema, args);
-    return validator.Check(args);
-  };
-  expect(check("@5")).toBe(true);
-  expect(check("5")).toBe(true);
-  expect(check(5)).toBe(true);
-  expect(check("abc")).toBe(false);
-  expect(check(0)).toBe(false);
-  expect(check("0")).toBe(false);
-  // 描述补一句字符串容错说明，模型才知道可以传 "@N"
-  const evalProps = BrowserEvaluateParamsSchema.properties as Record<
-    string,
-    { description?: string }
-  >;
-  expect(evalProps.ref?.description).toContain('"@N"');
+test("BRIDGE_TOOL_NAMES 不再包含任何 browser_* 工具", async () => {
+  const { BRIDGE_TOOL_NAMES } = await import("@wa-pi/shared/tool-schemas");
+  expect(BRIDGE_TOOL_NAMES.filter((t) => t.startsWith("browser_"))).toEqual([]);
 });

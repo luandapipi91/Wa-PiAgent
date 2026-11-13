@@ -42,20 +42,6 @@ import {
 	KB_SEARCH_PARAMS_SCHEMA,
 	DELEGATE_DESCRIPTION,
 	DelegateParamsSchema,
-	BROWSER_NAVIGATE_DESCRIPTION,
-	BrowserNavigateParamsSchema,
-	BROWSER_EVALUATE_DESCRIPTION,
-	BrowserEvaluateParamsSchema,
-	BROWSER_SCREENSHOT_DESCRIPTION,
-	BrowserScreenshotParamsSchema,
-	BROWSER_CLOSE_DESCRIPTION,
-	BrowserCloseParamsSchema,
-	BROWSER_SNAPSHOT_DESCRIPTION,
-	BrowserSnapshotParamsSchema,
-	BROWSER_READ_DESCRIPTION,
-	BrowserReadParamsSchema,
-	BROWSER_WAIT_DESCRIPTION,
-	BrowserWaitParamsSchema,
 	PREVIEW_OPEN_DESCRIPTION,
 	PreviewOpenParamsSchema,
 } from "./tool-schemas.ts";
@@ -92,8 +78,6 @@ const DELEGATE_TIMEOUT_MS = 600_000; // delegate：10 分钟无任何帧才判�
 // 用户停止（delegate）：kernel 侧中止快照轮询——500ms × 最多 10 次 = 5 秒窗口
 const SNAPSHOT_POLL_INTERVAL_MS = 500;
 const SNAPSHOT_POLL_MAX_ATTEMPTS = 10;
-const BROWSER_NAVIGATE_TIMEOUT_MS = 150_000; // navigate 120s + 余量
-const BROWSER_OPERATION_TIMEOUT_MS = 90_000; // 其余操作 60s + 余量
 
 // bridge 偶发断开重试：pi 侧 fetch 的 socket 可能被 Bun 非确定性清理（GC/keep-alive），
 // 断开后重试能恢复长连接（ask 等用户回答期间尤其需要）。重试前校验 signal 未 abort
@@ -585,120 +569,9 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
-		name: "browser_navigate",
-		label: "Browser Navigate",
-		description: BROWSER_NAVIGATE_DESCRIPTION,
-		parameters: BrowserNavigateParamsSchema,
-		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"browser_navigate",
-				toolCallId,
-				params,
-				signal,
-				BROWSER_NAVIGATE_TIMEOUT_MS,
-			);
-		},
-	});
 
-	pi.registerTool({
-		name: "browser_evaluate",
-		label: "Browser Evaluate",
-		description: BROWSER_EVALUATE_DESCRIPTION,
-		parameters: BrowserEvaluateParamsSchema,
-		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"browser_evaluate",
-				toolCallId,
-				params,
-				signal,
-				BROWSER_OPERATION_TIMEOUT_MS,
-			);
-		},
-	});
-
-	pi.registerTool({
-		name: "browser_screenshot",
-		label: "Browser Screenshot",
-		description: BROWSER_SCREENSHOT_DESCRIPTION,
-		parameters: BrowserScreenshotParamsSchema,
-		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"browser_screenshot",
-				toolCallId,
-				params,
-				signal,
-				BROWSER_OPERATION_TIMEOUT_MS,
-			);
-		},
-	});
-
-	pi.registerTool({
-		name: "browser_snapshot",
-		label: "Browser Snapshot",
-		description: BROWSER_SNAPSHOT_DESCRIPTION,
-		parameters: BrowserSnapshotParamsSchema,
-		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"browser_snapshot",
-				toolCallId,
-				params,
-				signal,
-				BROWSER_OPERATION_TIMEOUT_MS,
-			);
-		},
-	});
-
-	pi.registerTool({
-		name: "browser_read",
-		label: "Browser Read",
-		description: BROWSER_READ_DESCRIPTION,
-		parameters: BrowserReadParamsSchema,
-		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"browser_read",
-				toolCallId,
-				params,
-				signal,
-				BROWSER_OPERATION_TIMEOUT_MS,
-			);
-		},
-	});
-
-	pi.registerTool({
-		name: "browser_wait",
-		label: "Browser Wait",
-		description: BROWSER_WAIT_DESCRIPTION,
-		parameters: BrowserWaitParamsSchema,
-		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"browser_wait",
-				toolCallId,
-				params,
-				signal,
-				BROWSER_OPERATION_TIMEOUT_MS,
-			);
-		},
-	});
-
-	pi.registerTool({
-		name: "browser_close",
-		label: "Browser Close",
-		description: BROWSER_CLOSE_DESCRIPTION,
-		parameters: BrowserCloseParamsSchema,
-		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"browser_close",
-				toolCallId,
-				params,
-				signal,
-				BROWSER_OPERATION_TIMEOUT_MS,
-			);
-		},
-	});
-
-	// preview_open：把网址/项目内 html 送到用户的内置 HTML 预览面板（与 browser_* 无头
-	// 自动化不同，本工具把页面呈现在用户眼前）。注册形式与 browser_close 一致。
+	// preview_open：把网址/项目内 html 送到用户的内置 HTML 预览面板（与无头
+	// 自动化不同，本工具把页面呈现在用户眼前）。
 	pi.registerTool({
 		name: "preview_open",
 		label: "Preview Open",

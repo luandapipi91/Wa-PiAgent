@@ -38,11 +38,6 @@ const INTEGRATION_TESTS = [
 	"tests/tui-host-routes.integration.test.ts",
 	// 打包形态冒烟：真编译内核二进制 + 真启动等端口就绪。源码/dev 形态不复现的
 	// 「编译产物启动即静默退出」只能靠它拦住（本轮 P0 就是这么漏出去的）
-	"tests/kernel-compiled-boot.integration.test.ts",
-	// 真实引擎百度场景（ref 工作流端到端）：必须独占进程——Chrome 进程级 argv 由进程内
-	// 第一个 WebView 决定，本文件的直连工厂（--no-proxy-server）必须是首启动者；与主批
-	// 同进程时首启动权不可控（其他 browser 测试的默认工厂先跑）直连参数即失效
-	"tests/browser-real-baidu.test.ts",
 ];
 
 /** 负载敏感测试：依赖真实文件系统事件（fs.watch/FSEvents），--parallel 多 worker

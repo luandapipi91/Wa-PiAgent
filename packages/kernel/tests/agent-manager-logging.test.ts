@@ -15,7 +15,6 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { pendingFile } from "../src/pending-messages";
 import { rmSync } from "node:fs";
@@ -80,7 +79,6 @@ async function setup(): Promise<{
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 	});
 	managers.push(am);
 	await am.ensureStarted(project.id, "dev", session.id);

@@ -30,6 +30,14 @@ interface Props {
   /** 发起登录；timeoutSec 缺省 = 交给 kernel 用自己的缺省值 */
   onLogin: (timeoutSec?: number) => void;
   onLogout: () => void;
+  /** 内置 agent-browser：隐藏编辑/删除，只留启停 switch 与浏览器安装入口 */
+  builtin?: boolean;
+  onToggleEnabled?: (enabled: boolean) => void;
+  /** 浏览器就绪三态（doctor 结果） */
+  browserStatus?: { state: "ready" | "missing" | "unknown"; message?: string };
+  installing?: boolean;
+  installLog?: string[];
+  onInstall?: () => void;
 }
 
 interface Badge {
@@ -123,6 +131,12 @@ export function McpCard({
   onDelete,
   onLogin,
   onLogout,
+  builtin,
+  onToggleEnabled,
+  browserStatus,
+  installing,
+  installLog,
+  onInstall,
 }: Props) {
   const { t } = useTranslation();
   const [timeoutSec, setTimeoutSec] = useState(DEFAULT_TIMEOUT_SEC);
@@ -181,6 +195,15 @@ export function McpCard({
         >
           {st.icon} {label}
         </span>
+        {builtin && (
+          <span
+            className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
+            style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+            data-testid={`mcp-builtin-${config.name}`}
+          >
+            {t("mcpCard.builtin")}
+          </span>
+        )}
         {config.exposure && (
           <span
             className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
@@ -287,6 +310,47 @@ export function McpCard({
         </details>
       )}
 
+      {/* 内置条目：浏览器缺失提示与安装入口（只在 missing 时给按钮） */}
+      {builtin && browserStatus?.state === "missing" && (
+        <div
+          className="mb-2 px-2 py-1 rounded text-[calc(11px*var(--font-scale))]"
+          style={{ color: "var(--warning)", background: "var(--warning-soft)" }}
+          data-testid={`mcp-browser-missing-${config.name}`}
+        >
+          <p className="m-0">{t("mcpCard.browserMissing")}</p>
+          <div className="mt-1">
+            <CardBtn
+              onClick={() => onInstall?.()}
+              testId={`mcp-install-browser-${config.name}`}
+              label={
+                installing ? t("mcpCard.installing") : t("mcpCard.installBrowser")
+              }
+              accent
+              disabled={installing}
+            />
+          </div>
+          {installLog && installLog.length > 0 && (
+            <p
+              className="m-0 mt-1 opacity-80 break-all"
+              data-testid={`mcp-install-log-${config.name}`}
+            >
+              {installLog[installLog.length - 1]}
+            </p>
+          )}
+        </div>
+      )}
+      {builtin &&
+        browserStatus?.state === "unknown" &&
+        browserStatus.message && (
+          <p
+            className="text-[calc(11px*var(--font-scale))] mb-2 px-2 py-1 rounded"
+            style={{ color: "var(--text-tertiary)", background: "var(--hairline)" }}
+            data-testid={`mcp-browser-unknown-${config.name}`}
+          >
+            {browserStatus.message}
+          </p>
+        )}
+
       {/* 操作按钮 */}
       <div className="flex gap-1.5 flex-wrap items-center">
         {canLogin && (
@@ -337,19 +401,44 @@ export function McpCard({
           label={t("mcpCard.viewToolsButton")}
           disabled={testing}
         />
-        <CardBtn
-          onClick={onEdit}
-          testId={`mcp-edit-${config.name}`}
-          label={t("mcpCard.editButton")}
-          disabled={testing}
-        />
-        <CardBtn
-          onClick={onDelete}
-          testId={`mcp-delete-${config.name}`}
-          label={t("mcpCard.deleteButton")}
-          danger
-          disabled={testing}
-        />
+        {builtin && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.enabled !== false}
+            data-testid={`mcp-switch-${config.name}`}
+            onClick={() => onToggleEnabled?.(config.enabled === false)}
+            className="text-[calc(11px*var(--font-scale))] px-2.5 py-1 rounded-md"
+            style={{
+              color: config.enabled === false ? "var(--text-tertiary)" : "var(--accent)",
+              border: `1px solid ${
+                config.enabled === false ? "var(--hairline)" : "var(--accent)"
+              }`,
+              background: "transparent",
+            }}
+          >
+            {config.enabled === false
+              ? t("mcpCard.enable")
+              : t("mcpCard.disable")}
+          </button>
+        )}
+        {!builtin && (
+          <CardBtn
+            onClick={onEdit}
+            testId={`mcp-edit-${config.name}`}
+            label={t("mcpCard.editButton")}
+            disabled={testing}
+          />
+        )}
+        {!builtin && (
+          <CardBtn
+            onClick={onDelete}
+            testId={`mcp-delete-${config.name}`}
+            label={t("mcpCard.deleteButton")}
+            danger
+            disabled={testing}
+          />
+        )}
       </div>
     </div>
   );

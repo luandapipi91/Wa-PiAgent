@@ -930,6 +930,8 @@ export class WSServer {
 	}
 
 	async start(): Promise<void> {
+		// 内置 agent-browser 条目：启动时物化（缺了补、被改则纠正；enabled 保留）
+		await this.mcpHandlers.ensureBuiltin();
 		this.server = Bun.serve({
 			// 单用户桌面应用：REST 全量无鉴权，只监听回环。不指定 hostname 时 Bun
 			// 绑 0.0.0.0，同网段任意设备可直接读写文件/会话内容。
