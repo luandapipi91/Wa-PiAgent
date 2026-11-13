@@ -49,14 +49,15 @@ test.describe.serial("内置 agent-browser MCP", () => {
       { timeout: 30_000 },
     );
     await sw.dispatchEvent("click");
-    await expect(sw).toHaveAttribute("data-on", "false");
+    // 开关体响应是乐观更新，毫秒级翻转（旧实现要等探测广播数秒）
+    await expect(sw).toHaveAttribute("data-on", "false", { timeout: 1500 });
     await expect(page.getByTestId("mcp-state-agent-browser")).toHaveAttribute(
       "data-state",
       "disabled",
       { timeout: 30_000 },
     );
     await sw.dispatchEvent("click");
-    await expect(sw).toHaveAttribute("data-on", "true");
+    await expect(sw).toHaveAttribute("data-on", "true", { timeout: 1500 });
     await expect(page.getByTestId("mcp-state-agent-browser")).not.toHaveAttribute(
       "data-state",
       "disabled",
@@ -105,9 +106,9 @@ test.describe.serial("内置 agent-browser MCP", () => {
     ).toBe(true);
     // 点击写入 enabled=true（REST 落盘），再点击复原为停用
     await sw.dispatchEvent("click");
-    await expect(sw).toHaveAttribute("data-on", "true", { timeout: 30_000 });
+    await expect(sw).toHaveAttribute("data-on", "true", { timeout: 1500 });
     await sw.dispatchEvent("click");
-    await expect(sw).toHaveAttribute("data-on", "false", { timeout: 30_000 });
+    await expect(sw).toHaveAttribute("data-on", "false", { timeout: 1500 });
   });
 
   test("存量受限智能体经启动迁移默认打开 agent-browser 分组", async ({ page }) => {

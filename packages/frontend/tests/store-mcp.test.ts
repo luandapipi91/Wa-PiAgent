@@ -746,3 +746,43 @@ test("对照：别的作用域的事件（被作用域守卫拒绝）不得作�
     "global-server",
   ]);
 });
+
+// ===== setServerEnabled 乐观更新（开关立即翻转，不等探测广播）=====
+
+test("setServerEnabled 乐观更新：REST 未回包开关就已翻转", async () => {
+  useMcpStore.setState({
+    servers: [{ name: "x", type: "stdio", command: "echo" }] as any,
+  });
+  // REST 挂起不回包（真实场景：写盘毫秒级，但其后的探测广播要秒级才回推清单）
+  let resolvePost!: () => void;
+  postImpl = () =>
+    new Promise<void>((r) => {
+      resolvePost = r;
+    });
+  const p = useMcpStore.getState().setServerEnabled("x", false);
+  expect(useMcpStore.getState().servers[0]!.enabled).toBe(false);
+  resolvePost();
+  await p;
+  expect(useMcpStore.getState().servers[0]!.enabled).toBe(false);
+});
+
+test("setServerEnabled 启用时清掉 enabled 键（与盘上「无键=启用」语义一致）", async () => {
+  useMcpStore.setState({
+    servers: [
+      { name: "x", type: "stdio", command: "echo", enabled: false },
+    ] as any,
+  });
+  await useMcpStore.getState().setServerEnabled("x", true);
+  expect(useMcpStore.getState().servers[0]!.enabled).toBeUndefined();
+});
+
+test("setServerEnabled 失败回滚乐观态并提示", async () => {
+  useMcpStore.setState({
+    servers: [{ name: "x", type: "stdio", command: "echo" }] as any,
+  });
+  postImpl = () => Promise.reject(new Error("boom"));
+  await useMcpStore.getState().setServerEnabled("x", false);
+  // 回滚到启用态（盘上 enabled 没变，界面与盘一致）
+  expect(useMcpStore.getState().servers[0]!.enabled).toBeUndefined();
+  expect(useToastStore.getState().toasts.length).toBeGreaterThan(0);
+});

@@ -368,13 +368,28 @@ export const useMcpStore = create<McpState>((set, get) => ({
     }
   },
   setServerEnabled: async (serverName, enabled, projectId) => {
+    // 乐观更新：开关立即翻转。REST 写盘本身毫秒级，但其后的 mcp:changed 广播要等
+    // 全部服务器探测完（agent-browser daemon 拉起等，秒级）才回推权威清单——
+    // 不乐观翻转让用户干等几秒，开关体感就是「点了没反应」。
+    const patch = (on: boolean) =>
+      set((s) => ({
+        servers: s.servers.map((srv) => {
+          if (srv.name !== serverName) return srv;
+          const next = { ...srv };
+          if (on) delete next.enabled; // 无键 = 启用（与盘上语义一致）
+          else next.enabled = false;
+          return next;
+        }),
+      }));
+    patch(enabled);
     try {
       await api.post(`/api/mcp/${encodeURIComponent(serverName)}/enabled`, {
         enabled,
         projectId,
       });
     } catch (e) {
-      // 停用/启用失败不能静默：盘上 enabled 没变，界面刷新后会回到原状态
+      // 失败回滚乐观态：盘上 enabled 没变，界面回滚后与盘一致，再提示
+      patch(!enabled);
       useToastStore.getState().add(formatApiError(e), "error");
     }
   },
