@@ -42,6 +42,9 @@ export function browserSessionName(sessionId: string): string {
  * 找不到返回 null（内置条目会以占位 command 物化，状态接口报未安装）。
  */
 export function resolveAgentBrowserBinary(opts: ResolveBinaryOpts = {}): string | null {
+  // E2E / 开发接缝：直接指定命令，跳过平台包解析
+  const override = process.env.WA_PI_BUILTIN_MCP_COMMAND;
+  if (override) return override;
   const platform = opts.platform ?? process.platform;
   const arch = opts.arch ?? process.arch;
   const packages = PLATFORM_PACKAGES[`${platform}-${arch}`];

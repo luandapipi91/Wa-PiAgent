@@ -327,7 +327,10 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
     // stdio 兜底 cwd：探测作用域目录（与 pi spawn MCP 子进程同源），不继承 kernel 进程 cwd
     const cwd = await deps.cwdForProject(projectId);
     const signedInKeys = await readMcpAuthKeys(agentDir);
-    const results: McpServerEntry[] = configs.map((c) => ({ ...c }));
+    const results: McpServerEntry[] = configs.map((c) => ({
+      ...c,
+      ...(c.name === BUILTIN_MCP_NAME ? { builtin: true } : {}),
+    }));
     let cursor = 0;
     const applyOne = (i: number, probe: { state: string; tools: string[]; error?: string }) => {
       const entry = entryWithSignedIn(results[i]!, probe.state, signedInKeys);
@@ -400,6 +403,7 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
 
   const handlers: McpHandlers = {
     ensureBuiltin: async () => {
+      if (process.env.WA_PI_SKIP_BUILTIN_MCP_ENSURE === "1") return;
       await deps.mcpFile.ensureBuiltin(
         builtinAgentBrowserEntry(resolveAgentBrowserBinary() ?? "agent-browser"),
       );

@@ -318,7 +318,14 @@ export class McpAdmin {
       [this.opts.runtime, this.opts.cliPath, "mcp", "list", "--json"],
       {
         cwd: this.opts.cwd,
-        env: { ...process.env, PI_CODING_AGENT_DIR: this.opts.agentDir },
+        env: {
+          ...process.env,
+          PI_CODING_AGENT_DIR: this.opts.agentDir,
+          // 内置 agent-browser 条目的 env 模板（${WA_PI_BROWSER_SESSION}）由 pi 解析；
+          // 非会话上下文（列表/登录探测）给一个固定值，避免模板解析失败拖垮整份清单
+          WA_PI_BROWSER_SESSION:
+            process.env.WA_PI_BROWSER_SESSION ?? "wa-pi-probe",
+        },
         stdout: "pipe",
         // stdout 按 UTF-8 解码（规格 §7）。stderr 直接丢弃：失败原因走 stdout 的 errors[]/error
         // （真 pi 实测，见 tests/mcp-admin-spawn.test.ts）；若留着 "pipe" 不读，任一台 server

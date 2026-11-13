@@ -47,6 +47,9 @@ export async function checkBrowserReadiness(
   binary: string,
   opts: RuntimeOpts = {},
 ): Promise<BrowserStatus> {
+  // E2E 接缝：直接注入 doctor JSON（不依赖真实 Chrome）
+  const injected = process.env.WA_PI_AGENT_BROWSER_DOCTOR_JSON;
+  if (injected) return parseDoctorOutput(injected);
   const spawn = opts.spawn ?? nodeSpawn;
   return await new Promise<BrowserStatus>((resolve) => {
     let settled = false;

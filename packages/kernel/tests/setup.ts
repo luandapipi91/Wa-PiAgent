@@ -30,6 +30,9 @@ const TEST_WA_PI_DIR =
 	process.env.WA_PI_TEST_DIR ||
 	mkdtempSync(join(tmpdir(), "wa-pi-kernel-test-"));
 process.env.WA_PI_DIR = TEST_WA_PI_DIR;
+// 内置 agent-browser 条目的 ensure 会往 mcp.json 写一条服务器，污染既有 MCP 路由测试
+// 对「清单恰好 N 台」的断言；测试进程统一关闭自动物化（内置条目本身的测试直接调 ensure）。
+process.env.WA_PI_SKIP_BUILTIN_MCP_ENSURE = "1";
 // pi 生态（agent-manager 等 spawn 的 pi 子进程）也读 PI_CODING_AGENT_DIR，一并隔离
 process.env.PI_CODING_AGENT_DIR = TEST_WA_PI_DIR;
 // 预创建标准数据目录（正式环境由 startKernel 创建；隔离目录是空的，测试直接写

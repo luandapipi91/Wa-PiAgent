@@ -331,7 +331,14 @@ export class McpLoginRunner {
       return Bun.spawn([this.opts.runtime, this.opts.cliPath, ...args], {
         cwd: this.opts.cwd,
         // PI_CODING_AGENT_DIR：让子进程用与 kernel 同一份配置与凭据（mcp.json / mcp-auth.json 都在那里）
-        env: { ...process.env, PI_CODING_AGENT_DIR: this.opts.agentDir },
+        env: {
+          ...process.env,
+          PI_CODING_AGENT_DIR: this.opts.agentDir,
+          // 内置 agent-browser 条目的 env 模板（${WA_PI_BROWSER_SESSION}）由 pi 解析；
+          // 非会话上下文（列表/登录探测）给一个固定值，避免模板解析失败拖垮整份清单
+          WA_PI_BROWSER_SESSION:
+            process.env.WA_PI_BROWSER_SESSION ?? "wa-pi-probe",
+        },
         stdout: "pipe",
         stderr: "pipe",
       });
