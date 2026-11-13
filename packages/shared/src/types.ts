@@ -202,6 +202,8 @@ export interface KbInfo {
 		/** 本轮待嵌入块总量（embedding 阶段才可知；之前为 0）。前端据此算块级真实推进 */
 		chunksTotal?: number;
 	};
+	/** 上一轮 mirror 转换统计（knowledge_bases.mirror_meta 列）；旧库/从未转过为 null，前端不渲染副本行 */
+	mirrorMeta?: { converterVersion: number; converted: number; degraded: number; images: number } | null;
 }
 
 /** knowledge_search 的对外 mode（12 个取值，对齐 pi-knowledge；code/config/errors/docs/decision 为别名） */

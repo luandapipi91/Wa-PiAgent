@@ -81,7 +81,24 @@ interface KbRow {
   auto_watch: number;
   last_indexed_at: number | null;
   last_error: string | null;
+  mirror_meta: string | null;
   created_at: number;
+}
+
+/** mirror_meta 列 JSON 解析：旧库无值/脏数据（parse 失败或字段缺失）一律 null（前端不渲染副本行） */
+function parseMirrorMeta(raw: string | null): KbInfo["mirrorMeta"] {
+  if (!raw) return null;
+  try {
+    const meta = JSON.parse(raw) as NonNullable<KbInfo["mirrorMeta"]>;
+    const ok =
+      typeof meta.converterVersion === "number" &&
+      typeof meta.converted === "number" &&
+      typeof meta.degraded === "number" &&
+      typeof meta.images === "number";
+    return ok ? meta : null;
+  } catch {
+    return null;
+  }
 }
 
 function rowToKb(row: KbRow, job: KbJob | null): KbInfo {
@@ -97,6 +114,7 @@ function rowToKb(row: KbRow, job: KbJob | null): KbInfo {
     autoWatch: row.auto_watch === 1,
     lastIndexedAt: row.last_indexed_at,
     lastError: row.last_error ?? null,
+    mirrorMeta: parseMirrorMeta(row.mirror_meta),
     progress: job
       ? {
           phase: job.phase,
