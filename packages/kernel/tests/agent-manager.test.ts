@@ -1030,6 +1030,95 @@ test("abort 清空排队列表 + 中断当前运行", async () => {
 	expect(fake.aborts).toBe(1);
 });
 
+test("用户主动停止：pi 的真实 agent_end 被标 synthetic（前端不响完成音效、不蹦青蛙）", async () => {
+	// 真实管道时序：pi 的 abort RPC 响应（waitForIdle 返回）在被中止轮 agent_end 之后
+	// 才写入同一 stdout 管道，所以标记必须发生在 abort 结算前——事件先到、响应后到。
+	let releaseAbort!: () => void;
+	const gate = new Promise<void>((r) => (releaseAbort = r));
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	fake.abortGate = gate;
+
+	await am.prompt(session.id, "跑一个长任务", { model: MODEL });
+	const aborting = am.abort(session.id);
+	await waitFor(() => fake.aborts > 0); // abort RPC 已发出（userAborted 已置位）
+
+	// pi 在响应 abort 前广播被中止轮的真实 agent_end（willRetry:false）——必须标 synthetic，
+	// 否则前端按「任务完成」播提示音 + 蹦青蛙
+	fake.emit({ type: "agent_end", messages: [], willRetry: false });
+	const endedBeforeSettle = events.filter((e) => e.e.type === "agent_end");
+	releaseAbort();
+	await aborting;
+
+	expect(endedBeforeSettle).toHaveLength(1);
+	expect(endedBeforeSettle[0].e.synthetic).toBe(true);
+});
+
+test("停止竞态：被中止轮自己的 agent_start 不得清中止标记（agent_end 仍标 synthetic）", async () => {
+	// 用户在 pi 回合尚在启动时点停止：pi 仍会广播该轮 agent_start（见 pi _handleAgentEvent
+	// 对 _agentRunAbortRequested 的处理：agent_start 到达即再次 abort），随后广播 agent_end。
+	// 该 agent_start 属于被中止轮，不得清 userAborted——否则 agent_end 漏标 synthetic，
+	// 前端按「任务完成」播青蛙叫（用户报告：主动停止也青蛙叫）。
+	let releaseAbort!: () => void;
+	const gate = new Promise<void>((r) => (releaseAbort = r));
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	fake.abortGate = gate;
+
+	await am.prompt(session.id, "跑一个长任务", { model: MODEL });
+	const aborting = am.abort(session.id);
+	await waitFor(() => fake.aborts > 0);
+	fake.emit({ type: "agent_start" }); // 被中止轮自己的 agent_start（竞态窗口）
+	fake.emit({ type: "agent_end", messages: [], willRetry: false });
+	const endedBeforeSettle = events.filter((e) => e.e.type === "agent_end");
+	releaseAbort();
+	await aborting;
+
+	expect(endedBeforeSettle).toHaveLength(1);
+	expect(endedBeforeSettle[0].e.synthetic).toBe(true);
+});
+
+test("空闲时停止：标记在 abort 结算后清位，下一轮真实完成不误标 synthetic", async () => {
+	// pi 空闲时点停止不会有任何 pi agent_end（kernel 合成兑底走 opts.onEvent 直发、
+	// 不经 _onSessionEvent 消费标记），标记必须在 abort 结算时清掉——否则泄漏到下一轮
+	// 真实完成的 agent_end 被误标 synthetic，真完成被静音。
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+
+	await am.prompt(session.id, "跑一个任务", { model: MODEL });
+	await am.abort(session.id);
+	expect((am as any).sessions.get(session.id)?.userAborted).toBe(false);
+
+	events.length = 0; // 丢弃 abort 兑底合成的 agent_end，只看下一轮
+	fake.emit({ type: "agent_start" });
+	fake.emit({ type: "agent_end", messages: [], willRetry: false });
+	const ended = events.filter((e) => e.e.type === "agent_end");
+	expect(ended).toHaveLength(1);
+	expect(ended[0].e.synthetic).toBeUndefined();
+});
+
+test("正常完成（未 abort）：agent_end 不带 synthetic（照常播提示音 + 蹦青蛙）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].autoSettle = false;
+
+	await am.prompt(session.id, "跑一个任务", { model: MODEL });
+	fakes[0].emit({ type: "agent_end", messages: [], willRetry: false });
+	const ended = events.filter((e) => e.e.type === "agent_end");
+	expect(ended).toHaveLength(1);
+	expect(ended[0].e.synthetic).toBeUndefined();
+});
+
 test("abort 级联中止登记的子代理（subagentAborts 全部触发并清空）", async () => {
 	const { project, session, am } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);

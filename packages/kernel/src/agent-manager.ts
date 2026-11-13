@@ -274,6 +274,9 @@ interface SessionHandle {
 	turnUserAt: number | null;
 	/** 上一次 agent_end 结算时刻（ms）：用于判断下一次无 user 的 agent_start 是否在续跑窗口内 */
 	turnEndedAt: number | null;
+	/** 用户主动停止（abort）后置位：pi 随后广播的真实 agent_end 要标 synthetic——
+	 *  主动停止不是任务完成，前端不该播完成音效/蹦青蛙。下一轮 agent_start 或该 agent_end 消费后清位。 */
+	userAborted: boolean;
 	/** 历史消息快照（创建时经 get_messages 拉取 + message_end 增量追加） */
 	messages: any[];
 	/** 排队消息列表（agent_settled 时逐条 drain）；pendingId 关联 pending WAL 条目，投递成功后 ack */
@@ -728,6 +731,7 @@ export class AgentManager {
 	async switchAgent(sessionId: string, agentName: AgentName): Promise<void> {
 		const old = this.sessions.get(sessionId);
 		if (old?.busy) {
+			old.userAborted = true; // 切换智能体触发的 abort 同样不是任务完成
 			try {
 				await old.client.abort();
 			} catch (e) {
@@ -1636,6 +1640,7 @@ export class AgentManager {
 			thinkingSince: null,
 			turnUserAt: null,
 			turnEndedAt: null,
+			userAborted: false,
 			messages: [],
 			followUpList: [],
 			steerList: [],
@@ -1711,11 +1716,17 @@ export class AgentManager {
 		// _createSession 期间收到的 abort 请求：client 已注册，立即执行
 		if (this.pendingAborts.has(sessionId)) {
 			this.pendingAborts.delete(sessionId);
+			const pendingHandle = this.sessions.get(sessionId);
+			if (pendingHandle) pendingHandle.userAborted = true;
 			try {
 				await client.abort();
 			} catch {
 				/* abort 失败不阻塞创建 */
 			}
+			// 结算清位（同 abort()）：创建期停止时 pi 空闲、不会有 agent_end 消费标记，
+			// 不清则首条真实完成会被误标 synthetic 静音。
+			if (pendingHandle && this.sessions.get(sessionId) === pendingHandle)
+				pendingHandle.userAborted = false;
 		}
 
 		// 历史消息快照（ws-server 的 session:messages 依赖该同步读取）。
@@ -1794,6 +1805,11 @@ export class AgentManager {
 			case "agent_start":
 				handle.busy = true;
 				handle.thinkingSince = Date.now();
+				// 中止标记（userAborted）不在 agent_start 清位：用户在回合尚在启动时点停止，
+				// pi 仍会广播被中止轮自己的 agent_start 再立即中止（pi _handleAgentEvent 对
+				// _agentRunAbortRequested 的处理）——在这里清标记会把随后的 agent_end 漏标
+				// synthetic，前端误当真实完成播提示音/蹦青蛙。清位职责由 abort() 在 RPC 结算处
+				// 承担（覆盖空闲停止时 pi 无 agent_end 的场景，标记不泄漏到下一轮）。
 				// 续跑窗口：无新 user 的下一段（goal 自动续跑）在一次结算后紧接着开始 → 起点接上，
 				// 整轮耗时继续覆盖任务全程；间隔超过窗口才丢弃起点（不把中间空闲算进时长）。
 				if (
@@ -1823,6 +1839,12 @@ export class AgentManager {
 				handle.lastActiveAt = Date.now();
 				break;
 			case "agent_end": {
+				// 用户主动停止（abort）后 pi 仍会广播真实 agent_end（willRetry:false）：
+				// 标记成 synthetic，前端只复位思考态、不播完成音效/不蹦青蛙（主动停止不是任务完成）
+				if (handle.userAborted) {
+					handle.userAborted = false;
+					(event as any).synthetic = true;
+				}
 				// 整轮耗时：user 落盘（kernel 收到 user message_end）→ agent_end 到达
 				// （≈ 最后 assistant 落盘后）。与 session-history 历史注入（行级落盘时刻）同语义。
 				// 仅成功轮附加；失败回合/无 user 不附加。
@@ -2554,6 +2576,7 @@ export class AgentManager {
 		// 不中止的话主会话停了子代理仍跑到完成，成孤儿且结果无人消费。
 		for (const c of handle.subagentAborts) c.abort();
 		handle.subagentAborts.clear();
+		handle.userAborted = true;
 		console.log(`[agent-manager] abort session=${sessionId} busy=${handle.busy}`);
 		const abortRpc = handle.client.abort().catch((err) => {
 			console.error(`[agent-manager] abort 命令失败 session=${sessionId}:`, err);
@@ -2593,6 +2616,11 @@ export class AgentManager {
 		}
 		handle.busy = false;
 		handle.thinkingSince = null;
+		// 结算清位：abort 响应与事件同一 stdout 管道 FIFO，pi 的 waitForIdle 返回前
+		// 被中止轮的 agent_end 已广播并被 _onSessionEvent 消费标记，此刻清位不会漏标；
+		// 空闲时停止 pi 不广播任何 agent_end（合成兑底走 opts.onEvent 直发、不经
+		// _onSessionEvent），不清则标记泄漏到下一轮真实完成 → 误标 synthetic 静音。
+		handle.userAborted = false;
 		// abort RPC 成功返回时 pi 不一定广播 agent_settled（如 agent 已 idle 时
 		// session.abort() 的 waitForIdle 立即返回，_emitAgentSettled 不触发）。
 		// 前端退出思考态靠 agent_end/agent_settled 事件，此处合成 agent_end 兜底，

@@ -182,10 +182,14 @@ export class FakeSessionClient {
 
 	/** abort 挂起开关（模拟 pi agent loop 卡死：abort RPC 永不响应） */
 	hangAbort = false;
+	/** abort 门闸（模拟真实管道时序：pi 事件先于 abort RPC 响应到达 kernel。
+	 *  置为 pending promise 时 abort 挂起，resolve 后继续返回。 */
+	abortGate: Promise<void> | null = null;
 
 	async abort(): Promise<void> {
 		this.aborts++;
 		if (this.hangAbort) await new Promise(() => {});
+		if (this.abortGate) await this.abortGate;
 	}
 
 	async setModel(provider: string, modelId: string): Promise<any> {
