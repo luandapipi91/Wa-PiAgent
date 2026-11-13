@@ -102,6 +102,7 @@ import { projectSkillsDirOf } from "./skill-sources";
 import type { ExtensionManager } from "./extension-manager";
 import { DEFAULT_LIST_TIMEOUT_MS, McpAdmin } from "./mcp-admin";
 import { hasProjectMcpFile } from "./mcp-file";
+import { browserSessionName, closeBrowserSession, resolveAgentBrowserBinary } from "./agent-browser-session";
 import { mcpEntryToolsOf, MCP_HARD_FILTER_ENTRY, mcpServerPatternsOf, mcpToolNamesOf } from "./mcp-tool-names";
 import { applyCodemodeToolSelection } from "./codemode";
 import { loadCodemodeLevel } from "./settings-store";
@@ -432,8 +433,11 @@ export class AgentManager {
 	>();
 	// MCP 工具清单延时刷新定时器（F10）：实例级单例，避免多会话并发启动重复 spawn
 	private mcpToolRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+	// agent-browser 平台原生二进制（缺失为 null）：会话拆除时用于 close --session
+	private readonly agentBrowserBinary: string | null;
 
 	constructor(private opts: AgentManagerOpts) {
+		this.agentBrowserBinary = resolveAgentBrowserBinary();
 		// 默认实例用全局作用域（数据目录）的 cwd；带项目上下文的枚举走 _mcpAdminFor(会话 cwd)
 		this.mcpAdmin =
 			opts.mcpAdmin ??
@@ -1669,6 +1673,8 @@ export class AgentManager {
 				WA_PI_BRIDGE_URL: this.opts.bridgeBaseUrl?.() ?? "",
 				WA_PI_BRIDGE_TOKEN: getBridgeToken(),
 				WA_PI_SESSION_ID: sessionId,
+				// agent-browser 会话名：每个 wa-pi 会话一套独立 daemon/浏览器（pi 展开模板后传给 MCP 子进程）
+				WA_PI_BROWSER_SESSION: browserSessionName(sessionId),
 				// 定时任务归属当前会话项目：agent 调 CLI 建任务时自动用本项目（隔离）
 				WA_PI_SCHEDULER_PROJECT_ID: projectId,
 				// 定时任务会话：联系人列表注入 env，bridge 扩展读到才注册 im_push_to
@@ -2729,6 +2735,8 @@ export class AgentManager {
 
 	/** 拆除单个会话的内部资源（注销 bridge ctx + kill 进程 + 清临时文件与各 Map），不动 disposed 标记 */
 	private _teardownSession(sessionId: string): void {
+		// agent-browser 视图随会话销毁（防 daemon/Chrome 泄漏；失败不阻断拆除）
+		void closeBrowserSession(this.agentBrowserBinary, sessionId);
 		askRegistry.cancelAll(sessionId); // 拆除资源时作废 pending ask
 		// 挂起的扩展对话必须以 cancelled 解决：否则 rpc-client 的 handleUiRequest
 		// 永远不返回（进程已死无实际阻塞，但 registry 条目会泄漏）
