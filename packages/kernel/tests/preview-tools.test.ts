@@ -282,7 +282,6 @@ describe("createPreviewOpenTool：execute", () => {
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { fakeClientFactory } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 
 describe("handleTool 分发 preview_open", () => {
@@ -321,7 +320,6 @@ describe("handleTool 分发 preview_open", () => {
 			configStore: null as any,
 			onEvent: () => {},
 			createClientFn: fakeClientFactory([]) as any,
-			browserManager: NOOP_BROWSER_MANAGER,
 		});
 		managers.push(am);
 		return { project: project as { id: string }, session, am };
@@ -466,7 +464,6 @@ describe("preview_open 端到端（真实 HTTP → AgentManager → SSE）", () 
 				configStore: null as any,
 				onEvent: () => {},
 				createClientFn: fakeClientFactory([]) as any,
-				browserManager: NOOP_BROWSER_MANAGER,
 			});
 			// 与 index.ts 同款接线：broadcast 接到 server.broadcast
 			const previewOpenTool = createPreviewOpenTool({

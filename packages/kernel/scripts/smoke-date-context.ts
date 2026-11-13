@@ -20,7 +20,6 @@ import { ensureProviderExtensionRegistered } from "../src/provider-extension";
 import { ProviderStore } from "../src/provider-store";
 import { ProjectStore } from "../src/project-store";
 import { AgentManager } from "../src/agent-manager";
-import { NOOP_BROWSER_MANAGER } from "../tests/helpers/fake-browser-manager";
 import {
 	DATE_CONTEXT_CUSTOM_TYPE,
 	localDateStr,
@@ -115,7 +114,6 @@ async function main() {
 				}
 			}
 		},
-		browserManager: NOOP_BROWSER_MANAGER,
 	});
 
 	try {

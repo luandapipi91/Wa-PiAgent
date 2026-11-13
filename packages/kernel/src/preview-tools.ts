@@ -3,7 +3,7 @@
 // 职责拆分：
 // - resolvePreviewTarget：纯函数，校验 url / path 二选一与合法性，产出广播目标（可单测）；
 // - createPreviewOpenTool：工具工厂，读项目列表 → 校验 → 广播 preview:open 事件。
-// 与 browser_*（无头自动化，只回文本/截图）不同，本工具把页面呈现在用户眼前。
+// 与无头自动化（只回文本/截图）不同，本工具把页面呈现在用户眼前。
 
 import { isAbsolute, extname } from "node:path";
 import type { WSServerEvent } from "@wa-pi/shared";

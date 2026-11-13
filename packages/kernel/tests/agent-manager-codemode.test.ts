@@ -8,7 +8,6 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 import type { McpServerReport } from "../src/mcp-admin";
 import type { CodemodeLevel } from "@wa-pi/shared";
@@ -69,7 +68,6 @@ async function setup(
 		configStore: opts.configStore ?? null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 		mcpAdmin: makeFakeMcpAdmin(opts.servers ?? []),
 		...(opts.level
 			? { codemodeLevelLoader: async () => opts.level as CodemodeLevel }

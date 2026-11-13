@@ -16,7 +16,6 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { askRegistry } from "../src/ask-registry";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import type { RpcClient } from "../src/rpc-client";
@@ -83,7 +82,6 @@ async function setup(
 					return fake as unknown as RpcClient;
 				}
 			: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 	});
 	managers.push(am);
 	if (opts.startDelayMs) {

@@ -19,7 +19,6 @@ import {
   FakeSessionClient,
   fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { makeFakeMcpAdmin } from "./helpers/fake-mcp-admin";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
@@ -108,7 +107,6 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
     configStore,
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
-    browserManager: NOOP_BROWSER_MANAGER,
     // MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
     mcpAdmin: makeFakeMcpAdmin(),
   });
@@ -182,7 +180,6 @@ test("内置 subagent override model 无效时降级为 null（不传 --model）
     configStore,
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
-    browserManager: NOOP_BROWSER_MANAGER,
     // MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
     mcpAdmin: makeFakeMcpAdmin(),
   });
@@ -253,7 +250,6 @@ test("子智能体跟随主模型：无 override 时用主会话 currentModel", 
     configStore,
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
-    browserManager: NOOP_BROWSER_MANAGER,
     // MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
     mcpAdmin: makeFakeMcpAdmin(),
   });
@@ -322,7 +318,6 @@ test("只读内置子智能体（Explore/Plan）spawn 配置 tools 为只读白�
     configStore,
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
-    browserManager: NOOP_BROWSER_MANAGER,
     // MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
     mcpAdmin: makeFakeMcpAdmin(),
   });

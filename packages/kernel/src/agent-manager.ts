@@ -97,8 +97,6 @@ import type { WaPiSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { readBuiltinAgentPrompt } from "./subagent-info";
 import { askRegistry } from "./ask-registry";
-import { BrowserManager } from "./browser-manager";
-import { handleBrowserTool } from "./browser-tools";
 import type { SkillManager } from "./skill-manager";
 import { projectSkillsDirOf } from "./skill-sources";
 import type { ExtensionManager } from "./extension-manager";
@@ -224,8 +222,6 @@ export interface AgentManagerOpts {
 		sessionId: string,
 		params: { url?: string; path?: string },
 	) => Promise<BridgeToolResult>;
-	// 测试注入 fake；生产不传 → 默认 new BrowserManager()。browser_* 工具的分派目标
-	browserManager?: BrowserManager;
 	// 测试注入 mock；生产留空 → 真实 RpcClient
 	createClientFn?: CreateClientFn;
 	// abort RPC 无响应的兜底超时（ms）：超时强杀 pi 进程，保证「停止」一定生效。
@@ -420,8 +416,6 @@ export class AgentManager {
 	// 知识库登记库（knowledge.db）惰性连接：会话启动读绑定清单渲染 system prompt 段、
 	// 删库回调注册（悬挂绑定清理）。打开失败由调用方降级，不阻断会话创建。
 	private knowledgeStore: KnowledgeStore | null = null;
-	// 会话级浏览器视图池：browser_* 工具的执行后端（可注入 fake，生产默认实例化）
-	readonly browserManager: BrowserManager;
 	// MCP 状态读取者（规格 §7）：只 shell out `pi mcp list --json`，不自建连接。
 	// 按 cwd 缓存**有 `.pi/mcp.json` 的**项目实例（项目级 MCP 配置随 cwd 生效，F11/F12）；
 	// 其余 cwd 复用 mcpAdmin——它同时是「无 cwd 上下文」的默认实例（全局作用域，
@@ -440,8 +434,6 @@ export class AgentManager {
 	private mcpToolRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(private opts: AgentManagerOpts) {
-		// 测试可注入 fake manager；生产默认创建真实 BrowserManager（延迟到首次工具调用才真正启动 WebView）
-		this.browserManager = opts.browserManager ?? new BrowserManager();
 		// 默认实例用全局作用域（数据目录）的 cwd；带项目上下文的枚举走 _mcpAdminFor(会话 cwd)
 		this.mcpAdmin =
 			opts.mcpAdmin ??
@@ -1479,11 +1471,6 @@ export class AgentManager {
 						content: [{ type: "text", text: "记忆库不可用，记忆功能已降级" }],
 						details: { error: "memory_unavailable" },
 					};
-				}
-				// browser_*：宿主浏览器自动化工具（Bun.WebView）。分派到 browserManager，
-				// 执行逻辑在 browser-tools.ts（导航/操作/截图/关闭）。
-				if (tool.startsWith("browser_")) {
-					return await handleBrowserTool(am.browserManager, sessionId, tool, params);
 				}
 				return defaultCtx.handleTool(tool, toolCallId, params, signal);
 			},
@@ -2742,8 +2729,6 @@ export class AgentManager {
 
 	/** 拆除单个会话的内部资源（注销 bridge ctx + kill 进程 + 清临时文件与各 Map），不动 disposed 标记 */
 	private _teardownSession(sessionId: string): void {
-		// browser_* 视图随会话销毁（防浏览器进程泄漏）
-		this.browserManager.closeSession(sessionId);
 		askRegistry.cancelAll(sessionId); // 拆除资源时作废 pending ask
 		// 挂起的扩展对话必须以 cancelled 解决：否则 rpc-client 的 handleUiRequest
 		// 永远不返回（进程已死无实际阻塞，但 registry 条目会泄漏）
@@ -2994,8 +2979,6 @@ export class AgentManager {
 		for (const id of [...this.sessions.keys()]) {
 			await this.disposeSession(id);
 		}
-		// 全部会话销毁后停掉浏览器视图池（关掉 sweep 定时器与全部 WebView）
-		this.browserManager.dispose();
 	}
 
 	/**

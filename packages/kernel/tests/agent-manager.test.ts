@@ -20,7 +20,6 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import {
 	makeFakeMcpAdmin,
 	type FakeMcpAdmin,
@@ -172,7 +171,6 @@ async function setup(opts: SetupOpts = {}) {
 		onEvent: (sid, pid, name, e) =>
 			opts.events?.push({ sessionId: sid, projectId: pid, agentName: name, e }),
 		createClientFn: opts.createClientFn ?? fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 		...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
 		...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
 		...(opts.extensionManager ? { extensionManager: opts.extensionManager } : {}),
@@ -350,7 +348,6 @@ test("ensureStarted 创建失败时清理 starting 锁并允许重试", async ()
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(recoveryFakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 		mcpAdmin: makeFakeMcpAdmin(),
 	});
 	managers.push(recovery);
@@ -1842,22 +1839,10 @@ test("listGlobalTools 内置工具 source='内置'，非内置工具不应显示
 	}
 });
 
-test("listGlobalTools 含 4 个 browser_* 工具（source='内置'，供 ToolsTab 显示开关）", async () => {
+test("listGlobalTools 不再包含 browser_* 工具（浏览器能力改由内置 MCP 提供）", async () => {
 	const { am } = await setup();
-	const tools = await am.listGlobalTools();
-	const names = tools.map((t) => t.name);
-
-	const browserTools = [
-		"browser_navigate",
-		"browser_evaluate",
-		"browser_screenshot",
-		"browser_close",
-	];
-	expect(names).toEqual(expect.arrayContaining(browserTools));
-	// 4 个 browser_* 均来自 DEFAULT_AGENT_TOOLS → source 应为 "内置"
-	for (const n of browserTools) {
-		expect(tools.find((t) => t.name === n)?.source).toBe("内置");
-	}
+	const names = (await am.listGlobalTools()).map((t) => t.name);
+	expect(names.filter((n) => n.startsWith("browser_"))).toEqual([]);
 });
 
 // ─── MCP 工具放行（规格 F4/F7/F10）─────────────────────────────────────────
@@ -2903,7 +2888,6 @@ test("孤儿会话（piSessionFile 不存在）进程退出 → 用户创建的�
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
 		mcpAdmin: makeFakeMcpAdmin(),
 		onSessionRollback: (sid) => rollbacks.push(sid),
@@ -2944,7 +2928,6 @@ test("正常会话（piSessionFile 存在）进程崩溃退出 → 不删除 ses
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 		// MCP 枚举注入 fake：真实 McpAdmin 会 spawn `pi mcp list` 真连服务器
 		mcpAdmin: makeFakeMcpAdmin(),
 		onSessionRollback: (sid) => rollbacks.push(sid),

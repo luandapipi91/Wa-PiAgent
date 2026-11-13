@@ -12,7 +12,6 @@ import {
 	FakeSessionClient,
 	fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { SYSTEM_PROJECT_ID, WA_PI_DIR } from "@wa-pi/shared";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -118,7 +117,6 @@ test("ensureStarted 重建丢失的 stored cwd（错位存量会话自愈）", a
 		configStore: null,
 		onEvent: () => {},
 		createClientFn: fakeClientFactory(fakes),
-		browserManager: NOOP_BROWSER_MANAGER,
 	});
 	managers.push(am);
 

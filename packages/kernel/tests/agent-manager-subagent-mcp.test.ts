@@ -26,7 +26,6 @@ import {
   type FakeSessionClient,
   fakeClientFactory,
 } from "./fixtures/fake-session-client";
-import { NOOP_BROWSER_MANAGER } from "./helpers/fake-browser-manager";
 import { getBridgeSession } from "../src/bridge-registry";
 import { WA_PI_DIR, GENERATED_DIR } from "@wa-pi/shared";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -135,7 +134,6 @@ async function setupManager(
     configStore,
     onEvent: () => {},
     createClientFn: fakeClientFactory(fakes),
-    browserManager: NOOP_BROWSER_MANAGER,
     // 项目作用域用例：按 cwd 拿不同枚举结果；其余用例用固定 fake
     ...(overrides.mcpAdminFor ? { mcpAdminFor: overrides.mcpAdminFor } : { mcpAdmin }),
   });
