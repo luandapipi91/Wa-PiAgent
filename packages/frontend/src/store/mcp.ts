@@ -8,6 +8,7 @@ import type {
 } from "@wa-pi/shared";
 import type {
   McpChangedEvent,
+  McpInstallProgressEvent,
   McpListResult,
   McpLoginEvent,
   McpProbeEvent,
@@ -39,6 +40,15 @@ export interface McpServerEntry extends McpServerConfig {
    * 只对 HTTP server 下发（stdio 没有 OAuth）→ 缺省 = 「不知道」，卡片既不显示登录也不显示登出。
    */
   signedIn?: boolean;
+  /** 内置 agent-browser 条目：UI 隐藏删除/编辑，只留启停 switch */
+  builtin?: boolean;
+}
+
+/** 浏览器就绪三态（kernel doctor 检查结果） */
+export interface BrowserStatus {
+  state: "ready" | "missing" | "unknown";
+  message?: string;
+  chromePath?: string;
 }
 
 /** 单台服务器本次会话内的登录流程状态（作者内存，不持久化） */
@@ -110,6 +120,12 @@ interface McpState {
   errors: Record<string, string>;
   /** 各服务器登录流程的状态（本会话内；按 serverName 键控） */
   loginStates: Record<string, McpLoginState>;
+  /** 内置 agent-browser 的浏览器就绪状态（doctor 结果，页面打开时刷新） */
+  builtinBrowserStatus: BrowserStatus | null;
+  /** 浏览器下载进行中 */
+  installingBrowser: boolean;
+  /** 最近若干行安装输出（UI 展示进度） */
+  browserInstallLog: string[];
 
   load(projectId?: string): void;
   /**
@@ -136,6 +152,18 @@ interface McpState {
     originalName?: string,
   ): Promise<McpSaveResult>;
   deleteServer(serverName: string, projectId?: string): Promise<void>;
+  /** 内置条目启停（只改 enabled） */
+  setServerEnabled(
+    serverName: string,
+    enabled: boolean,
+    projectId?: string,
+  ): Promise<void>;
+  /** 刷新内置条目的浏览器就绪状态 */
+  loadBuiltinStatus(): Promise<void>;
+  /** 触发浏览器下载（POST 只表示受理，进度经 SSE mcp:installProgress） */
+  installBuiltinBrowser(): void;
+  /** 处理 mcp:installProgress 事件 */
+  setInstallProgress(data: McpInstallProgressEvent): void;
   testConnection(serverName: string, projectId?: string): void;
   listTools(serverName: string, projectId?: string): void;
   /**
@@ -188,6 +216,9 @@ export const useMcpStore = create<McpState>((set, get) => ({
   testingServers: {},
   errors: {},
   loginStates: {},
+  builtinBrowserStatus: null,
+  installingBrowser: false,
+  browserInstallLog: [],
 
   load: (projectId) => {
     // 未显式传作用域时沿用当前选中（与既有语义一致）；请求 URL 与过滤用的 scope 必须是同一个值
@@ -336,6 +367,51 @@ export const useMcpStore = create<McpState>((set, get) => ({
       useToastStore.getState().add(formatApiError(e), "error");
     }
   },
+  setServerEnabled: async (serverName, enabled, projectId) => {
+    try {
+      await api.post(`/api/mcp/${encodeURIComponent(serverName)}/enabled`, {
+        enabled,
+        projectId,
+      });
+    } catch (e) {
+      // 停用/启用失败不能静默：盘上 enabled 没变，界面刷新后会回到原状态
+      useToastStore.getState().add(formatApiError(e), "error");
+    }
+  },
+  loadBuiltinStatus: async () => {
+    try {
+      const res = (await api.get("/api/mcp/agent-browser/status")) as BrowserStatus;
+      set({ builtinBrowserStatus: res });
+    } catch {
+      set({ builtinBrowserStatus: { state: "unknown" } });
+    }
+  },
+  installBuiltinBrowser: () => {
+    set({ installingBrowser: true, browserInstallLog: [] });
+    void api.post("/api/mcp/agent-browser/install", {}).catch((e) => {
+      set({ installingBrowser: false });
+      useToastStore.getState().add(formatApiError(e), "error");
+    });
+  },
+  setInstallProgress: (data) => {
+    if (data.phase === "start") {
+      set({ installingBrowser: true, browserInstallLog: [] });
+      return;
+    }
+    if (data.phase === "line") {
+      set((s) => ({
+        browserInstallLog: [...s.browserInstallLog.slice(-19), data.message ?? ""],
+      }));
+      return;
+    }
+    // done / error：复位并回读状态（done 后 doctor 应报 ready）
+    set({ installingBrowser: false });
+    void api
+      .get("/api/mcp/agent-browser/status")
+      .then((res) => set({ builtinBrowserStatus: res as BrowserStatus }))
+      .catch(() => {});
+  },
+
   testConnection: (serverName, projectId) => {
     set((s) => {
       const nextErrors = { ...s.errors };

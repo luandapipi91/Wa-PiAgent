@@ -654,6 +654,13 @@ const zh = {
 		loginUrlHint: "若浏览器未自动打开，可复制下面的链接手动访问：",
 		loginCopyLink: "复制链接",
 		loginFailed: "登录失败",
+		builtin: "内置",
+		enable: "启用",
+		disable: "停用",
+		browserMissing:
+			"未检测到可用浏览器（Chrome / Chromium / Edge / Brave），安装后才能使用浏览器工具。",
+		installBrowser: "安装浏览器",
+		installing: "安装中…",
 	},
 	mcpTools: {
 		title: "🔧 {{name}} 工具列表",
@@ -1382,6 +1389,8 @@ const zh = {
 		"agent.invalidDisplayName": "名称不能为空或含非法字符（{{name}}）",
 		"agent.presetNotFound": "预设不存在（{{id}}）",
 		"mcp.serverNotFound": "MCP 服务器 {{name}} 不存在",
+		"mcp.builtinProtected": "内置 MCP 服务器不可删除或编辑，只能停用",
+		"mcp.agentBrowserMissing": "agent-browser 未安装，无法下载浏览器",
 		"mcp.originalServerNotFound": "原服务器 {{name}} 不存在，无法重命名",
 		"mcp.configParseFailed": "MCP 配置文件解析失败",
 		"mcp.systemProject": "默认工作区不支持项目级 MCP 作用域开关",

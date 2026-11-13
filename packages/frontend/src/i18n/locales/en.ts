@@ -1443,6 +1443,10 @@ const en = {
 			"Name cannot be empty or contain invalid characters ({{name}})",
 		"agent.presetNotFound": "Preset not found ({{id}})",
 		"mcp.serverNotFound": "MCP server {{name}} does not exist",
+		"mcp.builtinProtected":
+			"Built-in MCP servers cannot be deleted or edited; disable it instead",
+		"mcp.agentBrowserMissing":
+			"agent-browser is not installed; cannot download a browser",
 		"mcp.originalServerNotFound":
 			"Original server {{name}} does not exist; cannot rename",
 		"mcp.configParseFailed": "Failed to parse the MCP config file",
