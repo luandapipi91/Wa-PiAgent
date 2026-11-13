@@ -240,6 +240,27 @@ function packFloat32(values: number[]): Uint8Array {
   return new Uint8Array(new Float32Array(values).buffer);
 }
 
+/**
+ * 推理出口契约：pipeline 输出 → 与输入一一对应的向量数组。
+ * 长度不符/结构异常时返回空数组并记录诊断日志（含输入/输出计数与精度）——
+ * 这是索引「嵌入数量不匹配」的最后一道观测点：静默返回空而不留痕，排查者会面对无日志可循的死巷。
+ */
+export function coerceEmbeddings(
+  out: unknown,
+  expectCount: number,
+  detail: { model: string; dtype: string }
+): Uint8Array[] {
+  const list = (out as { tolist?: () => unknown[][] } | null)?.tolist?.() as unknown[][] | undefined;
+  if (!Array.isArray(list) || list.length !== expectCount) {
+    console.error(
+      `[memory-semantic] 推理返回异常：输入 ${expectCount} 条，输出 ${Array.isArray(list) ? list.length : String(list)}（类型 ${typeof list}），` +
+        `model=${detail.model} dtype=${detail.dtype} —— 按空结果处理（索引将以嵌入数量不匹配失败）`
+    );
+    return [];
+  }
+  return list.map((vec) => packFloat32(vec as number[]));
+}
+
 /** 批量编码文档（不带指令前缀）。模型不可用时返回空数组。 */
 export async function embedDocuments(texts: string[]): Promise<Uint8Array[]> {
   if (texts.length === 0) return [];
@@ -249,7 +270,7 @@ export async function embedDocuments(texts: string[]): Promise<Uint8Array[]> {
     if (!p) return [];
     const out = await p(texts, { pooling: "cls", normalize: true });
     lastUsedAt = Date.now();
-    return (out.tolist() as number[][]).map(packFloat32);
+    return coerceEmbeddings(out, texts.length, { model: EMBED_MODEL, dtype: EMBED_DTYPE });
   } finally {
     inflight--;
   }

@@ -1,11 +1,13 @@
 import { test, expect } from "bun:test";
 import {
   EMBED_DIM,
+  EMBED_DTYPE,
   EMBED_MODEL,
   EMBEDDER_IDLE_UNLOAD_MS,
   acquireEmbedderKeepAlive,
   embedderKeepAliveCountForTest,
   embedderLoadAttemptsForTest,
+  coerceEmbeddings,
   embedDocuments,
   embedQuery,
   embedFingerprint,
@@ -127,6 +129,27 @@ test("失败后的限频窗口内不重试（防高频轮询打爆加载器）",
   expect(await embedDocuments(["x"])).toHaveLength(0); // 首次失败
   expect(await embedDocuments(["x"])).toHaveLength(0); // 窗口内静默快速失败，不重新加载
   expect(embedderLoadAttemptsForTest()).toBe(0);
+});
+
+// —— 推理出口契约（coerceEmbeddings）：桌面进程曾出现「加载成功但推理返回空列表」的进程内状态问题，
+// 出口必须校验长度并留下诊断日志（含模型/精度），静默空返回让排查者无迹可循 —— 离线可跑，不挂门 ——
+test("coerceEmbeddings：输出与输入一一对应时逐条转 Float32 向量", () => {
+  const fake = { tolist: () => [[0.1, 0.2], [0.3, 0.4]] };
+  const out = coerceEmbeddings(fake, 2, { model: EMBED_MODEL, dtype: EMBED_DTYPE });
+  expect(out).toHaveLength(2);
+  expect(out[0].byteLength).toBe(8); // 2 个 float32
+});
+
+test("coerceEmbeddings：输出条数不匹配 → 返回空数组（下游以嵌入数量不匹配失败）", () => {
+  const fake = { tolist: () => [[0.1, 0.2]] };
+  const out = coerceEmbeddings(fake, 64, { model: EMBED_MODEL, dtype: EMBED_DTYPE });
+  expect(out).toHaveLength(0);
+});
+
+test("coerceEmbeddings：输出为空列表/非数组/无 tolist → 返回空数组不抛错", () => {
+  expect(coerceEmbeddings({ tolist: () => [] }, 64, { model: EMBED_MODEL, dtype: EMBED_DTYPE })).toHaveLength(0);
+  expect(coerceEmbeddings({ }, 64, { model: EMBED_MODEL, dtype: EMBED_DTYPE })).toHaveLength(0);
+  expect(coerceEmbeddings(null, 64, { model: EMBED_MODEL, dtype: EMBED_DTYPE })).toHaveLength(0);
 });
 
 // ---------------------------------------------------------------------------
