@@ -183,14 +183,6 @@ export const DEFAULT_AGENT_TOOLS = [
 	"ask_user_question",
 	// delegate：宿主关系网调起工具（customTools 注入）
 	"delegate",
-	// browser_*：Bun.WebView 浏览器自动化工具族
-	"browser_navigate",
-	"browser_evaluate",
-	"browser_screenshot",
-	"browser_snapshot",
-	"browser_read",
-	"browser_wait",
-	"browser_close",
 	// preview_open：把网址/项目内 html 送到用户的内置预览面板（自定义工具，须显式放行）
 	"preview_open",
 ];
@@ -222,13 +214,6 @@ export const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
 	memory_search: "按语义搜索长期记忆",
 	ask_user_question: "向用户提问并等待回答",
 	delegate: "委派子智能体执行任务",
-	browser_navigate: "在浏览器视图中打开网址",
-	browser_evaluate: "在页面执行 JS 或点击 / 输入 / 按键 / 滚动",
-	browser_screenshot: "页面截图（可为可交互元素加编号标注）",
-	browser_snapshot: "获取页面结构快照（带元素 ref，供定位操作）",
-	browser_read: "读取页面文本内容",
-	browser_wait: "等待页面文本 / 路由 / 元素条件满足",
-	browser_close: "关闭浏览器视图，释放浏览器资源",
 	preview_open: "把网址或本地 html 送到用户的内置预览面板",
 	// 以下不在 DEFAULT_AGENT_TOOLS 里（按场景显式放行），一并给简介便于清单展示
 	knowledge_search: "在智能体绑定的知识库中检索文档片段",
