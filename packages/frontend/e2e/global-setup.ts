@@ -63,6 +63,52 @@ async function globalSetup() {
 	mkdirSync(join(E2E_WA_PI_DIR, "agents"), { recursive: true });
 	writeFileSync(join(E2E_WA_PI_DIR, "agents", "dev.md"), DEV_AGENT_MD, "utf8");
 
+	// 预置「存量受限智能体」：显式白名单且没配 agent-browser（升级前的存量形态）。
+	// kernel 启动迁移（configStore.migrateAgentBrowserTools）会给它回填 mcp__agent_browser__*
+	// （默认打开），供智能体 MCP tab 的组开关「显示开启」断言——验证回填迁移 + UI 通配展开完整链路。
+	writeFileSync(
+		join(E2E_WA_PI_DIR, "agents", "存量受限.md"),
+		[
+			"---",
+			"displayName: 存量受限",
+			'avatar: "📦"',
+			'avatarColor: "#a6e3a1"',
+			"description: 升级前的存量受限智能体",
+			"model: anthropic/claude-sonnet-4",
+			"thinking: high",
+			"tools: [read]",
+			"skills: []",
+			"mcpServers: []",
+			"partners:",
+			"  askTo: []",
+			"---",
+			"你是存量受限智能体。",
+		].join("\n"),
+		"utf8",
+	);
+
+	// 预置第二台普通 MCP 服务器（disabled，不会被探测连通）：ensureBuiltin 把内置条目追加
+	// 写在它后面，文件序 = [dummy, builtin]——「内置条目置顶」的顺序断言依赖这个逆序前提；
+	// 没有它清单里只有内置一台，排序无从验证。
+	writeFileSync(
+		join(E2E_WA_PI_DIR, "mcp.json"),
+		JSON.stringify(
+			{
+				mcpServers: {
+					"e2e-dummy": {
+						type: "stdio",
+						command: "/nonexistent/e2e-dummy",
+						args: [],
+						enabled: false,
+					},
+				},
+			},
+			null,
+			2,
+		),
+		"utf8",
+	);
+
 	// 预置一个内置技能（dataDir/skills，kernel 启动扫描）：供自动化任务指令输入框的
 	// $ 技能弹窗（公共组件 SkillSuggestTextarea，仅技能非空时渲染）在真实浏览器验证
 	mkdirSync(join(E2E_WA_PI_DIR, "skills", "e2e-skill"), { recursive: true });
