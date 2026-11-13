@@ -19,6 +19,9 @@ describe("mhtml 解析", () => {
     const zip = unzipSync(readFileSync(join(FIX, "docx-altchunk.docx")));
     const parts = parseMhtParts(zip["word/afchunk.mht"]);
     expect(parts.filter(p => p.contentType.startsWith("text/html")).length).toBe(1);
+    // 锁住 mojibake 回归：html part 为 quoted-printable 的 utf-8 字节，解码后必须含中文原文
+    const htmlPart = parts.find(p => p.contentType.startsWith("text/html"))!;
+    expect(new TextDecoder().decode(qpDecodeBytes(htmlPart.body))).toContain("顾客列表");
     const imgs = parts.filter(p => p.contentType.startsWith("image/"));
     expect(imgs.length).toBeGreaterThanOrEqual(1);
     for (const img of imgs) {
