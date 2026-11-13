@@ -16,6 +16,10 @@ import { useKnowledgeStore } from "../store/knowledge";
 import { useToastStore } from "../store/toast";
 import { formatApiError } from "../util/kernel-error";
 import { api } from "../api-client";
+import {
+	expandChecked,
+	toggleNames,
+} from "../agent-mcp-group-tools";
 import { KbBindingSection } from "./knowledge/KbBindingSection";
 import { onMessage } from "../events";
 import type { SubagentOverride } from "@wa-pi/shared";
@@ -663,30 +667,8 @@ function BasicTab({ draft, onChange, isBuiltin }: TabProps) {
 const isMcpEntryTool = (name: string) =>
 	name === "codemode" || name === "tool_search";
 
-/** draft.tools 空数组 = 全量默认（kernel 语义）：展示态展开为全部可选项；否则原样作为显式白名单 */
-function expandChecked(tools: string[], all: string[]): string[] {
-	return tools.length === 0 ? all : tools;
-}
-
-/**
- * 批量切换勾选：names 全部已勾选 → 整组取消；否则 → 整组勾上。
- * 一律以 all（普通 + MCP 全集）为基准换算，避免只按当前 tab 换算而误删其它工具。
- */
-function toggleNames(
-	tools: string[],
-	all: string[],
-	names: string[],
-): string[] {
-	const checked = new Set(expandChecked(tools, all));
-	const allOn = names.every((n) => checked.has(n));
-	for (const n of names) {
-		if (allOn) checked.delete(n);
-		else checked.add(n);
-	}
-	// all 之外的残留项（磁盘/兼容性写入）原样保留，不因切换勾选而被清掉
-	const extra = tools.filter((n) => !all.includes(n));
-	return all.filter((n) => checked.has(n)).concat(extra);
-}
+// 展示态勾选展开与批量切换用顶部导入的 agent-mcp-group-tools：纯函数已抽出单测，
+// 并支持服务器粒度通配（mcp__agent_browser__* 视为整组开启，存量智能体回填态）
 
 /** 从 `mcp__<server>__<tool>` 解析服务器名与短工具名；前缀不匹配的归入「其他」 */
 function parseMcpToolName(name: string): { server: string; short: string } {

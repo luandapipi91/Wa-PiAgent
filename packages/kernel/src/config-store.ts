@@ -7,7 +7,11 @@ import {
   rename,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { PI_AGENTS_DIR, ALL_AGENT_NAMES } from "@wa-pi/shared";
+import {
+  PI_AGENTS_DIR,
+  ALL_AGENT_NAMES,
+  BUILTIN_MCP_NAME,
+} from "@wa-pi/shared";
 import type { AgentConfig, AgentName } from "@wa-pi/shared";
 import {
   parseAgentMd,
@@ -130,6 +134,56 @@ export class ConfigStore {
       }
       await this.saveAgent(makeSeedAgentConfig(displayName));
     }
+  }
+
+  /**
+   * 存量智能体回填内置 agent-browser MCP（默认打开）：只动「显式白名单」的智能体。
+   * - tools 为空/缺省 = 默认全放行（不传 --tools，MCP 全可用），本就可用，不动；
+   * - 白名单已含任何 `mcp__agent_browser` 前缀条目（通配或精确名，含用户自己调过的状态）
+   *   → 整文件跳过（幂等判据）；
+   * - 其余（受限且没配过 agent-browser）追加服务器粒度通配 `mcp__agent_browser__*`：
+   *   精确名要靠运行时探测枚举（启动迁移时不可靠，且受 F10 注册延迟影响），而 pi 1.0.4+
+   *   的 --tools 支持该通配（内置只读子代理同款）；server 名按注册口径 sanitize（`-`→`_`）。
+   * 解析失败的损坏文件跳过不崩（与 migrateNameToDisplayName 同口径）。
+   * 返回本轮回填的 displayName 列表（供启动日志）。
+   */
+  async migrateAgentBrowserTools(): Promise<string[]> {
+    // server 名与 pi 注册口径一致地 sanitize（BUILTIN_MCP_NAME="agent-browser" → "agent_browser"）
+    const pattern = `mcp__${BUILTIN_MCP_NAME.replace(/[^A-Za-z0-9_]/g, "_")}__*`;
+    const prefix = pattern.slice(0, -1); // 去掉尾部 *，得 mcp__agent_browser__
+    const migrated: string[] = [];
+    let files: string[];
+    try {
+      files = await readdir(this.agentsDir);
+    } catch {
+      return migrated;
+    }
+    for (const f of files) {
+      if (!f.endsWith(".md")) continue;
+      const p = join(this.agentsDir, f);
+      let content: string;
+      try {
+        content = await readFile(p, "utf8");
+      } catch {
+        continue;
+      }
+      let cfg: AgentConfig;
+      try {
+        cfg = parseAgentMd(content);
+      } catch {
+        continue; // 损坏文件跳过
+      }
+      if (!cfg.displayName) continue;
+      if (!cfg.tools.length) continue; // 默认全放行，本就可用
+      if (cfg.tools.some((t) => t.startsWith(prefix))) continue; // 已配过，幂等跳过
+      const updated: AgentConfig = {
+        ...cfg,
+        tools: [...cfg.tools, pattern],
+      };
+      await writeFile(p, stringifyAgentMd(updated), "utf8");
+      migrated.push(cfg.displayName);
+    }
+    return migrated;
   }
 
   /**

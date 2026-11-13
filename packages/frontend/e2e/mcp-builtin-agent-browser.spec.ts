@@ -76,4 +76,20 @@ test.describe.serial("内置 agent-browser MCP", () => {
     ).toBeVisible({ timeout: 20_000 });
     await page.getByTestId("agent-config-close").click();
   });
+
+  test("存量受限智能体经启动迁移默认打开 agent-browser 分组", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto("/");
+    await page.getByTestId("agent-collapsed").click();
+    await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("gallery-card-存量受限").click({ button: "right" });
+    await page.getByTestId("gallery-ctx-edit").click();
+    await expect(page.getByTestId("agent-config")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("tab-mcp").click();
+    // 迁移回填的是服务器粒度通配 mcp__agent_browser__*，UI 通配展开后组开关显示开启
+    const sw = page.getByTestId("mcp-group-switch-agent_browser");
+    await expect(sw).toBeVisible({ timeout: 20_000 });
+    await expect(sw).toHaveAttribute("data-on", "true");
+    await page.getByTestId("agent-config-close").click();
+  });
 });

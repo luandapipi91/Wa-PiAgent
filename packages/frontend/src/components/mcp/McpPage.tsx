@@ -77,11 +77,13 @@ export function McpPage() {
     void loadProjectScope(selectedProjectId);
   }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 搜索过滤
-  const filtered = servers.filter(
-    (s) =>
-      !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  // 搜索过滤；内置条目置顶（稳定排序，其余保持 store/mcp.json 文件序）
+  const filtered = servers
+    .filter(
+      (s) =>
+        !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+    .sort((a, b) => Number(!!b.builtin) - Number(!!a.builtin));
 
   const openAddForm = () => {
     setEditingServer(null);

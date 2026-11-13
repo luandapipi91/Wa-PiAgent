@@ -501,3 +501,28 @@ test("登录进行中：卡片显示授权 URL（pi 已自己打开浏览器，�
     "http://127.0.0.1:59998/authorize?client_id=x",
   );
 });
+
+test("内置条目置顶显示（builtin 排最前，其余保持原序）", () => {
+  useMcpStore.setState({
+    servers: [
+      { name: "dbx", type: "stdio", command: "/x", enabled: true },
+      { name: "z-other", type: "stdio", command: "/y", enabled: true },
+      {
+        name: "agent-browser",
+        type: "stdio",
+        command: "/z",
+        enabled: true,
+        builtin: true,
+      },
+    ],
+  } as any);
+  render(<McpPage />);
+  const ids = screen
+    .getAllByTestId(/^mcp-card-/)
+    .map((el) => el.getAttribute("data-testid"));
+  expect(ids).toEqual([
+    "mcp-card-agent-browser",
+    "mcp-card-dbx",
+    "mcp-card-z-other",
+  ]);
+});

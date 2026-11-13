@@ -280,6 +280,15 @@ export async function startKernel(opts?: {
 	// 逐角色检查、缺失才写入的幂等 seed（存量环境自动补齐新角色，不覆盖已有同名文件）
 	await configStore.seedDefaults();
 
+	// 存量智能体回填内置 agent-browser MCP（默认打开）：受限白名单补服务器粒度通配（幂等，
+	// tools 为空的全放行智能体本就可用不动；详见 ConfigStore.migrateAgentBrowserTools）
+	const agentBrowserMigrated = await configStore.migrateAgentBrowserTools();
+	if (agentBrowserMigrated.length > 0) {
+		console.log(
+			`[kernel] 已为 ${agentBrowserMigrated.length} 个存量智能体默认打开 agent-browser MCP`,
+		);
+	}
+
 	const migrated = await migrateLegacySessions(projectStore);
 	if (migrated) console.log("[kernel] 已迁移老数据至默认项目");
 
