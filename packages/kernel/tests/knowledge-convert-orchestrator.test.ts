@@ -79,6 +79,46 @@ describe("convertToMirror 编排", () => {
     expect(readFileSync(r.mdPath, "utf8")).toBe("纯文本内容");
   });
 
+  test("markdown 变体与无扩展名并入直通（与 scan 层集合对齐）", async () => {
+    // scan.ts: .markdown/.mdx → md、无扩展名兜底 txt，编排层必须同样可转，
+    // 否则 indexer 接入后这些文件永久无 mirror 副本
+    writeFileSync(join(srcDir, "doc.markdown"), "# markdown 正文");
+    const rMd = await convertToMirror(join(srcDir, "doc.markdown"), "doc.markdown", mirrorDir);
+    expect(rMd.ok).toBe(true);
+    if (rMd.ok) {
+      expect(rMd.via).toBe("passthrough");
+      expect(readFileSync(rMd.mdPath, "utf8")).toBe("# markdown 正文");
+    }
+
+    writeFileSync(join(srcDir, "doc.mdx"), "export const a = 1");
+    const rMdx = await convertToMirror(join(srcDir, "doc.mdx"), "doc.mdx", mirrorDir);
+    expect(rMdx.ok).toBe(true);
+    if (rMdx.ok) {
+      expect(rMdx.via).toBe("passthrough");
+      expect(readFileSync(rMdx.mdPath, "utf8")).toBe("export const a = 1");
+    }
+
+    // 无扩展名（scan 按 txt 兜底的形态）→ 同样 passthrough
+    writeFileSync(join(srcDir, "README"), "无扩展名说明文件");
+    const rNoext = await convertToMirror(join(srcDir, "README"), "README", mirrorDir);
+    expect(rNoext.ok).toBe(true);
+    if (rNoext.ok) {
+      expect(rNoext.via).toBe("passthrough");
+      expect(readFileSync(rNoext.mdPath, "utf8")).toBe("无扩展名说明文件");
+    }
+  });
+
+  test("srcRel 含空格与括号的直通：mdPath 正确且内容保真", async () => {
+    writeFileSync(join(srcDir, "报告(终稿) v2.txt"), "空格括号内容");
+    const r = await convertToMirror(join(srcDir, "报告(终稿) v2.txt"), "报告(终稿) v2.txt", mirrorDir);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.via).toBe("passthrough");
+    expect(r.mdPath.endsWith(join("mirror", "报告(终稿) v2.txt.md"))).toBe(true);
+    expect(existsSync(r.mdPath)).toBe(true);
+    expect(readFileSync(r.mdPath, "utf8")).toBe("空格括号内容");
+  });
+
   test("html 走库转换且外联化后无 data:image", async () => {
     writeFileSync(join(srcDir, "p.html"), "<html><body><h1>标题</h1><p>正文</p></body></html>");
     const r = await convertToMirror(join(srcDir, "p.html"), "p.html", mirrorDir);

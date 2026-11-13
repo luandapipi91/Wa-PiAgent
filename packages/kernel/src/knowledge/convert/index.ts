@@ -34,11 +34,13 @@ export interface ConvertFailure {
   reason: string;
 }
 
-// 分发集合：扩展名 → 处理通道；集合外一律 unsupported
+// 分发集合：扩展名 → 处理通道；集合外一律 unsupported。
+// 与 scan.ts 可索引集合对齐：.markdown/.mdx 按 md、无扩展名按 txt 兜底，
+// 否则 indexer 接入后这些文件将永久无 mirror 副本
 const DOCX_EXTS = new Set([".docx"]);
 const PDF_EXTS = new Set([".pdf"]);
 const HTML_EXTS = new Set([".html", ".htm"]);
-const PASSTHROUGH_EXTS = new Set([".txt", ".md"]);
+const PASSTHROUGH_EXTS = new Set([".txt", ".md", ".markdown", ".mdx"]);
 
 // html/htm → markdown 库转换（atx 标题 + fenced 代码块，与 web-access 侧配置一致）
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
@@ -57,7 +59,8 @@ export async function convertToMirror(
   mirrorDir: string
 ): Promise<ConvertOutcome | ConvertFailure> {
   const ext = extname(srcAbs).toLowerCase();
-  const isPassthrough = PASSTHROUGH_EXTS.has(ext);
+  // 无扩展名（extname 返回空串）与 scan 层一样按 txt 兜底直通
+  const isPassthrough = PASSTHROUGH_EXTS.has(ext) || extname(srcAbs) === "";
   const isDocx = DOCX_EXTS.has(ext);
   const isPdf = PDF_EXTS.has(ext);
   const isHtml = HTML_EXTS.has(ext);
