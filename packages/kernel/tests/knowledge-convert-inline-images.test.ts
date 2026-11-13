@@ -28,4 +28,21 @@ describe("data URI 外联化", () => {
     expect(r.markdown).toContain("../source/%E5%91%98%E5%B7%A5%20app/");  // encodeURI 形态,空格→%20
     expect(r.markdown).not.toMatch(/\]\(\.\.\/source\/[^)]* [^)]*\)/);    // 引用内不得有空格
   });
+
+  test("引用路径含 # 与中文 → %23，引用内不含裸 #（审查 I-1）", () => {
+    const tinyPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const mdPath = join(tmp, "C#指南", "z.docx.md");
+    const r = externalizeImages(`![p](data:image/png;base64,${tinyPng})`, mdPath, "C#指南/z.docx", join(tmp, "source"));
+    expect(r.markdown).toContain("%23");                            // # → %23（fragment 分隔符，裸 # 必 404）
+    expect(r.markdown).not.toMatch(/\]\([^)]*#/);                   // 引用内不得出现裸 #
+  });
+
+  test("引用路径含括号 → %28 %29，markdown 图片语法不被括号截断（审查 I-1）", () => {
+    const tinyPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const mdPath = join(tmp, "报告(终稿)", "w.md");
+    const r = externalizeImages(`![p](data:image/png;base64,${tinyPng})`, mdPath, "报告(终稿)/w.docx", join(tmp, "source"));
+    expect(r.markdown).toContain("%28");                            // ( → %28
+    expect(r.markdown).toContain("%29");                            // ) → %29
+    expect(r.markdown).toMatch(/\]\([^()]*\)/);                     // 引用内部无裸括号且闭合正常（不被截断）
+  });
 });

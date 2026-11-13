@@ -41,8 +41,10 @@ export function externalizeImages(
     mkdirSync(imgDir, { recursive: true });
     writeFileSync(imgPath, Buffer.from(b64, "base64"));
     written.push(imgPath);
-    // md 相对引用：/ 归一后整段 encodeURI（空格→%20、中文→%XX，引用内不得有空格）
-    const ref = encodeURI(relative(dirname(mdOutPath), imgPath).split("\\").join("/"));
+    // md 相对引用：/ 归一后整段 encodeURI，再显式转义 URL/markdown destination 结构字符
+    // （# → %23 fragment 分隔符、? → %3F query 分隔符、( ) → %28 %29 防止 destination 被裸括号截断）
+    const ref = encodeURI(relative(dirname(mdOutPath), imgPath).split("\\").join("/"))
+      .replace(/\(/g, "%28").replace(/\)/g, "%29").replace(/#/g, "%23").replace(/\?/g, "%3F");
     return `![${alt}](${ref})`;
   });
   return { markdown: out, images: written };
