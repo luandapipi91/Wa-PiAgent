@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
@@ -8,6 +8,7 @@ import { KnowledgeStore, resetJobOwnerStateForTest } from "../src/knowledge/stor
 import { runIndex, type KbContext, type EmbedFn, type IndexResult } from "../src/knowledge/indexer";
 import { watchKb, restoreWatchers, shouldAdvanceBaseline, type WatchKbOptions } from "../src/knowledge/watcher";
 import { closeAllKbDbs, openKbDb } from "../src/knowledge/kb-db";
+import { mirrorDirFor, mirrorMdPath } from "../src/knowledge/mirror";
 import { EMBED_DIM } from "../src/memory/schema";
 
 // 知识库文件监听测试（任务 11，规格 §6.7）：真实临时目录 + 真实 fs.watch，
@@ -336,4 +337,84 @@ test("轮询单飞：上一轮快照未结束时后续间隔不再进入（防�
   await sleep(150); // 释放后恢复：证明守卫不会把轮询永久钉死
   expect(calls).toBeGreaterThan(1);
   w.stop();
+});
+
+// ===== 任务 8：基线持久化与离线变更补偿（规格 §6 决策 9）=====
+// lastSnapshot 从内存变量升级为持久化（knowledge_bases.last_snapshot 列）：
+// 挂载续接持久化基线（不重拍吞掉离线变更），索引成功推进基线时同步持久化。
+
+test("基线持久化：自动索引成功后 last_snapshot 落库", async () => {
+  await initialIndex();
+  const w = watchKb(ctx, kbId, { embedFn: fakeEmbed, debounceMs: 100, pollIntervalMs: 200 });
+  try {
+    await sleep(300); // 等挂载基线（内存）就绪，避免写入被吞进基线
+    await writeMd("snap.md", "# 快照持久化\n内容");
+    await waitFor(() => store.getLastSnapshot(kbId) !== null, 10_000);
+    // 持久化基线应含刚写入的文件（runIndex 已消化，基线推进后落库）
+    const snap = store.getLastSnapshot(kbId)!;
+    expect(snap.split("\n").some((line) => line.startsWith("snap.md|"))).toBe(true);
+  } finally {
+    w.stop();
+  }
+});
+
+test("重启续接：持久化基线 A + 离线变更 → 重挂首轮轮询即自动补偿索引", async () => {
+  // 第一次挂载 + 成功索引 → 基线 A 持久化
+  const w1 = watchKb(ctx, kbId, { embedFn: fakeEmbed, debounceMs: 100, pollIntervalMs: 200 });
+  try {
+    await sleep(300);
+    await writeMd("offline.txt", "离线新增内容甲。");
+    await waitFor(() => store.getLastSnapshot(kbId) !== null, 10_000); // A 已持久化
+  } finally {
+    w1.stop();
+  }
+  const baselineA = store.getLastSnapshot(kbId)!;
+  // 离线变更（watcher 已停、软件「重启」期间）：源目录新增文件 A→B
+  writeFileSync(join(srcDir, "b-offline.txt"), "离线新增内容乙。");
+  expect(baselineA.split("\n").some((l) => l.startsWith("b-offline.txt|"))).toBe(false);
+  // 重挂同一库：续接持久化基线 A（不重拍吞差异）→ 首轮轮询发现 B≠A → 自动补偿索引
+  const w2 = watchKb(ctx, kbId, { embedFn: fakeEmbed, debounceMs: 100, pollIntervalMs: 200 });
+  try {
+    // 新文件被转换+分块：mirror 含副本、chunks 含新块
+    await waitFor(() => existsSync(mirrorMdPath(mirrorDirFor(waPiDir, kbId), "b-offline.txt")), 15_000);
+    await waitFor(() => {
+      const db = openKbDb(waPiDir, kbId);
+      try {
+        const n = (db.query("SELECT count(*) c FROM chunks WHERE file_path = 'b-offline.txt'").get() as { c: number }).c;
+        return n > 0;
+      } finally {
+        db.close();
+      }
+    }, 10_000);
+    // 基线更新为 B（含离线变更文件，≠ A）
+    await waitFor(() => {
+      const snap = store.getLastSnapshot(kbId);
+      return snap !== null && snap !== baselineA;
+    }, 10_000);
+    expect(store.getLastSnapshot(kbId)!.split("\n").some((l) => l.startsWith("b-offline.txt|"))).toBe(true);
+  } finally {
+    w2.stop();
+  }
+});
+
+test("无持久化基线（首次挂载）维持现状拍内存基线，不误触发", async () => {
+  // 手动建库后首次挂载：last_snapshot 仍为空（持久化只在 watcher 成功推进基线时发生）
+  await initialIndex();
+  expect(store.getLastSnapshot(kbId)).toBeNull();
+  const spy = spyIndexFn();
+  const w = watchKb(ctx, kbId, {
+    embedFn: fakeEmbed,
+    indexFn: spy.fn,
+    pollIntervalMs: 300,
+    debounceMs: 150,
+  });
+  try {
+    await sleep(1_100); // 跨 3 个轮询周期：基线就绪后无差异不触发
+    expect(spy.calls()).toBe(0);
+    expect(store.getLastSnapshot(kbId)).toBeNull(); // 内存基线不落库（持久化仅在索引成功推进时）
+    expect(store.getJob(kbId)).toBeNull();
+    expect(store.getKb(kbId)!.status).toBe("ready");
+  } finally {
+    w.stop();
+  }
 });

@@ -1,10 +1,12 @@
 // 知识库索引编排器：五阶段状态机（扫描→抽取→切块→嵌入→落库）+ 进度持久化 + SSE + 取消 + 回滚。
-// 编排 scanFolder（任务 3）/ extractText（任务 4）/ chunkDocument（任务 5）的产物，
+// 编排 scanFolder（任务 3）/ convertToMirror（任务 6，mirror 副本落盘）/ chunkDocument（任务 5）的产物，
 // 落库到 KnowledgeStore（任务 2）登记层与每库独立 db（chunks + chunks_fts 双写）。
 //
-// 增量（规格 §6.3）：file_path + mtime + size 快筛命中整文件跳过；变化文件重切块后逐块比对
-// content_hash——相同复用旧块（保留 id 与向量，不重嵌）；未被认领的旧块删除；已删除文件的块全部移除。
-// 回填（规格 §6.2）：库级 embed_meta 指纹不匹配或块向量缺失时，快筛命中的存量块顺带重嵌（不重读文件）。
+// 增量（规格 §6.3 + §5.3 镜像语义）：file_path + mtime + size 快筛命中以【副本】为准重切
+// （§6 决策 8：副本↔索引不一致自动自愈），逐块比对 content_hash——相同复用旧块（保留 id 与向量，
+// 不重嵌）；未命中/副本缺失转换落盘 mirror 后重切；转换失败降级旧 extractText 路径（无副本）；
+// 未被认领的旧块删除；已删除文件的块与副本一并移除。回填（规格 §6.2）：库级 embed_meta 指纹不匹配
+// 或块向量缺失时，重切后 hash 命中但向量缺失的块自然进入重嵌（reuse 条件统一处理，无专门通道）。
 //
 // 失败/取消语义（规格 §6.3 + 控制者简报）：
 //   - 首次建库（last_indexed_at 为空）失败或取消：删该库全部块与 job，失败置 error、取消恢复原状态；
@@ -22,6 +24,8 @@ import { scanFolder } from "./scan";
 import { extractText } from "./extract";
 import { chunkDocument, type KnowledgeChunk } from "./chunker";
 import { openKbDb } from "./kb-db";
+import { mirrorDirFor, readMirrorMd, removeMirrorFile } from "./mirror";
+import { convertToMirror, CONVERTER_VERSION } from "./convert";
 import { processOwnerId } from "./store";
 import { refreshKbQuantizedIndex } from "./vector";
 import type { KbContext } from "./index";
@@ -104,12 +108,11 @@ export interface IndexResult {
   failedCount: number;
 }
 
-/** 存量块快照（增量判定底料）：id + contentHash + 现有向量 + 嵌入输入源 */
+/** 存量块快照（增量判定底料）：id + contentHash + 现有向量 */
 interface ExistingChunk {
   id: string;
   hash: string;
   embedding: Uint8Array | null;
-  prefixContent: string;
 }
 
 /** 存量文件快照：快筛元数据 + 按块 */
@@ -120,10 +123,9 @@ interface ExistingFile {
   byHash: Map<string, ExistingChunk>;
 }
 
-/** 存量快照集合：按文件路径与按块 id 两种索引 */
+/** 存量快照集合：按文件路径索引（块复用经 file.byHash 查询） */
 interface ExistingSnapshot {
   byPath: Map<string, ExistingFile>;
-  byId: Map<string, ExistingChunk>;
 }
 
 /** 变化文件的落库计划：重切块 + 逐块去向（复用旧向量 / 待嵌入） */
@@ -139,13 +141,10 @@ interface FilePlan {
   reuse: Map<number, ExistingChunk>;
 }
 
-/** 待嵌入项：新块（commit 时 INSERT）或回填块（UPDATE 既有行） */
+/** 待嵌入项：新块（commit 时 INSERT） */
 interface EmbedItem {
   prefixContent: string;
-  chunk?: KnowledgeChunk;
-  /** 回填项的既有行 id */
-  backfillId?: string;
-  vec?: Uint8Array;
+  chunk: KnowledgeChunk;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -173,27 +172,25 @@ function emit(
 /** 读全部存量块为增量判定快照（块量万级，全表一次拉回内存对比最简单可靠） */
 function loadExisting(db: Database): ExistingSnapshot {
   const rows = db
-    .query(`SELECT id, file_path, content_hash, prefix_content, file_mtime, file_size, embedding FROM chunks`)
+    .query(`SELECT id, file_path, content_hash, file_mtime, file_size, embedding FROM chunks`)
     .all() as Array<{
     id: string;
     file_path: string;
     content_hash: string;
-    prefix_content: string;
     file_mtime: number;
     file_size: number;
     embedding: Uint8Array | null;
   }>;
-  const snapshot: ExistingSnapshot = { byPath: new Map(), byId: new Map() };
+  const snapshot: ExistingSnapshot = { byPath: new Map() };
   for (const r of rows) {
     let f = snapshot.byPath.get(r.file_path);
     if (!f) {
       f = { mtime: r.file_mtime, size: r.file_size, chunks: [], byHash: new Map() };
       snapshot.byPath.set(r.file_path, f);
     }
-    const c: ExistingChunk = { id: r.id, hash: r.content_hash, embedding: r.embedding, prefixContent: r.prefix_content };
+    const c: ExistingChunk = { id: r.id, hash: r.content_hash, embedding: r.embedding };
     f.chunks.push(c);
     f.byHash.set(c.hash, c);
-    snapshot.byId.set(c.id, c);
   }
   return snapshot;
 }
@@ -274,33 +271,64 @@ export async function runIndex(
     }
 
     // ===== 阶段 2/3：抽取 + 切块（全部在内存完成，落库推迟到 commit——commit 前不对外可见）=====
+    // mirror 副本目录（规格 §5.3）：快筛命中以副本为准重切，变更/副本缺失转换落盘，降级走旧抽取
+    const mirrorDir = mirrorDirFor(ctx.waPiDir, kbId);
+    let convertedCount = 0; // 本轮成功转换（拿到副本）的文件数 → mirror_meta
+    let degradedCount = 0; // 本轮降级（无副本，走旧抽取）的文件数 → mirror_meta
+    let mirrorImageCount = 0; // 本轮外联落盘图片总数 → mirror_meta
     const plans: FilePlan[] = [];
-    const keptFileIds: string[] = []; // 快筛命中文件的块 id（保留行，可能需回填向量）
     for (const file of preview.indexable) {
       throwIfAborted(signal);
       const old = existing.byPath.get(file.relPath);
-      if (old && !fingerprintMismatch && old.mtime === file.mtime && old.size === file.size) {
-        // 快筛命中：整文件原样保留（不重读、不重切、不重嵌）
-        for (const c of old.chunks) keptFileIds.push(c.id);
-        filesDone++;
-        continue;
+      const quickHit =
+        old !== undefined && !fingerprintMismatch && old.mtime === file.mtime && old.size === file.size;
+      let text: string | null = null;
+      if (quickHit) {
+        // 快筛命中：不再整文件短路——读副本重切（§6 决策 8：副本↔索引不一致自动自愈，
+        // 智能体具备写文件能力，镜像可能被误写）；下方逐块 content_hash 命中的块不重嵌。
+        // 副本缺失（外部删除/上一轮降级）→ 走下方转换重建（Ruling-5）。
+        text = readMirrorMd(mirrorDir, file.relPath);
       }
-      let text: string;
-      try {
-        text = (await extractText(file.absPath, file.type)).text;
-      } catch (err) {
-        // 单文件失败不拖垮整轮（规格 §6.3）；extraction_failed 由抽取阶段产生，计入跳过统计；
-        // 失败文件及原因就地记入内存清单（GET /api/knowledge/:id/failed 读取，任务 10）
-        failedCount++;
-        kbFailures.get(kbId)?.push({
-          path: file.relPath,
-          reason: err instanceof Error ? err.message : String(err),
-        });
-        skipStats.extraction_failed = (skipStats.extraction_failed ?? 0) + 1;
-        filesDone++;
-        ctx.store.updateJobProgress(kbId, { phase: "extracting", filesDone, skipStats: { ...skipStats } });
-        emit(ctx, kbId, "extracting", "indexing", filesTotal, filesDone, 0, 0);
-        continue;
+      if (text === null) {
+        // 新增/变更（或副本缺失重建）：转换落盘 mirror 后读副本（md/txt 直通复制也走此，
+        // 保证 mirror 完整性）；任何失败收敛为降级信号，不外漏异常（编排层契约）
+        const conv = await convertToMirror(file.absPath, file.relPath, mirrorDir);
+        const md = conv.ok ? readMirrorMd(mirrorDir, file.relPath) : null;
+        if (md !== null) {
+          text = md;
+          convertedCount++;
+          mirrorImageCount += conv.ok ? conv.images.length : 0;
+        } else {
+          // 转换失败（或转换成功但副本读回失败——极端 IO）：记 failed 清单（规格决策 2）后降级
+          degradedCount++;
+          kbFailures.get(kbId)?.push({
+            path: file.relPath,
+            reason: conv.ok ? "mirror 副本读回失败（转换已落盘）" : `mirror 转换降级: ${conv.reason}`,
+          });
+        }
+      }
+      if (text === null) {
+        // 降级抽取：回退旧 extractText 路径（无副本）；失败处理与原路径逐字一致
+        try {
+          text = (await extractText(file.absPath, file.type)).text;
+        } catch (err) {
+          // 单文件失败不拖垮整轮（规格 §6.3）；extraction_failed 由抽取阶段产生，计入跳过统计；
+          // 失败文件及原因就地记入内存清单（GET /api/knowledge/:id/failed 读取，任务 10）
+          failedCount++;
+          kbFailures.get(kbId)?.push({
+            path: file.relPath,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+          skipStats.extraction_failed = (skipStats.extraction_failed ?? 0) + 1;
+          filesDone++;
+          ctx.store.updateJobProgress(kbId, { phase: "extracting", filesDone, skipStats: { ...skipStats } });
+          emit(ctx, kbId, "extracting", "indexing", filesTotal, filesDone, 0, 0);
+          continue;
+        }
+      }
+      // I-2 最终防线：副本 md 残留 data URI（库截断占位符/外联化遗漏/外部改写）→ 告警不阻断
+      if (text.includes("data:image/")) {
+        console.warn(`[knowledge] 副本残留 data URI 图片（外联化遗漏/外部改写）: ${file.relPath}`);
       }
       const chunks = chunkDocument({ type: file.type, text, relPath: file.relPath });
       const plan: FilePlan = {
@@ -314,7 +342,7 @@ export async function runIndex(
       };
       for (let i = 0; i < chunks.length; i++) {
         const hit = old?.byHash.get(chunks[i].contentHash);
-        // 指纹不匹配时旧向量无效：只保留行 id（commit 时以新向量覆盖写入），不入复用
+        // 指纹不匹配时旧向量无效：hash 命中也不复用，重嵌入覆盖（§6.2 语义统一由本条件承载）
         if (hit && !fingerprintMismatch && hit.embedding !== null) plan.reuse.set(i, hit);
       }
       plans.push(plan);
@@ -331,13 +359,6 @@ export async function runIndex(
       }
     }
     const vecByChunk = new Map<KnowledgeChunk, Uint8Array>(); // 嵌入完成后块 → 向量（commit 时 O(1) 取用）
-    // 回填：快筛命中文件的存量块——向量缺失，或指纹不匹配（全量过期）
-    for (const id of keptFileIds) {
-      const c = existing.byId.get(id);
-      if (c && (fingerprintMismatch || c.embedding === null)) {
-        needEmbed.push({ prefixContent: c.prefixContent, backfillId: c.id });
-      }
-    }
     chunksTotal = needEmbed.length;
     ctx.store.updateJobProgress(kbId, { phase: "embedding", chunksTotal });
     emit(ctx, kbId, "embedding", "indexing", filesTotal, filesDone, 0, chunksTotal);
@@ -350,8 +371,7 @@ export async function runIndex(
       }
       for (let j = 0; j < batch.length; j++) {
         const item = batch[j];
-        item.vec = vecs[j];
-        if (item.chunk) vecByChunk.set(item.chunk, vecs[j]);
+        vecByChunk.set(item.chunk, vecs[j]);
       }
       chunksDone += batch.length;
       ctx.store.updateJobProgress(kbId, { phase: "embedding", chunksDone });
@@ -383,10 +403,15 @@ export async function runIndex(
       };
       const now = Date.now();
       for (const plan of plans) {
-        if (plan.hasOld) {
+        // 全部块 hash 命中且向量有效（全复用）：行原样保留不删不插——内容/向量完全一致，
+        // 重写只会白瘫 rowid（量化 shadow 按 rowid JOIN，被迫每轮 O(N) 全量重建）。
+        // 零变更轮保持零写库；部分变化（含向量缺失回填/指纹不匹配）才走删旧插新
+        const allReuse = plan.reuse.size === plan.chunks.length;
+        if (plan.hasOld && !allReuse) {
           deleteFileRows(plan.relPath);
           touchedRows = true;
         }
+        if (allReuse) continue;
         for (let i = 0; i < plan.chunks.length; i++) {
           const c = plan.chunks[i];
           const reuse = plan.reuse.get(i);
@@ -406,14 +431,18 @@ export async function runIndex(
         }
       }
       for (const relPath of removedPaths) deleteFileRows(relPath);
-      for (const b of needEmbed) {
-        if (b.backfillId !== undefined) {
-          // 嵌入批完成后 vec 必已就位
-          kdb.run(`UPDATE chunks SET embedding = ? WHERE id = ?`, [b.vec as Uint8Array, b.backfillId]);
-        }
-      }
     });
     commitAll();
+
+    // 删除分支级联清理副本（§5.3）：事务已提交，镜像与索引同生命周期；
+    // FS 操作失败不阻断（副本删除失败留孤儿，doctor 体检兜底，任务 10）
+    for (const relPath of removedPaths) {
+      try {
+        removeMirrorFile(mirrorDir, relPath);
+      } catch (err) {
+        console.warn(`[knowledge] 副本清理失败（孤儿留待 doctor 体检）: ${relPath}`, err);
+      }
+    }
 
     // ===== 收尾：counters + last_indexed_at + embed_meta（任务要点）+ job 清除 + 量化刷新 =====
     const { c: chunkTotal } = db.query(`SELECT COUNT(*) c FROM chunks`).get() as { c: number };
@@ -424,6 +453,13 @@ export async function runIndex(
       failedCount,
       embedMeta: fingerprint,
       lastIndexedAt: Date.now(),
+    });
+    // mirror 转换统计（§6 决策 5）：本轮转换/降级计数与图片总数，任务 11 前端展示副本状态
+    ctx.store.setMirrorMeta(kbId, {
+      converterVersion: CONVERTER_VERSION,
+      converted: convertedCount,
+      degraded: degradedCount,
+      images: mirrorImageCount,
     });
     ctx.store.finishJob(kbId);
     ctx.store.setLastError(kbId, null); // 成功一轮后清空历史失败原因

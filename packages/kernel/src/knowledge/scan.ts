@@ -266,7 +266,9 @@ async function walkScan(
       const st = await fsx.stat(absFile);
       if (!st.isFile()) return; // 竞态：遍历中已变为非常规文件，忽略
       size = st.size;
-      mtime = st.mtimeMs;
+      // mtime 取整毫秒：chunks.file_mtime 是 SQLite INTEGER（小数被截断），若此处保留浮点，
+      // 增量快筛 old.mtime === file.mtime 恒不命中（每轮全量重读/重转，自愈场景副本会被重转覆盖）
+      mtime = Math.floor(st.mtimeMs);
     } catch (e) {
       skips.push({ path: relPath, reason: skipReasonFor(e) });
       return;
