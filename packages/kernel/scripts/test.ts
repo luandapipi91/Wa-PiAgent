@@ -15,6 +15,9 @@ import { spawnSync } from "node:child_process";
 const INTEGRATION_TESTS = [
 	"tests/static-serve.integration.test.ts",
 	"tests/file-route.integration.test.ts",
+	// 知识库 md mirror API 层端到端（任务 12）：spawn 完整 kernel HTTP 服务（独立 WA_PI_DIR/端口）
+	// + 真实模型索引推理（服务进程）→ 主批负载下 spawn/探活/推理总时长不可控且端口独占，串行补跑
+	"tests/knowledge-mirror-e2e.test.ts",
 	"tests/preview-route.integration.test.ts",
 	"tests/preview-inspect.integration.test.ts",
 	// 记忆迁移接线：启动完整 kernel 后断言存量 markdown 已入库（同属 WA_PI_DIR 快照类）
