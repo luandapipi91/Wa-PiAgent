@@ -64,6 +64,31 @@ interface MirrorScan {
 	brokenSamples: string[];
 }
 
+/**
+ * 递归收集 assetsRoot 下「直接含文件」的目录（相对 assetsRoot 的 POSIX 路径）。
+ * _assets/<srcRel> 落盘保留子目录层级，孤儿判定必须取完整 srcRel 口径与 mdRelSet 比对
+ * （一级条目会把 sub/with-img.docx 误报成 _assets/sub 孤儿）。
+ */
+function assetDirs(assetsRoot: string, prefix = ""): string[] {
+	const out: string[] = [];
+	let entries;
+	try {
+		entries = readdirSync(join(assetsRoot, prefix), { withFileTypes: true });
+	} catch {
+		return out; // 无 _assets 目录或中途不可读：跳过
+	}
+	let hasFile = false;
+	for (const e of entries) {
+		if (e.isFile()) {
+			hasFile = true;
+		} else if (e.isDirectory()) {
+			const rel = prefix ? `${prefix}/${e.name}` : e.name;
+			out.push(...assetDirs(assetsRoot, rel));
+		}
+	}
+	return hasFile && prefix ? [...out, prefix] : out;
+}
+
 /** 扫描单库 mirror 副本与索引的对齐情况（全量遍历，与诊断层逐文件 statSync 同风格） */
 function scanKbMirror(waPiDir: string, kbId: string): MirrorScan | null {
 	// 索引文件清单：chunks 去重 file_path；库打不开时静默跳过
@@ -94,12 +119,14 @@ function scanKbMirror(waPiDir: string, kbId: string): MirrorScan | null {
 		if (!existsSync(mirrorMdPath(mirrorDir, rel))) scan.degraded.push(rel);
 	}
 
-	// mirror 目录未建（全库降级等）：副本全缺已由 degraded 覆盖，其余检查无事可做
+	// mirror 目录未建（全库降级等）：副本全缺已由 degraded 覆盖，其余检查无事可做。
+	// _assets 排除按首段路径段判断：!p.startsWith("_assets") 会误伤 _assets_backup 等相邻目录名
 	let mdRels: string[];
 	try {
-		mdRels = readdirSync(mirrorDir, { recursive: true }).filter(
-			(p) => p.endsWith(".md") && !p.startsWith("_assets"),
-		);
+		mdRels = readdirSync(mirrorDir, { recursive: true }).filter((p) => {
+			const [head] = p.split(/[\\/]/);
+			return p.endsWith(".md") && head !== "_assets";
+		});
 	} catch {
 		return scan;
 	}
@@ -110,13 +137,9 @@ function scanKbMirror(waPiDir: string, kbId: string): MirrorScan | null {
 		if (!indexedSet.has(rel)) scan.residual.push(`${rel}.md`);
 	}
 
-	// 孤儿 assets：_assets 一级子项（<srcRel>）没有对应副本 md
-	try {
-		for (const name of readdirSync(assetsRoot)) {
-			if (!mdRelSet.has(name)) scan.orphanAssets.push(`_assets/${name}`);
-		}
-	} catch {
-		/* 无 _assets 目录：跳过 */
+	// 孤儿 assets：_assets 下「直接含文件的资产目录」（完整 srcRel 层级）没有对应副本 md
+	for (const dir of assetDirs(assetsRoot)) {
+		if (!mdRelSet.has(dir)) scan.orphanAssets.push(`_assets/${dir}`);
 	}
 
 	// 引用对齐：收集 md 内解析后落在 _assets 下的相对引用（`../`/`./` 相对 md 目录解析），

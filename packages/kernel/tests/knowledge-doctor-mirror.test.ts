@@ -150,3 +150,49 @@ test("副本内引用断链 → 报告含引用统计与断链路径", async () 
   expect(issue!.severity).not.toBe("blocking");
   expect(issue!.message).toContain("missing.png");
 });
+
+// ===== 修复轮 1（I-1/M-1/M-3）=====
+
+// I-1 回归锁：_assets/<srcRel> 落盘保留子目录层级，孤儿判定必须取完整 srcRel 口径——
+// 修前按 _assets 一级条目比对，子目录库 sub/with-img.docx 被误报 _assets/sub 孤儿并扣健康分
+test("子目录库资产齐全 → 不报孤儿 _assets(子目录形态)", async () => {
+  mkdirSync(join(srcDir, "sub"), { recursive: true });
+  copyFileSync(join(FIX, "docx-altchunk.docx"), join(srcDir, "sub", "with-img.docx"));
+  await runIndex(ctx, kbId, fakeEmbed);
+  // 前置：资产落盘含子目录层级、副本 md 在
+  expect(existsSync(join(mirrorRoot(), "_assets", "sub", "with-img.docx"))).toBe(true);
+  expect(existsSync(mirrorMdPath(mirrorRoot(), "sub/with-img.docx"))).toBe(true);
+  const report = await runDoctor(ctx);
+  // 健康库：无任何副本类告警（降级/残留/断链/孤儿 assets 均不出现）
+  expect(report.issues.filter((i) => /副本|mirror|_assets/.test(i.message))).toEqual([]);
+});
+
+// M-1 回归锁：相邻目录名（_assets_backup）不是 _assets 段——不被孤儿判定误报、
+// 也不被镜像检查算进任何清单（首段 === "_assets" 才是资产根）
+test("相邻目录名 _assets_backup 不被误报为孤儿也不被算进检查", async () => {
+  copyFileSync(join(FIX, "docx-altchunk.docx"), join(srcDir, "ok.docx"));
+  await runIndex(ctx, kbId, fakeEmbed);
+  mkdirSync(join(mirrorRoot(), "_assets_backup", "ok.docx"), { recursive: true });
+  writeFileSync(join(mirrorRoot(), "_assets_backup", "ok.docx", "img1.png"), "x");
+  const report = await runDoctor(ctx);
+  expect(report.issues.filter((i) => /副本|mirror|_assets/.test(i.message))).toEqual([]);
+});
+
+// M-3 锁定：子目录 md 的 ../ 相对引用（relative(dirname(md), _assets/<srcRel>) 形态）
+// 也要进入对齐统计：指向存在资产的引用不计断链，缺失的计入
+test("子目录 md 的 ../ 引用解析(_assets 对齐统计)", async () => {
+  mkdirSync(join(srcDir, "sub"), { recursive: true });
+  copyFileSync(join(FIX, "docx-altchunk.docx"), join(srcDir, "sub", "with-img.docx"));
+  await runIndex(ctx, kbId, fakeEmbed);
+  // 注入两条 ../ 形态引用：一条指向存在的资产、一条缺失
+  appendFileSync(
+    mirrorMdPath(mirrorRoot(), "sub/with-img.docx"),
+    "\n\n![有图](../_assets/sub/with-img.docx/img1.png)\n![缺图](../_assets/sub/with-img.docx/missing.png)\n",
+  );
+  const report = await runDoctor(ctx);
+  const issue = report.issues.find((i) => /断链/.test(i.message));
+  expect(issue).toBeTruthy();
+  // 引用总数 2（../ 形态都被统计）、断链 1（缺失资产那一条）
+  expect(issue!.message).toContain("引用 2 处、断链 1 处");
+  expect(issue!.message).toContain("missing.png");
+});
