@@ -14,6 +14,7 @@ const {
   resolveWaPiDir,
 } = require("./util/port.cjs");
 const { shouldRespawn, RESPAWN_DELAY_MS } = require("./util/auto-respawn.cjs");
+const { buildLibvipsEnv } = require("./util/libvips-runtime.cjs");
 const {
   checkPort,
   updateHealthState,
@@ -59,6 +60,10 @@ async function startSidecar({
   // macOS 语义检索的标准 SQLite dylib（可选）：存在时注入 WA_PI_SQLITE_DYLIB——bun 在 macOS
   // 用 Apple 专有 SQLite（不支持 loadExtension），语义检索需 setCustomSQLite 切标准构建。
   sqliteDylib = undefined,
+  // sharp 的 libvips 平台分包 lib 目录（可选，darwin）：存在时注入 DYLD_FALLBACK_LIBRARY_PATH——
+  // 历史安装包未随包携带 @img/sharp-libvips-darwin-<arch>，rpath 候选全 miss 后 dyld
+  // 在该目录兜底搜索，sharp.node 才能加载（否则深度重排模型不可用）。见 util/libvips-runtime.cjs。
+  libvipsLibDir = undefined,
   deps = {},
 }) {
   // 依赖注入（测试用，可选）：默认全走真实实现，生产行为不变。
@@ -118,6 +123,15 @@ async function startSidecar({
     // 参数未提供时显式剔除：环境里可能残留同名变量（如宿主应用自身注入的路径），
     // 不清掉会串进 kernel 进程；kernel 侧空串/缺失均视为未设置。
     delete kernelEnv.WA_PI_SQLITE_DYLIB;
+  }
+  // libvips 分包兜底目录：存在时注入 DYLD_FALLBACK_LIBRARY_PATH（宿主 env 已有值则新值前插合并，
+  // 子进程 rpath 全 miss 后按序搜索）；未提供/目录不存在时显式剔除，不残留脏值。
+  if (libvipsLibDir && fs.existsSync(libvipsLibDir)) {
+    const patch = buildLibvipsEnv(libvipsLibDir).DYLD_FALLBACK_LIBRARY_PATH;
+    const prev = kernelEnv.DYLD_FALLBACK_LIBRARY_PATH;
+    nativeAssets.DYLD_FALLBACK_LIBRARY_PATH = prev ? `${patch}:${prev}` : patch;
+  } else {
+    delete kernelEnv.DYLD_FALLBACK_LIBRARY_PATH;
   }
   const spawnOpts = {
     cwd: kernelDir,

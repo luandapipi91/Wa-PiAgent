@@ -93,6 +93,64 @@ test("sqliteDylib 存在 → 注入 WA_PI_SQLITE_DYLIB；未传/文件不存在 
   expect(envNone.WA_PI_SQLITE_DYLIB).toBeUndefined();
 });
 
+test("libvipsLibDir 存在 → 注入 DYLD_FALLBACK_LIBRARY_PATH（与既有值合并）；未传/目录不存在 → 不注入（sharp libvips 分包运行时兜底）", async () => {
+  const { mkdtempSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "wa-pi-libvips-"));
+  const libDir = join(dir, "lib");
+  mkdirSync(libDir);
+
+  const run = async (libvipsLibDir?: string, prevEnv?: string) => {
+    const child = fakeChild(4321);
+    let capturedEnv: Record<string, string> = {};
+    const spawnFn = ((_c: string, _a: string[], opts: any) => {
+      capturedEnv = opts.env;
+      return child;
+    }) as any;
+    const saved = process.env.DYLD_FALLBACK_LIBRARY_PATH;
+    if (prevEnv !== undefined) process.env.DYLD_FALLBACK_LIBRARY_PATH = prevEnv;
+    try {
+      await startSidecar({
+        isPackaged: false,
+        kernelDir: "/fake/kernel",
+        webDir: "/fake/web",
+        kernelExe: "/fake/kernel/wa-pi-kernel",
+        port: 9778,
+        log: { info() {}, error() {} },
+        libvipsLibDir,
+        deps: {
+          spawnFn,
+          waitForPortFn: (async () => true) as any,
+          checkPortFn: (async () => true) as any,
+          killFn: (() => {}) as any,
+          respawnDelayMs: 5,
+          isPortInUseFn: async () => false,
+          killPortOccupantsFn: async () => [],
+        },
+      });
+    } finally {
+      // 恢复宿主 env，绝不污染其他用例
+      if (saved === undefined) delete process.env.DYLD_FALLBACK_LIBRARY_PATH;
+      else process.env.DYLD_FALLBACK_LIBRARY_PATH = saved;
+    }
+    return capturedEnv;
+  };
+
+  const envWith = await run(libDir);
+  expect(envWith.DYLD_FALLBACK_LIBRARY_PATH).toBe(libDir);
+
+  // 宿主 env 已有值 → 新值前插合并（子进程 rpath 兕底优先吃 libvips 目录）
+  const envMerged = await run(libDir, "/pre/existing");
+  expect(envMerged.DYLD_FALLBACK_LIBRARY_PATH).toBe(`${libDir}:/pre/existing`);
+
+  const envMissing = await run(join(dir, "no-such"));
+  expect(envMissing.DYLD_FALLBACK_LIBRARY_PATH).toBeUndefined();
+
+  const envNone = await run(undefined);
+  expect(envNone.DYLD_FALLBACK_LIBRARY_PATH).toBeUndefined();
+});
+
 /** 触发一次崩溃重启：第一个 child 被信号杀 → exit handler → scheduleRespawn → 5ms 后重新 spawn */
 async function crashAndRespawn(children: any[]) {
   children[0].emit("exit", null, "SIGKILL");

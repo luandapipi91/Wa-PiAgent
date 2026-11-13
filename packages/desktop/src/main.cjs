@@ -781,6 +781,12 @@ app.whenReady().then(async () => {
 				"libsqlite3.dylib",
 			)
 		: undefined;
+	// sharp 的 libvips 平台分包兑底 lib 目录（darwin）：历史安装包未随包携带
+	// @img/sharp-libvips-darwin-<arch> → 深度重排模型不可用。packaged 启动链里
+	// ensureLibvipsRuntime 检测缺失后从 npmmirror 下载解压到 runtime/native/sharp-libvips/<版本>/，
+	// 返回的 lib 目录由 startSidecar 注入 DYLD_FALLBACK_LIBRARY_PATH。dev 为 undefined
+	//（dev 的 node_modules 齐全，sharp 直接可用）。
+	let libvipsLibDir;
 	// packaged 下 sidecar 是 bun --compile 编译产物 WaPiKernel（分发进程名不暴露 bun）；dev 仍用 host bun。
 	const KERNEL_BIN =
 		process.platform === "win32" ? "WaPiKernel.exe" : "WaPiKernel";
@@ -945,6 +951,19 @@ app.whenReady().then(async () => {
 			await linkNativeAssets(nativeNodeModules, runtimeDir, log).catch((e) =>
 				log.error("[deps] 原生依赖链接异常（忽略）", e),
 			);
+			// sharp 的 libvips 平台分包兑底：包内未携带时下载解压到 runtime，失败只告警
+			//（与 linkNativeAssets 同级容错——kernel 自行降级，深度重排维持不可用，不阻断启动）。
+			try {
+				const { ensureLibvipsRuntime } = require("./util/libvips-runtime.cjs");
+				const lv = await ensureLibvipsRuntime({
+					nativeNodeModules,
+					runtimeDir,
+					log,
+				});
+				libvipsLibDir = lv.libDir;
+			} catch (e) {
+				log.error("[deps] libvips 分包兑底异常（忽略）", e);
+			}
 		} catch (e) {
 			clearInterval(installTrickle);
 			log.error("依赖安装失败", e);
@@ -1220,6 +1239,8 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 			port: actualPort,
 			// macOS 语义检索的标准 SQLite dylib：存在时注入 WA_PI_SQLITE_DYLIB。
 			sqliteDylib,
+			// sharp libvips 分包兑底 lib 目录：存在时注入 DYLD_FALLBACK_LIBRARY_PATH。
+			libvipsLibDir,
 		});
 		startup.mark("kernelReady");
 		// 登记 kernel 进程（createdAt 用 sidecar 返回的 spawn 时刻：进程真实创建时刻，
