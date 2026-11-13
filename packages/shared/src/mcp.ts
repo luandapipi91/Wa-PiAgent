@@ -277,3 +277,6 @@ export interface McpLoginEvent {
   /** phase=error 时失败文案（pi 的末行输出，如随超时一起打的 cancelled） */
   error?: string;
 }
+
+/** 内置 agent-browser MCP 的固定服务器名：常驻 MCP 列表、不可删除、不可编辑，只可停用 */
+export const BUILTIN_MCP_NAME = "agent-browser";
