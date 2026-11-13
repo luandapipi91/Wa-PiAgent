@@ -145,4 +145,27 @@ describe("store mirror_meta / last_snapshot", () => {
     expect(store.getMirrorMeta(kbId)).toEqual({ converterVersion: 2, converted: 5, degraded: 0, images: 3 });
     expect(store.getLastSnapshot(kbId)).toBe("b.md|9|2");
   });
+
+  test("deleteKb 级联清理 mirror 目录（含 _assets），不影响其他库", () => {
+    const root = "/tmp/wa-pi-test"; // store 构造时注入的 waPiDir（deleteKb 按它定位库级资产）
+    const kb2Id = store.createKb({ folderPath: "/tmp/wa-pi-test-src", name: "b", description: "" }).id;
+    // 两个库各建 mirror 副本 + _assets 外联图片，删 kb1 后 kb2 的 mirror 必须还在
+    const mirrorOf = (kb: string) => mirrorDirFor(root, kb);
+    for (const kb of [kbId, kb2Id]) {
+      const imgDir = join(mirrorOf(kb), "_assets", "a.docx");
+      mkdirSync(imgDir, { recursive: true });
+      writeFileSync(join(mirrorOf(kb), "a.docx.md"), "x");
+      writeFileSync(join(imgDir, "img1.png"), "png");
+    }
+    store.deleteKb(kbId);
+    expect(existsSync(mirrorOf(kbId))).toBe(false);
+    expect(existsSync(mirrorOf(kb2Id))).toBe(true);
+    // 卫生：kb2 的测试残留自行清掉（store fixture 不做全局清扫）
+    rmSync(mirrorOf(kb2Id), { recursive: true, force: true });
+  });
+
+  test("deleteKb 对从未转过索引的库（无 mirror 目录）幂等不抛错", () => {
+    const freshId = store.createKb({ folderPath: "/tmp/wa-pi-test-src", name: "c", description: "" }).id;
+    expect(() => store.deleteKb(freshId)).not.toThrow();
+  });
 });

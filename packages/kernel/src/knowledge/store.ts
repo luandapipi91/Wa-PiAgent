@@ -3,10 +3,11 @@
 // 独立 db 文件（kb-db.ts），本层只在 deleteKb 时负责删掉该文件。
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
+import { rmSync, unlinkSync } from "node:fs";
 import { basename } from "node:path";
 import type { KbInfo } from "@wa-pi/shared";
 import { closeAllKbDbs, evictKbDb } from "./kb-db";
+import { mirrorDirFor } from "./mirror";
 import { kbDbPath } from "./paths";
 
 type KbPhase = NonNullable<KbInfo["progress"]>["phase"];
@@ -212,6 +213,14 @@ export class KnowledgeStore {
           console.warn(`[knowledge] 删库遗留文件未清掉: ${f}`, err);
         }
       }
+    }
+    // mirror 目录（md 副本 + _assets 外联图片）与 db 文件同属库级资产，一并清掉；
+    // force+recursive 对不存在的目录幂等（从未转过索引的库没有该目录）
+    const mirrorDir = mirrorDirFor(this.waPiDir, id);
+    try {
+      rmSync(mirrorDir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn(`[knowledge] 删库遗留 mirror 目录未清掉: ${mirrorDir}`, err);
     }
     // 登记行已删，回调清理绑定中的悬挂引用（回调自身失败不阻断删除流程）
     for (const cb of this.onKbDeletedCbs) {
