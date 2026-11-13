@@ -231,6 +231,13 @@ export interface McpProbeEvent {
   /** 登录态（仅可能走 OAuth 的台下发，语义与列表条目同） */
   signedIn?: boolean;
 }
+/** 浏览器安装进度（仅内置 agent-browser 使用）：start → line×N → done/error */
+export interface McpInstallProgressEvent {
+  type: "mcp:installProgress";
+  phase: "start" | "line" | "done" | "error";
+  message?: string;
+}
+
 export interface McpTestResult {
   type: "mcp:testResult";
   serverName: string;

@@ -20,6 +20,7 @@ import { join } from "node:path";
 import {
   WA_PI_DIR,
   SYSTEM_PROJECT_ID,
+  BUILTIN_MCP_NAME,
   KernelError,
   toKernelPayload,
 } from "@wa-pi/shared";
@@ -37,6 +38,13 @@ import type { McpFile } from "../mcp-file";
 import type { ProjectStore } from "../project-store";
 import { McpTrustStore } from "../mcp-trust";
 import { migrateProjectMcpFile } from "../mcp-migrate";
+import { builtinAgentBrowserEntry } from "../mcp-builtin";
+import { resolveAgentBrowserBinary } from "../agent-browser-session";
+import {
+  checkBrowserReadiness,
+  installBrowser,
+  type BrowserStatus,
+} from "../agent-browser-runtime";
 import {
   DEFAULT_LOGIN_TIMEOUT_SEC,
   MAX_LOGIN_TIMEOUT_SEC,
@@ -159,6 +167,8 @@ export interface McpServerEntry extends McpServerConfig {
    * 否则前端只画「登出」按钮，用户没有重新授权的入口（pi 的 login 支持覆盖失效凭据）。
    */
   signedIn?: boolean;
+  /** 内置 agent-browser 条目：UI 隐藏删除/编辑，只留启停 switch */
+  builtin?: boolean;
 }
 
 /** GET /api/mcp 的响应体：配置清单 + 状态读取层的元信息（规格 §8 的 stale 语义） */
@@ -201,6 +211,18 @@ export interface McpHandlers {
    * 与 login 不同，它没有「等待用户」的阶段，走 HTTP 回包比走 SSE 直接。
    */
   logout(input: { projectId?: string; serverName: string }): Promise<void>;
+  /** 内置条目物化（幂等）：启动与每次列表读取前调用 */
+  ensureBuiltin(): Promise<void>;
+  /** 内置条目停用/启用（只改 enabled） */
+  setEnabled(input: {
+    projectId?: string;
+    serverName: string;
+    enabled: boolean;
+  }): Promise<void>;
+  /** 浏览器就绪三态（doctor --offline --quick --json） */
+  browserStatus(): Promise<BrowserStatus>;
+  /** 触发浏览器下载（后台执行，进度经 SSE mcp:installProgress）；已在进行返回 started:false */
+  startBrowserInstall(): Promise<{ started: boolean }>;
 }
 
 /**
@@ -374,14 +396,70 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
   }
 
 
-  return {
+  let installingBrowser = false;
+
+  const handlers: McpHandlers = {
+    ensureBuiltin: async () => {
+      await deps.mcpFile.ensureBuiltin(
+        builtinAgentBrowserEntry(resolveAgentBrowserBinary() ?? "agent-browser"),
+      );
+    },
+
+    async setEnabled({ projectId, serverName, enabled }) {
+      await deps.mcpFile.setEnabled(serverName, enabled, projectId);
+      deps.invalidateCaches();
+      broadcastChanged(projectId);
+    },
+
+    async browserStatus() {
+      const binary = resolveAgentBrowserBinary();
+      if (!binary) return { state: "unknown", message: "agent-browser 未安装" };
+      return await checkBrowserReadiness(binary);
+    },
+
+    async startBrowserInstall() {
+      if (installingBrowser) return { started: false };
+      const binary = resolveAgentBrowserBinary();
+      if (!binary) {
+        throw new KernelError("mcp.agentBrowserMissing");
+      }
+      installingBrowser = true;
+      void (async () => {
+        deps.broadcast({ type: "mcp:installProgress", phase: "start" });
+        try {
+          await installBrowser(binary, (line) =>
+            deps.broadcast({ type: "mcp:installProgress", phase: "line", message: line }),
+          );
+          await deps.mcpFile.ensureBuiltin(builtinAgentBrowserEntry(binary));
+          deps.invalidateCaches();
+          deps.broadcast({ type: "mcp:installProgress", phase: "done" });
+        } catch (e) {
+          deps.broadcast({
+            type: "mcp:installProgress",
+            phase: "error",
+            message: e instanceof Error ? e.message : String(e),
+          });
+        } finally {
+          installingBrowser = false;
+        }
+      })();
+      return { started: true };
+    },
+
     list: async (projectId) => {
       // 立即回**配置骨架**（带登录态，无运行态、stale=true），不等任何一台服务器：
       // 状态由后台并发池逐台探测（每台独立 3s 截止），完成一台广播一台（mcp:probe），
       // 前端逐台亮灯；全部结束后 mcp:changed 收尾清掉「状态未知」横幅。
+      await handlers.ensureBuiltin();
       const configs = await deps.mcpFile.list(projectId);
       const signedInKeys = await readMcpAuthKeys(deps.piSpawn.agentDir);
-      const servers = configs.map((c) => entryWithSignedIn({ ...c }, undefined, signedInKeys));
+      const servers = configs.map((c) =>
+        entryWithSignedIn(
+          { ...c, ...(c.name === BUILTIN_MCP_NAME ? { builtin: true } : {}) },
+          undefined,
+          signedInKeys,
+        ),
+      );
       void probeAllAndBroadcast(projectId, configs).catch(() => {
         // 后台探测的失败不升级为未处理拒绝：GUI 下次进面板仍会重新拉清单
       });
@@ -537,6 +615,7 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
       broadcastChanged(projectId);
     },
   };
+  return handlers;
 }
 
 export function createMcpRoutes(deps: McpRouteDeps): RouteRegistrar {
@@ -631,6 +710,37 @@ export function createMcpRoutes(deps: McpRouteDeps): RouteRegistrar {
         return mcpErrorResponse(e);
       }
       return Response.json({ ok: true });
+    });
+
+    // ---- 内置 agent-browser：启停 / 浏览器就绪 / 安装 ----
+    r.add("POST", "/api/mcp/:serverName/enabled", async (req, p) => {
+      const b = await readJsonBody(req);
+      if (typeof b.enabled !== "boolean") {
+        return paramErrorResponse("enabled 必须是布尔值", "enabled");
+      }
+      try {
+        await handlers.setEnabled({
+          serverName: p.serverName,
+          projectId: b.projectId,
+          enabled: b.enabled,
+        });
+      } catch (e) {
+        return mcpErrorResponse(e);
+      }
+      return Response.json({ ok: true });
+    });
+
+    r.add("GET", "/api/mcp/agent-browser/status", async () => {
+      return Response.json(await handlers.browserStatus());
+    });
+
+    r.add("POST", "/api/mcp/agent-browser/install", async () => {
+      try {
+        const res = await handlers.startBrowserInstall();
+        return Response.json(res, { status: res.started ? 202 : 409 });
+      } catch (e) {
+        return mcpErrorResponse(e);
+      }
     });
 
     // ---- 测试连接 / 列工具：结果只走 SSE（见 handlers），HTTP 仅表示「已受理」----
