@@ -49,6 +49,16 @@ export interface KbFailure {
  */
 const kbFailures = new Map<string, KbFailure[]>();
 
+/** 同一文件只留一条最终失败原因：mirror 转换失败的中间记录被降级路径的结果覆盖 */
+function recordFileFailure(kbId: string, relPath: string, reason: string): void {
+	const list = kbFailures.get(kbId);
+	if (!list) return;
+	const i = list.findIndex((f) => f.path === relPath);
+	if (i >= 0) list[i] = { path: relPath, reason };
+	else list.push({ path: relPath, reason });
+}
+
+
 /** 最近一轮索引的失败文件清单（无记录/库不存在返回空数组） */
 export function getKbFailures(kbId: string): KbFailure[] {
   return kbFailures.get(kbId) ?? [];
@@ -305,12 +315,10 @@ export async function runIndex(
           copiedCount++;
           mirrorImageCount += conv.ok ? conv.images.length : 0;
         } else {
-          // 转换失败（或转换成功但副本读回失败——极端 IO）：记 failed 清单（规格决策 2）后降级
+          // 转换失败（或转换成功但副本读回失败——极端 IO）：记 failed 清单（规格决策 2）后降级；
+          // 降级抽取若也失败，此中间记录会被最终原因覆盖（recordFileFailure 同文件去重）
           degradedCount++;
-          kbFailures.get(kbId)?.push({
-            path: file.relPath,
-            reason: conv.ok ? "mirror 副本读回失败（转换已落盘）" : `mirror 转换降级: ${conv.reason}`,
-          });
+          recordFileFailure(kbId, file.relPath, conv.ok ? "mirror 副本读回失败（转换已落盘）" : `mirror 转换降级: ${conv.reason}`);
         }
       }
       if (text === null) {
@@ -319,12 +327,10 @@ export async function runIndex(
           text = (await extractText(file.absPath, file.type)).text;
         } catch (err) {
           // 单文件失败不拖垮整轮（规格 §6.3）；extraction_failed 由抽取阶段产生，计入跳过统计；
-          // 失败文件及原因就地记入内存清单（GET /api/knowledge/:id/failed 读取，任务 10）
+          // 失败文件及原因就地记入内存清单（GET /api/knowledge/:id/failed 读取，任务 10）；
+          // 同文件只留一条最终原因（覆盖 mirror 转换失败的中间记录），清单与 failed_count 一致
           failedCount++;
-          kbFailures.get(kbId)?.push({
-            path: file.relPath,
-            reason: err instanceof Error ? err.message : String(err),
-          });
+          recordFileFailure(kbId, file.relPath, err instanceof Error ? err.message : String(err));
           skipStats.extraction_failed = (skipStats.extraction_failed ?? 0) + 1;
           filesDone++;
           ctx.store.updateJobProgress(kbId, { phase: "extracting", filesDone, skipStats: { ...skipStats } });
