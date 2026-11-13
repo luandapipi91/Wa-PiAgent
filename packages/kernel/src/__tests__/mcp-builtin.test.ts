@@ -49,3 +49,13 @@ test("setEnabled 只改 enabled", async () => {
   expect(entry.enabled).toBe(false);
   expect(entry.command).toBe("/abs/agent-browser");
 });
+
+test("全局 mcp.json 损坏时跳过物化，不抛错也不覆写", async () => {
+  const { globalPath, file } = await setup();
+  await writeFile(globalPath, "{ 损坏的内容");
+  // 启动链 await ensureBuiltin：坏文件不能让 kernel 起不来（审查 Important #1）
+  const result = await file.ensureBuiltin(builtinAgentBrowserEntry("/abs/agent-browser"));
+  expect(result).toEqual({ created: false, repaired: false });
+  // 坏文件原样保留：覆写会把用户自定义条目连同损坏内容一起清掉，等用户修复后下次启动自然补回
+  expect(await readFile(globalPath, "utf8")).toBe("{ 损坏的内容");
+});

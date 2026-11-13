@@ -220,7 +220,21 @@ export class McpFile {
   ): Promise<{ created: boolean; repaired: boolean }> {
     const path = await this.resolvePath();
     return await serializeByPath(path, async () => {
-      const cfg = await this.read(path);
+      let cfg: RawFile;
+      try {
+        cfg = await this.read(path);
+      } catch (e: unknown) {
+        // 坏文件不物化也不覆写：覆写会把用户自定义条目连同损坏内容一起清掉；
+        // 跳过本次（文件修好后下次启动自然补回），不能让启动链因配置损坏而崩。
+        if (e instanceof KernelError && e.code === "mcp.configParseFailed") {
+          console.warn(
+            `[kernel] mcp.json 损坏，跳过内置条目物化（修复文件后重启应用会自动补回）: ${path}`,
+            e,
+          );
+          return { created: false, repaired: false };
+        }
+        throw e;
+      }
       const previous = cfg.mcpServers[input.name];
       const enabled = previous?.enabled === false ? false : true;
       const { name: _name, ...rest } = input;
