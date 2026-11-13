@@ -11,6 +11,16 @@ import { dirname, join, relative } from "node:path";
 
 const DATA_URI_RE = /!\[([^\]]*)\]\(data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)\)/g;
 
+/**
+ * 从 md 落盘位置到目标文件/目录的相对引用形态（编排层构造 sink.relPrefix 共用此函数，避免两处转义漂移）：
+ * / 归一后整段 encodeURI（空格→%20、中文→%XX），再显式转义 URL/markdown destination 结构字符
+ * （# → %23 fragment 分隔符、? → %3F query 分隔符、( ) → %28 %29 防止 destination 被裸括号截断）
+ */
+export function relativeRef(fromAbs: string, toAbs: string): string {
+  return encodeURI(relative(dirname(fromAbs), toAbs).split("\\").join("/"))
+    .replace(/\(/g, "%28").replace(/\)/g, "%29").replace(/#/g, "%23").replace(/\?/g, "%3F");
+}
+
 /** mime → 扩展名：jpg 规范化为 jpeg，svg+xml 规范化为 svg，其余取子类型 */
 function extOf(mime: string): string {
   const sub = mime.slice("image/".length).toLowerCase();
@@ -41,10 +51,7 @@ export function externalizeImages(
     mkdirSync(imgDir, { recursive: true });
     writeFileSync(imgPath, Buffer.from(b64, "base64"));
     written.push(imgPath);
-    // md 相对引用：/ 归一后整段 encodeURI，再显式转义 URL/markdown destination 结构字符
-    // （# → %23 fragment 分隔符、? → %3F query 分隔符、( ) → %28 %29 防止 destination 被裸括号截断）
-    const ref = encodeURI(relative(dirname(mdOutPath), imgPath).split("\\").join("/"))
-      .replace(/\(/g, "%28").replace(/\)/g, "%29").replace(/#/g, "%23").replace(/\?/g, "%3F");
+    const ref = relativeRef(mdOutPath, imgPath);
     return `![${alt}](${ref})`;
   });
   return { markdown: out, images: written };
