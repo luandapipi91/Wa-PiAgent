@@ -121,9 +121,12 @@ test("新文件: 转换落盘 mirror, 块 file_path=源相对路径, FTS 可检�
   expect(existsSync(mdPath)).toBe(true);
   // 块 file_path = 源相对路径（非副本路径）
   expect(countChunks("顾客列表.docx")).toBeGreaterThan(0);
-  // FTS 可检索 altChunk 正文（此前 extractText 抽不出来的内容——质量提升断言）
+  // FTS 可检索 altChunk 正文（此前 extractText 抽不出来的内容——质量提升断言）。
+  // 任务 9 起 hit.filePath 为副本内路径（源 rel + ".md"），源路径改由 sourcePath 携带
   const res = await searchKnowledge(ctx, [kbId], "查询对象", { mode: "fast" });
-  expect(res.results.some((h) => h.filePath === "顾客列表.docx")).toBe(true);
+  const altHit = res.results.find((h) => h.sourcePath === "顾客列表.docx");
+  expect(altHit).toBeTruthy();
+  expect(altHit!.filePath).toBe("顾客列表.docx.md");
   // mirror_meta 统计落库：本轮 converted=1（图片样本含外联图）
   const meta = store.getMirrorMeta(kbId);
   expect(meta).not.toBeNull();

@@ -12,8 +12,9 @@
 //      块向量另从 chunks.embedding 回读，供 MMR 的向量冗余通道使用；
 //   4. 上游只暴露 warnings/found 语义，Wa-Pi 额外保留 skippedKbs（逐个库给出跳过原因）。
 import type { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
 import { stat as fsStat } from "node:fs/promises";
-import { resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import type {
   KbInfo,
   KbSearchHit,
@@ -27,6 +28,7 @@ import { embedQuery } from "../memory/embedder";
 import { knowledgeFingerprint } from "./fingerprint";
 import type { KbContext } from "./index";
 import { KbDbMissingError, openKbDbExisting } from "./kb-db";
+import { mirrorDirFor, mirrorMdPath } from "./mirror";
 import { buildAdaptiveContext, pushAdaptiveCandidate } from "./search/adaptive";
 import { searchBM25 } from "./search/bm25";
 import { MAX_SEARCH_WINDOW, throwIfAborted, type RankChunk } from "./search/contracts";
@@ -670,12 +672,26 @@ export async function searchKnowledge(
       match_reason: matchReasonFor(requestedMode),
       source_chunk_ids: entry.sourceChunkIds,
     };
+    // 副本出参：有 markdown 副本的文件，filePath 指向副本内路径（源 rel + ".md"）、
+    // filePathAbs 指向副本绝对路径（副本在 mirror 目录下不在库根下，kbFolderPath + filePath
+    // 拼不出来，必须单独携带）；sourcePath 恒为源相对路径。
+    // 降级抽取等无副本文件维持既有出参：filePath=源相对路径、filePathAbs=源绝对路径拼接。
+    const srcRel = entry.chunk.filePath;
+    const mirrorAbs = mirrorMdPath(mirrorDirFor(ctx.waPiDir, entry.chunk.kbId), srcRel);
+    const hasMirror = existsSync(mirrorAbs);
+    const kbFolder = entry.kbFolderPath ?? kbFolderOf(entry.chunk.kbId);
     return {
       kbId: entry.chunk.kbId,
       kbName: entry.kbName,
       kbFolderPath: entry.kbFolderPath ?? kbFolderOf(entry.chunk.kbId),
       content: entry.content,
-      filePath: entry.chunk.filePath,
+      filePath: hasMirror ? srcRel + ".md" : srcRel,
+      sourcePath: srcRel,
+      ...(hasMirror
+        ? { filePathAbs: mirrorAbs }
+        : kbFolder
+          ? { filePathAbs: join(kbFolder, srcRel) }
+          : {}),
       fileType: entry.chunk.fileType,
       title: entry.chunk.title ?? null,
       breadcrumb: entry.chunk.breadcrumb ?? null,

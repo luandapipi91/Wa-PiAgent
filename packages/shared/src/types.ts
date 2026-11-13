@@ -266,10 +266,17 @@ export interface KbSearchProvenance {
 export interface KbSearchHit {
 	kbId: string;
 	kbName: string;
-	/** 库根绝对路径：与 filePath 拼起来即绝对路径（模型读文件不必先 find） */
+	/** 库根绝对路径：与 sourcePath 拼起来即源文件绝对路径（无副本时与 filePath 相同） */
 	kbFolderPath: string;
 	content: string;
+	/** 模型可读文件的路径：有 markdown 副本时为副本内相对路径（sourcePath + ".md"，
+	 *  相对 mirror 目录），无副本时为源相对路径（= sourcePath，既有语义不变） */
 	filePath: string;
+	/** 源文件相对库根的路径（= chunks.file_path）：按文件查库 / 换算源绝对路径用 */
+	sourcePath?: string;
+	/** markdown 副本绝对路径（有副本时才有）：副本在 <waPiDir>/knowledge/<kbId>/mirror/ 下，
+	 *  不在库根下（kbFolderPath + filePath 拼不出来），必须单独携带 */
+	filePathAbs?: string;
 	/** 归一后的上游文件类型词汇：markdown / text / html / docx / pdf … */
 	fileType: string;
 	title: string | null;
