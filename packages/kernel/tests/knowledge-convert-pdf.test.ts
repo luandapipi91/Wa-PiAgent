@@ -119,6 +119,29 @@ function assemblePdf(objects: string[]): string {
   return p;
 }
 
+/**
+ * 无文本层 + /Length 缺陷 image 对象的 PDF（无文本层骨架，image 对象不挂 Resources）：
+ * - "indirect"：/Length 5 0 R 间接引用（obj5 存流长 10）——修复前 dict 正则 /Length\s+(\d+)
+ *   误读为首数字 5，DCTDecode 不过 inflate，静默切出 5 字节假流产出损坏 data URI（零告警）；
+ * - "missing"：dict 直接缺 /Length——修复前 continue 静默跳过，零图零告警。
+ */
+function makeBadLengthPdf(mode: "indirect" | "missing"): string {
+  const junk = "J".repeat(10); // 10 字节假流（与间接长度对象的值一致）
+  const dictBody =
+    mode === "indirect"
+      ? `/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length 5 0 R`
+      : `/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
+    streamObj("BT ET"),
+    ...(mode === "indirect" ? ["10"] : []), // obj5：间接长度对象（值 = 假流字节数）
+    `<< ${dictBody} >>\nstream\n${junk}\nendstream`,
+  ];
+  return assemblePdf(objects);
+}
+
 describe("pdf 双路径", () => {
   test("有文本层: 直接返回文本 markdown", async () => {
     const pdfPath = makeMinimalPdf("你好 世界");
@@ -142,5 +165,19 @@ describe("pdf 双路径", () => {
     const r = await convertPdfSmart(corruptPdfPath, sink);
     expect(r.warnings.some((w) => w.includes("不可解码"))).toBe(true);
     expect(r.markdown).not.toContain("## 第 1 页");
+  });
+
+  test("I-1: /Length 间接引用(DCTDecode) → warning 跳过，不产 data URI", async () => {
+    const r = await convertPdfSmart(makeBadLengthPdf("indirect"), sink);
+    expect(r.via).toBe("pdf(内嵌图片提取)");
+    expect(r.warnings.some((w) => w.includes("不可解码"))).toBe(true);
+    expect(r.markdown).not.toContain("data:image/jpeg");
+  });
+
+  test("I-2: dict 缺 /Length → warning 跳过，不产 data URI", async () => {
+    const r = await convertPdfSmart(makeBadLengthPdf("missing"), sink);
+    expect(r.via).toBe("pdf(内嵌图片提取)");
+    expect(r.warnings.some((w) => w.includes("不可解码"))).toBe(true);
+    expect(r.markdown).not.toContain("data:image/jpeg");
   });
 });
