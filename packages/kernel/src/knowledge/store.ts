@@ -60,6 +60,14 @@ export interface KbJob {
   createdAt: number;
 }
 
+/** mirror 转换统计（knowledge_bases.mirror_meta 列的 JSON 结构；indexer 整轮收尾写入） */
+export interface MirrorMeta {
+  converterVersion: number; // 写入时的转换器版本（CONVERTER_VERSION），据以判断是否需要重转
+  converted: number; // 本轮成功转换（有副本）的文件数
+  degraded: number; // 本轮降级（无副本，原文直读索引）的文件数
+  images: number; // 本轮外联落盘的图片总数
+}
+
 interface KbRow {
   id: string;
   name: string;
@@ -115,6 +123,7 @@ export class KnowledgeStore {
    *   · indexing_jobs.chunks_total（embedding 阶段进度）
    *   · indexing_jobs.owner / heartbeat_at（卡死判定按 owner 失联 + 心跳）
    *   · knowledge_bases.last_error（失败原因上界面）
+   *   · knowledge_bases.mirror_meta / last_snapshot（mirror 转换统计 / 目录快照基线）
    */
   private migrateJobTable(): void {
     const ensure = (table: string, column: string, ddl: string) => {
@@ -127,6 +136,8 @@ export class KnowledgeStore {
     ensure("indexing_jobs", "owner", "owner TEXT");
     ensure("indexing_jobs", "heartbeat_at", "heartbeat_at INTEGER");
     ensure("knowledge_bases", "last_error", "last_error TEXT");
+    ensure("knowledge_bases", "mirror_meta", "mirror_meta TEXT");
+    ensure("knowledge_bases", "last_snapshot", "last_snapshot TEXT");
   }
 
   /** 记录/清空最近一次整轮索引失败原因（成功收尾传 null） */
@@ -290,6 +301,37 @@ export class KnowledgeStore {
       | { embed_meta: string | null }
       | null;
     return row?.embed_meta ?? null;
+  }
+
+  /** 读上一轮 mirror 转换统计；未写入或列内不是合法 JSON（手改/残留脏数据）一律视为 null */
+  getMirrorMeta(kbId: string): MirrorMeta | null {
+    const row = this.db.query(`SELECT mirror_meta FROM knowledge_bases WHERE id = ?`).get(kbId) as
+      | { mirror_meta: string | null }
+      | null;
+    if (!row?.mirror_meta) return null;
+    try {
+      return JSON.parse(row.mirror_meta) as MirrorMeta;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 写上一轮 mirror 转换统计（JSON 序列化落 mirror_meta 列；indexer 整轮收尾时调用） */
+  setMirrorMeta(kbId: string, meta: MirrorMeta): void {
+    this.db.run(`UPDATE knowledge_bases SET mirror_meta = ? WHERE id = ?`, [JSON.stringify(meta), kbId]);
+  }
+
+  /** 读目录快照基线（离线变更补偿用）；未设置为 null。快照串格式由 watcher 层定义，本层透传不解析 */
+  getLastSnapshot(kbId: string): string | null {
+    const row = this.db.query(`SELECT last_snapshot FROM knowledge_bases WHERE id = ?`).get(kbId) as
+      | { last_snapshot: string | null }
+      | null;
+    return row?.last_snapshot ?? null;
+  }
+
+  /** 写目录快照基线（watcher/索引收尾时调用）；本层透传不解析，格式由调用方定义 */
+  setLastSnapshot(kbId: string, snapshot: string): void {
+    this.db.run(`UPDATE knowledge_bases SET last_snapshot = ? WHERE id = ?`, [snapshot, kbId]);
   }
 
   /**

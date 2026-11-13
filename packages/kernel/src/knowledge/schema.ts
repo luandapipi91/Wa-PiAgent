@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
   auto_watch INTEGER NOT NULL DEFAULT 1, -- 目录变更自动重建索引（用户可关）
   last_indexed_at INTEGER,
   last_error TEXT,                -- 最近一次整轮索引失败的原因（成功一轮后清空；旧库由 store 迁移补列）
+  mirror_meta TEXT,               -- JSON {converterVersion,converted,degraded,images}：上一轮 mirror 转换统计（indexer 收尾写入；旧库由 store 迁移补列）
+  last_snapshot TEXT,             -- 离线期间的目录快照基线（watcher 续接与离线变更补偿用；旧库由 store 迁移补列）
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS indexing_jobs (

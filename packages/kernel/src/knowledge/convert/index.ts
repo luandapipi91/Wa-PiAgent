@@ -52,6 +52,9 @@ const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fen
  * @param srcRel    源文件相对知识库根的路径（含扩展名，决定 md/assets 落盘位置）
  * @param mirrorDir mirror 根目录（md 落 <mirrorDir>/<srcRel>.md，图落 <mirrorDir>/_assets/<srcRel>/）
  * @returns 成功给 ConvertOutcome，失败给 ConvertFailure；任何异常不外漏
+ *
+ * 输入契约：无扩展名的二进制文件由 scan 层拦截（不入可索引集合），本函数不做二进制探测——
+ * 无扩展名输入一律按 txt 直通处理。
  */
 export async function convertToMirror(
   srcAbs: string,
