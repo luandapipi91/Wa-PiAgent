@@ -11,7 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore, resetJobOwnerStateForTest } from "../src/knowledge/store";
@@ -163,5 +163,40 @@ describe("检索/读取指向副本", () => {
     expect(hit).toBeTruthy();
     expect(hit!.filePath).toBe("broken.docx"); // 无副本 → 不加 .md 后缀
     expect(hit!.filePathAbs).toBe(join(srcDir, "broken.docx"));
+  });
+});
+
+// I-1 路径遍历防御（最终审查）：filePath 外部输入直通 readMirrorMd 的候选路径——
+// 守卫后绝对路径与 .. 段一律读不出 mirror 外文件（防御在 mirror.ts 三入口统一实现）
+describe("filePath 路径遍历防御", () => {
+  test("filePath 含 .. 段 → 不读出 mirror 外文件", async () => {
+    await buildConvertedKb();
+    // mirror 外诱饵：.. 串用 relative(mirrorRoot, target) 精确构造——守卫失效时
+    // readMirrorMd(join(mirrorDir, rel)) 恰好解析到诱饵，真的读得出机密（RED 确定性）
+    const outside = mkdtempSync(join(tmpdir(), "kb-read-outside-"));
+    try {
+      const target = join(outside, "victim-secret.md");
+      writeFileSync(target, "机密内容不应被读出");
+      const rel = relative(mirrorRoot(), target);
+      const res = await readKnowledge(ctx, [kbId], { filePath: rel });
+      // 不返回 mirror 外内容（found=false 走 file_not_found，或命中库内正常副本但 content 不含诱饵）
+      if (res.found) expect(res.content).not.toContain("机密内容不应被读出");
+      else expect(res.reason).toBe("file_not_found");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("filePath 绝对路径指向 mirror 外 → 不读出外部文件", async () => {
+    await buildConvertedKb();
+    const outside = mkdtempSync(join(tmpdir(), "kb-read-outside2-"));
+    try {
+      writeFileSync(join(outside, "victim-secret.md"), "机密内容不应被读出");
+      const res = await readKnowledge(ctx, [kbId], { filePath: join(outside, "victim-secret.md") });
+      if (res.found) expect(res.content).not.toContain("机密内容不应被读出");
+      else expect(res.reason).toBe("file_not_found");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

@@ -12,6 +12,7 @@ import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -24,6 +25,7 @@ import { runIndex, getKbFailures, type KbContext, type EmbedFn } from "../src/kn
 import { searchKnowledge } from "../src/knowledge/search";
 import { mirrorDirFor, mirrorMdPath } from "../src/knowledge/mirror";
 import { CONVERTER_VERSION } from "../src/knowledge/convert";
+import { runDoctor } from "../src/knowledge/doctor";
 import { closeAllKbDbs, openKbDb } from "../src/knowledge/kb-db";
 import { kbQuantizedScan } from "../src/knowledge/vector";
 import { EMBED_DIM } from "../src/memory/schema";
@@ -249,4 +251,63 @@ test("快筛命中且 hash 全命中轮零嵌入调用", async () => {
   const spy = mock(fakeEmbed);
   await runIndex(ctx, kbId, spy); // 源未变 → 快筛命中读副本重切 → hash 全命中 → 不重嵌
   expect(spy.mock.calls.length).toBe(0);
+});
+
+// ===== 最终审查修复（C-1 / I-2 / I-3）=====
+
+// C-1 回归锁：正常索引 → 源替换为损坏 docx（转换失败降级）→ 旧副本必须被清（规格决策 2
+// 「降级且无副本」），否则下一轮快筛命中读到旧副本、块内容静默回退旧版且永不自愈
+test("转换降级清旧副本: 无副本不变量, 后续轮不回退旧内容", async () => {
+  copyFileSync(join(FIX, "docx-altchunk.docx"), join(srcDir, "victim.docx"));
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(countChunks("victim.docx")).toBeGreaterThan(0);
+  expect(existsSync(mirrorMdPath(mirrorRoot(), "victim.docx"))).toBe(true);
+  // 源替换为损坏 docx（mtime/size 变 → 快筛不命中）→ 转换失败降级
+  writeFileSync(join(srcDir, "victim.docx"), makeBrokenDocxBuffer());
+  const r2 = await runIndex(ctx, kbId, fakeEmbed);
+  expect(r2.ok).toBe(true);
+  // 降级后无副本（修复前旧副本残留 → 红）
+  expect(existsSync(mirrorMdPath(mirrorRoot(), "victim.docx"))).toBe(false);
+  expect(countChunks("victim.docx")).toBeGreaterThan(0); // 降级抽取有产出
+  // 下一轮源未变（快筛命中）：不得读到旧副本把块内容回退旧版
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(existsSync(mirrorMdPath(mirrorRoot(), "victim.docx"))).toBe(false);
+  // 块内容维持降级抽取产出（修复前会回退成旧副本的 markdown，不含「兜底抽取」串）
+  withKbDb((db) => {
+    const n = (db.query("SELECT count(*) c FROM chunks WHERE content LIKE '%兜底抽取%'").get() as { c: number }).c;
+    expect(n).toBeGreaterThan(0);
+  });
+});
+
+// I-2 回归锁：重转换清旧 assets——8 图 → 1 图后 assets 目录只剩 1 文件、doctor 无孤儿报告
+test("重转换清旧 assets: 8图→1图后 assets 只剩新图, doctor 无孤儿", async () => {
+  copyFileSync(join(FIX, "docx-normal.docx"), join(srcDir, "multi.docx"));
+  await runIndex(ctx, kbId, fakeEmbed);
+  const assetsDir = join(mirrorRoot(), "_assets", "multi.docx");
+  const before = readdirSync(assetsDir).length;
+  expect(before).toBeGreaterThan(1); // 8 图样本
+  // 源替换为 1 图样本 → 重转换（快筛不命中）
+  copyFileSync(join(FIX, "docx-altchunk.docx"), join(srcDir, "multi.docx"));
+  const r2 = await runIndex(ctx, kbId, fakeEmbed);
+  expect(r2.ok).toBe(true);
+  expect(readdirSync(assetsDir).length).toBe(1); // 修复前残留 8 个（红）
+  // doctor 不报孤儿 assets
+  const report = await runDoctor(ctx);
+  const orphanIssues = report.issues.filter((i) => /_assets 资源目录/.test(i.message));
+  expect(orphanIssues).toEqual([]);
+});
+
+// I-3 回归锁：mirror_meta.converted 为存量口径（库内有副本的文件总数）——
+// 零变更轮不减（修复前 = 本轮增量 0 → 红）、增量消化新文件后 +1
+test("mirror_meta.converted 存量口径: 零变更轮不减, 增量后累加", async () => {
+  copyFileSync(join(FIX, "docx-altchunk.docx"), join(srcDir, "a.docx"));
+  writeFileSync(join(srcDir, "b.txt"), "纯文本内容甲。");
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(store.getMirrorMeta(kbId)!.converted).toBe(2); // 首轮全量 = 存量 2
+  await runIndex(ctx, kbId, fakeEmbed); // 零变更轮：快筛命中副本全在
+  expect(store.getMirrorMeta(kbId)!.converted).toBe(2); // 修复前 = 0（红）
+  writeFileSync(join(srcDir, "c.txt"), "新增文本乙。");
+  await runIndex(ctx, kbId, fakeEmbed);
+  expect(store.getMirrorMeta(kbId)!.converted).toBe(3); // 存量 3
+  expect(store.getMirrorMeta(kbId)!.degraded).toBe(0);
 });

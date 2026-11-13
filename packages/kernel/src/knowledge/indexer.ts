@@ -273,7 +273,7 @@ export async function runIndex(
     // ===== 阶段 2/3：抽取 + 切块（全部在内存完成，落库推迟到 commit——commit 前不对外可见）=====
     // mirror 副本目录（规格 §5.3）：快筛命中以副本为准重切，变更/副本缺失转换落盘，降级走旧抽取
     const mirrorDir = mirrorDirFor(ctx.waPiDir, kbId);
-    let convertedCount = 0; // 本轮成功转换（拿到副本）的文件数 → mirror_meta
+    let copiedCount = 0; // 库内有副本的文件总数（存量口径）→ mirror_meta.converted（审查 I-3）
     let degradedCount = 0; // 本轮降级（无副本，走旧抽取）的文件数 → mirror_meta
     let mirrorImageCount = 0; // 本轮外联落盘图片总数 → mirror_meta
     const plans: FilePlan[] = [];
@@ -288,15 +288,21 @@ export async function runIndex(
         // 智能体具备写文件能力，镜像可能被误写）；下方逐块 content_hash 命中的块不重嵌。
         // 副本缺失（外部删除/上一轮降级）→ 走下方转换重建（Ruling-5）。
         text = readMirrorMd(mirrorDir, file.relPath);
+        if (text !== null) copiedCount++;
       }
       if (text === null) {
+        // 重转换前清旧副本与旧 assets（幂等）：转换成功避免旧图残留（审查 I-2：8图→1图
+        // 重转后 assets 只剩新图）；转换失败降级保证「无副本」不变量（审查 C-1/规格决策 2）
+        // ——否则旧副本残留，下一轮快筛命中读到旧副本、块内容静默回退旧版且永不自愈。
+        // 副本源 rel 来自扫描清单（可信），守卫不拦此路径
+        removeMirrorFile(mirrorDir, file.relPath);
         // 新增/变更（或副本缺失重建）：转换落盘 mirror 后读副本（md/txt 直通复制也走此，
         // 保证 mirror 完整性）；任何失败收敛为降级信号，不外漏异常（编排层契约）
         const conv = await convertToMirror(file.absPath, file.relPath, mirrorDir);
         const md = conv.ok ? readMirrorMd(mirrorDir, file.relPath) : null;
         if (md !== null) {
           text = md;
-          convertedCount++;
+          copiedCount++;
           mirrorImageCount += conv.ok ? conv.images.length : 0;
         } else {
           // 转换失败（或转换成功但副本读回失败——极端 IO）：记 failed 清单（规格决策 2）后降级
@@ -456,10 +462,11 @@ export async function runIndex(
       embedMeta: fingerprint,
       lastIndexedAt: Date.now(),
     });
-    // mirror 转换统计（§6 决策 5）：本轮转换/降级计数与图片总数，任务 11 前端展示副本状态
+    // mirror 转换统计（§6 决策 5）：converted 为存量口径（库内有副本的文件总数，前端 KbCard
+    // 按「副本 N」存量渲染，审查 I-3）；degraded/images 为本轮增量（最近一轮的降级与外联统计）
     ctx.store.setMirrorMeta(kbId, {
       converterVersion: CONVERTER_VERSION,
-      converted: convertedCount,
+      converted: copiedCount,
       degraded: degradedCount,
       images: mirrorImageCount,
     });

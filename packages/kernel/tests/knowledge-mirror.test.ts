@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   mirrorDirFor,
   mirrorMdPath,
@@ -64,6 +64,35 @@ describe("mirror 路径与新鲜度", () => {
     writeFileSync(join(m, "a.md"), "正文甲");
     expect(readMirrorMd(m, "a")).toBe("正文甲");
     expect(readMirrorMd(m, "不存在")).toBeNull();
+  });
+
+  // I-1 路径遍历防御：srcRel 为绝对路径或含 .. 段时统一拒绝（三个入口一致），
+  // 外部输入（knowledge_read filePath 等）不得触碰 mirror 目录外的文件。
+  // .. 串用 path.relative(m, target) 精确构造：守卫失效时 join(m, rel) 恰好解析到诱饵，
+  // 破坏面锁死在诱饵目录内（removeMirrorFile 未守卫时是递归删除，不可用失控 .. 串测）
+  test("srcRel 安全守卫: 绝对路径与 .. 段拒绝, 目标文件不被触碰", () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), "kb-mirror-outside-"));
+    try {
+      const target = join(outsideDir, "victim-secret.md");
+      writeFileSync(target, "机密内容");
+      writeFileSync(join(m, "real.md"), "正常副本");
+      const rel = relative(m, target); // 精确 .. 串：join(m, rel) === target
+      const relNoMd = rel.replace(/\.md$/, "");
+      expect(join(m, rel)).toBe(target); // 构造自检
+      // readMirrorMd: 绝对路径与 .. 段 → null（读不出 mirror 外文件）
+      expect(readMirrorMd(m, target)).toBeNull();
+      expect(readMirrorMd(m, rel)).toBeNull();
+      // isMirrorFresh: 同样拒绝 → false
+      expect(isMirrorFresh(m, target, 0, 0)).toBe(false);
+      expect(isMirrorFresh(m, relNoMd, 0, 0)).toBe(false);
+      // removeMirrorFile: 静默跳过，mirror 外目标不被删
+      expect(() => removeMirrorFile(m, relNoMd)).not.toThrow();
+      expect(existsSync(target)).toBe(true);
+      // 正常路径不受影响
+      expect(readMirrorMd(m, "real")).toBe("正常副本");
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 });
 
