@@ -231,7 +231,7 @@ export const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
 	browser_close: "关闭浏览器视图，释放浏览器资源",
 	preview_open: "把网址或本地 html 送到用户的内置预览面板",
 	// 以下不在 DEFAULT_AGENT_TOOLS 里（按场景显式放行），一并给简介便于清单展示
-	knowledge_search: "在智能体绑定的知识库中检索文档片段",
+	knowledge_search: "在智能体绑定的知识库中检索文档片段（命中返回 markdown 副本路径与源路径）",
 	im_push_to: "把任务结果推送给指定 IM 联系人",
 	list_contacts: "列出可用的 IM 联系人及其所属渠道",
 };
