@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { makeDefaultAgentConfig } from "../src/agent-md";
@@ -304,5 +304,66 @@ partners:
   // 旧格式 agent 被迁移
   expect(filesAfter).toContain("旧智能体");
 
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ===== 内置 agent-browser MCP 存量回填（默认打开）=====
+
+test("migrateAgentBrowserTools：受限白名单缺 agent-browser 条目则补通配", async () => {
+  const dir = tempAgentsDir();
+  writeFileSync(
+    join(dir, "受限.md"),
+    `---\ndisplayName: 受限\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\ntools: [read, grep]\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`,
+  );
+  const store = new ConfigStore(dir);
+  const migrated = await store.migrateAgentBrowserTools();
+  expect(migrated).toEqual(["受限"]);
+  const raw = readFileSync(join(dir, "受限.md"), "utf8");
+  expect(raw).toContain("mcp__agent_browser__*");
+  const back = await store.getAgent("受限");
+  expect(back?.tools).toContain("mcp__agent_browser__*");
+  expect(back?.tools).toContain("read"); // 原条目保留
+  expect(back?.tools).toContain("grep");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("migrateAgentBrowserTools：tools 为空的智能体不动（默认全放行本就可用）", async () => {
+  const dir = tempAgentsDir();
+  writeFileSync(
+    join(dir, "全放行.md"),
+    `---\ndisplayName: 全放行\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\ntools: []\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`,
+  );
+  const store = new ConfigStore(dir);
+  const migrated = await store.migrateAgentBrowserTools();
+  expect(migrated).toEqual([]);
+  const raw = readFileSync(join(dir, "全放行.md"), "utf8");
+  expect(raw).not.toContain("mcp__agent_browser__*");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("migrateAgentBrowserTools：已有 agent-browser 条目则跳过（字节不变，幂等）", async () => {
+  const dir = tempAgentsDir();
+  const raw1 = `---\ndisplayName: 已配\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\ntools: [read, mcp__agent_browser__navigate]\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`;
+  writeFileSync(join(dir, "已配.md"), raw1);
+  const store = new ConfigStore(dir);
+  const migrated = await store.migrateAgentBrowserTools();
+  expect(migrated).toEqual([]);
+  expect(readFileSync(join(dir, "已配.md"), "utf8")).toBe(raw1);
+  // 再跑一轮（幂等）
+  expect(await store.migrateAgentBrowserTools()).toEqual([]);
+  expect(readFileSync(join(dir, "已配.md"), "utf8")).toBe(raw1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("migrateAgentBrowserTools：损坏文件跳过不崩，其余照常迁移", async () => {
+  const dir = tempAgentsDir();
+  writeFileSync(join(dir, "坏.md"), "这不是 frontmatter {{{");
+  writeFileSync(
+    join(dir, "好的.md"),
+    `---\ndisplayName: 好的\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\ntools: [read]\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`,
+  );
+  const store = new ConfigStore(dir);
+  const migrated = await store.migrateAgentBrowserTools();
+  expect(migrated).toEqual(["好的"]);
   rmSync(dir, { recursive: true, force: true });
 });
