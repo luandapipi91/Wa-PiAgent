@@ -5,6 +5,7 @@ import {
   EMBEDDER_IDLE_UNLOAD_MS,
   acquireEmbedderKeepAlive,
   embedderKeepAliveCountForTest,
+  embedderLoadAttemptsForTest,
   embedDocuments,
   embedQuery,
   embedFingerprint,
@@ -107,6 +108,25 @@ test.skipIf(modelUnavailable)("preloadModel 预热成功：初始化触发下载
 test("模型不可用时返回 null 而不抛错", async () => {
   resetEmbedderForTest({ failNextLoad: true });
   expect(await embedQuery("任意文本")).toBeNull();
+});
+
+// —— 失败重试语义（粘性缺陷修复：一次失败不再永久禁用到重启）—— 离线可跑，不挂门 ——
+test("加载失败后不永久粘死：限频窗口过后下一次调用重新尝试加载", async () => {
+  resetEmbedderForTest({ failNextLoad: true, retryAfterMs: 0 });
+  expect(await embedDocuments(["x"])).toHaveLength(0); // 首次失败（failNextLoad 注入）
+  expect(embedderLoadAttemptsForTest()).toBe(0);       // 注入失败不计入真实加载尝试
+  // 窗口过后重新尝试加载：无论本次成功（模型可用环境）还是再次失败（离线），
+  // 「真的重新加载了」才是被锁定的行为——旧实现的永久粘死在这里 attempts 恒为 0
+  const second = await embedDocuments(["x"]);
+  expect(embedderLoadAttemptsForTest()).toBe(1);
+  if (!modelUnavailable) expect(second).toHaveLength(1);
+});
+
+test("失败后的限频窗口内不重试（防高频轮询打爆加载器）", async () => {
+  resetEmbedderForTest({ failNextLoad: true, retryAfterMs: 60_000 });
+  expect(await embedDocuments(["x"])).toHaveLength(0); // 首次失败
+  expect(await embedDocuments(["x"])).toHaveLength(0); // 窗口内静默快速失败，不重新加载
+  expect(embedderLoadAttemptsForTest()).toBe(0);
 });
 
 // ---------------------------------------------------------------------------

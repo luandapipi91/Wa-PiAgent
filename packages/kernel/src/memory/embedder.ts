@@ -26,6 +26,15 @@ let state: LoadState = { status: "idle" };
 let loadPromise: Promise<FeatureExtractionPipeline | null> | null = null;
 let failNextLoad = false;
 let queryCalls = 0;
+// 加载失败后的重试限频窗口：窗口内直接返回 null 不重试（防高频轮询打爆加载器），
+// 窗口过后下一次调用重新尝试加载——失败不再永久粘死（否则一次瞬态失败会禁用语义检索到重启）。
+let EMBEDDER_RETRY_MS = 10_000;
+let failedAt = 0;
+let loadAttempts = 0;
+/** 测试探针：getPipeline 实际发起加载的次数（区分「静默粘死」与「真的重试了」） */
+export function embedderLoadAttemptsForTest(): number {
+  return loadAttempts;
+}
 
 // —— 空闲自动卸载（性能优化：模型常驻 ~110-180MB，空闲 5 分钟卸载、用时重载 ~400ms）——
 /** 空闲多久后卸载模型；下次使用自动重载（缓存热加载 ~300-400ms） */
@@ -61,11 +70,13 @@ export function embedderKeepAliveCountForTest(): number {
 }
 
 /** 测试用：重置单例状态 */
-export function resetEmbedderForTest(opts: { failNextLoad?: boolean } = {}): void {
+export function resetEmbedderForTest(opts: { failNextLoad?: boolean; retryAfterMs?: number } = {}): void {
   pipe = null;
   state = { status: "idle" };
   loadPromise = null;
   failNextLoad = opts.failNextLoad ?? false;
+  EMBEDDER_RETRY_MS = opts.retryAfterMs ?? EMBEDDER_RETRY_MS;
+  loadAttempts = 0;
   queryCalls = 0;
   lastUsedAt = 0;
   inflight = 0;
@@ -171,16 +182,19 @@ function ensureIdleTimer(): void {
 }
 
 async function getPipeline(): Promise<FeatureExtractionPipeline | null> {
-  if (state.status === "failed") return null;
   if (pipe) return pipe;
   if (loadPromise) return loadPromise;
+  // 失败后的限频窗口：窗口内不重试（静默快速失败），窗口过后重新尝试加载并记录失败原因
+  if (state.status === "failed" && Date.now() - failedAt < EMBEDDER_RETRY_MS) return null;
 
-  loadPromise = (async () => {
+  const p = (async () => {
     if (failNextLoad) {
       failNextLoad = false;
       state = { status: "failed" };
+      failedAt = Date.now();
       return null;
     }
+    loadAttempts++;
     try {
       const { pipeline, env } = await import("@huggingface/transformers");
       // 国内网络必须走镜像；海外用户走官方源。允许用环境变量覆盖。
@@ -206,10 +220,17 @@ async function getPipeline(): Promise<FeatureExtractionPipeline | null> {
       return pipe;
     } catch (err) {
       state = { status: "failed" };
-      console.error("[memory-semantic] embedding 模型加载失败，语义检索将被禁用：", err);
+      failedAt = Date.now();
+      console.error("[memory-semantic] embedding 模型加载失败，本次返回空并将在约 10 秒后自动重试：", err);
       return null;
     }
   })();
+  // 加载结束（成败皆然）清掉 loadPromise：失败不再永久粘死，下一次调用（超过限频窗口）会重新尝试加载。
+  // 必须在「外层赋值之后」清理——async 体内部清会被外层赋值覆盖（时序陷阱，测试已锁）。
+  void p.finally(() => {
+    if (loadPromise === p) loadPromise = null;
+  });
+  loadPromise = p;
 
   return loadPromise;
 }
