@@ -100,7 +100,7 @@ async function extractDocxText(absPath: string): Promise<ExtractedText> {
 }
 
 /** pdf：unpdf（内嵌 pdf.js）抽全部页文本合并（惰性加载）；损坏结构由 getDocumentProxy/extractText 抛错 */
-async function extractPdfText(absPath: string): Promise<ExtractedText> {
+export async function extractPdfText(absPath: string): Promise<ExtractedText> {
 	const buffer = readBufferOrThrow(absPath);
 	try {
 		const { extractText: pdfExtractText, getDocumentProxy } = await import("unpdf");

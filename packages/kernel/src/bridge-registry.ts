@@ -492,8 +492,11 @@ async function handleKnowledgeSearch(
     results: res.results.map((h) => ({
       content: h.content,
       file_path: h.filePath,
-      // 绝对路径：模型拿到后可直接 read，不必再 find/grep 定位（docx/pdf 需配合 knowledge_read）
-      file_path_abs: h.kbFolderPath ? join(h.kbFolderPath, h.filePath) : null,
+      // 绝对路径：模型拿到后可直接 read，不必再 find/grep 定位（docx/pdf 需配合 knowledge_read）。
+      // search 层已按「副本存在与否」填好 filePathAbs（有副本 → mirror 目录下的 .md 绝对路径；
+      // 无副本 → 不填，退回源路径拼接 kbFolderPath + sourcePath），旧出参无新字段时行为不变
+      file_path_abs:
+        h.filePathAbs ?? (h.kbFolderPath ? join(h.kbFolderPath, h.sourcePath ?? h.filePath) : null),
       title: h.title,
       breadcrumb: h.breadcrumb,
       lines:

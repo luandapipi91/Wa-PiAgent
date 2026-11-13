@@ -510,6 +510,8 @@ const zh = {
 		chunkCount: "{{count}} 块",
 		lastIndexedAt: "上次索引：{{time}}",
 		neverIndexed: "从未索引",
+		statusMirror: "副本 {{converted}} · 降级 {{degraded}}",
+		statusMirrorHint: "本轮外联落盘图片 {{images}} 张 · 转换器版本 {{version}}",
 		autoWatch: "自动更新",
 		autoWatchHint: "源目录变化时自动重建索引",
 		editButton: "编辑",

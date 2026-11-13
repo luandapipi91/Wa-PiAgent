@@ -262,7 +262,7 @@ export const KB_SEARCH_DESCRIPTION =
 
 export const KB_SEARCH_SNIPPET =
   "Search knowledge bases (hybrid is lexical-anchored BM25 + semantic fusion); 12 modes / 8 profiles, paging and metadata filters. " +
-  "Hits return content/file_path/title/breadcrumb/lines/kb_name/score (plus stale/mode/rerank_used when applicable).";
+  "Hits return content/file_path (the mirror markdown path: source path + \".md\"; original path in source_path)/title/breadcrumb/lines/kb_name/score (plus stale/mode/rerank_used when applicable).";
 
 /** knowledge_search 参数——kernel 工具与 pi bridge 扩展共用同一份定义。 */
 export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
@@ -355,7 +355,7 @@ export const KB_SEARCH_PARAMS_SCHEMA = Type.Object({
 export const KB_READ_DESCRIPTION =
   "Read the extracted text of a knowledge-base file (or a chunk's neighbourhood) instead of opening the raw file. " +
   "Knowledge bases index PDF/DOCX/PDF/HTML/TXT/MD files by extracting their text; the original file may be binary and unreadable by the read tool. " +
-  "Call this after knowledge_search when you need the full document or more surrounding context: pass the hit's `file_path` (relative to the KB root) or its `chunk_id`. " +
+  "Call this after knowledge_search when you need the full document or more surrounding context: pass the hit's `file_path` (the mirror markdown path: the source path + \".md\") or its `chunk_id`. " +
   "Absolute paths are also accepted (file_path_abs from knowledge_search). " +
   "Returns the extracted text plus the relative/absolute path and line range.";
 
@@ -366,7 +366,7 @@ export const KB_READ_PARAMS_SCHEMA = Type.Object({
   file_path: Type.Optional(
     Type.String({
       description:
-        "File path inside the knowledge base: relative to the KB root (as returned in knowledge_search hits) or absolute (file_path_abs).",
+        "Path inside the knowledge base: the mirror markdown path (source path + \".md\", as returned in knowledge_search hits), the source relative path, or absolute (file_path_abs).",
     }),
   ),
   chunk_id: Type.Optional(

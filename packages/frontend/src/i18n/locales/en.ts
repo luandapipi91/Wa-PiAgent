@@ -525,6 +525,8 @@ const en = {
 		chunkCount: "{{count}} chunks",
 		lastIndexedAt: "Last indexed: {{time}}",
 		neverIndexed: "Never indexed",
+		statusMirror: "Mirror {{converted}} · degraded {{degraded}}",
+		statusMirrorHint: "{{images}} images saved this run · converter version {{version}}",
 		autoWatch: "Auto-update",
 		autoWatchHint: "Re-index automatically when the source folder changes",
 		editButton: "Edit",

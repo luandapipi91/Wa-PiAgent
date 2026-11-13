@@ -80,7 +80,11 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let fsWatcher: FSWatcher | null = null;
-  let lastSnapshot: string | null = null; // relPath+mtime+size 联合键（快照已排序；null=基线未就绪）
+  // relPath+mtime+size 联合键（快照已排序；null=基线未就绪）。
+  // 基线持久化（§6 决策 9）：初值续接上次成功索引时持久化的快照——软件关闭期间的源变更
+  // 不被重拍吞掉，重启后首轮轮询 diff 即发现差异并自动补偿索引；无持久化基线（null）
+  // 维持现状拍新基线，不误触发。
+  let lastSnapshot: string | null = ctx.store.getLastSnapshot(kbId);
   let suppressedSnapshot: string | null = null; // 取消那一刻的目录快照：同批变更不再自动触发（尊重用户取消），
   // 出现新变更（快照变化）后照常触发——此时基线仍是旧值，全量快筛会把遗留变更一并消化
   let pendingReport = false; // 有未消化的变更已排队（schedule 置位、索引消化后复位）——轮询同一差异只上报一次，
@@ -169,6 +173,9 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
       if (!stopped) {
         if (allOk) {
           lastSnapshot = await takeSnapshot();
+          // 基线同步持久化（§6 决策 9）：下次挂载续接，离线变更可补偿；取消/失败分支不持久化
+          // （差异信号保留语义不变——变更未被消化前，轮询的差异信号必须保持）
+          ctx.store.setLastSnapshot(kbId, lastSnapshot);
           suppressedSnapshot = null;
           pendingReport = false; // 变更已消化：轮询可恢复上报新差异
         } else {
@@ -217,12 +224,15 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
     fsWatcher = null;
   }
 
-  // 挂载即拍基线快照（异步；基线未就绪前轮询只建基线不判变更，防止误触发）
-  void guardedSnapshot()
-    .then((s) => {
-      if (!stopped && s !== null) lastSnapshot = s;
-    })
-    .catch(() => {}); // 目录暂不可读：下轮轮询再建基线
+  // 挂载即拍基线快照（异步；基线未就绪前轮询只建基线不判变更，防止误触发）。
+  // 持久化基线已续接（lastSnapshot 非空）则不重拍——重拍会把离线变更吞进基线、永不补偿（§6 决策 9）
+  if (lastSnapshot === null) {
+    void guardedSnapshot()
+      .then((s) => {
+        if (!stopped && s !== null && lastSnapshot === null) lastSnapshot = s;
+      })
+      .catch(() => {}); // 目录暂不可读：下轮轮询再建基线
+  }
 
   // 60s 兜底轮询：快照有差异 → 防抖槽触发（基线不在此推进——变更未被索引消化前差异信号
   // 必须保持，否则 trigger 遭重入拒绝后轮询永远不再兜回）；无差异但 job 卡死

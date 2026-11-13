@@ -158,6 +158,25 @@ export function KbCard({
         </span>
       </div>
 
+      {/* 副本行（任务 11）：有 mirror 转换统计才渲染；旧库（无 mirror_meta）不渲染整行。
+          口径提醒：failed（索引失败）与 degraded（转换降级）不同，此处只展示 converted/degraded */}
+      {kb.mirrorMeta && (
+        <div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
+          <span
+            data-testid={`kb-mirror-${kb.id}`}
+            title={t("kb.statusMirrorHint", {
+              images: kb.mirrorMeta.images,
+              version: kb.mirrorMeta.converterVersion,
+            })}
+          >
+            {t("kb.statusMirror", {
+              converted: kb.mirrorMeta.converted,
+              degraded: kb.mirrorMeta.degraded,
+            })}
+          </span>
+        </div>
+      )}
+
       {/* 关联智能体行：整行可点击 → 打开关联弹窗；名称超长单行省略，悬停 title 看全量。
           索引中置灰（与编辑/重建一致）；未关联时显示占位文案，仍可点击去关联 */}
       {agentNames !== undefined && (
