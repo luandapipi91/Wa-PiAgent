@@ -110,6 +110,9 @@ test("libvipsLibDir 存在 → 注入 DYLD_FALLBACK_LIBRARY_PATH（与既有值�
     }) as any;
     const saved = process.env.DYLD_FALLBACK_LIBRARY_PATH;
     if (prevEnv !== undefined) process.env.DYLD_FALLBACK_LIBRARY_PATH = prevEnv;
+    // 无 prevEnv 时清掉继承值：从 wa-pi 应用内部跑测试会继承宿主注入的
+    // DYLD_FALLBACK_LIBRARY_PATH（runtime/native/sharp-libvips），污染「无既有值」断言
+    else delete process.env.DYLD_FALLBACK_LIBRARY_PATH;
     try {
       await startSidecar({
         isPackaged: false,
