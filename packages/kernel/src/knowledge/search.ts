@@ -677,7 +677,7 @@ export async function searchKnowledge(
     // 拼不出来，必须单独携带）；sourcePath 恒为源相对路径。
     // 降级抽取等无副本文件维持既有出参：filePath=源相对路径、filePathAbs=源绝对路径拼接。
     const srcRel = entry.chunk.filePath;
-    const mirrorAbs = mirrorMdPath(mirrorDirFor(ctx.waPiDir, entry.chunk.kbId), srcRel);
+    const mirrorAbs = mirrorMdPath(mirrorDirFor(kbFolderOf(entry.chunk.kbId) || entry.kbFolderPath || ""), srcRel);
     const hasMirror = existsSync(mirrorAbs);
     const kbFolder = entry.kbFolderPath ?? kbFolderOf(entry.chunk.kbId);
     return {

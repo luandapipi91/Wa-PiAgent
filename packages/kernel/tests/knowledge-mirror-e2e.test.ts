@@ -226,7 +226,7 @@ test(
 		expect(meta.images).toBeGreaterThanOrEqual(1); // docx MHT 的 image part 外联
 
 		// ── 断言 ②：mirror 目录文件系统——副本 md 存在、含源正文、_assets 图片存在 ──
-		const mirrorDir = mirrorDirFor(waPiDir, kbId);
+		const mirrorDir = mirrorDirFor(srcDir);
 		const docxMd = join(mirrorDir, "docx-altchunk.docx.md");
 		expect(existsSync(docxMd), `docx 副本存在：${docxMd}`).toBe(true);
 		const docxMdText = readFileSync(docxMd, "utf8");

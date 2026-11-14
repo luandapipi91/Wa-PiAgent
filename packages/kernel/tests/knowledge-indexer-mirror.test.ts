@@ -59,7 +59,7 @@ afterEach(() => {
 });
 
 function mirrorRoot(): string {
-  return mirrorDirFor(waPiDir, kbId);
+  return mirrorDirFor(srcDir);
 }
 
 /** 打开每库 db 跑断言后立刻关闭（Windows 文件占用：用完自关） */

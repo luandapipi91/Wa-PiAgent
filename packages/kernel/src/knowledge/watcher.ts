@@ -12,6 +12,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { runIndex, type EmbedFn, type IndexResult } from "./indexer";
 import { scanFolderAsync } from "./scan";
+import { RESOURCE_DIR_NAME } from "./mirror";
 import type { KbContext } from "./index";
 
 export const DEFAULT_POLL_INTERVAL_MS = 60_000;
@@ -215,7 +216,17 @@ export function watchKb(ctx: KbContext, kbId: string, opts: WatchKbOptions = {})
   // fs.watch 加速器：递归监听（Windows 原生支持）；事件回调不区分事件类型——
   // 变更细节交给 runIndex 增量快筛判定。监听失效（error）由轮询兜底，静默不中断。
   try {
-    fsWatcher = watch(folder, { recursive: true }, () => schedule());
+    fsWatcher = watch(folder, { recursive: true }, (_event, changedPath) => {
+      // 「知识库资源」目录（markdown 副本）的事件忽略：副本是派生中间产物，
+      // 它的写入不该被当成源变更（否则每次索引写副本都会多触发一轮空转索引）。
+      // filename 为 null（部分平台/事件）时保守放行走既有防抖+快照对比链路。
+      if (
+        typeof changedPath === "string" &&
+        changedPath.split(/[\\/]/)[0] === RESOURCE_DIR_NAME
+      )
+        return;
+      schedule();
+    });
     fsWatcher.on("error", (err) => {
       console.warn(`[knowledge] fs.watch 监听失效，60s 轮询兜底 (kbId=${kbId}):`, err);
     });

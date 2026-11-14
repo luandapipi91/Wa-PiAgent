@@ -217,6 +217,9 @@ export class KnowledgeStore {
   deleteKb(id: string): void {
     // bun:sqlite 默认 foreign_keys=OFF，ON DELETE CASCADE 不生效，必须显式删
     this.db.run(`DELETE FROM indexing_jobs WHERE kb_id = ?`, [id]);
+    // 副本目录在【源文件夹】下（知识库资源），删行前先取 folderPath 定位
+    const kbRow = this.getKb(id);
+    const kbMirrorDir = kbRow ? mirrorDirFor(kbRow.folderPath) : null;
     this.db.run(`DELETE FROM knowledge_bases WHERE id = ?`, [id]);
     // 先关缓存连接再删文件：Windows 上句柄占用会让 unlinkSync 静默失败，
     // 留下登记行已删、db 文件成孤儿的半删除状态（S7）。传 path：只关本目录下该库的连接
@@ -232,13 +235,14 @@ export class KnowledgeStore {
         }
       }
     }
-    // mirror 目录（md 副本 + _assets 外联图片）与 db 文件同属库级资产，一并清掉；
-    // force+recursive 对不存在的目录幂等（从未转过索引的库没有该目录）
-    const mirrorDir = mirrorDirFor(this.waPiDir, id);
-    try {
-      rmSync(mirrorDir, { recursive: true, force: true });
-    } catch (err) {
-      console.warn(`[knowledge] 删库遗留 mirror 目录未清掉: ${mirrorDir}`, err);
+    // mirror 目录（md 副本 + _assets 外联图片）在【源文件夹】下（知识库资源），随库一并清掉；
+    // force+recursive 幂等（库行缺失/从未转过索引时无目录可删，跳过）
+    if (kbMirrorDir) {
+      try {
+        rmSync(kbMirrorDir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn(`[knowledge] 删库遗留 mirror 目录未清掉: ${kbMirrorDir}`, err);
+      }
     }
     // 登记行已删，回调清理绑定中的悬挂引用（回调自身失败不阻断删除流程）
     for (const cb of this.onKbDeletedCbs) {

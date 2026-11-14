@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 function mirrorRoot(): string {
-  return mirrorDirFor(waPiDir, kbId);
+  return mirrorDirFor(srcDir);
 }
 
 /**

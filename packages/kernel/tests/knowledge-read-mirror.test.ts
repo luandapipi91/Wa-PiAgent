@@ -51,7 +51,7 @@ afterEach(() => {
 });
 
 function mirrorRoot(): string {
-  return mirrorDirFor(waPiDir, kbId);
+  return mirrorDirFor(srcDir);
 }
 
 /** 建一个含 markdown 副本的库（docx-altchunk fixture，转换通道产出副本 + altChunk 正文） */

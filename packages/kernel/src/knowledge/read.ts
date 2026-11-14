@@ -106,7 +106,7 @@ export async function readKnowledge(
 		} catch {
 			continue; // 库文件缺失/损坏：跳过该库，找下一个
 		}
-		const mirrorDir = mirrorDirFor(ctx.waPiDir, id);
+		const mirrorDir = mirrorDirFor(kb.folderPath);
 
 		// chunkId 模式：仍读 chunks（±N 块的行窗上下文按块切，副本全文替代不了）；
 		// 库里有该文件的 markdown 副本时 filePathAbs 指向副本，模型想读全文可顺着它读

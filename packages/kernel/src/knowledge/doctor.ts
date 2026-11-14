@@ -90,7 +90,7 @@ function assetDirs(assetsRoot: string, prefix = ""): string[] {
 }
 
 /** 扫描单库 mirror 副本与索引的对齐情况（全量遍历，与诊断层逐文件 statSync 同风格） */
-function scanKbMirror(waPiDir: string, kbId: string): MirrorScan | null {
+function scanKbMirror(waPiDir: string, folderPath: string, kbId: string): MirrorScan | null {
 	// 索引文件清单：chunks 去重 file_path；库打不开时静默跳过
 	let indexed: string[];
 	try {
@@ -103,7 +103,7 @@ function scanKbMirror(waPiDir: string, kbId: string): MirrorScan | null {
 		return null;
 	}
 	const indexedSet = new Set(indexed);
-	const mirrorDir = mirrorDirFor(waPiDir, kbId);
+	const mirrorDir = mirrorDirFor(folderPath);
 	const assetsRoot = join(mirrorDir, "_assets");
 	const scan: MirrorScan = {
 		degraded: [],
@@ -261,7 +261,7 @@ export async function runDoctor(ctx: KbContext): Promise<DoctorReport> {
 			});
 		}
 		// mirror 副本完整性（任务 10）：四类问题都可自愈或无害，全 info 级，列清单提示
-		const scan = scanKbMirror(ctx.waPiDir, kb.id);
+		const scan = scanKbMirror(ctx.waPiDir, kb.folderPath, kb.id);
 		if (scan) {
 			if (scan.degraded.length > 0) {
 				issues.push({

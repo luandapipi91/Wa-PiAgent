@@ -1,13 +1,18 @@
-// mirror 目录管理：<kbId>/mirror/ 下按源相对路径存放 markdown 副本与外联图片。
-// 目录形态与每库 db 同级：<waPiDir>/knowledge/<kbId>/mirror/，md 落 <mirrorDir>/<srcRel>.md，
-// 图片落 <mirrorDir>/_assets/<srcRel>/（与 convert/index.ts 编排器的落盘约定同源）。
+// mirror 目录管理：markdown 副本与外联图片存放在【源文件夹】下的「知识库资源」目录
+// （<folderPath>/知识库资源/，跟随源文件夹、对用户可见可管理），md 按源相对路径镜像
+// （<资源目录>/<srcRel>.md），图片外联落 <资源目录>/_assets/<srcRel>/
+// （与 convert/index.ts 编排器的落盘约定同源）。
+// 该目录必须在扫描层整棵排除（scan.ts）：副本是派生中间产物，不得被当作源文件索引，
+// 否则「写副本→watcher 感知→重索引→再写副本」会形成递归死循环。
 import { readFileSync, rmSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
-import { kbDbPath } from "./paths";
+import { isAbsolute, join } from "node:path";
 
-/** mirror 根目录：与每库 db 文件 <kbId>.db 同级（<waPiDir>/knowledge/<kbId>/mirror） */
-export function mirrorDirFor(waPiDir: string, kbId: string): string {
-  return join(dirname(kbDbPath(waPiDir, kbId)), kbId, "mirror");
+/** 知识库资源目录名（源文件夹下，md 副本与外联图片都放这里） */
+export const RESOURCE_DIR_NAME = "知识库资源";
+
+/** mirror 根目录：<源文件夹>/知识库资源（跟随源文件夹，对用户可见可管理） */
+export function mirrorDirFor(folderPath: string): string {
+  return join(folderPath, RESOURCE_DIR_NAME);
 }
 
 /** 源文件对应的副本 md 路径：srcRel + ".md"（srcRel 为相对知识库根、含扩展名的路径） */

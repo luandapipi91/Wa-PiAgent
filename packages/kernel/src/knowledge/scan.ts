@@ -22,6 +22,7 @@ import {
 } from "node:fs";
 import { open as openAsync, readdir as readdirAsync, stat as statAsync } from "node:fs/promises";
 import { join } from "node:path";
+import { RESOURCE_DIR_NAME } from "./mirror";
 
 /** 单文件索引上限：10 MiB（规格硬性，不可绕过） */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -299,6 +300,9 @@ async function walkScan(
       const childRel = relDir ? `${relDir}/${dirent.name}` : dirent.name;
       const childAbs = join(absDir, dirent.name);
       if (dirent.isDirectory()) {
+        // 根级「知识库资源」目录（markdown 副本）整棵静默跳过：它是派生中间产物，
+        // 索引/监控它会造成 递归死循环；不在 skips 里记录（对用户零噪音）
+        if (relDir === "" && dirent.name === RESOURCE_DIR_NAME) continue;
         if (isUserExcluded(childRel, normExcludes)) continue;
         if (matchSuggested(childRel)) {
           await recordSuggestedSubtree(childAbs, childRel);

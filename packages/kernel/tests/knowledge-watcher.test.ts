@@ -376,7 +376,7 @@ test("重启续接：持久化基线 A + 离线变更 → 重挂首轮轮询即�
   const w2 = watchKb(ctx, kbId, { embedFn: fakeEmbed, debounceMs: 100, pollIntervalMs: 200 });
   try {
     // 新文件被转换+分块：mirror 含副本、chunks 含新块
-    await waitFor(() => existsSync(mirrorMdPath(mirrorDirFor(waPiDir, kbId), "b-offline.txt")), 15_000);
+    await waitFor(() => existsSync(mirrorMdPath(mirrorDirFor(srcDir), "b-offline.txt")), 15_000);
     await waitFor(() => {
       const db = openKbDb(waPiDir, kbId);
       try {

@@ -282,7 +282,7 @@ export async function runIndex(
 
     // ===== 阶段 2/3：抽取 + 切块（全部在内存完成，落库推迟到 commit——commit 前不对外可见）=====
     // mirror 副本目录（规格 §5.3）：快筛命中以副本为准重切，变更/副本缺失转换落盘，降级走旧抽取
-    const mirrorDir = mirrorDirFor(ctx.waPiDir, kbId);
+    const mirrorDir = mirrorDirFor(kb.folderPath); // 副本跟随源文件夹（源文件夹下「知识库资源」目录）
     let copiedCount = 0; // 库内有副本的文件总数（存量口径）→ mirror_meta.converted（审查 I-3）
     let degradedCount = 0; // 本轮降级（无副本，走旧抽取）的文件数 → mirror_meta
     let mirrorImageCount = 0; // 本轮外联落盘图片总数 → mirror_meta
