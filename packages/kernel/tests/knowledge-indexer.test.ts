@@ -417,8 +417,12 @@ test("扫描结果归零突变拒绝本轮：目录瞬时挂空不删存量块�
   await runIndex(ctx, kbId, fakeEmbed);
   const before = chunkCount();
   expect(before).toBeGreaterThan(0);
-  // 模拟「网络盘/外置卷瞬时挂成空目录」：readdirSync 成功返回 0 项，不抛错
-  for (const f of readdirSync(srcDir)) unlinkSync(join(srcDir, f));
+  // 模拟「网络盘/外置卷瞬时挂成空目录」：readdirSync 成功返回 0 项，不抛错。
+  // 只清可索引文件：ab609fbd 起副本目录「知识库资源」在 srcDir 下（不是索引对象，unlink 对目录会 EPERM）
+  for (const f of readdirSync(srcDir, { withFileTypes: true })) {
+    if (f.isDirectory()) continue;
+    unlinkSync(join(srcDir, f.name));
+  }
   await expect(runIndex(ctx, kbId, fakeEmbed)).rejects.toThrow(/归零|为空/);
   // 存量块不得被删（修复前会被当成「所有文件都已删除」全删并置 ready）
   expect(chunkCount()).toBe(before);
