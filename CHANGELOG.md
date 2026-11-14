@@ -1,4 +1,5 @@
 ## 2026-11-14
+- chore(release): v0.10.3 发版——知识库文档副本迁移至源文件夹「知识库资源」目录 + 嵌入模型失败自动重试与出口诊断；mac zip 208095942 / win exe 187756288（双端，linux 不发与历届一致）
 - feat(knowledge): md 副本位置改为源文件夹下的「知识库资源」目录（用户诉求：跟随源文件夹、可见可管理）——mirrorDirFor 签名从 (waPiDir, kbId) 改为 (folderPath), 五处调用方同步；walkScan 根级资源目录整棵静默排除（副本是派生中间产物, 防写副本→watcher 感知→重索引递归死循环）；watcher fs.watch 回调忽略资源目录事件（副本写盘不再触发空转索引轮, dirty 用例实证 spy.calls 3→2）；deleteKb 清理源文件夹下资源目录（带「无其他库共用同 folderPath」守卫）；既有副本已手动迁移（b86b10c1 库 289 md + 2180 图 605MB 移至 慧来客需求文档备份/慧来客产品文档/知识库资源, 免重转换）
 - fix(kernel): embedding 加载失败不再永久粘死——限频窗口(10s)后自动重试并保留失败日志 + 推理出口校验与诊断（coerceEmbeddings: 输入/输出计数+模型+精度落日志）——桌面 kernel 曾出现「加载成功但推理空列表」的进程内状态问题静默无日志, 出口校验让真相必现；新增 5 用例（粘性消除/限频窗口/coerce 三分支）, 红→绿 20 pass 0 fail, tsc 0
 - chore(release): v0.10.2 发版——浏览器自动化升级（内置 agent-browser MCP）+ 知识库检索存储优化（Word/PDF/网页转 Markdown 副本）+ fix(knowledge) mirror 转换失败与降级抽取失败重复记 failed 清单；mac zip 208095783 / win exe 187755999（双端，linux 不发与历届一致）
