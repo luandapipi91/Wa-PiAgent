@@ -52,6 +52,9 @@ nsis:
   createStartMenuShortcut: true
   installerIcon: src/assets/icon.ico
   uninstallerIcon: src/assets/icon.ico
+  # 升级链路加固（2026-11-15 事故）：customInit 在 7z 解压前先删旧 kernel exe，
+  # 避免 nsis7z 覆盖被锁文件时静默跳过 → 壳新核旧
+  include: build/installer.nsh
 linux:
   target: [AppImage]
   icon: src/assets/icon.png

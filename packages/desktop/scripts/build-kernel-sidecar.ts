@@ -3,7 +3,8 @@
 // 不再下载 bun、不再有 kernel.js/bridge 文件/patches 复制。
 // 首启由 runtime-deps.cjs 用 BUN_BE_BUN=1（编译产物充当 bun CLI）动态安装磁盘依赖。
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	compileKernelBinary,
@@ -57,16 +58,43 @@ export const kernelRuntimeDependencies = (kernelPkg: {
 	// web-access 扩展提供，源码随内核 bundle 走 --asset，无需磁盘依赖）
 });
 
-/** 运行时 package.json（纯函数，便于测试断言） */
-export function buildRuntimeManifest() {
+/** 运行时 package.json（纯函数，便于测试断言）。
+ * version 必须传应用版本（desktop package.json，发版唯一升版点）：
+ * 2026-11-15 事故——恒用 kernelPkg.version（恒 0.1.5）导致壳新核旧静默共存数天
+ * 无从发现；现在它是启动时壳/核一致性自检的比对源。
+ * 打包写进 resources/kernel/package.json；关于页经 main.cjs 读 runtime/seed 的
+ * package.json.version 作为「内核版本」。 */
+export function buildRuntimeManifest(
+	appVersion: string,
+): {
+	name: string;
+	private: boolean;
+	version: string;
+	dependencies: Record<string, string>;
+} {
 	return {
 		name: "wa-pi-kernel-sidecar",
 		private: true,
-		// 内核版本管控源：随 packages/kernel/package.json 的 version 走（与 app 同版本发布）。
-		// 打包写进 resources/kernel/package.json；动态更新打包的 kernel zip 亦含此字段，
-		// 关于页经 main.cjs 读 runtime/seed 的 package.json.version 作为「内核版本」。
-		version: kernelPkg.version,
+		version: appVersion,
 		dependencies: kernelRuntimeDependencies(kernelPkg),
+	};
+}
+
+/** kernel 校验清单（纯函数，便于测试断言）：与 package.json 同目录落盘 manifest.json，
+ * 应用启动时逐项比对壳/核一致性（version + exe 大小；哈希仅诊断不参与启动比对）。 */
+export function buildKernelManifest(opts: {
+	version: string;
+	exeName: string;
+	exeSize: number;
+	exeSha256: string;
+}) {
+	return {
+		version: opts.version,
+		exe: {
+			name: opts.exeName,
+			size: opts.exeSize,
+			sha256: opts.exeSha256,
+		},
 	};
 }
 
@@ -89,6 +117,35 @@ export async function buildSidecar(
 	const kernelBinary = join(kernelDir, kernelBinaryName(target));
 	await compileKernelBinary(kernelBinary, target);
 
+	// 1b) 校验清单（壳/核一致性自检的真相源）：version 取应用版本（desktop package.json，
+	// 发版唯一升版点），exe 大小/哈希锁当次编译产物。NSIS 升级覆盖安装曾因 kernel 进程
+	// 锁文件被静默跳过（2026-11-15 事故），启动自检靠这份清单发现不一致并弹窗提示。
+	const appVersion = (
+		JSON.parse(await readFile(join(PKG, "package.json"), "utf8")) as {
+			version: string;
+		}
+	).version;
+	const exeStat = await stat(kernelBinary);
+	const exeSha256 = createHash("sha256")
+		.update(await readFile(kernelBinary))
+		.digest("hex");
+	await writeFile(
+		join(kernelDir, "manifest.json"),
+		JSON.stringify(
+			buildKernelManifest({
+				version: appVersion,
+				exeName: kernelBinaryName(target),
+				exeSize: exeStat.size,
+				exeSha256,
+			}),
+			null,
+			"\t",
+		),
+	);
+	console.log(
+		`[sidecar] manifest.json 已写入（version=${appVersion} size=${exeStat.size}）`,
+	);
+
 	// 2. 依赖清单（package.json + bun.lock）：仅磁盘必需的 external 包。
 	//    【只产出清单 + 锁文件，不打包 node_modules】——首启 BUN_BE_BUN=1 动态安装到
 	//    用户可写目录（runtime-deps.cjs），避免 .app 只读、减小安装包体积。
@@ -97,7 +154,7 @@ export async function buildSidecar(
 	//    首启安装带 --ignore-scripts（runtime-deps.cjs）→ 网络通即 100% 安装成功。
 	await writeFile(
 		join(kernelDir, "package.json"),
-		JSON.stringify(buildRuntimeManifest(), null, 2),
+		JSON.stringify(buildRuntimeManifest(appVersion), null, 2),
 	);
 	run("bun", ["install", "--cwd", kernelDir]); // 产出 bun.lock（--production 不生成锁文件）
 	await rm(join(kernelDir, "node_modules"), { recursive: true, force: true });

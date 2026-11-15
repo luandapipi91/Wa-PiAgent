@@ -71,6 +71,7 @@ async function startSidecar({
   //   waitForPortFn  替换 waitForPort（测试立即就绪，不真等端口）
   //   checkPortFn    替换探活 checkPort（测试恒健康，避免真探活/真杀）
   //   killFn         替换 killTree（测试记录被杀 pid，绝不真杀进程）
+  //   forceKillFn    替换 forceKill（stopAndWait 超时兑底强杀，测试同样只记录）
   //   respawnDelayMs 替换重启间隔（测试缩短，避免真等 2s）
   //   now            替换时钟（测试可控 createdAt，避免真时间不确定）
   //   isPortInUseFn      替换端口占用检测（测试注入，避免真探端口）
@@ -80,6 +81,7 @@ async function startSidecar({
     waitForPortFn = waitForPort,
     checkPortFn = checkPort,
     killFn = killTree,
+    forceKillFn = forceKill,
     respawnDelayMs = RESPAWN_DELAY_MS,
     now = Date.now,
     isPortInUseFn = isPortInUse,
@@ -302,6 +304,53 @@ async function startSidecar({
       if (pid == null)
         log.error("[kernel] stop 时无可用 pid（从未成功 spawn），跳过杀进程");
       else killFn(pid);
+    },
+    // 升级安装前的进程级退出确认：置停守护 → 杀进程树 → 等 exit 事件（Node 已确认进程
+    // 终止，映像锁随之释放）→ 超时强杀兑底再等一小段。2026-11-15 事故：旧流程 stop()
+    // 后只等端口释放（waitPortReleased 默认 3×200ms 假信号——Windows 上端口先关、进程
+    // 后死），NSIS 抢跑覆盖安装撞上未释放的 exe 映像锁，129MB kernel 被静默跳过 →
+    // 壳新核旧。返回 {exited, forced, waitedMs}；全程 best-effort，绝不 reject（调用方
+    // 不阻断安装）。返回值只能增不能改——stop 已有调用方使用。
+    stopAndWait: (opts = {}) => {
+      const timeoutMs = opts.timeoutMs ?? 8000;
+      const postForceMs = opts.postForceMs ?? 3000;
+      const startedAt = now();
+      respawnState.stopped = true;
+      if (healthTimer) clearInterval(healthTimer);
+      const pid = current?.pid ?? lastPid;
+      if (pid == null) {
+        log.error("[kernel] stopAndWait 无可用 pid（从未成功 spawn），跳过杀进程");
+        return Promise.resolve({ exited: true, forced: false, waitedMs: 0 });
+      }
+      killFn(pid);
+      const childObj = current;
+      const waitExit = () =>
+        new Promise((resolve) => {
+          if (!childObj || childExited) return resolve(true);
+          childObj.once("exit", () => resolve(true));
+        });
+      const waitOr = (ms) =>
+        new Promise((resolve) => {
+          const t = setTimeout(() => resolve(false), ms);
+          if (t.unref) t.unref();
+        });
+      return (async () => {
+        let forced = false;
+        let exited = await Promise.race([waitExit(), waitOr(timeoutMs)]);
+        if (!exited) {
+          forced = true;
+          log.error(
+            `[kernel] stopAndWait ${timeoutMs}ms 未确认退出，强杀兑底 pid=${pid}`,
+          );
+          forceKillFn(pid);
+          exited = await Promise.race([waitExit(), waitOr(postForceMs)]);
+        }
+        const waitedMs = now() - startedAt;
+        log.info(
+          `[kernel] stopAndWait 完成 exited=${exited} forced=${forced} waited=${waitedMs}ms`,
+        );
+        return { exited, forced, waitedMs };
+      })();
     },
   };
 }

@@ -570,7 +570,18 @@ app.whenReady().then(async () => {
 			isUpdating = true;
 			try {
 				const sc = sidecar;
-				if (sc) sc.stop();
+				// 升级前必须等 kernel 进程真正退出（exit 事件级）：端口释放 ≠ 进程退出，
+				// Windows 上映像锁在进程完全终止后才释放——旧流程只等 waitPortReleased
+				//（默认 600ms 假信号），NSIS 抢跑覆盖安装撞锁，129MB kernel exe 被静默
+				// 跳过 → 壳新核旧（2026-11-15 事故根因）。stopAndWait 不可用时（旧 fake）退回 stop()。
+				if (sc && sc.stopAndWait) {
+					const r = await sc.stopAndWait({ timeoutMs: 8000 });
+					log.info(
+						`[updater] kernel 已停止 exited=${r.exited} forced=${r.forced} waited=${r.waitedMs}ms`,
+					);
+				} else if (sc) {
+					sc.stop();
+				}
 				const released = await waitPortReleased(FIXED_PORT);
 				if (!released) {
 					log.error(`[updater] 升级前端口 ${FIXED_PORT} 未在预期窗口内释放`);
@@ -803,6 +814,38 @@ app.whenReady().then(async () => {
 				`[kernel] 未找到编译产物 packages/kernel/dist/${KERNEL_BIN}，dev 回退解释运行；` +
 					`如需与生产一致请先运行 bun run --filter @wa-pi/kernel build`,
 			);
+		}
+	}
+
+	// 2b) 壳/核一致性自检：打包时 build-kernel-sidecar 在 kernel 目录落盘 manifest.json
+	//（version=打包时的应用版本 + exe 大小）。NSIS 覆盖安装曾因 kernel 进程锁文件被
+	// 静默跳过（2026-11-15 事故：壳 0.10.3 / 核 0.10.1 静默共存，内置浏览器 MCP 等内核
+	// 功能全部缺失且无任何报错）。此处逐项比对，不一致时弹窗强提示——只告警不阻断
+	//（旧内核也比没内核强）。dev 从源码跑无 manifest，跳过。
+	if (app.isPackaged) {
+		try {
+			const { checkKernelConsistency } = require("./util/kernel-manifest.cjs");
+			const verdict = checkKernelConsistency({
+				manifestPath: path.join(seedDir, "manifest.json"),
+				exePath: kernelExe,
+				appVersion: app.getVersion(),
+			});
+			if (!verdict.ok) {
+				log.error(
+					`[kernel] 壳/核一致性校验失败: ${verdict.reason} expected=${JSON.stringify(verdict.expected)} actual=${JSON.stringify(verdict.actual)}`,
+				);
+				void dialog.showMessageBox({
+					type: "warning",
+					title: "内核版本不一致",
+					message:
+						"检测到内核文件与当前应用版本不一致（上次升级可能未完全安装）。\n" +
+						"浏览器自动化等内核功能可能不可用，请重新运行完整安装包以修复。",
+					buttons: ["确定"],
+					noLink: true,
+				});
+			}
+		} catch (e) {
+			log.error("[kernel] 壳/核一致性校验异常（跳过）", e);
 		}
 	}
 

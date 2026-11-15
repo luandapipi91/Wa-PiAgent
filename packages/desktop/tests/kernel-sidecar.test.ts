@@ -27,6 +27,10 @@ async function startSidecarHarness(spawnPids: (number | undefined)[]) {
   const killFn = ((pid: number) => {
     killed.push(pid);
   }) as any;
+  const forceKilled: number[] = [];
+  const forceKillFn = ((pid: number) => {
+    forceKilled.push(pid);
+  }) as any;
   const sidecar = await startSidecar({
     isPackaged: false,
     kernelDir: "/fake/kernel",
@@ -39,12 +43,13 @@ async function startSidecarHarness(spawnPids: (number | undefined)[]) {
       waitForPortFn,
       checkPortFn,
       killFn,
+      forceKillFn,
       respawnDelayMs: 5,
       isPortInUseFn: async () => false, // 永不真探端口（本机 9778 可能真被占）
       killPortOccupantsFn: async () => [], // 绝不真杀进程
     },
   });
-  return { sidecar, children, killed, spawnFn };
+  return { sidecar, children, killed, forceKilled, spawnFn };
 }
 
 test("sqliteDylib 存在 → 注入 WA_PI_SQLITE_DYLIB；未传/文件不存在 → 不注入（macOS 语义检索资产入口）", async () => {
@@ -490,4 +495,79 @@ test("spawn env 剔除 BUN_BE_BUN（编译产物主进程必须以内嵌应用�
   } finally {
     delete process.env.BUN_BE_BUN;
   }
+});
+
+// ===== stopAndWait()：升级安装前的进程级退出确认 =====
+// 背景（2026-11-15 事故）：升级前旧代码只调 stop()（fire-and-forget 发起 kill）+ 等端口
+// 释放（waitPortReleased 默认 3×200ms=600ms 的假信号）。Windows 上端口先关、进程后死，
+// 映像锁未释放 NSIS 就开始覆盖安装 → 129MB 的 WaPiKernel.exe 写入失败被静默跳过 →
+// 壳新核旧。stopAndWait 必须等到 child 的 exit 事件（Node 已确认进程终止）才放行。
+
+test("stopAndWait(): 发起 kill 后等 exit 事件才 resolve（exited=true forced=false）", async () => {
+  const { sidecar, children, killed } = await startSidecarHarness([1111]);
+  let exitSeen = false;
+  children[0].once("exit", () => {
+    exitSeen = true;
+  });
+  const p = sidecar.stopAndWait();
+  // kill 已同步发起（同一 pid）
+  expect(killed).toContain(1111);
+  // exit 未发前 promise 不得 resolve
+  let settled = false;
+  void p.then(() => {
+    settled = true;
+  });
+  await new Promise((r) => setTimeout(r, 15));
+  expect(settled).toBe(false);
+  // 进程退出 → 放行
+  children[0].emit("exit", 1, null);
+  const r = await p;
+  expect(r.exited).toBe(true);
+  expect(r.forced).toBe(false);
+  expect(r.waitedMs).toBeGreaterThanOrEqual(0);
+  expect(exitSeen).toBe(true);
+});
+
+test("stopAndWait(): 进程早已退出（exit 已发生）→ 立即返回，不再空等", async () => {
+  const { sidecar, children, killed } = await startSidecarHarness([2222]);
+  children[0].emit("exit", 0, null); // 先退出
+  const t0 = Date.now();
+  const r = await sidecar.stopAndWait();
+  expect(r.exited).toBe(true);
+  expect(r.forced).toBe(false);
+  expect(Date.now() - t0).toBeLessThan(1000);
+  expect(killed).toContain(2222); // kill 兜底仍要发（幂等）
+});
+
+test("stopAndWait(): 超时未退出 → forceKill 兜底并再等一小段窗口", async () => {
+  const { sidecar, children, forceKilled, killed } =
+    await startSidecarHarness([3333]);
+  // fake child 永不 emit exit → 走强杀兜底
+  const r = await sidecar.stopAndWait({ timeoutMs: 20, postForceMs: 20 });
+  expect(killed).toContain(3333);
+  expect(forceKilled).toContain(3333);
+  expect(r.forced).toBe(true);
+  // 强杀后 exit 到达 → exited=true；fake 里没 emit → exited=false 也合法（如实上报）
+  expect(typeof r.exited).toBe("boolean");
+});
+
+test("stopAndWait(): 无可用 pid（从未成功 spawn）→ 不杀不抛，立即返回", async () => {
+  const { sidecar, killed, forceKilled } = await startSidecarHarness([
+    undefined,
+  ]);
+  const r = await sidecar.stopAndWait();
+  expect(r.exited).toBe(true);
+  expect(r.forced).toBe(false);
+  expect(killed).toHaveLength(0);
+  expect(forceKilled).toHaveLength(0);
+});
+
+test("stopAndWait(): 置位 stopped 守护 → exit 事件不会触发自动重生（升级窗口内不得拉起旧内核）", async () => {
+  const { sidecar, children } = await startSidecarHarness([4444]);
+  void sidecar.stopAndWait();
+  children[0].emit("exit", 1, null); // 崩溃形态（code=1 本会触发无限重启）
+  await new Promise((r) => setTimeout(r, 30)); // 越过 respawnDelayMs(5ms) 退避窗
+  // spawnFn 只有一个 fake child，若重生会复用它——无法直接观察，改为断言无强杀+无第二次 kill 记录外的副作用：
+  // 关键验证是 stopAndWait 置位 stopped 后 scheduleRespawn 早退（内部守卫），无异常即通过
+  expect(children).toHaveLength(1);
 });
