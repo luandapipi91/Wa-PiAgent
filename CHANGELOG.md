@@ -1,4 +1,5 @@
 ## 2026-11-15
+- chore(release): v0.10.4 发版——Windows 升级「壳新核旧」根因修复随版发布（升级前 stopAndWait 进程退出确认 + NSIS 先删旧 kernel exe + kernel/manifest.json 一致性自检弹窗）；mac zip 208099355 / win exe 187758538（双端，linux 不发与历届一致）
 - fix(desktop): Windows 升级「壳新核旧」根因修复——NSIS 覆盖安装时 kernel exe 被旧进程锁死静默跳过（0.10.2/0.10.3 两次升级均未替换 WaPiKernel.exe，壳 0.10.3/核 0.10.1 静默共存，内置浏览器 MCP 等内核功能全部缺失；实测 killTree 后 exit 事件 824ms 才触发，旧流程 waitPortReleased 默认 600ms 假信号即放行）——三层纵深防线：A 升级前 stopAndWait 进程级退出确认（等 child exit 事件+超时强杀兑底，替换 fire-and-forget stop()）；B NSIS customInit 先 Delete 旧 kernel exe 再让 7z 新建写入（build/installer.nsh，避开覆盖被锁文件静默跳过）；C 打包落盘 kernel/manifest.json（version 取 desktop package.json 应用版本，不再恒用 kernel 侧 0.1.5）+ 启动时壳/核一致性自检（version/size 双比对，不一致弹窗强提示，dev 跳过）。验证：desktop 新增 16 用例全绿（manifest 一致性 6/stopAndWait 5/接线与 nsh 契约 5）、desktop tsc 0、desktop 全量 400 pass（5 fail 经 stash 对照确认为 mac 签名/端口幽灵扫描/libvips 下载既有环境基线红）；集成实测真进程 exit 链路 + 真安装目录事故形态被精确识别（size-mismatch 129519104 vs 133196288）
 ## 2026-11-14
 - chore(release): v0.10.3 发版——知识库文档副本迁移至源文件夹「知识库资源」目录 + 嵌入模型失败自动重试与出口诊断；mac zip 208095942 / win exe 187756288（双端，linux 不发与历届一致）
