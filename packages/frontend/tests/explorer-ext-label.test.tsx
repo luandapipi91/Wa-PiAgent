@@ -12,21 +12,19 @@ beforeEach(() => {
 	document.documentElement.dataset.theme = "";
 });
 
-test("后缀标签默认 display:none，只在鎏金主题下显示", () => {
-	// 基础规则必须默认隐藏，否则既有主题会多出标签
-	const baseRule = css.slice(css.indexOf(".ep-ext {"), css.indexOf("}", css.indexOf(".ep-ext {")));
-	expect(baseRule).toContain("display: none");
-
-	// 只有 gilded 作用域把它打开
-	const gildedIdx = css.indexOf(':root[data-theme="gilded"] .ep-ext {');
-	expect(gildedIdx).toBeGreaterThan(-1);
-	const gildedRule = css.slice(gildedIdx, css.indexOf("}", gildedIdx));
-	expect(gildedRule).toContain("display: inline-flex");
+test("后缀标签只在鎏金主题生效：样式带作用域，组件按主题条件渲染", () => {
+	// CSS：只有 gilded 作用域定义了 .ep-ext，且没有任何全局 .ep-ext 规则
+	expect(css).toContain(':root[data-theme="gilded"] .ep-ext {');
+	expect(css).not.toMatch(/^\.ep-ext\s*\{/m);
 
 	// 其它主题不得出现 .ep-ext 规则
-	for (const theme of ["tactical", "newspaper", "pixel", "cyber"]) {
+	for (const theme of ["tactical", "newspaper", "pixel", "cyber", "dark"]) {
 		expect(css).not.toContain(`:root[data-theme="${theme}"] .ep-ext {`);
 	}
+
+	// 组件：由 showExt（themeMode === "gilded"）门控渲染，别的主题 DOM 里没有它
+	expect(panelSrc).toContain('useUiPrefsStore((s) => s.themeMode) === "gilded"');
+	expect(panelSrc).toContain("{showExt && fileExtOf(node.entry) ? (");
 });
 
 test("后缀标签用 absolute 定位，不参与行高（虚拟滚动 fixedItemHeight=24）", () => {

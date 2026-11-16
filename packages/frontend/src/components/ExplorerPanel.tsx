@@ -8,6 +8,7 @@ import { listDir, revealFile, openFileWithDefaultApp } from "../fs-client";
 import { copyToClipboard } from "../util/clipboard";
 import { openInFileManagerLabel } from "../util/platform";
 import { useToastStore } from "../store/toast";
+import { useUiPrefsStore } from "../store/ui-prefs";
 import { useTranslation } from "../i18n/useTranslation";
 import { Icon } from "./ui/Icon";
 import { ShareResultModal } from "./ui/ShareButton";
@@ -149,6 +150,8 @@ function ExplorerContextMenu({
 type RowProps = {
 	node: FlatNode;
 	selected: boolean;
+	/** 是否渲染行尾后缀标签（仅鎏金主题开启；其余主题不渲染，避免装饰外溢） */
+	showExt: boolean;
 	onClick: (node: FlatNode, e: React.MouseEvent) => void;
 	onDoubleClick: (node: FlatNode) => void;
 	onContextMenu: (e: React.MouseEvent, node: FlatNode) => void;
@@ -174,6 +177,7 @@ const ExplorerRow = memo(
 	function ExplorerRow({
 		node,
 		selected,
+		showExt,
 		onClick,
 		onDoubleClick,
 		onContextMenu,
@@ -199,7 +203,7 @@ const ExplorerRow = memo(
 					<Icon name={node.entry.isDir ? "folder" : "file"} size={13} />
 				</span>
 				<span className="ep-name">{node.entry.name}</span>
-				{fileExtOf(node.entry) ? (
+				{showExt && fileExtOf(node.entry) ? (
 					<span
 						className="ep-ext"
 						data-key={KEY_FILE_NAMES.has(node.entry.name) ? "true" : undefined}
@@ -211,6 +215,7 @@ const ExplorerRow = memo(
 		);
 	},
 	(a, b) =>
+		a.showExt === b.showExt &&
 		a.node.key === b.node.key &&
 		a.node.entry.name === b.node.entry.name &&
 		a.node.entry.isDir === b.node.entry.isDir &&
@@ -256,6 +261,8 @@ export function ExplorerPanel({
 	projectName?: string;
 }) {
 	const { t } = useTranslation();
+	// 行尾后缀标签只在鎏金主题渲染（其余主题不渲染，避免装饰外溢）
+	const showExt = useUiPrefsStore((s) => s.themeMode) === "gilded";
 	const [flatList, setFlatList] = useState<FlatNode[]>([]);
 	// 多选：Ctrl/Cmd+点击 toggle、Shift+点击区间连选；单选时集合只含一个 path
 	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
@@ -609,6 +616,7 @@ export function ExplorerPanel({
 				itemContent={(_, node) => (
 					<ExplorerRow
 						node={node}
+						showExt={showExt}
 						selected={selectedPaths.has(node.entry.path)}
 						onClick={handleClick}
 						onDoubleClick={handleDoubleClick}
