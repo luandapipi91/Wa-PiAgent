@@ -114,16 +114,26 @@ test("赛博主题下装饰层不拦截点击：可正常打开系统设置", as
 });
 
 // 下面三条断言的是「浏览器渲染出来的颜色」，不是 token 是否存在。
-// 统一一次量出相关元素的感知亮度（0~1，WCAG 系数）；元素缺失时给 -1，
-// 让断言失败而不是假通过。
+// 统一一次量出相关元素的感知亮度（0~1，WCAG 系数）。
+// 量不到（元素不存在 / 背景透明）一律返回 null：**不能给 0/-1 之类哨兵值**，
+// 否则 `toBeLessThan` 断言会被哨兵值混过去（-1 < 0.2、0 < 0.05 都是绿）。
 function measureLuminance(page: import("@playwright/test").Page) {
 	return page.evaluate(() => {
 		const rgbLum = (c: string) => {
-			const m = c.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+			// 现代浏览器可能是 rgb(0, 0, 0) / rgb(0 0 0 / 50%) 两种形态
+			const m = c.match(/rgba?\(([^)]+)\)/);
 			if (!m) return null;
+			const parts = m[1]
+				.split(/[,\s/]+/)
+				.filter(Boolean)
+				.map(Number);
+			if (parts.length < 3 || parts.slice(0, 3).some(Number.isNaN)) return null;
+			// 透明/半透明：页面上看到的是叠在底色上的合成结果，单看这一层算不出可信亮度
+			// （rgba(0,0,0,0) 若当纯黑，会让「画布纯黑」假通过）→ 视为量不到
+			const alpha = parts.length > 3 ? parts[3] : 1;
+			if (!(alpha >= 1)) return null;
 			return (
-				(Number(m[1]) * 0.299 + Number(m[2]) * 0.587 + Number(m[3]) * 0.114) /
-				255
+				(parts[0] * 0.299 + parts[1] * 0.587 + parts[2] * 0.114) / 255
 			);
 		};
 		// 支持 #rgb / #rrggbb（侧栏的 --text-primary 是十六进制字面值）
@@ -142,16 +152,18 @@ function measureLuminance(page: import("@playwright/test").Page) {
 		};
 
 		const bgLum = (el: Element | null) =>
-			el ? rgbLum(getComputedStyle(el).backgroundColor) ?? -1 : -1;
+			el ? rgbLum(getComputedStyle(el).backgroundColor) : null;
 
 		const sidebar = document.querySelector('[data-testid="sidebar"]');
-		// 主区背景在 .bg-canvas 容器上（<main> 自身无背景类，取它会得到透明 rgba(0,0,0,0)）
-		const canvasEl = document.querySelector(".bg-canvas");
+		// 主区背景在画布容器上（<main> 自身无背景类，取它会得到透明 rgba(0,0,0,0)）。
+		// 限定 #root 的直接子元素：会话视图里 MessageList 也用了 .bg-canvas，
+		// 裸 .bg-canvas 会静默取到别处
+		const mainCanvas = document.querySelector("#root > .bg-canvas");
 		// 侧栏文字色是内联 style 的 var(--text-primary)，没有对应 class：
 		// 直接读侧栏作用域内的变量值，正好验「作用域覆盖是否生效」这个被测点
 		const sidebarText = sidebar
-			? hexLum(getComputedStyle(sidebar).getPropertyValue("--text-primary")) ?? -1
-			: -1;
+			? hexLum(getComputedStyle(sidebar).getPropertyValue("--text-primary"))
+			: null;
 		// 所有 surface 类元素的背景亮度：只看单个选择器容易命中透明 wrapper，
 		// 拿全量最大值才能证明「页面上没有任何浅色块」
 		const surfaces = Array.from(
@@ -163,14 +175,26 @@ function measureLuminance(page: import("@playwright/test").Page) {
 			.filter((v): v is number => v !== null);
 
 		return {
-			canvas: bgLum(canvasEl),
+			mainCanvas: bgLum(mainCanvas),
 			sidebarBg: bgLum(sidebar),
 			sidebarText,
 			modal: bgLum(document.querySelector('[data-testid="settings-modal"]')),
 			surfaceCount: surfaces.length,
-			maxSurface: surfaces.length ? Math.max(...surfaces) : -1,
+			maxSurface: surfaces.length ? Math.max(...surfaces) : null,
 		};
 	});
+}
+
+/** 断言「暗」：量不到就红（null 不得被当成暗色放过） */
+function expectDark(v: number | null, max: number, what: string) {
+	expect(v, `${what}：未能量到亮度（元素缺失或背景透明）`).not.toBeNull();
+	expect(v as number, `${what}：亮度应 < ${max}`).toBeLessThan(max);
+}
+
+/** 断言「亮」：量不到就红 */
+function expectLight(v: number | null, min: number, what: string) {
+	expect(v, `${what}：未能量到亮度（元素缺失或取色失败）`).not.toBeNull();
+	expect(v as number, `${what}：亮度应 > ${min}`).toBeGreaterThan(min);
 }
 
 test("鎏金主题下侧栏是深色、主区是浅色、侧栏文字可读（两段式）", async ({
@@ -179,9 +203,9 @@ test("鎏金主题下侧栏是深色、主区是浅色、侧栏文字可读（�
 	await setUiPrefs(page, "zh", { themeMode: "gilded" });
 	await page.goto("/");
 	const lum = await measureLuminance(page);
-	expect(lum.sidebarBg).toBeLessThan(0.2); // 侧栏深
-	expect(lum.canvas).toBeGreaterThan(0.6); // 主区浅
-	expect(lum.sidebarText).toBeGreaterThan(0.6); // 侧栏文字亮（深底上可读）
+	expectDark(lum.sidebarBg, 0.2, "侧栏背景");
+	expectLight(lum.mainCanvas, 0.6, "主区画布");
+	expectLight(lum.sidebarText, 0.6, "侧栏文字色（--text-primary）");
 });
 
 test("鎏金主题下打开系统设置，弹窗仍是浅色（侧栏深色作用域不泄漏）", async ({
@@ -198,29 +222,32 @@ test("鎏金主题下打开系统设置，弹窗仍是浅色（侧栏深色作�
 	// 弹窗 portal 到 body（不在侧栏作用域内）：--surface 应取根作用域的暖白
 	const lum = await measureLuminance(page);
 	// 同一时刻对照：侧栏依旧深、弹窗浅——深色只活在侧栏作用域里
-	expect(lum.sidebarBg).toBeLessThan(0.2);
-	expect(lum.modal).toBeGreaterThan(0.6);
+	expectDark(lum.sidebarBg, 0.2, "侧栏背景");
+	expectLight(lum.modal, 0.6, "系统设置弹窗背景");
 });
 
-test("战术主题下画布纯黑、surface 卡片与弹窗都是暗色（无刺眼白块）", async ({
+// 覆盖边界（故意写清楚，别让标题读起来比实测更全）：
+// - 首页只有 1 个 surface 类元素（侧栏内一个小徽标），所以这里真正被验到的
+//   「卡片」是弹窗卡片（与消息卡同为 var(--surface)，同一个 token）；
+// - 主区消息气泡（MessageList 的 bg-surface）需要发一条真消息才渲染，本用例不覆盖。
+// 断言口径：画布必须纯黑，所有 surface 类元素与弹窗卡片都不能是白块。
+test("战术主题下画布纯黑、surface 样本与弹窗卡片无刺眼白块（真消息气泡未覆盖）", async ({
 	page,
 }) => {
 	await setUiPrefs(page, "zh", { themeMode: "tactical" });
 	await page.goto("/");
 	const home = await measureLuminance(page);
-	expect(home.canvas).toBeLessThan(0.05); // 纯黑画布
+	expectDark(home.mainCanvas, 0.05, "主区画布");
 	expect(home.surfaceCount).toBeGreaterThan(0); // 防空集合假通过
-	expect(home.maxSurface).toBeLessThan(0.15);
+	expectDark(home.maxSurface, 0.15, "页面最亮的 surface 元素");
 
-	// 首页几乎没有 surface 卡片，弹窗是 var(--surface) 卡片（与消息卡同 token），
-	// 补上它才能真的证明「黑底上没有刺眼白块」
+	// 补上弹窗这张真卡片（同上：与消息卡同 token）
 	const closeBtn = page.getByRole("button", { name: "关闭" });
 	if (await closeBtn.count()) await closeBtn.first().click();
 	await page.getByTestId("settings-btn").click();
 	await expect(page.getByTestId("settings-modal")).toBeVisible();
 	const opened = await measureLuminance(page);
-	expect(opened.modal).toBeGreaterThanOrEqual(0); // 量不到就是量错了，不当假通过
-	expect(opened.modal).toBeLessThan(0.15);
+	expectDark(opened.modal, 0.15, "系统设置弹窗背景");
 });
 
 test("外观页从 select 切到报纸/像素：主题生效且主题颜色整块隐藏", async ({ page }) => {
