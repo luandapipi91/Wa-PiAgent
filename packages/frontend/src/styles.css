@@ -53,6 +53,11 @@
 	/* 文字大小缩放系数（系统设置 > 通用 > 文字大小）：只作用于字号，不动布局 */
 	--font-scale: 1;
 
+	/* 界面字体族：各主题可覆盖（报纸走衬线、像素走 Zpix、赛博走等宽） */
+	--font-ui:
+		"MiSans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+		"PingFang SC", "Plus Jakarta Sans", sans-serif;
+
 	/* UA 原生控件（时间/日期选择器、滚动条、select 箭头、input 内部图标）按应用浅色主题绘制 */
 	color-scheme: light;
 
@@ -169,6 +174,9 @@
 	--warning-soft: rgba(255, 214, 10, 0.15);
 	--danger: #ff453a;
 	--danger-soft: rgba(255, 69, 58, 0.15);
+	--on-danger: #ffffff;
+	--info: #60a5fa;
+	--info-soft: rgba(96, 165, 250, 0.15);
 }
 
 /* ===== 深色模式下的主题颜色覆盖（accent-soft 用 rgba 自动适配深色背景） ===== */
@@ -224,9 +232,7 @@
 
 body {
 	margin: 0;
-	font-family:
-		"MiSans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-		"PingFang SC", "Plus Jakarta Sans", sans-serif;
+	font-family: var(--font-ui);
 	background: linear-gradient(
 		160deg,
 		var(--canvas) 0%,
