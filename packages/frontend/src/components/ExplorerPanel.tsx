@@ -158,6 +158,18 @@ type RowProps = {
 // 行组件 memo + 按值比较：轮询会重建全部节点对象（引用全变），浅比较无效，
 // 改为逐项比较渲染相关字段，值不变即跳过 DOM 更新——大目录下轮询/选中变化
 // 不再拖动所有可见行重渲染。
+/** 设计稿里用金底黑字强调的关键文件（.key 变体） */
+const KEY_FILE_NAMES = new Set(["AGENTS.md", "CHANGELOG.md", "package.json"]);
+
+/** 文件后缀（大写，仅文件且有扩展名时返回）：供主题装饰层的后缀标签使用。
+ *  目录、无扩展名文件（LICENSE）返回 null，不渲染标签。 */
+function fileExtOf(entry: { name: string; isDir: boolean }): string | null {
+	if (entry.isDir) return null;
+	const dot = entry.name.lastIndexOf(".");
+	if (dot <= 0 || dot === entry.name.length - 1) return null;
+	return entry.name.slice(dot + 1).toUpperCase();
+}
+
 const ExplorerRow = memo(
 	function ExplorerRow({
 		node,
@@ -187,6 +199,14 @@ const ExplorerRow = memo(
 					<Icon name={node.entry.isDir ? "folder" : "file"} size={13} />
 				</span>
 				<span className="ep-name">{node.entry.name}</span>
+				{fileExtOf(node.entry) ? (
+					<span
+						className="ep-ext"
+						data-key={KEY_FILE_NAMES.has(node.entry.name) ? "true" : undefined}
+					>
+						{fileExtOf(node.entry)}
+					</span>
+				) : null}
 			</div>
 		);
 	},

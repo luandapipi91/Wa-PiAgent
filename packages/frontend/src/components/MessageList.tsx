@@ -1357,10 +1357,14 @@ export const MessageRow = memo(function MessageRow({
 		// 内容是 task-notification XML，与 delegate toolResult 信息重复（DelegateCard 已展示），过滤。
 		if (m.customType === "subagent-notification") return null;
 		if (!m.content) return null;
+		// 告警类系统提示（MCP 连接失败等）：给个钩子让主题装饰层画红框 + 左红竖条。
+		// 判定放宽到「MCP 相关且含失败语义」，避免漏掉措辞变化导致的漏判。
+		const isWarn = /MCP/i.test(m.content) && /failed|attention|error/i.test(m.content);
 		return (
 			<div
 				className="text-center text-[calc(11.5px*var(--font-scale))] text-tertiary"
 				data-testid={`custom-${sessionId}-${m.timestamp}`}
+				data-warn={isWarn ? "true" : undefined}
 			>
 				—— <AnsiText text={m.content} /> ——
 			</div>

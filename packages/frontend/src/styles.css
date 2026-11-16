@@ -2141,3 +2141,47 @@ input[type="range"]::-moz-range-thumb {
 :root[data-theme="tactical"] [data-testid="session-conn-led"][data-state="ok"] {
 	background: var(--accent);
 }
+
+/* ===== 主题装饰：文件后缀标签 + 系统告警行（任务 4 追加） ===== */
+/* ep-ext：文件树行尾的后缀标签。行高必须仍是 24px（虚拟滚动 fixedItemHeight 依赖），
+   所以标签用 absolute 定位到行尾，不参与行内高度计算。
+   默认 display:none —— 除了鎏金，其余 7 个主题都不显示（既有主题本来没这元素）。 */
+.ep-ext {
+	display: none;
+}
+
+/* 鎏金：灰底灰字；关键文件（.md / .json）用金底黑字，对齐设计稿 .key 变体 */
+:root[data-theme="gilded"] .ep-node {
+	position: relative;
+}
+:root[data-theme="gilded"] .ep-ext {
+	position: absolute;
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	display: inline-flex;
+	align-items: center;
+	height: 14px;
+	padding: 0 5px;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 8.5px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	pointer-events: none;
+	background: #f2f2f2;
+	color: #767676;
+	border-radius: 2px;
+}
+:root[data-theme="gilded"] .ep-ext[data-key="true"] {
+	background: #cdbe91;
+	color: #14110a;
+	font-weight: 600;
+}
+
+/* 系统提示告警行：仅战术主题画红框 + 左红竖条（设计稿 .sysline.warn）；鎏金保持居中细线样式 */
+:root[data-theme="tactical"] [data-testid^="custom-"][data-warn="true"] {
+	border: 1px solid rgba(255, 77, 77, 0.28);
+	border-left: 3px solid #ff4d4d;
+	padding: 6px 10px;
+	text-align: left;
+}
