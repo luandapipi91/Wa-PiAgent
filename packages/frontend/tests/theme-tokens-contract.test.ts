@@ -201,3 +201,20 @@ test("主题块 gilded 位于所有 data-accent 规则之后", () => {
 test("联盟主题是浅色归类：color-scheme 为 light", () => {
 	expect(themeBlock("gilded")).toContain("color-scheme: light");
 });
+
+test("联盟主题为侧栏定义了深色作用域（两段式结构）", () => {
+	const scope = ruleBody(
+		':root[data-theme="gilded"] [data-testid="sidebar"]',
+	);
+	// 侧栏必须自成一格深色：覆盖画布/面板/文字三组关键变量
+	for (const token of [
+		"--canvas",
+		"--surface",
+		"--surface-elevated",
+		"--text-primary",
+		"--hairline",
+	]) {
+		expect(scope).toContain(`${token}:`);
+	}
+	expect(scope).toContain("color-scheme: dark");
+});

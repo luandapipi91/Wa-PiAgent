@@ -1045,3 +1045,31 @@ input[type="range"]::-moz-range-thumb {
 	/* MiSans 优先，中文回退系统黑体 */
 	--font-ui: "MiSans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
 }
+
+/* 两段式结构的第二段：左栏深色外壳。
+   不改任何组件代码——在侧栏元素作用域内重新声明一套深色变量，
+   侧栏内的 var(--x) 与 Tailwind 语义类（border-hairline 等）自动跟随。
+   不用 !important：变量在子作用域重新声明即生效。 */
+:root[data-theme="gilded"] [data-testid="sidebar"] {
+	color-scheme: dark;
+
+	--canvas: #0a0a0a;
+	--surface: #101010;
+	--surface-elevated: #0a0a0a;
+	--surface-hover: #171717;
+
+	/* 香槟金描边，深底上保持金属感 */
+	--hairline: rgba(205, 190, 145, 0.18);
+	--hairline-strong: rgba(205, 190, 145, 0.32);
+	--fill-muted: rgba(255, 255, 255, 0.10);
+
+	/* 暖白文字：深底上三档仍可分辨 */
+	--text-primary: #f2efe6;
+	--text-secondary: #a8a39a;
+	--text-tertiary: #6e6a60;
+
+	/* 强调色沿用香槟金，仅在深底上略降透明底 */
+	--accent: #cdbe91;
+	--accent-soft: rgba(205, 190, 145, 0.12);
+	--on-accent: #14110a;
+}
