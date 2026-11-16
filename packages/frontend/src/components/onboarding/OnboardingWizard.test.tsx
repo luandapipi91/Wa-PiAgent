@@ -20,47 +20,78 @@ beforeEach(() => {
   useAgentsStore.setState({ list: [] } as any);
 });
 
-test("默认停在第 1 步（模型表单）", async () => {
+test("默认停在第 1 步（主题选择），未选时「下一步」禁用", async () => {
   render(<OnboardingWizard onClose={() => {}} />);
   expect(await screen.findByTestId("wizard-step-1")).toBeTruthy();
+  expect(screen.getByTestId("theme-card-newspaper")).toBeTruthy();
+  expect((screen.getByTestId("wizard-next") as HTMLButtonElement).disabled).toBe(true);
   expect(screen.queryByTestId("wizard-step-2")).toBeNull();
 });
 
-test("不保存模型也能「下一步」进入第 2 步", async () => {
+test("选中主题后才能「下一步」，且写入 store", async () => {
   render(<OnboardingWizard onClose={() => {}} />);
   await screen.findByTestId("wizard-step-1");
-  fireEvent.click(screen.getByTestId("wizard-next"));
+  fireEvent.click(screen.getByTestId("theme-card-newspaper"));
+  const next = screen.getByTestId("wizard-next") as HTMLButtonElement;
+  expect(next.disabled).toBe(false);
+  fireEvent.click(next);
+  expect(useUiPrefsStore.getState().themeMode).toBe("newspaper");
   expect(await screen.findByTestId("wizard-step-2")).toBeTruthy();
+});
+
+test("步骤条显示共三步", async () => {
+  render(<OnboardingWizard onClose={() => {}} />);
+  await screen.findByTestId("wizard-step-1");
+  expect(screen.getByTestId("wizard-step-indicator").textContent).toContain("3");
+});
+
+test("不保存模型也能「下一步」从第 2 步进入第 3 步", async () => {
+  render(<OnboardingWizard onClose={() => {}} />);
+  await screen.findByTestId("wizard-step-1");
+  fireEvent.click(screen.getByTestId("theme-card-light"));
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  await screen.findByTestId("wizard-step-2");
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  expect(await screen.findByTestId("wizard-step-3")).toBeTruthy();
   expect(screen.getByTestId("agent-create-picker")).toBeTruthy();
 });
 
-test("保存模型供应商成功后自动进入第 2 步（不用再点下一步）", async () => {
+test("保存模型供应商成功后自动进入智能体步骤", async () => {
   render(<OnboardingWizard onClose={() => {}} />);
   await screen.findByTestId("wizard-step-1");
+  fireEvent.click(screen.getByTestId("theme-card-dark"));
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  await screen.findByTestId("wizard-step-2");
   fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
   fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
   fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
   fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "model-1|" } });
   fireEvent.click(screen.getByTestId("provider-save-btn"));
-  // 保存成功 → 自动前进：第 1 步卸载、第 2 步出现
-  expect(await screen.findByTestId("wizard-step-2")).toBeTruthy();
-  expect(screen.queryByTestId("wizard-step-1")).toBeNull();
-  expect(screen.getByTestId("agent-create-picker")).toBeTruthy();
+  expect(await screen.findByTestId("wizard-step-3")).toBeTruthy();
+  expect(screen.queryByTestId("wizard-step-2")).toBeNull();
 });
 
-test("第 2 步「上一步」返回第 1 步", async () => {
+test("「上一步」逐步回退", async () => {
   render(<OnboardingWizard onClose={() => {}} />);
   await screen.findByTestId("wizard-step-1");
+  fireEvent.click(screen.getByTestId("theme-card-pixel"));
   fireEvent.click(screen.getByTestId("wizard-next"));
   await screen.findByTestId("wizard-step-2");
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  await screen.findByTestId("wizard-step-3");
+  fireEvent.click(screen.getByTestId("wizard-back"));
+  expect(await screen.findByTestId("wizard-step-2")).toBeTruthy();
   fireEvent.click(screen.getByTestId("wizard-back"));
   expect(await screen.findByTestId("wizard-step-1")).toBeTruthy();
 });
 
-test("第 2 步「跳过」直接关闭", async () => {
+test("最后一步「跳过」直接关闭", async () => {
   let closed = false;
   render(<OnboardingWizard onClose={() => { closed = true; }} />);
   await screen.findByTestId("wizard-step-1");
+  fireEvent.click(screen.getByTestId("theme-card-cyber"));
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  await screen.findByTestId("wizard-step-2");
   fireEvent.click(screen.getByTestId("wizard-next"));
   fireEvent.click(await screen.findByTestId("wizard-skip"));
   expect(closed).toBe(true);
@@ -71,8 +102,11 @@ test("创建智能体成功后设为 defaultAgent 并关闭", async () => {
   postMock.mockImplementation(async () => ({ type: "agent:created", agent: {} }));
   render(<OnboardingWizard onClose={() => { closed = true; }} />);
   await screen.findByTestId("wizard-step-1");
+  fireEvent.click(screen.getByTestId("theme-card-system"));
   fireEvent.click(screen.getByTestId("wizard-next"));
   await screen.findByTestId("wizard-step-2");
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  await screen.findByTestId("wizard-step-3");
   // 向导默认停在预设 Tab，先切到空白 Tab
   fireEvent.click(await screen.findByTestId("picker-tab-blank"));
   fireEvent.change(await screen.findByTestId("blank-name-input"), { target: { value: "林晓岚" } });

@@ -832,10 +832,12 @@ const en = {
 	},
 	onboardingWizard: {
 		title: "Welcome — Quick Setup",
-		stepIndicator: "Step {{step}} of 2",
+		stepIndicator: "Step {{step}} of {{total}}",
 		step1Desc:
-			"Set up a model provider first (or do it later — just click Next).",
+			"Pick an interface theme. Click a card to preview it live, then click Next. (You can change it anytime in Settings → Appearance.)",
 		step2Desc:
+			"Set up a model provider (or do it later — just click Next).",
+		step3Desc:
 			"Create your first agent, or pick an expert from the preset library. They will become your default agent.",
 		back: "← Back",
 		next: "Next →",

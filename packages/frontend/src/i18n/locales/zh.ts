@@ -810,9 +810,11 @@ const zh = {
 	},
 	onboardingWizard: {
 		title: "欢迎使用 — 快速初始化",
-		stepIndicator: "第 {{step}} 步 / 共 2 步",
-		step1Desc: "先配置一个模型供应商（也可以稍后再配，直接点「下一步」）。",
-		step2Desc:
+		stepIndicator: "第 {{step}} 步 / 共 {{total}} 步",
+		step1Desc:
+			"选一个界面主题。点卡片可实时预览，选好后点「下一步」。（随时能在 系统设置 → 外观 里再改）",
+		step2Desc: "先配置一个模型供应商（也可以稍后再配，直接点「下一步」）。",
+		step3Desc:
 			"创建你的第一个智能体，或从预设库挑一位专家。TA 将成为你的默认智能体。",
 		back: "← 上一步",
 		next: "下一步 →",
