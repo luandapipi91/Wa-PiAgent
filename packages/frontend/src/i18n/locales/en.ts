@@ -832,7 +832,7 @@ const en = {
 	},
 	themeIntro: {
 		title: "New interface themes",
-		desc: "This release adds Newspaper, Pixel and Cyber themes. Pick one to try it — clicking a card previews it live, and you can always change it later in Settings → Appearance.",
+		desc: "This release adds several new interface themes. A click applies it right away — pick one to try it, and you can always change it later in Settings → Appearance.",
 	},
 	themePicker: {
 		confirm: "Done",
