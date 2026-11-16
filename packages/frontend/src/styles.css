@@ -1024,6 +1024,10 @@ input[type="range"]::-moz-range-thumb {
 
 	/* MiSans 优先，中文回退系统黑体 */
 	--font-ui: "MiSans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+
+	/* 装饰层字体：英文大写副标走衬线，数据/时间走等宽（设计稿 --font-serif / --font-mono） */
+	--font-serif: Georgia, "Times New Roman", "Songti SC", SimSun, serif;
+	--font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 /* 两段式结构的第二段：左栏深色外壳。
@@ -1052,6 +1056,311 @@ input[type="range"]::-moz-range-thumb {
 	--accent: #cdbe91;
 	--accent-soft: rgba(205, 190, 145, 0.12);
 	--on-accent: #14110a;
+}
+
+/* ===== 鎏金装饰层 ===== */
+/* 纯 CSS 装饰语言：中英双标签、菱形与细线、选中竖条、卡片与输入区质感。
+   全部规则以 :root[data-theme="gilded"] 为作用域前缀，不外溢到其他主题；
+   本层不动组件代码、不加 @ 规则，也不改任何点击热区与虚拟滚动行高。 */
+
+/* A1 侧栏一级「智能体」：金色标题 + 英文副标 Agents（设计稿 .nav-main） */
+:root[data-theme="gilded"] [data-testid="agent-collapsed"] > span:first-child {
+	color: var(--accent);
+	font-weight: 700;
+	letter-spacing: 0.06em;
+}
+
+:root[data-theme="gilded"] [data-testid="agent-collapsed"] > span:first-child::after {
+	content: "Agents";
+	margin-left: 7px;
+	font-family: var(--font-serif);
+	font-size: 9px;
+	font-weight: 400;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	line-height: 1;
+	color: rgba(205, 190, 145, 0.58);
+}
+
+/* A1 侧栏分区标题「项目」：金色中文 + 英文副标 Projects（设计稿 .section-head） */
+:root[data-theme="gilded"] [data-testid="sidebar"] .font-bold.uppercase {
+	letter-spacing: 0.1em;
+	color: var(--accent);
+}
+
+:root[data-theme="gilded"] [data-testid="sidebar"] .font-bold.uppercase > span:first-child::after {
+	content: "Projects";
+	margin-left: 7px;
+	font-family: var(--font-serif);
+	font-size: 9px;
+	font-weight: 400;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	line-height: 1;
+	color: rgba(205, 190, 145, 0.58);
+}
+
+/* A2 计数方块：智能体数量（设计稿 .nav-main .cnt —— 深灰底白字等宽小方块） */
+:root[data-theme="gilded"] [data-testid="agent-collapsed"] > span:nth-of-type(2) {
+	display: inline-grid;
+	place-items: center;
+	min-width: 22px;
+	height: 18px;
+	padding: 0 5px;
+	background: #333333;
+	border-radius: 3px;
+	color: #ffffff;
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	font-weight: 400;
+	letter-spacing: 0.02em;
+}
+
+/* A2 加号方块：新建项目（设计稿 .section-head .add —— 17×17 细金边小方块）。
+   套在 svg 上而不是按钮上：无项目时同一 testid 渲染的是纯文字按钮，不能被压成小方块。 */
+:root[data-theme="gilded"] [data-testid="new-project-btn"] svg {
+	box-sizing: content-box;
+	width: 9px;
+	height: 9px;
+	padding: 3px;
+	border: 1px solid rgba(205, 190, 145, 0.32);
+	border-radius: 3px;
+	color: var(--text-tertiary);
+}
+
+/* A3 tab 选中态：底部 2px 海克斯青下划线 + 白字 700（设计稿 .segmented button.active）。
+   选中态由内联 style 的 `background: var(--surface)` 标识（未选中是 transparent），
+   故用属性选择器区分，无需强制覆盖。 */
+:root[data-theme="gilded"] [data-testid^="sidebar-tab-"] {
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	letter-spacing: 0.06em;
+}
+
+:root[data-theme="gilded"] [data-testid^="sidebar-tab-"][style*="--surface"] {
+	border-bottom-color: #1da6ba;
+	font-weight: 700;
+}
+
+/* 侧栏底部：归档/设置图标转金棕（设计稿 .sf-item svg） */
+:root[data-theme="gilded"] [data-testid="recycle-bin-btn"] svg,
+:root[data-theme="gilded"] [data-testid="settings-btn"] svg {
+	color: #9f9378;
+}
+
+/* A4 行内图标去饱和：深色区 emoji 不喧哗（设计稿 .row .ri） */
+:root[data-theme="gilded"] button[data-testid^="session-"] > span:first-child {
+	filter: grayscale(1) brightness(1.5);
+	opacity: 0.78;
+}
+
+/* A5 行右侧时间：等宽小字（设计稿 .row .rr；透明度较设计稿 .38 提到 .42，深黑底上更可读） */
+:root[data-theme="gilded"] button[data-testid^="session-"] > span.flex-shrink-0 {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.02em;
+	color: rgba(255, 255, 255, 0.42);
+}
+
+/* A6 选中行左侧 3px 金竖条（设计稿 .row.active::before）。
+   组件内联样式，需强制覆盖：SessionRow 写死 borderLeft: 2px solid var(--accent)。
+   只改宽度 2→3px；底色与文字色直接复用内联的 --accent-soft / --accent（与设计稿一致）。 */
+:root[data-theme="gilded"] button[data-testid^="session-"][style*="var(--accent)"] {
+	border-left: 3px solid var(--accent) !important; /* 组件内联样式，需强制覆盖 */
+}
+
+/* A8 会话头英文副标：标题右侧紧跟 Session（设计稿 .ch-title-en） */
+:root[data-theme="gilded"] [data-testid="session-view"] header > div:first-child > div:first-child::after {
+	content: "Session";
+	margin-left: 10px;
+	font-family: var(--font-serif);
+	font-size: 9.5px;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	line-height: 1;
+	color: var(--text-tertiary);
+}
+
+/* A10 助手消息卡：白卡 + 1px 暖灰边 + 小圆角 + 极轻阴影（设计稿 .card）。
+   圆角处组件内联样式，需强制覆盖：MessageList 写死 borderRadius: 4px 14px 14px 14px。 */
+:root[data-theme="gilded"] [data-testid="text-bubble"] > div:first-child {
+	background: var(--surface);
+	border-color: var(--hairline);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+	border-radius: 4px !important; /* 组件内联样式，需强制覆盖 */
+}
+
+/* A11 markdown 内装饰：h4 前海克斯青菱形（设计稿 .card h4::before） */
+:root[data-theme="gilded"] .md-body h4::before {
+	content: "";
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	margin-right: 8px;
+	background: #1da6ba;
+	border-radius: 1px;
+	transform: rotate(45deg);
+	vertical-align: middle;
+}
+
+/* A11 分隔线：1px 暖灰细线（设计稿 .card hr） */
+:root[data-theme="gilded"] .md-body hr {
+	height: 1px;
+	border: 0;
+	border-top: 1px solid var(--hairline);
+	margin: 14px 0;
+	background: transparent;
+}
+
+/* A11 列表序号：金棕等宽 marker（设计稿 .card li::marker） */
+:root[data-theme="gilded"] .md-body li::marker {
+	color: #bb9a6c;
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+/* A11 行内代码：浅灰底 + 1px 边 + 小圆角（设计稿 code；代码块内的 code 不受影响） */
+:root[data-theme="gilded"] .md-body :not(pre) > code {
+	background: #f5f5f5;
+	border: 1px solid var(--hairline);
+	border-radius: 3px;
+	padding: 1px 5px;
+	color: #333333;
+	font-size: 11.5px;
+}
+
+/* A12 署名行：金棕描边小菱形 + 小字（设计稿 .sign）。
+   锚在助手消息的署名行上（用户消息的署名锚是 .flex-col，此处排除）。 */
+:root[data-theme="gilded"] [data-testid^="msg-"] > div:not(.flex-col) > div.font-semibold:first-child {
+	font-size: 10.5px;
+	letter-spacing: 0.06em;
+	color: var(--text-secondary);
+}
+
+:root[data-theme="gilded"] [data-testid^="msg-"] > div:not(.flex-col) > div.font-semibold:first-child::before {
+	content: "";
+	display: inline-block;
+	width: 5px;
+	height: 5px;
+	margin-right: 6px;
+	border: 1px solid #bb9a6c;
+	transform: rotate(45deg);
+	vertical-align: middle;
+}
+
+/* A13 系统提示：两侧渐隐细线夹小字（设计稿 .sysline） */
+:root[data-theme="gilded"] [data-testid^="custom-"] {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	font-size: 11px;
+	letter-spacing: 0.03em;
+	color: var(--text-tertiary);
+}
+
+:root[data-theme="gilded"] [data-testid^="custom-"]::before,
+:root[data-theme="gilded"] [data-testid^="custom-"]::after {
+	content: "";
+	flex: 1 1 auto;
+	height: 1px;
+	background: linear-gradient(to right, transparent, var(--hairline-strong));
+}
+
+:root[data-theme="gilded"] [data-testid^="custom-"]::after {
+	background: linear-gradient(to left, transparent, var(--hairline-strong));
+}
+
+/* A14 用户气泡：浅金底 + 1px 金棕边 + 左 2.5px 金棕竖条（设计稿 .usermsg .bubble）。
+   圆角处组件内联样式，需强制覆盖：MessageList 写死 borderRadius: 14px 4px 14px 14px。 */
+:root[data-theme="gilded"] [data-testid^="msg-"] > .flex-col.items-end > div:not(.font-semibold) {
+	background: rgba(205, 190, 145, 0.12);
+	border: 1px solid rgba(187, 154, 108, 0.4);
+	border-left: 2.5px solid #bb9a6c;
+	border-radius: 4px !important; /* 组件内联样式，需强制覆盖 */
+}
+
+/* A15 输入卡：白卡小圆角微投影，聚焦转海克斯青（设计稿 .composer-inner） */
+:root[data-theme="gilded"] [data-testid="composer-input"] > .rounded-2xl {
+	border-color: var(--hairline);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme="gilded"] [data-testid="composer-input"] > .rounded-2xl:focus-within {
+	border-color: #1da6ba;
+	box-shadow:
+		0 0 0 2px rgba(29, 166, 186, 0.1),
+		0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* A16 发送按钮：金色渐变 + 黑字 + 3px 圆角（设计稿 .send）。用 composer-input 祖先抬高
+   优先级：末尾的「圆形按钮改方角」收敛规则（:root[..] button.rounded-full）比单个属性选择器
+   更高一格。背景处组件内联样式，需强制覆盖：ComposerInput 写死 background: var(--brand)；
+   :not(:disabled) 限定 —— 禁用态保留引用 --fill-muted 的常态灰块。 */
+:root[data-theme="gilded"] [data-testid="composer-input"] [data-testid="composer-send"]:not(:disabled) {
+	background: linear-gradient(180deg, #cdbe91 0%, #bb9a6c 100%) !important; /* 组件内联样式，需强制覆盖 */
+}
+
+:root[data-theme="gilded"] [data-testid="composer-input"] [data-testid="composer-send"] {
+	border: 1px solid #bb9a6c;
+	border-radius: 3px;
+}
+
+/* A17 右栏标题英文副标：项目文件 / Files（设计稿 .rail-tab） */
+:root[data-theme="gilded"] [data-testid="explorer-aside"] > div:first-child > span:first-child::after {
+	content: "Files";
+	margin-left: 8px;
+	font-family: var(--font-serif);
+	font-size: 9px;
+	font-weight: 400;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	line-height: 1;
+	color: var(--text-tertiary);
+}
+
+/* A18 文件行：小圆角 + 选中金竖条（设计稿 .tnode / 点击态 inset 3px 金）。
+   行高保持 24px 不动：ExplorerPanel 虚拟滚动 fixedItemHeight=24 依赖它，改高会错位。 */
+:root[data-theme="gilded"] .ep-node {
+	border-radius: 3px;
+	color: var(--text-primary);
+}
+
+:root[data-theme="gilded"] .ep-node:hover {
+	background: #f5f5f5;
+}
+
+:root[data-theme="gilded"] .ep-node[data-selected="true"] {
+	background: var(--accent-soft);
+	box-shadow: inset 3px 0 0 var(--accent);
+	color: var(--text-primary);
+}
+
+/* A19 画布顶部金色光：radial 金色光晕（设计稿 body 的双层背景）。
+   挂在 App 根画布节点而非 body::before —— 根节点有不透明 bg-canvas，伪元素覆盖层
+   会把金色雾气糊到深色侧栏与白卡上；这里只改 background-image，不动底色与布局。 */
+:root[data-theme="gilded"] #root > .bg-canvas {
+	background-image: radial-gradient(
+		1200px 420px at 50% -8%,
+		rgba(205, 190, 145, 0.16),
+		transparent 70%
+	);
+}
+
+/* A20 数据基元：英文大写小字 .en 与等宽数字 .num（设计稿基元类，供结构层复用） */
+:root[data-theme="gilded"] .en {
+	font-family: var(--font-serif);
+	font-size: 9px;
+	font-weight: 400;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	line-height: 1;
+}
+
+:root[data-theme="gilded"] .num {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.02em;
 }
 
 /* ===== 主题：战术终端（tactical）===== */

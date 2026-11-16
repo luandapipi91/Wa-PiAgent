@@ -250,3 +250,38 @@ test("主题块 tactical 位于所有 data-accent 规则之后", () => {
 	const lastAccent = css.lastIndexOf('[data-accent="');
 	expect(css.indexOf(':root[data-theme="tactical"]')).toBeGreaterThan(lastAccent);
 });
+
+// ===== 鎏金装饰层契约（装饰块位于侧栏作用域块之后、tactical 块之前） =====
+/** 取鎏金装饰块的 CSS 文本（切片终点用 tactical 主题块，故装饰块必须排在它之前） */
+function gildedDecor(): string {
+	const start = css.indexOf(':root[data-theme="gilded"] [data-testid="sidebar"]');
+	const end = css.indexOf(':root[data-theme="tactical"]');
+	if (start < 0 || end < 0) throw new Error("鎏金/tactical 作用域锚点缺失");
+	return css.slice(start, end);
+}
+
+test("鎏金装饰规则全部限定在 data-theme 作用域内", () => {
+	// 取 gilded 变量块之后、tactical 块之前的所有规则文本
+	const decor = gildedDecor();
+	// 每个选择器行都必须以 :root[data-theme="gilded"] 开头
+	const selectors = decor
+		.split("\n")
+		.filter((line) => /\{\s*$/.test(line.trim()) && !line.trim().startsWith("/*"))
+		.map((line) => line.trim().replace(/\s*\{$/, ""));
+	for (const sel of selectors) {
+		expect(sel).toContain(':root[data-theme="gilded"]');
+	}
+});
+
+test("鎏金装饰包含关键元素选择器", () => {
+	const decor = gildedDecor();
+	for (const sel of [
+		'[data-testid^="sidebar-tab-"]',
+		'[data-testid^="session-"]',
+		'[data-testid="text-bubble"]',
+		'[data-testid="composer-send"]',
+		'[data-testid="explorer-aside"]',
+	]) {
+		expect(decor).toContain(sel);
+	}
+});
