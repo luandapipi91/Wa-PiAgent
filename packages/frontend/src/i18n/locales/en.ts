@@ -842,7 +842,7 @@ const en = {
 		title: "Welcome — Quick Setup",
 		stepIndicator: "Step {{step}} of {{total}}",
 		step1Desc:
-			"Pick an interface theme. Click a card to preview it live, then click Next. (You can change it anytime in Settings → Appearance.)",
+			"Pick an interface theme. A click applies it right away, then click Next. (You can change it anytime in Settings → Appearance.)",
 		step2Desc:
 			"Set up a model provider (or do it later — just click Next).",
 		step3Desc:
@@ -1149,7 +1149,7 @@ const en = {
 			},
 			themeColor: {
 				label: "Accent Color",
-				desc: "Click to choose your preferred accent color (Newspaper, Pixel, Cyber, Gilded and Tactical themes ship a fixed palette)",
+				desc: "Pick your preferred accent color (themes with a fixed palette don't allow changing it)",
 			},
 			fontSize: {
 				label: "Font size",
