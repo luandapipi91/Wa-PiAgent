@@ -963,3 +963,23 @@ input[type="range"]::-moz-range-thumb {
 		animation: none;
 	}
 }
+
+/* 少数组件用了 Tailwind 内置圆角刻度（rounded-2xl / rounded-[10px]），不走 --rounded-* 变量。
+   三套风格化主题下统一收敛到 --rounded-lg（报纸/像素 0、赛博 2px）；
+   圆形物件（头像、状态点、开关、rounded-full）保持原样，避免把人物头像压成方块。 */
+:root[data-theme="newspaper"] .rounded-2xl,
+:root[data-theme="newspaper"] .rounded-\[10px\],
+:root[data-theme="pixel"] .rounded-2xl,
+:root[data-theme="pixel"] .rounded-\[10px\],
+:root[data-theme="cyber"] .rounded-2xl,
+:root[data-theme="cyber"] .rounded-\[10px\] {
+	border-radius: var(--rounded-lg);
+}
+
+/* 圆形图标按钮（发送、开关等）在三套风格化主题下从圆改方：
+   按钮类统一收敛到 --rounded-sm；div 的 rounded-full（头像/状态点）不受影响。 */
+:root[data-theme="newspaper"] button.rounded-full,
+:root[data-theme="pixel"] button.rounded-full,
+:root[data-theme="cyber"] button.rounded-full {
+	border-radius: var(--rounded-sm);
+}
