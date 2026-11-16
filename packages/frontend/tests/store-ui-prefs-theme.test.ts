@@ -2,6 +2,9 @@ import { beforeEach, expect, test } from "bun:test";
 import {
 	THEME_COLOR_DEFAULT,
 	THEME_MODE_DEFAULT,
+	isAccentApplicable,
+	isDarkTheme,
+	resolveActualTheme,
 	useUiPrefsStore,
 } from "../src/store/ui-prefs";
 
@@ -71,4 +74,33 @@ test("system 模式下 matchMedia 返回 dark → data-theme 为 dark", async ()
 	const { useUiPrefsStore } = await import("../src/store/ui-prefs");
 	useUiPrefsStore.getState().setThemeMode("system");
 	expect(document.documentElement.dataset.theme).toBe("dark");
+});
+
+test("resolveActualTheme 对三套新主题直通", () => {
+	for (const mode of ["newspaper", "pixel", "cyber"] as const) {
+		expect(resolveActualTheme(mode)).toBe(mode);
+	}
+});
+
+test("isDarkTheme：dark/pixel/cyber 为暗，light/newspaper 为亮", () => {
+	expect(isDarkTheme("dark")).toBe(true);
+	expect(isDarkTheme("pixel")).toBe(true);
+	expect(isDarkTheme("cyber")).toBe(true);
+	expect(isDarkTheme("light")).toBe(false);
+	expect(isDarkTheme("newspaper")).toBe(false);
+});
+
+test("isAccentApplicable：三套新主题不可换强调色", () => {
+	expect(isAccentApplicable("newspaper")).toBe(false);
+	expect(isAccentApplicable("pixel")).toBe(false);
+	expect(isAccentApplicable("cyber")).toBe(false);
+	expect(isAccentApplicable("light")).toBe(true);
+	expect(isAccentApplicable("dark")).toBe(true);
+	expect(isAccentApplicable("system")).toBe(true);
+});
+
+test("setThemeMode('pixel') 把 data-theme 写为 pixel", () => {
+	useUiPrefsStore.getState().setThemeMode("pixel");
+	expect(useUiPrefsStore.getState().themeMode).toBe("pixel");
+	expect(document.documentElement.dataset.theme).toBe("pixel");
 });
