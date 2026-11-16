@@ -115,3 +115,30 @@ test("创建智能体成功后设为 defaultAgent 并关闭", async () => {
   expect(useUiPrefsStore.getState().defaultAgent).toBe("林晓岚");
   expect(closed).toBe(true);
 });
+
+test("第 1 步选中主题后进入下一步，页面实际主题不被卸载回滚覆盖", async () => {
+  render(<OnboardingWizard onClose={() => {}} />);
+  await screen.findByTestId("wizard-step-1");
+  fireEvent.click(screen.getByTestId("theme-card-newspaper"));
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  await screen.findByTestId("wizard-step-2");
+  // store 已写入，且 <html data-theme> 必须与之一致（ThemePicker 卸载时不得回滚掉刚落库的主题）
+  expect(useUiPrefsStore.getState().themeMode).toBe("newspaper");
+  expect(document.documentElement.dataset.theme).toBe("newspaper");
+});
+
+test("向导关闭时记录主题引导已读，避免下次启动再以「老用户」身份弹一次", async () => {
+  const { useUpdaterStore } = await import("../../store/updater");
+  useUpdaterStore.setState({ appVersion: "0.10.5" } as any);
+  useUiPrefsStore.setState({ themeIntroSeenVersion: undefined } as any);
+  let closed = false;
+  render(<OnboardingWizard onClose={() => { closed = true; }} />);
+  await screen.findByTestId("wizard-step-1");
+  fireEvent.click(screen.getByTestId("theme-card-dark"));
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  await screen.findByTestId("wizard-step-2");
+  fireEvent.click(screen.getByTestId("wizard-next"));
+  fireEvent.click(await screen.findByTestId("wizard-skip"));
+  expect(closed).toBe(true);
+  expect(useUiPrefsStore.getState().themeIntroSeenVersion).toBe("0.10.5");
+});

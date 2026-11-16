@@ -104,14 +104,19 @@ export function ThemePicker({ onConfirm, showConfirm = false, onSelect }: Props)
 	// 进入前的主题快照：未确认就卸载时回滚，避免「点了几张卡又关掉」把页面留在预览态
 	const restoreRef = useRef<string | null>(null);
 	const confirmedRef = useRef(false);
-	// 当前生效主题（只做标记，不算「用户已选」——新手引导要求主动选一次）
+	// 进入时的生效主题：卸载时用它判断「调用方是否已经把选择落库了」
+	const initialModeRef = useRef<ThemeMode | null>(null);
 	const current = useUiPrefsStore((s) => s.themeMode);
 	const [selected, setSelected] = useState<ThemeMode | null>(null);
 
 	useEffect(() => {
 		restoreRef.current = document.documentElement.dataset.theme ?? null;
+		initialModeRef.current = useUiPrefsStore.getState().themeMode;
 		return () => {
 			if (confirmedRef.current) return;
+			// 调用方已把选择写进 store（如新手引导点「下一步」落库后卸载本组件）：
+			// 此时不能回滚，否则会把刚生效的主题拽回旧值
+			if (useUiPrefsStore.getState().themeMode !== initialModeRef.current) return;
 			const prev = restoreRef.current;
 			if (prev) document.documentElement.dataset.theme = prev;
 		};

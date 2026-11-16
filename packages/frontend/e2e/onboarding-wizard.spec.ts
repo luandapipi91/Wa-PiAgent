@@ -153,6 +153,8 @@ test.describe.serial("初始化向导", () => {
 
     // 保存成功 → 无需点「下一步」直接到智能体步骤，且模型步骤已卸载
     await expect(page.getByTestId("wizard-step-3")).toBeVisible({ timeout: 10_000 });
+    // 回归：保存 provider 让 providers 变非空，升级引导不得叠在向导上（会挡住点击）
+    await expect(page.getByTestId("theme-intro")).toHaveCount(0);
     await expect(page.getByTestId("wizard-step-2")).toHaveCount(0);
     await expect(page.getByTestId("agent-create-picker")).toBeVisible();
 

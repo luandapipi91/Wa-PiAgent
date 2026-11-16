@@ -4,6 +4,7 @@ import { ProviderForm } from "../settings/ProviderForm";
 import { AgentCreatePicker } from "./AgentCreatePicker";
 import { ThemePicker } from "../theme/ThemePicker";
 import { useUiPrefsStore, type ThemeMode } from "../../store/ui-prefs";
+import { useUpdaterStore } from "../../store/updater";
 import { useToastStore } from "../../store/toast";
 import { useTranslation } from "../../i18n/useTranslation";
 
@@ -20,13 +21,24 @@ export function OnboardingWizard({ onClose }: Props) {
 	// 用户主动选中的主题，null = 还没选（第 1 步「下一步」据此禁用）
 	const [pickedTheme, setPickedTheme] = useState<ThemeMode | null>(null);
 
+	// 关闭向导：同时记录「主题引导已读」。新用户在第 1 步已经选过主题，
+	// 若不记录，配好 provider 后下次启动会被当成「老用户」再弹一次主题引导。
+	const closeWizard = () => {
+		const prefs = useUiPrefsStore.getState();
+		const { appVersion } = useUpdaterStore.getState();
+		if (appVersion && appVersion !== "—" && !prefs.themeIntroSeenVersion) {
+			prefs.setThemeIntroSeenVersion(appVersion);
+		}
+		onClose();
+	};
+
 	// 第 3 步创建成功即视为完成：设为默认智能体并关闭（「跳过」是另一出口）
 	const handleCreated = (displayName: string) => {
 		useUiPrefsStore.getState().setDefaultAgent(displayName);
 		useToastStore
 			.getState()
 			.add(t("onboardingWizard.agentCreated", { name: displayName }), "success");
-		onClose();
+		closeWizard();
 	};
 
 	// 第 1 步「下一步」：选中的主题落库后前进
@@ -37,14 +49,14 @@ export function OnboardingWizard({ onClose }: Props) {
 	};
 
 	return (
-		<Modal onClose={onClose} width={720} data-testid="onboarding-wizard">
+		<Modal onClose={closeWizard} width={720} data-testid="onboarding-wizard">
 			<div className="border-b border-hairline p-4">
 				<div className="flex items-center justify-between">
 					<div className="text-sm font-medium text-primary">
 						{t("onboardingWizard.title")}
 					</div>
 					<button
-						onClick={onClose}
+						onClick={closeWizard}
 						className="text-tertiary text-xs"
 						data-testid="onboarding-wizard-close"
 						aria-label={t("common.close")}
@@ -144,7 +156,7 @@ export function OnboardingWizard({ onClose }: Props) {
 					{step === 3 && (
 						<button
 							data-testid="wizard-skip"
-							onClick={onClose}
+							onClick={closeWizard}
 							className="rounded-md bg-surface-elevated px-3 py-1.5 text-sm text-secondary"
 						>
 							{t("onboardingWizard.skip")}

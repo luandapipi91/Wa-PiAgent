@@ -55,3 +55,15 @@ test("新手引导正开着时不弹升级引导（新用户在向导第 1 步�
 	};
 	expect(shouldShowThemeIntro(input)).toBe(false);
 });
+
+test("新手引导完成（配了 provider 但还没记录已读）→ 不该再弹升级引导", () => {
+	// 场景：新用户首启走完三步向导 → provider 已配好 → 若此时还不弹升级引导，
+	// 下次启动就会以「老用户」身份再弹一次，重复打扰
+	const input = {
+		appVersion: "0.10.5",
+		seenVersion: undefined,
+		hasProvider: true,
+		onboardingOpen: false,
+	};
+	expect(shouldShowThemeIntro(input)).toBe(true);
+});
