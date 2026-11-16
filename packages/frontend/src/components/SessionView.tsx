@@ -27,11 +27,12 @@ import { useSkillsStore } from "../store/skills";
 import { useCommandsStore } from "../store/commands";
 import { KERNEL_INTERCEPTED_COMMANDS } from "@wa-pi/shared";
 import { api } from "../api-client";
-import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
 import { openFileOrPreview } from "../open-file-preview";
 import { GitToolbar } from "./git/GitToolbar";
 import { useTuiPanelStore } from "../store/tui-panel";
+import { TokenCapsules } from "./TokenCapsules";
+import { useUiPrefsStore } from "../store/ui-prefs";
 import { TuiPanel, reportWidgetCols } from "./TuiPanel";
 import {
 	clampDockOffset,
@@ -110,6 +111,13 @@ export const SessionView = memo(function SessionView({
 	// 当前上下文窗口占用（session:stats 官方口径，供进度条 + 「占用」数值；无本地估算）
 	const contextUsage = useSessionStore(
 		(s) => s.contextUsageBySession[sessionId],
+	);
+	// 战术主题专属结构（引线标注）：纯 CSS 藏不住 DOM 文案，其余主题干脆不渲染。
+	// themeMode 为 system 时实际主题只会落到 light/dark，不可能落到 tactical，故直接比字符串。
+	const tacticalTheme = useUiPrefsStore((s) => s.themeMode) === "tactical";
+	// Provider 连接状态（transient 网络错误）→ 顶栏连接状态点转危险色
+	const netDegraded = useSessionStore(
+		(s) => s.netStatusBySession[sessionId] === "degraded",
 	);
 
 	useEffect(() => {
@@ -370,118 +378,65 @@ export const SessionView = memo(function SessionView({
 						</div>
 						{/* 会话角色入口：固定为只读展示（图标+角色名），不提供切换/编辑；
 							IM 会话智能体由机器人配置锁定，均不暴露切换。
-							与项目目录、会话状态同放一行（标题下）靠右，不再挤占标题行 */}
+							与项目目录、会话状态同放一行（标题下）靠右，不再挤占标题行。
+							路径与状态拆成两个独立元素（主题要给路径单独染色、给状态做 tag 块），
+							「·」分隔保留给默认主题（鎏金/战术用 tag 间距，各自隐藏分隔符）。 */}
 						<div className="flex items-center gap-2 text-[calc(11.5px*var(--font-scale))] text-tertiary mt-px">
 							<span
 								className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
 								style={{ background: STATUS_COLORS[headerStatus] }}
 								data-testid="session-status-dot"
 							/>
-							<span className="min-w-0 truncate">
+							<span className="min-w-0 truncate" data-testid="session-path">
 								{/* 默认工作区会话：不暴露内部工作目录，显示友好文案；普通项目会话仍显示 cwd */}
 								{sessionProjectId === SYSTEM_PROJECT_ID
 									? t("session.defaultWorkspace")
-									: (project?.cwd ?? "")}{" "}
-								· {t(AGENT_STATE_KEY[headerStatus])}
-								{sourceLabel && ` · ${sourceLabel}`}
+									: (project?.cwd ?? "")}
 							</span>
+							<span className="session-sep shrink-0" aria-hidden="true">
+								·
+							</span>
+							<span
+								className="session-tag shrink-0"
+								data-testid="session-status-tag"
+								data-state={headerStatus}
+							>
+								{t(AGENT_STATE_KEY[headerStatus])}
+							</span>
+							{sourceLabel && (
+								<>
+									<span className="session-sep shrink-0" aria-hidden="true">
+										·
+									</span>
+									<span className="min-w-0 truncate">{sourceLabel}</span>
+								</>
+							)}
 							{!sourceLabel && <AgentSwitcher sessionId={sessionId} readOnly />}
+							{/* 引线标注：仅战术主题（设计稿 .leader —— 16×1px 线 + 小字）。
+								其余主题不渲染，DOM 里也不留「主线程 · MAIN」这种战术黑话。 */}
+							{tacticalTheme && (
+								<span
+									className="session-leader shrink-0"
+									data-testid="session-main-thread"
+								>
+									<i className="session-leader-line" aria-hidden="true" />
+									{t("session.mainThreadLeader")}
+								</span>
+							)}
 						</div>
 					</div>
 					{/* Git 工具栏：仅普通项目会话（默认工作区无 git 仓库语义） */}
 					{project && sessionProjectId !== SYSTEM_PROJECT_ID && (
 						<GitToolbar project={project} />
 					)}
-					{/* Token 胶囊标签组（缓存胶囊改用 tokenTotals，故两者任一存在即渲染）；
+					{/* Token 数据条：数值拆成独立元素（见 TokenCapsules），主题才能把数字做成方块；
 						stats 未返回时在胶囊位置先占骨架，避免胶囊组晚到导致顶栏跳变 */}
-					{(lastUsage || capsuleSkeleton) && (
-						<div
-							className="flex flex-wrap items-center gap-x-2 gap-y-2 min-w-0 max-w-full"
-							data-testid="token-capsules"
-						>
-							{lastUsage && (
-								<span className="token-capsule">
-									{t("session.thisTurn", {
-										input: fmtTok(lastUsage.input),
-										output: fmtTok(lastUsage.output),
-									})}
-								</span>
-							)}
-							{/* stats 未返回：占用（含进度条）/ 累计 / 缓存 三格骨架占位 */}
-							{capsuleSkeleton && !tokenTotal && (
-								<span
-									className="flex items-center gap-x-2"
-									data-testid="token-capsules-skeleton"
-									aria-hidden="true"
-								>
-									<span className="block h-[26px] w-[68px] rounded-[10px] bg-hairline animate-pulse" />
-									<span className="block h-[18px] w-[56px] rounded-[10px] bg-hairline animate-pulse" />
-									<span className="block h-[18px] w-[44px] rounded-[10px] bg-hairline animate-pulse" />
-								</span>
-							)}
-							{/* 占用 + 进度条胶囊（只认官方 contextUsage，无本地估算） */}
-							{contextUsage?.used != null &&
-								contextUsage.total > 0 &&
-								(() => {
-									const pct = Math.min(
-										(contextUsage.used / contextUsage.total) * 100,
-										100,
-									);
-									const w = Math.max(Math.round(pct), 2);
-									return (
-										<span className="token-capsule token-capsule--stack">
-											<span className="token-occupied" data-testid="token-occupied">
-												{t("session.occupied", {
-													used: fmtTok(contextUsage.used),
-												})}
-											</span>
-											<span className="token-progress" data-testid="token-progress">
-												<span className="token-progress-fill" style={{ width: `${w}%` }} />
-											</span>
-										</span>
-									);
-								})()}
-							{/* 累计胶囊：独立一列；有子代理消耗时第二行拆分主/子 */}
-							{tokenTotal && (
-								<span
-									className={`token-capsule token-capsule--total${tokenTotal.subagent ? " token-capsule--stack" : ""}`}
-									data-testid="token-total"
-								>
-									{t("session.total", { total: fmtTok(tokenTotal.total) })}
-									{tokenTotal.subagent ? (
-										<span className="token-split" data-testid="token-split">
-											{t("session.totalSplitMain", {
-												main: fmtTok(
-													tokenTotal.main ?? tokenTotal.total - tokenTotal.subagent,
-												),
-											})}{" "}
-											·{" "}
-											{t("session.totalSplitSub", {
-												sub: fmtTok(tokenTotal.subagent),
-											})}
-										</span>
-									) : null}
-								</span>
-							)}
-{/* 缓存胶囊：整会话累计口径（主代理+子代理+warming 用量），
-								数据源 tokenTotals（session:stats 的 tokens，官方/降级两路同口径） */}
-							{tokenTotal &&
-								tokenTotal.input + tokenTotal.cacheRead + tokenTotal.cacheWrite > 0 &&
-								(() => {
-									const denom =
-										tokenTotal.input + tokenTotal.cacheRead + tokenTotal.cacheWrite;
-									const rate = (tokenTotal.cacheRead / denom) * 100;
-									const danger = rate < 90;
-									return (
-										<span
-											className={`token-capsule token-capsule--cache${danger ? " token-capsule--cache-danger" : ""}`}
-										>
-											{t("session.cache", { rate: Math.floor(rate * 10) / 10 })}
-										</span>
-									);
-								})()}
-						</div>
-					)}
+					<TokenCapsules
+						lastUsage={lastUsage}
+						tokenTotal={tokenTotal}
+						contextUsage={contextUsage}
+						skeleton={capsuleSkeleton}
+					/>
 					{/* 文件树面板开关按钮 */}
 					<button
 						type="button"
@@ -520,6 +475,16 @@ export const SessionView = memo(function SessionView({
 							className="text-[calc(18px*var(--font-scale))]"
 						/>
 					</button>
+					{/* 连接状态点：Provider 通道正常=成功色，transient 网络错误=危险色（设计稿 .led）。
+						与左侧 session-status-dot（agent 运行态）是两件事，别合并。 */}
+					<span
+						className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 self-center ${netDegraded ? "bg-danger" : "bg-success"}`}
+						data-testid="session-conn-led"
+						data-state={netDegraded ? "degraded" : "ok"}
+						title={
+							netDegraded ? t("session.connDegraded") : t("session.connected")
+						}
+					/>
 				</header>
 
 				{/* 队列面板：agent 运行中或有队列时显示 */}

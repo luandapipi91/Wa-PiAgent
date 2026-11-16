@@ -209,7 +209,10 @@ test("渲染 header 标题 + 项目目录", async () => {
 
 test("header 状态显示中文「空闲」，不暴露英文枚举", async () => {
 	await renderSessionView("s1");
-	expect(screen.getByText(/· 空闲/)).toBeTruthy();
+	// 状态文案在独立的 session-status-tag 里（路径另有 session-path，主题各染各的色）
+	expect(screen.getByTestId("session-status-tag").textContent?.trim()).toBe(
+		"空闲",
+	);
 	expect(screen.queryByText(/· idle/)).toBeNull();
 	// 状态点：idle 成功绿
 	expect(
@@ -222,7 +225,9 @@ test("header 状态显示中文「空闲」，不暴露英文枚举", async () =
 test("header 状态跟随会话运行态显示「思考中」", async () => {
 	useSessionStore.setState({ statusBySession: { s1: "thinking" } });
 	await renderSessionView("s1");
-	expect(screen.getByText(/· 思考中/)).toBeTruthy();
+	expect(screen.getByTestId("session-status-tag").textContent?.trim()).toBe(
+		"思考中",
+	);
 	expect(screen.queryByText(/· thinking/)).toBeNull();
 	// 状态点：thinking 靛蓝
 	expect(
@@ -263,7 +268,9 @@ test("有 pending ask 时 header 状态显示「等待回复」", async () => {
 		},
 	]);
 	await renderSessionView("s1");
-	expect(screen.getByText(/· 等待回复/)).toBeTruthy();
+	expect(screen.getByTestId("session-status-tag").textContent?.trim()).toBe(
+		"等待回复",
+	);
 	expect(screen.queryByText(/· blocked/)).toBeNull();
 	// 状态点：blocked 警告橙
 	expect(
@@ -825,11 +832,13 @@ test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
 	});
 	render(<SessionView sessionId="s1" />);
 	expect(screen.getByTestId("token-capsules")).toBeTruthy();
-	expect(screen.getByText(/本轮: ↑3\.2K\/↓1\.1K/)).toBeTruthy();
+	// 数值是独立元素（主题要把数字单独做成方块）
+	expect(screen.getByTestId("token-value-input").textContent).toBe("3.2K");
+	expect(screen.getByTestId("token-value-output").textContent).toBe("1.1K");
 	// 累计 = total（含 cacheRead/cacheWrite）：6400+2100+1500+200 = 10200 → 10.2K
-	expect(screen.getByText(/累计 10\.2K/)).toBeTruthy();
+	expect(screen.getByTestId("token-value-total").textContent).toBe("10.2K");
 	// 缓存 = 整会话累计口径：cacheRead/(input+cacheRead+cacheWrite) = 1500/(6400+1500+200) ≈ 18.52% → 18.5%
-	expect(screen.getByText(/缓存 18\.5%/)).toBeTruthy();
+	expect(screen.getByTestId("token-value-cache").textContent).toBe("18.5%");
 });
 
 test("token 胶囊：缓存命中率 ≥99.95% 时向下取整显示 99.9%，不显示误导的 100%", () => {
@@ -858,8 +867,8 @@ test("token 胶囊：缓存命中率 ≥99.95% 时向下取整显示 99.9%，不
 	});
 	render(<SessionView sessionId="s1" />);
 	expect(screen.getByTestId("token-capsules")).toBeTruthy();
-	expect(screen.getByText(/缓存 99\.9%/)).toBeTruthy();
-	expect(screen.queryByText(/缓存 100%/)).toBeNull();
+	expect(screen.getByTestId("token-value-cache").textContent).toBe("99.9%");
+	expect(screen.queryByText(/100%/)).toBeNull();
 });
 
 test("token 胶囊：有 contextUsage 时累计胶囊显示进度条", () => {
@@ -903,9 +912,8 @@ test("token 胶囊：有 contextUsage 时累计胶囊显示进度条", () => {
 	const fill = progress.querySelector(".token-progress-fill") as HTMLElement;
 	expect(fill.style.width).toBe("3%");
 	// 进度条上方显示当前窗口占用 token 数
-	expect(screen.getByTestId("token-occupied").textContent).toContain(
-		"占用 3.2K",
-	);
+	expect(screen.getByTestId("token-occupied").textContent).toContain("占用");
+	expect(screen.getByTestId("token-value-used").textContent).toBe("3.2K");
 });
 
 test("token 胶囊：无 contextUsage 时累计胶囊不显示进度条", () => {
@@ -943,8 +951,9 @@ test("token 胶囊：无 contextUsage 时累计胶囊不显示进度条", () => 
 
 	// 胶囊组仍显示（有 lastUsage），进度条与「占用」不应存在，仅显示弱化累计
 	expect(screen.getByTestId("token-capsules")).toBeTruthy();
-	expect(screen.getByText(/本轮: ↑3\.2K\/↓1\.1K/)).toBeTruthy();
-	expect(screen.getByText(/累计 8\.5K/)).toBeTruthy();
+	expect(screen.getByTestId("token-value-input").textContent).toBe("3.2K");
+	expect(screen.getByTestId("token-value-output").textContent).toBe("1.1K");
+	expect(screen.getByTestId("token-value-total").textContent).toBe("8.5K");
 	expect(screen.queryByTestId("token-progress")).toBeNull();
 	expect(screen.queryByTestId("token-occupied")).toBeNull();
 });
@@ -1020,13 +1029,14 @@ test("token 胶囊：有 contextUsage 时进度条与「占用」用官方口径
 	render(<SessionView sessionId="s1" />);
 
 	// 累计仍显示 total：90K
-	expect(screen.getByText(/累计 90K/)).toBeTruthy();
+	expect(screen.getByTestId("token-value-total").textContent).toBe("90K");
 	// 进度条 = 当前窗口占用 64000/128000 = 50%
 	const progress = screen.getByTestId("token-progress");
 	const fill = progress.querySelector(".token-progress-fill") as HTMLElement;
 	expect(fill.style.width).toBe("50%");
 	// 占用 = contextUsage.used = 64K
-	expect(screen.getByTestId("token-occupied").textContent).toContain("占用 64K");
+	expect(screen.getByTestId("token-occupied").textContent).toContain("占用");
+	expect(screen.getByTestId("token-value-used").textContent).toBe("64K");
 	// 布局：占用胶囊（加强）在前、累计胶囊（弱化，独立一列）在后
 	const occupied = screen.getByTestId("token-occupied");
 	const totalEl = screen.getByTestId("token-total");
@@ -1073,7 +1083,7 @@ test("token 胶囊：有子代理消耗时累计拆分主/子显示", () => {
 	});
 	render(<SessionView sessionId="s1" />);
 	// 两行显示：第一行累计合计，第二行主/子拆分
-	expect(screen.getByText(/累计 90K/)).toBeTruthy();
+	expect(screen.getByTestId("token-value-total").textContent).toBe("90K");
 	expect(screen.getByTestId("token-split").textContent).toContain(
 		"主 60K · 子 30K",
 	);
@@ -1111,7 +1121,7 @@ test("token 胶囊：无子代理消耗时累计不显示拆分", () => {
 		projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
 	});
 	render(<SessionView sessionId="s1" />);
-	expect(screen.getByText(/累计 90K/)).toBeTruthy();
+	expect(screen.getByTestId("token-value-total").textContent).toBe("90K");
 	expect(screen.queryByText(/主 90K/)).toBeNull();
 });
 
@@ -1882,6 +1892,7 @@ test("token 胶囊：缓存命中率按整会话累计（主+子）计算，而�
 		projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
 	});
 	render(<SessionView sessionId="s1" />);
-	expect(screen.getByText(/缓存 66\.6%/)).toBeTruthy();
-	expect(screen.queryByText(/缓存 16\.7%/)).toBeNull();
+	expect(screen.getByTestId("token-value-cache").textContent).toBe("66.6%");
+	// 旧实现按 lastUsage 算会得 16.7%：数值必须来自整会话累计口径
+	expect(screen.queryByText(/16\.7%/)).toBeNull();
 });

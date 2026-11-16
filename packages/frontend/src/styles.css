@@ -499,6 +499,19 @@ input[type="range"]::-moz-range-thumb {
 	color: var(--text-secondary);
 	white-space: nowrap;
 }
+/* 数据条包裹层：本轮/占用/累计三格。默认主题下不参与布局（display: contents），
+   四颗胶囊仍是原来那一条 flex 行，主题装饰层才把它做成一根带边的数据条。 */
+.token-bar {
+	display: contents;
+}
+/* 标签 + 独立数值元素的横向排布（数值由 TokenCapsules 拆出，见 theme 装饰层） */
+.token-capsule--turn,
+.token-occupied,
+.token-capsule--total {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
 .token-capsule--cache {
 	background: var(--success-soft);
 	color: var(--success);
@@ -1373,6 +1386,150 @@ input[type="range"]::-moz-range-thumb {
 	letter-spacing: 0.02em;
 }
 
+/* ── 鎏金结构层（任务 3）：会话头 tag / 数据条与数值方块 ──
+   为什么插在战术主题块之前而不是文件末尾：契约测试的「鎏金装饰」切片以
+   :root[data-theme="tactical"] 为终点，鎏金规则落在它之后会漏检（战术切片到 EOF）。 */
+/* 路径：海克斯青等宽小字（设计稿 .ch-sub .path） */
+:root[data-theme="gilded"] [data-testid="session-view"] header [data-testid="session-path"] {
+	font-family: var(--font-mono);
+	font-size: calc(10.5px * var(--font-scale));
+	letter-spacing: 0.01em;
+	color: #137f91;
+}
+
+/* 默认主题的「·」分隔符：鎏金用 tag 间距分隔，圆点多余 */
+:root[data-theme="gilded"] [data-testid="session-view"] header .session-sep {
+	display: none;
+}
+
+/* 状态 tag：灰底方角小标签（设计稿 .tag / .tag.idle） */
+:root[data-theme="gilded"] [data-testid="session-view"] header .session-tag {
+	display: inline-flex;
+	align-items: center;
+	height: 18px;
+	padding: 0 7px;
+	border: 1px solid var(--hairline);
+	border-radius: 3px;
+	background: #f2f2f2;
+	font-size: calc(10.5px * var(--font-scale));
+	letter-spacing: 0.04em;
+	color: var(--text-secondary);
+}
+
+/* 角色 tag：金底黑字（设计稿 .tag.gold）。不锁高度：内部还有 20px 头像，
+   锁 18px 会把头像裁掉。 */
+:root[data-theme="gilded"] [data-testid="session-view"] header span[data-testid="agent-switcher"] {
+	padding: 0 7px;
+	border: 1px solid #bb9a6c;
+	border-radius: 3px;
+	background: var(--accent);
+}
+
+:root[data-theme="gilded"] [data-testid="session-view"] header span[data-testid="agent-switcher"] > span:last-child {
+	color: #1a1a1a;
+	font-weight: 600;
+}
+
+/* 数据条：一根带烫金细边的横条，三格之间 1px 分隔（设计稿 .pill.grp .cell）。
+   align-items 用 stretch：累计格带主/子拆分会比 22px 高，格子拉齐才不出现「半截分隔线」。 */
+:root[data-theme="gilded"] [data-testid="token-capsules"] > .token-bar {
+	display: inline-flex;
+	align-items: stretch;
+	gap: 0;
+	border: 1px solid var(--hairline);
+	border-radius: 3px;
+	background: var(--surface);
+	overflow: hidden;
+}
+
+:root[data-theme="gilded"] [data-testid="token-capsules"] .token-capsule {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	min-height: 22px;
+	padding: 0 8px;
+	border-radius: 0;
+	border-right: 1px solid var(--hairline);
+	background: none;
+	font-size: calc(10.5px * var(--font-scale));
+	color: var(--text-tertiary);
+}
+
+:root[data-theme="gilded"] [data-testid="token-capsules"] .token-capsule:last-child {
+	border-right: 0;
+}
+
+/* 占用格（标签 + 进度条）/ 带主·子拆分的累计格：纵向排布，高度随内容（不锁 22px，
+   锁了会把「累计」标签和拆分行裁掉——实测过） */
+:root[data-theme="gilded"] [data-testid="token-capsules"] .token-capsule--stack {
+	flex-direction: column;
+	align-items: stretch;
+	justify-content: center;
+	gap: 2px;
+	padding: 2px 8px;
+}
+
+/* 数值：深灰 #444 方块白字（设计稿 .v；--data 只在设计稿里，本层硬写） */
+:root[data-theme="gilded"] .token-value {
+	display: inline-grid;
+	place-items: center;
+	min-width: 30px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: 3px;
+	background: #444444;
+	color: #ffffff;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: calc(10px * var(--font-scale));
+	letter-spacing: 0.02em;
+}
+
+/* 「/」分隔只在战术稿里有，鎏金两段数字直接相邻 */
+:root[data-theme="gilded"] [data-testid="token-capsules"] .token-turn-sep {
+	display: none;
+}
+
+/* 缓存：金底小胶囊，数值去掉灰块改金棕加粗（设计稿 .pill.ok b） */
+:root[data-theme="gilded"] [data-testid="token-capsules"] > .token-capsule--cache {
+	height: 22px;
+	padding: 0 8px;
+	border: 1px solid rgba(159, 147, 120, 0.5);
+	border-radius: 3px;
+	background: rgba(205, 190, 145, 0.12);
+	font-family: var(--font-mono);
+	font-size: calc(10.5px * var(--font-scale));
+	color: var(--text-primary);
+}
+
+:root[data-theme="gilded"] [data-testid="token-capsules"] > .token-capsule--cache .token-value {
+	display: inline;
+	min-width: 0;
+	height: auto;
+	padding: 0;
+	background: none;
+	color: #bb9a6c;
+	font-weight: 600;
+}
+
+/* 命中率过低（<90%）的警示态：不被上面的金底规则盖掉 */
+:root[data-theme="gilded"] [data-testid="token-capsules"] > .token-capsule--cache-danger {
+	border-color: var(--danger);
+	background: var(--danger-soft);
+	color: var(--danger);
+}
+
+:root[data-theme="gilded"] [data-testid="token-capsules"] > .token-capsule--cache-danger .token-value {
+	color: var(--danger);
+}
+
+/* 连接状态点：海克斯青小圆点（设计稿 .led） */
+:root[data-theme="gilded"] [data-testid="session-conn-led"][data-state="ok"] {
+	background: #1da6ba;
+}
+
+
 /* ===== 主题：战术终端（tactical）===== */
 /* 纯黑画布 + 青绿强调；直角 0px、投影全关，终端屏幕的硬边观感。
    整体按暗色归类（color-scheme: dark），代码块、终端卡、通知卡片都走暗色。
@@ -1835,4 +1992,152 @@ input[type="range"]::-moz-range-thumb {
 		transition-duration: 0s;
 		transition-delay: 0s;
 	}
+}
+
+/* ── 战术结构层（任务 3）：会话头 tag / 引线标注 / 数据条与数值 ──
+   追加在文件末尾：战术装饰切片以侧栏锚点为起点、一直到 EOF，
+   所以这一段每条选择器都必须带 :root[data-theme="tactical"] 前缀。 */
+/* 路径：灰等宽小字（设计稿 .ch-sub .path） */
+:root[data-theme="tactical"] [data-testid="session-view"] header [data-testid="session-path"] {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: calc(10.5px * var(--font-scale));
+	letter-spacing: 0.04em;
+	color: var(--text-secondary);
+}
+
+/* 默认主题的「·」分隔符：战术用 tag 间距分隔 */
+:root[data-theme="tactical"] [data-testid="session-view"] header .session-sep {
+	display: none;
+}
+
+/* 状态 tag：直角 1px 细框（设计稿 .tag；空闲态虚线灰字 .tag.idle） */
+:root[data-theme="tactical"] [data-testid="session-view"] header .session-tag {
+	display: inline-flex;
+	align-items: center;
+	height: 17px;
+	padding: 0 6px;
+	border: 1px solid var(--hairline);
+	border-radius: 0;
+	font-size: calc(10.5px * var(--font-scale));
+	letter-spacing: 0.03em;
+	color: var(--text-secondary);
+	white-space: nowrap;
+}
+
+/* 空闲态：虚线框灰字（设计稿 .tag.idle）。选择器必须比上面的 .session-tag 规则更具体，
+   否则 border 简写（solid）会把 dashed 盖掉——实测 (0,4,1) 压 (0,4,0)，这里补到 (0,5,1)。 */
+:root[data-theme="tactical"] [data-testid="session-view"] header .session-tag[data-state="idle"] {
+	border-style: dashed;
+	color: var(--text-tertiary);
+}
+
+/* 角色 tag：与状态 tag 同一套直角细框（不锁高度：内部还有 20px 头像） */
+:root[data-theme="tactical"] [data-testid="session-view"] header span[data-testid="agent-switcher"] {
+	padding: 0 6px;
+	border: 1px solid var(--hairline);
+	border-radius: 0;
+}
+
+/* 引线标注：一根 16×1px 短线 + 大写小字（设计稿 .leader / .leader .ln） */
+:root[data-theme="tactical"] .session-leader {
+	display: inline-flex;
+	align-items: center;
+	color: var(--text-tertiary);
+	font-family: var(--font-mono);
+	font-size: calc(9.5px * var(--font-scale));
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+:root[data-theme="tactical"] .session-leader .session-leader-line {
+	width: 16px;
+	height: 1px;
+	flex: 0 0 16px;
+	margin-right: 6px;
+	background: var(--hairline-strong);
+}
+
+/* 数据条：直角细框 + 格间 1px 分隔（设计稿 .pill.grp） */
+:root[data-theme="tactical"] [data-testid="token-capsules"] > .token-bar {
+	display: inline-flex;
+	align-items: stretch;
+	gap: 0;
+	border: 1px solid var(--hairline);
+}
+
+:root[data-theme="tactical"] [data-testid="token-capsules"] .token-capsule {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	min-height: 22px;
+	padding: 0 8px;
+	border-radius: 0;
+	border-right: 1px solid var(--hairline);
+	background: none;
+	font-size: calc(10.5px * var(--font-scale));
+	color: var(--text-secondary);
+}
+
+:root[data-theme="tactical"] [data-testid="token-capsules"] .token-capsule:last-child {
+	border-right: 0;
+}
+
+/* 占用格（标签 + 进度条）/ 带主·子拆分的累计格：纵向排布，高度随内容
+   （锁 22px 会把「累计」标签挤出数据条外——实测过） */
+:root[data-theme="tactical"] [data-testid="token-capsules"] .token-capsule--stack {
+	flex-direction: column;
+	align-items: stretch;
+	justify-content: center;
+	gap: 2px;
+	padding: 2px 8px;
+}
+
+/* 数值：白字 600，无色块（设计稿 .pill.grp span em） */
+:root[data-theme="tactical"] .token-value {
+	color: var(--text-primary);
+	font-weight: 600;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+/* 上涨箭头走强调色（设计稿 .pill .up） */
+:root[data-theme="tactical"] [data-testid="token-capsules"] .token-turn-up {
+	color: var(--accent);
+}
+
+/* 缓存：青绿细框独立一格（设计稿 .pill.ok），数值同样是白字 */
+:root[data-theme="tactical"] [data-testid="token-capsules"] > .token-capsule--cache {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	height: 22px;
+	padding: 0 8px;
+	border: 1px solid rgba(15, 247, 150, 0.38);
+	border-radius: 0;
+	background: none;
+	font-size: calc(10.5px * var(--font-scale));
+	color: var(--accent);
+}
+
+/* 命中率过低（<90%）的警示态：不被上面的青绿框盖掉 */
+:root[data-theme="tactical"] [data-testid="token-capsules"] > .token-capsule--cache-danger {
+	border-color: var(--danger);
+	background: var(--danger-soft);
+	color: var(--danger);
+}
+
+:root[data-theme="tactical"] [data-testid="token-capsules"] > .token-capsule--cache-danger .token-value {
+	color: var(--danger);
+}
+
+/* 连接状态点：6px 青绿直角方块（设计稿 .led） */
+:root[data-theme="tactical"] [data-testid="session-conn-led"] {
+	border-radius: 0;
+}
+
+:root[data-theme="tactical"] [data-testid="session-conn-led"][data-state="ok"] {
+	background: var(--accent);
 }
