@@ -1428,6 +1428,9 @@ input[type="range"]::-moz-range-thumb {
 
 	/* 系统无衬线栈，去 MiSans，贴近机器默认渲染 */
 	--font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+
+	/* 装饰层数据字体：数值/时间/路径/署名统一等宽（设计稿 --font-data） */
+	--font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace;
 }
 
 /* ===== 跨主题收敛：Tailwind 内置圆角刻度 ===== */
@@ -1456,4 +1459,376 @@ input[type="range"]::-moz-range-thumb {
 :root[data-theme="gilded"] button.rounded-full,
 :root[data-theme="tactical"] button.rounded-full {
 	border-radius: var(--rounded-sm);
+}
+
+/* ===== 战术终端装饰层 ===== */
+/* 纯黑画布 + 青绿强调的官网式排版语言：1px 亮白细边、全直角、数据等宽、
+   大号英文水印叠压在会话标题上方。设计稿明确「无网格、无斜纹、无扫描线、无发光」，
+   故本层没有任何背景纹理与循环动画。
+   全部规则以 :root[data-theme="tactical"] 为作用域前缀，不外溢到其他主题；
+   本层不动组件代码、不改点击热区与虚拟滚动行高（.ep-node 保持 24px）。 */
+
+/* A7 会话行底部 1px 极淡分隔线（设计稿 .row border-bottom）。
+   :not(session-scope-*) —— 侧栏「项目/最近」切换按钮的 testid 同样是 session- 开头，
+   不加排除会把分隔线画到那两个胶囊按钮上。session 行不是虚拟滚动行，加 1px 不影响布局。 */
+:root[data-theme="tactical"] [data-testid="sidebar"] button[data-testid^="session-"]:not([data-testid^="session-scope"]) {
+	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* A1 侧栏一级「智能体」：白色粗体 + 英文副标 AGENTS（设计稿 .nav-main） */
+:root[data-theme="tactical"] [data-testid="agent-collapsed"] > span:first-child {
+	color: var(--text-primary);
+	font-weight: 700;
+	letter-spacing: 0.06em;
+}
+
+:root[data-theme="tactical"] [data-testid="agent-collapsed"] > span:first-child::after {
+	content: "AGENTS";
+	margin-left: 7px;
+	font-size: 8.5px;
+	font-weight: 400;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	line-height: 1;
+	color: #5b5b5b;
+}
+
+/* A1 侧栏分区标题「项目」：白色粗体 + 英文副标 PROJECTS（设计稿 .section-head） */
+:root[data-theme="tactical"] [data-testid="sidebar"] .font-bold.uppercase {
+	color: var(--text-primary);
+	letter-spacing: 0.14em;
+}
+
+:root[data-theme="tactical"] [data-testid="sidebar"] .font-bold.uppercase > span:first-child::after {
+	content: "PROJECTS";
+	margin-left: 7px;
+	font-size: 8.5px;
+	font-weight: 400;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	line-height: 1;
+	color: #5b5b5b;
+}
+
+/* A2 计数方块：智能体数量（设计稿 .nav-main .cnt —— 20×16 直角细边等宽小格）。
+   背景保留组件自带的 bg-surface-hover 填充：清成透明会跟设计稿更近一点，但会让
+   appearance-themes 里「无刺眼浅色块」的采样集在首页变成空集（它拿 .bg-surface* 元素
+   当样点，该徽标是首屏唯一一个不透明的），触发用例的防假绿守卫。
+   视觉差异仅在 #0F0F0F 侧栏上的 5 级灰（#141414），可接受。 */
+:root[data-theme="tactical"] [data-testid="agent-collapsed"] > span:nth-of-type(2) {
+	display: inline-grid;
+	place-items: center;
+	min-width: 20px;
+	height: 16px;
+	padding: 0 4px;
+	border: 1px solid var(--hairline);
+	border-radius: 0;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 10px;
+	font-weight: 400;
+	letter-spacing: 0.06em;
+	color: var(--text-secondary);
+}
+
+/* A2 加号方块：新建项目（设计稿 .section-head .add —— 16×16 细边直角小方块）。
+   套在 svg 上而不是按钮上：无项目时同一 testid 渲染的是纯文字按钮，不能被压成小方块。
+   颜色不写死：按钮的 hover:text-brand 才能继续把加号刷成青绿。 */
+:root[data-theme="tactical"] [data-testid="new-project-btn"] svg {
+	box-sizing: content-box;
+	width: 10px;
+	height: 10px;
+	padding: 2px;
+	border: 1px solid var(--hairline);
+	border-radius: 0;
+}
+
+/* A3 tab 选中态：底部 2px 青绿下划线 + 青绿 700（设计稿 .segmented button.active）。
+   选中态由内联 style 的 `background: var(--surface)` 标识（未选中是 transparent），
+   故用属性选择器区分；文字色是内联的，需强制覆盖。 */
+:root[data-theme="tactical"] [data-testid^="sidebar-tab-"] {
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	letter-spacing: 0.06em;
+}
+
+:root[data-theme="tactical"] [data-testid^="sidebar-tab-"][style*="--surface"] {
+	border-bottom-color: var(--accent);
+	color: var(--accent) !important; /* 组件内联样式，需强制覆盖 */
+	font-weight: 700;
+}
+
+/* A4 行内图标去饱和：纯黑区 emoji 收成中性灰，不破坏黑白青绿三色体系（设计稿 .row .ri） */
+:root[data-theme="tactical"] button[data-testid^="session-"] > span:first-child {
+	filter: grayscale(1) brightness(2.1);
+	opacity: 0.55;
+}
+
+/* A5 行右侧时间：等宽小字（设计稿 .row .rr / 数据组 .04em + tabular-nums）。
+   只锁「时间文案」本身（= 带 text-tertiary 的那一个直系 span）：
+   同一位置的 session-awaiting-*（问号）与 session-running-*（转圈）不能被当成时间改字体。 */
+:root[data-theme="tactical"] button[data-testid^="session-"] > span.text-tertiary {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 10px;
+	letter-spacing: 0.04em;
+	color: #5b5b5b;
+}
+
+/* A6 选中行左侧 3px 青绿竖条（设计稿 .row.active::before）。
+   组件内联样式，需强制覆盖：SessionRow 写死 borderLeft: 2px solid var(--accent)。
+   只改宽度 2→3px；底色与文字色直接复用内联的 --accent-soft / --accent。 */
+:root[data-theme="tactical"] button[data-testid^="session-"][style*="var(--accent)"] {
+	border-left: 3px solid var(--accent) !important; /* 组件内联样式，需强制覆盖 */
+}
+
+/* A9 会话头：大号英文水印 CONVERSATION（设计稿 .conv-head .wm，34px 800 #2A2A2A）。
+   层叠顺序：标题栏自身不新建层叠上下文（否则其中的分支下拉 fixed 菜单会被消息区盖住），
+   只把头部内容设成 position: relative —— 它们于是画在水印之后，压在水印之上；
+   水印因此可以安全地呆在右上角而不遮字，也照旧 pointer-events: none 不吃点击。 */
+:root[data-theme="tactical"] [data-testid="session-view"] header {
+	position: relative;
+}
+
+:root[data-theme="tactical"] [data-testid="session-view"] header > * {
+	position: relative;
+}
+
+:root[data-theme="tactical"] [data-testid="session-view"] header::before {
+	content: "CONVERSATION";
+	position: absolute;
+	top: 2px;
+	right: 18px;
+	font-size: 34px;
+	font-weight: 800;
+	line-height: 1;
+	letter-spacing: 0.02em;
+	white-space: nowrap;
+	color: #2a2a2a;
+	pointer-events: none;
+	user-select: none;
+}
+
+/* 标题区右侧留出水印宽度（设计稿 .ch-headline padding-right 避让 320px）。
+   产品头部的右侧被 git 工具栏/胶囊占着，留 320px 会把标题挤成一条竖线；
+   这里按「最宽一档水印 + 呼吸位」收到 150px：短标题不压水印，长标题仍能占满两行。 */
+:root[data-theme="tactical"] [data-testid="session-view"] header > div:first-child > div:first-child {
+	padding-right: 150px;
+}
+
+/* A10 助手消息卡 + 思考占位卡：近黑面板卡 + 1px 细边 + 直角，hover 边框转青绿（设计稿 .card）。
+   两处圆角都是组件内联样式，需强制覆盖（本文件的第 3、4 处强制覆盖）：
+   MessageList 的 text-bubble 与 loading-* 都写死 borderRadius: 4px 14px 14px 14px。 */
+:root[data-theme="tactical"] [data-testid="text-bubble"] > div:first-child {
+	background: #0b0b0b;
+	border-color: var(--hairline);
+	box-shadow: none;
+	border-radius: 0 !important; /* 组件内联样式，需强制覆盖 */
+	transition: border-color 0.16s ease-out;
+}
+
+:root[data-theme="tactical"] [data-testid="text-bubble"] > div:first-child:hover {
+	border-color: rgba(15, 247, 150, 0.45);
+}
+
+:root[data-theme="tactical"] [data-testid^="loading-"] > div > .inline-flex {
+	background: #0b0b0b;
+	border-color: var(--hairline);
+	border-radius: 0 !important; /* 组件内联样式，需强制覆盖 */
+	transition: border-color 0.16s ease-out;
+}
+
+/* A11 markdown 内装饰：h4 前 12×2 青绿短线 + 青绿标题（设计稿 .card h4） */
+:root[data-theme="tactical"] .md-body h4 {
+	color: var(--accent);
+	letter-spacing: 0.05em;
+}
+
+:root[data-theme="tactical"] .md-body h4::before {
+	content: "";
+	display: inline-block;
+	width: 12px;
+	height: 2px;
+	margin-right: 8px;
+	background: var(--accent);
+	vertical-align: middle;
+}
+
+/* A11 分隔线：1px 细线（设计稿 .card hr） */
+:root[data-theme="tactical"] .md-body hr {
+	height: 0;
+	border: 0;
+	border-top: 1px solid var(--hairline);
+	margin: 14px 0;
+	background: transparent;
+}
+
+/* A11 列表序号：青绿等宽 marker（设计稿 .card li::marker） */
+:root[data-theme="tactical"] .md-body li::marker {
+	color: var(--accent);
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+/* A11 行内代码：近黑底 + 1px 边 + 直角 + 冷灰等宽字（设计稿 code；代码块内的 code 不受影响） */
+:root[data-theme="tactical"] .md-body :not(pre) > code {
+	background: #0b0b0b;
+	border: 1px solid var(--hairline);
+	border-radius: 0;
+	padding: 1px 5px;
+	color: var(--text-secondary);
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	letter-spacing: 0.02em;
+}
+
+/* A12 署名行：等宽小字 + 宽字距（设计稿 .sign —— 10px .12em 全大写冷灰）。
+   锚在助手消息的署名行上（用户消息的署名锚是 .flex-col，此处排除）。 */
+:root[data-theme="tactical"] [data-testid^="msg-"] > div:not(.flex-col) > div.font-semibold:first-child {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: #5b5b5b;
+}
+
+/* A12 用户消息的署名行（设计稿 .usermsg .meta：10px .08em，同为数据组等宽） */
+:root[data-theme="tactical"] [data-testid^="msg-"] > .flex-col.items-end > div.font-semibold:first-child {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 10px;
+	letter-spacing: 0.08em;
+	color: #5b5b5b;
+}
+
+/* A13 系统提示：小字 + 两侧 1px 细线（设计稿 .sysline，产品文案自带“—— …——”）。
+   行内排版而不是 flex：custom 消息是 “—— <文本> ——” 三个子节点，
+   flex+gap 会把破折号与正文硬撑开。 */
+:root[data-theme="tactical"] [data-testid^="custom-"] {
+	text-align: center;
+	font-size: 10.5px;
+	letter-spacing: 0.04em;
+	color: #5b5b5b;
+}
+
+:root[data-theme="tactical"] [data-testid^="custom-"]::before,
+:root[data-theme="tactical"] [data-testid^="custom-"]::after {
+	content: "";
+	display: inline-block;
+	width: 56px;
+	height: 1px;
+	margin: 0 12px;
+	vertical-align: middle;
+	background: var(--hairline);
+}
+
+/* A14 用户气泡：近黑面板 + 1px 细边 + 直角（设计稿 .usermsg .bubble）。
+   圆角是组件内联样式，需强制覆盖：MessageList 写死 borderRadius: 14px 4px 14px 14px。 */
+:root[data-theme="tactical"] [data-testid^="msg-"] > .flex-col.items-end > div:not(.font-semibold) {
+	background: #0b0b0b;
+	border: 1px solid var(--hairline);
+	border-radius: 0 !important; /* 组件内联样式，需强制覆盖 */
+}
+
+/* A15 输入卡：近黑面板 + 1px 细边 + 直角，聚焦只换边色（设计稿 .composer-inner）。
+   设计稿明确「无发光」，所以顺手把组件自带的 focus 光晕关掉——层次只靠细边。 */
+:root[data-theme="tactical"] [data-testid="composer-input"] > .rounded-2xl {
+	background: #0b0b0b;
+	border-color: var(--hairline);
+	box-shadow: none;
+}
+
+:root[data-theme="tactical"] [data-testid="composer-input"] > .rounded-2xl:focus-within {
+	border-color: var(--accent);
+	box-shadow: none;
+}
+
+/* A16 发送按钮：青绿底 + 近黑字 + 1px 青绿边（设计稿 .send）。
+   不需要强制覆盖：战术主题的 --brand 与 --accent 同为 #0FF796，组件内联的
+   background: var(--brand) / color: var(--on-brand) 已经就是设计稿取值；
+   :not(:disabled) 限定 —— 禁用态保留引用 --fill-muted 的常态灰块，不描青绿边。 */
+:root[data-theme="tactical"] [data-testid="composer-input"] [data-testid="composer-send"]:not(:disabled) {
+	background: var(--accent);
+	border: 1px solid var(--accent);
+	border-radius: 0;
+}
+
+/* A17 右栏标题英文副标：项目文件 / FILES（设计稿 .rail-tab） */
+:root[data-theme="tactical"] [data-testid="explorer-aside"] > div:first-child > span:first-child {
+	letter-spacing: 0.1em;
+}
+
+:root[data-theme="tactical"] [data-testid="explorer-aside"] > div:first-child > span:first-child::after {
+	content: "FILES";
+	margin-left: 6px;
+	font-size: 8.5px;
+	font-weight: 400;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	line-height: 1;
+	color: #5b5b5b;
+}
+
+/* A18 文件行：直角 + 选中左侧 3px 青绿竖条 + 青绿文件名（设计稿 .tnode.picked）。
+   行高保持 24px 不动：ExplorerPanel 虚拟滚动 fixedItemHeight=24 依赖它；
+   border-box 下 3px 左边框计入 24px 总高，不会把行撑高。 */
+:root[data-theme="tactical"] .ep-node {
+	border-left: 3px solid transparent;
+	border-radius: 0;
+}
+
+:root[data-theme="tactical"] .ep-node:hover {
+	background: var(--surface-hover);
+	color: var(--text-primary);
+}
+
+:root[data-theme="tactical"] .ep-node[data-selected="true"] {
+	background: var(--accent-soft);
+	border-left-color: var(--accent);
+	color: var(--accent);
+}
+
+/* A18 文件名走数据组等宽（设计稿 .tnode .tlabel 在 --font-data 组里）；
+   字号仍沿用文件树自己的 --font-scale 口径，只换字体与字距，不改密度。 */
+:root[data-theme="tactical"] .ep-name {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.04em;
+}
+
+/* 连接状态点：6px 青绿方块而非圆点（设计稿 .led —— 直角，无光晕）。
+   尺寸组件已是 w-1.5/h-1.5（6px），只把圆角收掉；
+   底色仍是组件按会话状态传的内联值（运行/等待/空闲要能区分），不在这里改。 */
+:root[data-theme="tactical"] [data-testid="session-status-dot"] {
+	border-radius: 0;
+}
+
+/* A20 数据基元：英文大写小字 .en 与等宽数字 .num（设计稿基元类，供结构层复用） */
+:root[data-theme="tactical"] .en {
+	font-size: 8.5px;
+	font-weight: 400;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	line-height: 1;
+}
+
+:root[data-theme="tactical"] .num {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.04em;
+}
+
+/* A21 减动效：系统要求减少动效时关掉过渡（设计稿 prefers-reduced-motion）。
+   只关 transition 不关 animation：转圈/脉冲是「正在运行」的功能性指示，不是装饰。
+   `*` 那条（特异性 0,2,0）压不住本层自己给卡片写的 transition（0,4,1），
+   所以两张卡得单独点名再关一次——否则减动效在它们身上静默失效。 */
+@media (prefers-reduced-motion: reduce) {
+	:root[data-theme="tactical"] [data-testid="text-bubble"] > div:first-child,
+	:root[data-theme="tactical"] [data-testid^="loading-"] > div > .inline-flex,
+	:root[data-theme="tactical"] *,
+	:root[data-theme="tactical"] *::before,
+	:root[data-theme="tactical"] *::after {
+		transition: none;
+	}
 }

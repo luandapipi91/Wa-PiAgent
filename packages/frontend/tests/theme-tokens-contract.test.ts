@@ -288,3 +288,75 @@ test("鎏金装饰包含关键元素选择器", () => {
 		expect(decor).toContain(sel);
 	}
 });
+
+// ===== 战术终端装饰层契约（装饰块位于 tactical 主题块之后、文件末尾） =====
+/** 取战术装饰块的 CSS 文本。切片起点钉在装饰块首条规则（侧栏会话行分隔线）上：
+ *  它之前不能再有装饰规则，否则会漏检。 */
+function tacticalDecor(): string {
+	const start = css.indexOf(
+		':root[data-theme="tactical"] [data-testid="sidebar"]',
+	);
+	if (start < 0) throw new Error("战术装饰块锚点缺失");
+	return css.slice(start);
+}
+
+/** 提取片段里每条规则的选择器（多选择器按逗号切段）。
+ *  **不能用「以 `{` 结尾的行」当选择器**：战术装饰块含 `@media (prefers-reduced-motion)`，
+ *  这行同样以 `{` 结尾却不含 data-theme，按行扫会误判成缺作用域的泄漏规则。
+ *  这里先剥掉 `@…{` 外壳：@ 规则自身不当作选择器，其内部规则照常参与检查
+ *  （减少动效规则若写成裸 `* { transition: none }`，会泄漏到其他主题，必须也验证前缀）。
+ *  顺带补上按行扫描的盲区：多行选择器组（`a,⏎b {`）此前只检查到最后一行。 */
+function decorSelectors(block: string): string[] {
+	return block
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/@[^{]*\{/g, "")
+		.split("}")
+		.flatMap((chunk) => {
+			const open = chunk.indexOf("{");
+			if (open < 0) return [];
+			const sel = chunk.slice(0, open).trim();
+			return sel ? sel.split(",").map((s) => s.trim()) : [];
+		})
+		.filter(Boolean);
+}
+
+test("战术装饰规则全部限定在 data-theme 作用域内（@ 规则除外）", () => {
+	const selectors = decorSelectors(tacticalDecor());
+	// 防空切片假绿：切片没取到规则时，下面的循环会零次通过
+	expect(selectors.length).toBeGreaterThan(0);
+	for (const sel of selectors) {
+		expect(sel).toContain(':root[data-theme="tactical"]');
+	}
+});
+
+test("战术装饰块位于战术主题变量块之后（文件末尾追加）", () => {
+	const themeIndex = css.indexOf(':root[data-theme="tactical"] {');
+	expect(themeIndex).toBeGreaterThan(-1);
+	expect(css.indexOf(':root[data-theme="tactical"] [data-testid="sidebar"]')).toBeGreaterThan(
+		themeIndex,
+	);
+});
+
+test("战术装饰含水印、等宽数据与减动效规则", () => {
+	const decor = tacticalDecor();
+	expect(decor).toContain("CONVERSATION");
+	expect(decor).toContain("tabular-nums");
+	expect(decor).toContain("prefers-reduced-motion");
+	// 水印是纯装饰：不参与命中，也不可被选中
+	expect(decor).toContain("pointer-events: none");
+});
+
+test("战术装饰覆盖关键元素选择器", () => {
+	const decor = tacticalDecor();
+	for (const sel of [
+		'[data-testid="agent-collapsed"]',
+		'[data-testid^="sidebar-tab-"]',
+		'[data-testid^="session-"]',
+		'[data-testid="text-bubble"]',
+		'[data-testid="composer-send"]',
+		'[data-testid="explorer-aside"]',
+		'[data-testid="session-status-dot"]',
+	]) {
+		expect(decor).toContain(sel);
+	}
+});
