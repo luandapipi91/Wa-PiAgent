@@ -76,7 +76,7 @@ test("system 模式下 matchMedia 返回 dark → data-theme 为 dark", async ()
 	expect(document.documentElement.dataset.theme).toBe("dark");
 });
 
-test("resolveActualTheme 对三套新主题直通", () => {
+test("resolveActualTheme 对五套新主题直通", () => {
 	for (const mode of ["newspaper", "pixel", "cyber"] as const) {
 		expect(resolveActualTheme(mode)).toBe(mode);
 	}
@@ -90,7 +90,7 @@ test("isDarkTheme：dark/pixel/cyber 为暗，light/newspaper 为亮", () => {
 	expect(isDarkTheme("newspaper")).toBe(false);
 });
 
-test("isAccentApplicable：三套新主题不可换强调色", () => {
+test("isAccentApplicable：五套新主题不可换强调色", () => {
 	expect(isAccentApplicable("newspaper")).toBe(false);
 	expect(isAccentApplicable("pixel")).toBe(false);
 	expect(isAccentApplicable("cyber")).toBe(false);

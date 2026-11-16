@@ -8,7 +8,7 @@ interface Props {
 }
 
 /**
- * 升级后一次性主题引导：单页六张卡片，确认或关闭即结束。
+ * 升级后一次性主题引导：单页八张卡片，确认或关闭即结束。
  * 不重复问模型与智能体（老用户早就配好了）。
  */
 export function ThemeIntroModal({ onClose }: Props) {
