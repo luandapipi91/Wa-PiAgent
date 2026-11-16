@@ -57,6 +57,7 @@ import { NewSessionPane } from "../src/components/NewSessionPane";
 import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
 import { useBrowserStore } from "../src/store/browser";
 import { useProvidersStore } from "../src/store/providers";
 import { useRecordingStore } from "../src/store/recording";
@@ -122,6 +123,8 @@ describe("NewSessionPane", () => {
 			bySession: {},
 			newSessionIds: {},
 		});
+		// 新建会话默认角色会读「上次选择」（ui-prefs.lastAgent），跨用例重置避免互相污染
+		useUiPrefsStore.setState({ lastAgent: null, defaultAgent: null });
 		useAgentsStore.setState({
 			list: [
 				agentCfg("需求设计"),

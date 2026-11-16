@@ -8,7 +8,9 @@ export function topAgentsByRecency(
 ): AgentConfig[] {
   const lastOf = new Map<string, number>();
   for (const s of sessions) {
-    lastOf.set(s.primaryAgent, Math.max(lastOf.get(s.primaryAgent) ?? 0, s.lastActivity));
+    // lastActivity 缺失（旧数据/导入数据）时按 0 处理：否则 Math.max 出 NaN，
+    // 比较器回落成 localeCompare 的名字序，「最近使用」退化成「名字排序第一」。
+    lastOf.set(s.primaryAgent, Math.max(lastOf.get(s.primaryAgent) ?? 0, s.lastActivity ?? 0));
   }
   return [...agents]
     .filter(a => a.displayName)  // 防御：过滤 displayName 为空的条目（如内置 agent .md 用 name 字段）

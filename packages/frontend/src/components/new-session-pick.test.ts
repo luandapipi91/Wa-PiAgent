@@ -34,3 +34,40 @@ test("有会话历史时 defaultAgent 仍优先于最近使用者", () => {
 test("空列表返回 null", () => {
   expect(pickDefaultAgent([], [], null, "林晓岚")).toBeNull();
 });
+
+// === lastAgent（上次在新建会话页选的角，持久化） ===
+test("lastAgent 优先于最近使用者", () => {
+  const sessions = [{ primaryAgent: "乙", lastActivity: 123 }] as any;
+  expect(
+    pickDefaultAgent(agents, sessions, null, null, "林晓岚"),
+  ).toBe("林晓岚");
+});
+
+test("lastAgent 优先于向导 defaultAgent（更近的选择胜出）", () => {
+  expect(pickDefaultAgent(agents, [], null, "甲", "林晓岚")).toBe("林晓岚");
+});
+
+test("lastAgent 已被删除时回落 defaultAgent", () => {
+  expect(pickDefaultAgent(agents, [], null, "甲", "已删除的人")).toBe("甲");
+});
+
+// === currentAgent（从已有会话进入新建页，沿用该会话的角色） ===
+test("当前会话角色优先于 lastAgent（已有会话仍按当时会话的角）", () => {
+  expect(
+    pickDefaultAgent(agents, [], null, null, "林晓岚", "乙"),
+  ).toBe("乙");
+});
+
+test("当前会话角色优先于向导 defaultAgent", () => {
+  expect(pickDefaultAgent(agents, [], null, "甲", null, "乙")).toBe("乙");
+});
+
+test("currentAgent 已被删除时回落 lastAgent", () => {
+  expect(
+    pickDefaultAgent(agents, [], null, null, "林晓岚", "已删除的人"),
+  ).toBe("林晓岚");
+});
+
+test("pendingAgent 仍压过当前会话角色", () => {
+  expect(pickDefaultAgent(agents, [], "丙", null, "林晓岚", "乙")).toBe("丙");
+});

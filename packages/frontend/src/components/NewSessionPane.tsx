@@ -31,17 +31,33 @@ interface Props {
 	onConsumePendingAgent?: () => void;
 }
 
-/** 计算新建会话的默认智能体：pendingAgent → defaultAgent（向导设置）→ 最近使用者 → 列表第一项 */
+/** 计算新建会话的默认智能体：
+ *  pendingAgent → 当前所在会话的角色 → lastAgent（上次在新建页选的，持久化）
+ *  → defaultAgent（向导设置）→ 最近使用者 → 列表第一项
+ *
+ *  优先级说明：前两项是「用户此刻最明确的选择」（显式点某个智能体 / 刚从哪个角色的会话过来），
+ *  lastAgent 是「上次的选择」（比向导一次性配置更近），defaultAgent 再往后，
+ *  最后才用「最近活跃」兜底。所有候选都必须仍在 agents 列表里（已删除的角色跳过）。
+ */
 export function pickDefaultAgent(
 	agents: ReturnType<typeof useAgentsStore.getState>["list"],
 	sessions: ReturnType<typeof useProjectsStore.getState>["sessions"],
 	pendingAgent?: string | null,
 	defaultAgent?: string | null,
+	lastAgent?: string | null,
+	currentAgent?: string | null,
 ): AgentName | null {
 	if (pendingAgent) return pendingAgent as AgentName;
-	if (defaultAgent && agents.some((a) => a.displayName === defaultAgent)) {
-		return defaultAgent as AgentName;
-	}
+	const existing = (name?: string | null) =>
+		name && agents.some((a) => a.displayName === name)
+			? (name as AgentName)
+			: null;
+	const current = existing(currentAgent);
+	if (current) return current;
+	const last = existing(lastAgent);
+	if (last) return last;
+	const def = existing(defaultAgent);
+	if (def) return def;
 	if (sessions.length > 0) {
 		const r = topAgentsByRecency(agents, sessions, 1)[0]?.displayName;
 		if (r) return r;
@@ -57,11 +73,27 @@ export function NewSessionPane({
 	const { projects, currentProjectId, sessions } = useProjectsStore();
 	const agents = useAgentsStore((s) => s.list);
 	const defaultAgent = useUiPrefsStore((s) => s.defaultAgent);
+	// 上次在新建会话页选的角（持久化在 ui-prefs）：比「最近活跃」更贴近用户意图
+	const lastAgent = useUiPrefsStore((s) => s.lastAgent);
+	// 从已有会话进入新建页时沿用该会话的角色（此时 currentSessionId 仍指向该会话）
+	const currentAgent = useProjectsStore((s) =>
+		s.currentSessionId
+			? (s.sessions.find((x) => x.id === s.currentSessionId)?.primaryAgent ??
+				null)
+			: null,
+	);
 	const explorerOpen = useNewSessionExplorerStore((s) => s.open);
 	const explorerWidth = useNewSessionExplorerStore((s) => s.width);
-	// 默认选中最近使用的智能体（pendingAgent 优先）；空列表时为 null（发送前置条件拦截）
+	// 默认选中：最近使用的智能体（pendingAgent 优先）；空列表时为 null（发送前置条件拦截）
 	const [agentName, setAgentName] = useState<AgentName | null>(
-		pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent),
+		pickDefaultAgent(
+			agents,
+			sessions,
+			pendingAgent,
+			defaultAgent,
+			lastAgent,
+			currentAgent,
+		),
 	);
 	const [text, setText] = useState("");
 	const initialProject =
@@ -91,25 +123,44 @@ export function NewSessionPane({
 	useEffect(() => {
 		if (currentProjectId && !projectTouched) setProjectId(currentProjectId);
 	}, [currentProjectId, projectTouched]);
-	// pendingAgent 变化时同步（已停在新建页再点侧栏/宫格智能体，组件不会重新挂载）
+	// pendingAgent 变化时同步（已停在新建页再点侧栏/宫格智能体，组件不会重新挂载）；
+	// 同时立即消费——只在挂载时消费会让 App 侧 pendingAgent 残留，
+	// 下次进新建页被旧值钉住，把 lastAgent/recency 全部压掉。
+	// 不写 lastAgent：pendingAgent 是「一次性预选」（既有契约），记「上次选择」只认
+	// 下拉里的手动选择与发送时实际使用的角色。
 	useEffect(() => {
-		if (pendingAgent) setAgentName(pendingAgent as AgentName);
+		if (!pendingAgent) return;
+		setAgentName(pendingAgent as AgentName);
+		onConsumePendingAgent?.();
 	}, [pendingAgent]);
-	// 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用 pendingAgent 优先级 + recency）；已选中则不干预
+	// 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用同一优先级链）；已选中则不干预
 	useEffect(() => {
 		if (!agentName && agents.length > 0)
-			setAgentName(pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent));
-	}, [agents, agentName, pendingAgent, sessions, defaultAgent]);
+			setAgentName(
+				pickDefaultAgent(
+					agents,
+					sessions,
+					pendingAgent,
+					defaultAgent,
+					lastAgent,
+					currentAgent,
+				),
+			);
+	}, [
+		agents,
+		agentName,
+		pendingAgent,
+		sessions,
+		defaultAgent,
+		lastAgent,
+		currentAgent,
+	]);
 	// 向导重设默认智能体后同步已挂载面板的选择（defaultAgent 只有向导会写，覆盖当前选择语义正确）
 	useEffect(() => {
 		if (defaultAgent && agents.some((a) => a.displayName === defaultAgent)) {
 			setAgentName(defaultAgent as AgentName);
 		}
 	}, [defaultAgent]);
-	// 挂载消费一次：初始值取用后通知 App 清除 pendingAgent（空依赖，仅首次挂载）
-	useEffect(() => {
-		if (pendingAgent) onConsumePendingAgent?.();
-	}, []);
 	// 新建会话的 sessionId 按当前项目持久化，切换再回来仍能对应同一组 composer 附件/录音
 	const newSessionKey = projectId ?? "__global__";
 	const newSessionIds = useComposerPrefsStore((s) => s.newSessionIds);
@@ -240,6 +291,8 @@ export function NewSessionPane({
 		)
 			return;
 		sendingRef.current = true;
+		// 实际使用的角色也记为「上次选择」：用户没动手选、直接用默认值发送时，下次仍应记得
+		useUiPrefsStore.getState().setLastAgent(agentName);
 		// newSessionIds 可能残留一个已发送过的会话 id（session:created 未及时清除 / app 重启后从 IndexedDB 读出），
 		// 复用会导致 addSession 去重 no-op、selectSession 跳回那个旧会话（「跳到上一个会话」bug）。
 		// 这里检测到 sessionId 已被占用时，生成全新 id 并回填 newSessionIds，确保每次发送都是新会话。
@@ -400,7 +453,11 @@ export function NewSessionPane({
 					<AgentDropdown
 						agents={agents}
 						value={agentName}
-						onPick={(name) => setAgentName(name)}
+						onPick={(name) => {
+							setAgentName(name);
+							// 用户的手动选择立即持久化：下次进新建页默认还是它（不依赖是否发过消息）
+							useUiPrefsStore.getState().setLastAgent(name);
+						}}
 					/>
 				</div>
 				{/* 归属显式化（任务组二 B1）：发送前归属项目常驻可见，实时跟随下拉——

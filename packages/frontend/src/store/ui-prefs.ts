@@ -59,6 +59,10 @@ interface UiPrefsState {
 	/** 向导设置的默认智能体（displayName），null = 未设置 */
 	defaultAgent: string | null;
 	setDefaultAgent: (name: string | null) => void;
+	/** 上次在新建会话页选的角色（displayName），null = 从未选过。
+	 *  新建页默认值的依据之一：优先于「最近活跃」与向导 defaultAgent，仅在角色仍在列表中时生效 */
+	lastAgent: string | null;
+	setLastAgent: (name: string | null) => void;
 	/** agent 回复过程中工具调用 / 思维链默认不展开（折叠），仅影响 Thinking/ToolCall 卡片，
 	 *  默认 true；用户仍可手动展开单个卡片。 */
 	collapseProcessByDefault: boolean;
@@ -199,6 +203,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			},
 			defaultAgent: null,
 			setDefaultAgent: (name) => set({ defaultAgent: name }),
+			lastAgent: null,
+			setLastAgent: (name) => set({ lastAgent: name }),
 			collapseProcessByDefault: COLLAPSE_PROCESS_DEFAULT,
 			setCollapseProcessByDefault: (v) => set({ collapseProcessByDefault: v }),
 			desktopPet: DESKTOP_PET_DEFAULT,
