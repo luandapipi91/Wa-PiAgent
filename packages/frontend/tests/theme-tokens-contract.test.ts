@@ -150,18 +150,18 @@ test("赛博扫描线装饰层不拦截鼠标事件", () => {
 	expect(overlay).toContain("pointer-events: none");
 });
 
-test("三套新主题收敛 Tailwind 内置圆角刻度（2xl / 10px）到 --rounded-lg", () => {
+test("五套风格化主题收敛 Tailwind 内置圆角刻度（2xl / 10px）到 --rounded-lg", () => {
 	const tail = css.slice(css.indexOf(':root[data-theme="newspaper"]'));
-	for (const theme of ["newspaper", "pixel", "cyber"]) {
+	for (const theme of ["newspaper", "pixel", "cyber", "gilded", "tactical"]) {
 		expect(tail).toContain(`:root[data-theme="${theme}"] .rounded-2xl`);
 		expect(tail).toContain(`:root[data-theme="${theme}"] .rounded-\\[10px\\]`);
 	}
 	expect(tail).toContain("border-radius: var(--rounded-lg);");
 });
 
-test("三套新主题把圆形按钮改成方角（头像等 div 不受影响）", () => {
+test("五套风格化主题把圆形按钮改成方角（头像等 div 不受影响）", () => {
 	const tail = css.slice(css.indexOf(':root[data-theme="newspaper"]'));
-	for (const theme of ["newspaper", "pixel", "cyber"]) {
+	for (const theme of ["newspaper", "pixel", "cyber", "gilded", "tactical"]) {
 		expect(tail).toContain(`:root[data-theme="${theme}"] button.rounded-full`);
 	}
 });

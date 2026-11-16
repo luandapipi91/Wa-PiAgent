@@ -970,26 +970,6 @@ input[type="range"]::-moz-range-thumb {
 	}
 }
 
-/* 少数组件用了 Tailwind 内置圆角刻度（rounded-2xl / rounded-[10px]），不走 --rounded-* 变量。
-   三套风格化主题下统一收敛到 --rounded-lg（报纸/像素 0、赛博 2px）；
-   圆形物件（头像、状态点、开关、rounded-full）保持原样，避免把人物头像压成方块。 */
-:root[data-theme="newspaper"] .rounded-2xl,
-:root[data-theme="newspaper"] .rounded-\[10px\],
-:root[data-theme="pixel"] .rounded-2xl,
-:root[data-theme="pixel"] .rounded-\[10px\],
-:root[data-theme="cyber"] .rounded-2xl,
-:root[data-theme="cyber"] .rounded-\[10px\] {
-	border-radius: var(--rounded-lg);
-}
-
-/* 圆形图标按钮（发送、开关等）在三套风格化主题下从圆改方：
-   按钮类统一收敛到 --rounded-sm；div 的 rounded-full（头像/状态点）不受影响。 */
-:root[data-theme="newspaper"] button.rounded-full,
-:root[data-theme="pixel"] button.rounded-full,
-:root[data-theme="cyber"] button.rounded-full {
-	border-radius: var(--rounded-sm);
-}
-
 /* ===== 主题：鎏金（gilded）===== */
 /* 暖白纸感主体 + 香槟金强调；小圆角、轻投影；浅色归类（color-scheme: light），
    使代码块、终端卡、通知卡片都按浅色渲染。侧栏的深色外壳在后续规则里按作用域覆盖。
@@ -1072,4 +1052,32 @@ input[type="range"]::-moz-range-thumb {
 	--accent: #cdbe91;
 	--accent-soft: rgba(205, 190, 145, 0.12);
 	--on-accent: #14110a;
+}
+
+/* ===== 跨主题收敛：Tailwind 内置圆角刻度 ===== */
+/* 本节按选择器字面量跨主题声明，必须排在各主题主块之后（契约测试按首次出现定位主题块）。
+   少数组件用了 Tailwind 内置圆角刻度（rounded-2xl / rounded-[10px]），不走 --rounded-* 变量。
+   五套风格化主题下统一收敛到 --rounded-lg（报纸/像素/战术 0、赛博 2px、鎏金 4px）；
+   圆形物件（头像、状态点、开关、rounded-full）保持原样，避免把人物头像压成方块。 */
+:root[data-theme="newspaper"] .rounded-2xl,
+:root[data-theme="newspaper"] .rounded-\[10px\],
+:root[data-theme="pixel"] .rounded-2xl,
+:root[data-theme="pixel"] .rounded-\[10px\],
+:root[data-theme="cyber"] .rounded-2xl,
+:root[data-theme="cyber"] .rounded-\[10px\],
+:root[data-theme="gilded"] .rounded-2xl,
+:root[data-theme="gilded"] .rounded-\[10px\],
+:root[data-theme="tactical"] .rounded-2xl,
+:root[data-theme="tactical"] .rounded-\[10px\] {
+	border-radius: var(--rounded-lg);
+}
+
+/* 圆形图标按钮（发送、开关等）在五套风格化主题下从圆改方：
+   按钮类统一收敛到 --rounded-sm；div 的 rounded-full（头像/状态点）不受影响。 */
+:root[data-theme="newspaper"] button.rounded-full,
+:root[data-theme="pixel"] button.rounded-full,
+:root[data-theme="cyber"] button.rounded-full,
+:root[data-theme="gilded"] button.rounded-full,
+:root[data-theme="tactical"] button.rounded-full {
+	border-radius: var(--rounded-sm);
 }
