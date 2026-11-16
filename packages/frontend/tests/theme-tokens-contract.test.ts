@@ -198,23 +198,42 @@ test("主题块 gilded 位于所有 data-accent 规则之后", () => {
 	expect(css.indexOf(':root[data-theme="gilded"]')).toBeGreaterThan(lastAccent);
 });
 
-test("联盟主题是浅色归类：color-scheme 为 light", () => {
+test("鎏金主题是浅色归类：color-scheme 为 light", () => {
 	expect(themeBlock("gilded")).toContain("color-scheme: light");
 });
 
-test("联盟主题为侧栏定义了深色作用域（两段式结构）", () => {
-	const scope = ruleBody(
-		':root[data-theme="gilded"] [data-testid="sidebar"]',
-	);
-	// 侧栏必须自成一格深色：覆盖画布/面板/文字三组关键变量
-	for (const token of [
-		"--canvas",
-		"--surface",
-		"--surface-elevated",
-		"--text-primary",
-		"--hairline",
-	]) {
+// 侧栏作用域必须自成一格深色：画布/面板、描边/填充、文字、强调色四组全量覆盖。
+// 漏任何一个都会在深底上留下浅色主题的取值（如漏 --text-tertiary 就是深灰字压深黑底）。
+const SIDEBAR_DARK_TOKENS = [
+	"color-scheme",
+	"--canvas",
+	"--surface",
+	"--surface-elevated",
+	"--surface-hover",
+	"--hairline",
+	"--hairline-strong",
+	"--fill-muted",
+	"--text-primary",
+	"--text-secondary",
+	"--text-tertiary",
+	"--accent",
+	"--accent-soft",
+	"--on-accent",
+];
+
+const SIDEBAR_SCOPE = ':root[data-theme="gilded"] [data-testid="sidebar"]';
+
+test("鎏金主题为侧栏定义了深色作用域（两段式结构）", () => {
+	const scope = ruleBody(SIDEBAR_SCOPE);
+	for (const token of SIDEBAR_DARK_TOKENS) {
 		expect(scope).toContain(`${token}:`);
 	}
 	expect(scope).toContain("color-scheme: dark");
+});
+
+test("侧栏作用域块位于鎏金主题主块之后（同主题从属规则）", () => {
+	const themeIndex = css.indexOf(':root[data-theme="gilded"] {');
+	const scopeIndex = css.indexOf(SIDEBAR_SCOPE);
+	expect(themeIndex).toBeGreaterThan(-1);
+	expect(scopeIndex).toBeGreaterThan(themeIndex);
 });
