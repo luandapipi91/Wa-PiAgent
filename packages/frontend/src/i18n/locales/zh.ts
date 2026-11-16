@@ -1092,6 +1092,10 @@ const zh = {
 			},
 			autoLaunch: "开机自启",
 		},
+		themePicker: {
+			confirm: "使用此主题",
+			fixedPalette: "固定配色",
+		},
 		appearance: {
 			themeMode: {
 				label: "界面主题",

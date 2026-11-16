@@ -1124,6 +1124,10 @@ const en = {
 			},
 			autoLaunch: "Launch at login",
 		},
+		themePicker: {
+			confirm: "Use this theme",
+			fixedPalette: "Fixed palette",
+		},
 		appearance: {
 			themeMode: {
 				label: "Theme",
