@@ -1127,14 +1127,19 @@ const en = {
 		appearance: {
 			themeMode: {
 				label: "Theme",
-				desc: "Choose light, dark, or follow system",
+				desc: "Choose a theme style and light/dark mode",
 				system: "System",
 				light: "Light",
 				dark: "Dark",
+				newspaper: "Newspaper",
+				pixel: "Pixel",
+				cyber: "Cyber",
 			},
 			themeColor: {
 				label: "Accent Color",
 				desc: "Click to choose your preferred accent color",
+				disabledHint:
+					"This theme uses a fixed palette; switch back to Light or Dark to change the accent color",
 			},
 			fontSize: {
 				label: "Font size",

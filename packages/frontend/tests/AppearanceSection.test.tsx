@@ -27,24 +27,67 @@ beforeEach(() => {
 	});
 });
 
-test("渲染界面主题分段控制器，默认选中「跟随系统」", async () => {
+test("主题控件是 select，渲染 6 个选项且默认「跟随系统」", async () => {
 	const { AppearanceSection } = await import(
 		"../src/components/settings/AppearanceSection"
 	);
 	render(<AppearanceSection />);
-	expect(screen.getByTestId("theme-mode-system")).toBeTruthy();
-	expect(screen.getByTestId("theme-mode-system").dataset.active).toBe("true");
+	const select = screen.getByTestId("theme-mode-select") as HTMLSelectElement;
+	expect(select.tagName).toBe("SELECT");
+	expect(select.value).toBe("system");
+	const values = Array.from(select.options).map((o) => o.value);
+	expect(values).toEqual([
+		"system",
+		"light",
+		"dark",
+		"newspaper",
+		"pixel",
+		"cyber",
+	]);
 });
 
-test("点击「深色」切换主题模式，data-theme 变为 dark", async () => {
+test("选择「深色」后 data-theme 变为 dark", async () => {
 	const { AppearanceSection } = await import(
 		"../src/components/settings/AppearanceSection"
 	);
 	render(<AppearanceSection />);
-	fireEvent.click(screen.getByTestId("theme-mode-dark"));
+	fireEvent.change(screen.getByTestId("theme-mode-select"), {
+		target: { value: "dark" },
+	});
 	expect(document.documentElement.dataset.theme).toBe("dark");
-	expect(screen.getByTestId("theme-mode-dark").dataset.active).toBe("true");
-	expect(screen.getByTestId("theme-mode-system").dataset.active).toBe("false");
+});
+
+test("选择「像素」后 data-theme 为 pixel", async () => {
+	const { AppearanceSection } = await import(
+		"../src/components/settings/AppearanceSection"
+	);
+	render(<AppearanceSection />);
+	fireEvent.change(screen.getByTestId("theme-mode-select"), {
+		target: { value: "pixel" },
+	});
+	expect(document.documentElement.dataset.theme).toBe("pixel");
+	expect(useUiPrefsStore.getState().themeMode).toBe("pixel");
+});
+
+test("新主题下 6 个色点禁用，切回浅色后恢复", async () => {
+	const { AppearanceSection } = await import(
+		"../src/components/settings/AppearanceSection"
+	);
+	render(<AppearanceSection />);
+	fireEvent.change(screen.getByTestId("theme-mode-select"), {
+		target: { value: "cyber" },
+	});
+	for (const c of ["green", "blue", "purple", "yellow", "orange", "red"]) {
+		expect(
+			(screen.getByTestId(`theme-color-${c}`) as HTMLButtonElement).disabled
+		).toBe(true);
+	}
+	fireEvent.change(screen.getByTestId("theme-mode-select"), {
+		target: { value: "light" },
+	});
+	expect(
+		(screen.getByTestId("theme-color-blue") as HTMLButtonElement).disabled
+	).toBe(false);
 });
 
 test("渲染 6 个主题颜色圆点", async () => {

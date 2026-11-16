@@ -3,13 +3,21 @@ import { api } from "../../api-client";
 import {
 	FONT_SIZE_MAX,
 	FONT_SIZE_MIN,
+	isAccentApplicable,
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
 import type { ThemeColor, ThemeMode } from "../../store/ui-prefs";
 import type { AppLanguage } from "../../i18n/detect";
 import { useToastStore } from "../../store/toast";
 
-const THEME_MODES: ThemeMode[] = ["system", "light", "dark"];
+const THEME_MODES: ThemeMode[] = [
+	"system",
+	"light",
+	"dark",
+	"newspaper",
+	"pixel",
+	"cyber",
+];
 
 /** 主题颜色 → 色值映射（用于圆点背景色） */
 const COLOR_HEX: Record<ThemeColor, string> = {
@@ -114,31 +122,18 @@ export function AppearanceSection() {
 					{t("settings.appearance.themeMode.desc")}
 				</span>
 			</div>
-			<div className="inline-flex w-fit bg-surface-hover rounded-md p-0.5">
+			<select
+				data-testid="theme-mode-select"
+				value={themeMode}
+				onChange={(e) => setThemeMode(e.target.value as ThemeMode)}
+				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-40"
+			>
 				{THEME_MODES.map((mode) => (
-					<button
-						key={mode}
-						onClick={() => setThemeMode(mode)}
-						data-testid={`theme-mode-${mode}`}
-						data-active={themeMode === mode ? "true" : "false"}
-						className="px-4 py-1.5 rounded-sm text-sm transition-all"
-						style={
-							themeMode === mode
-								? {
-										background: "var(--surface)",
-										color: "var(--text-primary)",
-										fontWeight: 600,
-										boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-									}
-								: {
-										color: "var(--text-secondary)",
-									}
-						}
-					>
+					<option key={mode} value={mode}>
 						{t(`settings.appearance.themeMode.${mode}`)}
-					</button>
+					</option>
 				))}
-			</div>
+			</select>
 
 			{/* 主题颜色 */}
 			<div className="flex flex-col gap-1">
@@ -148,15 +143,25 @@ export function AppearanceSection() {
 				<span className="text-xs text-tertiary">
 					{t("settings.appearance.themeColor.desc")}
 				</span>
+				{!isAccentApplicable(themeMode) && (
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.themeColor.disabledHint")}
+					</span>
+				)}
 			</div>
-			<div className="flex items-center gap-3.5">
+			<div
+				className="flex items-center gap-3.5"
+				style={isAccentApplicable(themeMode) ? undefined : { opacity: 0.4 }}
+			>
 				{THEME_COLORS.map((color) => (
 					<button
 						key={color}
 						onClick={() => setThemeColor(color)}
 						data-testid={`theme-color-${color}`}
 						data-active={themeColor === color ? "true" : "false"}
-						className="relative cursor-pointer shrink-0 transition-transform hover:scale-110"
+						disabled={!isAccentApplicable(themeMode)}
+						aria-disabled={!isAccentApplicable(themeMode)}
+						className="relative cursor-pointer shrink-0 transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:hover:scale-100"
 						style={{
 							width: 32,
 							height: 32,

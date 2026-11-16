@@ -1095,14 +1095,18 @@ const zh = {
 		appearance: {
 			themeMode: {
 				label: "界面主题",
-				desc: "选择浅色、深色或跟随系统",
+				desc: "选择界面风格与明暗模式",
 				system: "跟随系统",
 				light: "浅色",
 				dark: "深色",
+				newspaper: "报纸",
+				pixel: "像素",
+				cyber: "赛博",
 			},
 			themeColor: {
 				label: "主题颜色",
 				desc: "点击选择你喜欢的强调色",
+				disabledHint: "当前主题使用固定配色，切回浅色或深色后可调整强调色",
 			},
 			fontSize: {
 				label: "文字大小",
