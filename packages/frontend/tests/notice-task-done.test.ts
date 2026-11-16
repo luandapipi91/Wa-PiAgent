@@ -174,3 +174,12 @@ test("无回复摘要 → body 兜底会话名文案", () => {
 	expect(sendCalls).toHaveLength(1);
 	expect(sendCalls[0].body).toBe("「会话A」已完成，点击查看");
 });
+
+test("noticeTheme 把新主题归入正确的明暗", () => {
+	// 像素/赛博是暗底，报纸是亮底；system 按系统偏好解析
+	expect(noticeTheme("pixel")).toBe("dark");
+	expect(noticeTheme("cyber")).toBe("dark");
+	expect(noticeTheme("newspaper")).toBe("light");
+	expect(noticeTheme("dark")).toBe("dark");
+	expect(noticeTheme("light")).toBe("light");
+});

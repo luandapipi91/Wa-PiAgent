@@ -4,7 +4,12 @@ import i18n from "../i18n";
 import { useBrowserStore } from "./browser";
 import { useProjectsStore } from "./projects";
 import { useSettingsStore } from "./settings";
-import { useUiPrefsStore, type ThemeMode } from "./ui-prefs";
+import {
+	isDarkTheme,
+	resolveActualTheme,
+	useUiPrefsStore,
+	type ThemeMode,
+} from "./ui-prefs";
 import { useUpdaterStore } from "./updater";
 
 // 通知点击动作：session=跳转会话；update=查看更新内容（消费在后续任务）
@@ -24,11 +29,16 @@ interface WaPiNoticeApi {
 }
 
 /**
- * themeMode → 通知卡片主题："dark" → 深色；"light"/"system" → 浅色
- * （跟随系统时读不到系统明暗值，用 light 兜底）。两处通知 payload 组装共用。
+ * themeMode → 通知卡片主题：按主题明暗归类（像素/赛博为暗、报纸为亮），
+ * system 走 prefers-color-scheme；无 matchMedia 的环境保底按旧规则判定。
+ * 两处通知 payload 组装共用。
  */
 export function noticeTheme(mode: ThemeMode): "light" | "dark" {
-	return mode === "dark" ? "dark" : "light";
+	try {
+		return isDarkTheme(resolveActualTheme(mode)) ? "dark" : "light";
+	} catch {
+		return mode === "dark" ? "dark" : "light";
+	}
 }
 
 declare global {
