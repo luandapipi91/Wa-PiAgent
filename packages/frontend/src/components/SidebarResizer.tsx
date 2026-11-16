@@ -111,7 +111,7 @@ export function SidebarResizer({
         className="group flex shrink-0 cursor-ew-resize items-center justify-center self-stretch"
         style={{ width: 10 }}
       >
-        <div className="h-5 w-1 rounded-full bg-[var(--hairline-strong)] transition-colors group-hover:bg-[var(--brand)]" />
+        <div className="h-5 w-1 rounded-full bg-[var(--fill-muted)] transition-colors group-hover:bg-[var(--brand)]" />
       </div>
     );
   }

@@ -948,7 +948,7 @@ export function ComposerInput({
 						disabled={!canSend}
 						className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 transition-transform enabled:hover:scale-105 border-0 cursor-pointer disabled:cursor-not-allowed"
 						style={{
-							background: canSend ? "var(--brand)" : "var(--hairline-strong)",
+							background: canSend ? "var(--brand)" : "var(--fill-muted)",
 							color: "var(--on-brand)",
 						}}
 					>

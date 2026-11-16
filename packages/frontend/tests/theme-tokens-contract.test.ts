@@ -3,7 +3,7 @@
 // 2) :root 声明 --font-ui 默认值
 // 3) 后续任务追加：三套新主题块完整性、块顺序、装饰层契约
 import { test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
@@ -164,4 +164,27 @@ test("三套新主题把圆形按钮改成方角（头像等 div 不受影响）
 	for (const theme of ["newspaper", "pixel", "cyber"]) {
 		expect(tail).toContain(`:root[data-theme="${theme}"] button.rounded-full`);
 	}
+});
+
+test("三套新主题声明 --fill-muted（禁用/次要填充专用，与 hairline-strong 强分隔线分离）", () => {
+	for (const theme of ["newspaper", "pixel", "cyber"]) {
+		expect(themeBlock(theme)).toContain("--fill-muted:");
+	}
+	// 浅色与深色补齐同一 token，保证禁用态观感零回归
+	expect(ruleBody(":root {")).toContain("--fill-muted:");
+	expect(themeBlock("dark")).toContain("--fill-muted:");
+});
+
+test("填充类用法不再借用 hairline-strong（避免新主题下禁用态变成高对比色块）", () => {
+	const files = readdirSync(new URL("../src", import.meta.url), {
+		recursive: true,
+		encoding: "utf8",
+	}) as string[];
+	const offenders: string[] = [];
+	for (const f of files) {
+		if (!/\.(tsx|ts)$/.test(f) || f.endsWith(".test.tsx") || f.endsWith(".test.ts")) continue;
+		const text = readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8");
+		if (/bg-hairline-strong|bg-\[var\(--hairline-strong\)\]/.test(text)) offenders.push(f);
+	}
+	expect(offenders).toEqual([]);
 });

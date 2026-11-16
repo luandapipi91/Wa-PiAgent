@@ -60,7 +60,7 @@
 	/* 文字大小缩放系数（系统设置 > 通用 > 文字大小）：只作用于字号，不动布局 */
 	--font-scale: 1;
 
-	/* 界面字体族：各主题可覆盖（报纸走衬线、像素走 Zpix、赛博走等宽） */
+	/* 界面字体族：各主题可覆盖（报纸走衬线、像素走 Fusion Pixel、赛博走等宽） */
 	--font-ui:
 		"MiSans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
 		"PingFang SC", "Plus Jakarta Sans", sans-serif;
@@ -92,6 +92,8 @@
 	/* —— 描边 —— */
 	--hairline: #e5e5ea;
 	--hairline-strong: #d1d1d6;
+	/* 禁用态 / 次要填充（开关关态轨道、禁用按钮底、徽标底）：刻意退让，不跟随强分隔线 */
+	--fill-muted: #d1d1d6;
 
 	/* —— 语义色 —— */
 	--success: #34a853;
@@ -175,6 +177,7 @@
 	--text-tertiary: #8e8e93;
 	--hairline: #38383a;
 	--hairline-strong: #48484a;
+	--fill-muted: #48484a;
 	--success: #30d158;
 	--success-soft: rgba(48, 209, 88, 0.15);
 	--warning: #ffd60a;
@@ -753,6 +756,7 @@ input[type="range"]::-moz-range-thumb {
 
 	--hairline: #c9bea5;
 	--hairline-strong: #2e2820;
+	--fill-muted: #e0d4b6;
 
 	--text-primary: #1a150f;
 	--text-secondary: #6f6455;
@@ -824,6 +828,7 @@ input[type="range"]::-moz-range-thumb {
 
 	--hairline: #4a3e6b;
 	--hairline-strong: #7a6ba8;
+	--fill-muted: #3a3155;
 
 	--text-primary: #f2ede3;
 	--text-secondary: #b9add6;
@@ -894,6 +899,7 @@ input[type="range"]::-moz-range-thumb {
 	/* 霓虹青描边 */
 	--hairline: rgba(0, 240, 255, 0.22);
 	--hairline-strong: rgba(0, 240, 255, 0.42);
+	--fill-muted: rgba(0, 240, 255, 0.1);
 
 	--text-primary: #d7f7ff;
 	--text-secondary: #8aaeb8;

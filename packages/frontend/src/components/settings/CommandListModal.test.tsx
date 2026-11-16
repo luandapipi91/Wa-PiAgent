@@ -74,7 +74,7 @@ test("开关切换：立即翻转本地状态并调用 toggle API", async () => 
 	const toggle = await screen.findByTestId("cmd-toggle-goal");
 	// 初始关：按钮背景为灰色
 	const knob = toggle.querySelector("span");
-	expect((knob as HTMLElement).style.background).toBe("var(--hairline-strong)");
+	expect((knob as HTMLElement).style.background).toBe("var(--fill-muted)");
 
 	fireEvent.click(toggle);
 
@@ -95,7 +95,7 @@ test("默认关：enabled=false 的命令开关初始为关闭状态", async () 
 
 	const offToggle = await screen.findByTestId("cmd-toggle-goal");
 	const offKnob = offToggle.querySelector("span");
-	expect((offKnob as HTMLElement).style.background).toBe("var(--hairline-strong)");
+	expect((offKnob as HTMLElement).style.background).toBe("var(--fill-muted)");
 
 	// enabled=true 的命令开关初始为开启（绿色）
 	const onToggle = screen.getByTestId("cmd-toggle-tui-cmd");

@@ -195,7 +195,7 @@ export function ExtensionSection() {
                       height: 22,
                       background: pkg.enabled
                         ? "var(--brand)"
-                        : "var(--hairline-strong)",
+                        : "var(--fill-muted)",
                     }}
                   >
                     <span

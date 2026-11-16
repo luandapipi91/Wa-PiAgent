@@ -22,7 +22,7 @@ const STATUS_DOT: Record<string, string> = {
 	connected: "var(--success)",
 	connecting: "var(--warning)",
 	error: "var(--danger)",
-	disconnected: "var(--hairline-strong)",
+	disconnected: "var(--fill-muted)",
 };
 /** 状态文本 i18n key（按渠道状态映射） */
 const STATUS_TEXT_KEY: Record<string, string> = {

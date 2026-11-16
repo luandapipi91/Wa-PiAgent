@@ -859,7 +859,7 @@ export function FilePicker({
 									style={{
 										background: showHidden
 											? "var(--brand)"
-											: "var(--hairline-strong)",
+											: "var(--fill-muted)",
 									}}
 								/>
 								<span

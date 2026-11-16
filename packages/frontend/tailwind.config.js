@@ -27,6 +27,8 @@ export default {
           DEFAULT: "var(--hairline)",
           strong: "var(--hairline-strong)",
         },
+        // 禁用态/次要填充（与强分隔线分开：新主题下强线是高对比色）
+        "fill-muted": "var(--fill-muted)",
         success: {
           DEFAULT: "var(--success)",
           soft: "var(--success-soft)",

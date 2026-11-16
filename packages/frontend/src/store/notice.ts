@@ -30,7 +30,7 @@ interface WaPiNoticeApi {
 
 /**
  * themeMode → 通知卡片主题：按主题明暗归类（像素/赛博为暗、报纸为亮），
- * system 走 prefers-color-scheme；无 matchMedia 的环境保底按旧规则判定。
+ * system 仅在能读到 matchMedia 时按系统偏好，读不到时按旧规则落 light。
  * 两处通知 payload 组装共用。
  */
 export function noticeTheme(mode: ThemeMode): "light" | "dark" {

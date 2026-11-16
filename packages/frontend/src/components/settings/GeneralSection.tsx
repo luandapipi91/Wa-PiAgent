@@ -60,7 +60,7 @@ function SoundSwitch({
 				width: 38,
 				height: 22,
 				borderRadius: 9999,
-				background: on ? "var(--brand)" : "var(--hairline-strong)",
+				background: on ? "var(--brand)" : "var(--fill-muted)",
 				transition: "background 0.2s",
 			}}
 			data-testid={testId}

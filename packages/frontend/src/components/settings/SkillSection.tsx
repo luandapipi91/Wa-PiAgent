@@ -286,7 +286,7 @@ export function SkillSection() {
 											width: 38,
 											height: 22,
 											borderRadius: 9999,
-											background: disabled ? "var(--hairline-strong)" : "var(--brand)",
+											background: disabled ? "var(--fill-muted)" : "var(--brand)",
 											transition: "background 0.2s",
 										}}
 										data-testid={`skill-switch-${skill.name}`}
