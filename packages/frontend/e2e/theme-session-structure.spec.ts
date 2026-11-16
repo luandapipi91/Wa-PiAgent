@@ -290,3 +290,49 @@ test("默认主题：拆分后胶囊组仍是原来那条单行（数值无色�
 
 	await expectSingleRowLayout(page);
 });
+
+// 战术主题的两处观感缺陷回归（用户截图反馈）：
+// 1) 34px 水印横穿 token 数据条 → 窄窗口隐藏（阈值 1360px），宽窗口才显示
+// 2) 用户气泡四周 1px 细边在纯黑背景上勾成表格框 → 去描边、改靠底色明度分层
+test("战术：默认窗口宽下隐藏水印，用户气泡无描边", async ({ page }) => {
+	seedSession();
+	await setUiPrefs(page, "zh", { themeMode: "tactical" });
+	await openSession(page);
+
+	// openSession 设的是 1280 宽（< 1360 阈值）
+	const watermarkDisplay = await page.evaluate(() => {
+		const header = document.querySelector('[data-testid="session-view"] header');
+		return header ? getComputedStyle(header, "::before").display : "no-header";
+	});
+	expect(watermarkDisplay).toBe("none");
+
+	const bubbleBorders = await page.evaluate(() => {
+		const el = document.querySelector(
+			'[data-testid^="msg-"] .flex-col.items-end > div:not(.font-semibold)',
+		) as HTMLElement | null;
+		if (!el) return null;
+		const cs = getComputedStyle(el);
+		return {
+			top: cs.borderTopWidth,
+			left: cs.borderLeftWidth,
+			bg: cs.backgroundColor,
+			radius: cs.borderRadius,
+		};
+	});
+	expect(bubbleBorders).not.toBeNull();
+	expect(bubbleBorders!.top).toBe("0px");
+	expect(bubbleBorders!.left).toBe("0px");
+	// 直角（组件内联圆角被覆盖掉）
+	expect(bubbleBorders!.radius).toBe("0px");
+	// 靠底色分层：#141414
+	expect(bubbleBorders!.bg).toBe("rgb(20, 20, 20)");
+
+	// 宽窗口（≥1360）时水印必须在——否则等于把装饰悄悄删了
+	await page.setViewportSize({ width: 1440, height: 800 });
+	await page.waitForTimeout(300);
+	const wideDisplay = await page.evaluate(() => {
+		const header = document.querySelector('[data-testid="session-view"] header');
+		return header ? getComputedStyle(header, "::before").display : "no-header";
+	});
+	expect(wideDisplay).not.toBe("none");
+});

@@ -1786,16 +1786,27 @@ input[type="range"]::-moz-range-thumb {
 :root[data-theme="tactical"] [data-testid="session-view"] header::before {
 	content: "CONVERSATION";
 	position: absolute;
-	top: 2px;
+	top: 0;
 	right: 18px;
-	font-size: 34px;
+	font-size: 30px;
 	font-weight: 800;
 	line-height: 1;
 	letter-spacing: 0.02em;
 	white-space: nowrap;
-	color: #2a2a2a;
+	/* 比设计稿 #2A2A2A 再暗一档：产品会话头右侧是 token 数据条（设计稿是单行 pill），
+	   同一块空间两者会抢注意力，水印作为纯背景必须更退后 */
+	color: #202020;
 	pointer-events: none;
 	user-select: none;
+}
+
+/* 设计稿本来就有「空间不够就隐藏水印」（原文 ≤900px）：产品会话头右侧被 token
+   数据条占据，1280 默认窗口宽下也放不下，阈值按实际信息密度上调到 1360px。
+   不隐藏的话 34px 水印会横穿「累计/缓存」两组数字，读起来像脏污。 */
+@media (max-width: 1360px) {
+	:root[data-theme="tactical"] [data-testid="session-view"] header::before {
+		display: none;
+	}
 }
 
 /* 标题区右侧留出水印宽度（设计稿 .ch-headline padding-right 避让 320px）。
@@ -1913,11 +1924,13 @@ input[type="range"]::-moz-range-thumb {
 	background: var(--hairline);
 }
 
-/* A14 用户气泡：近黑面板 + 1px 细边 + 直角（设计稿 .usermsg .bubble）。
+/* A14 用户气泡：近黑面板 + 直角（设计稿 .usermsg .bubble 的 1px 细边在深色下显脏，改靠底色分离）。
    圆角是组件内联样式，需强制覆盖：MessageList 写死 borderRadius: 14px 4px 14px 14px。 */
 :root[data-theme="tactical"] [data-testid^="msg-"] > .flex-col.items-end > div:not(.font-semibold) {
-	background: #0b0b0b;
-	border: 1px solid var(--hairline);
+	/* 深色背景上 1px 四周细边会把气泡勾成表格框（尤其四角直角时），
+	   改用底色差做层次：#141414 比消息区（--canvas #000）亮两级，边界靠明度分离而非描线 */
+	background: #141414;
+	border: 0;
 	border-radius: 0 !important; /* 组件内联样式，需强制覆盖 */
 }
 
