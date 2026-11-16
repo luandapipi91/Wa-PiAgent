@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
-	applyThemeModePreview,
 	isAccentApplicable,
 	useUiPrefsStore,
 	type ThemeMode,
@@ -8,11 +7,11 @@ import {
 import { useTranslation } from "../../i18n/useTranslation";
 
 interface Props {
-	/** 点「使用此主题」时回调，参数为用户选中的主题 */
+	/** 点「完成」时回调，参数为用户选中的主题（主题在点卡片时就已生效并落库） */
 	onConfirm: (mode: ThemeMode) => void;
-	/** 是否显示底部「使用此主题」按钮（升级引导显示，外观页/新手引导不显示） */
+	/** 是否显示底部「完成」按钮（升级引导显示，新手引导用「下一步」代替） */
 	showConfirm?: boolean;
-	/** 选中即时回调（新手引导用它判断「是否已选、能否下一步」）；不传则仅内部预览 */
+	/** 选中即时回调（新手引导用它判断「是否已选、能否下一步」） */
 	onSelect?: (mode: ThemeMode) => void;
 }
 
@@ -96,42 +95,23 @@ const PREVIEW_KEY: Record<ThemeMode, string> = {
 };
 
 /**
- * 主题选择卡片组：点卡片实时预览整页（只改 <html data-theme>，不落库），
- * 由调用方决定何时确认落库。关闭（卸载）时若未确认则回滚到进入前的主题。
+ * 主题选择卡片组：点卡片即切换并落库（与外观页 select 一致的「即时生效」语义），
+ * 刷新/关闭弹窗都不会丢选择。不提供预览态——预览会让用户以为选了却没保存。
  */
 export function ThemePicker({ onConfirm, showConfirm = false, onSelect }: Props) {
 	const { t } = useTranslation();
-	// 进入前的主题快照：未确认就卸载时回滚，避免「点了几张卡又关掉」把页面留在预览态
-	const restoreRef = useRef<string | null>(null);
-	const confirmedRef = useRef(false);
-	// 进入时的生效主题：卸载时用它判断「调用方是否已经把选择落库了」
-	const initialModeRef = useRef<ThemeMode | null>(null);
 	const current = useUiPrefsStore((s) => s.themeMode);
 	const [selected, setSelected] = useState<ThemeMode | null>(null);
 
-	useEffect(() => {
-		restoreRef.current = document.documentElement.dataset.theme ?? null;
-		initialModeRef.current = useUiPrefsStore.getState().themeMode;
-		return () => {
-			if (confirmedRef.current) return;
-			// 调用方已把选择写进 store（如新手引导点「下一步」落库后卸载本组件）：
-			// 此时不能回滚，否则会把刚生效的主题拽回旧值
-			if (useUiPrefsStore.getState().themeMode !== initialModeRef.current) return;
-			const prev = restoreRef.current;
-			if (prev) document.documentElement.dataset.theme = prev;
-		};
-	}, []);
-
 	const pick = (mode: ThemeMode) => {
 		setSelected(mode);
-		applyThemeModePreview(mode);
+		// 即时落库：点一下就生效，刷新/关闭都不丢
+		useUiPrefsStore.getState().setThemeMode(mode);
 		onSelect?.(mode);
 	};
 
 	const confirm = () => {
-		if (!selected) return;
-		confirmedRef.current = true;
-		onConfirm(selected);
+		onConfirm(selected ?? current);
 	};
 
 	return (
@@ -218,8 +198,7 @@ export function ThemePicker({ onConfirm, showConfirm = false, onSelect }: Props)
 					<button
 						data-testid="theme-confirm"
 						onClick={confirm}
-						disabled={!selected}
-						className="rounded-md bg-accent px-3 py-1.5 text-sm text-[var(--on-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+						className="rounded-md bg-accent px-3 py-1.5 text-sm text-[var(--on-accent)]"
 					>
 						{t("themePicker.confirm")}
 					</button>

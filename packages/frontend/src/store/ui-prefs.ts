@@ -141,15 +141,6 @@ export function isAccentApplicable(mode: ThemeMode): boolean {
 	return mode !== "newspaper" && mode !== "pixel" && mode !== "cyber";
 }
 
-/** 仅预览：把主题写到 <html data-theme> 但不落 store（主题引导里点卡片实时预览用） */
-export function applyThemeModePreview(mode: ThemeMode) {
-	try {
-		document.documentElement.dataset.theme = resolveActualTheme(mode);
-	} catch {
-		/* 非浏览器环境静默降级 */
-	}
-}
-
 /** 应用明暗模式到 <html data-theme> */
 /** 异步读 kernel 的系统主题（SystemUsesLightTheme），覆盖 prefers-color-scheme（应用主题） */
 function applyThemeMode(mode: ThemeMode) {

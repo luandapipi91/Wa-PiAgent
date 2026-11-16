@@ -41,10 +41,9 @@ export function OnboardingWizard({ onClose }: Props) {
 		closeWizard();
 	};
 
-	// 第 1 步「下一步」：选中的主题落库后前进
+	// 第 1 步「下一步」：主题在点卡片时已落库，这里只前进
 	const confirmThemeAndNext = () => {
 		if (!pickedTheme) return;
-		useUiPrefsStore.getState().setThemeMode(pickedTheme);
 		setStep(2);
 	};
 

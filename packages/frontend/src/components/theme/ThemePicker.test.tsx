@@ -19,15 +19,14 @@ test("渲染六张主题卡；当前主题标 data-active，但默认无 selecte
 	expect(screen.getByTestId("theme-card-system").dataset.selected).toBe("false");
 });
 
-test("点卡片只预览不落库：data-theme 变但 store 不变", () => {
+test("点卡片即生效：store 与 data-theme 同时变（刷新后不丢）", () => {
 	render(<ThemePicker onConfirm={() => {}} />);
 	fireEvent.click(screen.getByTestId("theme-card-pixel"));
+	expect(useUiPrefsStore.getState().themeMode).toBe("pixel");
 	expect(document.documentElement.dataset.theme).toBe("pixel");
-	expect(useUiPrefsStore.getState().themeMode).toBe("system");
 });
 
-test("确认后回调返回选中主题（组件自身不改 store）", () => {
-	// 用对象持有回调值，避免 TS 对 let 闭包赋值做窄化（不会被当成 null 类型）
+test("确认回调返回选中主题，且主题已在点卡片时落库", () => {
 	const seen: { mode?: ThemeMode } = {};
 	render(
 		<ThemePicker
@@ -40,8 +39,15 @@ test("确认后回调返回选中主题（组件自身不改 store）", () => {
 	fireEvent.click(screen.getByTestId("theme-card-cyber"));
 	fireEvent.click(screen.getByTestId("theme-confirm"));
 	expect(seen.mode).toBe("cyber");
-	// 组件不写 store：落库由调用方负责
-	expect(useUiPrefsStore.getState().themeMode).toBe("system");
+	expect(useUiPrefsStore.getState().themeMode).toBe("cyber");
+});
+
+test("卸载（关闭弹窗）后保留已选主题，不回滚", () => {
+	const { unmount } = render(<ThemePicker onConfirm={() => {}} />);
+	fireEvent.click(screen.getByTestId("theme-card-newspaper"));
+	unmount();
+	expect(document.documentElement.dataset.theme).toBe("newspaper");
+	expect(useUiPrefsStore.getState().themeMode).toBe("newspaper");
 });
 
 test("选中立即回调 onSelect（供新手引导判断能否下一步）", () => {
