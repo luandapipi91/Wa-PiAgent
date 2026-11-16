@@ -237,3 +237,12 @@ test("侧栏作用域块位于鎏金主题主块之后（同主题从属规则�
 	expect(themeIndex).toBeGreaterThan(-1);
 	expect(scopeIndex).toBeGreaterThan(themeIndex);
 });
+
+test("主题块 tactical 完整声明全部必需 token", () => {
+	assertThemeComplete("tactical");
+});
+
+test("主题块 tactical 位于所有 data-accent 规则之后", () => {
+	const lastAccent = css.lastIndexOf('[data-accent="');
+	expect(css.indexOf(':root[data-theme="tactical"]')).toBeGreaterThan(lastAccent);
+});

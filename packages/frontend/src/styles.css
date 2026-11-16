@@ -1054,6 +1054,63 @@ input[type="range"]::-moz-range-thumb {
 	--on-accent: #14110a;
 }
 
+/* ===== 主题：战术终端（tactical）===== */
+/* 纯黑画布 + 青绿强调；直角 0px、投影全关，终端屏幕的硬边观感。
+   整体按暗色归类（color-scheme: dark），代码块、终端卡、通知卡片都走暗色。
+   必须放在所有 [data-accent] 规则之后（强调色由主题自带）。 */
+:root[data-theme="tactical"] {
+	/* UA 原生控件按暗色绘制 */
+	color-scheme: dark;
+
+	--canvas: #000000;
+	--canvas-grad-end: #000000;
+	--surface: #0b0b0b;
+	--surface-elevated: #0f0f0f;
+	--surface-hover: #141414;
+
+	/* 白色描边两档，深底上仅靠透明度分层 */
+	--hairline: rgba(255, 255, 255, 0.12);
+	--hairline-strong: rgba(255, 255, 255, 0.2);
+	--fill-muted: rgba(255, 255, 255, 0.1);
+
+	--text-primary: #ffffff;
+	--text-secondary: #9da2a7;
+	--text-tertiary: #6b7075;
+
+	/* 青绿荧光强调 + 近黑底色上的品牌字 */
+	--brand: #0ff796;
+	--brand-soft: rgba(15, 247, 150, 0.35);
+	--on-brand: #00130a;
+	--accent: #0ff796;
+	--accent-soft: rgba(15, 247, 150, 0.08);
+	--on-accent: #00130a;
+
+	--success: #0ff796;
+	--success-soft: rgba(15, 247, 150, 0.1);
+	--info: #4fc3de;
+	--info-soft: rgba(79, 195, 222, 0.12);
+	--warning: #ffb020;
+	--warning-soft: rgba(255, 176, 32, 0.14);
+	--danger: #ff4d4d;
+	--danger-soft: rgba(255, 77, 77, 0.14);
+	--on-danger: #0b0b0b;
+
+	/* 全直角：输入框、按钮、卡片一律 0，仅胶囊留 2px 以免完全失去轮廓 */
+	--rounded-sm: 0px;
+	--rounded-md: 0px;
+	--rounded-lg: 0px;
+	--rounded-xl: 0px;
+	--rounded-pill: 2px;
+
+	/* 无投影：层次只靠描边 */
+	--shadow-sm: none;
+	--shadow-md: none;
+	--shadow-lg: none;
+
+	/* 系统无衬线栈，去 MiSans，贴近机器默认渲染 */
+	--font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+}
+
 /* ===== 跨主题收敛：Tailwind 内置圆角刻度 ===== */
 /* 本节按选择器字面量跨主题声明，必须排在各主题主块之后（契约测试按首次出现定位主题块）。
    少数组件用了 Tailwind 内置圆角刻度（rounded-2xl / rounded-[10px]），不走 --rounded-* 变量。
