@@ -808,6 +808,14 @@ const zh = {
 		rightClickHint: "💡 右键卡片可查看完整提示词",
 		promptLoading: "加载提示词…",
 	},
+	themeIntro: {
+		title: "新的界面主题",
+		desc: "这一版带来了报纸、像素、赛博三套主题。选一个先试试，点卡片可实时预览，随时能在 系统设置 → 外观 里再改。",
+	},
+	themePicker: {
+		confirm: "使用此主题",
+		fixedPalette: "固定配色",
+	},
 	onboardingWizard: {
 		title: "欢迎使用 — 快速初始化",
 		stepIndicator: "第 {{step}} 步 / 共 {{total}} 步",
@@ -1093,14 +1101,6 @@ const zh = {
 				preview: "试听",
 			},
 			autoLaunch: "开机自启",
-		},
-		themeIntro: {
-			title: "新的界面主题",
-			desc: "这一版带来了报纸、像素、赛博三套主题。选一个先试试，点卡片可实时预览，随时能在 系统设置 → 外观 里再改。",
-		},
-		themePicker: {
-			confirm: "使用此主题",
-			fixedPalette: "固定配色",
 		},
 		appearance: {
 			themeMode: {

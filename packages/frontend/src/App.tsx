@@ -453,6 +453,7 @@ export function App() {
 	// 老用户升级后的主题引导：只弹一次（记录见 ui-prefs.themeIntroSeenVersion）。
 	// 新装用户（无 provider）由上面的新手引导承载，这里不弹。
 	const appVersion = useUpdaterStore((s) => s.appVersion);
+	const onboardingOpen = useOnboardingStore((s) => s.wizardOpen);
 	const [themeIntroOpen, setThemeIntroOpen] = useState(false);
 	useEffect(() => {
 		if (!providersLoaded || !appVersion) return;
@@ -461,12 +462,13 @@ export function App() {
 			appVersion,
 			seenVersion: prefs.themeIntroSeenVersion,
 			hasProvider: providers.length > 0,
+			onboardingOpen,
 		});
 		if (!should) return;
 		// 与弹窗同步记录：即使用户直接关掉，也不会下次启动再弹
 		prefs.setThemeIntroSeenVersion(appVersion);
 		setThemeIntroOpen(true);
-	}, [providersLoaded, providers.length, appVersion]);
+	}, [providersLoaded, providers.length, appVersion, onboardingOpen]);
 
 	// 点智能体 → 带着预选切到新建会话视图（与 NewSessionButton 的视图切换一致）
 	const chatWith = (name: string) => {

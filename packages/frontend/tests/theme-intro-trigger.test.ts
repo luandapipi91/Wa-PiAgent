@@ -45,3 +45,13 @@ test("浏览器 dev 版本号兜底 '—' 时不弹", () => {
 	};
 	expect(shouldShowThemeIntro(input)).toBe(false);
 });
+
+test("新手引导正开着时不弹升级引导（新用户在向导第 1 步已选过主题）", () => {
+	const input = {
+		appVersion: "0.10.5",
+		seenVersion: undefined,
+		hasProvider: true,
+		onboardingOpen: true,
+	};
+	expect(shouldShowThemeIntro(input)).toBe(false);
+});

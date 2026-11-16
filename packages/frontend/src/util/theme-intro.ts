@@ -6,12 +6,14 @@ export function shouldShowThemeIntro(input: {
 	appVersion: string;
 	seenVersion: string | undefined;
 	hasProvider: boolean;
+	/** 新手引导是否正开着（新用户在向导第 1 步已选过主题，不该再叠一层） */
+	onboardingOpen?: boolean;
 }): boolean {
-	const { appVersion, seenVersion, hasProvider } = input;
+	const { appVersion, seenVersion, hasProvider, onboardingOpen } = input;
 	// 版本号兜底值（浏览器 dev 未注入）无法判定是否升级，不弹
 	if (!appVersion || appVersion === "—") return false;
-	// 新装用户走完整新手引导
-	if (!hasProvider) return false;
+	// 新装用户走完整新手引导（向导开着时也不叠层：用户刚在第 1 步选过主题）
+	if (!hasProvider || onboardingOpen) return false;
 	// 记录过即不再弹；后续版本升级也不重复打扰
 	return !seenVersion;
 }

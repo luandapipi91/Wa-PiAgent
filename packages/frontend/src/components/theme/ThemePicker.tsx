@@ -26,7 +26,66 @@ const THEME_CARDS: ThemeMode[] = [
 	"cyber",
 ];
 
-/** 每张卡片的预览样张配色（只用变量，自动跟随所选主题的观感差异靠色块布局体现） */
+/**
+ * 每张卡片的缩略样张：用该主题自己的固定色值绘制（不用 CSS 变量——变量会全部跟着
+ * 当前主题变，六张卡就会长得一模一样，失去「先看看长啥样」的意义）。
+ * 取值与本项目 styles.css 里对应主题块保持一致。
+ */
+const PREVIEW_STYLE: Record<
+	ThemeMode,
+	{ bg: string; surface: string; accent: string; text: string; radius: string; border: string }
+> = {
+	system: {
+		bg: "#f5f5f7",
+		surface: "#ffffff",
+		accent: "#4ba26f",
+		text: "#1d1d1f",
+		radius: "8px",
+		border: "#e5e5ea",
+	},
+	light: {
+		bg: "#f5f5f7",
+		surface: "#ffffff",
+		accent: "#4ba26f",
+		text: "#1d1d1f",
+		radius: "8px",
+		border: "#e5e5ea",
+	},
+	dark: {
+		bg: "#1a1a1e",
+		surface: "#2c2c2e",
+		accent: "#5cb87f",
+		text: "#f5f5f7",
+		radius: "8px",
+		border: "#38383a",
+	},
+	newspaper: {
+		bg: "#f4ecd8",
+		surface: "#faf5e6",
+		accent: "#a32f27",
+		text: "#1a150f",
+		radius: "0px",
+		border: "#c9bea5",
+	},
+	pixel: {
+		bg: "#1a1526",
+		surface: "#241e38",
+		accent: "#ffd34e",
+		text: "#f2ede3",
+		radius: "0px",
+		border: "#4a3e6b",
+	},
+	cyber: {
+		bg: "#05070a",
+		surface: "#0c141c",
+		accent: "#00f0ff",
+		text: "#d7f7ff",
+		radius: "2px",
+		border: "rgba(0,240,255,0.42)",
+	},
+};
+
+/** 卡片标签文案的 i18n key */
 const PREVIEW_KEY: Record<ThemeMode, string> = {
 	system: "settings.appearance.themeMode.system",
 	light: "settings.appearance.themeMode.light",
@@ -75,6 +134,7 @@ export function ThemePicker({ onConfirm, showConfirm = false, onSelect }: Props)
 			<div className="grid grid-cols-2 gap-3 md:grid-cols-3">
 				{THEME_CARDS.map((mode) => {
 					const isSelected = selected === mode;
+					const st = PREVIEW_STYLE[mode];
 					return (
 						<button
 							key={mode}
@@ -83,30 +143,64 @@ export function ThemePicker({ onConfirm, showConfirm = false, onSelect }: Props)
 							data-active={current === mode ? "true" : "false"}
 							onClick={() => pick(mode)}
 							aria-pressed={isSelected}
-							className={`flex flex-col gap-2 rounded-md border p-2.5 text-left transition-colors ${
-								isSelected
-									? "border-accent bg-accent-soft"
-									: "border-hairline bg-surface hover:bg-surface-hover"
+							className={`flex flex-col gap-2 border-2 p-2.5 text-left transition-all ${
+								isSelected ? "border-accent" : "border-transparent"
 							}`}
+							style={{
+								// 整张卡就是该主题的一张样张：底色/文字/圆角全部取该主题自己的值，
+								// 这样六张卡在任何当前主题下都保持各自真面目
+								background: st.bg,
+								color: st.text,
+								borderRadius: st.radius,
+								boxShadow: isSelected ? `0 0 0 1px ${st.accent}` : undefined,
+							}}
 						>
-							{/* 样张：三块色 + 一行文字，用当前主题变量绘制 */}
-							<span className="flex h-9 items-center gap-1 rounded-sm border border-hairline bg-canvas px-1.5">
-								<span className="h-4 w-4 rounded-sm bg-accent" />
-								<span className="h-4 w-4 rounded-sm bg-surface" />
-								<span className="h-4 w-4 rounded-sm bg-hairline-strong" />
-								<span className="ml-auto text-[10px] text-primary">Aa</span>
+							{/* 缩略样张：用该主题自己的色值画，才能一眼看出差异 */}
+							<span
+								className="flex h-10 items-center gap-1 border px-1.5"
+								style={{
+									background: st.bg,
+									borderColor: st.border,
+									borderRadius: st.radius,
+								}}
+							>
+								<span
+									style={{
+										width: 14,
+										height: 14,
+										background: st.accent,
+										borderRadius: st.radius,
+									}}
+								/>
+								<span
+									style={{
+										width: 14,
+										height: 14,
+										background: st.surface,
+										border: `1px solid ${st.border}`,
+										borderRadius: st.radius,
+									}}
+								/>
+								<span
+									className="ml-auto text-[11px]"
+									style={{ color: st.text }}
+								>
+									Aa
+								</span>
 							</span>
+							{/* 卡片本体背景跟随「当前生效主题」，故标签也用当前主题的文字色
+							    （text-primary）才能始终与底色成对；样张内部才用各主题自己的色 */}
 							<span className="flex items-center justify-between gap-1">
-								<span className="text-xs font-medium text-primary">
+								<span className="text-xs font-medium">
 									{t(PREVIEW_KEY[mode])}
 								</span>
 								{isSelected && (
-									<span className="text-[10px] text-[var(--on-accent)]">✓</span>
+									<span className="text-[10px]" style={{ color: st.accent }}>✓</span>
 								)}
 							</span>
-							{/* 固定配色主题标注「固定配色」，避免用户以为还能换强调色 */}
+							{/* 固定配色主题标注，避免用户以为还能换强调色 */}
 							{!isAccentApplicable(mode) && (
-								<span className="text-[10px] text-tertiary">
+								<span className="text-[10px] opacity-65">
 									{t("themePicker.fixedPalette")}
 								</span>
 							)}

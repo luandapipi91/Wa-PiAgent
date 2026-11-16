@@ -96,3 +96,19 @@ test("赛博主题下装饰层不拦截点击：可正常打开系统设置", as
 	await page.getByTestId("settings-btn").click();
 	await expect(page.getByTestId("settings-nav-appearance")).toBeVisible();
 });
+
+test("外观页从 select 切到报纸/像素：主题生效且主题颜色整块隐藏", async ({ page }) => {
+	await setUiPrefs(page, "zh", { themeMode: "light" });
+	await page.goto("/");
+	await page.getByTestId("settings-btn").click();
+	await page.getByTestId("settings-nav-appearance").click();
+
+	// 浅色下主题颜色可见
+	await expect(page.getByTestId("theme-color-row")).toBeVisible();
+	await page.getByTestId("theme-mode-select").selectOption("newspaper");
+	await expect(page.locator("html")).toHaveAttribute("data-theme", "newspaper");
+	// 固定配色主题下整块隐藏
+	await expect(page.getByTestId("theme-color-row")).toHaveCount(0);
+	await page.getByTestId("theme-mode-select").selectOption("light");
+	await expect(page.getByTestId("theme-color-row")).toBeVisible();
+});

@@ -110,6 +110,9 @@ export async function setUiPrefs(
             language: lang,
             fontSize: 16,
             exportTurns: 1,
+            // 默认视为「已看过主题引导」：否则老用户升级引导会挡住所有预置了
+            // ui-prefs 的 spec 的点击。需要测引导本身的 spec 显式覆盖为 undefined 的相反值。
+            themeIntroSeenVersion: "e2e-seen",
             ...(extra ?? {}),
           },
           version: 0,

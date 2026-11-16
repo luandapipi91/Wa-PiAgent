@@ -830,6 +830,14 @@ const en = {
 		rightClickHint: "💡 Right-click a card to view the full prompt",
 		promptLoading: "Loading prompt…",
 	},
+	themeIntro: {
+		title: "New interface themes",
+		desc: "This release adds Newspaper, Pixel and Cyber themes. Pick one to try it — clicking a card previews it live, and you can always change it later in Settings → Appearance.",
+	},
+	themePicker: {
+		confirm: "Use this theme",
+		fixedPalette: "Fixed palette",
+	},
 	onboardingWizard: {
 		title: "Welcome — Quick Setup",
 		stepIndicator: "Step {{step}} of {{total}}",
@@ -1125,14 +1133,6 @@ const en = {
 				preview: "Preview",
 			},
 			autoLaunch: "Launch at login",
-		},
-		themeIntro: {
-			title: "New interface themes",
-			desc: "This release adds Newspaper, Pixel and Cyber themes. Pick one to try it — clicking a card previews it live, and you can always change it later in Settings → Appearance.",
-		},
-		themePicker: {
-			confirm: "Use this theme",
-			fixedPalette: "Fixed palette",
 		},
 		appearance: {
 			themeMode: {

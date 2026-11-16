@@ -54,13 +54,17 @@ test.describe.serial("初始化向导", () => {
     await createProject("e2e-onboarding", "/tmp/e2e-onboarding");
     await page.goto("/");
 
-    // 1. 向导自动弹出（providers 为空），第 1 步是模型配置
+    // 1. 向导自动弹出（providers 为空），第 1 步是主题选择（必选）
     await expect(page.getByTestId("onboarding-wizard")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("wizard-step-1")).toBeVisible();
-
-    // 2. 不保存模型，直接下一步 → 第 2 步设置默认智能体（默认已在预设 Tab）
+    await expect(page.getByTestId("wizard-next")).toBeDisabled();
+    await page.getByTestId("theme-card-newspaper").click();
     await page.getByTestId("wizard-next").click();
+
+    // 2. 第 2 步是模型配置；不保存模型直接下一步 → 第 3 步设置默认智能体
     await expect(page.getByTestId("wizard-step-2")).toBeVisible();
+    await page.getByTestId("wizard-next").click();
+    await expect(page.getByTestId("wizard-step-3")).toBeVisible();
 
     // 3. 搜索预设 → 选中卡片 → 命名面板
     await page.getByTestId("preset-search-input").fill("代码审查");
@@ -95,6 +99,12 @@ test.describe.serial("初始化向导", () => {
     });
 
     await page.goto("/");
+    // 有 provider 且有升级记录时才不弹主题引导；本 spec 未预置 ui-prefs，
+    // 升级引导会在 providers 加载后异步弹出并挡住点击，故先等它出现再关掉
+    //（引导自身的用例在 theme-intro.spec.ts）
+    await expect(page.getByTestId("theme-intro")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("theme-intro-close").click();
+    await expect(page.getByTestId("theme-intro")).toHaveCount(0);
     // 等页面就绪（智能体 pill 出现说明首屏加载完成），再断言向导未自动弹出
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(1500); // 给 providers load → 自动弹出判定留窗口
@@ -111,20 +121,25 @@ test.describe.serial("初始化向导", () => {
     await expect(page.getByTestId("settings-modal")).toHaveCount(0);
     await expect(page.getByTestId("onboarding-wizard")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("wizard-step-1")).toBeVisible();
+    await expect(page.getByTestId("theme-card-cyber")).toBeVisible();
 
     // 关闭向导（ESC），provider 清理由 afterAll 的 deleteAllProviders 统一还愿
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("onboarding-wizard")).toHaveCount(0);
   });
 
-  // 用户需求：第 1 步保存模型成功后自动进入下一步，不要求再点一次「下一步」。
-  test("第 1 步保存模型后自动进入第 2 步", async ({ page }) => {
+  // 用户需求：模型步骤保存成功后自动进入下一步，不要求再点一次「下一步」。
+  test("模型步骤保存后自动进入智能体步骤", async ({ page }) => {
     // 前一个用例可能留下了 provider；清空使向导自动弹出，回到第 1 步
     await deleteAllProviders();
     await createProject("e2e-onboarding3", "/tmp/e2e-onboarding3");
     await page.goto("/");
     await expect(page.getByTestId("onboarding-wizard")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("wizard-step-1")).toBeVisible();
+    // 先过主题步骤（必选），到第 2 步模型表单
+    await page.getByTestId("theme-card-light").click();
+    await page.getByTestId("wizard-next").click();
+    await expect(page.getByTestId("wizard-step-2")).toBeVisible();
 
     // 填完整表单：名称 / Base URL / API Key / 一个模型（回车入表）
     await page.getByTestId("field-name").fill("E2E Onboarding Auto");
@@ -136,9 +151,9 @@ test.describe.serial("初始化向导", () => {
 
     await page.getByTestId("provider-save-btn").click();
 
-    // 保存成功 → 无需点「下一步」直接到第 2 步，且第 1 步已卸载
-    await expect(page.getByTestId("wizard-step-2")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("wizard-step-1")).toHaveCount(0);
+    // 保存成功 → 无需点「下一步」直接到智能体步骤，且模型步骤已卸载
+    await expect(page.getByTestId("wizard-step-3")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("wizard-step-2")).toHaveCount(0);
     await expect(page.getByTestId("agent-create-picker")).toBeVisible();
 
     // API 核对：供应商确实已落盘（不是只前端跳步）。save 是 fire-and-forget，
@@ -153,7 +168,9 @@ test.describe.serial("初始化向导", () => {
       )
       .toBe(true);
 
-    await page.keyboard.press("Escape");
+    // 用关闭按钮而非 ESC：第 3 步的预设搜索框会吞掉 ESC（输入框内的键处理），
+    // 与本次改动无关，但会让收尾断言不稳定
+    await page.getByTestId("onboarding-wizard-close").click();
     await expect(page.getByTestId("onboarding-wizard")).toHaveCount(0);
   });
 });
