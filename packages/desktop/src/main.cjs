@@ -837,6 +837,7 @@ app.whenReady().then(async () => {
 				);
 				// 不弹窗（零弹窗原则）：诊断线索在 desktop.log，修复路径 = 重跑完整安装包
 				//（防线 A 已保证升级前进程真退出、锁释放，覆盖安装必然成功）。
+			}
 		} catch (e) {
 			log.error("[kernel] 壳/核一致性校验异常（跳过）", e);
 		}
