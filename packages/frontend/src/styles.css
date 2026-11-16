@@ -730,3 +730,74 @@ input[type="range"]::-moz-range-thumb {
 .prose-sm {
 	font-size: calc(0.875rem * var(--font-scale));
 }
+
+/* ===== 主题：报纸风格（newspaper）===== */
+/* 米黄纸面 + 衬线排版 + 墨线分层；零圆角、极薄棱线代替弥散阴影；印章红仅作强调。
+   必须放在所有 [data-accent] 规则之后：同特异性靠顺序覆盖强调色。 */
+:root[data-theme="newspaper"] {
+	/* UA 原生控件按浅色纸面绘制 */
+	color-scheme: light;
+
+	--canvas: #f4ecd8;
+	--canvas-grad-end: #ede3cb;
+	--surface: #faf5e6;
+	--surface-elevated: #f6eedc;
+	--surface-hover: #efe5cb;
+
+	--hairline: #c9bea5;
+	--hairline-strong: #2e2820;
+
+	--text-primary: #1a150f;
+	--text-secondary: #6f6455;
+	--text-tertiary: #8c7f6b;
+
+	/* 印章红：报纸的唯一强调色，不随 data-accent 变化 */
+	--brand: #a32f27;
+	--brand-soft: #c0413a;
+	--on-brand: #ffffff;
+	--accent: #a32f27;
+	--accent-soft: rgba(163, 47, 39, 0.08);
+	--on-accent: #ffffff;
+
+	--success: #3f5d3a;
+	--success-soft: rgba(63, 93, 58, 0.12);
+	--info: #2e4a63;
+	--info-soft: rgba(46, 74, 99, 0.12);
+	--warning: #8a5b12;
+	--warning-soft: rgba(138, 91, 18, 0.12);
+	--danger: #a32f27;
+	--danger-soft: rgba(163, 47, 39, 0.1);
+	--on-danger: #ffffff;
+
+	/* 报刊无圆角；pill 留 2px 以免头像/徽标变成方片 */
+	--rounded-sm: 0px;
+	--rounded-md: 0px;
+	--rounded-lg: 0px;
+	--rounded-xl: 0px;
+	--rounded-pill: 2px;
+
+	/* 纸面棱线（不用弥散阴影） */
+	--shadow-sm: 0 1px 0 #e3d8bc;
+	--shadow-md: 0 2px 0 #dfd3b4;
+	--shadow-lg: 0 3px 0 #d8cba8;
+
+	/* 衬线排版：中文走宋体族，Windows 回退 SimSun */
+	--font-ui: "Noto Serif SC", "Songti SC", SimSun, Georgia, "MiSans", serif;
+}
+
+/* 纸张纤维层：极淡噪点，纯装饰、不拦截交互 */
+:root[data-theme="newspaper"] body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: 1;
+	pointer-events: none;
+	opacity: 0.032;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='paper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23paper)' opacity='0.45'/%3E%3C/svg%3E");
+	background-size: 180px 180px;
+}
+
+/* 选中文本用印章红淡底，像铅笔批注 */
+:root[data-theme="newspaper"] ::selection {
+	background: rgba(163, 47, 39, 0.16);
+}

@@ -70,3 +70,33 @@ const REQUIRED_TOKENS = [
 	"--shadow-lg",
 	"--font-ui",
 ];
+
+// 三套新主题必须自洽：不能依赖浅色/强调色规则兜底。
+// 每个任务只断言自己那套（pixel/cyber 在后续任务追加）。
+function assertThemeComplete(theme: string) {
+	const block = themeBlock(theme);
+	for (const token of REQUIRED_TOKENS) {
+		expect(block).toContain(`${token}:`);
+	}
+}
+
+test("主题块 newspaper 完整声明全部必需 token", () => {
+	assertThemeComplete("newspaper");
+});
+
+test("主题块 newspaper 位于所有 data-accent 规则之后（强调色由主题自带）", () => {
+	const lastAccent = css.lastIndexOf('[data-accent="');
+	expect(css.indexOf(':root[data-theme="newspaper"]')).toBeGreaterThan(lastAccent);
+});
+
+test("深色块已补齐 info/info-soft/on-danger 缺口", () => {
+	const block = themeBlock("dark");
+	for (const token of ["--info", "--info-soft", "--on-danger"]) {
+		expect(block).toContain(`${token}:`);
+	}
+});
+
+test("报纸装饰层 body::before 不拦截鼠标事件", () => {
+	const overlay = ruleBody(':root[data-theme="newspaper"] body::before');
+	expect(overlay).toContain("pointer-events: none");
+});
