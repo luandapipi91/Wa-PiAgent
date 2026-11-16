@@ -1510,17 +1510,14 @@ input[type="range"]::-moz-range-thumb {
 	color: #5b5b5b;
 }
 
-/* A2 计数方块：智能体数量（设计稿 .nav-main .cnt —— 20×16 直角细边等宽小格）。
-   背景保留组件自带的 bg-surface-hover 填充：清成透明会跟设计稿更近一点，但会让
-   appearance-themes 里「无刺眼浅色块」的采样集在首页变成空集（它拿 .bg-surface* 元素
-   当样点，该徽标是首屏唯一一个不透明的），触发用例的防假绿守卫。
-   视觉差异仅在 #0F0F0F 侧栏上的 5 级灰（#141414），可接受。 */
+/* A2 计数方块：智能体数量（设计稿 .nav-main .cnt —— 20×16 直角细边等宽小格，底色透明）。 */
 :root[data-theme="tactical"] [data-testid="agent-collapsed"] > span:nth-of-type(2) {
 	display: inline-grid;
 	place-items: center;
 	min-width: 20px;
 	height: 16px;
 	padding: 0 4px;
+	background: transparent;
 	border: 1px solid var(--hairline);
 	border-radius: 0;
 	font-family: var(--font-mono);
@@ -1610,8 +1607,9 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* 标题区右侧留出水印宽度（设计稿 .ch-headline padding-right 避让 320px）。
-   产品头部的右侧被 git 工具栏/胶囊占着，留 320px 会把标题挤成一条竖线；
-   这里按「最宽一档水印 + 呼吸位」收到 150px：短标题不压水印，长标题仍能占满两行。 */
+   产品头部的右侧被 git 工具栏/胶囊占着，留 320px 会把标题挤成竖列；
+   这里收到 150px：短标题不会碰到水印，但标题长到需要撑满到水印区时仍会与
+   水印视觉相交（水印在下层，字仍可读——设计稿本身就是“水印叠压标题”的观感）。 */
 :root[data-theme="tactical"] [data-testid="session-view"] header > div:first-child > div:first-child {
 	padding-right: 150px;
 }
@@ -1744,9 +1742,10 @@ input[type="range"]::-moz-range-thumb {
 	box-shadow: none;
 }
 
-/* A16 发送按钮：青绿底 + 近黑字 + 1px 青绿边（设计稿 .send）。
-   不需要强制覆盖：战术主题的 --brand 与 --accent 同为 #0FF796，组件内联的
-   background: var(--brand) / color: var(--on-brand) 已经就是设计稿取值；
+/* A16 发送按钮：青绿底 + 1px 青绿边 + 直角（设计稿 .send）。
+   不需要强制覆盖背景：战术的 --brand 与 --accent 同为 #0FF796，组件内联的
+   background: var(--brand) 自动对齐设计稿；文字色是内联的 --on-brand（#00130A），
+   与设计稿 #000 差 3 个色阶，观感无差别，不值得为此多花一处强制覆盖。
    :not(:disabled) 限定 —— 禁用态保留引用 --fill-muted 的常态灰块，不描青绿边。 */
 :root[data-theme="tactical"] [data-testid="composer-input"] [data-testid="composer-send"]:not(:disabled) {
 	background: var(--accent);
@@ -1821,14 +1820,19 @@ input[type="range"]::-moz-range-thumb {
 
 /* A21 减动效：系统要求减少动效时关掉过渡（设计稿 prefers-reduced-motion）。
    只关 transition 不关 animation：转圈/脉冲是「正在运行」的功能性指示，不是装饰。
-   `*` 那条（特异性 0,2,0）压不住本层自己给卡片写的 transition（0,4,1），
-   所以两张卡得单独点名再关一次——否则减动效在它们身上静默失效。 */
+   两个坑都踩过，两处都不能省：
+   ① `*` 那条（特异性 0,2,0）压不住本层自己给卡片写的 transition（0,4,1），
+     所以两张卡得单独点名再关一次；
+   ② 写简写 `transition: none` 时 Tailwind 的 .duration-150 / .transition-all 等
+     **长写**依旧在各自属性上参与竞争，光靠简写不够保险——三个长写全部写全。 */
 @media (prefers-reduced-motion: reduce) {
 	:root[data-theme="tactical"] [data-testid="text-bubble"] > div:first-child,
 	:root[data-theme="tactical"] [data-testid^="loading-"] > div > .inline-flex,
 	:root[data-theme="tactical"] *,
 	:root[data-theme="tactical"] *::before,
 	:root[data-theme="tactical"] *::after {
-		transition: none;
+		transition-property: none;
+		transition-duration: 0s;
+		transition-delay: 0s;
 	}
 }

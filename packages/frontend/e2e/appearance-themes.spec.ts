@@ -165,13 +165,18 @@ function measureLuminance(page: import("@playwright/test").Page) {
 			? hexLum(getComputedStyle(sidebar).getPropertyValue("--text-primary"))
 			: null;
 		// 所有 surface 类元素的背景亮度：只看单个选择器容易命中透明 wrapper，
-		// 拿全量最大值才能证明「页面上没有任何浅色块」
-		const surfaces = Array.from(
-			document.querySelectorAll(
+		// 拿全量最大值才能证明「页面上没有任何浅色块」。
+		// 显式把首屏恒在的输入卡（bg-surface，ComposerInput 的圆角盒子）加进样本：
+		// 不能拿某个徽标恰好带底色当唯一采样点——装饰层把徽标刷成透明就会让样本集变空，
+		// 那不是装饰错了，是采样点选错了。
+		const surfaceEls = [
+			...document.querySelectorAll(
 				".bg-surface, .bg-surface-elevated, .bg-surface-hover",
-			)
-		)
-			.map((el) => rgbLum(getComputedStyle(el).backgroundColor))
+			),
+			document.querySelector('[data-testid="composer-input"] > .rounded-2xl'),
+		];
+		const surfaces = surfaceEls
+			.map((el) => (el ? rgbLum(getComputedStyle(el).backgroundColor) : null))
 			.filter((v): v is number => v !== null);
 
 		return {
@@ -227,15 +232,18 @@ test("鎏金主题下打开系统设置，弹窗仍是浅色（侧栏深色作�
 });
 
 // 覆盖边界（故意写清楚，别让标题读起来比实测更全）：
-// - 首页只有 1 个 surface 类元素（侧栏内一个小徽标），所以这里真正被验到的
-//   「卡片」是弹窗卡片（与消息卡同为 var(--surface)，同一个 token）；
+// - 首页真实存在的 surface 卡片是「输入卡」（ComposerInput 的 rounded-2xl，bg-surface）；
+//   样本集固定包含它，不再靠「某个徽标恰好带了底色」凑数（装饰层把徽标刷成透明时
+//   样本集就会变空，那是采样点选错，不是装饰错）；
 // - 主区消息气泡（MessageList 的 bg-surface）需要发一条真消息才渲染，本用例不覆盖。
-// 断言口径：画布必须纯黑，所有 surface 类元素与弹窗卡片都不能是白块。
+// 断言口径：画布必须纯黑，surface 样本与弹窗卡片都不能是白块。
 test("战术主题下画布纯黑、surface 样本与弹窗卡片无刺眼白块（真消息气泡未覆盖）", async ({
 	page,
 }) => {
 	await setUiPrefs(page, "zh", { themeMode: "tactical" });
 	await page.goto("/");
+	// 等输入卡就位再量：首屏是异步渲染的，量太早会拿到空样本集（假绿/假红都不难发生）
+	await expect(page.getByTestId("composer-input")).toBeVisible();
 	const home = await measureLuminance(page);
 	expectDark(home.mainCanvas, 0.05, "主区画布");
 	expect(home.surfaceCount).toBeGreaterThan(0); // 防空集合假通过
