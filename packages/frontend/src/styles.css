@@ -877,3 +877,89 @@ input[type="range"]::-moz-range-thumb {
 	);
 	background-size: 4px 4px;
 }
+
+/* ===== 主题：赛博科技（cyber）===== */
+/* 近黑底 + 霓虹青描边与发光；2px 切角圆角；等宽字体；扫描线缓慢流动。
+   必须放在所有 [data-accent] 规则之后。 */
+:root[data-theme="cyber"] {
+	/* UA 原生控件按暗色绘制 */
+	color-scheme: dark;
+
+	--canvas: #05070a;
+	--canvas-grad-end: #030507;
+	--surface: #0c141c;
+	--surface-elevated: #101a24;
+	--surface-hover: #16232e;
+
+	/* 霓虹青描边 */
+	--hairline: rgba(0, 240, 255, 0.22);
+	--hairline-strong: rgba(0, 240, 255, 0.42);
+
+	--text-primary: #d7f7ff;
+	--text-secondary: #8aaeb8;
+	--text-tertiary: #5e7c86;
+
+	--brand: #00f0ff;
+	--brand-soft: rgba(0, 240, 255, 0.45);
+	--on-brand: #001014;
+	--accent: #00f0ff;
+	--accent-soft: rgba(0, 240, 255, 0.12);
+	--on-accent: #001014;
+
+	--success: #39ff88;
+	--success-soft: rgba(57, 255, 136, 0.14);
+	--info: #6ec6ff;
+	--info-soft: rgba(110, 198, 255, 0.14);
+	--warning: #ffc24b;
+	--warning-soft: rgba(255, 194, 75, 0.14);
+	--danger: #ff2e97;
+	--danger-soft: rgba(255, 46, 151, 0.14);
+	--on-danger: #05070a;
+
+	/* 切角式小圆角 */
+	--rounded-sm: 2px;
+	--rounded-md: 2px;
+	--rounded-lg: 2px;
+	--rounded-xl: 2px;
+	--rounded-pill: 2px;
+
+	/* 霓虹发光（无投影偏移） */
+	--shadow-sm: 0 0 12px rgba(0, 240, 255, 0.22);
+	--shadow-md: 0 0 20px rgba(0, 240, 255, 0.18);
+	--shadow-lg: 0 0 32px rgba(0, 240, 255, 0.16);
+
+	/* 等宽字体营造终端感；中文回退 MiSans 保证可读 */
+	--font-ui: "JetBrains Mono", "MiSans", ui-monospace, monospace;
+}
+
+/* 扫描线：3px 一条 1px 青线，9 秒一循环，缓慢流动不抢注意力 */
+@keyframes wa-scan {
+	from {
+		background-position: 0 0;
+	}
+	to {
+		background-position: 0 120px;
+	}
+}
+
+:root[data-theme="cyber"] body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: 1;
+	pointer-events: none;
+	opacity: 0.5;
+	background-image: repeating-linear-gradient(
+		180deg,
+		rgba(0, 240, 255, 0.045) 0 1px,
+		transparent 1px 3px
+	);
+	animation: wa-scan 9s linear infinite;
+}
+
+/* 无障碍：系统要求减少动效时停掉扫描线 */
+@media (prefers-reduced-motion: reduce) {
+	:root[data-theme="cyber"] body::before {
+		animation: none;
+	}
+}

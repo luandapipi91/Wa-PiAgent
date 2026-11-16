@@ -127,3 +127,25 @@ test("像素点阵装饰层不拦截鼠标事件", () => {
 	const overlay = ruleBody(':root[data-theme="pixel"] body::before');
 	expect(overlay).toContain("pointer-events: none");
 });
+
+test("主题块 cyber 完整声明全部必需 token", () => {
+	assertThemeComplete("cyber");
+});
+
+test("主题块 cyber 位于所有 data-accent 规则之后", () => {
+	const lastAccent = css.lastIndexOf('[data-accent="');
+	expect(css.indexOf(':root[data-theme="cyber"]')).toBeGreaterThan(lastAccent);
+});
+
+test("赛博扫描线有动画，且 prefers-reduced-motion 下关闭", () => {
+	const tail = css.slice(css.indexOf(':root[data-theme="cyber"]'));
+	expect(tail).toContain("@keyframes wa-scan");
+	expect(tail).toMatch(
+		/prefers-reduced-motion: reduce\)\s*\{[^}]*animation:\s*none/
+	);
+});
+
+test("赛博扫描线装饰层不拦截鼠标事件", () => {
+	const overlay = ruleBody(':root[data-theme="cyber"] body::before');
+	expect(overlay).toContain("pointer-events: none");
+});
