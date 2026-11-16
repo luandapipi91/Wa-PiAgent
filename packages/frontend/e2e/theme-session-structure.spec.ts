@@ -163,6 +163,19 @@ async function expectSingleRowLayout(page: Page) {
 		.locator("header")
 		.boundingBox();
 	expect(header!.height).toBeLessThan(90);
+
+	// 主·子拆分会把累计格撑高：必须验它没有溢出/被裁切，
+	// 否则「中心线同行」会掩盖「某格高一截」这类回归。
+	// 边界取 token-capsules 而非 token-bar：后者在默认主题下是 display:contents，没有盒子。
+	const split = page.locator('[data-testid="token-capsules"] .token-split');
+	if ((await split.count()) > 0) {
+		const host = await page.getByTestId("token-capsules").boundingBox();
+		const box = await split.first().boundingBox();
+		if (host && box) {
+			expect(box.y).toBeGreaterThanOrEqual(host.y - 1);
+			expect(box.y + box.height).toBeLessThanOrEqual(host.y + host.height + 1);
+		}
+	}
 }
 
 test("鎏金：数值是深灰方块白字，路径海克斯青，状态/角色 tag 分色", async ({

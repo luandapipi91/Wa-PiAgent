@@ -126,6 +126,14 @@ test("danger 变体保留：缓存命中率 <90% 时带 token-capsule--cache-dan
 	const cache = container.querySelector(".token-capsule--cache")!;
 	expect(cache.className).toContain("token-capsule--cache-danger");
 	expect(cache.textContent).toContain("16.6%");
+	// 拆出独立数值元素后，默认主题下必须继承到 danger 色（原本是整串文本，靠父级 color 继承）
+	const value = container.querySelector(
+		'[data-testid="token-value-cache"]',
+	) as HTMLElement;
+	expect(value).toBeTruthy();
+	expect(value.textContent).toContain("16.6%");
+	// 自身不得硬编码颜色（否则切主题会锁死），染色只能靠父链继承
+	expect(value.style.color).toBe("");
 });
 
 test("进度条保留：占用占比按 contextUsage 换算，极小占比保留最小可见宽度", () => {
@@ -200,7 +208,19 @@ test("引线标注只在战术主题渲染（其余主题 DOM 里不该有）", 
 	);
 });
 
+test("连接状态点：既有主题（light）下不渲染，避免外溢", async () => {
+	act(() => {
+		useUiPrefsStore.setState({ themeMode: "light" });
+	});
+	await renderHeader();
+	expect(screen.queryByTestId("session-conn-led")).toBeNull();
+});
+
 test("连接状态点：正常时 ok，Provider 降级时 degraded（不是假绿灯）", async () => {
+	// 连接点只在两套新主题渲染（既有主题不渲染），所以先切到战术主题
+	act(() => {
+		useUiPrefsStore.setState({ themeMode: "tactical" });
+	});
 	await renderHeader();
 	expect(screen.getByTestId("session-conn-led").getAttribute("data-state")).toBe(
 		"ok",

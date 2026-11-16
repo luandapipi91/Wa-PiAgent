@@ -112,9 +112,11 @@ export const SessionView = memo(function SessionView({
 	const contextUsage = useSessionStore(
 		(s) => s.contextUsageBySession[sessionId],
 	);
-	// 战术主题专属结构（引线标注）：纯 CSS 藏不住 DOM 文案，其余主题干脆不渲染。
-	// themeMode 为 system 时实际主题只会落到 light/dark，不可能落到 tactical，故直接比字符串。
-	const tacticalTheme = useUiPrefsStore((s) => s.themeMode) === "tactical";
+	// 战术 / 鏏金主题专属结构：纯 CSS 藏不住 DOM，其余主题干脆不渲染，避免外溢到既有主题。
+	// themeMode 为 system 时实际主题只会落到 light/dark，不可能落到这两套，故直接比字符串。
+	const activeTheme = useUiPrefsStore((s) => s.themeMode);
+	const tacticalTheme = activeTheme === "tactical";
+	const decorationTheme = activeTheme === "tactical" || activeTheme === "gilded";
 	// Provider 连接状态（transient 网络错误）→ 顶栏连接状态点转危险色
 	const netDegraded = useSessionStore(
 		(s) => s.netStatusBySession[sessionId] === "degraded",
@@ -476,15 +478,18 @@ export const SessionView = memo(function SessionView({
 						/>
 					</button>
 					{/* 连接状态点：Provider 通道正常=成功色，transient 网络错误=危险色（设计稿 .led）。
-						与左侧 session-status-dot（agent 运行态）是两件事，别合并。 */}
-					<span
-						className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 self-center ${netDegraded ? "bg-danger" : "bg-success"}`}
-						data-testid="session-conn-led"
-						data-state={netDegraded ? "degraded" : "ok"}
-						title={
-							netDegraded ? t("session.connDegraded") : t("session.connected")
-						}
-					/>
+						与左侧 session-status-dot（agent 运行态）是两件事，别合并。
+						仅两套新主题渲染：既有主题的用户本来没这个元素，平白多一个绿点就是外溢。 */}
+					{decorationTheme && (
+						<span
+							className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 self-center ${netDegraded ? "bg-danger" : "bg-success"}`}
+							data-testid="session-conn-led"
+							data-state={netDegraded ? "degraded" : "ok"}
+							title={
+								netDegraded ? t("session.connDegraded") : t("session.connected")
+							}
+						/>
+					)}
 				</header>
 
 				{/* 队列面板：agent 运行中或有队列时显示 */}
