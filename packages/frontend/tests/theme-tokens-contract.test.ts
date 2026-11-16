@@ -45,6 +45,7 @@ const REQUIRED_TOKENS = [
 	"--surface-hover",
 	"--hairline",
 	"--hairline-strong",
+	"--fill-muted",
 	"--text-primary",
 	"--text-secondary",
 	"--text-tertiary",
