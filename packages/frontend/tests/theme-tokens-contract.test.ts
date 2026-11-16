@@ -100,3 +100,30 @@ test("报纸装饰层 body::before 不拦截鼠标事件", () => {
 	const overlay = ruleBody(':root[data-theme="newspaper"] body::before');
 	expect(overlay).toContain("pointer-events: none");
 });
+
+test("主题块 pixel 完整声明全部必需 token", () => {
+	assertThemeComplete("pixel");
+});
+
+test("主题块 pixel 位于所有 data-accent 规则之后", () => {
+	const lastAccent = css.lastIndexOf('[data-accent="');
+	expect(css.indexOf(':root[data-theme="pixel"]')).toBeGreaterThan(lastAccent);
+});
+
+test("像素主题字体栈保留中文与通用族回退", () => {
+	const stack =
+		themeBlock("pixel").match(/--font-ui:\s*([^;]+);/)?.[1] ?? "";
+	expect(stack).toContain("Fusion Pixel");
+	expect(stack).toContain("MiSans");
+	expect(stack).toContain("monospace");
+});
+
+test("声明 Fusion Pixel 的 @font-face 且指向本地字体文件", () => {
+	expect(css).toContain('font-family: "Fusion Pixel"');
+	expect(css).toContain('url("/fonts/fusion-pixel-12px.woff2")');
+});
+
+test("像素点阵装饰层不拦截鼠标事件", () => {
+	const overlay = ruleBody(':root[data-theme="pixel"] body::before');
+	expect(overlay).toContain("pointer-events: none");
+});

@@ -45,6 +45,13 @@
 	font-style: normal;
 	font-display: swap;
 }
+@font-face {
+	font-family: "Fusion Pixel";
+	src: url("/fonts/fusion-pixel-12px.woff2") format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
 
 /* ===== WaPi Light Design Tokens ===== */
 /* 单一真相源：DESIGN.md 所有 token 在此定义。
@@ -800,4 +807,73 @@ input[type="range"]::-moz-range-thumb {
 /* 选中文本用印章红淡底，像铅笔批注 */
 :root[data-theme="newspaper"] ::selection {
 	background: rgba(163, 47, 39, 0.16);
+}
+
+/* ===== 主题：像素风格（pixel）===== */
+/* 8-bit 复古：深紫黑底 + 亮黄强调 + 硬像素投影；零圆角；正文走点阵中文字体。
+   必须放在所有 [data-accent] 规则之后。 */
+:root[data-theme="pixel"] {
+	/* UA 原生控件按暗色绘制 */
+	color-scheme: dark;
+
+	--canvas: #1a1526;
+	--canvas-grad-end: #14101f;
+	--surface: #241e38;
+	--surface-elevated: #2c2544;
+	--surface-hover: #332b4e;
+
+	--hairline: #4a3e6b;
+	--hairline-strong: #7a6ba8;
+
+	--text-primary: #f2ede3;
+	--text-secondary: #b9add6;
+	--text-tertiary: #8c80ab;
+
+	/* 亮黄主强调 + 亮绿品牌色（复古游戏机配色） */
+	--brand: #7cfc6a;
+	--brand-soft: rgba(124, 252, 106, 0.35);
+	--on-brand: #1a1526;
+	--accent: #ffd34e;
+	--accent-soft: rgba(255, 211, 78, 0.14);
+	--on-accent: #1a1526;
+
+	--success: #7cfc6a;
+	--success-soft: rgba(124, 252, 106, 0.14);
+	--info: #5ee6ff;
+	--info-soft: rgba(94, 230, 255, 0.14);
+	--warning: #ffd34e;
+	--warning-soft: rgba(255, 211, 78, 0.14);
+	--danger: #ff6b9d;
+	--danger-soft: rgba(255, 107, 157, 0.14);
+	--on-danger: #1a1526;
+
+	/* 像素风零圆角 */
+	--rounded-sm: 0px;
+	--rounded-md: 0px;
+	--rounded-lg: 0px;
+	--rounded-xl: 0px;
+	--rounded-pill: 0px;
+
+	/* 硬像素投影：无模糊、纯位移 */
+	--shadow-sm: 3px 3px 0 #0b0813;
+	--shadow-md: 4px 4px 0 #0b0813;
+	--shadow-lg: 6px 6px 0 #0b0813;
+
+	/* 点阵中文字体（Fusion Pixel，OFL-1.1）；缺失时回退 MiSans/系统等宽 */
+	--font-ui: "Fusion Pixel", "MiSans", ui-monospace, monospace;
+}
+
+/* 点阵底纹：4px 网格上的一颗粒子，极淡，不拦截交互 */
+:root[data-theme="pixel"] body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: 1;
+	pointer-events: none;
+	opacity: 0.06;
+	background-image: radial-gradient(
+		rgba(255, 211, 78, 0.5) 1px,
+		transparent 1px
+	);
+	background-size: 4px 4px;
 }
