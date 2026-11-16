@@ -820,8 +820,9 @@ app.whenReady().then(async () => {
 	// 2b) 壳/核一致性自检：打包时 build-kernel-sidecar 在 kernel 目录落盘 manifest.json
 	//（version=打包时的应用版本 + exe 大小）。NSIS 覆盖安装曾因 kernel 进程锁文件被
 	// 静默跳过（2026-11-15 事故：壳 0.10.3 / 核 0.10.1 静默共存，内置浏览器 MCP 等内核
-	// 功能全部缺失且无任何报错）。此处逐项比对，不一致时弹窗强提示——只告警不阻断
-	//（旧内核也比没内核强）。dev 从源码跑无 manifest，跳过。
+	// 功能全部缺失且无任何报错）。此处逐项比对，不一致时记 error 日志供诊断（desktop.log
+	// 搜「壳/核一致性校验失败」）——不弹窗不打扰用户（co 拍板 2026-11-16，零弹窗），
+	// 也不阻断启动（旧内核也比没内核强）。dev 从源码跑无 manifest，跳过。
 	if (app.isPackaged) {
 		try {
 			const { checkKernelConsistency } = require("./util/kernel-manifest.cjs");
@@ -834,16 +835,8 @@ app.whenReady().then(async () => {
 				log.error(
 					`[kernel] 壳/核一致性校验失败: ${verdict.reason} expected=${JSON.stringify(verdict.expected)} actual=${JSON.stringify(verdict.actual)}`,
 				);
-				void dialog.showMessageBox({
-					type: "warning",
-					title: "内核版本不一致",
-					message:
-						"检测到内核文件与当前应用版本不一致（上次升级可能未完全安装）。\n" +
-						"浏览器自动化等内核功能可能不可用，请重新运行完整安装包以修复。",
-					buttons: ["确定"],
-					noLink: true,
-				});
-			}
+				// 不弹窗（零弹窗原则）：诊断线索在 desktop.log，修复路径 = 重跑完整安装包
+				//（防线 A 已保证升级前进程真退出、锁释放，覆盖安装必然成功）。
 		} catch (e) {
 			log.error("[kernel] 壳/核一致性校验异常（跳过）", e);
 		}

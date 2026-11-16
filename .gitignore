@@ -8,10 +8,6 @@ dist/
 build/
 target/
 test-results/
-# 例外：electron-builder 的 NSIS 自定义脚本目录是源码不是产物（nsis.include 引用，
-# 升级链路加固 2026-11-15：customInit 先删旧 kernel exe 防壳新核旧），必须入库
-!packages/desktop/build/
-!packages/desktop/build/**
 
 # IDE
 .vscode/
