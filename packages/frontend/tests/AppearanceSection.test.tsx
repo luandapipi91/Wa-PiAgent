@@ -132,3 +132,27 @@ test("字号滑块：拖动即时生效，写入 store", async () => {
 	expect(useUiPrefsStore.getState().fontSize).toBe(20);
 	expect(screen.getByTestId("font-size-value").textContent).toBe("20px");
 });
+
+test("界面主题是左右行式布局：左侧文案块 + 右侧 select 同行", async () => {
+	const { AppearanceSection } = await import(
+		"../src/components/settings/AppearanceSection"
+	);
+	render(<AppearanceSection />);
+	const row = screen.getByTestId("theme-mode-row");
+	expect(row.className).toContain("justify-between");
+	// select 必须是该行的直接后代（不是独立的下一块）
+	const select = screen.getByTestId("theme-mode-select");
+	expect(row.contains(select)).toBe(true);
+});
+
+test("主题颜色是左右行式布局：左侧文案块 + 右侧色点同行", async () => {
+	const { AppearanceSection } = await import(
+		"../src/components/settings/AppearanceSection"
+	);
+	render(<AppearanceSection />);
+	const row = screen.getByTestId("theme-color-row");
+	expect(row.className).toContain("justify-between");
+	const dots = screen.getByTestId("theme-color-dots");
+	expect(row.contains(dots)).toBe(true);
+	expect(dots.className).toContain("shrink-0");
+});

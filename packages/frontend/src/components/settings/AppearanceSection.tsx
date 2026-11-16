@@ -113,85 +113,96 @@ export function AppearanceSection() {
 
 	return (
 		<div className="flex flex-col gap-4 p-4 overflow-auto">
-			{/* 界面主题 */}
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.appearance.themeMode.label")}
-				</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.appearance.themeMode.desc")}
-				</span>
-			</div>
-			<select
-				data-testid="theme-mode-select"
-				value={themeMode}
-				onChange={(e) => setThemeMode(e.target.value as ThemeMode)}
-				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-40"
-			>
-				{THEME_MODES.map((mode) => (
-					<option key={mode} value={mode}>
-						{t(`settings.appearance.themeMode.${mode}`)}
-					</option>
-				))}
-			</select>
-
-			{/* 主题颜色 */}
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.appearance.themeColor.label")}
-				</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.appearance.themeColor.desc")}
-				</span>
-				{!isAccentApplicable(themeMode) && (
-					<span className="text-xs text-tertiary">
-						{t("settings.appearance.themeColor.disabledHint")}
-					</span>
-				)}
-			</div>
+			{/* 界面主题：左文案右控件，与下方「语言」行同构 */}
 			<div
-				className="flex items-center gap-3.5"
-				style={isAccentApplicable(themeMode) ? undefined : { opacity: 0.4 }}
+				data-testid="theme-mode-row"
+				className="flex items-center justify-between gap-4"
 			>
-				{THEME_COLORS.map((color) => (
-					<button
-						key={color}
-						onClick={() => setThemeColor(color)}
-						data-testid={`theme-color-${color}`}
-						data-active={themeColor === color ? "true" : "false"}
-						disabled={!isAccentApplicable(themeMode)}
-						aria-disabled={!isAccentApplicable(themeMode)}
-						className="relative cursor-pointer shrink-0 transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:hover:scale-100"
-						style={{
-							width: 32,
-							height: 32,
-							borderRadius: "50%",
-							background: COLOR_HEX[color],
-							boxShadow:
-								themeColor === color
-									? `0 0 0 3px var(--surface), 0 0 0 5px ${COLOR_HEX[color]}`
-									: "none",
-						}}
-						aria-label={color}
-					>
-						{themeColor === color && (
-							<span
-								style={{
-									position: "absolute",
-									inset: 0,
-									display: "flex",
-									alignItems: "center",
-									justifyContent: "center",
-									color: "#fff",
-									fontSize: 14,
-									fontWeight: 700,
-								}}
-							>
-								✓
-							</span>
-						)}
-					</button>
-				))}
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.appearance.themeMode.label")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.themeMode.desc")}
+					</span>
+				</div>
+				<select
+					data-testid="theme-mode-select"
+					value={themeMode}
+					onChange={(e) => setThemeMode(e.target.value as ThemeMode)}
+					className="shrink-0 px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-40"
+				>
+					{THEME_MODES.map((mode) => (
+						<option key={mode} value={mode}>
+							{t(`settings.appearance.themeMode.${mode}`)}
+						</option>
+					))}
+				</select>
+			</div>
+
+			{/* 主题颜色：左文案右色点，与「界面主题」行同构 */}
+			<div
+				data-testid="theme-color-row"
+				className="flex items-center justify-between gap-4"
+			>
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.appearance.themeColor.label")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.themeColor.desc")}
+					</span>
+					{!isAccentApplicable(themeMode) && (
+						<span className="text-xs text-tertiary">
+							{t("settings.appearance.themeColor.disabledHint")}
+						</span>
+					)}
+				</div>
+				<div
+					data-testid="theme-color-dots"
+					className="flex shrink-0 items-center gap-3.5"
+					style={isAccentApplicable(themeMode) ? undefined : { opacity: 0.4 }}
+				>
+					{THEME_COLORS.map((color) => (
+						<button
+							key={color}
+							onClick={() => setThemeColor(color)}
+							data-testid={`theme-color-${color}`}
+							data-active={themeColor === color ? "true" : "false"}
+							disabled={!isAccentApplicable(themeMode)}
+							aria-disabled={!isAccentApplicable(themeMode)}
+							className="relative shrink-0 cursor-pointer transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:hover:scale-100"
+							style={{
+								width: 32,
+								height: 32,
+								borderRadius: "50%",
+								background: COLOR_HEX[color],
+								boxShadow:
+									themeColor === color
+										? `0 0 0 3px var(--surface), 0 0 0 5px ${COLOR_HEX[color]}`
+										: "none",
+							}}
+							aria-label={color}
+						>
+							{themeColor === color && (
+								<span
+									style={{
+										position: "absolute",
+										inset: 0,
+										display: "flex",
+										alignItems: "center",
+										justifyContent: "center",
+										color: "#fff",
+										fontSize: 14,
+										fontWeight: 700,
+									}}
+								>
+									✓
+								</span>
+							)}
+						</button>
+					))}
+				</div>
 			</div>
 
 			{/* 文字大小（即时生效） */}
