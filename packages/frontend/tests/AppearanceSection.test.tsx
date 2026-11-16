@@ -69,25 +69,25 @@ test("选择「像素」后 data-theme 为 pixel", async () => {
 	expect(useUiPrefsStore.getState().themeMode).toBe("pixel");
 });
 
-test("新主题下 6 个色点禁用，切回浅色后恢复", async () => {
+test("选报纸/像素/赛博时整块隐藏「主题颜色」，切回浅色恢复", async () => {
 	const { AppearanceSection } = await import(
 		"../src/components/settings/AppearanceSection"
 	);
 	render(<AppearanceSection />);
-	fireEvent.change(screen.getByTestId("theme-mode-select"), {
-		target: { value: "cyber" },
-	});
-	for (const c of ["green", "blue", "purple", "yellow", "orange", "red"]) {
-		expect(
-			(screen.getByTestId(`theme-color-${c}`) as HTMLButtonElement).disabled
-		).toBe(true);
+	// 默认跟随系统 → 可见
+	expect(screen.queryByTestId("theme-color-row")).toBeTruthy();
+	for (const mode of ["newspaper", "pixel", "cyber"]) {
+		fireEvent.change(screen.getByTestId("theme-mode-select"), {
+			target: { value: mode },
+		});
+		expect(screen.queryByTestId("theme-color-row")).toBeNull();
+		expect(screen.queryByTestId("theme-color-green")).toBeNull();
 	}
 	fireEvent.change(screen.getByTestId("theme-mode-select"), {
 		target: { value: "light" },
 	});
-	expect(
-		(screen.getByTestId("theme-color-blue") as HTMLButtonElement).disabled
-	).toBe(false);
+	expect(screen.queryByTestId("theme-color-row")).toBeTruthy();
+	expect(screen.queryByTestId("theme-color-green")).toBeTruthy();
 });
 
 test("渲染 6 个主题颜色圆点", async () => {

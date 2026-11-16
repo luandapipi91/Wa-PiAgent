@@ -1137,9 +1137,7 @@ const en = {
 			},
 			themeColor: {
 				label: "Accent Color",
-				desc: "Click to choose your preferred accent color",
-				disabledHint:
-					"This theme uses a fixed palette; switch back to Light or Dark to change the accent color",
+				desc: "Click to choose your preferred accent color (Newspaper, Pixel and Cyber themes ship a fixed palette)",
 			},
 			fontSize: {
 				label: "Font size",
