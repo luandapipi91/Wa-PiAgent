@@ -35,7 +35,7 @@ test(":root 声明 --font-ui 默认值（MiSans 栈）", () => {
 	expect(rootBlock).toContain("MiSans");
 });
 
-// 供后续任务在账本里引用的最小变量全量清单（三套新主题必须完整声明）
+// 供各主题块契约引用的最小变量全量清单（每套风格化主题都必须完整声明）
 const REQUIRED_TOKENS = [
 	"color-scheme",
 	"--canvas",
@@ -75,8 +75,8 @@ const REQUIRED_TOKENS = [
 	"--font-ui",
 ];
 
-// 三套新主题必须自洽：不能依赖浅色/强调色规则兜底。
-// 每个任务只断言自己那套（pixel/cyber 在后续任务追加）。
+// 风格化主题必须自洽：不能依赖浅色/强调色规则兜底。
+// 新增主题时在下方逐套加断言，不要改成遍历（选择器定位失准时单套失败更好读）。
 function assertThemeComplete(theme: string) {
 	const block = themeBlock(theme);
 	for (const token of REQUIRED_TOKENS) {
