@@ -3,14 +3,14 @@
 // OS prefers-color-scheme，并在系统切换时自动更新（用于 Prism 等需要按
 // 明暗切换配色的第三方渲染，CSS 变量无法表达）。
 import { useEffect, useState } from "react";
-import { resolveActualTheme, useUiPrefsStore } from "../store/ui-prefs";
+import { isDarkTheme, resolveActualTheme, useUiPrefsStore } from "../store/ui-prefs";
 
 /** 当前实际明暗：dark=true。非浏览器环境（测试 SSR 等）兜底为浅色。 */
 export function useIsDarkMode(): boolean {
 	const themeMode = useUiPrefsStore((s) => s.themeMode);
 	const [isDark, setIsDark] = useState<boolean>(() => {
 		try {
-			return resolveActualTheme(themeMode) === "dark";
+			return isDarkTheme(resolveActualTheme(themeMode));
 		} catch {
 			return false;
 		}
@@ -18,7 +18,7 @@ export function useIsDarkMode(): boolean {
 
 	useEffect(() => {
 		try {
-			setIsDark(resolveActualTheme(themeMode) === "dark");
+			setIsDark(isDarkTheme(resolveActualTheme(themeMode)));
 		} catch {
 			return;
 		}

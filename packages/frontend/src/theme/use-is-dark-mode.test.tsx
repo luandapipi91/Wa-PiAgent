@@ -83,3 +83,17 @@ test("themeMode 切换时 isDark 同步更新", () => {
 	});
 	expect(result.current).toBe(true);
 });
+
+test("themeMode='pixel' → isDark=true（像素主题为暗底）", () => {
+	mockMatchMedia(false);
+	useUiPrefsStore.getState().setThemeMode("pixel");
+	const { result } = renderHook(() => useIsDarkMode());
+	expect(result.current).toBe(true);
+});
+
+test("themeMode='newspaper' → isDark=false（报纸主题为亮底）", () => {
+	mockMatchMedia(false);
+	useUiPrefsStore.getState().setThemeMode("newspaper");
+	const { result } = renderHook(() => useIsDarkMode());
+	expect(result.current).toBe(false);
+});
