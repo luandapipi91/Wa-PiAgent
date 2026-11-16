@@ -1154,8 +1154,10 @@ input[type="range"]::-moz-range-thumb {
 	opacity: 0.78;
 }
 
-/* A5 行右侧时间：等宽小字（设计稿 .row .rr；透明度较设计稿 .38 提到 .42，深黑底上更可读） */
-:root[data-theme="gilded"] button[data-testid^="session-"] > span.flex-shrink-0 {
+/* A5 行右侧时间：等宽小字（设计稿 .row .rr；透明度较设计稿 .38 提到 .42，深黑底上更可读）。
+   只锁“时间文案”本身（= 带 text-tertiary 的那一个直系 span）：
+   同一个位置的 session-awaiting-*（金色问号）与 session-running-*（转圈）不能被当成时间洗成灰白。 */
+:root[data-theme="gilded"] button[data-testid^="session-"] > span.text-tertiary {
 	font-family: var(--font-mono);
 	font-size: 10px;
 	letter-spacing: 0.02em;
@@ -1181,12 +1183,18 @@ input[type="range"]::-moz-range-thumb {
 	color: var(--text-tertiary);
 }
 
-/* A10 助手消息卡：白卡 + 1px 暖灰边 + 小圆角 + 极轻阴影（设计稿 .card）。
-   圆角处组件内联样式，需强制覆盖：MessageList 写死 borderRadius: 4px 14px 14px 14px。 */
+/* A10 助手消息卡 + 思考占位卡：白卡 + 1px 暖灰边 + 小圆角 + 极轻阴影（设计稿 .card）。
+   两处圆角都是组件内联样式，需强制覆盖（本文件的第 3、5 处强制覆盖）：
+   MessageList 的 text-bubble 与 loading-* 都写死 borderRadius: 4px 14px 14px 14px，
+   漏掉 loading-* 会让思考卡与旁边 4px 的消息卡并置时右下大圆角突兵。 */
 :root[data-theme="gilded"] [data-testid="text-bubble"] > div:first-child {
 	background: var(--surface);
 	border-color: var(--hairline);
 	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+	border-radius: 4px !important; /* 组件内联样式，需强制覆盖 */
+}
+
+:root[data-theme="gilded"] [data-testid^="loading-"] > div > .inline-flex {
 	border-radius: 4px !important; /* 组件内联样式，需强制覆盖 */
 }
 
@@ -1248,22 +1256,24 @@ input[type="range"]::-moz-range-thumb {
 	vertical-align: middle;
 }
 
-/* A13 系统提示：两侧渐隐细线夹小字（设计稿 .sysline） */
+/* A13 系统提示：小字 + 两侧渐隐短横线（设计稿 .sysline，产品文案自带“—— …——”）。
+   不用 flex：custom 消息是 “—— <文本> ——” 三个子节点，flex+gap 会把破折号与正文活生生撑开；
+   保持行内排版，两侧只加 inline-block 短横线。颜色沿用设计稿 .sysline 的 #767676（浅画布上 3.6:1）。 */
 :root[data-theme="gilded"] [data-testid^="custom-"] {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 12px;
+	text-align: center;
 	font-size: 11px;
 	letter-spacing: 0.03em;
-	color: var(--text-tertiary);
+	color: #767676;
 }
 
 :root[data-theme="gilded"] [data-testid^="custom-"]::before,
 :root[data-theme="gilded"] [data-testid^="custom-"]::after {
 	content: "";
-	flex: 1 1 auto;
+	display: inline-block;
+	width: 56px;
 	height: 1px;
+	margin: 0 12px;
+	vertical-align: middle;
 	background: linear-gradient(to right, transparent, var(--hairline-strong));
 }
 

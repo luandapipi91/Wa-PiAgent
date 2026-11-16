@@ -263,11 +263,14 @@ function gildedDecor(): string {
 test("鎏金装饰规则全部限定在 data-theme 作用域内", () => {
 	// 取 gilded 变量块之后、tactical 块之前的所有规则文本
 	const decor = gildedDecor();
-	// 每个选择器行都必须以 :root[data-theme="gilded"] 开头
+	// 每个选择器行都必须以 :root[data-theme="gilded"] 开头。
+	// 按逗号切开逐段断言：单行多选择器（`… .a, .b {`）整行含前缀不代表 `.b` 也在作用域内。
 	const selectors = decor
 		.split("\n")
 		.filter((line) => /\{\s*$/.test(line.trim()) && !line.trim().startsWith("/*"))
-		.map((line) => line.trim().replace(/\s*\{$/, ""));
+		.map((line) => line.trim().replace(/\s*\{$/, ""))
+		.flatMap((line) => line.split(","))
+		.map((sel) => sel.trim());
 	for (const sel of selectors) {
 		expect(sel).toContain(':root[data-theme="gilded"]');
 	}
