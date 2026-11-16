@@ -188,3 +188,16 @@ test("填充类用法不再借用 hairline-strong（避免新主题下禁用态�
 	}
 	expect(offenders).toEqual([]);
 });
+
+test("主题块 gilded 完整声明全部必需 token", () => {
+	assertThemeComplete("gilded");
+});
+
+test("主题块 gilded 位于所有 data-accent 规则之后", () => {
+	const lastAccent = css.lastIndexOf('[data-accent="');
+	expect(css.indexOf(':root[data-theme="gilded"]')).toBeGreaterThan(lastAccent);
+});
+
+test("联盟主题是浅色归类：color-scheme 为 light", () => {
+	expect(themeBlock("gilded")).toContain("color-scheme: light");
+});

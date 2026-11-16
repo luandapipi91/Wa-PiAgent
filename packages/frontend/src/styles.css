@@ -989,3 +989,59 @@ input[type="range"]::-moz-range-thumb {
 :root[data-theme="cyber"] button.rounded-full {
 	border-radius: var(--rounded-sm);
 }
+
+/* ===== 主题：鎏金（gilded）===== */
+/* 暖白纸感主体 + 香槟金强调；小圆角、轻投影；浅色归类（color-scheme: light），
+   使代码块、终端卡、通知卡片都按浅色渲染。侧栏的深色外壳在后续规则里按作用域覆盖。
+   必须放在所有 [data-accent] 规则之后。 */
+:root[data-theme="gilded"] {
+	/* UA 原生控件按浅色绘制 */
+	color-scheme: light;
+
+	--canvas: #e8e4d9;
+	--canvas-grad-end: #e2ddd0;
+	--surface: #fbfaf5;
+	--surface-elevated: #f4f1e8;
+	--surface-hover: #efebe0;
+
+	--hairline: #d9d3c4;
+	--hairline-strong: #c9c2b0;
+	--fill-muted: #e2dccd;
+
+	--text-primary: #1a1a1a;
+	--text-secondary: #666666;
+	--text-tertiary: #8a8578;
+
+	/* 香槟金强调 + 深棕金品牌色 */
+	--brand: #bb9a6c;
+	--brand-soft: #cdbe91;
+	--on-brand: #14110a;
+	--accent: #cdbe91;
+	--accent-soft: rgba(205, 190, 145, 0.16);
+	--on-accent: #1a1508;
+
+	--success: #3f7a4f;
+	--success-soft: rgba(63, 122, 79, 0.12);
+	--info: #137f91;
+	--info-soft: rgba(19, 127, 145, 0.12);
+	--warning: #b08428;
+	--warning-soft: rgba(176, 132, 40, 0.14);
+	--danger: #b03a34;
+	--danger-soft: rgba(176, 58, 52, 0.12);
+	--on-danger: #ffffff;
+
+	/* 小圆角：方正克制，保留纸张的利落感 */
+	--rounded-sm: 4px;
+	--rounded-md: 4px;
+	--rounded-lg: 4px;
+	--rounded-xl: 4px;
+	--rounded-pill: 4px;
+
+	/* 极轻投影，浅底上只留一点层次 */
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+	--shadow-md: 0 2px 6px rgba(0, 0, 0, 0.06);
+	--shadow-lg: 0 6px 18px rgba(0, 0, 0, 0.08);
+
+	/* MiSans 优先，中文回退系统黑体 */
+	--font-ui: "MiSans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+}
