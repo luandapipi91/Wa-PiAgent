@@ -16,9 +16,12 @@ function ruleBody(selector: string): string {
 	return css.slice(open + 1, close);
 }
 
-/** 取 :root[data-theme="X"] 变量块 */
+/** 取 :root[data-theme="X"] 变量块。
+ *  选择器末尾的 ` {` 是故意加的：没有它，`indexOf` 会命中首次出现的
+ *  `:root[data-theme="X"] .某后代类` 这种跨主题规则，拿到的变成那条规则体，
+ *  断言就跑在错的块上。带上花括号后，只能精确命中主题主块本身。 */
 function themeBlock(name: string): string {
-	return ruleBody(`:root[data-theme="${name}"]`);
+	return ruleBody(`:root[data-theme="${name}"] {`);
 }
 
 test("body 字体族走 --font-ui 变量", () => {
@@ -166,8 +169,8 @@ test("五套风格化主题把圆形按钮改成方角（头像等 div 不受影
 	}
 });
 
-test("三套新主题声明 --fill-muted（禁用/次要填充专用，与 hairline-strong 强分隔线分离）", () => {
-	for (const theme of ["newspaper", "pixel", "cyber"]) {
+test("五套风格化主题声明 --fill-muted（禁用/次要填充专用，与 hairline-strong 强分隔线分离）", () => {
+	for (const theme of ["newspaper", "pixel", "cyber", "gilded", "tactical"]) {
 		expect(themeBlock(theme)).toContain("--fill-muted:");
 	}
 	// 浅色与深色补齐同一 token，保证禁用态观感零回归

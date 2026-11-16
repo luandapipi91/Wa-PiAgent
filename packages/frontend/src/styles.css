@@ -1112,10 +1112,10 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ===== 跨主题收敛：Tailwind 内置圆角刻度 ===== */
-/* 本节按选择器字面量跨主题声明，必须排在各主题主块之后（契约测试按首次出现定位主题块）。
-   少数组件用了 Tailwind 内置圆角刻度（rounded-2xl / rounded-[10px]），不走 --rounded-* 变量。
+/* 少数组件用了 Tailwind 内置圆角刻度（rounded-2xl / rounded-[10px]），不走 --rounded-* 变量。
    五套风格化主题下统一收敛到 --rounded-lg（报纸/像素/战术 0、赛博 2px、鎏金 4px）；
-   圆形物件（头像、状态点、开关、rounded-full）保持原样，避免把人物头像压成方块。 */
+   圆形物件（头像、状态点、开关、rounded-full）保持原样，避免把人物头像压成方块。
+   本节一律排在所有主题主块之后：主题块是数据，跨主题收敛是规则，规则收尾更好读。 */
 :root[data-theme="newspaper"] .rounded-2xl,
 :root[data-theme="newspaper"] .rounded-\[10px\],
 :root[data-theme="pixel"] .rounded-2xl,
