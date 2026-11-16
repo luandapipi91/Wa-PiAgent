@@ -14,6 +14,9 @@ import { AgentMissingModal } from "./components/AgentMissingModal";
 import { DirTreePicker } from "./components/DirTreePicker";
 import { SettingsModal } from "./components/SettingsModal";
 import { OnboardingWizard } from "./components/onboarding/OnboardingWizard";
+import { ThemeIntroModal } from "./components/theme/ThemeIntroModal";
+import { shouldShowThemeIntro } from "./util/theme-intro";
+import { useUpdaterStore } from "./store/updater";
 import { useOnboardingStore } from "./store/onboarding";
 import { useSettingsStore } from "./store/settings";
 import { useProvidersStore } from "./store/providers";
@@ -447,6 +450,24 @@ export function App() {
 		}
 	}, [providersLoaded, providers]);
 
+	// 老用户升级后的主题引导：只弹一次（记录见 ui-prefs.themeIntroSeenVersion）。
+	// 新装用户（无 provider）由上面的新手引导承载，这里不弹。
+	const appVersion = useUpdaterStore((s) => s.appVersion);
+	const [themeIntroOpen, setThemeIntroOpen] = useState(false);
+	useEffect(() => {
+		if (!providersLoaded || !appVersion) return;
+		const prefs = useUiPrefsStore.getState();
+		const should = shouldShowThemeIntro({
+			appVersion,
+			seenVersion: prefs.themeIntroSeenVersion,
+			hasProvider: providers.length > 0,
+		});
+		if (!should) return;
+		// 与弹窗同步记录：即使用户直接关掉，也不会下次启动再弹
+		prefs.setThemeIntroSeenVersion(appVersion);
+		setThemeIntroOpen(true);
+	}, [providersLoaded, providers.length, appVersion]);
+
 	// 点智能体 → 带着预选切到新建会话视图（与 NewSessionButton 的视图切换一致）
 	const chatWith = (name: string) => {
 		setPendingAgent(name);
@@ -797,6 +818,9 @@ export function App() {
 			)}
 			{useSettingsStore((s) => s.showSettings) && (
 				<SettingsModal onClose={() => useSettingsStore.getState().close()} />
+			)}
+			{themeIntroOpen && (
+				<ThemeIntroModal onClose={() => setThemeIntroOpen(false)} />
 			)}
 			{useOnboardingStore((s) => s.wizardOpen) && (
 				<OnboardingWizard

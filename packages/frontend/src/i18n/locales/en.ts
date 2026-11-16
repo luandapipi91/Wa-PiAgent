@@ -1124,6 +1124,10 @@ const en = {
 			},
 			autoLaunch: "Launch at login",
 		},
+		themeIntro: {
+			title: "New interface themes",
+			desc: "This release adds Newspaper, Pixel and Cyber themes. Pick one to try it — clicking a card previews it live, and you can always change it later in Settings → Appearance.",
+		},
 		themePicker: {
 			confirm: "Use this theme",
 			fixedPalette: "Fixed palette",

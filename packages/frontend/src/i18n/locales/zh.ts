@@ -1092,6 +1092,10 @@ const zh = {
 			},
 			autoLaunch: "开机自启",
 		},
+		themeIntro: {
+			title: "新的界面主题",
+			desc: "这一版带来了报纸、像素、赛博三套主题。选一个先试试，点卡片可实时预览，随时能在 系统设置 → 外观 里再改。",
+		},
 		themePicker: {
 			confirm: "使用此主题",
 			fixedPalette: "固定配色",

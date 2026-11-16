@@ -81,6 +81,9 @@ interface UiPrefsState {
 	/** 最近一次发「新版本」系统通知的日期（本地时区 YYYY-MM-DD），用于自然日去重。 */
 	lastUpdateNoticeDate?: string;
 	setLastUpdateNoticeDate: (d: string) => void;
+	/** 已看过「主题引导」的应用版本；undefined = 从未看过（老用户升级后弹一次）。 */
+	themeIntroSeenVersion?: string;
+	setThemeIntroSeenVersion: (v: string) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
@@ -242,6 +245,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			},
 			lastUpdateNoticeDate: undefined,
 			setLastUpdateNoticeDate: (d) => set({ lastUpdateNoticeDate: d }),
+			themeIntroSeenVersion: undefined,
+			setThemeIntroSeenVersion: (v) => set({ themeIntroSeenVersion: v }),
 		}),
 		{
 			name: STORAGE_KEY,
