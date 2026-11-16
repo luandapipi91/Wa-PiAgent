@@ -273,3 +273,42 @@ test("外观页从 select 切到报纸/像素：主题生效且主题颜色整�
 	await page.getByTestId("theme-mode-select").selectOption("light");
 	await expect(page.getByTestId("theme-color-row")).toBeVisible();
 });
+
+// 装饰层零回归：鎏金/战术两套新主题新增的装饰元素与规则，
+// 不得泄漏到既有五个主题（含 system 解析出的 light/dark）。
+// 基线值取于未上装饰层时的实测（见 CHANGELOG 对应条目）。
+const DECOR_BASELINE: Record<
+	string,
+	{ tabRadius: string; tabBg: string }
+> = {
+	light: { tabRadius: "8px", tabBg: "rgb(255, 255, 255)" },
+	dark: { tabRadius: "8px", tabBg: "rgb(44, 44, 46)" },
+	newspaper: { tabRadius: "0px", tabBg: "rgb(250, 245, 230)" },
+	pixel: { tabRadius: "0px", tabBg: "rgb(36, 30, 56)" },
+	cyber: { tabRadius: "2px", tabBg: "rgb(12, 20, 28)" },
+};
+
+for (const [theme, base] of Object.entries(DECOR_BASELINE)) {
+	test(`${theme}：装饰层零回归（无新增元素、tab 样式与原值一致）`, async ({
+		page,
+	}) => {
+		await setUiPrefs(page, "zh", { themeMode: theme });
+		await page.goto("/");
+		const m = await page.evaluate(() => {
+			const tab = document.querySelector('[data-testid="sidebar-tab-tasks"]');
+			const ts = tab ? getComputedStyle(tab) : null;
+			return {
+				tabRadius: ts?.borderRadius ?? null,
+				tabBg: ts?.backgroundColor ?? null,
+				extCount: document.querySelectorAll(".ep-ext").length,
+				connLedCount: document.querySelectorAll('[data-testid="session-conn-led"]').length,
+			};
+		});
+		// 既有主题下不得出现装饰层新增的元素
+		expect(m.extCount).toBe(0);
+		expect(m.connLedCount).toBe(0);
+		// tab 是装饰层改动过的元素，既有主题的样式必须与原值逐字一致
+		expect(m.tabRadius).toBe(base.tabRadius);
+		expect(m.tabBg).toBe(base.tabBg);
+	});
+}
