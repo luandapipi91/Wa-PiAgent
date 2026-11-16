@@ -9,7 +9,7 @@ beforeEach(() => {
 	useUiPrefsStore.setState({ themeMode: "system", themeColor: "green" });
 });
 
-test("渲染六张主题卡；当前主题标 data-active，但默认无 selected（保证强制选择可判定）", () => {
+test("渲染主题卡；当前主题标 data-active，但默认无 selected（保证强制选择可判定）", () => {
 	render(<ThemePicker onConfirm={() => {}} />);
 	for (const mode of ["system", "light", "dark", "newspaper", "pixel", "cyber"]) {
 		expect(screen.getByTestId(`theme-card-${mode}`)).toBeTruthy();
@@ -17,6 +17,12 @@ test("渲染六张主题卡；当前主题标 data-active，但默认无 selecte
 	// 当前生效主题可见，但不算用户已选：新手引导要求用户主动选一次才能下一步
 	expect(screen.getByTestId("theme-card-system").dataset.active).toBe("true");
 	expect(screen.getByTestId("theme-card-system").dataset.selected).toBe("false");
+});
+
+test("主题引导也列出八张卡（含 gilded / tactical）", () => {
+	render(<ThemePicker onConfirm={() => {}} />);
+	expect(screen.getByTestId("theme-card-gilded")).toBeTruthy();
+	expect(screen.getByTestId("theme-card-tactical")).toBeTruthy();
 });
 
 test("点卡片即生效：store 与 data-theme 同时变（刷新后不丢）", () => {

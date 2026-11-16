@@ -15,7 +15,7 @@ interface Props {
 	onSelect?: (mode: ThemeMode) => void;
 }
 
-/** 卡片顺序：跟随系统排最前，其后浅/深色，最后三套风格化主题 */
+/** 卡片顺序：跟随系统排最前，其后浅/深色，最后五套风格化主题 */
 const THEME_CARDS: ThemeMode[] = [
 	"system",
 	"light",
@@ -23,11 +23,13 @@ const THEME_CARDS: ThemeMode[] = [
 	"newspaper",
 	"pixel",
 	"cyber",
+	"gilded",
+	"tactical",
 ];
 
 /**
  * 每张卡片的缩略样张：用该主题自己的固定色值绘制（不用 CSS 变量——变量会全部跟着
- * 当前主题变，六张卡就会长得一模一样，失去「先看看长啥样」的意义）。
+ * 当前主题变，八张卡就会长得一模一样，失去「先看看长啥样」的意义）。
  * 取值与本项目 styles.css 里对应主题块保持一致。
  */
 const PREVIEW_STYLE: Record<
@@ -82,6 +84,22 @@ const PREVIEW_STYLE: Record<
 		radius: "2px",
 		border: "rgba(0,240,255,0.42)",
 	},
+	gilded: {
+		bg: "#E8E4D9",
+		surface: "#FBFAF5",
+		accent: "#CDBE91",
+		text: "#1A1A1A",
+		radius: "4px",
+		border: "#D9D3C4",
+	},
+	tactical: {
+		bg: "#000000",
+		surface: "#0B0B0B",
+		accent: "#0FF796",
+		text: "#FFFFFF",
+		radius: "0px",
+		border: "rgba(255,255,255,0.2)",
+	},
 };
 
 /** 卡片标签文案的 i18n key */
@@ -92,6 +110,8 @@ const PREVIEW_KEY: Record<ThemeMode, string> = {
 	newspaper: "settings.appearance.themeMode.newspaper",
 	pixel: "settings.appearance.themeMode.pixel",
 	cyber: "settings.appearance.themeMode.cyber",
+	gilded: "settings.appearance.themeMode.gilded",
+	tactical: "settings.appearance.themeMode.tactical",
 };
 
 /**
@@ -133,7 +153,7 @@ export function ThemePicker({ onConfirm, showConfirm = false, onSelect }: Props)
 							}`}
 							style={{
 								// 整张卡就是该主题的一张样张：底色/文字/圆角全部取该主题自己的值，
-								// 这样六张卡在任何当前主题下都保持各自真面目
+								// 这样八张卡在任何当前主题下都保持各自真面目
 								background: st.bg,
 								color: st.text,
 								borderRadius: st.radius,

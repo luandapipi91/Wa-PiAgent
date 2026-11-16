@@ -17,6 +17,8 @@ const THEME_MODES: ThemeMode[] = [
 	"newspaper",
 	"pixel",
 	"cyber",
+	"gilded",
+	"tactical",
 ];
 
 /** 主题颜色 → 色值映射（用于圆点背景色） */
@@ -140,7 +142,7 @@ export function AppearanceSection() {
 				</select>
 			</div>
 
-			{/* 主题颜色：左文案右色点。报纸/像素/赛博自带固定配色，整块不渲染 */}
+			{/* 主题颜色：左文案右色点。报纸/像素/赛博/鎏金/战术自带固定配色，整块不渲染 */}
 			{isAccentApplicable(themeMode) && (
 				<div
 					data-testid="theme-color-row"

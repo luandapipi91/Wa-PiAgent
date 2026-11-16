@@ -1144,10 +1144,12 @@ const en = {
 				newspaper: "Newspaper",
 				pixel: "Pixel",
 				cyber: "Cyber",
+				gilded: "Gilded",
+				tactical: "Tactical",
 			},
 			themeColor: {
 				label: "Accent Color",
-				desc: "Click to choose your preferred accent color (Newspaper, Pixel and Cyber themes ship a fixed palette)",
+				desc: "Click to choose your preferred accent color (Newspaper, Pixel, Cyber, Gilded and Tactical themes ship a fixed palette)",
 			},
 			fontSize: {
 				label: "Font size",

@@ -4,14 +4,16 @@ import type { AppLanguage } from "../i18n/detect";
 import { changeLanguage } from "../i18n";
 import { setDesktopPetEnabled } from "../util/desktop-pet";
 
-/** 界面主题模式：system 跟随系统，其余为具体主题（含三套风格化主题） */
+/** 界面主题模式：system 跟随系统，其余为具体主题（含五套风格化主题） */
 export type ThemeMode =
 	| "system"
 	| "light"
 	| "dark"
 	| "newspaper"
 	| "pixel"
-	| "cyber";
+	| "cyber"
+	| "gilded"
+	| "tactical";
 /** 解析后的实际主题（写到 <html data-theme> 的值，不含 system） */
 export type ResolvedTheme = Exclude<ThemeMode, "system">;
 /** 主题颜色 */
@@ -133,12 +135,23 @@ export function resolveActualTheme(mode: ThemeMode): ResolvedTheme {
 
 /** 该主题是否为暗色底（影响代码块、终端块、通知卡片的明暗配色） */
 export function isDarkTheme(theme: ResolvedTheme): boolean {
-	return theme === "dark" || theme === "pixel" || theme === "cyber";
+	return (
+		theme === "dark" ||
+		theme === "pixel" ||
+		theme === "cyber" ||
+		theme === "tactical"
+	);
 }
 
-/** 该模式是否允许换强调色（报纸/像素/赛博自带固定配色） */
+/** 该模式是否允许换强调色（报纸/像素/赛博/鎏金/战术自带固定配色） */
 export function isAccentApplicable(mode: ThemeMode): boolean {
-	return mode !== "newspaper" && mode !== "pixel" && mode !== "cyber";
+	return (
+		mode !== "newspaper" &&
+		mode !== "pixel" &&
+		mode !== "cyber" &&
+		mode !== "gilded" &&
+		mode !== "tactical"
+	);
 }
 
 /** 应用明暗模式到 <html data-theme> */

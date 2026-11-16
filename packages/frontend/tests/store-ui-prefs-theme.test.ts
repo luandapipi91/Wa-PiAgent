@@ -99,6 +99,25 @@ test("isAccentApplicable：三套新主题不可换强调色", () => {
 	expect(isAccentApplicable("system")).toBe(true);
 });
 
+test("gilded/tactical 解析直通且明暗归类正确", () => {
+	expect(resolveActualTheme("gilded")).toBe("gilded");
+	expect(resolveActualTheme("tactical")).toBe("tactical");
+	// 鎏金是浅色主体（深色左栏只靠作用域覆盖，不改明暗归类）
+	expect(isDarkTheme("gilded")).toBe(false);
+	expect(isDarkTheme("tactical")).toBe(true);
+});
+
+test("gilded/tactical 都属于固定配色主题", () => {
+	expect(isAccentApplicable("gilded")).toBe(false);
+	expect(isAccentApplicable("tactical")).toBe(false);
+});
+
+test("setThemeMode('tactical') 把 data-theme 写为 tactical", () => {
+	useUiPrefsStore.getState().setThemeMode("tactical");
+	expect(useUiPrefsStore.getState().themeMode).toBe("tactical");
+	expect(document.documentElement.dataset.theme).toBe("tactical");
+});
+
 test("setThemeMode('pixel') 把 data-theme 写为 pixel", () => {
 	useUiPrefsStore.getState().setThemeMode("pixel");
 	expect(useUiPrefsStore.getState().themeMode).toBe("pixel");

@@ -1112,10 +1112,12 @@ const zh = {
 				newspaper: "报纸",
 				pixel: "像素",
 				cyber: "赛博",
+				gilded: "鎏金",
+				tactical: "战术",
 			},
 			themeColor: {
 				label: "主题颜色",
-				desc: "点击选择你喜欢的强调色（报纸/像素/赛博主题自带固定配色，此项不可调）",
+				desc: "点击选择你喜欢的强调色（报纸/像素/赛博/鎏金/战术主题自带固定配色，此项不可调）",
 			},
 			fontSize: {
 				label: "文字大小",

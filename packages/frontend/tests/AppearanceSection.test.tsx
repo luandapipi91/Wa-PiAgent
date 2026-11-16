@@ -27,7 +27,7 @@ beforeEach(() => {
 	});
 });
 
-test("主题控件是 select，渲染 6 个选项且默认「跟随系统」", async () => {
+test("主题控件是 select，渲染 8 个选项且默认「跟随系统」", async () => {
 	const { AppearanceSection } = await import(
 		"../src/components/settings/AppearanceSection"
 	);
@@ -43,6 +43,8 @@ test("主题控件是 select，渲染 6 个选项且默认「跟随系统」", a
 		"newspaper",
 		"pixel",
 		"cyber",
+		"gilded",
+		"tactical",
 	]);
 });
 
@@ -69,14 +71,14 @@ test("选择「像素」后 data-theme 为 pixel", async () => {
 	expect(useUiPrefsStore.getState().themeMode).toBe("pixel");
 });
 
-test("选报纸/像素/赛博时整块隐藏「主题颜色」，切回浅色恢复", async () => {
+test("选固定配色主题（报纸/像素/赛博/鎏金/战术）时整块隐藏「主题颜色」，切回浅色恢复", async () => {
 	const { AppearanceSection } = await import(
 		"../src/components/settings/AppearanceSection"
 	);
 	render(<AppearanceSection />);
 	// 默认跟随系统 → 可见
 	expect(screen.queryByTestId("theme-color-row")).toBeTruthy();
-	for (const mode of ["newspaper", "pixel", "cyber"]) {
+	for (const mode of ["newspaper", "pixel", "cyber", "gilded", "tactical"]) {
 		fireEvent.change(screen.getByTestId("theme-mode-select"), {
 			target: { value: mode },
 		});
