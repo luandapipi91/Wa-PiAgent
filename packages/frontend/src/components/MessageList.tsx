@@ -1528,7 +1528,13 @@ export const MessageRow = memo(function MessageRow({
 	// 仍以 seg.call.id 为 key）。CopyButton 归属用引用比较 seg === finalTextSeg
 	//（折叠分支最终回复段 key 重排后 index 判断不再等价；不外置时 finalTextSeg 为 undefined，
 	// 内联过渡语按普通文本段渲染、不挂复制/导出按钮）。
-	const renderSeg = (seg: Segment, key: number, segIsStreaming: boolean) => {
+	const renderSeg = (
+		seg: Segment,
+		key: number,
+		segIsStreaming: boolean,
+		// bubble = 普通气泡（含导出/复制/文件清单）；plain = 只渲染正文，供合并输出卡片使用
+		shell: "bubble" | "plain" = "bubble",
+	) => {
 		// 思考过程 — ProcessCard：每段独立成卡（不合并），区分 finalized vs streaming
 		if (seg.kind === "thinking") {
 			return (
@@ -1578,6 +1584,20 @@ export const MessageRow = memo(function MessageRow({
 			);
 		}
 		// 主回复内容 — 文字 + markdown
+		if (shell === "plain") {
+			return (
+				<div key={key} className="px-3.5 py-2.5">
+					{seg.texts.map((text, i) => (
+						<TextContent
+							key={seg.blockIdxs[i]}
+							text={text}
+							sessionId={sessionId}
+							isStreaming={segIsStreaming}
+						/>
+					))}
+				</div>
+			);
+		}
 		return (
 			<div key={key} className="flex flex-col gap-1" data-testid="text-bubble">
 				<div
