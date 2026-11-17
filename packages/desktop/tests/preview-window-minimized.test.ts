@@ -28,9 +28,11 @@ test("createPreviewWindow 接收 payload.minimized（重建路径感知最小化
 });
 
 test("act ready 的 show 受 pending 门控（最小化态重建保持隐藏，不自动弹窗）", () => {
-	// ready 不再无条件 show：仅当本次开窗未以最小化态启动时才显示
+	// ready 不再无条件 show：仅当本次开窗未以最小化态启动时才显示。
+	// 注意：handlePreviewAct 里 file 分支在前、html 分支在后，且各有一个 case "ready"——
+	// 这里按 html 分支特征串定位（pending 变量 + previewWindow 判定），避免切到文件窗口分支。
 	expect(src).toMatch(/previewReadyShowPending/);
-	const i = src.indexOf('case "ready"');
+	const i = src.indexOf("previewReadyShowPending && !previewWindow.isVisible()");
 	expect(i).toBeGreaterThan(-1);
 	const block = src.slice(i, i + 400);
 	expect(block).toContain("previewReadyShowPending");

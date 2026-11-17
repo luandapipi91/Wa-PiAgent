@@ -142,6 +142,10 @@ let previewWindow = null;
 // store.minimized=true 随 open payload 下发）为 false——保持隐藏，气泡可点恢复。
 // ready 消费一次后复位 true，之后的显示/隐藏由 previewwin:cmd 的 restore/hide 驱动。
 let previewReadyShowPending = true;
+// 文件预览独立窗口：单例，与 html 预览窗口（previewWindow）并存互不干扰；
+// ready 后显示的 pending 门控同款口径（本期无最小化，开窗即待显示）。
+let filePreviewWindow = null;
+let filePreviewReadyShowPending = true;
 // 桌面宠物窗口（呱呱）：透明无边框单例，由「外观 → 桌面宠物」开关控制；主窗口收起时不跟随隐藏
 let petWindow = null;
 let sidecar = null;
@@ -1108,10 +1112,11 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 	// 所以 inspect（高亮/锁定/选中）的 postMessage 协议零改动。
 	const PREVIEW_MIN_W = 320;
 	const PREVIEW_MIN_H = 240;
-	/** 主窗口下行消息（独立窗口的全部事件都经主窗口中转处理，两个渲染进程不直连） */
-	const sendToMain = (payload) => {
+	/** 主窗口下行消息（独立窗口的全部事件都经主窗口中转处理，两个渲染进程不直连）；
+	 *  html 预览窗口与文件预览窗口各走自己的下行通道（previewwin:event / filepreviewwin:event） */
+	const sendToMain = (payload, channel = "previewwin:event") => {
 		if (mainWindow && !mainWindow.isDestroyed()) {
-			mainWindow.webContents.send("previewwin:event", payload);
+			mainWindow.webContents.send(channel, payload);
 		}
 	};
 	/** 无历史记录时的默认摆放：相对主窗口偏移，避免完全遮盖主窗口 */
@@ -1122,17 +1127,28 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 				: { x: 80, y: 80, width: 1280, height: 860 };
 		return { x: b.x + 64, y: b.y + 64, width: 900, height: 700 };
 	};
-	const createPreviewWindow = (payload = {}) => {
+	// kind: "html"（缺省，html 预览浮动窗）| "file"（文件预览独立窗口）。
+	// 两种窗口共用同一份创建代码：各自单例、各自下行通道，互不干扰可并存。
+	const createPreviewWindow = (payload = {}, kind = "html") => {
+		const isFile = kind === "file";
+		const existing = isFile ? filePreviewWindow : previewWindow;
+		const eventChannel = isFile ? "filepreviewwin:event" : "previewwin:event";
 		// 单例：已存在则只同步最新预览内容（主窗口切会话/切文件后不显示陈旧内容），
 		// 最小化态下不打扰（仅同步），可见时才聚焦
-		if (previewWindow && !previewWindow.isDestroyed()) {
-			previewWindow.webContents.send("previewwin:event", {
-				type: "sync",
-				path: payload.path ?? null,
-				url: payload.url ?? null,
-				sessionId: payload.sessionId ?? null,
-			});
-			if (previewWindow.isVisible()) previewWindow.focus();
+		if (existing && !existing.isDestroyed()) {
+			existing.webContents.send(
+				eventChannel,
+				isFile
+					? // 文件窗口的 sync 只有 path（无外部网址形态）
+						{ type: "sync", path: payload.path ?? null, sessionId: payload.sessionId ?? null }
+					: {
+							type: "sync",
+							path: payload.path ?? null,
+							url: payload.url ?? null,
+							sessionId: payload.sessionId ?? null,
+						},
+			);
+			if (existing.isVisible()) existing.focus();
 			return { ok: true };
 		}
 		const rect = payload.rect;
@@ -1145,7 +1161,7 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 						height: Math.round(rect.h),
 					}
 				: defaultPreviewBounds();
-		previewWindow = new BrowserWindow({
+		const win = new BrowserWindow({
 			...bounds,
 			minWidth: PREVIEW_MIN_W,
 			minHeight: PREVIEW_MIN_H,
@@ -1162,47 +1178,97 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 				preload: path.join(__dirname, "preload.cjs"),
 			},
 		});
-		const win = previewWindow;
-		// 独立预览窗口内的 iframe 被站点拒绝嵌入时，同样转告主窗口降级为外链子窗口
-		wirePreviewBlocked(win.webContents);
-		// 浮动预览窗同样挂快捷键单点监听（独立 BrowserWindow，webContents 独立）
-		wireModKeyRelay(win.webContents);
+		if (isFile) filePreviewWindow = win;
+		else previewWindow = win;
+		// 站点拒嵌兜底与快捷键单点监听是 html 预览专属（文件窗口无 iframe、无元素选择）：不接线
+		if (!isFile) {
+			wirePreviewBlocked(win.webContents);
+			wireModKeyRelay(win.webContents);
+		}
 		const params = new URLSearchParams({ "wa-preview-win": "1" });
 		if (payload.path) params.set("path", String(payload.path));
 		if (payload.sessionId) params.set("sid", String(payload.sessionId));
-		// 外部网址预览（agent 请求打开网址 / 主窗口看的是网址）：键名与前端
-		// parsePreviewWindowParams 的 "url" 一一对应，URLSearchParams 自动编码
-		if (payload.url) params.set("url", String(payload.url));
+		// 外部网址预览（agent 请求打开网址 / 主窗口看的是网址）：仅 html 窗口；
+		// 键名与前端 parsePreviewWindowParams 的 "url" 一一对应，URLSearchParams 自动编码
+		if (!isFile && payload.url) params.set("url", String(payload.url));
+		// 文件预览窗口：URL 标记 kind=file，前端入口按 kind 分流渲染（缺省 html 向后兼容旧窗口）
+		if (isFile) params.set("kind", "file");
 		win.loadURL(`http://127.0.0.1:${actualPort}/?${params.toString()}`);
-		// 以最小化态重建（会话切回场景）：首帧 ready 保持隐藏，不自动弹窗
-		previewReadyShowPending = !payload.minimized;
+		// 以最小化态重建（会话切回场景）：首帧 ready 保持隐藏，不自动弹窗（文件窗口无最小化，恒待显示）
+		if (isFile) filePreviewReadyShowPending = true;
+		else previewReadyShowPending = !payload.minimized;
 		// 位置/尺寸变化回报主窗口持久化（拖动中连续触发 → 防抖合并）
 		let rectTimer = null;
 		const reportRect = () => {
 			if (rectTimer) clearTimeout(rectTimer);
 			rectTimer = setTimeout(() => {
 				rectTimer = null;
-				if (!previewWindow || previewWindow.isDestroyed()) return;
-				const b = previewWindow.getBounds();
-				sendToMain({
-					type: "rect",
-					rect: { x: b.x, y: b.y, w: b.width, h: b.height },
-				});
+				const cur = isFile ? filePreviewWindow : previewWindow;
+				if (!cur || cur.isDestroyed()) return;
+				const b = cur.getBounds();
+				sendToMain(
+					{ type: "rect", rect: { x: b.x, y: b.y, w: b.width, h: b.height } },
+					eventChannel,
+				);
 			}, 300);
 		};
 		win.on("moved", reportRect);
 		win.on("resized", reportRect);
 		win.on("closed", () => {
 			if (rectTimer) clearTimeout(rectTimer);
-			if (win === previewWindow) previewWindow = null;
-			sendToMain({ type: "closed" });
+			// 各自清自己的单例变量（互不误清），并向各自下行通道兜底回报关闭
+			if (isFile) {
+				if (win === filePreviewWindow) filePreviewWindow = null;
+			} else if (win === previewWindow) {
+				previewWindow = null;
+			}
+			sendToMain({ type: "closed" }, eventChannel);
 		});
 		return { ok: true };
 	};
-	// 独立窗口上报的动作：窗口开关在主进程执行，状态变更转发主窗口（状态的权威在渲染层 store）
-	const handlePreviewAct = (payload) => {
+	// 独立窗口上报的动作：窗口开关在主进程执行，状态变更转发主窗口（状态的权威在渲染层 store）。
+	// kind: "html"（缺省）| "file"——文件窗口语义更窄（无最小化/切回内嵌/元素回传），
+	// 仅 ready/close/path/open-settings，且 path 带 sessionId（主窗口 openFilePreview 需要）。
+	const handlePreviewAct = (payload, kind = "html") => {
+		const isFile = kind === "file";
+		const win = isFile ? filePreviewWindow : previewWindow;
+		if (!win || win.isDestroyed()) return;
+		if (isFile) {
+			switch (payload?.type) {
+				case "ready": // 首帧渲染完：显示窗口（避免白屏）
+					if (filePreviewReadyShowPending && !win.isVisible()) win.show();
+					filePreviewReadyShowPending = true;
+					return;
+				case "close": // 关闭文件预览：关窗 + 主窗口收尾 filePreview 状态
+					win.close();
+					sendToMain({ type: "close" }, "filepreviewwin:event");
+					return;
+				case "path": // 窗口内点了 md 相对链接：同步主窗口 store（openFilePreview 幂等，回环自然终止）
+					sendToMain(
+						{
+							type: "path",
+							path: payload.path ?? null,
+							sessionId: payload.sessionId ?? null,
+						},
+						"filepreviewwin:event",
+					);
+					return;
+				case "open-settings": // 设置弹窗只在主窗口：转发并把主窗口带到前台（与 html 同款）
+					sendToMain(
+						{ type: "open-settings", section: String(payload.section ?? "general") },
+						"filepreviewwin:event",
+					);
+					if (mainWindow && !mainWindow.isDestroyed()) {
+						if (mainWindow.isMinimized()) mainWindow.restore();
+						mainWindow.show();
+						mainWindow.focus();
+					}
+					return;
+				default:
+					return;
+			}
+		}
 		const type = payload?.type;
-		if (!previewWindow || previewWindow.isDestroyed()) return;
 		switch (type) {
 			case "ready":
 				// 仅当本次开窗未以最小化态启动时才显示；最小化态重建保持隐藏
@@ -1288,6 +1354,46 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		if (!Number.isFinite(w) || !Number.isFinite(h)) return;
 		const b = previewWindow.getBounds();
 		previewWindow.setBounds({
+			x: b.x,
+			y: b.y,
+			width: Math.max(PREVIEW_MIN_W, w),
+			height: Math.max(PREVIEW_MIN_H, h),
+		});
+	});
+
+	// ── 文件预览独立窗口（与 html 预览窗口平行的一套，互不干扰可并存）──
+	// 只接受主窗口的开窗请求（独立窗口自身不得再开窗，防递归，与 previewwin:open 同款）
+	ipcMain.handle("filepreviewwin:open", (event, payload) => {
+		if (!mainWindow || event.sender !== mainWindow.webContents) {
+			return { ok: false, reason: "forbidden" };
+		}
+		return createPreviewWindow(payload || {}, "file");
+	});
+	// 主窗口 → 文件窗口的窗口指令：本期仅 close（无最小化/刷新语义）
+	ipcMain.on("filepreviewwin:cmd", (event, payload) => {
+		if (!mainWindow || event.sender !== mainWindow.webContents) return;
+		if (!filePreviewWindow || filePreviewWindow.isDestroyed()) return;
+		switch (payload?.type) {
+			case "close":
+				filePreviewWindow.close();
+				return;
+			default:
+				return;
+		}
+	});
+	// 文件窗口上报的动作（ready/close/path/open-settings），只认文件窗口 sender
+	ipcMain.on("filepreviewwin:act", (event, payload) => {
+		if (!filePreviewWindow || event.sender !== filePreviewWindow.webContents) return;
+		handlePreviewAct(payload, "file");
+	});
+	// 文件窗口右下角缩放手柄：与 html 窗口同款口径，只认文件窗口 sender
+	ipcMain.on("filepreviewwin:set-size", (event, payload) => {
+		if (!filePreviewWindow || event.sender !== filePreviewWindow.webContents) return;
+		const w = Math.round(Number(payload?.w));
+		const h = Math.round(Number(payload?.h));
+		if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+		const b = filePreviewWindow.getBounds();
+		filePreviewWindow.setBounds({
 			x: b.x,
 			y: b.y,
 			width: Math.max(PREVIEW_MIN_W, w),
