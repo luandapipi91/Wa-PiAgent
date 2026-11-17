@@ -2,6 +2,8 @@
 // 设施模式照抄 preview-window-driver.test.tsx：装桥 mock 收集 calls/listeners，
 // emit 用 act 派发；afterEach(cleanup) 必须——renderHook 跨用例 hook 泄漏是踩过的坑。
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import {
 	useFilePreviewWindowDriver,
@@ -134,4 +136,36 @@ test("open-settings 事件 → 设置弹窗打开并切到对应节", () => {
 	const s = useSettingsStore.getState() as any;
 	expect(s.showSettings).toBe(true);
 	expect(s.activeSection).toBe("share");
+});
+
+// ── 接线契约（源码断言；main.cjs 类做法，锁挂载点防回潮）──
+
+const appSrc = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
+const mainTsxSrc = readFileSync(join(import.meta.dir, "main.tsx"), "utf8");
+const rootSrc = readFileSync(
+	join(import.meta.dir, "components", "PreviewWindowRoot.tsx"),
+	"utf8",
+);
+
+test("App.tsx 挂载文件窗口 driver", () => {
+	expect(appSrc).toContain("useFilePreviewWindowDriver()");
+});
+
+test("App.tsx 的 FilePreviewModal 仅无桥时渲染（有桥进独立窗口，杜绝双份）", () => {
+	// 同一片源码里同时出现桥判断与常驻挂载点
+	const i = appSrc.indexOf("<FilePreviewModal />");
+	expect(i).toBeGreaterThan(-1);
+	const ctx = appSrc.slice(Math.max(0, i - 200), i + 50);
+	expect(ctx).toContain("hasFilePreviewBridge");
+});
+
+test("PreviewWindowRoot 内的 FilePreviewModal 保持无条件渲染（保住 html 窗口「代码」按钮）", () => {
+	expect(rootSrc).toContain("<FilePreviewModal />");
+	// 若误套「无桥才渲染」，html 独立窗口内有桥会把该现有功能砍成点了没反应
+	expect(rootSrc).not.toContain("hasFilePreviewBridge");
+});
+
+test("main.tsx 按 kind=file 分流到 FilePreviewWindowRoot", () => {
+	expect(mainTsxSrc).toContain("FilePreviewWindowRoot");
+	expect(mainTsxSrc).toContain('kind === "file"');
 });

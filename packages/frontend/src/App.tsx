@@ -34,6 +34,7 @@ import { useContactsStore } from "./store/contacts";
 import { useKnowledgeStore } from "./store/knowledge";
 import { useToastStore } from "./store/toast";
 import { formatKernelError } from "./util/kernel-error";
+import { resolveChannelModel } from "./util/channel-model";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
 import { initUpdater } from "./store/updater";
@@ -59,10 +60,11 @@ import { AnsiText } from "./components/ui/AnsiText";
 import { useTrashStore } from "./store/trash";
 import { useSchedulerStore } from "./store/scheduler";
 import { AutomationMain } from "./components/automation/AutomationMain";
-import { hasPreviewBridge, useBrowserStore } from "./store/browser";
+import { hasFilePreviewBridge, hasPreviewBridge, useBrowserStore } from "./store/browser";
 import { BrowserPanel } from "./components/BrowserPanel";
 import { FloatPreview } from "./components/FloatPreview";
 import { usePreviewWindowDriver } from "./preview-window-driver";
+import { useFilePreviewWindowDriver } from "./file-preview-window-driver";
 import { useAgentPreviewOpener } from "./agent-preview-opener";
 
 export type View = "empty" | "new-session" | "session";
@@ -89,6 +91,10 @@ export function App() {
 	const currentSessionId = useProjectsStore((s) => s.currentSessionId);
 	// 订阅 IM 会话列表，用于判定当前 session 是否来自 IM 接入（决定 SessionView 是否传 sourceLabel）
 	const conversations = useChannelsStore((s) => s.conversations);
+	// IM 接入会话进入时同步机器人模型用：智能体列表 + 程序化写入 action
+	const agents = useAgentsStore((s) => s.list);
+	const bots = useChannelsStore((s) => s.bots);
+	const initSessionModel = useComposerPrefsStore((s) => s.initSessionModel);
 	const [view, setView] = useState<View>("empty");
 	// 侧边栏分段标签：tasks | im | automation。提升到 App 级以驱动主内容区路由。
 	const [sidebarTab, setSidebarTab] = useState<SidebarTab>("tasks");
@@ -138,9 +144,34 @@ export function App() {
 
 	useEffect(() => onConnectionChange(setConnState), []);
 
+	// IM 接入会话：进入时把输入框模型同步为机器人对话实际使用的模型
+	// （channel.model ?? agent.model，与 kernel channel-manager 入站解析一致），
+	// 覆盖侧栏点击/通知点击等所有入口（都汇聚到 currentSessionId 变化）。
+	// initSessionModel 仅在该会话无显式模型记录时写入：用户手动改过的模型不被覆盖，
+	// 且不回写全局默认模型；解析不出（双方都未配置）则维持现有全局默认回退。
+	// bots 平时仅事件驱动加载（channels:changed），刷新后可能为空：缺 bot 时先补拉，
+	// 拉到后 bots 变化重跑本 effect 完成同步。
+	useEffect(() => {
+		if (!currentSessionId) return;
+		const imConv = conversations.find((c) => c.sessionId === currentSessionId);
+		if (!imConv) return;
+		const bot = bots.find((b) => b.id === imConv.channelId);
+		if (!bot && bots.length === 0) {
+			// 冷启动/刷新后 bots 尚未加载（平时仅事件驱动）：补拉一次，拉到后 bots 变化重跑完成同步；
+			// 非空但缺该 bot（机器人已删除、会话映射残留）则放弃同步，避免补拉循环
+			void useChannelsStore.getState().loadBots();
+			return;
+		}
+		if (!bot) return;
+		const model = resolveChannelModel(bot, useAgentsStore.getState().list);
+		if (model) void initSessionModel(currentSessionId, model);
+	}, [currentSessionId, conversations, bots, agents, initSessionModel]);
+
 	// 浮动预览的呈现是独立系统窗口（能移出主窗口、与主窗口并行显示）：
 	// 这里只驱动窗口开关/显隐，并把独立窗口上报的动作翻译成 store 变更
 	usePreviewWindowDriver();
+	// 文件预览独立窗口驱动：有桥时 filePreview 直接进独立系统窗口（可拖出主窗口）
+	useFilePreviewWindowDriver();
 
 	// agent 请求打开预览（preview:open）：当前会话立即展示，非当前会话只记入该会话的预览记忆
 	useAgentPreviewOpener();
@@ -839,7 +870,9 @@ export function App() {
 				)}
 				{/* 浮动模式：预览由独立窗口承载（能拖出主窗口），主窗口这里只剩最小化后的气泡入口 */}
 				{browserOpen && browserMode === "float" && <FloatPreview />}
-				<FilePreviewModal />
+				{/* 文件预览 Modal 仅无桥（纯浏览器）时渲染：桌面端有桥时由独立窗口承载，
+					双份渲染会闪现两个预览（store 驱动 driver 开窗的同时 Modal 也会弹出） */}
+				{!hasFilePreviewBridge() && <FilePreviewModal />}
 				<MediaPreviewModal />
 				{/* 子代理转录弹窗（单例）：目标实例由委托卡写 store；常驻挂载，卡片卸载不连带关闭 */}
 				<SubagentTranscriptModal

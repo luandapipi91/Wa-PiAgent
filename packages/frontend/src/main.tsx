@@ -3,7 +3,8 @@ import { Component } from "react";
 import i18n from "./i18n";
 import { App } from "./App";
 import { PreviewWindowRoot } from "./components/PreviewWindowRoot";
-import { isPreviewWindow } from "./preview-window";
+import { FilePreviewWindowRoot } from "./components/FilePreviewWindowRoot";
+import { isPreviewWindow, parsePreviewWindowParams } from "./preview-window";
 import { Icon } from "./components/ui/Icon";
 // import "./i18n" 触发模块顶层初始化：同步检测首次语言（localStorage 优先 →
 // navigator → zh）、init i18next 实例、同步 <html lang>。
@@ -74,9 +75,18 @@ const root = createRoot(document.getElementById("root")!);
 // 独立预览窗口（浮动模式的承载窗口）只渲染预览面板：不挂侧栏/聊天/会话逻辑。
 // 判定依据是主进程 createPreviewWindow 拼在 loadURL 上的 URL 标记。
 if (isPreviewWindow(window.location.search)) {
+  const previewParams = parsePreviewWindowParams(window.location.search);
   root.render(
     <ErrorBoundary>
-      <PreviewWindowRoot />
+      {/* 同一 URL 标记承载两种窗口形态：kind=file 为文件预览独立窗口，缺省 html 预览 */}
+      {previewParams.kind === "file" ? (
+        <FilePreviewWindowRoot
+          initialPath={previewParams.path}
+          initialSessionId={previewParams.sessionId}
+        />
+      ) : (
+        <PreviewWindowRoot />
+      )}
     </ErrorBoundary>,
   );
 } else {
