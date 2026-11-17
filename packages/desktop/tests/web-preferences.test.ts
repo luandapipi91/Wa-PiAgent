@@ -129,6 +129,14 @@ test("主窗口收起时同步隐藏预览独立窗口", () => {
 	);
 });
 
+test("主窗口收起时同步隐藏文件预览独立窗口（与 html 预览窗同一跟随政策，不留孤窗）", () => {
+	// 文件预览窗口（filepreviewwin 链路）与 html 预览窗口同为无 parent 独立窗口，
+	// 主窗口收起时必须一并隐藏；恢复侧与 html 同口径：不自动 show（用户操作驱动）
+	expect(src).toContain(
+		"if (filePreviewWindow && !filePreviewWindow.isDestroyed()) filePreviewWindow.hide();",
+	);
+});
+
 test("preload 暴露 waPiPreviewWin 桥（开窗/指令/动作/缩放/事件）", () => {
 	const preload = readFileSync(
 		join(import.meta.dir, "..", "src", "preload.cjs"),

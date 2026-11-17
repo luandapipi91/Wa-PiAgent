@@ -349,8 +349,9 @@ function createWindow() {
 			for (const w of childWindows) {
 				if (!w.isDestroyed()) w.hide();
 			}
-			// 预览独立窗口同为无 parent 窗口，需手动同步隐藏
+			// 预览独立窗口同为无 parent 窗口，需手动同步隐藏（html 预览与文件预览两座都跟随）
 			if (previewWindow && !previewWindow.isDestroyed()) previewWindow.hide();
+			if (filePreviewWindow && !filePreviewWindow.isDestroyed()) filePreviewWindow.hide();
 			if (process.platform === "darwin") app.dock.hide();
 		}
 	});
