@@ -3094,3 +3094,185 @@ test("同回合合并行：每张 shell 卡用自己那条 assistant 消息的 t
 		screen.getByTestId("toolcall-b-shell-duration").textContent,
 	).toContain("1.0s");
 });
+
+// 精简模式新增「过程输出」入口：只展开本轮正式输出文本，思考与工具调用不随之展开。
+test("精简模式：过程输出入口只展开中间正式输出，不含思考与工具", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "问题" }],
+						timestamp: 1,
+					},
+					agentName: "dev",
+				},
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{
+							type: "toolCall",
+							id: "t1",
+							name: "read",
+							arguments: { path: "/tmp/a" },
+						},
+						{ type: "text", text: "中间过渡" },
+						{
+							type: "toolCall",
+							id: "t2",
+							name: "bash",
+							arguments: { command: "ls" },
+						},
+						{ type: "text", text: "最终回复" },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+
+	// 默认：入口行存在，中间文本不可见
+	expect(screen.getByTestId("outputs-entry")).toBeTruthy();
+	expect(screen.queryByText("中间过渡")).toBeNull();
+	expect(screen.getByText("最终回复")).toBeTruthy();
+
+	// 展开：只见中间正式输出，思考卡不出现
+	fireEvent.click(screen.getByTestId("outputs-entry"));
+	expect(screen.getByText("中间过渡")).toBeTruthy();
+	expect(screen.getByTestId("outputs-card")).toBeTruthy();
+	expect(screen.queryByText("思考中")).toBeNull();
+	expect(screen.queryByTestId("thinking-panel")).toBeNull();
+
+	// 收起
+	fireEvent.click(screen.getByTestId("outputs-entry"));
+	expect(screen.queryByText("中间过渡")).toBeNull();
+});
+
+// ===== 完整输出模式：本轮所有正式输出合并成一张卡片；点「本轮过程」回到时间线 =====
+function renderFullModeCase() {
+	useUiPrefsStore.setState({ replyDisplayMode: "full" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "问题" }],
+						timestamp: 1,
+					},
+					agentName: "dev",
+				},
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{ type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+						{ type: "text", text: "中间过渡" },
+						{ type: "toolCall", id: "t2", name: "bash", arguments: { command: "ls" } },
+						{ type: "text", text: "最终回复" },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+}
+
+test("完整模式：默认把本轮所有正式输出合并成一张卡片，无思考/工具、无入口", () => {
+	renderFullModeCase();
+	expect(screen.getByTestId("outputs-card")).toBeTruthy();
+	expect(screen.getByText("中间过渡")).toBeTruthy();
+	expect(screen.getByText("最终回复")).toBeTruthy();
+	expect(screen.getByTestId("outputs-card").contains(screen.getByText("中间过渡"))).toBe(true);
+	expect(screen.getByTestId("outputs-card").contains(screen.getByText("最终回复"))).toBe(true);
+	expect(screen.queryByText("思考中")).toBeNull();
+	expect(screen.queryByTestId("outputs-entry")).toBeNull();
+});
+
+test("完整模式：点本轮过程回到时间线，文本不重复", () => {
+	renderFullModeCase();
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	expect(screen.queryByTestId("outputs-card")).toBeNull();
+	expect(screen.getAllByText("中间过渡").length).toBe(1);
+	expect(screen.getAllByText("最终回复").length).toBe(1);
+});
+
+test("完整模式：只有一段最终回复时渲染普通气泡，不包卡片", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "full" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 },
+					agentName: "dev",
+				},
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{ type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+						{ type: "text", text: "唯一回复" },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	expect(screen.queryByTestId("outputs-card")).toBeNull();
+	expect(screen.getByText("唯一回复")).toBeTruthy();
+});
+
+test("错误轮：两模式都不套卡片、不显示入口", () => {
+	for (const mode of ["full", "concise"] as const) {
+		// 每个模式独立渲染，先清理上一次的 DOM
+		document.body.innerHTML = "";
+		useUiPrefsStore.setState({ replyDisplayMode: mode });
+		useSessionStore.setState({
+			messagesBySession: {
+				s1: [
+					{
+						message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 },
+						agentName: "dev",
+					},
+					assistantMsgWithExtras(
+						[
+							{ type: "thinking", thinking: "思考中" },
+							{ type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+							{ type: "text", text: "失败前的输出" },
+							{ type: "text", text: "错误回复" },
+						],
+						2,
+						{ stopReason: "error" },
+					),
+				],
+			},
+			streamingBySession: { s1: null },
+		});
+		const view = render(
+			<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+				<MessageList sessionId="s1" />
+			</VirtuosoMockContext.Provider>,
+		);
+		expect(screen.queryByTestId("outputs-card")).toBeNull();
+		expect(screen.queryByTestId("outputs-entry")).toBeNull();
+		view.unmount();
+	}
+});

@@ -14,6 +14,7 @@ import { useProvidersStore } from "../store/providers";
 import { useSkillsStore } from "../store/skills";
 import { useCommandsStore } from "../store/commands";
 import { useComposerPrefsStore } from "../store/composer-prefs";
+import { useUiPrefsStore } from "../store/ui-prefs";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
@@ -48,6 +49,8 @@ import {
 } from "./blocks/media-utils";
 import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
+import { OutputsCard } from "./blocks/OutputsCard";
+import { OutputsEntry } from "./blocks/OutputsEntry";
 import { ToolCallsSegment } from "./blocks/ToolCallNested";
 import { AnsiText } from "./ui/AnsiText";
 import { mediaKindOf } from "./blocks/file-path";
@@ -1323,6 +1326,11 @@ export const MessageRow = memo(function MessageRow({
 		EMPTY_FILE_CHANGES;
 	// hook 须在顶层、任何 early return 之前
 	const { t } = useTranslation();
+	// 回复显示模式：concise 只显示本轮最后一条（默认）；full 把正式输出合并成一张卡片
+	const replyDisplayMode = useUiPrefsStore((s) => s.replyDisplayMode);
+	// 「过程输出」入口与「本轮过程」的展开态都是行内临时状态（同 TurnSummary），不持久化
+	const [outputsOpen, setOutputsOpen] = useState(false);
+	const [procOpen, setProcOpen] = useState(false);
 	// 技能名集合：用于过滤 /skill:xxx 纯文本渲染——只有已启用技能列表里真实存在的技能名
 	// 才渲染为 chip，避免任意 /skill:xxx 文本被误判。selector 返回稳定数组引用，再 useMemo 成 Set，
 	// 避免 selector 每次返回新 Set 触发无限重渲染。
@@ -1516,11 +1524,25 @@ export const MessageRow = memo(function MessageRow({
 	const processSegs = externalizeFinalText
 		? segments.filter((_, i) => i !== lastTextSegIdx)
 		: segments;
+	// 过程输出 = 折叠段里的正式文本（不含思考/工具调用）
+	const midTextSegs = processSegs.filter((s) => s.kind === "text");
 	const finalTextSeg = externalizeFinalText
 		? segments[lastTextSegIdx]
 		: undefined;
 	// 步骤数只计过程段（thinking/toolCalls/delegate/fleet），中间 text 段不计
 	const processSteps = segments.filter((s) => s.kind !== "text").length;
+
+	// 完整输出模式：卡片装本轮所有正式输出（中间输出 + 最终回复）；
+	// 只有一段且它就是最终回复时不包卡片，避免「一张卡里一个段落」。
+	const allTextSegs = [
+		...midTextSegs,
+		...(finalTextSeg ? [finalTextSeg] : []),
+	];
+	const useOutputsCard =
+		allTextSegs.length > 1 || (allTextSegs.length === 1 && !finalTextSeg);
+	// 错误轮保持现状红色渲染，不套卡片（裁决见设计文档 §6.4）
+	const fullModeCard =
+		replyDisplayMode === "full" && canCollapse && !isError && useOutputsCard;
 
 	// 单段渲染分发：thinking/toolCalls/delegate/fleet 为过程卡，text 为主回复气泡。
 	// 折叠分支与非折叠分支共用，保证两种模式渲染完全一致；key 由调用方传入
@@ -1528,6 +1550,23 @@ export const MessageRow = memo(function MessageRow({
 	// 仍以 seg.call.id 为 key）。CopyButton 归属用引用比较 seg === finalTextSeg
 	//（折叠分支最终回复段 key 重排后 index 判断不再等价；不外置时 finalTextSeg 为 undefined，
 	// 内联过渡语按普通文本段渲染、不挂复制/导出按钮）。
+	// 最终回复的操作区（导出 / 复制 / 文件清单）：完整模式的合并卡片把它放在卡片外部，
+	// 位次与普通气泡态一致；普通气泡态仍由 renderSeg 内联渲染。
+	const renderFinalChrome = () => (
+		<>
+			<div className="flex justify-end items-center">
+				<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
+				<CopyButton
+					text={fullText}
+					testId={`copy-${sessionId}-${m.timestamp}`}
+				/>
+			</div>
+			{isLastMessage && (
+				<FileChangeSummary sessionId={sessionId} files={fileChanges} />
+			)}
+		</>
+	);
+
 	const renderSeg = (
 		seg: Segment,
 		key: number,
@@ -1614,18 +1653,7 @@ export const MessageRow = memo(function MessageRow({
 					))}
 				</div>
 				{seg === finalTextSeg && !isStreaming && !isActiveTurnRow && (
-					<>
-						<div className="flex justify-end items-center">
-							<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
-							<CopyButton
-								text={fullText}
-								testId={`copy-${sessionId}-${m.timestamp}`}
-							/>
-						</div>
-						{isLastMessage && (
-							<FileChangeSummary sessionId={sessionId} files={fileChanges} />
-						)}
-					</>
+					renderFinalChrome()
 				)}
 			</div>
 		);
@@ -1640,11 +1668,48 @@ export const MessageRow = memo(function MessageRow({
 				</div>
 
 				<div className="flex flex-col gap-1.5">
-					{canCollapse ? (
+					{fullModeCard ? (
+						<>
+							<TurnSummary
+								steps={processSteps}
+								elapsedMs={m.turnElapsedMs}
+								open={procOpen}
+								onToggle={() => setProcOpen((v) => !v)}
+							>
+								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
+							</TurnSummary>
+							{procOpen ? (
+								finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)
+							) : (
+								<>
+									<OutputsCard>
+										{allTextSegs.map((seg, si) =>
+											renderSeg(seg, si, false, "plain"),
+										)}
+									</OutputsCard>
+									{renderFinalChrome()}
+								</>
+							)}
+						</>
+					) : canCollapse ? (
 						<>
 							<TurnSummary steps={processSteps} elapsedMs={m.turnElapsedMs}>
 								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
 							</TurnSummary>
+							{midTextSegs.length > 0 && !isError && (
+								<OutputsEntry
+									count={midTextSegs.length}
+									open={outputsOpen}
+									onToggle={() => setOutputsOpen((v) => !v)}
+								/>
+							)}
+							{outputsOpen && !isError && (
+								<OutputsCard>
+									{midTextSegs.map((seg, si) =>
+										renderSeg(seg, si, false, "plain"),
+									)}
+								</OutputsCard>
+							)}
 							{finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)}
 						</>
 					) : (
