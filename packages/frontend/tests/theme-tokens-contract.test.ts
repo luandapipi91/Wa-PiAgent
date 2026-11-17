@@ -375,6 +375,26 @@ test("八套主题都声明标题栏配色", () => {
 	expect(css).toContain("--titlebar-bg: #ffffff");
 });
 
+// 缓存胶囊与数据条同属一组：它既是 .token-capsule，又是 token-capsules 的 last-child。
+// 一条未限定的 `.token-capsule:last-child { border-right: 0 }` 权重比缓存自身的描边规则
+// 高一层，会连带把缓存的右边框吃掉（gilded 曾如此，用户截图「缓存右边框被裁切」）。
+// 所以「末尾格去右边框」这类复位规则只允许写在数据条内部。
+test("token 胶囊的末尾复位规则不得匹配独立缓存胶囊", () => {
+	// 先剔注释：规则说明里会引用选择器字面量，那不算规则
+	const noComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+	const offenders = [...noComments.matchAll(/([^{}]*\.token-capsule:last-child[^{}]*)\{/g)]
+		.map((m) => m[1].trim())
+		.filter((sel) => !sel.includes("> .token-bar >"));
+	expect(offenders).toEqual([]);
+});
+
+test("鎏金缓存胶囊自带四边描边，不依赖数据条末格规则", () => {
+	const body = ruleBody(
+		':root[data-theme="gilded"] [data-testid="token-capsules"] > .token-capsule--cache {',
+	);
+	expect(body).toContain("border: 1px solid");
+});
+
 test("标题栏装饰规则都在主题作用域内，不污染其它主题", () => {
 	const decor = gildedDecor() + tacticalDecor();
 	for (const sel of [".titlebar-wordmark", ".titlebar-dateline", ".titlebar-bar"]) {

@@ -121,9 +121,14 @@ export function TokenCapsules({
 						className={`token-capsule token-capsule--total${tokenTotal.subagent ? " token-capsule--stack" : ""}`}
 						data-testid="token-total"
 					>
-						{t("session.total")}
-						<span className="token-value" data-testid="token-value-total">
-							{fmtTok(tokenTotal.total)}
+						{/* 标签 + 数值包成一行：有主/子拆分时这个格是纵向布局（--stack），
+						    不包的话「累计」/数值/拆分会被 column 拆成三行（整条被撑到 52px，
+						    标签与数值直接分家——E2E 实测过） */}
+						<span className="token-line">
+							{t("session.total")}
+							<span className="token-value" data-testid="token-value-total">
+								{fmtTok(tokenTotal.total)}
+							</span>
 						</span>
 						{tokenTotal.subagent ? (
 							<span className="token-split" data-testid="token-split">

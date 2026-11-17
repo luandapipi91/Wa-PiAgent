@@ -89,21 +89,31 @@ function seedSession() {
 	);
 }
 
-/** 打开会话：注入 stats（占用 64K/128K、累计含缓存、缓存命中 968/(32+968)=96.8%） */
-async function openSession(page: Page) {
+/** 打开会话：注入 stats（占用 64K/128K、累计含缓存）。
+ *  默认缓存命中 968/(32+968)=96.8%（正常态）；传 { input: 20_000, cacheRead: 100_000 }
+ *  则命中率 20000/(20000+100000)=16.7%，落在 <90% 的警示态。
+ *  subagent 默认 2100（累计格带主/子拆分）；传 0 则条内每格都只有一行。 */
+async function openSession(
+	page: Page,
+	usage: { input?: number; cacheRead?: number; subagent?: number } = {},
+) {
+	const input = usage.input ?? 32_000;
+	const cacheRead = usage.cacheRead ?? 968_000;
+	// 子代理消耗 >0 时累计格多一行主/子拆分（默认给 2100，无拆分传 0）
+	const subagent = usage.subagent ?? 2100;
 	await page.route(`**/api/sessions/${SESSION_ID}/stats`, (route) =>
 		route.fulfill({
 			contentType: "application/json",
 			body: JSON.stringify({
 				stats: {
 					tokens: {
-						input: 32_000,
+						input,
 						output: 2100,
-						cacheRead: 968_000,
+						cacheRead,
 						cacheWrite: 0,
-						total: 1_002_100,
-						main: { total: 1_000_000 },
-						subagent: { total: 2100 },
+						total: input + cacheRead + 2100,
+						main: { total: input + cacheRead },
+						subagent: { total: subagent },
 					},
 					contextUsage: { used: 64_000, total: 128_000, ratio: 0.5 },
 				},
@@ -183,7 +193,8 @@ test("鎏金：数值是深灰方块白字，路径海克斯青，状态/角色 
 }) => {
 	seedSession();
 	await setUiPrefs(page, "zh", { themeMode: "gilded" });
-	await openSession(page);
+	// 无主/子拆分：条内每条格子都只有一行，竖向对齐才可严格断言（见下方 spread）
+	await openSession(page, { subagent: 0 });
 
 	// 数值方块：深灰底白字等宽（设计稿 .v）
 	expect(
@@ -216,8 +227,118 @@ test("鎏金：数值是深灰方块白字，路径海克斯青，状态/角色 
 		await style(page, '[data-testid="session-conn-led"]', "background-color"),
 	).toBe("rgb(29, 166, 186)");
 
+	// 缓存格：金底小胶囊，四边描边齐全——它是 token-capsules 的最后一个孩子，
+	// 曾因 `.token-capsule:last-child { border-right: 0 }` 被当末格吃掉右边框（用户截图反馈）
+	expect(
+		await cacheBorderWidths(page, '.token-capsule--cache'),
+	).toEqual(["1px", "1px", "1px", "1px"]);
+
+	// 数据条内容不贴边：首格/末格距条边框 9px（1px 边框 + 8px 内边距）。
+	// 格子 padding 去框时归零过，首尾两格曾直接顶在边框上（用户截图「文字左右没间距，好挤」）。
+	const inset = await page.getByTestId("token-bar").evaluate((el) => {
+		const cs = getComputedStyle(el);
+		const box = el.getBoundingClientRect();
+		const first = el.firstElementChild!.getBoundingClientRect();
+		const last = el.lastElementChild!.getBoundingClientRect();
+		return {
+			pad: [cs.paddingLeft, cs.paddingRight],
+			left: Math.round(first.left - box.left),
+			right: Math.round(box.right - last.right),
+		};
+	});
+	expect(inset.pad).toEqual(["8px", "8px"]);
+	expect(inset.left).toBe(9);
+	expect(inset.right).toBe(9);
+
+	// 竖向对齐：条内所有数值方块 / 标签行必须在同一水平线上（实测差 0，阈值 0.5px），
+	// 且进度条不压文字。曾回归过两次：进度条在文档流里把「占用」整行顶高 2.5px；
+	// 标签行高 15.75px 与 16px 数值方块不同高，「↑+数值」包层按基线对齐差 0.5px。
+	const rows = await page.getByTestId("token-bar").evaluate((bar) => {
+		const centers = [
+			...bar.querySelectorAll(".token-value, .token-line, .token-occupied"),
+		].map((el) => {
+			const r = el.getBoundingClientRect();
+			return (r.top + r.bottom) / 2;
+		});
+		const progress = bar.querySelector(".token-progress")!.getBoundingClientRect();
+		const lowestText = Math.max(
+			...[...bar.querySelectorAll(".token-value")].map(
+				(el) => el.getBoundingClientRect().bottom,
+			),
+		);
+		return {
+			spread: Math.max(...centers) - Math.min(...centers),
+			progressGap: progress.top - lowestText,
+		};
+	});
+	expect(rows.spread).toBeLessThanOrEqual(0.5);
+	expect(rows.progressGap).toBeGreaterThanOrEqual(0);
+
 	await expectSingleRowLayout(page);
 });
+
+// 用户截图回归（缓存命中 83.8%）：警示态红框同样得四边都在。
+// 原先 `.token-capsule:last-child { border-right: 0 }` 权重高一层，把这条红框的右边框也吃了。
+test("鎏金：缓存命中过低时警示态红框四边齐全", async ({ page }) => {
+	seedSession();
+	await setUiPrefs(page, "zh", { themeMode: "gilded" });
+	// 命中率 16.7% < 90% → 进 danger 分支
+	await openSession(page, { input: 20_000, cacheRead: 100_000 });
+
+	expect(
+		await cacheBorderWidths(page, ".token-capsule--cache-danger"),
+	).toEqual(["1px", "1px", "1px", "1px"]);
+	// 边框颜色跟 danger 走（--danger #b03a34），不是金棕
+	expect(
+		await style(
+			page,
+			'[data-testid="token-capsules"] > .token-capsule--cache-danger',
+			"border-right-color",
+		),
+	).toBe("rgb(176, 58, 52)");
+});
+
+// 子代理消耗 >0 时累计格多一行主/子拆分。曾经「累计」标签/数值/拆分各占一行，
+// 整条被撑到 52px；现在标签与数值同行，第二行才是拆分（两行 34px）。
+test("鎏金：主/子拆分只占第二行，累计标签与数值同行", async ({ page }) => {
+	seedSession();
+	await setUiPrefs(page, "zh", { themeMode: "gilded" });
+	await openSession(page);
+
+	// 标签与数值必须包在同一个行容器里：没有它，column 布局会把
+	// 「累计」/ 数值 / 拆分拆成三行（整条 52px，标签与数值分家）
+	const line = page.locator('[data-testid="token-total"] > .token-line');
+	await expect(line).toHaveCount(1);
+
+	const lineBox = (await line.boundingBox())!;
+	const chipBox = (await page
+		.locator('[data-testid="token-total"] .token-value')
+		.boundingBox())!;
+	const splitBox = (await page.getByTestId("token-split").boundingBox())!;
+	const barBox = (await page.getByTestId("token-bar").boundingBox())!;
+	const centerY = (b: { y: number; height: number }) => b.y + b.height / 2;
+
+	// 标签行与数值方块同一水平线（不是各占一行）
+	expect(Math.abs(centerY(lineBox) - centerY(chipBox))).toBeLessThanOrEqual(1);
+	// 拆分在标签行下方，不是夹在标签和数值之间
+	expect(splitBox.y).toBeGreaterThanOrEqual(lineBox.y + lineBox.height - 0.5);
+	// 两行合计 34px；回到三行会变成 52px（阈值卡在中间）
+	expect(barBox.height).toBeLessThanOrEqual(36);
+});
+
+/** 缓存胶囊四边描边宽度（top/right/bottom/left）：被末格规则吃掉时 right 会是 0px */async function cacheBorderWidths(page: Page, cls: string): Promise<string[]> {
+	return page
+		.locator(`[data-testid="token-capsules"] > ${cls}`)
+		.evaluate((el) => {
+			const cs = getComputedStyle(el);
+			return [
+				cs.borderTopWidth,
+				cs.borderRightWidth,
+				cs.borderBottomWidth,
+				cs.borderLeftWidth,
+			];
+		});
+}
 
 test("战术：数值白字 600 无色块，引线标注 16×1px，状态 tag 直角虚线", async ({
 	page,
@@ -243,14 +364,12 @@ test("战术：数值白字 600 无色块，引线标注 16×1px，状态 tag �
 	expect(await style(page, '[data-testid="token-bar"]', "border-top-width")).toBe(
 		"0px",
 	);
-	// 缓存格也不再单独描边——整条数据区唯一带色的格子靠青绿文字强调
+	// 缓存格也不再单独描边——整条数据区唯一带色的格子靠青绿文字强调。
+	// 四边都验：战术基础规则给 .token-capsule 留了 border-right 分隔线，
+	// 缓存格没盖住的话会凭空多一条竖线
 	expect(
-		await style(
-			page,
-			'[data-testid="token-capsules"] > .token-capsule--cache',
-			"border-top-width",
-		),
-	).toBe("0px");
+		await cacheBorderWidths(page, ".token-capsule--cache"),
+	).toEqual(["0px", "0px", "0px", "0px"]);
 	// 空闲态：虚线框（设计稿 .tag.idle）
 	expect(
 		await style(page, '[data-testid="session-status-tag"]', "border-top-style"),

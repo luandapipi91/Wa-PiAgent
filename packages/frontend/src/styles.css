@@ -577,10 +577,13 @@ input[type="range"]::-moz-range-thumb {
 .token-bar {
 	display: contents;
 }
-/* 标签 + 独立数值元素的横向排布（数值由 TokenCapsules 拆出，见 theme 装饰层） */
+/* 标签 + 独立数值元素的横向排布（数值由 TokenCapsules 拆出，见 theme 装饰层）。
+   .token-line 是「标签 + 数值」的行容器：纵向排布的格子（占用 / 带拆分的累计）里
+   没有它这两个元素会被 column 拆成两行。 */
 .token-capsule--turn,
 .token-occupied,
-.token-capsule--total {
+.token-capsule--total,
+.token-line {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
@@ -1520,12 +1523,18 @@ input[type="range"]::-moz-range-thumb {
 	font-weight: 600;
 }
 
-/* 数据条：一根带烫金细边的横条，三格之间 1px 分隔（设计稿 .pill.grp .cell）。
-   align-items 用 stretch：累计格带主/子拆分会比 22px 高，格子拉齐才不出现「半截分隔线」。 */
+/* 数据条：一根带烫金细边的横条（设计稿 .pill.grp），格间不画分隔线（同战术稿去框处理）。
+   注意：条外的缓存胶囊同样是 .token-capsule，且是 token-capsules 的 last-child——
+   不能再写 `.token-capsule:last-child { border-right: 0 }`，那条规则权重高一层，
+   会把缓存胶囊的右边框一起吃掉（用户截图：缓存框缺右侧描边）。
+   内边距 0 8px：格子自身 padding 已归零（去框时一并去的），不留边距首尾两格会直接
+   顶在边框上（用户截图「文字左右没间距，好挤」）；这也与缓存胶囊的 8px 对齐。
+   align-items 用 stretch：累计格带主/子拆分会比 22px 高，格子拉齐才不出现一高一矮。 */
 :root[data-theme="gilded"] [data-testid="token-capsules"] > .token-bar {
 	display: inline-flex;
 	align-items: stretch;
 	gap: 0;
+	padding: 0 8px;
 	border: 1px solid var(--hairline);
 	border-radius: 3px;
 	background: var(--surface);
@@ -1542,22 +1551,35 @@ input[type="range"]::-moz-range-thumb {
 	border-radius: 0;
 	border: 0;
 	background: none;
+	/* 行高对齐数值方块的 16px：默认 1.5 倍行高（15.75px）会让文字行盒的中心
+	   比 16px 方块偏上约 0.9px，看着就是「文字没对齐方块」 */
+	line-height: 16px;
 	font-size: calc(10.5px * var(--font-scale));
 	color: var(--text-tertiary);
 }
 
-:root[data-theme="gilded"] [data-testid="token-capsules"] .token-capsule:last-child {
-	border-right: 0;
-}
-
-/* 占用格（标签 + 进度条）/ 带主·子拆分的累计格：纵向排布，高度随内容（不锁 22px，
-   锁了会把「累计」标签和拆分行裁掉——实测过） */
+/* 占用格（标签 + 进度条）/ 带主·子拆分的累计格：纵向排布。
+   内边距 2px + min-height 24px：进度条已改成绝对定位（脱离文档流），高度靠 min-height 给。
+   22px 不够：进度条 3px 会压在 16px 文字行的底部上，差 1px 看着像贴在一起。 */
 :root[data-theme="gilded"] [data-testid="token-capsules"] .token-capsule--stack {
+	position: relative;
 	flex-direction: column;
 	align-items: stretch;
 	justify-content: center;
 	gap: 2px;
+	min-height: 24px;
 	padding: 2px 8px;
+}
+
+/* 进度条脱离文档流：它在流内占 3px + 2px 间隙，占用格就比其它格高，
+   整行文字被往上顶（用户截图：竖向没居中/没对齐）。改成绝对定位后
+   文字行与其它格同高同中心，金线贴在格子底边。 */
+:root[data-theme="gilded"] [data-testid="token-capsules"] .token-capsule--stack .token-progress {
+	position: absolute;
+	left: 8px;
+	right: 8px;
+	bottom: 0;
+	min-width: 0;
 }
 
 /* 数值：深灰 #444 方块白字（设计稿 .v；--data 只在设计稿里，本层硬写） */
@@ -1579,6 +1601,13 @@ input[type="range"]::-moz-range-thumb {
 /* 「/」分隔只在战术稿里有，鎏金两段数字直接相邻 */
 :root[data-theme="gilded"] [data-testid="token-capsules"] .token-turn-sep {
 	display: none;
+}
+
+/* 「↑ + 数值」包层：让它也跟着用 flex 居中。默认的 inline 行内盒会把 16px
+   数值方块按基线对齐，整个包层比 16px 高一点，方块就比其它格子偏下 0.5px。 */
+:root[data-theme="gilded"] [data-testid="token-capsules"] .token-turn-up {
+	display: inline-flex;
+	align-items: center;
 }
 
 /* 缓存：金底小胶囊，数值去掉灰块改金棕加粗（设计稿 .pill.ok b） */
