@@ -144,6 +144,12 @@ export function hasPreviewBridge(): boolean {
 	return typeof window !== "undefined" && Boolean(window.waPiPreviewWin);
 }
 
+/** 当前环境有没有 Electron 文件预览独立窗口桥（与 html 预览桥平行的一座，通道前缀 filepreviewwin）。
+ *  有桥时文件预览进独立系统窗口（可拖出主窗口）；无桥时主窗口内 Modal 浮层照旧。 */
+export function hasFilePreviewBridge(): boolean {
+	return typeof window !== "undefined" && Boolean(window.waPiFilePreviewWin);
+}
+
 /**
  * 解析持久化的预览模式（读时降级）。
  *

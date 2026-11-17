@@ -23,7 +23,12 @@ test("parsePreviewWindowParams：解析 path 与 sid", () => {
 		parsePreviewWindowParams(
 			"?wa-preview-win=1&path=%2FUsers%2Fco%2Fproj%2Findex.html&sid=s-123",
 		),
-	).toEqual({ path: "/Users/co/proj/index.html", sessionId: "s-123", url: null });
+	).toEqual({
+		path: "/Users/co/proj/index.html",
+		sessionId: "s-123",
+		url: null,
+		kind: "html",
+	});
 });
 
 test("parsePreviewWindowParams：缺省字段回落 null（空窗口而非空串）", () => {
@@ -31,11 +36,13 @@ test("parsePreviewWindowParams：缺省字段回落 null（空窗口而非空串
 		path: null,
 		sessionId: null,
 		url: null,
+		kind: "html",
 	});
 	expect(parsePreviewWindowParams("?wa-preview-win=1&path=&sid=&url=")).toEqual({
 		path: null,
 		sessionId: null,
 		url: null,
+		kind: "html",
 	});
 });
 
@@ -57,11 +64,26 @@ test("parsePreviewWindowParams：解析外部网址 url（带 query/中文需正
 		path: null,
 		sessionId: "s-1",
 		url: "https://example.com/page?a=1",
+		kind: "html",
 	});
 });
 
 test("PREVIEW_WIN_PARAM 与主进程拼接的参数名保持一致（拼写护栏）", () => {
 	expect(PREVIEW_WIN_PARAM).toBe("wa-preview-win");
+});
+
+// ── 文件预览独立窗口（kind=file）：同一份 SPA 承载第二种窗口形态 ──
+test("parsePreviewWindowParams：kind=file 解析为 file kind", () => {
+	expect(
+		parsePreviewWindowParams("?wa-preview-win=1&kind=file&path=%2Fa%2Fb.md&sid=s1"),
+	).toEqual({ path: "/a/b.md", url: null, sessionId: "s1", kind: "file" });
+});
+
+test("parsePreviewWindowParams：缺省 kind 为 html（向后兼容旧窗口 URL）", () => {
+	expect(parsePreviewWindowParams("?wa-preview-win=1&path=%2Fa%2Fb.html").kind).toBe(
+		"html",
+	);
+	expect(parsePreviewWindowParams("?wa-preview-win=1&kind=html").kind).toBe("html");
 });
 
 // ── 与主进程（packages/desktop/src/main.cjs）的契约护栏 ──
