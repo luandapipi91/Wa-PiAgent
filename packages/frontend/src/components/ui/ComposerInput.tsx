@@ -726,10 +726,11 @@ export function ComposerInput({
 	// model 必须真实存在于当前 providers 中：prefs 里可能残留已删除 provider 的过期 model，
 	// 仅判"非 null"会让"未配置模型"状态下消息照样发出（后端才报错）。
 	const providers = useProvidersStore((s) => s.providers);
+	// 附件即可独立成消息：空文字 + 附件可发；纯空格且无附件仍拦截
 	const canSend =
 		!sendDisabled &&
 		!disabled &&
-		!!text.trim() &&
+		(!!text.trim() || attachments.length > 0) &&
 		isModelAvailable(model, providers);
 
 	// 选中项处理：生成 chip token 插入 text，替换末尾的触发符 + 查询文本

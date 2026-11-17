@@ -6,7 +6,14 @@
 // 目标行为：查不到会话 → 禁止发送（不发请求）+ toast 错误提示，宁可不发不可发错。
 import "./mock-composer-db";
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import {
+	render,
+	screen,
+	fireEvent,
+	act,
+	cleanup,
+	waitFor,
+} from "@testing-library/react";
 import { Composer } from "../src/components/Composer";
 import { VirtuosoMockContext } from "react-virtuoso";
 import { useProjectsStore } from "../src/store/projects";
@@ -111,6 +118,64 @@ beforeEach(() => {
 		toggleSkill: () => {},
 	});
 	useToastStore.setState({ toasts: [] });
+});
+
+// 附件即可独立成消息：空文字 + 附件草稿 → Enter 直接触发 /prompt，附件随请求体（kernel 拼 Attachments 段）
+test("空文字 + 附件草稿 → 可发送：prompt 请求带 attachments、text 为空", async () => {
+	// 会话必须在列表中：doSend 有「会话不在列表 → 拒发」守卫（见下方既有用例）
+	useProjectsStore.setState({
+		sessions: [
+			{
+				id: "s1",
+				projectId: "p1",
+				primaryAgent: "dev",
+				title: "t",
+				createdAt: 0,
+				lastActivity: 0,
+				piSessionFile: "",
+			},
+		],
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<Composer sessionId="s1" agentName="dev" />
+		</VirtuosoMockContext.Provider>,
+	);
+	await act(async () => {});
+	// 直接预置会话级附件草稿（已过 loadedBySession，不会被异步加载覆盖；绕过真实上传）
+	useComposerPrefsStore.setState((s) => ({
+		bySession: {
+			...s.bySession,
+			s1: {
+				...s.bySession.s1,
+				attachments: [
+					{
+						kind: "image",
+						name: "shot.png",
+						path: "/work/p1/.wa-pi/uploads/shot.png",
+						size: 123,
+					},
+				],
+			},
+		},
+	}));
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]') as HTMLElement;
+	await waitFor(() => {
+		expect(
+			(screen.getByTestId("composer-send") as HTMLButtonElement).disabled,
+		).toBe(false);
+	});
+	fireEvent.keyDown(textbox, { key: "Enter" });
+	await act(async () => {});
+
+	const req = apiCalls.find((c) => c.path.includes("/prompt"));
+	expect(req).toBeTruthy();
+	expect(req!.body.text).toBe("");
+	expect(req!.body.attachments).toEqual([
+		expect.objectContaining({ kind: "image", name: "shot.png" }),
+	]);
 });
 
 test("会话不在列表 → 禁止回落全局项目发送 + toast 错误提示", async () => {

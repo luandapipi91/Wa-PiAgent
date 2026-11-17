@@ -56,7 +56,15 @@ interface ComposerPrefsState {
 	newSessionIds: Record<string, string>;
 	loadDefaults: () => Promise<void>;
 	loadSession: (sessionId: string) => Promise<void>;
-	setSessionPrefs: (sessionId: string, prefs: Partial<SessionPrefs>) => void;
+	setSessionPrefs: (
+		sessionId: string,
+		prefs: Partial<SessionPrefs>,
+		opts?: { syncDefaults?: boolean },
+	) => void;
+	/** 程序化初始化会话模型（IM 接入会话进入时同步机器人模型用）：
+	 * 仅当该会话在持久层尚无显式模型记录时写入（不覆盖用户手动选择），
+	 * 且不回写全局 defaults（区别于用户手动 setSessionPrefs）。 */
+	initSessionModel: (sessionId: string, model: string | null) => Promise<void>;
 	removeSessionPrefs: (sessionId: string) => void;
 	setDefaults: (
 		prefs: Partial<{ model: string | null; thinking: ThinkingLevel }>,
@@ -67,7 +75,7 @@ interface ComposerPrefsState {
 	clearStaleModels: (providers: ModelProvider[]) => void;
 }
 
-export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
+export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 	defaults: { model: null, thinking: "disabled" },
 	bySession: {},
 	loadedBySession: {},
@@ -158,7 +166,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 		defaultsHydrated = true; // loadSession 内部也读了 defaults，同样标记 hydrate 完成
 	},
 
-	setSessionPrefs: (sessionId, prefs) => {
+	setSessionPrefs: (sessionId, prefs, opts) => {
 		set((s) => {
 			const current = s.bySession[sessionId] ?? {
 				model: s.defaults.model,
@@ -181,9 +189,12 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 			// 仅把用户本次显式修改的字段（prefs 参数）同步到全局 defaults，
 			// 而非用整个 session prefs 覆盖——否则切到老会话改 model 时，
 			// 会把老会话的 thinking（可能为 disabled）误写进 defaults，污染新会话默认值。
+			// 程序化写入（syncDefaults:false，如 IM 会话同步机器人模型）不回写全局。
 			const newDefaults = { ...s.defaults };
-			if (prefs.model !== undefined) newDefaults.model = prefs.model;
-			if (prefs.thinking !== undefined) newDefaults.thinking = prefs.thinking;
+			if (opts?.syncDefaults !== false) {
+				if (prefs.model !== undefined) newDefaults.model = prefs.model;
+				if (prefs.thinking !== undefined) newDefaults.thinking = prefs.thinking;
+			}
 			// hydration guard：未从持久层加载 defaults 前，s.defaults.thinking 还是初始 disabled，
 			// 此时写回会用 disabled 覆盖用户上次存的高强度档位（重启后思考强度被重置的根因）
 			if (defaultsHydrated) void setDefaults(newDefaults);
@@ -192,6 +203,14 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 				defaults: newDefaults,
 			};
 		});
+	},
+
+	initSessionModel: async (sessionId, model) => {
+		if (!model) return;
+		// 已有显式模型记录（用户改过/已同步过）不覆盖：保持「会话记住自己的模型」语义
+		const stored = await getSessionPrefs(sessionId);
+		if (stored?.model) return;
+		get().setSessionPrefs(sessionId, { model }, { syncDefaults: false });
 	},
 
 	removeSessionPrefs: (sessionId) => {

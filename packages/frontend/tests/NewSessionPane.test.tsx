@@ -382,6 +382,58 @@ describe("NewSessionPane", () => {
 		});
 	});
 
+	// 附件即可独立成消息：上传图片后不打字直接点发送（kernel 为附件拼 Attachments 段）
+	it("空文字 + 附件也可发送：上传图片后直接点发送", async () => {
+		composerDbDefaults.model = "gpt-4o";
+		composerDbDefaults.thinking = "disabled";
+		useProvidersStore.setState({
+			providers: [
+				{
+					id: "p1",
+					name: "openai",
+					api: "openai-completions",
+					baseUrl: "",
+					apiKey: "",
+					models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }],
+				},
+			],
+		});
+		render(<NewSessionPane />);
+
+		await waitFor(() => {
+			expect(
+				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+			).toBe("openai/gpt-4o");
+		});
+
+		const fileInput = screen
+			.getByTestId("composer-input")
+			.querySelector("input[type=file]")!;
+		const file = new File(["fake-png"], "shot.png", { type: "image/png" });
+		fireEvent.change(fileInput, { target: { files: [file] } });
+
+		await waitFor(() => {
+			expect(screen.getByTestId("attachment-list")).toBeTruthy();
+		});
+
+		// 不输入任何文字，直接点发送
+		await waitFor(() => {
+			expect(
+				(screen.getByTestId("composer-send") as HTMLButtonElement).disabled,
+			).toBe(false);
+		});
+		fireEvent.click(screen.getByTestId("composer-send"));
+
+		await waitFor(() => {
+			expect(lastPrompt()).toMatchObject({
+				text: "",
+				attachments: [
+					expect.objectContaining({ kind: "image", name: "shot.png" }),
+				],
+			});
+		});
+	});
+
 	it("@提及智能体：primaryAgent 仍为 dropdown 默认 agent，@[xxx] 原样发（新会话也走委托）", async () => {
 		composerDbDefaults.model = "gpt-4o";
 		composerDbDefaults.thinking = "disabled";

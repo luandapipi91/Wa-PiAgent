@@ -212,8 +212,10 @@ export function Composer({
     if (disabled) return;
     // @[xxx] 不剥离，原样保留给主智能体识别（由 WA_PI_DEFAULT_SYSTEM_PROMPT 中的规则触发 delegate）
     const expandedText = expandTokens(text);
+    // 附件即可独立成消息：空文字 + 附件可发（kernel 拼 Attachments 段）；纯空格且无附件仍拦
+    const hasContent = !!expandedText.trim() || attachments.length > 0;
     if (
-      !expandedText.trim() ||
+      !hasContent ||
       !isModelAvailable(model, providers) ||
       sendingRef.current ||
       !projectId
@@ -225,8 +227,9 @@ export function Composer({
   const handleSendSteer = () => {
     if (disabled) return;
     const expandedText = expandTokens(text);
+    const hasContent = !!expandedText.trim() || attachments.length > 0;
     if (
-      !expandedText.trim() ||
+      !hasContent ||
       !isModelAvailable(model, providers) ||
       sendingRef.current ||
       !projectId

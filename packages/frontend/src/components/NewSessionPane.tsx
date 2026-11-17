@@ -282,9 +282,10 @@ export function NewSessionPane({
 
 	const handleSend = () => {
 		// model 必须是当前 providers 中真实存在的模型（prefs 可能残留已删除 provider 的过期 model）
+		// 附件即可独立成消息：空文字 + 附件可发（kernel 拼 Attachments 段）；纯空格且无附件仍拦
 		if (
 			!projectId ||
-			!text.trim() ||
+			(!text.trim() && attachments.length === 0) ||
 			!isModelAvailable(model, providers) ||
 			!agentName ||
 			sendingRef.current
