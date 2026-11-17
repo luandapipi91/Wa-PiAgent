@@ -236,13 +236,21 @@ test("战术：数值白字 600 无色块，引线标注 16×1px，状态 tag �
 	expect(
 		await style(page, '[data-testid="token-value-input"]', "background-color"),
 	).toBe("rgba(0, 0, 0, 0)");
-	// 数据条：直角 + 1px 细框
+	// 数据条：无框（用户反馈「框套框」显脏，改靠 16px 间距分组）
 	expect(await style(page, '[data-testid="token-bar"]', "border-radius")).toBe(
 		"0px",
 	);
 	expect(await style(page, '[data-testid="token-bar"]', "border-top-width")).toBe(
-		"1px",
+		"0px",
 	);
+	// 缓存格也不再单独描边——整条数据区唯一带色的格子靠青绿文字强调
+	expect(
+		await style(
+			page,
+			'[data-testid="token-capsules"] > .token-capsule--cache',
+			"border-top-width",
+		),
+	).toBe("0px");
 	// 空闲态：虚线框（设计稿 .tag.idle）
 	expect(
 		await style(page, '[data-testid="session-status-tag"]', "border-top-style"),
@@ -305,6 +313,12 @@ test("战术：默认窗口宽下隐藏水印，用户气泡无描边", async ({
 		return header ? getComputedStyle(header, "::before").display : "no-header";
 	});
 	expect(watermarkDisplay).toBe("none");
+
+	// 消息列表是异步拉的，直接 evaluate 会撞上「还没渲染」——先等气泡出现
+	await page
+		.locator('[data-testid^="msg-"] .flex-col.items-end > div:not(.font-semibold)')
+		.first()
+		.waitFor({ state: "visible", timeout: 10_000 });
 
 	const bubbleBorders = await page.evaluate(() => {
 		const el = document.querySelector(

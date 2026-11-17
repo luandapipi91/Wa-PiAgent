@@ -1448,9 +1448,9 @@ input[type="range"]::-moz-range-thumb {
 	justify-content: center;
 	gap: 5px;
 	min-height: 22px;
-	padding: 0 8px;
+	padding: 0;
 	border-radius: 0;
-	border-right: 1px solid var(--hairline);
+	border: 0;
 	background: none;
 	font-size: calc(10.5px * var(--font-scale));
 	color: var(--text-tertiary);
@@ -2107,12 +2107,15 @@ input[type="range"]::-moz-range-thumb {
 	background: var(--hairline-strong);
 }
 
-/* 数据条：直角细框 + 格间 1px 分隔（设计稿 .pill.grp） */
+/* 数据条：无框、靠间距分组。
+   设计稿 .pill.grp 是「外框 + 格间竖线」，但产品会话头把四组数字挤在一行，
+   框套框会读成表格/输入框（实测截图反馈，用户明确「不想要边框」）。
+   去框后靠 16px 横向间距 + 等宽数字 + 青绿上涨箭头维持可读性。 */
 :root[data-theme="tactical"] [data-testid="token-capsules"] > .token-bar {
 	display: inline-flex;
 	align-items: stretch;
-	gap: 0;
-	border: 1px solid var(--hairline);
+	gap: 16px;
+	border: 0;
 }
 
 :root[data-theme="tactical"] [data-testid="token-capsules"] .token-capsule {
@@ -2127,10 +2130,6 @@ input[type="range"]::-moz-range-thumb {
 	background: none;
 	font-size: calc(10.5px * var(--font-scale));
 	color: var(--text-secondary);
-}
-
-:root[data-theme="tactical"] [data-testid="token-capsules"] .token-capsule:last-child {
-	border-right: 0;
 }
 
 /* 占用格（标签 + 进度条）/ 带主·子拆分的累计格：纵向排布，高度随内容
@@ -2156,14 +2155,15 @@ input[type="range"]::-moz-range-thumb {
 	color: var(--accent);
 }
 
-/* 缓存：青绿细框独立一格（设计稿 .pill.ok），数值同样是白字 */
+/* 缓存：设计稿是青绿细框独立一格（.pill.ok），但整条数据区已去框，
+   单留这一格描边会突兀——改为青绿文字承担强调（唯一带色的格子） */
 :root[data-theme="tactical"] [data-testid="token-capsules"] > .token-capsule--cache {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
 	height: 22px;
-	padding: 0 8px;
-	border: 1px solid rgba(15, 247, 150, 0.38);
+	padding: 0;
+	border: 0;
 	border-radius: 0;
 	background: none;
 	font-size: calc(10.5px * var(--font-scale));
@@ -2172,7 +2172,6 @@ input[type="range"]::-moz-range-thumb {
 
 /* 命中率过低（<90%）的警示态：不被上面的青绿框盖掉 */
 :root[data-theme="tactical"] [data-testid="token-capsules"] > .token-capsule--cache-danger {
-	border-color: var(--danger);
 	background: var(--danger-soft);
 	color: var(--danger);
 }
