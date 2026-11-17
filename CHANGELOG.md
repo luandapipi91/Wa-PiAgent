@@ -1,4 +1,5 @@
 ## 2026-11-17
+- chore(desktop): dev 启动器改为 scripts/dev.ts——剥离继承的 WA_PI_*（此前 WA_PI_WEB_DIR 指向已安装应用的旧前端，dev 改了源码却看到旧界面）、端口默认 9788 避正式版、数据目录与 userData 隔离（绕开单实例锁）；缺 dist/electron 时给明确提示；补 4 例契约测试
 - feat(theme): 标题栏副标显示「当前项目名」——选中会话时取会话所属项目、新会话页切项目下拉时同步 currentProjectId（新增同步），无项目时显示「你的小助手」（不再显示主题名）；副标超长省略不顶宽；补 12 例组件测试 + 更新 3 例 E2E 断言
 - feat(theme): Windows 也自绘标题栏——titleBarStyle:hidden + titleBarOverlay（最小化/最大化/关闭由系统画在右侧，双击最大化与系统菜单白送），配色经 window:set-titlebar-overlay 随主题同步（Electron 只认 #RRGGBB，前端统一归一）；标题改绝对居中（左右系统占位不再把标题推偏）；Linux 保留原生框；补 8 例组件测试（含颜色归一）+ 1 例 E2E（win32 居中偏差 ≤2px）
 - feat(theme): macOS 自绘标题栏——主进程 titleBarStyle:hiddenInset + trafficLightPosition（仅 darwin，Win/Linux 保留原生框），preload 暴露 platform，新增 TitleBar 组件（标题居中，照设计稿：鎏金衬线金字单行 / 战术终端报头双行 + 青绿短条），8 套主题各自的 --titlebar-* 配色，补 5 例组件测试 + 2 例契约测试
