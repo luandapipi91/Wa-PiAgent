@@ -333,8 +333,8 @@ test.describe("自绘标题栏", () => {
 		expect(
 			await bar.evaluate((el) => getComputedStyle(el).backgroundColor),
 		).toBe("rgb(10, 10, 10)");
-		// 副标是主题身份标记，装饰性英文不随界面语言变
-		await expect(page.getByTestId("titlebar-theme")).toHaveText("GILDED");
+		// 副标只表示「在哪」：没有选中项目时是固定文案，与主题无关
+		await expect(page.getByTestId("titlebar-theme")).toHaveText("你的小助手");
 		// 鎏金是单行（baseline 横排），青绿短条不出现
 		expect(
 			await bar
@@ -362,7 +362,7 @@ test.describe("自绘标题栏", () => {
 		expect(
 			await bar.evaluate((el) => getComputedStyle(el).backgroundColor),
 		).toBe("rgb(0, 0, 0)");
-		await expect(page.getByTestId("titlebar-theme")).toContainText("TACTICAL");
+		await expect(page.getByTestId("titlebar-theme")).toHaveText("你的小助手");
 		// 战术是报头形态：masthead 纵排、青绿短条出现
 		expect(
 			await bar
@@ -389,7 +389,7 @@ test.describe("自绘标题栏", () => {
 
 		const bar = page.getByTestId("titlebar");
 		await expect(bar).toBeVisible();
-		await expect(page.getByTestId("titlebar-theme")).toHaveText("NEWSPAPER");
+		await expect(page.getByTestId("titlebar-theme")).toHaveText("你的小助手");
 		// masthead 是绝对定位居中：中心点应与窗口水平中心重合（偏差 ≤2px）
 		const offset = await page.evaluate(() => {
 			const masthead = document.querySelector(".titlebar-masthead");

@@ -32,18 +32,8 @@ export function shouldRenderTitleBar(): boolean {
 /** 标题栏高度：macOS 红绿灯 y=14、Windows overlay height 都与 40px 对齐 */
 export const TITLEBAR_HEIGHT = 40;
 
-/** 副标是装饰性的主题身份标记（设计稿里就是英文大写），不随界面语言变化，
- *  所以不进 i18n——避免为装饰文本维护两份 locale。 */
-const THEME_MARK: Record<string, string> = {
-	system: "SYSTEM",
-	light: "LIGHT",
-	dark: "DARK",
-	newspaper: "NEWSPAPER",
-	pixel: "PIXEL",
-	cyber: "CYBER",
-	gilded: "GILDED",
-	tactical: "战术终端 / TACTICAL",
-};
+/** 没有选中项目时的副标文案（不再是主题名——用户要的是「我在哪」而不是「什么主题」） */
+const NO_PROJECT_LABEL = "你的小助手";
 
 /** Electron 的 overlay 只认 #RRGGBB：把主题变量里的 hex/rgb(a) 统一成 hex。
  *  取不到（变量缺失、颜色函数等）就回退到给定默认值。 */
@@ -77,7 +67,7 @@ function readTitlebarColors(): { color: string; symbolColor: string } {
 export function TitleBar() {
 	const themeMode = useUiPrefsStore((s) => s.themeMode);
 	// 副标只显示「当前项目名」：项目由选中会话或新会话页下拉决定，两者都落到
-	// currentProjectId，所以这里读它一处即可；没有项目时才回落到主题标记。
+	// currentProjectId，所以这里读它一处即可；没有项目时显示固定文案。
 	const projectName = useProjectsStore((s) => {
 		if (!s.currentProjectId) return "";
 		return s.projects.find((p) => p.id === s.currentProjectId)?.name?.trim() ?? "";
@@ -110,7 +100,7 @@ export function TitleBar() {
 				<span className="titlebar-wordmark">WA PI AGENT</span>
 				<span className="titlebar-dateline" data-testid="titlebar-theme">
 					<i className="titlebar-bar" aria-hidden="true" />
-					{projectName || THEME_MARK[themeMode] || ""}
+					{projectName || NO_PROJECT_LABEL}
 				</span>
 			</div>
 		</header>

@@ -43,7 +43,7 @@ test("macOS 渲染标题栏，居中显示应用名与主题标识", () => {
 	useUiPrefsStore.setState({ themeMode: "gilded" });
 	render(<TitleBar />);
 	expect(screen.getByTestId("titlebar").textContent).toContain("WA PI AGENT");
-	expect(screen.getByTestId("titlebar-theme").textContent).toBe("GILDED");
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("你的小助手");
 });
 
 test("Windows 也渲染标题栏（窗口按钮由系统画在右侧）", () => {
@@ -54,7 +54,8 @@ test("Windows 也渲染标题栏（窗口按钮由系统画在右侧）", () => 
 	useUiPrefsStore.setState({ themeMode: "tactical" });
 	render(<TitleBar />);
 	expect(screen.getByTestId("titlebar")).toBeTruthy();
-	expect(screen.getByTestId("titlebar-theme").textContent).toContain("TACTICAL");
+	// 副标与主题无关，只表示「在哪」：没有项目就是固定文案
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("你的小助手");
 });
 
 test("Windows 下把主题标题栏配色同步给系统按钮区", async () => {
@@ -82,25 +83,6 @@ test("macOS 不调用 overlay 同步（没有系统按钮区需要染色）", as
 	render(<TitleBar />);
 	await new Promise((r) => setTimeout(r, 60));
 	expect(setTitleBarOverlay).not.toHaveBeenCalled();
-});
-
-test("八套主题都有对应的主题标识，不留空白副标", () => {
-	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
-	for (const mode of [
-		"system",
-		"light",
-		"dark",
-		"newspaper",
-		"pixel",
-		"cyber",
-		"gilded",
-		"tactical",
-	] as const) {
-		useUiPrefsStore.setState({ themeMode: mode });
-		const { unmount } = render(<TitleBar />);
-		expect(screen.getByTestId("titlebar-theme").textContent?.trim()).not.toBe("");
-		unmount();
-	}
 });
 
 test("颜色归一：hex 小写、3 位展开、rgb 转 hex、非法值回退", () => {
@@ -153,12 +135,12 @@ test("切换选中的会话，副标跟着换到该会话所属项目", () => {
 	expect(screen.getByTestId("titlebar-theme").textContent).toBe("Wa-Pi");
 });
 
-test("没有选中会话时副标回落到主题标记", () => {
+test("没有项目时副标显示「你的小助手」", () => {
 	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
 	useUiPrefsStore.setState({ themeMode: "newspaper" });
 	useProjectsStore.setState({ sessions: [] as never, projects: [] as never, currentSessionId: null });
 	render(<TitleBar />);
-	expect(screen.getByTestId("titlebar-theme").textContent).toBe("NEWSPAPER");
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("你的小助手");
 });
 
 test("只有项目、没选会话时只显示项目名", () => {
@@ -174,7 +156,7 @@ test("只有项目、没选会话时只显示项目名", () => {
 	expect(screen.getByTestId("titlebar-theme").textContent).toBe("batocera-roms");
 });
 
-test("当前项目的记录丢失时回落到主题标记", () => {
+test("当前项目的记录丢失时回落到「你的小助手」", () => {
 	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
 	useUiPrefsStore.setState({ themeMode: "gilded" });
 	useProjectsStore.setState({
@@ -184,5 +166,5 @@ test("当前项目的记录丢失时回落到主题标记", () => {
 		currentSessionId: "s-1",
 	});
 	render(<TitleBar />);
-	expect(screen.getByTestId("titlebar-theme").textContent).toBe("GILDED");
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("你的小助手");
 });
