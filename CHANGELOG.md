@@ -1,4 +1,5 @@
 ## 2026-11-17
+- chore(release): v0.10.7 发版——鎏金/战术终端两套新主题 + macOS/Windows 自绘标题栏 + 标题栏显示项目名；mac zip 208794834 / win exe 188449974（双端，linux 不发与历届一致）
 - revert(desktop): 撤回 dev 启动器包装（scripts/dev.ts）——启动链保持统一入口，不在 `electron .` 外套 dev 专用层；dev 环境变量污染（WA_PI_WEB_DIR 指向已安装应用旧前端）改为启动时手动剥离
 - feat(theme): 标题栏副标显示「当前项目名」——选中会话时取会话所属项目、新会话页切项目下拉时同步 currentProjectId（新增同步），无项目时显示「你的小助手」（不再显示主题名）；副标超长省略不顶宽；补 12 例组件测试 + 更新 3 例 E2E 断言
 - feat(theme): Windows 也自绘标题栏——titleBarStyle:hidden + titleBarOverlay（最小化/最大化/关闭由系统画在右侧，双击最大化与系统菜单白送），配色经 window:set-titlebar-overlay 随主题同步（Electron 只认 #RRGGBB，前端统一归一）；标题改绝对居中（左右系统占位不再把标题推偏）；Linux 保留原生框；补 8 例组件测试（含颜色归一）+ 1 例 E2E（win32 居中偏差 ≤2px）
