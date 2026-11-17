@@ -8,15 +8,19 @@ export function OutputsEntry({
 	count,
 	open,
 	onToggle,
+	anchorRef,
 }: {
 	count: number;
 	open: boolean;
 	onToggle: () => void;
+	/** 锚点 ref：由调用方用 togglePreservingViewport 包裹 onToggle，展开/折叠时保持视口位置 */
+	anchorRef?: React.RefObject<HTMLButtonElement | null>;
 }) {
 	const { t } = useTranslation();
 	return (
 		<button
 			type="button"
+			ref={anchorRef}
 			data-testid="outputs-entry"
 			aria-expanded={open}
 			onClick={onToggle}

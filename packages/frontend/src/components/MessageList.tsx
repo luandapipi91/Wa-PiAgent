@@ -51,6 +51,7 @@ import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
 import { OutputsCard } from "./blocks/OutputsCard";
 import { OutputsEntry } from "./blocks/OutputsEntry";
+import { togglePreservingViewport } from "./blocks/toggleViewport";
 import { ToolCallsSegment } from "./blocks/ToolCallNested";
 import { AnsiText } from "./ui/AnsiText";
 import { mediaKindOf } from "./blocks/file-path";
@@ -1331,6 +1332,14 @@ export const MessageRow = memo(function MessageRow({
 	// 「过程输出」入口与「本轮过程」的展开态都是行内临时状态（同 TurnSummary），不持久化
 	const [outputsOpen, setOutputsOpen] = useState(false);
 	const [procOpen, setProcOpen] = useState(false);
+	// 过程输出是第三个可展开控件：与 TurnSummary/ProcessCard 一致，切换时用锚点保持视口位置
+	const outputsEntryRef = useRef<HTMLButtonElement | null>(null);
+	const toggleOutputs = () => {
+		const el = outputsEntryRef.current;
+		const apply = () => setOutputsOpen((v) => !v);
+		if (el) togglePreservingViewport(el, apply);
+		else apply();
+	};
 	// 技能名集合：用于过滤 /skill:xxx 纯文本渲染——只有已启用技能列表里真实存在的技能名
 	// 才渲染为 chip，避免任意 /skill:xxx 文本被误判。selector 返回稳定数组引用，再 useMemo 成 Set，
 	// 避免 selector 每次返回新 Set 触发无限重渲染。
@@ -1693,17 +1702,24 @@ export const MessageRow = memo(function MessageRow({
 						</>
 					) : canCollapse ? (
 						<>
-							<TurnSummary steps={processSteps} elapsedMs={m.turnElapsedMs}>
+							<TurnSummary
+								steps={processSteps}
+								elapsedMs={m.turnElapsedMs}
+								open={procOpen}
+								onToggle={() => setProcOpen((v) => !v)}
+							>
 								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
 							</TurnSummary>
-							{midTextSegs.length > 0 && !isError && (
+							{/* 本轮过程展开时正文已在时间线里，入口与卡片一律隐藏，避免同一段文本出两次 */}
+							{!procOpen && midTextSegs.length > 0 && !isError && (
 								<OutputsEntry
 									count={midTextSegs.length}
 									open={outputsOpen}
-									onToggle={() => setOutputsOpen((v) => !v)}
+									onToggle={toggleOutputs}
+									anchorRef={outputsEntryRef}
 								/>
 							)}
-							{outputsOpen && !isError && (
+							{!procOpen && outputsOpen && !isError && (
 								<OutputsCard>
 									{midTextSegs.map((seg, si) =>
 										renderSeg(seg, si, false, "plain"),
