@@ -8,7 +8,7 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
-		"dev": "bun run scripts/dev.ts",
+		"dev": "unset ELECTRON_RUN_AS_NODE && electron .",
 		"build:win": "bun run scripts/build.ts --target=win",
 		"build:linux": "bun run scripts/build.ts --target=linux",
 		"build:mac": "bun run scripts/build.ts --target=mac",
