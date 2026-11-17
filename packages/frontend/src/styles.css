@@ -555,6 +555,17 @@ input[type="range"]::-moz-range-thumb {
 	margin: 0;
 }
 
+/* ===== Prism 行容器类名防护 ===== */
+/* prism-react-renderer 的 getLineProps 给代码块每一行加了 class="token-line"，
+   与本文件下方「会话头部 token 胶囊」的 .token-line（display:inline-flex +
+   align-items:center，见 .token-capsule 区块）重名。胶囊那条规则会把代码行变成
+   居中的 flex 行：一行文本换行成两行时，行号被垂直居中到两行中间，序号与首行错位
+   （长文本行肉眼可见）。这里在代码卡片作用域内把它复位成普通块级行，行号回到首行对齐；
+   胶囊布局不受影响（作用域限定）。 */
+[data-testid="code-block-card"] .token-line {
+	display: block;
+}
+
 /* ===== Prism token 类名防护 ===== */
 /* Prism 的 markdown 语法会给表格 token 打 class="token table ..."，而 Tailwind JIT
    会把 tsx 里的原生 <table> 标签误收为候选类，生成 .table{display:table} 工具类。
