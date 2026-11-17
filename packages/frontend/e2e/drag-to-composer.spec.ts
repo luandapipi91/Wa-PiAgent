@@ -36,6 +36,15 @@ test.describe
 			await expect(page.getByTestId("new-session-pane")).toBeVisible({
 				timeout: 10_000,
 			});
+			// 外观主题引导弹窗（首启展示）会盖住整页拦截点击：存在则先关掉
+			const themeIntroClose = page.getByRole("button", { name: "关闭" });
+			await page
+				.waitForTimeout(400)
+				.then(async () => {
+					if (await themeIntroClose.first().isVisible().catch(() => false))
+						await themeIntroClose.first().click();
+				})
+				.catch(() => {});
 			await page.getByTestId("project-select").selectOption("e2e-proj-1");
 			const toggle = page.getByTestId("btn-new-session-explorer");
 			await expect(toggle).toBeVisible({ timeout: 10_000 });
@@ -83,6 +92,47 @@ test.describe
 				"data-token",
 				`#[${toAppPath(FILE_PATH)}]`,
 			);
+		});
+
+		test("拖文件到已有文字的输入框：插到光标处而非末尾", async ({ page }) => {
+			test.setTimeout(60_000);
+			await openExplorer(page);
+			const editor = page.locator(
+				'[data-testid="composer-input"] [role="textbox"]',
+			);
+			await expect(editor).toBeVisible({ timeout: 5000 });
+
+			// 先输入文字并把光标放到中间（"AAAA|BBBB"）：拖拽会让输入框失焦，
+			// 插入位置必须以失焦前的光标为准，而不是无条件追加末尾
+			await editor.fill("AAAABBBB");
+			await editor.evaluate((el) => {
+				(el as HTMLElement).focus();
+				const tn = el.firstChild!;
+				const r = document.createRange();
+				r.setStart(tn, 4);
+				r.collapse(true);
+				const s = window.getSelection()!;
+				s.removeAllRanges();
+				s.addRange(r);
+				document.dispatchEvent(new Event("selectionchange"));
+			});
+
+			await dragNodeToComposer(page, "AGENTS.md");
+
+			await expect(editor.locator(".chip-file").first()).toBeVisible({
+				timeout: 10_000,
+			});
+			// chip 落在光标处（token 自带尾随空格）：AAAA#AGENTS.md BBBBB
+			await expect(editor).toHaveText("AAAA#AGENTS.md BBBB");
+			// 位置断言：chip 起点距编辑器开头 4 个字符（"AAAA" 之后），而非整体追加到末尾
+			const chipStart = await editor.evaluate((el) => {
+				const chip = el.querySelector(".chip-file")!;
+				const r = document.createRange();
+				r.selectNodeContents(el);
+				r.setEndBefore(chip);
+				return r.toString().length;
+			});
+			expect(chipStart).toBe(4);
 		});
 
 		test("拖文件树文件夹到输入框：chip token 同样为绝对路径", async ({ page }) => {

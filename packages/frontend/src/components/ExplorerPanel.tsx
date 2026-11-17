@@ -578,14 +578,17 @@ export function ExplorerPanel({
 				);
 				if (hitEditor) {
 					// 文件 chip token #[绝对路径]（文件/文件夹一视同仁）：绝对路径不依赖会话 cwd
-					// 即可解析，经 insert-mention 事件由 ComposerInput 追加到受控 text 末尾
+					// 即可解析，经 insert-mention 事件由 ComposerInput 插到编辑器光标处
 					// （state 驱动 textToHtml 重渲染出 chip-file 胶囊），发送时
 					// expandTokens 展开为 #path:绝对路径。
-					// 刻意不传 editor：execCommand 只改 DOM，受控同步后 text===DOM 不触发重渲染，
-					// token 永远无法 chip 化（与 element-pick 同一模式）。
+					// 携带松手坐标：输入框没有缓存光标时，用落点（caretRangeFromPoint）定位插入位置。
 					window.dispatchEvent(
 						new CustomEvent("wa-pi:insert-mention", {
-							detail: { text: `#[${ref}] ` },
+							detail: {
+								text: `#[${ref}] `,
+								x: upEv.clientX,
+								y: upEv.clientY,
+							},
 						}),
 					);
 				}

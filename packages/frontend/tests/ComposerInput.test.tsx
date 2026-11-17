@@ -1610,3 +1610,132 @@ test("附件缩略图按 revision 刷新缓存版本号", async () => {
 	act(() => useImageRevisionStore.getState().bumpImageRevision(abs));
 	expect(thumbSrc()).toBe("/file?path=" + encodeURIComponent(abs) + "&v=1");
 });
+
+// === 文件树拖拽插入位置：光标处优先，落点次之，末尾兜底 ===
+
+import { resolveInsertRange } from "../src/components/ui/ComposerInput";
+
+function editorWithText(text: string): { editor: HTMLDivElement; textNode: Text } {
+	const editor = document.createElement("div");
+	editor.setAttribute("contenteditable", "true");
+	const textNode = document.createTextNode(text);
+	editor.appendChild(textNode);
+	document.body.appendChild(editor);
+	return { editor, textNode };
+}
+
+test("resolveInsertRange：缓存光标有效时优先返回缓存（拖拽后失焦仍按光标插入）", () => {
+	const { editor, textNode } = editorWithText("AAAABBBB");
+	const cached = document.createRange();
+	cached.setStart(textNode, 4);
+	cached.collapse(true);
+	let caretRangeCalled = false;
+	(editor.ownerDocument as any).caretRangeFromPoint = () => {
+		caretRangeCalled = true;
+		return null;
+	};
+	try {
+		const range = resolveInsertRange(editor, { x: 10, y: 10 }, cached);
+		expect(range).toBe(cached);
+		// 光标可用时不再看落点
+		expect(caretRangeCalled).toBe(false);
+	} finally {
+		delete (editor.ownerDocument as any).caretRangeFromPoint;
+		editor.remove();
+	}
+});
+
+test("resolveInsertRange：缓存节点已脱离文档时回落到拖拽落点", () => {
+	const { editor } = editorWithText("AAAABBBB");
+	const stale = document.createElement("div");
+	const staleText = document.createTextNode("old");
+	stale.appendChild(staleText);
+	const cached = document.createRange();
+	cached.setStart(staleText, 0);
+	cached.collapse(true);
+	// stale 未挂进文档：isConnected=false
+	const hit = document.createRange();
+	hit.selectNodeContents(editor);
+	hit.collapse(false);
+	(editor.ownerDocument as any).caretRangeFromPoint = () => hit;
+	try {
+		expect(resolveInsertRange(editor, { x: 10, y: 10 }, cached)).toBe(hit);
+	} finally {
+		delete (editor.ownerDocument as any).caretRangeFromPoint;
+		editor.remove();
+	}
+});
+
+test("resolveInsertRange：无缓存且落点在编辑器外 → null（调用方追加末尾）", () => {
+	const { editor } = editorWithText("AAAABBBB");
+	const outside = document.createElement("div");
+	const outsideText = document.createTextNode("outside");
+	document.body.appendChild(outside);
+	const hit = document.createRange();
+	hit.setStart(outsideText, 0);
+	hit.collapse(true);
+	(editor.ownerDocument as any).caretRangeFromPoint = () => hit;
+	try {
+		expect(resolveInsertRange(editor, { x: 1, y: 1 }, null)).toBeNull();
+		// 无坐标时也不猜
+		expect(resolveInsertRange(editor, {}, null)).toBeNull();
+	} finally {
+		delete (editor.ownerDocument as any).caretRangeFromPoint;
+		editor.remove();
+		outside.remove();
+	}
+});
+
+test("wa-pi:insert-mention 光标在中间时插到光标处，而非追加末尾", () => {
+	const setText = mock();
+	renderComposer({ setText, text: "AAAABBBB" });
+
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]')! as HTMLElement;
+
+	// 把光标放到 offset 4（"AAAA|BBBB"）
+	const tn = textbox.firstChild as Text;
+	const nullable = document.createRange();
+	nullable.setStart(tn, 4);
+	nullable.collapse(true);
+	const sel = window.getSelection()!;
+	sel.removeAllRanges();
+	sel.addRange(nullable);
+	document.dispatchEvent(new Event("selectionchange"));
+
+	// 记录 execCommand 被调用时光标所在偏移
+	let caretAt = -1;
+	const execSpy = mock(() => true);
+	const origExec = document.execCommand;
+	document.execCommand = ((cmd: string, _ui: boolean, html: string) => {
+		const s = window.getSelection()!;
+		if (s.focusNode) {
+			const probe = document.createRange();
+			probe.selectNodeContents(textbox);
+			probe.setEnd(s.focusNode, s.focusOffset);
+			caretAt = probe.toString().length;
+		}
+		execSpy(cmd, _ui, html);
+		return true;
+	}) as any;
+	try {
+		act(() => {
+			window.dispatchEvent(
+				new CustomEvent("wa-pi:insert-mention", {
+					detail: { text: "#[path:/proj/a.ts] " },
+				}),
+			);
+		});
+	} finally {
+		document.execCommand = origExec;
+	}
+
+	// 走 insertHTML（chip 直接落在光标处），不追加到末尾
+	expect(execSpy).toHaveBeenCalledTimes(1);
+	const inserted = (execSpy.mock.calls[0] as unknown[])[2] as string;
+	expect(inserted).toContain("chip-file");
+	expect(inserted).toContain('data-token="#[path:/proj/a.ts]"');
+	expect(caretAt).toBe(4);
+	expect(setText).not.toHaveBeenCalled();
+});

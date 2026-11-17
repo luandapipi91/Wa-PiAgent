@@ -1,4 +1,39 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
+
+/** 外部插入（文件树拖拽 / 元素拾取）携带的落点坐标 */
+export interface InsertPoint {
+	x?: number;
+	y?: number;
+}
+
+/**
+ * 解析外部插入在编辑器中的目标位置（优先级从高到低）：
+ * ① 失焦前缓存的编辑器内选区 —— 对齐「先把光标放好，再把文件拖进来」的心智；
+ * ② 拖拽落点（caretRangeFromPoint）—— 没有光标时按鼠标释放位置；
+ * ③ null —— 调用方回退到末尾追加。
+ * 缓存 range 的节点必须仍挂在文档中（输入框内容被重写/清空后 cloneRange 会失联）。
+ */
+export function resolveInsertRange(
+	editor: HTMLElement,
+	point: InsertPoint,
+	cached: Range | null,
+): Range | null {
+	if (
+		cached &&
+		cached.startContainer.isConnected &&
+		editor.contains(cached.startContainer)
+	) {
+		return cached;
+	}
+	if (typeof point.x === "number" && typeof point.y === "number") {
+		const doc = editor.ownerDocument as Document & {
+			caretRangeFromPoint?: (x: number, y: number) => Range | null;
+		};
+		const hit = doc.caretRangeFromPoint?.(point.x, point.y) ?? null;
+		if (hit && editor.contains(hit.startContainer)) return hit;
+	}
+	return null;
+}
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { isModelAvailable, SUBAGENT_TYPES } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
@@ -94,6 +129,9 @@ export function ComposerInput({
 }: Props) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLDivElement | null>(null);
+	// 编辑器内最后一次选区（失焦后仍可用）：拖拽时点文件树会让输入框失焦，
+	// 但用户的心智是「先把光标放在目标位置，再把文件拖进来」——插入位置以它为准。
+	const lastRangeRef = useRef<Range | null>(null);
 	const {
 		height: composerHeight,
 		setHeight: setComposerHeight,
@@ -399,15 +437,49 @@ export function ComposerInput({
 		setHighlightedIndex(menuItems.length > 0 ? 0 : -1);
 	}, [triggerType, trigger?.query, menuItems.length]);
 
-	// 监听文件树拖拽释放的 @提及事件：在编辑器光标处插入，失败则追加到末尾
+	// 持续缓存编辑器内的选区（含折叠光标）：selectionchange 在失焦时也会触发，
+	// 此时选区已跑到文件树等容器里，用 contains 判定跳过——缓存保留最后一次编辑器内位置。
+	useEffect(() => {
+		const onSelectionChange = () => {
+			const editor = textareaRef.current;
+			const sel = window.getSelection();
+			if (!editor || !sel || sel.rangeCount === 0) return;
+			const range = sel.getRangeAt(0);
+			if (!editor.contains(range.commonAncestorContainer)) return;
+			lastRangeRef.current = range.cloneRange();
+		};
+		document.addEventListener("selectionchange", onSelectionChange);
+		return () =>
+			document.removeEventListener("selectionchange", onSelectionChange);
+	}, []);
+
+	// 监听文件树拖拽释放的 @提及事件：插到编辑器光标处，无光标时按落点，最后兜底追加末尾
 	useEffect(() => {
 		const onInsert = (e: Event) => {
-			const detail = (e as CustomEvent).detail as { text: string } | undefined;
+			const detail = (e as CustomEvent).detail as
+				| { text: string; x?: number; y?: number }
+				| undefined;
 			if (!detail?.text) return;
-			// 统一走受控 text 追加：state 变化驱动 textToHtml 重渲染，token 自动 chip 化。
-			// （曾有带 editor 的 execCommand 光标处插入——execCommand 只改 DOM，受控同步后
-			//   text===DOM 不会触发重渲染，token 无法 chip 化；现无生产者，已移除。）
-			setText(text + detail.text);
+			const token = detail.text;
+			const editor = textareaRef.current;
+			const range = editor
+				? resolveInsertRange(editor, detail, lastRangeRef.current)
+				: null;
+			if (editor && range) {
+				editor.focus();
+				const sel = window.getSelection();
+				sel?.removeAllRanges();
+				sel?.addRange(range);
+				// 与粘贴同一条链路：insertHTML 由浏览器负责把光标停在插入内容之后、保留 undo 栈，
+				// 原生插入触发的 input 事件再经 extractText 同步 state（token 由 textToHtml 渲染成 chip）。
+				if (document.execCommand("insertHTML", false, textToHtml(token))) {
+					// 原光标位置已被新内容占据，下一次插入不应复用它
+					lastRangeRef.current = null;
+					return;
+				}
+			}
+			// 兜底：无缓存光标 / 落点不在编辑器内 / 浏览器不支持 execCommand → 末尾追加
+			setText(text + token);
 		};
 		window.addEventListener("wa-pi:insert-mention", onInsert as EventListener);
 		return () =>
