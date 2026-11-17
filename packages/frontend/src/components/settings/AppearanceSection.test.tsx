@@ -49,3 +49,12 @@ test("任务完成通知开关：渲染并切换写 ui-prefs", () => {
 	expect(useUiPrefsStore.getState().noticeTaskDone).toBe(false);
 	expect(toggle.getAttribute("data-on")).toBe("false");
 });
+
+test("回复显示下拉：默认精简输出，切换写 ui-prefs", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
+	render(<AppearanceSection />);
+	const select = screen.getByTestId("reply-display-select") as HTMLSelectElement;
+	expect(select.value).toBe("concise");
+	fireEvent.change(select, { target: { value: "full" } });
+	expect(useUiPrefsStore.getState().replyDisplayMode).toBe("full");
+});

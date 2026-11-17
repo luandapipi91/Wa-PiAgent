@@ -1134,6 +1134,12 @@ const zh = {
 				desc:
 					"开启后，agent 回复过程中工具调用和思维链默认不展开（折叠），仍然可手动展开查看。",
 			},
+			replyDisplay: {
+				label: "回复显示",
+				desc: "精简只显示本轮最后一条回复；完整把本轮所有正式输出合并成一张卡片。",
+				concise: "精简输出",
+				full: "完整输出",
+			},
 			taskDoneFrog: "任务完成动画",
 			taskDoneFrogDesc: "任务完成时，一只青蛙从聊天区角落蹦出。",
 			noticeTaskDone: "任务完成通知",

@@ -1167,6 +1167,13 @@ const en = {
 				desc:
 					"When enabled, tool calls and thinking are collapsed by default during replies (still expandable manually).",
 			},
+			replyDisplay: {
+				label: "Reply display",
+				desc:
+					"Concise shows only the last reply of a turn; Full merges all formal outputs of the turn into one card.",
+				concise: "Concise",
+				full: "Full",
+			},
 			taskDoneFrog: "Frog animation",
 			taskDoneFrogDesc:
 				"A frog hops out from a corner of the chat area when a task finishes.",

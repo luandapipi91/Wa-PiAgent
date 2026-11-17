@@ -7,6 +7,7 @@ import {
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
 import type { ThemeColor, ThemeMode } from "../../store/ui-prefs";
+import type { ReplyDisplayMode } from "../../store/ui-prefs";
 import type { AppLanguage } from "../../i18n/detect";
 import { useToastStore } from "../../store/toast";
 
@@ -39,6 +40,9 @@ const THEME_COLORS: ThemeColor[] = [
 	"orange",
 	"red",
 ];
+
+/** 回复显示模式选项：精简（只显示最后一条）/ 完整（本轮正式输出合并成一张卡片）。 */
+const REPLY_DISPLAY_MODES: ReplyDisplayMode[] = ["concise", "full"];
 
 /** 内联 switch 滑块（样式与通用设置内的 SoundSwitch 一致：38×22 轨道 + 18×18 白点）。 */
 function ToggleSwitch({
@@ -103,6 +107,8 @@ export function AppearanceSection() {
 	const setCollapseProcessByDefault = useUiPrefsStore(
 		(s) => s.setCollapseProcessByDefault,
 	);
+	const replyDisplayMode = useUiPrefsStore((s) => s.replyDisplayMode);
+	const setReplyDisplayMode = useUiPrefsStore((s) => s.setReplyDisplayMode);
 	const frogTaskDone = useUiPrefsStore((s) => s.frogTaskDone);
 	const noticeTaskDone = useUiPrefsStore((s) => s.noticeTaskDone);
 	const setNoticeTaskDone = useUiPrefsStore((s) => s.setNoticeTaskDone);
@@ -248,6 +254,35 @@ export function AppearanceSection() {
 					onToggle={() => setCollapseProcessByDefault(!collapseProcessByDefault)}
 					testId="collapse-process-toggle"
 				/>
+			</div>
+
+			{/* 回复显示：精简只显示本轮最后一条；完整把本轮正式输出合并成一张卡片（即时生效） */}
+			<div
+				data-testid="reply-display-row"
+				className="flex items-center justify-between gap-4"
+			>
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.appearance.replyDisplay.label")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.appearance.replyDisplay.desc")}
+					</span>
+				</div>
+				<select
+					data-testid="reply-display-select"
+					value={replyDisplayMode}
+					onChange={(e) =>
+						setReplyDisplayMode(e.target.value as ReplyDisplayMode)
+					}
+					className="shrink-0 px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-40"
+				>
+					{REPLY_DISPLAY_MODES.map((mode) => (
+						<option key={mode} value={mode}>
+							{t(`settings.appearance.replyDisplay.${mode}`)}
+						</option>
+					))}
+				</select>
 			</div>
 			{/* 任务完成动画（即时生效） */}
 			<div className="flex items-center justify-between gap-4">
