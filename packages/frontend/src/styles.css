@@ -173,6 +173,11 @@
 	letter-spacing: 0.16em;
 	text-transform: uppercase;
 	color: var(--titlebar-sub);
+	/* 副标现在是「项目 · 会话」，可能很长：超长省略而不是把标题栏顶宽 */
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 /* 青绿短条只在战术终端出现（设计稿 .masthead .dateline .bar） */
 .titlebar-bar {

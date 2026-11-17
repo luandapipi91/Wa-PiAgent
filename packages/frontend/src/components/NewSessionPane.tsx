@@ -434,7 +434,11 @@ export function NewSessionPane({
 						value={projectId ?? ""}
 						onChange={(e) => {
 							setProjectTouched(true);
-							setProjectId(e.target.value || null);
+							const next = e.target.value || null;
+							setProjectId(next);
+							// 同步「当前项目」：标题栏等「我在哪个项目」的展示只认 currentProjectId，
+							// 不同步的话下拉换了项目、标题栏还停在上一个
+							if (next) useProjectsStore.getState().selectProject(next);
 						}}
 						className="flex-1 min-w-0 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
 						data-testid="project-select"

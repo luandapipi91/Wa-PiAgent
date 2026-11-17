@@ -7,12 +7,19 @@ import {
 	shouldRenderTitleBar,
 	toHex,
 } from "./TitleBar";
+import { useProjectsStore } from "../../store/projects";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 
 const g = globalThis as unknown as { window: Window & { waPiApp?: unknown } };
 
 beforeEach(() => {
 	useUiPrefsStore.setState({ themeMode: "system" });
+	useProjectsStore.setState({
+		currentSessionId: null,
+		currentProjectId: null,
+		projects: [] as never,
+		sessions: [] as never,
+	});
 });
 afterEach(() => {
 	delete (g.window as { waPiApp?: unknown }).waPiApp;
@@ -103,4 +110,79 @@ test("颜色归一：hex 小写、3 位展开、rgb 转 hex、非法值回退", 
 	expect(toHex("rgba(255, 255, 255, 0.12)", "#000000")).toBe("#ffffff");
 	expect(toHex("oklch(0.5 0.1 200)", "#123456")).toBe("#123456");
 	expect(toHex("", "#abcdef")).toBe("#abcdef");
+});
+
+test("副标显示当前选中的项目名", () => {
+	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
+	useUiPrefsStore.setState({ themeMode: "newspaper" });
+	useProjectsStore.setState({
+		projects: [
+			{ id: "p-1", name: "默认工作区" },
+			{ id: "p-2", name: "Wa-Pi" },
+		] as never,
+		sessions: [
+			{ id: "s-1", projectId: "p-1", title: "会话一" },
+			{ id: "s-2", projectId: "p-2", title: "会话二" },
+		] as never,
+		currentProjectId: "p-2",
+		currentSessionId: "s-2",
+	});
+	render(<TitleBar />);
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("Wa-Pi");
+});
+
+test("切换选中的会话，副标跟着换到该会话所属项目", () => {
+	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
+	useUiPrefsStore.setState({ themeMode: "gilded" });
+	useProjectsStore.setState({
+		projects: [
+			{ id: "p-1", name: "默认工作区" },
+			{ id: "p-2", name: "Wa-Pi" },
+		] as never,
+		sessions: [
+			{ id: "s-1", projectId: "p-1", title: "会话一" },
+			{ id: "s-2", projectId: "p-2", title: "会话二" },
+		] as never,
+		currentProjectId: "p-1",
+		currentSessionId: "s-1",
+	});
+	const { rerender } = render(<TitleBar />);
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("默认工作区");
+	useProjectsStore.setState({ currentSessionId: "s-2", currentProjectId: "p-2" });
+	rerender(<TitleBar />);
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("Wa-Pi");
+});
+
+test("没有选中会话时副标回落到主题标记", () => {
+	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
+	useUiPrefsStore.setState({ themeMode: "newspaper" });
+	useProjectsStore.setState({ sessions: [] as never, projects: [] as never, currentSessionId: null });
+	render(<TitleBar />);
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("NEWSPAPER");
+});
+
+test("只有项目、没选会话时只显示项目名", () => {
+	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
+	useUiPrefsStore.setState({ themeMode: "newspaper" });
+	useProjectsStore.setState({
+		projects: [{ id: "p-2", name: "batocera-roms" }] as never,
+		sessions: [] as never,
+		currentProjectId: "p-2",
+		currentSessionId: null,
+	});
+	render(<TitleBar />);
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("batocera-roms");
+});
+
+test("当前项目的记录丢失时回落到主题标记", () => {
+	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
+	useUiPrefsStore.setState({ themeMode: "gilded" });
+	useProjectsStore.setState({
+		projects: [] as never,
+		sessions: [{ id: "s-1", projectId: "p-x", title: "孤儿会话" }] as never,
+		currentProjectId: "p-x",
+		currentSessionId: "s-1",
+	});
+	render(<TitleBar />);
+	expect(screen.getByTestId("titlebar-theme").textContent).toBe("GILDED");
 });

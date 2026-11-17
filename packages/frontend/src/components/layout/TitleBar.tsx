@@ -7,6 +7,7 @@
 // 因此组件本身只负责「底色 + 居中标题」；窗口按钮和红绿灯都不在这里画。
 // Linux 保留原生窗口框，不渲染。
 import { useEffect } from "react";
+import { useProjectsStore } from "../../store/projects";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 
 type DesktopBridge = {
@@ -75,6 +76,12 @@ function readTitlebarColors(): { color: string; symbolColor: string } {
 
 export function TitleBar() {
 	const themeMode = useUiPrefsStore((s) => s.themeMode);
+	// 副标只显示「当前项目名」：项目由选中会话或新会话页下拉决定，两者都落到
+	// currentProjectId，所以这里读它一处即可；没有项目时才回落到主题标记。
+	const projectName = useProjectsStore((s) => {
+		if (!s.currentProjectId) return "";
+		return s.projects.find((p) => p.id === s.currentProjectId)?.name?.trim() ?? "";
+	});
 	const platform = bridge()?.platform;
 	const isWindows = platform === "win32";
 
@@ -103,7 +110,7 @@ export function TitleBar() {
 				<span className="titlebar-wordmark">WA PI AGENT</span>
 				<span className="titlebar-dateline" data-testid="titlebar-theme">
 					<i className="titlebar-bar" aria-hidden="true" />
-					{THEME_MARK[themeMode] ?? ""}
+					{projectName || THEME_MARK[themeMode] || ""}
 				</span>
 			</div>
 		</header>
