@@ -134,7 +134,8 @@ test("preload 暴露 waPiPreviewWin 桥（开窗/指令/动作/缩放/事件）"
 		join(import.meta.dir, "..", "src", "preload.cjs"),
 		"utf8",
 	);
-	expect(preload).toContain('exposeInMainWorld("waPiPreviewWin"');
+	// 桥经参数化工厂暴露（与文件预览桥共用一份五方法代码），断言工厂接线与五方法成员
+	expect(preload).toContain('exposePreviewBridge("waPiPreviewWin", "previewwin")');
 	for (const member of ["open:", "cmd:", "act:", "setSize:", "onEvent:"]) {
 		expect(preload).toContain(member);
 	}

@@ -75,17 +75,25 @@ contextBridge.exposeInMainWorld("waPiModKey", {
 		return () => ipcRenderer.removeListener("wa-pi:modkey-tap", listener);
 	},
 });
-contextBridge.exposeInMainWorld("waPiPreviewWin", {
-	open: (payload) => ipcRenderer.invoke("previewwin:open", payload),
-	cmd: (payload) => ipcRenderer.send("previewwin:cmd", payload),
-	act: (payload) => ipcRenderer.send("previewwin:act", payload),
-	setSize: (size) => ipcRenderer.send("previewwin:set-size", size),
-	onEvent: (callback) => {
-		const listener = (_event, payload) => callback(payload);
-		ipcRenderer.on("previewwin:event", listener);
-		return () => ipcRenderer.removeListener("previewwin:event", listener);
-	},
-});
+/**
+ * 独立窗口 IPC 桥工厂：主窗口与各独立窗口（html 预览 / 文件预览）同构的五方法桥。
+ * 通道前缀按窗口类型区分（previewwin / filepreviewwin），主进程侧同名通道各自独立接线。
+ */
+const exposePreviewBridge = (name, prefix) => {
+	contextBridge.exposeInMainWorld(name, {
+		open: (payload) => ipcRenderer.invoke(`${prefix}:open`, payload),
+		cmd: (payload) => ipcRenderer.send(`${prefix}:cmd`, payload),
+		act: (payload) => ipcRenderer.send(`${prefix}:act`, payload),
+		setSize: (size) => ipcRenderer.send(`${prefix}:set-size`, size),
+		onEvent: (callback) => {
+			const listener = (_event, payload) => callback(payload);
+			ipcRenderer.on(`${prefix}:event`, listener);
+			return () => ipcRenderer.removeListener(`${prefix}:event`, listener);
+		},
+	});
+};
+exposePreviewBridge("waPiPreviewWin", "previewwin");
+exposePreviewBridge("waPiFilePreviewWin", "filepreviewwin");
 
 // 自动更新桥接：暴露给渲染进程（系统设置 → 关于 页签）
 // IPC 通道由 updater/updater.cjs 的 setupUpdater 注册。
