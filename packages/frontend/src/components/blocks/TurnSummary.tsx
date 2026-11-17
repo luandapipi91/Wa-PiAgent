@@ -54,19 +54,27 @@ export function TurnSummary({
 	steps,
 	elapsedMs,
 	children,
+	open: controlledOpen,
+	onToggle,
 }: {
 	steps: number;
 	elapsedMs?: number;
 	children: React.ReactNode;
+	/** 受控展开态（可选）：不传时退化为原有内部 state，行为与旧版完全一致 */
+	open?: boolean;
+	onToggle?: () => void;
 }) {
 	const { t } = useTranslation();
-	const [open, setOpen] = useState(false);
+	const [internalOpen, setInternalOpen] = useState(false);
+	const open = controlledOpen ?? internalOpen;
 	// 展开整轮过程（行高骤增/骤减）时保持视口位置，同 ProcessCard（详见 toggleViewport 注释）
 	const headerRef = useRef<HTMLButtonElement | null>(null);
 	const handleToggle = () => {
 		const el = headerRef.current;
-		if (el) togglePreservingViewport(el, () => setOpen((v) => !v));
-		else setOpen((v) => !v);
+		const apply = () =>
+			onToggle ? onToggle() : setInternalOpen((v) => !v);
+		if (el) togglePreservingViewport(el, apply);
+		else apply();
 	};
 	return (
 		<div className="flex flex-col gap-1">
