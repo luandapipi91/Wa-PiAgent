@@ -815,3 +815,52 @@ test("单行大文件预览：长行折分为多个显示行，不把整行塞�
 		),
 	).toEqual(["1", "1", "1", "1", "1", "1"]);
 });
+
+// ===== 独立窗口形态（hideToolbarClose）：标题栏为唯一关闭口，工具栏/状态不再重复渲染关闭 =====
+
+test("toolbarPortalId：分享/复制传送进标题栏槽位（同一行），内联工具栏整行不渲染", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("hello"),
+		mimeType: "text/plain",
+	});
+	render(
+		<>
+			<div id="fv-toolbar-slot" />
+			<FileViewer
+				path="/work/demo/index.ts"
+				onClose={() => {}}
+				toolbarPortalId="fv-toolbar-slot"
+			/>
+		</>,
+	);
+
+	await waitFor(() => {
+		const slot = document.getElementById("fv-toolbar-slot");
+		expect(slot?.querySelector('[data-testid="share-file-btn"]')).toBeTruthy();
+		expect(slot?.querySelector('[data-testid="fv-copy-content"]')).toBeTruthy();
+	});
+	// 内联工具栏整行不再渲染（data-modal-drag-handle 是 Modal 形态工具栏行专属）
+	expect(document.querySelector("[data-modal-drag-handle]")).toBeNull();
+	// 关闭口唯一（标题栏 ✕ 职责）：FileViewer 内任何关闭按钮都不渲染
+	expect(screen.queryByTitle("关闭")).toBeNull();
+});
+
+test("toolbarPortalId：错误态不渲染关闭按钮（标题栏负责关闭）", async () => {
+	fake.setResponse("fs:readFile", {
+		type: "fs:error",
+		path: "/work/demo/x.txt",
+	});
+	render(
+		<>
+			<div id="fv-toolbar-slot" />
+			<FileViewer
+				path="/work/demo/x.txt"
+				onClose={() => {}}
+				toolbarPortalId="fv-toolbar-slot"
+			/>
+		</>,
+	);
+
+	await waitFor(() => expect(screen.getByTestId("fv-error")).toBeTruthy());
+	expect(screen.queryByTitle("关闭")).toBeNull();
+});

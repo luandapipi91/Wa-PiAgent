@@ -4,7 +4,8 @@
 import { Highlight, themes } from "prism-react-renderer";
 // 注册内置缺失的主流语言（bash/java/csharp/ruby/toml），side-effect：加载即注入内置 Prism
 import "./prism-extra-langs";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import rehypeRaw from "rehype-raw";
 import type { Components } from "react-markdown";
 import { readFile, revealFile, openFileWithDefaultApp } from "../../fs-client";
@@ -233,17 +234,34 @@ type FileViewerProps = {
 	path: string;
 	onClose: () => void;
 	sessionId?: string;
+	/** 独立窗口形态：把工具栏按钮（分享/复制）React portal 进标题栏槽位（与文件名同一行），
+	 *  本组件不再渲染内联工具栏行与任何关闭按钮（标题栏 ✕ 是唯一关闭口，避免双 ✕/双行）；
+	 *  Modal 形态缺省不传，工具栏照旧内联渲染。 */
+	toolbarPortalId?: string;
 };
+
+/** 工具栏按钮传送门：独立窗口形态把分享/复制按钮渲染进窗口标题栏的槽位（与文件名同一行）。
+ *  槽位与 FileViewer 在同一渲染树，首帧 commit 前 getElementById 拿不到目标 → mount 后再挂。 */
+function ToolbarPortal({ id, children }: { id: string; children: ReactNode }) {
+	const [target, setTarget] = useState<HTMLElement | null>(null);
+	useEffect(() => {
+		setTarget(document.getElementById(id));
+	}, [id]);
+	if (!target) return null;
+	return createPortal(children, target);
+}
 
 /** 图片预览：滚轮缩放 + 拖拽平移 + 双击重置（视口复用 ZoomableImage，本组件只提供工具栏） */
 function ImageViewer({
 	src,
 	alt,
 	onClose,
+	hideToolbarClose,
 }: {
 	src: string;
 	alt: string;
 	onClose: () => void;
+	hideToolbarClose?: boolean;
 }) {
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
@@ -291,9 +309,11 @@ function ImageViewer({
 						>
 							<Icon name="clipboard" size={12} />
 						</button>
-						<button className="fv-btn" onClick={onClose} title={t("common.close")}>
-							<Icon name="x" size={12} />
-						</button>
+						{!hideToolbarClose && (
+							<button className="fv-btn" onClick={onClose} title={t("common.close")}>
+								<Icon name="x" size={12} />
+							</button>
+						)}
 					</div>
 				)}
 			/>
@@ -629,7 +649,9 @@ export function computeChunkWindow(opts: {
 	return { firstChunk, lastChunk, topSpacer, bottomSpacer, chunkHeight };
 }
 
-export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
+export function FileViewer({ path, onClose, sessionId, toolbarPortalId }: FileViewerProps) {
+	// 窗口形态（toolbarPortalId 存在）：工具栏按钮进标题栏槽位，任何内联关闭按钮都隐藏
+	const hideToolbarClose = Boolean(toolbarPortalId);
 	const [content, setContent] = useState<string | null>(null);
 	const [imageSrc, setImageSrc] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -860,9 +882,11 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 								linux: t("common.openInFileManager"),
 							})}
 						</button>
-						<button className="fv-empty-btn" onClick={onClose}>
-							{t("common.close")}
-						</button>
+						{!hideToolbarClose && (
+							<button className="fv-empty-btn" onClick={onClose}>
+								{t("common.close")}
+							</button>
+						)}
 					</div>
 				</div>
 				<PathBar path={displayPath} />
@@ -879,43 +903,64 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				<span className="text-[calc(13px*var(--font-scale))] text-danger">
 					{error}
 				</span>
-				<button className="fv-empty-btn" onClick={onClose}>
-					{t("common.close")}
-				</button>
+				{!hideToolbarClose && (
+					<button className="fv-empty-btn" onClick={onClose}>
+						{t("common.close")}
+					</button>
+				)}
 			</div>
 		);
 	}
 
 	if (image && imageSrc) {
-		return <ImageViewer src={imageSrc} alt={fileName} onClose={onClose} />;
+		return <ImageViewer src={imageSrc} alt={fileName} onClose={onClose} hideToolbarClose={hideToolbarClose} />;
 	}
 
 	if (isMarkdown && content !== null) {
+		// 工具栏按钮两种形态共用：窗口形态 portal 进标题栏槽位（同一行），Modal 形态内联渲染
+		const markdownToolbarButtons = (
+			<>
+				<ShareButton
+					paths={[resolvedPath ?? path]}
+					sessionId={sessionId}
+					className="fv-btn"
+					testId="share-file-btn"
+				/>
+				<button
+					className="fv-btn"
+					onClick={copyContent}
+					title={t("common.copy")}
+					aria-label={t("common.copy")}
+					data-testid="fv-copy-content"
+				>
+					<Icon name="clipboard" size={12} />
+				</button>
+			</>
+		);
 		return (
 			<div className="flex flex-col h-full" data-testid="file-viewer">
-				<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface" data-modal-drag-handle="">
-					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
-						<Icon name="file" size={12} /> {fileName}
-					</span>
-					<ShareButton
-						paths={[resolvedPath ?? path]}
-						sessionId={sessionId}
-						className="fv-btn"
-						testId="share-file-btn"
-					/>
-					<button
-						className="fv-btn"
-						onClick={copyContent}
-						title={t("common.copy")}
-						aria-label={t("common.copy")}
-						data-testid="fv-copy-content"
+				{toolbarPortalId ? (
+					<ToolbarPortal id={toolbarPortalId}>{markdownToolbarButtons}</ToolbarPortal>
+				) : (
+					<div
+						className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface"
+						data-modal-drag-handle=""
 					>
-						<Icon name="clipboard" size={12} />
-					</button>
-					<button className="fv-btn" onClick={onClose} title={t("common.close")}>
-						<Icon name="x" size={12} />
-					</button>
-				</div>
+						<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
+							<Icon name="file" size={12} /> {fileName}
+						</span>
+						{markdownToolbarButtons}
+						{!hideToolbarClose && (
+							<button
+								className="fv-btn"
+								onClick={onClose}
+								title={t("common.close")}
+							>
+								<Icon name="x" size={12} />
+							</button>
+						)}
+					</div>
+				)}
 				{/* markdown 预览：左右内间距 20px（px-5），上下 10px（py-2.5）。
 				    块级虚拟滚动：只渲染可视块，块高度实测后缓存用于精确占位。 */}
 				<div
@@ -941,31 +986,47 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 		);
 	}
 
+	// 文本分支工具栏按钮：窗口形态 portal 进标题栏槽位，Modal 形态内联（与 markdown 分支同构）
+	const textToolbarButtons = (
+		<>
+			<ShareButton
+				paths={[resolvedPath ?? path]}
+				sessionId={sessionId}
+				className="fv-btn"
+				testId="share-file-btn"
+			/>
+			<button
+				className="fv-btn"
+				onClick={copyContent}
+				title={t("common.copy")}
+				aria-label={t("common.copy")}
+				data-testid="fv-copy-content"
+			>
+				<Icon name="clipboard" size={12} />
+			</button>
+		</>
+	);
+
 	return (
 		<div className="flex flex-col h-full" data-testid="file-viewer">
-			<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface" data-modal-drag-handle="">
-				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
-					<Icon name="file" size={12} /> {fileName}
-				</span>
-				<ShareButton
-					paths={[resolvedPath ?? path]}
-					sessionId={sessionId}
-					className="fv-btn"
-					testId="share-file-btn"
-				/>
-				<button
-					className="fv-btn"
-					onClick={copyContent}
-					title={t("common.copy")}
-					aria-label={t("common.copy")}
-					data-testid="fv-copy-content"
+			{toolbarPortalId ? (
+				<ToolbarPortal id={toolbarPortalId}>{textToolbarButtons}</ToolbarPortal>
+			) : (
+				<div
+					className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface"
+					data-modal-drag-handle=""
 				>
-					<Icon name="clipboard" size={12} />
-				</button>
-				<button className="fv-btn" onClick={onClose} title={t("common.close")}>
-					<Icon name="x" size={12} />
-				</button>
-			</div>
+					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
+						<Icon name="file" size={12} /> {fileName}
+					</span>
+					{textToolbarButtons}
+					{!hideToolbarClose && (
+						<button className="fv-btn" onClick={onClose} title={t("common.close")}>
+							<Icon name="x" size={12} />
+						</button>
+					)}
+				</div>
+			)}
 			<div
 				ref={bodyRef}
 				data-testid="fv-body"

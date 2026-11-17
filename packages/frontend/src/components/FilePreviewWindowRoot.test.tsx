@@ -8,7 +8,12 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 
 mock.module("./blocks/FileViewer", () => ({
 	FileViewer: (props: any) => (
-		<div data-testid="file-viewer-stub" data-path={props.path} data-session={props.sessionId}>
+		<div
+			data-testid="file-viewer-stub"
+			data-path={props.path}
+			data-session={props.sessionId}
+			data-toolbar-portal-id={props.toolbarPortalId ?? ""}
+		>
 			<button data-testid="stub-close" onClick={props.onClose} />
 		</div>
 	),
@@ -77,6 +82,11 @@ test("渲染：标题栏文件名 + FileViewer 以 initialPath 自举", () => {
 	expect(getByTestId("file-preview-window-root").textContent).toContain("a.md");
 	expect(getByTestId("file-viewer-stub").getAttribute("data-path")).toBe("/p/notes/a.md");
 	expect(getByTestId("file-viewer-stub").getAttribute("data-session")).toBe("s1");
+	// 窗口形态：FileViewer 的分享/复制按钮 portal 进标题栏槽位（同一行），标题栏 ✕ 唯一关闭
+	expect(getByTestId("file-viewer-stub").getAttribute("data-toolbar-portal-id")).toBe(
+		"fv-toolbar-slot",
+	);
+	expect(getByTestId("fv-toolbar-slot")).toBeTruthy();
 	// 缩放手柄（右下角）
 	expect(getByTestId("preview-window-resize")).toBeTruthy();
 });

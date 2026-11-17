@@ -95,18 +95,23 @@ export function FilePreviewWindowRoot(props: {
 			className="flex h-screen flex-col overflow-hidden bg-surface"
 			data-testid="file-preview-window-root"
 		>
-			{/* 顶部拖动条：整条 app-region: drag，按钮显式 no-drag（drag 区会吞掉点击） */}
+			{/* 顶部单行工具栏：文件名（拖动区）+ 分享/复制（FileViewer portal 进槽位，同一条线）+ 关闭 */}
 			<div
-				className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--hairline, #ddd)] pl-3 pr-1.5"
+				className="flex h-9 shrink-0 items-center border-b border-[var(--hairline, #ddd)] pl-3 pr-1.5"
 				data-preview-drag="1"
 			>
 				<span
-					className="truncate text-xs opacity-70"
+					className="flex-1 truncate text-xs opacity-70"
 					data-testid="file-preview-titlebar-name"
 					title={current.path}
 				>
 					{fileName}
 				</span>
+				<div
+					id="fv-toolbar-slot"
+					className="flex items-center gap-1"
+					data-testid="fv-toolbar-slot"
+				/>
 				<button
 					type="button"
 					className="cursor-pointer rounded px-2 py-0.5 text-sm opacity-70 hover:opacity-100"
@@ -122,6 +127,8 @@ export function FilePreviewWindowRoot(props: {
 					path={current.path}
 					sessionId={current.sessionId}
 					onClose={() => window.waPiFilePreviewWin?.act({ type: "close" })}
+					/* 分享/复制 portal 进标题栏槽位（与文件名同一行）；关闭由标题栏 ✕ 独家承担 */
+					toolbarPortalId="fv-toolbar-slot"
 				/>
 			</div>
 			<ResizeHandle setSize={(size) => window.waPiFilePreviewWin?.setSize(size)} />
