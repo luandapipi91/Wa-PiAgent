@@ -141,17 +141,11 @@ test("主题块 cyber 位于所有 data-accent 规则之后", () => {
 	expect(css.indexOf(':root[data-theme="cyber"]')).toBeGreaterThan(lastAccent);
 });
 
-test("赛博扫描线有动画，且 prefers-reduced-motion 下关闭", () => {
-	const tail = css.slice(css.indexOf(':root[data-theme="cyber"]'));
-	expect(tail).toContain("@keyframes wa-scan");
-	expect(tail).toMatch(
-		/prefers-reduced-motion: reduce\)\s*\{[^}]*animation:\s*none/
-	);
-});
-
-test("赛博扫描线装饰层不拦截鼠标事件", () => {
-	const overlay = ruleBody(':root[data-theme="cyber"] body::before');
-	expect(overlay).toContain("pointer-events: none");
+test("赛博主题不再有扫描线装饰层（波纹影响视觉，2026-11-17 移除）", () => {
+	// 负向锁：扫描线是固定覆盖全屏的动画伪元素，观感像波纹且干扰阅读；
+	// 用户明确要求去除后不得回潮。
+	expect(css).not.toContain("@keyframes wa-scan");
+	expect(css).not.toContain(':root[data-theme="cyber"] body::before');
 });
 
 test("五套风格化主题收敛 Tailwind 内置圆角刻度（2xl / 10px）到 --rounded-lg", () => {

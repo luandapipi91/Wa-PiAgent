@@ -981,7 +981,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ===== 主题：赛博科技（cyber）===== */
-/* 近黑底 + 霓虹青描边与发光；2px 切角圆角；等宽字体；扫描线缓慢流动。
+/* 近黑底 + 霓虹青描边与发光；2px 切角圆角；等宽字体。
    必须放在所有 [data-accent] 规则之后。 */
 :root[data-theme="cyber"] {
 	--titlebar-bg: #030507;
@@ -1039,37 +1039,8 @@ input[type="range"]::-moz-range-thumb {
 	--font-ui: "JetBrains Mono", "MiSans", ui-monospace, monospace;
 }
 
-/* 扫描线：3px 一条 1px 青线，9 秒一循环，缓慢流动不抢注意力 */
-@keyframes wa-scan {
-	from {
-		background-position: 0 0;
-	}
-	to {
-		background-position: 0 120px;
-	}
-}
-
-:root[data-theme="cyber"] body::before {
-	content: "";
-	position: fixed;
-	inset: 0;
-	z-index: 1;
-	pointer-events: none;
-	opacity: 0.5;
-	background-image: repeating-linear-gradient(
-		180deg,
-		rgba(0, 240, 255, 0.045) 0 1px,
-		transparent 1px 3px
-	);
-	animation: wa-scan 9s linear infinite;
-}
-
-/* 无障碍：系统要求减少动效时停掉扫描线 */
-@media (prefers-reduced-motion: reduce) {
-	:root[data-theme="cyber"] body::before {
-		animation: none;
-	}
-}
+/* 扫描线已移除（2026-11-17，用户反馈波纹观感影响阅读）：赛博主题不再有 body::before 装饰层。
+   契约测试 theme-tokens-contract 里加了负向锁，防止回潮。 */
 
 /* ===== 主题：鎏金（gilded）===== */
 /* 暖白纸感主体 + 香槟金强调；小圆角、轻投影；浅色归类（color-scheme: light），

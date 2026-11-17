@@ -102,10 +102,16 @@ test("选过蓝色强调色后切报纸主题，强调色仍为印章红", async
 	expect(accent).toBe("#a32f27");
 });
 
-test("赛博主题下装饰层不拦截点击：可正常打开系统设置", async ({ page }) => {
+test("赛博主题下无全屏扫描线装饰层，点击正常（波纹已移除）", async ({ page }) => {
 	await setUiPrefs(page, "zh", { themeMode: "cyber" });
 	await page.goto("/");
-	// 扫描线是 fixed 覆盖全屏的伪元素：能点到左栏按钮、能关掉启动弹窗，说明点击未被拦截
+	// 2026-11-17 用户反馈：扫描线流动像波纹、影响视觉，已整体移除。
+	// 负向断言：body::before 不再有内容（新报纸/像素主题的静态纹理不受影响）。
+	const overlayContent = await page.evaluate(
+		() => getComputedStyle(document.body, "::before").content,
+	);
+	expect(["none", "normal", ""].includes(overlayContent)).toBe(true);
+
 	const closeBtn = page.getByRole("button", { name: "关闭" });
 	if (await closeBtn.count()) await closeBtn.first().click();
 
