@@ -3,6 +3,7 @@ import type { AgentName } from "@wa-pi/shared";
 import i18n from "i18next";
 import { useTranslation } from "./i18n/useTranslation";
 import { Sidebar, type SidebarTab } from "./components/Sidebar";
+import { TitleBar, shouldRenderTitleBar } from "./components/layout/TitleBar";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { useSidebarStore } from "./store/sidebar";
 import { NewSessionPane } from "./components/NewSessionPane";
@@ -611,243 +612,248 @@ export function App() {
 		};
 	}, []);
 
+	const hasTitleBar = shouldRenderTitleBar();
+
 	return (
-		<div className="flex h-screen bg-canvas">
-			<Sidebar
-				onNewSession={() => setView("new-session")}
-				onMore={() => setGalleryOpen(true)}
-				onSelectSession={(id) => {
-					// 点会话 = 回到会话视图：切换到该会话的浏览器预览
-					// （按会话各自记住预览：记录当前会话的预览，恢复目标会话的预览）
-					useBrowserStore.getState().activateSession(id);
-					const st = useProjectsStore.getState();
-					if (st.sessions.some((x) => x.id === id)) {
-						st.selectSession(id);
-					} else {
-						// 兜底：会话不在本地列表（如 kernel 侧建的 IM 接入会话尚未同步）时先重拉再选中，
-						// 否则 SessionView 找不到 session 渲染空白
-						void st.load().then(() => useProjectsStore.getState().selectSession(id));
-					}
-					setView("session");
-				}}
-				onNewSessionInProject={(pid) => {
-					useProjectsStore.getState().selectProject(pid);
-					useProjectsStore.getState().setCurrentSessionId(null);
-					setView("new-session");
-				}}
-				onSelectProject={(pid) => {
-					useProjectsStore.getState().selectProject(pid);
-					useProjectsStore.getState().setCurrentSessionId(null);
-					setView("new-session");
-				}}
-				onNewProject={() => {
-					void useProjectsStore.getState().createProjectFromDir();
-				}}
-				currentView={view}
-				tab={sidebarTab}
-				onTabChange={setSidebarTab}
-			/>
-			<SidebarResizer
-				side="left"
-				getWidth={() => useSidebarStore.getState().width}
-				onResize={(w) => useSidebarStore.getState().setWidth(w)}
-				testId="sidebar-resizer"
-			/>
-			<main className="flex-1 flex flex-col overflow-hidden">
-				{connState === "reconnecting" && (
-					<div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-warning-soft text-warning border-b border-warning/20">
-						<span
-							className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-							style={{
-								border: "2px solid var(--warning)",
-								borderTopColor: "transparent",
-								animation: "spin 0.8s linear infinite",
-							}}
-						/>
-						{t("app.reconnecting")}
-					</div>
-				)}
-				{retryInfo && (
-					<div
-						className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-warning-soft text-warning border-b border-warning/20"
-						data-testid="retry-status-bar"
-					>
-						<span
-							className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-							style={{
-								border: "2px solid var(--warning)",
-								borderTopColor: "transparent",
-								animation: "spin 0.8s linear infinite",
-							}}
-						/>
-						{retryInfo.attempt <= 2
-							? t("app.retryWaiting")
-							: t("app.retrying", {
-									attempt: retryInfo.attempt,
-									max: retryInfo.maxAttempts,
-								})}
-					</div>
-				)}
-				{netDegraded && !retryInfo && (
-					<div
-						className="flex items-center justify-center px-4 py-1.5 text-xs bg-danger-soft text-danger border-b border-danger/20"
-						data-testid="net-status-bar"
-					>
-						{netMessage ?? t("app.netDegraded")}
-					</div>
-				)}
-				{extTitle && (
-					<div
-						className="flex items-center justify-center gap-2 px-4 py-1.5 text-[calc(12px*var(--font-scale))] bg-surface-elevated text-secondary border-b border-hairline"
-						data-testid="ext-title-bar"
-					>
-						<AnsiText text={extTitle} />
-					</div>
-				)}
-				<div ref={mainRowRef} className="flex-1 flex overflow-hidden">
-					{/* 聊天侧始终挂载：split 分屏按比例收窄；full 全屏时仅 display:none 视觉隐藏——
-							预览任何模式切换/关闭都不卸载聊天子树，文件树展开、草稿、滚动位置等内部状态不丢 */}
-					<div
-						className="flex-1 flex flex-col overflow-hidden"
-						style={chatPaneStyle(browserOpen, browserMode, splitRatio)}
-					>
-						{sidebarTab === "automation" ? (
-							<AutomationMain />
-						) : view === "empty" ? (
-							<EmptyState
-								onNewProject={() => {
-									void useProjectsStore.getState().createProjectFromDir();
+		<div className="flex h-screen bg-canvas flex-col">
+			{hasTitleBar && <TitleBar />}
+			<div className="flex flex-1 min-h-0" data-testid="app-body">
+				<Sidebar
+					onNewSession={() => setView("new-session")}
+					onMore={() => setGalleryOpen(true)}
+					onSelectSession={(id) => {
+						// 点会话 = 回到会话视图：切换到该会话的浏览器预览
+						// （按会话各自记住预览：记录当前会话的预览，恢复目标会话的预览）
+						useBrowserStore.getState().activateSession(id);
+						const st = useProjectsStore.getState();
+						if (st.sessions.some((x) => x.id === id)) {
+							st.selectSession(id);
+						} else {
+							// 兜底：会话不在本地列表（如 kernel 侧建的 IM 接入会话尚未同步）时先重拉再选中，
+							// 否则 SessionView 找不到 session 渲染空白
+							void st.load().then(() => useProjectsStore.getState().selectSession(id));
+						}
+						setView("session");
+					}}
+					onNewSessionInProject={(pid) => {
+						useProjectsStore.getState().selectProject(pid);
+						useProjectsStore.getState().setCurrentSessionId(null);
+						setView("new-session");
+					}}
+					onSelectProject={(pid) => {
+						useProjectsStore.getState().selectProject(pid);
+						useProjectsStore.getState().setCurrentSessionId(null);
+						setView("new-session");
+					}}
+					onNewProject={() => {
+						void useProjectsStore.getState().createProjectFromDir();
+					}}
+					currentView={view}
+					tab={sidebarTab}
+					onTabChange={setSidebarTab}
+				/>
+				<SidebarResizer
+					side="left"
+					getWidth={() => useSidebarStore.getState().width}
+					onResize={(w) => useSidebarStore.getState().setWidth(w)}
+					testId="sidebar-resizer"
+				/>
+				<main className="flex-1 flex flex-col overflow-hidden">
+					{connState === "reconnecting" && (
+						<div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-warning-soft text-warning border-b border-warning/20">
+							<span
+								className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+								style={{
+									border: "2px solid var(--warning)",
+									borderTopColor: "transparent",
+									animation: "spin 0.8s linear infinite",
 								}}
 							/>
-						) : null}
-						{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
-						{view === "new-session" && sidebarTab !== "automation" && (
-							<NewSessionPane
-								pendingAgent={pendingAgent}
-								onConsumePendingAgent={() => setPendingAgent(null)}
-							/>
-						)}
-						{view === "session" &&
-							sidebarTab !== "automation" &&
-							currentSessionId &&
-							(() => {
-								// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
-								// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
-								const imConv = conversations.find(
-									(c) => c.sessionId === currentSessionId,
-								);
-								const label = imConv
-									? imConv.chatType === "group"
-										? t("app.imSourceGroup", {
-												channel: imConv.channelName,
-												chatId: imConv.chatId.slice(0, 8),
-												from: imConv.fromUserId,
-											})
-										: t("app.imSourceSingle", { channel: imConv.channelName })
-									: undefined;
-								return (
-									<SessionView
-										sessionId={currentSessionId}
-										sourceLabel={label}
-										imConv={imConv}
-									/>
-								);
-							})()}
-					</div>
-					{browserOpen && browserMode === "split" && (
-						<>
-							<SidebarResizer
-								side="right"
-								minWidth={320}
-								maxRatio={0.8}
-								getWidth={() =>
-									useBrowserStore.getState().splitRatio *
-									(mainRowRef.current?.clientWidth ?? window.innerWidth)
-								}
-								onResize={(w) => {
-									// 分隔条给的是 px 宽，换算成主内容行内占比持久化
-									const total = mainRowRef.current?.clientWidth ?? window.innerWidth;
-									useBrowserStore.getState().setSplitRatio(w / total);
-								}}
-								testId="browser-split-resizer"
-							/>
-							<div
-								className="flex flex-col overflow-hidden"
-								style={{ width: `${splitRatio * 100}%`, flex: "none" }}
-							>
-								<BrowserPanel />
-							</div>
-						</>
-					)}
-					{browserOpen && browserMode === "full" && (
-						<div className="flex-1 flex flex-col overflow-hidden">
-							<BrowserPanel />
+							{t("app.reconnecting")}
 						</div>
 					)}
-				</div>
-			</main>
-			{galleryOpen && (
-				<AgentGalleryModal
-					onClose={() => setGalleryOpen(false)}
-					onChatWith={(name) => {
-						setGalleryOpen(false);
-						chatWith(name);
-					}}
-					onEdit={(name) => {
-						// 编辑弹窗叠加显示，列表保持打开（用户可在列表与编辑间对照）
-						setConfigAgent(name);
-					}}
-					onCreated={(name) => {
-						// 新建后打开编辑弹窗，列表保持打开
-						setConfigAgent(name);
-					}}
+					{retryInfo && (
+						<div
+							className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-warning-soft text-warning border-b border-warning/20"
+							data-testid="retry-status-bar"
+						>
+							<span
+								className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+								style={{
+									border: "2px solid var(--warning)",
+									borderTopColor: "transparent",
+									animation: "spin 0.8s linear infinite",
+								}}
+							/>
+							{retryInfo.attempt <= 2
+								? t("app.retryWaiting")
+								: t("app.retrying", {
+										attempt: retryInfo.attempt,
+										max: retryInfo.maxAttempts,
+									})}
+						</div>
+					)}
+					{netDegraded && !retryInfo && (
+						<div
+							className="flex items-center justify-center px-4 py-1.5 text-xs bg-danger-soft text-danger border-b border-danger/20"
+							data-testid="net-status-bar"
+						>
+							{netMessage ?? t("app.netDegraded")}
+						</div>
+					)}
+					{extTitle && (
+						<div
+							className="flex items-center justify-center gap-2 px-4 py-1.5 text-[calc(12px*var(--font-scale))] bg-surface-elevated text-secondary border-b border-hairline"
+							data-testid="ext-title-bar"
+						>
+							<AnsiText text={extTitle} />
+						</div>
+					)}
+					<div ref={mainRowRef} className="flex-1 flex overflow-hidden">
+						{/* 聊天侧始终挂载：split 分屏按比例收窄；full 全屏时仅 display:none 视觉隐藏——
+								预览任何模式切换/关闭都不卸载聊天子树，文件树展开、草稿、滚动位置等内部状态不丢 */}
+						<div
+							className="flex-1 flex flex-col overflow-hidden"
+							style={chatPaneStyle(browserOpen, browserMode, splitRatio)}
+						>
+							{sidebarTab === "automation" ? (
+								<AutomationMain />
+							) : view === "empty" ? (
+								<EmptyState
+									onNewProject={() => {
+										void useProjectsStore.getState().createProjectFromDir();
+									}}
+								/>
+							) : null}
+							{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
+							{view === "new-session" && sidebarTab !== "automation" && (
+								<NewSessionPane
+									pendingAgent={pendingAgent}
+									onConsumePendingAgent={() => setPendingAgent(null)}
+								/>
+							)}
+							{view === "session" &&
+								sidebarTab !== "automation" &&
+								currentSessionId &&
+								(() => {
+									// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
+									// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
+									const imConv = conversations.find(
+										(c) => c.sessionId === currentSessionId,
+									);
+									const label = imConv
+										? imConv.chatType === "group"
+											? t("app.imSourceGroup", {
+													channel: imConv.channelName,
+													chatId: imConv.chatId.slice(0, 8),
+													from: imConv.fromUserId,
+												})
+											: t("app.imSourceSingle", { channel: imConv.channelName })
+										: undefined;
+									return (
+										<SessionView
+											sessionId={currentSessionId}
+											sourceLabel={label}
+											imConv={imConv}
+										/>
+									);
+								})()}
+						</div>
+						{browserOpen && browserMode === "split" && (
+							<>
+								<SidebarResizer
+									side="right"
+									minWidth={320}
+									maxRatio={0.8}
+									getWidth={() =>
+										useBrowserStore.getState().splitRatio *
+										(mainRowRef.current?.clientWidth ?? window.innerWidth)
+									}
+									onResize={(w) => {
+										// 分隔条给的是 px 宽，换算成主内容行内占比持久化
+										const total = mainRowRef.current?.clientWidth ?? window.innerWidth;
+										useBrowserStore.getState().setSplitRatio(w / total);
+									}}
+									testId="browser-split-resizer"
+								/>
+								<div
+									className="flex flex-col overflow-hidden"
+									style={{ width: `${splitRatio * 100}%`, flex: "none" }}
+								>
+									<BrowserPanel />
+								</div>
+							</>
+						)}
+						{browserOpen && browserMode === "full" && (
+							<div className="flex-1 flex flex-col overflow-hidden">
+								<BrowserPanel />
+							</div>
+						)}
+					</div>
+				</main>
+				{galleryOpen && (
+					<AgentGalleryModal
+						onClose={() => setGalleryOpen(false)}
+						onChatWith={(name) => {
+							setGalleryOpen(false);
+							chatWith(name);
+						}}
+						onEdit={(name) => {
+							// 编辑弹窗叠加显示，列表保持打开（用户可在列表与编辑间对照）
+							setConfigAgent(name);
+						}}
+						onCreated={(name) => {
+							// 新建后打开编辑弹窗，列表保持打开
+							setConfigAgent(name);
+						}}
+					/>
+				)}
+				{configAgent && (
+					<AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />
+				)}
+				{agentMissingSessionId && (
+					<AgentMissingModal
+						sessionId={agentMissingSessionId}
+						onClose={() => setAgentMissingSessionId(null)}
+					/>
+				)}
+				{useProjectsStore((s) => s.dirPickerOpen) && (
+					<DirTreePicker
+						onPick={(cwd) => useProjectsStore.getState().createProjectFromPath(cwd)}
+						onCancel={() => useProjectsStore.getState().closeDirPicker()}
+					/>
+				)}
+				{useSettingsStore((s) => s.showSettings) && (
+					<SettingsModal onClose={() => useSettingsStore.getState().close()} />
+				)}
+				{themeIntroOpen && (
+					<ThemeIntroModal onClose={() => setThemeIntroOpen(false)} />
+				)}
+				{useOnboardingStore((s) => s.wizardOpen) && (
+					<OnboardingWizard
+						onClose={() => useOnboardingStore.getState().closeWizard()}
+					/>
+				)}
+				{paletteOpen && (
+					<CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+				)}
+				{/* 浮动模式：预览由独立窗口承载（能拖出主窗口），主窗口这里只剩最小化后的气泡入口 */}
+				{browserOpen && browserMode === "float" && <FloatPreview />}
+				<FilePreviewModal />
+				<MediaPreviewModal />
+				{/* 子代理转录弹窗（单例）：目标实例由委托卡写 store；常驻挂载，卡片卸载不连带关闭 */}
+				<SubagentTranscriptModal
+					open={useSessionStore((s) => s.transcript)}
+					onClose={() => useSessionStore.getState().closeTranscript()}
 				/>
-			)}
-			{configAgent && (
-				<AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />
-			)}
-			{agentMissingSessionId && (
-				<AgentMissingModal
-					sessionId={agentMissingSessionId}
-					onClose={() => setAgentMissingSessionId(null)}
-				/>
-			)}
-			{useProjectsStore((s) => s.dirPickerOpen) && (
-				<DirTreePicker
-					onPick={(cwd) => useProjectsStore.getState().createProjectFromPath(cwd)}
-					onCancel={() => useProjectsStore.getState().closeDirPicker()}
-				/>
-			)}
-			{useSettingsStore((s) => s.showSettings) && (
-				<SettingsModal onClose={() => useSettingsStore.getState().close()} />
-			)}
-			{themeIntroOpen && (
-				<ThemeIntroModal onClose={() => setThemeIntroOpen(false)} />
-			)}
-			{useOnboardingStore((s) => s.wizardOpen) && (
-				<OnboardingWizard
-					onClose={() => useOnboardingStore.getState().closeWizard()}
-				/>
-			)}
-			{paletteOpen && (
-				<CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-			)}
-			{/* 浮动模式：预览由独立窗口承载（能拖出主窗口），主窗口这里只剩最小化后的气泡入口 */}
-			{browserOpen && browserMode === "float" && <FloatPreview />}
-			<FilePreviewModal />
-			<MediaPreviewModal />
-			{/* 子代理转录弹窗（单例）：目标实例由委托卡写 store；常驻挂载，卡片卸载不连带关闭 */}
-			<SubagentTranscriptModal
-				open={useSessionStore((s) => s.transcript)}
-				onClose={() => useSessionStore.getState().closeTranscript()}
-			/>
-			{/* 扩展 dialog 弹窗（select/confirm/input/editor）已移到 SessionView 内挂载：
-			    按 sessionId 过滤 + 只在当前会话视图渲染，与 ask 同款会话锁定，
-			    其它会话的 pending 不再盖住整个窗口 */}
-			{/* 扩展 TUI 面板（ctx.ui.custom）三态浮窗已移到 SessionView 的聊天列容器内：
-			    absolute 定位要相对聊天区域，挂在根节点会贴到整个窗口/盖住右侧面板 */}
-			<ToastContainer />
-			<RecordingCapsule />
+				{/* 扩展 dialog 弹窗（select/confirm/input/editor）已移到 SessionView 内挂载：
+				    按 sessionId 过滤 + 只在当前会话视图渲染，与 ask 同款会话锁定，
+				    其它会话的 pending 不再盖住整个窗口 */}
+				{/* 扩展 TUI 面板（ctx.ui.custom）三态浮窗已移到 SessionView 的聊天列容器内：
+				    absolute 定位要相对聊天区域，挂在根节点会贴到整个窗口/盖住右侧面板 */}
+				<ToastContainer />
+				<RecordingCapsule />
+			</div>
 		</div>
 	);
 }

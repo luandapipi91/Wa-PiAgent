@@ -1,3 +1,6 @@
+## 2026-11-17
+- feat(theme): macOS 自绘标题栏——主进程 titleBarStyle:hiddenInset + trafficLightPosition（仅 darwin，Win/Linux 保留原生框），preload 暴露 platform，新增 TitleBar 组件（标题居中，照设计稿：鎏金衬线金字单行 / 战术终端报头双行 + 青绿短条），8 套主题各自的 --titlebar-* 配色，补 5 例组件测试 + 2 例契约测试
+
 ## 2026-11-16
 - fix(theme): 战术终端 token 数据条去框——外框与格间竖线取消，改 16px 间距分组，缓存格改青绿文字强调（用户反馈「框套框」显脏，偏离设计稿 .pill.grp）
 - fix(theme): 战术终端水印在默认窗口宽下隐藏（1360px 阈值，避免横穿 token 数据条）、用户气泡去 1px 描边改底色分层；补 E2E 断言守护

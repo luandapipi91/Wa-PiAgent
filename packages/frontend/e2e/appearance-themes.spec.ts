@@ -312,3 +312,75 @@ for (const [theme, base] of Object.entries(DECOR_BASELINE)) {
 		expect(m.tabBg).toBe(base.tabBg);
 	});
 }
+
+// ===== 自绘标题栏（macOS 桌面版）=====
+// 浏览器里 window.waPiApp 不存在，组件按设计不渲染；这里注入一个假的 darwin 平台
+// 来验证「渲染条件 + 8 套主题配色跟随」这层逻辑。真实窗口外观（红绿灯位置、
+// titleBarStyle 生效）只能在打完包的桌面应用里看，自动化覆盖不到。
+test.describe("自绘标题栏", () => {
+	test("macOS 桌面环境下渲染，鎏金用衬线金字单行", async ({ page }) => {
+		await page.addInitScript(() => {
+			(window as unknown as { waPiApp?: unknown }).waPiApp = {
+				platform: "darwin",
+			};
+		});
+		await setUiPrefs(page, "zh", { themeMode: "gilded" });
+		await page.goto("/");
+
+		const bar = page.getByTestId("titlebar");
+		await expect(bar).toBeVisible();
+		// 纯黑底（设计稿 --topbar）
+		expect(
+			await bar.evaluate((el) => getComputedStyle(el).backgroundColor),
+		).toBe("rgb(10, 10, 10)");
+		// 副标是主题身份标记，装饰性英文不随界面语言变
+		await expect(page.getByTestId("titlebar-theme")).toHaveText("GILDED");
+		// 鎏金是单行（baseline 横排），青绿短条不出现
+		expect(
+			await bar
+				.locator(".titlebar-masthead")
+				.evaluate((el) => getComputedStyle(el).flexDirection),
+		).toBe("row");
+		expect(
+			await page
+				.locator(".titlebar-bar")
+				.evaluate((el) => getComputedStyle(el).display),
+		).toBe("none");
+	});
+
+	test("战术终端：报头双行 + 青绿短条，副标等宽", async ({ page }) => {
+		await page.addInitScript(() => {
+			(window as unknown as { waPiApp?: unknown }).waPiApp = {
+				platform: "darwin",
+			};
+		});
+		await setUiPrefs(page, "zh", { themeMode: "tactical" });
+		await page.goto("/");
+
+		const bar = page.getByTestId("titlebar");
+		await expect(bar).toBeVisible();
+		expect(
+			await bar.evaluate((el) => getComputedStyle(el).backgroundColor),
+		).toBe("rgb(0, 0, 0)");
+		await expect(page.getByTestId("titlebar-theme")).toContainText("TACTICAL");
+		// 战术是报头形态：masthead 纵排、青绿短条出现
+		expect(
+			await bar
+				.locator(".titlebar-masthead")
+				.evaluate((el) => getComputedStyle(el).flexDirection),
+		).toBe("column");
+		const barDisplay = await page
+			.locator(".titlebar-bar")
+			.evaluate((el) => getComputedStyle(el).display);
+		expect(barDisplay).not.toBe("none");
+	});
+
+	test("浏览器环境（非桌面）不渲染标题栏，布局与原来一致", async ({
+		page,
+	}) => {
+		await setUiPrefs(page, "zh", { themeMode: "light" });
+		await page.goto("/");
+		await expect(page.getByTestId("app-body")).toBeVisible();
+		expect(await page.getByTestId("titlebar").count()).toBe(0);
+	});
+});

@@ -360,3 +360,28 @@ test("战术装饰覆盖关键元素选择器", () => {
 		expect(decor).toContain(sel);
 	}
 });
+
+// 自绘标题栏（macOS 桌面版）：8 套主题都必须声明自己的 --titlebar-*，
+// 否则切主题时窗口顶部会用上一套的底色（漏一套就会「顶部还是旧主题」）。
+// 用 themeBlock 而非 ruleBody：后者按首次子串命中，会拿到跨主题的后代规则。
+test("八套主题都声明标题栏配色", () => {
+	for (const theme of ["dark", "newspaper", "pixel", "cyber", "gilded", "tactical"]) {
+		const block = themeBlock(theme);
+		expect(block, theme).toContain("--titlebar-bg");
+		expect(block, theme).toContain("--titlebar-text");
+		expect(block, theme).toContain("--titlebar-line");
+	}
+	// 浅色主题（system/light）用 :root 默认值兜底
+	expect(css).toContain("--titlebar-bg: #ffffff");
+});
+
+test("标题栏装饰规则都在主题作用域内，不污染其它主题", () => {
+	const decor = gildedDecor() + tacticalDecor();
+	for (const sel of [".titlebar-wordmark", ".titlebar-dateline", ".titlebar-bar"]) {
+		const scoped = decorSelectors(decor).filter((s) => s.includes(sel));
+		expect(scoped.length, sel).toBeGreaterThan(0);
+		for (const s of scoped) {
+			expect(s.startsWith(':root[data-theme="'), s).toBe(true);
+		}
+	}
+});

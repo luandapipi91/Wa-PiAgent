@@ -305,6 +305,12 @@ function createWindow() {
 		height: 860,
 		show: false, // 隐藏直到内核页面渲染就绪，避免白屏
 		autoHideMenuBar: true, // Win/Linux 应用菜单存在时会显示菜单栏；隐藏保外观，Alt 可唤出
+		// macOS：隐藏系统标题栏、只留红绿灯，由前端自绘 40px 标题栏（可跟主题变色）。
+		// 红绿灯垂直居中于 40px 栏（y≈14）。其余平台保留原生窗口框——
+		// frame:false 需要自实现最小化/最大化/关闭，收益不抵成本。
+		...(process.platform === "darwin"
+			? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 14 } }
+			: {}),
 		backgroundColor: CANVAS_BG,
 		icon: path.join(__dirname, "assets", "icon.ico"),
 		// sandbox:false：preload 需 require('electron').clipboard 注入 waPiClipboard（sandbox 下该模块不在白名单，会导致复制失效）
