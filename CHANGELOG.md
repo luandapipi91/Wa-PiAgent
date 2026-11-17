@@ -1,4 +1,5 @@
 ## 2026-11-17
+- fix(front): IM 会话进入时输入框模型同步机器人实际用模——原先显示全局默认/上次会话遗留模型（根因：IM 会话由 kernel 侧创建，前端 IndexedDB 无会话 prefs 记录，loadSession 走 fresh 分支回退 defaults；「打开时同步」机制不存在）。修复：新增 resolveChannelModel 纯函数（channel.model ?? agent.model，agent 按 agentName 匹配、已删除降级 agents[0]，与 kernel channel-manager 入站解析一致）+ composer-prefs.initSessionModel（仅该会话无显式模型记录时写入，不覆盖用户手选、不回写全局 defaults、与 Composer loadSession 竞态安全）+ App 接线 effect（bots 冷启动补拉一次防循环）。单测 13 例 + E2E 全链路（mock 渠道进站 → IM 页签点击 → 断言模型选择器值；手改后切走重进保留用户选择）
 - fix(theme): 鎏金 token 数据条竖向不齐——① 占用格进度条改绝对定位（原先占文档流，把「占用 421.5K」整行顶高 2.5px）；② 格子行高统一 16px 与数值方块同高（默认 1.5 倍行高让标签比方块偏上 0.9px）、「↑+数值」包层改 inline-flex 居中（方块偏下 0.5px）；③ 顺带修累计格带主/子拆分时被 column 布局拆成三行（整条 52px→34px）——标签与数值用 .token-line 包成一行（全套主题同步受益）；E2E 补竖向对齐断言（条内文字/方块中心差 ≤0.5px、进度条不压文字）+ 拆分布局用例，反向撤掉任一处都会红
 - fix(theme): 鎏金 token 数据条内容贴边（文字左右无间距，看着挤）——`.token-bar` 补 `padding: 0 8px`（去框时格子 padding 归零、gap 仍为 0，首尾两格直接顶在边框上）；首格/末格距边框 9px 与缓存胶囊对齐；E2E 鎏金用例加内边距与几何间距断言（反向去掉 padding 会红）
 - fix(theme): 鎏金缓存胶囊右边框被裁切——删掉数据条遗留的 `.token-capsule:last-child{border-right:0}` 复位规则（它连缓存格一起匹配、权重高一层，把缓存框右侧描边吃掉）；契约测试加负向锁（末尾复位规则只许写在 `.token-bar` 内）+ E2E 加两例回归（鎏金正常态/警示态缓存框四边齐，战术缓存格四边均为 0），反向注入旧规则验证两条断言均能报警
