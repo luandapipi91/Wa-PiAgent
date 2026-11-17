@@ -40,6 +40,11 @@ const zh = {
 		thinking: "正在思考…",
 		me: "我",
 		resend: "重新发送",
+		outputs: {
+			title: "过程输出 · {{count}} 条",
+			expand: "展开",
+			collapse: "收起",
+		},
 		defaultAgent: "agent",
 		compactionSummary: "—— 已压缩早期上下文{{before}} ——",
 		compactionBefore: " · 压缩前 {{count}} token",

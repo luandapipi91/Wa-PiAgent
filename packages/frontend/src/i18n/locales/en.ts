@@ -40,6 +40,11 @@ const en = {
 		thinking: "Thinking…",
 		me: "Me",
 		resend: "Resend",
+		outputs: {
+			title: "Process outputs · {{count}}",
+			expand: "Expand",
+			collapse: "Collapse",
+		},
 		defaultAgent: "agent",
 		compactionSummary: "—— Early context compacted{{before}} ——",
 		compactionBefore: " · {{count}} tokens before compaction",
