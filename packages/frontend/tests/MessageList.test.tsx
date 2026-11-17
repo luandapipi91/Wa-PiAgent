@@ -3140,19 +3140,19 @@ test("精简模式：过程输出入口只展开中间正式输出，不含思�
 	);
 
 	// 默认：入口行存在，中间文本不可见
-	expect(screen.getByTestId("outputs-entry")).toBeTruthy();
+	expect(screen.getByTestId("outputs-tab")).toBeTruthy();
 	expect(screen.queryByText("中间过渡")).toBeNull();
 	expect(screen.getByText("最终回复")).toBeTruthy();
 
 	// 展开：只见中间正式输出，思考卡不出现
-	fireEvent.click(screen.getByTestId("outputs-entry"));
+	fireEvent.click(screen.getByTestId("outputs-tab"));
 	expect(screen.getByText("中间过渡")).toBeTruthy();
 	expect(screen.getByTestId("outputs-card")).toBeTruthy();
 	expect(screen.queryByText("思考中")).toBeNull();
 	expect(screen.queryByTestId("thinking-panel")).toBeNull();
 
 	// 收起
-	fireEvent.click(screen.getByTestId("outputs-entry"));
+	fireEvent.click(screen.getByTestId("outputs-tab"));
 	expect(screen.queryByText("中间过渡")).toBeNull();
 });
 
@@ -3199,7 +3199,7 @@ test("完整模式：默认把本轮所有正式输出合并成一张卡片，�
 	expect(screen.getByTestId("outputs-card").contains(screen.getByText("中间过渡"))).toBe(true);
 	expect(screen.getByTestId("outputs-card").contains(screen.getByText("最终回复"))).toBe(true);
 	expect(screen.queryByText("思考中")).toBeNull();
-	expect(screen.queryByTestId("outputs-entry")).toBeNull();
+	expect(screen.queryByTestId("outputs-tab")).toBeNull();
 });
 
 test("完整模式：点本轮过程回到时间线，文本不重复", () => {
@@ -3272,7 +3272,7 @@ test("错误轮：两模式都不套卡片、不显示入口", () => {
 			</VirtuosoMockContext.Provider>,
 		);
 		expect(screen.queryByTestId("outputs-card")).toBeNull();
-		expect(screen.queryByTestId("outputs-entry")).toBeNull();
+		expect(screen.queryByTestId("outputs-tab")).toBeNull();
 		view.unmount();
 	}
 });
@@ -3304,7 +3304,7 @@ test("精简模式：本轮过程展开时不显示过程输出入口，正文�
 		</VirtuosoMockContext.Provider>,
 	);
 	fireEvent.click(screen.getByTestId("turn-summary"));
-	expect(screen.queryByTestId("outputs-entry")).toBeNull();
+	expect(screen.queryByTestId("outputs-tab")).toBeNull();
 	expect(screen.queryByTestId("outputs-card")).toBeNull();
 	expect(screen.getAllByText("中间过渡").length).toBe(1);
 });
@@ -3334,7 +3334,7 @@ test("精简模式：先展开过程输出再展开本轮过程，正文不重�
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
-	fireEvent.click(screen.getByTestId("outputs-entry"));
+	fireEvent.click(screen.getByTestId("outputs-tab"));
 	expect(screen.getByText("中间过渡")).toBeTruthy();
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.queryByTestId("outputs-card")).toBeNull();
@@ -3342,7 +3342,7 @@ test("精简模式：先展开过程输出再展开本轮过程，正文不重�
 });
 
 // 规格 §9 边界：最后一段之后仍是过程段（externalizeFinalText=false）时，过渡语算过程输出。
-test("边界：最后一段是过程段时，过程输出入口计入过渡语并可在卡片中显示", () => {
+test("边界：最后一段是过程段（无最终回复）时不渲染凸起标签，正文仍可经本轮过程查看", () => {
 	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
 	useSessionStore.setState({
 		messagesBySession: {
@@ -3367,8 +3367,13 @@ test("边界：最后一段是过程段时，过程输出入口计入过渡语�
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
-	const entry = screen.getByTestId("outputs-entry");
-	expect(entry.textContent).toContain("1 条");
-	fireEvent.click(entry);
-	expect(screen.getByText("过渡语")).toBeTruthy();
+	// 该轮没有最终回复气泡，凸起标签没有挂载点 → 不渲染（正文仍可经「本轮过程」查看）
+	expect(screen.queryByTestId("outputs-tab")).toBeNull();
+	expect(screen.queryByTestId("outputs-card")).toBeNull();
+
+	// 完整模式下同样有卡片（过渡语即本轮唯二输出之一），且不含思考卡
+	useUiPrefsStore.setState({ replyDisplayMode: "full" });
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	expect(screen.queryByTestId("outputs-card")).toBeNull();
+	expect(screen.getAllByText("过渡语").length).toBe(1);
 });

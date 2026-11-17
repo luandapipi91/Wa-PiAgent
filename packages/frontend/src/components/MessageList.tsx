@@ -50,7 +50,7 @@ import {
 import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
 import { OutputsCard } from "./blocks/OutputsCard";
-import { OutputsEntry } from "./blocks/OutputsEntry";
+import { OutputsTab } from "./blocks/OutputsTab";
 import { togglePreservingViewport } from "./blocks/toggleViewport";
 import { ToolCallsSegment } from "./blocks/ToolCallNested";
 import { AnsiText } from "./ui/AnsiText";
@@ -1333,9 +1333,9 @@ export const MessageRow = memo(function MessageRow({
 	const [outputsOpen, setOutputsOpen] = useState(false);
 	const [procOpen, setProcOpen] = useState(false);
 	// 过程输出是第三个可展开控件：与 TurnSummary/ProcessCard 一致，切换时用锚点保持视口位置
-	const outputsEntryRef = useRef<HTMLButtonElement | null>(null);
+	const outputsTabRef = useRef<HTMLButtonElement | null>(null);
 	const toggleOutputs = () => {
-		const el = outputsEntryRef.current;
+		const el = outputsTabRef.current;
 		const apply = () => setOutputsOpen((v) => !v);
 		if (el) togglePreservingViewport(el, apply);
 		else apply();
@@ -1710,15 +1710,7 @@ export const MessageRow = memo(function MessageRow({
 							>
 								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
 							</TurnSummary>
-							{/* 本轮过程展开时正文已在时间线里，入口与卡片一律隐藏，避免同一段文本出两次 */}
-							{!procOpen && midTextSegs.length > 0 && !isError && (
-								<OutputsEntry
-									count={midTextSegs.length}
-									open={outputsOpen}
-									onToggle={toggleOutputs}
-									anchorRef={outputsEntryRef}
-								/>
-							)}
+							{/* 本轮过程展开时正文已在时间线里，卡片与凸起标签一律隐藏，避免同一段文本出两次 */}
 							{!procOpen && outputsOpen && !isError && (
 								<OutputsCard>
 									{midTextSegs.map((seg, si) =>
@@ -1726,7 +1718,19 @@ export const MessageRow = memo(function MessageRow({
 									)}
 								</OutputsCard>
 							)}
-							{finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)}
+							{finalTextSeg && (
+								<div className="relative">
+									{!procOpen && midTextSegs.length > 0 && !isError && (
+										<OutputsTab
+											count={midTextSegs.length}
+											open={outputsOpen}
+											onToggle={toggleOutputs}
+											anchorRef={outputsTabRef}
+										/>
+									)}
+									{renderSeg(finalTextSeg, processSegs.length, false)}
+								</div>
+							)}
 						</>
 					) : (
 						segments.map((seg, si) =>

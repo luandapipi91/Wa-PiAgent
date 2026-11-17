@@ -101,7 +101,7 @@ test("回复显示模式：完整输出合并成卡片，精简输出入口只�
 	await expect(card).toBeVisible({ timeout: 15_000 });
 	await expect(card).toContainText("中间过渡");
 	await expect(card).toContainText("最终回复");
-	await expect(page.getByTestId("outputs-entry")).toHaveCount(0);
+	await expect(page.getByTestId("outputs-tab")).toHaveCount(0);
 	// 思考卡不应出现在合并卡片里（默认折叠，只有点开本轮过程才出现）
 	await expect(page.getByTestId("thinking-panel")).toHaveCount(0);
 
@@ -114,7 +114,7 @@ test("回复显示模式：完整输出合并成卡片，精简输出入口只�
 	await expect(page.getByText("最终回复")).toBeVisible({ timeout: 15_000 });
 	await expect(page.getByText("中间过渡")).toHaveCount(0);
 
-	const entry = page.getByTestId("outputs-entry");
+	const entry = page.getByTestId("outputs-tab");
 	await expect(entry).toBeVisible();
 	await entry.click();
 	await expect(page.getByText("中间过渡")).toBeVisible();
@@ -124,7 +124,7 @@ test("回复显示模式：完整输出合并成卡片，精简输出入口只�
 	// ---- 精简模式两个折叠互斥：再展开本轮过程，正文仍只出现一次 ----
 	await page.getByTestId("turn-summary").click();
 	await expect(page.getByTestId("outputs-card")).toHaveCount(0);
-	await expect(page.getByTestId("outputs-entry")).toHaveCount(0);
+	await expect(page.getByTestId("outputs-tab")).toHaveCount(0);
 	await expect(page.getByText("中间过渡")).toHaveCount(1);
 	await expect(page.getByText("最终回复")).toHaveCount(1);
 });
