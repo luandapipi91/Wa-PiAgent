@@ -11,8 +11,10 @@ import {
 } from "../preview-window";
 
 /** 拖拽区样式（注入一次）：-webkit-app-region 是 Electron 扩展属性，用 data 属性集中声明 */
+/** 拖拽区样式（注入一次）：-webkit-app-region 是 Electron 扩展属性，用 data 属性集中声明。
+ *  导出给文件预览独立窗口根（FilePreviewWindowRoot）复用——各自渲染进程各自注入一次。 */
 let dragStylesInjected = false;
-function ensureDragStyles() {
+export function ensureDragStyles() {
 	if (dragStylesInjected || typeof document === "undefined") return;
 	dragStylesInjected = true;
 	const style = document.createElement("style");
@@ -31,12 +33,17 @@ function ensureDragStyles() {
  * 因此拖动中不用 React 状态，直接按帧提交新尺寸。
  * 用屏幕坐标而非 clientX/Y：指针移出窗口时 clientX 被裁剪在视口内，会追不上鼠标。
  */
-function ResizeHandle() {
+export function ResizeHandle({
+	setSize,
+}: {
+	/** 提交新尺寸的通道：html 窗口走 waPiPreviewWin，文件窗口走 waPiFilePreviewWin（两座桥各自 set-size 通道） */
+	setSize: (size: { w: number; h: number }) => void;
+}) {
 	const onMouseDown = (e: ReactMouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		const onMove = (ev: MouseEvent) =>
-			window.waPiPreviewWin?.setSize({
+			setSize({
 				w: ev.screenX - window.screenX,
 				h: ev.screenY - window.screenY,
 			});
@@ -151,7 +158,7 @@ export function PreviewWindowRoot() {
 			data-testid="preview-window-root"
 		>
 			<BrowserPanel detached />
-			<ResizeHandle />
+			<ResizeHandle setSize={(size) => window.waPiPreviewWin?.setSize(size)} />
 			<FilePreviewModal />
 			<ToastContainer />
 		</div>
