@@ -1,4 +1,5 @@
 ## 2026-11-17
+- feat(frontend): 外观新增「回复显示」——精简输出（默认）只显示本轮最后一条，新增「过程输出 · N 条」细线入口，点开只展开正式输出文本、不展开思考与工具调用；完整输出把本轮所有正式输出合并成一张卡片，点「本轮过程」回到时间线全展开（与现状一致），无输出入口。偏好持久化于 ui-prefs（旧数据回落精简）；TurnSummary 支持受控 open/onToggle（向后兼容、其它调用方零影响）。验证：新增单测 3 例 + 组件 2 例 + 卡片 1 例 + MessageList 5 例（92 pass）+ E2E 设置切换与持久化 + 主题 token 契约 35 例
 - fix(front): 文件预览窗口标题栏按钮无边框化（fv-btn--icon 变体，hover 反馈保留）+ 按钮间距翻倍（gap-2）
 - fix(front): 文件预览独立窗口标题栏单行化——分享/复制按钮经 toolbarPortalId 从 FileViewer portal 进标题栏槽位（与文件名同一行），窗口形态不再渲染内联工具栏行与任何关闭按钮（消除双行双 ✕，用户验收反馈）；Modal 形态工具栏照旧
 - fix(theme): 赛博科技主题去掉全屏扫描线（用户反馈流动波纹影响视觉）——移除 `body::before` 装饰层、`@keyframes wa-scan` 与对应的 `prefers-reduced-motion` 停动画规则；契约测试改为负向锁（css 不得再出现 `wa-scan` / 赛博 `body::before`）+ E2E 断言赛博下 `body::before` 无内容且点击正常
