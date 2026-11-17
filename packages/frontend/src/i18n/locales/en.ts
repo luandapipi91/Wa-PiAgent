@@ -633,7 +633,8 @@ const en = {
 		headerRemoveTitle: "Remove this header",
 		headerAdd: "+ Add header",
 		cwdLabel: "Working directory (cwd)",
-		cwdPlaceholder: "Optional; project directory by default",
+		cwdPlaceholder:
+			"Optional; npx/npm commands use the app data directory, others the session directory",
 		exposureLabel: "Tool exposure",
 		exposureDirect: "Direct",
 		exposureDirectDesc:

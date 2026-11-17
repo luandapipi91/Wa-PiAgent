@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { migrateGlobalMcpFile, migrateProjectMcpFile, migrateServerEntry } from "../mcp-migrate.ts";
+import { migrateGlobalMcpFile, migrateProjectMcpFile, migrateServerEntry, normalizeMcpStdioCwd } from "../mcp-migrate.ts";
 
 let dir = "";
 
@@ -438,5 +438,61 @@ describe("全局 mcp.json 加法迁移（共享文件：只补写、不破坏性
 		expect(
 			(await readdir(waPiDir)).filter((f) => f.startsWith("mcp.json.bak")),
 		).toHaveLength(1);
+	});
+});
+
+// 2026-11-17：存量 npx 型 stdio 条目补 cwd（会话 cwd = 项目目录时 npm 会读项目 package.json，
+// 带 overrides 的项目直接 EOVERIDE 秒退，运行时工具数恒为 0）。
+describe("normalizeMcpStdioCwd：存量包管理器型 stdio 补 cwd", () => {
+	const fallback = "/data/wa-pi";
+
+	test("缺 cwd 的 npx 条目补兜底目录；已有 cwd / 非包管理器 / http 不动", async () => {
+		const waPiDir = await setupGlobal({
+			settings: { keep: true },
+			mcpServers: {
+				ctx: { command: "npx", args: ["-y", "@upstash/context7-mcp@latest"], unknownField: 1 },
+				fixed: { command: "/usr/local/bin/npm", cwd: "/opt/mcp" },
+				local: { command: "node", args: ["server.js"] },
+				remote: { url: "https://example.com/mcp" },
+			},
+		});
+
+		const res = await normalizeMcpStdioCwd(join(waPiDir, "mcp.json"), fallback);
+		expect(res.changed).toBe(1);
+
+		const written = await readGlobal(waPiDir);
+		expect(written.mcpServers.ctx.cwd).toBe(fallback);
+		expect(written.mcpServers.ctx.unknownField).toBe(1);
+		expect(written.mcpServers.ctx.args).toEqual(["-y", "@upstash/context7-mcp@latest"]);
+		expect(written.mcpServers.fixed.cwd).toBe("/opt/mcp");
+		expect(written.mcpServers.local.cwd).toBeUndefined();
+		expect(written.mcpServers.remote.cwd).toBeUndefined();
+		// 顶层其它字段原样保留
+		expect(written.settings).toEqual({ keep: true });
+	});
+
+	test("幂等：第二次调用 changed=0 且不再改盘", async () => {
+		const waPiDir = await setupGlobal({
+			mcpServers: { ctx: { command: "npx" } },
+		});
+		const first = await normalizeMcpStdioCwd(join(waPiDir, "mcp.json"), fallback);
+		const second = await normalizeMcpStdioCwd(join(waPiDir, "mcp.json"), fallback);
+		expect(first.changed).toBe(1);
+		expect(second.changed).toBe(0);
+	});
+
+	test("文件不存在或损坏：不写盘、不抛错", async () => {
+		const waPiDir = await setupGlobal({});
+		expect(
+			(await normalizeMcpStdioCwd(join(waPiDir, "nope.json"), fallback)).changed,
+		).toBe(0);
+
+		const brokenDir = await mkdtemp(join(tmpdir(), "mcpcwd-broken-"));
+		await writeFile(join(brokenDir, "mcp.json"), "{ not json", "utf8");
+		expect(
+			(await normalizeMcpStdioCwd(join(brokenDir, "mcp.json"), fallback)).changed,
+		).toBe(0);
+		expect(await readFile(join(brokenDir, "mcp.json"), "utf8")).toBe("{ not json");
+		await rm(brokenDir, { recursive: true, force: true });
 	});
 });

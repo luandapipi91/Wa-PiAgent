@@ -226,3 +226,35 @@ describe("McpFile 同进程并发写（读-改-写串行化）", () => {
 		expect(Object.keys(raw.mcpServers)).toEqual([]);
 	});
 });
+
+// 2026-11-17：npx 型 stdio 条目未显式配置 cwd 时，保存即补数据目录。
+// 会话 cwd 是项目目录，npx/npm 会读项目的 package.json（带 overrides 时 npm 直接
+// EOVERIDE 秒退）——写盘时兜底，运行时才不会「面板正常、会话 0 工具」。
+describe("McpFile 保存时对包管理器型 stdio 兜底 cwd", () => {
+	test("npx 命令未填 cwd → 保存后补成数据目录（全局文件所在目录）", async () => {
+		const { file, globalPath } = await setup({ mcpServers: {} });
+		await file.save({
+			name: "ctx",
+			command: "npx",
+			args: ["-y", "@upstash/context7-mcp@latest"],
+		});
+		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		expect(raw.mcpServers.ctx.cwd).toBe(dir);
+	});
+
+	test("显式 cwd 不被覆盖", async () => {
+		const { file, globalPath } = await setup({ mcpServers: {} });
+		await file.save({ name: "ctx", command: "npx", cwd: "/opt/mcp" });
+		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		expect(raw.mcpServers.ctx.cwd).toBe("/opt/mcp");
+	});
+
+	test("HTTP server 与非包管理器 stdio 不加 cwd", async () => {
+		const { file, globalPath } = await setup({ mcpServers: {} });
+		await file.save({ name: "remote", url: "https://example.com/mcp" });
+		await file.save({ name: "local", command: "node", args: ["server.js"] });
+		const raw = JSON.parse(await readFile(globalPath, "utf8"));
+		expect(raw.mcpServers.remote.cwd).toBeUndefined();
+		expect(raw.mcpServers.local.cwd).toBeUndefined();
+	});
+});

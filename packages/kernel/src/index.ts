@@ -11,7 +11,7 @@ import { MemoryStore } from "./memory-store";
 import { MemoryDao } from "./memory/dao";
 import { openMemoryDb } from "./memory/db";
 import { importLegacyMemories } from "./memory/import";
-import { migrateGlobalMcpFile } from "./mcp-migrate";
+import { migrateGlobalMcpFile, normalizeMcpStdioCwd } from "./mcp-migrate";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { getBuiltinProviderIds } from "./pi-catalog";
@@ -308,6 +308,19 @@ export async function startKernel(opts?: {
 		}
 	} catch (err) {
 		console.warn("[mcp] 迁移全局 mcp.json 失败（不影响启动）:", err);
+	}
+
+	// 存量包管理器型 stdio（npx/npm/...）缺 cwd → 补数据目录（幂等，无变化不写盘）。
+	// 会话 cwd 是项目目录时 npx 会读项目 package.json，带 overrides 的项目直接 EOVERIDE
+	// 秒退、运行时工具数恒为 0（面板探测因已兜底而正常）。项目级那份在开启项目受信时补
+	// （见 routes/mcp.ts 的 setProjectMcpScope）。
+	try {
+		const res = await normalizeMcpStdioCwd(join(WA_PI_DIR, "mcp.json"), WA_PI_DIR);
+		if (res.changed > 0) {
+			console.log(`[mcp] 已为 ${res.changed} 个包管理器型 MCP 服务器补全 cwd`);
+		}
+	} catch (err) {
+		console.warn("[mcp] 补全 MCP 服务器 cwd 失败（不影响启动）:", err);
 	}
 
 	await ensureWebSearchConfig(WA_PI_DIR);

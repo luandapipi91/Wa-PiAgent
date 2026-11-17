@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import type { McpExposure, McpServerConfig } from "@wa-pi/shared";
 import { normalizeMcpExposure } from "@wa-pi/shared";
 import { projectMcpPath } from "./mcp-file.ts";
+import { withStdioCwdFallback } from "./mcp-cwd.ts";
 import { stripBom } from "./text-bom.ts";
 
 type RawObj = Record<string, unknown>;
@@ -282,4 +283,53 @@ export async function migrateProjectMcpFile(
 	const backup = `${legacyPath}.bak`;
 	if (!existsSync(backup)) await copyFile(legacyPath, backup);
 	return { migrated: migratedCount, backup };
+}
+
+/**
+ * 修正存量配置：包管理器型 stdio 条目（npx/npm/...）缺 cwd 时补 `fallbackCwd`。
+ *
+ * 为什么需要在盘上补：pi 运行时的 stdio 子进程 cwd = **会话工作目录**（项目目录），
+ * npx/npm 会读该目录的 package.json；项目带 overrides 时 npm 直接 `EOVERRIDE` 秒退，
+ * 握手从未开始，会话里工具数恒为 0。面板探测（mcp-probe 的 stdioCwd）早用数据目录兜底，
+ * 所以才会出现「面板正常、运行时 0 工具」。写入层（McpFile.save）已对新条目兜底，
+ * 本函数负责存量（含用户手工编辑/导入的配置）。
+ *
+ * 语义：只补缺失、保留未知字段与其他顶层字段；无可补时**不写盘**（幂等）；
+ * 文件不存在/损坏/形状不对一律原样保留（宁可漏补，不可半写）。
+ */
+export async function normalizeMcpStdioCwd(
+	path: string,
+	fallbackCwd: string,
+): Promise<{ changed: number }> {
+	if (!existsSync(path)) return { changed: 0 };
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stripBom(await readFile(path, "utf8")));
+	} catch {
+		return { changed: 0 };
+	}
+	if (!isRawObj(parsed)) return { changed: 0 };
+	const servers = parsed.mcpServers;
+	if (!isRawObj(servers)) return { changed: 0 };
+
+	let changed = 0;
+	const next: Record<string, unknown> = {};
+	for (const [name, entry] of Object.entries(servers)) {
+		if (!isRawObj(entry)) {
+			next[name] = entry;
+			continue;
+		}
+		const patched = withStdioCwdFallback(entry, fallbackCwd);
+		if (patched !== entry) changed++;
+		next[name] = patched;
+	}
+	if (changed === 0) return { changed: 0 };
+
+	// 与 migrateGlobalMcpFile 同式：settings 段与未知顶层字段原样保留，原子替换
+	const merged = { ...parsed, mcpServers: next };
+	await mkdir(dirname(path), { recursive: true });
+	const tmp = `${path}.${process.pid}.tmp`;
+	await writeFile(tmp, JSON.stringify(merged, null, 2), "utf8");
+	await rename(tmp, path);
+	return { changed };
 }

@@ -34,10 +34,10 @@ import type {
 import type { McpAdmin } from "../mcp-admin";
 import { canUseOAuth, mcpAuthKeysOf, readMcpAuthKeys } from "../mcp-admin";
 import { probeMcpServer } from "../mcp-probe";
-import type { McpFile } from "../mcp-file";
+import { projectMcpPath, type McpFile } from "../mcp-file";
 import type { ProjectStore } from "../project-store";
 import { McpTrustStore } from "../mcp-trust";
-import { migrateProjectMcpFile } from "../mcp-migrate";
+import { migrateProjectMcpFile, normalizeMcpStdioCwd } from "../mcp-migrate";
 import { builtinAgentBrowserEntry } from "../mcp-builtin";
 import { resolveAgentBrowserBinary } from "../agent-browser-session";
 import {
@@ -95,7 +95,12 @@ export async function setProjectMcpScope(opts: {
   await new McpTrustStore(opts.trustFile ?? trustFilePath()).set(cwd, opts.enabled);
   // 开启时把旧 <cwd>/.mcp.json 合并进 <cwd>/.pi/mcp.json（幂等：目标已有同名条目一律跳过，
   // 无条目可迁就不落盘）。关闭时不迁移：pi 本来就不读项目配置，迁移只会凭空造出 .pi/ 目录。
-  if (opts.enabled) await migrateProjectMcpFile(cwd);
+  if (opts.enabled) {
+    await migrateProjectMcpFile(cwd);
+    // 项目级存量 npx 型条目同样补 cwd：项目配置里的 stdio 子进程仍以会话 cwd（=项目目录）
+    // 为默认工作目录，npx 会读该项目 package.json 导致 EOVERIDE 秒退（见 mcp-cwd.ts）。
+    await normalizeMcpStdioCwd(projectMcpPath(cwd), WA_PI_DIR);
+  }
 }
 
 /**

@@ -26,6 +26,7 @@ import {
   validateMcpServer,
 } from "@wa-pi/shared";
 import { KernelError } from "./kernel-error.ts";
+import { withStdioCwdFallback } from "./mcp-cwd.ts";
 
 /** 盘上文件形状：server 条目保留任意未知字段 */
 type RawServer = Record<string, unknown> & { name?: string };
@@ -155,7 +156,14 @@ export class McpFile {
     if (input.name === BUILTIN_MCP_NAME || originalName === BUILTIN_MCP_NAME) {
       throw new KernelError("mcp.builtinProtected", { name: BUILTIN_MCP_NAME });
     }
-    const errors = validateMcpServer(input);
+    // 包管理器型 stdio（npx/npm/...）的 cwd 兜底，见 mcp-cwd.ts 文件头：
+    // 会话 cwd 是项目目录时 npx 会读项目 package.json，带 overrides 的项目直接 EOVERIDE
+    // 秒退、握手从未开始。用户显式配置 cwd 时尊重用户值。
+    const safe = withStdioCwdFallback(
+      input as unknown as Record<string, unknown>,
+      dirname(this.opts.globalPath),
+    ) as unknown as McpServerConfig;
+    const errors = validateMcpServer(safe);
     if (errors.length > 0) return { ok: false, errors };
 
     const path = await this.resolvePath(projectId);
@@ -163,7 +171,7 @@ export class McpFile {
     // 否则后写者会覆盖前写者的改动（前端是 fire-and-forget，连点保存/删除即可触发）
     return await serializeByPath(path, async () => {
       const cfg = await this.read(path);
-      const { name, ...rest } = input;
+      const { name, ...rest } = safe;
       const previous =
         cfg.mcpServers[name] ??
         (originalName ? cfg.mcpServers[originalName] : undefined) ??

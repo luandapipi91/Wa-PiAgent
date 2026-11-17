@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { join } from "node:path";
-import { E2E_WS_PORT } from "../playwright.config";
+import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 import {
   createAgent,
   createSessionViaPrompt,
@@ -481,5 +481,31 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
       timeout: 20_000,
     });
     expect(await mcpEntry(SERVER)).toBeUndefined();
+  });
+
+  // 2026-11-17：npx 型 MCP 未填 cwd 时保存即补数据目录。真 OpenAI 会话的 stdio cwd 是项目目录，
+  // npx/npm 会读项目 package.json（带 overrides 时 npm 直接 EOVERIDE 秒退，工具数恒为 0）。
+  // 这里只断言配置落盘（enabled:false 不触发真连接），运行时链路已由 kernel 单测与真实
+  // `pi mcp list` 对照实验覆盖。
+  test("REST 添加 npx 型 server：未传 cwd 也会补数据目录（防项目会话 EOVERIDE）", async () => {
+    const NPX_SERVER = "e2e-npx";
+    await api("DELETE", `/api/mcp/${NPX_SERVER}`).catch(() => {});
+    try {
+      await api("POST", "/api/mcp", {
+        config: {
+          name: NPX_SERVER,
+          command: "npx",
+          args: ["-y", "@upstash/context7-mcp@latest"],
+          enabled: false,
+        },
+      });
+      const entry = await mcpEntry(NPX_SERVER);
+      expect(entry).toBeTruthy();
+      // E2E 的 WA_PI_DIR 由 playwright.config 注入（~/.wa-pi-e2e），兜底目录就是它
+      expect(entry.cwd).toBe(E2E_WA_PI_DIR);
+      expect(entry.enabled).toBe(false);
+    } finally {
+      await api("DELETE", `/api/mcp/${NPX_SERVER}`).catch(() => {});
+    }
   });
 });

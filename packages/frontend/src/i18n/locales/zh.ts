@@ -615,7 +615,7 @@ const zh = {
 		headerRemoveTitle: "移除该请求头",
 		headerAdd: "+ 添加请求头",
 		cwdLabel: "工作目录 (cwd)",
-		cwdPlaceholder: "可选；留空则用项目目录",
+		cwdPlaceholder: "可选；留空时 npx/npm 等命令用数据目录，其他命令用会话目录",
 		exposureLabel: "工具暴露方式",
 		exposureDirect: "直接可用",
 		exposureDirectDesc: "工具直接声明给模型，模型可以随时调用",
