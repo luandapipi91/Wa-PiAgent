@@ -1,4 +1,5 @@
 import { useTranslation } from "../../i18n/useTranslation";
+import { Icon } from "../ui/Icon";
 
 /**
  * 「过程输出」入口行（仅精简输出模式）：与 TurnSummary 同款的左右细线 + 中间灰字，
@@ -31,9 +32,7 @@ export function OutputsEntry({
 				<span className="text-secondary">
 					{t("message.outputs.title", { count })}
 				</span>
-				<span className="inline-flex items-center gap-0.5 text-[calc(10px*var(--font-scale))] px-1.5 py-px border border-hairline rounded-sm bg-surface-elevated text-secondary">
-					{t(open ? "message.outputs.collapse" : "message.outputs.expand")}
-				</span>
+				<Icon name={open ? "chevron-down" : "chevron-right"} size={10} />
 			</span>
 			<span className="flex-1 border-t border-hairline" />
 		</button>

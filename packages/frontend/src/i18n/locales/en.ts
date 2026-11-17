@@ -42,8 +42,6 @@ const en = {
 		resend: "Resend",
 		outputs: {
 			title: "Process outputs · {{count}}",
-			expand: "Expand",
-			collapse: "Collapse",
 		},
 		defaultAgent: "agent",
 		compactionSummary: "—— Early context compacted{{before}} ——",
@@ -256,8 +254,6 @@ const en = {
 			missing: "File moved or deleted",
 			movedFrom: "Original path",
 			preview: "Preview",
-			expand: "Expand",
-			collapse: "Collapse",
 		},
 		codeBlock: {
 			copy: "Copy",

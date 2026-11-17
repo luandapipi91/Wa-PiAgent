@@ -42,8 +42,6 @@ const zh = {
 		resend: "重新发送",
 		outputs: {
 			title: "过程输出 · {{count}} 条",
-			expand: "展开",
-			collapse: "收起",
 		},
 		defaultAgent: "agent",
 		compactionSummary: "—— 已压缩早期上下文{{before}} ——",
@@ -245,8 +243,6 @@ const zh = {
 			missing: "文件已移动或删除",
 			movedFrom: "原路径",
 			preview: "预览",
-			expand: "展开",
-			collapse: "收起",
 		},
 		codeBlock: {
 			copy: "复制",

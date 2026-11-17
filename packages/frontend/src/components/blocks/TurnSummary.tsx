@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
+import { Icon } from "../ui/Icon";
 import { togglePreservingViewport } from "./toggleViewport";
 
 /** 时长格式化：<60s → "45 秒"；<1h → "2 分 15 秒"；
@@ -87,7 +88,7 @@ export function TurnSummary({
 				data-testid="turn-summary"
 			>
 				<span className="flex-1 border-t border-hairline" />
-				<span className="whitespace-nowrap">
+				<span className="whitespace-nowrap inline-flex items-center gap-1">
 					{elapsedMs == null
 						? t("blocks.turnSummary.processOnly", { steps })
 						: t("blocks.turnSummary.withDuration", {
@@ -111,6 +112,7 @@ export function TurnSummary({
 							}),
 								steps,
 							})}
+					<Icon name={open ? "chevron-down" : "chevron-right"} size={10} />
 				</span>
 				<span className="flex-1 border-t border-hairline" />
 			</button>
