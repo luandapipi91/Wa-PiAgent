@@ -254,6 +254,8 @@ const en = {
 			missing: "File moved or deleted",
 			movedFrom: "Original path",
 			preview: "Preview",
+			expand: "Expand",
+			collapse: "Collapse",
 		},
 		codeBlock: {
 			copy: "Copy",
