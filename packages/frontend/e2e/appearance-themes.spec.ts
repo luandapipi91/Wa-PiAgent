@@ -375,6 +375,32 @@ test.describe("自绘标题栏", () => {
 		expect(barDisplay).not.toBe("none");
 	});
 
+	test("Windows 桌面环境也渲染，标题绝对居中不受系统按钮区影响", async ({
+		page,
+	}) => {
+		await page.addInitScript(() => {
+			(window as unknown as { waPiApp?: unknown }).waPiApp = {
+				platform: "win32",
+				setTitleBarOverlay: () => Promise.resolve(true),
+			};
+		});
+		await setUiPrefs(page, "zh", { themeMode: "newspaper" });
+		await page.goto("/");
+
+		const bar = page.getByTestId("titlebar");
+		await expect(bar).toBeVisible();
+		await expect(page.getByTestId("titlebar-theme")).toHaveText("NEWSPAPER");
+		// masthead 是绝对定位居中：中心点应与窗口水平中心重合（偏差 ≤2px）
+		const offset = await page.evaluate(() => {
+			const masthead = document.querySelector(".titlebar-masthead");
+			if (!masthead) return null;
+			const r = masthead.getBoundingClientRect();
+			return Math.abs(r.x + r.width / 2 - window.innerWidth / 2);
+		});
+		expect(offset).not.toBeNull();
+		expect(offset!).toBeLessThanOrEqual(2);
+	});
+
 	test("浏览器环境（非桌面）不渲染标题栏，布局与原来一致", async ({
 		page,
 	}) => {

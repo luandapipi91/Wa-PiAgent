@@ -1,21 +1,34 @@
-// 自绘标题栏：仅 macOS 桌面版渲染。
-// 主进程在 macOS 下用了 titleBarStyle:"hiddenInset"（系统标题栏隐藏、只留红绿灯），
-// 因为原生标题栏颜色由系统外观决定、不会跟应用主题。自绘这一条后，
-// 背景/文字/描边都走 --titlebar-* 变量，8 套主题各自有配色。
+// 自绘标题栏：仅桌面版（Electron）渲染，Web 模式不生成任何元素。
 //
-// 布局照设计稿：标题居中（不是左对齐），红绿灯留在左侧由系统绘制。
-// 战术终端是多一行的「报头」形态（wordmark + 青绿短条 + 等宽副标），
-// 由 styles.css 里该主题的作用域规则变形，组件本身只输出统一结构。
+// 两个平台的「隐藏原生标题栏」方式不同，但目标一致——让窗口顶部跟随应用主题：
+//   macOS  ：标题栏用 titleBarStyle:"hiddenInset"，红绿灯（左侧）由系统绘制；
+//   Windows：标题栏用 titleBarStyle:"hidden" + titleBarOverlay，最小化/最大化/关闭
+//            由系统画在右侧，配色通过 IPC 同步（Electron 只接受 #RRGGBB）。
+// 因此组件本身只负责「底色 + 居中标题」；窗口按钮和红绿灯都不在这里画。
+// Linux 保留原生窗口框，不渲染。
+import { useEffect } from "react";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 
-/** 桌面版 macOS 且主进程已隐藏原生标题栏时才渲染 */
-export function shouldRenderTitleBar(): boolean {
-	const waPiApp = (window as unknown as { waPiApp?: { platform?: string } })
-		.waPiApp;
-	return Boolean(waPiApp) && waPiApp?.platform === "darwin";
+type DesktopBridge = {
+	platform?: string;
+	setTitleBarOverlay?: (opts: {
+		color: string;
+		symbolColor: string;
+		height: number;
+	}) => Promise<boolean>;
+};
+
+function bridge(): DesktopBridge | undefined {
+	return (window as unknown as { waPiApp?: DesktopBridge }).waPiApp;
 }
 
-/** 标题栏高度：主进程 trafficLightPosition.y=14 与该高度下红绿灯居中对应 */
+/** 当前平台是否走自绘标题栏（只有打包后的桌面版才有 waPiApp） */
+export function shouldRenderTitleBar(): boolean {
+	const platform = bridge()?.platform;
+	return platform === "darwin" || platform === "win32";
+}
+
+/** 标题栏高度：macOS 红绿灯 y=14、Windows overlay height 都与 40px 对齐 */
 export const TITLEBAR_HEIGHT = 40;
 
 /** 副标是装饰性的主题身份标记（设计稿里就是英文大写），不随界面语言变化，
@@ -31,8 +44,52 @@ const THEME_MARK: Record<string, string> = {
 	tactical: "战术终端 / TACTICAL",
 };
 
+/** Electron 的 overlay 只认 #RRGGBB：把主题变量里的 hex/rgb(a) 统一成 hex。
+ *  取不到（变量缺失、颜色函数等）就回退到给定默认值。 */
+export function toHex(color: string, fallback: string): string {
+	const value = color.trim();
+	if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase();
+	const hex3 = value.match(/^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/);
+	if (hex3) {
+		return `#${hex3[1]}${hex3[1]}${hex3[2]}${hex3[2]}${hex3[3]}${hex3[3]}`.toLowerCase();
+	}
+	const rgb = value.match(
+		/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i,
+	);
+	if (rgb) {
+		return `#${[rgb[1], rgb[2], rgb[3]]
+			.map((n) => Number(n).toString(16).padStart(2, "0"))
+			.join("")}`;
+	}
+	return fallback;
+}
+
+/** 读 html 上解析后的主题变量实际值（system 模式已由 useIsDarkMode 落成 light/dark） */
+function readTitlebarColors(): { color: string; symbolColor: string } {
+	const cs = getComputedStyle(document.documentElement);
+	return {
+		color: toHex(cs.getPropertyValue("--titlebar-bg"), "#1a1a1e"),
+		symbolColor: toHex(cs.getPropertyValue("--titlebar-text"), "#f5f5f7"),
+	};
+}
+
 export function TitleBar() {
 	const themeMode = useUiPrefsStore((s) => s.themeMode);
+	const platform = bridge()?.platform;
+	const isWindows = platform === "win32";
+
+	// Windows：主题变化后把标题栏底色/符号色推给系统绘制的窗口按钮区。
+	// 依赖 themeMode 而不是变量值——切主题时 CSS 变量会在同一帧更新，
+	// 这里等一帧再读，避免读到旧值。Web 模式与 macOS 下此调用不存在，自然跳过。
+	useEffect(() => {
+		if (!isWindows) return;
+		const push = () => {
+			const { color, symbolColor } = readTitlebarColors();
+			void bridge()?.setTitleBarOverlay?.({ color, symbolColor, height: TITLEBAR_HEIGHT });
+		};
+		const raf = requestAnimationFrame(push);
+		return () => cancelAnimationFrame(raf);
+	}, [isWindows, themeMode]);
 
 	if (!shouldRenderTitleBar()) return null;
 

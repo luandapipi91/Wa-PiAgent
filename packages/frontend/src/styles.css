@@ -145,11 +145,19 @@
 	-webkit-app-region: drag;
 }
 .titlebar-masthead {
+	/* 绝对居中而不是 flex 居中：左右两侧被系统占位（macOS 红绿灯约 78px、
+	   Windows 三枚按钮约 138px），flex 居中会算进留白把标题推偏 */
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
 	display: flex;
 	align-items: baseline;
 	gap: 10px;
 	pointer-events: none;
 	white-space: nowrap;
+	/* 窄窗口下不压系统按钮/红绿灯 */
+	max-width: calc(100% - 300px);
 }
 .titlebar-wordmark {
 	font-size: 12.5px;

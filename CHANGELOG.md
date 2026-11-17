@@ -1,4 +1,5 @@
 ## 2026-11-17
+- feat(theme): Windows 也自绘标题栏——titleBarStyle:hidden + titleBarOverlay（最小化/最大化/关闭由系统画在右侧，双击最大化与系统菜单白送），配色经 window:set-titlebar-overlay 随主题同步（Electron 只认 #RRGGBB，前端统一归一）；标题改绝对居中（左右系统占位不再把标题推偏）；Linux 保留原生框；补 8 例组件测试（含颜色归一）+ 1 例 E2E（win32 居中偏差 ≤2px）
 - feat(theme): macOS 自绘标题栏——主进程 titleBarStyle:hiddenInset + trafficLightPosition（仅 darwin，Win/Linux 保留原生框），preload 暴露 platform，新增 TitleBar 组件（标题居中，照设计稿：鎏金衬线金字单行 / 战术终端报头双行 + 青绿短条），8 套主题各自的 --titlebar-* 配色，补 5 例组件测试 + 2 例契约测试
 
 ## 2026-11-16

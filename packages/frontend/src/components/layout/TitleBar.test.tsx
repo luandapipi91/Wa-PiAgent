@@ -1,7 +1,12 @@
-// 自绘标题栏：仅 macOS 桌面版渲染；副标跟随主题标识（装饰性英文，不进 i18n）
-import { test, expect, beforeEach, afterEach } from "bun:test";
-import { render, screen } from "@testing-library/react";
-import { TitleBar, shouldRenderTitleBar } from "./TitleBar";
+// 自绘标题栏：仅桌面版渲染（macOS / Windows），Web 与 Linux 不渲染。
+// Windows 走 titleBarOverlay——组件要把主题色同步给系统绘制的窗口按钮区。
+import { test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { render, screen, waitFor } from "@testing-library/react";
+import {
+	TitleBar,
+	shouldRenderTitleBar,
+	toHex,
+} from "./TitleBar";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 
 const g = globalThis as unknown as { window: Window & { waPiApp?: unknown } };
@@ -13,33 +18,63 @@ afterEach(() => {
 	delete (g.window as { waPiApp?: unknown }).waPiApp;
 });
 
-test("浏览器环境（无 waPiApp）不渲染标题栏", () => {
+test("Web 模式（无 waPiApp）不渲染标题栏", () => {
 	expect(shouldRenderTitleBar()).toBe(false);
 	const { container } = render(<TitleBar />);
 	expect(container.querySelector('[data-testid="titlebar"]')).toBeNull();
 });
 
-test("桌面版但非 macOS（win32）不渲染——保留原生窗口框", () => {
-	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "win32" };
+test("Linux 桌面版不渲染——保留原生窗口框", () => {
+	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "linux" };
 	expect(shouldRenderTitleBar()).toBe(false);
 	const { container } = render(<TitleBar />);
 	expect(container.querySelector('[data-testid="titlebar"]')).toBeNull();
 });
 
-test("macOS 桌面版渲染标题栏，居中显示应用名与主题标识", () => {
+test("macOS 渲染标题栏，居中显示应用名与主题标识", () => {
 	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
 	useUiPrefsStore.setState({ themeMode: "gilded" });
 	render(<TitleBar />);
-	const bar = screen.getByTestId("titlebar");
-	expect(bar.textContent).toContain("WA PI AGENT");
+	expect(screen.getByTestId("titlebar").textContent).toContain("WA PI AGENT");
 	expect(screen.getByTestId("titlebar-theme").textContent).toBe("GILDED");
 });
 
-test("主题切到战术终端时副标跟随（含中文前缀）", () => {
-	(g.window as { waPiApp?: unknown }).waPiApp = { platform: "darwin" };
+test("Windows 也渲染标题栏（窗口按钮由系统画在右侧）", () => {
+	(g.window as { waPiApp?: unknown }).waPiApp = {
+		platform: "win32",
+		setTitleBarOverlay: mock(() => Promise.resolve(true)),
+	};
 	useUiPrefsStore.setState({ themeMode: "tactical" });
 	render(<TitleBar />);
+	expect(screen.getByTestId("titlebar")).toBeTruthy();
 	expect(screen.getByTestId("titlebar-theme").textContent).toContain("TACTICAL");
+});
+
+test("Windows 下把主题标题栏配色同步给系统按钮区", async () => {
+	const setTitleBarOverlay = mock(() => Promise.resolve(true));
+	(g.window as { waPiApp?: unknown }).waPiApp = {
+		platform: "win32",
+		setTitleBarOverlay,
+	};
+	render(<TitleBar />);
+	await waitFor(() => expect(setTitleBarOverlay).toHaveBeenCalled());
+	type OverlayArg = { color: string; symbolColor: string; height: number };
+	const arg = (setTitleBarOverlay.mock.calls[0] as unknown as [OverlayArg])[0];
+	// 必须是 #RRGGBB——Electron 的 overlay 不接受 rgba/命名色
+	expect(arg.color).toMatch(/^#[0-9a-f]{6}$/);
+	expect(arg.symbolColor).toMatch(/^#[0-9a-f]{6}$/);
+	expect(arg.height).toBe(40);
+});
+
+test("macOS 不调用 overlay 同步（没有系统按钮区需要染色）", async () => {
+	const setTitleBarOverlay = mock(() => Promise.resolve(true));
+	(g.window as { waPiApp?: unknown }).waPiApp = {
+		platform: "darwin",
+		setTitleBarOverlay,
+	};
+	render(<TitleBar />);
+	await new Promise((r) => setTimeout(r, 60));
+	expect(setTitleBarOverlay).not.toHaveBeenCalled();
 });
 
 test("八套主题都有对应的主题标识，不留空白副标", () => {
@@ -59,4 +94,13 @@ test("八套主题都有对应的主题标识，不留空白副标", () => {
 		expect(screen.getByTestId("titlebar-theme").textContent?.trim()).not.toBe("");
 		unmount();
 	}
+});
+
+test("颜色归一：hex 小写、3 位展开、rgb 转 hex、非法值回退", () => {
+	expect(toHex("#1A1A1E", "#000000")).toBe("#1a1a1e");
+	expect(toHex("#fff", "#000000")).toBe("#ffffff");
+	expect(toHex("rgb(10, 10, 10)", "#000000")).toBe("#0a0a0a");
+	expect(toHex("rgba(255, 255, 255, 0.12)", "#000000")).toBe("#ffffff");
+	expect(toHex("oklch(0.5 0.1 200)", "#123456")).toBe("#123456");
+	expect(toHex("", "#abcdef")).toBe("#abcdef");
 });

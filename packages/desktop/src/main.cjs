@@ -305,12 +305,25 @@ function createWindow() {
 		height: 860,
 		show: false, // 隐藏直到内核页面渲染就绪，避免白屏
 		autoHideMenuBar: true, // Win/Linux 应用菜单存在时会显示菜单栏；隐藏保外观，Alt 可唤出
-		// macOS：隐藏系统标题栏、只留红绿灯，由前端自绘 40px 标题栏（可跟主题变色）。
-		// 红绿灯垂直居中于 40px 栏（y≈14）。其余平台保留原生窗口框——
-		// frame:false 需要自实现最小化/最大化/关闭，收益不抵成本。
+		// 标题栏按平台分两种自绘方式，目标一致：让窗口顶部跟随应用主题。
+		// macOS：hiddenInset 只留红绿灯（左侧，系统绘制），红绿灯垂直居中于 40px 栏（y=14）。
+		// Windows：hidden + titleBarOverlay —— 窗口按钮（最小化/最大化/关闭）由系统
+		//   画在右侧，颜色通过 window:set-titlebar-overlay 由渲染进程随主题同步；
+		//   不自己实现按钮，双击最大化与系统菜单也就白送。
+		// Linux：保留原生窗口框（overlay 在多数发行版桌面环境下表现不一致）。
 		...(process.platform === "darwin"
 			? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 14 } }
-			: {}),
+			: process.platform === "win32"
+				? {
+						titleBarStyle: "hidden",
+						// 初始值取深色主题的标题栏色，渲染进程首帧后会立即用真实主题色覆盖
+						titleBarOverlay: {
+							color: "#1a1a1e",
+							symbolColor: "#f5f5f7",
+							height: 40,
+						},
+					}
+				: {}),
 		backgroundColor: CANVAS_BG,
 		icon: path.join(__dirname, "assets", "icon.ico"),
 		// sandbox:false：preload 需 require('electron').clipboard 注入 waPiClipboard（sandbox 下该模块不在白名单，会导致复制失效）
@@ -636,6 +649,27 @@ app.whenReady().then(async () => {
 
 	// 端口被占用时启动页「换端口启动」按钮的处理：杀掉占用进程后重启本应用（保留；
 	// 与 switch-port-start 并存，重启仍优先清理占用端口）
+	// 自绘标题栏（Windows）：把当前主题的标题栏配色同步给系统绘制的窗口按钮区。
+	// 只在 Windows 且窗口还在时生效；其它平台静默忽略（渲染进程统一调用，不必分平台）。
+	// symbolColor 必须是 #RRGGBB（Electron 不接受 rgba），渲染进程侧已归一。
+	ipcMain.handle("window:set-titlebar-overlay", (_event, opts) => {
+		if (process.platform !== "win32") return false;
+		if (!mainWindow || mainWindow.isDestroyed()) return false;
+		const payload = {
+			color: typeof opts?.color === "string" ? opts.color : "#000000",
+			symbolColor:
+				typeof opts?.symbolColor === "string" ? opts.symbolColor : "#ffffff",
+			height: Number.isFinite(opts?.height) ? opts.height : 40,
+		};
+		try {
+			mainWindow.setTitleBarOverlay(payload);
+			return true;
+		} catch (err) {
+			log.warn(`[titlebar] 同步窗口按钮配色失败: ${err?.message ?? err}`);
+			return false;
+		}
+	});
+
 	ipcMain.handle("app:restart-after-port-kill", async () => {
 		const pids = await killPortOccupants(FIXED_PORT, undefined, (m) =>
 			log.info(m),

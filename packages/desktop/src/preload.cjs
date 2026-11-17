@@ -22,9 +22,13 @@ contextBridge.exposeInMainWorld("waPiClipboard", {
 // - switchPortStart：主进程找可用端口后 relaunch 带新端口
 // - quit：直接退出应用（splash 无边框，错误态下的主动退出途径）
 contextBridge.exposeInMainWorld("waPiApp", {
-	/** 宿主平台（同步值，不走 IPC）：前端据此决定是否渲染自绘标题栏——
-	 *  仅 macOS 用了 titleBarStyle:"hiddenInset"，其余平台保留原生窗口框。 */
+	/** 宿主平台（同步值，不走 IPC）：前端据此决定标题栏形态——
+	 *  macOS 自绘（左侧红绿灯）、Windows 自绘（右侧系统按钮 + titleBarOverlay）、
+	 *  Linux 保留原生窗口框。 */
 	platform: process.platform,
+	/** 自绘标题栏同步配色（Windows 专用；其它平台主进程静默忽略） */
+	setTitleBarOverlay: (opts) =>
+		ipcRenderer.invoke("window:set-titlebar-overlay", opts),
 	restartAfterPortKill: () => ipcRenderer.invoke("app:restart-after-port-kill"),
 	switchPortStart: () => ipcRenderer.invoke("app:switch-port-start"),
 	quit: () => ipcRenderer.invoke("app:quit"),
