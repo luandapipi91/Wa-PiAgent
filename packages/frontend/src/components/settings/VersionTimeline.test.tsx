@@ -1,6 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { render, fireEvent, cleanup, within } from "@testing-library/react";
 import { VersionTimeline } from "./VersionTimeline";
+import { useVersionHistoryStore } from "../../store/version-history";
 import versionHistory from "../../data/version-history.json";
 import { countItems, type VersionEntry } from "../../util/version-history";
 
@@ -34,11 +35,23 @@ test("分栏渲染：左列版本列表 + 右列详情，最新版默认选中",
 });
 
 test("旧版本初始不展示内容，点击左列版本切换详情", () => {
+	// 数据驱动 + 受控 entries：硬编码老版本号会随 store 的 100 条窗口滑出（0.1.20 已在第 124 位被截），
+	// 故构造「最新版 + 一个条目少的旧版」的受控列表（用例结束恢复，不污染其他用例）
+	const small = entries.find(
+		(e) => e.version !== entries[0].version && countItems(e) <= COLLAPSED_ITEMS,
+	)!;
+	const firstItem = Object.values(small.sections).flat()[0] as string;
+	const orig = useVersionHistoryStore.getState().entries;
+	useVersionHistoryStore.setState({ entries: [entries[0], small] });
 	const { container } = render(<VersionTimeline />);
 	const timeline = within(container).getByTestId("version-timeline");
-	expect(within(timeline).queryByText(/主会话回合看门狗/)).toBeNull();
-	fireEvent.click(within(timeline).getByTestId("toggle-0.1.20"));
-	expect(within(timeline).getByText(/主会话回合看门狗/)).toBeTruthy();
+	try {
+		expect(within(timeline).queryByText(firstItem)).toBeNull();
+		fireEvent.click(within(timeline).getByTestId(`toggle-${small.version}`));
+		expect(within(timeline).getByText(firstItem)).toBeTruthy();
+	} finally {
+		useVersionHistoryStore.setState({ entries: orig });
+	}
 });
 
 test("条目超 4 项时折叠为「展开全部 N 项」，点击后全部可见", () => {

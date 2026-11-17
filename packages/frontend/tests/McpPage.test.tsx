@@ -193,7 +193,21 @@ test("首轮状态探测进行中（stale 骨架）不显示「状态未知」�
   expect(screen.queryByTestId("mcp-stale-banner")).toBeNull();
 });
 
-test("清单 stale 时显示「状态未知」横幅，且卡片不把旧状态当最新", () => {
+test("清单 stale 时显示「状态未知」横幅，未探测的卡片不把缓存旧状态当最新", () => {
+  useMcpStore.setState({
+    stale: true,
+    probing: false,
+    // 骨架清单不带运行态（state 缺省）——stale 下 state 有值只可能来自探测广播的新鲜值
+    servers: [{ name: "dbx", command: "echo" }],
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-stale-banner").textContent).toContain(
+    "状态未知",
+  );
+  expect(screen.getByTestId("mcp-state-dbx").textContent).toContain("状态未知");
+});
+
+test("stale 下已探测台（probe 广播的新鲜 state）放行真实状态，不当「状态未知」", () => {
   useMcpStore.setState({
     stale: true,
     probing: false,
@@ -203,7 +217,8 @@ test("清单 stale 时显示「状态未知」横幅，且卡片不把旧状态�
   expect(screen.getByTestId("mcp-stale-banner").textContent).toContain(
     "状态未知",
   );
-  expect(screen.getByTestId("mcp-state-dbx").textContent).toContain("状态未知");
+  // 已探测台的状态是 probe 广播写入的新鲜值（applyProbe 逐台亮灯），照常显示
+  expect(screen.getByTestId("mcp-state-dbx").textContent).toContain("已连接");
 });
 
 test("项目未受信（pi 的 note）时提示配置未被加载", () => {
