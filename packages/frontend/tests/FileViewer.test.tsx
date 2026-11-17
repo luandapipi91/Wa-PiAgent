@@ -836,8 +836,13 @@ test("toolbarPortalId：分享/复制传送进标题栏槽位（同一行），�
 
 	await waitFor(() => {
 		const slot = document.getElementById("fv-toolbar-slot");
-		expect(slot?.querySelector('[data-testid="share-file-btn"]')).toBeTruthy();
-		expect(slot?.querySelector('[data-testid="fv-copy-content"]')).toBeTruthy();
+		const share = slot?.querySelector('[data-testid="share-file-btn"]');
+		expect(share).toBeTruthy();
+		// 标题栏形态按钮用无边框变体（fv-btn--icon：无边框无底色，hover 保留）
+		expect(share?.classList.contains("fv-btn--icon")).toBe(true);
+		const copy = slot?.querySelector('[data-testid="fv-copy-content"]');
+		expect(copy).toBeTruthy();
+		expect(copy?.classList.contains("fv-btn--icon")).toBe(true);
 	});
 	// 内联工具栏整行不再渲染（data-modal-drag-handle 是 Modal 形态工具栏行专属）
 	expect(document.querySelector("[data-modal-drag-handle]")).toBeNull();

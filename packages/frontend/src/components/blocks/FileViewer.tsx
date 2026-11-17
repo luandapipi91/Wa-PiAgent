@@ -917,17 +917,17 @@ export function FileViewer({ path, onClose, sessionId, toolbarPortalId }: FileVi
 	}
 
 	if (isMarkdown && content !== null) {
-		// 工具栏按钮两种形态共用：窗口形态 portal 进标题栏槽位（同一行），Modal 形态内联渲染
+		// 工具栏按钮两种形态共用：窗口形态 portal 进标题栏槽位（同一行，无边框变体），Modal 形态内联渲染
 		const markdownToolbarButtons = (
 			<>
 				<ShareButton
 					paths={[resolvedPath ?? path]}
 					sessionId={sessionId}
-					className="fv-btn"
+					className={toolbarPortalId ? "fv-btn fv-btn--icon" : "fv-btn"}
 					testId="share-file-btn"
 				/>
 				<button
-					className="fv-btn"
+					className={toolbarPortalId ? "fv-btn fv-btn--icon" : "fv-btn"}
 					onClick={copyContent}
 					title={t("common.copy")}
 					aria-label={t("common.copy")}
@@ -992,11 +992,11 @@ export function FileViewer({ path, onClose, sessionId, toolbarPortalId }: FileVi
 			<ShareButton
 				paths={[resolvedPath ?? path]}
 				sessionId={sessionId}
-				className="fv-btn"
+				className={toolbarPortalId ? "fv-btn fv-btn--icon" : "fv-btn"}
 				testId="share-file-btn"
 			/>
 			<button
-				className="fv-btn"
+				className={toolbarPortalId ? "fv-btn fv-btn--icon" : "fv-btn"}
 				onClick={copyContent}
 				title={t("common.copy")}
 				aria-label={t("common.copy")}

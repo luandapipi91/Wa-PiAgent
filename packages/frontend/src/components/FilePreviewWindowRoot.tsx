@@ -97,7 +97,7 @@ export function FilePreviewWindowRoot(props: {
 		>
 			{/* 顶部单行工具栏：文件名（拖动区）+ 分享/复制（FileViewer portal 进槽位，同一条线）+ 关闭 */}
 			<div
-				className="flex h-9 shrink-0 items-center border-b border-[var(--hairline, #ddd)] pl-3 pr-1.5"
+				className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--hairline, #ddd)] pl-3 pr-1.5"
 				data-preview-drag="1"
 			>
 				<span
@@ -109,7 +109,7 @@ export function FilePreviewWindowRoot(props: {
 				</span>
 				<div
 					id="fv-toolbar-slot"
-					className="flex items-center gap-1"
+					className="flex items-center gap-2"
 					data-testid="fv-toolbar-slot"
 				/>
 				<button
