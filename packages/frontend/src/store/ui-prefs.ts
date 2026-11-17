@@ -25,6 +25,9 @@ export type ThemeColor =
 	| "orange"
 	| "red";
 
+/** 回复显示模式：concise 只显示最后一条（默认）；full 把本轮正式输出合并成一张卡片 */
+export type ReplyDisplayMode = "concise" | "full";
+
 /** 界面文字大小（px），12-32，默认 16。
  *  只缩放文字、不动布局：经 CSS 变量 --font-scale（= fontSize/16）实现，
  *  全项目字号声明（Tailwind 任意值 / 自定义规则 / rem 字号类覆盖）均以
@@ -77,6 +80,9 @@ interface UiPrefsState {
 	 *  默认 true；用户仍可手动展开单个卡片。 */
 	collapseProcessByDefault: boolean;
 	setCollapseProcessByDefault: (v: boolean) => void;
+	/** 回复显示模式（默认 concise）：只影响已定稿轮次的折叠策略。 */
+	replyDisplayMode: ReplyDisplayMode;
+	setReplyDisplayMode: (mode: ReplyDisplayMode) => void;
 	/** 桌面宠物开关（默认 true）：关闭即销毁宠物窗口，即时生效。 */
 	desktopPet: boolean;
 	setDesktopPet: (v: boolean) => void;
@@ -119,6 +125,9 @@ export const THEME_COLOR_DEFAULT: ThemeColor = "green";
 
 /** 回复过程默认折叠：agent 回复过程中工具调用 / 思维链默认不展开（折叠）。 */
 export const COLLAPSE_PROCESS_DEFAULT = true;
+
+/** 回复显示模式默认值：精简输出（只显示本轮最后一条，保持现有行为）。 */
+export const REPLY_DISPLAY_MODE_DEFAULT: ReplyDisplayMode = "concise";
 
 /** 桌面宠物默认值：默认开启（安装后桌面上就有呱呱）。 */
 export const DESKTOP_PET_DEFAULT = true;
@@ -241,6 +250,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			setLastAgent: (name) => set({ lastAgent: name }),
 			collapseProcessByDefault: COLLAPSE_PROCESS_DEFAULT,
 			setCollapseProcessByDefault: (v) => set({ collapseProcessByDefault: v }),
+			replyDisplayMode: REPLY_DISPLAY_MODE_DEFAULT,
+			setReplyDisplayMode: (mode) => set({ replyDisplayMode: mode }),
 			desktopPet: DESKTOP_PET_DEFAULT,
 			setDesktopPet: (v) => {
 				set({ desktopPet: v });
