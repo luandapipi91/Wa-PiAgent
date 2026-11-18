@@ -143,22 +143,16 @@ test("assistant 消息按 content block 渲染 thinking + text + toolCall", () =
 			<MessageList sessionId="s1" />
 		</VirtuosoMockContext.Provider>,
 	);
-	// text 段之后仍有过程段（toolCall）→ 不外置为「最终回复」，并入轮级摘要行（未展开时不可见）
-	expect(screen.queryByText("答案")).toBeNull();
+	// 最后一段 text 作为最终回复外置显示（即使其后还有 toolCall）——中断轮也能看到正文
+	expect(screen.getByText("答案")).toBeTruthy();
 	// 已定稿含过程段的行：过程段折叠到轮级摘要行，thinking 内容不可见
 	expect(screen.queryByText("我在想")).toBeNull();
-	// 先展开轮级摘要行：text 按原序内联渲染在工具卡片之前，再展开 thinking 卡可见思考内容
+	// 展开轮级摘要行后 thinking 内容可见
 	fireEvent.click(screen.getByTestId("turn-summary"));
-	expect(screen.getByText("答案")).toBeTruthy();
 	fireEvent.click(screen.getByTestId("thinking-panel-header"));
 	expect(screen.getByText("我在想")).toBeTruthy();
-	// text 段渲染在工具卡片之前（不被外置到卡片之后）
-	expect(
-		screen
-			.getByText("答案")
-			.compareDocumentPosition(screen.getByTestId("toolcall-c1-header")) &
-			Node.DOCUMENT_POSITION_FOLLOWING,
-	).toBeTruthy();
+	// 正文仍只有一份（外置后不重复出现在过程块里）
+	expect(screen.getAllByText("答案").length).toBe(1);
 	// 单个 toolCall 直接渲染单卡（不成组），未完成时默认展开
 	expect(screen.queryByTestId("toolcall-group")).toBeNull();
 	expect(screen.getByTestId("toolcall-c1-header").textContent).toMatch(/读取|read/i);
@@ -3376,4 +3370,103 @@ test("边界：最后一段是过程段（无最终回复）时不渲染凸起�
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.queryByTestId("outputs-card")).toBeNull();
 	expect(screen.getAllByText("过渡语").length).toBe(1);
+});
+
+// 停止/中断轮（最后一段是过程段）：精简模式仍应以最后一条正文回复作为显示，
+// 否则整轮只剩一行摘要，正文与思考全都看不到。
+test("精简模式：中断轮最后一段是工具调用时，最后一条正文仍外置显示", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{ type: "text", text: "我准备重跑这批长任务" },
+						{ type: "toolCall", id: "t1", name: "bash", arguments: { command: "ls" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	// 摘要行存在（过程可展开）
+	expect(screen.getByTestId("turn-summary")).toBeTruthy();
+	// 关键：最后一条正文外置可见，而不是被藏进折叠区
+	expect(screen.getByText("我准备重跑这批长任务")).toBeTruthy();
+	// 思考仍在折叠内，默认不可见
+	expect(screen.queryByText("思考中")).toBeNull();
+});
+
+// 中断轮 + 多段正文：最后一条正文外置，此前的正文作为过程输出可展开查看。
+test("精简模式：中断轮多段正文时，最后一条外置、此前正文经凸起标签展开", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{ type: "text", text: "先确认现状" },
+						{ type: "toolCall", id: "t1", name: "bash", arguments: { command: "ls" } },
+						{ type: "text", text: "现在开始重跑" },
+						{ type: "toolCall", id: "t2", name: "bash", arguments: { command: "pwd" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	expect(screen.getByText("现在开始重跑")).toBeTruthy();
+	expect(screen.queryByText("先确认现状")).toBeNull();
+
+	const tab = screen.getByTestId("outputs-tab");
+	expect(tab.getAttribute("title")).toContain("1 条");
+	fireEvent.click(tab);
+	expect(screen.getByText("先确认现状")).toBeTruthy();
+	expect(screen.queryByTestId("thinking-panel")).toBeNull();
+});
+
+// 中断轮但整轮没有任何正文（只有思考/工具）：无最终回复可外置，
+// 必须仍能通过摘要行展开看到过程（不能整轮空白）。
+test("中断轮且无任何正文：只剩摘要行，展开可见过程", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{ type: "toolCall", id: "t1", name: "bash", arguments: { command: "ls" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	expect(screen.getByTestId("turn-summary")).toBeTruthy();
+	expect(screen.queryByTestId("outputs-tab")).toBeNull();
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	expect(screen.getByTestId("toolcall-t1-header")).toBeTruthy();
 });

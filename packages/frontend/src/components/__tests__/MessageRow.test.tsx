@@ -57,9 +57,9 @@ test("isLastMessage=false 时（末尾被插件通知等系统行抢占），不
 });
 
 // ---------------------------------------------------------------------------
-// 「最终回复」外置规则：仅当最后一段 text 之后不存在任何过程段（thinking/toolCall）
-// 时才外置为「最终回复」（渲染在过程块之后）；若其后还有过程段（如 fleet 被中断后
-// AI 未再输出文本，过渡语紧跟工具卡片），该 text 并入过程流按原序内联渲染。
+// 「最终回复」外置规则：取本轮**最后一段 text** 作为最终回复外置（渲染在过程块之后），
+// 无论其后是否还有过程段。中断/停止场景下最后一块常是工具调用或思考——若要求
+// 「其后无过程段才外置」，整轮将只剩一行摘要、正文全被藏进折叠区（用户反馈的问题）。
 // ---------------------------------------------------------------------------
 
 // 带 toolResult 的 assistant 行：toolResults 以 toolCallId 挂 Map（同 preprocess 挂载方式）
@@ -86,7 +86,7 @@ const powershellResult = {
 	content: [{ type: "text", text: "ok" }],
 };
 
-test("最后 text 段之后仍有过程段（中断后无最终回复）：text 不外置、按原序渲染在工具卡之前", () => {
+test("中断轮（最后是过程段）：最后一条 text 仍外置为最终回复，位于过程块之后", () => {
 	const msg = {
 		role: "assistant",
 		content: [
@@ -102,18 +102,16 @@ test("最后 text 段之后仍有过程段（中断后无最终回复）：text 
 			sessionId="s1"
 		/>,
 	);
-	// 轮级折叠生效（含过程卡），展开查看过程流
-	fireEvent.click(screen.getByTestId("turn-summary"));
-	// 全行只有一个 text-bubble，且位于过程块（turn-summary）内部 → 未外置
+	// 未展开过程块，最终回复也直接可见（外置）——中断轮不再只剩一行摘要
+	expect(screen.getByText("重跑同一批长任务…")).toBeTruthy();
+	// 全行只有这一个 text-bubble，且不在摘要行内部 → 已外置
 	const bubbles = container.querySelectorAll('[data-testid="text-bubble"]');
 	expect(bubbles.length).toBe(1);
 	const summaryRoot = screen.getByTestId("turn-summary").parentElement!;
-	expect(summaryRoot.contains(bubbles[0])).toBe(true);
-	// 原序内联：text-bubble 渲染在工具卡片之前（不外置到卡片之后）
-	expect(
-		bubbles[0].compareDocumentPosition(screen.getByTestId("toolcall-call-1")) &
-			Node.DOCUMENT_POSITION_FOLLOWING,
-	).toBeTruthy();
+	expect(summaryRoot.contains(bubbles[0])).toBe(false);
+	// 展开过程块后，正文仍只有一份（不重复渲染）
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	expect(screen.getAllByText("重跑同一批长任务…").length).toBe(1);
 });
 
 test("正常顺序 [THINK, CALL, TEXT]：最后 text 外置为最终回复，渲染在过程块之后（回归）", () => {

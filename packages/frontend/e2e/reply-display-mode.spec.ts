@@ -160,3 +160,92 @@ test("外观设置：回复显示默认精简，切换完整后写入持久化",
 	await page.getByTestId("reply-display-select").selectOption("concise");
 	await expect(page.getByTestId("reply-display-select")).toHaveValue("concise");
 });
+
+// 停止/中断轮：最后一块是工具调用（无收尾正文）时，精简模式仍以最后一条正文作为显示，
+// 而不是整轮只剩一行摘要（用户反馈的核心问题）。
+test("精简模式：中断轮（末尾是工具调用）仍显示最后一条正文并可展开其余输出", async ({
+	page,
+}) => {
+	test.setTimeout(120_000);
+	const sid = "s-e2e-reply-display-interrupted";
+	seedInterruptedSession(sid, "E2E中断轮显示");
+
+	await setUiPrefs(page, "zh", { replyDisplayMode: "concise" });
+	await page.goto("/");
+	await page.getByTestId(`session-${sid}`).click();
+	await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
+
+	// 最后一条正文外置可见（修复前此处为空，整轮只剩摘要行）
+	await expect(page.getByText("现在开始重跑这批任务")).toBeVisible({ timeout: 15_000 });
+	// 此前那条正文在折叠里，默认不可见
+	await expect(page.getByText("先确认一下现状")).toHaveCount(0);
+
+	// 凸起标签可展开此前的正文，且不带出思考卡
+	const tab = page.getByTestId("outputs-tab");
+	await expect(tab).toBeVisible();
+	await tab.click();
+	await expect(page.getByText("先确认一下现状")).toBeVisible();
+	await expect(page.getByTestId("thinking-panel")).toHaveCount(0);
+	// 正文不重复
+	await expect(page.getByText("现在开始重跑这批任务")).toHaveCount(1);
+
+	// 展开本轮过程：正文仍各只出现一次
+	await page.getByTestId("turn-summary").click();
+	await expect(page.getByText("现在开始重跑这批任务")).toHaveCount(1);
+	await expect(page.getByText("先确认一下现状")).toHaveCount(1);
+});
+
+function seedInterruptedSession(sessionId: string, title: string) {
+	const projPath = join(E2E_WA_PI_DIR, "projects.json");
+	const data = JSON.parse(readFileSync(projPath, "utf8")) as {
+		sessions: Array<Record<string, unknown>>;
+	};
+	if (!data.sessions.some((s: any) => s.id === sessionId)) {
+		data.sessions.push({
+			id: sessionId,
+			projectId: "e2e-proj-1",
+			primaryAgent: "dev",
+			title,
+			createdAt: 1,
+			lastActivity: 1,
+			piSessionFile: join(E2E_WA_PI_DIR, "sessions", `${sessionId}.jsonl`),
+		});
+		writeFileSync(projPath, JSON.stringify(data, null, 2), "utf8");
+	}
+	mkdirSync(join(E2E_WA_PI_DIR, "sessions"), { recursive: true });
+	const lines: string[] = [
+		JSON.stringify({ type: "session", version: 3, id: `uuid-${sessionId}` }),
+	];
+	let id = 1;
+	let parentId: string | null = null;
+	const push = (role: string, content: unknown[], ts: number) => {
+		const mid = `m${id++}`;
+		lines.push(
+			JSON.stringify({
+				type: "message",
+				id: mid,
+				parentId,
+				message: { role, content, timestamp: ts },
+			}),
+		);
+		parentId = mid;
+	};
+	push("user", [{ type: "text", text: "帮我重跑这批任务" }], 1);
+	// 关键形状：最后一块是 toolCall（停止/中断时真实情形），正文不在末尾
+	push(
+		"assistant",
+		[
+			{ type: "thinking", thinking: "先看现状再重跑。" },
+			{ type: "text", text: "先确认一下现状" },
+			{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } },
+			{ type: "text", text: "现在开始重跑这批任务" },
+			{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "pwd" } },
+		],
+		2,
+	);
+	writeFileSync(
+		join(E2E_WA_PI_DIR, "sessions", `${sessionId}.jsonl`),
+		lines.join("\n"),
+		"utf8",
+	);
+}

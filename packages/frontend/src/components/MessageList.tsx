@@ -1520,15 +1520,11 @@ export const MessageRow = memo(function MessageRow({
 	// 进行中的轮（status==="thinking" 的末行）即使已定稿也不折叠——长工具执行/后续
 	// text 流式仍在跑，折叠会藏住实时过程；必须等 agent_end（整轮结束）才折叠。
 	const canCollapse = hasProcessCard && !isStreaming && !isActiveTurnRow;
-	// 「最终回复」外置判定收紧：仅当最后一段 text 之后不存在任何过程段（thinking/toolCalls/
-	// delegate/fleet）时才外置；若其后还有过程段（如中断场景：过渡语文本后紧跟工具卡片），
-	// 该 text 只是过程间过渡语，并入 processSegs 按原序内联渲染（过程块内、工具卡片之前），
-	// 此时「最终回复」区无内容、不渲染。
-	const externalizeFinalText =
-		lastTextSegIdx >= 0 &&
-		!segments
-			.slice(lastTextSegIdx + 1)
-			.some((s) => s.kind !== "text");
+	// 「最终回复」外置：取本轮**最后一段 text** 作为显示（无论其后是否还有过程段）。
+	// 中断/停止场景下最后一块常是工具调用或思考，若要求「其后无过程段才外置」，整轮将只剩摘要行、
+	// 正文全部被藏进折叠区（用户反馈的核心问题）。因此这里只要求存在 text 段。
+	// 代价：中断轮的过渡语也会外置成回复气泡；该轮此前的正文仍可由「过程输出」展开。
+	const externalizeFinalText = lastTextSegIdx >= 0;
 	// 过程段 + 中间 text 段（外置时除最后一段 text 外全部折叠进摘要行）；最后一段 text 是最终回复，保留在外
 	const processSegs = externalizeFinalText
 		? segments.filter((_, i) => i !== lastTextSegIdx)
