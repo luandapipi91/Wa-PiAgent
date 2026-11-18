@@ -24,6 +24,11 @@ function makeAgentManager(steerLog: string[]) {
 		steerMessage: async (_sid: string, text: string) => {
 			steerLog.push(text);
 		},
+		// 立即执行已收敛为 kernel 内部单一入口（中断 + 该条马上跑 + 其余排队保留），
+		// ws-server 不再拆成 abort + steerMessage —— 桩同步补上该入口
+		steerImmediate: async (_sid: string, text: string) => {
+			steerLog.push(text);
+		},
 		abort: async () => {},
 		ensureStarted: async () => ({
 			messages: [],

@@ -288,23 +288,23 @@ export const SessionView = memo(function SessionView({
 		);
 	};
 	const handleImmediate = (text: string) => {
+		// 「立即」= 中断当前轮、这条马上跑（其余排队消息保留由 kernel 续跑）。
+		// 乐观更新只把该条从排队区移出——不再像以前那样当「引导」提入 steering 区：
+		// steering 的语义是「下回合生效」，与本按钮「现在就跑」相反，提进去会误导用户。
 		const idx = followUp.indexOf(text);
 		const remaining =
 			idx >= 0
 				? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)]
 				: [...followUp];
-		useSessionStore.setState((s) => {
-			const cur = s.queueBySession[sessionId]?.steering ?? [];
-			return {
-				queueBySession: {
-					...s.queueBySession,
-					[sessionId]: {
-						steering: cur.includes(text) ? cur : [...cur, text],
-						followUp: remaining,
-					},
+		useSessionStore.setState((s) => ({
+			queueBySession: {
+				...s.queueBySession,
+				[sessionId]: {
+					steering: s.queueBySession[sessionId]?.steering ?? [],
+					followUp: remaining,
 				},
-			};
-		});
+			},
+		}));
 		void api
 			.post(
 				`/api/sessions/${encodeURIComponent(sessionId)}/steer/immediate`,
@@ -314,11 +314,11 @@ export const SessionView = memo(function SessionView({
 				() => {},
 				(err) => {
 					console.error("[session-view] 立即提升失败:", err);
-					// 失败回执（任务 5，同 handlePromote）：回滚乐观移动——消息从引导区放回排队区
+					// 失败回执（任务 5）：回滚乐观移除——消息放回排队区原位置，用户可重试。
 					useSessionStore.setState((s) => {
 						const cur = s.queueBySession[sessionId];
 						if (!cur) return {};
-						const steering = cur.steering.filter((x) => x !== text);
+						const steering = cur.steering;
 						return {
 							queueBySession: {
 								...s.queueBySession,
@@ -326,7 +326,7 @@ export const SessionView = memo(function SessionView({
 									steering,
 									followUp: cur.followUp.includes(text)
 										? cur.followUp
-										: [...cur.followUp, text],
+										: [...cur.followUp.slice(0, idx), text, ...cur.followUp.slice(idx)],
 								},
 							},
 						};
@@ -634,16 +634,18 @@ export const SessionView = memo(function SessionView({
 													>
 														{t("session.steeringBtn")}
 													</button>
-													{!isRunning && (
-														<button
-															onClick={() => handleImmediate(msg)}
-															disabled={historyLoading}
-															className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
-															data-testid="btn-immediate"
-														>
-															{t("session.immediateBtn")}
-														</button>
-													)}
+													{/* 「立即」不再只在空闲时显示（2026-11-18 语义修正）：它现在自己就会中断
+													    当前轮并优先执行这条，运行中也能点。此前运行中隐藏 + 提示「先停止」
+													    而停止会丢光队列，用户那条路径根本走不通。 */}
+													<button
+														onClick={() => handleImmediate(msg)}
+														disabled={historyLoading}
+														className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
+														data-testid="btn-immediate"
+														title={t("session.immediateHint")}
+													>
+														{t("session.immediateBtn")}
+													</button>
 												</div>
 											</div>
 										))}

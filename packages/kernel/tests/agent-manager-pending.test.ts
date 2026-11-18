@@ -134,7 +134,7 @@ test("client.steer reject → 消息保留在 pending", async () => {
 	expect(steerEntry!.failures).toBe(1); // 失败次数 +1
 });
 
-test("abort 清空内存队列时同步清空 pending WAL（防已放弃消息重启后诈尸）", async () => {
+test("abort 保留内存队列与 pending WAL（丢队列归 clearQueue 管）", async () => {
 	const { session, am, fake } = await setup();
 	expect(fake).toBeTruthy();
 	fake!.autoSettle = false;
@@ -142,5 +142,10 @@ test("abort 清空内存队列时同步清空 pending WAL（防已放弃消息�
 	await am.prompt(session.id, "排队中", { model: MODEL }); // followUpList + pending WAL
 	expect((await listAll(session.id)).map((e) => e.text)).toContain("排队中");
 	await am.abort(session.id);
+	// 2026-11-18 语义修正：停止只中断当前轮，队列与 WAL 都保留
+	//（此前一并清空，导致界面提示的「停止后点立即」永远无消息可点）
+	expect((await listAll(session.id)).map((e) => e.text)).toContain("排队中");
+	// 真正要丢队列时走 clearQueue
+	await am.clearQueue(session.id);
 	expect(await listAll(session.id)).toHaveLength(0);
 });

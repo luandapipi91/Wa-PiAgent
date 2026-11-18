@@ -1,3 +1,6 @@
+## 2026-11-18
+- fix(frontend,kernel): 队列「立即」按钮运行中不可用、且提示指向的「先停止」会丢光队列——用户按提示操作后要立即执行的那条消息一起消失，界面上写的这条路径根本走不通。重构为三段语义：“停止”只中断当前轮（队列保留但暂停，不自动续跑，否则下一条排队消息会立刻把停止顶起来）；“立即”中断当前轮并让该条马上执行，其余排队消息保留、这轮跑完继续按序发出（kernel 新增 `steerImmediate` 单一入口，路由不再拆成 abort+steer，被中止轮自己的 settled 不得抢先 drain）；“清空”是唯一下队队列的入口（同步清 pending WAL）。前端：运行中直接显示可点的「立即」（原来条件渲染隐藏）、提示改为「立即：中断当前轮，先执行这条」、`handleImmediate` 不再把该条当「引导」提入 steering 区（语义相反）、失败回滚回原位置。连带 `disposeSession` 新增 `dropPending` 参数：删除会话才清 WAL，空闲回收/进程退出保留（否则用户还在等的排队消息会被静默丢掉）。TDD 先红后绿：kernel 新增 9 例（停止保留队列/停止后不续跑/清空才丢队列/立即发该条且其余保留/settled 不抢先/附件继承/空闲等价直发）+ 2 例（dropPending 语义），改写 4 例旧语义用例；前端 2 例；E2E 新 spec 3 例（运行中可点/发出立即执行请求/停止后队列保留）连跑 3 次绿。验证：kernel 全量 gate 通过（主批 + 补跑 + 自检 17/17，0 断言失败）、kernel typecheck 0、frontend 全量 3670 pass / 0 fail、E2E 3/3（注：`tests/ComposerInput.test.tsx` 与 `e2e/send-scroll.spec.ts`、`e2e/composer.spec.ts` 的失败为改动前已有的基线，已用 stash 对照确认）
+
 ## 2026-11-17
 - fix(frontend): 文件 chip（#文件名）在气泡内被从中间断行——根因：气泡容器带 `[overflow-wrap:anywhere]`（防超长 URL 撑破气泡），该属性会穿透进 chip 内部，把 `#wiring-diagram.html` 在连字符处断成两行；`.chip` 补 `white-space:nowrap + overflow-wrap:normal + word-break:keep-all`（chip 是不可分割整体，整体换行而非内部断开）。验证：新增单测 1 例锁定样式、E2E 实测 chip 单行（高 24px≈一行）且超长文件名不撑破气泡（scrollW === clientW）
 - feat(frontend): 过程输出展开/收起按钮的触控热区放大到 2 倍（宽高各 2×、面积 4×，可见标签尺寸不变）——外层透明 padding 承接点击，热区边缘也能触发；用 E2E 实测热区与可见区比例 + 边缘点击验证

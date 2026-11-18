@@ -360,14 +360,27 @@ test.skip("会话已有消息时进入：骨架短暂显示后消失（缓存命
 	);
 });
 
-test("运行中时排队消息隐藏「立即」按钮，保留「引导」按钮", async () => {
+test("运行中时排队消息也显示「立即」按钮（可中断当前轮先跑这条）", async () => {
 	useSessionStore.setState({
 		statusBySession: { s1: "thinking" },
 		queueBySession: { s1: { steering: [], followUp: ["排队消息"] } },
 	});
 	await renderSessionView("s1");
 	expect(screen.getByTestId("btn-promote")).toBeTruthy();
-	expect(screen.queryByTestId("btn-immediate")).toBeNull();
+	// 2026-11-18 修正：此前运行中隐藏「立即」+ 提示「先停止」，而停止会丢光队列，
+	// 用户按提示操作后要执行的那条一起没了——现在运行中「立即」直接可用。
+	const immediate = screen.getByTestId("btn-immediate");
+	expect(immediate).toBeTruthy();
+	expect((immediate as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("运行中提示不得再说「停止当前后可点击立即」（停止已不丢队列）", async () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		queueBySession: { s1: { steering: [], followUp: ["排队消息"] } },
+	});
+	await renderSessionView("s1");
+	expect(screen.queryByText(/停止当前后可点击/)).toBeNull();
 });
 
 test("空闲时排队消息显示「立即」按钮", async () => {
@@ -429,9 +442,9 @@ test("点击引导按钮发送 steer 请求 + 乐观更新", async () => {
 	expect(state.queueBySession["s1"]!.followUp).toEqual(["消息B"]);
 });
 
-test("点击立即按钮发送 steer:immediate 请求", async () => {
+test("点击立即按钮发送 steer:immediate 请求，且不把该条当「引导」提入引导区", async () => {
 	useSessionStore.setState({
-		statusBySession: { s1: "idle" },
+		statusBySession: { s1: "thinking" },
 		queueBySession: { s1: { steering: [], followUp: ["消息A", "消息B"] } },
 	});
 	await renderSessionView("s1");
@@ -444,6 +457,13 @@ test("点击立即按钮发送 steer:immediate 请求", async () => {
 	);
 	expect(calls).toHaveLength(1);
 	expect(calls[0].body).toEqual({ text: "消息A" });
+
+	// 乐观更新：该条已从排队区移出（要马上去跑了）
+	const state = useSessionStore.getState();
+	expect(state.queueBySession["s1"]!.followUp).toEqual(["消息B"]);
+	// 且不得进引导区：引导区语义是「下回合生效」，与本按钮「现在就跑」相反，
+	// 把要立即执行的消息留在引导区会让用户以为它还在等着下回合。
+	expect(state.queueBySession["s1"]!.steering).toEqual([]);
 });
 
 test("点击清空排队按钮立即清空全部排队（steering + followUp）", async () => {

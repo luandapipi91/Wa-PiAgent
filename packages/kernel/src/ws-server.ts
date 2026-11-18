@@ -1518,7 +1518,7 @@ export class WSServer {
 				// 不阻塞软删/广播/IM 映射——无响应 pi 进程曾让删除固定卡 5 秒。
 				// async 函数同步执行到首个 await：disposed 防复用标记在本次调用内同步生效。
 				void this.opts.agentManager
-					.disposeSession(event.sessionId)
+					.disposeSession(event.sessionId, { dropPending: true })
 					.catch((e) => {
 						console.error(
 							`[ws] session:delete 后台清理失败 session=${event.sessionId}:`,
@@ -2026,8 +2026,9 @@ export class WSServer {
 			}
 			case "steer:immediate-message": {
 				try {
-					await this.opts.agentManager.abort(event.sessionId);
-					await this.opts.agentManager.steerMessage(event.sessionId, event.text, {
+					// 立即执行 = 中断当前轮 + 该条马上跑，其余排队消息由 kernel 保留续跑
+					//（2026-11-18 语义修正：此前 abort+steer 会在 abort 里丢光队列）
+					await this.opts.agentManager.steerImmediate(event.sessionId, event.text, {
 						attachments: event.attachments,
 					});
 				} catch (err) {

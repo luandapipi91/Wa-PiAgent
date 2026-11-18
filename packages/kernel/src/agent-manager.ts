@@ -318,6 +318,11 @@ interface SessionHandle {
 	/** transient 网络错误标记：true 时 agent_settled 跳过 followUp/steer drain，
 	 *  避免网络不可用时自动发送排队消息（会再失败）。用户重发后清除。 */
 	netDegraded: boolean;
+	/** 队列暂停标记：用户点「停止」后置位，被中止轮的 agent_settled 不 drain——
+	 *  停下来就是停下来，否则下一条排队消息会立刻把「停止」顶起来。
+	 *  排队队列本身保留（用户随时可「立即」/「清空」）；用户下一次发送
+	 *  （prompt / 引导 / 立即，统一经 _sendPromptNow）自动解除。 */
+	queuePaused: boolean;
 	/** 崩溃自动接力计数（当前任务周期内）：用户主动发消息时清零（熔断参数） */
 	autoResumeCount: number;
 	/** 最近一次活跃时间戳（ms）：prompt / message_end / steer / 打开会话时刷新。
@@ -1650,6 +1655,7 @@ export class AgentManager {
 			lastCompactionAt: null,
 			messagesStale: false,
 			netDegraded: false,
+			queuePaused: false,
 			lastActiveAt: Date.now(),
 		};
 		const client = createClient({
@@ -1862,6 +1868,9 @@ export class AgentManager {
 				handle.thinkingSince = null;
 				// 一轮对话结束：清空该会话残留的 ask 条目（含断开保留的 disconnected，防泄漏）
 				askRegistry.clearSession(sessionId);
+				// 队列暂停（用户刚点了停止）：不 drain。排队消息保留，等用户下一次操作
+				// （立即/引导/发消息）恢复——否则下一条排队消息会立刻把「停止」顶起来。
+				if (handle.queuePaused) break;
 				// transient 网络错误期间跳过 drain：此时网络仍不可用，
 				// 自动发送排队/引导消息会再失败。队列保留，等用户重发恢复。
 				if (handle.netDegraded) {
@@ -2070,6 +2079,8 @@ export class AgentManager {
 		// 发送前自动压缩防护：上下文将超限时先 compact 再继续，避免 400
 		await this._autoCompactIfNeeded(sessionId, handle);
 		handle.busy = true;
+		// 任何一次真实发送都解除「停止」造成的队列暂停：用户动起来了，队列恢复续跑
+		handle.queuePaused = false;
 		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
 		if (handle.netDegraded) handle.netDegraded = false;
 		try {
@@ -2384,6 +2395,53 @@ export class AgentManager {
 		this._emitLocalQueueUpdate(sessionId, handle);
 	}
 
+	/** 立即执行：中断当前轮并立刻发送该条消息，其余排队消息保留、这轮跑完继续按序发出。
+	 *
+	 *  语义分工（2026-11-18 用户拍板）：
+	 *  - 停止（abort）：只中断当前轮，队列保留并暂停，不自动续跑
+	 *  - 立即（本方法）：中断 + 该条马上跑，其余保留续跑
+	 *  - 清空（clearQueue）：唯一丢队列的入口
+	 *
+	 *  空闲（没有在跑的轮次）时等价于直接发送该条。 */
+	async steerImmediate(
+		sessionId: string,
+		text: string,
+		opts?: { attachments?: AttachmentRef[] },
+	): Promise<void> {
+		console.log(`[agent-manager] immediate session=${sessionId} len=${text.length}`);
+		const handle = this.sessions.get(sessionId);
+		// 进程已被回收/冷启动中：与 steerMessage 同一条 pending WAL 交接路径
+		if (!handle) return this.steerMessage(sessionId, text, opts);
+
+		// 来自排队条目：附件从条目继承（前端只有文本，无法重传）；
+		// 界面新发的「立即」：attachments 经同一套 buildPromptContent 转换。
+		const queued = handle.followUpList.find((e) => e.text === text);
+		const images = queued
+			? queued.images
+			: (await buildPromptContent(text, opts?.attachments ?? [])).images;
+		// 先出队：被中止轮的 settled / queue_update 不得把它打回排队区
+		//（否则用户点了「立即」，消息却又回到排队列里，看起来没反应）
+		const fi = handle.followUpList.findIndex((e) => e.text === text);
+		if (fi >= 0) handle.followUpList.splice(fi, 1);
+
+		if (handle.busy) {
+			await this.abort(sessionId);
+			// abort 无响应会强杀进程并拆掉会话：退回 WAL 交接路径（消息不丢）
+			if (this.sessions.get(sessionId) !== handle) {
+				await this.steerMessage(sessionId, text, opts);
+				return;
+			}
+		}
+
+		// 入口先落 pending WAL：与 steerMessage 同语义（复用原条目 id，避免一条消息两个 WAL 条目）
+		const pendingId =
+			queued?.pendingId ??
+			(await enqueuePending(sessionId, { text, images })).id;
+		await this._sendPromptNow(sessionId, handle, text, images, pendingId);
+		handle.lastActiveAt = Date.now();
+		this._emitLocalQueueUpdate(sessionId, handle);
+	}
+
 	/** 发送引导消息。运行中优先调 pi steer()（mid-loop 投递），同时存本地兜底。
 	 *  attachments 附件全量透传（大文本片段内联、文件转 path: 引用、图片转多模态 images），
 	 *  与普通 prompt 路径同一套 buildPromptContent 转换。 */
@@ -2555,15 +2613,15 @@ export class AgentManager {
 
 		askRegistry.cancelAll(sessionId);
 		extUiRegistry.cancelAllForSession(sessionId); // 挂起的扩展对话一并作废
+		// 队列保留 + 暂停（2026-11-18 语义修正）：停止只中断当前轮。此前这里连带清空
+		// 内存双队列与 pending WAL，导致「运行中想用立即」这条路走不通——界面提示
+		// 「停止当前后可点击立即」，可停完队列表里的消息（含要立即执行的那条）已经没了。
+		// 现分工：停止 = 中断（队列保留但暂停，不自动续跑）、立即 = 中断 + 该条马上跑、
+		// 清空 = 唯一丢队列的入口。
+		handle.queuePaused = true;
+		// 引导消息随被中止的那一轮作废（它们本就是投给这一轮的），pi 侧 steering 队列
+		// 在 abort 结算后一并清掉，避免下次 prompt 时被 pi 自动注入造成重复投递。
 		handle.steerList = [];
-		handle.followUpList = [];
-		// 用户主动放弃排队消息：持久化 WAL 一并清空，与内存队列清空语义对齐。
-		// 否则已放弃的消息会在进程重启后被 drain 重投（「诈尸」）。
-		try {
-			await clearPending(sessionId);
-		} catch (e) {
-			console.error(`[kernel] session ${sessionId} 清空 pending WAL 失败:`, e);
-		}
 		this._emitLocalQueueUpdate(sessionId, handle);
 		// 级联中止在跑的子代理进程（delegate 派发时登记）：
 		// 不中止的话主会话停了子代理仍跑到完成，成孤儿且结果无人消费。
@@ -2607,6 +2665,17 @@ export class AgentManager {
 			this._teardownSession(sessionId);
 			return;
 		}
+		// pi 侧 steering 队列清空（Best effort）：本地 steerList 已作废，但 pi 的
+		// agent.steeringQueue 里可能还压着本轮未消费的引导消息——不清的话下次 prompt
+		// 起跑时 pi 会把它们当 steering 注入，变成「已作废的引导又冒出来」的重复投递。
+		try {
+			await handle.client.clearQueue();
+		} catch (err) {
+			console.warn(
+				`[agent-manager] abort 后清 pi 侧队列失败（旧版 pi 无 clear_queue，忽略）session=${sessionId}:`,
+				err,
+			);
+		}
 		handle.busy = false;
 		handle.thinkingSince = null;
 		// 结算清位：abort 响应与事件同一 stdout 管道 FIFO，pi 的 waitForIdle 返回前
@@ -2630,22 +2699,32 @@ export class AgentManager {
 	/** 清空排队消息：调 pi clear_queue RPC（0.84.4+）清 pi 侧 steering/followUp 队列，
 	 *  同步清本地 steerList/followUpList 并推送 queue_update 对齐前端。
 	 *  不 abort、不取消 ask。RPC 失败（旧版 pi 无 clear_queue）时兑底仅清本地队列，
-	 *  不阻塞用户操作。 */
+	 *  不阻塞用户操作。
+	 *  这是唯一「丢弃排队消息」的入口（停止/立即都保留队列），因此 pending WAL 必须
+	 *  一并清空——否则重启后 drain 会把用户已明确放弃的消息重投回来（诈尸）。 */
 	async clearQueue(sessionId: string): Promise<void> {
 		const handle = this.sessions.get(sessionId);
-		if (!handle) return;
-		try {
-			await handle.client.clearQueue();
-		} catch (err) {
-			// 旧版 pi 无 clear_queue 或 RPC 失败：仍清本地队列（不阻塞用户操作）
-			console.warn(
-				`[agent-manager] clear_queue RPC 失败，兑底仅清本地队列 session=${sessionId}:`,
-				err,
-			);
+		if (handle) {
+			try {
+				await handle.client.clearQueue();
+			} catch (err) {
+				// 旧版 pi 无 clear_queue 或 RPC 失败：仍清本地队列（不阻塞用户操作）
+				console.warn(
+					`[agent-manager] clear_queue RPC 失败，兑底仅清本地队列 session=${sessionId}:`,
+					err,
+				);
+			}
+			handle.steerList = [];
+			handle.followUpList = [];
+			handle.queuePaused = false;
 		}
-		handle.steerList = [];
-		handle.followUpList = [];
-		this._emitLocalQueueUpdate(sessionId, handle);
+		// handle 不存在（进程已回收，消息只在 WAL 里）同样要清，否则重启后照旧重投
+		try {
+			await clearPending(sessionId);
+		} catch (e) {
+			console.error(`[kernel] session ${sessionId} 清空 pending WAL 失败:`, e);
+		}
+		if (handle) this._emitLocalQueueUpdate(sessionId, handle);
 	}
 
 	/**
@@ -2955,8 +3034,14 @@ export class AgentManager {
 		);
 	}
 
-	/** 清理单个会话：标记 disposed（防创建中被复用）+ 先温和停止再拆除资源 */
-	async disposeSession(sessionId: string): Promise<void> {
+	/** 清理单个会话：标记 disposed（防创建中被复用）+ 先温和停止再拆除资源。
+	 *  opts.dropPending：会话被**删除**时传 true，排队消息再无归属，pending WAL 一并清掉
+	 *  （否则重启后重投一个已删除会话的消息，且孤儿 WAL 会阻塞空闲回收）。
+	 *  空闲回收/进程退出不传：排队消息属于用户，必须留给下次冷启动重投。 */
+	async disposeSession(
+		sessionId: string,
+		opts?: { dropPending?: boolean },
+	): Promise<void> {
 		// 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
 		this.disposed.add(sessionId);
 		// 删除前先温和停止。直接强杀有两个洞：
@@ -2965,13 +3050,24 @@ export class AgentManager {
 		// ② 冷启动窗口 proc 未就绪时 rpc-client.dispose() 开头的
 		//    `if (!proc || !isAlive()) return` 直接返回 → 进程照常起来
 		//    把排队任务跑完，成为 sessions Map 之外的孤儿继续消耗。
-		// 复用 abort 的完整语义（清队列 + 级联停子代理 + client.abort RPC +
+		// 复用 abort 的完整语义（中断当前轮 + 级联停子代理 + client.abort RPC +
 		// 超时强杀兕底 + 合成 agent_end）。abort 超时路径已自行 _teardownSession，
 		// 下方再调一次是幂等的（handle 已从 Map 移除时为 no-op）。
 		try {
 			await this.abort(sessionId);
 		} catch {
 			/* abort 失败不阻塞拆除：_teardownSession 兜底杀进程 */
+		}
+		// 会话被删除：排队消息不再有归属，pending WAL 一并清掉
+		if (opts?.dropPending) {
+			try {
+				await clearPending(sessionId);
+			} catch (e) {
+				console.error(
+					`[kernel] session ${sessionId} 删除时清空 pending WAL 失败:`,
+					e,
+				);
+			}
 		}
 		this._teardownSession(sessionId);
 	}

@@ -1012,7 +1012,7 @@ test("steerMessage — busy 时调 pi steer()，空闲时降级为 prompt()", as
 	expect(fake.steered).toEqual(["引导消息"]);
 });
 
-test("abort 清空排队列表 + 中断当前运行", async () => {
+test("abort 中断当前运行但保留排队列表（队列暂停，不自动续跑）", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 	const fake = fakes[0];
@@ -1025,6 +1025,12 @@ test("abort 清空排队列表 + 中断当前运行", async () => {
 
 	await am.abort(session.id);
 	expect(fake.aborts).toBe(1);
+	// 2026-11-18 语义修正：停止只中断当前轮，排队消息保留（丢队列归「清空」管）
+	const handle = (am as any).sessions.get(session.id);
+	expect(handle.followUpList.map((e: any) => e.text)).toEqual([
+		"排队A",
+		"排队B",
+	]);
 });
 
 test("用户主动停止：pi 的真实 agent_end 被标 synthetic（前端不响完成音效、不蹦青蛙）", async () => {
@@ -1156,7 +1162,7 @@ test("steerMessage — idle 时直接 prompt 生效", async () => {
 	expect(fakes[0].prompted).toEqual(["引导一下"]);
 });
 
-test("abort 清空 followUpList 并中断当前运行", async () => {
+test("abort 保留 followUpList 并中断当前运行", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 	const fake = fakes[0];
@@ -1170,9 +1176,9 @@ test("abort 清空 followUpList 并中断当前运行", async () => {
 
 	expect(fake.aborts).toBe(1);
 	expect(am.isSessionStreaming(session.id)).toBe(false);
-	// 新版 abort 清空本地 followUpList
+	// 2026-11-18 语义修正：停止只中断当前轮，排队消息保留（丢队列归「清空」管）
 	const handle = (am as any).sessions.get(session.id);
-	expect(handle.followUpList).toEqual([]);
+	expect(handle.followUpList.map((e: any) => e.text)).toEqual(["排队"]);
 });
 
 test("abort 无响应超时 → 强杀进程兜底：会话拆除、前端收到终态事件", async () => {
@@ -3144,18 +3150,18 @@ test("clearQueue：pi RPC 失败（旧版 pi 无 clear_queue）→ 兜底仅清�
 	expect(handle.followUpList).toEqual([]);
 });
 
-test("abort 清空 followUpList 并调用 client.abort", async () => {
+test("abort 保留 followUpList 并调用 client.abort", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	const handle = (am as any).sessions.get(session.id);
-	handle.followUpList = ["排队消息"];
+	handle.followUpList = [{ text: "排队消息", images: [] }];
 	handle.busy = true;
 
 	await am.abort(session.id);
 
-	// abort 后清空本地列表
-	expect(handle.followUpList).toEqual([]);
+	// 2026-11-18 语义修正：停止不再丢队列（「立即」曾在停止后无消息可点）
+	expect(handle.followUpList.map((e: any) => e.text)).toEqual(["排队消息"]);
 	// busy 归 false
 	expect(handle.busy).toBe(false);
 	// 调用了 client.abort

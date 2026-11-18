@@ -25,6 +25,7 @@ export const stubAgentManager = {
 	isSessionStreaming: (_sessionId: string) => false,
 	abort: async (_sessionId: string) => {},
 	steerMessage: async (_sessionId: string, _text: string) => {},
+	steerImmediate: async (_sessionId: string, _text: string) => {},
 	clearFollowUpList: (_sessionId: string) => {},
 };
 
@@ -88,8 +89,9 @@ export async function withServer<T>(
 				break;
 			case "steer:immediate-message":
 				try {
-					await am.abort(event.sessionId!);
-					await am.steerMessage(event.sessionId!, event.text!);
+					// 与生产 ws-server 同构：立即执行走 steerImmediate（中断 + 该条马上跑，
+					// 其余排队消息保留），不再拆成 abort + steerMessage。
+					await am.steerImmediate(event.sessionId!, event.text!);
 				} catch (err) {
 					broadcast({ type: "error", message: `立即执行失败: ${(err as Error).message}` });
 				}

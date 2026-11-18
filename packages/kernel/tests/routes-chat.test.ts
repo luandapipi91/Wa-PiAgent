@@ -119,22 +119,25 @@ test("POST steer：steerMessage 抛错 → HTTP 200，错误帧走 SSE 总线", 
   });
 });
 
-test("POST steer/immediate → 200 {ok:true}，abort + steerMessage 都被调用", async () => {
+test("POST steer/immediate → 200 {ok:true}，走 steerImmediate（不拆 abort+steer）", async () => {
   const calls: string[] = [];
   const am = chatStub({
     abort: async () => { calls.push("abort"); },
     steerMessage: async () => { calls.push("steerMessage"); },
+    steerImmediate: async (_sid: string, text: string) => { calls.push(`immediate:${text}`); },
   });
   await withServer(am, async (base) => {
     const res = await post(base, "/api/sessions/s1/steer/immediate", { text: "立刻" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(calls).toEqual(["abort", "steerMessage"]);
+    // 立即执行语义在 kernel 内部完成（中断 + 该条马上跑 + 其余排队保留），
+    // 路由层不再拆成 abort + steerMessage——拆开会让 abort 把队列丢光
+    expect(calls).toEqual(["immediate:立刻"]);
   });
 });
 
-test("POST steer/immediate：abort 抛错 → HTTP 200，错误帧走 SSE 总线", async () => {
-  const am = chatStub({ abort: async () => { throw new Error("abort炸了"); } });
+test("POST steer/immediate：steerImmediate 抛错 → HTTP 200，错误帧走 SSE 总线", async () => {
+  const am = chatStub({ steerImmediate: async () => { throw new Error("abort炸了"); } });
   await withServer(am, async (base) => {
     const reader = await openSse(base);
     const res = await post(base, "/api/sessions/s1/steer/immediate", { text: "x" });

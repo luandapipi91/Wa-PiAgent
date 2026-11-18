@@ -198,9 +198,11 @@ const en = {
 		pendingTitle: "Pending (auto-send when ready)",
 		steeringBtn: "Steer",
 		immediateBtn: "Now",
+		immediateHint:
+			"Interrupt this turn and run this message first (other queued messages are kept)",
 		queueCount: "{{count}} queued",
 		steerHintRunning:
-			'Steer: takes effect next turn │ after stopping you can click "Now"',
+			'Steer: takes effect next turn │ Now: interrupt this turn and run this message first',
 		steerHintIdle:
 			"Steer: takes effect next turn │ Now: run this message immediately",
 		widgetCollapse: "Collapse ✕",

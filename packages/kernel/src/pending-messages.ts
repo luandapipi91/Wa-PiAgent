@@ -147,7 +147,10 @@ export async function markFailed(sessionId: string, id: string): Promise<void> {
 	await writeAll(sessionId, list);
 }
 
-/** 清空该会话的全部 pending（abort 放弃排队消息时调用，与内存队列清空语义对齐） */
+/** 清空该会话的全部 pending。**唯一调用场景是用户明确放弃排队消息**：
+ *  「清空」按钮（clearQueue）与删除会话（disposeSession dropPending）。
+ *  停止/立即都不再清它（2026-11-18 语义修正）——队列会保留，所以 WAL 也必须保留；
+ *  否则重启后 drain 会把用户还在等的消息静默丢掉。 */
 export async function clearSession(sessionId: string): Promise<void> {
 	await rm(pendingFile(sessionId), { force: true });
 }
