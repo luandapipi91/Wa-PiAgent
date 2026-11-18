@@ -3611,3 +3611,163 @@ test("完整模式展开本轮过程：导出/复制按钮挂在整轮末尾（�
 	expect(screen.getAllByTestId(copyId).length).toBe(1);
 });
 
+
+// ===== 时间线顺序契约：展开「本轮过程」后必须严格按原始 content 顺序渲染 =====
+// 背景：完整模式展开时用 processSegs（已排除最后一条正文）+ 末尾补 finalTextSeg，
+// 导致「最后一条是工具调用」的轮次里正文被挪到最后（用户多次反馈执行顺序错乱）。
+// 这里用 DOM 顺序逐项比对，任何「把某段挪位」的实现都会红。
+
+type OrderToken =
+	| { kind: "text"; text: string }
+	| { kind: "tool"; id: string }
+	| { kind: "thinking"; text: string };
+
+/** 按 DOM 顺序收集本轮内容项，返回简化令牌序列 */
+function collectOrder(root: HTMLElement): OrderToken[] {
+	const out: OrderToken[] = [];
+	const walk = (el: HTMLElement) => {
+		for (const child of Array.from(el.children) as HTMLElement[]) {
+			const testId = child.getAttribute("data-testid") ?? "";
+			// 工具卡头部
+			if (/^toolcall-.+-header$/.test(testId)) {
+				const id = testId.replace(/^toolcall-/, "").replace(/-header$/, "");
+				out.push({ kind: "tool", id });
+				continue;
+			}
+			// 思考卡头部
+			if (testId === "thinking-panel-header") {
+				out.push({ kind: "thinking", text: child.textContent ?? "" });
+				continue;
+			}
+			// 正文气泡（只认叶子文本容器，避免父容器重复计入）
+			if (testId === "text-bubble") {
+				const t = (child.textContent ?? "").trim();
+				if (t) out.push({ kind: "text", text: t });
+				continue;
+			}
+			walk(child);
+		}
+	};
+	walk(root);
+	return out;
+}
+
+/** 断言给定轮次展开后，内容项顺序与原始 content 完全一致 */
+function expectTimelineOrder(mode: "concise" | "full") {
+	useUiPrefsStore.setState({ replyDisplayMode: mode });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "先看看" },
+						{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } },
+						{ type: "text", text: "第一段正文" },
+						{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "pwd" } },
+						{ type: "text", text: "第二段正文" },
+						// 关键：末尾仍是工具调用（中断/执行中），最后一条不是正文
+						{ type: "toolCall", id: "c3", name: "bash", arguments: { command: "git status" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	const { container } = render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	fireEvent.click(screen.getByTestId("turn-summary"));
+
+	const order = collectOrder(container.querySelector('[data-testid="message-list"]') as HTMLElement);
+	// 只保留内容项（忽略 thinking 的文案差异）
+	const simplified = order.map((o) => (o.kind === "text" ? `T:${o.text}` : o.kind === "tool" ? `C:${o.id}` : "THINK"));
+	expect(simplified).toEqual([
+		"THINK",
+		"C:c1",
+		"T:第一段正文",
+		"C:c2",
+		"T:第二段正文",
+		"C:c3",
+	]);
+}
+
+test("时间线顺序（精简模式/展开）：最后一条是工具调用时，正文仍留在原位", () => {
+	expectTimelineOrder("concise");
+});
+
+test("时间线顺序（完整模式/展开）：最后一条是工具调用时，正文仍留在原位", () => {
+	expectTimelineOrder("full");
+});
+
+test("时间线顺序（完整模式/展开）：操作区在整轮末尾，且不嵌在正文气泡内", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "full" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "先看看" },
+						{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } },
+						{ type: "text", text: "正文" },
+						{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "pwd" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	const copy = screen.getByTestId("copy-s1-2");
+	expect(
+		screen.getAllByTestId("text-bubble").some((b) => b.contains(copy)),
+		"操作区不应挂在正文气泡内",
+	).toBe(false);
+	expect(
+		copy.compareDocumentPosition(screen.getByTestId("toolcall-c2-header")) &
+			Node.DOCUMENT_POSITION_PRECEDING,
+		"操作区应在最后一个工具卡之后",
+	).toBeTruthy();
+});
+
+// 收起态契约（两模式都只显示一条）：最后一条是工具调用时，仍以最后一条正文作为显示。
+test("时间线顺序（精简模式/收起）：只显示最后一条正文，其余不可见", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "先看看" },
+						{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } },
+						{ type: "text", text: "第一段正文" },
+						{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "pwd" } },
+						{ type: "text", text: "第二段正文" },
+						{ type: "toolCall", id: "c3", name: "bash", arguments: { command: "git status" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	expect(screen.getByText("第二段正文")).toBeTruthy();
+	expect(screen.queryByText("第一段正文")).toBeNull();
+	expect(screen.queryByTestId("toolcall-c1-header")).toBeNull();
+});

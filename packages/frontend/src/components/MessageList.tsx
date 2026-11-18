@@ -1709,15 +1709,16 @@ export const MessageRow = memo(function MessageRow({
 								open={procOpen}
 								onToggle={() => setProcOpen((v) => !v)}
 							>
-								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
+								{/* 展开态必须按原始顺序渲染「全部段」（含最后一条正文）：
+								    否则它会被补到时间线末尾，与真实执行顺序不符
+								    （用户反馈：最后一条明明是工具调用，正文却跑到最后） */}
+								{(procOpen ? segments : processSegs).map((seg, si) =>
+									renderSeg(seg, si, false, "bubble", !procOpen),
+								)}
 							</TurnSummary>
 							{procOpen ? (
-								<>
-									{/* 展开态：时间线里不挂操作区，最终回复也不挂；统一挂到整轮末尾 */}
-									{finalTextSeg &&
-										renderSeg(finalTextSeg, processSegs.length, false, "bubble", false)}
-									{!isStreaming && !isActiveTurnRow && renderFinalChrome()}
-								</>
+								/* 展开态：正文已在时间线里按原序渲染，这里只挂整轮末尾的操作区 */
+								!isStreaming && !isActiveTurnRow && renderFinalChrome()
 							) : (
 								<>
 									<OutputsCard>
