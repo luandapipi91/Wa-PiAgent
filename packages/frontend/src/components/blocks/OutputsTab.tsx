@@ -23,6 +23,8 @@ export function OutputsTab({
 	const label = t("message.outputs.title", { count });
 	const chevron = open ? "chevron-down" : "chevron-up";
 	return (
+		// 触控热区 = 可见标签的 2 倍：外层按钮带透明 padding（视觉不变），
+		// 内层 span 才是看得见的凸起标签。上下左右各外扩 17px/12px（≈2 倍面积）。
 		<button
 			type="button"
 			ref={anchorRef}
@@ -31,12 +33,17 @@ export function OutputsTab({
 			aria-label={label}
 			title={label}
 			onClick={onToggle}
-			className="absolute -top-[17px] right-3 z-10 h-[17px] px-2 inline-flex items-center justify-center border border-b-0 border-hairline bg-surface text-tertiary hover:text-secondary select-none"
-			style={{ borderRadius: "4px 4px 0 0" }}
+			className="absolute right-1 z-10 flex items-start justify-end bg-transparent select-none cursor-pointer"
+			style={{ top: -34, padding: "17px 6px 0 20px" }}
 		>
-			<span className="flex flex-col items-center -my-0.5">
-				<Icon name={chevron} size={8} />
-				<Icon name={chevron} size={8} className="-mt-1" />
+			<span
+				className="h-[17px] px-2 inline-flex items-center justify-center border border-b-0 border-hairline bg-surface text-tertiary"
+				style={{ borderRadius: "4px 4px 0 0" }}
+			>
+				<span className="flex flex-col items-center -my-0.5">
+					<Icon name={chevron} size={8} />
+					<Icon name={chevron} size={8} className="-mt-1" />
+				</span>
 			</span>
 		</button>
 	);
