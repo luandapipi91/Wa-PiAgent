@@ -1712,7 +1712,12 @@ export const MessageRow = memo(function MessageRow({
 								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
 							</TurnSummary>
 							{procOpen ? (
-								finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)
+								<>
+									{/* 展开态：时间线里不挂操作区，最终回复也不挂；统一挂到整轮末尾 */}
+									{finalTextSeg &&
+										renderSeg(finalTextSeg, processSegs.length, false, "bubble", false)}
+									{!isStreaming && !isActiveTurnRow && renderFinalChrome()}
+								</>
 							) : (
 								<>
 									<OutputsCard>

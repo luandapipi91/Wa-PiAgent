@@ -3552,5 +3552,62 @@ test("展开本轮过程：导出/复制按钮挂在整轮末尾，不跟随正�
 		"导出/复制按钮应在最后一个工具卡之后（整轮末尾）",
 	).toBeTruthy();
 	// 全行只出现一次按钮
+	const lastToolC2 = screen.getByTestId("toolcall-t2-header");
+	expect(
+		copy.compareDocumentPosition(lastToolC2) & Node.DOCUMENT_POSITION_PRECEDING,
+		"按钮应在最后一个工具卡之后（整轮末尾）",
+	).toBeTruthy();
 	expect(screen.getAllByTestId(copyId).length).toBe(1);
 });
+
+// 回归（用户反馈）：完整输出模式下展开「本轮过程」，导出/复制按钮同样必须挂在整轮末尾。
+test("完整模式展开本轮过程：导出/复制按钮挂在整轮末尾（不在正文气泡内部）", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "full" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{ type: "text", text: "中间正文" },
+						{ type: "toolCall", id: "t1", name: "bash", arguments: { command: "ls" } },
+						{ type: "text", text: "最后一条正文" },
+						// 末尾还有工具调用（中断/执行中）——正文不在最后，按钮不能跟着它进中段
+						{ type: "toolCall", id: "t2", name: "bash", arguments: { command: "pwd" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	const copyId = "copy-s1-2";
+	expect(screen.getByTestId(copyId)).toBeTruthy();
+
+	fireEvent.click(screen.getByTestId("turn-summary"));
+
+	const copy = screen.getByTestId(copyId);
+	// 关键契约：按钮不能嵌在任何正文气泡内部（嵌在气泡里 ⇒ 跟着正文进中段）
+	const insideBubble = screen
+		.getAllByTestId("text-bubble")
+		.some((b) => b.contains(copy));
+	expect(insideBubble, "按钮不应挂在正文气泡内部").toBe(false);
+	// 且位于所有正文气泡与工具卡之后
+	const lastBubble = screen.getAllByTestId("text-bubble").at(-1)!;
+	expect(
+		copy.compareDocumentPosition(lastBubble) & Node.DOCUMENT_POSITION_PRECEDING,
+	).toBeTruthy();
+	expect(
+		copy.compareDocumentPosition(screen.getByTestId("toolcall-t2-header")) &
+			Node.DOCUMENT_POSITION_PRECEDING,
+		"按钮应在最后一个工具卡之后（整轮末尾）",
+	).toBeTruthy();
+	expect(screen.getAllByTestId(copyId).length).toBe(1);
+});
+
