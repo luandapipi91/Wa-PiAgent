@@ -1588,6 +1588,9 @@ export const MessageRow = memo(function MessageRow({
 		segIsStreaming: boolean,
 		// bubble = 普通气泡（含导出/复制/文件清单）；plain = 只渲染正文，供合并输出卡片使用
 		shell: "bubble" | "plain" | "plain-joined" = "bubble",
+		// 是否把「导出 / 复制 / 文件清单」挂在这一段下面。默认由 seg === finalTextSeg 决定；
+		// 展开时间线时最终回复内联在中段，按钮不能跟着它进中间 → 调用方传 false，改挂整轮末尾。
+		showChrome?: boolean,
 	) => {
 		// 思考过程 — ProcessCard：每段独立成卡（不合并），区分 finalized vs streaming
 		if (seg.kind === "thinking") {
@@ -1681,9 +1684,10 @@ export const MessageRow = memo(function MessageRow({
 						/>
 					))}
 				</div>
-				{seg === finalTextSeg && !isStreaming && !isActiveTurnRow && (
-					renderFinalChrome()
-				)}
+				{(showChrome ?? seg === finalTextSeg) &&
+					!isStreaming &&
+					!isActiveTurnRow &&
+					renderFinalChrome()}
 			</div>
 		);
 	};
@@ -1732,9 +1736,12 @@ export const MessageRow = memo(function MessageRow({
 								    否则最后那条正文会被挪到时间线末尾，与真实执行顺序不符
 								    （用户反馈：展开后执行顺序被打乱） */}
 								{(procOpen ? segments : processSegs).map((seg, si) =>
-									renderSeg(seg, si, false),
+									// 展开态：按钮不挂在正文上（它内联在中段，按钮必须留在整轮末尾）
+									renderSeg(seg, si, false, "bubble", !procOpen),
 								)}
 							</TurnSummary>
+							{/* 展开态：导出/复制/文件清单固定挂整轮末尾（不随正文进中段） */}
+							{procOpen && !isStreaming && !isActiveTurnRow && renderFinalChrome()}
 							{/* 本轮过程展开时：时间线里已经按原始顺序包含全部正文，
 							    卡片、凸起标签、外置的最终回复一律隐藏，避免重复与顺序错乱 */}
 							{/* key 必须稳定：无 key 时 React 按位置复用，插入/移除卡片会把下面的

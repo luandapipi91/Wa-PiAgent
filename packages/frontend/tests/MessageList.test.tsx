@@ -3510,3 +3510,47 @@ test("展开本轮过程：最后一条正文仍在其原始位置（不被挪�
 	// 且不重复
 	expect(screen.getAllByText("修复完成，合并推送：").length).toBe(1);
 });
+
+// 回归（用户反馈）：展开「本轮过程」后，导出/复制按钮必须留在整轮末尾，
+// 不能跟着最终回复跑到时间线中段。
+test("展开本轮过程：导出/复制按钮挂在整轮末尾，不跟随正文进中段", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{ type: "text", text: "中间正文" },
+						{ type: "toolCall", id: "t1", name: "bash", arguments: { command: "ls" } },
+						{ type: "text", text: "最后一条正文" },
+						{ type: "toolCall", id: "t2", name: "bash", arguments: { command: "pwd" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	const copyId = "copy-s1-2";
+	// 收起态：按钮在最终回复气泡下方
+	expect(screen.getByTestId(copyId)).toBeTruthy();
+
+	fireEvent.click(screen.getByTestId("turn-summary"));
+
+	// 展开态：按钮仍在，且位于最后一个工具卡之后（整轮末尾），而不是紧跟中段的最终回复
+	const copy = screen.getByTestId(copyId);
+	const lastTool = screen.getByTestId("toolcall-t2-header");
+	expect(
+		copy.compareDocumentPosition(lastTool) & Node.DOCUMENT_POSITION_PRECEDING,
+		"导出/复制按钮应在最后一个工具卡之后（整轮末尾）",
+	).toBeTruthy();
+	// 全行只出现一次按钮
+	expect(screen.getAllByTestId(copyId).length).toBe(1);
+});
