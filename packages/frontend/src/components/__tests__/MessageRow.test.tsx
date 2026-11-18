@@ -141,12 +141,23 @@ test("正常顺序 [THINK, CALL, TEXT]：最后 text 外置为最终回复，渲
 		summaryRoot.compareDocumentPosition(bubbles[0]) &
 			Node.DOCUMENT_POSITION_FOLLOWING,
 	).toBeTruthy();
-	// 展开过程块后，过程流内不含 text 段（只有过程卡）
+	// 展开过程块后：按原始时间线渲染全部段，最后那条正文回到它在过程流里的真实位置
+	// （2026-11-18 用户反馈：展开后执行顺序被打乱，正文必须留在原位而不是挪到末尾）
 	fireEvent.click(screen.getByTestId("turn-summary"));
+	const expandedBubbles = summaryRoot.lastElementChild!.querySelectorAll(
+		'[data-testid="text-bubble"]',
+	);
+	expect(expandedBubbles.length).toBe(1);
+	// 正文在工具卡之后（原始顺序 THINK → CALL → TEXT）
 	expect(
-		summaryRoot.lastElementChild!.querySelectorAll('[data-testid="text-bubble"]')
-			.length,
-	).toBe(0);
+		expandedBubbles[0].compareDocumentPosition(
+			screen.getByTestId("toolcall-call-1"),
+		) & Node.DOCUMENT_POSITION_PRECEDING,
+	).toBeTruthy();
+	// 展开态下外置的最终回复不再重复出现
+	expect(
+		container.querySelectorAll('[data-testid="text-bubble"]').length,
+	).toBe(1);
 });
 
 test("纯 [TEXT] 单段（无过程卡）：直接渲染最终回复，无过程摘要块（回归）", () => {

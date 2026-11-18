@@ -1728,14 +1728,20 @@ export const MessageRow = memo(function MessageRow({
 								open={procOpen}
 								onToggle={() => setProcOpen((v) => !v)}
 							>
-								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
+								{/* 展开态必须按原始顺序渲染「全部段」（含最后一条正文）：
+								    否则最后那条正文会被挪到时间线末尾，与真实执行顺序不符
+								    （用户反馈：展开后执行顺序被打乱） */}
+								{(procOpen ? segments : processSegs).map((seg, si) =>
+									renderSeg(seg, si, false),
+								)}
 							</TurnSummary>
-							{/* 本轮过程展开时正文已在时间线里，卡片与凸起标签一律隐藏，避免同一段文本出两次 */}
+							{/* 本轮过程展开时：时间线里已经按原始顺序包含全部正文，
+							    卡片、凸起标签、外置的最终回复一律隐藏，避免重复与顺序错乱 */}
 							{/* key 必须稳定：无 key 时 React 按位置复用，插入/移除卡片会把下面的
 							    最终回复气泡重挂载，视口锚点在 apply() 之后失联、回位被跳过 */}
 							{/* 展开态：输出卡片与下方正文拼成一块（无间隙、去掉两者交界处的边框），
 							    与完整输出模式的整块观感一致；收起态只有正文气泡 */}
-							{finalTextSeg && (
+							{!procOpen && finalTextSeg && (
 								<div
 									key="final-reply"
 									className={[

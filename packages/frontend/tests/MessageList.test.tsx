@@ -3470,3 +3470,43 @@ test("中断轮且无任何正文：只剩摘要行，展开可见过程", () =>
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("toolcall-t1-header")).toBeTruthy();
 });
+
+// 回归（用户反馈）：展开「本轮过程」时必须按原始顺序渲染，不能把最后一条正文挪到底部。
+// 场景：最后一条正文之后还有工具调用（中断/执行中）——该正文必须留在工具之前。
+test("展开本轮过程：最后一条正文仍在其原始位置（不被挪到时间线末尾）", () => {
+	useUiPrefsStore.setState({ replyDisplayMode: "concise" });
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考中" },
+						{ type: "text", text: "修复完成，合并推送：" },
+						{ type: "toolCall", id: "t1", name: "bash", arguments: { command: "git push" } },
+					],
+					2,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	// 收起态：最后一条正文外置可见
+	expect(screen.getByText("修复完成，合并推送：")).toBeTruthy();
+	fireEvent.click(screen.getByTestId("turn-summary"));
+
+	// 展开后：正文必须仍排在工具卡之前（原始顺序）
+	const textEl = screen.getByText("修复完成，合并推送：");
+	const toolEl = screen.getByTestId("toolcall-t1-header");
+	expect(
+		textEl.compareDocumentPosition(toolEl) & Node.DOCUMENT_POSITION_FOLLOWING,
+		"正文应在工具卡之前（原始时间线顺序）",
+	).toBeTruthy();
+	// 且不重复
+	expect(screen.getAllByText("修复完成，合并推送：").length).toBe(1);
+});
