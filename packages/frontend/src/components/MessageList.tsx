@@ -1587,7 +1587,7 @@ export const MessageRow = memo(function MessageRow({
 		key: number,
 		segIsStreaming: boolean,
 		// bubble = 普通气泡（含导出/复制/文件清单）；plain = 只渲染正文，供合并输出卡片使用
-		shell: "bubble" | "plain" = "bubble",
+		shell: "bubble" | "plain" | "plain-joined" = "bubble",
 	) => {
 		// 思考过程 — ProcessCard：每段独立成卡（不合并），区分 finalized vs streaming
 		if (seg.kind === "thinking") {
@@ -1638,9 +1638,18 @@ export const MessageRow = memo(function MessageRow({
 			);
 		}
 		// 主回复内容 — 文字 + markdown
-		if (shell === "plain") {
+		if (shell === "plain" || shell === "plain-joined") {
+			// plain-joined：与上方合并卡片连成一体（去上边框/上圆角），用于展开态的最终回复段
 			return (
-				<div key={key} className="px-3.5 py-2.5">
+				<div
+					key={key}
+					className={[
+						"px-3.5 py-2.5",
+						shell === "plain-joined"
+							? "border-t border-dashed border-hairline bg-surface"
+							: "",
+					].join(" ")}
+				>
 					{seg.texts.map((text, i) => (
 						<TextContent
 							key={seg.blockIdxs[i]}
@@ -1724,15 +1733,31 @@ export const MessageRow = memo(function MessageRow({
 							{/* 本轮过程展开时正文已在时间线里，卡片与凸起标签一律隐藏，避免同一段文本出两次 */}
 							{/* key 必须稳定：无 key 时 React 按位置复用，插入/移除卡片会把下面的
 							    最终回复气泡重挂载，视口锚点在 apply() 之后失联、回位被跳过 */}
-							{!procOpen && outputsOpen && !isError && (
-								<OutputsCard key="outputs-card">
-									{midTextSegs.map((seg, si) =>
-										renderSeg(seg, si, false, "plain"),
-									)}
-								</OutputsCard>
-							)}
+							{/* 展开态：输出卡片与下方正文拼成一块（无间隙、去掉两者交界处的边框），
+							    与完整输出模式的整块观感一致；收起态只有正文气泡 */}
 							{finalTextSeg && (
-								<div key="final-reply" className="relative">
+								<div
+									key="final-reply"
+									className={[
+										"relative",
+										// 展开时负 margin 抵消父级 gap-1.5（卡片与正文已拼成一块，不再需要间隙）
+										!procOpen && outputsOpen && !isError ? "-mb-1.5" : "",
+									].join(" ")}
+								>
+									{!procOpen && outputsOpen && !isError && (
+										<OutputsCard key="outputs-card" joined>
+											{midTextSegs.map((seg, si) =>
+												renderSeg(seg, si, false, "plain"),
+											)}
+											{/* 展开时最终回复也进同一张卡片的下半段：段间虚线连续、无独立气泡外观 */}
+											{renderSeg(
+												finalTextSeg,
+												processSegs.length,
+												false,
+												"plain-joined",
+											)}
+										</OutputsCard>
+									)}
 									{!procOpen && midTextSegs.length > 0 && !isError && (
 										<OutputsTab
 											count={midTextSegs.length}
@@ -1741,7 +1766,9 @@ export const MessageRow = memo(function MessageRow({
 											anchorRef={outputsTabRef}
 										/>
 									)}
-									{renderSeg(finalTextSeg, processSegs.length, false)}
+									{/* 展开态最终回复已并入上方卡片；收起态渲染独立气泡 */}
+									{!(outputsOpen && !procOpen && !isError) &&
+										renderSeg(finalTextSeg, processSegs.length, false)}
 								</div>
 							)}
 						</>

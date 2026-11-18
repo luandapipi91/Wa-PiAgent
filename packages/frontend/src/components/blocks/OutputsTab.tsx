@@ -2,8 +2,9 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 
 /**
- * 「过程输出」凸起标签（仅精简输出模式）：挂在最终回复卡片右上角，与卡片连体
- * （上/左/右边框，无下边框），双上箭头表示可向上展开本轮的正式输出；展开后箭头翻转。
+ * 「过程输出」凸起标签（仅精简输出模式）：挂在整块回复区域的右上角（收起/展开都在
+ * 同一位置——展开时过程输出卡片与正文拼成一块，标签仍是这一整块的上沿）。
+ * 与下方卡片连体（上/左/右边框、无下边框），双箭头表示可展开/收起本轮正式输出。
  * 条数不占视觉，放在 aria-label / title 里。
  */
 export function OutputsTab({
@@ -30,7 +31,7 @@ export function OutputsTab({
 			aria-label={label}
 			title={label}
 			onClick={onToggle}
-			className="absolute -top-[17px] right-5 z-10 h-[17px] px-2 inline-flex items-center justify-center border border-b-0 border-hairline bg-surface text-tertiary hover:text-secondary select-none"
+			className="absolute -top-[17px] right-3 z-10 h-[17px] px-2 inline-flex items-center justify-center border border-b-0 border-hairline bg-surface text-tertiary hover:text-secondary select-none"
 			style={{ borderRadius: "4px 4px 0 0" }}
 		>
 			<span className="flex flex-col items-center -my-0.5">
