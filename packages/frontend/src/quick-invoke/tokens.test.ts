@@ -143,3 +143,17 @@ test("textToSegments：定位文本还原为 element segment", () => {
 		{ type: "text", value: " 这里" },
 	]);
 });
+
+// 回归：chip 必须是不可分割的整体。用户气泡容器带 overflow-wrap:anywhere（防超长 URL
+// 撑破气泡），该属性会穿透进 chip 内部，把 #wiring-diagram.html 在连字符处断成两行
+// （用户反馈：文件 chip 标签换行了）。.chip 必须显式关掉内部折行。
+test("chip 样式禁止内部折行（white-space:nowrap + overflow-wrap:normal）", () => {
+	// ensureChipStyles 是幂等的（beforeEach 已注入）；直接读注入后的样式表内容
+	const css = Array.from(document.querySelectorAll("style"))
+		.map((s) => s.textContent ?? "")
+		.join("\n");
+	const block = css.slice(css.indexOf(".chip {"), css.indexOf(".chip-agent {"));
+	expect(block).toContain("white-space: nowrap");
+	expect(block).toContain("overflow-wrap: normal");
+	expect(block).toContain("word-break: keep-all");
+});

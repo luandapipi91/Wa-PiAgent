@@ -188,6 +188,14 @@ export function ensureChipStyles() {
       margin: 0 1px;
       vertical-align: baseline;
       user-select: all;
+      /* chip 是一个不可分割的视觉整体：必须整体换行，绝不在内部断开。
+         气泡容器带 overflow-wrap:anywhere（防超长 URL 撑破气泡），它会穿透到
+         chip 内部把 #wiring-diagram.html 在连字符处断成两行——这里显式关掉。 */
+      white-space: nowrap;
+      overflow-wrap: normal;
+      word-break: keep-all;
+      max-width: 100%;
+      flex: 0 0 auto;
     }
     .chip-agent {
       background-color: var(--accent-soft, #EEEEFF);
