@@ -29,6 +29,20 @@
  * @param apply 实际执行状态切换的函数
  * @param delayMs 阶段 1 补偿延迟（默认 250ms；测试注入 0）
  */
+/**
+ * 手动展开/收起补偿进行中（与 MessageList 的协作点）。
+ * MessageList 的 handleAtBottomChange 会把「内容高度变化导致的被动离底」当成
+ * 「用户意图贴底」并滚回底部；而手动切换时用户是在读当前位置，回底会把他正在看的内容
+ * 顶出视区（用户反馈的问题）。补偿窗口内抑制这条回拉。
+ */
+let suppressRepinUntil = 0;
+const REPIN_SUPPRESS_MS = 1200;
+
+/** 是否处于手动展开/收起的视口补偿窗口内（MessageList 用它跳过贴底回拉）。 */
+export function isViewportToggleInFlight(): boolean {
+	return Date.now() < suppressRepinUntil;
+}
+
 export function togglePreservingViewport(
 	anchor: HTMLElement,
 	apply: () => void,
@@ -40,27 +54,71 @@ export function togglePreservingViewport(
 		apply();
 		return;
 	}
-	const distanceToBottom =
-		scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-	if (distanceToBottom < 40) {
-		// 贴底：交给 MessageList 贴底跟随逻辑
-		apply();
-		return;
-	}
+	const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+	const contentFitsViewport = maxScroll <= 1;
+	// 注：贴底时也必须走锚点回位。贴底策略保持的是「列表底部」不动，若在锚点上方插入
+	// 内容（如展开过程输出卡片），正在阅读的那条正文会被顶出视区——用户反馈的问题。
+	// 锚点回位保持的是阅读位置，展开后视口自然离开底部，由 MessageList 的假贴底检测接管。
 	const beforeTop = anchor.getBoundingClientRect().top;
 	const beforeDocTop = beforeTop + scroller.scrollTop;
+	// 补偿窗口内置位：阻止 MessageList 把这次高度变化当成「被动离底→滚回底部」
+	suppressRepinUntil = Date.now() + REPIN_SUPPRESS_MS;
 	apply();
 	// 阶段 2 同步启动：归零紧跟 clamp 发生，恢复必须抢在 Virtuoso 异步重算可视
 	// 区间之前，否则目标行被虚拟化 unmount/remount，行内展开状态全部丢失
 	const cleanup = watchViewportReset(scroller, beforeTop, beforeDocTop);
-	setTimeout(() => {
+	// 阶段 1 重试：Virtuoso 的总高度是异步收敛的，首次写入 scrollTop 时若 scrollHeight
+	// 仍是旧值会被 clamp 成 0（内容不足一屏的空列表尤其明显——用户点开凸起标签后
+	// 正在读的正文被顶出视区）。收敛前每 50ms 重试，最多 1s。
+	// 补偿窗口持续 1s：Virtuoso 的总高度经 ResizeObserver 异步收敛，且贴底跟随/timer
+	// 可能把 scrollTop 拽回底部——单次写入不够，按固定节奏重试直到锚点归位。
+	let tries = 0;
+	const deadline = Date.now() + 1000;
+	const tick = () => {
+		suppressRepinUntil = Date.now() + 300;
 		restoreAfterToggle(scroller, anchor, beforeTop);
-	}, delayMs);
-	// 阶段 3：贴底解除。折叠后视口往往被 clamp 到物理贴底位置（剩余不足一屏），
-	// Virtuoso 内建 bottom-pinning 会在后续内容增长（流式输出）时把视口拽到新底部。
-	// 布局收敛后拉离贴底阈值（与 atBottomThreshold=20 同量级）即可解除跟随；
-	// 假贴底检测已把 stickBottom 压住，MessageList 的回拉逻辑不会与之竞争。
+		tries += 1;
+		// 锚点位置精确对上，但容器已到滚动尽头（st === max）时仍可能被裁掉一部分：
+		// 展开在锚点上方插入了内容，列表没有余量再往下滚。此时把视口整体上挪，让锚点
+		// 完整可见——阅读位置优先于「保持贴底」（用户反馈：展开后正文被顶出视区）。
+		if (anchor.isConnected) {
+			const rect = anchor.getBoundingClientRect();
+			const sRect = scroller.getBoundingClientRect();
+			const overflowBottom = rect.bottom - sRect.bottom;
+			const max = scroller.scrollHeight - scroller.clientHeight;
+			if (overflowBottom > 1 && scroller.scrollTop >= max - 1) {
+				scroller.scrollTop = Math.max(0, scroller.scrollTop + overflowBottom + 8);
+				// 上挪后仍需保证顶部不越界
+				if (anchor.getBoundingClientRect().top < sRect.top) {
+					scroller.scrollTop = Math.max(
+						0,
+						scroller.scrollTop - (sRect.top - anchor.getBoundingClientRect().top) - 8,
+					);
+				}
+			}
+		}
+		const settled =
+			!anchor.isConnected ||
+			Math.abs(anchor.getBoundingClientRect().top - beforeTop) <= 1;
+		if (!settled && Date.now() < deadline) setTimeout(tick, 50);
+	};
+	// 首次补偿放在下一帧：同步执行时 DOM 尚未提交（scrollHeight 仍是旧值，写入会被
+	// clamp 掉），等到 delayMs（250ms）又会先让用户看到一次跳动。rAF 后布局已更新，
+	// 一次即可归位；后续再按节奏纠偏，直到锚点稳定。
+	requestAnimationFrame(tick);
+	if (delayMs > 0) setTimeout(tick, delayMs);
+	// 阶段 3：贴底解除。折叠后视口可能被 clamp 到物理贴底位置，Virtuoso 内建
+	// bottom-pinning 会在后续内容增长时把视口拽到新底部。布局收敛后拉离贴底阈值
+	// （与 atBottomThreshold=20 同量级）即可解除跟随。
+	// 注意：锚点已回位时**必须跳过**——展开场景下锚点回位才是用户想要的阅读位置，
+	// 再拉一次会把他正在读的正文重新顶出视区（与阶段 1 来回拉锯）。
 	setTimeout(() => {
+		// 内容不足一屏时不涉及贴底跟随，且此处任何 scrollTop 写入都会被 clamp 掉
+		if (contentFitsViewport) return;
+		const settled =
+			!anchor.isConnected ||
+			Math.abs(anchor.getBoundingClientRect().top - beforeTop) <= 1;
+		if (settled) return;
 		const distToBottom =
 			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
 		if (distToBottom < 20)
@@ -111,11 +169,14 @@ function restoreAfterToggle(
 	beforeTop: number,
 ): void {
 	const max = scroller.scrollHeight - scroller.clientHeight;
-	// 阶段 1：锚点回位（补偿 clamp 造成的视口偏移）
-	if (anchor.isConnected) {
-		const delta = anchor.getBoundingClientRect().top - beforeTop;
-		if (Math.abs(delta) > 0.5) {
-			scroller.scrollTop = Math.max(0, Math.min(scroller.scrollTop + delta, max));
-		}
-	}
+	if (!anchor.isConnected) return;
+	// 目标：锚点在视口里的位置与切换前一致。
+	// 当前偏差 = 现在的位置 - 切换前的位置；把 scrollTop 沿着这个偏差反方向修正。
+	// 注意这是「相对视口」的量，与内容是否整体下移无关——这正是它与旧实现的关键区别：
+	// 旧实现用同一量反复加减，内容下移被当成需要滚动，把锚点越推越远。
+	const currentTop = anchor.getBoundingClientRect().top;
+	const delta = currentTop - beforeTop;
+	if (Math.abs(delta) <= 0.5) return;
+	scroller.scrollTop = Math.max(0, Math.min(scroller.scrollTop + delta, max));
+	return;
 }

@@ -51,7 +51,10 @@ import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
 import { OutputsCard } from "./blocks/OutputsCard";
 import { OutputsTab } from "./blocks/OutputsTab";
-import { togglePreservingViewport } from "./blocks/toggleViewport";
+import {
+	togglePreservingViewport,
+	isViewportToggleInFlight,
+} from "./blocks/toggleViewport";
 import { ToolCallsSegment } from "./blocks/ToolCallNested";
 import { AnsiText } from "./ui/AnsiText";
 import { mediaKindOf } from "./blocks/file-path";
@@ -629,6 +632,9 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 						// 用户刚上翻（含惯性滚动）→ 不拉回，停止跟随
 						userScrolledAwayRef.current = false;
 					} else if (stickBottomRef.current) {
+						// 手动展开/收起（过程输出、凸起标签、摘要行）触发的离底不是用户意图变化：
+						// 此刻用户正在读当前位置，回底会把他看的内容顶出视区（用户反馈的问题）。
+						if (isViewportToggleInFlight()) return;
 						// 内容高度变化（折叠/展开）被动离底：用户意图贴底 → 滚回底部
 						scrollToEnd();
 					}
@@ -1334,8 +1340,12 @@ export const MessageRow = memo(function MessageRow({
 	const [procOpen, setProcOpen] = useState(false);
 	// 过程输出是第三个可展开控件：与 TurnSummary/ProcessCard 一致，切换时用锚点保持视口位置
 	const outputsTabRef = useRef<HTMLButtonElement | null>(null);
+	// 最终回复气泡的 DOM 引用：展开/收起过程输出时以它自身为视口锚点
+	// （凸起标签在气泡上方 17px，且展开时箭头翻转，不适合当锚点）。
+	const finalBubbleRef = useRef<HTMLDivElement | null>(null);
 	const toggleOutputs = () => {
-		const el = outputsTabRef.current;
+		// 锚点优先用最终回复气泡本身：用户正在读的是它，凸起标签在其上方 17px 且会翻转箭头
+		const el = finalBubbleRef.current ?? outputsTabRef.current;
 		const apply = () => setOutputsOpen((v) => !v);
 		if (el) togglePreservingViewport(el, apply);
 		else apply();
@@ -1643,7 +1653,12 @@ export const MessageRow = memo(function MessageRow({
 			);
 		}
 		return (
-			<div key={key} className="flex flex-col gap-1" data-testid="text-bubble">
+			<div
+				key={key}
+				ref={seg === finalTextSeg ? finalBubbleRef : undefined}
+				className="flex flex-col gap-1"
+				data-testid="text-bubble"
+			>
 				<div
 					className={`text-[calc(13.5px*var(--font-scale))] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`}
 					style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
@@ -1707,15 +1722,17 @@ export const MessageRow = memo(function MessageRow({
 								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
 							</TurnSummary>
 							{/* 本轮过程展开时正文已在时间线里，卡片与凸起标签一律隐藏，避免同一段文本出两次 */}
+							{/* key 必须稳定：无 key 时 React 按位置复用，插入/移除卡片会把下面的
+							    最终回复气泡重挂载，视口锚点在 apply() 之后失联、回位被跳过 */}
 							{!procOpen && outputsOpen && !isError && (
-								<OutputsCard>
+								<OutputsCard key="outputs-card">
 									{midTextSegs.map((seg, si) =>
 										renderSeg(seg, si, false, "plain"),
 									)}
 								</OutputsCard>
 							)}
 							{finalTextSeg && (
-								<div className="relative">
+								<div key="final-reply" className="relative">
 									{!procOpen && midTextSegs.length > 0 && !isError && (
 										<OutputsTab
 											count={midTextSegs.length}

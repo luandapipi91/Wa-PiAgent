@@ -195,6 +195,70 @@ test("精简模式：中断轮（末尾是工具调用）仍显示最后一条�
 	await expect(page.getByText("先确认一下现状")).toHaveCount(1);
 });
 
+
+/** 长会话种子：多轮普通消息把列表撑到可滚动，末尾是一条「中断轮」（正文后紧跟工具调用）。 */
+function seedLongInterruptedSession(sessionId: string, title: string) {
+	const projPath = join(E2E_WA_PI_DIR, "projects.json");
+	const data = JSON.parse(readFileSync(projPath, "utf8")) as {
+		sessions: Array<Record<string, unknown>>;
+	};
+	if (!data.sessions.some((s: any) => s.id === sessionId)) {
+		data.sessions.push({
+			id: sessionId,
+			projectId: "e2e-proj-1",
+			primaryAgent: "dev",
+			title,
+			createdAt: 1,
+			lastActivity: 1,
+			piSessionFile: join(E2E_WA_PI_DIR, "sessions", `${sessionId}.jsonl`),
+		});
+		writeFileSync(projPath, JSON.stringify(data, null, 2), "utf8");
+	}
+	mkdirSync(join(E2E_WA_PI_DIR, "sessions"), { recursive: true });
+	const lines: string[] = [
+		JSON.stringify({ type: "session", version: 3, id: `uuid-${sessionId}` }),
+	];
+	let id = 1;
+	let parentId: string | null = null;
+	const push = (role: string, content: unknown[], ts: number) => {
+		const mid = `m${id++}`;
+		lines.push(
+			JSON.stringify({
+				type: "message",
+				id: mid,
+				parentId,
+				message: { role, content, timestamp: ts },
+			}),
+		);
+		parentId = mid;
+	};
+	for (let i = 0; i < 6; i++) {
+		push("user", [{ type: "text", text: `前面的问题 ${i + 1}` }], i * 2 + 1);
+		push(
+			"assistant",
+			[{ type: "text", text: `前面的回答 ${i + 1}：普通长度的回复内容，用来把列表撑高。` }],
+			i * 2 + 2,
+		);
+	}
+	push("user", [{ type: "text", text: "帮我重跑这批任务" }], 100);
+	push(
+		"assistant",
+		[
+			{ type: "thinking", thinking: "先看现状再重跑。" },
+			{ type: "text", text: "先确认一下现状" },
+			{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } },
+			{ type: "text", text: "现在开始重跑这批任务" },
+			{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "pwd" } },
+		],
+		101,
+	);
+	writeFileSync(
+		join(E2E_WA_PI_DIR, "sessions", `${sessionId}.jsonl`),
+		lines.join("\n"),
+		"utf8",
+	);
+}
+
 function seedInterruptedSession(sessionId: string, title: string) {
 	const projPath = join(E2E_WA_PI_DIR, "projects.json");
 	const data = JSON.parse(readFileSync(projPath, "utf8")) as {
@@ -249,3 +313,67 @@ function seedInterruptedSession(sessionId: string, title: string) {
 		"utf8",
 	);
 }
+
+// 展开/收起「过程输出」后，被点击的那条正文必须留在视口内，且不跳位。
+// 用户反馈：点右上角凸起标签后，原本正在读的那段正文被顶出视区。
+test("精简模式：展开/收起过程输出后，锚点正文仍在视口内", async ({ page }) => {
+	test.setTimeout(120_000);
+	// 独立会话 + 独立种子（与前一条用例隔离，避免共用会话的滚动/展开状态互相影响）
+	const sid = "s-e2e-reply-display-viewport";
+	seedLongInterruptedSession(sid, "E2E视口保持");
+
+	await setUiPrefs(page, "zh", { replyDisplayMode: "concise" });
+	await page.goto("/");
+	await page.getByTestId(`session-${sid}`).click();
+	await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
+
+	const target = page.getByText("现在开始重跑这批任务");
+	await expect(target).toBeVisible({ timeout: 15_000 });
+
+	// 断开自动跟随，模拟用户正在阅读中部内容
+	const listEl = page.getByTestId("message-list");
+	await listEl.evaluate((el) => {
+		el.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
+		el.scrollTop = Math.max(0, el.scrollTop - 160);
+		el.dispatchEvent(new Event("scroll", { bubbles: true }));
+	});
+	await page.waitForTimeout(600);
+
+	const viewportH = await listEl.evaluate((el) => el.clientHeight);
+
+	await page.getByTestId("outputs-tab").click();
+	await expect(page.getByText("先确认一下现状")).toBeVisible();
+	// 补偿链（rAF 首帧 + 重试）收敛后再读
+	await page.waitForTimeout(900);
+
+	// 关键断言：展开后正文完整落在列表可视区内（用列表元素的矩形边界判定，
+	// 不能用 clientHeight——列表有 padding/偏移）
+	const box = await page.evaluate(() => {
+		const scroll = document.querySelector('[data-testid="message-list"]') as HTMLElement;
+		const bubbles = Array.from(document.querySelectorAll('[data-testid="text-bubble"]'));
+		const last = bubbles[bubbles.length - 1] as HTMLElement;
+		const sr = scroll.getBoundingClientRect();
+		const br = last.getBoundingClientRect();
+		return { ok: br.top >= sr.top - 1 && br.bottom <= sr.bottom + 1, bTop: br.top, bBottom: br.bottom, sTop: sr.top, sBottom: sr.bottom };
+	});
+	expect(box.ok, `默认正文应完整可见: ${JSON.stringify(box)}`).toBe(true);
+
+	// 稳定后不再漂移：连续两次采样位置一致
+	const p1 = await target.boundingBox();
+	await page.waitForTimeout(400);
+	const p2 = await target.boundingBox();
+	expect(Math.abs(p1!.y - p2!.y)).toBeLessThanOrEqual(1);
+
+	// 收起后同样完整落在可视区内
+	await page.getByTestId("outputs-tab").click();
+	await page.waitForTimeout(900);
+	const box2 = await page.evaluate(() => {
+		const scroll = document.querySelector('[data-testid="message-list"]') as HTMLElement;
+		const bubbles = Array.from(document.querySelectorAll('[data-testid="text-bubble"]'));
+		const last = bubbles[bubbles.length - 1] as HTMLElement;
+		const sr = scroll.getBoundingClientRect();
+		const br = last.getBoundingClientRect();
+		return { ok: br.top >= sr.top - 1 && br.bottom <= sr.bottom + 1, bTop: br.top, bBottom: br.bottom, sTop: sr.top, sBottom: sr.bottom };
+	});
+	expect(box2.ok, `收起后正文应完整可见: ${JSON.stringify(box2)}`).toBe(true);
+});

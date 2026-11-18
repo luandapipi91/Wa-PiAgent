@@ -85,7 +85,11 @@ test("无 scroller 祖先：直接执行切换，不注册补偿", async () => {
 	await flushCompensation();
 });
 
-test("贴底状态（距底 < 40px）：执行切换但不补偿，交给贴底跟随逻辑", async () => {
+// 行为变更（2026-11-18，用户反馈）：贴底时展开「过程输出」会把卡片插在正在阅读的
+// 正文上方，若按旧逻辑「贴底就不补偿」，正文会被顶出视区。现在贴底同样走锚点回位。
+// 说明：本 mock 的 anchorTop 不随 scrollTop 变化，故这里只断言「切换被执行」；
+// 真实的回位效果由 reply-display-mode.spec.ts 的 E2E 断言（锚点仍在视口内）。
+test("贴底状态（距底 < 40px）：执行切换（补偿与否由锚点位移决定）", async () => {
 	const m = makeScroller({
 		scrollTop: 2000,
 		scrollHeight: 2500,
@@ -96,7 +100,6 @@ test("贴底状态（距底 < 40px）：执行切换但不补偿，交给贴底�
 	togglePreservingViewport(m.anchor, apply, 0);
 	expect(apply).toHaveBeenCalled();
 	await flushCompensation();
-	expect(m.el.scrollTop).toBe(2000);
 	m.el.remove();
 });
 
@@ -190,4 +193,46 @@ test("Virtuoso 视口重置到列表头：按锚点文档位置恢复", async ()
 	// clamp 到 maxScrollTop = 1291 - 500 = 791
 	expect(m.el.scrollTop).toBe(791);
 	m.el.remove();
+});
+
+// 回归（用户反馈）：贴底状态下展开「过程输出」，卡片插在正在阅读的正文上方。
+// 用「锚点视口位置随 scrollTop 反向变化」的 mock 模拟真实布局：scrollTop 增大则锚点上移。
+test("贴底状态下展开（上方插入内容）：按锚点回位，锚点视口位置不变", async () => {
+	const el = document.createElement("div");
+	el.setAttribute("data-virtuoso-scroller", "true");
+	const anchor = document.createElement("button");
+	el.appendChild(anchor);
+	document.body.appendChild(el);
+	let scrollTop = 860;
+	let scrollHeight = 1362;
+	const clientHeight = 502;
+	const anchorDocTop = 1350; // 锚点文档绝对位置（固定）
+	Object.defineProperty(el, "scrollHeight", { get: () => scrollHeight, configurable: true });
+	Object.defineProperty(el, "clientHeight", { value: clientHeight, configurable: true });
+	Object.defineProperty(el, "scrollTop", {
+		get: () => scrollTop,
+		set: (v: number) => {
+			scrollTop = Math.max(0, Math.min(v, scrollHeight - clientHeight));
+		},
+		configurable: true,
+	});
+	// 视口 top = 文档位置 - scrollTop（真实布局语义）
+	anchor.getBoundingClientRect = () => new DOMRect(0, anchorDocTop - scrollTop);
+
+	const beforeTop = anchor.getBoundingClientRect().top;
+	togglePreservingViewport(
+		anchor,
+		() => {
+			// 展开：上方插入 50px 卡片 → 文档位置下移 50、总高 +50
+			scrollHeight = 1412;
+			(anchor as any).__docTop = anchorDocTop + 50;
+		},
+		0,
+	);
+	// 让 getBoundingClientRect 用新文档位置
+	anchor.getBoundingClientRect = () => new DOMRect(0, anchorDocTop + 50 - scrollTop);
+	await flushCompensation();
+	// 锚点视口位置应回到展开前的值
+	expect(Math.abs(anchor.getBoundingClientRect().top - beforeTop)).toBeLessThanOrEqual(1);
+	el.remove();
 });
