@@ -1,3 +1,6 @@
+## 2026-11-19
+- fix(kernel): MCP 已连接（匿名/自定义 API key 头可用）的台不再画「登录」按钮（context7 场景）——canUseOAuth 只排除 Authorization 头/auth 配置，context7 的自定义 CONTEXT7_API_KEY 头被误判为「可 OAuth + 未登录」→ 下发 signedIn=false → 画登录按钮；但点登录 pi 只会报 “Already signed in” 秒退（匿名/API key 已可用，不走 OAuth、不写凭据），按钮点了没反应且永远挂着。修复：entryWithSignedIn 无凭据时只有探测态为 needs-auth 才下发 false（画登录按钮），connected/骨架阶段一律不下发（前端两边按钮都不画）；有凭据的 needs-auth 覆写 false（重新授权入口）不变。TDD：改写 1 例旧断言 + 新增 context7 回归用例（mock 200→connected 不下发 / 401→needs-auth 下发 false）；编译产物隔离环境实测：context7 connected 缺省、401 台 needs-auth=false；定向回归 routes-mcp 31 pass + 前端 McpCard/McpPage 53 pass + 编译启动冒烟 pass
+
 ## 2026-11-18
 - chore(release): v0.10.10 发版——完整模式展开顺序与按钮位置修复（正文按原始顺序渲染、导出/复制按钮固定整轮末尾）；mac zip 208800902 / win exe 188454327（双端，linux 不发与历届一致）
 - chore(release): v0.10.9 发版——消息队列「立即运行」修复 + 过程输出展开/收起体验优化 + 文件气泡折行修复；mac zip 208800820 / win exe 188454322（双端，linux 不发与历届一致）

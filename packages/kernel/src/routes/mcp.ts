@@ -170,6 +170,10 @@ export interface McpServerEntry extends McpServerConfig {
    * ——它是登录/登出按钮的唯一依据。语义是「凭据有效可登」而非「凭据条目存在」：
    * pi 实测 `needs-auth`（凭据在但 401 且 refresh 失败/无 refresh token）时覆写为 false，
    * 否则前端只画「登出」按钮，用户没有重新授权的入口（pi 的 login 支持覆盖失效凭据）。
+   *
+   * 反向同理：**无凭据且探测态不是 needs-auth 时不下发**（而不是下发 false）。已连接的台
+   * （匿名可用 / 自定义 API key 头，如 context7 的 CONTEXT7_API_KEY）点登录只会让 pi 报
+   * “Already signed in” 秒退——下发 false 会画出一个点了没反应的「登录」按钮（2026-11-19）。
    */
   signedIn?: boolean;
   /** 内置 agent-browser 条目：UI 隐藏删除/编辑，只留启停 switch */
@@ -286,6 +290,11 @@ export function createMcpHandlers(deps: McpRouteDeps): McpHandlers {
     if (!canUseOAuth(entry)) return entry;
     const signedIn = mcpAuthKeysOf(signedInKeys, entry.name, entry.url!);
     if (signedIn === null) return entry;
+    // 无凭据时只有「服务器确实在要登录」（needs-auth）才下发 false（画登录按钮）：
+    // 已连接的台（匿名可用 / 自定义 API key 头，如 context7 的 CONTEXT7_API_KEY）
+    // 点登录只会让 pi 报 “Already signed in” 秒退、mcp-auth.json 照旧为空——按钮点了没反应。
+    // 状态未知（骨架）同理：还没探到 needs-auth 就先别催用户登录。
+    if (!signedIn && state !== "needs-auth") return entry;
     entry.signedIn = state === "needs-auth" ? false : signedIn;
     return entry;
   }

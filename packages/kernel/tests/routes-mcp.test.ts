@@ -312,8 +312,9 @@ describe("GET /api/mcp", () => {
     const byName = Object.fromEntries(
       body.servers.map((s: { name: string }) => [s.name, s]),
     );
-    // 不带 Authorization 头的 HTTP：可能走 OAuth → 未登录下发 false（前端据此画登录按钮）
-    expect(byName.plainHttp.signedIn).toBe(false);
+    // 不带 Authorization 头的 HTTP：可能走 OAuth，但骨架阶段（state 未探测）无凭据不下发
+    // ——「服务器还没探到 needs-auth」就画登录按钮，等探测完成后该画才画（见下个用例）
+    expect("signedIn" in byName.plainHttp).toBe(false);
     // 带静态 Authorization 头（大小写不敏感）或 auth：pi 的 login 会直接拒绝
     // （"does not use OAuth. Only HTTP servers without an Authorization header do."）
     // → 不下发 signedIn（前端把 undefined 当未知，两边按钮都不画）
@@ -371,6 +372,75 @@ describe("GET /api/mcp", () => {
     expect(byName.oauthSrv.signedIn).toBe(true);
     // 排干后台探测：事件必须落在本用例的数组里
     await waitFor(() => broadcasts.some((e) => e.type === "mcp:changed"));
+  });
+
+  test("无凭据 HTTP 台：探测 connected 不下发 signedIn（context7 场景），needs-auth 才下发 false", async () => {
+    // 一台匿名可用的 mock MCP（→ connected）：如 context7 配自定义 API key 头，
+    // 不走 OAuth 也能连——点登录只会让 pi 报 “Already signed in” 秒退，按钮纯属误导
+    const okServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(req) {
+        if (req.headers.get("mcp-session-id")) {
+          // tools/list 请求
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 2, result: { tools: [{ name: "alpha" }] } }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        // initialize
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "m", version: "1" } },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json", "mcp-session-id": "sess-1" } },
+        );
+      },
+    });
+    // 一台裸 401（→ needs-auth）：登录按钮唯一应该出现的场景
+    const authServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response("unauthorized", { status: 401 }),
+    });
+    try {
+      await writeGlobal({
+        mcpServers: {
+          anonOk: { url: `http://127.0.0.1:${okServer.port}/mcp` },
+          authReq: { url: `http://127.0.0.1:${authServer.port}/mcp` },
+        },
+      });
+      const router = makeRouter(
+        makeAdmin(listResult([report("anonOk"), report("authReq")])),
+      );
+      const res = await get(router, "/api/mcp");
+      const body = await res!.json();
+      const byName = Object.fromEntries(
+        body.servers.map((s: { name: string }) => [s.name, s]),
+      );
+      // 骨架（state 未探测）：无凭据一律不下发，不催登录
+      expect("signedIn" in byName.anonOk).toBe(false);
+      expect("signedIn" in byName.authReq).toBe(false);
+      // 排干后台探测：收尾帧带最终登录态
+      await waitFor(() => broadcasts.some((e) => e.type === "mcp:changed"));
+      const changed = broadcasts.find((e) => e.type === "mcp:changed") as
+        | { type: "mcp:changed"; servers?: { name: string; state?: string; signedIn?: boolean }[] }
+        | undefined;
+      const probed = Object.fromEntries(
+        (changed?.servers ?? []).map((s) => [s.name, s]),
+      );
+      expect(probed.anonOk.state).toBe("connected");
+      // 已连接（匿名可用）→ 不下发 signedIn：前端不画登录/登出按钮
+      expect("signedIn" in probed.anonOk).toBe(false);
+      expect(probed.authReq.state).toBe("needs-auth");
+      // 真的在要登录 → 下发 false：画登录按钮
+      expect(probed.authReq.signedIn).toBe(false);
+    } finally {
+      okServer.stop(true);
+      authServer.stop(true);
+    }
   });
 
   test("骨架元信息恒定：stale 恒 true、errors=[]，admin 状态层的 note/raw 不透传", async () => {
