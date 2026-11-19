@@ -196,6 +196,39 @@ interface McpState {
 const PROBE_WATCHDOG_MS = 60_000;
 const probeWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
 
+/**
+ * 作废若干台的**本会话测试结果**（serverStatuses / errors / toolCounts）。
+ *
+ * 为什么需要它：`McpPage.effectiveState()` 里「本会话测试结果」优先级高于清单 state，
+ * 而这些记录原先只有「再点一次测试」「切作用域」两条清空路径。于是授权前点过「连接测试」
+ * （needs-auth 被映射成 error）后，授权成功 → kernel 广播 state=connected 也盖不掉那条旧结果，
+ * 卡片一直停在「连接失败」，必须手点「连接测试」才变绿。
+ *
+ * 规则：**更晚发生的真实探测赢**。服务端刚探测出的结论比用户上一次手动测试更新，就作废它
+ * （不是清空所有台——没被这次探测覆盖的台，其旧测试结果仍然是最新信息）。
+ */
+function dropTestState(
+  s: Pick<McpState, "serverStatuses" | "errors" | "toolCounts">,
+  names: Iterable<string>,
+): { serverStatuses?: McpState["serverStatuses"]; errors?: McpState["errors"]; toolCounts?: McpState["toolCounts"] } {
+  const serverStatuses = { ...s.serverStatuses };
+  const errors = { ...s.errors };
+  const toolCounts = { ...s.toolCounts };
+  let touched = false;
+  for (const name of names) {
+    let hit = false;
+    for (const bucket of [serverStatuses, errors, toolCounts] as Record<string, unknown>[]) {
+      if (name in bucket) {
+        delete bucket[name];
+        hit = true;
+      }
+    }
+    if (hit) touched = true;
+  }
+  if (!touched) return {};
+  return { serverStatuses, errors, toolCounts };
+}
+
 let listSourceSeq = 0;
 /** 已应用的清单来源序号（见 {@link listSourceSeq}）：序号更小的来源一律丢弃 */
 let appliedListSeq = 0;
@@ -273,6 +306,15 @@ export const useMcpStore = create<McpState>((set, get) => ({
       probing: has("stale") ? payload.stale === true : s.probing,
       note: has("note") ? payload.note : s.note,
       loading: false,
+      // 清单里**带 state 的那几台**算本轮探测已落地：它们的新结论比会话内的旧测试结果更晚，
+      // 旧结果必须作废（否则授权成功后的 connected 会被授权前的 error 死死按住）。
+      // state 缺省的台（骨架语义 / 这次没探到）不动，它们手测的结果仍是最新信息。
+      ...dropTestState(
+        s,
+        (payload.servers ?? [])
+          .filter((sv) => sv.state !== undefined)
+          .map((sv) => sv.name),
+      ),
     });
   },
   /**
@@ -297,7 +339,13 @@ export const useMcpStore = create<McpState>((set, get) => ({
     // 否则「状态未知」横幅会被一个不上不下的 probing 永久按住
     const allProbed =
       servers.length > 0 && servers.every((sv) => sv.state !== undefined);
-    set({ servers, ...(allProbed ? { probing: false } : {}) });
+    set({
+      servers,
+      ...(allProbed ? { probing: false } : {}),
+      // 这一台刚被真实探测过 → 它会话内的旧测试结果（授权前的 error 等）立即作废。
+      // 授权成功后 kernel 会逐台广播 mcp:probe，靠这一步卡片自己变绿，不必用户再手点测试。
+      ...dropTestState(s, [data.serverName]),
+    });
   },
   setTestResult: (data) =>
     set((s) => {

@@ -244,6 +244,80 @@ test("收尾帧丢失时，全部台都探到也算探测结束（probing=false�
   expect(useMcpStore.getState().probing).toBe(false);
 });
 
+// ===== 服务端探测到达时作废本会话的测试结果（授权成功后卡片必须自己变绿）=====
+//
+// 缺陷背景：授权成功 → kernel 广播 mcp:probe/mcp:changed（state=connected、signedIn=true），
+// 但页面 effectiveState() 里「本会话测试结果」优先级高于清单 state，而 serverStatuses 只有
+// 「再点一次测试」「切作用域」两条清空路径 → 卡片一直停在授权前的「连接失败」，
+// 必须手点「连接测试」才变绿。真实探测比用户上一次手动测试更新，就该盖掉它。
+
+test("mcp:probe 到达时作废该台的旧测试结果（连接失败 → 已连接）", () => {
+  useMcpStore.setState({
+    servers: [{ name: "hlk", url: "https://x/mcp" }],
+    serverStatuses: { hlk: "error" },
+    errors: { hlk: "401 Unauthorized" },
+    toolCounts: { hlk: 0 },
+  });
+  useMcpStore.getState().applyProbe({
+    type: "mcp:probe",
+    serverName: "hlk",
+    state: "connected",
+    tools: ["a", "b", "c", "d", "e", "f"],
+  });
+  const s = useMcpStore.getState();
+  expect(s.serverStatuses.hlk).toBeUndefined();
+  expect(s.errors.hlk).toBeUndefined();
+  // 工具数改由清单的 tools 长度供给，旧测试里的 0 不能把「6 工具」按住
+  expect(s.toolCounts.hlk).toBeUndefined();
+  expect(s.servers[0]!.state).toBe("connected");
+});
+
+test("mcp:probe 只作废该台，其他台的测试结果不受影响", () => {
+  useMcpStore.setState({
+    servers: [
+      { name: "a", url: "https://a/mcp" },
+      { name: "b", command: "echo" },
+    ],
+    serverStatuses: { a: "error", b: "connected" },
+    errors: { a: "boom", b: "other" },
+  });
+  useMcpStore.getState().applyProbe({
+    type: "mcp:probe",
+    serverName: "a",
+    state: "connected",
+    tools: [],
+  });
+  const s = useMcpStore.getState();
+  expect(s.serverStatuses.a).toBeUndefined();
+  expect(s.errors.a).toBeUndefined();
+  expect(s.serverStatuses.b).toBe("connected");
+  expect(s.errors.b).toBe("other");
+});
+
+test("带 state 的清单到达时作废那几台的测试结果（收尾帧）", () => {
+  useMcpStore.setState({
+    selectedProjectId: null,
+    serverStatuses: { hlk: "error", other: "error" },
+    errors: { hlk: "401", other: "boom" },
+    toolCounts: { hlk: 0 },
+  });
+  useMcpStore.getState().setServers({
+    type: "mcp:changed",
+    servers: [
+      { name: "hlk", url: "https://x/mcp", state: "connected", tools: ["a"] },
+      // 另一台这次没探到（骨架语义）：它的旧测试结果必须保留，不能被无关清单抹掉
+      { name: "other", url: "https://y/mcp" },
+    ],
+    stale: false,
+  });
+  const s = useMcpStore.getState();
+  expect(s.serverStatuses.hlk).toBeUndefined();
+  expect(s.errors.hlk).toBeUndefined();
+  expect(s.toolCounts.hlk).toBeUndefined();
+  expect(s.serverStatuses.other).toBe("error");
+  expect(s.errors.other).toBe("boom");
+});
+
 // ===== 测试结果 / 工具列表 =====
 
 test("setTestResult 成功更新状态为 connected 并记 toolCount", () => {

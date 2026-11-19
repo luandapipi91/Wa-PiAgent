@@ -7,6 +7,7 @@ import {
   deleteAgentQuiet,
   ensureProvider,
   getAgentConfig,
+  setUiPrefs,
 } from "./helpers";
 
 // 内置 MCP 端到端（迁移分支任务 13/14）。
@@ -94,6 +95,12 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
   test.beforeAll(async () => {
     // 预置假 provider 规避首启 onboarding 向导（modal overlay 拦截点击）
     await ensureProvider();
+  });
+
+  // 老用户升级的一次性「新的界面主题」引导也会以 modal overlay 拦截点击：
+  // 预置 ui-prefs 把这个已读记录写进去（本 spec 不测主题引导，见 helpers.setUiPrefs 注释）
+  test.beforeEach(async ({ page }) => {
+    await setUiPrefs(page, "zh");
   });
 
   test.afterAll(async () => {
@@ -506,6 +513,67 @@ test.describe.serial("MCP 连接器（pi 内置实现）", () => {
       expect(entry.enabled).toBe(false);
     } finally {
       await api("DELETE", `/api/mcp/${NPX_SERVER}`).catch(() => {});
+    }
+  });
+
+  // 授权成功后必须自己变绿：不靠用户再手点一次「连接测试」。
+  //
+  // 真实用户路径：授权前点过「连接测试」（pi auth 未就绪 → needs-auth/error 进 serverStatuses），
+  // 授权成功 → kernel 广播 mcp:probe(state=connected) + mcp:changed 收尾 —— 卡片必须自己变「已连接」。
+  // 缺陷版本里 effectiveState() 让会话内测试结果永远赢，必须再点测试才变绿。
+  //
+  // 断言用的两帧经与真实 SSE 完全相同的主路径（__PI_E2E_EVENT__ → App onMessage → store），
+  // 并在真实浏览器里验证 DOM 变化；不做「同一台 server 的 pi 授权中途状态」的模拟
+  // （那需要真 OAuth 回调，E2E 里不可得）。
+  test("授权成功后卡片自动从「连接失败」变为「已连接 · N 工具」（不靠手点连接测试）", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const name = "e2e-auth-refresh";
+    await api("POST", "/api/mcp", {
+      config: { name, command: "definitely-not-a-real-mcp-binary-xyz" },
+    });
+    try {
+      await page.goto("/");
+      await navigateToMcp(page);
+      await expect(page.getByTestId(`mcp-card-${name}`)).toBeVisible({
+        timeout: 30_000,
+      });
+
+      // 授权前：用户点过连接测试，结果是失败（这就是 serverStatuses 里的旧值）
+      await page.evaluate((serverName) => {
+        (window as any).__PI_E2E_EVENT__({
+          type: "mcp:testResult",
+          serverName,
+          success: false,
+          status: "error",
+          error: "401 Unauthorized（授权前）",
+        });
+      }, name);
+      await expect(page.getByTestId(`mcp-state-${name}`)).toContainText(
+        "连接失败",
+      );
+
+      // 授权成功：kernel 的并发池广播这一台已连接（含 6 个工具）
+      await page.evaluate((serverName) => {
+        (window as any).__PI_E2E_EVENT__({
+          type: "mcp:probe",
+          serverName,
+          state: "connected",
+          tools: ["get_bills", "payment_report", "business_summary", "user_ranking", "list_shops", "list_reports"],
+          signedIn: true,
+        });
+      }, name);
+
+      // 不需要任何点击：徽标自己变成「已连接 · 6 工具」，旧错误详情消失
+      const badge = page.getByTestId(`mcp-state-${name}`);
+      await expect(badge).toHaveAttribute("data-state", "connected", {
+        timeout: 10_000,
+      });
+      await expect(badge).toContainText("6 工具");
+      await expect(page.getByTestId(`mcp-error-${name}`)).toHaveCount(0);
+    } finally {
+      await api("DELETE", `/api/mcp/${name}`).catch(() => {});
     }
   });
 });

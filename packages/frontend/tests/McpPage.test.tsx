@@ -148,6 +148,36 @@ test("编辑/新增未打开时页面不渲染表单（不再是内联常驻）"
   expect(screen.queryByTestId("mcp-form-modal")).toBeNull();
 });
 
+// ===== 授权成功后卡片必须自己变绿（不靠手点「连接测试」）=====
+//
+// 用户场景：授权前点过「连接测试」→ needs-auth/error 落进 serverStatuses → 卡片「连接失败」；
+// 授权成功 → kernel 广播 mcp:probe(connected) + mcp:changed → 卡片必须自己变「已连接 · 6 工具」，
+// 而不是要用户再手点一次测试。
+test("授权成功后 mcp:probe 到达 → 卡片从「连接失败」自动变为「已连接 · N 工具」", () => {
+  useMcpStore.setState({
+    servers: [{ name: "hlk", url: "https://x/mcp", state: "failed" }],
+    serverStatuses: { hlk: "error" },
+    errors: { hlk: "401 Unauthorized" },
+  });
+  render(<McpPage />);
+  expect(screen.getByTestId("mcp-state-hlk").textContent).toContain("连接失败");
+
+  act(() => {
+    useMcpStore.getState().applyProbe({
+      type: "mcp:probe",
+      serverName: "hlk",
+      state: "connected",
+      tools: ["a", "b", "c", "d", "e", "f"],
+      signedIn: true,
+    });
+  });
+  const badge = screen.getByTestId("mcp-state-hlk");
+  expect(badge.textContent).toContain("已连接");
+  expect(badge.textContent).toContain("6 工具");
+  // 旧错误详情必须消失（它属于授权前那次测试）
+  expect(screen.queryByTestId("mcp-error-hlk")).toBeNull();
+});
+
 // ===== state 渲染（pi 原始串）=====
 
 test("disabled 的 server 卡片显示「已停用」，不是错误样式", () => {
