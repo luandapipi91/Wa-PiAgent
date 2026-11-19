@@ -21,6 +21,18 @@ async function flushCompensation() {
 }
 
 /**
+ * 等待「总高收敛重试」跑完：首帧读到的 scrollHeight 可能是切换前的旧值，
+ * 露出新内容的动作要等布局稳定后才做（重试间隔 50ms），因此需要比 5ms 更长的窗口。
+ * 250ms 仍在阶段 3（500ms 贴底解除）之前，不会把那条路径的副作用带进断言。
+ *
+ * 注意：只能用在「锚点位置随 scrollTop 真实变化」的 mock 上——老用例的 mock 锚点
+ * 位置固定，多轮重试会一路累减到 0（那是 mock 的局限，不是实现的问题）。
+ */
+async function flushConverged() {
+	await new Promise((r) => setTimeout(r, 250));
+}
+
+/**
  * 构建 scroller[data-virtuoso-scroller] > anchor 结构。
  * scrollHeight 为只读 getter 用 defineProperty 覆写；scrollTop 用 accessor 覆写并
  * 模拟浏览器 clamp（0 ≤ scrollTop ≤ scrollHeight - clientHeight），保证 toggle 内
@@ -235,4 +247,120 @@ test("贴底状态下展开（上方插入内容）：按锚点回位，锚点�
 	// 锚点视口位置应回到展开前的值
 	expect(Math.abs(anchor.getBoundingClientRect().top - beforeTop)).toBeLessThanOrEqual(1);
 	el.remove();
+});
+
+// ===== 展开后新内容必须进入视口（用户反馈：点开最后一条卡片看不到内容）=====
+//
+// 缺陷场景：卡片停在视口最底部，点开它 → 卡身整块长在视口下方。旧实现在锚点
+// 视口位置不变时直接判定「已稳定」就收工，用户看到的是「点了没反应」。
+// 期望：展开（内容增长）时，若锚点自身已在视口内但新内容溢出视口底部，
+// 就把视口下移，让展开内容可见；折叠时不这么做（内容减少，保持阅读位置即可）。
+
+/**
+ * 构造与真实组件同构的布局：scroller > card（卡片盒）> button(锚点) + body（展开体）。
+ * scrollTop 增大则视口内容整体上移；body 高度即「展开出来的内容」。
+ * 与真实 DOM 一致：锚点的 parentElement 就是那张卡片的包围盒。
+ */
+function makeLayoutScroller(opts: {
+	scrollTop: number;
+	bodyHeight: number;
+	clientHeight: number;
+	anchorDocTop: number;
+	anchorHeight?: number;
+}) {
+	const el = document.createElement("div");
+	el.setAttribute("data-virtuoso-scroller", "true");
+	const card = document.createElement("div");
+	const anchor = document.createElement("button");
+	const body = document.createElement("div");
+	card.appendChild(anchor);
+	card.appendChild(body);
+	el.appendChild(card);
+	document.body.appendChild(el);
+	let scrollTop = opts.scrollTop;
+	let bodyHeight = opts.bodyHeight;
+	const clientHeight = opts.clientHeight;
+	const anchorDocTop = opts.anchorDocTop;
+	const anchorHeight = opts.anchorHeight ?? 30;
+	// 文档总高：锚点前留空 + 卡片（头部 + body）+ 尾部余量
+	const total = () => anchorDocTop + anchorHeight + bodyHeight + 200;
+	Object.defineProperty(el, "scrollHeight", { get: () => total(), configurable: true });
+	Object.defineProperty(el, "clientHeight", { value: clientHeight, configurable: true });
+	Object.defineProperty(el, "scrollTop", {
+		get: () => scrollTop,
+		set: (v: number) => {
+			scrollTop = Math.max(0, Math.min(v, total() - clientHeight));
+		},
+		configurable: true,
+	});
+	Object.defineProperty(el, "clientHeight0", { value: 0, configurable: true });
+	// 视口矩形：scroller 固定在文档 y=0..clientHeight
+	el.getBoundingClientRect = () => new DOMRect(0, 0, 800, clientHeight);
+	anchor.getBoundingClientRect = () => new DOMRect(0, anchorDocTop - scrollTop, 800, anchorHeight);
+	// 卡片盒 = 锚点 + body
+	card.getBoundingClientRect = () =>
+		new DOMRect(0, anchorDocTop - scrollTop, 800, anchorHeight + bodyHeight);
+	return {
+		el,
+		anchor,
+		card,
+		get scrollTop() {
+			return scrollTop;
+		},
+		setBodyHeight: (h: number) => {
+			bodyHeight = h;
+		},
+		/** 卡片（含展开体）底边在视口里的 y 坐标 */
+		contentBottom: () => anchorDocTop + anchorHeight + bodyHeight - scrollTop,
+	};
+}
+
+test("展开后内容溢出视口底部：视口下移让新内容可见", async () => {
+	const m = makeLayoutScroller({
+		scrollTop: 1000,
+		bodyHeight: 0, // 折叠态：没有卡身
+		clientHeight: 500,
+		anchorDocTop: 1400, // 锚点视口 top = 400（贴近视口底部 500）
+	});
+	expect(m.contentBottom()).toBeLessThanOrEqual(500);
+
+	togglePreservingViewport(m.anchor, () => m.setBodyHeight(400), 0);
+	await flushConverged();
+	// 展开出 400px 卡身 → 必须滚下去让它可见（而不是停在原地只保证锚点不动）
+	expect(m.contentBottom()).toBeLessThanOrEqual(500 + 1);
+	// 卡片头部仍不得被顶出视口上沿
+	expect(m.anchor.getBoundingClientRect().top).toBeGreaterThanOrEqual(-1);
+
+	m.el.remove();
+});
+
+test("折叠时不额外滚动（内容变少，保持阅读位置）", async () => {
+	const m = makeLayoutScroller({
+		scrollTop: 1000,
+		bodyHeight: 400,
+		clientHeight: 500,
+		anchorDocTop: 1400,
+	});
+	const before = m.scrollTop;
+	togglePreservingViewport(m.anchor, () => m.setBodyHeight(0), 0);
+	await flushConverged();
+	// 折叠不改变 scrollTop（锚点文档位置未变，不该为「让内容可见」再滚）
+	expect(m.scrollTop).toBe(before);
+
+	m.el.remove();
+});
+
+test("展开后内容本就在视口内：不做无谓滚动", async () => {
+	const m = makeLayoutScroller({
+		scrollTop: 1000,
+		bodyHeight: 0,
+		clientHeight: 500,
+		anchorDocTop: 800, // 锚点视口 top = -200（已在视口上方）
+	});
+	const before = m.scrollTop;
+	togglePreservingViewport(m.anchor, () => m.setBodyHeight(300), 0);
+	await flushConverged();
+	expect(m.scrollTop).toBe(before);
+
+	m.el.remove();
 });

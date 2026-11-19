@@ -61,6 +61,8 @@ export function togglePreservingViewport(
 	// 锚点回位保持的是阅读位置，展开后视口自然离开底部，由 MessageList 的假贴底检测接管。
 	const beforeTop = anchor.getBoundingClientRect().top;
 	const beforeDocTop = beforeTop + scroller.scrollTop;
+	// 切换前的总高：展开后与它相减得到「本轮长高了多少」（见 revealExpandedContent）
+	const beforeScrollHeight = scroller.scrollHeight;
 	// 补偿窗口内置位：阻止 MessageList 把这次高度变化当成「被动离底→滚回底部」
 	suppressRepinUntil = Date.now() + REPIN_SUPPRESS_MS;
 	apply();
@@ -74,9 +76,22 @@ export function togglePreservingViewport(
 	// 可能把 scrollTop 拽回底部——单次写入不够，按固定节奏重试直到锚点归位。
 	let tries = 0;
 	const deadline = Date.now() + 1000;
+	// 收敛目标：默认是「锚点回到切换前的视口位置」。展开内容溢出视口时，为了让
+	// 新内容可见必然要下移视口（锚点跟着上移）——那时把目标改成新位置，否则
+	// 下一轮 restoreAfterToggle 会把视口又拖回来，两者来回拉锯。
+	let targetTop = beforeTop;
+	// 总高收敛检测（仅展开时需要）：Virtuoso 的高度经 ResizeObserver 异步收敛，
+	// 首帧读到的 scrollHeight 可能还是旧值（实测：展开后首帧增量 = 0，直接判「没长高」
+	// 就会错过露出内容的机会）。
+	// 初值取 -1（不可能等于任何真实高度）：首帧一律不计作「已稳定」，否则拿切换前的
+	// 旧值与首帧比较会误判收敛，直接跳过露出。
+	let lastScrollHeight = -1;
+	let shStable = 0;
+	/** 本次切换是否已做过「露出新内容」的那一次滚动 */
+	let revealed = false;
 	const tick = () => {
 		suppressRepinUntil = Date.now() + 300;
-		restoreAfterToggle(scroller, anchor, beforeTop);
+		restoreAfterToggle(scroller, anchor, targetTop);
 		tries += 1;
 		// 锚点位置精确对上，但容器已到滚动尽头（st === max）时仍可能被裁掉一部分：
 		// 展开在锚点上方插入了内容，列表没有余量再往下滚。此时把视口整体上挪，让锚点
@@ -97,9 +112,34 @@ export function togglePreservingViewport(
 				}
 			}
 		}
+		// 总高是否已收敛（仅展开时用得上，见上方 lastScrollHeight 的说明）
+		if (scroller.scrollHeight === lastScrollHeight) shStable += 1;
+		else {
+			shStable = 0;
+			lastScrollHeight = scroller.scrollHeight;
+		}
+		// 展开：新长出来的内容长在锚点下方时，下移视口让它可见。
+		// 不做这一步的话，用户点开停在视口底部的卡片后，卡身整块长在视口外——
+		// 表现出来就是「点了没反应」（实测展开区可见高度 0px）。
+		// **只做一次**：这是「展开后把新内容带进视野」的一次性动作。若每轮重试都做，
+		// 会与用户随后的手动滚动/测试里的显式定位打架（实测会把已稳定下来的视口又推下去）。
+		// 折叠时 growth 为负，根本不会走到这里，既有折叠行为不受影响。
+		const growth = scroller.scrollHeight - beforeScrollHeight;
+		if (!revealed && growth > 1 && shStable >= 1) {
+			const shift = revealExpandedContent(scroller, anchor, beforeDocTop, growth);
+			revealed = true;
+			// 视口真的被推动过 → 新位置就是后续的收敛目标
+			if (shift > 0) targetTop = anchor.getBoundingClientRect().top;
+		}
+		// 总高未收敛时不让循环退出：首帧读到的增量可能是 0（Virtuoso 异步收敛），
+		// 漏掉这一次就再也接不上露出内容的机会了。
+		// 收敛（shStable ≥ 1）后必然已得出结论：要么已露出（revealed），要么本来就不用露。
+		// 折叠（负增长）同样不拖慢退出。
+		const growPending = !revealed && shStable < 1;
 		const settled =
 			!anchor.isConnected ||
-			Math.abs(anchor.getBoundingClientRect().top - beforeTop) <= 1;
+			(!growPending &&
+				Math.abs(anchor.getBoundingClientRect().top - targetTop) <= 1);
 		if (!settled && Date.now() < deadline) setTimeout(tick, 50);
 	};
 	// 首次补偿放在下一帧：同步执行时 DOM 尚未提交（scrollHeight 仍是旧值，写入会被
@@ -117,7 +157,7 @@ export function togglePreservingViewport(
 		if (contentFitsViewport) return;
 		const settled =
 			!anchor.isConnected ||
-			Math.abs(anchor.getBoundingClientRect().top - beforeTop) <= 1;
+			Math.abs(anchor.getBoundingClientRect().top - targetTop) <= 1;
 		if (settled) return;
 		const distToBottom =
 			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
@@ -179,4 +219,52 @@ function restoreAfterToggle(
 	if (Math.abs(delta) <= 0.5) return;
 	scroller.scrollTop = Math.max(0, Math.min(scroller.scrollTop + delta, max));
 	return;
+}
+
+/**
+ * 展开后把新长出来的内容推入视口。
+ *
+ * 背景（用户反馈：点开停在底部的最后一条卡片，看不到内容）：`restoreAfterToggle`
+ * 只保证「点的那一行不动」——卡身整块长在视口下方时，用户看到的就是「点了没反应」
+ * （实测：展开区可见高度 0px，卡片顶边恰好压在视口下沿）。
+ *
+ * 判据全部基于几何量，不猜 DOM 结构：锚点可能是工具卡头部按钮、轮摘要行，也可能是
+ * 最终回复气泡（MessageList 的 toggleOutputs 就以气泡为锚点）。
+ *
+ *  - `growth`：本轮长高了多少（scrollHeight 增量）。必须在 tick 里测——React setState
+ *    与 Virtuoso 的总高收敛都是异步的，apply() 之后同步读全是旧值；
+ *  - 锚点的文档位置若被推下去 → 内容插在锚点**上方**（如展开上方的过程输出卡片），
+ *    保持阅读位置即可，不滚；
+ *  - 锚点底边仍在视口内 → 内容没被挡，不滚；
+ *  - 否则内容长在锚点下方且已溢出视口 → 下移视口，让新内容露出来。下移量 = 增量，
+ *    但不超过「锚点到视口上沿」的距离（不把用户刚点的那一行顶出屏幕），也不超过
+ *    物理底部。
+ *
+ * @param beforeDocTop 切换前锚点的文档绝对 y（用于识别「上方插入」）
+ * @param growth       本轮 scrollHeight 增量（≤1 表示没有变长）
+ * @returns 实际滚动的距离（0 = 未动）
+ */
+function revealExpandedContent(
+	scroller: HTMLElement,
+	anchor: HTMLElement,
+	beforeDocTop: number,
+	growth: number,
+): number {
+	if (growth <= 1 || !anchor.isConnected) return 0;
+	const rect = anchor.getBoundingClientRect();
+	const sRect = scroller.getBoundingClientRect();
+	// 内容长在锚点上方：锚点的文档位置被推下去了 → 「上方插卡片」，保持阅读位置
+	if (rect.top + scroller.scrollTop > beforeDocTop + 1) return 0;
+	// 增长发生在锚点下方时，内容底边 ≈ 锚点底边 + 增量；仍在视口内则无需滚动
+	if (rect.bottom + growth <= sRect.bottom + 1) return 0;
+	// 锚点已在视口上沿或更高（用户上翻读旧内容）→ 没有可下移的余量
+	const roomAbove = rect.top - sRect.top;
+	if (roomAbove <= 1) return 0;
+	const max = scroller.scrollHeight - scroller.clientHeight;
+	const roomBelow = max - scroller.scrollTop;
+	if (roomBelow <= 1) return 0;
+	const shift = Math.min(growth, roomAbove, roomBelow);
+	if (shift <= 1) return 0;
+	scroller.scrollTop = scroller.scrollTop + shift;
+	return shift;
 }

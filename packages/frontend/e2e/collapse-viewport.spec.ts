@@ -11,7 +11,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 function seedCollapseSession(sessionId: string, title: string) {
 	const projPath = join(E2E_WA_PI_DIR, "projects.json");
@@ -107,7 +107,10 @@ async function metrics(page: import("@playwright/test").Page) {
 }
 
 test.describe("折叠长过程卡的视口位置保持", () => {
-	test.beforeEach(async () => {
+	test.beforeEach(async ({ page }) => {
+		// 老用户升级的一次性「新的界面主题」引导会以 modal overlay 拦截点击：
+		// 预置 ui-prefs 把已读记录写进去（见 helpers.setUiPrefs 注释）
+		await setUiPrefs(page, "zh");
 		await saveProvider({
 			id: "e2e-send-scroll-provider",
 			name: "E2E SendScroll",
