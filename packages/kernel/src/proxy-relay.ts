@@ -32,10 +32,16 @@ export interface ProxyRelayOpts {
 	connectTimeoutMs?: number;
 	/** 网络请求日志（net-log）：每行一条，调用方保证不含敏感信息 */
 	logger?: (line: string) => void;
-	/** 上游可用性翻转回调（只在状态变化时触发，用于前端提示；直连模式不触发） */
+	/** 上游可用性翻转回调（防抖后状态变化时触发，用于前端提示；直连模式不触发） */
 	onStatus?: (s: ProxyStatus) => void;
 	/** 上游连接失败时回调（kernel 侧接「重读系统代理」；由调用方自行节流） */
 	onUpstreamFail?: () => void;
+	/**
+	 * 可用性广播尾沿防抖（ms），默认 1000：无冷却后每条请求的结果都是一次观测，
+	 * 半死上游会以请求频率产生 ok↔unreachable 抖动，窗口内只广播最终状态，
+	 * 前端不再反复弹。上游地址变更不走这里（保存设置需立即生效）。
+	 */
+	statusDebounceMs?: number;
 }
 
 /** 上游代理可用性（ok=能建立连接；unreachable=连不上/被拒/出口疑似不可用） */
@@ -117,10 +123,15 @@ export class ProxyRelay {
 	private readonly log: (line: string) => void;
 	private readonly onStatus?: (s: ProxyStatus) => void;
 	private readonly onUpstreamFail?: () => void;
-	/** 上次上报的可用性（去重：状态没翻转不重复通知） */
+	/** 上次上报的可用性（去重：状态没翻转不重复通知；防抖落地后才更新） */
 	private lastState: "ok" | "unreachable" | null = null;
 	/** 上次上报不可达时的原因（快照查询用） */
 	private lastReason: string | undefined;
+	/** 防抖窗口内待广播的状态目标（null = 无待广播）；窗口过后才落地 lastState */
+	private pendingStatus: "ok" | "unreachable" | null = null;
+	private pendingReason: string | undefined;
+	private statusDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private readonly statusDebounceMs: number;
 	/** 当前上游的规范化 URL（含 userinfo，便于外部比对是否真的变了；空串=直连） */
 	private upstreamKey = "";
 	/** 监听端口（start 后可用） */
@@ -128,18 +139,32 @@ export class ProxyRelay {
 
 	constructor(opts: ProxyRelayOpts) {
 		this.connectTimeoutMs = opts.connectTimeoutMs ?? 5000;
+		this.statusDebounceMs = opts.statusDebounceMs ?? 1000;
 		this.log = opts.logger ?? (() => {});
 		this.onStatus = opts.onStatus;
 		this.onUpstreamFail = opts.onUpstreamFail;
-		this.setUpstream(opts.upstream);
+		// 构造时同步应用初值（初值日志要落地）：start 后中继必须立即可用
+		this.applyUpstream(opts.upstream, true);
 		this.server = createServer((client) => this.onClientSocket(client));
 		this.server.on("error", (err) => {
 			console.warn(`[proxy-relay] server error: ${err.message}`);
 		});
 	}
 
-	/** 更新上游代理；空串 = 直连。上游地址带 user:pass 时生成 Proxy-Authorization */
+	/**
+	 * 更新上游代理；空串 = 直连。上游地址带 user:pass 时生成 Proxy-Authorization。
+	 * 立即应用（保存设置必须立刻生效；系统代理注册项的抖动由 settings-store 的
+	 * refreshSystemProxy 复读确认挡住，不会穿透到这里）。同值重复调用直接跳过，
+	 * 不重置告警去重防线（保存设置会触发多次 applySystemProxy）。
+	 */
 	setUpstream(upstream: string): void {
+		if (normalizeUpstreamKey(upstream) === this.upstreamKey) return;
+		this.applyUpstream(upstream);
+	}
+
+	/** 立即应用上游地址（构造初值与变更共用；变更时才重置告警去重防线） */
+	private applyUpstream(upstream: string, initial = false): void {
+		if (!initial && normalizeUpstreamKey(upstream) === this.upstreamKey) return;
 		if (upstream) {
 			try {
 				const url = new URL(
@@ -164,8 +189,10 @@ export class ProxyRelay {
 			this.upstreamAuth = null;
 			this.upstreamKey = "";
 		}
-		// 旧上游的可用性结论作废。清空上游 = 用户关了代理：若此前报过不可达，
-		// 补一次 ok 让前端把告警提示收掉（不再有代理可用性问题）。
+		// 旧上游的可用性结论作废（含防抖窗口内未落地的待广播——那是旧上游的观测）。
+		// 清空上游 = 用户关了代理：若此前报过不可达，补一次 ok 让前端把告警提示收掉
+		// （不再有代理可用性问题）。
+		this.cancelPendingStatus();
 		const prevState = this.lastState;
 		this.lastState = null;
 		if (!this.upstream && prevState === "unreachable") {
@@ -194,6 +221,7 @@ export class ProxyRelay {
 	}
 
 	close(): Promise<void> {
+		this.cancelPendingStatus();
 		return new Promise((resolve) => this.server.close(() => resolve()));
 	}
 
@@ -207,25 +235,64 @@ export class ProxyRelay {
 		return this.upstreamKey;
 	}
 
-	/** 上报可用性翻转（直连模式不上报，未翻转不重复上报） */
+	/** 撤销防抖窗口内未落地的待广播（旧上游的观测 / 状态抖回已广播值） */
+	private cancelPendingStatus(): void {
+		if (this.statusDebounceTimer) {
+			clearTimeout(this.statusDebounceTimer);
+			this.statusDebounceTimer = null;
+		}
+		this.pendingStatus = null;
+		this.pendingReason = undefined;
+	}
+
+	/**
+	 * 上报可用性观测（直连模式不上报）。
+	 * 出口做尾沿防抖（statusDebounceMs）：窗口内的连续观测只广播最终状态——无冷却后
+	 * 每条请求都是一次观测，半死上游 ok↔unreachable 高频抖动时前端不再反复弹；
+	 * 跨窗口的真翻转照常广播。窗口内的最新观测可经 getStatus() 被补拉读到。
+	 */
 	private notifyStatus(
 		state: "ok" | "unreachable",
 		reason?: string,
 	): void {
 		if (!this.upstream) return;
-		if (this.lastState === state) return;
-		this.lastState = state;
-		this.lastReason = reason;
-		this.onStatus?.({
-			state,
-			upstream: this.upstream.origin,
-			...(reason ? { reason } : {}),
-		});
+		if (this.lastState === state) {
+			// 抖回已广播状态：撤销待广播的相反状态（如有），现状即目标
+			this.cancelPendingStatus();
+			return;
+		}
+		// 已调度同一目标：不重置 timer（连续同状态观测不无限推迟广播），
+		// 但更新 reason——落地广播带最新原因，避免 toast 显示陈旧错误原因
+		if (this.pendingStatus === state) {
+			if (reason !== this.pendingReason) this.pendingReason = reason;
+			return;
+		}
+		this.pendingStatus = state;
+		this.pendingReason = reason;
+		if (this.statusDebounceTimer) clearTimeout(this.statusDebounceTimer);
+		this.statusDebounceTimer = setTimeout(() => {
+			this.statusDebounceTimer = null;
+			const s = this.pendingStatus;
+			const r = this.pendingReason;
+			this.pendingStatus = null;
+			this.pendingReason = undefined;
+			if (!s || !this.upstream) return;
+			this.lastState = s;
+			this.lastReason = r;
+			this.onStatus?.({
+				state: s,
+				upstream: this.upstream.origin,
+				...(r ? { reason: r } : {}),
+			});
+		}, this.statusDebounceMs);
 	}
 
 	/**
 	 * 当前可用性快照（供前端挂载/重连时补拉）。
 	 * null = 直连模式或还没观测过（无代理可报）。
+	 * 只读已广播的稳定状态（lastState）：防抖窗口内的观测可能被抖回撤销，
+	 * 补拉若读了窗口内 pending，会停留在一个不再有事件纠正的错误状态上
+	 * （幽灵告警/告警静默丢失）。「一开始就坏」的观测最多晚 1s 由广播送达。
 	 */
 	getStatus(): ProxyStatus | null {
 		if (!this.upstream || !this.lastState) return null;

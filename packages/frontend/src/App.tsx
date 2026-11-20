@@ -72,8 +72,16 @@ import { useAgentPreviewOpener } from "./agent-preview-opener";
 
 export type View = "empty" | "new-session" | "session";
 
-/** 代理不可达告警 toast 的 id（常驻不自动消失，代理恢复时收掉） */
-let proxyToastId: string | null = null;
+/** 代理不可达告警 toast 的同类标记：按 tag 在 store 里查找，不依赖易失的模块级变量 */
+const PROXY_TOAST_TAG = "proxy-status";
+
+/** 当前挂着的代理告警 toast（无则 null）。按 tag 查找——HMR 后模块变量会丢，tag 不会 */
+function findProxyAlert(): { id: string; message: string } | null {
+	return (
+		useToastStore.getState().toasts.find((t) => t.tag === PROXY_TOAST_TAG) ??
+		null
+	);
+}
 
 /**
  * 统一处理代理可用性（SSE 推送用）。
@@ -94,16 +102,21 @@ function applyProxyStatus(
 			upstream: e.upstream,
 			reason: e.reason ?? "",
 		});
-		if (proxyToastId) useToastStore.getState().dismiss(proxyToastId);
-		proxyToastId = useToastStore.getState().add(msg, "error", 0);
+		const existing = findProxyAlert();
+		if (existing) {
+			// 已有告警：原地更新文案（原因可能变了），不销毁重建——重建会重放
+			// 入场动画，重复推送时用户感知就是「又弹了一次」（报障：反复弹）
+			if (existing.message !== msg)
+				useToastStore.getState().update(existing.id, msg);
+			return;
+		}
+		useToastStore.getState().add(msg, "error", 0, PROXY_TOAST_TAG);
 		return;
 	}
-	// 收掉告警（若有）
-	const hadAlert = !!proxyToastId;
-	if (proxyToastId) {
-		useToastStore.getState().dismiss(proxyToastId);
-		proxyToastId = null;
-	}
+	// 收掉告警（若有）——按 tag 全部收掉（同 tag 唯一性靠调用纪律，可能残留多条）；
+	// 模块变量丢了（HMR）也能收
+	const hadAlert = !!findProxyAlert();
+	if (hadAlert) useToastStore.getState().dismissByTag(PROXY_TOAST_TAG);
 	// 「上游为空」的 ok 是用户关了代理，不算恢复；没有告警在挂也不算恢复
 	if (announceRecovered && hadAlert && e.upstream)
 		useToastStore.getState().add(i18n.t("app.proxyRecovered"), "success");

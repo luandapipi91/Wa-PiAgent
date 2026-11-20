@@ -182,3 +182,88 @@ test("没有任何告警时收到 ok：不弹「代理已恢复」", async () =>
 	expect(useToastStore.getState().toasts.length).toBe(0);
 	cleanup();
 });
+
+// 回归：「代理连接失败反复弹」前端侧根因。
+// ① unreachable 路径 dismiss+add 销毁重建：同一条告警第二次推送（如 reason 变化、
+//    SSE 重连补拉）会重放入场动画，用户感知就是「又弹了一次」。
+// ② proxyToastId 是模块级变量，dev HMR 后归 null 而 store 里告警还挂着：ok 收不掉、
+//    下次 unreachable 叠加。修复：按 tag 在 store 里查找，不依赖易失变量。
+test("重复 unreachable（reason 变化）→ 原地更新同一条 toast，id 不变不重建", async () => {
+	render(<App />);
+
+	emitEvent({
+		type: "proxy:status",
+		state: "unreachable",
+		upstream: UPSTREAM,
+		reason: "connect ECONNREFUSED 127.0.0.1:7890",
+	});
+	await waitFor(() => expect(useToastStore.getState().toasts.length).toBe(1));
+	const firstId = useToastStore.getState().toasts[0].id;
+
+	emitEvent({
+		type: "proxy:status",
+		state: "unreachable",
+		upstream: UPSTREAM,
+		reason: "connect ETIMEDOUT 127.0.0.1:7890",
+	});
+	await new Promise((r) => setTimeout(r, 50));
+	// 仍只有一条，且 id 不变（原地更新，不销毁重建 → 不重放弹出动画）
+	expect(useToastStore.getState().toasts.length).toBe(1);
+	expect(useToastStore.getState().toasts[0].id).toBe(firstId);
+	// 内容同步更新为最新原因
+	expect(useToastStore.getState().toasts[0].message).toContain("ETIMEDOUT");
+
+	cleanup();
+});
+
+test("按 tag 查找：store 里已有代理告警（模拟 HMR 后变量丢失）→ 不叠加、ok 能收", async () => {
+	render(<App />);
+
+	// 模拟 HMR：模块级 proxyToastId 归 null，但 store 里上一版模块创建的告警还挂着
+	useToastStore.setState({
+		toasts: [
+			{ id: "toast-legacy", message: "代理不可达（旧）", type: "error", tag: "proxy-status" },
+		],
+	});
+
+	emitEvent({
+		type: "proxy:status",
+		state: "unreachable",
+		upstream: UPSTREAM,
+		reason: "connect ECONNREFUSED 127.0.0.1:7890",
+	});
+	await new Promise((r) => setTimeout(r, 50));
+	// 按 tag 找到既有告警 → 原地更新，不叠加第二条
+	expect(useToastStore.getState().toasts.length).toBe(1);
+	expect(useToastStore.getState().toasts[0].id).toBe("toast-legacy");
+
+	emitEvent({ type: "proxy:status", state: "ok", upstream: UPSTREAM });
+	await waitFor(() => {
+		// 告警（tag）被收掉；upstream 非空 → 若恢复提示还在（3s 自动消失）也只剩它
+		const rest = useToastStore.getState().toasts;
+		expect(rest.find((t) => t.tag === "proxy-status")).toBeUndefined();
+	});
+
+	cleanup();
+});
+
+// 防御性：同 tag 告警的「至多一条」目前靠调用纪律维持（任何未来代码直接 add 带
+// tag 的常驻 toast 都可能造出第二条），ok 必须按 tag 全部收掉，不能只收 find 到的第一条
+test("多条同 tag 告警：ok 按 tag 全部收掉，不残留", async () => {
+	render(<App />);
+	useToastStore.setState({
+		toasts: [
+			{ id: "toast-a", message: "代理不可达 A", type: "error", tag: "proxy-status" },
+			{ id: "toast-b", message: "代理不可达 B", type: "error", tag: "proxy-status" },
+		],
+	});
+
+	emitEvent({ type: "proxy:status", state: "ok", upstream: UPSTREAM });
+	await waitFor(() => {
+		expect(
+			useToastStore.getState().toasts.filter((t) => t.tag === "proxy-status"),
+		).toHaveLength(0);
+	});
+
+	cleanup();
+});

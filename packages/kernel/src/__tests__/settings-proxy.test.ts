@@ -17,6 +17,7 @@ import {
 	refreshSystemProxy,
 	refreshSystemProxyOnFailure,
 	resetProxyFailureThrottleForTest,
+	cancelProxyRefreshConfirm,
 } from "../settings-store";
 import { getProxyUpstreamKey, stopProxyRelay } from "../proxy-relay";
 
@@ -37,6 +38,8 @@ describe("Proxy settings", () => {
 		process.env.https_proxy = "";
 		process.env.NO_PROXY = "";
 		process.env.no_proxy = "";
+		// 撤销挂起的复读确认，避免跨测试触发落地切换
+		cancelProxyRefreshConfirm();
 		await stopProxyRelay();
 	});
 
@@ -284,6 +287,18 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
 
 // 系统代理动态刷新（5s 巡检 + 上游失败时重读）
 // 用户要求：系统代理是动态的，改了就应跟上；代理软件换端口/重启也要能自己恢复。
+
+/** 等待 refreshSystemProxy 的复读确认落地（1s 窗口 + 余量）；超时显式抛错，失败点位离原因近 */
+async function waitForProxyKey(contains: string): Promise<void> {
+	const start = Date.now();
+	while (Date.now() - start < 3000) {
+		const key = getProxyUpstreamKey();
+		if (contains === "" ? key === "" : key.includes(contains)) return;
+		await new Promise((r) => setTimeout(r, 50));
+	}
+	throw new Error(`waitForProxyKey 超时：3s 内上游 key 未变为 ${contains || '(空)'}`);
+}
+
 describe("系统代理动态刷新", () => {
 	test("上游未变：refreshSystemProxy 返回 false，不重置中继状态", async () => {
 		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
@@ -292,21 +307,41 @@ describe("系统代理动态刷新", () => {
 		expect(changed).toBe(false);
 	});
 
-	test("系统代理变了：refreshSystemProxy 切到新上游并返回 true", async () => {
+	test("系统代理变了：refreshSystemProxy 检测变化并经 1s 复读确认后切换", async () => {
 		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
 		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
 		const changed = await refreshSystemProxy(TEST_FILE, () => "http://127.0.0.1:7891");
-		expect(changed).toBe(true);
+		expect(changed).toBe(true); // 检测到变化，进入确认流程
+		// 复读确认（读到值仍一致）后才真正切换
+		await waitForProxyKey("7891");
 		expect(getProxyUpstreamKey()).toContain("7891");
 	});
 
-	test("系统代理变空（用户关代理）：上游被清空 = 直连", async () => {
+	test("系统代理变空（用户关代理）：复读确认后上游被清空 = 直连", async () => {
 		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
 		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
 		expect(getProxyUpstreamKey()).not.toBe("");
 		const changed = await refreshSystemProxy(TEST_FILE, () => "");
 		expect(changed).toBe(true);
+		await waitForProxyKey("");
 		expect(getProxyUpstreamKey()).toBe("");
+	});
+
+	// 报障根因之一：代理软件异常时反复写/清系统代理注册项，读值在两个值之间抖动。
+	// 复读确认挡住抖动：确认时读值不一致 → 不切换，等下轮巡检——否则上游反复
+	// 重置中继告警去重防线，前端「连接失败」提示重复弹。
+	test("注册项抖动（7890→7891→7890）：复读确认发现不一致，不切换", async () => {
+		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
+		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		let reads = 0;
+		const readProxy = () => {
+			reads++;
+			return reads >= 2 ? "http://127.0.0.1:7890" : "http://127.0.0.1:7891"; // 首读 7891，确认时已抖回 7890
+		};
+		const changed = await refreshSystemProxy(TEST_FILE, readProxy);
+		expect(changed).toBe(true); // 首读确实检测到变化
+		await new Promise((r) => setTimeout(r, 1300)); // 过确认窗口
+		expect(getProxyUpstreamKey()).toContain("7890"); // 抖回原值：未切换
 	});
 
 	test("手填 httpProxy 优先：不读系统代理，也不跟随系统变化", async () => {

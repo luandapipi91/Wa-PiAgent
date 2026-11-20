@@ -299,7 +299,8 @@ describe("ProxyRelay", () => {
 		second.socket.destroy();
 		expect(hanging.attempts()).toBe(2);
 
-		// 上游换成健康假代理：下一条立刻成功
+		// 上游换成健康假代理：setUpstream 立即应用（保存设置契约，同步生效），
+		// 下一条立刻成功（无冷却：每条请求都真试上游）
 		const alive = await startFakeUpstream();
 		relay.setUpstream(`http://127.0.0.1:${alive.port}`);
 		const third = await connectViaRelay(relay.port, "203.0.113.1", target.port);

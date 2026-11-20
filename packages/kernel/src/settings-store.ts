@@ -711,19 +711,44 @@ export async function resolveEffectiveProxy(
 
 /**
  * 重读一次系统代理，变了才切换中继上游（未变不动：避免无谓地重置中继状态与告警去重）。
- * 返回是否发生了切换。
+ * 读值变化做 1s 复读确认：确认时仍一致才真正切换——代理软件异常时常反复写/清系统
+ * 代理注册项，不确认会让上游在「直连↔代理」间抖动，反复重置中继的告警去重防线，
+ * 前端「连接失败」提示就会重复弹（报障根因之一）。用户显式保存设置走 applySystemProxy，
+ * 不经过这里，立即生效不受影响。返回是否检测到了上游变化（进入确认流程）。
  */
+const PROXY_REFRESH_CONFIRM_MS = 1000;
+let refreshConfirmTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 撤销挂起的复读确认（watcher 停止时；测试防跨测试触发也用） */
+export function cancelProxyRefreshConfirm(): void {
+	if (refreshConfirmTimer) {
+		clearTimeout(refreshConfirmTimer);
+		refreshConfirmTimer = null;
+	}
+}
+
 export async function refreshSystemProxy(
 	file: string = SETTINGS_FILE,
 	readProxy: () => string | Promise<string> = readSystemProxy,
 ): Promise<boolean> {
 	const next = await resolveEffectiveProxy(file, readProxy);
 	if (normalizeUpstreamKey(next) === getProxyUpstreamKey()) return false;
-	const relayUrl = await ensureProxyRelay(next);
-	// env 始终指向中继，上游变了不用改 env；这里只记一行便于排障
-	console.log(
-		`[proxy] 检测到系统代理变化 → 上游=${next || "(直连)"}（中继 ${relayUrl}）`,
-	);
+	// 读值变了：1s 后复读确认，仍一致才切换；不一致说明还在抖，等下轮巡检
+	if (refreshConfirmTimer) clearTimeout(refreshConfirmTimer);
+	refreshConfirmTimer = setTimeout(() => {
+		refreshConfirmTimer = null;
+		void (async () => {
+			const confirmed = await resolveEffectiveProxy(file, readProxy);
+			if (normalizeUpstreamKey(confirmed) !== normalizeUpstreamKey(next)) return;
+			const relayUrl = await ensureProxyRelay(confirmed);
+			// env 始终指向中继，上游变了不用改 env；这里只记一行便于排障
+			console.log(
+				`[proxy] 检测到系统代理变化 → 上游=${confirmed || "(直连)"}（中继 ${relayUrl}）`,
+			);
+		})().catch((e) => {
+			console.warn("[proxy] 确认系统代理变化失败:", e);
+		});
+	}, PROXY_REFRESH_CONFIRM_MS);
 	return true;
 }
 
@@ -771,6 +796,8 @@ export function startSystemProxyWatcher(
 		if (!proxyWatchTimer) return;
 		clearInterval(proxyWatchTimer);
 		proxyWatchTimer = null;
+		// 巡检停了，挂起的复读确认也一并撤销（否则停表后还会落地一次切换）
+		cancelProxyRefreshConfirm();
 	};
 }
 
