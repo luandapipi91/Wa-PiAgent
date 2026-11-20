@@ -815,6 +815,90 @@
 				color: var(--brand-dark);
 			}
 
+			/* ===== 下载区：Windows 根证书（可选） ===== */
+			.dl-sign {
+				margin-top: 22px;
+				border: 1px solid var(--line);
+				border-radius: 14px;
+				background: var(--cream-2);
+				text-align: left;
+				padding: 0;
+				overflow: hidden;
+			}
+			.dl-sign summary {
+				cursor: pointer;
+				padding: 13px 16px;
+				font-size: 14px;
+				font-weight: 700;
+				color: var(--forest-800);
+				list-style: none;
+			}
+			.dl-sign summary::-webkit-details-marker {
+				display: none;
+			}
+			.dl-sign summary::before {
+				content: "+";
+				display: inline-block;
+				width: 1em;
+				margin-right: 6px;
+				color: var(--brand);
+			}
+			.dl-sign[open] summary::before {
+				content: "−";
+			}
+			.dl-sign summary:hover {
+				color: var(--brand-dark);
+			}
+			.dl-sign .dl-sign-lead {
+				margin: 0;
+				padding: 0 16px;
+				font-size: 13.5px;
+				line-height: 1.7;
+				color: var(--muted);
+			}
+			.btn-sm {
+				margin: 12px 16px 0;
+				padding: 8px 18px;
+				font-size: 13.5px;
+			}
+			.dl-sign .dl-sign-cmd-label {
+				margin: 0;
+				padding: 14px 16px 0;
+				font-size: 13px;
+				color: var(--muted);
+			}
+			.dl-sign-cmd {
+				margin: 8px 16px 16px;
+				padding: 12px 14px;
+				background: #fff;
+				border: 1px solid var(--line);
+				border-radius: 10px;
+				overflow-x: auto;
+				font-size: 12.5px;
+				line-height: 1.6;
+				font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+				color: var(--ink);
+			}
+			.dl-sign-cmd code {
+				background: none;
+				border: 0;
+				padding: 0;
+				font-family: inherit;
+				font-size: inherit;
+				white-space: pre;
+			}
+			@media (max-width: 640px) {
+				.dl-sign summary {
+					font-size: 13px;
+				}
+				.dl-sign .dl-sign-lead {
+					font-size: 12.8px;
+				}
+				.dl-sign-cmd {
+					font-size: 11.5px;
+				}
+			}
+
 			/* ===== 页脚 ===== */
 			footer {
 				background: var(--forest-950);
@@ -1800,6 +1884,15 @@
 							>📁 软件仓库</a
 						>
 					</div>
+					<details class="dl-sign">
+						<summary>Windows 用户：让安装包显示可信发布者（可选）</summary>
+						<p class="dl-sign-lead">
+							安装包已做代码签名。把根证书导入「受信任的根证书颁发机构」后，安装时的 UAC 弹窗会显示「已验证的发布者：WA PI Agent Windows Self-Signed」；不导入也能正常安装，只是会显示「未知的发布者」。
+						</p>
+						<a class="btn btn-line btn-sm" href="win-signing.cer" download="win-signing.cer">⬇ 下载根证书</a>
+						<p class="dl-sign-cmd-label">以管理员身份打开 PowerShell，执行：</p>
+						<pre class="dl-sign-cmd"><code>Import-Certificate -FilePath win-signing.cer -CertStoreLocation Cert:\LocalMachine\Root</code></pre>
+					</details>
 					<p style="margin-top: 18px; font-size: 13px">
 						遇到问题？欢迎到仓库提
 						<a

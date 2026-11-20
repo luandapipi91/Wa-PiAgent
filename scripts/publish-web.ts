@@ -33,6 +33,10 @@ const CONTENT_TYPES: Record<string, string> = {
 	".ico": "image/x-icon",
 	".txt": "text/plain; charset=utf-8",
 	".xml": "application/xml; charset=utf-8",
+	// 证书：Windows 用户下载根证书导入用。用证书 MIME 而非 octet-stream，
+	// 浏览器才会按证书处理（下载文件名与打开方式都正确）
+	".cer": "application/x-x509-ca-cert",
+	".crt": "application/x-x509-ca-cert",
 	".woff": "font/woff",
 	".woff2": "font/woff2",
 };

@@ -17,6 +17,11 @@ describe("contentTypeFor", () => {
 		expect(contentTypeFor("font.woff2")).toBe("font/woff2");
 	});
 
+	test("证书文件按证书 MIME 下发（Windows 用户导入根证书用，别落成 octet-stream）", () => {
+		expect(contentTypeFor("win-signing.cer")).toBe("application/x-x509-ca-cert");
+		expect(contentTypeFor("foo.CRT")).toBe("application/x-x509-ca-cert");
+	});
+
 	test("无扩展名 / 未知扩展名回落 octet-stream", () => {
 		expect(contentTypeFor("CNAME")).toBe("application/octet-stream");
 		expect(contentTypeFor("a.unknown")).toBe("application/octet-stream");

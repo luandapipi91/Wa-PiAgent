@@ -815,6 +815,90 @@
 				color: var(--brand-dark);
 			}
 
+			/* ===== Download: Windows root certificate (optional) ===== */
+			.dl-sign {
+				margin-top: 22px;
+				border: 1px solid var(--line);
+				border-radius: 14px;
+				background: var(--cream-2);
+				text-align: left;
+				padding: 0;
+				overflow: hidden;
+			}
+			.dl-sign summary {
+				cursor: pointer;
+				padding: 13px 16px;
+				font-size: 14px;
+				font-weight: 700;
+				color: var(--forest-800);
+				list-style: none;
+			}
+			.dl-sign summary::-webkit-details-marker {
+				display: none;
+			}
+			.dl-sign summary::before {
+				content: "+";
+				display: inline-block;
+				width: 1em;
+				margin-right: 6px;
+				color: var(--brand);
+			}
+			.dl-sign[open] summary::before {
+				content: "−";
+			}
+			.dl-sign summary:hover {
+				color: var(--brand-dark);
+			}
+			.dl-sign .dl-sign-lead {
+				margin: 0;
+				padding: 0 16px;
+				font-size: 13.5px;
+				line-height: 1.7;
+				color: var(--muted);
+			}
+			.btn-sm {
+				margin: 12px 16px 0;
+				padding: 8px 18px;
+				font-size: 13.5px;
+			}
+			.dl-sign .dl-sign-cmd-label {
+				margin: 0;
+				padding: 14px 16px 0;
+				font-size: 13px;
+				color: var(--muted);
+			}
+			.dl-sign-cmd {
+				margin: 8px 16px 16px;
+				padding: 12px 14px;
+				background: #fff;
+				border: 1px solid var(--line);
+				border-radius: 10px;
+				overflow-x: auto;
+				font-size: 12.5px;
+				line-height: 1.6;
+				font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+				color: var(--ink);
+			}
+			.dl-sign-cmd code {
+				background: none;
+				border: 0;
+				padding: 0;
+				font-family: inherit;
+				font-size: inherit;
+				white-space: pre;
+			}
+			@media (max-width: 640px) {
+				.dl-sign summary {
+					font-size: 13px;
+				}
+				.dl-sign .dl-sign-lead {
+					font-size: 12.8px;
+				}
+				.dl-sign-cmd {
+					font-size: 11.5px;
+				}
+			}
+
 			/* ===== Footer ===== */
 			footer {
 				background: var(--forest-950);
@@ -1838,6 +1922,15 @@
 							>📁 Repository</a
 						>
 					</div>
+					<details class="dl-sign">
+						<summary>Windows: show a verified publisher on install (optional)</summary>
+						<p class="dl-sign-lead">
+							The installer is code-signed. Import the root certificate into "Trusted Root Certification Authorities" and the UAC prompt will show "Verified publisher: WA PI Agent Windows Self-Signed". Installing without it works too — the prompt just says "Unknown publisher".
+						</p>
+						<a class="btn btn-line btn-sm" href="win-signing.cer" download="win-signing.cer">⬇ Download certificate</a>
+						<p class="dl-sign-cmd-label">Run in an elevated PowerShell:</p>
+						<pre class="dl-sign-cmd"><code>Import-Certificate -FilePath win-signing.cer -CertStoreLocation Cert:\LocalMachine\Root</code></pre>
+					</details>
 					<p style="margin-top: 18px; font-size: 13px">
 						Running into an issue? Open an
 						<a
