@@ -426,6 +426,7 @@ export const DelegateParamsSchema = Type.Object({
       thinking: Type.Optional(
         Type.Union(
           [
+            Type.Literal("default"),
             Type.Literal("disabled"),
             Type.Literal("medium"),
             Type.Literal("high"),
@@ -433,7 +434,7 @@ export const DelegateParamsSchema = Type.Object({
           ],
           {
             description:
-              "本次委派的思考强度（可选）；不传则按该 agent 的覆盖配置或继承主代理当前思考等级",
+              "本次委派的思考强度（可选）；default = 按模型能力自动决定；不传则按该 agent 的覆盖配置或继承主代理当前思考等级",
           },
         ),
       ),

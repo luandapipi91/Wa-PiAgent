@@ -175,3 +175,27 @@ test("WSServerEvent 含 subagent:list 结果", () => {
   const res: import("../src/types").WSServerEvent = { type: "subagent:list", subagents: [] };
   expect(res.type).toBe("subagent:list");
 });
+
+test("ThinkingLevel 含 default 档（按模型能力自动决定）", () => {
+  const levels: import("../src/types").ThinkingLevel[] = [
+    "default",
+    "disabled",
+    "medium",
+    "high",
+    "max",
+  ];
+  expect(levels).toHaveLength(5);
+  const c: import("../src/types").AgentConfig = {
+    displayName: "默认档",
+    avatar: "🤖",
+    avatarColor: "#000000-#ffffff",
+    description: "",
+    model: null,
+    thinking: "default",
+    tools: [],
+    skills: [],
+    mcpServers: [],
+    partners: { askTo: [] },
+  };
+  expect(c.thinking).toBe("default");
+});
