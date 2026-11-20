@@ -69,3 +69,55 @@ test("补拉路径：页面加载时 /api/proxy/status 已不可达 → 直接�
 	const container = page.getByTestId("toast-container");
 	await expect(container).toContainText("7890", { timeout: 20_000 });
 });
+
+// 回归：刷新页面不该出现「代理已恢复」。
+// 实测用户就是在这个场景看到的——补拉拿到 ok（系统代理正常工作）被当成「刚恢复」。
+test("刷新页面：状态为 ok 时不弹「代理已恢复」", async ({ page }) => {
+	test.setTimeout(60_000);
+	await page.route("**/api/proxy/status", (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: "application/json",
+			body: JSON.stringify({ status: { state: "ok", upstream: UPSTREAM } }),
+		}),
+	);
+
+	await page.goto("/");
+	await page.waitForFunction(
+		() => typeof (window as any).__PI_E2E_EVENT__ === "function",
+		undefined,
+		{ timeout: 20_000 },
+	);
+	await page.waitForTimeout(1200);
+
+	// 页面上不应出现任何 toast（尤其「代理已恢复」）
+	expect(await page.getByTestId("toast-container").count()).toBe(0);
+
+	// 再刷新一次：仍然不该弹
+	await page.reload();
+	await page.waitForFunction(
+		() => typeof (window as any).__PI_E2E_EVENT__ === "function",
+		undefined,
+		{ timeout: 20_000 },
+	);
+	await page.waitForTimeout(1200);
+	expect(await page.getByTestId("toast-container").count()).toBe(0);
+});
+
+test("真的从不可达恢复：收掉告警并提示已恢复", async ({ page }) => {
+	test.setTimeout(60_000);
+	await page.goto("/");
+	await page.waitForFunction(
+		() => typeof (window as any).__PI_E2E_EVENT__ === "function",
+		undefined,
+		{ timeout: 20_000 },
+	);
+
+	await emitProxyStatus(page, "unreachable");
+	const container = page.getByTestId("toast-container");
+	await expect(container).toContainText("7890", { timeout: 10_000 });
+
+	await emitProxyStatus(page, "ok");
+	await expect(container).not.toContainText("7890", { timeout: 5_000 });
+	await expect(container).toContainText("恢复", { timeout: 5_000 });
+});

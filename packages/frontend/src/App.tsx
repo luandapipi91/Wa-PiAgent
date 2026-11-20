@@ -72,12 +72,20 @@ export type View = "empty" | "new-session" | "session";
 /** 代理不可达告警 toast 的 id（常驻不自动消失，代理恢复时收掉） */
 let proxyToastId: string | null = null;
 
-/** 统一处理代理可用性（SSE 推送与挂载/重连补拉走同一套逻辑） */
-function applyProxyStatus(e: {
-	state: "ok" | "unreachable";
-	upstream: string;
-	reason?: string;
-}): void {
+/**
+ * 统一处理代理可用性（SSE 推送用）。
+ * announceRecovered 仅对「实时推送」为真：只有真的从不可达变成 ok 才提示已恢复；
+ * 补拉/重连时同一个状态会被重复读到，不能把它当「刚恢复」报一次（刷新页面就弹
+ * 「代理已恢复」是错的，用户什么也没发生）。
+ */
+function applyProxyStatus(
+	e: {
+		state: "ok" | "unreachable";
+		upstream: string;
+		reason?: string;
+	},
+	announceRecovered: boolean,
+): void {
 	if (e.state === "unreachable") {
 		const msg = i18n.t("app.proxyUnreachable", {
 			upstream: e.upstream,
@@ -87,12 +95,14 @@ function applyProxyStatus(e: {
 		proxyToastId = useToastStore.getState().add(msg, "error", 0);
 		return;
 	}
+	// 收掉告警（若有）
+	const hadAlert = !!proxyToastId;
 	if (proxyToastId) {
 		useToastStore.getState().dismiss(proxyToastId);
 		proxyToastId = null;
 	}
-	// 上游为空的 ok 是「用户关了代理」，不需提示恢复
-	if (e.upstream)
+	// 「上游为空」的 ok 是用户关了代理，不算恢复；没有告警在挂也不算恢复
+	if (announceRecovered && hadAlert && e.upstream)
 		useToastStore.getState().add(i18n.t("app.proxyRecovered"), "success");
 }
 
@@ -109,7 +119,7 @@ async function refreshProxyStatus(): Promise<void> {
 				reason?: string;
 			} | null;
 		} | null;
-		if (body?.status) applyProxyStatus(body.status);
+		if (body?.status) applyProxyStatus(body.status, false);
 	} catch {
 		/* 启动早期 kernel 未就绪等：忽略，后续事件仍会推送 */
 	}
@@ -339,7 +349,7 @@ export function App() {
 				}
 		// 上游代理不可达/恢复：不可达弹常驻 toast（点击关闭），恢复时自动收掉
 				case "proxy:status": {
-					applyProxyStatus(e);
+					applyProxyStatus(e, true);
 					break;
 				}
 				case "net:status": {

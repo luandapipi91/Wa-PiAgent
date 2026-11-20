@@ -147,3 +147,38 @@ test("用户关代理（ok + upstream 空）→ 只收告警，不提示恢复",
 
 	cleanup();
 });
+
+// 回归：刷新页面不该弹「代理已恢复」。
+// 根因：补拉（GET /api/proxy/status）与 SSE 推送共用一个处理函数，补拉拿到
+// ok 就把「当前状态是好的」当成「刚刚恢复」，于是每次刷新/重连都弹一次。
+test("补拉拿到 ok：不弹「代理已恢复」（刷新页面不是恢复事件）", async () => {
+	proxyStatusResult = { status: { state: "ok", upstream: UPSTREAM } };
+	render(<App />);
+
+	await new Promise((r) => setTimeout(r, 300));
+	expect(useToastStore.getState().toasts.length).toBe(0);
+	cleanup();
+});
+
+test("补拉拿到 unreachable 后 SSE 推 ok：仍按恢复处理（收告警 + 提示）", async () => {
+	proxyStatusResult = {
+		status: { state: "unreachable", upstream: UPSTREAM, reason: "ECONNREFUSED" },
+	};
+	render(<App />);
+	await waitFor(() => expect(useToastStore.getState().toasts.length).toBe(1));
+
+	emitEvent({ type: "proxy:status", state: "ok", upstream: UPSTREAM });
+	await waitFor(() => {
+		const msgs = useToastStore.getState().toasts.map((t) => t.message);
+		expect(msgs).toEqual([i18n.t("app.proxyRecovered")]);
+	});
+	cleanup();
+});
+
+test("没有任何告警时收到 ok：不弹「代理已恢复」", async () => {
+	render(<App />);
+	emitEvent({ type: "proxy:status", state: "ok", upstream: UPSTREAM });
+	await new Promise((r) => setTimeout(r, 200));
+	expect(useToastStore.getState().toasts.length).toBe(0);
+	cleanup();
+});
