@@ -9,7 +9,15 @@ export interface ToastItem {
 
 interface ToastState {
   toasts: ToastItem[];
-  add: (message: string, type?: "error" | "success" | "info") => void;
+  /**
+   * 追加一条 toast，返回 id（可供调用方后续 dismiss，如代理恢复时收掉告警）。
+   * durationMs = 0 表示不自动消失，只能点击关闭。
+   */
+  add: (
+    message: string,
+    type?: "error" | "success" | "info",
+    durationMs?: number,
+  ) => string;
   dismiss: (id: string) => void;
 }
 
@@ -17,13 +25,16 @@ let nextId = 0;
 
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
-  add: (message, type = "error") => {
+  add: (message, type = "error", durationMs = 3000) => {
     const id = `toast-${++nextId}`;
     set(s => ({ toasts: [...s.toasts, { id, message, type }] }));
     // 3 秒后自动消失
-    setTimeout(() => {
-      set(s => ({ toasts: s.toasts.filter(t => t.id !== id) }));
-    }, 3000);
+    if (durationMs > 0) {
+      setTimeout(() => {
+        set(s => ({ toasts: s.toasts.filter(t => t.id !== id) }));
+      }, durationMs);
+    }
+    return id;
   },
   dismiss: (id) => set(s => ({ toasts: s.toasts.filter(t => t.id !== id) })),
 }));

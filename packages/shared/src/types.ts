@@ -1521,6 +1521,17 @@ export interface NetStatusEvent {
 	sessionId?: string;
 }
 
+// 上游代理可用性：中继检测到代理连不上/被拒时推送 unreachable（前端弹提示），
+// 恢复后推 ok（前端收起提示）。直连模式（未开系统代理）不推送。
+export interface ProxyStatusEvent {
+	type: "proxy:status";
+	state: "ok" | "unreachable";
+	/** 上游地址 origin（不含 userinfo）；空串 = 已切回直连模式 */
+	upstream: string;
+	/** unreachable 时的原始原因（如 connect ECONNREFUSED 127.0.0.1:7890） */
+	reason?: string;
+}
+
 // fs 相关（kernel 读本地目录，供前端目录树选择器）
 export interface FSHomeRequest {
 	type: "fs:home";
@@ -1945,6 +1956,7 @@ export type WSServerEvent =
 	| AgentConfigEvent
 	| ErrorEvent
 	| NetStatusEvent
+	| ProxyStatusEvent
 	| AgentListResult
 	| AgentCreatedEvent
 	| AgentPresetsResult

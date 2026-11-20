@@ -18,7 +18,11 @@ import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { KernelError } from "./kernel-error";
-import { ensureProxyRelay } from "./proxy-relay";
+import {
+	ensureProxyRelay,
+	getProxyUpstreamKey,
+	normalizeUpstreamKey,
+} from "./proxy-relay";
 import { stripBom } from "./text-bom";
 import { isBashAvailable } from "./shell-detect";
 import type {
@@ -649,9 +653,9 @@ export function mergeNoProxy(existing: string | undefined): string {
  * curl/wget 读小写 http_proxy/https_proxy。
  *
  * 无论开不开代理，env 始终写入本地中继地址（proxy-relay.ts），逻辑统一：
- * - 开代理：中继上游 = effective，每条连接先试上游、不通则直连——
- *   「代理软件中途被关掉」时存量子进程自动回退直连（运行中的进程 env 改不了，
- *   只能靠中继在连接层兜底）；代理恢复后自动切回。
+ * - 开代理：中继上游 = effective。上游连不上/超时时**直接失败并上报状态**（前端弹提示），
+ *   不偷偷改走直连——开着代理的用户要的是代理，静默直连只会在超时后失败并掩盖真正原因。
+ *   超时才记冷却（避免每条请求都等满超时），端口拒绝类即时错误不记，代理一开立刻恢复。
  * - 不开代理：中继上游 = 空，全部直连。
  * 开关代理只需改中继上游，存量/新建子进程 env 都不用变。
  * 中继启动失败时退化：开代理写上游地址（旧行为），不开代理删 env 直连。
@@ -691,6 +695,82 @@ export async function applySystemProxy(
 		delete process.env.http_proxy;
 		delete process.env.https_proxy;
 	}
+}
+
+/**
+ * 计算当前实际生效的上游（空串 = 直连）。
+ * 开代理时会读系统代理（macOS `scutil` / Windows 注册表 / Linux env）。
+ */
+export async function resolveEffectiveProxy(
+	file: string = SETTINGS_FILE,
+	readProxy: () => string | Promise<string> = readSystemProxy,
+): Promise<string> {
+	const { useSystemProxy, httpProxy } = await loadProxySettings(file);
+	return useSystemProxy ? httpProxy || (await readProxy()) : "";
+}
+
+/**
+ * 重读一次系统代理，变了才切换中继上游（未变不动：避免重置冷却与状态去重）。
+ * 返回是否发生了切换。
+ */
+export async function refreshSystemProxy(
+	file: string = SETTINGS_FILE,
+	readProxy: () => string | Promise<string> = readSystemProxy,
+): Promise<boolean> {
+	const next = await resolveEffectiveProxy(file, readProxy);
+	if (normalizeUpstreamKey(next) === getProxyUpstreamKey()) return false;
+	const relayUrl = await ensureProxyRelay(next);
+	// env 始终指向中继，上游变了不用改 env；这里只记一行便于排障
+	console.log(
+		`[proxy] 检测到系统代理变化 → 上游=${next || "(直连)"}（中继 ${relayUrl}）`,
+	);
+	return true;
+}
+
+/**
+ * 上游连接失败时触发的重读（节流 minGapMs：失败可能每秒数十次，
+ * 不节流会不停 spawn `scutil` / `reg query`）。
+ */
+let lastFailureRefreshAt = 0;
+export async function refreshSystemProxyOnFailure(
+	file: string = SETTINGS_FILE,
+	readProxy: () => string | Promise<string> = readSystemProxy,
+	minGapMs = 2000,
+): Promise<void> {
+	const now = Date.now();
+	if (now - lastFailureRefreshAt < minGapMs) return;
+	lastFailureRefreshAt = now;
+	await refreshSystemProxy(file, readProxy).catch(() => {});
+}
+
+/** 只有测试需要重置节流窗口 */
+export function resetProxyFailureThrottleForTest(): void {
+	lastFailureRefreshAt = 0;
+}
+
+let proxyWatchTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 定时重读系统代理（默认 5s）：用户在系统/代理软件里开关或换端口，
+ * 内核能自己跟上，不用重启。返回停止函数（幂等）。
+ */
+export function startSystemProxyWatcher(
+	intervalMs = 5000,
+	readProxy: () => string | Promise<string> = readSystemProxy,
+): () => void {
+	if (proxyWatchTimer) return () => {};
+	proxyWatchTimer = setInterval(() => {
+		void refreshSystemProxy(SETTINGS_FILE, readProxy).catch((e) => {
+			console.warn("[proxy] 定时刷新系统代理失败:", e);
+		});
+	}, intervalMs);
+	// 不因这个定时器阻止进程退出
+	(proxyWatchTimer as unknown as { unref?: () => void }).unref?.();
+	return () => {
+		if (!proxyWatchTimer) return;
+		clearInterval(proxyWatchTimer);
+		proxyWatchTimer = null;
+	};
 }
 
 /** 产物分享默认配置（未配置时：无 token + 默认渠道 edgeone + 无自定义域名 + 无 accountId） */

@@ -18,6 +18,7 @@ import {
 	loadCodemodeLevel,
 	saveCodemodeLevel,
 } from "../settings-store";
+import { getProxyStatus } from "../proxy-relay";
 
 export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	r.add("GET", "/api/settings/retry", async () =>
@@ -46,6 +47,11 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		const proxy = await loadProxySettings();
 		return Response.json({ proxy });
 	});
+	// 上游代理当前可用性快照：前端挂载/重连时补拉，避免「启动时已不可达」
+	// 的告警事件发生在 SSE 连接建立之前而丢失
+	r.add("GET", "/api/proxy/status", async () =>
+		Response.json({ status: getProxyStatus() }),
+	);
 	r.add("PUT", "/api/settings/proxy", async (req) => {
 		const b = await readJsonBody(req);
 		const saved = await saveProxySettings(b.proxy);

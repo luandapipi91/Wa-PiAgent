@@ -69,6 +69,52 @@ import { useAgentPreviewOpener } from "./agent-preview-opener";
 
 export type View = "empty" | "new-session" | "session";
 
+/** 代理不可达告警 toast 的 id（常驻不自动消失，代理恢复时收掉） */
+let proxyToastId: string | null = null;
+
+/** 统一处理代理可用性（SSE 推送与挂载/重连补拉走同一套逻辑） */
+function applyProxyStatus(e: {
+	state: "ok" | "unreachable";
+	upstream: string;
+	reason?: string;
+}): void {
+	if (e.state === "unreachable") {
+		const msg = i18n.t("app.proxyUnreachable", {
+			upstream: e.upstream,
+			reason: e.reason ?? "",
+		});
+		if (proxyToastId) useToastStore.getState().dismiss(proxyToastId);
+		proxyToastId = useToastStore.getState().add(msg, "error", 0);
+		return;
+	}
+	if (proxyToastId) {
+		useToastStore.getState().dismiss(proxyToastId);
+		proxyToastId = null;
+	}
+	// 上游为空的 ok 是「用户关了代理」，不需提示恢复
+	if (e.upstream)
+		useToastStore.getState().add(i18n.t("app.proxyRecovered"), "success");
+}
+
+/**
+ * 挂载/重连时补拉代理状态：不可达事件可能在 SSE 连接建立之前就已广播
+ * （kernel 启动时的目录/更新请求就会撞上游），只听事件会漏掉「一开始就坏」的场景。
+ */
+async function refreshProxyStatus(): Promise<void> {
+	try {
+		const body = (await api.get("/api/proxy/status")) as {
+			status: {
+				state: "ok" | "unreachable";
+				upstream: string;
+				reason?: string;
+			} | null;
+		} | null;
+		if (body?.status) applyProxyStatus(body.status);
+	} catch {
+		/* 启动早期 kernel 未就绪等：忽略，后续事件仍会推送 */
+	}
+}
+
 // 聊天侧容器样式：split 分屏按剩余宽度收窄；full 全屏预览时仅 display:none 视觉隐藏
 // （聊天侧保持挂载，预览关闭/切模式不卸载子树，文件树展开等内部状态不丢）
 function chatPaneStyle(
@@ -164,6 +210,7 @@ export function App() {
 		useAgentsStore.getState().loadAll();
 		useSubagentsStore.getState().load();
 		useContactsStore.getState().loadContacts();
+		void refreshProxyStatus();
 		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
 		initUpdater();
 		// 版本更新系统通知：启动自动检测 + 自然日去重（桌面专属，浏览器版 no-op）
@@ -196,6 +243,7 @@ export function App() {
 			// 定时任务：重连后刷新任务列表 + 执行记录 + 状态点 + 详情页「最近执行」
 			void useSchedulerStore.getState().refreshFromEvents();
 			useContactsStore.getState().loadContacts();
+			void refreshProxyStatus();
 			const sid = useProjectsStore.getState().currentSessionId;
 			if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
 			if (sid)
@@ -289,9 +337,13 @@ export function App() {
 					}
 					break;
 				}
+		// 上游代理不可达/恢复：不可达弹常驻 toast（点击关闭），恢复时自动收掉
+				case "proxy:status": {
+					applyProxyStatus(e);
+					break;
+				}
 				case "net:status": {
 					// transient 网络错误（Connection error / timeout 等）：不进对话流，
-					// 改设 degraded 状态驱动顶部状态条提示「模型连接异常」。
 					// 不调用 failTurn：transient 后 pi 会发 agent_end 自然复位 thinking，
 					// 让 pi 内部重试期间（busy=true）新消息继续排队（现有机制）。
 					const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;

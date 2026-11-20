@@ -99,6 +99,9 @@ const en = {
 		retryWaiting: "The server is busy, please wait…",
 		netDegraded:
 			"Model connection error. Check your network or provider config and retry.",
+		proxyUnreachable:
+			"Proxy unreachable: {{upstream}} ({{reason}}). Requests fail directly instead of falling back to a direct connection. Check whether your proxy app is running.",
+		proxyRecovered: "Proxy recovered",
 		noOpenSession: "No open session",
 		reloadWhileThinking:
 			"Please wait until the AI finishes replying before reloading.",

@@ -1,9 +1,10 @@
-// proxy-relay 中继测试：真实 socket 验证「上游代理不可用 → 自动回退直连」。
+// proxy-relay 中继测试：真实 socket 验证「上游可用时转发、不可用时直接失败」。
 //
 // 拓扑：
 //   client → relay(127.0.0.1:R) → [upstream 假代理(127.0.0.1:U)] → target 回显服务(127.0.0.1:T)
 // 假代理收到 CONNECT 后记录请求行/鉴权头，回 200 并把隧道 pipe 到 target；
 // target 是 TCP 回显服务。client 发 "ping" 应收 "ping"（经谁转发由假代理的记录判断）。
+// 上游不可达时中继直接回 502（**不回退直连**）。
 //
 // isDirectHost 语义：回环/内网目标（127.0.0.1、localhost、私网段）始终直连、不送上游。
 // 因此「经上游」用例的 CONNECT 目标用公网保留地址 203.0.113.1（RFC 5737），
@@ -94,6 +95,27 @@ async function startFakeUpstream(port = 0): Promise<FakeUpstream> {
 	state.close = () => new Promise<void>((r) => server.close(() => r()));
 	cleanups.push(state.close);
 	return state;
+}
+
+/** 挂起型上游：接受 TCP 连接但从不应答 CONNECT（模拟代理进程活着但出口卡死） */
+async function startHangingUpstream(): Promise<{
+	port: number;
+	attempts: () => number;
+}> {
+	let n = 0;
+	const socks: Socket[] = [];
+	const server = createServer((sock) => {
+		n++;
+		socks.push(sock);
+		sock.on("error", () => {});
+	});
+	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+	const port = (server.address() as AddressInfo).port;
+	cleanups.push(async () => {
+		for (const s of socks) s.destroy();
+		await new Promise<void>((r) => server.close(() => r()));
+	});
+	return { port, attempts: () => n };
 }
 
 /** 向中继发 CONNECT，返回 { statusLine, socket }（已建立隧道）。timeoutMs 兜底防止挂起。 */
@@ -253,43 +275,69 @@ describe("ProxyRelay", () => {
 		socket.destroy();
 	});
 
-	test("冷却期内不再尝试死上游；上游恢复后自动切回", async () => {
+	 test("上游连接超时：记冷却，冷却期内快速失败且不再试上游；冷却过后恢复", async () => {
 		const target = await startTarget();
-		// 先占一个端口再释放，后续可在同一端口「复活」假代理
-		const dead = await startFakeUpstream();
-		const port = dead.port;
-		await dead.close();
+		// 挂起型上游：接受 TCP 但从不应答 CONNECT（模拟代理进程活着但出口卡死）
+		const hanging = await startHangingUpstream();
 
 		// 注入假时钟：冷却判定不依赖真实时间，全量并发下不受事件循环卡顿影响
 		let fakeNow = 1_000_000;
 		const relay = new ProxyRelay({
-			upstream: `http://127.0.0.1:${port}`,
-			connectTimeoutMs: 500,
+			upstream: `http://127.0.0.1:${hanging.port}`,
+			connectTimeoutMs: 200,
 			upstreamDownMs: 60_000,
 			now: () => fakeNow,
 		});
 		await relay.start();
 		cleanups.push(() => relay.close());
 
-		// 第一次：公网目标 → 尝试死上游失败（触发冷却）→ 回退直连超时 502
+		// 第一次：公网目标 → 上游不应答 CONNECT → 超时 → 直接 502（不回退直连）
+		const first = await connectViaRelay(relay.port, "203.0.113.1", target.port);
+		expect(first.statusLine).toContain("502");
+		first.socket.destroy();
+		expect(hanging.attempts()).toBe(1);
+
+		// 冷却期内：直接快速失败，不再撞上游
+		const second = await connectViaRelay(relay.port, "203.0.113.1", target.port);
+		expect(second.statusLine).toContain("502");
+		second.socket.destroy();
+		expect(hanging.attempts()).toBe(1);
+
+		// 冷却过期 + 上游换成健康假代理：下一条请求立刻走回上游
+		fakeNow += 61_000;
+		const alive = await startFakeUpstream();
+		relay.setUpstream(`http://127.0.0.1:${alive.port}`);
+		const third = await connectViaRelay(relay.port, "203.0.113.1", target.port);
+		expect(await echo(third.socket, "c")).toBe("c");
+		third.socket.destroy();
+		expect(alive.connectRequests.length).toBe(1);
+	});
+
+	test("端口无监听（ECONNREFUSED）：不记冷却，代理恢复后下一条请求立刻成功", async () => {
+		const target = await startTarget();
+		// 先占一个端口再释放，拿到确定无监听的端口，后续可在同一端口「复活」
+		const dead = await startFakeUpstream();
+		const port = dead.port;
+		await dead.close();
+
+		const relay = new ProxyRelay({
+			upstream: `http://127.0.0.1:${port}`,
+			connectTimeoutMs: 500,
+			upstreamDownMs: 60_000,
+		});
+		await relay.start();
+		cleanups.push(() => relay.close());
+
+		// 第一次：端口拒绝 → 直接 502
 		const first = await connectViaRelay(relay.port, "203.0.113.1", target.port);
 		expect(first.statusLine).toContain("502");
 		first.socket.destroy();
 
-		// 同端口复活假代理（模拟代理软件重新打开）
+		// 代理软件重新打开（同端口复活）：不因上次拒绝而等冷却，下一条立刻走回上游
 		const alive = await startFakeUpstream(port);
-
-		// 冷却期内：公网目标不再尝试上游（直连超时 502），上游零连接
 		const second = await connectViaRelay(relay.port, "203.0.113.1", target.port);
-		expect(second.statusLine).toContain("502");
+		expect(await echo(second.socket, "c")).toBe("c");
 		second.socket.destroy();
-		expect(alive.attempts).toBe(0);
-
-		// 冷却过期：重新尝试上游并成功走回代理（fake 回连本机 target）
-		fakeNow += 61_000;
-		const third = await connectViaRelay(relay.port, "203.0.113.1", target.port);
-		expect(await echo(third.socket, "c")).toBe("c");
-		third.socket.destroy();
 		expect(alive.connectRequests.length).toBe(1);
 	});
 
@@ -404,29 +452,28 @@ describe("ProxyRelay", () => {
 		);
 	});
 
-	test("普通 HTTP 转发：上游端口无监听（代理软件被关）→ 自动回退直连", async () => {
-		// 真实 HTTP 目标（模拟本地 bridge 服务之外的任意 http 目标）
-		const httpTarget = httpCreateServer((_req, res) => res.end("ok-direct"));
-		await new Promise<void>((r) => httpTarget.listen(0, "127.0.0.1", r));
-		const tPort = (httpTarget.address() as AddressInfo).port;
-		cleanups.push(() => new Promise<void>((r) => httpTarget.close(() => r())));
-
+	test("普通 HTTP 转发：上游端口无监听（代理软件被关）→ 直接 502，不回退直连", async () => {
 		// 起一个上游再立刻关掉，拿到一个确定无监听的端口（复现死端口 53517）
 		const dead = await startFakeUpstream();
 		const deadPort = dead.port;
 		await dead.close();
 
+		const logs: string[] = [];
 		const relay = new ProxyRelay({
 			upstream: `http://127.0.0.1:${deadPort}`,
 			connectTimeoutMs: 500,
 			upstreamDownMs: 60_000,
+			logger: (line) => logs.push(line),
 		});
 		await relay.start();
 		cleanups.push(() => relay.close());
 
-		const raw = await rawHttpGet(relay.port, `http://127.0.0.1:${tPort}/api`);
-		expect(raw).toContain("200");
-		expect(raw).toContain("ok-direct");
+		// 公网目标（不能是回环/内网，否则 isDirectHost 会直接直连）
+		const raw = await rawHttpGet(relay.port, "http://203.0.113.1:8099/api");
+		expect(raw).toContain("502");
+		// 关键断言：没有发生「上游→直连」的重发（旧行为会多一行 upstream→direct）
+		expect(logs.some((l) => l.includes("upstream→direct"))).toBe(false);
+		expect(logs.some((l) => l.includes("via=upstream result=fail"))).toBe(true);
 	});
 
 	test("普通 HTTP 转发：回环目标（127.0.0.1）不送上上游，始终直连", async () => {

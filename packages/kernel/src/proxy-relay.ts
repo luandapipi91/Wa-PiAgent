@@ -1,13 +1,16 @@
-// proxy-relay.ts — 本地 HTTP 代理中继：上游代理不可用时自动回退直连。
+// proxy-relay.ts — 本地 HTTP 代理中继：上游代理不可用时**直接失败**，不回退直连。
 //
 // 背景：开启系统代理后，kernel 把 HTTP_PROXY/HTTPS_PROXY 写进进程环境，pi 子进程
 // spawn 时继承。若代理软件在会话进行中被关掉，运行中的子进程 env 改不了，所有
-// LLM 请求仍发往死掉的代理端口，重试全部失败（Connection error.）。
+// 请求仍发往死掉的代理端口。
 //
 // 方案：env 里的代理地址不直接指向上游代理，而是指向本中继（127.0.0.1 环回）。
-// 中继对 CONNECT 隧道与普通 HTTP 转发都先尝试经上游；上游连不通/超时则回退直连
-// （回环/内网目标如本地 bridge、私网服务绕过上游，始终直连——见 isDirectHost）。
-// 上游恢复后下一条连接自动切回（有短暂冷却缓存，避免每条请求都付一次失败延迟）。
+// 中继把请求转给上游；上游连不通/超时则直接返回 502 并上报状态（前端弹提示），
+// **不偷偷改走直连**——开着代理的用户要的是代理，静默直连会让请求白等超时后又失败，
+// 还掩盖了「代理软件没开」这个真正的原因。回环/内网目标如本地 bridge、私网服务
+// 绕过上游始终直连——那是路由，不是回退（见 isDirectHost）。
+// 上游恢复后下一条连接自动切回（只有超时类失败记短暂冷却，避免每条请求都付一次
+// 5s 超时；端口拒绝这类即时错误不记冷却，代理一开立刻恢复）。
 //
 // 生命周期：中继随 applySystemProxy 启动后不关停，env 始终指向中继——
 // 开代理 = 中继上游指向用户代理；关代理 = 上游清空（直连转发）。
@@ -27,13 +30,27 @@ export interface ProxyRelayOpts {
 	upstream: string;
 	/** 上游连接超时（ms），默认 5000 */
 	connectTimeoutMs?: number;
-	/** 上游失败后冷却时间（ms），冷却期内直接走直连，默认 15000 */
+	/** 上游超时失败后的冷却时间（ms），冷却期内快速失败不再尝试上游，默认 15000 */
 	upstreamDownMs?: number;
 	/** 时钟注入（测试用），默认 Date.now */
 	now?: () => number;
 	/** 网络请求日志（net-log）：每行一条，调用方保证不含敏感信息 */
 	logger?: (line: string) => void;
+	/** 上游可用性翻转回调（只在状态变化时触发，用于前端提示；直连模式不触发） */
+	onStatus?: (s: ProxyStatus) => void;
 }
+
+/** 上游代理可用性（ok=能建立连接；unreachable=连不上/被拒/出口疑似不可用） */
+export interface ProxyStatus {
+	state: "ok" | "unreachable";
+	/** 上游地址 origin（不含 userinfo）；空串 = 已切回直连模式 */
+	upstream: string;
+	/** unreachable 时的原始原因（如 connect ECONNREFUSED 127.0.0.1:7890） */
+	reason?: string;
+}
+
+/** 数据面判死门槛：隧道里发出过请求数据、却零回应、且持续超过该时长才算出口死 */
+const DATA_FAIL_MIN_MS = 1000;
 
 /** 解析 host:port 形式的 CONNECT 目标（IPv6 形如 [::1]:443 暂不支持，LLM API 用不到） */
 function parseConnectTarget(
@@ -103,6 +120,13 @@ export class ProxyRelay {
 	private readonly upstreamDownMs: number;
 	private readonly now: () => number;
 	private readonly log: (line: string) => void;
+	private readonly onStatus?: (s: ProxyStatus) => void;
+	/** 上次上报的可用性（去重：状态没翻转不重复通知） */
+	private lastState: "ok" | "unreachable" | null = null;
+	/** 上次上报不可达时的原因（快照查询用） */
+	private lastReason: string | undefined;
+	/** 当前上游的规范化 URL（含 userinfo，便于外部比对是否真的变了；空串=直连） */
+	private upstreamKey = "";
 	/** 监听端口（start 后可用） */
 	port = 0;
 
@@ -111,6 +135,7 @@ export class ProxyRelay {
 		this.upstreamDownMs = opts.upstreamDownMs ?? 15_000;
 		this.now = opts.now ?? Date.now;
 		this.log = opts.logger ?? (() => {});
+		this.onStatus = opts.onStatus;
 		this.setUpstream(opts.upstream);
 		this.server = createServer((client) => this.onClientSocket(client));
 		this.server.on("error", (err) => {
@@ -126,23 +151,33 @@ export class ProxyRelay {
 					upstream.includes("://") ? upstream : `http://${upstream}`,
 				);
 				this.upstream = url;
+				this.upstreamKey = url.href;
 				this.upstreamAuth = url.username
 					? `Basic ${Buffer.from(
 							`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`,
 						).toString("base64")}`
 					: null;
 			} catch {
-				// 上游地址无效：按直连处理，不抛异常（与「上游不可达回退直连」同一语义）
+				// 上游地址无效：按直连处理，不抛异常（用户填错地址时不让整个 kernel 挂掉）
 				console.warn(`[proxy-relay] 上游地址无效，按直连处理: ${upstream}`);
 				this.upstream = null;
 				this.upstreamAuth = null;
+				this.upstreamKey = "";
 			}
 		} else {
 			this.upstream = null;
 			this.upstreamAuth = null;
+			this.upstreamKey = "";
 		}
 		// 换上游后清掉旧冷却，让新上游立刻被尝试
 		this.upstreamDownUntil = 0;
+		// 旧上游的可用性结论作废。清空上游 = 用户关了代理：若此前报过不可达，
+		// 补一次 ok 让前端把告警提示收掉（不再有代理可用性问题）。
+		const prevState = this.lastState;
+		this.lastState = null;
+		if (!this.upstream && prevState === "unreachable") {
+			this.onStatus?.({ state: "ok", upstream: "" });
+		}
 		// 日志去重：值没变不刷行（保存设置会触发多次 applySystemProxy）。
 		// origin 不含 userinfo，可安全落日志
 		const origin = this.upstream ? this.upstream.origin : null;
@@ -172,6 +207,42 @@ export class ProxyRelay {
 	/** 当前生效上游（诊断/测试用）；null = 直连 */
 	getUpstream(): string | null {
 		return this.upstream ? this.upstream.origin : null;
+	}
+
+	/** 当前上游的规范化标识（含 userinfo；空串=直连），供定时刷新比对用 */
+	getUpstreamKey(): string {
+		return this.upstreamKey;
+	}
+
+	/** 上报可用性翻转（直连模式不上报，未翻转不重复上报） */
+	private notifyStatus(
+		state: "ok" | "unreachable",
+		reason?: string,
+	): void {
+		if (!this.upstream) return;
+		if (this.lastState === state) return;
+		this.lastState = state;
+		this.lastReason = reason;
+		this.onStatus?.({
+			state,
+			upstream: this.upstream.origin,
+			...(reason ? { reason } : {}),
+		});
+	}
+
+	/**
+	 * 当前可用性快照（供前端挂载/重连时补拉）。
+	 * null = 直连模式或还没观测过（无代理可报）。
+	 */
+	getStatus(): ProxyStatus | null {
+		if (!this.upstream || !this.lastState) return null;
+		return {
+			state: this.lastState,
+			upstream: this.upstream.origin,
+			...(this.lastState === "unreachable" && this.lastReason
+				? { reason: this.lastReason }
+				: {}),
+		};
 	}
 
 	// ---- 入口：解析首个请求头，分流 CONNECT 隧道 / 普通 HTTP 转发 ----
@@ -256,17 +327,15 @@ export class ProxyRelay {
 			return;
 		}
 		if (this.now() < this.upstreamDownUntil) {
-			direct("direct(cooldown)");
+			// 冷却期（上游超时类失败后）：快速失败，不再尝试上游、也不偷偷回退直连
+			fail("upstream(cooldown)", 502, "上游代理连接超时，冷却中");
+			this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
 			return;
 		}
-		this.tunnelViaUpstream(
-			target.host,
-			target.port,
-			client,
-			head,
-			(reason) => direct(`upstream→direct(${reason})`),
-			ok("upstream"),
-		);
+		this.tunnelViaUpstream(target.host, target.port, client, head, {
+			onFail: (reason) => fail("upstream", 502, reason),
+			onSuccess: ok("upstream"),
+		});
 	}
 
 	/**
@@ -274,8 +343,8 @@ export class ProxyRelay {
 	 * 统计上下行字节，隧道关闭时回调 onClose（只调一次）。
 	 * preToClient：上游 CONNECT 响应里多读的隧道数据，需转给客户端并计入 down。
 	 * dataFailProbe：仅经上游的隧道传入——隧道关闭时目标零回应（downBytes===0，
-	 * 连 TLS ServerHello 都没回来）则调用，用于识别「上游进程活着但出口已死」
-	 * 的数据面失败（CONNECT 200 之后发生，连接层回退覆盖不到的盲区）。
+	 * 连 TLS ServerHello 都没回来）且确实发过请求、持续够久则调用，用于识别
+	 * 「上游进程活着但出口已死」的数据面失败（CONNECT 200 之后发生，连接层回退覆盖不到的盲区）。
 	 */
 	private establishTunnel(
 		client: Socket,
@@ -305,9 +374,15 @@ export class ProxyRelay {
 			if (closed) return;
 			closed = true;
 			// 上游路径专属：目标零回应即断开 ≈ 上游出口死（正常目标至少回 TLS
-			// ServerHello / 响应头）。误判源仅剩客户端在握手前主动放弃，代价只是
-			// 一段冷却期直连，可接受。
-			if (dataFailProbe && downBytes === 0) dataFailProbe();
+			// ServerHello / 响应头）。但浏览器 preconnect（连上不发数据就关）也是
+			// 零回应，必须排除：要求确实发过请求数据、且持续超过 DATA_FAIL_MIN_MS。
+			if (
+				dataFailProbe &&
+				downBytes === 0 &&
+				upBytes > 0 &&
+				Date.now() - startedAt >= DATA_FAIL_MIN_MS
+			)
+				dataFailProbe();
 			onClose({ durMs: Date.now() - startedAt, upBytes, downBytes });
 		};
 		client.once("close", done);
@@ -357,16 +432,19 @@ export class ProxyRelay {
 	}
 
 	/**
-	 * 经上游代理建立 CONNECT 隧道；任何失败都回退 fallback(reason) 走直连。
-	 * socket 级失败（连不上/超时/被重置）会记入冷却，冷却期内新连接直接走直连。
+	 * 经上游代理建立 CONNECT 隧道；任何失败都直接给客户端 502（不回退直连）。
+	 * 连接超时会记冷却（避免每条请求都等满超时），端口拒绝等即时错误不记冷却
+	 * （代价为零，且代理软件一开就要能立刻恢复）。
 	 */
 	private tunnelViaUpstream(
 		host: string,
 		port: number,
 		client: Socket,
 		head: Buffer,
-		fallback: (reason: string) => void,
-		onSuccess: (s: TunnelStats) => void,
+		hooks: {
+			onFail: (reason: string) => void;
+			onSuccess: (s: TunnelStats) => void;
+		},
 	): void {
 		const upstream = this.upstream!;
 		const isTls = upstream.protocol === "https:";
@@ -379,20 +457,20 @@ export class ProxyRelay {
 		sock.setTimeout(this.connectTimeoutMs);
 
 		let settled = false;
-		const failToDirect = (reason: string, cooldown: boolean) => {
+		const failRequest = (reason: string, cooldown: boolean) => {
 			if (settled) return;
 			settled = true;
-			if (cooldown) {
-				this.upstreamDownUntil = this.now() + this.upstreamDownMs;
-				console.warn(
-					`[proxy-relay] 上游代理 ${upstream.origin} 不可用（${reason}），` +
-						`${this.upstreamDownMs}ms 内回退直连`,
-				);
-			}
+			if (cooldown) this.upstreamDownUntil = this.now() + this.upstreamDownMs;
+			console.warn(
+				`[proxy-relay] 上游代理 ${upstream.origin} 不可用（${reason}），请求直接失败（不回退直连）`,
+			);
+			this.notifyStatus("unreachable", reason);
+			// 让 kernel 重读一次系统代理（代理软件换了端口/重启时能自己跟上）
+			this.onUpstreamFail?.();
 			sock.destroy();
-			// 客户端可能已断开，直连前确认可写
-			if (client.destroyed) return;
-			fallback(reason);
+			hooks.onFail(reason);
+			if (!client.destroyed)
+				this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
 		};
 
 		sock.once(isTls ? "secureConnect" : "connect", () => {
@@ -410,7 +488,7 @@ export class ProxyRelay {
 				if (end === -1) {
 					if (buf.length > 16 * 1024) {
 						sock.off("data", onData);
-						failToDirect("上游 CONNECT 响应异常", false);
+						failRequest("上游 CONNECT 响应异常", false);
 					}
 					return;
 				}
@@ -418,45 +496,49 @@ export class ProxyRelay {
 				const statusLine = buf.slice(0, end).toString("latin1").split("\r\n")[0];
 				const m = statusLine.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
 				if (!m || m[1] !== "200") {
-					// 上游在线但拒绝隧道（如 407 鉴权失败）：回退直连，但不记冷却
-					failToDirect(`上游 CONNECT 返回 ${m?.[1] ?? statusLine}`, false);
+					// 上游在线但拒绝隧道（如 407 鉴权失败）：直接失败，不记冷却
+					failRequest(`上游 CONNECT 返回 ${m?.[1] ?? statusLine}`, false);
 					return;
 				}
 				if (settled) return;
 				settled = true;
 				sock.setTimeout(0);
-				// 上游隧道建立成功：清冷却（此前失败的冷却立即失效）
+				// 上游隧道建立成功：清冷却（此前失败的冷却立即失效）并上报恢复
 				this.upstreamDownUntil = 0;
-				// 上游响应头之后的剩余字节属于隧道数据，转给客户端并计入 down
+				this.notifyStatus("ok");
 				const restFromUpstream = buf.slice(end + 4);
 				this.establishTunnel(
 					client,
 					sock,
 					head,
-					onSuccess,
+					hooks.onSuccess,
 					restFromUpstream.length ? restFromUpstream : undefined,
 					// 数据面失败探针：200 之后出口死（节点全挂的常见形态）连接层
-					// 感知不到，靠「关闭时零回应」兜底——记冷却让后续请求（含客户端
-					// 自动重试）回退直连，而不是每条请求都撞死节点。本条请求已无法
-					// 挽救（200 已回给客户端），由客户端重试在冷却期内恢复。
+					// 感知不到，靠「关闭时零回应」兜底——记冷却让后续请求快速失败，
+					// 而不是每条请求都撞死节点。本条请求已无法挽救（200 已回给客户端）。
 					() => {
 						this.upstreamDownUntil = this.now() + this.upstreamDownMs;
 						console.warn(
 							`[proxy-relay] 上游代理 ${upstream.origin} 隧道建立后目标零回应即断开（出口疑似不可用），` +
-								`${this.upstreamDownMs}ms 内回退直连`,
+								`${this.upstreamDownMs}ms 内新请求快速失败`,
 						);
+						this.notifyStatus(
+							"unreachable",
+							"隧道建立后目标零回应（出口疑似不可用）",
+						);
+						this.onUpstreamFail?.();
 						// 同步落 network.log：排障时可与连接日志对时（desktop.log 轮转较早）
 						this.log(
 							`CONNECT ${host}:${port} via=upstream result=fail status=502` +
-								` err="隧道建立后目标零回应，出口疑似不可用，回退直连"`,
+								` err="隧道建立后目标零回应，出口疑似不可用，后续请求快速失败"`,
 						);
 					},
 				);
 			};
 			sock.on("data", onData);
 		});
-		sock.once("timeout", () => failToDirect("连接超时", true));
-		sock.once("error", (err) => failToDirect(err.message, true));
+		sock.once("timeout", () => failRequest("连接超时", true));
+		sock.once("error", (err) => failRequest(err.message, false));
 	}
 
 	// ---- 普通 HTTP 转发（absolute-form，http:// 目标走这里） ----
@@ -466,7 +548,7 @@ export class ProxyRelay {
 	 * 剔除代理专用头，其余原样透传。出站用裸 socket——不经 node:http 客户端，
 	 * 避免 Bun 读 env 代理（env 指向中继自身）造成回环。
 	 * 回环目标（如本地 bridge）绕过上游始终直连；与 CONNECT 隧道同策略：
-	 * 上游 socket 级失败（连不上/超时）记冷却并回退直连重发。
+	 * 上游 socket 级失败（连不上/超时）直接 502，不回退直连重发。
 	 */
 	private forwardPlain(
 		method: string,
@@ -565,20 +647,22 @@ export class ProxyRelay {
 				};
 				outbound.on("data", onRes);
 			});
-			const onFail = (reason: string) => {
+			const onFail = (reason: string, cooldown: boolean) => {
 				if (useUpstream && !settled) {
-					// 连接建立前的上游 socket 级失败：记冷却并回退直连重发
+					// 连接建立前的上游 socket 级失败：直接失败，不回退直连重发；
+					// 仅超时记冷却（每条都等满超时太贵），端口拒绝等即时错误不记。
 					settled = true;
-					this.upstreamDownUntil = this.now() + this.upstreamDownMs;
+					if (cooldown)
+						this.upstreamDownUntil = this.now() + this.upstreamDownMs;
 					console.warn(
-						`[proxy-relay] 上游代理 ${this.upstream!.origin} 不可用（${reason}），` +
-							`${this.upstreamDownMs}ms 内回退直连`,
+						`[proxy-relay] 上游代理 ${this.upstream!.origin} 不可用（${reason}），请求直接失败（不回退直连）`,
 					);
+					this.notifyStatus("unreachable", reason);
+					// 同上：失败时重读系统代理（上层节流）
+					this.onUpstreamFail?.();
 					finish("fail", 502, reason);
 					outbound.destroy();
-					// 客户端可能已断开，直连前确认可写
-					if (client.destroyed) return;
-					attempt(false, `upstream→direct(${reason})`);
+					this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
 					return;
 				}
 				console.warn(
@@ -587,22 +671,64 @@ export class ProxyRelay {
 				finish("fail", 502, reason);
 				this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
 			};
-			outbound.once("timeout", () => onFail("连接超时"));
-			outbound.once("error", (err) => onFail(err.message));
+			outbound.once("timeout", () => onFail("连接超时", true));
+			outbound.once("error", (err) => onFail(err.message, false));
 		};
 
-		const useUpstream = !!(
-			!isDirectHost(target.hostname) &&
-			this.upstream &&
-			this.now() >= this.upstreamDownUntil
-		);
-		attempt(useUpstream, useUpstream ? "upstream" : "direct");
+		const wantUpstream = !!(!isDirectHost(target.hostname) && this.upstream);
+		if (wantUpstream && this.now() < this.upstreamDownUntil) {
+			// 冷却期（上游超时类失败后）：快速失败，不试上游也不偷偷回退直连
+			this.log(
+				`${method} ${safeUrl} via=upstream(cooldown) result=fail status=502` +
+					` durMs=${Date.now() - startedAt} err="上游代理连接超时，冷却中"`,
+			);
+			this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
+			return;
+		}
+		attempt(wantUpstream, wantUpstream ? "upstream" : "direct");
 	}
 }
 
 // ---- kernel 进程内单例 ----
 
 let relay: ProxyRelay | null = null;
+/** 上游可用性监听（kernel 启动后接到前端推送通道；可在中继创建后注册） */
+let statusListener: ((s: ProxyStatus) => void) | null = null;
+/** 上游失败监听（kernel 侧接「重读系统代理」，代理换端口/重启后能自己跟上） */
+let upstreamFailListener: (() => void) | null = null;
+
+/** 注册上游可用性变化监听（只有一个消费者：kernel 启动后转发为 SSE 事件） */
+export function onProxyStatus(cb: (s: ProxyStatus) => void): void {
+	statusListener = cb;
+}
+
+/** 注册上游失败监听（只有一个消费者：kernel 启动后接到系统代理重读） */
+export function setUpstreamFailHook(cb: () => void): void {
+	upstreamFailListener = cb;
+}
+
+/** 当前上游可用性快照；null = 直连模式或尚未观测 */
+export function getProxyStatus(): ProxyStatus | null {
+	return relay?.getStatus() ?? null;
+}
+
+/** 当前上游的规范化标识（空串=直连/中继未启动），供定时刷新比对 */
+export function getProxyUpstreamKey(): string {
+	return relay?.getUpstreamKey() ?? "";
+}
+
+/** 把上游地址规范化为可直接比对的 key（与 ProxyRelay.setUpstream 同一套规则） */
+export function normalizeUpstreamKey(upstream: string): string {
+	if (!upstream) return "";
+	try {
+		return new URL(
+			upstream.includes("://") ? upstream : `http://${upstream}`,
+		).href;
+	} catch {
+		// 无效地址：setUpstream 会按直连处理，因此归一为空串
+		return "";
+	}
+}
 
 /**
  * 确保中继运行并指向上游（空串 = 直连），返回中继地址（http://127.0.0.1:port）。
@@ -616,6 +742,8 @@ export async function ensureProxyRelay(upstream: string): Promise<string> {
 		relay = new ProxyRelay({
 			upstream,
 			logger: (line) => getNetLogger().log(line),
+			onStatus: (s) => statusListener?.(s),
+			onUpstreamFail: () => upstreamFailListener?.(),
 		});
 		await relay.start();
 	}

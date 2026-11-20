@@ -32,8 +32,11 @@ import {
 	ensureDefaultTools,
 	ensureShellPath,
 	normalizeLegacyCodemode,
+	startSystemProxyWatcher,
+	refreshSystemProxyOnFailure,
 } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
+import { onProxyStatus, setUpstreamFailHook } from "./proxy-relay";
 import { SdkEventThrottle, SubagentProgressThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
 import { createCrashLogger, installCrashHandlers } from "./crash-logger";
@@ -394,6 +397,12 @@ export async function startKernel(opts?: {
 		...(opts?.staticDir ? { staticDir: opts.staticDir } : {}),
 	});
 	broadcast = (e) => server.broadcast(e);
+	// 上游代理可用性翻转 → 推前端（代理连不上时弹提示，恢复后收起）
+	onProxyStatus((s) => broadcast({ type: "proxy:status", ...s }));
+	// 上游连接失败 → 重读一次系统代理（节流 2s）：代理软件换端口/重开能自己跟上
+	setUpstreamFailHook(() => void refreshSystemProxyOnFailure());
+	// 每 5s 重读系统代理：用户在系统设置/代理软件里开关，内核不用重启也能跟上
+	const stopProxyWatch = startSystemProxyWatcher(5000);
 	// server 就绪：让全局 crash handler 也能广播 error 给前端
 	crashBroadcast = broadcast;
 
@@ -965,6 +974,7 @@ export async function startKernel(opts?: {
 		console.log(`[kernel] ${signal} 收到，回收 pi 子进程并停止服务...`);
 		clearInterval(reapTimer);
 		clearInterval(archiveTimer); // 回收站自动归档
+		stopProxyWatch();
 		eventThrottle.dispose();
 		(server as any).kbWatchStopAll(); // 停止知识库文件监听 + 清运行登记表（fs.watch 句柄 + 轮询 interval）
 		scheduler.stopAll(); // 停止全部 cron 调度（避免退出期再触发新执行）
@@ -987,6 +997,7 @@ export async function startKernel(opts?: {
 	return {
 		port: server.actualPort,
 		stop: async () => {
+			stopProxyWatch();
 			(server as any).kbWatchStopAll(); // Windows：fs.watch 句柄挂着会锁目录（与登记库句柄同理）
 			await server.stop().catch(() => {});
 			agentManager.disposeKnowledgeStore();
