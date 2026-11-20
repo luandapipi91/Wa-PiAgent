@@ -8,7 +8,7 @@
  * 判定必须排除它们：要求确实发过请求数据、且隧道持续超过 1s。
  *
  * 期望：
- * - 出口真死（发过请求 + 零回应 + 持续 >1s）→ 记冷却，后续请求快速 502（不回退直连）
+ * - 出口真死（发过请求 + 零回应 + 持续 >1s）→ 上报不可达 + 触发重读系统代理，后续请求仍会试探上游
  * - preconnect（不发数据即关）→ 不判死，后续请求照旧走上游
  * - 健康出口 → 不判死
  */
@@ -108,7 +108,6 @@ async function makeHarness(
 	const relay = new ProxyRelay({
 		upstream: `http://127.0.0.1:${up.port}`,
 		connectTimeoutMs: 800,
-		upstreamDownMs: 15_000,
 		logger: (line) => logs.push(line),
 	});
 	const port = await relay.start();
@@ -138,7 +137,7 @@ async function waitFor(
 }
 
 describe("proxy-relay 上游数据面失败", () => {
-	test("出口死（发过请求 + 零回应 + 持续 >1s）：记冷却，后续请求快速 502 不撞上游", async () => {
+	test("出口死（发过请求 + 零回应 + 持续 >1s）：上报不可达，后续请求仍会试探上游（无冷却）", async () => {
 		const h = await makeHarness(true, 1200);
 		try {
 			// 第一条：隧道"建立"（200）后出口死，客户端发数据有去无回
@@ -147,13 +146,12 @@ describe("proxy-relay 上游数据面失败", () => {
 			c1.sock.write("GET / HTTP/1.1\r\nHost: api.example.com\r\n\r\n");
 			await waitFor(() => h.logs.some((l) => l.includes("出口疑似不可用")));
 
-			// 第二条：冷却期直接 502，不再连上游（也不偷偷回退直连）
+			// 没有冷却：第二条会重新连上游（节点换好后能立刻接上，不干等 15s）
 			const connsBefore = h.upConns();
 			const c2 = await connectVia(h.port);
-			expect(c2.established).toBe(false);
-			expect(c2.statusLine).toContain("502");
+			await waitFor(() => h.upConns() > connsBefore);
+			expect(h.upConns()).toBeGreaterThan(connsBefore);
 			c2.sock.destroy();
-			expect(h.upConns()).toBe(connsBefore);
 		} finally {
 			await h.cleanup();
 		}
@@ -166,7 +164,7 @@ describe("proxy-relay 上游数据面失败", () => {
 			const c1 = await connectVia(h.port);
 			expect(c1.established).toBe(true);
 			c1.sock.destroy();
-			// 给它足够时间越过 1s 门槛（若误判就会在这段时间里触发冷却）
+			// 给它足够时间越过 1s 门槛（若误判就会在这段时间里被标成出口死）
 			await new Promise((r) => setTimeout(r, 1500));
 			expect(h.logs.some((l) => l.includes("出口疑似不可用"))).toBe(false);
 
@@ -181,7 +179,7 @@ describe("proxy-relay 上游数据面失败", () => {
 		}
 	});
 
-	test("健康出口（有数据往返）：不记冷却", async () => {
+	test("健康出口（有数据往返）：不判出口死", async () => {
 		const h = await makeHarness(false);
 		try {
 			const c1 = await connectVia(h.port);

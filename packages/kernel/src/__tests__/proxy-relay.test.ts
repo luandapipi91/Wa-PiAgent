@@ -259,7 +259,6 @@ describe("ProxyRelay", () => {
 		const relay = new ProxyRelay({
 			upstream: `http://127.0.0.1:${deadPort}`,
 			connectTimeoutMs: 500,
-			upstreamDownMs: 60_000,
 		});
 		await relay.start();
 		cleanups.push(() => relay.close());
@@ -275,18 +274,14 @@ describe("ProxyRelay", () => {
 		socket.destroy();
 	});
 
-	 test("上游连接超时：记冷却，冷却期内快速失败且不再试上游；冷却过后恢复", async () => {
+		test("上游连接超时：直接 502，且每条请求都会重新试探上游（无冷却）", async () => {
 		const target = await startTarget();
 		// 挂起型上游：接受 TCP 但从不应答 CONNECT（模拟代理进程活着但出口卡死）
 		const hanging = await startHangingUpstream();
 
-		// 注入假时钟：冷却判定不依赖真实时间，全量并发下不受事件循环卡顿影响
-		let fakeNow = 1_000_000;
 		const relay = new ProxyRelay({
 			upstream: `http://127.0.0.1:${hanging.port}`,
 			connectTimeoutMs: 200,
-			upstreamDownMs: 60_000,
-			now: () => fakeNow,
 		});
 		await relay.start();
 		cleanups.push(() => relay.close());
@@ -297,14 +292,14 @@ describe("ProxyRelay", () => {
 		first.socket.destroy();
 		expect(hanging.attempts()).toBe(1);
 
-		// 冷却期内：直接快速失败，不再撞上游
+		// 没有冷却：第二条仍然真的去试上游（代价是再等一次超时），
+		// 这样代理软件恢复后下一条就能立刻接上，不用干等
 		const second = await connectViaRelay(relay.port, "203.0.113.1", target.port);
 		expect(second.statusLine).toContain("502");
 		second.socket.destroy();
-		expect(hanging.attempts()).toBe(1);
+		expect(hanging.attempts()).toBe(2);
 
-		// 冷却过期 + 上游换成健康假代理：下一条请求立刻走回上游
-		fakeNow += 61_000;
+		// 上游换成健康假代理：下一条立刻成功
 		const alive = await startFakeUpstream();
 		relay.setUpstream(`http://127.0.0.1:${alive.port}`);
 		const third = await connectViaRelay(relay.port, "203.0.113.1", target.port);
@@ -313,7 +308,7 @@ describe("ProxyRelay", () => {
 		expect(alive.connectRequests.length).toBe(1);
 	});
 
-	test("端口无监听（ECONNREFUSED）：不记冷却，代理恢复后下一条请求立刻成功", async () => {
+	test("端口无监听（ECONNREFUSED）：代理恢复后下一条请求立刻成功", async () => {
 		const target = await startTarget();
 		// 先占一个端口再释放，拿到确定无监听的端口，后续可在同一端口「复活」
 		const dead = await startFakeUpstream();
@@ -323,7 +318,6 @@ describe("ProxyRelay", () => {
 		const relay = new ProxyRelay({
 			upstream: `http://127.0.0.1:${port}`,
 			connectTimeoutMs: 500,
-			upstreamDownMs: 60_000,
 		});
 		await relay.start();
 		cleanups.push(() => relay.close());
@@ -333,7 +327,7 @@ describe("ProxyRelay", () => {
 		expect(first.statusLine).toContain("502");
 		first.socket.destroy();
 
-		// 代理软件重新打开（同端口复活）：不因上次拒绝而等冷却，下一条立刻走回上游
+		// 代理软件重新打开（同端口复活）：下一条立刻走回上游
 		const alive = await startFakeUpstream(port);
 		const second = await connectViaRelay(relay.port, "203.0.113.1", target.port);
 		expect(await echo(second.socket, "c")).toBe("c");
@@ -462,7 +456,6 @@ describe("ProxyRelay", () => {
 		const relay = new ProxyRelay({
 			upstream: `http://127.0.0.1:${deadPort}`,
 			connectTimeoutMs: 500,
-			upstreamDownMs: 60_000,
 			logger: (line) => logs.push(line),
 		});
 		await relay.start();
