@@ -176,15 +176,7 @@ test("WSServerEvent 含 subagent:list 结果", () => {
   expect(res.type).toBe("subagent:list");
 });
 
-test("ThinkingLevel 含 default 档（按模型能力自动决定）", () => {
-  const levels: import("../src/types").ThinkingLevel[] = [
-    "default",
-    "disabled",
-    "medium",
-    "high",
-    "max",
-  ];
-  expect(levels).toHaveLength(5);
+test("AgentConfig.thinking 接受 default 档（类型层；运行期枚举由 tool-schemas 测试校验）", () => {
   const c: import("../src/types").AgentConfig = {
     displayName: "默认档",
     avatar: "🤖",

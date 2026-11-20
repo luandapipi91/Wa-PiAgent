@@ -124,3 +124,20 @@ test("setSessionPrefs 传 syncDefaults:false → defaults 不变（程序化写�
 		"global/default-model",
 	);
 });
+
+test("initSessionModel：同步模型后，会话思考档按新模型记录重算（不残留旧模型档位）", async () => {
+	// 该会话在 IDB 里存着旧模型时期留下的 thinking=max，但**没有**显式 model
+	// （initSessionModel 的前提是 stored.model 为空；thinking 是历史残留）
+	storedMap.set("sess-im-think", {
+		sessionId: "sess-im-think",
+		thinking: "max",
+		attachments: [],
+	});
+
+	await useComposerPrefsStore.getState().initSessionModel("sess-im-think", "p/bot");
+
+	const prefs = useComposerPrefsStore.getState().bySession["sess-im-think"];
+	expect(prefs?.model).toBe("p/bot");
+	// 关键断言：p/bot 无记录 → 该会话思考档应为 default，而不是沿用旧模型 p/old 的 max
+	expect(prefs?.thinking).toBe("default");
+});

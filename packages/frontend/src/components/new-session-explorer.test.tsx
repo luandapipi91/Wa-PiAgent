@@ -16,7 +16,10 @@ mock.module("../store/composer-db", () => ({
 	getSessionPrefs: async () => undefined,
 	setSessionPrefs: async () => {},
 	deleteSessionPrefs: async () => {},
-	getDefaults: async () => ({ model: "test-p/m1", thinking: "high" }),
+	getDefaults: async () => ({
+		model: "test-p/m1",
+		thinkingByModel: { "test-p/m1": "high" },
+	}),
 	setDefaults: async () => {},
 	getRecordingPrefs: async () => undefined,
 	setRecordingPrefs: async () => {},
@@ -62,7 +65,7 @@ function setupProjects(
 	} as any);
 	useComposerPrefsStore.setState({
 		newSessionIds: {},
-		defaults: { model: "test-p/m1", thinking: "high" },
+		defaults: { model: "test-p/m1", thinkingByModel: { "test-p/m1": "high" } },
 		bySession: {},
 		loadedBySession: {},
 	} as any);

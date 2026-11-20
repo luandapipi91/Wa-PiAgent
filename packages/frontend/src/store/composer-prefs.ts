@@ -12,9 +12,9 @@ import {
 } from "./composer-db";
 
 // Hydration guard：标记 defaults 是否已从持久层加载。
-// store 初始内存态 thinking="disabled"，而 loadDefaults 是异步的——若在其完成前
-// 触发 setDefaults/setSessionPrefs（如用户改 model、附件 auto-select），会拿初始 disabled
-// 当"当前 defaults"写回 localStorage，覆盖用户上次存的 high/max。这是"重启后思考强度变 disabled"的根因。
+// store 初始内存态是空模型表（thinkingByModel: {}），而 loadDefaults 是异步的——若在其完成前
+// 触发 setDefaults/setSessionPrefs（如用户改 model、附件 auto-select），会拿这张空表
+// 当"当前 defaults"写回 localStorage，覆盖用户上次存的模型档位记录。这是"重启后思考强度被重置"的根因。
 // 守卫：未 hydrate 前持久化函数只更新内存、不写回；hydrate 后恢复正常持久化。
 let defaultsHydrated = false;
 
@@ -33,11 +33,15 @@ export function _resetDefaultsHydration(): void {
 // 前提是每个会话路径都先走 loadSession——Composer 与 NewSessionPane 挂载时均会调用。
 const loadedSessions = new Set<string>();
 const gapWrites = new Map<string, Partial<SessionPrefs>>();
+/** gap 期「换模型且档位是推断值」的会话：loadSession 合并时须按新模型重算档位，
+ *  不得把持久层里属于旧模型的 thinking 沿用到新模型（见 setSessionModel 注释）。 */
+const gapWrites_inferredModel = new Set<string>();
 
 /** 测试专用：重置会话级 hydration 状态 */
 export function _resetSessionHydration(): void {
 	loadedSessions.clear();
 	gapWrites.clear();
+	gapWrites_inferredModel.clear();
 }
 
 export interface SessionPrefs {
@@ -93,7 +97,12 @@ interface ComposerPrefsState {
 	setSessionPrefs: (
 		sessionId: string,
 		prefs: Partial<SessionPrefs>,
-		opts?: { syncDefaults?: boolean },
+		opts?: {
+			syncDefaults?: boolean;
+			/** prefs.thinking 是「按模型推断出来的值」而非用户显式选择：
+			 *  gap 期不得把它当显式字段记进 gapWrites（否则会压过持久层里该会话的真实值）。 */
+			inferredThinking?: boolean;
+		},
 	) => void;
 	/** 程序化初始化会话模型（IM 接入会话进入时同步机器人模型用）：
 	 * 仅当该会话在持久层尚无显式模型记录时写入（不覆盖用户手动选择），
@@ -157,15 +166,23 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 			};
 			const gap = gapWrites.get(sessionId);
 			gapWrites.delete(sessionId);
+			const inferredModelInGap = gapWrites_inferredModel.delete(sessionId);
 			loadedSessions.add(sessionId);
 			// 异步 gap 期间 setSessionPrefs 可能已设置值（如 auto-select），不要整体覆盖；
 			// 改为按字段合并：gap 内显式修改的字段胜出，未触碰的字段以持久层为准恢复
 			const existing = s.bySession[sessionId];
 			if (existing) {
+				const mergedModel =
+					gap?.model === undefined ? (stored?.model ?? existing.model) : gap.model;
+				// gap 期换了模型但没带档位（推断值被 inferredThinking 挡在 gap 外）：
+				// 此时 stored.thinking 属于「旧模型」，不能沿用到新模型上——按新模型记录重算。
+				const modelChangedInGap =
+					inferredModelInGap && gap?.model !== undefined;
 				const merged: SessionPrefs = {
-					model:
-						gap?.model === undefined ? (stored?.model ?? existing.model) : gap.model,
-					thinking: gap?.thinking ?? stored?.thinking ?? existing.thinking,
+					model: mergedModel,
+					thinking: modelChangedInGap
+						? thinkingForModel(mergedModel, defaults.thinkingByModel)
+						: (gap?.thinking ?? stored?.thinking ?? existing.thinking),
 					attachments:
 						gap?.attachments ?? stored?.attachments ?? existing.attachments,
 					text: gap?.text ?? stored?.text ?? existing.text,
@@ -188,8 +205,16 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					...loaded,
 					bySession: { ...s.bySession, [sessionId]: merged },
 				};
+				// 字段级合并（与 loadDefaults 同口径）：只补 model，thinkingByModel 走合并，
+				// 避免用 T0 快照整块冲掉内存里用户刚写入的模型记录。
 				if (s.defaults.model == null && defaults.model != null)
-					next.defaults = defaults;
+					next.defaults = {
+						model: defaults.model,
+						thinkingByModel: {
+							...defaults.thinkingByModel,
+							...s.defaults.thinkingByModel,
+						},
+					};
 				return next as ComposerPrefsState;
 			}
 			const fresh: SessionPrefs = {
@@ -207,8 +232,16 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 			// 不用 T0 快照（开读时刻）无条件覆盖内存 defaults：getSessionPrefs 的 IDB 读取窗口内
 			// 用户可能已改模型，整体覆盖会把它回滚——「切了模型再切回来，会话模型就变了」的根因。
 			// 与 existing 分支同一守卫：仅内存 defaults 尚未加载（null，冷启动）时从持久层填充。
+			// 字段级合并（与 loadDefaults 同口径）：只补 model，thinkingByModel 走合并，
+			// 避免用 T0 快照整块冲掉内存里用户刚写入的模型记录。
 			if (s.defaults.model == null && defaults.model != null)
-				next.defaults = defaults;
+				next.defaults = {
+					model: defaults.model,
+					thinkingByModel: {
+						...defaults.thinkingByModel,
+						...s.defaults.thinkingByModel,
+					},
+				};
 			return next as ComposerPrefsState;
 		});
 		defaultsHydrated = true; // loadSession 内部也读了 defaults，同样标记 hydrate 完成
@@ -234,8 +267,17 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 				});
 			} else {
 				// 会话尚未完成首次 loadSession：只更新内存并记录显式修改的字段，不写 IDB——
-				// 防止用初始值（attachments:[] 等）覆写已存记录，由 loadSession 合并后统一持久化
-				gapWrites.set(sessionId, { ...gapWrites.get(sessionId), ...prefs });
+				// 防止用初始值（attachments:[] 等）覆写已存记录，由 loadSession 合并后统一持久化。
+				// inferredThinking：切模型时算出的档位不是用户选择，不能进 gap（否则会压过
+				// 持久层里该会话的真实 thinking，把「推断」固化成「用户意图」）。
+				const gap = { ...gapWrites.get(sessionId), ...prefs };
+				if (opts?.inferredThinking) {
+					delete gap.thinking;
+					// 标记「本次换模型的档位是推断出来的」：loadSession 合并时要按新模型重算，
+					// 而不是把持久层里属于旧模型的 thinking 沿用到新模型上。
+					gapWrites_inferredModel.add(sessionId);
+				}
+				gapWrites.set(sessionId, gap);
 			}
 			// 仅把用户本次显式修改的字段（prefs 参数）同步到全局 defaults，
 			// 而非用整个 session prefs 覆盖——否则切到老会话改 model 时，
@@ -283,7 +325,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 				model,
 				thinking: thinkingForModel(model, get().defaults.thinkingByModel),
 			},
-			{ syncDefaults: false },
+			{ syncDefaults: false, inferredThinking: true },
 		);
 		set((s) => {
 			if (s.defaults.model === model) return s;
@@ -298,13 +340,26 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 		// 已有显式模型记录（用户改过/已同步过）不覆盖：保持「会话记住自己的模型」语义
 		const stored = await getSessionPrefs(sessionId);
 		if (stored?.model) return;
-		get().setSessionPrefs(sessionId, { model }, { syncDefaults: false });
+		// 与 setSessionModel 同口径：换模型必须重算会话的思考档。
+		// 否则 IM 会话同步成机器人模型后，会话仍带着旧模型时期留下的 thinking，
+		// resolveThinking 在「新模型无记录」时会把这个旧值显示出来——
+		// 恰好违反「切到没设置过的模型应显示默认」这条核心语义。
+		// 区别仅在 syncDefaults：程序化写入不得污染全局默认模型。
+		get().setSessionPrefs(
+			sessionId,
+			{
+				model,
+				thinking: thinkingForModel(model, get().defaults.thinkingByModel),
+			},
+			{ syncDefaults: false, inferredThinking: true },
+		);
 	},
 
 	removeSessionPrefs: (sessionId) => {
 		// 清理 hydration 守卫的会话级跟踪，避免同一 id 复用时旧状态残留
 		loadedSessions.delete(sessionId);
 		gapWrites.delete(sessionId);
+		gapWrites_inferredModel.delete(sessionId);
 		void deleteSessionPrefs(sessionId);
 		set((s) => {
 			const bySession = { ...s.bySession };

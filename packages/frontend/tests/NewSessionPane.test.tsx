@@ -1092,4 +1092,58 @@ describe("NewSessionPane", () => {
 			expect(names).toEqual(["x.txt", "y.txt"]);
 		});
 	});
+
+	it("切模型后思考选择器按该模型记录切换（无记录 → 默认）", async () => {
+		composerDbDefaults.model = "test-p/m1";
+		composerDbDefaults.thinkingByModel = { "test-p/m1": "high" };
+		useProvidersStore.setState({
+			providers: [
+				{
+					id: "p1",
+					name: "TestP",
+					slug: "test-p",
+					api: "openai-completions",
+					baseUrl: "",
+					apiKey: "",
+					models: [
+						{ id: "m1", contextWindow: 128000, maxTokens: 4096 },
+						{ id: "m2", contextWindow: 128000, maxTokens: 4096 },
+					],
+				},
+			],
+		});
+		useComposerPrefsStore.setState({
+			defaults: { model: null, thinkingByModel: {} },
+			bySession: {},
+			loadedBySession: {},
+		});
+
+		render(<NewSessionPane />);
+		await waitFor(() => {
+			expect(
+				(screen.getByTestId("thinking-selector") as HTMLSelectElement).value,
+			).toBe("high"); // 当前模型 test-p/m1 有记录
+		});
+
+		// 切到 m2（无记录）→ 默认
+		fireEvent.change(screen.getByTestId("model-selector"), {
+			target: { value: "test-p/m2" },
+		});
+		await waitFor(() => {
+			expect(
+				(screen.getByTestId("thinking-selector") as HTMLSelectElement).value,
+			).toBe("default");
+		});
+
+		// 切回 m1 → 记录仍在
+		fireEvent.change(screen.getByTestId("model-selector"), {
+			target: { value: "test-p/m1" },
+		});
+		await waitFor(() => {
+			expect(
+				(screen.getByTestId("thinking-selector") as HTMLSelectElement).value,
+			).toBe("high");
+		});
+	});
+
 });

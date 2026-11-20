@@ -708,4 +708,61 @@ describe("composer-prefs store", () => {
 		});
 	});
 
+
+	it("R2：gap 期 setSessionModel 不得把推断出的档位固化进 gapWrites（应由 loadSession 恢复持久层值）", async () => {
+		// 持久层：p/old 有 high 记录；会话 s-gap 的 IDB 里 thinking 也是 high
+		await dbSetDefaults({
+			model: null,
+			thinkingByModel: { "p/old": "high" },
+		});
+		await dbSetSessionPrefs({
+			sessionId: "s-gap-2",
+			model: "p/old",
+			thinking: "high",
+			attachments: [],
+			updatedAt: Date.now(),
+		});
+		await useComposerPrefsStore.getState().loadDefaults();
+
+		// gap：loadSession 尚未完成，用户把模型切到 p/new（p/new 无记录 → 推断为 default）
+		const loadPromise = useComposerPrefsStore.getState().loadSession("s-gap-2");
+		useComposerPrefsStore.getState().setSessionModel("s-gap-2", "p/new");
+		await loadPromise;
+		await new Promise((r) => setTimeout(r, 10));
+
+		const sess = useComposerPrefsStore.getState().bySession["s-gap-2"];
+		expect(sess.model).toBe("p/new");
+		// 推断值 default 只用于显示，不应被当成「用户选择」写进 IDB
+		const stored = await getSessionPrefs("s-gap-2");
+		expect(stored?.model).toBe("p/new");
+		// 关键：旧模型 p/old 的 high 绝不能跟到新模型 p/new 上落到 IDB。
+		// （p/new 无记录时落 default 是结构性占位，符合语义；落 high 就是 bug）
+		expect(stored?.thinking).not.toBe("high");
+		// 关键：内存显示值按语义应为 default（p/new 无记录）
+		expect(sess.thinking).toBe("default");
+		// 且 p/old 的 high 记录完好无损
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel["p/old"]).toBe(
+			"high",
+		);
+	});
+
+	it("R1：loadSession 的 defaults 补齐应是字段级合并，不得整块覆盖内存里已有的模型记录", async () => {
+		// 持久层只有 model，无模型表
+		await dbSetDefaults({ model: "p/a", thinkingByModel: {} });
+		// 内存里已有一条别的模型的记录（模拟用户刚改过、尚未 loadDefaults 完成）
+		useComposerPrefsStore.setState({
+			defaults: { model: null, thinkingByModel: { "p/b": "max" } },
+			bySession: {},
+			loadedBySession: {},
+			newSessionIds: {},
+		} as any);
+
+		await useComposerPrefsStore.getState().loadSession("s-r1");
+
+		const d = useComposerPrefsStore.getState().defaults;
+		expect(d.model).toBe("p/a");
+		// 内存里 p/b 的记录不能被 T0 快照整块冲掉
+		expect(d.thinkingByModel["p/b"]).toBe("max");
+	});
+
 });

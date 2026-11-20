@@ -19,7 +19,10 @@ mock.module("../store/composer-db", () => ({
 	getSessionPrefs: async () => undefined,
 	setSessionPrefs: async () => {},
 	deleteSessionPrefs: async () => {},
-	getDefaults: async () => ({ model: "test-p/m1", thinking: "high" }),
+	getDefaults: async () => ({
+		model: "test-p/m1",
+		thinkingByModel: { "test-p/m1": "high" },
+	}),
 	setDefaults: async () => {},
 	getRecordingPrefs: async () => undefined,
 	setRecordingPrefs: async () => {},
@@ -67,7 +70,7 @@ beforeEach(() => {
 	useComposerPrefsStore.setState({
 		// 模拟残留草稿 id（重启后从 localStorage/IDB 恢复的场景）
 		newSessionIds: { "proj-1": "draft-123" },
-		defaults: { model: "test-p/m1", thinking: "high" },
+		defaults: { model: "test-p/m1", thinkingByModel: { "test-p/m1": "high" } },
 		bySession: {},
 		loadedBySession: {},
 	} as any);
