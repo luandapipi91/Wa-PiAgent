@@ -65,3 +65,19 @@ describe("sameFrame", () => {
 		expect(sameFrame(null, base)).toBe(false);
 	});
 });
+
+describe("extractFrame 的只读契约（pi-tui 1.6.0 起 Component.render 返回只读缓存数组）", () => {
+	test("调用后传入数组与其元素未被修改，返回的是新数组", () => {
+		// 模拟 pi-tui 1.6.0 的 Container.render()：子元素不变时返回同一份缓存数组。
+		// 若宿主原地改写它，后续每一帧都会读到被污染的文本。
+		const cached: string[] = [`a${CURSOR_MARKER}b`, "c"];
+		const snapshot = [...cached];
+		const first = extractFrame(cached);
+		const second = extractFrame(cached);
+		expect(cached).toEqual(snapshot);
+		expect(first.lines).toEqual(["ab", "c"]);
+		expect(second.lines).toEqual(first.lines);
+		// 返回新数组，不与上游缓存共享引用
+		expect(first.lines).not.toBe(cached);
+	});
+});

@@ -14,7 +14,7 @@ export interface TuiFrame {
  * （CJK 占两格），因此复用 pi-tui 的 visibleWidth 而不是 string.length。
  * 只取第一个标记，其余一律剥离，避免标记文本泄漏到画面。
  */
-export function extractFrame(lines: string[]): TuiFrame {
+export function extractFrame(lines: readonly string[]): TuiFrame {
 	const out: string[] = [];
 	let cursor: { row: number; col: number } | null = null;
 

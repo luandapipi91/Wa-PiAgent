@@ -84,7 +84,7 @@ function attachClickFallback(component: Component, terminal: WaPiFakeTerminal): 
 	component.handleMouse = (event) => {
 		// 只在真正的「点击」上动作：按下/松开要留给拖选（复制路径靠它）
 		if (event.type !== "click") return undefined;
-		let lines: string[];
+		let lines: readonly string[];
 		try {
 			// 用组件自己的渲染行 + 事件的行内坐标定位：与屏幕偏移无关（浮窗/缩放都不会错行）
 			lines = component.render(terminal.columns);

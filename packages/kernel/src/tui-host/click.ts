@@ -41,7 +41,10 @@ interface OptionRow {
  * @param lines 帧行（含 ANSI；本函数自行剥离）
  * @param row   被点击的**组件内行下标**（0-based）
  */
-export function resolveClickKeys(lines: string[], row: number): string[] | null {
+export function resolveClickKeys(
+	lines: readonly string[],
+	row: number,
+): string[] | null {
 	if (!Number.isInteger(row) || row < 0 || row >= lines.length) return null;
 
 	const plain = lines.map((line) => stripTerminalSequences(line ?? ""));
