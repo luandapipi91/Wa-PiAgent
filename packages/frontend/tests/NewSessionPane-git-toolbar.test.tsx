@@ -84,12 +84,11 @@ beforeEach(() => {
 	disconnectEvents();
 	apiCalls.length = 0;
 	composerDbDefaults.model = "openai/gpt-4o";
-	composerDbDefaults.thinking = "disabled";
 	for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
 	useGitStore.setState({ byProject: {} });
 	useComposerPrefsStore.setState({
 		bySession: {},
-		defaults: { model: null, thinking: "disabled" },
+		defaults: { model: null, thinkingByModel: {} },
 		newSessionIds: {},
 	});
 	useAgentsStore.setState({ list: [agentCfg("dev")] });

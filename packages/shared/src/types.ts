@@ -87,7 +87,9 @@ export type AgentStateKey = `${string}:${AgentName}`;
 export type AgentStatus = "idle" | "thinking" | "blocked";
 
 // Composer / Prompt 的思考强度档位（UI 选择器）
-export type ThinkingLevel = "disabled" | "medium" | "high" | "max";
+// default = 按模型能力自动决定（kernel 映射为 medium 交给 pi 的 clampThinkingLevel：
+// 支持思考的模型落到 mid，不支持的被钳成 off）
+export type ThinkingLevel = "default" | "disabled" | "medium" | "high" | "max";
 
 export interface Partners {
 	askTo: AgentName[];
@@ -106,7 +108,7 @@ export interface AgentConfig {
 	avatarColor: string; // "hex-hex" 渐变
 	description: string;
 	model: string | null; // null / "" = 跟随全局
-	thinking: ThinkingLevel | null; // null = 跟随当前会话默认
+	thinking: ThinkingLevel | null; // null = 未指定（kernel 侧按 medium 处理，与 "default" 等价）
 	tools: string[];
 	skills: string[];
 	// 技能显式全不选：true = 该智能体不加载任何技能（与 skills:[] 的"继承全部"语义区分）

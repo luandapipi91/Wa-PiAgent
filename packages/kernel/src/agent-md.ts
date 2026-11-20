@@ -214,7 +214,11 @@ export function validateAgentConfig(c: AgentConfig): string[] {
 		errs.push(
 			`非法 displayName: ${c.displayName}（含 / \\ : * ? " < > | 字符）`,
 		);
-	if (!["disabled", "medium", "high", "max", null].includes(c.thinking))
+	if (
+		!["default", "disabled", "medium", "high", "max", null].includes(
+			c.thinking,
+		)
+	)
 		errs.push(`非法 thinking: ${c.thinking}`);
 	return errs;
 }

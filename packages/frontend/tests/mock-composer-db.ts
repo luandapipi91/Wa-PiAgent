@@ -2,15 +2,21 @@
 // 必须在任何引入 composer-prefs 的 import 之前导入本模块。
 import { mock } from "bun:test";
 
-export const composerDbDefaults: { model: string | null; thinking: string } = {
+export const composerDbDefaults: {
+  model: string | null;
+  thinkingByModel: Record<string, string>;
+} = {
   model: null,
-  thinking: "disabled",
+  thinkingByModel: {},
 };
 export const composerDbSessions: Record<string, any> = {};
 export const composerDbNewSessionIds: Record<string, string> = {};
 
 mock.module("../src/store/composer-db", () => ({
-  getDefaults: async () => ({ ...composerDbDefaults }),
+  getDefaults: async () => ({
+    model: composerDbDefaults.model,
+    thinkingByModel: { ...composerDbDefaults.thinkingByModel },
+  }),
   setDefaults: async () => {},
   getSessionPrefs: async (sessionId: string) => composerDbSessions[sessionId],
   setSessionPrefs: async () => {},

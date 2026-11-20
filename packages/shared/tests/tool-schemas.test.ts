@@ -267,3 +267,28 @@ test("BRIDGE_TOOL_NAMES 不再包含任何 browser_* 工具", async () => {
   const { BRIDGE_TOOL_NAMES } = await import("@wa-pi/shared/tool-schemas");
   expect(BRIDGE_TOOL_NAMES.filter((t) => t.startsWith("browser_"))).toEqual([]);
 });
+
+test("DelegateParamsSchema 的 thinking 接受 default，且与 DELEGATE_DESCRIPTION 列举一致", async () => {
+  // 这条用 Value.Check 真校验 schema（而非断言自己刚写的字面量数组）：
+  // 新增 `default` 档时如果只改了 schema 而漏了工具描述，模型看不到这个可选值，
+  // 新档位在 delegate 场景形同虚设——所以两边必须同时命中。
+  const { DelegateParamsSchema, DELEGATE_DESCRIPTION } = await import(
+    "@wa-pi/shared/tool-schemas"
+  );
+  const { Value } = await import("typebox/value");
+  const build = (thinking: string) => ({
+    tasks: [{ agent: "Explore", task: "调查", thinking }],
+  });
+
+  for (const level of ["default", "disabled", "medium", "high", "max"]) {
+    expect(Value.Check(DelegateParamsSchema, build(level))).toBe(true);
+    // 描述里必须逐个列出（模型据此判断可选值）
+    expect(DELEGATE_DESCRIPTION).toContain(level);
+  }
+  // 不传 thinking 也合法（可选）
+  expect(
+    Value.Check(DelegateParamsSchema, { tasks: [{ agent: "Explore", task: "x" }] }),
+  ).toBe(true);
+  // 非法值必须被拒
+  expect(Value.Check(DelegateParamsSchema, build("bogus"))).toBe(false);
+});

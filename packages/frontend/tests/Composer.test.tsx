@@ -54,7 +54,6 @@ describe("Composer", () => {
   beforeEach(() => {
     sent.length = 0;
     composerDbDefaults.model = null;
-    composerDbDefaults.thinking = "disabled";
     for (const k of Object.keys(composerDbSessions))
       delete composerDbSessions[k];
     useProjectsStore.setState({
@@ -96,7 +95,7 @@ describe("Composer", () => {
       ],
     });
     useComposerPrefsStore.setState({
-      defaults: { model: null, thinking: "disabled" },
+      defaults: { model: null, thinkingByModel: {} },
       bySession: {},
       loadedBySession: {},
     });
@@ -145,7 +144,6 @@ describe("Composer", () => {
       },
     });
     composerDbDefaults.model = "anthropic/claude-sonnet";
-    composerDbDefaults.thinking = "high";
     composerDbSessions.s1 = {
       model: "anthropic/claude-sonnet",
       thinking: "high",
@@ -301,7 +299,6 @@ describe("Composer", () => {
       },
     });
     composerDbDefaults.model = "openai/gpt-4o";
-    composerDbDefaults.thinking = "disabled";
     composerDbSessions.s1 = {
       model: "openai/gpt-4o",
       thinking: "disabled",
@@ -1004,4 +1001,55 @@ describe("Composer", () => {
       sent.filter((s) => s.path && s.path.includes("/prompt")),
     ).toHaveLength(0);
   });
+
+  it("选择器显示值取当前模型记录：模型有 high 记录时显示 high（不被会话旧值或默认覆盖）", async () => {
+    // 会话本身没设过 thinking，但当前模型的记录是 max
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "anthropic/claude-sonnet", attachments: [] } },
+      defaults: {
+        model: "anthropic/claude-sonnet",
+        thinkingByModel: { "anthropic/claude-sonnet": "max" },
+      },
+      loadedBySession: { s1: true },
+    });
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+
+    expect(
+      (screen.getByTestId("thinking-selector") as HTMLSelectElement).value,
+    ).toBe("max");
+  });
+
+  it("切换模型后选择器按目标模型记录重算：有记录用它，无记录回默认", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "anthropic/claude-sonnet", attachments: [] } },
+      defaults: {
+        model: "anthropic/claude-sonnet",
+        thinkingByModel: { "anthropic/claude-sonnet": "high" },
+      },
+      loadedBySession: { s1: true },
+    });
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    const thinking = () =>
+      (screen.getByTestId("thinking-selector") as HTMLSelectElement).value;
+    expect(thinking()).toBe("high");
+
+    // 切到另一个模型（无记录）→ 默认
+    fireEvent.change(screen.getByTestId("model-selector"), {
+      target: { value: "openai/gpt-4o" },
+    });
+    await act(async () => {});
+    expect(thinking()).toBe("default");
+
+    // 切回原模型 → 记录仍在
+    fireEvent.change(screen.getByTestId("model-selector"), {
+      target: { value: "anthropic/claude-sonnet" },
+    });
+    await act(async () => {});
+    expect(thinking()).toBe("high");
+  });
+
 });

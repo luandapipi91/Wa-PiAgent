@@ -65,7 +65,6 @@ beforeEach(() => {
 	steerFail = false;
 	apiCalls.length = 0;
 	composerDbDefaults.model = "openai/gpt-4o";
-	composerDbDefaults.thinking = "disabled";
 	for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
 	useProjectsStore.setState({
 		projects: [],
@@ -96,7 +95,7 @@ beforeEach(() => {
 		],
 	});
 	useComposerPrefsStore.setState({
-		defaults: { model: null, thinking: "disabled" },
+		defaults: { model: null, thinkingByModel: {} },
 		bySession: {},
 		loadedBySession: {},
 	});

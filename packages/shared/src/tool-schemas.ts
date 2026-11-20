@@ -404,7 +404,7 @@ export const DELEGATE_DESCRIPTION = [
   "- 派出去就留给它：别自己重搜一遍、别中途抢回来自己做；结果只有你能看到，要给用户看就自己转述。",
   "- tasks：1..6 项，每项 { agent, task }，超出拒绝不排队。",
   "- resume：填上次返回的 <agent_id>，同一子智能体接着做（保留其上下文，优先于新建）。",
-  "- thinking：可选，本次委派的思考强度（disabled/medium/high/max）；不传则按既有优先级（agent 覆盖配置 > 继承主代理当前等级）。",
+  "- thinking：可选，本次委派的思考强度（default/disabled/medium/high/max）；default = 按模型能力自动决定；不传则按既有优先级（agent 覆盖配置 > 继承主代理当前等级）。",
 ].join("\n");
 
 /** 单次委托的任务数上限（并发上限与参数上限同源，避免数值与文案脱节） */
@@ -426,6 +426,7 @@ export const DelegateParamsSchema = Type.Object({
       thinking: Type.Optional(
         Type.Union(
           [
+            Type.Literal("default"),
             Type.Literal("disabled"),
             Type.Literal("medium"),
             Type.Literal("high"),
@@ -433,7 +434,7 @@ export const DelegateParamsSchema = Type.Object({
           ],
           {
             description:
-              "本次委派的思考强度（可选）；不传则按该 agent 的覆盖配置或继承主代理当前思考等级",
+              "本次委派的思考强度（可选）；default = 按模型能力自动决定；不传则按该 agent 的覆盖配置或继承主代理当前思考等级",
           },
         ),
       ),

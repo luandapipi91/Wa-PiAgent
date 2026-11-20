@@ -956,6 +956,12 @@ test("点击「重新发送」→ 原地重试：裁掉失败回合（用户消�
 				attachments: [],
 			},
 		},
+		// 该模型的记录是 max（与会话里的 high 不同）：重发应发模型记录值，
+		// 题目测「重发路径也要走 resolveThinking」这条接线。
+		defaults: {
+			model: "deepseek/deepseek-chat",
+			thinkingByModel: { "deepseek/deepseek-chat": "max" },
+		},
 	});
 	render(
 		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
@@ -963,6 +969,10 @@ test("点击「重新发送」→ 原地重试：裁掉失败回合（用户消�
 		</VirtuosoMockContext.Provider>,
 	);
 	fireEvent.click(screen.getByTestId("resend-s1-1"));
+	const promptReq = apiPostCalls
+		.filter((r) => r.url && r.url.includes("/prompt"))
+		.at(-1);
+	expect(promptReq?.body?.thinking).toBe("max");
 	const s = useSessionStore.getState();
 	// 失败回合被裁掉，立即乐观重建用户消息（不叠加，仍 1 条）+ loading 占位
 	expect(s.messagesBySession["s1"]).toHaveLength(1);
@@ -1243,6 +1253,12 @@ test("点击「重新发送」（transient 场景）→ 重发同一条 + 清除
 				attachments: [],
 			},
 		},
+		// 该模型的记录是 max（与会话里的 high 不同）：重发应发模型记录值，
+		// 题目测「重发路径也要走 resolveThinking」这条接线。
+		defaults: {
+			model: "deepseek/deepseek-chat",
+			thinkingByModel: { "deepseek/deepseek-chat": "max" },
+		},
 	});
 	render(
 		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
@@ -1250,6 +1266,10 @@ test("点击「重新发送」（transient 场景）→ 重发同一条 + 清除
 		</VirtuosoMockContext.Provider>,
 	);
 	fireEvent.click(screen.getByTestId("resend-s1-1"));
+	const promptReq = apiPostCalls
+		.filter((r) => r.url && r.url.includes("/prompt"))
+		.at(-1);
+	expect(promptReq?.body?.thinking).toBe("max");
 	const s = useSessionStore.getState();
 	// 乐观重建用户消息（重发同一条，不叠加）+ loading 占位
 	expect(s.messagesBySession["s1"]).toHaveLength(1);

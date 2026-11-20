@@ -5,6 +5,8 @@ import {
 	useComposerPrefsStore,
 	_resetDefaultsHydration,
 	_resetSessionHydration,
+	thinkingForModel,
+	resolveThinking,
 } from "../src/store/composer-prefs";
 import {
 	getDefaults,
@@ -27,21 +29,24 @@ describe("composer-prefs store", () => {
 		_resetDefaultsHydration();
 		_resetSessionHydration();
 		useComposerPrefsStore.setState({
-			defaults: { model: null, thinking: "disabled" },
+			defaults: { model: null, thinkingByModel: {} },
 			bySession: {},
 			loadedBySession: {},
 			newSessionIds: {},
 		});
 	});
 
-	it("loadDefaults loads defaults from IndexedDB into state", async () => {
-		await dbSetDefaults({ model: "claude-sonnet", thinking: "high" });
+	it("loadDefaults 从持久层恢复 model 与按模型的思考档", async () => {
+		await dbSetDefaults({
+			model: "claude-sonnet",
+			thinkingByModel: { "claude-sonnet": "high" },
+		});
 
 		await useComposerPrefsStore.getState().loadDefaults();
 
 		expect(useComposerPrefsStore.getState().defaults).toEqual({
 			model: "claude-sonnet",
-			thinking: "high",
+			thinkingByModel: { "claude-sonnet": "high" },
 		});
 	});
 
@@ -64,7 +69,10 @@ describe("composer-prefs store", () => {
 	});
 
 	it("loadSession loads per-session prefs from IndexedDB", async () => {
-		await dbSetDefaults({ model: "default-model", thinking: "disabled" });
+		await dbSetDefaults({
+			model: "default-model",
+			thinkingByModel: { "default-model": "disabled" },
+		});
 		await dbSetSessionPrefs({
 			sessionId: "s1",
 			model: "session-model",
@@ -78,7 +86,7 @@ describe("composer-prefs store", () => {
 		const state = useComposerPrefsStore.getState();
 		expect(state.defaults).toEqual({
 			model: "default-model",
-			thinking: "disabled",
+			thinkingByModel: { "default-model": "disabled" },
 		});
 		expect(state.bySession["s1"]).toEqual({
 			model: "session-model",
@@ -88,17 +96,20 @@ describe("composer-prefs store", () => {
 	});
 
 	it("loadSession falls back to defaults when no session record exists", async () => {
-		await dbSetDefaults({ model: "fallback-model", thinking: "high" });
+		await dbSetDefaults({
+			model: "fallback-model",
+			thinkingByModel: { "fallback-model": "high" },
+		});
 
 		await useComposerPrefsStore.getState().loadSession("missing-session");
 
 		const state = useComposerPrefsStore.getState();
 		expect(state.defaults).toEqual({
 			model: "fallback-model",
-			thinking: "high",
+			thinkingByModel: { "fallback-model": "high" },
 		});
 		// 无 session 记录时：model 回退 defaults，thinking 保持 undefined（未显式设置）
-		// 组件读取 thinking 时回退到 defaults.thinking
+		// 组件读取 thinking 时用 resolveThinking 按模型记录算
 		expect(state.bySession["missing-session"]).toEqual({
 			model: "fallback-model",
 			attachments: [],
@@ -106,7 +117,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("loadSession 完成后标记 loadedBySession（Composer 据此门控 auto-select）", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		// 加载前未标记
 		expect(
 			useComposerPrefsStore.getState().loadedBySession["s-load"],
@@ -120,33 +131,35 @@ describe("composer-prefs store", () => {
 	it("setDefaults updates state and persists to IndexedDB", async () => {
 		// 应用启动：先 hydrate（真实场景用户设置时应用早已加载完成，未 hydrate 时持久化被守卫跳过）
 		await useComposerPrefsStore.getState().loadDefaults();
-		useComposerPrefsStore
-			.getState()
-			.setDefaults({ model: "persisted-model", thinking: "high" });
+		useComposerPrefsStore.getState().setDefaults({
+			model: "persisted-model",
+			thinkingByModel: { "persisted-model": "high" },
+		});
 		await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
 
 		expect(useComposerPrefsStore.getState().defaults).toEqual({
 			model: "persisted-model",
-			thinking: "high",
+			thinkingByModel: { "persisted-model": "high" },
 		});
 		expect(await getDefaults()).toEqual({
 			model: "persisted-model",
-			thinking: "high",
+			thinkingByModel: { "persisted-model": "high" },
 		});
 	});
 
-	it("重启往返：setDefaults({thinking}) → 重置内存态 → loadDefaults 应恢复存储的 thinking", async () => {
+	it("重启往返：按模型存的思考档 → 重置内存态 → loadDefaults 应恢复", async () => {
 		// 应用启动：先 hydrate（真实场景用户设置时应用早已加载完成）
 		await useComposerPrefsStore.getState().loadDefaults();
-		// 模拟用户在新建页设置思考强度
-		useComposerPrefsStore.getState().setDefaults({ thinking: "high" });
+		useComposerPrefsStore
+			.getState()
+			.setDefaults({ thinkingByModel: { "p/m1": "high" } });
 		// 等待 fire-and-forget 的写入完成
 		await new Promise((r) => setTimeout(r, 10));
 
 		// 模拟软件重启：内存态回到初始值，hydration 标志也重置（持久化数据保留）
 		_resetDefaultsHydration();
 		useComposerPrefsStore.setState({
-			defaults: { model: null, thinking: "disabled" },
+			defaults: { model: null, thinkingByModel: {} },
 			bySession: {},
 			loadedBySession: {},
 			newSessionIds: {},
@@ -155,8 +168,10 @@ describe("composer-prefs store", () => {
 		// 重新加载（NewSessionPane 挂载时触发）
 		await useComposerPrefsStore.getState().loadDefaults();
 
-		// 关键断言：思考强度应从持久层恢复为 high，而非停留在 disabled
-		expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
+		// 关键断言：模型记录应从持久层恢复
+		expect(
+			useComposerPrefsStore.getState().defaults.thinkingByModel["p/m1"],
+		).toBe("high");
 	});
 
 	it("setNewSessionId persists new session ids to IndexedDB", async () => {
@@ -189,7 +204,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("loadSession 不应覆盖已由 setSessionPrefs 设置的 prefs（竞态：auto-select 先于 loadSession 完成）", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 
 		// 模拟：auto-select 先触发 setSessionPrefs
 		useComposerPrefsStore
@@ -204,32 +219,39 @@ describe("composer-prefs store", () => {
 		expect(state.bySession["new-session"].model).toBe("openai/gpt-4o");
 	});
 
-	it("复现 hydration 竞态：localStorage 已存 high，loadDefaults 完成前改 model，不应把初始 disabled 写回覆盖 high", async () => {
-		// 真实场景：上次会话已把 thinking=high 持久化（beforeEach 已 _resetDefaultsHydration）
-		await dbSetDefaults({ model: null, thinking: "high" });
-		// 内存态此时是初始 disabled（beforeEach 设置），hydration=false（尚未 loadDefaults）
+	it("复现 hydration 竞态：localStorage 已存模型思考档，loadDefaults 完成前改 model，不应把空模型表写回覆盖", async () => {
+		// 真实场景：上次已把某模型的思考档持久化（beforeEach 已 _resetDefaultsHydration）
+		await dbSetDefaults({
+			model: null,
+			thinkingByModel: { "p/m1": "high" },
+		});
+		// 内存态此时是初始空模型表（beforeEach 设置），hydration=false（尚未 loadDefaults）
 
 		// 竞态点：loadDefaults 尚未触发/完成（异步 gap），用户在新建页改了 model。
-		// 修复前：setDefaults 内部 {...s.defaults(thinking=disabled), ...{model}} 把 disabled 写回，覆盖 high。
-		// 修复后：hydration guard 阻止未 hydrate 的写入，localStorage 的 thinking 保持 high。
+		// hydration guard 必须拦下这次写回，否则空模型表会覆盖已存的 high 记录。
 		useComposerPrefsStore.getState().setDefaults({ model: "openai/gpt-4o" });
 		await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
 
-		// 关键断言1：localStorage 的 thinking 必须是 high，不能被初始 disabled 覆盖
-		expect((await getDefaults()).thinking).toBe("high");
+		// 关键断言1：localStorage 的模型思考档必须还在
+		expect((await getDefaults()).thinkingByModel["p/m1"]).toBe("high");
 
-		// loadDefaults 姗姗来迟完成：内存态合并——保留竞态期间用户选的 model，恢复存储的 thinking
+		// loadDefaults 姗姗来迟完成：内存态合并——保留竞态期间用户选的 model，恢复模型思考档
 		await useComposerPrefsStore.getState().loadDefaults();
 
-		// 关键断言2：内存态 thinking 恢复为 high（而非停留在初始 disabled）
-		expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
+		// 关键断言2：内存态模型记录恢复
+		expect(
+			useComposerPrefsStore.getState().defaults.thinkingByModel["p/m1"],
+		).toBe("high");
 		// 竞态期间用户改的 model 仍在内存中（未被 loadDefaults 覆盖为 null）
 		expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
 	});
 
 	it("复现：重启后 ModelSelector 自动选中第一个模型，不应覆盖 localStorage 中用户上次选的 model", async () => {
 		// 真实场景：用户上次在新建页选了 openai/gpt-4o，已持久化到 localStorage
-		await dbSetDefaults({ model: "openai/gpt-4o", thinking: "high" });
+		await dbSetDefaults({
+			model: "openai/gpt-4o",
+			thinkingByModel: { "openai/gpt-4o": "high" },
+		});
 		// 内存态是初始值（beforeEach 已重置），hydration=false
 
 		// 竞态点：NewSessionPane 挂载，loadDefaults() 异步未完成；
@@ -247,16 +269,17 @@ describe("composer-prefs store", () => {
 		// 修复前：loadDefaults 里 `s.defaults.model != null ? s.defaults.model : defs.model`
 		// 因 auto-select 已把 s.defaults.model 设成非 null，会丢弃 defs.model（openai/gpt-4o）。
 		expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
-		// thinking 仍正确恢复
-		expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
 	});
 
-	it("复现：新会话设 max → 切到老会话(off) → 重启后 defaults 应保持 max", async () => {
-		// 老会话已有 off 偏好
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+	it("复现：模型 A 设 max → 切到有 off 记录的老会话 → 重启后 A 的记录仍是 max", async () => {
+		// 老会话已有 off 偏好（会话级）
+		await dbSetDefaults({
+			model: null,
+			thinkingByModel: { "openai/gpt-4o": "max" },
+		});
 		await dbSetSessionPrefs({
 			sessionId: "old-session",
-			model: null,
+			model: "p/other",
 			thinking: "disabled",
 			attachments: [],
 			updatedAt: Date.now(),
@@ -264,51 +287,54 @@ describe("composer-prefs store", () => {
 
 		// 应用启动：先 hydrate（真实场景用户设置时应用早已加载完成）
 		await useComposerPrefsStore.getState().loadDefaults();
-		// 1. 用户在新会话设置思考强度 max（NewSessionPane.setDefaults）
-		useComposerPrefsStore.getState().setDefaults({ thinking: "max" });
-		await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
 
-		// 2. 切到老会话：Composer 挂载 → loadSession(old-session)
+		// 1. 切到老会话：Composer 挂载 → loadSession(old-session)
 		await useComposerPrefsStore.getState().loadSession("old-session");
+		// 老会话读到自己的 disabled（会话级保留）
+		expect(useComposerPrefsStore.getState().bySession["old-session"].thinking).toBe(
+			"disabled",
+		);
 
-		// 2b. 在老会话里改了 model（Composer.setModel 走 setSessionPrefs）
-		useComposerPrefsStore
-			.getState()
-			.setSessionPrefs("old-session", { model: "openai/gpt-4o" });
-		await new Promise((r) => setTimeout(r, 10));
-
-		// 3. 软件重启：内存态重置，hydration 标志也重置，持久化数据保留
+		// 2. 软件重启：内存态重置，hydration 标志也重置，持久化数据保留
 		_resetDefaultsHydration();
 		useComposerPrefsStore.setState({
-			defaults: { model: null, thinking: "disabled" },
+			defaults: { model: null, thinkingByModel: {} },
 			bySession: {},
 			newSessionIds: {},
 		});
 
-		// 4. 重开 → NewSessionPane 挂载 → loadDefaults
+		// 3. 重开 → loadDefaults
 		await useComposerPrefsStore.getState().loadDefaults();
 
-		// 关键断言：用户在新会话设的 max 应被保留，而非被老会话的 off 覆盖
-		expect(useComposerPrefsStore.getState().defaults.thinking).toBe("max");
+		// 关键断言：模型级的 max 记录被保留，没被老会话的 disabled 污染
+		expect(
+			useComposerPrefsStore.getState().defaults.thinkingByModel[
+				"openai/gpt-4o"
+			],
+		).toBe("max");
 	});
 
-	it("会话未显式设置 thinking 时，回退到 defaults.thinking 而非硬编码 disabled", async () => {
-		// defaults 设为 max
-		await dbSetDefaults({ model: null, thinking: "max" });
+	it("会话未显式设置 thinking 时，bySession.thinking 保持 undefined（读取由组件 resolveThinking 兜底）", async () => {
+		await dbSetDefaults({
+			model: null,
+			thinkingByModel: { "p/m1": "max" },
+		});
 		// 不写入任何 session prefs（模拟全新会话，用户从没设过思考强度）
 
 		await useComposerPrefsStore.getState().loadDefaults();
 		await useComposerPrefsStore.getState().loadSession("s-no-thinking");
 
-		// bySession 里 thinking 应为 undefined（未显式设置），读取时由组件回退到 defaults
+		// bySession 里 thinking 应为 undefined（未显式设置）
 		const sess = useComposerPrefsStore.getState().bySession["s-no-thinking"];
 		expect(sess.thinking).toBeUndefined();
-		// defaults 仍是 max
-		expect(useComposerPrefsStore.getState().defaults.thinking).toBe("max");
+		// 模型记录仍在
+		expect(
+			useComposerPrefsStore.getState().defaults.thinkingByModel["p/m1"],
+		).toBe("max");
 	});
 
 	it("会话显式设置过 thinking 后，切换 defaults 不影响该会话", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		await dbSetSessionPrefs({
 			sessionId: "s-fixed",
 			model: null,
@@ -324,8 +350,10 @@ describe("composer-prefs store", () => {
 			"high",
 		);
 
-		// 用户改了全局默认为 max
-		useComposerPrefsStore.getState().setDefaults({ thinking: "max" });
+		// 用户改了某模型的记录为 max
+		useComposerPrefsStore
+			.getState()
+			.setDefaults({ thinkingByModel: { "p/m1": "max" } });
 		// 已设过 high 的会话不受影响
 		expect(useComposerPrefsStore.getState().bySession["s-fixed"].thinking).toBe(
 			"high",
@@ -333,7 +361,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("复现 hydration 竞态：loadSession 完成前 auto-select 写 model，不应丢失 IDB 里的附件和 thinking", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		// 上次会话已在 IDB 持久化了片段附件和显式 thinking
 		await dbSetSessionPrefs({
 			sessionId: "s-gap-att",
@@ -369,7 +397,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("复现：auto-select 先于 loadSession 发起（React 子 effect 先执行的真实时序），附件也不应丢失", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		await dbSetSessionPrefs({
 			sessionId: "s-gap-early",
 			model: "old/model",
@@ -399,7 +427,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("loadSession 恢复 text 草稿", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		await dbSetSessionPrefs({
 			sessionId: "s-draft",
 			model: null,
@@ -417,7 +445,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("gap 期间写入的 text 在 loadSession 合并中胜出", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		await dbSetSessionPrefs({
 			sessionId: "s-gap-text",
 			model: null,
@@ -443,7 +471,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("发送清空（text: 空串）后 loadSession 不恢复文本", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		await dbSetSessionPrefs({
 			sessionId: "s-sent",
 			model: null,
@@ -466,7 +494,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("老记录（无 text 字段）加载后 text 为 undefined", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		await dbSetSessionPrefs({
 			sessionId: "s-old",
 			model: null,
@@ -483,7 +511,7 @@ describe("composer-prefs store", () => {
 	});
 
 	it("removeSessionPrefs 清内存 + IndexedDB 记录", async () => {
-		await dbSetDefaults({ model: null, thinking: "disabled" });
+		await dbSetDefaults({ model: null, thinkingByModel: {} });
 		await dbSetSessionPrefs({
 			sessionId: "s-del",
 			model: null,
@@ -521,7 +549,7 @@ describe("composer-prefs store", () => {
 
 	it("clearStaleModels 清除指向已改 id 模型的悬空会话引用", async () => {
 		useComposerPrefsStore.setState({
-			defaults: { model: null, thinking: "disabled" },
+			defaults: { model: null, thinkingByModel: {} },
 			bySession: {
 				s1: {
 					model: "deepseek/deepseek-chat", // 旧 id，已失效
@@ -542,7 +570,7 @@ describe("composer-prefs store", () => {
 
 	it("clearStaleModels 清除失效的默认模型引用", async () => {
 		useComposerPrefsStore.setState({
-			defaults: { model: "deepseek/deepseek-chat", thinking: "disabled" },
+			defaults: { model: "deepseek/deepseek-chat", thinkingByModel: {} },
 			bySession: {},
 		});
 
@@ -553,7 +581,7 @@ describe("composer-prefs store", () => {
 
 	it("clearStaleModels 保留仍然有效的模型引用", async () => {
 		useComposerPrefsStore.setState({
-			defaults: { model: null, thinking: "disabled" },
+			defaults: { model: null, thinkingByModel: {} },
 			bySession: {
 				s1: { model: "deepseek/deepseek-v4", thinking: undefined, attachments: [] },
 			},
@@ -566,4 +594,175 @@ describe("composer-prefs store", () => {
 			"deepseek/deepseek-v4",
 		);
 	});
+
+	// ─── 按模型保存思考档：纯函数 + 写入路径 ─────────────────────────────────
+
+	it("thinkingForModel：无记录返回 default", () => {
+		expect(thinkingForModel("p/m", {})).toBe("default");
+		expect(thinkingForModel("p/m", { "p/m": "high" })).toBe("high");
+		expect(thinkingForModel(null, { "p/m": "high" })).toBe("default");
+	});
+
+	it("resolveThinking：模型记录优先于会话值，无记录才回退会话值", () => {
+		expect(resolveThinking("p/m", "disabled", { "p/m": "high" })).toBe("high");
+		// 无该模型记录 → 回退会话值（老数据兼容路径）
+		expect(resolveThinking("p/n", "disabled", { "p/m": "high" })).toBe(
+			"disabled",
+		);
+		expect(resolveThinking("p/n", undefined, {})).toBe("default");
+		expect(resolveThinking(null, undefined, {})).toBe("default");
+	});
+
+	it("setSessionPrefs({thinking}) 把档位记到当前模型名下", async () => {
+		await useComposerPrefsStore.getState().loadDefaults();
+		useComposerPrefsStore.getState().setSessionPrefs("s1", { model: "p/m" });
+		useComposerPrefsStore.getState().setSessionPrefs("s1", { thinking: "max" });
+		await new Promise((r) => setTimeout(r, 10));
+
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel["p/m"]).toBe(
+			"max",
+		);
+		expect((await getDefaults()).thinkingByModel["p/m"]).toBe("max");
+		// 会话自身也记下了
+		expect(useComposerPrefsStore.getState().bySession["s1"].thinking).toBe("max");
+	});
+
+	it("setSessionPrefs({thinking}) 无模型时只写会话不写模型表", async () => {
+		await useComposerPrefsStore.getState().loadDefaults();
+		useComposerPrefsStore.getState().setSessionPrefs("s1", { thinking: "high" });
+		await new Promise((r) => setTimeout(r, 10));
+
+		expect(useComposerPrefsStore.getState().bySession["s1"].thinking).toBe("high");
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel).toEqual({});
+	});
+
+	it("setSessionPrefs({model, thinking}) 同时给出时按新模型记账", async () => {
+		await useComposerPrefsStore.getState().loadDefaults();
+		useComposerPrefsStore
+			.getState()
+			.setSessionPrefs("s1", { model: "p/a", thinking: "high" });
+		await new Promise((r) => setTimeout(r, 10));
+
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel["p/a"]).toBe(
+			"high",
+		);
+	});
+
+	it("setSessionModel：切到从没设过的模型 → 默认；切回来 → 仍是原记录", async () => {
+		await useComposerPrefsStore.getState().loadDefaults();
+		useComposerPrefsStore.getState().setSessionPrefs("s1", { model: "p/a" });
+		useComposerPrefsStore.getState().setSessionPrefs("s1", { thinking: "high" });
+		expect(useComposerPrefsStore.getState().bySession["s1"].thinking).toBe("high");
+
+		useComposerPrefsStore.getState().setSessionModel("s1", "p/b");
+		expect(useComposerPrefsStore.getState().bySession["s1"].thinking).toBe(
+			"default",
+		);
+		expect(useComposerPrefsStore.getState().defaults.model).toBe("p/b");
+
+		useComposerPrefsStore.getState().setSessionModel("s1", "p/a");
+		expect(useComposerPrefsStore.getState().bySession["s1"].thinking).toBe("high");
+		expect(useComposerPrefsStore.getState().defaults.model).toBe("p/a");
+	});
+
+	it("setSessionModel 不污染其它模型的记录", async () => {
+		await useComposerPrefsStore.getState().loadDefaults();
+		useComposerPrefsStore.getState().setSessionPrefs("s1", { model: "p/a" });
+		useComposerPrefsStore.getState().setSessionPrefs("s1", { thinking: "max" });
+		useComposerPrefsStore.getState().setSessionModel("s1", "p/b");
+		useComposerPrefsStore.getState().setSessionPrefs("s1", { thinking: "disabled" });
+
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel).toEqual({
+			"p/a": "max",
+			"p/b": "disabled",
+		});
+	});
+
+
+	it("回归：setSessionModel（auto-select 路径）不得把推断出的 default 写进模型表，以免盖掉持久层记录", async () => {
+		// 场景：持久层里 p/a 已有 high 记录（用户上次的选择）
+		await dbSetDefaults({
+			model: "p/a",
+			thinkingByModel: { "p/a": "high" },
+		});
+		await useComposerPrefsStore.getState().loadDefaults();
+		// 内存态此时未 hydrate —— 模拟 ModelSelector 在 loadDefaults 完成前 auto-select
+		_resetDefaultsHydration();
+		useComposerPrefsStore.setState({
+			defaults: { model: null, thinkingByModel: {} },
+			bySession: {},
+			loadedBySession: {},
+			newSessionIds: {},
+		});
+
+		// auto-select 选到一个「从没设置过」的模型：推断档位为 default
+		useComposerPrefsStore.getState().setSessionModel("s-auto", "p/new");
+
+		// 关键断言：不能凭空为 p/new 建一条 default 记录
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel).toEqual({});
+
+		// loadDefaults 完成后，持久层 p/a 的 high 必须完整恢复
+		await useComposerPrefsStore.getState().loadDefaults();
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel).toEqual({
+			"p/a": "high",
+		});
+	});
+
+
+	it("R2：gap 期 setSessionModel 不得把推断出的档位固化进 gapWrites（应由 loadSession 恢复持久层值）", async () => {
+		// 持久层：p/old 有 high 记录；会话 s-gap 的 IDB 里 thinking 也是 high
+		await dbSetDefaults({
+			model: null,
+			thinkingByModel: { "p/old": "high" },
+		});
+		await dbSetSessionPrefs({
+			sessionId: "s-gap-2",
+			model: "p/old",
+			thinking: "high",
+			attachments: [],
+			updatedAt: Date.now(),
+		});
+		await useComposerPrefsStore.getState().loadDefaults();
+
+		// gap：loadSession 尚未完成，用户把模型切到 p/new（p/new 无记录 → 推断为 default）
+		const loadPromise = useComposerPrefsStore.getState().loadSession("s-gap-2");
+		useComposerPrefsStore.getState().setSessionModel("s-gap-2", "p/new");
+		await loadPromise;
+		await new Promise((r) => setTimeout(r, 10));
+
+		const sess = useComposerPrefsStore.getState().bySession["s-gap-2"];
+		expect(sess.model).toBe("p/new");
+		// 推断值 default 只用于显示，不应被当成「用户选择」写进 IDB
+		const stored = await getSessionPrefs("s-gap-2");
+		expect(stored?.model).toBe("p/new");
+		// 关键：旧模型 p/old 的 high 绝不能跟到新模型 p/new 上落到 IDB。
+		// （p/new 无记录时落 default 是结构性占位，符合语义；落 high 就是 bug）
+		expect(stored?.thinking).not.toBe("high");
+		// 关键：内存显示值按语义应为 default（p/new 无记录）
+		expect(sess.thinking).toBe("default");
+		// 且 p/old 的 high 记录完好无损
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel["p/old"]).toBe(
+			"high",
+		);
+	});
+
+	it("R1：loadSession 的 defaults 补齐应是字段级合并，不得整块覆盖内存里已有的模型记录", async () => {
+		// 持久层只有 model，无模型表
+		await dbSetDefaults({ model: "p/a", thinkingByModel: {} });
+		// 内存里已有一条别的模型的记录（模拟用户刚改过、尚未 loadDefaults 完成）
+		useComposerPrefsStore.setState({
+			defaults: { model: null, thinkingByModel: { "p/b": "max" } },
+			bySession: {},
+			loadedBySession: {},
+			newSessionIds: {},
+		} as any);
+
+		await useComposerPrefsStore.getState().loadSession("s-r1");
+
+		const d = useComposerPrefsStore.getState().defaults;
+		expect(d.model).toBe("p/a");
+		// 内存里 p/b 的记录不能被 T0 快照整块冲掉
+		expect(d.thinkingByModel["p/b"]).toBe("max");
+	});
+
 });

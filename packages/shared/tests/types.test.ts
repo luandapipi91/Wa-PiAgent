@@ -175,3 +175,19 @@ test("WSServerEvent 含 subagent:list 结果", () => {
   const res: import("../src/types").WSServerEvent = { type: "subagent:list", subagents: [] };
   expect(res.type).toBe("subagent:list");
 });
+
+test("AgentConfig.thinking 接受 default 档（类型层；运行期枚举由 tool-schemas 测试校验）", () => {
+  const c: import("../src/types").AgentConfig = {
+    displayName: "默认档",
+    avatar: "🤖",
+    avatarColor: "#000000-#ffffff",
+    description: "",
+    model: null,
+    thinking: "default",
+    tools: [],
+    skills: [],
+    mcpServers: [],
+    partners: { askTo: [] },
+  };
+  expect(c.thinking).toBe("default");
+});

@@ -4,6 +4,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { AutoWidthSelect } from "./AutoWidthSelect";
 
 const LABEL_KEYS: Record<ThinkingLevel, string> = {
+    default: "ui.thinkingSelector.optionDefault",
     disabled: "ui.thinkingSelector.optionDisabled",
     medium: "ui.thinkingSelector.optionMedium",
     high: "ui.thinkingSelector.optionHigh",
@@ -19,6 +20,8 @@ export function ThinkingSelector({ value, onChange }: Props) {
     const { t } = useTranslation();
     const options = useMemo(
         () => [
+            // 「默认」排最前：它是新装用户的初始值，也是切到未设置过的模型时的取值
+            { value: "default", label: t(LABEL_KEYS.default) },
             { value: "disabled", label: t(LABEL_KEYS.disabled) },
             { value: "medium", label: t(LABEL_KEYS.medium) },
             { value: "high", label: t(LABEL_KEYS.high) },

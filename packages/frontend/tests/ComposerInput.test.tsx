@@ -91,7 +91,6 @@ const fetchMock = mock((input: RequestInfo | URL, init?: RequestInit) => {
 
 beforeEach(() => {
 	composerDbDefaults.model = null;
-	composerDbDefaults.thinking = "disabled";
 	for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
 
 	disconnectEvents();

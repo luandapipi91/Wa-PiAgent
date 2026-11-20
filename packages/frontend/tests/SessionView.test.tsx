@@ -124,7 +124,6 @@ beforeEach(() => {
 
 	// composer-db 默认值重置，避免 Composer 异步加载覆盖测试状态。
 	composerDbDefaults.model = "openai/gpt-4o";
-	composerDbDefaults.thinking = "disabled";
 	for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
 
 	useProjectsStore.setState({
@@ -153,7 +152,7 @@ beforeEach(() => {
 	// 重置 composer-prefs 和 providers，防止测试间状态泄漏
 	useComposerPrefsStore.setState({
 		bySession: {},
-		defaults: { model: null, thinking: "disabled" },
+		defaults: { model: null, thinkingByModel: {} },
 	});
 	useProvidersStore.setState({ providers: [] });
 });

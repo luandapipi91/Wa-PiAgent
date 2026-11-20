@@ -27,7 +27,7 @@ mock.module("../src/store/composer-db", () => ({
     const s = useComposerPrefsStore.getState();
     return {
       model: s.bySession.s1?.model ?? s.defaults.model,
-      thinking: s.bySession.s1?.thinking ?? s.defaults.thinking,
+      thinkingByModel: s.defaults.thinkingByModel,
     };
   },
   setDefaults: async () => {},

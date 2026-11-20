@@ -179,18 +179,28 @@ describe("AgentConfig 5 tab", () => {
 		expect(screen.getByText("研发")).toBeTruthy();
 	});
 
-	test("基本 tab：思考档位含'跟随当前'，选 null 保存", () => {
+	test("基本 tab：思考档位含'默认'，选默认保存为 default", () => {
 		renderConfig("dev", cfg("dev", { thinking: "high" }));
 		const sel = screen.getByTestId("cfg-thinking-select") as HTMLSelectElement;
 		expect(sel.value).toBe("high");
-		// 含"跟随当前"选项（值为空串）
 		const opts = Array.from(sel.options);
-		const followOpt = opts.find((o) => o.value === "");
-		expect(followOpt).toBeTruthy();
-		expect(followOpt!.text).toContain("跟随当前");
-		fireEvent.change(sel, { target: { value: "" } });
+		expect(opts.map((o) => o.value)).toEqual([
+			"default",
+			"disabled",
+			"medium",
+			"high",
+			"max",
+		]);
+		expect(opts[0].text).toContain("默认");
+		fireEvent.change(sel, { target: { value: "default" } });
 		fireEvent.click(screen.getByText("保存"));
-		expect(lastSaved("dev").config.thinking).toBeNull();
+		expect(lastSaved("dev").config.thinking).toBe("default");
+	});
+
+	test("旧配置 thinking=null 显示为「默认」", () => {
+		renderConfig("dev", cfg("dev", { thinking: null }));
+		const sel = screen.getByTestId("cfg-thinking-select") as HTMLSelectElement;
+		expect(sel.value).toBe("default");
 	});
 
 	test("基本 tab：模型下拉来自 providers，含'默认（跟随全局）'可选", () => {
