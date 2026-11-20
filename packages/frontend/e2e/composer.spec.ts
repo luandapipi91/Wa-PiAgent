@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 // Task 18: Composer 重构 E2E 测试
 // 覆盖模型切换、思考开关持久化、文件/片段附件发送与消息列表展示。
@@ -10,6 +10,9 @@ test.describe.serial("Composer 重构", () => {
   let projectId = "";
 
   test.beforeEach(async ({ page }) => {
+    // 预置「已看过主题引导」：新装隔离目录首启的引导弹窗会盖住 composer-send 的点击
+    // （memory.spec 等 spec 的同款处理，见 helpers.setUiPrefs 注释）
+    await setUiPrefs(page, "zh");
     // 1. 创建隔离测试项目
     const projectName = `e2e-composer-${randomUUID().slice(0, 8)}`;
     await page.goto("/");
@@ -74,23 +77,44 @@ test.describe.serial("Composer 重构", () => {
     await expect(page.getByText("使用 model-b 发送").first()).toBeVisible({ timeout: 8000 });
   });
 
-  test("思考强度选择持久化", async ({ page }) => {
-    const sessionId = await enterSession(page, "思考强度持久化测试");
+  test("思考强度按模型持久化：切换模型即切换档位", async ({ page }) => {
+    const sessionId = await enterSession(page, "思考强度按模型持久化测试");
 
     const selector = page.getByTestId("thinking-selector");
-    await expect(selector).toHaveValue("disabled");
+    // 新装默认：无任何模型记录 → 「默认」
+    await expect(selector).toHaveValue("default");
 
+    // 给 model-a 设 high
     await selector.selectOption("high");
     await expect(selector).toHaveValue("high");
-
-    // 等待 IndexedDB 异步写入完成后再刷新
     await page.waitForTimeout(500);
 
-    // 刷新后重新进入同一会话，思考强度应从 IndexedDB 恢复为 high
+    // 切到 model-b：该模型无记录 → 默认（不沿用 model-a 的 high）
+    await page
+      .getByTestId("model-selector")
+      .selectOption({ label: "E2E Composer/model-b" });
+    await expect(selector).toHaveValue("default");
+
+    // 切回 model-a：仍是 high（模型记录还在）
+    await page
+      .getByTestId("model-selector")
+      .selectOption({ label: "E2E Composer/model-a" });
+    await expect(selector).toHaveValue("high");
+
+    // 刷新重进：按模型记录恢复
     await page.reload();
     await page.getByTestId(`session-${sessionId}`).click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("thinking-selector")).toHaveValue("high");
+  });
+
+  test("新装默认显示「思考 默认」", async ({ page }) => {
+    await enterSession(page, "新装默认档测试");
+    const selector = page.getByTestId("thinking-selector");
+    await expect(selector).toHaveValue("default");
+    // 选项顺序：默认 / off / mid / high / max
+    await expect(selector.locator("option")).toHaveCount(5);
+    await expect(selector.locator("option").first()).toHaveText("思考 默认");
   });
 
   test("文件附件发送流程", async ({ page }) => {
