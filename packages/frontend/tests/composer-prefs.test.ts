@@ -678,4 +678,34 @@ describe("composer-prefs store", () => {
 		});
 	});
 
+
+	it("回归：setSessionModel（auto-select 路径）不得把推断出的 default 写进模型表，以免盖掉持久层记录", async () => {
+		// 场景：持久层里 p/a 已有 high 记录（用户上次的选择）
+		await dbSetDefaults({
+			model: "p/a",
+			thinkingByModel: { "p/a": "high" },
+		});
+		await useComposerPrefsStore.getState().loadDefaults();
+		// 内存态此时未 hydrate —— 模拟 ModelSelector 在 loadDefaults 完成前 auto-select
+		_resetDefaultsHydration();
+		useComposerPrefsStore.setState({
+			defaults: { model: null, thinkingByModel: {} },
+			bySession: {},
+			loadedBySession: {},
+			newSessionIds: {},
+		});
+
+		// auto-select 选到一个「从没设置过」的模型：推断档位为 default
+		useComposerPrefsStore.getState().setSessionModel("s-auto", "p/new");
+
+		// 关键断言：不能凭空为 p/new 建一条 default 记录
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel).toEqual({});
+
+		// loadDefaults 完成后，持久层 p/a 的 high 必须完整恢复
+		await useComposerPrefsStore.getState().loadDefaults();
+		expect(useComposerPrefsStore.getState().defaults.thinkingByModel).toEqual({
+			"p/a": "high",
+		});
+	});
+
 });

@@ -34,7 +34,10 @@ import { useContactsStore } from "./store/contacts";
 import { useKnowledgeStore } from "./store/knowledge";
 import { useToastStore } from "./store/toast";
 import { formatKernelError } from "./util/kernel-error";
-import { useComposerPrefsStore } from "./store/composer-prefs";
+import {
+	resolveThinking,
+	useComposerPrefsStore,
+} from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
 import { initUpdater } from "./store/updater";
 import { handleNoticeAction, initUpdateNotice } from "./store/notice";
@@ -638,11 +641,15 @@ export function App() {
 				return;
 			}
 			const pid = session.projectId;
-			const prefs = useComposerPrefsStore.getState().bySession[sid] ?? {
-				model: useComposerPrefsStore.getState().defaults.model,
-				thinking: useComposerPrefsStore.getState().defaults.thinking,
-			};
-			if (!prefs.model) {
+			const cmdStore = useComposerPrefsStore.getState();
+			const prefs = cmdStore.bySession[sid];
+			const cmdModel = prefs?.model ?? cmdStore.defaults.model;
+			const cmdThinking = resolveThinking(
+				cmdModel,
+				prefs?.thinking,
+				cmdStore.defaults.thinkingByModel,
+			);
+			if (!cmdModel) {
 				useToastStore.getState().add(t("app.chooseModelFirst"), "error");
 				return;
 			}
@@ -656,8 +663,8 @@ export function App() {
 					{
 						agentName: session?.primaryAgent ?? "dev",
 						text: cmdText,
-						model: prefs.model,
-						thinking: prefs.thinking,
+						model: cmdModel,
+						thinking: cmdThinking,
 					},
 				)
 				.catch((err) => {

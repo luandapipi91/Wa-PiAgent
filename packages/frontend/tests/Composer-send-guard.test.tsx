@@ -69,7 +69,6 @@ beforeEach(() => {
 	apiCalls.length = 0;
 	disconnectEvents();
 	composerDbDefaults.model = "openai/gpt-4o";
-	composerDbDefaults.thinking = "disabled";
 	for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
 	// 关键：sessions 列表不含 s1（切换竞态/快照滞后窗口），仅 currentProjectId="p1"
 	useProjectsStore.setState({
@@ -91,7 +90,7 @@ beforeEach(() => {
 		],
 	});
 	useComposerPrefsStore.setState({
-		defaults: { model: null, thinking: "disabled" },
+		defaults: { model: null, thinkingByModel: {} },
 		bySession: {
 			s1: { model: "anthropic/claude-sonnet", thinking: "disabled", attachments: [] },
 		},

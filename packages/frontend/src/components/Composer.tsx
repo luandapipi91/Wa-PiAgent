@@ -4,7 +4,10 @@ import { isModelAvailable } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
-import { useComposerPrefsStore } from "../store/composer-prefs";
+import {
+  resolveThinking,
+  useComposerPrefsStore,
+} from "../store/composer-prefs";
 import { useCommandsStore } from "../store/commands";
 import { useSessionStore } from "../store/session";
 import { useToastStore } from "../store/toast";
@@ -116,9 +119,14 @@ export function Composer({
   }, [sessionId, loadSession]);
 
   const model = prefs?.model ?? null;
-  // thinking 未显式设置时回退到全局 defaults（而非硬编码 disabled）
+  // thinking 显示值：该模型的记录 → 会话值 → default（见 resolveThinking 注释）
   const defaults = useComposerPrefsStore((s) => s.defaults);
-  const thinking = prefs?.thinking ?? defaults.thinking;
+  const setSessionModel = useComposerPrefsStore((s) => s.setSessionModel);
+  const thinking = resolveThinking(
+    model,
+    prefs?.thinking,
+    defaults.thinkingByModel,
+  );
   const attachments = prefs?.attachments ?? [];
   const providers = useProvidersStore((s) => s.providers);
 
@@ -306,7 +314,7 @@ export function Composer({
         text={text}
         setText={handleTextChange}
         model={model}
-        setModel={(m) => setSessionPrefs(sessionId, { model: m })}
+        setModel={(m) => setSessionModel(sessionId, m)}
         thinking={thinking}
         setThinking={(t) => setSessionPrefs(sessionId, { thinking: t })}
         attachments={attachments}

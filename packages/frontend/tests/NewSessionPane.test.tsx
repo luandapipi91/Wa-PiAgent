@@ -103,7 +103,7 @@ describe("NewSessionPane", () => {
 
 	beforeEach(() => {
 		composerDbDefaults.model = null;
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = {};
 		for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
 		for (const k of Object.keys(composerDbNewSessionIds))
 			delete composerDbNewSessionIds[k];
@@ -119,7 +119,7 @@ describe("NewSessionPane", () => {
 			currentSessionId: null,
 		});
 		useComposerPrefsStore.setState({
-			defaults: { model: null, thinking: "disabled" },
+			defaults: { model: null, thinkingByModel: {} },
 			bySession: {},
 			newSessionIds: {},
 		});
@@ -231,7 +231,7 @@ describe("NewSessionPane", () => {
 
 	it("clears text after sending", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -269,8 +269,9 @@ describe("NewSessionPane", () => {
 	});
 
 	it("sends first prompt with model and thinking", async () => {
-		composerDbDefaults.model = "claude-sonnet";
-		composerDbDefaults.thinking = "high";
+		// 模型 key 是 "providerSlug/modelId"（与 ModelSelector 写回的形式一致）
+		composerDbDefaults.model = "anthropic/claude-sonnet";
+		composerDbDefaults.thinkingByModel = { "anthropic/claude-sonnet": "high" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -284,7 +285,7 @@ describe("NewSessionPane", () => {
 			],
 		});
 		useComposerPrefsStore.setState({
-			defaults: { model: null, thinking: "disabled" },
+			defaults: { model: null, thinkingByModel: {} },
 			bySession: {},
 		});
 
@@ -323,7 +324,7 @@ describe("NewSessionPane", () => {
 
 	it("sends prompt with attachments", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -385,7 +386,7 @@ describe("NewSessionPane", () => {
 	// 附件即可独立成消息：上传图片后不打字直接点发送（kernel 为附件拼 Attachments 段）
 	it("空文字 + 附件也可发送：上传图片后直接点发送", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -436,7 +437,7 @@ describe("NewSessionPane", () => {
 
 	it("@提及智能体：primaryAgent 仍为 dropdown 默认 agent，@[xxx] 原样发（新会话也走委托）", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -523,7 +524,7 @@ describe("NewSessionPane", () => {
 			],
 		});
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 
 		const { unmount } = render(<NewSessionPane />);
 		await waitFor(() => {
@@ -630,7 +631,7 @@ describe("NewSessionPane", () => {
 	it("agent:list 空转非空时回填选中项为列表第一项，发送解禁", async () => {
 		useAgentsStore.setState({ list: [] });
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -664,7 +665,7 @@ describe("NewSessionPane", () => {
 	it("空智能体列表：无有效选中值且发送被阻止（不回退到死智能体 dev）", async () => {
 		useAgentsStore.setState({ list: [] });
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -743,7 +744,7 @@ describe("NewSessionPane", () => {
 
 	it("发送后确保导航到新建的会话（不复用已存在的旧会话 id）", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -797,7 +798,7 @@ describe("NewSessionPane", () => {
 
 	it("恢复新建页草稿文本（切走再回来不丢）", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		composerDbNewSessionIds["p1"] = "draft-session-1";
 		// 同步预置内存态：NewSessionPane 挂载时 sessionId-sync effect 先于 loadDefaults 的异步读执行，
 		// 若内存态为空会生成全新随机 id 并回写 db（覆盖上面的映射）；与既有用例「发送后确保导航…」同一套路。
@@ -834,7 +835,7 @@ describe("NewSessionPane", () => {
 
 	it("新建页输入防抖写回草稿", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		composerDbNewSessionIds["p1"] = "draft-session-2";
 		// 同步预置内存态（同「恢复新建页草稿」用例）：确保 sessionId 可预测为 draft-session-2
 		useComposerPrefsStore.setState({
@@ -870,7 +871,7 @@ describe("NewSessionPane", () => {
 
 	it("新建页切换模型后发送：会话级 prefs 记录所选模型（聊天界面显示与所选一致）", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -934,7 +935,7 @@ describe("NewSessionPane", () => {
 
 	it("existed 分支：草稿 id 残留旧会话时，发送后模型应落到新会话 id（不再依赖 defaults 回退）", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{
@@ -1012,7 +1013,7 @@ describe("NewSessionPane", () => {
 
 	it("未传 onSendSteer 时 Ctrl+Enter 仍发送（回归：NewSessionPane 不因新分支拦截而无动作）", async () => {
 		composerDbDefaults.model = "gpt-4o";
-		composerDbDefaults.thinking = "disabled";
+		composerDbDefaults.thinkingByModel = { ["gpt-4o"]: "disabled" };
 		useProvidersStore.setState({
 			providers: [
 				{

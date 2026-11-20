@@ -62,10 +62,10 @@ export interface DefaultsState {
  */
 export function thinkingForModel(
 	model: string | null,
-	thinkingByModel: Record<string, ThinkingLevel>,
+	thinkingByModel: Record<string, ThinkingLevel> | undefined,
 ): ThinkingLevel {
 	if (!model) return "default";
-	return thinkingByModel[model] ?? "default";
+	return thinkingByModel?.[model] ?? "default";
 }
 
 /**
@@ -76,9 +76,9 @@ export function thinkingForModel(
 export function resolveThinking(
 	model: string | null,
 	sessionThinking: ThinkingLevel | undefined,
-	thinkingByModel: Record<string, ThinkingLevel>,
+	thinkingByModel: Record<string, ThinkingLevel> | undefined,
 ): ThinkingLevel {
-	const byModel = model ? thinkingByModel[model] : undefined;
+	const byModel = model ? thinkingByModel?.[model] : undefined;
 	return byModel ?? sessionThinking ?? "default";
 }
 
@@ -269,11 +269,27 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 
 	setSessionModel: (sessionId, model) => {
 		// 切模型 = 换一套档位：按目标模型的记录取值，无记录即 default。
-		// 刻意不回退会话旧值（见 thinkingForModel 注释），并复用 setSessionPrefs 的
-		// 落盘/hydration 守卫，避免另起一套写入逻辑分叉。
-		get().setSessionPrefs(sessionId, {
-			model,
-			thinking: thinkingForModel(model, get().defaults.thinkingByModel),
+		// 刻意不回退会话旧值（见 thinkingForModel 注释）。
+		//
+		// 关键：这里推断出的档位**只写会话，不写 thinkingByModel**——
+		// 它不是用户的选择，而是「该模型当前是什么档」的查询结果。若把它当成用户选择写进
+		// 模型表，auto-select（ModelSelector 自动选第一个模型）就会替所有模型创建 default
+		// 记录，进而在 loadDefaults 合并时用内存值盖掉持久层里的真实记录
+		// （实测：持久层 high 被 auto-select 的 default 覆盖）。
+		// 因此走 setSessionPrefs 时用 syncDefaults:false，再单独把 model 同步给 defaults。
+		get().setSessionPrefs(
+			sessionId,
+			{
+				model,
+				thinking: thinkingForModel(model, get().defaults.thinkingByModel),
+			},
+			{ syncDefaults: false },
+		);
+		set((s) => {
+			if (s.defaults.model === model) return s;
+			const next: DefaultsState = { ...s.defaults, model };
+			if (defaultsHydrated) void setDefaults(next);
+			return { defaults: next };
 		});
 	},
 

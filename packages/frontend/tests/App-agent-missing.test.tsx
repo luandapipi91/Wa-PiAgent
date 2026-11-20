@@ -58,7 +58,6 @@ beforeEach(() => {
   disconnectEvents();
   calls.length = 0;
   composerDbDefaults.model = null;
-  composerDbDefaults.thinking = "disabled";
   for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "P", cwd: "/p", createdAt: 0 }],

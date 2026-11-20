@@ -13,7 +13,10 @@ import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useSkillsStore } from "../store/skills";
 import { useCommandsStore } from "../store/commands";
-import { useComposerPrefsStore } from "../store/composer-prefs";
+import {
+	resolveThinking,
+	useComposerPrefsStore,
+} from "../store/composer-prefs";
 import { useUiPrefsStore } from "../store/ui-prefs";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
@@ -293,14 +296,19 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 			// SDK 的 message_start(user) 回声会替换乐观占位（同步 timestamp），避免叠加。
 			// 注意：truncate 的 fromIndex 是 messagesBySession 下标，不是渲染行下标。
 			useSessionStore.getState().truncate(sessionId, srcIndex);
+			const resendStore = useComposerPrefsStore.getState();
+			const resendModel = prefs?.model ?? resendStore.defaults.model;
 			const payload = buildResendPrompt({
 				session,
 				sessionId,
 				text,
 				attachments,
-				model: prefs?.model,
-				thinking:
-					prefs?.thinking ?? useComposerPrefsStore.getState().defaults.thinking,
+				model: resendModel,
+				thinking: resolveThinking(
+					resendModel,
+					prefs?.thinking,
+					resendStore.defaults.thinkingByModel,
+				),
 			});
 			if (payload && session) {
 				useSessionStore

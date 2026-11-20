@@ -89,7 +89,6 @@ describe("新建会话归属显式化（B1）", () => {
 
 	beforeEach(() => {
 		composerDbDefaults.model = null;
-		composerDbDefaults.thinking = "disabled";
 		for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
 		for (const k of Object.keys(composerDbNewSessionIds))
 			delete composerDbNewSessionIds[k];
@@ -107,7 +106,7 @@ describe("新建会话归属显式化（B1）", () => {
 			currentSessionId: null,
 		});
 		useComposerPrefsStore.setState({
-			defaults: { model: null, thinking: "disabled" },
+			defaults: { model: null, thinkingByModel: {} },
 			bySession: {},
 			newSessionIds: {},
 		});

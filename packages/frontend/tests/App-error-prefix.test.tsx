@@ -27,7 +27,6 @@ mock.module("../src/api-client", () => ({
 beforeEach(() => {
   disconnectEvents();
   composerDbDefaults.model = null;
-  composerDbDefaults.thinking = "disabled";
   for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
   useProjectsStore.setState({
     projects: [],

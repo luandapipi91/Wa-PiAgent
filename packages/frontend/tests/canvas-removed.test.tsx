@@ -36,7 +36,6 @@ beforeEach(() => {
   disconnectEvents();
   // 重置 composer-db mock 的默认值
   composerDbDefaults.model = null;
-  composerDbDefaults.thinking = "disabled";
   for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
   // 重置相关 store
   useProjectsStore.setState({
@@ -48,7 +47,7 @@ beforeEach(() => {
   });
   useSessionStore.setState({ messagesBySession: {} });
   useComposerPrefsStore.setState({
-    defaults: { model: null, thinking: "disabled" },
+    defaults: { model: null, thinkingByModel: {} },
     bySession: {},
     newSessionIds: {},
   });

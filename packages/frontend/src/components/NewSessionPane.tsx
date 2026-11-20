@@ -8,7 +8,11 @@ import type { AgentName, AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { useProjectsStore } from "../store/projects";
 import { useAgentsStore, topAgentsByRecency } from "../store/agents";
 import { useProvidersStore } from "../store/providers";
-import { useComposerPrefsStore } from "../store/composer-prefs";
+import {
+	resolveThinking,
+	thinkingForModel,
+	useComposerPrefsStore,
+} from "../store/composer-prefs";
 import { useSessionStore } from "../store/session";
 import { useNewSessionExplorerStore } from "../store/new-session-explorer";
 import { useUiPrefsStore } from "../store/ui-prefs";
@@ -208,7 +212,10 @@ export function NewSessionPane({
 	}, [sessionId]);
 
 	const [model, setModel] = useState<string | null>(defaults.model);
-	const [thinking, setThinking] = useState<ThinkingLevel>(defaults.thinking);
+	// 新建页的思考档跟当前模型走：该模型的记录 → default（草稿会话没有历史会话值）
+	const [thinking, setThinking] = useState<ThinkingLevel>(
+		resolveThinking(defaults.model, undefined, defaults.thinkingByModel),
+	);
 	const providers = useProvidersStore((s) => s.providers);
 	const prefs = useComposerPrefsStore((s) => s.bySession[sessionId]);
 	const attachments = prefs?.attachments ?? [];
@@ -277,8 +284,10 @@ export function NewSessionPane({
 
 	useEffect(() => {
 		setModel(defaults.model);
-		setThinking(defaults.thinking);
-	}, [defaults.model, defaults.thinking]);
+		setThinking(
+			resolveThinking(defaults.model, undefined, defaults.thinkingByModel),
+		);
+	}, [defaults.model, defaults.thinkingByModel]);
 
 	const handleSend = () => {
 		// model 必须是当前 providers 中真实存在的模型（prefs 可能残留已删除 provider 的过期 model）
@@ -352,7 +361,8 @@ export function NewSessionPane({
 		setText("");
 		useComposerPrefsStore.getState().setSessionPrefs(sessionId, { text: "" });
 		setAttachments([]);
-		setDefaults({ model, thinking });
+		// thinking 在用户改档位时已写入 thinkingByModel[当前模型]，这里只记 model
+		setDefaults({ model });
 		// existed 分支下 finalId 与草稿 sessionId 分叉（草稿 id 残留已发送会话）：
 		// 选模型时写入的是草稿 id，详情页 Composer 读 bySession[finalId] 会拿到空值、
 		// 回退 defaults 显示上一次使用的旧模型。这里把用户选的模型显式落到 finalId 的会话级 prefs。
@@ -483,12 +493,22 @@ export function NewSessionPane({
 					model={model}
 					setModel={(m) => {
 						setModel(m);
-						useComposerPrefsStore.getState().setSessionPrefs(sessionId, { model: m });
+						// 切模型 = 换一套档位（按目标模型记录，无记录即默认）
+						useComposerPrefsStore.getState().setSessionModel(sessionId, m);
+						setThinking(
+							thinkingForModel(
+								m,
+								useComposerPrefsStore.getState().defaults.thinkingByModel,
+							),
+						);
 					}}
 					thinking={thinking}
 					setThinking={(t) => {
 						setThinking(t);
-						setDefaults({ thinking: t });
+						// 写会话 + 记到当前模型名下（thinkingByModel）
+						useComposerPrefsStore
+							.getState()
+							.setSessionPrefs(sessionId, { thinking: t });
 					}}
 					attachments={attachments}
 					setAttachments={setAttachments}

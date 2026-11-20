@@ -54,7 +54,6 @@ describe("Composer", () => {
   beforeEach(() => {
     sent.length = 0;
     composerDbDefaults.model = null;
-    composerDbDefaults.thinking = "disabled";
     for (const k of Object.keys(composerDbSessions))
       delete composerDbSessions[k];
     useProjectsStore.setState({
@@ -96,7 +95,7 @@ describe("Composer", () => {
       ],
     });
     useComposerPrefsStore.setState({
-      defaults: { model: null, thinking: "disabled" },
+      defaults: { model: null, thinkingByModel: {} },
       bySession: {},
       loadedBySession: {},
     });
@@ -145,7 +144,6 @@ describe("Composer", () => {
       },
     });
     composerDbDefaults.model = "anthropic/claude-sonnet";
-    composerDbDefaults.thinking = "high";
     composerDbSessions.s1 = {
       model: "anthropic/claude-sonnet",
       thinking: "high",
@@ -301,7 +299,6 @@ describe("Composer", () => {
       },
     });
     composerDbDefaults.model = "openai/gpt-4o";
-    composerDbDefaults.thinking = "disabled";
     composerDbSessions.s1 = {
       model: "openai/gpt-4o",
       thinking: "disabled",
