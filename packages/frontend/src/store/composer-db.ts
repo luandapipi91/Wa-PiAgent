@@ -21,7 +21,10 @@ interface ComposerDB extends DBSchema {
   defaults: {
     key: string;
     // keyless store；按 key 存不同形状（DEFAULTS_KEY / RECORDING_KEY / NEW_SESSION_IDS_KEY）
-    value: { model: string | null; thinking: ThinkingLevel } | RecordingPrefs | Record<string, string>;
+    value:
+      | { model: string | null; thinkingByModel: Record<string, ThinkingLevel> }
+      | RecordingPrefs
+      | Record<string, string>;
   };
 }
 
@@ -78,10 +81,29 @@ function lsSet(key: string, value: unknown): void {
 }
 
 const DEFAULTS_KEY = "wa-pi:composer-defaults";
-type DefaultsPrefs = { model: string | null; thinking: ThinkingLevel };
+
+/**
+ * 全局默认偏好。
+ * thinkingByModel：按模型（key = "providerSlug/modelId"）存思考档位。
+ * 无该模型记录时语义为「默认」（交给 pi 按模型能力钳制）。
+ * 注意：旧版本的 { model, thinking } 结构不再写入；读取时忽略旧 thinking（见 getDefaults）。
+ */
+export type DefaultsPrefs = {
+  model: string | null;
+  thinkingByModel: Record<string, ThinkingLevel>;
+};
 
 export async function getDefaults(): Promise<DefaultsPrefs> {
-  return lsGet<DefaultsPrefs>(DEFAULTS_KEY) ?? { model: null, thinking: "disabled" };
+  const raw = lsGet<Partial<DefaultsPrefs> & { thinking?: ThinkingLevel }>(
+    DEFAULTS_KEY,
+  );
+  if (!raw) return { model: null, thinkingByModel: {} };
+  // 兼容旧结构 { model, thinking }：旧 thinking 是「全局」语义，迁给任意一个模型都是脏数据，
+  // 按产品决策不迁移 → 直接忽略，模型表回到空（即所有模型显示「默认」）。
+  return {
+    model: raw.model ?? null,
+    thinkingByModel: raw.thinkingByModel ?? {},
+  };
 }
 
 export async function setDefaults(prefs: DefaultsPrefs): Promise<void> {

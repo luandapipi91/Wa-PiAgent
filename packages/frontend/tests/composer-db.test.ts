@@ -82,15 +82,28 @@ describe("composer-db", () => {
     expect(prefs?.text).toBe("");
   });
 
-  it("stores defaults", async () => {
-    await setDefaults({ model: "claude-sonnet", thinking: "disabled" });
+  it("stores defaults（按模型存思考档）", async () => {
+    await setDefaults({
+      model: "claude-sonnet",
+      thinkingByModel: { "claude-sonnet": "high" },
+    });
     const defs = await getDefaults();
     expect(defs.model).toBe("claude-sonnet");
-    expect(defs.thinking).toBe("disabled");
+    expect(defs.thinkingByModel["claude-sonnet"]).toBe("high");
   });
 
-  it("returns default fallback when no defaults are stored", async () => {
+  it("无记录时兜底为空模型 + 空模型表", async () => {
     const defs = await getDefaults();
-    expect(defs).toEqual({ model: null, thinking: "disabled" });
+    expect(defs).toEqual({ model: null, thinkingByModel: {} });
+  });
+
+  it("兼容旧结构 { model, thinking }：不崩且忽略旧 thinking", async () => {
+    localStorage.setItem(
+      "wa-pi:composer-defaults",
+      JSON.stringify({ model: "old/m1", thinking: "high" }),
+    );
+    const defs = await getDefaults();
+    expect(defs.model).toBe("old/m1");
+    expect(defs.thinkingByModel).toEqual({});
   });
 });

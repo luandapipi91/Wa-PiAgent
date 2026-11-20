@@ -8,9 +8,12 @@ import { test, expect, beforeEach, mock } from "bun:test";
 // ---- mock composer-db：内存模拟 IndexedDB 记录与 defaults，捕获写盘 ----
 const storedMap = new Map<string, any>();
 const idbWrites: any[] = [];
-let defaultsStore: { model: string | null; thinking: string } = {
+let defaultsStore: {
+	model: string | null;
+	thinkingByModel: Record<string, string>;
+} = {
 	model: "global/default-model",
-	thinking: "disabled",
+	thinkingByModel: {},
 };
 mock.module("../composer-db", () => ({
 	getSessionPrefs: async (id: string) => storedMap.get(id),
@@ -36,14 +39,14 @@ function resetAll() {
 	_resetDefaultsHydration();
 	_resetSessionHydration();
 	useComposerPrefsStore.setState({
-		defaults: { model: "global/default-model", thinking: "disabled" },
+		defaults: { model: "global/default-model", thinkingByModel: {} },
 		bySession: {},
 		loadedBySession: {},
 		newSessionIds: {},
 	});
 	storedMap.clear();
 	idbWrites.length = 0;
-	defaultsStore = { model: "global/default-model", thinking: "disabled" };
+	defaultsStore = { model: "global/default-model", thinkingByModel: {} };
 }
 
 beforeEach(() => resetAll());

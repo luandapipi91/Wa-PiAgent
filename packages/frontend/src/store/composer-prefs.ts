@@ -42,14 +42,48 @@ export function _resetSessionHydration(): void {
 
 export interface SessionPrefs {
 	model: string | null;
-	// thinking 可选：undefined 表示用户未在此会话显式设置过，组件读取时回退到 defaults.thinking
+	// thinking 可选：undefined 表示用户未在此会话显式设置过，组件读取时用 resolveThinking()
+	// 先按模型记录、再按会话值、最后回退 "default"
 	thinking?: ThinkingLevel;
 	attachments: AttachmentDraft[];
 	text?: string; // 未发送的输入框草稿；缺省/空串 = 无草稿
 }
 
+/** 全局默认偏好：模型 + 按模型存思考档（key = "providerSlug/modelId"） */
+export interface DefaultsState {
+	model: string | null;
+	thinkingByModel: Record<string, ThinkingLevel>;
+}
+
+/**
+ * 切换模型时该模型应落到的档位：有记录用记录，否则 default。
+ * 刻意不回退会话旧值——否则「切到一个从没设过的模型」会沿用上一个模型的档位，
+ * 违反「按模型保存」的语义。
+ */
+export function thinkingForModel(
+	model: string | null,
+	thinkingByModel: Record<string, ThinkingLevel>,
+): ThinkingLevel {
+	if (!model) return "default";
+	return thinkingByModel[model] ?? "default";
+}
+
+/**
+ * 渲染时选择器显示什么：模型记录 → 会话值 → default。
+ * 回退会话值是给「老数据 + 首次进入不切模型」留的兼容路径：
+ * 升级后模型表为空，但老会话的 IndexedDB 里可能还存着自己的 thinking。
+ */
+export function resolveThinking(
+	model: string | null,
+	sessionThinking: ThinkingLevel | undefined,
+	thinkingByModel: Record<string, ThinkingLevel>,
+): ThinkingLevel {
+	const byModel = model ? thinkingByModel[model] : undefined;
+	return byModel ?? sessionThinking ?? "default";
+}
+
 interface ComposerPrefsState {
-	defaults: { model: string | null; thinking: ThinkingLevel };
+	defaults: DefaultsState;
 	bySession: Record<string, SessionPrefs>;
 	/** 会话 prefs 是否已从持久层加载完（Composer 据此门控 ModelSelector auto-select） */
 	loadedBySession: Record<string, boolean>;
@@ -67,8 +101,14 @@ interface ComposerPrefsState {
 	initSessionModel: (sessionId: string, model: string | null) => Promise<void>;
 	removeSessionPrefs: (sessionId: string) => void;
 	setDefaults: (
-		prefs: Partial<{ model: string | null; thinking: ThinkingLevel }>,
+		prefs: Partial<{
+			model: string | null;
+			thinkingByModel: Record<string, ThinkingLevel>;
+		}>,
 	) => void;
+	/** 切换会话模型：同时把该会话的思考档重算为「新模型的记录」（无记录即 default）。
+	 * 这是「按模型保存思考强度」的核心入口——所有切模型路径都应走它。 */
+	setSessionModel: (sessionId: string, model: string | null) => void;
 	setNewSessionId: (key: string, id: string) => void;
 	clearNewSessionId: (key: string) => void;
 	/** 清除指向已不存在模型的悬空引用（provider 保存/删除后调用） */
@@ -76,7 +116,7 @@ interface ComposerPrefsState {
 }
 
 export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
-	defaults: { model: null, thinking: "disabled" },
+	defaults: { model: null, thinkingByModel: {} },
 	bySession: {},
 	loadedBySession: {},
 	newSessionIds: {},
@@ -90,9 +130,13 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 			// 这通常发生在 NewSessionPane 挂载早期、ModelSelector 因 value=null 触发 auto-select
 			// 把内存 model 设成"第一个模型"时：此时若 localStorage 有真实值必须优先恢复，
 			// 否则会被 auto-select 抢先污染（重启后模型被重置为第一个的根因）。
+			// thinkingByModel 同理：持久层优先，并用内存里已写的记录补上（用户刚改的不能丢）。
 			next.defaults = {
 				model: defs.model ?? s.defaults.model,
-				thinking: defs.thinking,
+				thinkingByModel: {
+					...defs.thinkingByModel,
+					...s.defaults.thinkingByModel,
+				},
 			};
 			const changed =
 				Object.keys(ids).length !== Object.keys(s.newSessionIds).length ||
@@ -126,11 +170,15 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 						gap?.attachments ?? stored?.attachments ?? existing.attachments,
 					text: gap?.text ?? stored?.text ?? existing.text,
 				};
-				// gap 写入被守卫拦下未落盘，这里把合并结果统一持久化
+				// gap 写入被守卫拦下未落盘，这里把合并结果统一持久化。
+				// 会话记录的 thinking 字段是结构性必填（ThinkingLevel），会话未显式设置时
+				// 落一个占位值即可——真正的显示值由 resolveThinking() 按模型记录算出。
 				void dbSetSessionPrefs({
 					sessionId,
 					model: merged.model,
-					thinking: merged.thinking ?? defaults.thinking,
+					thinking:
+						merged.thinking ??
+						thinkingForModel(merged.model, defaults.thinkingByModel),
 					attachments: merged.attachments,
 					text: merged.text,
 					updatedAt: Date.now(),
@@ -147,7 +195,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 			const fresh: SessionPrefs = {
 				model: stored?.model ?? s.defaults.model ?? defaults.model,
 				// thinking 仅在用户显式设置过时才有值，否则保持 undefined
-				// 组件读取时回退到 defaults.thinking（而非硬编码 disabled）
+				// 组件读取时用 resolveThinking() 先按模型记录、再按会话值、最后回退 default
 				...(stored?.thinking === undefined ? {} : { thinking: stored.thinking }),
 				attachments: stored?.attachments ?? [],
 				...(stored?.text === undefined ? {} : { text: stored.text }),
@@ -170,7 +218,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 		set((s) => {
 			const current = s.bySession[sessionId] ?? {
 				model: s.defaults.model,
-				thinking: s.defaults.thinking,
+				// 未显式设置时不下发 thinking（保持 undefined），显示值由 resolveThinking 计算
 				attachments: [],
 			};
 			const next = { ...current, ...prefs };
@@ -178,7 +226,10 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 				void dbSetSessionPrefs({
 					sessionId,
 					...next,
-					thinking: next.thinking ?? s.defaults.thinking,
+					// 会话记录 thinking 是结构性必填；未显式设置时按当前模型的记录算（通常是 default）
+					thinking:
+						next.thinking ??
+						thinkingForModel(next.model, s.defaults.thinkingByModel),
 					updatedAt: Date.now(),
 				});
 			} else {
@@ -188,20 +239,41 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 			}
 			// 仅把用户本次显式修改的字段（prefs 参数）同步到全局 defaults，
 			// 而非用整个 session prefs 覆盖——否则切到老会话改 model 时，
-			// 会把老会话的 thinking（可能为 disabled）误写进 defaults，污染新会话默认值。
+			// 会把老会话的 thinking 误写进 defaults，污染其他会话。
 			// 程序化写入（syncDefaults:false，如 IM 会话同步机器人模型）不回写全局。
-			const newDefaults = { ...s.defaults };
+			const newDefaults: DefaultsState = { ...s.defaults };
 			if (opts?.syncDefaults !== false) {
 				if (prefs.model !== undefined) newDefaults.model = prefs.model;
-				if (prefs.thinking !== undefined) newDefaults.thinking = prefs.thinking;
+				if (prefs.thinking !== undefined) {
+					// 记到「本次操作后的模型」名下：同时给了 model 就用新模型，
+					// 否则用会话当前模型。当前模型为 null 时无归属，只记会话不记模型表。
+					const targetModel =
+						prefs.model !== undefined ? prefs.model : current.model;
+					if (targetModel) {
+						newDefaults.thinkingByModel = {
+							...newDefaults.thinkingByModel,
+							[targetModel]: prefs.thinking,
+						};
+					}
+				}
 			}
-			// hydration guard：未从持久层加载 defaults 前，s.defaults.thinking 还是初始 disabled，
-			// 此时写回会用 disabled 覆盖用户上次存的高强度档位（重启后思考强度被重置的根因）
+			// hydration guard：未从持久层加载 defaults 前，内存态是空的模型表，
+			// 此时写回会用空表覆盖用户上次存的模型记录（重启后思考强度被重置的根因）
 			if (defaultsHydrated) void setDefaults(newDefaults);
 			return {
 				bySession: { ...s.bySession, [sessionId]: next },
 				defaults: newDefaults,
 			};
+		});
+	},
+
+	setSessionModel: (sessionId, model) => {
+		// 切模型 = 换一套档位：按目标模型的记录取值，无记录即 default。
+		// 刻意不回退会话旧值（见 thinkingForModel 注释），并复用 setSessionPrefs 的
+		// 落盘/hydration 守卫，避免另起一套写入逻辑分叉。
+		get().setSessionPrefs(sessionId, {
+			model,
+			thinking: thinkingForModel(model, get().defaults.thinkingByModel),
 		});
 	},
 
@@ -229,7 +301,15 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 
 	setDefaults: (prefs) => {
 		set((s) => {
-			const next = { ...s.defaults, ...prefs };
+			// thinkingByModel 是对象：必须浅合并而不能整块覆盖，
+			// 否则只改一个模型的记录会把其他模型的记录全冲掉。
+			const next: DefaultsState = {
+				...s.defaults,
+				...prefs,
+				thinkingByModel: prefs.thinkingByModel
+					? { ...s.defaults.thinkingByModel, ...prefs.thinkingByModel }
+					: s.defaults.thinkingByModel,
+			};
 			if (defaultsHydrated) void setDefaults(next);
 			return { defaults: next };
 		});
@@ -275,7 +355,8 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 						void dbSetSessionPrefs({
 							sessionId: sid,
 							model: null,
-							thinking: prefs.thinking ?? s.defaults.thinking,
+							// 模型已失效：会话记录落一个占位值，显示值由 resolveThinking 算（模型为 null → default）
+							thinking: prefs.thinking ?? "default",
 							attachments: prefs.attachments,
 							text: prefs.text,
 							updatedAt: Date.now(),
