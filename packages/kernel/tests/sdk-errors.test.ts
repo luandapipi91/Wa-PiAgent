@@ -547,3 +547,56 @@ test("pi 1.5.0：1308 正则负向前瞻——13080/11308 等长数字不被 130
 test("pi 1.4.0 遗漏补齐：个人版用量上限条目进入 FATAL 表（不再依赖兜底）", () => {
 	expect(FATAL_ERROR_PATTERN.test("subscription_sharing_usage_limit_exceeded")).toBe(true);
 });
+
+// ===== pi-ai 1.6.0 的 retry.js 新增条目（#12064 / #12128 / #12124）=====
+// 上游把这几类从「不重试」改成「自动重试」，kernel 的状态条分类要跟着走：
+// 否则 pi 侧已经重试过的临时失败，前端只会弹一条红色错误。
+
+test("pi 1.6.0 新增 transient：网关中途断连报 Connection closed.", () => {
+	expect(classifySdkError(errEvent("Connection closed."))?.category).toBe("transient");
+});
+
+test("pi 1.6.0 新增 transient：裸 Node socket 错误码", () => {
+	for (const text of [
+		"read ECONNRESET",
+		"write EPIPE",
+		"connect ETIMEDOUT 1.2.3.4:443",
+		"read ECONNABORTED",
+	]) {
+		expect(classifySdkError(errEvent(text))?.category).toBe("transient");
+	}
+});
+
+test("pi 1.6.0 新增 transient：connection reset by peer", () => {
+	expect(
+		classifySdkError(errEvent("read error: connection reset by peer"))?.category,
+	).toBe("transient");
+});
+
+test("pi 1.6.0 新增 transient：Codex WebSocket 60 分钟连接上限", () => {
+	for (const text of [
+		"websocket_connection_limit_reached",
+		"Responses websocket connection limit reached",
+	]) {
+		expect(classifySdkError(errEvent(text))?.category).toBe("transient");
+	}
+});
+
+test("pi 1.6.0：socket 错误码的边界断言有效（更长的标识符不被命中）", () => {
+	// 这两个字符串里的 ECONNRESET / EPIPE 属于更长的标识符/单词，
+	// 若正则不限定标识符边界，真实致命错误会被误判成临时网络错误而只弹状态条。
+	expect(
+		classifySdkError(errEvent("gateway rejected field MY_ECONNRESET_CODE"))?.category,
+	).toBe("fatal");
+	expect(classifySdkError(errEvent("unknown flag RECIPE_MODE"))?.category).toBe("fatal");
+});
+
+test("pi 1.6.0：裸 socket 错误码 ECONNABORTED 不被「用户中止」正则误吞", () => {
+	// 回归：ECONNABORTED 以 "ABORTED" 结尾，旧的中止正则（aborted 在尾部即命中）
+	// 会把这条网络失败判成「用户主动停止」而静默丢弃——pi 侧已在重试，
+	// 前端却连状态条都不弹。中止正则必须要求 aborted 是独立单词。
+	expect(classifySdkError(errEvent("read ECONNABORTED"))?.category).toBe("transient");
+	// 真正的中止文案仍要静默
+	expect(classifySdkError(abortErrEvent("Operation aborted"))).toBeNull();
+	expect(classifySdkError(abortErrEvent("The operation was aborted."))).toBeNull();
+});

@@ -134,6 +134,8 @@ const FALLBACK_MESSAGE =
  * 命中此类 → 走状态条提示，不进对话流。
  *
  * 来源：pi-ai retry.js 的 RETRYABLE_PROVIDER_ERROR_PATTERN（精简）。
+ * 已对齐至 pi-ai 1.6.0（1.6.0 新增四条：网关断连 / 裸 socket 错误码 /
+ * connection reset by peer / Codex WebSocket 连接上限）。
  */
 const TRANSIENT_ERROR_PATTERN = new RegExp(
 	[
@@ -155,7 +157,15 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
 		"connection.?error",
 		"connection.?refused",
 		"connection.?lost",
+		// pi-ai 1.6.0 新增（#12064）：网关把上游中途断连中继成 Anthropic 风格
+		// {"type":"error","error":{"type":"api_error","message":"Connection closed."}}
+		"connection.?closed",
 		"fetch failed",
+		// pi-ai 1.6.0 新增（#12128）：传输层只透出裸 Node socket 错误码，
+		// 如 "read ECONNRESET" / "write EPIPE" / "connect ETIMEDOUT 1.2.3.4:443"。
+		// 前后负向断言限定标识符边界：MY_ECONNRESET_CODE 这类更长的标识符不得命中。
+		"(?<![a-z0-9_])(?:ECONNRESET|ECONNABORTED|ECONNREFUSED|ETIMEDOUT|EPIPE)(?![a-z0-9_])",
+		"connection reset by peer",
 		"getaddrinfo",
 		"ENOTFOUND",
 		"ECONNREFUSED",
@@ -169,6 +179,9 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
 		"terminated",
 		"websocket.?closed",
 		"websocket.?error",
+		// pi-ai 1.6.0 新增（#12124）：Codex WebSocket 60 分钟连接上限，
+		// 命中后上游会在新连接上重试（否则长思考轮次会被判失败）。
+		"websocket.?connection.?limit.?reached",
 		"ended without",
 		"stream ended",
 		"http2 request did not get a response",
@@ -207,8 +220,11 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
  * 匹配策略：aborted 必须在消息尾部（允许尾随标点，或跟 "a request" 宾语）。
  * 刻意排除中间态——如 "model request aborted due to budget limit"（quota 语境，
  * aborted 后有原因从句）必须仍是 fatal，不能被误判为中止静默。
+ *
+ * 单词边界（pi 1.6.0 补齐）：左侧必须是词边界，否则 "read ECONNABORTED"
+ * 这类裸 socket 错误码会以 ABORTED 结尾而命中，被静默丢弃——而 pi 已经在重试它。
  */
-const ABORT_ERROR_PATTERN = /aborted(?:\s+a\s+request)?\s*[.!?]?\s*$/i;
+const ABORT_ERROR_PATTERN = /\baborted(?:\s+a\s+request)?\s*[.!?]?\s*$/i;
 
 /**
  * 判断纯错误文案是否为「用户主动中止」类错误（abort / cancel）。
