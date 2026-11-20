@@ -157,7 +157,7 @@ test("config 映射为 CLI 参数：--model/--thinking(max→xhigh)/--tools/--no
 	expect(argv).toContain("--system-prompt");
 });
 
-test("thinking 映射：disabled → off；null → 不传 --thinking", async () => {
+test("thinking 映射：default/medium → medium；disabled → off；null → 不传 --thinking", async () => {
 	const dumpFile = join(
 		"/tmp",
 		`wa-pi-argv-dump-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
@@ -173,12 +173,18 @@ test("thinking 映射：disabled → off；null → 不传 --thinking", async ()
 		cliPath: ARGV_DUMP_PI,
 		runtime: RUNTIME,
 	});
+	await runSubagentAgent(baseConfig({ thinking: "default" }), "任务", "/tmp", {
+		cliPath: ARGV_DUMP_PI,
+		runtime: RUNTIME,
+	});
 
 	const lines = readFileSync(dumpFile, "utf8").trim().split("\n");
 	const argv1: string[] = JSON.parse(lines[0]);
 	const argv2: string[] = JSON.parse(lines[1]);
+	const argv3: string[] = JSON.parse(lines[2]);
 	expect(argv1[argv1.indexOf("--thinking") + 1]).toBe("off");
 	expect(argv2).not.toContain("--thinking");
+	expect(argv3[argv3.indexOf("--thinking") + 1]).toBe("medium");
 });
 
 test("systemPrompt 为空 → 仍写临时文件并传 --system-prompt（自我保护段兜底注入）", async () => {

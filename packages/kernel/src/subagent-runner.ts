@@ -160,6 +160,7 @@ export const PROBE_TIMEOUT_MS = 30_000;
 
 /**
  * thinking → pi CLI thinking level 映射。
+ * - default / medium → medium（default 交给 pi 按模型能力钳制：支持思考→mid，不支持→off）
  * - disabled → off（完全关闭推理）
  * - max → xhigh（最大推理深度）
  * - minimal → minimal
@@ -168,15 +169,15 @@ export const PROBE_TIMEOUT_MS = 30_000;
  *   典型场景：读取已知路径下的配置文件查单个值、执行单条命令、
  *   简单的 grep 查询等确定性任务，不需要模型展开完整推理链。
  *   效果：token 消耗低、响应快，但面对复杂推理任务可能质量下降。
- * - medium / high → 直接透传
+ * - high → 直接透传
+ * - null → 不传 --thinking（不覆盖 pi 自己的默认）
  */
 function mapThinking(thinking: ThinkingLevel | null): string | undefined {
 	if (!thinking) return undefined;
-	return thinking === "disabled"
-		? "off"
-		: thinking === "max"
-			? "xhigh"
-			: thinking; // minimal／medium／high 直接透传
+	if (thinking === "default" || thinking === "medium") return "medium";
+	if (thinking === "disabled") return "off";
+	if (thinking === "max") return "xhigh";
+	return thinking; // minimal／high 直接透传
 }
 
 /**

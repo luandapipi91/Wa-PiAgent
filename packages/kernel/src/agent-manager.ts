@@ -3146,13 +3146,13 @@ export class AgentManager {
 	}
 }
 
-/** thinking level 映射：disabled→off，max→xhigh，其余透传（pi 侧不支持时自动降级） */
+/** thinking level 映射：default/medium→medium（default 交给 pi 的 clampThinkingLevel 按模型能力钳制：
+ *  支持思考→mid，不支持→off）、disabled→off、max→xhigh，其余透传。 */
 function mapThinkingLevel(thinking: string): string {
-	return thinking === "disabled"
-		? "off"
-		: thinking === "max"
-			? "xhigh"
-			: thinking;
+	if (thinking === "default" || thinking === "medium") return "medium";
+	if (thinking === "disabled") return "off";
+	if (thinking === "max") return "xhigh";
+	return thinking;
 }
 
 /** pi RPC prompt 命令的图片内容块（与 @earendil-works/pi-ai ImageContent 同形）。

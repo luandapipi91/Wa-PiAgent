@@ -338,3 +338,13 @@ partners: [研发, 测试]
 	const round = parseAgentMd(stringifyAgentMd(c));
 	expect(round.partners).toEqual({ askTo: ["研发", "测试"] });
 });
+
+test("validateAgentConfig 允许 thinking: default", () => {
+	expect(validateAgentConfig({ ...base, thinking: "default" })).toEqual([]);
+});
+
+test("前端写入的 thinking: default 可序列化并解析往返", () => {
+	const md = stringifyAgentMd({ ...base, thinking: "default" });
+	expect(md).toContain("thinking: default");
+	expect(parseAgentMd(md).thinking).toBe("default");
+});
