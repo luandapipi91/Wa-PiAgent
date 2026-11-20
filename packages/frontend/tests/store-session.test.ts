@@ -2249,3 +2249,198 @@ test("setMessages：role=system 条目不入列（pi 0.86+ 系统提示条目兜
 	const list = useSessionStore.getState().messagesBySession["s-sys"] as any[];
 	expect(list.map((m) => m.message.role)).toEqual(["user", "assistant"]);
 });
+
+
+// ── 压缩提示去重（setMessages 历史装载路径）──
+// 缺陷背景：压缩完成后本地有一条「已压缩早期上下文 · 压缩前 X token」状态提示（compaction_status），
+// 打开/切回会话时 setMessages 从服务端历史装载 compactionSummary（同一文案）。
+// 两者 msgKey 不同（compactionSummary-<ts> vs custom-<ts>）→ 都被保留，再按 timestamp 排序后相邻，
+// 界面上就是「同一个压缩出现两条提示」。
+
+test("setMessages：本地已有成功压缩提示时，不重复装载服务端 compactionSummary", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "压缩后的回复" }],
+						timestamp: 2000,
+					},
+					agentName: "dev",
+					sessionId: "s1",
+				} as any,
+				{
+					message: {
+						type: "custom",
+						customType: "compaction_status",
+						content: "已压缩早期上下文 · 压缩前 242.3K token",
+						compactionDone: true,
+						timestamp: 2001,
+					},
+					agentName: "dev",
+					sessionId: "s1",
+				} as any,
+			],
+		},
+	});
+	useSessionStore.getState().setMessages("s1", [
+		{
+			message: {
+				role: "compactionSummary",
+				summary: "摘要",
+				tokensBefore: 242285,
+				timestamp: 1999,
+			},
+			agentName: undefined,
+		} as any,
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "压缩后的回复" }],
+				timestamp: 2000,
+			},
+			agentName: "dev",
+		} as any,
+	]);
+	const list = useSessionStore.getState().messagesBySession["s1"] as any[];
+	const summaries = list.filter(
+		(m) => (m.message as any).role === "compactionSummary",
+	);
+	const statuses = list.filter(
+		(m) => (m.message as any).customType === "compaction_status",
+	);
+	// 只保留本地那一条（位置正确、是当前压缩的反馈）；服务端摘要不重复出现
+	expect(summaries).toHaveLength(0);
+	expect(statuses).toHaveLength(1);
+});
+
+test("setMessages：本地没有压缩提示时，保留服务端 compactionSummary（历史标记不丢）", () => {
+	useSessionStore.setState({ messagesBySession: {} });
+	useSessionStore.getState().setMessages("s1", [
+		{
+			message: {
+				role: "compactionSummary",
+				summary: "摘要",
+				tokensBefore: 242285,
+				timestamp: 1999,
+			},
+			agentName: undefined,
+		} as any,
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "压缩后的回复" }],
+				timestamp: 2000,
+			},
+			agentName: "dev",
+		} as any,
+	]);
+	const list = useSessionStore.getState().messagesBySession["s1"] as any[];
+	expect(
+		list.filter((m) => (m.message as any).role === "compactionSummary"),
+	).toHaveLength(1);
+});
+
+test("setMessages：本地只有取消/失败的压缩提示时，保留服务端 compactionSummary", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: {
+						type: "custom",
+						customType: "compaction_status",
+						content: "已取消压缩",
+						compactionDone: false,
+						timestamp: 2001,
+					},
+					agentName: "dev",
+					sessionId: "s1",
+				} as any,
+			],
+		},
+	});
+	useSessionStore.getState().setMessages("s1", [
+		{
+			message: {
+				role: "compactionSummary",
+				summary: "摘要",
+				tokensBefore: 242285,
+				timestamp: 1999,
+			},
+			agentName: undefined,
+		} as any,
+	]);
+	const list = useSessionStore.getState().messagesBySession["s1"] as any[];
+	// 取消/失败不是「成功压缩」的证据，服务端摘要仍应作为历史标记保留
+	expect(
+		list.filter((m) => (m.message as any).role === "compactionSummary"),
+	).toHaveLength(1);
+});
+
+test("setMessages：上次装载已把服务端摘要收进来，本次压缩成功后重装要去掉它", () => {
+	// 真实时序：装载历史（收进 compactionSummary）→ 压缩完成（本地写入成功提示）
+	// → 切回会话重新 setMessages。此时摘要已在 existing 里，必须一并清掉。
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: {
+						role: "compactionSummary",
+						summary: "摘要",
+						tokensBefore: 242285,
+						timestamp: 1999,
+					},
+					agentName: undefined,
+					sessionId: "s1",
+				} as any,
+				{
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "压缩后的回复" }],
+						timestamp: 2000,
+					},
+					agentName: "dev",
+					sessionId: "s1",
+				} as any,
+				{
+					message: {
+						type: "custom",
+						customType: "compaction_status",
+						content: "已压缩早期上下文 · 压缩前 242.3K token",
+						compactionDone: true,
+						timestamp: 2001,
+					},
+					agentName: "dev",
+					sessionId: "s1",
+				} as any,
+			],
+		},
+	});
+	useSessionStore.getState().setMessages("s1", [
+		{
+			message: {
+				role: "compactionSummary",
+				summary: "摘要",
+				tokensBefore: 242285,
+				timestamp: 1999,
+			},
+			agentName: undefined,
+		} as any,
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "压缩后的回复" }],
+				timestamp: 2000,
+			},
+			agentName: "dev",
+		} as any,
+	]);
+	const list = useSessionStore.getState().messagesBySession["s1"] as any[];
+	expect(
+		list.filter((m) => (m.message as any).role === "compactionSummary"),
+	).toHaveLength(0);
+	expect(
+		list.filter((m) => (m.message as any).customType === "compaction_status"),
+	).toHaveLength(1);
+});

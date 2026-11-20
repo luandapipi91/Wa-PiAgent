@@ -459,10 +459,29 @@ export const useSessionStore = create<SessionState>((set) => {
 		setMessages: (sessionId, messages) =>
 			set((s) => {
 				// pi 0.86+ 的 role:"system" 条目（系统提示落盘）不是对话内容：kernel 已滤，这里兜底
-				const incoming = (messages as any[]).filter(
-					(m) => (m?.message as any)?.role !== "system",
+				const rawExisting = s.messagesBySession[sessionId] ?? [];
+				// 压缩提示去重：本地已有**成功**的压缩状态提示时，服务端历史里的 compactionSummary
+				// 是同一件事的另一个副本（同一文案，只是来源不同）——两者 msgKey 不同、timestamp
+				// 只差几秒，合并后会在对话末尾相邻出现，看起来就是「一次压缩两个提示」。
+				// 保留本地那条（位置对、是当前压缩的实时反馈），与 refreshTokenTotals 同一规则。
+				// 注意 existing 也要清：上次装载历史时可能已经把服务端摘要收进来了。
+				const hasLocalCompactionDone = rawExisting.some(
+					(m) =>
+						(m.message as any)?.customType === "compaction_status" &&
+						(m.message as any)?.compactionDone === true,
 				);
-				const existing = s.messagesBySession[sessionId] ?? [];
+				const existing = hasLocalCompactionDone
+					? rawExisting.filter(
+							(m) => ((m.message ?? m) as any)?.role !== "compactionSummary",
+						)
+					: rawExisting;
+				const incoming = (messages as any[]).filter((m) => {
+					const inner = (m?.message ?? m) as any;
+					if (inner?.role === "system") return false;
+					if (hasLocalCompactionDone && inner?.role === "compactionSummary")
+						return false;
+					return true;
+				});
 				const existingKeys = new Set(existing.map(msgKey));
 				const newFromHistory = incoming.filter((m) => !existingKeys.has(msgKey(m)));
 				const all = [...existing, ...newFromHistory].sort(
