@@ -1,9 +1,12 @@
 // 构建编排：[0]测试钩子 → [1]build-kernel-sidecar(组装 resources/) → [2]electron-builder 出 portable/AppImage。
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { buildSidecar } from "./build-kernel-sidecar";
 import { stageNativeAssets } from "./stage-native-assets";
+import { ensureSigningMaterial } from "./win-cert.cjs";
+import { verifyWindowsRelease } from "./win-sign.cjs";
 
 // 固化国内镜像：electron-builder 默认从 GitHub 下载 Electron 二进制 / winCodeSign / nsis，
 // 国内直连 20.205.243.166(GitHub) 经常 ETIMEDOUT，导致打包 hang 住数分钟。
@@ -47,6 +50,40 @@ async function step0TestGate(noTest: boolean) {
   run("bun", ["run", "test"], ROOT);
 }
 
+/**
+ * 步骤1c：把 Windows 签名材料（p12 路径 + 密码）注入 electron-builder。
+ * 证书放仓库外（默认 ~/.wa-pi-ac），通过 WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD 传入，
+ * 避免私钥进 git、也不在 yml 里硬编码机器路径。材料缺失直接终止打包——静默产出
+ * 未签名包会让用户看到「未知的发布者」，且签名必须在分发前完成，事后无法补救。
+ */
+function provisionWinSigning() {
+  if (process.env.WA_PI_SKIP_WIN_SIGN === "1") {
+    console.log(
+      "[build] ⏭️ WA_PI_SKIP_WIN_SIGN=1，跳过 Windows 签名（测试包；UAC 会显示未知发布者）",
+    );
+    return;
+  }
+  const material = ensureSigningMaterial();
+  process.env.WIN_CSC_LINK = material.p12;
+  process.env.WIN_CSC_KEY_PASSWORD = material.password;
+  console.log(`[build] Windows 签名材料就绪（来源 ${material.source}）`);
+}
+
+/**
+ * 步骤3：Windows 收尾校验（必须在 electron-builder 退出后做——它是在钩子之后才写
+ * latest.yml 的）。签名会改变安装包大小，清单若未跟着重算，已装用户 OTA 必失败。
+ */
+function verifyWinReleaseGate(version: string) {
+  const r = verifyWindowsRelease({ outDir: join(PKG, "release"), version });
+  if (!r.ok) {
+    console.error(`[build] ❌ Windows 产物校验失败: ${r.reason}`);
+    process.exit(1);
+  }
+  console.log(
+    `[build] ✅ ${r.fixed ? "latest.yml 已对齐签名后安装包" : "latest.yml 与已签名安装包一致"}`,
+  );
+}
+
 (async () => {
   const { values } = parseArgs({
     options: { target: { type: "string" }, "no-test": { type: "boolean" } },
@@ -65,10 +102,18 @@ async function step0TestGate(noTest: boolean) {
   // macOS：用 iconutil 预生成标准 .icns（避免 electron-builder 内置转换产生 JPEG-2000 花屏图标）
   if (target === "mac")
     run("bash", [join(import.meta.dir, "generate-icons.sh")]);
+  // 步骤1c：Windows 签名材料（缺就报错，绝不能静默产出未签名包）
+  if (target === "win") provisionWinSigning();
   console.log(`[build] 步骤2: electron-builder 出 ${target}`);
   // --bun：electron-builder 依赖 stream/promises（Node 15+），系统 node v14 没有；
   // 强制 bun runtime 执行（与前端 vite --bun 同理）。env 镜像变量已在上方 process.env 设置，
   // bun 子进程继承，electron-builder 仍能走 npmmirror 镜像。
   run("bun", ["--bun", "x", "electron-builder", `--${target}`]);
+  if (target === "win" && process.env.WA_PI_SKIP_WIN_SIGN !== "1") {
+    const version = JSON.parse(
+      readFileSync(join(PKG, "package.json"), "utf8"),
+    ).version as string;
+    verifyWinReleaseGate(version);
+  }
   console.log("[build] ✅ 完成 → packages/desktop/release/");
 })();

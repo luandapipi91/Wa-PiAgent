@@ -11,6 +11,8 @@ const { createRequire } = require("node:module");
 const path = require("node:path");
 const fs = require("node:fs");
 const crypto = require("node:crypto");
+// 不解构，保留延迟属性查找：测试可替换缓存对象上的方法做 mock
+const winSign = require("./win-sign.cjs");
 
 // app-builder-lib 由 electron-builder 依赖携带（bun 安装下其他包不可直接解析），
 // 从 electron-builder 的解析起点加载，确保打包/测试环境均可解析。
@@ -35,6 +37,9 @@ async function regenerateBlockmap(zipPath, blockmapPath) {
 }
 
 exports.default = async (context) => {
+	if (isWindowsBuild(context)) {
+		return verifyWindowsArtifacts(context);
+	}
 	if (context.electronPlatformName !== "darwin") return [];
 
 	const zipPath = context.artifactPaths.find((p) => p.endsWith(".zip"));
@@ -89,3 +94,45 @@ exports.default = async (context) => {
 };
 
 exports.regenerateBlockmap = regenerateBlockmap;
+
+/**
+ * 判定本次构建是否含 Windows 产物。
+ * ⚠️ afterAllArtifactBuild 收到的是 BuildResult（outDir / artifactPaths /
+ * platformToTargets / configuration），**没有** electronPlatformName，也没有 packager
+ * （那是 afterPack 的 PackContext）。因此用产物扩展名判定：本次产物里出现 .exe 即 Windows。
+ */
+function isWindowsBuild(context) {
+	return (context.artifactPaths || []).some((p) => p.endsWith(".exe"));
+}
+
+/**
+ * Windows：校验产物真的带签名（未签名 → UAC 显示「未知的发布者」）。
+ * 注意：latest.yml 由 electron-builder 在本钩子**之后**才写（PublishManager.awaitTasks），
+ * 所以清单哈希一致性放在外层 build.ts 收尾做（见 verifyWindowsRelease）。
+ */
+function verifyWindowsArtifacts(context) {
+	if (process.env.WA_PI_SKIP_WIN_SIGN === "1") {
+		console.log(
+			"[afterAllArtifactBuild] ⏭️ WA_PI_SKIP_WIN_SIGN=1，跳过 Windows 签名校验（测试包）",
+		);
+		return [];
+	}
+	const artifactPaths = context.artifactPaths || [];
+	const exeArtifacts = artifactPaths.filter((p) => p.endsWith(".exe"));
+	const appOutDir = context.appOutDir || path.join(context.outDir, "win-unpacked");
+	const results = winSign.verifyWindowsArtifacts({
+		appOutDir,
+		// BuildResult 没有 packager；productName 是「WA PI Agent」这种带空格的原名
+		productFilename: context.configuration?.productName || "WA PI Agent",
+		artifactPaths: exeArtifacts,
+	});
+	for (const r of results) {
+		console.log(
+			`[afterAllArtifactBuild] ✅ 已签名 ${path.basename(r.file)}${r.timestamp ? "（含时间戳）" : ""}`,
+		);
+	}
+	return [];
+}
+
+exports.verifyWindowsArtifacts = verifyWindowsArtifacts;
+exports.isWindowsBuild = isWindowsBuild;

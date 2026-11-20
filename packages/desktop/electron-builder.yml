@@ -43,7 +43,17 @@ win:
     - target: nsis
       arch: [x64]
   icon: src/assets/icon.ico
-  signExecutable: false # 跳过签名但保留 resEdit 图标嵌入
+  # 签名（2026-11-20）：macOS 交叉打包走 electron-builder 内置的 osslsigncode 路径
+  # （winCodeSign 缓存自带，不依赖系统 openssl）。证书由 build.ts 注入
+  # WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD（p12 在仓库外 ~/.wa-pi-ac，私钥不进 git）。
+  # ⚠️ 不要加回 signExecutable: false —— 该开关连安装包签名一起跳过（signIf 直接 return）。
+  signtoolOptions:
+    # 默认 ["sha1","sha256"] 会每个文件签两遍（sha1 早已无意义，且双签块易踩 osslsigncode 覆盖限制）
+    signingHashAlgorithms: [sha256]
+  # 自签证书不会被 WinVerifyTrust 判为可信（用户没导入根证书时）。默认 true 会把
+  # publisherName 写进 app-update.yml，electron-updater 随后按它校验更新包 → 未导入
+  # 根证书的用户 OTA 必失败（与 mac 0.9.1 断更新同类事故）。关掉：保持更新包忠实度不变。
+  verifyUpdateCodeSignature: false
 nsis:
   oneClick: false
   perMachine: true

@@ -63,3 +63,114 @@ test("regenerateBlockmap 对 zip 生成有效 blockmap（gzip JSON，含 Rabin c
 		rmSync(dir, { recursive: true, force: true });
 	}
 }, 30_000);
+
+// ─── Windows 分支：产物签名校验 + 清单哈希一致性 ────────────────────────────────
+const { describe, beforeEach, afterEach } = require("bun:test");
+const winSign = require("../scripts/win-sign.cjs");
+const afterAllArtifactBuild = require("../scripts/after-all-artifact-build.cjs");
+const originalVerifyWindowsArtifacts = winSign.verifyWindowsArtifacts;
+const originalCheckWinYmlHash = winSign.checkWinYmlHash;
+
+/** 真实 BuildResult 形状：只有 outDir/artifactPaths/platformToTargets/configuration
+ *  （没有 electronPlatformName、没有 packager —— 那是 afterPack 的 PackContext）。 */
+function makeWinArtifactContext(artifactPaths: string[]) {
+	return {
+		outDir: "/fake/release",
+		artifactPaths,
+		platformToTargets: new Map(),
+		configuration: { productName: "WA PI Agent" },
+	};
+}
+
+describe("afterAllArtifactBuild（Windows 签名校验）", () => {
+	beforeEach(() => {
+		winSign.verifyWindowsArtifacts = originalVerifyWindowsArtifacts;
+		winSign.checkWinYmlHash = originalCheckWinYmlHash;
+		delete process.env.WA_PI_SKIP_WIN_SIGN;
+	});
+	afterEach(() => {
+		winSign.verifyWindowsArtifacts = originalVerifyWindowsArtifacts;
+		winSign.checkWinYmlHash = originalCheckWinYmlHash;
+		delete process.env.WA_PI_SKIP_WIN_SIGN;
+	});
+
+	test("有未签名产物 → 抛错终止（坏包不许流入 release/）", async () => {
+		winSign.verifyWindowsArtifacts = () => {
+			throw new Error("[win-sign] 没有有效签名");
+		};
+		// 让清单相关逻辑不参与本用例
+		winSign.checkWinYmlHash = () => ({ ok: true, skipped: true });
+		await expect(
+			afterAllArtifactBuild.default(makeWinArtifactContext(["/fake/setup.exe"])),
+		).rejects.toThrow(/没有有效签名/);
+	});
+
+	test("全部通过 → 返回空数组，不干扰产物列表", async () => {
+		winSign.verifyWindowsArtifacts = () => [{ file: "/fake/setup.exe", signed: true }];
+		winSign.syncWinYmlHash = () => ({ fixed: false, skipped: false });
+		winSign.checkWinYmlHash = () => ({ ok: true });
+		const r = await afterAllArtifactBuild.default(
+			makeWinArtifactContext(["/fake/release/setup.exe"]),
+		);
+		expect(r).toEqual([]);
+	});
+
+	test("WA_PI_SKIP_WIN_SIGN=1 → 跳过校验（本地测试包）", async () => {
+		let called = false;
+		winSign.verifyWindowsArtifacts = () => {
+			called = true;
+			return [];
+		};
+		process.env.WA_PI_SKIP_WIN_SIGN = "1";
+		const r = await afterAllArtifactBuild.default(
+			makeWinArtifactContext(["/fake/release/setup.exe"]),
+		);
+		expect(r).toEqual([]);
+		expect(called).toBe(false);
+	});
+});
+
+describe("afterAllArtifactBuild（平台判定）", () => {
+	test("产物含 .exe → 判定为 Windows 构建并校验（不依赖不存在的 electronPlatformName）", async () => {
+		let called = 0;
+		winSign.verifyWindowsArtifacts = () => {
+			called += 1;
+			return [{ file: "/fake/release/setup.exe", signed: true }];
+		};
+		winSign.checkWinYmlHash = () => ({ ok: true, skipped: true });
+		await afterAllArtifactBuild.default(
+			makeWinArtifactContext(["/fake/release/setup.exe"]),
+		);
+		expect(called).toBe(1);
+	});
+
+	test("mac 产物（.dmg/.zip）→ 不当成 Windows 校验", async () => {
+		let called = 0;
+		winSign.verifyWindowsArtifacts = () => {
+			called += 1;
+			return [];
+		};
+		const r = await afterAllArtifactBuild.default({
+			outDir: "/fake/release",
+			artifactPaths: ["/fake/release/a.dmg", "/fake/release/a.zip"],
+			platformToTargets: new Map(),
+			configuration: { productName: "WA PI Agent" },
+		});
+		expect(r).toEqual([]);
+		expect(called).toBe(0);
+	});
+
+	test("ipa：主程序名取自 configuration.productName（BuildResult 没有 packager）", async () => {
+		let seen: any;
+		winSign.verifyWindowsArtifacts = (opts: any) => {
+			seen = opts;
+			return [{ file: "/fake/release/setup.exe", signed: true }];
+		};
+		winSign.checkWinYmlHash = () => ({ ok: true, skipped: true });
+		await afterAllArtifactBuild.default(
+			makeWinArtifactContext(["/fake/release/setup.exe"]),
+		);
+		expect(seen.productFilename).toBe("WA PI Agent");
+		expect(seen.appOutDir).toBe("/fake/release/win-unpacked");
+	});
+});

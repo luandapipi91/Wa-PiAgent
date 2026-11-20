@@ -80,3 +80,59 @@ describe("after-pack（macOS 签名钩子）", () => {
 		}
 	});
 });
+
+// ─── Windows 分支：签名改变了 kernel exe 大小，必须在打包时刷新清单 ────────────────
+const winSign = require("../scripts/win-sign.cjs");
+const originalRefreshKernelManifest = winSign.refreshKernelManifest;
+
+describe("after-pack（Windows 清单刷新）", () => {
+	beforeEach(() => {
+		winSign.refreshKernelManifest = originalRefreshKernelManifest;
+	});
+	afterEach(() => {
+		winSign.refreshKernelManifest = originalRefreshKernelManifest;
+	});
+
+	function makeWinContext(): { dir: string; ctx: Record<string, unknown> } {
+		const dir = mkdtempSync(join(tmpdir(), "after-pack-win-"));
+		mkdirSync(join(dir, "win-unpacked", "resources", "kernel"), {
+			recursive: true,
+		});
+		return {
+			dir,
+			ctx: {
+				electronPlatformName: "win32",
+				appOutDir: join(dir, "win-unpacked"),
+				packager: { appInfo: { productFilename: "WA PI Agent" } },
+			},
+		};
+	}
+
+	test("win32 → 刷新 resources/kernel/manifest.json（否则启动自检每天误报 size-mismatch）", async () => {
+		const { dir, ctx } = makeWinContext();
+		try {
+			const calls: string[] = [];
+			winSign.refreshKernelManifest = (kernelDir: string) => {
+				calls.push(kernelDir);
+				return { updated: true, before: { size: 1 }, after: { size: 2 } };
+			};
+			await expect(afterPack.default(ctx)).resolves.toBeUndefined();
+			expect(calls).toEqual([join(dir, "win-unpacked", "resources", "kernel")]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("清单不存在（老产物/首建）→ 不抛错", async () => {
+		const { dir, ctx } = makeWinContext();
+		try {
+			winSign.refreshKernelManifest = () => ({
+				updated: false,
+				reason: "manifest-missing",
+			});
+			await expect(afterPack.default(ctx)).resolves.toBeUndefined();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});

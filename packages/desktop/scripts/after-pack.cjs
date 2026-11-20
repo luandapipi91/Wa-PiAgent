@@ -1,14 +1,17 @@
 // afterPack 钩子：
 //  - macOS：对 .app 做稳定签名（未签名应用在 macOS 15 上屏幕录制 TCC 权限绑定失效，
 //    重装后权限丢失，system 源录音报 "Invalid capture constraints"）
-//  - Windows：图标/版本信息由 electron-builder 内置的 resEdit（纯 JS PE 资源编辑）自动嵌入，
-//    无需 here 手动处理。早期曾用 signAndEditExecutable:false 绕过 electron-builder 的资源编辑
-//    （并以 here 的手动 rcedit 补偿），但 rcedit 在 macOS 交叉打包下必然找不到、静默跳过，
-//    导致 exe 图标是 Electron 默认。现改用 signExecutable:false 只跳过签名、保留图标嵌入。
+//  - Windows：签名的实际动作由 electron-builder 内置的 osslsigncode 路径完成
+//    （win.signtoolOptions 配好后：extraResources 的 exe 在拷贝时签、主程序在 resEdit
+//    之后签、NSIS 安装包与卸载器在打包时签，顺序由 electron-builder 保证）。
+//    这里只做 electron-builder 不知道的一件事：签名会改变 resources/kernel/WaPiKernel.exe
+//    的大小，而应用启动的壳/核一致性自检按大小比对，必须同步刷新 manifest.json。
+//  - 图标/版本信息由 electron-builder 内置的 resEdit（纯 JS PE 资源编辑）自动嵌入。
 const path = require("node:path");
 const fs = require("node:fs");
-// 不解构，保留 macSign.signMacApp 延迟属性查找：测试可替换缓存对象上的方法做 mock
+// 不解构，保留延迟属性查找：测试可替换缓存对象上的方法做 mock
 const macSign = require("./mac-sign.cjs");
+const winSign = require("./win-sign.cjs");
 
 /** macOS：对打包产物签名（在 dmg/zip 生成前，签名会进入安装包）。 */
 function signMacArtifact(appOutDir, packager) {
@@ -34,9 +37,34 @@ function signMacArtifact(appOutDir, packager) {
 	}
 }
 
+/**
+ * Windows：签名已改变内核 exe 大小（extraResources 拷贝时签的），刷新相容清单。
+ * 不刷新会让应用启动自检每天在 desktop.log 里误报 size-mismatch，掩盖真正的问题。
+ */
+function refreshWindowsKernelManifest(appOutDir) {
+	const kernelDir = path.join(appOutDir, "resources", "kernel");
+	const r = winSign.refreshKernelManifest(kernelDir);
+	if (r.updated) {
+		const skipped = process.env.WA_PI_SKIP_WIN_SIGN === "1";
+		console.log(
+			`[afterPack] ✅ Windows 内核清单已刷新（${skipped ? "产物大小变化" : "签名改变 exe 大小"}）: size ${r.before?.size} → ${r.after?.size}`,
+		);
+	} else if (r.reason) {
+		console.log(
+			`[afterPack] Windows 内核清单未刷新（${r.reason}）→ ${kernelDir}`,
+		);
+	} else {
+		console.log("[afterPack] Windows 内核清单与产物一致，无需刷新");
+	}
+}
+
 /** @param {import('app-builder-lib').AfterPackContext} context */
 exports.default = async (context) => {
 	const { appOutDir, packager, electronPlatformName } = context;
+	if (electronPlatformName === "win32") {
+		refreshWindowsKernelManifest(appOutDir);
+		return;
+	}
 	if (electronPlatformName === "darwin") {
 		// WA_PI_SKIP_MAC_SIGN=1：跳过 macOS 签名——测试/本地打包用，避免 codesign 访问
 		// 钥匙串自签名证书私钥时弹出钥匙串密码授权框（阻塞/用户不知密码）。
@@ -50,3 +78,5 @@ exports.default = async (context) => {
 		signMacArtifact(appOutDir, packager);
 	}
 };
+
+exports.refreshWindowsKernelManifest = refreshWindowsKernelManifest;
