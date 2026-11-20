@@ -81,7 +81,8 @@ const DEFAULTS_KEY = "wa-pi:composer-defaults";
 type DefaultsPrefs = { model: string | null; thinking: ThinkingLevel };
 
 export async function getDefaults(): Promise<DefaultsPrefs> {
-  return lsGet<DefaultsPrefs>(DEFAULTS_KEY) ?? { model: null, thinking: "disabled" };
+  // 默认思考档为 medium（产品决策 2026-11-20：不再默认关闭思考）
+  return lsGet<DefaultsPrefs>(DEFAULTS_KEY) ?? { model: null, thinking: "medium" };
 }
 
 export async function setDefaults(prefs: DefaultsPrefs): Promise<void> {

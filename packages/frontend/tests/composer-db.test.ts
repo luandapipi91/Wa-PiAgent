@@ -91,6 +91,7 @@ describe("composer-db", () => {
 
   it("returns default fallback when no defaults are stored", async () => {
     const defs = await getDefaults();
-    expect(defs).toEqual({ model: null, thinking: "disabled" });
+    // 默认思考档为 medium（产品决策 2026-11-20：不再默认关闭思考）
+    expect(defs).toEqual({ model: null, thinking: "medium" });
   });
 });
