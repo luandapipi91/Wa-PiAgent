@@ -128,7 +128,7 @@ const zh = {
 		labelModel: "模型",
 		labelThinking: "思考",
 		modelDefault: "默认（跟随全局）",
-		thinkingFollow: "跟随当前",
+		thinkingDefault: "默认",
 		thinkingOff: "思考 off",
 		thinkingMid: "思考 mid",
 		thinkingHigh: "思考 high",
@@ -441,6 +441,7 @@ const zh = {
 			placeholderOption: "选择模型",
 		},
 		thinkingSelector: {
+			optionDefault: "思考 默认",
 			optionDisabled: "思考 off",
 			optionMedium: "思考 mid",
 			optionHigh: "思考 high",

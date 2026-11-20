@@ -134,7 +134,7 @@ const en = {
 		labelModel: "Model",
 		labelThinking: "Thinking",
 		modelDefault: "Default (follow global)",
-		thinkingFollow: "Follow current",
+		thinkingDefault: "Default",
 		thinkingOff: "Thinking off",
 		thinkingMid: "Thinking mid",
 		thinkingHigh: "Thinking high",
@@ -454,6 +454,7 @@ const en = {
 			placeholderOption: "Select model",
 		},
 		thinkingSelector: {
+			optionDefault: "Thinking default",
 			optionDisabled: "Thinking off",
 			optionMedium: "Thinking mid",
 			optionHigh: "Thinking high",

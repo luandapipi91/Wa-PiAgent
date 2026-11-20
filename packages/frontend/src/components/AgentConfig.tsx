@@ -563,17 +563,20 @@ function BasicTab({ draft, onChange, isBuiltin }: TabProps) {
 			</Row>
 			<Row label={t("agentConfig.labelThinking")}>
 				<select
-					value={draft.thinking ?? ""}
+					value={draft.thinking ?? "default"}
 					onChange={(e) =>
 						onChange({
 							...draft,
-							thinking: (e.target.value || null) as AgentConfig["thinking"],
+							thinking: e.target.value as AgentConfig["thinking"],
 						})
 					}
 					className={inp}
 					data-testid="cfg-thinking-select"
 				>
-					<option value="">{t("agentConfig.thinkingFollow")}</option>
+					{/* 「默认」= 按模型能力自动决定（新增）。旧配置的 thinking=null 也显示为「默认」（
+					    spawn 时 null 实际就是 ?? "medium"，从不「跟随当前会话」——原「跟随当前」文案是错的），
+					    用户一保存就落盘为 "default"。 */}
+					<option value="default">{t("agentConfig.thinkingDefault")}</option>
 					<option value="disabled">{t("agentConfig.thinkingOff")}</option>
 					<option value="medium">{t("agentConfig.thinkingMid")}</option>
 					<option value="high">{t("agentConfig.thinkingHigh")}</option>
