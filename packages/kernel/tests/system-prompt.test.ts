@@ -15,6 +15,7 @@ import {
 	WA_PI_DEFAULT_BASE_PROMPT,
 	DEFAULT_MEMORY_POLICY_PROMPT,
 	COMPACT_MEMORY_POLICY_PROMPT,
+	resolveMemoryPolicyPrompt,
 	ENV_CONSTRAINTS_SUFFIX,
 	PROMPTS_SCHEMA_VERSION,
 	repairDelegateMechanism,
@@ -98,7 +99,7 @@ test("composePrompt memorySnapshot 空 → memory-snapshot 段不出现", () => 
 	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
 });
 
-test("composePrompt memoryPolicy 空 → memory-policy 段不出现（memoryPolicyStyle=none）", () => {
+test("composePrompt memoryPolicy 空 → memory-policy 段不出现（policyEnabled=false）", () => {
 	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, {
 		...defaultCtx,
 		memoryPolicy: "",
@@ -106,6 +107,50 @@ test("composePrompt memoryPolicy 空 → memory-policy 段不出现（memoryPoli
 	expect(result).not.toContain("## Memory Policy");
 	expect(result).not.toContain("memory_add");
 	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
+});
+
+describe("resolveMemoryPolicyPrompt — 策略注入与记忆快照注入解耦", () => {
+	test("配置缺失 → 默认注入完整版（新装默认开）", () => {
+		expect(resolveMemoryPolicyPrompt(undefined)).toBe(
+			DEFAULT_MEMORY_POLICY_PROMPT,
+		);
+	});
+
+	test("记忆注入关（memoryPolicyStyle=none）但策略注入开 → 仍注入策略段", () => {
+		// 用户核心诉求：关掉快照注入不能让 agent 失去「主动查/写记忆」的引导
+		expect(
+			resolveMemoryPolicyPrompt({
+				memoryPolicyStyle: "none",
+				policyEnabled: true,
+			}),
+		).toBe(DEFAULT_MEMORY_POLICY_PROMPT);
+	});
+
+	test("策略注入关（policyEnabled=false）→ 空段，不论 memoryPolicyStyle", () => {
+		for (const style of ["full", "compact", "none"] as const) {
+			expect(
+				resolveMemoryPolicyPrompt({
+					memoryPolicyStyle: style,
+					policyEnabled: false,
+				}),
+			).toBe("");
+		}
+	});
+
+	test("memoryPolicyStyle=compact 且策略注入开 → 注入精简版", () => {
+		expect(
+			resolveMemoryPolicyPrompt({
+				memoryPolicyStyle: "compact",
+				policyEnabled: true,
+			}),
+		).toBe(COMPACT_MEMORY_POLICY_PROMPT);
+	});
+
+	test("policyEnabled 缺省（老配置无该字段）→ 视为开", () => {
+		expect(
+			resolveMemoryPolicyPrompt({ memoryPolicyStyle: "full" }),
+		).toBe(DEFAULT_MEMORY_POLICY_PROMPT);
+	});
 });
 
 test("composePrompt env-constraints 始终注入 skill_directories 块（含 builtin）+ 固定后缀", () => {

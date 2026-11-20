@@ -2339,6 +2339,60 @@ test("系统提示词注入记忆快照（经 --append-system-prompt 独立文�
 	}
 });
 
+test("记忆注入关闭但策略注入开（默认）时：不注快照、仍注策略段", async () => {
+	const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+	const cleanup = seedGlobalMemory(unique);
+	try {
+		const { project, session, am } = await setup({
+			memoryStore: {
+				getConfig: async () => ({
+					reviewEnabled: true,
+					memoryPolicyStyle: "none" as const,
+					// policyEnabled 缺省：老配置/新装 → 视为开
+				}),
+			},
+		});
+		await am.ensureStarted(project.id, "dev", session.id);
+
+		const prompt = readSysprompt(session.id);
+		// 快照不注入
+		expect(prompt).not.toContain(unique);
+		expect(existsSync(memorySnapshotPath(session.id))).toBe(false);
+		// 策略段仍注入（agent 仍知道要主动查/写记忆）
+		expect(prompt).toContain("## Memory Policy");
+		expect(prompt).toContain("memory_search");
+	} finally {
+		cleanup();
+	}
+});
+
+test("策略注入关闭（policyEnabled=false）时：快照仍注入、策略段整段不出现", async () => {
+	const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+	const cleanup = seedGlobalMemory(unique);
+	try {
+		const { project, session, am } = await setup({
+			memoryStore: {
+				getConfig: async () => ({
+					reviewEnabled: true,
+					memoryPolicyStyle: "full" as const,
+					policyEnabled: false,
+				}),
+			},
+		});
+		await am.ensureStarted(project.id, "dev", session.id);
+
+		const prompt = readSysprompt(session.id);
+		expect(prompt).not.toContain("## Memory Policy");
+		// 快照照旧注入（两个开关彻底解耦）
+		expect(existsSync(memorySnapshotPath(session.id))).toBe(true);
+		expect(readFileSync(memorySnapshotPath(session.id), "utf8")).toContain(
+			unique,
+		);
+	} finally {
+		cleanup();
+	}
+});
+
 test("记忆库为空时不注入记忆快照（不生成 memory 文件）", async () => {
 	const { project, session, am } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);

@@ -146,6 +146,7 @@ import {
 	DEFAULT_PROMPT_SEGMENTS,
 	DEFAULT_MEMORY_POLICY_PROMPT,
 	COMPACT_MEMORY_POLICY_PROMPT,
+	resolveMemoryPolicyPrompt,
 	WA_PI_DEFAULT_BASE_PROMPT,
 	type PromptSegment,
 } from "./system-prompt";
@@ -1498,14 +1499,9 @@ export class AgentManager {
 			builtinSkillsDir: BUILTIN_SKILLS_DIR,
 			// 项目级技能目录（<project.cwd>/.pi/skills）：无 cwd 时为 undefined → 该行不出现
 			projectSkillsDir,
-			// 记忆写入策略引导：按 memoryPolicyStyle 注入（full 完整版 / compact 精简版 / none 不注入）。
-			// 这是 agent「主动写记忆」的核心引导——缺失时 agent 只回复文本、从不调用 memory_add。
-			memoryPolicy:
-				memConfig?.memoryPolicyStyle === "compact"
-					? COMPACT_MEMORY_POLICY_PROMPT
-					: memConfig?.memoryPolicyStyle === "none"
-						? ""
-						: DEFAULT_MEMORY_POLICY_PROMPT,
+			// 记忆策略引导：「策略注入」开关与 memoryPolicyStyle（快照注入）解耦，
+			// 默认注入完整版；关闭「记忆注入」不影响这里的查/写记忆引导。
+			memoryPolicy: resolveMemoryPolicyPrompt(memConfig),
 			// 记忆快照不再注入 composePrompt，改为 --append-system-prompt 挂载到末尾，
 			// 使核心提示词完全静态化，最大化 LLM prompt caching 前缀命中率。
 			memorySnapshot: "",

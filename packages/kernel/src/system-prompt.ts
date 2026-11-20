@@ -145,6 +145,23 @@ export const COMPACT_MEMORY_POLICY_PROMPT =
 	"变更已有条目：memory_search 取 id（需全文时 memory_read 按 id 读详情），再 memory_replace / memory_remove。检索或使用中遇到已过时、失效的条目顺手修正或删除，不必等用户提醒；execution 执行流水是历史日志，旧了不删。";
 
 /**
+ * 解析 memory-policy 段文案（「策略注入」开关的消费点）。
+ * - policyEnabled === false → 空段（整段不注入）
+ * - 其余情况（含缺省、老配置无该字段）→ 按 memoryPolicyStyle 选完整/精简版
+ * - 注意：memoryPolicyStyle === "none" 只表示「记忆快照不注入」，不影响策略段
+ */
+export function resolveMemoryPolicyPrompt(config?: {
+	memoryPolicyStyle?: "full" | "compact" | "none";
+	policyEnabled?: boolean;
+}): string {
+	return config?.policyEnabled === false
+		? ""
+		: config?.memoryPolicyStyle === "compact"
+			? COMPACT_MEMORY_POLICY_PROMPT
+			: DEFAULT_MEMORY_POLICY_PROMPT;
+}
+
+/**
  * 构造「自身进程保护」段文案（强规则：禁止 agent 杀死宿主 kernel / Electron 进程，防误杀）。
  *
  * 端口取运行时实际值，绝不写死：

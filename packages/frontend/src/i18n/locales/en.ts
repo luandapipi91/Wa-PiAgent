@@ -713,6 +713,8 @@ const en = {
 		pageTitle: "🧠 Memory",
 		toggleReview: "Memory",
 		toggleInject: "Memory injection",
+		togglePolicy: "Policy injection",
+		moreButton: "More settings",
 		searchPlaceholder: "🔍 Search memory...",
 		tabSaved: "Saved",
 		tabArchived: "Archived",

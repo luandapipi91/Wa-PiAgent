@@ -70,6 +70,26 @@ export function MemoryPage() {
 	const [showAddForm, setShowAddForm] = useState(false);
 	const [newMemoryText, setNewMemoryText] = useState("");
 
+	// 页头「更多」菜单（三个开关收在弹窗里，参考知识库页头设计）
+	const [moreOpen, setMoreOpen] = useState(false);
+	const moreRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (!moreOpen) return;
+		const onDocDown = (e: MouseEvent) => {
+			if (moreRef.current && !moreRef.current.contains(e.target as Node))
+				setMoreOpen(false);
+		};
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") setMoreOpen(false);
+		};
+		document.addEventListener("mousedown", onDocDown);
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("mousedown", onDocDown);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [moreOpen]);
+
 	// 当前查看的项目：优先用户手选（持久 store），回退当前打开项目
 	const activeProjectId = selectedProjectId ?? currentProjectId;
 
@@ -282,7 +302,7 @@ export function MemoryPage() {
 			className="flex-1 flex flex-col overflow-hidden"
 			data-testid="memory-page"
 		>
-			{/* 标题栏 + 内联开关 */}
+			{/* 标题栏 */}
 			<div
 				className="flex items-center justify-between px-5 py-3.5"
 				style={{
@@ -293,40 +313,11 @@ export function MemoryPage() {
 				<h2 className="text-base font-extrabold text-primary m-0">
 					{t("memory.pageTitle")}
 				</h2>
-				<div className="flex items-center gap-4">
-					<label
-						className="flex items-center gap-2 cursor-pointer"
-						data-testid="toggle-review"
-					>
-						<span className="text-[calc(11.5px*var(--font-scale))] text-secondary">
-							{t("memory.toggleReview")}
-						</span>
-						<ToggleSwitch
-							on={config?.reviewEnabled ?? true}
-							onChange={(v) => setConfigValue({ reviewEnabled: v })}
-						/>
-					</label>
-					<label
-						className="flex items-center gap-2 cursor-pointer"
-						data-testid="toggle-inject"
-					>
-						<span className="text-[calc(11.5px*var(--font-scale))] text-secondary">
-							{t("memory.toggleInject")}
-						</span>
-						<ToggleSwitch
-							// 默认不注入（memoryPolicyStyle=none）；配置未加载时按关展示，避免闪烁误导
-							on={config ? config.memoryPolicyStyle !== "none" : false}
-							onChange={(v) =>
-								setConfigValue({ memoryPolicyStyle: v ? "full" : "none" })
-							}
-						/>
-					</label>
-				</div>
 			</div>
 
-			{/* Tab 栏 */}
+			{/* Tab 栏（右端收「更多」菜单：三个开关收进弹窗） */}
 			<div
-				className="flex px-5"
+				className="flex items-center px-5"
 				style={{
 					background: "var(--surface)",
 					borderBottom: "1px solid var(--hairline)",
@@ -350,6 +341,77 @@ export function MemoryPage() {
 					label={t("memory.tabInstructions")}
 					count={scopeInstructionsCount}
 				/>
+				<div className="relative shrink-0 ml-auto py-1.5" ref={moreRef}>
+					<button
+						type="button"
+						onClick={() => setMoreOpen((v) => !v)}
+						aria-label={t("memory.moreButton")}
+						title={t("memory.moreButton")}
+						aria-expanded={moreOpen}
+						className="w-8 h-8 flex items-center justify-center rounded-full text-[calc(14px*var(--font-scale))] text-secondary"
+						style={{
+							border: "1px solid var(--hairline)",
+							background: "var(--surface)",
+						}}
+						data-testid="memory-more-menu"
+					>
+						⋮
+					</button>
+					{moreOpen && (
+						<div
+							className="absolute right-0 z-50 mt-1.5 rounded-lg p-3 flex flex-col gap-2.5"
+							style={{
+								top: "100%",
+								width: 240,
+								background: "var(--surface-elevated)",
+								border: "1px solid var(--hairline)",
+								boxShadow: "0 6px 20px rgba(0,0,0,.12)",
+							}}
+							data-testid="memory-more-popup"
+						>
+							<label
+								className="flex items-center justify-between gap-2 cursor-pointer"
+								data-testid="toggle-review"
+							>
+								<span className="text-[calc(12px*var(--font-scale))] text-primary">
+									{t("memory.toggleReview")}
+								</span>
+								<ToggleSwitch
+									on={config?.reviewEnabled ?? true}
+									onChange={(v) => setConfigValue({ reviewEnabled: v })}
+								/>
+							</label>
+							<label
+								className="flex items-center justify-between gap-2 cursor-pointer"
+								data-testid="toggle-inject"
+							>
+								<span className="text-[calc(12px*var(--font-scale))] text-primary">
+									{t("memory.toggleInject")}
+								</span>
+								<ToggleSwitch
+									// 默认不注入（memoryPolicyStyle=none）；配置未加载时按关展示，避免闪烁误导
+									on={config ? config.memoryPolicyStyle !== "none" : false}
+									onChange={(v) =>
+										setConfigValue({ memoryPolicyStyle: v ? "full" : "none" })
+									}
+								/>
+							</label>
+							<label
+								className="flex items-center justify-between gap-2 cursor-pointer"
+								data-testid="toggle-policy"
+							>
+								<span className="text-[calc(12px*var(--font-scale))] text-primary">
+									{t("memory.togglePolicy")}
+								</span>
+								<ToggleSwitch
+									// 策略注入默认开（老配置无该字段也视为开）
+									on={config ? config.policyEnabled !== false : true}
+									onChange={(v) => setConfigValue({ policyEnabled: v })}
+								/>
+							</label>
+						</div>
+					)}
+				</div>
 			</div>
 
 			{/* 工具栏 */}

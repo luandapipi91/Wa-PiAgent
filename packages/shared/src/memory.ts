@@ -51,6 +51,11 @@ export interface InstructionFile {
 export interface MemoryConfig {
   reviewEnabled: boolean;
   memoryPolicyStyle: "full" | "compact" | "none";
+  /**
+   * 策略注入：是否往系统提示词注入「记忆使用策略」段（默认 true，缺省视为开）。
+   * 与 memoryPolicyStyle（记忆快照注入）解耦：关掉快照注入不影响 agent 的查/写记忆引导。
+   */
+  policyEnabled?: boolean;
   /** 是否启用本地语义检索（默认 true；模型或扩展不可用时自动降级） */
   semanticEnabled?: boolean;
 }

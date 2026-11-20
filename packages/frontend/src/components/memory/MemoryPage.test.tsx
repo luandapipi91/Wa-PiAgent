@@ -13,11 +13,12 @@ import type { ArchivedMemory, MemoryEntry } from "@wa-pi/shared";
 process.env.WA_PI_LANG = "zh";
 
 const getMock = mock();
+const putMock = mock();
 mock.module("../../api-client", () => ({
 	api: {
 		get: getMock,
 		post: () => Promise.resolve({}),
-		put: () => Promise.resolve({}),
+		put: putMock,
 		del: () => Promise.resolve({}),
 	},
 }));
@@ -416,4 +417,66 @@ test("从项目切回全局：kindFilter 归零，列表请求不再带 kind", a
 		.map((c) => String(c[0]))
 		.filter((u) => u.includes("/api/memories?"));
 	expect(listUrls[listUrls.length - 1]).not.toContain("kind=");
+});
+
+// ===== 页头「更多」菜单：三个开关收进弹窗（参考知识库页头设计）=====
+
+test("页头只有省略点按钮，点开弹窗才展示三个开关", async () => {
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+
+	// 开关不再内联暴露，弹窗默认关闭
+	expect(screen.getByTestId("memory-more-menu")).toBeTruthy();
+	expect(screen.queryByTestId("memory-more-popup")).toBeNull();
+
+	fireEvent.click(screen.getByTestId("memory-more-menu"));
+	const popup = await screen.findByTestId("memory-more-popup");
+	expect(popup).toBeTruthy();
+	// 三个开关都在：记忆功能 / 记忆注入 / 策略注入
+	expect(screen.getByTestId("toggle-review")).toBeTruthy();
+	expect(screen.getByTestId("toggle-inject")).toBeTruthy();
+	expect(screen.getByTestId("toggle-policy")).toBeTruthy();
+});
+
+test("弹窗开关状态：记忆功能开、记忆注入关、策略注入默认开", async () => {
+	// 服务端配置无 policyEnabled 字段（老配置/新装）→ 策略注入应视为开
+	getMock.mockImplementation(async (url: string) => {
+		if (url.includes("/config")) {
+			return { config: { reviewEnabled: true, memoryPolicyStyle: "none" } };
+		}
+		if (url.includes("/instructions")) return { instructions: [] };
+		if (url.includes("/api/memories?")) return pageResponseFor(url);
+		return null;
+	});
+
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	fireEvent.click(screen.getByTestId("memory-more-menu"));
+	await screen.findByTestId("memory-more-popup");
+
+	const isOn = (testid: string) =>
+		!!screen.getByTestId(testid).querySelector('[data-testid="toggle-on"]');
+	expect(isOn("toggle-review")).toBe(true);
+	expect(isOn("toggle-inject")).toBe(false);
+	expect(isOn("toggle-policy")).toBe(true);
+});
+
+test("点策略注入开关 → PUT /api/memories/config 带 policyEnabled", async () => {
+	putMock.mockReset();
+	putMock.mockImplementation(async () => ({}));
+
+	render(<MemoryPage />);
+	await screen.findByTestId("memory-page");
+	fireEvent.click(screen.getByTestId("memory-more-menu"));
+	await screen.findByTestId("memory-more-popup");
+
+	fireEvent.click(
+		screen.getByTestId("toggle-policy").querySelector('[data-testid="toggle-on"]')!,
+	);
+	await waitFor(() => {
+		expect(putMock.mock.calls.length).toBeGreaterThan(0);
+	});
+	const [url, body] = putMock.mock.calls.at(-1)! as [string, Record<string, unknown>];
+	expect(url).toBe("/api/memories/config");
+	expect(body.policyEnabled).toBe(false);
 });

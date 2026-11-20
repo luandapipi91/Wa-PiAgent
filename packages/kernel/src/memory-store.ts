@@ -381,12 +381,15 @@ export class MemoryStore {
         reviewEnabled: data.reviewEnabled ?? true,
         // 未保存过注入开关时默认不注入，保存过则尊重用户选择
         memoryPolicyStyle: data.memoryPolicyStyle ?? "none",
+        // 策略注入默认开；老配置无该字段时也视为开
+        policyEnabled: data.policyEnabled ?? true,
         semanticEnabled: data.semanticEnabled ?? true,
       };
     } catch {
       return {
         reviewEnabled: true,
         memoryPolicyStyle: "none",
+        policyEnabled: true,
         semanticEnabled: true,
       };
     }
@@ -396,6 +399,7 @@ export class MemoryStore {
   async setConfig(opts: {
     reviewEnabled?: boolean;
     memoryPolicyStyle?: "full" | "compact" | "none";
+    policyEnabled?: boolean;
     semanticEnabled?: boolean;
   }): Promise<void> {
     const configPath = join(this.opts.waPiDir, HERMES_CONFIG_FILE);
@@ -409,6 +413,8 @@ export class MemoryStore {
       existing.reviewEnabled = opts.reviewEnabled;
     if (opts.memoryPolicyStyle !== undefined)
       existing.memoryPolicyStyle = opts.memoryPolicyStyle;
+    if (opts.policyEnabled !== undefined)
+      existing.policyEnabled = opts.policyEnabled;
     if (opts.semanticEnabled !== undefined)
       existing.semanticEnabled = opts.semanticEnabled;
     await mkdir(this.opts.waPiDir, { recursive: true });

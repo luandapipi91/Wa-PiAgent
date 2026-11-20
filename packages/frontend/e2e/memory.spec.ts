@@ -34,13 +34,19 @@ async function openMemorySection(page: import("@playwright/test").Page) {
 test.describe
   .serial("记忆管理", () => {
     // ── 新装默认状态（必须放最前：后序用例会切换开关并持久化到隔离目录，污染默认态）──
-    test("新装默认：记忆注入关闭 + 开关文案为新名称", async ({ page }) => {
+    test("新装默认：省略点弹窗内三开关 + 记忆注入关、策略注入开", async ({ page }) => {
       await openMemorySection(page);
 
+      // 页头不再内联暴露开关：点省略点才展开弹窗
+      await expect(page.getByTestId("memory-more-popup")).toHaveCount(0);
+      await expect(page.getByTestId("toggle-inject")).toHaveCount(0);
+      await page.getByTestId("memory-more-menu").click();
+      await expect(page.getByTestId("memory-more-popup")).toBeVisible();
+
       // global-setup 清空重建 E2E_WA_PI_DIR → 无 hermes-memory-config.json →
-      // memoryPolicyStyle 默认 none：记忆注入显示关，记忆功能（reviewEnabled 默认 true）显示开
+      // memoryPolicyStyle 默认 none（记忆注入关）、reviewEnabled 默认 true、
+      // policyEnabled 缺省视为 true（策略注入开）
       const injectToggle = page.getByTestId("toggle-inject");
-      await expect(injectToggle).toBeVisible();
       await expect(injectToggle).toContainText("记忆注入");
       await expect(
         injectToggle.locator('[data-testid="toggle-off"]'),
@@ -50,6 +56,13 @@ test.describe
       await expect(reviewToggle).toContainText("记忆功能");
       await expect(
         reviewToggle.locator('[data-testid="toggle-on"]'),
+      ).toBeVisible({ timeout: 3000 });
+
+      // 关键：记忆快照不注入，但记忆使用策略仍注入（新开关默认开）
+      const policyToggle = page.getByTestId("toggle-policy");
+      await expect(policyToggle).toContainText("策略注入");
+      await expect(
+        policyToggle.locator('[data-testid="toggle-on"]'),
       ).toBeVisible({ timeout: 3000 });
     });
 
@@ -182,8 +195,10 @@ test.describe
       }
     });
 
-    test("开关切换 — 记忆功能", async ({ page }) => {
+    test("开关切换 — 记忆功能（省略点弹窗内）", async ({ page }) => {
       await openMemorySection(page);
+      await page.getByTestId("memory-more-menu").click();
+      await expect(page.getByTestId("memory-more-popup")).toBeVisible();
 
       // 点击「记忆功能」开关（toggle-review label 包裹 ToggleSwitch）
       // 默认 reviewEnabled=true → 内部 toggle 为 toggle-on，点击后变 toggle-off
@@ -196,6 +211,35 @@ test.describe
       await expect(
         reviewToggle.locator('[data-testid="toggle-off"]'),
       ).toBeVisible({ timeout: 3000 });
+    });
+
+    test("策略注入开关切换后持久化：关闭再重开设置仍为关", async ({ page }) => {
+      await openMemorySection(page);
+      await page.getByTestId("memory-more-menu").click();
+
+      const policyToggle = page.getByTestId("toggle-policy");
+      await expect(
+        policyToggle.locator('[data-testid="toggle-on"]'),
+      ).toBeVisible({ timeout: 3000 });
+      await policyToggle.locator('[data-testid="toggle-on"]').click();
+      await expect(
+        policyToggle.locator('[data-testid="toggle-off"]'),
+      ).toBeVisible({ timeout: 3000 });
+
+      // 命中 kernel 的 PUT /api/memories/config 后写盘，重开设置读回应为关
+      await page.getByTestId("settings-close").click();
+      await expect(page.getByTestId("settings-modal")).toBeHidden({
+        timeout: 3000,
+      });
+      await page.getByTestId("settings-btn").click();
+      await page.getByTestId("settings-nav-memory").click();
+      await expect(page.getByTestId("memory-page")).toBeVisible({
+        timeout: 5000,
+      });
+      await page.getByTestId("memory-more-menu").click();
+      await expect(
+        page.getByTestId("toggle-policy").locator('[data-testid="toggle-off"]'),
+      ).toBeVisible({ timeout: 5000 });
     });
 
     test("Bug1: 关闭重开设置后，项目作用域选择器保留上次选中的项目", async ({

@@ -965,6 +965,8 @@ test("getConfig 文件不存在时返回默认值", async () => {
   expect(config.reviewEnabled).toBe(true);
   // 未保存过注入开关时默认不注入（memoryPolicyStyle=none）
   expect(config.memoryPolicyStyle).toBe("none");
+  // 策略注入（memory-policy 段）默认开：与记忆注入解耦，关掉快照注入不影响策略引导
+  expect(config.policyEnabled).toBe(true);
   // 语义检索默认启用（与 reviewEnabled 同构）；模型 / 扩展不可用时由检索层自行降级
   expect(config.semanticEnabled).toBe(true);
 });
@@ -990,7 +992,18 @@ test("getConfig 配置文件缺失字段时用默认值补齐", async () => {
   const config = await makeStore().getConfig();
   expect(config.reviewEnabled).toBe(false);
   expect(config.memoryPolicyStyle).toBe("none");
+  expect(config.policyEnabled).toBe(true);
   expect(config.semanticEnabled).toBe(true);
+});
+
+test("setConfig 写入 policyEnabled 后 getConfig 读回新值", async () => {
+  const store = makeStore();
+  await store.setConfig({ policyEnabled: false });
+  const config = await store.getConfig();
+  expect(config.policyEnabled).toBe(false);
+  // 仅改策略开关不得影响其它字段的既有默认值
+  expect(config.reviewEnabled).toBe(true);
+  expect(config.memoryPolicyStyle).toBe("none");
 });
 
 test("setConfig 写入后 getConfig 读回新值", async () => {

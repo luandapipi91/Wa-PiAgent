@@ -190,7 +190,7 @@ test("GET /api/memories/search 透传 since/until/offset", async () => {
 	expect((seen[0] as any).offset).toBeUndefined();
 });
 
-test("PUT /api/memories/config 白名单透传 semanticEnabled", async () => {
+test("PUT /api/memories/config 白名单透传 semanticEnabled / policyEnabled", async () => {
 	const { r, seen } = makeRecordingRouter();
 	await r.handle(
 		new Request("http://x/api/memories/config", {
@@ -200,6 +200,7 @@ test("PUT /api/memories/config 白名单透传 semanticEnabled", async () => {
 				reviewEnabled: false,
 				memoryPolicyStyle: "compact",
 				semanticEnabled: false,
+				policyEnabled: false,
 			}),
 		}),
 	);
@@ -209,6 +210,7 @@ test("PUT /api/memories/config 白名单透传 semanticEnabled", async () => {
 			reviewEnabled: false,
 			memoryPolicyStyle: "compact",
 			semanticEnabled: false,
+			policyEnabled: false,
 		},
 	]);
 });
