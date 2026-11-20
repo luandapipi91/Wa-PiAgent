@@ -757,10 +757,11 @@ let proxyWatchTimer: ReturnType<typeof setInterval> | null = null;
 export function startSystemProxyWatcher(
 	intervalMs = 5000,
 	readProxy: () => string | Promise<string> = readSystemProxy,
+	file: string = SETTINGS_FILE,
 ): () => void {
 	if (proxyWatchTimer) return () => {};
 	proxyWatchTimer = setInterval(() => {
-		void refreshSystemProxy(SETTINGS_FILE, readProxy).catch((e) => {
+		void refreshSystemProxy(file, readProxy).catch((e) => {
 			console.warn("[proxy] 定时刷新系统代理失败:", e);
 		});
 	}, intervalMs);

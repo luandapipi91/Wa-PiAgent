@@ -14,8 +14,11 @@ import {
 	parseScutilProxyOutput,
 	readWindowsSystemProxy,
 	PROXY_DEFAULTS,
+	refreshSystemProxy,
+	refreshSystemProxyOnFailure,
+	resetProxyFailureThrottleForTest,
 } from "../settings-store";
-import { stopProxyRelay } from "../proxy-relay";
+import { getProxyUpstreamKey, stopProxyRelay } from "../proxy-relay";
 
 // 与 settings-trash.test.ts 一致：用 TEST_FILE 隔离路径，避免触碰真实 settings.json。
 const TEST_FILE = join(tmpdir(), `test-settings-proxy-${Date.now()}.json`);
@@ -276,5 +279,71 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
 		if (process.platform !== "win32") return;
 		const url = await readWindowsSystemProxy();
 		expect(typeof url).toBe("string");
+	});
+});
+
+// 系统代理动态刷新（5s 巡检 + 上游失败时重读）
+// 用户要求：系统代理是动态的，改了就应跟上；代理软件换端口/重启也要能自己恢复。
+describe("系统代理动态刷新", () => {
+	test("上游未变：refreshSystemProxy 返回 false，不重置中继状态", async () => {
+		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
+		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		const changed = await refreshSystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		expect(changed).toBe(false);
+	});
+
+	test("系统代理变了：refreshSystemProxy 切到新上游并返回 true", async () => {
+		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
+		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		const changed = await refreshSystemProxy(TEST_FILE, () => "http://127.0.0.1:7891");
+		expect(changed).toBe(true);
+		expect(getProxyUpstreamKey()).toContain("7891");
+	});
+
+	test("系统代理变空（用户关代理）：上游被清空 = 直连", async () => {
+		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
+		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		expect(getProxyUpstreamKey()).not.toBe("");
+		const changed = await refreshSystemProxy(TEST_FILE, () => "");
+		expect(changed).toBe(true);
+		expect(getProxyUpstreamKey()).toBe("");
+	});
+
+	test("手填 httpProxy 优先：不读系统代理，也不跟随系统变化", async () => {
+		await saveProxySettings(
+			{ useSystemProxy: true, httpProxy: "http://127.0.0.1:7000" },
+			TEST_FILE,
+		);
+		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		let readCount = 0;
+		const changed = await refreshSystemProxy(TEST_FILE, () => {
+			readCount++;
+			return "http://127.0.0.1:7891";
+		});
+		expect(readCount).toBe(0); // 直接短路，没有 spawn scutil
+		expect(changed).toBe(false);
+		expect(getProxyUpstreamKey()).toContain("7000");
+	});
+
+	test("关闭「使用系统代理」：上游清空", async () => {
+		await saveProxySettings({ useSystemProxy: false, httpProxy: "" }, TEST_FILE);
+		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		expect(getProxyUpstreamKey()).toBe("");
+	});
+
+	test("失败重读有节流：连续触发只读一次", async () => {
+		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
+		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		resetProxyFailureThrottleForTest();
+		let reads = 0;
+		const read = () => {
+			reads++;
+			return "http://127.0.0.1:7890";
+		};
+		await refreshSystemProxyOnFailure(TEST_FILE, read, 60_000);
+		await refreshSystemProxyOnFailure(TEST_FILE, read, 60_000);
+		await refreshSystemProxyOnFailure(TEST_FILE, read, 60_000);
+		expect(reads).toBe(1);
+		resetProxyFailureThrottleForTest();
 	});
 });

@@ -168,3 +168,36 @@ describe("proxy-relay 上游可用性上报", () => {
 		expect(events[1]).toEqual({ state: "ok", upstream: "" });
 	});
 });
+
+describe("上游失败回调（供重读系统代理）", () => {
+	test("连不上 → 触发 onUpstreamFail", async () => {
+		let fails = 0;
+		const deadPort = await freePort();
+		const relay = new ProxyRelay({
+			upstream: `http://127.0.0.1:${deadPort}`,
+			connectTimeoutMs: 500,
+			onUpstreamFail: () => fails++,
+		});
+		await relay.start();
+		cleanups.push(() => relay.close());
+
+		await connectOnce(relay.port);
+		await waitFor(() => fails >= 1);
+		expect(fails).toBeGreaterThanOrEqual(1);
+	});
+
+	test("上游正常 → 不触发 onUpstreamFail", async () => {
+		let fails = 0;
+		const up = await startFakeUpstream();
+		const relay = new ProxyRelay({
+			upstream: `http://127.0.0.1:${up.port}`,
+			onUpstreamFail: () => fails++,
+		});
+		await relay.start();
+		cleanups.push(() => relay.close());
+
+		await connectOnce(relay.port);
+		await new Promise((r) => setTimeout(r, 100));
+		expect(fails).toBe(0);
+	});
+});

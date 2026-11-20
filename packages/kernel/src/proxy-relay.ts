@@ -38,6 +38,8 @@ export interface ProxyRelayOpts {
 	logger?: (line: string) => void;
 	/** 上游可用性翻转回调（只在状态变化时触发，用于前端提示；直连模式不触发） */
 	onStatus?: (s: ProxyStatus) => void;
+	/** 上游连接失败时回调（kernel 侧接「重读系统代理」；由调用方自行节流） */
+	onUpstreamFail?: () => void;
 }
 
 /** 上游代理可用性（ok=能建立连接；unreachable=连不上/被拒/出口疑似不可用） */
@@ -121,6 +123,7 @@ export class ProxyRelay {
 	private readonly now: () => number;
 	private readonly log: (line: string) => void;
 	private readonly onStatus?: (s: ProxyStatus) => void;
+	private readonly onUpstreamFail?: () => void;
 	/** 上次上报的可用性（去重：状态没翻转不重复通知） */
 	private lastState: "ok" | "unreachable" | null = null;
 	/** 上次上报不可达时的原因（快照查询用） */
@@ -136,6 +139,7 @@ export class ProxyRelay {
 		this.now = opts.now ?? Date.now;
 		this.log = opts.logger ?? (() => {});
 		this.onStatus = opts.onStatus;
+		this.onUpstreamFail = opts.onUpstreamFail;
 		this.setUpstream(opts.upstream);
 		this.server = createServer((client) => this.onClientSocket(client));
 		this.server.on("error", (err) => {
