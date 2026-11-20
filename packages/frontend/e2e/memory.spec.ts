@@ -34,7 +34,7 @@ async function openMemorySection(page: import("@playwright/test").Page) {
 test.describe
   .serial("记忆管理", () => {
     // ── 新装默认状态（必须放最前：后序用例会切换开关并持久化到隔离目录，污染默认态）──
-    test("新装默认：省略点弹窗内三开关 + 记忆注入关、策略注入开", async ({ page }) => {
+    test("新装默认：省略点弹窗内三开关 + 记忆注入关、记忆策略注入开", async ({ page }) => {
       await openMemorySection(page);
 
       // 页头不再内联暴露开关：点省略点才展开弹窗
@@ -45,7 +45,7 @@ test.describe
 
       // global-setup 清空重建 E2E_WA_PI_DIR → 无 hermes-memory-config.json →
       // memoryPolicyStyle 默认 none（记忆注入关）、reviewEnabled 默认 true、
-      // policyEnabled 缺省视为 true（策略注入开）
+      // policyEnabled 缺省视为 true（记忆策略注入开）
       const injectToggle = page.getByTestId("toggle-inject");
       await expect(injectToggle).toContainText("记忆注入");
       await expect(
@@ -60,7 +60,7 @@ test.describe
 
       // 关键：记忆快照不注入，但记忆使用策略仍注入（新开关默认开）
       const policyToggle = page.getByTestId("toggle-policy");
-      await expect(policyToggle).toContainText("策略注入");
+      await expect(policyToggle).toContainText("记忆策略注入");
       await expect(
         policyToggle.locator('[data-testid="toggle-on"]'),
       ).toBeVisible({ timeout: 3000 });
@@ -213,7 +213,7 @@ test.describe
       ).toBeVisible({ timeout: 3000 });
     });
 
-    test("策略注入开关切换后持久化：关闭再重开设置仍为关", async ({ page }) => {
+    test("记忆策略注入开关切换后持久化：关闭再重开设置仍为关", async ({ page }) => {
       await openMemorySection(page);
       await page.getByTestId("memory-more-menu").click();
 

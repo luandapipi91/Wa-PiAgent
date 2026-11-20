@@ -693,7 +693,7 @@ const zh = {
 		pageTitle: "🧠 记忆",
 		toggleReview: "记忆功能",
 		toggleInject: "记忆注入",
-		togglePolicy: "策略注入",
+		togglePolicy: "记忆策略注入",
 		moreButton: "更多设置",
 		searchPlaceholder: "🔍 搜索记忆...",
 		tabSaved: "已保存",
