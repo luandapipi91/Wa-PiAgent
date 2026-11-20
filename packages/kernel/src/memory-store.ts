@@ -379,13 +379,14 @@ export class MemoryStore {
       const data = JSON.parse(raw);
       return {
         reviewEnabled: data.reviewEnabled ?? true,
-        memoryPolicyStyle: data.memoryPolicyStyle ?? "full",
+        // 未保存过注入开关时默认不注入，保存过则尊重用户选择
+        memoryPolicyStyle: data.memoryPolicyStyle ?? "none",
         semanticEnabled: data.semanticEnabled ?? true,
       };
     } catch {
       return {
         reviewEnabled: true,
-        memoryPolicyStyle: "full",
+        memoryPolicyStyle: "none",
         semanticEnabled: true,
       };
     }

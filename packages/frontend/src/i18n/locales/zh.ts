@@ -691,8 +691,8 @@ const zh = {
 	},
 	memory: {
 		pageTitle: "🧠 记忆",
-		toggleReview: "自动学习",
-		toggleInject: "注入提示",
+		toggleReview: "记忆功能",
+		toggleInject: "记忆注入",
 		searchPlaceholder: "🔍 搜索记忆...",
 		tabSaved: "已保存",
 		tabArchived: "归档",

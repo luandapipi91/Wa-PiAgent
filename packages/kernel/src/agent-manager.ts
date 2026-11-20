@@ -230,7 +230,7 @@ export interface AgentManagerOpts {
 	abortTimeoutMs?: number;
 	/** 续跑窗口（ms），覆盖 TURN_RESUME_WINDOW_MS（测试注入 0 表示任何无 user 的新轮都不接上一轮起点） */
 	turnResumeWindowMs?: number;
-	// 记忆配置读取（reviewEnabled 自动学习开关 / memoryPolicyStyle 注入提示开关）。
+	// 记忆配置读取（reviewEnabled 记忆功能开关 / memoryPolicyStyle 记忆注入开关）。
 	// 可空：测试场景不传视为全开（与历史行为一致）；生产注入 MemoryStore。
 	memoryStore?: { getConfig(): Promise<MemoryConfig> };
 }
@@ -1068,7 +1068,7 @@ export class AgentManager {
 		).map((s) => s.path);
 
 		// host-controlled 记忆：预取全局+项目记忆快照注入系统提示词；记忆读取失败降级为空快照。
-		// 「注入提示」开关（memoryPolicyStyle=none）关闭时不注入。
+		// 「记忆注入」开关（memoryPolicyStyle=none）关闭时不注入。
 		const memConfig = await this.opts.memoryStore
 			?.getConfig()
 			.catch(() => undefined);

@@ -6,13 +6,14 @@
 // 注：E2E_WA_PI_DIR 已改为固定目录（playwright.config.ts），worker 与 globalSetup 进程
 // 拿到一致路径；本 spec 只读 UI，不直接写隔离目录。
 import { test, expect } from "@playwright/test";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 // 记忆管理现作为「系统设置」面板的一个分区。
 // 此辅助函数打开设置弹窗并切到「记忆」分区。
 // 先预置假 provider：全新隔离目录无 provider 时首启 onboarding 向导会弹出，
 // 其 modal-overlay 会拦截 settings-btn 的点击（settings-sound / file-change-summary 同坑，
-// 本 spec 在此修复前一直因此为红）。
+// 本 spec 在此修复前一直因此为红）。setUiPrefs 同理预置「已看过主题引导」
+// 防新装环境首启引导弹窗拦截点击。
 async function openMemorySection(page: import("@playwright/test").Page) {
   await saveProvider({
     id: "memory-e2e-provider",
@@ -22,6 +23,7 @@ async function openMemorySection(page: import("@playwright/test").Page) {
     api: "openai-completions",
     models: [{ id: "test-model", contextWindow: 100000, maxTokens: 8192 }],
   });
+  await setUiPrefs(page, "zh");
   await page.goto("/");
   await page.getByTestId("settings-btn").click();
   await expect(page.getByTestId("settings-modal")).toBeVisible();
@@ -31,6 +33,26 @@ async function openMemorySection(page: import("@playwright/test").Page) {
 
 test.describe
   .serial("记忆管理", () => {
+    // ── 新装默认状态（必须放最前：后序用例会切换开关并持久化到隔离目录，污染默认态）──
+    test("新装默认：记忆注入关闭 + 开关文案为新名称", async ({ page }) => {
+      await openMemorySection(page);
+
+      // global-setup 清空重建 E2E_WA_PI_DIR → 无 hermes-memory-config.json →
+      // memoryPolicyStyle 默认 none：记忆注入显示关，记忆功能（reviewEnabled 默认 true）显示开
+      const injectToggle = page.getByTestId("toggle-inject");
+      await expect(injectToggle).toBeVisible();
+      await expect(injectToggle).toContainText("记忆注入");
+      await expect(
+        injectToggle.locator('[data-testid="toggle-off"]'),
+      ).toBeVisible({ timeout: 3000 });
+
+      const reviewToggle = page.getByTestId("toggle-review");
+      await expect(reviewToggle).toContainText("记忆功能");
+      await expect(
+        reviewToggle.locator('[data-testid="toggle-on"]'),
+      ).toBeVisible({ timeout: 3000 });
+    });
+
     // ── 日期范围筛选 + 滚动加载分页（spec：memory:list:page + DatePickerButton）────
     // 注意：这两个用例必须放在 serial describe 最前——后序用例会编辑并归档预置条目一、
     // 归档条目二与项目记忆，跑完后两个作用域的「已保存」列表均为空，
@@ -160,10 +182,10 @@ test.describe
       }
     });
 
-    test("开关切换 — 自动学习", async ({ page }) => {
+    test("开关切换 — 记忆功能", async ({ page }) => {
       await openMemorySection(page);
 
-      // 点击「自动学习」开关（toggle-review label 包裹 ToggleSwitch）
+      // 点击「记忆功能」开关（toggle-review label 包裹 ToggleSwitch）
       // 默认 reviewEnabled=true → 内部 toggle 为 toggle-on，点击后变 toggle-off
       const reviewToggle = page.getByTestId("toggle-review");
       await expect(reviewToggle).toBeVisible();

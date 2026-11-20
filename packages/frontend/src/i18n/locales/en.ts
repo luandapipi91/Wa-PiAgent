@@ -711,8 +711,8 @@ const en = {
 	},
 	memory: {
 		pageTitle: "🧠 Memory",
-		toggleReview: "Auto learn",
-		toggleInject: "Inject prompt",
+		toggleReview: "Memory",
+		toggleInject: "Memory injection",
 		searchPlaceholder: "🔍 Search memory...",
 		tabSaved: "Saved",
 		tabArchived: "Archived",

@@ -963,7 +963,8 @@ const HERMES_CONFIG_FILE = "hermes-memory-config.json";
 test("getConfig 文件不存在时返回默认值", async () => {
   const config = await makeStore().getConfig();
   expect(config.reviewEnabled).toBe(true);
-  expect(config.memoryPolicyStyle).toBe("full");
+  // 未保存过注入开关时默认不注入（memoryPolicyStyle=none）
+  expect(config.memoryPolicyStyle).toBe("none");
   // 语义检索默认启用（与 reviewEnabled 同构）；模型 / 扩展不可用时由检索层自行降级
   expect(config.semanticEnabled).toBe(true);
 });
@@ -988,7 +989,7 @@ test("getConfig 配置文件缺失字段时用默认值补齐", async () => {
   );
   const config = await makeStore().getConfig();
   expect(config.reviewEnabled).toBe(false);
-  expect(config.memoryPolicyStyle).toBe("full");
+  expect(config.memoryPolicyStyle).toBe("none");
   expect(config.semanticEnabled).toBe(true);
 });
 

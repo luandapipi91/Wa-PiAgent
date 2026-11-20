@@ -314,7 +314,8 @@ export function MemoryPage() {
 							{t("memory.toggleInject")}
 						</span>
 						<ToggleSwitch
-							on={config?.memoryPolicyStyle !== "none"}
+							// 默认不注入（memoryPolicyStyle=none）；配置未加载时按关展示，避免闪烁误导
+							on={config ? config.memoryPolicyStyle !== "none" : false}
 							onChange={(v) =>
 								setConfigValue({ memoryPolicyStyle: v ? "full" : "none" })
 							}
