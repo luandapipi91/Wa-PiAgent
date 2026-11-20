@@ -283,8 +283,13 @@ describe("pi 工具结果契约（真 pi --mode rpc）", () => {
 		expect(dataLines).toHaveLength(1);
 		expect(e.result.details.resultLimitReached).toBe(1);
 		expect(text).toContain("[1 results limit reached. Use limit=2 for more, or refine pattern]");
-		// 对照：不带 limit 的 find 命中 >1 条（a.ts + nested/deep.ts），且路径相对 path
-		const all = findEnd("find", (text) => !text.includes("limit reached"));
+		// 对照：不带 limit 的 find 命中 >1 条（a.ts + nested/deep.ts），且路径相对 path。
+		// 谓词必须同时要求两条：1.6.0 的路径语义探针（src/*.ts 等）也是「不带 limit」的 find，
+		// 只按「不含 limit reached」判定会先命中那批单条结果。
+		const all = findEnd(
+			"find",
+			(text) => text.includes("a.ts") && text.includes("nested/deep.ts") && !text.includes("limit reached"),
+		);
 		const allText = textOf(all);
 		expect(allText).toContain("a.ts");
 		expect(allText).toContain("nested/deep.ts");

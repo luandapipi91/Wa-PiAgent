@@ -483,7 +483,10 @@ test("ensureProviderExtensionRegistered 写 extension 文件到指定目录", as
 test("ensureProviderExtensionRegistered：重名 slug provider 从目录裸 id 回退命中（回归：opencode-go-2 落默认 128000 窗口）", async () => {
   // 真实目录回归：两个 provider 同 slug（opencode-go），第二个去重为 opencode-go-2。
   // 目录按 opencode-go-2 过滤必然落空，应回退裸 id 匹配命中 opencode-go 的目录条目
-  // （deepseek-v4-flash：contextWindow 1000000 / maxTokens 384000 / reasoning true）。
+  // （deepseek-v4.1-flash：contextWindow 1000000 / maxTokens 384000 / reasoning true）。
+  // 夹具模型：pi-ai 1.6.0 从 opencode-go 目录移除了 deepseek-v4-flash（改用 -0731 /
+  // v4.1-flash），此处跟随目录换用仍在册的 v4.1-flash，断言的三个值不变——
+  // 用例要锁的是「派生 slug 回退裸 id」这条逻辑，不是某个具体模型的存续。
   const dir = join(
     import.meta.dir,
     ".tmp-ext-" + Math.random().toString(36).slice(2),
@@ -499,7 +502,7 @@ test("ensureProviderExtensionRegistered：重名 slug provider 从目录裸 id �
         slug: "opencode-go",
         models: [
           {
-            id: "deepseek-v4-flash",
+            id: "deepseek-v4.1-flash",
             contextWindow: 1000000,
             maxTokens: 384000,
           },
@@ -513,7 +516,7 @@ test("ensureProviderExtensionRegistered：重名 slug provider 从目录裸 id �
         slug: "opencode-go",
         models: [
           {
-            id: "deepseek-v4-flash",
+            id: "deepseek-v4.1-flash",
             contextWindow: 1000000,
             maxTokens: 384000,
           },
