@@ -1,4 +1,4 @@
-// pi 工具结果契约回执测试（真 pi，锁 pi 1.5.2，供后续升级比对）。
+// pi 工具结果契约回执测试（真 pi，锁 pi 1.6.0，供后续升级比对）。
 //
 // 思路：不经真 LLM——本地起一个假 OpenAI SSE 服务器（openai-completions 协议），
 // 第一轮固定返回一批 tool calls，pi 真实执行内置工具后，从 RPC 事件流抓
@@ -8,9 +8,11 @@
 //   3. find limit: 0 → 恰好 1 条结果 + limit 提示行
 //   4. edit 多段修改 → details.diff 含 ≥2 条省略行，且 parseEditDiff 行号单调递增
 //   5. read 尾部提示逐字文案（含 offset 越界的 isError 分支）
+//   6. find 路径模式相对搜索目录锚定（1.6.0 行为变化：不再自动补 **/ 前缀）
+//   7. find 剥掉 ./ 前缀（1.5.2 下 ./nested/*.ts 一条都找不到）
 //
-// 全部断言语义以 pi 1.5.2 探针实测为准（探针输出样例见 task-3-report.md），
-// 与 pi 1.5.2 默认工具集相关：DEFAULT_TOOL_NAMES 只有 read/bash/edit/write，
+// 全部断言语义以 pi 1.6.0 探针实测为准（探针输出样例见 task-3-report.md），
+// 与 pi 1.6.0 默认工具集相关：DEFAULT_TOOL_NAMES 只有 read/bash/edit/write，
 // grep/find 必须经 --tools 白名单显式开启，spawn 参数不可省。
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm, mkdtemp, mkdir, writeFile } from "node:fs/promises";
@@ -95,12 +97,25 @@ describe("pi 工具结果契约（真 pi --mode rpc）", () => {
 		const editLines = Array.from({ length: 40 }, (_, i) => `L${String(i + 1).padStart(2, "0")} original`);
 		await writeFile(editMe, editLines.join("\n") + "\n");
 
+		// find 路径语义夹具（pi 1.6.0 从「自动补 **/ 前缀」改为「相对搜索目录锚定」）：
+		//   src/only.ts        —— 搜索根下的 src/
+		//   pkg/src/other.ts   —— 更深的同名目录（1.6.0 起 src/*.ts 不得到此命中）
+		// 文件名唯一，便于用输出文本区分三次 find 的结果。
+		await mkdir(join(repo, "src"), { recursive: true });
+		await mkdir(join(repo, "pkg", "src"), { recursive: true });
+		await writeFile(join(repo, "src", "only.ts"), "export const only = 1;\n");
+		await writeFile(join(repo, "pkg", "src", "other.ts"), "export const other = 2;\n");
+
 		// 第一轮 tool calls：五条契约的探针输入（id 供 pi 关联，内容决定断言特征）
 		const toolCalls = [
 			{ name: "grep", args: { pattern: "needle", path: repo, glob: "*.ts" } },
 			{ name: "grep", args: { pattern: "target", path: repo, glob: "ctx.txt", context: 1 } },
 			{ name: "find", args: { pattern: "**/*", path: repo, limit: 0 } },
 			{ name: "find", args: { pattern: "**/*.ts", path: repo } },
+			// pi 1.6.0 路径语义三探针：锚定 / 任意深度 / ./ 前缀
+			{ name: "find", args: { pattern: "src/*.ts", path: repo } },
+			{ name: "find", args: { pattern: "**/pkg/src/*.ts", path: repo } },
+			{ name: "find", args: { pattern: "./nested/*.ts", path: repo } },
 			{ name: "read", args: { path: big, offset: 1999, limit: 3 } },
 			{ name: "read", args: { path: big } },
 			{ name: "read", args: { path: big, limit: 5 } },
@@ -166,7 +181,7 @@ describe("pi 工具结果契约（真 pi --mode rpc）", () => {
 		await ensureProviderExtensionRegistered(store, generatedDir);
 
 		// spawn 真 pi。cwd 用 baseDir（≠ path 参数指向的 repo），verify glob/path 基准不受
-		// 启动目录影响；grep/find 不在 pi 1.5.2 默认工具集，必须 --tools 显式白名单。
+		// 启动目录影响；grep/find 不在 pi 1.6.0 默认工具集，必须 --tools 显式白名单。
 		const events: any[] = [];
 		client = new RpcClient({
 			cliPath: resolvePiCliPath(),
@@ -338,4 +353,23 @@ describe("pi 工具结果契约（真 pi --mode rpc）", () => {
 		expect(overflow.isError).toBe(true);
 		expect(textOf(overflow)).toBe("Offset 5000 is beyond end of file (2101 lines total)");
 	});
+	test("契约 6：find 的路径模式相对搜索目录锚定（pi 1.6.0 行为变化）", () => {
+		// 1.6.0 不再给路径模式补 "**/" 前缀：src/*.ts 只命中搜索根下的 src/only.ts，
+		// 不得到 pkg/src/other.ts（1.5.2 下两者都会命中，agent 沿用旧写法会以为
+		// 文件还在，实际升级后搜不到且无任何报错）。
+		const anchored = findEnd("find", (text) => text.includes("src/only.ts") && !text.includes("other.ts"));
+		const anchoredText = textOf(anchored).trim();
+		expect(anchoredText).toBe("src/only.ts");
+		// 恢复旧行为要显式写任意深度前缀（精确匹配：**/*.ts 那次也会包含该行）
+		const anyDepth = findEnd("find", (text) => text.trim() === "pkg/src/other.ts");
+		// 结果路径相对 path 输出（不带绝对路径，也不以 pi 启动目录为基准）
+		expect(textOf(anyDepth).trim()).toBe("pkg/src/other.ts");
+		expect(textOf(anyDepth)).not.toContain(baseDir);
+	});
+
+	test("契约 7：find 剥掉 ./ 前缀（1.5.2 下 ./nested/*.ts 一条都找不到）", () => {
+		const e = findEnd("find", (text) => text.trim() === "nested/deep.ts");
+		expect(textOf(e).trim()).toBe("nested/deep.ts");
+	});
+
 });
