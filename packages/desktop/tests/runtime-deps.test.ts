@@ -364,17 +364,18 @@ test("syncSeed: 清理历史遗留文件（kernel.js 时代 + 已移除的动态
 });
 
 
-// ===== pi 1.5.x 升级（1.5.0 → 1.5.2）：版本一致性校验（装出旧版必须阻断启动，防内核混跑） =====
+// ===== pi 1.6.0 升级（1.5.2 → 1.6.0）：版本一致性校验（装出旧版必须阻断启动，防内核混跑） =====
 
 test("matchDeclaredRange: ~ 声明按 major.minor 判定，精确声明全等判定", () => {
-  expect(matchDeclaredRange("~1.5.0", "1.5.0")).toBe(true);
-  expect(matchDeclaredRange("~1.5.0", "1.5.1")).toBe(true);
-  expect(matchDeclaredRange("~1.5.0", "1.4.0")).toBe(false);
-  expect(matchDeclaredRange("~1.5.0", "2.0.0")).toBe(false);
-  // 锁定既有语义：~ 只比 major.minor，声明 ~1.5.2 时装出 1.5.1 视为满足（允许 minor 内浮动），不是精确版本
-  expect(matchDeclaredRange("~1.5.2", "1.5.1")).toBe(true);
-  expect(matchDeclaredRange("1.5.0", "1.5.0")).toBe(true);
-  expect(matchDeclaredRange("1.5.0", "1.5.1")).toBe(false);
+  expect(matchDeclaredRange("~1.6.0", "1.6.0")).toBe(true);
+  expect(matchDeclaredRange("~1.6.0", "1.6.1")).toBe(true);
+  expect(matchDeclaredRange("~1.6.0", "1.5.0")).toBe(false);
+  expect(matchDeclaredRange("~1.6.0", "2.0.0")).toBe(false);
+  // 锁定既有语义：~ 只比 major.minor，声明 ~1.6.0 时装出 1.5.2 视为不满足（不同 minor），
+  // 但 minor 内浮动（1.6.0 → 1.6.1）视为满足——不是精确版本
+  expect(matchDeclaredRange("~1.6.0", "1.6.1")).toBe(true);
+  expect(matchDeclaredRange("1.6.0", "1.6.0")).toBe(true);
+  expect(matchDeclaredRange("1.6.0", "1.6.1")).toBe(false);
 });
 
 test("verifyInstall: 装出的 pi-coding-agent 版本不满足声明 → 抛错（阻断启动）", async () => {
@@ -383,13 +384,13 @@ test("verifyInstall: 装出的 pi-coding-agent 版本不满足声明 → 抛错�
     await mkdir(runtimeDir, { recursive: true });
     await writeFile(
       join(runtimeDir, "package.json"),
-      '{"dependencies":{"@earendil-works/pi-coding-agent":"~1.5.0"}}',
+      '{"dependencies":{"@earendil-works/pi-coding-agent":"~1.6.0"}}',
     );
     const pkgDir = join(runtimeDir, "node_modules", "@earendil-works", "pi-coding-agent");
     await mkdir(pkgDir, { recursive: true });
     await writeFile(
       join(pkgDir, "package.json"),
-      '{"name":"@earendil-works/pi-coding-agent","version":"1.4.0"}',
+      '{"name":"@earendil-works/pi-coding-agent","version":"1.5.2"}',
     );
     await expect(verifyInstall(runtimeDir, noopLog)).rejects.toThrow(/安装产物校验失败/);
   } finally {
@@ -397,17 +398,17 @@ test("verifyInstall: 装出的 pi-coding-agent 版本不满足声明 → 抛错�
   }
 });
 
-test("verifyInstall: 版本满足声明（~1.5.0 装出 1.5.0）→ 通过", async () => {
+test("verifyInstall: 版本满足声明（~1.6.0 装出 1.6.0）→ 通过", async () => {
   const { base, runtimeDir } = await makeTempDirs();
   try {
     await mkdir(runtimeDir, { recursive: true });
     await writeFile(
       join(runtimeDir, "package.json"),
-      '{"dependencies":{"@earendil-works/pi-coding-agent":"~1.5.0"}}',
+      '{"dependencies":{"@earendil-works/pi-coding-agent":"~1.6.0"}}',
     );
     const pkgDir = join(runtimeDir, "node_modules", "@earendil-works", "pi-coding-agent");
     await mkdir(pkgDir, { recursive: true });
-    await writeFile(join(pkgDir, "package.json"), '{"version":"1.5.0"}');
+    await writeFile(join(pkgDir, "package.json"), '{"version":"1.6.0"}');
     await verifyInstall(runtimeDir, noopLog); // 不抛即过
   } finally {
     await rm(base, { recursive: true, force: true });
