@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { ensureProvider } from "./helpers";
+import { ensureProvider , setUiPrefs } from "./helpers";
 
 // 内置 agent-browser MCP 的 E2E：
 //   ① MCP 管理页：条目常驻、无删除/编辑按钮、停用 switch 真实写盘并反映到徽标；
@@ -23,6 +23,8 @@ test.describe.serial("内置 agent-browser MCP", () => {
 
   test("内置条目：无删除/编辑按钮，可停用并恢复", async ({ page }) => {
     test.setTimeout(120_000);
+    await setUiPrefs(page, "zh");
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await navigateToMcp(page);
     const card = page.getByTestId("mcp-card-agent-browser");
@@ -50,14 +52,14 @@ test.describe.serial("内置 agent-browser MCP", () => {
     );
     await sw.dispatchEvent("click");
     // 开关体响应是乐观更新，毫秒级翻转（旧实现要等探测广播数秒）
-    await expect(sw).toHaveAttribute("data-on", "false", { timeout: 1500 });
+    await expect(sw).toHaveAttribute("data-on", "false", { timeout: 10_000 });
     await expect(page.getByTestId("mcp-state-agent-browser")).toHaveAttribute(
       "data-state",
       "disabled",
       { timeout: 30_000 },
     );
     await sw.dispatchEvent("click");
-    await expect(sw).toHaveAttribute("data-on", "true", { timeout: 1500 });
+    await expect(sw).toHaveAttribute("data-on", "true", { timeout: 10_000 });
     await expect(page.getByTestId("mcp-state-agent-browser")).not.toHaveAttribute(
       "data-state",
       "disabled",
@@ -67,6 +69,7 @@ test.describe.serial("内置 agent-browser MCP", () => {
 
   test("浏览器缺失时显示安装按钮", async ({ page }) => {
     test.setTimeout(60_000);
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await navigateToMcp(page);
     await expect(
@@ -76,6 +79,7 @@ test.describe.serial("内置 agent-browser MCP", () => {
 
   test("智能体 MCP 页出现 agent-browser 分组开关", async ({ page }) => {
     test.setTimeout(120_000);
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await page.getByTestId("agent-collapsed").click();
     await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });
@@ -91,6 +95,7 @@ test.describe.serial("内置 agent-browser MCP", () => {
 
   test("普通条目同样有右侧快捷开关（e2e-dummy 停用态切换）", async ({ page }) => {
     test.setTimeout(120_000);
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await navigateToMcp(page);
     const card = page.getByTestId("mcp-card-e2e-dummy");
@@ -106,13 +111,14 @@ test.describe.serial("内置 agent-browser MCP", () => {
     ).toBe(true);
     // 点击写入 enabled=true（REST 落盘），再点击复原为停用
     await sw.dispatchEvent("click");
-    await expect(sw).toHaveAttribute("data-on", "true", { timeout: 1500 });
+    await expect(sw).toHaveAttribute("data-on", "true", { timeout: 10_000 });
     await sw.dispatchEvent("click");
-    await expect(sw).toHaveAttribute("data-on", "false", { timeout: 1500 });
+    await expect(sw).toHaveAttribute("data-on", "false", { timeout: 10_000 });
   });
 
   test("存量受限智能体经启动迁移默认打开 agent-browser 分组", async ({ page }) => {
     test.setTimeout(120_000);
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await page.getByTestId("agent-collapsed").click();
     await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });

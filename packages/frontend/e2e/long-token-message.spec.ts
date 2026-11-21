@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider , setUiPrefs } from "./helpers";
 
 function seedSession(sessionId: string, title: string) {
 	const projPath = join(E2E_WA_PI_DIR, "projects.json");
@@ -49,6 +49,7 @@ test("超长无空格字符串的用户消息 → 正常折行，不撑爆窗口
 		api: "openai-completions",
 		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 	});
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	// seed 运行时追加进 projects.json，kernel 靠文件 watcher 感知——等侧栏出现再点击
 	await expect(page.getByTestId(`session-${sid}`)).toBeVisible({

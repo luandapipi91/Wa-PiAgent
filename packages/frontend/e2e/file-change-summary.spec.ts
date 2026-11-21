@@ -1,7 +1,7 @@
-// 文件修改清单 E2E：真实 LLM 完整会话，edit 工具修改文件后回复底部渲染修改清单。
+// 文件修改清单 E2E：真实 LLM 完整会话，edmt 工具修改文件后回复底部渲染修改清单。
 //
 // 验证目标（「文件修改清单」功能第 7 层 E2E）：
-// 创建会话 → 发 prompt 要求 edit 工具改文件 → 回复底部出现 file-change-summary
+// 创建会话 → 发 prompt 要求 edmt 工具改文件 → 回复底部出现 file-change-summary
 // → 展开清单显示文件名 → 展开 diff 显示前后差异 → 点条目「预览」按钮打开预览弹窗。
 //
 // 注：打开预览走条目右侧独立的「预览」按钮，不是点文件名——17ccadb5 起点文件名
@@ -20,7 +20,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 /** 从本机 pi 凭证库读 deepseek apiKey（仅测试运行期内存使用） */
 function readDeepseekKey(): string {
@@ -36,7 +36,7 @@ test("文件修改清单：edit 改文件 → 回复底部渲染清单 → 展�
 
   // 1. 测试数据：注入 deepseek provider（slug 派生为 deepseek）
   const apiKey = readDeepseekKey();
-  await page.goto("/");
+  // seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
   await saveProvider({
     id: randomUUID(),
     name: "DeepSeek",
@@ -45,6 +45,8 @@ test("文件修改清单：edit 改文件 → 回复底部渲染清单 → 展�
     api: "openai-completions",
     models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
   });
+  await setUiPrefs(page, "zh");
+  await page.goto("/");
 
   // 2. global-setup 已预置项目 e2e-proj-1 → 首页应出现 new-session 面板
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });

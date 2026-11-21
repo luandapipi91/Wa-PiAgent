@@ -5,7 +5,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, writeFileSync, copyFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 const SESSION_ID = "s-e2e-thumb-086";
 const CREATED_AT = 1789872144129;
@@ -67,6 +67,7 @@ test("媒体画廊缩略图：混合相对/绝对路径的默认工作区会话�
 		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 	});
 	seed();
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	// 选中会话
 	await page.getByText("缩略图破图回归").first().click();

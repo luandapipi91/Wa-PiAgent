@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 function seedSession(sessionId: string, title: string) {
 	const projPath = join(E2E_WA_PI_DIR, "projects.json");
@@ -48,6 +48,7 @@ test("用户气泡只渲染消息原文，不含 pi-lens 抑制指令", async ({
 		api: "openai-completions",
 		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 	});
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await expect(page.getByTestId(`session-${sid}`)).toBeVisible({
 		timeout: 15_000,

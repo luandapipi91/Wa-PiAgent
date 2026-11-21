@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { existsSync, readdirSync, statSync, utimesSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { createSessionViaPrompt, ensureProvider, saveProvider } from "./helpers";
+import { createSessionViaPrompt, ensureProvider, saveProvider, setUiPrefs } from "./helpers";
 
 const API = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -24,6 +24,7 @@ test.describe.serial("默认工作区", () => {
   });
 
   test("侧栏渲染独立'默认'区 + 🏠 默认工作区", async ({ page }) => {
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     // 等项目列表加载
     await page.waitForTimeout(2000);
@@ -34,6 +35,7 @@ test.describe.serial("默认工作区", () => {
   });
 
   test("点击默认工作区进新建会话页 + 下拉默认选中", async ({ page }) => {
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await page.waitForTimeout(2000);
     // 点默认工作区
@@ -50,6 +52,7 @@ test.describe.serial("默认工作区", () => {
   });
 
   test("默认工作区右键菜单不含'删除项目'", async ({ page }) => {
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await page.waitForTimeout(2000);
     // 右键默认工作区项目名
@@ -63,6 +66,7 @@ test.describe.serial("默认工作区", () => {
   });
 
   test("默认工作区新建会话产生 workdir/<createdAt>/ 子目录", async ({ page }) => {
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await page.waitForTimeout(2000);
 
@@ -107,6 +111,7 @@ test.describe.serial("默认工作区", () => {
     // 前端乐观建会话用本地 Date.now()、内核收到 prompt 后自己再取一次并据此建目录，
     // 两者恒差几毫秒。若 addSession 同 id 去重时丢弃内核记录，文件树会去请求一个
     // 不存在的目录 → 面板恒空白（且 5s 轮询不自愈）。
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await page.waitForTimeout(1000);
 

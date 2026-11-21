@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { saveProvider } from "./helpers";
+import { saveProvider , setUiPrefs } from "./helpers";
 
 // 设置 → 联网 → 互联网搜索：免费 Bing 供应商默认可选、可切换并保存（REST 往返）。
 // 隔离目录（~/.wa-pi-e2e）无存量 webSearch → GET 返回默认 provider=bing。
@@ -19,6 +19,7 @@ test("联网供应商：默认 bing，select 切换 bigmodel 保存后 REST 往�
 		api: "openai-completions",
 		models: [{ id: "test-model", contextWindow: 100000, maxTokens: 8192 }],
 	});
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.getByTestId("settings-btn").click();
 	await expect(page.getByTestId("settings-modal")).toBeVisible();

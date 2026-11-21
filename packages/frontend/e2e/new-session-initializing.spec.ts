@@ -3,7 +3,7 @@
 // 「会话新建中」加载页，不白屏；回调到达后加载页消失。
 // 用 page.route 延迟 prompt 请求，制造可控的回调窗口，稳定断言出现→消失。
 import { test, expect } from "@playwright/test";
-import { saveProvider } from "./helpers";
+import { saveProvider , setUiPrefs } from "./helpers";
 
 test("新会话发送后显示「会话新建中」加载页，回调到达后消失", async ({
 	page,
@@ -30,6 +30,7 @@ test("新会话发送后显示「会话新建中」加载页，回调到达后�
 		await route.continue();
 	});
 
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	const pane = page.getByTestId("new-session-pane");
 	await expect(pane).toBeVisible({ timeout: 10_000 });

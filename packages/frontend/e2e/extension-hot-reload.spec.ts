@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt , setUiPrefs } from "./helpers";
 
 // 插件热生效 E2E：安装/卸载/升级后「当前会话」立即生效，不等下次对话。
 //
@@ -83,6 +83,7 @@ test.describe.serial("插件操作后当前会话立即生效", () => {
 		});
 
 		// 打开会话页面（整个用例不离开此页面）
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.waitForTimeout(500);
 		await page.getByText(projectName).first().click();

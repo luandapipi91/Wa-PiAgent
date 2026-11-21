@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { addSkillDir, createProject, removeSkillDir, saveProvider } from "./helpers";
+import { addSkillDir, createProject, removeSkillDir, saveProvider , setUiPrefs } from "./helpers";
 
 // Task 8: Quick Invoke 聊天栏快速调用 E2E 测试
 //
@@ -45,6 +45,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
 
   // 进入 session 视图（仿 composer.spec.ts 的 enterSession）
   async function enterSession(page: import("@playwright/test").Page, text: string): Promise<string> {
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     // 必须选中 beforeEach 创建的项目：全局 seed 项目 e2e-proj-1 排在 projects[0]，
@@ -260,7 +261,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       // 等待全部 30 个结果到达（异步流式搜索，避免高亮被重置干扰）。
       // 全量跑时前面用例遗留的假 provider 会话（卡「运行中」）会拖慢 kernel 文件搜索，
       // 超时给足余量（单跑 ~3s 即可）
-      await expect(page.getByTestId("quick-invoke-item-29")).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId("quick-invoke-item-29")).toBeVisible({ timeout: 60_000 });
 
       // 向下移动 20 次：高亮从第 0 项移到第 20 项（远超可视区域）
       for (let i = 0; i < 20; i++) {

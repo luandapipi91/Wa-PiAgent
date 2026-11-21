@@ -14,7 +14,7 @@ import type { Page } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 const SESSION_ID = "s-e2e-edit-diff-001";
 const TOOLCALL_ID = "tc-e2e-edit-1";
@@ -132,6 +132,7 @@ test.describe.serial("edit 卡片新版 diff 渲染", () => {
 		seedSession();
 		await injectMessages(page);
 
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		const row = page.getByTestId(`session-${SESSION_ID}`);
 		await expect(row).toBeVisible({ timeout: 10_000 });

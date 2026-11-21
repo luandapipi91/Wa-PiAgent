@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider , setUiPrefs } from "./helpers";
 
 function seedLongSession(sessionId: string, title: string) {
 	const projPath = join(E2E_WA_PI_DIR, "projects.json");
@@ -113,6 +113,7 @@ test.describe("发送消息自动滚动", () => {
 		test.setTimeout(90_000);
 		const sid = "s-e2e-sendscroll-a";
 		seedLongSession(sid, "E2E发送滚动A");
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId(`session-${sid}`).click();
 		await expect(page.getByTestId("session-view")).toBeVisible({
@@ -142,6 +143,7 @@ test.describe("发送消息自动滚动", () => {
 		test.setTimeout(90_000);
 		const sid = "s-e2e-sendscroll-b";
 		seedLongSession(sid, "E2E发送滚动B");
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId(`session-${sid}`).click();
 		await expect(page.getByTestId("session-view")).toBeVisible({
@@ -185,6 +187,7 @@ test.describe("发送消息自动滚动", () => {
 		test.setTimeout(120_000);
 		const sid = "s-e2e-sendscroll-c";
 		seedLongSession(sid, "E2E发送滚动C");
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId(`session-${sid}`).click();
 		await expect(page.getByTestId("session-view")).toBeVisible({
@@ -291,6 +294,7 @@ test.describe("贴底时内容变化不误置浮钮", () => {
 		test.setTimeout(90_000);
 		const sid = "s-e2e-sendscroll-expand";
 		seedLongSession(sid, "E2E展开滚动");
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId(`session-${sid}`).click();
 		await expect(page.getByTestId("session-view")).toBeVisible({
@@ -339,6 +343,7 @@ test.describe("贴底时内容变化不误置浮钮", () => {
 		test.setTimeout(90_000);
 		const sid = "s-e2e-sendscroll-collapse";
 		seedLongSession(sid, "E2E折叠滚动");
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId(`session-${sid}`).click();
 		await expect(page.getByTestId("session-view")).toBeVisible({

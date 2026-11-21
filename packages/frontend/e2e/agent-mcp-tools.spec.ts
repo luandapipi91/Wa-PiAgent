@@ -9,6 +9,7 @@ import {
   ensureProvider,
   getAgentConfig,
   saveAgentConfig,
+  setUiPrefs,
 } from "./helpers";
 
 // 智能体设置里的 MCP 工具开关 → 对话进程工具集的端到端验证。
@@ -83,6 +84,7 @@ async function waitTurnIdle(sessionId: string) {
 
 /** 打开智能体配置弹窗 */
 async function openAgentConfig(page: Page, agent: string) {
+  await setUiPrefs(page, "zh");
   await page.goto("/");
   await page.getByTestId("agent-collapsed").click();
   await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });

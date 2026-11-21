@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 // 小窗口下 split 半屏预览：工具栏行尾的关闭按钮必须完整可见且可点。
 // 回归背景：工具栏单行 nowrap + 地址栏 shrink-0 锁死宽度，面板宽度小于需求总宽时
@@ -16,6 +16,17 @@ test.describe
 		const cwd = `/tmp/${projectName}`;
 
 		test.beforeEach(async ({ page }) => {
+			// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
+			await saveProvider({
+				id: "e2e-narrow-provider",
+				name: "E2E Narrow",
+				slug: "e2e-narrow",
+				baseUrl: "http://localhost:9999/v1",
+				apiKey: "sk-e2e",
+				api: "openai-completions",
+				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+			});
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			// 预览窗口模式按 origin 存 localStorage（E2E 隔离 WA_PI_DIR 但 localStorage 不隔离），
 			// 串行用例间会互相污染默认模式，进页面前先清
@@ -35,15 +46,6 @@ test.describe
 					"</html>",
 				].join("\n"),
 			);
-			await saveProvider({
-				id: "e2e-narrow-provider",
-				name: "E2E Narrow",
-				slug: "e2e-narrow",
-				baseUrl: "http://localhost:9999/v1",
-				apiKey: "sk-e2e",
-				api: "openai-completions",
-				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
-			});
 		});
 
 		test.afterAll(() => {

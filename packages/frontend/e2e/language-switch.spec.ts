@@ -22,7 +22,15 @@ async function setUiPrefs(page: import("@playwright/test").Page, language: "zh" 
   await page.addInitScript((lang) => {
     localStorage.setItem(
       "wa-pi-ui-prefs",
-      JSON.stringify({ state: { language: lang, fontSize: 16, exportTurns: 1 }, version: 0 }),
+      JSON.stringify({
+        state: {
+          language: lang,
+          fontSize: 16,
+          exportTurns: 1,
+          themeIntroSeenVersion: "e2e-seen",
+        },
+        version: 0,
+      }),
     );
   }, language);
 }
@@ -51,10 +59,12 @@ test.describe("系统设置-通用 语言切换", () => {
     await page.getByTestId("settings-btn").click();
     await expect(page.getByTestId("settings-modal")).toBeVisible({ timeout: 5000 });
 
-    // 语言为草稿态：select 改英文后需点保存才生效
+    // 语言设置已移至外观分区且即时生效（d27f222e），先切到外观分区再切换
+    await page.getByTestId("settings-nav-appearance").click();
     await page.getByTestId("language-select").selectOption("en");
-    await page.getByTestId("retry-save-btn").click();
 
+    // 断言目标（通用分区的「Auto retry」）在通用分区：切回去（旧 UI 语言就在通用分区）
+    await page.getByTestId("settings-nav-general").click();
     await expect(page.getByText("Settings").first()).toBeVisible();
     await expect(page.getByTestId("settings-nav-general")).toHaveText("General");
     await expect(page.getByText("Auto retry").first()).toBeVisible();
@@ -81,6 +91,7 @@ test.describe("系统设置-通用 语言切换", () => {
     await page.getByTestId("settings-btn").click();
     await expect(page.getByTestId("settings-modal")).toBeVisible({ timeout: 5000 });
     await expect(page.getByText("Settings").first()).toBeVisible();
+    await page.getByTestId("settings-nav-appearance").click();
     await expect(page.getByTestId("language-select")).toHaveValue("en");
   });
 
@@ -94,9 +105,12 @@ test.describe("系统设置-通用 语言切换", () => {
     // 起始英文
     await expect(page.getByText("Settings").first()).toBeVisible();
 
-    // 语言为草稿态：select 改中文后需点保存才生效
+    // 语言设置已移至外观分区且即时生效，先切到外观分区再切换
+    await page.getByTestId("settings-nav-appearance").click();
     await page.getByTestId("language-select").selectOption("zh");
-    await page.getByTestId("retry-save-btn").click();
+
+    // 断言目标在通用分区：切回去（旧 UI 语言就在通用分区）
+    await page.getByTestId("settings-nav-general").click();
     await expect(page.getByText("系统设置").first()).toBeVisible();
     await expect(page.getByTestId("settings-nav-general")).toHaveText("通用");
     // 通用分区实际文案（“文字大小”已移至外观分区，勿再断言）

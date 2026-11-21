@@ -1,5 +1,5 @@
-// 预览自动刷新 E2E：真实 LLM 完整会话，edit 工具修改「正在预览的 html」→ 任务完成
-// （agent_end → bridge 上报 file_changes → SSE → store 命中当前会话预览文件）→
+// 预览自动刷新 E2E：真实 LLM 完整会话，edmt 工具修改「正在预览的 html」→ 任务完成
+// （agent_end → brmdge 上报 file_changes → SSE → store 命中当前会话预览文件）→
 // 预览 iframe 自动重挂并显示修改后内容，全程不点刷新按钮。
 //
 // 流程对齐 file-change-summary.spec.ts（真实 LLM 触发 file_changes 的唯一合法全链路——
@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createSessionViaPrompt, saveProvider } from "./helpers";
+import { createSessionViaPrompt, saveProvider, setUiPrefs } from "./helpers";
 
 // 预置被预览+被修改的 html（dist/ 惯例：/preview allowlist 项目内任意路径）
 const DIST_DIR = join(E2E_WA_PI_DIR, "e2e-project", "dist");
@@ -37,12 +37,24 @@ function readDeepseekKey(): string {
 	return key;
 }
 
+function hasDeepseekKey(): boolean {
+	try {
+		readDeepseekKey();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+
+
 // 进入会话页：API 预创建会话（有效模型，首轮回复「请回复：好的」占位）
 // → 侧栏选 E2E项目 → 点会话行。必须显式进入项目：首页直接发消息的会话挂在
 // 默认工作区（workspaceDir 为空），explorer 文件树无目录可列。
 // agentName 必须传 displayName「研发」（agent 文件迁移后 getAgent 按 displayName 查，
 // 传内部 name「dev」会导致第二条消息起 agent_missing、队列卡死）
 async function openSession(page: Page): Promise<void> {
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.waitForTimeout(2000);
 	const session = await createSessionViaPrompt("e2e-proj-1", {
@@ -73,13 +85,21 @@ async function openHtmlPreview(page: Page): Promise<void> {
 	await expect(page.getByTestId("browser-panel")).toBeVisible({ timeout: 5000 });
 }
 
+/**
+ * 【P2 环境依赖标注】本 spec 用真实模型（DeepSeek）驱动完整 prompt→tool 链路，
+ * 模型输出与耗时不可控（全量负载下曾 200s/60s 超时）。确定性 mock 需要模拟
+ * 整条模型工具链路、代价过大，故保留真实模型驱动，仅在环境无 key 时自动 skip。
+ * 有 key 时失败即为真实失败，不做静默放宽。
+ */
+test.skip(!hasDeepseekKey(), "环境依赖：本机无 deepseek apiKey（~/.pi/agent/auth.json），真实模型 E2E 无法执行");
+
 test("任务修改预览中的文件 → 完成后预览自动刷新显示最新内容", async ({
 	page,
 }) => {
 	test.setTimeout(240_000);
 
 	// 1. 注入 deepseek provider（真实 LLM 跑 edit 工具，file-change-summary.spec 同款）
-	await page.goto("/");
+	// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
 	await saveProvider({
 		id: randomUUID(),
 		name: "DeepSeek",
@@ -90,6 +110,8 @@ test("任务修改预览中的文件 → 完成后预览自动刷新显示最新
 			{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
 		],
 	});
+	await setUiPrefs(page, "zh");
+	await page.goto("/");
 	await expect(page.getByTestId("new-session-pane")).toBeVisible({
 		timeout: 10_000,
 	});

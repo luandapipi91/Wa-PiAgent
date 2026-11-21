@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createSessionViaPrompt, saveProvider, toAppPath } from "./helpers";
+import { createSessionViaPrompt, saveProvider, toAppPath , setUiPrefs } from "./helpers";
 
 // 空文件回归素材：0 字节文件（曾经因「content 为空」被误判成读取失败）
 writeFileSync(join(E2E_WA_PI_DIR, "e2e-project", "EMPTY.go"), "");
@@ -46,6 +46,8 @@ test.describe
 			page,
 		}) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(2000);
 
@@ -90,6 +92,7 @@ test.describe
 			page,
 		}) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(2000);
 
@@ -141,6 +144,7 @@ test.describe
 
 		test("双击 0 字节空文件：正常打开预览，不报读取失败", async ({ page }) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(2000);
 
@@ -172,6 +176,7 @@ test.describe
 
 		test("双击不支持预览的文件：显示在文件管理器中打开按钮", async ({ page }) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(2000);
 
@@ -208,6 +213,7 @@ test.describe
 			page,
 		}) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(2000);
 
@@ -245,6 +251,7 @@ test.describe
 			page,
 		}) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(2000);
 
@@ -300,6 +307,7 @@ test.describe
 			page,
 		}) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(2000);
 

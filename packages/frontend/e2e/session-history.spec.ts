@@ -10,6 +10,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 const SESSION_ID = "s-e2e-history-001";
 
@@ -41,6 +42,18 @@ function seedExistingSession() {
 test("存量会话：点击会话行 → 历史消息渲染（秒开）", async ({ page }) => {
   test.setTimeout(60_000);
   seedExistingSession();
+
+  // seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
+  await saveProvider({
+    id: "e2e-session-history-provider",
+    name: "E2E History",
+    slug: "e2e-session-history",
+    baseUrl: "http://localhost:9999/v1",
+    apiKey: "sk-e2e",
+    api: "openai-completions",
+    models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+  });
+  await setUiPrefs(page, "zh");
 
   await page.goto("/");
   const row = page.getByTestId(`session-${SESSION_ID}`);

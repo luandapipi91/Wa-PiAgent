@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { createProject, createSessionViaPrompt, saveProvider } from "./helpers";
+import { createProject, createSessionViaPrompt, saveProvider , setUiPrefs } from "./helpers";
 
 const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -125,6 +125,7 @@ test("归档查看器只渲染对话正文：工具输出不进气泡、不出�
 	await api("DELETE", `/api/sessions/${SESSION_ID}`);
 
 	try {
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await expect(page.getByTestId("new-session-pane")).toBeVisible({
 			timeout: 10_000,

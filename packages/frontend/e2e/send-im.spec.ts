@@ -3,7 +3,7 @@
 // agent 自主调用 im_push_to 的推送执行由 kernel 集成测试覆盖（E2E 环境无真实 LLM）。
 import { expect, test } from "@playwright/test";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider , setUiPrefs } from "./helpers";
 
 const KERNEL = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -57,6 +57,7 @@ test.describe("发送给 IM 联系人", () => {
 			api: "openai-completions",
 			models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 		});
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId("project-select").selectOption(project.id);
 		await page.getByTestId("model-selector").selectOption({ label: "E2E SendIm/model-a" });

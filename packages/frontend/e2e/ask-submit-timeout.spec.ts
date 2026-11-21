@@ -13,7 +13,7 @@ import type { Page } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 const SESSION_ID = "s-e2e-ask-timeout-001";
 const TOOLCALL_ID = "tc-e2e-ask-timeout-1";
@@ -138,6 +138,7 @@ test.describe.serial("提问卡片提交挂住 → 自动重试 → 自动取消
 			}),
 		);
 
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		const row = page.getByTestId(`session-${SESSION_ID}`);
 		await expect(row).toBeVisible({ timeout: 10_000 });

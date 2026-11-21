@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ensureProvider } from "./helpers";
+import { ensureProvider, setUiPrefs } from "./helpers";
 
 // 浏览器启动（无 Electron 桥）下，外观 tab 不应出现「桌面宠物」设置项：
 // 没有 waPiPet 桥就建不了宠物窗口，显示开关会误导。
@@ -12,6 +12,7 @@ test.beforeAll(async () => {
 test("浏览器模式：外观 tab 不出现「桌面宠物」开关，其余设置项照常", async ({
 	page,
 }) => {
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	// 首次冷启动可能弹出引导/未配置模型 modal，先按 Escape 关闭再操作设置
 	await page.keyboard.press("Escape");

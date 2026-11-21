@@ -11,7 +11,7 @@ import type { Page } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider , setUiPrefs } from "./helpers";
 
 const SESSION_ID = "s-e2e-thinking-markdown-001";
 
@@ -101,6 +101,7 @@ test("思考过程按 Markdown 渲染：粗体 / 行内代码 / 列表，原始�
 	seedSession();
 	await injectMessages(page);
 
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	const row = page.getByTestId(`session-${SESSION_ID}`);
 	await expect(row).toBeVisible({ timeout: 10_000 });
@@ -130,6 +131,7 @@ test("思考过程排版紧凑：段间距与列表项高度贴紧（不出现�
 	seedSession();
 	await injectMessages(page);
 
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.getByTestId(`session-${SESSION_ID}`).click();
 	await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });

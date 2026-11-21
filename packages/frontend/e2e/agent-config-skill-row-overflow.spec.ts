@@ -6,7 +6,7 @@
 // 的可滚动溢出区，于是弹窗底部出现横向滚动条，文字穿出右侧被裁。
 // 本用例断言：内容区无横向滚动、技能行不超出内容区、超长描述确实被截断（块容器 + 省略号生效）。
 import { test, expect } from "@playwright/test";
-import { addSkillDir, ensureProvider, removeSkillDir } from "./helpers";
+import { addSkillDir, ensureProvider, removeSkillDir, setUiPrefs } from "./helpers";
 
 const SKILL = "e2e-skill-overflow";
 // 足够长的单行描述：远宽于 80vw 弹窗内的描述可用宽度
@@ -28,6 +28,7 @@ test.describe
 			page,
 		}) => {
 			test.setTimeout(120_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/", { timeout: 60_000 });
 
 			// 内置 subagent 面板 → 技能 tab

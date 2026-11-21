@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_WA_PI_DIR } from "../playwright.config";
+import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 import {
   createAgent,
   createProject,
@@ -10,6 +10,7 @@ import {
   getAgentConfig,
   saveAgentConfig,
   saveProvider,
+  setUiPrefs,
   addSkillDir,
   removeSkillDir,
 } from "./helpers";
@@ -71,6 +72,7 @@ test.describe
           models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
         });
       }
+      await setUiPrefs(page, "zh");
       await page.goto("/", { timeout: 60_000 });
     });
 
@@ -82,6 +84,19 @@ test.describe
     test("1 侧边栏智能体折叠为一行：计数随智能体数更新，点击打开宫格", async ({
       page,
     }) => {
+      // global-setup 除「研发」外还预置了「存量受限」（mcp-builtin 用例需要），
+      // 本用例断言「初始仅 dev 计数 1」——先经 API 清空全部智能体再重建研发，
+      // 确定性复现用例声称的初始态（测试自身的预置态管理，不改断言）
+      // 「存量受限」是 global-setup 写入的特殊形态 md（回填迁移链路依赖），
+      // API 删除后无法用 createAgent 复刻——先存原文，用例尾写回文件还原
+      const legacyMd = readFileSync(join(E2E_WA_PI_DIR, "agents", "存量受限.md"), "utf8");
+      const listRes = await fetch(`http://127.0.0.1:${E2E_WS_PORT}/api/agents`);
+      const listData: any = await listRes.json();
+      for (const a of listData.agents ?? []) {
+        await deleteAgentQuiet(a.displayName ?? a.name);
+      }
+      await createAgent("研发");
+
       // 初始仅 dev（global-setup 预置，displayName=研发），折叠栏计数为 1
       await expect(page.getByTestId("agent-collapsed")).toBeVisible({
         timeout: 10_000,
@@ -104,6 +119,9 @@ test.describe
       await expect(page.getByTestId("gallery-card-研发")).toBeVisible();
       await expect(page.getByTestId(`gallery-card-${A1}`)).toBeVisible();
       await expect(page.getByTestId(`gallery-card-${A3}`)).toBeVisible();
+
+      // 用例断言全部完成后，写回「存量受限」md（下游 mcp-builtin-agent-browser.spec 依赖）
+      writeFileSync(join(E2E_WA_PI_DIR, "agents", "存量受限.md"), legacyMd, "utf8");
     });
 
     test("2 宫格弹窗：打开 → 卡片 → UI 新建 → 右键编辑进详情弹窗", async ({
@@ -179,8 +197,8 @@ test.describe
         "data-on",
         "true",
       );
-      // 自身开关点击无效，保持关
-      await page.getByTestId(`partner-switch-${A1}`).click();
+      // 自身开关已置灰（不可点，保持关）：产品已把 self 开关改为 disabled 态
+      await expect(page.getByTestId(`partner-switch-${A1}`)).toBeDisabled();
       await expect(page.getByTestId(`partner-switch-${A1}`)).toHaveAttribute(
         "data-on",
         "false",
@@ -397,6 +415,7 @@ test.describe
     test("全部勾选开关：默认 ON → 点击全不选 → 再次点击恢复全选；描述点击气泡", async ({
       page,
     }) => {
+      await setUiPrefs(page, "zh");
       await page.goto("/", { timeout: 60_000 });
       test.setTimeout(120_000);
 
@@ -503,6 +522,7 @@ test.describe
       const cfg = page.getByTestId("agent-config");
       // A3 在早期用例的清理中已被删除，这里自建（afterAll 有兜底清理）；goto 复位到侧栏态
       await createAgent(A3);
+      await setUiPrefs(page, "zh");
       await page.goto("/", { timeout: 60_000 });
       await page.getByTestId("agent-collapsed").click();
       await page.getByTestId(`gallery-card-${A3}`).click({ button: "right" });

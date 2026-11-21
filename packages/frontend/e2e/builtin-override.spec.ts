@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 const OVERRIDES_FILE = join(E2E_WA_PI_DIR, "subagent-overrides.json");
 
@@ -46,6 +46,7 @@ test.describe
 
 		test.beforeEach(async ({ page }) => {
 			test.setTimeout(120_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/", { timeout: 60_000 });
 		});
 

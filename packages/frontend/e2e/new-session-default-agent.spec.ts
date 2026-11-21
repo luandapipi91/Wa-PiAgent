@@ -5,12 +5,34 @@
 // 当前长会话持续活跃就会一直压住用户刚选的角色，看起来像「总选第一个」。
 import { test, expect } from "@playwright/test";
 import {
-	saveProvider,
-	createAgent,
-	createSessionViaPrompt,
+  createAgent,
+  createSessionViaPrompt,
+  saveProvider,
 } from "./helpers";
 
-const PROJECT_ID = "e2e-proj-1"; // global-setup 预置的「E2E项目」
+const PROJECT_ID = "e2e-proj-1";
+
+/** 预置 ui-prefs（仅首次写入）：挡主题引导，但不覆盖 reload 后的持久化值。
+ *  helpers.setUiPrefs 每次导航都重写 prefs，会冲掉本 spec 断言的「切换并持久化」状态。 */
+async function seedUiPrefsOnce(page: import("@playwright/test").Page, lang: "zh" | "en") {
+  await page.addInitScript((lang) => {
+    if (!localStorage.getItem("wa-pi-ui-prefs")) {
+      localStorage.setItem(
+        "wa-pi-ui-prefs",
+        JSON.stringify({
+          state: {
+            language: lang,
+            fontSize: 16,
+            exportTurns: 1,
+            themeIntroSeenVersion: "e2e-seen",
+          },
+          version: 0,
+        }),
+      );
+    }
+  }, lang);
+}
+ // global-setup 预置的「E2E项目」
 const PROJECT_CWD = "/tmp/wa-pi-e2e-default-agent";
 
 /** 幂等建智能体（serial 用例重复确保存在时，POST 已存在会报错，忽略） */
@@ -41,6 +63,7 @@ test("新建页选角色后刷新仍默认该角色（lastAgent 持久化）", a
 	page,
 }) => {
 	test.setTimeout(60_000);
+	await seedUiPrefsOnce(page, "zh");
 	await page.goto("/");
 	const pane = page.getByTestId("new-session-pane");
 	await expect(pane).toBeVisible({ timeout: 10_000 });
@@ -76,6 +99,7 @@ test("从已有会话进入新建页时沿用该会话的角色", async ({ page 
 		model: "e2e-agent-memory/model-a",
 	});
 
+	await seedUiPrefsOnce(page, "zh");
 	await page.goto("/");
 	// 先把 lastAgent 钉成别的角色，验证「已有会话优先于 lastAgent」
 	await page.getByTestId("new-session-pane").waitFor({ timeout: 10_000 });

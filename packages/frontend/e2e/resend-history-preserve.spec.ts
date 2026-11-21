@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "node:http";
-import { saveProvider } from "./helpers";
+import { saveProvider , setUiPrefs } from "./helpers";
 
 // 事故：多轮会话里点「重新发送」，此前几轮的历史消息在界面上整段消失，
 // 切走会话再切回（重新拉取历史）才恢复。
@@ -107,6 +107,7 @@ test.describe("重新发送：历史消息不被过量裁剪", () => {
       models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
     });
 
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({
       timeout: 5000,

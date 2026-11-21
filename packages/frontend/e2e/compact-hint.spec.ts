@@ -2,7 +2,7 @@
 // 断言压缩成功提示出现在消息流末尾、且仅一条（不在会话顶部重复）。
 // 走真实前端渲染链路（__PI_E2E_EVENT__ → onMessage → sdk:event → handleSDKEvent）。
 import { test, expect } from "@playwright/test";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 test("压缩成功注入：提示出现在消息流末尾且仅一条", async ({ page }) => {
 	test.setTimeout(90_000);
@@ -22,6 +22,7 @@ test("压缩成功注入：提示出现在消息流末尾且仅一条", async ({
 		],
 	});
 
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	const pane = page.getByTestId("new-session-pane");
 	await expect(pane).toBeVisible({ timeout: 10_000 });

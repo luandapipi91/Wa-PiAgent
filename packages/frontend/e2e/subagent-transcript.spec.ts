@@ -64,6 +64,15 @@ function readDeepseekKey(): string {
 	return key;
 }
 
+function hasDeepseekKey(): boolean {
+	try {
+		readDeepseekKey();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** 按需保存 DeepSeek provider（读本机凭证）。只在真正会调 LLM 的场景（1 / 2）调用：
  *  凭证读取下移到这里，缺 ~/.pi/agent/auth.json 的机器上场景 3（纯渲染）不受影响。
  *  固定 id + 一次性守卫：重试或两场景共跑时不会重复落盘。 */
@@ -432,6 +441,10 @@ test.afterAll(async () => {
 // 需要真实模型的场景（1 委托 / 2 resume）串行：场景 2 依赖场景 1 建立的实例。
 // retries:1 只作用于这一组（真实模型偶发不按指令调用工具）；断言已按「相对基线」写，
 // 重试时再续聊一次也不会让绝对断言必然失败。
+// 【P2 环境依赖标注】真实模型场景（1/2）的输出与耗时不可控；确定性 mock 需模拟
+// 整条模型工具链路、代价过大，故保留真实驱动，仅在本机无 deepseek key 时自动 skip。
+test.skip(!hasDeepseekKey(), "环境依赖：本机无 deepseek apiKey，真实模型 E2E 无法执行");
+
 test.describe.serial("子代理转录 E2E（真实模型）", () => {
 	test.describe.configure({ retries: 1 });
 

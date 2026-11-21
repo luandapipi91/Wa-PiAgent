@@ -5,7 +5,7 @@
 // 验证：矮视口 + 树滚到底 + 右键最底部文件 → 菜单整体在视口内 → 最底部菜单项真实可点。
 import { test, expect } from "@playwright/test";
 import { join } from "node:path";
-import { saveProvider, createProject } from "./helpers";
+import { saveProvider, createProject, setUiPrefs } from "./helpers";
 
 const REPO_CWD = join(process.cwd(), "..", "..");
 
@@ -25,6 +25,7 @@ test("文件树底部文件右键：菜单不出窗口且最底部项可点", as
 
 	// 矮视口：等价复现「树内容高 > 视口」的用户场景
 	await page.setViewportSize({ width: 1280, height: 400 });
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.getByTestId("project-select").selectOption(project.id);
 	await page.getByTestId("btn-new-session-explorer").click();

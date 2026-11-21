@@ -6,7 +6,7 @@
 // 验证场景：项目指向文件极多的真实目录，展开文件树后断言输入框 bounding rect 仍在视口内。
 import { test, expect } from "@playwright/test";
 import { join } from "node:path";
-import { saveProvider, createProject } from "./helpers";
+import { saveProvider, createProject , setUiPrefs } from "./helpers";
 
 // cwd 指向本仓库根（process.cwd() = packages/frontend，上两级）：源码文件足够多，树内容必然远超视口高
 const REPO_CWD = join(process.cwd(), "..", "..");
@@ -28,6 +28,7 @@ test("新建会话：文件树内容很高时输入框仍在视口内", async ({
 	// 视口调矮：仓库根顶层文件有限（目录默认折叠，树初始约 700px），
 	// 矮视口等价复现用户场景「树内容高 > 视口高」，不依赖树内部展开细节
 	await page.setViewportSize({ width: 1280, height: 400 });
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	const pane = page.getByTestId("new-session-pane");
 	await expect(pane).toBeVisible({ timeout: 10_000 });
@@ -44,8 +45,9 @@ test("新建会话：文件树内容很高时输入框仍在视口内", async ({
 	// 树已改为 react-virtuoso 虚拟滚动（提交 4dd20fc6）——真正承载滚动的是内部
 	// virtuoso scroller，不再是 .flex-1.overflow-auto 包装层（包装层自身
 	// scrollHeight==clientHeight）。改为取 aside 内溢出最大的后代，兼容具体虚拟化实现。
+	// 读真实仓库目录，全量负载下首扫慢，窗口放宽
 	await expect(aside.locator(".ep-node").first()).toBeVisible({
-		timeout: 15_000,
+		timeout: 30_000,
 	});
 	await expect
 		.poll(
@@ -62,7 +64,7 @@ test("新建会话：文件树内容很高时输入框仍在视口内", async ({
 					}
 					return max;
 				}),
-			{ timeout: 15_000 },
+			{ timeout: 30_000 },
 		)
 		.toBeGreaterThan(100);
 

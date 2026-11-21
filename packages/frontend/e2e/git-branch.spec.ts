@@ -1,11 +1,11 @@
-// Git 分支管理 E2E：真实 kernel + 真 git 仓库（beforeAll 在隔离 WA_PI_DIR 下 init）
+// Gmt 分支管理 E2E：真实 kernel + 真 gmt 仓库（beforeAll 在隔离 WA_PI_DIR 下 init）
 // 覆盖：GitToolbar 渲染、分支下拉搜索/切换、创建并检出新分支、Git 图谱提交行、无上游 pull 错误提示
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { createProject, createSessionViaPrompt, saveProvider } from "./helpers";
+import { createProject, createSessionViaPrompt, saveProvider, setUiPrefs } from "./helpers";
 
 const REPO = join(E2E_WA_PI_DIR, "git-e2e-repo");
 const PROJECT_NAME = "GitE2E项目";
@@ -78,6 +78,7 @@ let projectId = "";
 
 /** 进入该项目的会话视图并返回 sessionId */
 async function openSession(page: import("@playwright/test").Page) {
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.waitForTimeout(2000);
 	const session = await createSessionViaPrompt(projectId, {
@@ -251,6 +252,7 @@ test.describe
 
 		test("新建会话页同样展示 Git 工具栏并随项目切换显隐", async ({ page }) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(2000);
 

@@ -1,5 +1,5 @@
-// 嵌套子页自动刷新 E2E：预览 A.html（内含 <iframe src="./B.html">），
-// 真实 LLM 会话用 edit 工具修改子文件 B.html → 任务完成 file_changes 上报的是
+// 嵌套子页自动刷新 E2E：预览 A.html（内含 <mframe src="./B.html">），
+// 真实 LLM 会话用 edmt 工具修改子文件 B.html → 任务完成 file_changes 上报的是
 // B.html（非预览外层文件）→ 命中判定按「同目录嵌套子页 html」放宽 → 外层预览
 // iframe 自动重挂，子页内容显示修改后的版本。全程不点刷新按钮。
 //
@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createSessionViaPrompt, saveProvider } from "./helpers";
+import { createSessionViaPrompt, saveProvider, setUiPrefs } from "./helpers";
 
 // 预置嵌套结构：A.html 引用同目录 B.html（子页内容即断言目标）
 const DIST_DIR = join(E2E_WA_PI_DIR, "e2e-project", "dist");
@@ -41,7 +41,19 @@ function readDeepseekKey(): string {
 	return key;
 }
 
+function hasDeepseekKey(): boolean {
+	try {
+		readDeepseekKey();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+
+
 async function openSession(page: Page): Promise<void> {
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.waitForTimeout(2000);
 	const session = await createSessionViaPrompt("e2e-proj-1", {
@@ -70,13 +82,21 @@ async function openHtmlPreview(page: Page): Promise<void> {
 	await expect(page.getByTestId("browser-panel")).toBeVisible({ timeout: 5000 });
 }
 
+/**
+ * 【P2 环境依赖标注】本 spec 用真实模型（DeepSeek）驱动完整 prompt→tool 链路，
+ * 模型输出与耗时不可控（全量负载下曾 200s/60s 超时）。确定性 mock 需要模拟
+ * 整条模型工具链路、代价过大，故保留真实模型驱动，仅在环境无 key 时自动 skip。
+ * 有 key 时失败即为真实失败，不做静默放宽。
+ */
+test.skip(!hasDeepseekKey(), "环境依赖：本机无 deepseek apiKey（~/.pi/agent/auth.json），真实模型 E2E 无法执行");
+
 test("任务修改嵌套子文件 B.html → 完成后外层预览自动刷新显示子页最新内容", async ({
 	page,
 }) => {
 	test.setTimeout(240_000);
 
 	// 1. 注入 deepseek provider（真实 LLM 跑 edit 工具）
-	await page.goto("/");
+	// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
 	await saveProvider({
 		id: randomUUID(),
 		name: "DeepSeek",
@@ -87,6 +107,8 @@ test("任务修改嵌套子文件 B.html → 完成后外层预览自动刷新�
 			{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
 		],
 	});
+	await setUiPrefs(page, "zh");
+	await page.goto("/");
 	await expect(page.getByTestId("new-session-pane")).toBeVisible({
 		timeout: 10_000,
 	});

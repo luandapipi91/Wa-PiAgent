@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 // 嵌套 srcdoc iframe 预览回归：PRD 页内嵌 <iframe srcdoc="…">（原型页），
 // 在 wa-pi 预览（kernel /preview + sandbox 不透明源 + inspect 注入）下，
@@ -49,13 +49,7 @@ test.describe
 		}
 
 		test.beforeEach(async ({ page }) => {
-			await page.goto("/");
-			await page.evaluate(() => localStorage.clear());
-			await page.goto("/");
-			await createProject(projectName, cwd);
-			mkdirSync(cwd, { recursive: true });
-			writeFileSync(join(cwd, NESTED_NAME), buildNestedPrdPage());
-			void readFileSync(FIXTURE, "utf8"); // fixture 存在性自检
+			// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
 			await saveProvider({
 				id: "e2e-srcdoc-provider",
 				name: "E2E Srcdoc",
@@ -65,6 +59,14 @@ test.describe
 				api: "openai-completions",
 				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 			});
+			await setUiPrefs(page, "zh");
+			await page.goto("/");
+			await page.evaluate(() => localStorage.clear());
+			await page.goto("/");
+			await createProject(projectName, cwd);
+			mkdirSync(cwd, { recursive: true });
+			writeFileSync(join(cwd, NESTED_NAME), buildNestedPrdPage());
+			void readFileSync(FIXTURE, "utf8"); // fixture 存在性自检
 		});
 
 		test.afterAll(() => {

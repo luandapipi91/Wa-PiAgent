@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 // 事故：带附件的消息发送失败后点「重新发送」，附件丢失（重发请求不带 attachments）。
 // 本用例在真实内核 + 真实浏览器操作下锁住修复的两点：
@@ -38,8 +38,7 @@ test.describe("重新发送：附件保留", () => {
     page,
   }) => {
     const projectName = `e2e-resend-${randomUUID().slice(0, 8)}`;
-    await page.goto("/");
-    const project = await createProject(projectName, `/tmp/${projectName}`);
+    // seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
     await saveProvider({
       id: "e2e-resend-provider",
       name: "E2E Resend",
@@ -49,6 +48,9 @@ test.describe("重新发送：附件保留", () => {
       api: "openai-completions",
       models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
     });
+    await setUiPrefs(page, "zh");
+    await page.goto("/");
+    const project = await createProject(projectName, `/tmp/${projectName}`);
 
     // 记录发送的 prompt 请求体（放行真实请求：让 kernel 真的建会话并接收附件）
     const promptBodies: any[] = [];

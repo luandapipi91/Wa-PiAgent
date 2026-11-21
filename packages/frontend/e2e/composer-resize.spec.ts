@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 const ASK_SESSION_ID = "s-e2e-resize-ask";
 const ASK_TOOLCALL_ID = "tc-e2e-resize-ask-1";
@@ -94,9 +94,7 @@ test.describe.serial("输入框手动调高", () => {
 
   test.beforeEach(async ({ page }) => {
     const projectName = `e2e-resize-${randomUUID().slice(0, 8)}`;
-    await page.goto("/");
-    const project = await createProject(projectName, `/tmp/${projectName}`);
-    projectId = project.id;
+    // 无供应商时首启会弹 onboarding 向导遮挡点击：seed + 预置 ui-prefs 都须在首个 goto 之前
     await saveProvider({
       id: "e2e-resize-provider",
       name: "E2E Resize",
@@ -106,6 +104,10 @@ test.describe.serial("输入框手动调高", () => {
       api: "openai-completions",
       models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
     });
+    await setUiPrefs(page, "zh");
+    await page.goto("/");
+    const project = await createProject(projectName, `/tmp/${projectName}`);
+    projectId = project.id;
     // 每个用例从干净的高度状态开始（evaluate 一次性清理，不用 addInitScript——后者在
     // 用例内 reload 时会再次执行，把刚持久化的高度清掉）
     await page.evaluate(() => localStorage.removeItem("wa-pi:composer-height"));

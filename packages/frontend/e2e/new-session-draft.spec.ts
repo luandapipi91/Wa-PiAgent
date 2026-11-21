@@ -5,7 +5,7 @@
 // （existed 检查本地 sessions 列表）看不见它 → 复用草稿 id → 消息全落进
 // 回收站里的同一个会话（「无论发什么都跑到同一个会话」的确定性复现路径）。
 import { test, expect } from "@playwright/test";
-import { saveProvider } from "./helpers";
+import { saveProvider , setUiPrefs } from "./helpers";
 import { E2E_WS_PORT } from "../playwright.config";
 
 const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
@@ -45,6 +45,7 @@ test("删除会话后再新建发送 → 消息进入全新会话（草稿 id �
 		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 	});
 
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	const pane = page.getByTestId("new-session-pane");
 	await expect(pane).toBeVisible({ timeout: 10_000 });

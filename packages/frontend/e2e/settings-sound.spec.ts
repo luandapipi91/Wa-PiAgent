@@ -1,12 +1,32 @@
 import { expect, test } from "@playwright/test";
 import { saveProvider } from "./helpers";
 
+/** 预置 ui-prefs（仅首次写入）：挡主题引导，但不覆盖 reload 后的持久化值。
+ *  helpers.setUiPrefs 每次导航都重写 prefs，会冲掉本 spec 断言的「切换并持久化」状态。 */
+async function seedUiPrefsOnce(page: import("@playwright/test").Page, lang: "zh" | "en") {
+	await page.addInitScript((lang) => {
+		if (!localStorage.getItem("wa-pi-ui-prefs")) {
+			localStorage.setItem(
+				"wa-pi-ui-prefs",
+				JSON.stringify({
+					state: {
+						language: lang,
+						fontSize: 16,
+						exportTurns: 1,
+						themeIntroSeenVersion: "e2e-seen",
+					},
+					version: 0,
+				}),
+			);
+		}
+	}, lang);
+}
+
+
 // 提示音设置 UI E2E：声音本身无法在自动化中断言，只验证设置项存在、
 // 开关可切换并持久化到 localStorage（wa-pi-ui-prefs）。
 test("设置-通用：提示音开关可切换并持久化", async ({ page }) => {
-	await page.goto("/");
-	// 预置假 provider：全新隔离目录无 provider 时首启 onboarding 向导会弹出、
-	// 其 modal-overlay 会拦截设置弹窗内的点击（file-change-summary.spec 同坑）
+	// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
 	await saveProvider({
 		id: "sound-e2e-provider",
 		name: "Sound E2E",
@@ -15,6 +35,8 @@ test("设置-通用：提示音开关可切换并持久化", async ({ page }) =>
 		api: "openai-completions",
 		models: [{ id: "test-model", contextWindow: 100000, maxTokens: 8192 }],
 	});
+	await seedUiPrefsOnce(page, "zh");
+	await page.goto("/");
 	await page.getByTestId("settings-btn").click();
 	await expect(page.getByTestId("settings-modal")).toBeVisible();
 	// 通用是默认 tab，两个开关应直接可见
@@ -48,8 +70,7 @@ test("设置-通用：提示音开关可切换并持久化", async ({ page }) =>
 test("设置-通用：定时任务完成提示音开关默认关、可切换并持久化", async ({
 	page,
 }) => {
-	await page.goto("/");
-	// 同上：预置假 provider 规避 onboarding 向导拦截
+	// 同上：seed + 预置 ui-prefs 须在首个 goto 之前
 	await saveProvider({
 		id: "sound-e2e-provider-2",
 		name: "Sound E2E 2",
@@ -58,6 +79,8 @@ test("设置-通用：定时任务完成提示音开关默认关、可切换并�
 		api: "openai-completions",
 		models: [{ id: "test-model", contextWindow: 100000, maxTokens: 8192 }],
 	});
+	await seedUiPrefsOnce(page, "zh");
+	await page.goto("/");
 	await page.getByTestId("settings-btn").click();
 	await expect(page.getByTestId("settings-modal")).toBeVisible();
 	const schedToggle = page.getByTestId("sound-sched-task-done-toggle");

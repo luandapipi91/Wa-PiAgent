@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt, setUiPrefs } from "./helpers";
 
 // 浏览器环境没有 Electron IPC 桥：注入 mock 桥，验宿（主窗口）侧的驱动逻辑。
 // 浮动模式的呈现是**独立系统窗口**，真实窗口行为由 e2e-electron/preview-window.spec.ts 验。
@@ -46,6 +46,17 @@ test.describe
 			await page.addInitScript(() => {
 				localStorage.setItem("hiagent.browser.mode", "split");
 			});
+			// 无供应商时首启会弹 onboarding 向导遮挡点击：seed + 预置 ui-prefs 都须在首个 goto 之前
+			await saveProvider({
+				id: "e2e-preview-provider",
+				name: "E2E Preview",
+				slug: "e2e-preview",
+				baseUrl: "http://localhost:9999/v1",
+				apiKey: "sk-e2e",
+				api: "openai-completions",
+				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+			});
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			// 预览窗口模式按 origin 存 localStorage（E2E 隔离 WA_PI_DIR 但 localStorage 不隔离），
 			// 串行用例间会互相污染默认模式，进页面前先清
@@ -68,15 +79,6 @@ test.describe
 					"</html>",
 				].join("\n"),
 			);
-			await saveProvider({
-				id: "e2e-preview-provider",
-				name: "E2E Preview",
-				slug: "e2e-preview",
-				baseUrl: "http://localhost:9999/v1",
-				apiKey: "sk-e2e",
-				api: "openai-completions",
-				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
-			});
 		});
 
 		test.afterAll(async () => {

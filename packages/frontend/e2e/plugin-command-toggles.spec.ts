@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt , setUiPrefs } from "./helpers";
 
 // Task 10: 插件命令级启停管理 E2E 测试
 //
@@ -69,6 +69,7 @@ test.describe.serial("插件命令级启停管理", () => {
 
   // 进入会话视图（REST 建会话 → 侧栏点项目名 → 点会话行，explorer.spec.ts 同款）
   async function enterSession(page: import("@playwright/test").Page, text: string): Promise<string> {
+    await setUiPrefs(page, "zh");
     await page.goto("/");
     await page.waitForTimeout(500); // 等侧栏会话列表挂载
     const sessionId = "s-e2e-cmdtog-" + randomUUID().slice(0, 8);

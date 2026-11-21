@@ -112,8 +112,9 @@ test.describe.serial("空文字 + 附件直接发送", () => {
 		// handleSend 的 !expandedText.trim() 静默拦死，不会出现任何排队条目。
 		// 空闲会话的乐观插入路径已由 Composer-send-guard 组件测试覆盖（断言 /prompt POST）。
 		await expect(page.getByTestId("attachment-list")).not.toBeVisible();
+		// 全量负载下假 provider 重试 + 队列入面板慢，窗口放宽
 		await expect(page.getByTestId("queue-panel")).toContainText("附件:image.png", {
-			timeout: 10_000,
+			timeout: 30_000,
 		});
 	});
 });

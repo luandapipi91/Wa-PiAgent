@@ -99,7 +99,7 @@ async function openShareSection(page: import("@playwright/test").Page) {
 	await page.addInitScript(() => {
 		localStorage.setItem(
 			"wa-pi-ui-prefs",
-			JSON.stringify({ state: { language: "zh" }, version: 0 }),
+			JSON.stringify({ state: { language: "zh", themeIntroSeenVersion: "e2e-seen" }, version: 0 }),
 		);
 	});
 	await page.goto("/");
@@ -138,6 +138,9 @@ test.describe.serial("分享管理（设置-分享 tab）", () => {
 		await mockShareApi(page, state);
 		await openShareSection(page);
 
+		// ShareSection 拆为三个 tab（互联网搜索为默认）：注册链接在「分享设置」tab，先切过去
+		await page.getByTestId("share-tab-settings").click();
+
 		const link = page.getByTestId("share-register-link");
 		await expect(link).toBeVisible();
 		await expect(link).toHaveAttribute("href", "https://edgeone.ai/zh/products/pages");
@@ -155,6 +158,8 @@ test.describe.serial("分享管理（设置-分享 tab）", () => {
 		const state = makeState();
 		await mockShareApi(page, state);
 		await openShareSection(page);
+		// ShareSection 默认 tab 是「互联网搜索」：渠道切换表单在「分享设置」tab，先切过去
+		await page.getByTestId("share-tab-settings").click();
 
 		// 默认 edgeone：EdgeOne 注册链接可见，Cloudflare 表单元素不存在
 		const edgeoneRegister = page.getByTestId("share-register-link");

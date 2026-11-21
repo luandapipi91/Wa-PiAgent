@@ -7,7 +7,7 @@ import type { Page } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 const SESSION_ID = "s-e2e-media-001";
 const PROJ_CWD = join(E2E_WA_PI_DIR, "e2e-project");
@@ -107,6 +107,7 @@ test("对话媒体：缩略图网格 + 内联视频 + 画廊切换 + 视频复�
 	await injectMediaMessage(page);
 	await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	const row = page.getByTestId(`session-${SESSION_ID}`);
 	await expect(row).toBeVisible({ timeout: 10_000 });
@@ -230,6 +231,7 @@ test("对话媒体：画廊图片缩放控件（− % + 与键盘 +/−/0，视�
 	seedSession();
 	await injectMediaMessage(page);
 
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	const row = page.getByTestId(`session-${SESSION_ID}`);
 	await expect(row).toBeVisible({ timeout: 10_000 });

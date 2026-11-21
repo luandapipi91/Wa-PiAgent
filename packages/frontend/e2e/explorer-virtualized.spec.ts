@@ -5,7 +5,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createSessionViaPrompt, saveProvider } from "./helpers";
+import { createSessionViaPrompt, saveProvider, setUiPrefs } from "./helpers";
 
 const BIG_DIR = join(E2E_WA_PI_DIR, "e2e-project", "big-dir");
 const FILE_COUNT = 500;
@@ -22,6 +22,7 @@ function seedBigDir() {
 }
 
 async function openExplorer(page: import("@playwright/test").Page) {
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.waitForTimeout(2000);
 	const session = await createSessionViaPrompt("e2e-proj-1", {

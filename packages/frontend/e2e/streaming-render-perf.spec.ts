@@ -118,6 +118,7 @@ test("长会话虚拟化：进入即定位最新 → 上滑浮钮 → 点浮钮�
 		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 	});
 
+	await setUiPrefs(page, "zh", { collapseProcessByDefault: false });
 	await page.goto("/");
 	const row = page.getByTestId(`session-${SESSION_ID}`);
 	await expect(row).toBeVisible({ timeout: 10_000 });
@@ -224,8 +225,10 @@ test.describe("流式渲染性能优化验收", () => {
 		page: import("@playwright/test").Page,
 		text: string,
 	): Promise<string> {
-		// 关掉「回复过程默认折叠」（默认偏好会让卡片体收起，运行中预览/工具卡断言不可见）
-		await setUiPrefs(page, "en", { collapseProcessByDefault: false });
+		// 关掉「回复过程默认折叠」（默认偏好会让卡片体收起，运行中预览/工具卡断言不可见）。
+		// 注意只能调用一次：setUiPrefs 是 addInitScript 每导航重写整个 prefs，
+		// 连续两次会让后一次（不带 collapse 键）把前一次的覆盖回默认 true。
+		await setUiPrefs(page, "zh", { collapseProcessByDefault: false });
 		await page.goto("/");
 		await page.waitForTimeout(500);
 		const sessionId = "s-e2e-sp-" + randomUUID().slice(0, 8);
@@ -371,6 +374,7 @@ test.describe("流式渲染性能优化验收", () => {
 		// 运行中：流式 markdown（v0.4.7 统一 Markdown 入口起，子代理流式输出也走 markdown + 解析节流；
 		// 旧的「停顿降级为纯文本预览」路径已移除——d93cc752「停顿降级改为节流（消除闪烁）」）
 		const running = page.getByTestId("streaming-output-md");
+
 		await expect(running).toBeVisible({ timeout: 5000 });
 		await expect(running).toContainText("加粗");
 

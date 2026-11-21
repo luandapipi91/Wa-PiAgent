@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { createProject, createSessionViaPrompt, saveProvider } from "./helpers";
+import { createProject, createSessionViaPrompt, saveProvider , setUiPrefs } from "./helpers";
 
 const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -50,6 +50,7 @@ test("侧边栏最近视图：时间线渲染 + 点击会话切换 + 停留在�
 	});
 
 	try {
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });
 

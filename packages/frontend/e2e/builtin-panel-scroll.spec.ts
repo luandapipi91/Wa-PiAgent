@@ -5,7 +5,7 @@
 // 滚轮事件永远到不了滚动容器 —— 技能/工具列表再长也滚不动，观感「整个面板像只读的」。
 // 本用例断言：滚轮能把内容区滚起来，且只读语义不变（技能开关点击无效）。
 import { test, expect } from "@playwright/test";
-import { addSkillDir, ensureProvider, removeSkillDir } from "./helpers";
+import { addSkillDir, ensureProvider, removeSkillDir, setUiPrefs } from "./helpers";
 
 const PREFIX = "e2e-scroll-skill-";
 const NAMES = Array.from({ length: 20 }, (_, i) => `${PREFIX}${i}`);
@@ -25,6 +25,7 @@ test.describe
 		test("技能 tab：滚轮可滚动内容区；技能开关仍只读", async ({ page }) => {
 			test.setTimeout(120_000);
 			await page.setViewportSize({ width: 1024, height: 600 });
+			await setUiPrefs(page, "zh");
 			await page.goto("/", { timeout: 60_000 });
 
 			// 内置 subagent 面板（只读）→ 技能 tab

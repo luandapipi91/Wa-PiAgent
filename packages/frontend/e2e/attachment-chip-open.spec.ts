@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 // 1x1 PNG（最小合法图片，避免依赖外部素材）
 const PNG_BASE64 =
@@ -12,8 +12,7 @@ const PNG_BASE64 =
 test.describe.serial("消息内附件 chip 点击打开", () => {
   test.beforeEach(async ({ page }) => {
     const projectName = `e2e-chip-open-${randomUUID().slice(0, 8)}`;
-    await page.goto("/");
-    await createProject(projectName, `/tmp/${projectName}`);
+    // 无供应商时首启会弹 onboarding 向导遮挡点击：seed + 预置 ui-prefs 都须在首个 goto 之前
     await saveProvider({
       id: "e2e-chip-open-provider",
       name: "E2E ChipOpen",
@@ -23,6 +22,9 @@ test.describe.serial("消息内附件 chip 点击打开", () => {
       api: "openai-completions",
       models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
     });
+    await setUiPrefs(page, "zh");
+    await page.goto("/");
+    await createProject(projectName, `/tmp/${projectName}`);
   });
 
   /** 新建会话并带附件发送第一条消息（真实用户路径：附件 chip 随后出现在消息气泡里） */

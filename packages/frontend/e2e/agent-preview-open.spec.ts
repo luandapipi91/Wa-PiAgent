@@ -11,7 +11,7 @@ import { createServer, type Server } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createSessionViaPrompt, saveProvider } from "./helpers";
+import { createSessionViaPrompt, saveProvider, setUiPrefs } from "./helpers";
 
 // e2e-project 由 global-setup 预置（cwd=E2E_WA_PI_DIR/e2e-project）
 const DIST_DIR = join(E2E_WA_PI_DIR, "e2e-project", "dist");
@@ -38,6 +38,7 @@ async function startTargetServer(): Promise<{ url: string; close: () => Promise<
 
 /** 建会话并进入会话页（返回会话 id，作为事件归属会话） */
 async function openSession(page: Page): Promise<string> {
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.waitForTimeout(2000);
 	const session = await createSessionViaPrompt("e2e-proj-1", {

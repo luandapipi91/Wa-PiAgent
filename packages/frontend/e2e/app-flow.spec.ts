@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 // Task 35-39 合并：完整应用流程 E2E
 // 串行执行：第 1 个 test 建项目 + 预置假 provider（共享 kernel），后续 test goto 后有项目，
@@ -10,14 +10,7 @@ test.describe.serial("应用主流程", () => {
 // createProjectFromDir 现已改为打开目录树选择器（DirTreePicker，不再触发 window.prompt），
 // 故 E2E 不再走 UI 选择器，直接经 REST 建测试项目，浏览器只断言结果（与 multi-project 一致的常规做法）。
 test("首次启动空态引导建项目", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByTestId("empty-state")).toBeVisible();
-
-  // 绕过 UI 选择器，直接 POST /api/projects 建项目
-  const created = await createProject("e2e-main", "/tmp/e2e-main");
-  expect(created).toBeTruthy();
-
-  // 预置假 provider：新建会话页的 Composer 必须选模型才能发送（localhost:9999 不可达属预期）
+  // seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
   await saveProvider({
     id: "e2e-app-flow-provider",
     name: "E2E",
@@ -26,6 +19,27 @@ test("首次启动空态引导建项目", async ({ page }) => {
     api: "openai-completions",
     models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
   });
+  await setUiPrefs(page, "zh");
+  // global-setup 固定 seed 了「E2E项目」→ projects:list 恒非空，empty 视图会被加载竞态
+  // 直接切走。本用例测「首次启动空态」，这里把首次列表置空，确定性复现该前提：
+  // 只拦首个 GET，后续（含 createProject 后的刷新/SSE 拉取）全部放行真实数据。
+  let firstProjectsList = true;
+  await page.route("**/api/projects", async (route) => {
+    if (route.request().method() === "GET" && firstProjectsList) {
+      firstProjectsList = false;
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ projects: [], sessions: [] }),
+      });
+    }
+    return route.continue();
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("empty-state")).toBeVisible();
+
+  // 绕过 UI 选择器，直接 POST /api/projects 建项目
+  const created = await createProject("e2e-main", "/tmp/e2e-main");
+  expect(created).toBeTruthy();
 
   // 项目出现后 view 由 empty 切到 new-session（projects.length > 0 且无 currentSessionId）
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
@@ -37,6 +51,7 @@ test("首次启动空态引导建项目", async ({ page }) => {
 // 新建会话页现统一用 Composer（无独立 new-session-input/new-session-send），
 // 流程对齐 quick-invoke.spec：选模型 → composer-input 输入 → composer-send
 async function enterSession(page: import("@playwright/test").Page, text: string) {
+  await setUiPrefs(page, "zh");
   await page.goto("/");
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
   // 必须先选择模型，否则发送按钮被禁用

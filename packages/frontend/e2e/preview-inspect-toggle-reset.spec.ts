@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 // 回归防线：锁定选中元素后，顶部开关「关闭→重新打开」不得破坏选中能力。
 // 背景（2026-09-01 用户报告 + E2E 复实）：
@@ -48,6 +48,17 @@ test.describe
 		}
 
 		test.beforeEach(async ({ page }) => {
+			// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
+			await saveProvider({
+				id: "e2e-inspect-reset-provider",
+				name: "E2E Inspect Reset",
+				slug: "e2e-inspect-toggle",
+				baseUrl: "http://localhost:9999/v1",
+				apiKey: "sk-e2e",
+				api: "openai-completions",
+				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+			});
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.evaluate(() => localStorage.clear());
 			await page.goto("/");
@@ -62,15 +73,6 @@ test.describe
 				join(cwd, "门店店长管理绩效.html"),
 				readFileSync(FIXTURE, "utf8"),
 			);
-			await saveProvider({
-				id: "e2e-inspect-reset-provider",
-				name: "E2E Inspect Reset",
-				slug: "e2e-inspect-toggle",
-				baseUrl: "http://localhost:9999/v1",
-				apiKey: "sk-e2e",
-				api: "openai-completions",
-				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
-			});
 		});
 
 		test.afterAll(() => {

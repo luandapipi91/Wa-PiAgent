@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { addSkillDir, removeSkillDir, saveProvider } from "./helpers";
+import { addSkillDir, removeSkillDir, saveProvider, setUiPrefs } from "./helpers";
 
 const KERNEL = `http://127.0.0.1:${process.env.WA_PI_E2E_WS_PORT ?? 9776}`;
 
@@ -33,6 +33,7 @@ test.describe
 				api: "openai-completions",
 				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 			});
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.getByTestId("settings-btn").click();
 			await page.getByTestId("settings-nav-bots").click();
@@ -66,6 +67,7 @@ test.describe
 			// 预置技能：直接写入 E2E 隔离的内置技能目录（技能目录增删接口已下线），$ 弹层才有数据
 			await addSkillDir("e2e-channel-skill", "渠道测试技能");
 
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.getByTestId("settings-btn").click();
 			await page.getByTestId("settings-nav-bots").click();
@@ -124,6 +126,7 @@ test.describe
 			// 假 provider 的连接失败会走内核自动重试（指数退避），追问回包可能要等几十秒
 			test.setTimeout(120_000);
 			// 先打开页面并保持常驻：后续进站消息应通过 SSE 实时反映到侧边栏/会话详情
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			// REST 建 mock 渠道（enabled，model 跟随智能体；E2E 环境无真实 provider，
 			// 回复为错误提示也算链路通）
@@ -160,8 +163,9 @@ test.describe
 
 			// 侧边栏 IM 页签出现会话，点击打开（不刷新页面，回归「运行中点开详情空白」问题）
 			await page.getByTestId("sidebar-tab-im").click();
+			// 全量负载下 kernel SSE 传播慢（前序 spec 假 provider 会话拖累），窗口放宽
 			await expect(page.getByTestId("im-conv-list")).toBeVisible({
-				timeout: 5000,
+				timeout: 15_000,
 			});
 			// 用 testid 前缀 + button 限定定位会话项（容器 div 也带 im-conv- 前缀；
 			// getByText 会同时命中会话标题「IM · u-e2e」等元素）
@@ -169,7 +173,7 @@ test.describe
 				.locator('button[data-testid^="im-conv-"]', { hasText: "u-e2e" })
 				.click();
 			await expect(page.getByTestId("session-view")).toBeVisible({
-				timeout: 5000,
+				timeout: 15_000,
 			});
 			// IM 来源文案拼在 header 状态行末尾
 			await expect(page.getByTestId("session-view")).toContainText(
@@ -276,6 +280,7 @@ test.describe
 				api: "openai-completions",
 				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 			});
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			// 建独立 mock 渠道
 			const res = await page.request.post(`${KERNEL}/api/channels`, {
@@ -359,6 +364,7 @@ test.describe
 		}) => {
 			// 假 provider 的连接失败会走内核自动重试，留足超时
 			test.setTimeout(120_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			// 建独立的 mock 渠道（与上一用例隔离），用 group 类型 + 显式 fromUserId
 			const res = await page.request.post(`${KERNEL}/api/channels`, {

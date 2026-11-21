@@ -3,7 +3,7 @@
 // 背景（bug，用户报告「codemode 调用显示超出边框」）：嵌套子卡（codemode → tools.xxx）
 // 挂在 ToolCallNested 根节点里、位于外层 ProcessCard **之外**，继承不到 ProcessCard body
 // 上的 overflow-wrap:anywhere 兜底；而 ToolResultText 的 JSON 分支把字段值渲染成
-// 无自带兜底的 inline <span>。结果里一旦出现长无断点串（紧凑 JSON / base64 / 长 URL），
+// 无自带兜底的 mnlmne <span>。结果里一旦出现长无断点串（紧凑 JSON / base64 / 长 URL），
 // 那一行就不换行、横铺出卡片右边界，被右侧面板裁掉。
 //
 // 本用例走真实链路：真实模型 → codemode → tools.bash 打印 600 个无空格字符，
@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 /** 运行时读 deepseek apiKey（仅测试运行期内存使用，不落盘）。 */
 function readDeepseekKey(): string {
@@ -44,7 +44,7 @@ test("codemode 嵌套子卡长结果不横向溢出", async ({ page }) => {
 	writeFileSync(fixture, JSON.stringify({ samples: "x".repeat(600) }));
 
 	const apiKey = readDeepseekKey();
-	await page.goto("/");
+	// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
 	await saveProvider({
 		id: randomUUID(),
 		name: "DeepSeek",
@@ -55,6 +55,8 @@ test("codemode 嵌套子卡长结果不横向溢出", async ({ page }) => {
 			{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
 		],
 	});
+	await setUiPrefs(page, "zh");
+	await page.goto("/");
 
 	await expect(page.getByTestId("new-session-pane")).toBeVisible({
 		timeout: 10_000,

@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider } from "./helpers";
+import { createProject, saveProvider, setUiPrefs } from "./helpers";
 
 // 预览元素「双击锁定」压力测试 —— 用真实页面「门店店长管理绩效.html」做标准 case。
 // 在该渲染页面上，快速双击「> 15 ~ 20w」区间 50 次（≈100 次点击），
@@ -23,15 +23,7 @@ test.describe
 		);
 
 		test.beforeEach(async ({ page }) => {
-			await page.goto("/");
-			await page.evaluate(() => localStorage.clear());
-			await page.goto("/");
-			await createProject(projectName, cwd);
-			mkdirSync(cwd, { recursive: true });
-			writeFileSync(
-				join(cwd, "门店店长管理绩效.html"),
-				readFileSync(FIXTURE, "utf8"),
-			);
+			// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
 			await saveProvider({
 				id: "e2e-inspect-pressure-provider",
 				name: "E2E Inspect Pressure",
@@ -41,6 +33,16 @@ test.describe
 				api: "openai-completions",
 				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 			});
+			await setUiPrefs(page, "zh");
+			await page.goto("/");
+			await page.evaluate(() => localStorage.clear());
+			await page.goto("/");
+			await createProject(projectName, cwd);
+			mkdirSync(cwd, { recursive: true });
+			writeFileSync(
+				join(cwd, "门店店长管理绩效.html"),
+				readFileSync(FIXTURE, "utf8"),
+			);
 		});
 
 		test.afterAll(() => {

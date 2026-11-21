@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { E2E_WS_PORT, E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 // Task 11：CLI 建任务 + 配置错误修复 的 E2E。用 Node 侧 child_process/fs 模拟
 // agent 经 CLI 写任务文件、直接写坏文件，需在 kernel 已分发资产后运行。
 import { execFileSync } from "node:child_process";
@@ -153,6 +153,7 @@ test.describe
 
 		test.beforeEach(async ({ page }) => {
 			test.setTimeout(60_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/", { timeout: 60_000 });
 			// 切换到自动化 Tab（侧边栏分段标签 tasks | im | automation）
 			await page.getByTestId("sidebar-tab-automation").click();
@@ -445,6 +446,7 @@ test.describe
 
 		test.beforeEach(async ({ page }) => {
 			test.setTimeout(90_000);
+			await setUiPrefs(page, "zh");
 			await page.goto("/", { timeout: 60_000 });
 			await page.getByTestId("sidebar-tab-automation").click();
 			await expect(page.getByTestId("automation-sidebar")).toBeVisible({
@@ -585,6 +587,7 @@ test.describe.serial("定时任务执行中状态与取消", () => {
 
 	test.beforeEach(async ({ page }) => {
 		test.setTimeout(90_000);
+		await setUiPrefs(page, "zh");
 		await page.goto("/", { timeout: 60_000 });
 		await page.getByTestId("sidebar-tab-automation").click();
 		await expect(page.getByTestId("automation-sidebar")).toBeVisible({

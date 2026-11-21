@@ -1,6 +1,20 @@
 import { expect, test } from "@playwright/test";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 const KERNEL = `http://127.0.0.1:${process.env.WA_PI_E2E_WS_PORT ?? 9776}`;
+
+// seed + 预置 ui-prefs 须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
+test.beforeAll(async () => {
+	await saveProvider({
+		id: "e2e-wecom-workdir-provider",
+		name: "E2E WecomWorkdir",
+		slug: "e2e-wecom-workdir",
+		baseUrl: "http://localhost:9999/v1",
+		apiKey: "sk-e2e",
+		api: "openai-completions",
+		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+	});
+});
 
 test.describe.serial("企微机器人：默认工作目录 + 切换开关", () => {
 	// 用唯一的名称/凭据定位本用例创建的渠道（见删除处的教训注释）
@@ -9,6 +23,7 @@ test.describe.serial("企微机器人：默认工作目录 + 切换开关", () =
 	let channelId: string;
 
 	test("配置默认工作目录与允许切换开关，保存后回填校验", async ({ page, request }) => {
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId("settings-btn").click();
 		await page.getByTestId("settings-nav-bots").click();

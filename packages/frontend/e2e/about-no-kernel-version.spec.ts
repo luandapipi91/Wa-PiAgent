@@ -20,7 +20,7 @@ test.describe("关于页：内核版本行已移除", () => {
       localStorage.setItem(
         "wa-pi-ui-prefs",
         JSON.stringify({
-          state: { language: "zh", fontSize: 16, exportTurns: 1 },
+          state: { language: "zh", fontSize: 16, exportTurns: 1, themeIntroSeenVersion: "e2e-seen" },
           version: 0,
         }),
       );

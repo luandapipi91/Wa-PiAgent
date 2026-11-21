@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createProject, ensureProvider } from "./helpers";
+import { createProject, ensureProvider , setUiPrefs } from "./helpers";
 
 /**
  * 关于页签更新流程 E2E。
@@ -55,6 +55,8 @@ test.describe("关于页签更新流程（mock waPiUpdater）", () => {
 		// 建项目让 sidebar 显示（复用 settings-provider.spec.ts 模式）
 		await createProject("e2e-updater", "/tmp/e2e-updater");
 
+		await setUiPrefs(page, "zh");
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId("settings-btn").click();
 		await expect(page.getByTestId("settings-modal")).toBeVisible();
@@ -131,6 +133,7 @@ test.describe("关于页签更新流程（mock waPiUpdater）", () => {
 			});
 		});
 
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId("settings-btn").click();
 		await page.getByTestId("settings-nav-about").click();

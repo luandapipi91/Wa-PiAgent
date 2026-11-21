@@ -16,7 +16,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 /**
  * 运行时读 deepseek apiKey（仅测试运行期内存使用，不落盘）。
@@ -51,7 +51,7 @@ test("聊天块渲染：工具卡弱化折叠 + 代码块卡片 + FilePill 预�
 
 	// 1. 测试数据：注入 deepseek provider（slug 派生为 deepseek）
 	const apiKey = readDeepseekKey();
-	await page.goto("/");
+	// seed + 预置 ui-prefs 都须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
 	await saveProvider({
 		id: randomUUID(),
 		name: "DeepSeek",
@@ -62,6 +62,8 @@ test("聊天块渲染：工具卡弱化折叠 + 代码块卡片 + FilePill 预�
 			{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
 		],
 	});
+	await setUiPrefs(page, "zh");
+	await page.goto("/");
 
 	// 2. global-setup 已预置项目 e2e-proj-1 → 首页应出现 new-session 面板
 	await expect(page.getByTestId("new-session-pane")).toBeVisible({

@@ -11,7 +11,7 @@
 // （session-view 已出现）」之后精确注入一帧不含新会话的滞后 projects:list，命中 SSE →
 // onMessage → setAll 真实主路径。若修复被回退，该会话会被滞后快照挤掉、session-view 消失。
 import { test, expect } from "@playwright/test";
-import { saveProvider } from "./helpers";
+import { saveProvider , setUiPrefs } from "./helpers";
 
 test("新建会话发送后，滞后 projects:list 快照不挤掉当前会话（不空白/不重置）", async ({
 	page,
@@ -27,6 +27,7 @@ test("新建会话发送后，滞后 projects:list 快照不挤掉当前会话�
 		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 	});
 
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	const pane = page.getByTestId("new-session-pane");
 	await expect(pane).toBeVisible({ timeout: 10_000 });

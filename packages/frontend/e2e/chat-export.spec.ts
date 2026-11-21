@@ -7,7 +7,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { saveProvider } from "./helpers";
+import { saveProvider, setUiPrefs } from "./helpers";
 
 /**
  * 运行时读 deepseek apiKey（仅测试运行期内存使用，不落盘）。
@@ -49,7 +49,7 @@ test("导出为图片：下载 PNG 文件 + 复制图片到剪贴板", async ({ 
 
 	// 1. 注入 deepseek provider + 打开项目
 	const apiKey = readDeepseekKey();
-	await page.goto("/");
+	// seed + 预置 ui-prefs 都须在首个 goto 之前（否则向导/主题引导弹窗挡点击）
 	await saveProvider({
 		id: randomUUID(),
 		name: "DeepSeek",
@@ -60,6 +60,8 @@ test("导出为图片：下载 PNG 文件 + 复制图片到剪贴板", async ({ 
 			{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
 		],
 	});
+	await setUiPrefs(page, "zh");
+	await page.goto("/");
 	await expect(page.getByTestId("new-session-pane")).toBeVisible({
 		timeout: 10_000,
 	});

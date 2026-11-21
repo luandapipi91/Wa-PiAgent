@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt , setUiPrefs } from "./helpers";
 
 // wa-pi-tui-host 扩展面板 E2E：ctx.ui.custom 的图形界面三态浮窗（规格 §7.1）全链路。
 //
@@ -125,6 +125,7 @@ test.describe
 			sessionId: string,
 			expects: string[] = ["alpha", "beta", "gamma"],
 		) {
+			await setUiPrefs(page, "zh");
 			await page.goto("/");
 			await page.waitForTimeout(500);
 			await page.getByText(projectName).first().click();

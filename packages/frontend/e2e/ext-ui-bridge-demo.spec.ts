@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt , setUiPrefs } from "./helpers";
 
 // ext-ui-bridge-demo 本地扩展 E2E（回归两个修复 + 对话子协议）：
 // 1. local 路径安装后身份统一为 package.json name：插件列表展示 ext-ui-bridge-demo，
@@ -121,6 +121,7 @@ test.describe
 
     test("「附加命令」弹窗扫到 /uidemo", async ({ page }) => {
       await spawnSession(); // 保证有活跃进程供命令扫描借用
+      await setUiPrefs(page, "zh");
       await page.goto("/");
       await page.getByTestId("settings-btn").click();
       await expect(page.getByTestId("settings-modal")).toBeVisible();

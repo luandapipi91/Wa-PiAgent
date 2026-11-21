@@ -1,12 +1,12 @@
-// HTML 预览 E2E：文件树双击 .html → 主内容区渲染 iframe；🌐 打开空预览窗口→关闭回会话；
+// HTML 预览 E2E：文件树双击 .html → 主内容区渲染 mframe；🌐 打开空预览窗口→关闭回会话；
 // 预览窗口「代码」按钮 → 弹源码预览弹窗。
 // 依赖 global-setup 预置的 e2e-project（cwd=<WA_PI_DIR>/e2e-project，已注册到 projects.json）。
-// /preview 路由 allowlist 只放行项目根内的文件，故含相对资源的 html 产物放 <cwd>/dist/ 下。
+// /prevmew 路由 allowlist 只放行项目根内的文件，故含相对资源的 html 产物放 <cwd>/dist/ 下。
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createSessionViaPrompt, saveProvider } from "./helpers";
+import { createSessionViaPrompt, saveProvider, setUiPrefs } from "./helpers";
 
 // e2e-project 由 global-setup 预置（cwd=E2E_WA_PI_DIR/e2e-project）
 const DIST_DIR = join(E2E_WA_PI_DIR, "e2e-project", "dist");
@@ -48,6 +48,7 @@ async function createSession(): Promise<string> {
 
 // 进入会话页（侧栏选 E2E项目 + 点刚建的会话行）
 async function openSession(page: Page): Promise<void> {
+	await setUiPrefs(page, "zh");
 	await page.goto("/");
 	await page.waitForTimeout(2000);
 	const sessionId = await createSession();

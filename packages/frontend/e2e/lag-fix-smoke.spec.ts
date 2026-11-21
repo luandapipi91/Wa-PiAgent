@@ -14,7 +14,7 @@
 
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt , setUiPrefs } from "./helpers";
 
 test.describe("卡顿修复冒烟", () => {
 	let projectId = "";
@@ -36,6 +36,7 @@ test.describe("卡顿修复冒烟", () => {
 	});
 
 	async function enterSession(page: import("@playwright/test").Page, text: string): Promise<string> {
+		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.waitForTimeout(500);
 		const sessionId = "s-e2e-lag-" + randomUUID().slice(0, 8);
