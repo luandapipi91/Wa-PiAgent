@@ -1,3 +1,6 @@
+## 2026-11-22
+- test(kernel): 修 bridge im_push_to 契约用例硬编码数量过期——工具集合 19→12 重构后 toHaveLength(19) 未跟进导致 build 测试 gate 必红；改为跟随 ALL_BRIDGE_TOOLS.length 断言（唯一真源，不再随重构漂移），用例名同步去硬编码数字。验证：bridge.test.ts 单独跑 im_push_to 两用例 pass
+
 ## 2026-11-21
 - chore(release): 0.10.13 发版物料改写——发布说明按 co 要求只写「内容更新 / 安全性能更新」两条（其余不填），version-history 同步；升版后新增的思考档位调整、version-history 截断修复等改动一并随包发出
 - fix(frontend,test): 修复 version-history 截断窗口缺陷（TDD）并纠正两类误判测试手法。① `mergeVersionHistory` 默认 `slice(0,100)` 截断真实 ~124 条版本历史，使窗外旧版本永远无法命中 `selectUpdatesBetween` 区间（updater:98 根因），展示层的「最近 100 条」本应由 VersionTimeline 自行 slice——改为默认不截断、显式 limit 仍可截断，红→绿新增 2 用例 + store 契约更新；② composer-paste-caret 实测非产品 bug：headless Chromium 的 CDP 键盘注入不触发原生撤销手势（可信打字输入同样不可撤），产品 execCommand insertHTML 的 undo 栈本身正确，E2E 改用同栈同语义的 `document.execCommand("undo")` 触发并保留完整还原断言；③ streaming-render-perf:336 实测非产品 bug：上轮扫尾脚本在 enterSession 重复插入两次 setUiPrefs，addInitScript 按注册顺序后者覆盖前者，冲掉 `collapseProcessByDefault:false`，合并为单次调用；④ preview-auto-refresh/preview-nested-refresh/subagent-transcript 三个真实模型用例加 hasDeepseekKey() 环境守卫（无 key 自动 skip + 标注，有 key 如实跑）；⑤ channels/attachment-only/explorer-overflow 等待窗口按状态就绪加固。终轮全量 297 过/10 挂（挂的为负载相关 flaky 尾巴，成员逐轮漂移、定点全过；真实模型 3 用例有 key 时如实失败，非回归

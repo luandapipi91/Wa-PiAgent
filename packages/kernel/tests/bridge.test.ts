@@ -1022,12 +1022,13 @@ test("im_push_to：未设 env 也注册（19 工具，普通会话工具面板�
 	}
 });
 
-test("im_push_to：始终注册（共 19 个工具），description 为通用引导（不含联系人列表）", async () => {
+test("im_push_to：始终注册（数量跟随 ALL_BRIDGE_TOOLS），description 为通用引导（不含联系人列表）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools).toHaveLength(19);
+		// 工具集合随重构演进（19→12），不再硬编码数量，跟随唯一真源清单断言
+		expect(tools).toHaveLength(ALL_BRIDGE_TOOLS.length);
 		const imPush = tools.find((t: any) => t.name === "im_push_to");
 		expect(imPush).toBeTruthy();
 		// env 仅作诊断用途，不再写入 description（联系人由消息标记自描述）
