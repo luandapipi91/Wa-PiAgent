@@ -132,6 +132,8 @@ export interface MemoryConfigSetEvent {
   type: "memory:config:set";
   reviewEnabled?: boolean;
   memoryPolicyStyle?: "full" | "compact" | "none";
+  /** 策略注入开关（与 MemoryConfig.policyEnabled 同源）；路由白名单透传，缺省视为开 */
+  policyEnabled?: boolean;
   /** 是否启用本地语义检索（缺省 true；false 时 memory_search 只走词法） */
   semanticEnabled?: boolean;
 }

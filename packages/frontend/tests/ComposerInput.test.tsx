@@ -1705,7 +1705,7 @@ test("wa-pi:insert-mention 光标在中间时插到光标处，而非追加末�
 
 	// 记录 execCommand 被调用时光标所在偏移
 	let caretAt = -1;
-	const execSpy = mock(() => true);
+	const execSpy = mock((_cmd: string, _ui: boolean, _html: string) => true);
 	const origExec = document.execCommand;
 	document.execCommand = ((cmd: string, _ui: boolean, html: string) => {
 		const s = window.getSelection()!;
