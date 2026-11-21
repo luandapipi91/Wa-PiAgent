@@ -733,14 +733,13 @@ test("prompt — 裸 modelId 经 get_available_models 解析 provider", async ()
 	).toBe("model.parseFailed");
 });
 
-test("prompt — thinking level 映射（default/medium→medium，disabled→off，max→xhigh）", async () => {
+test("prompt — thinking level 映射（default→medium，disabled→off，max→xhigh）", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	const cases: Array<[ThinkingLevel, string]> = [
 		["default", "medium"],
 		["disabled", "off"],
-		["medium", "medium"],
 		["high", "high"],
 		["max", "xhigh"],
 	];

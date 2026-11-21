@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
+import { normalizeThinkingLevel } from "@wa-pi/shared";
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 
 const DB_NAME = "wa-pi-composer";
@@ -100,10 +101,14 @@ export async function getDefaults(): Promise<DefaultsPrefs> {
   if (!raw) return { model: null, thinkingByModel: {} };
   // 兼容旧结构 { model, thinking }：旧 thinking 是「全局」语义，迁给任意一个模型都是脏数据，
   // 按产品决策不迁移 → 直接忽略，模型表回到空（即所有模型显示「默认」）。
-  return {
-    model: raw.model ?? null,
-    thinkingByModel: raw.thinkingByModel ?? {},
-  };
+  //
+  // 逐项归一：历史版本存过 medium（已被 default 取代），不归一的话该模型在选择器里
+  // 会因找不到匹配 option 显示空白。归一语义无损（default 在支持思考的模型上就是中等强度）。
+  const thinkingByModel: Record<string, ThinkingLevel> = {};
+  for (const [model, level] of Object.entries(raw.thinkingByModel ?? {})) {
+    thinkingByModel[model] = normalizeThinkingLevel(level);
+  }
+  return { model: raw.model ?? null, thinkingByModel };
 }
 
 export async function setDefaults(prefs: DefaultsPrefs): Promise<void> {

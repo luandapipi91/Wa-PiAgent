@@ -280,7 +280,7 @@ test("DelegateParamsSchema 的 thinking 接受 default，且与 DELEGATE_DESCRIP
     tasks: [{ agent: "Explore", task: "调查", thinking }],
   });
 
-  for (const level of ["default", "disabled", "medium", "high", "max"]) {
+  for (const level of ["default", "disabled", "high", "max"]) {
     expect(Value.Check(DelegateParamsSchema, build(level))).toBe(true);
     // 描述里必须逐个列出（模型据此判断可选值）
     expect(DELEGATE_DESCRIPTION).toContain(level);
@@ -289,6 +289,8 @@ test("DelegateParamsSchema 的 thinking 接受 default，且与 DELEGATE_DESCRIP
   expect(
     Value.Check(DelegateParamsSchema, { tasks: [{ agent: "Explore", task: "x" }] }),
   ).toBe(true);
-  // 非法值必须被拒
+  // 非法值必须被拒；
+  // medium 已从档位集合移除（由 default 取代），旧值直接拒绝，避免又悄悄支持回来
   expect(Value.Check(DelegateParamsSchema, build("bogus"))).toBe(false);
+  expect(Value.Check(DelegateParamsSchema, build("medium"))).toBe(false);
 });

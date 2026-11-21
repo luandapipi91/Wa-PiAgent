@@ -1616,7 +1616,7 @@ export class AgentManager {
 		// 注册 bridge 上下文（pi 进程内 wa-pi-bridge 扩展回调用）
 		registerBridgeSession(sessionId, bridgeCtx);
 
-		// thinking level 映射（default/medium→medium，disabled→off，max→xhigh，其余透传）
+		// thinking level 映射（default→medium，disabled→off，max→xhigh，其余透传）
 		const thinking = mapThinkingLevel(config?.thinking ?? "medium");
 
 		// spawn pi rpc 子进程
@@ -2347,8 +2347,8 @@ export class AgentManager {
 		// 记录主会话当前模型：子智能体「跟随主模型」（override/config model 为空）时透传
 		handle.currentModel = `${provider}/${modelId}`;
 
-		// 按请求切换 thinking level（default/medium→medium，disabled→off，max→xhigh；
-		// pi 侧对不支持的档位自动 clamp: 支持思考→mid，不支持→off）
+		// 按请求切换 thinking level（default→medium，disabled→off，max→xhigh；
+		// pi 侧对不支持的档位自动 clamp: 支持思考→中等强度，不支持→off）
 		if (opts?.thinking) {
 			await handle.client.setThinkingLevel(mapThinkingLevel(opts.thinking));
 			handle.currentThinking = opts.thinking;
@@ -3147,10 +3147,12 @@ export class AgentManager {
 	}
 }
 
-/** thinking level 映射：default/medium→medium（default 交给 pi 的 clampThinkingLevel 按模型能力钳制：
- *  支持思考→mid，不支持→off）、disabled→off、max→xhigh，其余透传。 */
+/** thinking level 映射：default→medium（交给 pi 的 clampThinkingLevel 按模型能力钳制：
+ *  支持思考→中等强度，不支持→off）、disabled→off、max→xhigh，其余透传。
+ *  注意 medium 档已从 ThinkingLevel 移除（由 default 取代），这里不再特判它；
+ *  万一有遗留值传进来，透传给 pi 也是同样的 medium 语义，无需额外分支。 */
 function mapThinkingLevel(thinking: string): string {
-	if (thinking === "default" || thinking === "medium") return "medium";
+	if (thinking === "default") return "medium";
 	if (thinking === "disabled") return "off";
 	if (thinking === "max") return "xhigh";
 	return thinking;

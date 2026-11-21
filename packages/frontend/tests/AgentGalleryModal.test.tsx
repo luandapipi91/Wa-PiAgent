@@ -13,7 +13,7 @@ import { useSessionStore } from "../src/store/session";
 
 const agent = (name: string, description = "简介"): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#000-#111", description,
-  model: "m", thinking: "medium",
+  model: "m", thinking: "default",
 
   tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });

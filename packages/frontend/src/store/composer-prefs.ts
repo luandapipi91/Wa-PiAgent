@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
-import { isModelAvailable, type ModelProvider } from "@wa-pi/shared";
+import {
+	isModelAvailable,
+	normalizeThinkingLevel,
+	type ModelProvider,
+} from "@wa-pi/shared";
 import {
 	getDefaults,
 	getNewSessionIds,
@@ -182,7 +186,11 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					model: mergedModel,
 					thinking: modelChangedInGap
 						? thinkingForModel(mergedModel, defaults.thinkingByModel)
-						: (gap?.thinking ?? stored?.thinking ?? existing.thinking),
+						: (gap?.thinking ??
+							(stored?.thinking === undefined
+								? undefined
+								: normalizeThinkingLevel(stored.thinking)) ??
+							existing.thinking),
 					attachments:
 						gap?.attachments ?? stored?.attachments ?? existing.attachments,
 					text: gap?.text ?? stored?.text ?? existing.text,
@@ -221,7 +229,9 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 				model: stored?.model ?? s.defaults.model ?? defaults.model,
 				// thinking 仅在用户显式设置过时才有值，否则保持 undefined
 				// 组件读取时用 resolveThinking() 先按模型记录、再按会话值、最后回退 default
-				...(stored?.thinking === undefined ? {} : { thinking: stored.thinking }),
+				...(stored?.thinking === undefined
+					? {}
+					: { thinking: normalizeThinkingLevel(stored.thinking) }),
 				attachments: stored?.attachments ?? [],
 				...(stored?.text === undefined ? {} : { text: stored.text }),
 			};

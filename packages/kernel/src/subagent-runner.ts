@@ -160,7 +160,7 @@ export const PROBE_TIMEOUT_MS = 30_000;
 
 /**
  * thinking → pi CLI thinking level 映射。
- * - default / medium → medium（default 交给 pi 按模型能力钳制：支持思考→mid，不支持→off）
+ * - default → medium（交给 pi 按模型能力钳制：支持思考→中等强度，不支持→off）
  * - disabled → off（完全关闭推理）
  * - max → xhigh（最大推理深度）
  * - minimal → minimal
@@ -174,7 +174,7 @@ export const PROBE_TIMEOUT_MS = 30_000;
  */
 function mapThinking(thinking: ThinkingLevel | null): string | undefined {
 	if (!thinking) return undefined;
-	if (thinking === "default" || thinking === "medium") return "medium";
+	if (thinking === "default") return "medium";
 	if (thinking === "disabled") return "off";
 	if (thinking === "max") return "xhigh";
 	return thinking; // minimal／high 直接透传

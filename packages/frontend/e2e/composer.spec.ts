@@ -112,9 +112,15 @@ test.describe.serial("Composer 重构", () => {
     await enterSession(page, "新装默认档测试");
     const selector = page.getByTestId("thinking-selector");
     await expect(selector).toHaveValue("default");
-    // 选项顺序：默认 / off / mid / high / max
-    await expect(selector.locator("option")).toHaveCount(5);
+    // 选项顺序：默认 / off / high / max（medium 档已移除，由「默认」取代）
+    await expect(selector.locator("option")).toHaveCount(4);
     await expect(selector.locator("option").first()).toHaveText("思考 默认");
+    await expect(selector.locator("option")).toHaveText([
+      "思考 默认",
+      "思考 off",
+      "思考 high",
+      "思考 max",
+    ]);
   });
 
   test("文件附件发送流程", async ({ page }) => {

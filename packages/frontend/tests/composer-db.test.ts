@@ -106,4 +106,18 @@ describe("composer-db", () => {
     expect(defs.model).toBe("old/m1");
     expect(defs.thinkingByModel).toEqual({});
   });
+
+  it("存量 thinkingByModel 里的 medium 归一为 default（避免选择器显示空白）", async () => {
+    localStorage.setItem(
+      "wa-pi:composer-defaults",
+      JSON.stringify({
+        model: "p/m1",
+        thinkingByModel: { "p/m1": "medium", "p/m2": "high" },
+      }),
+    );
+    const defs = await getDefaults();
+    expect(defs.thinkingByModel["p/m1"]).toBe("default");
+    expect(defs.thinkingByModel["p/m2"]).toBe("high");
+  });
+
 });

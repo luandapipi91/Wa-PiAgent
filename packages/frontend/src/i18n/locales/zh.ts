@@ -130,7 +130,6 @@ const zh = {
 		modelDefault: "默认（跟随全局）",
 		thinkingDefault: "默认",
 		thinkingOff: "思考 off",
-		thinkingMid: "思考 mid",
 		thinkingHigh: "思考 high",
 		thinkingMax: "思考 max",
 		labelWhenToDelegate: "何时调起",
@@ -443,7 +442,6 @@ const zh = {
 		thinkingSelector: {
 			optionDefault: "思考 默认",
 			optionDisabled: "思考 off",
-			optionMedium: "思考 mid",
 			optionHigh: "思考 high",
 			optionMax: "思考 max",
 			ariaLabel: "思考强度",

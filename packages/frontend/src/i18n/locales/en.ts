@@ -136,7 +136,6 @@ const en = {
 		modelDefault: "Default (follow global)",
 		thinkingDefault: "Default",
 		thinkingOff: "Thinking off",
-		thinkingMid: "Thinking mid",
 		thinkingHigh: "Thinking high",
 		thinkingMax: "Thinking max",
 		labelWhenToDelegate: "When to delegate",
@@ -456,7 +455,6 @@ const en = {
 		thinkingSelector: {
 			optionDefault: "Thinking default",
 			optionDisabled: "Thinking off",
-			optionMedium: "Thinking mid",
 			optionHigh: "Thinking high",
 			optionMax: "Thinking max",
 			ariaLabel: "Thinking level",

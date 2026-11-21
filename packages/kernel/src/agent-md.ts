@@ -1,5 +1,5 @@
 import type { AgentConfig, Partners } from "@wa-pi/shared";
-import { agentDefOf, ALL_AGENT_NAMES } from "@wa-pi/shared";
+import { ALL_AGENT_NAMES, agentDefOf, normalizeThinkingLevel } from "@wa-pi/shared";
 
 // 轻量 YAML 解析（仅支持 agent.md 用到的子集：标量、列表、嵌套对象）
 // 不引入 gray-mirror 等依赖，保持 kernel 精简
@@ -116,9 +116,10 @@ export function parseAgentMd(md: string): AgentConfig {
 		thinking:
 			y.thinking === undefined || y.thinking === null || y.thinking === ""
 				? null
-				: ((y.thinking === "low"
-						? "medium"
-						: y.thinking) as AgentConfig["thinking"]),
+				: // 存量值归一：medium（已移除的档位）与更早的 low 都等价于 default——
+					// default 在支持思考的模型上本来就落到中等强度。不归一的话存量 agent.md
+					// 会过不了 validateAgentConfig，该智能体任何配置回写都会被拒。
+					(normalizeThinkingLevel(y.thinking) as AgentConfig["thinking"]),
 		tools: (() => {
 			if (Array.isArray(y.tools)) return y.tools as string[];
 			if (y.tools == null || String(y.tools).trim() === "") return [];
@@ -215,7 +216,7 @@ export function validateAgentConfig(c: AgentConfig): string[] {
 			`非法 displayName: ${c.displayName}（含 / \\ : * ? " < > | 字符）`,
 		);
 	if (
-		!["default", "disabled", "medium", "high", "max", null].includes(
+		!["default", "disabled", "high", "max", null].includes(
 			c.thinking,
 		)
 	)

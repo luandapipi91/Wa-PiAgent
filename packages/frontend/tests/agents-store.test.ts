@@ -3,7 +3,7 @@ import type { AgentConfig, SessionEntity } from "@wa-pi/shared";
 
 const agent = (name: string): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
-  model: "m", thinking: "medium",
+  model: "m", thinking: "default",
   tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });
 

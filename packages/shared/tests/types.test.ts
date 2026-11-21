@@ -191,3 +191,18 @@ test("AgentConfig.thinking 接受 default 档（类型层；运行期枚举由 t
   };
   expect(c.thinking).toBe("default");
 });
+
+test("normalizeThinkingLevel：存量 medium/low 归一为 default，非法值兜底 default", () => {
+  const { normalizeThinkingLevel } = require("../src/types");
+  // 当前合法值原样返回
+  for (const v of ["default", "disabled", "high", "max"]) {
+    expect(normalizeThinkingLevel(v)).toBe(v);
+  }
+  // 已移除的档位 → default（无损：default 本就在支持思考的模型上落到中等强度）
+  expect(normalizeThinkingLevel("medium")).toBe("default");
+  expect(normalizeThinkingLevel("low")).toBe("default");
+  // 未知/脏数据 → default
+  expect(normalizeThinkingLevel("bogus")).toBe("default");
+  expect(normalizeThinkingLevel(undefined)).toBe("default");
+  expect(normalizeThinkingLevel(123)).toBe("default");
+});

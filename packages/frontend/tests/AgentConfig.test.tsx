@@ -187,7 +187,6 @@ describe("AgentConfig 5 tab", () => {
 		expect(opts.map((o) => o.value)).toEqual([
 			"default",
 			"disabled",
-			"medium",
 			"high",
 			"max",
 		]);

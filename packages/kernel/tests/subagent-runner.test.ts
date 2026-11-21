@@ -157,7 +157,7 @@ test("config 映射为 CLI 参数：--model/--thinking(max→xhigh)/--tools/--no
 	expect(argv).toContain("--system-prompt");
 });
 
-test("thinking 映射：default/medium → medium；disabled → off；null → 不传 --thinking", async () => {
+test("thinking 映射：default → medium；disabled → off；null → 不传 --thinking", async () => {
 	const dumpFile = join(
 		"/tmp",
 		`wa-pi-argv-dump-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,

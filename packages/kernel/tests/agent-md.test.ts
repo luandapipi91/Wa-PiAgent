@@ -139,9 +139,14 @@ test("delegationHints 三字段全空时不写入（视为未配置）", () => {
 	const md = stringifyAgentMd(c);
 	expect(md).not.toContain("delegationHints");
 });
-test("thinking: low 读取时归一为 medium", () => {
-	const md = stringifyAgentMd(base).replace("thinking: high", "thinking: low");
-	expect(parseAgentMd(md).thinking).toBe("medium");
+test("thinking: low/medium 读取时归一为 default（medium 档已移除）", () => {
+	const lowMd = stringifyAgentMd(base).replace("thinking: high", "thinking: low");
+	expect(parseAgentMd(lowMd).thinking).toBe("default");
+	// 存量 agent.md 里写着 medium 的（旧版本 UI 产出的）也归一为 default，
+	// 否则 validateAgentConfig 会判非法、导致该智能体任何配置回写都被拒
+	const medMd = stringifyAgentMd(base).replace("thinking: high", "thinking: medium");
+	expect(parseAgentMd(medMd).thinking).toBe("default");
+	expect(validateAgentConfig(parseAgentMd(medMd))).toEqual([]);
 });
 
 test("makeDefaultAgentConfig 支持任意 displayName（无内置定义时用名称本身）", () => {

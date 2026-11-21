@@ -53,7 +53,7 @@ const agent = (name: string): AgentConfig => ({
 	avatarColor: "#000-#111",
 	description: "",
 	model: "m",
-	thinking: "medium",
+	thinking: "default",
 	tools: [],
 	skills: [],
 	mcpServers: [],

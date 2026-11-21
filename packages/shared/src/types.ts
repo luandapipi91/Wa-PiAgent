@@ -88,8 +88,28 @@ export type AgentStatus = "idle" | "thinking" | "blocked";
 
 // Composer / Prompt 的思考强度档位（UI 选择器）
 // default = 按模型能力自动决定（kernel 映射为 medium 交给 pi 的 clampThinkingLevel：
-// 支持思考的模型落到 mid，不支持的被钳成 off）
-export type ThinkingLevel = "default" | "disabled" | "medium" | "high" | "max";
+// 支持思考的模型落到中等强度，不支持的被钳成 off）——它覆盖了原来独立的 "medium" 档，
+// 故 medium 不再是可选值；存量 medium 在读取时归一为 default（见 normalizeThinkingLevel）。
+export type ThinkingLevel = "default" | "disabled" | "high" | "max";
+
+/**
+ * 把存量/外来的思考档位归一为当前合法值。
+ *
+ * 历史值 `medium`（以及更早的 `low`）已被 `default` 取代：default 在支持思考的模型上
+ * 本来就落到中等强度，在不支持的模型上两者同样被钳成 off，所以归一无损。
+ * 未知值一律落到 `default`，避免选择器因无匹配 option 显示空白。
+ */
+export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
+	if (
+		value === "default" ||
+		value === "disabled" ||
+		value === "high" ||
+		value === "max"
+	)
+		return value;
+	// medium / low / 未知 → default（语义等价或最安全）
+	return "default";
+}
 
 export interface Partners {
 	askTo: AgentName[];
