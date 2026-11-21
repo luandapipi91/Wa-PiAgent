@@ -83,7 +83,9 @@ test("load 返回空历史时用缓存兜底", async () => {
 	expect(state.entries[0].version).toBe("8.8.8");
 });
 
-test("条目上限 100", async () => {
+test("store 层不截断条目（窗外旧版本须可命中更新区间），展示窗口由 VersionTimeline.slice 负责", async () => {
+	// 回归：store 曾截断 100 条，真实 bundled 历史 ~124 条使更旧的版本（如升级弹窗
+	// 需要的 0.2.0）被裁掉 → selectUpdatesBetween 恒空 → 关于页更新区间不渲染。
 	const many = Array.from({ length: 150 }, (_, i) => ({
 		version: `7.0.${150 - i}`,
 		date: "2026-09-01",
@@ -91,5 +93,10 @@ test("条目上限 100", async () => {
 	}));
 	getImpl = async () => ({ history: many });
 	await useVersionHistoryStore.getState().load();
-	expect(useVersionHistoryStore.getState().entries.length).toBe(100);
+	const entries = useVersionHistoryStore.getState().entries;
+	// bundled + remote 合并去重：remote 150 条全部保留（不截断）
+	expect(entries.length).toBeGreaterThanOrEqual(150);
+	for (let i = 150; i >= 1; i--) {
+		expect(entries.some((e) => e.version === `7.0.${i}`)).toBe(true);
+	}
 });

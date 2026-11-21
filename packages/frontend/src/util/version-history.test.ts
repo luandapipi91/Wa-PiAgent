@@ -41,14 +41,27 @@ test("mergeVersionHistory：并集去重、后源覆盖、倒序、截断", () =
 	expect(merged[1].sections).toEqual({ 新增: ["覆盖"] });
 });
 
-test("mergeVersionHistory：limit 截断最新 100 条", () => {
+test("mergeVersionHistory：显式 limit 截断最新 N 条（展示层语义）", () => {
 	const many = Array.from({ length: 120 }, (_, i) =>
 		entry(`1.0.${120 - i}`),
 	);
-	const merged = mergeVersionHistory([many]);
+	const merged = mergeVersionHistory([many], MAX_VERSION_ENTRIES);
 	expect(merged.length).toBe(100);
 	expect(merged[0].version).toBe("1.0.120");
 	expect(merged[99].version).toBe("1.0.21");
+});
+
+test("mergeVersionHistory：默认不截断——>100 条历史中窗外旧版本仍可命中区间", () => {
+	// 回归：store 曾默认截断 100 条，真实 bundled 历史 ~124 条使 mock 的 0.2.0
+	// （约第 124 位）被截掉 → selectUpdatesBetween 恒空 → 关于页更新区间不渲染。
+	// 默认必须保留全量（展示层由 VersionTimeline 自行 slice）。
+	const many = Array.from({ length: 120 }, (_, i) =>
+		entry(`10.0.${120 - i}`),
+	);
+	const merged = mergeVersionHistory([[...many, entry("0.2.0")]]);
+	expect(merged.length).toBe(121);
+	const picked = selectUpdatesBetween(merged, "0.1.0", "0.2.0");
+	expect(picked.map((e) => e.version)).toEqual(["0.2.0"]);
 });
 
 test("selectUpdatesBetween：取安装版与最新版之间的版本，倒序", () => {

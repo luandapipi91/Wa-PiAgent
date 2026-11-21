@@ -72,11 +72,15 @@ export function countItems(entry: VersionEntry): number {
 }
 
 /**
- * 多来源合并：按 version 去重（后出现的来源覆盖先出现的），按版本号倒序，截断至 limit。
+ * 多来源合并：按 version 去重（后出现的来源覆盖先出现的），按版本号倒序。
+ * 默认**不截断**：entries 还承担「安装版 → 最新版」区间计算（selectUpdatesBetween），
+ * 截断会把窗口外的旧版本（如远端 mock/老安装版场景）裁掉导致区间恒空——
+ * 展示层的「最近 100 条」由 VersionTimeline 自行 slice(0, maxEntries) 实现。
+ * limit 仅供需要截断的调用方显式传入。
  */
 export function mergeVersionHistory(
 	sources: VersionEntry[][],
-	limit = MAX_VERSION_ENTRIES,
+	limit?: number,
 ): VersionEntry[] {
 	const map = new Map<string, VersionEntry>();
 	for (const source of sources ?? []) {
@@ -85,9 +89,10 @@ export function mergeVersionHistory(
 			map.set(entry.version, entry);
 		}
 	}
-	return Array.from(map.values())
-		.sort((a, b) => compareVersions(b.version, a.version))
-		.slice(0, limit);
+	const merged = Array.from(map.values()).sort((a, b) =>
+		compareVersions(b.version, a.version),
+	);
+	return limit === undefined ? merged : merged.slice(0, limit);
 }
 
 /**
