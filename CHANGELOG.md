@@ -1,4 +1,5 @@
 ## 2026-11-22
+- chore(release): 0.10.13 发版（pi 1.6.0 升级 + 思考档位四档化 + version-history 截断修复随包；发布说明按 co 要求只写「内容更新 / 安全性能更新」两条，其余不填）；mac zip 208835892 / win exe 188154496（双端，linux 不发与历届一致）
 - test(kernel): 修 bridge im_push_to 契约用例硬编码数量过期——工具集合 19→12 重构后 toHaveLength(19) 未跟进导致 build 测试 gate 必红；改为跟随 ALL_BRIDGE_TOOLS.length 断言（唯一真源，不再随重构漂移），用例名同步去硬编码数字。验证：bridge.test.ts 单独跑 im_push_to 两用例 pass
 
 ## 2026-11-21
