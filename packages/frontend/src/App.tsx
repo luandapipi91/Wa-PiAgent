@@ -72,75 +72,6 @@ import { useAgentPreviewOpener } from "./agent-preview-opener";
 
 export type View = "empty" | "new-session" | "session";
 
-/** 代理不可达告警 toast 的同类标记：按 tag 在 store 里查找，不依赖易失的模块级变量 */
-const PROXY_TOAST_TAG = "proxy-status";
-
-/** 当前挂着的代理告警 toast（无则 null）。按 tag 查找——HMR 后模块变量会丢，tag 不会 */
-function findProxyAlert(): { id: string; message: string } | null {
-	return (
-		useToastStore.getState().toasts.find((t) => t.tag === PROXY_TOAST_TAG) ??
-		null
-	);
-}
-
-/**
- * 统一处理代理可用性（SSE 推送用）。
- * announceRecovered 仅对「实时推送」为真：只有真的从不可达变成 ok 才提示已恢复；
- * 补拉/重连时同一个状态会被重复读到，不能把它当「刚恢复」报一次（刷新页面就弹
- * 「代理已恢复」是错的，用户什么也没发生）。
- */
-function applyProxyStatus(
-	e: {
-		state: "ok" | "unreachable";
-		upstream: string;
-		reason?: string;
-	},
-	announceRecovered: boolean,
-): void {
-	if (e.state === "unreachable") {
-		const msg = i18n.t("app.proxyUnreachable", {
-			upstream: e.upstream,
-			reason: e.reason ?? "",
-		});
-		const existing = findProxyAlert();
-		if (existing) {
-			// 已有告警：原地更新文案（原因可能变了），不销毁重建——重建会重放
-			// 入场动画，重复推送时用户感知就是「又弹了一次」（报障：反复弹）
-			if (existing.message !== msg)
-				useToastStore.getState().update(existing.id, msg);
-			return;
-		}
-		useToastStore.getState().add(msg, "error", 0, PROXY_TOAST_TAG);
-		return;
-	}
-	// 收掉告警（若有）——按 tag 全部收掉（同 tag 唯一性靠调用纪律，可能残留多条）；
-	// 模块变量丢了（HMR）也能收
-	const hadAlert = !!findProxyAlert();
-	if (hadAlert) useToastStore.getState().dismissByTag(PROXY_TOAST_TAG);
-	// 「上游为空」的 ok 是用户关了代理，不算恢复；没有告警在挂也不算恢复
-	if (announceRecovered && hadAlert && e.upstream)
-		useToastStore.getState().add(i18n.t("app.proxyRecovered"), "success");
-}
-
-/**
- * 挂载/重连时补拉代理状态：不可达事件可能在 SSE 连接建立之前就已广播
- * （kernel 启动时的目录/更新请求就会撞上游），只听事件会漏掉「一开始就坏」的场景。
- */
-async function refreshProxyStatus(): Promise<void> {
-	try {
-		const body = (await api.get("/api/proxy/status")) as {
-			status: {
-				state: "ok" | "unreachable";
-				upstream: string;
-				reason?: string;
-			} | null;
-		} | null;
-		if (body?.status) applyProxyStatus(body.status, false);
-	} catch {
-		/* 启动早期 kernel 未就绪等：忽略，后续事件仍会推送 */
-	}
-}
-
 // 聊天侧容器样式：split 分屏按剩余宽度收窄；full 全屏预览时仅 display:none 视觉隐藏
 // （聊天侧保持挂载，预览关闭/切模式不卸载子树，文件树展开等内部状态不丢）
 function chatPaneStyle(
@@ -236,7 +167,6 @@ export function App() {
 		useAgentsStore.getState().loadAll();
 		useSubagentsStore.getState().load();
 		useContactsStore.getState().loadContacts();
-		void refreshProxyStatus();
 		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
 		initUpdater();
 		// 版本更新系统通知：启动自动检测 + 自然日去重（桌面专属，浏览器版 no-op）
@@ -269,7 +199,6 @@ export function App() {
 			// 定时任务：重连后刷新任务列表 + 执行记录 + 状态点 + 详情页「最近执行」
 			void useSchedulerStore.getState().refreshFromEvents();
 			useContactsStore.getState().loadContacts();
-			void refreshProxyStatus();
 			const sid = useProjectsStore.getState().currentSessionId;
 			if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
 			if (sid)
@@ -361,11 +290,6 @@ export function App() {
 					} else {
 						useToastStore.getState().add(main);
 					}
-					break;
-				}
-		// 上游代理不可达/恢复：不可达弹常驻 toast（点击关闭），恢复时自动收掉
-				case "proxy:status": {
-					applyProxyStatus(e, true);
 					break;
 				}
 				case "net:status": {

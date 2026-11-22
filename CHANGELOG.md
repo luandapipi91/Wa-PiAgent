@@ -1,4 +1,5 @@
 ## 2026-11-22
+- refactor(frontend): 仅移除代理可用性提示的前端展示（红色「代理不可达」常驻横幅 + 绿色「代理已恢复」toast，用户嫌弃丑）——kernel 代理状态检测/上报功能层原样保留（notifyStatus 防抖检测、SSE proxy:status 广播、GET /api/proxy/status 补拉端点照常工作，前端收到事件静默忽略）。删除：App.tsx 弹提示逻辑（applyProxyStatus/refreshProxyStatus/SSE 分支）、中英两条文案、toast store 为提示专用的孤儿 API（tag/update/dismissByTag）、两个提示专项测试（App-proxy-status.test.tsx / e2e proxy-status.spec.ts）。验收：全仓 typecheck 过；kernel 中继+状态检测 40 测试全过；E2E 真实浏览器验证死上游场景端点正确返回 unreachable 且界面无提示、清代理复位为 null 且无「已恢复」提示
 - chore(release): 0.10.13 发版（pi 1.6.0 升级 + 思考档位四档化 + version-history 截断修复随包；发布说明按 co 要求只写「内容更新 / 安全性能更新」两条，其余不填）；mac zip 208835892 / win exe 188154496（双端，linux 不发与历届一致）
 - test(kernel): 修 bridge im_push_to 契约用例硬编码数量过期——工具集合 19→12 重构后 toHaveLength(19) 未跟进导致 build 测试 gate 必红；改为跟随 ALL_BRIDGE_TOOLS.length 断言（唯一真源，不再随重构漂移），用例名同步去硬编码数字。验证：bridge.test.ts 单独跑 im_push_to 两用例 pass
 

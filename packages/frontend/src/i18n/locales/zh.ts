@@ -94,9 +94,6 @@ const zh = {
 		retrying: "模型请求失败，正在自动重试 ({{attempt}}/{{max}})…",
 		retryWaiting: "当前请求服务器繁忙，请等待～",
 		netDegraded: "模型连接异常，请检查网络或 Provider 配置后重试",
-		proxyUnreachable:
-			"代理不可达：{{upstream}}（{{reason}}）。请求已直接失败，不会自动改走直连，请检查代理软件是否已启动。",
-		proxyRecovered: "代理已恢复",
 		noOpenSession: "没有打开的会话",
 		reloadWhileThinking: "请在 AI 回复完成后再重载",
 		reloadNoMessage: "请先发送消息启动会话",
