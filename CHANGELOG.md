@@ -1,5 +1,6 @@
 ## 2026-11-23
-- chore(release): 0.10.14 发版——随包收入代理提示前端展示移除（e73b966d）；发布说明按实际改动写「不再弹出代理不可达/已恢复提示」
+- fix(desktop): 主窗口位置/大小/最大化状态持久化（TDD）——修复「更新重启/彻底退出后再开，窗口回硬编码默认 1280x860」。根因：主窗口从未持久化（createWindow 硬编码、无存取 IPC、git 历史从未有相关代码），平时关窗=hide 到托盘进程常驻，缺口只在更新重启（quitAndInstall→安装器拉起新壳）等进程真实退出场景暴露。新增 src/window-state.cjs（依赖注入便于单测，风格同 pet-window.cjs）：close 时把正常态 bounds（最大化时用 getNormalBounds）+isMaximized 落盘 userData/window_state.json，建窗时读回恢复（完全在屏外/损坏回退默认，防拔副屏后窗口跑丢）；接线断言测试沿用 main.cjs 源码断言范式。验证：模块单测 12 例 + 接线断言 3 例 + Electron 真实运行时回归（独立 fixture 进程驱动真实 BrowserWindow，验证保存→新进程恢复闭环 2 例，不碰 kernel/端口/登记簿）全绿；desktop 全量 483 pass/0 fail；typecheck 过
+- chore(release): 0.10.14 发版——随包收入代理提示前端展示移除（e73b966d）；发布说明按实际改动写「不再弹出代理不可达/已恢复提示（内核检测层保留）」；mac zip 208838106 / win exe 188154048（双端，linux 不发与历届一致）
 
 ## 2026-11-22
 - refactor(frontend): 仅移除代理可用性提示的前端展示（红色「代理不可达」常驻横幅 + 绿色「代理已恢复」toast，用户嫌弃丑）——kernel 代理状态检测/上报功能层原样保留（notifyStatus 防抖检测、SSE proxy:status 广播、GET /api/proxy/status 补拉端点照常工作，前端收到事件静默忽略）。删除：App.tsx 弹提示逻辑（applyProxyStatus/refreshProxyStatus/SSE 分支）、中英两条文案、toast store 为提示专用的孤儿 API（tag/update/dismissByTag）、两个提示专项测试（App-proxy-status.test.tsx / e2e proxy-status.spec.ts）。验收：全仓 typecheck 过；kernel 中继+状态检测 40 测试全过；E2E 真实浏览器验证死上游场景端点正确返回 unreachable 且界面无提示、清代理复位为 null 且无「已恢复」提示
