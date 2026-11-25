@@ -59,7 +59,9 @@ function seedStores() {
 	useSessionStore.setState({ openFilePreview: mock(() => {}) } as any);
 }
 
-function renderComposer() {
+function renderComposer(
+	overrides: Partial<Parameters<typeof ComposerInput>[0]> = {},
+) {
 	return render(
 		<ComposerInput
 			text=""
@@ -75,6 +77,7 @@ function renderComposer() {
 			onSend={() => {}}
 			isNewSession
 			modelAutoSelectEnabled
+			{...overrides}
 		/>,
 	);
 }
@@ -241,4 +244,52 @@ test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗多选 �
 	expect(chip2.closest("[data-token]")?.getAttribute("data-token")).toBe(
 		"@im-push-to(ch_ui1,ct_ui2)",
 	);
+});
+
+// ===== 底部行委派设置（DelegateSelector 接入）=====
+
+// 委派面板的模型列表与 ModelSelector 同源（providers store），需要至少一个 provider
+function seedProviderWithModel() {
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "p1",
+				name: "prov",
+				baseUrl: "https://api.prov.com/v1",
+				apiKey: "k",
+				api: "openai-completions",
+				slug: "prov",
+				models: [{ id: "m1", contextWindow: 128000, maxTokens: 4096 }],
+			},
+		] as any,
+	} as any);
+}
+
+test("传入 delegateModel/delegateThinking 时底部行委派按钮显示「委派 · m1 / max」", () => {
+	seedProviderWithModel();
+	renderComposer({ delegateModel: "prov/m1", delegateThinking: "max" });
+	expect(screen.getByTestId("delegate-selector").textContent).toBe(
+		"委派 · m1 / max",
+	);
+});
+
+test("不传 delegate props（undefined）渲染「委派 · 跟随」，展开点选不报错（回调静默）", () => {
+	seedProviderWithModel();
+	renderComposer();
+	const btn = screen.getByTestId("delegate-selector");
+	expect(btn.textContent).toBe("委派 · 跟随");
+	// 未传 onDelegateChange：展开面板点选模型不应抛错，点选后面板收起
+	fireEvent.click(btn);
+	expect(screen.getByTestId("delegate-selector-menu")).toBeDefined();
+	fireEvent.click(screen.getByTestId("delegate-item-model-prov/m1"));
+	expect(screen.queryByTestId("delegate-selector-menu")).toBeNull();
+});
+
+test("DelegateSelector 点选 → ComposerInput 的 onDelegateChange 收到字段级 patch", () => {
+	seedProviderWithModel();
+	const onDelegateChange = mock(() => {});
+	renderComposer({ onDelegateChange });
+	fireEvent.click(screen.getByTestId("delegate-selector"));
+	fireEvent.click(screen.getByTestId("delegate-item-model-prov/m1"));
+	expect(onDelegateChange).toHaveBeenCalledWith({ model: "prov/m1" });
 });

@@ -35,7 +35,11 @@ export function resolveInsertRange(
 	return null;
 }
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
-import { isModelAvailable, SUBAGENT_TYPES } from "@wa-pi/shared";
+import {
+	isModelAvailable,
+	resolveProviderSlug,
+	SUBAGENT_TYPES,
+} from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 import { uploadFile, copyToUploads, searchFilesStream, pathToUploadUrl } from "../../fs-client";
 import { formatKernelError } from "../../util/kernel-error";
@@ -50,6 +54,7 @@ import { useAgentsStore } from "../../store/agents";
 import { useToastStore } from "../../store/toast";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
+import { DelegateSelector } from "./DelegateSelector";
 import { AttachmentChip } from "./AttachmentChip";
 import { imageOrdinals } from "./attachment-labels";
 import { FilePicker, type FilePickerSelection } from "./FilePicker";
@@ -103,7 +108,19 @@ interface Props {
 	currentAgentName?: string;
 	/** 会话 prefs 是否已加载完（未加载完时禁止 ModelSelector auto-select，防覆盖存储值） */
 	modelAutoSelectEnabled?: boolean;
+	/** 会话级委派设置：当前委派模型（undefined/null = 跟随主代理） */
+	delegateModel?: string | null;
+	/** 会话级委派设置：当前委派思考强度（undefined/null = 跟随主代理） */
+	delegateThinking?: ThinkingLevel | null;
+	/** 委派两栏修改回调（字段级 patch 原样透传，写入 store 由调用方负责）；未传时面板仍可交互但回调静默 */
+	onDelegateChange?: (patch: {
+		model?: string | null;
+		thinking?: ThinkingLevel | null;
+	}) => void;
 }
+
+/** 未传 onDelegateChange 时的静默 fallback（保持 DelegateSelector onChange 必填契约） */
+const noopDelegateChange = () => {};
 
 export function ComposerInput({
 	text,
@@ -126,6 +143,9 @@ export function ComposerInput({
 	isRunning,
 	isNewSession,
 	modelAutoSelectEnabled,
+	delegateModel,
+	delegateThinking,
+	onDelegateChange,
 }: Props) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLDivElement | null>(null);
@@ -726,6 +746,19 @@ export function ComposerInput({
 	// model 必须真实存在于当前 providers 中：prefs 里可能残留已删除 provider 的过期 model，
 	// 仅判"非 null"会让"未配置模型"状态下消息照样发出（后端才报错）。
 	const providers = useProvidersStore((s) => s.providers);
+	// 委派面板的模型列表：与 ModelSelector 同源同形状（id = "providerSlug/modelId"，
+	// label = "providerName/modelId"），保证委派面板与主模型下拉选项一致
+	const delegateModels = useMemo(() => {
+		const slugs: string[] = [];
+		return providers.flatMap((p) => {
+			const slug = resolveProviderSlug(p, slugs);
+			slugs.push(slug);
+			return p.models.map((m) => ({
+				id: `${slug}/${m.id}`,
+				label: `${p.name}/${m.id}`,
+			}));
+		});
+	}, [providers]);
 	// 附件即可独立成消息：空文字 + 附件可发；纯空格且无附件仍拦截
 	const canSend =
 		!sendDisabled &&
@@ -1009,6 +1042,14 @@ export function ComposerInput({
 							autoSelectEnabled={modelAutoSelectEnabled}
 						/>
 						<ThinkingSelector value={thinking} onChange={setThinking} />
+						{/* 会话级委派设置（原型方案 A：主选择器之后的最后一个入口）；
+							onDelegateChange 未传时静默 noop，不阻断面板交互 */}
+						<DelegateSelector
+							model={delegateModel}
+							thinking={delegateThinking}
+							models={delegateModels}
+							onChange={onDelegateChange ?? noopDelegateChange}
+						/>
 						{uploading && (
 							<span className="text-xs text-tertiary" data-testid="upload-spinner">
 								{t("composer.uploading")}
