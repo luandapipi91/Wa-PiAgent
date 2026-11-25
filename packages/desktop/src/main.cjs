@@ -303,10 +303,57 @@ function setProgress(pct, text, isError = false) {
 		.catch(() => {});
 }
 
+// ── 主窗口状态持久化（位置/大小/最大化）─────────────────────
+// 更新重启（quitAndInstall → 安装器拉起新壳）与彻底退出再打开是进程真实退出的少数场景，
+// 此前 createWindow 硬编码 1280x860，窗口位置每次都回默认（用户报告：更新后窗口状态丢失）。
+// 平时关窗只是 hide 到托盘、进程常驻，缺口不易暴露。这里在 close 时把「正常态 bounds +
+// 是否最大化」落盘 userData/window_state.json，建窗时读回恢复（完全在屏外的状态回退
+// 默认值，防止拔掉副屏后窗口跑丢）。实现全在 src/window-state.cjs（依赖注入便于单测）。
+const { createWindowStateStore, sanitizeWindowState } = require("./window-state.cjs");
+const windowStateStore = createWindowStateStore(
+	path.join(app.getPath("userData"), "window_state.json"),
+);
+
+// 保存当前主窗口状态。最大化时 getBounds() 是最大化后的尺寸，用户拖拽的「正常态」
+// 要用 getNormalBounds() 拿：恢复时先按正常态建窗再 maximize，两个状态都不丢。
+function saveWindowState() {
+	try {
+		if (!mainWindow || mainWindow.isDestroyed()) return;
+		const maximized = mainWindow.isMaximized();
+		const bounds = maximized
+			? mainWindow.getNormalBounds()
+			: mainWindow.getBounds();
+		windowStateStore.write({ ...bounds, maximized });
+	} catch (e) {
+		log.error("[window-state] 保存失败", e);
+	}
+}
+
+// 读取上次保存的状态；没有 / 损坏 / 完全跑出屏幕（如拔掉副屏）→ null，走默认值
+function restoreWindowState() {
+	try {
+		const raw = windowStateStore.read();
+		if (!raw) return null;
+		const displays =
+			typeof screen.getAllDisplays === "function"
+				? screen.getAllDisplays()
+				: undefined;
+		return sanitizeWindowState(raw, displays);
+	} catch (e) {
+		log.error("[window-state] 恢复失败", e);
+		return null;
+	}
+}
+
 function createWindow() {
+	const restoredWindowState = restoreWindowState();
 	mainWindow = new BrowserWindow({
-		width: 1280,
-		height: 860,
+		// 恢复上次的窗口位置/大小；无持久化状态（首次/损坏/屏外回退）时用默认值
+		width: restoredWindowState ? restoredWindowState.width : 1280,
+		height: restoredWindowState ? restoredWindowState.height : 860,
+		...(restoredWindowState
+			? { x: restoredWindowState.x, y: restoredWindowState.y }
+			: {}),
 		show: false, // 隐藏直到内核页面渲染就绪，避免白屏
 		autoHideMenuBar: true, // Win/Linux 应用菜单存在时会显示菜单栏；隐藏保外观，Alt 可唤出
 		// 标题栏按平台分两种自绘方式，目标一致：让窗口顶部跟随应用主题。
@@ -338,10 +385,15 @@ function createWindow() {
 			preload: path.join(__dirname, "preload.cjs"),
 		},
 	});
+	// 上次关闭时是最大化 → 按正常态 bounds 建窗后再最大化
+	if (restoredWindowState?.maximized) mainWindow.maximize();
 	// 外链子窗口集合：移除 parent 后，主窗口收起时需手动同步隐藏子窗口
 	const childWindows = new Set();
 	// 点关闭按钮 → 最小化到托盘，不退出
 	mainWindow.on("close", (event) => {
+		// 先落盘窗口状态：无论这次 close 是「隐藏到托盘」还是真实退出（含更新重启，
+		// 后者是进程真实重启的主要场景），下次启动（新进程）都要能恢复位置/大小
+		saveWindowState();
 		if (!isQuitting) {
 			event.preventDefault();
 			mainWindow.hide();
