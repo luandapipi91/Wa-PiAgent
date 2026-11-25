@@ -216,6 +216,10 @@ export function NewSessionPane({
 	const [thinking, setThinking] = useState<ThinkingLevel>(
 		resolveThinking(defaults.model, undefined, defaults.thinkingByModel),
 	);
+	// 会话级委派设置（本地两栏独立，初始 null=跟随；随发送请求体显式携带——
+	// 新会话创建后落到 finalId 的会话级 prefs，后续发送由会话 prefs 接管）
+	const [delegateModel, setDelegateModel] = useState<string | null>(null);
+	const [delegateThinking, setDelegateThinking] = useState<ThinkingLevel | null>(null);
 	const providers = useProvidersStore((s) => s.providers);
 	const prefs = useComposerPrefsStore((s) => s.bySession[sessionId]);
 	const attachments = prefs?.attachments ?? [];
@@ -344,6 +348,9 @@ export function NewSessionPane({
 					text: expandedText,
 					model,
 					thinking,
+					// 委派两栏显式携带（null=跟随/重置）：kernel 侧仅 scheduler/IM 才允许省略字段
+					delegateModel,
+					delegateThinking,
 					attachments: attachments.length > 0 ? attachments : undefined,
 				},
 			)
@@ -367,6 +374,11 @@ export function NewSessionPane({
 		// 选模型时写入的是草稿 id，详情页 Composer 读 bySession[finalId] 会拿到空值、
 		// 回退 defaults 显示上一次使用的旧模型。这里把用户选的模型显式落到 finalId 的会话级 prefs。
 		useComposerPrefsStore.getState().setSessionPrefs(finalId, { model });
+		// 委派两栏对齐 model 的 existed 分叉处理：用户在新建页选的值显式落到 finalId
+		//（草稿 id 与 finalId 分叉时，详情页 Composer 读 bySession[finalId] 才能拿到）
+		useComposerPrefsStore
+			.getState()
+			.setSessionPrefs(finalId, { delegateModel, delegateThinking });
 		setTimeout(() => {
 			sendingRef.current = false;
 		}, 500);
@@ -509,6 +521,15 @@ export function NewSessionPane({
 						useComposerPrefsStore
 							.getState()
 							.setSessionPrefs(sessionId, { thinking: t });
+					}}
+					delegateModel={delegateModel}
+					delegateThinking={delegateThinking}
+					onDelegateChange={(patch) => {
+						// DelegateSelector 发字段级 patch（未触碰的栏键不存在），本地两栏独立更新；
+						// 显式 null（改回「跟随」）也要写入——发送时请求体必须携带 null 才能重置句柄
+						if (patch.model !== undefined) setDelegateModel(patch.model);
+						if (patch.thinking !== undefined)
+							setDelegateThinking(patch.thinking);
 					}}
 					attachments={attachments}
 					setAttachments={setAttachments}

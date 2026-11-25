@@ -197,6 +197,10 @@ export function Composer({
           text: expandedText,
           model: model!,
           thinking,
+          // 委派两栏显式携带（undefined 归一为 null=跟随）：会话里改回「跟随」必须
+          // 能让 kernel 重置句柄旧值；省略字段会让 kernel 不变更（那是 scheduler/IM 语义）
+          delegateModel: prefs?.delegateModel ?? null,
+          delegateThinking: prefs?.delegateThinking ?? null,
           attachments: attachments.length > 0 ? attachments : undefined,
         },
       )
@@ -317,6 +321,20 @@ export function Composer({
         setModel={(m) => setSessionModel(sessionId, m)}
         thinking={thinking}
         setThinking={(t) => setSessionPrefs(sessionId, { thinking: t })}
+        delegateModel={prefs?.delegateModel ?? null}
+        delegateThinking={prefs?.delegateThinking ?? null}
+        onDelegateChange={(patch) => {
+          // DelegateSelector 发字段级 patch（未触碰的栏键不存在）：按存在性映射进
+          // SessionPrefs——显式 undefined 直接展开会覆盖另一栏已设值（抹掉它）
+          setSessionPrefs(sessionId, {
+            ...(patch.model !== undefined
+              ? { delegateModel: patch.model }
+              : {}),
+            ...(patch.thinking !== undefined
+              ? { delegateThinking: patch.thinking }
+              : {}),
+          });
+        }}
         attachments={attachments}
         setAttachments={(updater) => {
           const current =

@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import type { SessionMessage } from "@wa-pi/shared";
+import type { SessionMessage, ThinkingLevel } from "@wa-pi/shared";
 import { createElement, Fragment } from "react";
 
 // MessageList 现带 initialTopMostItemIndex（末行贴底，官方聊天场景用法）：
@@ -719,6 +719,8 @@ test("buildResendPrompt: 有会话+模型+文本 → 返回 agent:prompt 负载"
 		text: "你好",
 		model: "deepseek-chat",
 		thinking: "high",
+		delegateModel: null,
+		delegateThinking: null,
 	});
 	expect(p).not.toBeNull();
 	expect(p!.type).toBe("agent:prompt");
@@ -727,6 +729,9 @@ test("buildResendPrompt: 有会话+模型+文本 → 返回 agent:prompt 负载"
 	expect(p!.model).toBe("deepseek-chat");
 	expect(p!.thinking).toBe("high");
 	expect(p!.text).toBe("你好");
+	// 跟随态：事件显式携带 null（kernel 侧 null=重置句柄为跟随；字段省略会让 kernel 不变更）
+	expect(p!.delegateModel).toBeNull();
+	expect(p!.delegateThinking).toBeNull();
 });
 
 test("buildResendPrompt: 缺会话/模型/空文本 → 返回 null（不发送）", () => {
@@ -735,6 +740,8 @@ test("buildResendPrompt: 缺会话/模型/空文本 → 返回 null（不发送�
 		text: "hi",
 		model: "m" as string | null,
 		thinking: "high" as const,
+		delegateModel: null as string | null,
+		delegateThinking: null as ThinkingLevel | null,
 	};
 	expect(buildResendPrompt({ ...base, session: undefined })).toBeNull();
 	expect(
@@ -751,6 +758,22 @@ test("buildResendPrompt: 缺会话/模型/空文本 → 返回 null（不发送�
 			text: "   ",
 		}),
 	).toBeNull();
+});
+
+test("buildResendPrompt: 委派字段透传——会话 prefs 设置过的委派模型/思考写入事件", () => {
+	// 用户在会话里选了委派模型/思考档 → 重发事件携带具体值（kernel 覆盖句柄记录）
+	const p = buildResendPrompt({
+		session: { projectId: "p1", primaryAgent: "dev" },
+		sessionId: "s1",
+		text: "重发",
+		model: "deepseek-chat",
+		thinking: "high",
+		delegateModel: "prov/d1",
+		delegateThinking: "max",
+	});
+	expect(p).not.toBeNull();
+	expect(p!.delegateModel).toBe("prov/d1");
+	expect(p!.delegateThinking).toBe("max");
 });
 
 test("最后一条为失败 assistant → 其前一条用户消息下方出现「重新发送」", () => {

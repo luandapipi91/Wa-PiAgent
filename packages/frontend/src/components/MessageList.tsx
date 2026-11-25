@@ -309,6 +309,10 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 					prefs?.thinking,
 					resendStore.defaults.thinkingByModel,
 				),
+				// 委派两栏与会话主模型同源（会话 prefs），但无全局 defaults 回退：
+				// undefined 归一为 null（跟随）——重发请求体必须显式携带（null=重置句柄）
+				delegateModel: prefs?.delegateModel ?? null,
+				delegateThinking: prefs?.delegateThinking ?? null,
 			});
 			if (payload && session) {
 				useSessionStore
@@ -1193,6 +1197,10 @@ export function buildResendPrompt(args: {
 	text: string;
 	model: string | null | undefined;
 	thinking: ThinkingLevel;
+	// 必填（非可选）：web 端重发请求体始终显式携带委派两栏（null=重置跟随，
+	// 省略=kernel 不变更句柄，会把用户改回「跟随」的操作静默吞掉）
+	delegateModel: string | null;
+	delegateThinking: ThinkingLevel | null;
 	attachments?: AttachmentRef[];
 }): PromptEvent | null {
 	if (!args.session || !args.model || !args.text.trim()) return null;
@@ -1204,6 +1212,8 @@ export function buildResendPrompt(args: {
 		text: args.text,
 		model: args.model,
 		thinking: args.thinking,
+		delegateModel: args.delegateModel,
+		delegateThinking: args.delegateThinking,
 		attachments:
 			args.attachments && args.attachments.length > 0
 				? args.attachments
