@@ -224,9 +224,13 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					delegateThinking:
 						gap?.delegateThinking !== undefined
 							? gap.delegateThinking
-							: stored?.delegateThinking !== undefined
-								? normalizeThinkingLevel(stored.delegateThinking)
-								: existing.delegateThinking,
+							: stored?.delegateThinking === undefined
+								? existing.delegateThinking
+								: stored.delegateThinking === null
+									// null 是落盘缺省的「跟随」，与 undefined 同语义，不得送 normalize
+									//（normalizeThinkingLevel(null) 兜底返回 "default"，会把跟随固化成显式档位）
+									? null
+									: normalizeThinkingLevel(stored.delegateThinking),
 				};
 				// gap 写入被守卫拦下未落盘，这里把合并结果统一持久化。
 				// 会话记录的 thinking 字段是结构性必填（ThinkingLevel），会话未显式设置时
@@ -274,13 +278,11 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 				...(stored?.delegateModel === undefined
 					? {}
 					: { delegateModel: stored.delegateModel }),
-				...(stored?.delegateThinking === undefined
+				// delegateThinking 的 null 是落盘缺省的「跟随」：与 undefined 同为不设置，
+				// 不得送 normalize（normalizeThinkingLevel(null) 兜底返回 "default"，会把跟随固化成显式档位）
+				...(stored?.delegateThinking === undefined || stored.delegateThinking === null
 					? {}
-					: {
-							delegateThinking: normalizeThinkingLevel(
-								stored.delegateThinking,
-							),
-						}),
+					: { delegateThinking: normalizeThinkingLevel(stored.delegateThinking) }),
 			};
 			const next: Partial<ComposerPrefsState> = {
 				...loaded,
@@ -499,7 +501,9 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 							attachments: prefs.attachments,
 							text: prefs.text,
 							// 仅清悬空的委派模型；委派思考原样保留（null = 跟随）
-							delegateModel: staleDelegateModel ? null : (prefs.delegateModel ?? null),
+							delegateModel: staleDelegateModel
+								? null
+								: (prefs.delegateModel ?? null),
 							delegateThinking: prefs.delegateThinking ?? null,
 							updatedAt: Date.now(),
 						});

@@ -97,7 +97,6 @@ test("loadSession 读旧记录（无 delegate 字段）→ delegate 字段为 un
 });
 
 test("clearStaleModels：悬空 delegateModel 清 null、delegateThinking 不动（两栏独立）", async () => {
-	// 主模型 prov/m1 可用；委派模型 prov/gone 已不在 provider 目录（悬空）
 	storedMap.set("sess-del", {
 		sessionId: "sess-del",
 		model: "prov/m1",
@@ -122,4 +121,46 @@ test("clearStaleModels：悬空 delegateModel 清 null、delegateThinking 不动
 	expect(rec?.delegateModel).toBe(null);
 	expect(rec?.delegateThinking).toBe("max");
 	expect(rec?.model).toBe("prov/m1");
+});
+
+// ---- null 特判回归（审查修复）：normalizeThinkingLevel(null) 会兕底成 "default"，
+// 而 loadSession 落盘缺省形状就是 delegateThinking: null——读回时必须保持「跟随」，
+// 不得被归一成显式档位并二次落盘固化。fresh 与 existing 两分支分别覆盖 ----
+test("loadSession 读持久层 delegateThinking: null（fresh 分支）→ 保持跟随，不归一成显式 default", async () => {
+	storedMap.set("sess-null-fresh", {
+		sessionId: "sess-null-fresh",
+		model: "prov/m1",
+		thinking: "high",
+		attachments: [],
+		delegateModel: "prov/m1",
+		delegateThinking: null, // 本任务 loadSession 统一落盘产生的缺省形状
+		updatedAt: 1,
+	});
+	await useComposerPrefsStore.getState().loadSession("sess-null-fresh");
+
+	const prefs = useComposerPrefsStore.getState().bySession["sess-null-fresh"];
+	expect(prefs?.delegateModel).toBe("prov/m1");
+	// null/undefined 均为「跟随」：不得变成显式 "default"（会回显「委派 · 跟随 / default」）
+	expect(prefs?.delegateThinking == null).toBe(true);
+});
+
+test("loadSession 二次读取（existing 分支）null delegateThinking → 保持跟随，落盘不固化成 default", async () => {
+	storedMap.set("sess-null-exist", {
+		sessionId: "sess-null-exist",
+		model: "prov/m1",
+		thinking: "high",
+		attachments: [],
+		delegateModel: "prov/m1",
+		delegateThinking: null,
+		updatedAt: 1,
+	});
+	await useComposerPrefsStore.getState().loadSession("sess-null-exist"); // 第一次：fresh 分支
+	idbWrites.length = 0;
+	await useComposerPrefsStore.getState().loadSession("sess-null-exist"); // 第二次：existing 分支（无 gap，统一落盘）
+
+	const prefs = useComposerPrefsStore.getState().bySession["sess-null-exist"];
+	expect(prefs?.delegateThinking == null).toBe(true);
+	// 落盘必须保持 null（跟随），不得把归一结果 "default" 固化进持久层
+	const rec = idbWrites.find((r) => r.sessionId === "sess-null-exist");
+	expect(rec?.delegateThinking).toBe(null);
 });
