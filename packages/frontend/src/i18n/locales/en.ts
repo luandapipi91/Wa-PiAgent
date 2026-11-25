@@ -459,6 +459,12 @@ const en = {
 			optionMax: "Thinking max",
 			ariaLabel: "Thinking level",
 		},
+		delegateSelector: {
+			followMain: "Follow main agent",
+			columnModel: "Model",
+			columnThinking: "Thinking level",
+			ariaLabel: "Delegate settings",
+		},
 		confirmDialog: {
 			defaultConfirm: "Confirm",
 			defaultCancel: "Cancel",

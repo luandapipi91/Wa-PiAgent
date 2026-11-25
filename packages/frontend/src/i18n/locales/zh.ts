@@ -446,6 +446,12 @@ const zh = {
 			optionMax: "思考 max",
 			ariaLabel: "思考强度",
 		},
+		delegateSelector: {
+			followMain: "跟随主代理",
+			columnModel: "模型",
+			columnThinking: "思考强度",
+			ariaLabel: "委派设置",
+		},
 		confirmDialog: {
 			defaultConfirm: "确认",
 			defaultCancel: "取消",
