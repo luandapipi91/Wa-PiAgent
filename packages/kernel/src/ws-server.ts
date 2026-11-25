@@ -1943,6 +1943,8 @@ export class WSServer {
 						.prompt(event.sessionId, event.text, {
 							model: event.model,
 							thinking: event.thinking,
+							delegateModel: event.delegateModel,
+							delegateThinking: event.delegateThinking,
 							attachments: event.attachments,
 						})
 						.catch((err) => {

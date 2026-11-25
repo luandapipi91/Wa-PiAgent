@@ -20,6 +20,9 @@ export const registerChatRoutes: RouteRegistrar = (
         text: b.text,
         model: b.model,
         thinking: b.thinking,
+        // 委派设置透传：body 无类型校验层，未携带时字段为 undefined（不补默认值）
+        delegateModel: b.delegateModel,
+        delegateThinking: b.delegateThinking,
         attachments: b.attachments,
       },
       { responseTypes: ["error"] },

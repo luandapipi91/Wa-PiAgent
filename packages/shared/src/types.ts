@@ -800,6 +800,10 @@ export interface PromptEvent {
 	text: string;
 	model?: string;
 	thinking?: ThinkingLevel;
+	/** 会话级委派覆盖（随每条消息透传）：undefined=不变更句柄记录，null=显式重置为跟随 */
+	delegateModel?: string | null;
+	/** 会话级委派覆盖 thinking 档位：undefined=不变更句柄记录，null=显式重置为跟随 */
+	delegateThinking?: ThinkingLevel | null;
 	attachments?: AttachmentRef[];
 }
 

@@ -316,6 +316,10 @@ interface SessionHandle {
 	messagesStale: boolean;
 	/** 主会话当前 thinking level（prompt 时记录），子智能体「跟随主配置」时透传 */
 	currentThinking: ThinkingLevel | null;
+	/** 会话级委派覆盖模型（"provider/modelId"）：委派给子智能体时覆盖其自身配置；null=跟随 */
+	currentDelegateModel: string | null;
+	/** 会话级委派覆盖 thinking 档位：委派给子智能体时覆盖其自身配置；null=跟随 */
+	currentDelegateThinking: ThinkingLevel | null;
 	/** transient 网络错误标记：true 时 agent_settled 跳过 followUp/steer drain，
 	 *  避免网络不可用时自动发送排队消息（会再失败）。用户重发后清除。 */
 	netDegraded: boolean;
@@ -1646,6 +1650,8 @@ export class AgentManager {
 			subagentAborts,
 			currentModel: null,
 			currentThinking: null,
+			currentDelegateModel: null,
+			currentDelegateThinking: null,
 			modelContextWindow: null,
 			modelMaxTokens: null,
 			lastCompactionAt: null,
@@ -2289,6 +2295,10 @@ export class AgentManager {
 		opts?: {
 			model?: string;
 			thinking?: ThinkingLevel;
+			/** 会话级委派覆盖：undefined=不变更句柄记录，null=显式重置为跟随 */
+			delegateModel?: string | null;
+			/** 会话级委派覆盖：undefined=不变更句柄记录，null=显式重置为跟随 */
+			delegateThinking?: ThinkingLevel | null;
 			attachments?: AttachmentRef[];
 		},
 	): Promise<void> {
@@ -2352,6 +2362,15 @@ export class AgentManager {
 		if (opts?.thinking) {
 			await handle.client.setThinkingLevel(mapThinkingLevel(opts.thinking));
 			handle.currentThinking = opts.thinking;
+		}
+
+		// 会话级委派覆盖记录：undefined=不变更（定时任务/IM 调 prompt 不带字段，
+		// 绝不能抹掉 web 已设值）；null=显式重置为跟随。字段存在性写入用严格 ===undefined 判定。
+		if (opts?.delegateModel !== undefined) {
+			handle.currentDelegateModel = opts.delegateModel;
+		}
+		if (opts?.delegateThinking !== undefined) {
+			handle.currentDelegateThinking = opts.delegateThinking;
 		}
 
 		// 构建最终 prompt 文本：snippet 直接内联，文件统一用绝对路径 path: 引用（不依赖 cwd 解析），
