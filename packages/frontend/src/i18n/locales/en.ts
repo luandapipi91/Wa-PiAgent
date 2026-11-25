@@ -461,6 +461,9 @@ const en = {
 		},
 		delegateSelector: {
 			followMain: "Follow main agent",
+			followShort: "Follow",
+			echoCollapsed: "Delegate · {{follow}}",
+			echoSplit: "Delegate · {{model}} / {{thinking}}",
 			columnModel: "Model",
 			columnThinking: "Thinking level",
 			ariaLabel: "Delegate settings",

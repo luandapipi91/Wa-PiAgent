@@ -1,5 +1,5 @@
-// 会话级委派设置（delegateModel / delegateThinking）store 层契约 + delegateLabel 回显纯函数：
-// 1. delegateLabel：两栏独立回显，各自缺省显示「跟随」，两栏全部缺省合并为「委派 · 跟随」
+// 会话级委派设置（delegateModel / delegateThinking）store 层契约 + delegateEcho 回显纯函数：
+// 1. delegateEcho：两栏独立回显，各自缺省为 null，两栏全部缺省合并 collapsed=true
 // 2. loadSession 读旧记录（无 delegate 字段）→ 读出值按 undefined（跟随）处理
 // 3. clearStaleModels 悬空清理只作用于 delegateModel，不碰 delegateThinking（两栏独立）
 import { test, expect, beforeEach, mock } from "bun:test";
@@ -35,7 +35,7 @@ const {
 	useComposerPrefsStore,
 	_resetDefaultsHydration,
 	_resetSessionHydration,
-	delegateLabel,
+	delegateEcho,
 } = await import("../composer-prefs");
 
 function resetAll() {
@@ -67,17 +67,41 @@ const providers: any[] = [
 	},
 ];
 
-test("delegateLabel：两栏独立回显，全缺省合并为「委派 · 跟随」", () => {
-	// 全部缺省（无参 / null / undefined）→ 跟随
-	expect(delegateLabel()).toBe("委派 · 跟随");
-	expect(delegateLabel(null, null)).toBe("委派 · 跟随");
-	expect(delegateLabel(undefined, undefined)).toBe("委派 · 跟随");
-	// 只有模型：modelId 短名 = "/" 后段；思考栏缺省显示「跟随」
-	expect(delegateLabel("prov/m1", null)).toBe("委派 · m1 / 跟随");
-	// 只有思考：模型栏缺省显示「跟随」
-	expect(delegateLabel(null, "max")).toBe("委派 · 跟随 / max");
+test("delegateEcho：两栏独立回显，全缺省合并 collapsed=true", () => {
+	// 全部缺省（无参 / null / undefined）→ 合并单段形态，两栏均为 null（展示层显示「跟随」）
+	expect(delegateEcho()).toEqual({
+		collapsed: true,
+		modelText: null,
+		thinkingText: null,
+	});
+	expect(delegateEcho(null, null)).toEqual({
+		collapsed: true,
+		modelText: null,
+		thinkingText: null,
+	});
+	expect(delegateEcho(undefined, undefined)).toEqual({
+		collapsed: true,
+		modelText: null,
+		thinkingText: null,
+	});
+	// 只有模型：modelText 短名 = "/" 后段；思考栏缺省为 null（跟随）
+	expect(delegateEcho("prov/m1", null)).toEqual({
+		collapsed: false,
+		modelText: "m1",
+		thinkingText: null,
+	});
+	// 只有思考：模型栏缺省为 null（跟随）
+	expect(delegateEcho(null, "max")).toEqual({
+		collapsed: false,
+		modelText: null,
+		thinkingText: "max",
+	});
 	// 两栏都有值
-	expect(delegateLabel("prov/m1", "max")).toBe("委派 · m1 / max");
+	expect(delegateEcho("prov/m1", "max")).toEqual({
+		collapsed: false,
+		modelText: "m1",
+		thinkingText: "max",
+	});
 });
 
 test("loadSession 读旧记录（无 delegate 字段）→ delegate 字段为 undefined（跟随）", async () => {
@@ -123,7 +147,7 @@ test("clearStaleModels：悬空 delegateModel 清 null、delegateThinking 不动
 	expect(rec?.model).toBe("prov/m1");
 });
 
-// ---- null 特判回归（审查修复）：normalizeThinkingLevel(null) 会兕底成 "default"，
+// ---- null 特判回归（审查修复）：normalizeThinkingLevel(null) 会兜底成 "default"，
 // 而 loadSession 落盘缺省形状就是 delegateThinking: null——读回时必须保持「跟随」，
 // 不得被归一成显式档位并二次落盘固化。fresh 与 existing 两分支分别覆盖 ----
 test("loadSession 读持久层 delegateThinking: null（fresh 分支）→ 保持跟随，不归一成显式 default", async () => {

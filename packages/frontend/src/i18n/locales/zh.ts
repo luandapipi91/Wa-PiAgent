@@ -448,6 +448,9 @@ const zh = {
 		},
 		delegateSelector: {
 			followMain: "跟随主代理",
+			followShort: "跟随",
+			echoCollapsed: "委派 · {{follow}}",
+			echoSplit: "委派 · {{model}} / {{thinking}}",
 			columnModel: "模型",
 			columnThinking: "思考强度",
 			ariaLabel: "委派设置",

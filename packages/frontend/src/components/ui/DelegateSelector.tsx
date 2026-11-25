@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ThinkingLevel } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
-import { delegateLabel } from "../../store/composer-prefs";
+import { delegateEcho } from "../../store/composer-prefs";
 import { Icon } from "./Icon";
 
 export interface DelegateSelectorProps {
@@ -23,8 +23,9 @@ const THINKING_LEVELS: ThinkingLevel[] = ["default", "disabled", "high", "max"];
 /**
  * 会话级委派设置（自绘按钮 + 双栏面板）。
  *
- * 按钮文案复用 store 的 delegateLabel（「委派 · 跟随」/「委派 · m1 / max」），
- * 手动委派态整体品牌绿（对齐原型 .wa-pi/delegate-setting-ui-poc.html 方案 A）。
+ * 按钮文案由 store 的 delegateEcho 给出结构化回显（两栏缺省合并/短名）+ 组件层
+ * i18n 措辞（zh「委派 · 跟随」/ en "Delegate · Follow"），手动委派态整体品牌绿
+ * （对齐原型 .wa-pi/delegate-setting-ui-poc.html 方案 A）。
  *
  * 面板经 createPortal 挂到 body（fixed z-50）：父容器是 overflow-hidden，
  * 绝对定位会被裁剪，必须逃逸到视口坐标；底部空间不足向上翻转、水平视口钳制
@@ -95,9 +96,24 @@ export function DelegateSelector({
 		return () => window.removeEventListener("scroll", onScroll, true);
 	}, [open]);
 
-	// 手动委派态（任一栏非「跟随」）：按钮整体品牌绿标识
+	// 手动委派态（任一栏非「跟随」）：按钮整体品牌绿标识；open 时叠加 hover 背景
+	// （与未委派 open 分支一致）。四个分支单一条件表达式，避免分支内外重复拼接。
 	const delegated = !!(model || thinking);
-	const label = delegateLabel(model, thinking);
+	const echo = delegateEcho(model, thinking);
+	const followText = t("ui.delegateSelector.followShort");
+	const label = echo.collapsed
+		? t("ui.delegateSelector.echoCollapsed", { follow: followText })
+		: t("ui.delegateSelector.echoSplit", {
+				model: echo.modelText ?? followText,
+				thinking: echo.thinkingText ?? followText,
+			});
+	const buttonTone = delegated
+		? open
+			? "text-brand bg-surface-hover"
+			: "text-brand"
+		: open
+			? "text-primary bg-surface-hover"
+			: "text-secondary hover:text-primary";
 
 	const pick = (patch: {
 		model?: string | null;
@@ -115,13 +131,7 @@ export function DelegateSelector({
 				data-testid="delegate-selector"
 				onClick={() => setOpen((o) => !o)}
 				disabled={disabled}
-				className={`inline-flex items-center gap-1 rounded-sm px-1 -mx-1 text-xs whitespace-nowrap cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-					delegated
-						? "text-brand"
-						: open
-							? "text-primary bg-surface-hover"
-							: "text-secondary hover:text-primary"
-				} ${open ? "bg-surface-hover" : ""}`}
+				className={`inline-flex items-center gap-1 rounded-sm px-1 -mx-1 text-xs whitespace-nowrap cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${buttonTone}`}
 				aria-label={t("ui.delegateSelector.ariaLabel")}
 			>
 				<span className="truncate">{label}</span>

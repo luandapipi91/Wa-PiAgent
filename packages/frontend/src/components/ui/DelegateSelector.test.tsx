@@ -1,11 +1,10 @@
 // DelegateSelector 组件测试：断言行为（展开/选择/收起/回显），不断言定位
 // （happy-dom 无布局引擎，getBoundingClientRect 全 0，组件在测试环境跳过定位）。
-// 面板文案 i18n 锁 zh（.env.test 的 WA_PI_LANG）。
+// 面板文案与按钮回显 i18n 锁 zh（.env.test 的 WA_PI_LANG），文案断言直接锁 zh 措辞。
 import { test, expect, mock, afterEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 import { DelegateSelector } from "./DelegateSelector";
-import { delegateLabel } from "../../store/composer-prefs";
 
 const MODELS = [
 	{ id: "prov/m1", label: "Provider m1" },
@@ -38,11 +37,11 @@ function renderSelector(
 	return { onChange, ...utils };
 }
 
-test("默认（未设置委派）按钮文案为 delegateLabel 输出「委派 · 跟随」", () => {
+test("默认（未设置委派）按钮文案为「委派 · 跟随」", () => {
 	renderSelector();
-	const expected = delegateLabel(undefined, undefined);
-	expect(expected).toBe("委派 · 跟随");
-	expect(screen.getByTestId("delegate-selector").textContent).toBe(expected);
+	expect(screen.getByTestId("delegate-selector").textContent).toBe(
+		"委派 · 跟随",
+	);
 });
 
 test("点击展开：出现模型/思考强度两栏，各栏首项「跟随主代理」，思考栏四档", () => {
@@ -89,9 +88,9 @@ test("点思考某档 → onChange 收到单字段 patch { thinking } 且面板�
 
 test("已设置 model/thinking 时按钮回显「委派 · m1 / max」", () => {
 	renderSelector({ model: "prov/m1", thinking: "max" });
-	const expected = delegateLabel("prov/m1", "max");
-	expect(expected).toBe("委派 · m1 / max");
-	expect(screen.getByTestId("delegate-selector").textContent).toBe(expected);
+	expect(screen.getByTestId("delegate-selector").textContent).toBe(
+		"委派 · m1 / max",
+	);
 });
 
 test("点面板外区域 → 面板收起", () => {

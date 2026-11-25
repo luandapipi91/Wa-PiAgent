@@ -80,18 +80,34 @@ export function thinkingForModel(
 	return thinkingByModel?.[model] ?? "default";
 }
 
+/** 委派回显的结构化形态：不含文案，展示层（DelegateSelector）按 locale 组装措辞 */
+export interface DelegateEcho {
+	/** 两栏全部缺省 → 合并单段形态（如「委派 · 跟随」）；否则为两段形态 */
+	collapsed: boolean;
+	/** 模型栏回显文本；null = 缺省（跟随）。有值时为 modelId 短名（会话存
+	 *  "providerSlug/modelId" 全名，展示层只留短名） */
+	modelText: string | null;
+	/** 思考栏回显文本；null = 缺省（跟随） */
+	thinkingText: string | null;
+}
+
 /**
- * 委派状态的回显文案：两栏（委派模型 / 委派思考）各自缺省时显示「跟随」，
- * 两栏全部缺省时合并显示「委派 · 跟随」。modelId 短名取 "/" 后段
- * （会话存储的是 "providerSlug/modelId" 全名，展示层只留短名）。
+ * 委派状态的结构化回显：两栏（委派模型 / 委派思考）各自缺省时对应栏为 null
+ * （展示层显示「跟随」），两栏全部缺省时 collapsed=true。刻意不在这层拼文案——
+ * 措辞（zh/en）由组件用 i18n 组装，这里只算短名与缺省合并判定。
  */
-export function delegateLabel(
+export function delegateEcho(
 	model?: string | null,
 	thinking?: ThinkingLevel | null,
-): string {
+): DelegateEcho {
 	const modelId = model ? (model.split("/").pop() ?? "") : "";
-	if (!modelId && !thinking) return "委派 · 跟随";
-	return `委派 · ${modelId || "跟随"} / ${thinking || "跟随"}`;
+	if (!modelId && !thinking)
+		return { collapsed: true, modelText: null, thinkingText: null };
+	return {
+		collapsed: false,
+		modelText: modelId || null,
+		thinkingText: thinking ?? null,
+	};
 }
 
 /**
