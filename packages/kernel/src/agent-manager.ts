@@ -1123,16 +1123,23 @@ export class AgentManager {
 						);
 						model = null;
 					}
+					// 取值优先级链抽纯函数（规格 §6.3）：delegate（会话级委派覆盖）→ override → current → null
+					const session = this.sessions.get(sessionId);
+					const targets = resolveSpawnTargets({
+						isNamedAgent: false,
+						override: { model, thinking: override?.thinking ?? null },
+						currentModel: session?.currentModel ?? null,
+						currentThinking: session?.currentThinking ?? null,
+						delegateModel: session?.currentDelegateModel ?? null,
+						delegateThinking: session?.currentDelegateThinking ?? null,
+					});
 					return {
 						name: builtin.name,
 						description: builtin.description,
 						systemPrompt: prompt,
 						// 跟随主模型：无 override 时用主会话当前模型（prompt 时记录到 handle.currentModel）
-						model: model ?? this.sessions.get(sessionId)?.currentModel ?? null,
-						thinking:
-							override?.thinking ??
-							this.sessions.get(sessionId)?.currentThinking ??
-							null,
+						model: targets.model,
+						thinking: targets.thinking,
 						// 内置只读类型白名单并入 MCP 服务器通配模式：子代理是独立 pi 进程，MCP 工具由
 						// 子进程内的 pi 内置扩展（builtin:mcp，默认加载）自行注册，注册出的
 						// 名字恒为 mcp__<server>__<tool>（规格 F4）；白名单不放行则加载了也看不见。
@@ -1160,13 +1167,24 @@ export class AgentManager {
 				);
 				cfgModel = null;
 			}
+			// 取值优先级链抽纯函数（规格 §6.3）：delegate → cfg → currentModel；
+			// thinking 不回退 currentThinking（resolveSpawnTargets 命名分支钉住）
+			const session = this.sessions.get(sessionId);
+			const targets = resolveSpawnTargets({
+				isNamedAgent: true,
+				agentConfig: { model: cfgModel, thinking: cfg.thinking ?? null },
+				currentModel: session?.currentModel ?? null,
+				currentThinking: session?.currentThinking ?? null,
+				delegateModel: session?.currentDelegateModel ?? null,
+				delegateThinking: session?.currentDelegateThinking ?? null,
+			});
 			return {
 				name: cfg.displayName,
 				description: cfg.description,
 				systemPrompt: cfg.systemPromptBody ?? "",
 				// 跟随主模型：agent 未单独配置时用主会话当前模型
-				model: cfgModel ?? this.sessions.get(sessionId)?.currentModel ?? null,
-				thinking: cfg.thinking,
+				model: targets.model,
+				thinking: targets.thinking,
 				// 原始设计：命名智能体按「智能体设置-工具」勾选集透传放行——勾选即放行；
 				// 未勾选（空数组）= 不传 --tools 全放行。不自动并入 MCP 工具名：需要
 				// MCP 工具可直接勾选，或不勾选走全放行（内置只读类型除外，见上）。
@@ -3164,6 +3182,48 @@ export class AgentManager {
 		}
 		throw new KernelError("model.parseFailed", { pattern });
 	}
+}
+
+/**
+ * spawn 取值优先级链（规格 §6.3）：决定委派 spawn 子代理时使用的 model/thinking。
+ * 会话级委派覆盖（delegateModel/delegateThinking）有值时最高优先；null=跟随
+ * （未设置/显式重置，任务 1 的 prompt 写入路径保证句柄上只有 null 或具体值）。
+ * - 内置 subagent：model/thinking 依次 delegate → override → current → null；
+ * - 命名 agent：model 走 delegate → agentConfig.model → currentModel → null；
+ *   thinking 只走 delegate → agentConfig.thinking → null（不回退 currentThinking，
+ *   与改造前 cfg.thinking 单值行为一致，见规格 §6.3 行为变更标注）。
+ * 调用级 tasks[].thinking 在 makeSpawnFn 中最终覆盖，优先级仍高于本函数结果。
+ */
+export function resolveSpawnTargets(input: {
+	isNamedAgent: boolean;
+	override?: { model?: string | null; thinking?: ThinkingLevel | null } | null; // subagent-overrides.json
+	agentConfig?: { model?: string | null; thinking?: ThinkingLevel | null } | null; // 命名 agent frontmatter
+	currentModel: string | null;
+	currentThinking: ThinkingLevel | null;
+	delegateModel: string | null; // 会话级委派覆盖，null=跟随
+	delegateThinking: ThinkingLevel | null;
+}): { model: string | null; thinking: ThinkingLevel | null } {
+	const {
+		isNamedAgent,
+		override,
+		agentConfig,
+		currentModel,
+		currentThinking,
+		delegateModel,
+		delegateThinking,
+	} = input;
+	if (isNamedAgent) {
+		// 命名 agent：thinking 不回退 currentThinking（钉住现状，不回归）
+		return {
+			model: delegateModel ?? agentConfig?.model ?? currentModel ?? null,
+			thinking: delegateThinking ?? agentConfig?.thinking ?? null,
+		};
+	}
+	// 内置 subagent：无 override 时跟随主会话当前 model/thinking
+	return {
+		model: delegateModel ?? override?.model ?? currentModel ?? null,
+		thinking: delegateThinking ?? override?.thinking ?? currentThinking ?? null,
+	};
 }
 
 /** thinking level 映射：default→medium（交给 pi 的 clampThinkingLevel 按模型能力钳制：
