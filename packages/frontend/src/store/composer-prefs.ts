@@ -55,6 +55,10 @@ export interface SessionPrefs {
 	thinking?: ThinkingLevel;
 	attachments: AttachmentDraft[];
 	text?: string; // 未发送的输入框草稿；缺省/空串 = 无草稿
+	// 会话级委派设置（两栏独立）：undefined/null 均表示「跟随」——
+	// delegateModel 不跟随会话主模型自动清理，只由 clearStaleModels 清悬空值
+	delegateModel?: string | null;
+	delegateThinking?: ThinkingLevel | null;
 }
 
 /** 全局默认偏好：模型 + 按模型存思考档（key = "providerSlug/modelId"） */
@@ -74,6 +78,20 @@ export function thinkingForModel(
 ): ThinkingLevel {
 	if (!model) return "default";
 	return thinkingByModel?.[model] ?? "default";
+}
+
+/**
+ * 委派状态的回显文案：两栏（委派模型 / 委派思考）各自缺省时显示「跟随」，
+ * 两栏全部缺省时合并显示「委派 · 跟随」。modelId 短名取 "/" 后段
+ * （会话存储的是 "providerSlug/modelId" 全名，展示层只留短名）。
+ */
+export function delegateLabel(
+	model?: string | null,
+	thinking?: ThinkingLevel | null,
+): string {
+	const modelId = model ? (model.split("/").pop() ?? "") : "";
+	if (!modelId && !thinking) return "委派 · 跟随";
+	return `委派 · ${modelId || "跟随"} / ${thinking || "跟随"}`;
 }
 
 /**
@@ -194,10 +212,26 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					attachments:
 						gap?.attachments ?? stored?.attachments ?? existing.attachments,
 					text: gap?.text ?? stored?.text ?? existing.text,
+					// 委派两栏：与 model 同口径的字段级合并——gap 内显式修改胜出，
+					// 其次以持久层为准（含显式 null = 跟随，不得回退到内存旧值），
+					// 最后才保留内存值。delegateThinking 不参与悬空清理（两栏独立）。
+					delegateModel:
+						gap?.delegateModel !== undefined
+							? gap.delegateModel
+							: stored?.delegateModel !== undefined
+								? stored.delegateModel
+								: existing.delegateModel,
+					delegateThinking:
+						gap?.delegateThinking !== undefined
+							? gap.delegateThinking
+							: stored?.delegateThinking !== undefined
+								? normalizeThinkingLevel(stored.delegateThinking)
+								: existing.delegateThinking,
 				};
 				// gap 写入被守卫拦下未落盘，这里把合并结果统一持久化。
 				// 会话记录的 thinking 字段是结构性必填（ThinkingLevel），会话未显式设置时
 				// 落一个占位值即可——真正的显示值由 resolveThinking() 按模型记录算出。
+				// 委派两栏非必填：缺省时落 null 明确表示「跟随」（也使旧记录升级后有一致形状）。
 				void dbSetSessionPrefs({
 					sessionId,
 					model: merged.model,
@@ -206,6 +240,8 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 						thinkingForModel(merged.model, defaults.thinkingByModel),
 					attachments: merged.attachments,
 					text: merged.text,
+					delegateModel: merged.delegateModel ?? null,
+					delegateThinking: merged.delegateThinking ?? null,
 					updatedAt: Date.now(),
 				});
 				// 保留已有 prefs 的同时，若 defaults 加载延迟则一并更新
@@ -234,6 +270,17 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					: { thinking: normalizeThinkingLevel(stored.thinking) }),
 				attachments: stored?.attachments ?? [],
 				...(stored?.text === undefined ? {} : { text: stored.text }),
+				// 委派两栏：旧记录无这两个字段 → 保持 undefined（跟随）
+				...(stored?.delegateModel === undefined
+					? {}
+					: { delegateModel: stored.delegateModel }),
+				...(stored?.delegateThinking === undefined
+					? {}
+					: {
+							delegateThinking: normalizeThinkingLevel(
+								stored.delegateThinking,
+							),
+						}),
 			};
 			const next: Partial<ComposerPrefsState> = {
 				...loaded,
@@ -429,17 +476,31 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 			const nextBySession: Record<string, SessionPrefs> = {};
 			let bySessionChanged = false;
 			for (const [sid, prefs] of Object.entries(s.bySession)) {
-				if (prefs.model != null && !isModelAvailable(prefs.model, providers)) {
+				// 主模型与委派模型各自独立判悬空（delegateModel 不随主模型自动清理，两栏独立）；
+				// delegateThinking 不是模型引用，不参与清理。
+				const staleModel =
+					prefs.model != null && !isModelAvailable(prefs.model, providers);
+				const staleDelegateModel =
+					prefs.delegateModel != null &&
+					!isModelAvailable(prefs.delegateModel, providers);
+				if (staleModel || staleDelegateModel) {
 					bySessionChanged = true;
-					nextBySession[sid] = { ...prefs, model: null };
+					nextBySession[sid] = {
+						...prefs,
+						...(staleModel ? { model: null } : {}),
+						...(staleDelegateModel ? { delegateModel: null } : {}),
+					};
 					if (loadedSessions.has(sid)) {
 						void dbSetSessionPrefs({
 							sessionId: sid,
-							model: null,
+							model: staleModel ? null : prefs.model,
 							// 模型已失效：会话记录落一个占位值，显示值由 resolveThinking 算（模型为 null → default）
 							thinking: prefs.thinking ?? "default",
 							attachments: prefs.attachments,
 							text: prefs.text,
+							// 仅清悬空的委派模型；委派思考原样保留（null = 跟随）
+							delegateModel: staleDelegateModel ? null : (prefs.delegateModel ?? null),
+							delegateThinking: prefs.delegateThinking ?? null,
 							updatedAt: Date.now(),
 						});
 					}

@@ -11,6 +11,9 @@ interface ComposerSessionRecord {
   thinking: ThinkingLevel;
   attachments: AttachmentDraft[];
   text?: string; // 未发送的输入框草稿；缺省/空串 = 无草稿
+  // 会话级委派设置（两栏独立）；undefined/null 均表示「跟随」。旧记录无这两个字段。
+  delegateModel?: string | null;
+  delegateThinking?: ThinkingLevel | null;
   updatedAt: number;
 }
 
