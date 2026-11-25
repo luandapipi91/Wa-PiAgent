@@ -65,7 +65,7 @@ import type {
 	InstructionListResult,
 	MemoryConfigEvent,
 } from "./memory";
-import type { AskReply } from "./ask";
+import type { AskReply, AskStateEntry } from "./ask";
 import type {
 	McpListEvent,
 	McpSaveEvent,
@@ -1436,6 +1436,8 @@ export interface SessionAsksEvent {
 	type: "session:asks";
 	sessionId: string;
 	pending: string[];
+	/** 每个提问的状态（含已答完/已取消的短期终态）：前端据此区分「回执在途」与「重启残留」。 */
+	states?: AskStateEntry[];
 }
 export interface SessionStatsResult {
 	type: "session:stats";

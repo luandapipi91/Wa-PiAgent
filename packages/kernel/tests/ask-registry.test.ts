@@ -174,3 +174,77 @@ test("clearSession 清空会话全部条目（含断开保留的 disconnected）
 	// 清空后 resolve 同 id 是 no-op（断开条目已彻底清空，而非被复用命中）
 	expect(askRegistry.resolve("s1", "tc1", reply)).toBe(false);
 });
+
+// ---- 终态对账（sessionAskStates）：区分「等回答 / 已答完 / 已取消」 ----
+// 背景：/asks 过去只返回 pending 列表，「没有」既可能是"已答完等回执"也可能是"重启残留"，
+// 前端只能一律判失效。已答完但 toolResult 仍被并行工具批次扣住时（可长达数分钟），
+// 用户会看到"我明明答了，界面却说提问已失效且点不动"。
+
+test("sessionAskStates: 答完（resolve）后报 answered，不是查无此问", async () => {
+	const p = askRegistry.ask("s1", "tc1", params, new AbortController().signal);
+	expect(askRegistry.sessionAskStates("s1")).toEqual([
+		{ toolCallId: "tc1", state: "pending" },
+	]);
+	askRegistry.resolve("s1", "tc1", reply);
+	await p;
+	// pending 列表已空（toolResult 将广播）
+	expect(askRegistry.pendingToolCallIds("s1")).toEqual([]);
+	// 但状态必须仍是可区分的终态 answered，前端据此收起卡片而不是提示失效
+	expect(askRegistry.sessionAskStates("s1")).toEqual([
+		{ toolCallId: "tc1", state: "answered" },
+	]);
+});
+
+test("sessionAskStates: 取消（cancel）后报 cancelled", async () => {
+	const p = askRegistry.ask("s1", "tc1", params, new AbortController().signal);
+	askRegistry.cancel("s1", "tc1");
+	await p;
+	expect(askRegistry.sessionAskStates("s1")).toEqual([
+		{ toolCallId: "tc1", state: "cancelled" },
+	]);
+});
+
+test("sessionAskStates: 终态只保留 TTL 窗口，过期后不再返回（避免无界增长）", async () => {
+	const p = askRegistry.ask("s1", "tc1", params, new AbortController().signal);
+	askRegistry.resolve("s1", "tc1", reply);
+	await p;
+	const now = Date.now();
+	expect(askRegistry.sessionAskStates("s1", now + 60_000)).toHaveLength(1);
+	expect(askRegistry.sessionAskStates("s1", now + 11 * 60_000)).toEqual([]);
+});
+
+test("sessionAskStates: 同 toolCallId 重新注册（桥断开重试）→ 终态被清回 pending", async () => {
+	const c1 = new AbortController();
+	const p1 = askRegistry.ask("s1", "tc1", params, c1.signal);
+	c1.abort(); // 断开 → 以 cancelled 解决并留终态
+	await p1;
+	expect(askRegistry.sessionAskStates("s1")).toEqual([
+		{ toolCallId: "tc1", state: "cancelled" },
+	]);
+	// 重试复用同 toolCallId：状态必须回到 pending，否则前端会把仍在等待的提问判成失效
+	askRegistry.ask("s1", "tc1", params, new AbortController().signal);
+	expect(askRegistry.sessionAskStates("s1")).toEqual([
+		{ toolCallId: "tc1", state: "pending" },
+	]);
+});
+
+test("sessionAskStates: 只返回本 session；clearSession 把残留 pending 记为 cancelled", async () => {
+	askRegistry.ask("s1", "a", params, new AbortController().signal);
+	askRegistry.ask("s1", "b", params, new AbortController().signal);
+	askRegistry.ask("s2", "c", params, new AbortController().signal);
+	expect(
+		askRegistry.sessionAskStates("s1").map((e) => e.toolCallId).sort(),
+	).toEqual(["a", "b"]);
+	expect(askRegistry.sessionAskStates("s2")).toEqual([
+		{ toolCallId: "c", state: "pending" },
+	]);
+	// 一轮对话结束清场：被清掉的提问不能"查无此问"，否则前端无法区分重启残留
+	askRegistry.clearSession("s1");
+	expect(askRegistry.sessionAskStates("s1")).toEqual([
+		{ toolCallId: "a", state: "cancelled" },
+		{ toolCallId: "b", state: "cancelled" },
+	]);
+	expect(askRegistry.sessionAskStates("s2")).toEqual([
+		{ toolCallId: "c", state: "pending" },
+	]);
+});

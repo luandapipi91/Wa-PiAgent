@@ -29,6 +29,7 @@ mock.module("../src/api-client", () => ({
 }));
 
 import { AskFormCard } from "../src/components/ask/AskFormCard";
+import { useSessionStore } from "../src/store/session";
 
 // 组件卸载必须清理挂起的计时器（否则提交循环在已卸载组件上继续重试/发请求）。
 // 每个用例结束显式 unmount + 还原真实计时器，避免 fake timers 泄漏到其它用例。
@@ -241,24 +242,56 @@ describe("AskFormCard", () => {
 		expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy();
 	});
 
-	it("提交成功 → 按钮保持“提交中…”（等待 toolResult 关闭卡片）", async () => {
+	it("提交成功 → 进入「已提交，等待回执」态（不再判失效、可重复提交也不能再点）", async () => {
 		render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
 		fireEvent.click(screen.getByText("PostgreSQL"));
 		fireEvent.click(screen.getByRole("button", { name: "提交" }));
 		await new Promise((r) => setTimeout(r, 0));
-		expect(screen.getByRole("button", { name: "提交中…" })).toBeTruthy();
+		expect(screen.getByText("已提交", { exact: false })).toBeTruthy();
+		expect(screen.queryByText("提问已失效", { exact: false })).toBeNull();
+		// 已受理后不再渲染可点的提交按钮，避免重复提交
+		expect(screen.queryByRole("button", { name: "提交" })).toBeNull();
 	});
 
-	it("stale 卡片（后端已无此 ask）→ 显示失效提示且提交禁用（double check）", () => {
+	it("提交成功 → 通知父层复检（AskDock 据此识别 answered，而不是判失效）", async () => {
+		let accepted = 0;
+		render(
+			<AskFormCard
+				sessionId="s1"
+				toolCallId="tc1"
+				params={params}
+				onAccepted={() => {
+					accepted++;
+				}}
+			/>,
+		);
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		});
+		expect(accepted).toBe(1);
+	});
+
+	it("stale 卡片 → 只读终态：不渲染选项与提交（避免看着能点、点了没反应）", () => {
 		render(
 			<AskFormCard sessionId="s1" toolCallId="tc1" params={params} stale />,
 		);
-		fireEvent.click(screen.getByText("PostgreSQL"));
-		const submit = screen.getByRole("button", {
-			name: "提交",
-		}) as HTMLButtonElement;
-		expect(submit.disabled).toBe(true);
+		expect(screen.queryByText("PostgreSQL")).toBeNull();
+		expect(screen.queryByRole("button", { name: "提交" })).toBeNull();
 		expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy();
+		// 终态出口：重新发起（把问题写回输入框）+ 关闭
+		expect(screen.getByRole("button", { name: "重新发起" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "关闭" })).toBeTruthy();
+	});
+
+	it("stale 卡片点「重新发起」→ 问题原文写回输入框，由用户确认后发送", () => {
+		render(
+			<AskFormCard sessionId="s1" toolCallId="tc1" params={params} stale />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "重新发起" }));
+		const injection =
+			useSessionStore.getState().editorTextInjection["s1"];
+		expect(injection?.text).toContain("数据存储方案?");
 	});
 
 	it("initialSelected：预选中普通选项；提交时带过去", () => {
@@ -290,7 +323,7 @@ describe("AskFormCard", () => {
 	// —— 失效取消：内核 registry 已无此 ask，取消请求是 no-op、也不会有 toolResult，
 	// 只能靠本地关闭把卡片从阻塞中拿出来 ——
 
-	it("stale 卡片点取消 → 直接本地关闭，不发 cancel-ask", () => {
+	it("stale 卡片点「关闭」→ 直接本地关闭，不发 cancel-ask", () => {
 		let dismissed = false;
 		render(
 			<AskFormCard
@@ -301,7 +334,7 @@ describe("AskFormCard", () => {
 				onDismiss={() => (dismissed = true)}
 			/>,
 		);
-		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+		fireEvent.click(screen.getByRole("button", { name: "关闭" }));
 		expect(dismissed).toBe(true);
 		expect(sent).toHaveLength(0);
 	});
@@ -346,7 +379,7 @@ describe("AskFormCard", () => {
 		).toBe(false);
 	});
 
-	it("提交收到 400 后点取消 → 本地关闭（同一张卡片的兜底出口）", async () => {
+	it("提交收到 400（真残留）→ 转只读终态，点「关闭」本地关闭", async () => {
 		postImpl = (path: string) =>
 			path.includes("/answer")
 				? Promise.reject(Object.assign(new Error("stale"), { status: 400 }))
@@ -364,7 +397,7 @@ describe("AskFormCard", () => {
 		fireEvent.click(screen.getByRole("button", { name: "提交" }));
 		await new Promise((r) => setTimeout(r, 0));
 		expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+		fireEvent.click(screen.getByRole("button", { name: "关闭" }));
 		expect(dismissed).toBe(true);
 		// 已失效 → 不再向取消端点发无意义请求
 		expect(sent.filter((s) => s.path.includes("cancel-ask"))).toHaveLength(0);
@@ -433,7 +466,7 @@ describe("AskFormCard 提交超时重试 / 重试耗尽自动取消", () => {
 		expect(cancelCalls()).toHaveLength(0);
 	});
 
-	it("三次尝试全部超时 → 自动 cancel-ask 一次并本地关闭卡片", async () => {
+	it("三次尝试全部超时 → 不自动取消、不关卡片，提示失败并恢复可提交", async () => {
 		postImpl = () => Promise.reject(timeoutErr());
 		let dismissed = false;
 		render(
@@ -448,12 +481,16 @@ describe("AskFormCard 提交超时重试 / 重试耗尽自动取消", () => {
 			fireEvent.click(screen.getByRole("button", { name: "提交" }));
 		});
 		expect(answerCalls()).toHaveLength(3);
-		expect(cancelCalls()).toHaveLength(1);
-		expect(dismissed).toBe(true);
-		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
+		// 旧行为会自动 cancel-ask + 本地关闭，等于替用户丢掉这次提问；改为如实提示失败
+		expect(cancelCalls()).toHaveLength(0);
+		expect(dismissed).toBe(false);
+		expect(screen.getByText("提交失败", { exact: false })).toBeTruthy();
+		expect(
+			(screen.getByRole("button", { name: "提交" }) as HTMLButtonElement).disabled,
+		).toBe(false);
 	});
 
-	it("首次 200 但 2s 内未卸载 → 重试；重试 400 → 本地关闭且不再有第 3 次", async () => {
+	it("首次 200 → 直接进已提交态：不再 2s 后重试、不发 cancel-ask", async () => {
 		let n = 0;
 		postImpl = (path: string) => {
 			if (path.includes("cancel-ask")) return Promise.resolve({});
@@ -474,18 +511,14 @@ describe("AskFormCard 提交超时重试 / 重试耗尽自动取消", () => {
 		});
 		expect(answerCalls()).toHaveLength(1);
 
-		// 等待结果 2s 到期 → 触发重试。先卡边界：1999ms 尚未到期，不该重试
+		// 回执可能被同一批并行工具扣住数分钟：这期间既不能重试也不能判失效
 		await act(async () => {
-			vi.advanceTimersByTime(1999);
+			vi.advanceTimersByTime(5000);
 		});
 		expect(answerCalls()).toHaveLength(1);
-		// 再多走 1ms 恰好到期 → 触发第 2 次尝试
-		await act(async () => {
-			vi.advanceTimersByTime(1);
-		});
-		expect(answerCalls()).toHaveLength(2);
-		expect(dismissed).toBe(true);
 		expect(cancelCalls()).toHaveLength(0);
+		expect(dismissed).toBe(false);
+		expect(screen.getByText("已提交", { exact: false })).toBeTruthy();
 	});
 
 	it("首次 400（真 stale）→ 不重试、只发一次，显示失效文案", async () => {

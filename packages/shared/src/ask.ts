@@ -42,6 +42,15 @@ export interface AskReply {
   }>;
 }
 
+/** 提问在宿主侧的状态：pending=等用户回答；answered/cancelled=已终结（toolResult 可能仍在途）。 */
+export type AskState = "pending" | "answered" | "cancelled";
+
+/** 双检接口 /asks 返回的单项：toolCallId + 宿主侧状态。 */
+export interface AskStateEntry {
+  toolCallId: string;
+  state: AskState;
+}
+
 /** 校验错误码（镜像原包 details.error）。 */
 export type AskErrorCode =
   | "no_questions" | "too_many_questions" | "empty_options" | "too_many_options"

@@ -1,10 +1,9 @@
-// 提问卡片「提交挂住」自动重试 + 重试耗尽自动取消 E2E（第四层）：真实浏览器 + 真实 kernel。
+// 提问卡片「提交挂住」重试语义 E2E（第四层）：真实浏览器 + 真实 kernel。
 //
-// 背景：提交 answer 后按钮长期停在「提交中…」。两种成因——
-//   ① 提交请求本身挂住不返回；
-//   ② 请求已返回 200，但 toolResult 永不到达，父层永不卸载卡片。
-// 修复后：单次请求超时 2s，最多尝试 3 次（首次 + 2 次重试）；重试耗尽则尽力 cancel-ask
-// 后本地关闭卡片，绝不让 submitting 永久为 true。
+// 背景：提交 answer 后按钮长期停在「提交中…」。
+// 修复后：单次请求超时 2s，最多尝试 3 次（首次 + 2 次重试）；耗尽后如实提示失败并恢复
+// 可提交，**不替用户自动取消**（旧实现会 cancel-ask + 本地关闭，等于把用户这次提问丢掉）；
+// 200 受理后进入「已提交，等待回执」，由双检（states=answered）收起卡片。
 //
 // 数据准备复用 ask-stale.spec 模式：projects.json 写会话记录 + /messages 注入未回答的
 // ask toolCall；/asks 拦截为「仍 pending」避免 double check 判失效。
@@ -107,7 +106,7 @@ test.describe.serial("提问卡片提交挂住 → 自动重试 → 自动取消
 		});
 	});
 
-	test("answer 一直不响应 → 首次保持提交中 → 自动重试至耗尽 → cancel-ask + 卡片自动关闭", async ({
+	test("answer 一直不响应 → 首次保持提交中 → 自动重试至耗尽 → 如实提示失败、不发 cancel-ask", async ({
 		page,
 	}) => {
 		seedSession();
@@ -162,13 +161,14 @@ test.describe.serial("提问卡片提交挂住 → 自动重试 → 自动取消
 			.poll(() => answerAttempts, { timeout: 10_000 })
 			.toBeGreaterThanOrEqual(2);
 
-		// 3 次尝试全部超时（约 6s）→ 自动 cancel-ask 一次
+		// 3 次尝试全部超时（约 6s）
 		await expect.poll(() => answerAttempts, { timeout: 12_000 }).toBe(3);
-		await expect
-			.poll(() => cancelRequests, { timeout: 10_000 })
-			.toBeGreaterThanOrEqual(1);
+		// 不自动取消：提问不能被替用户丢掉
+		expect(cancelRequests).toBe(0);
 
-		// 卡片本地关闭（不再永久阻塞输入框）
-		await expect(page.getByTestId(`ask-card-${TOOLCALL_ID}`)).toHaveCount(0);
+		// 卡片仍在，提示失败并恢复可提交（不是永久「提交中…」）
+		await expect(page.getByTestId(`ask-card-${TOOLCALL_ID}`)).toBeVisible();
+		await expect(page.getByText("提交失败", { exact: false })).toBeVisible();
+		await expect(card.getByRole("button", { name: "提交" })).toBeEnabled();
 	});
 });

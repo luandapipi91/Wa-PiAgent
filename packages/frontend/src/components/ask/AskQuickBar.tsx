@@ -13,6 +13,8 @@ interface Props {
 	onSelectedChange?: (sel: Record<number, Set<string>>) => void;
 	/** 本地关闭便签（失效场景：提交/取消都没意义，只能关掉） */
 	onDismiss?: () => void;
+	/** 提交被内核受理（200）：父层据此立即复检，避免把「回执在途」当成失效。 */
+	onAccepted?: () => void;
 }
 
 /** 单行便签（折叠态）：内嵌快捷选项 + 提交 icon。
@@ -26,6 +28,7 @@ export function AskQuickBar({
 	onExpand,
 	onSelectedChange,
 	onDismiss,
+	onAccepted,
 }: Props) {
 	const { t } = useTranslation();
 	const [quickSel, setQuickSel] = useState<Record<number, Set<string>>>({});
@@ -70,7 +73,10 @@ export function AskQuickBar({
 				toolCallId: ask.toolCallId,
 				reply,
 			});
-			// 提交成功：便签保持 pending 直到 toolResult 到达使 pendingAsks 移除它
+			// 提交成功：便签保持 pending 直到 toolResult 到达使 pendingAsks 移除它；
+			// 同时通知父层立即复检（内核已无这个 pending，但这代表“已答完等回执”，
+			// 不是“提问失效”——不能让用户在这一窗口里看到失效文案）。
+			onAccepted?.();
 		} catch (err) {
 			const staleErr = (err as { status?: number })?.status === 400;
 			setSubmitting(false);

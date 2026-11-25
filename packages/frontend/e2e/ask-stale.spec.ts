@@ -143,7 +143,7 @@ test.describe.serial("提问卡片失效判定", () => {
 		await expect(page.getByRole("button", { name: "提交" })).toBeEnabled();
 	});
 
-	test("后端持续无注册 → 宽限复查后显示已失效且提交禁用", async ({ page }) => {
+	test("后端持续无注册 → 宽限复查后转只读终态（不再渲染可点表单）", async ({ page }) => {
 		seedSession();
 		await injectAskMessage(page);
 		// 不拦截 /asks：真实 kernel 的 AskRegistry 无此条目（模拟已取消/重启残留）
@@ -153,12 +153,38 @@ test.describe.serial("提问卡片失效判定", () => {
 		await expect(
 			page.getByText("提问已失效", { exact: false }),
 		).toBeVisible({ timeout: 5_000 });
-		// 选选项后提交仍禁用
-		await page.getByRole("button", { name: /PostgreSQL/ }).click();
-		await expect(page.getByRole("button", { name: "提交" })).toBeDisabled();
+		// 只读终态：选项与提交都不再渲染（避免"看着能点、点了没反应"）
+		await expect(page.getByRole("button", { name: /PostgreSQL/ })).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "提交" })).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "重新发起" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "关闭" })).toBeVisible();
 	});
 
-	test("失效卡片点「取消」→ 卡片关闭、输入框解锁（不再永久阻塞）", async ({ page }) => {
+	test("已答完（states=answered）→ 卡片收起，不提示失效（172s 回执窗口回归）", async ({ page }) => {
+		seedSession();
+		await injectAskMessage(page);
+		// 内核已消费该提问（用户答完），但 toolResult 还压在并行工具批次里没落盘
+		await page.route(`**/api/sessions/${SESSION_ID}/asks`, (route) =>
+			route.fulfill({
+				contentType: "application/json",
+				body: JSON.stringify({
+					type: "session:asks",
+					sessionId: SESSION_ID,
+					pending: [],
+					states: [{ toolCallId: TOOLCALL_ID, state: "answered" }],
+				}),
+			}),
+		);
+
+		await openSession(page);
+		// 卡片自行收起（不显示失效、也不再阻塞输入）
+		await expect(page.getByTestId(`ask-card-${TOOLCALL_ID}`)).toHaveCount(0, {
+			timeout: 5_000,
+		});
+		await expect(page.getByText("提问已失效", { exact: false })).toHaveCount(0);
+	});
+
+	test("失效卡片点「关闭」→ 卡片关闭、输入框解锁（不再永久阻塞）", async ({ page }) => {
 		seedSession();
 		await injectAskMessage(page);
 		// 不拦截 /asks：后端确认无此 ask → 卡片进入失效态
@@ -172,8 +198,8 @@ test.describe.serial("提问卡片失效判定", () => {
 		const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
 		await expect(textbox).toHaveAttribute("contenteditable", "false");
 
-		// 点「取消」：失效卡片本地关闭（旧实现：取消是 no-op，卡片永久驻留、输入框永久锁死）
-		await page.getByRole("button", { name: "取消" }).click();
+		// 点「关闭」：失效卡片本地关闭并持久记住（旧实现：取消是 no-op，卡片永久驻留、输入框永久锁死）
+		await page.getByRole("button", { name: "关闭" }).click();
 		await expect(page.getByTestId(`ask-card-${TOOLCALL_ID}`)).toHaveCount(0);
 		await expect(textbox).toHaveAttribute("contenteditable", "true");
 

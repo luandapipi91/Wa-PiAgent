@@ -1,5 +1,11 @@
-import { describe, expect, it, test } from "bun:test";
-import { buildQuickReply, selectPendingAsks } from "../src/store/ask";
+import { describe, expect, it, test, beforeEach } from "bun:test";
+import {
+  buildQuickReply,
+  classifyAsk,
+  loadDismissedFromStorage,
+  selectPendingAsks,
+  useDismissedAskStore,
+} from "../src/store/ask";
 import type { AskParams, SessionMessage } from "@wa-pi/shared";
 
 function assistantMsg(toolCalls: any[], timestamp = 1): SessionMessage {
@@ -78,5 +84,66 @@ describe("buildQuickReply", () => {
 	it("空选择集 → 返回 null", () => {
 		const reply = buildQuickReply(params2, {});
 		expect(reply).toBeNull();
+	});
+});
+
+// ---- 失效/终结卡片的状态归属：按会话隔离 + 持久化 ----
+// 背景：关闭标记曾是全局集合，而 AskDock 每次 pending 变化都用「当前会话」的列表 prune，
+// 切到别的会话就把刚关闭的标记删掉；messagesBySession 又不随切页清空，
+// 切回来卡片必然复活（用户实测："点取消，切页回来又是这个"）。
+
+describe("失效提问的关闭标记（按会话隔离）", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		useDismissedAskStore.setState({ bySession: {} });
+	});
+
+	it("dismiss 只影响本会话：s1 关闭 tc1，s2 的同一 id 不受影响", () => {
+		useDismissedAskStore.getState().dismiss("s1", "tc1");
+		expect(
+			useDismissedAskStore.getState().isDismissed("s1", "tc1"),
+		).toBe(true);
+		expect(
+			useDismissedAskStore.getState().isDismissed("s2", "tc1"),
+		).toBe(false);
+	});
+
+	it("prune 只清本会话：切到 s2 后 prune 不得误删 s1 的关闭标记（切页复活的回归用例）", () => {
+		useDismissedAskStore.getState().dismiss("s1", "tc1");
+		// 切到 s2（s2 没有任何 pending ask）→ AskDock 用 s2 的列表 prune
+		useDismissedAskStore.getState().prune("s2", []);
+		expect(
+			useDismissedAskStore.getState().isDismissed("s1", "tc1"),
+		).toBe(true);
+	});
+
+	it("prune 清掉本会话里已终结的 id，只保留仍 pending 的", () => {
+		useDismissedAskStore.getState().dismiss("s1", "tc1");
+		useDismissedAskStore.getState().dismiss("s1", "tc2");
+		useDismissedAskStore.getState().prune("s1", ["tc2"]);
+		expect(
+			useDismissedAskStore.getState().isDismissed("s1", "tc1"),
+		).toBe(false);
+		expect(
+			useDismissedAskStore.getState().isDismissed("s1", "tc2"),
+		).toBe(true);
+	});
+
+	it("关闭标记持久化：整页刷新后仍记得（失效卡片不会因 F5 复活）", () => {
+		useDismissedAskStore.getState().dismiss("s1", "tc1");
+		useDismissedAskStore.setState({ bySession: {} }); // 模拟刷新后内存清空
+		loadDismissedFromStorage();
+		expect(
+			useDismissedAskStore.getState().isDismissed("s1", "tc1"),
+		).toBe(true);
+	});
+});
+
+describe("classifyAsk：双检状态 → 卡片该用什么形态", () => {
+	it("pending → 可回答；answered/cancelled → 收起；查无此问 → 失效只读", () => {
+		expect(classifyAsk("pending")).toBe("open");
+		expect(classifyAsk("answered")).toBe("closed");
+		expect(classifyAsk("cancelled")).toBe("closed");
+		expect(classifyAsk(undefined)).toBe("stale");
 	});
 });

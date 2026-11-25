@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentName, AskParams, AskReply } from "@wa-pi/shared";
 import { AGENT_DEFS } from "@wa-pi/shared";
 import { api } from "../../api-client";
+import { useSessionStore } from "../../store/session";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Markdown } from "../blocks/Markdown";
 import { MarkdownLink } from "../blocks/markdown-components";
@@ -20,6 +21,8 @@ interface Props {
 	stale?: boolean;
 	/** 便签快捷选择带入的预选（可选）。缺省行为与原来一致。 */
 	initialSelected?: Record<number, Set<string>>;
+	/** 提交被内核受理（200）：父层据此立即复检，避免把「回执在途」当成失效。 */
+	onAccepted?: () => void;
 	/** 收起弹窗回便签态（仅 UI 折叠，不触发 cancel-ask）。 */
 	onCollapse?: () => void;
 	/** 本地关闭卡片（仅失效场景：内核已无此 ask，取消是 no-op 也不会再有 toolResult）。 */
@@ -44,6 +47,7 @@ export function AskFormCard({
 	initialSelected,
 	onCollapse,
 	onDismiss,
+	onAccepted,
 }: Props) {
 	const [state, setState] = useState<Record<number, QState>>(() => {
 		const init: Record<number, QState> = {};
@@ -62,63 +66,21 @@ export function AskFormCard({
 	const [error, setError] = useState<string | null>(null);
 	// 提交收到 400 = 提问已失效（内核 registry 无此条目）→ 与 stale 同等对待：可本地关闭
 	const [staleError, setStaleError] = useState(false);
+	// 提交被受理但回执（toolResult）尚未到达：不得再判失效（回执可能被并行工具批次扣住数分钟）
+	const [accepted, setAccepted] = useState(false);
+	// 终态：内核查无此问（stale prop 或提交收到 400）→ 只读卡片，不再渲染成可勾选表单
+	const terminal = stale || staleError;
 	const { t } = useTranslation();
 
 	const mountedRef = useRef(true);
-	const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const resultResolveRef = useRef<((o: "timeout" | "unmounted") => void) | null>(
-		null,
-	);
 
-	// 卸载清理：卡片被父层卸载（toolResult 到达＝真成功）后，必须清掉挂起的计时器并唤醒
-	// 正在等待结果的提交循环，否则回调会在已卸载组件上 setState、await 永久悬挂。
+	// 卸载后不再 setState（父层因 toolResult 到达或双检关闭而卸载卡片）
 	useEffect(() => {
 		mountedRef.current = true;
 		return () => {
 			mountedRef.current = false;
-			if (resultTimerRef.current !== null) {
-				clearTimeout(resultTimerRef.current);
-				resultTimerRef.current = null;
-			}
-			resultResolveRef.current?.("unmounted");
-			resultResolveRef.current = null;
 		};
 	}, []);
-
-	// 等待「结果」：toolResult 到达会让父层卸载卡片＝真成功；否则超时＝本次尝试失败。
-	const waitForResult = (ms: number) =>
-		new Promise<"timeout" | "unmounted">((resolve) => {
-			resultResolveRef.current = resolve;
-			resultTimerRef.current = setTimeout(() => {
-				resultTimerRef.current = null;
-				resultResolveRef.current = null;
-				resolve("timeout");
-			}, ms);
-		});
-
-	// 本地关闭卡片；onDismiss 缺失时兜底恢复 UI（绝不允许 submitting 永久为 true）。
-	const dismissLocally = () => {
-		if (onDismiss) {
-			onDismiss();
-			return;
-		}
-		setSubmitting(false);
-		setError(t("ask.errorSubmit"));
-	};
-
-	// 重试耗尽的收尾：尽力通知后端取消（400/超时/网络错误全吞掉），再本地关闭。
-	const cancelAndDismiss = async () => {
-		try {
-			await api.post(
-				`/api/sessions/${encodeURIComponent(sessionId)}/cancel-ask`,
-				{ toolCallId },
-				SUBMIT_TIMEOUT_MS,
-			);
-		} catch {
-			// 兜底取消是 best-effort：失败无关紧要，交给本地关闭兜底
-		}
-		dismissLocally();
-	};
 
 	const patch = (qi: number, fn: (s: QState) => void) =>
 		setState((prev) => {
@@ -163,11 +125,13 @@ export function AskFormCard({
 			: s.selected.size > 0;
 	});
 
-	// 提交 = 最多 3 次尝试的状态机，覆盖两种卡死：① 请求本身挂住不返回；
-	// ② 已返回 200 但 toolResult 永不到达（条目已被消费/连接断开残留）。
-	// 重试期间 submitting 保持 true（按钮一直是「提交中…」）；组件卸载即收手。
+	// 提交 = 「请求送达」为止的状态机。关键区分：
+	// ① 首次就 400 → 内核确实没这个提问（重启残留），卡片转终态只读；
+	// ② 200（或重试期 400 = 上一次其实已送达）→ 已受理：不再重试、不判定失效，
+	//    回执可能被并行工具批次扣住数分钟，交给父层双检（answered→收起）收尾；
+	// ③ 三次都失败（超时/网络/5xx）→ 如实提示失败并恢复可提交，不替用户自动取消。
 	const handleSubmit = async () => {
-		if (!allAnswered || submitting || stale) return;
+		if (!allAnswered || submitting || terminal || accepted) return;
 		setSubmitting(true);
 		setError(null);
 		const reply: AskReply = {
@@ -183,52 +147,41 @@ export function AskFormCard({
 			}),
 		};
 
+		let delivered = false;
 		for (let attempt = 0; attempt < MAX_SUBMIT_ATTEMPTS; attempt++) {
-			// 卸载后立即收手：父层已因 toolResult 卸载卡片＝真成功，不再发请求/不再 setState
 			if (!mountedRef.current) return;
-
-			let posted = false;
 			try {
 				await api.post(
 					`/api/sessions/${encodeURIComponent(sessionId)}/answer`,
 					{ toolCallId, reply },
 					SUBMIT_TIMEOUT_MS,
 				);
-				posted = true;
+				delivered = true;
+				break;
 			} catch (err) {
-				// stale 判断用结构化的 HTTP 400 状态（后端 ask 失效返回 400），
-				// 不依赖错误消息文案，避免 i18n 化后文案判断失效。
-				const isStale = (err as { status?: number })?.status === 400;
-				if (isStale) {
+				// stale 判定用结构化的 HTTP 400（后端 ask 失效返回 400），不依赖文案
+				if ((err as { status?: number })?.status === 400) {
 					if (attempt === 0) {
-						// 首次即 400 = 真失效（内核 registry 无此条目）：沿用既有失效态，不重试
+						if (!mountedRef.current) return;
 						setSubmitting(false);
 						setStaleError(true);
 						setError(t("ask.errorStale"));
 						return;
 					}
-					// 重试时才 400 = 上一次尝试其实已提交成功、提问已被消费 → 本地关闭收尾
-					dismissLocally();
-					return;
+					delivered = true; // 上一次请求其实已送达，提问已被消费
+					break;
 				}
-				// 超时/网络/5xx：本次尝试失败，落到下方按重试额度决定
-			}
-
-			if (posted) {
-				// 请求期间被卸载（父层已收尾）→ 立即收手，不再启动等待结果的计时器
-				if (!mountedRef.current) return;
-				// 200 只代表请求送达，不代表用户看到结果：要等 toolResult 让父层卸载卡片。
-				// 2s 仍挂载说明结果不会来了（条目已被消费/连接断开残留）→ 记为本次失败、进入重试。
-				const outcome = await waitForResult(SUBMIT_TIMEOUT_MS);
-				if (outcome === "unmounted" || !mountedRef.current) return;
-			}
-
-			// 本次尝试失败：还有额度就重试，耗尽则自动取消（cancel-ask + 本地关闭）
-			if (attempt === MAX_SUBMIT_ATTEMPTS - 1) {
-				await cancelAndDismiss();
-				return;
+				// 超时/网络/5xx：还有额度就重试，耗尽后如实报错
 			}
 		}
+		if (!mountedRef.current) return;
+		setSubmitting(false);
+		if (!delivered) {
+			setError(t("ask.errorSubmit"));
+			return;
+		}
+		setAccepted(true);
+		onAccepted?.();
 	};
 
 	// 取消 = 让这个提问不再阻塞用户。
@@ -267,16 +220,104 @@ export function AskFormCard({
 		agent: agentName ?? t("ask.agentFallback"),
 	});
 
+	// 重新发起：把问题原文写回输入框，由用户确认后再发（不代替用户向 agent 发消息）
+	const handleRequeue = () => {
+		const text = t("ask.requeueText", {
+			question: params.questions.map((q) => q.question).join("；"),
+		});
+		useSessionStore.setState((s) => ({
+			editorTextInjection: {
+				...s.editorTextInjection,
+				[sessionId]: { text, ts: Date.now() },
+			},
+		}));
+	};
+
+	const shellClass =
+		"rounded-lg border border-hairline bg-surface shadow-md";
+	const header = (
+		<div className="flex items-center justify-between px-4 py-2 border-b border-hairline">
+			<span className="text-[calc(11.5px*var(--font-scale))] font-semibold text-accent">
+				{title}
+			</span>
+		</div>
+	);
+	const questionLines = params.questions.map((q, qi) => (
+		<div
+			key={qi}
+			className="text-[calc(12.5px*var(--font-scale))] font-semibold text-primary"
+		>
+			Q{params.questions.length > 1 ? qi + 1 : ""} · {q.question}
+		</div>
+	));
+
+	// 终态（内核查无此问：已取消/重启残留）：只读，不再渲染成可勾选表单。
+	// 过去这里仍是一张带提交按钮的表单，提交被禁用，用户体验就是“点了没反应”。
+	if (terminal) {
+		return (
+			<div className={shellClass} data-testid={`ask-card-${toolCallId}`}>
+				{header}
+				<div className="px-4 py-3 space-y-1.5">
+					{questionLines}
+					<span
+						className="block text-[calc(11.5px*var(--font-scale))] text-danger"
+						role="alert"
+						data-testid={`ask-stale-${toolCallId}`}
+					>
+						{t("ask.errorStale")}
+					</span>
+				</div>
+				<div className="flex justify-end gap-2 px-4 py-2 border-t border-hairline">
+					{onCollapse && (
+						<button
+							onClick={onCollapse}
+							className="text-[calc(12px*var(--font-scale))] px-3 py-1 rounded-pill bg-surface-elevated text-secondary border-0 cursor-pointer mr-auto"
+						>
+							{t("ask.collapse")}
+						</button>
+					)}
+					<button
+						onClick={handleRequeue}
+						className="text-[calc(12px*var(--font-scale))] px-3 py-1 rounded-pill border-0 cursor-pointer"
+						style={{ background: "var(--accent)", color: "var(--on-accent)" }}
+					>
+						{t("ask.requeue")}
+					</button>
+					<button
+						onClick={() => onDismiss?.()}
+						className="text-[calc(12px*var(--font-scale))] px-3 py-1 rounded-pill bg-surface-elevated text-secondary border-0 cursor-pointer"
+					>
+						{t("common.close")}
+					</button>
+				</div>
+			</div>
+		);
+	}
+
+	// 已受理：回答已送达宿迁，只等回执（toolResult）。不可重复提交，也绝不提示失效。
+	if (accepted) {
+		return (
+			<div className={shellClass} data-testid={`ask-card-${toolCallId}`}>
+				{header}
+				<div className="px-4 py-3 space-y-1.5">
+					{questionLines}
+					<span
+						className="block text-[calc(11.5px*var(--font-scale))] text-secondary"
+						data-testid={`ask-accepted-${toolCallId}`}
+					>
+						{t("ask.accepted")}
+					</span>
+				</div>
+			</div>
+		);
+	}
+
 	return (
 		<div
 			className="rounded-lg border border-hairline bg-surface shadow-md"
 			data-testid={`ask-card-${toolCallId}`}
 		>
-			<div className="flex items-center justify-between px-4 py-2 border-b border-hairline">
-				<span className="text-[calc(11.5px*var(--font-scale))] font-semibold text-accent">
-					{title}
-				</span>
-			</div>
+			{header}
 			<div className="px-4 py-3 space-y-3 max-h-[50vh] overflow-auto">
 				{params.questions.map((q, qi) => {
 					const s = state[qi];
@@ -375,16 +416,7 @@ export function AskFormCard({
 						{t("ask.collapse")}
 					</button>
 				)}
-				{stale && (
-					<span
-						className="text-[calc(11.5px*var(--font-scale))] text-danger mr-auto"
-						role="alert"
-						data-testid={`ask-stale-${toolCallId}`}
-					>
-						{t("ask.errorStale")}
-					</span>
-				)}
-				{!stale && error && (
+				{error && (
 					<span
 						className="text-[calc(11.5px*var(--font-scale))] text-danger mr-auto"
 						role="alert"

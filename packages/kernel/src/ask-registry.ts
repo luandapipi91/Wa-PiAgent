@@ -11,6 +11,7 @@ import {
 	type AskParams,
 	type AskReply,
 	type AskAnswer,
+	type AskStateEntry,
 } from "@wa-pi/shared";
 
 export interface AskOutcome {
@@ -28,7 +29,16 @@ interface Entry {
 }
 
 export class AskRegistry {
+	/** 终态墓碑 TTL：答完/取消后仍要能被双检认出来「这是已终结，不是重启残留」。
+	 *  取值需覆盖「并行工具批次扣住 toolResult」的最长时长，同时避免无界增长。 */
+	static readonly TERMINAL_TTL_MS = 10 * 60_000;
+
 	private bySession = new Map<string, Map<string, Entry>>();
+	/** 终态墓碑：已 resolve/cancel 的提问短暂保留状态，供前端区分「已答完等回执」与「重启残留」。 */
+	private terminalBySession = new Map<
+		string,
+		Map<string, { state: "answered" | "cancelled"; at: number }>
+	>();
 
 	/**
 	 * 注册一个 pending 提问并返回阻塞 promise。signal abort 时以 cancelled 解决。
@@ -64,6 +74,8 @@ export class AskRegistry {
 			}
 			inner.set(toolCallId, entry);
 		}
+		// 重新进入等待（含桥断开后的重试复用）：清掉旧墓碑，状态回到 pending
+		this.clearTerminal(sessionId, toolCallId);
 		// 先插入 entry 到 map，再检查 signal.aborted：否则预 aborted 时 resolve() 触发的
 		// remove() 是 no-op（entry 尚未插入），会把一个 done:true 的 entry 永久留在 map 里。
 		const promise = new Promise<AskOutcome>((resolve) => {
@@ -71,6 +83,13 @@ export class AskRegistry {
 				if (entry.done) return;
 				entry.done = true;
 				this.remove(sessionId, toolCallId);
+				// 记终态墓碑：此后 pendingToolCallIds 查不到它，但 sessionAskStates 仍能说明
+				// 「已答完 / 已取消」，前端才不会把「回执在路上」误判成「提问失效」。
+				this.recordTerminal(
+					sessionId,
+					toolCallId,
+					o.cancelled ? "cancelled" : "answered",
+				);
 				resolve(o);
 			};
 			entry.onAbort = () => {
@@ -78,6 +97,9 @@ export class AskRegistry {
 				if (entry.done) return;
 				entry.done = true;
 				entry.disconnected = true;
+				// 从工具视角已 cancelled（本次流已结束）：留终态供前端收卡片；
+				// 重试注册时会被 clearTerminal 清回 pending。
+				this.recordTerminal(sessionId, toolCallId, "cancelled");
 				resolve({ cancelled: true });
 			};
 		});
@@ -122,15 +144,33 @@ export class AskRegistry {
 		for (const entry of [...inner.values()]) entry.resolve({ cancelled: true });
 	}
 
+	/** 该 session 的提问状态全貌（pending + 近期终态），供前端核对卡片该渲染成哪种态。 */
+	sessionAskStates(sessionId: string, now: number = Date.now()): AskStateEntry[] {
+		this.pruneTerminals(sessionId, now);
+		const out: AskStateEntry[] = [];
+		for (const [id, entry] of this.bySession.get(sessionId) ?? []) {
+			// 断开保留的条目不再等用户回答（工具已以 cancelled 结束），不能报 pending
+			out.push({ toolCallId: id, state: entry.disconnected ? "cancelled" : "pending" });
+		}
+		const seen = new Set(out.map((e) => e.toolCallId));
+		for (const [id, t] of this.terminalBySession.get(sessionId) ?? []) {
+			if (seen.has(id)) continue; // bySession 里的实时态优先（重试复用/仍在等待）
+			out.push({ toolCallId: id, state: t.state });
+		}
+		return out;
+	}
+
 	/** 清空该 session 全部 ask 条目（含断开保留的 disconnected）。一轮对话结束（agent_settled）用。 */
 	clearSession(sessionId: string): void {
 		const inner = this.bySession.get(sessionId);
 		if (!inner) return;
 		this.bySession.delete(sessionId);
-		for (const entry of inner.values()) {
+		for (const [id, entry] of inner) {
 			entry.onAbort = () => {}; // 解除监听引用
 			if (!entry.done) {
 				entry.done = true;
+				// 未结束的残留：记 cancelled，避免前端把它当「仍可回答」
+				this.recordTerminal(sessionId, id, "cancelled");
 				entry.resolve({ cancelled: true }); // 残留 pending 也一并解决，避免 runAskTool 永久阻塞
 			}
 		}
@@ -142,6 +182,34 @@ export class AskRegistry {
 			for (const e of inner.values()) e.onAbort = () => {}; // 解除监听引用
 		}
 		this.bySession.clear();
+		this.terminalBySession.clear();
+	}
+
+	private recordTerminal(
+		sessionId: string,
+		toolCallId: string,
+		state: "answered" | "cancelled",
+	): void {
+		let inner = this.terminalBySession.get(sessionId);
+		if (!inner) {
+			inner = new Map();
+			this.terminalBySession.set(sessionId, inner);
+		}
+		inner.set(toolCallId, { state, at: Date.now() });
+		this.pruneTerminals(sessionId, Date.now());
+	}
+
+	private clearTerminal(sessionId: string, toolCallId: string): void {
+		this.terminalBySession.get(sessionId)?.delete(toolCallId);
+	}
+
+	private pruneTerminals(sessionId: string, now: number): void {
+		const inner = this.terminalBySession.get(sessionId);
+		if (!inner) return;
+		for (const [id, t] of [...inner]) {
+			if (now - t.at > AskRegistry.TERMINAL_TTL_MS) inner.delete(id);
+		}
+		if (inner.size === 0) this.terminalBySession.delete(sessionId);
 	}
 
 	private remove(sessionId: string, toolCallId: string): void {

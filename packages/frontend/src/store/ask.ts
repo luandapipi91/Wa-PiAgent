@@ -2,7 +2,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import { useSessionStore } from "./session";
-import type { AgentName, AskParams, AskReply, SessionMessage } from "@wa-pi/shared";
+import type { AgentName, AskParams, AskReply, AskState, SessionMessage } from "@wa-pi/shared";
 
 export interface PendingAsk {
   toolCallId: string;
@@ -36,45 +36,102 @@ export function usePendingAsks(sessionId: string): PendingAsk[] {
   return useMemo(() => selectPendingAsks(messages), [messages]);
 }
 
-/** 用户本地关闭的提问 id（toolCallId 全局唯一，不按会话分组）。
- *  失效提问（内核 registry 已无此条目）取消是 no-op、也不会再产生 toolResult，
- *  卡片永远等不到消息流卸载信号；允许用户手动关闭，仅影响前端渲染与阻塞判定，不回写后端。 */
-interface DismissedAskStore {
-  ids: Set<string>;
-  dismiss: (toolCallId: string) => void;
-  /** 回收：只保留仍存在于 pending 列表里的 id（toolResult 到达后自动清理，避免集合无界增长） */
-  prune: (aliveIds: Iterable<string>) => void;
+/** 卡片形态：open=等用户回答；closed=已终结（答完/取消，toolResult 可能尚在途）；stale=内核查无此问（重启残留）。 */
+export type AskVerdict = "open" | "closed" | "stale";
+
+/** 双检状态 → 卡片形态。answered/cancelled 都不算失效——回执可能被并行工具批次扣住数分钟。 */
+export function classifyAsk(state: AskState | undefined): AskVerdict {
+	if (state === "pending") return "open";
+	if (state === "answered" || state === "cancelled") return "closed";
+	return "stale";
 }
 
-export const useDismissedAskStore = create<DismissedAskStore>((set) => ({
-  ids: new Set<string>(),
-  dismiss: (toolCallId) =>
-    set((s) => {
-      if (s.ids.has(toolCallId)) return s;
-      const next = new Set(s.ids);
-      next.add(toolCallId);
-      return { ids: next };
-    }),
-  prune: (aliveIds) =>
-    set((s) => {
-      if (s.ids.size === 0) return s;
-      const alive = new Set(aliveIds);
-      const next = new Set([...s.ids].filter((id) => alive.has(id)));
-      return next.size === s.ids.size ? s : { ids: next };
-    }),
+const DISMISS_STORAGE_KEY = "wa-pi:ask-dismissed";
+/** 单会话最多保留的关闭记录（toolCallId 不会回收，防无界增长） */
+const MAX_DISMISSED_PER_SESSION = 50;
+
+/** 用户本地关闭的提问（失效卡片 / 已终结但回执未到）。
+ *  失效提问取消是 no-op、也不会再产生 toolResult，卡片永远等不到消息流卸载信号，
+ *  所以必须允许本地关闭；标记按会话隔离并持久化，否则切会话/刷新会把关闭记录丢掉、卡片复活。 */
+interface DismissedAskStore {
+	/** sessionId → 已关闭的 toolCallId */
+	bySession: Record<string, string[]>;
+	dismiss: (sessionId: string, toolCallId: string) => void;
+	/** 回收本会话里已不在 pending 的标记（其它会话的记录一律不动） */
+	prune: (sessionId: string, aliveIds: Iterable<string>) => void;
+	isDismissed: (sessionId: string, toolCallId: string) => boolean;
+}
+
+function saveDismissed(bySession: Record<string, string[]>): void {
+	try {
+		localStorage.setItem(DISMISS_STORAGE_KEY, JSON.stringify(bySession));
+	} catch {
+		/* 无 localStorage（隐私模式/非浏览器环境）：静默降级为仅内存 */
+	}
+}
+
+/** 从 localStorage 恢复关闭标记（模块加载时调用一次；刷新后仍生效）。 */
+export function loadDismissedFromStorage(): void {
+	try {
+		const raw = localStorage.getItem(DISMISS_STORAGE_KEY);
+		if (!raw) return;
+		const parsed = JSON.parse(raw) as unknown;
+		if (!parsed || typeof parsed !== "object") return;
+		const bySession: Record<string, string[]> = {};
+		for (const [sid, ids] of Object.entries(parsed as Record<string, unknown>)) {
+			if (!Array.isArray(ids)) continue;
+			const clean = ids.filter((x): x is string => typeof x === "string");
+			if (clean.length > 0) bySession[sid] = clean;
+		}
+		useDismissedAskStore.setState({ bySession });
+	} catch {
+		/* 坏数据当没有：不因缓存损坏而抛错 */
+	}
+}
+
+export const useDismissedAskStore = create<DismissedAskStore>((set, get) => ({
+	bySession: {},
+	dismiss: (sessionId, toolCallId) =>
+		set((s) => {
+			const cur = s.bySession[sessionId] ?? [];
+			if (cur.includes(toolCallId)) return s;
+			const next = {
+				...s.bySession,
+				[sessionId]: [...cur, toolCallId].slice(-MAX_DISMISSED_PER_SESSION),
+			};
+			saveDismissed(next);
+			return { bySession: next };
+		}),
+	prune: (sessionId, aliveIds) =>
+		set((s) => {
+			const cur = s.bySession[sessionId];
+			if (!cur || cur.length === 0) return s;
+			const alive = new Set(aliveIds);
+			const kept = cur.filter((id) => alive.has(id));
+			if (kept.length === cur.length) return s;
+			const next = { ...s.bySession };
+			if (kept.length === 0) delete next[sessionId];
+			else next[sessionId] = kept;
+			saveDismissed(next);
+			return { bySession: next };
+		}),
+	isDismissed: (sessionId, toolCallId) =>
+		(get().bySession[sessionId] ?? []).includes(toolCallId),
 }));
+
+loadDismissedFromStorage();
 
 /** hook：某会话待回答的提问（已本地关闭的不计入）。 */
 export function useVisibleAsks(sessionId: string): PendingAsk[] {
-  const pending = usePendingAsks(sessionId);
-  const dismissed = useDismissedAskStore(s => s.ids);
-  return useMemo(
-    () =>
-      dismissed.size === 0
-        ? pending
-        : pending.filter(a => !dismissed.has(a.toolCallId)),
-    [pending, dismissed],
-  );
+	const pending = usePendingAsks(sessionId);
+	const dismissed = useDismissedAskStore((s) => s.bySession[sessionId]);
+	return useMemo(
+		() =>
+			!dismissed || dismissed.length === 0
+				? pending
+				: pending.filter((a) => !dismissed.includes(a.toolCallId)),
+		[pending, dismissed],
+	);
 }
 
 /** hook：某会话是否处于「等待用户回答」阻塞态（已本地关闭的提问不再阻塞输入）。 */

@@ -89,3 +89,34 @@ test("session:asks 返回该 session 真实 pending toolCallId（double check �
 	res = await server.callApi({ type: "session:asks", sessionId: "s1" } as any);
 	expect((await res.json()).pending).toEqual([]);
 });
+
+test("session:asks 的 states 报出终态：已答完=answered，仍在等=pending（区分「回执在途」与「重启残留」）", async () => {
+	const server = makeStubServer();
+	const p = askRegistry.ask("s1", "tc1", params, new AbortController().signal);
+	askRegistry.ask("s1", "tc2", params, new AbortController().signal);
+
+	let body = await (
+		await server.callApi({ type: "session:asks", sessionId: "s1" } as any)
+	).json();
+	expect(body.pending.sort()).toEqual(["tc1", "tc2"]);
+	expect(
+		[...body.states].sort((a: any, b: any) => a.toolCallId.localeCompare(b.toolCallId)),
+	).toEqual([
+		{ toolCallId: "tc1", state: "pending" },
+		{ toolCallId: "tc2", state: "pending" },
+	]);
+
+	// 用户答完 tc1：pending 里消失，但 states 必须仍说"已答完"
+	askRegistry.resolve("s1", "tc1", reply);
+	await p;
+	body = await (
+		await server.callApi({ type: "session:asks", sessionId: "s1" } as any)
+	).json();
+	expect(body.pending).toEqual(["tc2"]);
+	expect(
+		[...body.states].sort((a: any, b: any) => a.toolCallId.localeCompare(b.toolCallId)),
+	).toEqual([
+		{ toolCallId: "tc1", state: "answered" },
+		{ toolCallId: "tc2", state: "pending" },
+	]);
+});

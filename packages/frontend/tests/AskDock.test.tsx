@@ -6,6 +6,10 @@ import type { AskParams } from "@wa-pi/shared";
 
 // mock api-client：get 返回后端 pending 列表（double check 数据源）
 let pendingIds: string[] = [];
+// 双检状态（P0-1）：缺省由 pendingIds 推导，保留旧用例的写法
+let askStates: Array<{ toolCallId: string; state: "pending" | "answered" | "cancelled" }> | null = null;
+// 提交请求的可注入实现（默认成功；用例可改成立即翻转双检状态）
+let postImpl: (path: string, body?: any) => Promise<any> = async () => ({});
 const getCalls: string[] = [];
 // 竞态模拟：首次核对后才「注册完成」（pendingIds 在第一次调用后翻转）
 let flipAfterFirstCall = false;
@@ -16,9 +20,13 @@ mock.module("../src/api-client", () => ({
 			getCalls.push(path);
 			const pending = [...pendingIds];
 			if (flipAfterFirstCall && getCalls.length === 1) pendingIds = ["tc1"];
-			return Promise.resolve({ pending });
+			return Promise.resolve(
+				askStates
+					? { pending, states: askStates.map((e) => ({ ...e })) }
+					: { pending },
+			);
 		},
-		post: () => Promise.resolve({}),
+		post: (path: string, body?: any) => postImpl(path, body),
 		put: () => Promise.resolve({}),
 		del: () => Promise.resolve({}),
 	},
@@ -102,10 +110,12 @@ describe("AskDock double check", () => {
 	beforeEach(() => {
 		localStorage.clear();
 		useSessionStore.setState({ messagesBySession: {} });
-		useDismissedAskStore.setState({ ids: new Set<string>() });
+		useDismissedAskStore.setState({ bySession: {} });
 		pendingIds = [];
 		getCalls.length = 0;
 		flipAfterFirstCall = false;
+		askStates = null;
+		postImpl = async () => ({});
 	});
 
 	it("渲染时向后端 /asks 核对（double check 请求发出）", async () => {
@@ -130,7 +140,7 @@ describe("AskDock double check", () => {
 		).toBe(false);
 	});
 
-	it("本地有、后端已无的 ask → 宽限复查仍 miss，卡片显示提问已失效且提交禁用", async () => {
+	it("本地有、后端已无的 ask → 宽限复查仍 miss，卡片转只读终态（不再渲染可点表单）", async () => {
 		pendingIds = []; // 后端已无 tc1（已取消/会话切换/重启残留），复查也没有
 		seedPendingAsk("s1");
 		render(<AskDock sessionId="s1" />);
@@ -140,11 +150,10 @@ describe("AskDock double check", () => {
 				expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy(),
 			{ timeout: 3000 },
 		);
-		fireEvent.click(screen.getByText("PostgreSQL"));
-		expect(
-			(screen.getByRole("button", { name: "提交" }) as HTMLButtonElement)
-				.disabled,
-		).toBe(true);
+		// 只读：选项与提交按钮都不再存在，避免"点了没反应"
+		expect(screen.queryByText("PostgreSQL")).toBeNull();
+		expect(screen.queryByRole("button", { name: "提交" })).toBeNull();
+		expect(screen.getByRole("button", { name: "重新发起" })).toBeTruthy();
 	});
 
 	it("首次核对 miss 但宽限复查时已注册 → 不误判失效（消息先于 bridge 注册的竞态防护）", async () => {
@@ -175,10 +184,12 @@ describe("AskDock 失效卡片本地关闭", () => {
 	beforeEach(() => {
 		localStorage.clear();
 		useSessionStore.setState({ messagesBySession: {} });
-		useDismissedAskStore.setState({ ids: new Set<string>() });
+		useDismissedAskStore.setState({ bySession: {} });
 		pendingIds = [];
 		getCalls.length = 0;
 		flipAfterFirstCall = false;
+		askStates = null;
+		postImpl = async () => ({});
 	});
 
 	it("失效卡片点取消 → 卡片消失、输入不再被阻塞", async () => {
@@ -193,7 +204,7 @@ describe("AskDock 失效卡片本地关闭", () => {
 		);
 		expect(result.current).toBe(true);
 
-		fireEvent.click(screen.getByRole("button", { name: "取消" }));
+		fireEvent.click(screen.getByRole("button", { name: "关闭" }));
 
 		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
 		await waitFor(() => expect(result.current).toBe(false));
@@ -208,13 +219,17 @@ describe("AskDock 失效卡片本地关闭", () => {
 				expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy(),
 			{ timeout: 3000 },
 		);
-		fireEvent.click(screen.getByRole("button", { name: "取消" }));
-		expect(useDismissedAskStore.getState().ids.has("tc1")).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+		expect(
+			useDismissedAskStore.getState().isDismissed("s1", "tc1"),
+		).toBe(true);
 
 		// 内核对账/应答落盘 → ask 从 pending 派生中消失 → 关闭标记回收
 		act(() => appendToolResult("s1", "tc1"));
 		await waitFor(() =>
-			expect(useDismissedAskStore.getState().ids.has("tc1")).toBe(false),
+			expect(
+				useDismissedAskStore.getState().isDismissed("s1", "tc1"),
+			).toBe(false),
 		);
 	});
 
@@ -236,10 +251,12 @@ describe("AskDock 折叠便签 + 悬浮展开", () => {
 	beforeEach(() => {
 		localStorage.clear();
 		useSessionStore.setState({ messagesBySession: {} });
-		useDismissedAskStore.setState({ ids: new Set<string>() });
+		useDismissedAskStore.setState({ bySession: {} });
 		pendingIds = ["tc1"];
 		getCalls.length = 0;
 		flipAfterFirstCall = false;
+		askStates = null;
+		postImpl = async () => ({});
 	});
 
 	it("默认展开（无 localStorage 记录）：渲染 AskFormCard 悬浮弹窗", async () => {
@@ -379,5 +396,116 @@ describe("AskDock 折叠便签 + 悬浮展开", () => {
 			(screen.getByRole("button", { name: "提交" }) as HTMLButtonElement)
 				.disabled,
 		).toBe(true);
+	});
+});
+
+// ---- P0-1 回归：答完/取消不是"失效" ----
+// 用户答完后 registry 条目立刻消失，但 toolResult 可能被同一批并行工具扣住数分钟。
+// 过去前端只看 pending → 一律判失效，用户看到"我明明答了，界面说提问已失效且点不动"。
+describe("AskDock 双检状态区分（answered/cancelled ≠ 失效）", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		useSessionStore.setState({ messagesBySession: {} });
+		useDismissedAskStore.setState({ bySession: {} });
+		pendingIds = [];
+		getCalls.length = 0;
+		flipAfterFirstCall = false;
+		askStates = null;
+		postImpl = async () => ({});
+	});
+
+	it("已答完（answered）→ 卡片收起，不提示失效，输入不再被阻塞", async () => {
+		pendingIds = [];
+		askStates = [{ toolCallId: "tc1", state: "answered" }];
+		seedPendingAsk("s1");
+		const { result } = renderHook(() => useIsBlocked("s1"));
+		render(<AskDock sessionId="s1" />);
+		await waitFor(
+			() => expect(screen.queryByTestId("ask-card-tc1")).toBeNull(),
+			{ timeout: 3000 },
+		);
+		expect(screen.queryByText("提问已失效", { exact: false })).toBeNull();
+		await waitFor(() => expect(result.current).toBe(false));
+	});
+
+	it("已取消（cancelled）→ 同样收起，不提示失效", async () => {
+		askStates = [{ toolCallId: "tc1", state: "cancelled" }];
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await waitFor(
+			() => expect(screen.queryByTestId("ask-card-tc1")).toBeNull(),
+			{ timeout: 3000 },
+		);
+		expect(screen.queryByText("提问已失效", { exact: false })).toBeNull();
+	});
+
+	it("查无此问（重启残留）→ 才是失效卡片", async () => {
+		askStates = []; // states 里没有 tc1
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await waitFor(
+			() =>
+				expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy(),
+			{ timeout: 3000 },
+		);
+	});
+
+	it("提交成功后后端转为 answered → 卡片收起（不在 173s 回执窗口里显示失效）", async () => {
+		pendingIds = ["tc1"];
+		askStates = [{ toolCallId: "tc1", state: "pending" }];
+		postImpl = async () => {
+			// 提交被受理后：registry 条目已被消费，回执仍在并行批次里
+			pendingIds = [];
+			askStates = [{ toolCallId: "tc1", state: "answered" }];
+			return {};
+		};
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		fireEvent.click(screen.getByText("PostgreSQL"));
+		fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		// 手动轮询（不用 waitFor：该用例的收尾由 effect 内的异步复检完成，
+		// waitFor 的 act 包装会与它互等）
+		let gone = false;
+		for (let i = 0; i < 60 && !gone; i++) {
+			await new Promise((r) => setTimeout(r, 20));
+			gone = screen.queryByTestId("ask-card-tc1") === null;
+		}
+		expect(gone).toBe(true);
+		expect(screen.queryByText("提问已失效", { exact: false })).toBeNull();
+	});
+});
+
+// ---- P0-3 回归：关掉的卡片切会话回来不能复活 ----
+describe("AskDock 关闭标记跨会话存活", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		useSessionStore.setState({ messagesBySession: {} });
+		useDismissedAskStore.setState({ bySession: {} });
+		pendingIds = [];
+		getCalls.length = 0;
+		flipAfterFirstCall = false;
+		askStates = null;
+		postImpl = async () => ({});
+	});
+
+	it("s1 关掉失效卡片 → 切到 s2 再切回 s1，卡片仍然关着", async () => {
+		seedPendingAsk("s1");
+		const { rerender } = render(<AskDock sessionId="s1" />);
+		await waitFor(
+			() =>
+				expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy(),
+			{ timeout: 3000 },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
+
+		// 切到没有提问的 s2（AskDock 会用 s2 的空列表 prune）
+		rerender(<AskDock sessionId="s2" />);
+		await flush();
+		// 切回 s1
+		rerender(<AskDock sessionId="s1" />);
+		await flush();
+		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
 	});
 });

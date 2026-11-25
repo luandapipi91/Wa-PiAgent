@@ -472,3 +472,41 @@ describe("AskQuickBar", () => {
 		}
 	});
 });
+
+describe("AskQuickBar 提交受理上报", () => {
+	beforeEach(() => {
+		sent.length = 0;
+		postImpl = () => Promise.resolve({});
+	});
+
+	it("提交成功 → 通知父层立即复检（避免回执在途被判成失效）", async () => {
+		let accepted = 0;
+		renderBar({
+			onAccepted: () => {
+				accepted++;
+			},
+		});
+		// 两个问题都选齐才可提交
+		fireEvent.click(screen.getByText("高"));
+		fireEvent.click(screen.getByText("A"));
+		fireEvent.click(screen.getByTestId("ask-quick-submit"));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(accepted).toBe(1);
+	});
+
+	it("提交失败 → 不上报受理", async () => {
+		postImpl = () =>
+			Promise.reject(Object.assign(new Error("boom"), { status: 500 }));
+		let accepted = 0;
+		renderBar({
+			onAccepted: () => {
+				accepted++;
+			},
+		});
+		fireEvent.click(screen.getByText("高"));
+		fireEvent.click(screen.getByText("A"));
+		fireEvent.click(screen.getByTestId("ask-quick-submit"));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(accepted).toBe(0);
+	});
+});

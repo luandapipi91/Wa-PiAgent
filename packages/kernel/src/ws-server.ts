@@ -1571,11 +1571,15 @@ export class WSServer {
 			}
 			case "session:asks": {
 				// ask_user_question double check：返回该 session 当前真实 pending 的
-				// toolCallId 列表。前端用它核对本地消息派生的 ask 卡片是否仍有效。
+				// toolCallId 列表，外加每个提问的状态（pending/answered/cancelled）。
+				// 只给 pending 不够：用户答完后 registry 条目立刻消失，而 toolResult 可能要等
+				// 同一批并行工具全部结束才广播（可长达数分钟），前端会把「回执在路上」误判成
+				// 「提问失效」。states 让前端能区分「已答完」「已取消」与真正的重启残留。
 				reply({
 					type: "session:asks",
 					sessionId: event.sessionId,
 					pending: askRegistry.pendingToolCallIds(event.sessionId),
+					states: askRegistry.sessionAskStates(event.sessionId),
 				});
 				break;
 			}
