@@ -328,6 +328,10 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 						text: payload.text,
 						model: payload.model,
 						thinking: payload.thinking,
+						// 委派两栏随 payload 转发（null=重置跟随）：重发路径与普通发送/新会话
+						// 同语义，漏转发会退化为 undefined、kernel 不变更句柄，重置静默失效
+						delegateModel: payload.delegateModel,
+						delegateThinking: payload.delegateThinking,
 						attachments: payload.attachments,
 					},
 				);

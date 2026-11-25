@@ -1003,6 +1003,134 @@ test("点击「重新发送」→ 原地重试：裁掉失败回合（用户消�
 	expect(s.streamingBySession["s1"]).toBeTruthy();
 });
 
+test("点击「重新发送」→ POST body 转发会话 prefs 的委派两字段（具体值）", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "失败的那条", timestamp: 1 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "⚠️ 模型调用失败" }],
+						model: "system",
+						stopReason: "error",
+						timestamp: 2,
+					},
+				},
+			],
+		},
+		streamingBySession: {},
+	});
+	useProjectsStore.setState({
+		sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev" }] as any,
+	});
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "prov-ds",
+				name: "deepseek",
+				api: "openai-completions",
+				baseUrl: "",
+				apiKey: "",
+				models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096 }],
+			},
+		],
+	});
+	useComposerPrefsStore.setState({
+		bySession: {
+			s1: {
+				model: "deepseek/deepseek-chat",
+				thinking: "high",
+				attachments: [],
+				delegateModel: "prov/d1",
+				delegateThinking: "max",
+			},
+		},
+		defaults: { model: null, thinkingByModel: {} },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	fireEvent.click(screen.getByTestId("resend-s1-1"));
+	const promptReq = apiPostCalls
+		.filter((r) => r.url && r.url.includes("/prompt"))
+		.at(-1);
+	// 会话 prefs 设置过委派值：重发 body 转发具体值（kernel 覆盖句柄记录）
+	expect(promptReq?.body?.delegateModel).toBe("prov/d1");
+	expect(promptReq?.body?.delegateThinking).toBe("max");
+});
+
+test("点击「重新发送」→ 用户改回「跟随」后 body 显式携带 null（重发路径不省略字段）", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "失败的那条", timestamp: 1 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "⚠️ 模型调用失败" }],
+						model: "system",
+						stopReason: "error",
+						timestamp: 2,
+					},
+				},
+			],
+		},
+		streamingBySession: {},
+	});
+	useProjectsStore.setState({
+		sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev" }] as any,
+	});
+	useProvidersStore.setState({
+		providers: [
+			{
+				id: "prov-ds",
+				name: "deepseek",
+				api: "openai-completions",
+				baseUrl: "",
+				apiKey: "",
+				models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096 }],
+			},
+		],
+	});
+	useComposerPrefsStore.setState({
+		bySession: {
+			s1: {
+				model: "deepseek/deepseek-chat",
+				thinking: "high",
+				attachments: [],
+				// 用户已把委派两栏改回「跟随」（显式 null）
+				delegateModel: null,
+				delegateThinking: null,
+			},
+		},
+		defaults: { model: null, thinkingByModel: {} },
+	});
+	render(
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	fireEvent.click(screen.getByTestId("resend-s1-1"));
+	const promptReq = apiPostCalls
+		.filter((r) => r.url && r.url.includes("/prompt"))
+		.at(-1);
+	// null=重置 kernel 句柄为跟随：body 必须携带显式 null（省略=undefined 会让
+	// kernel 不变更句柄旧值，「改回跟随」静默失效）
+	expect(promptReq?.body?.delegateModel).toBeNull();
+	expect(promptReq?.body?.delegateThinking).toBeNull();
+});
+
 // 事故：多轮会话里点「重新发送」，此前几轮历史消息整段消失，切走会话再切回才恢复。
 // 根因：resend 传的是渲染行下标（toolResult 折进上一行、同回合多 assistant 合并成一行，
 // 行数远少于消息数），被 truncate 当成 messages 下标切片 → 过量裁剪。

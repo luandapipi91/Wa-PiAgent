@@ -219,7 +219,8 @@ export function NewSessionPane({
 	// 会话级委派设置（本地两栏独立，初始 null=跟随；随发送请求体显式携带——
 	// 新会话创建后落到 finalId 的会话级 prefs，后续发送由会话 prefs 接管）
 	const [delegateModel, setDelegateModel] = useState<string | null>(null);
-	const [delegateThinking, setDelegateThinking] = useState<ThinkingLevel | null>(null);
+	const [delegateThinking, setDelegateThinking] =
+		useState<ThinkingLevel | null>(null);
 	const providers = useProvidersStore((s) => s.providers);
 	const prefs = useComposerPrefsStore((s) => s.bySession[sessionId]);
 	const attachments = prefs?.attachments ?? [];
