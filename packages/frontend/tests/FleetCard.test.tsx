@@ -62,10 +62,11 @@ function assistantMsg(
 	};
 }
 
-test("DelegateCard 完成（非流式）：默认折叠，头部显示「并行派发 N 个任务」，且 data-muted=true", () => {
+test("DelegateCard 完成（非流式）：默认折叠，头部显示「多智能体执行 N 个任务」，且 data-muted=true", () => {
 	render(<DelegateCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />);
 	const header = screen.getByTestId("fleet-f1-header");
-	expect(header.textContent).toContain("并行派发 2 个任务");
+	// 两个不同 agent 的新多智能体标题格式（2026-11-25）
+	expect(header.textContent).toContain("代码审查等 2 名智能体执行 2 个任务");
 	expect(screen.queryByTestId("fleet-f1-body")).toBeNull();
 	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBe("true");
 });

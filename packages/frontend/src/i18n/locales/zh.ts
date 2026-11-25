@@ -261,6 +261,9 @@ const zh = {
 		},
 		fleet: {
 			title: "并行派发 {{count}} 个任务",
+			// 多智能体标题：显示首个智能体名 + 去重智能体数 + 任务总数（2026-11-25 新格式）
+			titleMultiAgent:
+				"{{agent}}等 {{agents}} 名智能体执行 {{count}} 个任务",
 			metaRunning: "执行中",
 			metaFailed: "失败",
 			taskPrefix: "任务 {{index}}：",

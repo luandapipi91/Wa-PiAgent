@@ -516,11 +516,25 @@ export const DelegateCard = memo(function DelegateCard({
 		? !hasProgress || progressExpanded
 		: !!progress?.output;
 
-	// 标题：多任务（新 delegate 多任务 / 旧 fleet）显示「并行派发 N 个任务」，
+	// 标题：多任务（新 delegate 多任务 / 旧 fleet）显示「{首个智能体}等 N 名智能体执行 M 个任务」，
 	// 单任务显示「委派给 {agent}」——新数据的 agent 名来自 details.subagents / tasks 入参。
+	// fleetTitle 需含 tasks.length > 1：执行中时 details 尚未返回、subagentCount=0，
+	// 若只按 subagentCount 判定会把多任务误判成单任务标题（2026-11-25 修复）。
 	const fleetTitle =
-		toolCall.name === "fleet" || legacyFleet != null || subagentCount > 1;
+		toolCall.name === "fleet" || legacyFleet != null || subagentCount > 1 || tasks.length > 1;
 	const titleCount = subagentCount > 0 ? subagentCount : tasks.length;
+	// 去重智能体名集合：完成态以 details.subagents 为权威；执行中/无 details 时从 tasks 兜底。
+	// 为空（极老 fleet 数据无 agent 名）时回退「并行派发 N 个任务」文案。
+	const titleAgents = new Set<string>();
+	for (const s of subagents ?? []) {
+		if (s.agent) titleAgents.add(s.agent);
+	}
+	if (titleAgents.size === 0) {
+		for (const task of tasks) {
+			if (task?.agent) titleAgents.add(task.agent);
+		}
+	}
+	const titleAgentList = Array.from(titleAgents);
 	const titleAgent =
 		subagents?.[0]?.agent ??
 		tasks[0]?.agent ??
@@ -535,9 +549,20 @@ export const DelegateCard = memo(function DelegateCard({
 				tone="warning"
 				icon={<Icon name="reply" />}
 				title={
-					fleetTitle
-						? t("blocks.fleet.title", { count: titleCount })
-						: t("blocks.delegate.title", { agent: titleAgent })
+					fleetTitle ? (
+						// 仅去重智能体数 > 1 才用多智能体文案：=1 会渲染出「X等 1 名智能体」
+						//（语义不通，且单 agent 的 fleet 拒绝/老数据路径行为不得变化）；
+						// =0（极老 fleet 无 agent 名）同样回落旧文案。
+						titleAgentList.length > 1
+							? t("blocks.fleet.titleMultiAgent", {
+									agent: titleAgentList[0],
+									agents: titleAgentList.length,
+									count: titleCount,
+								})
+							: t("blocks.fleet.title", { count: titleCount })
+					) : (
+						t("blocks.delegate.title", { agent: titleAgent })
+					)
 				}
 				meta={
 					!result ? (

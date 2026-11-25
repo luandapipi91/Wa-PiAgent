@@ -250,7 +250,8 @@ test("旧 fleet 数据（details.fleet）：按序号配对 tasks 渲染且无�
 		/>,
 	);
 	fireEvent.click(screen.getByTestId("fleet-call_3-header"));
-	expect(screen.getByText(/Explore/)).toBeTruthy();
+	// 旧 fleet 数据无 subagents、但从 tasks 入参能取到 agent 名：标题用新多智能体格式
+	expect(screen.getByText(/Explore等 2 名智能体执行 2 个任务/)).toBeTruthy();
 	// 序号 0 有持久化统计、序号 1 走「已完成 · 点击查看回复」降级口径
 	expect(screen.getByText(/任务 1：已完成 调用了 2 个工具 成功 2 失败 0 执行中 0/)).toBeTruthy();
 	expect(screen.getByText(/任务 2：已完成 · 点击查看回复/)).toBeTruthy();

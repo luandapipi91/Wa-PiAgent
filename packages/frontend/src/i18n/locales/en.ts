@@ -273,6 +273,9 @@ const en = {
 		},
 		fleet: {
 			title: "Parallel dispatch {{count}} task(s)",
+			// Multi-agent title: lead agent name + deduped agent count + task total (2026-11-25 new format)
+			titleMultiAgent:
+				"{{agent}} and {{agents}} other agents running {{count}} task(s)",
 			metaRunning: "Running",
 			metaFailed: "Failed",
 			taskPrefix: "Task {{index}}: ",
