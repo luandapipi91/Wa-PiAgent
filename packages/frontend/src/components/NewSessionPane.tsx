@@ -216,11 +216,14 @@ export function NewSessionPane({
 	const [thinking, setThinking] = useState<ThinkingLevel>(
 		resolveThinking(defaults.model, undefined, defaults.thinkingByModel),
 	);
-	// 会话级委派设置（本地两栏独立，初始 null=跟随；随发送请求体显式携带——
-	// 新会话创建后落到 finalId 的会话级 prefs，后续发送由会话 prefs 接管）
-	const [delegateModel, setDelegateModel] = useState<string | null>(null);
+	// 会话级委派设置（本地两栏独立；随发送请求体显式携带——
+	// 新会话创建后落到 finalId 的会话级 prefs，后续发送由会话 prefs 接管）。
+	// 初始值从全局 defaults 读「最后一次手动选择」，新会话自动带上次选择；缺省 null=跟随
+	const [delegateModel, setDelegateModel] = useState<string | null>(
+		defaults.delegateModel ?? null,
+	);
 	const [delegateThinking, setDelegateThinking] =
-		useState<ThinkingLevel | null>(null);
+		useState<ThinkingLevel | null>(defaults.delegateThinking ?? null);
 	const providers = useProvidersStore((s) => s.providers);
 	const prefs = useComposerPrefsStore((s) => s.bySession[sessionId]);
 	const attachments = prefs?.attachments ?? [];
@@ -292,7 +295,16 @@ export function NewSessionPane({
 		setThinking(
 			resolveThinking(defaults.model, undefined, defaults.thinkingByModel),
 		);
-	}, [defaults.model, defaults.thinkingByModel]);
+		// 委派两栏同口径：defaults 异步加载（loadDefaults）晚到时把最后一次手动选择
+		// 刷进本地初始值（与 model/thinking 的同步时序一致）
+		setDelegateModel(defaults.delegateModel ?? null);
+		setDelegateThinking(defaults.delegateThinking ?? null);
+	}, [
+		defaults.model,
+		defaults.thinkingByModel,
+		defaults.delegateModel,
+		defaults.delegateThinking,
+	]);
 
 	const handleSend = () => {
 		// model 必须是当前 providers 中真实存在的模型（prefs 可能残留已删除 provider 的过期 model）

@@ -92,9 +92,14 @@ describe("composer-db", () => {
     expect(defs.thinkingByModel["claude-sonnet"]).toBe("high");
   });
 
-  it("无记录时兜底为空模型 + 空模型表", async () => {
+  it("无记录时兜底为空模型 + 空模型表 + 委派两栏 null（跟随）", async () => {
     const defs = await getDefaults();
-    expect(defs).toEqual({ model: null, thinkingByModel: {} });
+    expect(defs).toEqual({
+      model: null,
+      thinkingByModel: {},
+      delegateModel: null,
+      delegateThinking: null,
+    });
   });
 
   it("兼容旧结构 { model, thinking }：不崩且忽略旧 thinking", async () => {
@@ -118,6 +123,30 @@ describe("composer-db", () => {
     const defs = await getDefaults();
     expect(defs.thinkingByModel["p/m1"]).toBe("default");
     expect(defs.thinkingByModel["p/m2"]).toBe("high");
+  });
+
+  // 委派接入全局默认层：旧持久化结构无 delegate 字段，读取时归一为 null（跟随），不报错
+  it("旧结构无 delegate 字段 → getDefaults 返回 delegate 两字段 null（跟随）", async () => {
+    localStorage.setItem(
+      "wa-pi:composer-defaults",
+      JSON.stringify({ model: "old/m1", thinkingByModel: { "old/m1": "high" } }),
+    );
+    const defs = await getDefaults();
+    expect(defs.model).toBe("old/m1");
+    expect(defs.delegateModel).toBe(null);
+    expect(defs.delegateThinking).toBe(null);
+  });
+
+  it("setDefaults 落盘委派两字段 → getDefaults 读回一致", async () => {
+    await setDefaults({
+      model: "p/m1",
+      thinkingByModel: {},
+      delegateModel: "p/m2",
+      delegateThinking: "max",
+    });
+    const defs = await getDefaults();
+    expect(defs.delegateModel).toBe("p/m2");
+    expect(defs.delegateThinking).toBe("max");
   });
 
 });

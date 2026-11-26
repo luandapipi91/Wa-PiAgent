@@ -10,6 +10,8 @@ const idbWrites: any[] = [];
 let defaultsStore: {
 	model: string | null;
 	thinkingByModel: Record<string, string>;
+	delegateModel?: string | null;
+	delegateThinking?: string | null;
 } = {
 	model: "global/default-model",
 	thinkingByModel: {},
@@ -31,6 +33,8 @@ mock.module("../composer-db", () => ({
 	setNewSessionIds: async () => {},
 }));
 
+import { useProvidersStore } from "../providers";
+
 const {
 	useComposerPrefsStore,
 	_resetDefaultsHydration,
@@ -42,14 +46,26 @@ function resetAll() {
 	_resetDefaultsHydration();
 	_resetSessionHydration();
 	useComposerPrefsStore.setState({
-		defaults: { model: "global/default-model", thinkingByModel: {} },
+		defaults: {
+			model: "global/default-model",
+			thinkingByModel: {},
+			delegateModel: null,
+			delegateThinking: null,
+		},
 		bySession: {},
 		loadedBySession: {},
 		newSessionIds: {},
 	});
+	// fresh 分支悬空校验要读 providers store：重置避免跨用例泄漏
+	useProvidersStore.setState({ providers: [] });
 	storedMap.clear();
 	idbWrites.length = 0;
-	defaultsStore = { model: "global/default-model", thinkingByModel: {} };
+	defaultsStore = {
+		model: "global/default-model",
+		thinkingByModel: {},
+		delegateModel: null,
+		delegateThinking: null,
+	};
 }
 
 beforeEach(() => resetAll());
@@ -187,4 +203,154 @@ test("loadSession 二次读取（existing 分支）null delegateThinking → 保
 	// 落盘必须保持 null（跟随），不得把归一结果 "default" 固化进持久层
 	const rec = idbWrites.find((r) => r.sessionId === "sess-null-exist");
 	expect(rec?.delegateThinking).toBe(null);
+});
+
+// ---- 全局默认层（defaults）：手动选择回写 + 新会话初始化 ----
+
+/** 委派用 providers（prov/m1 存在）注入 providers store：fresh 分支悬空校验从 store 现读 */
+function seedDelegateProviders() {
+	useProvidersStore.setState({ providers });
+}
+
+// ① 手动改委派 → 全局默认回写（内存 + 持久层）
+test("① 手动改委派 → defaults 回写 delegateModel/delegateThinking（含持久化）", async () => {
+	await useComposerPrefsStore.getState().loadDefaults(); // 先 hydrate，回写才允许落盘
+
+	useComposerPrefsStore
+		.getState()
+		.setSessionPrefs("s1", { delegateModel: "prov/m1", delegateThinking: "max" });
+
+	// 内存 defaults
+	expect(useComposerPrefsStore.getState().defaults.delegateModel).toBe("prov/m1");
+	expect(useComposerPrefsStore.getState().defaults.delegateThinking).toBe("max");
+	// 持久层（mock setDefaults 合并写回）同样拿到
+	expect(defaultsStore.delegateModel).toBe("prov/m1");
+	expect(defaultsStore.delegateThinking).toBe("max");
+});
+
+// ② 手动改回跟随 → 全局默认记 null
+test("② 手动改回跟随 → defaults 记 null（跟随）", async () => {
+	// 安排：defaults 已有上次的 m1/max（store + 持久层一致）再 hydrate
+	defaultsStore = {
+		model: "global/default-model",
+		thinkingByModel: {},
+		delegateModel: "prov/m1",
+		delegateThinking: "max",
+	};
+	await useComposerPrefsStore.getState().loadDefaults();
+
+	useComposerPrefsStore
+		.getState()
+		.setSessionPrefs("s1", { delegateModel: null, delegateThinking: null });
+
+	expect(useComposerPrefsStore.getState().defaults.delegateModel).toBe(null);
+	expect(useComposerPrefsStore.getState().defaults.delegateThinking).toBe(null);
+	expect(defaultsStore.delegateModel).toBe(null);
+	expect(defaultsStore.delegateThinking).toBe(null);
+});
+
+// ③ 程序化写入不污染全局
+test("③ syncDefaults:false 的写入不改 defaults（保持 ② 后的 null）", async () => {
+	// 安排：先手动改回跟随（② 的终态）
+	await useComposerPrefsStore.getState().loadDefaults();
+	useComposerPrefsStore
+		.getState()
+		.setSessionPrefs("s1", { delegateModel: null, delegateThinking: null });
+
+	useComposerPrefsStore
+		.getState()
+		.setSessionPrefs("s2", { delegateModel: "prov/m2" }, { syncDefaults: false });
+
+	expect(useComposerPrefsStore.getState().defaults.delegateModel).toBe(null);
+	expect(defaultsStore.delegateModel).toBe(null);
+});
+
+// ③b hydration guard：loadDefaults 完成前的委派回写同样不得持久化
+test("③b hydration guard：未 loadDefaults 前委派回写只更新内存，不持久化", () => {
+	useComposerPrefsStore
+		.getState()
+		.setSessionPrefs("s1", { delegateModel: "prov/m1", delegateThinking: "max" });
+
+	// 内存已更新
+	expect(useComposerPrefsStore.getState().defaults.delegateModel).toBe("prov/m1");
+	// 持久层未被污染（仍是 resetAll 的 null，不得写入 delegate 字段）
+	expect(defaultsStore.delegateModel).toBe(null);
+	expect(defaultsStore.delegateThinking).toBe(null);
+});
+
+// ④ 旧持久化结构兼容：getDefaults 输出无 delegate 字段 → loadDefaults 后两字段 === null，不报错
+test("④ 旧持久化结构（无 delegate 字段）→ loadDefaults 后 delegate 两字段 === null", async () => {
+	defaultsStore = {
+		model: "global/default-model",
+		thinkingByModel: { "prov/m1": "high" },
+	} as any; // 旧结构：无 delegate 字段
+
+	await useComposerPrefsStore.getState().loadDefaults();
+
+	const defaults = useComposerPrefsStore.getState().defaults;
+	expect(defaults.delegateModel).toBe(null);
+	expect(defaults.delegateThinking).toBe(null);
+});
+
+// ⑤ fresh 会话初始化：无存储记录的新 sessionId 从 defaults 读委派初始值
+test("⑤ fresh 会话初始化：defaults 的 delegateModel/delegateThinking 带入新会话", async () => {
+	seedDelegateProviders();
+	defaultsStore = {
+		model: "prov/m1",
+		thinkingByModel: {},
+		delegateModel: "prov/m1",
+		delegateThinking: "max",
+	};
+	await useComposerPrefsStore.getState().loadDefaults();
+
+	await useComposerPrefsStore.getState().loadSession("sess-fresh"); // 无存储记录
+
+	const prefs = useComposerPrefsStore.getState().bySession["sess-fresh"];
+	expect(prefs?.delegateModel).toBe("prov/m1");
+	expect(prefs?.delegateThinking).toBe("max");
+});
+
+// ⑥ 会话已有自己的值优先：fresh 初始化不用 defaults 覆盖
+test("⑥ stored 已有 delegateThinking（high）→ 不被 defaults 的 max 覆盖", async () => {
+	seedDelegateProviders();
+	defaultsStore = {
+		model: "prov/m1",
+		thinkingByModel: {},
+		delegateModel: "prov/m1",
+		delegateThinking: "max",
+	};
+	await useComposerPrefsStore.getState().loadDefaults();
+	storedMap.set("sess-own", {
+		sessionId: "sess-own",
+		model: "prov/m1",
+		thinking: "high",
+		attachments: [],
+		delegateThinking: "high", // 会话自己的委派思考记录（无 delegateModel 字段）
+		updatedAt: 1,
+	});
+
+	await useComposerPrefsStore.getState().loadSession("sess-own");
+
+	const prefs = useComposerPrefsStore.getState().bySession["sess-own"];
+	expect(prefs?.delegateThinking).toBe("high");
+	// 无 delegateModel 字段的栏独立从 defaults 读（两栏独立）
+	expect(prefs?.delegateModel).toBe("prov/m1");
+});
+
+// ⑦ 全局默认悬空：fresh 初始化 delegateModel 回退 null（跟随），delegateThinking 保持 defaults 值
+test("⑦ defaults.delegateModel 悬空 → fresh 初始化回退 null，delegateThinking 保持 defaults", async () => {
+	seedDelegateProviders(); // prov/gone 不在列表 → 悬空
+	defaultsStore = {
+		model: "prov/m1",
+		thinkingByModel: {},
+		delegateModel: "prov/gone",
+		delegateThinking: "max",
+	};
+	await useComposerPrefsStore.getState().loadDefaults();
+
+	await useComposerPrefsStore.getState().loadSession("sess-stale");
+
+	const prefs = useComposerPrefsStore.getState().bySession["sess-stale"];
+	expect(prefs?.delegateModel).toBe(null);
+	expect(prefs?.delegateThinking).toBe("max");
 });

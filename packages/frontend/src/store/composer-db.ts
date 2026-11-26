@@ -25,10 +25,7 @@ interface ComposerDB extends DBSchema {
   defaults: {
     key: string;
     // keyless store；按 key 存不同形状（DEFAULTS_KEY / RECORDING_KEY / NEW_SESSION_IDS_KEY）
-    value:
-      | { model: string | null; thinkingByModel: Record<string, ThinkingLevel> }
-      | RecordingPrefs
-      | Record<string, string>;
+    value: DefaultsPrefs | RecordingPrefs | Record<string, string>;
   };
 }
 
@@ -95,13 +92,23 @@ const DEFAULTS_KEY = "wa-pi:composer-defaults";
 export type DefaultsPrefs = {
   model: string | null;
   thinkingByModel: Record<string, ThinkingLevel>;
+  // 委派两栏的全局默认（新会话/旧记录的初始值来源）；旧结构无这两个字段，
+  // 读取时归一为 null（跟随），见 getDefaults
+  delegateModel?: string | null;
+  delegateThinking?: ThinkingLevel | null;
 };
 
 export async function getDefaults(): Promise<DefaultsPrefs> {
   const raw = lsGet<Partial<DefaultsPrefs> & { thinking?: ThinkingLevel }>(
     DEFAULTS_KEY,
   );
-  if (!raw) return { model: null, thinkingByModel: {} };
+  if (!raw)
+    return {
+      model: null,
+      thinkingByModel: {},
+      delegateModel: null,
+      delegateThinking: null,
+    };
   // 兼容旧结构 { model, thinking }：旧 thinking 是「全局」语义，迁给任意一个模型都是脏数据，
   // 按产品决策不迁移 → 直接忽略，模型表回到空（即所有模型显示「默认」）。
   //
@@ -111,7 +118,13 @@ export async function getDefaults(): Promise<DefaultsPrefs> {
   for (const [model, level] of Object.entries(raw.thinkingByModel ?? {})) {
     thinkingByModel[model] = normalizeThinkingLevel(level);
   }
-  return { model: raw.model ?? null, thinkingByModel };
+  return {
+    model: raw.model ?? null,
+    thinkingByModel,
+    // 委派两栏：旧结构无字段 → null（跟随）；读出时保持具体值（含显式 null）不变
+    delegateModel: raw.delegateModel ?? null,
+    delegateThinking: raw.delegateThinking ?? null,
+  };
 }
 
 export async function setDefaults(prefs: DefaultsPrefs): Promise<void> {

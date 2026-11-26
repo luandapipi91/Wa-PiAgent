@@ -47,6 +47,9 @@ describe("composer-prefs store", () => {
 		expect(useComposerPrefsStore.getState().defaults).toEqual({
 			model: "claude-sonnet",
 			thinkingByModel: { "claude-sonnet": "high" },
+			// 旧结构无 delegate 字段：loadDefaults 归一为 null（跟随）
+			delegateModel: null,
+			delegateThinking: null,
 		});
 	});
 
@@ -87,6 +90,8 @@ describe("composer-prefs store", () => {
 		expect(state.defaults).toEqual({
 			model: "default-model",
 			thinkingByModel: { "default-model": "disabled" },
+			delegateModel: null,
+			delegateThinking: null,
 		});
 		expect(state.bySession["s1"]).toEqual({
 			model: "session-model",
@@ -107,6 +112,8 @@ describe("composer-prefs store", () => {
 		expect(state.defaults).toEqual({
 			model: "fallback-model",
 			thinkingByModel: { "fallback-model": "high" },
+			delegateModel: null,
+			delegateThinking: null,
 		});
 		// 无 session 记录时：model 回退 defaults，thinking 保持 undefined（未显式设置）
 		// 组件读取 thinking 时用 resolveThinking 按模型记录算
@@ -140,10 +147,14 @@ describe("composer-prefs store", () => {
 		expect(useComposerPrefsStore.getState().defaults).toEqual({
 			model: "persisted-model",
 			thinkingByModel: { "persisted-model": "high" },
+			delegateModel: null,
+			delegateThinking: null,
 		});
 		expect(await getDefaults()).toEqual({
 			model: "persisted-model",
 			thinkingByModel: { "persisted-model": "high" },
+			delegateModel: null,
+			delegateThinking: null,
 		});
 	});
 

@@ -14,6 +14,7 @@ import {
 	setSessionPrefs as dbSetSessionPrefs,
 	deleteSessionPrefs,
 } from "./composer-db";
+import { useProvidersStore } from "./providers";
 
 // Hydration guard：标记 defaults 是否已从持久层加载。
 // store 初始内存态是空模型表（thinkingByModel: {}），而 loadDefaults 是异步的——若在其完成前
@@ -61,10 +62,14 @@ export interface SessionPrefs {
 	delegateThinking?: ThinkingLevel | null;
 }
 
-/** 全局默认偏好：模型 + 按模型存思考档（key = "providerSlug/modelId"） */
+/** 全局默认偏好：模型 + 按模型存思考档（key = "providerSlug/modelId"） + 委派两栏 */
 export interface DefaultsState {
 	model: string | null;
 	thinkingByModel: Record<string, ThinkingLevel>;
+	// 委派两栏的全局默认（新会话/旧记录的初始化来源）：缺省时 undefined/null 均为「跟随」。
+	// 只由用户手动选择（setSessionPrefs 回写）与 clearStaleModels 悬空清理写入
+	delegateModel?: string | null;
+	delegateThinking?: ThinkingLevel | null;
 }
 
 /**
@@ -184,6 +189,10 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					...defs.thinkingByModel,
 					...s.defaults.thinkingByModel,
 				},
+				// 委派两栏同口径：持久层优先（getDefaults 已归一 null），内存值兜底
+				delegateModel: defs.delegateModel ?? s.defaults.delegateModel ?? null,
+				delegateThinking:
+					defs.delegateThinking ?? s.defaults.delegateThinking ?? null,
 			};
 			const changed =
 				Object.keys(ids).length !== Object.keys(s.newSessionIds).length ||
@@ -270,7 +279,8 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					bySession: { ...s.bySession, [sessionId]: merged },
 				};
 				// 字段级合并（与 loadDefaults 同口径）：只补 model，thinkingByModel 走合并，
-				// 避免用 T0 快照整块冲掉内存里用户刚写入的模型记录。
+				// 避免用 T0 快照整块冲掉内存里用户刚写入的模型记录；委派两栏同口径携带，
+				// 不得因整体替换 defaults 对象而丢掉已有委派默认。
 				if (s.defaults.model == null && defaults.model != null)
 					next.defaults = {
 						model: defaults.model,
@@ -278,9 +288,22 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 							...defaults.thinkingByModel,
 							...s.defaults.thinkingByModel,
 						},
+						delegateModel:
+							defaults.delegateModel ?? s.defaults.delegateModel ?? null,
+						delegateThinking:
+							defaults.delegateThinking ?? s.defaults.delegateThinking ?? null,
 					};
 				return next as ComposerPrefsState;
 			}
+			// 委派两栏 fresh 初始化（两栏各自独立）：会话显式记录优先——null 是落盘的「跟随」
+			//（会话已表达过选择，不得被 defaults 复活）；旧记录/新会话无字段（undefined）时
+			// 才从全局 defaults 读「最后一次手动选择」：delegateModel 悬空（provider 已删，
+			// isModelAvailable=false）回退 null（跟随），delegateThinking 保留 defaults 值；
+			// defaults 也无值时保持 undefined（跟随）——与旧记录行为一致。
+			const defaultsDelegateModel =
+				s.defaults.delegateModel ?? defaults.delegateModel ?? null;
+			const defaultsDelegateThinking =
+				s.defaults.delegateThinking ?? defaults.delegateThinking ?? null;
 			const fresh: SessionPrefs = {
 				model: stored?.model ?? s.defaults.model ?? defaults.model,
 				// thinking 仅在用户显式设置过时才有值，否则保持 undefined
@@ -290,15 +313,32 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					: { thinking: normalizeThinkingLevel(stored.thinking) }),
 				attachments: stored?.attachments ?? [],
 				...(stored?.text === undefined ? {} : { text: stored.text }),
-				// 委派两栏：旧记录无这两个字段 → 保持 undefined（跟随）
+				// delegateModel：会话有值（含显式 null=跟随）优先；无字段从 defaults 读 + 悬空校验
 				...(stored?.delegateModel === undefined
-					? {}
+					? defaultsDelegateModel
+						? {
+								delegateModel: isModelAvailable(
+									defaultsDelegateModel,
+									useProvidersStore.getState().providers,
+								)
+									? defaultsDelegateModel
+									: null, // 悬空：回退「跟随」
+							}
+						: {}
 					: { delegateModel: stored.delegateModel }),
 				// delegateThinking 的 null 是落盘缺省的「跟随」：与 undefined 同为不设置，
 				// 不得送 normalize（normalizeThinkingLevel(null) 兜底返回 "default"，会把跟随固化成显式档位）
-				...(stored?.delegateThinking === undefined || stored.delegateThinking === null
-					? {}
-					: { delegateThinking: normalizeThinkingLevel(stored.delegateThinking) }),
+				...(stored?.delegateThinking === undefined
+					? defaultsDelegateThinking
+						? { delegateThinking: defaultsDelegateThinking }
+						: {}
+					: stored.delegateThinking === null
+						? {} // 显式落盘 null = 跟随，不得回退 defaults
+						: {
+								delegateThinking: normalizeThinkingLevel(
+									stored.delegateThinking,
+								),
+							}),
 			};
 			const next: Partial<ComposerPrefsState> = {
 				...loaded,
@@ -308,7 +348,8 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 			// 用户可能已改模型，整体覆盖会把它回滚——「切了模型再切回来，会话模型就变了」的根因。
 			// 与 existing 分支同一守卫：仅内存 defaults 尚未加载（null，冷启动）时从持久层填充。
 			// 字段级合并（与 loadDefaults 同口径）：只补 model，thinkingByModel 走合并，
-			// 避免用 T0 快照整块冲掉内存里用户刚写入的模型记录。
+			// 避免用 T0 快照整块冲掉内存里用户刚写入的模型记录；委派两栏同口径携带，
+			// 不得因整体替换 defaults 对象而丢掉已有委派默认。
 			if (s.defaults.model == null && defaults.model != null)
 				next.defaults = {
 					model: defaults.model,
@@ -316,6 +357,10 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 						...defaults.thinkingByModel,
 						...s.defaults.thinkingByModel,
 					},
+					delegateModel:
+						defaults.delegateModel ?? s.defaults.delegateModel ?? null,
+					delegateThinking:
+						defaults.delegateThinking ?? s.defaults.delegateThinking ?? null,
 				};
 			return next as ComposerPrefsState;
 		});
@@ -373,6 +418,12 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 						};
 					}
 				}
+				// 委派两栏：patch 键存在才参与回写（存在性映射先例——patch 不含的键不得触碰 defaults）；
+				// 判定按键存在而非值判空：null（改回跟随）也是要落盘的显式选择
+				if ("delegateModel" in prefs)
+					newDefaults.delegateModel = prefs.delegateModel ?? null;
+				if ("delegateThinking" in prefs)
+					newDefaults.delegateThinking = prefs.delegateThinking ?? null;
 			}
 			// hydration guard：未从持久层加载 defaults 前，内存态是空的模型表，
 			// 此时写回会用空表覆盖用户上次存的模型记录（重启后思考强度被重置的根因）
@@ -528,10 +579,22 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set, get) => ({
 					nextBySession[sid] = prefs;
 				}
 			}
-			const defaultsChanged =
-				s.defaults.model != null && !isModelAvailable(s.defaults.model, providers);
+			const staleDefaultsModel =
+				s.defaults.model != null &&
+				!isModelAvailable(s.defaults.model, providers);
+			// 委派默认模型同样独立判悬空（delegateThinking 不是模型引用，不参与清理）
+			const staleDefaultsDelegateModel =
+				s.defaults.delegateModel != null &&
+				!isModelAvailable(s.defaults.delegateModel, providers);
+			const defaultsChanged = staleDefaultsModel || staleDefaultsDelegateModel;
 			const nextDefaults = defaultsChanged
-				? { ...s.defaults, model: null }
+				? {
+						...s.defaults,
+						...(staleDefaultsModel ? { model: null } : {}),
+						...(staleDefaultsDelegateModel
+							? { delegateModel: null }
+							: {}),
+					}
 				: s.defaults;
 			if (defaultsChanged && defaultsHydrated) void setDefaults(nextDefaults);
 			return {

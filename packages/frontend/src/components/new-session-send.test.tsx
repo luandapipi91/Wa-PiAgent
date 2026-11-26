@@ -14,15 +14,17 @@ mock.module("../api-client", () => ({
 		del: mock(async () => ({})),
 	},
 }));
-// 模拟「重启后从持久层恢复出已发送过的草稿 id」：getNewSessionIds 返回残留的 draft-123
+// 模拟「重启后从持久层恢复出已发送过的草稿 id」：getNewSessionIds 返回残留的 draft-123。
+// dbDefaults 用可变变量：个别用例需给持久层种入 delegate 默认字段（见底部新建页初始值用例）
+let dbDefaults: any = {
+	model: "test-p/m1",
+	thinkingByModel: { "test-p/m1": "high" },
+};
 mock.module("../store/composer-db", () => ({
 	getSessionPrefs: async () => undefined,
 	setSessionPrefs: async () => {},
 	deleteSessionPrefs: async () => {},
-	getDefaults: async () => ({
-		model: "test-p/m1",
-		thinkingByModel: { "test-p/m1": "high" },
-	}),
+	getDefaults: async () => dbDefaults,
 	setDefaults: async () => {},
 	getRecordingPrefs: async () => undefined,
 	setRecordingPrefs: async () => {},
@@ -47,6 +49,10 @@ beforeEach(() => {
 	}
 	postMock.mockReset();
 	postMock.mockImplementation(async () => ({}));
+	dbDefaults = {
+		model: "test-p/m1",
+		thinkingByModel: { "test-p/m1": "high" },
+	};
 	useProjectsStore.setState({
 		projects: [{ id: "proj-1", name: "P1", cwd: "/p1", createdAt: 0 }] as any,
 		sessions: [],
@@ -129,4 +135,36 @@ test("api.post 失败时记录 promptError（错误不被吞）", async () => {
 	const values = Object.values(errs).filter((v) => !!v);
 	expect(values.length).toBeGreaterThan(0);
 	expect(values[0]).toContain("No API key");
+});
+
+// 委派接入全局默认层：新建页 delegate 初始值来自 defaults（含异步加载时序）——
+// 冷启动时 store defaults 无 delegate 字段，挂载后 loadDefaults 从持久层读回，
+// 同步 effect 把值刷进本地两栏；不手动选择直接发送时，请求体应携带 defaults 的委派值
+test("新建页 delegate 初始值来自 defaults（异步加载后同步，发送显式携带）", async () => {
+	// 冷启动：持久层已有上次手动选择的委派默认，内存 defaults 尚无（beforeEach 已置不带 delegate 的形状）
+	dbDefaults = {
+		model: "test-p/m1",
+		thinkingByModel: { "test-p/m1": "high" },
+		delegateModel: "test-p/m1",
+		delegateThinking: "max",
+	};
+	render(<NewSessionPane />);
+	// 等 loadDefaults hydration 完成 + 同步 effect 刷本地两栏
+	await new Promise((r) => setTimeout(r, 50));
+
+	// UI 回显：委派按钮显示 defaults 的两栏值（短名 m1）
+	expect(screen.getByTestId("delegate-selector").textContent).toBe(
+		"委派 · m1 / max",
+	);
+
+	// 不触碰委派直接发送：请求体显式携带 defaults 的初始值
+	const editor = screen.getByRole("textbox");
+	editor.textContent = "你好";
+	fireEvent.input(editor);
+	fireEvent.click(screen.getByTestId("composer-send"));
+	await new Promise((r) => setTimeout(r, 0));
+	expect(postMock).toHaveBeenCalled();
+	const payload = postMock.mock.calls[0][1] as any;
+	expect(payload.delegateModel).toBe("test-p/m1");
+	expect(payload.delegateThinking).toBe("max");
 });
