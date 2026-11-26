@@ -7,9 +7,14 @@
 //   1. 全量测试排除它们（--path-ignore-patterns）
 //   2. 用独立进程单独补跑它们（保证覆盖不丢，且互不污染）
 // 所有策略集中在本脚本，package.json 的 test 只负责调用本入口。
+//
+// 残留清扫（2026-11-26）：preload 现在会在 worker 退出时删掉自己建的隔离目录
+// （见 tests/setup.ts），但 SIGKILL / 断电 / 调试中断时 afterAll 不会跑。这里在开跑前
+// 顺手清一波「超过 6 小时没动」的遗留目录；正在跑的测试目录 mtime 很新，不会被误删。
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { sweepStaleIsolatedDirs } from "../tests/helpers/test-temp-dir";
 
 /** 会启动完整 kernel 的集成测试：单独进程跑，避免污染 worker 环境 */
 const INTEGRATION_TESTS = [
@@ -163,6 +168,10 @@ if (!process.env.WA_PI_MODEL_DIR) {
 		/* 无 transformers 包 → 保持原语义 */
 	}
 }
+
+// 开跑前清扫遗留隔离目录（worker 被 SIGKILL / 断电 / 调试中断时 afterAll 不会跑）
+const swept = sweepStaleIsolatedDirs();
+if (swept > 0) console.log(`[test] 已清理 ${swept} 个陈旧的测试隔离目录`);
 
 let ok = true;
 

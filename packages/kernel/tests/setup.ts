@@ -22,14 +22,48 @@ process.env.https_proxy = "";
 // 修复：preload 里强制把 WA_PI_DIR 指到临时目录（本进程内先于一切 import 生效），
 // 测试读写的都是隔离数据；spawn 的子进程继承该 env，同样隔离。
 // 可用 WA_PI_TEST_DIR 固定测试目录（默认每次 mkdtemp 自动创建）。
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+//
+// ⚠️ 生命周期（2026-11-26）：这些临时目录原先**从不清理**。`bun test --isolate` 是
+// 「每测试文件一次 preload」→ 一轮全量 268 个文件 = 268 个目录，且每个目录的 models/
+// 会各自重新下载 bge-base-zh-v1.5（≈98MB）→ 实测 1839 个目录占 4.71GB。
+// 现在：
+//   1. 自建目录在 afterAll（worker 退出前）递归删除；WA_PI_TEST_DIR 指定的目录不动；
+//   2. models/ 与 bin/ 改为指向进程外共享根（WA_PI_SHARED_ASSETS_DIR，默认
+//      <tmp>/wa-pi-kernel-shared）的符号链接——模型只落盘一次，
+//      删链接不会碰到共享根里的真实文件。
+// 详细实现在 tests/helpers/test-temp-dir.ts（有单测与接线测试钉住）。
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
+import {
+	cleanupIsolatedWaPiDir,
+	createIsolatedWaPiDir,
+	hasSharedModel,
+	linkSharedAssets,
+	prepareSharedAssets,
+	seedSharedModels,
+} from "./helpers/test-temp-dir";
 
-const TEST_WA_PI_DIR =
-	process.env.WA_PI_TEST_DIR ||
-	mkdtempSync(join(tmpdir(), "wa-pi-kernel-test-"));
+const { dir: TEST_WA_PI_DIR, owned } = createIsolatedWaPiDir({
+	WA_PI_TEST_DIR: process.env.WA_PI_TEST_DIR,
+});
 process.env.WA_PI_DIR = TEST_WA_PI_DIR;
+
+// 共享资产：models（避免每个目录重复下载模型）+ bin/rg、fd（占位二进制）。
+// 首次把正式应用已下载好的模型播种到共享根（本机常态），之后所有测试目录直接复用。
+const shared = prepareSharedAssets(process.env.WA_PI_SHARED_ASSETS_DIR);
+seedSharedModels(shared, join(homedir(), ".pi", "agent", "models"));
+// 只在共享根已有模型时才把 models 接成链接：否则多个并行 worker 会往同一目录并发下载
+// 同一模型（互相踩），此时保留各目录独立的原有语义（联网下载 / 无源 skip）。
+linkSharedAssets(TEST_WA_PI_DIR, shared, { models: hasSharedModel(shared) });
+
+// 退出时机清理自有目录：afterAll 在 worker 结束前跑（bun test 每个文件一次 preload），
+// exit 监听兜底异常路径（重复注册无副作用，rmSync 幂等）。
+// settleMs：测试文件自己的 afterAll 跑在本 afterAll **之前**，卸载后仍可能有异步尾巴
+// （定时器 / 回调）把 pending 等子目录重建回来（实测 agent-manager 系列），故删两次。
+import { afterAll } from "bun:test";
+afterAll(() => cleanupIsolatedWaPiDir(TEST_WA_PI_DIR, owned, { settleMs: 150 }));
+process.on("exit", () => cleanupIsolatedWaPiDir(TEST_WA_PI_DIR, owned));
 // 内置 agent-browser 条目的 ensure 会往 mcp.json 写一条服务器，污染既有 MCP 路由测试
 // 对「清单恰好 N 台」的断言；测试进程统一关闭自动物化（内置条目本身的测试直接调 ensure）。
 process.env.WA_PI_SKIP_BUILTIN_MCP_ENSURE = "1";
@@ -48,13 +82,10 @@ for (const sub of [
 	mkdirSync(join(TEST_WA_PI_DIR, sub), { recursive: true });
 }
 
-// 预置占位 rg/fd：startKernel 会把内置工具所需二进制预置到 WA_PI_DIR/bin
-// （见 src/tool-binaries.ts），体积达标即视为已存在。测试环境上面已清空代理 env
-// （直连），若任其触发真实下载会静默超时，白白拖慢每个启动 kernel 的测试。
-mkdirSync(join(TEST_WA_PI_DIR, "bin"), { recursive: true });
-for (const binary of ["rg", "fd"]) {
-	writeFileSync(join(TEST_WA_PI_DIR, "bin", binary), Buffer.alloc(1_048_576));
-}
+// 预置 rg/fd 占位二进制与 models 共享链接已在上面 linkSharedAssets 内完成
+// （startKernel 会把内置工具所需二进制预置到 WA_PI_DIR/bin，见 src/tool-binaries.ts，
+// 体积达标即视为已存在；测试环境已清空代理 env（直连），若任其触发真实下载会静默超时，
+// 白白拖慢每个启动 kernel 的测试）。
 
 // 切换 vanilla SQLite（macOS 语义检索前提，详见 src/memory/sqlite-library.ts）：
 // 必须在 worker 进程内首个 Database 创建前调用。db.ts 顶层虽也调，但 bun test
