@@ -128,17 +128,18 @@ test.describe.serial("会话级委派设置", () => {
         .getByTestId("model-selector")
         .selectOption({ label: "E2E Delegate/model-a" });
 
-      // 场景2：展开面板选委派模型（点选即生效并收起），再选思考 max，按钮回显
+      // 场景2：展开面板选委派模型（选完不收起，双栏连续调整），再选思考 max，点外才关闭
       await page.getByTestId("delegate-selector").click();
       await expect(page.getByTestId("delegate-selector-menu")).toBeVisible();
       await page.getByTestId(`delegate-item-model-${MODEL_A}`).click();
-      await expect(page.getByTestId("delegate-selector-menu")).toBeHidden();
-      await page.getByTestId("delegate-selector").click();
+      await expect(page.getByTestId("delegate-selector-menu")).toBeVisible();
       await page.getByTestId("delegate-item-thinking-max").click();
-      await expect(page.getByTestId("delegate-selector-menu")).toBeHidden();
       await expect(page.getByTestId("delegate-selector")).toHaveText(
         "委派 · model-a / max",
       );
+      // 点击面板外（主模型选择器所在区域）→ 面板隐藏
+      await page.getByTestId("model-selector").click();
+      await expect(page.getByTestId("delegate-selector-menu")).toBeHidden();
 
       // 场景3：发送 → 拦截请求体断言（route.continue 放行，kernel 真实建会话）
       await page
@@ -197,7 +198,7 @@ test.describe.serial("会话级委派设置", () => {
     await expect(page.getByTestId("delegate-selector")).toHaveText(
       "委派 · model-b / 跟随",
     );
-    await page.getByTestId("delegate-selector").click();
+    // 选完不收起：面板仍开，直接选「跟随主代理」关闭重置路径
     await page.getByTestId("delegate-item-follow-model").click();
     await expect(page.getByTestId("delegate-selector")).toHaveText(
       "委派 · 跟随",
@@ -266,10 +267,9 @@ test.describe.serial("会话级委派设置：重发路径", () => {
     await page
       .getByTestId("model-selector")
       .selectOption({ label: "E2E Delegate Fatal/model-a" });
-    // 委派面板：选模型 + 思考 max
+    // 委派面板：选模型 + 思考 max（选完不收起，连续选两栏后点外收起）
     await page.getByTestId("delegate-selector").click();
     await page.getByTestId("delegate-item-model-e2e-delegate-fatal/model-a").click();
-    await page.getByTestId("delegate-selector").click();
     await page.getByTestId("delegate-item-thinking-max").click();
     await expect(page.getByTestId("delegate-selector")).toHaveText(
       "委派 · model-a / max",

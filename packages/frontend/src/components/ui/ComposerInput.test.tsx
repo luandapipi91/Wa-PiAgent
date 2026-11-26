@@ -59,10 +59,17 @@ function seedStores() {
 	useSessionStore.setState({ openFilePreview: mock(() => {}) } as any);
 }
 
+// 本文件不挂全局 cleanup（会 unmount 其他文件残留容器，happy-dom 下抛 removeChild）；
+// 但实例全不卸载的话，无 --isolate 同进程跑时残留的 window 监听器（弹窗/菜单/委派面板）
+// 会在后续文件 fireEvent 时触发残留 root commit，与对方卸载撞车抛 removeChild。
+// 统一记录 unmount，afterEach 反序自行卸载本文件实例（bun afterEach 后注册先执行，
+// 早于 preload 的清 body 兕底，卸载时 DOM 完好）。
+const unmounts: Array<() => void> = [];
+
 function renderComposer(
 	overrides: Partial<Parameters<typeof ComposerInput>[0]> = {},
 ) {
-	return render(
+	const result = render(
 		<ComposerInput
 			text=""
 			setText={() => {}}
@@ -80,6 +87,8 @@ function renderComposer(
 			{...overrides}
 		/>,
 	);
+	unmounts.push(result.unmount);
+	return result;
 }
 
 beforeEach(() => {
@@ -93,6 +102,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	while (unmounts.length) unmounts.pop()?.();
 	delete (window as any).waPiApp;
 	_setFsTransport(null);
 });
@@ -199,7 +209,8 @@ test("新建会话（isNewSession）时「发送给 IM 联系人」命令也可�
 		return {};
 	});
 	seedImStores();
-	render(<NewSessionComposer />);
+	// 两处内联 render 同样登记 unmount：afterEach 统一卸载，不残留 portal/监听器到后续文件
+	unmounts.push(render(<NewSessionComposer />).unmount);
 
 	const menu = await screen.findByTestId("quick-invoke-menu");
 	expect(menu.textContent).toContain("发送给 IM 联系人");
@@ -217,7 +228,7 @@ test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗多选 �
 		return {};
 	});
 	seedImStores();
-	render(<ControlledComposer />);
+	unmounts.push(render(<ControlledComposer />).unmount);
 
 	// text="/" → 命令菜单打开，含目标命令且位于首位（需求：/ 菜单第一位）
 	const menu = await screen.findByTestId("quick-invoke-menu");
@@ -278,10 +289,13 @@ test("不传 delegate props（undefined）渲染「委派 · 跟随」，展开�
 	renderComposer();
 	const btn = screen.getByTestId("delegate-selector");
 	expect(btn.textContent).toBe("委派 · 跟随");
-	// 未传 onDelegateChange：展开面板点选模型不应抛错，点选后面板收起
+	// 未传 onDelegateChange：展开面板点选模型不应抛错；选完面板保持打开（点外才收）
 	fireEvent.click(btn);
 	expect(screen.getByTestId("delegate-selector-menu")).toBeDefined();
 	fireEvent.click(screen.getByTestId("delegate-item-model-prov/m1"));
+	expect(screen.queryByTestId("delegate-selector-menu")).not.toBeNull();
+	// 本文件不挂全局 cleanup：收尾主动点面板外收起，避免开着面板残留到同进程的后续文件
+	fireEvent.mouseDown(document.body);
 	expect(screen.queryByTestId("delegate-selector-menu")).toBeNull();
 });
 
@@ -292,4 +306,5 @@ test("DelegateSelector 点选 → ComposerInput 的 onDelegateChange 收到字�
 	fireEvent.click(screen.getByTestId("delegate-selector"));
 	fireEvent.click(screen.getByTestId("delegate-item-model-prov/m1"));
 	expect(onDelegateChange).toHaveBeenCalledWith({ model: "prov/m1" });
+	// 新行为选完不收起；实例由文件级 afterEach 统一卸载，不残留到同进程后续文件
 });

@@ -1,4 +1,5 @@
 ## 2026-11-26
+- fix(frontend): 委派面板选完不收起，点面板外才关闭——双栏连续调整不被打断；测试收尾：ComposerInput.test 实例全不卸载的残留 window 监听器在无 --isolate 同进程跑时与后续文件卸载撞车抛 removeChild（ DelegateSelector「点面板外」用例挂）→ renderComposer 改文件级 unmountCurrent 统一 afterEach 卸载，DelegateSelector 裸 render 用例统一走 renderSelector；E2E 重发路径残留的「再点开」旧交互步骤一并移除；验证：两文件同跑 14 pass 3 轮全绿，前端分段全量（src 1165 + tests 2937，0 fail）+ typecheck 过 + E2E delegate-setting 5/5 过
 - feat(frontend): 委派设置接入全局默认层——DefaultsState/DefaultsPrefs 增 delegateModel/delegateThinking（旧结构读取归一 null=跟随），手动选择经 setSessionPrefs 按存在键回写 defaults（null=改回跟随也落盘；syncDefaults:false 不污染；hydration guard 前不持久化），loadSession fresh 分支无 delegate 字段时从 defaults 读初始值（delegateModel 悬空 isModelAvailable 校验回退 null；stored 显式值含 null 优先于 defaults），clearStaleModels 清 defaults.delegateModel 悬空（与 defaults.model 对称，loadSession 两处 defaults 填充同步携带委派字段防丢），NewSessionPane 初始值/异步同步 effect 从 defaults 读（与 model/thinking 同口径，新会话自动带最后一次手动选择）；新增 store 层 9 用例（含 ③b hydration guard）+ db 层 2 用例 + NewSessionPane 组件 1 用例（回显+发送请求体双断言），composer-db/composer-prefs 既有 defaults 全形状断言随 getDefaults 返回形状同步更新；验证：聚焦 13+10+4 pass，前端全量 3758 pass 0 fail，typecheck 过
 
 ## 2026-11-25

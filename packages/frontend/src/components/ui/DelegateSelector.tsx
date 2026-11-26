@@ -32,7 +32,7 @@ const THINKING_LEVELS: ThinkingLevel[] = ["default", "disabled", "high", "max"];
  * （定位模式与 AgentDropdown 一致）。
  *
  * 两栏（模型 / 思考强度）各自独立：首项「跟随主代理」回 null，具体项回单字段
- * patch，点选项即生效并收起；点面板外/滚动时收起。
+ * patch；点选项即生效，面板保持打开（双栏连续调整不被打断），点面板外才关闭；滚动时收起。
  */
 export function DelegateSelector({
 	model,
@@ -120,7 +120,7 @@ export function DelegateSelector({
 		thinking?: ThinkingLevel | null;
 	}) => {
 		onChange(patch);
-		closeMenu();
+		// 选完不收起——双栏需连续调整（选完即收会打断另一栏），点面板外才关闭
 	};
 
 	return (

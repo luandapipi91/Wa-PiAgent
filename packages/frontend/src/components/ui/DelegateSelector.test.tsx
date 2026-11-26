@@ -2,8 +2,10 @@
 // （happy-dom 无布局引擎，getBoundingClientRect 全 0，组件在测试环境跳过定位）。
 // 面板文案与按钮回显 i18n 锁 zh（.env.test 的 WA_PI_LANG），文案断言直接锁 zh 措辞。
 import { test, expect, mock, afterEach } from "bun:test";
+import { useState } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 
+import type { ThinkingLevel } from "@wa-pi/shared";
 import { DelegateSelector } from "./DelegateSelector";
 
 const MODELS = [
@@ -37,6 +39,32 @@ function renderSelector(
 	return { onChange, ...utils };
 }
 
+/** 持有 state 的受控包装：模拟真实父层（onChange 更新 props），用于断言「选完不收起 + 按钮实时回显」 */
+function renderSelectorStateful(
+	initial: { model?: string | null; thinking?: ThinkingLevel | null } = {},
+) {
+	function Wrapper() {
+		const [model, setModel] = useState<string | null | undefined>(initial.model);
+		const [thinking, setThinking] = useState<ThinkingLevel | null | undefined>(
+			initial.thinking,
+		);
+		return (
+			<DelegateSelector
+				model={model}
+				thinking={thinking}
+				models={MODELS}
+				onChange={(patch) => {
+					if ("model" in patch) setModel(patch.model);
+					if ("thinking" in patch) setThinking(patch.thinking);
+				}}
+			/>
+		);
+	}
+	const utils = render(<Wrapper />);
+	unmountCurrent = utils.unmount;
+	return utils;
+}
+
 test("默认（未设置委派）按钮文案为「委派 · 跟随」", () => {
 	renderSelector();
 	expect(screen.getByTestId("delegate-selector").textContent).toBe(
@@ -67,23 +95,31 @@ test("点击展开：出现模型/思考强度两栏，各栏首项「跟随主�
 	}
 });
 
-test("点模型列表某项 → onChange 收到单字段 patch { model } 且面板收起", () => {
+test("点模型列表某项 → onChange 收到单字段 patch，面板保持打开、按钮实时回显", () => {
 	const { onChange } = renderSelector();
 	fireEvent.click(screen.getByTestId("delegate-selector"));
 	expect(screen.getByTestId("delegate-selector-menu")).toBeDefined();
 	fireEvent.click(screen.getByTestId("delegate-item-model-prov/m1"));
 	expect(onChange).toHaveBeenCalledWith({ model: "prov/m1" });
-	// 面板收起
-	expect(screen.queryByTestId("delegate-selector-menu")).toBeNull();
+	// 选完不收起（双栏需连续调整，点面板外才关闭）
+	expect(screen.queryByTestId("delegate-selector-menu")).not.toBeNull();
 });
 
-test("点思考某档 → onChange 收到单字段 patch { thinking } 且面板收起", () => {
-	const { onChange } = renderSelector();
+test("选完不收起且父层接线后按钮实时回显（stateful 包装）", () => {
+	renderSelectorStateful({ model: "prov/m1" });
 	fireEvent.click(screen.getByTestId("delegate-selector"));
-	expect(screen.getByTestId("delegate-selector-menu")).toBeDefined();
 	fireEvent.click(screen.getByTestId("delegate-item-thinking-max"));
-	expect(onChange).toHaveBeenCalledWith({ thinking: "max" });
-	expect(screen.queryByTestId("delegate-selector-menu")).toBeNull();
+	// 面板保持打开，按钮实时回显两栏终态
+	expect(screen.queryByTestId("delegate-selector-menu")).not.toBeNull();
+	expect(screen.getByTestId("delegate-selector").textContent).toBe(
+		"委派 · m1 / max",
+	);
+	// 继续选「跟随主代理」仍不收起，回显跟随
+	fireEvent.click(screen.getByTestId("delegate-item-follow-model"));
+	expect(screen.queryByTestId("delegate-selector-menu")).not.toBeNull();
+	expect(screen.getByTestId("delegate-selector").textContent).toBe(
+		"委派 · 跟随 / max",
+	);
 });
 
 test("已设置 model/thinking 时按钮回显「委派 · m1 / max」", () => {
