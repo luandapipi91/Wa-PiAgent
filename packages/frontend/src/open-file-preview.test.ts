@@ -133,3 +133,53 @@ test("非媒体文件不受影响：仍走内置文件预览", () => {
 		sessionId: "s1",
 	});
 });
+
+// 同值短路场景：store 不产生变更 → driver effect 不触发 → 主进程收不到 open，
+// 窗口若被隐藏（如主窗口收起到托盘时连带 hide）就永远唤不回（2026-11-26 修）。此时
+// 直接发 restore 指令唤回窗口，不经 store（不破回环闸）；无桥（web）时 Modal 本就
+// 显示该文件，跳过即可。
+const previewBridgeCalls = () => {
+	const calls: unknown[] = [];
+	(window as any).waPiFilePreviewWin = { cmd: (p: unknown) => calls.push(p) };
+	return calls;
+};
+
+test("同值双击（store 短路场景）→ 有桥时发 restore 指令唤回窗口，不产生状态变更", () => {
+	const calls = previewBridgeCalls();
+	useSessionStore.setState({
+		filePreview: { path: "/work/demo/src/index.ts", sessionId: "s1" },
+	});
+	openFileOrPreview("/work/demo/src/index.ts", "s1");
+	expect(calls).toEqual([{ type: "restore" }]);
+	expect(useSessionStore.getState().filePreview).toEqual({
+		path: "/work/demo/src/index.ts",
+		sessionId: "s1",
+	});
+	delete (window as any).waPiFilePreviewWin;
+});
+
+test("同值双击但无桥（web）→ 不发指令，不产生状态变更（Modal 已显示该文件）", () => {
+	delete (window as any).waPiFilePreviewWin;
+	useSessionStore.setState({
+		filePreview: { path: "/work/demo/src/index.ts", sessionId: "s1" },
+	});
+	openFileOrPreview("/work/demo/src/index.ts", "s1");
+	expect(useSessionStore.getState().filePreview).toEqual({
+		path: "/work/demo/src/index.ts",
+		sessionId: "s1",
+	});
+});
+
+test("同路径但不同会话 → 不算同值，仍走 store 更新（不误发 restore）", () => {
+	const calls = previewBridgeCalls();
+	useSessionStore.setState({
+		filePreview: { path: "/work/demo/src/index.ts", sessionId: "s1" },
+	});
+	openFileOrPreview("/work/demo/src/index.ts", "s2");
+	expect(calls).toEqual([]);
+	expect(useSessionStore.getState().filePreview).toEqual({
+		path: "/work/demo/src/index.ts",
+		sessionId: "s2",
+	});
+	delete (window as any).waPiFilePreviewWin;
+});

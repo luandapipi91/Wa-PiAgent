@@ -522,3 +522,81 @@ test("浮动模式：预览文件被改动后独立窗口自动刷新（refresh 
 		.then((h) => h.contentFrame());
 	await expect(frame!.locator("#card")).toContainText("world v2", { timeout: 15_000 });
 });
+
+// ── 文件预览独立窗口：被隐藏后可唤回（2026-11-26 回归）──
+// 背景：主窗口收起到托盘时预览窗被连带 hide，而从托盘恢复只 show 主窗口；
+// 修复前单例分支只 sync 换内容不 show、同值双击又走 store 短路连 IPC 都不发，
+// 窗口隐藏期间双击任何文件都静默失效直到重启。修复路径有两条，分别验：
+// ① cmd restore（同值双击短路场景直发的指令）；② 单例分支 open（不同文件双击）。
+test.describe.serial("文件预览独立窗口被隐藏后可唤回", () => {
+	const FILE_A = join(PROJECT_DIR, "notes-a.md");
+	const FILE_B = join(PROJECT_DIR, "notes-b.md");
+
+	/** 主进程视角找文件预览窗（kind=file URL 标记）状态 */
+	const filePreviewWindowState = async () =>
+		(await windowStates()).find((s) => s.url.includes("kind=file"));
+
+	/** 模拟「主窗口收起到托盘时预览窗被连带 hide」（与 main.cjs close 处理等价） */
+	const hideFilePreviewWindow = async () => {
+		await app.evaluate(({ BrowserWindow }) => {
+			const w = BrowserWindow.getAllWindows().find((w) =>
+				w.webContents.getURL().includes("kind=file"),
+			);
+			if (w && !w.isDestroyed()) w.hide();
+		});
+		expect((await filePreviewWindowState())?.visible).toBe(false);
+	};
+
+	test.beforeAll(() => {
+		writeFileSync(FILE_A, "# notes a\n\nfile preview e2e\n");
+		writeFileSync(FILE_B, "# notes b\n\nfile preview e2e\n");
+	});
+
+	test("主窗口经桥 open 打开文件预览窗口（基线：可见）", async () => {
+		await main.evaluate(
+			(p) =>
+				window.waPiFilePreviewWin!.open({
+					path: p,
+					sessionId: null,
+					rect: null,
+				}),
+			FILE_A,
+		);
+		const win = await findWindow((u) => u.includes("kind=file"));
+		// ready 首帧后主进程才 show（防白屏），等窗口真正可见
+		await expect
+			.poll(async () => (await filePreviewWindowState())?.visible, {
+				timeout: 30_000,
+			})
+			.toBe(true);
+		await expect(win.locator("body")).not.toBeEmpty();
+	});
+
+	test("被隐藏后双击同一文件（store 同值短路 → cmd restore）仍能唤回", async () => {
+		await hideFilePreviewWindow();
+		await main.evaluate(() => window.waPiFilePreviewWin!.cmd({ type: "restore" }));
+		await expect
+			.poll(async () => (await filePreviewWindowState())?.visible, {
+				timeout: 15_000,
+			})
+			.toBe(true);
+	});
+
+	test("被隐藏后双击另一文件（driver open → 单例分支唤回）也能唤回", async () => {
+		await hideFilePreviewWindow();
+		await main.evaluate(
+			(p) =>
+				window.waPiFilePreviewWin!.open({
+					path: p,
+					sessionId: null,
+					rect: null,
+				}),
+			FILE_B,
+		);
+		await expect
+			.poll(async () => (await filePreviewWindowState())?.visible, {
+				timeout: 15_000,
+			})
+			.toBe(true);
+	});
+});

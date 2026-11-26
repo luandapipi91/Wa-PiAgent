@@ -39,5 +39,17 @@ export function openFileOrPreview(
 			});
 		return;
 	}
-	useSessionStore.getState().openFilePreview(path, sessionId);
+	// 同值短路场景：store 不产生变更 → driver effect 不触发 → 主进程收不到 open，
+	// 窗口若被隐藏（如主窗口收起到托盘时连带 hide）就永远唤不回。有桥时直接发 restore
+	// 指令唤回窗口（不经 store，不破回环闸）；无桥（web）时 Modal 本就显示该文件，跳过。
+	const s = useSessionStore.getState();
+	if (
+		s.filePreview?.path === path &&
+		s.filePreview.sessionId === sessionId &&
+		window.waPiFilePreviewWin
+	) {
+		window.waPiFilePreviewWin.cmd({ type: "restore" });
+		return;
+	}
+	s.openFilePreview(path, sessionId);
 }

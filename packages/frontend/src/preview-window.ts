@@ -104,7 +104,9 @@ export type FilePreviewWinEvent =
 	/** 窗口内换了文件（md 相对链接跳转）：同步主窗口 store（openFilePreview 幂等，回环自然终止） */
 	| { type: "path"; path: string; sessionId: string | null }
 	/** 独立窗口请求打开设置：设置弹窗是主窗口的单例（典型来源：未配置分享 token 时分享弹窗自动跳「设置」） */
-	| { type: "open-settings"; section: string };
+	| { type: "open-settings"; section: string }
+	/** 窗口加载失败（ready 超时未到 / did-fail-load）：主进程已关窗，主窗口 toast 提示可重试 */
+	| { type: "load-failed" };
 
 /** preload 暴露的文件预览独立窗口 IPC 桥（desktop 下存在；浏览器 dev 下 undefined，调用处用可选链） */
 interface WaPiFilePreviewWinApi {
@@ -115,8 +117,8 @@ interface WaPiFilePreviewWinApi {
 		/** 上次持久化的窗口位置尺寸（屏幕坐标），无记录传 null 用默认摆放 */
 		rect?: { x: number; y: number; w: number; h: number } | null;
 	}): Promise<{ ok: boolean; reason?: string }>;
-	/** 主窗口：窗口指令（本期仅 close） */
-	cmd(payload: { type: "close" }): void;
+	/** 主窗口：窗口指令（close=关闭；restore=唤回被隐藏的窗口，如同值双击短路场景） */
+	cmd(payload: { type: "close" | "restore" }): void;
 	/** 独立窗口：上报动作（ready / close / path / open-settings） */
 	act(payload: { type: string; [key: string]: unknown }): void;
 	/** 独立窗口：右下角缩放手柄提交内容尺寸 */

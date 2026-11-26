@@ -346,6 +346,7 @@ const zh = {
 			unknownError: "未知错误",
 			copyImage: "复制图片",
 			copyPath: "复制路径",
+			toastLoadFailed: "预览窗口加载失败，请重新双击文件重试",
 		},
 		toolCall: {
 			editNumber: "编辑 {{index}}",

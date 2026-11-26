@@ -359,6 +359,7 @@ const en = {
 			unknownError: "unknown error",
 			copyImage: "Copy image",
 			copyPath: "Copy path",
+			toastLoadFailed: "Preview window failed to load, double-click the file to retry",
 		},
 		toolCall: {
 			editNumber: "Edit {{index}}",

@@ -1,6 +1,8 @@
 import { useEffect } from "react";
+import i18n from "./i18n";
 import { useSessionStore } from "./store/session";
 import { useSettingsStore, type SettingsSection } from "./store/settings";
+import { useToastStore } from "./store/toast";
 import type { FilePreviewWinEvent } from "./preview-window";
 
 /**
@@ -76,6 +78,14 @@ export function useFilePreviewWindowDriver(): void {
 					// 独立窗口请主窗口打开设置：设置弹窗只在主窗口（数据/上下文都在那边）
 					useSettingsStore.getState().open();
 					useSettingsStore.getState().setSection(e.section as SettingsSection);
+					break;
+				case "load-failed":
+					// 窗口创建后加载失败（ready 超时未到 / did-fail-load）：主进程已关窗。
+					// 收尾 store（避免残留旧值），toast 提示用户重试（下次双击走全新建窗）
+					if (store.filePreview) store.closeFilePreview();
+					useToastStore.getState().add(
+						i18n.t("blocks.fileViewer.toastLoadFailed"),
+					);
 					break;
 				case "sync":
 				default:

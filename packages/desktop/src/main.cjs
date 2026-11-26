@@ -146,6 +146,12 @@ let previewReadyShowPending = true;
 // ready 后显示的 pending 门控同款口径（本期无最小化，开窗即待显示）。
 let filePreviewWindow = null;
 let filePreviewReadyShowPending = true;
+// 文件窗口 ready 超时兕底：窗口显示唯一入口是渲染层首帧 ready，loadURL "成功"但
+// 前端 JS 未跑到 ready（崩溃/白屏）时 did-fail-load 不触发；不兕底则单例变量已赋值，
+// 之后每次双击都命中单例分支，重启前永久失效。timer 非 null = 尚未 ready；
+// ready 消费后清除，closed 时也清（防泄漏）。
+const FILE_PREVIEW_READY_TIMEOUT_MS = 15000;
+let filePreviewReadyTimer = null;
 // 桌面宠物窗口（呱呱）：透明无边框单例，由「外观 → 桌面宠物」开关控制；主窗口收起时不跟随隐藏
 let petWindow = null;
 let sidecar = null;
@@ -1187,8 +1193,16 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		const existing = isFile ? filePreviewWindow : previewWindow;
 		const eventChannel = isFile ? "filepreviewwin:event" : "previewwin:event";
 		// 单例：已存在则只同步最新预览内容（主窗口切会话/切文件后不显示陈旧内容），
-		// 最小化态下不打扰（仅同步），可见时才聚焦
+		// 最小化态下不打扰（仅同步），可见时才聚焦。
+		// 文件窗口例外：它曾被外部连带隐藏（主窗口收起到托盘时 hide、而从托盘恢复只
+		// show 主窗口），单例分支若不唤回，双击任何文件都只换内容、窗口永不显示，
+		// 表现为静默失效直到重启——故文件窗口不可见时必须唤回。html 窗口保持不打扰：
+		// 它的最小化气泡态（点气泡 restore）是刻意语义，不得被 open 打破。
 		if (existing && !existing.isDestroyed()) {
+			if (isFile && !existing.isVisible()) {
+				if (existing.isMinimized()) existing.restore();
+				existing.show();
+			}
 			existing.webContents.send(
 				eventChannel,
 				isFile
@@ -1248,8 +1262,32 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		if (isFile) params.set("kind", "file");
 		win.loadURL(`http://127.0.0.1:${actualPort}/?${params.toString()}`);
 		// 以最小化态重建（会话切回场景）：首帧 ready 保持隐藏，不自动弹窗（文件窗口无最小化，恒待显示）
-		if (isFile) filePreviewReadyShowPending = true;
-		else previewReadyShowPending = !payload.minimized;
+		if (isFile) {
+			filePreviewReadyShowPending = true;
+			// ready 超时兕底：超时未 ready → 回报主窗口 load-failed（toast 提示可重试）+ 关窗
+			// （closed 兜底清单例，下次双击重开即恢复，不再永久占位）
+			if (filePreviewReadyTimer) clearTimeout(filePreviewReadyTimer);
+			filePreviewReadyTimer = setTimeout(() => {
+				filePreviewReadyTimer = null;
+				if (win.isDestroyed()) return;
+				sendToMain({ type: "load-failed" }, eventChannel);
+				win.close();
+			}, FILE_PREVIEW_READY_TIMEOUT_MS);
+			// 加载失败（dev server 未就绪/更新重启竞态等）同口径处理；仅主 frame、
+			// 过滤 -3 ERR_ABORTED（非真失败）；html 窗不接（它有自己的 blocked 兕底链路）
+			win.webContents.on("did-fail-load", (_event, code, _desc, _url, isMainFrame) => {
+				if (!isMainFrame || code === -3) return;
+				if (filePreviewReadyTimer) {
+					clearTimeout(filePreviewReadyTimer);
+					filePreviewReadyTimer = null;
+				}
+				if (win.isDestroyed()) return;
+				sendToMain({ type: "load-failed" }, eventChannel);
+				win.close();
+			});
+		} else {
+			previewReadyShowPending = !payload.minimized;
+		}
 		// 位置/尺寸变化回报主窗口持久化（拖动中连续触发 → 防抖合并）
 		let rectTimer = null;
 		const reportRect = () => {
@@ -1269,6 +1307,11 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		win.on("resized", reportRect);
 		win.on("closed", () => {
 			if (rectTimer) clearTimeout(rectTimer);
+			// 文件窗口 ready 超时兕底的 timer 一并清（含兕底自身 close 触发的 closed）
+			if (isFile && filePreviewReadyTimer) {
+				clearTimeout(filePreviewReadyTimer);
+				filePreviewReadyTimer = null;
+			}
 			// 各自清自己的单例变量（互不误清），并向各自下行通道兜底回报关闭
 			if (isFile) {
 				if (win === filePreviewWindow) filePreviewWindow = null;
@@ -1291,6 +1334,11 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 				case "ready": // 首帧渲染完：显示窗口（避免白屏）
 					if (filePreviewReadyShowPending && !win.isVisible()) win.show();
 					filePreviewReadyShowPending = true;
+					// 首帧已到：解除超时兕底（正常路径）
+					if (filePreviewReadyTimer) {
+						clearTimeout(filePreviewReadyTimer);
+						filePreviewReadyTimer = null;
+					}
 					return;
 				case "close": // 关闭文件预览：关窗 + 主窗口收尾 filePreview 状态
 					win.close();
@@ -1429,6 +1477,13 @@ document.getElementById('quit').onclick = () => window.waPiApp.quit();
 		switch (payload?.type) {
 			case "close":
 				filePreviewWindow.close();
+				return;
+			case "restore":
+				// 双击与当前预览同一文件时 store 同值短路不会触发 driver open，
+				// 窗口被隐藏时（如主窗口收起到托盘连带）这里是唯一唤回通道
+				if (filePreviewWindow.isMinimized()) filePreviewWindow.restore();
+				filePreviewWindow.show();
+				filePreviewWindow.focus();
 				return;
 			default:
 				return;

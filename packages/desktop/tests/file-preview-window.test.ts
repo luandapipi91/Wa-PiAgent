@@ -39,15 +39,59 @@ test("filepreviewwin:open 只认主窗口 sender（防独立窗口递归开窗�
 	expect(mainSrc.slice(i, i + 300)).toContain("event.sender !== mainWindow.webContents");
 });
 
-test("filepreviewwin:cmd 仅实现 close（无死通道）", () => {
+test("filepreviewwin:cmd 实现 close/restore（无死通道）", () => {
 	const i = mainSrc.indexOf('"filepreviewwin:cmd"');
 	expect(i).toBeGreaterThan(-1);
 	const block = mainSrc.slice(i, i + 800);
 	expect(block).toContain('case "close"');
-	// 反向断言：restore/hide/refresh 都是 html 窗口专属语义，文件窗口不许出现
-	expect(block).not.toContain('"restore"');
+	// restore：双击与当前预览同一文件时 store 同值短路不会触发 driver open，
+	// 窗口若被隐藏（如主窗口收起到托盘时连带 hide）唯一唤回通道就是这条指令
+	expect(block).toContain('case "restore"');
+	// 反向断言：hide/refresh 仍是 html 窗口专属语义（气泡态/iframe 刷新），文件窗口不许出现
 	expect(block).not.toContain('"hide"');
 	expect(block).not.toContain('"refresh"');
+});
+
+// 主窗口收起到托盘时预览窗被连带 hide，而从托盘恢复只 show 主窗口；若单例分支不唤回，
+// 双击任何文件都只 sync 换内容、窗口永不显示，表现为静默失效直到重启（2026-11-26 修）。
+test("filepreviewwin:open 单例分支：文件窗口不可见时唤回（restore+show），html 保持不打扰", () => {
+	const i = mainSrc.indexOf("if (existing.isVisible()) existing.focus()");
+	expect(i).toBeGreaterThan(-1);
+	const block = mainSrc.slice(i - 500, i);
+	// 仅文件窗口唤回（isFile 守卫）；html 窗口的最小化气泡态仍靠点气泡 restore，不得被打破
+	expect(block).toContain("isFile");
+	expect(block).toContain("!existing.isVisible()");
+	expect(block).toContain("existing.restore()");
+	expect(block).toContain("existing.show()");
+});
+
+// ready 是窗口显示唯一入口：loadURL "成功"但前端 JS 未跑到 ready（崩溃/白屏）时
+// did-fail-load 不触发，若不兕底则单例变量已赋值，之后每次双击都命中单例分支，
+// 重启前永久失效（2026-11-26 补充防御）。
+test("file 窗口 ready 超时兕底：超时未 ready → load-failed 回报 + 关窗（下次双击重开即恢复）", () => {
+	expect(mainSrc).toContain("FILE_PREVIEW_READY_TIMEOUT_MS");
+	expect(mainSrc).toContain("filePreviewReadyTimer");
+	const t = mainSrc.indexOf("FILE_PREVIEW_READY_TIMEOUT_MS)");
+	expect(t).toBeGreaterThan(-1);
+	const block = mainSrc.slice(t, t + 700);
+	expect(block).toContain("load-failed");
+	expect(block).toContain("win.close()");
+	// ready 消费后解除兕底（正常路径不误伤）
+	const r = mainSrc.indexOf('case "ready"');
+	expect(mainSrc.slice(r, r + 500)).toContain("filePreviewReadyTimer");
+	// closed 兜底清 timer 防泄漏
+	const c = mainSrc.indexOf('win.on("closed"');
+	expect(mainSrc.slice(c, c + 700)).toContain("filePreviewReadyTimer");
+});
+
+test("file 窗口 did-fail-load 兕底：仅主 frame 真失败触发（过滤 ERR_ABORTED），load-failed + 关窗", () => {
+	const i = mainSrc.indexOf('win.webContents.on("did-fail-load"');
+	expect(i).toBeGreaterThan(-1);
+	const block = mainSrc.slice(i, i + 500);
+	expect(block).toContain("isMainFrame");
+	expect(block).toContain("-3"); // ERR_ABORTED 非真失败
+	expect(block).toContain("load-failed");
+	expect(block).toContain("win.close()");
 });
 
 test("filepreviewwin:act 只认文件窗口 sender", () => {

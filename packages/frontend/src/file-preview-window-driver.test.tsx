@@ -12,6 +12,7 @@ import {
 } from "./file-preview-window-driver";
 import { useSessionStore } from "./store/session";
 import { useSettingsStore } from "./store/settings";
+import { useToastStore } from "./store/toast";
 
 interface Calls {
 	opens: any[];
@@ -168,4 +169,19 @@ test("PreviewWindowRoot 内的 FilePreviewModal 保持无条件渲染（保住 h
 test("main.tsx 按 kind=file 分流到 FilePreviewWindowRoot", () => {
 	expect(mainTsxSrc).toContain("FilePreviewWindowRoot");
 	expect(mainTsxSrc).toContain('kind === "file"');
+});
+
+// 窗口创建后加载失败（ready 超时 / did-fail-load）：主进程关窗前回报 load-failed，
+// driver 收尾 store 并 toast 提示可重试（2026-11-26 补充防御）。
+test("load-failed 事件 → 清空 filePreview + 入队 error toast（提示重试）", () => {
+	renderHook(() => useFilePreviewWindowDriver());
+	useSessionStore.setState({
+		filePreview: { path: "/work/a.md", sessionId: "s1" },
+	});
+	const before = useToastStore.getState().toasts.length;
+	emit({ type: "load-failed" });
+	expect(useSessionStore.getState().filePreview).toBeNull();
+	const toasts = useToastStore.getState().toasts;
+	expect(toasts.length).toBe(before + 1);
+	expect(toasts[toasts.length - 1].type).toBe("error");
 });
