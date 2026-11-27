@@ -1,3 +1,6 @@
+## 2026-11-27
+- chore(release): 0.10.17 发版——随包收入 pi 1.6.1 升级、主代理一体式选择器（8e825872）与三项 TDD 修复；发布说明按实际改动写（改进 2 + 修复 3）
+
 ## 2026-11-26
 - style(frontend): 输入框底部主/子代理选择器配色对调——主代理 MainAgentSelector 按钮文字与箭头改主题色（text-brand），子代理 DelegateSelector 不再因委派态变品牌绿、统一普通文字色（移除 delegated 分支）；组件测试各 +1 例锁 class；验证：前端全量 3761 pass 0 fail、tsc 过、真实浏览器计算色 main=rgb(75,162,111) / delegate=rgb(110,110,115)、E2E delegate-setting 6/6 + composer 10/11（失败项为既有草稿防抖抖动，两次运行失败点不同）
 - feat(frontend): 输入框底部主代理「模型 + 思考强度」合并为一体式选择器 MainAgentSelector（按钮「厂商/模型 | 思考」，点开双栏面板：模型 / 四档思考，选完不收起点外才关；保留自动选第一个模型与失效按 id 重钉；无模型时仍显示「未配置模型」）；子代理回显分隔符同步改「 | 」；删除不再使用的 ModelSelector/ThinkingSelector/AutoWidthSelect（tests/ 两份旧测试的 4 个行为用例移植进 MainAgentSelector.test，Composer/ComposerInput/NewSessionPane 测试按新 testid/data 属性移植）；E2E 新增 selectModel/selectThinking 辅助函数，30 份 spec 的 52 处 selectOption 写法同步改造；验证：前端全量 3759 pass 0 fail、tsc 过、受影响 E2E 30 份批量 82 pass（channels 负载下 SSE 超时、单跑 5/5；toolcall-nested-overflow 为既有真实 LLM+Windows 路径问题，非本次引入）
