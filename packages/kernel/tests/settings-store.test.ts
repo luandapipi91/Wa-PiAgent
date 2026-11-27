@@ -421,3 +421,47 @@ test("saveLanguage：白名单外（fr/空串/非字符串）→ throw 且不落
 	// 非法值不落盘：文件内容保持原样
 	expect(JSON.parse(await readFile(file, "utf8")).language).toBe("zh");
 });
+
+// ===== pi 1.6.1：转录通知设置由 pi 侧写入，Wa-Pi 必须原样保留 =====
+//
+// 1.6.1 把 showCacheMissNotices 拆成 settings.json 里的 notices.{cacheMisses,
+// cacheWarming,compactionCosts,reasoningDrops}，迁移由 pi 的 SettingsManager 自己完成
+// （它会把结果写回 settings.json 并删掉旧键）。Wa-Pi 的 settings-store 是
+// read-modify-write 全量回写，只要不白名单过滤未知键，pi 写进去的 notices 就会一直留着；
+// 反过来，若哪天有人把读写改成「只认已知字段」，用户的四个开关会在下一次改设置时被抹掉。
+
+test("pi 1.6.1：notices 四个开关经 Wa-Pi 任意一次设置写入后仍完整保留", async () => {
+	const notices = {
+		cacheMisses: true,
+		cacheWarming: false,
+		compactionCosts: true,
+		reasoningDrops: false,
+	};
+	await writeFile(
+		file,
+		JSON.stringify({ notices, language: "zh" }),
+		"utf8",
+	);
+
+	// 用最常用的一个写入路径（重试设置）触发 read-modify-write
+	await saveRetrySettings({ maxRetries: 4, baseDelayMs: 1500 }, file);
+
+	const after = JSON.parse(await readFile(file, "utf8"));
+	expect(after.notices).toEqual(notices);
+	expect(after.language).toBe("zh");
+	expect(after.retry).toEqual({ maxRetries: 4, baseDelayMs: 1500 });
+});
+
+test("pi 1.6.1：迁移后的 settings.json（无旧键、只有 notices）不会被 Wa-Pi 写回旧键", async () => {
+	await writeFile(
+		file,
+		JSON.stringify({ notices: { cacheMisses: false } }),
+		"utf8",
+	);
+	await saveLanguage("en", file);
+	const after = JSON.parse(await readFile(file, "utf8"));
+	// pi 已删除的旧键不得被 Wa-Pi 重新引入（那会让 pi 再次迁移，语义漂移）
+	expect("showCacheMissNotices" in after).toBe(false);
+	expect(after.notices).toEqual({ cacheMisses: false });
+	expect(after.language).toBe("en");
+});
