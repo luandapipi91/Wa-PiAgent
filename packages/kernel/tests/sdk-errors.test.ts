@@ -6,6 +6,7 @@ import {
 	isTransientErrorMessage,
 	FATAL_ERROR_PATTERN,
 } from "../src/sdk-errors";
+import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 
 // 根因回归：SDK 把 provider 运行时错误（不可用模型 / 鉴权失败 / 网络）
 // 编码成 message_end{stopReason:"error", errorMessage} 事件而非抛异常。
@@ -599,4 +600,208 @@ test("pi 1.6.0：裸 socket 错误码 ECONNABORTED 不被「用户中止」正�
 	// 真正的中止文案仍要静默
 	expect(classifySdkError(abortErrEvent("Operation aborted"))).toBeNull();
 	expect(classifySdkError(abortErrEvent("The operation was aborted."))).toBeNull();
+});
+
+// ===== pi-ai 1.6.1 的 retry.js 新增条目 =====
+// 上游把下面这些从「不重试」改成「自动重试」（1.6.1 changelog 的 Fixed 段）：
+// Cloudflare 525、网关「provider is temporarily unavailable」、Anthropic 流内 api_error、
+// OpenRouter 空响应 / 无输出即停、finish_reason:"error"、排队超过准入上限、
+// 「request rate increased too quickly」节流、以及若干网关中途失败文案。
+// kernel 的状态条分类必须同步：否则 pi 已经在重试的临时失败，重试耗尽后
+// 会在前端弹一条红色错误消息，而不是走状态条。
+
+test("pi 1.6.1 新增 transient：Cloudflare 525（TLS 握手失败）", () => {
+	expect(classifySdkError(errEvent("Cloudflare returned 525"))?.category).toBe(
+		"transient",
+	);
+});
+
+test("pi 1.6.1：状态码 525 不属于更长数字（词边界仍生效）", () => {
+	// 与既有的 429/500 边界断言同款：请求 id / 字节数里的数字不得被当成状态码
+	expect(classifySdkError(errEvent("req_525abc failed"))?.category).toBe("fatal");
+	expect(classifySdkError(errEvent("size 15251 bytes"))?.category).toBe("fatal");
+});
+
+test("pi 1.6.1 新增 transient：网关 provider is temporarily unavailable", () => {
+	expect(
+		classifySdkError(
+			errEvent("The provider is temporarily unavailable. Retry shortly."),
+		)?.category,
+	).toBe("transient");
+});
+
+test("pi 1.6.1：裸 provider unavailable（无 temporarily）仍是 fatal——是持续性路由错误", () => {
+	expect(classifySdkError(errEvent("provider unavailable"))?.category).toBe("fatal");
+});
+
+test("pi 1.6.1 新增 transient：Anthropic 流内 api_error 事件", () => {
+	// 流已开始后 Anthropic 用无状态码的 error 事件报内部失败
+	const body =
+		'{"type":"error","error":{"type":"api_error","message":"Unable to complete this request right now."}}';
+	expect(classifySdkError(errEvent(body))?.category).toBe("transient");
+});
+
+test("pi 1.6.1 新增 transient：invalid_request_error 不因 api_error 条目被误伤", () => {
+	// 只有 type == api_error 才是临时内部错误；请求格式错误必须仍走 fatal
+	const body =
+		'{"type":"error","error":{"type":"invalid_request_error","message":"messages: bad field"}}';
+	expect(classifySdkError(errEvent(body))?.category).toBe("fatal");
+});
+
+test("pi 1.6.1 新增 transient：OpenAI 兼容流以 finish_reason: error 收尾", () => {
+	for (const text of [
+		"Provider finish_reason: error",
+		"provider finish_reason: error",
+	]) {
+		expect(classifySdkError(errEvent(text))?.category).toBe("transient");
+	}
+});
+
+test("pi 1.6.1 新增 transient：Mistral provider stopped with: error", () => {
+	expect(
+		classifySdkError(errEvent("Provider stopped with: error"))?.category,
+	).toBe("transient");
+});
+
+test("pi 1.6.1 新增 transient：OpenRouter 空响应与未完成即停", () => {
+	for (const text of [
+		"Provider returned an empty response",
+		"Upstream error from Relace: The model stopped before completing the response.",
+	]) {
+		expect(classifySdkError(errEvent(text))?.category).toBe("transient");
+	}
+});
+
+test("pi 1.6.1 新增 transient：网关 SSE error 帧说响应未完成", () => {
+	expect(
+		classifySdkError(errEvent("The provider ended the response before it was complete."))
+			?.category,
+	).toBe("transient");
+});
+
+test("pi 1.6.1 新增 transient：连接被上游重置与「生成时上报失败」文案", () => {
+	for (const text of [
+		"connection to the provider was reset",
+		"The provider reported a failure while generating the response",
+	]) {
+		expect(classifySdkError(errEvent(text))?.category).toBe("transient");
+	}
+});
+
+test("pi 1.6.1 新增 transient：排队超过准入上限（admission ceiling）", () => {
+	expect(
+		classifySdkError(
+			errEvent(
+				"waited 73.4s in queue, reaching this model's admission ceiling of 60s",
+			),
+		)?.category,
+	).toBe("transient");
+});
+
+test("pi 1.6.1 新增 transient：OpenAI slow_down / Qwen 节流文案", () => {
+	expect(
+		classifySdkError(errEvent("Request rate increased too quickly"))?.category,
+	).toBe("transient");
+});
+
+test("pi 1.6.1 新增 transient：显式重试指引 repeat the request later", () => {
+	expect(
+		classifySdkError(errEvent("Unable to process request. Repeat the request later."))
+			?.category,
+	).toBe("transient");
+});
+
+test("pi 1.6.1 新增 transient：网关「对端已关闭」与上游要求退避", () => {
+	expect(classifySdkError(errEvent("other side closed"))?.category).toBe(
+		"transient",
+	);
+	// 上游给出的 retry delay 上限失败，交给外层重试策略处理
+	expect(
+		classifySdkError(errEvent("retry delay exceeded the provider limit"))
+			?.category,
+	).toBe("transient");
+});
+
+test("pi 1.6.1：kernel 的 transient 判定必须覆盖 pi-ai 的 auto-retry 判定（探针式契约）", () => {
+	// 不变量：pi 会自动重试的失败，kernel 必须判 transient（弹状态条而非红色错误）；
+	// 反过来不要求相等——kernel 多判几条 transient 无害（pi 不重试但我们仍按临时错误提示）。
+	// 这里直接调 pi-ai 自己的判定函数做对照，而不是抄一份文案清单：
+	// 升级 pi 后若上游新增文案而 kernel 没跟上，这个用例会红。
+	const samples = [
+		"overloaded",
+		"server_busy",
+		"servers are currently busy",
+		"currently experiencing high demand",
+		"model is at capacity",
+		"admission ceiling",
+		"rate limit",
+		"too many requests",
+		"rate increased too quickly",
+		"gateway returned 500",
+		"Cloudflare returned 525",
+		"The service is temporarily unavailable",
+		"The provider is temporarily unavailable. Retry shortly.",
+		"server error",
+		"internal error",
+		"Provider returned an error",
+		'{"type":"error","error":{"type":"api_error","message":"Unable to complete"}}',
+		"exceeded request buffer limit while retrying upstream",
+		"unable to forward upstream",
+		"upstream request failed",
+		"upstream_stream_read_error",
+		"stream was interrupted",
+		"http2 stream failed",
+		"network error",
+		"connection error",
+		"connection refused",
+		"connection lost",
+		"Connection closed.",
+		"other side closed",
+		"fetch failed",
+		"request to https://x failed, reason: empty",
+		"getaddrinfo ENOTFOUND",
+		"read ECONNRESET",
+		"connection reset by peer",
+		"ENOTFOUND",
+		"EAI_AGAIN",
+		"upstream connect",
+		"reset before headers",
+		"socket hang up",
+		"socket connection was closed",
+		"timed out",
+		"timeout",
+		"terminated",
+		"websocket closed",
+		"websocket error",
+		"websocket_connection_limit_reached",
+		"stream ended without message_stop",
+		"http2 request did not get a response",
+		"Provider finish_reason: error",
+		"Provider stopped with: error",
+		"Provider returned an empty response",
+		"The model stopped before completing the response.",
+		"stream disconnected before completion",
+		"Claude Code's stream from Anthropic was cut short after the reply had begun",
+		"The provider ended the response before it was complete.",
+		"connection to the provider was reset",
+		"The provider reported a failure while generating the response",
+		"pending stream has been canceled",
+		"retry delay exceeded the provider limit",
+		"you can retry your request",
+		"try your request again",
+		"please retry your request",
+		"Repeat the request later.",
+		"ResourceExhausted",
+		"subscription_sharing_usage_unavailable",
+		"subscription_sharing_user_unavailable",
+	];
+	const drifted = samples.filter((text) => {
+		const piRetries = isRetryableAssistantError({
+			stopReason: "error",
+			errorMessage: text,
+		} as any);
+		if (!piRetries) return true; // 样本本身失效：pi 已不再重试这条，需要人工复核样本
+		return classifySdkError(errEvent(text))?.category !== "transient";
+	});
+	expect(drifted).toEqual([]);
 });

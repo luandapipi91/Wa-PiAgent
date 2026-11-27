@@ -134,8 +134,9 @@ const FALLBACK_MESSAGE =
  * 命中此类 → 走状态条提示，不进对话流。
  *
  * 来源：pi-ai retry.js 的 RETRYABLE_PROVIDER_ERROR_PATTERN（精简）。
- * 已对齐至 pi-ai 1.6.0（1.6.0 新增四条：网关断连 / 裸 socket 错误码 /
- * connection reset by peer / Codex WebSocket 连接上限）。
+ * 已对齐至 pi-ai 1.6.1（1.6.0 新增四条：网关断连 / 裸 socket 错误码 /
+ * connection reset by peer / Codex WebSocket 连接上限；1.6.1 再补一批见文件末尾
+ * 的 pi-ai 1.6.1 段落）。
  */
 const TRANSIENT_ERROR_PATTERN = new RegExp(
 	[
@@ -146,11 +147,13 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
 		// 状态码按词边界匹配（pi-ai 1.4.0 #11057）：请求 id / 字节数里的数字不能被
 		// 误判成 HTTP 状态（如 "req_500abc"）；同时保留 "HTTP 500"、"returned 524" 的真实匹配。
 		// 也不能用 5\d\d（会误匹配错误页 HTML 里的任意三位数，如 404 网页里的 "563" 像素宽度）。
-		"(?<![a-z0-9])(?:429|500|502|503|504|520|524)(?![a-z0-9])",
-		"service.?unavailable",
+		// 525 是 Cloudflare 与源站 TLS 握手失败（pi-ai 1.6.1 补入，源站重启时常见）。
+		"(?<![a-z0-9])(?:429|500|502|503|504|520|524|525)(?![a-z0-9])",
+		// "The service is temporarily unavailable" 变体（pi-ai 1.6.1 放宽）
+		"service.?(?:is.?)?(?:temporarily.?)?unavailable",
 		"server.?error",
 		"internal.?error",
-		"provider.?returned.?error",
+		"provider.?returned.?(?:an.?)?error",
 		"ResourceExhausted",
 		// 网络 / 代理 / fetch 传输失败
 		"network.?error",
@@ -160,6 +163,8 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
 		// pi-ai 1.6.0 新增（#12064）：网关把上游中途断连中继成 Anthropic 风格
 		// {"type":"error","error":{"type":"api_error","message":"Connection closed."}}
 		"connection.?closed",
+		// pi-ai 1.6.1：网关对端已关闭（与 connection closed 并列的另一半措辞）
+		"other side closed",
 		"fetch failed",
 		// pi-ai 1.6.0 新增（#12128）：传输层只透出裸 Node socket 错误码，
 		// 如 "read ECONNRESET" / "write EPIPE" / "connect ETIMEDOUT 1.2.3.4:443"。
@@ -196,6 +201,51 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
 		"http/?2 stream failed",
 		"request to \\S+ failed, reason:",
 		"stream disconnected before completion",
+
+		// ===== pi-ai 1.6.1 的 retry.js 新增（见 changelog Fixed 段）=====
+		// 上游把下面这些从「不重试」改成「自动重试」。分类表不跟着走的话，
+		// pi 已在重试的临时失败，重试耗尽后会在前端弹红色错误而不是状态条。
+		// 逐条已用 isRetryableAssistantError 探针实证 true。
+
+		// provider 侧负载 / 排队超时
+		"server_busy",
+		"servers are currently busy",
+		"currently experiencing high demand",
+		"model is at capacity",
+		"admission ceiling",
+		// OpenAI 429 slow_down（Codex）与 Qwen 节流文案
+		"rate increased too quickly",
+		// 网关「provider 暂时不可用」：必须带 temporarily，
+		// 裸 "provider unavailable" 通常是持续性路由错误，不能归 transient。
+		"provider.?(?:is.?)?temporarily.?unavailable",
+		// Anthropic 流已开始后用无状态码的 error 事件报内部失败；
+		// 抄 Anthropic 格式的网关也用它报自己的上游故障。只认 type=api_error，
+		// invalid_request_error 等确定性错误必须仍归 fatal。
+		'"type"\\s*:\\s*"api_error"',
+		// 流以 finish_reason:"error" 收尾（OpenAI 兼容 / Mistral 两种措辞）
+		"provider finish_reason: error",
+		"provider stopped with: error",
+		// OpenRouter 空响应 / provider 中途放弃
+		"returned an empty response",
+		"stopped before completing the response",
+		// 网关中继的流中断（Magpie / SSE error 帧）
+		"cut short after the reply had begun",
+		"ended the response before it was complete",
+		"connection to the provider was reset",
+		"reported a failure while generating the response",
+		// Node ERR_HTTP2_STREAM_CANCEL：请求发出前 HTTP/2 会话已死
+		//（如 Bedrock SDK 的 5 分钟会话超时）
+		"pending stream has been canceled",
+		// 上游要求按 retry-after 退避，上限失败交给外层重试策略
+		"retry delay",
+		// 上游显式给出的重试指引
+		"you can retry your request",
+		"try your request again",
+		"please retry your request",
+		"repeat the request later",
+		// Sign in with ChatGPT：用量/用户数据临时不可用（可在流中到达，无 503）
+		"subscription_sharing_usage_unavailable",
+		"subscription_sharing_user_unavailable",
 	].join("|"),
 	"i",
 );
