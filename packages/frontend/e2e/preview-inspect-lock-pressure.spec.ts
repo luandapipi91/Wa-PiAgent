@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // 预览元素「双击锁定」压力测试 —— 用真实页面「门店店长管理绩效.html」做标准 case。
 // 在该渲染页面上，快速双击「> 15 ~ 20w」区间 50 次（≈100 次点击），
@@ -58,9 +58,7 @@ test.describe
 			await expect(page.getByTestId("new-session-pane")).toBeVisible({
 				timeout: 5000,
 			});
-			await page
-				.getByTestId("model-selector")
-				.selectOption({ label: "E2E Inspect Pressure/model-a" });
+			await selectModel(page, { label: "E2E Inspect Pressure/model-a" });
 			await page
 				.locator('[data-testid="composer-input"] [role="textbox"]')
 				.fill(text);

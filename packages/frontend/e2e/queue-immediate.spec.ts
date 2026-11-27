@@ -16,7 +16,7 @@
 // 队列 / 清空才丢队列」的真实语义由 tests/queue-immediate.test.ts 与路由测试覆盖。
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 const INPUT = '[data-testid="composer-input"] [role="textbox"]';
 
@@ -38,7 +38,7 @@ async function openSession(page: Page, projectName: string): Promise<string> {
 		timeout: 10_000,
 	});
 	await page.getByTestId("project-select").selectOption(project.id);
-	await page.getByTestId("model-selector").selectOption({ label: "E2E Queue/model-a" });
+	await selectModel(page, { label: "E2E Queue/model-a" });
 
 	// 用一条消息建出会话（provider 指向不可达端口 → 立刻失败结束，不会长跑）
 	const first = `建会话-${randomUUID().slice(0, 8)}`;

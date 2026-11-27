@@ -3,7 +3,7 @@
 // agent 自主调用 im_push_to 的推送执行由 kernel 集成测试覆盖（E2E 环境无真实 LLM）。
 import { expect, test } from "@playwright/test";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider , setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel, selectThinking } from "./helpers";
 
 const KERNEL = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -60,8 +60,8 @@ test.describe("发送给 IM 联系人", () => {
 		await setUiPrefs(page, "zh");
 		await page.goto("/");
 		await page.getByTestId("project-select").selectOption(project.id);
-		await page.getByTestId("model-selector").selectOption({ label: "E2E SendIm/model-a" });
-		await page.getByTestId("thinking-selector").selectOption("disabled");
+		await selectModel(page, { label: "E2E SendIm/model-a" });
+		await selectThinking(page, "disabled");
 		const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
 
 		// 3. 新建会话直接输入 / → 选中「发送给 IM 联系人」→ 弹窗选人 → 确认

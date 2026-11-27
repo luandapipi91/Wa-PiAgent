@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 const ASK_SESSION_ID = "s-e2e-resize-ask";
 const ASK_TOOLCALL_ID = "tc-e2e-resize-ask-1";
@@ -117,7 +117,7 @@ test.describe.serial("输入框手动调高", () => {
   async function enterSession(page: Page) {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
-    await page.getByTestId("model-selector").selectOption({ label: "E2E Resize/model-a" });
+    await selectModel(page, { label: "E2E Resize/model-a" });
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
     await textbox.fill("调整高度测试");
     await page.getByTestId("composer-send").click();

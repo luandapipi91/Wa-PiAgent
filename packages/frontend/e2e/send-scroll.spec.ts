@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider , setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 function seedLongSession(sessionId: string, title: string) {
 	const projPath = join(E2E_WA_PI_DIR, "projects.json");
@@ -120,9 +120,7 @@ test.describe("发送消息自动滚动", () => {
 			timeout: 10_000,
 		});
 		// 不等历史渲染，尽快发送（复刻进入定位竞态）
-		await page
-			.getByTestId("model-selector")
-			.selectOption({ label: "E2E SendScroll/model-a" });
+		await selectModel(page, { label: "E2E SendScroll/model-a" });
 		await page
 			.locator('[data-testid="composer-input"] [role="textbox"]')
 			.fill("立即发送测试");
@@ -165,9 +163,7 @@ test.describe("发送消息自动滚动", () => {
 		});
 
 		// 上翻状态发送 → 应恢复贴底、新消息可见、浮钮消失
-		await page
-			.getByTestId("model-selector")
-			.selectOption({ label: "E2E SendScroll/model-a" });
+		await selectModel(page, { label: "E2E SendScroll/model-a" });
 		await page
 			.locator('[data-testid="composer-input"] [role="textbox"]')
 			.fill("上翻后发送测试");
@@ -200,9 +196,7 @@ test.describe("发送消息自动滚动", () => {
 			})
 			.toBeLessThanOrEqual(40);
 
-		await page
-			.getByTestId("model-selector")
-			.selectOption({ label: "E2E SendScroll/model-a" });
+		await selectModel(page, { label: "E2E SendScroll/model-a" });
 		await page
 			.locator('[data-testid="composer-input"] [role="textbox"]')
 			.fill("流式跟随测试");

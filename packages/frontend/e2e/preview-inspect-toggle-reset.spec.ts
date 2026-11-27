@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // 回归防线：锁定选中元素后，顶部开关「关闭→重新打开」不得破坏选中能力。
 // 背景（2026-09-01 用户报告 + E2E 复实）：
@@ -87,9 +87,7 @@ test.describe
 			await expect(page.getByTestId("new-session-pane")).toBeVisible({
 				timeout: 5000,
 			});
-			await page
-				.getByTestId("model-selector")
-				.selectOption({ label: "E2E Inspect Reset/model-a" });
+			await selectModel(page, { label: "E2E Inspect Reset/model-a" });
 			await page
 				.locator('[data-testid="composer-input"] [role="textbox"]')
 				.fill(text);

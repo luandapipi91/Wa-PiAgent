@@ -7,6 +7,13 @@ import {
   waitFor,
   act,
 } from "@testing-library/react";
+
+/** 在一体式主选择器（MainAgentSelector）面板里选模型/思考档位：面板未开则先点开（已开着不重复点，重复点会收起） */
+function pick(kind: "model" | "thinking", value: string) {
+  if (!screen.queryByTestId("main-selector-menu"))
+    fireEvent.click(screen.getByTestId("main-selector"));
+  fireEvent.click(screen.getByTestId(`main-item-${kind}-${value}`));
+}
 import type { AttachmentDraft } from "@wa-pi/shared";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 
@@ -1017,7 +1024,7 @@ describe("Composer", () => {
     await act(async () => {});
 
     expect(
-      (screen.getByTestId("thinking-selector") as HTMLSelectElement).value,
+      screen.getByTestId("main-selector").getAttribute("data-thinking"),
     ).toBe("max");
   });
 
@@ -1034,20 +1041,16 @@ describe("Composer", () => {
     render(<Composer sessionId="s1" agentName="dev" />);
     await act(async () => {});
     const thinking = () =>
-      (screen.getByTestId("thinking-selector") as HTMLSelectElement).value;
+      screen.getByTestId("main-selector").getAttribute("data-thinking");
     expect(thinking()).toBe("high");
 
     // 切到另一个模型（无记录）→ 默认
-    fireEvent.change(screen.getByTestId("model-selector"), {
-      target: { value: "openai/gpt-4o" },
-    });
+    pick("model", "openai/gpt-4o");
     await act(async () => {});
     expect(thinking()).toBe("default");
 
     // 切回原模型 → 记录仍在
-    fireEvent.change(screen.getByTestId("model-selector"), {
-      target: { value: "anthropic/claude-sonnet" },
-    });
+    pick("model", "anthropic/claude-sonnet");
     await act(async () => {});
     expect(thinking()).toBe("high");
   });

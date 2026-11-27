@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // 小窗口下 split 半屏预览：工具栏行尾的关闭按钮必须完整可见且可点。
 // 回归背景：工具栏单行 nowrap + 地址栏 shrink-0 锁死宽度，面板宽度小于需求总宽时
@@ -57,9 +57,7 @@ test.describe
 			await expect(page.getByTestId("new-session-pane")).toBeVisible({
 				timeout: 5000,
 			});
-			await page
-				.getByTestId("model-selector")
-				.selectOption({ label: "E2E Narrow/model-a" });
+			await selectModel(page, { label: "E2E Narrow/model-a" });
 			await page
 				.locator('[data-testid="composer-input"] [role="textbox"]')
 				.fill("窄窗预览测试");

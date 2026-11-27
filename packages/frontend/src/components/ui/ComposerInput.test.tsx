@@ -259,7 +259,7 @@ test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗多选 �
 
 // ===== 底部行委派设置（DelegateSelector 接入）=====
 
-// 委派面板的模型列表与 ModelSelector 同源（providers store），需要至少一个 provider
+// 委派面板的模型列表与 MainAgentSelector 同源（providers store），需要至少一个 provider
 function seedProviderWithModel() {
 	useProvidersStore.setState({
 		providers: [
@@ -276,19 +276,19 @@ function seedProviderWithModel() {
 	} as any);
 }
 
-test("传入 delegateModel/delegateThinking 时底部行委派按钮显示「委派 · m1 / max」", () => {
+test("传入 delegateModel/delegateThinking 时底部行委派按钮显示「厂商/模型(思考)」全名「prov/m1 | max」", () => {
 	seedProviderWithModel();
 	renderComposer({ delegateModel: "prov/m1", delegateThinking: "max" });
 	expect(screen.getByTestId("delegate-selector").textContent).toBe(
-		"委派 · m1 / max",
+		"prov/m1 | max",
 	);
 });
 
-test("不传 delegate props（undefined）渲染「委派 · 跟随」，展开点选不报错（回调静默）", () => {
+test("不传 delegate props（undefined）渲染「跟随」，展开点选不报错（回调静默）", () => {
 	seedProviderWithModel();
 	renderComposer();
 	const btn = screen.getByTestId("delegate-selector");
-	expect(btn.textContent).toBe("委派 · 跟随");
+	expect(btn.textContent).toBe("跟随");
 	// 未传 onDelegateChange：展开面板点选模型不应抛错；选完面板保持打开（点外才收）
 	fireEvent.click(btn);
 	expect(screen.getByTestId("delegate-selector-menu")).toBeDefined();
@@ -307,4 +307,22 @@ test("DelegateSelector 点选 → ComposerInput 的 onDelegateChange 收到字�
 	fireEvent.click(screen.getByTestId("delegate-item-model-prov/m1"));
 	expect(onDelegateChange).toHaveBeenCalledWith({ model: "prov/m1" });
 	// 新行为选完不收起；实例由文件级 afterEach 统一卸载，不残留到同进程后续文件
+});
+
+test("底部行渲染一体式主选择器 main-selector（文案「厂商/模型 | 思考」+ data 属性；旧的分离下拉不再渲染）", () => {
+	seedProviderWithModel();
+	renderComposer({ model: "prov/m1", thinking: "high" });
+	const btn = screen.getByTestId("main-selector");
+	expect(btn.textContent).toBe("prov/m1 | high");
+	expect(btn.getAttribute("data-value")).toBe("prov/m1");
+	expect(btn.getAttribute("data-thinking")).toBe("high");
+	expect(screen.queryByTestId("model-selector")).toBeNull();
+	expect(screen.queryByTestId("thinking-selector")).toBeNull();
+});
+
+test("value 为空时 main-selector 的自动选择经 ComposerInput 的 setModel 回传第一个模型", () => {
+	seedProviderWithModel();
+	const setModel = mock(() => {});
+	renderComposer({ model: null, setModel });
+	expect(setModel).toHaveBeenCalledWith("prov/m1");
 });

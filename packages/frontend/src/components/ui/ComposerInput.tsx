@@ -52,8 +52,7 @@ import {
 import { useCommandsStore } from "../../store/commands";
 import { useAgentsStore } from "../../store/agents";
 import { useToastStore } from "../../store/toast";
-import { ModelSelector } from "./ModelSelector";
-import { ThinkingSelector } from "./ThinkingSelector";
+import { MainAgentSelector } from "./MainAgentSelector";
 import { DelegateSelector } from "./DelegateSelector";
 import { AttachmentChip } from "./AttachmentChip";
 import { imageOrdinals } from "./attachment-labels";
@@ -106,7 +105,7 @@ interface Props {
 	onAgentMention?: (name: string) => void;
 	/** 当前主智能体 displayName，用于过滤 @ 候选菜单（只显示其 askTo 名单内 + 排除自身） */
 	currentAgentName?: string;
-	/** 会话 prefs 是否已加载完（未加载完时禁止 ModelSelector auto-select，防覆盖存储值） */
+	/** 会话 prefs 是否已加载完（未加载完时禁止 MainAgentSelector auto-select，防覆盖存储值） */
 	modelAutoSelectEnabled?: boolean;
 	/** 会话级委派设置：当前委派模型（undefined/null = 跟随主代理） */
 	delegateModel?: string | null;
@@ -746,7 +745,7 @@ export function ComposerInput({
 	// model 必须真实存在于当前 providers 中：prefs 里可能残留已删除 provider 的过期 model，
 	// 仅判"非 null"会让"未配置模型"状态下消息照样发出（后端才报错）。
 	const providers = useProvidersStore((s) => s.providers);
-	// 委派面板的模型列表：与 ModelSelector 同源同形状（id = "providerSlug/modelId"，
+	// 委派面板的模型列表：与 MainAgentSelector 同源同形状（id = "providerSlug/modelId"，
 	// label = "providerName/modelId"），保证委派面板与主模型下拉选项一致
 	const delegateModels = useMemo(() => {
 		const slugs: string[] = [];
@@ -1036,12 +1035,15 @@ export function ComposerInput({
 								onCancel={() => setSendImOpen(false)}
 							/>
 						)}
-						<ModelSelector
+						{/* 主代理「模型 + 思考强度」一体式选择器（原两个分离下拉已合并）；
+							autoSelect 受会话 prefs 冷加载门控（modelAutoSelectEnabled） */}
+						<MainAgentSelector
 							value={model}
-							onChange={setModel}
+							thinking={thinking}
+							onModelChange={setModel}
+							onThinkingChange={setThinking}
 							autoSelectEnabled={modelAutoSelectEnabled}
 						/>
-						<ThinkingSelector value={thinking} onChange={setThinking} />
 						{/* 会话级委派设置（原型方案 A：主选择器之后的最后一个入口）；
 							onDelegateChange 未传时静默 noop，不阻断面板交互 */}
 						<DelegateSelector

@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider , setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 function seedSession(sessionId: string, title: string) {
 	const projPath = join(E2E_WA_PI_DIR, "projects.json");
@@ -59,9 +59,7 @@ test("超长无空格字符串的用户消息 → 正常折行，不撑爆窗口
 	await expect(page.getByTestId("session-view")).toBeVisible({
 		timeout: 10_000,
 	});
-	await page
-		.getByTestId("model-selector")
-		.selectOption({ label: "E2E SendScroll/model-a" });
+	await selectModel(page, { label: "E2E SendScroll/model-a" });
 
 	// 8000+ 字符的无空格 base64 串（模拟用户贴的长 token/编码内容）
 	// 规模取 2000+ 字符：足以触发「无空格串不折行撑爆」（不折行时 ~1.4 万 px 宽），

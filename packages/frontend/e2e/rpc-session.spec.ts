@@ -12,7 +12,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { saveProvider, setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 /** 从本机 pi 凭证库读 deepseek apiKey（仅测试运行期内存使用） */
 function readDeepseekKey(): string {
@@ -44,7 +44,7 @@ test("RPC 全链路：建会话 → 发 prompt → 流式响应 + bash 工具执
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });
 
   // 3. 选择模型（DeepSeek/deepseek-v4-flash）
-  await page.getByTestId("model-selector").selectOption("deepseek/deepseek-v4-flash");
+  await selectModel(page, "deepseek/deepseek-v4-flash");
 
   // 4. 发出要求工具执行的 prompt（bash echo 的输出可被精确断言）
   //    输入框是 contentEditable div（role=textbox），不是 textarea

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // Task 35-39 合并：完整应用流程 E2E
 // 串行执行：第 1 个 test 建项目 + 预置假 provider（共享 kernel），后续 test goto 后有项目，
@@ -55,7 +55,7 @@ async function enterSession(page: import("@playwright/test").Page, text: string)
   await page.goto("/");
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
   // 必须先选择模型，否则发送按钮被禁用
-  await page.getByTestId("model-selector").selectOption({ label: "E2E/model-a" });
+  await selectModel(page, { label: "E2E/model-a" });
   await page.locator('[data-testid="composer-input"] [role="textbox"]').click();
   await page.keyboard.type(text, { delay: 5 });
   await page.getByTestId("composer-send").click();

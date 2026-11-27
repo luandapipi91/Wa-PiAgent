@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { addSkillDir, createProject, removeSkillDir, saveProvider , setUiPrefs } from "./helpers";
+import { addSkillDir, createProject, removeSkillDir, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // Task 8: Quick Invoke 聊天栏快速调用 E2E 测试
 //
@@ -51,7 +51,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
     // 必须选中 beforeEach 创建的项目：全局 seed 项目 e2e-proj-1 排在 projects[0]，
     // 不选的话新会话会挂到 seed 项目下，# 文件搜索会搜错目录
     await page.getByTestId("project-select").selectOption(projectId);
-    await page.getByTestId("model-selector").selectOption({ label: "E2E/model-a" });
+    await selectModel(page, { label: "E2E/model-a" });
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
     await textbox.click();
     await page.keyboard.type(text, { delay: 5 });

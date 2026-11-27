@@ -9,6 +9,7 @@
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 
 const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -279,4 +280,39 @@ export async function createSessionViaPrompt(
  */
 export function toAppPath(p: string): string {
   return p.replace(/\\/g, "/");
+}
+
+/**
+ * 选主代理模型（输入框底部行一体式选择器 MainAgentSelector）：点开 main-selector →
+ * 点模型项（按 id "providerSlug/modelId"，或按「厂商/模型」label 精确文本；多个 provider 同名时 label
+ * 会重复，取列表顺序第一个，与原生下拉的行为等价）→ 再点按钮收起面板。
+ * 面板是 fixed 浮层，不收起会盖住发送按钮、拦截后续点击。
+ */
+export async function selectModel(
+  page: Page,
+  model: string | { label: string },
+): Promise<void> {
+  const btn = page.getByTestId("main-selector");
+  await btn.click();
+  const menu = page.getByTestId("main-selector-menu");
+  if (typeof model === "string") {
+    await menu.getByTestId(`main-item-model-${model}`).click();
+  } else {
+    await menu.getByText(model.label, { exact: true }).first().click();
+  }
+  await btn.click();
+}
+
+/**
+ * 选主代理思考强度：点开 main-selector → 点 main-item-thinking-<level> → 再点按钮收起面板。
+ * level ∈ default / disabled / high / max。
+ */
+export async function selectThinking(
+  page: Page,
+  level: "default" | "disabled" | "high" | "max",
+): Promise<void> {
+  const btn = page.getByTestId("main-selector");
+  await btn.click();
+  await page.getByTestId(`main-item-thinking-${level}`).click();
+  await btn.click();
 }

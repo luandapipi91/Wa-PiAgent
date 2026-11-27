@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // 1x1 PNG（最小合法图片，避免依赖外部素材）
 const PNG_BASE64 =
@@ -36,9 +36,7 @@ test.describe.serial("消息内附件 chip 点击打开", () => {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     // 必须先选择模型，否则发送按钮被禁用
-    await page
-      .getByTestId("model-selector")
-      .selectOption({ label: "E2E ChipOpen/model-a" });
+    await selectModel(page, { label: "E2E ChipOpen/model-a" });
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
     await textbox.fill(text);
     await page.setInputFiles(

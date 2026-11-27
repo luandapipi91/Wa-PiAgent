@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ThinkingLevel } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 export interface DelegateSelectorProps {
 	model?: string | null; // undefined/null = 跟随
 	thinking?: ThinkingLevel | null;
-	/** id 形如 "providerSlug/modelId"，与 ModelSelector 数据同源（由上层传入） */
+	/** id 形如 "providerSlug/modelId"，与 MainAgentSelector 数据同源（由上层传入） */
 	models: Array<{ id: string; label: string }>;
 	onChange: (patch: {
 		model?: string | null;
@@ -17,22 +17,24 @@ export interface DelegateSelectorProps {
 	disabled?: boolean;
 }
 
-/** 思考栏四档，与 ThinkingSelector 一致（原型方案 A 直接显示档位原名） */
+/** 思考栏四档，与 MainAgentSelector 一致（原型方案 A 直接显示档位原名） */
 const THINKING_LEVELS: ThinkingLevel[] = ["default", "disabled", "high", "max"];
 
 /**
  * 会话级委派设置（自绘按钮 + 双栏面板）。
  *
  * 按钮文案由 store 的 delegateEcho 给出结构化回显（两栏缺省合并/短名）+ 组件层
- * i18n 措辞（zh「委派 · 跟随」/ en "Delegate · Follow"），手动委派态整体品牌绿
- * （对齐原型 .wa-pi/delegate-setting-ui-poc.html 方案 A）。
+ * i18n 措辞（zh「跟随」/「模型 | 思考」如「跟随 | max」，en "Follow" / "Follow | max"），
+ * 模型栏用 models 列表的「厂商/模型」全名与主代理选择器对齐；按钮为普通文字色
+ * （主题色留给主代理 MainAgentSelector；布局对齐原型 .wa-pi/delegate-setting-ui-poc.html 方案 A）。
  *
  * 面板经 createPortal 挂到 body（fixed z-50）：父容器是 overflow-hidden，
  * 绝对定位会被裁剪，必须逃逸到视口坐标；底部空间不足向上翻转、水平视口钳制
  * （定位模式与 AgentDropdown 一致）。
  *
  * 两栏（模型 / 思考强度）各自独立：首项「跟随主代理」回 null，具体项回单字段
- * patch；点选项即生效，面板保持打开（双栏连续调整不被打断），点面板外才关闭；滚动时收起。
+ * patch；点选项即生效，面板保持打开（双栏连续调整不被打断），点面板外才关闭；
+ * 滚动时不收起，只跟随按钮重新定位。
  */
 export function DelegateSelector({
 	model,
@@ -47,14 +49,13 @@ export function DelegateSelector({
 	const menuRef = useRef<HTMLDivElement>(null);
 	const { t } = useTranslation();
 
-	const closeMenu = () => setOpen(false);
-
 	// 定位：按按钮矩形固定定位（fixed + portal），底部溢出向上翻转 + 水平视口钳制。
-	// 每次渲染后执行（open 变化引起面板尺寸变化时重算），幂等。
-	useLayoutEffect(() => {
-		if (!open || !menuRef.current || !buttonRef.current) return;
+	// 幂等，只依赖 refs；每次渲染后与每次滚动事件后各执行一次。
+	const positionMenu = useCallback(() => {
 		const m = menuRef.current;
-		const br = buttonRef.current.getBoundingClientRect();
+		const b = buttonRef.current;
+		if (!m || !b) return;
+		const br = b.getBoundingClientRect();
 		if (br.width === 0 && br.height === 0) return; // 未布局（测试环境）不定位
 		m.style.left = `${br.left}px`;
 		m.style.top = `${br.bottom + 4}px`;
@@ -68,6 +69,12 @@ export function DelegateSelector({
 		if (br.left + r.width > window.innerWidth - 8) {
 			m.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
 		}
+	}, []);
+
+	// 每次渲染后重算（open 变化引起面板尺寸变化、按钮文案变宽、输入框增高时按钮移位）
+	useLayoutEffect(() => {
+		if (!open) return;
+		positionMenu();
 	});
 
 	// 点击组件外部关闭面板（面板已 portal 到 body，不在 rootRef 子树内，需单独判 menuRef）
@@ -83,37 +90,32 @@ export function DelegateSelector({
 		return () => window.removeEventListener("mousedown", onDown);
 	}, [open]);
 
-	// 滚动关闭：fixed 浮层不跟随外部滚动容器（composer 滚动会脱锚）→ 关闭；
-	// 面板自身内部列表滚动（max-h overflow-y-auto）不关闭
+	// 滚动跟随：fixed 浮层不随外部滚动容器移动 → 任意滚动容器（捕获阶段）滚动后按按钮
+	// 矩形重新定位，不关闭。不能关闭的原因：流式回复期间消息列表会被程序化自动贴底
+	// （MessageList scrollToEnd），产生的 scroll 事件不是用户操作，关闭会让面板在回复
+	// 过程中自己消失；而此时按钮并未移位，重定位等于无操作。面板自身内部列表滚动同样触发，幂等无害。
 	useEffect(() => {
 		if (!open) return;
-		const onScroll = (ev: Event) => {
-			const target = ev.target as Node | null;
-			if (target instanceof Node && menuRef.current?.contains(target)) return;
-			closeMenu();
-		};
-		window.addEventListener("scroll", onScroll, true); // 捕获阶段：任意滚动容器都触发
-		return () => window.removeEventListener("scroll", onScroll, true);
-	}, [open]);
+		window.addEventListener("scroll", positionMenu, true);
+		return () => window.removeEventListener("scroll", positionMenu, true);
+	}, [open, positionMenu]);
 
-	// 手动委派态（任一栏非「跟随」）：按钮整体品牌绿标识；open 时叠加 hover 背景
-	// （与未委派 open 分支一致）。四个分支单一条件表达式，避免分支内外重复拼接。
-	const delegated = !!(model || thinking);
 	const echo = delegateEcho(model, thinking);
 	const followText = t("ui.delegateSelector.followShort");
+	// 模型栏显示与主模型选择器同格式的「厂商/模型」全名（models 列表的 label）；
+	// 模型不在列表（悬空引用）时回落到 delegateEcho 的 modelId 短名
+	const modelText = model
+		? (models.find((m) => m.id === model)?.label ?? echo.modelText)
+		: null;
 	const label = echo.collapsed
 		? t("ui.delegateSelector.echoCollapsed", { follow: followText })
 		: t("ui.delegateSelector.echoSplit", {
-				model: echo.modelText ?? followText,
+				model: modelText ?? followText,
 				thinking: echo.thinkingText ?? followText,
 			});
-	const buttonTone = delegated
-		? open
-			? "text-brand bg-surface-hover"
-			: "text-brand"
-		: open
-			? "text-primary bg-surface-hover"
-			: "text-secondary hover:text-primary";
+	const buttonTone = open
+		? "text-primary bg-surface-hover"
+		: "text-secondary hover:text-primary";
 
 	const pick = (patch: {
 		model?: string | null;
@@ -135,12 +137,11 @@ export function DelegateSelector({
 				aria-label={t("ui.delegateSelector.ariaLabel")}
 			>
 				<span className="truncate">{label}</span>
-				{/* chevron 观感对齐 AutoWidthSelect（1.5em 盒子 ≈9px 可见箭头）；
-            手动委派态随文字一并品牌绿（原型 .sel.delegated .chev） */}
+				{/* chevron 观感与 MainAgentSelector 一致（1.5em 盒子 ≈9px 可见箭头） */}
 				<Icon
 					name="chevron-down"
 					size="1.5em"
-					className={`pointer-events-none flex-none ${delegated ? "text-brand" : "text-tertiary"}`}
+					className="pointer-events-none flex-none text-tertiary"
 				/>
 			</button>
 

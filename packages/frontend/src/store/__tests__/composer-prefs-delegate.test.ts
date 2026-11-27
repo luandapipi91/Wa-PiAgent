@@ -180,7 +180,7 @@ test("loadSession 读持久层 delegateThinking: null（fresh 分支）→ 保�
 
 	const prefs = useComposerPrefsStore.getState().bySession["sess-null-fresh"];
 	expect(prefs?.delegateModel).toBe("prov/m1");
-	// null/undefined 均为「跟随」：不得变成显式 "default"（会回显「委派 · 跟随 / default」）
+	// null/undefined 均为「跟随」：不得变成显式 "default"（会回显「跟随(default)」）
 	expect(prefs?.delegateThinking == null).toBe(true);
 });
 

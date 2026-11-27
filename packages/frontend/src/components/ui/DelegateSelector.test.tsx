@@ -3,7 +3,7 @@
 // 面板文案与按钮回显 i18n 锁 zh（.env.test 的 WA_PI_LANG），文案断言直接锁 zh 措辞。
 import { test, expect, mock, afterEach } from "bun:test";
 import { useState } from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 
 import type { ThinkingLevel } from "@wa-pi/shared";
 import { DelegateSelector } from "./DelegateSelector";
@@ -65,11 +65,9 @@ function renderSelectorStateful(
 	return utils;
 }
 
-test("默认（未设置委派）按钮文案为「委派 · 跟随」", () => {
+test("默认（未设置委派）按钮文案为「跟随」", () => {
 	renderSelector();
-	expect(screen.getByTestId("delegate-selector").textContent).toBe(
-		"委派 · 跟随",
-	);
+	expect(screen.getByTestId("delegate-selector").textContent).toBe("跟随");
 });
 
 test("点击展开：出现模型/思考强度两栏，各栏首项「跟随主代理」，思考栏四档", () => {
@@ -109,24 +107,44 @@ test("选完不收起且父层接线后按钮实时回显（stateful 包装）",
 	renderSelectorStateful({ model: "prov/m1" });
 	fireEvent.click(screen.getByTestId("delegate-selector"));
 	fireEvent.click(screen.getByTestId("delegate-item-thinking-max"));
-	// 面板保持打开，按钮实时回显两栏终态
+	// 面板保持打开，按钮实时回显两栏终态（模型栏为 models 列表的 厂商/模型 全名）
 	expect(screen.queryByTestId("delegate-selector-menu")).not.toBeNull();
 	expect(screen.getByTestId("delegate-selector").textContent).toBe(
-		"委派 · m1 / max",
+		"Provider m1 | max",
 	);
 	// 继续选「跟随主代理」仍不收起，回显跟随
 	fireEvent.click(screen.getByTestId("delegate-item-follow-model"));
 	expect(screen.queryByTestId("delegate-selector-menu")).not.toBeNull();
 	expect(screen.getByTestId("delegate-selector").textContent).toBe(
-		"委派 · 跟随 / max",
+		"跟随 | max",
 	);
 });
 
-test("已设置 model/thinking 时按钮回显「委派 · m1 / max」", () => {
+test("已设置 model/thinking 时按钮回显「厂商/模型 | 思考」全名「Provider m1 | max」", () => {
 	renderSelector({ model: "prov/m1", thinking: "max" });
 	expect(screen.getByTestId("delegate-selector").textContent).toBe(
-		"委派 · m1 / max",
+		"Provider m1 | max",
 	);
+});
+
+test("按钮为普通文字色：已设委派模型/思考时也不再变品牌绿（主题色留给主代理）", () => {
+	renderSelector({ model: "prov/m1", thinking: "max" });
+	const btn = screen.getByTestId("delegate-selector");
+	expect(btn.className.split(/\s+/)).toContain("text-secondary");
+	expect(btn.className.split(/\s+/)).not.toContain("text-brand");
+	expect(btn.querySelector("svg")?.getAttribute("class") ?? "").not.toContain("text-brand");
+});
+
+test("只设模型、思考跟随 → 回显「Provider m1 | 跟随」", () => {
+	renderSelector({ model: "prov/m1", thinking: null });
+	expect(screen.getByTestId("delegate-selector").textContent).toBe(
+		"Provider m1 | 跟随",
+	);
+});
+
+test("模型不在 models 列表（悬空）→ 回落显示 modelId 短名「gone | max」", () => {
+	renderSelector({ model: "zzz/gone", thinking: "max" });
+	expect(screen.getByTestId("delegate-selector").textContent).toBe("gone | max");
 });
 
 test("点面板外区域 → 面板收起", () => {
@@ -136,4 +154,19 @@ test("点面板外区域 → 面板收起", () => {
 	// mousedown 落在 body（面板外；面板虽也挂在 body 下但不在组件 root/menu 交集内）
 	fireEvent.mouseDown(document.body);
 	expect(screen.queryByTestId("delegate-selector-menu")).toBeNull();
+});
+
+test("外部容器滚动（回复期间消息列表自动贴底）→ 面板保持打开，不自动收起", () => {
+	renderSelector();
+	fireEvent.click(screen.getByTestId("delegate-selector"));
+	expect(screen.getByTestId("delegate-selector-menu")).toBeDefined();
+	// 模拟消息列表容器在流式回复期间被程序化滚动（scrollToEnd）产生的 scroll 事件：
+	// 非用户操作，面板不得自行关闭
+	const scroller = document.createElement("div");
+	document.body.appendChild(scroller);
+	// 原生 dispatchEvent 不经 RTL 的 act 包装，需手动 act 让 React flush 状态更新
+	act(() => {
+		scroller.dispatchEvent(new Event("scroll"));
+	});
+	expect(screen.getByTestId("delegate-selector-menu")).toBeDefined();
 });

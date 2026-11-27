@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider, setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 function seedSession(sessionId: string, title: string) {
 	const projPath = join(E2E_WA_PI_DIR, "projects.json");
@@ -57,9 +57,7 @@ test("用户气泡只渲染消息原文，不含 pi-lens 抑制指令", async ({
 	await expect(page.getByTestId("session-view")).toBeVisible({
 		timeout: 10_000,
 	});
-	await page
-		.getByTestId("model-selector")
-		.selectOption({ label: "E2E Bubble/model-a" });
+	await selectModel(page, { label: "E2E Bubble/model-a" });
 
 	const composerBox = page.locator(
 		'[data-testid="composer-input"] [role="textbox"]',

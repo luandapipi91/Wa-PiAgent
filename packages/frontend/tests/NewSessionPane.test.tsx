@@ -8,6 +8,13 @@ import {
 	act,
 	cleanup,
 } from "@testing-library/react";
+
+/** 在一体式主选择器（MainAgentSelector）面板里选模型/思考档位：面板未开则先点开（已开着不重复点，重复点会收起） */
+function pick(kind: "model" | "thinking", value: string) {
+	if (!screen.queryByTestId("main-selector-menu"))
+		fireEvent.click(screen.getByTestId("main-selector"));
+	fireEvent.click(screen.getByTestId(`main-item-${kind}-${value}`));
+}
 import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import type { AgentConfig } from "@wa-pi/shared";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
@@ -252,7 +259,7 @@ describe("NewSessionPane", () => {
 		});
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 		const textbox = typeIntoComposer("你好");
@@ -298,7 +305,7 @@ describe("NewSessionPane", () => {
 		});
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("anthropic/claude-sonnet");
 		});
 
@@ -346,7 +353,7 @@ describe("NewSessionPane", () => {
 		});
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 
@@ -403,7 +410,7 @@ describe("NewSessionPane", () => {
 
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 
@@ -453,7 +460,7 @@ describe("NewSessionPane", () => {
 		render(<NewSessionPane />);
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 
@@ -647,7 +654,7 @@ describe("NewSessionPane", () => {
 		render(<NewSessionPane />);
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 		typeIntoComposer("hello");
@@ -681,7 +688,7 @@ describe("NewSessionPane", () => {
 		render(<NewSessionPane />);
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 		expect(screen.getByTestId("agent-select").textContent).toContain(
@@ -779,7 +786,7 @@ describe("NewSessionPane", () => {
 		render(<NewSessionPane />);
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 
@@ -893,22 +900,18 @@ describe("NewSessionPane", () => {
 		// 初始默认模型 gpt-4o
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 
 		// 用户在新建页把模型切换为 gpt-5
 		// happy-dom 对受控 select 的 value 变化检测有兼容问题：首次 fireEvent.change 不触发
 		// React onChange（value tracker 未感知 DOM 变化），第二次才生效。真实浏览器无此问题。
-		fireEvent.change(screen.getByTestId("model-selector"), {
-			target: { value: "openai/gpt-5", selectedIndex: 2 },
-		});
-		fireEvent.change(screen.getByTestId("model-selector"), {
-			target: { value: "openai/gpt-5", selectedIndex: 2 },
-		});
+		pick("model", "openai/gpt-5");
+		pick("model", "openai/gpt-5");
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-5");
 		});
 
@@ -973,20 +976,16 @@ describe("NewSessionPane", () => {
 		render(<NewSessionPane />);
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 
 		// 切模型为 gpt-5
-		fireEvent.change(screen.getByTestId("model-selector"), {
-			target: { value: "openai/gpt-5", selectedIndex: 2 },
-		});
-		fireEvent.change(screen.getByTestId("model-selector"), {
-			target: { value: "openai/gpt-5", selectedIndex: 2 },
-		});
+		pick("model", "openai/gpt-5");
+		pick("model", "openai/gpt-5");
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-5");
 		});
 
@@ -1030,7 +1029,7 @@ describe("NewSessionPane", () => {
 
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("model-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-value"),
 			).toBe("openai/gpt-4o");
 		});
 		const textbox = typeIntoComposer("Ctrl+Enter 也要发送");
@@ -1121,27 +1120,23 @@ describe("NewSessionPane", () => {
 		render(<NewSessionPane />);
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("thinking-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-thinking"),
 			).toBe("high"); // 当前模型 test-p/m1 有记录
 		});
 
 		// 切到 m2（无记录）→ 默认
-		fireEvent.change(screen.getByTestId("model-selector"), {
-			target: { value: "test-p/m2" },
-		});
+		pick("model", "test-p/m2");
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("thinking-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-thinking"),
 			).toBe("default");
 		});
 
 		// 切回 m1 → 记录仍在
-		fireEvent.change(screen.getByTestId("model-selector"), {
-			target: { value: "test-p/m1" },
-		});
+		pick("model", "test-p/m1");
 		await waitFor(() => {
 			expect(
-				(screen.getByTestId("thinking-selector") as HTMLSelectElement).value,
+				screen.getByTestId("main-selector").getAttribute("data-thinking"),
 			).toBe("high");
 		});
 	});

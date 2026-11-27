@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { E2E_WA_PI_DIR } from "../playwright.config";
-import { saveProvider, setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 /** 运行时读 deepseek apiKey（仅测试运行期内存使用，不落盘）。 */
 function readDeepseekKey(): string {
@@ -61,9 +61,7 @@ test("codemode 嵌套子卡长结果不横向溢出", async ({ page }) => {
 	await expect(page.getByTestId("new-session-pane")).toBeVisible({
 		timeout: 10_000,
 	});
-	await page
-		.getByTestId("model-selector")
-		.selectOption("deepseek/deepseek-v4-flash");
+	await selectModel(page, "deepseek/deepseek-v4-flash");
 
 	// 指令化 prompt：必须走 codemode（不是 bash 工具），脚本内部 cat 出单行 JSON fixture
 	await page.getByRole("textbox").fill(

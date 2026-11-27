@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // 嵌套 srcdoc iframe 预览回归：PRD 页内嵌 <iframe srcdoc="…">（原型页），
 // 在 wa-pi 预览（kernel /preview + sandbox 不透明源 + inspect 注入）下，
@@ -81,9 +81,7 @@ test.describe
 			await expect(page.getByTestId("new-session-pane")).toBeVisible({
 				timeout: 5000,
 			});
-			await page
-				.getByTestId("model-selector")
-				.selectOption({ label: "E2E Srcdoc/model-a" });
+			await selectModel(page, { label: "E2E Srcdoc/model-a" });
 			await page
 				.locator('[data-testid="composer-input"] [role="textbox"]')
 				.fill(text);

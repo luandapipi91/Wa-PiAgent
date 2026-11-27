@@ -20,7 +20,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { saveProvider, setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 /** 从本机 pi 凭证库读 deepseek apiKey（仅测试运行期内存使用） */
 function readDeepseekKey(): string {
@@ -52,7 +52,7 @@ test("文件修改清单：edit 改文件 → 回复底部渲染清单 → 展�
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });
 
   // 3. 选择模型（DeepSeek/deepseek-v4-flash）
-  await page.getByTestId("model-selector").selectOption("deepseek/deepseek-v4-flash");
+  await selectModel(page, "deepseek/deepseek-v4-flash");
 
   // 4. 发出明确要求 edit 工具修改文件的 prompt（dev 智能体 tools 白名单含 edit、不含 write，
   //    明确禁用 bash 等其他方式，避免 agent 走不触发文件快照的路径）

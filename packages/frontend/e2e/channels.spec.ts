@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { addSkillDir, removeSkillDir, saveProvider, setUiPrefs } from "./helpers";
+import { addSkillDir, removeSkillDir, saveProvider, setUiPrefs, selectModel, selectThinking } from "./helpers";
 
 const KERNEL = `http://127.0.0.1:${process.env.WA_PI_E2E_WS_PORT ?? 9776}`;
 
@@ -196,12 +196,10 @@ test.describe
 				api: "openai-completions",
 				models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
 			});
-			await page
-				.getByTestId("model-selector")
-				.selectOption({ label: "E2E Channels/model-a" });
+			await selectModel(page, { label: "E2E Channels/model-a" });
 			// 思考强度调 off：假 provider 不可达，pi 自动重试链在 thinking=high 下 settle 需 ~90s，
 			// off 下 ~15s；本步验证的是链路闭环而非重试时长
-			await page.getByTestId("thinking-selector").selectOption("disabled");
+			await selectThinking(page, "disabled");
 			await page
 				.locator('[data-testid="composer-input"] [role="textbox"]')
 				.fill("界面追问一条");

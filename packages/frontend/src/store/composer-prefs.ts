@@ -87,10 +87,11 @@ export function thinkingForModel(
 
 /** 委派回显的结构化形态：不含文案，展示层（DelegateSelector）按 locale 组装措辞 */
 export interface DelegateEcho {
-	/** 两栏全部缺省 → 合并单段形态（如「委派 · 跟随」）；否则为两段形态 */
+	/** 两栏全部缺省 → 合并单段形态（如「跟随」）；否则为两段形态「模型(思考)」 */
 	collapsed: boolean;
 	/** 模型栏回显文本；null = 缺省（跟随）。有值时为 modelId 短名（会话存
-	 *  "providerSlug/modelId" 全名，展示层只留短名） */
+	 *  "providerSlug/modelId" 全名，这里只取短名）；展示层优先用 models 列表的
+	 *  「厂商/模型」全名，查不到（悬空）时才回落到这里 */
 	modelText: string | null;
 	/** 思考栏回显文本；null = 缺省（跟随） */
 	thinkingText: string | null;

@@ -152,9 +152,9 @@ test("新建页 delegate 初始值来自 defaults（异步加载后同步，发�
 	// 等 loadDefaults hydration 完成 + 同步 effect 刷本地两栏
 	await new Promise((r) => setTimeout(r, 50));
 
-	// UI 回显：委派按钮显示 defaults 的两栏值（短名 m1）
+	// UI 回显：委派按钮显示 defaults 的两栏值（厂商/模型 全名 TestP/m1）
 	expect(screen.getByTestId("delegate-selector").textContent).toBe(
-		"委派 · m1 / max",
+		"TestP/m1 | max",
 	);
 
 	// 不触碰委派直接发送：请求体显式携带 defaults 的初始值

@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt , setUiPrefs } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt, setUiPrefs, selectModel } from "./helpers";
 
 // 插件热生效 E2E：安装/卸载/升级后「当前会话」立即生效，不等下次对话。
 //
@@ -95,9 +95,7 @@ test.describe.serial("插件操作后当前会话立即生效", () => {
 		// 前置确认：手动触发 demo 发射四类 UI（widget/status/title）。
 		// 注意不能用建会话时的 session_start 自动发射——SSE 在页面打开后才连接，
 		// 早于页面连接的事件前端收不到。
-		await page
-			.getByTestId("model-selector")
-			.selectOption({ label: "E2E HotReload/model-a" });
+		await selectModel(page, { label: "E2E HotReload/model-a" });
 		const textbox = page.locator(
 			'[data-testid="composer-input"] [role="textbox"]',
 		);

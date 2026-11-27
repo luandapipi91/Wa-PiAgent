@@ -16,7 +16,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { saveProvider, setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 /**
  * 运行时读 deepseek apiKey（仅测试运行期内存使用，不落盘）。
@@ -71,9 +71,7 @@ test("聊天块渲染：工具卡弱化折叠 + 代码块卡片 + FilePill 预�
 	});
 
 	// 3. 选择模型（DeepSeek/deepseek-v4-flash）
-	await page
-		.getByTestId("model-selector")
-		.selectOption("deepseek/deepseek-v4-flash");
+	await selectModel(page, "deepseek/deepseek-v4-flash");
 
 	// 4. 发指令化 prompt（降低模型随机性）：一次 bash + 含 ts 代码块与文件路径行内代码的 markdown
 	//    输入框是 contentEditable div（role=textbox），不是 textarea

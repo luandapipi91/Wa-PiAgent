@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { existsSync, readdirSync, statSync, utimesSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { createSessionViaPrompt, ensureProvider, saveProvider, setUiPrefs } from "./helpers";
+import { createSessionViaPrompt, ensureProvider, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 const API = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -129,7 +129,7 @@ test.describe.serial("默认工作区", () => {
     // 从 UI 新建本工作区会话（走 NewSessionPane 的乐观建会话路径）
     await page.getByText("默认工作区").first().click();
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
-    await page.getByTestId("model-selector").selectOption({ label: "E2E DefaultWS/model-a" });
+    await selectModel(page, { label: "E2E DefaultWS/model-a" });
     const title = "explorer-dir-" + Math.random().toString(36).slice(2, 8);
     await page.locator('[data-testid="composer-input"] [role="textbox"]').fill(title);
     await page.getByTestId("composer-send").click();

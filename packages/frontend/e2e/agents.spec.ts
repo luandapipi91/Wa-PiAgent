@@ -13,6 +13,7 @@ import {
   setUiPrefs,
   addSkillDir,
   removeSkillDir,
+  selectModel,
 } from "./helpers";
 
 // Task 18: 多智能体矩阵关键链路 E2E
@@ -246,9 +247,7 @@ test.describe
 
       await page.getByTestId("project-select").selectOption(projectId);
       // 必须先选模型，否则发送前置条件拦截
-      await page
-        .getByTestId("model-selector")
-        .selectOption({ label: "E2E/model-a" });
+      await selectModel(page, { label: "E2E/model-a" });
       const textbox = page.locator(
         '[data-testid="composer-input"] [role="textbox"]',
       );
@@ -356,9 +355,7 @@ test.describe
         });
 
         // 发消息 → kernel 回 agent_missing → 重选弹窗
-        await page
-          .getByTestId("model-selector")
-          .selectOption({ label: "E2E/model-a" });
+        await selectModel(page, { label: "E2E/model-a" });
         const textbox = page.locator(
           '[data-testid="composer-input"] [role="textbox"]',
         );

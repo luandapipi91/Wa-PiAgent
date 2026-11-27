@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt , setUiPrefs } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt, setUiPrefs, selectModel } from "./helpers";
 
 // ext-ui-bridge-demo 本地扩展 E2E（回归两个修复 + 对话子协议）：
 // 1. local 路径安装后身份统一为 package.json name：插件列表展示 ext-ui-bridge-demo，
@@ -150,9 +150,7 @@ test.describe
       });
 
       // 选模型（composer 发送前置条件）
-      await page
-        .getByTestId("model-selector")
-        .selectOption({ label: "E2E UIDemo/model-a" });
+      await selectModel(page, { label: "E2E UIDemo/model-a" });
 
       // / 菜单应能搜到 uidemo（命令清单已含扩展命令），同时确认前端 commands store 就绪
       const textbox = page.locator(
@@ -191,9 +189,7 @@ test.describe
       await expect(page.getByTestId("session-view")).toBeVisible({
         timeout: 8000,
       });
-      await page
-        .getByTestId("model-selector")
-        .selectOption({ label: "E2E UIDemo/model-a" });
+      await selectModel(page, { label: "E2E UIDemo/model-a" });
 
       // 命令清单就绪的**确定性**前置：等本会话 pi 进程里真实存在的扩展命令出现
       //（uidemo 由 beforeAll 安装的本地扩展贡献）。这里不能用 pollCommand("mcp") 等：
@@ -262,9 +258,7 @@ test.describe
       await expect(page.getByTestId("session-view")).toBeVisible({
         timeout: 8000,
       });
-      await page
-        .getByTestId("model-selector")
-        .selectOption({ label: "E2E UIDemo/model-a" });
+      await selectModel(page, { label: "E2E UIDemo/model-a" });
 
       const textbox = page.locator(
         '[data-testid="composer-input"] [role="textbox"]',
@@ -295,9 +289,7 @@ test.describe
       await expect(page.getByTestId("session-view")).toBeVisible({
         timeout: 8000,
       });
-      await page
-        .getByTestId("model-selector")
-        .selectOption({ label: "E2E UIDemo/model-a" });
+      await selectModel(page, { label: "E2E UIDemo/model-a" });
 
       const textbox = page.locator(
         '[data-testid="composer-input"] [role="textbox"]',
@@ -330,9 +322,7 @@ test.describe
       await expect(page.getByTestId("session-view")).toBeVisible({
         timeout: 8000,
       });
-      await page
-        .getByTestId("model-selector")
-        .selectOption({ label: "E2E UIDemo/model-a" });
+      await selectModel(page, { label: "E2E UIDemo/model-a" });
 
       const textbox = page.locator(
         '[data-testid="composer-input"] [role="textbox"]',

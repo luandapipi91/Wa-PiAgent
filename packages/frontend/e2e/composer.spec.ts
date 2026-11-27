@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, selectModel, selectThinking, setUiPrefs } from "./helpers";
 
 // Task 18: Composer 重构 E2E 测试
 // 覆盖模型切换、思考开关持久化、文件/片段附件发送与消息列表展示。
@@ -42,7 +42,7 @@ test.describe.serial("Composer 重构", () => {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     // 必须先选择模型，否则发送按钮被禁用
-    await page.getByTestId("model-selector").selectOption({ label: "E2E Composer/model-a" });
+    await selectModel(page, { label: "E2E Composer/model-a" });
     await page.locator('[data-testid="composer-input"] [role="textbox"]').fill(text);
     await page.getByTestId("composer-send").click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
@@ -60,12 +60,12 @@ test.describe.serial("Composer 重构", () => {
   test("模型切换并发送消息", async ({ page }) => {
     await enterSession(page, "模型切换测试");
 
-    const selector = page.getByTestId("model-selector");
+    const selector = page.getByTestId("main-selector");
     await expect(selector).toBeVisible();
 
-    // 初始为空（未选择），切换到 model-b（option label 为 E2E Composer/model-b，value 为 e2e-composer/model-b）
-    await selector.selectOption({ label: "E2E Composer/model-b" });
-    await expect(selector).toHaveValue("e2e-composer/model-b");
+    // 切换到 model-b（面板项 label 为 E2E Composer/model-b，id 为 e2e-composer/model-b）
+    await selectModel(page, { label: "E2E Composer/model-b" });
+    await expect(selector).toHaveAttribute("data-value", "e2e-composer/model-b");
 
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
     await textbox.fill("使用 model-b 发送");
@@ -80,46 +80,45 @@ test.describe.serial("Composer 重构", () => {
   test("思考强度按模型持久化：切换模型即切换档位", async ({ page }) => {
     const sessionId = await enterSession(page, "思考强度按模型持久化测试");
 
-    const selector = page.getByTestId("thinking-selector");
+    const selector = page.getByTestId("main-selector");
     // 新装默认：无任何模型记录 → 「默认」
-    await expect(selector).toHaveValue("default");
+    await expect(selector).toHaveAttribute("data-thinking", "default");
 
     // 给 model-a 设 high
-    await selector.selectOption("high");
-    await expect(selector).toHaveValue("high");
+    await selectThinking(page, "high");
+    await expect(selector).toHaveAttribute("data-thinking", "high");
     await page.waitForTimeout(500);
 
     // 切到 model-b：该模型无记录 → 默认（不沿用 model-a 的 high）
-    await page
-      .getByTestId("model-selector")
-      .selectOption({ label: "E2E Composer/model-b" });
-    await expect(selector).toHaveValue("default");
+    await selectModel(page, { label: "E2E Composer/model-b" });
+    await expect(selector).toHaveAttribute("data-thinking", "default");
 
     // 切回 model-a：仍是 high（模型记录还在）
-    await page
-      .getByTestId("model-selector")
-      .selectOption({ label: "E2E Composer/model-a" });
-    await expect(selector).toHaveValue("high");
+    await selectModel(page, { label: "E2E Composer/model-a" });
+    await expect(selector).toHaveAttribute("data-thinking", "high");
 
     // 刷新重进：按模型记录恢复
     await page.reload();
     await page.getByTestId(`session-${sessionId}`).click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("thinking-selector")).toHaveValue("high");
+    await expect(selector).toHaveAttribute("data-thinking", "high");
   });
 
-  test("新装默认显示「思考 默认」", async ({ page }) => {
+  test("新装默认档位为 default，思考栏四档顺序 default / disabled / high / max", async ({ page }) => {
     await enterSession(page, "新装默认档测试");
-    const selector = page.getByTestId("thinking-selector");
-    await expect(selector).toHaveValue("default");
-    // 选项顺序：默认 / off / high / max（medium 档已移除，由「默认」取代）
-    await expect(selector.locator("option")).toHaveCount(4);
-    await expect(selector.locator("option").first()).toHaveText("思考 默认");
-    await expect(selector.locator("option")).toHaveText([
-      "思考 默认",
-      "思考 off",
-      "思考 high",
-      "思考 max",
+    const selector = page.getByTestId("main-selector");
+    await expect(selector).toHaveAttribute("data-thinking", "default");
+    // 面板思考栏四档顺序（medium 档已移除，由「默认」取代）；按 testid 取顺序，避免 ✓ 影响文本比对
+    await selector.click();
+    const levels = page
+      .getByTestId("main-selector-menu")
+      .locator('[data-testid^="main-item-thinking-"]');
+    await expect(levels).toHaveCount(4);
+    expect(await levels.evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")))).toEqual([
+      "main-item-thinking-default",
+      "main-item-thinking-disabled",
+      "main-item-thinking-high",
+      "main-item-thinking-max",
     ]);
   });
 

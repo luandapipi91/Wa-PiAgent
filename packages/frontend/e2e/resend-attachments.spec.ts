@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // 事故：带附件的消息发送失败后点「重新发送」，附件丢失（重发请求不带 attachments）。
 // 本用例在真实内核 + 真实浏览器操作下锁住修复的两点：
@@ -64,9 +64,7 @@ test.describe("重新发送：附件保留", () => {
     await expect(page.getByTestId("new-session-pane")).toBeVisible({
       timeout: 5000,
     });
-    await page.getByTestId("model-selector").selectOption({
-      label: "E2E Resend/model-a",
-    });
+    await selectModel(page, { label: "E2E Resend/model-a" });
 
     const tmpDir = join(process.env.HOME || "/tmp", ".wa-pi-e2e-resend");
     if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });

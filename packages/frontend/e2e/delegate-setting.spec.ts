@@ -1,11 +1,11 @@
 // 会话级委派设置（delegateModel / delegateThinking）E2E（任务 7）
 //
 // 七个定死场景（简报 task-7）：
-//   1. 新建页输入框底部默认渲染「委派 · 跟随」
-//   2. 展开面板选模型 + 思考 max → 按钮回显「委派 · {modelId短名} / max」
+//   1. 新建页输入框底部默认渲染「跟随」
+//   2. 展开面板选模型 + 思考 max → 按钮回显「{厂商名}/{modelId} | max」
 //   3. 发送消息：拦截到的 prompt 请求体携带所选 delegateModel/delegateThinking
 //   4. reload 后会话页回显保持（IndexedDB 会话级持久化）
-//   5. 第二个新会话默认「委派 · 跟随」（新建页本地 state 不跨会话残留）
+//   5. 第二个新会话默认「跟随」（新建页本地 state 不跨会话残留）
 //   6. 第二会话设置后再改回「跟随」发送 → 请求体 delegateModel === null（显式重置，非省略字段）
 //   7. 340px 窄视口：按钮可见、面板可展开且内容不被裁剪出视口
 //
@@ -19,7 +19,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 const MODEL_A = "e2e-delegate/model-a";
 const MODEL_B = "e2e-delegate/model-b";
@@ -105,13 +105,13 @@ test.describe.serial("会话级委派设置", () => {
     await createProject(projectName, `/tmp/${projectName}`);
   });
 
-  test("场景1：新建页默认渲染「委派 · 跟随」", async ({ page }) => {
+  test("场景1：新建页默认渲染「跟随」", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({
       timeout: 5000,
     });
     await expect(page.getByTestId("delegate-selector")).toHaveText(
-      "委派 · 跟随",
+      "跟随",
     );
   });
 
@@ -124,9 +124,7 @@ test.describe.serial("会话级委派设置", () => {
         timeout: 5000,
       });
       // 必须先选主模型，否则发送按钮禁用
-      await page
-        .getByTestId("model-selector")
-        .selectOption({ label: "E2E Delegate/model-a" });
+      await selectModel(page, { label: "E2E Delegate/model-a" });
 
       // 场景2：展开面板选委派模型（选完不收起，双栏连续调整），再选思考 max，点外才关闭
       await page.getByTestId("delegate-selector").click();
@@ -135,11 +133,14 @@ test.describe.serial("会话级委派设置", () => {
       await expect(page.getByTestId("delegate-selector-menu")).toBeVisible();
       await page.getByTestId("delegate-item-thinking-max").click();
       await expect(page.getByTestId("delegate-selector")).toHaveText(
-        "委派 · model-a / max",
+        "E2E Delegate/model-a | max",
       );
-      // 点击面板外（主模型选择器所在区域）→ 面板隐藏
-      await page.getByTestId("model-selector").click();
+      // 点击委派面板外（主选择器所在区域）→ 委派面板隐藏；主选择器自身被点开后再点一次收起
+      await page.getByTestId("main-selector").click();
       await expect(page.getByTestId("delegate-selector-menu")).toBeHidden();
+      await expect(page.getByTestId("main-selector-menu")).toBeVisible();
+      await page.getByTestId("main-selector").click();
+      await expect(page.getByTestId("main-selector-menu")).toBeHidden();
 
       // 场景3：发送 → 拦截请求体断言（route.continue 放行，kernel 真实建会话）
       await page
@@ -169,7 +170,7 @@ test.describe.serial("会话级委派设置", () => {
         timeout: 5000,
       });
       await expect(page.getByTestId("delegate-selector")).toHaveText(
-        "委派 · model-a / max",
+        "E2E Delegate/model-a | max",
       );
     },
   );
@@ -179,29 +180,27 @@ test.describe.serial("会话级委派设置", () => {
   }) => {
     const { bodies } = await interceptPrompts(page);
 
-    // 场景5：第二个新会话默认「委派 · 跟随」（NewSessionPane 重挂载，本地 state 清空）
+    // 场景5：第二个新会话默认「跟随」（NewSessionPane 重挂载，本地 state 清空）
     await page.getByTestId("session-scope-recent").click();
     await page.getByTestId("recent-new-session").click();
     await expect(page.getByTestId("new-session-pane")).toBeVisible({
       timeout: 5000,
     });
     await expect(page.getByTestId("delegate-selector")).toHaveText(
-      "委派 · 跟随",
+      "跟随",
     );
 
     // 先设 model-b（进入委派态），再改回「跟随」——验证显式重置路径
-    await page
-      .getByTestId("model-selector")
-      .selectOption({ label: "E2E Delegate/model-b" });
+    await selectModel(page, { label: "E2E Delegate/model-b" });
     await page.getByTestId("delegate-selector").click();
     await page.getByTestId(`delegate-item-model-${MODEL_B}`).click();
     await expect(page.getByTestId("delegate-selector")).toHaveText(
-      "委派 · model-b / 跟随",
+      "E2E Delegate/model-b | 跟随",
     );
     // 选完不收起：面板仍开，直接选「跟随主代理」关闭重置路径
     await page.getByTestId("delegate-item-follow-model").click();
     await expect(page.getByTestId("delegate-selector")).toHaveText(
-      "委派 · 跟随",
+      "跟随",
     );
 
     // 场景6：发送 → body 中 delegateModel === null（显式 null，非省略字段）
@@ -264,15 +263,13 @@ test.describe.serial("会话级委派设置：重发路径", () => {
     await expect(page.getByTestId("new-session-pane")).toBeVisible({
       timeout: 5000,
     });
-    await page
-      .getByTestId("model-selector")
-      .selectOption({ label: "E2E Delegate Fatal/model-a" });
+    await selectModel(page, { label: "E2E Delegate Fatal/model-a" });
     // 委派面板：选模型 + 思考 max（选完不收起，连续选两栏后点外收起）
     await page.getByTestId("delegate-selector").click();
     await page.getByTestId("delegate-item-model-e2e-delegate-fatal/model-a").click();
     await page.getByTestId("delegate-item-thinking-max").click();
     await expect(page.getByTestId("delegate-selector")).toHaveText(
-      "委派 · model-a / max",
+      "E2E Delegate Fatal/model-a | max",
     );
 
     // 发送 → fatal 失败 → 「重新发送」按钮出现
@@ -363,5 +360,104 @@ test.describe.serial("会话级委派设置：窄视口", () => {
     // 两栏内容可见（不被裁剪出视口）
     await expect(page.getByTestId("delegate-col-model")).toBeVisible();
     await expect(page.getByTestId("delegate-col-thinking")).toBeVisible();
+  });
+});
+
+test.describe.serial("会话级委派设置：流式回复期间面板不自动关闭", () => {
+  let server: Server;
+  let slowBaseUrl = "";
+  // 慢速 SSE：每片 150ms、共 30 片（≈4.5s）；每片两段文字让消息列表尽早溢出，
+  // 触发 MessageList 自动贴底（scrollToEnd）——回复期间 scroll 事件的来源
+  const CHUNKS = 30;
+  const CHUNK_MS = 150;
+
+  test.beforeAll(async () => {
+    server = createServer((req, res) => {
+      req.on("data", () => {});
+      req.on("end", () => {
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        });
+        const sendChunk = (delta: any, finishReason: string | null = null) => {
+          res.write(
+            `data: ${JSON.stringify({
+              id: "chatcmpl-e2e-slow",
+              object: "chat.completion.chunk",
+              created: 1,
+              model: "model-a",
+              choices: [{ index: 0, delta, finish_reason: finishReason }],
+            })}\n\n`,
+          );
+        };
+        sendChunk({ role: "assistant", content: "" });
+        let i = 0;
+        const timer = setInterval(() => {
+          i += 1;
+          if (i < CHUNKS) {
+            sendChunk({ content: `片段${i}甲\n\n片段${i}乙\n\n` });
+            return;
+          }
+          clearInterval(timer);
+          sendChunk({}, "stop");
+          res.end("data: [DONE]\n\n");
+        }, CHUNK_MS);
+        // 注意监听 res 的 close（连接真正中断）；req 的 close 在请求体读完后即触发，
+        // 用它清理会让后续片段永远发不出
+        res.on("close", () => clearInterval(timer));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    slowBaseUrl = `http://127.0.0.1:${port}/v1`;
+  });
+
+  test.afterAll(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  test("回复进行中打开面板 → 流式结束、回合收尾后面板仍打开", async ({
+    page,
+  }) => {
+    await saveProvider({
+      id: "e2e-delegate-slow-provider",
+      name: "E2E Delegate Slow",
+      slug: "e2e-delegate-slow",
+      baseUrl: slowBaseUrl,
+      apiKey: "sk-e2e",
+      api: "openai-completions",
+      models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+    });
+    await setUiPrefs(page, "zh");
+    await page.goto("/");
+    await createProject(
+      `e2e-delegate-slow-${randomUUID().slice(0, 8)}`,
+      `/tmp/e2e-delegate-slow-${randomUUID().slice(0, 8)}`,
+    );
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({
+      timeout: 5000,
+    });
+    await selectModel(page, { label: "E2E Delegate Slow/model-a" });
+    await page
+      .locator('[data-testid="composer-input"] [role="textbox"]')
+      .fill("流式回复期间面板保持打开");
+    await page.getByTestId("composer-send").click();
+    await expect(page.getByTestId("session-view")).toBeVisible({
+      timeout: 8000,
+    });
+    // 回复进行中：已流出若干片段（消息列表已开始自动贴底滚动），停止按钮在位
+    await expect(page.getByText(/片段8甲/)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("btn-stop")).toBeVisible();
+
+    // 回复进行中打开面板（用户截图场景：队列模式输入框上方打开委派面板）
+    await page.getByTestId("delegate-selector").click();
+    await expect(page.getByTestId("delegate-selector-menu")).toBeVisible();
+
+    // 流式结束 + 回合收尾（停止按钮消失）：期间消息列表持续自动滚动，面板不得自行关闭
+    await expect(page.getByTestId("btn-stop")).toBeHidden({ timeout: 20_000 });
+    await expect(page.getByTestId("delegate-selector-menu")).toBeVisible();
   });
 });

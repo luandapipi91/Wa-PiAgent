@@ -5,7 +5,7 @@
 // kernel buildPromptContent 会为附件拼 Attachments 段，空文字消息天然合法。
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { createProject, saveProvider, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // 1x1 PNG（最小合法图片，避免依赖外部素材）
 const PNG_BASE64 =
@@ -57,9 +57,7 @@ test.describe.serial("空文字 + 附件直接发送", () => {
 			timeout: 10_000,
 		});
 		await page.getByTestId("project-select").selectOption(project.id);
-		await page
-			.getByTestId("model-selector")
-			.selectOption({ label: "E2E AttOnly/model-a" });
+		await selectModel(page, { label: "E2E AttOnly/model-a" });
 
 		await pasteImage(page);
 
@@ -87,9 +85,7 @@ test.describe.serial("空文字 + 附件直接发送", () => {
 			timeout: 10_000,
 		});
 		await page.getByTestId("project-select").selectOption(project.id);
-		await page
-			.getByTestId("model-selector")
-			.selectOption({ label: "E2E AttOnly/model-a" });
+		await selectModel(page, { label: "E2E AttOnly/model-a" });
 
 		// 先用文字消息建会话（走既有路径），进入会话视图
 		await page

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WS_PORT } from "../playwright.config";
-import { createProject, saveProvider, createSessionViaPrompt, setUiPrefs } from "./helpers";
+import { createProject, saveProvider, createSessionViaPrompt, setUiPrefs, selectModel } from "./helpers";
 
 // 浏览器环境没有 Electron IPC 桥：注入 mock 桥，验宿（主窗口）侧的驱动逻辑。
 // 浮动模式的呈现是**独立系统窗口**，真实窗口行为由 e2e-electron/preview-window.spec.ts 验。
@@ -123,9 +123,7 @@ test.describe
 			await expect(page.getByTestId("new-session-pane")).toBeVisible({
 				timeout: 5000,
 			});
-			await page
-				.getByTestId("model-selector")
-				.selectOption({ label: "E2E Preview/model-a" });
+			await selectModel(page, { label: "E2E Preview/model-a" });
 			await page
 				.locator('[data-testid="composer-input"] [role="textbox"]')
 				.fill(text);

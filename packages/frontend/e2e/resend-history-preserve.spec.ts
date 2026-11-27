@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "node:http";
-import { saveProvider , setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 // 事故：多轮会话里点「重新发送」，此前几轮的历史消息在界面上整段消失，
 // 切走会话再切回（重新拉取历史）才恢复。
@@ -112,9 +112,7 @@ test.describe("重新发送：历史消息不被过量裁剪", () => {
     await expect(page.getByTestId("new-session-pane")).toBeVisible({
       timeout: 5000,
     });
-    await page.getByTestId("model-selector").selectOption({
-      label: "E2E ResendHistory/model-a",
-    });
+    await selectModel(page, { label: "E2E ResendHistory/model-a" });
 
     const textbox = page.locator(
       '[data-testid="composer-input"] [role="textbox"]',

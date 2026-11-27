@@ -7,7 +7,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { saveProvider, setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 /**
  * 运行时读 deepseek apiKey（仅测试运行期内存使用，不落盘）。
@@ -65,9 +65,7 @@ test("导出为图片：下载 PNG 文件 + 复制图片到剪贴板", async ({ 
 	await expect(page.getByTestId("new-session-pane")).toBeVisible({
 		timeout: 10_000,
 	});
-	await page
-		.getByTestId("model-selector")
-		.selectOption("deepseek/deepseek-v4-flash");
+	await selectModel(page, "deepseek/deepseek-v4-flash");
 
 	// 2. 发一轮指令化 prompt（短回复，降低随机性）
 	await page

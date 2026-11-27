@@ -4,7 +4,7 @@
 // 机器人 model=null 回退智能体模型的解析分支由单元测试覆盖（util/channel-model.test.ts）。
 import { expect, test } from "@playwright/test";
 import { E2E_WS_PORT } from "../playwright.config";
-import { saveProvider, setUiPrefs } from "./helpers";
+import { saveProvider, setUiPrefs, selectModel } from "./helpers";
 
 const KERNEL = `http://127.0.0.1:${E2E_WS_PORT}`;
 
@@ -87,15 +87,13 @@ test.describe("IM 会话输入框模型同步机器人模型", () => {
 		});
 
 		// 核心断言：模型选择器 = 机器人配置的模型（而非全局默认或空）
-		await expect(page.getByTestId("model-selector")).toHaveValue(
+		await expect(page.getByTestId("main-selector")).toHaveAttribute("data-value", 
 			"e2e-immodel/model-a",
 			{ timeout: 8000 },
 		);
 
 		// 用户手动切到 model-b → 切走（任务页签）→ 再回来 → 仍为 model-b（显式选择不被覆盖）
-		await page
-			.getByTestId("model-selector")
-			.selectOption("e2e-immodel/model-b");
+		await selectModel(page, "e2e-immodel/model-b");
 		await page.getByTestId("sidebar-tab-tasks").click();
 		await page.getByTestId("sidebar-tab-im").click();
 		await page
@@ -104,7 +102,7 @@ test.describe("IM 会话输入框模型同步机器人模型", () => {
 		await expect(page.getByTestId("session-view")).toBeVisible({
 			timeout: 5000,
 		});
-		await expect(page.getByTestId("model-selector")).toHaveValue(
+		await expect(page.getByTestId("main-selector")).toHaveAttribute("data-value", 
 			"e2e-immodel/model-b",
 			{ timeout: 8000 },
 		);
