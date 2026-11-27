@@ -1,5 +1,5 @@
 ## 2026-11-27
-- chore(release): 0.10.17 发版——随包收入 pi 1.6.1 升级、主代理一体式选择器（8e825872）与三项 TDD 修复；发布说明按实际改动写（改进 2 + 修复 3）
+- chore(release): 0.10.17 发版——随包收入 pi 1.6.1 升级、主代理一体式选择器（8e825872）与三项 TDD 修复；发布说明按实际改动写（改进 2 + 修复 3）；mac zip 208842489 / win exe 188159744
 
 ## 2026-11-26
 - style(frontend): 输入框底部主/子代理选择器配色对调——主代理 MainAgentSelector 按钮文字与箭头改主题色（text-brand），子代理 DelegateSelector 不再因委派态变品牌绿、统一普通文字色（移除 delegated 分支）；组件测试各 +1 例锁 class；验证：前端全量 3761 pass 0 fail、tsc 过、真实浏览器计算色 main=rgb(75,162,111) / delegate=rgb(110,110,115)、E2E delegate-setting 6/6 + composer 10/11（失败项为既有草稿防抖抖动，两次运行失败点不同）
