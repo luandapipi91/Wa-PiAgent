@@ -395,6 +395,7 @@ const zh = {
 			shellTimeout: "timeout {{s}}s",
 			shellTruncated: "输出已截断 · {{shown}} / {{total}} 行",
 			shellFullOutput: "完整输出：{{path}}",
+			shellFullOutputError: "完整输出未能保存：{{reason}}",
 			shellCopyCommand: "复制命令",
 			shellCopyOutput: "复制输出",
 			shellCopied: "已复制",

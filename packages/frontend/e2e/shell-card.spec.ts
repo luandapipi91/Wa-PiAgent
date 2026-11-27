@@ -38,11 +38,22 @@ function seedSession() {
 	);
 }
 
-async function injectMessages(page: Page, opts: { fail?: boolean } = {}) {
+async function injectMessages(
+	page: Page,
+	opts: {
+		fail?: boolean;
+		/** 覆盖正文（pi 1.6.1 的截断页脚用例需要精确控制尾部文案） */
+		text?: string;
+		/** 覆盖 toolResult.details（截断信息 / 全量输出去向） */
+		details?: unknown;
+	} = {},
+) {
 	const isError = !!opts.fail;
-	const text = isError
-		? "error TS2307: Cannot find module\n\nCommand exited with code 2"
-		: "177 pass\n0 fail";
+	const text =
+		opts.text ??
+		(isError
+			? "error TS2307: Cannot find module\n\nCommand exited with code 2"
+			: "177 pass\n0 fail");
 	await page.route(`**/api/sessions/${SESSION_ID}/messages`, (route) =>
 		route.fulfill({
 			contentType: "application/json",
@@ -76,6 +87,7 @@ async function injectMessages(page: Page, opts: { fail?: boolean } = {}) {
 							toolCallId: TOOLCALL_ID,
 							toolName: "bash",
 							content: [{ type: "text", text }],
+							...(opts.details === undefined ? {} : { details: opts.details }),
 							isError,
 							timestamp: 2600,
 						},
@@ -177,5 +189,52 @@ test.describe.serial("shell 终端卡", () => {
 		await expect(term).toContainText("error TS2307");
 		await expect(term).not.toContainText("Command exited");
 		await expect(page.getByTestId(`toolcall-${TOOLCALL_ID}-exit`)).toContainText("2");
+	});
+
+	// ===== pi 1.6.1：截断页脚格式变化 + 「全量输出存盘失败」分支 =====
+	// 1.6.1 起 bash 工具的页脚是
+	//   [Showing lines A-B of C. Full output: <path>]
+	//   [Showing lines A-B of C. Could not save the full output: <reason>]
+	// 老实现只认 0.x 的 "[Full output: p. Truncated: ...]" 格式，页脚会原样留在输出正文里。
+	test("截断页脚被剥离，正文不再出现 Showing lines 文案", async ({ page }) => {
+		seedSession();
+		await injectMessages(page, {
+			text:
+				"19999\n20000\n\n[Showing lines 18001-20000 of 20000. Full output: /tmp/pi-bash-e2e.log]",
+			details: {
+				truncation: { truncated: true, outputLines: 2000, totalLines: 20000 },
+				fullOutputPath: "/tmp/pi-bash-e2e.log",
+			},
+		});
+		await setUiPrefs(page, "zh", { collapseProcessByDefault: false });
+
+		const card = await openCard(page);
+		await page.getByTestId(`toolcall-${TOOLCALL_ID}-header`).click();
+		const term = page.getByTestId(`toolcall-${TOOLCALL_ID}-shell`);
+		await expect(term).toContainText("20000");
+		await expect(term).not.toContainText("Showing lines");
+		await expect(term).toContainText("/tmp/pi-bash-e2e.log");
+	});
+
+	test("全量输出存盘失败：页脚显示失败原因，不再谎报文件路径", async ({ page }) => {
+		seedSession();
+		await injectMessages(page, {
+			text:
+				"19999\n20000\n\n[Showing lines 18001-20000 of 20000. Could not save the full output: ENOSPC: no space left on device]",
+			details: {
+				truncation: { truncated: true, outputLines: 2000, totalLines: 20000 },
+				fullOutputError: "ENOSPC: no space left on device",
+			},
+		});
+		await setUiPrefs(page, "zh", { collapseProcessByDefault: false });
+
+		const card = await openCard(page);
+		await page.getByTestId(`toolcall-${TOOLCALL_ID}-header`).click();
+		const term = page.getByTestId(`toolcall-${TOOLCALL_ID}-shell`);
+		await expect(term).not.toContainText("Could not save the full output");
+		await expect(term).not.toContainText("Showing lines");
+		const err = page.getByTestId(`toolcall-${TOOLCALL_ID}-shell-full-output-error`);
+		await expect(err).toBeVisible();
+		await expect(err).toContainText("no space left on device");
 	});
 });

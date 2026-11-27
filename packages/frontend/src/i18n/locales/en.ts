@@ -408,6 +408,7 @@ const en = {
 			shellTimeout: "timeout {{s}}s",
 			shellTruncated: "Output truncated · {{shown}} / {{total}} lines",
 			shellFullOutput: "Full output: {{path}}",
+			shellFullOutputError: "Full output could not be saved: {{reason}}",
 			shellCopyCommand: "Copy command",
 			shellCopyOutput: "Copy output",
 			shellCopied: "Copied",
