@@ -458,10 +458,20 @@ export class RpcClient {
 		return tail ? `\nstderr: ${tail}` : "";
 	}
 
-	/** 按 strict JSONL 切分 stdout：只在 \n 处断行，去掉行尾 \r */
+	/** 按 strict JSONL 切分 stdout：只在 \n 处断行，去掉行尾 \r。
+	 *
+	 *  复杂度：每块只在新数据里找 \n，未完成的尾行先攒成「片段数组」，
+	 *  等真正的换行到达时才 join 一次。
+	 *
+	 *  旧写法是 `buffer += chunk` 后 `buffer.indexOf("\n")` + `buffer.slice()`：
+	 *  对一条 16MB 的长行（带图片的 message_update，会被切成上千个 chunk），
+	 *  每个 chunk 都要把已积累的整串重新扁平化并重扫一遍，退化成 O(n²)。
+	 *  pi 1.6.1 修的是它自己那一侧的同一个问题（#12224），这里是我们的那一侧。
+	 *  现在累计工作量与输入长度同阶：每块只扫描一次、每行只拼接一次。 */
 	private attachStdout(stream: NodeJS.ReadableStream): void {
 		const decoder = new StringDecoder("utf8");
-		let buffer = "";
+		/** 尚未见到换行的尾行片段（正常情况下最多 1 个元素） */
+		let carry: string[] = [];
 		const onLine = (line: string) => {
 			if (!line.trim()) return;
 			let msg: any;
@@ -475,21 +485,32 @@ export class RpcClient {
 			}
 			this.dispatch(msg);
 		};
-		stream.on("data", (chunk: Buffer | string) => {
-			buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
+		/** 处理一块已解码文本：其中完整的行立即派发，尾片段进 carry */
+		const consume = (text: string) => {
+			let pos = 0;
 			for (;;) {
-				const idx = buffer.indexOf("\n");
+				const idx = text.indexOf("\n", pos);
 				if (idx === -1) break;
-				let line = buffer.slice(0, idx);
-				buffer = buffer.slice(idx + 1);
+				let line = text.slice(pos, idx);
+				pos = idx + 1;
+				// 只有跨块的行才需要 join carry（每行至多一次）
+				if (carry.length > 0) {
+					line = carry.join("") + line;
+					carry = [];
+				}
 				if (line.endsWith("\r")) line = line.slice(0, -1);
 				onLine(line);
 			}
+			if (pos < text.length) carry.push(text.slice(pos));
+		};
+		stream.on("data", (chunk: Buffer | string) => {
+			consume(typeof chunk === "string" ? chunk : decoder.write(chunk));
 		});
 		stream.on("end", () => {
-			buffer += decoder.end();
-			if (buffer.length > 0) {
-				let line = buffer;
+			consume(decoder.end());
+			if (carry.length > 0) {
+				let line = carry.join("");
+				carry = [];
 				if (line.endsWith("\r")) line = line.slice(0, -1);
 				onLine(line);
 			}
