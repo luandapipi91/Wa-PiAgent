@@ -26,6 +26,7 @@ import type {
 } from "@wa-pi/shared";
 import { embedQuery } from "../memory/embedder";
 import { knowledgeFingerprint } from "./fingerprint";
+import { toPosix } from "./read";
 import type { KbContext } from "./index";
 import { KbDbMissingError, openKbDbExisting } from "./kb-db";
 import { mirrorDirFor, mirrorMdPath } from "./mirror";
@@ -688,9 +689,9 @@ export async function searchKnowledge(
       filePath: hasMirror ? srcRel + ".md" : srcRel,
       sourcePath: srcRel,
       ...(hasMirror
-        ? { filePathAbs: mirrorAbs }
+        ? { filePathAbs: toPosix(mirrorAbs) }
         : kbFolder
-          ? { filePathAbs: join(kbFolder, srcRel) }
+          ? { filePathAbs: toPosix(join(kbFolder, srcRel)) }
           : {}),
       fileType: entry.chunk.fileType,
       title: entry.chunk.title ?? null,

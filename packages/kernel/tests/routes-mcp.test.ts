@@ -167,8 +167,11 @@ function del(router: HttpRouter, path: string): Promise<Response | null> {
   );
 }
 
-/** 保存/删除的回包不含广播（广播在后台任务里）：轮询等服务端把它推出来 */
-async function waitFor(fn: () => boolean, timeoutMs = 2000): Promise<void> {
+/** 保存/删除的回包不含广播（广播在后台任务里）：轮询等服务端把它推出来。
+ *  默认 10s：本文件有 10 条用例真实 spawn MCP server 子进程做握手，官方入口 4 路并行
+ *  争抢 CPU 时 2s 不够（2026-11-29 Windows 全量实测撞 waitFor 超时，单跑稳定绿）；
+ *  mock 用例首轮 5ms 内即返回，不受影响 */
+async function waitFor(fn: () => boolean, timeoutMs = 10_000): Promise<void> {
   const start = Date.now();
   while (!fn()) {
     if (Date.now() - start > timeoutMs) throw new Error("waitFor 超时");

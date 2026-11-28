@@ -58,7 +58,7 @@ function makeGateEmbed() {
   let resolveMode = false;
   let holdMode = false; // hold：后续 embed 调用重新挂起（ready 后再卡住 watcher 源索引用）
   const fakeVecs = (n: number) =>
-    Array.from({ length: n }, () => new Uint8Array(EMBED_DIM).fill(128));
+    Array.from({ length: n }, () => new Uint8Array(EMBED_DIM * 4).fill(128));
   return {
     embed: (texts: string[]): Promise<Uint8Array[]> => {
       if (!holdMode && closed && resolveMode) return Promise.resolve(fakeVecs(texts.length));

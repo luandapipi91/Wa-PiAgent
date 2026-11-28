@@ -15,7 +15,7 @@ import { EMBED_DIM } from "../src/memory/schema";
 // waitFor 用轮询断言（带超时）。加速注入 pollIntervalMs/debounceMs（默认 60_000/2_000）。
 // runIndex spy 走 indexFn 注入（bun 1.4 mock.module 无恢复 API，见 scripts/test.ts，不用它）。
 
-const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM).fill(128));
+const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM * 4).fill(128));
 
 let waPiDir: string;
 let srcDir: string;
@@ -182,7 +182,7 @@ test("重入协调：手动索引进行中的变更不丢，手动完成后 watc
   // 手动更新走与 ws-server 完全相同的真实 runIndex 路径；慢嵌入让 job 行稳定挂住 800ms
   const slowEmbed: EmbedFn = async (texts) => {
     await sleep(800);
-    return texts.map(() => new Uint8Array(EMBED_DIM).fill(128));
+    return texts.map(() => new Uint8Array(EMBED_DIM * 4).fill(128));
   };
   const w = watchKb(ctx, kbId, {
     embedFn: fakeEmbed,

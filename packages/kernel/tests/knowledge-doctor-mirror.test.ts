@@ -29,7 +29,7 @@ import { mirrorDirFor, mirrorMdPath } from "../src/knowledge/mirror";
 import { EMBED_DIM } from "../src/memory/schema";
 
 const FIX = join(import.meta.dir, "fixtures/knowledge-convert");
-const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM).fill(128));
+const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM * 4).fill(128));
 
 let waPiDir: string;
 let srcDir: string;

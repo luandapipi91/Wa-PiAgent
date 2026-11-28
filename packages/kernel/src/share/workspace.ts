@@ -143,7 +143,7 @@ async function migrateLegacyItem(
 		const fp = join(legacyDir, ...rel.split("/"));
 		size += (await stat(fp).catch(() => ({ size: 0 }))).size ?? 0;
 	}
-	await rename(legacyDir, join(itemsDir(dir), name));
+	await renameWithRetry(legacyDir, join(itemsDir(dir), name));
 	return {
 		id,
 		name,
@@ -155,6 +155,30 @@ async function migrateLegacyItem(
 
 /** 读取分享记录（读时对账：目录已丢失或 id 非法的记录自动剔除并落盘；
  *  旧格式 items/<id>/ 文件夹自动迁移到 items/<name>/；items/ 下孤儿 id 文件夹恢复为记录）。 */
+/**
+ * Windows 瞬时锁重试的目录 rename：旧格式迁移时目录刚写完就被杀毒/索引器扫描占用，
+ * rename 报 EPERM/EACCES/EBUSY（2026-11-29 并行全量实测 migrateLegacyItem 撞 EPERM；
+ * 与 pending-messages / project-store 的 rename 同根因）。短退避重试吸收瞬时锁
+ * （10/20/40/80/160ms，总窗口 ~310ms）；非瞬时错误或耗尽照常抛出。
+ */
+async function renameWithRetry(src: string, dst: string): Promise<void> {
+	let delay = 10;
+	for (let attempt = 0; ; attempt++) {
+		try {
+			await rename(src, dst);
+			return;
+		} catch (err: any) {
+			const transient =
+				err?.code === "EPERM" ||
+				err?.code === "EACCES" ||
+				err?.code === "EBUSY";
+			if (!transient || attempt >= 5) throw err;
+			await new Promise((r) => setTimeout(r, delay));
+			delay *= 2;
+		}
+	}
+}
+
 export async function loadItems(dir: string): Promise<ShareItem[]> {
 	const { items } = await readState(stateFile(dir));
 	const alive: ShareItem[] = [];

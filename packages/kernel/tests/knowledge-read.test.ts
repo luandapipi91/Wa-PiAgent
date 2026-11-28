@@ -10,7 +10,7 @@ import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore } from "../src/knowledge/store";
 import { closeAllKbDbs, openKbDb } from "../src/knowledge/kb-db";
 import type { KbContext } from "../src/knowledge/index";
-import { readKnowledge } from "../src/knowledge/read";
+import { readKnowledge, toPosix } from "../src/knowledge/read";
 
 let waPiDir: string;
 let reg: Database;
@@ -57,7 +57,7 @@ test("按 file_path 返回该文件全部块（原文顺序、带行号范围与
   expect(r.found).toBe(true);
   expect(r.kbName).toBe("读取库");
   expect(r.filePath).toBe("docs/门店挂靠.docx");
-  expect(r.filePathAbs).toBe(join(waPiDir, "src", "docs/门店挂靠.docx"));
+  expect(r.filePathAbs).toBe(toPosix(join(waPiDir, "src", "docs/门店挂靠.docx")));
   expect(r.content).toContain("门店挂靠 背景");
   expect(r.content).toContain("会员资料处理规则");
   expect(r.content).not.toContain("其他文档正文");

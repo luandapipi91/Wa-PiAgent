@@ -69,11 +69,16 @@ interface ChunkRow {
 
 /** 绝对路径 → 库根内相对路径；不在库根下返回 null */
 function toRelative(kbRoot: string, filePath: string): string | null {
-	if (!isAbsolute(filePath)) return normalize(filePath);
+	if (!isAbsolute(filePath)) return toPosix(normalize(filePath));
 	const root = normalize(kbRoot);
 	const abs = normalize(filePath);
-	if (!abs.startsWith(root + "/") && abs !== root) return null;
-	return abs.slice(root.length + 1);
+	if (!abs.startsWith(root + sep) && abs !== root) return null;
+	return toPosix(abs.slice(root.length + 1));
+}
+
+/** 路径统一转正斜杠：索引键（chunks.file_path）与模型可见路径恒为 POSIX 风格，与平台 sep 无关 */
+export function toPosix(p: string): string {
+	return p.replace(/\\/g, "/");
 }
 
 /**
@@ -122,7 +127,7 @@ export async function readKnowledge(
 				kbId: id,
 				kbName: kb.name,
 				filePath: srcRel,
-				filePathAbs: existsSync(mirrorAbs) ? mirrorAbs : join(kb.folderPath, srcRel),
+				filePathAbs: toPosix(existsSync(mirrorAbs) ? mirrorAbs : join(kb.folderPath, srcRel)),
 				content,
 				startLine: rows[0].start_line,
 				endLine: rows[rows.length - 1].end_line,
@@ -145,7 +150,7 @@ export async function readKnowledge(
 		// mirror 外的绝对路径维持既有源绝对路径换算（toRelative 不匹配则保留原样）
 		const mirrorRoot = normalize(mirrorDir);
 		if (isAbsolute(rawPath) && rawNorm.startsWith(mirrorRoot + sep)) {
-			rel = rawNorm.slice(mirrorRoot.length + 1).replace(/\.md$/, "");
+			rel = toPosix(rawNorm.slice(mirrorRoot.length + 1)).replace(/\.md$/, "");
 		}
 		const candidates = rel.endsWith(".md") ? [rel, rel.slice(0, -".md".length)] : [rel];
 		for (const srcRel of candidates) {
@@ -156,7 +161,7 @@ export async function readKnowledge(
 					kbId: id,
 					kbName: kb.name,
 					filePath: srcRel,
-					filePathAbs: mirrorMdPath(mirrorDir, srcRel),
+					filePathAbs: toPosix(mirrorMdPath(mirrorDir, srcRel)),
 					content: mirrorContent.slice(0, maxChars),
 					startLine: 1,
 					endLine: null,
@@ -172,7 +177,7 @@ export async function readKnowledge(
 				kbId: id,
 				kbName: kb.name,
 				filePath: srcRel,
-				filePathAbs: join(kb.folderPath, srcRel),
+				filePathAbs: toPosix(join(kb.folderPath, srcRel)),
 				content,
 				startLine: rows[0].start_line,
 				endLine: rows[rows.length - 1].end_line,

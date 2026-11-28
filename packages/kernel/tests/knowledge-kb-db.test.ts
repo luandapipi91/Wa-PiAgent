@@ -85,7 +85,9 @@ test("deleteKb 前 evict 缓存连接，文件可删除（Windows 占用回归�
   expect(() => conn.close()).not.toThrow();
 });
 
-test("缓存命中的库文件被外部删除：openKbDb 丢弃缓存并重建文件（不写已删 inode）", () => {
+// Windows 上 SQLite 句柄不带 FILE_SHARE_DELETE，连接未关闭时 rm 必然 EBUSY，
+// 「连接活着时文件被外部删除」这个场景在 Windows 上物理上不可能发生，故跳过
+test.skipIf(process.platform === "win32")("缓存命中的库文件被外部删除：openKbDb 丢弃缓存并重建文件（不写已删 inode）", () => {
   const a = openKbDb(dir, "kb_ext_gone");
   const p = kbDbPath(dir, "kb_ext_gone");
   // 外部删掉库文件（连接仍活着：`SELECT 1` 是常量表达式、不碰文件，探活看不出来）

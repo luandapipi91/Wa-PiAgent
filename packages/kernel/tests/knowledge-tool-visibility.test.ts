@@ -27,7 +27,11 @@ const managers: AgentManager[] = [];
 const tmpPaths: string[] = [];
 
 afterEach(async () => {
-	for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
+	for (const am of managers.splice(0)) {
+		await am.disposeAll().catch(() => {});
+		// disposeAll 不会关懒打开的知识库登记库句柄：先关掉，否则 Windows 上 rmSync(knowledge.db) 会 EBUSY
+		am.disposeKnowledgeStore();
+	}
 	for (const p of tmpPaths.splice(0)) {
 		try {
 			rmSync(p, { force: true, recursive: true });

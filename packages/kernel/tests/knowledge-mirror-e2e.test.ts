@@ -33,8 +33,9 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { closeAllKbDbs } from "../src/knowledge/kb-db";
 import { KB_SCHEMA_SQL, type KbContext } from "../src/knowledge/index";
 import { mirrorDirFor } from "../src/knowledge/mirror";
 import { KnowledgeStore } from "../src/knowledge/store";
@@ -45,15 +46,22 @@ import { EMBED_DIM } from "../src/memory/embedder";
 const FIX = join(import.meta.dir, "fixtures/knowledge-convert");
 // 预置模型目录（Xenova/bge-base-zh-v1.5 q8）；不存在则 kernel 现场从 hf-mirror 下载到
 // WA_PI_DIR/models（首次多等几分钟）。可用 WA_PI_E2E_MODEL_DIR 覆盖。
-const MODEL_DIR =
-	process.env.WA_PI_E2E_MODEL_DIR || "/tmp/wa-pi-mdmirror-models/models";
+// 只有候选目录真实含该模型（有 config.json）才向 kernel 传 WA_PI_MODEL_DIR：
+// embedder 一旦收到该变量就不再回退现场下载，指向不存在的目录会让索引永不到 ready/failed；
+// 不传则按注释所述现场下载。生产模型目录只读使用，安全。
+const MODEL_NAME = join("Xenova", "bge-base-zh-v1.5");
+const MODEL_DIR = [
+	process.env.WA_PI_E2E_MODEL_DIR,
+	join(tmpdir(), "wa-pi-mdmirror-models", "models"),
+	join(homedir(), ".pi", "agent", "models"),
+].filter((d): d is string => !!d && existsSync(join(d, MODEL_NAME, "config.json")))[0];
 // 服务端口：高位随机段避免与本机真实 kernel（9776）冲突；可用 WA_PI_E2E_PORT 固定。
 const PORT = Number(process.env.WA_PI_E2E_PORT) || 18000 + (process.pid % 2000);
 
 const BASE = `http://127.0.0.1:${PORT}`;
 
 /** 确定性 fake 查询向量：避开测试进程内 onnx 推理（见文件头）；BM25 词法锚定保证命中 */
-const fakeQueryEmbed = async () => new Uint8Array(EMBED_DIM).fill(128);
+const fakeQueryEmbed = async () => new Uint8Array(EMBED_DIM * 4).fill(128);
 
 async function api(method: string, path: string, body?: unknown): Promise<any> {
 	const res = await fetch(`${BASE}${path}`, {
@@ -121,6 +129,19 @@ function appendSafe(path: string, chunk: Buffer | string): void {
 	}
 }
 
+/** Windows 句柄释放有延迟（杀树是异步的）：rm 偶发 EBUSY，短退避重试兑底 */
+async function rmRetry(dir: string, attempts = 5): Promise<void> {
+	for (let i = 0; ; i++) {
+		try {
+			rmSync(dir, { recursive: true, force: true });
+			return;
+		} catch (e) {
+			if (i >= attempts) throw e;
+			await new Promise((r) => setTimeout(r, 400));
+		}
+	}
+}
+
 afterEach(async () => {
 	// 清理（AGENTS.md 产物规则）：删库（级联清 mirror）→ 杀 kernel（进程组）→ 删临时目录
 	if (kbId) {
@@ -128,20 +149,39 @@ afterEach(async () => {
 		kbId = "";
 	}
 	if (kernel) {
-		try {
-			process.kill(-kernel.pid!, "SIGTERM");
-		} catch {
-			kernel.kill("SIGTERM");
-		}
+		const k = kernel;
 		kernel = null;
+		if (process.platform === "win32") {
+			// Windows：spawn("bun") 实际是 cmd → bun.cmd → WaPiKernel.exe 的进程树，
+			// 进程组语义不存在（process.kill(-pid) 杀不掉，句柄不释放 → rmSync EBUSY），
+			// 用 taskkill /T /F 杀整棵树
+			spawn("taskkill", ["/PID", String(k.pid), "/T", "/F"], { stdio: "ignore" });
+		} else {
+			try {
+				process.kill(-k.pid!, "SIGTERM");
+			} catch {
+				k.kill("SIGTERM");
+			}
+		}
+		// Windows 上句柄释放是异步的：等子进程真正退出再删目录，否则 rmSync(waPiDir) EBUSY
+		await new Promise<void>((resolve) => {
+			const timer = setTimeout(resolve, 5000); // 兑底：exit 事件丢失也不卡清理
+			k.once("exit", () => {
+				clearTimeout(timer);
+				resolve();
+			});
+		});
 	}
 	if (reg) {
 		reg.close();
 		reg = null;
 	}
+	// searchKnowledge/readKnowledge 在本进程内懒打开过 kb db（kb-db 缓存）：
+	// 不关掉的话 Windows 上 rmSync(waPiDir) 会 EBUSY（本进程自己持着句柄）
+	closeAllKbDbs();
 	ctx = null;
 	for (const dir of [waPiDir, srcDir]) {
-		if (dir) rmSync(dir, { recursive: true, force: true });
+		if (dir) await rmRetry(dir);
 	}
 	waPiDir = "";
 	srcDir = "";
@@ -177,7 +217,7 @@ test(
 				WA_PI_DIR: waPiDir,
 				WA_PI_WS_PORT: String(PORT),
 				WA_PI_SKIP_AGENT_SEED: "1",
-				WA_PI_MODEL_DIR: MODEL_DIR,
+				...(MODEL_DIR ? { WA_PI_MODEL_DIR: MODEL_DIR } : {}),
 			},
 			stdio: ["ignore", "pipe", "pipe"],
 		});

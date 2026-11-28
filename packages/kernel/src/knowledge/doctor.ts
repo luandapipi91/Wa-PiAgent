@@ -6,6 +6,7 @@ import { diagnoseKb, type KbDiagnostic } from "./diagnostics";
 import { knowledgeFingerprint } from "./fingerprint";
 import { mirrorDirFor, mirrorMdPath } from "./mirror";
 import { openKbDbExisting } from "./kb-db";
+import { toPosix } from "./read";
 
 export type DoctorSeverity = "blocking" | "warning" | "info";
 
@@ -123,7 +124,9 @@ function scanKbMirror(waPiDir: string, folderPath: string, kbId: string): Mirror
 	// _assets 排除按首段路径段判断：!p.startsWith("_assets") 会误伤 _assets_backup 等相邻目录名
 	let mdRels: string[];
 	try {
-		mdRels = readdirSync(mirrorDir, { recursive: true, encoding: "utf-8" }).filter((p) => {
+		mdRels = readdirSync(mirrorDir, { recursive: true, encoding: "utf-8" })
+			.map(toPosix) // Windows readdir 返回原生分隔符，与索引键（恒为正斜杠）比对前必须归一
+			.filter((p) => {
 			const [head] = p.split(/[\\/]/);
 			return p.endsWith(".md") && head !== "_assets";
 		});

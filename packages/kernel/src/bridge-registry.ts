@@ -16,6 +16,7 @@ import {
 } from "@wa-pi/shared";
 import { runAskTool } from "./ask-runner";
 import { createMemoryTools, type MemoryToolContext } from "./memory/tools";
+import { toPosix } from "./knowledge/read";
 import type { KnowledgeSearchOptions, KnowledgeToolContext } from "./knowledge/tool";
 
 /** 工具执行结果（与 pi AgentToolResult 对齐，经 HTTP 原样回传给扩展） */
@@ -496,7 +497,8 @@ async function handleKnowledgeSearch(
       // search 层已按「副本存在与否」填好 filePathAbs（有副本 → mirror 目录下的 .md 绝对路径；
       // 无副本 → 不填，退回源路径拼接 kbFolderPath + sourcePath），旧出参无新字段时行为不变
       file_path_abs:
-        h.filePathAbs ?? (h.kbFolderPath ? join(h.kbFolderPath, h.sourcePath ?? h.filePath) : null),
+        h.filePathAbs ??
+        (h.kbFolderPath ? toPosix(join(h.kbFolderPath, h.sourcePath ?? h.filePath)) : null),
       title: h.title,
       breadcrumb: h.breadcrumb,
       lines:

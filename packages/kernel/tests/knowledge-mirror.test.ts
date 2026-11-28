@@ -30,7 +30,8 @@ describe("mirror 路径与新鲜度", () => {
   });
 
   test("路径计算", () => {
-    expect(mirrorMdPath("/d/kb1/mirror", "顾客/顾客列表.docx")).toBe("/d/kb1/mirror/顾客/顾客列表.docx.md");
+    // 期望用 join 构造（平台无关）：mirrorMdPath 内部用宿主 join，Windows 上产反斜杠
+    expect(mirrorMdPath("/d/kb1/mirror", "顾客/顾客列表.docx")).toBe(join("/d/kb1/mirror", "顾客/顾客列表.docx.md"));
   });
 
   test("mirrorDirFor 位于源文件夹下的知识库资源目录", () => {

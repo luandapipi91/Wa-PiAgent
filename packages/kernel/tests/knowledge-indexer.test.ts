@@ -22,7 +22,7 @@ import type { KbProgressEvent } from "@wa-pi/shared";
 // 索引编排器测试：注入 fake embed 绕开真实模型（与简报一致：全 128 填充的 768 维向量）。
 // 夹具：waPiDir（登记库 + 每库 db）与 srcDir（源文件夹）均为 mkdtemp 临时目录。
 // 默认夹具文件 a.md（3 个标题节）+ b.txt（纯文本单块）；特殊夹具在测试内自建。
-const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM).fill(128));
+const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM * 4).fill(128));
 
 let waPiDir: string;
 let srcDir: string;
@@ -253,7 +253,7 @@ test("子批之间让出事件循环：让出窗口内排队的宏任务先于�
   const probe: EmbedFn = async (texts) => {
     seen.push(ticked);
     if (seen.length === 1) setTimeout(() => ticked++, 0);
-    return texts.map(() => new Uint8Array(EMBED_DIM).fill(1));
+    return texts.map(() => new Uint8Array(EMBED_DIM * 4).fill(1));
   };
   const wrapped = wrapEmbedWithYield(probe);
   await wrapped(Array.from({ length: 20 }, (_, i) => `t${i}`));
@@ -265,7 +265,7 @@ test("子批让出后响应取消：signal 已中止则下一次让出即抛错"
   const controller = new AbortController();
   const probe: EmbedFn = async (texts) => {
     controller.abort(); // 第一批完成后取消
-    return texts.map(() => new Uint8Array(EMBED_DIM).fill(1));
+    return texts.map(() => new Uint8Array(EMBED_DIM * 4).fill(1));
   };
   const wrapped = wrapEmbedWithYield(probe, undefined, controller.signal);
   await expect(wrapped(Array.from({ length: 20 }, (_, i) => `t${i}`))).rejects.toThrow("索引已取消");

@@ -17,13 +17,13 @@ import { KB_SCHEMA_SQL } from "../src/knowledge/schema";
 import { KnowledgeStore, resetJobOwnerStateForTest } from "../src/knowledge/store";
 import { runIndex, type KbContext, type EmbedFn } from "../src/knowledge/indexer";
 import { searchKnowledge } from "../src/knowledge/search";
-import { readKnowledge } from "../src/knowledge/read";
+import { readKnowledge, toPosix } from "../src/knowledge/read";
 import { mirrorDirFor, mirrorMdPath } from "../src/knowledge/mirror";
 import { closeAllKbDbs } from "../src/knowledge/kb-db";
 import { EMBED_DIM } from "../src/memory/schema";
 
 const FIX = join(import.meta.dir, "fixtures/knowledge-convert");
-const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM).fill(128));
+const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM * 4).fill(128));
 
 let waPiDir: string;
 let srcDir: string;
@@ -103,7 +103,7 @@ describe("检索/读取指向副本", () => {
     expect(hit).toBeTruthy();
     expect(existsSync(join(mirrorRoot(), hit!.filePath))).toBe(true); // 副本文件真实存在
     expect(hit!.sourcePath).toBe(srcRel); // 源相对路径单独携带（读库/换算用）
-    expect(hit!.filePathAbs).toBe(mirrorMdPath(mirrorRoot(), srcRel)); // 副本绝对路径
+    expect(hit!.filePathAbs).toBe(toPosix(mirrorMdPath(mirrorRoot(), srcRel))); // 副本绝对路径
   });
 
   test("knowledge_read(filePath=源rel): 返回副本内容, file_path_abs=副本绝对路径", async () => {
@@ -111,7 +111,7 @@ describe("检索/读取指向副本", () => {
     const r = await readKnowledge(ctx, [kbId], { filePath: srcRel });
     expect(r.found).toBe(true);
     expect(r.content).toContain("查询对象"); // 副本全文（含 altChunk 正文）
-    expect(r.filePathAbs).toBe(mirrorMdPath(mirrorRoot(), srcRel));
+    expect(r.filePathAbs).toBe(toPosix(mirrorMdPath(mirrorRoot(), srcRel)));
     expect(r.filePath).toBe(srcRel);
   });
 
@@ -120,7 +120,7 @@ describe("检索/读取指向副本", () => {
     const r = await readKnowledge(ctx, [kbId], { filePath: srcRel + ".md" });
     expect(r.found).toBe(true);
     expect(r.content).toContain("查询对象");
-    expect(r.filePathAbs).toBe(mirrorMdPath(mirrorRoot(), srcRel));
+    expect(r.filePathAbs).toBe(toPosix(mirrorMdPath(mirrorRoot(), srcRel)));
   });
 
   test("往返: search hit.filePathAbs 回传 knowledge_read → 返回副本内容(不 file_not_found)", async () => {
@@ -135,7 +135,7 @@ describe("检索/读取指向副本", () => {
     expect(r.found).toBe(true); // 修前 file_not_found（回归锁）
     expect(r.content).toContain("查询对象");
     expect(r.filePath).toBe(srcRel);
-    expect(r.filePathAbs).toBe(mirrorMdPath(mirrorRoot(), srcRel));
+    expect(r.filePathAbs).toBe(toPosix(mirrorMdPath(mirrorRoot(), srcRel)));
   });
 
   test("knowledge_read(chunkId): content 仍为按块上下文, 有副本时 file_path_abs 指副本", async () => {
@@ -145,7 +145,7 @@ describe("检索/读取指向副本", () => {
     const r = await readKnowledge(ctx, [kbId], { chunkId });
     expect(r.found).toBe(true);
     expect(r.filePath).toBe(srcRel);
-    expect(r.filePathAbs).toBe(mirrorMdPath(mirrorRoot(), srcRel)); // 副本路径补进返回
+    expect(r.filePathAbs).toBe(toPosix(mirrorMdPath(mirrorRoot(), srcRel))); // 副本路径补进返回
   });
 
   test("无副本(降级文件) → 回退 chunks.content, file_path_abs=源绝对路径, 不抛错", async () => {
@@ -156,13 +156,13 @@ describe("检索/读取指向副本", () => {
     const r = await readKnowledge(ctx, [kbId], { filePath: "broken.docx" });
     expect(r.found).toBe(true);
     expect(r.content).toContain("损坏正文查询对象兜底抽取"); // 来自 chunks 表（降级抽取产出）
-    expect(r.filePathAbs).toBe(join(srcDir, "broken.docx")); // 维持源绝对路径
+    expect(r.filePathAbs).toBe(toPosix(join(srcDir, "broken.docx"))); // 维持源绝对路径
     // 检索侧同样不抛错：降级 hit 维持源路径出参
     const res = await searchKnowledge(ctx, [kbId], "损坏正文", { mode: "fast" });
     const hit = res.results.find((h) => h.sourcePath === "broken.docx");
     expect(hit).toBeTruthy();
     expect(hit!.filePath).toBe("broken.docx"); // 无副本 → 不加 .md 后缀
-    expect(hit!.filePathAbs).toBe(join(srcDir, "broken.docx"));
+    expect(hit!.filePathAbs).toBe(toPosix(join(srcDir, "broken.docx")));
   });
 });
 

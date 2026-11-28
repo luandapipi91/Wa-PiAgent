@@ -11,7 +11,7 @@ import { diagnoseKb } from "../src/knowledge/diagnostics";
 import { runDoctor, scoreFromIssues } from "../src/knowledge/doctor";
 import { EMBED_DIM } from "../src/memory/schema";
 
-const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM).fill(128));
+const fakeEmbed: EmbedFn = async (texts) => texts.map(() => new Uint8Array(EMBED_DIM * 4).fill(128));
 
 let waPiDir: string;
 let srcDir: string;

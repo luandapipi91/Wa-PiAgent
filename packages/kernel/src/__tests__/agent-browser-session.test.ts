@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   browserSessionName,
   closeBrowserSession,
@@ -15,15 +16,19 @@ test("会话名归一化", () => {
 
 test("平台包解析", () => {
   const exists = () => true;
+  // 期望值用 join 构造：被测函数返回宿主分隔符的文件系统路径，这里只验证
+  // 「平台 → 包名 → 可执行文件名」的映射，不绑定某一种分隔符（Windows 下 join 为反斜杠）
+  const expectBin = (pkg: string, bin: string) =>
+    join("/r", "node_modules", "@agent-browser", pkg, "bin", bin);
   expect(
     resolveAgentBrowserBinary({ runtimeDir: "/r", platform: "darwin", arch: "x64", fileExists: exists }),
-  ).toBe("/r/node_modules/@agent-browser/cli-darwin-x64/bin/agent-browser");
+  ).toBe(expectBin("cli-darwin-x64", "agent-browser"));
   expect(
     resolveAgentBrowserBinary({ runtimeDir: "/r", platform: "win32", arch: "x64", fileExists: exists }),
-  ).toBe("/r/node_modules/@agent-browser/cli-win32-x64-msvc/bin/agent-browser.exe");
+  ).toBe(expectBin("cli-win32-x64-msvc", "agent-browser.exe"));
   expect(
     resolveAgentBrowserBinary({ runtimeDir: "/r", platform: "linux", arch: "x64", fileExists: exists }),
-  ).toBe("/r/node_modules/@agent-browser/cli-linux-x64-gnu/bin/agent-browser");
+  ).toBe(expectBin("cli-linux-x64-gnu", "agent-browser"));
 });
 
 test("二进制缺失返回 null", () => {

@@ -1,5 +1,5 @@
 import { test, expect, afterEach } from "bun:test";
-import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, mkdir, open } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -279,6 +279,42 @@ test("loadItems 旧格式迁移：state 记录指向 items/<id>/（穿透改造�
   // 迁移已落盘
   const saved = JSON.parse(await readFile(join(d, "state.json"), "utf8"));
   expect(saved.items[0].name).toBe("index.html");
+});
+
+test("loadItems 旧格式迁移遇 Windows 瞬时锁（目录内文件被短暂占用 → rename EPERM）：重试后迁移成功", async () => {
+  // 实测（2026-11-29 并行全量）：migrateLegacyItem 的目录 rename 在负载下撞 EPERM——
+  // Windows 上目录内有被打开的文件时不允许重命名（杀软/索引器扫描新建目录即触发），
+  // 与 pending-messages / project-store 的 rename EPERM 同根因，短退避重试吸收。
+  const d = await tmp();
+  const itemsDirPath = join(d, "items");
+  await mkdir(join(itemsDirPath, "abc123abc123"), { recursive: true });
+  await writeFile(
+    join(itemsDirPath, "abc123abc123", "index.html"),
+    "A",
+    "utf8",
+  );
+  await writeFile(
+    join(d, "state.json"),
+    JSON.stringify({
+      items: [
+        { id: "abc123abc123", name: "旧名", files: ["index.html"], size: 1, createdAt: 100 },
+      ],
+    }),
+    "utf8",
+  );
+  const handle = await open(join(itemsDirPath, "abc123abc123", "index.html"), "r"); // 占住目录内文件
+  try {
+    const loading = loadItems(d);
+    await new Promise((r) => setTimeout(r, 30)); // 锁保持 30ms（< 重试总窗口 ~310ms）后释放
+    await handle.close();
+    const items = await loading; // 未加重试时此处抛 EPERM
+    expect(items[0]?.name).toBe("index.html");
+    expect(
+      await readFile(join(itemsDirPath, "index.html", "index.html"), "utf8"),
+    ).toBe("A");
+  } finally {
+    await handle.close().catch(() => {});
+  }
 });
 
 test("loadItems 孤儿恢复：state 已空但 items/<id>/ 还在（旧分享）→ 扫描恢复为记录", async () => {
