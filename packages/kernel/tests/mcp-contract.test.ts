@@ -18,10 +18,10 @@
 // 手段：第 1、2 组真 spawn pi（McpAdmin / McpLoginRunner 同生产消费路径），
 // 第 3、4、5 组是纯函数比对，不起 pi 子进程。
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { isContextOverflow } from "@earendil-works/pi-ai/utils/overflow";
 import {
   canUseOAuth,
@@ -37,16 +37,15 @@ import { resolvePiCliPath, resolvePiRuntime } from "../src/rpc-client";
 import { estimateContextTokens } from "../src/context-estimate";
 import { shouldCompactBeforeSend } from "../src/auto-compact";
 
-// ---- 上游 pi-mcp naming.js（kernel 未直接依赖，从 bun store 物理路径导入）----
-// 版本目录用 readdir 定位而非硬编码：升级 pi 后 store 里是新版本目录，仍能导入比对。
-const storeRoot = join(import.meta.dir, "..", "..", "..", "node_modules", ".bun");
-const piMcpEntry = readdirSync(storeRoot).find((d) =>
-  d.startsWith("@earendil-works+pi-mcp@"),
+// ---- 上游 pi-mcp naming.js（kernel 未直接依赖；pi-mcp 的 package.json 未走 exports，只能走物理路径导入）----
+// 顺着已安装 pi-coding-agent 在 bun store 里的真实目录找它的兄弟链接 pi-mcp：拿到的一定是
+// pi-coding-agent 实际依赖的那个版本，升级后自动跟随。不再扫 store 目录取「第一个 pi-mcp@」：
+// store 会残留旧版本目录（1.4.0 / 1.5.0 没有 naming.js），枚举到谁全看目录顺序（2026-11-28 踩过）。
+const agentPkgReal = realpathSync(
+  join(import.meta.dir, "..", "node_modules", "@earendil-works", "pi-coding-agent", "package.json"),
 );
-if (!piMcpEntry) throw new Error(`bun store 里找不到 pi-mcp（${storeRoot}）`);
-const piNaming = await import(
-  join(storeRoot, piMcpEntry, "node_modules/@earendil-works/pi-mcp/dist/naming.js")
-);
+const piMcpDir = realpathSync(join(dirname(agentPkgReal), "..", "pi-mcp"));
+const piNaming = await import(join(piMcpDir, "dist", "naming.js"));
 
 // ---- 第 1 组共用夹具：五台真实 server（探针同款）----
 let baseDir = "";

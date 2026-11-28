@@ -65,6 +65,6 @@ test("实际装出的 pi-tui / pi-ai 精确等于 pi-coding-agent 依赖的版�
 	// 声明与实际装出的必须一致：否则「声明 1.6.0 + 装出 1.6.1」这种漂移会漏过去，
 	// 打包清单写的是声明值、磁盘上是另一个版本，装到用户机器上才暴露。
 	expect(kernelPkg.dependencies["@earendil-works/pi-tui"]).toBe(installedTui);
-	// ~ 浮动声明取其实装出来的版本必须满足 minor 一致（1.6.x）
-	expect(installedAi.startsWith("1.6.")).toBe(true);
+	// ~ 浮动声明取其实装出来的版本必须满足 minor 一致（1.7.x）
+	expect(installedAi.startsWith("1.7.")).toBe(true);
 });
