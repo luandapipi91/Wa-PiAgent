@@ -161,6 +161,9 @@ export function initUpdater() {
 		useUpdaterStore.setState({ isDesktop: false });
 		return;
 	}
+	// 事件流比 get-info 快照新：收到过任何事件就不再用快照覆盖（否则往返期间已推进的状态机会被
+	// 回退到「检查中」且此后再无事件，设置页永远显示检查中——审查发现的竞态）
+	let gotEvent = false;
 	void api.getInfo().then((info) => {
 		useUpdaterStore.setState({
 			appVersion: info.appVersion,
@@ -168,9 +171,10 @@ export function initUpdater() {
 		});
 		// 主进程启动检查已出结果（有/无新版本/失败）：直接补进状态机，不再等下一次事件或自己重查
 		const last = info.lastEvent;
-		if (last) useUpdaterStore.setState((s) => applyEvent(s, last));
+		if (last && !gotEvent) useUpdaterStore.setState((s) => applyEvent(s, last));
 	});
 	api.onEvent((payload) => {
+		gotEvent = true;
 		useUpdaterStore.setState((s) => applyEvent(s, payload));
 	});
 }

@@ -76,9 +76,10 @@ function toRelative(kbRoot: string, filePath: string): string | null {
 	return toPosix(abs.slice(root.length + 1));
 }
 
-/** 路径统一转正斜杠：索引键（chunks.file_path）与模型可见路径恒为 POSIX 风格，与平台 sep 无关 */
+/** 路径统一转正斜杠：索引键（chunks.file_path）与模型可见路径恒为 POSIX 风格，与平台 sep 无关。
+ *  只换宿主分隔符而不 replace("\\")：POSIX 文件名里合法的反斜杠字符不能被动到 */
 export function toPosix(p: string): string {
-	return p.replace(/\\/g, "/");
+	return p.split(sep).join("/");
 }
 
 /**

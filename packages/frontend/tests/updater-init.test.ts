@@ -95,6 +95,36 @@ test("get-info 带回 up-to-date（自动检查）→ 静默 idle", async () => 
 	expect(checkCalls).toBe(0);
 });
 
+test("get-info 往返期间事件先到（available）→ 稍后返回的旧 lastEvent(checking) 不覆盖它（状态不回退）", async () => {
+	// 竞态：挂载时主进程快照 lastEvent=checking，检查恰在此刻完成并广播 available（事件先到），
+	// 之后 get-info 才带着旧快照返回——不得把已推进的状态机覆盖回「检查中」且此后再无事件
+	let resolveGetInfo!: (v: unknown) => void;
+	let handler: ((e: Record<string, unknown>) => void) | null = null;
+	(window as any).waPiUpdater = {
+		getInfo: () =>
+			new Promise((r) => {
+				resolveGetInfo = r;
+			}),
+		check: async () => ({ ok: true }),
+		download: async () => ({ ok: true }),
+		quitAndInstall: async () => ({ ok: true }),
+		onEvent: (h: (e: Record<string, unknown>) => void) => {
+			handler = h;
+			return () => {};
+		},
+	};
+	initUpdater();
+	handler!({ phase: "available", version: "0.10.17", releaseNotes: "修复" });
+	resolveGetInfo({
+		appVersion: "0.10.16",
+		isDesktop: true,
+		lastEvent: { phase: "checking" },
+	});
+	await flush();
+	expect(useUpdaterStore.getState().status).toBe("available");
+	expect(useUpdaterStore.getState().latestVersion).toBe("0.10.17");
+});
+
 test("get-info 带回 error → status=error 并保留错误信息，渲染端不自己补查（主进程负责重试）", async () => {
 	mockBridges({ phase: "error", message: "net::ERR_PROXY_CONNECTION_FAILED" });
 	initUpdater();

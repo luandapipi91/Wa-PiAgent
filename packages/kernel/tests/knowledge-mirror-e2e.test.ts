@@ -55,6 +55,7 @@ const MODEL_DIR = [
 	join(tmpdir(), "wa-pi-mdmirror-models", "models"),
 	join(homedir(), ".pi", "agent", "models"),
 ].filter((d): d is string => !!d && existsSync(join(d, MODEL_NAME, "config.json")))[0];
+if (!MODEL_DIR) console.warn("[e2e] 未找到预置模型（三个候选目录均无），kernel 将现场从 hf-mirror 下载，首次需数分钟");
 // 服务端口：高位随机段避免与本机真实 kernel（9776）冲突；可用 WA_PI_E2E_PORT 固定。
 const PORT = Number(process.env.WA_PI_E2E_PORT) || 18000 + (process.pid % 2000);
 

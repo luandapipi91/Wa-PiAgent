@@ -127,9 +127,9 @@ function scanKbMirror(waPiDir: string, folderPath: string, kbId: string): Mirror
 		mdRels = readdirSync(mirrorDir, { recursive: true, encoding: "utf-8" })
 			.map(toPosix) // Windows readdir 返回原生分隔符，与索引键（恒为正斜杠）比对前必须归一
 			.filter((p) => {
-			const [head] = p.split(/[\\/]/);
-			return p.endsWith(".md") && head !== "_assets";
-		});
+				const [head] = p.split(/[\\/]/);
+				return p.endsWith(".md") && head !== "_assets";
+			});
 	} catch {
 		return scan;
 	}
