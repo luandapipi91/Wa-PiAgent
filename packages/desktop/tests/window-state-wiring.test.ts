@@ -20,8 +20,29 @@ test("main.cjs：createWindow 恢复持久化的窗口状态（更新重启/重�
 	// 有状态用恢复的尺寸/坐标，无状态才回默认值
 	expect(body).toContain("restoredWindowState");
 	expect(body).toContain("restoredWindowState.width : 1280");
-	// 上次是最大化 → 恢复最大化
-	expect(body).toContain("maximize()");
+	// 上次是最大化 → 只记为「待恢复」，由 revealMainWindow 在显窗时 maximize。
+	// 绝不能对 show:false 的隐藏窗口 maximize：Electron 的 maximize() 会把未显示的窗口
+	// 直接显示出来（2026-11-28 用户报告：Windows 首启启动页还没走完，空白主窗口就先冒出来）
+	expect(body).toContain("pendingMaximizedRestore");
+	expect(body).not.toContain("mainWindow.maximize()");
+});
+
+test("main.cjs：最大化恢复推迟到 revealMainWindow，且 maximize 与 show 二选一（无尺寸跳变）", () => {
+	const src = mainSrc();
+	const i = src.indexOf("function revealMainWindow()");
+	expect(i).toBeGreaterThan(0);
+	const body = src.slice(i, src.indexOf("\n}", i));
+	expect(body).toMatch(
+		/if \(pendingMaximizedRestore\) \{[\s\S]*mainWindow\.maximize\(\);[\s\S]*\} else \{[\s\S]*mainWindow\.show\(\);/,
+	);
+});
+
+test("main.cjs：启动中途退出时，尚未应用的最大化恢复也要落盘（不丢用户偏好）", () => {
+	const src = mainSrc();
+	const i = src.indexOf("function saveWindowState()");
+	expect(i).toBeGreaterThan(0);
+	const body = src.slice(i, src.indexOf("\n}", i));
+	expect(body).toContain("pendingMaximizedRestore || mainWindow.isMaximized()");
 });
 
 test("main.cjs：主窗口 close 时保存状态（覆盖隐藏到托盘与真实退出/更新重启）", () => {

@@ -233,6 +233,10 @@ async function autoSwitchPortAndRelaunch() {
 }
 // 内核是否就绪（mainWindow 是否已加载真实页面）。未就绪时点托盘/Dock 应聚焦启动页，而非弹出空白主窗口。
 let kernelReady = false;
+// 上次关闭时是最大化 → 待 revealMainWindow 显窗时再 maximize（不得对隐藏窗口 maximize，见 createWindow）
+let pendingMaximizedRestore = false;
+// 主进程启动更新检查（setupUpdater 返回）：显窗时若上次检查失败则立即补查，见 revealMainWindow
+let startupCheck = null;
 
 // 启动页 HTML：logo 内联成 base64（规避 file:// 与 asar 路径差异），整页走 data: URL 即时渲染、不闪屏。
 function buildSplashURL() {
@@ -321,11 +325,12 @@ const windowStateStore = createWindowStateStore(
 );
 
 // 保存当前主窗口状态。最大化时 getBounds() 是最大化后的尺寸，用户拖拽的「正常态」
-// 要用 getNormalBounds() 拿：恢复时先按正常态建窗再 maximize，两个状态都不丢。
+// 要用 getNormalBounds() 拿：恢复时先按正常态建窗、显窗时再 maximize，两个状态都不丢。
+// 启动中途退出（托盘退出/更新重启）时 maximize 可能还没应用，待恢复态也算最大化，不丢用户偏好。
 function saveWindowState() {
 	try {
 		if (!mainWindow || mainWindow.isDestroyed()) return;
-		const maximized = mainWindow.isMaximized();
+		const maximized = pendingMaximizedRestore || mainWindow.isMaximized();
 		const bounds = maximized
 			? mainWindow.getNormalBounds()
 			: mainWindow.getBounds();
@@ -391,8 +396,11 @@ function createWindow() {
 			preload: path.join(__dirname, "preload.cjs"),
 		},
 	});
-	// 上次关闭时是最大化 → 按正常态 bounds 建窗后再最大化
-	if (restoredWindowState?.maximized) mainWindow.maximize();
+	// 上次关闭时是最大化 → 按正常态 bounds 建窗，只记下「待恢复」，等 revealMainWindow 显窗时再 maximize。
+	// 绝不能在这里 maximize：Electron 的 maximize() 会把 show:false 的隐藏窗口直接显示出来
+	//（官方文档：「若窗口尚未显示，这也会显示它」）——内核就绪前用户就会看到一个空白主窗口
+	// 与启动页并存（2026-11-28 Windows 首启复现：标题还是应用名、页面什么都没加载）。
+	pendingMaximizedRestore = Boolean(restoredWindowState?.maximized);
 	// 外链子窗口集合：移除 parent 后，主窗口收起时需手动同步隐藏子窗口
 	const childWindows = new Set();
 	// 点关闭按钮 → 最小化到托盘，不退出
@@ -547,8 +555,17 @@ function createWindow() {
 // 启动页 → 主窗口切换：关启动页、显示主窗口
 function revealMainWindow() {
 	kernelReady = true;
+	// 主窗口打开 = 用户能看到右下角卡片的最早时刻：若启动更新检查因网络/系统代理未就绪而失败，
+	// 立即补查一次（有结果卡片就随主窗口出现；再失败交给退避重试）
+	startupCheck?.retryNow();
 	if (mainWindow && !mainWindow.isDestroyed()) {
-		mainWindow.show();
+		// 上次是最大化 → 直接 maximize（它本身会显示窗口）；不要先 show 再 maximize（尺寸跳变）
+		if (pendingMaximizedRestore) {
+			pendingMaximizedRestore = false;
+			mainWindow.maximize();
+		} else {
+			mainWindow.show();
+		}
 		mainWindow.focus();
 		startup.mark("windowShown");
 		if (process.platform === "darwin") app.dock.show();
@@ -636,7 +653,7 @@ app.whenReady().then(async () => {
 	// 自动更新：系统设置 → 关于（Cloudflare R2 + electron-updater）
 	// WA_PI_UPDATER_FEED_URL 仅供 E2E/测试指向本地 mock，生产默认走 OSS 公开读
 	const { setupUpdater } = require("./updater/updater.cjs");
-	setupUpdater({
+	startupCheck = setupUpdater({
 		getMainWindow: () => mainWindow,
 		log: (m) => log.info(m),
 		isPackaged: app.isPackaged,
@@ -696,7 +713,7 @@ app.whenReady().then(async () => {
 			} catch {}
 			trayInstance = null;
 		},
-	});
+	}).startupCheck;
 
 	// 通知卡片（v2）：渲染进程 notice:send → 通知队列 + 右下角卡片窗口（无交互 5s 自动消失）；
 	// 点卡片 → 激活应用 + 下发 notice:action（原 action 载荷透传，渲染侧监听不变）

@@ -19,6 +19,8 @@ interface WaPiUpdaterApi {
 	getInfo(): Promise<{
 		appVersion: string;
 		isDesktop: boolean;
+		/** 主进程启动检查的最近事件（与 updater:event 载荷同形 {phase,...}）；dev / 尚未发起时为 null */
+		lastEvent?: Record<string, unknown> | null;
 	}>;
 	check(): Promise<unknown>;
 	download(): Promise<unknown>;
@@ -109,7 +111,9 @@ function applyEvent(
  * 应用更新 store：桥接 desktop 侧 window.waPiUpdater IPC。
  * - status 为有限状态机：idle → checking → available|up-to-date → downloading → downloaded|error
  * - checkForUpdates/downloadUpdate/quitAndInstall 调 IPC；事件流经 onEvent → applyEvent 更新状态
- * - initUpdater 在 App 挂载时调用：拉取版本信息 + 订阅事件；浏览器 dev 下无 waPiUpdater 直接返回
+ * - initUpdater 在 App 挂载时调用：拉取版本信息 + 订阅事件 + 应用主进程启动检查的最近事件；浏览器 dev 下无 waPiUpdater 直接返回
+ * - 启动检查由主进程在装配时并行发起（不等渲染端挂载），get-info 带回最近事件：这里直接应用进
+ *   状态机——有新版本时通知订阅立即弹卡，卡片随主窗口一起出现；失败重试（退避 + 显窗补查）由主进程负责
  */
 export const useUpdaterStore = create<UpdaterState>((set) => ({
 	...initialState,
@@ -162,6 +166,9 @@ export function initUpdater() {
 			appVersion: info.appVersion,
 			isDesktop: info.isDesktop,
 		});
+		// 主进程启动检查已出结果（有/无新版本/失败）：直接补进状态机，不再等下一次事件或自己重查
+		const last = info.lastEvent;
+		if (last) useUpdaterStore.setState((s) => applyEvent(s, last));
 	});
 	api.onEvent((payload) => {
 		useUpdaterStore.setState((s) => applyEvent(s, payload));

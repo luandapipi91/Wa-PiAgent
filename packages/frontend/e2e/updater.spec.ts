@@ -159,3 +159,48 @@ test.describe("关于页签更新流程（mock waPiUpdater）", () => {
 		await expect(pending).not.toContainText("旧版本内容乙");
 	});
 });
+
+// 2026-11-28：启动检查改由主进程在装配 updater 时并行发起（不等渲染端挂载），updater:get-info
+// 带回最近事件，渲染端挂载时直接应用。此前启动检查在 App 挂载后才发起、失败无重试，
+// 桌面日志里多次 ERR_PROXY_CONNECTION_FAILED 后整个会话再无提示，只有打开设置页重查才弹卡。
+const STARTUP_MOCK_SCRIPT = `
+window.__checkCalls = 0;
+window.__noticeSends = [];
+window.waPiUpdater = {
+  // 模拟主进程启动检查已出结果：有新版本 0.2.0
+  getInfo: async () => ({ appVersion: "0.1.0", isDesktop: true, lastEvent: { phase: "available", version: "0.2.0", releaseNotes: "r" } }),
+  check: async () => { window.__checkCalls++; return { ok: true }; },
+  download: async () => ({ ok: true }),
+  quitAndInstall: async () => ({ ok: true }),
+  onEvent: () => () => {},
+};
+window.waPiNotice = {
+  send: (p) => { window.__noticeSends.push(p); return Promise.resolve({ sent: true }); },
+  onAction: () => () => {},
+};
+`;
+
+test.describe("启动更新提醒（主进程启动检查已有结果，mock 桥）", () => {
+	test.beforeAll(async () => {
+		await ensureProvider();
+	});
+
+	test("主窗口打开即发右下角更新卡片：不打开设置、渲染端不发起检查", async ({
+		page,
+	}) => {
+		await page.addInitScript(STARTUP_MOCK_SCRIPT);
+		await setUiPrefs(page, "zh");
+		await page.goto("/");
+		// 不点设置、不做任何操作：App 挂载 → get-info 带回 available → 通知订阅 send 卡片
+		await expect
+			.poll(() => page.evaluate(() => (window as any).__noticeSends.length))
+			.toBe(1);
+		const payload = await page.evaluate(() => (window as any).__noticeSends[0]);
+		expect(payload.title).toContain("0.2.0");
+		expect(payload.action).toEqual({ type: "update" });
+		// 渲染端不再自己发起启动检查（主进程负责，含失败重试）
+		expect(await page.evaluate(() => (window as any).__checkCalls)).toBe(0);
+		// 全程未打开设置弹窗
+		await expect(page.getByTestId("settings-modal")).toHaveCount(0);
+	});
+});

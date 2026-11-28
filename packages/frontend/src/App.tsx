@@ -167,9 +167,10 @@ export function App() {
 		useAgentsStore.getState().loadAll();
 		useSubagentsStore.getState().load();
 		useContactsStore.getState().loadContacts();
-		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
+		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件、拉取版本信息，并应用主进程启动检查的
+		// 最近事件（主进程装配时已并行发起检查，不等这里挂载）；浏览器 dev 下无 waPiUpdater 直接返回
 		initUpdater();
-		// 版本更新系统通知：启动自动检测 + 自然日去重（桌面专属，浏览器版 no-op）
+		// 版本更新系统通知：订阅 available → 右下角卡片 + 自然日去重（桌面专属，浏览器版 no-op）
 		const offUpdateNotice = initUpdateNotice();
 		// 通知点击下行分发：store 副作用在 handleNoticeAction 内；返回 "session" 时补视图
 		// 切换（setView 是 App 内部 state，只能在闭包里调）。浏览器版无桥，optional chaining 跳过

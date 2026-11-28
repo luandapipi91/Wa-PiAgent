@@ -1,3 +1,7 @@
+## 2026-11-28
+- fix(desktop): 修「Windows 启动时启动页还没走完，空白主窗口就提前冒出来」——根因：createWindow 对 show:false 的隐藏窗口调 maximize()（上次关闭是最大化时恢复），而 Electron 的 maximize() 会把未显示的窗口直接显示出来（本机 window_state.json 正为 maximized:true；真实 Electron 运行时用例实证 isVisible 由 false 变 true），内核就绪前用户就看到一个只刷底色、标题还是应用名的主窗口与启动页并存，首启冷启动耗时长最明显；改为只记「待恢复」、到 revealMainWindow 显窗时用 maximize() 代替 show()（无尺寸跳变），saveWindowState 把待恢复态算作最大化（启动中途退出不丢偏好）；window-state-wiring 断言随改 + 运行时机制用例 + 新增 e2e-electron（预置 maximized 状态启动：旧代码启动页阶段主窗口 visible=true 失败、新代码不可见→显窗后最大化 2/2）；window-state-electron-runtime 的 electronBin 改取 electron 包导出的可执行路径（Windows 下 .bin 无 electron 文件，原两例在本机从未跑起）
+- fix(desktop,frontend): 修「右下角更新提醒只有打开系统设置才出现」——根因（desktop.log 实证 11-22/11-25）：启动检查由渲染端 App 挂载后才发起，那一刻系统代理未就绪即 ERR_PROXY_CONNECTION_FAILED 且无任何重试，整个会话再无提示，打开设置页重查才弹卡；改为主进程装配 updater 时立即并行发起检查（与内核启动并行），失败按 15s/60s/180s 退避重试且主窗口显窗那一刻补查一次（startupCheck.retryNow），updater:get-info 带回最近事件、前端 initUpdater 挂载时直接应用（有新版本卡片随主窗口出现）、initUpdateNotice 不再自己发起检查；setupUpdater 的 ipcMain/updater 工厂可注入（新增 DI 单测 2 例 + createStartupCheck 4 例）、main.cjs 接线断言 2 例、前端 updater-init 7 例、浏览器 E2E「不打开设置即弹卡」1 例；验证：desktop 全量 482 pass（17 fail 为签名/打包/netstat 平台用例，干净 HEAD 同样失败）、frontend 全量 3768 pass 0 fail、双包 tsc 过、E2E updater 3/3、e2e-electron 宠物唤回主窗口 2/2 + 通知卡片 2/3（失败项为旧 dist 与 testid 不匹配，干净 HEAD 同样失败）
+
 ## 2026-11-27
 - chore(release): 0.10.17 发版——随包收入 pi 1.6.1 升级、主代理一体式选择器（8e825872）与三项 TDD 修复；发布说明按实际改动写（改进 2 + 修复 3）；mac zip 208842489 / win exe 188159744
 

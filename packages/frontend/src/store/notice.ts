@@ -121,16 +121,15 @@ export function shouldSendUpdateNotice(
 }
 
 /**
- * 场景②「新版本」系统通知：启动时自动检测更新，status 变为 available 时发通知；
+ * 场景②「新版本」系统通知：status 变为 available 时发通知；
  * 每自然日至多一条（lastUpdateNoticeDate 记录在 ui-prefs 持久化）。
- * 仅 status===available 且 latestVersion 非空时发；dev 未打包主进程返回 reason:"dev"，
- * 不会出现 available，自然不触发。浏览器版（无 window.waPiNotice）连检测也不启动，
- * 返回 no-op 清理函数（桌面专属功能）。
+ * 启动检查不在这里发起：主进程装配 updater 时已并行发起（见 desktop/updater.cjs），渲染端挂载时
+ * 经 initUpdater 应用其结果——本函数只负责订阅 available → 弹卡。dev 未打包主进程不会出现 available，
+ * 自然不触发。浏览器版（无 window.waPiNotice）返回 no-op 清理函数（桌面专属功能）。
  */
 export function initUpdateNotice(): () => void {
 	const api = window.waPiNotice;
 	if (!api) return () => {};
-	void useUpdaterStore.getState().checkForUpdates(); // 启动自动检测，不 await 阻塞挂载
 	return useUpdaterStore.subscribe((s) => {
 		if (s.status !== "available" || !s.latestVersion) return;
 		const today = localDateString(new Date());

@@ -18,6 +18,10 @@ const DESKTOP = join(import.meta.dirname, "..");
 const MODULE = join(DESKTOP, "src", "window-state.cjs");
 
 function electronBin(): string {
+	// electron 包的 main 导出就是可执行文件路径（跨平台；Windows 下 .bin 只有 electron.cmd shim，
+	// 原 candidates 在 Windows 上找不到）
+	const fromPkg = require("electron");
+	if (typeof fromPkg === "string" && existsSync(fromPkg)) return fromPkg;
 	const candidates = [
 		join(DESKTOP, "node_modules", ".bin", "electron"),
 		join(DESKTOP, "..", "..", "node_modules", ".bin", "electron"),
@@ -50,6 +54,15 @@ app.whenReady().then(() => {
 			const state = { ...bounds, maximized: win.isMaximized() };
 			store.write(state);
 			result = { ok: true, saved: state };
+		} else if (phase === "maximize-hidden") {
+			// 机制实证：show:false 的隐藏窗口一执行 maximize() 就会被显示出来（Electron 文档：
+			// 「若窗口尚未显示，这也会显示它」）。main.cjs 据此把最大化恢复推迟到显窗时。
+			const win = new BrowserWindow({ x: 137, y: 177, width: 800, height: 600, show: false });
+			const visibleBefore = win.isVisible();
+			win.maximize();
+			result = { ok: true, visibleBefore, visibleAfter: win.isVisible(), maximizedAfter: win.isMaximized() };
+			// 不 destroy：Electron 43 / Windows 下「刚显示的窗口 destroy 后立即 app.exit」会在退出阶段
+			// 崩成 0xC0000409（结果已正确写出，只是进程状态非 0）；与 save / restore 阶段一致，窗口随 app.exit 回收
 		} else {
 			const restored = sanitizeWindowState(store.read(), screen.getAllDisplays());
 			if (!restored) {
@@ -98,6 +111,24 @@ test(
 				height: 600,
 				maximized: false,
 			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	},
+	90_000,
+);
+
+test(
+	"electron 真实运行时：隐藏窗口执行 maximize() 会被立即显示（最大化恢复必须推迟到显窗时）",
+	() => {
+		const dir = mkdtempSync(join(tmpdir(), "win-state-e2e-"));
+		try {
+			const result = runFixture("maximize-hidden", join(dir, "window_state.json"));
+			expect(result.ok).toBe(true);
+			expect(result.visibleBefore).toBe(false);
+			// 这正是启动页阶段空白主窗口提前冒出来的机制：createWindow 里对 show:false 窗口 maximize
+			expect(result.visibleAfter).toBe(true);
+			expect(result.maximizedAfter).toBe(true);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
